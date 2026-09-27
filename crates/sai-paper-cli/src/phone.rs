@@ -109,7 +109,7 @@ pub enum PhoneCmd {
     },
     /// 論文の PDF を取得して Library に登録する（sai-phone の Download 画面用）
     #[command(group(
-        clap::ArgGroup::new("target").required(true).multiple(false).args(["log", "import_id"]),
+        clap::ArgGroup::new("target").required(true).multiple(false).args(["log", "import_id", "cite"]),
     ))]
     Download {
         /// 検索履歴 ID（`--position` とセットで指定）
@@ -121,6 +121,36 @@ pub enum PhoneCmd {
         /// BibTeX からの `RemotePaper.id`（例: `ArXiv:1706.03762`）
         #[arg(long = "import-id")]
         import_id: Option<String>,
+        /// 引用を持つ論文 ID（`--ref` とセットで指定）
+        #[arg(long)]
+        cite: Option<i64>,
+        /// 引用の番号（`--cite` とセットで指定）
+        #[arg(long = "ref", requires = "cite")]
+        ref_no: Option<i64>,
+    },
+    /// 引用一覧（読み取りだけ。抜き出す前の論文にも空の形で返る）
+    Citations {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+    },
+    /// 引用を PDF から抜き出す（docling を使うので数十秒。`sai-progress step=1` を出す）
+    #[command(name = "citations-extract")]
+    CitationsExtract {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+    },
+    /// ダウンロードフォルダの最近の PDF 一覧（手動取り込みの候補）
+    #[command(name = "manual-candidates")]
+    ManualCandidates {
+        /// 何分前まで候補に出すか（既定 5 分）
+        #[arg(long, default_value_t = 5)]
+        minutes: u64,
+    },
+    /// 手動で保存した PDF（またはアップロード）を Library に入れる
+    #[command(name = "manual-import")]
+    ManualImport {
+        #[command(flatten)]
+        args: crate::phone_cite::ManualImportArgs,
     },
     /// Download の後の自動処理（図の抽出 → PDF の翻訳。`phone download` のあとで呼ぶ）
     AfterDownload {
@@ -169,7 +199,25 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
             log,
             position,
             import_id,
-        } => crate::phone_import::download(client, log, position, import_id.as_deref()).await,
+            cite,
+            ref_no,
+        } => {
+            crate::phone_import::download(
+                client,
+                log,
+                position,
+                import_id.as_deref(),
+                cite,
+                ref_no,
+            )
+            .await
+        }
+        PhoneCmd::Citations { paper_id } => crate::phone_cite::citations(paper_id),
+        PhoneCmd::CitationsExtract { paper_id } => {
+            crate::phone_cite::citations_extract(paper_id, client).await
+        }
+        PhoneCmd::ManualCandidates { minutes } => crate::phone_cite::manual_candidates(minutes),
+        PhoneCmd::ManualImport { args } => crate::phone_cite::manual_import_command(&args),
         PhoneCmd::AfterDownload { paper_id } => crate::phone_import::after_download(paper_id).await,
         PhoneCmd::AttentionResolve { key } => crate::phone_import::attention_resolve(&key),
     };
@@ -818,9 +866,78 @@ fn read_text(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{project_json, with_failed, year_label};
+    use clap::Parser;
     use serde_json::json;
     use sai_paper_core::paths::PaperRoots;
     use sai_paper_core::{Config, Database};
+
+    /// `sai-moon-paper phone download --cite <id> --ref <no>` が引数として通ること（AC5）。
+    ///
+    /// `--ref` は `--cite` との組み合わせで 1 つだけ受け入れられる。
+    #[test]
+    fn download_accepts_the_cite_target() {
+        use crate::{Cli, Cmd, phone::PhoneCmd};
+        let cli = Cli::parse_from([
+            "sai-moon-paper",
+            "phone",
+            "download",
+            "--cite",
+            "12",
+            "--ref",
+            "3",
+        ]);
+        let Some(Cmd::Phone {
+            cmd: PhoneCmd::Download {
+                cite, ref_no, ..
+            },
+        }) = cli.cmd
+        else {
+            panic!("phone download として読めた");
+        };
+        assert_eq!(cite, Some(12));
+        assert_eq!(ref_no, Some(3));
+
+        // 対象が無いので読み取れない（組み合わせの検査は `download` 側でもする）。
+        assert!(Cli::try_parse_from(["sai-moon-paper", "phone", "download", "--ref", "3"]).is_err());
+    }
+
+    /// `phone manual-import` は対象 1 つ・中身 1 つを要求する。
+    #[test]
+    fn manual_import_needs_one_target_and_one_source() {
+        use crate::phone_cite::ManualImportArgs;
+        use crate::{Cli, Cmd, phone::PhoneCmd};
+
+        let parsed = |args: &[&str]| {
+            Cli::try_parse_from(["sai-moon-paper", "phone", "manual-import"].into_iter().chain(args.iter().copied()))
+                .map(|cli| match cli.cmd {
+                    Some(Cmd::Phone {
+                        cmd: PhoneCmd::ManualImport { args },
+                    }) => args,
+                    other => panic!("manual-import として読めた: {other:?}"),
+                })
+        };
+
+        // 対象も中身も無いと受け付けない。
+        assert!(parsed(&[]).is_err());
+        // 対象だけ：中身が無いので受け付けない。
+        assert!(parsed(&["--paper-id", "1"]).is_err());
+        // 中身だけ：対象が無いので受け付けない。
+        assert!(parsed(&["--stdin"]).is_err());
+        // 対象 2 つ：中身が無くても受け付けない。
+        assert!(parsed(&["--paper-id", "1", "--cite", "2", "--ref", "1"]).is_err());
+        // 対象 1 つ・中身 1 つは読める。
+        let args: ManualImportArgs = parsed(&["--paper-id", "1", "--stdin"]).expect("読める");
+        assert_eq!(args.paper_id, Some(1));
+        assert!(args.stdin);
+        assert_eq!(args.minutes, 5, "既定は 5 分");
+
+        let args = parsed(&["--cite", "7", "--ref", "2", "--file", "paper.pdf", "--minutes", "30"])
+            .expect("読める");
+        assert_eq!(args.cite, Some(7));
+        assert_eq!(args.ref_no, Some(2));
+        assert_eq!(args.file.as_deref(), Some("paper.pdf"));
+        assert_eq!(args.minutes, 30);
+    }
 
     /// `search` の年のラベル（両方・下限だけ・上限だけ・指定なしの 4 通り）。
     #[test]

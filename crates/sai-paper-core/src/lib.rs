@@ -28,6 +28,7 @@ pub mod journal;
 pub mod library;
 pub mod library_tree;
 pub mod litbase;
+pub mod manual_import;
 pub mod models;
 pub mod paths;
 pub mod pipeline;
@@ -90,6 +91,9 @@ pub use handoff::{
 pub use library::{
     CollectionDirectory, ImportedPdf, IngestedPdf, LibraryIndexer, LibraryIngestionResult,
     LibraryIngestionService, LibraryWatcher,
+};
+pub use manual_import::{
+    ManualImportError, ManualImported, ManualTarget, downloads_dir, import_pdf, recent_pdfs,
 };
 pub use models::{
     ActivityItem, BookmarkSummary, CollectionSummary, LibraryMatchEntry, LibraryPaper,

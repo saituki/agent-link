@@ -300,6 +300,8 @@ pub struct TagSummary {
 /// 論文のみ「Library 存在（緑色表示）」と判定する。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryMatchEntry {
+    /// Library 論文 ID（`papers.id`）。
+    pub id: i64,
     /// arXiv ID.
     pub arxiv_id: Option<String>,
     /// DOI.

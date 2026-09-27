@@ -278,7 +278,11 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 |---|---|---|
 | `phone library` / `phone tree` / `phone paper <id>` / `phone log <id>` / `phone providers` | `papers.py` | `crates/sai-paper-cli/src/phone.rs`（共通化は `crates/sai-paper-core/src/library_tree.rs`） |
 | `phone search <query> [--db …] [--year-from …] [--year-to …] [--limit …] -- <語>` | `papers.build_search_args()` | 同 `phone.rs` |
-| `phone download <log/import の指定>`（**数分かかる**） | `papers._download_job()`（背景・300 秒） | `crates/sai-paper-cli/src/phone_import.rs` |
+| `phone download <log/import/cite の指定>`（**数分かかる**） | `papers._download_job()`（背景・300 秒） | `crates/sai-paper-cli/src/phone_import.rs` |
+| `phone citations <paper_id>`（読み取りだけ） | `papers.py` | `crates/sai-paper-cli/src/phone_cite.rs`（照合は `sai-paper-core/src/citation/library.rs`） |
+| `phone citations-extract <paper_id>`（**数分かかる。標準エラーを 1 行ずつ読む**） | `papers._run_paper_command_lines()`（背景） | 同（抽出は core の `citation::ensure_extract`） |
+| `phone manual-candidates [--minutes <N>]` | `papers.py` | 同（候補は core の `manual_import`） |
+| `phone manual-import <対象> (--file <名前> [--minutes N] | --stdin)` | `papers.py` | 同（登録は core の `manual_import::import_pdf`） |
 | `phone after-download <paper_id>`（**数分かかる。標準エラーを 1 行ずつ読む**） | `papers._run_paper_command_lines()`（背景・2000 秒） | 同（core の `pipeline::after_download`） |
 | `phone translate <id> [--force]` | `papers.translate()` | 同（訳は `sai-paper-core` の translation） |
 | `phone radio <id>`（**数分・終わるまで戻らない**） | `papers._radio_job()`（背景・2000 秒） | 同（core の `podcast_client.rs` → apps/radio `POST /api/papers/from-extract`） |
@@ -293,6 +297,7 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
   - `sai-progress step=<n>` — 段。`0 = PDF取得` / `1 = 図抽出` / `2 = 翻訳` / `3 = 完了`。0 と 3 はサーバーが決める（`after-download` は 1 と 2 を知らせる）。
   - `sai-progress msg=<文>` — ログの 1 行。段落内の改行は空白に置き換える。
   - 別の形（`warning: …` など）は進捗ではなくサーバーのログに出る。標準出力の JSON は変えない。
+- **`phone citations-extract` の標準エラーは 1 行**で、`sai-progress step=1`（引用の抽出中）だけを出す。段は `0 = PDF確認`（サーバー）→ `1 = 引用抽出` → `2 = 完了`（サーバー）。
 - 共通 API キーは **`~/.sai-moon/paper.env`**（`crates/sai-paper-core/src/paths.rs:152`）。プロジェクトの `.env` より優先順位が低い。
 
 ### 4.2 `apps/phone` が読んでいる JSON の項目
@@ -353,6 +358,70 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 **`content paper <id> --json` → `{"id", "md_path", "text"}`** — 画面は `id` と `text` のみ（`md_path` は渡さない）。
 
 **`phone translate <id>` → `{"id", "abstract_ja"}`** — 画面は `abstract_ja` のみ。
+
+**`phone citations <paper_id>` → `{"paper", "key", "has_pdf", "extracted", "refs"}`**
+
+引用一覧（Citations 画面）。抜き出し済みの論文でも未済みの論文でも同じ形を返す。
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `paper` | `id` / `title` | 数値 / 文字列 | 画面の見出しと戻る先 | ― |
+| 直下 | `key` | 文字列 \| null | 引用の抜き出しが要るかを見る（`ArXiv:…` / `DOI:…` / 40hex） | 抜き出し不可 |
+| 直下 | `has_pdf` | 真偽値 | 「先に PDF を取り込んでください」の出し分け | ― |
+| 直下 | `extracted` | 真偽値 | 引用の行と引用文の出し分け（`refs` が空でも引用文が皆有る） | ― |
+| `refs[]` | `ref_no` | 数値 | 行番号と `--ref` に渡す値 | ― |
+| `refs[]` | `title` / `first_author` / `year` / `journal` | 文字列 \| null / 文字列 \| null / 数値 \| null / 文字列 \| null | 行の表示 | ― |
+| `refs[]` | `doi` / `s2_paper_id` / `raw_text` | 文字列 \| null | 詳細表示 | ― |
+| `refs[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の行き先 | 未取り込み扱い |
+| `refs[]` | `url` | 文字列 \| null | 開くボタン（無ければ出し分ける） | ボタンなし |
+| `refs[]` | `can_download` | 真偽値 | 「取りに行く」ボタン（題名だけの行は S2 の題名検索で ID を探す） | 押せない |
+| `refs[]` | `can_import` | 真偽値 | 手動取り込みボタン（`s2_paper_id` か DOI が要る） | 押せない |
+| `refs[]` | `sentences[]` | 配列 | その引用を引用している文（`sent_no` の順・`text` は 300 字まで） | ― |
+| `refs[]` | `sentences[]` | `sent_no` / `text` | 数値 / 文字列 | ― |
+| ― | 論文が無いとき | | **終了コード 1 + `{"error":"論文が見つかりません"}`** | ― |
+
+**`phone citations-extract <paper_id>` → `{"paper_id", "refs", "sentences", "docling_error"}`**
+
+引用を PDF から抜き出す。**標準エラーに `sai-progress step=1` を 1 行出す**。
+`docling` が無い・失敗したときも終了コード 0 で、`docling_error` に理由が入る（S2 の引用だけが入る）。
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `paper_id` | 数値 | 続きの処理に渡す論文 | ― |
+| `refs` / `sentences` | 数値 | 抜き出した件数（「N 件の引用を抜き出しました」） | 0 件扱い |
+| `docling_error` | 文字列 \| null | 「本文からの引用は取れませんでした」の帯 | 帯を出さない |
+
+段（`sai-progress step=`）の決まり: **`0 = PDF確認`（サーバーが出す）` / `1 = 引用抽出` / `2 = 完了`（サーバーが出す）**。
+`arXiv ID か DOI が無いとき`・`PDF が無いとき` は終了コード 1 の `{"error": …}`。
+
+**`phone manual-candidates [--minutes <N>]` → `{"dir", "minutes", "items"}`**
+
+ダウンロードフォルダ（`XDG_DOWNLOAD_DIR` → `~/.config/user-dirs.dirs` → `~/Downloads` → `~/ダウンロード`）の最近の PDF。
+`--minutes` の既定は 5 分（Web は 30 を渡す）。
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| 直下 | `dir` | 文字列 \| null | 見出しのフォルダ名（ホームを `~` に置き換える） | 候補を出さない |
+| 直下 | `minutes` | 数値 | 表示の期間 | ― |
+| `items[]` | `name` | 文字列 | 選ぶときのラベル。**フルパスは返らない** | ― |
+| `items[]` | `size` / `modified_at` | 数値 / 文字列 | 大きさ・更新時刻（ローカルの時刻つき ISO8601） | ― |
+
+**`phone manual-import <対象> (--file <名前> [--minutes N] | --stdin)` → `{"paper_id", "title", "status", "pdf_path"}`**
+
+ブラウザで保存した PDF（または Web のアップロード）を Library に入れる。
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `paper_id` | 数値 | 続きの `after-download` に渡す論文 | ― |
+| `title` | 文字列 | 完了の文 | ― |
+| `status` | 文字列（`"imported"`） | 完了の出し分け | ― |
+| `pdf_path` | 文字列（絶対パス） | **表示せず**、開けるかだけ見る | ― |
+
+- 対象は 1 つだけ: `--log <id> --position <p>` / `--import-id <id>` / `--cite <paper_id> --ref <ref_no>` / `--paper-id <id>`。
+- 中身は 1 つだけ: `--file <名前>`（**ファイル名だけ**。`/`・`\`・`..` は失敗。ダウンロードフォルダの最近 `--minutes` 分の PDF に同じ名前が要る。**移動される**）か `--stdin`（**100MB まで**）。
+- 図の抽出と PDF の翻訳は**しない**。Web が続けて `phone after-download <paper_id>` を呼ぶ。
+- `--cite` の取り込み先が既に Library にあるときは、**`--file` の元のファイルを動かさず** 終了コード 1（`この論文は既に Library にあります（ID <n>）`）。PDF を付け替えたいときは `--paper-id` を使う。
+- `phone download --cite <paper_id> --ref <ref_no>` の出力は `phone download` と同じ形（`exists` / `downloaded`）。
 
 ### 4.3 壊れる変更・壊れない変更
 

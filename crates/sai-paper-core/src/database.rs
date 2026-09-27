@@ -1843,16 +1843,17 @@ impl Database {
     ) -> Result<Vec<crate::models::LibraryMatchEntry>, DatabaseError> {
         let mut statement = self
             .connection
-            .prepare("SELECT arxiv_id, doi, s2_paper_id, title, pdf_path FROM papers")?;
+            .prepare("SELECT id, arxiv_id, doi, s2_paper_id, title, pdf_path FROM papers")?;
         let rows = statement
             .query_map([], |row| {
                 Ok(crate::models::LibraryMatchEntry {
-                    arxiv_id: row.get(0)?,
-                    doi: row.get(1)?,
-                    s2_paper_id: row.get(2)?,
-                    title: row.get(3)?,
+                    id: row.get(0)?,
+                    arxiv_id: row.get(1)?,
+                    doi: row.get(2)?,
+                    s2_paper_id: row.get(3)?,
+                    title: row.get(4)?,
                     // 読む側は実ファイルパスへ解決する（段階 2b）。
-                    pdf_path: self.resolve_opt(&row.get(4)?),
+                    pdf_path: self.resolve_opt(&row.get(5)?),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
