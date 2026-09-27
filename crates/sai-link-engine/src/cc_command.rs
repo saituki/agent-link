@@ -23,7 +23,7 @@
 //! 構築されたコマンドは `orchestrator` が `SAI_*` 環境変数を前置し、
 //! `HerdrClient::run_in_pane()` で実行します。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::block_config::BlockConfig;
 use crate::herdr::shell_escape_single_quotes;
@@ -330,16 +330,53 @@ pub fn cc_settings_json() -> serde_json::Value {
             "type": "command",
             "command": format!("{} cc-statusline", shell_escape_single_quotes(&exe)),
         },
-        // `/sai-finalize` を LLM に送らず、その場で完了処理を行う（[`handle_prompt_hook`]）
-        "hooks": {
-            "UserPromptSubmit": [{
-                "hooks": [{
-                    "type": "command",
-                    "command": format!("{} cc-prompt-hook", shell_escape_single_quotes(&exe)),
-                }]
-            }]
-        }
+        "hooks": cc_hooks_json(&exe, phone_hooks_dir().as_deref()),
     })
+}
+
+/// `.claude/settings.json` の `hooks`。
+///
+/// - `UserPromptSubmit`: `/sai-finalize` を LLM に送らず、その場で完了処理を行う（[`handle_prompt_hook`]）
+/// - `PreToolUse`（AskUserQuestion）/ `SessionStart` / `PermissionRequest`: `apps/phone` のフック。
+///   質問・セッション・承認を Web の窓口へ知らせる（`phone_dir` が無ければ書かない）。
+///   利用者全体の `~/.claude/settings.json` ではなく、init したプロジェクトにだけ入れる。
+fn cc_hooks_json(exe: &str, phone_dir: Option<&Path>) -> serde_json::Value {
+    let command = |text: String| serde_json::json!([{ "type": "command", "command": text }]);
+    let mut hooks = serde_json::json!({
+        "UserPromptSubmit": [{
+            "hooks": command(format!("{} cc-prompt-hook", shell_escape_single_quotes(exe))),
+        }]
+    });
+    if let Some(dir) = phone_dir {
+        let script = |name: &str| shell_escape_single_quotes(&dir.join(name).to_string_lossy());
+        hooks["PreToolUse"] = serde_json::json!([{
+            "matcher": "AskUserQuestion",
+            "hooks": command(script("cc_question.py")),
+        }]);
+        hooks["SessionStart"] = serde_json::json!([{
+            "hooks": command(script("cc_register.py")),
+        }]);
+        hooks["PermissionRequest"] = serde_json::json!([{
+            "matcher": "",
+            "hooks": command(script("cc_permission.py")),
+        }]);
+    }
+    hooks
+}
+
+/// `apps/phone` の cc フック（`cc_question.py` など 3 本）の置き場。
+///
+/// 環境変数 `SAI_PHONE_HOOKS_DIR` があればそれ、無ければこのクレートをビルドした
+/// リポジトリの `apps/phone/hooks`。3 本が揃っていなければ `None`（壊れたフックを書かない）。
+pub fn phone_hooks_dir() -> Option<PathBuf> {
+    let dir = std::env::var_os("SAI_PHONE_HOOKS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/phone/hooks"));
+    let dir = dir.canonicalize().ok()?;
+    ["cc_question.py", "cc_register.py", "cc_permission.py"]
+        .iter()
+        .all(|name| dir.join(name).is_file())
+        .then_some(dir)
 }
 
 /// `.claude/commands/sai-finalize.md` の内容（`sai-link init` が書く）。
@@ -552,6 +589,35 @@ mod tests {
             .build()
             .unwrap();
         assert!(!cmd.command.contains("--effort"));
+    }
+
+    /// フックは UserPromptSubmit に加え、apps/phone の 3 本（質問・登録・承認）を入れる。
+    #[test]
+    fn cc_hooks_include_phone_hooks_only_when_dir_exists() {
+        let dir = std::path::Path::new("/opt/sai moon/hooks");
+        let with = cc_hooks_json("/bin/sai-moon-link", Some(dir));
+        assert_eq!(with["PreToolUse"][0]["matcher"], "AskUserQuestion");
+        assert_eq!(
+            with["PreToolUse"][0]["hooks"][0]["command"],
+            "'/opt/sai moon/hooks/cc_question.py'"
+        );
+        assert_eq!(with["SessionStart"][0]["hooks"][0]["command"], "'/opt/sai moon/hooks/cc_register.py'");
+        assert_eq!(with["PermissionRequest"][0]["matcher"], "");
+        assert_eq!(
+            with["PermissionRequest"][0]["hooks"][0]["command"],
+            "'/opt/sai moon/hooks/cc_permission.py'"
+        );
+        assert_eq!(
+            with["UserPromptSubmit"][0]["hooks"][0]["command"],
+            "'/bin/sai-moon-link' cc-prompt-hook"
+        );
+        // 置き場が無いときは UserPromptSubmit だけ
+        let without = cc_hooks_json("/bin/sai-moon-link", None);
+        assert!(without.get("PreToolUse").is_none());
+        assert!(without.get("SessionStart").is_none());
+        assert!(without.get("PermissionRequest").is_none());
+        // このリポジトリでは apps/phone/hooks が見つかる
+        assert!(phone_hooks_dir().is_some());
     }
 
     /// `.claude/settings.json` の内容: 子エージェント禁止・質問は残す・statusLine。

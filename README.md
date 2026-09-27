@@ -179,24 +179,19 @@ herdr integration install pi    # herdr agent list に pi が出ないとき
 
 ### cc のフック
 
-`apps/phone/hooks/` に 3 本ある。`~/.claude/settings.json` の `hooks` に足します（既にあればまとめます）。
+`apps/phone/hooks/` に 3 本ある（質問 `cc_question.py`・セッションの登録 `cc_register.py`・承認 `cc_permission.py`）。
+**`sai-moon-link init` がプロジェクトの `.claude/settings.json` に書く**ので、手で登録しなくてよい。
+利用者全体の `~/.claude/settings.json` には入れない（init したプロジェクトの cc だけが Web の窓口に質問を送る）。
+
+- 書く場所は `SAI_PHONE_HOOKS_DIR` があればそれ、無ければ sai-moon-link をビルドしたリポジトリの `apps/phone/hooks`。3 本が揃っていなければフックは書かない。
+- 前に init したプロジェクトは、`init` をやり直すか（前の設定は `.bak` に退避される）、`.claude/settings.json` の `hooks` に次の 3 つを足す。
 
 ```json
-{ "hooks": {
-    "PreToolUse": [
-      { "matcher": "AskUserQuestion",
-        "hooks": [ { "type": "command",
-                     "command": "/Users/touta/workdir/Sai/sai-moon/apps/phone/hooks/cc_question.py" } ] }
-    ],
-    "SessionStart": [
-      { "hooks": [ { "type": "command",
-                     "command": "/Users/touta/workdir/Sai/sai-moon/apps/phone/hooks/cc_register.py" } ] }
-    ],
-    "PermissionRequest": [
-      { "matcher": "",
-        "hooks": [ { "type": "command",
-                     "command": "/Users/touta/workdir/Sai/sai-moon/apps/phone/hooks/cc_permission.py" } ] }
-    ] } }
+"PreToolUse": [ { "matcher": "AskUserQuestion",
+  "hooks": [ { "type": "command", "command": "'/Users/touta/workdir/Sai/sai-moon/apps/phone/hooks/cc_question.py'" } ] } ],
+"SessionStart": [ { "hooks": [ { "type": "command", "command": "'/Users/touta/workdir/Sai/sai-moon/apps/phone/hooks/cc_register.py'" } ] } ],
+"PermissionRequest": [ { "matcher": "",
+  "hooks": [ { "type": "command", "command": "'/Users/touta/workdir/Sai/sai-moon/apps/phone/hooks/cc_permission.py'" } ] } ]
 ```
 
 フックは何も出力せず、必ず終了コード 0 で終わります（出力すると PC の承認画面が出なくなるため）。`apps/phone` が止まっていても cc は普通に動きます。
