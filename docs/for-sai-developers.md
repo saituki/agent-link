@@ -1,0 +1,652 @@
+# sai-moon 連携ガイド（`crates/`・`apps/radio` を直す人向け）
+
+作成日: 2026-09-27
+対象: **`crates/`（Rust 8 クレート）か `apps/radio` のどれかを直す人**。
+目的: 直した結果として **`apps/phone`（Web の窓口・8200 番）を壊さないこと**。
+全体の話は [`integration.md`](./integration.md)。文中のコマンドはすべて 2026-09-27 に実行して確かめている。
+
+旧 sai-phone の `docs/for-sai-developers.md` を土台に、sai-moon の値（バイナリ名・パス・ポート・置き場）に置き換えたもの。
+JSON の項目など API 契約は変えていないので、表の構造は流用できる。
+
+---
+
+## 0. 最初に読む節の早見表
+
+| 直すもの | その節 | 最低限守ること |
+|---|---|---|
+| **sai-link 側**（`crates/sai-link-*`） | [§2](#2-cratessai-link-)・[§3](#3-プロジェクト一覧とdashboard) | `sai-moon-link phone export` と、書き出す JSON の `schema_version` / `run_id` / `project_name`。加えて `phone tree` / `run` / `md` / `waggle` / `card …` の形、`phone summary` / `phone dashboard` の項目名 |
+| **sai-paper 側**（`crates/sai-paper-*`） | [§4](#4-cratessai-paper-) | `phone …` の JSON の項目名と、`target/release/sai-moon-paper` に作り直す手順 |
+| **apps/radio** | [§5](#5-appsradio) | `/api/papers` 以下のパスと JSON、論文 ID は**英数字**、Range（206）応答 |
+| **apps/phone 自分** | [§6](#6-appsphone-自身を直す人向け) | 画面は `window.SaiRoutes` に登録、`sw.js` の `CACHE` を上げる |
+
+### 共通の約束（どの CLI も同じ）
+
+| | 約束 | 違えたときの画面 |
+|---|---|---|
+| 成功 | **終了コード 0**・標準出力に **JSON 1 個**（前後に余計な文字を出さない） | そのまま表示 |
+| 失敗 | **終了コード 1**・標準出力に `{"error": "<日本語のメッセージ>"}` | 400 で error 文をそのまま表示 |
+| 出力が読めない | （事故）JSON でない文字列 | 502「…の応答を読めませんでした」 |
+| 起動できない | （事故）実行ファイルが無い・PATH 間違い | 503「…が見つかりません（設定の場所を確認してください）」 |
+| 時間切れ | （事故）既定 20 秒（sai-paper 検索 120 秒・訳 90 秒） | 504「…が時間内に応答しませんでした」 |
+| 標準エラー | 何を出してもよい（先頭 300 文字がログに残る） | 画面には出ない |
+
+標準出力に `println!` やデバッグ表示を 1 行でも足すと **502 になる**（`apps/phone/src/sai_phone/cli.py`）。
+
+---
+
+## 1. 呼ばれ方の全体像
+
+| アプリ | `apps/phone` から呼ばれる形 | cwd / 環境変数 | 時間切れ |
+|---|---|---|---|
+| sai-link | `sai-moon-link phone export` / `phone tree` / `phone run` / `phone md` / `phone waggle` / `phone card options` / `card inputs` / `card create` / `phone card run` / `phone summary` / `phone dashboard`、`sai-moon-link daemon <start\|stop>` | **そのプロジェクトの root**（`SAI_PROJECT_ROOT` も同じ root を明示で渡す） | 10 秒（export）・20 秒（daemon 30） |
+| sai-paper | `sai-moon-paper phone …` / `content paper … --json` | **そのプロジェクトの root**（プロジェクト名から `papers.resolve_project` で引く）・`SAI_PAPER_ROOT` も同じ値 | 30 秒（訳 90・検索 120・音声化 2000） |
+| apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | ― | 質問（`…/ask`）180 秒・他 30 秒 |
+
+- どの呼び出しも **シェルは使わない**（`shell=True` 禁止）。引数は配列で渡される。
+- 呼ばれる CLI の場所は環境変数で変えられる（`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_RADIO_URL`）。**既定値を動く形から変えない。**
+- **バイナリ名を変えてはいけない。** 次の名前がそのまま PATH や既定値で使われる。
+  `sai-moon-link`（`sai-link` ではない）・`sai-moon-paper`（`sai-paper` ではない）。
+  名前の髓を変えると 503 になる。
+- **`sai-moon-link` は PATH に無い。** `apps/phone` を起動するときは
+  `PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH` を足すか、`SAI_LINK_BIN` に絶対パスを書くこと。
+  `SAI_PAPER_BIN` の既定は絶対パス（`target/release/sai-moon-paper`）なので追加は不要。
+
+---
+
+<a id="2-cratessai-link-"></a>
+## 2. `crates/sai-link-*`
+
+### 2.1 `apps/phone` が使っているもの
+
+| 使うもの | 場所 |
+|---|---|
+| `sai-moon-link phone export`（プロジェクトの実行を JSON で書き出す） | CLI: `crates/sai-link-cli/src/cli.rs`（`handle_phone_export`）／本体: `crates/sai-link-engine/src/phone_export.rs` |
+| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有） |
+| `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`） |
+| `sai-moon-link phone md <id> --kind task\|review\|message`（無ければ **終了コード 3・stderr「まだありません」**） | 同 `phone.rs`（`md`） |
+| `sai-moon-link phone waggle <id> [--token <t>]`（成果物の一覧と本文） | 同 `phone.rs`（`waggle`） |
+| `sai-moon-link phone card options`（作成フォームの選択肢） | 同 `phone.rs`（`card_options`）／`sai_link_widgets::card_wizard`（TUI と共有） |
+| `sai-moon-link phone card inputs --block <id>`（手順 4 の入力と候補） | 同 `phone.rs`（`card_inputs`） |
+| `sai-moon-link phone card create`（**stdin に JSON**・作成後は todo に配置） | 同 `phone.rs`（`card_create`）／`validate_card_spec` + `create_card`（TUI と同じ検査） |
+| `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**） | 同 `phone.rs`（`card_run`） |
+| `apps/phone` が呼ぶ側 | `apps/phone/src/sai_phone/control.py`（`phone_tree` / `phone_run_view` / `phone_md` / `phone_waggle` / `phone_card_options` / `phone_card_inputs` / `phone_card_create` / `phone_card_start`。値の検査と 400 / 404 / 502 の変換もここで行う） |
+| 書き出し先 `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` | 同上（一時ファイル → rename で書く） |
+| `apps/phone` が読む側 | `apps/phone/src/sai_phone/runs.py`（`load_runs`）・`control.py`（`export_runs`＝60 秒に 1 回だけ呼び直す） |
+| 共通定義の置き場 | `crates/sai-link-engine/src/project.rs:79`（`sai_home()`）と `sai_home_path(rel)` |
+
+- 常駐の起動停止と一覧の集計は `sai-moon-link` 自身が持つ（`daemon …` と `phone summary` / `phone dashboard`）。それは §3。
+- `sai-moon-link` 自体は **DB を直接開かれていない**（`apps/phone` はこの JSON だけを読む）。
+
+### 2.2 `apps/phone` が読んでいる JSON の項目
+
+`sai-moon-link phone export` が書く 1 ファイル分（`runs.py` の `_read_run`）。**足し算は安全、減らすのは危険。**
+
+| 項目 | 型 | 何に使う | 無い・型が違うとき |
+|---|---|---|---|
+| `schema_version` | 数値（**1 固定**） | 受け入れ判定 | `1` 以外は**そのファイルを丸ごと捨てる**（ログに 1 行） |
+| `run_id` | 数値 | 実行の ID・URL `#/run/<project>/<run_id>` | 無ければ捨てる |
+| `project_name` | 文字列 | 一覧の並び・URL | 無ければ捨てる |
+| `runner` | 文字列（`cc` / `pi` …） | 記録の読み分け・表示順 | `"user"` は**一覧に出さない** |
+| `status` | 文字列 | 一覧に出す判定 | `running / completed / failed / cancelled` のみ表示。**それ以外（todo・pending）は出さない** |
+| `started_at` / `updated_at` | 文字列（無い時刻 TZ） | どの日の実行か（**UTC とみて日本時間に変換**）・並び順 | 無ければ日付なしで一覧から落ちる |
+| `finished_at` / `duration_ms` | 文字列 / 数値 | 実行ごとの表示 | 空欄でも動く |
+| `description` / `block_name` | 文字列 | 一覧の行・検索 | 空文字扱い |
+| `parent_run_id` | 数値 \| null | サブタスクを親の直下に字下げ | 通常の位置に出る |
+| `model` | 文字列 \| null | 統計画面 | ― |
+| `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
+| `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない（メッセージは空表示） |
+| `herdr_pane_id` / `herdr_pane_label` | 文字列 \| null | 実行中の pane への文字送り | 「この実行は終了しています」と出る |
+
+### 2.3 壊れる変更・壊れない変更
+
+| 変更 | 結果 |
+|---|---|
+| 項目の**追加** | **壊れない**（読まないだけ） |
+| `schema_version` を 2 にする | **壊れる**（全ファイルが無視され会話タブが空になる） |
+| `run_id` / `project_name` の型変更（文字列化など） | **壊れる**（ファイルごと捨てる） |
+| `status` の語の変更（`done` など） | **壊れる**（一覧に出なくなる） |
+| フォルダの形 `~/.sai-moon/phone/runs/<project>/<id>.json` の変更 | **壊れる** |
+| 書き出しを止める（export を外す） | **壊れる**（会話タブ・Dashboard の「直近の実行」が開けない。`linkable: false` の行ばかりになる） |
+| ファイル名の一時ファイル（`.` 始まり）を増やす | **壊れない**（`.` 始まりは無視される） |
+| **バイナリ名 `sai-moon-link` を `sai-link` に戻す** | **壊れる**（既定値がそのまま `sai-moon-link` なので 503） |
+
+### 2.4 直したあとに流す確認（読み取りだけ）
+
+```bash
+# 0) ビルド
+cd ~/workdir/Sai/sai-moon
+env -u SAI_PROJECT_ROOT perl -e 'alarm 900; exec @ARGV' cargo build --workspace
+
+# 1) 書き出しが動くか（実際に書かずに JSON を見せる。書き込みはしない）
+./target/release/sai-moon-link phone export --dry-run | head -c 300; echo
+
+# 2) 必須項目があるか
+./target/release/sai-moon-link phone export --dry-run | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+row = d[0] if isinstance(d, list) else d
+need = ['schema_version','run_id','project_name','runner','status','started_at']
+missing = [k for k in need if k not in row]
+print('不足:', missing or 'なし'); assert not missing
+assert row['schema_version'] == 1, 'schema_version が 1 でない'
+print('OK')"
+
+# 3) 既存の書き出しが読めているか（apps/phone が読む場所）
+ls ~/.sai-moon/phone/runs/ | head
+
+# 4) 作成フォームの選択肢と手順 4（読み取りだけ）
+./target/release/sai-moon-link phone card options | head -c 300; echo
+./target/release/sai-moon-link phone card inputs --block sub | head -c 300; echo
+
+# 5) 置き場が ~/.sai-moon になっているか（SAI_SAI_HOME で上書きできること・ファイルは作らない）
+SAI_PROJECT_ROOT=$PWD SAI_SAI_HOME=/tmp/smoke-sai-home ./target/release/sai-moon-link phone def list
+ls /tmp/smoke-sai-home   # → No such file or directory（作っていないこと）
+```
+
+実測結果: `--dry-run` は説明文とオプション（`--run` `--dry-run`）を出力、`~/.sai-moon/phone/runs/` に `sai-moon` 1 プロジェクト分がある。
+`SAI_SAI_HOME=/tmp/smoke-sai-home` を渡すと `global_root` がそのパスになり、**そのフォルダは作られない**。
+
+### 2.5 変更したらすること
+
+1. `cargo build`（`apps/phone` は release を叩くので、通常は `cargo build --release`）。
+2. 既存の書き出しを 1 回作り直す: `./target/release/sai-moon-link phone export`（プロジェクトの root で）。
+   → **常駐が動いていると自動で書き出されるので、再起動不要なことが多い。**
+   `phone card …` を直したときも同じ（フォームは都度取りに行くので再起動不要）。`card create` / `card run` は**カードを作る・実行する**ので流さない。
+3. `apps/phone` 側を直す場所（項目を増減した場合）: `apps/phone/src/sai_phone/runs.py`。
+4. **置き場を変えた場合**は 3 か所すべてを直す（`project.rs:79`・`paths.rs:172`・`registry.py:41`）。
+5. この文書と `README.md`・`docs/integration.md` の該当表を更新。
+
+---
+
+<a id="3-プロジェクト一覧とdashboard"></a>
+## 3. プロジェクト一覧・Dashboard（sai-link 側）
+
+一覧・Dashboard・常駐の操作はすべて `sai-moon-link` が提供する。以下は `crates/sai-link-*` 側を直す人が守るべき形。
+
+### 3.1 `apps/phone` が使っているもの
+
+| コマンド | 呼び出し側 | 実装場所 |
+|---|---|---|
+| （登録簿 `~/.sai-moon/registry.json` を直接読む） | `registry.load_registry()` | `apps/phone` 側 `apps/phone/src/sai_phone/registry.py` |
+| `sai-moon-link phone summary` | `control._project_summary()`（`GET /api/projects`） | `crates/sai-link-cli/src/phone.rs` の `summary()` |
+| `sai-moon-link phone dashboard --period week\|month\|all` | `control.dashboard()` | 同 `phone.rs` の `dashboard()` |
+| `sai-moon-link daemon <start\|stop>`（**文字出力**・JSON ではない） | `control.daemon()` | `crates/sai-link-cli/src/cli.rs` の `handle_daemon_start` / `handle_daemon_stop` |
+
+- 3 つとも **cwd = プロジェクトの root**、かつ `SAI_PROJECT_ROOT` も root を明示で渡す
+  （`control._phone_env`）。`sai-moon-link` は `SAI_PROJECT_ROOT` を最優先で DB 解決に使うため、
+  ここを消すと全プロジェクトが同じ DB を開く。
+- `summary` と `dashboard` は **DB が無いプロジェクトで呼ぶと空の DB を作ってしまう**。
+  `apps/phone` 側は `registry.load_registry()` の `db_exists` が真のものだけ呼ぶ。
+- 一覧（`list_projects`）は登録簿から作る。`name` / `root` / `kind` / `root_exists` /
+  `db_exists` / `daemon_alive` は登録簿とファイルの確認だけで決まり、`running` と
+  `last_executed_at` だけが `phone summary` から来る。**`summary` の結果は 5 秒だけ覚える**
+  （失敗しても一覧は止めない。`running=0` / `last_executed_at=null` にする）。
+- 登録簿の並びは `last_opened` の降順、`list_projects` はそのあと `last_executed_at` の
+  あるものを新しい順に並べ、無いものを後ろに回す。
+
+### 3.2 `apps/phone` が読んでいる JSON の項目
+
+**`phone summary`（オブジェクト）**
+
+| 項目 | 型 | 使うところ | 無い・違うとき |
+|---|---|---|---|
+| `running` | 数値 | 「実行中 N」 | 0 |
+| `last_executed_at` | 文字列 \| null | 「5分前」と並び順 | 最後尾・時刻なし |
+
+**`phone dashboard`（オブジェクト）** — 画面（`static/project.js`）が読むもの:
+
+| 階層 | 項目 | 型 | 使途 | 無いとき |
+|---|---|---|---|---|
+| 直下 | `name` / `since` / `until` | 文字列 | 見出しと期間 | ― |
+| 直下 | `period` | 文字列 | グラフ横軸のラベルの出し分け | 今週扱い |
+| 直下 | `daemon_alive` | 真偽値 | ランプ・ボタン | 停止中 |
+| 直下 | `daily` | 配列 | 日ごとの棒グラフ | グラフ空 |
+| `daily[]` | `date` / `executions` / `tokens` | 文字列 / 数値 / 数値 | 棒とタップ中の 1 行 | 0 の棒 |
+| 直下 | `by_model` | 配列 | ドーナツ | 「データがありません」 |
+| `by_model[]` | `model` / `tokens` | 文字列 / 数値 | モデル名と割合 | ― |
+| 直下 | `by_block` | 配列 | 横棒（上位 8） | 「データがありません」 |
+| `by_block[]` | `block` / `tokens` / `executions` | 文字列 / 数値 / 数値 | 名前・長さ・回数 | ― |
+| 直下 | `recent` | 配列 | 直近の実行 | 「この期間の実行はありません」 |
+| `recent[]` | `run_id` / `parent_run_id` / `block` / `status` / `started_at` / `duration_ms` | 数値 / 数値 \| null / 文字列 / 文字列 / 文字列 / 数値 | 行の形と `#/run/...` の URL | ― |
+| `summary` | `executions` / `completed` / `failed` / `running` / `success_rate` / `tokens_total` / `tokens_input` / `tokens_output` / `tokens_cache` / `duration_ms` / `cost_usd` | 数値 | 2×2 の大きな数字と補足行 | 0 |
+
+`apps/phone` 側が `recent[]` に**追加で足す**項目: `description`（文字列）・`linkable`（真偽値・
+メッセージ画面が開けるか）・`project`（文字列）。これは `sai-moon-link` の側では不要。
+
+### 3.3 壊れる変更・壊れない変更
+
+| 変更 | 結果 |
+|---|---|
+| JSON の**項目の追加** | **壊れない** |
+| 項目の**削除・名前変更**（`daemon_alive` → `alive` 等） | **壊れる**（ランプ・数字が消える／行が押せない） |
+| **型の変更**（数値を文字列に、真偽値を 0/1 に） | **壊れる**（`Number(...)` で見えるものもあるが `bool` 判定は崩れる） |
+| 配列をオブジェクトに包む（`{projects: [...]}` に） | **壊れる**（502「応答を読めませんでした」相当） |
+| サブコマンド名の変更（`dashboard` → `dash`） | **壊れる**（`sai-moon-link` の起動失敗として 503/504 になる） |
+| `--period` の値を減らす／外す | **壊れる**（400 または 502） |
+| 標準出力への余計な 1 行（デバッグ表示） | **壊れる**（502） |
+| `period` の値を増やす（`year` 等） | **`apps/phone` 側の検査で 400**（`control.py` の `_PERIODS` と画面のボタンも直す） |
+| 失敗時の終了コード 1 + `{"error": "…"}` の形を守る範囲の文言変更 | **壊れない**（文言は画面にそのまま出るだけ） |
+| 登録簿の `kind` の絞り込みを変える | **壊れる**（一覧に出る・出ないプロジェクトが変わる） |
+
+### 3.4 直したあとに流す確認（実際に動くものは流さない）
+
+```bash
+cd ~/workdir/Sai/sai-moon
+B=./target/release/sai-moon-link
+
+# 1) サブコマンドが生きているか
+$B phone --help | head -20
+
+# 2) summary の形（プロジェクトの root で実行する）
+env -u SAI_PROJECT_ROOT $B phone summary | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in ('running', 'last_executed_at'): assert k in d, k
+print('summary OK:', d)"
+
+# 3) dashboard の形
+env -u SAI_PROJECT_ROOT $B phone dashboard --period week | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in ('name','period','since','until','daemon_alive','daily','by_model','by_block','recent','summary'):
+    assert k in d, k
+for k in ('executions','completed','failed','running','success_rate','tokens_total','duration_ms','cost_usd'):
+    assert k in d['summary'], k
+print('dashboard OK:', d['since'], '〜', d['until'], '実行', d['summary']['executions'])"
+
+# 4) period 3 つの形が同じか
+for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period $p | head -3; done
+```
+
+`daemon start` / `daemon stop` は**実行すると常駐を起動・停止するので流さない**（画面から押して確認する）。
+
+### 3.5 変更したらすること
+
+1. `cargo build --release`（`apps/phone` は release の実行ファイルを叩く）。**PATH 上の名前 `sai-moon-link` は変えない。**
+2. `apps/phone` 側を直す場所: 項目変更 → `apps/phone/src/sai_phone/control.py` と `static/project.js`、期間値の追加 → `control.py` の `_PERIODS`。
+3. 動作確認は 8200 番で（[§6.4](#64-確認は別ポート)）。
+4. この文書の表を更新。
+
+---
+
+<a id="4-cratessai-paper-"></a>
+## 4. `crates/sai-paper-*`
+
+### 4.1 `apps/phone` が使っているもの
+
+| コマンド | 呼び出し側 | 実装場所 |
+|---|---|---|
+| `phone library` / `phone tree` / `phone paper <id>` / `phone log <id>` / `phone providers` | `papers.py` | `crates/sai-paper-cli/src/phone.rs`（共通化は `crates/sai-paper-core/src/library_tree.rs`） |
+| `phone search <query> [--db …] [--year-from …] [--year-to …] [--limit …] -- <語>` | `papers.build_search_args()` | 同 `phone.rs` |
+| `phone translate <id> [--force]` | `papers.translate()` | 同（訳は `sai-paper-core` の translation） |
+| `phone radio <id>`（**数分・終わるまで戻らない**） | `papers._radio_job()`（背景・2000 秒） | 同（core の `podcast_client.rs` → apps/radio `POST /api/papers/from-extract`） |
+| `content paper <id> --json`（既存・本文） | `papers.text()` | `crates/sai-paper-cli/src/content.rs` |
+| Canvas（`phone canvas list/new/show/layout/toggle/missing/body`） | `papers.py` | `crates/sai-paper-cli/src/phone.rs`／配置は `crates/sai-paper-core/src/canvas_sync.rs` |
+
+- **cwd と環境変数 `SAI_PAPER_ROOT` は「論文の置き場があるプロジェクト」の root**（`papers.resolve_project(name)` が引く一覧の `root`）を必ず付ける（`.env` の API キーを読ませるため）。iPhone からはパスを受け取らない。
+- 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。
+- 検索語は最後に `--` を置いて渡す（`-` で始まる語を clap がオプションと間違えないため）。
+- 共通 API キーは **`~/.sai-moon/paper.env`**（`crates/sai-paper-core/src/paths.rs:152`）。プロジェクトの `.env` より優先順位が低い。
+
+### 4.2 `apps/phone` が読んでいる JSON の項目
+
+**`phone library` → `{"papers": [...]}`**
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `id` | 数値 | 行を押したときの `#/paper/<name>/<id>` | その行が開けない |
+| `title` | 文字列 | 1 行目 | 空行 |
+| `authors` | 文字列（`"A, B"`） | 2 行目（最初の 1 人＋「ほか」） | 著者なし表示 |
+| `year` / `journal` | 文字列 \| null | 2 行目 | 部分を省略 |
+| `reading_status` | 文字列 | 札（`unread/queued/reading/read`） | 札なし |
+| `podcast` | 文字列 \| null | 札（`ready` →「🎧 音声あり」／`generating` →「音声作成中」） | 札なし |
+| `created_at` / `has_pdf` / `has_extract` / `is_favorite` | ― | **画面では未使用**（返っていれば無くても動く） | ― |
+
+**`phone tree` → `{"groups": [...}`**
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `kind` | `"query"` / `"import"` | 見出しの形（`query` は「検索結果 ›」も出る） | そのまとまりが出ない |
+| `log_id` | 数値 \| null | 「検索結果 ›」の行き先 `#/papers/log/<name>/<log_id>` | リンクなし |
+| `date` / `query` | 文字列 \| null | 見出しの文言 | ― |
+| `hit_count` | 数値 | 「N 件」 | 0 件扱い |
+| `paper_ids` | 数値の配列 | 中の論文を引く（絞り込みにも使う） | そのまとまりが空 |
+| `source_dbs` | 文字列 | 一覧の見出しでは未使用（検索結果画面で使用） | ― |
+
+**`phone paper <id>` → `{"paper", "files", "note", "refs", "podcast"}`**
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `paper` | `id` `title` `authors` `year` `journal` `doi` `citation_count` `abstract` `abstract_ja` `reading_status` | 各種 | 題名・著者・年・掲載誌・被引用・DOI リンク・要旨の切替 | ― |
+| `paper` | `arxiv_id` `s2_paper_id` | ― | **画面未使用** | ― |
+| `files` | `pdf` / `pdf_ja` / `extract` | 絶対パス \| null | 「PDF」「日本語 PDF」「本文」ボタン。**パスは表示せず、開けるかだけ見る** | そのボタンが出ない |
+| `files` | `note` | ― | 未使用（本文は `note` の文字列を使う） | ― |
+| `note` | 文字列 \| null | ノートの本文 | 「ノートはありません」 |
+| `refs[]` | `title` `authors` `year` `journal` `doi` `local_paper_id` | 各種 | 引用文献の行。`local_paper_id` があれば Library へ移動 | ― |
+| `refs[]` | `ref_no` `s2_paper_id` | ― | 未使用（番号は配列の添字） | ― |
+| `podcast` | `status` | `"ready"/"generating"/"failed"` \| null | 音声ボタンの出し分け（`generating` は 10 秒ごとに読み直す） | なし扱い |
+| `podcast` | `error` | 文字列 \| null | 「前回は失敗しました: …」 | ― |
+| `podcast` | `generated_at` | ― | 未使用 | ― |
+| ― | 論文が無いとき | | **終了コード 1 + `{"error":"論文が見つかりません"}`** → 画面は 400 で文言表示 | ― |
+
+**`phone log <id>` / `phone search` → `{"log", "items"}`**
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `log` | `id` | 数値 | 画面を移っても結果を取り直すための鍵 | 検索直後の復元が出来ない |
+| `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
+| `log` | `searched_at` / `year` | ― | 未使用 | ― |
+| `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
+| `items[]` | `title` `authors`（**配列**）`year` `journal` `doi` `abstract` `citation_count` | 各種 | 行と詳細の表示 | ― |
+| `items[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の札と行き先 | 未ダウンロード論文の情報画面 |
+
+**`phone providers` → `{"default": [...], "available": [...]}`** — 両方**文字列の配列**。`available` が来ないと検索を始められない（502「検索先を読めませんでした」）。`default` は初期選択。
+
+**`content paper <id> --json` → `{"id", "md_path", "text"}`** — 画面は `id` と `text` のみ（`md_path` は渡さない）。
+
+**`phone translate <id>` → `{"id", "abstract_ja"}`** — 画面は `abstract_ja` のみ。
+
+### 4.3 壊れる変更・壊れない変更
+
+| 変更 | 結果 |
+|---|---|
+| JSON の**項目の追加** | **壊れない** |
+| サブコマンド名の変更（`phone` → `mobile`） | **壊れる**（503「`sai-moon-paper` が見つかりません」） |
+| 項目の削除・名前変更（`reading_status` → `status`） | **壊れる**（札・ボタンが消える、絞り込み不能） |
+| `authors` を**配列→文字列**やその逆に | **壊れる**（著者名が `A,B` とそのまま／`A, B` のように壊れて表示） |
+| `local_paper_id` を**無いとき `0`** にする | **壊れる**（`0` が「ある」とみなされて `#/paper/<name>/0` へ行く） |
+| `podcast` をオブジェクトに包む（`{"status": ...}`） | **壊れる**（Library の「🎧 音声あり」が消える。論文情報側は `podcast` がオブジェクト前提なので**両方揃えて直す**） |
+| 論文が無いときの `{"error": "論文が見つかりません"}` の変更 | 文言が変わるだけ（**終了コード 1 の形は必ず守る**） |
+| 標準出力への余計な表示 | **壊れる**（502） |
+| `phone search` の `--` なし渡し・`--db` の ID の増減 | 増減は `providers` の `available` と**同時に**変える（`apps/phone` は `available` で検査して 400 にする） |
+| `SAI_PAPER_ROOT` 無しでも動く形にする（`.env` を読まない） | 検索・音声化が壊れる（API キー不足） |
+| **バイナリ名 `sai-moon-paper` を `sai-paper` に戻す** | **壊れる**（既定値が絶対パス `…/sai-moon/target/release/sai-moon-paper` なので起動しない） |
+
+### 4.4 直したあとに流す確認
+
+```bash
+# 0) 作り直し（必ず release。PATH 上には無い）
+cd ~/workdir/Sai/sai-moon
+perl -e 'alarm 1800; exec @ARGV' cargo build --release
+B=./target/release/sai-moon-paper
+export SAI_PAPER_ROOT=$PWD
+# cwd もルート（apps/phone と同じ条件）
+
+# 1) サブコマンドが生きているか
+$B phone --help | head -20
+
+# 2) providers（available が無ければ検索が 502 になる）
+$B phone providers
+
+# 3) 一覧・階層・詳細（読み取りだけ）
+$B phone library | head -c 300; echo
+$B phone tree     | head -c 300; echo
+$B phone paper 49 | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in ('paper','files','note','refs','podcast'): assert k in d, k
+for k in ('id','title','authors','abstract'): assert k in d['paper'], k
+print('paper OK / podcast =', d['podcast'])"
+
+# 4) 本文
+$B content paper 49 --json | head -c 200; echo
+
+# 5) 失敗の形（終了コード 1）
+$B phone paper 999999; echo "exit=$?"     # {"error":"論文が見つかりません"} exit=1
+```
+
+**流さないこと**: `phone radio`（数分の生成）、`phone search`（検索履歴が 1 件増える。履歴を増やさずに済むのは `--help` だけ）、`phone translate`（DB に訳を書き込む）。
+
+実測結果: `providers` = `{"available":["s2","pubmed","biorxiv","medrxiv","openalex","arxiv"],"default":["arxiv","s2"]}`、`phone paper 999999` = `{"error":"論文が見つかりません"}` `exit=1`。
+
+### 4.5 変更したらすること
+
+1. **`cargo build --release`**（`apps/phone` は release の実行ファイルを叩く。直しても作り直さないと古いまま）。
+2. `apps/phone` 側を直す場所: JSON の形が変わったら `apps/phone/src/sai_phone/papers.py` と `static/papers.js`。
+3. 8200 番で画面確認（[§6.4](#64-確認は別ポート)）。
+4. 置き場を変えた場合は `paths.rs:172` の `sai_home()` と `project.rs:79`・`registry.py:41` をそろえる。
+5. この文書の表を更新。
+
+---
+
+<a id="5-appsradio"></a>
+## 5. `apps/radio`
+
+`apps/phone` は **HTTP の中継しかしない**（`apps/phone/src/sai_radio/` は開かない。合言葉は `Authorization: Bearer` でだけ付ける）。
+
+| 呼ばれる API | 実装場所 | 画面 |
+|---|---|---|
+| `GET /api/papers` | `apps/radio/src/sai_radio/main.py` `api_list_papers` | Radio 一覧 |
+| `GET /api/papers/{id}` | `api_get_paper` | 再生画面（題名・文字起こし `sections`） |
+| `GET /api/papers/{id}/audio`（**Range に対応**） | `api_get_audio`（`FileResponse`） | 再生・ダウンロード |
+| `POST /api/papers/{id}/listen` | `api_listen` | 最初の再生で 1 回 |
+| `POST /api/papers/{id}/favorite` | `api_toggle_favorite` | ★ |
+| `GET /api/stats` | `api_stats` | カレンダー |
+| `GET /api/logs?paper_id=` | `api_logs` | 質問の履歴 |
+| `POST /api/papers/{id}/ask` | `api_ask` | 文字の質問（中継の時間切れ 180 秒） |
+| `POST /api/papers/{id}/live-session` | `api_live_session` | 声の質問の合鍵（iPhone は Google へ直結） |
+| `POST /api/papers/{id}/question-log` | `api_question_log` | 声の質問の記録 |
+| `POST /api/papers/from-extract` | `api_from_extract` | **`apps/phone` からは中継禁止（403）**。`sai-moon-paper` が直接呼ぶ |
+| `POST /api/papers/upload` | ― | **中継禁止（403）・削除済み**（`tests/test_main_routes.py` が確かめている） |
+
+- 中継先は `SAI_RADIO_URL`（既定 **`http://127.0.0.1:8201`**）。合言葉 `SAI_RADIO_TOKEN` は `apps/phone` 側にも同じ値を設定する。
+- 中継で **パスの文字は `A-Za-z0-9_./-` のみ**（それ以外・`..` は 400）。`..` を含むパスや `/` の増減で新しい API を足すと通らないことがある。
+- **画面（`static/`）と PDF アップロードは削除済み。** `127.0.0.1:8201` で動く前提で読む。残っているのは API だけ。
+- TTS プロキシ（`tts_proxy.py`）は 8202 番の別プロセス。使わなければ起動しなくてよい。
+
+### 5.2 `apps/phone` が読んでいる JSON の項目（`static/radio.js`）
+
+| API | 項目 | 型 | 使うところ | 無い・違うとき |
+|---|---|---|---|---|
+| `GET /api/papers` | `id` | **英数字の文字列** | 行の URL `#/radio/<id>`・ダウンロード判定 | 行が開けない |
+| 同 | `title` | 文字列 | 1 行目・絞り込み | 「(無題)」 |
+| 同 | `created_at` | 数値（UNIX 秒） | 「9/22」表示と新着順 | ― |
+| 同 | `favorite` | 真偽値 | ★ | ― |
+| 同 | `duration` | 数値 \| null | 「長さ 23:10」 | 長さの表示なし |
+| 同 | `mode` | ― | **未使用** | ― |
+| `GET /api/papers/{id}` | `title` / `sections` | 文字列 / 配列 | 題名・文字起こし（`sections[]` は `start` `end` `title`） | 「無題の論文」・文字起こしなし |
+| `POST …/favorite` | `favorite` | 真偽値 | 星の反映 | 反映されない（開き直すと直る） |
+| `GET /api/stats` | `listened_papers` | 数値 | 「これまでに聴いた論文 N 本」 | 0 |
+| 同 | `by_day` | 配列（`date` 文字列・`count` 数値） | カレンダー | 空 |
+| `GET /api/logs?paper_id=` | `created_at`（UNIX 秒） / `kind` / `payload.position_sec` / `payload.question` / `payload.answer` | 各種 | 質問の吹き出し | 行が出ない（`kind=="question"` のみ表示） |
+| `POST …/ask` | `answer` | 文字列 | 回答の吹き出し | 「考え中…」が残る |
+| `POST …/live-session` | `token` / `ws_url` / `system_instruction` / `model` | 文字列 | Google への直結 | 声の質問が失敗（エラー文を表示） |
+| 見つからないとき | `{"detail": "論文が見つかりません"}`（**FastAPI 形**・`{"error"}` ではない） | | 再生画面は「音声が見つかりません」 | ― |
+
+### 5.3 壊れる変更・壊れない変更
+
+| 変更 | 結果 |
+|---|---|
+| JSON の**項目の追加** | **壊れない** |
+| パスの変更（`/api/papers` → `/api/audio-list`） | **壊れる**（一覧が開けない） |
+| `id` を**数値に変える**／ID に `-` `.` 以外の記号を足す | **壊れる**（`isRadioPaperId` を通らない。**ID は英数字という前提**。数字だけと当て込むのも壊れる: `4ee6474932af` や `demo001` が実在する） |
+| `duration` を文字列にする | **壊れる**（`formatSec` が `NaN:NaN` を出す） |
+| `sections[]` の `start`/`end` の削除 | **壊れる**（文字起こしの位置が飛べない） |
+| 音声ファイルへの **Range（206・`Content-Range`）応答をやめる** | **壊れる**（Safari の途中からの再生ができなくなる） |
+| `audio` の `Content-Type` を `audio/mp4` 以外の不定なものに | 再生できないことがある（`.m4a` は `audio/mp4` に統一されている） |
+| `from-extract` の入力形（`paper_id` / `title` / `markdown`）の変更 | **壊れる**（音声化の依頼が全て失敗） |
+| 音声生成が長時間ブロックする書き戻し | **壊れる**（`asyncio.to_thread` を外さない。`tests/test_ingest_nonblocking.py` が防ぐ） |
+| **ポートを 8201 以外に変える** | **`apps/phone` 側が繋がらない**（既定 `SAI_RADIO_URL=http://127.0.0.1:8201`。変えないなら `SAI_RADIO_URL` も変える） |
+
+### 5.4 直したあとに流す確認（読み取りだけ）
+
+```bash
+cd ~/workdir/Sai/sai-moon
+
+# 1) 一覧と統計（8201 は本プロセス。8198 などで別の番号で確認してもよい）
+curl -s localhost:8201/api/papers | head -c 300; echo
+curl -s localhost:8201/api/stats  | head -c 200; echo
+
+# 2) Range（206 が返らなければ再生が壊れる）
+ID=$(curl -s localhost:8201/api/papers | python3 -c "import sys,json;print(json.load(sys.stdin)[0]['id'])")
+curl -s -D - -o /dev/null -H 'Range: bytes=0-99' "localhost:8201/api/papers/$ID/audio" | head -6
+# → 206 Partial Content / content-type: audio/mp4 / content-length: 100
+
+# 3) 見つからない ID（404 が FastAPI 形であること）
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8201/api/papers/999999    # 404
+
+# 4) テストと import（3 本）
+(cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+PYTHONPATH=apps/radio/src apps/radio/.venv/bin/python -c "import sai_radio.main"
+
+# 5) 動作確認は別ポートで（8201 は再起動しない）
+PYTHONPATH=apps/radio/src apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8198 &
+curl -s localhost:8198/api/papers | head -c 200; echo
+kill %1
+```
+
+**流さないこと**: `POST …/ask` と `/live-session`（LLM・Google を実際に使う）、`from-extract`（数分の生成）、`purge_non_paper_audio.py --apply`（音声を消す。確認だけなら `--apply` なし）。
+
+実測結果: テスト 3 本は「すべて通りました」（`test_ingest_nonblocking.py`・`test_main_routes.py`・`test_podcast_request_settings.py`）。
+
+### 5.5 変更したらすること
+
+1. **8201 は再起動しない**（動いている間に直すのは中身だけで、確認は 8198 など別ポート）。
+2. 画面を復活させるなら、`apps/phone` の中継（`radio.py`）の禁止パスの判定を同時に直す。
+3. `apps/phone` 側を直す場所: パス・項目の変更 → `apps/phone/src/sai_phone/radio.py`（中継の検査）と `static/radio.js`。
+4. 「長い論文が音声化できない」等の制限を直したら `integration.md` の注意点を更新。
+5. `apps/radio/README.md`・`apps/radio/ARCHITECTURE.md` も更新。
+6. この文書の表を更新。
+
+---
+
+<a id="6-appsphone-自身を直す人向け"></a>
+## 6. `apps/phone` 自身を直す人向け
+
+### 6.1 画面を足す手順
+
+1. `static/index.html` に `<section id="view-…" class="view" hidden>` を置く。
+2. 画面ファイル（例 `static/hoge.js`）の先頭〜末尾で登録する:
+
+   ```js
+   (window.SaiRoutes = window.SaiRoutes || []).push({
+     match(hash) { const m = hash.match(/^#\/hoge\/(.+)$/); return m ? { id: m[1] } : null; },
+     view: "view-hoge",
+     tab: "project",        // "project" | "agent" | "papers"
+     hideTabbar: false,     // 入力欄がある画面は true
+     interval: 10000,       // 定期更新 ms（0 で無効）
+     async open(params) { /* 最初の読み込み */ window.SaiShell.ok(); },
+     async poll(params) { /* 定期更新 */ },
+   });
+   ```
+
+3. `index.html` で **`app.js` より前**に `<script src="/hoge.js"></script>` を読む。
+4. `static/sw.js`: `CACHE` を 1 つ上げ（今は `sai-phone-v28`）、`ASSETS` に `/hoge.js` を足す。**上げないと iPhone に古い画面が残る。**
+5. `app.js` の分岐（`parseRoute`）は増やさない（`window.SaiRoutes` の登録だけで通る）。
+
+### 6.2 共通部品
+
+| 部品 | 場所 | 役割 |
+|---|---|---|
+| `apiFetch(path, opts)` | `static/app.js` | 合言葉（`Authorization: Bearer`）を自動で付ける fetch |
+| `window.SaiShell.ok() / .fail()` | `static/app.js` | 通信の成否で帯（`.offline-bar`）を出し入れ |
+| `renderMarkdown(text)` | `static/markdown.js` | md の整形表示（見出し折りたたみ・表・コードの枠・frontmatter） |
+| `attachVoiceInput(btn, ta, onGrow)` | `static/app.js` | 🎤 音声入力の部品 |
+| `parseListHash` `listHash` `el` `formatTokens` など | `static/linkview.js` / `static/stats.js` | List の住所・要素作り（作成フォームもこれを使う） |
+| `formatTokens` `formatDuration` `formatMoney` `svgEl` `el` | `static/stats.js` | 数字の整形・SVG 作成（グローバル関数） |
+| `run_json` / `run_cli` | `src/sai_phone/cli.py` | CLI 呼び出しとエラー変換（503/504/400/502）。**JSON 契約はここで守られる** |
+| `require_token` | `src/sai_phone/main.py` | 合言葉認証（`?token=` も可） |
+| `.fold-item` `.bubble-user` `.bubble-agent` `.inputbar` | `static/style.css` | 会話・入力欄の見た目 |
+| CSS 変数（`--bg` `--text` `--accent` `--danger` …） | `static/style.css` | **色はこれだけ使う**（ダークモード自動対応） |
+
+### 6.3 テストの流し方（毎回個別に実行する）
+
+```bash
+cd ~/workdir/Sai/sai-moon
+
+# JS（19 本。全部通ると "test_…: すべて通りました"）
+for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
+
+# Python（17 本。PYTHONPATH が必要）
+(cd apps/phone && export PYTHONPATH=src && for f in tests/test_*.py; do .venv/bin/python "$f" || exit 1; done)
+
+# Radio（3 本）
+(cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+
+plutil -lint apps/phone/launchd/com.sai-moon.plist
+```
+
+- `SAI_PROJECT_ROOT` などが混ざっていると Rust の History テスト 1 件が落ちる。
+  `cargo test` は `env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME` を付ける。
+- `apps/phone` の Python テストは **`PYTHONPATH=src` が無いと `sai_phone` が import できない**。
+
+<a id="64-確認は別ポート"></a>
+### 6.4 確認は 8200 / 8198
+
+**旧構成の 8100 番（旧 sai-phone）と 8000 番（旧 sai-radio）は再起動しない。**
+
+```bash
+cd ~/workdir/Sai/sai-moon
+PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
+PYTHONPATH=apps/phone/src SAI_PHONE_TOKEN= SAI_PROJECT_ROOT= SAI_PARENT_RUN_ID= SAI_BLOCK_NAME= \
+  apps/phone/.venv/bin/uvicorn sai_phone.main:app --host 127.0.0.1 --port 8200 &
+
+curl -s localhost:8200/api/health            # {"ok":true,...}
+curl -s localhost:8200/api/projects | head -c 300; echo   # プロジェクト一覧（sai-moon が出ること）
+curl -s localhost:8200/api/paper-projects | head -c 200; echo
+curl -s localhost:8200/api/radio/papers | head -c 200; echo
+kill %1
+```
+
+失敗の形も環境変数で再現できる（**確認後に必ず元の環境変数で戻す**）:
+
+```bash
+# CLI が無い → 503
+SAI_LINK_BIN=/nonexistent-sai-moon-link … uvicorn … --port 8200
+curl -s localhost:8200/api/projects/sai-moon/tree
+# {"detail":"sai-moon-link が見つかりません（設定の場所を確認してください）"}  503
+
+# apps/radio が無い → 503
+SAI_RADIO_URL=http://127.0.0.1:59999 … uvicorn … --port 8200
+curl -s localhost:8200/api/radio/papers
+# {"detail":"Mac の apps/radio が応答しません"}  503
+
+# PATH が無い / CLI が JSON でない応答を返す → 502（SAI_PAPER_BIN=/bin/echo で再現）
+# CLI が error JSON で終了コード 1 → 400（error 文がそのまま出る）
+```
+
+---
+
+<a id="7-連携が壊れたときの見分け方"></a>
+## 7. 連携が壊れたときの見分け方
+
+### 7.1 iPhone の画面に出る文言 → 原因
+
+| 画面の文言（`detail` の中身） | 状態 | 原因と直し方 |
+|---|---|---|
+| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` と PATH（launchd は plist の `PATH`）を確認。**バイナリ名やサブコマンド名を変えても同じ文が出る** |
+| `Mac の apps/radio が応答しません` | 503 | `apps/radio`（8201）が止まっている／`SAI_RADIO_URL` 間違い |
+| `…の応答を読めませんでした` | 502 | 終了コード 0 なのに JSON でない（**標準出力への余計な表示**を疑う） |
+| CLI の error 文（例 `論文が見つかりません` `プロジェクト '…' が見つかりません（registry に未登録）`） | 400 | CLI が失敗した。文言は相手側の `{"error"}` のまま |
+| `period は week / month / all のいずれかにしてください` `action は start / stop を指定してください` `検索先が分かりません: …` など | 400 | **`apps/phone` 自身の検査**。相手側を疑わない |
+| `view は log / stats / history のいずれかにしてください` `kind は task / review / message のいずれかにしてください` `run_id は 1 以上の整数にしてください` `token の指定が正しくありません` | 400 | **List の `apps/phone` 自身の検査**。`sai-moon-link phone …` を呼ぶ前に弾いている |
+| `block の指定が正しくありません` `task_text は 100KB までです` `runner は user / pi / cc / gl のいずれか（空でスキップ）` `thinking は none / …` `トークンは waggle: 形式で指定してください` `global_round は数字にしてください（空でスキップ）` `tag は 64 文字までの 1 行にしてください` | 400 | **作成フォームの `apps/phone` 自身の検査**（`control._validate_card_payload`・CLI を呼ぶ前） |
+| `まだありません` | 404 | その run に md（task / review / message）が無い（`phone md` の終了コード 3） |
+| `未実行のカードが見つかりません` | 404 | その run の未実行カードが無い（`phone card run` の終了コード 3・▶ 実行） |
+| `sai-moon-link` の stderr の先頭（例 `実行が見つかりません: ID9999`） | 502 | `phone …` が失敗した。理由は相手の stderr の先頭 200 文字。ログ（7.2）に全文が出る |
+| `プロジェクトが見つかりません` / `このプロジェクトにはまだ実行の記録がありません` | 404 | 登録簿に無い／`db_exists` が偽 |
+| `PDF がありません` / `音声が見つかりません` | 404 | ファイル・音声が無い（相手側の 404） |
+| `この操作は apps/phone からは使えません` | 403 | 中継先で `papers/upload` / `papers/from-extract` を呼ぼうとした（仕様） |
+| `認証エラー` | 401 | 合言葉が合わない（`SAI_PHONE_TOKEN` / `SAI_RADIO_TOKEN`） |
+| `…が時間内に応答しませんでした` | 504 | 時間切れ（既定 20 秒。重い操作は個別の時間切れ） |
+| 画面の帯 `接続できていません` | 通信失敗 | 8200 自体に届かない（サーバー・tailscale・ネットワーク） |
+| プロジェクト一覧が **空** | ― | `SAI_SAI_HOME` が `~/.sai-moon` を指しているか、`~/.sai-moon/registry.json` にそのプロジェクトがあるか確かめる |
+
+### 7.2 ログの見方
+
+| どこを見る | 中身 |
+|---|---|
+| **`apps/phone`**: `apps/phone/src/data/sai-moon.log`（launchd 起動時）／起動したターミナル（手動起動時） | `sai-moon-link の標準エラー: …`（先頭 300 文字）、`最小集計に失敗（一覧は続けます）: …`、`sai-moon-paper の応答を読めませんでした` の前の標準エラー、書き出し失敗、音声化の例外。**CLI の失敗原因はまずここ** |
+| 手動起動したとき | そのターミナルの stderr |
+| **apps/radio** | 起動しているターミナル。`sai-moon-paper phone radio の標準エラー`（`apps/phone` 側）と、apps/radio 自身の例外・LLM のエラー |
+| **crates/sai-paper-*・crates/sai-link-*** | 単発の CLI なので、`apps/phone` のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
+| Safari（iPhone / 開発者ツール） | ネットワークの応答の `detail` を見る（上の表と突き合わせる） |
+| 音声化の状態 | sai-paper の DB の `paper_podcasts`（`generating` / `ready` / `failed` + `error`）。論文情報画面にも「前回は失敗しました: …」が出る |
+
+### 7.3 直す順番
+
+1. 画面の `detail` 文から **503 / 502 / 400 / 404 のどれか**を決める。
+2. 503 → 場所（PATH・設定・常駐）。502 → **出力の混入**。400 → error 文の元のアプリ。404 → データの有無。
+3. 上の各アプリの「確認コマンド」を**読み取りだけで**流す。
+4. 直したら「変更したらすること」のビルド・作り直し・`sw.js` の `CACHE`・文書更新を行う。
+5. 動作確認は必ず **8200**（`apps/radio` は 8198）。**旧の 8100 番・8000 番には触らない。**
