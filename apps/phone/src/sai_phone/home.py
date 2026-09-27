@@ -7,7 +7,7 @@
 - 論文の要対応（`sai-paper attention --json`）
 
 `GET /api/home/overview`（`build_overview`）は全プロジェクトのダッシュボードを足し合わせたもの。
-各プロジェクトの `phone dashboard` の JSON  –, それ以外の集計は作らない。
+各プロジェクトの `phone dashboard` の JSON を足し合わせるだけで、それ以外の集計は作らない。
 
 大原則（`docs/integration.md` §3）どおり、他アプリの DB は開かない。
 登録簿と sai-link / sai-paper の CLI の JSON だけを使う。

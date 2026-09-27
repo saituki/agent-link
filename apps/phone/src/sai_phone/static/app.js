@@ -1247,6 +1247,7 @@ function renderItem(item) {
   if (item.kind === "user") {
     fold.wrap.classList.add("kind-user");
     fold.who.textContent = "あなた";
+    chatLastAgentAt = 0; // 自分の発言を挟んだら、次のエージェントの発言は名前から出し直す
     body.className = "fold-body bubble-user";
     body.textContent = item.text || "";
     foldBody(fold.wrap, previewLine(item.text), body);
