@@ -1504,7 +1504,10 @@ async def read_pdf_upload(request, target) -> bytes:
     """
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     if content_type != "application/pdf":
-        raise HTTPException(status_code=415, detail="PDF だけを中でください（application/pdf）")
+        raise HTTPException(
+            status_code=415,
+            detail="本文は PDF だけを送ってください（application/pdf にしてください）",
+        )
     raw_length = request.headers.get("content-length")
     if raw_length is None or not raw_length.strip().isdigit():
         raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")

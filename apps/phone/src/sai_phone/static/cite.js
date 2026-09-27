@@ -36,6 +36,8 @@ let ctListBox = null;   // 一覧を入れる箱（絞り込みのときだけ�
 let ctExtractBusy = false; // 抜き出しの依頼を送っているあいだ
 // 走っている抜き出しがあれば画面を 2 秒ごとに読み直す（下の画面登録で切り替える）
 let ctRouteDef = null;
+// 広い画面の右の欄（画面を開いたときだけ作る）
+let ctSideBox = null;
 
 // --- DOM を使わない小さな関数（node のテストからも使う） ---
 
@@ -278,19 +280,22 @@ function ctHighlight() {
   }
 }
 
-/** 広い画面の右の欄（画面を開いたときだけ作る）。 */
-let ctSideBox = null;
-
-function ctSidePane(host) {
+/**
+ * 一覧のコンテナの横に「選んだ引用の詳細」の欄を作る（広い画面だけ）。
+ * 一覧（listBox）を左の欄に入れ、右の欄（HTMLElement）を返す。
+ * 狭い画面では null（そのときは一枚の下から出す）。
+ */
+function ctSidePane(listBox) {
   if (typeof saiIsWide !== "function" || !saiIsWide()) return null;
   if (ctSideBox && ctSideBox.isConnected) return ctSideBox;
+  if (!listBox || !listBox.parentNode) return null;
   const wrap = ctEl("div", "sai-split cites-split");
   const list = ctEl("div", "sai-split-list");
   const side = ctEl("div", "sai-split-main ct-side");
   wrap.appendChild(list);
   wrap.appendChild(side);
-  if (host && host.parentNode) host.parentNode.insertBefore(wrap, host);
-  list.appendChild(host);
+  listBox.parentNode.insertBefore(wrap, listBox);
+  list.appendChild(listBox); // 一覧は左の欄の中に入れる（住所は変えない）
   ctSideBox = side;
   return side;
 }
@@ -553,13 +558,17 @@ function ctRender() {
   const list = ctEl("div", "ct-list");
   ctListBox = list;
   host.appendChild(filter);
-  const side = ctSidePane(list);
+  // 一覧を箱に入れてから右の欄を作る（広い画面だけ。ctSidePane は親のある要素が要る）
   host.appendChild(list);
+  const side = ctSidePane(list);
   ctFillList(list);
   if (side) {
     const refs = Array.isArray(ctData.refs) ? ctData.refs : [];
-    const hit = refs.find((r) => r && Number(r.ref_no) === Number(ctSelected)) || null;
-    ctFillSide(hit);
+    // 広い画面では最初の一件を右の欄に出しておく（選ぶまでは案内を出さない）
+    const shown = refs.find((r) => r && Number(r.ref_no) === Number(ctSelected)) || refs[0] || null;
+    if (shown && shown.ref_no != null) ctSelected = shown.ref_no;
+    ctFillSide(shown);
+    ctHighlight();
   }
   if (!ctRefsEmpty(ctData)) {
     host.appendChild(ctEl("p", "pim-note", "行を押すと詳細が出ます（引用している文も見られます）"));
