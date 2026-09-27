@@ -21,7 +21,7 @@ use sai_paper_core::citation;
 use sai_paper_core::citation::db::{RefRow, SentenceRow, get_refs_for, get_sentences_for};
 use sai_paper_core::manual_import::{ManualTarget, import_pdf};
 use sai_paper_core::models::{LibraryMatchEntry, RemotePaper};
-use sai_paper_core::{Database, Paths, S2Client, library_tree, manual_import, search_log,
+use sai_paper_core::{Database, Paths, S2Client, manual_import, search_log,
     search_sets};
 use serde_json::{Value, json};
 
@@ -320,7 +320,7 @@ pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
                 unreachable!("Remote のときだけここに来る");
             };
             let library = library_papers(&db, &cfg, &paths)?;
-            if let Some(index) = library_tree::match_downloaded_paper(&library, remote) {
+            if let Some(index) = crate::phone_import::existing_library_index(&db, &library, remote)? {
                 bail!("この論文は既に Library にあります（ID {}）", library[index].id);
             }
             target

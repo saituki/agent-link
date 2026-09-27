@@ -105,7 +105,7 @@ function testFilter() {
   assert.deepStrictEqual(cite.ctFilter(REFS, "devlin").map((r) => r.ref_no), [2]);
   // raw_text にも当たる
   assert.deepStrictEqual(cite.ctFilter(REFS, "toutanova").map((r) => r.ref_no), [2]);
-  // 空なら全部、文字 列を全部含む（and）rather には 아닌
+  // 空・空白だけなら全部を返し、前後の空白は無視する
   assert.strictEqual(cite.ctFilter(REFS, "").length, 2);
   assert.strictEqual(cite.ctFilter(REFS, "   ").length, 2);
   assert.strictEqual(cite.ctFilter(REFS, " BERT ").map((r) => r.ref_no).join(), "2");

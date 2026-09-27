@@ -391,7 +391,8 @@ function ctFillDetail(body, ref) {
     a.rel = "noopener";
     actions.appendChild(a);
   }
-  if (r.can_import) {
+  // Library にある引用には出さない（取り込むと既存の論文の PDF を置き換えてしまうため）
+  if (r.can_import && !ctInLibrary(r)) {
     const manual = ctUiEl("button", "sai-btn", "手動で取り込む");
     manual.type = "button";
     manual.addEventListener("click", () => {

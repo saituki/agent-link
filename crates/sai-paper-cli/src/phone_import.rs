@@ -176,7 +176,7 @@ pub async fn download(
 
     // 既に Library に PDF があれば取りに行かない。
     let library = library_papers(&db, &cfg, &paths)?;
-    if let Some(index) = library_tree::match_downloaded_paper(&library, &paper) {
+    if let Some(index) = existing_library_index(&db, &library, &paper)? {
         let local = &library[index];
         return Ok(json!({
             "paper_id": local.id,
@@ -271,6 +271,31 @@ async fn cite_target_paper(
         .next()
         .context("S2 で一致する論文が見つかりませんでした。手動で取り込んでください")?;
     Ok(found)
+}
+
+/// 既に Library に PDF 付きで入っている論文の位置（`library` の添字）。
+///
+/// `library_tree::match_downloaded_paper`（arXiv ID・DOI・題名）に加えて、S2 の ID でも探す。
+/// `Database::attach_download` は S2 の ID でも既存の行を見つけて題名と PDF を書き換えるので、
+/// ここで S2 の ID を見ないと、引用などから取り込んだときに既存の論文の PDF を置き換えてしまう。
+pub(crate) fn existing_library_index(
+    db: &Database,
+    library: &[sai_paper_core::LibraryPaper],
+    remote: &sai_paper_core::models::RemotePaper,
+) -> Result<Option<usize>> {
+    if let Some(index) = library_tree::match_downloaded_paper(library, remote) {
+        return Ok(Some(index));
+    }
+    if !sai_paper_core::citation::is_s2_40hex(&remote.id) {
+        return Ok(None);
+    }
+    let entries = db.library_match_entries()?;
+    let Some(entry) =
+        sai_paper_core::citation::library::library_match(&entries, Some(&remote.id), None, None)
+    else {
+        return Ok(None);
+    };
+    Ok(library.iter().position(|paper| paper.id == entry.id))
 }
 
 /// `--log` / `--import-id` から対象の [`sai_paper_core::models::RemotePaper`] を探す。
@@ -514,6 +539,35 @@ mod tests {
             journal_ref: None,
             citation_count: None,
         }
+    }
+
+    /// S2 の ID だけが一致する Library の論文も「既にある」と判定する
+    /// （見落とすと attach_download が既存の論文の題名と PDF を書き換える）。
+    #[test]
+    fn existing_library_index_matches_by_s2_id() {
+        let dir = std::env::temp_dir().join(format!("sai-paper-existing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".sai/paper")).unwrap();
+        let pdf = dir.join("host.pdf");
+        std::fs::write(&pdf, b"%PDF-1.4 test").unwrap();
+        let db = sai_paper_core::Database::open(&dir.join(".sai/paper/papr.db")).unwrap();
+        let s2 = "abcdef0123456789abcdef0123456789abcdef01";
+        db.connection()
+            .execute(
+                "INSERT INTO papers (title, s2_paper_id, pdf_path) VALUES ('Host Paper', ?1, ?2)",
+                rusqlite::params![s2, pdf.to_string_lossy()],
+            )
+            .unwrap();
+        let id = db.connection().last_insert_rowid();
+        let library = vec![db.library_paper_by_id(id).unwrap().unwrap()];
+        // 題名も DOI も違い、S2 の ID だけが同じ
+        let mut remote = paper(s2, None, None);
+        remote.title = "Completely Different Title".to_owned();
+        assert_eq!(super::existing_library_index(&db, &library, &remote).unwrap(), Some(0));
+        // S2 の ID も違えば「無い」
+        let other = paper("0123456789abcdef0123456789abcdef01234567", None, None);
+        assert_eq!(super::existing_library_index(&db, &library, &other).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 1MB の上限（`phone import add` の受け口）。
