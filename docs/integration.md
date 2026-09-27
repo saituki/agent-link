@@ -21,7 +21,7 @@ API 契約そのもの（JSON の項目・終了コード）は変わってい�
 | 4 つの `git status` を見比べる | 1 つの `git status`（旧 4 つは読み取り専用） |
 | ホーム画面から入るアイコンが複数（sai-phone・sai-radio） | アイコンは sai-moon ひとつ |
 
-- **`apps/phone` の画面と API は変えない。** タブも 5 つのまま（ホーム / プロジェクト / 会話 / 論文 / 使用量）、住所（`#/home`・`#/projects`・`#/papers/library` など）も API も旧 sai-phone と同じ。ブラウザに保存済みの PWA は、ポートを 8200 番に合わせて起動し直せばそのまま使える（`sw.js` の `CACHE` が `sai-phone-v28`）。
+- **`apps/phone` の画面と API は変えない。** タブも 5 つのまま（ホーム / プロジェクト / 会話 / 論文 / 使用量）、住所（`#/home`・`#/projects`・`#/papers/library` など）も API も旧 sai-phone と同じ。ブラウザに保存済みの PWA は、ポートを 8200 番に合わせて起動し直せばそのまま使える（`sw.js` の `CACHE` が `sai-phone-v30`）。
 - **変わるのは「中身の置き場」と「呼ぶバイナリ名」と「ポート」だけ。** §5〜§7 の表をこの 3 つだけ読み替えること。
 
 ---
@@ -208,16 +208,22 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `GET /api/projects/{name}/papers/import` | .bib の一覧と中の論文（`phone import list`） |
 | `POST /api/projects/{name}/papers/import` | .bib の保存（body `{"name": "refs.bib" \| "", "text": "@article{…}"}`・本文は標準入力。名前が空なら `phone-<YYYYMMDD-HHMMSS>.bib`） |
 | `DELETE /api/projects/{name}/papers/import/{file_name}` | .bib の削除（`phone import remove`） |
-| `POST /api/projects/{name}/papers/download` | 論文の PDF を取る（202・background で `phone download` → `phone after-download`）。body は `{"log_id": 3, "position": 2, "title": "…"}` か `{"import_id": "DOI:…", "title": "…"}` |
-| `GET /api/projects/{name}/papers/downloads` | 走っている／終わったダウンロード（`{"jobs": [{key, title, status, paper_id, error, started_at, finished_at}]}`・新しい順） |
+| `POST /api/projects/{name}/papers/download` | 論文の PDF を取る（202・background で `phone download` → `phone after-download`）。body は「`{"log_id": 3, "position": 2, "title": "…"}`」「`{"import_id": "DOI:…", "title": "…"}`」「`{"cite_paper_id": 12, "ref_no": 3, "title": "…"}`（引用の 1 件）」のどれか 1 つ |
+| `GET /api/projects/{name}/papers/downloads` | 走っている／終わった仕事（`{"jobs": [{key, kind, title, status, paper_id, error, started_at, finished_at, steps, step, percent, messages}]}`・新しい順）。`kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` の 5 つ。`percent` が `null` の仕事は「% の分からない仕事」（画面は動く帯で出す） |
+| `GET /api/projects/{name}/papers/manual/candidates` | ダウンロードフォルダの最近の PDF 一覧（`phone manual-candidates --minutes 30`） |
+| `POST /api/projects/{name}/papers/manual/import` | 手動で取り込む（202・background で `phone manual-import … --file …` → `phone after-download`）。body は「対象のどれか 1 つ」＋ `{"file_name": "paper.pdf"}`。ファイル名は 1〜255 字・`.pdf` で終わる物だけ（パスは受けない） |
+| `POST /api/projects/{name}/papers/manual/upload` | この端末から送った PDF の取り込み（202）。対象はクエリで渡す（`?log_id=3&position=2` / `?import_id=…` / `?cite_paper_id=12&ref_no=3` / `?paper_id=12`）。本文は PDF そのもの（`application/pdf`）。`Content-Type` が違えば 415・`Content-Length` が無いか 104857600 バイト（100MB）を超えれば 413・先頭が `%PDF-` でなければ 400 |
+| `GET /api/projects/{name}/papers/{paper_id:int}/citations` | 引用一覧（読み取りだけ・抜き出す前の論文にも空の形で返る・`phone citations`） |
+| `POST /api/projects/{name}/papers/{paper_id:int}/citations/extract` | 引用を PDF から抜き出す（202・background で `phone citations-extract`。docling を使うので数十秒〜数分かかる）。走っているあいだは `cite:<paper_id>` の仕事として進捗に出る |
 | `GET /api/projects/{name}/papers/project` | 現況・考え・状況のまとめ・要対応（`phone project`） |
 | `POST /api/projects/{name}/papers/project/memo` | mind.md のメモを 1 行足す（body `{"text": "…"}`・`phone mind-append`・本文は標準入力） |
 | `POST /api/projects/{name}/papers/attention/resolve` | 要対応の 1 件を対応済みにする（body `{"key": "…"}`・`phone attention-resolve`） |
 
 - 古い `/api/papers/...` は無い。`{name}` は 3.1 の一覧の名前で，無ければ 404。
-- `import` / `downloads` / `project` / `attention` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
-- 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は `log_id` か `import_id` のどちらか一方・メモは改行なしの 1〜2000 文字・key は 1〜300 文字の 1 行）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
-- Download の状態は `apps/phone` のメモリだけに持つ。`downloading` = PDF を取って登録中、`processing` = 登録済みで後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
+- `import` / `downloads` / `manual/candidates` / `manual/import` / `manual/upload` / `project` / `attention` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ・メモは改行なしの 1〜2000 文字・key は 1〜300 文字の 1 行）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
+- アップロードは `FastAPI` の `UploadFile` を使わず、**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
+- 仕事（`GET …/papers/downloads`）の状態は `apps/phone` のメモリだけに持つ。`downloading` = PDF を取って登録中、`processing` = 登録済みで後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
 - 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。`apps/phone` は release しか叩かない。
 
 ### Radio 中継
@@ -267,6 +273,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/papers/radio` | Radio 一覧 | 論文 | 表示 |
 | `#/paper/<name>/<id>` | 論文情報 | 論文 | 表示 |
 | `#/paper/<name>/<id>/text` | 本文 | 論文 | 表示 |
+| `#/paper/<name>/<id>/cites` | 引用一覧（絞り込み・詳細・引用の抜き出し・手動取り込み） | 論文 | 表示 |
 | `#/papers/log/<name>/<log_id>` | 過去の検索結果 | 論文 | 表示 |
 | `#/papers/log/<name>/<log_id>/<position>` | 未ダウンロード論文の情報 | 論文 | 表示 |
 | `#/radio/<radio_id>` | 再生画面（質問チャット付き） | 論文 | 隠す |
@@ -275,7 +282,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 - 住所に名前がある画面を開いたら，論文タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `sai_phone_papers_project`（localStorage）に覚える。
 - **List のサイドバーの一番上（todo フォルダの上）の「実行［＋］［↻］」の行**で，**＋** は **task.md 作成フォーム**（↻ はツリーの読み直し），**↻** でツリーを読み直す（どちらも住所は付けない一枚・`cardform.js` / `linkview.js`）。手順は 10 画面、書きかけは localStorage（プロジェクトごと）。
 - Project の 4 画面（Dashboard / Workflow / List / 設定）の見出しは，同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）にそろえてある（共通のクラス `.proj-bar`・`style.css`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。上向きの固定は `html, body` の `overflow-x: clip` による（`hidden` にすると `body` がスクロールの箱になって `.appbar` と `.inputbar` の `position: sticky` が効かない）。
-- 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
+- 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js` / `cite.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
   **タブごとのファイルは `app.js` より前**に読み込む。新しい画面は `window.SaiRoutes` に登録する（`app.js` の分岐は増やさない）。
 
 ---
@@ -314,8 +321,8 @@ launchd（`apps/phone/launchd/com.sai-moon.plist`）では `PYTHONPATH`（`apps/
 | **`sai-moon-link phone` の `SAI_PROJECT_ROOT`** | sai-moon-link は `SAI_PROJECT_ROOT`（デーモン起動時に設定された値）を最優先で DB 解決に使う。List の API は cwd = root に加え `control._phone_env` で必ず root を渡している。これを消すと，起動元の環境によっては**全プロジェクトが同じ DB を開いてしまう**（ツリーが全部同じになる） |
 | **Radio の論文 ID は英数字** | ID は「論文 ID（`<root のフォルダ名>-<番号>`・例 `sai-moon-30`）」と「apps/radio が作った音声（12 桁の 16 進・`demo001` 等）」の両方がある。数字だけと当て込むと壊れる。判定は `radio.js` の `isRadioPaperId` |
 | **長すぎる論文は音声化できない** | apps/radio が論文全文をそのまま LLM に 1 回で渡す（`llm.py`）ため、約 13 万トークンを超える論文は文脈上限で失敗する（**apps/radio 側の制限**）。`apps/phone` / `sai-moon-paper` 側に分割処理はない |
-| **FastAPI の登録順** | 固定パス（`library` `tree` `providers` `search` `logs/{log_id}`）を `/api/projects/{name}/papers/{paper_id:int}` より前に登録しないと 404 / 400 になる。順番を変えたら curl で一覧を確かめる |
-| **`sw.js` の `CACHE`** | 版（今は `sai-phone-v28`）を上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。音声の倉庫 `sai-phone-radio-audio` は別物なので消さない |
+| **FastAPI の登録順** | 固定パス（`library` `tree` `providers` `search` `logs/{log_id}` `manual/candidates` `manual/import` `manual/upload`）を `/api/projects/{name}/papers/{paper_id:int}` より前に登録しないと 404 / 400 になる。順番を変えたら curl で一覧を確かめる |
+| **`sw.js` の `CACHE`** | 版（今は `sai-phone-v30`）を上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。音声の倉庫 `sai-phone-radio-audio` は別物なので消さない |
 | **launchd の PATH** | plist に `PATH` が無いとプロジェクトタブ全部が 503（「`sai-moon-link` が見つかりません」）になる |
 | **常駐・実行を動かす操作** | 常駐の起動停止・todo 実行・音声化の依頼は実際にエージェントや生成を動かす。確認は `--help` と不正値で行う |
 | **旧構成の 8100 番・8000 番は触らない** | 旧 sai-phone と旧 sai-radio は別のプロセスで動いている。sai-moon の確認で再起動しないこと |

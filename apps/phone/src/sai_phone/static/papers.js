@@ -2060,6 +2060,17 @@ function renderRemote(target) {
       void pimStartLogDownload(remoteView.name, remoteView.logId, remoteView.position, item.title || "論文");
     }, "primary");
     actions.appendChild(dl);
+    // 取りに行けないときは自分で保存した PDF を入れられるようにする（U05 §5）
+    if (typeof pimOpenManual === "function") {
+      actions.appendChild(paperBtn("手動で取り込む", () => {
+        void pimOpenManual({
+          name: remoteView.name,
+          target: { log_id: remoteView.logId, position: remoteView.position },
+          title: item.title || "論文",
+          siteUrl: item.doi ? doiUrl(item.doi) : "",
+        });
+      }));
+    }
     guide.appendChild(actions);
     guide.appendChild(
       el("p", "paper-msg", "PDF を取りに行って Library に保存します。数分かかることがあります。")
@@ -2213,6 +2224,19 @@ function renderPaper(target) {
   if (files.extract) {
     actions.appendChild(
       paperBtn("本文", () => { location.hash = paperHash(paperProject, paperIdNum, true); })
+    );
+  }
+  // PDF が無い論文は、保存した PDF を手で取り込めるようにする（U05 §5）
+  if (!files.pdf && typeof pimOpenManual === "function") {
+    actions.appendChild(
+      paperBtn("PDF を手動で取り込む", () => {
+        void pimOpenManual({
+          name: paperProject,
+          target: { paper_id: paperIdNum },
+          title: p.title || "論文",
+          siteUrl: p.doi ? doiUrl(p.doi) : "",
+        });
+      })
     );
   }
   if (actions.childElementCount) body.appendChild(actions);
@@ -2454,12 +2478,21 @@ function figuresCard() {
   return card;
 }
 
-// 6. 引用文献カード（最初の 10 件＋「すべて表示」・07 §4.4-6）
+// 6. 引用文献カード（最初の 10 件＋「すべて表示」・07 §4.4-6・U05 §4）
 function refsCard() {
   const refs = (paperData && paperData.refs) || [];
   const card = document.createElement("section");
   card.className = "dash-card paper-card";
-  card.appendChild(el("h3", "dash-card-title", `引用文献（${refs.length}）`));
+  const head = el("div", "dash-card-head");
+  head.appendChild(el("h3", "dash-card-title", `引用文献（${refs.length}）`));
+  // 引用一覧の画面（#/paper/<name>/<id>/cites）への入口（U05 §4）。
+  // ここに出ているのはBibTeX で入った引用だけなので、全部は引用一覧の画面（cite.js）にある。
+  if (paperProject && paperIdNum != null && typeof ctHash === "function") {
+    head.appendChild(paperBtn("引用一覧を開く ›", () => {
+      location.hash = ctHash(paperProject, paperIdNum);
+    }));
+  }
+  card.appendChild(head);
   if (refs.length === 0) {
     card.appendChild(el("p", "lib-empty", "引用文献は取り出されていません"));
     return card;
