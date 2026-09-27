@@ -655,6 +655,11 @@ DOWNLOAD_TIMEOUT = 300.0
 AFTER_DOWNLOAD_TIMEOUT = 2000.0
 # 終わった Download の仕事を一覧に残す秒数（30 分）
 _DOWNLOAD_KEEP = 1800.0
+# Download の仕事の段（0 = PDF取得, 1 = 図抽出, 2 = 翻訳, 3 = 完了）。
+# 段の名前は画面（paperimport.js）と共有する。
+DOWNLOAD_STEPS = ["PDF取得", "図抽出", "翻訳"]
+# 仕事のログに残す行数の上限（古いものから捨てる）
+DOWNLOAD_MESSAGE_KEEP = 50
 
 # 今の Download の仕事（(プロジェクト名, 仕事のキー) → 仕事の dict）。
 # 状態は sai-phone のメモリだけに持つ（音声化と同じ作り・再起動しても論文は sai-paper に残る）。
@@ -792,7 +797,41 @@ def _finish_download(job: dict, status: str, error: str | None = None) -> None:
     job["status"] = status
     job["error"] = error
     job["finished_at"] = _now_iso()
+    # 終わったので 100%。失敗のときはそのときのまま残す（どこまで来たかが分かるように）。
+    if status == "done":
+        job["step"] = len(DOWNLOAD_STEPS)
+        job["percent"] = 100
     job["_done_at"] = time.monotonic()
+
+
+def apply_progress_line(job: dict, line: str) -> bool:
+    """`sai-paper` の標準エラーの 1 行を仕事の進み具合へ反映する（`sai-progress …` だけ True）。
+
+    受け付ける 2 つの形:
+    - `sai-progress step=<n>`: 段を進める（% は段から作る。0/33/66/100）
+    - `sai-progress msg=<文>`: ログを 1 行足す（最大 50 行）
+
+    それ以外の行は進捗ではなく `False`（呼び出し側は通常のログとして出す）。
+    """
+    text = str(line or "").strip()
+    if text.startswith("sai-progress step="):
+        raw = text[len("sai-progress step=") :].strip()
+        try:
+            step = int(raw)
+        except ValueError:
+            return False
+        # 段の番号は 0..len(DOWNLOAD_STEPS) に収める（越えた数字は端の段にする）。
+        step = max(0, min(step, len(DOWNLOAD_STEPS)))
+        job["step"] = step
+        job["percent"] = step * 100 // len(DOWNLOAD_STEPS)
+        return True
+    if text.startswith("sai-progress msg="):
+        message = text[len("sai-progress msg=") :]
+        messages = list(job.get("messages") or [])
+        messages.append(message)
+        job["messages"] = messages[-DOWNLOAD_MESSAGE_KEEP:]
+        return True
+    return False
 
 
 async def request_download(project: dict, payload) -> dict:
@@ -814,6 +853,11 @@ async def request_download(project: dict, payload) -> dict:
         "error": None,
         "started_at": _now_iso(),
         "finished_at": None,
+        # 進み具合（段の定義は DOWNLOAD_STEPS・% は段から作る）
+        "steps": list(DOWNLOAD_STEPS),
+        "step": 0,
+        "percent": 0,
+        "messages": [],
     }
     _download_jobs[(name, key)] = job
     job["_task"] = asyncio.create_task(_download_job(project, key, args, title, job))
@@ -855,6 +899,51 @@ async def _run_paper_command(
             f"{stderr.decode('utf-8', 'replace')[:300]}"
         )
     return proc.returncode or 0, stdout, ""
+
+
+async def _run_paper_command_lines(
+    root: str, args: list[str], timeout: float, on_line
+) -> tuple[int, bytes, str]:
+    """`_run_paper_command` と同じ作りだが、標準エラーを 1 行ずつ `on_line` に渡す。
+
+    `phone after-download` は図の抽出と PDF の翻訳で数分かかることがあるため、
+    待つあいだの標準エラー（`sai-progress step=…` / `sai-progress msg=…`）を
+    途中で受け取る。標準出力は終わってから読む。
+    返り値と時間切れの扱いは `_run_paper_command` と同じ。
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            settings.sai_paper_bin,
+            *args,
+            cwd=root,
+            env={**os.environ, "SAI_PAPER_ROOT": root},
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except (FileNotFoundError, OSError) as e:
+        logger.warning(f"sai-paper を起動できません: {e}")
+        return -1, b"", "sai-paper が見つかりません"
+
+    async def run() -> tuple[int, bytes]:
+        while True:
+            raw = await proc.stderr.readline()
+            if not raw:
+                break
+            on_line(raw.decode("utf-8", "replace").rstrip("\r\n"))
+        stdout = await proc.stdout.read()
+        await proc.wait()
+        return proc.returncode or 0, stdout
+
+    try:
+        code, stdout = await asyncio.wait_for(run(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except Exception:
+            pass
+        return -2, b"", "時間内に終わりませんでした"
+    return code, stdout, ""
 
 
 async def _download_job(
@@ -905,10 +994,25 @@ async def _download_job(
         # 登録できたので、まず「保存した」と知らせる（その間が processing）
         job["paper_id"] = paper_id
         job["status"] = "processing"
+        # PDF は取れたので「図の抽出」の段から
+        job["step"] = 1
+        job["percent"] = 1 * 100 // len(DOWNLOAD_STEPS)
         notify.broadcast("📄 論文を保存しました", title, f"/#/paper/{name}/{paper_id}")
+
+        def on_line(line: str) -> None:
+            """`sai-paper` の標準エラーの 1 行を受け取る（進捗以外はログに）。"""
+            if apply_progress_line(job, line):
+                return
+            text = str(line or "").strip()
+            if text:
+                logger.info(f"論文の後処理: {text[:200]}")
+
         # 続けて自動処理（図の抽出と PDF の翻訳）。失敗しても論文は入っているので done にする。
-        code2, stdout2, reason2 = await _run_paper_command(
-            root, ["phone", "after-download", str(paper_id)], AFTER_DOWNLOAD_TIMEOUT
+        code2, stdout2, reason2 = await _run_paper_command_lines(
+            root,
+            ["phone", "after-download", str(paper_id)],
+            AFTER_DOWNLOAD_TIMEOUT,
+            on_line,
         )
         if reason2:
             _finish_download(job, "done", error=reason2)
@@ -949,6 +1053,10 @@ def list_downloads(project: dict) -> dict:
                     "error",
                     "started_at",
                     "finished_at",
+                    "steps",
+                    "step",
+                    "percent",
+                    "messages",
                 )
             }
         )

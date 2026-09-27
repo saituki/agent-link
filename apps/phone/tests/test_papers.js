@@ -16,6 +16,9 @@ const {
   migrateTreeFolds,
   migrateDiscoverLast,
   activityHash,
+  papersDbLabel,
+  papersFailedLines,
+  papersAllFailed,
 } = require(path.join(
   __dirname,
   "..",
@@ -210,6 +213,61 @@ function testActivityHash() {
   assert.strictEqual(activityHash(null, "sai-paper"), null);
 }
 
+function testFailedLines() {
+  // 429（混雑）→ 再検索の案内
+  const busy = papersFailedLines([
+    { db: "s2", reason: "search error: invalid S2 response: S2 status 429 (rate limited)" },
+  ]);
+  assert.strictEqual(busy.length, 1, busy);
+  assert.ok(busy[0].startsWith("s2 は混雑していて結果を取れませんでした"), busy[0]);
+  assert.ok(busy[0].includes("もう一度検索"), busy[0]);
+  // 403（キー不行）→ paper.env の案内
+  const key = papersFailedLines([{ db: "s2", reason: "search error: 403 Forbidden" }]);
+  assert.ok(key[0].includes("API キーが使えませんでした"), key[0]);
+  assert.ok(key[0].includes("paper.env"), key[0]);
+  // それ以外 → 理由の先頭 120 字
+  const other = papersFailedLines([{ db: "openalex", reason: "network error: 接続できません" }]);
+  assert.strictEqual(other[0], "openalex で検索できませんでした: network error: 接続できません");
+  // 理由は先頭 120 字まで（文全体はその前置き 19 字 + 120）
+  const long = papersFailedLines([{ db: "arxiv", reason: "x".repeat(300) }]);
+  assert.ok(long[0].length <= 19 + 120, String(long[0].length));
+  // 壊れた値でも止まらない
+  assert.deepStrictEqual(papersFailedLines([]), []);
+  assert.deepStrictEqual(papersFailedLines(null), []);
+  assert.strictEqual(papersFailedLines([null, { db: "", reason: "失敗" }]).length, 1);
+  // 失敗が 2 つなら 2 行
+  const two = papersFailedLines([
+    { db: "s2", reason: "429" },
+    { db: "pubmed", reason: "timeout" },
+  ]);
+  assert.strictEqual(two.length, 2, two);
+}
+
+function testAllFailed() {
+  // 選んだ検索先すべてが失敗したときだけ true（「見つかりません」を出さない）
+  const failed = [{ db: "s2", reason: "429" }];
+  assert.strictEqual(papersAllFailed(failed, "s2"), true);
+  assert.strictEqual(papersAllFailed(failed, "s2,openalex"), false);
+  // 2 つとも失敗なら true
+  assert.strictEqual(
+    papersAllFailed([...failed, { db: "openalex", reason: "403" }], "s2,openalex"),
+    true
+  );
+  // 検索先が分からないときは決めない（通常の「見つかりません」を出す）
+  assert.strictEqual(papersAllFailed(failed, ""), false);
+  assert.strictEqual(papersAllFailed(failed, undefined), false);
+  // 失敗が無ければ false
+  assert.strictEqual(papersAllFailed([], "s2"), false);
+  assert.strictEqual(papersAllFailed(null, "s2"), false);
+}
+
+function testDbLabel() {
+  assert.strictEqual(papersDbLabel("s2"), "s2");
+  assert.strictEqual(papersDbLabel(" openalex "), "openalex");
+  assert.strictEqual(papersDbLabel(""), "検索先");
+  assert.strictEqual(papersDbLabel(null), "検索先");
+}
+
 function main() {
   testActivityHash();
   testAuthorShort();
@@ -217,6 +275,9 @@ function main() {
   testPaperHash();
   testLogHash();
   testSettingsMigration();
+  testFailedLines();
+  testAllFailed();
+  testDbLabel();
   console.log("test_papers: すべて通りました");
 }
 

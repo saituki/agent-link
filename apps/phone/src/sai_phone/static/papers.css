@@ -241,3 +241,116 @@
   .pd-project > .pd-brief { grid-column: 1 / -1; }
 }
 .pim-job-link { font-size: 12px; }
+
+/* --- 主な操作のボタン（.paper-btn.primary） ---
+   .paper-btn の背景（--input-bg）は .dash-card の背景（--bg-soft）に近く、
+   暗い表示では溶けて見えなくなる。主な操作だけを塗りつぶして区別する。 */
+.paper-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 10px 18px;
+}
+/* カードの中のふつうのボタンは、背景と違える（枠で囲う） */
+.dash-card .paper-btn:not(.primary) {
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+/* --- 検索の失敗の帯（Discover・08 §3） --- */
+.papers-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn, #d08700);
+  border-radius: 10px;
+}
+.papers-failed-line { margin: 0; font-size: 14px; line-height: 1.7; }
+
+/* --- 論文タブの切り替え帯の行（帯 + 右端の「進み具合」） ---
+   外側の .papers-seg-row は index.html の枠。ここはその中の 1 行。 */
+.papers-seg-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.papers-seg-bar > .dash-seg { flex: 1 1 0%; min-width: 0; }
+.pim-progress-tab { flex: none; white-space: nowrap; }
+.pim-progress-tab.busy { color: var(--accent); font-weight: 700; }
+/* 狭い画面では「進み具合」を 1 行目に戻して、切り替え帯を横いっぱいに使う */
+@media (max-width: 899px) {
+  .papers-seg-bar > .dash-seg { flex: 1 1 100%; }
+  .pim-progress-tab { margin-left: auto; }
+}
+
+/* --- 進み具合の一枚（paperimport.js） --- */
+.pim-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+}
+.pim-progress-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.pim-progress-card.ok { border-left: 3px solid var(--ok, #2f9e44); }
+.pim-progress-card.danger { border-left: 3px solid var(--danger, #c92a2a); }
+.pim-progress-card.busy { border-left: 3px solid var(--accent); }
+.pim-progress-title,
+.pim-progress-open {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pim-progress-open { color: var(--accent); text-decoration: none; }
+.pim-progress-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.pim-progress-bar {
+  flex: 1 1 auto;
+  height: 10px;
+  background: var(--input-bg);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.pim-progress-fill { height: 100%; background: var(--accent); }
+.pim-progress-percent { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
+.pim-progress-elapsed { font-variant-numeric: tabular-nums; }
+.pim-progress-logs { margin: 0; }
+.pim-progress-log {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  word-break: break-word;
+}
+.pim-progress-more {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+.pim-progress-error { margin: 0; font-size: 12px; line-height: 1.6; color: var(--danger, #c92a2a); }

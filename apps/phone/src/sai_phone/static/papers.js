@@ -926,10 +926,24 @@ function activityRow(item) {
 
 // --- 共通: 上部の切り替え（Discover / Library / Radio・07 §4.1） ---
 
+/**
+ * 論文タブの「進み具合」ボタンを今の数で描き直す
+ * （paperimport.js が状態を読み直したあとに呼ばれる）。
+ */
+function papersRenderProgressButton() {
+  if (typeof pimProgressButton !== "function") return;
+  const old = document.querySelector(".papers-seg-bar .pim-progress-tab");
+  if (!old || !old.parentNode) return;
+  old.parentNode.replaceChild(pimProgressButton(), old);
+}
+
 function fillSegment(containerId, active) {
   const box = document.getElementById(containerId);
   if (!box) return;
   box.innerHTML = "";
+  // 切り替え帯と右端の「進み具合」を行に並べる（帯の外側）
+  const row = document.createElement("div");
+  row.className = "papers-seg-bar";
   const seg = document.createElement("div");
   seg.className = "dash-seg papers-seg"; // 06 の期間切り替えと同じ見た目
   for (const [key, label, hash] of PAPERS_SEG) {
@@ -939,7 +953,10 @@ function fillSegment(containerId, active) {
     b.addEventListener("click", () => { location.hash = hash; });
     seg.appendChild(b);
   }
-  box.appendChild(seg);
+  row.appendChild(seg);
+  // 走っている Download があれば数をつける（paperimport.js が作る）
+  if (typeof pimProgressButton === "function") row.appendChild(pimProgressButton());
+  box.appendChild(row);
 }
 
 // --- 広い画面の「左の一覧 + 右の中身」（U6・狭い画面では作らない） ---
@@ -1060,6 +1077,60 @@ function papersEmpty(icon, title, body, actions) {
     });
     box.appendChild(row);
   }
+  return box;
+}
+
+// --- Discover の検索の失敗（`phone search` の `failed`・08 §3） ---
+
+/** 検索先の表示名（画面の検索先の札は DB ID そのものの名前で出す）。 */
+function papersDbLabel(db) {
+  const text = String(db == null ? "" : db).trim();
+  return text || "検索先";
+}
+
+/**
+ * 検索の失敗（`{"db": "s2", "reason": "…"}` の列）を利用者に見せる 1 行ずつにする。
+ * 理由は 429（混雑）・403（キー不行）・そのほかで分ける。空配列なら空配列。
+ */
+function papersFailedLines(failed) {
+  const list = Array.isArray(failed) ? failed : [];
+  const lines = [];
+  for (const f of list) {
+    if (!f) continue;
+    const name = papersDbLabel(f.db);
+    const reason = String(f.reason || "");
+    if (reason.includes("429")) {
+      lines.push(`${name} は混雑していて結果を取れませんでした。少し待ってから、もう一度検索してください。`);
+    } else if (reason.includes("403")) {
+      lines.push(`${name} の API キーが使えませんでした（~/.sai-moon/paper.env を確かめてください）。`);
+    } else {
+      lines.push(`${name} で検索できませんでした: ${reason.slice(0, 120)}`);
+    }
+  }
+  return lines;
+}
+
+/** 選んだ検索先すべてが失敗したかどうか（「見つかりません」を出さない判定）。 */
+function papersAllFailed(failed, sourceDbs) {
+  const list = Array.isArray(failed) ? failed : [];
+  if (list.length === 0) return false;
+  const tried = String(sourceDbs || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (tried.length === 0) return false;
+  const names = new Set(list.map((f) => papersDbLabel(f && f.db)));
+  return tried.every((db) => names.has(db));
+}
+
+/** 検索の失敗の帯（注意の文と「もう一度検索」ボタン）。 */
+function papersFailedBox(data) {
+  const lines = papersFailedLines(data && data.failed);
+  if (lines.length === 0) return null;
+  const box = document.createElement("div");
+  box.className = "papers-failed";
+  for (const line of lines) box.appendChild(el("p", "papers-failed-line", line));
+  box.appendChild(paperBtn("もう一度検索", () => { void runDiscoverSearch(); }, "primary"));
   return box;
 }
 
@@ -1704,18 +1775,23 @@ function renderDiscover() {
   if (discoverMode === "results" && discoverResult) {
     const data = logCache.get(logCacheKey(discoverResult.name, discoverResult.logId)) || { items: [] };
     const items = Array.isArray(data.items) ? data.items : [];
+    const failedBox = papersFailedBox(data);
+    if (failedBox) box.appendChild(failedBox);
     box.appendChild(
       el("h2", "papers-heading", `“${discoverResult.query}” の結果 ${items.length} 件`)
     );
     if (items.length === 0) {
-      box.appendChild(
-        papersEmpty(
-          "🔍",
-          "見つかりませんでした",
-          "別の言葉で探すか、下の「条件」で検索先や年を変えてみてください。",
-          null
-        )
-      );
+      // 全部の検索先が失敗したときは「見つかりません」と言わない（理由を出して終える）
+      if (!papersAllFailed(data.failed, data.log && data.log.source_dbs)) {
+        box.appendChild(
+          papersEmpty(
+            "🔍",
+            "見つかりませんでした",
+            "別の言葉で探すか、下の「条件」で検索先や年を変えてみてください。",
+            null
+          )
+        );
+      }
       return;
     }
     for (const item of items) box.appendChild(resultRow(item, discoverResult.name, discoverResult.logId));
@@ -1951,6 +2027,10 @@ function renderRemote(target) {
   absCard.className = "dash-card paper-card";
   absCard.appendChild(el("h3", "dash-card-title", "要旨（English）"));
   absCard.appendChild(el("div", "paper-abstract", item.abstract || "要旨がありません"));
+  // 訳は Library に入れた論文にしか作れない（`phone translate <id>` は Library だけ）
+  absCard.appendChild(
+    el("p", "paper-msg", "日本語訳は Library に入れたあとで作れます")
+  );
   body.appendChild(absCard);
 
   // 3. Download（Library なら開くボタン・無ければ「⬇ ダウンロード」・U6）
@@ -1978,7 +2058,7 @@ function renderRemote(target) {
     const actions = el("div", "paper-actions");
     const dl = paperBtn("⬇ ダウンロード", () => {
       void pimStartLogDownload(remoteView.name, remoteView.logId, remoteView.position, item.title || "論文");
-    });
+    }, "primary");
     actions.appendChild(dl);
     guide.appendChild(actions);
     guide.appendChild(
@@ -2085,10 +2165,13 @@ function doiUrl(doi) {
 }
 
 function renderPaper(target) {
-  // target を省略したとき（翻訳・ノートなど）は直前に描いた場所を使う（広い画面の欄でも動く）
-  paperTarget = target || null;
+  // target を省略したとき（翻訳・要旨の言語の切り替え・ノートなど）は
+  // 直前に描いた場所を使う（広い画面の欄でも動く）。
+  // ここで paperTarget を先に消すと、広い画面の欄で描いた論文の描き直しが
+  // 隠れている論文情報の画面に落ちて「切り替わらない」ように見える（07 §4.4）。
   const body = target || paperTarget || document.getElementById("paper-body");
   if (!body) return;
+  paperTarget = target || paperTarget || null;
   body.innerHTML = "";
   if (!paperData) {
     body.appendChild(el("p", "lib-empty", paperError || "読み込み中…"));
@@ -2161,9 +2244,9 @@ function renderPaper(target) {
   body.appendChild(refsCard());
 }
 
-function paperBtn(label, onClick) {
+function paperBtn(label, onClick, cls) {
   const b = document.createElement("button");
-  b.className = "paper-btn";
+  b.className = cls ? `paper-btn ${cls}` : "paper-btn";
   b.textContent = label;
   b.addEventListener("click", onClick);
   return b;
@@ -2779,5 +2862,8 @@ if (typeof module !== "undefined" && module.exports) {
     migrateTreeFolds,
     migrateDiscoverLast,
     activityHash,
+    papersDbLabel,
+    papersFailedLines,
+    papersAllFailed,
   };
 }

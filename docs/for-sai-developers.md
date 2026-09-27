@@ -278,6 +278,8 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 |---|---|---|
 | `phone library` / `phone tree` / `phone paper <id>` / `phone log <id>` / `phone providers` | `papers.py` | `crates/sai-paper-cli/src/phone.rs`（共通化は `crates/sai-paper-core/src/library_tree.rs`） |
 | `phone search <query> [--db …] [--year-from …] [--year-to …] [--limit …] -- <語>` | `papers.build_search_args()` | 同 `phone.rs` |
+| `phone download <log/import の指定>`（**数分かかる**） | `papers._download_job()`（背景・300 秒） | `crates/sai-paper-cli/src/phone_import.rs` |
+| `phone after-download <paper_id>`（**数分かかる。標準エラーを 1 行ずつ読む**） | `papers._run_paper_command_lines()`（背景・2000 秒） | 同（core の `pipeline::after_download`） |
 | `phone translate <id> [--force]` | `papers.translate()` | 同（訳は `sai-paper-core` の translation） |
 | `phone radio <id>`（**数分・終わるまで戻らない**） | `papers._radio_job()`（背景・2000 秒） | 同（core の `podcast_client.rs` → apps/radio `POST /api/papers/from-extract`） |
 | `content paper <id> --json`（既存・本文） | `papers.text()` | `crates/sai-paper-cli/src/content.rs` |
@@ -286,6 +288,11 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 - **cwd と環境変数 `SAI_PAPER_ROOT` は「論文の置き場があるプロジェクト」の root**（`papers.resolve_project(name)` が引く一覧の `root`）を必ず付ける（`.env` の API キーを読ませるため）。iPhone からはパスを受け取らない。
 - 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。
 - 検索語は最後に `--` を置いて渡す（`-` で始まる語を clap がオプションと間違えないため）。
+- `phone search` は失敗した DB を**標準エラー**に（`sai-paper search` と同じ `<db>: <理由>` の 1 行）と、**標準出力の `failed`** へ出す（下記 4.2）。
+- **`phone after-download` の標準エラーは 1 行 = 1 文**にする。`apps/phone` が `readline()` で読む 2 つの形:
+  - `sai-progress step=<n>` — 段。`0 = PDF取得` / `1 = 図抽出` / `2 = 翻訳` / `3 = 完了`。0 と 3 はサーバーが決める（`after-download` は 1 と 2 を知らせる）。
+  - `sai-progress msg=<文>` — ログの 1 行。段落内の改行は空白に置き換える。
+  - 別の形（`warning: …` など）は進捗ではなくサーバーのログに出る。標準出力の JSON は変えない。
 - 共通 API キーは **`~/.sai-moon/paper.env`**（`crates/sai-paper-core/src/paths.rs:152`）。プロジェクトの `.env` より優先順位が低い。
 
 ### 4.2 `apps/phone` が読んでいる JSON の項目
@@ -339,6 +346,7 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 | `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
 | `items[]` | `title` `authors`（**配列**）`year` `journal` `doi` `abstract` `citation_count` | 各種 | 行と詳細の表示 | ― |
 | `items[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の札と行き先 | 未ダウンロード論文の情報画面 |
+| `failed[]`（**`phone search` だけ**。`phone log` には無い） | `db` / `reason` | 文字列 | 検索の失敗の帯。`reason` の 429 は「混雑」、403 は「キーが使えない」 | 帯を出さない |
 
 **`phone providers` → `{"default": [...], "available": [...]}`** — 両方**文字列の配列**。`available` が来ないと検索を始められない（502「検索先を読めませんでした」）。`default` は初期選択。
 
