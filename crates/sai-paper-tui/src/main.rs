@@ -4682,94 +4682,19 @@ async fn apply_download_event(
 }
 
 // ---- 手動 PDF 取り込み（o: ブラウザで開く → ユーザーが DL → i: 取り込み） ----
-
-/// 手動取り込み候補に含める mtime の窓（5 分）。
-const MANUAL_IMPORT_WINDOW: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-
-/// ユーザーのダウンロードディレクトリを解決する。
-/// 優先順位: XDG_DOWNLOAD_DIR 環境変数 → ~/.config/user-dirs.dirs →
-/// $HOME/Downloads → $HOME/ダウンロード（日本語ロケール）。
-fn manual_downloads_dir() -> Option<PathBuf> {
-    let home = terminal_home_directory()?;
-    resolve_download_dir(&home)
-}
-
-/// home 配下で実際に使うダウンロードディレクトリを優先順に解決する（純粋関数）。
-fn resolve_download_dir(home: &Path) -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-
-    // 1. XDG_DOWNLOAD_DIR 環境変数（xdg-user-dirs がログイン時にエクスポートする）
-    if let Ok(raw) = std::env::var("XDG_DOWNLOAD_DIR") {
-        candidates.push(expand_home(&raw, home));
-    }
-
-    // 2. ~/.config/user-dirs.dirs に書かれた XDG_DOWNLOAD_DIR
-    //    このファイルはロケール名（例: 日本語なら ダウンロード）で記録されるため読む必要がある
-    if let Some(from_file) = user_dirs_download_dir(home) {
-        candidates.push(from_file);
-    }
-
-    // 3. 一般的なフォールバック（英語 / 日本語ロケール）
-    candidates.push(home.join("Downloads"));
-    candidates.push(home.join("ダウンロード"));
-
-    // 実在する最初の候補を返す
-    candidates.into_iter().find(|dir| dir.is_dir())
-}
-
-/// "$HOME/..." の形式を home に展開する（絶対パスの場合はそのまま）。
-fn expand_home(raw: &str, home: &Path) -> PathBuf {
-    raw.strip_prefix("$HOME/")
-        .map_or_else(|| home.join(raw), |rest| home.join(rest))
-}
-
-/// ~/.config/user-dirs.dirs から XDG_DOWNLOAD_DIR の値を読み取る。
-fn user_dirs_download_dir(home: &Path) -> Option<PathBuf> {
-    let contents = std::fs::read_to_string(home.join(".config").join("user-dirs.dirs")).ok()?;
-    for line in contents.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix("XDG_DOWNLOAD_DIR=") else {
-            continue;
-        };
-        // クォートを除去して $HOME を展開する
-        let value = rest.trim().trim_matches('"');
-        return Some(expand_home(value, home));
-    }
-    None
-}
-
-/// 指定ディレクトリ直下の PDF のうち mtime が window 以内のものを新しい順で返す。
-fn recent_download_pdfs(dir: &Path, window: std::time::Duration) -> Vec<PathBuf> {
-    let cutoff = std::time::SystemTime::now()
-        .checked_sub(window)
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut items: Vec<(std::time::SystemTime, PathBuf)> = entries
-        .flatten()
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-        })
-        .filter_map(|entry| {
-            let modified = entry.metadata().ok()?.modified().ok()?;
-            (modified >= cutoff).then_some((modified, entry.path()))
-        })
-        .collect();
-    items.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
-    items.into_iter().map(|(_, path)| path).collect()
-}
+// 候補の探し・保存先の決定・登録は core の `manual_import` に置いている
+// （引用 TUI と `sai-paper phone` も同じ関数を使う）。
 
 /// 手動取り込みモーダルを開く（候補収集 + 状態設定）。
 fn apply_open_manual_import(target: ManualImportPaper, app: &mut App) {
-    let Some(dir) = manual_downloads_dir() else {
+    let Some(dir) = papr_core::manual_import::downloads_dir() else {
         app.toast = Some("Download directory not found.".to_owned());
         return;
     };
-    let candidates = recent_download_pdfs(&dir, MANUAL_IMPORT_WINDOW);
+    let candidates = papr_core::manual_import::recent_pdfs(
+        &dir,
+        papr_core::manual_import::TUI_WINDOW,
+    );
     if candidates.is_empty() {
         app.toast = Some(format!(
             "No PDFs added within 5 minutes in {}. Save the PDF there, then press i again.",
@@ -4842,24 +4767,10 @@ async fn apply_confirm_manual_import(
     Ok(())
 }
 
-/// 自動 DL と同じ正規名で衝突しない保存先を決める。
-fn unique_pdf_destination(dir: &Path, title: &str) -> Result<PathBuf> {
-    let base = papr_core::paths::sanitize_download_filename_component(title);
-    let base = if base.is_empty() {
-        "paper".to_owned()
-    } else {
-        base
-    };
-    let mut candidate = dir.join(format!("{base}.pdf"));
-    let mut suffix = 2;
-    while candidate.exists() {
-        candidate = dir.join(format!("{base} ({suffix}).pdf"));
-        suffix += 1;
-    }
-    Ok(candidate)
-}
-
-/// 候補 PDF を検証・移動し、対象論文に紐付ける。
+/// 候補 PDF を検証・移動し、対象論文に紐付けてから TUI だけの後処理を回す。
+///
+/// 検査・移動・登録・出来事までは core の `manual_import::import_pdf` がやる。
+/// ここはプラグインの知らせ・検索履歴への紐付け・自動翻訳・図の抽出だけ。
 async fn import_manual_pdf(
     runtime: &mut Runtime,
     senders: &ActionSenders,
@@ -4867,67 +4778,54 @@ async fn import_manual_pdf(
     source: &Path,
     target: &ManualImportPaper,
 ) -> Result<String> {
-    // %PDF マジック検証（自動 DL と同一の水準）
-    let mut magic = [0_u8; 5];
-    {
-        use std::io::Read;
-        let mut file = std::fs::File::open(source)
-            .with_context(|| format!("failed to open {}", source.display()))?;
-        file.read_exact(&mut magic)
-            .with_context(|| format!("failed to read {}", source.display()))?;
-    }
-    anyhow::ensure!(&magic == b"%PDF-", "not a PDF file: {}", source.display());
-
-    // 移動先は論文フォルダ（段階 2a）。`papers.id` が分かっている Local 取り込みは
-    // 最初から論文フォルダへ移し、既に `paper.pdf` があるときだけ従来どおり
-    // 衝突しない名前（download_dir 直下）を使う（既存 PDF を上書きしない）。
-    let title = match target {
-        ManualImportPaper::Local { title, .. } => title.clone(),
-        ManualImportPaper::Remote(paper) => paper.title.clone(),
-    };
-    let destination = match target {
-        ManualImportPaper::Local { paper_id, .. } => {
-            let folder = papr_core::paths::paper_folder(&runtime.data_dir, *paper_id, &title);
-            let candidate = papr_core::paths::paper_file_path(&folder, "pdf");
-            if candidate.exists() {
-                unique_pdf_destination(&runtime.download_dir, &title)?
-            } else {
-                // 書き込む前に論文フォルダを作る。
-                std::fs::create_dir_all(&folder)?;
-                candidate
+    // core へ渡す取り込み先（TUI の ManualImportPaper → core の ManualTarget）。
+    // Remote の表示名は core が選ぶのと同じ正規名（core の `import_pdf` へ渡す前に見ておく）。
+    let mut label = None;
+    let core_target = match target {
+        ManualImportPaper::Local { paper_id, title } => {
+            papr_core::manual_import::ManualTarget::Local {
+                paper_id: *paper_id,
+                title: title.clone(),
             }
         }
-        ManualImportPaper::Remote(_) => unique_pdf_destination(&runtime.download_dir, &title)?,
+        ManualImportPaper::Remote(paper) => {
+            label = Some(
+                papr_core::manual_import::unique_pdf_destination(
+                    &runtime.download_dir,
+                    &paper.title,
+                )
+                .file_name()
+                .map_or_else(|| "PDF".to_owned(), |name| name.to_string_lossy().into_owned()),
+            );
+            papr_core::manual_import::ManualTarget::Remote(paper.clone())
+        }
     };
-    papr_core::move_pdf_file(source, &destination)
-        .with_context(|| format!("failed to move {}", source.display()))?;
+    let imported = papr_core::manual_import::import_pdf(
+        &mut runtime.database,
+        &runtime.data_dir,
+        &runtime.download_dir,
+        source,
+        &core_target,
+    )
+    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let paper_id = imported.paper_id;
+    let path = imported.path.clone();
 
-    let pdf = LibraryIndexer::inspect(&destination).context("failed to index imported PDF")?;
     match target {
-        ManualImportPaper::Local { paper_id, .. } => {
-            runtime.database.attach_manual_pdf(*paper_id, &pdf)?;
-            runtime
-                .database
-                .record_activity("downloaded", Some(*paper_id), None)?;
+        ManualImportPaper::Local { .. } => {
             dispatch_plugin_events(
                 runtime,
                 app,
                 &["paper_downloaded", "paper_opened"],
-                *paper_id,
+                paper_id,
             )
             .await?;
             // 修正2: Library 保存時に abstract / PDF の自動翻訳を開始
-            auto_translate_after_library_save(runtime, senders, app, *paper_id);
+            auto_translate_after_library_save(runtime, senders, app, paper_id);
             // 図抽出 → PDF 翻訳は 1 本のパイプラインで裏に流す（import を待たせない）。
-            spawn_paper_pipeline(runtime, senders, app, *paper_id, &pdf.path);
+            spawn_paper_pipeline(runtime, senders, app, paper_id, &path);
         }
         ManualImportPaper::Remote(paper) => {
-            let paper_id = runtime
-                .database
-                .attach_download(paper, &pdf, &runtime.data_dir)?;
-            runtime
-                .database
-                .record_activity("downloaded", Some(paper_id), None)?;
             dispatch_plugin_events(
                 runtime,
                 app,
@@ -4948,29 +4846,16 @@ async fn import_manual_pdf(
                 let conn = runtime.database.connection();
                 link_to_discover_log(conn, app, paper, paper_id);
             }
-            // attach_download が移動した後の実パスを DB から取得する。
-            let actual_path = runtime
-                .database
-                .library_paper_by_id(paper_id)
-                .ok()
-                .flatten()
-                .and_then(|p| p.pdf_path)
-                .filter(|s| !s.trim().is_empty());
             // 修正2: Library 保存時に abstract / PDF の自動翻訳を開始
             auto_translate_after_library_save(runtime, senders, app, paper_id);
             // 図抽出 → PDF 翻訳は 1 本のパイプラインで裏に流す（import を待たせない）。
-            if let Some(pdf) = actual_path.as_deref() {
-                spawn_paper_pipeline(runtime, senders, app, paper_id, Path::new(pdf));
-            }
+            spawn_paper_pipeline(runtime, senders, app, paper_id, &path);
         }
     }
     refresh_paper_views(runtime, app)?;
     refresh_dashboard(runtime, app)?;
-    Ok(destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("PDF")
-        .to_owned())
+    // Local は保存先がそのまま残る（ふつうは論文フォルダの paper.pdf）。
+    Ok(label.unwrap_or(imported.file_name))
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
@@ -9525,70 +9410,6 @@ mod tests {
         assert!(app.paper_detail_remote.is_none());
     }
 
-    #[test]
-    fn expand_home_expands_home_prefixed_path_and_keeps_absolute() {
-        let home = PathBuf::from("/home/user");
-        // $HOME/ 前置きは home に展開される
-        assert_eq!(
-            expand_home("$HOME/ダウンロード", &home),
-            PathBuf::from("/home/user/ダウンロード")
-        );
-        // $HOME 前置きなしの相対パスも home に結合する
-        assert_eq!(
-            expand_home("Downloads", &home),
-            PathBuf::from("/home/user/Downloads")
-        );
-        // 絶対パスはそのまま保持される
-        assert_eq!(
-            expand_home("/mnt/data/dl", &home),
-            PathBuf::from("/mnt/data/dl")
-        );
-    }
-
-    #[test]
-    fn user_dirs_download_dir_parses_config_file() {
-        let temp = std::env::temp_dir().join("papr-udd-test");
-        let home = temp.join("home");
-        fs::create_dir_all(home.join(".config")).unwrap();
-        fs::write(
-            home.join(".config").join("user-dirs.dirs"),
-            "XDG_DESKTOP_DIR=\"$HOME/Desktop\"\nXDG_DOWNLOAD_DIR=\"$HOME/ダウンロード\"\n",
-        )
-        .unwrap();
-        assert_eq!(
-            user_dirs_download_dir(&home),
-            Some(home.join("ダウンロード"))
-        );
-        fs::remove_dir_all(&temp).ok();
-    }
-
-    #[test]
-    fn resolve_download_dir_prefers_localized_dir_from_user_dirs() {
-        // 日本語ロケール: user-dirs.dirs に $HOME/ダウンロード が指定され、実在する場合に解決できること
-        // （旧実装は Downloads 固定で、このケースで None を返して失敗していた）
-        let temp = std::env::temp_dir().join("papr-rdd-test");
-        let home = temp.join("home");
-        fs::create_dir_all(home.join(".config")).unwrap();
-        fs::create_dir_all(home.join("ダウンロード")).unwrap(); // 実在する
-        fs::write(
-            home.join(".config").join("user-dirs.dirs"),
-            "XDG_DOWNLOAD_DIR=\"$HOME/ダウンロード\"\n",
-        )
-        .unwrap();
-        assert_eq!(resolve_download_dir(&home), Some(home.join("ダウンロード")));
-        fs::remove_dir_all(&temp).ok();
-    }
-
-    #[test]
-    fn resolve_download_dir_falls_back_to_english_downloads() {
-        // user-dirs.dirs がなく、$HOME/Downloads が実在する場合はそれを解決する
-        let temp = std::env::temp_dir().join("papr-rdd-fallback");
-        let home = temp.join("home");
-        fs::create_dir_all(home.join("Downloads")).unwrap();
-        assert_eq!(resolve_download_dir(&home), Some(home.join("Downloads")));
-        fs::remove_dir_all(&temp).ok();
-    }
-
     use crate::state::*;
     use std::{ffi::OsString, fs, path::PathBuf, thread, time::Duration};
 
@@ -9598,14 +9419,13 @@ mod tests {
     use papr_core::{Database, LibraryPaper, PaperRoots, RemotePaper};
 
     use super::{
-        AgentCard, AgentCardOutcome, ConfigFilesystemWatcher, MANUAL_IMPORT_WINDOW, PaperTarget,
-        ProjectFile, UiAction, apply_create_agent_card_at, apply_search_set_rerun_result_at,
-        attention_set_id, complete_terminal_command, create_agent_card, expand_home, handle_key,
-        handle_manual_import_key, handle_mouse_event, handle_paper_detail_key, is_text_paste_shortcut,
+        AgentCard, AgentCardOutcome, ConfigFilesystemWatcher, PaperTarget, ProjectFile, UiAction,
+        apply_create_agent_card_at, apply_search_set_rerun_result_at, attention_set_id,
+        complete_terminal_command, create_agent_card, handle_key, handle_manual_import_key,
+        handle_mouse_event, handle_paper_detail_key, is_text_paste_shortcut,
         merge_enriched_remote_paper, open_journal_at, paste_text_into_active_input,
-        pdf_viewer_invocation, recent_download_pdfs, record_open_at, report_header_line,
-        resolve_attention_at, resolve_download_dir, run_terminal_command,
-        unique_pdf_destination, user_dirs_download_dir,
+        pdf_viewer_invocation, record_open_at, report_header_line, resolve_attention_at,
+        run_terminal_command,
     };
 
     #[test]
@@ -11013,49 +10833,6 @@ mod tests {
 
         handle_manual_import_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.mode, AppMode::PaperDetail);
-    }
-
-    #[test]
-    fn unique_pdf_destination_appends_conflict_suffix() {
-        let temp_dir = std::env::temp_dir().join(format!("papr-unique-pdf-{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
-        let title = "My Paper: A Study";
-        let first = unique_pdf_destination(&temp_dir, title).expect("first destination");
-        assert_eq!(
-            first.file_name().and_then(|n| n.to_str()),
-            Some("My Paper: A Study.pdf")
-        );
-        std::fs::write(&first, b"x").expect("write existing pdf");
-        let second = unique_pdf_destination(&temp_dir, title).expect("second destination");
-        assert_eq!(
-            second.file_name().and_then(|n| n.to_str()),
-            Some("My Paper: A Study (2).pdf")
-        );
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn recent_download_pdfs_keeps_only_fresh_pdfs() {
-        let temp_dir =
-            std::env::temp_dir().join(format!("papr-recent-pdfs-{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
-        let fresh = temp_dir.join("fresh.pdf");
-        let stale = temp_dir.join("stale.pdf");
-        let ignored = temp_dir.join("notes.txt");
-        std::fs::write(&fresh, b"pdf").expect("write fresh");
-        std::fs::write(&stale, b"pdf").expect("write stale");
-        std::fs::write(&ignored, b"txt").expect("write txt");
-        // stale.pdf の mtime を 10 分前に戻す（窓外）。
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&stale)
-            .and_then(|file| file.set_times(std::fs::FileTimes::new().set_modified(old)))
-            .expect("set stale mtime");
-
-        let candidates = recent_download_pdfs(&temp_dir, MANUAL_IMPORT_WINDOW);
-        assert_eq!(candidates, vec![fresh]);
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]

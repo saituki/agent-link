@@ -16,7 +16,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use sai_paper_core::{Database, LibraryMatchEntry, RemotePaper, S2Client};
+use sai_paper_core::{Database, LibraryMatchEntry, S2Client};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -65,7 +65,6 @@ struct PaperMeta {
     authors: Vec<String>,
     abstract_text: Option<String>,
     doi: Option<String>,
-    arxiv_id: Option<String>,
     pdf_path: Option<String>,
 }
 
@@ -88,6 +87,26 @@ struct SentenceRow {
     sent_no: i32,
     text: String,
     cite_refs: Vec<i32>,
+}
+
+/// 画面の [`RefRow`] を core の引用の行（`citation::db::RefRow`）へ移す。
+///
+/// Library の照合・取り込みの組み立て・サイトの解決は core が持つので、
+/// core へ渡す時は core の型へ戻す。
+fn core_ref_row(row: &RefRow) -> sai_paper_core::citation::db::RefRow {
+    sai_paper_core::citation::db::RefRow {
+        ref_no: i64::from(row.ref_no),
+        first_author: row.first_author.clone(),
+        year: row.year.map(i64::from),
+        journal: row.journal.clone(),
+        title: row.title.clone(),
+        doi: row.doi.clone(),
+        raw_text: row.raw_text.clone(),
+        s2_paper_id: row.s2_paper_id.clone(),
+        s2_title: row.s2_title.clone(),
+        s2_year: row.s2_year.map(i64::from),
+        ..sai_paper_core::citation::db::RefRow::default()
+    }
 }
 
 // ---------- Helpers: core integration (papr.db + S2) ----------
@@ -151,7 +170,6 @@ impl Store {
             authors: m.authors,
             abstract_text: m.abstract_text,
             doi: m.doi,
-            arxiv_id: m.arxiv_id,
             // DB 保存形（相対）を実ファイルパスへ直す（段階 2b）。
             pdf_path: m
                 .pdf_path
@@ -206,23 +224,6 @@ impl Store {
             Err(_) => vec![],
         }
     }
-}
-
-/// DOI → arXiv abs → Semantic Scholar の順で解決する。
-fn paper_site_url(doi: Option<&str>, arxiv_id: Option<&str>, remote_id: &str) -> String {
-    if let Some(d) = doi.map(str::trim).filter(|d| !d.is_empty()) {
-        return format!("https://doi.org/{d}");
-    }
-    if let Some(a) = arxiv_id.map(str::trim).filter(|a| !a.is_empty()) {
-        return format!("https://arxiv.org/abs/{a}");
-    }
-    if let Some(rest) = remote_id.strip_prefix("ArXiv:") {
-        return format!("https://arxiv.org/abs/{rest}");
-    }
-    if remote_id.len() == 40 && remote_id.chars().all(|c| c.is_ascii_hexdigit()) {
-        return format!("https://semanticscholar.org/paper/{remote_id}");
-    }
-    "Not available".to_string()
 }
 
 /// docling Markdown の保存先パス（<db_dir>/extracts/<正規化キー>.md）。
@@ -325,40 +326,20 @@ impl App {
     /// 選択中の引用文献に対応する論文が Library に存在し、
     /// ローカル PDF が実在するかどうか（R5: 緑色表示の判定基準）。
     ///
-    /// 照合方法は Discover と同一（s2_paper_id / DOI / タイトル一致）。
+    /// 照合方法は Discover と同一（s2_paper_id / DOI / タイトル一致）で、
+    /// 決まりは core の `citation::library_match` に 1 か所にある。
     fn in_library(&self, r: &RefRow) -> bool {
-        let ref_title = r
-            .title
-            .as_deref()
-            .or(r.s2_title.as_deref())
-            .map(|t| t.trim().to_lowercase());
-        let ref_doi = r.doi.as_deref().map(str::trim);
-        self.lib_entries.iter().any(|entry| {
-            // 判定基準は「ローカル PDF が実際に存在する論文」（Discover と同じ）
-            if !entry
-                .pdf_path
-                .as_deref()
-                .is_some_and(|path| std::path::Path::new(path).is_file())
-            {
-                return false;
-            }
-            if let (Some(s1), Some(s2_id)) = (&entry.s2_paper_id, &r.s2_paper_id)
-                && s1 == s2_id
-            {
-                return true;
-            }
-            if let (Some(d1), Some(d2)) = (&entry.doi, ref_doi)
-                && d1.eq_ignore_ascii_case(d2)
-            {
-                return true;
-            }
-            if let Some(t2) = ref_title.as_deref()
-                && entry.title.trim().to_lowercase() == t2
-            {
-                return true;
-            }
-            false
-        })
+        self.match_entry(r).is_some()
+    }
+
+    /// 選択中の引用文献に対応する Library の論文（無ければ `None`）。
+    fn match_entry(&self, r: &RefRow) -> Option<&LibraryMatchEntry> {
+        sai_paper_core::citation::library::library_match(
+            &self.lib_entries,
+            r.s2_paper_id.as_deref(),
+            r.doi.as_deref(),
+            r.title.as_deref().or(r.s2_title.as_deref()),
+        )
     }
 
     /// R5: papr.db の papers から Library 照合情報を再読込する。
@@ -426,6 +407,7 @@ fn paper_detail_lines<'a>(
     theme: &Theme,
     sentences_for_ref: &[&SentenceRow],
     data_dir: &std::path::Path,
+    site_url: &str,
 ) -> Vec<Line<'a>> {
     let title = meta.title.clone();
     let authors = if meta.authors.is_empty() {
@@ -475,14 +457,7 @@ fn paper_detail_lines<'a>(
         ]),
         Line::from(vec![
             Span::styled("URL        ", Style::default().fg(theme.muted)),
-            Span::styled(
-                paper_site_url(
-                    meta.doi.as_deref(),
-                    meta.arxiv_id.as_deref(),
-                    &meta.paper_id,
-                ),
-                Style::default().fg(theme.accent),
-            ),
+            Span::styled(site_url.to_owned(), Style::default().fg(theme.accent)),
         ]),
         Line::from(vec![
             Span::styled("PDF        ", Style::default().fg(theme.muted)),
@@ -615,7 +590,6 @@ fn render_app(frame: &mut Frame, app: &mut App) {
                     .unwrap_or_default(),
                 abstract_text: Some(meta_ref.raw_text.clone()),
                 doi: meta_ref.doi.clone(),
-                arxiv_id: None,
                 pdf_path: None,
             };
             let sents: Vec<&SentenceRow> = app
@@ -623,7 +597,10 @@ fn render_app(frame: &mut Frame, app: &mut App) {
                 .iter()
                 .filter(|s| s.cite_refs.contains(&meta_ref.ref_no))
                 .collect();
-            let lines = paper_detail_lines(&ref_meta, theme, &sents, &app.data_dir);
+            // 引用の行のサイトは core の `ref_site_url`（DOI → S2 の ID → 無し）。
+            let site_url = sai_paper_core::citation::library::ref_site_url(&core_ref_row(meta_ref))
+                .unwrap_or_else(|| "Not available".to_owned());
+            let lines = paper_detail_lines(&ref_meta, theme, &sents, &app.data_dir, &site_url);
             let _h = lines.len() as u16;
             let para = Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
@@ -994,7 +971,6 @@ async fn main() -> Result<()> {
             authors: vec![],
             abstract_text: None,
             doi: None,
-            arxiv_id: None,
             pdf_path: None,
         });
     }
@@ -1214,75 +1190,20 @@ fn move_list_selection_down(app: &mut App) {
 }
 
 // ---------- R5: 手動 PDF 取り込み ----------
-
-/// 手動取り込み候補に含める mtime の窓（5 分。Discover と同じ）。
-const MANUAL_IMPORT_WINDOW: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-
-/// ユーザーのダウンロードディレクトリ（ブラウザ保存先）を解決する。
-/// XDG_DOWNLOAD_DIR → ~/.config/user-dirs.dirs → ~/Downloads → ~/ダウンロード。
-fn manual_downloads_dir() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(raw) = std::env::var("XDG_DOWNLOAD_DIR") {
-        candidates.push(
-            raw.strip_prefix("$HOME/")
-                .map_or_else(|| home.join(&raw), |rest| home.join(rest)),
-        );
-    }
-    if let Ok(contents) = std::fs::read_to_string(home.join(".config").join("user-dirs.dirs")) {
-        for line in contents.lines() {
-            let line = line.trim();
-            if let Some(rest) = line.strip_prefix("XDG_DOWNLOAD_DIR=") {
-                let value = rest.trim().trim_matches('"');
-                candidates.push(
-                    value
-                        .strip_prefix("$HOME/")
-                        .map_or_else(|| home.join(value), |r| home.join(r)),
-                );
-                break;
-            }
-        }
-    }
-    candidates.push(home.join("Downloads"));
-    candidates.push(home.join("ダウンロード"));
-    candidates.into_iter().find(|dir| dir.is_dir())
-}
-
-/// 指定ディレクトリ直下の PDF のうち mtime が window 以内のものを新しい順で返す。
-fn recent_download_pdfs(dir: &Path, window: std::time::Duration) -> Vec<PathBuf> {
-    let cutoff = std::time::SystemTime::now()
-        .checked_sub(window)
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut items: Vec<(std::time::SystemTime, PathBuf)> = entries
-        .flatten()
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-        })
-        .filter_map(|entry| {
-            let modified = entry.metadata().ok()?.modified().ok()?;
-            (modified >= cutoff).then_some((modified, entry.path()))
-        })
-        .collect();
-    items.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
-    items.into_iter().map(|(_, path)| path).collect()
-}
+// 候補の探し・保存先の決定・登録は core の `manual_import` に置いている
+// （論文 TUI と `sai-paper phone` も同じ関数を使う）。
 
 /// R5: 手動取り込みモーダルを開く（~/Downloads の直近 5 分の PDF を候補にする）。
 fn start_manual_import(app: &mut App) {
     if app.refs.is_empty() {
         return;
     }
-    let Some(dir) = manual_downloads_dir() else {
+    let Some(dir) = sai_paper_core::manual_import::downloads_dir() else {
         app.status = "ダウンロードディレクトリが見つかりません".to_string();
         return;
     };
-    let candidates = recent_download_pdfs(&dir, MANUAL_IMPORT_WINDOW);
+    let candidates =
+        sai_paper_core::manual_import::recent_pdfs(&dir, sai_paper_core::manual_import::TUI_WINDOW);
     if candidates.is_empty() {
         app.status = format!(
             "{} に直近 5 分以内の PDF がありません。ブラウザで保存してからもう一度 i を押してください",
@@ -1328,23 +1249,6 @@ async fn handle_manual_import_key(app: &mut App, k: crossterm::event::KeyEvent) 
     }
 }
 
-/// 自動 DL と同じ正規名で衝突しない保存先を決める。
-fn unique_pdf_destination(dir: &Path, title: &str) -> Result<PathBuf> {
-    let base = sai_paper_core::sanitize_download_filename_component(title);
-    let base = if base.is_empty() {
-        "paper".to_owned()
-    } else {
-        base
-    };
-    let mut candidate = dir.join(format!("{base}.pdf"));
-    let mut suffix = 2;
-    while candidate.exists() {
-        candidate = dir.join(format!("{base} ({suffix}).pdf"));
-        suffix += 1;
-    }
-    Ok(candidate)
-}
-
 /// ライブラリの正規ディレクトリ（`<project>/papers/`）を解決する。
 fn library_dir() -> Option<PathBuf> {
     sai_paper_core::Paths::discover()
@@ -1354,53 +1258,17 @@ fn library_dir() -> Option<PathBuf> {
 
 /// R5: 候補 PDF を検証・移動し、選択中の引用文献を論文として Library に登録する。
 ///
-/// Discover の `i`（手動 PDF 取り込み）と同じ流れ:
-/// %PDF マジック検証 → `<project>/papers/` へ正規名で移動 →
-/// `Database::attach_download` で papers テーブルに紐付け。
+/// 対象論文の組み立てと登録は core（`citation::ref_remote_paper` と
+/// `manual_import::import_pdf`）。ここは画面への出し方だけを持つ。
 async fn confirm_manual_import(app: &mut App, source: &Path) {
-    let Some(r) = app.refs.get(app.selected) else {
+    let Some(r) = app.refs.get(app.selected).cloned() else {
         return;
     };
-    // %PDF マジック検証（自動 DL と同一の水準）
-    let mut magic = [0_u8; 5];
-    match std::fs::File::open(source) {
-        Ok(mut file) => {
-            use std::io::Read;
-            if let Err(e) = file.read_exact(&mut magic) {
-                app.status = format!("import failed: {e}");
-                return;
-            }
-        }
-        Err(e) => {
-            app.status = format!("import failed: {e}");
-            return;
-        }
-    }
-    if &magic != b"%PDF-" {
-        app.status = format!("not a PDF file: {}", source.display());
-        return;
-    }
-    // 登録用 ID（S2 paperId → DOI の優先順。無い場合は登録不可）
-    let direct_id = r.s2_paper_id.clone().or_else(|| {
-        r.doi
-            .clone()
-            .map(|d| d.trim().to_string())
-            .filter(|d| !d.is_empty())
-            .map(|d| format!("DOI:{d}"))
-    });
-    let Some(id) = direct_id else {
+    // 登録用 ID（S2 paperId → DOI の優先順。無い場合は登録不可）。
+    let Some(remote) = sai_paper_core::citation::library::ref_remote_paper(&core_ref_row(&r))
+    else {
         app.status =
             "import requires S2 paperId or DOI (この引用文献は手動登録できません)".to_string();
-        return;
-    };
-    let Some(title) = r
-        .s2_title
-        .clone()
-        .or_else(|| r.title.clone())
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
-    else {
-        app.status = "import requires a title".to_string();
         return;
     };
     let Some(dir) = library_dir() else {
@@ -1411,68 +1279,28 @@ async fn confirm_manual_import(app: &mut App, source: &Path) {
         app.status = format!("import failed: {e}");
         return;
     }
-    let destination = match unique_pdf_destination(&dir, &title) {
-        Ok(dest) => dest,
-        Err(e) => {
-            app.status = format!("import failed: {e}");
-            return;
-        }
-    };
-    if let Err(e) = sai_paper_core::move_pdf_file(source, &destination) {
-        app.status = format!("import failed: {e}");
+    let Ok(paths) = sai_paper_core::Paths::discover() else {
+        app.status = "import failed: プロジェクトが見つかりません".to_string();
         return;
-    }
-    let pdf = match sai_paper_core::LibraryIndexer::inspect(&destination) {
-        Ok(pdf) => pdf,
-        Err(e) => {
-            app.status = format!("import failed (inspect): {e}");
-            return;
+    };
+    let data_dir = paths.data_dir();
+    let Some(db) = app.db.as_mut() else {
+        app.status = "papr.db が開けないため登録できません".to_string();
+        return;
+    };
+    // 表示は core が選ぶのと同じ正規名（core の `import_pdf` へ渡す前に見ておく）。
+    let label = sai_paper_core::manual_import::unique_pdf_destination(&dir, &remote.title)
+        .file_name()
+        .map_or_else(|| "PDF".to_owned(), |name| name.to_string_lossy().into_owned());
+    // %PDF 検査 → 移動 → Library への登録 → 出来事の記録 までが core の処理。
+    let target = sai_paper_core::manual_import::ManualTarget::Remote(remote);
+    match sai_paper_core::manual_import::import_pdf(db, &data_dir, &dir, source, &target) {
+        Ok(_imported) => {
+            // 緑色表示を最新化する
+            app.refresh_lib_entries();
+            app.status = format!("imported: {label} — Library に登録しました");
         }
-    };
-    let remote = RemotePaper {
-        id,
-        title: title.clone(),
-        authors: r.first_author.clone().map(|a| vec![a]).unwrap_or_default(),
-        abstract_text: String::new(),
-        published: {
-            let year = r.year.or(r.s2_year).unwrap_or(2000);
-            chrono::NaiveDate::from_ymd_opt(year, 1, 1)
-                .unwrap_or_default()
-                .and_hms_opt(0, 0, 0)
-                .unwrap_or_default()
-                .and_utc()
-        },
-        updated: chrono::Utc::now(),
-        categories: vec![],
-        pdf_url: None,
-        doi: r.doi.clone(),
-        journal_ref: r.journal.clone(),
-        citation_count: None,
-    };
-    // 置き場（論文フォルダ）は attach_download 内の paths::paper_folder が決める。
-    let data_dir = match sai_paper_core::Paths::discover() {
-        Ok(paths) => paths.data_dir(),
-        Err(e) => {
-            app.status = format!("import failed: {e}");
-            return;
-        }
-    };
-    match app.db.as_mut() {
-        Some(db) => match db.attach_download(&remote, &pdf, &data_dir) {
-            Ok(_paper_id) => {
-                // 緑色表示を最新化する
-                app.refresh_lib_entries();
-                app.status = format!(
-                    "imported: {} — Library に登録しました",
-                    destination
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("PDF")
-                );
-            }
-            Err(e) => app.status = format!("import failed (db): {e}"),
-        },
-        None => app.status = "papr.db が開けないため登録できません".to_string(),
+        Err(e) => app.status = format!("import failed: {e}"),
     }
 }
 
