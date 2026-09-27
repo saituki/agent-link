@@ -710,6 +710,17 @@ def api_home(_: None = Depends(require_token)) -> dict:
     return home.build_home()
 
 
+@app.get("/api/home/overview")
+def api_home_overview(period: str = "week", _: None = Depends(require_token)) -> dict:
+    """全プロジェクトの合計のダッシュボード（U02 §1・`period` は week / month / all）。
+
+    `/api/home` とは別の住所にしてある。`/api/home` は 15 秒ごとに読み直すので、
+    期間を変えて読み直すものと混ぜない（画面の「今週 / 今月 / 全期間」の切り替え）。
+    CLI（各プロジェクトの `phone dashboard`）を待つので `def` で書く。
+    """
+    return home.build_overview(period)
+
+
 # --- Papers タブ（計画 07・Discover は 08・プロジェクト付きの住所は 17 §3.4） ---
 # 「論文の置き場があるプロジェクト」（17 §3.1）の名前付き住所。古い /api/papers/... は消した（17 §3.4）。
 # 住所から root は 1 度だけ引く（papers.resolve_project・プロジェクト一覧を何度も呼ばない・17 §3.2）。

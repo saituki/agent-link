@@ -5,7 +5,8 @@
 /* 中身の入れ物。広い画面では 2 列に並べる */
 .hm-body {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr) にしないと、長い行が下限になり横にはみ出す（iPhone・U02 §3） */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4) var(--sp-6);
   max-width: 1200px;
@@ -17,10 +18,48 @@
   .hm-body { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
   /* カードの中身が縦に伸びても隣の列を押し下げないよう、各列で分ける */
   .hm-card { break-inside: avoid; }
+  /* 合計だけは横いっぱいに出す（週の棒グラフと数字 4 つを横に並べたい） */
+  .hm-overview { grid-column: 1 / -1; }
+}
+
+/* 1. 全プロジェクトの合計（U02 §3-1） */
+.hm-overview { gap: var(--sp-2); }
+.hm-overview .dash-grid { margin-top: 4px; }
+.hm-overview .dash-sub { margin-top: 10px; }
+/* カードが横いっぱいになると棒が viewBox の比率で長く伸びるので幅を絞る */
+.hm-overview .dash-chart { margin: 4px auto 0; max-width: 460px; }
+
+/* 1 行の右に出るプロジェクト名 */
+.hm-where {
+  color: var(--text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 40%;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* カードの中の 1 行だけの案内（0 件のときに使う） */
+.hm-note {
+  margin: 0;
+  padding: 8px 0 4px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.hm-note.warn { color: var(--danger); }
+
+/* 「すべて表示（N）」のボタン */
+.hm-more {
+  align-self: flex-start;
+  margin-top: var(--sp-2);
+  font-size: 13px;
+  padding: 7px 14px;
 }
 
 /* カード 1 枚（見出しの行） */
-.hm-card { display: flex; flex-direction: column; gap: 2px; }
+.hm-card { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .hm-card-head {
   display: flex;
   align-items: center;

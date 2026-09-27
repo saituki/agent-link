@@ -24,13 +24,61 @@ const SAMPLE = {
       last_executed_at: "2026-09-26 10:12:03",
       review: [{ run_id: 54, label: "ID54/👷 worker" }],
       todo: 2,
+      todo_runs: [
+        { run_id: 56, label: "ID56/kantoku" },
+        { run_id: 57, label: "ID57/👷 worker" },
+      ],
     },
-    { name: "sai-old", daemon_alive: false, running: 0, review: [], todo: 3 },
+    { name: "sai-old", daemon_alive: false, running: 0, review: [], todo: 3, todo_runs: [{ run_id: 60 }] },
   ],
   papers: [
     { name: "sai-paper", attention: 5, items: [{ key: "question:41:x", kind: "question", title: "この論文は?" }] },
   ],
   errors: ["sai-old: sai-link が失敗しました"],
+};
+
+// GET /api/home/overview の返答そのままの形
+const OVERVIEW = {
+  period: "week",
+  since: "2026-09-21",
+  until: "2026-09-27",
+  projects: 2,
+  summary: {
+    executions: 12,
+    completed: 10,
+    failed: 1,
+    running: 1,
+    success_rate: 0.83,
+    duration_ms: 3600000,
+    tokens_total: 1234567,
+    cost_usd: 3.21,
+  },
+  daily: [
+    { date: "2026-09-21", executions: 3, tokens: 120000 },
+    { date: "2026-09-22", executions: 0, tokens: 0 },
+    { date: "2026-09-23", executions: 9, tokens: 1114567 },
+  ],
+  recent: [
+    {
+      project: "sai-moon",
+      run_id: 42,
+      block: "worker",
+      status: "completed",
+      started_at: "2026-09-27 10:28:21",
+      description: "U02 ホーム",
+      linkable: true,
+    },
+    {
+      project: "sai-old",
+      run_id: 41,
+      block: "plan",
+      status: "failed",
+      started_at: "2026-09-26 09:00:00",
+      description: "",
+      linkable: false,
+    },
+  ],
+  errors: [],
 };
 
 const keys = (data) => H.hmSections(data).map((s) => s.key);
@@ -40,7 +88,7 @@ function testSectionOrder() {
   assert.deepStrictEqual(keys(SAMPLE), ["wait", "review", "running", "daemon", "papers", "errors"]);
   const byKey = {};
   for (const s of H.hmSections(SAMPLE)) byKey[s.key] = s;
-  assert.strictEqual(byKey.wait.title, "答えを待っています");
+  assert.strictEqual(byKey.wait.title, "質問がある会話");
   assert.strictEqual(byKey.review.title, "確認を待っています");
   assert.strictEqual(byKey.running.title, "動いています");
   assert.strictEqual(byKey.daemon.title, "止まっている常駐");
@@ -172,6 +220,133 @@ function testInterval() {
   assert.strictEqual(H.HM_INTERVAL_MS, 15000);
 }
 
+// --- 合計のダッシュボード（U02 §3） ---
+
+// 大きな数字 4 つ（実行数・成功率・トークン・料金）
+function testOverviewCards() {
+  const cards = H.hmOverviewCards(OVERVIEW);
+  assert.deepStrictEqual(
+    cards.map((c) => c.label),
+    ["実行", "成功率", "トークン", "料金"]
+  );
+  assert.strictEqual(cards[0].value, "12 回");
+  assert.strictEqual(cards[1].value, "83%");
+  assert.strictEqual(cards[2].value, "1.2M");
+  assert.strictEqual(cards[3].value, "$3.21");
+  // 合計が読めてないとき（0 件でもカードを出すので）
+  const zero = H.hmOverviewCards(null);
+  assert.deepStrictEqual(zero.map((c) => c.value), ["0 回", "0%", "0", "$0.00"]);
+  // 補足（プロジェクト数・期間・読めなかった件数）
+  assert.strictEqual(H.hmOverviewNote(OVERVIEW), "2 プロジェクトの合計・2026-09-21〜2026-09-27");
+  assert.strictEqual(
+    H.hmOverviewNote({ projects: 0, since: null, until: null, errors: ["a: 失敗"] }),
+    "0 プロジェクトの合計・一部のプロジェクトを読めませんでした（1）"
+  );
+}
+
+// 期間の切り替え（week / month / all。覚えていなければ week）
+function testPeriod() {
+  const store = {};
+  global.localStorage = {
+    getItem: (k) => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+  };
+  assert.strictEqual(H.HM_PERIOD_KEY, "sai_phone_home_period");
+  assert.deepStrictEqual(
+    H.HM_PERIODS,
+    [["week", "今週"], ["month", "今月"], ["all", "全期間"]]
+  );
+  assert.strictEqual(H.hmPeriodValue(), "week", "覚えていなければ week");
+  H.hmSavePeriod("month");
+  assert.strictEqual(H.hmPeriodValue(), "month");
+  H.hmSavePeriod("all");
+  assert.strictEqual(H.hmPeriodValue(), "all");
+  H.hmSavePeriod("bad"); // 知らない値は覚えない
+  assert.strictEqual(H.hmPeriodValue(), "all");
+  store[H.HM_PERIOD_KEY] = "broken";
+  assert.strictEqual(H.hmPeriodValue(), "week", "壊れた値は week に戻す");
+  delete global.localStorage;
+  assert.strictEqual(H.hmPeriodValue(), "week", "localStorage が無くても week");
+}
+
+// todo の行（label とプロジェクト名・List の task への行き先）
+function testTodoItems() {
+  const items = H.hmTodoItems(SAMPLE);
+  assert.strictEqual(items.length, 3, items);
+  assert.deepStrictEqual(items[0], {
+    title: "ID56/kantoku",
+    where: "sai-phone",
+    hash: "#/project/sai-phone/list/56/task",
+  });
+  assert.strictEqual(items[2].hash, "#/project/sai-old/list/60/task");
+  // label が無い行は ID<run_id> を出す
+  const noLabel = H.hmTodoItems({ projects: [{ name: "p", todo_runs: [{ run_id: 7 }] }] });
+  assert.strictEqual(noLabel[0].title, "ID7");
+  // todo_runs が無い（古い /api/home でも）ときは 0 件
+  assert.deepStrictEqual(H.hmTodoItems({ projects: [{ name: "p", todo: 3 }] }), []);
+  assert.deepStrictEqual(H.hmTodoItems(null), []);
+  assert.strictEqual(H.HM_TODO_MAX, 10, "はじめは 10 件");
+}
+
+// 最近のアクティビティの行（状態の印・時刻・書き出しの有無で行き先が変わる）
+function testRecentItems() {
+  const items = H.hmRecentItems(OVERVIEW);
+  assert.strictEqual(items.length, 2, items);
+  assert.strictEqual(items[0].title, "#42 worker ✓");
+  assert.strictEqual(items[0].sub, "U02 ホーム");
+  assert.strictEqual(items[0].where, "sai-moon");
+  assert.ok(items[0].ago, "時刻が出る");
+  assert.strictEqual(items[0].hash, "#/run/sai-moon/42", "書き出しがあれば会話画面");
+  // 書き出しが無い実行は List へ
+  assert.strictEqual(items[1].title, "#41 plan ✗");
+  assert.strictEqual(items[1].hash, "#/project/sai-old/list/41");
+  // 状態の印（project.js の recentRow と同じ）
+  const marks = [
+    ["completed", "✓"],
+    ["running", "●"],
+    ["failed", "✗"],
+    ["cancelled", "✗"],
+  ];
+  for (const [status, mark] of marks) {
+    const one = H.hmRecentItems({ recent: [{ project: "p", run_id: 1, status }] });
+    assert.strictEqual(one[0].title, `#1 ${mark}`, status);
+  }
+  // 0 件でも 0 行になる（カードはまだ出す）
+  assert.deepStrictEqual(H.hmRecentItems({ recent: [] }), []);
+  assert.deepStrictEqual(H.hmRecentItems(null), []);
+  assert.strictEqual(H.HM_RECENT_MAX, 10, "はじめは 10 件");
+  assert.strictEqual(H.HM_RECENT_ALL, 20, "すべて表示しても 20 件まで");
+}
+
+// 質問・承認の行（待ちのカードで 0 件でも出すので、行だけ外に出す）
+function testWaitItems() {
+  const items = H.hmWaitItems(SAMPLE);
+  assert.strictEqual(items.length, 2, items);
+  assert.strictEqual(items[0].kind, "question");
+  assert.strictEqual(items[1].kind, "approval");
+  assert.deepStrictEqual(H.hmWaitItems({ questions: [], approvals: [] }), []);
+  assert.deepStrictEqual(H.hmWaitItems(null), []);
+}
+
+// 日ごとのグラフの横軸（project.js の axisLabels と同じ規則）
+function testAxisLabels() {
+  const week = [
+    { date: "2026-09-21" },
+    { date: "2026-09-22" },
+    { date: "2026-09-23" },
+  ];
+  assert.deepStrictEqual(H.hmAxisLabels("week", week), ["月", "火", "水"]);
+  assert.deepStrictEqual(H.hmAxisLabels("month", week), ["", "", ""], "1・5・10…の日はだけ出す");
+  assert.deepStrictEqual(
+    H.hmAxisLabels("month", [{ date: "2026-09-01" }, { date: "2026-09-05" }, { date: "2026-09-10" }]),
+    ["1", "5", "10"]
+  );
+  const many = Array.from({ length: 30 }, (_, i) => ({ date: `2026-08-${String(i + 1).padStart(2, "0")}` }));
+  const all = H.hmAxisLabels("all", many);
+  assert.ok(all.filter(Boolean).length <= 8, "棒が多すぎるときは間能干して出す");
+  assert.deepStrictEqual(H.hmAxisLabels("week", []), []);
+}
+
 function main() {
   testSectionOrder();
   testEmptySectionsOmitted();
@@ -183,6 +358,12 @@ function main() {
   testAgo();
   testEmptyKind();
   testInterval();
+  testOverviewCards();
+  testPeriod();
+  testTodoItems();
+  testRecentItems();
+  testWaitItems();
+  testAxisLabels();
   console.log("test_home: すべて通りました");
 }
 
