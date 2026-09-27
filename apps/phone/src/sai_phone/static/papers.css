@@ -354,3 +354,142 @@
   cursor: pointer;
 }
 .pim-progress-error { margin: 0; font-size: 12px; line-height: 1.6; color: var(--danger, #c92a2a); }
+
+/* --- 引用一覧の画面（cite.js・U05 §4） --- */
+.cites-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-6);
+}
+.ct-filter-box { display: flex; align-items: center; gap: var(--sp-2); }
+.ct-filter { flex: 1 1 auto; width: auto; min-width: 0; }
+.ct-count { flex: none; margin: 0; font-size: 13px; color: var(--text-soft); white-space: nowrap; }
+
+.ct-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ct-row {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  overflow: hidden;
+}
+.ct-row.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.ct-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.ct-line1 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.ct-no { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; font-size: 13px; }
+/* Library にある引用の印（緑） */
+.ct-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok, #2f9e44);
+  transform: translateY(-1px);
+}
+.ct-title { flex: 1 1 100%; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.ct-meta { font-size: 13px; line-height: 1.6; color: var(--text-soft); overflow-wrap: anywhere; }
+
+.ct-detail { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ct-detail-title { margin: 0; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
+.ct-detail-meta, .ct-detail-sub { margin: 0; font-size: 13px; color: var(--text-soft); }
+.ct-detail-doi { font-size: 13px; color: var(--accent); word-break: break-all; }
+.ct-sentences { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ct-sentence {
+  margin: 0;
+  padding: var(--sp-2);
+  font-size: 13px;
+  line-height: 1.7;
+  background: var(--bg-soft);
+  border-left: 3px solid var(--line);
+  border-radius: 6px;
+  word-break: break-word;
+}
+.ct-raw { font-size: 12px; color: var(--text-soft); }
+.ct-raw summary { cursor: pointer; }
+.ct-raw-text { white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+.ct-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
+.ct-empty-card { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
+.ct-extract { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ct-extract-line { font-size: 13px; color: var(--text-soft); }
+
+/* 広い画面では一覧を左、選んだ行の詳細を右の欄に出す */
+@media (min-width: 900px) {
+  .cites-split { align-items: flex-start; }
+  .cites-split > .sai-split-list {
+    flex: 0 0 360px;
+    max-width: 360px;
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding-bottom: var(--sp-6);
+    border-right: 1px solid var(--line);
+  }
+  .cites-split > .sai-split-main { flex: 1; min-width: 0; max-width: 720px; }
+  /* 広い画面では絞り込みの欄を一覧の上に出したままにする */
+  .ct-filter-box { max-width: 360px; }
+}
+
+/* --- 手動取り込みの一枚（paperimport.js・U05 §5） --- */
+.pim-manual { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3); }
+.pim-manual-step { display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start; }
+.pim-manual-step-label { margin: 0; font-size: 14px; font-weight: 600; }
+.pim-manual-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.pim-manual-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.pim-manual-head-title { margin: 0; font-size: 13px; font-weight: 600; }
+.pim-manual-list { display: flex; flex-direction: column; gap: var(--sp-1); }
+.pim-manual-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13px;
+  cursor: pointer;
+}
+.pim-manual-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pim-manual-size, .pim-manual-time { flex: none; color: var(--text-soft); font-size: 12px; }
+.pim-manual-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.pim-manual-file { flex: 1 1 200px; min-width: 0; font-size: 13px; }
+
+/* --- 進み具合の一枚の種類の表示名と、% の分からない仕事の動く帯（U05 §6） --- */
+.pim-progress-kind { margin: 0; font-size: 12px; color: var(--text-soft); }
+.pim-progress-bar-working {
+  background: linear-gradient(90deg, var(--input-bg) 0%, var(--accent) 50%, var(--input-bg) 100%);
+  background-size: 200% 100%;
+  animation: pim-bar-slide 1.4s linear infinite;
+}
+@keyframes pim-bar-slide {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pim-progress-bar-working { animation: none; }
+}
