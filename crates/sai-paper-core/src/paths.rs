@@ -150,8 +150,156 @@ pub fn load_project_dotenv() {
     let _ = dotenvy::dotenv();
     // 全プロジェクト共通のキー置き場（プロジェクトの .env が優先。上は読まない）。
     if let Some(base) = sai_home_path("paper.env") {
+        load_keychain_env(&base);
         let _ = dotenvy::from_path(base);
     }
+}
+
+/// `paper.env` の中の、キーチェーンから読む行を解決して環境変数にする。
+///
+/// `.zshrc` と同じ書き方の `export NAME=$(security find-generic-password -s "<項目>" -a "$USER" -w 2>/dev/null)`
+/// は、シェルでない `dotenvy` では実行されず、キーが入らない（S2 がキー無しの扱いになり 429 が続く）。
+/// そこでこの形の行だけを見分け、シェルを通さずに `security` を直接呼んでキーを取る。
+///
+/// 上書きするのは、その変数が未設定・空・`$(` で始まる壊れた値のときだけ
+/// （プロジェクトの `.env` や、シェルで正しく入った値を優先する）。取れなければ何もしない。
+fn load_keychain_env(path: &Path) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    let mut resolved = String::new();
+    for line in keychain_lines(&text) {
+        let current = std::env::var(&line.name).unwrap_or_default();
+        let current = current.trim();
+        if !current.is_empty() && !current.starts_with("$(") {
+            continue;
+        }
+        if let Some(value) = keychain_value(&line.service, line.account.as_deref()) {
+            // 値はキーだけ（英数字と記号）。改行や引用符を含むものは使わない。
+            if !value.contains(['\n', '\r', '"', '\'']) {
+                resolved.push_str(&format!("{}=\"{}\"\n", line.name, value));
+            }
+        }
+    }
+    if !resolved.is_empty() {
+        let _ = dotenvy::from_read_override(resolved.as_bytes());
+    }
+}
+
+/// キーチェーンから読む 1 行（変数名・キーチェーンの項目名・アカウント）。
+#[derive(Debug, PartialEq, Eq)]
+struct KeychainLine {
+    name: String,
+    service: String,
+    account: Option<String>,
+}
+
+/// `[export ]NAME=$(security find-generic-password -s "<項目>" [-a "<アカウント>"] -w [2>/dev/null])` の行を取り出す。
+///
+/// アカウントの `$USER` は環境変数 `USER` に置き換える。これ以外の形の行は無視する。
+fn keychain_lines(text: &str) -> Vec<KeychainLine> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line).trim_start();
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue;
+        }
+        let Some(inner) = value
+            .trim()
+            .strip_prefix("$(")
+            .and_then(|rest| rest.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let words = shell_words(inner);
+        if words.first().map(String::as_str) != Some("security")
+            || words.get(1).map(String::as_str) != Some("find-generic-password")
+            || !words.iter().any(|w| w == "-w")
+        {
+            continue;
+        }
+        let arg = |flag: &str| {
+            words
+                .iter()
+                .position(|w| w == flag)
+                .and_then(|i| words.get(i + 1))
+                .cloned()
+        };
+        let Some(service) = arg("-s") else {
+            continue;
+        };
+        let account = arg("-a").map(|a| {
+            if a == "$USER" || a == "${USER}" {
+                std::env::var("USER").unwrap_or_default()
+            } else {
+                a
+            }
+        });
+        out.push(KeychainLine {
+            name: name.to_owned(),
+            service,
+            account,
+        });
+    }
+    out
+}
+
+/// 空白で区切り、`"…"` と `'…'` の引用符を外す（`2>/dev/null` などの向け先は捨てる）。
+fn shell_words(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut started = false;
+    for c in text.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => current.push(c),
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                started = true;
+            }
+            None if c.is_whitespace() => {
+                if started {
+                    words.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            None => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if started {
+        words.push(current);
+    }
+    words.retain(|w| !w.contains('>'));
+    words
+}
+
+/// macOS のキーチェーンから値を読む（シェルを通さずに `/usr/bin/security` を直接呼ぶ）。
+fn keychain_value(service: &str, account: Option<&str>) -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let mut command = std::process::Command::new("/usr/bin/security");
+    command.args(["find-generic-password", "-s", service]);
+    if let Some(account) = account.filter(|a| !a.is_empty()) {
+        command.args(["-a", account]);
+    }
+    command.arg("-w");
+    let output = command.stderr(std::process::Stdio::null()).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
 }
 
 /// 利用者全体の置き場（sai のグローバルデータ置き場）を返す。
@@ -608,6 +756,47 @@ pub fn get_pdf_page_count(path: &Path) -> usize {
         }
     }
     1
+}
+
+#[cfg(test)]
+mod keychain_tests {
+    use super::{KeychainLine, keychain_lines, shell_words};
+
+    /// `.zshrc` と同じ書き方の行から、変数名・項目名・アカウントを取り出す。
+    #[test]
+    fn keychain_lines_reads_security_command() {
+        let text = concat!(
+            "export S2_API_KEY=$(security find-generic-password -s \"SEMANTICSCHOLAR_API_KEY\" -a \"tester\" -w 2>/dev/null)\n",
+            "OPENALEX_API_KEY=$(security find-generic-password -s 'OPENALEX_API_KEY' -w)\n",
+            "PLAIN_KEY=abc123\n",
+            "# コメント\n",
+            "BAD=$(rm -rf /tmp/x)\n",
+        );
+        assert_eq!(
+            keychain_lines(text),
+            vec![
+                KeychainLine {
+                    name: "S2_API_KEY".to_owned(),
+                    service: "SEMANTICSCHOLAR_API_KEY".to_owned(),
+                    account: Some("tester".to_owned()),
+                },
+                KeychainLine {
+                    name: "OPENALEX_API_KEY".to_owned(),
+                    service: "OPENALEX_API_KEY".to_owned(),
+                    account: None,
+                },
+            ]
+        );
+    }
+
+    /// 引用符を外し、向け先（`2>/dev/null`）は捨てる。
+    #[test]
+    fn shell_words_strips_quotes_and_redirects() {
+        assert_eq!(
+            shell_words(r#"security find-generic-password -s "A B" -a 'me' -w 2>/dev/null"#),
+            vec!["security", "find-generic-password", "-s", "A B", "-a", "me", "-w"]
+        );
+    }
 }
 
 #[cfg(test)]
