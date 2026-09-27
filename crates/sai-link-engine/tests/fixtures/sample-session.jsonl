@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"test-session-001","timestamp":"2026-07-30T10:00:00Z","cwd":"/tmp/test"}
+{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Hello, please analyze this code"}]}}
+{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","text":"I need to analyze the provided code carefully..."},{"type":"text","text":"分析結果:\n\nコードは問題なく動作します。主なポイント:\n1. エラーハンドリングが適切\n2. メモリリークはありません\n3. パフォーマンスは良好です"}]}}
+{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Can you also check the tests?"}]}}
+{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"テスト分析結果:\n\nテストカバレッジは90%です。以下の改善を推奨:\n- エッジケースのテストを追加\n- 統合テストの追加\n- パフォーマンステストの追加"}]}}

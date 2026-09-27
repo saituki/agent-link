@@ -1,0 +1,41 @@
+[package]
+name = "sai-paper-core"
+description = "sai-paper-core — 検索/取得/解析/保存 (Node core Rust書き換え, papr-core統合)"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]
+
+[dependencies]
+dotenvy.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+clap.workspace = true
+directories.workspace = true
+dunce.workspace = true
+futures-util.workspace = true
+iana-time-zone.workspace = true
+notify.workspace = true
+quick-xml.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+url.workspace = true
+walkdir.workspace = true
+biblatex.workspace = true
+pulldown-cmark.workspace = true
+syntect.workspace = true
+regex.workspace = true
+
+[lints]
+workspace = true
