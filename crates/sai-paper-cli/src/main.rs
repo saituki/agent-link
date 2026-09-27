@@ -1135,7 +1135,7 @@ async fn main() -> Result<()> {
                     let config = sai_paper_core::Config::load_or_create(&paths)?;
                     println!("{}", serde_json::to_string_pretty(&config)?);
                     for (field, name) in config.missing_env_vars() {
-                        eprintln!("⚠ 環境変数 {name} が空です（{field}）。.env か ~/.sai/paper.env に置いてください");
+                        eprintln!("⚠ 環境変数 {name} が空です（{field}）。.env か ~/.sai-moon/paper.env に置いてください");
                     }
                 }
             }

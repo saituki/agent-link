@@ -77,9 +77,9 @@ pub struct HandoffResult {
 
 /// ブロック情報一覧を取得する。
 ///
-/// `<root>/.sai/blocks/*.md` と `~/.sai/blocks/*.md` を読み、
+/// `<root>/.sai/blocks/*.md` と `~/.sai-moon/blocks/*.md` を読み、
 /// frontmatter から id / name / description を抜き出す。
-/// ローカル（`<root>/.sai/blocks/`）の方がグローバル（`~/.sai/blocks/`）より優先。
+/// ローカル（`<root>/.sai/blocks/`）の方がグローバル（`~/.sai-moon/blocks/`）より優先。
 ///
 /// キーは frontmatter の `id` フィールドであり、ファイル名ではない。
 /// 同じ id を持つファイルが複数あれば、ローカルが勝つ。
@@ -92,11 +92,8 @@ pub fn list_blocks(roots: &PaperRoots) -> Result<Vec<BlockInfo>> {
 
     let mut blocks: HashMap<String, BlockInfo> = HashMap::new();
 
-    // グローバルブロック（`~/.sai/blocks/`）を先に読む
-    let global_blocks_dir = std::env::var("HOME")
-        .ok()
-        .map(|h: String| PathBuf::from(h).join(".sai").join("blocks"))
-        .filter(|p: &PathBuf| p.exists());
+    // グローバルブロック（`~/.sai-moon/blocks/`）を先に読む
+    let global_blocks_dir = crate::paths::sai_home_path("blocks").filter(|p: &PathBuf| p.exists());
 
     if let Some(dir) = global_blocks_dir {
         for entry in fs::read_dir(&dir)? {

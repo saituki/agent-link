@@ -88,7 +88,7 @@ pub struct SettingsJson {
 /// 設定順序（`docs/user-demand2.md`・設定順序）:
 ///
 /// 1. `PROJECTROOT/.sai/settings.json`
-/// 2. `~/.sai/settings.json`（**2. が優先**。キー単位で 1. を上書きする）
+/// 2. `~/.sai-moon/settings.json`（**2. が優先**。キー単位で 1. を上書きする）
 ///
 /// 両方とも存在しない場合はデフォルト値（空）を返す。
 /// ファイルの読み込み・パースに失敗したキーはスキップされる（エラーにはしない）。
@@ -112,11 +112,7 @@ pub fn load_settings_quiet() -> (SettingsJson, Vec<String>) {
     let local_path = crate::project::sai_path(".sai/settings.json");
 
     // 2. グローバル設定（優先。キー単位で上書き）
-    let global_path = std::env::var_os("HOME").map(|home| {
-        std::path::PathBuf::from(home)
-            .join(".sai")
-            .join("settings.json")
-    });
+    let global_path = crate::project::sai_home_path("settings.json");
 
     merge_settings_from(Some(&local_path), global_path.as_deref())
 }

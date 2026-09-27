@@ -155,7 +155,7 @@ fn tag_from_db(root: &Path, run_id: i64) -> Option<String> {
 
 /// 研究用のブロックかどうかを返す。
 ///
-/// ブロック定義（`<root>/.sai/blocks/<id>.md`、無ければ `~/.sai/blocks/<id>.md`）の
+/// ブロック定義（`<root>/.sai/blocks/<id>.md`、無ければ `~/.sai-moon/blocks/<id>.md`）の
 /// frontmatter の `templates:` に `project-brief` を含めば `true`。定義が無ければ `false`。
 ///
 /// 同じブロックについて何度も呼ぶときは、呼び出し側で結果を `HashMap` に覚えてよい
@@ -167,13 +167,8 @@ pub fn is_research_block(root: &Path, block_id: &str) -> bool {
             .join("blocks")
             .join(format!("{block_id}.md")),
     ];
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(
-            PathBuf::from(home)
-                .join(".sai")
-                .join("blocks")
-                .join(format!("{block_id}.md")),
-        );
+    if let Some(dir) = crate::paths::sai_home_path("blocks") {
+        candidates.push(dir.join(format!("{block_id}.md")));
     }
 
     for path in candidates {

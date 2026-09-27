@@ -2701,7 +2701,7 @@ fn is_subblock_allowed(
 /// 1. `.sai/blocks/<block_type>.md`
 /// 2. `blocks/<block_type>.md`
 /// 3. `lib/herdrs/blocks/<block_type>.md`
-/// 4. `~/.sai/blocks/<block_type>.md`（グローバル・全プロジェクトで使用可能）
+/// 4. `~/.sai-moon/blocks/<block_type>.md`（グローバル・全プロジェクトで使用可能）
 pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
     // まず .sai/blocks/ ディレクトリを検索（プロジェクトルート基準）
     let path0 = crate::project::sai_path(".sai/blocks").join(format!("{}.md", block_type));
@@ -2721,12 +2721,9 @@ pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
         return path2;
     }
 
-    // グローバル ~/.sai/blocks/ を検索（全プロジェクトで使用可能）
-    if let Some(home) = std::env::var_os("HOME") {
-        let path3 = std::path::PathBuf::from(home)
-            .join(".sai")
-            .join("blocks")
-            .join(format!("{}.md", block_type));
+    // グローバル ~/.sai-moon/blocks/ を検索（全プロジェクトで使用可能）
+    if let Some(dir) = crate::project::sai_home_path("blocks") {
+        let path3 = dir.join(format!("{}.md", block_type));
         if path3.exists() {
             return path3;
         }

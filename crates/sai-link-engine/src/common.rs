@@ -3,7 +3,7 @@
 //! sai-engine / sai-tui で重複していた処理を一元化するモジュール（P12）。
 //!
 //! - `extract_frontmatter_name` — ブロック定義の frontmatter から `name` を抽出
-//! - `collect_block_files` — ブロック定義ディレクトリの収集（ローカル優先 → グローバル `~/.sai/blocks`）
+//! - `collect_block_files` — ブロック定義ディレクトリの収集（ローカル優先 → グローバル `~/.sai-moon/blocks`）
 //! - `open_db` — sai-engine DB をプロジェクトルート基準で開く（P2）
 //! - `load_available_models` — `~/.pi/agent/models.json` から `provider/model` 形式のモデル一覧を取得
 //! - 日付時刻・表示フォーマットのユーティリティ（chrono 使用）
@@ -11,7 +11,7 @@
 //! ## ブロック定義の探索パス（A10）
 //!
 //! ローカル（`PROJECTROOT/.sai/blocks` 等）を優先し、同名ブロックはローカルが
-//! グローバル（`~/.sai/blocks`）を上書きする。グローバルのみに存在するブロックも
+//! グローバル（`~/.sai-moon/blocks`）を上書きする。グローバルのみに存在するブロックも
 //! 参照可能にするため、両方をマージして収集する。
 
 use std::collections::HashSet;
@@ -56,7 +56,7 @@ pub(crate) static SAI_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::ne
 
 /// ブロック定義ディレクトリの探索候補（優先度順）。
 ///
-/// ローカル優先 → グローバル `~/.sai/blocks`（A10）。
+/// ローカル優先 → グローバル `~/.sai-moon/blocks`（A10）。
 fn block_dir_candidates() -> Vec<PathBuf> {
     let mut candidates = vec![
         crate::project::sai_path(".sai/blocks"),
@@ -68,9 +68,9 @@ fn block_dir_candidates() -> Vec<PathBuf> {
         PathBuf::from("crates/engine/blocks_"),
         PathBuf::from("../crates/engine/blocks_"),
     ];
-    // グローバル設定 ~/.sai/blocks（ローカルより優先度が低い = 最後に探索）
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(PathBuf::from(home).join(".sai").join("blocks"));
+    // グローバル設定 ~/.sai-moon/blocks（ローカルより優先度が低い = 最後に探索）
+    if let Some(dir) = crate::project::sai_home_path("blocks") {
+        candidates.push(dir);
     }
     candidates
 }
@@ -79,7 +79,7 @@ fn block_dir_candidates() -> Vec<PathBuf> {
 ///
 /// 戻り値: `Vec<(表示名, ファイルパス)>`。
 /// 同名ブロックは探索順の早いもの（ローカル優先）が採用され、
-/// グローバル `~/.sai/blocks` の同名ブロックは上書きされない。
+/// グローバル `~/.sai-moon/blocks` の同名ブロックは上書きされない。
 pub fn collect_block_files() -> Vec<(String, String)> {
     let mut result: Vec<(String, String)> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();

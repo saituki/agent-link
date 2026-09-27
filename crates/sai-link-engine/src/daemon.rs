@@ -187,7 +187,7 @@ pub struct Daemon {
     phone_export: Mutex<PhoneExportState>,
 }
 
-/// phone 書き出し（`~/.sai/phone/runs/`）の差分管理状態（01 §2.3）。
+/// phone 書き出し（`~/.sai-moon/phone/runs/`）の差分管理状態（01 §2.3）。
 struct PhoneExportState {
     /// 書き出し器（プロジェクト名解決済み・初回サイクルで遅延作成）
     exporter: Option<phone_export::Exporter>,
@@ -800,7 +800,7 @@ impl Daemon {
     // phone 書き出し（実装計画 01 §2.3・status ファイルと同じ周期）
     // -----------------------------------------------------------------------
 
-    /// 変わった実行だけ `~/.sai/phone/runs/<project_name>/<run_id>.json` へ書き出す。
+    /// 変わった実行だけ `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` へ書き出す。
     ///
     /// - `todo` / `pending` と runner=`user` は対象外（`phone_export::should_export`）
     /// - `status` / `finished_at` / `session_stats_json` が変わった実行だけ書き直す

@@ -85,7 +85,7 @@ fn handle_check(report_path: &Path, block: &str, json: bool) -> Result<()> {
 
 /// ブロック ID から本文を読む。
 ///
-/// `<root>/.sai/blocks/<id>.md` を探し、無ければ `~/.sai/blocks/<id>.md` を探す。
+/// `<root>/.sai/blocks/<id>.md` を探し、無ければ `~/.sai-moon/blocks/<id>.md` を探す。
 fn read_block(block: &str) -> Result<String, String> {
     let file_name = format!("{block}.md");
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -93,13 +93,8 @@ fn read_block(block: &str) -> Result<String, String> {
     if let Some(roots) = paper_roots() {
         candidates.push(roots.root.join(".sai").join("blocks").join(&file_name));
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(
-            PathBuf::from(home)
-                .join(".sai")
-                .join("blocks")
-                .join(&file_name),
-        );
+    if let Some(dir) = sai_paper_core::paths::sai_home_path("blocks") {
+        candidates.push(dir.join(&file_name));
     }
 
     for path in &candidates {

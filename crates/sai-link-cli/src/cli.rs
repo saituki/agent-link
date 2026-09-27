@@ -166,7 +166,7 @@ pub enum Cmd {
     },
     /// sai-phone への実行情報の書き出し（実装計画 01）。
     ///
-    /// `~/.sai/phone/runs/<project_name>/<run_id>.json` に 00 §3.2 形式で書く。
+    /// `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` に 00 §3.2 形式で書く。
     Phone {
         #[command(subcommand)]
         cmd: PhoneCmd,
@@ -174,7 +174,7 @@ pub enum Cmd {
     /// cc の statusLine コマンド（内部用・00 §3.8 / 01 §2.5）。
     ///
     /// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-    /// `~/.sai/cc-cost/<session_id>.json` に書く。cc の画面下へ短い 1 行を出す。
+    /// `~/.sai-moon/cc-cost/<session_id>.json` に書く。cc の画面下へ短い 1 行を出す。
     /// どの入力でも終了コード 0（cc の画面を壊さないため）。
     #[command(hide = true)]
     CcStatusline,
@@ -623,7 +623,7 @@ pub enum PhoneCmd {
 
     /// 定義ファイル（block / template / settings）の一覧・読み書き・削除
     ///
-    /// 対象はプロジェクト（`<project_root>/.sai/`）とグローバル（`~/.sai/`）の
+    /// 対象はプロジェクト（`<project_root>/.sai/`）とグローバル（`~/.sai-moon/`）の
     /// 2 か所。保存前に sai-link が検査し、壊れた定義は保存しない（終了コード 2）。
     /// 検査でエラーにならない警告（frontmatter の id とファイル名の不一致など）は
     /// そのまま保存し、`warnings` で返す。
@@ -691,7 +691,7 @@ pub enum PhoneDefCmd {
         #[arg(long, value_parser = ["block", "template", "settings"])]
         kind: String,
 
-        /// 置き場（project = プロジェクト内 / global = `~/.sai/`）
+        /// 置き場（project = プロジェクト内 / global = `~/.sai-moon/`）
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
 
@@ -709,7 +709,7 @@ pub enum PhoneDefCmd {
         #[arg(long, value_parser = ["block", "template", "settings"])]
         kind: String,
 
-        /// 置き場（project = プロジェクト内 / global = `~/.sai/`）
+        /// 置き場（project = プロジェクト内 / global = `~/.sai-moon/`）
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
 
@@ -732,7 +732,7 @@ pub enum PhoneDefCmd {
         #[arg(long, value_parser = ["block", "template", "settings"])]
         kind: String,
 
-        /// 置き場（project = プロジェクト内 / global = `~/.sai/`）
+        /// 置き場（project = プロジェクト内 / global = `~/.sai-moon/`）
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
 
@@ -2031,7 +2031,7 @@ pub fn handle_phone_export(
 /// `sai-link cc-statusline`（cc の statusLine 用・00 §3.8-1 / 01 §2.5）。
 ///
 /// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-/// `~/.sai/cc-cost/<session_id>.json` に書く。標準出力に短い 1 行を出す。
+/// `~/.sai-moon/cc-cost/<session_id>.json` に書く。標準出力に短い 1 行を出す。
 /// 入力が読めない・壊れている場合も空行 + 終了コード 0（cc の画面を壊さない）。
 pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Read;

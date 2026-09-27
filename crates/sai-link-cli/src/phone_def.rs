@@ -5,8 +5,8 @@
 //!
 //! - `project`: `<project_root>/.sai/blocks/<name>.md` /
 //!   `<project_root>/.sai/template/<name>.md` / `<project_root>/.sai/settings.json`
-//! - `global`: `~/.sai/blocks/<name>.md` / `~/.sai/template/<name>.md` /
-//!   `~/.sai/settings.json`（`HOME` が無ければ終了コード 1）
+//! - `global`: `~/.sai-moon/blocks/<name>.md` / `~/.sai-moon/template/<name>.md` /
+//!   `~/.sai-moon/settings.json`（置き場を解決できなければ終了コード 1）
 //!
 //! 開発用の相対パス（`blocks` / `../blocks` など。engine の `block_dir_candidates`）
 //! は**扱わない**。利用者が触るのはプロジェクトとグローバルの 2 か所だけ。
@@ -128,14 +128,12 @@ fn base_dir(scope: Scope) -> PhoneResult<PathBuf> {
     })
 }
 
-/// `scope` のルートフォルダ（project = `<project_root>/.sai` / global = `~/.sai`）。
+/// `scope` のルートフォルダ（project = `<project_root>/.sai` / global = 利用者全体の置き場 `~/.sai-moon`）。
 fn root_dir(scope: Scope) -> PhoneResult<PathBuf> {
     match scope {
         Scope::Project => Ok(sai_link_engine::project::project_root().join(".sai")),
-        Scope::Global => match std::env::var_os("HOME") {
-            Some(h) if !h.is_empty() => Ok(PathBuf::from(h).join(".sai")),
-            _ => Err(PhoneError::usage("HOME が分かりません")),
-        },
+        Scope::Global => sai_link_engine::project::sai_home()
+            .ok_or_else(|| PhoneError::usage("sai の置き場（SAI_SAI_HOME か HOME）を解決できません")),
     }
 }
 
@@ -631,9 +629,9 @@ mod tests {
             std::fs::write(p, text).expect("write");
         }
 
-        /// `~/.sai` 配下にファイルを置く。
+        /// 利用者全体の置き場（`~/.sai-moon`）配下にファイルを置く。
         fn put_home(&self, rel: &str, text: &str) {
-            let p = self.home.join(rel);
+            let p = self.home.join(".sai-moon").join(rel);
             std::fs::create_dir_all(p.parent().expect("親がある")).expect("mkdir");
             std::fs::write(p, text).expect("write");
         }
@@ -772,7 +770,7 @@ id: x\n---\nhello\n";
         let _s = Sandbox::new();
         // project と global に同じ id の block（project が優先）
         _s.put(".sai/blocks/x.md", "---\nname: p\nid: same\ntemplates: base\n---\n");
-        _s.put_home(".sai/blocks/x.md", "---\nname: g\nid: same\ntemplates: base\n---\n");
+        _s.put_home("blocks/x.md", "---\nname: g\nid: same\ntemplates: base\n---\n");
         // 1 つにまとめて数える
         assert_eq!(used_by(DefKind::Template, "base"), vec!["same".to_string()]);
     }
@@ -781,8 +779,8 @@ id: x\n---\nhello\n";
     fn list_marks_global_shadowed_by_project() {
         let _s = Sandbox::new();
         _s.put(".sai/blocks/same.md", "---\nname: P\nid: same\n---\n");
-        _s.put_home(".sai/blocks/same.md", "---\nname: G\nid: same\n---\n");
-        _s.put_home(".sai/blocks/onlyg.md", "---\nname: O\nid: onlyg\n---\n");
+        _s.put_home("blocks/same.md", "---\nname: G\nid: same\n---\n");
+        _s.put_home("blocks/onlyg.md", "---\nname: O\nid: onlyg\n---\n");
         _s.put(".sai/template/tp.md", "# テンプレ見出し\n\n本文\n");
         _s.put(".sai/settings.json", "{\"a\":1}");
 
@@ -793,7 +791,7 @@ id: x\n---\nhello\n";
         );
         assert_eq!(
             out["global_root"].as_str().expect("global_root"),
-            _s.home.join(".sai").to_str().expect("UTF-8")
+            _s.home.join(".sai-moon").to_str().expect("UTF-8")
         );
         let items = out["items"].as_array().expect("items");
         let find = |kind: &str, scope: &str, name: &str| {
@@ -1012,7 +1010,7 @@ id: x\n---\nhello\n";
     #[test]
     fn global_scope_uses_home_and_project_scope_uses_root() {
         let _s = Sandbox::new();
-        _s.put_home(".sai/blocks/g.md", "---\nname: g\nid: g\n---\n");
+        _s.put_home("blocks/g.md", "---\nname: g\nid: g\n---\n");
         let got = show(DefKind::Block, Scope::Global, "g").expect("show");
         assert_eq!(got["text"], json!("---\nname: g\nid: g\n---\n"));
         assert!(got["path"]

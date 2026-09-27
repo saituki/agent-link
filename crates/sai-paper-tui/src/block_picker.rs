@@ -1,7 +1,7 @@
 //! ブロック選択モーダル。
 //!
 //! task.md 発行時に実行ブロックを選択する UI。
-//! `.sai/blocks/*.md` と `~/.sai/blocks/*.md` から
+//! `.sai/blocks/*.md` と `~/.sai-moon/blocks/*.md` から
 //! frontmatter の id / name / description を読む。
 
 use papr_core::BlockInfo;

@@ -4,7 +4,7 @@
 //!
 //! - `PROJECTROOT/.sai/` ディレクトリと必要なサブフォルダを作成する（既存は触らない）
 //! - `settings.json` をシード作成する（`{}`。既にあれば触らない）
-//! - `models.json` は作成しない（`~/.sai/models.json` のグローバル設定にフォールバック）
+//! - `models.json` は作成しない（`~/.sai-moon/models.json` のグローバル設定にフォールバック）
 //! - Claude Code の設定 `.mcp.json` と `.claude/settings.json` を作る。
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
 //!

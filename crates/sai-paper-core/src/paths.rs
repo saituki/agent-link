@@ -1,6 +1,7 @@
 //! Cross-platform filesystem path normalization.
 
 use std::{
+    ffi::OsStr,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -29,7 +30,7 @@ pub fn canonicalize_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
 ///
 /// 旧レイアウト（`<dir>/data/papr.db` + `<dir>/crates/`）はプロジェクトと
 /// みなさない（段階 2d で判定を削除。開発リポジトリ自身も `.sai/paper/` だけを使う）。
-/// `.sai/` 単独でもプロジェクトとみなさない。`~/.sai/` があるだけで
+/// `.sai/` 単独でもプロジェクトとみなさない。`~/.sai-moon/` があるだけで
 /// ホームがプロジェクト扱いされ、ホームに DB が作られる問題を避けるため。
 /// 環境に依存しないよう、判定はこの関数に切り出してある。
 #[must_use]
@@ -136,9 +137,9 @@ pub fn compile_time_workspace_root() -> PathBuf {
 
 /// プロジェクトルートの `.env` を読み込む（既存の環境変数は上書きしない）。
 ///
-/// そのあと全プロジェクト共通の API キー置き場 `~/.sai/paper.env` も読む。
-/// `dotenvy` は既に設定設定済みの値を上書きしないため、プロジェクトの `.env` が
-/// `~/.sai/paper.env` より優先される（dotenvy 済みの環境変数も両方に対して優先）。
+/// そのあと全プロジェクト共通の API キー置き場 `~/.sai-moon/paper.env` も読む。
+/// `dotenvy` は既に設定済みの値を上書きしないため、プロジェクトの `.env` が
+/// `~/.sai-moon/paper.env` より優先される（dotenvy 済みの環境変数も両方に対して優先）。
 ///
 /// ルート解決に失敗した場合は `dotenvy::dotenv()` による cwd からの通常探索に
 /// フォールバックする。読み込み失敗は呼び出し側に影響しない。
@@ -148,9 +149,52 @@ pub fn load_project_dotenv() {
     }
     let _ = dotenvy::dotenv();
     // 全プロジェクト共通のキー置き場（プロジェクトの .env が優先。上は読まない）。
-    if let Some(base) = directories::BaseDirs::new() {
-        let _ = dotenvy::from_path(base.home_dir().join(".sai").join("paper.env"));
+    if let Some(base) = sai_home_path("paper.env") {
+        let _ = dotenvy::from_path(base);
     }
+}
+
+/// 利用者全体の置き場（sai のグローバルデータ置き場）を返す。
+///
+/// 解決順:
+/// 1. 環境変数 `SAI_SAI_HOME`（テスト・隔離環境・複数-home で上書きする）
+/// 2. `~/.sai-moon`
+///
+/// `HOME` も設定されていない場合は `None`（呼び出し側は読み書きを飛ばす）。
+/// デフォルトは旧 `~/.sai` ではなく `~/.sai-moon`。
+///
+/// プロジェクトごとの `<root>/.sai/`（`papr.db`・blocks・settings 等）は
+/// `paper_roots()` / `project_root()` を使う。ここでは扱わない。
+///
+/// `sai-paper-core` は `sai_link_engine` に依存しないため、同じ規則の小さな
+/// 関数を这边に置いてある。値は必ず `sai_link_engine::project::sai_home` と一致させること。
+#[must_use]
+pub fn sai_home() -> Option<PathBuf> {
+    resolve_sai_home(
+        std::env::var_os("SAI_SAI_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// 利用者全体の置き場配下の相対パスを返す（[`sai_home`] が無ければ `None`）。
+///
+/// 例: `sai_home_path("blocks")` → `~/.sai-moon/blocks`
+#[must_use]
+pub fn sai_home_path(rel: &str) -> Option<PathBuf> {
+    sai_home().map(|h| h.join(rel))
+}
+
+/// [`sai_home`] の本体（環境変数の値を受け取る版）。
+///
+/// 環境変数を書き換えないのでテストが並列実行しても壊れない（この crate は
+/// `unsafe_code = "forbid"` で `std::env::set_var` の `unsafe` ブロックも書けない）。
+fn resolve_sai_home(sai_home_env: Option<&OsStr>, home_env: Option<&OsStr>) -> Option<PathBuf> {
+    if let Some(p) = sai_home_env.filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(p));
+    }
+    home_env
+        .filter(|h| !h.is_empty())
+        .map(|h| PathBuf::from(h).join(".sai-moon"))
 }
 
 /// 存在しないパスでも使える canonicalize。
@@ -569,6 +613,29 @@ pub fn get_pdf_page_count(path: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `SAI_SAI_HOME` があればそれ、無ければ `~/.sai-moon` を返す。
+    #[test]
+    fn sai_home_prefers_env_then_sai_moon_dir() {
+        // ① SAI_SAI_HOME があればそれが優先される
+        assert_eq!(
+            resolve_sai_home(Some(OsStr::new("/tmp/sai-home-test")), Some(OsStr::new("/home/u"))),
+            Some(PathBuf::from("/tmp/sai-home-test")),
+            "SAI_SAI_HOME があればそれを使う"
+        );
+        // ② 無ければ ~/.sai-moon（~/.sai ではない）
+        assert_eq!(
+            resolve_sai_home(None, Some(OsStr::new("/home/u"))),
+            Some(PathBuf::from("/home/u/.sai-moon"))
+        );
+        // ③ 空文字の SAI_SAI_HOME は無視して ~/.sai-moon に落ちる
+        assert_eq!(
+            resolve_sai_home(Some(OsStr::new("")), Some(OsStr::new("/home/u"))),
+            Some(PathBuf::from("/home/u/.sai-moon"))
+        );
+        // ④ HOME も無ければ None
+        assert_eq!(resolve_sai_home(None, None), None);
+    }
 
     #[test]
     #[cfg(not(windows))]
