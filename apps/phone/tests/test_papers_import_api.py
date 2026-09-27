@@ -251,11 +251,19 @@ def test_download_payload_validation() -> None:
     assert key == "import:DOI:10.1/x", key
     assert args == ["--import-id", "DOI:10.1/x"], args
     assert title == "題名", title
+    # 引用の指定（U05 §2）
+    key, args, title = papers._download_payload(
+        {"cite_paper_id": 12, "ref_no": 3, "title": "引用の題名"}
+    )
+    assert key == "cite:12:3", key
+    assert args == ["--cite", "12", "--ref", "3"], args
+    assert title == "引用の題名", title
 
     for bad in (
         {},
         {"title": "x"},
         {"log_id": 3, "position": 2, "import_id": "DOI:1"},
+        {"log_id": 3, "position": 2, "cite_paper_id": 12, "ref_no": 3},
         {"log_id": 3},
         {"position": 2},
         {"log_id": 0, "position": 2},
@@ -266,6 +274,11 @@ def test_download_payload_validation() -> None:
         {"import_id": "x" * 301},
         {"import_id": "DOI:1\nDOI:2"},
         {"import_id": 12},
+        {"cite_paper_id": 12},
+        {"ref_no": 3},
+        {"cite_paper_id": 0, "ref_no": 3},
+        {"cite_paper_id": 12, "ref_no": -1},
+        {"cite_paper_id": "12", "ref_no": 3},
         {"title": 12},
         "not a dict",
     ):
@@ -309,6 +322,7 @@ def test_download_success(fake: FakeNotify) -> None:
         assert len(listed) == 1, listed
         assert set(listed[0]) == {
             "key",
+            "kind",
             "title",
             "status",
             "paper_id",
@@ -321,6 +335,7 @@ def test_download_success(fake: FakeNotify) -> None:
             "messages",
         }, listed[0]
         assert listed[0]["key"] == "log:3:2", listed[0]
+        assert listed[0]["kind"] == "download", listed[0]
         # 別プロジェクトからは出ない
         assert papers.list_downloads(PROJECT2)["jobs"] == []
 
@@ -824,6 +839,11 @@ def test_routes() -> None:
         ("DELETE", "/api/projects/{name}/papers/import/{file_name}"),
         ("POST", "/api/projects/{name}/papers/download"),
         ("GET", "/api/projects/{name}/papers/downloads"),
+        ("GET", "/api/projects/{name}/papers/manual/candidates"),
+        ("POST", "/api/projects/{name}/papers/manual/import"),
+        ("POST", "/api/projects/{name}/papers/manual/upload"),
+        ("GET", "/api/projects/{name}/papers/{paper_id:int}/citations"),
+        ("POST", "/api/projects/{name}/papers/{paper_id:int}/citations/extract"),
         ("GET", "/api/projects/{name}/papers/project"),
         ("POST", "/api/projects/{name}/papers/project/memo"),
         ("POST", "/api/projects/{name}/papers/attention/resolve"),
@@ -832,6 +852,15 @@ def test_routes() -> None:
         assert item in got, f"未登録: {item}"
     paths = [p for _m, p in got]
     int_path = "/api/projects/{name}/papers/{paper_id:int}"
+    for fixed in (
+        "/api/projects/{name}/papers/manual/candidates",
+        "/api/projects/{name}/papers/manual/import",
+        "/api/projects/{name}/papers/manual/upload",
+        "/api/projects/{name}/papers/downloads",
+    ):
+        assert paths.index(fixed) < paths.index(int_path), (
+            f"固定の住所は {{paper_id:int}} より先に登録する: {fixed}"
+        )
     for fixed in (
         "/api/projects/{name}/papers/import",
         "/api/projects/{name}/papers/downloads",

@@ -828,6 +828,50 @@ def api_papers_downloads(name: str, _: None = Depends(require_token)) -> dict:
     return papers.list_downloads(papers.resolve_project(name))
 
 
+# --- 手動で取り込んだ PDF の取り込み（U05 §3） ---
+# 固定の住所（manual/candidates・manual/import・manual/upload）は
+# `/api/projects/{name}/papers/{paper_id:int}` より先に登録する（登録順に照合するため・00 §6）。
+# アップロードは本文そのもの（application/pdf）で受ける。FastAPI の UploadFile は
+# python-multipart を要するため使わない（依存を増やさない大原則）。
+
+
+@app.get("/api/projects/{name}/papers/manual/candidates")
+def api_papers_manual_candidates(name: str, _: None = Depends(require_token)) -> dict:
+    """ダウンロードフォルダの最近の PDF 一覧（`phone manual-candidates --minutes 30`）。"""
+    return papers.manual_candidates(papers.resolve_project(name))
+
+
+@app.post("/api/projects/{name}/papers/manual/import", status_code=202)
+async def api_papers_manual_import(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """ダウンロードフォルダの PDF を取り込む（202・background で `phone manual-import`）。
+
+    body は「対象のどれか 1 つ」＋ `{"file_name": "paper.pdf"}`。
+    """
+    body = dict(payload or {})
+    file_name = body.pop("file_name", None)
+    return await papers.request_manual_import(papers.resolve_project(name), body, file_name)
+
+
+@app.post("/api/projects/{name}/papers/manual/upload", status_code=202)
+async def api_papers_manual_upload(
+    name: str, request: Request, _: None = Depends(require_token)
+) -> dict:
+    """この端末から送った PDF を取り込む（202・本文は PDF そのもの）。
+
+    対象はクエリで渡す（例 `?log_id=3&position=2` / `?paper_id=12` / `?cite_paper_id=12&ref_no=3`）。
+    Content-Type が違えば 415・大きすぎる／Content-Length が無ければ 413・
+    先頭が `%PDF-` でなければ 400（検査は CLI を呼ぶ前に papers 側で行う）。
+    """
+    project = papers.resolve_project(name)
+    target = {k: v for k, v in request.query_params.items()}
+    # 対象は本文を読む前に確かめる（外から来る値は先に検査するため・00 §2）
+    papers._manual_target(target)
+    body = await papers.read_pdf_upload(request, target)
+    return await papers.request_manual_import(project, target, body=body)
+
+
 @app.get("/api/projects/{name}/papers/project")
 def api_papers_project(name: str, _: None = Depends(require_token)) -> dict:
     """現況・考え・状況のまとめ・要対応（sai-paper `phone project`）。"""
@@ -878,8 +922,28 @@ def api_paper_figure(
 def api_paper_translate(
     name: str, paper_id: int, _: None = Depends(require_token)
 ) -> dict:
-    """要旨の日本語訳を作る（数十秒かかることがある・07 §4.4）。"""
-    return papers.translate(papers.resolve_project(name), paper_id)
+    """要旨の日本語訳を作る（数十秒かかることがある・07 §4.4）。
+
+    動いているあいだは「進み具合の一枚」に `kind="translate"` の仕事として出す（U05 §1）。
+    """
+    return papers.translate_with_job(papers.resolve_project(name), paper_id)
+
+
+@app.get("/api/projects/{name}/papers/{paper_id:int}/citations")
+def api_paper_citations(
+    name: str, paper_id: int, _: None = Depends(require_token)
+) -> dict:
+    """引用一覧（読み取りだけ・抜き出す前の論文にも空の形で返る・U05 §2）。"""
+    return papers.citations(papers.resolve_project(name), paper_id)
+
+
+@app.post("/api/projects/{name}/papers/{paper_id:int}/citations/extract", status_code=202)
+async def api_paper_citations_extract(
+    name: str, paper_id: int, _: None = Depends(require_token)
+) -> dict:
+    """引用を PDF から抜き出す（202・background で `phone citations-extract`）。"""
+    return await papers.request_cite_extract(papers.resolve_project(name), paper_id)
+
 
 
 @app.post("/api/projects/{name}/papers/{paper_id:int}/radio", status_code=202)
