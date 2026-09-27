@@ -1,0 +1,23 @@
+{
+  "profiles": {
+    "sai_radio": {
+      "tts_provider": "openai-compatible",
+      "tts_model": "aivisspeech",
+      "tts_config": { "base_url": "http://127.0.0.1:8202", "api_key": "unused" },
+      "speakers": [
+        {
+          "name": "ホスト",
+          "voice_id": "1310138977",
+          "backstory": "科学者・研究者として論文の背景や意義を分かりやすく紹介する。",
+          "personality": "親切で丁寧。難しい概念を簡単な例えで説明するのが得意。"
+        },
+        {
+          "name": "ゲスト",
+          "voice_id": "888753760",
+          "backstory": "聞き手として興味深い質問を投げかけたり、意外な発見に驚いたりする。",
+          "personality": "好奇心旺盛で、分からないことは率直に質問する。"
+        }
+      ]
+    }
+  }
+}
