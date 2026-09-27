@@ -1,0 +1,128 @@
+/* 設定画面（defs.js）の見た目（実装計画 U5）。
+   一覧（ブロック / テンプレート / 設定ファイル × このプロジェクト / 全プロジェクト共通）と、
+   編集（編集 | プレビュー・保存・削除）を作る。
+   md の色は markdown.css が使うのでここでは色を付けない。 */
+
+#defs-root { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+/* --- 上の帯（← 戻る・題・置き場の札・Dashboard|Workflow|List|設定） --- */
+.df-bar { gap: 6px; }
+.df-bar .df-back { flex: none; font-size: 20px; }
+.df-bar .df-title {
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 16px;
+}
+.df-bar .list-mode { display: none; } /* 編集の帯には切り替えを出さない */
+
+/* 一覧の帯の下 4 つの切り替え */
+#defs-root .df-list-seg { padding: 8px 16px 0; }
+#defs-root .df-list-seg .dash-seg button { padding: 6px 0; font-size: 12px; }
+
+/* --- 帯の下の黄色い注意（共通の定義） --- */
+.df-global-warn {
+  padding: 8px var(--sp-4);
+  background: rgba(255, 200, 50, 0.14);
+  color: #a06a00;
+  font-size: 13px;
+  line-height: 1.6;
+}
+:root[data-theme="dark"] .df-global-warn { color: #ffd479; }
+
+/* 「使っている block」 */
+.df-used {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1);
+  padding: 8px var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.df-used-label { font-size: 12px; color: var(--text-soft); }
+
+/* --- 赤い 1 行（一覧の読み込みの失敗） --- */
+.df-error {
+  padding: 8px var(--sp-4);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+  font-size: 13px;
+}
+.df-error[hidden] { display: none; }
+
+/* --- 一覧 --- */
+.df-body { padding-bottom: var(--sp-6); }
+.df-top { display: flex; justify-content: flex-end; padding: var(--sp-2) var(--sp-4) 0; }
+.df-scope {
+  margin: var(--sp-1) 0 var(--sp-1);
+  padding: 0 var(--sp-3);
+  font-size: 12px; color: var(--text-soft);
+}
+.df-note { margin: 0; padding: var(--sp-3) var(--sp-4); font-size: 14px; color: var(--text-soft); }
+.df-row-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.df-row-chips .sai-chip { font-size: 11px; padding: 0 7px; }
+.df-row-error { color: var(--danger); }
+.df-body .sai-section-title { padding: 0 var(--sp-3); }
+.df-body .sai-empty { padding: var(--sp-4); }
+
+/* --- 編集 --- */
+.df-tools { border-bottom: 1px solid var(--line); gap: var(--sp-2); }
+.df-seg { flex: none; }
+.df-seg button { padding: 5px 12px !important; font-size: 13px; }
+
+/* 保存の失敗（赤い箱）と注意（黄色の箱） */
+.df-msgs { padding: 0; }
+.df-msgs:empty { display: none; }
+.df-box {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-4);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.df-box[hidden] { display: none; }
+.df-box--bad { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+.df-box--warn { background: rgba(255, 200, 50, 0.14); color: #a06a00; }
+:root[data-theme="dark"] .df-box--warn { color: #ffd479; }
+
+/* 編集とプレビュー（狭い画面は上下・広い画面は左右） */
+.df-panes { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.df-edit { display: flex; min-height: 0; }
+.df-edit[hidden], .df-preview[hidden] { display: none; }
+.df-text {
+  flex: 1;
+  width: 100%;
+  min-height: 60dvh;
+  padding: var(--sp-3);
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  tab-size: 2;
+}
+.df-text:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.df-preview { padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line); }
+.df-json {
+  margin: 0;
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.df-bad { color: var(--danger); font-size: 13px; line-height: 1.6; }
+
+@media (min-width: 900px) {
+  .df-panes--wide { flex-direction: row; align-items: stretch; }
+  .df-panes--wide .df-edit { flex: 1 1 50%; min-width: 0; border-right: 1px solid var(--line); }
+  .df-panes--wide .df-text { min-height: 70dvh; }
+  .df-panes--wide .df-preview { flex: 1 1 50%; min-width: 0; border-top: none; }
+}
+
+/* --- 新しく作る小窓 --- */
+.df-create { padding: 0 var(--sp-4) var(--sp-4); }
+.df-field { margin-bottom: var(--sp-3); }
+.df-field-label { margin: 0 0 4px; font-size: 13px; color: var(--text-soft); }
+.df-choices { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.df-name-msg { margin: 4px 0 0; font-size: 12px; color: var(--text-soft); }
+.df-name-msg.df-bad { color: var(--danger); }
+.df-create select.sai-input { width: 100%; }

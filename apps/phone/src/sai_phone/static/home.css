@@ -1,0 +1,56 @@
+/* ホーム画面（static/home.js・U4）の見た目。
+   共通部品（.sai-card / .sai-row / .sai-empty / .sai-term）は style.css にある。
+   ここに書くのはホームだけの物（.hm-…）だけ。 */
+
+/* 中身の入れ物。広い画面では 2 列に並べる */
+.hm-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-6);
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .hm-body { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  /* カードの中身が縦に伸びても隣の列を押し下げないよう、各列で分ける */
+  .hm-card { break-inside: avoid; }
+}
+
+/* カード 1 枚（見出しの行） */
+.hm-card { display: flex; flex-direction: column; gap: 2px; }
+.hm-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+.hm-card-title { margin: 0; font-size: 15px; font-weight: 700; }
+
+/* カードの中の行は上下の線を消して詰める */
+.hm-card .sai-row { border-bottom: none; border-top: 1px solid var(--line); }
+.hm-card .sai-row:first-of-type { border-top: none; }
+.hm-card .sai-row-sub { color: var(--text-soft); font-size: 12px; }
+
+/* 読めなかったプロジェクト（一番下・はじめはたたんでいる） */
+.hm-errors { margin-top: var(--sp-1); }
+.hm-errors summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-soft);
+  min-height: 32px;
+  padding: 6px 0;
+}
+.hm-error-line {
+  margin: 0;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--danger);
+  border-top: 1px solid var(--line);
+  word-break: break-word;
+}
+
+/* 空の画面のアイコンは少し大きく */
+.hm-body .sai-empty { grid-column: 1 / -1; }

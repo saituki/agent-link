@@ -1,0 +1,5 @@
+.sai
+.venv
+.worktrees
+src/data/
+__pycache__
