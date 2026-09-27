@@ -1,10 +1,13 @@
-"""ホーム画面の集計（`GET /api/home`・U3 §変更内容 3）。
+"""ホーム画面の集計（`GET /api/home`・U02 §1 / U3 §変更内容 3）。
 
 1 本の住所で次をまとめて返す（共有契約 C-A3）:
 - 答えを待っている質問（`store.list_open_questions`）
 - 確認を待っている承認（`store.list_open_approvals`）
-- 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の数）
+- 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の一覧）
 - 論文の要対応（`sai-paper attention --json`）
+
+`GET /api/home/overview`（`build_overview`）は全プロジェクトのダッシュボードを足し合わせたもの。
+各プロジェクトの `phone dashboard` の JSON  –, それ以外の集計は作らない。
 
 大原則（`docs/integration.md` §3）どおり、他アプリの DB は開かない。
 登録簿と sai-link / sai-paper の CLI の JSON だけを使う。
@@ -35,8 +38,28 @@ _HOME_TTL = 10.0
 # プロジェクトごとの同時実行数（sai-link / sai-paper の CLI は重い）
 _HOME_WORKERS = 4
 
+# 合計のダッシュボードが取れる期間（CLI の dashboard と同じ）
+_OVERVIEW_PERIODS = ("week", "month", "all")
+# 合計の「最近のアクティビティ」が出す件数
+_OVERVIEW_RECENT = 20
+# summary で足し合わせる数（sai-link phone dashboard .summary と同じ名前）
+_SUMMARY_KEYS = (
+    "executions",
+    "completed",
+    "failed",
+    "running",
+    "duration_ms",
+    "tokens_input",
+    "tokens_output",
+    "tokens_cache",
+    "tokens_total",
+    "cost_usd",
+)
+
 # 覚えておいた結果（(時刻, 結果)）。テストから消すため global で持つ。
 _cache: tuple[float, dict] | None = None
+# 合計の覚え置き（期間ごとの (時刻, 結果)）。`forget()` で消す。
+_overview_cache: dict[str, tuple[float, dict]] = {}
 
 
 def _now() -> float:
@@ -172,6 +195,8 @@ def _home_project(row: dict) -> dict:
         "last_executed_at": row.get("last_executed_at"),
         "review": review,
         "todo": len(todo),
+        # 件数だけだった todo を、行ごと返す（画面の todo カードが押せるようにするため・U02 §2）
+        "todo_runs": todo,
     }
 
 
@@ -266,3 +291,153 @@ def forget() -> None:
     """覚え置きを消す（テストと、強制的に読み直すときに使う）。"""
     global _cache
     _cache = None
+    _overview_cache.clear()
+
+
+# --- 全プロジェクトの合計（`GET /api/home/overview`・U02 §1） ---
+
+
+def _overview_project(name: str, period: str) -> dict:
+    """1 プロジェクトのダッシュボード（`sai-link phone dashboard`）。"""
+    return control.dashboard(name, period)
+
+
+def _add_summary(total: dict, summary: dict) -> None:
+    """summary の同じ名前の数を足す（0 の項目は足さない）。"""
+    for key in _SUMMARY_KEYS:
+        value = summary.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        total[key] += value
+
+
+def _merge_daily(total: dict, daily) -> None:
+    """日ごとの実行数と token を日付ごとに足す。"""
+    for row in daily if isinstance(daily, list) else []:
+        if not isinstance(row, dict):
+            continue
+        date = str(row.get("date") or "")
+        if not date:
+            continue
+        hit = total.get(date)
+        if hit is None:
+            hit = {"date": date, "executions": 0, "tokens": 0}
+            total[date] = hit
+        executions = row.get("executions")
+        tokens = row.get("tokens")
+        if isinstance(executions, (int, float)) and not isinstance(executions, bool):
+            hit["executions"] += executions
+        if isinstance(tokens, (int, float)) and not isinstance(tokens, bool):
+            hit["tokens"] += tokens
+
+
+def _merge_recent(total: list[dict], recent, name: str) -> None:
+    """全プロジェクトの「最近の実行」をまとめる（プロジェクト名が無い行には登録簿の名前にする）。"""
+    for row in recent if isinstance(recent, list) else []:
+        if not isinstance(row, dict):
+            continue
+        run_id = row.get("run_id")
+        if not isinstance(run_id, int) or isinstance(run_id, bool):
+            continue
+        total.append(
+            {
+                "project": str(row.get("project") or name),
+                "run_id": run_id,
+                "parent_run_id": row.get("parent_run_id"),
+                "block": _text(row.get("block")),
+                "status": str(row.get("status") or ""),
+                "started_at": row.get("started_at"),
+                "description": _text(row.get("description")),
+                "linkable": bool(row.get("linkable")),
+            }
+        )
+
+
+def _recent_key(row: dict) -> tuple[str, int]:
+    """最近の実行の並び替えの鍵（新しい順・同じ時刻なら run_id の大きい順）。"""
+    stamp = str(row.get("started_at") or "")
+    return (stamp, int(row.get("run_id") or 0))
+
+
+def _build_overview(period: str) -> dict:
+    """全プロジェクトを足し合わせる本体（10 秒の覚え置きは `build_overview` 側）。"""
+    errors: list[str] = []
+    project_rows = [
+        row
+        for row in control.list_projects()
+        if row.get("root_exists") and row.get("db_exists")
+    ]
+    names = [str(row.get("name") or "") for row in project_rows]
+
+    got: dict[str, dict] = {}
+    if names:
+        # プロジェクトごとに CLI を待つので並べる（1 つが失敗しても全体は止めない）
+        with concurrent.futures.ThreadPoolExecutor(max_workers=_HOME_WORKERS) as pool:
+            futures = {pool.submit(_overview_project, name, period): name for name in names}
+            for future in concurrent.futures.as_completed(futures):
+                name = futures[future]
+                try:
+                    data = future.result()
+                except Exception as e:
+                    logger.warning(f"合計の集計に失敗（他は続けます）: {name}: {e}")
+                    errors.append(f"{name}: {_error_text(e)}")
+                    continue
+                if isinstance(data, dict):
+                    got[name] = data
+
+    # 並びは登録簿のまま（最後に動いた順）
+    rows = [(name, got[name]) for name in names if name in got]
+
+    summary = {key: 0 for key in _SUMMARY_KEYS}
+    daily_total: dict[str, dict] = {}
+    recent: list[dict] = []
+    dates: list[str] = []
+    for name, data in rows:
+        raw_summary = data.get("summary")
+        _add_summary(summary, raw_summary if isinstance(raw_summary, dict) else {})
+        _merge_daily(daily_total, data.get("daily"))
+        _merge_recent(recent, data.get("recent"), name)
+        for key in ("since", "until"):
+            value = str(data.get(key) or "")
+            if len(value) == 10:
+                dates.append(value)
+    for row in daily_total.values():
+        dates.append(row["date"])
+
+    # 成功率は足したあとに求め直す（0 件なら 0.0）
+    summary["success_rate"] = (
+        round(summary["completed"] / summary["executions"], 4)
+        if summary["executions"] > 0
+        else 0.0
+    )
+    recent.sort(key=_recent_key, reverse=True)
+
+    return {
+        "period": period,
+        "since": min(dates) if dates else None,
+        "until": max(dates) if dates else None,
+        "projects": len(rows),
+        "summary": summary,
+        "daily": [daily_total[date] for date in sorted(daily_total)],
+        "recent": recent[:_OVERVIEW_RECENT],
+        "errors": errors,
+    }
+
+
+def build_overview(period: str = "week") -> dict:
+    """全プロジェクトの合計のダッシュボード（`GET /api/home/overview`・U02 §1）。
+
+    期間は `week` / `month` / `all`（それ以外は CLI を呼ぶ前に 400）。
+    期間ごとに 10 秒だけ覚える。
+    """
+    if period not in _OVERVIEW_PERIODS:
+        raise HTTPException(
+            status_code=400, detail="period は week / month / all のいずれかにしてください"
+        )
+    now = _now()
+    hit = _overview_cache.get(period)
+    if hit is not None and now - hit[0] < _HOME_TTL:
+        return hit[1]
+    value = _build_overview(period)
+    _overview_cache[period] = (now, value)
+    return value

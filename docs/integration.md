@@ -60,7 +60,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | 論文 → Import（BibTeX の読み込み・一覧・削除） | `sai-moon-paper phone import list / add / remove`（本文は標準入力） |
 | 論文 → Download（PDF の取得と Library への登録） | apps/phone が背景で `sai-moon-paper phone download` → 続けて `phone after-download` |
 | 論文 → Project（現況・考え・状況のまとめ・要対応） | `sai-moon-paper phone project` / `phone mind-append`（本文は標準入力）/ `phone attention-resolve` / `attention --json` |
-| ホーム（質問・承認・プロジェクト・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる |
+| ホーム（質問・承認・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる |
+| ホームの全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `sai-moon-link phone dashboard --period` を並べて足し合わせる（`GET /api/home/overview`）。画面側で期間を変えたときに読み直すため別の住所にしている |
 
 ---
 
@@ -113,13 +114,36 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 | メソッド・パス | 中身 |
 |---|---|
-| `GET /api/home` | 質問・承認・プロジェクト（review の run と todo の数）・論文の要対応・`errors` |
+| `GET /api/home` | 質問・承認・プロジェクト（review の run と todo の行）・論文の要対応・`errors` |
+| `GET /api/home/overview?period=week\|month\|all` | 全プロジェクトをまたいだ合計（`period` 省略時は `week`・それ以外は 400） |
 
 - 質問・承認は `store.list_open_questions` / `store.list_open_approvals` から作る。
   `project` / `run_id` は `runs.load_runs` の中で `run_session_ids` に `session_id` を含む実行を探して付ける（無ければ `null`）。
 - プロジェクトの `review` / `todo` は `sai-moon-link phone tree` の `review` / `todo` フォルダを数える。論文の要対応は `sai-moon-paper attention --json` の件数と先頭 3 件。
+- プロジェクトの `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。画面は `todo_runs` の行を押せるようにする。
 - 各プロジェクトは `ThreadPoolExecutor(max_workers=4)` で並べる。1 つが失敗しても全体は止めず `errors` に「<名前>: <理由>」を足す。
 - 結果は 10 秒だけ覚える（`home.forget()` で消す）。
+
+`/api/home/overview`（U02 §1）は次を返す。
+
+```json
+{
+  "period": "week", "since": "2026-09-21", "until": "2026-09-27", "projects": 2,
+  "summary": {"executions": 12, "completed": 10, "failed": 1, "running": 1,
+              "success_rate": 0.83, "duration_ms": 3600000,
+              "tokens_input": 1, "tokens_output": 2, "tokens_cache": 3, "tokens_total": 1234567,
+              "cost_usd": 3.21},
+  "daily": [{"date": "2026-09-21", "executions": 3, "tokens": 120000}],
+  "recent": [{"project": "sai-moon", "run_id": 42, "parent_run_id": 1, "block": "worker",
+              "status": "completed", "started_at": "2026-09-27 10:28:21",
+              "description": "…", "linkable": true}],
+  "errors": []
+}
+```
+
+- 対象は `/api/home` と同じプロジェクト（`root_exists` と `db_exists` が真）で、`sai-moon-link phone dashboard --period <期間>` を並べる。`linkable` が偽の `recent` は会話画面が開けないので List 側の画面へ。
+- `summary` は各プロジェクトの同じ名前の数を足し、`success_rate` は足したあとの `completed / executions`（0 件なら `0.0`）で求め直す。`daily` は日付ごとに足す。`recent` は `started_at` の新しい順（同じなら `run_id` の大きい順）で最大 20 件。
+- 期間も 10 秒だけ覚える（期間ごと）。`forget()` は両方消す。
 
 ### Workflow と設定（`sai-moon-link phone workflow` / `phone def` 経由）
 
