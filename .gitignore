@@ -1,0 +1,32 @@
+# Rust
+/target
+**/target
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# DB / 生成物
+*.db
+*.db-wal
+*.db-shm
+*.pdf
+
+# Env
+.env
+.sai/
+.pi/
+.fusion/
+.codegraph/
+.worktrees/
+.serena/
+.mcp.json
+.claude/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+*.swp
