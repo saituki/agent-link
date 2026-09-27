@@ -625,17 +625,18 @@ function wfRenderBar() {
   if (!root) return;
   let bar = root.querySelector(".appbar");
   if (!bar) {
-    bar = wfEl("header", "appbar wf-bar");
-    bar.appendChild(wfEl("button", "wf-back", "‹"));
-    bar.appendChild(wfEl("h1", "wf-title", wfName));
+    // 見出しは 4 画面共通の .proj-bar（← 戻る・プロジェクト名・切り替え・U01 §3）
+    bar = wfEl("header", "appbar proj-bar");
+    bar.appendChild(wfEl("button", "proj-back", "‹"));
+    bar.appendChild(wfEl("h1", "proj-title", wfName));
     const seg = wfEl("div", "list-mode");
     seg.id = "wf-mode-seg";
     bar.appendChild(seg);
     root.appendChild(bar);
   }
-  bar.querySelector(".wf-title").textContent = wfName;
-  const back = bar.querySelector(".wf-back");
-  back.setAttribute("aria-label", "戻る");
+  bar.querySelector(".proj-title").textContent = wfName;
+  const back = bar.querySelector(".proj-back");
+  back.setAttribute("aria-label", "プロジェクト一覧へ戻る");
   back.onclick = () => { location.hash = "#/projects"; };
   if (typeof fillLinkSeg === "function") fillLinkSeg("wf-mode-seg", "workflow", wfName);
 }

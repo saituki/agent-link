@@ -883,12 +883,7 @@ async function cfCreate() {
 // --- 画面の登録（ブラウザでのみ・計画 15 §1.5） ---
 
 if (typeof window !== "undefined") {
-  // List 画面右上の ＋（index.html では hidden のまま置き場だけある・14 §1.5）
-  const add = document.getElementById("list-add");
-  if (add) {
-    add.hidden = false;
-    add.addEventListener("click", () => void cfOpen());
-  }
+  // 開くのは List のサイドバーの見出しの行の ＋（lvRenderDrawer が呼ぶ・U01 §4）
   const close = document.getElementById("cf-close");
   if (close) close.addEventListener("click", () => cfClose());
   const mask = document.getElementById("cf-mask");

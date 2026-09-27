@@ -62,9 +62,10 @@ function setOffline(value) {
 let current = { name: "days" };   // 今見ている画面
 let refreshTimer = null;          // 表示中画面の更新予約
 let intervalMs = 5000;            // 現在の更新間隔（失敗時に伸びる）
+let routeSeq = 0;                 // 画面切り替えの連番（古い route が後から終わっても無視する）
 
-function parseRoute() {
-  const hash = location.hash || "#/";
+function parseRoute(hashArg) {
+  const hash = hashArg || location.hash || "#/";
   // タブのファイルが登録した画面を先に判定する（05 §3.2-1）。合えばパラメータ，
   //合わなければ今までの判定へ進む。
   for (const def of window.SaiRoutes || []) {
@@ -143,6 +144,9 @@ window.SaiShell = {
 };
 
 async function route() {
+  // 連番をとっておく。途中で別の route（location.replace や hashchange）が始まったら、
+  // 古い route はタブの保存などをしない（U01 §5）
+  const seq = ++routeSeq;
   // 住所なしで開かれたときはホームにする（# は今までどおり Agent の日付一覧・C-F1）
   if (!location.hash) {
     location.replace(HOME_URL);
@@ -183,6 +187,9 @@ async function route() {
     await openRun(r);
     rearm();
   }
+  // 読み込みのあいだに別の route が始まっていたら何もしない（古い route が
+  // タブの「最後の住所」を上書きしないため・U01 §5）
+  if (seq !== routeSeq) return;
   // タブバーの見た目を今の画面に合わせる（05 §3.2-7）
   updateTabbar();
   // 今の画面を知らせる（小さな再生バーの出し入れに使う・09 §4.1）
@@ -222,6 +229,14 @@ function saveTabLast(obj) {
 // 今の画面の所属タブ。既存の4画面（days / day / run / stats）はすべて Agent（05 §3.2-4）
 function currentTab() {
   if (current.name === "ext") return current.def.tab || "agent";
+  return "agent";
+}
+
+// 住所からその画面のタブを求める。タブの「最後の住所」をどこへ入れるかの判定に使う
+// （表示中の current ではなく住所その物を見るので、どの route から呼ばれても正しい・U01 §5）
+function routeTab(hash) {
+  const r = parseRoute(hash);
+  if (r.name === "ext") return r.def.tab || "agent";
   return "agent";
 }
 
@@ -265,9 +280,11 @@ function updateTabbar() {
       b.classList.toggle("active", b.dataset.tab === currentTab());
     });
   }
-  // 今のタブの「最後に開いた URL」を今の住所で更新する（05 §3.3）
+  // 今のタブの「最後に開いた URL」を今の住所で更新する（05 §3.3）。
+  // 保存先は「その住所が属するタブ」（表示中の current ではない）。こうすると
+  // 古い route が後から updateTabbar を呼んでも、違うタブの住所を入れ替えない（U01 §5）。
   const last = loadTabLast();
-  last[currentTab()] = location.hash || "#/";
+  last[routeTab(location.hash)] = location.hash || "#/";
   saveTabLast(last);
   updateBottomStack();
 }
@@ -604,6 +621,7 @@ async function openRun(r) {
   openIds = new Set();    // 別の実行に移ったら開閉状態は忘れてよい（03 §4）
   chatRowEls = [];
   chatRowTimes = [];
+  chatLastAgentAt = 0;   // 別の実行に移ったら「続けて書かれた」の判定は切り直す
   stickToBottom = true;
   firstLoadDone = false;
   document.getElementById("chat-list").innerHTML = "";
@@ -1073,7 +1091,7 @@ function dateKey(iso) {
 function dateSepLabel(iso) {
   const d = new Date(iso);
   const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
-  return `── ${d.getMonth() + 1}月${d.getDate()}日(${wd}) ──`;
+  return `${d.getMonth() + 1}月${d.getDate()}日(${wd})`;
 }
 
 // 会話の行から日付の区切り線を作り直す（03 §4）。
@@ -1146,6 +1164,21 @@ function placeOverlays() {
   // 未回答カードと送信待ちは一番下（settled より後ろに来る）
   for (const card of openCards) box.appendChild(card);
   for (const div of pending) box.appendChild(div);
+}
+
+// --- チャットのまとまり（U01 §2） ---
+
+// 直前のエージェント発言の時刻。続けて 5 分以内に書かれたものは
+// 同じまとまりとして、名前とアイコンを繰り返さない（Slack と同じ）
+let chatLastAgentAt = 0;
+
+// 次のエージェントの発言が前のものと 5 分以内なら同じまとまり（renderItem が使う）
+function chatAgentGrouped(iso) {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  const prev = chatLastAgentAt;
+  chatLastAgentAt = Number.isFinite(t) ? t : 0;
+  if (!Number.isFinite(t) || !prev) return false;
+  return t >= prev && t - prev <= 5 * 60 * 1000;
 }
 
 // --- 折りたたみ（全項目共通・03 §4） ---
@@ -1221,7 +1254,15 @@ function renderItem(item) {
   }
   if (item.kind === "agent") {
     fold.wrap.classList.add("kind-agent");
-    fold.who.textContent = agentName();
+    const who = agentName();
+    fold.who.textContent = who;
+    // 最初の 1 行だけ名前・時刻・丸いアイコンを出す（続けて 5 分以内なら繰り返さない）
+    if (chatAgentGrouped(item.time)) {
+      fold.wrap.classList.add("grouped");
+    } else {
+      fold.wrap.classList.add("has-avatar");
+      fold.wrap.dataset.avatar = who.slice(0, 1);
+    }
     body.className = "fold-body bubble-agent";
     body.innerHTML = renderMarkdown(item.text || "");
     foldBody(fold.wrap, previewLine(item.text), body);

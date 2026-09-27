@@ -6,14 +6,8 @@
 
 #workflow-root { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 
-/* --- 上の帯（← 戻る・プロジェクト名・Dashboard|Workflow|List|設定） --- */
-.wf-bar { gap: 6px; }
-.wf-bar .wf-back { flex: none; font-size: 20px; }
-.wf-bar .wf-title {
-  flex: none; max-width: 34vw; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; font-size: 16px;
-}
-.wf-bar .list-mode { flex: 1; min-width: 0; }
+/* --- 上の帯（← 戻る・プロジェクト名・Dashboard|Workflow|List|設定） ---
+   見た目は 4 画面共通の .proj-bar（style.css）にまとめているので、ここでは何も足さない。 */
 
 /* --- 道具の行 --- */
 .wf-tools { border-bottom: 1px solid var(--line); }

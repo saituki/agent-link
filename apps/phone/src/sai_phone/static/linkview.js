@@ -526,6 +526,9 @@ async function openList(params) {
   // Dashboard | List の選択を List 側として覚える（計画 14 §6）
   saveMode(name, "list");
   fillLinkSeg("list-mode-seg", "list", name);
+  // 見出しのプロジェクト名を入れる（4 画面共通の見出し・U01 §3）
+  const title = document.getElementById("list-title");
+  if (title) title.textContent = name;
 
   await lvLoadTree(seq);
   if (seq !== lvSeq) return;
@@ -1254,6 +1257,9 @@ function lvRenderDrawer() {
   const nav = document.getElementById("lv-drawer");
   if (!nav) return;
   nav.innerHTML = "";
+  // ツリーの行より先に「実行［＋］［↻］」の見出しの行を出す（U01 §4）。
+  // ツリーが空・読み込み中・読み込み失敗のときも残す（↻ で読み直せるように）。
+  nav.appendChild(lvSideHead());
   const rows = flattenTree(lvTree || [], lvFolds);
   if (rows.length === 0) {
     nav.appendChild(
@@ -1294,6 +1300,30 @@ function lvRenderDrawer() {
       nav.appendChild(b);
     }
   }
+}
+
+// --- サイドバーの見出しの行（実行・＋（task.md の作成）・↻（読み直し）・U01 §4） ---
+
+// 見出しの行を 1 本作る。毎回作り直されるので、ボタンは作るたびにイベントを付ける。
+// 狭い画面では引き出しの中、広い画面では左の列の一番上に出る。
+function lvSideHead() {
+  const row = el("div", "lv-side-head");
+  row.appendChild(el("span", "lv-side-label", "実行"));
+  const add = el("button", "lv-side-btn", "＋");
+  add.type = "button";
+  add.setAttribute("aria-label", "タスクを作成");
+  add.title = "task.md を作る";
+  add.addEventListener("click", () => {
+    // 作成フォームは cardform.js のグローバル関数
+    if (typeof cfOpen === "function") void cfOpen();
+  });
+  const reload = el("button", "lv-side-btn", "↻");
+  reload.type = "button";
+  reload.setAttribute("aria-label", "再読み込み");
+  reload.title = "ツリーを読み直す";
+  reload.addEventListener("click", () => { void lvReload(); });
+  row.append(add, reload);
+  return row;
 }
 
 // --- Dashboard | Workflow | List | 設定 の切り替え帯（共有契約 C-F7） ---
@@ -1340,9 +1370,11 @@ function lvApplyWide() {
 
   if (!wide) {
     // 元の位置へ戻す（引き出しに戻す）
-    for (const node of [nav, head, body]) {
+    for (const node of [head, body]) {
       if (node && node.parentElement !== sec) sec.appendChild(node);
     }
+    // ツリーは引き出し（#lv-drawer-wrap）の中へ戻す（外へ出すと引き出しが出なくなる）
+    if (nav && wrap && nav.parentElement !== wrap) wrap.appendChild(nav);
     if (nav) {
       nav.style.width = "";
       nav.style.borderRight = "";
@@ -1368,8 +1400,11 @@ function lvApplyWide() {
   left.appendChild(nav);
   right.append(head, body);
   split.append(left, right);
-  sec.insertBefore(split, sec.firstChild);
-  if (appbar) sec.insertBefore(split, appbar);
+  // 見出し（.appbar）と接続切れの帯の後ろへ入れる。一番上には出さない（U01 §3）
+  const offline = sec.querySelector(".offline-bar");
+  const anchor = offline || appbar;
+  if (anchor && anchor.parentElement === sec) anchor.after(split);
+  else sec.insertBefore(split, sec.firstChild);
   // 引き出し用の枠は隠す（ツリーは左の列にあるので）
   if (wrap) wrap.hidden = true;
   const mask = document.getElementById("lv-drawer-mask");
@@ -1404,9 +1439,9 @@ if (typeof window !== "undefined") {
   // ☰: ツリーを開く（未選択のときは最初から開いている）
   const menu = document.getElementById("list-menu");
   if (menu) menu.addEventListener("click", () => lvSetDrawer(true));
-  // ↻: 最新に更新（ツリーと中身を取り直す・計画 14 §1.2）
-  const reload = document.getElementById("list-reload");
-  if (reload) reload.addEventListener("click", () => void lvReload());
+  // ‹: プロジェクト一覧へ戻る（4 画面共通・U01 §3）
+  const back = document.getElementById("list-back");
+  if (back) back.addEventListener("click", () => { location.hash = "#/projects"; });
   // 暗い部分をタップすると閉じる
   const mask = document.getElementById("lv-drawer-mask");
   if (mask) mask.addEventListener("click", () => lvSetDrawer(false));
@@ -1416,7 +1451,7 @@ if (typeof window !== "undefined") {
     lvApplyWide();
     if (wasWide !== lvWideOn) lvSetDrawer(lvRunId == null || lvWideOn === true);
   });
-  // ＋ は task.md 作成フォーム（cardform.js が中身を出す・計画 15 §1.5）
+  // ＋（task.md の作成フォーム）はサイドバーの見出しの行の中（lvRenderDrawer・U01 §4）
 }
 
 // --- node からの読み込み（tests/test_linkview.js・計画 14 §6） ---
