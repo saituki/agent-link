@@ -1,0 +1,223 @@
+"use strict";
+// Papers タブの DOM を使わない関数の小さなテスト（assert だけ）・07 §5・18 §6。
+// 実行:
+//     node tests/test_papers.js
+
+const assert = require("assert");
+const path = require("path");
+
+const {
+  authorShort,
+  filterPapers,
+  paperHash,
+  parsePaperHash,
+  logHash,
+  parseLogHash,
+  migrateTreeFolds,
+  migrateDiscoverLast,
+  activityHash,
+} = require(path.join(
+  __dirname,
+  "..",
+  "src",
+  "sai_phone",
+  "static",
+  "papers.js"
+));
+
+function testAuthorShort() {
+  // 07 §4.7 の表示例（最初の 1 人＋「ほか」）
+  assert.strictEqual(authorShort("A, B, C"), "A ほか");
+  assert.strictEqual(authorShort("A"), "A");
+  assert.strictEqual(authorShort(""), "");
+  // 余分な空白があっても同じ動き
+  assert.strictEqual(authorShort("  A ,  B  "), "A ほか");
+  // 無いとき（壊れたデータでも画面が崩れない）
+  assert.strictEqual(authorShort(null), "");
+  assert.strictEqual(authorShort(undefined), "");
+}
+
+function testFilterPapers() {
+  const papers = [
+    {
+      id: 1,
+      title: "Squeeze the Soaked Sponge: Efficient Finetuning",
+      authors: "Jing Liang, Hongyao Tang",
+    },
+    { id: 2, title: "Attention Is All You Need", authors: "Ashish Vaswani, Noam Shazeer" },
+    { id: 3, title: "Retrieval Augmented Generation", authors: "Jane Wang" },
+    { id: 4, title: "SpongeNet: Soaking Up Data", authors: "Li Wang" },
+  ];
+  const ids = (q) => filterPapers(papers, q).map((p) => p.id);
+
+  // 空の言葉は全部（新しい配列が返る）
+  assert.deepStrictEqual(ids(""), [1, 2, 3, 4]);
+  assert.deepStrictEqual(ids("   "), [1, 2, 3, 4]);
+
+  // 全語が含まれる論文だけ（07 §4.7: "sponge wang"）
+  assert.deepStrictEqual(ids("sponge wang"), [4]);
+
+  // 大文字小文字は無視
+  assert.deepStrictEqual(ids("SPONGE WANG"), [4]);
+  assert.deepStrictEqual(ids("attention"), [2]);
+
+  // 1 語でも題名・著者の両方を見る（著者にだけある言葉でも拾う）
+  assert.deepStrictEqual(ids("vaswani"), [2]);
+  assert.deepStrictEqual(ids("wang"), [3, 4]);
+
+  // 一致なしは空
+  assert.deepStrictEqual(ids("存在しない言葉"), []);
+
+  // 余分な空白は区切りとして扱う（1 語目と 2 語目はどちらも paper 1 にしか無い）
+  assert.deepStrictEqual(ids("  sponge   efficient "), [1]);
+
+  // 入力が壊れていても動く
+  assert.deepStrictEqual(filterPapers(null, "x"), []);
+}
+
+// 住所の読み書き（新旧・計画 18 §3.5・§6）
+function testPaperHash() {
+  // 書き方: 新しい形（名前あり）と古い形（名前なし＝選んでいるプロジェクトで開く）
+  assert.strictEqual(paperHash("sai-paper", 30), "#/paper/sai-paper/30");
+  assert.strictEqual(paperHash("sai-paper", 30, true), "#/paper/sai-paper/30/text");
+  assert.strictEqual(paperHash(null, 30), "#/paper/30");
+  assert.strictEqual(paperHash(null, 30, true), "#/paper/30/text");
+
+  // 読み方: 古い形（ホーム画面の履歴や古い通知から来る）
+  assert.deepStrictEqual(parsePaperHash("#/paper/30"), { name: null, id: "30", text: false });
+  assert.deepStrictEqual(parsePaperHash("#/paper/30/text"), { name: null, id: "30", text: true });
+  // 読み方: 新しい形
+  assert.deepStrictEqual(parsePaperHash("#/paper/sai-paper/30"), {
+    name: "sai-paper",
+    id: "30",
+    text: false,
+  });
+  assert.deepStrictEqual(parsePaperHash("#/paper/my-proj-2/5/text"), {
+    name: "my-proj-2",
+    id: "5",
+    text: true,
+  });
+
+  // 通さない形（1段が数字でない・部品が足りない・Papers の一覧の住所）
+  assert.strictEqual(parsePaperHash("#/paper/abc"), null);
+  assert.strictEqual(parsePaperHash("#/paper/sai-paper"), null); // 名前だけは旧形と解釈できない
+  assert.strictEqual(parsePaperHash("#/paper/sai-paper/text"), null);
+  assert.strictEqual(parsePaperHash("#/paper"), null);
+  assert.strictEqual(parsePaperHash("#/papers/library"), null);
+  assert.strictEqual(parsePaperHash("#/"), null);
+  assert.strictEqual(parsePaperHash(null), null);
+
+  // 書いて読んで同じ
+  assert.deepStrictEqual(parsePaperHash(paperHash("x_y.z", 7, true)), {
+    name: "x_y.z",
+    id: "7",
+    text: true,
+  });
+}
+
+function testLogHash() {
+  // 書き方: 新旧
+  assert.strictEqual(logHash(null, 12), "#/papers/log/12");
+  assert.strictEqual(logHash(null, 12, 3), "#/papers/log/12/3");
+  assert.strictEqual(logHash("sai-paper", 12), "#/papers/log/sai-paper/12");
+  assert.strictEqual(logHash("sai-paper", 12, 3), "#/papers/log/sai-paper/12/3");
+
+  // 読み方: 古い形（1段，数字2段は旧 <log_id>/<position> とみなす）
+  assert.deepStrictEqual(parseLogHash("#/papers/log/12"), {
+    name: null,
+    id: "12",
+    position: null,
+  });
+  assert.deepStrictEqual(parseLogHash("#/papers/log/12/3"), {
+    name: null,
+    id: "12",
+    position: "3",
+  });
+  // 読み方: 新しい形（1段目が数字でない2段，3段は常に新）
+  assert.deepStrictEqual(parseLogHash("#/papers/log/sai-paper/12"), {
+    name: "sai-paper",
+    id: "12",
+    position: null,
+  });
+  assert.deepStrictEqual(parseLogHash("#/papers/log/sai-paper/12/3"), {
+    name: "sai-paper",
+    id: "12",
+    position: "3",
+  });
+  assert.deepStrictEqual(parseLogHash("#/papers/log/12/3/4"), {
+    name: "12",
+    id: "3",
+    position: "4",
+  });
+
+  // 通さない形（1段が数字でない・番号でない部品）
+  assert.strictEqual(parseLogHash("#/papers/log/abc"), null);
+  assert.strictEqual(parseLogHash("#/papers/log/sai-paper/x"), null);
+  assert.strictEqual(parseLogHash("#/papers/log/sai-paper/12/x"), null);
+  assert.strictEqual(parseLogHash("#/papers/discover"), null);
+
+  // 書いて読んで同じ
+  assert.deepStrictEqual(parseLogHash(logHash("a-1.b", 9, 2)), {
+    name: "a-1.b",
+    id: "9",
+    position: "2",
+  });
+}
+
+// 設定の読み替え（古い形は sai-paper プロジェクトの分として読む・計画 18 §3.6・§6）
+function testSettingsMigration() {
+  // 階層の開閉: 古い形（配列）→ プロジェクトごとの形
+  assert.deepStrictEqual(migrateTreeFolds(["query:12", "import:2026-09-01"]), {
+    "sai-paper": ["query:12", "import:2026-09-01"],
+  });
+  // 古い形に紛れた文字列以外は落とす
+  assert.deepStrictEqual(migrateTreeFolds(["query:1", 5, null]), { "sai-paper": ["query:1"] });
+  // 新しい形はそのまま
+  const folds = { "sai-paper": ["query:1"], other: [] };
+  assert.deepStrictEqual(migrateTreeFolds(folds), folds);
+  // 壊れた値は空
+  assert.deepStrictEqual(migrateTreeFolds(null), {});
+  assert.deepStrictEqual(migrateTreeFolds("x"), {});
+  assert.deepStrictEqual(migrateTreeFolds(3), {});
+
+  // Discover の最後の検索: 古い形（数字／数字の文字列）→ プロジェクトごとの形
+  assert.deepStrictEqual(migrateDiscoverLast(12), { "sai-paper": 12 });
+  assert.deepStrictEqual(migrateDiscoverLast("12"), { "sai-paper": 12 });
+  // 新しい形はそのまま
+  assert.deepStrictEqual(migrateDiscoverLast({ other: 3 }), { other: 3 });
+  // 壊れた値は空（配列は使わない形）
+  assert.deepStrictEqual(migrateDiscoverLast(null), {});
+  assert.deepStrictEqual(migrateDiscoverLast("abc"), {});
+  assert.deepStrictEqual(migrateDiscoverLast([1, 2]), {});
+}
+
+function testActivityHash() {
+  // Radio の再生・質問は再生画面へ，論文のある出来事は論文情報へ，それ以外は押せない
+  assert.strictEqual(
+    activityHash({ kind: "radio_play", radio_id: "sai-paper-30", paper_id: 30 }, "sai-paper"),
+    "#/radio/sai-paper-30"
+  );
+  assert.strictEqual(
+    activityHash({ kind: "radio_question", radio_id: "sai-paper-30" }, "sai-paper"),
+    "#/radio/sai-paper-30"
+  );
+  assert.strictEqual(
+    activityHash({ kind: "download", paper_id: 7 }, "sai-paper"),
+    paperHash("sai-paper", 7, false)
+  );
+  assert.strictEqual(activityHash({ kind: "discover", paper_id: null }, "sai-paper"), null);
+  assert.strictEqual(activityHash({ kind: "notes", paper_id: 7 }, null), null);
+  assert.strictEqual(activityHash(null, "sai-paper"), null);
+}
+
+function main() {
+  testActivityHash();
+  testAuthorShort();
+  testFilterPapers();
+  testPaperHash();
+  testLogHash();
+  testSettingsMigration();
+  console.log("test_papers: すべて通りました");
+}
+
+main();

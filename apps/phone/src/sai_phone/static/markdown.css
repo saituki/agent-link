@@ -1,0 +1,229 @@
+/* md の整形表示（static/markdown.js）の見た目。
+   Agent の吹き出し・Papers のノート / 本文・List 画面の task / review /
+   Radio の質問、どこに埋め込んでも同じ見た目になるよう .md-… のクラスだけで整える。
+   （U4 で style.css からここへ移した。md の見た目は 1 か所にする。）
+
+   色は TUI（sai-link-widgets/src/theme.rs・sai-link-tui の base16-ocean.dark）に
+   合わせている。コードの枠は明るい画面でも暗い地（rgb(28,28,38)）にする。 */
+
+/* --- 1 文書の入れ物（renderMarkdown が一番外側に付ける） --- */
+.md-doc {
+  color: var(--text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* --- 見出し（段が深いほど暗いシアン系・左に同じ色の細い帯） --- */
+.md-sec > .md-h {
+  font-weight: 700;
+  line-height: 1.4;
+  /* 見出しをタップすると中身がたたむ / 開く（markdown.js が切り替える） */
+  cursor: pointer;
+  margin: 14px 0 6px;
+  padding-left: 8px;
+  border-left: 3px solid currentColor;
+}
+.md-h.md-lv1 { font-size: 1.45em; color: #0e7490; }
+.md-h.md-lv2 { font-size: 1.28em; color: #0f766e; }
+.md-h.md-lv3 { font-size: 1.15em; color: #1d4ed8; }
+.md-h.md-lv4 { font-size: 1.06em; color: #7c3aed; }
+.md-h.md-lv5 { font-size: 1em; color: #b45309; }
+.md-h.md-lv6 { font-size: 0.95em; color: var(--text-soft); }
+
+@media (prefers-color-scheme: dark) {
+  .md-h.md-lv1 { color: #67e8f9; }
+  .md-h.md-lv2 { color: #5eead4; }
+  .md-h.md-lv3 { color: #93c5fd; }
+  .md-h.md-lv4 { color: #c4b5fd; }
+  .md-h.md-lv5 { color: #fcd34d; }
+}
+
+/* 開閉のしるし（開いている ▾・たたんでいる ▸） */
+.md-h::after { content: " ▾"; font-size: 0.6em; color: var(--text-soft); }
+.md-sec.md-folded > .md-h::after { content: " ▸"; }
+/* たたんだ節は見出し以外を出さない（入れ子の節もまとめて隠れる） */
+.md-sec.md-folded > *:not([data-md-fold]) { display: none; }
+/* 見出しにフォーカスしたときの輪郭（キーボード操作用） */
+.md-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- 道具の行（全部たたむ / 全部開く / 目次） --- */
+.md-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.md-toc {
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm, 8px);
+}
+.md-toc[hidden] { display: none; }
+.md-toc-row {
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-height: 32px;
+}
+.md-toc-row:hover { background: var(--line); }
+.md-toc-row.md-lv1 { font-weight: 700; }
+.md-toc-row.md-lv2 { padding-left: 16px; }
+.md-toc-row.md-lv3 { padding-left: 28px; }
+.md-toc-row.md-lv4 { padding-left: 40px; }
+.md-toc-row.md-lv5, .md-toc-row.md-lv6 { padding-left: 52px; color: var(--text-soft); }
+
+/* --- 本文 --- */
+.md-p { margin: 6px 0; }
+.md-ul, .md-ol { margin: 6px 0; padding-left: 1.5em; }
+.md-li { margin: 3px 0; }
+.md-li input[type="checkbox"] { margin-right: 5px; vertical-align: -1px; }
+/* 太字は黄・引用は左の帯が薄いアクセント・箇条書きの印は緑 */
+.md-doc strong { color: #92400e; }
+.md-quote {
+  margin: 8px 0;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid rgba(37, 99, 235, 0.35);
+  color: var(--text-soft);
+}
+.md-ul > li::marker { color: var(--ok, #16a34a); }
+.md-ol > li::marker { color: var(--ok, #16a34a); font-weight: 600; }
+
+@media (prefers-color-scheme: dark) {
+  .md-doc strong { color: #fcd34d; }
+  .md-quote { border-left-color: rgba(122, 162, 247, 0.45); }
+}
+
+/* 文中の `コード`（枠の中の code は下で無効にしている） */
+.md-doc code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.92em;
+  background: #fdf4ff;
+  color: #a21caf;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+@media (prefers-color-scheme: dark) {
+  .md-doc code { background: #2a1f2e; color: #f0abfc; }
+}
+.md-doc a { color: var(--accent); }
+
+/* --- コードの枠（明るい画面でも暗い地。TUI と同じ） --- */
+.md-pre {
+  position: relative;
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: #1c1c26;
+  color: #e5e7eb;
+  border-radius: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  tab-size: 2;
+}
+.md-pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+/* 枠の右上に言語名を小さく出す */
+.md-pre[data-lang]:not([data-lang=""])::after {
+  content: attr(data-lang);
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 10px;
+  color: #697098;
+  pointer-events: none;
+}
+
+/* コードの色分け（mdHighlight が出す span のクラス） */
+.tok-kw  { color: #c792ea; }
+.tok-str { color: #c3e88d; }
+.tok-num { color: #f78c6c; }
+.tok-com { color: #697098; font-style: italic; }
+.tok-key { color: #82aaff; }
+.tok-fn  { color: #82aaff; }
+.tok-add { color: #c3e88d; background: rgba(195, 232, 141, 0.15); display: inline-block; width: 100%; }
+.tok-del { color: #ff5360; background: rgba(255, 83, 112, 0.15); display: inline-block; width: 100%; }
+
+/* --- 長いコードの枠（21 行以上は 12 行だけ出して「全部見る」で開く） --- */
+.md-code { position: relative; }
+.md-code.md-code-folded .md-pre {
+  /* 12 行ぶんの高さで切って、下は「全部見る」で開く */
+  max-height: calc(12 * 1.5em + 16px);
+  overflow: hidden;
+}
+.md-code.md-code-folded::after {
+  /* 切れ目が見えるように下を薄くする */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 34px;
+  height: 24px;
+  background: linear-gradient(to bottom, rgba(28, 28, 38, 0), rgba(28, 28, 38, 0.95));
+  pointer-events: none;
+}
+.md-code-more {
+  display: block;
+  width: 100%;
+  border: none;
+  background: var(--bg-soft);
+  color: var(--accent);
+  font-size: 13px;
+  padding: 8px;
+  min-height: 34px;
+  cursor: pointer;
+}
+.md-code-more:hover { background: var(--line); }
+
+/* --- 表（はみ出す分だけ横スクロール） --- */
+.md-tbl-wrap {
+  margin: 8px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+.md-table { border-collapse: collapse; font-size: 14px; }
+.md-table th, .md-table td {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.md-table th { background: var(--bg-soft); font-weight: 600; white-space: nowrap; }
+
+/* --- frontmatter の「設定」表（最初はたたんである・タップで開く） --- */
+.md-front {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.md-front summary { cursor: pointer; color: var(--text-soft); font-weight: 600; }
+.md-front-table { border-collapse: collapse; margin-top: 6px; width: 100%; }
+.md-front-table th, .md-front-table td {
+  border: 1px solid var(--line);
+  padding: 3px 6px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.md-front-table th { color: var(--text-soft); font-weight: 600; white-space: nowrap; }

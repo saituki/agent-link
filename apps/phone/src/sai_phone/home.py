@@ -1,0 +1,268 @@
+"""ホーム画面の集計（`GET /api/home`・U3 §変更内容 3）。
+
+1 本の住所で次をまとめて返す（共有契約 C-A3）:
+- 答えを待っている質問（`store.list_open_questions`）
+- 確認を待っている承認（`store.list_open_approvals`）
+- 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の数）
+- 論文の要対応（`sai-paper attention --json`）
+
+大原則（`docs/integration.md` §3）どおり、他アプリの DB は開かない。
+登録簿と sai-link / sai-paper の CLI の JSON だけを使う。
+
+1 つのプロジェクトが失敗しても全体は止めない（`errors` に「<名前>: <理由>」を足す）。
+画面が開くたび・更新するたびに全プロジェクトの CLI を呼ばないよう、結果は 10 秒だけ覚える。
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import json
+import logging
+import time
+
+from fastapi import HTTPException
+
+from sai_phone import control, papers, runs, store
+
+logger = logging.getLogger("sai_phone")
+
+# 一覧の題・要約の長さの上限（画面が溢れないように切る）
+_TITLE_MAX = 200
+# 論文の要対応の先頭件数（ホームは件数と題だけでよい）
+_ATTENTION_HEAD = 3
+# 結果を覚える秒数（ホームを開くたび・更新のたびに全プロジェクトの CLI を呼ばないため）
+_HOME_TTL = 10.0
+# プロジェクトごとの同時実行数（sai-link / sai-paper の CLI は重い）
+_HOME_WORKERS = 4
+
+# 覚えておいた結果（(時刻, 結果)）。テストから消すため global で持つ。
+_cache: tuple[float, dict] | None = None
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def _text(value, limit: int = _TITLE_MAX) -> str:
+    """文字列にして長さで切る（None や数字が混ざっても落ちない）。"""
+    if value is None:
+        return ""
+    return str(value)[:limit]
+
+
+def _run_of_session(session_map: list[tuple[str, set[str], int]], session_id) -> tuple[str | None, int | None]:
+    """session_id を含む実行を探して `(プロジェクト名, run_id)` を返す。無ければ (None, None)。"""
+    if not isinstance(session_id, str) or not session_id:
+        return None, None
+    for project_name, ids, run_id in session_map:
+        if session_id in ids:
+            return project_name, run_id
+    return None, None
+
+
+def _session_map() -> list[tuple[str, set[str], int]]:
+    """`(プロジェクト名, セッション ID の一致, run_id)` の並び（質問・承認の対応づけ用）。"""
+    out: list[tuple[str, set[str], int]] = []
+    try:
+        all_runs = runs.load_runs()
+    except Exception as e:  # 実行の書き出しが読めなくても質問は出せる
+        logger.warning(f"実行の一覧が読めません（質問の対応づけだけ無しにします）: {e}")
+        return out
+    for run in all_runs:
+        run_id = run.get("run_id")
+        if not isinstance(run_id, int) or isinstance(run_id, bool):
+            continue
+        out.append(
+            (
+                str(run.get("project_name") or ""),
+                runs.run_session_ids(run),
+                run_id,
+            )
+        )
+    return out
+
+
+def _home_questions() -> list[dict]:
+    """答えを待っている質問（新しい順・`store.list_open_questions`）。"""
+    session_map = _session_map()
+    out: list[dict] = []
+    for row in store.list_open_questions():
+        if not isinstance(row, dict):
+            continue
+        questions = row.get("questions")
+        first = questions[0] if isinstance(questions, list) and questions else {}
+        text = first.get("question") if isinstance(first, dict) else None
+        project_name, run_id = _run_of_session(session_map, row.get("session_id"))
+        out.append(
+            {
+                "id": row.get("id") or "",
+                "agent": row.get("agent") or "",
+                "title": _text(text) if text else "質問",
+                "created_at": row.get("created_at"),
+                "project": project_name,
+                "run_id": run_id,
+            }
+        )
+    return out
+
+
+def _home_approvals() -> list[dict]:
+    """確認を待っている承認（新しい順・`store.list_open_approvals`）。"""
+    session_map = _session_map()
+    out: list[dict] = []
+    for row in store.list_open_approvals():
+        if not isinstance(row, dict):
+            continue
+        tool_input = row.get("tool_input")
+        tool_input = tool_input if isinstance(tool_input, dict) else {}
+        summary = tool_input.get("command") or tool_input.get("file_path")
+        if not summary:
+            try:
+                summary = json.dumps(tool_input, ensure_ascii=False)
+            except (TypeError, ValueError):
+                summary = ""
+        project_name, run_id = _run_of_session(session_map, row.get("session_id"))
+        out.append(
+            {
+                "id": row.get("id") or "",
+                "tool_name": row.get("tool_name") or "",
+                "summary": _text(summary) if summary else "",
+                "created_at": row.get("created_at"),
+                "project": project_name,
+                "run_id": run_id,
+            }
+        )
+    return out
+
+
+def _folder_runs(items, label: str) -> list[dict]:
+    """`phone tree` の中の top レベルの `label` フォルダにある run を数える前提で取り出す。"""
+    out: list[dict] = []
+    for node in items if isinstance(items, list) else []:
+        if not isinstance(node, dict) or node.get("type") != "folder":
+            continue
+        if str(node.get("label") or node.get("id") or "") != label:
+            continue
+        children = node.get("children")
+        for child in children if isinstance(children, list) else []:
+            if not isinstance(child, dict) or child.get("type") != "run":
+                continue
+            if child.get("run_id") is None:
+                continue
+            out.append(
+                {
+                    "run_id": child.get("run_id"),
+                    "label": _text(child.get("label") or f'ID{child.get("run_id")}'),
+                }
+            )
+    return out
+
+
+def _home_project(row: dict) -> dict:
+    """1 プロジェクトのホームの行（`phone tree` の review / todo を使う）。"""
+    name = str(row.get("name") or "")
+    tree = control.phone_tree(name) or {}
+    items = tree.get("items") if isinstance(tree, dict) else None
+    review = _folder_runs(items, "review")
+    todo = _folder_runs(items, "todo")
+    return {
+        "name": name,
+        "daemon_alive": bool(row.get("daemon_alive")),
+        "running": row.get("running") or 0,
+        "last_executed_at": row.get("last_executed_at"),
+        "review": review,
+        "todo": len(todo),
+    }
+
+
+def _home_paper(row: dict) -> dict:
+    """論文の置き場があるプロジェクトのホームの行（`attention --json` の件数と先頭 3 件）。"""
+    name = str(row.get("name") or "")
+    items = papers.attention_list(row) or []
+    head = []
+    for item in items[:_ATTENTION_HEAD]:
+        if not isinstance(item, dict):
+            continue
+        head.append(
+            {
+                "key": _text(item.get("key")),
+                # kind は sai-paper の値のまま（日本語のラベルに変えない・C-A3）
+                "kind": str(item.get("kind") or ""),
+                "title": _text(item.get("title")),
+            }
+        )
+    return {"name": name, "attention": len(items), "items": head}
+
+
+def _error_text(e: Exception) -> str:
+    """1 つの失敗の理由（HTTPException の detail が日本語なのでそれを優先する）。"""
+    if isinstance(e, HTTPException):
+        return _text(e.detail) or f"HTTP {e.status_code}"
+    return _text(e) or "原因不明のエラー"
+
+
+def _build() -> dict:
+    """集める本体（10 秒の覚え置きは `build_home` 側）。"""
+    errors: list[str] = []
+    project_rows = [
+        row
+        for row in control.list_projects()
+        if row.get("root_exists") and row.get("db_exists")
+    ]
+    paper_rows = papers.list_paper_projects()
+
+    results: dict[tuple[str, str], object] = {}
+    # プロジェクトと論文の集計はどちらも CLI を待つので並べる。
+    jobs: list[tuple[str, str, object]] = [
+        ("project", str(row.get("name") or ""), row) for row in project_rows
+    ] + [("paper", str(row.get("name") or ""), row) for row in paper_rows]
+    if jobs:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=_HOME_WORKERS) as pool:
+            futures = {
+                pool.submit(_home_project if kind == "project" else _home_paper, row): (
+                    kind,
+                    name,
+                )
+                for kind, name, row in jobs
+            }
+            for future in concurrent.futures.as_completed(futures):
+                kind, name = futures[future]
+                try:
+                    results[(kind, name)] = future.result()
+                except Exception as e:  # 1 つが失敗しても全体は止めない
+                    logger.warning(f"ホームの集計に失敗（他は続けます）: {name}: {e}")
+                    errors.append(f"{name}: {_error_text(e)}")
+
+    # 並びは登録簿のまま（最後に動いた順）。論文も同じ順にする。
+    projects_out = [results[("project", str(r.get("name") or ""))] for r in project_rows
+                    if ("project", str(r.get("name") or "")) in results]
+    papers_out = [results[("paper", str(r.get("name") or ""))] for r in paper_rows
+                  if ("paper", str(r.get("name") or "")) in results]
+
+    return {
+        "questions": _home_questions(),
+        "approvals": _home_approvals(),
+        "projects": projects_out,
+        "papers": papers_out,
+        "errors": errors,
+    }
+
+
+def build_home() -> dict:
+    """ホームの集計（`GET /api/home`・U3 §変更内容 3）。
+
+    10 秒だけ覚える（開くたび・更新するたびに全プロジェクトの CLI を呼ばないため）。
+    """
+    global _cache
+    now = _now()
+    if _cache is not None and now - _cache[0] < _HOME_TTL:
+        return _cache[1]
+    value = _build()
+    _cache = (now, value)
+    return value
+
+
+def forget() -> None:
+    """覚え置きを消す（テストと、強制的に読み直すときに使う）。"""
+    global _cache
+    _cache = None

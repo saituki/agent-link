@@ -1,0 +1,182 @@
+/* Workflow 盤面（workflow.js）の見た目（実装計画 U5）。
+   論文の Canvas（canvas.css）と操作をそろえる。
+   - 盤面は overflow: hidden。札も線も帯や見出しにはみ出さない
+   - 札は HTML の div、線は同じ中の SVG（外部ライブラリは使わない）
+   - 色は CSS 変数と #rrggbb だけを使い、暗い画面でも読めるようにする */
+
+#workflow-root { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+/* --- 上の帯（← 戻る・プロジェクト名・Dashboard|Workflow|List|設定） --- */
+.wf-bar { gap: 6px; }
+.wf-bar .wf-back { flex: none; font-size: 20px; }
+.wf-bar .wf-title {
+  flex: none; max-width: 34vw; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 16px;
+}
+.wf-bar .list-mode { flex: 1; min-width: 0; }
+
+/* --- 道具の行 --- */
+.wf-tools { border-bottom: 1px solid var(--line); }
+.wf-tool {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.wf-tool:hover { background: var(--bg-soft); }
+.wf-tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* 線の種類のボタン（Canvas と同じ見た目。色つきの下線を出す） */
+.wf-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.wf-kind {
+  border: 1px solid var(--line);
+  border-bottom: 3px solid var(--wf-kind-color, var(--line));
+  background: none;
+  color: var(--text-soft);
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.wf-kind.active { opacity: 1; color: var(--text); background: var(--bg-soft); }
+.wf-kind.dashed { border-bottom-style: dashed; }
+
+/* --- 赤い 1 行（読めなかったとき） --- */
+.wf-error {
+  padding: 8px var(--sp-4);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.wf-error[hidden] { display: none; }
+
+/* --- Kanban の帯（4 レーン。狭い画面では横にスクロール） --- */
+.wf-kanban { border-bottom: 1px solid var(--line); background: var(--bg-soft); }
+.wf-kanban[hidden] { display: none; }
+.wf-kanban-empty { margin: 0; padding: 10px var(--sp-4); font-size: 13px; color: var(--text-soft); }
+.wf-lanes {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.wf-lane {
+  flex: 0 0 190px;
+  max-width: 190px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  padding: var(--sp-2);
+}
+.wf-lane-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.wf-lane-name { font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.wf-lane-count { font-size: 12px; color: var(--text-soft); }
+.wf-lane-empty { margin: 0; font-size: 12px; color: var(--text-soft); }
+.wf-lane-card {
+  display: block; width: 100%; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text);
+  padding: 6px 8px; margin-bottom: 4px; cursor: pointer;
+}
+.wf-lane-card:hover { background: var(--bg-soft); }
+.wf-lane-card-title { display: block; font-size: 13px; font-weight: 600; }
+.wf-lane-card-date { display: block; font-size: 11px; color: var(--text-soft); }
+.wf-lane-card-desc {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; font-size: 12px; line-height: 1.5; color: var(--text-soft);
+}
+.wf-lane-card-runner { display: block; font-size: 11px; color: var(--text-soft); }
+
+/* --- 盤面（Canvas と同じ作り） --- */
+.wf-stage {
+  position: relative;
+  flex: 1;
+  min-height: 60dvh;
+  overflow: hidden;              /* 札も線もはみ出させない */
+  background:
+    radial-gradient(circle, var(--line) 1px, transparent 1px) 0 0 / 24px 24px;
+  touch-action: none;            /* 2 本指のピンチをブラウザに任せない */
+  cursor: grab;
+}
+.wf-stage:active { cursor: grabbing; }
+.wf-loading {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  margin: 0; font-size: 14px; color: var(--text-soft);
+}
+.wf-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.wf-board-empty { position: absolute; left: 0; top: 0; padding: var(--sp-5); }
+
+/* round の区切り線 */
+.wf-seps { position: absolute; left: 0; top: 0; right: 0; height: 0; }
+.wf-sep { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--line); }
+.wf-sep-label {
+  position: absolute; left: 4px; top: -9px;
+  font-size: 11px; color: var(--text-soft);
+  background: var(--bg); padding: 0 4px;
+}
+
+/* 線（札より下・札より上） */
+.wf-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+
+/* 札 */
+.wf-card {
+  position: absolute;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--wf-tag, #9ca3af);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  padding: 3px 6px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.wf-card.wf-sel { border-color: #ffc832; box-shadow: 0 0 0 2px rgba(255, 200, 50, 0.45); }
+.wf-card.wf-dim { opacity: 0.45; }
+.wf-card-title { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
+.wf-card-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-card-runner { font-size: 10px; color: var(--text-soft); }
+.wf-card-chips { display: inline-flex; gap: 3px; }
+.wf-card-chips .sai-chip { padding: 0 5px; font-size: 10px; }
+.wf-card-meta { display: flex; gap: 6px; font-size: 10px; color: var(--text-soft); }
+.wf-card-cost { margin-left: auto; }
+.wf-card-desc { display: flex; flex-direction: column; font-size: 10px; line-height: 14px; color: var(--text-soft); }
+.wf-card-desc-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 実行中（点滅）と失敗（赤）の点 */
+.wf-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+.wf-dot-run { background: #3b82f6; animation: wf-blink 1.2s ease-in-out infinite; }
+.wf-dot-fail { background: #ef4444; }
+@keyframes wf-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* 遠く（拡大率が小さい）ときは 1 行目だけ大きくする（Canvas と同じ考え方） */
+.wf-far .wf-card { padding: 0; border-left-width: 3px; }
+.wf-far .wf-card-title { font-size: 20px; height: 100%; align-items: center; }
+.wf-far .wf-card-id { white-space: nowrap; }
+.wf-far .wf-card-runner,
+.wf-far .wf-card-chips,
+.wf-far .wf-card-meta,
+.wf-far .wf-card-desc { display: none; }
+
+/* --- 札の中身（板） --- */
+.wf-sheet { padding: var(--sp-1) var(--sp-4) var(--sp-4); }
+.wf-sheet-head-body { margin-bottom: var(--sp-3); }
+.wf-sheet-title { margin: 0 0 var(--sp-1); font-size: 16px; font-weight: 600; }
+.wf-sheet-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); }
+.wf-sheet-line { margin: 0; font-size: 13px; color: var(--text-soft); }
+.wf-sheet-desc { margin: 0; font-size: 13px; line-height: 1.6; }
+.wf-sheet-go { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-3); }
+.wf-sheet-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+/* --- 凡例 --- */
+.wf-legend { padding: 0 var(--sp-4) var(--sp-4); }
+.wf-legend-title { margin: var(--sp-2) 0 var(--sp-1); font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.wf-legend-items { display: flex; flex-wrap: wrap; gap: var(--sp-1); }

@@ -1,0 +1,615 @@
+/* sai-phone の Canvas（一覧と盤面）— 実装計画 U06。
+   style.css の次に読む（index.html）。style.css は U01 が書くので触らない。
+   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --accent / --danger。 */
+
+/* --- 一覧（#/papers/canvas） --- */
+
+/* Papers の切り替えが 5 つ（Canvas を足した）なので少し小さくする */
+.cv-seg-row .dash-seg button { font-size: 12px; padding: 7px 0; }
+
+.cv-list-head {
+  padding: 14px 4px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.cv-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 4px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.cv-list-row .cv-list-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-list-row .cv-list-count {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+/* --- 盤面の全体（#view-canvas-board） --- */
+
+/* タブバーを隠す画面なので、高さを画面いっぱいに取る */
+#view-canvas-board {
+  height: 100dvh;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+#view-canvas-board .appbar { flex: none; }
+#view-canvas-board .appbar h1 { font-size: 17px; }
+#view-canvas-board .appbar .cv-draft {
+  flex: none;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-soft);
+}
+#view-canvas-board .appbar .cv-draft[hidden] { display: none; }
+#view-canvas-board .appbar button.on { color: var(--accent); }
+
+.cv-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.cv-tools .cv-kinds {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cv-tools .cv-kinds::-webkit-scrollbar { display: none; }
+.cv-tools .cv-kinds button {
+  flex: none;
+  padding: 7px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cv-tools .cv-kinds button.active {
+  color: var(--cv-kind-color, var(--text));
+  box-shadow: inset 0 -2px 0 var(--cv-kind-color, var(--accent));
+  font-weight: 600;
+}
+.cv-tools .cv-tool-btns {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+.cv-tools .cv-tool-btns button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.cv-tools .cv-tool-btns button:disabled { color: var(--text-soft); opacity: 0.5; }
+
+.cv-error {
+  flex: none;
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.cv-error[hidden] { display: none; }
+
+/* 左右の欄と盤面が並ぶところ */
+.cv-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+/* --- 盤面（#cv-stage） --- */
+
+.cv-stage {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;   /* 札も線もここから外にはみ出させない */
+  background: var(--bg-soft);
+  touch-action: none;  /* 指でのスクロールをさせない（ドラッグは自前要做） */
+}
+
+.cv-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.cv-loading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 40%;
+  margin: 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+/* 線（枠の上、札の下） */
+.cv-edges {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* --- 枠（group） --- */
+
+.cv-group {
+  position: absolute;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  pointer-events: none;  /* 縁と見出しだけが受け取る */
+}
+.cv-group.cv-sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+/* 縁だけ 12px の帯にして掴めるようにする（内側を押したら盤面が動く） */
+.cv-group-grip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+  clip-path: polygon(
+    evenodd,
+    0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+    12px 12px, 12px calc(100% - 12px),
+    calc(100% - 12px) calc(100% - 12px),
+    calc(100% - 12px) 12px, 12px 12px
+  );
+}
+.cv-group-label {
+  position: absolute;
+  left: 0;
+  top: -24px;
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: auto;  /* 見出しも枠の移動 */
+}
+
+/* --- 札（card） --- */
+
+.cv-card {
+  position: absolute;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  padding: 9px 11px;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cv-card.cv-sel {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+/* 選んだ札とつながっていない札は薄くする（線の 0.12 と釣り合いを揃える） */
+.cv-card.cv-dim { opacity: 0.45; }
+.cv-card .cv-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cv-card .cv-kind { font-weight: 700; flex: none; }
+/* kind が null や未知の札（DB に無い札）。帯は paper と同じ灰色にする（cvCardKind） */
+.cv-card.cv-unknown-kind .cv-kind { opacity: 0.7; }
+.cv-card .cv-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-card .cv-title {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cv-card .cv-tags {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-card .cv-sum {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- 文字（text） --- */
+
+.cv-text {
+  position: absolute;
+  background: #fff6c9;
+  color: #4a4326;
+  border: 1px solid #ecd98a;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+@media (prefers-color-scheme: dark) {
+  .cv-text {
+    background: #4a4326;
+    color: #f5efd6;
+    border-color: #6b5f33;
+  }
+}
+
+/* --- 遠くのとき（拡大率が 0.45 未満）は題名だけ大きく描く --- */
+
+.cv-far .cv-card { padding: 6px 8px; }
+.cv-far .cv-card .cv-head,
+.cv-far .cv-card .cv-tags,
+.cv-far .cv-card .cv-sum { display: none; }
+.cv-far .cv-card .cv-title {
+  margin: 0;
+  /* 画面上でおよそ 14px に見える大きさ（札からはみ出さないよう 64px まで） */
+  font-size: min(calc(14px / var(--cv-z, 1)), 64px);
+  line-height: 1.2;
+  -webkit-line-clamp: 3;
+}
+.cv-far .cv-text { font-size: 16px; }
+
+/* --- 右下の − 100% + ⤢ --- */
+
+.cv-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.cv-zoom button {
+  width: 32px;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 8px;
+}
+.cv-zoom button:active { background: var(--input-bg); }
+.cv-zoom #cv-zoom-pct {
+  min-width: 46px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- 左右の欄（#cv-left / #cv-right。中身は U07 の canvaspanel.js） --- */
+
+.cv-side {
+  flex: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg);
+  display: none;
+}
+.cv-left { width: 280px; border-right: 1px solid var(--line); }
+.cv-right { width: 360px; border-left: 1px solid var(--line); }
+
+/* 狭い画面（900px 未満）では引き出しにする。盤面の上に重ねる。 */
+.cv-scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 25;
+  background: rgba(0, 0, 0, 0.28);
+}
+.cv-scrim[hidden] { display: none; }
+
+@media (max-width: 899px) {
+  .cv-side {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: min(86vw, 340px);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.22);
+  }
+  .cv-left { left: 0; }
+  .cv-right { right: 0; width: min(92vw, 380px); }
+}
+
+@media (min-width: 900px) {
+  /* 横に並べる。閉じているときは盤面だけを広げる */
+  #view-canvas-board.cv-left-open .cv-left { display: block; }
+  #view-canvas-board.cv-right-open .cv-right { display: block; }
+}
+
+@media (max-width: 899px) {
+  #view-canvas-board.cv-left-open .cv-left { display: block; }
+  #view-canvas-board.cv-right-open .cv-right { display: block; }
+}
+
+/* --- 左右の欄の中身（U07・canvaspanel.js） --- */
+
+/* 絞り込み欄（左右の余白は margin で取る。width を 100% にすると余白がはみ出す） */
+.cvp-filter {
+  display: block;
+  margin: 8px 10px 4px;
+  padding: 7px 9px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.cvp-filter:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.cvp-list { padding: 0 6px 16px; }
+
+/* 論文の行（▾ + 題名 + #論文番号） */
+.cvp-paper {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 6px 4px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.cvp-paper .cvp-fold {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-soft);
+  background: none;
+  border: none;
+  border-radius: 6px;
+}
+.cvp-paper .cvp-fold:active { background: var(--input-bg); }
+.cvp-paper-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  /* 題名が長くても欄からはみ出さない */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 同じ論文の札が盤面にあるとき */
+.cvp-paper.on .cvp-paper-title { color: var(--accent); }
+.cvp-paper-id { flex: none; font-size: 11px; color: var(--text-soft); }
+
+/* 子の行（note.md / report）。左に 16px 下げる */
+.cvp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  margin-left: 16px;
+  border-radius: 8px;
+}
+.cvp-row.selected { background: var(--bubble-user); }
+
+/* ● / ○。24px 四方の押しやすいボタン */
+.cvp-dot {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-soft);
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+.cvp-dot.on { color: var(--accent); }
+.cvp-dot:disabled { opacity: 0.4; }
+
+.cvp-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  padding: 3px 4px 5px 0;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+}
+.cvp-row-line { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.cvp-row-label { flex: none; font-size: 12px; font-weight: 600; }
+.cvp-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cvp-row-off { flex: none; font-size: 10px; color: var(--text-soft); }
+.cvp-row-sum {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 1 行の案内と失敗 */
+.cvp-hint { margin: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--text-soft); }
+.cvp-err {
+  margin: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+/* 線の種類の凡例（選んでいないとき） */
+.cvp-legend { margin: 4px 12px 16px; padding: 0; list-style: none; }
+.cvp-legend-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.cvp-legend-dot { flex: none; width: 14px; height: 3px; border-radius: 2px; }
+.cvp-legend-label { font-size: 12px; color: var(--text-soft); }
+
+/* 右の欄の見出し */
+.cvp-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 6px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.cvp-kind { align-self: center; font-size: 11px; font-weight: 600; }
+.cvp-head-text { min-width: 0; }
+.cvp-head-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.cvp-head-sub { font-size: 11px; color: var(--text-soft); }
+.cvp-head-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cvp-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.cvp-hide {
+  font-size: 12px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+.cvp-hide:disabled { opacity: 0.4; }
+
+/* 中身（markdown.js の .md-* の見た目に余白を足すだけ） */
+.cvp-body { padding: 4px 12px 16px; }
+.cvp-body > .md-sec:first-child > .md-h { margin-top: 4px; }
+.cvp-body .md-p:first-child { margin-top: 0; }
+/* 長い URL などが欄からはみ出さない（狭い画面だと特に显而易い） */
+.cvp-body, .cvp-body p, .cvp-body li, .cvp-body td, .cvp-body th, .cvp-body a {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Canvas に無いつながり */
+.cvp-missing { border-top: 1px solid var(--line); padding: 8px 12px 16px; }
+.cvp-h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text); }
+.cvp-missing-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cvp-missing-row:last-child { border-bottom: none; }
+.cvp-rel { flex: none; font-size: 10px; font-weight: 600; }
+.cvp-missing-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cvp-add {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.cvp-add:disabled { opacity: 0.4; }
+
+/* 狭い画面の引き出しでも読みやすくする */
+@media (max-width: 899px) {
+  .cvp-paper-title { font-size: 14px; }
+  .cvp-row-label { font-size: 13px; }
+  .cvp-row-sum, .cvp-row-title { font-size: 12px; }
+  .cvp-head-title { font-size: 15px; }
+  .cvp-missing-title { font-size: 13px; white-space: normal; }
+}

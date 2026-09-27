@@ -1,0 +1,243 @@
+/* Papers の Import（paperimport.js）と Dashboard の Project（papers.js）の見た目。
+   共通の部品（.sai-btn / .sai-card / .sai-chip / .sai-empty など）は style.css にあるので
+   ここでは Import と Dashboard 固有のものだけを書く（style.css は U4 の物で触らない）。 */
+
+/* --- 本文の置き場（Import と Project のカード） --- */
+.pim-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-6);
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* 説明の 2 文 */
+.pim-intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+/* 小さい注（操作の説明など） */
+.pim-note {
+  margin: var(--sp-1) 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+/* 読み込みの箱 */
+.pim-load { display: flex; flex-direction: column; gap: var(--sp-2); }
+.pim-load-line { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.pim-sub { margin: var(--sp-2) 0 0; font-size: 13px; font-weight: 600; color: var(--text); }
+/* ファイル選択の input は隠す（ボタンのみ押す） */
+.pim-file { display: none; }
+.pim-textarea {
+  width: 100%;
+  min-height: 7em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.pim-name { flex: 1 1 8em; min-width: 0; }
+
+/* 赤い 1 行（理由・失敗） */
+.pim-error { margin: var(--sp-1) 0 0; font-size: 13px; line-height: 1.6; color: var(--danger); }
+
+/* 見出し（ファイルの一覧・論文の一覧） */
+.pim-title { margin: 0 0 var(--sp-2); font-size: 15px; font-weight: 600; color: var(--text); }
+.pim-filter { width: 100%; margin-bottom: var(--sp-2); }
+
+/* --- 読み込んだ .bib の一覧 --- */
+.pim-files { display: flex; flex-direction: column; }
+.pim-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.pim-file-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2) 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.pim-file-main:hover .pim-file-name { text-decoration: underline; }
+.pim-file-name { font-weight: 600; word-break: break-all; }
+.pim-file-count { font-size: 12px; color: var(--text-soft); }
+.pim-file-error { font-size: 12px; color: var(--danger); }
+
+/* --- 論文の一覧 --- */
+.pim-entries { display: flex; flex-direction: column; }
+.pim-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.pim-entry-main {
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-2) 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.pim-entry-line1 { display: flex; align-items: center; gap: var(--sp-2); }
+.pim-entry-title {
+  font-size: 15px;
+  line-height: 1.5;
+  /* 2 行で打ち切る（一覧的行が長くならないように） */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pim-entry-meta { margin-top: 2px; font-size: 12px; color: var(--text-soft); }
+.pim-entry .sai-chip { flex: none; }
+
+/* --- 1 論文の詳しい中身（下から出る板） --- */
+.pim-sheet { display: flex; flex-direction: column; gap: var(--sp-2); }
+.pim-sheet-title { margin: 0; font-size: 17px; line-height: 1.5; }
+.pim-sheet-line { margin: 0; font-size: 13px; color: var(--text-soft); }
+.pim-sheet-sub { margin: var(--sp-2) 0 0; font-size: 13px; font-weight: 600; }
+.pim-sheet-link { font-size: 13px; word-break: break-all; }
+.pim-sheet-abstract {
+  max-height: 40dvh;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* --- 読み込めなかった .bib（一番下の赤い行） --- */
+.pim-errors { padding: var(--sp-2) 0; }
+.pim-errors-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--danger); }
+
+/* --- Download の表示（Import の行・論文情報の下・広い画面の欄） --- */
+.pim-job:not([hidden]) { margin-top: var(--sp-2); }
+.pim-job-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  border-left: 3px solid var(--line);
+}
+.pim-job-body.ok { border-left-color: var(--ok); }
+.pim-job-body.busy { border-left-color: var(--accent); }
+.pim-job-body.danger { border-left-color: var(--danger); }
+.pim-job-line { display: flex; align-items: center; gap: var(--sp-2); }
+.pim-job-text { font-size: 13px; line-height: 1.6; }
+.pim-job-error { margin: 0; font-size: 12px; line-height: 1.6; color: var(--danger); }
+
+/* --- Dashboard の Project（要対応・現況・考え・状況のまとめ） --- */
+.pd-project { display: flex; flex-direction: column; gap: var(--sp-3); }
+.pd-card { display: flex; flex-direction: column; gap: var(--sp-2); }
+.pd-att-list { display: flex; flex-direction: column; }
+.pd-att {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.pd-att:last-child { border-bottom: none; }
+.pd-att-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+.pd-att-main:disabled { cursor: default; }
+.pd-att-title { min-width: 0; word-break: break-word; }
+.pd-memo-line { display: flex; align-items: center; gap: var(--sp-2); }
+.pd-memo { flex: 1; min-width: 0; }
+.pd-md { font-size: 14px; line-height: 1.7; word-break: break-word; }
+.pd-md-fold { display: flex; flex-direction: column; gap: var(--sp-2); }
+.pd-md-peek {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+}
+.pd-brief summary { cursor: pointer; font-size: 13px; color: var(--text-soft); }
+.pd-brief[open] summary { margin-bottom: var(--sp-2); }
+
+/* 論文情報のボタンの下に置く「何が起きるか」の 1 行 */
+.paper-hint { margin: 2px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-soft); }
+
+/* --- Library の道具行（＋ BibTeX を読み込む） --- */
+#view-papers-library .lib-tools { flex-wrap: wrap; }
+#view-papers-library .lib-tools input { flex: 1 1 180px; }
+.papers-import-btn { margin-left: auto; white-space: nowrap; }
+
+/* --- Library の上の「ダウンロード中 N 件」の帯 --- */
+.papers-dl-band {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--line);
+}
+.papers-dl-band[hidden] { display: none; }
+
+/* --- 空の画面のボタン（2 つ並べるとき） --- */
+.papers-empty-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); justify-content: center; }
+
+/* --- 広い画面（900px 以上）：左に一覧・右に論文の中身 --- */
+@media (min-width: 900px) {
+  .papers-split { align-items: flex-start; }
+  .papers-split > .sai-split-list {
+    flex: 0 0 340px;
+    max-width: 340px;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding-bottom: var(--sp-6);
+    border-right: 1px solid var(--line);
+  }
+  .papers-split > .sai-split-main {
+    flex: 1;
+    min-width: 0;
+    padding: var(--sp-3) var(--sp-4) var(--sp-6);
+  }
+  /* 右の欄の中身は読みやすい幅に収める */
+  .paper-side { max-width: 900px; }
+  /* Project のカードと本文は 2 列に並べる */
+  .pd-project { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .pd-project > .pd-brief { grid-column: 1 / -1; }
+}
+.pim-job-link { font-size: 12px; }
