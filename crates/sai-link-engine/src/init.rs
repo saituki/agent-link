@@ -5,7 +5,7 @@
 //! - `PROJECTROOT/.sai/` ディレクトリと必要なサブフォルダを作成する（既存は触らない）
 //! - `settings.json` をシード作成する（`{}`。既にあれば触らない）
 //! - `models.json` は作成しない（`~/.sai-moon/models.json` のグローバル設定にフォールバック）
-//! - Claude Code の設定 `.mcp.json` と `.claude/settings.json` を作る。
+//! - Claude Code の設定 `.mcp.json` と `.claude/settings.json`、pi の設定 `.pi/settings.json` を作る。
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
 //!
 //! ## 作成される構成
@@ -15,6 +15,7 @@
 //! ├── .mcp.json                                # cc の MCP（sai / serena / headroom / donsetch）
 //! ├── .claude/settings.json                    # cc の道具制限・Skill 抑止・statusLine・hook
 //! ├── .claude/commands/sai-finalize.md         # /sai-finalize（hook が LLM を通さず処理）
+//! ├── .pi/settings.json                        # pi の質問ツール（ask_user_phone.ts）
 //! └── .sai/
 //!     ├── blocks/                              # ブロック定義 (*.md)
 //!     ├── template/                            # templates: で参照される md
@@ -89,8 +90,8 @@ pub fn sai_dir(root: &Path) -> PathBuf {
 /// プロジェクトを初期化する（何度実行してもよい）。
 ///
 /// `.sai/` 配下は無いものだけ作り、DB・outputs・blocks などの既存物には触らない。
-/// cc の設定ファイル（`.mcp.json` / `.claude/settings.json`）は毎回作り直す
-/// （既存は退避する）。
+/// cc と pi の設定ファイル（`.mcp.json` / `.claude/settings.json` / `.pi/settings.json`）は
+/// 毎回作り直す（既存は退避する）。pi は `.mcp.json` も読むので、MCP は cc と共通。
 pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
     let base = sai_dir(root);
     let mut report = InitReport::default();
@@ -111,19 +112,24 @@ pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
         report.created.push(settings_path);
     }
 
-    // Claude Code の設定ファイル
+    // Claude Code と pi の設定ファイル
     std::fs::create_dir_all(root.join(".claude/commands"))?;
     let json = |v: serde_json::Value| -> std::io::Result<String> {
         Ok(serde_json::to_string_pretty(&v).map_err(std::io::Error::other)? + "\n")
     };
-    for (path, text) in [
+    let mut files = vec![
         (root.join(".mcp.json"), json(crate::cc_command::mcp_config_json())?),
         (root.join(".claude/settings.json"), json(crate::cc_command::cc_settings_json())?),
         (
             root.join(".claude/commands/sai-finalize.md"),
             crate::cc_command::SAI_FINALIZE_COMMAND_MD.to_string(),
         ),
-    ] {
+    ];
+    if let Some(ext) = crate::cc_command::pi_question_extension() {
+        std::fs::create_dir_all(root.join(".pi"))?;
+        files.push((root.join(".pi/settings.json"), json(crate::cc_command::pi_settings_json(&ext))?));
+    }
+    for (path, text) in files {
         if path.exists() {
             let bak = backup_path(&path);
             std::fs::rename(&path, &bak)?;
@@ -209,8 +215,13 @@ mod tests {
         // .sai/ の既存ファイルは書き換えられていない
         assert!(std::fs::read_to_string(&settings).unwrap().contains("marker"));
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
-        // cc 設定は 3 つとも退避され、新しく作られる
-        assert_eq!(second.backed_up.len(), 3);
+        // cc と pi の設定は 4 つとも退避され、新しく作られる
+        assert_eq!(second.backed_up.len(), 4);
+        let pi: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(".pi/settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(pi["extensions"][0].as_str().unwrap().ends_with("ask_user_phone.ts"));
         assert!(root.join(".claude/commands/sai-finalize.md").is_file());
         assert_eq!(
             std::fs::read_to_string(root.join(".mcp.json.bak")).unwrap(),

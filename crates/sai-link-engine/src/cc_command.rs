@@ -279,10 +279,11 @@ fn sai_mcp_command() -> String {
 /// プロジェクト直下の `.mcp.json` の内容（`sai-link init` が書く）。
 ///
 /// `sai`（sai_write / task_create 等）に加え、serena・headroom・donsetch（Web 検索）を使う。
+/// `sai` は sai-link 自身の絶対パスで呼ぶ（PATH にある旧 sai-link を拾わないため）。
 pub fn mcp_config_json() -> serde_json::Value {
     serde_json::json!({
         "mcpServers": {
-            MCP_SERVER_NAME: { "command": sai_mcp_command(), "args": ["mcp", "serve"] },
+            MCP_SERVER_NAME: { "command": sai_link_exe(), "args": ["mcp", "serve"] },
             "serena": {
                 "command": "uvx",
                 "args": [
@@ -377,6 +378,25 @@ pub fn phone_hooks_dir() -> Option<PathBuf> {
         .iter()
         .all(|name| dir.join(name).is_file())
         .then_some(dir)
+}
+
+/// pi の質問ツール（`apps/phone` の `ask_user_phone.ts`）の絶対パス。
+///
+/// このクレートをビルドしたリポジトリの中を指す。ファイルが無ければ `None`
+/// （壊れた拡張を `.pi/settings.json` に書かない）。
+pub fn pi_question_extension() -> Option<PathBuf> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/phone/src/sai_phone/extensions/ask_user_phone.ts")
+        .canonicalize()
+        .ok()
+        .filter(|p| p.is_file())
+}
+
+/// プロジェクト直下の `.pi/settings.json` の内容（`sai-link init` が書く）。
+///
+/// pi は global と project の `extensions` を両方読むので、global の拡張は消えない。
+pub fn pi_settings_json(extension: &Path) -> serde_json::Value {
+    serde_json::json!({ "extensions": [extension] })
 }
 
 /// `.claude/commands/sai-finalize.md` の内容（`sai-link init` が書く）。
@@ -616,8 +636,10 @@ mod tests {
         assert!(without.get("PreToolUse").is_none());
         assert!(without.get("SessionStart").is_none());
         assert!(without.get("PermissionRequest").is_none());
-        // このリポジトリでは apps/phone/hooks が見つかる
+        // このリポジトリでは apps/phone/hooks と pi の質問ツールが見つかる
         assert!(phone_hooks_dir().is_some());
+        let ext = pi_question_extension().unwrap();
+        assert_eq!(pi_settings_json(&ext)["extensions"][0], serde_json::json!(ext));
     }
 
     /// `.claude/settings.json` の内容: 子エージェント禁止・質問は残す・statusLine。
@@ -813,7 +835,8 @@ mod tests {
         std::env::remove_var("SAI_BIN");
         std::env::remove_var("SAI_ENGINE_BIN");
         let v = mcp_config_json();
-        assert_eq!(v["mcpServers"]["sai"]["command"], serde_json::json!("sai-moon-link"));
+        assert_eq!(v["mcpServers"]["sai"]["command"], serde_json::json!(sai_link_exe()));
+        assert!(Path::new(v["mcpServers"]["sai"]["command"].as_str().unwrap()).is_absolute());
         assert_eq!(v["mcpServers"]["sai"]["args"], serde_json::json!(["mcp", "serve"]));
         for name in ["serena", "headroom", "donsetch"] {
             assert!(v["mcpServers"][name].is_object(), "{} がありません", name);

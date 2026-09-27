@@ -2108,7 +2108,7 @@ fn format_task_status(status: &str) -> &str {
 /// プロジェクトを初期化する。
 ///
 /// 1. `PROJECTROOT/.sai/` と必要なフォルダ・`settings.json` を作成する（既存は触らない）。
-///    cc の設定 `.mcp.json` / `.claude/settings.json` を作る（既存は `.bak` へ退避）
+///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
 /// 2. `sai-control registry add --name <名前> --root <ルート>` でプロジェクトを登録する
 ///    （`sai-control` が見つからない場合は警告を出して続行）
 pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
@@ -2131,7 +2131,7 @@ pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error
         println!("   作成: {}", path.display());
     }
     println!(
-        "   次: .mcp.json と .claude/ を git commit してください（worktree の cc が読むため）"
+        "   次: .mcp.json・.claude/・.pi/ を git commit してください（worktree の cc と pi が読むため）"
     );
 
     // 2. sai-control レジストリへの登録

@@ -169,11 +169,15 @@ tailscale serve status        # funnel が含まれていないことを確か�
 
 ### pi の質問ツール（ask_user_phone）
 
-```bash
-cp apps/phone/src/sai_phone/extensions/ask_user_phone.ts ~/.pi/agent/extensions/
-# pi を起動中なら /reload。道具の一覧に ask_user_phone が出れば完了
-herdr integration install pi    # herdr agent list に pi が出ないとき
-```
+**`sai-moon-link init` がプロジェクトの `.pi/settings.json` に書く**ので、手で登録しなくてよい。
+中身は `{"extensions": ["<sai-moon>/apps/phone/src/sai_phone/extensions/ask_user_phone.ts"]}` だけ。
+pi は global と project の `extensions` を両方読むので、`~/.pi/agent/settings.json` の拡張はそのまま使える。
+利用者全体の `~/.pi/agent/extensions/` には置かない（init したプロジェクトの pi だけが Web の窓口に質問を送る）。
+
+- pi は信頼していないフォルダの `.pi/` を読まない。init の後、そのフォルダで初めて pi を起動したときに 1 回だけ信頼を承認する。
+- `~/.pi/agent/extensions/` に同じ `ask_user_phone.ts` があると、`Tool "ask_user_phone" conflicts with …` で pi が起動しない。global 側は消すか名前を `.old` に変える。
+- sai の MCP は、pi も init が書く `.mcp.json` を読む（`pi-mcp-adapter`）。
+- `herdr agent list` に pi が出ないときは `herdr integration install pi`。
 
 既定の `SAI_PHONE_URL` は `http://127.0.0.1:8200`。
 

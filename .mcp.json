@@ -19,7 +19,7 @@
         "mcp",
         "serve"
       ],
-      "command": "sai-link"
+      "command": "/Users/touta/.local/bin/sai-moon-link"
     },
     "serena": {
       "args": [
