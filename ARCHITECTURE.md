@@ -279,7 +279,7 @@ sai-moon/
 | **cc フックの実運用切り替え** | `apps/phone/hooks/` に 3 本置いただけ。`~/.claude/settings.json` の `hooks` には**登録していない**。登録手順は `README.md` の「エージェントとつなぐ」に書いた |
 | **pi 拡張の実運用切り替え** | `apps/phone/src/sai_phone/extensions/ask_user_phone.ts` を置いただけ。`~/.pi/agent/extensions/` には**コピーしていない**。手順は同上 |
 | **launchd の登録** | `apps/phone/launchd/com.sai-moon.plist` はあるが、`launchctl load` は**していない**。旧 `com.sai-phone` は有効のまま |
-| **単一ディスパッチャ CLI** | 「1 つの `sai-moon` コマンドですべてをまとめる」案は**不採用**。`sai-moon-link` と `sai-moon-paper` の 2 系統に分けたままにした。理由: 二つのクレート群は別々に Cargo でビルドされるので、1 つのバイナリにまとめるとビルド時間が倍数になり、TUI と CLI の分離も壊れるため |
+| **単一ディスパッチャ CLI** | 「1 つの `sai-moon` コマンドですべてをまとめる」案は**不採用**。`sai-moon-link` と `sai-moon-paper` の 2 系統に分けたままにした。理由: 旧 sai-link・sai-paper のバイナリの分け方をそのまま引き継げ、v1.0 の差分が最も小さいため。必要になれば後からまとめる入口を足せる |
 | **`src/tools/cc_usage.py`** | 旧 sai-phone にある単体ツール。移植の対象外とした（使われていない） |
 | **Rust のプリセット領域** | `sai-moon-paper-tui` の `assets/`・`docs/`・`package-metadata/` は旧 sai-paper からそのまま写した。sai-moon 用の見直しはしていない |
 

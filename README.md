@@ -150,6 +150,8 @@ plist は `PYTHONPATH`（`apps/phone/src`）と `PATH`（`target/release`・`tar
 
 通知とマイクには HTTPS が要ります。Tailscale の serve で、`apps/phone` だけを tailnet の中に公開します。
 
+旧 sai-phone の `--set-path /sai-phone` にならった手順です。sai-moon ではまだ試していません（要確認）。
+
 ```bash
 tailscale serve --bg --https 4443 --set-path /sai-moon http://127.0.0.1:8200
 tailscale serve status        # funnel が含まれていないことを確かめる
