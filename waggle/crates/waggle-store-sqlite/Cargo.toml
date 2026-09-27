@@ -1,0 +1,35 @@
+[package]
+name = "waggle-store-sqlite"
+description = "Primary local backend for waggle: SQLite in WAL mode as the correctness anchor, arc-swap hot cache, Parquet archival. Lands in CP-5."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+homepage.workspace = true
+
+[dependencies]
+waggle-core = { workspace = true }
+waggle-store = { path = "../waggle-store", version = "0.5.3" }
+thiserror = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+pollster = { workspace = true }
+criterion = { workspace = true }
+
+[target.'cfg(loom)'.dependencies]
+loom = { workspace = true }
+
+[[bench]]
+name = "store_paths"
+harness = false
+
+[lints]
+workspace = true

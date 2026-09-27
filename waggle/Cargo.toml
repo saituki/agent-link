@@ -1,0 +1,51 @@
+# waggle — sai に取り込んだ vendor クレート（P21・A8-2）
+#
+# `lib/waggle`（読み取り専用）から waggle-core / waggle-store / waggle-store-sqlite を
+# コピーして sai の管理下に取り込んだワークスペース。
+# 将来の BlobStore 実装（トークン発行時にファイル内容を保持する）を含めて
+# 自由に改修できる（A8: 「waggle は sai に取り込む」）。
+#
+# 元: https://github.com/modiqo/waggle (v0.5.3)
+
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.5.3"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/modiqo/waggle"
+homepage = "https://github.com/modiqo/waggle"
+authors = ["Modiqo <oss@modiqo.ai>", "Sai Contributors"]
+keywords = ["agents", "mcp", "attribution", "handoff", "coordination"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+getrandom = "0.2"
+pollster = "0.4"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+criterion = { version = "0.5", default-features = false }
+loom = "0.7"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+
+waggle-core = { path = "crates/waggle-core", version = "0.5.3" }
+waggle-store = { path = "crates/waggle-store", version = "0.5.3" }
+waggle-store-sqlite = { path = "crates/waggle-store-sqlite", version = "0.5.3" }
+
+# vendor したクレートが `[lints] workspace = true` を参照するための定義。
+[workspace.lints.rust]
+# 元は deny だが、sai 管理下での改修の自由度を保つため warn に緩和する
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"

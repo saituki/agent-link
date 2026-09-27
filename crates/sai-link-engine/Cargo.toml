@@ -1,0 +1,34 @@
+[package]
+name = "sai-link-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Sai-Engine — AIコーディングエージェントワークフローの状態制御エンジン"
+authors = ["Sai Contributors"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "sai_link_engine"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+thiserror = "2"
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+# waggle 統合用（P21: lib/waggle を src/waggle に vendor 化して sai 管理下へ）
+waggle-core = { path = "../../waggle/crates/waggle-core" }
+waggle-store = { path = "../../waggle/crates/waggle-store" }
+waggle-store-sqlite = { path = "../../waggle/crates/waggle-store-sqlite" }
+sha2 = "0.10"
+getrandom = "0.2"
+pollster = "0.4"
+rusqlite = { version = "0.32", features = ["bundled"] }
+# P0-2: SIGTERM/SIGINT 捕捉用（TUI が既に使用・ロック済みバージョンと同一）
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
