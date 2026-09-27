@@ -353,8 +353,16 @@ pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
     };
     let is_upload = args.stdin;
 
-    let imported = import_pdf(&mut db, &data_dir, &download_dir, &source, &target)
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let imported = match import_pdf(&mut db, &data_dir, &download_dir, &source, &target) {
+        Ok(imported) => imported,
+        Err(error) => {
+            // 取り込めなかったアップロードの一時ファイルも残さない。
+            if is_upload {
+                let _ = std::fs::remove_file(&source);
+            }
+            bail!("{error}");
+        }
+    };
     if is_upload {
         // アップロードの一時ファイルは取り込みの後で消す。
         if let Err(error) = std::fs::remove_file(&source)
