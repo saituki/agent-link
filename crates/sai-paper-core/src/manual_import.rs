@@ -297,7 +297,7 @@ mod tests {
         dir
     }
 
-    /// テスト用の [`RemotePaper`]（取り込み注册に必要な最低だけ）。
+    /// テスト用の [`RemotePaper`]（取り込みの登録に必要な最低だけ）。
     fn remote(id: &str, title: &str) -> RemotePaper {
         let now = chrono::Utc::now();
         RemotePaper {

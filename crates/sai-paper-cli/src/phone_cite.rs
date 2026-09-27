@@ -303,8 +303,8 @@ pub struct ManualImportArgs {
 pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
     let (mut db, cfg, paths) = open_context()?;
     let data_dir = paths.data_dir();
-    // 置き場は `phone download` と同じ（設定の library.download_path、無ければ
-    // .sai/paper/papers）。
+    // PDF の置き場は `phone download` と同じ（設定の library.download_path、無ければ
+    // .sai/paper/papers）。取り込んだ先の一時ファイルにもここを使う。
     let download_dir = cfg
         .library
         .download_path
@@ -328,11 +328,13 @@ pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
         local => local,
     };
 
-    // 中身を決める。--file はダウンロードフォルダの候補から 1 つ選ぶ。
+    // 中身を決める。--file はダウンロードフォルダ（ブラウザの保存先）の候補から 1 つ選ぶ。
     let source = match (&args.file, args.stdin) {
         (Some(name), false) => {
             check_file_name(name)?;
-            find_recent_pdf(&download_dir, name, args.minutes).ok_or_else(|| {
+            let browser_dir = manual_import::downloads_dir()
+                .context("ダウンロードフォルダが見つかりません")?;
+            find_recent_pdf(&browser_dir, name, args.minutes).ok_or_else(|| {
                 anyhow::anyhow!(format!(
                     "ダウンロードフォルダの最近の PDF に {name} がありません"
                 ))
