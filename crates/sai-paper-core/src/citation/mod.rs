@@ -15,6 +15,7 @@
 
 pub mod db;
 pub mod docling;
+pub mod library;
 pub mod matcher;
 pub mod parsers;
 pub mod sentences;
