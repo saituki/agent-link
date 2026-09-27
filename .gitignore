@@ -21,8 +21,6 @@ __pycache__/
 .codegraph/
 .worktrees/
 .serena/
-.mcp.json
-.claude/
 
 # Node
 node_modules/

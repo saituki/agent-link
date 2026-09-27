@@ -1,0 +1,70 @@
+{
+  "disableBundledSkills": true,
+  "disableClaudeAiConnectors": true,
+  "enableAllProjectMcpServers": true,
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/sai-link' cc-prompt-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__sai"
+    ],
+    "deny": [
+      "Agent",
+      "Task",
+      "Skill",
+      "Workflow",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "LSP",
+      "Monitor",
+      "TodoWrite",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskUpdate",
+      "TaskStop",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "ScheduleWakeup",
+      "RemoteTrigger",
+      "PushNotification",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "EnterWorktree",
+      "ExitWorktree",
+      "SendMessage",
+      "ListAgents",
+      "Artifact",
+      "ArtifactComments",
+      "ArtifactData",
+      "DesignSync",
+      "ReportFindings",
+      "SendFeedback",
+      "ShareOnboardingGuide",
+      "EndConversation",
+      "ListMcpResourcesTool",
+      "ReadMcpResourceTool",
+      "ReadMcpResourceDirTool",
+      "Bash(pi *)",
+      "Bash(claude *)",
+      "Bash(cc *)",
+      "Bash(*pi.py*)"
+    ]
+  },
+  "statusLine": {
+    "command": "'/usr/local/bin/sai-link' cc-statusline",
+    "type": "command"
+  }
+}

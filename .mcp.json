@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "donsetch": {
+      "args": [
+        "mcp",
+        "--supervised"
+      ],
+      "command": "donsetch"
+    },
+    "headroom": {
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "headroom"
+    },
+    "sai": {
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "sai-link"
+    },
+    "serena": {
+      "args": [
+        "--from",
+        "serena-agent",
+        "serena",
+        "start-mcp-server",
+        "--project-from-cwd",
+        "--context",
+        "claude-code",
+        "--open-web-dashboard",
+        "False"
+      ],
+      "command": "uvx"
+    }
+  }
+}
