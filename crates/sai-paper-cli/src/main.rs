@@ -26,6 +26,7 @@ mod litbase;
 mod mcp;
 mod phone;
 mod phone_canvas;
+mod phone_cite;
 mod phone_import;
 mod progress;
 mod relayout;

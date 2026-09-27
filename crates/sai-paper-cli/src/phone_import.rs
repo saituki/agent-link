@@ -148,20 +148,31 @@ fn read_stdin_limited() -> Result<String> {
     String::from_utf8(buffer).context("BibTeX を UTF-8 として読めませんでした")
 }
 
-/// `phone download`: 検索履歴の 1 件、または BibTeX の 1 件の PDF を取りにいき、
-/// Library に登録する。
+/// `phone download`: 検索履歴の 1 件、または BibTeX の 1 件、または引用の 1 件の
+/// PDF を取りにいき、Library に登録する。
 ///
-/// `--log <log_id> --position <n>` と `--import-id <RemotePaper.id>` のどちらかを
-/// 1 つだけ指定する。既に Library にあるときは取りに行かず `status: "exists"`。
+/// `--log <log_id> --position <n>` / `--import-id <RemotePaper.id>` /
+/// `--cite <paper_id> --ref <ref_no>` のどれか 1 つを指定する。
+/// 既に Library にあるときは取りに行かず `status: "exists"`。
 pub async fn download(
     client: &S2Client,
     log_id: Option<i64>,
     position: Option<i64>,
     import_id: Option<&str>,
+    cite: Option<i64>,
+    ref_no: Option<i64>,
 ) -> Result<Value> {
     let (mut db, cfg, paths) = open_context()?;
     let data_dir = paths.data_dir();
-    let paper = find_target_paper(&db, &paths, log_id, position, import_id)?;
+    if cite.is_none() && ref_no.is_some() {
+        bail!("phone download には --cite と --ref の両方が必要です");
+    }
+    let paper = match cite {
+        Some(paper_id) => {
+            cite_target_paper(client, &db, paper_id, ref_no).await?
+        }
+        None => find_target_paper(&db, &paths, log_id, position, import_id)?,
+    };
 
     // 既に Library に PDF があれば取りに行かない。
     let library = library_papers(&db, &cfg, &paths)?;
@@ -227,6 +238,39 @@ pub async fn download(
         "source": source,
         "abstract_ja": abstract_ja,
     }))
+}
+
+/// `--cite <paper_id> --ref <ref_no>` から対象の [`sai_paper_core::models::RemotePaper`] を作る。
+///
+/// 引用の行から組み立てる点は `phone download --import-id` と同じ core の
+/// `citation::ref_remote_paper`。S2 の ID も DOI も無い行でも題名があれば
+/// S2 の題名検索（引用 TUI の `resolve_paper_id_by_title` と同じ）で ID を探す。
+async fn cite_target_paper(
+    client: &S2Client,
+    db: &Database,
+    paper_id: i64,
+    ref_no: Option<i64>,
+) -> Result<sai_paper_core::models::RemotePaper> {
+    let row = crate::phone_cite::find_ref_row(db, paper_id, ref_no)?;
+    if let Some(paper) = sai_paper_core::citation::library::ref_remote_paper(&row) {
+        return Ok(paper);
+    }
+    // ID が無い行は題名で S2 を引く（引用 TUI と同じ）。
+    let title = row
+        .s2_title
+        .clone()
+        .or_else(|| row.title.clone())
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
+        .context("この引用には ID も題名も無いので取り込めません")?;
+    let found = client
+        .search(&title, 1)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?
+        .into_iter()
+        .next()
+        .context("S2 で一致する論文が見つかりませんでした。手動で取り込んでください")?;
+    Ok(found)
 }
 
 /// `--log` / `--import-id` から対象の [`sai_paper_core::models::RemotePaper`] を探す。
