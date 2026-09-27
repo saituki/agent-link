@@ -5,18 +5,15 @@
 
 #defs-root { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 
-/* --- 上の帯（← 戻る・題・置き場の札・Dashboard|Workflow|List|設定） --- */
+/* --- 上の帯（← 戻る・題・置き場の札・Dashboard|Workflow|List|設定） ---
+   一覧の帯は 4 画面共通の .proj-bar（style.css）と同じ形（U01 §3）。
+   編集の帯は切り替えを出さないので .proj-bar ではない。 */
 .df-bar { gap: 6px; }
 .df-bar .df-back { flex: none; font-size: 20px; }
 .df-bar .df-title {
   flex: 1; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-size: 16px;
 }
-.df-bar .list-mode { display: none; } /* 編集の帯には切り替えを出さない */
-
-/* 一覧の帯の下 4 つの切り替え */
-#defs-root .df-list-seg { padding: 8px 16px 0; }
-#defs-root .df-list-seg .dash-seg button { padding: 6px 0; font-size: 12px; }
 
 /* --- 帯の下の黄色い注意（共通の定義） --- */
 .df-global-warn {

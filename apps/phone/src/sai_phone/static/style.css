@@ -59,8 +59,10 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Hiragino Sans", sans-serif;
-  /* 横スクロールは絶対に発生させない */
-  overflow-x: hidden;
+  /* 横スクロールは絶対に発生させない。
+     hidden だと body がスクロールの箱になって sticky（見出し・入力欄）が
+     効かなくなるため、スクロールの箱を作らない clip にする。 */
+  overflow-x: clip;
 }
 
 .view {
@@ -228,7 +230,9 @@ html, body {
   padding: 12px 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* 行と行の隙間はごく小さくする。別の人の発言どうしの空きは
+     下の .kind-user / .kind-agent の margin で作る */
+  gap: 2px;
 }
 
 /* 自分の指示：右寄せの吹き出し */
@@ -309,35 +313,85 @@ html, body {
 .fold-item.kind-tool .fold-who { color: inherit; font-weight: 500; }
 .fold-item.kind-tool.failed .fold-head { color: var(--danger); }
 
-/* --- 吹き出しの色分け（確認点 CP3 の直し） ---
-   あなた＝右寄せの青い吹き出し，エージェント＝左寄せの薄い灰の吹き出し，
-   ツール＝吹き出しにしない小さな灰の1行（上のかど参照）。
-   見出し（発言者＋時刻）とタップで開閉する動きは今までのままで，
-   中身を包む箱の色だけ付ける。Radio の質問画面も同じクラスを使う。 */
+/* --- 吹き出しの色分け（チャットの見た目・U01 §2） ---
+   相手は「左の丸いアイコン + 薄い角丸の吹き出し」、自分は「右の吹き出し」。
+   箱（背景）は中の .fold-body / .fold-preview に付ける。見出し（.fold-head）は
+   箱の外に出て、名前は最初の 1 行だけ・時刻は自分の発言なら下に出る。
+   色は CSS 変数だけを使うので、暗い表示でも読める。 */
 .fold-item.kind-user,
 .fold-item.kind-agent {
-  max-width: 88%;
-  border-radius: 16px;
-  padding: 4px 12px 8px;
-}
-.fold-item.kind-user {
-  align-self: flex-end;
-  background: var(--bubble-user);
-}
-/* 右寄せの吹き出しなので見出しも右に揃える */
-.fold-item.kind-user .fold-head { justify-content: flex-end; }
-.fold-item.kind-agent {
-  align-self: flex-start;
-  background: var(--bubble-agent);
-}
-/* 中に入れる .bubble-user / .bubble-agent は地色を持たせない（二重の箱にならないように）。
-   送信待ちの吹き出し（.fold-item の中に入らない .bubble-user）は今までどおり青いまま。 */
-.fold-item .fold-body.bubble-user {
-  background: none;
+  max-width: 100%;
   border-radius: 0;
   padding: 0;
-  max-width: none;
+  background: none;
 }
+
+/* 相手（エージェント）：左寄せ。アイコンの入る 40px を空けてから吹き出しを置く。
+   左寄せの整え方（アイコンの余白）は会話画面（.chat-list）の中だけで使う。
+   Radio の質問チャット（#radio-chat・同じ .fold-item を使う）は今まで通り。 */
+.chat-list .fold-item.kind-agent {
+  align-self: flex-start;
+  position: relative;
+  width: 100%;
+  padding-left: 40px;
+  margin-top: 10px;
+}
+/* アイコン（エージェント名の頭文字 1 字。renderItem が data-avatar に置く） */
+.chat-list .fold-item.kind-agent.has-avatar::before {
+  content: attr(data-avatar);
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 28px;
+  text-align: center;
+  overflow: hidden;
+}
+.fold-item.kind-agent .fold-body,
+.fold-item.kind-agent .fold-preview {
+  background: var(--bg-soft);
+  border-radius: 16px;
+  padding: 10px 14px;
+  max-width: 85%;
+  width: fit-content;
+}
+/* 続けて 5 分以内に書かれたものは、アイコンも名前も繰り返さない（Slack と同じ） */
+.chat-list .fold-item.kind-agent.grouped { margin-top: 0; }
+.chat-list .fold-item.kind-agent.grouped::before { display: none; }
+.chat-list .fold-item.kind-agent.grouped .fold-head { display: none; }
+
+/* 自分：右寄せ。時刻は吹き出しの下に小さく出す（名前は出さない）。 */
+.fold-item.kind-user {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 85%;
+  margin-top: 10px;
+}
+.fold-item.kind-user .fold-body,
+.fold-item.kind-user .fold-preview {
+  background: var(--bubble-user);
+  border-radius: 16px;
+  padding: 10px 14px;
+  max-width: none;
+  width: 100%;
+  text-align: left;
+}
+.fold-item.kind-user .fold-who { display: none; }
+.fold-item.kind-user .fold-head { order: 2; padding: 2px 2px 0; }
+
+/* 道具の実行と通知は、相手の発言の吹き出しの左に揃えて，字を小さくする。 */
+.chat-list .fold-item.kind-tool,
+.chat-list .event-card { margin-left: 40px; max-width: calc(100% - 40px); }
+.chat-list .fold-item.kind-tool { font-size: 14px; }
+.chat-list .event-card { font-size: 14px; }
+
 /* 閉じている時の1行目も吹き出しの中の文字として読めるように（灰色はやめる） */
 .fold-item.kind-user .fold-preview,
 .fold-item.kind-agent .fold-preview {
@@ -345,12 +399,15 @@ html, body {
   font-size: 15px;
 }
 
-/* 日付の区切り線（── 9月23日(火) ──・03 §4） */
+/* 日付の区切り（中央に小さな丸い札を置く） */
 .date-sep {
-  text-align: center;
+  align-self: center;
+  background: var(--bg-soft);
   color: var(--text-soft);
   font-size: 12px;
-  margin: 12px 0 2px;
+  border-radius: 999px;
+  padding: 3px 12px;
+  margin: 14px 0 4px;
 }
 
 /* --- event カード（03 §4）：吹き出しではなく左に色の帯がある薄い箱 --- */
@@ -471,7 +528,8 @@ html, body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* 下部の入力欄（常に画面下に固定） */
+/* 下部の入力欄（常に画面下に固定）。入力の入れ物は角丸の 20px。
+   🎤 と ➤ はその左右に置く（U01 §2）。 */
 .inputbar {
   position: sticky;
   /* 再生バーが出ているときはその上に入力欄を置く（05 §5） */
@@ -493,7 +551,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 .inputbar textarea {
   flex: 1;
   resize: none;
-  border: none;
+  border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--input-bg);
   color: var(--text);
@@ -504,12 +562,20 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 }
 
 .inputbar button {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
+  border-radius: 50%;
   background: none;
   font-size: 22px;
-  padding: 6px;
+  padding: 0;
   color: var(--text);
 }
+.inputbar button:hover { background: var(--bg-soft); }
 
 /* 録音中はマイクの色を変える */
 #mic-button.recording { color: var(--danger); }
@@ -1799,13 +1865,26 @@ code {
 
 /* --- Project の List 画面（計画 14） --- */
 
-/* 上部の帯: ☰ · Dashboard | List · ↻（Papers の切り替え帯と同じ見た目・14 §1.1） */
-.list-bar { gap: 6px; }
-.list-bar #list-menu,
-.list-bar #list-reload,
-.list-bar #list-add { flex: none; font-size: 18px; }
+/* --- Project の 4 画面（Dashboard / Workflow / List / 設定）の共通の見出し ---
+   Workflow の形（‹ プロジェクト名 切り替え）を正として 4 画面で使い回す（U01 §3）。 */
+.proj-bar { gap: 6px; }
+.proj-bar .proj-back { flex: none; font-size: 20px; }
+.proj-bar .proj-title {
+  flex: none; max-width: 34vw; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 16px;
+}
+.proj-bar .list-mode { flex: 1; min-width: 0; }
+/* 狭い画面（iPhone）では名前を詰めて切り替え帯を潰さない */
+@media (max-width: 899px) {
+  .proj-bar .proj-title { max-width: 5.5em; }
+  .proj-bar .list-mode .dash-seg button { font-size: 12px; padding: 6px 0; }
+}
+
 .list-mode { flex: 1; min-width: 0; }
 .list-mode .dash-seg button { padding: 6px 0; font-size: 13px; }
+
+/* List 画面の見出しは ☰ が先頭（狭い画面だけ）。‹ とプロジェクト名のあとは共通。 */
+.list-bar #list-menu { flex: none; font-size: 18px; }
 
 /* run の見出しと 7 つの表示の帯（14 §1.3） */
 .lv-head { padding: 10px 16px 4px; border-bottom: 1px solid var(--line); }
@@ -1940,6 +2019,36 @@ code {
   padding: calc(env(safe-area-inset-top, 0px) + 14px) 0 24px;
 }
 .lv-drawer-note { margin: 0; padding: 12px 16px; font-size: 13px; color: var(--text-soft); }
+/* --- サイドバーの見出しの行（実行・＋・↻・U01 §4） ---
+   VS Code のサイドバーのように、ツリーの行より前に 1 本だけ出す。
+   ツリーが空・読み込み中・読み込み失敗のときも残す（↻ で読み直せるように）。 */
+.lv-side-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-soft);
+  font-size: 12px;
+}
+.lv-side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.lv-side-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-soft);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+.lv-side-btn:hover { background: var(--bg-soft); color: var(--text); }
 .lv-fold,
 .lv-run-item {
   display: flex;

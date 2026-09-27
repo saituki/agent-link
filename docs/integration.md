@@ -249,7 +249,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 - 古い住所も開く: `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>`（名前の無い形）は，今選んでいるプロジェクトの同じ画面として開く。
 - 住所に名前がある画面を開いたら，論文タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `sai_phone_papers_project`（localStorage）に覚える。
-- **List 右上の ＋** で **task.md 作成フォーム**が出る（住所は付けない一枚・`cardform.js`）。手順は 10 画面、書きかけは localStorage（プロジェクトごと）。
+- **List のサイドバーの一番上（todo フォルダの上）の「実行［＋］［↻］」の行**で，**＋** は **task.md 作成フォーム**（↻ はツリーの読み直し），**↻** でツリーを読み直す（どちらも住所は付けない一枚・`cardform.js` / `linkview.js`）。手順は 10 画面、書きかけは localStorage（プロジェクトごと）。
+- Project の 4 画面（Dashboard / Workflow / List / 設定）の見出しは，同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）にそろえてある（共通のクラス `.proj-bar`・`style.css`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。上向きの固定は `html, body` の `overflow-x: clip` による（`hidden` にすると `body` がスクロールの箱になって `.appbar` と `.inputbar` の `position: sticky` が効かない）。
 - 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
   **タブごとのファイルは `app.js` より前**に読み込む。新しい画面は `window.SaiRoutes` に登録する（`app.js` の分岐は増やさない）。
 

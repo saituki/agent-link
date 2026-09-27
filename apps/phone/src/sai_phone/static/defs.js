@@ -234,27 +234,33 @@ function dfBuild() {
   if (!root) return;
   root.innerHTML = "";
   const bar = document.createElement("header");
-  bar.className = "appbar df-bar";
+  const editing = dfCur !== null && dfCur !== undefined;
+  bar.className = editing ? "appbar df-bar" : "appbar df-bar proj-bar";
   const back = document.createElement("button");
-  back.className = "df-back";
+  back.className = editing ? "df-back" : "proj-back";
   back.type = "button";
   back.textContent = "‹";
-  back.setAttribute("aria-label", "戻る");
-  back.addEventListener("click", () => dfLeave(dfListHash(dfName)));
+  if (editing) {
+    // 編集の画面は今のまま（一覧へ戻る・切り替えは出さない）
+    back.setAttribute("aria-label", "一覧へ戻る");
+    back.addEventListener("click", () => dfLeave(dfListHash(dfName)));
+  } else {
+    // 一覧の画面は 4 画面共通の見出し（‹ プロジェクト名 切り替え・U01 §3）
+    back.setAttribute("aria-label", "プロジェクト一覧へ戻る");
+    back.addEventListener("click", () => { location.hash = "#/projects"; });
+  }
   const h1 = document.createElement("h1");
-  h1.className = "df-title";
-  h1.textContent = "設定";
+  h1.className = editing ? "df-title" : "proj-title";
+  h1.textContent = editing ? "設定" : dfName;
   bar.append(back, h1);
+  if (!editing) {
+    // 切り替えは 4 画面の共有の見出しの中に置く（下の段には出さない）
+    const seg = document.createElement("div");
+    seg.className = "list-mode";
+    seg.id = "df-mode-seg";
+    bar.appendChild(seg);
+  }
   root.appendChild(bar);
-
-  // 4 つの切り替えは帯の下に並べる（狭い画面でも潰れないように）
-  const segRow = document.createElement("div");
-  segRow.className = "df-list-seg";
-  const seg = document.createElement("div");
-  seg.className = "list-mode";
-  seg.id = "df-mode-seg";
-  segRow.appendChild(seg);
-  root.appendChild(segRow);
 
   const err = document.createElement("div");
   err.className = "df-error";
@@ -266,7 +272,7 @@ function dfBuild() {
   body.className = "df-body";
   body.id = "defs-body";
   root.appendChild(body);
-  if (typeof fillLinkSeg === "function") fillLinkSeg("df-mode-seg", "defs", dfName);
+  if (!editing && typeof fillLinkSeg === "function") fillLinkSeg("df-mode-seg", "defs", dfName);
 }
 
 /** 一覧を描く。 */
