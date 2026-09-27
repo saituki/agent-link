@@ -23,6 +23,8 @@ const {
   pimJobErrorNotFound,
   pimAttentionKindLabel,
   pimLongText,
+  pimProgressView,
+  pimElapsedLabel,
 } = require(path.join(__dirname, "..", "src", "sai_phone", "static", "paperimport.js"));
 
 // .bib の名前（サーバの _BIB_NAME_RE と同じ規則）
@@ -181,6 +183,67 @@ function testLongText() {
   assert.strictEqual(pimLongText("1 行だけ").lines, 1);
 }
 
+function testProgressView() {
+  // 段 0 / 1 / 2 / 3 → 0% / 33% / 66% / 100%（サーバの DOWNLOAD_STEPS と同じ）
+  const steps = ["PDF取得", "図抽出", "翻訳"];
+  for (const [step, percent, label] of [
+    [0, 0, "PDF取得"],
+    [1, 33, "図抽出"],
+    [2, 66, "翻訳"],
+    [3, 100, undefined],
+  ]) {
+    const v = pimProgressView(
+      {
+        status: step === 0 ? "downloading" : step === 3 ? "done" : "processing",
+        steps,
+        step,
+        percent,
+        messages: [],
+        started_at: "2026-09-27T10:00:00+09:00",
+        finished_at: step === 3 ? "2026-09-27T10:03:12+09:00" : null,
+      },
+      Date.parse("2026-09-27T10:00:00+09:00")
+    );
+    assert.strictEqual(v.percent, percent, `${step} 段の %`);
+    if (label) assert.strictEqual(v.stepLabel, label, `${step} 段の名`);
+    else assert.strictEqual(v.stepLabel, "完了", `${step} 段の名`);
+  }
+  // 経過時間（終わっていれば finished_at まで・_running 中は今まで）
+  const running = pimProgressView(
+    { steps, step: 1, percent: 33, started_at: "2026-09-27T10:00:00+09:00" },
+    Date.parse("2026-09-27T10:00:00+09:00") + 192000
+  );
+  assert.strictEqual(running.elapsed, "3:12", running.elapsed);
+  // ログは最新 5 行。残りは allLines に全部残る
+  const messages = Array.from({ length: 8 }, (_, i) => `行 ${i + 1}`);
+  const logs = pimProgressView(
+    { steps, step: 2, percent: 66, messages, started_at: "2026-09-27T10:00:00+09:00" },
+    Date.parse("2026-09-27T10:00:00+09:00")
+  );
+  assert.strictEqual(logs.lines.length, 5, logs.lines);
+  assert.strictEqual(logs.lines[0], "行 4", logs.lines[0]);
+  assert.strictEqual(logs.allLines.length, 8, logs.allLines.length);
+  // 壊れた値でも止まらない
+  const bad = pimProgressView(null, Date.now());
+  assert.strictEqual(bad.percent, 0, bad.percent);
+  assert.strictEqual(bad.stepLabel, "", bad.stepLabel);
+  assert.deepStrictEqual(bad.lines, [], bad.lines);
+  assert.strictEqual(pimProgressView({ percent: 300 }, 0).percent, 100);
+  assert.strictEqual(pimProgressView({ percent: -5 }, 0).percent, 0);
+}
+
+function testElapsedLabel() {
+  const start = "2026-09-27T10:00:00+09:00";
+  const base = Date.parse(start);
+  assert.strictEqual(pimElapsedLabel(start, base + 12000), "0:12");
+  assert.strictEqual(pimElapsedLabel(start, base + 3723000), "1:02:03");
+  // 読めない時刻は空文字、時計が戻ったときは 0
+  assert.strictEqual(pimElapsedLabel("", base), "");
+  assert.strictEqual(pimElapsedLabel(null, base), "");
+  assert.strictEqual(pimElapsedLabel("壊れた", base), "");
+  assert.strictEqual(pimElapsedLabel(start, base - 5000), "0:00");
+}
+
 function main() {
   testValidName();
   testFileNameFor();
@@ -194,6 +257,8 @@ function main() {
   testJobErrorNotFound();
   testAttentionKindLabel();
   testLongText();
+  testProgressView();
+  testElapsedLabel();
   console.log("test_paperimport: すべて通りました");
 }
 

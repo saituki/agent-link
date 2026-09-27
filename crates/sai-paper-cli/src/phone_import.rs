@@ -413,11 +413,17 @@ pub async fn after_download(paper_id: i64) -> Result<Value> {
         paper_id,
         &cfg,
         move |message| {
+            // 呼び出し元（sai-phone）が 1 行ずつ追えるよう標準エラーにも出す。
+            // 段落内の改行は空白に置き換える（1 行 = 1 文の約束）。
+            eprintln!("sai-progress msg={}", message.replace(['\r', '\n'], " "));
             if let Ok(mut messages) = sink.lock() {
                 messages.push(message);
             }
         },
-        |_| {},
+        |step| {
+            // 段：A1 の図の抽出の前が 1、PDF の翻訳の前が 2（0 と 3 はサーバーが決める）。
+            eprintln!("sai-progress step={step}");
+        },
     )
     .await;
 

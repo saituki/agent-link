@@ -597,8 +597,14 @@ async fn search(
     let limit = limit.clamp(1, 100);
 
     let (database, cfg, paths) = open_context()?;
-    let (dbs, papers) =
-        crate::run_search(&cfg, query, db, limit, year_from, year_to, None).await?;
+    // core の `run_search` を直接呼ぶ。失敗した DB と理由を受け取りたいから
+    // （`crate::run_search` はそれを標準エラーへ出して捨ててしまう）。
+    let (dbs, papers, failed) =
+        sai_paper_core::api::run_search(&cfg, query, db, limit, year_from, year_to, None).await;
+    // 従来と同じ形（`<db>: <理由>`）で標準エラーにも出す。
+    for (db_id, reason) in &failed {
+        eprintln!("{db_id}: {reason}");
+    }
     let year = year_label(year_from, year_to);
     let log_id = search_log::record_search(
         database.connection(),
@@ -611,7 +617,29 @@ async fn search(
     )?;
     // Dashboard の出来事に「discover」として残す（TUI の検索と同じ）
     database.record_activity("discover", None, Some(query))?;
-    log(&database, &cfg, &paths, log_id)
+    with_failed(log(&database, &cfg, &paths, log_id)?, &failed)
+}
+
+/// 検索の応答に `failed` を足す（`log` と `items` はそのまま・08 §3）。
+///
+/// 失敗した DB と理由を `[{"db": "s2", "reason": "…"}]` の形で入れる。
+/// 1 件も失敗していなければ空の配列。`phone log <id>`（過去の検索結果）には
+/// 使わない（履歴には理由を残していないため）。
+fn with_failed(value: Value, failed: &[(String, String)]) -> Result<Value> {
+    let Value::Object(mut map) = value else {
+        // 想定より別の形が来たら、そのまま返す（検索の応答は常に object）。
+        return Ok(value);
+    };
+    map.insert(
+        "failed".to_owned(),
+        Value::Array(
+            failed
+                .iter()
+                .map(|(db_id, reason)| json!({ "db": db_id, "reason": reason }))
+                .collect(),
+        ),
+    );
+    Ok(Value::Object(map))
 }
 
 /// `phone translate <id>`: 要旨の日本語訳（TUI の `a` / `A` キーと同じ）。
@@ -789,7 +817,8 @@ fn read_text(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{project_json, year_label};
+    use super::{project_json, with_failed, year_label};
+    use serde_json::json;
     use sai_paper_core::paths::PaperRoots;
     use sai_paper_core::{Config, Database};
 
@@ -800,6 +829,28 @@ mod tests {
         assert_eq!(year_label(Some(2010), None), "2010-");
         assert_eq!(year_label(None, Some(2020)), "-2020");
         assert_eq!(year_label(None, None), "");
+    }
+
+    /// `phone search` の `failed` は DB と理由の形。0 件なら空の配列（AC1）。
+    #[test]
+    fn with_failed_adds_db_and_reason() {
+        let base = json!({ "log": { "id": 7 }, "items": [] });
+        let none = with_failed(base.clone(), &[]).unwrap();
+        assert_eq!(none["failed"], json!([]));
+        assert_eq!(none["log"]["id"], 7);
+
+        let one = with_failed(
+            base,
+            &[(
+                "s2".to_owned(),
+                "search error: invalid S2 response: S2 status 429 (rate limited)".to_owned(),
+            )],
+        )
+        .unwrap();
+        assert_eq!(one["failed"][0]["db"], "s2");
+        assert!(one["failed"][0]["reason"].as_str().unwrap().contains("429"));
+        // 既存の項目はそのまま
+        assert!(one["items"].as_array().unwrap().is_empty());
     }
 
     /// `phone project` は 4 つのキーを返し、`project-brief.md` を書き換えない（AC2）。

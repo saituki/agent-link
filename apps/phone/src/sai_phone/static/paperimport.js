@@ -19,6 +19,10 @@
 
 // Download が進んでいるあいだだけ、この間隔で状態を読み直す
 const PIM_POLL_MS = 3000;
+// 進み具合の一枚を開いているあいだの読み直し間隔（2 秒）
+const PIM_PROGRESS_MS = 2000;
+// 進み具合のログは見せる行数（残りは「残りを見る」で全部出す）
+const PIM_PROGRESS_LINES = 5;
 // .bib の名前の規則（サーバの papers.py の _BIB_NAME_RE と同じ）
 const PIM_BIB_NAME_RE = /^[A-Za-z0-9._-]{1,80}\.bib$/;
 // 現況・考えの md がこの行数を超えるときは、はじめはたたんで「全部見る」にする
@@ -188,6 +192,48 @@ function pimJobErrorNotFound(error) {
 function pimAttentionKindLabel(kind) {
   const k = PIM_ATTENTION_KINDS[kind];
   return k ? k[2] : "要対応";
+}
+
+// --- 進み具合（段・%・経過時間・ログ・U3 §5） ---
+
+/** 経過時間（`0:12` / `1:02:03`。読めない時刻なら空文字）。 */
+function pimElapsedLabel(startIso, endMs) {
+  const start = Date.parse(String(startIso || ""));
+  if (!Number.isFinite(start)) return "";
+  const now = Number.isFinite(Number(endMs)) ? Number(endMs) : Date.now();
+  let sec = Math.max(0, Math.round((now - start) / 1000));
+  const hours = Math.floor(sec / 3600);
+  sec -= hours * 3600;
+  const min = Math.floor(sec / 60);
+  sec -= min * 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(min)}:${pad(sec)}` : `${min}:${pad(sec)}`;
+}
+
+/**
+ * 1 件の仕事の表示に使う値（`{percent, stepLabel, elapsed, lines, allLines}`）。
+ * 画面はここだけを見て描く（DOM を使わないので node のテストからも確かめられる）。
+ */
+function pimProgressView(job, nowMs) {
+  const j = job || {};
+  const steps = Array.isArray(j.steps) ? j.steps : [];
+  let percent = Number(j.percent);
+  if (!Number.isFinite(percent)) percent = 0;
+  percent = Math.max(0, Math.min(100, Math.round(percent)));
+  const step = Number.isFinite(Number(j.step)) ? Number(j.step) : 0;
+  let stepLabel = String(steps[step] || "");
+  if (!stepLabel) {
+    stepLabel = percent >= 100 ? "完了" : j.status === "downloading" ? "PDF取得" : "";
+  }
+  const allLines = (Array.isArray(j.messages) ? j.messages : []).map((x) => String(x));
+  const end = j.finished_at ? Date.parse(j.finished_at) : Number(nowMs);
+  return {
+    percent,
+    stepLabel,
+    elapsed: pimElapsedLabel(j.started_at, end),
+    lines: allLines.slice(-PIM_PROGRESS_LINES),
+    allLines,
+  };
 }
 
 /** 長い md かどうかと、たたんだときの少し（{long, lines, peek}）。 */
@@ -567,7 +613,7 @@ function pimOpenEntrySheet(entry) {
   body.appendChild(go);
   body.appendChild(pimEl("p", "pim-note", "数分かかることがあります。終わったら通知でお知らせします"));
 
-  const sheet = saiSheet({ title: "论文のダウンロード", body });
+  const sheet = saiSheet({ title: "論文のダウンロード", body });
   return sheet;
 }
 
@@ -668,6 +714,7 @@ async function pimStartDownload(projectName, payload, key) {
     pimSetPolling(true);
     pimUpdateJobNodes();
     if (typeof papersRenderDownloadBand === "function") papersRenderDownloadBand();
+    if (typeof papersRenderProgressButton === "function") papersRenderProgressButton();
     return jobKey;
   } catch (e) {
     const status = e && e.status;
@@ -797,6 +844,7 @@ async function pimRefreshJobs(name) {
     const fresh = jobs.filter((j) => j && (j.status === "done" || j.status === "failed") && !beforeKeys.has(j.key));
     pimUpdateJobNodes();
     if (typeof papersRenderDownloadBand === "function") papersRenderDownloadBand();
+    if (typeof papersRenderProgressButton === "function") papersRenderProgressButton();
     if (typeof papersRenderJobBoxes === "function") papersRenderJobBoxes();
     // 保存できた論文が Library に増えたので取り直す
     if (fresh.some((j) => j.status === "done" && j.paper_id != null)) {
@@ -810,6 +858,110 @@ async function pimRefreshJobs(name) {
   } finally {
     pimJobsBusy = false;
   }
+}
+
+// --- 進み具合の一枚（どのページからでも開く・U3 §5） ---
+
+/** 1 件の仕事の行（題名・% の棒・段・経過時間・ログ）。 */
+function pimProgressBlock(job, name) {
+  const view = pimProgressView(job, Date.now());
+  const card = pimEl("div", `pim-progress-card ${pimJobTone(job.status)}`);
+
+  // 題名（1 行・省略）。paper_id があれば論文情報を開く
+  const title = pimEl("p", "pim-progress-title", String(job.title || "(無題)"));
+  if (job.paper_id != null && name) {
+    const a = pimEl("a", "pim-progress-open", String(job.title || "(無題)"));
+    a.href = `#/paper/${encodeURIComponent(name)}/${encodeURIComponent(job.paper_id)}`;
+    card.appendChild(a);
+  } else {
+    card.appendChild(title);
+  }
+
+  // 棒・%・今の段・経過時間
+  const line = pimEl("div", "pim-progress-line");
+  const bar = pimEl("div", "pim-progress-bar");
+  const fill = pimEl("div", "pim-progress-fill");
+  fill.style.width = `${view.percent}%`;
+  bar.appendChild(fill);
+  line.appendChild(bar);
+  line.appendChild(pimEl("span", "pim-progress-percent", `${view.percent}%`));
+  if (view.stepLabel) line.appendChild(pimEl("span", "pim-progress-step", view.stepLabel));
+  if (view.elapsed) line.appendChild(pimEl("span", "pim-progress-elapsed", view.elapsed));
+  card.appendChild(line);
+
+  // ログ（最新的 5 行。残りがあれば押すと全部開く）
+  if (view.allLines.length > 0) {
+    const box = pimEl("div", "pim-progress-logs");
+    for (const text of view.lines) box.appendChild(pimEl("p", "pim-progress-log", text));
+    if (view.allLines.length > view.lines.length) {
+      const more = pimEl("button", "pim-progress-more", "ログを全部見る");
+      more.type = "button";
+      more.addEventListener("click", () => {
+        more.remove();
+        for (const text of view.allLines.slice(0, -view.lines.length)) {
+          box.insertBefore(pimEl("p", "pim-progress-log", text), box.firstChild);
+        }
+      });
+      card.appendChild(more);
+    }
+    card.appendChild(box);
+  }
+
+  if (job.error) {
+    card.appendChild(
+      pimEl("p", "pim-progress-error", job.status === "done" ? `後の処理で失敗: ${job.error}` : String(job.error))
+    );
+  }
+  return card;
+}
+
+/** 進み具合の一枚を開く（開いているあいだは 2 秒ごとに読み直す）。 */
+async function pimOpenProgress() {
+  await pimEnsureUi();
+  const name = pimProjectName() || pimJobsName;
+  const body = document.createElement("div");
+  body.className = "pim-progress";
+  let timer = null;
+
+  const draw = async () => {
+    if (name) await pimRefreshJobs(name);
+    const jobs = pimJobsList();
+    body.innerHTML = "";
+    if (jobs.length === 0) {
+      body.appendChild(
+        saiEmpty({
+          icon: "📄",
+          title: "いま動いている処理はありません",
+          body: "ダウンロードすると、ここに進み具合が出ます。",
+        })
+      );
+      return;
+    }
+    for (const job of jobs) body.appendChild(pimProgressBlock(job, name || pimJobsName));
+  };
+
+  const sheet = saiSheet({
+    title: "進み具合",
+    body,
+    onClose: () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    },
+  });
+  await draw();
+  timer = setInterval(() => { void draw(); }, PIM_PROGRESS_MS);
+  return sheet;
+}
+
+/** 論文タブの切り替え帯の右端のボタン（走っている仕事の数があれば（ ）をつける）。 */
+function pimProgressButton() {
+  const jobs = pimActiveJobs(pimJobsList());
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = jobs.length > 0 ? "sai-btn small pim-progress-tab busy" : "sai-btn small pim-progress-tab";
+  b.textContent = jobs.length > 0 ? `進み具合（${jobs.length}）` : "進み具合";
+  b.addEventListener("click", () => { void pimOpenProgress(); });
+  return b;
 }
 
 // --- 画面の登録（ブラウザでのみ） ---
@@ -860,5 +1012,7 @@ if (typeof module !== "undefined" && module.exports) {
     pimJobsList,
     pimJobBlock,
     pimJobSlot,
+    pimProgressView,
+    pimElapsedLabel,
   };
 }
