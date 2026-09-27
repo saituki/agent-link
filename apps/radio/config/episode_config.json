@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "sai_radio": {
+      "speaker_config": "sai_radio",
+      "outline_provider": "openrouter",
+      "outline_model": "openai/gpt-4o-mini",
+      "transcript_provider": "openrouter",
+      "transcript_model": "openai/gpt-4o-mini",
+      "default_briefing": "英語論文をランニング中のリスナー向けに、日本語で紹介するポッドキャスト。専門用語は簡単な言葉で言い換えること。",
+      "num_segments": 5,
+      "language": "ja"
+    }
+  }
+}
