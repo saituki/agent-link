@@ -205,7 +205,7 @@ fn resolved_keys(conn: &Connection) -> Result<HashSet<String>, AttentionError> {
 }
 
 /// 1. 書いていない review（新しい順に最大 [`EMPTY_REVIEW_LIMIT`] 件）。
-fn empty_reviews(root: &Path) -> Vec<AttentionItem> {
+pub fn empty_reviews(root: &Path) -> Vec<AttentionItem> {
     let mut found: Vec<(SystemTime, AttentionItem)> = Vec::new();
     for (run, block_id) in research_runs(root) {
         // まだ終わっていない実行（todo / running）は除く。
