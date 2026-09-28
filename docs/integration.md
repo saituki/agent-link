@@ -322,7 +322,7 @@ launchd（`apps/phone/launchd/com.sai-moon.plist`）では `PYTHONPATH`（`apps/
 | **Radio の論文 ID は英数字** | ID は「論文 ID（`<root のフォルダ名>-<番号>`・例 `sai-moon-30`）」と「apps/radio が作った音声（12 桁の 16 進・`demo001` 等）」の両方がある。数字だけと当て込むと壊れる。判定は `radio.js` の `isRadioPaperId` |
 | **長すぎる論文は音声化できない** | apps/radio が論文全文をそのまま LLM に 1 回で渡す（`llm.py`）ため、約 13 万トークンを超える論文は文脈上限で失敗する（**apps/radio 側の制限**）。`apps/phone` / `sai-moon-paper` 側に分割処理はない |
 | **FastAPI の登録順** | 固定パス（`library` `tree` `providers` `search` `logs/{log_id}` `manual/candidates` `manual/import` `manual/upload`）を `/api/projects/{name}/papers/{paper_id:int}` より前に登録しないと 404 / 400 になる。順番を変えたら curl で一覧を確かめる |
-| **`sw.js` の `CACHE`** | 版（今は `sai-phone-v30`）を上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。音声の倉庫 `sai-phone-radio-audio` は別物なので消さない |
+| **`sw.js` の `CACHE`** | 版（今は `sai-phone-v31`）を上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。音声の倉庫 `sai-phone-radio-audio` は別物なので消さない |
 | **launchd の PATH** | plist に `PATH` が無いとプロジェクトタブ全部が 503（「`sai-moon-link` が見つかりません」）になる |
 | **常駐・実行を動かす操作** | 常駐の起動停止・todo 実行・音声化の依頼は実際にエージェントや生成を動かす。確認は `--help` と不正値で行う |
 | **旧構成の 8100 番・8000 番は触らない** | 旧 sai-phone と旧 sai-radio は別のプロセスで動いている。sai-moon の確認で再起動しないこと |
