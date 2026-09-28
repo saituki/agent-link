@@ -176,19 +176,12 @@ fn resolve_scope(
 /// ブロック定義の frontmatter の `sci_scope` を読む。無ければ空。
 ///
 /// 探し方は `ops::allowed_ops` と同じ（`<root>/.sai/blocks/` を先に、`~/.sai-moon/blocks/` を次に）。
+/// ブロックの ID をファイル名にする前の検査も、`ops::block_def_paths` にまとめてある。
 fn block_scope(roots: &PaperRoots, block: &str) -> String {
     if block.is_empty() {
         return String::new();
     }
-    let mut candidates = vec![roots
-        .root
-        .join(".sai")
-        .join("blocks")
-        .join(format!("{block}.md"))];
-    if let Some(dir) = crate::paths::sai_home_path("blocks") {
-        candidates.push(dir.join(format!("{block}.md")));
-    }
-    for path in candidates {
+    for path in super::ops::block_def_paths(roots, block) {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };

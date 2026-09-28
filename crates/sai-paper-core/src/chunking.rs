@@ -1530,9 +1530,16 @@ fn chunk_tree(conn: &Connection, index: &crate::config::RagIndex) -> Result<Buil
 
     for (source_ref, body, section) in wanted {
         wanted_refs.insert(source_ref.clone());
+        // 長すぎるときは先頭だけを使う。くらべる文字列と入れる文字列をそろえるため、
+        // 切るのはここで 1 回だけにして、その結果を下でも使う
+        // （生の全文でくらべると、上限を超えた木の実が毎回作り直される）。
+        let text = split_text_by_max_tokens(&body, max_tokens)
+            .into_iter()
+            .next()
+            .map_or(body.clone(), |chunk| chunk.text);
         // 同じ `source_ref` で同じ本文の塊があれば残す（埋め込みもそのまま）。
         if let Some(rows) = existing.get(&source_ref) {
-            if let Some((id, _)) = rows.iter().find(|(_, text)| *text == body) {
+            if let Some((id, _)) = rows.iter().find(|(_, found)| *found == text) {
                 keep_ids.insert(*id);
                 sources_skipped += 1;
                 continue;
@@ -1544,11 +1551,6 @@ fn chunk_tree(conn: &Connection, index: &crate::config::RagIndex) -> Result<Buil
             conn.execute("DELETE FROM chunks WHERE id = ?1", [id])?;
         }
 
-        // 長すぎるときは分けずに先頭だけを入れる。
-        let text = split_text_by_max_tokens(&body, max_tokens)
-            .into_iter()
-            .next()
-            .map_or(body, |chunk| chunk.text);
         let char_end = text.len() as i64;
         conn.execute(
             "INSERT INTO chunks (source_kind, source_ref, paper_id, ord, text, char_start, char_end, strategy, created_at, index_name, section)
@@ -2818,5 +2820,97 @@ Methods text.
         let third = build(&conn, Scope::Tree, &index, &dir).unwrap();
         assert_eq!(third.chunks_created, 0);
         assert_eq!(third.sources_skipped, 2);
+    }
+
+    /// 上限を超えた木の実が、2 回目以降は作り直されない。
+    ///
+    /// くらべる文字列と入れる文字列が違っていると、切り詰めた本文と全文を
+    /// くらべるので毎回「削除 → 再挿入」になる（埋め込みも作り直し）。
+    #[test]
+    fn tree_chunks_long_text_is_not_rebuilt_every_time() {
+        let conn = test_db().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sci_nodes (
+               id INTEGER PRIMARY KEY,
+               kind TEXT NOT NULL,
+               item_key TEXT,
+               item_types TEXT NOT NULL DEFAULT '',
+               title TEXT NOT NULL,
+               body TEXT NOT NULL DEFAULT '',
+               state TEXT NOT NULL,
+               fixed INTEGER NOT NULL DEFAULT 0,
+               ord INTEGER NOT NULL DEFAULT 0,
+               created_by TEXT NOT NULL DEFAULT 'user',
+               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               state_changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE sci_findings (
+               id INTEGER PRIMARY KEY,
+               node_id INTEGER NOT NULL,
+               question_id INTEGER,
+               text TEXT NOT NULL,
+               cites TEXT NOT NULL DEFAULT '[]',
+               polarity TEXT NOT NULL DEFAULT 'none',
+               level INTEGER,
+               source TEXT NOT NULL DEFAULT 'user',
+               report_id TEXT,
+               paper_id INTEGER,
+               run_id INTEGER,
+               proposal_id INTEGER,
+               auto INTEGER NOT NULL DEFAULT 0,
+               removed_at TEXT,
+               created_by TEXT NOT NULL DEFAULT 'user',
+               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );",
+        )
+        .unwrap();
+
+        // 上限（既定 450 トークン）を大きく超える本文（日本語は 1 字 = 1 トークン）。
+        let long: String = "報告の要点を書く。".repeat(400);
+        conn.execute(
+            "INSERT INTO sci_nodes (id, kind, title, body, state, ord)
+             VALUES (1, 'item', '長い項目', ?1, 'decided', 0)",
+            [&long],
+        )
+        .unwrap();
+
+        let mut index = crate::config::RagConfig::default().index(None).unwrap();
+        index.chunk_max_tokens = 450;
+        let dir = std::env::temp_dir().join("sai-rag-scope-tree-long");
+        let first = build(&conn, Scope::Tree, &index, &dir).unwrap();
+        assert_eq!(first.chunks_created, 1);
+        assert_eq!(first.sources_skipped, 0);
+
+        // 入れるのは先頭だけ（上限どおり）。
+        let stored: String = conn
+            .query_row(
+                "SELECT text FROM chunks WHERE source_kind = 'tree' AND source_ref = 'N1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored.chars().count() < long.chars().count(), "切り詰められていない");
+        // 節点の塊は「題: 本文」なので、本文の先頭から切られている。
+        let prefix = "長い項目: ";
+        assert!(stored.starts_with(prefix), "{stored}");
+        assert!(
+            long.starts_with(&stored[prefix.len()..]),
+            "先頭から切られていない"
+        );
+
+        // 2 回目も 3 回目も作り直さない（同じ文字列でくらべているので残る）。
+        let second = build(&conn, Scope::Tree, &index, &dir).unwrap();
+        assert_eq!(second.chunks_created, 0, "毎回作り直している");
+        assert_eq!(second.sources_skipped, 1);
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chunks WHERE source_kind = 'tree'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "増えたり減えたりしている");
     }
 }

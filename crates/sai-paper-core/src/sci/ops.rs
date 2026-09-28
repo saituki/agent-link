@@ -180,17 +180,7 @@ pub fn allowed_ops(roots: &PaperRoots, block: &str) -> Vec<String> {
     if block.is_empty() {
         return AUTO_OPS.iter().map(|op| (*op).to_string()).collect();
     }
-    let mut candidates = vec![
-        roots
-            .root
-            .join(".sai")
-            .join("blocks")
-            .join(format!("{block}.md")),
-    ];
-    if let Some(dir) = crate::paths::sai_home_path("blocks") {
-        candidates.push(dir.join(format!("{block}.md")));
-    }
-    for path in candidates {
+    for path in block_def_paths(roots, block) {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -211,6 +201,34 @@ pub fn allowed_ops(roots: &PaperRoots, block: &str) -> Vec<String> {
         return found;
     }
     AUTO_OPS.iter().map(|op| (*op).to_string()).collect()
+}
+
+/// 読むブロック定義の候補（プロジェクトを優先し、共有の置き場がその次）。
+///
+/// ブロックの ID は外から来る値なので、ファイル名にする前に
+/// `^[a-z0-9-]+$` に通ることを確かめる。通らないときは空を返す
+/// （`../` のような値で `.sai/blocks/` の外を読まないため）。
+pub(crate) fn block_def_paths(roots: &PaperRoots, block: &str) -> Vec<std::path::PathBuf> {
+    if !is_block_id(block) {
+        return Vec::new();
+    }
+    let mut candidates = vec![roots
+        .root
+        .join(".sai")
+        .join("blocks")
+        .join(format!("{block}.md"))];
+    if let Some(dir) = crate::paths::sai_home_path("blocks") {
+        candidates.push(dir.join(format!("{block}.md")));
+    }
+    candidates
+}
+
+/// ブロックの ID として使える形かどうか（`^[a-z0-9-]+$`）。
+pub(crate) fn is_block_id(block: &str) -> bool {
+    !block.is_empty()
+        && block
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// 提案する（C-07 の「提案」）。
@@ -1438,6 +1456,10 @@ impl<'a> Ctx<'a> {
     // ---- 反映 ---------------------------------------------------------------
 
     /// 検査済みの操作を反映して、できたものの参照を返す。
+    ///
+    /// 最初に節点のキャッシュを捨てる。検査の段で貯めた値は、この実行が始めた
+    /// ときの状態なので、同じまとめの 1 件目が書いた状態を 2 件目が読めない。
+    /// 書き込みの段は節点の状態をすべて DB から読む。
     fn write(
         &mut self,
         plan: &Plan,
@@ -1445,6 +1467,7 @@ impl<'a> Ctx<'a> {
         proposal_id: Option<i64>,
         auto: bool,
     ) -> Result<Option<String>> {
+        self.nodes.borrow_mut().clear();
         match plan {
             Plan::AddFinding {
                 node,
@@ -2258,6 +2281,35 @@ mod tests {
     }
 
     #[test]
+    fn block_id_must_be_lowercase_before_it_becomes_a_file_name() {
+        // `^[a-z0-9-]+$` に通る ID だけを読む。外へ出る値をそのままファイル名にしない。
+        let placed = fixture();
+        for good in ["sci-t", "a", "0", "a-b-9"] {
+            assert!(is_block_id(good), "{good} を弾いてはいけない");
+            assert!(!block_def_paths(&placed.roots, good).is_empty(), "{good}");
+        }
+        for bad in ["", "..", "../sci-t", "a/b", "Sci-T", "sci_t", "sci.t", "a b"] {
+            assert!(!is_block_id(bad), "{bad} を通してはいけない");
+            assert!(
+                block_def_paths(&placed.roots, bad).is_empty(),
+                "{bad} のファイルを探してはいけない"
+            );
+        }
+
+        // 外へ出る値を渡しても、`blocks/` の外のファイルは読まない（自動で入る 5 種類だけ）。
+        let outside = placed.roots.root.join("outside.md");
+        fs::write(
+            &outside,
+            "---\nname: 外\nid: outside\nsci_ops: decide, exclude\nsci_scope: 外の範囲\n---\n\n本文\n",
+        )
+        .expect("外側のファイルを書く");
+        assert_eq!(
+            allowed_ops(&placed.roots, "../outside"),
+            AUTO_OPS.to_vec()
+        );
+    }
+
+    #[test]
     fn auto_ops_apply_immediately_with_marks() {
         let database = db();
         let conn = database.connection();
@@ -2690,6 +2742,77 @@ mod tests {
         assert_eq!(
             actions,
             vec!["reject_option".to_string(), "reopen".to_string()]
+        );
+    }
+
+    #[test]
+    fn write_phase_reads_node_state_from_db() {
+        // 検査の段で貯めた節点のキャッシュは、書き込みの段では使わない。
+        // 同じまとめで 1 件目が書いた状態を 2 件目が読まないと、
+        // 「選んだ候補の無い決定」が残ってしまう。
+        //
+        // `decide` と `option_state` は利用者が採用してから反映する操作なので、
+        // `propose` ではこの並びにならない。ここでは書き込みの段を直接 2 回呼び、
+        // 2 回目が DB の最新を見ていることを確かめる。
+        let database = db();
+        let conn = database.connection();
+        let placed = fixture();
+        let defs = defs();
+        let node = add_item(conn, &["choose"], "どれにする");
+        let option = add_option(conn, node, "候補 A");
+        fill_library(conn);
+
+        let decide_input = json!({
+            "op": "decide",
+            "node": format!("N{node}"),
+            "option": format!("N{option}"),
+            "reason": "再現したから"
+        });
+        let reject_input = json!({
+            "op": "option_state",
+            "node": format!("N{option}"),
+            "state": "rejected",
+            "reason": "再現しなかった"
+        });
+
+        let ctx = Ctx {
+            conn,
+            roots: &placed.roots,
+            defs: &defs,
+            nodes: RefCell::new(HashMap::new()),
+            from_proposal: true,
+            allowed: allowed_ops(&placed.roots, "sci-decide"),
+            actor: agent(),
+            decision_actor: "run:120".to_string(),
+        };
+        // 検査の段で「候補」は `candidate` としてキャッシュされる。
+        let decide = ctx.check(&decide_input).expect("決定を検査");
+        let reject = ctx.check(&reject_input).expect("却下を検査");
+
+        let tx = conn.unchecked_transaction().expect("トランザクション");
+        let mut writer = Ctx { conn: &tx, ..ctx };
+        writer.write(&decide, &decide_input, None, false).expect("決定を反映");
+        writer.write(&reject, &reject_input, None, false).expect("却下を反映");
+        tx.commit().expect("書き込む");
+
+        assert_eq!(
+            store::get_node(conn, option).expect("候補").state,
+            "rejected"
+        );
+        // 選んだ候補の無い決定を残さない（2 件目が DB から「selected」を読む）。
+        assert_eq!(store::get_node(conn, node).expect("項目").state, "open");
+        let actions: Vec<String> = store::list_decisions(conn, Some(node))
+            .expect("決定の記録")
+            .into_iter()
+            .map(|decision| decision.action)
+            .collect();
+        assert_eq!(
+            actions,
+            vec![
+                "decide".to_string(),
+                "reject_option".to_string(),
+                "reopen".to_string()
+            ]
         );
     }
 
