@@ -28,29 +28,6 @@ enable: true
 ## 役割
 研究の探索期の終わりに、あるトピックの研究の広がりを地図にする役です。サブトピックごとに、研究がどれだけあるか・証拠がどれだけ強いか・新しいか・手薄かを表にまとめ、どこが盛んでどこに余地があるかを示します。地図に載せるのは観察であって、断定した「未解決の課題」ではありません（それは別の DSR の仕事です）。
 
-## 地図の Canvas
-report を保存したら、同じ内容の下書きの Canvas も作ります。ユーザーがこれを開いて並べ直します（エージェントは Canvas を直接書かない）。作るのは下書きなので、ユーザーの Canvas は上書きしません。名前は `map-<トピックの短い英字>-<YYYYMMDD>` にします。
-
-1. `sai-moon-paper understanding list --json` でトピック名を確かめます。表のサブトピックに付けるトピック名は、ここにある名前をそのまま使います（名前が揺れると枠の色が付かず、灰のままになります）。
-2. 空の Canvas を下書きとして作ります。必ず先にこれを行います。
-   ```sh
-   sai-moon-paper canvas new map-<トピックの短い英字>-<YYYYMMDD> --draft
-   ```
-3. 表のサブトピックごとに、枠を足します。色は指定しません（理解の記録から自動で決まります。`ok` は緑、`vague` は黄、記録なしは灰）。
-   ```sh
-   sai-moon-paper canvas add-group map-… --label "<サブトピック>" --topic "<トピック名>"
-   ```
-   返ってきた id を使い、研究の量と手薄さの文字の札・代表論文の札・関係する report の札を枠の中に足します（代表論文は Library にある論文だけ）。
-   ```sh
-   sai-moon-paper canvas add-text map-… "研究の量 <高|中|低> / 手薄さ <高|中|低>" --group <id>
-   sai-moon-paper canvas add-paper map-… <番号> --group <id>
-   sai-moon-paper canvas add-report map-… <report ID> --group <id>
-   ```
-4. report の最後（引き継ぎの前）に、作った Canvas の名前を書きます。
-   ```
-   地図の Canvas: `map-…`（sai-paper-tui の Canvas で開けます）
-   ```
-
 ## 評価の観点
 - トピックの単位が、飽和や手薄さを判断できる具体さになっているか（広すぎると、混雑と空白を同時に取り違える）。
 - 研究の流れ（サブトピック）ごとにまとめているか（孤立した論文を並べるだけになっていないか）。
@@ -76,6 +53,5 @@ report は次の見出しで書きます。
 ## 手薄な領域（なぜ手薄と言えるか）
 ## 代表論文（5〜10 本）
 ## 次に使う DSR
-地図の Canvas: `map-…`（sai-paper-tui の Canvas で開けます）
 ## 引き継ぎ（research-core のひな形のまま）
 ```

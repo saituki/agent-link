@@ -15,7 +15,6 @@ use std::path::PathBuf;
 mod activity;
 mod agent_assets;
 mod attention;
-mod canvas;
 mod content;
 mod dsr;
 mod expand;
@@ -25,7 +24,6 @@ mod index;
 mod litbase;
 mod mcp;
 mod phone;
-mod phone_canvas;
 mod phone_cite;
 mod phone_import;
 mod phone_sci;
@@ -286,12 +284,6 @@ enum Cmd {
         /// サブコマンド
         #[command(subcommand)]
         cmd: report::ReportCmd,
-    },
-    /// Canvas を CLI から作る（エージェント用、V03）
-    Canvas {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: canvas::CanvasCmd,
     },
     /// 論文のメタデータをまとめて確かめる（ネットを使う）
     Enrich {
@@ -1440,9 +1432,6 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Report { cmd }) => {
             report::handle_report(cmd).await?;
-        }
-        Some(Cmd::Canvas { cmd }) => {
-            canvas::handle(cmd)?;
         }
         Some(Cmd::Enrich { retraction, force }) => {
             if !retraction {

@@ -6,10 +6,6 @@ pub mod api;
 pub mod attention;
 pub mod bibtex;
 pub mod brief;
-pub mod canvas;
-pub mod canvas_cards;
-pub mod canvas_edit;
-pub mod canvas_sync;
 pub mod chunking;
 pub mod citation;
 pub mod citation_check;
@@ -59,11 +55,6 @@ pub use api::{
     PaperSource, PaperSourceError, PaperSourceResolver, SearchQuery, dedupe, dedupe_key,
 };
 pub use attention::{AttentionError, AttentionItem, AttentionKind};
-pub use canvas_cards::{
-    CanvasCardError, CanvasCardKind, CanvasCardSource, Connections, PaperCardInfo, SidebarPaper,
-    SidebarReport, citation_links, connections_of_paper, connections_of_report, note_card_sources,
-    paper_card_info, report_card_sources, sidebar_papers,
-};
 pub use chunking::{BuildReport, IndexStatus, Scope, Strategy};
 pub use citation::{ExtractError, ExtractOutput, ensure_extract, is_s2_40hex, normalize_paper_id};
 pub use citation_check::{
@@ -101,10 +92,10 @@ pub use models::{
     ReadingDay, ReadingStatistics, RemotePaper, ResearchDashboard,
 };
 pub use paths::{
-    InvalidCollectionName, PaperRoots, canonicalize_path, canvas_dir, canvas_file_path,
-    get_pdf_page_count, move_pdf_file, paper_figure_path, paper_figures_dir, paper_file_names,
-    paper_file_path, paper_folder, paper_roots, sanitize_download_filename_component,
-    translated_pdf_path, validate_collection_name,
+    InvalidCollectionName, PaperRoots, canonicalize_path, get_pdf_page_count, move_pdf_file,
+    paper_figure_path, paper_figures_dir, paper_file_names, paper_file_path, paper_folder,
+    paper_roots, sanitize_download_filename_component, translated_pdf_path,
+    validate_collection_name,
 };
 pub use plugins::{
     PluginAction, PluginCapability, PluginDiagnostic, PluginHost, PluginInfo, PluginManifest,

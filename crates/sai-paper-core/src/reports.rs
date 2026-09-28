@@ -51,7 +51,7 @@ pub struct Report {
     pub block: Option<String>,
     /// 作成時刻（ISO8601）
     pub created_at: String,
-    /// md 先頭数行（Canvas カード表示用）
+    /// md 先頭数行（一覧の表示用）
     pub summary: Option<String>,
 }
 
@@ -357,44 +357,6 @@ pub fn paper_title(conn: &Connection, papers_id: i64) -> Result<Option<String>, 
         )
         .optional()?;
     Ok(title.flatten())
-}
-
-/// report を持つ論文を、report 込みで列挙する（Canvas の right_sidebar 用）。
-///
-/// 戻り値は `(papers_id, paper_title, report)`。同じ report が複数の論文の下に
-/// 現れることがある（要件 R5.5）。
-///
-/// # Errors
-///
-/// SQLite エラー。
-pub fn paper_report_links(conn: &Connection) -> Result<Vec<(i64, String, Report)>, ReportError> {
-    let mut stmt = conn.prepare(
-        "SELECT CAST(s.ref_id AS INTEGER), COALESCE(p.title, ''), r.id, r.title, r.md_path,
-                r.run_id, r.block, r.created_at, r.summary
-         FROM report_sources s
-         JOIN reports r ON r.id = s.report_id
-         LEFT JOIN papers p ON p.id = CAST(s.ref_id AS INTEGER)
-         WHERE s.kind = 'paper' AND s.ref_id GLOB '[0-9]*'
-         ORDER BY CAST(s.ref_id AS INTEGER), r.created_at DESC, r.id DESC",
-    )?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                Report {
-                    id: row.get(2)?,
-                    title: row.get(3)?,
-                    md_path: row.get(4)?,
-                    run_id: row.get(5)?,
-                    block: row.get(6)?,
-                    created_at: row.get(7)?,
-                    summary: row.get(8)?,
-                },
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
 }
 
 // 引用の拾い方と、先頭情報（frontmatter）の検査、自動登録（`scan`）。
@@ -1644,10 +1606,6 @@ mod tests {
             "# My Report\n\nBody text."
         );
 
-        let links = paper_report_links(&conn)?;
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].0, 1);
-        assert_eq!(links[0].2.id, "R-0001");
         Ok(())
     }
 

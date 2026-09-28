@@ -704,15 +704,6 @@ pub fn paper_figure_path(paper_dir: &Path, fig_no: i64) -> PathBuf {
     paper_figures_dir(paper_dir).join(format!("fig-{fig_no:03}.png"))
 }
 
-/// Canvas ファイルを置くディレクトリ（`<data_dir>/canvas/`）を返す。
-///
-/// Canvas は JSON Canvas 1.0（`.canvas`）として 1 枚 1 ファイルで保存する。
-/// DB テーブルは追加しない（一覧はディレクトリ走査で作る）。
-#[must_use]
-pub fn canvas_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("canvas")
-}
-
 /// ユーザーの考え（`<data_dir>/mind.md`）を返す。
 ///
 /// ユーザーが自分の考えを書く場所。エージェントは直接書き換えない。
@@ -727,15 +718,6 @@ pub fn mind_path(data_dir: &Path) -> PathBuf {
 #[must_use]
 pub fn state_path(data_dir: &Path) -> PathBuf {
     data_dir.join("state.md")
-}
-
-/// Canvas 名から `.canvas` ファイルのパスを返す（`<data_dir>/canvas/<name>.canvas`）。
-///
-/// `name` はパス区切りを含まない安全な名前であることを前提とする
-/// （検証は [`validate_collection_name`] と同じ規則を呼び出し側で行う）。
-#[must_use]
-pub fn canvas_file_path(data_dir: &Path, name: &str) -> PathBuf {
-    canvas_dir(data_dir).join(format!("{name}.canvas"))
 }
 
 /// Gets the page count of a PDF using `pdfinfo`.

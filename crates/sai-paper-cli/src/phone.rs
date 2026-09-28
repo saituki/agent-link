@@ -97,11 +97,6 @@ pub enum PhoneCmd {
     /// mind.md の「## メモ」に標準入力の 1 行を足す（S05。書き込みはここだけ）
     #[command(name = "mind-append")]
     MindAppend,
-    /// Canvas（sai-phone の Canvas 画面用。`--` の後ろが Canvas 名）
-    Canvas {
-        #[command(subcommand)]
-        cmd: crate::phone_canvas::PhoneCanvasCmd,
-    },
     /// BibTeX の取り込み（sai-phone の Import 画面用）
     Import {
         #[command(subcommand)]
@@ -198,7 +193,6 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         PhoneCmd::Note { paper_id } => save_note(paper_id),
         PhoneCmd::Project => project(),
         PhoneCmd::MindAppend => mind_append(),
-        PhoneCmd::Canvas { cmd } => crate::phone_canvas::run(cmd),
         PhoneCmd::Import { cmd } => crate::phone_import::run_import(cmd),
         PhoneCmd::Download {
             log,
