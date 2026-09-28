@@ -584,6 +584,21 @@ impl Default for BriefConfig {
     }
 }
 
+/// sai-sci の設定（`sci`）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SciConfig {
+    /// エージェントに渡す範囲（context）の上限（文字数）。
+    pub context_max_chars: usize,
+}
+impl Default for SciConfig {
+    fn default() -> Self {
+        Self {
+            context_max_chars: 12000,
+        }
+    }
+}
+
 /// 「読むべき論文」（READ NEXT）の点数の重み（`progress.read_next`）。
 ///
 /// 点数 = 引き継ぎに出た回数 × `handoff_mention`
@@ -668,6 +683,8 @@ pub struct Config {
     pub brief: BriefConfig,
     /// プロジェクトの進み具合（progress）。
     pub progress: ProgressConfig,
+    /// sai-sci（研究方針の木）。
+    pub sci: SciConfig,
 }
 
 /// 以前の `config.toml` の形（移行のためだけに読む）。
@@ -759,6 +776,7 @@ impl From<LegacyConfig> for Config {
             rag: old.rag.unwrap_or_default(),
             brief: defaults.brief,
             progress: defaults.progress,
+            sci: SciConfig::default(),
         }
     }
 }
@@ -1116,5 +1134,25 @@ top_k = 7
         assert_eq!(default.chunk_strategy, "paragraph");
         assert!(rag.index(Some("nope")).is_err());
         assert_eq!(rag.index_names(), ["default", "window3-lfm"]);
+    }
+}
+
+#[cfg(test)]
+mod sci_tests {
+    use super::{Config, SciConfig};
+
+    /// `sci` が無ければ既定値、あれば書かれた値を読むこと。
+    #[test]
+    fn sci_config_defaults_and_reads() {
+        let default = Config::default();
+        assert_eq!(default.sci.context_max_chars, 12_000);
+
+        let read: Config = serde_json::from_str(r#"{"sci": {"context_max_chars": 500}}"#).unwrap();
+        assert_eq!(
+            read.sci,
+            SciConfig {
+                context_max_chars: 500
+            }
+        );
     }
 }

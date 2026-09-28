@@ -296,13 +296,6 @@ pub fn create_handoff(
 
 /// task.md を発行する。
 ///
-/// 処理:
-/// 1. sai-link DB に run_id を予約
-/// 2. ブロックの存在を確認
-/// 3. 論文情報を集める
-/// 4. `<root>/.sai/outputs/todo/<run_id>/task.md` に書く
-/// 5. { run_id, path } を返す
-///
 /// # Errors
 ///
 /// DB エラー、ファイル I/O エラー、ブロック未検出等。
@@ -310,6 +303,30 @@ pub fn create_handoff_with(
     db: &Database,
     roots: &PaperRoots,
     request: &HandoffRequest<'_>,
+) -> Result<HandoffResult> {
+    create_handoff_with_extra(db, roots, request, &[])
+}
+
+/// task.md を発行する（frontmatter の最後に `extra` のキーを足す）。
+///
+/// 処理:
+/// 1. sai-link DB に run_id を予約
+/// 2. ブロックの存在を確認
+/// 3. 論文情報を集める
+/// 4. `<root>/.sai/outputs/todo/<run_id>/task.md` に書く
+/// 5. { run_id, path } を返す
+///
+/// `extra` は `(キー, 値)` の並び。値の改行は空白に置き換え、空の値は書かない。
+/// 並びは呼び出し側が決める（sai-sci のカードは `sci_node` から `sci_depth` までをこの順に足す）。
+///
+/// # Errors
+///
+/// DB エラー、ファイル I/O エラー、ブロック未検出等。
+pub fn create_handoff_with_extra(
+    db: &Database,
+    roots: &PaperRoots,
+    request: &HandoffRequest<'_>,
+    extra: &[(&str, String)],
 ) -> Result<HandoffResult> {
     let block_id = request.block_id;
 
@@ -362,6 +379,7 @@ pub fn create_handoff_with(
         request.runner,
         request.description,
         request.origin_run,
+        extra,
     )?;
 
     // 7. task.md を出力ディレクトリに書く
@@ -549,6 +567,7 @@ fn build_task_body(description: &str, papers: &[PaperInfo], reason: Option<&str>
 /// sai-link の `render_card`（`sai-link-engine/src/kanban.rs`）と同じキーと順で書く。
 /// `origin_run_id` は `origin_run` があればその番号、無ければ `-`。
 /// 説明文は最初の行のみを frontmatter に書く。
+/// `extra` のキーはこの 13 個の後ろに足す（値は 1 行に潰し、空なら書かない）。
 fn build_frontmatter(
     run_id: i64,
     block_id: &str,
@@ -557,6 +576,7 @@ fn build_frontmatter(
     runner: &str,
     description: &str,
     origin_run: Option<i64>,
+    extra: &[(&str, String)],
 ) -> Result<String> {
     let creation_date = chrono::Local::now().format("%Y/%m/%d %H:%M:%S").to_string();
     // 説明文は最初の行のみを frontmatter に書く
@@ -570,7 +590,22 @@ fn build_frontmatter(
         runner, creation_date, origin_run_id, run_id, block_id, global_round, tag, desc_first_line
     );
 
-    Ok(fm)
+    // 追加のキー（sai-sci の `sci_node` など）。値は 1 行にしてから書く。
+    let mut out = fm;
+    for (key, value) in extra {
+        let value = one_line(value);
+        if value.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("\n{key}: {value}"));
+    }
+
+    Ok(out)
+}
+
+/// 値の改行を空白に置き換えて 1 行にする。
+fn one_line(value: &str) -> String {
+    value.replace(['\r', '\n'], " ").trim().to_string()
 }
 
 /// 最大の global_round を計算する。
@@ -676,8 +711,9 @@ mod tests {
 
     #[test]
     fn test_build_frontmatter_matches_render_card_keys() {
-        let fm = build_frontmatter(42, "test_block", 5, "tag1", "pi", "Test description", None)
-            .unwrap();
+        let fm =
+            build_frontmatter(42, "test_block", 5, "tag1", "pi", "Test description", None, &[])
+                .unwrap();
         // sai-link の render_card と同じキーと順
         let keys: Vec<&str> = fm
             .lines()
@@ -709,10 +745,63 @@ mod tests {
 
     #[test]
     fn test_build_frontmatter_writes_origin_run() {
-        let fm = build_frontmatter(7, "b", 1, "推薦", "pi", "desc", Some(5)).unwrap();
+        let fm = build_frontmatter(7, "b", 1, "推薦", "pi", "desc", Some(5), &[]).unwrap();
         assert!(fm.contains("origin_run_id: 5"), "fm={fm}");
-        let fm_default = build_frontmatter(7, "b", 1, "", "pi", "desc", None).unwrap();
+        let fm_default = build_frontmatter(7, "b", 1, "", "pi", "desc", None, &[]).unwrap();
         assert!(fm_default.contains("origin_run_id: -"), "fm={fm_default}");
+    }
+
+    /// 追加のキーは固定の 13 個の後ろに並び、空の値は書かないこと。
+    #[test]
+    fn extra_keys_are_written_after_fixed_keys() {
+        let fm = build_frontmatter(
+            42,
+            "sci-compare",
+            5,
+            "",
+            "pi",
+            "目的を書く",
+            None,
+            &[
+                ("sci_node", "N12".to_string()),
+                ("sci_purpose", "目的を書く".to_string()),
+                ("sci_assume", "N9=発作部位の予測（仮）".to_string()),
+                // 値は空。書かれない。
+                ("sci_mode", String::new()),
+                // 改行は空白に置き換わる。
+                ("sci_expect", "比較表と\n推奨".to_string()),
+            ],
+        )
+        .unwrap();
+        let keys: Vec<&str> = fm
+            .lines()
+            .filter_map(|l| l.split_once(':').map(|(k, _)| k))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                "runner",
+                "creation_date",
+                "execution_date",
+                "origin_run_id",
+                "run_id",
+                "block",
+                "thinking",
+                "model",
+                "provider",
+                "round",
+                "global_round",
+                "tag",
+                "description",
+                "sci_node",
+                "sci_purpose",
+                "sci_assume",
+                "sci_expect",
+            ]
+        );
+        assert!(fm.contains("sci_node: N12"), "fm={fm}");
+        assert!(fm.contains("sci_expect: 比較表と 推奨"), "fm={fm}");
+        assert!(!fm.contains("sci_mode"), "fm={fm}");
     }
 
     #[test]
@@ -735,9 +824,17 @@ mod tests {
 
     #[test]
     fn test_build_frontmatter() {
-        let fm =
-            build_frontmatter(42, "test_block", 5, "tag1", "pi", "Test description", None)
-                .unwrap();
+        let fm = build_frontmatter(
+            42,
+            "test_block",
+            5,
+            "tag1",
+            "pi",
+            "Test description",
+            None,
+            &[],
+        )
+        .unwrap();
         assert!(fm.contains("run_id: 42"));
         assert!(fm.contains("runner: pi"));
         assert!(fm.contains("creation_date:"));
@@ -750,9 +847,17 @@ mod tests {
 
     #[test]
     fn test_task_md_structure() {
-        let fm =
-            build_frontmatter(42, "test_block", 5, "tag1", "pi", "My description", None)
-                .unwrap();
+        let fm = build_frontmatter(
+            42,
+            "test_block",
+            5,
+            "tag1",
+            "pi",
+            "My description",
+            None,
+            &[],
+        )
+        .unwrap();
         let body = String::from("# task_text\n\nTest body");
         let task_md = format!("{}\n---\n\n{}\n", fm, body);
 
