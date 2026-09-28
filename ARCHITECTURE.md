@@ -66,6 +66,7 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 - **公開された約束**（`phone` CLI の JSON と終了コード・書き出し・登録簿・HTTP API）が、コアと Web の境目である。`apps/phone` はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **入口**は表示と入力だけを受け持つ。TUI は Rust の関数を直接呼び、`apps/phone` は CLI を呼ぶ。どちらも同じ関数に行き着く。
+- **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-paper-core/src/sci/`、入口は `sai-moon-paper sci` / `phone sci` / MCP / Web / TUI。
 
 ---
 
@@ -162,13 +163,13 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 ### 4.3 画面（`apps/phone/src/sai_phone/static/`）
 
 - **枠**: `index.html` が全画面の `<section class="view">` とタブを持ち、JS を決まった順に読む。
-  - CSS: `style.css` → `markdown.css`・`home.css`・`workflow.css`・`defs.css`・`papers.css` → `canvas.css`
-  - JS: `markdown.js` → `ui.js` → 各画面の JS → `home.js`・`workflow.js`・`defs.js`・`paperimport.js`（`workflow.js` は `canvas.js` の関数を使うので後）→ 最後に `app.js`
+  - CSS: `style.css` → `markdown.css`・`home.css`・`workflow.css`・`defs.css`・`papers.css` → `scitree.css`・`sciedit.css`・`scigraph.css`
+  - JS: `markdown.js` → `ui.js` → 各画面の JS → `home.js`・`workflow.js`・`defs.js`・`paperimport.js`（`workflow.js` と `scigraph.js` は `canvaslayout.js` の関数を使うので後）→ 最後に `app.js`
 - **画面の登録**: 各画面の JS が `window.SaiRoutes` に「住所の照合・描画」を登録し、`app.js` が照合して切り替える。**`app.js` に画面ごとの分岐を足さない。**
 - **共通部品**（`ui.js`）: `saiApi`（通信と日本語のエラー）・`saiToast`・`saiConfirm`・`saiPrompt`・`saiSheet`（下から出る板）・`saiEmpty`（空の画面の案内）・`saiTerm`（用語の札。用語は `SAI_TERMS`）・`saiIsWide` / `saiSplitShow`（広い画面の 2 列）。新しい画面はこれを使い、同じ物を作り直さない。
 - **md の表示**（`markdown.js`）: `renderMarkdown(text, {toolbar: true})` で、色分け・全部たたむ / 開く・目次・長いコードのたたみが付く。コードの色分けは `mdHighlight`。
 - **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定・`pim` Import など）を付け、`apps/phone/tests/test_globals.js` で検査する。
-- **版**: `sw.js` の `CACHE`（今は `sai-phone-v28`）と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
+- **版**: `sw.js` の `CACHE`（今は `sai-phone-v34`）と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
 
 | ファイル | 画面 |
 |---|---|
@@ -179,7 +180,8 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 | `linkview.js` / `cardform.js` / `stats.js` | List・task.md の作成フォーム・統計 |
 | `defs.js` | 設定（block / template / settings） |
 | `papers.js` / `paperimport.js` | 論文の各画面・Import と Download の見張り |
-| `canvas.js` / `canvaspanel.js` / `canvaslayout.js` | Canvas |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | 研究方針（`#/papers/tree` と `#/papers/triage` と `#/papers/read/<run_id>`。木・板・操作・仕分け・読む札・根の図・表） |
+| `canvaslayout.js` | 配置・全体表示・拡大の純関数（研究方針の根の図と Workflow が使う） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Radio・声の質問・質問の読み上げと音声回答 |
 | `usage.js` | 使用量 |
 | `chatorder.js` | 会話の中に行やカードを置く位置（DOM を使わない関数） |
@@ -215,7 +217,7 @@ cd ~/workdir/Sai/sai-moon
 env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 19 本・Python 17 本）
+# Web（JS 24 本・Python 18 本）
 for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
 (cd apps/phone && export PYTHONPATH=src && for f in tests/test_*.py; do .venv/bin/python "$f" || exit 1; done)
 
@@ -246,6 +248,12 @@ sai-moon/
 │   └── sai-paper-cite/       # bin  sai-moon-paper-cite
 ├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
 ├── pi-litbase/               # pi の拡張（TypeScript・Cargo の外）
+├── sai-sci/                  # 研究方針の木（Research-tree）
+│   ├── types/                # 5 つの型（sai-moon-paper に埋め込まれる）
+│   ├── guides/               # 項目ガイド（上の項目 9 本・子の項目 16 本）
+│   ├── template/             # sci-core.md（エージェントの共通の決まり）
+│   ├── mind.md               # 土壌のひな形
+│   └── blocks/               # 16 本の sci-* ブロック
 ├── apps/
 │   ├── phone/                # Web の窓口（8200）
 │   │   ├── src/sai_phone/    # サーバ（§4.1）
