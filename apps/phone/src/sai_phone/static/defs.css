@@ -18,12 +18,12 @@
 /* --- 帯の下の黄色い注意（共通の定義） --- */
 .df-global-warn {
   padding: 8px var(--sp-4);
-  background: rgba(255, 200, 50, 0.14);
-  color: #a06a00;
+  /* 黄色の帯は var(--warn) を薄くしたもの。色は var(--warn) を borrowing する。 */
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
   font-size: 13px;
   line-height: 1.6;
 }
-:root[data-theme="dark"] .df-global-warn { color: #ffd479; }
 
 /* 「使っている block」 */
 .df-used {
@@ -36,7 +36,7 @@
 /* --- 赤い 1 行（一覧の読み込みの失敗） --- */
 .df-error {
   padding: 8px var(--sp-4);
-  background: rgba(239, 68, 68, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
   font-size: 13px;
 }
@@ -72,9 +72,8 @@
   line-height: 1.6;
 }
 .df-box[hidden] { display: none; }
-.df-box--bad { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
-.df-box--warn { background: rgba(255, 200, 50, 0.14); color: #a06a00; }
-:root[data-theme="dark"] .df-box--warn { color: #ffd479; }
+.df-box--bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.df-box--warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
 
 /* 編集とプレビュー（狭い画面は上下・広い画面は左右） */
 .df-panes { display: flex; flex-direction: column; flex: 1; min-height: 0; }

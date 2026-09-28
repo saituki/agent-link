@@ -158,15 +158,21 @@ function testWrapText() {
 }
 
 function testEdgeColor() {
-  assert.strictEqual(wf.wfEdgeColor("delegation"), "#06b6d4");
-  assert.strictEqual(wf.wfEdgeColor("task_output"), "#22c55e");
-  assert.strictEqual(wf.wfEdgeColor("waggle_token"), "#d946ef");
-  assert.strictEqual(wf.wfEdgeColor("git_commit"), "#a855f7");
-  assert.strictEqual(wf.wfEdgeColor("phase_chain"), "#06b6d4");
+  // 色は CSS 変数。表の値と一致することだけ確かめる（値は style.css の :root にある）。
+  const table = Object.fromEntries(wf.WF_EDGE_KINDS.map((r) => [r[0], r[2]]));
+  assert.strictEqual(wf.wfEdgeColor("delegation"), table.delegation);
+  assert.strictEqual(wf.wfEdgeColor("task_output"), table.task_output);
+  assert.strictEqual(wf.wfEdgeColor("waggle_token"), table.waggle_token);
+  assert.strictEqual(wf.wfEdgeColor("git_commit"), table.git_commit);
+  assert.strictEqual(wf.wfEdgeColor("phase_chain"), table.phase_chain);
   // 表に無い種類・null・未知の値は灰色（描画が止まらない）
-  assert.strictEqual(wf.wfEdgeColor("other"), "#9ca3af");
-  assert.strictEqual(wf.wfEdgeColor("oreason"), "#9ca3af");
-  assert.strictEqual(wf.wfEdgeColor(null), "#9ca3af");
+  assert.strictEqual(wf.wfEdgeColor("other"), table.other);
+  assert.strictEqual(wf.wfEdgeColor("oreason"), table.other);
+  assert.strictEqual(wf.wfEdgeColor(null), table.other);
+  // 色は CSS 変数（16 進の直書きは無い）
+  for (const [kind, color] of Object.entries(table)) {
+    assert.ok(/^var\(--[A-Za-z0-9-]+\)$/.test(color), `線が CSS 変数でない: ${kind} ${color}`);
+  }
   // フェーズだけ破線
   assert.strictEqual(wf.wfEdgeDashed("phase_chain"), true);
   assert.strictEqual(wf.wfEdgeDashed("delegation"), false);
@@ -174,15 +180,17 @@ function testEdgeColor() {
 }
 
 function testTagColor() {
-  assert.strictEqual(wf.wfTagColor("brst"), "#06b6d4");
-  assert.strictEqual(wf.wfTagColor("plan"), "#3b82f6");
-  assert.strictEqual(wf.wfTagColor("code"), "#22c55e");
-  assert.strictEqual(wf.wfTagColor("comp"), "#d946ef");
-  assert.strictEqual(wf.wfTagColor("rfrs"), "#ef4444");
+  // 色は CSS 変数（var(--tag-brst) など）。表の値と一致することだけ確かめる。
+  const t = wf.WF_TAGS;
+  assert.strictEqual(wf.wfTagColor("brst"), t.brst);
+  assert.strictEqual(wf.wfTagColor("plan"), t.plan);
+  assert.strictEqual(wf.wfTagColor("code"), t.code);
+  assert.strictEqual(wf.wfTagColor("comp"), t.comp);
+  assert.strictEqual(wf.wfTagColor("rfrs"), t.rfrs);
   // 知らないタグ・null は灰色
-  assert.strictEqual(wf.wfTagColor("oreason"), "#9ca3af");
-  assert.strictEqual(wf.wfTagColor(null), "#9ca3af");
-  assert.strictEqual(wf.wfTagColor("toString"), "#9ca3af"); // Object.prototype を通さない
+  assert.strictEqual(wf.wfTagColor("oreason"), "var(--tag-other)");
+  assert.strictEqual(wf.wfTagColor(null), "var(--tag-other)");
+  assert.strictEqual(wf.wfTagColor("toString"), "var(--tag-other)"); // Object.prototype を通さない
 }
 
 function testEdgePathSide() {
@@ -364,7 +372,7 @@ function testConstants() {
   assert.strictEqual(wf.WF_CELL_W, 10);
   assert.strictEqual(wf.WF_CELL_H, 20);
   assert.strictEqual(wf.WF_INTERVAL_MS, 10000);
-  assert.strictEqual(wf.WF_SEL_COLOR, "#ffc832");
+  assert.strictEqual(wf.WF_SEL_COLOR, "var(--sel)");
   assert.strictEqual(wf.WF_DRAG_SLOP, 4);
 }
 

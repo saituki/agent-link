@@ -223,9 +223,12 @@ function testEdgeOpacityWithSelection() {
 function testGroupColor() {
   for (const [key, hex] of Object.entries(CV_GROUP_COLORS)) {
     assert.strictEqual(cvGroupColor(key), hex, `色 ${key} が違う`);
-    assert.strictEqual(cvAlpha(cvGroupColor(key), 0.12).startsWith("rgba("), true);
+    // 薄くした色は color-mix で書く（var(--x) でも #rrggbb でも使える）
+    assert.strictEqual(cvAlpha(cvGroupColor(key), 0.12), `color-mix(in srgb, ${hex} 12%, transparent)`);
   }
+  // 生の 6 桁も受け付ける（JSON Canvas が hex で来たとき）
   assert.strictEqual(cvGroupColor("#123456"), "#123456");
+  assert.strictEqual(cvAlpha("#123456", 0.12), "color-mix(in srgb, #123456 12%, transparent)");
   assert.strictEqual(cvGroupColor("7"), "");   // 表に無い数字
   assert.strictEqual(cvGroupColor(""), "");
   assert.strictEqual(cvGroupColor(null), "");
@@ -237,13 +240,20 @@ function testEdgeKindTable() {
     CV_EDGE_KINDS.map((k) => k[0]),
     ["citation", "uses", "derived", "mentions", "link"]
   );
-  // 5 種類すべてに名前と 16 進の色がある
+  // 5 種類すべてに名前と色がある。色は CSS 変数か 16 進。
   for (const [kind, label, color] of CV_EDGE_KINDS) {
     assert.ok(kind && label, "kind か名前が空");
-    assert.ok(/^#[0-9a-f]{6}$/i.test(color), `色が 16 進でない: ${kind} ${color}`);
+    assert.ok(
+      /^(var\(--[A-Za-z0-9-]+\)|#[0-9a-f]{6})$/i.test(color),
+      `色が CSS 変数でも 16 進でもない: ${kind} ${color}`
+    );
   }
   // 札の 3 種類
   assert.deepStrictEqual(Object.keys(CV_CARD_KINDS).sort(), ["note", "paper", "report"]);
+  // 札の色も CSS 変数
+  for (const [kind, color] of Object.entries(CV_CARD_KINDS)) {
+    assert.ok(/^var\(--[A-Za-z0-9-]+\)$/.test(color), `札の色が CSS 変数でない: ${kind} ${color}`);
+  }
 }
 
 // --- 札の kind が null のとき（U03: DB に無い札の kind は null になる） ---
@@ -276,23 +286,27 @@ function testCardKindUnknownIsPaperGrey() {
 }
 
 function testCardKindKnownUnchanged() {
-  assert.deepStrictEqual(cvCardKind("note"), { key: "note", label: "note", color: "#2563eb" });
-  assert.deepStrictEqual(cvCardKind("report"), { key: "report", label: "report", color: "#1d7a45" });
-  assert.deepStrictEqual(cvCardKind("paper"), { key: "paper", label: "paper", color: "#8a8f98" });
+  // 色は CSS 変数（var(--cv-card-note) など）。値は style.css の :root にある。
+  for (const key of ["note", "report", "paper"]) {
+    assert.deepStrictEqual(cvCardKind(key), { key, label: key, color: CV_CARD_KINDS[key] });
+  }
 }
 
 // --- 線の kind が未知のとき ---
 
 function testEdgeKindUnknown() {
-  const grey = "#6b7280"; // link の色
+  const grey = CV_EDGE_KINDS[4][2]; // link の灰色（var(--cv-edge-link)）
   for (const k of [null, undefined, "", "weird"]) {
     const r = cvEdgeKind(k);
     assert.strictEqual(r.known, false, `${k} が既知として扱われている`);
     assert.strictEqual(r.color, grey);
     assert.strictEqual(cvEdgeKindColor(k), grey);
   }
-  assert.deepStrictEqual(cvEdgeKind("citation"), { key: "citation", known: true, color: "#2563eb" });
-  assert.strictEqual(cvEdgeKindColor("uses"), "#1d7a45");
+  assert.deepStrictEqual(
+    cvEdgeKind("citation"),
+    { key: "citation", known: true, color: CV_EDGE_KINDS[0][2] }
+  );
+  assert.strictEqual(cvEdgeKindColor("uses"), CV_EDGE_KINDS[1][2]);
 }
 
 function testTablesRejectPrototypeKeys() {

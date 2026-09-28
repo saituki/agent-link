@@ -1,19 +1,97 @@
-/* sai-phone の見た目．Gemini アプリ風の白基調．色は変数で定義し，
-   iPhone のダークモード設定（prefers-color-scheme）に追従する． */
+/* sai-phone の見た目．Gemini アプリ風の白基調．色は CSS 変数（design token）で定義し，
+   iPhone のダークモード設定（prefers-color-scheme）に追従する．
+   JS 側（workflow.js・canvas.js など）も hex を直書きせず var(--token) を参照する．
+   コントラストは apps/phone/tests/test_contrast.js が WCAG の相対輝度で検査する．
+     ・文字の役（--text・--text-soft・--accent・--ok・--warn・--danger）は --bg と --bg-soft の上で 4.5:1
+     ・線・枠・図形の役は 3:1
+   測る相手の地色は --bg・--bg-soft・カードの地色（--st-card）の 3 つ． */
 
 :root {
+  /* --- 地色と文字 --- */
   --bg: #ffffff;
   --bg-soft: #f5f6f8;
   --text: #333333;
-  --text-soft: #8a8f98;
+  /* 見出しでない文字（説明・日付・補助） */
+  --text-soft: #656b73;
+
+  /* --- 線と枠 ---
+     どちらを使うかの目安：
+       --line         … 飾りの細い区切り（表の罫、入力欄・チップの縁）。3:1 は求めない。
+       --line-strong  … 意味を持つ枠（選択中の札、フォーカスした欄、状態の境目）。3:1 以上。 */
   --line: #e5e7eb;
+  --line-strong: #7d838c;
+  /* 選択中の枠（Workflow・Canvas の札） */
+  --sel: #a16207;
+  /* フォーカスしたときの輪 */
+  --focus: #1d4ed8;
+
+  /* --- 状態（文字としても使える 4.5:1） --- */
+  --ok: #15803d;
+  --warn: #b45309;
+  --danger: #c81e1e;
+  --run: #1d4ed8;
+  /* --accent・--ok・--warn・--danger の上に置く文字の色 */
+  --on-accent: #ffffff;
+
+  /* --- 帯（質問待ちの行・接続切れの帯など） --- */
+  --warn-bg: #fff7e6;
+  --warn-on-bg: #8a6d00;
+
+  /* --- 囲みの地色（Canvas の本文ブロック） --- */
+  --note-bg: #fff6c9;
+  --note-on-bg: #4a4326;
+  --note-line: #a8871f;
+
+  /* --- 札のタグ（Workflow。TUI の block_node.rs と同じ並び） --- */
+  --tag-brst: #0e7490;
+  --tag-plan: #2563eb;
+  --tag-code: #15803d;
+  --tag-comp: #a21caf;
+  --tag-rfrs: #c81e1e;
+  --tag-other: #656b73;
+
+  /* --- 線（Workflow の辺） --- */
+  --edge-delegation: #0e7490;
+  --edge-task-output: #15803d;
+  --edge-waggle: #a21caf;
+  --edge-commit: #7e22ce;
+  --edge-phase: #0f766e;
+  --edge-other: #656b73;
+
+  /* --- 論文の Canvas --- */
+  --cv-edge-citation: #1d4ed8;
+  --cv-edge-uses: #15803d;
+  --cv-edge-derived: #7e22ce;
+  --cv-edge-mentions: #a16207;
+  --cv-edge-link: #656b73;
+  --cv-card-note: #1d4ed8;
+  --cv-card-report: #15803d;
+  --cv-card-paper: #656b73;
+  --cv-group-1: #c81e1e;
+  --cv-group-2: #a16207;
+  --cv-group-3: #15803d;
+  --cv-group-4: #0e7490;
+  --cv-group-5: #6d28d9;
+  --cv-group-6: #5f6670;
+
+  /* --- グラフ（系列は赤と緑だけの組にしない） --- */
+  --series-1: #1d4ed8;
+  --series-2: #a16207;
+  --series-3: #a21caf;
+  --series-4: #0f766e;
+  --series-5: #b91c1c;
+  --series-6: #4b5563;
+  --chart-grid: #e8eaee;  /* 目立たない格子 */
+  --chart-axis: #656b73;  /* 目盛りの文字 */
+
+  /* --- 吹き出しと入力欄 --- */
   --bubble-user: #e8f0fe;
   --bubble-agent: #edeef1;
   --bubble-tool: #f5f6f8;
   --accent: #2563eb;
   --accent-mcp: #1d7a45;
   --input-bg: #f1f3f5;
-  --danger: #d93025;
+
   /* --- U4: 共通部品（ui.js）で使う大きさ・色（共有契約 C-F3） --- */
   --sp-1: 4px;
   --sp-2: 8px;
@@ -23,12 +101,11 @@
   --sp-6: 32px;
   --radius: 12px;
   --radius-sm: 8px;
-  --ok: #16a34a;
-  --warn: #b45309;
   /* 広い画面（900px 以上）で左の縦のタブ幅。U4 §1 */
   --rail-w: 84px;
 }
 
+/* 暗い画面は反転ではなく、彩度を落とした明るい色にする（ui-ux-rules の color-dark-mode） */
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1c1c1e;
@@ -36,15 +113,71 @@
     --text: #f2f2f7;
     --text-soft: #a1a1a6;
     --line: #38383a;
+    --line-strong: #7c7c81;
+    --sel: #f5c243;
+    --focus: #8ab0f8;
+    --ok: #4ade80;
+    --warn: #fcd34d;
+    --danger: #f28b82;
+    --run: #7aa2f7;
+    --on-accent: #1c1c1e;
+    --warn-bg: #3a2f10;
+    --warn-on-bg: #f2c94c;
+    --note-bg: #4a4326;
+    --note-on-bg: #f5efd6;
+    --note-line: #b09a5c;
+    --tag-brst: #38bdf8;
+    --tag-plan: #60a5fa;
+    --tag-code: #4ade80;
+    --tag-comp: #e879f9;
+    --tag-rfrs: #f87171;
+    --tag-other: #a1a1a6;
+    --edge-delegation: #38bdf8;
+    --edge-task-output: #4ade80;
+    --edge-waggle: #e879f9;
+    --edge-commit: #c084fc;
+    --edge-phase: #5eead4;
+    --edge-other: #a1a1a6;
+    --cv-edge-citation: #60a5fa;
+    --cv-edge-uses: #4ade80;
+    --cv-edge-derived: #a78bfa;
+    --cv-edge-mentions: #fbbf24;
+    --cv-edge-link: #9ca3af;
+    --cv-card-note: #60a5fa;
+    --cv-card-report: #4ade80;
+    --cv-card-paper: #9ca3af;
+    --cv-group-1: #f87171;
+    --cv-group-2: #fbbf24;
+    --cv-group-3: #34d399;
+    --cv-group-4: #38bdf8;
+    --cv-group-5: #a78bfa;
+    --cv-group-6: #9ca3af;
+    --series-1: #6ea8fe;
+    --series-2: #e3b341;
+    --series-3: #c084fc;
+    --series-4: #5eead4;
+    --series-5: #fca5a5;
+    --series-6: #9ca3af;
+    --chart-grid: #333336;
+    --chart-axis: #a1a1a6;
     --bubble-user: #19315e;
     --bubble-agent: #2c2c2e;
     --bubble-tool: #2c2c2e;
     --accent: #7aa2f7;
     --accent-mcp: #4cc38a;
     --input-bg: #2c2c2e;
-    --danger: #f28b82;
-    --ok: #4ade80;
-    --warn: #fcd34d;
+  }
+}
+
+/* 動きを減らす設定（ui-ux-rules の reduced-motion）。JS のアニメーションは各 U で直す。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -162,10 +295,7 @@ html, body {
   background: transparent;
 }
 .day-row .dot.running { background: var(--accent); }
-.day-row .dot.question { background: #ff9500; }
-@media (prefers-color-scheme: dark) {
-  .day-row .dot.question { background: #ffd60a; }
-}
+.day-row .dot.question { background: var(--warn); }
 
 .day-row .day-body { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .day-row .day-date { font-size: 16px; font-weight: 600; }
@@ -198,10 +328,7 @@ html, body {
 .run-row.indent { padding-left: 20px; }
 
 /* 質問待ちの実行は行を強調する（放置すると作業が止まるため） */
-.run-row.question { background: #fff7e6; }
-@media (prefers-color-scheme: dark) {
-  .run-row.question { background: #3a2f10; }
-}
+.run-row.question { background: var(--warn-bg); }
 
 .run-row .rtime {
   font-size: 13px;
@@ -417,12 +544,9 @@ html, body {
   border-radius: 8px;
   padding: 6px 10px;
 }
-.event-card.ev-ok { border-left-color: #1e8e3e; }      /* 緑 */
-.event-card.ev-error { border-left-color: var(--danger); } /* 赤 */
-.event-card.ev-info { border-left-color: var(--text-soft); } /* 灰 */
-@media (prefers-color-scheme: dark) {
-  .event-card.ev-ok { border-left-color: #81c995; }
-}
+.event-card.ev-ok { border-left-color: var(--ok); }           /* 緑 */
+.event-card.ev-error { border-left-color: var(--danger); }    /* 赤 */
+.event-card.ev-info { border-left-color: var(--text-soft); }  /* 灰 */
 .event-card .fold-head { flex-wrap: wrap; }
 .event-card .fold-who { font-size: 14px; }
 .ev-summary {
@@ -491,7 +615,7 @@ html, body {
   border: none;
   border-radius: 12px;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
   padding: 12px;
   font-size: 16px;
   font-weight: 600;
@@ -500,14 +624,11 @@ html, body {
 
 /* 接続切れの帯（読みかけの会話は消さない．エラー画面に切り替えない） */
 .offline-bar {
-  background: #fff7e6;
-  color: #8a6d00;
+  background: var(--warn-bg);
+  color: var(--warn-on-bg);
   font-size: 13px;
   text-align: center;
   padding: 4px 8px;
-}
-@media (prefers-color-scheme: dark) {
-  .offline-bar { background: #3a2f10; color: #f2c94c; }
 }
 
 /* 送信待ちの印 */
@@ -522,7 +643,7 @@ html, body {
   border: none;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 15px;
   padding: 10px 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
@@ -584,22 +705,17 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
    Apple のヘルス / スクリーンタイムに寄せた，角丸カード＋大きな数字．
    グラフの4色はライト・ダークどちらでも見分けられる中間の明るさに絞る（04 §2）。 */
 
-/* グラフの色（04 §2：色数を絞る） */
+/* グラフの色（04 §2：色数を絞る）。系列の色は --series-* を借りる（対比は test_contrast.js が測る）。 */
 :root {
-  --st-in: #2f6fed;    /* 入力 */
-  --st-out: #2fa06a;   /* 出力 */
-  --st-cr: #e8a33d;    /* キャッシュ読み */
-  --st-cw: #9b6bdf;    /* キャッシュ書き */
-  --st-bar: #4e7df0;   /* 棒グラフ */
+  --st-in: var(--series-1);   /* 入力 */
+  --st-out: var(--series-2);  /* 出力 */
+  --st-cr: var(--series-3);   /* キャッシュ読み */
+  --st-cw: var(--series-4);   /* キャッシュ書き */
+  --st-bar: var(--series-5);  /* 棒グラフ */
   --st-card: #f5f6f8;  /* カードの地色（--bg-soft と同じ） */
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --st-in: #5b8def;
-    --st-out: #4cbf8b;
-    --st-cr: #f0b45c;
-    --st-cw: #b48af0;
-    --st-bar: #6f97f5;
     --st-card: #2c2c2e;
   }
 }
@@ -833,8 +949,8 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   background: transparent;
 }
 .proj-lamp.on {
-  background: #34c759;
-  border-color: #34c759;
+  background: var(--ok);
+  border-color: var(--ok);
 }
 
 /* --- プロジェクト一覧（#/projects・06 §4.1） --- */
@@ -931,7 +1047,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   border: none;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 15px;
   padding: 8px 18px;
 }
@@ -1106,7 +1222,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   border: none;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 14px;
   padding: 7px 15px;
   flex: none;
@@ -1420,7 +1536,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 .papers-db.active {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 /* Papers 上部のプロジェクト名（📁 名前 ▾・18 §1.1） */
 .appbar .papers-proj {
@@ -1657,7 +1773,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   border: none;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 22px;
   padding: 0 0 0 4px;
   display: flex;
@@ -1755,7 +1871,7 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
   border: none;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 15px;
 }
 
@@ -1892,8 +2008,8 @@ code {
 .lv-run-row { display: flex; align-items: baseline; gap: 8px; }
 .lv-run-label { font-size: 15px; font-weight: 600; }
 .lv-run-state { font-size: 12px; color: var(--text-soft); }
-.lv-lane-running { color: #34c759; }
-.lv-lane-review { color: #ff9f0a; }
+.lv-lane-running { color: var(--ok); }
+.lv-lane-review { color: var(--warn); }
 .lv-lane-done { color: var(--accent); }
 .lv-lane-todo { color: var(--text-soft); }
 
@@ -1912,7 +2028,7 @@ code {
 .lv-tab.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .lv-tab:disabled { opacity: 0.35; }
@@ -1924,7 +2040,7 @@ code {
   border: none;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 15px;
   padding: 8px 18px;
 }
@@ -1972,7 +2088,7 @@ code {
 .lv-tl { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12px; }
 .lv-tl:first-child { border-top: none; }
 .lv-tl-time { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
-.lv-tl-type { flex: none; color: #fff; border-radius: 6px; padding: 1px 6px; font-size: 10px; background: var(--text-soft); }
+.lv-tl-type { flex: none; color: var(--on-accent); border-radius: 6px; padding: 1px 6px; font-size: 10px; background: var(--text-soft); }
 .lv-tl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lv-tl-tokens { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 
@@ -2068,10 +2184,10 @@ code {
 .lv-run-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lv-run-item.active { color: var(--accent); background: var(--bubble-user); font-weight: 600; }
 .lv-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-soft); }
-.lv-dot.lv-running { background: #34c759; }
-.lv-dot.lv-review { background: #ff9f0a; }
-.lv-dot.lv-done { background: #0a84ff; }
-.lv-dot.lv-todo { background: #8e8e93; }
+.lv-dot.lv-running { background: var(--ok); }
+.lv-dot.lv-review { background: var(--warn); }
+.lv-dot.lv-done { background: var(--accent); }
+.lv-dot.lv-todo { background: var(--text-soft); }
 
 /* ================= task.md 作成フォーム（計画 15 §1.5） =================
    List 右上の ＋ で下から出る一枚。手順は 10 画面（番号の飛び方は TUI と同じ）。 */
@@ -2129,7 +2245,7 @@ code {
 .cf-choice.active { border-color: var(--accent); background: var(--bubble-user); color: var(--accent); font-weight: 600; }
 .cf-field-head { display: flex; align-items: center; gap: 8px; padding: 4px 0 2px; }
 .cf-field-label { font-size: 15px; font-weight: 600; }
-.cf-required { font-size: 11px; border-radius: 999px; background: var(--danger); color: #fff; padding: 2px 8px; }
+.cf-required { font-size: 11px; border-radius: 999px; background: var(--danger); color: var(--on-accent); padding: 2px 8px; }
 .cf-run-label { font-size: 12px; color: var(--text-soft); padding-top: 8px; }
 .cf-input-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
 .cf-input-label { flex: 0 0 110px; font-size: 13px; color: var(--text-soft); }
@@ -2177,7 +2293,7 @@ code {
   font-size: 15px;
   padding: 10px;
 }
-.cf-btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
+.cf-btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .cf-btn:disabled { opacity: 0.4; }
 
 /* --- Papers の Dashboard（数字カードと出来事の一覧） --- */
@@ -2209,17 +2325,17 @@ code {
   font-size: 11px;
   font-weight: 700;
   text-align: center;
-  color: #fff;
-  background: #8a8f98;
+  color: var(--on-accent);
+  background: var(--tag-other);
 }
-.ak-discover { background: #2563eb; }
-.ak-download { background: #2fa06a; }
-.ak-import { background: #0f9aa8; }
-.ak-translate { background: #e8a33d; }
-.ak-notes { background: #6b7280; }
-.ak-radio { background: #d93025; }
-.ak-radio-play { background: #c026d3; }
-.ak-radio-question { background: #9b6bdf; }
+.ak-discover { background: var(--series-1); }
+.ak-download { background: var(--series-2); }
+.ak-import { background: var(--tag-brst); }
+.ak-translate { background: var(--series-3); }
+.ak-notes { background: var(--series-6); }
+.ak-radio { background: var(--danger); }
+.ak-radio-play { background: var(--series-4); }
+.ak-radio-question { background: var(--edge-commit); }
 
 /* --- md のその場編集（論文のノート・List の task / review） --- */
 .md-edit {
@@ -2363,9 +2479,9 @@ code {
   cursor: pointer;
 }
 .sai-btn:hover { background: var(--bg-soft); }
-.sai-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sai-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .sai-btn.primary:hover { filter: brightness(1.08); }
-.sai-btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.sai-btn.danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
 .sai-btn.danger:hover { filter: brightness(1.08); }
 .sai-btn.ghost { background: transparent; border-color: transparent; color: var(--accent); }
 .sai-btn.ghost:hover { background: var(--bg-soft); }
@@ -2571,8 +2687,8 @@ code {
   font-size: 14px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
-.sai-toast.ok { background: var(--ok); color: #fff; }
-.sai-toast.error { background: var(--danger); color: #fff; }
+.sai-toast.ok { background: var(--ok); color: var(--on-accent); }
+.sai-toast.error { background: var(--danger); color: var(--on-accent); }
 
 /* --- 広い画面の土台（900px 以上） ---
    タブを下ではなく左の縦の帯にし、中身をその右に出す。

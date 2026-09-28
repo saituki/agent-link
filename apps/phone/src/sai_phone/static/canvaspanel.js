@@ -148,7 +148,7 @@ function cvpEdgeColorOf(kind) {
   for (const row of table) {
     if (row && row[0] === kind) return row[2];
   }
-  return "#8a8f98";
+  return "var(--cv-card-paper)";
 }
 
 /**
@@ -460,7 +460,7 @@ function cvpLegend() {
 /** 見出し（種類の印・題名・副題・論文画面へ / 盤面から隠す）。 */
 function cvpRightHead(node) {
   const head = cvpEl("div", "cvp-head");
-  const kind = typeof cvCardKind === "function" ? cvCardKind(node.kind) : { key: "", label: "", color: "#8a8f98" };
+  const kind = typeof cvCardKind === "function" ? cvCardKind(node.kind) : { key: "", label: "", color: "var(--cv-card-paper)" };
   const mark = cvpEl("span", "cvp-kind", kind.label);
   mark.style.color = kind.color;
   head.appendChild(mark);

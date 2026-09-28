@@ -200,18 +200,16 @@ function testRowsHandlesBrokenInput() {
 
 function testRelationColor() {
   // canvas.js の表 CV_EDGE_KINDS と同じ色
-  assert.strictEqual(cvpRelationColor("引用"), "#2563eb");
-  assert.strictEqual(cvpRelationColor("使った report"), "#1d7a45");
-  assert.strictEqual(cvpRelationColor("使った論文"), "#1d7a45");
-  assert.strictEqual(cvpRelationColor("note が言及"), "#d97706");
-  assert.strictEqual(cvpRelationColor("関係する report"), "#6b7280");
-  // 知らない文・null は線（既定の色）
-  assert.strictEqual(cvpRelationColor("知らない"), "#6b7280");
-  assert.strictEqual(cvpRelationColor(null), "#6b7280");
-  // 線の種類の表（U06 の CV_EDGE_KINDS）と 1 項目ずつ一致する
   const table = Object.fromEntries(globalThis.CV_EDGE_KINDS.map((r) => [r[0], r[2]]));
   assert.strictEqual(cvpRelationColor("引用"), table.citation);
   assert.strictEqual(cvpRelationColor("使った report"), table.uses);
+  assert.strictEqual(cvpRelationColor("使った論文"), table.uses);
+  assert.strictEqual(cvpRelationColor("note が言及"), table.mentions);
+  assert.strictEqual(cvpRelationColor("関係する report"), table.link);
+  // 知らない文・null は線（既定の色）
+  assert.strictEqual(cvpRelationColor("知らない"), table.link);
+  assert.strictEqual(cvpRelationColor(null), table.link);
+  // 線の種類の表（U06 の CV_EDGE_KINDS）と 1 項目ずつ一致する
   assert.strictEqual(cvpRelationColor("元にした report"), table.derived);
   assert.strictEqual(cvpRelationColor("note が言及"), table.mentions);
 }
