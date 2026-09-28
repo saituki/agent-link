@@ -586,8 +586,8 @@ pub fn backup_state_once(data_dir: &Path) -> Result<Option<PathBuf>> {
 
 /// 候補の行を親（項目）ごとにまとめる。親が無い候補は 2 つめの戻り値にする。
 ///
-/// `status.nodes` の並びは幅優先なので、候補が親の直後に並ばない。そのため
-/// 候補はここで親に寄せてから、項目の中の一行として出す。
+/// `status.nodes` は深さ優先（C-08）だが、候補は親から辿れる節点の中に入るため
+/// 親の直後に並ぶとは限らない。そこで親に寄せてから、項目の中の一行として出す。
 fn options_of(status: &Status) -> (HashMap<i64, Vec<&compute::NodeRow>>, Vec<&compute::NodeRow>) {
     let items: HashSet<i64> = status
         .nodes
@@ -926,6 +926,54 @@ mod tests {
         assert!(tree.contains("waggle:AAAA"), "{tree}");
         assert!(tree.contains("## 墓標"), "{tree}");
         assert!(tree.contains("論文「scalp only」（系列的が外れた）"), "{tree}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tree_md_nests_child_items_under_their_parent() {
+        // 深さ優先（C-08）にしても、子の項目は親の見出しの下に出る。
+        let database = Database::in_memory().expect("メモリ DB");
+        let conn = database.connection();
+        let root = temp_root("tree-nest");
+        let roots = roots_of(&root);
+        let defs = build_tree(conn, &root);
+
+        let parent = store::find_item_by_key(conn, "data")
+            .expect("探す")
+            .expect("ある")
+            .id;
+        let child = store::find_item_by_key(conn, "data.type")
+            .expect("探す")
+            .expect("ある")
+            .id;
+        // 親より後に並ぶ項目を 1 つ足す（この順番が崩れないことを確かめる）。
+        let later = store::find_item_by_key(conn, "purpose")
+            .expect("探す")
+            .expect("ある")
+            .id;
+        let choice = option(conn, child, "公開データセット");
+
+        let status = compute::status(conn, &roots, &defs).expect("status");
+        let tree = render_tree_md(conn, &roots, &defs, &status).expect("tree.md");
+
+        let at = |node: i64| {
+            tree.find(&format!("{} ", fmt_ref('N', node)))
+                .unwrap_or_else(|| panic!("{} の見出しが無い: {tree}", fmt_ref('N', node)))
+        };
+        let parent_at = at(parent);
+        let child_at = at(child);
+        let later_at = at(later);
+        // 親 → 子 → 親より後の項目の順。
+        assert!(parent_at < child_at, "{tree}");
+        assert!(child_at < later_at, "{tree}");
+        // 見出しの深さは 1 段だけ。
+        assert!(
+            tree.contains(&format!("### {} ", fmt_ref('N', child))),
+            "{tree}"
+        );
+        // 候補は親の項目の下の一行。
+        assert!(tree.contains(&format!("- 候補 {} ", fmt_ref('N', choice))), "{tree}");
 
         let _ = fs::remove_dir_all(&root);
     }

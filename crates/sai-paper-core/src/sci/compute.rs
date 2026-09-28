@@ -859,8 +859,9 @@ impl Tree {
 
         let mut ordered: Vec<i64> = Vec::new();
         let mut seen: HashSet<i64> = HashSet::new();
-        let mut queue: VecDeque<(i64, i64)> = top.iter().map(|node| (node.id, 0)).collect();
-        while let Some((id, depth)) = queue.pop_front() {
+        // 深さ優先（C-08）。スタックなので、子を逆順に積んで先頭から取り出す。
+        let mut stack: Vec<(i64, i64)> = top.iter().rev().map(|node| (node.id, 0)).collect();
+        while let Some((id, depth)) = stack.pop() {
             // 2 回目に出会った節点は飛ばす。
             if !seen.insert(id) {
                 continue;
@@ -868,11 +869,16 @@ impl Tree {
             self.depth.insert(id, depth);
             ordered.push(id);
             // 子は `ord`・id の順で並ぶ（`children` はその順に並んでいる）。
-            for child in self.children.get(&id).into_iter().flatten() {
-                if !seen.contains(child) {
-                    queue.push_back((*child, depth + 1));
-                }
-            }
+            let mut pushed: Vec<(i64, i64)> = self
+                .children
+                .get(&id)
+                .into_iter()
+                .flatten()
+                .rev()
+                .map(|child| (*child, depth + 1))
+                .collect();
+            pushed.retain(|(child, _)| !seen.contains(child));
+            stack.append(&mut pushed);
         }
         // 親から辿れなかった節点は後ろに足す（線の向きがおかしくても落とさない）。
         for node in &self.nodes {
@@ -3291,6 +3297,43 @@ given: background
                 empty_reviews: 0
             }
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn status_nodes_are_ordered_depth_first() {
+        // C-08: 一番上の項目は型の「項目の順序」の順、その下は深さ優先（`ord`・id の順）。
+        let database = Database::in_memory().expect("メモリ DB");
+        let conn = database.connection();
+        let root = temp_root("depth-first");
+        let roots = roots_of(&root);
+        build_tree(conn);
+
+        // `data` と `purpose` にだけ子が居る木にする。
+        let result = status(conn, &roots, &defs()).expect("status");
+        let keys: Vec<&str> = result
+            .nodes
+            .iter()
+            .map(|row| row.key.as_deref().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                "background.goal",
+                "target",
+                "data",
+                "data.type",
+                "purpose",
+                "purpose.subgoal",
+                "existing",
+                "issue.limit",
+            ],
+            "深さ優先になっていない"
+        );
+        // 深さも 1 段ごとに 1 増える。
+        let depths: Vec<i64> = result.nodes.iter().map(|row| row.depth).collect();
+        assert_eq!(depths, vec![0, 0, 0, 1, 0, 1, 0, 0]);
 
         let _ = fs::remove_dir_all(&root);
     }

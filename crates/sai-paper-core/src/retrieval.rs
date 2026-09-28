@@ -206,13 +206,16 @@ fn index_where(index: Option<&str>) -> String {
 ///
 /// `papers` は図を含めない（図は `figures` または `all` のときだけ出す）。
 /// 木の中身（`tree`）は `tree` を指定したときだけ出す（`all` には入らない）。
+/// 木を外すのは `all` と無指定のときだけ。知らない値は条件を足さない
+/// （入力を打ち間違えて黙って結果が変わらないように）。
 fn scope_where_clause(scope: Option<&str>) -> &'static str {
     match scope {
         Some("papers") => "AND c.source_kind IN ('abstract', 'body')",
         Some("notes") => "AND c.source_kind = 'note'",
         Some("figures") => "AND c.source_kind = 'figure'",
         Some("tree") => "AND c.source_kind = 'tree'",
-        _ => "AND c.source_kind != 'tree'",
+        Some("all") | None => "AND c.source_kind != 'tree'",
+        _ => "",
     }
 }
 
@@ -2478,6 +2481,25 @@ async fn all_scope_excludes_tree_chunks() {
     assert_eq!(kinds(None).await, vec!["body".to_string()]);
     assert_eq!(kinds(Some("all")).await, vec!["body".to_string()]);
     assert_eq!(kinds(Some("tree")).await, vec!["tree".to_string()]);
-    }
+    // 知らない scope は条件を足さない（打ち間違えても黙って結果が変わらないように）。
+    assert_eq!(kinds(Some("hoge")).await, vec!["body", "tree"]);
+}
+
+/// 木を除くのは `all` と無指定のときだけ。
+#[test]
+fn scope_where_clause_excludes_tree_only_for_all_and_none() {
+    assert_eq!(scope_where_clause(None), "AND c.source_kind != 'tree'");
+    assert_eq!(scope_where_clause(Some("all")), "AND c.source_kind != 'tree'");
+    assert_eq!(scope_where_clause(Some("tree")), "AND c.source_kind = 'tree'");
+    assert_eq!(
+        scope_where_clause(Some("papers")),
+        "AND c.source_kind IN ('abstract', 'body')"
+    );
+    assert_eq!(scope_where_clause(Some("notes")), "AND c.source_kind = 'note'");
+    assert_eq!(scope_where_clause(Some("figures")), "AND c.source_kind = 'figure'");
+    // 知らない値には条件を足さない。
+    assert_eq!(scope_where_clause(Some("hoge")), "");
+    assert_eq!(scope_where_clause(Some("")), "");
+}
 }
 

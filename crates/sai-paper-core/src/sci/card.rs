@@ -499,12 +499,15 @@ pub fn create_card(
     let actor = spec
         .origin_run
         .map_or_else(|| "user".to_string(), |id| format!("run:{id}"));
-    upsert_run_link(conn, node.id, handoff.run_id, &purpose, &actor)?;
+    // 結び付けの 2 つは 1 つのトランザクションにまとめる（片方だけ入るのを防ぐ）。
+    // 実行フォルダと `task.md` の書き込みは入らないので、完全に 1 つにはならない。
+    let tx = conn.unchecked_transaction()?;
+    upsert_run_link(&tx, node.id, handoff.run_id, &purpose, &actor)?;
     if is_read {
         let paper_id = spec.papers[0];
-        if find_paper_link(conn, node.id, paper_id, &role)?.is_none() {
+        if find_paper_link(&tx, node.id, paper_id, &role)?.is_none() {
             store::upsert_link(
-                conn,
+                &tx,
                 &NewLink {
                     node_id: node.id,
                     target_kind: "paper",
@@ -519,6 +522,7 @@ pub fn create_card(
             )?;
         }
     }
+    tx.commit()?;
 
     Ok(CardResult {
         run_id: handoff.run_id,
@@ -732,7 +736,7 @@ pub fn finish_read(
         )));
     }
 
-    // 論文の結び付きを「反映済み」にする。
+    // 論文の結び付きを「反映済み」にする。理由の記録と同じトランザクションにまとめる。
     let link_id = find_paper_link(conn, node_id, paper_id, &task.keys.role)?.ok_or_else(|| {
         SciError::NotFound(format!(
             "節点 {} と論文 {} の結び付きがありません",
@@ -740,18 +744,20 @@ pub fn finish_read(
             paper_id
         ))
     })?;
-    store::set_read_state(conn, link_id, "reflected")?;
+    let tx = conn.unchecked_transaction()?;
+    store::set_read_state(&tx, link_id, "reflected")?;
 
     // 理由は節点と run の結び付きに残す。
     if !reason.is_empty() {
         upsert_run_link(
-            conn,
+            &tx,
             node_id,
             run_id,
             &format!("反映なし: {reason}"),
             "user",
         )?;
     }
+    tx.commit()?;
 
     Ok(FinishRead {
         run_id,

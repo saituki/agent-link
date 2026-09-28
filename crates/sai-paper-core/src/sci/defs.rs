@@ -553,7 +553,7 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str) -> Result<InitRe
 /// 研究の型だけを変える。今の木は壊さない。
 ///
 /// 新しい型の `## 項目の順序` にあって木に無い項目だけを一番上に足し（子の項目も一緒に作る）、
-/// 依存の線と `sci_meta` の `type` を入れ直す。既に 있는項目・線・状態は変えない。
+/// 依存の線と `sci_meta` の `type` を入れ直す。既に在る項目・線・状態は変えない。
 pub fn change_type(conn: &Connection, defs: &Defs, type_id: &str) -> Result<InitReport> {
     let Some(type_def) = defs.type_def(type_id) else {
         return Err(SciError::Invalid(format!(
