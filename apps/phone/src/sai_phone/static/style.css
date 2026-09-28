@@ -1,6 +1,6 @@
 /* sai-phone の見た目．Gemini アプリ風の白基調．色は CSS 変数（design token）で定義し，
    iPhone のダークモード設定（prefers-color-scheme）に追従する．
-   JS 側（workflow.js・canvas.js など）も hex を直書きせず var(--token) を参照する．
+   JS 側（workflow.js・scigraph.js など）も hex を直書きせず var(--token) を参照する．
    コントラストは apps/phone/tests/test_contrast.js が WCAG の相対輝度で検査する．
      ・文字の役（--text・--text-soft・--accent・--ok・--warn・--danger）は --bg と --bg-soft の上で 4.5:1
      ・線・枠・図形の役は 3:1
@@ -20,7 +20,7 @@
        --line-strong  … 意味を持つ枠（選択中の札、フォーカスした欄、状態の境目）。3:1 以上。 */
   --line: #e5e7eb;
   --line-strong: #7d838c;
-  /* 選択中の枠（Workflow・Canvas の札） */
+  /* 選択中の枠（Workflow・研究方針の図の札） */
   --sel: #a16207;
   /* フォーカスしたときの輪 */
   --focus: #1d4ed8;
@@ -37,7 +37,7 @@
   --warn-bg: #fff7e6;
   --warn-on-bg: #8a6d00;
 
-  /* --- 囲みの地色（Canvas の本文ブロック） --- */
+  /* --- 囲みの地色（付箋の本文ブロック） --- */
   --note-bg: #fff6c9;
   --note-on-bg: #4a4326;
   --note-line: #a8871f;
@@ -57,22 +57,6 @@
   --edge-commit: #7e22ce;
   --edge-phase: #0f766e;
   --edge-other: #656b73;
-
-  /* --- 論文の Canvas --- */
-  --cv-edge-citation: #1d4ed8;
-  --cv-edge-uses: #15803d;
-  --cv-edge-derived: #7e22ce;
-  --cv-edge-mentions: #a16207;
-  --cv-edge-link: #656b73;
-  --cv-card-note: #1d4ed8;
-  --cv-card-report: #15803d;
-  --cv-card-paper: #656b73;
-  --cv-group-1: #c81e1e;
-  --cv-group-2: #a16207;
-  --cv-group-3: #15803d;
-  --cv-group-4: #0e7490;
-  --cv-group-5: #6d28d9;
-  --cv-group-6: #5f6670;
 
   /* --- グラフ（系列は赤と緑だけの組にしない） --- */
   --series-1: #1d4ed8;
@@ -155,20 +139,6 @@
     --edge-commit: #c084fc;
     --edge-phase: #5eead4;
     --edge-other: #a1a1a6;
-    --cv-edge-citation: #60a5fa;
-    --cv-edge-uses: #4ade80;
-    --cv-edge-derived: #a78bfa;
-    --cv-edge-mentions: #fbbf24;
-    --cv-edge-link: #9ca3af;
-    --cv-card-note: #60a5fa;
-    --cv-card-report: #4ade80;
-    --cv-card-paper: #9ca3af;
-    --cv-group-1: #f87171;
-    --cv-group-2: #fbbf24;
-    --cv-group-3: #34d399;
-    --cv-group-4: #38bdf8;
-    --cv-group-5: #a78bfa;
-    --cv-group-6: #9ca3af;
     --series-1: #6ea8fe;
     --series-2: #e3b341;
     --series-3: #c084fc;

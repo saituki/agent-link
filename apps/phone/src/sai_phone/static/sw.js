@@ -28,7 +28,7 @@
 // 調べもの用の記録（通知の飛び先）を消して v23 に
 // Usage タブ（usage.js 追加と index.html / style.css / app.js の更新）で v24，見た目の手直しで v25 に
 // ■ 終了（U02）・List の session と 📊 の行き先（U11）・MCP の道具の色（U12）で v26 に（index.html の ?v= も 26）
-// 質問の読み上げ（U01・voiceask.js）と Canvas（U05〜U07・canvaslayout.js / canvas.js / canvas.css）で v27 に（index.html の ?v= も 27）
+// 質問の読み上げ（U01・voiceask.js）と図の配置の純関数（U05・canvaslayout.js）で v27 に（index.html の ?v= も 27）
 // U4（画面の土台・md の色・ホーム画面）：ui.js と markdown.css / home.js / home.css を追加し、
 // U5・U6 用の空のファイル（workflow.js / defs.js / paperimport.js とそれぞれの CSS）も先に登録して v28 に
 // （index.html の ?v= も 28）
@@ -37,8 +37,8 @@
 // U19 の研究方針の木（scitree.js とその CSS。U20・U21 用の空のファイル sciedit.js / sciread.js /
 // scigraph.js と sciedit.css / scigraph.css も先に登録）で v32 に
 // （index.html の ?v= も 32。ASSETS にも 7 つを足した）
-const CACHE = "sai-phone-v32";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/canvas.js", "/canvaspanel.js", "/canvas.css", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/manifest.json"];
+const CACHE = "sai-phone-v33";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）
 const RADIO_CACHE = "sai-phone-radio-audio";

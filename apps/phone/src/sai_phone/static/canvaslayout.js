@@ -1,14 +1,16 @@
 "use strict";
-// Canvas の自動整列（層に分けて並べる純関数）— 計画 U05。
-// 札を線の向きに沿って左から右へ層に分け、枠（group）の中の札は枠ごとにまとめる。
-// 画面には触らない純関数。読み込みは index.html ではなく U06 が行う。
+// 図の配置・全体表示・拡大の純関数（研究方針の図と Workflow が使う）。
+// 読み込みは index.html で行う（workflow.js と scigraph.js より先に読む）。
 //
-// 共有契約 C-E:
+// 共有契約 C-E（cvlLayoutBoard）:
 //   cvlLayoutBoard(nodes, edges) → [{id, x, y, width, height}, …]
 //     nodes: {id, type: "card"|"group"|"text", x, y, width, height, group: string|null}
 //     edges: {from, to}
 //   ・同じ入力にはいつも同じ結果。入力を書き換えない。
 //   ・札の width / height は変えない。枠の width / height は中身に合わせて変える。
+//
+// cvFitView と cvZoomAt は、見える範囲（画面上の点 = 図の点 * z + (tx, ty)）を
+// 全体表示と拡大のための純関数。どちらの画面も同じ 2 つを呼んで同じ動きにする。
 
 // --- 定数（計画 U05「定数」） ---
 const CVL_GAP_X = 160; // 層と層の間の横の間隔
@@ -21,6 +23,9 @@ const CVL_GRID_COLS = 4; // 線の無い札を並べる列の数
 const CVL_SWEEPS = 2; // 重心を動かす往復回数
 const CVL_MIN_GROUP_W = 400; // 中身が無い枠の最小の幅
 const CVL_MIN_GROUP_H = 200; // 中身が無い枠の最小の高さ
+const CVL_ZOOM_MIN = 0.1; // 拡大率の下限（これより外へは出さない）
+const CVL_ZOOM_MAX = 2.5; // 拡大率の上限（これより外へは出さない）
+const CVL_FIT_PAD = 40; // 「全体が入る」ときの余白（画面上の px）
 
 // --- 小さな道具 ---
 
@@ -34,7 +39,7 @@ function cvlCmpId(a, b) {
   return 0;
 }
 
-// 「layout.x を集团有限公司に入れる」ための一次元の連想配列（Map でなく plain を使う）
+// 「layout.x を id で引けるようにする」ための一次元の連想配列（Map でなく plain を使う）
 function cvlIndexed(list) {
   const map = new Map();
   for (const item of list) map.set(item.id, item);
@@ -383,7 +388,66 @@ function cvlLayoutBoard(nodes, edges) {
   });
 }
 
+// ============================================================================
+// 見える範囲（全体表示と拡大）
+// ============================================================================
+
+/**
+ * 全部の矩形が入る見える範囲を返す。z は 1 を超えない。
+ * 矩形が無いときは {tx: 0, ty: 0, z: 1}。
+ * @param nodes 配列。各要素 {x, y, width, height}
+ * @param width 画面の幅（画面上の px）
+ * @param height 画面の高さ（画面上の px）
+ * @returns {tx, ty, z}（画面上の点 = 図の点 * z + (tx, ty)）
+ */
+function cvFitView(nodes, width, height) {
+  const list = (Array.isArray(nodes) ? nodes : [])
+    .filter((n) => n && Number.isFinite(Number(n.x)) && Number.isFinite(Number(n.y)));
+  if (list.length === 0) return { tx: 0, ty: 0, z: 1 };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of list) {
+    const x = Number(n.x), y = Number(n.y);
+    const w = Number(n.width) || 0, h = Number(n.height) || 0;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x + w > maxX) maxX = x + w;
+    if (y + h > maxY) maxY = y + h;
+  }
+  const bw = Math.max(1, maxX - minX);
+  const bh = Math.max(1, maxY - minY);
+  const availW = Math.max(40, Number(width) - CVL_FIT_PAD * 2);
+  const availH = Math.max(40, Number(height) - CVL_FIT_PAD * 2);
+  let z = Math.min(1, availW / bw, availH / bh);
+  z = Math.max(CVL_ZOOM_MIN, Math.min(CVL_ZOOM_MAX, z));
+  return {
+    tx: (Number(width) - bw * z) / 2 - minX * z,
+    ty: (Number(height) - bh * z) / 2 - minY * z,
+    z,
+  };
+}
+
+/**
+ * (px, py) の下の図の点が動かないように拡大率を変える。
+ * 新しい見える範囲を返す。z は CVL_ZOOM_MIN〜CVL_ZOOM_MAX に収まる。
+ * @param view 今の見える範囲 {tx, ty, z}
+ * @param px, py 画面の点（画面上の px）
+ * @param factor 拡大する率（1.2 なら 1.2 倍）
+ */
+function cvZoomAt(view, px, py, factor) {
+  const v = view || {};
+  const z0 = Math.max(CVL_ZOOM_MIN, Math.min(CVL_ZOOM_MAX, Number(v.z) || 1));
+  const tx0 = Number(v.tx) || 0;
+  const ty0 = Number(v.ty) || 0;
+  const x = Number(px) || 0;
+  const y = Number(py) || 0;
+  let z = z0 * (Number(factor) || 1);
+  z = Math.max(CVL_ZOOM_MIN, Math.min(CVL_ZOOM_MAX, z));
+  const wx = (x - tx0) / z0;
+  const wy = (y - ty0) / z0;
+  return { tx: x - wx * z, ty: y - wy * z, z };
+}
+
 // --- node からの読み込み（tests/test_canvaslayout.js） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { cvlLayoutBoard };
+  module.exports = { cvlLayoutBoard, cvFitView, cvZoomAt };
 }

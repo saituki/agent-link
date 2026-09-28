@@ -2,7 +2,7 @@
 // sai-phone の Workflow 盤面（実装計画 U5・住所 #/project/<name>/workflow）。
 //
 // sai-link-tui の Workflow（実行の DAG）と Kanban（todo / running / review / done の
-// 4 レーン）を、論文の Canvas と同じ操作で見て、その場で操作できるようにしたもの。
+// 4 レーン）を、図の盤面と同じ操作で見て、その場で操作できるようにしたもの。
 //   - 見える範囲（tx, ty, z）だけを動かし、札は sai-link が決めた場所に固定する
 //   - 盤面は overflow: hidden。札も線も帯や見出しにはみ出さない
 //   - 札のドラッグでずらした量だけこの端末（localStorage）に覚える
@@ -10,8 +10,8 @@
 //   - 線は全部出し、選んだ札につながる線だけを濃くする
 //   - 1 本指 / マウスで移動、2 本指・ctrl + ホイールで拡大、ホイールで縦横移動
 //
-// 依存は足さない。札は HTML の div、線は同じ中の SVG（canvas.js と同じ作り）。
-// canvas.js の純関数（cvFitView / cvZoomAt）を全体表示と拡大に使わせてもらう。
+// 依存は足さない。札は HTML の div、線は同じ中の SVG。
+// canvaslayout.js の純関数（cvFitView / cvZoomAt）を全体表示と拡大に使わせてもらう。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_workflow.js）。
 // 一番外側の名前は wf / WF_ で始める（C-F6）。
 
@@ -149,8 +149,8 @@ function wfBoardRects(nodes, offsets) {
 }
 
 /**
- * 全部の矩形が入る見える範囲を返す（canvas.js の cvFitView にそのまま渡す形）。
- * node のテストでは canvas.js を読み込んで cvFitView をグローバルに入れてある
+ * 全部の矩形が入る見える範囲を返す（canvaslayout.js の cvFitView にそのまま渡す形）。
+ * node のテストでは canvaslayout.js を読み込んで cvFitView をグローバルに入れてある
  * （tests/test_workflow.js）。入れ忘れても盤面が止まらないよう{z:1} を返す。
  */
 function wfFitView(rects, width, height) {
@@ -183,7 +183,7 @@ function wfBoardRight(rects) {
   return right;
 }
 
-/** (px, py) の下のワールドの点が動かないように拡大率を変える（canvas.js の cvZoomAt）。 */
+/** (px, py) の下のワールドの点が動かないように拡大率を変える（canvaslayout.js の cvZoomAt）。 */
 function wfZoomAt(view, px, py, factor) {
   if (typeof cvZoomAt !== "function") return { tx: 0, ty: 0, z: 1 };
   return cvZoomAt(view, px, py, factor);
@@ -707,7 +707,7 @@ function wfRenderTools() {
   }, "上の 4 段の札の帯を出したり消したりします");
   kb.classList.toggle("active", !!wfKanban);
   tools.appendChild(kb);
-  // 線の種類（Canvas と同じ見た目。色つきで出す）
+  // 線の種類（研究方針の図と同じ見た目。色つきで出す）
   const kinds = wfEl("span", "wf-kinds");
   for (const [key, label, color, dashed] of WF_EDGE_KINDS) {
     const b = wfEl("button", "wf-kind");

@@ -1059,67 +1059,6 @@ def api_sci_read_finish(
     return sci.read_finish(papers.resolve_project(name), run_id, payload)
 
 
-# --- Canvas（U04 §C-D） ---
-# sai-paper-tui の Canvas の画面（U06 / U07）が使う住所。sai-paper の
-# `phone canvas …`（U03）を中継し，外から来る値は必ず papers 側で検査する。
-# 住所から root は 1 度だけ引く（papers.resolve_project・17 §3.2）。
-# `{paper_id:int}` の前に登録しても邪魔はしない（`canvas` は int に変換されないため・U04 §前提）。
-
-
-@app.get("/api/projects/{name}/papers/canvas")
-def api_canvas_list(name: str, _: None = Depends(require_token)) -> dict:
-    """Canvas 一覧（sai-paper `phone canvas list`）。"""
-    return papers.canvas_list(papers.resolve_project(name))
-
-
-@app.post("/api/projects/{name}/papers/canvas")
-def api_canvas_new(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """Canvas を新しく作る（body は `{"name": "…"}`・U04 §C-D）。"""
-    return papers.canvas_new(papers.resolve_project(name), payload.get("name"))
-
-
-@app.get("/api/projects/{name}/papers/canvas/{canvas}")
-def api_canvas_show(name: str, canvas: str, _: None = Depends(require_token)) -> dict:
-    """Canvas の中身（ノードの一覧と配置・U04 §C-D）。"""
-    return papers.canvas_show(papers.resolve_project(name), canvas)
-
-
-@app.put("/api/projects/{name}/papers/canvas/{canvas}/layout")
-def api_canvas_layout(
-    name: str, canvas: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """位置を保存する（body は `{"nodes": [{"id","x","y","width"?,"height"?}]}`・U04 §C-D）。"""
-    return papers.canvas_layout(papers.resolve_project(name), canvas, payload)
-
-
-@app.post("/api/projects/{name}/papers/canvas/{canvas}/toggle")
-def api_canvas_toggle(
-    name: str, canvas: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """札を出す・隠す（body は `{"node_id": "…", "near": "…" または null}`・U04 §C-D）。"""
-    return papers.canvas_toggle(
-        papers.resolve_project(name), canvas, payload.get("node_id"), payload.get("near")
-    )
-
-
-@app.get("/api/projects/{name}/papers/canvas/{canvas}/nodes/{node_id}/missing")
-def api_canvas_missing(
-    name: str, canvas: str, node_id: str, _: None = Depends(require_token)
-) -> dict:
-    """Canvas に無いつながりの一覧（U04 §C-D）。"""
-    return papers.canvas_missing(papers.resolve_project(name), canvas, node_id)
-
-
-@app.get("/api/projects/{name}/papers/canvas/{canvas}/nodes/{node_id}/body")
-def api_canvas_body(
-    name: str, canvas: str, node_id: str, _: None = Depends(require_token)
-) -> dict:
-    """ノードの本文（Markdown・U04 §C-D）。"""
-    return papers.canvas_body(papers.resolve_project(name), canvas, node_id)
-
-
 # --- Radio 中継（計画 09 §3） ---
 # sai-radio（127.0.0.1:8000）への GET / POST の中継。合言葉（require_token）で守る。
 # 中継の待ち時間でサーバー全体を止めないようスレッドプールで呼ぶ（09 §3.3）。

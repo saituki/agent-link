@@ -38,16 +38,6 @@ function DIMMED(names, alpha) {
   for (const n of names) for (const bg of BGS) PAIRS.push([n, bg, 3, alpha]);
 }
 
-/**
- * 枠の薄い塗り（color-mix で地色に tints の色を alpha だけ混ぜた色）の上に文字を置くとき。
- * fg は文字、tints は枠の色、alpha は塗りの濃さ、min は下限。
- */
-function TINTED(fg, tints, alpha, min) {
-  for (const t of tints) for (const base of BGS) {
-    PAIRS.push([fg, { tint: t, alpha, over: base }, min, 1]);
-  }
-}
-
 // 文字
 TEXT(["--text", "--text-soft", "--accent", "--accent-mcp", "--ok", "--warn", "--danger", "--run"]);
 // 線と枠
@@ -58,12 +48,6 @@ GRAPHICAL(["--tag-brst", "--tag-plan", "--tag-code", "--tag-comp", "--tag-rfrs",
 GRAPHICAL([
   "--edge-delegation", "--edge-task-output", "--edge-waggle",
   "--edge-commit", "--edge-phase", "--edge-other",
-]);
-// Canvas の線 5 色・札 3 色・枠 6 色
-GRAPHICAL([
-  "--cv-edge-citation", "--cv-edge-uses", "--cv-edge-derived", "--cv-edge-mentions", "--cv-edge-link",
-  "--cv-card-note", "--cv-card-report", "--cv-card-paper",
-  "--cv-group-1", "--cv-group-2", "--cv-group-3", "--cv-group-4", "--cv-group-5", "--cv-group-6",
 ]);
 // グラフの系列
 GRAPHICAL(["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"]);
@@ -93,7 +77,7 @@ DIMMED(["--sci-rejected", "--sci-dormant"], 0.7);
 // 地色をまたいだ組。[[手前, 後ろ, 下限, 濃さ], …] を足す。
 PAIRS.push(
   ["--warn-on-bg", "--warn-bg", 4.5, 1],   // 質問待ちの行・接続切れの帯
-  ["--note-on-bg", "--note-bg", 4.5, 1],   // Canvas の本文ブロック
+  ["--note-on-bg", "--note-bg", 4.5, 1],   // 付箋の本文ブロック
   ["--note-line", "--note-bg", 3, 1],      // その枠
   ["--chart-axis", "--bg", 4.5, 1],        // 目盛りの文字
   ["--chart-axis", "--bg-soft", 4.5, 1],
@@ -127,46 +111,6 @@ PAIRS.push(
   ["--line-strong", "--bg", 3, 1],
   ["--sel", "--bg", 3, 1]
 );
-
-// --- Canvas 盤面（U03）---
-//
-// 上の TEXT / GRAPHICAL / DIMMED は --bg・--bg-soft・--st-card の 3 つの地色と自動で組を作る。
-// ここには Canvas 固有の「どの地色の上に何が乗る」を明示的に書いておく。
-// 盤面（canvas.css の .cv-stage）は --bg-soft、札（.cv-card）は --bg、枠は盤面の上。
-const CV_EDGES = [
-  "--cv-edge-citation", "--cv-edge-uses", "--cv-edge-derived", "--cv-edge-mentions", "--cv-edge-link",
-];
-const CV_GROUPS = [
-  "--cv-group-1", "--cv-group-2", "--cv-group-3", "--cv-group-4", "--cv-group-5", "--cv-group-6",
-];
-const CV_CARDS = ["--cv-card-note", "--cv-card-report", "--cv-card-paper"];
-PAIRS.push(
-  // 札の地色（--bg）の上の文字。題は --text、補助の文字は --text-soft
-  ["--text", "--bg", 4.5, 1],
-  ["--text-soft", "--bg", 4.5, 1],
-  // 薄くした札（.cv-dim）の地色は盤面と同じ（--bg-soft）になる。その上の文字
-  ["--text", "--bg-soft", 4.5, 1],
-  ["--text-soft", "--bg-soft", 4.5, 1],
-  // 札の枠（--line-strong）と、選んだ札・選んだ枠（--sel）
-  ["--line-strong", "--bg-soft", 3, 1],
-  ["--line-strong", "--bg", 3, 1],
-  ["--sel", "--bg", 3, 1],
-  ["--sel", "--bg-soft", 3, 1]
-);
-// 線。盤面（--bg-soft）の上で、選ばれてない線を CV_EDGE_DIM（canvas.js）まで薄くしても 3:1
-for (const e of CV_EDGES) {
-  PAIRS.push([e, "--bg-soft", 3, 1]);
-  PAIRS.push([e, "--bg-soft", 3, 0.8]);
-}
-// 枠の見出しは枠の外（盤面の上）にあるので、文字として 4.5 を求める
-for (const g of CV_GROUPS) PAIRS.push([g, "--bg-soft", 4.5, 1]);
-// 札の左の帯は図形（3:1）だが、種類の文字（.cv-kind）も同じ色を使うので 4.5 も見る
-for (const c of CV_CARDS) {
-  PAIRS.push([c, "--bg", 3, 1]);
-  PAIRS.push([c, "--bg", 4.5, 1]);
-}
-// 枠の塗り（cvAlpha が color-mix で書く薄い色）の上に置く文字。--text なら 4.5 を保つ
-TINTED("--text", CV_GROUPS, 0.12, 4.5);
 
 // --- グラフ（U04）---
 //
@@ -205,9 +149,8 @@ const REQUIRED = [
   "--edge-phase", "--edge-other",
   // 状態
   "--ok", "--warn", "--danger", "--accent",
-  // 論文の Canvas が必ず使うもの（付箋・線 5 色・札 3 色・枠 6 色）
+  // 付箋（本文ブロック・枠）
   "--note-bg", "--note-on-bg", "--note-line",
-  ...CV_EDGES, ...CV_CARDS, ...CV_GROUPS,
   // グラフ（U04）
   "--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6",
   "--chart-axis", "--chart-grid", "--st-card",
@@ -355,7 +298,9 @@ function hueGap(a, b) {
   return d > 180 ? 360 - d : d;
 }
 
-/** 2 つの hex を a ずつ混ぜて 1 色にする（薄くした線と地色の実効色）。 */
+/**
+ * 2 つの hex を a ずつ混ぜて 1 色にする（薄くした線と地色の実効色）。
+ */
 function blend(fg, bg, alpha) {
   const a = Math.max(0, Math.min(1, Number(alpha)));
   if (a >= 1) return fg;
@@ -369,18 +314,6 @@ function blend(fg, bg, alpha) {
     out += Math.round(fv * a + bv * (1 - a)).toString(16).padStart(2, "0");
   }
   return out;
-}
-
-/**
- * 枠の塗り（color-mix で tint を alpha だけ地色に混ぜた色）を、実際に的地色に混ぜた色にする。
- * CSS の color-mix(in srgb, tint …%, transparent) は手前の色を地色に透かすので、
- * ここでは地色に tint を混ぜるのと同じ計算になる。
- */
-function mixed(spec, vars) {
-  const tint = resolve(spec.tint, vars);
-  const over = resolve(spec.over, vars);
-  if (!isHex(tint) || !isHex(over)) return null;
-  return blend(tint, over, spec.alpha);
 }
 
 // --- 検査 ---
@@ -397,24 +330,20 @@ function main() {
   for (const [theme, vars] of [["明るい画面", light], ["暗い画面", dark]]) {
     for (const [fg, bg, min, alpha] of PAIRS) {
       const f = resolve(fg, vars);
-      // 後ろの色は token 名（--bg など）か、枠の塗りを計算した色（{tint, alpha, over}）
-      const isMix = bg !== null && typeof bg === "object";
-      const b = isMix ? mixed(bg, vars) : resolve(bg, vars);
-      // 失敗の文で使う色名（枠の塗りのときは混ぜる色を書き出す）
-      const bgName = isMix ? `${bg.tint} ${Math.round(bg.alpha * 100)}% の塗り` : bg;
+      const b = resolve(bg, vars);
       if (!isHex(f)) {
         bad.push(`${theme}: ${fg} が不透明な 6 桁の hex でない（${f == null ? "なし" : f}）`);
         continue;
       }
       if (!isHex(b)) {
-        bad.push(`${theme}: ${bgName} が不透明な 6 桁の hex でない（${b == null ? "なし" : b}）`);
+        bad.push(`${theme}: ${bg} が不透明な 6 桁の hex でない（${b == null ? "なし" : b}）`);
         continue;
       }
       // 薄くする指定があるときは地色に混ぜてから比べる
       const shown = alpha == null || alpha >= 1 ? f : blend(f, b, alpha);
       const r = ratio(shown, b);
       if (r + 1e-9 < min) {
-        bad.push(`${theme}: ${fg}(${shown}) / ${bgName}(${b}) = ${r.toFixed(2)} が下限 ${min} 未満`);
+        bad.push(`${theme}: ${fg}(${shown}) / ${bg}(${b}) = ${r.toFixed(2)} が下限 ${min} 未満`);
       }
       checked += 1;
     }
@@ -435,7 +364,7 @@ function main() {
     }
   }
 
-  // Workflow・Canvas 盤面が使う token が両方の画面にあること
+  // Workflow 盤面などが必要とする token が両方の画面にあること
   for (const [theme, vars] of [["明るい画面", light], ["暗い画面", dark]]) {
     for (const name of REQUIRED) {
       if (!isHex(resolve(name, vars))) {

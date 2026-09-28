@@ -10,18 +10,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#ffffff" />
   <!-- 画面ファイルの ?v= は sw.js の CACHE の版と揃えて上げる（iPhone に古いファイルを使わせないため） -->
-  <link rel="stylesheet" href="/style.css?v=32" />
+  <link rel="stylesheet" href="/style.css?v=33" />
   <!-- md の色・ホーム・Workflow・設定・Papers の見た目（U4〜U6）。style.css の後に読む -->
-  <link rel="stylesheet" href="/markdown.css?v=32" />
-  <link rel="stylesheet" href="/home.css?v=32" />
-  <link rel="stylesheet" href="/workflow.css?v=32" />
-  <link rel="stylesheet" href="/defs.css?v=32" />
-  <link rel="stylesheet" href="/papers.css?v=32" />
-  <!-- Canvas（一覧と盤面）の見た目。style.css の後に読む（計画 U06） -->
-  <link rel="stylesheet" href="/canvas.css?v=32" />
-  <link rel="stylesheet" href="/scitree.css?v=32" />
-  <link rel="stylesheet" href="/sciedit.css?v=32" />
-  <link rel="stylesheet" href="/scigraph.css?v=32" />
+  <link rel="stylesheet" href="/markdown.css?v=33" />
+  <link rel="stylesheet" href="/home.css?v=33" />
+  <link rel="stylesheet" href="/workflow.css?v=33" />
+  <link rel="stylesheet" href="/defs.css?v=33" />
+  <link rel="stylesheet" href="/papers.css?v=33" />
+  <link rel="stylesheet" href="/scitree.css?v=33" />
+  <link rel="stylesheet" href="/sciedit.css?v=33" />
+  <link rel="stylesheet" href="/scigraph.css?v=33" />
 </head>
 <body>
   <!-- 日付一覧画面（#/） -->
@@ -232,65 +230,6 @@
     </header>
     <div class="offline-bar" hidden>接続できていません</div>
     <main class="sci-read-body" id="sr-body"></main>
-  </section>
-
-  <!-- Papers タブの Canvas 一覧（#/papers/canvas・計画 U06） -->
-  <section id="view-canvas-list" class="view" hidden>
-    <header class="appbar">
-      <h1>Papers</h1>
-      <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
-      <button id="canvas-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
-      <!-- ＋ で新しい Canvas を作る -->
-      <button id="canvas-new" aria-label="新しい Canvas">＋</button>
-      <button id="canvas-list-reload" aria-label="再読み込み">↻</button>
-    </header>
-    <!-- Dashboard / Discover / Library / Canvas / Radio の切り替え（中身は papers.js の fillSegment） -->
-    <div class="papers-seg-row" id="canvas-seg"></div>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main id="canvas-list-body" class="groups"></main>
-  </section>
-
-  <!-- Canvas の盤面（#/canvas/&lt;プロジェクト&gt;/&lt;Canvas 名&gt;・計画 U06） -->
-  <section id="view-canvas-board" class="view" hidden>
-    <header class="appbar">
-      <button id="cv-back" aria-label="一覧へ戻る">‹</button>
-      <h1 id="cv-title">Canvas</h1>
-      <!-- 下書きの印（show の応答の draft が真のときだけ出す） -->
-      <span id="cv-draft" class="cv-draft" hidden>下書き</span>
-      <!-- 左右の欄の開閉。閉じてもここがあればいつでも戻せる -->
-      <button id="cv-left-toggle" aria-label="左の欄を開閉する">☰</button>
-      <button id="cv-right-toggle" aria-label="右の欄を開閉する">◧</button>
-      <button id="cv-reload" aria-label="再読み込み">↻</button>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <!-- 道具行: 線の種類の切り替え / 整列 / 元に戻す -->
-    <div class="cv-tools">
-      <div class="dash-seg small cv-kinds" id="cv-kinds"></div>
-      <div class="cv-tool-btns">
-        <button id="cv-layout">整列</button>
-        <button id="cv-undo" disabled>元に戻す</button>
-      </div>
-    </div>
-    <!-- 読み込みや保存の失敗の 1 行 -->
-    <p class="cv-error" id="cv-error" hidden></p>
-    <div class="cv-body">
-      <!-- 左の欄。中身は canvaspanel.js（U07）が cvpRender で入れる -->
-      <aside id="cv-left" class="cv-side cv-left"></aside>
-      <!-- 盤面。見える範囲だけを動かし、札は盤面の座標に固定する -->
-      <div class="cv-stage" id="cv-stage">
-        <div class="cv-world" id="cv-world"></div>
-        <div class="cv-zoom">
-          <button id="cv-zoom-out" aria-label="小さくする">−</button>
-          <span id="cv-zoom-pct">100%</span>
-          <button id="cv-zoom-in" aria-label="大きくする">＋</button>
-          <button id="cv-zoom-fit" aria-label="全体を入れる">⤢</button>
-        </div>
-      </div>
-      <!-- 右の欄。中身は canvaspanel.js（U07）が cvpOnSelect で入れる -->
-      <aside id="cv-right" class="cv-side cv-right"></aside>
-      <!-- 狭い画面で引き出しが出ているときの暗い部分（押すと閉じる） -->
-      <div class="cv-scrim" id="cv-scrim" hidden></div>
-    </div>
   </section>
 
   <!-- Papers の Radio（続きを聴く・一覧。選んでいるプロジェクトの音声だけ・09 §4.4） -->
@@ -586,53 +525,49 @@
   </div>
 
   <!-- md の整形表示（13 §1.4）。呼び出す画面部品より先に読み込む -->
-  <script src="/markdown.js?v=32"></script>
+  <script src="/markdown.js?v=33"></script>
   <!-- 共通部品（saiApi・saiToast など・U4）。markdown.js の直後、各画面の JS より先に読む -->
-  <script src="/ui.js?v=32"></script>
+  <script src="/ui.js?v=33"></script>
   <!-- stats.js を先に読み，app.js の route() が統計画面を開けるようにする -->
-  <script src="/stats.js?v=32"></script>
+  <script src="/stats.js?v=33"></script>
   <!-- Project タブの中身（06）。app.js より前に読み込む（stats.js の関数を共有するため） -->
-  <script src="/project.js?v=32"></script>
+  <script src="/project.js?v=33"></script>
   <!-- List 画面（Dashboard | List の切り替え・引き出しツリー・7 つの表示・計画 14）。 -->
   <!-- project.js より後に読み，app.js より前に読む（登録は window.SaiRoutes・計画 14 §6） -->
-  <script src="/linkview.js?v=32"></script>
+  <script src="/linkview.js?v=33"></script>
   <!-- task.md 作成フォーム（＋ で下から出る・計画 15）。app.js より前に読む
        （🎤 は app.js の attachVoiceInput を実行時に呼ぶ） -->
-  <script src="/cardform.js?v=32"></script>
+  <script src="/cardform.js?v=33"></script>
   <!-- Papers タブの中身（07）。app.js より前に読み込む（07 §4） -->
-  <script src="/papers.js?v=32"></script>
+  <script src="/papers.js?v=33"></script>
   <!-- Papers の Radio（09）。papers.js の後・app.js の前に読み込む（09 §4） -->
-  <script src="/radio.js?v=32"></script>
+  <script src="/radio.js?v=33"></script>
   <!-- 会話に行・回答済みカードを置く位置を決める関数（CP3 の直し）。app.js より前に読み込む -->
-  <script src="/chatorder.js?v=32"></script>
+  <script src="/chatorder.js?v=33"></script>
   <!-- Usage タブの中身（42）。app.js より前に読み込む（42 §3.5） -->
-  <script src="/usage.js?v=32"></script>
+  <script src="/usage.js?v=33"></script>
   <!-- 質問カードの読み上げ・音声回答（U01・voiceask.js）。app.js より前に読み込む -->
-  <script src="/voiceask.js?v=32"></script>
-  <!-- Canvas の自動整列の純関数（U05・canvaslayout.js）。canvas.js より先に読む -->
-  <script src="/canvaslayout.js?v=32"></script>
-  <!-- Canvas の一覧と盤面（U06・canvas.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/canvas.js?v=32"></script>
-  <!-- Canvas の左右の欄の中身（U07・canvaspanel.js）。canvas.js の cvpRender / cvpOnSelect を呼ぶ -->
-  <script src="/canvaspanel.js?v=32"></script>
+  <script src="/voiceask.js?v=33"></script>
+  <!-- 配置・全体表示・拡大の純関数（canvaslayout.js）。workflow.js と scigraph.js より先に読む -->
+  <script src="/canvaslayout.js?v=33"></script>
   <!-- 研究方針の木（U19・scitree.js）。app.js より先に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/scitree.js?v=32"></script>
+  <script src="/scitree.js?v=33"></script>
   <!-- 仕分けと読む札（U20・sciedit.js / sciread.js）。scitree.js の se… / sr… を呼ぶのでその後 -->
-  <script src="/sciedit.js?v=32"></script>
-  <script src="/sciread.js?v=32"></script>
+  <script src="/sciedit.js?v=33"></script>
+  <script src="/sciread.js?v=33"></script>
   <!-- 根の図と候補の表（U21・scigraph.js）。canvaslayout.js の cvlLayoutBoard を使うのでその後 -->
-  <script src="/scigraph.js?v=32"></script>
+  <script src="/scigraph.js?v=33"></script>
   <!-- ホーム画面（U4・home.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/home.js?v=32"></script>
-  <!-- Workflow 盤面（U5・workflow.js）。U4 では空のファイルを作っただけ。canvas.js の関数を使うので canvas.js より後 -->
-  <script src="/workflow.js?v=32"></script>
+  <script src="/home.js?v=33"></script>
+  <!-- Workflow 盤面（U5・workflow.js）。U4 では空のファイルを作っただけ。canvaslayout.js の関数を使うので canvaslayout.js より後 -->
+  <script src="/workflow.js?v=33"></script>
   <!-- 設定画面（U5・defs.js）。U4 では空のファイルを作っただけ -->
-  <script src="/defs.js?v=32"></script>
+  <script src="/defs.js?v=33"></script>
   <!-- Papers の Import（U6・paperimport.js）。U4 では空のファイルを作っただけ -->
-  <script src="/paperimport.js?v=32"></script>
+  <script src="/paperimport.js?v=33"></script>
   <!-- 引用一覧の画面（U5・cite.js）。paperimport.js の後・app.js の前に読み込む
        （papers.js と paperimport.js の関数を使うため） -->
-  <script src="/cite.js?v=32"></script>
-  <script src="/app.js?v=32"></script>
+  <script src="/cite.js?v=33"></script>
+  <script src="/app.js?v=33"></script>
 </body>
 </html>

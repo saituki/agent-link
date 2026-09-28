@@ -1,5 +1,4 @@
 /* Workflow 盤面（workflow.js）の見た目（実装計画 U5）。
-   論文の Canvas（canvas.css）と操作をそろえる。
    - 盤面は overflow: hidden。札も線も帯や見出しにはみ出さない
    - 札は HTML の div、線は同じ中の SVG（外部ライブラリは使わない）
    - 色は CSS 変数と #rrggbb だけを使い、暗い画面でも読めるようにする */
@@ -24,7 +23,7 @@
 .wf-tool:hover { background: var(--bg-soft); }
 .wf-tool.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
-/* 線の種類のボタン（Canvas と同じ見た目。色つきの下線を出す） */
+/* 線の種類のボタン（色つきの下線を出す） */
 .wf-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .wf-kind {
   border: 1px solid var(--line);
@@ -88,7 +87,7 @@
 }
 .wf-lane-card-runner { display: block; font-size: 11px; color: var(--text-soft); }
 
-/* --- 盤面（Canvas と同じ作り） ---
+/* --- 盤面 ---
    盤面と札の地色を分ける（盤面 --bg-soft・札 --bg）。枠は --line-strong（3:1 以上）。 */
 .wf-stage {
   position: relative;
