@@ -1143,4 +1143,27 @@ mod tests {
             .unwrap();
         assert_eq!(run_link.reason, "反映なし: _once がある");
     }
+
+    /// Web は知見の `run` と `paper` を数で送る。数でも読む札の答えになり、札を終えられること。
+    #[test]
+    fn finish_read_accepts_finding_with_numeric_run() {
+        let (fix, db) = fixture("finish-numeric", &["sci-read"]);
+        let conn = db.connection();
+        let node = add_item(conn, "小目的", Some("purpose.subgoal"));
+        let mut card = spec(node);
+        card.block = String::new();
+        card.runner = "user".to_string();
+        card.papers = vec![37];
+        card.role = "exemplar".to_string();
+        let made = create_card(&db, &fix.roots, &defs(), &card).unwrap();
+
+        let op = serde_json::json!({
+            "op": "add_finding", "node": format!("N{node}"), "text": "データ名は XYZ",
+            "cites": ["#37 §4.2"], "polarity": "support", "paper": 37, "run": made.run_id,
+        });
+        crate::sci::ops::apply_user(conn, &fix.roots, &defs(), &op).unwrap();
+
+        let done = finish_read(conn, &fix.roots, made.run_id, None).unwrap();
+        assert_eq!(done.findings, 1);
+    }
 }

@@ -1421,7 +1421,7 @@ impl<'a> Ctx<'a> {
 
     /// 任意で指定できる論文番号。
     fn opt_paper(&self, input: &serde_json::Value, key: &str) -> Result<Option<i64>> {
-        match opt_text(input, key) {
+        match opt_number_text(input, key) {
             Some(text) => {
                 let id: i64 = text.parse().map_err(|_| {
                     SciError::Invalid(format!("{key} は論文の番号で指定してください: {text}"))
@@ -1439,7 +1439,7 @@ impl<'a> Ctx<'a> {
 
     /// 任意で指定できる読む札の番号。
     fn opt_run(&self, input: &serde_json::Value, key: &str) -> Result<Option<i64>> {
-        match opt_text(input, key) {
+        match opt_number_text(input, key) {
             Some(text) => {
                 let id: i64 = text.parse().map_err(|_| {
                     SciError::Invalid(format!("{key} は実行の番号で指定してください: {text}"))
@@ -2007,6 +2007,14 @@ fn text_of(input: &serde_json::Value, key: &str) -> String {
 fn opt_text(input: &serde_json::Value, key: &str) -> Option<String> {
     let found = text_of(input, key);
     (!found.is_empty()).then_some(found)
+}
+
+/// JSON から番号を文字列で取り出す（数でも文字列でもよい。Web は数で送る）。
+fn opt_number_text(input: &serde_json::Value, key: &str) -> Option<String> {
+    match input.get(key) {
+        Some(serde_json::Value::Number(number)) => Some(number.to_string()),
+        _ => opt_text(input, key),
+    }
 }
 
 /// JSON から、あれば空文字でも取り出す（空にするつもりで書くとき用）。
