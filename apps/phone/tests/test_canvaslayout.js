@@ -1,12 +1,16 @@
 "use strict";
-// Canvas の自動整列 cvlLayoutBoard のテスト（計画 U05「変更内容 2」）。
+// 図の配置・全体表示・拡大の純関数のテスト（cvlLayoutBoard・cvFitView・cvZoomAt）。
 // 実行:
 //     node tests/test_canvaslayout.js
 
 const assert = require("assert");
 const path = require("path");
 
-const { cvlLayoutBoard } = require(path.join(
+const {
+  cvlLayoutBoard,
+  cvFitView,
+  cvZoomAt,
+} = require(path.join(
   __dirname,
   "..",
   "src",
@@ -14,6 +18,9 @@ const { cvlLayoutBoard } = require(path.join(
   "static",
   "canvaslayout.js"
 ));
+// 拡大率の上下限（canvaslayout.js の CVL_ZOOM_MIN / CVL_ZOOM_MAX と同じ値。範囲は超えない）
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 2.5;
 
 // --- 試作用の入力を作る ---
 function card(id, x, y, w, h, group) {
@@ -265,6 +272,84 @@ function testWideCluster() {
   }
 }
 
+// --- cvFitView（全体が入るように合わせる） ---
+
+function testFitViewEmpty() {
+  assert.deepStrictEqual(cvFitView([], 800, 600), { tx: 0, ty: 0, z: 1 });
+  assert.deepStrictEqual(cvFitView(null, 800, 600), { tx: 0, ty: 0, z: 1 });
+}
+
+function testFitViewContainsAll() {
+  // 3x3 に並んだ 9 個の矩形（0,0 から 800,800 まで）
+  const nodes = [];
+  for (let i = 0; i < 9; i++) {
+    nodes.push({ id: `n${i}`, x: (i % 3) * 400, y: Math.floor(i / 3) * 400, width: 300, height: 300 });
+  }
+  const w = 1000, h = 800;
+  const v = cvFitView(nodes, w, h);
+  assert.ok(v.z <= 1, `z は 1 を超えない: ${v.z}`);
+  assert.ok(v.z >= ZOOM_MIN, `z が下限より小さい: ${v.z}`);
+  // 4 隅が画面の中に収まる
+  for (const n of nodes) {
+    for (const [px, py] of [[n.x, n.y], [n.x + n.width, n.y + n.height]]) {
+      const sx = px * v.z + v.tx;
+      const sy = py * v.z + v.ty;
+      assert.ok(sx >= -0.001 && sx <= w + 0.001, `x が外: ${sx}`);
+      assert.ok(sy >= -0.001 && sy <= h + 0.001, `y が外: ${sy}`);
+    }
+  }
+}
+
+function testFitViewSmallBoardIsCentered() {
+  // 1 個だけの小さな矩形は 100% で中央に置く
+  const v = cvFitView([{ id: "a", x: 1000, y: 2000, width: 100, height: 60 }], 800, 600);
+  assert.strictEqual(v.z, 1);
+  assert.strictEqual(v.tx, 800 / 2 - 1000 - 100 / 2);
+  assert.strictEqual(v.ty, 600 / 2 - 2000 - 60 / 2);
+}
+
+function testFitViewKeepsWithinZoomRange() {
+  // 4000x4000 の図を 200x200 で見る -> 下限に丸められる
+  const v = cvFitView([{ id: "a", x: 0, y: 0, width: 4000, height: 4000 }], 200, 200);
+  assert.ok(v.z >= ZOOM_MIN, `z が下限より小さい: ${v.z}`);
+  assert.ok(v.z > 0, "z が 0 ではない");
+}
+
+// --- cvZoomAt（指の位置の下の図の点が動かない） ---
+
+function testZoomAtKeepsAnchor() {
+  const view = { tx: 30, ty: -12, z: 1 };
+  const px = 420, py = 260;
+  const before = { x: (px - view.tx) / view.z, y: (py - view.ty) / view.z };
+  for (const factor of [1.2, 1 / 1.2, 3, 0.2]) {
+    const z = cvZoomAt(view, px, py, factor);
+    const after = { x: (px - z.tx) / z.z, y: (py - z.ty) / z.z };
+    assert.ok(Math.abs(after.x - before.x) < 1e-6, `x が動いた: ${after.x} != ${before.x}`);
+    assert.ok(Math.abs(after.y - before.y) < 1e-6, `y が動いた: ${after.y} != ${before.y}`);
+  }
+}
+
+function testZoomAtClamps() {
+  const view = { tx: 0, ty: 0, z: 1 };
+  const big = cvZoomAt(view, 100, 100, 1000);
+  assert.strictEqual(big.z, ZOOM_MAX);
+  const small = cvZoomAt(view, 100, 100, 0.0001);
+  assert.strictEqual(small.z, ZOOM_MIN);
+  // 大きすぎる拡大率から縮めても下限で止まる（2.5 * 0.01 = 0.025 -> 0.1）
+  const fromMax = cvZoomAt({ tx: 0, ty: 0, z: ZOOM_MAX }, 0, 0, 0.01);
+  assert.strictEqual(fromMax.z, ZOOM_MIN);
+  // 入力を壊さない
+  assert.deepStrictEqual(view, { tx: 0, ty: 0, z: 1 });
+}
+
+function testZoomAtAtOrigin() {
+  // 原点が画面の左上なら tx, ty は 0 のまま
+  const z = cvZoomAt({ tx: 0, ty: 0, z: 1 }, 0, 0, 1.5);
+  assert.strictEqual(z.tx, 0);
+  assert.strictEqual(z.ty, 0);
+  assert.strictEqual(z.z, 1.5);
+}
+
 function main() {
   testNoOverlap();
   testDirection();
@@ -276,6 +361,13 @@ function main() {
   testPerformance();
   testEmptyGroup();
   testWideCluster();
+  testFitViewEmpty();
+  testFitViewContainsAll();
+  testFitViewSmallBoardIsCentered();
+  testFitViewKeepsWithinZoomRange();
+  testZoomAtKeepsAnchor();
+  testZoomAtClamps();
+  testZoomAtAtOrigin();
   console.log("test_canvaslayout: すべて通りました");
 }
 

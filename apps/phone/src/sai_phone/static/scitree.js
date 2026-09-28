@@ -1153,6 +1153,25 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     async poll() {},
   });
 
+  // 消した画面（U22）の古い住所。覚えた住所や履歴から開いても空の画面にはしない。
+  // #/papers/canvas と #/canvas/<プロジェクト>/<Canvas 名> を研究方針の木へ送る。
+  (window.SaiRoutes = window.SaiRoutes).push({
+    match(hash) {
+      const h = String(hash || "");
+      if (h === "#/papers/canvas" || h.startsWith("#/canvas/")) return {};
+      return null;
+    },
+    view: "view-sci-tree",
+    tab: "papers",
+    hideTabbar: false,
+    interval: 0,
+    async open() {
+      // 戻ったときに古い住所が履歴に残らないように、押し戻す
+      location.replace("#/papers/tree");
+    },
+    async poll() {},
+  });
+
   // 一覧側のボタン（論文タブのどの画面でも同じ物を使う）
   const stReloadBtn = document.getElementById("sci-reload");
   if (stReloadBtn) stReloadBtn.addEventListener("click", () => { void stReload(); });

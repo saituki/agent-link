@@ -29,7 +29,6 @@ const PAPERS_SEG = [
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["discover", "Discover", "#/papers/discover"],
   ["library", "Library", "#/papers/library"],
-  ["canvas", "Canvas", "#/papers/canvas"], // U06: Canvas の一覧
   ["radio", "Radio", "#/papers/radio"],
 ];
 // 一覧 / 階層 の選択を覚える（localStorage・07 §4.3）
@@ -499,7 +498,7 @@ async function projectForAddress(nameParam) {
 /** 上部のプロジェクト名（📁 … ▾）を今の選択に合わせる（18 §1.1）。 */
 function updateProjectChips() {
   // import-project は Import 画面（paperimport.js）が作るので、ここでも名前を揃える
-  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "canvas-project", "import-project", "sci-project"]) {
+  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "import-project", "sci-project"]) {
     const chip = document.getElementById(id);
     if (!chip) continue;
     chip.hidden = paperProjects === null; // 読んでから出す（18 §1.1）
@@ -560,7 +559,6 @@ function reopenCurrentScreen() {
   else if (location.hash === "#/papers/discover") void openDiscover();
   else if (location.hash === "#/papers/dashboard") void openPapersDashboard();
   else if (location.hash === "#/papers/radio") void openRadioList(); // radio.js
-  else if (location.hash === "#/papers/canvas" && typeof cvOpenList === "function") void cvOpenList(); // canvas.js（U06）
   else if (location.hash === "#/papers/import" && typeof pimOpenImport === "function") void pimOpenImport(); // paperimport.js（U6）
   else void openLibrary();
 }
@@ -2779,7 +2777,7 @@ if (typeof window !== "undefined") {
   // 上部のプロジェクト名（押すと切り替えの一覧が下から出る・18 §1.1）
   const libChip = document.getElementById("library-project");
   if (libChip) libChip.addEventListener("click", () => { void openProjectSheet(); });
-  for (const id of ["dashboard-project", "discover-project", "radio-project", "canvas-project", "sci-project"]) {
+  for (const id of ["dashboard-project", "discover-project", "radio-project", "sci-project"]) {
     const chip = document.getElementById(id);
     if (chip) chip.addEventListener("click", () => { void openProjectSheet(); });
   }

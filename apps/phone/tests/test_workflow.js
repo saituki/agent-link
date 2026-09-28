@@ -15,11 +15,11 @@
 const assert = require("assert");
 const path = require("path");
 
-// 盤面の全体表示と拡大は canvas.js の純関数をそのまま使うので、
+// 盤面の全体表示と拡大は canvaslayout.js の純関数をそのまま使うので、
 // node 側でも同じ関数が引けるようグローバルに入れておく（ブラウザでは script タグで同じになる）。
-const canvas = require(path.join(__dirname, "..", "src", "sai_phone", "static", "canvas.js"));
-global.cvFitView = canvas.cvFitView;
-global.cvZoomAt = canvas.cvZoomAt;
+const layout = require(path.join(__dirname, "..", "src", "sai_phone", "static", "canvaslayout.js"));
+global.cvFitView = layout.cvFitView;
+global.cvZoomAt = layout.cvZoomAt;
 
 // node には localStorage / sessionStorage が無いので置き場を用意する
 // （ドラッグでずらした量と見える範囲がこの端末にだけ覚えることを試すため）
@@ -90,7 +90,7 @@ function testNodeRect() {
 }
 
 function testFitView() {
-  // canvas.js の cvFitView にそのまま渡せる（全体が入る矩形が返る）
+  // canvaslayout.js の cvFitView にそのまま渡せる（全体が入る矩形が返る）
   const rects = wf.wfBoardRects([NODE, NODE2], null);
   const view = wf.wfFitView(rects, 400, 300);
   assert.ok(view.z > 0 && view.z <= 1);
