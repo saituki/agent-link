@@ -583,19 +583,44 @@ async function stInitTree(typeId, typeName) {
 // 項目の一覧（R-U3・R-U6）
 // ============================================================================
 
+/** 根の図を描く欄の id（広い画面は板・狭い画面は一覧）。 */
+function stGraphBoxId(wide) {
+  return wide ? "sci-board" : "sci-list";
+}
+
+/** 「表」モードで節点が選ばれていないときの案内。節点が有れば null。 */
+function stTableEmptyHint(node) {
+  if (node) return null;
+  // 表そのものは入っている。「まだ無い」とは言わない
+  return {
+    icon: "👈",
+    title: "項目を選んでください",
+    body: "左の一覧から項目を選ぶと、ここにその項目の候補の表が出ます。",
+  };
+}
+
 function stRenderList() {
   const box = document.getElementById("sci-list");
   if (!box) return;
   box.innerHTML = "";
   if (stMode === "graph") {
+    // 広い画面では根の図を右の板（#sci-board）に描く。一覧の欄は 300px しか無くて
+    // 拡大率が下がりすぎるため（狭い画面は今まで通り一覧の欄につる）。
+    const target = document.getElementById(stGraphBoxId(saiIsWide())) || box;
     if (typeof sgRenderGraph === "function" && stData) {
-      sgRenderGraph(box, stData, (nodeId) => { void stSelect(nodeId); });
+      sgRenderGraph(target, stData, (nodeId) => { void stSelect(nodeId); });
     } else {
-      box.appendChild(stNotYet("根の図"));
+      target.appendChild(stNotYet("根の図"));
     }
+    if (target !== box) stRenderListRows(box);
     return;
   }
   if (stMode === "table") {
+    const hint = stTableEmptyHint(stNode);
+    if (hint) {
+      box.appendChild(stEmpty(hint));
+      return;
+    }
     if (typeof sgRenderTable === "function" && stNode) {
       sgRenderTable(box, stNode);
     } else {
@@ -603,6 +628,11 @@ function stRenderList() {
     }
     return;
   }
+  stRenderListRows(box);
+}
+
+/** 一覧の欄に「項目」の行を出す（一覧 / 根の図モードの左側で使う）。 */
+function stRenderListRows(box) {
   const rows = stRows(stData);
   const head = stLine("sci-list-head");
   head.appendChild(stEl("span", "sci-list-head-title", "項目"));
@@ -650,6 +680,8 @@ function stListRow(r) {
 /** 板を出す（広い画面は右の欄、狭い画面は下から）。 */
 function stRenderBoard() {
   const box = document.getElementById("sci-board");
+  // 広い画面の根の図は stRenderList が板に描く。ここ在上書きしない
+  if (box && stMode === "graph" && saiIsWide()) return;
   if (box && saiIsWide()) {
     box.innerHTML = "";
     if (stSheet) stCloseSheet();
@@ -1190,6 +1222,8 @@ if (typeof module !== "undefined" && module.exports) {
     stNextLines,
     stDecisionRows,
     stPaperHash,
+    stGraphBoxId,
+    stTableEmptyHint,
     ST_MODES,
     ST_TYPES,
     ST_ITEM_TYPES,

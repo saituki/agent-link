@@ -732,6 +732,21 @@ function attentionCard() {
   return card;
 }
 
+/** 要対応の行き先（研究方針の木・仕分けの画面の住所）。開けないときは空文字。
+ *
+ * `sci_decision` のキーはコアが `sci_decision:<節点>:<最新の知見 id>` の形で作る
+ * （crates/sai-paper-core/src/attention.rs）。2 番目の節点だけを取り出して画面の住所を作る。
+ */
+function papersAttentionHash(item) {
+  const it = item || {};
+  if (it.kind === "sci_triage") return "#/papers/triage";
+  if (it.kind !== "sci_decision") return "";
+  const parts = String(it.key || "").split(":");
+  if (parts.length !== 3 || parts[0] !== "sci_decision") return "";
+  if (!/^N[1-9][0-9]{0,8}$/.test(parts[1])) return "";
+  return `#/papers/tree/${parts[1]}`;
+}
+
 /** 要対応の 1 行（種類の札・題・対応済みにする・実行があれば開く）。 */
 function attentionRow(item) {
   const it = item || {};
@@ -744,11 +759,7 @@ function attentionRow(item) {
   main.appendChild(el("span", `sai-chip ${kind[1]}`, kind[0]));
   main.appendChild(el("span", "pd-att-title", it.title || "（題のない要対応）"));
   // U19: 研究方針の木から出る要対応は、節点つきで研究方針（または仕分け）へ移る
-  const sciHash = it.kind === "sci_triage"
-    ? "#/papers/triage"
-    : (it.kind === "sci_decision" && /^N[1-9][0-9]{0,8}$/.test(String(it.key || "")))
-      ? `#/papers/tree/${it.key}`
-      : "";
+  const sciHash = papersAttentionHash(it);
   if (sciHash) {
     main.addEventListener("click", () => { location.hash = sciHash; });
   } else if (it.run_id != null) {
@@ -2911,5 +2922,6 @@ if (typeof module !== "undefined" && module.exports) {
     papersDbLabel,
     papersFailedLines,
     papersAllFailed,
+    papersAttentionHash,
   };
 }

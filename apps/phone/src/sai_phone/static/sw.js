@@ -37,7 +37,9 @@
 // U19 の研究方針の木（scitree.js とその CSS。U20・U21 用の空のファイル sciedit.js / sciread.js /
 // scigraph.js と sciedit.css / scigraph.css も先に登録）で v32 に
 // （index.html の ?v= も 32。ASSETS にも 7 つを足した）
-const CACHE = "sai-phone-v33";
+// コードレビュー R1 の指摘 1〜6 の直し（papers.js・scitree.js・scitree.css）で v34 に
+// （index.html の ?v= も 34）
+const CACHE = "sai-phone-v34";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）

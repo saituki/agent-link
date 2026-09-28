@@ -93,6 +93,8 @@ SCOPES = ("node", "path", "subtree", "siblings", "summary", "blind")
 DEPTHS = ("abstract", "figures", "full")
 # 読む札の実行者（C-09）
 RUNNERS = ("pi", "cc", "user")
+# 読む札の読み方（C-01 の sci_mode・C-09）
+CARD_MODES = ("purpose_first", "blind_first")
 # ガイドのキー（add_child の key）
 _GUIDE_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 # 仮定の 1 つ（C-13）
@@ -420,6 +422,7 @@ def validate_card(payload) -> dict:
     - `assume` は 5 個まで・各 `^N[1-9][0-9]{0,8}=.{1,120}$`
     - `papers` は 20 個まで・各 1〜999999999
     - `runner` は pi / cc / user（既定 pi）、`role` と `depth` は C-01
+    - `mode` は purpose_first / blind_first（読む札の読み方・C-09）
     - `runner` が `user` なら `papers` は 1 つ・`role` 必須
     - ファイルのパスは受け取らない（知らない項目は落とす）
     """
@@ -455,6 +458,9 @@ def validate_card(payload) -> dict:
     role = payload.get("role")
     if role is not None:
         out["role"] = _enum(role, ROLES, "role")
+    mode = payload.get("mode")
+    if mode is not None:
+        out["mode"] = _enum(mode, CARD_MODES, "mode")
 
     raw_assume = payload.get("assume")
     if raw_assume is not None:
@@ -567,7 +573,8 @@ def triage(project: dict, pid, payload) -> dict:
     action, note, edit = validate_triage(payload)
     args = ["phone", "sci", "triage", proposal, "--action", action]
     if note:
-        args += ["--note", note]
+        # 値が `--` で始まっていてもオプションと誤解されないように 1 つの引数にする
+        args += [f"--note={note}"]
     return _sci_cli(
         project,
         args,
@@ -630,7 +637,7 @@ def read_finish(project: dict, run_id, payload) -> dict:
 
     args = ["phone", "sci", "finish-read", str(rid)]
     if no_reflect:
-        args += ["--no-reflect", no_reflect]
+        args += [f"--no-reflect={no_reflect}"]
     result = _sci_cli(project, args, SCI_WRITE_TIMEOUT)
     control.phone_user_finish(str(project["root"]), rid)
 

@@ -6,6 +6,7 @@
 // ここに無いもの（DOM が要る描画・操作）はブラウザで確かめる（計画 U19 の AC1〜AC4）。
 
 const assert = require("assert");
+const fs = require("fs");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_phone", "static", "scitree.js");
@@ -18,6 +19,8 @@ const {
   stDebtChips,
   stNextLines,
   stDecisionRows,
+  stGraphBoxId,
+  stTableEmptyHint,
   ST_MODES,
   ST_TYPES,
   ST_ITEM_TYPES,
@@ -255,6 +258,37 @@ function testTablesAreShared() {
   assert.deepStrictEqual(Object.keys(ST_NODE_MARKS), ["weak_evidence", "recheck"]);
 }
 
+function testGraphBoxId() {
+  // 指摘 3: 根の図は広い画面なら板（#sci-board）、狭い画面なら一覧の欄（#sci-list）
+  assert.strictEqual(stGraphBoxId(true), "sci-board");
+  assert.strictEqual(stGraphBoxId(false), "sci-list");
+}
+
+function testTableEmptyHint() {
+  // 指摘 4: 節点が選ばれていないときは「まだ無い」ではなく「選んでください」
+  assert.strictEqual(stTableEmptyHint({ id: "N12" }), null);
+  const hint = stTableEmptyHint(null);
+  assert.strictEqual(hint.title, "項目を選んでください");
+  assert.ok(!/まだありません/.test(hint.body), hint.body);
+  // 節点が無くても「表の画面はまだありません」とは言わない
+  assert.ok(!/画面はまだありません/.test(hint.title + hint.body), hint);
+}
+
+function testListIsFullWidthOnNarrow() {
+  // 指摘 6: 一覧の欄を 320px に固定するのは 900px 以上だけ（iPhone 390px で右に隙間を空けない）
+  const css = fs.readFileSync(
+    path.join(__dirname, "..", "src", "sai_phone", "static", "scitree.css"),
+    "utf8"
+  );
+  // 固定の宣言が @media (min-width: 900px) の中にあるか
+  const at = css.indexOf(".sci-body .sci-list {\n    flex: 0 0 320px;");
+  assert.ok(at > 0, "一覧の欄の固定が @media の中に無い");
+  const before = css.slice(0, at);
+  const media = before.lastIndexOf("@media (min-width: 900px)");
+  const close = before.lastIndexOf("}");
+  assert.ok(media > close, "一覧の欄の固定が media query の外にある");
+}
+
 const tests = [
   testParseHash,
   testStateMark,
@@ -269,6 +303,9 @@ const tests = [
   testDecisionRowsNewestFirst,
   testDecisionRowsNoTime,
   testTablesAreShared,
+  testGraphBoxId,
+  testTableEmptyHint,
+  testListIsFullWidthOnNarrow,
 ];
 
 let failed = 0;
