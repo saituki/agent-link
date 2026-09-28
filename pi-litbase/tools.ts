@@ -50,6 +50,20 @@ function tool(
 
 const str = (description: string) => ({ type: "string", description });
 const num = (description: string) => ({ type: "number", description });
+const bool = (description: string) => ({ type: "boolean", description });
+
+/** 実行番号を出す。`run_id` が無ければ環境変数 `SAI_PARENT_RUN_ID`。両方とも無ければ null。 */
+function resolveRunId(params: { run_id?: unknown }): number | null {
+  if (params.run_id !== undefined && params.run_id !== null) {
+    return Number(params.run_id);
+  }
+  const fromEnv = process.env.SAI_PARENT_RUN_ID;
+  if (!fromEnv) {
+    return null;
+  }
+  const parsed = Number(fromEnv);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 /** 論文解決（Library / DOI / arXiv / タイトル）。 */
 export const resolveTool = tool(
@@ -179,7 +193,7 @@ export const recentDownloadsTool = tool(
 export const searchDbTool = tool(
   "sai_paper_search_db",
   "Search Databases",
-  "複数のデータベース（PubMed, bioRxiv, Semantic Scholar, arXiv, OpenAlex）を横断検索する。重複除外済みで検索セットを作成することもできる。",
+  "複数のデータベース（PubMed, bioRxiv, Semantic Scholar, arXiv, OpenAlex）を横断検索する。重複除外済みで検索セットを作成することもできる。研究方針の木の節点で探すときは node と question を付ける（検索の記録が残る）。",
   {
     type: "object",
     properties: {
@@ -194,6 +208,11 @@ export const searchDbTool = tool(
       year_to: num("終了年"),
       raw_query: str("DB 固有構文（PubMed Boolean など）"),
       save_as: str("セット名（指定すると検索セットを作成）"),
+      node: str("検索した節点（N12）。記録と検索セットに残る"),
+      question: str("検索の問い（Q7）"),
+      purpose: str("何のための検索か"),
+      extract: str("読み、そこから抜き出す項目"),
+      widen: str("範囲を広げた理由"),
     },
     required: ["query"],
   },
@@ -207,6 +226,11 @@ export const searchDbTool = tool(
     if (p.year_to) args.push("--year-to", String(p.year_to));
     if (p.raw_query) args.push("--raw-query", String(p.raw_query));
     if (p.save_as) args.push("--save-as", String(p.save_as));
+    if (p.node) args.push("--node", String(p.node));
+    if (p.question) args.push("--question", String(p.question));
+    if (p.purpose) args.push("--purpose", String(p.purpose));
+    if (p.extract) args.push("--extract", String(p.extract));
+    if (p.widen) args.push("--widen", String(p.widen));
     args.push("--json");
     return runSaiPaper(args);
   },
@@ -305,7 +329,7 @@ export const setMergeTool = tool(
 export const findTool = tool(
   "sai_paper_find",
   "Find Chunks",
-  "Library、ノート内でハイブリッド検索を実行する。埋め込みサーバが動いていないときは --mode word を使うこと（日本語は当たらないため英語のみ）。",
+  "Library、ノート内でハイブリッド検索を実行する。埋め込みサーバが動いていないときは --mode word を使うこと（日本語は当たらないため英語のみ）。研究方針の木の節点で探すときは node と question を付ける（検索の記録が残る）。",
   {
     type: "object",
     properties: {
@@ -317,6 +341,16 @@ export const findTool = tool(
       index: str("索引の名前（既定: settings.json の rag.default_index。埋め込みモデルも索引で決まる）"),
       alpha: num("ハイブリッド時の vector 側重み 0.0-1.0（既定: config）"),
       fusion: str("融合方法：weighted / rrf（既定: config）"),
+      papers: {
+        type: "array",
+        items: { type: "number" },
+        description: "論文の集合で絞る。`paper` と同じ扱い",
+      },
+      node: str("節点に結び付いた論文に絞る（N12）"),
+      subtree: bool("`node` の子孫の節点も含める"),
+      each: num("範囲の論文ごとに上位 m 件を返す（`papers` か `node` と一緒に使う）"),
+      question: str("検索の問い（Q7）。記録に残り、前の検索を見られる"),
+      widen: str("範囲を広げた理由"),
     },
     required: ["query"],
   },
@@ -329,6 +363,14 @@ export const findTool = tool(
     if (p.index) args.push("--index", String(p.index));
     if (p.alpha) args.push("--alpha", String(p.alpha));
     if (p.fusion) args.push("--fusion", String(p.fusion));
+    // 空の配列を渡されたときは `--papers` を付けない（無い値に空文字列を送ると CLI が怒る）。
+    const papers = (p.papers ?? []) as unknown[];
+    if (papers.length > 0) args.push("--papers", papers.map(String).join(","));
+    if (p.node) args.push("--node", String(p.node));
+    if (p.subtree) args.push("--subtree");
+    if (p.each) args.push("--each", String(p.each));
+    if (p.question) args.push("--question", String(p.question));
+    if (p.widen) args.push("--widen", String(p.widen));
     args.push("--json");
     return runSaiPaper(args);
   },
@@ -366,6 +408,85 @@ export const indexStatusTool = tool(
   () => runSaiPaper(["index", "status"]),
 );
 
+/** 実行番号が無いときの言い訳。 */
+const NO_RUN_ID = "実行番号がありません（run_id か環境変数 SAI_PARENT_RUN_ID）";
+
+/** 研究方針の木: 今の実行の範囲。 */
+export const sciContextTool = tool(
+  "sai_paper_sci_context",
+  "Sci Context",
+  "今の実行の範囲（研究方針の木から切り出した入力）を返す",
+  {
+    type: "object",
+    properties: {
+      run_id: num("省略時は環境変数 SAI_PARENT_RUN_ID"),
+      scope: str("範囲：node / path / subtree / siblings / summary / blind"),
+    },
+  },
+  (p) => {
+    // context の --run は省略できない。番号が無いなら CLI を呼ばずに落とす。
+    const runId = resolveRunId(p);
+    if (runId === null) {
+      throw new Error(NO_RUN_ID);
+    }
+    const args = ["sci", "context", "--run", String(runId)];
+    if (p.scope) args.push("--scope", String(p.scope));
+    return runSaiPaper(args);
+  },
+);
+
+/** 研究方針の木: 全体の現況。 */
+export const sciStatusTool = tool(
+  "sai_paper_sci_status",
+  "Sci Status",
+  "研究方針の木の全体（種の文・関門・項目・負債・次の一手）",
+  { type: "object", properties: {} },
+  () => runSaiPaper(["sci", "status", "--json"]),
+);
+
+/** 研究方針の木: 節点 1 つ。 */
+export const sciNodeTool = tool(
+  "sai_paper_sci_node",
+  "Sci Node",
+  "節点 1 つの中身（問い・候補・知見・結び付き・決定の記録・行動）",
+  {
+    type: "object",
+    properties: { node: str("N12 の形") },
+    required: ["node"],
+  },
+  (p) => runSaiPaper(["sci", "node", String(p.node), "--json"]),
+);
+
+/** 研究方針の木: 変更の提案。 */
+export const sciProposeTool = tool(
+  "sai_paper_sci_propose",
+  "Sci Propose",
+  "研究方針の木への変更を提案する。結び付け・問い・知見はすぐ入り、ほかは利用者が仕分ける",
+  {
+    type: "object",
+    properties: {
+      proposals: {
+        type: "array",
+        items: { type: "object" },
+        description: "op の JSON",
+      },
+      run_id: num("省略時は環境変数 SAI_PARENT_RUN_ID"),
+    },
+    required: ["proposals"],
+  },
+  (p) => {
+    // 番号が無ければ --run を付けない。run 不明として CLI が扱う。
+    const args = ["sci", "propose"];
+    const runId = resolveRunId(p);
+    if (runId !== null) {
+      args.push("--run", String(runId));
+    }
+    return runSaiPaper(args, {
+      input: JSON.stringify({ proposals: p.proposals }),
+    });
+  },
+);
+
 /** 登録する全ツール。 */
 export const litbaseTools: LitbaseTool[] = [
   resolveTool,
@@ -383,4 +504,8 @@ export const litbaseTools: LitbaseTool[] = [
   findTool,
   neighborsTool,
   indexStatusTool,
+  sciContextTool,
+  sciStatusTool,
+  sciNodeTool,
+  sciProposeTool,
 ];
