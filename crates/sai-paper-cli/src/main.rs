@@ -1044,6 +1044,8 @@ async fn main() -> Result<()> {
                 alpha,
                 fusion,
                 fts_expr,
+                // 引数は U14 が足す。それまでは既定値で埋める。
+                ..Default::default()
             };
             // 要約付きのときだけ LLM のクライアントを作る（`model` が空ならここでエラー）。
             let chat = if evidence {
