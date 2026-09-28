@@ -53,7 +53,6 @@
     "deny": [
       "Agent",
       "Task",
-      "Skill",
       "Workflow",
       "WebFetch",
       "WebSearch",

@@ -1,5 +1,20 @@
 {
   "mcpServers": {
+    "chrome-devtools": {
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--headless",
+        "--isolated",
+        "--no-category-memory",
+        "--no-usage-statistics",
+        "--no-performance-crux"
+      ],
+      "command": "npx",
+      "env": {
+        "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1"
+      }
+    },
     "donsetch": {
       "args": [
         "mcp",
@@ -34,6 +49,19 @@
         "False"
       ],
       "command": "uvx"
+    },
+    "playwright": {
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.82",
+        "--browser",
+        "webkit",
+        "--device",
+        "iPhone 15",
+        "--headless",
+        "--isolated"
+      ],
+      "command": "npx"
     }
   }
 }
