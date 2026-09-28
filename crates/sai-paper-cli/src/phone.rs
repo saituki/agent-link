@@ -162,6 +162,11 @@ pub enum PhoneCmd {
         /// 対応済みにする key（例: `question:41:対象は?`）
         key: String,
     },
+    /// 研究方針の木（phone sci）
+    Sci {
+        #[command(subcommand)]
+        cmd: crate::phone_sci::PhoneSciCmd,
+    },
 }
 
 /// `sai-paper phone` を実行し、JSON 1 行を標準出力へ出す。
@@ -220,6 +225,7 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         PhoneCmd::ManualImport { args } => crate::phone_cite::manual_import_command(&args),
         PhoneCmd::AfterDownload { paper_id } => crate::phone_import::after_download(paper_id).await,
         PhoneCmd::AttentionResolve { key } => crate::phone_import::attention_resolve(&key),
+        PhoneCmd::Sci { cmd } => crate::phone_sci::run(cmd),
     };
     match outcome {
         Ok(value) => {
