@@ -200,6 +200,45 @@ pi は global と project の `extensions` を両方読むので、`~/.pi/agent/
 
 フックは何も出力せず、必ず終了コード 0 で終わります（出力すると PC の承認画面が出なくなるため）。`apps/phone` が止まっていても cc は普通に動きます。
 
+### Playwright MCP（画面の確かめ方）
+
+**`sai-moon-link init` がプロジェクトの `.mcp.json` に `playwright` を書く**ので、手で登録しなくてよい。
+cc も pi も同じ `.mcp.json` を読むので、両方に同じ設定が入る。
+
+```json
+"playwright": { "command": "npx",
+  "args": ["-y", "@playwright/mcp@0.0.82", "--browser", "webkit",
+           "--device", "iPhone 15", "--headless", "--isolated"] }
+```
+
+- **WebKit・iPhone 15 の画面・画面なし**です。iPhone Safari に近い状態を、画面を出さずに確かめられます。
+- 版の `0.0.82` は固定です（`crates/sai-link-engine/src/cc_command.rs` の `PLAYWRIGHT_MCP_PACKAGE`）。`@latest` にすると MCP の版と入れた WebKit の版がずれて「WebKit が見つからない」になります。
+- **MCP の道具だけでは WebKit が入らない**ので、使うプロジェクトで最初に 1 回だけ、次を実行します。
+
+```bash
+npx -y @playwright/mcp@0.0.82 install-browser webkit
+```
+
+- init 自身は通信しません（オフラインでも init はできる）。上の 1 行は手動で実行してください。
+- 画面の幅は iPhone 15 が 393px、sai-moon の設計は 390px です（3px のずれは今のところ無視）。
+
+### serena の言語サーバ
+
+**`sai-moon-link init` がプロジェクトの `.serena/project.yml` を書く**ので、serena の設定は手で触らない。
+
+```yaml
+project_name: "sai-moon"
+language_servers:
+- rust
+- python
+- typescript
+```
+
+- `language_servers` は**プロジェクトのファイルの拡張子から init が選ぶ**。使わない言語のサーバを起動しません（起動が遅く、入っていない言語サーバで失敗する）。
+  選択するのは `rs` `py` `ts` `tsx` `js` `jsx` `mjs` `cjs` `go` `c` `h` `cc` `cpp` `hpp` `java` `swift` `sh` `bash`。`target`・`node_modules`・`.venv`・`.sai` などのフォルダと、`.` で始まるフォルダは見ません。
+- 1 つも見つからなければ `python` だけになります（serena の雛形の既定と同じ）。
+- 前に init したプロジェクトで `init` をやり直すと、古い `project.yml` は `.serena/project.yml.bak` に退避されます（他の設定と同じ）。`.serena/` の中の `memories/`・`cache/`・`project.local.yml` には触りません。
+
 ## 安全性
 
 | 項目 | 確かめ方 |
