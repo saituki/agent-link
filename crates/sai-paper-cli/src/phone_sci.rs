@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
-use sai_paper_core::sci::{self, card, defs, export, ops, store};
+use sai_paper_core::sci::{self, card, ops, store};
 use serde_json::{Value, json};
 
 use crate::sci::{open_env, parse_assume, parse_id, parse_stdin_text, proposal_json};
@@ -100,7 +100,7 @@ fn status() -> Result<Value> {
     Ok(serde_json::to_value(status)?)
 }
 
-/// `phone sci init` — 木を始める（部品の配りは U15 が足す）。
+/// `phone sci init` — 部品を配って木を始める。
 fn init(type_id: &str) -> Result<Value> {
     let env = open_env()?;
     if store::is_initialized(env.conn()).map_err(|err| anyhow!("{err}"))? {
@@ -113,25 +113,24 @@ fn init(type_id: &str) -> Result<Value> {
         );
     }
 
-    defs::write_local_copies(&env.roots.root)
+    // 部品（ブロック・テンプレート・`context`・土壌のひな形）を配り、木を作って書き出す。
+    let outcome = crate::sci::init_with_assets(&env.roots.root, type_id, false)
         .map_err(|err| anyhow!("{err}"))
-        .context(".sai/sci/ に型と項目ガイドを置けませんでした")?;
-    let backup = export::backup_state_once(&env.roots.data_dir)
-        .map_err(|err| anyhow!("{err}"))
-        .context("今の state.md を残せませんでした")?;
-    let report = defs::init_tree(env.conn(), &env.defs, type_id)
-        .map_err(|err| anyhow!("{err}"))
-        .context("骨組みを作れませんでした")?;
-    env.export()?;
+        .context("研究方針の木を作れませんでした")?;
+    if outcome.already {
+        anyhow::bail!(
+            "既に始めています（型: {}）。型を変えるには `sai-moon-paper sci init --type <型> --change-type`",
+            outcome.type_name
+        );
+    }
 
     Ok(json!({
-        "type": report.type_id,
-        "created_items": report.created_items,
-        "created_edges": report.created_edges,
-        "warnings": report.warnings,
-        "backup": backup.map(|path| path.to_string_lossy().to_string()),
-        // 研究プロジェクトの部品の配り方は U15 がここへ足す。
-        "assets": [],
+        "type": outcome.type_id,
+        "created_items": outcome.created_items,
+        "created_edges": outcome.created_edges,
+        "warnings": outcome.warnings,
+        "backup": outcome.backup.as_ref().map(|path| path.to_string_lossy().to_string()),
+        "assets": outcome.assets,
     }))
 }
 
