@@ -16,7 +16,7 @@ use crate::theme::Theme;
 use crate::{App, UiAction};
 use crossterm::event::{KeyCode, KeyEvent};
 
-/// 右の欄を出す Marks する最小の幅（これより狭ければ中身は下の段に出す）。
+/// 右の欄を出す最小の幅（これより狭ければ中身は下の段に出す）。
 const DETAIL_MIN_WIDTH: u16 = 90;
 
 /// 案内行の文言（`r` / `o`）。
@@ -832,16 +832,16 @@ mod tests {
 
         let buffer = terminal.backend().buffer().clone();
         let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
-        assert!(text.contains("頭皮脳波で"), "種の文冒出ない: {text}");
-        assert!(text.contains("関門"), "関門冒出ない: {text}");
-        assert!(text.contains("2/7"), "関門の数が冒出ない: {text}");
-        assert!(text.contains("負債"), "負債冒出ない: {text}");
-        assert!(text.contains("N1"), "項目の一覧冒出ない: {text}");
+        assert!(text.contains("頭皮脳波で"), "種の文が出ていない: {text}");
+        assert!(text.contains("関門"), "関門が出ていない: {text}");
+        assert!(text.contains("2/7"), "関門の数が出ていない: {text}");
+        assert!(text.contains("負債"), "負債が出ていない: {text}");
+        assert!(text.contains("N1"), "項目の一覧が出ていない: {text}");
         assert!(
             text.contains("先行研究を做的事"),
-            "選んだ項目の中身冒出ない: {text}"
+            "選んだ項目の中身が出ていない: {text}"
         );
-        assert!(text.contains("r:読み直す"), "案内冒出ない: {text}");
+        assert!(text.contains("r:読み直す"), "案内が出ていない: {text}");
     }
 
     /// 木が無いときは「まだありません」の案内が出る。
@@ -860,7 +860,7 @@ mod tests {
         let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
         assert!(
             text.contains("研究方針の木はまだありません"),
-            "案内の文冒出ない: {text}"
+            "案内の文が出ていない: {text}"
         );
     }
 
@@ -881,7 +881,7 @@ mod tests {
         let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
         assert!(
             text.contains("研究方針の木を読めませんでした"),
-            "エラーの文冒出ない: {text}"
+            "エラーの文が出ていない: {text}"
         );
     }
 
