@@ -67,6 +67,9 @@ GRAPHICAL([
 ]);
 // グラフの系列
 GRAPHICAL(["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"]);
+// グラフの文字（縦の目盛り）と、棒の底の線（0 の日を表す短い棒にも使う）
+TEXT(["--chart-axis"]);
+GRAPHICAL(["--line-strong"]);
 
 // Workflow 盤面（U02）。wfEdgeOpacity（workflow.js）の WF_EDGE_DIM と同じ濃さで、
 // 薄くしても線として 3:1 を保つことを検査する。
@@ -153,7 +156,32 @@ for (const c of CV_CARDS) {
 // 枠の塗り（cvAlpha が color-mix で書く薄い色）の上に置く文字。--text なら 4.5 を保つ
 TINTED("--text", CV_GROUPS, 0.12, 4.5);
 
-// --- Workflow・Canvas 盤面が必ず使う token ---
+// --- グラフ（U04）---
+//
+// グラフは素の SVG を手描きする（style.css の .dash-* と .lv-*）。
+// 系列の色は棒とドーナツの線と凡例の四角に、地色はカードの
+// --bg・--bg-soft・--st-card（統計画面のカード）の 3 つに使われる。
+// 上の GRAPHICAL はその 3 つの地色と自動で組を作るので、ここでは
+// 「1 つのグラフの中で隣り合う系列が色相で見分けられるか」だけ足す。
+PAIRS.push(
+  // ドーナツの凡例は .st-card（統計）と --bg-soft（Dashboard）の上に並ぶ
+  ["--chart-axis", "--st-card", 4.5, 1],
+  // 0 の日を表す短い棒（.dash-bar.zero）は線と同じ扱い
+  ["--line-strong", "--bg-soft", 3, 1]
+);
+
+// 隣り合う系列の色相差（度）。下の HUE_PAIRS で 1 組ずつ比べる。
+const HUE_MIN = 30;
+// 色相の比較をしない色（彩度が低いので色相では区別できないため）。
+// 灰色は凡例の文字と値とで見分ける（色だけに頼らない）。
+const HUE_MIN_SAT = 0.35;
+const HUE_PAIRS = [
+  ["--series-1", "--series-2"],
+  ["--series-2", "--series-3"],
+  ["--series-3", "--series-4"],
+  ["--series-4", "--series-5"],
+  ["--series-5", "--series-6"],
+];
 // 明るい画面と暗い画面の両方に定義されていることを確かめる
 // （片側にしか無いと、どちらかの画面で読めなくなる）。
 const REQUIRED = [
@@ -168,6 +196,9 @@ const REQUIRED = [
   // 論文の Canvas が必ず使うもの（付箋・線 5 色・札 3 色・枠 6 色）
   "--note-bg", "--note-on-bg", "--note-line",
   ...CV_EDGES, ...CV_CARDS, ...CV_GROUPS,
+  // グラフ（U04）
+  "--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6",
+  "--chart-axis", "--chart-grid", "--st-card",
 ];
 
 // --- CSS を読む ---
@@ -273,6 +304,41 @@ function ratio(a, b) {
 
 const isHex = (v) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v.trim());
 
+/** "#rrggbb" を {r,g,b} にする。 */
+function rgbOf(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+/** 彩度（0 は灰色、1 ははっきりした色）。HLS での s。 */
+function saturation(hex) {
+  const { r, g, b } = rgbOf(hex);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === 0) return 0;
+  return (max - min) / max;
+}
+
+/** 色相（0〜360 度）。灰色のときは 0。 */
+function hue(hex) {
+  const { r, g, b } = rgbOf(hex);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (d === 0) return 0;
+  let h;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return ((h * 60) % 360 + 360) % 360;
+}
+
+/** 2 つの色の色相の差（0〜180 度）。 */
+function hueGap(a, b) {
+  const d = Math.abs(hue(a) - hue(b));
+  return d > 180 ? 360 - d : d;
+}
+
 /** 2 つの hex を a ずつ混ぜて 1 色にする（薄くした線と地色の実効色）。 */
 function blend(fg, bg, alpha) {
   const a = Math.max(0, Math.min(1, Number(alpha)));
@@ -335,6 +401,21 @@ function main() {
         bad.push(`${theme}: ${fg}(${shown}) / ${bgName}(${b}) = ${r.toFixed(2)} が下限 ${min} 未満`);
       }
       checked += 1;
+    }
+  }
+
+  // グラフの隣り合う系列が色相で見分けられること（U04）
+  for (const [theme, vars] of [["明るい画面", light], ["暗い画面", dark]]) {
+    for (const [a, b] of HUE_PAIRS) {
+      const ca = resolve(a, vars);
+      const cb = resolve(b, vars);
+      if (!isHex(ca) || !isHex(cb)) continue; // 定義の無さは上で報告している
+      if (saturation(ca) < HUE_MIN_SAT || saturation(cb) < HUE_MIN_SAT) continue;
+      const gap = hueGap(ca, cb);
+      checked += 1;
+      if (gap < HUE_MIN) {
+        bad.push(`${theme}: ${a}(${ca}) と ${b}(${cb}) の色相差が ${gap.toFixed(0)} 度で ${HUE_MIN} 度未満`);
+      }
     }
   }
 

@@ -878,7 +878,12 @@ function lvRenderStats(data) {
       const dot = el("span", "lv-dot-swatch");
       dot.style.background = s.color;
       row.appendChild(dot);
-      row.appendChild(el("span", null, s.name));
+      row.appendChild(el("span", "lv-leg-name", s.name));
+      // 色だけに頼らず、最後の値も文字で出す
+      const last = s.values.length > 0 ? lvNum(s.values[s.values.length - 1]) : 0;
+      row.appendChild(
+        el("span", "lv-leg-num", `最終 ${saiAxisValue(last, s.pct ? "percent" : "tokens")}`)
+      );
       legend.appendChild(row);
     }
     chart.appendChild(legend);
@@ -922,34 +927,53 @@ function lvRenderStats(data) {
 /** 折れ線グラフ（外部ライブラリなしで SVG を手描く・計画 14 §6）。 */
 function lvLineSvg(series) {
   const W = 320;
-  const H = 120;
-  const L = 8;
+  const H = 130;
+  const L = 40; // 左は目盛りの文字のぶん
   const R = 8;
-  const T = 8;
-  const B = 14;
+  const T = 10;
+  const B = 20;
+  const baseY = H - B;
   const svg = svgEl("svg", {
     viewBox: `0 0 ${W} ${H}`,
     class: "lv-chart",
     role: "img",
-    "aria-label": "メッセージごとの推移グラフ",
+    "aria-label": "メッセージごとの推移グラフ。データがありません",
   });
   const all = series.flatMap((s) => s.values);
   if (all.length === 0) return svg;
   const pct = series.some((s) => s.pct);
-  const max = pct ? 100 : Math.max(1, ...all);
+  const unit = pct ? "percent" : "tokens";
+  const dataMax = Math.max(0, ...all);
+  const scale = saiNiceScale(dataMax, 3, 0);
   const n = Math.max(1, ...series.map((s) => s.values.length));
-  const xOf = (i) => (n <= 1 ? W / 2 : L + (i * (W - L - R)) / (n - 1));
-  const yOf = (v) => T + (1 - Math.max(0, Math.min(v, max)) / max) * (H - T - B);
-  // 横軸の線
-  svg.appendChild(
-    svgEl("line", {
-      x1: String(L),
-      y1: String(H - B),
-      x2: String(W - R),
-      y2: String(H - B),
-      class: "lv-axis",
-    })
-  );
+  const xOf = (i) => (n <= 1 ? L + (W - L - R) / 2 : L + (i * (W - L - R)) / (n - 1));
+  const yOf = (v) =>
+    T + (1 - Math.max(0, Math.min(v, scale.max)) / scale.max) * (baseY - T);
+
+  // 縦の目盛りと格子線（0 のところだけ実線）
+  for (const t of scale.values) {
+    const y = yOf(t).toFixed(2);
+    svg.appendChild(
+      svgEl("line", {
+        x1: String(L),
+        y1: y,
+        x2: String(W - R),
+        y2: y,
+        class: t === 0 ? "lv-base" : "lv-grid",
+      })
+    );
+    const label = svgEl("text", {
+      x: String(L - 5),
+      y,
+      dy: "4",
+      class: "lv-tick",
+      "text-anchor": "end",
+    });
+    label.textContent = saiAxisValue(t, unit);
+    svg.appendChild(label);
+  }
+
+  // 折れ線
   for (const s of series) {
     if (!Array.isArray(s.values) || s.values.length === 0) continue;
     const pts = s.values
@@ -966,6 +990,54 @@ function lvLineSvg(series) {
       })
     );
   }
+
+  // 横のラベル（メッセージの通し番号。狭い画面では間引く）
+  const minGap = saiIsWide() ? 32 : 24;
+  const picks = [];
+  let lastX = -Infinity;
+  for (let i = 0; i < n; i += 1) {
+    const x = xOf(i);
+    const isEnd = i === 0 || i === n - 1;
+    if (x - lastX < (isEnd ? minGap * 0.6 : minGap)) continue;
+    lastX = x;
+    picks.push(i);
+  }
+  // 最後（何通目までか）は必ず出す。潰れていたら直前のラベルを溃す
+  if (n > 1 && picks[picks.length - 1] !== n - 1) {
+    const xLast = xOf(n - 1);
+    while (picks.length > 1 && xLast - xOf(picks[picks.length - 1]) < minGap * 0.6) {
+      picks.pop();
+    }
+    picks.push(n - 1);
+  }
+  for (const i of picks) {
+    const t = svgEl("text", {
+      x: (i === n - 1 ? W - R : xOf(i)).toFixed(1),
+      y: String(baseY + 15),
+      class: "lv-tick",
+      // 最後の番号は右端で切れないように右寄せにする
+      "text-anchor": i === n - 1 ? "end" : "middle",
+    });
+    t.textContent = String(i + 1);
+    svg.appendChild(t);
+  }
+
+  // 要点を 1 文で（画面読み上げ用）。最大になるのは何通目か。
+  let at = 0;
+  if (dataMax > 0) {
+    for (const s of series) {
+      const i = (s.values || []).findIndex((v) => lvNum(v) === dataMax);
+      if (i >= 0) {
+        at = i + 1;
+        break;
+      }
+    }
+  }
+  svg.setAttribute(
+    "aria-label",
+    `${series.map((s) => s.name).join("・")}の推移（${n} 通）。` +
+      (at > 0 ? `最大 ${saiAxisValue(dataMax, unit)}（${at} 通目）。` : "")
+  );
   return svg;
 }
 
@@ -984,12 +1056,18 @@ function lvRenderHistory(data) {
   } else {
     const R = 38;
     const C = 2 * Math.PI * R;
+    const total = slices.reduce((a, s) => a + s.value, 0);
+    // 並びは種類の順番で決まっているので、割合が最大のものは自分で探す
+    const biggest = slices.reduce((a, s) => (s.value > a.value ? s : a), slices[0]);
     const wrap = el("div", "st-donut-wrap");
     const svg = svgEl("svg", {
       viewBox: "0 0 100 100",
       class: "st-donut",
       role: "img",
-      "aria-label": "種類別トークンの割合",
+      "aria-label":
+        `種類別トークンの割合のドーナツ。合計 ${formatTokens(total)} トークン` +
+        `。最も多いのは${biggest.label} ${formatTokens(biggest.value)}` +
+        `（${Math.round(biggest.ratio * 100)}%）`,
     });
     let start = 0;
     slices.forEach((s, i) => {
@@ -1010,7 +1088,6 @@ function lvRenderHistory(data) {
       start += s.ratio;
     });
     wrap.appendChild(svg);
-    const total = slices.reduce((a, s) => a + s.value, 0);
     const center = el("div", "st-donut-center");
     center.appendChild(el("strong", "st-donut-total", formatTokens(total)));
     center.appendChild(el("span", "st-donut-cap", "合計"));
