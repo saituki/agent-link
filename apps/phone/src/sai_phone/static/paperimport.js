@@ -47,6 +47,9 @@ const PIM_ATTENTION_KINDS = {
   recommend_card: ["推薦", "ok", "推薦のカード"],
   report_issue: ["出典", "danger", "出典の要確認"],
   new_set_items: ["新着", "muted", "検索セットの新着"],
+  // U19: 研究方針の木から出る要対応
+  sci_decision: ["判断待ち", "warn", "判断待ちの項目"],
+  sci_triage: ["仕分け", "warn", "仕分け待ちの提案"],
 };
 
 // --- 画面の状態 ---

@@ -34,8 +34,11 @@
 // （index.html の ?v= も 28）
 // U5 の引用一覧の画面（cite.js 追加と index.html / sw.js / papers.js / paperimport.js の更新）で v30 に
 // （index.html の ?v= も 30。ASSETS にも /cite.js を足した）
-const CACHE = "sai-phone-v31";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/canvas.js", "/canvaspanel.js", "/canvas.css", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/manifest.json"];
+// U19 の研究方針の木（scitree.js とその CSS。U20・U21 用の空のファイル sciedit.js / sciread.js /
+// scigraph.js と sciedit.css / scigraph.css も先に登録）で v32 に
+// （index.html の ?v= も 32。ASSETS にも 7 つを足した）
+const CACHE = "sai-phone-v32";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/canvas.js", "/canvaspanel.js", "/canvas.css", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）
 const RADIO_CACHE = "sai-phone-radio-audio";

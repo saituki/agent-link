@@ -23,7 +23,9 @@
 // --- 定数 ---
 
 // Papers の上部の切り替え（07 §4.1）。押すと該当の # へ移る。
+// U19: 先頭に研究方針（#/papers/tree）を足した。論文タブの最初の画面。
 const PAPERS_SEG = [
+  ["tree", "研究方針", "#/papers/tree"],
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["discover", "Discover", "#/papers/discover"],
   ["library", "Library", "#/papers/library"],
@@ -77,6 +79,9 @@ const ATTENTION_CHIPS = {
   recommend_card: ["推薦", "ok"],
   report_issue: ["出典", "danger"],
   new_set_items: ["新着", "muted"],
+  // U19: 研究方針の木から出る要対応
+  sci_decision: ["判断待ち", "warn"],
+  sci_triage: ["仕分け", "warn"],
 };
 // 広い画面の「中身」に出しているもの（"" は何も出していない）
 let sideKind = "";       // "paper" | "remote" | ""
@@ -494,7 +499,7 @@ async function projectForAddress(nameParam) {
 /** 上部のプロジェクト名（📁 … ▾）を今の選択に合わせる（18 §1.1）。 */
 function updateProjectChips() {
   // import-project は Import 画面（paperimport.js）が作るので、ここでも名前を揃える
-  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "canvas-project", "import-project"]) {
+  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "canvas-project", "import-project", "sci-project"]) {
     const chip = document.getElementById(id);
     if (!chip) continue;
     chip.hidden = paperProjects === null; // 読んでから出す（18 §1.1）
@@ -550,7 +555,9 @@ async function openProjectSheet() {
 
 /** 切り替えたら今の画面を中身ごと作り直す（chip は Papers の 4 画面にある・18 §1.1）。 */
 function reopenCurrentScreen() {
-  if (location.hash === "#/papers/discover") void openDiscover();
+  // U19: 研究方針の木（節点つきでも同じ画面を作り直す）
+  if (/^#\/papers\/tree(?:\/N[1-9][0-9]{0,8})?$/.test(location.hash) && typeof stOpen === "function") void stOpen(stParseHash(location.hash));
+  else if (location.hash === "#/papers/discover") void openDiscover();
   else if (location.hash === "#/papers/dashboard") void openPapersDashboard();
   else if (location.hash === "#/papers/radio") void openRadioList(); // radio.js
   else if (location.hash === "#/papers/canvas" && typeof cvOpenList === "function") void cvOpenList(); // canvas.js（U06）
@@ -738,7 +745,15 @@ function attentionRow(item) {
   main.className = "pd-att-main";
   main.appendChild(el("span", `sai-chip ${kind[1]}`, kind[0]));
   main.appendChild(el("span", "pd-att-title", it.title || "（題のない要対応）"));
-  if (it.run_id != null) {
+  // U19: 研究方針の木から出る要対応は、節点つきで研究方針（または仕分け）へ移る
+  const sciHash = it.kind === "sci_triage"
+    ? "#/papers/triage"
+    : (it.kind === "sci_decision" && /^N[1-9][0-9]{0,8}$/.test(String(it.key || "")))
+      ? `#/papers/tree/${it.key}`
+      : "";
+  if (sciHash) {
+    main.addEventListener("click", () => { location.hash = sciHash; });
+  } else if (it.run_id != null) {
     // 論文のプロジェクトは sai-link のプロジェクトでもある（その実行の review を開く）
     main.addEventListener("click", () => {
       location.hash =
@@ -2764,7 +2779,7 @@ if (typeof window !== "undefined") {
   // 上部のプロジェクト名（押すと切り替えの一覧が下から出る・18 §1.1）
   const libChip = document.getElementById("library-project");
   if (libChip) libChip.addEventListener("click", () => { void openProjectSheet(); });
-  for (const id of ["dashboard-project", "discover-project", "radio-project", "canvas-project"]) {
+  for (const id of ["dashboard-project", "discover-project", "radio-project", "canvas-project", "sci-project"]) {
     const chip = document.getElementById(id);
     if (chip) chip.addEventListener("click", () => { void openProjectSheet(); });
   }
