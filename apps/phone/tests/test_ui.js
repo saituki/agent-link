@@ -59,7 +59,7 @@ function testTermTextsAreSentences() {
   for (const { key, text } of U.saiTermList()) {
     assert.ok(/[。？！]/.test(text), `${key} の説明が文になっていること: ${text}`);
     // 日本語（かな・漢字）と、実際に使う英単語・記号と空白だけ
-    // （？ は文の句点として上の検査にも使っている和研究方針の「［？］」の記号、〜 は範囲の記号として許す）
+    // （？ は文の句点として上の検査にも使っている。研究方針の「［？］」の記号にも使う、〜 は範囲の記号として許す）
     const stripped = text.replace(/[一-鿿぀-ゟ゠-ヿA-Za-z0-9\s.,:;!?/()（）「」【】［］→·…#@'"=\-_*`+%$&^~|<>{}\[\]。、？！〜～]/g, "");
     assert.strictEqual(stripped, "", `${key} の説明に読みでない文字があること: ${text}`);
     assert.ok(text.length <= 140, `${key} の説明が長すぎないこと`);
