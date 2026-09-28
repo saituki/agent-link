@@ -14,21 +14,48 @@ use petgraph::graph::NodeIndex;
 
 use super::dag::NodeId;
 
-/// 行グループ間の垂直ギャップ。
+/// 行グループ間の垂直ギャップ（TUI が使う既定値）。
 ///
 /// ユーザー指定: 縦方向の接続線が無いブロック間は狭める（現在値の約 0.5 倍）。
 /// 縦エッジ（親→子の接続線）が通る行間も同一ギャップで描画されるため、
 /// 全体を 3 → 2 に縮小する（接続線の縦セグメントは edge_render 側で吸収）。
 const VERTICAL_GAP: i32 = 2;
 
-/// 同一行内のノード間水平ギャップ（mb-sb / sb-sb の横並び間隔）。
+/// 同一行内のノード間水平ギャップ（mb-sb / sb-sb の横並び間隔。TUI が使う既定値）。
 const HORIZONTAL_GAP: i32 = 4;
 
-/// 区切り線の描画行数（区切り線 1 行 + 空き 2 行）。
+/// 区切り線の描画行数（区切り線 1 行 + 空き 2 行。TUI が使う既定値）。
 ///
 /// 区切り線の直下に縦エッジの分岐（水平セグメント）が重ならないよう、
 /// 区切り線と次行の間の空きを 1 行分確保する。
 const SEPARATOR_LINES: i32 = 3;
+
+/// 札どうしの間隔と区切り線の太さ行数の設定。
+///
+/// 既定値は TUI（`sai-link-tui`）の画面がそのまま使っている値。
+/// Web（`sai-moon-link phone workflow`）は文字マスが 10×20px と大きく、
+/// 既定値では札が詰まって見えないので、こちらだけ [`LayoutOptions`] で
+/// 広げて使う。間隔の計算は Rust のままなので、どちらの画面でも
+/// 「札は sai-link が決めた場所に固定する」約束は変わらない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayoutOptions {
+    /// 行グループ間の垂直ギャップ（文字マス）
+    pub vertical_gap: i32,
+    /// 同一行内のノード間水平ギャップ（文字マス）
+    pub horizontal_gap: i32,
+    /// 区切り線の描画行数（区切り線 1 行 + 空き）
+    pub separator_lines: i32,
+}
+
+impl Default for LayoutOptions {
+    fn default() -> Self {
+        Self {
+            vertical_gap: VERTICAL_GAP,
+            horizontal_gap: HORIZONTAL_GAP,
+            separator_lines: SEPARATOR_LINES,
+        }
+    }
+}
 
 // ============================================================================
 // NodePosition — 配置されたノードの座標情報
@@ -185,11 +212,19 @@ impl LayoutGraph {
 // calculate_layout — メインエントリポイント
 // ============================================================================
 
-/// レイアウトを計算する。
+/// レイアウトを計算する（TUI が使う既定の間隔）。
 ///
 /// 行 = (GR, LR) グループ（GR 昇順 → LR 昇順）、列 = DATE 順。
 /// サブブロックは main ブロックの右側に縦積みで配置する。
 pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
+    calculate_layout_with(graph, &LayoutOptions::default())
+}
+
+/// レイアウトを計算する（札どうしの間隔を指定する）。
+///
+/// 間隔を変えたい画面（Web）は [`LayoutOptions`] の値を作って渡す。
+/// 座標を px へ直す処理は呼び出し側に残し、ここでは文字マスのまま返す。
+pub fn calculate_layout_with(graph: &LayoutGraph, opts: &LayoutOptions) -> DagLayout {
     if graph.nodes.is_empty() {
         return DagLayout::default();
     }
@@ -252,7 +287,7 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
                 label,
                 global_round: gr.unwrap_or(i64::MAX),
             });
-            y_cursor += SEPARATOR_LINES;
+            y_cursor += opts.separator_lines;
         }
         prev_gr = *gr;
 
@@ -307,12 +342,12 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
                 // ── フェーズなし: サブを main の右側に横並びチェーンで配置 ──
                 // （mb → sb1 → sb2 → ... と同じ段に並べる）
                 if my_subs.is_empty() {
-                    x += i32::from(main.width) + HORIZONTAL_GAP;
+                    x += i32::from(main.width) + opts.horizontal_gap;
                     continue;
                 }
 
                 // サブ行: main ブロックの右側に横並び（縦積みではなくチェーン）
-                let mut sub_x = x + i32::from(main.width) + HORIZONTAL_GAP;
+                let mut sub_x = x + i32::from(main.width) + opts.horizontal_gap;
                 let mut sub_right_max = sub_x;
                 for sub in &my_subs {
                     positions.push(NodePosition {
@@ -327,10 +362,10 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
                     // 行の高さにサブの高さも含める（次の行との重なり防止）
                     row_height = row_height.max(i32::from(sub.height));
                     // 次のサブは右隣に横並び
-                    sub_x = sub_right_max + HORIZONTAL_GAP;
+                    sub_x = sub_right_max + opts.horizontal_gap;
                 }
                 // 次の main はサブ列の右側から始める
-                x = sub_right_max + HORIZONTAL_GAP;
+                x = sub_right_max + opts.horizontal_gap;
                 continue;
             }
 
@@ -343,7 +378,7 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
 
             // フェーズ行 0（main + バッチ1 のサブ群: 横並びチェーン）
             let mut row_h = i32::from(main.height);
-            let mut sub_x = x + i32::from(main.width) + HORIZONTAL_GAP;
+            let mut sub_x = x + i32::from(main.width) + opts.horizontal_gap;
             for sub in my_subs.iter().filter(|s| s.batch_group == Some(1)) {
                 positions.push(NodePosition {
                     index: sub.index,
@@ -355,9 +390,9 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
                 });
                 sub_right_max = sub_x + i32::from(sub.width);
                 row_h = row_h.max(i32::from(sub.height));
-                sub_x = sub_right_max + HORIZONTAL_GAP;
+                sub_x = sub_right_max + opts.horizontal_gap;
             }
-            cursor_y = row_y + row_h + VERTICAL_GAP;
+            cursor_y = row_y + row_h + opts.vertical_gap;
 
             // フェーズ行 k (k>=1): P_k + バッチ k+1 のサブ群（横並びチェーン）
             for (k, phase_node) in my_phases.iter().enumerate() {
@@ -371,7 +406,7 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
                     height: phase_node.height,
                 });
                 let mut phase_row_h = i32::from(phase_node.height);
-                let mut sub_x = x + i32::from(phase_node.width) + HORIZONTAL_GAP;
+                let mut sub_x = x + i32::from(phase_node.width) + opts.horizontal_gap;
                 // バッチ k+1 のサブ群（P_k の右側。k は 0 始まりなので batch_group = k+2）
                 for sub in my_subs
                     .iter()
@@ -387,15 +422,15 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
                     });
                     sub_right_max = sub_x + i32::from(sub.width);
                     phase_row_h = phase_row_h.max(i32::from(sub.height));
-                    sub_x = sub_right_max + HORIZONTAL_GAP;
+                    sub_x = sub_right_max + opts.horizontal_gap;
                 }
-                cursor_y = phase_y + phase_row_h + VERTICAL_GAP;
+                cursor_y = phase_y + phase_row_h + opts.vertical_gap;
             }
 
             // フェーズ列全体の高さを行の高さに反映（次の行との重なり防止）
             row_height = row_height.max(cursor_y - row_y);
             // 次の main はサブ列の右側から始める
-            x = sub_right_max + HORIZONTAL_GAP;
+            x = sub_right_max + opts.horizontal_gap;
         }
 
         // この行から出る縦エッジ（上下辺接地）の経路を追加する
@@ -411,7 +446,7 @@ pub fn calculate_layout(graph: &LayoutGraph, _top_down: bool) -> DagLayout {
             }
         }
 
-        y_cursor = row_y + row_height + VERTICAL_GAP;
+        y_cursor = row_y + row_height + opts.vertical_gap;
     }
 
     let content_width = positions
@@ -490,7 +525,65 @@ mod tests {
             .expect("ノードが配置されていない")
     }
 
-    /// 同一 (GR, LR) は同じ行、GR 昇順 → LR 昇順、DATE 順で列が並ぶこと。
+    /// 既定の設定は今の TUI と同じ間隔（縦 2・横 4・区切り 3）であること。
+    /// ここが変わると TUI の画面がずれるため、値を固定しておく。
+    #[test]
+    fn test_layout_options_default_is_legacy() {
+        let d = LayoutOptions::default();
+        assert_eq!(d.vertical_gap, 2, "縦の既定値は 2 のまま");
+        assert_eq!(d.horizontal_gap, 4, "横の既定値は 4 のまま");
+        assert_eq!(d.separator_lines, 3, "区切りの既定値は 3 のまま");
+    }
+
+    /// 既定の値では calculate_layout と calculate_layout_with が同じ座標になること
+    /// （TUI の画面が動いてないことの確認）。
+    #[test]
+    fn test_layout_with_default_matches_calculate_layout() {
+        let mut g = LayoutGraph::new();
+        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
+        add(&mut g, 2, Some(1), Some(2), "2026-08-01T10:01:00", None);
+        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
+        g.add_edge(1, 3, false);
+
+        let a = calculate_layout(&g, true);
+        let b = calculate_layout_with(&g, &LayoutOptions::default());
+        assert_eq!(a, b, "既定値では同じ座標になる");
+    }
+
+    /// 広くした値では行と列の間隔も区切りの空きも広がる（座標が散る）こと。
+    /// Web 側はこれで札どうしに余裕ができる。TUI の既定値は変わらない。
+    #[test]
+    fn test_layout_with_wider_options_spreads_gaps() {
+        let mut g = LayoutGraph::new();
+        add(&mut g, 1, Some(1), Some(1), "2026-08-01T10:00:00", None);
+        add(&mut g, 2, Some(1), Some(1), "2026-08-01T10:01:00", None);
+        add(&mut g, 3, Some(2), Some(1), "2026-08-01T10:02:00", None);
+
+        let narrow = calculate_layout(&g, true);
+        let wide = calculate_layout_with(
+            &g,
+            &LayoutOptions { vertical_gap: 4, horizontal_gap: 8, separator_lines: 4 },
+        );
+
+        // 同じ行の 2 つ目の札は右へ離れる
+        let n1 = find_pos(&narrow, 1);
+        let w1 = find_pos(&wide, 1);
+        let n2 = find_pos(&narrow, 2);
+        let w2 = find_pos(&wide, 2);
+        assert_eq!(n2.y - n1.y, w2.y - w1.y, "同じ行の中の 2 つの高さは変わらない");
+        assert_eq!(n2.x - n1.x, 20, "既定では 16（幅）+ 4（間隔）");
+        assert_eq!(w2.x - w1.x, 24, "広い方は 16（幅）+ 8（間隔）");
+
+        // 区切りの空きが増えて次の行が下がる
+        let n3 = find_pos(&narrow, 3);
+        let w3 = find_pos(&wide, 3);
+        assert_eq!(n3.x, w3.x, "行の始まりは左のままである");
+        assert!(w3.y - n3.y > 0, "縦の間隔が広がる: {} -> {}", n3.y, w3.y);
+        // 全世界の大きさも広がる
+        assert!(wide.content_width > narrow.content_width);
+        assert!(wide.content_height > narrow.content_height);
+    }
+
     #[test]
     fn test_rows_grouped_by_gr_lr_and_columns_by_date() {
         let mut g = LayoutGraph::new();

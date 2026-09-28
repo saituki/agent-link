@@ -238,7 +238,16 @@ fn workflow() -> PhoneResult<Value> {
         &src.connections,
         &src.finalized_runs,
     );
-    let layout = sai_link_widgets::workflow::calculate_layout(&layout_graph, true);
+    // Web の文字マスは 10×20px と大きく、同じ間隔では札どうしが詰まって見える。
+    // ここだけが TUI の既定より広く取る（TUI の座標は変わらない）。
+    let layout = sai_link_widgets::workflow::calculate_layout_with(
+        &layout_graph,
+        &sai_link_widgets::workflow::LayoutOptions {
+            vertical_gap: 4,
+            horizontal_gap: 8,
+            separator_lines: 4,
+        },
+    );
 
     // 座標（文字マス）＋表示データ。孤立ノードの_layout.nodes に無い場合は無いので、
     // フェーズ合成ノードを含め全てここに載る。
