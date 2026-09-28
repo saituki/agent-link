@@ -17,7 +17,7 @@ use sai_link_engine::kanban::KanbanCard;
 
 /// `runner: user` のカードを running にする（TUI の Enter と `phone user start` が共有）。
 ///
-/// やり方は TUI の，从来の処理と同じ。
+/// やり方は TUI の今までの処理と同じ。
 ///
 /// 1. `task.md` の `run_id:` を読む
 /// 2. プレースホルダーブロック `__user__`（表示名 `user`）に紐付ける
