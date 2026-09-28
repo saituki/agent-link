@@ -16,6 +16,7 @@ const {
   cvClosestSides,
   cvEdgePath,
   cvEdgeOpacity,
+  cvZoomInv,
   cvGroupColor,
   cvCardKind,
   cvEdgeKind,
@@ -26,6 +27,19 @@ const {
   CV_GROUP_COLORS,
   CV_ZOOM_MIN,
   CV_ZOOM_MAX,
+  CV_FAR_Z,
+  CV_TITLE_PX,
+  CV_TITLE_MAX_PX,
+  CV_FAR_TITLE_MAX_PX,
+  CV_TEXT_PX,
+  CV_TEXT_MAX_PX,
+  CV_FAR_TEXT_MAX_PX,
+  CV_GROUP_LABEL_PX,
+  CV_GROUP_LABEL_MAX_PX,
+  CV_EDGE_W_PX,
+  CV_EDGE_W_SEL_PX,
+  CV_EDGE_W_MAX_PX,
+  CV_EDGE_DIM,
 } = require(path.join(__dirname, "..", "src", "sai_phone", "static", "canvas.js"));
 
 // --- cvBoardHash / cvParseBoardHash（住所の往復） ---
@@ -205,8 +219,9 @@ function testEdgePathMinControlDistance() {
 // --- cvEdgeOpacity（選んだ札の線を濃くする） ---
 
 function testEdgeOpacityNoSelection() {
-  assert.strictEqual(cvEdgeOpacity({ from: "a", to: "b" }, null), 0.7);
-  assert.strictEqual(cvEdgeOpacity({ from: "a", to: "b" }, undefined), 0.7);
+  // 選んでいなければ全部 1（3:1 を保つには薄くしてはいけない）
+  assert.strictEqual(cvEdgeOpacity({ from: "a", to: "b" }, null), 1);
+  assert.strictEqual(cvEdgeOpacity({ from: "a", to: "b" }, undefined), 1);
 }
 
 function testEdgeOpacityWithSelection() {
@@ -214,8 +229,44 @@ function testEdgeOpacityWithSelection() {
   const miss = { from: "note-3", to: "note-4" };
   assert.strictEqual(cvEdgeOpacity(hit, "note-1"), 1);
   assert.strictEqual(cvEdgeOpacity(hit, "note-2"), 1);
-  assert.strictEqual(cvEdgeOpacity(miss, "note-1"), 0.12);
-  assert.strictEqual(cvEdgeOpacity(hit, "note-9"), 0.12);
+  assert.strictEqual(cvEdgeOpacity(miss, "note-1"), CV_EDGE_DIM);
+  assert.strictEqual(cvEdgeOpacity(hit, "note-9"), CV_EDGE_DIM);
+  assert.strictEqual(cvEdgeOpacity(null, "note-1"), CV_EDGE_DIM);
+}
+
+// --- 大きさの定数（U03。画面上の px を保つためのもの） ---
+
+function testZoomInv() {
+  assert.strictEqual(cvZoomInv(1), 1);
+  assert.strictEqual(cvZoomInv(0.5), 2);
+  assert.strictEqual(cvZoomInv(0.25), 4);
+  // 壊れた値でも 0 にならない（CSS の掛け算が壊れるため）
+  for (const bad of [0, -1, null, undefined, NaN, "x"]) {
+    assert.strictEqual(cvZoomInv(bad), 1, `cvZoomInv(${bad})`);
+  }
+}
+
+function testSizeConstants() {
+  // 全体表示のあと、題と付箋の文字が画面上で 12px 以上になるための定数
+  assert.ok(CV_TITLE_PX >= 12, `題が 12px 未満: ${CV_TITLE_PX}`);
+  assert.ok(CV_TEXT_PX >= 12, `付箋の文字が 12px 未満: ${CV_TEXT_PX}`);
+  assert.ok(CV_GROUP_LABEL_PX >= 12, `枠の見出しが 12px 未満: ${CV_GROUP_LABEL_PX}`);
+  // 上の定数より縮んでも画面上 12px を保つ下限（これより小さい盤面では 12px を割る）
+  // 札は幅 240・高さ 140。上限はそこにはみ出さない範囲に止める。
+  const CV_CARD_H = 140;
+  assert.ok(CV_TITLE_MAX_PX * 1.1 * 2 <= CV_CARD_H, `題（2 行）が札からはみ出す: ${CV_TITLE_MAX_PX}`);
+  assert.ok(CV_FAR_TITLE_MAX_PX * 1.1 <= CV_CARD_H, `遠くの題（1 行）が札からはみ出す: ${CV_FAR_TITLE_MAX_PX}`);
+  assert.ok(CV_TEXT_MAX_PX < CV_CARD_H, "付箋の文字が札より大きい");
+  assert.ok(CV_FAR_TEXT_MAX_PX < CV_CARD_H, "遠くの付箋の文字が札より大きい");
+  assert.ok(CV_GROUP_LABEL_MAX_PX < CV_CARD_H, "枠の見出しが札より大きい");
+  // 線も画面上で 1.5px 以上、選んだ線はその 1.5 倍くらい
+  assert.ok(CV_EDGE_W_PX >= 1.5, `線が細すぎる: ${CV_EDGE_W_PX}`);
+  assert.ok(CV_EDGE_W_SEL_PX > CV_EDGE_W_PX, "選んだ線が太くない");
+  assert.ok(CV_EDGE_W_MAX_PX >= CV_EDGE_W_PX, "線の上限が線の太さより小さい");
+  // 薄くする濃さは 1 より小さい（それ以外は「薄くする」意味がない）
+  assert.ok(CV_EDGE_DIM > 0 && CV_EDGE_DIM < 1, `CV_EDGE_DIM が変: ${CV_EDGE_DIM}`);
+  // 遠くのときの境は 1 未満（拡大していない盤面が遠くの扱いにならない）
+  assert.ok(CV_FAR_Z > 0 && CV_FAR_Z < 1, `CV_FAR_Z が変: ${CV_FAR_Z}`);
 }
 
 // --- 色の表 ---
@@ -337,6 +388,8 @@ const tests = [
   testEdgePathMinControlDistance,
   testEdgeOpacityNoSelection,
   testEdgeOpacityWithSelection,
+  testZoomInv,
+  testSizeConstants,
   testGroupColor,
   testCardKindNullIsPaperGrey,
   testCardKindUnknownIsPaperGrey,

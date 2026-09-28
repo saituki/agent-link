@@ -27,8 +27,29 @@ const CV_KEY_PAN = 80;
 const CV_DRAG_SLOP = 4;
 // 画面がこの幅以上なら左右の欄を盤面の横に並べる（未満は引き出し）
 const CV_WIDE_PX = 900;
-// 拡大率がこの未満のときは札をitle だけ大きく描く（遠くから見ても読めるように）
-const CV_FAR_Z = 0.45;
+// 拡大率がこの未満のときは題だけ大きく描く（遠くから見ても読めるように）。
+// Workflow（WF_FAR_Z）と同じ境で、補助の文字が読めなくなる前に題だけの形へ切り替える。
+const CV_FAR_Z = 0.6;
+// 題の画面上の大きさ（px）。拡大率の逆数を掛けて、どれだけ縮んでもこの大きさで読めるようにする
+const CV_TITLE_PX = 14;
+// 題の世界上の大きさの上限（px）。これ以上広げると札（高さ 140px）からはみ出す
+const CV_TITLE_MAX_PX = 48;
+// 遠くのときの題の上限（px）。1 行で収まるぶんまで広げる。
+// 12px を割らない下限は 12 / この値 = 0.125（画面の幅 310px で世界 2480px までの盤面）
+const CV_FAR_TITLE_MAX_PX = 96;
+// 文字（付箋）の画面上の大きさ（px）と、遠くのときの上限（世界上の px）
+const CV_TEXT_PX = 14;
+const CV_TEXT_MAX_PX = 24;
+const CV_FAR_TEXT_MAX_PX = 72;
+// 枠の見出しの画面上の大きさ（px）と上限（世界上の px）
+const CV_GROUP_LABEL_PX = 14;
+const CV_GROUP_LABEL_MAX_PX = 72;
+// 線の太さ（画面上の px）。世界上の値は拡大率の逆数を掛けて保つか、上限で止める
+const CV_EDGE_W_PX = 1.6;
+const CV_EDGE_W_SEL_PX = 2.5;
+const CV_EDGE_W_MAX_PX = 12;
+// 選んだ札につながらない線を薄くする濃さ。これでも線として 3:1 以上を保つ
+const CV_EDGE_DIM = 0.8;
 
 // 線の種類（[kind, 名前, 色]。C-C と計画 U06 の表）
 // 色は CSS 変数。暗い画面では :root の変数が別になるので、こちらでも自動的に変わる。
@@ -316,13 +337,22 @@ function cvBezierMid(p1, c1, c2, p2) {
 }
 
 /**
- * 線の濃さ。選んでいなければ 0.7、選んだ札につながる線は 1、それ以外は 0.12。
+ * 線の濃さ。選んでいなければ全部 1、選んだ札につながる線は 1、
+ * それ以外の線だけを CV_EDGE_DIM まで薄くする。
+ * 薄くしても線として読めるように 3:1 以上を保つ（apps/phone/tests/test_contrast.js が検査する）。
  */
 function cvEdgeOpacity(edge, selected) {
-  if (!selected) return 0.7;
-  if (!edge) return 0.12;
+  if (!selected) return 1;
+  if (!edge) return CV_EDGE_DIM;
   if (edge.from === selected || edge.to === selected) return 1;
-  return 0.12;
+  return CV_EDGE_DIM;
+}
+
+/** 拡大率の逆数（0 にならないように 1 を下限にする）。題や線の大きさを画面上の px で保つために使う。 */
+function cvZoomInv(z) {
+  const n = Number(z);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return 1 / n;
 }
 
 /**
@@ -754,8 +784,10 @@ function cvCardEl(n) {
   // kind が null や未知の値（DB に無い札）でも paper の灰色で描く
   const kind = cvCardKind(n.kind);
   const color = kind.color;
-  box.style.borderLeftColor = color;
-  if (!kind.key) box.classList.add("cv-unknown-kind");
+  // 帯の色は変数で渡す。CSS 側で cv-dim（選んだ札とつながっていない札）の
+  // 帯の色を地色に混ぜた色に変えられるようにするため
+  box.style.setProperty("--cv-card-band", color);
+  if (!kind.key) box.classList.add("cv-unknown-kind");  // 目印（見た目は CSS 側で足せるようにしておく）
 
   const head = document.createElement("div");
   head.className = "cv-head";
@@ -843,13 +875,14 @@ function cvRenderEdges() {
     const color = kind.color;
     const opacity = cvEdgeOpacity(e, cvState.selected);
     const on = e.from === cvState.selected || e.to === cvState.selected;
+    const w = on ? CV_EDGE_W_SEL_PX : CV_EDGE_W_PX;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", cvEdgePath(a, b));
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", color);
-    path.setAttribute("stroke-width", on ? "2.5" : "1.6");
+    path.setAttribute("stroke-width", String(w));
     // 縮小しても線が細くなって消えないよう、画面上の太さで描く（矢印も同じ大きさのまま）
-    path.style.strokeWidth = `calc(${on ? 2.5 : 1.6}px / var(--cv-z, 1))`;
+    path.style.strokeWidth = `min(calc(${w}px * var(--cv-z-inv, 1)), ${CV_EDGE_W_MAX_PX}px)`;
     path.setAttribute("stroke-opacity", String(opacity));
     if (kind.known) {
       path.setAttribute("marker-end", `url(#cv-arrow-${kind.key})`);
@@ -876,8 +909,11 @@ function cvRenderEdges() {
       label.setAttribute("text-anchor", "middle");
       label.setAttribute("dominant-baseline", "middle");
       label.setAttribute("font-size", "12");
+      // ラベルは文字なので薄くしない（4.5:1 を保つ）。link の線の色は盤面（--bg-soft）の
+      // 上で明暗とも 4.5 以上。線の太さと同じく拡大率の逆数を掛ける。
+      label.style.fontSize = `min(calc(12px * var(--cv-z-inv, 1)), 48px)`;
       label.setAttribute("fill", color);
-      label.setAttribute("fill-opacity", String(Math.max(opacity, 0.75)));
+      label.setAttribute("fill-opacity", "1");
       label.textContent = String(e.label);
       svg.appendChild(label);
     }
@@ -891,8 +927,16 @@ function cvApplyView() {
   world.style.transform = `translate(${cvView.tx}px, ${cvView.ty}px) scale(${cvView.z})`;
   // 遠くのときは札を簡単に描く
   world.classList.toggle("cv-far", cvView.z < CV_FAR_Z);
-  // 線の太さと遠くの題名を画面上で同じ大きさに保つため、CSS に拡大率を渡す
-  world.style.setProperty("--cv-z", String(cvView.z));
+  // 題・線・ラベルの大きさを画面上の px で保つため、拡大率の逆数を CSS に渡す
+  world.style.setProperty("--cv-z-inv", String(cvZoomInv(cvView.z)));
+  world.style.setProperty("--cv-title-px", `${CV_TITLE_PX}px`);
+  world.style.setProperty("--cv-title-max", `${CV_TITLE_MAX_PX}px`);
+  world.style.setProperty("--cv-text-px", `${CV_TEXT_PX}px`);
+  world.style.setProperty("--cv-text-max", `${CV_TEXT_MAX_PX}px`);
+  world.style.setProperty("--cv-far-title-max", `${CV_FAR_TITLE_MAX_PX}px`);
+  world.style.setProperty("--cv-far-text-max", `${CV_FAR_TEXT_MAX_PX}px`);
+  world.style.setProperty("--cv-group-label-px", `${CV_GROUP_LABEL_PX}px`);
+  world.style.setProperty("--cv-group-label-max", `${CV_GROUP_LABEL_MAX_PX}px`);
   cvRenderZoom();
   cvSaveView();
 }
@@ -1410,6 +1454,7 @@ if (typeof module !== "undefined" && module.exports) {
     cvClosestSides,
     cvEdgePath,
     cvEdgeOpacity,
+    cvZoomInv,
     cvGroupColor,
     cvCardKind,
     cvEdgeKind,
@@ -1420,5 +1465,18 @@ if (typeof module !== "undefined" && module.exports) {
     CV_GROUP_COLORS,
     CV_ZOOM_MIN,
     CV_ZOOM_MAX,
+    CV_FAR_Z,
+    CV_TITLE_PX,
+    CV_TITLE_MAX_PX,
+    CV_FAR_TITLE_MAX_PX,
+    CV_TEXT_PX,
+    CV_TEXT_MAX_PX,
+    CV_FAR_TEXT_MAX_PX,
+    CV_GROUP_LABEL_PX,
+    CV_GROUP_LABEL_MAX_PX,
+    CV_EDGE_W_PX,
+    CV_EDGE_W_SEL_PX,
+    CV_EDGE_W_MAX_PX,
+    CV_EDGE_DIM,
   };
 }

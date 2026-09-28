@@ -1,6 +1,7 @@
 /* sai-phone の Canvas（一覧と盤面）— 実装計画 U06。
    style.css の次に読む（index.html）。style.css は U01 が書くので触らない。
-   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --accent / --danger。 */
+   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
+   --sel / --accent / --danger と、論文の Canvas 用の --cv-*。 */
 
 /* --- 一覧（#/papers/canvas） --- */
 
@@ -125,7 +126,8 @@
   position: relative;
 }
 
-/* --- 盤面（#cv-stage） --- */
+/* --- 盤面（#cv-stage） ---
+   盤面は --bg-soft、札は --bg にして区別する。線・枠・文字はこの 2 つの地色の上に出る。 */
 
 .cv-stage {
   flex: 1;
@@ -136,6 +138,9 @@
   touch-action: none;  /* 指でのスクロールをさせない（ドラッグは自前要做） */
 }
 
+/* 題・線・ラベルの大きさは拡大率の逆数（--cv-z-inv）で画面上の px を保つ。
+   極小まで縮んだときは上限（--cv-*-max）で止め、札（高さ 140px）からはみ出さないようにする。
+   --cv-z-inv と --cv-* は cvApplyView（canvas.js）が書き込む。 */
 .cv-world {
   position: absolute;
   left: 0;
@@ -144,6 +149,15 @@
   height: 0;
   transform-origin: 0 0;
   will-change: transform;
+  --cv-z-inv: 1;
+  --cv-title-px: 14px;
+  --cv-title-max: 48px;
+  --cv-far-title-max: 96px;
+  --cv-text-px: 14px;
+  --cv-text-max: 24px;
+  --cv-far-text-max: 72px;
+  --cv-group-label-px: 14px;
+  --cv-group-label-max: 72px;
 }
 
 .cv-loading {
@@ -164,15 +178,22 @@
   pointer-events: none;
 }
 
-/* --- 枠（group） --- */
+/* --- 枠（group） ---
+   枠は意味を持つ線なので --line-strong（3:1 以上）。色があるときは JSON Canvas の色
+   （var(--cv-group-1)  など）を JS が当てる。太さは画面上 1〜2px に保つ。 */
 
 .cv-group {
   position: absolute;
-  border: 2px solid var(--line);
+  border: 2px solid var(--line-strong);
   border-radius: 16px;
   pointer-events: none;  /* 縁と見出しだけが受け取る */
 }
-.cv-group.cv-sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.cv-group.cv-sel {
+  border-color: var(--sel);
+  box-shadow: 0 0 0 2px var(--sel);
+}
+/* 縮小しても枠が細くなって消えないよう、拡大率の逆数で太さを保つ */
+.cv-far .cv-group { border-width: min(2px, calc(2px * max(var(--cv-z-inv, 1), 1))); }
 /* 縁だけ 12px の帯にして掴めるようにする（内側を押したら盤面が動く） */
 .cv-group-grip {
   position: absolute;
@@ -192,9 +213,12 @@
 .cv-group-label {
   position: absolute;
   left: 0;
-  top: -24px;
+  top: -1.2em;   /* 枠の上に 1 行分。文字の大きさに合わせてずれる */
   max-width: 100%;
-  font-size: 14px;
+  /* 画面上で CV_GROUP_LABEL_PX で読めるようにし、見出しが枠からはみ出さないよう上限を付ける。
+     文字の色は JSON Canvas の枠の色（JS が当てる）で、盤面（--bg-soft）の上で 4.5 以上。 */
+  font-size: min(calc(var(--cv-group-label-px, 14px) * max(var(--cv-z-inv, 1), 1)), var(--cv-group-label-max, 72px));
+  line-height: 1.2;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -202,13 +226,16 @@
   pointer-events: auto;  /* 見出しも枠の移動 */
 }
 
-/* --- 札（card） --- */
+/* --- 札（card） ---
+   盤面は --bg-soft なので札は --bg。枠は意味を持つ枠なので --line-strong（3:1 以上）。 */
 
 .cv-card {
   position: absolute;
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  /* 左の帯の色は --cv-card-band（JS が --cv-card-note などを入れる） */
+  border-left: 4px solid var(--cv-card-band, var(--accent));
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   padding: 9px 11px;
@@ -218,23 +245,31 @@
   -webkit-user-select: none;
 }
 .cv-card.cv-sel {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(0, 0, 0, 0.18);
+  border-color: var(--sel);
+  box-shadow: 0 0 0 2px var(--sel), 0 2px 8px rgba(0, 0, 0, 0.18);
 }
-/* 選んだ札とつながっていない札は薄くする（線の 0.12 と釣り合いを揃える） */
-.cv-card.cv-dim { opacity: 0.45; }
+/* 選んだ札とつながっていない札は薄くする（cv-dim）。
+   opacity で文字ごと薄くすると 4.5:1 を保てないので、盤面と同じ地色と細い枠にして
+   札の見た目だけを弱める（Workflow の .wf-dim と同じ考え方）。 */
+.cv-card.cv-dim {
+  background: var(--bg-soft);
+  border-color: var(--line);
+  border-left-color: color-mix(in srgb, var(--cv-card-band, var(--accent)) 40%, var(--bg-soft));
+}
 .cv-card .cv-head {
   display: flex;
   gap: 6px;
   align-items: baseline;
-  font-size: 11px;
+  /* 補助の文字（種類・タグ・要約）も拡大率の逆数で大きくするが、上限は 16px。
+     題（最大 48px の 2 行）と合わせて札の高さ 140px に収めるため。 */
+  font-size: min(calc(11px * max(var(--cv-z-inv, 1), 1)), 16px);
   color: var(--text-soft);
   white-space: nowrap;
   overflow: hidden;
 }
 .cv-card .cv-kind { font-weight: 700; flex: none; }
-/* kind が null や未知の札（DB に無い札）。帯は paper と同じ灰色にする（cvCardKind） */
-.cv-card.cv-unknown-kind .cv-kind { opacity: 0.7; }
+/* kind が null や未知の札（DB に無い札）。帯は paper と同じ灰色にする（cvCardKind）。
+   文字は薄くしない（--cv-card-* の色は 4.5 以上のはずなので、薄くすると落ちる）。 */
 .cv-card .cv-sub {
   min-width: 0;
   overflow: hidden;
@@ -242,7 +277,9 @@
 }
 .cv-card .cv-title {
   margin-top: 2px;
-  font-size: 14px;
+  /* 題は拡大率の逆数で大きくして、どれだけ縮んでも画面上 CV_TITLE_PX で読めるようにする。
+     拡大したときは max(逆数, 1) なので、題は一緒に大きくなる。 */
+  font-size: min(calc(var(--cv-title-px, 14px) * max(var(--cv-z-inv, 1), 1)), var(--cv-title-max, 48px));
   font-weight: 700;
   line-height: 1.3;
   display: -webkit-box;
@@ -252,7 +289,9 @@
 }
 .cv-card .cv-tags {
   margin-top: 3px;
-  font-size: 11px;
+  /* 補助の文字（種類・タグ・要約）も拡大率の逆数で大きくするが、上限は 16px。
+     題（最大 48px の 2 行）と合わせて札の高さ 140px に収めるため。 */
+  font-size: min(calc(11px * max(var(--cv-z-inv, 1), 1)), 16px);
   color: var(--text-soft);
   white-space: nowrap;
   overflow: hidden;
@@ -260,7 +299,7 @@
 }
 .cv-card .cv-sum {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: min(calc(12px * max(var(--cv-z-inv, 1), 1)), 16px);
   line-height: 1.4;
   color: var(--text-soft);
   display: -webkit-box;
@@ -278,7 +317,7 @@
   border: 1px solid var(--note-line);
   border-radius: 10px;
   padding: 9px 11px;
-  font-size: 13px;
+  font-size: min(calc(13px * max(var(--cv-z-inv, 1), 1)), var(--cv-text-max, 24px));
   line-height: 1.5;
   white-space: pre-wrap;
   overflow: hidden;
@@ -287,20 +326,31 @@
   -webkit-user-select: none;
 }
 
-/* --- 遠くのとき（拡大率が 0.45 未満）は題名だけ大きく描く --- */
+/* --- 遠くのとき（拡大率が CV_FAR_Z 未満）は題だけ大きく描く ---
+   題は 2 行までで、札（高さ 140px）からはみ出さない上限まで広げる。 */
 
-.cv-far .cv-card { padding: 6px 8px; }
+.cv-far .cv-card {
+  display: flex;
+  align-items: center;   /* 題しか残さないので、札の中央に置く */
+  padding: 6px 8px;
+  border-width: min(1px, calc(1px * max(var(--cv-z-inv, 1), 1)));
+  border-left-width: min(3px, calc(3px * max(var(--cv-z-inv, 1), 1)));
+}
 .cv-far .cv-card .cv-head,
 .cv-far .cv-card .cv-tags,
 .cv-far .cv-card .cv-sum { display: none; }
 .cv-far .cv-card .cv-title {
   margin: 0;
-  /* 画面上でおよそ 14px に見える大きさ（札からはみ出さないよう 64px まで） */
-  font-size: min(calc(14px / var(--cv-z, 1)), 64px);
-  line-height: 1.2;
-  -webkit-line-clamp: 3;
+  /* 画面上でおよそ CV_TITLE_PX に見える大きさ（札からはみ出さないよう上限を付ける） */
+  font-size: min(calc(var(--cv-title-px, 14px) * max(var(--cv-z-inv, 1), 1)), var(--cv-far-title-max, 96px));
+  line-height: 1.15;
+  /* 2 行で収まる高さ（札の高さ 140px）。これ以上は切れて読めなくなる */
+  -webkit-line-clamp: 2;
 }
-.cv-far .cv-text { font-size: 16px; }
+.cv-far .cv-text {
+  padding: 6px 8px;
+  font-size: min(calc(var(--cv-text-px, 14px) * max(var(--cv-z-inv, 1), 1)), var(--cv-far-text-max, 72px));
+}
 
 /* --- 右下の − 100% + ⤢ --- */
 
