@@ -46,7 +46,7 @@ fn list(json: bool) -> Result<()> {
         return Ok(());
     }
     println!("要対応 {} 件", items.len());
-    // 種類の順（1 → 2 → 3 → 4 → 5）に並べて出す。
+    // 種類の順に並べて出す。
     let order = [
         AttentionKind::EmptyReview,
         AttentionKind::Question,
@@ -54,6 +54,8 @@ fn list(json: bool) -> Result<()> {
         AttentionKind::RecommendCard,
         AttentionKind::ReportIssue,
         AttentionKind::NewSetItems,
+        AttentionKind::SciDecision,
+        AttentionKind::SciTriage,
     ];
     for kind in order {
         let group: Vec<&AttentionItem> = items.iter().filter(|item| item.kind == kind).collect();
@@ -77,6 +79,8 @@ fn kind_heading(kind: AttentionKind) -> &'static str {
         AttentionKind::RecommendCard => "推薦のカード",
         AttentionKind::ReportIssue => "出典の要確認",
         AttentionKind::NewSetItems => "検索セットの新着",
+        AttentionKind::SciDecision => "判断待ちの項目",
+        AttentionKind::SciTriage => "仕分け待ちの提案",
     }
 }
 

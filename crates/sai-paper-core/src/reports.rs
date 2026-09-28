@@ -1390,6 +1390,8 @@ pub fn scan(conn: &Connection, root: &Path) -> Result<ScanReport, ReportError> {
                         return Err(error);
                     }
                     summary.added += 1;
+                    // sci の木があれば、report を節点に結ぶ（失敗しても登録は残す）。
+                    let _ = link_report_to_sci_node(conn, &run, &report_id, &markdown);
                 }
                 Some((report_id, old_hash, old_path)) => {
                     let changed = old_hash.as_deref() != Some(content_hash.as_str())
@@ -1417,6 +1419,8 @@ pub fn scan(conn: &Connection, root: &Path) -> Result<ScanReport, ReportError> {
                             params![md_path, block_id, report_id],
                         )?;
                         summary.updated += 1;
+                        // sci の木があれば、report を節点に結ぶ（失敗しても登録は残す）。
+                        let _ = link_report_to_sci_node(conn, &run, &report_id, &markdown);
                     } else {
                         // 中身は同じでも、他の作業が入れた問題を拾って件数を数え直す。
                         write_check(conn, &report_id, Some(&file_name), Some(&content_hash))?;
@@ -1435,6 +1439,66 @@ pub fn scan(conn: &Connection, root: &Path) -> Result<ScanReport, ReportError> {
     // 撤回された論文を引用した report の印を入れ直す（migration 0041 の列があるときだけ）。
     refresh_retracted_issues(conn)?;
     Ok(summary)
+}
+
+/// sci のプロジェクトなら、report を節点に結ぶ。
+///
+/// 節点は report の frontmatter の `sci_node`、無ければ実行の `task.md` の `sci_node` から
+/// 読む（C-05 / C-15）。結び付きは `target_kind = report`・`auto = 1`。
+/// 同じ組は [`crate::sci::store::upsert_link`] が 1 本にまとめるので、何度走っても増えない。
+///
+/// 木が無い・節点が無い・どちらにも `sci_node` が無いときは何もしない。
+///
+/// # Errors
+///
+/// DB の読み書きに失敗したとき。
+fn link_report_to_sci_node(
+    conn: &Connection,
+    run: &crate::runs::RunDir,
+    report_id: &str,
+    markdown: &str,
+) -> crate::sci::Result<()> {
+    if !crate::sci::store::is_initialized(conn)? {
+        return Ok(());
+    }
+    // report の frontmatter を先に読む。無ければ実行の task.md を見る。
+    let mut keys = crate::sci::task_sci_keys(markdown);
+    let from_report = keys.node.is_some();
+    if !from_report {
+        if let Ok(task) = std::fs::read_to_string(run.path.join("task.md")) {
+            let from_task = crate::sci::task_sci_keys(&task);
+            if from_task.node.is_some() {
+                keys = from_task;
+            }
+        }
+    }
+    let Some(node_id) = keys.node else {
+        return Ok(());
+    };
+    // 木に無い節点なら結ばない（番号は読めても、木にその節点が無いことがある）。
+    if crate::sci::store::get_node(conn, node_id).is_err() {
+        return Ok(());
+    }
+    let reason = if from_report {
+        "report の sci_node"
+    } else {
+        "run の sci_node"
+    };
+    crate::sci::store::upsert_link(
+        conn,
+        &crate::sci::store::NewLink {
+            node_id,
+            target_kind: "report",
+            target_ref: report_id,
+            role: None,
+            read_state: None,
+            reason,
+            proposal_id: None,
+            auto: true,
+            created_by: &format!("run:{}", run.run_id),
+        },
+    )?;
+    Ok(())
 }
 
 /// report の検査結果（`report_issues`）を返す。
@@ -2057,6 +2121,128 @@ papers: [37]
         let fourth = scan(&conn, &root)?;
         assert_eq!(fourth.updated, 1);
         assert_eq!(report_sources(&conn, &map_id)?.len(), 1);
+        Ok(())
+    }
+
+    /// sci の木を 1 つだけ作る（節点を 1 つ返し `sci_meta` の `type` を書く）。
+    fn make_sci_node(conn: &Connection, title: &str) -> i64 {
+        use crate::sci::store::{self, NewNode};
+        store::meta_set(conn, "type", "problem").unwrap();
+        store::insert_node(
+            conn,
+            &NewNode {
+                kind: "item",
+                item_key: None,
+                types: &[],
+                title,
+                body: "",
+                state: "open",
+                fixed: false,
+                ord: 0,
+                created_by: "user",
+            },
+        )
+        .unwrap()
+    }
+
+    /// `sci_links` の結び付き 1 本を読み出す。
+    fn sci_link_of(conn: &Connection) -> Option<(i64, String, String, String, i64, String)> {
+        conn.query_row(
+            "SELECT node_id, target_kind, target_ref, reason, auto, created_by
+             FROM sci_links WHERE target_kind = 'report'",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .ok()
+    }
+
+    #[test]
+    fn scan_links_report_to_sci_node() -> Result<(), Box<dyn std::error::Error>> {
+        // report の frontmatter の sci_node を優先する。
+        let root = temp_root("sci-link-report");
+        write_file(
+            root.join(".sai/blocks/sci-compare.md"),
+            "---\nname: sci-compare\ntemplates: sci-core,domain\n---\n",
+        );
+        write_file(
+            root.join(".sai/outputs/running/20/task.md"),
+            "---\nrun_id: 20\nblock: sci-compare\nsci_node: N1\nsci_purpose: 比べる\n---\n",
+        );
+        write_file(
+            root.join(".sai/outputs/running/20/answer.md"),
+            "---\nkind: 回答\nblock: sci-compare\nsci_node: N2\n---\n\n本文\n",
+        );
+        let database = crate::database::Database::in_memory()?;
+        let conn = database.connection();
+        make_sci_node(conn, "小目的");
+        let from_report = make_sci_node(conn, "手法");
+
+        // sci-core のブロックなので report として登録される。
+        let summary = scan(conn, &root)?;
+        assert_eq!(summary.added, 1);
+        let (node_id, kind, target, reason, auto, created_by) =
+            sci_link_of(conn).expect("report が結ばれる");
+        assert_eq!(node_id, from_report);
+        assert_eq!(kind, "report");
+        assert_eq!(target, "R-0001");
+        assert_eq!(reason, "report の sci_node");
+        assert_eq!(auto, 1);
+        assert_eq!(created_by, "run:20");
+
+        // もう 1 回走っても 1 本のまま。
+        let again = scan(conn, &root)?;
+        assert_eq!(again.unchanged, 1);
+        assert_eq!(sci_link_of(conn).expect("結ばれている").1, "report");
+
+        // report に sci_node が無ければ実行の task.md を見る。
+        write_file(
+            root.join(".sai/outputs/running/21/task.md"),
+            "---\nrun_id: 21\nblock: sci-compare\nsci_node: N1\n---\n",
+        );
+        write_file(
+            root.join(".sai/outputs/running/21/answer.md"),
+            "---\nkind: 回答\nblock: sci-compare\n---\n\n本文\n",
+        );
+        scan(conn, &root)?;
+        let links: Vec<_> = conn
+            .prepare("SELECT node_id, reason FROM sci_links WHERE target_kind = 'report' ORDER BY id")?
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        assert_eq!(links.len(), 2, "{links:?}");
+        assert_eq!(links[1], (1, "run の sci_node".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn scan_ignores_sci_node_without_tree() -> Result<(), Box<dyn std::error::Error>> {
+        let root = temp_root("sci-link-no-tree");
+        write_file(
+            root.join(".sai/blocks/sci-compare.md"),
+            "---\nname: sci-compare\ntemplates: sci-core\n---\n",
+        );
+        write_file(
+            root.join(".sai/outputs/running/30/task.md"),
+            "---\nrun_id: 30\nblock: sci-compare\nsci_node: N1\n---\n",
+        );
+        write_file(
+            root.join(".sai/outputs/running/30/answer.md"),
+            "---\nkind: 回答\nblock: sci-compare\n---\n\n本文\n",
+        );
+        let database = crate::database::Database::in_memory()?;
+        let conn = database.connection();
+
+        assert_eq!(scan(conn, &root)?.added, 1);
+        // 木が無いので結び付けはしない（登録だけ残る）。
+        assert!(sci_link_of(conn).is_none());
         Ok(())
     }
 }

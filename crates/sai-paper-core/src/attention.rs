@@ -10,6 +10,8 @@
 //! 4. `RecommendCard` — todo に残っている推薦のカード（タグ `推薦`）
 //! 5. `ReportIssue` — 出典の要確認（report の問題のうち `error` のもの）
 //! 6. `NewSetItems` — 検索セットをもう一度実行して新着があった（S03）
+//! 7. `SciDecision` — 判断待ちの項目がある（研究方針の木があるときだけ）
+//! 8. `SciTriage` — 仕分けていない提案がある（研究方針の木があるときだけ）
 //!
 //! LLM は使わない。ファイル（`.sai/outputs/`・`.sai/paper/state.md`）と
 //! `papr.db` を読むだけである。
@@ -52,6 +54,10 @@ pub enum AttentionKind {
     ReportIssue,
     /// 検索セットをもう一度実行して新着があった（S03）。
     NewSetItems,
+    /// 研究方針の木の判断待ちの項目（C-08 の `blank = awaiting_decision`）。
+    SciDecision,
+    /// 研究方針の木の仕分け待ちの提案。
+    SciTriage,
 }
 
 impl AttentionKind {
@@ -65,6 +71,8 @@ impl AttentionKind {
             Self::RecommendCard => "推薦",
             Self::ReportIssue => "出典",
             Self::NewSetItems => "新着",
+            Self::SciDecision => "判断待ち",
+            Self::SciTriage => "仕分け",
         }
     }
 
@@ -78,6 +86,8 @@ impl AttentionKind {
             Self::RecommendCard => "recommend_card",
             Self::ReportIssue => "report_issue",
             Self::NewSetItems => "new_set_items",
+            Self::SciDecision => "sci_decision",
+            Self::SciTriage => "sci_triage",
         }
     }
 }
@@ -120,6 +130,9 @@ pub enum AttentionError {
     /// `resolved` の `detail` の JSON の読み書きに失敗した。
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    /// 研究方針の木の読み出しに失敗した。
+    #[error("sci error: {0}")]
+    Sci(#[from] crate::sci::SciError),
 }
 
 /// 書いていない review の上限（新しい順）。
@@ -128,7 +141,10 @@ const EMPTY_REVIEW_LIMIT: usize = 10;
 /// 引き継ぎを走査する件数（[`progress::collect`] と同じ）。
 const HANDOFF_SCAN: usize = 20;
 
-/// 要対応を集める。並びは 1 → 2 → 3 → 4 → 5 → 6（種類の中は新しい順）。
+/// 要対応を集める。並びは 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8（種類の中は新しい順）。
+///
+/// 研究方針の木があるときは 3（現況の更新案）を集めない。`state.md` は木から書き出すので、
+/// 人が直す余地が無いから。代わりに 7 と 8 を足す。
 ///
 /// # Errors
 ///
@@ -139,6 +155,8 @@ pub fn collect(
 ) -> Result<Vec<AttentionItem>, AttentionError> {
     let resolved = resolved_keys(conn)?;
     let mut items = Vec::new();
+    // 研究方針の木があるときだけ 7 と 8 を出し、3 は出さない。
+    let tree = sci_tree(conn, roots)?;
 
     for item in empty_reviews(&roots.root) {
         if !resolved.contains(&item.key) {
@@ -150,7 +168,8 @@ pub fn collect(
             items.push(item);
         }
     }
-    if let Some(item) = state_update(&roots.root, &roots.data_dir)
+    if tree.is_none()
+        && let Some(item) = state_update(&roots.root, &roots.data_dir)
         && !resolved.contains(&item.key)
     {
         items.push(item);
@@ -170,7 +189,31 @@ pub fn collect(
             items.push(item);
         }
     }
+    if let Some(status) = tree.as_ref() {
+        for item in sci_decisions(conn, roots, status)? {
+            if !resolved.contains(&item.key) {
+                items.push(item);
+            }
+        }
+        for item in sci_triage(conn, status)? {
+            if !resolved.contains(&item.key) {
+                items.push(item);
+            }
+        }
+    }
     Ok(items)
+}
+
+/// 研究方針の木があれば `status` を返す。始めていなければ `None`。
+fn sci_tree(
+    conn: &Connection,
+    roots: &PaperRoots,
+) -> Result<Option<crate::sci::compute::Status>, AttentionError> {
+    if !crate::sci::store::is_initialized(conn)? {
+        return Ok(None);
+    }
+    let defs = crate::sci::defs::load(&roots.root);
+    Ok(Some(crate::sci::compute::status(conn, roots, &defs)?))
 }
 
 /// 要対応 1 件を「対応済み」にする（`activity_log` に `resolved` を残す）。
@@ -416,6 +459,85 @@ fn new_set_items(conn: &Connection) -> Result<Vec<AttentionItem>, AttentionError
     // 新しい検索ほど先に。
     found.sort_by(|a, b| b.0.cmp(&a.0));
     Ok(found.into_iter().map(|(_, item)| item).collect())
+}
+
+/// 7. 判断待ちの項目（`status.nodes` の `blank = awaiting_decision` のもの 1 件ずつ）。
+///
+/// キーは `sci_decision:<節点>:<その項目と候補の知見の最大の id>`。知見が 1 つ入るたびに
+/// キーが変わるので、「対応済み」にした後で新しい知見が入ればもう一度出る。
+fn sci_decisions(
+    conn: &Connection,
+    roots: &PaperRoots,
+    status: &crate::sci::compute::Status,
+) -> Result<Vec<AttentionItem>, AttentionError> {
+    let tree_path = roots.data_dir.join("tree.md");
+    let mut items = Vec::new();
+    for node in status
+        .nodes
+        .iter()
+        .filter(|node| node.blank.as_deref() == Some("awaiting_decision"))
+    {
+        let Some(id) = crate::sci::parse_ref(&node.id, 'N').ok() else {
+            continue;
+        };
+        // その項目と子の候補の知見の最大の id（無ければ 0）。
+        let findings = node_findings(conn, id)?;
+        let latest = findings.iter().copied().max().unwrap_or(0);
+        items.push(AttentionItem {
+            key: format!("sci_decision:{}:{latest}", node.id),
+            kind: AttentionKind::SciDecision,
+            title: format!(
+                "判断待ち: {} {}（候補 {}）",
+                node.id, node.title, node.counts.options
+            ),
+            run_id: None,
+            open_path: Some(tree_path.clone()),
+            report_id: None,
+        });
+    }
+    Ok(items)
+}
+
+/// 8. 仕分け待ちの提案（1 件にまとめる）。
+fn sci_triage(
+    conn: &Connection,
+    status: &crate::sci::compute::Status,
+) -> Result<Vec<AttentionItem>, AttentionError> {
+    if status.debts.pending_proposals == 0 {
+        return Ok(Vec::new());
+    }
+    let latest = crate::sci::store::list_proposals(conn, Some("pending"))?
+        .iter()
+        .map(|proposal| proposal.id)
+        .max()
+        .unwrap_or(0);
+    Ok(vec![AttentionItem {
+        key: format!("sci_triage:{latest}"),
+        kind: AttentionKind::SciTriage,
+        title: format!(
+            "仕分け待ちの提案が {} 件あります",
+            status.debts.pending_proposals
+        ),
+        run_id: None,
+        open_path: None,
+        report_id: None,
+    }])
+}
+
+/// その節点と子の候補の知見の番号（外していないもの）。
+fn node_findings(conn: &Connection, node_id: i64) -> Result<Vec<i64>, AttentionError> {
+    let mut ids: Vec<i64> = crate::sci::store::list_findings(conn, Some(node_id), false)?
+        .iter()
+        .map(|finding| finding.id)
+        .collect();
+    for child in crate::sci::store::children_of(conn, node_id)? {
+        ids.extend(
+            crate::sci::store::list_findings(conn, Some(child), false)?
+                .iter()
+                .map(|finding| finding.id),
+        );
+    }
+    Ok(ids)
 }
 
 /// 研究用ブロックの実行だけを `(実行, ブロック ID)` の形で返す。
@@ -826,5 +948,164 @@ mod tests {
         assert_eq!(AttentionKind::NewSetItems.as_str(), "new_set_items");
         assert_eq!(AttentionKind::NewSetItems.label(), "新着");
         assert_eq!(AttentionKind::StateUpdate.label(), "現況");
+        assert_eq!(AttentionKind::SciDecision.as_str(), "sci_decision");
+        assert_eq!(AttentionKind::SciTriage.as_str(), "sci_triage");
+        assert_eq!(AttentionKind::SciDecision.label(), "判断待ち");
+        assert_eq!(AttentionKind::SciTriage.label(), "仕分け");
+    }
+
+    // ---- 7 と 8: 研究方針の木 ----
+
+    #[test]
+    fn sci_items_appear_and_state_update_is_skipped() {
+        use crate::sci::store::{self, NewFinding, NewNode, NewProposal};
+
+        let root = temp_root("sci");
+        let roots = roots_of(&root);
+        let db = db();
+        let conn = db.connection();
+
+        // 引き継ぎの「現況の更新案」（木がある間は出さない）。
+        write(
+            root.join(".sai/outputs/review/50/task.md"),
+            "---\nrun_id: 50\nblock: sci-compare\n---\n\nタスク\n",
+        );
+        write(
+            root.join(".sai/outputs/review/50/handoff.md"),
+            "---\nrun_id: 50\n---\n\n## ユーザーへの質問\n- どれにする\n\n## 現況の更新案\n- 目標: 新しくする\n",
+        );
+
+        // 木を作る（選ぶ項目に候補を 2 つ、知見を 2 つ入れて判断待ちにする）。
+        store::meta_set(conn, "type", "problem").unwrap();
+        let item = store::insert_node(
+            conn,
+            &NewNode {
+                kind: "item",
+                item_key: Some("target"),
+                types: &["choose".to_string()],
+                title: "対象",
+                body: "",
+                state: "open",
+                fixed: false,
+                ord: 0,
+                created_by: "user",
+            },
+        )
+        .unwrap();
+        for title in ["てんかん患者", "新生児"] {
+            let option = store::insert_node(
+                conn,
+                &NewNode {
+                    kind: "option",
+                    item_key: None,
+                    types: &[],
+                    title,
+                    body: "",
+                    state: "candidate",
+                    fixed: false,
+                    ord: 0,
+                    created_by: "user",
+                },
+            )
+            .unwrap();
+            store::insert_edge(conn, "parent", item, option).unwrap();
+            store::insert_finding(
+                conn,
+                &NewFinding {
+                    node_id: option,
+                    question_id: None,
+                    text: "根拠",
+                    cites: &[],
+                    polarity: "support",
+                    level: None,
+                    source: "user",
+                    report_id: None,
+                    paper_id: None,
+                    run_id: None,
+                    proposal_id: None,
+                    auto: false,
+                    created_by: "user",
+                },
+            )
+            .unwrap();
+        }
+        store::insert_proposal(
+            conn,
+            &NewProposal {
+                run_id: Some(50),
+                block: "sci-compare",
+                op: "add_finding",
+                // 判断待ちの項目そのものではない（`in_progress` になると判断待ちにならない）。
+                node_id: None,
+                payload: &serde_json::json!({}),
+                reason: "比較したい",
+                risk: "auto",
+                status: "pending",
+            },
+        )
+        .unwrap();
+
+        let items = collect(conn, &roots).unwrap();
+        let decision = items
+            .iter()
+            .find(|item| item.kind == AttentionKind::SciDecision)
+            .expect("判断待ちが出る");
+        assert_eq!(decision.title, "判断待ち: N1 対象（候補 2）");
+        assert_eq!(decision.key, "sci_decision:N1:2");
+        assert_eq!(decision.open_path, Some(roots.data_dir.join("tree.md")));
+        assert!(decision.run_id.is_none());
+        let triage = items
+            .iter()
+            .find(|item| item.kind == AttentionKind::SciTriage)
+            .expect("仕分けが出る");
+        assert_eq!(triage.title, "仕分け待ちの提案が 1 件あります");
+        assert_eq!(triage.key, "sci_triage:1");
+        assert!(triage.open_path.is_none());
+        // 木がある間は「現況の更新案」を出さない。
+        assert!(
+            !items
+                .iter()
+                .any(|item| item.kind == AttentionKind::StateUpdate),
+            "{items:?}"
+        );
+
+        // 対応済みキーにすると消える。
+        resolve(&db, decision).unwrap();
+        let after = collect(conn, &roots).unwrap();
+        assert!(
+            !after
+                .iter()
+                .any(|item| item.kind == AttentionKind::SciDecision),
+            "{after:?}"
+        );
+    }
+
+    #[test]
+    fn no_tree_keeps_state_update_and_adds_no_sci_items() {
+        let root = temp_root("sci-none");
+        let roots = roots_of(&root);
+        write_block(&root, "paper-search", "project-brief");
+        write_run(&root, "review", 60, "paper-search");
+        write(
+            root.join(".sai/outputs/review/60/answer.md"),
+            "## 引き継ぎ\n- 現況の更新案: 段階を絞り込みにする\n",
+        );
+
+        let db = db();
+        let items = collect(db.connection(), &roots).unwrap();
+        // 木が無いときは今までと同じ（3 は出て、7 と 8 は出ない）。
+        assert!(
+            items
+                .iter()
+                .any(|item| item.kind == AttentionKind::StateUpdate),
+            "{items:?}"
+        );
+        assert!(
+            !items.iter().any(|item| matches!(
+                item.kind,
+                AttentionKind::SciDecision | AttentionKind::SciTriage
+            )),
+            "{items:?}"
+        );
     }
 }

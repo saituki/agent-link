@@ -153,11 +153,16 @@ fn tag_from_db(root: &Path, run_id: i64) -> Option<String> {
     .filter(|value| !value.is_empty())
 }
 
+/// 研究用と見てよい `templates` の値（C-15）。
+const RESEARCH_TEMPLATES: [&str; 2] = ["project-brief", "sci-core"];
+
 /// 研究用のブロックかどうかを返す。
 ///
 /// ブロック定義（`<root>/.sai/blocks/<id>.md`、無ければ `~/.sai-moon/blocks/<id>.md`）の
-/// frontmatter の `templates:` に `project-brief` を含めば `true`。定義が無ければ `false`。
+/// frontmatter の `templates:` に `project-brief`（論文の作業）か `sci-core`（研究方針の作業）を
+/// 含めば `true`。定義が無ければ `false`。
 ///
+/// sci のブロックは `project-brief` を入れない（要件 R-D3）ので、`sci-core` も研究用と見る。
 /// 同じブロックについて何度も呼ぶときは、呼び出し側で結果を `HashMap` に覚えてよい
 /// （ファイルを毎回読むため）。
 #[must_use]
@@ -178,7 +183,11 @@ pub fn is_research_block(root: &Path, block_id: &str) -> bool {
         return read_frontmatter(&text)
             .into_iter()
             .filter(|(key, _)| key == "templates")
-            .any(|(_, value)| value.split(',').any(|part| part.trim() == "project-brief"));
+            .any(|(_, value)| {
+                value.split(',').any(|part| {
+                    RESEARCH_TEMPLATES.contains(&part.trim())
+                })
+            });
     }
     false
 }
@@ -467,6 +476,23 @@ mod tests {
         assert!(is_research_block(&root, "paper-screen"));
         assert!(!is_research_block(&root, "main"));
         assert!(!is_research_block(&root, "missing"));
+    }
+
+    #[test]
+    fn is_research_block_accepts_sci_core() {
+        let root = temp_root("research-sci");
+        // sci のブロックは project-brief を入れない（要件 R-D3）。
+        write(
+            root.join(".sai/blocks/sci-compare.md"),
+            "---\nname: sci-compare\ntemplates:\n  - sci-core\n  - literature-hard-rules\n---\n\n本文\n",
+        );
+        write(
+            root.join(".sai/blocks/sci-search.md"),
+            "---\nname: sci-search\ntemplates: sci-core,sai-docs\n---\n\n本文\n",
+        );
+
+        assert!(is_research_block(&root, "sci-compare"));
+        assert!(is_research_block(&root, "sci-search"));
     }
 
     /// sai-link の DB の最小の表（`execution_history` と `block_metadata`）を作る。

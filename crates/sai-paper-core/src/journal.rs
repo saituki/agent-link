@@ -95,6 +95,19 @@ struct DayAccum {
     agent_reads: Vec<i64>,
     /// 理解の確認 `(topic, state)`。
     understanding: Vec<(String, String)>,
+    /// その日の研究方針の出来事（1 日 1 行に束ねる）。
+    sci: Option<SciLine>,
+}
+
+/// その日の研究方針の出来事。いずれの 0 件は出さない。
+#[derive(Default)]
+struct SciLine {
+    /// 決定・仮決定の記録 `(節点 ID, 項目の題)`（古い順）。
+    decisions: Vec<(String, String)>,
+    /// 採用した提案の数。
+    accepted: usize,
+    /// 種の数。
+    seeds: usize,
 }
 
 /// エージェントの実行 1 件（日の並びを run_id の昇順に決めるため分けて持つ）。
@@ -196,6 +209,12 @@ impl DayAccum {
             lines.push(format!("理解の確認: {parts}"));
         }
 
+        if let Some(sci) = &self.sci
+            && (!sci.decisions.is_empty() || sci.accepted > 0 || sci.seeds > 0)
+        {
+            lines.push(sci.line());
+        }
+
         lines
     }
 }
@@ -233,6 +252,8 @@ fn collect_at(
     gather_activity(conn, &mut days, from, to, offset, &report_ids)?;
     gather_reading(conn, &mut days, from, to, offset)?;
     gather_understanding(conn, &mut days, from, to, offset)?;
+    // 研究方針の表が無い古い DB では研究方針の行は出さない（他はそのまま作る）。
+    let _ = gather_sci(conn, &mut days, from, to, offset);
     // sai-link の DB は「読めなくても研究日誌は作る」方針なので、失敗は捨てる。
     let _ = gather_runs(roots, &mut days, from, to, offset);
 
@@ -504,6 +525,147 @@ fn gather_understanding(
         }
     }
     Ok(())
+}
+
+/// その日の研究方針の出来事（1 日 1 行にする）。
+///
+/// 決めるのは 3 つ。
+///
+/// - 決定・仮決定の記録（`sci_decisions` の `action` が `decide` か `tentative`）
+/// - 採用した提案（`sci_proposals` の `status = accepted` で、その日 `decided_at` があるもの）
+/// - 種（`sci_seeds` の `created_at` がその日のもの）
+///
+/// 表が無い（sci を始める前の DB）ときは何もしない。
+fn gather_sci(
+    conn: &Connection,
+    days: &mut BTreeMap<NaiveDate, DayAccum>,
+    from: NaiveDate,
+    to: NaiveDate,
+    offset: FixedOffset,
+) -> rusqlite::Result<()> {
+    if !sci_tables_exist(conn)? {
+        return Ok(());
+    }
+
+    // 節点番号 → 題（決定の記録の行に出す）。
+    let mut titles: HashMap<i64, String> = HashMap::new();
+    {
+        let mut stmt = conn.prepare("SELECT id, title FROM sci_nodes")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, title) = row?;
+            titles.insert(id, title);
+        }
+    }
+
+    // 決定・仮決定。
+    {
+        let mut stmt = conn.prepare(
+            "SELECT node_id, created_at FROM sci_decisions
+             WHERE action IN ('decide', 'tentative')
+             ORDER BY created_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (node_id, created_at) = row?;
+            if let Some(date) = date_in_range(&created_at, offset, from, to) {
+                let title = titles.get(&node_id).cloned().unwrap_or_default();
+                days.entry(date)
+                    .or_default()
+                    .sci
+                    .get_or_insert_with(SciLine::default)
+                    .decisions
+                    .push((crate::sci::fmt_ref('N', node_id), title));
+            }
+        }
+    }
+
+    // 採用した提案。
+    {
+        let mut stmt = conn.prepare(
+            "SELECT decided_at FROM sci_proposals
+             WHERE status = 'accepted' AND decided_at IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let decided_at = row?;
+            if let Some(date) = date_in_range(&decided_at, offset, from, to) {
+                days.entry(date)
+                    .or_default()
+                    .sci
+                    .get_or_insert_with(SciLine::default)
+                    .accepted += 1;
+            }
+        }
+    }
+
+    // 種。
+    {
+        let mut stmt = conn.prepare("SELECT created_at FROM sci_seeds")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let created_at = row?;
+            if let Some(date) = date_in_range(&created_at, offset, from, to) {
+                days.entry(date)
+                    .or_default()
+                    .sci
+                    .get_or_insert_with(SciLine::default)
+                    .seeds += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 研究方針の表があるか（無い DB でも日誌は作り続けるため）。
+fn sci_tables_exist(conn: &Connection) -> rusqlite::Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+         WHERE type = 'table' AND name IN ('sci_decisions', 'sci_proposals', 'sci_seeds')",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count == 3)
+}
+
+impl SciLine {
+    /// 1 日 1 行の文にする（0 件のものは書かない）。
+    fn line(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if !self.decisions.is_empty() {
+            // 決定の名前は 3 つまで。4 つ以上は「など」を付ける。
+            let names: Vec<String> = self
+                .decisions
+                .iter()
+                .take(3)
+                .map(|(id, title)| {
+                    if title.trim().is_empty() {
+                        id.clone()
+                    } else {
+                        format!("{id} {}", title.trim())
+                    }
+                })
+                .collect();
+            let names = names.join("・");
+            let names = if self.decisions.len() > 3 {
+                format!("{names}など")
+            } else {
+                names
+            };
+            parts.push(format!("決定 {} 件（{names}）", self.decisions.len()));
+        }
+        if self.accepted > 0 {
+            parts.push(format!("採用 {} 件", self.accepted));
+        }
+        if self.seeds > 0 {
+            parts.push(format!("種 {} 件", self.seeds));
+        }
+        format!("研究方針: {}", parts.join("・"))
+    }
 }
 
 /// sai-link の `execution_history` からエージェントの実行を集める。
@@ -1183,5 +1345,134 @@ mod tests {
 
         let empty = render_markdown(&[]);
         assert!(empty.contains("（記録がありません）"), "{empty}");
+    }
+
+    // ---- 研究方針の出来事 ----
+
+    // ---- 研究方針の出来事 ----
+
+    #[test]
+    fn journal_has_sci_line() {
+        let database = Database::in_memory().unwrap();
+        let conn = database.connection();
+        let root = temp_root("sci");
+        let roots = roots_of(&root);
+        use crate::sci::store::{self, NewDecision, NewNode, NewProposal};
+
+        // 節点を 2 つ作る。
+        let mut items = Vec::new();
+        for (key, title) in [("purpose.subgoal", "小目的"), ("method", "手法")] {
+            items.push(
+                store::insert_node(
+                    conn,
+                    &NewNode {
+                        kind: "item",
+                        item_key: Some(key),
+                        types: &["choose".to_string()],
+                        title,
+                        body: "",
+                        state: "decided",
+                        fixed: false,
+                        ord: 0,
+                        created_by: "user",
+                    },
+                )
+                .unwrap(),
+            );
+        }
+
+        // 決定の記録 2 件（追記だけなので時刻は今のままにする）。
+        for node in &items {
+            store::insert_decision(
+                conn,
+                &NewDecision {
+                    node_id: *node,
+                    action: "decide",
+                    option_id: None,
+                    reason: "小さな方法がよい",
+                    evidence: &[],
+                    rejected: &[],
+                    counter_searched: true,
+                    actor: "user",
+                    proposal_id: None,
+                },
+            )
+            .unwrap();
+        }
+        // 採用した提案 2 件と種 1 個。
+        for _ in 0..2 {
+            store::insert_proposal(
+                conn,
+                &NewProposal {
+                    run_id: Some(120),
+                    block: "sci-compare",
+                    op: "add_finding",
+                    node_id: None,
+                    payload: &serde_json::json!({}),
+                    reason: "比べる",
+                    risk: "auto",
+                    status: "pending",
+                },
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "UPDATE sci_proposals SET status = 'accepted', decided_by = 'user', decided_at = ?1",
+            rusqlite::params![crate::sci::now_text()],
+        )
+        .unwrap();
+        store::insert_seed(
+            conn,
+            "最初の種",
+            "「頭皮脳波で小目的を行う」",
+            &[],
+            "",
+            None,
+        )
+        .unwrap();
+
+        // 記録は UTC なので JST では日付が変わることがある。2 日ぶん見て 1 行だけ出す。
+        let today = Local::now().date_naive();
+        let days = collect_at(
+            conn,
+            &roots,
+            today - chrono::Days::new(1),
+            today + chrono::Days::new(1),
+            jst(),
+        )
+        .unwrap();
+        let (day, line) = days
+            .iter()
+            .find_map(|day| {
+                day.lines
+                    .iter()
+                    .find(|line| line.starts_with("研究方針: "))
+                    .map(|line| (day.date, line))
+            })
+            .expect("研究方針の行が出る");
+        assert!(
+            day >= today - chrono::Days::new(1) && day <= today + chrono::Days::new(1),
+            "{day}"
+        );
+        assert_eq!(
+            line,
+            "研究方針: 決定 2 件（N1 小目的・N2 手法）・採用 2 件・種 1 件"
+        );
+
+        // 決定が 4 つ以上なら「など」を付ける。0 件のものは書かない。
+        let many = SciLine {
+            decisions: vec![
+                ("N1".to_string(), "小目的".to_string()),
+                ("N2".to_string(), "手法".to_string()),
+                ("N3".to_string(), "差分".to_string()),
+                ("N4".to_string(), "対象".to_string()),
+            ],
+            accepted: 0,
+            seeds: 0,
+        };
+        assert_eq!(many.line(), "研究方針: 決定 4 件（N1 小目的・N2 手法・N3 差分など）");
+        assert_eq!(SciLine::default().line(), "研究方針: ");
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
