@@ -530,6 +530,32 @@ def phone_card_start(name: str, run_id: int) -> dict:
     )
 
 
+# --- 読む札（利用者の札）を Web から始める・終える（C-12・U18） ---
+# 読む札は研究方針の木が作る `runner: user` のカード（sai-paper `phone sci card`）。
+# この 2 つの関数は root を直接取るので、別のプロジェクト（論文の置き場とは別の root）を
+# 指せる。検査は `_phone_json` の決まりに従う（終了コード 3 は 404、他は 502）。
+
+
+def phone_user_start(root: str, run_id: int) -> dict:
+    """読む札を始める（`sai-moon-link phone user start <run_id>`・C-12）。"""
+    _check_run_id(run_id)
+    return _phone_json(
+        ["user", "start", str(run_id)],
+        root=root,
+        missing=_PHONE_MISSING_START,
+    )
+
+
+def phone_user_finish(root: str, run_id: int) -> dict:
+    """読む札を終える（`sai-moon-link phone user finish <run_id>`・C-12）。"""
+    _check_run_id(run_id)
+    return _phone_json(
+        ["user", "finish", str(run_id)],
+        root=root,
+        missing=_PHONE_MISSING_RUN,
+    )
+
+
 def phone_finalize(name: str, run_id: int) -> dict:
     """`sai-link phone finalize <run_id>`（メッセージ画面の ■ 終了・計画書 A の D2）。
 
