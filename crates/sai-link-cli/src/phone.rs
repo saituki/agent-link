@@ -21,10 +21,12 @@ use serde_json::{json, Value};
 use sai_link_engine::db::store::exec_usage_totals;
 use sai_link_engine::db::SaiStore;
 use sai_link_widgets::{
-    block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, phone_view,
+    block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, phone_view, user_run,
 };
 
-use crate::cli::{PhoneCardCmd, PhoneCmd, EXIT_DB, EXIT_NOT_FOUND, EXIT_PARSE, EXIT_USAGE};
+use crate::cli::{
+    PhoneCardCmd, PhoneCmd, PhoneUserCmd, EXIT_DB, EXIT_NOT_FOUND, EXIT_PARSE, EXIT_USAGE,
+};
 
 // ============================================================================
 // エラー（終了コード付き）
@@ -206,6 +208,10 @@ fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
         PhoneCmd::Dashboard { period } => dashboard(&period),
         PhoneCmd::Workflow => val(workflow()),
         PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
+        PhoneCmd::User { cmd } => val(match cmd {
+            PhoneUserCmd::Start { run_id } => user_start(run_id),
+            PhoneUserCmd::Finish { run_id } => user_finish(run_id),
+        }),
     }
 }
 
@@ -973,6 +979,63 @@ fn advance(run_id: i64) -> PhoneResult<Value> {
 }
 
 // ============================================================================
+// user start / finish — 利用者の札（runner: user）を始める・終える
+// ============================================================================
+
+/// `phone user start <run_id>`: todo の `runner: user` のカードを running にする。
+///
+/// - 対象: `outputs/todo/<run_id>/task.md` があり、`phone tree` の todo に出るもの
+///   （`resolve_target_card` と同じ確かめ。送信済み・DB 紐付け済みは弾く）
+/// - 実行主体は利用者なので常駐（デーモン）は確かめない（`phone card run` とは
+///   道筋が違う）
+/// - 中身は [`sai_link_widgets::user_run::start_user_run`]（TUI の Enter と同じ関数）
+/// - 成功: stdout に `{"run_id": N, "status": "running"}` / 終了コード 0
+/// - カード無し: 終了コード 3、`runner: user` で無い・開始失敗: 終了コード 1
+fn user_start(run_id: i64) -> PhoneResult<Value> {
+    // 1. 対象カードの解決（無ければ終了コード 3）
+    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
+        .join(sai_link_engine::run_dir::TODO_OWNER)
+        .join(run_id.to_string())
+        .join(sai_link_engine::run_dir::TASK_FILE);
+    if !task.is_file() {
+        return Err(PhoneError::not_found(TODO_NOT_FOUND));
+    }
+    let store = open_store()?;
+    let path = resolve_target_card(&store, run_id, task)?;
+
+    // 2. 利用者の札か（`runner: user` でなければ受け付けない）
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| PhoneError::internal(format!("task.md を読めません: {}", e)))?;
+    let card = sai_link_engine::kanban::parse_card(&text)
+        .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
+    if !card.frontmatter.is_user_runner() {
+        return Err(PhoneError::usage("runner: user のカードではありません"));
+    }
+
+    // 3. 始める（常駐は要らない）
+    user_run::start_user_run(&store, run_id, &card).map_err(PhoneError::usage)?;
+
+    Ok(json!({ "run_id": run_id, "status": "running" }))
+}
+
+/// `phone user finish <run_id>`: 実行中の利用者の札を review へ移す。
+///
+/// - 対象: 実行があり、`runner` が `user` で `status` が `running`
+///   （`phone finalize` と同じように常駐は確かめない）
+/// - 中身は [`sai_link_widgets::user_run::finish_user_run`]（TUI の `e` と同じ関数）
+/// - 成功: stdout に `{"run_id": N, "status": "review"}` / 終了コード 0
+/// - 実行無し: 終了コード 3、実行中の利用者の札でない・移動失敗: 終了コード 1
+fn user_finish(run_id: i64) -> PhoneResult<Value> {
+    let store = open_store()?;
+    if store.get_execution_by_id(run_id).is_err() {
+        return Err(PhoneError::not_found(EXEC_NOT_FOUND));
+    }
+    user_run::finish_user_run(&store, run_id).map_err(PhoneError::usage)?;
+
+    Ok(json!({ "run_id": run_id, "status": "review" }))
+}
+
+// ============================================================================
 // summary — プロジェクト一覧用の最小集計（実装計画 C C1）
 // ============================================================================
 
@@ -1628,6 +1691,109 @@ mod tests {
         // run_id が合わないカード・message は保存できない
         assert_eq!(md_save(779, "task", &edited).unwrap_err().code, EXIT_NOT_FOUND);
         assert_eq!(md_save(781, "message", "x").unwrap_err().code, EXIT_USAGE);
+    }
+
+    /// todo に `runner:` を指定したカード（予約 run 方式）を書き出す。
+    fn write_task_with_runner(root: &std::path::Path, run_id: i64, runner: &str) {
+        let dir = root.join(".sai/outputs/todo").join(run_id.to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = [
+            "---",
+            &format!("runner: {}", runner),
+            "creation_date: 2026/09/24 00:00:00",
+            "execution_date: -",
+            "origin_run_id: -",
+            &format!("run_id: {}", run_id),
+            "round: -",
+            "global_round: -",
+            "description: テストカード",
+            "---",
+            "",
+            "# task_text",
+            "",
+            "テスト",
+        ]
+        .join("\n");
+        std::fs::write(dir.join("task.md"), text).unwrap();
+    }
+
+    /// `phone user start` / `phone user finish` の対象選択と終了コード。
+    ///
+    /// 共通契約 C-12: カード無し・実行無しは 3、`runner: user` で無いのは 1。
+    /// 常駐は確かめないため、常駐を起動しなくても 0 まで到達する。
+    #[test]
+    fn user_start_finish_exit_codes() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let _guard = RootGuard::set(root);
+
+        // DB を作る（一時ルート配下）
+        let db = root.join(".sai/sai-engine/sai-engine.db");
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        let store = SaiStore::open(&db).unwrap();
+        // 利用者の札になる予約 run と、pi の実行
+        let user_run_id = store.create_reserved_run(None).unwrap();
+        let block_id = insert_test_block(&store);
+        let pi_run = store.create_execution(block_id, None).unwrap();
+        store.update_execution_status(pi_run, "running").unwrap();
+        drop(store);
+
+        write_task_with_runner(root, user_run_id, "user");
+
+        // (1) カードが無い run_id → 終了コード 3
+        let err = user_start(999_999_999).unwrap_err();
+        assert_eq!(err.code, EXIT_NOT_FOUND);
+        assert_eq!(err.msg, TODO_NOT_FOUND);
+
+        // (2) `runner: user` でないカード → 終了コード 1
+        write_task_with_runner(root, pi_run, "pi");
+        let err = user_start(pi_run).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+        assert_eq!(err.msg, "runner: user のカードではありません");
+
+        // (3) 利用者のカード → 終了コード 0・`status: running`
+        let out = user_start(user_run_id).unwrap();
+        assert_eq!(out["run_id"].as_i64(), Some(user_run_id));
+        assert_eq!(out["status"], "running");
+        let store = SaiStore::open(&db).unwrap();
+        let exec = store.get_execution_by_id(user_run_id).unwrap();
+        assert_eq!(exec.status, "running");
+        assert_eq!(exec.runner, "user");
+        assert_eq!(
+            sai_link_engine::run_dir::find_run_dir(user_run_id).unwrap().0,
+            sai_link_engine::run_dir::RUNNING_OWNER
+        );
+        drop(store);
+
+        // (4) 実行が無い → 終了コード 3
+        let err = user_finish(999_999_999).unwrap_err();
+        assert_eq!(err.code, EXIT_NOT_FOUND);
+        assert_eq!(err.msg, EXEC_NOT_FOUND);
+
+        // (5) `runner: user` でない実行 → 終了コード 1
+        let err = user_finish(pi_run).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+        assert_eq!(err.msg, "実行中の利用者の札ではありません");
+
+        // (6) 実行中の利用者の札 → 終了コード 0・`status: review`
+        let out = user_finish(user_run_id).unwrap();
+        assert_eq!(out["run_id"].as_i64(), Some(user_run_id));
+        assert_eq!(out["status"], "review");
+        let store = SaiStore::open(&db).unwrap();
+        assert_eq!(
+            store.get_execution_by_id(user_run_id).unwrap().status,
+            "completed"
+        );
+        assert_eq!(
+            sai_link_engine::run_dir::find_run_dir(user_run_id).unwrap().0,
+            sai_link_engine::run_dir::REVIEW_OWNER
+        );
+        drop(store);
+
+        // (7) もう一度終えようとしても実行中の札ではないので 1
+        let err = user_finish(user_run_id).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
     }
 
     /// テスト用のブロックを作る（実行レコードを差し込むため）。
