@@ -140,9 +140,10 @@ fn paper_ids_of(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
 pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
     match name {
         "find" => {
+            // 引数の検査は DB を開く前に行う（DB が開けないときも同じエラーの文になる）。
+            let query = str_arg(args, "query").ok_or_else(|| anyhow!("query が必要です"))?;
             let (db, config) = open()?;
             let conn = db.connection();
-            let query = str_arg(args, "query").ok_or_else(|| anyhow!("query が必要です"))?;
             // 節点と問い（記録に残す）。節点だけなら検索の範囲も狭める。
             let refs = crate::sci::parse_search_refs(
                 conn,
@@ -292,9 +293,9 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             Ok(serde_json::to_value(status)?)
         }
         "sci_node" => {
-            let env = crate::sci::open_env()?;
             let node = str_arg(args, "node").ok_or_else(|| anyhow!("node が必要です"))?;
             let id = crate::sci::parse_id(&node, 'N')?;
+            let env = crate::sci::open_env()?;
             let detail =
                 sai_paper_core::sci::compute::node_detail(env.conn(), &env.roots, &env.defs, id)
                     .context("節点の詳細を集められませんでした")?;
