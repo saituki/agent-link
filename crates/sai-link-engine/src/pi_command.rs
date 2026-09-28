@@ -84,7 +84,38 @@ pub struct SettingsJson {
     /// 起動の直前に範囲を作る命令（配列。`{run_id}` と `{block}` を置き換える。シェルは通さない）
     #[serde(default)]
     pub context: Option<Vec<String>>,
+    /// エージェントの起動コマンドの先頭に付ける環境変数（KEY → 値）。
+    ///
+    /// `.sai/settings.json` と `~/.sai-moon/settings.json` の両方で書ける（後者が優先）。
+    /// MLflow の接続情報を 1 か所に書いておく例:
+    ///
+    /// ```json
+    /// "env": {
+    ///   "MLFLOW_TRACKING_URI": "http://127.0.0.1:5001",
+    ///   "MLFLOW_S3_ENDPOINT_URL": "http://127.0.0.1:9000",
+    ///   "AWS_ACCESS_KEY_ID": "minioadmin",
+    ///   "AWS_SECRET_ACCESS_KEY": "…",
+    ///   "AWS_DEFAULT_REGION": "us-east-1"
+    /// }
+    /// ```
+    ///
+    /// 値の検証（キーの形・予約キー・改行・長さ）は [`merge_settings_file`] で行い、
+    /// 通らないものは警告だけ出して破棄する。
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
 }
+
+/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 4 つ）のときは破棄する。
+///
+/// sai-link は `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` /
+/// `SAI_IS_SUBTASK` を起動コマンドの後ろ（= より強い位置）で付ける。
+/// 利用者が設定に書いても二重にならないようここで弾く。
+const RESERVED_ENV_KEYS: [&str; 4] = [
+    "SAI_PROJECT_ROOT",
+    "SAI_PARENT_RUN_ID",
+    "SAI_BLOCK_NAME",
+    "SAI_IS_SUBTASK",
+];
 
 /// `.sai/settings.json` を読み込む。
 ///
@@ -179,6 +210,77 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
     if parsed.context.is_some() {
         merged.context = parsed.context;
     }
+    if !parsed.env.is_empty() {
+        // `env` もキー単位のマージ。同じキーが両方にあればグローバル側が勝つ。
+        // 不正な項目（使えないキー・予約キー・改行・長すぎる値）は破棄し、
+        // 警告を 1 件ずつ積むだけにしてエラーにはしない（既存の extensions と同じ方針）。
+        for (key, value) in parsed.env {
+            match check_env_entry(&key, &value) {
+                Ok(()) => {
+                    merged.env.insert(key, value);
+                }
+                Err(reason) => warnings.push(reason),
+            }
+        }
+    }
+}
+
+/// `env` の 1 項目を検査する。通れば `Ok(())`、破棄すべきなら理由つきの `Err`。
+///
+/// - キーは `^[A-Za-z_][A-Za-z0-9_]*$`
+/// - 予約キー（[`RESERVED_ENV_KEYS`]）は使わない
+/// - 値は 1 行（`\n` / `\r` を含まない）・長さ 1〜2000
+fn check_env_entry(key: &str, value: &str) -> Result<(), String> {
+    let mut chars = key.chars();
+    let head_ok = matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_');
+    let tail_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !head_ok || !tail_ok {
+        return Err(format!(
+            "settings.json の env のキー {:?} は A-Za-z_ で始まり A-Za-z0-9_ だけからなる名前ではありません",
+            key
+        ));
+    }
+    if RESERVED_ENV_KEYS.contains(&key) {
+        return Err(format!(
+            "settings.json の env のキー {} は sai-link 自身が使う予約キーのため破棄しました",
+            key
+        ));
+    }
+    if value.contains('\n') || value.contains('\r') {
+        return Err(format!(
+            "settings.json の env の値 {} が 1 行に収まらないため破棄しました",
+            key
+        ));
+    }
+    if value.is_empty() || value.chars().count() > 2000 {
+        return Err(format!(
+            "settings.json の env の値 {} は 1〜2000 文字のあいだにしてください（{} 文字）",
+            key,
+            value.chars().count()
+        ));
+    }
+    Ok(())
+}
+
+/// 設定の `env` を検証済みの `Vec<(String, String)>` で返す。無効なものは除いてある。
+///
+/// 返り値が `None` のときは `env` が空（= 何も付けない）のとき。
+/// 警告は [`load_settings_quiet`] の場合に戻すが、ここでは出さない
+/// （`prepare_pipeline` のような起動途中の経路で stderr に出すと画面が壊れるため）。
+/// 設定の読み込みはここで 1 回だけ行う（呼び出し側が重ねて読まないこと）。
+pub fn agent_env_pairs() -> Option<Vec<(String, String)>> {
+    let (settings, _warnings) = load_settings_quiet();
+    if settings.env.is_empty() {
+        return None;
+    }
+    // BTreeMap から取り出したので既にキー順に整っている（並びが毎回同じになる）。
+    let pairs: Vec<(String, String)> = settings
+        .env
+        .iter()
+        .filter(|(k, v)| check_env_entry(k, v).is_ok())
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    Some(pairs)
 }
 
 /// タブ（メインブロック）ごとの pane 上限（WIP）。デフォルト 8。
@@ -1225,6 +1327,124 @@ mod tests {
             settings.pre_run,
             Some(vec!["local-cmd".to_string(), "--x".to_string()]),
             "グローバルに無いキーはローカル値"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // 設定順序: settings.json の env（エージェントに渡す環境変数）
+    // ------------------------------------------------------------------
+
+    /// `env` のキーの検査。不正なキー（ハイフン・数字で始まる）と予約キーは弾く。
+    #[test]
+    fn env_rejects_bad_keys() {
+        // 正しいキーは通る
+        assert!(check_env_entry("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001").is_ok());
+        assert!(check_env_entry("_A1", "x").is_ok());
+
+        // ハイフン・数字で始まる・空文字は通らない
+        assert!(check_env_entry("BAD-KEY", "1").is_err());
+        assert!(check_env_entry("1BAD", "1").is_err());
+        assert!(check_env_entry("", "1").is_err());
+
+        // sai-link 自身が上書きする 4 つは予約
+        for reserved in RESERVED_ENV_KEYS {
+            assert!(
+                check_env_entry(reserved, "x").is_err(),
+                "{reserved} は予約キーでなければならない"
+            );
+        }
+    }
+
+    /// `env` の値の検査。改行を含む値と長すぎる値は破棄する。
+    #[test]
+    fn env_rejects_bad_values() {
+        // 1 行なら何でもいい（空白・シングルクォートを含む値も通す。エスケープはする）
+        assert!(check_env_entry("MULTI", "a b 'c'").is_ok());
+
+        // 改行（\n / \r）は通らない
+        assert!(check_env_entry("MULTI", "a\nb").is_err());
+        assert!(check_env_entry("MULTI", "a\rb").is_err());
+
+        // 空と 2001 文字は通らない。2000 文字ちょうどは通る
+        assert!(check_env_entry("EMPTY", "").is_err());
+        assert!(check_env_entry("LONG", &"a".repeat(2001)).is_err());
+        assert!(check_env_entry("LONG", &"a".repeat(2000)).is_ok());
+    }
+
+    /// `env` もキー単位のマージ規則に従い、不正な項目は警告だけ出して破棄すること。
+    #[test]
+    fn test_settings_merge_env() {
+        let dir = std::env::temp_dir().join(format!(
+            "sai_settings_env_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let local = dir.join("local.json");
+        let global = dir.join("global.json");
+
+        // ローカル側: 正しい項目・予約キー・不正なキー・改行を含む値
+        std::fs::write(
+            &local,
+            r#"{"env": {
+                "MLFLOW_TRACKING_URI": "http://127.0.0.1:5001",
+                "AWS_DEFAULT_REGION": "us-east-1",
+                "SAI_PROJECT_ROOT": "/tmp/x",
+                "BAD-KEY": "1",
+                "MULTI": "a\nb"
+            }}"#,
+        )
+        .unwrap();
+        std::fs::write(&global, r#"{"wip": 3}"#).unwrap();
+        let (settings, _) = merge_settings_from(Some(&local), Some(&global));
+        assert_eq!(
+            settings.env.get("MLFLOW_TRACKING_URI").map(String::as_str),
+            Some("http://127.0.0.1:5001"),
+            "ローカルの env が取り込まれる"
+        );
+        assert_eq!(
+            settings.env.get("AWS_DEFAULT_REGION").map(String::as_str),
+            Some("us-east-1")
+        );
+        // 不正なキー（ハイフン・数字で始まる）と予約キー、改行を含む値は
+        // 破棄して 1 件ずつ警告する（エラーにはしない）
+        let (_settings, warnings) = merge_settings_from(Some(&local), Some(&global));
+        assert!(
+            !settings.env.contains_key("SAI_PROJECT_ROOT"),
+            "予約キーは破棄される"
+        );
+        assert!(
+            !settings.env.contains_key("BAD-KEY"),
+            "不正なキーは破棄される"
+        );
+        assert!(
+            !settings.env.contains_key("MULTI"),
+            "改行を含む値は破棄される"
+        );
+        assert_eq!(
+            warnings.len(),
+            3,
+            "破棄した 3 件ぶんの警告が出る: {:?}",
+            warnings
+        );
+
+        // グローバル側にも env がある → キー単位でグローバルが優先される
+        std::fs::write(
+            &global,
+            r#"{"env": {"MLFLOW_TRACKING_URI": "http://192.168.0.2:8443"}}"#,
+        )
+        .unwrap();
+        let (settings, _) = merge_settings_from(Some(&local), Some(&global));
+        assert_eq!(
+            settings.env.get("MLFLOW_TRACKING_URI").map(String::as_str),
+            Some("http://192.168.0.2:8443"),
+            "同じキーはグローバルが優先される"
+        );
+        assert_eq!(
+            settings.env.get("AWS_DEFAULT_REGION").map(String::as_str),
+            Some("us-east-1"),
+            "グローバルが持たないキーはローカルの値が残る"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

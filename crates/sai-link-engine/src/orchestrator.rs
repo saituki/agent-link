@@ -772,6 +772,21 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         }
     };
 
+    // ── 設定ファイル (env:) の環境変数をコマンド先頭に付与 ──
+    // `.sai/settings.json` と `~/.sai-moon/settings.json` の `env` を、
+    // エージェントの実行ファイルより前に並べる。
+    // 値は shell のシングルクォートで囲む（herdr::shell_escape_single_quotes）。
+    // 予約キー（SAI_* の 4 つ）は設定の読み込み側で破棄される。
+    // ここは SAI_* を付ける「前」に入れる。あとから付く SAI_* が
+    // この行の上に重なるので、最終的な並びは「SAI_* → env → 実行ファイル」になる。
+    if let Some(env_pairs) = crate::pi_command::agent_env_pairs() {
+        let rendered: String = env_pairs
+            .iter()
+            .map(|(k, v)| format!("{}={} ", k, crate::herdr::shell_escape_single_quotes(v)))
+            .collect();
+        agent_command = format!("{rendered}{agent_command}");
+    }
+
     // ── エージェント用の環境変数をコマンド先頭に付与 ──
     // エージェントプロセスは herdr ペインのシェルで起動されるため、
     // `SAI_PROJECT_ROOT`（= プロジェクトルート）と `SAI_PARENT_RUN_ID`（= 実行 ID）を
@@ -4222,6 +4237,151 @@ mod tests {
         assert!(prepared.pi_command.contains("--session-dir"));
 
         // クリーンアップ
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// `env` を設定したテスト用の環境（プロジェクトルートと `~/.sai-moon` 差し替え）を作る。
+    ///
+    /// 返り値の一本目・二本目はスコープを抜けたときに元へ戻すガード。
+    /// 三本目・四本目は後片付け用のディレクトリ。
+    #[allow(clippy::type_complexity)]
+    fn finalize_settings_env_dirs(
+        name: &str,
+        project_settings: Option<&str>,
+        home_settings: Option<&str>,
+    ) -> (
+        EnvVarGuard,
+        EnvVarGuard,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let root = finalize_test_temp_dir(name);
+        let home = std::env::temp_dir().join(format!(
+            "{}-home-{}",
+            root.file_name().unwrap().to_string_lossy(),
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        if let Some(body) = project_settings {
+            std::fs::write(root.join(".sai/settings.json"), body).unwrap();
+        }
+        if let Some(body) = home_settings {
+            std::fs::write(home.join("settings.json"), body).unwrap();
+        }
+        let root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
+        let home_guard = EnvVarGuard::set("SAI_SAI_HOME", home.as_os_str());
+        (root_guard, home_guard, root, home)
+    }
+
+    /// 利用者全体（`~/.sai-moon/settings.json`）の `env` が agent の起動コマンドへ付くこと。
+    /// MLflow の接続情報を 1 か所に書けば 全 agent に配られる。
+    #[test]
+    fn test_prepare_pipeline_adds_settings_env_prefix() {
+        let _env_lock = finalize_env_lock();
+        let (_root_guard, _home_guard, root, home) = finalize_settings_env_dirs(
+            "settings-env-prefix",
+            None,
+            Some(r#"{"env": {"MLFLOW_TRACKING_URI": "http://127.0.0.1:5001"}}"#),
+        );
+        let mut config = minimal_config();
+        config.run_id = Some(1234);
+        config.block_config.name = "sai-test-main".to_string();
+
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+
+        assert!(
+            prepared.pi_command.contains(
+                "SAI_BLOCK_NAME=sai-test-main MLFLOW_TRACKING_URI='http://127.0.0.1:5001' pi "
+            ),
+            "設定の env が SAI_* の後ろに付くべき: {}",
+            prepared.pi_command
+        );
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(home);
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// 設定の `env` は sai-link 自身が付ける `SAI_*` より後ろに並ぶこと。
+    /// （前だと利用者が SAI_PROJECT_ROOT を上書きできてしまうため）
+    #[test]
+    fn test_prepare_pipeline_env_comes_after_sai_vars() {
+        let _env_lock = finalize_env_lock();
+        let (_root_guard, _home_guard, root, home) = finalize_settings_env_dirs(
+            "settings-env-order",
+            None,
+            Some(r#"{"env": {"MLFLOW_TRACKING_URI": "http://127.0.0.1:5001"}}"#),
+        );
+        let mut config = minimal_config();
+        config.run_id = Some(1234);
+        config.block_config.name = "sai-test-main".to_string();
+
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        let cmd = &prepared.pi_command;
+
+        let pos_root = cmd
+            .find("SAI_PROJECT_ROOT=")
+            .unwrap_or_else(|| panic!("SAI_PROJECT_ROOT が付くべき: {}", cmd));
+        let pos_parent = cmd
+            .find("SAI_PARENT_RUN_ID=")
+            .unwrap_or_else(|| panic!("SAI_PARENT_RUN_ID が付くべき: {}", cmd));
+        let pos_block = cmd
+            .find("SAI_BLOCK_NAME=")
+            .unwrap_or_else(|| panic!("SAI_BLOCK_NAME が付くべき: {}", cmd));
+        let pos_env = cmd
+            .find("MLFLOW_TRACKING_URI=")
+            .unwrap_or_else(|| panic!("設定の env が付くべき: {}", cmd));
+        let pos_pi = cmd.find(" pi ").unwrap_or_else(|| panic!("pi が付くべき: {}", cmd));
+
+        assert!(pos_root < pos_parent && pos_parent < pos_block);
+        assert!(
+            pos_block < pos_env,
+            "env は SAI_* より後ろに並ぶべき: {}",
+            cmd
+        );
+        assert!(pos_env < pos_pi, "env はエージェントより前に並ぶべき: {}", cmd);
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(home);
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// 設定の `env` の値は shell のシングルクォートで 1 つだけ包まれること。
+    /// 空白やシングルクォートを含む値でもコマンドが壊れない。
+    #[test]
+    fn test_prepare_pipeline_env_value_is_shell_quoted() {
+        let _env_lock = finalize_env_lock();
+        let (_root_guard, _home_guard, root, home) = finalize_settings_env_dirs(
+            "settings-env-quote",
+            None,
+            Some(r#"{"env": {"SAI_TEST_QUOTE": "a b'c"}}"#),
+        );
+        let mut config = minimal_config();
+        config.block_config.name = "sai-test-main".to_string();
+
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        let escaped = crate::herdr::shell_escape_single_quotes("a b'c");
+        assert!(
+            prepared.pi_command.contains(&format!(
+                "SAI_TEST_QUOTE={} pi ",
+                crate::herdr::shell_escape_single_quotes("a b'c")
+            )),
+            "値がシングルクォートで囲まれるべき: {}",
+            prepared.pi_command
+        );
+        assert_eq!(
+            prepared
+                .pi_command
+                .matches(&escaped)
+                .count(),
+            1,
+            "エスケープ済みの値が 1 回だけ現れるべき: {}",
+            prepared.pi_command
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(home);
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
