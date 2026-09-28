@@ -88,14 +88,17 @@
 }
 .wf-lane-card-runner { display: block; font-size: 11px; color: var(--text-soft); }
 
-/* --- 盤面（Canvas と同じ作り） --- */
+/* --- 盤面（Canvas と同じ作り） ---
+   盤面と札の地色を分ける（盤面 --bg-soft・札 --bg）。枠は --line-strong（3:1 以上）。 */
 .wf-stage {
   position: relative;
   flex: 1;
   min-height: 60dvh;
   overflow: hidden;              /* 札も線もはみ出させない */
-  background:
-    radial-gradient(circle, var(--line) 1px, transparent 1px) 0 0 / 24px 24px;
+  background: var(--bg-soft);
+  background-image:
+    radial-gradient(circle, var(--line) 1px, transparent 1px);
+  background-size: 24px 24px;
   touch-action: none;            /* 2 本指のピンチをブラウザに任せない */
   cursor: grab;
 }
@@ -105,28 +108,46 @@
   align-items: center; justify-content: center;
   margin: 0; font-size: 14px; color: var(--text-soft);
 }
-.wf-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+/* 題・線・ラベルの大きさは拡大率の逆数（--wf-z-inv）で画面上の px を保つ。
+   極小まで縮んだときは上限（--wf-title-max）で止め、札の高さからはみ出さないようにする。
+   --wf-z-inv と --wf-title-* は wfApplyView（workflow.js）が書き込む。 */
+.wf-world {
+  position: absolute; left: 0; top: 0; transform-origin: 0 0;
+  --wf-z-inv: 1;
+  --wf-title-px: 14px;
+  --wf-title-max: 88px;
+}
 .wf-board-empty { position: absolute; left: 0; top: 0; padding: var(--sp-5); }
 
-/* round の区切り線 */
-.wf-seps { position: absolute; left: 0; top: 0; right: 0; height: 0; }
-.wf-sep { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--line); }
+/* round の区切り線。幅は JS が盤面の右端まで入れてくれる（親の幅が 0 だと線が出ない）。
+   太さも拡大率に逆比例させて、縮んでも画面上 1px で見えるようにする。 */
+.wf-seps { position: absolute; left: 0; top: 0; height: 0; }
+.wf-sep {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: min(1px, calc(1px * max(var(--wf-z-inv, 1), 1))) dashed var(--line-strong);
+}
 .wf-sep-label {
-  position: absolute; left: 4px; top: -9px;
-  font-size: 11px; color: var(--text-soft);
-  background: var(--bg); padding: 0 4px;
+  position: absolute; left: 4px; top: -10px;
+  font-size: min(calc(11px * max(var(--wf-z-inv, 1), 1)), 56px);
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--bg-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
 }
 
 /* 線（札より下・札より上） */
 .wf-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 
-/* 札 */
+/* 札（盤面は --bg-soft なので札は --bg。枠は --line-strong） */
 .wf-card {
   position: absolute;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-left: 4px solid var(--wf-tag, var(--tag-other));
   border-radius: var(--radius-sm);
   background: var(--bg);
+  color: var(--text);
   padding: 3px 6px;
   overflow: hidden;
   cursor: pointer;
@@ -134,8 +155,20 @@
   -webkit-user-select: none;
 }
 .wf-card.wf-sel { border-color: var(--sel); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sel) 45%, transparent); }
-.wf-card.wf-dim { opacity: 0.45; }
-.wf-card-title { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
+/* 薄くした札は opacity で文字ごと薄くしない（文字は 4.5:1 を保つ）。
+   盤面と同じ地色と細い枠にして、札の見た目だけを弱める。 */
+.wf-card.wf-dim {
+  background: var(--bg-soft);
+  border-color: var(--line);
+  border-left-color: color-mix(in srgb, var(--wf-tag, var(--tag-other)) 40%, var(--bg-soft));
+}
+/* 題は拡大率に逆比例させて、どれだけ縮んでも画面上 WF_TITLE_PX で読めるようにする。
+   拡大したときは max(逆数, 1) なので、題は一緒に大きくなる。 */
+.wf-card-title {
+  display: flex; align-items: center; gap: 4px;
+  font-size: min(calc(var(--wf-title-px, 14px) * max(var(--wf-z-inv, 1), 1)), var(--wf-title-max, 88px));
+  font-weight: 600;
+}
 .wf-card-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wf-card-runner { font-size: 10px; color: var(--text-soft); }
 .wf-card-chips { display: inline-flex; gap: 3px; }
@@ -151,9 +184,14 @@
 .wf-dot-fail { background: var(--danger); }
 @keyframes wf-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
-/* 遠く（拡大率が小さい）ときは 1 行目だけ大きくする（Canvas と同じ考え方） */
-.wf-far .wf-card { padding: 0; border-left-width: 3px; }
-.wf-far .wf-card-title { font-size: 20px; height: 100%; align-items: center; }
+/* 遠く（拡大率が小さい）ときは題だけ残す（題は拡大率に逆比例するので読める）。
+   枠の太さも画面上 1px になるよう逆数で広げる。 */
+.wf-far .wf-card {
+  padding: 0;
+  border-width: min(1px, calc(1px * max(var(--wf-z-inv, 1), 1)));
+  border-left-width: min(3px, calc(3px * max(var(--wf-z-inv, 1), 1)));
+}
+.wf-far .wf-card-title { height: 100%; align-items: center; }
 .wf-far .wf-card-id { white-space: nowrap; }
 .wf-far .wf-card-runner,
 .wf-far .wf-card-chips,

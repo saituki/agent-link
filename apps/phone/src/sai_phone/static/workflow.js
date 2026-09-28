@@ -22,8 +22,21 @@ const WF_CELL_W = 10;
 const WF_CELL_H = 20;
 // 10 秒ごとに読み直す
 const WF_INTERVAL_MS = 10000;
-// 拡大率がこの未満のときは 1 行目だけを大きく描く（遠くから見ても読めるように）
-const WF_FAR_Z = 0.45;
+// 拡大率がこの未満のときは題だけ大きく描く（遠くから見ても読めるように）
+const WF_FAR_Z = 0.6;
+// 題の画面上の大きさ（px）。拡大率に逆比例させて、どれだけ縮んでもこの大きさで読めるようにする
+const WF_TITLE_PX = 14;
+// 題の世界上の大きさの上限（px）。これ以上広げると札の高さ（h=6 → 120px）からはみ出す
+const WF_TITLE_MAX_PX = 88;
+// 線の太さ（画面上の px）。世界上の値は拡大率で割るので、ここは画面上の太さ
+const WF_EDGE_W_PX = 1.6;
+const WF_EDGE_W_SEL_PX = 2.5;
+// 線の世界上の太さの上限（px）
+const WF_EDGE_W_MAX_PX = 12;
+// 区切り線を盤面の右端からさらに伸ばす分（世界上の px）
+const WF_SEP_PAD_PX = 40;
+// 選んだ札につながらない線を薄くする濃さ。これでも線として 3:1 以上を保つ
+const WF_EDGE_DIM = 0.8;
 // ドラッグとクリックの境（これ以上動いたらドラッグ、未満ならクリック）
 const WF_DRAG_SLOP = 4;
 // 矢印キーで見える範囲を動かす量（画面上の px）
@@ -143,6 +156,31 @@ function wfBoardRects(nodes, offsets) {
 function wfFitView(rects, width, height) {
   if (typeof cvFitView !== "function") return { tx: 0, ty: 0, z: 1 };
   return cvFitView(rects || [], width, height);
+}
+
+/**
+ * 全体表示の計算に入れる矩形。札の外側に round の区切り線も足す
+ * （区切り線とラベルは札の外にあるので、入れないと上端で切れる）。
+ * レイアウトの計算はしない。sai-link が返した y を px に直しただけのもの。
+ */
+function wfFitRects(nodes, offsets, seps) {
+  const rects = wfBoardRects(nodes, offsets);
+  for (const s of Array.isArray(seps) ? seps : []) {
+    const line = wfSeparatorLine(s);
+    if (line) rects.push({ x: 0, y: line.y, width: 0, height: 0 });
+  }
+  return rects;
+}
+
+/** 盤面の右端（round の区切り線を端まで引くために使う）。 */
+function wfBoardRight(rects) {
+  let right = 0;
+  for (const r of Array.isArray(rects) ? rects : []) {
+    if (!r) continue;
+    const x = (Number(r.x) || 0) + (Number(r.width) || 0);
+    if (x > right) right = x;
+  }
+  return right;
 }
 
 /** (px, py) の下のワールドの点が動かないように拡大率を変える（canvas.js の cvZoomAt）。 */
@@ -322,12 +360,16 @@ function wfEdgeEndY(a, b, side) {
   return aFirst ? (Number(rb.y) || 0) : (Number(rb.y) || 0) + (Number(rb.height) || 0);
 }
 
-/** 線の濃さ。選んでいなければ 0.8、選んだ札につながる線は 1、それ以外は 0.25。 */
+/**
+ * 線の濃さ。選んでいなければ全部 1、選んだ札につながる線は 1、
+ * それ以外の線だけを WF_EDGE_DIM まで薄くする。
+ * 薄くしても線として読めるように 3:1 以上を保つ（apps/phone/tests/test_contrast.js が検査する）。
+ */
 function wfEdgeOpacity(edge, selected) {
-  if (!selected) return 0.8;
-  if (!edge) return 0.25;
+  if (!selected) return 1;
+  if (!edge) return WF_EDGE_DIM;
   if (edge.from === selected || edge.to === selected) return 1;
-  return 0.25;
+  return WF_EDGE_DIM;
 }
 
 /** 2 つのノードが線でつながっているか（つながっていない札を薄くする）。 */
@@ -816,7 +858,11 @@ function wfRender() {
   // 1. round の区切り線（札と線より下）
   const seps = wfData && Array.isArray(wfData.separators) ? wfData.separators : [];
   if (seps.length > 0) {
+    // .wf-world は幅が 0 なので、区切り線に長さがないと線が出ない。
+    // 盤面の右端までの長さをここで決めておく。
+    const right = wfBoardRight(wfBoardRects(nodes, wfOffsets)) + WF_SEP_PAD_PX;
     const sep = wfEl("div", "wf-seps");
+    sep.style.width = `${right}px`;
     for (const s of seps) {
       const line = wfSeparatorLine(s);
       const row = wfEl("div", "wf-sep");
@@ -938,13 +984,14 @@ function wfRenderEdges() {
     const color = wfEdgeColor(e.kind);
     const opacity = wfEdgeOpacity(e, wfSelected);
     const on = e.from === wfSelected || e.to === wfSelected;
+    const w = on ? WF_EDGE_W_SEL_PX : WF_EDGE_W_PX;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", wfEdgePath(a, b, e.side === true));
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", color);
-    path.setAttribute("stroke-width", on ? "2.5" : "1.6");
+    path.setAttribute("stroke-width", String(w));
     // 縮小しても線が消えないよう、画面上の太さで描く
-    path.style.strokeWidth = `calc(${on ? 2.5 : 1.6}px / var(--wf-z, 1))`;
+    path.style.strokeWidth = `min(calc(${w}px * var(--wf-z-inv, 1)), ${WF_EDGE_W_MAX_PX}px)`;
     path.setAttribute("stroke-opacity", String(opacity));
     path.setAttribute("marker-end", `url(#wf-arrow-${e.kind || "other"})`);
     if (wfEdgeDashed(e.kind)) path.setAttribute("stroke-dasharray", "8 5");
@@ -959,14 +1006,26 @@ function wfApplyView() {
   world.style.transform = `translate(${wfView.tx}px, ${wfView.ty}px) scale(${wfView.z})`;
   world.classList.toggle("wf-far", wfView.z < WF_FAR_Z);
   world.style.setProperty("--wf-z", String(wfView.z));
+  // 拡大率の逆数（題・線・ラベルの大きさを画面上の px で保つために使う）
+  world.style.setProperty("--wf-z-inv", wfZoomInv(wfView.z));
+  world.style.setProperty("--wf-title-px", `${WF_TITLE_PX}px`);
+  world.style.setProperty("--wf-title-max", `${WF_TITLE_MAX_PX}px`);
   wfSaveView(wfName, wfView);
 }
 
-/** 全体を表示する。 */
+/** 拡大率の逆数（0 にならないように 1 を下限にする）。 */
+function wfZoomInv(z) {
+  const n = Number(z);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return 1 / n;
+}
+
+/** 全体を表示する（区切り線とラベルも切れないよう、札の外側の分も含める）。 */
 function wfFit() {
   const size = wfStageSize();
   if (size.w <= 0 || size.h <= 0) return;
-  wfView = wfFitView(wfBoardRects(wfNodes(), wfOffsets), size.w, size.h);
+  const seps = wfData && Array.isArray(wfData.separators) ? wfData.separators : [];
+  wfView = wfFitView(wfFitRects(wfNodes(), wfOffsets, seps), size.w, size.h);
   wfApplyView();
 }
 
@@ -1460,6 +1519,12 @@ if (typeof module !== "undefined" && module.exports) {
     WF_CELL_H,
     WF_INTERVAL_MS,
     WF_FAR_Z,
+    WF_TITLE_PX,
+    WF_TITLE_MAX_PX,
+    WF_EDGE_W_PX,
+    WF_EDGE_W_SEL_PX,
+    WF_EDGE_DIM,
+    WF_SEP_PAD_PX,
     WF_DRAG_SLOP,
     WF_TAGS,
     WF_EDGE_KINDS,
@@ -1474,6 +1539,9 @@ if (typeof module !== "undefined" && module.exports) {
     wfNodeRect,
     wfBoardRects,
     wfFitView,
+    wfFitRects,
+    wfBoardRight,
+    wfZoomInv,
     wfZoomAt,
     wfCardTitle,
     wfStamp,

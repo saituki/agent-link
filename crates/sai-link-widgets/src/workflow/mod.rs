@@ -4,7 +4,8 @@
 //! 「Workflow（実行ブロック線図）」のロジックを移設したもの。
 //!
 //! - [`dag`] — DAG データ構造（[`DagGraph`] / [`EdgeData`] / [`EdgeKind`] / `NodeId`）
-//! - [`layered_layout`] — Sugiyama 風の階層レイアウト計算（[`calculate_layout`]）
+//! - [`layered_layout`] — Sugiyama 風の階層レイアウト計算（[`calculate_layout`] と
+//!   間隔を変える画面の [`calculate_layout_with`]）
 //! - [`build`] — 実行データから DAG を組み立てる（[`build_block_graph`] と表示データ型）
 //! - [`load`] — DB から DAG の材料を集める（[`load_workflow`]）
 //!
@@ -35,6 +36,7 @@ mod tests;
 pub use build::{build_block_graph, BlockDisplayData, ConnectionDisplayData};
 pub use dag::{DagGraph, EdgeData, EdgeKind, NodeId};
 pub use layered_layout::{
-    calculate_layout, DagLayout, LayoutGraph, LayoutNode, NodePosition, SeparatorLine,
+    calculate_layout, calculate_layout_with, DagLayout, LayoutGraph, LayoutNode, LayoutOptions,
+    NodePosition, SeparatorLine,
 };
 pub use load::{load_workflow, WorkflowSource};

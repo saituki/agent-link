@@ -5,6 +5,7 @@
 //   - 文字マスを px にする矩形と、覚えたずらし量の足し方
 //   - 札の題・時刻・説明の行（高さに収まるだけ）・印（runner / running / review）
 //   - 線のパス（左右 / 上下の向きと制御点）・色・破線・濃さ
+//   - 全体表示（札と round の区切り線が入る拡大率）と題の大きさ
 //   - 札の操作ボタン（レーンと状態による出し分け）
 //   - Kanban の 4 レーンと round の区切り線
 //   - ドラッグでずらした量をこの端末に覚える（localStorage）
@@ -96,6 +97,49 @@ function testFitView() {
   // 拡大しても中心を保つ形（cvZoomAt と同じ関数を使う）
   const zoom = wf.wfZoomAt(view, 200, 150, 2);
   assert.ok(zoom.z > view.z);
+}
+
+function testFitRects() {
+  // 札 2 枚 + round の区切り線 2 本。区切り線も全体表示の計算に入れる
+  const seps = [{ y: 0, label: "round1" }, { y: 27, label: "round2" }];
+  const rects = wf.wfFitRects([NODE, NODE2], null, seps);
+  assert.strictEqual(rects.length, 4);
+  // 区切り線は y を px にしただけの点（幅・高さは 0）
+  assert.deepStrictEqual(rects[2], { x: 0, y: 0, width: 0, height: 0 });
+  assert.deepStrictEqual(rects[3], { x: 0, y: 540, width: 0, height: 0 });
+  // 区切り線を入れないと全体表示の下にはみ出して切れる
+  const only = wf.wfFitRects([NODE, NODE2], null, null);
+  assert.strictEqual(only.length, 2);
+  const v1 = wf.wfFitView(only, 400, 300);
+  const v2 = wf.wfFitView(rects, 400, 300);
+  const last = rects[rects.length - 1];
+  const bottom = last.y * v2.z + v2.ty;
+  const bottomAlone = last.y * v1.z + v1.ty;
+  assert.ok(bottomAlone > 300, "区切り線を入れないと画面の下にはみ出す");
+  assert.ok(bottom <= 300, "区切り線を入れると画面の中に収まる");
+  // 壊れた値でも止めない
+  assert.strictEqual(wf.wfFitRects(null, null, "x").length, 0);
+}
+
+function testBoardRight() {
+  // 盤面の右端（区切り線をそこまで引く）
+  const rects = wf.wfBoardRects([NODE, NODE2], null);
+  assert.strictEqual(wf.wfBoardRight(rects), 580);
+  // ドラッグで右にずらしたら右端も伸びる
+  assert.strictEqual(wf.wfBoardRight(wf.wfBoardRects([NODE, NODE2], { 11: [100, 0] })), 680);
+  // 何も無ければ 0
+  assert.strictEqual(wf.wfBoardRight(null), 0);
+  assert.strictEqual(wf.wfBoardRight([null, {}]), 0);
+}
+
+function testZoomInv() {
+  // 拡大率の逆数（題と線の大きさを画面上の px で保つために使う）
+  assert.strictEqual(wf.wfZoomInv(0.5), 2);
+  assert.strictEqual(wf.wfZoomInv(1), 1);
+  // 壊れた拡大率で 0 にならないこと
+  assert.strictEqual(wf.wfZoomInv(0), 1);
+  assert.strictEqual(wf.wfZoomInv(-1), 1);
+  assert.strictEqual(wf.wfZoomInv("x"), 1);
 }
 
 function testCardTitle() {
@@ -229,11 +273,15 @@ function testEdgePathVertical() {
 }
 
 function testEdgeOpacity() {
-  assert.strictEqual(wf.wfEdgeOpacity({ from: 1, to: 2 }, null), 0.8);
+  // 選んでいなければ全部 1（線として読めるように 3:1 以上を保つ）
+  assert.strictEqual(wf.wfEdgeOpacity({ from: 1, to: 2 }, null), 1);
+  // 選んだ札につながる線は 1
   assert.strictEqual(wf.wfEdgeOpacity({ from: 1, to: 2 }, 1), 1);
   assert.strictEqual(wf.wfEdgeOpacity({ from: 1, to: 2 }, 2), 1);
-  assert.strictEqual(wf.wfEdgeOpacity({ from: 1, to: 2 }, 3), 0.25);
-  assert.strictEqual(wf.wfEdgeOpacity(null, 3), 0.25);
+  // それ以外の線だけ WF_EDGE_DIM まで薄くする（それ以上は薄くしない）
+  assert.strictEqual(wf.wfEdgeOpacity({ from: 1, to: 2 }, 3), wf.WF_EDGE_DIM);
+  assert.strictEqual(wf.wfEdgeOpacity(null, 3), wf.WF_EDGE_DIM);
+  assert.ok(wf.WF_EDGE_DIM >= 0.8, "薄くしすぎて 3:1 を下回る値にしない");
 }
 
 function testLinkedTo() {
@@ -374,12 +422,22 @@ function testConstants() {
   assert.strictEqual(wf.WF_INTERVAL_MS, 10000);
   assert.strictEqual(wf.WF_SEL_COLOR, "var(--sel)");
   assert.strictEqual(wf.WF_DRAG_SLOP, 4);
+  // 題は画面上 12px 以上で読めること（WF_TITLE_PX がその大きさ）
+  assert.ok(wf.WF_TITLE_PX >= 12, "題は 12px 以上で読めること");
+  // 題の世界上の大きさの上限は札の高さ（h=6 → 120px）に収まること
+  assert.ok(wf.WF_TITLE_MAX_PX < 120, "題が札の高さからはみ出さないこと");
+  // 線の太さは画面上 1.5px 以上
+  assert.ok(wf.WF_EDGE_W_PX >= 1.5, "線の太さは 1.5px 以上");
+  assert.ok(wf.WF_EDGE_W_SEL_PX > wf.WF_EDGE_W_PX, "選んだ線はもう少し太い");
 }
 
 function main() {
   testHash();
   testNodeRect();
   testFitView();
+  testFitRects();
+  testBoardRight();
+  testZoomInv();
   testCardTitle();
   testStampText();
   testCardMarks();
