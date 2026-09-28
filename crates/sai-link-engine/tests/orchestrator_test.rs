@@ -58,6 +58,7 @@ fn test_config() -> PipelineConfig {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         },
         block_body: "テストプロンプト: {{input.name}}".to_string(),
@@ -247,6 +248,7 @@ fn test_pipeline_config_all_fields_set() {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         },
         block_body: "# {{input.feature}} の実装

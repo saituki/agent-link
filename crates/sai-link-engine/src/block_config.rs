@@ -106,6 +106,7 @@ impl<'de> Deserialize<'de> for ToolsConfig {
 ///   tools, extensions, skills, timeout, worktree, enable
 /// - **テンプレート**: templates（`.sai/template/*.md` の挿入リスト）
 /// - **review**: review_headings（review.md のひな形の見出しリスト）
+/// - **範囲（context）**: context（起動の直前に範囲を作るかどうか）
 ///
 /// ブロックへの入力は `task_text` の 1 つに統一されており（`{{input.task_text}}`）、
 /// 旧 `inputs:` / `output:` は廃止した。古い定義ファイルに残っていても
@@ -207,6 +208,16 @@ pub struct BlockConfig {
     /// のような見出しを指定できる。
     #[serde(default)]
     pub review_headings: Option<Vec<String>>,
+
+    /// 起動の直前に、`.sai/settings.json` の `context` の命令で範囲を作り、
+    /// 本文の `{{context}}` に入れるか。
+    ///
+    /// `true` のときだけ動く。sai-sci のブロック（`sci-*`）が使う。
+    /// 範囲はメモリ上の本文にだけ入れる。ファイルには書かない
+    /// （並列に起動しても中身が混ざらないようにするため）。
+    /// 失敗しても実行は止めず、理由の 1 行を本文に入れる。
+    #[serde(default)]
+    pub context: Option<bool>,
 }
 
 /// review.md のひな形に使う既定の見出し（開発用）。
@@ -398,5 +409,18 @@ mod tests {
             parsed.config.review_headings_or_default(),
             default_review_headings()
         );
+    }
+
+    /// `context: true` が書かれれば `Some(true)`、無ければ `None` になる。
+    #[test]
+    fn context_true_is_parsed() {
+        let content = "---\nname: test\ndescription: desc\nmodel: m\ncontext: true\n---\n# Body";
+        let parsed = parse_block_string(content).unwrap();
+        assert_eq!(parsed.config.context, Some(true));
+
+        // 未指定なら None（`context` の無いブロックは動かさない）
+        let content = "---\nname: test\ndescription: desc\nmodel: m\n---\n# Body";
+        let parsed = parse_block_string(content).unwrap();
+        assert_eq!(parsed.config.context, None);
     }
 }

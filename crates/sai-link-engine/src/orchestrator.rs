@@ -133,6 +133,7 @@ impl Default for PipelineConfig {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
         Self {
@@ -660,6 +661,16 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // ── Step 1: プレースホルダー展開 ──
     let expanded_prompt = expand_placeholders(&config.block_body, &resolved_values);
 
+    // ── Step 1.5: 範囲（context）の差し込み（`context: true` のブロックだけ） ──
+    // ファイルには書かず、メモリ上で本文に入れる（並列の実行で混ざらないように）。
+    // プレースホルダーの展開の後に入れるので、範囲の中の文字が展開されることはない。
+    let expanded_prompt = if config.block_config.context == Some(true) {
+        let text = crate::pre_run::context_text(config.run_id, config.block_config.block_id());
+        insert_context(&expanded_prompt, &text)
+    } else {
+        expanded_prompt
+    };
+
     // ── pi起動前の Git コミットハッシュを取得（再現性用） ──
     let git_commit_before = get_git_commit_hash();
 
@@ -852,6 +863,24 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         agent_session_id,
         exit_command,
     })
+}
+
+/// 範囲（context）の文を本文に入れる（`{{context}}` の差し込み）。
+///
+/// `{{context}}` があれば最初の 1 つだけを `text` に置き換えます。
+/// 無い場合は（利用者がブロックを直して `{{context}}` を消しても）範囲が失われないよう、
+/// `text` と空行を本文の先頭に置きます。
+pub fn insert_context(body: &str, text: &str) -> String {
+    match body.find("{{context}}") {
+        Some(pos) => {
+            let mut out = String::with_capacity(body.len() + text.len());
+            out.push_str(&body[..pos]);
+            out.push_str(text);
+            out.push_str(&body[pos + "{{context}}".len()..]);
+            out
+        }
+        None => format!("{text}\n\n{body}"),
+    }
 }
 
 // ============================================================================
@@ -4245,6 +4274,7 @@ mod tests {
                 round: None,
                 templates: None,
                 review_headings: None,
+                context: None,
                 id: None,
             },
             block_body: String::new(),
@@ -4763,6 +4793,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         }
     }
@@ -4976,6 +5007,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
         let resolved = resolve_execution_settings(&config, &ExecutionOverrides::default());
@@ -5004,6 +5036,7 @@ mod tests {
             round: Some(2),
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
         let overrides = ExecutionOverrides {
@@ -5064,6 +5097,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
 
@@ -5111,6 +5145,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
         // task.md: `model: z-ai/glm-5.3-flash` + `provider: open-router2`
@@ -5166,6 +5201,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
         let resolved = resolve_execution_settings(&config, &ExecutionOverrides::default());
@@ -5272,6 +5308,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         };
         let prep = prepare_execution_record(
@@ -5652,5 +5689,62 @@ mod tests {
             text.ends_with("### 追加修正\n\n\n### 追加実装\n\n"),
             "{text}"
         );
+    }
+
+    // ── 範囲（context）の差し込み（U16） ──
+
+    /// `{{context}}` があれば最初の 1 つだけを置き換え、2 つ目以降は残す。
+    #[test]
+    fn insert_context_replaces_first_or_prepends() {
+        // 置換
+        assert_eq!(
+            insert_context("前\n{{context}}\n後", "範囲"),
+            "前\n範囲\n後"
+        );
+        // 最初の 1 つだけ（2 つ目以降はそのまま残る）
+        assert_eq!(
+            insert_context("{{context}} と {{context}}", "範囲"),
+            "範囲 と {{context}}"
+        );
+        // 無いときは先頭に範囲と空行を置く
+        assert_eq!(insert_context("# 本文", "範囲"), "範囲\n\n# 本文");
+    }
+
+    /// AC1: `context: true` のブロックは `prepare_pipeline` で本文の
+    /// `{{context}}` が命令の標準出力に置き換わる。
+    /// `context` の無いブロックの本文は今と 1 字も変わらない。
+    #[test]
+    fn test_prepare_pipeline_inserts_context_when_enabled() {
+        let _env_lock = finalize_env_lock();
+        // テスト用のプロジェクトルート（settings.json と .sai/sai-engine を持つ）
+        let root = finalize_test_temp_dir("context");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        std::fs::write(
+            root.join(".sai/settings.json"),
+            r#"{"context": ["/bin/echo", "run={run_id}", "block={block}"]}"#,
+        )
+        .unwrap();
+        let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
+        let _home_guard = EnvVarGuard::set("SAI_SAI_HOME", root.as_os_str());
+
+        // context: true → 本文の {{context}} が標準出力に置き換わる
+        let mut config = minimal_config();
+        config.run_id = Some(99);
+        config.block_config.context = Some(true);
+        config.block_body = "前\n{{context}}\n後".to_string();
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert_eq!(prepared.expanded_prompt, "前\nrun=99 block=test-block\n後");
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+
+        // context なし → 本文は今と変わらない（settings.json に context が有っても使わない）
+        let mut config = minimal_config();
+        config.run_id = Some(99);
+        config.block_body = "前\n{{context}}\n後".to_string();
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert_eq!(prepared.expanded_prompt, "前\n{{context}}\n後");
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
