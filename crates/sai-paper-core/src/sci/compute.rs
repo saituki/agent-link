@@ -1422,7 +1422,7 @@ impl Tree {
                     .iter()
                     .filter(|question| question.state == "open")
                     .count() as i64,
-                options: self.children.get(&node.id).map_or(0, Vec::len) as i64,
+                options: self.options(node.id).len() as i64,
                 support: findings
                     .iter()
                     .filter(|finding| finding.polarity == "support")
@@ -3195,6 +3195,8 @@ given: background
         assert!(result.initialized);
         // 課題駆動の骨組みは一番上 8 個と子 16 個。
         assert_eq!(result.nodes.len(), 24);
+        // 子の項目は候補に数えない（骨組みだけなら候補は 0）。
+        assert!(result.nodes.iter().all(|row| row.counts.options == 0));
         let top: Vec<&str> = result
             .nodes
             .iter()

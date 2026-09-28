@@ -32,7 +32,7 @@ min_findings: 2
 - 倫理審査に時間がかかることを考えず、計画に組み込む
 
 ## 次の一手
-- untouched: sci-search | {title}の入手方法を外部から探す | 入手方法の一覧
+- untouched: sci-search | {title}の方法（公開先・申請・ライセンス）を外部から探す | 入手方法の一覧
 - insufficient: sci-search | {title}の入手先を広げて探す | 追加した入手先
 - awaiting_decision: sci-compare | {title}の入手条件を確かめてもらう | 決まった入手の見通し
 - conflict: sci-probe | {title}の入手条件の食い違いを調べる | 食い違いの説明

@@ -1,4 +1,4 @@
-//! `sai-paper init` が研究プロジェクトに配るエージェントの部品（段階 7）。
+//! `sai-moon-paper init` が研究プロジェクトに配るエージェントの部品（段階 7）。
 //!
 //! - `.sai/blocks/paper-*.md`（sai-link のブロック）と `.sai/template/*.md` を書き出す。
 //!   既にあるファイルは上書きしない（利用者が直したものを消さない）。
@@ -111,7 +111,7 @@ fn domain_sample(domain: &str) -> Option<&'static str> {
 
 /// `project-brief.md` がまだ無いときに置くプレースホルダ。
 ///
-/// sai-link はテンプレートが見つからないと実行の前に止まるため、`sai-paper init`
+/// sai-link はテンプレートが見つからないと実行の前に止まるため、`sai-moon-paper init`
 /// の時点で必ずこのファイルを作る。`sai-paper brief --write` が本物のまとめで
 /// 置き換える。
 const BRIEF_PLACEHOLDER: &str = "<!-- sai-paper brief がエージェントの起動直前に作り直す -->\n# プロジェクトの状況（sai-paper より）\n\n（まだ作られていません）\n";
@@ -270,7 +270,7 @@ pub fn install(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Res
     Ok(done)
 }
 
-/// 分野の観点を配る（`sai-paper init --domain <分野>` から呼ぶ）。
+/// 分野の観点を配る（`sai-moon-paper init --domain <分野>` から呼ぶ）。
 ///
 /// - `domain-medical.md` / `domain-signal-ml.md` / `domain-general.md` の見本を
 ///   `.sai/template/` に置く（無いものだけ）。
@@ -295,13 +295,13 @@ pub fn install_domain(root: &Path, domain: &str) -> Result<Vec<String>> {
         done.push(format!("分野の観点: {domain}（.sai/template/domain.md）"));
     } else {
         done.push(format!(
-            "domain.md は既にあります。分野を変えるには .sai/template/domain.md を消してから `sai-paper init --assets-only --domain {domain}` を実行するか、`domain-{domain}.md` の中身を domain.md に写してください"
+            "domain.md は既にあります。分野を変えるには .sai/template/domain.md を消してから `sai-moon-paper init --assets-only --domain {domain}` を実行するか、`domain-{domain}.md` の中身を domain.md に写してください"
         ));
     }
     Ok(done)
 }
 
-/// この PC の拡張を探して配る（`sai-paper init` から呼ぶ）。
+/// この PC の拡張を探して配る（`sai-moon-paper init` から呼ぶ）。
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
@@ -334,7 +334,16 @@ pub fn install_sci(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) ->
     if !sai.join("template/domain.md").exists() {
         done.extend(install_domain(root, "general")?);
     }
+    done.extend(install_sci_parts(root, sai_paper_bin)?);
+    Ok(done)
+}
 
+/// sci だけの部品（sci ブロック 16 本と sci-core・`context`・土壌のひな形）を配る。
+/// 今の部品と分野の観点は配らない（`init` は先に [`install_here`] と [`install_domain`] を呼ぶので、
+/// 同じ行を 2 度出さないためにこちらを使う）。
+fn install_sci_parts(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
+    let mut done = Vec::new();
+    let sai = root.join(".sai");
     let mut written = 0;
     for (name, content) in SCI_BLOCKS {
         written += usize::from(write_if_missing(&sai.join("blocks").join(name), content)?);
@@ -373,7 +382,7 @@ pub fn install_sci(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) ->
 }
 
 /// この PC の実行ファイルと拡張を探して sci の部品を配る
-/// （`sci init`・`phone sci init`・`sai-paper init --sci` から呼ぶ）。
+/// （`sci init`・`phone sci init`・`sai-moon-paper init --sci` から呼ぶ）。
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
@@ -382,6 +391,14 @@ pub fn install_sci_here(root: &Path) -> Result<Vec<String>> {
         .and_then(std::fs::canonicalize)
         .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
     install_sci(root, &bin, &pi_extensions())
+}
+
+/// この PC の実行ファイルで [`install_sci_parts`] を呼ぶ（`init --sci` 用）。
+pub fn install_sci_parts_here(root: &Path) -> Result<Vec<String>> {
+    let bin = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
+    install_sci_parts(root, &bin)
 }
 
 #[cfg(test)]

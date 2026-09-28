@@ -810,7 +810,7 @@ fn handle_init(
     if assets_only {
         if !sai_dir.is_dir() {
             bail!(
-                "先に `sai-paper init` を実行してください: {} がありません",
+                "先に `sai-moon-paper init` を実行してください: {} がありません",
                 sai_dir.display()
             );
         }
@@ -836,7 +836,7 @@ fn handle_init(
                 );
             }
             for line in
-                agent_assets::install_sci_here(&root).context("sci の部品を配れませんでした")?
+                agent_assets::install_sci_parts_here(&root).context("sci の部品を配れませんでした")?
             {
                 println!("✅ {line}");
             }
@@ -853,7 +853,7 @@ fn handle_init(
 
     if paper_dir.join("papr.db").exists() {
         bail!(
-            "既に初期化されています: {}\n`sai-paper init` はプロジェクト開始時に 1 度のみ使用します\n足りない部品だけ配るには `sai-paper init --assets-only`",
+            "既に初期化されています: {}\n`sai-moon-paper init` はプロジェクト開始時に 1 度のみ使用します\n足りない部品だけ配るには `sai-moon-paper init --assets-only`",
             paper_dir.display()
         );
     }
@@ -921,7 +921,7 @@ fn handle_init(
     // sci の部品（sci ブロック・sci-core・context・土壌のひな形）を配る。
     // mind.md のひな形を土壌のものにするため、mind.md より前に配る。
     if sci_type.is_some() {
-        for line in agent_assets::install_sci_here(&root).context("sci の部品を配れませんでした")? {
+        for line in agent_assets::install_sci_parts_here(&root).context("sci の部品を配れませんでした")? {
             println!("✅ {line}");
         }
     }
