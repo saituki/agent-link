@@ -960,7 +960,7 @@ function seFieldsFor(kind, nodeId, detail, target) {
           seFieldLines("cites", "出典", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは必ず出典）", "#37 §3.2"),
           seFieldSelect("polarity", "向き", SE_POLARITY, "support", null, true),
           seFieldSelect("level", "根拠の段", SE_LEVELS, "", "任意", true),
-          questionOptions.length ? seFieldSelect("question", "問い", questionOptions, "", "この問いに対する所知なら選ぶ", true) : null,
+          questionOptions.length ? seFieldSelect("question", "問い", questionOptions, "", "この問いへの答えなら選ぶ", true) : null,
           paperOptions.length ? seFieldSelect("paper", "論文", paperOptions, "", "任意（この節点に結び付いている論文）", true) : null,        ],
       };
     case "link":

@@ -131,7 +131,7 @@ enum Cmd {
     Status,
     /// 研究プロジェクトを初期化する（`.sai/` と `.sai/paper/`）
     Init {
-        /// プロジェクト名（sai-control 登録用）
+        /// プロジェクト名（登録簿 `~/.sai-moon/registry.json` に載せる名前。省略時はフォルダ名）
         #[arg(long)]
         name: Option<String>,
         /// プロジェクトルート（既定: `SAI_PAPER_ROOT` または cwd）

@@ -2142,8 +2142,8 @@ fn format_task_status(status: &str) -> &str {
 ///
 /// 1. `PROJECTROOT/.sai/` と必要なフォルダ・`settings.json` を作成する（既存は触らない）。
 ///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
-/// 2. `sai-control registry add --name <名前> --root <ルート>` でプロジェクトを登録する
-///    （`sai-control` が見つからない場合は警告を出して続行）
+///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に読む札を作れるように）
+/// 2. 登録簿（`~/.sai-moon/registry.json`）にプロジェクトを登録する
 pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     use sai_link_engine::init::init_project;
 
@@ -2152,6 +2152,8 @@ pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error
 
     // 1. `.sai/` と cc 設定の作成（何度実行してもよい。足りないものだけ作る）
     let report = init_project(&project_root)?;
+    // DB が無いと、デーモンを一度も起動していないプロジェクトで読む札の予約が失敗する
+    open_db()?;
 
     println!(
         "✅ プロジェクトを初期化しました: {}",

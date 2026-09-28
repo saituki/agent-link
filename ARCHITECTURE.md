@@ -169,7 +169,7 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 - **共通部品**（`ui.js`）: `saiApi`（通信と日本語のエラー）・`saiToast`・`saiConfirm`・`saiPrompt`・`saiSheet`（下から出る板）・`saiEmpty`（空の画面の案内）・`saiTerm`（用語の札。用語は `SAI_TERMS`）・`saiIsWide` / `saiSplitShow`（広い画面の 2 列）。新しい画面はこれを使い、同じ物を作り直さない。
 - **md の表示**（`markdown.js`）: `renderMarkdown(text, {toolbar: true})` で、色分け・全部たたむ / 開く・目次・長いコードのたたみが付く。コードの色分けは `mdHighlight`。
 - **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定・`pim` Import など）を付け、`apps/phone/tests/test_globals.js` で検査する。
-- **版**: `sw.js` の `CACHE`（今は `sai-phone-v35`）と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
+- **版**: `sw.js` の `CACHE`（今は `sai-phone-v36`）と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
 
 | ファイル | 画面 |
 |---|---|

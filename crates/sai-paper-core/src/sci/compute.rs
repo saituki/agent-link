@@ -869,13 +869,13 @@ impl Tree {
             self.depth.insert(id, depth);
             ordered.push(id);
             // 子は `ord`・id の順で並ぶ（`children` はその順に並んでいる）。
-            let mut pushed: Vec<(i64, i64)> = self
-                .children
-                .get(&id)
+            // ただし候補は子の項目より先に置く（一覧で、候補がどの項目のものか分かるように）。
+            let mut kids: Vec<i64> = self.children.get(&id).cloned().unwrap_or_default();
+            kids.sort_by_key(|child| self.node(*child).map(|node| node.kind != "option").unwrap_or(true));
+            let mut pushed: Vec<(i64, i64)> = kids
                 .into_iter()
-                .flatten()
                 .rev()
-                .map(|child| (*child, depth + 1))
+                .map(|child| (child, depth + 1))
                 .collect();
             pushed.retain(|(child, _)| !seen.contains(child));
             stack.append(&mut pushed);
@@ -3336,6 +3336,16 @@ given: background
         // 深さも 1 段ごとに 1 増える。
         let depths: Vec<i64> = result.nodes.iter().map(|row| row.depth).collect();
         assert_eq!(depths, vec![0, 0, 0, 1, 0, 1, 0, 0]);
+
+        // 候補は子の項目より先に並ぶ（後から足しても、一覧でどの項目の候補か分かるように）。
+        option(conn, key_id(conn, "data"), "公開の脳波", 0);
+        let result = status(conn, &roots, &defs()).expect("status");
+        let titles: Vec<&str> = result.nodes.iter().map(|row| row.title.as_str()).collect();
+        let at = |title: &str| titles.iter().position(|t| *t == title).expect("並びにある");
+        let data_title = result.nodes.iter().find(|row| row.key.as_deref() == Some("data")).unwrap().title.clone();
+        let type_title = result.nodes.iter().find(|row| row.key.as_deref() == Some("data.type")).unwrap().title.clone();
+        assert_eq!(at("公開の脳波"), at(&data_title) + 1, "候補が項目の直後にない");
+        assert!(at("公開の脳波") < at(&type_title), "候補が子の項目より後ろ");
 
         let _ = fs::remove_dir_all(&root);
     }

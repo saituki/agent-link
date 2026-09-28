@@ -111,7 +111,8 @@ function srBuildAnswer(card, values) {
     run: Number(c.run_id) || undefined,
   };
   if (json.run === undefined) delete json.run;
-  if (srTrim(v.question)) json.question = srTrim(v.question);
+  // 問いの ID（Q12 の形）だけを送る。読む札の問いは文なので送らない（送るとサーバが ID の形で断る）
+  if (/^Q[1-9][0-9]{0,8}$/.test(srTrim(v.question))) json.question = srTrim(v.question);
   return good(json);
 }
 
@@ -362,7 +363,7 @@ function srAnswerForm(card, question, allQuestions) {
   const paper = card.paper || {};
   const wrap = srEl("div", "sci-read-answer");
   const head = srLine("sci-read-answer-head");
-  head.appendChild(srEl("span", "sci-read-answer-q", question ? String(question) : "和政策の質問はありません"));
+  head.appendChild(srEl("span", "sci-read-answer-q", question ? String(question) : "問いはありません"));
   wrap.appendChild(head);
 
   // 問いは 1 つ決まっているときは欄を出さない（答えの形が分かるので）。無いときだけ選べるようにする

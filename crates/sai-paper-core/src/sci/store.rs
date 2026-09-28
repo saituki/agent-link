@@ -123,7 +123,7 @@ pub struct NewNode<'a> {
     pub kind: &'a str,
     /// 項目ガイドのキー。
     pub item_key: Option<&'a str>,
-    /// 項目の型。写入時に C-01 の順に並べ直す。
+    /// 項目の型。書き込むときに C-01 の順に並べ直す。
     pub types: &'a [String],
     /// 題名。空にはできない。
     pub title: &'a str,

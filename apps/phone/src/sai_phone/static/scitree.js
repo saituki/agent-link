@@ -51,6 +51,16 @@ const ST_BLANKS = {
   awaiting_decision: "判断待ち",
   conflict: "対立",
 };
+// 決定の記録の行動（C-07 の op から記録される名前）
+const ST_DECISION_ACTIONS = {
+  decide: "決定",
+  tentative: "仮決定",
+  reopen: "再開",
+  exclude_item: "対象外",
+  reject_option: "候補を却下",
+  dormant_option: "候補を休眠",
+  restore_option: "候補を戻す",
+};
 // 印（毎回計算される値・C-01）
 const ST_NODE_MARKS = { weak_evidence: "根拠不足", recheck: "要再確認" };
 // 負債（4 つ。0 のものは薄く出す）
@@ -595,7 +605,7 @@ function stTableEmptyHint(node) {
   return {
     icon: "👈",
     title: "項目を選んでください",
-    body: "左の一覧から項目を選ぶと、ここにその項目の候補の表が出ます。",
+    body: "下の一覧から項目を選ぶと、ここにその項目の候補の表が出ます。",
   };
 }
 
@@ -618,7 +628,9 @@ function stRenderList() {
   if (stMode === "table") {
     const hint = stTableEmptyHint(stNode);
     if (hint) {
+      // 表の欄が一覧の代わりに出るので、選べるように一覧も下に出す（出さないと行き止まりになる）
       box.appendChild(stEmpty(hint));
+      stRenderListRows(box);
       return;
     }
     if (typeof sgRenderTable === "function" && stNode) {
@@ -665,7 +677,7 @@ function stListRow(r) {
   b.appendChild(head);
   const sub = stLine("sci-row-sub");
   if (r.blank) sub.appendChild(stChip(r.blank, r.blank === "対立" ? "danger" : "warn"));
-  for (const m of r.marks) sub.appendChild(stChip(ST_NODE_MARKS[m], "muted"));
+  for (const m of r.marks) sub.appendChild(stChip(m, "muted")); // r.marks は stRows で表示名にしてある
   if (r.papers > 0) sub.appendChild(stChip(`論文 ${r.papers}`, "muted"));
   if (r.pending > 0) sub.appendChild(stChip(`仕分け ${r.pending}`, "warn"));
   if (sub.childNodes.length) b.appendChild(sub);
@@ -771,7 +783,7 @@ function stMd(src, cls) {
 function stBoardHead(d, node) {
   const sec = stSec("", "sci_blank");
   const head = stEl("div", "sci-node-head");
-  head.appendChild(stMarkChip("item", node.state));
+  head.appendChild(stMarkChip(node.kind === "option" ? "option" : "item", node.state));
   head.appendChild(stEl("span", "sci-id", node.id || ""));
   head.appendChild(stEl("h2", "sci-node-title", node.title || "（題のない項目）"));
   sec.appendChild(head);
@@ -823,7 +835,9 @@ function stOpRow(d, node) {
   const id = node.id || null;
   const has = (t) => Array.isArray(node.types) && node.types.indexOf(t) >= 0;
   const add = (label, op) => row.appendChild(stBtn(label, () => seOpenAction(op, id, d, null)));
-  if (node.state === "excluded") add("再開", "reopen");
+  // 候補の状態は親の項目の「候補」の表で変える（決める・再開・対象外は項目だけ）
+  if (node.kind === "option") { /* 項目の釦は出さない */ }
+  else if (node.state === "excluded") add("再開", "reopen");
   else {
     add("決める", "decide");
     if (node.state !== "open") add("再開", "reopen");
@@ -856,6 +870,12 @@ function stBoardNext(d, node) {
     if (sub) main.appendChild(stEl("p", "sci-line-sub", sub));
     row.appendChild(main);
     const can = typeof seOpenCard === "function";
+    // ブロックの無い次の一手（見直しなど）は、利用者が自分で行う。カードの釦は出さない
+    if (!b.block) {
+      row.appendChild(stChip("自分で行う", "muted"));
+      sec.appendChild(row);
+      continue;
+    }
     row.appendChild(stBtn(can ? "カードを作る" : `${b.block || "カード"} はまだありません`, can
       ? () => seOpenCard(id, b)
       : null));
@@ -1121,15 +1141,17 @@ function stBoardDecisions(d) {
   for (const dec of rows) {
     const row = stLine("sci-item");
     const main = stEl("div", "sci-line-main");
-    main.appendChild(stEl("span", "sci-id", dec.action || ""));
-    if (dec.option) main.appendChild(stEl("p", "sci-line-title", `${dec.option} を選んだ`));
+    main.appendChild(stEl("span", "sci-id", ST_DECISION_ACTIONS[dec.action] || dec.action || ""));
+    // 選んだ・反証を探したかは、決定と仮決定のときだけの話
+    const chose = dec.action === "decide" || dec.action === "tentative";
+    if (dec.option) main.appendChild(stEl("p", "sci-line-title", chose ? `${dec.option} を選んだ` : `対象: ${dec.option}`));
     if (dec.reason) main.appendChild(stEl("p", "sci-line-text", dec.reason));
     const bits = [];
     if (Array.isArray(dec.evidence) && dec.evidence.length) bits.push(`根拠: ${dec.evidence.join("、")}`);
     if (Array.isArray(dec.rejected) && dec.rejected.length) {
       bits.push(`却下: ${dec.rejected.map((r) => r.option).filter(Boolean).join("、")}`);
     }
-    if (dec.counter_searched === false) bits.push("反対の意見は探していません");
+    if (chose && dec.counter_searched === false) bits.push("反対の意見は探していません");
     if (dec.actor) bits.push(dec.actor);
     if (dec.created_at) bits.push(dec.created_at);
     if (bits.length) main.appendChild(stEl("p", "sci-line-sub", bits.join("　")));

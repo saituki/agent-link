@@ -190,8 +190,13 @@
   line-height: 1.6;
 }
 
-/* 1 つだけ選ぶ（横には並べる） */
-.sci-edit-picks,
+/* 1 つだけ選ぶ（横に並べ、入り切らなければ折り返す） */
+.sci-edit-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .sci-edit-checks,
 .sci-edit-pairs,
 .sci-edit-lines {
@@ -513,11 +518,6 @@
 
   .sci-edit-proposal {
     break-inside: avoid;
-  }
-
-  /* 小窓の入力は 2 列に並べられるものは 2 列にする */
-  .sci-edit-target {
-    grid-template-columns: 1fr 1fr;
   }
 
   .sci-read-card {

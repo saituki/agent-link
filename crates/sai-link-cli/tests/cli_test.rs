@@ -471,3 +471,30 @@ fn test_cli_agent_task_list_without_run_id_errors() {
 
     cleanup_temp_dir(&dir);
 }
+
+/// `init` は実行の記録の DB を作り、登録簿に載せること（デーモンを起動する前でも読む札を予約できるように）
+#[test]
+fn test_init_creates_engine_db_and_registers() {
+    let dir = create_temp_dir();
+    let root = dir.join("proj");
+    let home = dir.join("home");
+    std::fs::create_dir_all(&root).unwrap();
+    let output = Command::new(sai_binary())
+        .args(["init", "--name", "init-check"])
+        .current_dir(&root)
+        .env("SAI_PROJECT_ROOT", &root)
+        .env("SAI_SAI_HOME", &home)
+        .env_remove("SAI_PARENT_RUN_ID")
+        .env_remove("SAI_BLOCK_NAME")
+        .output()
+        .expect("sai の実行に失敗しました");
+    assert!(
+        output.status.success(),
+        "init が失敗した: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(root.join(".sai/sai-engine/sai-engine.db").exists(), "DB が作られること");
+    let registry = std::fs::read_to_string(home.join("registry.json")).unwrap();
+    assert!(registry.contains("init-check"), "登録簿に名前が載ること");
+    cleanup_temp_dir(&dir);
+}

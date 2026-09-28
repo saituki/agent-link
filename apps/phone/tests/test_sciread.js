@@ -109,13 +109,15 @@ function test_build_answer() {
     text: "改善が見られた。", place: " Fig.3", polarity: "refute", question: "データ名は何か",
   }));
   assert.strictEqual(full.polarity, "refute");
-  assert.strictEqual(full.question, "データ名は何か");
+  // 読む札の問いは文なので question には入れない。Q の ID だけ入れる
+  assert.strictEqual(full.question, undefined);
+  assert.strictEqual(ok(srBuildAnswer(card, { text: "あ", question: "Q7" })).question, "Q7");
   assert.deepStrictEqual(full.cites, ["#37 Fig.3"]);
   // 節点・論文・run が入る
   assert.strictEqual(full.node, "N12");
   assert.strictEqual(full.paper, 37);
   assert.strictEqual(full.run, 130);
-  // 向きが知 remeraggentarえないときは支持
+  // 向きが分からないときは支持
   assert.strictEqual(ok(srBuildAnswer(card, { text: "あ", polarity: "hoge" })).polarity, "support");
   // 空・長すぎる・節点や論文が無い
   assert.match(ng(srBuildAnswer(card, { text: "  " })), /文を入力/);
