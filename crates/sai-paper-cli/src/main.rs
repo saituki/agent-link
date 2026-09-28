@@ -28,9 +28,11 @@ mod phone;
 mod phone_canvas;
 mod phone_cite;
 mod phone_import;
+mod phone_sci;
 mod progress;
 mod relayout;
 mod report;
+mod sci;
 mod search_sets;
 mod understanding;
 
@@ -327,6 +329,12 @@ enum Cmd {
     Phone {
         #[command(subcommand)]
         cmd: phone::PhoneCmd,
+    },
+    /// 研究方針の木（sai-sci）
+    Sci {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: sci::SciCmd,
     },
     /// Library の検索（RAG）の精度を測る
     Eval {
@@ -1182,6 +1190,9 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Attention { cmd, json }) => {
             attention::handle(cmd, json)?;
+        }
+        Some(Cmd::Sci { cmd }) => {
+            sci::run(cmd)?;
         }
         Some(Cmd::Phone { cmd }) => {
             phone::handle(cmd, &client).await?;
