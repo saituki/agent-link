@@ -225,6 +225,62 @@ pub fn project_name_using(registry: Option<&Path>, project_root: &Path) -> Strin
     folder_name(project_root)
 }
 
+/// 登録簿に足した結果。
+#[derive(Debug, PartialEq, Eq)]
+pub enum RegistryAdd {
+    /// 新しく足した。
+    Added,
+    /// 同じルートが既にある（その登録名）。
+    AlreadyRegistered(String),
+}
+
+/// レジストリ JSON（`~/.sai-moon/registry.json`）にプロジェクトを足す（`sai-moon-link init` 用）。
+///
+/// 同じルートが既にあれば何もしない。同じ名前で別のルートがあればエラーにする
+/// （apps/phone は名前でプロジェクトを引くため）。ファイルが無ければ作る。
+///
+/// # Errors
+/// 読み書きに失敗したとき、ファイルが配列でないとき、名前が他のルートで使われているとき。
+pub fn register_project(registry: &Path, name: &str, project_root: &Path) -> Result<RegistryAdd, String> {
+    let mut entries: Vec<serde_json::Value> = match std::fs::read_to_string(registry) {
+        Ok(text) if !text.trim().is_empty() => serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| v.as_array().cloned())
+            .ok_or_else(|| format!("{} が配列の JSON ではありません", registry.display()))?,
+        Ok(_) => Vec::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(format!("{} を読めません: {e}", registry.display())),
+    };
+    let target = normalize_path_str(project_root);
+    for e in &entries {
+        let root = e.get("root").and_then(|r| r.as_str()).unwrap_or_default();
+        let entry_name = e.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+        if normalize_path_str(Path::new(root)) == target {
+            return Ok(RegistryAdd::AlreadyRegistered(entry_name.to_string()));
+        }
+        if entry_name == name {
+            return Err(format!(
+                "名前 {name} は別のフォルダ（{root}）で使われています。--name で別の名前を付けてください"
+            ));
+        }
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    entries.push(serde_json::json!({
+        "name": name,
+        "root": project_root.to_string_lossy(),
+        "kind": "link",
+        "color": null,
+        "created_at": now,
+        "last_opened": now,
+    }));
+    if let Some(parent) = registry.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{} を作れません: {e}", parent.display()))?;
+    }
+    let text = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
+    std::fs::write(registry, text + "\n").map_err(|e| format!("{} に書けません: {e}", registry.display()))?;
+    Ok(RegistryAdd::Added)
+}
+
 /// 現在のプロジェクトのプロジェクト名（`~/.sai-moon/registry.json` → フォルダ名）。
 pub fn project_name_for(project_root: &Path) -> String {
     let registry = crate::project::sai_home().map(|h| h.join("registry.json"));
@@ -974,6 +1030,36 @@ mod tests {
 
         // レジストリが無ければフォルダ名
         assert_eq!(project_name_using(None, &root), "my-project");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 登録簿への追加: 無ければ作り、同じルートは増やさず、同じ名前の別ルートは断る。
+    #[test]
+    fn register_project_adds_once_and_rejects_name_clash() {
+        let tmp = std::env::temp_dir().join(format!(
+            "sai_phone_regadd_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let root = tmp.join("practice");
+        std::fs::create_dir_all(&root).unwrap();
+        let registry = tmp.join("home/registry.json");
+
+        assert_eq!(register_project(&registry, "practice", &root), Ok(RegistryAdd::Added));
+        assert_eq!(project_name_using(Some(&registry), &root), "practice");
+        let text = std::fs::read_to_string(&registry).unwrap();
+        assert!(text.contains("\"kind\": \"link\""), "{text}");
+
+        assert_eq!(
+            register_project(&registry, "practice", &root),
+            Ok(RegistryAdd::AlreadyRegistered("practice".to_string()))
+        );
+        let other = tmp.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(register_project(&registry, "practice", &other).is_err());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

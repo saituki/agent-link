@@ -2145,7 +2145,7 @@ fn format_task_status(status: &str) -> &str {
 /// 2. `sai-control registry add --name <名前> --root <ルート>` でプロジェクトを登録する
 ///    （`sai-control` が見つからない場合は警告を出して続行）
 pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
-    use sai_link_engine::init::{init_project, sai_dir};
+    use sai_link_engine::init::init_project;
 
     // プロジェクトルート（SAI_PROJECT_ROOT またはカレントディレクトリ）
     let project_root = sai_link_engine::project::project_root();
@@ -2167,7 +2167,7 @@ pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error
         "   次: .mcp.json・.claude/・.pi/ を git commit してください（worktree の cc と pi が読むため）"
     );
 
-    // 2. sai-control レジストリへの登録
+    // 2. 登録簿（`~/.sai-moon/registry.json`）への登録（apps/phone がプロジェクトを名前で引くため）
     let project_name = match name {
         Some(n) if !n.is_empty() => n,
         _ => project_root
@@ -2175,50 +2175,17 @@ pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unnamed".to_string()),
     };
-
-    match std::process::Command::new("sai-control")
-        .args([
-            "registry",
-            "add",
-            "--name",
-            &project_name,
-            "--root",
-            &project_root.to_string_lossy(),
-        ])
-        .status()
-    {
-        Ok(status) if status.success() => {
-            println!(
-                "✅ sai-control レジストリに登録しました: {} ({})",
-                project_name,
-                sai_dir(&project_root).display()
-            );
-        }
-        Ok(status) => {
-            println!(
-                "⚠ sai-control registry add が失敗しました (終了コード: {})。レジストリ登録はスキップされました",
-                status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string())
-            );
-            println!(
-                "   手動登録: sai-control registry add --name {} --root {}",
-                project_name,
-                project_root.display()
-            );
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            println!("⚠ sai-control バイナリが見つかりません。レジストリ登録はスキップされました");
-            println!(
-                "   手動登録: sai-control registry add --name {} --root {}",
-                project_name,
-                project_root.display()
-            );
-        }
-        Err(e) => {
-            println!(
-                "⚠ sai-control の起動に失敗しました: {}。レジストリ登録はスキップされました",
-                e
-            );
-        }
+    match sai_link_engine::project::sai_home().map(|h| h.join("registry.json")) {
+        Some(registry) => match sai_link_engine::phone_export::register_project(&registry, &project_name, &project_root) {
+            Ok(sai_link_engine::phone_export::RegistryAdd::Added) => {
+                println!("✅ 登録簿に登録しました: {} ({})", project_name, registry.display());
+            }
+            Ok(sai_link_engine::phone_export::RegistryAdd::AlreadyRegistered(existing)) => {
+                println!("✅ 登録簿には既に登録されています: {existing}");
+            }
+            Err(e) => println!("⚠ 登録簿に登録できませんでした: {e}"),
+        },
+        None => println!("⚠ HOME が分からないため、登録簿に登録できませんでした"),
     }
 
     Ok(())

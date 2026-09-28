@@ -860,8 +860,13 @@ fn handle_init(
 
     // sai-moon-link 側の初期化（未実行なら実行する）
     if !sai_dir.exists() {
-        match std::process::Command::new("sai-moon-link")
-            .arg("init")
+        let mut link_init = std::process::Command::new("sai-moon-link");
+        link_init.arg("init");
+        // 登録簿の名前（無ければフォルダ名）
+        if let Some(name) = name.as_deref().filter(|n| !n.is_empty()) {
+            link_init.args(["--name", name]);
+        }
+        match link_init
             .current_dir(&root)
             .env("SAI_PROJECT_ROOT", &root)
             .status()
@@ -883,30 +888,7 @@ fn handle_init(
     let database = Database::open(&paths.database_file).context("papr.db の作成に失敗")?;
     sai_paper_core::Config::load_or_create(&paths).context("settings.json の作成に失敗")?;
 
-    // sai-control レジストリへ登録（任意）
-    let project_name = name
-        .filter(|n| !n.is_empty())
-        .or_else(|| root.file_name().map(|n| n.to_string_lossy().to_string()))
-        .unwrap_or_else(|| "unnamed".to_string());
-    match std::process::Command::new("sai-control")
-        .args([
-            "registry",
-            "add",
-            "--name",
-            &project_name,
-            "--root",
-            &root.to_string_lossy(),
-        ])
-        .status()
-    {
-        Ok(status) if status.success() => {
-            println!("✅ sai-control レジストリに登録しました: {project_name}")
-        }
-        _ => eprintln!(
-            "⚠ sai-control registry add を実行できませんでした（任意）。手動登録: sai-control registry add --name {project_name} --root {}",
-            root.display()
-        ),
-    }
+    // 登録簿（`~/.sai-moon/registry.json`）への登録は `sai-moon-link init` が行う。
 
     // エージェントの部品（ブロック・テンプレート・pi の拡張・cc の MCP）を配る（段階 7）
     for line in agent_assets::install_here(&root).context("エージェントの部品を配れませんでした")? {
@@ -938,7 +920,7 @@ fn handle_init(
         "✅ 研究プロジェクトを初期化しました: {}",
         paper_dir.display()
     );
-    println!("   起動: sai-paper-tui  (直接操作)");
+    println!("   起動: sai-moon-paper-tui  (直接操作)");
     println!("         sai-moon-link-tui   (pi agent 管理)");
     Ok(())
 }
