@@ -29,7 +29,7 @@ from sai_phone import cli, control, papers, sci
 class Recorder:
     """偽の `cli.run_json` と偽の `control._phone_json`。
 
-    - `order` に「どちらを・どの引数で」呼んだか積む（2 つの時計の順を確かめるため）。
+    - `order` に「どちらを・どの引数で」呼んだか積む（sai-paper と sai-link を呼ぶ順を確かめるため）。
     - `replies` に渡した値を順に返す（空なら `{"ok": True}`）。
     """
 
@@ -212,7 +212,7 @@ def test_op_ok() -> None:
                 payload[key] = [{"option": "N21", "reason": "弱い"}]
             elif kind.startswith("opt_"):
                 continue
-            else:  # pragma: no cover - 検査の増やし忘れを中专時に見つける
+            else:  # pragma: no cover - 検査の増やし忘れをテストの実行時に見つける
                 raise AssertionError(f"未知の検査: {kind}")
         sci.validate_op(payload)
 
@@ -306,7 +306,7 @@ def test_card() -> None:
         {
             "node": "N12",
             "block": "sci-read",
-            "purpose": "  この論文で HDR の話我校証できる  ",
+            "purpose": "  この論文で HDR の話を検証できる  ",
             "question": "Q7",
             "expect": "速さが効いた",
             "scope": "subtree",
@@ -319,7 +319,7 @@ def test_card() -> None:
     assert got == {
         "node": "N12",
         "block": "sci-read",
-        "purpose": "この論文で HDR の話我校証できる",
+        "purpose": "この論文で HDR の話を検証できる",
         "question": "Q7",
         "expect": "速さが効いた",
         "scope": "subtree",
