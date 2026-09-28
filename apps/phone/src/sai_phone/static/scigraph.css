@@ -1,3 +1,206 @@
-/* U21 が書くファイル（実装計画 U19 が先に空のファイルを作る）。
-   根の図と候補の表の見た目。線と状態の色は style.css の --sci-* を使う。
-   クラスは .sci-graph- で始める。scitree.css の後に読む。 */
+/* 根の図と候補の表の見た目（実装計画 U21）。
+   scitree.css の後に読む（index.html）。style.css と scitree.css は触らない。
+   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong / --accent と、
+   研究方針の木用の --sci-*（状態と線の色。style.css にある）。
+   クラスは .sci-graph- で始める（st- / --st- は統計の画面と重なるので使わない）。 */
+
+/* --- 図を囲む所（#sci-list の中にも、狭い画面の下から出る板の中にも置く） --- */
+
+.sci-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+/* --- 道具の行（候補の出し入れ・＋・－・⤢） --- */
+
+.sci-graph-tools {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sci-graph-btn {
+  min-width: 32px;
+  font-size: 13px;
+}
+
+/* --- 図そのもの（見える範囲を出す所。中は transform で動かす） --- */
+
+.sci-graph-stage {
+  position: relative;
+  width: 100%;
+  height: min(62vh, 520px);
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  touch-action: none; /* 指で図を動かせるように、ブラウザのスクロールには奪われない */
+  cursor: grab;
+}
+
+.sci-graph-stage:active { cursor: grabbing; }
+
+.sci-graph-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* --- 線 --- */
+
+.sci-graph-edges {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.sci-graph-edge-parent { stroke-linecap: round; }
+.sci-graph-edge-depends { stroke-linecap: round; }
+
+/* --- 札 --- */
+
+.sci-graph-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--sg-color, var(--line-strong));
+  border-left: 4px solid var(--sg-color, var(--line-strong));
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.sci-graph-card:hover { background: var(--bg-soft); }
+
+.sci-graph-card-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.sci-graph-card-mark { color: var(--sg-color, var(--text)); font-size: 12px; }
+.sci-graph-card-id { font-variant-numeric: tabular-nums; }
+.sci-graph-card-state { margin-left: auto; }
+.sci-graph-pin { font-size: 11px; }
+
+/* 題は 2 行で切る（全部は板で見せる） */
+.sci-graph-card-title {
+  font-size: 13px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sci-graph-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: auto;
+}
+
+/* 今の関門の条件に出てくる項目は太い枠で目立たせる */
+.sci-graph-gate {
+  border-width: 2px;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* 却下・休眠の候補は薄く出す（消さない） */
+.sci-graph-faint {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.sci-graph-empty {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+}
+
+.sci-graph-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+/* --- 凡例（図の下） --- */
+
+.sci-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.sci-graph-legend-title { font-weight: 600; color: var(--text); }
+
+.sci-graph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sci-graph-legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--sg-color, var(--line-strong));
+}
+
+.sci-graph-legend-line.dashed { border-top-style: dashed; }
+.sci-graph-legend-line.dotted { border-top-style: dotted; }
+.sci-graph-legend-line.arrow { position: relative; }
+.sci-graph-legend-line.arrow::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -4px;
+  border: 4px solid transparent;
+  border-left-color: var(--sg-color, var(--line-strong));
+}
+
+/* --- 候補の表 --- */
+
+.sci-graph-axes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+
+.sci-graph-axis { font-size: 13px; line-height: 1.5; }
+
+/* 狭い画面では表の外側を横に動かせる */
+.sci-graph-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sci-graph-table { min-width: 560px; }
+.sci-graph-table tbody tr { cursor: pointer; }
+.sci-graph-table tbody tr:hover { background: var(--bg-soft); }
+
+.sci-graph-state-mark { white-space: nowrap; }
+
+.sci-graph-row-rejected,
+.sci-graph-row-dormant { opacity: 0.6; }
