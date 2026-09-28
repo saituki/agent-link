@@ -66,8 +66,12 @@ pub struct VectorSearchOptions {
     pub model: Option<String>,
     /// 索引の名前で絞る（`None` なら全索引）
     pub index: Option<String>,
-    /// スコープ（papers/notes/figures/all）
+    /// スコープ（papers/notes/figures/tree/all）
     pub scope: Option<String>,
+    /// 論文の集合で絞る（`None` なら絞らない。`Some(空)` なら何も返さない）。
+    pub paper_ids: Option<Vec<i64>>,
+    /// 結果から除く論文（墓標）。
+    pub exclude_papers: Vec<i64>,
 }
 
 impl Default for VectorSearchOptions {
@@ -77,6 +81,8 @@ impl Default for VectorSearchOptions {
             model: None,
             index: None,
             scope: None,
+            paper_ids: None,
+            exclude_papers: Vec::new(),
         }
     }
 }
@@ -90,6 +96,10 @@ pub struct WordSearchOptions {
     pub scope: Option<String>,
     /// 論文 ID（指定時はその論文に絞り込む）
     pub paper_id: Option<i64>,
+    /// 論文の集合で絞る（`None` なら絞らない。`Some(空)` なら何も返さない）。
+    pub paper_ids: Option<Vec<i64>>,
+    /// 結果から除く論文（墓標）。
+    pub exclude_papers: Vec<i64>,
     /// FTS5 式として渡すか（true = 生式、false = 自然言語でクォート）
     pub fts_expr: bool,
     /// 索引の名前で絞る（`None` なら全索引）
@@ -102,6 +112,8 @@ impl Default for WordSearchOptions {
             top_k: 20,
             scope: None,
             paper_id: None,
+            paper_ids: None,
+            exclude_papers: Vec::new(),
             fts_expr: false,
             index: None,
         }
@@ -117,6 +129,10 @@ pub struct HybridSearchOptions {
     pub scope: Option<String>,
     /// 論文 ID（指定時はその論文に絞り込む）
     pub paper_id: Option<i64>,
+    /// 論文の集合で絞る（`None` なら絞らない。`Some(空)` なら何も返さない）。
+    pub paper_ids: Option<Vec<i64>>,
+    /// 結果から除く論文（墓標）。
+    pub exclude_papers: Vec<i64>,
     /// 埋め込みモデル名（省略時は config のデフォルト）
     pub model: Option<String>,
     /// ベクトル側の重み（alpha）。word 側は 1.0 - alpha
@@ -135,6 +151,8 @@ impl Default for HybridSearchOptions {
             top_k: 20,
             scope: None,
             paper_id: None,
+            paper_ids: None,
+            exclude_papers: Vec::new(),
             model: None,
             alpha: 0.7,
             fusion: "weighted".to_string(),
@@ -184,16 +202,77 @@ fn index_where(index: Option<&str>) -> String {
     })
 }
 
-/// スコープ（papers/notes/figures/all）を `source_kind` の WHERE 句にする。
+/// スコープ（papers/notes/figures/tree/all）を `source_kind` の WHERE 句にする。
 ///
 /// `papers` は図を含めない（図は `figures` または `all` のときだけ出す）。
+/// 木の中身（`tree`）は `tree` を指定したときだけ出す（`all` には入らない）。
 fn scope_where_clause(scope: Option<&str>) -> &'static str {
     match scope {
         Some("papers") => "AND c.source_kind IN ('abstract', 'body')",
         Some("notes") => "AND c.source_kind = 'note'",
         Some("figures") => "AND c.source_kind = 'figure'",
-        _ => "",
+        Some("tree") => "AND c.source_kind = 'tree'",
+        _ => "AND c.source_kind != 'tree'",
     }
+}
+
+/// 論文 1 本の指定と論文の集合の指定を、1 つの集合にまとめる。
+///
+/// どちらも無ければ `None`（絞らない）。`Some(空)` なら 0 本の集合。
+fn fold_paper_ids(paper_id: Option<i64>, paper_ids: Option<&[i64]>) -> Option<Vec<i64>> {
+    match (paper_id, paper_ids) {
+        (None, None) => None,
+        (Some(one), None) => Some(vec![one]),
+        (None, Some(many)) => Some(many.to_vec()),
+        (Some(one), Some(many)) => {
+            let mut both = vec![one];
+            both.extend_from_slice(many);
+            Some(both)
+        }
+    }
+}
+
+/// 論文の条件の WHERE 句（`AND …`）を作る。word 側・vector 側の両方に使う。
+///
+/// `paper_id` と `paper_ids` の両方があれば、両方を合わせた集合で絞る。
+/// `paper_ids` が `Some(空)` なら何も返さない（`AND 0`）。
+/// `exclude` にある論文は除く（論文の無い塊は除く対象ではない）。
+/// 番号は整数なので、そのまま文字列に埋めてよい。
+fn paper_where_clause(
+    paper_id: Option<i64>,
+    paper_ids: Option<&[i64]>,
+    exclude: &[i64],
+) -> String {
+    // 絞る論文の集合（`None` は絞らない、`Some(空)` は 0 本）。
+    let ids = fold_paper_ids(paper_id, paper_ids);
+    let mut clause = String::new();
+    match ids {
+        None => {}
+        Some(list) => {
+            if list.is_empty() {
+                // 論文が無い集合で絞るときは結果を空にする。
+                clause.push_str("AND 0");
+            } else {
+                let joined = list
+                    .iter()
+                    .map(i64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                clause.push_str(&format!("AND c.paper_id IN ({joined})"));
+            }
+        }
+    }
+    if !exclude.is_empty() {
+        let joined = exclude
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        clause.push_str(&format!(
+            "AND (c.paper_id IS NULL OR c.paper_id NOT IN ({joined}))"
+        ));
+    }
+    clause
 }
 
 /// 全文検索（BM25）を実行する。
@@ -220,10 +299,12 @@ pub fn word_search(db: &Connection, query: &str, opts: WordSearchOptions) -> Res
     // スコープの where 句
     let scope_where = scope_where_clause(opts.scope.as_deref());
 
-    // 論文 ID でのフィルタ
-    let paper_where = opts
-        .paper_id
-        .map_or_else(String::new, |pid| format!("AND c.paper_id = {pid}"));
+    // 論文の条件（`paper_id`・`paper_ids`・除外する論文）
+    let paper_where = paper_where_clause(
+        opts.paper_id,
+        opts.paper_ids.as_deref(),
+        &opts.exclude_papers,
+    );
 
     // FTS5 検索結果を取得。natural order で返される（relevance descending）。
     let query_str = format!(
@@ -324,9 +405,10 @@ pub async fn vector_search(
     };
     let model_id = model_id_of(db, client.model())?;
     let extra_where = format!(
-        "{} {}",
+        "{} {} {}",
         index_where(opts.index.as_deref()),
-        scope_where_clause(opts.scope.as_deref())
+        scope_where_clause(opts.scope.as_deref()),
+        paper_where_clause(None, opts.paper_ids.as_deref(), &opts.exclude_papers),
     );
     let ranked = rank_by_vector(db, query_vec, model_id, &extra_where, opts.top_k)?;
     load_hits(db, &ranked)
@@ -357,17 +439,22 @@ pub async fn hybrid_search(
         top_k: fetch_k as i64,
         scope: opts.scope.clone(),
         paper_id: opts.paper_id,
+        paper_ids: opts.paper_ids.clone(),
+        exclude_papers: opts.exclude_papers.clone(),
         fts_expr: opts.fts_expr,
         index: opts.index.clone(),
     };
     let word_hits = word_search(db, query, word_opts)?;
 
     // ベクトル検索側を実行
+    // ベクトル側には `paper_id` の欄が無いので、論文の集合にまとめて渡す。
     let vector_opts = VectorSearchOptions {
         top_k: fetch_k as i64,
         model: opts.model.clone(),
         index: opts.index.clone(),
         scope: opts.scope.clone(),
+        paper_ids: fold_paper_ids(opts.paper_id, opts.paper_ids.as_deref()),
+        exclude_papers: opts.exclude_papers.clone(),
     };
     let vector_hits = match vector_search(db, query, client, vector_opts).await {
         Ok(hits) => hits,
@@ -534,6 +621,10 @@ pub struct FindRequest {
     pub scope: Option<String>,
     /// 論文で絞る。
     pub paper_id: Option<i64>,
+    /// 論文の集合で絞る（CLI の `--papers` と `--node` を合わせたもの。`None` なら絞らない）。
+    pub paper_ids: Option<Vec<i64>>,
+    /// 範囲の論文ごとに上位 m 件を返す（`paper_ids` か `paper_id` が要る）。
+    pub each: Option<i64>,
     /// 索引の名前（無ければ `rag.default_index`）。
     pub index: Option<String>,
     /// hybrid の重み（無ければ `rag.alpha`）。
@@ -546,22 +637,103 @@ pub struct FindRequest {
 
 /// 設定を読んだうえで検索する（CLI・TUI・MCP の共通の入口。段階 7）。
 ///
+/// `req.each` が `Some(m)` なら、範囲の論文ごとに上位 m 件を論文の番号の昇順に並べる。
+/// 範囲の指定が無い（`paper_id` も `paper_ids` も無い）のときは `each` を使えない。
+/// 墓標にした論文（`sci_tombstones`）は、範囲の指定に関係なく結果から除く。
+///
 /// # Errors
 ///
-/// 索引が無い・モードが不明・埋め込みの失敗・DB エラー。
+/// `each` に範囲が無い・索引が無い・モードが不明・埋め込みの失敗・DB エラー。
 pub async fn find(db: &Connection, config: &crate::Config, req: FindRequest) -> Result<Vec<Hit>> {
     let rag = &config.rag;
-    let index = rag.index(req.index.as_deref()).map_err(RetrievalError::Other)?;
+    // 索引が分かることを先に確かめる。
+    rag.index(req.index.as_deref()).map_err(RetrievalError::Other)?;
     let top_k = req.top_k.unwrap_or(rag.top_k);
     let per_paper = req.per_paper.unwrap_or(rag.per_paper);
-    // `paper_id` で 1 本に絞った検索と `per_paper = 0` では制限しない。
-    let limited = req.paper_id.is_none() && per_paper > 0;
+    // 墓標にした論文は、範囲の指定に関係なく結果から除く（墓標表が無いときは何もしない）。
+    let exclude_papers: Vec<i64> = crate::sci::store::tombstoned_paper_ids(db)
+        .map(|set| {
+            let mut ids: Vec<i64> = set.into_iter().collect();
+            ids.sort_unstable();
+            ids
+        })
+        .unwrap_or_default();
+
+    // `--each`：範囲の論文ごとに上位 m 件を返す（論文の番号の昇順につなぐ）。
+    if let Some(each) = req.each {
+        if req.paper_id.is_none() && req.paper_ids.is_none() {
+            return Err(RetrievalError::Other(
+                "--each は --papers か --node と一緒に使います".to_string(),
+            ));
+        }
+        let mut papers: Vec<i64> = req.paper_ids.clone().unwrap_or_default();
+        if let Some(one) = req.paper_id {
+            papers.push(one);
+        }
+        papers.retain(|p| !exclude_papers.contains(p));
+        papers.sort_unstable();
+        papers.dedup();
+        let mut out = Vec::new();
+        for paper in papers {
+            let mut sub = req.clone();
+            sub.paper_id = None;
+            sub.paper_ids = Some(vec![paper]);
+            sub.each = None;
+            sub.top_k = Some(each);
+            // 1 本に絞った検索では `per_paper` による制限を掛けない。
+            sub.per_paper = Some(0);
+            out.extend(
+                run_search(db, config, sub, exclude_papers.clone(), each, each, 0).await?,
+            );
+        }
+        return Ok(out);
+    }
+
+    // 1 本に絞った検索（`paper_id` か `paper_ids` がちょうど 1 本）と `per_paper = 0` では制限しない。
+    let one_paper = req.paper_id.is_some()
+        || req
+            .paper_ids
+            .as_ref()
+            .is_some_and(|ids| ids.len() == 1 && !ids.is_empty());
+    let limited = !one_paper && per_paper > 0;
     // 制限で減る分を見込んで多めに取る（最大 200 件）。
     let fetch_k = if limited {
         top_k.saturating_mul(3).min(200)
     } else {
         top_k
     };
+    run_search(
+        db,
+        config,
+        req,
+        exclude_papers,
+        fetch_k,
+        top_k,
+        if limited { per_paper } else { 0 },
+    )
+    .await
+}
+
+/// 検索を 1 回回す（`find` の本体。`--each` のときは論文ごとにこの関数を回す）。
+///
+/// `fetch_k` 件を材料に集めて、上位 `top_k` 件を返す。
+/// `limited` が真のときは `per_paper` までに抑える。
+///
+/// # Errors
+///
+/// 索引が無い・モードが不明・埋め込みの失敗・DB エラー。
+async fn run_search(
+    db: &Connection,
+    config: &crate::Config,
+    req: FindRequest,
+    exclude_papers: Vec<i64>,
+    fetch_k: i64,
+    top_k: i64,
+    per_paper: i64,
+) -> Result<Vec<Hit>> {
+    let rag = &config.rag;
+    let index = rag.index(req.index.as_deref()).map_err(RetrievalError::Other)?;
+    let limited = per_paper > 0;
     let index_name = Some(index.name.clone());
     let hits = match req.mode.as_deref().unwrap_or(&rag.default_mode) {
         "word" => word_search(
@@ -571,6 +743,8 @@ pub async fn find(db: &Connection, config: &crate::Config, req: FindRequest) -> 
                 top_k: fetch_k,
                 scope: req.scope,
                 paper_id: req.paper_id,
+                paper_ids: req.paper_ids,
+                exclude_papers,
                 fts_expr: req.fts_expr,
                 index: index_name,
             },
@@ -586,6 +760,8 @@ pub async fn find(db: &Connection, config: &crate::Config, req: FindRequest) -> 
                     model: None,
                     index: index_name,
                     scope: req.scope,
+                    paper_ids: fold_paper_ids(req.paper_id, req.paper_ids.as_deref()),
+                    exclude_papers,
                 },
             )
             .await
@@ -600,6 +776,8 @@ pub async fn find(db: &Connection, config: &crate::Config, req: FindRequest) -> 
                     top_k: fetch_k,
                     scope: req.scope,
                     paper_id: req.paper_id,
+                    paper_ids: req.paper_ids,
+                    exclude_papers,
                     model: None,
                     alpha: req.alpha.unwrap_or(rag.alpha),
                     fusion: req.fusion.unwrap_or_else(|| rag.fusion.clone()),
@@ -618,6 +796,66 @@ pub async fn find(db: &Connection, config: &crate::Config, req: FindRequest) -> 
     } else {
         hits
     })
+}
+
+/// `--paper` `--papers` `--node` `--subtree` を、検索の論文の集合と、
+/// 検索の記録（`sci_searches.scope`）に書く範囲の文字列にする。
+///
+/// どれも無ければ `(None, "library")`。
+/// `--node` の論文が 0 本なら `(Some(空), "node:N7")`（0 本の節点では Library 全体を返さない）。
+///
+/// # Errors
+///
+/// 節点が無い、または DB エラー。
+pub fn resolve_paper_scope(
+    conn: &Connection,
+    paper: Option<i64>,
+    papers: &[i64],
+    node: Option<i64>,
+    subtree: bool,
+) -> Result<(Option<Vec<i64>>, String)> {
+    let mut ids: Vec<i64> = papers.to_vec();
+    if let Some(one) = paper {
+        ids.push(one);
+    }
+    if let Some(node_id) = node {
+        // 節点が無いときは、そのことを伝える（黙って Library 全体を返さない）。
+        crate::sci::store::get_node(conn, node_id)
+            .map_err(|_| RetrievalError::Other(format!("節点 N{node_id} がありません")))?;
+        let node_ids = crate::sci::store::node_paper_ids(conn, node_id, subtree)
+            .map_err(|e| RetrievalError::Other(format!("節点 N{node_id} を読みません: {e}")))?;
+        ids.extend(node_ids);
+    }
+    ids.sort_unstable();
+    ids.dedup();
+
+    // 記録に書く範囲の文字列（C-02 の書き方）。
+    let scope = match node {
+        Some(node_id) => {
+            let prefix = if subtree { "subtree" } else { "node" };
+            format!("{prefix}:N{node_id}")
+        }
+        None => {
+            if ids.is_empty() {
+                "library".to_string()
+            } else {
+                let joined = ids
+                    .iter()
+                    .map(i64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("papers:{joined}")
+            }
+        }
+    };
+
+    // 何も指定が無ければ「絞らない」。節点だけ指定して論文が無くても `Some(空)` は明示する。
+    let has_scope = node.is_some() || paper.is_some() || !papers.is_empty();
+    if has_scope {
+        Ok((Some(ids), scope))
+    } else {
+        Ok((None, scope))
+    }
 }
 
 /// 上位から順に、同じ論文から出す件数を `per_paper` までに抑えて `top_k` 件を返す。
@@ -1231,6 +1469,7 @@ mod tests {
             paper_id: None,
             fts_expr: false,
             index: None,
+            ..WordSearchOptions::default()
         };
         let hits = word_search(&conn, "ferroptosis", opts).unwrap();
 
@@ -1297,6 +1536,7 @@ mod tests {
             paper_id: None,
             fts_expr: false, // 自然言語モード
             index: None,
+            ..WordSearchOptions::default()
         };
         // クエリがクォートされるので、エラーなく実行される
         word_search(&conn, "The OR framework", opts).unwrap();
@@ -1357,6 +1597,7 @@ mod tests {
             paper_id: None,
             fts_expr: true, // FTS5 式として渡す
             index: None,
+            ..WordSearchOptions::default()
         };
         let hits = word_search(&conn, "ferroptosis OR necroptosis", opts).unwrap();
         // 1 件がヒット
@@ -1428,6 +1669,7 @@ mod tests {
             paper_id: None,
             fts_expr: false,
             index: None,
+            ..WordSearchOptions::default()
         };
         let hits = word_search(&conn, "test", opts).unwrap();
         // abstract のみヒット
@@ -1441,6 +1683,7 @@ mod tests {
             paper_id: None,
             fts_expr: false,
             index: None,
+            ..WordSearchOptions::default()
         };
         let hits = word_search(&conn, "test", opts).unwrap();
         // note のみヒット
@@ -1454,6 +1697,7 @@ mod tests {
             paper_id: None,
             fts_expr: false,
             index: None,
+            ..WordSearchOptions::default()
         };
         let hits = word_search(&conn, "test", opts).unwrap();
         assert_eq!(hits.len(), 1);
@@ -1521,6 +1765,7 @@ mod tests {
             paper_id: Some(1),
             fts_expr: false,
             index: None,
+            ..WordSearchOptions::default()
         };
         let hits = word_search(&conn, "test", opts).unwrap();
         assert_eq!(hits.len(), 1);
@@ -1876,3 +2121,363 @@ mod tests {
         assert_eq!(hits.len(), 5);
     }
 }
+
+// ---- C-09: 論文の集合で絞る・論文ごとに返す・墓標を除く -------------------------
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+
+/// 検索用の DB（マイグレーション済み）。論文を 3 本作る。
+fn scope_db() -> crate::Database {
+    let db = crate::Database::in_memory().unwrap();
+    let conn = db.connection();
+    for id in 1..=3i64 {
+        conn.execute(
+            "INSERT INTO papers (id, title) VALUES (?1, ?2)",
+            rusqlite::params![id, format!("P{id}")],
+        )
+        .unwrap();
+    }
+    db
+}
+
+/// 論文 1 本に `needle` の塊を `count` 件入れる。
+fn insert_needle_chunks(conn: &rusqlite::Connection, paper_id: i64, count: i64) {
+    for ord in 0..count {
+        conn.execute(
+            "INSERT INTO chunks (source_kind, source_ref, paper_id, ord, text, strategy, created_at)
+             VALUES ('body', 'r', ?1, ?2, 'needle', 'paragraph', 'now')",
+            rusqlite::params![paper_id, ord],
+        )
+        .unwrap();
+    }
+}
+
+/// `paper` / `papers` / `node` を、論文の集合と範囲の文字列にする。
+#[test]
+fn resolve_paper_scope_unions_and_names_scope() {
+    let db = crate::Database::in_memory().unwrap();
+    let conn = db.connection();
+
+    // 節点 N1 に論文 1 と 3 を結ぶ。
+    let node = crate::sci::store::insert_node(
+        conn,
+        &crate::sci::store::NewNode {
+            kind: "item",
+            item_key: None,
+            types: &[],
+            title: "手法",
+            body: "",
+            state: "open",
+            fixed: false,
+            ord: 0,
+            created_by: "user",
+        },
+    )
+    .unwrap();
+    for (paper, role) in [("1", "exemplar"), ("3", "compare")] {
+        crate::sci::store::upsert_link(
+            conn,
+            &crate::sci::store::NewLink {
+                node_id: node,
+                target_kind: "paper",
+                target_ref: paper,
+                role: Some(role),
+                read_state: Some("unread"),
+                reason: "",
+                proposal_id: None,
+                auto: false,
+                created_by: "user",
+            },
+        )
+        .unwrap();
+    }
+
+    // 節点の論文（1, 3）に `--paper 2` を足した集合。
+    let (ids, scope) =
+        resolve_paper_scope(conn, Some(2), &[], Some(node), false).unwrap();
+    assert_eq!(ids, Some(vec![1, 2, 3]));
+    assert_eq!(scope, format!("node:N{node}"));
+
+    // 子孫もなら `subtree:N`。
+    let (_, scope) = resolve_paper_scope(conn, None, &[], Some(node), true).unwrap();
+    assert_eq!(scope, format!("subtree:N{node}"));
+
+    // 節点が無ければ `papers:1,2`。
+    let (ids, scope) = resolve_paper_scope(conn, None, &[2, 1, 2], None, false).unwrap();
+    assert_eq!(ids, Some(vec![1, 2]));
+    assert_eq!(scope, "papers:1,2");
+
+    // どれも無ければ絞らない。
+    let (ids, scope) = resolve_paper_scope(conn, None, &[], None, false).unwrap();
+    assert_eq!(ids, None);
+    assert_eq!(scope, "library");
+
+    // 節点に論文が無くても `Some(空)`（Library 全体を返さない）。
+    let empty = crate::sci::store::insert_node(
+        conn,
+        &crate::sci::store::NewNode {
+            kind: "item",
+            item_key: None,
+            types: &[],
+            title: "空の節点",
+            body: "",
+            state: "open",
+            fixed: false,
+            ord: 1,
+            created_by: "user",
+        },
+    )
+    .unwrap();
+    let (ids, scope) = resolve_paper_scope(conn, None, &[], Some(empty), false).unwrap();
+    assert_eq!(ids, Some(Vec::new()));
+    assert_eq!(scope, format!("node:N{empty}"));
+
+    // 節点が無ければそのことを伝える。
+    let err = resolve_paper_scope(conn, None, &[], Some(9999), false).unwrap_err();
+    assert!(err.to_string().contains("節点 N9999 がありません"), "{err}");
+}
+
+/// 論文の集合で絞る条件が word 側と vector 側の両方に効く。
+#[test]
+fn paper_ids_filter_word_and_vector() {
+    let db = crate::Database::in_memory().unwrap();
+    let conn = db.connection();
+    for id in 1..=2i64 {
+        conn.execute(
+            "INSERT INTO papers (id, title) VALUES (?1, ?2)",
+            rusqlite::params![id, format!("P{id}")],
+        )
+        .unwrap();
+        for ord in 0..3 {
+            conn.execute(
+                "INSERT INTO chunks (source_kind, source_ref, paper_id, ord, text, strategy, created_at)
+                 VALUES ('body', 'r', ?1, ?2, 'needle', 'paragraph', 'now')",
+                rusqlite::params![id, ord],
+            )
+            .unwrap();
+        }
+    }
+
+    // word 側: 論文 1 だけを出す。
+    let word_hits = word_search(
+        conn,
+        "needle",
+        WordSearchOptions {
+            top_k: 10,
+            paper_ids: Some(vec![1]),
+            ..WordSearchOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(word_hits.len(), 3);
+    assert!(word_hits.iter().all(|h| h.paper_id == Some(1)));
+
+    // vector 側: 同じ WHERE 句を `rank_by_vector` に渡す（埋め込みのサーバは使わない）。
+    conn.execute(
+        "INSERT INTO embedding_models (id, name, endpoint, dim, created_at)
+         VALUES (1, 'm', 'e', 2, 'now')",
+        [],
+    )
+    .unwrap();
+    let mut stmt = conn
+        .prepare("SELECT id FROM chunks ORDER BY id")
+        .unwrap();
+    let chunk_ids: Vec<i64> = stmt
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    drop(stmt);
+    for chunk_id in chunk_ids.iter() {
+        // 論文 1 の塊は検索語に近く、論文 2 の塊は遠い。
+        let vec = if *chunk_id <= 3 {
+            vec![1.0f32, 0.0]
+        } else {
+            vec![0.0f32, 1.0]
+        };
+        conn.execute(
+            "INSERT INTO chunk_embeddings (chunk_id, model_id, vec) VALUES (?1, 1, ?2)",
+            rusqlite::params![chunk_id, crate::embeddings::to_blob(&vec)],
+        )
+        .unwrap();
+    }
+
+    let where_clause = paper_where_clause(None, Some(&[1]), &[]);
+    let ranked = rank_by_vector(conn, &[1.0, 0.0], 1, &where_clause, 10).unwrap();
+    let vector_hits = load_hits(conn, &ranked).unwrap();
+    assert_eq!(vector_hits.len(), 3);
+    assert!(vector_hits.iter().all(|h| h.paper_id == Some(1)));
+}
+
+/// 論文の集合が空なら、Library 全体を返さない。
+#[tokio::test]
+async fn empty_paper_ids_return_nothing() {
+    let db = scope_db();
+    let conn = db.connection();
+    insert_needle_chunks(conn, 1, 3);
+    let hits = find(
+        conn,
+        &crate::Config::default(),
+        FindRequest {
+            query: "needle".to_string(),
+            mode: Some("word".to_string()),
+            paper_ids: Some(Vec::new()),
+            ..FindRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(hits.is_empty());
+}
+
+/// 墓標にした論文は、範囲の指定に関係なく出ない。
+#[tokio::test]
+async fn tombstoned_papers_are_excluded() {
+    let db = scope_db();
+    let conn = db.connection();
+    insert_needle_chunks(conn, 1, 2);
+    insert_needle_chunks(conn, 2, 1);
+    crate::sci::store::insert_tombstone(
+        conn,
+        &crate::sci::store::NewTombstone {
+            kind: "paper",
+            paper_id: Some(1),
+            doi: None,
+            arxiv_id: None,
+            dedupe_key: None,
+            title: "P1",
+            reason: "主題が違う",
+            node_id: None,
+            run_id: None,
+            created_by: "user",
+        },
+    )
+    .unwrap();
+
+    // 範囲の指定が無い検索でも、論文 1 は出ない。
+    let hits = find(
+        conn,
+        &crate::Config::default(),
+        FindRequest {
+            query: "needle".to_string(),
+            mode: Some("word".to_string()),
+            per_paper: Some(0),
+            ..FindRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].paper_id, Some(2));
+
+    // 範囲に入れているときも出ない。
+    let hits = find(
+        conn,
+        &crate::Config::default(),
+        FindRequest {
+            query: "needle".to_string(),
+            mode: Some("word".to_string()),
+            paper_ids: Some(vec![1, 2]),
+            ..FindRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(hits.iter().all(|h| h.paper_id != Some(1)));
+}
+
+/// `each` は範囲の論文ごとに上位 m 件を、論文の番号の昇順に並べる。
+#[tokio::test]
+async fn each_returns_per_paper_in_id_order() {
+    let db = scope_db();
+    let conn = db.connection();
+    // 論文 1 が 5 件、論文 3 が 1 件。
+    insert_needle_chunks(conn, 1, 5);
+    insert_needle_chunks(conn, 3, 1);
+    let hits = find(
+        conn,
+        &crate::Config::default(),
+        FindRequest {
+            query: "needle".to_string(),
+            mode: Some("word".to_string()),
+            paper_ids: Some(vec![3, 1]),
+            each: Some(2),
+            ..FindRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    let papers: Vec<i64> = hits.iter().filter_map(|h| h.paper_id).collect();
+    // 論文ごとに 2 件まで、論文の番号の昇順。
+    assert_eq!(papers, vec![1, 1, 3]);
+}
+
+/// `each` に範囲が無いときは使えない。
+#[tokio::test]
+async fn each_without_scope_is_error() {
+    let db = scope_db();
+    let conn = db.connection();
+    insert_needle_chunks(conn, 1, 2);
+    let err = find(
+        conn,
+        &crate::Config::default(),
+        FindRequest {
+            query: "needle".to_string(),
+            mode: Some("word".to_string()),
+            each: Some(2),
+            ..FindRequest::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("--each は --papers か --node と一緒に使います"),
+        "{err}"
+    );
+}
+
+/// 木の中身は `tree` を指定したときだけ出て、`all` と無指定では出ない。
+#[tokio::test]
+async fn all_scope_excludes_tree_chunks() {
+    let db = scope_db();
+    let conn = db.connection();
+    insert_needle_chunks(conn, 1, 1);
+    conn.execute(
+        "INSERT INTO chunks (source_kind, source_ref, paper_id, ord, text, strategy, created_at)
+         VALUES ('tree', 'F1', NULL, 0, 'needle', 'paragraph', 'now')",
+        [],
+    )
+    .unwrap();
+
+    let kinds = |scope: Option<&'static str>| {
+        let conn: &rusqlite::Connection = conn;
+        async move {
+            let hits = find(
+                conn,
+                &crate::Config::default(),
+                FindRequest {
+                    query: "needle".to_string(),
+                    mode: Some("word".to_string()),
+                    scope: scope.map(str::to_string),
+                    per_paper: Some(0),
+                    ..FindRequest::default()
+                },
+            )
+            .await
+            .unwrap();
+            let mut kinds: Vec<String> =
+                hits.iter().map(|h| h.source_kind.clone()).collect();
+            kinds.sort();
+            kinds
+        }
+    };
+
+    assert_eq!(kinds(None).await, vec!["body".to_string()]);
+    assert_eq!(kinds(Some("all")).await, vec!["body".to_string()]);
+    assert_eq!(kinds(Some("tree")).await, vec!["tree".to_string()]);
+    }
+}
+

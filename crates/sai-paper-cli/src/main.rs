@@ -510,7 +510,7 @@ async fn enrich_retraction(force: bool) -> Result<()> {
 /// `--write` で `<root>/.sai/template/project-brief.md` に書き、書いたパスを標準エラーに出す。
 /// `papr.db` が無い・開けないときは数字の行だけ「（papr.db を開けません）」にし、
 /// 他は出す（brief の失敗でエージェントの起動を止めないため）。設定ファイルが
-/// 無いときも既定値で続ける。
+                // 引数は U14 が足す。それまでは既定値で埋める。
 fn handle_brief(write: bool) -> Result<()> {
     let paths = Paths::discover()?;
     let roots =
@@ -1044,6 +1044,8 @@ async fn main() -> Result<()> {
                 alpha,
                 fusion,
                 fts_expr,
+                // 引数は U14 が足す。それまでは既定値で埋める。
+                ..Default::default()
             };
             // 要約付きのときだけ LLM のクライアントを作る（`model` が空ならここでエラー）。
             let chat = if evidence {
