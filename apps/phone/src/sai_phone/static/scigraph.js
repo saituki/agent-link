@@ -14,10 +14,10 @@
 //     描くのは 4 種類とも描く。
 //   - 札の大きさは固定（幅 200・高さ 72）。題は 2 行で切って、全部は板で見せる。
 //   - 見える範囲（見える場所 tx, ty, 拡大率 z）だけを動かし、札の位置は動かさない。
-//     全体表示と拡大は canvas.js の cvFitView / cvZoomAt を typeof で確かめて使う
-//     （U22 で canvaslayout.js へ移る。その関数が無いときは拡大率 1 で左上を起点にする）。
+//     全体表示と拡大は canvaslayout.js の cvFitView / cvZoomAt を typeof で確かめて使う
+//     （その関数が無いときは拡大率 1 で左上を起点にする）。
 //   - 却下・休眠の候補は消さず薄く出す（不透明度 0.45・点線の枠）。
-//   - 依存は足さない。札は HTML の div、線は同じ中の SVG（canvas.js と workflow.js と同じ作り）。
+//   - 依存は足さない。札は HTML の div、線は同じ中の SVG（workflow.js と同じ作り）。
 //
 // 一番外側の名前は sg で始める（C-14 の test_globals.js が重なりを検査する）。
 
@@ -596,7 +596,7 @@ function sgFit() {
   if (typeof cvFitView === "function") {
     sgView = cvFitView(rects, w, h);
   } else {
-    // cvFitView が無いとき（U22 で移った後）は、等倍の左上を起点にする
+    // cvFitView が無いときは、等倍の左上を起点にする
     sgView = { tx: 0, ty: 0, z: 1 };
   }
   sgFitted = true;
