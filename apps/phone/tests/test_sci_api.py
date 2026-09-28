@@ -339,6 +339,13 @@ def test_card() -> None:
         "role": "compare",
     }
     assert sci.validate_card(ok_user)["runner"] == "user"
+    # 読む札の読み方（指摘 2。画面が「読み方」を選んで標準入力に mode を入れてくる）
+    assert sci.validate_card({**ok_user, "mode": "purpose_first"})["mode"] == "purpose_first"
+    assert sci.validate_card({**ok_user, "mode": "blind_first"})["mode"] == "blind_first"
+    # 無くても良い（無いときは CLI 側の既定）
+    assert "mode" not in sci.validate_card(ok_user)
+    expect_400(lambda: sci.validate_card({**ok_user, "mode": "quick"}), "mode が正しくありません")
+    expect_400(lambda: sci.validate_card({**ok_user, "mode": 1}))
     expect_400(lambda: sci.validate_card({**ok_user, "papers": [37, 40]}),
                "読む札は論文を 1 つだけ指定してください")
     expect_400(lambda: sci.validate_card({k: v for k, v in ok_user.items() if k != "role"}),
@@ -432,10 +439,15 @@ def test_calls(order: list) -> None:
 
         # 6. triage（edit は標準入力・無ければ空文字）
         sci.triage(project, "P55", {"action": "reject", "note": "違う"})
+        # 指摘 5: メモは 1 つの引数にする（`--` で始まる文言でも壊れない）
         assert paper.last["args"][1:] == [
-            "phone", "sci", "triage", "P55", "--action", "reject", "--note", "違う",
+            "phone", "sci", "triage", "P55", "--action", "reject", "--note=違う",
         ], paper.last["args"]
         assert paper.last["input_text"] == "", paper.last["input_text"]
+        sci.triage(project, "P55", {"action": "reject", "note": "--help"})
+        assert paper.last["args"][1:] == [
+            "phone", "sci", "triage", "P55", "--action", "reject", "--note=--help",
+        ], paper.last["args"]
         sci.triage(project, "P56", {"action": "accept", "edit": {"op": "reopen", "node": "N1"}})
         assert paper.last["args"][1:] == ["phone", "sci", "triage", "P56", "--action", "accept"]
         assert json.loads(paper.last["input_text"]) == {"op": "reopen", "node": "N1"}
@@ -443,10 +455,19 @@ def test_calls(order: list) -> None:
 
         # 7. カード（本文は標準入力）
         sci.create_card(
-            project, {"node": "N1", "block": "sci-read", "purpose": "目的", "papers": [37]}
+            project,
+            {
+                "node": "N1",
+                "block": "sci-read",
+                "purpose": "目的",
+                "papers": [37],
+                "mode": "blind_first",
+            },
         )
         assert paper.last["args"][1:] == ["phone", "sci", "card"], paper.last["args"]
         assert json.loads(paper.last["input_text"])["block"] == "sci-read"
+        # 読み方も本文に入る（指摘 2）
+        assert json.loads(paper.last["input_text"])["mode"] == "blind_first"
 
         # 8. 読む札の中身
         sci.read(project, 130)
@@ -489,7 +510,7 @@ def test_read_finish() -> None:
     assert [f"{kind}: {args}" for kind, args in order] == [
         "paper: phone sci read 130",
         "link: user start 130",
-        "paper: phone sci finish-read 130 --no-reflect 関係なし",
+        "paper: phone sci finish-read 130 --no-reflect=関係なし",
         "link: user finish 130",
     ], order
     assert link.last["args"] == ["user", "finish", "130"], link.last["args"]
@@ -500,7 +521,7 @@ def test_read_finish() -> None:
     _, order, _, link = run([{"owner": "running"}, {"findings": 1, "reflected": True}])
     assert [f"{kind}: {args}" for kind, args in order] == [
         "paper: phone sci read 130",
-        "paper: phone sci finish-read 130 --no-reflect 関係なし",
+        "paper: phone sci finish-read 130 --no-reflect=関係なし",
         "link: user finish 130",
     ], order
     assert len(link.calls) == 1, link.calls

@@ -27,10 +27,17 @@
 }
 
 .sci-body .sci-list {
-  flex: 0 0 320px;
-  max-width: 320px;
   padding: 8px 8px 24px;
   overflow-y: auto;
+}
+
+/* 一覧の欄を固定するのは 900px 以上だけ（style.css の .sai-split が横並びになる幅）。
+   狭い画面（iPhone の 390px）では全幅にして、右に隙間を空けない。 */
+@media (min-width: 900px) {
+  .sci-body .sci-list {
+    flex: 0 0 320px;
+    max-width: 320px;
+  }
 }
 
 .sci-body .sci-board {
