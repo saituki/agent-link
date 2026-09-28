@@ -47,6 +47,39 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
 
+/// sai-sci のブロック 16 本（C-16 の表の順）。
+///
+/// 研究方針の木で動く 3 類（outline / detail / support）。どれも同じ共通の決まり
+/// （`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
+const SCI_BLOCKS: &[(&str, &str)] = &[
+    ("sci-start.md", include_str!("../../../sai-sci/blocks/sci-start.md")),
+    ("sci-outline.md", include_str!("../../../sai-sci/blocks/sci-outline.md")),
+    ("sci-digest.md", include_str!("../../../sai-sci/blocks/sci-digest.md")),
+    ("sci-seed.md", include_str!("../../../sai-sci/blocks/sci-seed.md")),
+    ("sci-read.md", include_str!("../../../sai-sci/blocks/sci-read.md")),
+    ("sci-compare.md", include_str!("../../../sai-sci/blocks/sci-compare.md")),
+    ("sci-probe.md", include_str!("../../../sai-sci/blocks/sci-probe.md")),
+    ("sci-draft.md", include_str!("../../../sai-sci/blocks/sci-draft.md")),
+    ("sci-ideate.md", include_str!("../../../sai-sci/blocks/sci-ideate.md")),
+    ("sci-debate.md", include_str!("../../../sai-sci/blocks/sci-debate.md")),
+    ("sci-coach.md", include_str!("../../../sai-sci/blocks/sci-coach.md")),
+    ("sci-search.md", include_str!("../../../sai-sci/blocks/sci-search.md")),
+    ("sci-screen.md", include_str!("../../../sai-sci/blocks/sci-screen.md")),
+    ("sci-extract.md", include_str!("../../../sai-sci/blocks/sci-extract.md")),
+    ("sci-lookup.md", include_str!("../../../sai-sci/blocks/sci-lookup.md")),
+    ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
+];
+
+/// sai-sci の共通の決まり（`sci-core.md`）。
+const SCI_TEMPLATES: &[(&str, &str)] =
+    &[("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md"))];
+
+/// sai-sci の土壌（`.sai/paper/mind.md`）のひな形。
+///
+/// 研究方針の木が無いプロジェクトの `mind.md` は、今の `project_files::MIND_TEMPLATE` の
+/// 代わりにこれを書く（決まったこと・仮説は木へ移すので、「土壌」の形が合う）。
+const SCI_MIND: &str = include_str!("../../../sai-sci/mind.md");
+
 /// 分野の観点の見本（分野の値, ファイル名, 中身）。
 ///
 /// 3 つとも `.sai/template/` に置き、選んだ分野の中身を `domain.md` に写す。
@@ -279,6 +312,78 @@ pub fn install_here(root: &Path) -> Result<Vec<String>> {
     install(root, &bin, &pi_extensions())
 }
 
+/// sci の部品を研究プロジェクト（`root`）に配る。何をしたかの一覧を返す（表示用）。
+///
+/// 1. 今の部品（[`install`]）: sci ブロックが使うテンプレートと議論の参加者が
+///    無ければ sai-link が止まるため、必ず先に配る。
+/// 2. 分野の観点: `.sai/template/domain.md` が無いときだけ `general` を配る。
+/// 3. sci ブロック 16 本と sci-core（無いものだけ）。
+/// 4. `.sai/settings.json` の `context`（無いときだけ）。
+/// 5. `.sai/paper/mind.md`（無いときだけ）: 土壌のひな形。
+///
+/// 既にあるものは上書きしない（利用者が直したファイルを消さない）。
+///
+/// # Errors
+/// ファイルの読み書きに失敗したとき。
+pub fn install_sci(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Result<Vec<String>> {
+    let mut done = install(root, sai_paper_bin, extensions)?;
+    let sai = root.join(".sai");
+
+    // 分野の観点: sci ブロックはすべて `domain` を使うので、無ければ普通の分野を配る
+    // （`init --domain` で別の分野を選んだプロジェクトは既に domain.md がある）。
+    if !sai.join("template/domain.md").exists() {
+        done.extend(install_domain(root, "general")?);
+    }
+
+    let mut written = 0;
+    for (name, content) in SCI_BLOCKS {
+        written += usize::from(write_if_missing(&sai.join("blocks").join(name), content)?);
+    }
+    for (name, content) in SCI_TEMPLATES {
+        written += usize::from(write_if_missing(&sai.join("template").join(name), content)?);
+    }
+    done.push(format!(
+        "sci のブロックとテンプレートを {written} 件置きました（既にあるものはそのまま）"
+    ));
+
+    // 実行直前に研究方針の木から範囲を作る命令（`{run_id}` は sai-link が展開する）。
+    // 絶対パスは PC ごとに違うので、ブロック定義ではなく設定に書く（`pre_run` と同じ置き方）。
+    let settings_path = sai.join("settings.json");
+    let mut settings = read_json(&settings_path)?;
+    let obj = settings
+        .as_object_mut()
+        .context(".sai/settings.json がオブジェクトではありません")?;
+    if !obj.contains_key("context") {
+        obj.insert(
+            "context".to_string(),
+            json!([sai_paper_bin.to_string_lossy(), "sci", "context", "--run", "{run_id}"]),
+        );
+        write_json(&settings_path, &settings)?;
+        done.push(
+            "context（実行直前に研究方針の木から範囲を作る）を .sai/settings.json に登録しました"
+                .to_string(),
+        );
+    }
+
+    // 土壌のひな形（既にある mind.md は利用者の考えなので、そのままにする）
+    if write_if_missing(&sai.join("paper/mind.md"), SCI_MIND)? {
+        done.push("mind.md（土壌のひな形）を作りました".to_string());
+    }
+    Ok(done)
+}
+
+/// この PC の実行ファイルと拡張を探して sci の部品を配る
+/// （`sci init`・`phone sci init`・`sai-paper init --sci` から呼ぶ）。
+///
+/// # Errors
+/// ファイルの読み書きに失敗したとき。
+pub fn install_sci_here(root: &Path) -> Result<Vec<String>> {
+    let bin = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
+    install_sci(root, &bin, &pi_extensions())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +586,182 @@ mod tests {
                 !content.contains("  - research-core\n"),
                 "{name} の templates に research-core がある"
             );
+        }
+    }
+
+    /// sci の部品を配ると、sci ブロック 16 本・sci-core・分野の観点・`context` の
+    /// 設定・土壌のひな形（mind.md）がそろう。今の部品も一緒に配る。
+    #[test]
+    fn install_sci_writes_blocks_templates_context_and_mind() {
+        let root = std::env::temp_dir().join(format!("sai-paper-sci-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let ext = root.join("ext.ts");
+        std::fs::write(&ext, "").unwrap();
+        let bin = Path::new("/opt/bin/sai-moon-paper");
+
+        let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
+
+        // sci のブロック 16 本と、今の部品 17 本もそろう
+        let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
+            .count();
+        assert_eq!(SCI_BLOCKS.len(), 16, "SCI_BLOCKS が 16 本でない");
+        assert_eq!(sci_blocks, 16, "配った sci のブロックが 16 本でない");
+        for (name, _) in SCI_BLOCKS {
+            assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
+        }
+        for (name, _) in BLOCKS {
+            assert!(root.join(".sai/blocks").join(name).is_file(), "今の部品の {name} が無い");
+        }
+        // 共通の決まりと分野の観点
+        assert!(root.join(".sai/template/sci-core.md").is_file());
+        assert_eq!(
+            std::fs::read_to_string(root.join(".sai/template/sci-core.md")).unwrap(),
+            SCI_TEMPLATES[0].1
+        );
+        assert!(root.join(".sai/template/domain.md").is_file());
+        assert!(root.join(".sai/template/literature-hard-rules.md").is_file());
+
+        // 実行直前に範囲を作る命令（実行ファイルの絶対パス + `sci context --run`）
+        let settings = read_json(&root.join(".sai/settings.json")).unwrap();
+        assert_eq!(
+            settings["context"],
+            json!(["/opt/bin/sai-moon-paper", "sci", "context", "--run", "{run_id}"]),
+            "context が実行ファイルの絶対パスと sci context --run の設定ではない"
+        );
+        // 今からある pre_run と拡張は、そのまま残す
+        assert_eq!(settings["pre_run"], json!(["/opt/bin/sai-moon-paper", "brief", "--write"]));
+        assert_eq!(settings["extensions"].as_array().unwrap().len(), 1);
+
+        // 土壌のひな形
+        assert_eq!(
+            std::fs::read_to_string(root.join(".sai/paper/mind.md")).unwrap(),
+            SCI_MIND
+        );
+        assert!(
+            done.iter().any(|line| line.contains("sci のブロックとテンプレートを")),
+            "部品を置いた行が無い: {done:?}"
+        );
+        assert!(
+            done.iter()
+                .any(|line| line.contains("context（実行直前に研究方針の木から範囲を作る）")),
+            "context を登録した行が無い: {done:?}"
+        );
+        assert!(
+            done.iter().any(|line| line.contains("mind.md（土壌のひな形）を作りました")),
+            "mind.md を作った行が無い: {done:?}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 直したブロック・既にある `context`・既にある mind.md・`pre_run`・`domain.md` は
+    /// 上書きしない。2 回目も既に置いたものを動かさない。
+    #[test]
+    fn install_sci_keeps_user_files() {
+        let root = std::env::temp_dir().join(format!("sai-paper-sci-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai/blocks")).unwrap();
+        std::fs::create_dir_all(root.join(".sai/paper")).unwrap();
+        std::fs::create_dir_all(root.join(".sai/template")).unwrap();
+        std::fs::write(root.join(".sai/blocks/sci-compare.md"), "利用者が直した").unwrap();
+        std::fs::write(root.join(".sai/paper/mind.md"), "利用者が書いた土壌").unwrap();
+        std::fs::write(root.join(".sai/template/domain.md"), "利用者が直した分野").unwrap();
+        std::fs::write(
+            root.join(".sai/settings.json"),
+            r#"{"pre_run": ["my-command"], "context": ["my-range-maker"]}"#,
+        )
+        .unwrap();
+        let bin = Path::new("/opt/bin/sai-moon-paper");
+
+        install_sci(&root, bin, &[]).unwrap();
+        // 2 回目は、既に置いた sci のブロックを動かさない。
+        let before = std::fs::read_to_string(root.join(".sai/blocks/sci-start.md")).unwrap();
+        install_sci(&root, bin, &[]).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(root.join(".sai/blocks/sci-compare.md")).unwrap(),
+            "利用者が直した"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".sai/paper/mind.md")).unwrap(),
+            "利用者が書いた土壌"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".sai/template/domain.md")).unwrap(),
+            "利用者が直した分野"
+        );
+        let settings = read_json(&root.join(".sai/settings.json")).unwrap();
+        assert_eq!(settings["context"], json!(["my-range-maker"]));
+        assert_eq!(settings["pre_run"], json!(["my-command"]));
+        assert_eq!(
+            before,
+            std::fs::read_to_string(root.join(".sai/blocks/sci-start.md")).unwrap()
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// sci のブロック 16 本は、全部 共通の決まり（sci-core）を先頭で受け、
+    /// 状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
+    /// 研究向けの review 見出しを持つ。
+    #[test]
+    fn sci_blocks_declare_sci_core_and_context() {
+        assert_eq!(SCI_BLOCKS.len(), 16);
+        for id in [
+            "sci-analogy.md",
+            "sci-coach.md",
+            "sci-compare.md",
+            "sci-debate.md",
+            "sci-digest.md",
+            "sci-draft.md",
+            "sci-extract.md",
+            "sci-ideate.md",
+            "sci-lookup.md",
+            "sci-outline.md",
+            "sci-probe.md",
+            "sci-read.md",
+            "sci-screen.md",
+            "sci-search.md",
+            "sci-seed.md",
+            "sci-start.md",
+        ] {
+            assert!(
+                SCI_BLOCKS.iter().any(|(name, _)| *name == id),
+                "{id} が SCI_BLOCKS に無い"
+            );
+        }
+
+        for (name, content) in SCI_BLOCKS {
+            let frontmatter = content
+                .strip_prefix("---\n")
+                .and_then(|rest| rest.split("\n---\n").next())
+                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
+            assert!(
+                frontmatter.contains("templates:\n  - sci-core\n"),
+                "{name} の templates の先頭が sci-core ではない"
+            );
+            assert!(
+                !frontmatter.contains("project-brief"),
+                "{name} の templates に project-brief がある"
+            );
+            assert!(
+                frontmatter.contains("\ncontext: true\n"),
+                "{name} に context: true が無い"
+            );
+            assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
+            assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
+            assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
+            assert!(
+                content.contains(
+                    "review_headings:\n  - 反映したこと\n  - 反映しなかったこと（理由）\n  - 次に知りたいこと\n"
+                ),
+                "{name} に研究向けの review_headings が無い"
+            );
+            assert!(frontmatter.contains("\nsci_ops: "), "{name} に sci_ops が無い");
+            assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
+            assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
     }
 }

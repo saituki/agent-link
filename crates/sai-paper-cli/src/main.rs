@@ -145,6 +145,12 @@ enum Cmd {
         /// DSR が使う分野の観点
         #[arg(long, default_value = "general", value_parser = ["medical", "signal-ml", "general"])]
         domain: String,
+        /// 研究方針の木（sai-sci）を使う（`--type` と一緒に使う）
+        #[arg(long)]
+        sci: bool,
+        /// 研究の型（`--sci` と一緒に使う）
+        #[arg(long = "type", value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
+        sci_type: Option<String>,
     },
     /// エージェントに渡すプロジェクトの状況のまとめを作る
     Brief {
@@ -741,6 +747,45 @@ fn ensure_project_files_and_brief(
     }
 }
 
+/// `--sci` と `--type` の組み合わせを確かめる（どちらか片方だけならエラー）。
+///
+/// # Errors
+/// `--sci` に `--type` が無いとき、`--type` に `--sci` が無いとき。
+fn check_sci_args(sci: bool, sci_type: Option<&str>) -> Result<()> {
+    match (sci, sci_type) {
+        (true, None) => {
+            bail!("--sci には --type が要ります（problem / phenomenon / method / data / improve）")
+        }
+        (false, Some(_)) => bail!("--type は --sci と一緒に使います"),
+        _ => Ok(()),
+    }
+}
+
+/// `init --sci` の木の部分（型とガイドの書き出し・骨組み・state.md と tree.md の書き出し）。
+///
+/// 部品の配り（[`agent_assets::install_sci_here`]）は、mind.md のひな形を
+/// 土壌のものにするため、これより前に [`handle_init`] が呼ぶ。
+///
+/// # Errors
+/// 研究プロジェクトを開けないとき、木を作れないとき、書き出しに失敗したとき。
+fn init_sci_tree(root: &std::path::Path, type_id: &str) -> Result<()> {
+    let outcome =
+        sci::init_tree_and_export(root, type_id, false).context("研究方針の木を作れませんでした")?;
+    if outcome.already {
+        println!(
+            "✅ 研究方針の木は既にあります（型: {}）。型を変えるには sai-moon-paper sci init --type <型> --change-type",
+            outcome.type_name
+        );
+    } else {
+        let text = outcome.text(false);
+        print!("✅ {text}");
+        if !text.ends_with('\n') {
+            println!();
+        }
+    }
+    Ok(())
+}
+
 /// 研究プロジェクトを初期化する（`.sai/` と `.sai/paper/`）。
 ///
 /// `assets_only` が `false` のときは 1 度だけ実行する。`.sai/` が無ければ
@@ -751,12 +796,18 @@ fn ensure_project_files_and_brief(
 ///
 /// `domain` は DSR が使う分野の観点（`medical` / `signal-ml` / `general`）。
 /// `--assets-only` でも選べる。
+///
+/// `sci_type` が `Some` のときは、足りない部品を配ったあとに研究方針の木も作る
+/// （`--sci` が無ければ `None`。組み合わせは [`check_sci_args`] で確かめてある）。
 fn handle_init(
     name: Option<String>,
     root: Option<PathBuf>,
     assets_only: bool,
     domain: &str,
+    sci_flag: bool,
+    sci_type: Option<&str>,
 ) -> Result<()> {
+    check_sci_args(sci_flag, sci_type)?;
     let root = root
         .or_else(|| std::env::var("SAI_PAPER_ROOT").ok().map(PathBuf::from))
         .unwrap_or(std::env::current_dir().context("cwd が取得できません")?);
@@ -783,8 +834,27 @@ fn handle_init(
         {
             println!("✅ {line}");
         }
+        // sci の部品（sci ブロック・sci-core・context・土壌のひな形）を配る。
+        // mind.md のひな形を土壌のものにするため、mind.md より前に配る。
+        if sci_type.is_some() {
+            if !paper_dir.join("papr.db").exists() {
+                bail!(
+                    "先に `sai-moon-paper init` を実行してください: {} がありません",
+                    paper_dir.join("papr.db").display()
+                );
+            }
+            for line in
+                agent_assets::install_sci_here(&root).context("sci の部品を配れませんでした")?
+            {
+                println!("✅ {line}");
+            }
+        }
         let paths = paper_paths(&paper_dir);
         ensure_project_files_and_brief(&paths, &root, &paper_dir, None);
+        // 部品を配ったあとで木を作る（研究方針の木の準備が init だけで終わる）
+        if let Some(type_id) = sci_type {
+            init_sci_tree(&root, type_id)?;
+        }
         println!("✅ 足りない部品を配りました: {}", paper_dir.display());
         return Ok(());
     }
@@ -856,9 +926,21 @@ fn handle_init(
     {
         println!("✅ {line}");
     }
+    // sci の部品（sci ブロック・sci-core・context・土壌のひな形）を配る。
+    // mind.md のひな形を土壌のものにするため、mind.md より前に配る。
+    if sci_type.is_some() {
+        for line in agent_assets::install_sci_here(&root).context("sci の部品を配れませんでした")? {
+            println!("✅ {line}");
+        }
+    }
 
     // mind.md / state.md のひな形と、最初の状況まとめを作る（段階 8）
     ensure_project_files_and_brief(&paths, &root, &paper_dir, Some(database.connection()));
+
+    // 部品を配ったあとで木を作る（研究方針の木の準備が init だけで終わる）
+    if let Some(type_id) = sci_type {
+        init_sci_tree(&root, type_id)?;
+    }
 
     println!(
         "✅ 研究プロジェクトを初期化しました: {}",
@@ -1135,8 +1217,10 @@ async fn main() -> Result<()> {
             root,
             assets_only,
             domain,
+            sci,
+            sci_type,
         }) => {
-            handle_init(name, root, assets_only, &domain)?;
+            handle_init(name, root, assets_only, &domain, sci, sci_type.as_deref())?;
         }
         Some(Cmd::Brief { write }) => {
             handle_brief(write)?;
@@ -1746,6 +1830,51 @@ mod tests {
             journal_ref: None,
             citation_count: None,
         }
+    }
+
+    /// U15 AC4: `--sci` だけ・`--type` だけは、終了コード 1 になる分かる文。
+    /// 両方あれば通る。
+    #[test]
+    fn init_sci_requires_type() {
+        let err = check_sci_args(true, None).expect_err("--sci だけならエラー");
+        let message = format!("{err}");
+        assert!(message.contains("--sci には --type が要ります"), "文が分からない: {message}");
+        for type_id in ["problem", "phenomenon", "method", "data", "improve"] {
+            assert!(message.contains(type_id), "型の候補が文に出ていない: {message}");
+        }
+
+        let err = check_sci_args(false, Some("problem")).expect_err("--type だけならエラー");
+        assert!(format!("{err}").contains("--type は --sci と一緒に使います"), "文が分からない: {err}");
+
+        assert!(check_sci_args(true, Some("data")).is_ok());
+        assert!(check_sci_args(false, None).is_ok());
+    }
+
+    /// U15 AC4: `--sci` と `--type` は引数として受け付け、知らない型は受け付けない。
+    /// （`--sci` と `--type` の組み合わせは [`check_sci_args`] で確かめる）
+    #[test]
+    fn init_parse_accepts_sci_and_type() {
+        use clap::Parser as _;
+        let cli = Cli::try_parse_from([
+            "sai-moon-paper",
+            "init",
+            "--assets-only",
+            "--sci",
+            "--type",
+            "problem",
+        ])
+        .expect("init --assets-only --sci --type problem は通る");
+        match cli.cmd {
+            Some(Cmd::Init { sci, sci_type, .. }) => {
+                assert!(sci);
+                assert_eq!(sci_type.as_deref(), Some("problem"));
+            }
+            other => panic!("init ではない: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["sai-moon-paper", "init", "--sci", "--type", "nope"]).is_err(),
+            "知らない型の研究が通っている"
+        );
     }
 
     /// U06 AC3: 同じ名前で 2 回 `--save-as` しても、セットは 1 つで候補は重複なく足される。

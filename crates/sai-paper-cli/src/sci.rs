@@ -9,6 +9,7 @@
 //! - `context` は本文をそのまま標準出力へ出す（sai-link が埋め込むため）
 
 use std::io::Read as _;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Subcommand;
@@ -333,20 +334,113 @@ pub(crate) fn open_env() -> Result<SciEnv> {
     })
 }
 
+/// 研究プロジェクトのルート（`root`）を指定して [`open_env`] と同じものを開く。
+///
+/// `sai-paper init --sci` は研究プロジェクトの置き場を `--root` で受け取るので、
+/// この関数を使う（`SAI_PAPER_ROOT` に頼らない）。
+pub(crate) fn open_env_at(root: &Path) -> Result<SciEnv> {
+    let data_dir = root.join(".sai").join("paper");
+    let roots = PaperRoots { root: root.to_path_buf(), data_dir: data_dir.clone() };
+    let db = Database::open(&data_dir.join("papr.db")).context("papr.db を開けませんでした")?;
+    let config = Config::load_or_create(&Paths {
+        config_file: data_dir.join(sai_paper_core::config::SETTINGS_FILE),
+        database_file: data_dir.join("papr.db"),
+        downloads_dir: data_dir.join("papers"),
+        plugins_dir: data_dir.join("plugins"),
+        plugins_config_file: data_dir.join("plugins.toml"),
+    })
+    .context("settings.json を読み込めませんでした")?;
+    let defs = defs::load(&roots.root);
+    Ok(SciEnv {
+        db,
+        roots,
+        defs,
+        config,
+    })
+}
+
 // ---- 各命令 -----------------------------------------------------------------
 
-/// `sci init` — 木を始める。
-fn init(type_id: &str, change_type: bool) -> Result<Out> {
-    let env = open_env()?;
+/// `sci init` の返り値（表示と JSON に書く内容）。
+pub(crate) struct InitOutcome {
+    /// 型の表示名（課題駆動など）。
+    pub type_name: String,
+    /// 型そのもの（problem など）。
+    pub type_id: String,
+    /// 作った項目の数。
+    pub created_items: usize,
+    /// 作った線の本数。
+    pub created_edges: usize,
+    /// 見つかった注意点。
+    pub warnings: Vec<String>,
+    /// 残した元の `state.md`。
+    pub backup: Option<PathBuf>,
+    /// 配った部品の一覧（表示用）。
+    pub assets: Vec<String>,
+    /// 木が既に作ってあったか（`change_type` が `false` のときだけ意味を持つ）。
+    pub already: bool,
+}
+
+impl InitOutcome {
+    /// 人が読む 1 行（警告と、残した state.md の行も足す）。
+    pub fn text(&self, change_type: bool) -> String {
+        let head = if change_type {
+            format!(
+                "型を変えました（型: {}・追加 項目 {}・線 {}）",
+                self.type_name, self.created_items, self.created_edges
+            )
+        } else {
+            format!(
+                "研究方針の木を作りました（型: {}・項目 {}・線 {}）",
+                self.type_name, self.created_items, self.created_edges
+            )
+        };
+        let mut text = format!("{head}\n");
+        for warning in &self.warnings {
+            text.push_str(&format!("⚠ {warning}\n"));
+        }
+        if let Some(path) = &self.backup {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| "state.pre-sci.md".to_string());
+            text.push_str(&format!("今の state.md を {name} に残しました\n"));
+        }
+        text
+    }
+}
+
+/// 木を作って state.md と tree.md を書き出す（`sci init` の本体）。
+///
+/// 木が既に作ってあるときは `already` が真の返り値を返し、エラーにしない。
+/// そこから先をどうするかは呼び出し側が決める（`sci init` はエラー、
+/// `sai-paper init --sci` は案内だけ出して続ける）。
+///
+/// # Errors
+/// 研究プロジェクトを開けないとき、木を作れないとき、書き出しに失敗したとき。
+pub(crate) fn init_tree_and_export(
+    root: &Path,
+    type_id: &str,
+    change_type: bool,
+) -> Result<InitOutcome> {
+    let env = open_env_at(root)?;
     let type_name = type_name(&env.defs, type_id)?;
     if store::is_initialized(env.conn())? && !change_type {
-        bail!("既に始めています（型: {type_name}）。型を変えるには --change-type");
+        return Ok(InitOutcome {
+            type_name,
+            type_id: type_id.to_string(),
+            created_items: 0,
+            created_edges: 0,
+            warnings: Vec::new(),
+            backup: None,
+            assets: Vec::new(),
+            already: true,
+        });
     }
 
     defs::write_local_copies(&env.roots.root)
         .context(".sai/sci/ に型と項目ガイドを置けませんでした")?;
-    let backup = export::backup_state_once(&env.roots.data_dir)
-        .context("今の state.md を残せませんでした")?;
+    let backup = export::backup_state_once(&env.roots.data_dir).context("今の state.md を残せませんでした")?;
     let report = if change_type {
         defs::change_type(env.conn(), &env.defs, type_id).context("型を変えられませんでした")?
     } else {
@@ -354,27 +448,47 @@ fn init(type_id: &str, change_type: bool) -> Result<Out> {
     };
     env.export()?;
 
-    let mut text = if change_type {
-        format!(
-            "型を変えました（型: {type_name}・追加 項目 {}・線 {}）\n",
-            report.created_items, report.created_edges
-        )
-    } else {
-        format!(
-            "研究方針の木を作りました（型: {type_name}・項目 {}・線 {}）\n",
-            report.created_items, report.created_edges
-        )
-    };
-    for warning in &report.warnings {
-        text.push_str(&format!("⚠ {warning}\n"));
+    Ok(InitOutcome {
+        type_name,
+        type_id: report.type_id.clone(),
+        created_items: report.created_items,
+        created_edges: report.created_edges,
+        warnings: report.warnings.clone(),
+        backup,
+        assets: Vec::new(),
+        already: false,
+    })
+}
+
+/// 部品（ブロック・テンプレート・`context`・土壌のひな形）を配ってから木を作る。
+///
+/// `phone sci init` と `sai-paper init --sci` はここを呼ぶ。
+///
+/// # Errors
+/// 部品を配れないとき、木を作れないとき、書き出しに失敗したとき。
+pub(crate) fn init_with_assets(
+    root: &Path,
+    type_id: &str,
+    change_type: bool,
+) -> Result<InitOutcome> {
+    let assets =
+        crate::agent_assets::install_sci_here(root).context("sci の部品を配れませんでした")?;
+    let mut outcome = init_tree_and_export(root, type_id, change_type)?;
+    outcome.assets = assets;
+    Ok(outcome)
+}
+
+/// `sci init` — 部品を配って木を始める。
+fn init(type_id: &str, change_type: bool) -> Result<Out> {
+    let outcome = init_with_assets(&open_env()?.roots.root, type_id, change_type)?;
+    if outcome.already && !change_type {
+        bail!("既に始めています（型: {}）。型を変えるには --change-type", outcome.type_name);
     }
-    if let Some(path) = backup {
-        let name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_else(|| "state.pre-sci.md".to_string());
-        text.push_str(&format!("今の state.md を {name} に残しました\n"));
+    let mut text = String::new();
+    for line in &outcome.assets {
+        text.push_str(&format!("✅ {line}\n"));
     }
+    text.push_str(&outcome.text(change_type));
     Ok(Out::Text(text))
 }
 
