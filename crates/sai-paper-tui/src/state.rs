@@ -126,8 +126,8 @@ pub enum Page {
     Notes,
     /// Remote search sets.
     SearchSets,
-    /// Canvas（JSON Canvas 1.0、note_card / report_card の関連表示）。
-    Canvas,
+    /// 研究方針の木（sai-sci）。読むだけ。
+    Tree,
 }
 
 impl Page {
@@ -151,7 +151,7 @@ impl Page {
         Self::Authors,
         Self::Notes,
         Self::SearchSets,
-        Self::Canvas,
+        Self::Tree,
     ];
 
     /// Human-readable navigation label.
@@ -168,7 +168,7 @@ impl Page {
             Self::Authors => "Authors",
             Self::Notes => "Notes",
             Self::SearchSets => "Search Sets",
-            Self::Canvas => "Canvas",
+            Self::Tree => "研究方針",
         }
     }
 
@@ -187,7 +187,8 @@ impl Page {
             "bookmarks" | "bookmark" => Some(Self::Library),
             "authors" | "author" => Some(Self::Authors),
             "notes" | "note" => Some(Self::Notes),
-            "canvas" | "canvases" => Some(Self::Canvas),
+            // U23: 今の設定の "canvas" は研究方針（木）に読み替える。
+            "tree" | "sci" | "canvas" | "canvases" => Some(Self::Tree),
             "downloads" | "download" => Some(Self::Library),
             "history" => Some(Self::Dashboard),
             "statistics" | "stats" => Some(Self::Dashboard),
@@ -210,7 +211,7 @@ impl Page {
             Self::Authors => "authors",
             Self::Notes => "notes",
             Self::SearchSets => "search_sets",
-            Self::Canvas => "canvas",
+            Self::Tree => "tree",
         }
     }
 }
@@ -218,12 +219,6 @@ impl Page {
 /// Current input focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppMode {
-    /// Canvas 本体（開いている Canvas の編集・閲覧）。
-    CanvasView,
-    /// Canvas の新規作成 / 名前変更の入力。
-    CanvasName,
-    /// Canvas の削除確認。
-    CanvasConfirmDelete,
     /// Normal page navigation.
     #[default]
     Normal,
@@ -1148,8 +1143,8 @@ pub struct App {
     /// Remote PAPER 詳細で表示する概要（日本語訳）。DB から取得し、翻訳完了の
     /// `AppEvent::RefreshLibrary` 受信時に取り直す。
     pub paper_detail_remote_ja: Option<String>,
-    /// Canvas 画面の状態。
-    pub canvas: crate::canvas_view::CanvasState,
+    /// 研究方針のページの状態。
+    pub tree: crate::tree_view::TreeState,
     /// 内蔵 Markdown ビューアを閉じたあとに戻るモード。
     pub md_view_return: AppMode,
     /// PAPER 画面（Library）の FIGURES セクションに出す抽出済みの図。
@@ -1335,7 +1330,7 @@ impl Default for App {
             paper_detail_local: None,
             paper_detail_remote_db_id: None,
             paper_detail_remote_ja: None,
-            canvas: crate::canvas_view::CanvasState::default(),
+            tree: crate::tree_view::TreeState::default(),
             md_view_return: AppMode::Normal,
             paper_figures: Vec::new(),
             paper_figures_not_extracted: false,
@@ -1613,9 +1608,9 @@ impl App {
                 if !self.content_focused {
                     self.page = Page::ALL[self.sidebar_index];
                     self.content_focused = true;
-                    if self.page == Page::Canvas {
-                        // Canvas 一覧はタグから作るため、DB を持つ呼び出し側で読み直す。
-                        self.canvas.names_stale = true;
+                    if self.page == Page::Tree {
+                        // 木は DB と定義ファイルから作るため、DB を持つ呼び出し側で読み直す。
+                        self.tree.stale = true;
                     }
                     if self.active_search_workspaces.contains(&self.page) {
                         self.mode = AppMode::WorkspaceSearch;
@@ -1749,6 +1744,13 @@ impl App {
                         self.project.read_next_selected.saturating_sub(1);
                 }
             }
+            // U23: 研究方針の木の選択を 1 つ上へ。上端で止まる。
+            Page::Tree => {
+                if self.tree.selected > 0 {
+                    self.tree.selected -= 1;
+                    self.tree.detail_stale = true;
+                }
+            }
             Page::Authors => {
                 let selection = if self.active_author.is_some() {
                     &mut self.author_paper_selected
@@ -1807,6 +1809,14 @@ impl App {
             Page::Library => {
                 self.library.selected = (self.library.selected + 1)
                     .min(self.filtered_library_papers().len().saturating_sub(1));
+            }
+            // U23: 研究方針の木の選択を 1 つ下へ。末尾で止まる。
+            Page::Tree => {
+                let len = self.tree.status.as_ref().map_or(0, |s| s.nodes.len());
+                if len > 0 && self.tree.selected + 1 < len {
+                    self.tree.selected += 1;
+                    self.tree.detail_stale = true;
+                }
             }
             Page::Authors if self.active_author.is_some() => {
                 self.author_paper_selected = (self.author_paper_selected + 1)
@@ -2270,9 +2280,16 @@ mod tests {
                 Page::Authors,
                 Page::Notes,
                 Page::SearchSets,
-                Page::Canvas,
+                Page::Tree,
             ]
         );
+        // U23: 今の設定の "canvas" は研究方針（木）に読み替える。
+        assert_eq!(Page::from_config_str("canvas"), Some(Page::Tree));
+        assert_eq!(Page::from_config_str("canvases"), Some(Page::Tree));
+        assert_eq!(Page::from_config_str("tree"), Some(Page::Tree));
+        assert_eq!(Page::from_config_str("sci"), Some(Page::Tree));
+        assert_eq!(Page::Tree.title(), "研究方針");
+        assert_eq!(Page::Tree.config_str(), "tree");
         assert_eq!(Page::from_config_str("project"), Some(Page::Project));
         assert_eq!(Page::from_config_str("projects"), Some(Page::Project));
         assert_eq!(Page::Project.title(), "Project");
@@ -2284,6 +2301,44 @@ mod tests {
         assert_eq!(Page::Import.config_str(), "import");
         // Import はワークスペース検索バー（/）非対応
         assert!(!Page::Import.supports_workspace_search());
+    }
+
+    /// U23: 研究方針の木の選択は端で止まり、移動したら中身を読み直す。
+    #[test]
+    fn tree_selection_moves_and_clamps() {
+        fn status_with_nodes() -> papr_core::sci::compute::Status {
+            papr_core::sci::compute::Status {
+                nodes: (1..=3)
+                    .map(|id| papr_core::sci::compute::NodeRow {
+                        id: format!("N{id}"),
+                        title: format!("項目{id}"),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }
+        }
+
+        let mut app = App {
+            page: Page::Tree,
+            content_focused: true,
+            ..App::default()
+        };
+        app.tree.status = Some(status_with_nodes());
+        assert_eq!(app.tree.selected, 0);
+
+        // 4 回下へ動かしても 3 個の末尾（位置 2）で止まる。
+        for _ in 0..4 {
+            app.dispatch(Command::MoveDown);
+        }
+        assert_eq!(app.tree.selected, 2);
+        assert!(app.tree.detail_stale, "中身を読み直す旗が立つ");
+
+        // 上へ戻す。0 未満にはならない。
+        for _ in 0..4 {
+            app.dispatch(Command::MoveUp);
+        }
+        assert_eq!(app.tree.selected, 0);
     }
 
     #[test]

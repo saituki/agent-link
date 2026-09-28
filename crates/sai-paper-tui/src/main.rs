@@ -5,7 +5,6 @@ pub use state::*;
 mod theme;
 pub use theme::*;
 mod block_picker;
-mod canvas_view;
 mod citation;
 mod editor;
 mod figure_view;
@@ -13,6 +12,7 @@ mod md_view;
 mod pdf_viewer;
 mod terminal;
 mod terminal_input;
+mod tree_view;
 mod ui;
 
 use std::{
@@ -142,9 +142,6 @@ async fn run_app(cli: Cli) -> Result<()> {
     );
 
     let mut app = initial_app(&config, dashboard);
-    // Canvas 一覧（タグ）を初期化しておく。
-    app.canvas
-        .set_canvas_list(canvas_view::list_canvases(&database, &paths.data_dir()));
     app.plugins = plugin_host.plugins();
     app.plugin_diagnostics = plugin_host.diagnostics().len();
     if let Some(papers) = dashboard_startup.cached_papers {
@@ -222,6 +219,10 @@ fn initial_app(config: &Config, dashboard: papr_core::ResearchDashboard) -> App 
         ..App::default()
     };
     app.pdf_viewer = config.ui.pdf_viewer.clone().unwrap_or_else(default_pdf_viewer);
+    // 起動時から研究方針のページなら、木を最初の 1 回だけ読み直す。
+    if app.page == Page::Tree {
+        app.tree.stale = true;
+    }
     app
 }
 
@@ -493,33 +494,8 @@ enum UiAction {
     },
     /// Library 階層表示の query 行から QUERY 画面を開く。
     OpenQueryDetail(i64),
-    /// Canvas を開く（一覧から選択）。
-    OpenCanvas(String),
-    /// Canvas を新規作成して開く。
-    CreateCanvas(String),
-    /// Canvas を名前変更する（旧名, 新名）。
-    RenameCanvas(String, String),
-    /// Canvas を削除する。
-    DeleteCanvas(String),
-    /// 開いている Canvas を保存する。
-    SaveCanvas,
-    /// Canvas の矢印の種類を切り替える（`s`）。
-    CanvasToggleArrows,
-    /// 選択が変わったのでつながり・矢印を求め直す（V04）。
-    CanvasRefreshEdges,
-    /// Canvas に無いつながりの選択項目を札として足す（V04）。
-    CanvasAddMissingConnection,
-    /// Canvas の right_sidebar 選択行のカードを追加・削除する（`a`）。
-    CanvasToggleSidebarCard,
-    /// Canvas の選択中カードを削除する（`d`）。
-    CanvasRemoveCard,
-    /// Canvas の right_sidebar / カードから md を内蔵ビューアで開く。
-    OpenCanvasMarkdown {
-        /// ビューアのラベル
-        label: String,
-        /// md のパス
-        path: PathBuf,
-    },
+    /// U23: 研究方針の `tree.md` を内蔵の Markdown ビューアで開く（`o`）。
+    OpenTreeMd,
     /// Library 論文のポッドキャスト生成（`r` キー、sai-radio）。
     GeneratePodcast {
         paper_id: i64,
@@ -1558,20 +1534,22 @@ async fn process_terminal_event(
             paste_text_into_active_input(app, &text);
             None
         }
-        // マウスは Canvas 画面でのみ意味を持つ（他画面では無視する）。
+        // マウスはホイールのスクロールだけに使う（カード移動などは無い）。
         Event::Mouse(mouse) => {
-            handle_mouse_event(app, mouse, &runtime.database);
+            handle_mouse_event(app, mouse);
             None
         }
         _ => None,
     };
-    // Canvas 画面に入った直後はタグ一覧を読み直す。
-    if app.canvas.names_stale {
-        app.canvas.set_canvas_list(canvas_view::list_canvases(
-            &runtime.database,
-            &runtime.data_dir,
-        ));
-        app.canvas.names_stale = false;
+    // 研究方針のページに入った直後と、`r` で読み直しの指示を出したあとに木を読み直す。
+    if app.tree.stale || app.tree.detail_stale {
+        if let Some(roots) = runtime_paper_roots(runtime) {
+            tree_view::reload(&mut app.tree, &runtime.database, &roots);
+        } else {
+            app.tree.stale = false;
+            app.tree.detail_stale = false;
+            app.tree.error = Some("プロジェクトルートが見つかりません".into());
+        }
     }
     if let Some(action) = action {
         apply_ui_action(action, runtime, senders, pending_downloads, app, theme).await?;
@@ -1862,7 +1840,7 @@ async fn apply_ui_action(
             apply_library_navigation_action(action, runtime, senders, app)
         }
         UiAction::CopyCitation(_) => apply_citation_action(action, runtime, senders, app),
-        UiAction::OpenProjectFile(file) => apply_open_project_file(file, runtime, app),
+        UiAction::OpenProjectFile(file) => apply_open_project_file(file, runtime, app, theme),
         UiAction::OpenJournal => {
             apply_open_journal(runtime, app, theme);
             Ok(())
@@ -1955,98 +1933,14 @@ async fn apply_ui_action(
             apply_open_query_detail(log_id, runtime, app);
             Ok(())
         }
-        UiAction::OpenCanvas(name) => {
-            app.canvas.open = Some(canvas_view::open_canvas(
-                &runtime.database,
-                &app.data_dir,
-                &name,
-            )?);
-            app.mode = AppMode::CanvasView;
-            app.content_focused = true;
-            Ok(())
-        }
-        // Canvas 名はタグ名で決まるため、新規作成・名前変更は行わない（キーは残す）。
-        UiAction::CreateCanvas(name) => {
-            app.toast = Some(format!(
-                "Canvas はタグごとに自動で作られます（'{name}' は作成しません）"
-            ));
-            Ok(())
-        }
-        UiAction::RenameCanvas(old, new) => {
-            app.toast = Some(format!(
-                "Canvas 名はタグ名です（'{old}' → '{new}' は Tags 画面で変更してください）"
-            ));
-            Ok(())
-        }
-        UiAction::DeleteCanvas(name) => {
-            // 消すのは配置ファイルだけ。タグが残っていれば次に開くと自動配置で作り直す。
-            let path = canvas_view::canvas_path(&app.data_dir, &name);
-            if path.is_file() {
-                std::fs::remove_file(&path)?;
-                app.toast = Some(format!("Canvas '{name}' の配置を削除しました"));
-            }
-            if app.canvas.open.as_ref().is_some_and(|o| o.name == name) {
-                app.canvas.open = None;
-                app.mode = AppMode::Normal;
-            }
-            app.canvas.set_canvas_list(canvas_view::list_canvases(
-                &runtime.database,
-                &runtime.data_dir,
-            ));
-            Ok(())
-        }
-        UiAction::SaveCanvas => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                canvas_view::save_canvas(open)?;
-            }
-            Ok(())
-        }
-        UiAction::CanvasToggleArrows => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.arrow_mode = open.arrow_mode.toggled();
-                canvas_view::refresh_edges(&runtime.database, open);
-                app.toast = Some(format!("矢印: {}", open.arrow_mode.label()));
-            }
-            Ok(())
-        }
-        UiAction::CanvasRefreshEdges => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                canvas_view::refresh_edges(&runtime.database, open);
-            }
-            Ok(())
-        }
-        UiAction::CanvasAddMissingConnection => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                let index = open.missing_selected;
-                if canvas_view::add_missing_connection(&runtime.database, open, index) {
-                    let _ = canvas_view::save_canvas(open);
-                    app.toast = Some("つながりの札を追加しました".into());
-                }
-            }
-            Ok(())
-        }
-        UiAction::CanvasToggleSidebarCard => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                match canvas_view::toggle_sidebar_card(&runtime.database, open) {
-                    Some(true) => {
-                        // 追加直後にメタデータ（タグ・summary）を埋める。
-                        canvas_view::reload_cards(&runtime.database, open)?;
-                        app.toast = Some("カードを追加しました".into());
-                    }
-                    Some(false) => app.toast = Some("カードを削除しました".into()),
-                    None => app.toast = Some("この行にはカードを作成できません".into()),
-                }
-            }
-            Ok(())
-        }
-        UiAction::CanvasRemoveCard => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                canvas_view::remove_selected_card(&runtime.database, open);
-            }
-            Ok(())
-        }
-        UiAction::OpenCanvasMarkdown { label, path } => {
-            open_md_viewer_path(runtime, app, theme, &label, &path);
+        UiAction::OpenTreeMd => {
+            open_md_viewer_path(
+                runtime,
+                app,
+                theme,
+                "tree.md",
+                &runtime.data_dir.join("tree.md"),
+            );
             Ok(())
         }
         UiAction::SaveQueryReason => {
@@ -4972,9 +4866,6 @@ fn handle_active_mode_key(app: &mut App, key: KeyEvent) -> KeyHandling {
         AppMode::WorkspaceSearch => handle_workspace_search_key(app, key),
         AppMode::RagSearch => handle_rag_search_key(app, key),
         AppMode::QueryDetail => handle_query_detail_key(app, key),
-        AppMode::CanvasView => handle_canvas_view_key(app, key),
-        AppMode::CanvasName => handle_canvas_name_key(app, key),
-        AppMode::CanvasConfirmDelete => handle_canvas_confirm_delete_key(app, key),
         AppMode::AttentionList => {
             return KeyHandling::Handled(handle_attention_list_key(app, key).map(Box::new));
         }
@@ -5091,9 +4982,11 @@ fn handle_navigation_key(app: &mut App, key: KeyEvent) -> KeyHandling {
 }
 
 fn handle_focused_workspace_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    // Canvas 一覧画面（モード CanvasView のときは handle_active_mode_key が処理済み）。
-    if app.page == Page::Canvas && app.content_focused {
-        return handle_canvas_list_key(app, key);
+    // U23: 研究方針のページは、このページだけのキー（`r` / `o`）だけ先に受け取る。
+    if app.page == Page::Tree && app.content_focused
+        && let Some(action) = tree_view::handle_tree_key(app, key)
+    {
+        return Some(action);
     }
     if key.code == KeyCode::Char('r')
         && app.page == Page::Discover
@@ -5638,8 +5531,6 @@ fn has_active_text_input(app: &App) -> bool {
             | AppMode::DiscoverFilter
             | AppMode::WorkspaceSearch
             | AppMode::QueryDetail
-            // 文字入力中のモードはグローバルな `?` / `L` に文字キーを奪われない。
-            | AppMode::CanvasName
             | AppMode::RagSearch
     )
 }
@@ -6215,529 +6106,17 @@ fn handle_confirm_delete_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
     }
 }
 
-/// Canvas 画面のマウス操作。
+/// マウスの操作。ホイールのスクロールだけを受け付ける。
 ///
-/// - 左押下: カード選択（右下すみならリサイズ、カード外ならパン開始）
-/// - 左ドラッグ: カード移動 / リサイズ / パン
-/// - 左離上: 確定して保存
-/// - ホイール: ポインタ位置基準のズーム
-///
-/// マウスが使えない端末でも全機能をキーで操作できる（要件 R5.6）。
-fn handle_mouse_event(
-    app: &mut App,
-    mouse: crossterm::event::MouseEvent,
-    database: &papr_core::Database,
-) {
-    use crossterm::event::{MouseButton, MouseEventKind};
-    // 端末はマウスを取っているので、Canvas 以外でもホイールをスクロールに割り当てる。
-    if app.page != Page::Canvas || app.mode != AppMode::CanvasView {
-        match mouse.kind {
-            MouseEventKind::ScrollDown => scroll_by_wheel(app, 1),
-            MouseEventKind::ScrollUp => scroll_by_wheel(app, -1),
-            _ => {}
-        }
-        return;
-    }
-    let Some(open) = app.canvas.open.as_mut() else {
-        return;
-    };
-    let area = open.last_area;
-    let in_area = mouse.column >= area.x
-        && mouse.column < area.x.saturating_add(area.width)
-        && mouse.row >= area.y
-        && mouse.row < area.y.saturating_add(area.height);
-    let col = i32::from(mouse.column);
-    let row = i32::from(mouse.row);
-
+/// 画面を動かす操作はすべてキーでできる（要件 R5.6）。
+fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
+    use crossterm::event::MouseEventKind;
+    // 端末はマウスを取っているので、入力欄（ダイアログ）でなければホイールを
+    // スクロールに割り当てる。研究方針のページでは選択が動く。
     match mouse.kind {
-        MouseEventKind::ScrollUp if in_area => {
-            open.zoom_at(area, col, row, 1.1);
-            return;
-        }
-        MouseEventKind::ScrollDown if in_area => {
-            open.zoom_at(area, col, row, 1.0 / 1.1);
-            return;
-        }
-        MouseEventKind::Down(MouseButton::Left) => {
-            if !in_area {
-                return;
-            }
-            // カードの右下すみ（2 セル以内）ならリサイズ
-            let hit = open.hit_test(area, mouse.column, mouse.row).cloned();
-            if let Some(card) = hit {
-                let rect = open.card_screen_rect(area, &card);
-                let near_right = col >= i32::from(rect.x) + i32::from(rect.width) - 3;
-                let near_bottom = row >= i32::from(rect.y) + i32::from(rect.height) - 2;
-                open.selected = Some(card.node_id.clone());
-                // 選ぶ札が変わるとつながり・矢印が変わる（V04）。
-                canvas_view::refresh_edges(database, open);
-                open.drag = Some(if near_right && near_bottom {
-                    canvas_view::DragState::ResizeCard {
-                        node_id: card.node_id.clone(),
-                        start_col: col,
-                        start_row: row,
-                        orig: card.rect,
-                    }
-                } else {
-                    canvas_view::DragState::MoveCard {
-                        node_id: card.node_id.clone(),
-                        start_col: col,
-                        start_row: row,
-                        orig: card.rect,
-                    }
-                });
-            } else {
-                open.drag = Some(canvas_view::DragState::Pan {
-                    start_col: col,
-                    start_row: row,
-                    orig_x: open.origin_x,
-                    orig_y: open.origin_y,
-                });
-            }
-            return;
-        }
-        MouseEventKind::Drag(MouseButton::Left) => {
-            let Some(drag) = open.drag.clone() else {
-                return;
-            };
-            match drag {
-                canvas_view::DragState::MoveCard {
-                    node_id,
-                    start_col,
-                    start_row,
-                    orig,
-                } => {
-                    let dx = f64::from(col - start_col) * canvas_view::WORLD_CELL_W / open.zoom;
-                    let dy = f64::from(row - start_row) * canvas_view::WORLD_CELL_H / open.zoom;
-                    if let Some(card) = open.cards.iter_mut().find(|c| c.node_id == node_id) {
-                        card.rect.x = orig.x + dx.round() as i64;
-                        card.rect.y = orig.y + dy.round() as i64;
-                    }
-                    open.dirty = true;
-                }
-                canvas_view::DragState::ResizeCard {
-                    node_id,
-                    start_col,
-                    start_row,
-                    orig,
-                } => {
-                    let dw = f64::from(col - start_col) * canvas_view::WORLD_CELL_W / open.zoom;
-                    let dh = f64::from(row - start_row) * canvas_view::WORLD_CELL_H / open.zoom;
-                    if let Some(card) = open.cards.iter_mut().find(|c| c.node_id == node_id) {
-                        card.rect.w = (orig.w + dw.round() as i64).max(300);
-                        card.rect.h = (orig.h + dh.round() as i64).max(200);
-                    }
-                    open.dirty = true;
-                }
-                canvas_view::DragState::Pan {
-                    start_col,
-                    start_row,
-                    orig_x,
-                    orig_y,
-                } => {
-                    open.origin_x =
-                        orig_x - f64::from(col - start_col) * canvas_view::WORLD_CELL_W / open.zoom;
-                    open.origin_y =
-                        orig_y - f64::from(row - start_row) * canvas_view::WORLD_CELL_H / open.zoom;
-                }
-            }
-            return;
-        }
-        MouseEventKind::Up(MouseButton::Left) => {
-            open.drag = None;
-            if open.dirty {
-                let _ = canvas_view::save_canvas(open);
-            }
-            return;
-        }
+        MouseEventKind::ScrollDown => scroll_by_wheel(app, 1),
+        MouseEventKind::ScrollUp => scroll_by_wheel(app, -1),
         _ => {}
-    }
-}
-
-/// Canvas 一覧画面のキー操作。
-fn handle_canvas_list_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    let count = app.canvas.names.len();
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => {
-            if count > 0 {
-                app.canvas.list_selected = (app.canvas.list_selected + 1).min(count - 1);
-            }
-            None
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            app.canvas.list_selected = app.canvas.list_selected.saturating_sub(1);
-            None
-        }
-        KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => app
-            .canvas
-            .names
-            .get(app.canvas.list_selected)
-            .cloned()
-            .map(UiAction::OpenCanvas),
-        // Canvas 名 = タグ名なので、新規作成・名前変更はここでは行わない。
-        KeyCode::Char('n') => {
-            app.toast = Some("Canvas はタグごとに自動で作られます（Tags 画面でタグを追加）".into());
-            None
-        }
-        KeyCode::Char('r') => {
-            app.toast = Some("Canvas 名はタグ名です（Tags 画面でタグ名を変更）".into());
-            None
-        }
-        KeyCode::Char('x') => {
-            let Some(current) = app.canvas.names.get(app.canvas.list_selected).cloned() else {
-                return None;
-            };
-            app.canvas.delete_confirm = Some(current);
-            app.mode = AppMode::CanvasConfirmDelete;
-            None
-        }
-        KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') | KeyCode::Left => {
-            app.content_focused = false;
-            None
-        }
-        _ => None,
-    }
-}
-
-/// Canvas 名の入力（新規作成 / 名前変更）。
-fn handle_canvas_name_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    match key.code {
-        KeyCode::Esc => {
-            app.canvas.name_input = None;
-            app.canvas.name_input_target = None;
-            app.mode = AppMode::Normal;
-            None
-        }
-        KeyCode::Enter => {
-            let name = app
-                .canvas
-                .name_input
-                .as_deref()
-                .map(str::trim)
-                .filter(|n| !n.is_empty())
-                .map(str::to_string);
-            let target = app.canvas.name_input_target.take();
-            app.canvas.name_input = None;
-            app.mode = AppMode::Normal;
-            let Some(name) = name else {
-                app.toast = Some("Canvas 名を入力してください".into());
-                return None;
-            };
-            if name.contains(['/', '\\']) {
-                app.toast = Some("Canvas 名にパス区切りは使えません".into());
-                return None;
-            }
-            match target {
-                Some(old) if old != name => Some(UiAction::RenameCanvas(old, name)),
-                Some(_) => None,
-                None => Some(UiAction::CreateCanvas(name)),
-            }
-        }
-        KeyCode::Backspace => {
-            if let Some(input) = app.canvas.name_input.as_mut() {
-                input.pop();
-            }
-            None
-        }
-        KeyCode::Char(c) => {
-            if let Some(input) = app.canvas.name_input.as_mut() {
-                input.push(c);
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-/// Canvas の削除確認。
-fn handle_canvas_confirm_delete_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    let target = app.canvas.delete_confirm.take();
-    app.mode = AppMode::Normal;
-    match key.code {
-        KeyCode::Char('y') | KeyCode::Enter => target.map(UiAction::DeleteCanvas),
-        _ => None,
-    }
-}
-
-/// Canvas 本体（AppMode::CanvasView）のキー操作。
-fn handle_canvas_view_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    // right_sidebar にフォーカスがあるときはサイドバー操作。
-    if app
-        .canvas
-        .open
-        .as_ref()
-        .is_some_and(|open| open.sidebar_focused)
-    {
-        return handle_canvas_sidebar_key(app, key);
-    }
-    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-    let area = app
-        .canvas
-        .open
-        .as_ref()
-        .map_or(ratatui::layout::Rect::default(), |open| open.last_area);
-
-    match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                let _ = canvas_view::save_canvas(open);
-            }
-            app.mode = AppMode::Normal;
-            None
-        }
-        KeyCode::Tab => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.sidebar_focused = true;
-                // Canvas に無いつながりがあれば、まずそれを選べるようにする（V04）。
-                open.missing_focused = !open.missing.is_empty();
-            }
-            None
-        }
-        KeyCode::Char('s') if !alt => Some(UiAction::CanvasToggleArrows),
-        KeyCode::Char('a') if !alt => Some(UiAction::CanvasToggleSidebarCard),
-        KeyCode::Char('d') if !alt => Some(UiAction::CanvasRemoveCard),
-        KeyCode::Char('f') if !alt => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.fit(area);
-            }
-            None
-        }
-        KeyCode::Char('+') | KeyCode::Char('=') => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.zoom_by(1.1);
-            }
-            None
-        }
-        KeyCode::Char('-') => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.zoom_by(1.0 / 1.1);
-            }
-            None
-        }
-        KeyCode::Enter => {
-            let card = app.canvas.open.as_ref().and_then(|open| {
-                let id = open.selected.clone()?;
-                open.cards.iter().find(|c| c.node_id == id).cloned()
-            })?;
-            // 論文の札は PAPER 画面を開く（V02）。
-            if card.kind == papr_core::CanvasCardKind::Paper {
-                let paper_id = card.papers_id?;
-                // 画面を移る前に配置を保存する。
-                if let Some(open) = app.canvas.open.as_mut() {
-                    let _ = canvas_view::save_canvas(open);
-                }
-                return Some(UiAction::OpenLibraryPaper(paper_id));
-            }
-            card.md_path
-                .is_file()
-                .then(|| UiAction::OpenCanvasMarkdown {
-                    label: match card.kind {
-                        papr_core::CanvasCardKind::Note => "note.md".to_string(),
-                        papr_core::CanvasCardKind::Report => card
-                            .report_id
-                            .clone()
-                            .unwrap_or_else(|| "report.md".to_string()),
-                        papr_core::CanvasCardKind::Paper => "paper".to_string(),
-                    },
-                    path: card.md_path.clone(),
-                })
-        }
-        KeyCode::Char('h' | 'j' | 'k' | 'l')
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Up
-        | KeyCode::Down => {
-            let (dx, dy) = direction_delta(key.code);
-            if alt && shift {
-                if let Some(open) = app.canvas.open.as_mut() {
-                    open.resize_selected(
-                        i64::from(dx) * canvas_view::WORLD_CELL_W as i64,
-                        i64::from(dy) * canvas_view::WORLD_CELL_H as i64,
-                    );
-                    if let Some(id) = open.selected.clone() {
-                        open.focus_card(area, &id);
-                    }
-                }
-                Some(UiAction::SaveCanvas)
-            } else if alt {
-                if let Some(open) = app.canvas.open.as_mut() {
-                    open.nudge_selected(
-                        i64::from(dx) * canvas_view::WORLD_CELL_W as i64,
-                        i64::from(dy) * canvas_view::WORLD_CELL_H as i64,
-                    );
-                    if let Some(id) = open.selected.clone() {
-                        open.focus_card(area, &id);
-                    }
-                }
-                Some(UiAction::SaveCanvas)
-            } else if shift {
-                if let Some(open) = app.canvas.open.as_mut() {
-                    // ビューポートを動かす（内容は逆方向に動く）
-                    open.pan(-dx, -dy);
-                }
-                None
-            } else {
-                if let Some(open) = app.canvas.open.as_mut() {
-                    open.move_selection(area, dx, dy);
-                }
-                // 選ぶ札が変わるとつながり・矢印が変わる（V04）。
-                Some(UiAction::CanvasRefreshEdges)
-            }
-        }
-        _ => None,
-    }
-}
-
-/// キーコードから方向ベクトルを求める。
-fn direction_delta(code: KeyCode) -> (i32, i32) {
-    match code {
-        KeyCode::Left | KeyCode::Char('h') => (-1, 0),
-        KeyCode::Right | KeyCode::Char('l') => (1, 0),
-        KeyCode::Up | KeyCode::Char('k') => (0, -1),
-        KeyCode::Down | KeyCode::Char('j') => (0, 1),
-        _ => (0, 0),
-    }
-}
-
-/// Canvas の right_sidebar のキー操作。
-fn handle_canvas_sidebar_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    // 「Canvas に無いつながり」を見ているときはそちらの操作（V04）。
-    if app
-        .canvas
-        .open
-        .as_ref()
-        .is_some_and(|open| open.missing_focused)
-    {
-        return handle_canvas_missing_key(app, key);
-    }
-    let area = app
-        .canvas
-        .open
-        .as_ref()
-        .map_or(ratatui::layout::Rect::default(), |open| open.last_area);
-    match key.code {
-        KeyCode::Tab => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                if open.missing.is_empty() {
-                    open.sidebar_focused = false;
-                } else {
-                    open.missing_focused = true;
-                }
-            }
-            None
-        }
-        KeyCode::Esc => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.sidebar_focused = false;
-                open.missing_focused = false;
-            }
-            None
-        }
-        KeyCode::Char('j') | KeyCode::Down => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                if !open.sidebar_rows.is_empty() {
-                    open.sidebar_selected =
-                        (open.sidebar_selected + 1).min(open.sidebar_rows.len() - 1);
-                }
-                focus_sidebar_card(open, area);
-            }
-            Some(UiAction::CanvasRefreshEdges)
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.sidebar_selected = open.sidebar_selected.saturating_sub(1);
-                focus_sidebar_card(open, area);
-            }
-            Some(UiAction::CanvasRefreshEdges)
-        }
-        KeyCode::Char('a') => Some(UiAction::CanvasToggleSidebarCard),
-        KeyCode::Char('d') => Some(UiAction::CanvasRemoveCard),
-        KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
-            let row = app
-                .canvas
-                .open
-                .as_ref()
-                .and_then(|open| open.sidebar_rows.get(open.sidebar_selected).cloned())?;
-            if row.foldable {
-                if let Some(open) = app.canvas.open.as_mut() {
-                    let key = row.papers_id.unwrap_or(-1);
-                    if !open.sidebar_folded.insert(key) {
-                        open.sidebar_folded.remove(&key);
-                    }
-                    canvas_view::rebuild_sidebar_rows(open);
-                }
-                return None;
-            }
-            row.md_path.map(|path| UiAction::OpenCanvasMarkdown {
-                label: row.report_id.unwrap_or_else(|| "note.md".to_string()),
-                path,
-            })
-        }
-        KeyCode::Char('h') | KeyCode::Left => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                let fold = open
-                    .sidebar_rows
-                    .get(open.sidebar_selected)
-                    .and_then(|row| row.papers_id);
-                if let Some(key) = fold {
-                    open.sidebar_folded.insert(key);
-                    canvas_view::rebuild_sidebar_rows(open);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-/// sidebar の選択行に対応するカードをフォーカスする。
-fn focus_sidebar_card(open: &mut canvas_view::OpenCanvas, area: ratatui::layout::Rect) {
-    let Some(row) = open.sidebar_rows.get(open.sidebar_selected) else {
-        return;
-    };
-    if let Some(node_id) = canvas_view::sidebar_row_node_id(row) {
-        open.selected = Some(node_id.clone());
-        open.focus_card(area, &node_id);
-    }
-}
-
-/// 右の欄の「Canvas に無いつながり」のキー操作（V04）。
-fn handle_canvas_missing_key(app: &mut App, key: KeyEvent) -> Option<UiAction> {
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                if !open.missing.is_empty() {
-                    open.missing_selected = (open.missing_selected + 1).min(open.missing.len() - 1);
-                }
-            }
-            None
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.missing_selected = open.missing_selected.saturating_sub(1);
-            }
-            None
-        }
-        // 選んだつながりを札として足す。
-        KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
-            Some(UiAction::CanvasAddMissingConnection)
-        }
-        // Tab は candidates へ戻る。
-        KeyCode::Tab => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.missing_focused = false;
-            }
-            None
-        }
-        KeyCode::Esc | KeyCode::Char('h') | KeyCode::Left => {
-            if let Some(open) = app.canvas.open.as_mut() {
-                open.missing_focused = false;
-                open.sidebar_focused = false;
-            }
-            None
-        }
-        _ => None,
     }
 }
 
@@ -7870,7 +7249,7 @@ fn selected_paper_arxiv_reference(app: &App) -> PaperArxivSelection {
             .map_or(PaperArxivSelection::NoPaper, |paper| {
                 PaperArxivSelection::Selected(Some(paper.id.clone()))
             }),
-        Page::Canvas => PaperArxivSelection::NoPaper,
+        Page::Tree => PaperArxivSelection::NoPaper,
         Page::Project => PaperArxivSelection::NoPaper,
         Page::Library | Page::Collections | Page::Authors | Page::Notes => {
             selected_local_paper_id(app).map_or(PaperArxivSelection::NoPaper, |id| {
@@ -8012,7 +7391,7 @@ fn stash_md_view_before_replacing(app: &mut App) {
     }
 }
 
-/// 任意の md パスを内蔵 Markdown ビューアで開く（Canvas の right_sidebar 用）。
+/// 任意の md パスを内蔵 Markdown ビューアで開く（研究方針の `tree.md` や `state.md` 用）。
 fn open_md_viewer_path(runtime: &Runtime, app: &mut App, theme: &Theme, label: &str, path: &Path) {
     if !path.is_file() {
         app.toast = Some(format!("{label} が見つかりません: {}", path.display()));
@@ -8441,8 +7820,16 @@ fn apply_save_query_reason(runtime: &Runtime, app: &mut App) {
     app.library_tree_dirty = true;
 }
 
-/// `M` / `W`: mind.md / state.md を（無ければひな形を作ってから）nvim で開く。
-fn apply_open_project_file(file: ProjectFile, runtime: &Runtime, app: &mut App) -> Result<()> {
+/// `M` / `W`: mind.md / state.md を開く。
+///
+/// U23: sci（研究方針）を使うプロジェクトの state.md は木からの書き出しなので、
+/// nvim ではなく内蔵の Markdown ビューアで読むだけにする（R-M3）。
+fn apply_open_project_file(
+    file: ProjectFile,
+    runtime: &Runtime,
+    app: &mut App,
+    theme: &Theme,
+) -> Result<()> {
     let (path, template, label) = match file {
         ProjectFile::Mind => (
             papr_core::paths::mind_path(&runtime.data_dir),
@@ -8459,10 +7846,24 @@ fn apply_open_project_file(file: ProjectFile, runtime: &Runtime, app: &mut App) 
         app.toast = Some(format!("{label} を作成できません: {error}"));
         return Ok(());
     }
+    if file == ProjectFile::State && state_md_is_sci_backed(&runtime.database) {
+        open_md_viewer_path(runtime, app, theme, "state.md", &path);
+        app.toast = Some(
+            "state.md は研究方針の木から書き出したファイルです。直すときは Web か sai-moon-paper sci を使います"
+                .into(),
+        );
+        return Ok(());
+    }
     let cmd = format!("nvim {}", shell_quote(&path.to_string_lossy()));
     open_in_nvim_pane(&path, &cmd);
     record_open_in_tui(runtime, &path, None);
     Ok(())
+}
+
+/// state.md が研究方針の木からの書き出しか（=`sci init` をしているか）。
+#[must_use]
+fn state_md_is_sci_backed(db: &papr_core::Database) -> bool {
+    papr_core::sci::store::is_initialized(db.connection()).unwrap_or(false)
 }
 
 /// S01: 最近 7 日の研究日誌を内蔵 Markdown ビューアで開く（`J`）。
@@ -8568,8 +7969,7 @@ fn apply_open_attention(
         }
         papr_core::attention::AttentionKind::SciDecision
         | papr_core::attention::AttentionKind::SciTriage => {
-            // 研究方針の画面は U23 が作る。ここでは行き先だけ伝える。
-            app.toast = Some("研究方針（Research-tree）の画面で扱います".into());
+            open_sci_attention_at(&item, app);
         }
         papr_core::attention::AttentionKind::Question
         | papr_core::attention::AttentionKind::RecommendCard => {
@@ -8601,6 +8001,30 @@ fn apply_open_attention(
         }
     }
     Ok(())
+}
+
+/// 要対応の「判断待ち」「仕分けていない提案」を研究方針のページで開く（U23）。
+///
+/// [`apply_open_attention`] から使う。App だけ受け取るのでテストできる。
+fn open_sci_attention_at(item: &papr_core::attention::AttentionItem, app: &mut App) {
+    app.page = Page::Tree;
+    app.mode = AppMode::Normal;
+    app.content_focused = true;
+    app.sidebar_index = Page::ALL
+        .iter()
+        .position(|page| *page == Page::Tree)
+        .unwrap_or(app.sidebar_index);
+    // SciDecision はキーが `sci_decision:<節点>:<知見の id>`。2 番目の節点を選ぶ。
+    if item.kind == papr_core::attention::AttentionKind::SciDecision
+        && let Some(node) = item
+            .key
+            .split(':')
+            .nth(1)
+            .and_then(|ref_id| papr_core::sci::parse_ref(ref_id, 'N').ok())
+    {
+        app.tree.pending_select = Some(node);
+    }
+    app.tree.stale = true;
 }
 
 /// S02: 要対応の 1 件を「対応済み」にする（`x`）。
@@ -9428,9 +8852,9 @@ mod tests {
         apply_create_agent_card_at, apply_search_set_rerun_result_at, attention_set_id,
         complete_terminal_command, create_agent_card, handle_key, handle_manual_import_key,
         handle_mouse_event, handle_paper_detail_key, is_text_paste_shortcut,
-        merge_enriched_remote_paper, open_journal_at, paste_text_into_active_input,
-        pdf_viewer_invocation, record_open_at, report_header_line, resolve_attention_at,
-        run_terminal_command,
+        merge_enriched_remote_paper, open_journal_at, open_sci_attention_at,
+        paste_text_into_active_input, pdf_viewer_invocation, record_open_at, report_header_line,
+        resolve_attention_at, run_terminal_command, state_md_is_sci_backed,
     };
 
     #[test]
@@ -11681,6 +11105,92 @@ mod tests {
         assert_eq!(attention_set_id("set:x"), None);
     }
 
+    /// U23: 要対応の「判断待ち」「仕分けていない提案」は研究方針のページで開く。
+    ///
+    /// 判断待ち（`sci_decision`）のときはキーの 2 番目の節点を選ぶ。
+    #[test]
+    fn sci_attention_opens_tree_page_and_selects_node() {
+        use papr_core::attention::{AttentionItem, AttentionKind};
+
+        let item = AttentionItem {
+            key: "sci_decision:N12:31".into(),
+            kind: AttentionKind::SciDecision,
+            title: "判断待ち".into(),
+            run_id: None,
+            open_path: None,
+            report_id: None,
+        };
+        let mut app = App::default();
+        open_sci_attention_at(&item, &mut app);
+        assert_eq!(app.page, Page::Tree);
+        assert_eq!(app.mode, AppMode::Normal);
+        assert!(app.content_focused);
+        assert_eq!(
+            app.sidebar_index,
+            Page::ALL
+                .iter()
+                .position(|page| *page == Page::Tree)
+                .expect("研究方針のページがある")
+        );
+        assert_eq!(app.tree.pending_select, Some(12));
+        assert!(app.tree.stale);
+
+        // 仕分けていない提案（`sci_triage`）は節点を持たないので選択は動かさない。
+        let triage = AttentionItem {
+            key: "sci_triage:7".into(),
+            kind: AttentionKind::SciTriage,
+            ..item
+        };
+        let mut app = App::default();
+        open_sci_attention_at(&triage, &mut app);
+        assert_eq!(app.page, Page::Tree);
+        assert_eq!(app.tree.pending_select, None);
+        assert!(app.tree.stale);
+    }
+
+    /// U23: 研究方針のページでは `r` で読み直し、`o` で tree.md を開く。
+    #[test]
+    fn tree_page_keys_reload_and_open_tree_md() {
+        let mut app = App {
+            page: Page::Tree,
+            content_focused: true,
+            ..App::default()
+        };
+        let reload_key = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
+        assert!(handle_key(&mut app, reload_key).is_none());
+        assert!(app.tree.stale, "r で読み直しの旗が立つ");
+
+        let open_key = KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE);
+        assert!(matches!(
+            handle_key(&mut app, open_key),
+            Some(UiAction::OpenTreeMd)
+        ));
+
+        // ページ選択が失われていても、コンテンツにフォーカスがあれば効く。
+        let mut app = App {
+            page: Page::Dashboard,
+            content_focused: false,
+            ..App::default()
+        };
+        assert!(handle_key(&mut app, reload_key).is_none());
+        assert!(!app.tree.stale, "フォーカスの外では効かない");
+    }
+
+    /// U23: `W` の state.md は、sci を使うプロジェクトでは木からの書き出しなので読むだけ。
+    #[test]
+    fn state_md_is_sci_backed_only_after_sci_init() -> Result<(), Box<dyn std::error::Error>> {
+        let db = papr_core::Database::in_memory()?;
+        assert!(!state_md_is_sci_backed(&db), "始めていなければ nvim で開く");
+
+        // 一時フォルダのルートに埋め込みの定義を足して `sci init` 相当を再現する。
+        let root = std::env::temp_dir().join(format!("papr-state-md-{}", std::process::id()));
+        let defs = papr_core::sci::defs::load(&root);
+        papr_core::sci::defs::init_tree(db.connection(), &defs, "problem")?;
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(state_md_is_sci_backed(&db), "始めていれば読むだけ");
+        Ok(())
+    }
+
     /// S01: `J` はどのページでも研究日誌を開く。
     #[test]
     fn journal_key_opens_on_every_page() {
@@ -11900,12 +11410,11 @@ mod tests {
         assert_eq!(app.project.scroll, 0);
     }
 
-    /// 端末はマウスを取っているので、Canvas 以外でもホイールでスクロールできる。
+    /// 端末はマウスを取っているので、どのページでもホイールでスクロールできる。
     #[test]
     fn mouse_wheel_scrolls_paper_detail_and_project() -> Result<(), Box<dyn std::error::Error>> {
         use crossterm::event::{MouseEvent, MouseEventKind};
 
-        let db = papr_core::Database::in_memory()?;
         let wheel = |kind| MouseEvent {
             kind,
             column: 10,
@@ -11922,9 +11431,9 @@ mod tests {
         app.paper_detail_local = Some(1);
         app.paper_detail_content_rows = 100;
         app.paper_detail_view_rows = 20;
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
         assert_eq!(app.paper_detail_scroll, 1, "PAPER 画面のホイール下");
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp));
         assert_eq!(app.paper_detail_scroll, 0, "PAPER 画面のホイール上");
 
         // PAPER 画面（Discover から開いたリモート詳細）
@@ -11935,7 +11444,7 @@ mod tests {
         };
         app.paper_detail_content_rows = 100;
         app.paper_detail_view_rows = 20;
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
         assert_eq!(app.paper_detail_scroll, 1);
 
         // Project ページ
@@ -11944,9 +11453,9 @@ mod tests {
             content_focused: true,
             ..App::default()
         };
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
         assert_eq!(app.project.scroll, 1, "Project ページのホイール下");
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp));
         assert_eq!(app.project.scroll, 0, "Project ページのホイール上");
 
         // それ以外の画面は j / k と同じ（一覧の選択が動く）
@@ -11960,10 +11469,30 @@ mod tests {
                 .map(|i| remote_paper(&format!("2501.0000{i}"), "A"))
                 .collect(),
         );
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
         assert_eq!(app.discovery.selected, 1);
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp));
         assert_eq!(app.discovery.selected, 0);
+
+        // 研究方針のページ（j / k と同じで選択が動く）
+        let mut app = App {
+            page: Page::Tree,
+            content_focused: true,
+            ..App::default()
+        };
+        app.tree.status = Some(papr_core::sci::compute::Status {
+            nodes: (1..=3)
+                .map(|id| papr_core::sci::compute::NodeRow {
+                    id: format!("N{id}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        });
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
+        assert_eq!(app.tree.selected, 1, "研究方針のページのホイール下");
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp));
+        assert_eq!(app.tree.selected, 0, "研究方針のページのホイール上");
 
         // 入力欄（ダイアログ）では動かさない
         let mut app = App {
@@ -11971,7 +11500,7 @@ mod tests {
             mode: AppMode::CommandPalette,
             ..App::default()
         };
-        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown), &db);
+        handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
         assert_eq!(app.project.scroll, 0, "ダイアログ中はホイールで動かない");
         Ok(())
     }

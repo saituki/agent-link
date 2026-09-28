@@ -28,7 +28,7 @@ impl TerminalSession {
     pub fn start() -> io::Result<Self> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        // Canvas 画面のマウス操作（カード移動・ズーム・パン）に必要。
+        // ホイールのスクロールに必要。
         // 他画面ではマウスイベントを無視する。
         if let Err(error) = execute!(
             stdout,
