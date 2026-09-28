@@ -22,7 +22,7 @@
   cursor: pointer;
 }
 .wf-tool:hover { background: var(--bg-soft); }
-.wf-tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wf-tool.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* 線の種類のボタン（Canvas と同じ見た目。色つきの下線を出す） */
 .wf-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; }
@@ -43,7 +43,7 @@
 /* --- 赤い 1 行（読めなかったとき） --- */
 .wf-error {
   padding: 8px var(--sp-4);
-  background: rgba(239, 68, 68, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
   font-size: 13px;
   line-height: 1.6;
@@ -124,7 +124,7 @@
 .wf-card {
   position: absolute;
   border: 1px solid var(--line);
-  border-left: 4px solid var(--wf-tag, #9ca3af);
+  border-left: 4px solid var(--wf-tag, var(--tag-other));
   border-radius: var(--radius-sm);
   background: var(--bg);
   padding: 3px 6px;
@@ -133,7 +133,7 @@
   user-select: none;
   -webkit-user-select: none;
 }
-.wf-card.wf-sel { border-color: #ffc832; box-shadow: 0 0 0 2px rgba(255, 200, 50, 0.45); }
+.wf-card.wf-sel { border-color: var(--sel); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sel) 45%, transparent); }
 .wf-card.wf-dim { opacity: 0.45; }
 .wf-card-title { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
 .wf-card-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -147,8 +147,8 @@
 
 /* 実行中（点滅）と失敗（赤）の点 */
 .wf-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
-.wf-dot-run { background: #3b82f6; animation: wf-blink 1.2s ease-in-out infinite; }
-.wf-dot-fail { background: #ef4444; }
+.wf-dot-run { background: var(--accent); animation: wf-blink 1.2s ease-in-out infinite; }
+.wf-dot-fail { background: var(--danger); }
 @keyframes wf-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* 遠く（拡大率が小さい）ときは 1 行目だけ大きくする（Canvas と同じ考え方） */

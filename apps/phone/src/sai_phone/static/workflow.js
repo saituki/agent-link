@@ -41,27 +41,28 @@ const WF_OFFSETS_KEY = "sai_phone_wf_offsets";  // ドラッグでずらした�
 const WF_KANBAN_KEY = "sai_phone_wf_kanban";    // Kanban の帯の開閉（localStorage）
 const WF_KINDS_KEY = "sai_phone_wf_kinds";      // 線の種類の出し入れ（localStorage）
 
-// 札の左の帯の色（タグ。TUI の block_node.rs と同じ）
+// 札の左の帯の色（タグ。TUI の block_node.rs と同じ）。
+// 色は CSS 変数。暗い画面では :root の変数が別になるので、こちらでも自動的に変わる。
 const WF_TAGS = {
-  brst: "#06b6d4",
-  plan: "#3b82f6",
-  code: "#22c55e",
-  comp: "#d946ef",
-  rfrs: "#ef4444",
+  brst: "var(--tag-brst)",
+  plan: "var(--tag-plan)",
+  code: "var(--tag-code)",
+  comp: "var(--tag-comp)",
+  rfrs: "var(--tag-rfrs)",
 };
 // タグが無い・知らないタグのときの灰色
-const WF_TAG_OTHER = "#9ca3af";
+const WF_TAG_OTHER = "var(--tag-other)";
 // 選んだ札の枠の色（TUI と同じ黄色）
-const WF_SEL_COLOR = "#ffc832";
+const WF_SEL_COLOR = "var(--sel)";
 
 // 線の種類（[kind, 表示名, 色, 破線か]）。最後の other は表に無い種類用の灰色。
 const WF_EDGE_KINDS = [
-  ["delegation", "委譲", "#06b6d4", false],
-  ["task_output", "返却", "#22c55e", false],
-  ["waggle_token", "文書", "#d946ef", false],
-  ["git_commit", "commit", "#a855f7", false],
-  ["phase_chain", "フェーズ", "#06b6d4", true],
-  ["other", "その他", "#9ca3af", false],
+  ["delegation", "委譲", "var(--edge-delegation)", false],
+  ["task_output", "返却", "var(--edge-task-output)", false],
+  ["waggle_token", "文書", "var(--edge-waggle)", false],
+  ["git_commit", "commit", "var(--edge-commit)", false],
+  ["phase_chain", "フェーズ", "var(--edge-phase)", true],
+  ["other", "その他", "var(--edge-other)", false],
 ];
 
 // Kanban の 4 レーン（TUI と同じ並び）

@@ -31,19 +31,24 @@ const CV_WIDE_PX = 900;
 const CV_FAR_Z = 0.45;
 
 // 線の種類（[kind, 名前, 色]。C-C と計画 U06 の表）
+// 色は CSS 変数。暗い画面では :root の変数が別になるので、こちらでも自動的に変わる。
 const CV_EDGE_KINDS = [
-  ["citation", "引用", "#2563eb"],
-  ["uses", "使った", "#1d7a45"],
-  ["derived", "元にした", "#8e44ad"],
-  ["mentions", "言及", "#d97706"],
-  ["link", "線", "#6b7280"],
+  ["citation", "引用", "var(--cv-edge-citation)"],
+  ["uses", "使った", "var(--cv-edge-uses)"],
+  ["derived", "元にした", "var(--cv-edge-derived)"],
+  ["mentions", "言及", "var(--cv-edge-mentions)"],
+  ["link", "線", "var(--cv-edge-link)"],
 ];
 // 札の種類の色（左の縁の帯）
-const CV_CARD_KINDS = { note: "#2563eb", report: "#1d7a45", paper: "#8a8f98" };
+const CV_CARD_KINDS = {
+  note: "var(--cv-card-note)",
+  report: "var(--cv-card-report)",
+  paper: "var(--cv-card-paper)",
+};
 // 枠の色（JSON Canvas の色。1〜6 と #rrggbb。それ以外は色なし）
 const CV_GROUP_COLORS = {
-  "1": "#e5484d", "2": "#f76b15", "3": "#ffc53d",
-  "4": "#30a46c", "5": "#05a2c2", "6": "#8e4ec6",
+  "1": "var(--cv-group-1)", "2": "var(--cv-group-2)", "3": "var(--cv-group-3)",
+  "4": "var(--cv-group-4)", "5": "var(--cv-group-5)", "6": "var(--cv-group-6)",
 };
 // 札・枠・文字の既定の大きさ（width / height が無いとき）
 const CV_CARD_W = 240;
@@ -276,7 +281,7 @@ function cvEdgePath(a, b) {
 }
 
 /**
- * 線の種類の色。表に無い種類（null や未知の値）も灰色 #6b7280 で返す。
+ * 線の種類の色。表に無い種類（null や未知の値）も線（--cv-edge-link）の灰色で返す。
  * null の kind で画面が止まらないため、例外は投げない。
  */
 function cvEdgeKindColor(kind) {
@@ -334,7 +339,7 @@ function cvGroupColor(color) {
 /**
  * 札の種類の色と表示名。U03 の show は DB に無い札の kind を null で返すことがある
  * （title は "(不明な札)"）。null や表に無い種類でも画面が止まらないように、
- * どちらも paper の灰色（#8a8f98）で描く。
+ * どちらも paper の灰色（var(--cv-card-paper)）で描く。
  * @returns {{key:string, label:string, color:string}}
  */
 function cvCardKind(kind) {
@@ -346,12 +351,12 @@ function cvCardKind(kind) {
   return { key: "", label: "paper", color: CV_CARD_KINDS.paper };
 }
 
-/** "#rrggbb" を "rgba(r,g,b,a)" に。色は "#rrggbb" だけを受け付ける。 */
-function cvAlpha(hex, alpha) {
-  const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || ""));
-  if (!m) return "";
-  const v = parseInt(m[1], 16);
-  return `rgba(${(v >> 16) & 255}, ${(v >> 8) & 255}, ${v & 255}, ${alpha})`;
+/** 色を薄くした色。"var(--x)" でも "#rrggbb" でも使える。alpha は 0〜1（0.12 → 12%）。 */
+function cvAlpha(color, alpha) {
+  const c = String(color == null ? "" : color).trim();
+  if (!c) return "";
+  if (!/^(var\(--[A-Za-z0-9-]+\)|#[0-9a-fA-F]{6})$/.test(c)) return "";
+  return `color-mix(in srgb, ${c} ${Math.round(alpha * 1000) / 10}%, transparent)`;
 }
 
 // ============================================================================

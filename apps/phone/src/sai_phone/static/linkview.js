@@ -43,8 +43,8 @@ const LV_MODE_KEY = "sai_phone_link_mode";
 const LV_VIEW_KEY = "sai_phone_list_view";
 // ツリーの開閉をプロジェクトごとに覚える（localStorage・計画 14 §1.2）
 const LV_FOLDS_KEY = "sai_phone_list_folds";
-// History の種類別の色（5 色・project.js のドーナツと同じ考え方）
-const LV_TYPE_COLORS = ["#0a84ff", "#30d158", "#ff9f0a", "#bf5af2", "#8e8e93"];
+// History の種類別の色（5 色・project.js のドーナツと同じ考え方）。色は CSS 変数。
+const LV_TYPE_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)"];
 // History の種類（表示順）
 const LV_TYPES = ["user", "agent", "toolCall", "toolResult", "thinking"];
 // Stats のグラフの種類（TUI の 1 / 2 / 3 と同じ・4 つ目の「表」は常に下に出す・計画 14 §1.3）
@@ -405,7 +405,7 @@ function statsSeries(data, mode) {
     return [
       {
         name: "ターンごとのヒット率",
-        color: "#0a84ff",
+        color: "var(--series-1)",
         pct: true,
         values: line(msgs.map((m) => (m || {}).cache_hit_percent)),
       },
@@ -415,16 +415,16 @@ function statsSeries(data, mode) {
     return [
       {
         name: "累積ヒット率",
-        color: "#30d158",
+        color: "var(--series-2)",
         pct: true,
         values: line(cum.cum_hit_percent),
       },
     ];
   }
   return [
-    { name: "入力", color: "#0a84ff", pct: false, values: line(cum.cum_input) },
-    { name: "キャッシュ読み", color: "#30d158", pct: false, values: line(cum.cum_cache_read) },
-    { name: "キャッシュ書き", color: "#ff9f0a", pct: false, values: line(cum.cum_cache_write) },
+    { name: "入力", color: "var(--series-1)", pct: false, values: line(cum.cum_input) },
+    { name: "キャッシュ読み", color: "var(--series-2)", pct: false, values: line(cum.cum_cache_read) },
+    { name: "キャッシュ書き", color: "var(--series-3)", pct: false, values: line(cum.cum_cache_write) },
   ];
 }
 

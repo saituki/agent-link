@@ -273,9 +273,9 @@
 
 .cv-text {
   position: absolute;
-  background: #fff6c9;
-  color: #4a4326;
-  border: 1px solid #ecd98a;
+  background: var(--note-bg);
+  color: var(--note-on-bg);
+  border: 1px solid var(--note-line);
   border-radius: 10px;
   padding: 9px 11px;
   font-size: 13px;
@@ -285,13 +285,6 @@
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-}
-@media (prefers-color-scheme: dark) {
-  .cv-text {
-    background: #4a4326;
-    color: #f5efd6;
-    border-color: #6b5f33;
-  }
 }
 
 /* --- 遠くのとき（拡大率が 0.45 未満）は題名だけ大きく描く --- */

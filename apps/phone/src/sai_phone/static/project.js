@@ -19,11 +19,11 @@ const DASH_PERIODS = [
   ["month", "今月"],
   ["all", "全期間"],
 ];
-// モデル別ドーナツの色（5色・06 §4.2-5）
-const MODEL_COLORS = ["#0a84ff", "#30d158", "#ff9f0a", "#bf5af2", "#8e8e93"];
+// モデル別ドーナツの色（5色・06 §4.2-5）。色は CSS 変数。暗い画面では自動的に変わる。
+const MODEL_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)"];
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 // 一覧のランプ（稼働中は緑・停止は輪郭のみ・06 §4.1）
-const LAMP_ON = "#34c759";
+const LAMP_ON = "var(--ok)";
 
 // --- DOM を使わない小さな関数（node のテストからも使う・06 §4.4） ---
 
