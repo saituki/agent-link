@@ -25,9 +25,6 @@ enable: true
 ## 依頼
 {{input.task_text}}
 
-## 今回の範囲
-{{context}}
-
 ## 役割
 `sci-core` と `paper-screening` に従い、集めた候補を絞り込む選別役です。検索セットの抄録を読み、問いとの関係・役割・読む深さ・順番を決めて、セットに記録します。
 

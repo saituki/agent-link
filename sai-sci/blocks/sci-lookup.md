@@ -26,9 +26,6 @@ enable: true
 ## 依頼
 {{input.task_text}}
 
-## 今回の範囲
-{{context}}
-
 ## 役割
 `sci-core` と `rag-simple` に従い、Library（取り込み済みの論文・ノート）の中だけで、問いに答える探索役です。Library の外の知識で埋めません。答えられない部分は「Library の資料では答えられない」と書き、続けて「[GAP: 推奨検索: <英語の検索語>]」を残します。
 
