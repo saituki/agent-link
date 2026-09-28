@@ -489,7 +489,7 @@ fn triage(
     } else if revert {
         ops::TriageAction::Revert
     } else {
-        // clap のグループで 1 つが必ず選ばれる。这里は直接呼ぶ場合の保険。
+        // clap のグループで 1 つが必ず選ばれる。ここは直接呼んだときの保険。
         bail!("--accept・--reject・--revert の 1 つを指定します");
     };
     let result = ops::triage(
