@@ -65,13 +65,7 @@ pub enum PhoneSciCmd {
 
 /// `sai-moon-paper phone sci` を実行する（出力と失敗は [`crate::phone::handle`] が扱う）。
 pub fn run(cmd: PhoneSciCmd) -> Result<Value> {
-    let mut input = String::new();
-    if matches!(cmd, PhoneSciCmd::Apply | PhoneSciCmd::Card) {
-        use std::io::Read as _;
-        std::io::stdin()
-            .read_to_string(&mut input)
-            .context("標準入力を読めませんでした")?;
-    }
+    let input = read_stdin_for(&cmd)?;
     match cmd {
         PhoneSciCmd::Status => status(),
         PhoneSciCmd::Init { type_id } => init(&type_id),
@@ -89,6 +83,32 @@ pub fn run(cmd: PhoneSciCmd) -> Result<Value> {
             finish_read(run_id, no_reflect.as_deref())
         }
     }
+}
+
+/// 標準入力を読むか（`apply`・`card`・採用の `triage` だけ）。
+///
+/// 採用のときだけ「直してから採用」の JSON を読む（C-09）。捨てと巻き戻しは
+/// 標準入力を使わないので、閉じていなくても困らない。
+fn reads_stdin(cmd: &PhoneSciCmd) -> bool {
+    match cmd {
+        PhoneSciCmd::Apply | PhoneSciCmd::Card => true,
+        PhoneSciCmd::Triage { action, .. } => action == "accept",
+        _ => false,
+    }
+}
+
+/// 必要なときだけ標準入力を読む（端末のままだと終わらないので待たない）。
+fn read_stdin_for(cmd: &PhoneSciCmd) -> Result<String> {
+    use std::io::IsTerminal as _;
+    if !reads_stdin(cmd) || std::io::stdin().is_terminal() {
+        return Ok(String::new());
+    }
+    use std::io::Read as _;
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .context("標準入力を読めませんでした")?;
+    Ok(text)
 }
 
 /// `phone sci status`。
@@ -168,14 +188,7 @@ fn proposals() -> Result<Value> {
 fn triage(proposal: &str, action: &str, note: Option<&str>, input: &str) -> Result<Value> {
     let env = open_env()?;
     let id = parse_id(proposal, 'P')?;
-    let action = match action {
-        "accept" => ops::TriageAction::Accept {
-            edit: edit_from_input(input)?,
-        },
-        "reject" => ops::TriageAction::Reject,
-        "revert" => ops::TriageAction::Revert,
-        other => anyhow::bail!("知らない仕分けです: {other}（accept / reject / revert）"),
-    };
+    let action = triage_action(action, input)?;
     let result = ops::triage(
         env.conn(),
         &env.roots,
@@ -187,6 +200,16 @@ fn triage(proposal: &str, action: &str, note: Option<&str>, input: &str) -> Resu
     .map_err(|err| anyhow!("{err}"))?;
     env.export()?;
     Ok(serde_json::to_value(result)?)
+}
+
+/// 仕分けの指定を action にする（採用のときだけ標準入力の「直してから採用」を重ねる）。
+fn triage_action(action: &str, input: &str) -> Result<ops::TriageAction> {
+    match action {
+        "accept" => Ok(ops::TriageAction::Accept { edit: edit_from_input(input)? }),
+        "reject" => Ok(ops::TriageAction::Reject),
+        "revert" => Ok(ops::TriageAction::Revert),
+        other => anyhow::bail!("知らない仕分けです: {other}（accept / reject / revert）"),
+    }
 }
 
 /// 採用のときの中身の上書きを読む（標準入力が空なら無し）。
@@ -384,5 +407,68 @@ mod tests {
         assert!(edit_from_input("  \n").unwrap().is_none());
         let edit = edit_from_input("{\"title\":\"別の題\"}").unwrap().unwrap();
         assert_eq!(edit["title"], "別の題");
+    }
+
+    /// 採用のときだけ標準入力の「直してから採用」の JSON を読む。
+    ///
+    /// 捨てと巻き戻しのときは標準入力が閉じていなくても困るので読まない。
+    #[test]
+    fn reads_stdin_only_where_it_is_needed() {
+        assert!(reads_stdin(&parse_phone_sci(&["apply"])));
+        assert!(reads_stdin(&parse_phone_sci(&["card"])));
+        assert!(reads_stdin(&parse_phone_sci(&["triage", "P1", "--action", "accept"])));
+        // 捨てと巻き戻しは読まない（端末のままだと標準入力が終わらない）。
+        assert!(!reads_stdin(&parse_phone_sci(&["triage", "P1", "--action", "reject"])));
+        assert!(!reads_stdin(&parse_phone_sci(&["triage", "P1", "--action", "revert"])));
+        // 読む必要の無い命令は読まない。
+        assert!(!reads_stdin(&parse_phone_sci(&["status"])));
+        assert!(!reads_stdin(&parse_phone_sci(&["proposals"])));
+        assert!(!reads_stdin(&parse_phone_sci(&["init", "--type", "problem"])));
+        assert!(!reads_stdin(&parse_phone_sci(&["read", "7"])));
+    }
+
+    /// 採用のときだけ標準入力の「直してから採用」が action に入る。
+    #[test]
+    fn triage_action_accept_carries_the_edit_from_stdin() {
+        let action = triage_action(
+            "accept",
+            "{\"op\":\"set_title\",\"node\":\"N12\",\"title\":\"別の題\"}",
+        )
+        .unwrap();
+        let ops::TriageAction::Accept { edit: Some(edit) } = &action else {
+            panic!("採用の action になってほしい: {action:?}");
+        };
+        assert_eq!(edit["op"], "set_title");
+        assert_eq!(edit["title"], "別の題");
+
+        // 標準入力が空なら上書き無し。
+        assert_eq!(triage_action("accept", "").unwrap(), ops::TriageAction::Accept { edit: None });
+
+        // 捨てと巻き戻しは上書きを読まない（accept だけ）。
+        assert_eq!(
+            triage_action("reject", "{\"op\":\"set_title\"}").unwrap(),
+            ops::TriageAction::Reject
+        );
+        assert_eq!(
+            triage_action("revert", "{\"op\":\"set_title\"}").unwrap(),
+            ops::TriageAction::Revert
+        );
+
+        // 知らない仕分けは日本語で断つ。
+        let err = triage_action("取り消し", "").unwrap_err();
+        assert!(format!("{err:#}").contains("知らない仕分けです"), "{err:#}");
+    }
+
+    /// `sai-moon-paper phone sci …` を clap で読む（テスト用の読み込み）。
+    fn parse_phone_sci(args: &[&str]) -> PhoneSciCmd {
+        use clap::Parser as _;
+        let mut all: Vec<String> =
+            ["sai-moon-paper", "phone", "sci"].iter().map(|s| (*s).to_string()).collect();
+        all.extend(args.iter().map(|s| (*s).to_string()));
+        let cli = crate::Cli::try_parse_from(all).unwrap();
+        let Some(crate::Cmd::Phone { cmd: crate::phone::PhoneCmd::Sci { cmd } }) = cli.cmd else {
+            panic!("phone sci として読めた");
+        };
+        cmd
     }
 }

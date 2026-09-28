@@ -471,6 +471,8 @@ pub(crate) fn init_with_assets(
     type_id: &str,
     change_type: bool,
 ) -> Result<InitOutcome> {
+    // 部品を配る前に型を確かめる（知らない型で `.sai/` や `state.pre-sci.md` を残さない）。
+    type_name(&defs::load(root), type_id).context("型を確かめられませんでした")?;
     let assets =
         crate::agent_assets::install_sci_here(root).context("sci の部品を配れませんでした")?;
     let mut outcome = init_tree_and_export(root, type_id, change_type)?;
@@ -1607,5 +1609,23 @@ mod tests {
         assert!(parse_stdin_text("{oops").is_err());
         let ok = parse_stdin_text("{\"op\":\"decide\"}").unwrap();
         assert_eq!(ok["op"], "decide");
+    }
+
+    /// 知らない型で始めても、部品も `state.pre-sci.md` も作らない。
+    ///
+    /// 型を確かめる前に書くと、失敗したのに `.sai/` が残る。
+    #[test]
+    fn init_with_assets_checks_type_before_writing() {
+        let root = std::env::temp_dir()
+            .join(format!("sai-paper-sci-init-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let err = init_with_assets(&root, "todo", false).err().unwrap();
+        assert!(format!("{err:#}").contains("知らない研究の型です"), "{err:#}");
+        // 何も置いていない（型を確かめたところで止まる）。
+        assert!(!root.join(".sai").exists(), "型を確かめる前にファイルを置いた");
+        assert!(!root.join(".mcp.json").exists(), "型を確かめる前にファイルを置いた");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
