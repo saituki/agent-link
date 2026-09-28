@@ -8,25 +8,18 @@
 //! ---
 //! creation_date: 2026/09/05 17:50:22
 //! execution_date: -
-//! origin_run_id: 22
 //! run_id: -
 //! source_doc: waggle:AAA,waggle:BBB
 //! ---
 //!
 //! # task_text
 //! xxx を修正して
-//!
-//! ## Review run_id 22
-//! ### 追加修正
-//! 文章問題が簡単すぎる
-//! ### 追加実装
-//! 数学の問題が必要
 //! ```
 //!
 //! - 入力は本文の `# task_text` セクションただ 1 つ（旧 `inputs:` は廃止）
-//! - `origin_block` / `source_doc` はメタ情報（入力検査の対象外）
+//! - `source_doc` / `scheduled_at` はメタ情報（入力検査の対象外）
 //! - 本文 `# <id>`（レベル1）は `text` 入力。`task_text` だけが実行時の入力になる
-//! - 本文 `## Review run_id <id>` は埋め込みレビュー（入力ではない）
+//! - 旧カードの `origin_run_id` / `origin_block` は読み飛ばす（review の引き継ぎは廃止）
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -38,10 +31,9 @@ pub const TODO_DIR: &str = ".sai/todo";
 ///
 /// これ以外のキーは `extra`（旧 `file_token` 入力の名残）として `id: 値` で保持する。
 /// `description` は Card 表示用（Workflow / Kanban 共通・3行目以降に表示）。
-const FIXED_FM_KEYS: [&str; 14] = [
+const FIXED_FM_KEYS: [&str; 13] = [
     "creation_date",
     "execution_date",
-    "origin_run_id",
     "run_id",
     "description",
     "runner",
@@ -57,10 +49,12 @@ const FIXED_FM_KEYS: [&str; 14] = [
 
 /// メタ情報キー（`block.md` の入力定義とは無関係・入力検査の対象外）。
 ///
-/// - `origin_block`: task.md の元となった過去の run_id 列（カンマ区切り・`Shift+C` 記録）
 /// - `source_doc`: 元実行の出力トークン列（R112 自動充填・`waggle:` トークン）
 /// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
-const META_FM_KEYS: [&str; 3] = ["origin_block", "source_doc", "scheduled_at"];
+const META_FM_KEYS: [&str; 2] = ["source_doc", "scheduled_at"];
+
+/// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
+const LEGACY_FM_KEYS: [&str; 2] = ["origin_run_id", "origin_block"];
 
 /// `scheduled_at:` の値（`YYYY-MM-DD HH:MM`）を読む。読めなければ `None`。
 pub fn parse_scheduled_at(s: &str) -> Option<chrono::NaiveDateTime> {
@@ -74,8 +68,6 @@ pub struct CardFrontmatter {
     pub creation_date: String,
     /// 実行日時（`block run --kanban` 要求時に更新。未実行は `-`）
     pub execution_date: String,
-    /// カード作成時に選んだ review 済み実行 ID（カンマ区切り）
-    pub origin_run_id: String,
     /// 実行時に割り当てられた execution id（未実行は `-`）
     pub run_id: String,
     /// Card 表示用の説明文（Workflow / Kanban 共通・3行目以降に表示）。
@@ -104,7 +96,7 @@ pub struct CardFrontmatter {
     pub tag: String,
     /// 固定キー以外の frontmatter（旧 `file_token` 入力・後方互換用。`id → 値`）
     pub extra: HashMap<String, String>,
-    /// メタ情報（`origin_block` / `source_doc`。入力検査の対象外）
+    /// メタ情報（`source_doc` / `scheduled_at`。入力検査の対象外）
     pub meta: HashMap<String, String>,
 }
 
@@ -118,11 +110,10 @@ pub fn card_creation_date() -> String {
 
 impl CardFrontmatter {
     /// 新規カード用の frontmatter を作る（実行系は `-`・説明は空）。
-    pub fn new_card(creation_date: String, origin_run_id: String) -> Self {
+    pub fn new_card(creation_date: String) -> Self {
         Self {
             creation_date,
             execution_date: "-".to_string(),
-            origin_run_id,
             run_id: "-".to_string(),
             description: String::new(),
             runner: "pi".to_string(),
@@ -143,7 +134,7 @@ impl CardFrontmatter {
         self.runner.trim().eq_ignore_ascii_case("user")
     }
 
-    /// メタ情報を設定する（`origin_block` / `source_doc`）。
+    /// メタ情報を設定する（`source_doc` / `scheduled_at`）。
     pub fn set_meta(&mut self, id: String, value: String) {
         self.meta.insert(id, value);
     }
@@ -225,7 +216,6 @@ pub fn parse_card(text: &str) -> Option<KanbanCard> {
     let frontmatter = CardFrontmatter {
         creation_date: get("creation_date"),
         execution_date: get("execution_date"),
-        origin_run_id: get("origin_run_id"),
         run_id: get("run_id"),
         // 旧カード（`description:` なし）は空扱い（後方互換）
         description: get("description"),
@@ -245,14 +235,18 @@ pub fn parse_card(text: &str) -> Option<KanbanCard> {
         global_round: get("global_round"),
         tag: get("tag"),
         extra: {
-            // メタキー（`origin_block` / `source_doc`）は extra から除外する。
+            // メタキーと廃止したキーは extra から除外する。
             let mut extra = HashMap::new();
             for line in fm_lines.iter() {
                 let Some((k, v)) = line.split_once(':') else {
                     continue;
                 };
                 let k = k.trim();
-                if FIXED_FM_KEYS.contains(&k) || META_FM_KEYS.contains(&k) || k.is_empty() {
+                if FIXED_FM_KEYS.contains(&k)
+                    || META_FM_KEYS.contains(&k)
+                    || LEGACY_FM_KEYS.contains(&k)
+                    || k.is_empty()
+                {
                     continue;
                 }
                 extra.insert(k.to_string(), v.trim().to_string());
@@ -279,17 +273,16 @@ pub fn parse_card(text: &str) -> Option<KanbanCard> {
 
 /// カードを md テキストに描画する。
 ///
-/// 固定キー＋メタ（`origin_block` / `source_doc`）＋
+/// 固定キー＋メタ（`source_doc` / `scheduled_at`）＋
 /// `extra`（旧 `file_token` 入力・キー順ソート）を出力する。
 pub fn render_card(card: &KanbanCard) -> String {
     let mut extra_keys: Vec<&String> = card.frontmatter.extra.keys().collect();
     extra_keys.sort();
     let mut fm = format!(
-        "---\nrunner: {}\ncreation_date: {}\nexecution_date: {}\norigin_run_id: {}\nrun_id: {}\nblock: {}\nthinking: {}\nmodel: {}\nprovider: {}\nround: {}\nglobal_round: {}\ntag: {}\ndescription: {}",
+        "---\nrunner: {}\ncreation_date: {}\nexecution_date: {}\nrun_id: {}\nblock: {}\nthinking: {}\nmodel: {}\nprovider: {}\nround: {}\nglobal_round: {}\ntag: {}\ndescription: {}",
         card.frontmatter.runner,
         card.frontmatter.creation_date,
         card.frontmatter.execution_date,
-        card.frontmatter.origin_run_id,
         card.frontmatter.run_id,
         card.frontmatter.block,
         card.frontmatter.thinking,
@@ -313,128 +306,52 @@ pub fn render_card(card: &KanbanCard) -> String {
     format!("{}\n---\n\n{}\n", fm, card.body.trim_matches('\n'))
 }
 
-/// 本文セクションの種別。
-///
-/// - `# <id>`（レベル1）→ `TextInput`（`type=text` の入力）
-/// - `## Review run_id <id>`（レベル2・新書式）→ `Review`
-/// - `# Review run_id: <id>`（レベル1・旧書式）→ `Review`（互換）
+/// 本文セクション（`# <id>`（レベル1）の `type=text` の入力）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum BodySection {
     /// `type=text` の入力セクション（`id` と本文）
     TextInput { id: String, body: String },
-    /// 埋め込みレビュー（実行時の入力には含めない）
-    Review { run_id: String, body: String },
 }
 
 /// 本文を行単位でセクション分割する（純関数）。
 ///
-/// `#` レベル1 が `TextInput`、レベル2 の `Review run_id` が `Review`。
-/// レベル3以下（`### 追加修正` 等）は直前のセクションの本文に含める。
-/// 旧書式（`# Review run_id: <id>`・レベル1・コロン付き）も `Review` として認識する。
+/// `#` レベル1 が `TextInput`。レベル2以下は直前のセクションの本文に含める。
 /// コードフェンス（``` / ~~~）の中は見出しとして扱わず、本文として追記する。
 /// セクション外の行（先頭のゴミ行等）は無視する。
 pub fn split_body_sections(body: &str) -> Vec<BodySection> {
     let mut out: Vec<BodySection> = Vec::new();
     let mut cur: Option<BodySection> = None;
-    let flush = |cur: &mut Option<BodySection>, out: &mut Vec<BodySection>| {
-        if let Some(s) = cur.take() {
-            out.push(s);
-        }
-    };
     // コードフェンスの中かどうか（``` / ~~~ の行で反転する）
     let mut in_fence = false;
     for line in body.lines() {
         let trimmed = line.trim();
-        // フェンス行そのものは見出し判定せず本文として追記する
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             in_fence = !in_fence;
-            match cur.as_mut() {
-                Some(BodySection::TextInput { body, .. })
-                | Some(BodySection::Review { body, .. }) => {
-                    if !body.is_empty() {
-                        body.push('\n');
-                    }
-                    body.push_str(line);
-                }
-                None => {}
-            }
-            continue;
-        }
-        // フェンス内は見出しとみなさない（level を 0 にして見出し分岐を通さない）
-        let level = if in_fence {
-            0
-        } else {
-            trimmed.chars().take_while(|c| *c == '#').count()
-        };
-        let rest = trimmed.trim_start_matches('#').trim();
-        if level == 1 {
-            // 旧書式 `# Review run_id: <id>` はレビュー扱い
-            if let Some(id) = parse_review_header(rest) {
-                flush(&mut cur, &mut out);
-                cur = Some(BodySection::Review {
-                    run_id: id,
-                    body: String::new(),
-                });
-                continue;
-            }
+        } else if !in_fence && trimmed.chars().take_while(|c| *c == '#').count() == 1 {
+            let rest = trimmed.trim_start_matches('#').trim();
             if is_section_id(rest) {
-                flush(&mut cur, &mut out);
+                out.extend(cur.take());
                 cur = Some(BodySection::TextInput {
                     id: rest.to_string(),
                     body: String::new(),
                 });
                 continue;
             }
-        } else if level == 2 {
-            if let Some(id) = parse_review_header(rest) {
-                flush(&mut cur, &mut out);
-                cur = Some(BodySection::Review {
-                    run_id: id,
-                    body: String::new(),
-                });
-                continue;
-            }
         }
-        // 本文行（レベル3以下・通常行）は直前セクションに追記
-        match cur.as_mut() {
-            Some(BodySection::TextInput { body, .. }) | Some(BodySection::Review { body, .. }) => {
-                if !body.is_empty() {
-                    body.push('\n');
-                }
-                body.push_str(line);
+        // 本文行（フェンス行・レベル2以下・通常行）は直前セクションに追記
+        if let Some(BodySection::TextInput { body, .. }) = cur.as_mut() {
+            if !body.is_empty() {
+                body.push('\n');
             }
-            None => {} // セクション外は無視
+            body.push_str(line);
         }
     }
-    flush(&mut cur, &mut out);
+    out.extend(cur);
     // 末尾空白を整理
-    for s in out.iter_mut() {
-        match s {
-            BodySection::TextInput { body, .. } | BodySection::Review { body, .. } => {
-                *body = body.trim().to_string();
-            }
-        }
+    for BodySection::TextInput { body, .. } in out.iter_mut() {
+        *body = body.trim().to_string();
     }
     out
-}
-
-/// `Review run_id <id>` 見出しから run_id を抜き出す。
-///
-/// 新書式（`Review run_id 22`）と旧書式（`Review run_id: 22`）の両対応。
-fn parse_review_header(rest: &str) -> Option<String> {
-    let lower = rest.to_lowercase();
-    let after = lower.strip_prefix("review run_id")?.trim();
-    let id = after.strip_prefix(':').unwrap_or(after).trim();
-    if id.is_empty() {
-        return None;
-    }
-    // run_id は先頭トークン（`22`・`22 追加` 等の後者は先頭のみ）
-    let first = id.split_whitespace().next().unwrap_or("");
-    if first.is_empty() {
-        None
-    } else {
-        Some(first.to_string())
-    }
 }
 
 /// `# <id>` が text 入力の id として妥当か（`[a-z0-9_]+`）。
@@ -446,19 +363,16 @@ fn is_section_id(s: &str) -> bool {
 
 /// 本文から `type=text` の入力セクション（`id → 本文`）を取り出す。
 ///
-/// 埋め込みレビュー（`## Review run_id`）は含めない。
 pub fn text_inputs(body: &str) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
-    for s in split_body_sections(body) {
-        if let BodySection::TextInput { id, body } = s {
-            // 同じ id が複数回出たら上書きせずつなぐ（切り詰め防止）
-            map.entry(id)
-                .and_modify(|b| {
-                    b.push_str("\n\n");
-                    b.push_str(&body);
-                })
-                .or_insert(body);
-        }
+    for BodySection::TextInput { id, body } in split_body_sections(body) {
+        // 同じ id が複数回出たら上書きせずつなぐ（切り詰め防止）
+        map.entry(id)
+            .and_modify(|b| {
+                b.push_str("\n\n");
+                b.push_str(&body);
+            })
+            .or_insert(body);
     }
     map
 }
@@ -467,7 +381,6 @@ pub fn text_inputs(body: &str) -> HashMap<String, String> {
 ///
 /// 本文の `# task_text` セクションをそのまま使い（重複 id は連結済み）、
 /// `overrides`（`--field task_text=…`）があればそちらを優先する。
-/// 埋め込みレビュー（`## Review run_id`）は入力に含めない。
 pub fn resolve_card_inputs(
     card: &KanbanCard,
     overrides: &HashMap<String, String>,
@@ -641,16 +554,15 @@ pub fn mark_card_executed(card: &mut KanbanCard, execution_date: String, run_id:
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "---\ncreation_date: 2026/08/01 10:00:00\nexecution_date: -\norigin_run_id: 9, 10\nrun_id: -\n---\n\n- xxx の修正を行って\n- zzz の追加機能を実装して．\n";
+    const SAMPLE: &str = "---\ncreation_date: 2026/08/01 10:00:00\nexecution_date: -\nrun_id: -\n---\n\n- xxx の修正を行って\n- zzz の追加機能を実装して．\n";
 
-    const SAMPLE_V2: &str = "---\ncreation_date: 2026/09/05 17:50:22\nexecution_date: -\norigin_run_id: 22\nrun_id: -\nsource_doc: waggle:AAA,waggle:BBB\n---\n\n# task_text\nxxx を修正して\n\n## Review run_id 22\n### 追加修正\n文章問題が簡単すぎる\n### 追加実装\n数学の問題が必要\n";
+    const SAMPLE_V2: &str = "---\ncreation_date: 2026/09/05 17:50:22\nexecution_date: -\nrun_id: -\nsource_doc: waggle:AAA,waggle:BBB\n---\n\n# task_text\nxxx を修正して\n\n# memo\nメモ\n";
 
     #[test]
     fn parse_and_render_roundtrip() {
         let card = parse_card(SAMPLE).expect("パースできる");
         assert_eq!(card.frontmatter.creation_date, "2026/08/01 10:00:00");
         assert_eq!(card.frontmatter.execution_date, "-");
-        assert_eq!(card.frontmatter.origin_run_id, "9, 10");
         assert!(card.frontmatter.is_unexecuted());
         assert!(card.body.contains("xxx の修正"));
         let rendered = render_card(&card);
@@ -735,22 +647,19 @@ mod tests {
             inputs.get("task_text").map(|s| s.as_str()),
             Some("xxx を修正して")
         );
-        // 埋め込みレビューは入力に含めない
-        assert!(!inputs.keys().any(|k| k.to_lowercase().contains("review")));
         let rendered = render_card(&card);
         let reparsed = parse_card(&rendered).expect("再パースできる");
         assert_eq!(card, reparsed);
     }
 
+    /// 旧カードの `origin_run_id` / `origin_block` は読み飛ばし、書き出さない。
     #[test]
-    fn split_body_sections_old_review_format() {
-        // 旧書式 `# Review run_id: 22` もレビューとして認識する
-        let sections = split_body_sections(
-            "# task_text\n本文\n\n# Review run_id: 22\n## 追加修正項目\n直す\n",
-        );
-        assert_eq!(sections.len(), 2);
-        assert!(matches!(&sections[0], BodySection::TextInput { id, .. } if id == "task_text"));
-        assert!(matches!(&sections[1], BodySection::Review { run_id, .. } if run_id == "22"));
+    fn legacy_origin_keys_are_dropped() {
+        let text = "---\ncreation_date: x\nexecution_date: -\norigin_run_id: 9\norigin_block: 9\nrun_id: -\n---\n\n# task_text\nA\n";
+        let card = parse_card(text).unwrap();
+        assert!(card.frontmatter.extra.is_empty());
+        assert!(card.frontmatter.meta.is_empty());
+        assert!(!render_card(&card).contains("origin"));
     }
 
     #[test]
@@ -763,13 +672,6 @@ mod tests {
         assert!(task_text.contains("# task_text"), "フェンス内を保持: {task_text:?}");
         assert!(task_text.contains("## Review run_id 1"), "フェンス内を保持: {task_text:?}");
         assert!(task_text.contains('B'), "B を含む: {task_text:?}");
-        // フェンス内の Review 見出しでセクションが作られない
-        assert!(
-            !split_body_sections(body)
-                .iter()
-                .any(|s| matches!(s, BodySection::Review { .. })),
-            "Review セクションが作られない"
-        );
         assert_eq!(split_body_sections(body).len(), 1);
     }
 
@@ -790,8 +692,6 @@ mod tests {
             inputs.get("task_text").map(|s| s.as_str()),
             Some("xxx を修正して")
         );
-        // 埋め込みレビューは入力に含めない
-        assert!(!inputs.keys().any(|k| k.to_lowercase().contains("review")));
     }
 
     #[test]

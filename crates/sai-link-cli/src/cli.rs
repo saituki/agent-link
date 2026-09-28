@@ -681,18 +681,13 @@ pub enum PhoneCardCmd {
     /// ウィザードの選択肢（done / runner / block / provider / model / thinking）
     Options,
 
-    /// 指定ブロックの file_token 入力欄と候補トークン
+    /// 指定ブロックの入力欄（入力は task_text に統一したため常に空。ブロックの存在確認に使う）
     ///
-    /// U03/U08: `origin_run_id` 指定時は、その実行の文書と、実行中を含むほかの実行の文書を候補に返す（TUI のカード作成 Step4 と同じ）。`ref` のパスの実行番号は、文書を保存した実行の番号になる。
-    /// plan が実装ガイド waggle_token を task.md に貼る hand-off 用。
+    /// 文書の候補は `phone card docs` を使う。
     Inputs {
         /// ブロック ID
         #[arg(long, value_name = "BLOCK_ID")]
         block: String,
-
-        /// 文書候補の参照元実行 ID（origin_run_id・省略時は候補なし）
-        #[arg(long, value_name = "RUN_ID")]
-        origin_run_id: Option<i64>,
     },
 
     /// 最近の文書（running / review / done / Workflow の実行の md 成果物）を新しい順に返す

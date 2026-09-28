@@ -11,10 +11,6 @@ templates:
 context: true
 sci_ops: add_finding, add_question, link
 sci_scope: path
-review_headings:
-  - 反映したこと
-  - 反映しなかったこと（理由）
-  - 次に知りたいこと
 timeout: 5400
 worktree: none
 enable: true

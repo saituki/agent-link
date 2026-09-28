@@ -315,8 +315,6 @@ pub struct ExecutionHistory {
     pub session_dir: Option<String>,
     /// 実行時の pi 起動コマンド全文
     pub pi_command: Option<String>,
-    /// Kanban カード作成時に選んだ review 済み実行 ID（カンマ区切り・kanban 実行時のみ）
-    pub origin_run_id: Option<String>,
     /// 実行に使ったカード md の相対パス（`.sai/todo/xxx.md`）
     pub kanban_card_path: Option<String>,
     /// 実行経路の記録: `interactive` / `kanban`
@@ -383,7 +381,6 @@ impl ExecutionHistory {
             timeout: None,
             session_dir: None,
             pi_command: None,
-            origin_run_id: None,
             kanban_card_path: None,
             execution_mode: None,
             workflow_moved: false,
@@ -537,72 +534,6 @@ impl BlockConnection {
         }
     }
 
-    /// 新しい git_commit 接続を作成する。
-    pub fn new_git_commit(
-        source_execution_id: i64,
-        source_block_id: i64,
-        target_execution_id: i64,
-        target_block_id: i64,
-        commit_hash: String,
-    ) -> Self {
-        Self {
-            id: None,
-            source_execution_id,
-            source_block_id,
-            target_execution_id,
-            target_block_id,
-            connection_type: "git_commit".to_string(),
-            waggle_token: None,
-            commit_hash: Some(commit_hash),
-        }
-    }
-
-    /// 新しい kanban_origin 接続を作成する（カード作成時に選んだ done 実行 → kanban 実行）。
-    ///
-    /// `origin_run_id` の各 ID → 新 run_id へ挿入し、Workflow の線を
-    /// `origin_run_id` 基準にする。
-    /// 新しい review 接続を作成する（`Shift+C` で選んだ Review 元実行 → カード実行予定）。
-    ///
-    /// カード md 作成時点ではカード側に実行 ID が無いため、target には
-    /// ダミーではなくカード側の予約実行（`origin` 解決後に差し替え）を使う。
-    /// 実際はカード実行時に `insert` される想定だが、Log 表示は
-    /// カード frontmatter の `origin_run_id` から直接解決するため、
-    /// この接続レコードは将来の DAG 線用に残す。
-    pub fn new_review(
-        source_execution_id: i64,
-        source_block_id: i64,
-        target_execution_id: i64,
-        target_block_id: i64,
-    ) -> Self {
-        Self {
-            id: None,
-            source_execution_id,
-            source_block_id,
-            target_execution_id,
-            target_block_id,
-            connection_type: "review".to_string(),
-            waggle_token: None,
-            commit_hash: None,
-        }
-    }
-
-    pub fn new_kanban_origin(
-        source_execution_id: i64,
-        source_block_id: i64,
-        target_execution_id: i64,
-        target_block_id: i64,
-    ) -> Self {
-        Self {
-            id: None,
-            source_execution_id,
-            source_block_id,
-            target_execution_id,
-            target_block_id,
-            connection_type: "kanban_origin".to_string(),
-            waggle_token: None,
-            commit_hash: None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

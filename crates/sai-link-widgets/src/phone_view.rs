@@ -7,11 +7,9 @@
 use sai_link_engine::db::SaiStore;
 use std::path::PathBuf;
 
-/// md の種別（`Space t` / `Space r` / `Space m`・`phone md --kind`）。
+/// md の種別（`Space t` / `Space m`・`phone md --kind`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MdKind {
-    /// review.md
-    Review,
     /// task.md
     Task,
     /// message.md（session から再生成）
@@ -22,7 +20,6 @@ impl MdKind {
     /// タイトル表示用のラベル。
     pub fn label(self) -> &'static str {
         match self {
-            MdKind::Review => "review",
             MdKind::Task => "task",
             MdKind::Message => "message",
         }
@@ -31,7 +28,6 @@ impl MdKind {
     /// ファイル名（`phone md` の `name` 用）。
     pub fn file_name(self) -> &'static str {
         match self {
-            MdKind::Review => "review.md",
             MdKind::Task => "task.md",
             MdKind::Message => "message.md",
         }
@@ -59,7 +55,6 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
             Ok(p) => p,
             Err(e) => return MdResolve::Failed(format!("message: 保存に失敗: {}", e)),
         },
-        MdKind::Review => sai_link_engine::orchestrator::review_path(run_id),
         MdKind::Task => match crate::card_entries::card_path_for_execution(None, run_id) {
             Some(p) => p,
             None => match task_path_for_unexecuted(run_id) {
@@ -80,16 +75,6 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
             } else {
                 MdResolve::Missing(format!(
                     "message: message.md がありません ({})",
-                    path.display()
-                ))
-            }
-        }
-        MdKind::Review => {
-            if path.exists() {
-                MdResolve::Found(path)
-            } else {
-                MdResolve::Missing(format!(
-                    "review: review.md がありません ({})",
                     path.display()
                 ))
             }
@@ -175,16 +160,11 @@ pub fn doc_ref_line(c: &WaggleChoiceData) -> String {
     )
 }
 
-/// 文書選択の出力先（全 task 実行経路で共通）。
-///
-/// - `Single`: TUI `w` キー・`phone waggle <id>` 用。指定実行の文書だけ
-/// - `Origin`: task.md 作成時（TUI Step4 / CLI / phone 共通）。origin 実行の文書＋実行中を含む全体
+/// 文書選択の出力先（`w` / `phone waggle`）。
 #[derive(Debug, Clone)]
 pub enum DocSelectScope {
     /// 指定実行の文書だけ（従来の `waggle_choices` と同じ）
     Single(i64),
-    /// origin 実行の文書を先頭に、実行中を含む全体を後ろに並べる
-    Origin(i64),
 }
 
 /// 選択実行の md waggle トークン一覧を返す（`w` / `phone waggle` 用）。
@@ -207,19 +187,6 @@ pub fn waggle_choices(store: &SaiStore, run_id: i64) -> Vec<WaggleChoiceData> {
 pub fn select_docs(store: &SaiStore, scope: &DocSelectScope) -> Vec<WaggleChoiceData> {
     match scope {
         DocSelectScope::Single(run_id) => choices_for_run(store, *run_id),
-        DocSelectScope::Origin(origin_id) => {
-            let mut out = choices_for_run(store, *origin_id);
-            let mut seen: std::collections::HashSet<String> =
-                out.iter().map(|c| c.token.clone()).collect();
-            // 全体（実行中含む）から md のみ追加。origin 重複は除外
-            let all = choices_all_including_running(store);
-            for c in all {
-                if seen.insert(c.token.clone()) {
-                    out.push(c);
-                }
-            }
-            out
-        }
     }
 }
 

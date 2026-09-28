@@ -152,7 +152,7 @@ mod tests {
 
     /// Card（長方形）は Kanban ボードと Workflow DAG のどちらか一方にのみ存在する。
     /// d 前は Kanban ボードのみ、d 後（`workflow_moved=true`）は Workflow DAG のみ。
-    /// ファイル（review / カード）はどちらも残る。
+    /// カードのファイルはどちらでも残る。
     #[test]
     fn card_exists_in_only_one_of_kanban_or_workflow() {
         let _guard = crate::app::file_test_lock();
@@ -168,9 +168,7 @@ mod tests {
             .update_execution_overrides(e1, None, Some(1), Some(1), None, None, None)
             .unwrap();
         store.update_execution_status(e1, "completed").unwrap();
-        // 完了時に review テンプレが作られる想定（空テンプレ = review レーン）
-        let review = sai_link_engine::orchestrator::review_path(e1);
-        sai_link_engine::orchestrator::write_review_template(e1, "b", &[]).unwrap();
+        // 完了して利用者の確認待ち（review_done=false）= review レーン
 
         let mut app = AppState::new(Arc::clone(&store));
         app.load_data();
@@ -183,9 +181,7 @@ mod tests {
             .any(|c| c.exec_id == Some(e1) && c.lane == KanbanLane::Review));
 
         // d：`workflow_moved=true` で Workflow へ移動（Kanban から消える）。
-        // review ファイルは残る。
         store.update_execution_workflow_moved(e1, true).unwrap();
-        assert!(review.exists(), "review ファイルは残る");
         app.load_data();
         let entries = collect_card_entries(&app);
         assert!(

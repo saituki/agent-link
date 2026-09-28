@@ -6,7 +6,7 @@
 // Project 上部の Dashboard | List の切り替えもこのファイルが持つ
 // （Dashboard 側の帯の描き方も fillLinkSeg としてここに置く・計画 14 §1.1）。
 // ツリーは sai-link TUI の左サイドバーと同じ並び（`GET …/tree` のそのまま・計画 14 §1.2）。
-// run の中身は 7 つの表示（Log / Stats / History / task / review / message / waggle）で、
+// run の中身は 6 つの表示（Log / Stats / History / task / message / waggle）で、
 // 最後に見ていた表示をプロジェクトをまたいで覚える（別の run に切り替えても同じ表示・§1.3）。
 // データはすべて /api/projects/<name>/… 経由で，sai-phone 自身は DB を開かない（00 §2）。
 // グラフ（Stats の推移・History の円）は SVG を手描きで作る（外部ライブラリは入れない・00 §2）。
@@ -24,7 +24,6 @@ const LV_VIEWS = [
   ["stats", "Stats"],
   ["history", "History"],
   ["task", "task"],
-  ["review", "review"],
   ["message", "message"],
   ["waggle", "waggle"],
   ["session", "session"],
@@ -56,7 +55,7 @@ const LV_CHARTS = [
 // レーン名 → 用語の key（見出しの横に置く用語の札用）
 const LV_TERMS = { todo: "todo", running: "running", review: "review", done: "done" };
 // 表示名 → 用語の key（多すぎないように見出しの所だけ置く）
-const LV_VIEW_TERMS = { log: "run", task: "card", review: "review", waggle: "waggle", message: "run" };
+const LV_VIEW_TERMS = { log: "run", task: "card", waggle: "waggle", message: "run" };
 
 // --- 小さな助け舟 ---
 
@@ -189,7 +188,7 @@ function toggleFold(open, id) {
 
 // --- 表示の決め方（DOM を使わない・tests/test_linkview.js） ---
 
-/** 7 つの表示の帯。todo run は task だけ選べる（計画 14 §1.3）。 */
+/** 6 つの表示の帯。todo run は task だけ選べる（計画 14 §1.3）。 */
 function viewTabs(todo) {
   return LV_VIEWS.map(([key, label]) => ({
     key,
@@ -357,12 +356,10 @@ function logSections(d) {
     if (rows.length > 0) out.push({ title: "統計", rows });
   }
 
-  // 4. つながり（どの run から / どの run へ・review 由来）
+  // 4. つながり（どの run から / どの run へ・親子と waggle の受け渡し）
   const links = [];
   for (const v of data.connections_from || []) links.push(["から", text(v)]);
   for (const v of data.connections_to || []) links.push(["へ", text(v)]);
-  for (const v of data.review_from || []) links.push(["review から", text(v)]);
-  for (const v of data.review_to || []) links.push(["review へ", text(v)]);
   if (links.length > 0) out.push({ title: "つながり", rows: links });
 
   // 5. 出力トークン（成果物）
@@ -470,8 +467,8 @@ let lvSeq = 0;             // 画面が入れ替わった合図（古い応答�
 let lvWaggleList = null;   // 成果物の一覧（同じ run の間だけ使い回す）
 let lvWaggleToken = null;  // 開いている成果物（null＝一覧）
 let lvChartMode = "turn";  // Stats のグラフの種類
-let lvMdText = "";         // 表示中の md（task / review / message）の本文
-let lvEditing = false;     // task / review を書き換えているか
+let lvMdText = "";         // 表示中の md（task / message）の本文
+let lvEditing = false;     // task を書き換えているか
 let lvDraft = "";          // 書きかけの本文
 let lvSaving = false;      // 保存中
 
@@ -834,11 +831,6 @@ async function lvLoadContent(seq) {
     if (seq !== lvSeq) return;
     window.SaiShell.fail();
     const msg = (e && e.message) || "読み込めませんでした";
-    // review がまだ無いときは「書く」を出す（保存すると Mac の r と同じ置き場に作られる）
-    if (lvView === "review" && msg === "まだありません" && lvCanEdit(lvView, lvRun)) {
-      lvRenderMd({ text: "" });
-      return;
-    }
     lvSetMsg(msg, true); // 「まだありません」（404）もここに 1 行で出る
     body.innerHTML = "";
     body.appendChild(el("p", "st-note", msg));
@@ -1223,21 +1215,16 @@ function lvClock(iso) {
   });
 }
 
-// review がまだ無いときに書き始める形（Mac の TUI の r が作るひな形と同じ見出し）
-const LV_REVIEW_TEMPLATE = "### 追加修正\n\n\n### 追加実装\n\n";
-
 /**
  * その表示を書き換えられるか（DOM を使わない・tests/test_linkview.js）。
- * task は未実行の todo だけ，review は実行済み（todo 以外）の run だけ。message は不可。
+ * task は未実行の todo だけ。message は不可。
  */
 function lvCanEdit(view, run) {
-  if (view === "task") return isTodoRun(run);
-  if (view === "review") return !!run && !isTodoRun(run);
-  return false;
+  return view === "task" && isTodoRun(run);
 }
 
-// 4〜6. task / review / message: md の整形表示（13 §5 の renderMarkdown をそのまま）
-// task（未実行の todo）と review は「編集」でその場で書き換えて保存できる。
+// 4〜5. task / message: md の整形表示（13 §5 の renderMarkdown をそのまま）
+// task（未実行の todo）は「編集」でその場で書き換えて保存できる。
 function lvRenderMd(data) {
   lvMdText = (data && data.text) || "";
   lvDrawMd();
@@ -1274,7 +1261,7 @@ function lvDrawMd() {
     const edit = el("button", "paper-btn", lvMdText ? "編集" : "書く");
     edit.addEventListener("click", () => {
       lvEditing = true;
-      lvDraft = lvMdText || (lvView === "review" ? LV_REVIEW_TEMPLATE : "");
+      lvDraft = lvMdText || "";
       lvDrawMd();
     });
     row.appendChild(edit);

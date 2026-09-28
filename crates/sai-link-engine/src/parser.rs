@@ -550,7 +550,6 @@ mod tests {
             tag: None,
             round: None,
             templates: Some(vec!["tmp1".to_string(), "tmp2".to_string()]),
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -596,7 +595,6 @@ mod tests {
             tag: None,
             round: None,
             templates: Some(vec!["guide".to_string()]),
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -625,7 +623,6 @@ mod tests {
             tag: None,
             round: None,
             templates: Some(vec!["not_exist".to_string()]),
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -659,7 +656,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -699,7 +695,6 @@ mod tests {
             tag: None,
             round: None,
             templates: Some(vec!["tmp1".to_string()]),
-            review_headings: None,
             context: None,
             id: None,
         };

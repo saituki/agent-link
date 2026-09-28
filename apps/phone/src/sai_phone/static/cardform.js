@@ -2,11 +2,11 @@
 //
 // List 画面右上の ＋ で下から出る。TUI のウィザード（sai-link-tui の card_wizard.rs）と
 // 同じ順に 1 画面ずつ進み、スキップ・戻る・番号の飛び方も同じ規則にする:
-//   1 引き継ぐ review → 2 runner → 3 ブロック → 4 入力ファイル（4.1, 4.2 …）
-//   → 5 provider（pi のみ）→ 6 モデル → 7 thinking → 8 ラウンド
-//   → 9 task_text（🎤 音声入力）→ 10 確認 → 作成
-//   user / gl は 3 から 8 へ、cc は 6（入力が無ければ）、入力が無ければ 5 へ飛ぶ。
-// 選択肢は `GET …/card/options`、手順 4 は `GET …/card/inputs?block=<id>`、
+//   1 runner → 2 ブロック → 3 入力ファイル（3.1, 3.2 …）
+//   → 4 provider（pi のみ）→ 5 モデル → 6 thinking → 7 ラウンド
+//   → 8 task_text（🎤 音声入力・最近の文書を貼れる）→ 9 確認 → 作成
+//   user / gl は 2 から 7 へ、cc は 5（入力が無ければ）、入力が無ければ 4 へ飛ぶ。
+// 選択肢は `GET …/card/options`、手順 3 は `GET …/card/inputs?block=<id>`、
 // 作成は `POST …/card`（値の検査はサーバー側でも行う・計画 15 §3.3）。
 // 書きかけはプロジェクトごとに localStorage へ残し、作成に成功したら消す。
 // 進み方（DOM を使わない関数）は末尾で node に渡す（tests/test_cardform.js）。
@@ -14,23 +14,21 @@
 
 // --- 定数 ---
 
-// 手順の地図（番号は 10 固定。スキップや自動で飛んだ画面は番号が飛ぶ・計画 15 §1.5）
+// 手順の地図（番号は 9 固定。スキップや自動で飛んだ画面は番号が飛ぶ・計画 15 §1.5）
 const CF_STEPS = [
-  { id: "done", no: 1, title: "引き継ぐ review" },
-  { id: "runner", no: 2, title: "runner" },
-  { id: "block", no: 3, title: "ブロック" },
-  { id: "inputs", no: 4, title: "入力ファイル" },
-  { id: "provider", no: 5, title: "provider" },
-  { id: "model", no: 6, title: "モデル" },
-  { id: "thinking", no: 7, title: "thinking" },
-  { id: "rounds", no: 8, title: "ラウンド" },
-  { id: "task_text", no: 9, title: "task_text" },
-  { id: "confirm", no: 10, title: "確認" },
+  { id: "runner", no: 1, title: "runner" },
+  { id: "block", no: 2, title: "ブロック" },
+  { id: "inputs", no: 3, title: "入力ファイル" },
+  { id: "provider", no: 4, title: "provider" },
+  { id: "model", no: 5, title: "モデル" },
+  { id: "thinking", no: 6, title: "thinking" },
+  { id: "rounds", no: 7, title: "ラウンド" },
+  { id: "task_text", no: 8, title: "task_text" },
+  { id: "confirm", no: 9, title: "確認" },
 ];
-// 10 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
+// 9 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
 // 画面の流れ・スキップ・戻る・保存の動きは変えない（見出しの下に文言を足すだけ）。
 const CF_STEP_HINTS = {
-  done: "前に出した仕事（確認済みのもの）を、このカードに引き継ぎたいときに選びます。",
   runner: "このカードをどの AI に渡すかです。cc や pi など、名前で選びます。",
   block: "どんな順番で、どのファイルを見て、どう直せばよいかを書いた指示書です。",
   inputs: "指示書の中で波括弧で囲んだ場所に渡す文書（waggle トークン）を選びます。",
@@ -43,7 +41,7 @@ const CF_STEP_HINTS = {
 };
 // 書きかけの置き場（プロジェクトごとに分ける・計画 15 §1.5）
 const CF_DRAFT_KEY = "sai_phone_card_draft";
-// user / gl は手順 4〜7 が対象外（TUI の advance_from_block と同じ）
+// user / gl は手順 3〜6 が対象外（TUI の advance_from_block と同じ）
 const CF_NO_INPUT_RUNNERS = ["user", "gl"];
 
 // --- 進み方（DOM を使わない・tests/test_cardform.js） ---
@@ -51,9 +49,8 @@ const CF_NO_INPUT_RUNNERS = ["user", "gl"];
 /** 新しい書きかけ（すべてスキップした状態から始める）。 */
 function cfNewDraft() {
   return {
-    step: "done",
+    step: "runner",
     inputIdx: 0,
-    doneIds: [],        // 引き継ぐ run_id（複数可）
     runner: "",         // "" = スキップ（TUI と同じく pi 扱い）
     block: "",
     inputs: {},         // 入力 id → [waggle トークン（接頭辞なし）]
@@ -76,15 +73,15 @@ function cfStepHint(id) {
 }
 
 /**
- * 今いる手順の番号と題名（表示は TUI と同じ「Step n/10」・入力は 4.1, 4.2 …）。
- * 番号は 10 固定で、スキップした分は飛ぶ（user / gl なら 3 → 8）。
+ * 今いる手順の番号と題名（表示は「Step n/9」・入力は 3.1, 3.2 …）。
+ * 番号は 9 固定で、スキップした分は飛ぶ（user / gl なら 2 → 7）。
  */
 function cfStepInfo(state) {
   const entry = cfStepEntry(state.step);
   const label =
     entry.id === "inputs"
-      ? `Step 4.${Number(state.inputIdx || 0) + 1}/10`
-      : `Step ${entry.no}/10`;
+      ? `Step 3.${Number(state.inputIdx || 0) + 1}/9`
+      : `Step ${entry.no}/9`;
   return { id: entry.id, no: entry.no, title: entry.title, label };
 }
 
@@ -97,7 +94,7 @@ function cfTokenCount(field) {
   return n;
 }
 
-/** user / gl か、ブロック未選択か、定義が無いか → 手順 4 は無い（TUI と同じ分岐）。 */
+/** user / gl か、ブロック未選択か、定義が無いか → 手順 3 は無い（TUI と同じ分岐）。 */
 function cfHasInputStep(state, fields) {
   if (CF_NO_INPUT_RUNNERS.indexOf(String(state.runner || "")) >= 0) return false;
   if (!state.block) return false;
@@ -122,7 +119,7 @@ function cfAfterBlock(state, fields) {
   return cfHasInputStep(state, fields) ? "inputs" : "provider";
 }
 
-/** 手順 4 を通ったあとの行き先（runner 別・TUI の after_inputs と同じ）。 */
+/** 手順 3 を通ったあとの行き先（runner 別・TUI の after_inputs と同じ）。 */
 function cfAfterInputs(state) {
   const runner = String(state.runner || "");
   if (runner === "user" || runner === "gl") return "rounds";
@@ -147,9 +144,6 @@ function cfNext(state, fields) {
   const blocked = cfRequiredError(state, fields);
   if (blocked) return blocked;
   switch (state.step) {
-    case "done":
-      state.step = "runner";
-      return null;
     case "runner":
       state.step = "block";
       return null;
@@ -227,7 +221,7 @@ function cfSkip(state, fields) {
       state.step = "rounds";
       return null;
     case "rounds":
-      // TUI はここで作成するが、本フォームは 9 task_text → 10 確認 があるので次へ進む
+      // TUI はここで作成するが、本フォームは 8 task_text → 9 確認 があるので次へ進む
       state.step = "task_text";
       return null;
     case "task_text":
@@ -239,14 +233,11 @@ function cfSkip(state, fields) {
   }
 }
 
-/** 1 つ前へ戻る。引き継ぎ画面なら "close"（フォームを閉じる合図）。 */
+/** 1 つ前へ戻る。最初の画面（runner）なら "close"（フォームを閉じる合図）。 */
 function cfBack(state) {
   switch (state.step) {
-    case "done":
-      return "close";
     case "runner":
-      state.step = "done";
-      return null;
+      return "close";
     case "block":
       state.step = "runner";
       return null;
@@ -285,7 +276,7 @@ function cfBack(state) {
 }
 
 /**
- * トークンの選択を 1 つ切り替える（手順 4）。
+ * トークンの選択を 1 つ切り替える（手順 3）。
  * 戻り値は理由（変えられなければその文言、変えられたら null）。
  */
 function cfToggleToken(state, fields, fieldId, token) {
@@ -337,7 +328,6 @@ function cfBuildPayload(state) {
   }
   const rounds = state.rounds || {};
   return {
-    done_ids: (state.doneIds || []).map(Number).filter((n) => Number.isFinite(n)),
     runner: state.runner || "",
     block: state.block || "",
     inputs,
@@ -369,7 +359,6 @@ function cfLoadDraft(name) {
     return Object.assign(cfNewDraft(), obj, {
       rounds: Object.assign(cfNewDraft().rounds, obj.rounds || {}),
       inputs: obj.inputs && typeof obj.inputs === "object" ? obj.inputs : {},
-      doneIds: Array.isArray(obj.doneIds) ? obj.doneIds : [],
     });
   } catch {
     return null;
@@ -425,7 +414,7 @@ async function cfFetchJson(path) {
   return body;
 }
 
-/** 手順 4 の定取り（ブロックが決まったときだけ呼ぶ・失敗したら手順 4 は無し）。 */
+/** 手順 3 の定取り（ブロックが決まったときだけ呼ぶ・失敗したら手順 3 は無し）。 */
 async function cfLoadFields(block) {
   const data = await cfFetchJson(
     `/api/projects/${encodeURIComponent(cfName)}/card/inputs?block=${encodeURIComponent(block)}`
@@ -441,7 +430,7 @@ async function cfOpen(opts) {
   const ref = String((opts && opts.ref) || "");
   const parsed = typeof parseListHash === "function" ? parseListHash(location.hash) : null;
   if (parsed && parsed.name && parsed.name !== cfName) {
-    // プロジェクトが変われば選択肢と手順 4 の材料は取り直す（別プロジェクトの選択肢を出さないため）
+    // プロジェクトが変われば選択肢と手順 3 の材料は取り直す（別プロジェクトの選択肢を出さないため）
     cfName = parsed.name;
     cfOptions = null;
     cfFields = [];
@@ -480,7 +469,7 @@ async function cfOpen(opts) {
     cfSaveDraft(cfName, cfState);
   }
 
-  // 続きから开くときも手順 4 の材料は取りに行く（取れなければその画面で止まる）
+  // 続きから開くときも手順 3 の材料は取りに行く（取れなければその画面で止まる）
   if (cfState.block && cfState.step) {
     try {
       cfFields = await cfLoadFields(cfState.block);
@@ -551,38 +540,6 @@ function cfRenderBody() {
   const hint = cfStepHint(info.id);
   if (hint) body.appendChild(cfNote(hint));
 
-  if (info.id === "done") {
-    const done = (cfOptions && cfOptions.done) || [];
-    if (done.length === 0) {
-      body.appendChild(cfNote("引き継げる実行（done）がありません"));
-    } else {
-      const box = document.createElement("div");
-      box.className = "cf-choices";
-      for (const row of done) {
-        const on = (state.doneIds || []).includes(Number(row.run_id));
-        const b = document.createElement("button");
-        b.className = "cf-choice" + (on ? " active" : "");
-        b.textContent = `${row.label || `ID${row.run_id}`}${row.description ? ` — ${row.description}` : ""}`;
-        b.addEventListener("click", () => {
-          const id = Number(row.run_id);
-          const ids = (state.doneIds || []).slice();
-          const at = ids.indexOf(id);
-          if (at >= 0) ids.splice(at, 1);
-          else ids.push(id);
-          state.doneIds = ids;
-          cfSaveDraft(cfName, state);
-          cfRenderBody();
-        });
-        box.appendChild(b);
-      }
-      body.appendChild(box);
-      body.appendChild(
-        cfNote("選んだ実行の review.md が本文に付きます（複数可・選ばなくても先へ進めます）")
-      );
-    }
-    return;
-  }
-
   if (info.id === "runner") {
     const runners = (cfOptions && cfOptions.runners) || [];
     body.appendChild(
@@ -613,7 +570,7 @@ function cfRenderBody() {
         }
       )
     );
-    body.appendChild(cfNote("選ぶと次に手順 4（そのブロックの入力）が出ます"));
+    body.appendChild(cfNote("選ぶと次に手順 3（そのブロックの入力）が出ます"));
     return;
   }
 
@@ -769,10 +726,9 @@ function cfRenderBody() {
     return;
   }
 
-  // 10 確認: 選んだ内容の一覧と「作成」
+  // 9 確認: 選んだ内容の一覧と「作成」
   const payload = cfBuildPayload(state);
   const rows = [
-    ["引き継ぐ review", (payload.done_ids || []).map((id) => `ID${id}`).join(", ")],
     ["runner", payload.runner || "（スキップ）"],
     ["ブロック", payload.block || "（スキップ）"],
     ...Object.keys(payload.inputs).map((k) => [k, payload.inputs[k]]),
@@ -858,7 +814,7 @@ function cfRender() {
   if (back) {
     back.hidden = false; // 読み込み失敗（cfRenderFatal）から戻すため必ず出す
     back.disabled = cfBusy;
-    back.textContent = info.id === "done" ? "閉じる" : "‹ 戻る";
+    back.textContent = info.id === "runner" ? "閉じる" : "‹ 戻る";
   }
   const skip = document.getElementById("cf-skip");
   if (skip) {
@@ -875,7 +831,7 @@ function cfRender() {
   if (restart) restart.hidden = false;
 }
 
-/** 次へ（手順 3 のときは先に手順 4 の定義を取りに行く）。 */
+/** 次へ（手順 2 のときは先に手順 3 の定義を取りに行く）。 */
 async function cfGoNext() {
   if (!cfState || cfBusy) return;
   if (cfState.step === "confirm") {
@@ -886,7 +842,7 @@ async function cfGoNext() {
     try {
       cfFields = await cfLoadFields(cfState.block);
     } catch (e) {
-      // 取れないと手順 4（必須入力）を書けないので，その場で理由を出して止まる
+      // 取れないと手順 3（必須入力）を書けないので，その場で理由を出して止まる
       cfSetError((e && e.message) || "入力の候補を読み込めませんでした");
       return;
     }
@@ -917,7 +873,7 @@ function cfGoBack() {
   cfRender();
 }
 
-/** 10 確認 → 作成（成功したら書きかけを消し，ツリーの todo で task 表示）。 */
+/** 9 確認 → 作成（成功したら書きかけを消し，ツリーの todo で task 表示）。 */
 async function cfCreate() {
   if (!cfState || cfBusy) return;
   cfBusy = true;

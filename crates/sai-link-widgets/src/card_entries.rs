@@ -436,39 +436,8 @@ pub fn collect_card_entries_from(
 }
 
 // ============================================================================
-// ウィザード Done 選択肢・CLI 用の事前準備
+// CLI 用の事前準備
 // ============================================================================
-
-/// ウィザード Step1 の Done 選択肢 1 件（TUI / CLI 共通）。
-#[derive(Debug, Clone)]
-pub struct DoneOption {
-    /// done 実行の ID
-    pub run_id: i64,
-    /// 表示ラベル（`ID<run_id>/<block名>`）
-    pub label: String,
-    /// 対応カードの description（無ければ空）
-    pub description: String,
-}
-
-/// `lane == Done` のエントリからウィザード用の Done 選択肢を作る。
-///
-/// TUI の `open_card_wizard` と同じ: Done レーンのみ・exec_id ありのみ・
-/// run_id 昇順に並べ替える。
-pub fn done_options(entries: &[CardEntry]) -> Vec<DoneOption> {
-    let mut ids: Vec<DoneOption> = entries
-        .iter()
-        .filter(|c| c.lane == KanbanLane::Done)
-        .filter_map(|c| {
-            c.exec_id.map(|run_id| DoneOption {
-                run_id,
-                label: c.title.clone(),
-                description: c.description.clone(),
-            })
-        })
-        .collect();
-    ids.sort_unstable_by_key(|d| d.run_id);
-    ids
-}
 
 /// `phone tree` / `phone card options` 用の事前準備（TUI `load_data` の部品と同一）。
 ///

@@ -9,10 +9,6 @@ templates:
   - research-core
   - literature-hard-rules
   - domain
-review_headings:
-  - 納得した点
-  - 疑問に思った点
-  - 次に知りたいこと
 subblocks:
   - paper-debater
   - paper-reviewer

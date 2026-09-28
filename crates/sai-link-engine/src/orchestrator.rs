@@ -132,7 +132,6 @@ impl Default for PipelineConfig {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -1426,7 +1425,7 @@ pub fn prepare_execution_record_full(
                 OrchestratorError::PiCommandError(format!("ステータス更新に失敗: {}", e))
             })?;
             // kanban 実行は呼び出し元が `update_execution_kanban_info` で上書きする
-            let _ = store.update_execution_kanban_info(rid, None, None, "interactive");
+            let _ = store.update_execution_kanban_info(rid, None, "interactive");
             return Ok(PreparedExecutionInfo {
                 run_id: rid,
                 block_id,
@@ -1476,7 +1475,7 @@ pub fn prepare_execution_record_full(
 
     // 通常実行は `execution_mode='interactive'` を記録する（kanban 実行は
     // CLI 側が `update_execution_kanban_info` で `kanban` を上書きする）。
-    let _ = store.update_execution_kanban_info(run_id, None, None, "interactive");
+    let _ = store.update_execution_kanban_info(run_id, None, "interactive");
 
     Ok(PreparedExecutionInfo { run_id, block_id })
 }
@@ -1784,14 +1783,13 @@ pub fn execute_block_pipeline(
 /// run フォルダに task.md が無ければ、カードと同じ形（`kanban::render_card`）で書く。
 ///
 /// カード経由の実行は task.md を既に持つので何もしない。子タスクの `description` は
-/// `task_create` の値（1 行目だけ・frontmatter は 1 行のため）、`origin_run_id` は親の run_id。
+/// `task_create` の値（1 行目だけ・frontmatter は 1 行のため）。親子の関係は DB の `parent_run_id` が持つ。
 /// 書けなくても実行は止めない。
 fn write_run_task_md(
     store: &crate::db::SaiStore,
     run_id: i64,
     resolved: &ResolvedExecutionSettings,
     user_inputs: &HashMap<String, String>,
-    parent_run_id: Option<i64>,
     task_id: Option<i64>,
 ) {
     let dir = match crate::run_dir::find_run_dir(run_id) {
@@ -1805,8 +1803,7 @@ fn write_run_task_md(
     if path.exists() {
         return;
     }
-    let origin = parent_run_id.map_or("-".to_string(), |p| p.to_string());
-    let mut fm = crate::kanban::CardFrontmatter::new_card(crate::kanban::card_creation_date(), origin);
+    let mut fm = crate::kanban::CardFrontmatter::new_card(crate::kanban::card_creation_date());
     fm.execution_date = fm.creation_date.clone();
     fm.run_id = run_id.to_string();
     fm.runner = resolved.runner.as_str().to_string();
@@ -1908,8 +1905,7 @@ pub fn execute_block_pipeline_full(
     // kanban 実行時は実行開始直後に run フォルダを todo→running へ移動し（R403）、
     // DB の `kanban_card_path` を保存する。旧カード（`run_id: -`）は従来の書戻しを維持。
     if let Some(card_rel) = card_path_from_request.as_deref() {
-        let origin_csv = user_inputs.get("origin_run_id").map(|s| s.as_str());
-        let _ = store.update_execution_kanban_info(run_id, origin_csv, Some(card_rel), "kanban");
+        let _ = store.update_execution_kanban_info(run_id, Some(card_rel), "kanban");
         // 予約 run 方式：task.md は既に outputs/todo/<run_id>/ にあるため移動のみ
         if reserved_run_id.is_some() {
             let from = crate::run_dir::TODO_OWNER;
@@ -1926,7 +1922,7 @@ pub fn execute_block_pipeline_full(
 
     // カードを使わない実行（task_create の子・直接実行）にも、カードと同じ形の task.md を
     // run フォルダに置く。task.md の置き場と形を全経路で 1 つにし、Web / TUI の task 表示を共通にする。
-    write_run_task_md(store, run_id, &resolved, &user_inputs, parent_run_id, task_id);
+    write_run_task_md(store, run_id, &resolved, &user_inputs, task_id);
 
     // 3. worktree 適用（指定時。cwd を作業用コピー内の対応フォルダへ変更）。
     //    作業用コピーを作れない場合（git リポジトリでない等）は指定 cwd で
@@ -2030,35 +2026,9 @@ pub fn execute_block_pipeline_full(
                 pr.git_commit_after.as_deref(),
             );
             insert_block_connections(store, run_id, block_id, &pr.input_waggle_tokens);
-            // R51/R31: kanban 実行時は `origin_run_id` 基準で `kanban_origin` 接続を挿入し、
-            // kanban 情報を DB に保存する（R30: 作成日時と来歴識別子を既存DBに保存）。
-            // `origin_run_id` は実行要求の user_inputs に載って user_inputs_json に残る。
-            // R121: カードパスは実パスを保存する（要求の `card_path` を使用）。
-            if let Ok(exec) = store.get_execution_by_id(run_id) {
-                if let Some(ref json) = exec.user_inputs_json {
-                    if let Ok(map) =
-                        serde_json::from_str::<std::collections::HashMap<String, String>>(json)
-                    {
-                        if let Some(origin_csv) = map.get("origin_run_id") {
-                            let ids = parse_origin_run_ids(origin_csv);
-                            insert_kanban_origin_connections(store, run_id, block_id, &ids);
-                            let _ = store.update_execution_kanban_info(
-                                run_id,
-                                Some(origin_csv),
-                                card_path_from_request.as_deref(),
-                                "kanban",
-                            );
-                        } else if let Some(card_rel) = card_path_from_request.as_deref() {
-                            // origin 無しでもカード由来ならカードパスを残す
-                            let _ = store.update_execution_kanban_info(
-                                run_id,
-                                None,
-                                Some(card_rel),
-                                "kanban",
-                            );
-                        }
-                    }
-                }
+            // kanban 実行ならカードパスを残す（R121: 要求の `card_path` の実パス）
+            if let Some(card_rel) = card_path_from_request.as_deref() {
+                let _ = store.update_execution_kanban_info(run_id, Some(card_rel), "kanban");
             }
             // R121 二段階更新: `run_id` 確定後にカードへ書き戻す（旧カードのみ）。
             // 予約 run 方式では run_id 確定済みのため書戻し不要。
@@ -2109,15 +2079,6 @@ pub fn execute_block_pipeline_full(
                 resolved.config.timeout.map(|v| v as i32),
             );
             let _ = store.update_execution_provider(run_id, resolved.config.provider.as_deref());
-            // 既存 reflection の新規作成は停止し、新 review テンプレートのみ生成する。
-            // 読み取り・削除時の掃除（reflection 判定・削除）は残す。
-            if let Err(e) = write_review_template(
-                run_id,
-                &resolved.config.name,
-                &resolved.config.review_headings_or_default(),
-            ) {
-                eprintln!("[sai-engine] Review 記録ファイルの生成に失敗: {}", e);
-            }
             // L1: 完了時に実行 usage（provider の実際の token / cost）を自動保存する。
             // ベストエフォート（セッションが無い・保存に失敗しても完了は止めない）。
             if let Err(e) = crate::usage::record_execution_usage(store, run_id) {
@@ -2235,11 +2196,7 @@ pub fn remove_run_dir_files(run_id: i64) -> std::io::Result<()> {
     if legacy.exists() {
         std::fs::remove_file(legacy)?;
     }
-    // 旧 review/message も残っていれば消す（移行漏れ掃除）
-    let old_review = crate::project::sai_path(REVIEW_DIR).join(format!("{}.md", run_id));
-    if old_review.exists() {
-        let _ = std::fs::remove_file(old_review);
-    }
+    // 旧 message も残っていれば消す（移行漏れ掃除）
     let old_message = crate::project::sai_path(MESSAGE_DIR).join(format!("{}.md", run_id));
     if old_message.exists() {
         let _ = std::fs::remove_file(old_message);
@@ -2266,35 +2223,6 @@ pub fn remove_reflection_file(run_id: i64) -> std::io::Result<()> {
 // ============================================================================
 // Review 記録ファイル（新形式・`.sai/review/<run_id>.md`）
 // ============================================================================
-
-/// Review 記録ファイルを置くディレクトリ（旧パス・移行期フォールバック用）。
-///
-/// outputs 統一後の正本は `outputs/<owner>/<run_id>/review.md`。
-/// 旧 `.sai/review/` は読み取り互換のみ。新規ファイルはここに作らない。
-pub const REVIEW_DIR: &str = ".sai/review";
-
-/// 指定実行 ID に対応する Review 記録ファイルの絶対パスを返す。
-///
-/// run フォルダ内の `review.md` を優先し、無ければ旧パスを返す（移行期互換）。
-pub fn review_path(run_id: i64) -> PathBuf {
-    if let Some(p) = run_review_path(run_id) {
-        // run フォルダがあっても review.md 未作成の場合はその予定地を返す
-        return p;
-    }
-    let legacy = crate::project::sai_path(REVIEW_DIR).join(format!("{}.md", run_id));
-    if legacy.exists() {
-        return legacy;
-    }
-    // 新規作成予定地：既存 owner があればそこ、無ければ review owner
-    crate::run_dir::ensure_run_dir(crate::run_dir::REVIEW_OWNER, run_id)
-        .map(|d| d.join(crate::run_dir::REVIEW_FILE))
-        .unwrap_or(legacy)
-}
-
-/// run フォルダ内の `review.md` パスを返す（run フォルダが無ければ `None`）。
-pub fn run_review_path(run_id: i64) -> Option<PathBuf> {
-    crate::run_dir::find_run_dir(run_id).map(|(_, dir)| dir.join(crate::run_dir::REVIEW_FILE))
-}
 
 // ============================================================================
 // message 記録ファイル（`.sai/message/<run_id>.md`）
@@ -2423,71 +2351,6 @@ pub fn write_message_file(store: &crate::db::SaiStore, run_id: i64) -> std::io::
     Ok(path)
 }
 
-/// review.md のひな形本文を組み立てる。
-///
-/// 書式は frontmatter（`block` / `date` / `run_id`）＋ `### <見出し>` の並び。
-/// 各見出しの後ろに空行 2 つ、最後の見出しの後ろは空行 1 つを置く。
-/// `headings` が空の場合は既定（追加修正 / 追加実装）を使う。
-///
-/// 例（`block_name = "plan"`, `run_id = 1`, `headings = ["納得した点", "疑問に思った点", "次に知りたいこと"]`）:
-/// ```text
-/// ---
-/// block: plan
-/// date: 2026-09-25 10:00:00
-/// run_id: 1
-/// ---
-///
-/// ### 納得した点
-///
-///
-/// ### 疑問に思った点
-///
-///
-/// ### 次に知りたいこと
-///
-/// ```
-pub fn review_template_text(block_name: &str, run_id: i64, headings: &[String]) -> String {
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let headings: Vec<String> = if headings.is_empty() {
-        crate::block_config::default_review_headings()
-    } else {
-        headings.to_vec()
-    };
-    let sections = headings
-        .iter()
-        .map(|h| format!("### {}", h))
-        .collect::<Vec<_>>()
-        .join("\n\n\n");
-    format!(
-        "---\nblock: {}\ndate: {}\nrun_id: {}\n---\n\n{}\n\n",
-        block_name, now, run_id, sections
-    )
-}
-
-/// ブロック実行完了後に Review 記録ファイルを空テンプレートで生成する。
-///
-/// 見出しはブロック定義の `review_headings` から受け取る（無ければ既定の
-/// `追加修正` / `追加実装`）。書式は [`review_template_text`] に集約している。
-/// フロントマターは現状踏襲（`block` / `date` / `run_id`）。
-///
-/// **冪等**: 既存ファイルが存在する場合は上書きせずそのまま返す。
-pub fn write_review_template(
-    run_id: i64,
-    block_name: &str,
-    headings: &[String],
-) -> std::io::Result<PathBuf> {
-    let path = review_path(run_id);
-    if path.exists() {
-        return Ok(path);
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let body = review_template_text(block_name, run_id, headings);
-    std::fs::write(&path, body)?;
-    Ok(path)
-}
-
 /// kanban カードへ `run_id` を書き戻す（R121 二段階更新の二段階目）。
 ///
 /// プロジェクト相対パス（`.sai/todo/xxx.md`）を絶対化し、再パースして
@@ -2524,53 +2387,6 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
             e
         );
     }
-}
-
-/// kanban 実行時に `origin_run_id` の各 ID → 新 run_id へ
-/// `kanban_origin` 接続を挿入する（Workflow の線を `origin_run_id` 基準にする）。
-///
-/// 既存の接続は重複挿入されない（`connection_exists` で冪等）。
-pub fn insert_kanban_origin_connections(
-    store: &crate::db::SaiStore,
-    target_execution_id: i64,
-    target_block_id: i64,
-    origin_run_ids: &[i64],
-) {
-    for &source_exec_id in origin_run_ids {
-        let Ok(source_exec) = store.get_execution_by_id(source_exec_id) else {
-            continue;
-        };
-        let source_block_id = source_exec.block_id;
-        let Ok(exists) =
-            store.connection_exists(source_exec_id, target_execution_id, "kanban_origin")
-        else {
-            continue;
-        };
-        if exists {
-            continue;
-        }
-        let conn = crate::db::BlockConnection::new_kanban_origin(
-            source_exec_id,
-            source_block_id,
-            target_execution_id,
-            target_block_id,
-        );
-        if let Err(e) = store.insert_connection(&conn) {
-            eprintln!(
-                "[sai-engine] kanban_origin 接続の挿入に失敗 ({} → {}): {}",
-                source_exec_id, target_execution_id, e
-            );
-        }
-    }
-}
-
-/// `origin_run_id` のカンマ区切り文字列を ID 配列に変換する。
-///
-/// 空文字・空白・数値でない要素は無視する。
-pub fn parse_origin_run_ids(s: &str) -> Vec<i64> {
-    s.split(',')
-        .filter_map(|t| t.trim().parse::<i64>().ok())
-        .collect()
 }
 
 // ============================================================================
@@ -4075,7 +3891,6 @@ fn wait_for_status_with_cancellation(
 mod tests {
     use super::*;
     use crate::block_config::BlockConfig;
-    use crate::block_config::default_review_headings;
     use std::collections::HashMap;
 
     // ---- StallDetector（U3: 停止検知） ----
@@ -4326,7 +4141,6 @@ mod tests {
                 tag: None,
                 round: None,
                 templates: None,
-                review_headings: None,
                 context: None,
                 id: None,
             },
@@ -4845,7 +4659,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         }
@@ -5059,7 +4872,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -5088,7 +4900,6 @@ mod tests {
             tag: Some("brst".to_string()),
             round: Some(2),
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -5149,7 +4960,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -5197,7 +5007,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -5253,7 +5062,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -5360,7 +5168,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         };
@@ -5687,60 +5494,6 @@ mod tests {
         assert!(
             !should_finalize_run_batch(Some(42)),
             "サブブロックは run_batches を触らない"
-        );
-    }
-
-    // ---- review のひな形（M05: 見出しをブロックごとに選ぶ） ----
-
-    /// 既定の見出しで作ったひな形の書式が、従来の書式と一致すること。
-    /// （`date:` 行のみ実行時刻で変わるため、それ以降を比較する）
-    #[test]
-    fn review_template_text_default_matches_current_format() {
-        let text = review_template_text("plan-ice", 10, &default_review_headings());
-        let mut lines = text.lines();
-        assert_eq!(lines.next(), Some("---"));
-        assert_eq!(lines.next(), Some("block: plan-ice"));
-        assert!(
-            lines.next().unwrap_or_default().starts_with("date: "),
-            "date 行が必要"
-        );
-        assert_eq!(lines.next(), Some("run_id: 10"));
-        let (_, rest) = text
-            .split_once("\nrun_id: 10\n")
-            .expect("run_id 行が見つかる");
-        assert_eq!(rest, "---\n\n### 追加修正\n\n\n### 追加実装\n\n");
-    }
-
-    /// 研究向けの 3 見出しで見本どおりのひな形になること。
-    #[test]
-    fn review_template_text_research_headings() {
-        let headings = vec![
-            "納得した点".to_string(),
-            "疑問に思った点".to_string(),
-            "次に知りたいこと".to_string(),
-        ];
-        let text = review_template_text("🔍 論文検索", 5, &headings);
-        let (header, rest) = text
-            .split_once("\n---\n\n")
-            .expect("frontmatter が見つかる");
-        assert!(
-            header.starts_with("---\nblock: 🔍 論文検索\ndate: "),
-            "header: {header}"
-        );
-        assert!(header.ends_with("\nrun_id: 5"), "header: {header}");
-        assert_eq!(
-            rest,
-            "### 納得した点\n\n\n### 疑問に思った点\n\n\n### 次に知りたいこと\n\n"
-        );
-    }
-
-    /// 見出しが空なら既定の 2 見出しに戻す。
-    #[test]
-    fn review_template_text_empty_headings_use_default() {
-        let text = review_template_text("b", 1, &[]);
-        assert!(
-            text.ends_with("### 追加修正\n\n\n### 追加実装\n\n"),
-            "{text}"
         );
     }
 

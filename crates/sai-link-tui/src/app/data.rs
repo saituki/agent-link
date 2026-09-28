@@ -292,7 +292,7 @@ impl AppState {
     /// md を表示する。
     /// md-tui: 指定 md ファイルを読み込みレンダリングしてメイン画面に表示する。
     ///
-    /// `Space r/t/m` から呼ばれる共通本体（押下時点の選択実行で固定）。
+    /// `Space t/m` から呼ばれる共通本体（押下時点の選択実行で固定）。
     /// message のみ session から再生成（毎回上書き）し、review/task は既存ファイルを
     /// そのまま読む（無ければエラーメッセージ）。
     pub(crate) fn load_md_view(&mut self, exec_id: i64, kind: crate::ui::MdKind) {
@@ -538,7 +538,7 @@ impl AppState {
                 self.main_panel.project_dash = None;
             }
             ViewMode::Md => {
-                // md-tui（`Space r/t/m` で固定済みの md_view を表示するのみ）
+                // md-tui（`Space t/m` で固定済みの md_view を表示するのみ）
                 self.main_panel.project_dash = None;
             }
             ViewMode::Model => {

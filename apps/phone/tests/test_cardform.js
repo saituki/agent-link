@@ -80,7 +80,7 @@ const EMPTY_REQUIRED = {
   runs: [],
 };
 
-/** done → runner → block まで進んだ状態を作る。 */
+/** runner → block まで進んだ状態を作る。 */
 function atBlock(runner) {
   const s = cf.cfNewDraft();
   s.runner = runner;
@@ -92,27 +92,27 @@ function atBlock(runner) {
 function testStepLabel() {
   assert.deepStrictEqual(
     cf.cfStepInfo(cf.cfNewDraft()),
-    { id: "done", no: 1, title: "引き継ぐ review", label: "Step 1/10" }
+    { id: "runner", no: 1, title: "runner", label: "Step 1/9" }
   );
-  // 手順 4 は 4.1, 4.2 と続く（番号は 8 ではなく 4 のまま）
+  // 手順 3 は 3.1, 3.2 と続く（番号は 3 のまま）
   const s = atBlock("pi");
   cf.cfNext(s, [REQUIRED_FIELD]);
   assert.strictEqual(s.step, "inputs");
-  assert.strictEqual(cf.cfStepInfo(s).label, "Step 4.1/10");
+  assert.strictEqual(cf.cfStepInfo(s).label, "Step 3.1/9");
   // 必須の入力を選ばないと 4.2 へ進めない（先に選ぶ）
   assert.strictEqual(cf.cfToggleToken(s, [REQUIRED_FIELD], "plan_doc", "aaa"), null);
   cf.cfNext(s, [REQUIRED_FIELD, OPT_FIELD]);
-  assert.strictEqual(cf.cfStepInfo(s).label, "Step 4.2/10");
-  assert.strictEqual(cf.cfStepInfo({ step: "confirm" }).label, "Step 10/10");
+  assert.strictEqual(cf.cfStepInfo(s).label, "Step 3.2/9");
+  assert.strictEqual(cf.cfStepInfo({ step: "confirm" }).label, "Step 9/9");
 }
 
 function testRunnerSkips() {
-  // user / gl は 3（ブロック）から 8（ラウンド）へ飛ぶ（4〜7 は対象外）
+  // user / gl は 2（ブロック）から 7（ラウンド）へ飛ぶ（3〜6 は対象外）
   for (const runner of ["user", "gl"]) {
     const s = atBlock(runner);
     assert.strictEqual(cf.cfNext(s, [REQUIRED_FIELD]), null, runner);
     assert.strictEqual(s.step, "rounds", `${runner} が ${s.step} になった`);
-    assert.strictEqual(cf.cfStepInfo(s).label, "Step 8/10");
+    assert.strictEqual(cf.cfStepInfo(s).label, "Step 7/9");
     // 一度も選ばない → provider / model も空のまま
     assert.strictEqual(s.provider, "");
     assert.strictEqual(s.model, "");
@@ -128,7 +128,7 @@ function testRunnerSkips() {
   cc.inputs.plan_doc = ["aaa"];
   assert.strictEqual(cf.cfNext(cc, [REQUIRED_FIELD]), null);
   assert.strictEqual(cc.step, "model");
-  assert.strictEqual(cf.cfStepInfo(cc).label, "Step 6/10");
+  assert.strictEqual(cf.cfStepInfo(cc).label, "Step 5/9");
 
   // cc で入力が無ければ 4 を飛ばして 6 へ
   const ccNoInput = atBlock("cc");
@@ -165,14 +165,10 @@ function testRunnerSkips() {
 }
 
 function testBack() {
-  // 引き継ぎ画面の戻る = 閉じる（"close" が返る）
+  // 最初の画面（runner）の戻る = 閉じる（"close" が返る）
   assert.strictEqual(cf.cfBack(cf.cfNewDraft()), "close");
 
-  // runner → done、ブロック → runner
-  const r = cf.cfNewDraft();
-  r.step = "runner";
-  assert.strictEqual(cf.cfBack(r), null);
-  assert.strictEqual(r.step, "done");
+  // ブロック → runner
   const b = cf.cfNewDraft();
   b.step = "block";
   assert.strictEqual(cf.cfBack(b), null);
@@ -275,7 +271,6 @@ function testToggle() {
 
 function testPayload() {
   const s = cf.cfNewDraft();
-  s.doneIds = [26, 27];
   s.runner = "cc";
   s.block = "sub";
   s.inputs = { plan_doc: ["aaa"], refs: [] }; // 空の入力は送らない
@@ -286,10 +281,9 @@ function testPayload() {
   const payload = cf.cfBuildPayload(s);
   // 項目名は計画 12 §3.2 の card create の形のまま
   assert.deepStrictEqual(Object.keys(payload), [
-    "done_ids", "runner", "block", "inputs", "provider", "model",
+    "runner", "block", "inputs", "provider", "model",
     "thinking", "global_round", "round", "tag", "task_text",
   ]);
-  assert.deepStrictEqual(payload.done_ids, [26, 27]);
   // トークンは waggle: 形式のカンマ区切り
   assert.strictEqual(payload.inputs.plan_doc, "waggle:aaa");
   assert.deepStrictEqual(payload.inputs, { plan_doc: "waggle:aaa" });
@@ -300,7 +294,6 @@ function testPayload() {
 
   // 初期状態（全部スキップ）でも形が壊れない
   const empty = cf.cfBuildPayload(cf.cfNewDraft());
-  assert.deepStrictEqual(empty.done_ids, []);
   assert.deepStrictEqual(empty.inputs, {});
   assert.strictEqual(empty.task_text, "");
 

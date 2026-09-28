@@ -557,9 +557,9 @@ mod tests {
     }
 
     /// 研究用のブロックは、状況まとめと共通の決まりを先頭で受け取り、
-    /// 研究向けの review 見出しを持つ。
+    /// review の見出し（廃止した review.md 用）を持たない。
     #[test]
-    fn research_blocks_declare_brief_and_review_headings() {
+    fn research_blocks_declare_brief_without_review_headings() {
         for (name, content) in BLOCKS {
             if DEBATE_PARTICIPANTS.contains(name) {
                 continue;
@@ -568,12 +568,7 @@ mod tests {
                 content.contains("templates:\n  - project-brief\n  - research-core\n"),
                 "{name} の templates の先頭が project-brief, research-core ではない"
             );
-            assert!(
-                content.contains(
-                    "review_headings:\n  - 納得した点\n  - 疑問に思った点\n  - 次に知りたいこと\n"
-                ),
-                "{name} に研究向けの review_headings が無い"
-            );
+            assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
             let frontmatter = content
                 .strip_prefix("---\n")
                 .and_then(|rest| rest.split("\n---\n").next())
@@ -770,12 +765,7 @@ mod tests {
             assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
-            assert!(
-                content.contains(
-                    "review_headings:\n  - 反映したこと\n  - 反映しなかったこと（理由）\n  - 次に知りたいこと\n"
-                ),
-                "{name} に研究向けの review_headings が無い"
-            );
+            assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
             assert!(frontmatter.contains("\nsci_ops: "), "{name} に sci_ops が無い");
             assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");

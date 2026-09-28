@@ -29,8 +29,6 @@ pub enum EdgeKind {
     TaskOutput,
     /// waggle_token（文書の受け渡し）
     WaggleToken,
-    /// git_commit 参照
-    GitCommit,
 }
 
 /// エッジデータ。スタイルとラベルを保持する。

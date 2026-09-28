@@ -105,7 +105,6 @@ impl<'de> Deserialize<'de> for ToolsConfig {
 /// - **エージェント設定**: name, description, model, provider, thinking,
 ///   tools, extensions, skills, timeout, worktree, enable
 /// - **テンプレート**: templates（`.sai/template/*.md` の挿入リスト）
-/// - **review**: review_headings（review.md のひな形の見出しリスト）
 /// - **範囲（context）**: context（起動の直前に範囲を作るかどうか）
 ///
 /// ブロックへの入力は `task_text` の 1 つに統一されており（`{{input.task_text}}`）、
@@ -201,14 +200,6 @@ pub struct BlockConfig {
     #[serde(default, deserialize_with = "deserialize_option_template_list")]
     pub templates: Option<Vec<String>>,
 
-    /// review.md のひな形の見出し（`### <見出し>`）のリスト。
-    ///
-    /// 未指定または空の場合は既定（`追加修正` / `追加実装`）を使う。
-    /// 研究用のブロックでは「納得した点 / 疑問に思った点 / 次に知りたいこと」
-    /// のような見出しを指定できる。
-    #[serde(default)]
-    pub review_headings: Option<Vec<String>>,
-
     /// 起動の直前に、`.sai/settings.json` の `context` の命令で範囲を作り、
     /// 本文の `{{context}}` に入れるか。
     ///
@@ -218,11 +209,6 @@ pub struct BlockConfig {
     /// 失敗しても実行は止めず、理由の 1 行を本文に入れる。
     #[serde(default)]
     pub context: Option<bool>,
-}
-
-/// review.md のひな形に使う既定の見出し（開発用）。
-pub fn default_review_headings() -> Vec<String> {
-    vec!["追加修正".to_string(), "追加実装".to_string()]
 }
 
 impl BlockConfig {
@@ -244,16 +230,7 @@ impl BlockConfig {
         self.name.as_str()
     }
 
-    /// review.md のひな形に使う見出しを返す。
-    ///
-    /// `review_headings` が未指定または空なら既定
-    /// （`追加修正` / `追加実装`）を返す。
-    pub fn review_headings_or_default(&self) -> Vec<String> {
-        match &self.review_headings {
-            Some(v) if !v.is_empty() => v.clone(),
-            _ => default_review_headings(),
-        }
-    }
+
 }
 
 /// Option<Vec<String>>（テンプレート名リスト）のカスタムデシリアライザ。
@@ -373,42 +350,11 @@ mod tests {
     use super::*;
     use crate::parser::parse_block_string;
 
-    /// `review_headings` 未指定なら既定の 2 見出しになる。
+    /// 旧定義に `review_headings` が残っていても読める（使わない）。
     #[test]
-    fn review_headings_absent_gives_default() {
-        let content = "---\nname: test\ndescription: desc\nmodel: m\n---\n# Body";
-        let parsed = parse_block_string(content).unwrap();
-        assert_eq!(parsed.config.review_headings, None);
-        assert_eq!(
-            parsed.config.review_headings_or_default(),
-            vec!["追加修正".to_string(), "追加実装".to_string()]
-        );
-    }
-
-    /// `review_headings` を YAML の配列で書いた場合、そのまま使われる。
-    #[test]
-    fn review_headings_yaml_list_is_parsed() {
-        let content = "---\nname: test\ndescription: desc\nmodel: m\nreview_headings:\n  - 納得した点\n  - 疑問に思った点\n  - 次に知りたいこと\n---\n# Body";
-        let parsed = parse_block_string(content).unwrap();
-        let expected = vec![
-            "納得した点".to_string(),
-            "疑問に思った点".to_string(),
-            "次に知りたいこと".to_string(),
-        ];
-        assert_eq!(parsed.config.review_headings, Some(expected.clone()));
-        assert_eq!(parsed.config.review_headings_or_default(), expected);
-    }
-
-    /// `review_headings` が空配列なら既定に戻す。
-    #[test]
-    fn review_headings_empty_list_gives_default() {
-        let content =
-            "---\nname: test\ndescription: desc\nmodel: m\nreview_headings: []\n---\n# Body";
-        let parsed = parse_block_string(content).unwrap();
-        assert_eq!(
-            parsed.config.review_headings_or_default(),
-            default_review_headings()
-        );
+    fn legacy_review_headings_is_ignored() {
+        let content = "---\nname: test\ndescription: desc\nmodel: m\nreview_headings:\n  - 納得した点\n---\n# Body";
+        assert!(parse_block_string(content).is_ok());
     }
 
     /// `context: true` が書かれれば `Some(true)`、無ければ `None` になる。

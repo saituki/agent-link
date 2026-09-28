@@ -53,10 +53,6 @@ pub struct BlockDetail {
     pub timeout: Option<i32>,
     pub connections_from: Vec<String>,
     pub connections_to: Vec<String>,
-    /// Review 由来の接続行（`review: R<gr>.<lr>/ID<id>`）。from/to とは別枠で表示する。
-    pub review_from: Vec<String>,
-    /// Review 由来の接続行（`review: R<gr>.<lr>/ID<id>`）。
-    pub review_to: Vec<String>,
     /// この実行が出力した waggle トークン一覧（sai-write 使用時）
     pub output_waggle_tokens: Vec<String>,
     /// セッション統計情報
@@ -168,7 +164,7 @@ struct InputRef<'a> {
 impl serde::Serialize for BlockDetail {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let len = 26;
+        let len = 24;
         let mut st = serializer.serialize_struct("BlockDetail", len)?;
         st.serialize_field("exec_id", &self.exec_id)?;
         st.serialize_field("block_name", &self.block_name)?;
@@ -183,8 +179,6 @@ impl serde::Serialize for BlockDetail {
         st.serialize_field("timeout", &self.timeout)?;
         st.serialize_field("connections_from", &self.connections_from)?;
         st.serialize_field("connections_to", &self.connections_to)?;
-        st.serialize_field("review_from", &self.review_from)?;
-        st.serialize_field("review_to", &self.review_to)?;
         st.serialize_field("output_waggle_tokens", &self.output_waggle_tokens)?;
         st.serialize_field("session_stats", &self.session_stats)?;
         st.serialize_field("git_commit_before", &self.git_commit_before)?;
@@ -382,7 +376,8 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Bloc
 
     // 接続 1 件分の表示行を整形する。
     // waggle_token 接続はトークンを先頭に付与し、
-    // task_delegation / task_output / git_commit は型ラベルを付ける。
+    // task_delegation / task_output（親子）は型ラベルを付ける。
+    // 線は親子と waggle の受け渡しだけ（review / kanban_origin / git_commit は出さない）。
     let format_conn_line = |c: &sai_link_engine::db::models::BlockConnection,
                             other_bid: i64,
                             other_eid: i64|
@@ -395,105 +390,27 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Bloc
             },
             "task_delegation" => format!("[task] {}", ref_str),
             "task_output" => format!("[out] {}", ref_str),
-            "git_commit" => format!("[commit] {}", ref_str),
-            "kanban_origin" => format!("review: {}", ref_str),
-            "review" => format!("review: {}", ref_str),
             _ => ref_str,
         }
     };
 
-    let is_review_conn = |c: &&sai_link_engine::db::models::BlockConnection| {
-        c.connection_type == "kanban_origin" || c.connection_type == "review"
+    let is_shown = |c: &&sai_link_engine::db::models::BlockConnection| {
+        matches!(
+            c.connection_type.as_str(),
+            "waggle_token" | "task_delegation" | "task_output"
+        )
     };
     let from: Vec<String> = all_connections
         .iter()
-        .filter(|c| c.target_execution_id == exec_id && !is_review_conn(&c))
+        .filter(|c| c.target_execution_id == exec_id && is_shown(c))
         .map(|c| format_conn_line(c, c.source_block_id, c.source_execution_id))
         .collect();
 
     let to: Vec<String> = all_connections
         .iter()
-        .filter(|c| c.source_execution_id == exec_id && !is_review_conn(&c))
+        .filter(|c| c.source_execution_id == exec_id && is_shown(c))
         .map(|c| format_conn_line(c, c.target_block_id, c.target_execution_id))
         .collect();
-
-    // Review 由来の接続行。DB の kanban_origin/review 接続に加え、
-    // この実行に紐づくカードの `origin_block` frontmatter からも解決する
-    // （カード作成時点ではカード側実行が無いため DB 接続が無い場合の補完）。
-    let mut review_from: Vec<String> = all_connections
-        .iter()
-        .filter(|c| c.target_execution_id == exec_id && is_review_conn(&c))
-        .map(|c| format_conn_line(c, c.source_block_id, c.source_execution_id))
-        .collect();
-    let mut review_to: Vec<String> = all_connections
-        .iter()
-        .filter(|c| c.source_execution_id == exec_id && is_review_conn(&c))
-        .map(|c| format_conn_line(c, c.target_block_id, c.target_execution_id))
-        .collect();
-    {
-        use std::collections::HashSet;
-        let mut seen: HashSet<String> = review_from
-            .iter()
-            .chain(review_to.iter())
-            .cloned()
-            .collect();
-        // この実行のカード（kanban_card_path / origin_run_id 経由）を走査する
-        let mut card_paths: Vec<String> = Vec::new();
-        if let Some(ref e) = exec {
-            if let Some(ref p) = e.kanban_card_path {
-                card_paths.push(p.clone());
-            }
-            if let Some(ref origin) = e.origin_run_id {
-                for id in sai_link_engine::orchestrator::parse_origin_run_ids(origin) {
-                    if let Ok(oe) = store.get_execution_by_id(id) {
-                        if let Some(ref p) = oe.kanban_card_path {
-                            card_paths.push(p.clone());
-                        }
-                    }
-                }
-            }
-        }
-        for rel in card_paths {
-            let abs = sai_link_engine::project::sai_path(&rel);
-            let text = std::fs::read_to_string(&abs).unwrap_or_default();
-            if let Some(card) = sai_link_engine::kanban::parse_card(&text) {
-                if let Some(v) = card.frontmatter.file_token("origin_block") {
-                    for entry in v.split(',') {
-                        let entry = entry.trim();
-                        // 新書式: run_id（execution id）のカンマ区切り（`origin_block: 16,17`）。
-                        // 旧書式 `origin_block:<block_id>` も互換対応（block id → 代表実行を解決）。
-                        let resolved = if let Some(num) = entry.strip_prefix("origin_block:") {
-                            let Ok(bid) = num.trim().parse::<i64>() else {
-                                continue;
-                            };
-                            store.list_recent_executions(200).ok().and_then(|list| {
-                                list.iter().find(|e| e.block_id == bid).and_then(|e| e.id)
-                            })
-                        } else {
-                            let Ok(rid) = entry.parse::<i64>() else {
-                                continue;
-                            };
-                            store
-                                .get_execution_by_id(rid)
-                                .ok()
-                                .and_then(|e| e.id)
-                        };
-                        let Some(teid) = resolved else {
-                            continue;
-                        };
-                        let Ok(re) = store.get_execution_by_id(teid) else {
-                            continue;
-                        };
-                        // origin_block の元実行 → review 行として表示する
-                        let line = format!("review: {}", format_block_ref(re.block_id, teid));
-                        if seen.insert(line.clone()) {
-                            review_from.push(line);
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     let tag = exec
         .as_ref()
@@ -597,8 +514,6 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Bloc
         timeout: timeout_override,
         connections_from: from,
         connections_to: to,
-        review_from,
-        review_to,
         output_waggle_tokens: output_tokens,
         input_fields,
         usage_lines: cost_lines,
@@ -835,7 +750,7 @@ fn render_meta_section(
 
 /// [Connection] セクションの内容を描画し、`y` を進める（スクロール対応）。
 ///
-/// 4区分（from/waggle・from/review・to/waggle・to/review）に振り分けて表示する。
+/// 2区分（from/waggle・to/waggle）で表示する。
 /// 項目ラベル幅を揃える。空の区分は `(none)` を出す。
 fn render_connection_section(
     d: &BlockDetail,
@@ -848,61 +763,12 @@ fn render_connection_section(
     let white = Color::White;
     let muted = theme.muted;
 
-    // 接続行を (kind, content) に分解する。`waggle: ...` 以外の旧形式は
-    // waggle 扱い（後方互換）。`review: ...` は review 扱い。
-    fn split_kind(line: &str) -> (&'static str, &str) {
-        if let Some(rest) = line.strip_prefix("review:") {
-            ("review", rest.trim_start())
-        } else if line.strip_prefix("waggle:").is_some() {
-            ("waggle", line)
-        } else if line.starts_with("[task]")
-            || line.starts_with("[out]")
-            || line.starts_with("[commit]")
-        {
-            ("waggle", line)
-        } else {
-            ("waggle", line)
-        }
-    }
-
-    // from/to × waggle/review の4区分に振り分ける
-    let mut from_waggle: Vec<&str> = Vec::new();
-    let mut from_review: Vec<&str> = Vec::new();
-    let mut to_waggle: Vec<&str> = Vec::new();
-    let mut to_review: Vec<&str> = Vec::new();
-    for c in d.connections_from.iter() {
-        let (kind, content) = split_kind(c);
-        if kind == "review" {
-            from_review.push(content);
-        } else {
-            from_waggle.push(content);
-        }
-    }
-    for c in d.review_from.iter() {
-        let (_, content) = split_kind(c);
-        from_review.push(content);
-    }
-    for c in d.connections_to.iter() {
-        let (kind, content) = split_kind(c);
-        if kind == "review" {
-            to_review.push(content);
-        } else {
-            to_waggle.push(content);
-        }
-    }
-    for c in d.review_to.iter() {
-        let (_, content) = split_kind(c);
-        to_review.push(content);
-    }
-
     // 項目ラベル幅（`from/waggle` に合わせる）
     const PAD: usize = 11;
     let row = |label: &str, value: &str| format!(" {:<PAD$}: {}", label, value);
-    let groups: [(&str, Vec<&str>); 4] = [
-        ("from/waggle", from_waggle),
-        ("from/review", from_review),
-        ("to/waggle", to_waggle),
-        ("to/review", to_review),
+    let groups: [(&str, Vec<&str>); 2] = [
+        ("from/waggle", d.connections_from.iter().map(String::as_str).collect()),
+        ("to/waggle", d.connections_to.iter().map(String::as_str).collect()),
     ];
     // user-block: 説明・入力ファイルを先頭に表示
     if d.is_user_block {
@@ -1252,82 +1118,13 @@ fn connection_content_height(d: &BlockDetail, width: usize) -> usize {
             h += wrapped_line_count(&format!(" {:<PAD$}: {}", "file", file), width);
         }
     }
-    // 4区分の件数（描画と同じ振り分け）
-    let count = |lines: &[String]| {
-        lines
-            .iter()
-            .filter(|c| c.strip_prefix("review:").is_none())
-            .count()
-    };
-    let review_count = |lines: &[String]| {
-        lines
-            .iter()
-            .filter(|c| c.strip_prefix("review:").is_some())
-            .count()
-    };
-    let fw = count(&d.connections_from);
-    let fr = review_count(&d.connections_from) + d.review_from.len();
-    let tw = count(&d.connections_to);
-    let tr = review_count(&d.connections_to) + d.review_to.len();
-    for n in [fw, fr, tw, tr] {
-        if n == 0 {
-            h += 1;
-        } else {
-            // 行数は振り分け後の各行で計算（概算: 区分ごとに集計）
-            h += n;
-        }
-    }
-    // 折り返しを考慮するため各行で再計算する
-    let _ = row;
-    h = 0;
-    if d.is_user_block {
-        if let Some(ref desc) = d.user_block_description {
-            h += wrapped_line_count(&format!(" {:<PAD$}: {}", "desc", desc), width);
-        }
-        if let Some(ref file) = d.user_block_file {
-            h += wrapped_line_count(&format!(" {:<PAD$}: {}", "file", file), width);
-        }
-    }
-    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
-    let mut fw2: Vec<&str> = Vec::new();
-    let mut fr2: Vec<&str> = Vec::new();
-    let mut tw2: Vec<&str> = Vec::new();
-    let mut tr2: Vec<&str> = Vec::new();
-    for c in d.connections_from.iter() {
-        if c.strip_prefix("review:").is_some() {
-            fr2.push(c.as_str());
-        } else {
-            fw2.push(c.as_str());
-        }
-    }
-    for c in d.review_from.iter() {
-        fr2.push(c.as_str());
-    }
-    for c in d.connections_to.iter() {
-        if c.strip_prefix("review:").is_some() {
-            tr2.push(c.as_str());
-        } else {
-            tw2.push(c.as_str());
-        }
-    }
-    for c in d.review_to.iter() {
-        tr2.push(c.as_str());
-    }
-    groups.push(("from/waggle", fw2));
-    groups.push(("from/review", fr2));
-    groups.push(("to/waggle", tw2));
-    groups.push(("to/review", tr2));
+    let groups = [("from/waggle", &d.connections_from), ("to/waggle", &d.connections_to)];
     for (label, items) in groups {
         if items.is_empty() {
             h += wrapped_line_count(&row(label, "(none)"), width);
         } else {
             for item in items {
-                // review 行は `review: ` プレフィクスを外した内容で測る
-                let content = item
-                    .strip_prefix("review:")
-                    .map(|r| r.trim_start())
-                    .unwrap_or(item);
-                h += wrapped_line_count(&row(label, content), width);
+                h += wrapped_line_count(&row(label, item), width);
             }
         }
     }
@@ -1355,21 +1152,21 @@ fn output_content_height(d: &BlockDetail, width: usize) -> usize {
             h += wrapped_line_count(&format!("   {}", token), width);
         }
     }
-    // Connection from（+ review 行）
+    // Connection from
     h += 1;
-    if d.connections_from.is_empty() && d.review_from.is_empty() {
+    if d.connections_from.is_empty() {
         h += 1;
     } else {
-        for conn in d.connections_from.iter().chain(d.review_from.iter()) {
+        for conn in d.connections_from.iter() {
             h += wrapped_line_count(&format!("   {}", conn), width);
         }
     }
-    // Connection to（+ review 行）
+    // Connection to
     h += 1;
-    if d.connections_to.is_empty() && d.review_to.is_empty() {
+    if d.connections_to.is_empty() {
         h += 1;
     } else {
-        for conn in d.connections_to.iter().chain(d.review_to.iter()) {
+        for conn in d.connections_to.iter() {
             h += wrapped_line_count(&format!("   {}", conn), width);
         }
     }
@@ -1855,9 +1652,9 @@ mod tests {
     }
 }
 
-/// Log review 行の追加テスト。
+/// Log の接続行のテスト。
 #[cfg(test)]
-mod review_conn_tests {
+mod conn_line_tests {
     use super::*;
     use sai_link_engine::db::models::BlockMetadata;
 
@@ -1903,30 +1700,8 @@ mod review_conn_tests {
         let d = build(&store, e2).unwrap();
         assert_eq!(d.connections_from.len(), 1);
         assert!(d.connections_from[0].starts_with("waggle:abc R2.3/ID"));
-        assert!(d.review_from.is_empty());
     }
 
-    /// kanban_origin 接続は `review: R<gr>.<lr>/ID<id>` として review 行に入ること。
-    #[test]
-    fn kanban_origin_conn_goes_to_review_lines() {
-        let store = sai_link_engine::db::SaiStore::open_in_memory().unwrap();
-        let b1 = test_block(&store, "a");
-        let b2 = test_block(&store, "b");
-        let e1 = store.create_execution(b1, None).unwrap();
-        let e2 = store.create_execution(b2, None).unwrap();
-        store
-            .update_execution_overrides(e1, None, Some(2), Some(1), None, None, None)
-            .unwrap();
-        store
-            .insert_connection(&sai_link_engine::db::BlockConnection::new_kanban_origin(
-                e1, b1, e2, b2,
-            ))
-            .unwrap();
-        let d = build(&store, e2).unwrap();
-        assert!(d.connections_from.is_empty(), "from 本体には入らない");
-        assert_eq!(d.review_from.len(), 1);
-        assert!(d.review_from[0].starts_with("review: R1.2/ID"));
-    }
 }
 
 /// 費用表示行（B02）のテスト。

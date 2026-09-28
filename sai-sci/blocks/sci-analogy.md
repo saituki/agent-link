@@ -13,10 +13,6 @@ sci_ops: add_option, add_finding, link, add_question
 sci_scope: node
 subblocks:
   - sci-search
-review_headings:
-  - 反映したこと
-  - 反映しなかったこと（理由）
-  - 次に知りたいこと
 timeout: 3600
 worktree: none
 enable: true

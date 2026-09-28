@@ -12,7 +12,6 @@
 //! | `↑` / `↓` / `Enter` | 左SBツリー内のカーソル移動・開閉（Workflow 表示中のみ） |
 //! | `s` | Stats へ遷移。再度で Workflow に戻る |
 //! | `l` | Log へ遷移（押下時点の選択実行で固定）。再度で Workflow に戻る |
-//! | `r` | Review を nvim で開く（`Space r` は md-tui 表示） |
 //! | `Space t` | task.md を md-tui に表示 |
 //! | `Space m` | message.md を md-tui に表示（旧単体 `m` は廃止） |
 //! | `h` | History へ遷移。再度で Workflow に戻る |
@@ -32,13 +31,13 @@
 //! 実行中メインブロックの完了確定（finalize）は pane 内の `/pi-sai-finalize`
 //! または pane を閉じることで行う（TUI 側の Ctrl+D は廃止）。
 
-use chrono;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
 use super::{AppState, ViewMode};
 
 // 移設先（sai-link-widgets）から取り込む（カード作成の共通部品・`phone card create` と同一）
-use sai_link_widgets::card_wizard::{apply_card_auto_fields, strip_review_frontmatter, write_card_file};
+#[cfg(test)]
+use sai_link_widgets::card_wizard::apply_card_auto_fields;
 
 /// キーイベントを処理する。
 pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
@@ -261,15 +260,14 @@ fn handle_global_shortcuts(state: &mut AppState, key: KeyEvent) -> bool {
             }
             true
         }
-        // `Space` リーダー: 次の `r`/`t`/`m` で md-tui を開く（`Esc` で解除）。
+        // `Space` リーダー: 次の `t`/`m` で md-tui を開く（`Esc` で解除）。
         // Workflow 以外（Md モードの見出し折りたたみ等）では消費せず後段へ流す。
         KeyCode::Char(' ') if state.view_mode == ViewMode::Workflow => {
             state.space_pending = true;
-            state.set_message("Space: r=review t=task m=message");
+            state.set_message("Space: t=task m=message");
             true
         }
-        // md-tui: `Space r` = review.md / `Space t` = task.md / `Space m` = message.md
-        // （単体 `r` は nvim 起動のまま維持。単体 `m` は廃止し Space 経由に統一）
+        // md-tui: `Space t` = task.md / `Space m` = message.md（単体 `m` は廃止し Space 経由に統一）
         // いずれも押下時点の sidebar 選択が対象（表示と実ファイルを一致させる）。
         KeyCode::Char('t') if state.space_pending => {
             state.space_pending = false;
@@ -356,23 +354,6 @@ fn handle_global_shortcuts(state: &mut AppState, key: KeyEvent) -> bool {
                 super::external::open_gl_session(state);
             } else {
                 super::external::resume_session(state, exec_id);
-            }
-            true
-        }
-        // `r`: Space 待機中は review.md を md-tui で開く。通常時は nvim で開く（従来通り）。
-        // いずれも押下時点の sidebar 選択ブロックが対象。
-        KeyCode::Char('r') => {
-            if state.space_pending {
-                state.space_pending = false;
-                if state.view_mode == ViewMode::Workflow {
-                    match sidebar_selected_exec_id(state) {
-                        Some(id) => state.load_md_view(id, crate::ui::MdKind::Review),
-                        None => state.set_message("review: 実行が選択されていません"),
-                    }
-                }
-            } else {
-                let exec_id = sidebar_selected_exec_id(state);
-                super::external::open_review(state, exec_id);
             }
             true
         }
@@ -1161,191 +1142,6 @@ fn handle_waggle_select_modal_key(state: &mut AppState, key: KeyEvent) -> bool {
     true
 }
 
-/// モーダル継続/終了の判定。
-#[derive(PartialEq)]
-enum CardModalOutcome {
-    /// modal を維持する
-    Keep,
-    /// modal を閉じた（確定・Esc）
-    Closed,
-}
-
-/// モーダル内キーの実体（modal フィールドとは独立に動作する）。
-fn handle_card_create_key_inner(
-    state: &mut AppState,
-    key: KeyEvent,
-    options: &mut Vec<i64>,
-    cursor: &mut usize,
-    checked: &mut Vec<bool>,
-) -> CardModalOutcome {
-    match key.code {
-        KeyCode::Esc => CardModalOutcome::Closed,
-        KeyCode::Up => {
-            *cursor = cursor.saturating_sub(1);
-            CardModalOutcome::Keep
-        }
-        KeyCode::Down => {
-            if !options.is_empty() {
-                *cursor = (*cursor + 1).min(options.len() - 1);
-            }
-            CardModalOutcome::Keep
-        }
-        KeyCode::Char(' ') => {
-            if let Some(v) = checked.get_mut(*cursor) {
-                *v = !*v;
-            }
-            CardModalOutcome::Keep
-        }
-        KeyCode::Enter => {
-            let selected: Vec<i64> = options
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| checked.get(*i).copied().unwrap_or(false))
-                .map(|(_, id)| *id)
-                .collect();
-            // 未選択 Enter → 連結なしの空カード（1から todo を書く用）。
-            // 選択あり → review 本文を結合したカード。
-            match create_card_from_reviews(&state.store, &selected) {
-                Ok(path) => {
-                    state.reload_data();
-                    super::external::open_card(state, Some(path));
-                    CardModalOutcome::Closed
-                }
-                Err(e) => {
-                    state.set_message(format!("カード作成に失敗: {}", e));
-                    CardModalOutcome::Keep
-                }
-            }
-        }
-        _ => CardModalOutcome::Keep,
-    }
-}
-
-/// 選択した done 実行の review 本文を結合してカード md を作成する（v2・R19/R20/R48）。
-///
-/// R20: 複数記録の結合は `## Review run_id <id>` を区切りとして連結する。
-/// review 側の frontmatter は外し、本文（`### 追加修正` / `### 追加実装`）はそのまま残す
-/// （レビュー本文が最初から `###` のため降格不要）。
-/// `origin_run_id` に選択 ID 列を記録する（R52: 来歴識別子は複数保持）。
-/// 本文先頭には空の `# task_text` を用意し、ユーザーが nvim で事前記載する。
-/// 未選択（空スライス）のときは連結なしの空カードを作る。
-fn create_card_from_reviews(
-    store: &sai_link_engine::db::SaiStore,
-    selected: &[i64],
-) -> Result<std::path::PathBuf, String> {
-    // 未選択のときは連結なしの空カード（1から todo を書く用）。
-    if selected.is_empty() {
-        return create_empty_card(store);
-    }
-    // 本文: 空の `# task_text` ＋ `## Review run_id <id>` 区切りで連結
-    let mut parts: Vec<String> = vec!["# task_text\n".to_string()];
-    for id in selected {
-        let path = sai_link_engine::orchestrator::review_path(*id);
-        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let body = strip_review_frontmatter(&text);
-        parts.push(format!("## Review run_id {}\n{}", id, body.trim()));
-    }
-    let origin = selected
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let now = chrono::Local::now();
-    let mut fm = sai_link_engine::kanban::CardFrontmatter::new_card(
-        now.format("%Y/%m/%d %H:%M:%S").to_string(),
-        origin,
-    );
-    // 自動フィールド: origin の round/global_round 継承と settings.json のデフォルト。
-    apply_card_auto_fields(&mut fm, store, selected);
-    // Log 画面の review 行用: Review 元実行の run_id 列を `origin_block` に記録する。
-    // 実行が見つからない ID は除外する（手入力の不正値対策）。
-    let mut origin_blocks: Vec<String> = Vec::new();
-    for id in selected {
-        if store.get_execution_by_id(*id).is_ok() && !origin_blocks.contains(&id.to_string()) {
-            origin_blocks.push(id.to_string());
-        }
-    }
-    if !origin_blocks.is_empty() {
-        fm.set_meta("origin_block".to_string(), origin_blocks.join(","));
-    }
-    write_card_file(&sai_link_engine::kanban::KanbanCard {
-        frontmatter: fm,
-        body: parts.join("\n\n"),
-    })
-}
-
-/// 連結なしの空カードを作る（1から todo を書く用）。
-///
-/// 本文は空の `# task_text` のみ・`origin_run_id` は `-`（連結なし）。
-/// `model`/`provider`/`thinking` は settings.json のデフォルトを記入する。
-fn create_empty_card(
-    store: &sai_link_engine::db::SaiStore,
-) -> Result<std::path::PathBuf, String> {
-    let now = chrono::Local::now();
-    let mut fm = sai_link_engine::kanban::CardFrontmatter::new_card(
-        now.format("%Y/%m/%d %H:%M:%S").to_string(),
-        "-".to_string(),
-    );
-    apply_card_auto_fields(&mut fm, store, &[]);
-    write_card_file(&sai_link_engine::kanban::KanbanCard {
-        frontmatter: fm,
-        body: "# task_text\n".to_string(),
-    })
-}
-
-
-
-
-
-
-
-/// Review の対象セクション名か（新 `追加修正/追加実装`・旧 `追加修正項目/追加機能項目`）。
-///
-/// レビュー本文の結合時（カード埋め込み形の検証用）に使用する。
-#[cfg(test)]
-fn is_review_section_name(name: &str) -> bool {
-    matches!(
-        name,
-        "追加修正" | "追加修正項目" | "追加実装" | "追加機能項目"
-    )
-}
-
-/// 見出し行（`#` で始まる）なら見出し名を返す。
-#[cfg(test)]
-fn heading_name(trimmed: &str) -> Option<&str> {
-    if !trimmed.starts_with('#') {
-        return None;
-    }
-    Some(trimmed.trim_start_matches('#').trim())
-}
-
-/// review テキストから2項目の実質行を抜き出す。
-///
-/// 新名（`追加修正` / `追加実装`）と旧名（`追加修正項目` / `追加機能項目`）の両対応。
-/// `##` / `###` どちらのレベルでも認識する。
-#[cfg(test)]
-fn extract_review_body(text: &str) -> Vec<String> {
-    let body = strip_review_frontmatter(text);
-    let mut out = Vec::new();
-    let mut in_target = false;
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if let Some(name) = heading_name(trimmed) {
-            in_target = is_review_section_name(name);
-            continue;
-        }
-        if in_target {
-            let t = trimmed.trim_start_matches(['-', '*', '・']).trim();
-            if !t.is_empty() {
-                out.push(t.to_string());
-            }
-        }
-    }
-    out
-}
-
-
-
 // ============================================================================
 // テスト（検索画面）
 // ============================================================================
@@ -2045,10 +1841,9 @@ mod message_tests {
         assert_eq!(state.view_mode, ViewMode::Workflow);
     }
 
-    /// `Shift+C` 後のカード作成で、origin の round/global_round が
-    /// `round+1` / そのまま継承されること。
+    /// カード作成の自動項目はラウンドを埋めない（review の引き継ぎは廃止）。
     #[test]
-    fn card_auto_fields_inherit_rounds() {
+    fn card_auto_fields_leave_rounds_empty() {
         let store = SaiStore::open_in_memory().unwrap();
         let block_id = store
             .insert_block(&sai_link_engine::db::models::BlockMetadata::new(
@@ -2071,17 +1866,17 @@ mod message_tests {
         store
             .update_execution_overrides(e1, None, Some(2), Some(5), None, None, None)
             .unwrap();
+        let _ = e1;
         let mut fm = sai_link_engine::kanban::CardFrontmatter::new_card(
             "2026/09/17 10:00:00".to_string(),
-            e1.to_string(),
         );
-        apply_card_auto_fields(&mut fm, &store, &[e1]);
-        assert_eq!(fm.global_round, "5", "origin の global_round を継承");
-        assert_eq!(fm.round, "3", "origin の round + 1");
+        apply_card_auto_fields(&mut fm);
+        assert_eq!(fm.global_round, "");
+        assert_eq!(fm.round, "");
     }
 
     /// Md モードでの `Space` は見出し折りたたみに使われ、Workflow のリーダーキー
-    /// （`Space r/t/m`）に飲み込まれて無視されないこと。
+    /// （`Space t/m`）に飲み込まれて無視されないこと。
     #[test]
     fn space_toggles_fold_in_md_mode() {
         let store = sai_link_engine::db::SaiStore::open_in_memory().unwrap();

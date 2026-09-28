@@ -5,18 +5,18 @@
 //!
 //! ## ステップ
 //!
-//! ステップ番号は 8 固定の地図で、runner や定義の都合でスキップした
-//! ステップは番号が飛ぶ（例: `user` / `gl` は Step3 → Step8）。
+//! ステップ番号は 7 固定の地図で、runner や定義の都合でスキップした
+//! ステップは番号が飛ぶ（例: `user` / `gl` は Step2 → Step7）。
 //!
 //! | Step | ステップ | 内容 |
 //! |---|---|----|
-//! | 1 | `DoneSelect` | `done` の実行 ID を複数選択（従来の `Space` 選択） |
-//! | 2 | `Runner` | `user` / `pi` / `cc` / `gl` を選択 |
-//! | 3 | `Block` | 使用可能な block.md をリスト選択 |
-//! | 5 | `Provider` | `runner=pi` のみ。pi の使用可能 provider をリスト選択（`cc` はスキップ） |
-//! | 6 | `Model` | `runner=pi` は provider 配下の model をリスト選択。`cc` は opus/sonnet/haiku。`user` / `gl` は無し（自動スキップ） |
-//! | 7 | `Thinking` | `none` / `low` / `medium` / `high` / `xhigh` / `max` を選択（実行時は pi → `--thinking`、cc → `--effort`） |
-//! | 8 | `Rounds` | `global_round` / `round` / `tag` を同時入力フォームで入力 |
+//! | 1 | `Runner` | `user` / `pi` / `cc` / `gl` を選択 |
+//! | 2 | `Block` | 使用可能な block.md をリスト選択 |
+//! | 3 | `DocSelect` | 最近の文書（`phone card docs` と同じ）から task_text に貼る参照を選ぶ |
+//! | 4 | `Provider` | `runner=pi` のみ。pi の使用可能 provider をリスト選択（`cc` はスキップ） |
+//! | 5 | `Model` | `runner=pi` は provider 配下の model をリスト選択。`cc` は opus/sonnet/haiku。`user` / `gl` は無し（自動スキップ） |
+//! | 6 | `Thinking` | `none` / `low` / `medium` / `high` / `xhigh` / `max` を選択（実行時は pi → `--thinking`、cc → `--effort`） |
+//! | 7 | `Rounds` | `global_round` / `round` / `tag` を同時入力フォームで入力 |
 //!
 //! `Done` は端末状態（到達しない）。
 //!
@@ -41,7 +41,7 @@ use sai_link_widgets::card_wizard::{
     THINKING_OPTIONS,
 };
 
-/// Step4 文書選択の候補1件（`select_docs` と同じ中身・TUI 表示用）。
+/// Step3 文書選択の候補1件（`recent_docs` と同じ中身・TUI 表示用）。
 #[derive(Debug, Clone, Default)]
 pub struct DocChoice {
     /// waggle トークン
@@ -60,22 +60,20 @@ pub const ROUND_LABELS: [&str; ROUND_ROWS] = ["global_round", "round", "tag"];
 /// ウィザードの現在ステップ。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WizardStep {
-    /// done 実行の複数選択（Step1）
+    /// runner 選択（Step1）
     #[default]
-    DoneSelect,
-    /// runner 選択（Step2）
     Runner,
-    /// block 選択（Step3）
+    /// block 選択（Step2）
     Block,
-    /// 文書選択（Step4・U03）。origin の文書＋実行中を含む全体から task_text へ貼る候補を選ぶ
+    /// 文書選択（Step3）。最近の文書から task_text へ貼る候補を選ぶ
     DocSelect,
-    /// provider 選択（pi のみ・Step5）
+    /// provider 選択（pi のみ・Step4）
     Provider,
-    /// model 選択（pi / cc。user はスキップ・Step6）
+    /// model 選択（pi / cc。user はスキップ・Step5）
     Model,
-    /// thinking 選択（Step7）
+    /// thinking 選択（Step6）
     Thinking,
-    /// global_round / round / tag の同時入力（Step8）
+    /// global_round / round / tag の同時入力（Step7）
     Rounds,
     /// 端末状態（到達しない）
     Done,
@@ -93,13 +91,6 @@ pub struct CardWizardState {
     /// `settings.json` の読み込み警告など。stderr に出すと枠外に残るため
     /// ここに溜めて枠内描画する。
     pub warnings: Vec<String>,
-    // ── Done 選択 ──
-    /// done 実行 ID 一覧
-    pub done_options: Vec<i64>,
-    /// done カーソル
-    pub done_cursor: usize,
-    /// done 選択フラグ
-    pub done_checked: Vec<bool>,
     // ── runner ──
     /// runner カーソル（`RUNNER_OPTIONS` の index）
     pub runner_cursor: usize,
@@ -127,15 +118,15 @@ pub struct CardWizardState {
     /// 確定済み model（未確定・スキップは空）
     pub model: String,
     // ── block 定義の保持 ──
-    /// 選択中 block.md の `thinking`（Step7 の既定選択に使う）
+    /// 選択中 block.md の `thinking`（Step6 の既定選択に使う）
     pub block_thinking: String,
-    // ── Step7: thinking ──
+    // ── Step6: thinking ──
     /// thinking カーソル（`THINKING_OPTIONS` の index）
     pub thinking_cursor: usize,
     /// 確定済み thinking（空 = スキップ）
     pub thinking: String,
-    // ── Step4: 文書選択 ──
-    /// 候補一覧（origin 先頭＋全体。`select_docs(Origin)` と同じ並び）
+    // ── Step3: 文書選択 ──
+    /// 候補一覧（最近の文書。`phone_view::recent_docs` と同じ並び）
     pub doc_choices: Vec<DocChoice>,
     /// 文書カーソル
     pub doc_cursor: usize,
@@ -151,28 +142,14 @@ pub struct CardWizardState {
 }
 
 impl CardWizardState {
-    /// 新規ウィザード（Done 選択から開始）。
-    pub fn new(done_options: Vec<i64>) -> Self {
-        let n = done_options.len();
+    /// 新規ウィザード（runner 選択から開始）。
+    pub fn new() -> Self {
         Self {
-            step: WizardStep::DoneSelect,
+            step: WizardStep::Runner,
             error: None,
-            done_options,
-            done_cursor: 0,
-            done_checked: vec![false; n],
             runner_cursor: 1,
             ..Default::default()
         }
-    }
-
-    /// 選択済み done ID 列。
-    pub fn selected_done_ids(&self) -> Vec<i64> {
-        self.done_options
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| self.done_checked.get(*i).copied().unwrap_or(false))
-            .map(|(_, id)| *id)
-            .collect()
     }
 
     /// 選択済み文書の貼り付け行（`waggle:<tok>:path:…` 形式・複数可）。
@@ -188,15 +165,14 @@ impl CardWizardState {
     /// 現在ステップの表示番号（1 始まり・デバッグ用）。
     pub fn step_no(&self) -> usize {
         match self.step {
-            WizardStep::DoneSelect => 1,
-            WizardStep::Runner => 2,
-            WizardStep::Block => 3,
-            WizardStep::DocSelect => 4,
-            WizardStep::Provider => 5,
-            WizardStep::Model => 6,
-            WizardStep::Thinking => 7,
-            WizardStep::Rounds => 8,
-            WizardStep::Done => 9,
+            WizardStep::Runner => 1,
+            WizardStep::Block => 2,
+            WizardStep::DocSelect => 3,
+            WizardStep::Provider => 4,
+            WizardStep::Model => 5,
+            WizardStep::Thinking => 6,
+            WizardStep::Rounds => 7,
+            WizardStep::Done => 8,
         }
     }
 }
@@ -207,15 +183,9 @@ impl CardWizardState {
 
 /// `Shift+C`: カード作成ウィザードを開く。
 ///
-/// **Done レーン**の実行のみを選択可能にする（従来通り）。
-/// 以降の runner / block / provider / model / rounds は段階入力で尋ねる。
+/// runner / block / 文書 / provider / model / rounds を段階入力で尋ねる。
 pub(crate) fn open_card_wizard(state: &mut AppState) {
-    // Done 選択肢の組み立ては sai_link_widgets::card_entries（`phone card options` と同一）
-    let done_ids: Vec<i64> = sai_link_widgets::card_entries::done_options(&state.kanban_entries)
-        .into_iter()
-        .map(|d| d.run_id)
-        .collect();
-    let mut wizard = CardWizardState::new(done_ids);
+    let mut wizard = CardWizardState::new();
     // settings.json の読み込み警告は stderr に出さず（枠外に残さず）、
     // ウィザードの間だけダイアログ下部に表示する。
     let (_, warnings) = sai_link_engine::pi_command::load_settings_quiet();
@@ -257,7 +227,6 @@ fn handle_wizard_key_inner(
     wizard: &mut CardWizardState,
 ) -> WizardOutcome {
     match wizard.step {
-        WizardStep::DoneSelect => handle_done_select_key(state, key, wizard),
         WizardStep::Runner => handle_runner_key(wizard, key),
         WizardStep::Block => handle_block_key(state, key, wizard),
         WizardStep::DocSelect => handle_doc_select_key(key, wizard),
@@ -279,88 +248,9 @@ fn is_back_key(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Esc | KeyCode::Backspace)
 }
 
-// ── Done 選択 ────────────────────────────────────────────────
-
-/// Done 選択: `↑↓`=移動・`Space`=選択切替・`Enter`=確定→Runner へ・`Esc`=閉じる。
-///
-/// 確定時は選択実行のラウンドを `rounds` 入力欄へ事前入力する：
-/// `global_round` は選択実行の最大値（同値継承）、`round` は最大値+1。
-/// 未選択（空カード）のときは何もしない。ユーザーはその後編集可能。
-fn handle_done_select_key(
-    state: &AppState,
-    key: KeyEvent,
-    wizard: &mut CardWizardState,
-) -> WizardOutcome {
-    match key.code {
-        KeyCode::Esc => WizardOutcome::Closed,
-        KeyCode::Up | KeyCode::Char('k') => {
-            wizard.done_cursor = wizard.done_cursor.saturating_sub(1);
-            WizardOutcome::Keep
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            if !wizard.done_options.is_empty() {
-                wizard.done_cursor = (wizard.done_cursor + 1).min(wizard.done_options.len() - 1);
-            }
-            WizardOutcome::Keep
-        }
-        KeyCode::Char(' ') => {
-            if let Some(v) = wizard.done_checked.get_mut(wizard.done_cursor) {
-                *v = !*v;
-            }
-            WizardOutcome::Keep
-        }
-        KeyCode::Enter => {
-            // 未選択 Enter → 連結なしの空カード用（従来通り許容）
-            prefill_rounds_from_selection(state, wizard);
-            wizard.step = WizardStep::Runner;
-            wizard.error = None;
-            WizardOutcome::Keep
-        }
-        _ => WizardOutcome::Keep,
-    }
-}
-
-/// Done 選択の確定時に、選択実行のラウンドを `rounds` 入力欄へ事前入力する。
-///
-/// - `rounds[0]`（global_round）: 選択実行の `global_round` の最大値（同値継承）
-/// - `rounds[1]`（round）: 選択実行の `round` の最大値 + 1
-/// - `rounds[2]`（tag）: 触らない（空のまま）
-///
-/// 未選択（空カード）のときは何もしない。既存の入力値がある場合も上書きしない
-/// （再入場時のユーザー編集を壊さないため）。DB 取得失敗の実行は無視する。
-fn prefill_rounds_from_selection(state: &AppState, wizard: &mut CardWizardState) {
-    let selected = wizard.selected_done_ids();
-    if selected.is_empty() {
-        return;
-    }
-    let mut max_global: Option<i64> = None;
-    let mut max_round: Option<i64> = None;
-    for id in selected {
-        let Ok(exec) = state.store.get_execution_by_id(id) else {
-            continue;
-        };
-        if let Some(g) = exec.global_round {
-            max_global = Some(max_global.map_or(g, |v: i64| v.max(g)));
-        }
-        if let Some(r) = exec.round {
-            max_round = Some(max_round.map_or(r, |v: i64| v.max(r)));
-        }
-    }
-    if let Some(g) = max_global {
-        if wizard.rounds[0].trim().is_empty() {
-            wizard.rounds[0] = g.to_string();
-        }
-    }
-    if let Some(r) = max_round {
-        if wizard.rounds[1].trim().is_empty() {
-            wizard.rounds[1] = (r + 1).to_string();
-        }
-    }
-}
-
 // ── runner 選択 ──────────────────────────────────────────────
 
-/// runner 選択: `↑↓`/`jk`=移動・`Enter`=確定→次へ・`s`=スキップ（空=pi 扱い）・`Esc`/`Backspace`=Done 選択へ戻る。
+/// runner 選択: `↑↓`/`jk`=移動・`Enter`=確定→次へ・`s`=スキップ（空=pi 扱い）・`Esc`=閉じる。
 fn handle_runner_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOutcome {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
@@ -384,11 +274,7 @@ fn handle_runner_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOutco
             advance_from_runner(wizard);
             WizardOutcome::Keep
         }
-        _ if is_back_key(key) => {
-            wizard.step = WizardStep::DoneSelect;
-            wizard.error = None;
-            WizardOutcome::Keep
-        }
+        _ if is_back_key(key) => WizardOutcome::Closed,
         _ => WizardOutcome::Keep,
     }
 }
@@ -403,9 +289,9 @@ fn advance_from_runner(wizard: &mut CardWizardState) {
 
 // ── block 選択 ───────────────────────────────────────────────
 
-/// block 選択: `↑↓`/`jk`=移動・`Enter`=確定→Step4へ・`s`=スキップ（空）・`Esc`/`Backspace`=Runner へ戻る。
+/// block 選択: `↑↓`/`jk`=移動・`Enter`=確定→Step3へ・`s`=スキップ（空）・`Esc`/`Backspace`=Runner へ戻る。
 ///
-/// state が必要なため呼び出し側で AppState を渡す（Step4 候補組み立て用）。
+/// state が必要なため呼び出し側で AppState を渡す（Step3 候補組み立て用）。
 fn handle_block_key(state: &AppState, key: KeyEvent, wizard: &mut CardWizardState) -> WizardOutcome {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
@@ -441,38 +327,25 @@ fn handle_block_key(state: &AppState, key: KeyEvent, wizard: &mut CardWizardStat
     }
 }
 
-/// Step4 文書選択の候補を組み立てる（全経路共通 `select_docs(Origin)` と同じ並び）。
+/// Step3 文書選択の候補を組み立てる（Web の「最近の文書」と同じ `recent_docs`）。
 ///
-/// origin が未選択（空カード）のときは全体（実行中含む）のみ。候補が空でも
-/// Step4 自体は表示し、Enter/s で次へ進める（文書なしカードを許容）。
+/// 候補が空でも Step3 自体は表示し、Enter/s で次へ進める（文書なしカードを許容）。
 fn load_doc_choices(state: &AppState, wizard: &mut CardWizardState) {
-    use sai_link_widgets::phone_view::{select_docs, DocSelectScope};
-    let origins = wizard.selected_done_ids();
-    let mut merged: Vec<DocChoice> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    if origins.is_empty() {
-        // 空カード: 全体（実行中含む）だけ。origin 指定なしの select は Single 相当のため
-        // 全体取得は最初の origin なしではできない。空のまま次へ（文書なし許容）。
-        // 実行中を含む全体が欲しい場合は Step1 で origin を1件以上選ぶ。
-    } else {
-        for oid in origins {
-            for c in select_docs(&state.store, &DocSelectScope::Origin(oid)) {
-                if seen.insert(c.token.clone()) {
-                    merged.push(DocChoice {
-                        token: c.token.clone(),
-                        // 参照の <run_id> は origin ではなく文書を保存した実行の番号
-                        ref_line: sai_link_widgets::phone_view::doc_ref_line(&c),
-                        label: format!(
-                            "[{}] {} - {}",
-                            if c.status.is_empty() { "?" } else { &c.status },
-                            c.file_name,
-                            c.description
-                        ),
-                    });
-                }
-            }
-        }
-    }
+    let merged: Vec<DocChoice> = sai_link_widgets::phone_view::recent_docs(&state.store, 40)
+        .iter()
+        .map(|c| DocChoice {
+            token: c.token.clone(),
+            // 参照の <run_id> は文書を保存した実行の番号
+            ref_line: sai_link_widgets::phone_view::doc_ref_line(c),
+            label: format!(
+                "[{}] {}/{} - {}",
+                if c.status.is_empty() { "?" } else { &c.status },
+                c.token,
+                c.file_name,
+                c.description
+            ),
+        })
+        .collect();
     wizard.doc_choices = merged;
     wizard.doc_cursor = 0;
     wizard.doc_checked = vec![false; wizard.doc_choices.len()];
@@ -480,22 +353,22 @@ fn load_doc_choices(state: &AppState, wizard: &mut CardWizardState) {
 
 /// block 確定後の遷移（runner で分岐）。
 ///
-/// - Step4 文書選択を必ず経由（文書なしでも Enter/s で次へ）
-/// - `user` / `gl` → Step5〜Step7 はスキップで Rounds へ
+/// - Step3 文書選択を必ず経由（文書なしでも Enter/s で次へ）
+/// - `user` / `gl` → Step4〜Step6 はスキップで Rounds へ
 ///   （gl は起動時のタスク書き込みなし・空セッションを開くだけ）
 /// - `cc` → Model（provider なし）
 /// - `pi`（既定・空含む）→ Provider
 fn advance_from_block(state: &AppState, wizard: &mut CardWizardState) {
     wizard.error = None;
     prepare_block_thinking(wizard);
-    // Step4: 文書選択へ（候補は origin＋実行中を含む全体。空でも次へ進める）
+    // Step3: 文書選択へ（候補は最近の文書。空でも次へ進める）
     load_doc_choices(state, wizard);
     wizard.step = WizardStep::DocSelect;
     wizard.error = None;
     return;
 }
 
-/// Step4 の次へ進む（runner で分岐・旧 advance_from_block の後半）。
+/// Step3 の次へ進む（runner で分岐・旧 advance_from_block の後半）。
 fn advance_from_doc(wizard: &mut CardWizardState) {
     wizard.error = None;
     match wizard.runner.trim() {
@@ -518,7 +391,7 @@ fn advance_from_doc(wizard: &mut CardWizardState) {
     }
 }
 
-/// Step4 文書選択: `↑↓`/`jk`=移動・`Space`=選択切替（複数可）・`Enter`=確定→次へ・
+/// Step3 文書選択: `↑↓`/`jk`=移動・`Space`=選択切替（複数可）・`Enter`=確定→次へ・
 /// `s`=スキップ（文書なし）・`Esc`/`Backspace`=Block へ戻る。
 ///
 /// 候補は origin 先頭＋全体（実行中含む）。選択行は task.md の `# task_text` 先頭に
@@ -559,7 +432,7 @@ fn handle_doc_select_key(key: KeyEvent, wizard: &mut CardWizardState) -> WizardO
     }
 }
 
-/// 選択中 block.md の `thinking` を保持する（Step7 の既定選択に使う）。
+/// 選択中 block.md の `thinking` を保持する（Step6 の既定選択に使う）。
 ///
 /// ブロック未選択・定義が読めない場合は空のまま。
 fn prepare_block_thinking(wizard: &mut CardWizardState) {
@@ -605,7 +478,7 @@ fn handle_provider_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOut
             WizardOutcome::Keep
         }
         _ if is_back_key(key) => {
-            // Step4 の前に戻る（Block ではなく DocSelect）
+            // Step3 の前に戻る（Block ではなく DocSelect）
             wizard.step = WizardStep::DocSelect;
             wizard.error = None;
             WizardOutcome::Keep
@@ -618,7 +491,7 @@ fn handle_provider_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOut
 
 /// model 選択: `↑↓`/`jk`=移動・`Enter`=確定→Thinking へ・`s`=スキップ（空）・`Esc`/`Backspace`=1 つ前へ戻る。
 ///
-/// 戻り先は Step4 が入ったため DocSelect ではなく Provider/cc は DocSelect（旧 Block 相当）。
+/// 戻り先は Step3 が入ったため DocSelect ではなく Provider/cc は DocSelect（旧 Block 相当）。
 fn handle_model_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOutcome {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
@@ -651,7 +524,7 @@ fn handle_model_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOutcom
         }
         _ if is_back_key(key) => {
             wizard.error = None;
-            // Step4 挿入前は cc→Block・pi→Provider に戻っていた。Step4 以降は
+            // 文書選択の挿入前は cc→Block・pi→Provider に戻っていた。挿入後は
             // モデル選択の前は Provider（pi）であり、cc は DocSelect が前段。
             // 戻り先は一律で前段に合わせる: pi→Provider、cc→DocSelect。
             if wizard.runner.trim() == "cc" {
@@ -665,9 +538,9 @@ fn handle_model_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOutcom
     }
 }
 
-// ── Step7: thinking ─────────────────────────────────
+// ── Step6: thinking ─────────────────────────────────
 
-/// Step7 に入るときのカーソルを決める。
+/// Step6 に入るときのカーソルを決める。
 ///
 /// 既定は「確定済みの値 → block.md の `thinking` → settings.json → none」の順。
 /// 旧値（`off` / `minimal`）は新 6 値に該当しないため none 扱い（先頭）になる。
@@ -698,7 +571,7 @@ fn enter_thinking(wizard: &mut CardWizardState) {
     wizard.thinking_cursor = idx;
 }
 
-/// Step7 thinking: `↑↓`/`jk`=移動・`Enter`=確定→Rounds へ・`s`=スキップ・`Esc`=Model へ戻る。
+/// Step6 thinking: `↑↓`/`jk`=移動・`Enter`=確定→Rounds へ・`s`=スキップ・`Esc`=Model へ戻る。
 fn handle_thinking_key(wizard: &mut CardWizardState, key: KeyEvent) -> WizardOutcome {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
@@ -821,8 +694,7 @@ fn handle_rounds_key(
 
 /// 最終確定: ウィザード値で task.md を作成し nvim で開く。
 fn finish_wizard(state: &mut AppState, wizard: &mut CardWizardState) -> WizardOutcome {
-    let selected = wizard.selected_done_ids();
-    match create_card_from_wizard(&state.store, &selected, wizard) {
+    match create_card_from_wizard(wizard) {
         Ok(path) => {
             state.reload_data();
             super::external::open_card(state, Some(path));
@@ -839,26 +711,19 @@ fn finish_wizard(state: &mut AppState, wizard: &mut CardWizardState) -> WizardOu
 // カード作成（ウィザード値の反映）
 // ============================================================================
 
-/// ウィザード値でカード md を作成する（従来の review 結合＋各項目の反映）。
+/// ウィザード値でカード md を作成する。
 ///
-/// - review 結合・`origin_run_id`・`origin_block`・round 自動継承は従来通り
 /// - `runner` / `block` / `provider` / `model` はウィザード確定値を優先する
-///   （空・スキップ時は従来の自動値: runner=pi・model/provider/thinking=settings.json）
-/// - `thinking` は Step7 の確定値（空・スキップ時は従来の自動値を維持）
-/// - `global_round` / `round` / `tag` はウィザード入力を優先する
-///   （空時は従来の自動継承値を維持）
-fn create_card_from_wizard(
-    store: &sai_link_engine::db::SaiStore,
-    selected: &[i64],
-    wizard: &CardWizardState,
-) -> Result<std::path::PathBuf, String> {
+///   （空・スキップ時は自動値: runner=pi・model/provider/thinking=settings.json）
+/// - `thinking` は Step6 の確定値（空・スキップ時は自動値を維持）
+/// - `global_round` / `round` / `tag` はウィザード入力のまま
+fn create_card_from_wizard(wizard: &CardWizardState) -> Result<std::path::PathBuf, String> {
     // 組み立ては sai_link_widgets::card_wizard::create_card へ移設（`phone card create` と同一）。
-    // Step4 で選んだ文書は task_text 先頭に waggle 参照行として貼る（実行時に本文展開）。
+    // Step3 で選んだ文書は task_text 先頭に waggle 参照行として貼る（実行時に本文展開）。
     // 未選択なら空のまま（作成後に nvim で書く従来通り）。
     let doc_refs = wizard.selected_doc_refs();
     let task_text = doc_refs.join("\n");
     let spec = sai_link_widgets::card_wizard::CardSpec {
-        done_ids: selected.to_vec(),
         runner: wizard.runner.clone(),
         block: wizard.block.clone(),
         provider: wizard.provider.clone(),
@@ -869,7 +734,7 @@ fn create_card_from_wizard(
         tag: wizard.rounds[2].clone(),
         task_text,
     };
-    sai_link_widgets::card_wizard::create_card(store, &spec)
+    sai_link_widgets::card_wizard::create_card(&spec)
 }
 
 
@@ -886,7 +751,6 @@ const SELECTED_ROW_BG: Color = Color::Rgb(40, 40, 20);
 /// `bg` は Workflow パネルと同じ背景色。
 pub fn render_card_wizard(wizard: &CardWizardState, area: Rect, buf: &mut Buffer, bg: Color) {
     match wizard.step {
-        WizardStep::DoneSelect => render_done_select(wizard, area, buf, bg),
         WizardStep::Runner => render_runner(wizard, area, buf, bg),
         WizardStep::Block => render_block(wizard, area, buf, bg),
         WizardStep::DocSelect => render_doc_select(wizard, area, buf, bg),
@@ -898,19 +762,18 @@ pub fn render_card_wizard(wizard: &CardWizardState, area: Rect, buf: &mut Buffer
     }
 }
 
-/// ステップ表示（`Step 2/8` 等・番号は 8 固定・スキップ分は番号が飛ぶ）。
+/// ステップ表示（`Step 2/7` 等・番号は 7 固定・スキップ分は番号が飛ぶ）。
 fn step_label(wizard: &CardWizardState) -> String {
     let no = match wizard.step {
-        WizardStep::DoneSelect => 1,
-        WizardStep::Runner => 2,
-        WizardStep::Block => 3,
-        WizardStep::DocSelect => 4,
-        WizardStep::Provider => 5,
-        WizardStep::Model => 6,
-        WizardStep::Thinking => 7,
-        WizardStep::Rounds | WizardStep::Done => 8,
+        WizardStep::Runner => 1,
+        WizardStep::Block => 2,
+        WizardStep::DocSelect => 3,
+        WizardStep::Provider => 4,
+        WizardStep::Model => 5,
+        WizardStep::Thinking => 6,
+        WizardStep::Rounds | WizardStep::Done => 7,
     };
-    format!("Step {}/8", no)
+    format!("Step {}/7", no)
 }
 
 /// 汎用リストダイアログ（run-tui のメニューと同じ見た目）。
@@ -1046,41 +909,6 @@ fn render_list_dialog(
         );
         row += 1;
     }
-}
-
-/// Done 選択ステップの描画。
-fn render_done_select(wizard: &CardWizardState, area: Rect, buf: &mut Buffer, bg: Color) {
-    let header = if wizard.done_options.is_empty() {
-        vec!["done レーンなし: Enter で空カードへ進む".to_string()]
-    } else {
-        vec!["done の実行を選択（複数可・未選択=空カード）".to_string()]
-    };
-    let items: Vec<String> = wizard
-        .done_options
-        .iter()
-        .enumerate()
-        .map(|(i, id)| {
-            let mark = if wizard.done_checked.get(i).copied().unwrap_or(false) {
-                "[x]"
-            } else {
-                "[ ]"
-            };
-            format!("{} ID{}", mark, id)
-        })
-        .collect();
-    render_list_dialog(
-        area,
-        buf,
-        " task create (Shift+C) ",
-        &step_label(wizard),
-        &header,
-        &items,
-        wizard.done_cursor,
-        "Up/Down=move Space=toggle Enter=next Esc=close",
-        &wizard.warnings,
-        wizard.error.as_deref(),
-        bg,
-    );
 }
 
 /// runner 選択ステップの描画。
@@ -1445,77 +1273,13 @@ mod tests {
     }
 
     fn wizard_state() -> CardWizardState {
-        CardWizardState::new(vec![1, 2])
+        CardWizardState::new()
     }
 
-    /// Done 選択 → Enter で Runner へ進むこと。
+    /// 開いた直後は Runner 選択から始まること（review の引き継ぎ手順は無い）。
     #[test]
-    fn done_select_enter_goes_to_runner() {
-        let _guard = crate::app::file_test_lock();
-        let mut w = wizard_state();
-        let store = SaiStore::open_in_memory().unwrap();
-        let mut state = AppState::new(Arc::new(store));
-        assert_eq!(w.step, WizardStep::DoneSelect);
-        let outcome = handle_wizard_key_inner(&mut state, enter(), &mut w);
-        assert_eq!(outcome, WizardOutcome::Keep);
-        assert_eq!(w.step, WizardStep::Runner);
-    }
-
-    /// Done 選択の確定時に global_round 同値・round+1 が事前入力されること。
-    ///
-    /// 複数選択時は最大値継承（global_round=max・round=max+1）。未選択時は空のまま。
-    #[test]
-    fn done_select_prefills_rounds_from_selection() {
-        let _guard = crate::app::file_test_lock();
-        use sai_link_engine::db::models::BlockMetadata;
-        let store = SaiStore::open_in_memory().unwrap();
-        let block_id = store
-            .insert_block(&BlockMetadata::new(
-                "b".to_string(),
-                "テスト用".to_string(),
-                "m".to_string(),
-                None,
-                "off".to_string(),
-                "true".to_string(),
-                "true".to_string(),
-                None,
-                300,
-                "none".to_string(),
-                true,
-                "blocks/b.md".to_string(),
-                None
-            ))
-            .unwrap();
-        let e1 = store.create_execution(block_id, None).unwrap();
-        store
-            .update_execution_overrides(e1, None, Some(3), Some(7), None, None, None)
-            .unwrap();
-        let e2 = store.create_execution(block_id, None).unwrap();
-        store
-            .update_execution_overrides(e2, None, Some(5), Some(7), None, None, None)
-            .unwrap();
-        let mut state = AppState::new(Arc::new(store));
-        let mut w = CardWizardState::new(vec![e1, e2]);
-        // 両方選択 → Enter
-        w.done_checked = vec![true, true];
-        let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
-        assert_eq!(w.step, WizardStep::Runner);
-        assert_eq!(w.rounds[0], "7", "global_round は最大値の同値継承");
-        assert_eq!(w.rounds[1], "6", "round は最大値+1");
-        assert!(w.rounds[2].is_empty(), "tag は触らない");
-    }
-
-    /// 未選択（空カード）の確定時は rounds に何も入らないこと。
-    #[test]
-    fn done_select_empty_leaves_rounds_blank() {
-        let _guard = crate::app::file_test_lock();
-        let store = SaiStore::open_in_memory().unwrap();
-        let mut state = AppState::new(Arc::new(store));
-        let mut w = CardWizardState::new(vec![1, 2]);
-        // 未選択のまま Enter
-        let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
-        assert_eq!(w.step, WizardStep::Runner);
-        assert!(w.rounds.iter().all(|r| r.is_empty()));
+    fn wizard_starts_at_runner() {
+        assert_eq!(wizard_state().step, WizardStep::Runner);
     }
 
     /// Runner で pi → Block → DocSelect → Provider → Model → Thinking → Rounds の順に進むこと。
@@ -1525,8 +1289,6 @@ mod tests {
         let mut w = wizard_state();
         let store = SaiStore::open_in_memory().unwrap();
         let mut state = AppState::new(Arc::new(store));
-        // Runner へ
-        let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         // pi（index 1）を確定
         w.runner_cursor = 1;
         let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
@@ -1558,7 +1320,6 @@ mod tests {
         let mut w = wizard_state();
         let store = SaiStore::open_in_memory().unwrap();
         let mut state = AppState::new(Arc::new(store));
-        let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         w.runner_cursor = 0;
         let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         assert_eq!(w.runner, "user");
@@ -1576,7 +1337,6 @@ mod tests {
         let mut w = wizard_state();
         let store = SaiStore::open_in_memory().unwrap();
         let mut state = AppState::new(Arc::new(store));
-        let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         w.runner_cursor = 2;
         let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         assert_eq!(w.runner, "cc");
@@ -1608,7 +1368,6 @@ mod tests {
         let mut w = wizard_state();
         let store = SaiStore::open_in_memory().unwrap();
         let mut state = AppState::new(Arc::new(store));
-        let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         w.runner_cursor = 3;
         let _ = handle_wizard_key_inner(&mut state, enter(), &mut w);
         assert_eq!(w.runner, "gl");
@@ -1640,7 +1399,6 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
         for step in [
-            WizardStep::DoneSelect,
             WizardStep::Runner,
             WizardStep::Block,
             WizardStep::DocSelect,
@@ -1708,19 +1466,19 @@ mod tests {
         assert_eq!(w.step, WizardStep::Block);
     }
 
-    /// ステップ見出しが 8 固定マップで表示されること。
+    /// ステップ見出しが 7 固定マップで表示されること。
     #[test]
-    fn step_label_uses_fixed_eight_map() {
+    fn step_label_uses_fixed_seven_map() {
         let mut w = wizard_state();
-        assert_eq!(step_label(&w), "Step 1/8");
+        assert_eq!(step_label(&w), "Step 1/7");
         w.step = WizardStep::Block;
-        assert_eq!(step_label(&w), "Step 3/8");
+        assert_eq!(step_label(&w), "Step 2/7");
         w.step = WizardStep::DocSelect;
-        assert_eq!(step_label(&w), "Step 4/8");
+        assert_eq!(step_label(&w), "Step 3/7");
         w.step = WizardStep::Thinking;
-        assert_eq!(step_label(&w), "Step 7/8");
+        assert_eq!(step_label(&w), "Step 6/7");
         w.step = WizardStep::Rounds;
-        assert_eq!(step_label(&w), "Step 8/8");
+        assert_eq!(step_label(&w), "Step 7/7");
     }
 
     /// 警告は各ステップでダイアログ枠の内側に描画されること（枠外へは出さない）。
@@ -1730,7 +1488,6 @@ mod tests {
         let long = "settings.json のパースに失敗しました: /Users/example/project/.sai/settings.json"
             .to_string();
         for step in [
-            WizardStep::DoneSelect,
             WizardStep::Runner,
             WizardStep::Block,
             WizardStep::DocSelect,
@@ -1775,7 +1532,7 @@ mod tests {
         let mut state = AppState::new(Arc::new(store));
         open_card_wizard(&mut state);
         assert!(matches!(state.modal, crate::app::Modal::CardCreate(_)));
-        // DoneSelect で Esc → モーダルごと閉じる（枠も警告も消える）
+        // Runner で Esc → モーダルごと閉じる（枠も警告も消える）
         let _ = handle_card_wizard_key(&mut state, esc());
         assert!(matches!(state.modal, crate::app::Modal::None));
     }

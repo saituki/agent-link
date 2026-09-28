@@ -31,7 +31,7 @@ pub struct HandoffCreateArgs {
     /// 実行エージェント（pi または cc。既定: pi）
     #[arg(long, default_value = "pi")]
     pub runner: String,
-    /// 推薦した実行の run_id（任意。カードの `origin_run_id` になる）
+    /// 推薦した実行の run_id（任意。研究方針の木の結び付けに使う）
     #[arg(long)]
     pub origin_run: Option<i64>,
     /// 推薦の理由（任意。本文の先頭に書く）
@@ -165,14 +165,8 @@ fn handle_list(tag: Option<String>, json: bool) -> Result<()> {
     } else {
         for card in &cards {
             println!(
-                "run_id={}\tblock={}\ttag={}\torigin_run_id={}\t{}",
-                card.run_id,
-                card.block,
-                card.tag,
-                card.origin_run_id
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                card.description
+                "run_id={}\tblock={}\ttag={}\t{}",
+                card.run_id, card.block, card.tag, card.description
             );
         }
     }

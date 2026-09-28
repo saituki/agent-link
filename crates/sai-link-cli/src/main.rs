@@ -205,7 +205,7 @@ fn main() {
                 Ok(report) => {
                     println!("outputs 移行が完了しました:");
                     println!("  カード: {} 件（予約発行 {} 件）", report.cards, report.reserved);
-                    println!("  review: {} 件 / message: {} 件 / session: {} 件", report.reviews, report.messages, report.sessions);
+                    println!("  message: {} 件 / session: {} 件", report.messages, report.sessions);
                     println!("  reflection 削除: {} 件 / スキップ: {} 件", report.reflections_removed, report.skipped);
                     Ok(())
                 }

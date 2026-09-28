@@ -242,11 +242,11 @@ fn draw_status_bar(
     }
     // 左側: Space 待機中 > 一時メッセージ > 既定ガイド
     let left = if state.space_pending {
-        "Space: r=review t=task m=message (Esc=解除)".to_string()
+        "Space: t=task m=message (Esc=解除)".to_string()
     } else if let Some(msg) = state.message.as_deref() {
         msg.to_string()
     } else {
-        "Space r/t/m: md表示 | x: CLI | Shift+H: ヘルプ".to_string()
+        "Space t/m: md表示 | x: CLI | Shift+H: ヘルプ".to_string()
     };
     // 右側: フォーカス中の画面 + 選択中実行 ID
     let focus_part = if state.view_mode == ViewMode::Workflow {

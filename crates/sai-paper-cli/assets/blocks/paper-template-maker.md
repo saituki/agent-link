@@ -8,10 +8,6 @@ templates:
   - project-brief
   - research-core
   - literature-hard-rules
-review_headings:
-  - 納得した点
-  - 疑問に思った点
-  - 次に知りたいこと
 timeout: 3600
 worktree: none
 enable: true

@@ -416,7 +416,6 @@ mod tests {
             tag: None,
             round: None,
             templates: None,
-            review_headings: None,
             context: None,
             id: None,
         }

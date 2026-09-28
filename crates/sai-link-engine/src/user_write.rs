@@ -155,7 +155,7 @@ pub fn register_user_output(
     };
 
     // 破壊防止: run フォルダの固定ファイル、または run フォルダ配下のファイルは登録しない
-    if base == run_dir::TASK_FILE || base == run_dir::REVIEW_FILE || base == run_dir::MESSAGE_FILE {
+    if base == run_dir::TASK_FILE || base == run_dir::MESSAGE_FILE {
         return Err(UserWriteError::Protected(source.to_path_buf()));
     }
     let source_for_check = source.canonicalize().unwrap_or_else(|_| source.to_path_buf());
@@ -204,7 +204,7 @@ pub fn register_user_output(
     // 7-a. 入力トークン辺
     crate::orchestrator::insert_block_connections(store, run_id, block_id, input_tokens);
     // 7-b. 来歴辺（task.md frontmatter の origin_run_id）
-    insert_origin_connections(store, run_id, block_id, &run_dir_path);
+    record_card_path(store, run_id, &run_dir_path);
 
     Ok(UserWriteOutcome {
         exec_id: run_id,
@@ -261,34 +261,17 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// task.md の `origin_run_id` から `kanban_origin` 辺を挿入し、DB に来歴情報を保存する。
-fn insert_origin_connections(
-    store: &SaiStore,
-    run_id: i64,
-    block_id: i64,
-    run_dir_path: &Path,
-) {
+/// 利用者の札の task.md のパスを DB に残す（kanban 実行と同じ記録）。
+fn record_card_path(store: &SaiStore, run_id: i64, run_dir_path: &Path) {
     let task_md = run_dir_path.join(run_dir::TASK_FILE);
-    let Ok(text) = std::fs::read_to_string(&task_md) else {
-        return;
-    };
-    let Some(card) = crate::kanban::parse_card(&text) else {
-        return;
-    };
-    let csv = card.frontmatter.origin_run_id.trim().to_string();
-    if csv.is_empty() || csv == "-" {
+    if !task_md.is_file() {
         return;
     }
-    let ids = crate::orchestrator::parse_origin_run_ids(&csv);
-    if ids.is_empty() {
-        return;
-    }
-    crate::orchestrator::insert_kanban_origin_connections(store, run_id, block_id, &ids);
     let card_rel = task_md
         .strip_prefix(crate::project::project_root())
         .ok()
         .map(|p| p.to_string_lossy().to_string());
-    let _ = store.update_execution_kanban_info(run_id, Some(csv.as_str()), card_rel.as_deref(), "kanban");
+    let _ = store.update_execution_kanban_info(run_id, card_rel.as_deref(), "kanban");
 }
 
 /// バイト列の SHA-256 ハッシュ（64桁 hex 小文字）を計算する。
@@ -502,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn creates_waggle_and_origin_connections() {
+    fn creates_waggle_connections() {
         let _env = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tmp_project("conn");
         let store = SaiStore::open(&tmp.join(".sai/sai-engine/sai-engine.db")).unwrap();
@@ -517,12 +500,11 @@ mod tests {
             .unwrap();
 
         let (run_id, dir) = make_user_run(&store);
-        // task.md に来歴（origin_run_id = src_exec）を書く
         std::fs::write(
             dir.join(run_dir::TASK_FILE),
             format!(
-                "---\nrunner: user\ncreation_date: 2026/09/17 10:00:00\norigin_run_id: {}\nrun_id: {}\n---\n\n# task_text\n",
-                src_exec, run_id
+                "---\nrunner: user\ncreation_date: 2026/09/17 10:00:00\nrun_id: {}\n---\n\n# task_text\n",
+                run_id
             ),
         )
         .unwrap();
@@ -540,9 +522,6 @@ mod tests {
 
         assert!(store
             .connection_exists(src_exec, run_id, "waggle_token")
-            .unwrap());
-        assert!(store
-            .connection_exists(src_exec, run_id, "kanban_origin")
             .unwrap());
 
         let _ = std::fs::remove_dir_all(&tmp);

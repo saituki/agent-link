@@ -78,7 +78,6 @@ fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
         global_round: row.get(30)?,
         batch_id: row.get(31)?,
         finalized: row.get::<_, i64>(32).unwrap_or(0) != 0,
-        origin_run_id: row.get(33).ok(),
         kanban_card_path: row.get(34).ok(),
         execution_mode: row.get(35).ok(),
         // 旧 DB（カラムなし）は 0（Kanban 所有）扱い
@@ -1850,21 +1849,18 @@ impl SaiStore {
 
     /// Kanban 実行情報を保存する（`--kanban` 実行時のみ使用）。
     ///
-    /// * `origin_run_id` — カード作成時に選んだ review 済み実行 ID（カンマ区切り）
     /// * `kanban_card_path` — 実行に使ったカード md の相対パス（`.sai/todo/xxx.md`）
     /// * `execution_mode` — `kanban`（通常実行は `interactive`）
     pub fn update_execution_kanban_info(
         &self,
         id: i64,
-        origin_run_id: Option<&str>,
         kanban_card_path: Option<&str>,
         execution_mode: &str,
     ) -> Result<(), DbError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE execution_history SET origin_run_id = ?1, kanban_card_path = ?2, \
-             execution_mode = ?3 WHERE id = ?4",
-            params![origin_run_id, kanban_card_path, execution_mode, id],
+            "UPDATE execution_history SET kanban_card_path = ?1, execution_mode = ?2 WHERE id = ?3",
+            params![kanban_card_path, execution_mode, id],
         )?;
         Ok(())
     }
@@ -1975,8 +1971,7 @@ impl SaiStore {
                     global_round: row.get(30)?,
                     batch_id: row.get(31)?,
                     finalized: row.get::<_, i64>(32).unwrap_or(0) != 0,
-                    origin_run_id: row.get(33).ok(),
-                    kanban_card_path: row.get(34).ok(),
+                                kanban_card_path: row.get(34).ok(),
                     execution_mode: row.get(35).ok(),
                     workflow_moved: row.get::<_, i64>(36).unwrap_or(0) != 0,
                     review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
@@ -3597,51 +3592,23 @@ mod tests {
         assert_eq!(groups.len(), 1);
     }
 
-    /// Kanban: `update_execution_kanban_info` で3カラムが保存され、
-    /// `kanban_origin` 接続が挿入できること。
+    /// Kanban: `update_execution_kanban_info` でカードパスと実行の種類が保存されること。
     #[test]
-    fn test_kanban_info_and_origin_connection() {
+    fn test_kanban_info() {
         let store = SaiStore::open_in_memory().unwrap();
         let block_id = store
             .insert_block(&create_test_block("kanban-blk"))
             .unwrap();
-        let origin_id = store.create_execution(block_id, None).unwrap();
         let new_id = store.create_execution(block_id, None).unwrap();
-
         store
-            .update_execution_kanban_info(
-                new_id,
-                Some(&origin_id.to_string()),
-                Some(".sai/todo/card-x.md"),
-                "kanban",
-            )
+            .update_execution_kanban_info(new_id, Some(".sai/todo/card-x.md"), "kanban")
             .unwrap();
         let exec = store.get_execution_by_id(new_id).unwrap();
-        assert_eq!(
-            exec.origin_run_id.as_deref(),
-            Some(origin_id.to_string()).as_deref()
-        );
         assert_eq!(
             exec.kanban_card_path.as_deref(),
             Some(".sai/todo/card-x.md")
         );
         assert_eq!(exec.execution_mode.as_deref(), Some("kanban"));
-
-        // origin_run_id パース → kanban_origin 接続挿入
-        let ids =
-            crate::orchestrator::parse_origin_run_ids(exec.origin_run_id.as_deref().unwrap_or(""));
-        assert_eq!(ids, vec![origin_id]);
-        crate::orchestrator::insert_kanban_origin_connections(&store, new_id, block_id, &ids);
-        // 重複挿入は冪等（2回呼んでも1本）
-        crate::orchestrator::insert_kanban_origin_connections(&store, new_id, block_id, &ids);
-        let conns = store.list_connections_by_block(block_id).unwrap();
-        let kanban_conns: Vec<_> = conns
-            .iter()
-            .filter(|c| c.connection_type == "kanban_origin")
-            .collect();
-        assert_eq!(kanban_conns.len(), 1);
-        assert_eq!(kanban_conns[0].source_execution_id, origin_id);
-        assert_eq!(kanban_conns[0].target_execution_id, new_id);
     }
 
     /// 親実行の削除で、サブ実行・タスク・接続がカスケード削除されること。

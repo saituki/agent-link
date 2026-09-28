@@ -117,7 +117,7 @@ pub struct AppState {
     pub log_state: LogState,
     /// 左SB カーソル位置の実行 ID（ステータスバー右端の表示用）。
     ///
-    /// 注意：`l/s/o/h/r/p`・`Space r/t/m`・`x` の対象決定には使わない。
+    /// 注意：`l/s/o/h/p`・`Space t/m`・`x` の対象決定には使わない。
     /// 各 shortcut は押下時点の sidebar カーソル（`sidebar_selected_exec_id`）から
     /// 直接決める（保持値の stale で別ブロックのファイルを開かないため）。
     pub selected_exec_id: Option<i64>,

@@ -11,10 +11,6 @@ templates:
 context: true
 sci_ops: add_question, link, add_option, reopen, exclude, add_edge
 sci_scope: summary
-review_headings:
-  - 反映したこと
-  - 反映しなかったこと（理由）
-  - 次に知りたいこと
 timeout: 5400
 worktree: none
 enable: true

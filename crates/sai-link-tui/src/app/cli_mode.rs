@@ -617,7 +617,7 @@ fn do_run_flow(state: &mut AppState) {
         state.set_message(format!("[警告] {}", warning_msg));
     }
     // `runner: pi` → task.md 値＋block.md デフォルトで確定し、デーモンへ実行要求
-    let mut user_inputs =
+    let user_inputs =
         match sai_link_engine::kanban::resolve_card_inputs(&card, &HashMap::new()) {
             Ok(m) => m,
             Err(e) => {
@@ -625,10 +625,6 @@ fn do_run_flow(state: &mut AppState) {
                 return;
             }
         };
-    let origin_csv = card.frontmatter.origin_run_id.trim().to_string();
-    if !origin_csv.is_empty() && origin_csv != "-" {
-        user_inputs.insert("origin_run_id".to_string(), origin_csv);
-    }
     let non_empty = |s: &str| {
         let t = s.trim();
         if t.is_empty() {

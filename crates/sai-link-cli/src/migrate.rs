@@ -1,12 +1,11 @@
 //! # `sai-link migrate-outputs` — 旧 `.sai/` 構成の outputs 移行（R7・一度だけ）
 //!
-//! 旧構成（`.sai/todo/*.md`・`.sai/review/<id>.md`・`.sai/message/<id>.md`・
+//! 旧構成（`.sai/todo/*.md`・`.sai/message/<id>.md`・
 //! `.sai/sessions/pi-sessions-*/`・`.sai/reflection/`）を
 //! `outputs/<owner>/<run_id>/` へ移行する。
 //!
 //! - `todo/*.md`：`run_id` 確定済み→対応 run の `task.md` へ、
 //!   未確定（`-`）→予約行を発行して `todo/<run_id>/task.md` へ
-//! - `review/<id>.md`→対応 run の `review.md`（対応 run なしはスキップ）
 //! - `message/<id>.md`→対応 run の `message.md`（対応 run なしはスキップ）
 //! - `sessions/pi-sessions-*/`→対応 run の `session/` へ移動（正本移転）
 //! - `reflection/` は削除する（使用しない・R209・A9 で他PJも同様）
@@ -33,8 +32,6 @@ pub struct MigrateReport {
     pub cards: usize,
     /// 発行した予約行数
     pub reserved: usize,
-    /// 移動した review 数
-    pub reviews: usize,
     /// 移動した message 数
     pub messages: usize,
     /// 移動した session ディレクトリ数
@@ -154,9 +151,6 @@ fn run_migrate_body() -> Result<MigrateReport, Box<dyn std::error::Error>> {
     let store = sai_link_engine::db::SaiStore::open(&db_path)?;
 
     migrate_cards(&store, &root, &mut report)?;
-    migrate_simple_files(&root, "review", sai_link_engine::run_dir::REVIEW_FILE, &mut report, |r| {
-        &mut r.reviews
-    })?;
     migrate_simple_files(
         &root,
         "message",
@@ -225,7 +219,6 @@ fn migrate_cards(
         } else {
             // 未確定カード：予約行を発行して todo/<run_id>/task.md へ
             let inputs = serde_json::json!({
-                "origin_run_id": card.frontmatter.origin_run_id,
                 "description": card.frontmatter.description,
             });
             let inputs_str = serde_json::to_string(&inputs)?;
@@ -253,27 +246,16 @@ fn owner_for_execution(store: &sai_link_engine::db::SaiStore, run_id: i64) -> St
     let Ok(exec) = store.get_execution_by_id(run_id) else {
         return sai_link_engine::run_dir::REVIEW_OWNER.to_string();
     };
-    // review ファイルの記入有無で review/done を分ける
-    let review_done = sai_link_engine::orchestrator::review_path(run_id)
-        .exists()
-        .then(|| {
-            std::fs::read_to_string(sai_link_engine::orchestrator::review_path(run_id))
-                .map(|t| {
-                    sai_link_engine::reflection_status::ReviewStatus::judge(Some(t.as_str()))
-                        == sai_link_engine::reflection_status::ReviewStatus::Done
-                })
-                .unwrap_or(false)
-        })
-        .unwrap_or(false);
+    // review → done の区別は DB の review_done（利用者が確認済みにしたか）で決める
     sai_link_engine::run_dir::owner_for(
         &exec.status,
-        review_done,
+        exec.review_done,
         exec.workflow_moved,
         exec.global_round,
     )
 }
 
-/// 旧 `.sai/<dir>/<id>.md` を対応 run フォルダへ移行する（review/message 共通）。
+/// 旧 `.sai/<dir>/<id>.md` を対応 run フォルダへ移行する（message 用）。
 fn migrate_simple_files(
     root: &std::path::Path,
     dir_name: &str,

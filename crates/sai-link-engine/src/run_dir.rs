@@ -21,7 +21,6 @@ pub const DONE_OWNER: &str = "done";
 
 /// run フォルダ内の固定ファイル名。
 pub const TASK_FILE: &str = "task.md";
-pub const REVIEW_FILE: &str = "review.md";
 pub const MESSAGE_FILE: &str = "message.md";
 /// session jsonl 置き場（run フォルダ直下）。
 pub const SESSION_SUBDIR: &str = "session";
@@ -512,7 +511,6 @@ mod tests {
 
         // run フォルダを review owner に用意する
         let dir = ensure_run_dir(REVIEW_OWNER, run_id).unwrap();
-        std::fs::write(dir.join(REVIEW_FILE), "### 追加修正\n\n文章が簡単すぎる\n").unwrap();
         let mut exec = store.get_execution_by_id(run_id).unwrap();
 
         // review.md を記入しても DB が review_done=false なら review に留まる
@@ -732,7 +730,6 @@ mod tests {
             .update_execution_rounds(run_id, Some(1), Some(3))
             .unwrap();
         let dir = ensure_run_dir(REVIEW_OWNER, run_id).unwrap();
-        std::fs::write(dir.join(REVIEW_FILE), "### 追加修正\n").unwrap();
 
         // review → done
         advance_review_to_done(&store, run_id).unwrap();

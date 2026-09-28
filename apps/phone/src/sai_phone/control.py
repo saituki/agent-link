@@ -47,9 +47,9 @@ _summary_cache: dict[str, tuple[float, dict]] = {}
 # `sai-link phone run --view` が返す 3 種（計画 12 §3.2）
 _PHONE_VIEWS = ("log", "stats", "history")
 # `sai-link phone md --kind` が返す 3 種（計画 12 §3.2）
-_PHONE_MD_KINDS = ("task", "review", "message")
-# 保存できる md（task は未実行の todo カードだけ・review は実行済みの run だけ。確かめるのは sai-link）
-_PHONE_MD_WRITABLE = ("task", "review")
+_PHONE_MD_KINDS = ("task", "message")
+# 保存できる md（task は未実行の todo カードだけ。確かめるのは sai-link）
+_PHONE_MD_WRITABLE = ("task",)
 # waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き・計画 12 §3.3）
 _PHONE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 # md が無いときに sai-link が返す stderr（終了コード 3・計画 12 §3.2）
@@ -334,7 +334,7 @@ def phone_md(name: str, run_id: int, kind: str) -> dict:
     if kind not in _PHONE_MD_KINDS:
         raise HTTPException(
             status_code=400,
-            detail="kind は task / review / message のいずれかにしてください",
+            detail="kind は task / message のいずれかにしてください",
         )
     project = _phone_project(name)
     return _phone_json(["md", str(run_id), "--kind", kind], root=project["root"])
@@ -348,7 +348,7 @@ def phone_md_save(name: str, run_id: int, kind: str, text) -> dict:
     """
     _check_run_id(run_id)
     if kind not in _PHONE_MD_WRITABLE:
-        raise HTTPException(status_code=400, detail="保存できるのは task / review だけです")
+        raise HTTPException(status_code=400, detail="保存できるのは task だけです")
     if not isinstance(text, str) or len(text.encode("utf-8")) > _TASK_TEXT_MAX:
         raise HTTPException(status_code=400, detail="本文は 100KB までの文字にしてください")
     project = _phone_project(name)

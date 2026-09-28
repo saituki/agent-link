@@ -125,9 +125,6 @@ fn val(r: PhoneResult<Value>) -> PhoneResult<PhoneOut> {
 /// 空文字 = スキップ（TUI と同じく自動値を使う）。
 #[derive(Debug, Default, Deserialize)]
 struct CardCreateInput {
-    /// 引き継ぐ done 実行 ID
-    #[serde(default)]
-    done_ids: Vec<i64>,
     /// runner（空 = スキップ）
     #[serde(default)]
     runner: String,
@@ -196,8 +193,8 @@ fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
         PhoneCmd::Waggle { run_id, token } => val(waggle(run_id, token.as_deref())),
         PhoneCmd::Card { cmd } => val(match cmd {
             PhoneCardCmd::Options => card_options(),
-            PhoneCardCmd::Inputs { block, origin_run_id } => {
-                card_inputs(&block, origin_run_id)
+            PhoneCardCmd::Inputs { block } => {
+                card_inputs(&block)
             }
             PhoneCardCmd::Docs { limit } => card_docs(limit),
             PhoneCardCmd::Create => card_create(),
@@ -349,7 +346,6 @@ fn edge_kind_name(k: sai_link_widgets::workflow::EdgeKind) -> &'static str {
         K::Delegation => "delegation",
         K::TaskOutput => "task_output",
         K::WaggleToken => "waggle_token",
-        K::GitCommit => "git_commit",
     }
 }
 
@@ -399,7 +395,6 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
         "todo": todo,
         "running": running,
         "review": review,
-        "done": done,
     })
 }
 
@@ -549,11 +544,10 @@ fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
     let store = open_store()?;
     let md_kind = match kind {
         "task" => phone_view::MdKind::Task,
-        "review" => phone_view::MdKind::Review,
         "message" => phone_view::MdKind::Message,
         other => {
             return Err(PhoneError::usage(format!(
-                "不正な kind です: {}（task | review | message）",
+                "不正な kind です: {}（task | message）",
                 other
             )))
         }
@@ -576,11 +570,10 @@ fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
 /// 保存できる md の大きさ（sai-phone の入力上限と同じ 100KB）。
 const MD_WRITE_MAX: usize = 100 * 1024;
 
-/// `phone md <id> --kind task|review --write`: 標準入力の中身で md を保存する。
+/// `phone md <id> --kind task --write`: 標準入力の中身で md を保存する。
 ///
 /// - task: 未実行の todo カード（`phone card run` と同じ条件）だけ。frontmatter が
 ///   読めなくなる・run_id が変わる内容は保存しない（todo から消えてしまうため）。
-/// - review: DB にある実行だけ。review.md が無ければ作る（TUI の `r` と同じ置き場）。
 /// - message は session から毎回作り直すので保存できない。
 fn md_write(run_id: i64, kind: &str) -> PhoneResult<Value> {
     let mut text = String::new();
@@ -616,16 +609,10 @@ fn md_save(run_id: i64, kind: &str, text: &str) -> PhoneResult<Value> {
             }
             task
         }
-        "review" => {
-            store
-                .get_execution_by_id(run_id)
-                .map_err(|_| PhoneError::not_found("実行が見つかりません"))?;
-            sai_link_engine::orchestrator::review_path(run_id)
-        }
         "message" => return Err(PhoneError::usage("message は保存できません")),
         other => {
             return Err(PhoneError::usage(format!(
-                "不正な kind です: {}（task | review）",
+                "不正な kind です: {}（task）",
                 other
             )))
         }
@@ -686,21 +673,11 @@ fn waggle(run_id: i64, token: Option<&str>) -> PhoneResult<Value> {
 // card — options / inputs / create
 // ============================================================================
 
-/// `phone card options`: ウィザードの選択肢（done / runner / block / provider / model / …）。
+/// `phone card options`: ウィザードの選択肢（runner / block / provider / model / …）。
 fn card_options() -> PhoneResult<Value> {
-    let store = open_store()?;
-    let prep = card_entries::prepare_view(&store);
+    // DB が無いプロジェクトでは他の phone 命令と同じ終了コードで止める
+    open_store()?;
 
-    let done: Vec<Value> = card_entries::done_options(&prep.kanban_entries)
-        .into_iter()
-        .map(|d| {
-            json!({
-                "run_id": d.run_id,
-                "label": d.label,
-                "description": d.description,
-            })
-        })
-        .collect();
     let blocks: Vec<Value> = card_wizard::load_block_choices()
         .into_iter()
         .map(|(label, id)| json!({ "label": label, "id": id }))
@@ -713,7 +690,6 @@ fn card_options() -> PhoneResult<Value> {
     let (_, warnings) = sai_link_engine::pi_command::load_settings_quiet();
 
     Ok(json!({
-        "done": done,
         "runners": card_wizard::RUNNER_OPTIONS,
         "blocks": blocks,
         "providers": providers,
@@ -725,12 +701,8 @@ fn card_options() -> PhoneResult<Value> {
 
 /// `phone card inputs --block <id>`: 入力欄（P2 で入力を廃止したため常に空）。
 ///
-/// U03: `phone card inputs --block <id> [--origin-run-id <run_id>]`: task.md 作成時の文書候補を返す。
-///
-/// - ブロックの存在確認だけ行い、`{"fields": []}` を返す（従来通り・外部 sai-phone 互換）。
-/// - `origin_run_id` 指定時は origin 実行の文書＋実行中を含む全体（`select_docs(Origin)` と同一）を
-///   `candidates` に追加する。plan が実装ガイドを task.md に貼る hand-off 用。
-fn card_inputs(block: &str, origin_run_id: Option<i64>) -> PhoneResult<Value> {
+/// ブロックの存在確認だけ行い、`{"fields": []}` を返す（外部 sai-phone 互換）。
+fn card_inputs(block: &str) -> PhoneResult<Value> {
     if block.trim().is_empty() {
         return Err(PhoneError::usage("block を指定してください"));
     }
@@ -740,25 +712,12 @@ fn card_inputs(block: &str, origin_run_id: Option<i64>) -> PhoneResult<Value> {
             block
         )));
     }
-    let candidates: Vec<Value> = origin_run_id
-        .map(|oid| {
-            let store = match open_store() {
-                Ok(s) => s,
-                Err(_) => return Vec::new(),
-            };
-            // TUI Step4 と同じ候補集合（origin の文書＋実行中を含む全体）
-            phone_view::select_docs(&store, &phone_view::DocSelectScope::Origin(oid))
-                .into_iter()
-                .map(|c| card_candidate_json(&c))
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(json!({ "fields": [], "candidates": candidates }))
+    Ok(json!({ "fields": [] }))
 }
 
-/// 候補 1 件を `phone card inputs` の JSON にする。
+/// 候補 1 件を `phone card docs` の JSON にする。
 ///
-/// `ref` の `<run_id>` は origin ではなく **文書を保存した実行の番号**（U08）。
+/// `ref` の `<run_id>` は **文書を保存した実行の番号**（U08）。
 fn card_candidate_json(c: &phone_view::WaggleChoiceData) -> Value {
     json!({
         "token": c.token,
@@ -811,11 +770,11 @@ fn card_schedule(run_id: i64, at: Option<&str>) -> PhoneResult<Value> {
 /// `phone card create`（stdin に JSON）: カードを作成し run_id とパスを返す。
 ///
 /// 受け取った値は TUI と同じ検査（`validate_card_spec`）にかける。
-/// 本文は `# task_text` 直下に task_text、その後に review 結合（TUI と同じ並び）。
+/// 本文は `# task_text` 直下に task_text（TUI と同じ）。
 /// `doc_tokens` 指定時は TUI Step4 と同じく task_text 先頭に参照行を貼る
 /// （全経路共通の候補形式。実行時に本文展開される）。
 fn card_create() -> PhoneResult<Value> {
-    let store = open_store()?;
+    open_store()?;
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
@@ -845,7 +804,6 @@ fn card_create() -> PhoneResult<Value> {
         format!("{}\n\n{}", doc_refs.join("\n"), parsed.task_text.trim_end())
     };
     let spec = card_wizard::CardSpec {
-        done_ids: parsed.done_ids,
         runner: parsed.runner,
         block: parsed.block,
         provider: parsed.provider,
@@ -859,7 +817,7 @@ fn card_create() -> PhoneResult<Value> {
     // TUI と同じ検査（runner / thinking は一覧の値・block は存在するもの）
     card_wizard::validate_card_spec(&spec).map_err(PhoneError::usage)?;
 
-    let path = card_wizard::create_card(&store, &spec)
+    let path = card_wizard::create_card(&spec)
         .map_err(|e| PhoneError::usage(format!("カード作成に失敗: {}", e)))?;
 
     // 作成済み task.md の frontmatter から確定した run_id を読む

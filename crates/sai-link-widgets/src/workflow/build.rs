@@ -447,9 +447,10 @@ pub fn build_block_graph(
         }
     }
 
-    // 3-3. 実行単位の接続（waggle_token / git_commit のみ。task_delegation / task_output は上で処理済み）
+    // 3-3. 実行単位の接続（waggle_token のみ。task_delegation / task_output は上で処理済み）。
+    // 線は親子と waggle の受け渡しだけにする（旧 kanban_origin / review / git_commit は引かない）。
     for conn in connections {
-        if conn.connection_type == "task_delegation" || conn.connection_type == "task_output" {
+        if conn.connection_type != "waggle_token" {
             continue;
         }
 
@@ -462,7 +463,7 @@ pub fn build_block_graph(
             continue; // 実行レコードが表示範囲に無い場合はスキップ
         };
 
-        // waggle_token / git_commit:
+        // waggle_token:
         // - **sb 同士（両端点がサブ）→ 上下辺中点で接続**（ユーザー要求）
         // - mb 同士 → 上下辺中点（従来どおり）
         // - mb-sb の混合（レア）のみ左右辺接地のまま
@@ -475,18 +476,13 @@ pub fn build_block_graph(
             .map(|b| b.parent_exec_id.is_some())
             .unwrap_or(false);
         let side = src_is_sub != tgt_is_sub; // 両方サブ or 両方メイン → 上下辺
-        let is_waggle = conn.connection_type == "waggle_token";
         dag.add_edge(
             from_idx,
             to_idx,
             EdgeData {
                 style: Some(Style::default().fg(Color::Magenta)),
                 side,
-                kind: if is_waggle {
-                    EdgeKind::WaggleToken
-                } else {
-                    EdgeKind::GitCommit
-                },
+                kind: EdgeKind::WaggleToken,
             },
         );
         layout.add_edge(from_eid, to_eid, side);

@@ -60,66 +60,6 @@ pub fn open_gl_session(app: &mut AppState) {
     spawn_in_pane(app, "gl", "gl");
 }
 
-/// ブロック ID からブロック定義を読み、review のひな形の見出しを求める。
-///
-/// 定義が見つからない・読めない場合は既定の見出しを返す。
-fn resolve_review_headings(block_id: &str) -> Vec<String> {
-    let path = sai_link_engine::orchestrator::resolve_block_path(block_id);
-    match sai_link_engine::parser::parse_block_file(&path) {
-        Ok(parsed) => parsed.config.review_headings_or_default(),
-        Err(_) => sai_link_engine::block_config::default_review_headings(),
-    }
-}
-
-/// `r`: Review 用マークダウンを herdr ペインで nvim により開く（新パス）。
-///
-/// - 保存場所: `PROJECTROOT/.sai/review/<実行ID>.md`
-/// - sidebar で選択中の実行に対応するファイルが無ければ空テンプレートを
-///   作成して nvim で開く。ある場合はそのまま開く。
-///   ファイル内容の判定・追記はしない（「開くだけ」）。
-/// - 旧 `.sai/reflection/*.md` は残す（自動改名・削除なし）。
-pub fn open_review(app: &mut AppState, exec_id: Option<i64>) {
-    let Some(exec_id) = exec_id else {
-        app.set_message("Review: 実行が選択されていません");
-        return;
-    };
-
-    let path = sai_link_engine::orchestrator::review_path(exec_id);
-
-    if !path.exists() {
-        // 空テンプレートで新規作成する（実行完了時の自動生成と同じ書式）。
-        // 見出しは実行のブロック定義の `review_headings` に従う（無ければ既定）。
-        let default_headings = sai_link_engine::block_config::default_review_headings();
-        let (block_name, headings) = match app.store.get_execution_by_id(exec_id) {
-            Ok(exec) => match app.store.get_block_by_id(exec.block_id) {
-                Ok(block) => {
-                    let headings = resolve_review_headings(&block.name);
-                    (block.display_name.clone(), headings)
-                }
-                Err(_) => (format!("block#{}", exec.block_id), default_headings),
-            },
-            Err(_) => (format!("exec#{}", exec_id), default_headings),
-        };
-        let template =
-            sai_link_engine::orchestrator::review_template_text(&block_name, exec_id, &headings);
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                app.set_message(format!("Review: ディレクトリ作成失敗: {}", e));
-                return;
-            }
-        }
-        if let Err(e) = std::fs::write(&path, template) {
-            app.set_message(format!("Review: テンプレート作成失敗: {}", e));
-            return;
-        }
-    }
-
-    let editor_cmd = format!("nvim {}", shell_quote(&path.to_string_lossy()));
-    spawn_in_pane(app, "Review", &editor_cmd);
-    // nvim で開いたことを sai-paper の活動記録に残す（sai-paper が無ければ何もしない）。
-    sai_link_engine::sai_paper_client::notify_open(&path);
-}
-
 /// `c`: sidebar で選択中のカード md を herdr ペインで nvim により開く。
 ///
 /// `card_path` がある項目（todo カード・対応カード付き実行リーフ）に有効。
@@ -187,82 +127,6 @@ pub fn archive_card(
         return;
     }
     app.set_message("カード: sidebar で完了済み実行を選択してください");
-}
-
-/// `r` の前身（旧 Reflection パス）: `open_review` に置き換え済みのため削除予定。
-///
-/// 削除前の暫定措置としてテストからのみ参照する。
-#[cfg(test)]
-pub fn open_reflection(app: &mut AppState, exec_id: Option<i64>) {
-    let Some(exec_id) = exec_id else {
-        app.set_message("Reflection: 実行が選択されていません");
-        return;
-    };
-
-    let rel = format!(".sai/reflection/{}.md", exec_id);
-    let path = sai_link_engine::project::sai_path(&rel);
-
-    if !path.exists() {
-        // 初期テンプレートで新規作成する（orchestrator::write_reflection_template と同じ書式）
-        let (block_name, started_at) = match app.store.get_execution_by_id(exec_id) {
-            Ok(exec) => {
-                let name = app
-                    .store
-                    .get_block_by_id(exec.block_id)
-                    .map(|b| b.display_name)
-                    .unwrap_or_else(|_| format!("block#{}", exec.block_id));
-                let started = exec
-                    .started_at
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string());
-                (name, started)
-            }
-            Err(_) => (format!("exec#{}", exec_id), "unknown".to_string()),
-        };
-        let template = format!(
-            "# Reflection\n\n対象実行: ID{} / {}\n開始: {}\n\n## Run Reason\n\n\n## Run Evaluation\n\n\n## Run Next\n\n\n## Review\n\n",
-            exec_id, block_name, started_at
-        );
-        // 親ディレクトリを作成して書き込む
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                app.set_message(format!("Reflection: ディレクトリ作成失敗: {}", e));
-                return;
-            }
-        }
-        if let Err(e) = std::fs::write(&path, template) {
-            app.set_message(format!("Reflection: テンプレート作成失敗: {}", e));
-            return;
-        }
-    } else {
-        // 既存（旧形式）ファイル: `## Review` が無ければ末尾へ 1 回だけ自動追記する
-        if let Err(e) = ensure_review_section(&path) {
-            app.set_message(format!("Reflection: Review 項目の追記に失敗: {}", e));
-            return;
-        }
-    }
-
-    let editor_cmd = format!("nvim {}", shell_quote(&path.to_string_lossy()));
-    spawn_in_pane(app, "Reflection", &editor_cmd);
-}
-
-/// Reflection 記録ファイルに `## Review` セクションが無ければ末尾へ追記する。
-///
-/// 旧形式の記録ファイルを `open_reflection` で開くときに呼ぶ。既に Review 項目がある場合は
-/// 何もせず `Ok(false)` を返す（既存内容は一切壊さない）。
-#[cfg(test)]
-fn ensure_review_section(path: &std::path::Path) -> std::io::Result<bool> {
-    let text = std::fs::read_to_string(path)?;
-    if sai_link_engine::reflection_status::has_review_section(&text) {
-        return Ok(false); // 既に Review 項目がある（追記不要）
-    }
-    let mut new_text = text.clone();
-    if !new_text.ends_with('\n') {
-        new_text.push('\n');
-    }
-    new_text.push_str("\n## Review\n\n");
-    std::fs::write(path, new_text)?;
-    Ok(true)
 }
 
 /// `Shift+A`: プロジェクト全体のメモ（Summary.md）を herdr ペインで nvim により開く。
@@ -370,15 +234,6 @@ mod tests {
             "Session: 未選択メッセージが表示される: {:?}",
             app.message
         );
-        open_reflection(&mut app, None);
-        assert!(
-            app.message
-                .as_deref()
-                .unwrap_or("")
-                .contains("選択されていません"),
-            "Reflection: 未選択メッセージが表示される: {:?}",
-            app.message
-        );
         // pane 作成は起動していない（background_rx は None のまま）
         assert!(app.background_rx.is_none(), "未選択時は pane を作成しない");
     }
@@ -420,64 +275,8 @@ mod tests {
         assert!(app.background_rx.is_none(), "未選択時は pane を作成しない");
     }
 
-    /// `r` の新 review パス: 未選択時はメッセージのみ（pane を作らない）。
-    #[test]
-    fn open_review_requires_selection() {
-        let store = sai_link_engine::db::SaiStore::open_in_memory().unwrap();
-        let mut app = AppState::new(std::sync::Arc::new(store));
-        open_review(&mut app, None);
-        assert!(
-            app.message
-                .as_deref()
-                .unwrap_or("")
-                .contains("選択されていません"),
-            "Review: 未選択メッセージ: {:?}",
-            app.message
-        );
-        assert!(app.background_rx.is_none(), "未選択時は pane を作成しない");
-    }
-
-    // -------------------------------------------------------------------
-    // R14: Review 自動追記（旧形式の記録ファイルへの後方互換）
-    // -------------------------------------------------------------------
-
     /// `SAI_PROJECT_ROOT` はプロセスグローバルのため、ファイル系テストは共有ロック
     /// （`crate::app::file_test_lock()`）で直列化する。
-
-    #[test]
-    fn review_section_appended_once_to_old_template() {
-        let _guard = crate::app::file_test_lock();
-        // SAI_PROJECT_ROOT（プロセスグローバル）には依存せず、テスト専用の一時
-        // ディレクトリへ直接ファイルを用意する（ensure_review_section はパス引数）。
-        let root = std::env::temp_dir().join(format!("sai_ext_review_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-
-        // 旧形式（Review 無し）の記録ファイルを用意する
-        let path = root.join(".sai/reflection/999.md");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let old = "# Reflection\n\n## Run Reason\n（理由）\n\n## Run Next\n\n";
-        std::fs::write(&path, &old).unwrap();
-
-        // 1 回目: Review が追記される
-        assert!(
-            ensure_review_section(&path).unwrap(),
-            "旧形式には追記が発生する"
-        );
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert!(sai_link_engine::reflection_status::has_review_section(
-            &text
-        ));
-        // 既存内容は壊されないこと
-        assert!(text.contains("## Run Reason"));
-
-        // 2 回目: 既に Review があるので追記されない（1 回だけ）
-        assert!(!ensure_review_section(&path).unwrap(), "2 回目は追記しない");
-        let text2 = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(text.matches("## Review").count(), 1);
-        assert_eq!(text, text2, "2 回目以降は内容が変化しない");
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
 
     #[test]
     fn summary_template_created_once_and_preserved() {

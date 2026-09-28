@@ -33,7 +33,7 @@ pub enum ViewMode {
     Search,
     /// message（session の user / assistant message。`Space m` で遷移）
     Message,
-    /// md-tui: task.md / review.md / message.md のレンダリング表示（`Space t/r/m` で遷移）
+    /// md-tui: task.md / message.md のレンダリング表示（`Space t/m` で遷移）
     Md,
     /// model-tui: pi agent で使用可能な model / provider 一覧（`Shift+M` で遷移）
     Model,

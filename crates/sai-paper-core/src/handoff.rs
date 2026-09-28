@@ -60,8 +60,6 @@ pub struct TodoCard {
     pub tag: String,
     /// frontmatter の description
     pub description: String,
-    /// frontmatter の origin_run_id（`-` のときは None）
-    pub origin_run_id: Option<i64>,
     /// task.md の絶対パス
     pub path: PathBuf,
 }
@@ -165,14 +163,11 @@ pub fn list_todo_cards(roots: &PaperRoots, tag: Option<&str>) -> Result<Vec<Todo
         let run_id = get_fm_value(&frontmatter, "run_id")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
-        let origin_run_id = get_fm_value(&frontmatter, "origin_run_id")
-            .and_then(|v| v.parse().ok());
         cards.push(TodoCard {
             run_id,
             block: get_fm_value(&frontmatter, "block").unwrap_or_default(),
             tag: card_tag,
             description: get_fm_value(&frontmatter, "description").unwrap_or_default(),
-            origin_run_id,
             path: task_path,
         });
     }
@@ -257,7 +252,7 @@ pub struct HandoffRequest<'a> {
     pub tag: Option<&'a str>,
     /// 実行エージェント（`pi` / `cc`）
     pub runner: &'a str,
-    /// 推薦した実行の run_id（任意。あれば `origin_run_id` に書く）
+    /// 推薦した実行の run_id（任意。sai-sci の結び付けの actor に使う。task.md には書かない）
     pub origin_run: Option<i64>,
     /// 推薦の理由（任意。あれば本文の先頭に書く）
     pub reason: Option<&'a str>,
@@ -378,7 +373,6 @@ pub fn create_handoff_with_extra(
         request.tag.unwrap_or(""),
         request.runner,
         request.description,
-        request.origin_run,
         extra,
     )?;
 
@@ -565,9 +559,8 @@ fn build_task_body(description: &str, papers: &[PaperInfo], reason: Option<&str>
 /// task.md の frontmatter を構築する。
 ///
 /// sai-link の `render_card`（`sai-link-engine/src/kanban.rs`）と同じキーと順で書く。
-/// `origin_run_id` は `origin_run` があればその番号、無ければ `-`。
 /// 説明文は最初の行のみを frontmatter に書く。
-/// `extra` のキーはこの 13 個の後ろに足す（値は 1 行に潰し、空なら書かない）。
+/// `extra` のキーはこの 12 個の後ろに足す（値は 1 行に潰し、空なら書かない）。
 fn build_frontmatter(
     run_id: i64,
     block_id: &str,
@@ -575,19 +568,15 @@ fn build_frontmatter(
     tag: &str,
     runner: &str,
     description: &str,
-    origin_run: Option<i64>,
     extra: &[(&str, String)],
 ) -> Result<String> {
     let creation_date = chrono::Local::now().format("%Y/%m/%d %H:%M:%S").to_string();
     // 説明文は最初の行のみを frontmatter に書く
     let desc_first_line = description.lines().next().unwrap_or("").to_string();
-    let origin_run_id = origin_run
-        .map(|id| id.to_string())
-        .unwrap_or_else(|| "-".to_string());
 
     let fm = format!(
-        "---\nrunner: {}\ncreation_date: {}\nexecution_date: -\norigin_run_id: {}\nrun_id: {}\nblock: {}\nthinking: \nmodel: \nprovider: \nround: 1\nglobal_round: {}\ntag: {}\ndescription: {}",
-        runner, creation_date, origin_run_id, run_id, block_id, global_round, tag, desc_first_line
+        "---\nrunner: {}\ncreation_date: {}\nexecution_date: -\nrun_id: {}\nblock: {}\nthinking: \nmodel: \nprovider: \nround: 1\nglobal_round: {}\ntag: {}\ndescription: {}",
+        runner, creation_date, run_id, block_id, global_round, tag, desc_first_line
     );
 
     // 追加のキー（sai-sci の `sci_node` など）。値は 1 行にしてから書く。
@@ -712,7 +701,7 @@ mod tests {
     #[test]
     fn test_build_frontmatter_matches_render_card_keys() {
         let fm =
-            build_frontmatter(42, "test_block", 5, "tag1", "pi", "Test description", None, &[])
+            build_frontmatter(42, "test_block", 5, "tag1", "pi", "Test description", &[])
                 .unwrap();
         // sai-link の render_card と同じキーと順
         let keys: Vec<&str> = fm
@@ -725,7 +714,6 @@ mod tests {
                 "runner",
                 "creation_date",
                 "execution_date",
-                "origin_run_id",
                 "run_id",
                 "block",
                 "thinking",
@@ -743,12 +731,11 @@ mod tests {
         assert!(!fm.contains("max_turns:"), "fm={fm}");
     }
 
+    /// 廃止した `origin_run_id` は書かない（review の引き継ぎは廃止）。
     #[test]
-    fn test_build_frontmatter_writes_origin_run() {
-        let fm = build_frontmatter(7, "b", 1, "推薦", "pi", "desc", Some(5), &[]).unwrap();
-        assert!(fm.contains("origin_run_id: 5"), "fm={fm}");
-        let fm_default = build_frontmatter(7, "b", 1, "", "pi", "desc", None, &[]).unwrap();
-        assert!(fm_default.contains("origin_run_id: -"), "fm={fm_default}");
+    fn test_build_frontmatter_omits_origin_run_id() {
+        let fm = build_frontmatter(7, "b", 1, "推薦", "pi", "desc", &[]).unwrap();
+        assert!(!fm.contains("origin_run_id"), "fm={fm}");
     }
 
     /// 追加のキーは固定の 13 個の後ろに並び、空の値は書かないこと。
@@ -761,7 +748,6 @@ mod tests {
             "",
             "pi",
             "目的を書く",
-            None,
             &[
                 ("sci_node", "N12".to_string()),
                 ("sci_purpose", "目的を書く".to_string()),
@@ -783,7 +769,6 @@ mod tests {
                 "runner",
                 "creation_date",
                 "execution_date",
-                "origin_run_id",
                 "run_id",
                 "block",
                 "thinking",
@@ -831,7 +816,6 @@ mod tests {
             "tag1",
             "pi",
             "Test description",
-            None,
             &[],
         )
         .unwrap();
@@ -854,7 +838,6 @@ mod tests {
             "tag1",
             "pi",
             "My description",
-            None,
             &[],
         )
         .unwrap();
@@ -943,7 +926,7 @@ mod tests {
         .unwrap();
 
         let content = fs::read_to_string(&result.path).unwrap();
-        assert!(content.contains("origin_run_id: 5"), "content={content}");
+        assert!(!content.contains("origin_run_id"), "content={content}");
         assert!(content.contains("tag: 推薦"), "content={content}");
         assert!(content.contains("推薦の理由: 引用が伸びている"), "content={content}");
         assert!(content.contains("# task_text"));
@@ -984,7 +967,6 @@ mod tests {
         let recommend = list_todo_cards(&roots, Some("推薦")).unwrap();
         assert_eq!(recommend.len(), 1);
         assert_eq!(recommend[0].run_id, 1);
-        assert_eq!(recommend[0].origin_run_id, Some(3));
         assert_eq!(recommend[0].block, "paper-search");
         assert_eq!(recommend[0].description, "desc 1");
 

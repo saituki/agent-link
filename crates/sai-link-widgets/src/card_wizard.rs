@@ -1,8 +1,7 @@
 //! task.md 作成ウィザードの共通処理（TUI / CLI 共通・実装計画 12 §3.2）。
 //!
 //! 旧 `sai-link-tui::app::card_wizard`（選択肢読み込み・カード作成）と
-//! `sai-link-tui::app::input`（`apply_card_auto_fields` / `write_card_file` /
-//! `strip_review_frontmatter`）から移設した。TUI はキー操作・描画のまま、
+//! `sai-link-tui::app::input`（`apply_card_auto_fields` / `write_card_file`）から移設した。TUI はキー操作・描画のまま、
 //! 組み立てと検査はここを呼ぶ。`sai-link phone card …` も同じ実装を使う。
 
 use std::path::PathBuf;
@@ -120,61 +119,11 @@ pub fn resolve_block_path(block_id: &str) -> Option<PathBuf> {
 // カード作成
 // ============================================================================
 
-/// review テキストから先頭の frontmatter（`---` ... `---`）を外して本文だけ返す。
-///
-/// frontmatter が無いテキストはそのまま返す。
-pub fn strip_review_frontmatter(text: &str) -> String {
-    let mut lines = text.lines();
-    // 先頭が `---` でなければ frontmatter なし
-    let first = lines.next();
-    if first.map(|l| l.trim()) != Some("---") {
-        return text.to_string();
-    }
-    let mut in_fm = true;
-    let mut body: Vec<&str> = Vec::new();
-    for line in lines {
-        if in_fm {
-            if line.trim() == "---" {
-                in_fm = false;
-            }
-            continue;
-        }
-        body.push(line);
-    }
-    body.join("\n")
-}
-
 /// task.md 作成時の自動追記フィールドを埋める。
 ///
-/// - `global_round`: 選択した origin 実行の `global_round` を継承（複数時は最大）
-/// - `round`: 選択した origin 実行の `round` + 1（複数時は最大 + 1）
 /// - `model` / `provider` / `thinking`: `.sai/settings.json` のデフォルト
-///
-/// origin が無い（空カード）場合、ラウンド系は空欄のまま。
-pub fn apply_card_auto_fields(
-    fm: &mut sai_link_engine::kanban::CardFrontmatter,
-    store: &SaiStore,
-    selected: &[i64],
-) {
-    let mut global_round: Option<i64> = None;
-    let mut max_round: Option<i64> = None;
-    for id in selected {
-        let Ok(exec) = store.get_execution_by_id(*id) else {
-            continue;
-        };
-        if let Some(g) = exec.global_round {
-            global_round = Some(global_round.map_or(g, |v: i64| v.max(g)));
-        }
-        if let Some(r) = exec.round {
-            max_round = Some(max_round.map_or(r, |v: i64| v.max(r)));
-        }
-    }
-    if let Some(g) = global_round {
-        fm.global_round = g.to_string();
-    }
-    if let Some(r) = max_round {
-        fm.round = (r + 1).to_string();
-    }
+/// - ラウンド系は空欄のまま（利用者が決める）
+pub fn apply_card_auto_fields(fm: &mut sai_link_engine::kanban::CardFrontmatter) {
     // settings.json（プロジェクト → グローバルのマージ）からデフォルトを読む。
     // 読み込み警告はここでは扱わない（TUI はウィザード下部に表示済み）。
     let (settings, _) = sai_link_engine::pi_command::load_settings_quiet();
@@ -218,9 +167,8 @@ pub fn write_card_file(card: &sai_link_engine::kanban::KanbanCard) -> Result<Pat
 fn reserve_run_for_card(card: &sai_link_engine::kanban::KanbanCard) -> Result<i64, String> {
     let db_path = sai_link_engine::project::sai_path(".sai/sai-engine/sai-engine.db");
     let store = SaiStore::open(&db_path).map_err(|e| e.to_string())?;
-    // 予約行に残す最小入力（origin・description を引き継ぐ）
+    // 予約行に残す最小入力（description を引き継ぐ）
     let inputs = serde_json::json!({
-        "origin_run_id": card.frontmatter.origin_run_id,
         "description": card.frontmatter.description,
     });
     let inputs_str = serde_json::to_string(&inputs).map_err(|e| e.to_string())?;
@@ -234,8 +182,6 @@ fn reserve_run_for_card(card: &sai_link_engine::kanban::KanbanCard) -> Result<i6
 /// 各項目の空文字 = スキップ（TUI と同じく自動値を使う）。
 #[derive(Debug, Clone, Default)]
 pub struct CardSpec {
-    /// 引き継ぐ done 実行 ID（review 結合の対象）
-    pub done_ids: Vec<i64>,
     /// runner（空 = スキップ → 自動値 pi）
     pub runner: String,
     /// block_id（空 = スキップ）
@@ -246,9 +192,9 @@ pub struct CardSpec {
     pub model: String,
     /// thinking（空 = スキップ）
     pub thinking: String,
-    /// グローバルラウンド（空 = 自動継承）
+    /// グローバルラウンド（空 = 空欄）
     pub global_round: String,
-    /// ローカルラウンド（空 = 自動継承）
+    /// ローカルラウンド（空 = 空欄）
     pub round: String,
     /// タグ（空 = スキップ）
     pub tag: String,
@@ -288,40 +234,22 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
     Ok(())
 }
 
-/// ウィザード / CLI の値でカード md を作成する（review 結合＋各項目の反映）。
+/// ウィザード / CLI の値でカード md を作成する。
 ///
-/// - review 結合・`origin_run_id`・`origin_block`・round 自動継承は従来通り
 /// - `runner` / `block` / `provider` / `model` / `thinking` は指定値を優先する
-///   （空・スキップ時は従来の自動値: runner=pi・model/provider/thinking=settings.json）
-/// - `task_text` は `# task_text` 見出しの直下、review 結合はその後ろ
-pub fn create_card(store: &SaiStore, spec: &CardSpec) -> Result<PathBuf, String> {
-    // 本文: `# task_text` ＋（空でなければ task_text）＋ `## Review run_id <id>` 区切り
-    let mut parts: Vec<String> = if spec.task_text.trim().is_empty() {
-        vec!["# task_text\n".to_string()]
+///   （空・スキップ時は自動値: runner=pi・model/provider/thinking=settings.json）
+/// - `task_text` は `# task_text` 見出しの直下に置く
+pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
+    let body = if spec.task_text.trim().is_empty() {
+        "# task_text\n".to_string()
     } else {
-        vec![format!("# task_text\n\n{}", spec.task_text.trim_end())]
-    };
-    for id in &spec.done_ids {
-        let path = sai_link_engine::orchestrator::review_path(*id);
-        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let body = strip_review_frontmatter(&text);
-        parts.push(format!("## Review run_id {}\n{}", id, body.trim()));
-    }
-    let origin = if spec.done_ids.is_empty() {
-        "-".to_string()
-    } else {
-        spec.done_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
+        format!("# task_text\n\n{}", spec.task_text.trim_end())
     };
     let mut fm = sai_link_engine::kanban::CardFrontmatter::new_card(
         sai_link_engine::kanban::card_creation_date(),
-        origin,
     );
-    // 自動フィールド（origin の round 継承・settings.json デフォルト）
-    apply_card_auto_fields(&mut fm, store, &spec.done_ids);
+    // 自動フィールド（settings.json のデフォルト）
+    apply_card_auto_fields(&mut fm);
     // 確定値で上書き（空・スキップ時は自動値を維持）
     if !spec.runner.trim().is_empty() {
         fm.runner = spec.runner.trim().to_string();
@@ -348,44 +276,15 @@ pub fn create_card(store: &SaiStore, spec: &CardSpec) -> Result<PathBuf, String>
     if !spec.tag.trim().is_empty() {
         fm.tag = spec.tag.trim().to_string();
     }
-    // Log 画面の review 行用: Review 元実行の run_id 列を `origin_block` に記録する
-    if !spec.done_ids.is_empty() {
-        let mut origin_blocks: Vec<String> = Vec::new();
-        for id in &spec.done_ids {
-            if store.get_execution_by_id(*id).is_ok() && !origin_blocks.contains(&id.to_string()) {
-                origin_blocks.push(id.to_string());
-            }
-        }
-        if !origin_blocks.is_empty() {
-            fm.set_meta("origin_block".to_string(), origin_blocks.join(","));
-        }
-    }
     write_card_file(&sai_link_engine::kanban::KanbanCard {
         frontmatter: fm,
-        body: parts.join("\n\n"),
+        body,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// frontmatter 付き review 本文では frontmatter だけが消える。
-    #[test]
-    fn strip_review_frontmatter_removes_only_frontmatter() {
-        let text = "---\nrunner: pi\nrun_id: 7\n---\n\n### 追加修正\n\n- 修正 A\n";
-        let body = strip_review_frontmatter(text);
-        assert!(!body.contains("runner: pi"));
-        assert!(body.contains("### 追加修正"));
-        assert!(body.contains("- 修正 A"));
-    }
-
-    /// frontmatter 無しはそのまま返る。
-    #[test]
-    fn strip_review_frontmatter_keeps_plain_body() {
-        let text = "### 追加実装\n\n- 実装 B\n";
-        assert_eq!(strip_review_frontmatter(text), text);
-    }
 
     /// runner / thinking は一覧の値以外を弾く（空 = スキップは許容）。
     #[test]

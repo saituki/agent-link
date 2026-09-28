@@ -130,12 +130,6 @@ pub fn run_card_request(
     // task.md の `# task_text` を実行時の入力にする
     let mut user_inputs = resolve_card_inputs(&card, &field_overrides)?;
 
-    // 来歴（origin_run_id）は実行要求の user_inputs に載せ、デーモン側で DB 保存する
-    let origin_csv = card.frontmatter.origin_run_id.trim().to_string();
-    if !origin_csv.is_empty() && origin_csv != "-" {
-        user_inputs.insert("origin_run_id".to_string(), origin_csv.clone());
-    }
-
     // outputs 統一：予約 run_id を要求に添付する（R302・新カードのみ）。
     // task.md の run_id が数値なら予約行の使い回し、旧カード（`-`）なら従来どおり新規発行。
     let reserved_run_id: Option<i64> = card.frontmatter.run_id.trim().parse().ok();
