@@ -35,6 +35,7 @@ from sai_phone import (
     questions,
     radio,
     runs,
+    sci,
     sessions,
     store,
     usage,
@@ -975,6 +976,87 @@ def api_paper_pdf(
         filename=f"paper-{paper_id}{suffix}.pdf",
         content_disposition_type="inline",
     )
+
+
+# --- 研究方針の木（sai-sci・U18 C-13） ---
+# 検査は sci.py が CLI を呼ぶ前に行う（外から来る値で CLI を呼ぶため・U18 決定）。
+# 読む札の「始め」「終え」だけは sai-link の `phone user …`（C-12）を sci.py 越しに呼ぶ。
+
+
+@app.get("/api/projects/{name}/papers/sci")
+def api_sci_status(name: str, _: None = Depends(require_token)) -> dict:
+    """研究方針の木全体（`phone sci status`）。"""
+    return sci.status(papers.resolve_project(name))
+
+
+@app.post("/api/projects/{name}/papers/sci/init")
+def api_sci_init(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """始める（body は `{"type": "problem"}`）。"""
+    return sci.init(papers.resolve_project(name), payload)
+
+
+@app.get("/api/projects/{name}/papers/sci/nodes/{node}")
+def api_sci_node(
+    name: str, node: str, _: None = Depends(require_token)
+) -> dict:
+    """節点の中身（`phone sci node <N>`）。"""
+    return sci.node(papers.resolve_project(name), node)
+
+
+@app.post("/api/projects/{name}/papers/sci/apply")
+def api_sci_apply(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """人の操作を反映する（body は C-07 の op の JSON）。"""
+    return sci.apply(papers.resolve_project(name), payload)
+
+
+@app.get("/api/projects/{name}/papers/sci/proposals")
+def api_sci_proposals(name: str, _: None = Depends(require_token)) -> dict:
+    """仕分け待ちの一覧（`phone sci proposals`）。"""
+    return sci.proposals(papers.resolve_project(name))
+
+
+@app.post("/api/projects/{name}/papers/sci/proposals/{pid}")
+def api_sci_triage(
+    name: str, pid: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """仕分ける（body は `{"action","note","edit"}`）。"""
+    return sci.triage(papers.resolve_project(name), pid, payload)
+
+
+@app.post("/api/projects/{name}/papers/sci/cards")
+def api_sci_card(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """読む札を作る（body はカードの JSON）。"""
+    return sci.create_card(papers.resolve_project(name), payload)
+
+
+@app.get("/api/projects/{name}/papers/sci/reads/{run_id}")
+def api_sci_read(
+    name: str, run_id: str, _: None = Depends(require_token)
+) -> dict:
+    """読む札の中身（`phone sci read <run_id>`）。"""
+    return sci.read(papers.resolve_project(name), run_id)
+
+
+@app.post("/api/projects/{name}/papers/sci/reads/{run_id}/start")
+def api_sci_read_start(
+    name: str, run_id: str, _: None = Depends(require_token)
+) -> dict:
+    """読む札を始める（`sai-moon-link phone user start`）。"""
+    return sci.read_start(papers.resolve_project(name), run_id)
+
+
+@app.post("/api/projects/{name}/papers/sci/reads/{run_id}/finish")
+def api_sci_read_finish(
+    name: str, run_id: str, payload: dict = Body(default={}), _: None = Depends(require_token)
+) -> dict:
+    """読む札を終えて review へ移す（body は `{"no_reflect": "…"}`・任意）。"""
+    return sci.read_finish(papers.resolve_project(name), run_id, payload)
 
 
 # --- Canvas（U04 §C-D） ---
