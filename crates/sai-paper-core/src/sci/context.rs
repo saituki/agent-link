@@ -970,7 +970,7 @@ mod tests {
         };
         fs::write(
             roots.data_dir.join("mind.md"),
-            "## 始まり\nてんかん外科の支援から\n戴上切除を目指す\n\n## 制約\n学会が 1 年に 1 回\n\n## メモ\nこれは出さない節\n",
+            "## 始まり\nてんかん外科の支援から\n焦点切除を目指す\n\n## 制約\n学会が 1 年に 1 回\n\n## メモ\nこれは出さない節\n",
         )
         .unwrap();
         fs::write(
@@ -1364,9 +1364,9 @@ mod tests {
         assert!(level3.contains("- 問い: 1 回の研究で何を達成するか"), "{level3}");
         // ④ 土壌 → 各節 1 行。
         assert!(level3.contains("学会が 1 年に 1 回"), "{level3}");
-        assert!(level3.contains("- 始まり: てんかん外科の支援から 戴上切除を目指す"), "{level3}");
+        assert!(level3.contains("- 始まり: てんかん外科の支援から 焦点切除を目指す"), "{level3}");
         let level4 = parts.render(4);
-        assert!(!level4.contains("戴上切除を目指す"), "{level4}");
+        assert!(!level4.contains("焦点切除を目指す"), "{level4}");
         assert!(level4.contains("- 始まり: てんかん外科の支援から\n"), "{level4}");
 
         // 収まる上限なら切り詰めない。段の境目の長さなら、その段の文そのものになる。
