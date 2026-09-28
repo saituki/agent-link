@@ -15,7 +15,7 @@ license: MIT（同じフォルダの LICENSE を見ること）
 - 画面を確かめるときは、次の順番で見る。1. 文字と背景のコントラスト、2. ダークモード、3. グラフ、4. タッチとフォーカス。
 - sai-moon の画面は素の HTML・CSS・JavaScript で書いている。React や Tailwind 向けの書き方は読み替える。
   たとえば `hover-vs-tap` の `cursor-pointer` は CSS の `cursor: pointer`、`tap-delay` の `touch-action: manipulation` はそのまま使う。
-- 項目は検査の並びである。1 つずつ確かめてから直す。画面の实际情况に合わないものは、直さない。
+- 項目は検査の並びである。1 つずつ確かめてから直す。画面の実情に合わないものは、直さない。
 
 ## Accessibility（コントラスト・フォーカス・色だけに頼らない）
 

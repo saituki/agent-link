@@ -12,7 +12,7 @@ license: Complete terms in LICENSE.txt
 > - 色は CSS 変数（design token）にまとめ、明るい画面と暗い画面（`prefers-color-scheme`）の両方で決める。
 > - 文字と背景のコントラスト比は 4.5:1 以上、線・枠・図形は 3:1 以上にする（WCAG AA）。規則の詳細は skill `ui-ux-rules` にある。
 >
-> 変更の注記（Apache-2.0 §4(b)）: sai-moon は、上流の 41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f（2026-09-03 付）から frontmatter の description をこの段落に書き換え、この段落を足した。本文はそのままである。
+> 変更の注記（Apache-2.0 §4(b)）: sai-moon は、上流の 41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f（2026-09-03 付）から frontmatter の description を日本語に書き換え、この段落を足した。本文はそのままである。
 
 # Frontend Design
 
