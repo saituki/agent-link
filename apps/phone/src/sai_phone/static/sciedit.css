@@ -1,3 +1,526 @@
-/* U20 が書くファイル（実装計画 U19 が先に空のファイルを作る）。
-   仕分けの画面（#/papers/triage）と、読む札の画面（#/papers/read/<run_id>）の見た目。
-   クラスは .sci-edit- と .sci-read- で始める。scitree.css の後に読む。 */
+/* sai-phone の仕分け箱（#/papers/triage）と読む札（#/papers/read/<run_id>）の画面 —
+   実装計画 U20。scitree.css の後に読む（index.html）。
+   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
+   --ok / --warn / --danger と --sci-*（style.css にある）。
+   クラスは .sci-edit- と .sci-read- で始める。st- や --st- は使わない（C-14）。 */
+
+/* --- 仕分け箱（画面全体） --- */
+
+.sci-edit-triage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px 24px;
+}
+
+.sci-edit-by {
+  align-self: flex-start;
+}
+
+.sci-edit-sub {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sci-edit-bulk-errors {
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+/* --- 仕分け箱のまとめ（節点ごと / run ごと） --- */
+
+.sci-edit-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 10px;
+}
+
+.sci-edit-group-head {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sci-edit-group-label {
+  gap: 8px;
+  align-items: baseline;
+}
+
+.sci-edit-group-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sci-edit-group-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* --- 仕分け箱の 1 行 --- */
+
+.sci-edit-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.sci-edit-proposal-head {
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.sci-edit-op {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sci-edit-where {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.sci-edit-proposal-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.sci-edit-proposal-btns {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --- 小窓の中の入力欄 --- */
+
+.sci-edit-wrap,
+.sci-read-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sci-edit-form,
+.sci-read-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sci-edit-line,
+.sci-read-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 入力欄の入れ子は `.sci-edit-line` を借りても中央寄せにならないようにする */
+.sci-edit-checks,
+.sci-edit-pairs,
+.sci-edit-lines,
+.sci-edit-picks {
+  align-items: stretch;
+}
+
+.sci-edit-field,
+.sci-read-form-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sci-edit-label,
+.sci-read-form-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sci-edit-input,
+.sci-edit-area,
+.sci-edit-select,
+.sci-read-input,
+.sci-read-area,
+.sci-read-select {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.sci-edit-area,
+.sci-read-area {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.sci-edit-note,
+.sci-read-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+.sci-edit-error,
+.sci-read-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 1 つだけ選ぶ（横には並べる） */
+.sci-edit-picks,
+.sci-edit-checks,
+.sci-edit-pairs,
+.sci-edit-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sci-edit-pick {
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.sci-edit-pick.active {
+  border-color: var(--sci-decided, var(--ok));
+  background: var(--bg-soft);
+  font-weight: 700;
+}
+
+.sci-edit-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.sci-edit-check input {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  flex: 0 0 auto;
+}
+
+.sci-edit-pair {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.sci-edit-pair-name {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.sci-edit-pair input[type="text"] {
+  grid-column: 2;
+}
+
+.sci-edit-target {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: end;
+}
+
+.sci-edit-actions,
+.sci-read-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sci-edit-done {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sci-edit-done-text {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.sci-edit-done-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --- 読む札 --- */
+
+.sci-read-body {
+  padding: 10px 12px 24px;
+}
+
+.sci-read-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 900px;
+}
+
+.sci-read-sec {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 10px 12px;
+}
+
+/* 節の中の釦は幅いっぱいに伸ばさない */
+.sci-read-sec > .sai-line,
+.sci-read-sec > p,
+.sci-read-sec > h2 {
+  align-self: stretch;
+}
+
+.sci-read-sec-head {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sci-read-sec-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sci-read-head {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  align-self: stretch;
+}
+
+.sci-read-paper {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sci-open, var(--text));
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sci-read-node {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sci-read-meta {
+  flex-wrap: wrap;
+  gap: 6px;
+  align-self: stretch;
+}
+
+.sci-read-purpose {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.sci-read-answer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+
+.sci-read-answer-head {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  align-self: stretch;
+}
+
+.sci-read-actions {
+  align-items: flex-start;
+}
+
+.sci-read-answer-q {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.sci-read-finding {
+  align-items: flex-start;
+}
+
+.sci-read-finding-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sci-read-finding-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.sci-read-start,
+.sci-read-finish {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: stretch;
+}
+
+.sci-read-label {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+/* --- 狭い画面（iPhone の幅 390px） --- */
+
+@media (max-width: 899px) {
+  /* 小窓の入力欄は 1 列に並べる */
+  .sci-edit-field,
+  .sci-read-form-field {
+    width: 100%;
+  }
+
+  /* 仕分け箱のまとまりは 1 列に積む（札は幅いっぱいに伸ばさない） */
+  .sci-edit-group-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sci-edit-group-label {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* 押す所は 44px 以上 */
+  .sci-edit-actions .sai-btn,
+  .sci-read-actions .sai-btn,
+  .sci-edit-proposal-btns .sai-btn,
+  .sci-edit-group-btns .sai-btn,
+  .sci-edit-by button,
+  .sci-read-start .sai-btn,
+  .sci-read-finish .sai-btn,
+  .sci-read-form .sai-btn {
+    min-height: 44px;
+  }
+
+  /* まとめて採用・却下は 1 列に並べる */
+  .sci-edit-group-btns,
+  .sci-edit-proposal-btns,
+  .sci-edit-actions,
+  .sci-read-actions {
+    flex-direction: column;
+    align-items: stretch;
+    margin-left: 0;
+  }
+
+  .sci-edit-where {
+    margin-left: 0;
+  }
+
+  .sci-edit-check {
+    min-height: 44px;
+  }
+}
+
+/* --- 広い画面（PC の幅 1280px・900px 以上） --- */
+
+@media (min-width: 900px) {
+  .sci-edit-triage {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 14px;
+  }
+
+  .sci-edit-by,
+  .sci-edit-bulk-errors,
+  .sci-edit-group {
+    grid-column: 1 / -1;
+  }
+
+  .sci-edit-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 18px;
+  }
+
+  .sci-edit-group-head {
+    grid-column: 1 / -1;
+  }
+
+  .sci-edit-proposal {
+    break-inside: avoid;
+  }
+
+  /* 小窓の入力は 2 列に並べられるものは 2 列にする */
+  .sci-edit-target {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sci-read-card {
+    max-width: 1100px;
+  }
+}
