@@ -870,6 +870,12 @@ function stBoardNext(d, node) {
   return sec;
 }
 
+/** 問いの状態の札の文字（答えがあっても、取り下げた問いは「取り下げた」）。 */
+function stQuestionLabel(q) {
+  if (q.state === "open") return "答え待ち";
+  return q.state === "withdrawn" ? "取り下げた" : "答えた";
+}
+
 /** 3. 問い */
 function stBoardQuestions(d, node) {
   const sec = stSec("問い");
@@ -886,7 +892,7 @@ function stBoardQuestions(d, node) {
     main.appendChild(stEl("p", "sci-line-title", q.text || ""));
     if (q.answer) main.appendChild(stEl("p", "sci-line-sub", `答え: ${q.answer}`));
     row.appendChild(main);
-    row.appendChild(stChip(open ? "答え待ち" : (q.answer ? "答えた" : "閉じた"), open ? "warn" : "muted"));
+    row.appendChild(stChip(stQuestionLabel(q), open ? "warn" : "muted"));
     if (typeof seOpenAction === "function" && q.id) {
       if (open) {
         row.appendChild(stBtn("答える", () => seOpenAction("answer_question", node.id || null, d, q.id)));
@@ -1214,6 +1220,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     stParseHash,
+    stQuestionLabel,
     stStateMark,
     stRows,
     stSeedPieces,

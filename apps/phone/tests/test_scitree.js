@@ -20,6 +20,7 @@ const {
   stNextLines,
   stDecisionRows,
   stGraphBoxId,
+  stQuestionLabel,
   stTableEmptyHint,
   ST_MODES,
   ST_TYPES,
@@ -96,6 +97,12 @@ function sampleStatus() {
     seeds: [{ id: "S1", title: "…" }],
     warnings: [],
   };
+}
+
+function testQuestionLabel() {
+  assert.strictEqual(stQuestionLabel({ state: "open" }), "答え待ち");
+  assert.strictEqual(stQuestionLabel({ state: "answered", answer: "x" }), "答えた");
+  assert.strictEqual(stQuestionLabel({ state: "withdrawn", answer: "x" }), "取り下げた");
 }
 
 function testParseHash() {
@@ -305,6 +312,7 @@ const tests = [
   testTablesAreShared,
   testGraphBoxId,
   testTableEmptyHint,
+  testQuestionLabel,
   testListIsFullWidthOnNarrow,
 ];
 
