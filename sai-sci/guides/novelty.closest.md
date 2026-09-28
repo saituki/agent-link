@@ -33,7 +33,7 @@ min_findings: 2
 - untouched: sci-search | 自分の研究に近い研究を探す | 近い研究の候補一覧
 - insufficient: sci-search | 近い研究をもっと探す | 近い研究の追加
 - awaiting_decision: sci-compare | 近い研究 3 本を決める | 3 本の顔ぶれと選び方の理由
-- conflict: sci-probe | どの研究が近いかの判断回过头す | 近いと決めた根拠
+- conflict: sci-probe | どの研究が近いかの判断を見直す | 近いと決めた根拠
 - weak_evidence: sci-probe | 3 本の 5 つの面が読めるか確かめる | 3 本の面の一覧
 - recheck: - | 目的や手法が変わったので近い研究を選び直す | 選び直した結果
 
