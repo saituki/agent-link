@@ -585,53 +585,20 @@ function chartCard(d) {
 
 function dailySvg(d) {
   const daily = Array.isArray(d.daily) ? d.daily : [];
-  const svg = svgEl("svg", {
-    viewBox: "0 0 320 140",
-    class: "dash-chart",
-    role: "img",
-    "aria-label": "日ごとのグラフ",
-  });
-  if (daily.length === 0) return svg;
-  const valueOf = (row) =>
-    Number(chartMetric === "count" ? row.executions : row.tokens) || 0;
-  const values = daily.map(valueOf);
-  const max = Math.max(1, ...values);
-  const n = daily.length;
-  const slot = 320 / n;
-  const barW = Math.max(2, Math.min(slot * 0.6, 26));
-  const baseY = 116; // 棒の底
-  const topY = 8;    // 最大のときの上端
-  daily.forEach((row, i) => {
-    const v = values[i];
-    // 0 の日は --line の短い棒（06 §4.2-4）
-    const h = v > 0 ? Math.max(3, (v / max) * (baseY - topY)) : 3;
-    const x = i * slot + (slot - barW) / 2;
-    const rect = svgEl("rect", {
-      x: x.toFixed(2),
-      y: (baseY - h).toFixed(2),
-      width: barW.toFixed(2),
-      height: h.toFixed(2),
-      rx: "3",
-      class: v > 0 ? "dash-bar" : "dash-bar zero",
-    });
-    rect.addEventListener("click", () => {
+  const labels = axisLabels(d.period || periodValue(), daily);
+  const unit = chartMetric === "count" ? "count" : "tokens";
+  return saiDailyBars({
+    rows: daily,
+    valueOf: (row) =>
+      Number(chartMetric === "count" ? row.executions : row.tokens) || 0,
+    labelOf: (row, i) => labels[i] || "",
+    unit,
+    what: chartMetric === "count" ? "日ごとの実行数" : "日ごとの token",
+    onPick: (row) => {
       chartNote = chartNoteText(row, chartMetric);
       renderDashboard();
-    });
-    svg.appendChild(rect);
+    },
   });
-  axisLabels(d.period || periodValue(), daily).forEach((text, i) => {
-    if (!text) return;
-    const t = svgEl("text", {
-      x: (i * slot + slot / 2).toFixed(2),
-      y: "134",
-      class: "dash-axis",
-      "text-anchor": "middle",
-    });
-    t.textContent = text;
-    svg.appendChild(t);
-  });
-  return svg;
 }
 
 // 5. モデル別の内訳（ドーナツ・上位 4 件＋その他）
@@ -651,13 +618,17 @@ function modelCard(d) {
   }
   const R = 38;
   const C = 2 * Math.PI * R;
+  const total = slices.reduce((a, s) => a + s.value, 0);
   const wrap = document.createElement("div");
   wrap.className = "dash-donut-wrap";
   const svg = svgEl("svg", {
     viewBox: "0 0 100 100",
     class: "dash-donut",
     role: "img",
-    "aria-label": "モデル別のトークン割合",
+    "aria-label":
+      `モデル別のトークン割合のドーナツ。合計 ${formatTokens(total)} トークン` +
+      `。最も多いのは${shortModel(slices[0].label)} ${formatTokens(slices[0].value)}` +
+      `（${Math.round(slices[0].ratio * 100)}%）`,
   });
   let start = 0;
   slices.forEach((s, i) => {
@@ -678,7 +649,6 @@ function modelCard(d) {
   wrap.appendChild(svg);
   const center = document.createElement("div");
   center.className = "dash-donut-center";
-  const total = slices.reduce((a, s) => a + s.value, 0);
   center.appendChild(el("strong", "dash-donut-total", formatTokens(total)));
   center.appendChild(el("span", "dash-donut-cap", "合計"));
   wrap.appendChild(center);

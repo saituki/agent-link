@@ -206,6 +206,13 @@ function saiEl(tag, cls, text) {
   return el;
 }
 
+/** SVG の要素を 1 つ作る（属性は「名前 → 値」の順に並べる）。 */
+function saiSvg(tag, attrs) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  return node;
+}
+
 // --- 通信 ---
 
 /**
@@ -472,6 +479,236 @@ function saiSplitShow(container, which) {
   container.classList.toggle("sai-split--list", which === "list");
 }
 
+// --- グラフの目盛りと値（U04） ---
+//
+// グラフはどの画面でも素の SVG を手描きする（外部ライブラリは入れない）。
+// 「目盛りをどの刻みで置くか」「その数字をどう書くか」「日ごとの棒の形」は
+// ここに 1 つだけ置き、Project（project.js）と Usage（usage.js）はそれを呼ぶ。
+// 色は CSS 変数（--series-* / --chart-grid / --chart-axis）で決める（style.css）。
+
+/** 小数1位まで。ただし整数なら .0 を付けない（1.5M / 2M）。 */
+function saiTrim1(x) {
+  const r = Math.round(Number(x) * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/**
+ * 切りりのよい目盛り（0 と、途中の数本と、最大の数本）。
+ * 例: 12.34 を 3 本に切ると 0 / 5 / 10 / 15（棒は 15 の高さまで描く）。
+ * minStep は 1 本の最低の刻み（金額は 0.01 未満にしない）。
+ * 返り値: { max（上端の値）, step（刻み）, values（下から上への目盛り）}
+ */
+function saiNiceScale(max, ticks, minStep) {
+  const count = Math.max(2, Math.floor(Number(ticks)) || 3);
+  const floorStep = Math.max(0, Number(minStep) || 0);
+  const m = Number(max);
+  if (!Number.isFinite(m) || m <= 0) {
+    return { max: floorStep > 0 ? floorStep : 1, step: floorStep > 0 ? floorStep : 1, values: [0, floorStep > 0 ? floorStep : 1] };
+  }
+  const rough = m / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / mag;
+  const mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  let step = mult * mag;
+  if (step < floorStep) step = floorStep;
+  const top = Math.ceil(m / step - 1e-9) * step;
+  const values = [];
+  for (let i = 0; i * step <= top + step * 1e-6; i += 1) values.push(i * step);
+  return { max: top, step, values };
+}
+
+/** 目盛りや値に書く文字（単位つき）。unit は money / tokens / percent / それ以外。 */
+function saiAxisValue(value, unit) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "0";
+  if (unit === "money") {
+    if (Math.abs(v) >= 1000) return `$${Math.round(v).toLocaleString("ja-JP")}`;
+    return `$${v.toFixed(2)}`;
+  }
+  if (unit === "tokens") {
+    const a = Math.abs(v);
+    if (a >= 1e9) return `${saiTrim1(v / 1e9)}B`;
+    if (a >= 1e6) return `${saiTrim1(v / 1e6)}M`;
+    if (a >= 1e3) return `${saiTrim1(v / 1e3)}K`;
+    return String(Math.round(v));
+  }
+  if (unit === "percent") return `${Math.round(v)}%`;
+  // 回数は 4 桁を超えると目盛りには長すぎるので K / M にする
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${saiTrim1(v / 1e6)}M`;
+  if (a >= 1e4) return `${saiTrim1(v / 1e3)}K`;
+  return Math.round(v).toLocaleString("ja-JP");
+}
+
+/** "2026-09-20" から「9/20」を作る（読めなければ空文字）。 */
+function saiDayLabel(date) {
+  const s = String(date || "");
+  if (s.length < 10) return "";
+  return `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}`;
+}
+
+/** 画面が「動きを減らす」と言っているか（グラフを描きながら動かすかの分岐）。 */
+function saiReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/**
+ * 日ごとの棒グラフ（縦の目盛り 0 / 中間 / 最大＋格子線＋横のラベル）。
+ * Project の Dashboard と Usage の Activity が同じ形で使う。
+ *
+ * opts:
+ *   rows    一覧（空のときは軸だけの枠を出さず、そのまま戻す）
+ *   valueOf (row) => 数値
+ *   labelOf (row, i, n) => 横のラベル（空文字ならその位置のラベルは出さない）
+ *   unit    money / tokens / percent / それ以外
+ *   what    グラフの説明（aria-label の先頭）
+ *   onPick  (row) => void（棒を押したとき）
+ */
+function saiDailyBars(opts) {
+  const o = opts || {};
+  const rows = Array.isArray(o.rows) ? o.rows : [];
+  const unit = o.unit || "count";
+  const svg = saiSvg("svg", {
+    viewBox: "0 0 320 150",
+    class: "dash-chart",
+    role: "img",
+    "aria-label": `${o.what || "日ごとのグラフ"}。データがありません`,
+  });
+  // データが無いときは「空の軸だけの枠」を出さない（空の表示の規則）
+  if (rows.length === 0) return svg;
+
+  const valueOf =
+    typeof o.valueOf === "function" ? o.valueOf : (row) => Number(row && row.value) || 0;
+  const values = rows.map(valueOf);
+  const dataMax = Math.max(0, ...values);
+  const total = values.reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0);
+  // 金額は 1 cents 未満に切らない（目盛りが全部 $0.00 になるのを防ぐ）
+  const scale = saiNiceScale(dataMax, 3, unit === "money" ? 0.01 : 0);
+
+  const W = 320;
+  const L = 40; // 左は目盛りの文字のぶん
+  const R = 6;
+  const T = 10;
+  const B = 22;
+  const baseY = 128; // 棒の底（150 から下の余白 22 を引く）
+  const n = rows.length;
+  const slot = (W - L - R) / n;
+  const yOf = (v) =>
+    baseY - (Math.max(0, Math.min(v, scale.max)) / scale.max) * (baseY - T);
+
+  // 縦の目盛りと格子線（0 のところだけは:--chart-axis のsolid な線）
+  for (const t of scale.values) {
+    const y = yOf(t).toFixed(2);
+    svg.appendChild(
+      saiSvg("line", {
+        x1: String(L),
+        y1: y,
+        x2: String(W - R),
+        y2: y,
+        class: t === 0 ? "dash-base" : "dash-gridline",
+      })
+    );
+    const label = saiSvg("text", {
+      x: String(L - 5),
+      y,
+      dy: "4",
+      class: "dash-axis dash-yaxis",
+      "text-anchor": "end",
+    });
+    label.textContent = saiAxisValue(t, unit);
+    svg.appendChild(label);
+  }
+
+  // 棒
+  const barW = Math.max(2, Math.min(slot * 0.62, 26));
+  rows.forEach((row, i) => {
+    const v = values[i];
+    const h = v > 0 ? Math.max(3, (v / scale.max) * (baseY - T)) : 3;
+    const rect = saiSvg("rect", {
+      x: (L + i * slot + (slot - barW) / 2).toFixed(2),
+      y: (baseY - h).toFixed(2),
+      width: barW.toFixed(2),
+      height: h.toFixed(2),
+      rx: "3",
+      class: v > 0 ? "dash-bar" : "dash-bar zero",
+    });
+    if (typeof o.onPick === "function") {
+      rect.setAttribute("role", "button");
+      rect.setAttribute("tabindex", "0");
+      rect.setAttribute("aria-label", `${saiDayLabel(row && row.date)} ${saiAxisValue(v, unit)}`);
+      const pick = () => o.onPick(row);
+      rect.addEventListener("click", pick);
+      rect.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          pick();
+        }
+      });
+    }
+    svg.appendChild(rect);
+  });
+
+  // 横のラベル。画面が狭いときは 30 の間隔、広いときは 46 の間隔までで間引く。
+  const minGap = saiIsWide() ? 46 : 30;
+  const picks = [];
+  let lastX = -Infinity;
+  rows.forEach((row, i) => {
+    const text =
+      typeof o.labelOf === "function"
+        ? String(o.labelOf(row, i, n) || "")
+        : saiDayLabel(row && row.date);
+    if (!text) return;
+    const x = L + i * slot + slot / 2;
+    const isEnd = i === 0 || i === n - 1;
+    if (x - lastX < (isEnd ? minGap * 0.6 : minGap)) return;
+    lastX = x;
+    picks.push({ i, x, text });
+  });
+  // 最後（何日までか）は必ず出す。潰れていたら直前のラベルを潰す
+  if (n > 1 && picks[picks.length - 1].i !== n - 1) {
+    const last = rows[n - 1];
+    const text =
+      typeof o.labelOf === "function"
+        ? String(o.labelOf(last, n - 1, n) || "")
+        : saiDayLabel(last && last.date);
+    if (text) {
+      const x = L + (n - 1) * slot + slot / 2;
+      while (picks.length > 1 && x - picks[picks.length - 1].x < minGap * 0.6) {
+        picks.pop();
+      }
+      picks.push({ i: n - 1, x, text });
+    }
+  }
+  for (const p of picks) {
+    const t = saiSvg("text", {
+      x: (p.i === n - 1 ? W - R : p.x).toFixed(2),
+      y: String(baseY + 16),
+      class: "dash-axis",
+      // 最後のラベルは右端で切れないように右寄せにする
+      "text-anchor": p.i === n - 1 ? "end" : "middle",
+    });
+    t.textContent = p.text;
+    svg.appendChild(t);
+  }
+
+  // 要点を 1 文で（画面読み上げ用に、最大の所と合計を教える）
+  let maxAt = "";
+  if (dataMax > 0) {
+    const i = values.indexOf(dataMax);
+    const day = saiDayLabel(rows[i] && rows[i].date);
+    maxAt = `。最大 ${saiAxisValue(dataMax, unit)}${day ? `（${day}）` : ""}`;
+  }
+  svg.setAttribute(
+    "aria-label",
+    `${o.what || "日ごとのグラフ"}。${n} 日分${maxAt}。合計 ${saiAxisValue(total, unit)}`
+  );
+  return svg;
+}
+
 // --- node からの読み込み（tests/test_ui.js） ---
 // DOM を使わない部分（用語の表・saiWideAt）は値を返す。
 // C-F3 の関数も「存在するか」を確かめられるよう形だけ出してある
@@ -493,5 +730,10 @@ if (typeof module !== "undefined" && module.exports) {
     saiTermText,
     saiTermLabel,
     saiTermList,
+    // グラフの目盛りと値（U04。DOM を触らないものだけ）
+    saiNiceScale,
+    saiAxisValue,
+    saiDayLabel,
+    saiWideAt,
   };
 }

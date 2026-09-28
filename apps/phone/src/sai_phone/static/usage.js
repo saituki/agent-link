@@ -146,6 +146,12 @@ function usageCcCard(cc) {
   const row = el("div", "usage-meter-row");
   row.appendChild(el("span", "dash-bar-name", "5時間枠"));
   const track = el("div", "dash-bar-track");
+  // 読み上げでも「どれだけ使ったか」が分かるように progressbar として伝える
+  track.setAttribute("role", "progressbar");
+  track.setAttribute("aria-label", "5時間枠の使用率");
+  track.setAttribute("aria-valuemin", "0");
+  track.setAttribute("aria-valuemax", "100");
+  track.setAttribute("aria-valuenow", String(Math.round(pct)));
   const fill = el("div", "dash-bar-fill");
   fill.style.width = `${pct}%`;
   track.appendChild(fill);
@@ -323,60 +329,27 @@ function usageBarNote(row) {
   return `${md} ${value}`;
 }
 
-/** 日ごとの棒グラフ（project.js の dailySvg と同じ見た目・42 §3.5）． */
+/** 日ごとの棒グラフ（共通部品の saiDailyBars を使う。Project と同じ形・42 §3.5）． */
 function usageDailySvg(days) {
-  const svg = svgEl("svg", {
-    viewBox: "0 0 320 140",
-    class: "dash-chart",
-    role: "img",
-    "aria-label": "日ごとの使用",
-  });
-  const rows = Array.isArray(days) ? days : [];
-  if (rows.length === 0) return svg;
   const valueOf = (row) => {
     if (usageMetric === "tokens") return Number(row.tokens) || 0;
     if (usageMetric === "calls") return Number(row.calls) || 0;
     return Number(row.cost) || 0;
   };
-  const values = rows.map(valueOf);
-  const max = Math.max(1e-9, ...values);
-  const n = rows.length;
-  const slot = 320 / n;
-  const barW = Math.max(2, Math.min(slot * 0.6, 12));
-  const baseY = 116;
-  const topY = 8;
-  rows.forEach((row, i) => {
-    const v = values[i];
-    const h = v > 0 ? Math.max(3, (v / max) * (baseY - topY)) : 3;
-    const x = i * slot + (slot - barW) / 2;
-    const rect = svgEl("rect", {
-      x: x.toFixed(2),
-      y: (baseY - h).toFixed(2),
-      width: barW.toFixed(2),
-      height: h.toFixed(2),
-      rx: "3",
-      class: v > 0 ? "dash-bar" : "dash-bar zero",
-    });
-    rect.addEventListener("click", () => {
+  const unit = usageMetric === "tokens" ? "tokens" : usageMetric === "calls" ? "count" : "money";
+  const what =
+    usageMetric === "tokens" ? "日ごとの token" : usageMetric === "calls" ? "日ごとの回数" : "日ごとの費用";
+  return saiDailyBars({
+    rows: Array.isArray(days) ? days : [],
+    valueOf,
+    unit,
+    what,
+    labelOf: (row) => String(String((row && row.date) || "").slice(8, 10)),
+    onPick: (row) => {
       usageNote = usageBarNote(row);
       usageRenderDetail();
-    });
-    svg.appendChild(rect);
+    },
   });
-  // 30 本あるので日付は 5 日ごとと両端だけ出す
-  rows.forEach((row, i) => {
-    const day = Number(String(row.date).slice(8, 10));
-    if (!(i === 0 || i === n - 1 || day % 5 === 0)) return;
-    const t = svgEl("text", {
-      x: (i * slot + slot / 2).toFixed(2),
-      y: "134",
-      class: "dash-axis",
-      "text-anchor": "middle",
-    });
-    t.textContent = String(day);
-    svg.appendChild(t);
-  });
-  return svg;
 }
 
 /** Activity（日ごとのグラフとモデル別・42 §3.1）． */

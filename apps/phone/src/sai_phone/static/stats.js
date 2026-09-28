@@ -128,16 +128,19 @@ let statsFinished = false;
 // 同じ内容を描き直してグラフが毎回動き直さないようにする
 let statsLastJson = "";
 
+// SVG の要素は共通部品（ui.js の saiSvg）が作る。ここでは呼び出すだけにして、
+// 同じ作り方を 2 か所に置かない。
 function svgEl(tag, attrs) {
-  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  return n;
+  return saiSvg(tag, attrs);
 }
 
-function el(tag, cls, text) {
+function el(tag, cls, text, hideFromReader) {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text != null) n.textContent = text;
+  // hideFromReader が true のときは、手元にある図の aria-label が同じことを
+  // 言うので、読み上げでは 1 回だけ聞かせるようにする（画面には出す）。
+  if (hideFromReader) n.setAttribute("aria-hidden", "true");
   return n;
 }
 
@@ -281,11 +284,16 @@ function tokenCard(stats) {
   }
 
   const wrap = el("div", "st-donut-wrap");
+  const biggest = parts.filter((p) => p.n > 0).sort((a, b) => b.n - a.n)[0];
   const svg = svgEl("svg", {
     viewBox: "0 0 100 100",
     class: "st-donut",
     role: "img",
-    "aria-label": "トークン内訳のドーナツ型グラフ",
+    "aria-label":
+      `トークン内訳のドーナツ。合計 ${formatTokens(sum)} トークン` +
+      (biggest
+        ? `。最も多いのは${biggest.label} ${formatCount(biggest.n)}（${((biggest.n / sum) * 100).toFixed(1)}%）`
+        : ""),
   });
   let start = 0;
   for (const p of parts) {
@@ -334,15 +342,23 @@ function toolCard(stats) {
     return card;
   }
   const max = num(rows[0][1]);
+  card.appendChild(
+    el("p", "st-hint", `横棒の長さは 1 番目（${String(rows[0][0])}：${formatCount(max)} 回）を 100% とした比です`)
+  );
   for (const [name, count] of rows) {
+    const n = num(count);
+    const frac = max > 0 ? Math.max(n / max, 0.01) : 0;
     const row = el("div", "st-bar-row");
-    const nameEl = el("span", "st-bar-name", String(name));
-    row.appendChild(nameEl);
+    // 名前と回数は 図の aria-label に入れる（読上げが二重にならないよう隠す）
+    row.appendChild(el("span", "st-bar-name", String(name), true));
     const svg = svgEl("svg", {
       viewBox: "0 0 100 8",
       preserveAspectRatio: "none",
       class: "st-bar-svg",
-      "aria-hidden": "true",
+      role: "img",
+      "aria-label":
+        `${String(name)} ${formatCount(n)} 回` +
+        `（1 番目の ${formatCount(max)} 回に対して ${Math.round(frac * 100)}%）`,
     });
     const rect = svgEl("rect", {
       x: "0", y: "0", width: "100", height: "8", rx: "2",
@@ -352,7 +368,7 @@ function toolCard(stats) {
     rect.dataset.frac = max > 0 ? String(Math.max(num(count) / max, 0.01)) : "0";
     svg.appendChild(rect);
     row.appendChild(svg);
-    row.appendChild(el("span", "st-bar-num", formatCount(count)));
+    row.appendChild(el("span", "st-bar-num", formatCount(count), true));
     card.appendChild(row);
   }
   return card;
@@ -390,16 +406,22 @@ function footCard(stats) {
   return card;
 }
 
-// 描いたばかりの棒とドーナツを少し動かして出す（CSS transition・04 §2）
+// 描いたばかりの棒とドーナツを少し動かして出す（CSS transition・04 §2）。
+// 「動きを減らす」と言っているときは最初から最後の姿で描く（アニメーションの規則）。
 function animateCharts() {
-  requestAnimationFrame(() => {
+  const finish = () => {
     document.querySelectorAll("#stats-cards .st-bar-rect").forEach((r) => {
       r.style.transform = `scaleX(${r.dataset.frac || 0})`;
     });
     document.querySelectorAll("#stats-cards .st-seg").forEach((s) => {
       if (s.dataset.dash) s.setAttribute("stroke-dasharray", s.dataset.dash);
     });
-  });
+  };
+  if (saiReducedMotion()) {
+    finish();
+    return;
+  }
+  requestAnimationFrame(finish);
 }
 
 // --- node からの読み込み（tests/test_stats.js・04 §5） ---
