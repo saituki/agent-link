@@ -31,6 +31,12 @@ use crate::herdr::shell_escape_single_quotes;
 /// MCP サーバ名（Claude Code からは `mcp__sai__<tool>` として見える）。
 pub const MCP_SERVER_NAME: &str = "sai";
 
+/// `.mcp.json` に書く Playwright MCP のパッケージ（版を固定する）。
+///
+/// `@latest` にすると MCP の版と入れた WebKit の版がずれて「WebKit が見つからない」になる。
+/// WebKit の導入は README の手順（`install-browser webkit`）で行う。
+pub const PLAYWRIGHT_MCP_PACKAGE: &str = "@playwright/mcp@0.0.82";
+
 /// MCP サーバが公開するツール名（`plan-05` で MCP サーバが公開する 13 ツール）。
 pub const MCP_TOOL_NAMES: &[&str] = &[
     "sai_write",
@@ -278,8 +284,10 @@ fn sai_mcp_command() -> String {
 
 /// プロジェクト直下の `.mcp.json` の内容（`sai-link init` が書く）。
 ///
-/// `sai`（sai_write / task_create 等）に加え、serena・headroom・donsetch（Web 検索）を使う。
+/// `sai`（sai_write / task_create 等）に加え、serena・headroom・donsetch（Web 検索）と
+/// playwright（WebKit・iPhone 15 の画面）で画面を確かめる MCP を使う。
 /// `sai` は sai-link 自身の絶対パスで呼ぶ（PATH にある旧 sai-link を拾わないため）。
+/// playwright は Safari に近い WebKit を画面なし（`--headless`）で動かす。
 pub fn mcp_config_json() -> serde_json::Value {
     serde_json::json!({
         "mcpServers": {
@@ -293,7 +301,17 @@ pub fn mcp_config_json() -> serde_json::Value {
                 ]
             },
             "headroom": { "command": "headroom", "args": ["mcp", "serve"] },
-            "donsetch": { "command": "donsetch", "args": ["mcp", "--supervised"] }
+            "donsetch": { "command": "donsetch", "args": ["mcp", "--supervised"] },
+            "playwright": {
+                "command": "npx",
+                "args": [
+                    "-y", PLAYWRIGHT_MCP_PACKAGE,
+                    "--browser", "webkit",
+                    "--device", "iPhone 15",
+                    "--headless",
+                    "--isolated"
+                ]
+            }
         }
     })
 }
@@ -838,8 +856,25 @@ mod tests {
         assert_eq!(v["mcpServers"]["sai"]["command"], serde_json::json!(sai_link_exe()));
         assert!(Path::new(v["mcpServers"]["sai"]["command"].as_str().unwrap()).is_absolute());
         assert_eq!(v["mcpServers"]["sai"]["args"], serde_json::json!(["mcp", "serve"]));
-        for name in ["serena", "headroom", "donsetch"] {
+        for name in ["serena", "headroom", "donsetch", "playwright"] {
             assert!(v["mcpServers"][name].is_object(), "{} がありません", name);
         }
+    }
+
+    /// playwright が WebKit・iPhone 15 の画面・画面なしで起動ること（版は固定）。
+    #[test]
+    fn mcp_config_json_has_playwright_webkit() {
+        let v = mcp_config_json();
+        assert_eq!(v["mcpServers"]["playwright"]["command"], serde_json::json!("npx"));
+        assert_eq!(
+            v["mcpServers"]["playwright"]["args"],
+            serde_json::json!([
+                "-y", PLAYWRIGHT_MCP_PACKAGE,
+                "--browser", "webkit",
+                "--device", "iPhone 15",
+                "--headless",
+                "--isolated"
+            ])
+        );
     }
 }

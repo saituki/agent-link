@@ -7,15 +7,18 @@
 //! - `models.json` は作成しない（`~/.sai-moon/models.json` のグローバル設定にフォールバック）
 //! - Claude Code の設定 `.mcp.json` と `.claude/settings.json`、pi の設定 `.pi/settings.json` を作る。
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
+//! - serena の設定 `.serena/project.yml` を作る（使う言語はプロジェクトのファイルの拡張子から選ぶ）。
+//!   既にある場合は他の設定と同じく退避する。`.serena/` の中の他のファイルには触らない
 //!
 //! ## 作成される構成
 //!
 //! ```text
 //! <root>/
-//! ├── .mcp.json                                # cc の MCP（sai / serena / headroom / donsetch）
+//! ├── .mcp.json                                # cc の MCP（sai / serena / headroom / donsetch / playwright）
 //! ├── .claude/settings.json                    # cc の道具制限・Skill 抑止・statusLine・hook
 //! ├── .claude/commands/sai-finalize.md         # /sai-finalize（hook が LLM を通さず処理）
 //! ├── .pi/settings.json                        # pi の質問ツール（ask_user_phone.ts）
+//! ├── .serena/project.yml                      # serena の言語サーバ（拡張子から選ぶ）
 //! └── .sai/
 //!     ├── blocks/                              # ブロック定義 (*.md)
 //!     ├── template/                            # templates: で参照される md
@@ -64,6 +67,57 @@ const INIT_DIRS: &[&str] = &[
     "sai-engine/notifications/processed",
     "sai-engine/notifications/results",
 ];
+
+/// 拡張子から serena の言語サーバを選ぶときの対応表。
+///
+/// 値は serena の `project.template.yml` に載っている言語サーバ名（`language_servers`）。
+/// JavaScript は `typescript`、C は `cpp` でよい（serena の雛形の注記と同じ）。
+const SERENA_LANGUAGE_BY_EXT: &[(&str, &str)] = &[
+    ("rs", "rust"),
+    ("py", "python"),
+    ("ts", "typescript"),
+    ("tsx", "typescript"),
+    ("js", "typescript"),
+    ("jsx", "typescript"),
+    ("mjs", "typescript"),
+    ("cjs", "typescript"),
+    ("go", "go"),
+    ("c", "cpp"),
+    ("h", "cpp"),
+    ("cc", "cpp"),
+    ("cpp", "cpp"),
+    ("hpp", "cpp"),
+    ("java", "java"),
+    ("swift", "swift"),
+    ("sh", "bash"),
+    ("bash", "bash"),
+];
+
+/// `language_servers` に並べる順番（見つけた順番ではなく、常にこの順で並べる）。
+///
+/// serena は先頭の言語を既定に使うため、見つけた順番ではなく常にこの順で返す。
+const SERENA_LANGUAGE_ORDER: &[&str] =
+    &["rust", "python", "typescript", "go", "cpp", "java", "swift", "bash"];
+
+/// 言語をPerl に見つけないために飛ばすフォルダの名前。
+///
+/// `.` で始まるフォルダ（`.git`・`.claude`・`.pi` など）はまとめて飛ばす。
+const SERENA_SKIP_DIRS: &[&str] = &[
+    "target",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".worktrees",
+    ".sai",
+    "dist",
+    "build",
+    "__pycache__",
+];
+
+/// 言語を探すときに見るファイル数の上限。
+// ponytail: 20,000 個で止める。大きな入れ物でも init が止まらないようにするためで、
+// 言語の判定には十分（同じ言語は 1 個見つければよい）。
+const SERENA_SCAN_MAX_FILES: usize = 20_000;
 
 /// 初期化エラー。
 #[derive(Error, Debug)]
@@ -125,6 +179,12 @@ pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
             crate::cc_command::SAI_FINALIZE_COMMAND_MD.to_string(),
         ),
     ];
+    // serena の設定（使う言語は、今 init しているプロジェクトの拡張子から選ぶ）
+    std::fs::create_dir_all(root.join(".serena"))?;
+    files.push((
+        root.join(".serena/project.yml"),
+        serena_project_yml(root, &detect_serena_languages(root)),
+    ));
     if let Some(ext) = crate::cc_command::pi_question_extension() {
         std::fs::create_dir_all(root.join(".pi"))?;
         files.push((root.join(".pi/settings.json"), json(crate::cc_command::pi_settings_json(&ext))?));
@@ -140,6 +200,97 @@ pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
     }
 
     Ok(report)
+}
+
+/// プロジェクトで使う serena の言語サーバを、ファイルの拡張子から選ぶ。
+///
+/// `root` から下を `std::fs::read_dir` で再帰的にたどり、[`SERENA_LANGUAGE_BY_EXT`] で
+/// 拡張子|language を選ぶ。使わない言語のサーバを起動しないため。1 つも見つからなければ
+/// serena の雛形の既定と同じ `["python"]` を返す。
+fn detect_serena_languages(root: &Path) -> Vec<&'static str> {
+    let mut found: Vec<&'static str> = Vec::new();
+    let mut seen = 0usize;
+    let mut stack = vec![root.to_path_buf()];
+
+    'walk: while let Some(dir) = stack.pop() {
+        // 読めないフォルダ（権限が無い・消えた）は黙って飛ばす（init は止まらない）
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            // シンボリックリンクは型が symlink なので入れない（ループを避ける）
+            let Ok(kind) = entry.file_type() else { continue };
+            let name = entry.file_name().to_string_lossy().to_string();
+            if kind.is_dir() {
+                if !is_serena_skipped_dir(&name) {
+                    stack.push(entry.path());
+                }
+                continue;
+            }
+            if seen >= SERENA_SCAN_MAX_FILES {
+                break 'walk;
+            }
+            seen += 1;
+            let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_lowercase());
+            let Some(lang) = ext.and_then(|e| {
+                SERENA_LANGUAGE_BY_EXT.iter().find(|(x, _)| *x == e).map(|(_, l)| *l)
+            }) else {
+                continue;
+            };
+            if !found.contains(&lang) {
+                found.push(lang);
+            }
+        }
+    }
+
+    if found.is_empty() {
+        return vec!["python"];
+    }
+    SERENA_LANGUAGE_ORDER
+        .iter()
+        .copied()
+        .filter(|l| found.contains(l))
+        .collect()
+}
+
+/// 言語を探すときに深入しないフォルダかどうか。
+fn is_serena_skipped_dir(name: &str) -> bool {
+    name.starts_with('.') || SERENA_SKIP_DIRS.contains(&name)
+}
+
+/// `.serena/project.yml` の内容（`sai-link init` が書く）。
+///
+/// 項目は serena の `project.yml` のうち必ず要るもの（`project_name` と `language_servers`）と、
+/// 併せて決めておく既定（`encoding`・`ignore_all_files_in_gitignore`・`read_only`）。
+/// `project_name` は `root` のフォルダ名。
+fn serena_project_yml(root: &Path, languages: &[&str]) -> String {
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "project".to_string());
+    let mut yml = String::new();
+    yml.push_str("# sai-moon-link init が書いた serena の設定（言語はプロジェクトのファイルの拡張子から選んだ）\n");
+    yml.push_str(&format!("project_name: {}\n", yaml_quoted(&name)));
+    yml.push_str("language_servers:\n");
+    for lang in languages {
+        yml.push_str(&format!("- {}\n", lang));
+    }
+    yml.push_str("encoding: \"utf-8\"\n");
+    yml.push_str("ignore_all_files_in_gitignore: true\n");
+    yml.push_str("read_only: false\n");
+    yml
+}
+
+/// YAML の文字列（`"` と `\` を `\"` `\\` にして二重引用符で囲む）。
+fn yaml_quoted(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        if ch == '"' || ch == '\\' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
 }
 
 /// 退避先 `<名前>.bak`（既にあれば `<名前>.bak.<YYYYMMDD-HHMMSS>`）。
@@ -190,6 +341,50 @@ mod tests {
 
         // 返り値に settings.json が含まれる
         assert!(created.iter().any(|p| p == &settings));
+
+        // serena の設定が作られ、言語が並んでいる
+        let serena = root.join(".serena").join("project.yml");
+        assert!(serena.is_file(), "欠落: {}", serena.display());
+        let yml = std::fs::read_to_string(&serena).unwrap();
+        assert!(yml.contains("language_servers:"), "{}", yml);
+        assert!(yml.contains("project_name:"), "{}", yml);
+    }
+
+    /// 使っている言語だけを選び、飛ばすフォルダの中と不可視フォルダの中は見ないこと。
+    #[test]
+    fn test_detect_serena_languages() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for rel in [
+            "a.rs",
+            "sub/b.py",
+            "web/c.js",
+            "node_modules/x.go",
+            "target/y.java",
+            ".hidden/z.swift",
+            ".claude/w.cpp",
+        ] {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "").unwrap();
+        }
+        assert_eq!(detect_serena_languages(root), vec!["rust", "python", "typescript"]);
+    }
+
+    /// 1 つも見つからなければ serena の雛形の既定（python）になること。
+    #[test]
+    fn test_detect_serena_languages_defaults_to_python() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(detect_serena_languages(dir.path()), vec!["python"]);
+    }
+
+    /// `project_name` がフォルダ名、`language_servers` が渡した言語の並びになること。
+    #[test]
+    fn test_serena_project_yml() {
+        let yml = serena_project_yml(Path::new("/tmp/demo"), &["rust", "python"]);
+        assert!(yml.contains("project_name: \"demo\""), "{}", yml);
+        assert!(yml.contains("language_servers:\n- rust\n- python\n"), "{}", yml);
+        assert!(yml.contains("ignore_all_files_in_gitignore: true"), "{}", yml);
     }
 
     /// 再実行してもエラーにならず、`.sai/` の既存内容を壊さず、cc 設定は退避して作り直すこと。
@@ -215,8 +410,8 @@ mod tests {
         // .sai/ の既存ファイルは書き換えられていない
         assert!(std::fs::read_to_string(&settings).unwrap().contains("marker"));
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
-        // cc と pi の設定は 4 つとも退避され、新しく作られる
-        assert_eq!(second.backed_up.len(), 4);
+        // cc と pi と serena の設定は 5 つとも退避され、新しく作られる
+        assert_eq!(second.backed_up.len(), 5);
         let pi: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(".pi/settings.json")).unwrap(),
         )
@@ -228,6 +423,7 @@ mod tests {
             "old"
         );
         assert!(root.join(".claude/settings.json.bak").is_file());
+        assert!(root.join(".serena/project.yml.bak").is_file());
         let mcp: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap())
                 .unwrap();
