@@ -355,7 +355,7 @@ impl PiCommandBuilder {
     /// | `config.thinking` | `--thinking` | thinking budget レベル（"none"の場合はスキップ） |
     /// | `config.tools` | `--tools` / `--no-tools` | ToolsConfig に応じて切替 |
     /// | `config.extensions` | `--extensions` / `--no-extensions` | ToolsConfig に応じて切替 |
-    /// | `config.skills` | `--skills` | カンマ区切りスキル名 |
+    /// | `config.skills` | （使わない） | pi に有効になる仕組みが無く、`--tools` に入れると既定の道具が消えるため警告だけ |
     /// | `config.timeout` | `--timeout` | 整数値（秒） |
     /// | `obs_pool` | `--o-pool` | observability |
     /// | `obs_tag` | `--o-tag` | observability |
@@ -496,9 +496,14 @@ pub fn agent_args_for_config(config: &BlockConfig) -> Vec<String> {
         );
     }
 
+    // pi の --tools は道具を絞る一覧で、skill を有効にする仕組みではない（知らない名前は黙って無視される）。
+    // skill はプロジェクトに .pi/skills/ を置けば pi が読むので、block の skills: は使わない（警告のみ）。
     if let Some(ref skills) = config.skills {
         if !skills.is_empty() {
-            tool_names.extend(skills.split(',').map(|s| s.trim().to_string()));
+            eprintln!(
+                "[sai-engine] skills '{}' は --tools に入れません（pi は .pi/skills/ の skill を読みます）",
+                skills
+            );
         }
     }
 
@@ -912,7 +917,7 @@ mod tests {
 
     #[test]
     fn test_build_with_skills() {
-        // skills が --tools にマージされること（pi には --skills がない）
+        // skills は --tools に入らない（--tools は道具の一覧で、知らない名前は黙って無視される）
         let mut config = mock_config();
         config.skills = Some("ce-brainstorm,pi-sai".to_string());
 
@@ -921,9 +926,10 @@ mod tests {
             .build()
             .expect("コマンドの構築に失敗");
 
-        assert!(!cmd.command.contains("--skills"));
-        assert!(cmd.command.contains("--tools"));
-        assert!(cmd.command.contains("ce-brainstorm,pi-sai"));
+        assert!(!cmd.command.contains("ce-brainstorm"), "{}", cmd.command);
+        assert!(!cmd.command.contains("pi-sai"), "{}", cmd.command);
+        // tools を空にすると既定の道具（read,bash,edit,write）がそのまま残るので、--tools が出ない
+        assert!(!cmd.command.contains("--tools"), "{}", cmd.command);
     }
 
     #[test]
@@ -989,9 +995,10 @@ mod tests {
         assert!(c.contains("high"));
         assert!(c.contains("--provider"));
         assert!(c.contains("anthropic"));
-        // tools + skills が --tools にマージされる（U01: extensions は MCP のため含めない）
+        // tools だけ --tools に入る（U01: extensions は MCP のため、skills は使わない）
         assert!(c.contains("--tools"));
-        assert!(c.contains("read,bash,ce-brainstorm"));
+        assert!(c.contains("read,bash"));
+        assert!(!c.contains("ce-brainstorm"), "{}", c);
         // --extensions, --skills, --max-turns, --timeout は存在しない
         assert!(!c.contains("--extensions"));
         assert!(!c.contains("--no-extensions"));

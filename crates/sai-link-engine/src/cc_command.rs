@@ -59,12 +59,13 @@ pub const MCP_TOOL_NAMES: &[&str] = &[
 /// 残すのは Read / Write / Edit / Bash / AskUserQuestion / ToolSearch（と、版によって
 /// 単独で存在する Glob / Grep）。`Agent` / `Task` を外すことで cc 自身の子エージェント
 /// 生成を封じ、子タスクの委譲を `mcp__sai__task_create` / `task_execute` に一本化する。
-/// `Skill` を外すと Skill 一覧も context に入らない（plugin の hooks は残る）。
+/// `Skill` は残す。`sai-link init` がプロジェクトの `.claude/skills/` に design skill
+/// （`frontend-design` と `ui-ux-rules`）を配るため。`disableBundledSkills: true` なので
+/// cc が同梱している skill は読まれない（プロジェクトに配った分だけ使える）。
 /// `AskUserQuestion` は sai-phone（iPhone 通知）が hook で使うため必ず残す。
 pub const CC_DENIED_TOOLS: &[&str] = &[
     "Agent",
     "Task",
-    "Skill",
     "Workflow",
     "WebFetch",
     "WebSearch",
@@ -431,6 +432,33 @@ description: sai-link のブロック実行を完了として確定する
 失敗したら理由をそのまま 1 行で出力する。
 ";
 
+/// `sai-link init` が `.claude/skills/` と `.pi/skills/` に配る design skill
+/// （`crates/sai-link-engine/assets/skills/` からの相対パスと中身）。
+///
+/// [`SAI_FINALIZE_COMMAND_MD`] と同じく `include_str!` で埋め込む。init が実行ファイル
+/// だけで完結するようにするためで、どのフォルダから init しても同じものが入る。
+///
+/// 2 つの置き場（`.claude/skills/` と `.pi/skills/`）には同じ中身を書き、cc と pi の
+/// どちらからでも同じ名前（`frontend-design` / `ui-ux-rules`）で呼べるようにする。
+pub const DESIGN_SKILL_FILES: &[(&str, &str)] = &[
+    (
+        "frontend-design/SKILL.md",
+        include_str!("../assets/skills/frontend-design/SKILL.md"),
+    ),
+    (
+        "frontend-design/LICENSE.txt",
+        include_str!("../assets/skills/frontend-design/LICENSE.txt"),
+    ),
+    (
+        "ui-ux-rules/SKILL.md",
+        include_str!("../assets/skills/ui-ux-rules/SKILL.md"),
+    ),
+    (
+        "ui-ux-rules/LICENSE",
+        include_str!("../assets/skills/ui-ux-rules/LICENSE"),
+    ),
+];
+
 /// cc の UserPromptSubmit hook（`sai-link cc-prompt-hook`）の本体。
 ///
 /// 入力が `/sai-finalize` なら LLM に送らずに完了処理（`agent_api::finalize`）を行い、
@@ -670,15 +698,18 @@ mod tests {
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        for t in ["Agent", "Task", "Skill", "WebSearch", "Bash(claude *)"] {
+        for t in ["Agent", "Task", "WebSearch", "Bash(claude *)"] {
             assert!(deny.contains(&t), "deny に {} がありません", t);
         }
-        for t in ["Read", "Write", "Edit", "Bash", "AskUserQuestion", "ToolSearch"] {
+        // Skill は残す。init が `.claude/skills/` に配る design skill を使うため。
+        for t in ["Read", "Write", "Edit", "Bash", "AskUserQuestion", "ToolSearch", "Skill"] {
             assert!(!deny.contains(&t), "{} は残す", t);
         }
         assert_eq!(v["permissions"]["allow"], serde_json::json!(["mcp__sai"]));
         assert_eq!(v["enableAllProjectMcpServers"], true);
         assert_eq!(v["disableClaudeAiConnectors"], true);
+        // 同梱の skill は読ませない（プロジェクトの `.claude/skills/` に配ったものだけ使う）
+        assert_eq!(v["disableBundledSkills"], true);
         assert_eq!(v["statusLine"]["type"], "command");
         assert!(v["statusLine"]["command"].as_str().unwrap().ends_with("cc-statusline"));
     }

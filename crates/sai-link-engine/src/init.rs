@@ -9,15 +9,21 @@
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
 //! - serena の設定 `.serena/project.yml` を作る（使う言語はプロジェクトのファイルの拡張子から選ぶ）。
 //!   既にある場合は他の設定と同じく退避する。`.serena/` の中の他のファイルには触らない
+//! - design skill（`frontend-design` と `ui-ux-rules`）を `.claude/skills/` と `.pi/skills/`
+//!   の 2 か所に作る。既存は他の設定と同じく退避する
 //!
 //! ## 作成される構成
 //!
 //! ```text
 //! <root>/
 //! ├── .mcp.json                                # cc の MCP（sai / serena / headroom / donsetch / playwright）
-//! ├── .claude/settings.json                    # cc の道具制限・Skill 抑止・statusLine・hook
+//! ├── .claude/settings.json                    # cc の道具制限・同梱 skill の抑止・statusLine・hook
 //! ├── .claude/commands/sai-finalize.md         # /sai-finalize（hook が LLM を通さず処理）
+//! ├── .claude/skills/                         # design skill（cc が読む）
+//! │   ├── frontend-design/{SKILL.md,LICENSE.txt}
+//! │   └── ui-ux-rules/{SKILL.md,LICENSE}
 //! ├── .pi/settings.json                        # pi の質問ツール（ask_user_phone.ts）
+//! ├── .pi/skills/                             # design skill（pi が読む・中身は .claude と同じ）
 //! ├── .serena/project.yml                      # serena の言語サーバ（拡張子から選ぶ）
 //! └── .sai/
 //!     ├── blocks/                              # ブロック定義 (*.md)
@@ -145,7 +151,8 @@ pub fn sai_dir(root: &Path) -> PathBuf {
 ///
 /// `.sai/` 配下は無いものだけ作り、DB・outputs・blocks などの既存物には触らない。
 /// cc と pi の設定ファイル（`.mcp.json` / `.claude/settings.json` / `.pi/settings.json`）は
-/// 毎回作り直す（既存は退避する）。pi は `.mcp.json` も読むので、MCP は cc と共通。
+/// 毎回作り直す（既存は退避する）。design skill も同じように作り直す。pi は `.mcp.json` も
+/// 読むので、MCP は cc と共通。
 pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
     let base = sai_dir(root);
     let mut report = InitReport::default();
@@ -188,6 +195,15 @@ pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
     if let Some(ext) = crate::cc_command::pi_question_extension() {
         std::fs::create_dir_all(root.join(".pi"))?;
         files.push((root.join(".pi/settings.json"), json(crate::cc_command::pi_settings_json(&ext))?));
+    }
+    // design skill（cc と pi 用の 2 か所。skill は拡張の有無と関係が無いので、上の pi の
+    // 設定分岐の中に入れず、必ず書く）
+    for base in [".claude/skills", ".pi/skills"] {
+        for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
+            let path = root.join(base).join(rel);
+            std::fs::create_dir_all(path.parent().expect("skill の親フォルダ"))?;
+            files.push((path, text.to_string()));
+        }
     }
     for (path, text) in files {
         if path.exists() {
@@ -387,6 +403,32 @@ mod tests {
         assert!(yml.contains("ignore_all_files_in_gitignore: true"), "{}", yml);
     }
 
+    /// design skill が cc と pi の 2 か所に作られ、中身が同じであること。
+    #[test]
+    fn test_init_project_creates_design_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        init_project(root).unwrap();
+
+        for base in [".claude/skills", ".pi/skills"] {
+            for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
+                let p = root.join(base).join(rel);
+                assert!(p.is_file(), "欠落: {}", p.display());
+                assert_eq!(&std::fs::read_to_string(&p).unwrap(), text);
+            }
+            // どちらの置き場も同じ名前で呼べる
+            for name in ["frontend-design", "ui-ux-rules"] {
+                let skill = std::fs::read_to_string(root.join(base).join(name).join("SKILL.md"))
+                    .unwrap();
+                assert!(skill.starts_with("---\n"), "{}", &skill[..20]);
+                assert!(skill.contains(&format!("name: {}", name)), "{}", &skill[..200]);
+                // pi は置き換えない変数を解釈しないので、書かない
+                assert!(!skill.contains("CLAUDE_"), "{}", name);
+            }
+        }
+    }
+
     /// 再実行してもエラーにならず、`.sai/` の既存内容を壊さず、cc 設定は退避して作り直すこと。
     #[test]
     fn test_init_project_rerun_keeps_existing() {
@@ -410,8 +452,8 @@ mod tests {
         // .sai/ の既存ファイルは書き換えられていない
         assert!(std::fs::read_to_string(&settings).unwrap().contains("marker"));
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
-        // cc と pi と serena の設定は 5 つとも退避され、新しく作られる
-        assert_eq!(second.backed_up.len(), 5);
+        // cc と pi と serena の設定と design skill の 8 ファイルは退避され、新しく作られる
+        assert_eq!(second.backed_up.len(), 5 + 8);
         let pi: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(".pi/settings.json")).unwrap(),
         )
@@ -424,6 +466,8 @@ mod tests {
         );
         assert!(root.join(".claude/settings.json.bak").is_file());
         assert!(root.join(".serena/project.yml.bak").is_file());
+        assert!(root.join(".claude/skills/frontend-design/SKILL.md.bak").is_file());
+        assert!(root.join(".pi/skills/ui-ux-rules/SKILL.md.bak").is_file());
         let mcp: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap())
                 .unwrap();

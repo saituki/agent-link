@@ -236,7 +236,10 @@ fn test_extensions_list() {
 // その他フラグテスト
 // ============================================================================
 
-/// skills が --skills フラグとして追加されることを確認する。
+/// skills を指定しても --tools に入らないことを確認する。
+///
+/// pi の --tools は道具を絞る一覧で、skill を有効にする仕組みではない。
+/// 知らない名前は黙って無視され、tools の指定が無いと既定の道具も消える。
 #[test]
 fn test_with_skills() {
     let mut config = mock_config();
@@ -248,12 +251,10 @@ fn test_with_skills() {
         .expect("コマンドの構築に失敗しました");
 
     let c = &cmd.command;
-    // --skills merged into --tools
-    assert!(
-        c.contains("ce-brainstorm,pi-sai"),
-        "スキルリスト 'ce-brainstorm,pi-sai' が必要: {}",
-        c
-    );
+    assert!(!c.contains("ce-brainstorm"), "skill の名前は --tools に入らない: {}", c);
+    assert!(!c.contains("pi-sai"), "skill の名前は --tools に入らない: {}", c);
+    // tools の指定が無いので --tools 自体も出ない（既定の道具はそのまま）
+    assert!(!c.contains("--tools"), "既定の道具が消える --tools は付けない: {}", c);
 }
 
 /// timeout が --timeout フラグとして追加されることを確認する。
@@ -338,8 +339,8 @@ fn test_all_flags() {
     // --no-extensions not supported
 
     // スキル/ターン/タイムアウト
-    // --skills merged into --tools
-    assert!(c.contains("ce-brainstorm"));
+    // skills は --tools に入らない（pi は .pi/skills/ の skill を読みます）
+    assert!(!c.contains("ce-brainstorm"), "skill の名前は --tools に入らない: {}", c);
     // --max-turns not supported by pi
     // --timeout not supported by pi
 
@@ -451,18 +452,18 @@ fn test_disabled_block() {
     assert!(cmd.command.contains("--session-dir"));
 }
 
-/// 空のスキル文字列で --skills フラグが追加されないことを確認する。
+/// 空のスキル文字列でも --tools が出ないことを確認する。
 #[test]
 fn test_empty_skills_skipped() {
     let mut config = mock_config();
     config.skills = Some("".to_string());
 
-    let _cmd = PiCommandBuilder::new("/tmp/session")
+    let cmd = PiCommandBuilder::new("/tmp/session")
         .with_config(config)
         .build()
         .expect("コマンドの構築に失敗しました");
 
-    // --skills merged into --tools
+    assert!(!cmd.command.contains("--tools"), "{}", cmd.command);
 }
 
 /// 空の provider 文字列で --provider フラグが追加されないことを確認する。
