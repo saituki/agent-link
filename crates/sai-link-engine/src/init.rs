@@ -99,7 +99,7 @@ const SERENA_LANGUAGE_BY_EXT: &[(&str, &str)] = &[
 const SERENA_LANGUAGE_ORDER: &[&str] =
     &["rust", "python", "typescript", "go", "cpp", "java", "swift", "bash"];
 
-/// 言語をPerl に見つけないために飛ばすフォルダの名前。
+/// 言語を探すときに入らないフォルダの名前。
 ///
 /// `.` で始まるフォルダ（`.git`・`.claude`・`.pi` など）はまとめて飛ばす。
 const SERENA_SKIP_DIRS: &[&str] = &[
@@ -205,7 +205,7 @@ pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
 /// プロジェクトで使う serena の言語サーバを、ファイルの拡張子から選ぶ。
 ///
 /// `root` から下を `std::fs::read_dir` で再帰的にたどり、[`SERENA_LANGUAGE_BY_EXT`] で
-/// 拡張子|language を選ぶ。使わない言語のサーバを起動しないため。1 つも見つからなければ
+/// 拡張子から言語を選ぶ。使わない言語のサーバを起動しないため。1 つも見つからなければ
 /// serena の雛形の既定と同じ `["python"]` を返す。
 fn detect_serena_languages(root: &Path) -> Vec<&'static str> {
     let mut found: Vec<&'static str> = Vec::new();
@@ -251,7 +251,7 @@ fn detect_serena_languages(root: &Path) -> Vec<&'static str> {
         .collect()
 }
 
-/// 言語を探すときに深入しないフォルダかどうか。
+/// 言語を探すときに入らないフォルダかどうか。
 fn is_serena_skipped_dir(name: &str) -> bool {
     name.starts_with('.') || SERENA_SKIP_DIRS.contains(&name)
 }
