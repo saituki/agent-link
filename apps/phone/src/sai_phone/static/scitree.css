@@ -1,0 +1,364 @@
+/* sai-phone の研究方針の木（Research-tree）の画面 — 実装計画 U19。
+   style.css の次に読む（index.html）。style.css は U01 が書くので触らない。
+   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
+   --accent と、研究方針の木用の --sci-*（状態と線の色。style.css にある）。
+   クラスは .sci- で始める。st- や --st- は統計の画面（style.css）と重なるので使わない。 */
+
+/* --- 画面全体（上に帯・下に一覧と板） --- */
+
+.sci-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.sci-modes {
+  display: flex;
+  padding: 10px 12px 0;
+}
+
+.sci-modes .dash-seg.small { width: 168px; }
+
+.sci-body {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.sci-body .sci-list {
+  flex: 0 0 320px;
+  max-width: 320px;
+  padding: 8px 8px 24px;
+  overflow-y: auto;
+}
+
+.sci-body .sci-board {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px 32px;
+  overflow-y: auto;
+}
+
+/* --- 上の帯（種の文・関門・負債） --- */
+
+.sci-band {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.sci-band-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sci-band-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sci-seed {
+  margin: 8px 0 0;
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--text);
+}
+
+.sci-seed-tentative {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 4px;
+}
+
+.sci-seed-blank {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px dashed var(--warn);
+  background: transparent;
+  color: var(--warn);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sci-gate {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.sci-debts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sci-debt {
+  cursor: default;
+}
+
+button.sci-debt {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sci-debt.muted {
+  opacity: 0.5;
+}
+
+.sci-gate-list { display: flex; flex-direction: column; gap: 10px; }
+
+.sci-gate-row { display: flex; gap: 8px; align-items: flex-start; }
+
+/* --- 研究の型を選ぶ --- */
+
+.sci-types { display: flex; flex-direction: column; gap: 8px; }
+
+.sci-type {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+}
+
+.sci-type-name { font-weight: 700; font-size: 15px; }
+.sci-type-text { font-size: 13px; color: var(--text-soft); line-height: 1.6; }
+
+/* --- 項目の一覧 --- */
+
+.sci-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.sci-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  padding: 8px 8px 8px calc(8px + var(--sci-indent, 0) * 16px);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sci-row:hover { background: var(--bg-soft); }
+.sci-row.active { border-color: var(--sel); background: var(--bg-soft); }
+
+.sci-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sci-row-sub { display: flex; flex-wrap: wrap; gap: 4px; }
+.sci-row-sub:empty { display: none; }
+
+.sci-row-title {
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sci-id {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+}
+
+.sci-pin { font-size: 12px; }
+
+/* --- 状態の印（色だけには頼らない。記号と文字を両方出す） --- */
+
+.sci-mark { font-size: 14px; line-height: 1; }
+.sci-mark-decided, .sci-mark-selected { color: var(--sci-decided); }
+.sci-mark-tentative { color: var(--sci-tentative); }
+.sci-mark-open { color: var(--sci-open); }
+.sci-mark-excluded { color: var(--sci-excluded); }
+.sci-mark-candidate { color: var(--sci-candidate); }
+.sci-mark-rejected { color: var(--sci-rejected); }
+.sci-mark-dormant { color: var(--sci-dormant); }
+
+.sci-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* --- 板 --- */
+
+.sci-sheet-body { padding: 8px 14px 28px; }
+
+.sci-card { display: flex; flex-direction: column; gap: 14px; }
+
+.sci-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 10px 12px;
+}
+
+.sci-sec-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.sci-sec-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.sci-node-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.sci-node-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.sci-node-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sci-node-chips:empty { display: none; }
+
+.sci-ops { display: flex; flex-wrap: wrap; gap: 6px; }
+.sci-ops:empty { display: none; }
+
+.sci-line { display: flex; align-items: flex-start; gap: 8px; }
+.sci-line-main { flex: 1; min-width: 0; }
+.sci-line-title { margin: 0; font-size: 14px; color: var(--text); line-height: 1.5; }
+.sci-line-text { margin: 2px 0 0; font-size: 14px; color: var(--text); line-height: 1.6; }
+.sci-line-sub { margin: 2px 0 0; font-size: 12px; color: var(--text-soft); line-height: 1.5; }
+
+.sci-block,
+.sci-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  flex-wrap: wrap;
+}
+
+.sci-block { align-items: center; }
+.sci-item { align-items: flex-start; }
+
+.sci-finding-head,
+.sci-link-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+
+.sci-auto { font-size: 12px; color: var(--text-soft); }
+
+.sci-link-title {
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.sci-note { margin: 0; font-size: 13px; color: var(--text-soft); line-height: 1.6; }
+
+.sci-bullets { margin: 4px 0 0; padding-left: 20px; font-size: 13px; color: var(--text-soft); }
+
+.sci-guide {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.sci-guide summary { cursor: pointer; font-weight: 700; color: var(--text); }
+.sci-guide > * + * { margin-top: 6px; }
+
+/* --- 候補の表 --- */
+
+.sci-table-box { width: 100%; }
+.sci-table-wrap { overflow-x: auto; }
+
+.sci-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sci-table th,
+.sci-table td {
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+}
+
+.sci-table th { color: var(--text-soft); font-size: 12px; white-space: nowrap; }
+.sci-table tbody tr.active { background: var(--bg-soft); }
+.sci-cell-title { margin-left: 6px; }
+.sci-cell-body { margin: 4px 0 0; font-size: 12px; color: var(--text-soft); }
+.sci-cell-ops { display: flex; flex-wrap: wrap; gap: 4px; }
+.sci-num { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* --- 文献の流れ --- */
+
+.sci-funnel { display: flex; gap: 8px; }
+
+.sci-funnel-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 4px;
+}
+
+.sci-funnel-num { font-size: 18px; font-weight: 700; color: var(--text); }
+.sci-funnel-label { font-size: 12px; color: var(--text-soft); }
+
+/* --- Markdown --- */
+
+.sci-md { font-size: 14px; line-height: 1.7; color: var(--text); }
+.sci-md > :first-child { margin-top: 0; }
+.sci-md > :last-child { margin-bottom: 0; }
