@@ -15,6 +15,7 @@ use clap::Subcommand;
 use rusqlite::Connection;
 use sai_paper_core::paths::{self, PaperRoots};
 use sai_paper_core::sci::{self, card, compute, context, defs, export, ops, store};
+use sai_paper_core::search_sets;
 use sai_paper_core::{Config, Database, Paths};
 use serde_json::{Value, json};
 
@@ -618,18 +619,181 @@ pub(crate) fn parse_assume(items: &[String]) -> Result<Vec<(i64, String)>> {
     Ok(out)
 }
 
+/// sai-link が付けた実行 ID（無ければ `None`）。
+pub(crate) fn parent_run_id() -> Option<i64> {
+    std::env::var("SAI_PARENT_RUN_ID")
+        .ok()
+        .and_then(|text| text.trim().parse::<i64>().ok())
+}
+
 /// 提案の実行者を作る（`--run` / `--block`、無ければ環境変数）。
-fn actor_of(run: Option<i64>, block: Option<String>) -> ops::Actor {
-    let run_id = run.or_else(|| {
-        std::env::var("SAI_PARENT_RUN_ID")
-            .ok()
-            .and_then(|text| text.trim().parse::<i64>().ok())
-    });
+pub(crate) fn actor_of(run: Option<i64>, block: Option<String>) -> ops::Actor {
+    let run_id = run.or_else(parent_run_id);
     let block = block
         .or_else(|| std::env::var("SAI_BLOCK_NAME").ok())
         .map(|text| text.trim().to_string())
         .unwrap_or_default();
     ops::Actor::Run { run_id, block }
+}
+
+// ---- 問いに結び付いた検索の記録（find / search / MCP） ------------------------
+
+/// 検索が結び付いた節点と問い（`find` と `search` の `--node` / `--question`）。
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct SearchRefs {
+    /// 検索した節点。`--question` だけなら、その問いの節点。
+    pub node: Option<i64>,
+    /// 検索した問い。
+    pub question: Option<i64>,
+    /// `--node` で明示した節点（検索の範囲を狭めるのに使う。`--question` からは引かない）。
+    pub given: Option<i64>,
+}
+
+impl SearchRefs {
+    /// 節点か問いのどちらかがある（= 検索の記録に残す）。
+    pub(crate) fn is_recorded(&self) -> bool {
+        self.node.is_some() || self.question.is_some()
+    }
+}
+
+/// `find` / `search` / MCP の `find` の引数検査。
+///
+/// `--node` と `--question` は `N12`・`Q7` の形だけを受け付ける。
+/// `--question` だけなら、その問いの節点を節点にする（記録に残すため）。
+pub(crate) fn parse_search_refs(
+    conn: &Connection,
+    node: Option<&str>,
+    question: Option<&str>,
+) -> Result<SearchRefs> {
+    let given_node = node.map(|text| parse_id(text, 'N')).transpose()?;
+    let question = question.map(|text| parse_id(text, 'Q')).transpose()?;
+    let node = match (given_node, question) {
+        (Some(node), _) => Some(node),
+        (None, Some(id)) => Some(
+            store::get_question(conn, id)
+                .map_err(|err| anyhow!("問いの節点を読めません: {err}"))?
+                .node_id,
+        ),
+        (None, None) => None,
+    };
+    Ok(SearchRefs {
+        node,
+        question,
+        given: given_node,
+    })
+}
+
+/// 検索の記録に残す内容（`find` / `search` / MCP の `find` で同じものを使う）。
+pub(crate) struct SearchLog<'a> {
+    /// 検索が結び付いた節点と問い。
+    pub refs: &'a SearchRefs,
+    /// `find` / `search` / `expand`。
+    pub tool: &'a str,
+    /// 検索語。
+    pub query: &'a str,
+    /// 検索の範囲（C-02 の書き方）。
+    pub scope: &'a str,
+    /// 範囲を広げた理由（`--widen`）。
+    pub widen_reason: &'a str,
+    /// 当たった件数。
+    pub hits: i64,
+    /// 当たった論文の番号。
+    pub hit_papers: &'a [i64],
+    /// 作った検索セットの番号。
+    pub set_id: Option<i64>,
+}
+
+/// 検索の記録（`sci_searches` に 1 行）を残す（R-R3 / R-R4）。
+///
+/// 節点も問いも無いときは記録しない（`find` / `search` を今までどおり使えるようにするため）。
+pub(crate) fn record_search(conn: &Connection, log: &SearchLog<'_>) -> Result<()> {
+    if !log.refs.is_recorded() {
+        return Ok(());
+    }
+    store::insert_search(
+        conn,
+        &store::NewSearch {
+            run_id: parent_run_id(),
+            node_id: log.refs.node,
+            question_id: log.refs.question,
+            tool: log.tool,
+            query: log.query,
+            scope: log.scope,
+            widen_reason: log.widen_reason,
+            hits: log.hits,
+            hit_papers: log.hit_papers,
+            set_id: log.set_id,
+        },
+    )
+    .map(|_| ())
+    .context("検索の記録を残せませんでした")
+}
+
+/// 同じ問い・同じ範囲の前回の検索を 1 行にする（R-R4。無ければ `None`）。
+///
+/// 節点か問いのどちらも無いときは「前」を見せない（何が前かが決まらないため）。
+pub(crate) fn previous_search_line(
+    conn: &Connection,
+    refs: &SearchRefs,
+    scope: &str,
+) -> Option<String> {
+    let node = refs.node?;
+    let rows = store::list_searches(conn, Some(node)).ok()?;
+    let found = rows
+        .iter()
+        .find(|row| row.question_id == refs.question && row.scope == scope)?;
+    let papers = if found.hit_papers.is_empty() {
+        String::new()
+    } else {
+        let list = found
+            .hit_papers
+            .iter()
+            .map(i64::to_string)
+            .map(|id| format!("#{id}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("（論文 {list}）")
+    };
+    Some(format!(
+        "前回の検索: {}「{}」{} 件{papers}",
+        found.created_at, found.query, found.hits
+    ))
+}
+
+/// `find` の範囲の引数の組み合わせを検査する（CLI と MCP の `find` で共用）。
+///
+/// 節点や論文の集合が無いのに `--subtree` / `--each` が来たときは、黙って Library
+/// 全体を探すことにせず、文で伝える。
+pub(crate) fn check_find_scope(
+    subtree: bool,
+    node_given: bool,
+    each: Option<i64>,
+    papers_empty: bool,
+) -> Result<()> {
+    if subtree && !node_given {
+        bail!("--subtree は --node と一緒に使います");
+    }
+    if each.is_some() && papers_empty && !node_given {
+        bail!("--each は --papers か --node と一緒に使います");
+    }
+    Ok(())
+}
+
+/// 検索セットに何のための検索かを書く Fields を作る（1 つも無ければ `None`）。
+pub(crate) fn set_fields(
+    refs: &SearchRefs,
+    purpose: Option<&str>,
+    extract: Option<&str>,
+) -> Option<search_sets::SciSetFields> {
+    if refs.node.is_none() && refs.question.is_none() && purpose.is_none() && extract.is_none() {
+        return None;
+    }
+    Some(search_sets::SciSetFields {
+        node: refs.node,
+        question: refs.question,
+        purpose: purpose.map(str::to_string),
+        extract: extract.map(str::to_string),
+    })
 }
 
 // ---- 人が読む文 -------------------------------------------------------------
@@ -1057,6 +1221,116 @@ fn one_line(text: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser as _;
+
+    /// `find` の範囲の引数は `--node` / `--papers` が要る（`--subtree` と `--each`）。
+    #[test]
+    fn find_subtree_requires_node() {
+        // 範囲の指定があれば通る。
+        assert!(check_find_scope(true, true, Some(2), true).is_ok());
+        assert!(check_find_scope(false, false, Some(2), false).is_ok());
+        assert!(check_find_scope(false, false, None, true).is_ok());
+
+        // `--subtree` と `--each` は範囲の指定が無いと受理しない。
+        for (subtree, each, papers_empty, message) in [
+            (true, None, true, "--subtree は --node と一緒に使います"),
+            (false, Some(2), true, "--each は --papers か --node と一緒に使います"),
+        ] {
+            let err = check_find_scope(subtree, false, each, papers_empty).unwrap_err();
+            assert_eq!(format!("{err:#}"), message);
+        }
+    }
+
+    /// `find` の新しい引数は clap で読める（`--papers` はカンマ区切り）。
+    #[test]
+    fn find_parses_new_arguments() {
+        let cli = crate::Cli::try_parse_from([
+            "sai-moon-paper",
+            "find",
+            "発作",
+            "--node",
+            "N12",
+            "--subtree",
+            "--each",
+            "2",
+            "--question",
+            "Q7",
+            "--widen",
+            "範囲を広げる",
+            "--papers",
+            "37,40",
+            "--json",
+        ])
+        .unwrap();
+        let Some(crate::Cmd::Find {
+            papers,
+            node,
+            subtree,
+            each,
+            question,
+            widen,
+            json,
+            ..
+        }) = cli.cmd
+        else {
+            panic!("find として読めた");
+        };
+        assert_eq!(papers, vec![37, 40]);
+        assert_eq!(node.as_deref(), Some("N12"));
+        assert!(subtree);
+        assert_eq!(each, Some(2));
+        assert_eq!(question.as_deref(), Some("Q7"));
+        assert_eq!(widen.as_deref(), Some("範囲を広げる"));
+        assert!(json);
+    }
+
+    /// `search` と `set create` の新しい引数は clap で読める。
+    #[test]
+    fn search_and_set_create_parse_sci_arguments() {
+        let cli = crate::Cli::try_parse_from([
+            "sai-moon-paper",
+            "search",
+            "発作部位",
+            "--node",
+            "N12",
+            "--question",
+            "Q7",
+            "--purpose",
+            "発作部位の候補を探す",
+            "--extract",
+            "手法の候補",
+            "--widen",
+            "範囲を広げる",
+        ])
+        .unwrap();
+        let Some(crate::Cmd::Search {
+            node,
+            question,
+            purpose,
+            extract,
+            ..
+        }) = cli.cmd
+        else {
+            panic!("search として読めた");
+        };
+        assert_eq!(node.as_deref(), Some("N12"));
+        assert_eq!(question.as_deref(), Some("Q7"));
+        assert_eq!(purpose.as_deref(), Some("発作部位の候補を探す"));
+        assert_eq!(extract.as_deref(), Some("手法の候補"));
+
+        assert!(crate::Cli::try_parse_from([
+            "sai-moon-paper",
+            "set",
+            "create",
+            "候補",
+            "--query",
+            "発作部位",
+            "--node",
+            "N12",
+            "--purpose",
+            "候補を探す",
+        ])
+        .is_ok());
+    }
 
     #[test]
     fn parse_assume_accepts_node_value() {

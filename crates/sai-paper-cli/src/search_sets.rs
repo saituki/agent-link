@@ -41,6 +41,18 @@ pub enum SearchSetCmd {
         /// 作成者（既定: "user"）
         #[arg(long, default_value = "user")]
         created_by: String,
+        /// 何のための検索か（節点・問い・目的・抜き出す項目）
+        #[arg(long)]
+        node: Option<String>,
+        /// 検索の問い（`Q7`）
+        #[arg(long)]
+        question: Option<String>,
+        /// 何のための検索か
+        #[arg(long)]
+        purpose: Option<String>,
+        /// 読み、そこから抜き出す項目
+        #[arg(long)]
+        extract: Option<String>,
     },
     /// 候補の decision を更新
     Mark {
@@ -93,15 +105,23 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
             raw_query,
             file,
             created_by,
+            node,
+            question,
+            purpose,
+            extract,
         } => {
-            handle_create(
-                &name,
-                query.as_deref(),
-                &source_dbs,
-                raw_query.as_deref(),
-                file.as_deref(),
-                &created_by,
-            )
+            handle_create(CreateArgs {
+                name: &name,
+                query: query.as_deref(),
+                source_dbs: &source_dbs,
+                raw_query: raw_query.as_deref(),
+                file: file.as_deref(),
+                created_by: &created_by,
+                node: node.as_deref(),
+                question: question.as_deref(),
+                purpose: purpose.as_deref(),
+                extract: extract.as_deref(),
+            })
             .await
         }
         SearchSetCmd::Mark {
@@ -201,14 +221,33 @@ fn handle_show(name_or_id: &str, decision_filter: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-async fn handle_create(
-    name: &str,
-    query: Option<&str>,
-    source_dbs: &str,
-    raw_query: Option<&str>,
-    file: Option<&str>,
-    created_by: &str,
-) -> Result<()> {
+/// `set create` の引数（[`SearchSetCmd::Create`] の 1 対 1）。
+struct CreateArgs<'a> {
+    name: &'a str,
+    query: Option<&'a str>,
+    source_dbs: &'a str,
+    raw_query: Option<&'a str>,
+    file: Option<&'a str>,
+    created_by: &'a str,
+    node: Option<&'a str>,
+    question: Option<&'a str>,
+    purpose: Option<&'a str>,
+    extract: Option<&'a str>,
+}
+
+async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
+    let CreateArgs {
+        name,
+        query,
+        source_dbs,
+        raw_query,
+        file,
+        created_by,
+        node,
+        question,
+        purpose,
+        extract,
+    } = args;
     // query または file は必須
     if query.is_none() && file.is_none() {
         bail!("--query または --file が必要です");
@@ -243,6 +282,12 @@ async fn handle_create(
 
         let papers: Vec<RemotePaper> = serde_json::from_str(&json_str)?;
         search_sets::add_items(conn, set_id, papers)?;
+    }
+
+    // 何のための検索かをセットに書く（R-R6）。1 つも無ければ何もしない。
+    let refs = crate::sci::parse_search_refs(conn, node, question)?;
+    if let Some(fields) = crate::sci::set_fields(&refs, purpose, extract) {
+        search_sets::set_sci_fields(conn, set_id, &fields)?;
     }
 
     print_json(&serde_json::json!({ "id": set_id, "name": name }));

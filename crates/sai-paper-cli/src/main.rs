@@ -4,7 +4,7 @@
 //! sai-paper-core を直接呼び出し、Node サブプロセスなしで動作する。
 //! DB は papr.db（引用テーブル 0016 含む）を共有する。
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Duration, Local, NaiveDate};
 use clap::{Parser, Subcommand};
 use sai_paper_core::citation;
@@ -71,6 +71,21 @@ enum Cmd {
         /// Save results as a named search set.
         #[arg(long)]
         save_as: Option<String>,
+        /// 検索した節点（`N12`）。記録と検索セットに残る
+        #[arg(long)]
+        node: Option<String>,
+        /// 検索の問い（`Q7`）
+        #[arg(long)]
+        question: Option<String>,
+        /// 何のための検索か
+        #[arg(long)]
+        purpose: Option<String>,
+        /// 読み、そこから抜き出す項目
+        #[arg(long)]
+        extract: Option<String>,
+        /// 範囲を広げた理由
+        #[arg(long)]
+        widen: Option<String>,
         /// Output as JSON.
         #[arg(long)]
         json: bool,
@@ -199,6 +214,24 @@ enum Cmd {
         /// 上位の結果に LLM の要約と関連度を付ける（費用がかかる。必要なときだけ）
         #[arg(long)]
         evidence: bool,
+        /// 論文の集合で絞る（カンマ区切り。`--paper` と同じ扱い）
+        #[arg(long, value_delimiter = ',')]
+        papers: Vec<i64>,
+        /// 節点に結び付いた論文に絞る（`N12`）
+        #[arg(long)]
+        node: Option<String>,
+        /// `--node` の子孫の節点も含める
+        #[arg(long)]
+        subtree: bool,
+        /// 範囲の論文ごとに上位 m 件を返す（`--papers` か `--node` と一緒に使う）
+        #[arg(long)]
+        each: Option<i64>,
+        /// 検索の問い（`Q7`）。記録に残り、前の検索を見られる
+        #[arg(long)]
+        question: Option<String>,
+        /// 範囲を広げた理由
+        #[arg(long)]
+        widen: Option<String>,
         /// JSON 出力
         #[arg(long)]
         json: bool,
@@ -836,6 +869,40 @@ fn handle_init(
     Ok(())
 }
 
+/// 検索結果から论文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
+fn paper_ids_of_hits(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
+    let mut ids: Vec<i64> = hits.iter().filter_map(|hit| hit.paper_id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// 墓標の候補（DOI か dedupe_key が墓標と一致するもの）を結果から外す（R-R7）。
+///
+/// 外した候補は検索セットには `drop` で残すため、ここでは数えるだけ。
+/// 返すのは（残す論文, 外した件数）。
+fn split_tombstones(
+    conn: &rusqlite::Connection,
+    papers: &[RemotePaper],
+) -> (Vec<RemotePaper>, usize) {
+    use sai_paper_core::sci::store;
+    let mut kept = Vec::with_capacity(papers.len());
+    let mut dropped = 0usize;
+    for paper in papers {
+        let key = sai_paper_core::api::dedupe_key(paper);
+        let marked = store::find_tombstone(conn, None, paper.doi.as_deref(), None, Some(&key))
+            .ok()
+            .flatten()
+            .is_some();
+        if marked {
+            dropped += 1;
+        } else {
+            kept.push(paper.clone());
+        }
+    }
+    (kept, dropped)
+}
+
 /// `sai-paper search --save-as <名前>` の保存（U06）。
 ///
 /// セットが無ければ作り、あれば同じセットへ足す（`expand --save-as` と同じ動き）。
@@ -890,6 +957,11 @@ async fn main() -> Result<()> {
             year_to,
             raw_query,
             save_as,
+            node,
+            question,
+            purpose,
+            extract,
+            widen,
             json,
         }) => {
             let paths = Paths::discover()?;
@@ -900,12 +972,29 @@ async fn main() -> Result<()> {
                 run_search(&cfg, &query, &db, limit, year_from, year_to, raw_query.as_deref())
                     .await?;
 
+            // 問いと節点（`--node` / `--question`）は、記録とセットに書く前に読む。
+            let database = open_database().ok();
+            let refs = match database.as_ref() {
+                Some(db) => {
+                    sci::parse_search_refs(db.connection(), node.as_deref(), question.as_deref())?
+                }
+                None => sci::SearchRefs::default(),
+            };
+
+            // 墓標の候補は出力から除く（R-R7）。セットには `drop` で残すので、除前の結果を渡す。
+            let (kept, dropped) = match database.as_ref() {
+                Some(db) => split_tombstones(db.connection(), &deduped),
+                None => (deduped.clone(), 0usize),
+            };
+
             // --save-as オプションで検索セットを保存（同じ名前なら 1 つのセットに足す）
-            if let Some(set_name) = save_as {
-                let database = open_database()?;
+            let set_id = if let Some(set_name) = save_as {
+                let Some(database) = database.as_ref() else {
+                    bail!("検索セットを保存するには研究プロジェクト（.sai/paper）が必要です");
+                };
                 let source_dbs_str = dbs_to_use.join(",");
 
-                save_search_results(
+                let set_id = save_search_results(
                     database.connection(),
                     &set_name,
                     &source_dbs_str,
@@ -913,13 +1002,45 @@ async fn main() -> Result<()> {
                     raw_query.as_deref(),
                     deduped.clone(),
                 )?;
+
+                // 何のための検索かをセットに書く（R-R6）。1 つでもあれば書く。
+                let fields = sci::set_fields(&refs, purpose.as_deref(), extract.as_deref());
+                if let Some(fields) = fields {
+                    sai_paper_core::search_sets::set_sci_fields(
+                        database.connection(),
+                        set_id,
+                        &fields,
+                    )
+                    .context("検索セットに検索の目的を書けませんでした")?;
+                }
+                Some(set_id)
+            } else {
+                None
+            };
+
+            // 問いか節点が指定されたときだけ検索の記録を残す。
+            if let Some(database) = database.as_ref() {
+                let scope = format!("external:{}", dbs_to_use.join(","));
+                sci::record_search(
+                    database.connection(),
+                    &sci::SearchLog {
+                        refs: &refs,
+                        tool: "search",
+                        query: &query,
+                        scope: &scope,
+                        widen_reason: widen.as_deref().unwrap_or(""),
+                        hits: kept.len() as i64,
+                        hit_papers: &[],
+                        set_id,
+                    },
+                )?;
             }
 
             // 出力
             if json {
-                println!("{}", serde_json::to_string_pretty(&deduped)?);
+                println!("{}", serde_json::to_string_pretty(&kept)?);
             } else {
-                for paper in deduped {
+                for paper in kept {
                     println!("{} - {}", paper.id, paper.title);
                     if !paper.authors.is_empty() {
                         println!("  Authors: {}", paper.authors.join(", "));
@@ -933,6 +1054,15 @@ async fn main() -> Result<()> {
                         println!("  Abstract: {}", preview);
                     }
                     println!();
+                }
+            }
+            // 除外した件数は最後に 1 行で伝える（`--json` のときは JSON を壊さないよう標準エラー）。
+            if dropped > 0 {
+                let line = format!("除外済み {dropped} 件（理由は sai-moon-paper sci tombstones）");
+                if json {
+                    eprintln!("{line}");
+                } else {
+                    println!("{line}");
                 }
             }
         }
@@ -1035,25 +1165,57 @@ async fn main() -> Result<()> {
             fusion,
             fts_expr,
             evidence,
+            papers,
+            node,
+            subtree,
+            each,
+            question,
+            widen,
             json,
         }) => {
+            // `--subtree` と `--each` には範囲の指定が要る（MCP の find も同じ検査）。
+            sci::check_find_scope(subtree, node.is_some(), each, papers.is_empty())?;
             let db = open_database()?;
             let config = sai_paper_core::Config::load_or_create(&Paths::discover()?)
                 .context("failed to load or create configuration")?;
+
+            // 問いと節点（`--node` / `--question`）は、範囲を決める前に読む。
+            let refs = sci::parse_search_refs(
+                db.connection(),
+                node.as_deref(),
+                question.as_deref(),
+            )?;
+            // 論文の集合と、記録に書く範囲の文字列（C-09）。
+            let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
+                db.connection(),
+                paper,
+                &papers,
+                refs.given,
+                subtree,
+            )
+            .map_err(|err| anyhow!("{err}"))?;
+
+            // 前の検索を見る（記録は後で残す。`--json` の無い出力の 1 行目に出す）。
+            let previous = if json {
+                None
+            } else {
+                sci::previous_search_line(db.connection(), &refs, &scope_note)
+            };
+
             // CLI・TUI・MCP で同じ core の関数を呼ぶ（段階 7）
             let request = sai_paper_core::retrieval::FindRequest {
-                query,
+                query: query.clone(),
                 mode,
                 top_k,
                 per_paper,
                 scope,
-                paper_id: paper,
+                paper_id: None,
+                paper_ids,
+                each,
                 index,
                 alpha,
                 fusion,
                 fts_expr,
-                // 引数は U14 が足す。それまでは既定値で埋める。
-                ..Default::default()
             };
             // 要約付きのときだけ LLM のクライアントを作る（`model` が空ならここでエラー）。
             let chat = if evidence {
@@ -1071,6 +1233,40 @@ async fn main() -> Result<()> {
             )
             .await
             .context("search failed")?;
+            // 節点か問いの指定があれば検索の記録に残す（R-R3 / R-R4）。
+            let (hit_count, hit_papers): (i64, Vec<i64>) = match &outcome {
+                sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
+                    (hits.len() as i64, paper_ids_of_hits(hits))
+                }
+                sai_paper_core::evidence::SearchOutcome::Evidence(result) => (
+                    result.hits.len() as i64,
+                    paper_ids_of_hits(
+                        &result
+                            .hits
+                            .iter()
+                            .map(|item| item.hit.clone())
+                            .collect::<Vec<_>>(),
+                    ),
+                ),
+            };
+            sci::record_search(
+                db.connection(),
+                &sci::SearchLog {
+                    refs: &refs,
+                    tool: "find",
+                    query: &query,
+                    scope: &scope_note,
+                    widen_reason: widen.as_deref().unwrap_or(""),
+                    hits: hit_count,
+                    hit_papers: &hit_papers,
+                    set_id: None,
+                },
+            )?;
+
+            // 前の検索があるときは 1 行目に出す（`--json` の形は変えない）。
+            if let Some(previous) = previous {
+                println!("{previous}");
+            }
             match outcome {
                 sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
                     if json {
