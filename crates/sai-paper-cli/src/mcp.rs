@@ -128,7 +128,7 @@ fn open() -> Result<(Database, Config)> {
     Ok((db, config))
 }
 
-/// 検索結果から论文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
+/// 検索結果から論文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
 fn paper_ids_of(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
     let mut ids: Vec<i64> = hits.iter().filter_map(|hit| hit.paper_id).collect();
     ids.sort_unstable();
