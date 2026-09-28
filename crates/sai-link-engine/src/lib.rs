@@ -64,6 +64,7 @@
 //!     round: None,
 //!     templates: None,
 //!     review_headings: None,
+//!     context: None,
 //! };
 //!
 //! let cmd = PiCommandBuilder::new("/tmp/sessions")

@@ -35,6 +35,7 @@ fn mock_config() -> BlockConfig {
         round: None,
         templates: None,
         review_headings: None,
+        context: None,
         id: None,
     }
 }

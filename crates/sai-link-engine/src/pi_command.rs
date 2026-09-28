@@ -37,6 +37,7 @@
 //!     round: None,
 //!     templates: None,
 //!     review_headings: None,
+//!     context: None,
 //! };
 //!
 //! let cmd = PiCommandBuilder::new("/tmp/sessions")
@@ -81,6 +82,9 @@ pub struct SettingsJson {
     /// エージェント起動直前に走らせるコマンド（配列の先頭がプログラム、残りが引数。シェルは通さない）
     #[serde(default)]
     pub pre_run: Option<Vec<String>>,
+    /// 起動の直前に範囲を作る命令（配列。`{run_id}` と `{block}` を置き換える。シェルは通さない）
+    #[serde(default)]
+    pub context: Option<Vec<String>>,
 }
 
 /// `.sai/settings.json` を読み込む。
@@ -172,6 +176,9 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
     }
     if parsed.pre_run.is_some() {
         merged.pre_run = parsed.pre_run;
+    }
+    if parsed.context.is_some() {
+        merged.context = parsed.context;
     }
 }
 
@@ -695,6 +702,7 @@ mod tests {
             round: None,
             templates: None,
             review_headings: None,
+            context: None,
             id: None,
         }
     }

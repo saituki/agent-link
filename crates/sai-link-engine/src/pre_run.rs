@@ -13,6 +13,13 @@
 //! - 失敗しても実行は止めません（前回作ったファイルが使われます）。呼び出し側は
 //!   警告を出すだけにします。
 //! - シェルは通しません。配列の先頭がプログラム、残りが引数です。
+//!
+//! # 範囲（context）
+//!
+//! [`context_text`] は研究ブロック（`context: true`）のためのものです。
+//! `.sai/settings.json` の `context` の命令を起動の直前に走らせ、その標準出力を
+//! 本文に入れるための文を返します。`pre_run` と違いファイルは作りません
+//! （並列に起動しても中身が混ざらないようにするため）。
 
 use std::io::Read;
 use std::path::Path;
@@ -24,6 +31,12 @@ const PRE_RUN_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// 失敗の警告に含める出力の最大文字数。
 const MAX_OUTPUT_CHARS: usize = 500;
+
+/// [`context_text`] が命令の出力として受け取る最大文字数。
+const MAX_CAPTURE_CHARS: usize = 200_000;
+
+/// [`run_capture`] が失敗理由として返す最大文字数。
+const MAX_CAPTURE_REASON_CHARS: usize = 200;
 
 /// 準備コマンドの実行結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,19 +78,104 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
     if cmd.is_empty() {
         return PreRunOutcome::NotConfigured;
     }
+    let (status, stdout, stderr) = match run_child(cmd, root, &[], timeout) {
+        Ok(v) => v,
+        Err(reason) => return PreRunOutcome::Failed(reason),
+    };
+    match status {
+        Some(status) if status.success() => PreRunOutcome::Ok,
+        Some(status) => {
+            let code = status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "不明".to_string());
+            PreRunOutcome::Failed(with_output(
+                format!("コマンドが終了コード {code} で失敗しました"),
+                &stdout,
+                &stderr,
+            ))
+        }
+        None => PreRunOutcome::Failed(format!("時間切れ（{} 秒）", timeout.as_secs())),
+    }
+}
+
+/// 命令を実行して、0 で終わったら標準出力を返す（最大 [`MAX_CAPTURE_CHARS`] 文字）。
+///
+/// 失敗・時間切れは理由（先頭 [`MAX_CAPTURE_REASON_CHARS`] 文字）を `Err` で返す。
+/// `envs` は [`run_with`] が入れる 2 つに加えて足す環境変数。
+///
+/// # 引数
+///
+/// * `cmd` — 配列の先頭がプログラム、残りが引数（シェルは通さない）
+/// * `root` — 作業フォルダ。`SAI_PROJECT_ROOT` / `SAI_PAPER_ROOT` にも入る
+/// * `envs` — 追加の環境変数（例: `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME`）
+/// * `timeout` — この時間を超えたらプロセスを kill する
+pub fn run_capture(
+    cmd: &[String],
+    root: &Path,
+    envs: &[(&str, String)],
+    timeout: Duration,
+) -> Result<String, String> {
+    if cmd.is_empty() {
+        return Err("命令が空です".to_string());
+    }
+    let (status, stdout, stderr) = match run_child(cmd, root, envs, timeout) {
+        Ok(v) => v,
+        Err(reason) => return Err(truncate_reason(reason)),
+    };
+    match status {
+        Some(status) if status.success() => {
+            Ok(String::from_utf8_lossy(&stdout)
+                .chars()
+                .take(MAX_CAPTURE_CHARS)
+                .collect())
+        }
+        Some(status) => {
+            let code = status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "不明".to_string());
+            Err(truncate_reason(with_output(
+                format!("コマンドが終了コード {code} で失敗しました"),
+                &stdout,
+                &stderr,
+            )))
+        }
+        None => Err(truncate_reason(format!(
+            "時間切れ（{} 秒）",
+            timeout.as_secs()
+        ))),
+    }
+}
+
+/// 子プロセスを起動して走らせ、終了状態と標準出力・標準エラーを返す。
+///
+/// - 終了状態は `Some` が通常の終了、`None` が時間切れ（kill 済み）です。
+/// - 起動できなかった・待機に失敗したときは、その理由を `Err` で返します
+///   （時間切れと区別するため）。
+/// - 子が大量に出力しても現れないよう、パイプは別スレッドで読み切ります。
+fn run_child(
+    cmd: &[String],
+    root: &Path,
+    envs: &[(&str, String)],
+    timeout: Duration,
+) -> Result<(Option<std::process::ExitStatus>, Vec<u8>, Vec<u8>), String> {
     let program = &cmd[0];
-    let mut child = match Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(&cmd[1..])
         .current_dir(root)
         .env("SAI_PROJECT_ROOT", root)
         .env("SAI_PAPER_ROOT", root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+        .stderr(Stdio::piped());
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(e) => return PreRunOutcome::Failed(format!("起動できません: {program}: {e}")),
+        Err(e) => return Err(format!("起動できません: {program}: {e}")),
     };
 
     // 子が大量に出力してもブロックしないよう、パイプは別スレッドで読み切る。
@@ -114,7 +212,7 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
                 // try_wait 自体の失敗。プロセスを始末して失敗を返す。
                 let _ = child.kill();
                 let _ = child.wait();
-                return PreRunOutcome::Failed(format!("プロセスの待機に失敗しました: {e}"));
+                return Err(format!("プロセスの待機に失敗しました: {e}"));
             }
         }
     };
@@ -126,22 +224,23 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
     let stderr = stderr_reader
         .and_then(|h| h.join().ok())
         .unwrap_or_default();
+    Ok((status, stdout, stderr))
+}
 
-    match status {
-        Some(status) if status.success() => PreRunOutcome::Ok,
-        Some(status) => {
-            let code = status
-                .code()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "不明".to_string());
-            PreRunOutcome::Failed(with_output(
-                format!("コマンドが終了コード {code} で失敗しました"),
-                &stdout,
-                &stderr,
-            ))
-        }
-        None => PreRunOutcome::Failed(format!("時間切れ（{} 秒）", timeout.as_secs())),
-    }
+/// 失敗理由の 1 行を作る。
+///
+/// 設定が無い・実行番号が無い・命令が失敗した・時間切れのどれでも
+/// 本文に入れるのは 1 行だけなので、失敗しても実行は止めません。
+fn failed_line(reason: &str) -> String {
+    format!("（{reason}）")
+}
+
+/// 失敗理由を先頭 [`MAX_CAPTURE_REASON_CHARS`] 文字に切り詰める。
+fn truncate_reason(reason: String) -> String {
+    reason
+        .chars()
+        .take(MAX_CAPTURE_REASON_CHARS)
+        .collect()
 }
 
 /// 失敗理由に出力の先頭 [`MAX_OUTPUT_CHARS`] 文字を足す（空なら理由だけ）。
@@ -163,6 +262,48 @@ fn with_output(base: String, stdout: &[u8], stderr: &[u8]) -> String {
     }
     let truncated: String = detail.chars().take(MAX_OUTPUT_CHARS).collect();
     format!("{base}: {truncated}")
+}
+
+/// `context: true` のブロックの範囲の文を作る（C-11）。
+///
+/// `.sai/settings.json` の `context` の命令を走らせ、その標準出力を返します。
+/// 失敗しても止めずに、理由の 1 行を返します（本文に入れてエージェントに伝える）。
+/// ファイルは作りません。
+///
+/// # 引数
+///
+/// * `run_id` — 実行 ID。`None` のときは命令を走らせない
+/// * `block_id` — ブロック ID（`SAI_BLOCK_NAME` と `{block}` に入る）
+pub fn context_text(run_id: Option<i64>, block_id: &str) -> String {
+    // 実行番号が無いと範囲を作れない（block preview などがこれに当たる）
+    let Some(run_id) = run_id else {
+        return failed_line("実行番号が無いため、範囲を作れませんでした");
+    };
+
+    let (settings, _warnings) = crate::pi_command::load_settings_quiet();
+    let Some(cmd) = settings.context.filter(|c| !c.is_empty()) else {
+        return failed_line(".sai/settings.json に context がありません。範囲を作れませんでした");
+    };
+
+    // 引数の中の {run_id} と {block} を置き換える
+    let cmd: Vec<String> = cmd
+        .iter()
+        .map(|arg| {
+            arg.replace("{run_id}", &run_id.to_string())
+                .replace("{block}", block_id)
+        })
+        .collect();
+
+    let root = crate::project::project_root();
+    let envs = [
+        ("SAI_PARENT_RUN_ID", run_id.to_string()),
+        ("SAI_BLOCK_NAME", block_id.to_string()),
+    ];
+    match run_capture(&cmd, &root, &envs, PRE_RUN_TIMEOUT) {
+        // 末尾の改行を 1 つだけ落とす（命令が 1 行だけ出したときの余白を避ける）
+        Ok(text) => text.strip_suffix('\n').unwrap_or(&text).to_string(),
+        Err(reason) => failed_line(&format!("範囲を作れませんでした: {reason}")),
+    }
 }
 
 #[cfg(test)]
@@ -278,5 +419,175 @@ mod tests {
             }
             other => panic!("Failed を期待したが {other:?}"),
         }
+    }
+
+    // ── 範囲（context）のテスト ──
+
+    /// 環境変数を退避してから設定し、終了時に復元する補助。
+    /// グローバル設定（`~/.sai-moon/settings.json`）も空の一時フォルダに向ける。
+    struct EnvGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        project_root: Option<std::ffi::OsString>,
+        sai_home: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        /// 一時フォルダを `SAI_PROJECT_ROOT` にして、空の一時フォルダを
+        /// `SAI_SAI_HOME` にする（テスト中は他のテストと干渉しない）。
+        fn new(root: &Path) -> Self {
+            let lock = crate::common::SAI_ENV_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let project_root = std::env::var_os("SAI_PROJECT_ROOT");
+            let sai_home = std::env::var_os("SAI_SAI_HOME");
+            std::env::set_var("SAI_PROJECT_ROOT", root);
+            let empty_home = root.join("empty-home");
+            std::fs::create_dir_all(&empty_home).unwrap();
+            std::env::set_var("SAI_SAI_HOME", &empty_home);
+            Self {
+                _lock: lock,
+                project_root,
+                sai_home,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.project_root {
+                Some(v) => std::env::set_var("SAI_PROJECT_ROOT", v),
+                None => std::env::remove_var("SAI_PROJECT_ROOT"),
+            }
+            match &self.sai_home {
+                Some(v) => std::env::set_var("SAI_SAI_HOME", v),
+                None => std::env::remove_var("SAI_SAI_HOME"),
+            }
+        }
+    }
+
+    /// 一時フォルダに `.sai/settings.json` を書く。
+    fn write_settings(root: &Path, body: &str) {
+        let dir = root.join(".sai");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.json"), body).unwrap();
+    }
+
+    /// 成功した命令の標準出力をそのまま返す（末尾の改行は落とさない）。
+    #[test]
+    fn run_capture_returns_stdout() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let cmd = vec!["/bin/echo".to_string(), "範囲の文".to_string()];
+        let out = run_capture(&cmd, &root, &[], Duration::from_secs(5)).unwrap();
+        assert_eq!(out, "範囲の文\n");
+    }
+
+    /// 0 以外で終わったときと時間切れのときは理由が返る。
+    #[test]
+    fn run_capture_reports_failure_and_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+
+        // 起動できないプログラム
+        let cmd = vec!["sai-link-pre-run-command-does-not-exist-xyz".to_string()];
+        let reason = run_capture(&cmd, &root, &[], Duration::from_secs(5)).unwrap_err();
+        assert!(reason.contains("起動できません"), "理由: {reason}");
+
+        // 0 以外で終わる（理由は先頭 200 字まで）
+        let cmd = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "printf 'x%.0s' $(seq 1 600) >&2; exit 3".to_string(),
+        ];
+        let reason = run_capture(&cmd, &root, &[], Duration::from_secs(5)).unwrap_err();
+        assert!(reason.contains("終了コード 3"), "理由: {reason}");
+        assert!(
+            reason.chars().count() <= MAX_CAPTURE_REASON_CHARS,
+            "理由が {} 文字に切り詰められている",
+            reason.chars().count()
+        );
+
+        // 時間切れ（打ち切って理由が返る）
+        let cmd = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "exec sleep 5".to_string(),
+        ];
+        let reason = run_capture(&cmd, &root, &[], Duration::from_secs(1)).unwrap_err();
+        assert!(reason.contains("時間切れ"), "理由: {reason}");
+    }
+
+    /// 引数の中の `{run_id}` と `{block}` を置き換え、標準出力を返す。
+    #[test]
+    fn context_text_substitutes_run_and_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        write_settings(
+            &root,
+            r#"{"context": ["/bin/echo", "run={run_id}", "block={block}"]}"#,
+        );
+        let _env = EnvGuard::new(&root);
+        let text = context_text(Some(42), "sci-impl");
+        assert_eq!(text, "run=42 block=sci-impl");
+    }
+
+    /// 実行番号が無いとき・設定が無いときは理由の 1 行を返す。
+    #[test]
+    fn context_text_messages_without_run_or_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        // 設定が無い（settings.json 自体が無い）
+        let _env = EnvGuard::new(&root);
+        let text = context_text(Some(42), "sci-impl");
+        assert_eq!(
+            text,
+            "（.sai/settings.json に context がありません。範囲を作れませんでした）"
+        );
+        // 設定はあるが空
+        write_settings(&root, r#"{"context": []}"#);
+        let text = context_text(Some(42), "sci-impl");
+        assert_eq!(
+            text,
+            "（.sai/settings.json に context がありません。範囲を作れませんでした）"
+        );
+        // 実行番号が無い（命令は走らない）
+        write_settings(
+            &root,
+            r#"{"context": ["/bin/echo", "run={run_id}", "block={block}"]}"#,
+        );
+        let text = context_text(None, "sci-impl");
+        assert_eq!(text, "（実行番号が無いため、範囲を作れませんでした）");
+    }
+
+    /// 命令が失敗したときも実行は止めず、理由の 1 行を返す。
+    #[test]
+    fn context_text_reports_command_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        write_settings(
+            &root,
+            r#"{"context": ["sh", "-c", "echo 途中 >&2; exit 1"]}"#,
+        );
+        let _env = EnvGuard::new(&root);
+        let text = context_text(Some(7), "sci-impl");
+        assert!(text.starts_with("（範囲を作れませんでした: "), "理由: {text}");
+        assert!(text.contains("終了コード"), "理由: {text}");
+    }
+
+    /// 範囲の文を入れてもファイルを作らない。
+    #[test]
+    fn context_text_creates_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        write_settings(&root, r#"{"context": ["/bin/echo", "{block}"]}"#);
+        let template_dir = root.join(".sai/template");
+        let _env = EnvGuard::new(&root);
+        let text = context_text(Some(1), "sci-impl");
+        assert_eq!(text, "sci-impl");
+        assert!(
+            !template_dir.exists(),
+            ".sai/template/ が作られていない: {}",
+            template_dir.display()
+        );
     }
 }
