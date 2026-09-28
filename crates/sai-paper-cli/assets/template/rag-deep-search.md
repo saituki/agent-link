@@ -7,7 +7,7 @@ Library 内で複数の検索角度から論文・ノート・ドキュメント
 ## ステップ 1: インデックス状態の確認
 
 ```bash
-sai-paper index status --json
+sai-moon-paper index status --json
 ```
 
 チャンク化と埋め込みが完了しているか確認する。
@@ -30,21 +30,21 @@ sai-paper index status --json
 
 ```bash
 # クエリ 1: 主要キーワード
-sai-paper find "neural stem cell differentiation" \
+sai-moon-paper find "neural stem cell differentiation" \
   --mode hybrid \
   --top-k 15 \
   --scope all \
   --json > results1.json
 
 # クエリ 2: 下位概念
-sai-paper find "neurogenesis cell fate determination" \
+sai-moon-paper find "neurogenesis cell fate determination" \
   --mode hybrid \
   --top-k 15 \
   --scope all \
   --json > results2.json
 
 # クエリ 3: 関連メカニズム
-sai-paper find "transcription factor neural differentiation signaling" \
+sai-moon-paper find "transcription factor neural differentiation signaling" \
   --mode hybrid \
   --top-k 15 \
   --scope all \
@@ -86,7 +86,7 @@ sai-paper find "transcription factor neural differentiation signaling" \
 
 ```bash
 # 中心的な論文 (paper_id=123) の近傍チャンクを検索
-sai-paper neighbors 123 --top-k 10 --json
+sai-moon-paper neighbors 123 --top-k 10 --json
 ```
 
 結果から、既に Library に入っている関連論文や、さらに掘り込むべき論文を特定。
@@ -137,14 +137,14 @@ Library に未収録の重要な論文がある場合は、ユーザーに「次
 
 ## 書誌情報の記録ルール
 
-- **出源情報（著者、年、DOI、タイトル）**: `sai-paper find` または `sai-paper neighbors` の戻り値のみを使う
+- **出源情報（著者、年、DOI、タイトル）**: `sai-moon-paper find` または `sai-moon-paper neighbors` の戻り値のみを使う
 - **分からない部分**: `[GAP: 著者名不明]` と記載（捏造しない）
 - **ノート / ドキュメント**: パスのみ記録（内容は既に Library に保存されている）
 
 ## 既知の注意
 
 - **日本語の単語検索**: `--mode word` は日本語に当たらない（FTS5 のトークナイザの制限）。日本語ノートを検索する場合は埋め込みサーバを起動した上で `--mode hybrid` または `--mode vector` を使う。
-- **引用グラフの制限**: `sai-paper graph` コマンドで Library の引用ネットワークを確認可能。`--library-only` フラグで Library 内の論文だけをたどる。
+- **引用グラフの制限**: `sai-moon-paper graph` コマンドで Library の引用ネットワークを確認可能。`--library-only` フラグで Library 内の論文だけをたどる。
 
 ## 深度検索の工夫
 

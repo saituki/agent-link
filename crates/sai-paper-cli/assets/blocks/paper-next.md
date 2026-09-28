@@ -27,8 +27,8 @@ enable: true
 いつでも使える、次の一手の相談役です。プロジェクトの状況（state.md・mind.md・前回までの引き継ぎ）と進み具合の記録から、次にやるとよさそうな候補を理由付きで最大 3 つ挙げ、ユーザーが選んだものだけを sai-link のカードにします。自分では文献を読み込んだり検索したりしません（それは選ばれた候補のブロックの仕事です）。
 
 ### 手順
-1. `sai-paper handoff list --tag 推薦 --json` で、まだ todo に残っている推薦のカードを見ます。3 枚以上あれば、新しい候補を出す前に「残りのカードをどうするか（実行する・消す・残す）」をユーザーに聞きます。
-2. `sai-paper progress --json` を読みます。プロジェクトの状況（`project-brief`）は最初から入っているので、それと合わせて次を見ます。
+1. `sai-moon-paper handoff list --tag 推薦 --json` で、まだ todo に残っている推薦のカードを見ます。3 枚以上あれば、新しい候補を出す前に「残りのカードをどうするか（実行する・消す・残す）」をユーザーに聞きます。
+2. `sai-moon-paper progress --json` を読みます。プロジェクトの状況（`project-brief`）は最初から入っているので、それと合わせて次を見ます。
    - 段階（`progress.stage`）
    - 論文ごとの読み具合（`progress.papers`）
    - report の開かれた回数（`progress.reports[].user_opens`）
@@ -44,7 +44,7 @@ enable: true
 4. ユーザーに番号で選んでもらいます。**選ばれたものだけ** をカードにします。`--paper` を付ける候補は論文の番号も添えます。
 
 ```bash
-sai-paper handoff create --block <ブロックID> --description <依頼文> --reason <理由> --tag 推薦 --origin-run "$SAI_PARENT_RUN_ID" [--paper <番号>...]
+sai-moon-paper handoff create --block <ブロックID> --description <依頼文> --reason <理由> --tag 推薦 --origin-run "$SAI_PARENT_RUN_ID" [--paper <番号>...]
 ```
 
 `$SAI_PARENT_RUN_ID` が取れないときは `--origin-run` を省きます。作ったカードの本文の先頭には「推薦の理由: <理由>」が入ります。

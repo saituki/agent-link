@@ -5,7 +5,7 @@
 ## ステップ 1: 検索セットの確認
 
 ```bash
-sai-paper set show <セット名> [--decision pending|keep|drop|downloaded]
+sai-moon-paper set show <セット名> [--decision pending|keep|drop|downloaded]
 ```
 
 ユーザーが示した絞り込み条件を理解する（例: 「RCT のみ」「2023 年以降」「in vivo 研究」）
@@ -24,7 +24,7 @@ sai-paper set show <セット名> [--decision pending|keep|drop|downloaded]
 ## ステップ 3: 判定の記録
 
 ```bash
-sai-paper set mark <セット名> \
+sai-moon-paper set mark <セット名> \
   --position <n> \
   --decision keep|drop \
   --reason "スクリーニング理由の簡潔な説明"
@@ -32,7 +32,7 @@ sai-paper set mark <セット名> \
 
 複数件を一括マーク:
 ```bash
-sai-paper set mark <セット名> \
+sai-moon-paper set mark <セット名> \
   --position 1 --position 3 --position 5 \
   --decision drop \
   --reason "プレプリント版（著者不明）"
@@ -41,7 +41,7 @@ sai-paper set mark <セット名> \
 ## ステップ 4: 進捗の確認
 
 ```bash
-sai-paper set show <セット名> --decision pending
+sai-moon-paper set show <セット名> --decision pending
 ```
 
 `pending` が 0 になれば、スクリーニング完了。
@@ -64,11 +64,11 @@ sai-paper set show <セット名> --decision pending
 ### セットの統合（複数の検索結果を合わせる）
 
 ```bash
-sai-paper set merge <セットA> <セットB> --as <統合後の名前>
+sai-moon-paper set merge <セットA> <セットB> --as <統合後の名前>
 ```
 
 ### セットの削除
 
 ```bash
-sai-paper set delete <セット名>
+sai-moon-paper set delete <セット名>
 ```

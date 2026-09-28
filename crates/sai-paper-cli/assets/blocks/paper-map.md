@@ -31,20 +31,20 @@ enable: true
 ## 地図の Canvas
 report を保存したら、同じ内容の下書きの Canvas も作ります。ユーザーがこれを開いて並べ直します（エージェントは Canvas を直接書かない）。作るのは下書きなので、ユーザーの Canvas は上書きしません。名前は `map-<トピックの短い英字>-<YYYYMMDD>` にします。
 
-1. `sai-paper understanding list --json` でトピック名を確かめます。表のサブトピックに付けるトピック名は、ここにある名前をそのまま使います（名前が揺れると枠の色が付かず、灰のままになります）。
+1. `sai-moon-paper understanding list --json` でトピック名を確かめます。表のサブトピックに付けるトピック名は、ここにある名前をそのまま使います（名前が揺れると枠の色が付かず、灰のままになります）。
 2. 空の Canvas を下書きとして作ります。必ず先にこれを行います。
    ```sh
-   sai-paper canvas new map-<トピックの短い英字>-<YYYYMMDD> --draft
+   sai-moon-paper canvas new map-<トピックの短い英字>-<YYYYMMDD> --draft
    ```
 3. 表のサブトピックごとに、枠を足します。色は指定しません（理解の記録から自動で決まります。`ok` は緑、`vague` は黄、記録なしは灰）。
    ```sh
-   sai-paper canvas add-group map-… --label "<サブトピック>" --topic "<トピック名>"
+   sai-moon-paper canvas add-group map-… --label "<サブトピック>" --topic "<トピック名>"
    ```
    返ってきた id を使い、研究の量と手薄さの文字の札・代表論文の札・関係する report の札を枠の中に足します（代表論文は Library にある論文だけ）。
    ```sh
-   sai-paper canvas add-text map-… "研究の量 <高|中|低> / 手薄さ <高|中|低>" --group <id>
-   sai-paper canvas add-paper map-… <番号> --group <id>
-   sai-paper canvas add-report map-… <report ID> --group <id>
+   sai-moon-paper canvas add-text map-… "研究の量 <高|中|低> / 手薄さ <高|中|低>" --group <id>
+   sai-moon-paper canvas add-paper map-… <番号> --group <id>
+   sai-moon-paper canvas add-report map-… <report ID> --group <id>
    ```
 4. report の最後（引き継ぎの前）に、作った Canvas の名前を書きます。
    ```

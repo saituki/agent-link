@@ -30,9 +30,9 @@ Library（sai-paper の中）を先に検索してください（`search-interna
 ユーザーの仮説に不利な証拠を少なくとも 1 つ探して書いてください（見つからなければ「探したが見つからなかった」と書いてください）。事実（論文に書いてあること）と解釈（あなたの考え）を分けて書いてください。
 
 ## コマンド
-`sai-paper` のコマンド（`sai-paper search` / `sai-paper set list` / `sai-paper content report` など）は、そのまま打ちます。
+`sai-moon-paper` のコマンド（`sai-moon-paper search` / `sai-moon-paper set list` / `sai-moon-paper content report` など）は、そのまま打ちます。
 
-`sai-paper` が `command not found` になったら、自分でフルパスを探さずに、ユーザーに「`sai-paper` に PATH を通してください（README の 1.2）」と伝えて止まってください。
+`sai-moon-paper` が `command not found` になったら、自分でフルパスを探さずに、ユーザーに「`sai-moon-paper` に PATH を通してください（README の「起動」）」と伝えて止まってください。
 
 ## 出力
 そのブロックの「出力の形」の見出しに従ってください。report は `mcp__sai__sai_write` で 1 つだけ保存してください（途中のメモは保存しないでください）。`filename` は `<ブロックID>-<内容を表す短い英字>.md`（例 `paper-map-eeg-datasets.md`）、`description` は「<ブロックの名前>: <内容を 1 文で>」にしてください。保存したらユーザーに要点を伝え、完了の操作はユーザーの指示を待ってください。
