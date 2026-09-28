@@ -631,6 +631,39 @@ pub enum PhoneCmd {
         #[command(subcommand)]
         cmd: PhoneDefCmd,
     },
+
+    /// 利用者の札（`runner: user`）を始める・終える（sai-phone の読む札用・U17）
+    ///
+    /// 成功は stdout に JSON（`run_id` / `status`）・終了コード 0。
+    /// 常駐（デーモン）は要らない。
+    User {
+        #[command(subcommand)]
+        cmd: PhoneUserCmd,
+    },
+}
+
+/// `sai-link phone user` のサブコマンド。
+#[derive(Subcommand)]
+pub enum PhoneUserCmd {
+    /// todo の `runner: user` のカードを running にする
+    ///
+    /// 成功は `{"run_id": N, "status": "running"}`・終了コード 0。
+    /// カードが無ければ終了コード 3、`runner: user` で無ければ終了コード 1。
+    Start {
+        /// 対象の予約 run ID
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+    },
+
+    /// 実行中の `runner: user` の実行を review へ移す
+    ///
+    /// 成功は `{"run_id": N, "status": "review"}`・終了コード 0。
+    /// 実行が無ければ終了コード 3、実行中の利用者の札でなければ終了コード 1。
+    Finish {
+        /// 対象の実行 ID
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+    },
 }
 
 /// `sai-link phone card` のサブコマンド。

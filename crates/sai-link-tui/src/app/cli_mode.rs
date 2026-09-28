@@ -516,14 +516,20 @@ fn do_run_flow(state: &mut AppState) {
             }
         };
         let _ = state.store.update_execution_runner(run_id, "gl");
-        let round = match parse_round_field(&card.frontmatter.round, "round") {
+        let round = match sai_link_widgets::user_run::parse_round_field(
+            &card.frontmatter.round,
+            "round",
+        ) {
             Ok(v) => v,
             Err(e) => {
                 state.cli_mode.error = Some(e);
                 return;
             }
         };
-        let global_round = match parse_round_field(&card.frontmatter.global_round, "global_round") {
+        let global_round = match sai_link_widgets::user_run::parse_round_field(
+            &card.frontmatter.global_round,
+            "global_round",
+        ) {
             Ok(v) => v,
             Err(e) => {
                 state.cli_mode.error = Some(e);
@@ -572,58 +578,11 @@ fn do_run_flow(state: &mut AppState) {
                 return;
             }
         };
-        // user タスクはプレースホルダーブロック `__user__`（表示名 `user`）に紐付ける。
-        let block_id = match state.store.get_or_create_user_block() {
-            Ok(id) => id,
-            Err(e) => {
-                state.cli_mode.error = Some(format!("failed to resolve user block: {}", e));
-                return;
-            }
-        };
-        if let Err(e) = state.store.claim_reserved_run(run_id, block_id, None) {
-            state.cli_mode.error = Some(format!("failed to claim reserved run: {}", e));
+        // 始める処理は `sai_link_widgets::user_run` に移してある
+        // （`sai-moon-link phone user start` と同じ関数を使う）。
+        if let Err(e) = sai_link_widgets::user_run::start_user_run(&state.store, run_id, &card) {
+            state.cli_mode.error = Some(e);
             return;
-        }
-        let _ = state.store.update_execution_runner(run_id, "user");
-        // task.md frontmatter の round / global_round を DB に反映する。
-        // 未指定なら変更しない（sidebar が R?/r? のままになるのは許容）。
-        let round = match parse_round_field(&card.frontmatter.round, "round") {
-            Ok(v) => v,
-            Err(e) => {
-                state.cli_mode.error = Some(e);
-                return;
-            }
-        };
-        let global_round = match parse_round_field(&card.frontmatter.global_round, "global_round") {
-            Ok(v) => v,
-            Err(e) => {
-                state.cli_mode.error = Some(e);
-                return;
-            }
-        };
-        if round.is_some() || global_round.is_some() {
-            if let Err(e) = state.store.update_execution_rounds(run_id, round, global_round) {
-                state.cli_mode.error = Some(format!("failed to update rounds: {}", e));
-                return;
-            }
-        }
-        if let Err(e) = state.store.update_execution_status(run_id, "running") {
-            state.cli_mode.error = Some(format!("failed to update status: {}", e));
-            return;
-        }
-        if let Some((from, _)) = sai_link_engine::run_dir::find_run_dir(run_id) {
-            if from != sai_link_engine::run_dir::RUNNING_OWNER {
-                if let Err(e) = sai_link_engine::run_dir::move_run_dir(
-                    run_id,
-                    &from,
-                    sai_link_engine::run_dir::RUNNING_OWNER,
-                ) {
-                    let _ = state.store.update_execution_status(run_id, "todo");
-                    state.cli_mode.error =
-                        Some(format!("failed to move folder (rolled back): {}", e));
-                    return;
-                }
-            }
         }
         state.cli_mode.close();
         state.set_message(format!("ID{} moved to running (user task)", run_id));
@@ -746,19 +705,6 @@ fn do_run_flow(state: &mut AppState) {
         card_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
     ));
     state.reload_data();
-}
-
-/// task.md frontmatter の round / global_round をパースする。
-///
-/// 空欄・`-` は `None`（未指定・変更なし）。数値以外はエラー文字列を返す。
-fn parse_round_field(value: &str, label: &str) -> Result<Option<i64>, String> {
-    let t = value.trim();
-    if t.is_empty() || t == "-" {
-        return Ok(None);
-    }
-    t.parse::<i64>()
-        .map(Some)
-        .map_err(|_| format!("task.md `{}:` is not a number: {}", label, t))
 }
 
 // ============================================================================
@@ -1046,49 +992,12 @@ fn do_lane_transition(state: &mut AppState, lane: &str) {
 
 /// running → review。DB `status=completed` にしてから run フォルダを移動する。
 ///
-/// `runner: pi` でも使用可能（本来は pi-sai-finalize が担当するが、
-/// finalize 失敗時のエラー対応として TUI から確定できる）。
-///
-/// U04: サブタスク（`parent_run_id` あり・未確定）は移動しない。
-/// 子の pane は親の `task_manage(finalize)` / `delete` まで生きており、
-/// `session/*.jsonl` へ書き続けるため、ここで `review` へ移すと
-/// `ENOENT` で停止する。確定後に task_manager 側が移動する。
+/// 実処理は [`sai_link_widgets::user_run::move_running_to_review`]
+/// （TUI と `sai-moon-link phone user finish` が共有）。ここでは結果の表示だけを行う。
 fn move_running_to_review(state: &mut AppState, id: i64) {
-    // U04 ガード: 未確定サブタスクの明示移動を拒否する
-    if let Ok(exec) = state.store.get_execution_by_id(id) {
-        if exec.parent_run_id.is_some() {
-            let confirmed = state
-                .store
-                .get_task_by_execution_id(id)
-                .ok()
-                .flatten()
-                .map(|t| t.finalized || t.status == "finalized" || t.status == "deleted")
-                .unwrap_or(false);
-            if !confirmed {
-                state.cli_mode.error = Some(format!(
-                    "ID{} は実行中のサブタスクのため移動できません（親が task_manage finalize/delete で確定後に移動します）",
-                    id
-                ));
-                return;
-            }
-        }
-    }
-    if let Err(e) = state.store.update_execution_status(id, "completed") {
-        state.cli_mode.error = Some(format!("move failed: {}", e));
+    if let Err(e) = sai_link_widgets::user_run::move_running_to_review(&state.store, id) {
+        state.cli_mode.error = Some(e);
         return;
-    }
-    if let Some((from, _)) = sai_link_engine::run_dir::find_run_dir(id) {
-        if from != sai_link_engine::run_dir::REVIEW_OWNER {
-            if let Err(e) = sai_link_engine::run_dir::move_run_dir(
-                id,
-                &from,
-                sai_link_engine::run_dir::REVIEW_OWNER,
-            ) {
-                let _ = state.store.update_execution_status(id, "running");
-                state.cli_mode.error = Some(format!("move failed (rolled back): {}", e));
-                return;
-            }
-        }
     }
     state.cli_mode.error = None;
     state.set_message(format!("ID{} moved to review", id));

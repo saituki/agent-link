@@ -21,6 +21,7 @@
 //! - [`card_wizard`] — task.md 作成ウィザードの組み立て・検査（`phone card` 共通）
 //! - [`phone_view`] — run の中身（md / waggle）の解決（`phone md` / `phone waggle` 共通）
 //! - [`workflow`] — 実行グラフ（DAG）の組み立て・配置・材料集め（TUI / `sai-link phone workflow` 共通）
+//! - [`user_run`] — 利用者の札（`runner: user`）の始める・終える処理（TUI / `sai-link phone user` 共通）
 //!
 //! `block_history` / `block_log` / `cache_stats` は sai-link-tui の `ui/` 配下から
 //! 移設したもので、描画 + 状態 + **ビルダ純関数**（`build(store, exec_id)` / `load(store, exec_id)`）
@@ -54,4 +55,5 @@ pub mod phone_view;
 pub mod pie;
 pub mod project_dashboard;
 pub mod theme;
+pub mod user_run;
 pub mod workflow;
