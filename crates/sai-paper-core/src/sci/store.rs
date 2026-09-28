@@ -2135,7 +2135,7 @@ mod tests {
 
         let seed = insert_seed(
             conn,
-            "发作予測",
+            "発作予測",
             "次の利用者",
             &[node, 7],
             "doc.md",
@@ -2188,7 +2188,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(applied, 1);
-            // 2 回目の途中まで同じ进程中で開いても 1 行だけのはず。
+            // 2 回目の途中まで同じプロセスの中で開いても 1 行だけのはず。
             drop(db);
         }
         {
