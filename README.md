@@ -239,6 +239,21 @@ language_servers:
 - 1 つも見つからなければ `python` だけになります（serena の雛形の既定と同じ）。
 - 前に init したプロジェクトで `init` をやり直すと、古い `project.yml` は `.serena/project.yml.bak` に退避されます（他の設定と同じ）。`.serena/` の中の `memories/`・`cache/`・`project.local.yml` には触りません。
 
+### design skill（画面の設計と見やすさ）
+
+**`sai-moon-link init` がプロジェクトの `.claude/skills/` と `.pi/skills/` に 2 つの design skill を書く。** 中身は同じで、どちらのエージェントからでも同じ名前で呼べます。
+
+| skill | 入っているもの |
+|---|---|
+| `frontend-design` | 配色・文字組み・余白の決め方（Anthropic の `frontend-design` スキル、Apache-2.0） |
+| `ui-ux-rules` | コントラスト・文字の大きさ・タッチの大きさ・フォーカス・ダークモード・グラフの規則（UI/UX Pro Max の `references/quick-reference.md` の一部、MIT） |
+
+- **cc** は `/frontend-design` のように名前で呼べます。cc 自身が選んで使うこともあります。同梱の skill は `disableBundledSkills: true` で読まれず、この 2 つだけが使えます。
+- **pi** は、`.pi/skills/` のフォルダを信頼したあとに読みます（`.pi/settings.json` と同じ仕組み）。`/skill:frontend-design` で呼べます。
+- 入れるのは規則の文書だけで、スクリプトは入れていません。Python もダウンロードも要りません。
+- 前に init したプロジェクトで `init` をやり直すと、古い `SKILL.md` は `SKILL.md.bak` に退避されます（他の設定と同じ）。
+- ライセンスは各 skill のフォルダの `LICENSE.txt`（Apache-2.0）と `LICENSE`（MIT）に置いてあります。変えた所は `frontend-design/SKILL.md` の冒頭の段落に残してあります。
+
 ## 安全性
 
 | 項目 | 確かめ方 |
