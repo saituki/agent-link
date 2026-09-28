@@ -40,6 +40,7 @@ pub mod rag_eval;
 pub mod reports;
 pub mod retrieval;
 pub mod runs;
+pub mod sci;
 pub mod search_log;
 pub mod search_sets;
 pub mod translation;
