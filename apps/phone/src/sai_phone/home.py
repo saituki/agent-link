@@ -4,7 +4,7 @@
 - 答えを待っている質問（`store.list_open_questions`）
 - 確認を待っている承認（`store.list_open_approvals`）
 - 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の一覧）
-- 論文の要対応（`sai-paper attention --json`）
+- 論文の要対応（`sai-moon-paper attention --json`）
 
 `GET /api/home/overview`（`build_overview`）は全プロジェクトのダッシュボードを足し合わせたもの。
 各プロジェクトの `phone dashboard` の JSON を足し合わせるだけで、それ以外の集計は作らない。

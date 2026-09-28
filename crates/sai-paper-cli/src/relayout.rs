@@ -1,4 +1,4 @@
-//! `sai-paper relayout` — 既存データを新しい置き場の規則へ移す（段階 2d）。
+//! `sai-moon-paper relayout` — 既存データを新しい置き場の規則へ移す（段階 2d）。
 //!
 //! 新しい規則（`docs/implementation-plan-2026-09-24-review-fixes.md` 段階 2）:
 //!
@@ -229,7 +229,7 @@ struct Candidate {
     canonical: String,
 }
 
-/// `sai-paper relayout` の本体。
+/// `sai-moon-paper relayout` の本体。
 ///
 /// # 引数
 ///

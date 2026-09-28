@@ -1,4 +1,4 @@
-//! `sai-paper content` — 論文本文 / 引用箇所 / report の内容を標準出力へ出す。
+//! `sai-moon-paper content` — 論文本文 / 引用箇所 / report の内容を標準出力へ出す。
 //!
 //! sai-link は task.md の入力展開（`paper_id` / `chunk_id` / `report_id`）で
 //! このコマンドを呼ぶ。**papr.db を直接読ませない**（core を唯一の真実とする）。
@@ -11,7 +11,7 @@ use sai_paper_core::{Paths, citation, figures, reports};
 
 use crate::open_database;
 
-/// `sai-paper content` のサブコマンド。
+/// `sai-moon-paper content` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum ContentCmd {
     /// 論文本文（extract.md）の全文
@@ -40,7 +40,7 @@ pub enum ContentCmd {
     },
 }
 
-/// `sai-paper content` を実行する。
+/// `sai-moon-paper content` を実行する。
 pub fn handle_content(cmd: ContentCmd) -> Result<()> {
     match cmd {
         ContentCmd::Paper { paper_id, json } => print_paper(paper_id, json),

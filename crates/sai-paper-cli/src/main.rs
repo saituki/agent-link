@@ -375,7 +375,7 @@ enum Cmd {
     },
 }
 
-/// `sai-paper eval` のサブコマンド。
+/// `sai-moon-paper eval` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum EvalCmd {
     /// 質問集の問いごとに検索し、正解が上位に入った割合と MRR を索引ごとに出す
@@ -401,7 +401,7 @@ enum EvalCmd {
     },
 }
 
-/// `sai-paper config` のサブコマンド。
+/// `sai-moon-paper config` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum ConfigCmd {
     /// 今の設定を JSON で表示する（足りない環境変数は警告する）
@@ -424,7 +424,7 @@ pub(crate) fn open_database() -> Result<Database> {
     Database::open(&paths.database_file).context("failed to open papr.db")
 }
 
-/// `sai-paper journal` — 日ごとの研究日誌を出す（S01）。
+/// `sai-moon-paper journal` — 日ごとの研究日誌を出す（S01）。
 ///
 /// `--date` があればその 1 日、無ければ今日を含む `--days` 日。`--json` なら
 /// [`sai_paper_core::journal::JournalDay`] の配列、人向けは
@@ -459,7 +459,7 @@ fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
 ///
 /// 検索そのものは [`sai_paper_core::api::run_search`]（core）にある。
 /// DB ごとの検索エラーは標準エラーに出して続ける（1 つでも成功すればその結果を返す）。
-/// `sai-paper search` と `sai-paper phone search` の共通処理。
+/// `sai-moon-paper search` と `sai-moon-paper phone search` の共通処理。
 pub(crate) async fn run_search(
     cfg: &Config,
     query: &str,
@@ -478,7 +478,7 @@ pub(crate) async fn run_search(
     Ok((dbs_to_use, deduped))
 }
 
-/// `sai-paper enrich --retraction` の本体。
+/// `sai-moon-paper enrich --retraction` の本体。
 ///
 /// DOI のある論文のうち、まだ撤回を確かめていないもの（`--force` なら全部）を
 /// 1 秒に 1 件 OpenAlex に問い合わせ、`papers.is_retracted` と
@@ -583,7 +583,7 @@ fn handle_brief(write: bool) -> Result<()> {
     Ok(())
 }
 
-/// `sai-paper eval rag` の本体。
+/// `sai-moon-paper eval rag` の本体。
 ///
 /// 質問集（既定: `<root>/.sai/paper/eval/rag-questions.json`）の問いごとに検索し、
 /// 索引ごとの成績（@1・@5・@10・MRR）を出す。
@@ -977,7 +977,7 @@ fn split_tombstones(
     (kept, dropped)
 }
 
-/// `sai-paper search --save-as <名前>` の保存（U06）。
+/// `sai-moon-paper search --save-as <名前>` の保存（U06）。
 ///
 /// セットが無ければ作り、あれば同じセットへ足す（`expand --save-as` と同じ動き）。
 /// 同じ名前で何度 `--save-as` してもセットは 1 つのままで、重複（`dedupe_key`）は

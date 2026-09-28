@@ -1,4 +1,4 @@
-//! `sai-paper phone` — sai-phone（iPhone 窓口）向けの JSON 出力。
+//! `sai-moon-paper phone` — sai-phone（iPhone 窓口）向けの JSON 出力。
 //!
 //! 全サブコマンドが `Result<serde_json::Value>` を返す内部関数にまとまっており、
 //! `handle` が 1 か所で出力と失敗処理を担う。
@@ -30,7 +30,7 @@ use crate::open_database;
 /// `api::PaperSourceResolver::resolve` が受け付ける DB ID（resolver を参照）。
 const AVAILABLE_PROVIDERS: [&str; 6] = ["s2", "pubmed", "biorxiv", "medrxiv", "openalex", "arxiv"];
 
-/// `sai-paper phone` のサブコマンド。
+/// `sai-moon-paper phone` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum PhoneCmd {
     /// Library の論文一覧（DB 登録日の新しい順）
@@ -152,7 +152,7 @@ pub enum PhoneCmd {
         /// 論文 ID（papers.id）
         paper_id: i64,
     },
-    /// 要対応の 1 件を「対応済み」にする（`sai-paper attention resolve` と同じ。JSON で返す）
+    /// 要対応の 1 件を「対応済み」にする（`sai-moon-paper attention resolve` と同じ。JSON で返す）
     AttentionResolve {
         /// 対応済みにする key（例: `question:41:対象は?`）
         key: String,
@@ -164,7 +164,7 @@ pub enum PhoneCmd {
     },
 }
 
-/// `sai-paper phone` を実行し、JSON 1 行を標準出力へ出す。
+/// `sai-moon-paper phone` を実行し、JSON 1 行を標準出力へ出す。
 ///
 /// 失敗はどのサブコマンドでも同じ形（`{"error": …}` + 終了コード 1）で返す。
 pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {

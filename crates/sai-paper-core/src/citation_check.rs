@@ -1,6 +1,6 @@
 //! 外部の引用（Library に無い論文）を公開の API で照合する。
 //!
-//! `sai-paper report check <id>` / `sai-paper report check --all` を実行したときだけ
+//! `sai-moon-paper report check <id>` / `sai-moon-paper report check --all` を実行したときだけ
 //! ネットにつなぐ。LLM は使わず、Crossref・arXiv・PubMed の応答だけを見る。
 //!
 //! 照合の結果は `citation_checks` に残す。`found` / `not_found` は 30 日の間は

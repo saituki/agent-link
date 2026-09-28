@@ -1,4 +1,4 @@
-//! `sai-paper report` — agent の report の登録・参照コマンド。
+//! `sai-moon-paper report` — agent の report の登録・参照コマンド。
 //!
 //! report の md は sai-link の出力フォルダに置かれたまま扱う。
 //! **md を書き換えるコマンドは用意しない**（要件 R3.3）。
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use crate::open_database;
 
-/// `sai-paper report` のサブコマンド。
+/// `sai-moon-paper report` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum ReportCmd {
     /// report を登録し、採番した report_id を出力する
@@ -93,7 +93,7 @@ pub enum ReportCmd {
     },
 }
 
-/// `sai-paper report` を実行する。
+/// `sai-moon-paper report` を実行する。
 pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
     let db = open_database()?;
     let conn = db.connection();

@@ -110,7 +110,7 @@ pub struct PaperRoots {
 
 /// 研究プロジェクトのデータルートを解決する。
 ///
-/// データは `<root>/.sai/paper/` だけを使う（`sai-paper init` が作成する）。
+/// データは `<root>/.sai/paper/` だけを使う（`sai-moon-paper init` が作成する）。
 /// 見つからない場合も同じ場所を返す（作成は書き込む側の仕事）。
 #[must_use]
 pub fn paper_roots() -> Option<PaperRoots> {
@@ -611,7 +611,7 @@ pub fn note_count(data_dir: &Path) -> usize {
 /// - 最大 40 文字（文字単位）で切り、切った後の末尾のハイフンも消す
 /// - 英数字が 1 つも残らない場合は空文字（呼び出し側で番号だけにする）
 ///
-/// `sai-paper relayout`（段階 2d）がフォルダ名の変更予定を計算するときも
+/// `sai-moon-paper relayout`（段階 2d）がフォルダ名の変更予定を計算するときも
 /// これを使う（新しい名前だけを求めるため）。
 #[must_use]
 pub fn short_title_slug(title: &str) -> String {

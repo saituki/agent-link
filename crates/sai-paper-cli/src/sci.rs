@@ -336,7 +336,7 @@ pub(crate) fn open_env() -> Result<SciEnv> {
 
 /// 研究プロジェクトのルート（`root`）を指定して [`open_env`] と同じものを開く。
 ///
-/// `sai-paper init --sci` は研究プロジェクトの置き場を `--root` で受け取るので、
+/// `sai-moon-paper init --sci` は研究プロジェクトの置き場を `--root` で受け取るので、
 /// この関数を使う（`SAI_PAPER_ROOT` に頼らない）。
 pub(crate) fn open_env_at(root: &Path) -> Result<SciEnv> {
     let data_dir = root.join(".sai").join("paper");
@@ -414,7 +414,7 @@ impl InitOutcome {
 ///
 /// 木が既に作ってあるときは `already` が真の返り値を返し、エラーにしない。
 /// そこから先をどうするかは呼び出し側が決める（`sci init` はエラー、
-/// `sai-paper init --sci` は案内だけ出して続ける）。
+/// `sai-moon-paper init --sci` は案内だけ出して続ける）。
 ///
 /// # Errors
 /// 研究プロジェクトを開けないとき、木を作れないとき、書き出しに失敗したとき。
@@ -462,7 +462,7 @@ pub(crate) fn init_tree_and_export(
 
 /// 部品（ブロック・テンプレート・`context`・土壌のひな形）を配ってから木を作る。
 ///
-/// `phone sci init` と `sai-paper init --sci` はここを呼ぶ。
+/// `phone sci init` と `sai-moon-paper init --sci` はここを呼ぶ。
 ///
 /// # Errors
 /// 部品を配れないとき、木を作れないとき、書き出しに失敗したとき。

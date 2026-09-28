@@ -43,7 +43,7 @@ logger = logging.getLogger("sai_phone")
 
 # プロジェクト名の検査（画面の住所と音声の名前に使うため，合わない名前は対象外・17 §3.1）
 _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-# 論文の置き場のしるし（`sai-paper init` でできる。ファイルがあるかどうか見るだけで
+# 論文の置き場のしるし（`sai-moon-paper init` でできる。ファイルがあるかどうか見るだけで
 # DB は開かない・00 §2・17 §3.1）
 _PAPER_DB_REL = Path(".sai") / "paper" / "papr.db"
 # 一覧を覚えておく秒数（プロジェクト一覧を呼びすぎないため・17 §3.2）
@@ -376,7 +376,7 @@ async def request_radio(project: dict, paper_id: int) -> dict:
     """音声化の依頼（`POST …/papers/{id}/radio`・10 §3）。
 
     ブラウザにはすぐ返し（202），実際の音声化は `_radio_job` を背景で走らせる
-    （`sai-paper phone radio` は数分かかるため・10 §3）。
+    （`sai-moon-paper phone radio` は数分かかるため・10 §3）。
     返り値に `radio_id` を足す（再生画面への導線・17 §3.4）。
     """
     key = (project["name"], paper_id)
@@ -400,7 +400,7 @@ async def request_radio(project: dict, paper_id: int) -> dict:
 
 
 async def _radio_job(project: dict, paper_id: int, title: str) -> None:
-    """背景で `sai-paper phone radio <id>` を走らせ，終わったら通知する（10 §3・17 §3.4）。
+    """背景で `sai-moon-paper phone radio <id>` を走らせ，終わったら通知する（10 §3・17 §3.4）。
 
     - 通知の飛び先: 成功は `/#/radio/<radio_id>`，失敗は `/#/paper/<name>/<id>`（17 §3.4）。
     - 例外は全部つかまえてログに出す（サーバーは止めない）。
@@ -918,7 +918,7 @@ async def _download_job(
 ) -> None:
     """背景で論文の PDF を取得し、Library に登録する（U3 §変更内容 2）。
 
-    1. `sai-paper phone download …`（300 秒まで）。`downloaded` なら `processing` にして
+    1. `sai-moon-paper phone download …`（300 秒まで）。`downloaded` なら `processing` にして
        「保存しました」と通知し、続けて `phone after-download`（図の抽出・PDF 翻訳・
        2000 秒まで）を走らせる。終わったら `done`（後処理が失敗しても `done` にして
        `error` に理由を入れる。論文自体は Library に入っているため）。

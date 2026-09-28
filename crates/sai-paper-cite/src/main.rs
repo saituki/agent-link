@@ -757,7 +757,7 @@ fn render_app(frame: &mut Frame, app: &mut App) {
 // ---------- Download / PDF ----------
 /// 引用文献の PDF を取得する。
 ///
-/// `sai-paper get-pdf` を子プロセスとして起動するが、stdout/stderr は必ず
+/// `sai-moon-paper get-pdf` を子プロセスとして起動するが、stdout/stderr は必ず
 /// pipe で受けて TUI 内の LOG ペインに表示する（papr の DownloadManager 相当）。
 /// pipe しないと子プロセスが TTY を継承し、alternate screen を迂回して
 /// 直接描画されて TUI が崩壊するため。
@@ -1191,7 +1191,7 @@ fn move_list_selection_down(app: &mut App) {
 
 // ---------- R5: 手動 PDF 取り込み ----------
 // 候補の探し・保存先の決定・登録は core の `manual_import` に置いている
-// （論文 TUI と `sai-paper phone` も同じ関数を使う）。
+// （論文 TUI と `sai-moon-paper phone` も同じ関数を使う）。
 
 /// R5: 手動取り込みモーダルを開く（~/Downloads の直近 5 分の PDF を候補にする）。
 fn start_manual_import(app: &mut App) {

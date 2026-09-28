@@ -951,7 +951,7 @@ async def api_paper_citations_extract(
 async def api_paper_radio(
     name: str, paper_id: int, _: None = Depends(require_token)
 ) -> dict:
-    """音声化の依頼（背景で `sai-paper phone radio` を走らせる・計画 10 §3）。"""
+    """音声化の依頼（背景で `sai-moon-paper phone radio` を走らせる・計画 10 §3）。"""
     return await papers.request_radio(papers.resolve_project(name), paper_id)
 
 

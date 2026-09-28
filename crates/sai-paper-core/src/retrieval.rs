@@ -904,7 +904,7 @@ pub fn find_neighbors(
     let index = config.rag.index(index).map_err(RetrievalError::Other)?;
     let model_id = model_id_of(db, &index.embed_model).map_err(|_| {
         RetrievalError::Other(format!(
-            "索引 '{}' の埋め込み（{}）がありません。先に `sai-paper index embed --index {}` を実行してください",
+            "索引 '{}' の埋め込み（{}）がありません。先に `sai-moon-paper index embed --index {}` を実行してください",
             index.name, index.embed_model, index.name
         ))
     })?;

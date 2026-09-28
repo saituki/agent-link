@@ -3,7 +3,7 @@
 //! `task.md` の `paper_id` / `report_id` / `chunk_id` 入力を agent のプロンプトへ
 //! 展開するときに使う。**papr.db を直接読まない**（core を唯一の真実とする）。
 //!
-//! sai-paper 側の `sai-paper content <kind> <id> --json` をサブプロセスで呼び、
+//! sai-paper 側の `sai-moon-paper content <kind> <id> --json` をサブプロセスで呼び、
 //! `{ "id":..., "title":..., "text":... }` を受け取る。
 
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ pub struct SaiPaperContent {
     pub text: String,
 }
 
-/// `sai-paper content <kind> <id>` を実行して内容を取得する。
+/// `sai-moon-paper content <kind> <id>` を実行して内容を取得する。
 ///
 /// # Errors
 ///
@@ -71,13 +71,13 @@ pub fn content(kind: &str, id: &str) -> Result<SaiPaperContent, String> {
     })
 }
 
-/// sai-paper の活動記録に「開いた」を残す（`sai-paper activity open`）。
+/// sai-paper の活動記録に「開いた」を残す（`sai-moon-paper activity open`）。
 ///
 /// sai-link-tui で成果物の md や review を開いたときに呼ぶ。sai-paper が無い
 /// 環境でも画面を止めないため、次のように振る舞う。
 ///
 /// - sai-paper の実行ファイルを解決できない場合は何もしない。
-/// - `sai-paper activity open --path <絶対パス> --surface sai-link` を起動するだけで、
+/// - `sai-moon-paper activity open --path <絶対パス> --surface sai-link` を起動するだけで、
 ///   終了は待たない（標準入出力は捨てる）。
 /// - 起動に失敗しても何もしない（ログも出さない）。
 pub fn notify_open(path: &Path) {

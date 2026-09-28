@@ -252,7 +252,7 @@ impl Parts {
                 place.push(format!("- 研究の型: {}", type_info.name));
             }
             if let Some(seed) = &status.seed {
-                place.push(format!("- 種の文: 「{}」", seed.text));
+                place.push(format!("- 種の文: {}", seed.text));
             }
             if let Some(gate) = &status.gate {
                 place.push(format!("- 関門: {}/{} {}", gate.current, gate.total, gate.name));
@@ -620,10 +620,10 @@ fn detail_of(
         .questions
         .iter()
         .map(|question| {
-            let state = if question.state == "open" {
-                "未回答"
-            } else {
-                "答えた"
+            let state = match question.state.as_str() {
+                "open" => "未回答",
+                "withdrawn" => "取り下げた",
+                _ => "答えた",
             };
             format!("- 問い: {} {}（{state}）", question.id, question.text)
         })
@@ -1189,6 +1189,8 @@ mod tests {
         // 節点
         let text = full("node");
         assert!(text.contains("## 研究の現在地"), "{text}");
+        // 種の文はかぎ括弧を持っているので、二重に囲まない。
+        assert!(!text.contains("「「"), "{text}");
         assert!(text.contains("## 土壌（mind.md から）"), "{text}");
         assert!(text.contains("## 対象の節点"), "{text}");
         assert!(text.contains(&format!("### {subgoal} 小目的")), "{text}");

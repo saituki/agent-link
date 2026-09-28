@@ -1,7 +1,7 @@
-//! `sai-paper handoff` — task.md 発行コマンド。
+//! `sai-moon-paper handoff` — task.md 発行コマンド。
 //!
-//! 今の `sai-paper handoff --block …`（サブコマンドなし）と、
-//! `sai-paper handoff create …` / `sai-paper handoff list` の両方を受け付ける。
+//! 今の `sai-moon-paper handoff --block …`（サブコマンドなし）と、
+//! `sai-moon-paper handoff create …` / `sai-moon-paper handoff list` の両方を受け付ける。
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};

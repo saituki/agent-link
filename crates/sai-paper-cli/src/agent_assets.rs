@@ -112,7 +112,7 @@ fn domain_sample(domain: &str) -> Option<&'static str> {
 /// `project-brief.md` がまだ無いときに置くプレースホルダ。
 ///
 /// sai-link はテンプレートが見つからないと実行の前に止まるため、`sai-moon-paper init`
-/// の時点で必ずこのファイルを作る。`sai-paper brief --write` が本物のまとめで
+/// の時点で必ずこのファイルを作る。`sai-moon-paper brief --write` が本物のまとめで
 /// 置き換える。
 const BRIEF_PLACEHOLDER: &str = "<!-- sai-paper brief がエージェントの起動直前に作り直す -->\n# プロジェクトの状況（sai-paper より）\n\n（まだ作られていません）\n";
 
@@ -197,7 +197,7 @@ pub fn install(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Res
     for (name, content) in TEMPLATES {
         written += usize::from(write_if_missing(&sai.join("template").join(name), content)?);
     }
-    // `project-brief.md` は毎回 `sai-paper brief --write` が上書きするが、
+    // `project-brief.md` は毎回 `sai-moon-paper brief --write` が上書きするが、
     // sai-link はテンプレートが無いと止まるので、無ければここでプレースホルダを置く。
     written += usize::from(write_if_missing(
         &sai.join("template").join("project-brief.md"),

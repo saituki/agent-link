@@ -1,4 +1,4 @@
-//! `sai-paper litbase` — litbase 連携サブコマンド。
+//! `sai-moon-paper litbase` — litbase 連携サブコマンド。
 //!
 //! pi-litbase 拡張が `pi.exec` で呼び出す決定論的 API。すべて `--json` を
 //! 受け付け、標準出力に単一の JSON を返す。LLM 推論は行わない。

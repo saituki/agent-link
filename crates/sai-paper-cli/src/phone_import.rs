@@ -1,4 +1,4 @@
-//! `sai-paper phone import` / `phone download` / `phone after-download` /
+//! `sai-moon-paper phone import` / `phone download` / `phone after-download` /
 //! `phone attention-resolve` — sai-phone（Web）の Import・Download 画面用（U2）。
 //!
 //! sai-phone は sai-paper の DB を直接開かず、このコマンドの JSON だけを読む。
@@ -35,7 +35,7 @@ use crate::phone::{library_papers, open_context, remote_year};
 /// `phone import add` で受け付ける .bib の最大バイト（1MB）。
 const MAX_BIB_BYTES: usize = 1024 * 1024;
 
-/// `sai-paper phone import` のサブコマンド。
+/// `sai-moon-paper phone import` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum PhoneImportCmd {
     /// BibTeX フォルダの .bib 一覧と、取り込める論文の一覧を出す
@@ -54,7 +54,7 @@ pub enum PhoneImportCmd {
     },
 }
 
-/// `sai-paper phone import` を実行して JSON 1 行を返す。
+/// `sai-moon-paper phone import` を実行して JSON 1 行を返す。
 pub fn run_import(cmd: PhoneImportCmd) -> Result<Value> {
     match cmd {
         PhoneImportCmd::List => import_list(),
@@ -505,7 +505,7 @@ pub async fn after_download(paper_id: i64) -> Result<Value> {
 
 /// `phone attention-resolve <key>`: 要対応の 1 件を「対応済み」にする（JSON で返す）。
 ///
-/// 処理は `sai-paper attention resolve` と同じ（core の
+/// 処理は `sai-moon-paper attention resolve` と同じ（core の
 /// [`attention::collect`] → [`attention::resolve`]）。違うのは表示が JSON なだけ。
 pub fn attention_resolve(key: &str) -> Result<Value> {
     let db = open_database()?;

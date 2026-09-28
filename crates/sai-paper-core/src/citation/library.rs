@@ -1,6 +1,6 @@
 //! 引用文献の行と Library の照合、および取り込み用の [`RemotePaper`] 作り。
 //!
-//! 引用 TUI（緑色の表示）と Web（`sai-paper phone citations`）は同じ決まりで
+//! 引用 TUI（緑色の表示）と Web（`sai-moon-paper phone citations`）は同じ決まりで
 //! 「この引用は Library にあるか」を判定する。判定はここ 1 か所に置く。
 
 use crate::models::{LibraryMatchEntry, RemotePaper};

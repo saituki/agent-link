@@ -1985,7 +1985,7 @@ fn create_agent_card(
     let blocks = papr_core::list_blocks(roots).map_err(|e| e.to_string())?;
     if !blocks.iter().any(|block| block.id == kind.block_id()) {
         return Err(format!(
-            "{} ブロックがありません。`sai-paper init --assets-only` で配ってください",
+            "{} ブロックがありません。`sai-moon-paper init --assets-only` で配ってください",
             kind.block_id()
         ));
     }
@@ -4452,7 +4452,7 @@ async fn apply_download_event(
         DownloadEvent::Completed { id, path } => {
             task.status = DownloadStatus::ExtractingMetadata;
             // 一時ファイル（.pdf.part）を .pdf にして Library に登録する処理は
-            // core の `register_downloaded_pdf`（`sai-paper phone download` と共通）。
+            // core の `register_downloaded_pdf`（`sai-moon-paper phone download` と共通）。
             // 検索セットへの紐付け・通知・要旨の訳・パイプラインは TUI 側のまま。
             let mut downloaded_paper: Option<RemotePaper> = None;
             let mut pdf_moved_to = path.with_extension("");
@@ -4577,7 +4577,7 @@ async fn apply_download_event(
 
 // ---- 手動 PDF 取り込み（o: ブラウザで開く → ユーザーが DL → i: 取り込み） ----
 // 候補の探し・保存先の決定・登録は core の `manual_import` に置いている
-// （引用 TUI と `sai-paper phone` も同じ関数を使う）。
+// （引用 TUI と `sai-moon-paper phone` も同じ関数を使う）。
 
 /// 手動取り込みモーダルを開く（候補収集 + 状態設定）。
 fn apply_open_manual_import(target: ManualImportPaper, app: &mut App) {

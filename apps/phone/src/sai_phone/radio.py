@@ -4,7 +4,7 @@ sai-phone は他アプリの DB を直接開かない（00 §2）ため，Radio 
 この中継経由だけで sai-radio（`SAI_RADIO_URL`・既定 127.0.0.1:8000）と通信する。
 
 - 音声の登録・再生成（`papers/upload`・`papers/from-extract`）は中継しない。
-  音声化は計画 10 の `sai-paper phone radio <id>` 経由だけにする（09 §3.2）。
+  音声化は計画 10 の `sai-moon-paper phone radio <id>` 経由だけにする（09 §3.2）。
 - 通信手段は標準ライブラリの `urllib.request` のみ（00 §2 の依存制約）。
 """
 

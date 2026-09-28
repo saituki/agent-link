@@ -1,4 +1,4 @@
-//! `sai-paper attention` — 要対応の一覧と「対応済み」の記録（S02）。
+//! `sai-moon-paper attention` — 要対応の一覧と「対応済み」の記録（S02）。
 //!
 //! - `attention [--json]`: 要対応（書いていない review・質問・現況の更新案・
 //!   推薦のカード・出典の要確認）を出す。LLM は使わない。
@@ -12,7 +12,7 @@ use sai_paper_core::paths::paper_roots;
 
 use crate::open_database;
 
-/// `sai-paper attention` のサブコマンド。
+/// `sai-moon-paper attention` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum AttentionCmd {
     /// 要対応の 1 件を「対応済み」にする（key は一覧の `key`）
@@ -22,7 +22,7 @@ pub enum AttentionCmd {
     },
 }
 
-/// `sai-paper attention` を実行する。
+/// `sai-moon-paper attention` を実行する。
 pub fn handle(cmd: Option<AttentionCmd>, json: bool) -> Result<()> {
     match cmd {
         Some(AttentionCmd::Resolve { key }) => resolve(&key),

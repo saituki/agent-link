@@ -1,4 +1,4 @@
-//! `sai-paper phone citations` / `citations-extract` / `manual-candidates` /
+//! `sai-moon-paper phone citations` / `citations-extract` / `manual-candidates` /
 //! `manual-import` — sai-phone（Web）の Citations・Import 画面用（U4）。
 //!
 //! sai-phone は sai-paper の DB を直接開かず、このコマンドの JSON だけを読む。

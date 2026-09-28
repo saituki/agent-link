@@ -1,4 +1,4 @@
-//! `sai-paper mcp` — 標準入出力の MCP サーバー（段階 7）。
+//! `sai-moon-paper mcp` — 標準入出力の MCP サーバー（段階 7）。
 //!
 //! cc（Claude Code）や pi から、RAG の検索と論文・検索記録の読み取りを道具として使う。
 //! 中身は CLI の `find` / `neighbors` / `index status` / `phone paper` と同じ関数で、
@@ -56,7 +56,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "index_status",
-            "description": "索引ごとの断片数と埋め込み数（sai-paper index status と同じ）",
+            "description": "索引ごとの断片数と埋め込み数（sai-moon-paper index status と同じ）",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
