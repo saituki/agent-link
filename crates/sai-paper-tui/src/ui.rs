@@ -280,12 +280,6 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App, theme: &Theme) {
         crate::pdf_viewer::render_pending_kitty_cleanup(frame);
         return;
     }
-    // Canvas は専用レイアウト（左サイドバー + キャンバス + right_sidebar）で描く。
-    if app.page == Page::Canvas {
-        crate::canvas_view::render_canvas(frame, app, theme);
-        crate::pdf_viewer::render_pending_kitty_cleanup(frame);
-        return;
-    }
     let area = frame.area();
     frame.render_widget(
         Block::default().style(Style::default().bg(theme.background)),
@@ -326,7 +320,6 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App, theme: &Theme) {
         AppMode::ManualImport => render_manual_import(frame, app, theme),
         AppMode::BlockPicker => render_block_picker(frame, app, theme),
         AppMode::RagSearch => render_rag_search(frame, app, theme),
-        AppMode::CanvasView | AppMode::CanvasName | AppMode::CanvasConfirmDelete => {}
         AppMode::Normal
         | AppMode::Search
         | AppMode::DiscoverFilter
@@ -2918,6 +2911,8 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &mut App, theme: &Them
         render_organization(frame, workspace_area, app, theme);
     } else if app.page == Page::SearchSets {
         render_search_sets(frame, workspace_area, app, theme);
+    } else if app.page == Page::Tree {
+        crate::tree_view::render_tree(frame, inset, app, theme);
     }
 }
 
@@ -5831,5 +5826,94 @@ mod tests {
             journal_ref: None,
             citation_count: Some(12),
         }
+    }
+
+    /// U23: 研究方針のページに、種の文・関門・項目の一覧が出る。
+    #[test]
+    fn tree_page_renders_seed_gate_and_rows() -> Result<(), Box<dyn std::error::Error>> {
+        use papr_core::sci::compute::{NodeRow, SeedPart, SeedSentence, Status};
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+        let theme = Theme::load("nord")?;
+        let mut app = App {
+            page: Page::Tree,
+            content_focused: true,
+            ..App::default()
+        };
+        let mut status = Status {
+            initialized: true,
+            seed: Some(SeedSentence {
+                text: "頭皮脳波で［？小目的］を行う".into(),
+                parts: vec![SeedPart {
+                    text: "頭皮脳波で".into(),
+                    filled: true,
+                    ..Default::default()
+                }],
+            }),
+            ..Default::default()
+        };
+        status.gate = Some(papr_core::sci::compute::GateState {
+            current: 2,
+            total: 7,
+            name: "小目的".into(),
+            ..Default::default()
+        });
+        status.nodes = vec![
+            NodeRow {
+                id: "N1".into(),
+                title: "出発点".into(),
+                state: "decided".into(),
+                depth: 0,
+                ..Default::default()
+            },
+            NodeRow {
+                id: "N12".into(),
+                title: "小目的".into(),
+                state: "open".into(),
+                blank: Some("awaiting_decision".into()),
+                depth: 1,
+                ..Default::default()
+            },
+        ];
+        app.tree.status = Some(status);
+        app.tree.selected = 1;
+
+        terminal.draw(|frame| {
+            let area = frame.area();
+            crate::tree_view::render_tree(frame, area, &mut app, &theme);
+        })?;
+        let text = buffer_symbols(terminal.backend().buffer());
+        let compact = compact_symbols(&text);
+        assert!(compact.contains("頭皮脳波で"), "種の文が出ていない: {compact}");
+        assert!(compact.contains("関門"), "関門が出ていない: {compact}");
+        assert!(compact.contains("2/7"), "関門の数が出ていない: {compact}");
+        assert!(compact.contains("負債"), "負債が出ていない: {compact}");
+        assert!(text.contains("N12"), "項目の一覧が出ていない: {text}");
+        assert!(compact.contains("判断待ち"), "空欄の種類が出ていない: {compact}");
+        Ok(())
+    }
+
+    /// U23: 木が無いプロジェクトでは案内の文が出る。
+    #[test]
+    fn tree_page_shows_init_hint_without_tree() -> Result<(), Box<dyn std::error::Error>> {
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+        let theme = Theme::load("nord")?;
+        let mut app = App {
+            page: Page::Tree,
+            content_focused: true,
+            ..App::default()
+        };
+        terminal.draw(|frame| {
+            let area = frame.area();
+            crate::tree_view::render_tree(frame, area, &mut app, &theme);
+        })?;
+        let text = buffer_symbols(terminal.backend().buffer());
+        let compact = compact_symbols(&text);
+        assert!(
+            compact.contains("研究方針の木はまだありません"),
+            "案内の文が出ていない: {compact}"
+        );
+        assert!(compact.contains("sai-moon-papersciinit"), "型の案内がない");
+        Ok(())
     }
 }
