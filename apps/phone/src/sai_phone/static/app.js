@@ -205,7 +205,7 @@ const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
   agent: "#/",
-  papers: "#/papers/library",
+  papers: "#/papers/tree",
   usage: "#/usage",
 };
 // ホームの住所（app.js 自身が見る。home.js も使うので外に出す）

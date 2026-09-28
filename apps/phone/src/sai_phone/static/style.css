@@ -84,6 +84,23 @@
   --chart-grid: #e8eaee;  /* 目立たない格子 */
   --chart-axis: #656b73;  /* 目盛りの文字 */
 
+  /* --- 研究方針の木（U19） ---
+     状態（決定・仮決定・未決定・対象外・候補・却下・休眠・支持・反証）と
+     線（親子・依存・由来・同型）。赤と緑だけの組にしない。対比は test_contrast.js が測る。 */
+  --sci-decided: #15803d;
+  --sci-tentative: #a16207;
+  --sci-open: #1d4ed8;
+  --sci-excluded: #5f6670;
+  --sci-candidate: #0e7490;
+  --sci-rejected: #b91c1c;
+  --sci-dormant: #6d28d9;
+  --sci-support: #15803d;
+  --sci-refute: #b91c1c;
+  --sci-edge-parent: #5f6670;
+  --sci-edge-depends: #1d4ed8;
+  --sci-edge-derived: #6d28d9;
+  --sci-edge-analogous: #0e7490;
+
   /* --- 吹き出しと入力欄 --- */
   --bubble-user: #e8f0fe;
   --bubble-agent: #edeef1;
@@ -160,6 +177,19 @@
     --series-6: #9ca3af;
     --chart-grid: #333336;
     --chart-axis: #a1a1a6;
+    --sci-decided: #4ade80;
+    --sci-tentative: #fbbf24;
+    --sci-open: #60a5fa;
+    --sci-excluded: #9ca3af;
+    --sci-candidate: #38bdf8;
+    --sci-rejected: #f87171;
+    --sci-dormant: #a78bfa;
+    --sci-support: #4ade80;
+    --sci-refute: #f87171;
+    --sci-edge-parent: #9ca3af;
+    --sci-edge-depends: #60a5fa;
+    --sci-edge-derived: #a78bfa;
+    --sci-edge-analogous: #38bdf8;
     --bubble-user: #19315e;
     --bubble-agent: #2c2c2e;
     --bubble-tool: #2c2c2e;
