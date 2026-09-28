@@ -408,7 +408,7 @@ export const indexStatusTool = tool(
   () => runSaiPaper(["index", "status"]),
 );
 
-/** 実行番号が無いときの言い訳。 */
+/** 実行番号が無いときのエラーの文。 */
 const NO_RUN_ID = "実行番号がありません（run_id か環境変数 SAI_PARENT_RUN_ID）";
 
 /** 研究方針の木: 今の実行の範囲。 */
