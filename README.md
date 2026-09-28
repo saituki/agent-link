@@ -285,10 +285,10 @@ cd ~/workdir/Sai/sai-moon
 env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 19 本）
+# Web（JS 24 本）
 for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 17 本。PYTHONPATH が必要）
+# Web（Python 18 本。PYTHONPATH が必要）
 (cd apps/phone && export PYTHONPATH=src && for f in tests/test_*.py; do .venv/bin/python "$f" || exit 1; done)
 
 # Radio（3 本）
