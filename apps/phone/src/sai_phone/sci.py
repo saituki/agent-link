@@ -1,7 +1,7 @@
 """sai-paper の `sai-moon-paper phone sci …`（研究方針の木）を中継する（U18 C-13）。
 
 中の処理は Rust のコア、窓口は apps/phone だけ（AGENTS.md の「設計」）。
-ここ CLIP ことをせず、DB（`papr.db` など）を開くこともしない。
+ここでは中の処理をせず、DB（`papr.db` など）を開くこともしない。
 外から来る値は **CLI を呼ぶ前に** すべてここで検査し、通らない値では CLI を呼ばない（400）。
 
 ## 住所（C-13）
@@ -52,7 +52,7 @@ NO_REFLECT_MAX = 500
 _REF_TEMPLATES = {
     "N": re.compile(r"^N[1-9][0-9]{0,8}$"),
     "Q": re.compile(r"^Q[1-9][0-9]{0,8}$"),
-    "F": re.compile(r"^F[1-9][0-9]{0,9}$"),
+    "F": re.compile(r"^F[1-9][0-9]{0,8}$"),
     "L": re.compile(r"^L[1-9][0-9]{0,8}$"),
     "P": re.compile(r"^P[1-9][0-9]{0,8}$"),
 }
