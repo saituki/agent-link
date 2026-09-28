@@ -8566,6 +8566,11 @@ fn apply_open_attention(
                 app.toast = Some("検索セットが見つかりません".into());
             }
         }
+        papr_core::attention::AttentionKind::SciDecision
+        | papr_core::attention::AttentionKind::SciTriage => {
+            // 研究方針の画面は U23 が作る。ここでは行き先だけ伝える。
+            app.toast = Some("研究方針（Research-tree）の画面で扱います".into());
+        }
         papr_core::attention::AttentionKind::Question
         | papr_core::attention::AttentionKind::RecommendCard => {
             let Some(path) = item.open_path.as_deref() else {
