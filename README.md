@@ -177,6 +177,25 @@ sai-moon-paper init --sci --type <problem|phenomenon|method|data|improve>
 ブロックとテンプレート・`.sai/settings.json` の `context`・型と項目ガイドの写し・木・書き出しが、この 1 行で揃います（手で足す設定はありません）。
 使い方は [`sai-sci/README.md`](./sai-sci/README.md) にあります。
 
+### エージェントの実験記録（MLflow への接続情報）
+
+agent は実行ごとに別プロセスで起動し、前回の記憶を持ちません。接続情報は `.sai/settings.json` か `~/.sai-moon/settings.json` の **`env` 1 か所**に書けば、そのプロジェクトのすべての agent（pi / cc / サブタスク）に自動で渡ります。実行コマンドに `export` を書き足す必要はありません。
+
+```json
+"env": {
+  "MLFLOW_TRACKING_URI": "http://127.0.0.1:5001",
+  "MLFLOW_S3_ENDPOINT_URL": "http://127.0.0.1:9000",
+  "AWS_ACCESS_KEY_ID": "…",
+  "AWS_SECRET_ACCESS_KEY": "…",
+  "AWS_DEFAULT_REGION": "us-east-1"
+}
+```
+
+- キーは `^[A-Za-z_][A-Za-z0-9_]*$`、値は 1 行 2000 文字まで。`SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` は sai-link 自身が使うので書いても破棄されます。
+- `~/.sai-moon/settings.json` のほうが `.sai/settings.json` を**キー単位で上書き**します。使い分けるなら `.sai/settings.json` にプロジェクトごとの値、利用者全体に共通の値を書きます。
+- 平文の鍵が入るので、書く先の `.gitignore` には `.sai/settings.json` を入れてください（sai-moon 側では書き換えません）。
+- 書ける形と優先順位の決まりは [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) の「`.sai/settings.json` の項目」を見てください。
+
 ### pi の質問ツール（ask_user_phone）
 
 **`sai-moon-link init` がプロジェクトの `.pi/settings.json` に書く**ので、手で登録しなくてよい。

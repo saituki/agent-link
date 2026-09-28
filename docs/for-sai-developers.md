@@ -112,6 +112,45 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 - **終了コード 3** は 404（`control._phone_json` の決まり）、**終了コード 1** とそれ以外は 502。省略は無い。
 - 中身は `sai_link_widgets::user_run`（`start_user_run`・`finish_user_run`・`move_running_to_review`）。TUI も同じ関数を呼ぶので、**片方だけ直さない。**
 
+### 2.2.1 `.sai/settings.json` の項目（agent に渡す環境変数）
+
+settings は 2 か所で書ける。**後者（`~/.sai-moon`）が前者（プロジェクト）をキー単位で上書きする。**
+
+1. `<project>/.sai/settings.json`
+2. `~/.sai-moon/settings.json`（**2. が優先**）
+
+読み込みは `crates/sai-link-engine/src/pi_command.rs` の `load_settings()` / `load_settings_quiet()`。
+TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警告を stderr に出すと枠外に残る）。
+
+| 項目 | 型 | 何に使う | 壊れる・壊れない |
+|---|---|---|---|
+| `default_provider` / `default_model` / `default_thinking_level` | 文字列 \| null | ブロックの frontmatter に無いときの既定 | 壊れない |
+| `wip` / `max_concurrent` | 数値 \| null | タブごとの pane 上限・同時実行数 | 壊れない |
+| `extensions` | 文字列の配列 | 起動時に読み込む拡張 | 壊れない |
+| `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業範囲の準備（シェルは通さない） | 壊れない |
+| `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** | 壊れない（壊した項目はその項目だけ破棄される） |
+
+#### `env` の決まり
+
+- キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
+- **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
+- 通らない項目は**エラーにせず、警告を 1 行出して破棄する**（`extensions` と同じ方針。設定が 1 つ壊れていて実行が止まるほうが困る）。
+- 並びは `SAI_*` → `env` → エージェントの実行ファイル。値は shell のシングルクォート 1 つで囲むので、`export` や連結の文字列を書く必要はない。
+- **`export` を書かなくてよい。** 接続情報はここ 1 か所に書けば、そのプロジェクトの全 agent（pi / cc / サブタスク）に渡る。
+
+```json
+"env": {
+  "MLFLOW_TRACKING_URI": "http://127.0.0.1:5001",
+  "MLFLOW_S3_ENDPOINT_URL": "http://127.0.0.1:9000",
+  "AWS_ACCESS_KEY_ID": "…",
+  "AWS_SECRET_ACCESS_KEY": "…",
+  "AWS_DEFAULT_REGION": "us-east-1"
+}
+```
+
+- 実装は `pi_command::agent_env_pairs()`（検証済みの `(String, String)` の並びを返す）と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。
+- `env` は 1 か所でも **平文の鍵・合言葉が入るので `.gitignore` にする**（利用者が決める。sai-moon は `.gitignore` を書き換えない）。
+
 ### 2.3 壊れる変更・壊れない変更
 
 | 変更 | 結果 |
