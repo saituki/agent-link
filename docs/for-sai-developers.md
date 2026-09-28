@@ -69,7 +69,9 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | `sai-moon-link phone card inputs --block <id>`（手順 4 の入力と候補） | 同 `phone.rs`（`card_inputs`） |
 | `sai-moon-link phone card create`（**stdin に JSON**・作成後は todo に配置） | 同 `phone.rs`（`card_create`）／`validate_card_spec` + `create_card`（TUI と同じ検査） |
 | `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**） | 同 `phone.rs`（`card_run`） |
-| `apps/phone` が呼ぶ側 | `apps/phone/src/sai_phone/control.py`（`phone_tree` / `phone_run_view` / `phone_md` / `phone_waggle` / `phone_card_options` / `phone_card_inputs` / `phone_card_create` / `phone_card_start`。値の検査と 400 / 404 / 502 の変換もここで行う） |
+| `sai-moon-link phone user start <run_id>`（`runner: user` の札を running にする。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**、`runner: user` で無ければ **終了コード 1**） | 同 `phone.rs`（`user_start`）／本体: `sai_link_widgets::user_run`（TUI の Enter と共通） |
+| `sai-moon-link phone user finish <run_id>`（実行中の利用者の札を review へ移す。実行が無ければ **終了コード 3**、`runner: user` で状態 `running` で無ければ **終了コード 1**） | 同 `phone.rs`（`user_finish`）／本体: 同 `user_run`（TUI の `e` と共通） |
+| `apps/phone` が呼ぶ側 | `apps/phone/src/sai_phone/control.py`（`phone_tree` / `phone_run_view` / `phone_md` / `phone_waggle` / `phone_card_options` / `phone_card_inputs` / `phone_card_create` / `phone_card_start` / `user_start` / `user_finish`。値の検査と 400 / 404 / 502 の変換もここで行う） |
 | 書き出し先 `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` | 同上（一時ファイル → rename で書く） |
 | `apps/phone` が読む側 | `apps/phone/src/sai_phone/runs.py`（`load_runs`）・`control.py`（`export_runs`＝60 秒に 1 回だけ呼び直す） |
 | 共通定義の置き場 | `crates/sai-link-engine/src/project.rs:79`（`sai_home()`）と `sai_home_path(rel)` |
@@ -96,6 +98,16 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
 | `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない（メッセージは空表示） |
 | `herdr_pane_id` / `herdr_pane_label` | 文字列 \| null | 実行中の pane への文字送り | 「この実行は終了しています」と出る |
+
+**`sai-moon-link phone user start` / `phone user finish` → `{"run_id": N, "status": "running" \| "review"}`**
+
+| 項目 | 型 | `apps/phone` の使いところ | 無いとき |
+|---|---|---|---|
+| `run_id` | 数値 | 読む札の画面の行き先 `#/papers/read/<run_id>` | 画面が遷移先を失う |
+| `status` | 文字列（`"running"` / `"review"`） | 「始める」で running、「終える」で review へ移ったことを知らせる | 遷移は済んでいるので画面の文言が古くなる |
+
+- **終了コード 3** は 404（`control._phone_json` の決まり）、**終了コード 1** とそれ以外は 502。省略は無い。
+- 中身は `sai_link_widgets::user_run`（`start_user_run`・`finish_user_run`・`move_running_to_review`）。TUI も同じ関数を呼ぶので、**片方だけ直さない。**
 
 ### 2.3 壊れる変更・壊れない変更
 
@@ -287,7 +299,7 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 | `phone translate <id> [--force]` | `papers.translate()` | 同（訳は `sai-paper-core` の translation） |
 | `phone radio <id>`（**数分・終わるまで戻らない**） | `papers._radio_job()`（背景・2000 秒） | 同（core の `podcast_client.rs` → apps/radio `POST /api/papers/from-extract`） |
 | `content paper <id> --json`（既存・本文） | `papers.text()` | `crates/sai-paper-cli/src/content.rs` |
-| Canvas（`phone canvas list/new/show/layout/toggle/missing/body`） | `papers.py` | `crates/sai-paper-cli/src/phone.rs`／配置は `crates/sai-paper-core/src/canvas_sync.rs` |
+| `phone sci status` / `init` / `node` / `apply` / `proposals` / `triage` / `card` / `read` / `finish-read`（`apply`・`card`・`triage` の edit は **標準入力に JSON**） | `sci.py` | `crates/sai-paper-cli/src/phone_sci.rs`（中の処理は `crates/sai-paper-core/src/sci/`） |
 
 - **cwd と環境変数 `SAI_PAPER_ROOT` は「論文の置き場があるプロジェクト」の root**（`papers.resolve_project(name)` が引く一覧の `root`）を必ず付ける（`.env` の API キーを読ませるため）。iPhone からはパスを受け取らない。
 - 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。
@@ -299,6 +311,22 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
   - 別の形（`warning: …` など）は進捗ではなくサーバーのログに出る。標準出力の JSON は変えない。
 - **`phone citations-extract` の標準エラーは 1 行**で、`sai-progress step=1`（引用の抽出中）だけを出す。段は `0 = PDF確認`（サーバー）→ `1 = 引用抽出` → `2 = 完了`（サーバー）。
 - 共通 API キーは **`~/.sai-moon/paper.env`**（`crates/sai-paper-core/src/paths.rs:152`）。プロジェクトの `.env` より優先順位が低い。
+- **`phone sci` の 3 つの命令は標準入力で JSON を読む**: `apply`（C-07 の op）と `card`（カードの JSON）は常に読み、`triage` は `--action accept` のときの `edit` だけを読む（**空なら無し**）。
+
+#### 研究方針の検索（`find`・`search`・`set create`）
+
+`apps/phone` からは呼ばないが、**MCP の `find` と `pi-litbase` が読む `--json` の形は変えない**こと。
+範囲の変換は `crates/sai-paper-core/src/retrieval.rs` の `resolve_paper_scope` にあり、CLI（`find`）と MCP（`find`）が同じ関数を使う。
+
+```text
+sai-moon-paper find <query> … [--papers <番号,…>] [--node <N> [--subtree]] [--each <m>] [--question <Q>] [--widen <理由>]
+sai-moon-paper search <query> … [--node <N>] [--question <Q>] [--purpose <文>] [--extract <文>] [--widen <理由>]
+sai-moon-paper set create <name> … [--node <N>] [--question <Q>] [--purpose <文>] [--extract <文>]
+```
+
+- **`--papers` と `--node` を両方書いたら、両方の論文を合わせた範囲**を探す。`--each <m>` は範囲の論文ごとに上位 m 件を返す（論文番号の昇順、各論文の中はスコアの順）。範囲が無いと `--each` は使えない。
+- **墓標の論文**（`sci_tombstones.paper_id`）は、範囲の指定に関係なく結果から除かれる。
+- `--node` か `--question` があれば `sci_searches` に 1 行記録される。**`--json` の形は今のまま変えない。**
 
 ### 4.2 `apps/phone` が読んでいる JSON の項目
 
@@ -423,6 +451,99 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 - `--cite` の取り込み先が既に Library にあるときは、**`--file` の元のファイルを動かさず** 終了コード 1（`この論文は既に Library にあります（ID <n>）`）。PDF を付け替えたいときは `--paper-id` を使う。
 - `phone download --cite <paper_id> --ref <ref_no>` の出力は `phone download` と同じ形（`exists` / `downloaded`）。
 
+#### 研究方針の木（`phone sci …`）
+
+`apps/phone` の `sci.py` が検査してから呼ぶ。上の共通約束（終了コード 0 と JSON 1 行 / 失敗は `{"error": …}` と終了コード 1）はそのまま。
+
+**`phone sci status` → 木全体**（`sci status --json` と MCP `sci_status` が同じものを返す）
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に木を表示してしまう |
+| 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
+| 直下 | `seed` | `{"text","parts"}` \| null | 種の文と、未決所の差し込み | 種の文が出ない |
+| `seed.parts[]` | `text` / `key` / `node` / `filled` / `tentative` | 文字列 / 文字列 \| null / 文字列 \| null / 真偽値 / 真偽値 | 種の文のどの所が空欄かの印 | 全部同じ見た目 |
+| 直下 | `gate` | `{"current","total","name","list"}` \| null | 関門の進み（現在の番号・全体数・名前） | 関門の進みが出ない |
+| `gate.list[]` | `name` / `when` / `passed` | 文字列 / 文字列 / 真偽値 | 関門の一覧の 1 行 | 関門の一覧が細かにならない |
+| 直下 | `debts` | `{"pending_proposals","unreflected_papers","unscreened_sets","empty_reviews"}` | 負債の 4 つの数字 | 負債が 0 に見える |
+| 直下 | `nodes[]` | 配列 | 木そのもの | 木が描かれない |
+| `nodes[]` | `id` | 文字列（`N12`） | 節点そのもの、行き先 `#/papers/tree/<id>` | 節点が選べない |
+| `nodes[]` | `kind` | `"item"` / `"option"` | 項目の行と候補の行の出し分け | 候補が項目に見える |
+| `nodes[]` | `key` | 文字列 \| null | 項目の名前 | ― |
+| `nodes[]` | `title` | 文字列 | 行のラベル | ― |
+| `nodes[]` | `types` | 文字列の配列 | 選ぶ・並べる・書く・確かめるの印 | 型が分からない |
+| `nodes[]` | `state` | 文字列 | 状態の色分け（未決定・仮決定・決定・対象外 / 候補・選択・却下・休眠） | ― |
+| `nodes[]` | `fixed` | 真偽値 | 与えられている項目の印 | ― |
+| `nodes[]` | `parents` / `depth` / `ord` | 文字列の配列 / 数値 / 数値 | 並び（一番上が 0、その下は深さ優先） | 並びが壊れる |
+| `nodes[]` | `value` | 文字列 | 種の文に入る値 | ― |
+| `nodes[]` | `blank` | 文字列 \| null（未決定の項目だけ） | 空欄の種類の印（未着手・調査中・情報不足・判断待ち・対立） | 空欄の理由が分からない |
+| `nodes[]` | `marks` | 文字列の配列（決定・仮決定の項目だけ） | 印（根拠不足・要再確認） | 印が出ない |
+| `nodes[]` | `counts` | `{"questions_open","options","support","refute","papers","pending"}` | 行の小さな数字 | 数が空 |
+| 直下 | `edges[]` | `{"kind","from","to"}`（`parent` 以外の線だけ） | 根の図の線 | 線が出ない |
+| 直下 | `next[]` | `{"node","block","purpose","expect","why","kind"}` | 「次の一手」の 1 行とカード作成の種 | 次の一手が出ない |
+| 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
+| 直下 | `seeds[]` | `{"id","title","created_at"}` | 種の一覧 | ― |
+| 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
+| ― | 始めていないとき | | `type`・`seed`・`gate` は `null`、配列は空、`debts` は全部 0 | ― |
+
+**`phone sci node <N>` → 節点 1 つ**（`sci node <N> --json` と MCP `sci_node` と同じ）
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `node` | `id` / `title` / `key` / `kind` / `types` / `state` / `blank` / `marks` / `counts` / `value` / `fixed` / `parents` / `depth` / `ord` | status の `nodes[]` と同じ | 板の見出し | ― |
+| `node` | `body` | 文字列 | 板の本文（利用者が書く説明） | 本文が空 |
+| `guide` | `key` / `name` / `explain` / `condition` / `condition_text` / `condition_met` / `questions[]` / `pitfalls[]` / `extract[]` | 各種 \| null（ガイドが無ければ `null`） | 項目の説明と「埋まった条件」 | 説明が出ない |
+| `questions[]` | `id` / `text` / `state` / `answer` / `from_guide` | 文字列 / 文字列 / 文字列 / 文字列 / 真偽値 | 問いの行。`from_guide` が false の行は「人が足した問い」 | ― |
+| `options[]` | `id` / `title` / `state` / `body` / `support` / `refute` / `papers` | 各種 | 候補の行 | 候補が整理されない |
+| `findings[]` | `id` / `node` / `text` / `cites[]` / `polarity` / `level` / `source` / `report_id` / `paper_id` / `run_id` / `question` / `auto` / `proposal` / `created_at` | 各種 | 知見の行（`polarity` で向き、`cites` で出典、`auto` で自動反映の印） | 知見が整理されない |
+| `links[]` | `id` / `node` / `target` / `title` / `role` / `read_state` / `auto` / `proposal` / `reason` / `created_at` | 各種 | 結び付きの行（論文・report・ノート・検索セット・実行） | 結び付きが出ない |
+| `decisions[]` | `action` / `option` / `reason` / `evidence[]` / `rejected[]` / `counter_searched` / `actor` / `created_at` | 各種 | 決定の記録の履歴 | 履歴が出ない |
+| `actions[]` | `run_id` / `block` / `owner` / `runner` / `purpose` / `created` | 各種 | 節点のための実行（カード）の行 | ― |
+| `funnel` | `searched` / `screened` / `read` / `reflected` | 数値 | 検索の出口 | ― |
+| `pending[]` | `id` / `op` / `payload` / `reason` / `run_id` / `block` / `created_at` | 各種 | 仕分け待ちの行 | ― |
+| `blocks[]` | `block` / `purpose` / `expect` / `why` | 文字列 | カード候補の行（3 つまで） | ― |
+| `axes[]` | 文字列 | 配列 | 候補の表の見出し（mind.md の「価値の軸」） | 軸の見出しが出ない |
+| `searches[]` | `query` / `scope` / `hits` / `created_at` | 各種 | 節点に結び付いた検索の履歴 | ― |
+
+**`phone sci read <run_id>` → 読む札**（`sci read <run_id> --json` と同じ）
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| 直下 | `run_id` | 数値 | 読む画面の行き先 `#/papers/read/<run_id>` | 開けない |
+| 直下 | `owner` | 文字列 | 札。まだ todo なら「始める」を出す | ― |
+| 直下 | `node` | `{"id","title"}` | 読む札の節点名 | ― |
+| 直下 | `purpose` / `role` / `depth` | 文字列 | 読む目的・論文の役割・深さ | ― |
+| 直下 | `paper` | `{"id","title","year"}` | 論文情報 | ― |
+| 直下 | `questions[]` | 文字列の配列 | 答える問いの入力欄 | ― |
+| 直下 | `findings[]` | `{"id","text","polarity"}` | この札で書いた知見の一覧 | ― |
+
+**`phone sci card` が見る要求の JSON（標準入力）** — 画面が作るもの。`apps/phone` が先に検査し、知らない項目は落とす。
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `node` | 文字列（`N12` の形） | どの節点のためのカードか。**必須** | 400 |
+| `block` | 文字列（`^sci-[a-z-]{2,30}$`） | どのブロックを動かすか。**必須** | 400 |
+| `purpose` | 文字列（1〜300 字） | 依頼文。**必須** | 400 |
+| `question` | 文字列（`Q7` の形） | 答える問い | 問いなし |
+| `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 | ― |
+| `scope` | 文字列（`node` / `path` / `subtree` / `siblings` / `summary` / `blind`） | 渡す範囲 | 既定の範囲 |
+| `assume` | 文字列の配列（5 個まで・各 `N12=値`） | 仮置き | 仮置きなし |
+| `mode` | 文字列（**任意**。`purpose_first` 目的先行 / `blind_first` 目的後付け。空なら付けない） | 読む札の読み方 | 既定（目的先行） |
+| `papers` | 整数の配列（20 個まで） | 対象論文 | 対象なし |
+| `runner` | 文字列（`pi` / `cc` / `user`・既定 `pi`） | 実行主体 | `pi` |
+| `role` / `depth` | 文字列 | 論文の役割と読む深さ | ― |
+| `origin_run` | 数値 | 親にする実行 | ― |
+
+`runner` が `user` のときは `papers` が 1 つで、`role` が必須。**ファイルのパスは受け取らない。**
+
+**その他の応答**
+
+- `phone sci proposals` → `{"proposals": [...]}`。1 件は `node` の `pending[]` と同じ形に `"node": "N12"` を足したもの。
+- `phone sci card` → `{"run_id": N, "path": "…/task.md"}`。
+- `phone sci finish-read <run_id>` → `{"run_id": N, "findings": 2, "reflected": true}`（理由で終えたときは `"findings": 0`）。
+- `phone sci init --type <型>` → `{"type","created_items","created_edges","warnings","backup","assets"}`。**`assets` は配った部品の 1 行ずつの文字列の配列**（無いファイルは書かない）。
+- 書き込む命令（`init` / `apply` / `triage` / `card` / `finish-read`）は、終わる前に `export::export` を呼ぶ。`apps/phone` は書き込みのあと画面を読み直します。
+
 ### 4.3 壊れる変更・壊れない変更
 
 | 変更 | 結果 |
@@ -435,6 +556,8 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 | `podcast` をオブジェクトに包む（`{"status": ...}`） | **壊れる**（Library の「🎧 音声あり」が消える。論文情報側は `podcast` がオブジェクト前提なので**両方揃えて直す**） |
 | 論文が無いときの `{"error": "論文が見つかりません"}` の変更 | 文言が変わるだけ（**終了コード 1 の形は必ず守る**） |
 | 標準出力への余計な表示 | **壊れる**（502） |
+| **`phone sci` の項目の名前・値の名前（C-01 の `blank`・`marks`・`state`・`next` の `kind` など）を変える** | **壊れる**（Web の研究方針の画面が壊れる。`scitree.js`・`sciedit.js`・`sciread.js`・`scigraph.js` が名前で読んでいる） |
+| `phone sci card` の標準入力を読まない | **壊れる**（カードが作れない。`apply`・`triage` の `edit` も同じ） |
 | `phone search` の `--` なし渡し・`--db` の ID の増減 | 増減は `providers` の `available` と**同時に**変える（`apps/phone` は `available` で検査して 400 にする） |
 | `SAI_PAPER_ROOT` 無しでも動く形にする（`.env` を読まない） | 検索・音声化が壊れる（API キー不足） |
 | **バイナリ名 `sai-moon-paper` を `sai-paper` に戻す** | **壊れる**（既定値が絶対パス `…/sai-moon/target/release/sai-moon-paper` なので起動しない） |
@@ -470,9 +593,16 @@ $B content paper 49 --json | head -c 200; echo
 
 # 5) 失敗の形（終了コード 1）
 $B phone paper 999999; echo "exit=$?"     # {"error":"論文が見つかりません"} exit=1
+
+# 6) 研究方針の木（書き込みは一時フォルダの中だけで行う）
+TMP=$(mktemp -d)
+(cd "$TMP" && SAI_PAPER_ROOT="$TMP" "$B" init --sci --type problem) # 一時フォルダの中に木を作る
+(cd "$TMP" && SAI_PAPER_ROOT="$TMP" "$B" phone sci status | head -c 300; echo)
+(cd "$TMP" && SAI_PAPER_ROOT="$TMP" "$B" phone sci node N1 | head -c 300; echo)
+rm -rf "$TMP"
 ```
 
-**流さないこと**: `phone radio`（数分の生成）、`phone search`（検索履歴が 1 件増える。履歴を増やさずに済むのは `--help` だけ）、`phone translate`（DB に訳を書き込む）。
+**流さないこと**: `phone radio`（数分の生成）、`phone search`（検索履歴が 1 件増える。履歴を増やさずに済むのは `--help` だけ）、`phone translate`（DB に訳を書き込む）、`phone sci init`（本物の `papr.db` と `.sai/` を書く。上の 6 のように **一時フォルダの中で**行う）。
 
 実測結果: `providers` = `{"available":["s2","pubmed","biorxiv","medrxiv","openalex","arxiv"],"default":["arxiv","s2"]}`、`phone paper 999999` = `{"error":"論文が見つかりません"}` `exit=1`。
 

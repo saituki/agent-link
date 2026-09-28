@@ -28,7 +28,7 @@
 | **ホーム** | 答えを待っている質問・承認、確認を待っている review、動いている実行、論文の要対応を 1 画面で見る |
 | **プロジェクト** | プロジェクト（Rust コアが管理するもの）を見る・動かす（Dashboard・Workflow・List・設定） |
 | **会話** | coding agent の会話を読み、文字や声で指示を送る。質問と承認に答える |
-| **論文** | 論文を探す・取り込む・読む・聴く（Dashboard・Discover・Library・Canvas・Radio） |
+| **論文** | 研究方針の木を見て次の行動を決める。論文を探す・取り込む・読む・聴く（研究方針 / Dashboard / Discover / Library / Radio） |
 | **使用量** | LLM の料金と制限（Claude Code・OpenRouter・DeepSeek） |
 
 - **ホーム** — いま決めることを 1 枚に。質問と承認、確認を待っている review、動いている実行、止まっている常駐、論文の要対応が並ぶ。15 秒ごとに読み直す。
@@ -38,7 +38,8 @@
   - **List**: TUI の左の一覧と同じツリーから実行を選び、**Log / Stats / History / task / review / message / waggle** の 7 つで見る。task と review はその場で書き換えて保存できる。右上の **＋** で task.md を作れる。
   - **設定**: そのプロジェクトの `.sai/` と、全体の `~/.sai-moon/` にある block / template / settings を読み書きする。壊れた定義は保存しない。
 - **会話** — 日付 → 実行 → 会話。下の入力欄から文字を送れ、🎤 で音声入力もできる。質問と cc のコマンド承認には **PC と iPhone の両方に同時に出て、先に答えた方が採用される**。
-- **論文** — 上部の **Dashboard / Discover / Library / Canvas / Radio**。Radio は続きから聴く・15 秒送り戻し・速度・オフライン保存と、文字か声での質問ができる。
+- **論文** — 上部の **研究方針 / Dashboard / Discover / Library / Radio**。Radio は続きから聴く・15 秒送り戻し・速度・オフライン保存と、文字か声での質問ができる。
+  - **研究方針**: 研究の問い・候補・知見を木で見て、次の行動を決める（`sai-sci/README.md`）。論文タブを開いたときの最初の画面。
 - **使用量** — Claude Code（Team）の 5 時間枠、OpenRouter・DeepSeek の残高と使用料。
 
 画面と API の全部の住所は [`docs/integration.md`](./docs/integration.md) にあります。
@@ -166,6 +167,15 @@ tailscale serve status        # funnel が含まれていないことを確か�
 ## エージェントとつなぐ
 
 以下は**手順を書くだけ**で、このリポジトリにスクリプトとしては登録しません。実際に切り替えるときは、自分で決めて登録してください。
+
+### 研究方針の木（sai-sci）
+
+```bash
+sai-moon-paper init --sci --type <problem|phenomenon|method|data|improve>
+```
+
+ブロックとテンプレート・`.sai/settings.json` の `context`・型と項目ガイドの写し・木・書き出しが、この 1 行で揃います（手で足す設定はありません）。
+使い方は [`sai-sci/README.md`](./sai-sci/README.md) にあります。
 
 ### pi の質問ツール（ask_user_phone）
 
@@ -295,4 +305,5 @@ plutil -lint apps/phone/launchd/com.sai-moon.plist
 - [`AGENTS.md`](./AGENTS.md) — このリポジトリで作業するエージェントへの指示。
 - [`docs/integration.md`](./docs/integration.md) — `apps/phone` の API と画面の住所の一覧、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — `crates/` と `apps/radio` を直す人が守ること（`apps/phone` を壊さないために）。
+- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（型・項目ガイド・16 本のブロック・命令と MCP・Web の画面）の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio だけ 詳しく知りたときの詳細。
