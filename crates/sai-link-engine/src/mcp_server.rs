@@ -139,7 +139,7 @@ fn tools_list_result() -> Value {
         },
         {
             "name": "task_create",
-            "description": "新しいサブタスクを作成する。承認は不要で、指定したタスクはそのまま作成される。block_type（task.md の block と同じ）には block_discover で確認した id を指定する。task_text は子ブロックの {{input.task_text}} に入るテキストで、文中の waggle:<トークン> は実行時に文書の本文へ置き換わる。description（task.md の説明・省略時は task_text と同じ）を付けられる。cwd で作業フォルダ（別プロジェクト等）、worktree で作業用コピーの有無を指定できる。作成時に親 run へ task-<client_id>.md の写しを保存し TUI/phone で確認できる。",
+            "description": "新しいサブタスクを作成する。承認は不要で、指定したタスクはそのまま作成される。block_type（task.md の block と同じ）には block_discover で確認した id を指定する。task_text は子ブロックの {{input.task_text}} に入るテキストで、文中の waggle:<トークン> は実行時に文書の本文へ置き換わる。description（task.md の説明・省略時は task_text と同じ）を付けられる。cwd で作業フォルダ（別プロジェクト等）、worktree で作業用コピーの有無を指定できる。実行すると子の run フォルダに task.md（description と task_text）が保存され、TUI / Web で見られる。",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -2063,6 +2063,8 @@ code {
   padding: 8px 18px;
 }
 .lv-run-btn:disabled { opacity: 0.4; }
+.lv-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lv-run-btn.ghost { background: var(--bg-soft); color: var(--text); }
 .lv-msg { font-size: 13px; color: var(--text-soft); padding-top: 6px; }
 .lv-msg.err { color: var(--danger); }
 .lv-msg[hidden] { display: none; }
@@ -2137,6 +2139,20 @@ code {
   background: none;
   padding: 10px 2px;
   color: var(--text);
+}
+.lv-waggle-line { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
+.lv-waggle-line:first-child { border-top: none; }
+.lv-waggle-line .lv-waggle-row { border-top: none; flex: 1; min-width: 0; }
+.lv-waggle-add {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: none;
+  color: var(--accent);
+  font-size: 18px;
+  margin-left: 8px;
 }
 .lv-waggle-row:first-child { border-top: none; }
 .lv-waggle-label { font-size: 14px; font-weight: 600; }

@@ -310,6 +310,21 @@ function cfToggleToken(state, fields, fieldId, token) {
   return null;
 }
 
+/**
+ * task_text の参照行（1 行）を出し入れする。`on` が true なら無いときだけ末尾に足し、
+ * false なら同じ行を消す。戻り値は新しい task_text。
+ */
+function cfToggleRef(text, ref, on) {
+  const lines = String(text || "").split("\n");
+  const has = lines.some((l) => l.trim() === ref);
+  if (on) {
+    if (has || !ref) return String(text || "");
+    const base = String(text || "").replace(/\s+$/, "");
+    return base ? `${base}\n${ref}` : ref;
+  }
+  return lines.filter((l) => l.trim() !== ref).join("\n");
+}
+
 /** `POST …/card` に送る JSON（項目名は計画 12 §3.2 の形のまま）。 */
 function cfBuildPayload(state) {
   const inputs = {};
@@ -389,6 +404,7 @@ let cfFields = [];     // 選んだブロックの `GET …/card/inputs` の fie
 let cfError = "";      // 手順の下に出す 1 行
 let cfWarn = "";       // options の warnings（settings.json の注意など）
 let cfBusy = false;    // 送信中
+let cfDocs = null;     // 最近の文書（`GET …/card/docs` の items・null＝未読）
 
 function cfSheet() {
   return document.getElementById("cardform-wrap");
@@ -417,8 +433,12 @@ async function cfLoadFields(block) {
   return Array.isArray(data.fields) ? data.fields : [];
 }
 
-/** ＋ を押した入口（書きかけがあれば続きから・計画 15 §1.5）。 */
-async function cfOpen() {
+/**
+ * ＋ を押した入口（書きかけがあれば続きから・計画 15 §1.5）。
+ * `opts.ref` があれば task_text にその参照行（`waggle:<tok>:path:<path>`）を足して開く（List の waggle の ＋）。
+ */
+async function cfOpen(opts) {
+  const ref = String((opts && opts.ref) || "");
   const parsed = typeof parseListHash === "function" ? parseListHash(location.hash) : null;
   if (parsed && parsed.name && parsed.name !== cfName) {
     // プロジェクトが変われば選択肢と手順 4 の材料は取り直す（別プロジェクトの選択肢を出さないため）
@@ -454,6 +474,11 @@ async function cfOpen() {
   const draft = cfLoadDraft(cfName);
   cfState = draft || cfNewDraft();
   cfError = "";
+  cfDocs = null; // 最近の文書は開くたびに取り直す
+  if (ref) {
+    cfState.task_text = cfToggleRef(cfState.task_text, ref, true);
+    cfSaveDraft(cfName, cfState);
+  }
 
   // 続きから开くときも手順 4 の材料は取りに行く（取れなければその画面で止まる）
   if (cfState.block && cfState.step) {
@@ -722,6 +747,7 @@ function cfRenderBody() {
       cfSaveDraft(cfName, state);
     });
     body.appendChild(ta);
+    body.appendChild(cfDocsBox(state, ta));
     // 🎤 は Agent タブの音声入力をそのまま使う（新しく作らない・計画 15 §1.5）
     const mic = document.createElement("button");
     mic.className = "cf-mic";
@@ -764,6 +790,52 @@ function cfRenderBody() {
     row.appendChild(el("span", "lv-kv-value", value));
     body.appendChild(row);
   }
+}
+
+/**
+ * 最近の文書（running / review / done / Workflow の実行の成果物）を並べる。
+ * 押すと task_text に `waggle:<tok>:path:<path>` の行を足す（もう一度押すと消す・複数可）。
+ */
+function cfDocsBox(state, ta) {
+  const box = el("div", "cf-docs");
+  box.appendChild(el("div", "cf-run-label", "最近の文書（押すと task_text に貼ります・複数可）"));
+  const list = el("div", "cf-choices");
+  box.appendChild(list);
+  const draw = () => {
+    list.innerHTML = "";
+    if (!Array.isArray(cfDocs)) {
+      list.appendChild(cfNote("読み込み中…"));
+      return;
+    }
+    if (cfDocs.length === 0) {
+      list.appendChild(cfNote("文書がありません"));
+      return;
+    }
+    for (const d of cfDocs) {
+      const ref = String(d.ref || "");
+      const on = String(state.task_text || "").split("\n").some((l) => l.trim() === ref);
+      const b = document.createElement("button");
+      b.className = "cf-choice" + (on ? " active" : "");
+      b.textContent = `${d.token}/${d.label}${d.description ? ` — ${d.description}` : ""}`;
+      b.addEventListener("click", () => {
+        state.task_text = cfToggleRef(state.task_text, ref, !on);
+        ta.value = state.task_text;
+        cfSaveDraft(cfName, state);
+        draw();
+      });
+      list.appendChild(b);
+    }
+  };
+  draw();
+  if (!Array.isArray(cfDocs)) {
+    cfFetchJson(`/api/projects/${encodeURIComponent(cfName)}/card/docs`)
+      .then((data) => { cfDocs = Array.isArray(data.items) ? data.items : []; })
+      .catch(() => { cfDocs = []; })
+      .finally(draw);
+  }
+  // 手で書き換えたときも選択の印を合わせる
+  ta.addEventListener("input", draw);
+  return box;
 }
 
 /** 見出し・中身・ボタンを全部描き直す。 */
@@ -931,6 +1003,7 @@ if (typeof module !== "undefined" && module.exports) {
     cfBack,
     cfToggleToken,
     cfBuildPayload,
+    cfToggleRef,
     cfDraftKey,
     cfLoadDraft,
     cfSaveDraft,

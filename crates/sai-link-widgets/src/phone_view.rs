@@ -300,6 +300,15 @@ fn build_choices(
     out
 }
 
+/// 最近の文書（実行中を含む全体の md）を新しい順に `limit` 件返す（Web の task_text の候補）。
+///
+/// 並びは `list_waggle_tokens` と同じ（実行の作成日時の新しい順）。
+pub fn recent_docs(store: &SaiStore, limit: usize) -> Vec<WaggleChoiceData> {
+    let mut out = choices_all_including_running(store);
+    out.truncate(limit);
+    out
+}
+
 /// 全体（実行中含む）の md 文書を DB 状態付きで返す（`Origin` の後半用）。
 ///
 /// `list_waggle_tokens(include_running=true)` のトークンを integrator で解決し、

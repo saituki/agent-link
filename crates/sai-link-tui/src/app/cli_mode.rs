@@ -844,18 +844,14 @@ fn do_delete(state: &mut AppState) {
         state.cli_mode.error = Some("rm: nothing to delete".to_string());
         return;
     };
-    let summary = match state.store.delete_execution_cascade(exec_id) {
+    // DB の行と run フォルダ（子の分も）をまとめて削除する（CLI の block rm と同じ関数）
+    let summary = match sai_link_engine::run_dir::delete_run(&state.store, exec_id) {
         Ok(s) => s,
         Err(e) => {
             state.cli_mode.error = Some(format!("rm: failed to delete: {}", e));
             return;
         }
     };
-    // run フォルダ（task/review/message/session/成果物）も丸ごと削除する（R603・CLI と同等）。
-    // 旧 review/message/reflection の残骸も併せて掃除する。不在時は無視。
-    if let Err(e) = sai_link_engine::orchestrator::remove_run_dir_files(exec_id) {
-        state.set_message(format!("warning: failed to delete run folder: {}", e));
-    }
     if state.selected_exec_id == Some(exec_id) {
         state.selected_exec_id = None;
     }

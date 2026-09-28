@@ -304,6 +304,29 @@ pub fn remove_run_dir(run_id: i64) -> std::io::Result<usize> {
     Ok(removed)
 }
 
+/// 実行を消す（DB の行と run フォルダ。子の実行も一緒に消す）。
+///
+/// CLI の `block rm`・TUI の rm・`phone rm` 共通。子の run フォルダも残さない。
+pub fn delete_run(
+    store: &crate::db::SaiStore,
+    id: i64,
+) -> Result<crate::db::models::DeleteExecutionSummary, String> {
+    // DB から消す前に、子・孫の run_id を集める（消した後では辿れない）
+    let mut ids = vec![id];
+    let mut i = 0;
+    while i < ids.len() {
+        ids.extend(store.list_child_execution_ids(ids[i]).unwrap_or_default());
+        i += 1;
+    }
+    let summary = store.delete_execution_cascade(id).map_err(|e| e.to_string())?;
+    for rid in ids {
+        if let Err(e) = crate::orchestrator::remove_run_dir_files(rid) {
+            eprintln!("警告: run フォルダ {} の削除に失敗: {}", rid, e);
+        }
+    }
+    Ok(summary)
+}
+
 /// review → done。`review_done=true` にしてから run フォルダを移動する
 /// （TUI の `e` / `sai-link phone advance` 共通・実装計画 A U10）。
 ///
@@ -320,6 +343,12 @@ pub fn advance_review_to_done(store: &crate::db::SaiStore, id: i64) -> Result<()
                 let _ = store.update_execution_review_done(id, false);
                 return Err(e.to_string());
             }
+        }
+    }
+    // 子（task_create の子）も親と一緒に done へ移す。まだ動いている子（running）は動かさない。
+    for child in store.list_child_execution_ids(id).unwrap_or_default() {
+        if matches!(find_run_dir(child), Some((o, _)) if o == REVIEW_OWNER) {
+            let _ = advance_review_to_done(store, child);
         }
     }
     Ok(())
@@ -345,6 +374,13 @@ pub fn advance_done_to_workflow(store: &crate::db::SaiStore, id: i64) -> Result<
                 let _ = store.update_execution_workflow_moved(id, false);
                 return Err(e.to_string());
             }
+        }
+    }
+    // 子も親と一緒に Workflow へ移す（review / done の子だけ。running の子は動かさない）。
+    for child in store.list_child_execution_ids(id).unwrap_or_default() {
+        if matches!(find_run_dir(child), Some((o, _)) if o == REVIEW_OWNER || o == DONE_OWNER) {
+            let _ = store.update_execution_review_done(child, true);
+            let _ = advance_done_to_workflow(store, child);
         }
     }
     Ok(to)

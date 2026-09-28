@@ -174,6 +174,9 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle/{token}` | 成果物 1 件の本文（`phone waggle --token`） |
 | `POST /api/projects/{name}/runs/{run_id:int}/start` | 新形式 todo の ▶ 実行（`phone card run`・未実行カードが無ければ 404） |
 | `POST /api/projects/{name}/runs/{run_id:int}/advance` | review → done → Workflow の移動（`phone advance`・その run が無ければ 404「実行が見つかりません」、review / done 以外は 502） |
+| `POST /api/projects/{name}/runs/{run_id:int}/schedule` | todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し・`phone card schedule`）。時刻になると常駐が `phone card run` と同じ流れで実行する |
+| `DELETE /api/projects/{name}/runs/{run_id:int}` | List の項目を消す（`phone rm`・子の実行と run フォルダも消える。実行中は 502） |
+| `GET /api/projects/{name}/card/docs` | 最近の文書（`phone card docs`・task_text に貼る `ref` 付き） |
 | `GET /api/projects/{name}/card/options` | 作成フォームの選択肢（`phone card options`） |
 | `GET /api/projects/{name}/card/inputs?block=<id>` | 手順 4 の入力欄と候補（`phone card inputs`） |
 | `POST /api/projects/{name}/card` | カード（task.md）の作成（`phone card create`・stdin に JSON） |

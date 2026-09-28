@@ -439,6 +439,12 @@ function typeSlices(typeTokens) {
   return list.map((x) => ({ ...x, ratio: x.value / total }));
 }
 
+/** task.md の frontmatter から `scheduled_at:` を読む（無ければ空）。 */
+function lvScheduledAt(text) {
+  const m = String(text || "").match(/^---\n[\s\S]*?^scheduled_at:[ \t]*(.*)$/m);
+  return m ? m[1].trim() : "";
+}
+
 /** waggle が 1 件だけなら一覧を通さず直接開く（計画 14 §1.3）。 */
 function waggleDirect(items) {
   return Array.isArray(items) && items.length === 1;
@@ -648,24 +654,96 @@ function lvRenderActions() {
   if (!box) return;
   box.innerHTML = "";
   if (!lvRun) return;
-  if (isTodoRun(lvRun)) {
+  const add = (label, onClick, cls) => {
     const btn = document.createElement("button");
-    btn.className = "lv-run-btn";
-    btn.textContent = "▶ 実行";
+    btn.className = "lv-run-btn" + (cls ? ` ${cls}` : "");
+    btn.textContent = label;
     btn.disabled = lvBusy;
-    btn.addEventListener("click", lvRunTodo);
+    btn.addEventListener("click", onClick);
     box.appendChild(btn);
-    return;
+  };
+  if (isTodoRun(lvRun)) {
+    add("▶ 実行", lvRunTodo);
+    add("⏰ 予約", lvSchedule, "ghost");
+  } else {
+    // review / done の run だけ review → done → Workflow の移動を出す（計画書 A の U10）
+    const adv = advanceAction(lvTree, lvRunId);
+    if (adv) add(adv.label, () => lvAdvance(adv));
   }
-  // review / done の run だけ review → done → Workflow の移動を出す（計画書 A の U10）
-  const adv = advanceAction(lvTree, lvRunId);
-  if (!adv) return;
-  const btn = document.createElement("button");
-  btn.className = "lv-run-btn";
-  btn.textContent = adv.label;
-  btn.disabled = lvBusy;
-  btn.addEventListener("click", () => lvAdvance(adv));
-  box.appendChild(btn);
+  // 動いている run は消せない（pane が生きているため）
+  if (!["running", "pending"].includes(String(lvRun.status || lvRun.lane || ""))) {
+    add("🗑 削除", lvDelete, "ghost");
+  }
+}
+
+/** todo の実行予定時刻を決める（空で取り消し）。時刻になると常駐が実行する。 */
+async function lvSchedule() {
+  if (lvBusy || lvRunId == null) return;
+  const base = `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}`;
+  let current = "";
+  try {
+    const md = await lvFetchJson(`${base}/md/task`);
+    current = lvScheduledAt(md.text || "");
+  } catch { /* 読めなくても決められる */ }
+  const at = await saiPrompt({
+    title: "実行予定時刻",
+    body: "この時刻になると Mac の常駐が実行します。空にすると予約を取り消します。",
+    value: current,
+    placeholder: "例: 2026-10-01 09:00",
+    ok: "予約",
+  });
+  if (at === null) return;
+  lvBusy = true;
+  lvRenderActions();
+  try {
+    const res = await apiFetch(`${base}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ at: at.trim() }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.detail || "予約できませんでした");
+    window.SaiShell.ok();
+    lvSetMsg(out.scheduled_at ? `${out.scheduled_at} に実行します` : "予約を取り消しました", false);
+  } catch (e) {
+    window.SaiShell.fail();
+    lvSetMsg((e && e.message) || "予約できませんでした", true);
+  } finally {
+    lvBusy = false;
+    lvRenderActions();
+  }
+}
+
+/** List の項目を消す（子の実行と run フォルダも消える）。 */
+async function lvDelete() {
+  if (lvBusy || lvRunId == null) return;
+  const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
+  const ok = await saiConfirm({
+    title: "削除",
+    body: `${label} を消します。子の実行と成果物のフォルダも消え、元に戻せません。`,
+    ok: "削除",
+    danger: true,
+  });
+  if (!ok) return;
+  lvBusy = true;
+  lvRenderActions();
+  try {
+    const res = await apiFetch(
+      `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}`,
+      { method: "DELETE" }
+    );
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.detail || "消せませんでした");
+    window.SaiShell.ok();
+    saiToast(`${label} を消しました`);
+    location.hash = listHash(lvName, null, null);
+  } catch (e) {
+    window.SaiShell.fail();
+    lvSetMsg((e && e.message) || "消せませんでした", true);
+  } finally {
+    lvBusy = false;
+    lvRenderActions();
+  }
 }
 
 /** review → done / done → Workflow を iPhone から移す（POST …/runs/{run_id}/advance）。 */
@@ -1244,6 +1322,24 @@ async function lvSaveMd() {
   }
 }
 
+/** 成果物の表示名 `<waggle_token>/<file_name>`。 */
+function lvWaggleName(item) {
+  return `${item.token || ""}/${item.label || ""}`;
+}
+
+/** ＋: この文書を task_text に貼った状態で task.md の作成フォームを開く。 */
+function lvWaggleAdd(item) {
+  const b = el("button", "lv-waggle-add", "＋");
+  b.type = "button";
+  b.setAttribute("aria-label", "この文書で task.md を作る");
+  b.title = "この文書で task.md を作る";
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (typeof cfOpen === "function") void cfOpen({ ref: item.ref });
+  });
+  return b;
+}
+
 // 7. waggle: 成果物の一覧 → タップで本文、‹ で一覧へ（計画 14 §1.3）
 async function lvLoadWaggle(seq) {
   const body = lvBody();
@@ -1266,7 +1362,9 @@ async function lvLoadWaggle(seq) {
         void lvLoadContent(s);
       });
       body.appendChild(back);
-      const title = el("div", "lv-waggle-title", String(data.label || lvWaggleToken));
+      const item = (lvWaggleList || []).find((w) => w.token === lvWaggleToken);
+      const title = el("div", "lv-waggle-title", item ? lvWaggleName(item) : String(data.label || lvWaggleToken));
+      if (item) title.appendChild(lvWaggleAdd(item));
       body.appendChild(title);
       body.appendChild(el("div", "lv-waggle-text", ""));
       body.lastChild.innerHTML = renderMarkdown(data.text || "", { toolbar: true });
@@ -1292,9 +1390,10 @@ async function lvLoadWaggle(seq) {
       return;
     }
     for (const item of lvWaggleList) {
+      const line = el("div", "lv-waggle-line");
       const row = document.createElement("button");
       row.className = "lv-waggle-row";
-      row.appendChild(el("span", "lv-waggle-label", String(item.label || item.token || "")));
+      row.appendChild(el("span", "lv-waggle-label", lvWaggleName(item)));
       row.appendChild(
         el("span", "lv-waggle-desc", String(item.description || ""))
       );
@@ -1303,7 +1402,8 @@ async function lvLoadWaggle(seq) {
         const s = ++lvSeq;
         void lvLoadContent(s);
       });
-      body.appendChild(row);
+      line.append(row, lvWaggleAdd(item));
+      body.appendChild(line);
     }
   } catch (e) {
     if (seq !== lvSeq) return;
@@ -1563,5 +1663,6 @@ if (typeof module !== "undefined" && module.exports) {
     statsSeries,
     typeSlices,
     waggleDirect,
+    lvScheduledAt,
   };
 }

@@ -552,64 +552,10 @@ impl TaskManager {
                 .insert_task(&task)
                 .map_err(|e| TaskManagerError::Db(e.to_string()))?;
             task_ids.push(id);
-
-            // U05: task_create を task.md 作成と同じにする。
-            // TUI / phone から確認できるよう、親 run フォルダ直下に
-            // `task-<client_id>.md`（表示用の写し・正は DB）を保存する。
-            // 実行は従来通り task_execute。失敗してもタスク作成自体は成功扱い。
-            Self::write_subtask_card_file(
-                notification.parent_run_id,
-                item.client_id.trim(),
-                item.block_type.as_deref().unwrap_or(""),
-                &item.subject,
-                &item.description,
-            );
         }
 
         Ok(task_ids)
     }
-
-    /// U05: 子タスクの表示用 task.md を親 run フォルダ直下に保存する。
-    ///
-    /// ファイル名は `task-<client_id>.md`（client_id は英数・`-`・`_` 以外を `_` 化）。
-    /// 中身は task_create 引数（block / subject / task_text）の写しで、正は DB。
-    /// task_text 内の `waggle:` 参照は実行時（placeholder 展開）に本文へ置換されるため、
-    /// ここでは参照行のまま保存する（全経路共通の候補形式と同一）。
-    /// 親 run フォルダが無い場合・書き込み失敗時は黙殺する（タスク作成を止めない）。
-    fn write_subtask_card_file(
-        parent_run_id: i64,
-        client_id: &str,
-        block_type: &str,
-        subject: &str,
-        task_text: &str,
-    ) {
-    let Some((_, dir)) = crate::run_dir::find_run_dir(parent_run_id) else {
-        return;
-    };
-    let safe: String = client_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let name = if safe.trim().is_empty() {
-        "task-sub.md".to_string()
-    } else {
-        format!("task-{}.md", safe)
-    };
-    let body = format!(
-        "---\nblock: {}\norigin_run_id: {}\n---\n\n# {}\n\n# task_text\n\n{}\n",
-        block_type.trim(),
-        parent_run_id,
-        subject.trim(),
-        task_text.trim_end()
-    );
-    let _ = std::fs::write(dir.join(name), body);
-}
 
     // -----------------------------------------------------------------------
     // バッチ確認（承認/拒否）

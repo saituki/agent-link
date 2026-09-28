@@ -372,6 +372,8 @@ impl Daemon {
                 let _ = self.write_status_file();
                 // phone 書き出しも同じ周期で差分を書き出す（実装計画 01 §2.3）
                 self.export_phone_runs(false);
+                // 実行予定時刻を過ぎた todo のカードを実行する
+                self.run_scheduled_cards();
             }
 
             std::thread::sleep(POLL_INTERVAL);
@@ -440,6 +442,66 @@ impl Daemon {
     }
 
     /// 通知ファイルを processed/ に移動する（ベストエフォート）。
+    /// 実行予定時刻（task.md の `scheduled_at:`）を過ぎた todo のカードを実行する。
+    ///
+    /// 予定を先に消してから、`sai-moon-link phone card run <run_id>`（Web の ▶ 実行と同じ流れ）を
+    /// 別プロセスで呼ぶ。失敗しても繰り返さない（予定は消えている）。
+    fn run_scheduled_cards(&self) {
+        let todo = crate::project::sai_path(crate::run_dir::OUTPUTS_DIR)
+            .join(crate::run_dir::TODO_OWNER);
+        let Ok(entries) = std::fs::read_dir(&todo) else {
+            return;
+        };
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let now = chrono::Local::now().naive_local();
+        for entry in entries.flatten() {
+            let path = entry.path().join(crate::run_dir::TASK_FILE);
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Some(mut card) = crate::kanban::parse_card(&text) else {
+                continue;
+            };
+            let due = card
+                .frontmatter
+                .meta
+                .get("scheduled_at")
+                .and_then(|v| crate::kanban::parse_scheduled_at(v))
+                .is_some_and(|at| at <= now);
+            let Ok(run_id) = card.frontmatter.run_id.trim().parse::<i64>() else {
+                continue;
+            };
+            if !due {
+                continue;
+            }
+            card.frontmatter.meta.remove("scheduled_at");
+            if std::fs::write(&path, crate::kanban::render_card(&card)).is_err() {
+                continue;
+            }
+            eprintln!("[sai-engine] 予定の時刻になったので実行します: run_id={}", run_id);
+            let root = crate::project::project_root();
+            let spawned = std::process::Command::new(&exe)
+                .args(["phone", "card", "run", &run_id.to_string()])
+                .current_dir(&root)
+                .env("SAI_PROJECT_ROOT", &root)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            match spawned {
+                // 終わりを待つだけの糸を立てる（ゾンビを残さない）
+                Ok(mut child) => {
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                }
+                Err(e) => eprintln!("[sai-engine] 予定の実行に失敗: run_id={}: {}", run_id, e),
+            }
+        }
+    }
+
     fn move_to_processed(
         &self,
         source: &Path,

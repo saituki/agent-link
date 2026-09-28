@@ -647,6 +647,33 @@ def api_project_run_advance(
     return control.phone_advance(name, run_id)
 
 
+@app.delete("/api/projects/{name}/runs/{run_id:int}")
+def api_project_run_delete(
+    name: str, run_id: int, _: None = Depends(require_token)
+) -> dict:
+    """List の項目を消す（`phone rm <run_id>`・子の実行と run フォルダも消える）。"""
+    return control.phone_rm(name, run_id)
+
+
+@app.post("/api/projects/{name}/runs/{run_id:int}/schedule")
+def api_project_run_schedule(
+    name: str, run_id: int, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し）。"""
+    at = payload.get("at") if isinstance(payload, dict) else None
+    if at is not None and not isinstance(at, str):
+        raise HTTPException(status_code=400, detail="時刻の形が正しくありません")
+    return control.phone_card_schedule(name, run_id, at or "")
+
+
+@app.get("/api/projects/{name}/card/docs")
+def api_project_card_docs(
+    name: str, _: None = Depends(require_token)
+) -> dict:
+    """最近の文書（task_text に `waggle:<tok>:path:<path>` を貼る候補）。"""
+    return control.phone_card_docs(name)
+
+
 # --- ホーム（U3 §変更内容 3） ---
 # 答えを待っている質問・確認を待っている承認・動いているプロジェクト・論文の要対応を
 # 1 本の住所で集める（画面から全部を別々に呼ぶと回数が多くなるため）。

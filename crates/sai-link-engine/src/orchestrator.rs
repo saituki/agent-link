@@ -1781,6 +1781,55 @@ pub fn execute_block_pipeline(
     )
 }
 
+/// run フォルダに task.md が無ければ、カードと同じ形（`kanban::render_card`）で書く。
+///
+/// カード経由の実行は task.md を既に持つので何もしない。子タスクの `description` は
+/// `task_create` の値（1 行目だけ・frontmatter は 1 行のため）、`origin_run_id` は親の run_id。
+/// 書けなくても実行は止めない。
+fn write_run_task_md(
+    store: &crate::db::SaiStore,
+    run_id: i64,
+    resolved: &ResolvedExecutionSettings,
+    user_inputs: &HashMap<String, String>,
+    parent_run_id: Option<i64>,
+    task_id: Option<i64>,
+) {
+    let dir = match crate::run_dir::find_run_dir(run_id) {
+        Some((_, d)) => d,
+        None => match crate::run_dir::ensure_run_dir(crate::run_dir::RUNNING_OWNER, run_id) {
+            Ok(d) => d,
+            Err(_) => return,
+        },
+    };
+    let path = dir.join(crate::run_dir::TASK_FILE);
+    if path.exists() {
+        return;
+    }
+    let origin = parent_run_id.map_or("-".to_string(), |p| p.to_string());
+    let mut fm = crate::kanban::CardFrontmatter::new_card(crate::kanban::card_creation_date(), origin);
+    fm.execution_date = fm.creation_date.clone();
+    fm.run_id = run_id.to_string();
+    fm.runner = resolved.runner.as_str().to_string();
+    fm.block = resolved.config.block_id().to_string();
+    fm.model = resolved.config.model.clone().unwrap_or_default();
+    fm.provider = resolved.config.provider.clone().unwrap_or_default();
+    fm.thinking = resolved.config.thinking.clone().unwrap_or_default();
+    fm.round = resolved.round.map(|v| v.to_string()).unwrap_or_default();
+    fm.global_round = resolved.global_round.map(|v| v.to_string()).unwrap_or_default();
+    fm.tag = resolved.tag.clone().unwrap_or_default();
+    let task = task_id.and_then(|t| store.get_task_by_id(t).ok());
+    fm.description = task
+        .as_ref()
+        .map(|t| t.description.lines().next().unwrap_or("").trim().to_string())
+        .unwrap_or_default();
+    let task_text = user_inputs.get("task_text").map(|s| s.trim_end()).unwrap_or("");
+    let card = crate::kanban::KanbanCard {
+        frontmatter: fm,
+        body: format!("# task_text\n\n{}", task_text),
+    };
+    let _ = std::fs::write(path, crate::kanban::render_card(&card));
+}
+
 /// 共通実行パイプラインの完全版（予約 run_id 付き・R302）。
 ///
 /// `reserved_run_id` が `Some` なら予約行を確定させて使い回す。
@@ -1874,6 +1923,10 @@ pub fn execute_block_pipeline_full(
             stamp_card_run_id(card_rel, run_id);
         }
     }
+
+    // カードを使わない実行（task_create の子・直接実行）にも、カードと同じ形の task.md を
+    // run フォルダに置く。task.md の置き場と形を全経路で 1 つにし、Web / TUI の task 表示を共通にする。
+    write_run_task_md(store, run_id, &resolved, &user_inputs, parent_run_id, task_id);
 
     // 3. worktree 適用（指定時。cwd を作業用コピー内の対応フォルダへ変更）。
     //    作業用コピーを作れない場合（git リポジトリでない等）は指定 cwd で

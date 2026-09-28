@@ -592,6 +592,15 @@ pub enum PhoneCmd {
         run_id: i64,
     },
 
+    /// 実行を消す（DB の行と run フォルダ・子の実行も一緒に。`block rm --yes` と同じ関数）
+    ///
+    /// 実行中（running / pending）は消さない（終了コード 1）。実行が無い場合は終了コード 3。
+    Rm {
+        /// 対象の実行 ID
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+    },
+
     /// プロジェクト一覧に出す最小集計を JSON で返す（実行中の件数・最終実行日時）
     ///
     /// 成功は stdout に `{"running": N, "last_executed_at": "…"|null}`・終了コード 0。
@@ -686,8 +695,30 @@ pub enum PhoneCardCmd {
         origin_run_id: Option<i64>,
     },
 
+    /// 最近の文書（running / review / done / Workflow の実行の md 成果物）を新しい順に返す
+    ///
+    /// task_text に `waggle:<tok>:path:<path>` を貼るための候補（`ref` がその行）。
+    Docs {
+        /// 返す件数の上限
+        #[arg(long, default_value_t = 40)]
+        limit: usize,
+    },
+
     /// カードを作成する（標準入力に JSON・作成後は todo に配置）
     Create,
+
+    /// todo のカードに実行予定時刻を書く（常駐がその時刻に実行する）
+    ///
+    /// `--at` は `YYYY-MM-DD HH:MM`（Mac の時刻）。省略すると予定を消す。
+    Schedule {
+        /// 対象の予約 run ID
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+
+        /// 実行予定時刻（`YYYY-MM-DD HH:MM`）
+        #[arg(long)]
+        at: Option<String>,
+    },
 
     /// todo の未実行カード（`outputs/todo/<run_id>/task.md`）を実行する（非対話）
     ///
@@ -1604,15 +1635,8 @@ pub fn handle_block_rm(exec_id: i64, yes: bool) -> Result<(), Box<dyn std::error
         }
     }
 
-    // 依存レコード（子実行・接続・タスク）ごと再帰的に削除
-    let summary = store.delete_execution_cascade(exec_id)?;
-
-    // R603: run フォルダ（task/review/message/session/成果物）を丸ごと削除する。
-    // 旧 review/message/reflection の残骸も併せて掃除する。
-    // ファイル不在時は無視して続行し、削除失敗のみを警告として報告する。
-    if let Err(e) = sai_link_engine::orchestrator::remove_run_dir_files(exec_id) {
-        eprintln!("警告: run フォルダの削除に失敗: {}", e);
-    }
+    // 依存レコード（子実行・接続・タスク）と run フォルダ（子の分も）をまとめて削除
+    let summary = sai_link_engine::run_dir::delete_run(&store, exec_id)?;
 
     println!(
         "🗑 実行 #{} '{}' ({}) を削除しました。",

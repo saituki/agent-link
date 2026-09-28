@@ -59,7 +59,13 @@ const FIXED_FM_KEYS: [&str; 14] = [
 ///
 /// - `origin_block`: task.md の元となった過去の run_id 列（カンマ区切り・`Shift+C` 記録）
 /// - `source_doc`: 元実行の出力トークン列（R112 自動充填・`waggle:` トークン）
-const META_FM_KEYS: [&str; 2] = ["origin_block", "source_doc"];
+/// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
+const META_FM_KEYS: [&str; 3] = ["origin_block", "source_doc", "scheduled_at"];
+
+/// `scheduled_at:` の値（`YYYY-MM-DD HH:MM`）を読む。読めなければ `None`。
+pub fn parse_scheduled_at(s: &str) -> Option<chrono::NaiveDateTime> {
+    chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%d %H:%M").ok()
+}
 
 /// カードの frontmatter（`---` ... `---` の中身）。
 #[derive(Debug, Clone, PartialEq)]

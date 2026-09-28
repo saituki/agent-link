@@ -588,6 +588,47 @@ def phone_advance(name: str, run_id: int) -> dict:
     )
 
 
+def phone_rm(name: str, run_id: int) -> dict:
+    """`sai-moon-link phone rm <run_id>`（List の項目を消す。子の実行も一緒に消える）。
+
+    - 成功: `{'run_id': N, 'executions': 消した実行の数}`。
+    - その run が無い（終了コード 3）: 404。実行中など: 502 に stderr。
+    """
+    _check_run_id(run_id)
+    project = _phone_project(name)
+    return _phone_json(
+        ["rm", str(run_id)],
+        root=project["root"],
+        missing=_PHONE_MISSING_RUN,
+    )
+
+
+def phone_card_docs(name: str) -> dict:
+    """`sai-moon-link phone card docs`（最近の文書・task_text に貼る候補）。"""
+    project = _phone_project(name)
+    return _phone_json(["card", "docs"], root=project["root"])
+
+
+# 実行予定時刻（`YYYY-MM-DD HH:MM`。ブラウザの datetime-local の `T` 区切りも受ける）
+_SCHEDULE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$")
+
+
+def phone_card_schedule(name: str, run_id: int, at: str) -> dict:
+    """`sai-moon-link phone card schedule <run_id> [--at …]`（todo の実行予定時刻）。
+
+    `at` が空なら予定を消す。形が違えば CLI を呼ばずに 400。
+    """
+    _check_run_id(run_id)
+    at = (at or "").strip()
+    args = ["card", "schedule", str(run_id)]
+    if at:
+        if not _SCHEDULE_RE.match(at):
+            raise HTTPException(status_code=400, detail="時刻の形が正しくありません")
+        args += ["--at", at.replace("T", " ")]
+    project = _phone_project(name)
+    return _phone_json(args, root=project["root"], missing=_PHONE_MISSING_START)
+
+
 # --- Workflow と定義の編集（U3・共有契約 C-A1） ---
 # sai-link-tui の中にしか無い Workflow の盤面と block / template / settings の編集を、
 # Web からも同じ CLI 経由でできるようにする（sai-phone は DB を開かない・00 §2）。

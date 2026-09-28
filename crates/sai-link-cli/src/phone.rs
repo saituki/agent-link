@@ -199,11 +199,14 @@ fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
             PhoneCardCmd::Inputs { block, origin_run_id } => {
                 card_inputs(&block, origin_run_id)
             }
+            PhoneCardCmd::Docs { limit } => card_docs(limit),
             PhoneCardCmd::Create => card_create(),
+            PhoneCardCmd::Schedule { run_id, at } => card_schedule(run_id, at.as_deref()),
             PhoneCardCmd::Run { run_id } => card_run(run_id),
         }),
         PhoneCmd::Finalize { run_id } => val(finalize(run_id)),
         PhoneCmd::Advance { run_id } => val(advance(run_id)),
+        PhoneCmd::Rm { run_id } => val(rm(run_id)),
         PhoneCmd::Summary => val(summary()),
         PhoneCmd::Dashboard { period } => dashboard(&period),
         PhoneCmd::Workflow => val(workflow()),
@@ -654,6 +657,8 @@ fn waggle(run_id: i64, token: Option<&str>) -> PhoneResult<Value> {
                         "description": c.description,
                         // U03: 実行状態（running / completed 等。task.md 作成時の判断用）
                         "status": c.status,
+                        // task_text にそのまま貼れる参照行
+                        "ref": phone_view::doc_ref_line(&c),
                     })
                 })
                 .collect();
@@ -763,6 +768,44 @@ fn card_candidate_json(c: &phone_view::WaggleChoiceData) -> Value {
         // task.md への貼り付け形式（そのまま task_text に書ける）
         "ref": phone_view::doc_ref_line(c),
     })
+}
+
+/// `phone card docs [--limit N]`: 最近の文書（実行中を含む全体の md）を新しい順に返す。
+fn card_docs(limit: usize) -> PhoneResult<Value> {
+    let store = open_store()?;
+    let items: Vec<Value> = phone_view::recent_docs(&store, limit)
+        .iter()
+        .map(card_candidate_json)
+        .collect();
+    Ok(json!({ "items": items }))
+}
+
+/// `phone card schedule <run_id> [--at …]`: todo のカードの `scheduled_at:` を書き換える。
+///
+/// 実行は常駐がその時刻に `phone card run` と同じ流れで行う（`daemon.rs` の予定の見回り）。
+fn card_schedule(run_id: i64, at: Option<&str>) -> PhoneResult<Value> {
+    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
+        .join(sai_link_engine::run_dir::TODO_OWNER)
+        .join(run_id.to_string())
+        .join(sai_link_engine::run_dir::TASK_FILE);
+    if !task.is_file() {
+        return Err(PhoneError::not_found(TODO_NOT_FOUND));
+    }
+    let at = at.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(v) = at {
+        sai_link_engine::kanban::parse_scheduled_at(v).ok_or_else(|| {
+            PhoneError::usage("時刻は YYYY-MM-DD HH:MM の形で書いてください")
+        })?;
+    }
+    let text = std::fs::read_to_string(&task)
+        .map_err(|e| PhoneError::internal(format!("task.md を読めません: {}", e)))?;
+    let mut card = sai_link_engine::kanban::parse_card(&text)
+        .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
+    card.frontmatter
+        .set_meta("scheduled_at".to_string(), at.unwrap_or("").to_string());
+    std::fs::write(&task, sai_link_engine::kanban::render_card(&card))
+        .map_err(|e| PhoneError::internal(format!("task.md を書けません: {}", e)))?;
+    Ok(json!({ "run_id": run_id, "scheduled_at": at }))
 }
 
 /// `phone card create`（stdin に JSON）: カードを作成し run_id とパスを返す。
@@ -976,6 +1019,22 @@ fn advance(run_id: i64) -> PhoneResult<Value> {
     };
 
     Ok(json!({ "run_id": run_id, "from": from, "to": to }))
+}
+
+/// `phone rm <run_id>`: 実行を消す（`run_dir::delete_run`・`block rm` と同じ関数）。
+///
+/// 実行中（pane が生きている）は消さない。子の実行と run フォルダも一緒に消える。
+fn rm(run_id: i64) -> PhoneResult<Value> {
+    let store = open_store()?;
+    let exec = store
+        .get_execution_by_id(run_id)
+        .map_err(|_| PhoneError::not_found(EXEC_NOT_FOUND))?;
+    if matches!(exec.status.as_str(), "running" | "pending") {
+        return Err(PhoneError::usage("実行中は消せません。先に終了してください"));
+    }
+    let summary =
+        sai_link_engine::run_dir::delete_run(&store, run_id).map_err(PhoneError::internal)?;
+    Ok(json!({ "run_id": run_id, "executions": summary.executions }))
 }
 
 // ============================================================================
