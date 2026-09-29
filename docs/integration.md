@@ -321,7 +321,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/mlflow` | 実験（MLflow）の一覧 | 実験 | 表示 |
 | `#/mlflow/e/<experiment_id\|all>` | run の表（`?sai_run=<n>`・`?seed=<n>`・`?study=<s>`・`?status=<S>` を付けられる） | 実験 | 表示 |
 | `#/mlflow/run/<run_id>` | run の詳細（設定・指標・タグ・成果物） | 実験 | 表示 |
-| `#/mlflow/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件。画面は U07 で作る） | 実験 | 表示 |
+| `#/mlflow/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件。表は差分だけに絞れ、指標は重ねたグラフで見比べる） | 実験 | 表示 |
 
 - 古い住所も開く: `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>`（名前の無い形）は，今選んでいるプロジェクトの同じ画面として開く。
 - 古い住所 `#/papers/canvas` と `#/canvas/…` は研究方針の画面（`#/papers/tree`）へ送る（消した画面の `scitree.js` の登録が `location.replace` で送り直す）。
@@ -329,7 +329,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
   - 実験タブの「選んでいるプロジェクト」は別の `sai_phone_mlf_project`（localStorage）に覚える（論文タブと別々に持つ）。「すべてのプロジェクト」は `*` として覚え、`POST /api/mlflow/runs/search` には `project` を送らない。
 - **List のサイドバーの一番上（todo フォルダの上）の「実行［＋］［↻］」の行**で，**＋** は **task.md 作成フォーム**（↻ はツリーの読み直し），**↻** でツリーを読み直す（どちらも住所は付けない一枚・`cardform.js` / `linkview.js`）。手順は 10 画面、書きかけは localStorage（プロジェクトごと）。
 - Project の 4 画面（Dashboard / Workflow / List / 設定）の見出しは，同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）にそろえてある（共通のクラス `.proj-bar`・`style.css`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。上向きの固定は `html, body` の `overflow-x: clip` による（`hidden` にすると `body` がスクロールの箱になって `.appbar` と `.inputbar` の `position: sticky` が効かない）。
-- 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js` / `cite.js` / `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `mlflow.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
+- 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js` / `cite.js` / `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `mlflow.js` / `mlfchart.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
   **タブごとのファイルは `app.js` より前**に読み込む。新しい画面は `window.SaiRoutes` に登録する（`app.js` の分岐は増やさない）。
 
 ---
