@@ -440,6 +440,23 @@ fn tree() -> PhoneResult<Value> {
     Ok(json!({ "items": nest_tree(items) }))
 }
 
+/// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）の `scheduled_at:` を読む。
+/// 予約が無い・読めない・形が違うときは `None`。
+fn todo_scheduled_at(run_id: i64) -> Option<String> {
+    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
+        .join(sai_link_engine::run_dir::TODO_OWNER)
+        .join(run_id.to_string())
+        .join(sai_link_engine::run_dir::TASK_FILE);
+    scheduled_at_of(&std::fs::read_to_string(task).ok()?)
+}
+
+/// task.md の本文から予約時刻を取り出す（`parse_scheduled_at` で読める値だけ）。
+fn scheduled_at_of(text: &str) -> Option<String> {
+    let card = sai_link_engine::kanban::parse_card(text)?;
+    let at = card.frontmatter.meta.get("scheduled_at")?.trim().to_string();
+    sai_link_engine::kanban::parse_scheduled_at(&at).map(|_| at)
+}
+
 /// 平らなツリー項目を入れ子 JSON（`children`）に組み替える。
 fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
     let mut roots: Vec<Value> = Vec::new();
@@ -497,13 +514,19 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                     Some(id) => id,
                     None => continue,
                 };
-                let val = json!({
+                let mut val = json!({
                     "type": "run",
                     "run_id": run_id,
                     "label": it.name,
                     "lane": it.lane,
                     "status": it.status,
                 });
+                // 実行予約した todo だけ `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（ホームの「予約」用）
+                if it.lane.as_deref() == Some("todo") {
+                    if let Some(at) = todo_scheduled_at(run_id) {
+                        val["scheduled_at"] = json!(at);
+                    }
+                }
                 attach(&mut stack, &mut roots, val);
             }
         }
@@ -1551,6 +1574,25 @@ mod tests {
     /// `phone_def` のテストも [`ENV_TEST_LOCK`] と同じロックを使う。
     /// 別々のロックだと両方が並列実行して `SAI_PROJECT_ROOT` を奪い合う。
     pub(crate) static ENV_LOCK: &std::sync::Mutex<()> = &super::ENV_TEST_LOCK;
+
+    /// 予約した todo の `scheduled_at:` は読める。無い・空・形が違うときは None。
+    #[test]
+    fn scheduled_at_of_reads_only_valid_value() {
+        let mut card = sai_link_engine::kanban::KanbanCard {
+            frontmatter: sai_link_engine::kanban::CardFrontmatter::new_card("2026/09/29 10:00:00".into()),
+            body: "# task_text\nやること\n".into(),
+        };
+        assert_eq!(super::scheduled_at_of(&sai_link_engine::kanban::render_card(&card)), None);
+        for (v, want) in [
+            ("2026-10-01 09:00", Some("2026-10-01 09:00")),
+            ("", None),
+            ("明日の朝", None),
+        ] {
+            card.frontmatter.set_meta("scheduled_at".to_string(), v.to_string());
+            let got = super::scheduled_at_of(&sai_link_engine::kanban::render_card(&card));
+            assert_eq!(got.as_deref(), want, "値={v:?}");
+        }
+    }
 
     /// `SAI_PROJECT_ROOT` を一時ディレクトリに向けるガード（Drop で元に戻す）。
     struct RootGuard(Option<std::ffi::OsString>);
