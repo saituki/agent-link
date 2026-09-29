@@ -876,6 +876,43 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   color: var(--text-soft);
 }
 
+/* 回答済み（答えの内容）は読む文なので、大きめ・通常の色・左寄せの箱にする。
+   問が多くても 1 問 1 行で並ぶ。 */
+.question-card.settled.q-answered {
+  align-self: stretch;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.6;
+  padding: 8px 14px;
+  border-radius: 12px;
+  text-align: left;
+  border-left: 3px solid var(--ok);
+}
+
+.q-settled-title {
+  font-weight: bold;
+  color: var(--ok);
+  font-size: 13px;
+}
+
+.q-settled-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding-top: 2px;
+}
+
+.q-settled-head {
+  color: var(--text-soft);
+  flex: 0 0 auto;
+}
+
+.q-settled-ans {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* 承認カード（05 §1 の3番）は内容が短いので区切り線を強めに */
 .question-card.approval-card {
   border: 1px solid var(--accent);
