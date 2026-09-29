@@ -280,7 +280,7 @@
 }
 
 .mlf-note { margin: var(--sp-2) 0; font-size: 13px; color: var(--text-soft); }
-.mlf-note.tiny { font-size: 12px; }
+.mlf-note.tiny { font-size: 12px; padding: 0 var(--sp-2); }
 
 /* --- 成果物 --- */
 
@@ -377,7 +377,14 @@
 .mlf-tcard.pickable,
 .mlf-trow.pickable {
   position: relative;
-  padding-left: 32px;
+  padding-left: 44px;
+}
+
+/* 印は 24px だが、押せる範囲は 44px 四方に広げる */
+.mlf-pick::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
 }
 
 .mlf-pick {

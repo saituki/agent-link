@@ -365,6 +365,8 @@ function testDurationText() {
   assert.strictEqual(mlfDurationText(NaN), "—");
   assert.strictEqual(mlfDurationMs(sampleRun({ id: RUN_A })), 60000);
   assert.ok(Number.isNaN(mlfDurationMs({ info: { start_time: "2026-09-29T10:00:00Z" } })));
+  // 本物の MLflow はミリ秒の数値で返す
+  assert.strictEqual(mlfDurationMs({ info: { start_time: 1790666918697, end_time: 1790666932882 } }), 14185);
 }
 
 function testValueText() {

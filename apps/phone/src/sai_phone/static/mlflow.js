@@ -376,8 +376,10 @@ function mlfDurationText(ms) {
 /** 時間の長さ（始点と終点。無ければ不定の値）。 */
 function mlfDurationMs(run) {
   const info = (run && run.info) || {};
-  const start = Date.parse(info.start_time || "");
-  const end = Date.parse(info.end_time || "");
+  // MLflow は時刻をミリ秒の数値で返す（文字列の ISO も受ける）
+  const toMs = (v) => (typeof v === "number" ? v : Date.parse(v || ""));
+  const start = toMs(info.start_time);
+  const end = toMs(info.end_time);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return NaN;
   return Math.max(0, end - start);
 }
