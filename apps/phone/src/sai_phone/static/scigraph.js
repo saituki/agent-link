@@ -122,6 +122,7 @@ let sgWorld = null;    // その中の世界（transform で動かす）
 let sgView = { tx: 0, ty: 0, z: 1 }; // 画面上の点 = 世界の点 * z + (tx, ty)
 let sgShowOptions = true; // 候補の札を出すか
 let sgRects = new Map();  // 節点 id → 置いた場所（線と札の共通）
+let sgExtraRects = [];    // 見える範囲の算出に入れる四角（実行の図の帯。線と札には使わない）
 let sgPtrs = new Map();  // 押している指（1 本 = 移動、2 本 = 拡大）
 let sgDown = null;       // 1 本指で押したままの情報
 let sgPinch = null;      // 2 本指の情報
@@ -585,13 +586,17 @@ function sgDraw() {
   }
   sgWorld.innerHTML = "";
   sgRects = new Map();
+  sgExtraRects = [];
 
   const gateKeys = new Set(sgGateKeys(sgStatus));
   const input = sgGraphInput(sgStatus, sgShowOptions);
   if (!input.cards.length) {
-    const empty = sgEl("div", "sci-graph-empty");
-    empty.appendChild(sgNote("項目はまだありません。種類を選んで木を始めると、ここに図が出ます。"));
-    sgWorld.appendChild(empty);
+    // 0 件のときは直接 舞台に入れる（世界は 0 幅。absolute の箱は文字を 1 文字ずつ縦に並べてしまう）
+    sgPutEmpty(sgEmptyBox({
+      icon: "🌱",
+      title: "項目はまだありません",
+      body: "種類を選んで木を始めると、ここに図が出ます。",
+    }));
     sgApplyView();
     return;
   }
@@ -677,7 +682,7 @@ function sgFallbackLayout(cards) {
 /** 線の SVG に viewBox を付ける（描きたい範囲いっぱい）。 */
 function sgSetViewBox(svg) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const r of sgRects.values()) {
+  for (const r of [...sgRects.values(), ...sgExtraRects]) {
     minX = Math.min(minX, r.x);
     minY = Math.min(minY, r.y);
     maxX = Math.max(maxX, r.x + r.width);
@@ -774,11 +779,11 @@ function sgZoomInv(z) {
  * 画面の大きさがまだ分からないときは false を返して、やり直さない。
  */
 function sgFit() {
-  if (!sgStage || !sgRects.size) return false;
+  if (!sgStage || !(sgRects.size || sgExtraRects.length)) return false;
   const w = sgStage.clientWidth || 0;
   const h = sgStage.clientHeight || 0;
   if (w <= 0 || h <= 0) return false;
-  const rects = [...sgRects.values()].map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height }));
+  const rects = [...sgRects.values(), ...sgExtraRects].map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height }));
   if (typeof cvFitView === "function") {
     sgView = cvFitView(rects, w, h);
   } else {
@@ -924,6 +929,21 @@ function sgOnWheel(e) {
 // 実行の図（root / seed / branch の 3 層・U08）
 // ============================================================================
 
+/**
+ * 空の案内を「見える範囲の所」（sgStage）に入れる。
+ * 世界（sgWorld）は 0 幅なので、そこに絶対配置の箱を置くと文字が縦に並ぶ。
+ * 案内だけ世界から出して、箱ごと作り直す。
+ */
+function sgPutEmpty(box) {
+  if (!sgStage) return;
+  sgStage.innerHTML = "";
+  sgWorld = sgEl("div", "sci-graph-world");
+  const wrap = sgEl("div", "sci-graph-empty");
+  wrap.appendChild(box);
+  sgStage.appendChild(sgWorld);
+  sgStage.appendChild(wrap);
+}
+
 /** 空の案内（ui.js の saiEmpty が無ければただの文にする）。 */
 function sgEmptyBox(opts) {
   const o = opts || {};
@@ -1018,6 +1038,7 @@ function sgDrawRuns() {
   }
   sgWorld.innerHTML = "";
   sgRects = new Map();
+  sgExtraRects = [];
 
   const nodes = Array.isArray(sgRunDag && sgRunDag.nodes) ? sgRunDag.nodes : [];
   const nodeById = new Map();
@@ -1025,13 +1046,11 @@ function sgDrawRuns() {
 
   // 0 件のときは saiEmpty で案内する
   if (!nodeById.size) {
-    const empty = sgEl("div", "sci-graph-empty");
-    empty.appendChild(sgEmptyBox({
+    sgPutEmpty(sgEmptyBox({
       icon: "🧪",
       title: "実行の図はまだありません",
       body: "層（root / seed / branch）を持つブロックの実行がまだありません。sci-* や sci-exp-seed を動かすと出ます",
     }));
-    sgWorld.appendChild(empty);
     sgApplyView();
     return;
   }
@@ -1044,8 +1063,9 @@ function sgDrawRuns() {
     sgRects.set(String(c.run_id), { x: c.x, y: c.y, width: c.w, height: c.h, node: n });
   }
 
-  // 2. 帯（札より後ろに敷く。文字は帯の中に置く）
+  // 2. 帯（札より後ろに敷く。文字は帯の中に置く。帯も見える範囲の算出に入れる）
   const bandBox = sgEl("div", "sci-graph-bands");
+  sgExtraRects = layout.bands.map((b) => ({ x: 0, y: b.y, width: layout.width, height: b.h }));
   for (const b of layout.bands) {
     const box = sgEl("div", `sci-graph-band sci-graph-band-${b.layer}`);
     box.style.top = `${sgR1(b.y)}px`;

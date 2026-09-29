@@ -108,6 +108,8 @@ const ST_RUN_PAGE_SIZE = 100;
 const ST_RUN_MAX_PAGES = 10;
 // 指標の親 run がないときの注（図の上に 1 行出す）
 const ST_RUN_NO_MLF = "MLflow に接続できないので、指標は出していません";
+// 繋がっているが検索が弾かれたときの注（MLflow の返答を鵜呑みにしない）
+const ST_RUN_NO_METRIC = "指標を読み込めませんでした（MLflow の検索が通らなかった）";
 
 // --- 画面の状態 ---
 
@@ -802,9 +804,9 @@ async function stLoadRuns(target) {
   let note = "";
   try {
     metrics = await stFetchRunMetrics(project);
-  } catch {
+  } catch (e) {
     metrics = {};
-    note = ST_RUN_NO_MLF;
+    note = e && e.status === 503 ? ST_RUN_NO_MLF : ST_RUN_NO_METRIC;
   }
   if (!alive()) return;
 
@@ -814,7 +816,9 @@ async function stLoadRuns(target) {
     return;
   }
   sgRenderRuns(target, dag, metrics, (runId) => stOpenRunSheet(runId, dag));
-  if (note) target.insertBefore(stEl("p", "sci-note sci-runs-note", note), target.firstChild);
+  // 実行の層の run が 1 つも無いときは指標の注を出さない（出す問題がが無い）
+  const hasBranch = (Array.isArray(dag && dag.nodes) ? dag.nodes : []).some((n) => n && n.layer === "branch");
+  if (note && hasBranch) target.insertBefore(stEl("p", "sci-note sci-runs-note", note), target.firstChild);
 }
 
 /** 実行の図の指標の辞書（MLflow の親 run から作る・C-03 / C-04）。 */
@@ -1466,6 +1470,7 @@ if (typeof module !== "undefined" && module.exports) {
     ST_RUN_PAGE_SIZE,
     ST_RUN_MAX_PAGES,
     ST_RUN_NO_MLF,
+    ST_RUN_NO_METRIC,
     ST_MODES,
     ST_TYPES,
     ST_ITEM_TYPES,

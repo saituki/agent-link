@@ -34,6 +34,7 @@ const {
   ST_RUN_PAGE_SIZE,
   ST_RUN_MAX_PAGES,
   ST_RUN_NO_MLF,
+  ST_RUN_NO_METRIC,
   ST_MODES,
   ST_TYPES,
   ST_ITEM_TYPES,
@@ -462,8 +463,10 @@ function testRunConstants() {
   // 1 回の検索は 100 行、頁を繰るのは 10 まで
   assert.strictEqual(ST_RUN_PAGE_SIZE, 100);
   assert.strictEqual(ST_RUN_MAX_PAGES, 10);
-  // MLflow が読めなかったときの注
+  // MLflow が読めなかったときの注（503）と、検索が通らなかったときの注は別にする
   assert.ok(ST_RUN_NO_MLF.includes("MLflow"));
+  assert.notStrictEqual(ST_RUN_NO_MLF, ST_RUN_NO_METRIC);
+  assert.ok(ST_RUN_NO_METRIC.includes("指標"));
 }
 
 const tests = [

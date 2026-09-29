@@ -373,6 +373,10 @@ button.sci-debt {
 
 /* --- 実行の図（U08。scitree.css は scigraph.css より前に読むので、ここに足す） --- */
 
+/* 表示の切り替えは 4 つになったので、4 つとも 1 行に収まる広さにする */
+.sci-modes-seg { width: auto; min-width: 128px; }
+.sci-modes-seg button { white-space: nowrap; }
+
 .sci-graph-runs { gap: 6px; }
 
 /* 帯（札より後ろに敷く所。層の枠と、下の色） */
