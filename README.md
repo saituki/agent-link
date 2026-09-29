@@ -201,6 +201,25 @@ agent は実行ごとに別プロセスで起動し、前回の記憶を持ち�
 - 平文の鍵が入るので、書く先の `.gitignore` には `.sai/settings.json` を入れてください（sai-moon 側では書き換えません）。
 - 書ける形と優先順位の決まりは [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) の「`.sai/settings.json` の項目」を見てください。
 
+### 実験ループと実行先（どの PC で実験を動かすか）
+
+実験（`sci-exp-seed` → `sci-exp-branch` → MLflow → 台帳 → 判定 → 次の seed）は、sai-moon だけで回る。スクリプトを動かす PC を**実行先**と呼び、`<root>/.sai/exec/<名前>/` のフォルダ 1 つが 1 つの実行先になる（`sai-moon-paper sci init` が見本を置く）。
+
+```
+.sai/exec/
+├── local/     この PC（Mac 本体）。有効
+├── ssh/       ssh でつなぐ Linux の PC（LAN・クラウドの VM）。無効の見本。PC ごとに写して host を書く
+├── dok/       さくらの高火力 DOK（GPU コンテナ・課金あり）。無効の見本。README.md と SETUP.md を先に読む
+└── _example/  新しい種類（Windows など）の雛形
+```
+
+- 選ぶのは環境変数 `EXP_TARGET`（`settings.json` の `env` に書く。空なら `local`）。
+- 実行先は増減する。**フォルダを置く・消す・`enable` を変えるだけ**で、Rust や画面は直さない。
+- エージェントは分配器 `.sai/tools/exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼ぶ。約束は `exp_exec.py` の冒頭と `sai-sci/README.md` を読む。
+- 結果は実行先から中央の MLflow に**直接**入る（回収の手順は無い）。実行先ごとの MLflow の届き先は、各 `target.toml` の `[env] MLFLOW_TRACKING_URI` に書く。
+- MLflow サーバは `apps/mlflow-server/`（Docker）。手元の Mac は `http://127.0.0.1:5001`、LAN の別 PC は Caddy の `:8443`（Basic 認証）。
+- 使えるかの確認: `uv run --no-project --python ">=3.11" python .sai/tools/exp_exec.py list` と `… check <名前>`。
+
 ### pi の質問ツール（ask_user_phone）
 
 **`sai-moon-link init` がプロジェクトの `.pi/settings.json` に書く**ので、手で登録しなくてよい。
@@ -317,6 +336,10 @@ for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
 
 # Radio（3 本）
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+
+# 実験ループの道具（sai-sci/tools。Python 3.11 以上。台帳のテストは mlflow が要る）
+(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok; do python3.13 -W ignore -m unittest $t || exit 1; done)
+(cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
 
 plutil -lint apps/phone/launchd/com.sai-moon.plist
 ```

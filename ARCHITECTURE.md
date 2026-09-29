@@ -252,7 +252,9 @@ sai-moon/
 ├── sai-sci/                  # 研究方針の木（Research-tree）
 │   ├── types/                # 5 つの型（sai-moon-paper に埋め込まれる）
 │   ├── guides/               # 項目ガイド（上の項目 9 本・子の項目 16 本）
-│   ├── template/             # sci-core.md（共通の決まり）と exp-core.md・exp-ssh.md（実験ループの決まり）
+│   ├── template/             # sci-core.md（共通の決まり）と exp-core.md・exp-run.md（実験ループの決まり）
+│   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py とテスト（sci init が .sai/tools/ へ配る）
+│   ├── exec/                 # 実行先の見本（local・ssh・dok・_example。sci init が .sai/exec/ へ配る）
 │   ├── mind.md               # 土壌のひな形
 │   └── blocks/               # 18 本の sci-* ブロック
 ├── apps/
@@ -264,10 +266,11 @@ sai-moon/
 │   │   ├── hooks/            # cc のフック
 │   │   ├── launchd/          # com.sai-moon.plist
 │   │   └── tests/            # test_*.js（node）と test_*.py（素の python）
-│   └── radio/                # Radio の裏方サーバー（8201・TTS プロキシは 8202）
-│       ├── src/sai_radio/
-│       ├── config/           # podcast-creator 用の設定 JSON
-│       └── tests/            # 3 本
+│   ├── radio/                # Radio の裏方サーバー（8201・TTS プロキシは 8202）
+│   │   ├── src/sai_radio/
+│   │   ├── config/           # podcast-creator 用の設定 JSON
+│   │   └── tests/            # 3 本
+│   └── mlflow-server/        # MLflow の compose（postgres・minio・mlflow・caddy。Docker で動かす）
 ├── docs/                     # 統合の経緯・API 一覧・コアを直す人向けの約束
 ├── .sai/                     # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── AGENTS.md                 # エージェントへの指示

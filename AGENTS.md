@@ -25,7 +25,7 @@ Rust の実行エンジン（sai-link と sai-paper）と、Web の窓口（sai-
 | `apps/phone/` | Web の窓口（FastAPI + 素の JavaScript）。`apps/phone/src/sai_phone/` にサーバと画面、`hooks/` に cc のフック、`launchd/` に plist | 編集可能 |
 | `apps/radio/` | 解説音声の裏方サーバー（FastAPI）。`apps/radio/src/sai_radio/` に本体、`tests/` に 3 本のテスト。`README.md` と `ARCHITECTURE.md` はこのフォルダにある | 編集可能 |
 | `apps/mlflow-server/` | 実験の記録を溜める MLflow サーバの compose（postgres・minio・mlflow・caddy）と `templates/mlflow-agent.md`。Docker で動かす。`.env` は無い（鍵が入るので追跡しない。`.env.example` が見本） | 編集可能（`docker-compose.yml` の `name: mlflow-server` は消さない。消すと volume が別になり記録を失う） |
-| `sai-sci/` | 研究方針の木（Research-tree）の型・項目ガイド・sci-core・mind.md のひな形・18 本のブロック・`tools/`（実験ループの台帳）。`sai-moon-paper` に埋め込まれる | 編集可能（直したら release を作り直す） |
+| `sai-sci/` | 研究方針の木（Research-tree）の型・項目ガイド・sci-core・mind.md のひな形・18 本のブロック・`tools/`（実験ループの台帳と、実行先への分配器）・`exec/`（実行先の見本）。`sai-moon-paper` に埋め込まれる | 編集可能（直したら release を作り直す） |
 | `docs/` | 開発者向けの文書（`integration.md`・`for-sai-developers.md`） | 編集可能 |
 | `.sai/` | このプロジェクト自身の中のデータ（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`.gitignore` 済み | 書き込み注意 |
 
@@ -104,6 +104,10 @@ for f in apps/phone/tests/test_*.py; do PYTHONPATH=apps/phone/src apps/phone/.ve
 
 # Radio（3 本）
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+
+# 実験ループの道具（sai-sci/tools。Python 3.11 以上。`~/.python-version` が未導入の版を指すと uv が失敗するので --python を付ける）
+(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok; do python3.13 -W ignore -m unittest $t || exit 1; done)
+(cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
 ```
 
 - **本番の旧 sai-phone（8100 番）と旧 sai-radio（8000 番）は、確認のために止めたり再起動したりしない。** sai-moon の確認は 8200 / 8201 / 8202 番で行う。
@@ -111,6 +115,8 @@ for f in apps/phone/tests/test_*.py; do PYTHONPATH=apps/phone/src apps/phone/.ve
 - サーバ・ブラウザ・ネットワークを使う命令には、必ず時間の上限を付ける（例 `perl -e 'alarm 180; exec @ARGV' <命令>`）。上限の無い命令を `| tail` などにつないで待たない。
 - 背景で起動したサーバとブラウザは、作業を終える前に止める。
 - **`sai-moon-link daemon start`・`launchctl load`・cc フックや pi 拡張の登録は実行しない。** 文書を書くだけで済ませる。
+- **`apps/mlflow-server` の `docker compose up / down / restart` は、確認のために実行しない。** 動いている本物の MLflow（実験の記録）を止める。`docker compose config` のような読み取りだけにする。
+- **さくらの DOK（`sai-sci/exec/dok`）の `run` / `ssh-run` は実行しない。** 課金される。確認は偽の `dok.py` を使うテストで行う。
 - `sai-moon-link init` など、プロジェクトを書き換える sai-link の命令は実行しない。
 - 書き込みを確かめるときは、確認用の物（例: block `guide-check`・確認用の .bib）か一時フォルダを使い、最後に消す。本物の `.sai/blocks/*.md`・`~/.sai-moon/`・`papr.db` の中身を確かめのために変えない。
 
