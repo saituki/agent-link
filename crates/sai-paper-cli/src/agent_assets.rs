@@ -47,10 +47,13 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
 
-/// sai-sci のブロック 16 本（C-16 の表の順）。
+/// sai-sci のブロック 18 本（C-16 の表の順。後ろの 2 本は実験ループの U04 が足した分）。
 ///
 /// 研究方針の木で動く 3 類（outline / detail / support）。どれも同じ共通の決まり
 /// （`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
+///
+/// ただし `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
+/// （受け取るのは実験ループの共通の決まり `exp-core` だけ）。
 const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-start.md", include_str!("../../../sai-sci/blocks/sci-start.md")),
     ("sci-outline.md", include_str!("../../../sai-sci/blocks/sci-outline.md")),
@@ -68,11 +71,16 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-extract.md", include_str!("../../../sai-sci/blocks/sci-extract.md")),
     ("sci-lookup.md", include_str!("../../../sai-sci/blocks/sci-lookup.md")),
     ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
+    ("sci-exp-seed.md", include_str!("../../../sai-sci/blocks/sci-exp-seed.md")),
+    ("sci-exp-branch.md", include_str!("../../../sai-sci/blocks/sci-exp-branch.md")),
 ];
 
-/// sai-sci の共通の決まり（`sci-core.md`）。
-const SCI_TEMPLATES: &[(&str, &str)] =
-    &[("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md"))];
+/// sai-sci の共通の決まり（`sci-core.md` と、実験ループの 2 本）。
+const SCI_TEMPLATES: &[(&str, &str)] = &[
+    ("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md")),
+    ("exp-core.md", include_str!("../../../sai-sci/template/exp-core.md")),
+    ("exp-ssh.md", include_str!("../../../sai-sci/template/exp-ssh.md")),
+];
 
 /// sai-sci の土壌（`.sai/paper/mind.md`）のひな形。
 ///
@@ -317,7 +325,7 @@ pub fn install_here(root: &Path) -> Result<Vec<String>> {
 /// 1. 今の部品（[`install`]）: sci ブロックが使うテンプレートと議論の参加者が
 ///    無ければ sai-link が止まるため、必ず先に配る。
 /// 2. 分野の観点: `.sai/template/domain.md` が無いときだけ `general` を配る。
-/// 3. sci ブロック 16 本と sci-core（無いものだけ）。
+/// 3. sci ブロック 18 本と共通の決まり（無いものだけ）。
 /// 4. `.sai/settings.json` の `context`（無いときだけ）。
 /// 5. `.sai/paper/mind.md`（無いときだけ）: 土壌のひな形。
 ///
@@ -338,7 +346,7 @@ pub fn install_sci(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) ->
     Ok(done)
 }
 
-/// sci だけの部品（sci ブロック 16 本と sci-core・`context`・土壌のひな形）を配る。
+/// sci だけの部品（sci ブロック 18 本と共通の決まり・`context`・土壌のひな形）を配る。
 /// 今の部品と分野の観点は配らない（`init` は先に [`install_here`] と [`install_domain`] を呼ぶので、
 /// 同じ行を 2 度出さないためにこちらを使う）。
 fn install_sci_parts(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
@@ -411,6 +419,9 @@ mod tests {
     /// 背景だけで短く意見を返す役なので、状況まとめ（`project-brief`）と共通の
     /// 決まり（`research-core`）を意図的に持たない。研究用ブロックの共通検査から外す。
     const DEBATE_PARTICIPANTS: &[&str] = &["paper-debater.md", "paper-reviewer.md"];
+
+    /// 木の範囲も共通の決まり（sci-core）も受け取らない 1 本（実験の実行役）。
+    const EXP_WITHOUT_SCI_CORE: &str = "sci-exp-branch.md";
 
     /// 部品を配ると、ブロック・テンプレート・設定・.mcp.json ができる。
     /// 既にある項目とファイルは残り、2 回目も重複しない。
@@ -601,7 +612,7 @@ mod tests {
         }
     }
 
-    /// sci の部品を配ると、sci ブロック 16 本・sci-core・分野の観点・`context` の
+    /// sci の部品を配ると、sci ブロック 18 本・共通の決まり・分野の観点・`context` の
     /// 設定・土壌のひな形（mind.md）がそろう。今の部品も一緒に配る。
     #[test]
     fn install_sci_writes_blocks_templates_context_and_mind() {
@@ -614,14 +625,14 @@ mod tests {
 
         let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
 
-        // sci のブロック 16 本と、今の部品 17 本もそろう
+        // sci のブロック 18 本と、今の部品 17 本もそろう
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 16, "SCI_BLOCKS が 16 本でない");
-        assert_eq!(sci_blocks, 16, "配った sci のブロックが 16 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 18, "SCI_BLOCKS が 18 本でない");
+        assert_eq!(sci_blocks, 18, "配った sci のブロックが 18 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
         }
@@ -630,10 +641,11 @@ mod tests {
         }
         // 共通の決まりと分野の観点
         assert!(root.join(".sai/template/sci-core.md").is_file());
-        assert_eq!(
-            std::fs::read_to_string(root.join(".sai/template/sci-core.md")).unwrap(),
-            SCI_TEMPLATES[0].1
-        );
+        for (name, content) in SCI_TEMPLATES {
+            let path = root.join(".sai/template").join(name);
+            assert!(path.is_file(), "{name} が配られていない");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), *content, "{name} の中身が違う");
+        }
         assert!(root.join(".sai/template/domain.md").is_file());
         assert!(root.join(".sai/template/literature-hard-rules.md").is_file());
 
@@ -715,12 +727,72 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// sci のブロック 16 本は、全部 共通の決まり（sci-core）を先頭で受け、
-    /// 状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
+    /// 実験ループの 2 本の `layer`（C-01）。`sci-exp-seed` は `seed`、`sci-exp-branch` は `branch`。
+    #[test]
+    fn exp_blocks_declare_layer() {
+        for (name, expected) in [("sci-exp-seed.md", "seed"), ("sci-exp-branch.md", "branch")] {
+            let content = SCI_BLOCKS
+                .iter()
+                .find(|(block, _)| *block == name)
+                .map(|(_, content)| *content)
+                .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
+            let frontmatter = content
+                .strip_prefix("---\n")
+                .and_then(|rest| rest.split("\n---\n").next())
+                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
+            assert!(
+                frontmatter.contains(&format!("\nlayer: {expected}\n")),
+                "{name} の layer が {expected} ではない"
+            );
+        }
+    }
+
+    /// 2 本の実験ブロックが使うテンプレートは、全部 配る物（テンプレート + 分野の観点）にある。
+    /// sai-link はテンプレートが見つからないと実行の前に止めるため、ずれると実行できない。
+    #[test]
+    fn exp_blocks_use_only_shipped_templates() {
+        let mut shipped: Vec<&str> = TEMPLATES.iter().map(|(name, _)| *name).collect();
+        shipped.extend(SCI_TEMPLATES.iter().map(|(name, _)| *name));
+        // `domain` は `install_domain` が `.sai/template/domain.md` に書く（名前は拡張子無し）。
+        shipped.push("domain.md");
+        shipped.push("domain");
+
+        for name in ["sci-exp-seed.md", "sci-exp-branch.md"] {
+            let content = SCI_BLOCKS
+                .iter()
+                .find(|(block, _)| *block == name)
+                .map(|(_, content)| *content)
+                .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
+            let frontmatter = content
+                .strip_prefix("---\n")
+                .and_then(|rest| rest.split("\n---\n").next())
+                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
+            let templates: Vec<&str> = frontmatter
+                .lines()
+                .skip_while(|line| *line != "templates:")
+                .skip(1)
+                .take_while(|line| line.trim_start().starts_with("- "))
+                .map(|line| line.trim_start().trim_start_matches("- ").trim())
+                .collect();
+            assert!(!templates.is_empty(), "{name} の templates が空だ");
+            for template in templates {
+                let found = shipped.contains(&template)
+                    || shipped.iter().any(|shipped| {
+                        Path::new(shipped).file_stem().is_some_and(|stem| stem == template)
+                    });
+                assert!(found, "{name} の template「{template}」は配る物の中に無い");
+            }
+        }
+    }
+
+    /// sci のブロック 18 本のうち 17 本（`sci-exp-branch` を除く）は、全部 共通の決まり
+    /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
+    ///
+    /// `sci-exp-branch` は判定をしないので木の範囲も共通の決まりも要らない。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 16);
+        assert_eq!(SCI_BLOCKS.len(), 18);
         for id in [
             "sci-analogy.md",
             "sci-coach.md",
@@ -728,6 +800,7 @@ mod tests {
             "sci-debate.md",
             "sci-digest.md",
             "sci-draft.md",
+            "sci-exp-seed.md",
             "sci-extract.md",
             "sci-ideate.md",
             "sci-lookup.md",
@@ -745,11 +818,16 @@ mod tests {
             );
         }
 
+        let mut checked = 0;
         for (name, content) in SCI_BLOCKS {
             let frontmatter = content
                 .strip_prefix("---\n")
                 .and_then(|rest| rest.split("\n---\n").next())
                 .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
+            if *name == EXP_WITHOUT_SCI_CORE {
+                continue;
+            }
+            checked += 1;
             assert!(
                 frontmatter.contains("templates:\n  - sci-core\n"),
                 "{name} の templates の先頭が sci-core ではない"
@@ -770,5 +848,6 @@ mod tests {
             assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
+        assert_eq!(checked, 17, "共通の決まりを確かめたのは 17 本でない");
     }
 }
