@@ -65,9 +65,10 @@
 sai-sci/
 ├── types/      # 5 つの型（problem・phenomenon・method・data・improve）
 ├── guides/     # 項目ガイド（上の項目 9 本・子の項目 16 本）
-├── template/   # sci-core.md（エージェントの共通の決まり）と exp-core.md・exp-ssh.md（実験ループの決まり）
+├── template/   # sci-core.md（エージェントの共通の決まり）と exp-core.md・exp-run.md（実験ループの決まり）
 ├── mind.md     # 土壌のひな形
-├── tools/      # 実験ループの台帳 exp_summary.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
+├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
+├── exec/       # 実行先の見本: local（この PC・有効）と _example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
 └── blocks/     # 18 本のブロック
 ```
 
@@ -156,7 +157,7 @@ sai-sci/
 
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。範囲を出す `{{context}}`、確かめの地点、提案の書き方、使える 14 種類の op、根拠の扱い、迎合しない姿勢。
 - **`template/exp-core.md`** — 実験ループ（seed と branch）の共通の決まり。役割、文書の渡し方、実験仕様書、MLflow の記録の決まり（C-04）、台帳、判定の規則、依頼文の形、実行場所の規則、停止の条件。
-- **`template/exp-ssh.md`** — `sai-ssh` でリモートに計算を投げる手順。`exp-core` の「実行場所の規則」と対で読む。
+- **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。`exp-core` の「実行場所の規則」と対で読む。
 - **`mind.md`**（`sai-sci/mind.md`）— 土壌のひな形。「始まり・研究の型・与えられていること・制約・価値の軸・興味がある/無い・メモ」の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** 「価値の軸」は「選ぶ項目」を比べる軸として `sci node` に出す。
 
 ---
@@ -186,8 +187,9 @@ sai-moon-paper sci init --type <型>
 | 入るもの | 置き場 |
 |---|---|
 | 18 本の `sci-*` ブロック | `<root>/.sai/blocks/` |
-| `sci-core.md`・`exp-core.md`・`exp-ssh.md`（と 18 本が使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
-| 台帳 `exp_summary.py`（実験ループが判定の材料を取る道具。無いときだけ書く） | `<root>/.sai/tools/` |
+| `sci-core.md`・`exp-core.md`・`exp-run.md`（と 18 本が使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 台帳 `exp_summary.py`（判定の材料を取る道具）と分配器 `exp_exec.py`（無いときだけ書く） | `<root>/.sai/tools/` |
+| 実行先の見本 `local`・`_example`（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（土壌のひな形。無いときだけ書く） | `<root>/.sai/paper/mind.md` |
 | 型と項目ガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
@@ -280,7 +282,7 @@ sai-moon-link phone card run <返ってきた run_id>
 - **自然に止まる**: 判定が `stop` になるときだけ。`max_generations`（既定 8 世代）に達したときと、成功基準に `ablation` まで済んで達したとき。
 - **利用者に訊いて止める**: 同じ世代で branch の記録が 1 つも無いことが 2 代続けて続いたとき、または判定書が 2 回続けて作られなかったとき。実験を勝手に進めず、MLflow への接続などを訊いて止まる。
 
-**実行場所**は環境変数 `EXP_SSH_HOST` で選ぶ。空なら手元で実行し、空でなければ `sai-ssh run` でリモートに投げて `exp-ssh.md` の手順で回収する。台帳コマンド `exp_summary.py` は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く（環境変数は要らない）。
+**実行先**（スクリプトを動かす PC）は環境変数 `EXP_TARGET` で選ぶ。空なら `local`（この PC）。実行先は `<root>/.sai/exec/<名前>/` のフォルダで、Mac 本体・LAN の PC・クラウドなどを利用者が個別に足せる（フォルダを置くだけ。増減で Rust や画面を直さない）。エージェントは分配器 `exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼び、実行先の中身を知らない。フォルダの作り方は `sai-sci/exec/_example/` と `exp_exec.py` の冒頭を読む。記録は実行先から中央の MLflow に直接入る。台帳コマンド `exp_summary.py` と分配器は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く（環境変数は要らない）。
 
 ---
 

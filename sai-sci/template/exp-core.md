@@ -264,22 +264,20 @@ seed_run_id: 125
 
 ## 8. 実行場所の規則
 
-- 環境変数 `EXP_SSH_HOST` が**空**なら手元で実行する。
-- 空でなければ `sai-ssh run` でリモートに投げ、`sai-ssh collect` で回収する。手順は `exp-ssh` を参照。
-- branch は実行の前に、自分の `SAI_PARENT_RUN_ID` を `EXP_BRANCH_RUN_ID` に入れて実行する。手元なら次のようにする。
+スクリプトは**実行先（target）**に投げて動かす。実行先は名前を持つフォルダ（`.sai/exec/<名前>/`）で、Mac 本体・LAN の PC・クラウドなどを利用者が個別に用意する。**どの実行先でも、呼び方は同じ**である（使い方は `exp-run`）。
+
+- 実行先の名前は環境変数 `EXP_TARGET`。**空なら `local`**（この PC）。別の実行先を勝手に選ばない。
+- 投入は分配器 `exp_exec.py` で行う。branch は実行の前に、自分の `SAI_PARENT_RUN_ID` を `EXP_BRANCH_RUN_ID` に入れる。**環境変数を渡す引数は無いので、コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く**（どの実行先でも効く）。
 
   ```bash
-  EXP_BRANCH_RUN_ID=<自分の run_id> uv run --with mlflow python <スクリプトのパス>
+  uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
+    run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
+    env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --python ">=3.10" --with mlflow python <スクリプトのパス>
   ```
 
-- リモートに投げるときも同じ変数を渡す。`sai-ssh run` に環境変数を渡す引数は無いので、**コマンドの前に書く**。
-
-  ```bash
-  sai-ssh run <EXP_SSH_HOST> -- env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --with mlflow python <スクリプトのパス>
-  ```
-
-- リモートに投げたら、標準出力の 1 行目に出る job_id を控えて `sai-ssh status <job_id> --json` で待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
-- 回収すると、記録は中央の MLflow に入る。branch は自分で台帳を取り直さない。
+- 標準出力の 1 行目に出る job_id を控え、`status <job_id> --json` で `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
+- 記録は実行先から**中央の MLflow に直接**入る（回収の手順は無い）。実行先が MLflow に届かないと「記録なし」になる。branch は自分で台帳を取り直さない。
+- 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず `BLOCKED` で報告して終える。
 
 ## 9. 作業報告書（branch）
 
@@ -290,8 +288,8 @@ seed_run_id: 125
 | 項目 | 値 |
 |---|---|
 | スクリプト | `<workdir>/<script>/g<世代>.py` |
-| 実行場所 | `local` か `sai-ssh:<host>` |
-| job_id | sai-ssh のときだけ。それ以外は `—` |
+| 実行場所 | 実行先の名前（`local` など） |
+| job_id | `run` の 1 行目に出た job_id |
 | 状態 | 成功 / 失敗 / 記録なし |
 | MLflow の親 run | run_id |
 | 試行 / 失敗 | 台帳の `scripts[]` の自分の欄の `trials` / `failed` |

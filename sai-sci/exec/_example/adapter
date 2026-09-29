@@ -1,0 +1,23 @@
+#!/bin/sh
+# 実行先の雛形。第 1 引数が動詞。分配器 exp_exec.py の冒頭の「adapter の約束」を読むこと。
+#
+# 使える環境変数: EXP_JOB_ID  EXP_JOB_NAME  EXP_TARGET  EXP_TARGET_DIR  EXP_MAX_JOBS と target.toml の [env]
+# cwd は呼んだ人の cwd（スクリプトのある所）。コマンドは "$@"（run のとき）。
+#
+# 各動詞の約束:
+#   run <command...>   投げてすぐ終了コード 0 で戻る。終わるのを待たない。失敗は標準エラーに 1 行書いて 1
+#   status             標準出力に {"state": "queued|running|done|failed|cancelled|lost"}
+#   logs [-n N]        ログの末尾を標準出力へ
+#   cancel             中止する
+#   check              接続と前提を確かめる。使えれば 0、理由は標準エラーへ
+#
+# 見本は ../local/adapter（Python）。ssh で投げる実行先なら、run で rsync + ssh、status で ssh、と書く。
+verb="$1"; shift
+case "$verb" in
+  run)    echo "この実行先はまだ作られていません（${EXP_TARGET}）" >&2; exit 1 ;;
+  status) echo '{"state": "lost"}' ;;
+  logs)   ;;
+  cancel) ;;
+  check)  echo "雛形です。adapter を書いてください" >&2; exit 1 ;;
+  *)      echo "usage: adapter run|status|logs|cancel|check" >&2; exit 2 ;;
+esac

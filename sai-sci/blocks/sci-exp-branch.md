@@ -6,7 +6,7 @@ model: inherit
 thinking: medium
 templates:
   - exp-core
-  - exp-ssh
+  - exp-run
 layer: branch
 timeout: 7200
 worktree: none
@@ -55,27 +55,27 @@ seed_run_id: 125
 - 埋め込みが無いときは `sai_read { "token": "<spec の値>" }` で読む。
 - 7 行の後の節に「スクリプトに書く中身」が書いてある。**スクリプトは既に書かれているので、書き直さない。** 実行場所のパスだけ確かめる。
 
-### 2. 実行場所を選ぶ
+### 2. 実行先に投げて、終わるまで待つ
 
-`exp-core` §8 の規則で決める。環境変数 `EXP_SSH_HOST` が空なら手元で実行する。空でなければ `exp-ssh` の手順でリモートに投げる。
+`exp-core` §8 の規則で決める。実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。**どの実行先でも呼び方は同じ**で、使い方は `exp-run` にある。
 
-- 手元の場合:
+1. 実行先が使えるか確かめる。失敗したら `BLOCKED` で報告して終える（別の実行先を選ばない）。
 
-  ```bash
-  EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --with mlflow python <スクリプトのパス>
-  ```
+   ```bash
+   uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" check "${EXP_TARGET:-local}"
+   ```
 
-- リモートの場合（`<host>` は `EXP_SSH_HOST` の値）:
+2. スクリプトを投げる。標準出力の 1 行目の job_id を控える。
 
-  ```bash
-  sai-ssh run <host> -- env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --with mlflow python <スクリプトのパス>
-  ```
+   ```bash
+   uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
+     run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
+     env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --python ">=3.10" --with mlflow python <スクリプトのパス>
+   ```
 
-  `sai-ssh run` に環境変数を渡す引数は無い。**投入する命令の前に `env EXP_BRANCH_RUN_ID=…` と書く。**
+   環境変数を渡す引数は無い。**コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く。**`EXP_BRANCH_RUN_ID` には **自分の run_id**（`SAI_PARENT_RUN_ID`）を入れる。スクリプトはここから `sai.run_id` のタグを読む。
 
-  標準出力の 1 行目に出る job_id を控えておく。`sai-ssh status <job_id> --json` で `state` が `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
-
-- `EXP_BRANCH_RUN_ID` には **自分の run_id**（`SAI_PARENT_RUN_ID`）を入れる。スクリプトはここから `sai.run_id` のタグを読む。
+3. `status <job_id> --json` で `state` が `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。`failed` / `lost` のときは `logs <job_id>` の末尾を読み、報告書に書く。
 
 ### 3. 記録を確かめる
 
@@ -121,5 +121,5 @@ seed_run_id: 125
 - **研究の本体の数値を LLM が読んで書き写すこと。** 数値は必ずスクリプトが `log_metric` する。
 - **MLflow の画面や生の run の一覧から目で見ること。** 数値は台帳コマンドの JSON だけを読む。
 - **1 回なおしても記録が残らないときに待ち続けること。** 「記録なし」で報告して終える（放置して待つな）。
-- **他人が投入した sai-ssh のジョブを stop / cancel すること。** 自分が投入したジョブだけを扱う。
+- **他人が投入したジョブを cancel すること。** 自分が投入した job_id だけを扱う。
 - **`sai_finalize` を呼ぶこと。** 終えるのは seed の役目である。

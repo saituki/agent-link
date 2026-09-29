@@ -75,20 +75,31 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-exp-branch.md", include_str!("../../../sai-sci/blocks/sci-exp-branch.md")),
 ];
 
-/// sai-sci の共通の決まり（`sci-core.md` と、実験ループの 2 本）。
+/// sai-sci の共通の決まり（`sci-core.md` と、実験ループの 2 本 `exp-core.md`・`exp-run.md`）。
 const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md")),
     ("exp-core.md", include_str!("../../../sai-sci/template/exp-core.md")),
-    ("exp-ssh.md", include_str!("../../../sai-sci/template/exp-ssh.md")),
+    ("exp-run.md", include_str!("../../../sai-sci/template/exp-run.md")),
 ];
 
-/// sai-sci の道具（`.sai/tools/` に置く。実験ループの台帳）。
+/// sai-sci の道具（`.sai/tools/` に置く。実験ループの台帳と、実行先へ投げる分配器）。
 ///
-/// ブロックは `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py` の名前で呼ぶ（環境変数は要らない）。
-const SCI_TOOLS: &[(&str, &str)] = &[(
-    "exp_summary.py",
-    include_str!("../../../sai-sci/tools/exp_summary.py"),
-)];
+/// ブロックは `$SAI_PROJECT_ROOT/.sai/tools/<名前>` で呼ぶ（環境変数は要らない）。
+const SCI_TOOLS: &[(&str, &str)] = &[
+    ("exp_summary.py", include_str!("../../../sai-sci/tools/exp_summary.py")),
+    ("exp_exec.py", include_str!("../../../sai-sci/tools/exp_exec.py")),
+];
+
+/// sai-sci の実行先の見本（`.sai/exec/` に置く）。3 つ目は「実行の権限を付けるか」。
+///
+/// 実行先はフォルダ 1 つ。`local` は有効（この PC）、`_example` は雛形（下線始まりなので使われない）。
+/// 他の実行先（LAN の PC・クラウド）は利用者が `.sai/exec/<名前>/` を足す。
+const SCI_EXEC: &[(&str, &str, bool)] = &[
+    ("local/target.toml", include_str!("../../../sai-sci/exec/local/target.toml"), false),
+    ("local/adapter", include_str!("../../../sai-sci/exec/local/adapter"), true),
+    ("_example/target.toml", include_str!("../../../sai-sci/exec/_example/target.toml"), false),
+    ("_example/adapter", include_str!("../../../sai-sci/exec/_example/adapter"), true),
+];
 
 /// sai-sci の土壌（`.sai/paper/mind.md`）のひな形。
 ///
@@ -194,6 +205,18 @@ fn write_if_missing(path: &Path, content: &str) -> Result<bool> {
     }
     std::fs::write(path, content)?;
     Ok(true)
+}
+
+/// 実行の権限を付ける（実行先の adapter は分配器が直接起動するため）。Unix 以外では何もしない。
+fn make_executable(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 /// 研究プロジェクト（`root`）に部品を配る。何をしたかの一覧を返す（表示用）。
@@ -369,6 +392,14 @@ fn install_sci_parts(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
     }
     for (name, content) in SCI_TOOLS {
         written += usize::from(write_if_missing(&sai.join("tools").join(name), content)?);
+    }
+    for (name, content, executable) in SCI_EXEC {
+        let path = sai.join("exec").join(name);
+        let wrote = write_if_missing(&path, content)?;
+        written += usize::from(wrote);
+        if wrote && *executable {
+            make_executable(&path)?;
+        }
     }
     done.push(format!(
         "sci のブロックとテンプレートを {written} 件置きました（既にあるものはそのまま）"
@@ -667,7 +698,20 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&path).unwrap(), *content, "{name} の中身が違う");
         }
         for (name, content) in SCI_BLOCKS.iter().chain(SCI_TEMPLATES.iter()) {
-            assert!(!content.contains("EXP_SUMMARY_PY"), "{name} に廃止した EXP_SUMMARY_PY が残っている");
+            for old in ["EXP_SUMMARY_PY", "EXP_SSH_HOST", "sai-ssh"] {
+                assert!(!content.contains(old), "{name} に廃止した {old} が残っている");
+            }
+        }
+        // 実行先の見本（local は有効・adapter は実行の権限つき）
+        for (name, content, executable) in SCI_EXEC {
+            let path = root.join(".sai/exec").join(name);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), *content, "{name} の中身が違う");
+            #[cfg(unix)]
+            if *executable {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+                assert!(mode & 0o111 != 0, "{name} に実行の権限が無い");
+            }
         }
         for name in ["sci-exp-seed.md", "sci-exp-branch.md", "exp-core.md"] {
             let content = SCI_BLOCKS
