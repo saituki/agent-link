@@ -131,6 +131,8 @@ plist は `PYTHONPATH`（`apps/phone/src`）と `PATH`（`target/release`・`tar
 | `SAI_SAI_HOME` | （空＝`~/.sai-moon`） | 登録簿 `registry.json` の置き場。空なら `$HOME/.sai-moon/registry.json` を読む |
 | `SAI_RADIO_URL` | `http://127.0.0.1:8201` | Radio の中継先 |
 | `SAI_RADIO_TOKEN` | （空） | `apps/radio` に合言葉があるときだけ同じ値 |
+| `SAI_MLFLOW_URL` | `http://127.0.0.1:5001` | MLflow の中継先（実験タブ・読み取りだけ） |
+| `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD` | （空） | MLflow の Basic 認証。空なら付けない（127.0.0.1 の MLflow は認証しない） |
 | `SAI_PHONE_RUNS_DIR` | `~/.sai-moon/phone/runs` | 会話の画面が読む、書き出し |
 | `SAI_PHONE_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」（カンマ区切り） |
 | `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` / `HERDR_BIN` | 各既定 | 会話の記録の置き場・herdr |

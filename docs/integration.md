@@ -36,7 +36,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
    ├─ 会話   : ~/.sai-moon/phone/runs/<project>/<run_id>.json を読む   ← sai-moon-link が書き出す
    ├─ Project: 登録簿 `~/.sai-moon/registry.json` を直接読む ／ `sai-moon-link phone …` / `sai-moon-link daemon …` を呼ぶ
    ├─ Papers : `sai-moon-paper phone …`（cwd = そのプロジェクトの root・`SAI_PAPER_ROOT` も同じ）
-   └─ Radio  : /api/radio/* を 127.0.0.1:8201 の apps/radio /api/* へ中継
+   ├─ Radio  : /api/radio/* を 127.0.0.1:8201 の apps/radio /api/* へ中継
+   └─ MLflow : /api/mlflow/* を 127.0.0.1:5001 の MLflow へ読み取りだけで中継
 
 音声化の依頼:  apps/phone ──(背景で数分)──▶ `sai-moon-paper phone radio <id>`
                                           └─(HTTP)──▶ apps/radio POST /api/papers/from-extract
@@ -167,6 +168,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | メソッド・パス | 中身 |
 |---|---|
 | `GET /api/projects/{name}/tree` | 引き出しツリー（`phone tree`・TUI の左サイドバーと同じ） |
+| `GET /api/projects/{name}/rtree` | 実行の beside な木（`phone rtree`・U03。`{"nodes": […], "edges": […]}` をそのまま返す。実行の記録が要るので 404 の決まりは `tree` と同じ） |
 | `GET /api/projects/{name}/runs/{run_id:int}/view/{log\|stats\|history}` | run の中身（`phone run`） |
 | `GET /api/projects/{name}/runs/{run_id:int}/md/{task\|review\|message}` | md 本文（`phone md`・「まだありません」は 404） |
 | `PUT /api/projects/{name}/runs/{run_id:int}/md/{task\|review}` | md の保存（body `{"text"}`・`phone md --write`・task は未実行の todo カードだけで、それ以外は 404「未実行のカードが見つかりません」） |
@@ -249,6 +251,26 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 - 中継先は `SAI_RADIO_URL`（既定 **`http://127.0.0.1:8201`**）。合言葉 `SAI_RADIO_TOKEN` は `apps/phone` 側にも同じ値を設定する。
 - 中継で **パスの文字は `A-Za-z0-9_./-` のみ**（それ以外・`..` は 400）。
 
+### MLflow 中継（実験タブ・U03）
+
+| メソッド・パス | 中身 | MLflow への送り先 |
+|---|---|---|
+| `GET /api/mlflow/experiments` | 実験の一覧 | `POST experiments/search`（`max_results` は 100・`order_by` は `name ASC`） |
+| `GET /api/mlflow/experiments/{experiment_id}` | 実験 1 件 | `GET experiments/get` |
+| `POST /api/mlflow/runs/search` | 実行の検索 | `POST runs/search`（`run_view_type` は `ACTIVE_ONLY` 固定） |
+| `GET /api/mlflow/runs/{run_id}` | 実行 1 件 | `GET runs/get` |
+| `GET /api/mlflow/metrics/history` | 指標 1 本の履歴 | `GET metrics/get-history` |
+| `GET /api/mlflow/metrics/bulk` | 指標 1 本の履歴をまとめて取る | `GET metrics/get-history-bulk-interval`（`run_ids` を繰り返しで送る） |
+| `GET /api/mlflow/artifacts` | 成果物の一覧 | `GET artifacts/list` |
+| `GET /api/mlflow/artifact` | 成果物 1 件の本文（5MB を超えたら 413） | `GET /get-artifact`（`run_uuid` と `path`） |
+
+- 中継先は `SAI_MLFLOW_URL`（既定 **`http://127.0.0.1:5001`**）。名前は `SAI_MLFLOW_USER`・`SAI_MLFLOW_PASSWORD`（空なら Basic 認証を付けない）。
+- **読み取りだけ**。書き込む住所は無い（`/api/mlflow/{path:path}` で全部通す作りは採らない）。
+- 外から来る値は MLflow を呼ぶ**前**に検査する（実験 ID は数字の 1〜19 桁・run ID は 16 進の 32 桁・指標の名前は 250 字まで・成果物の場所は 500 字までで `..` の区切りと先頭の `/` は不可）→ 400。まとめて取る個数は `runs/search` が 100、`metrics/history` が 25000、`metrics/bulk` が 2500 まで。
+- `POST /api/mlflow/runs/search` の本文は `{"experiment_ids": ["1"], "filter": "", "order_by": ["attributes.start_time DESC"], "max_results": 100, "page_token": "", "project": "sai-moon"}`。`project` があると**サーバが** `tags."sai.project" = "<登録簿の root のフォルダ名>"` を `filter` の前に `AND` で足す（利用者は `filter` を書かなくてよいし、画面も root を知らない）。登録簿に無い名前は 404。
+- MLflow がエラーを返したら**本文と状態コードをそのまま**返す（例：`Invalid clause(s) in filter string` の 400）。つながらないときは 503「Mac の MLflow が応答しません」。
+- 成果物の `Content-Type` は拡張子から決める（`mimetypes`。分からなければ `application/octet-stream`）。5MB を超えたら 413「大きすぎるので表示しません（5MB まで）」。
+
 ### 会話・質問・通知（統合前から同じ）
 
 `GET /api/health` / `GET /api/days` / `GET /api/days/{date}` /
@@ -316,6 +338,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `SAI_SAI_HOME` | （空＝`$HOME/.sai-moon`） | 登録簿の置き場。空なら `~/.sai-moon/registry.json` を読む |
 | `SAI_RADIO_URL` | `http://127.0.0.1:8201` | Radio の中継先 |
 | `SAI_RADIO_TOKEN` | （空） | apps/radio 側に合言葉があるときだけ同じ値 |
+| `SAI_MLFLOW_URL` | `http://127.0.0.1:5001` | MLflow の中継先（実験タブ・読み取りだけ） |
+| `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD` | （空） | MLflow の Basic 認証。空なら付けない（127.0.0.1 の MLflow は認証しない） |
 | `SAI_PHONE_RUNS_DIR` | `~/.sai-moon/phone/runs` | 会話タブが読む、書き出しフォルダ |
 | `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` / `HERDR_BIN` | 各既定 | 会話の記録置き場・herdr（統合前から） |
 
