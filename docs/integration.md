@@ -57,6 +57,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | 論文情報のノート保存・図 | `sai-moon-paper phone note <id>`（本文は標準入力）・`phone paper` の `figures` |
 | 論文情報の「🎙 音声を作る」 | apps/phone が背景で `sai-moon-paper phone radio <id>` → apps/radio |
 | プロジェクト → Workflow（Workflow 盤面・Kanban の 4 レーン） | `sai-moon-link phone workflow`（TUI と同じ配置の計算を通す） |
+| プロジェクト → research-tree（実行の図・root / seed / branch の 3 層） | `sai-moon-link phone rtree`（node / edge の JSON。項目の説明は `docs/for-sai-developers.md` §2.2.2） |
 | プロジェクト → 設定（block / template / settings の読み書き） | `sai-moon-link phone def list / show / write / delete`（`scope` でそのプロジェクトと `~/.sai-moon/` の両方） |
 | 論文 → Import（BibTeX の読み込み・一覧・削除） | `sai-moon-paper phone import list / add / remove`（本文は標準入力） |
 | 論文 → Download（PDF の取得と Library への登録） | apps/phone が背景で `sai-moon-paper phone download` → 続けて `phone after-download` |

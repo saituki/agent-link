@@ -630,6 +630,15 @@ pub enum PhoneCmd {
     /// sai-link は文字マスのまま返す。DB が開けない場合は終了コード 4。
     Workflow,
 
+    /// research-tree の実行の図（root / seed / branch の 3 層 DAG）を JSON で返す
+    ///
+    /// - `nodes`: `layer` の有るブロックの run だけ（1 run = 1 node）
+    /// - `edges`: `task_delegation`（`delegation`）/ `waggle_token` / `task_output` の線
+    ///
+    /// `phone workflow` とは別の図で、座標は付けない（Web 側で描く）。
+    /// DB が開けない場合は終了コード 4。実行が 0 件でも空の配列で成功する。
+    Rtree,
+
     /// 定義ファイル（block / template / settings）の一覧・読み書き・削除
     ///
     /// 対象はプロジェクト（`<project_root>/.sai/`）とグローバル（`~/.sai-moon/`）の

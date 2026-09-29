@@ -207,6 +207,7 @@ fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
         PhoneCmd::Summary => val(summary()),
         PhoneCmd::Dashboard { period } => dashboard(&period),
         PhoneCmd::Workflow => val(workflow()),
+        PhoneCmd::Rtree => rtree(),
         PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
         PhoneCmd::User { cmd } => val(match cmd {
             PhoneUserCmd::Start { run_id } => user_start(run_id),
@@ -324,6 +325,24 @@ fn workflow() -> PhoneResult<Value> {
         "separators": separators,
         "lanes": lanes_json(&prep.kanban_entries),
     }))
+}
+
+/// `phone rtree`: research-tree の実行の図（root / seed / branch の 3 層 DAG）を JSON で返す。
+///
+/// - `nodes`: ブロックの `layer` が書いてあるブロックの run だけ（1 run = 1 node）
+/// - `edges`: `task_delegation`（`delegation`）/ `waggle_token` / `task_output` の線。
+///   両端が node に入っているものだけ
+///
+/// 位置は付けない（Web 側で描く）。項目の順序も共有契約なので、シリアライズ済みの
+/// テキスト（`PhoneOut::Text`）で返す。DB が開けないときは終了コード 4。
+/// 実行が 0 件でも空の配列で成功する。
+fn rtree() -> PhoneResult<PhoneOut> {
+    let store = open_store()?;
+    let prep = card_entries::prepare_view(&store);
+    let dag = sai_link_widgets::research_dag::load_research_dag(&store, &prep);
+    let text = serde_json::to_string_pretty(&dag)
+        .map_err(|e| PhoneError::internal(format!("JSON として出力できません: {}", e)))?;
+    Ok(PhoneOut::Text(text))
 }
 
 /// review の記入状況（`ReflectionStatus`）を JSON 用の名前にする。
@@ -1642,6 +1661,56 @@ mod tests {
         }
         for key in ["from", "to", "kind", "side"] {
             assert!(out["edges"][0].get(key).is_some(), "edges[].{key} が無い");
+        }
+    }
+
+    /// `phone rtree` の出力が共有契約（C-02）の形になること。
+    ///
+    /// DB に層の付きブロックの run を 1 件作って、ノードのキー名と順序を確かめる。
+    #[test]
+    fn rtree_output_has_contract_shape() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tmp, _guard, store) = temp_project_store();
+
+        // 層の付きブロックとその run（Kanban 側 = workflow_moved は false）
+        let mut block = test_block("sci-exp-seed", "anthropic/claude-sonnet-4-5");
+        block.layer = Some("seed".to_string());
+        let block_id = store.insert_block(&block).unwrap();
+        let run_id = store.create_execution(block_id, None).unwrap();
+
+        let text = match rtree().expect("phone rtree") {
+            PhoneOut::Text(t) => t,
+            PhoneOut::Value(v) => panic!("順序を保つため文字で返す应当はない: {}", v),
+        };
+
+        // トップレベルの順序も C-02
+        assert_eq!(top_level_keys(&text, 1), vec!["nodes", "edges"]);
+
+        let out: Value = serde_json::from_str(&text).unwrap();
+        assert!(out["nodes"].is_array() && out["edges"].is_array());
+        assert_eq!(out["nodes"].as_array().unwrap().len(), 1, "{text}");
+
+        // ノードのキー名と順序（値は null でもキーは必要）
+        assert_eq!(
+            top_level_keys(&text, 3),
+            vec![
+                "run_id", "block", "name", "layer", "status", "created_at",
+                "finished_at", "parent_run_id", "description", "sci_node",
+                "global_round", "round",
+            ]
+        );
+        let node = &out["nodes"][0];
+        assert_eq!(node["run_id"].as_i64(), Some(run_id));
+        assert_eq!(node["block"].as_str(), Some("sci-exp-seed"));
+        assert_eq!(node["layer"].as_str(), Some("seed"));
+        assert!(
+            node["description"].as_str().is_some(),
+            "description は空文字で出す: {}",
+            node
+        );
+        for key in ["finished_at", "parent_run_id", "sci_node", "global_round", "round"] {
+            assert!(node.get(key).is_some(), "nodes[].{key} が無い: {}", node);
+            assert!(node[key].is_null(), "nodes[].{key} は null で出す: {}", node[key]);
         }
     }
 

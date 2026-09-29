@@ -71,6 +71,7 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**） | 同 `phone.rs`（`card_run`） |
 | `sai-moon-link phone card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]`（todo の task.md の `scheduled_at:` を書く・省略で消す。常駐が 5 秒ごとに見回って実行する） | 同 `phone.rs`（`card_schedule`）・`daemon.rs`（`run_scheduled_cards`） |
 | `sai-moon-link phone card docs [--limit N]`（最近の文書 `{items: [{token, label, description, status, ref}]}`） | 同 `phone.rs`（`card_docs`） |
+| `sai-moon-link phone rtree`（research-tree の実行の図。root / seed / branch の 3 層 DAG） | 同 `phone.rs`（`rtree`）／組み立て: `sai_link_widgets` の `research_dag::load_research_dag`（§2.2.2） |
 | `sai-moon-link phone rm <run_id>`（実行を消す・子と run フォルダも。実行中は終了コード 1、無ければ 3「実行が見つかりません」） | 同 `phone.rs`（`rm`）・`run_dir::delete_run` |
 | `sai-moon-link phone user start <run_id>`（`runner: user` の札を running にする。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**、`runner: user` で無ければ **終了コード 1**） | 同 `phone.rs`（`user_start`）／本体: `sai_link_widgets::user_run`（TUI の Enter と共通） |
 | `sai-moon-link phone user finish <run_id>`（実行中の利用者の札を review へ移す。実行が無ければ **終了コード 3**、`runner: user` で状態 `running` で無ければ **終了コード 1**） | 同 `phone.rs`（`user_finish`）／本体: 同 `user_run`（TUI の `e` と共通） |
@@ -150,6 +151,67 @@ TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警�
 
 - 実装は `pi_command::agent_env_pairs()`（検証済みの `(String, String)` の並びを返す）と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。
 - `env` は 1 か所でも **平文の鍵・合言葉が入るので `.gitignore` にする**（利用者が決める。sai-moon は `.gitignore` を書き換えない）。
+
+### 2.2.2 `layer` キーと `phone rtree`（research-tree の実行の図）
+
+**ブロック定義の `layer` キー（C-01）**
+
+ブロック定義（`.sai/blocks/<id>.md`）の frontmatter に `layer:` を書くと、そのブロックの run が
+research-tree の「実行の図」に node として出る。
+
+```yaml
+---
+id: sci-exp-seed
+name: "🌱 exp-seed"
+layer: seed        # root / seed / branch のどれか
+---
+```
+
+- 値は `root` / `seed` / `branch` の 3 つだけ。**書かなければ図に出さない**（`block_metadata.layer` は NULL）。
+- 3 つ以外の値は**検査エラーで登録されない**（ブロックごと読み飛ばされる）。
+- 保存先は `block_metadata.layer`（TEXT・NULL 可）。読み書きは `orchestrator::upsert_block_metadata` と `SaiStore::{insert_block, update_block, get_block_by_*, list_blocks}`。
+- 検査は `validation::validate`（有効な値は `validation::VALID_LAYERS`）。
+
+**`sai-moon-link phone rtree` の JSON（C-02）**
+
+cwd はプロジェクトの root。終了コード 0 で標準出力に JSON を 1 個出す（項目順も契約）。
+DB が開けないときは終了コード 4。実行が 0 件でも空の配列で成功する。
+
+```json
+{
+  "nodes": [
+    {"run_id": 120, "block": "sci-exp-seed", "name": "🌱 exp-seed", "layer": "seed",
+     "status": "completed", "created_at": "2026-09-30 01:02:03", "finished_at": "2026-09-30 02:00:00",
+     "parent_run_id": null, "description": "…", "sci_node": "N12",
+     "global_round": 5, "round": 1}
+  ],
+  "edges": [
+    {"from": 120, "to": 121, "kind": "delegation"},
+    {"from": 121, "to": 125, "kind": "waggle_token"},
+    {"from": 121, "to": 120, "kind": "task_output"}
+  ]
+}
+```
+
+| 項目 | 型 | 何 |
+|---|---|---|
+| `nodes[].run_id` | 数値 | `execution_history.id`。1 run = 1 node。`run_id` の昇順に並ぶ |
+| `nodes[].block` | 文字列 | ブロックの ID（`block_metadata.name`） |
+| `nodes[].name` | 文字列 | ブロックの表示名（emoji 可） |
+| `nodes[].layer` | 文字列 | `root` / `seed` / `branch` |
+| `nodes[].status` | 文字列 | `execution_history.status`（`completed` など） |
+| `nodes[].created_at` / `finished_at` | 文字列 / null | 作成・終了時刻 |
+| `nodes[].parent_run_id` | 数値 \| null | サブタスクの親 |
+| `nodes[].description` | 文字列 | カード（task.md）の frontmatter の `description`（無ければ空文字） |
+| `nodes[].sci_node` | 文字列 \| null | カードの frontmatter の `sci_node:`（`N12` の形。カードが無いとき・キーが無いときは null） |
+| `nodes[].global_round` / `round` | 数値 \| null | グローバルラウンド / ローカルラウンド |
+| `edges[].from` / `to` | 数値 | 実行 ID（**両端が node に入っている線だけ**） |
+| `edges[].kind` | 文字列 | `delegation`（DB の `task_delegation`）/ `waggle_token` / `task_output` の 3 つだけ |
+
+- 値が無い項目は `null`（`description` だけは空文字）。
+- `edges[]` を作る線は **既存の 3 種だけ**（新しい `connection_type` は作らない）。同じ `(from, to, kind)` は 1 本にまとめる。
+- `phone workflow` とは別の図。`phone workflow` は `workflow_moved = true` の run だけとフェーズ合成を出すが、こちらは **`workflow_moved` を見ない**（Kanban 側の run も 1 枚で node にする）。
+- 中身は `sai_link_widgets::research_dag::load_research_dag`（`crates/sai-link-widgets/src/research_dag.rs`）。TUI も同じ読み方を共有する。
 
 ### 2.3 壊れる変更・壊れない変更
 

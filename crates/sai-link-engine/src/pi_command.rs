@@ -35,6 +35,7 @@
 //!     category: None,
 //!     tag: None,
 //!     round: None,
+//!     layer: None,
 //!     templates: None,
 //!     context: None,
 //! };
@@ -801,6 +802,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
+            layer: None,
             templates: None,
             context: None,
             id: None,
