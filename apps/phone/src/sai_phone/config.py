@@ -54,6 +54,11 @@ class Settings:
     radio_url: str = os.getenv("SAI_RADIO_URL", "http://127.0.0.1:8201")
     # sai-radio に付ける合言葉（sai-radio 側に設定があるときだけ同じ値を書く・00 §8）
     radio_token: str | None = os.getenv("SAI_RADIO_TOKEN") or None
+    # MLflow の場所（実験タブの中継先・読み取りだけ）
+    mlflow_url: str = os.getenv("SAI_MLFLOW_URL", "http://127.0.0.1:5001")
+    # MLflow の名前と合言葉（空なら付けない。今の MLflow は 127.0.0.1 では認証しない）
+    mlflow_user: str = os.getenv("SAI_MLFLOW_USER", "")
+    mlflow_password: str = os.getenv("SAI_MLFLOW_PASSWORD", "")
 
 
 settings = Settings()

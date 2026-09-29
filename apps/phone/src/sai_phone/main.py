@@ -19,7 +19,7 @@ import logging
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ from sai_phone import (
     control,
     herdr,
     home,
+    mlflow_proxy,
     notify,
     papers,
     questions,
@@ -545,6 +546,12 @@ def api_project_daemon(
 def api_project_tree(name: str, _: None = Depends(require_token)) -> dict:
     """引き出しツリー（`phone tree`・計画 12 §3.2）。"""
     return control.phone_tree(name)
+
+
+@app.get("/api/projects/{name}/rtree")
+def api_project_rtree(name: str, _: None = Depends(require_token)) -> dict:
+    """実験の beside な木（`phone rtree`・U03 §変更内容 3）。"""
+    return control.phone_rtree(name)
 
 
 @app.get("/api/projects/{name}/runs/{run_id:int}/view/{view}")
@@ -1104,6 +1111,89 @@ async def api_radio(path: str, request: Request, _: None = Depends(require_token
         request.headers.get("content-type"),
         request.headers.get("range"),
     )
+
+
+# --- MLflow 中継（U03） ---
+# Mac の MLflow（`SAI_MLFLOW_URL`・既定 127.0.0.1:5001）への読み取りだけの中継。
+# 合言葉（require_token）で守り、中継の待ち時間でサーバー全体を止めないよう
+# スレッドプールで呼ぶ。MLflow がエラーを返したときは本文と状態コードを
+# そのまま返すので、MlflowError を Response に変える。
+
+
+@app.exception_handler(mlflow_proxy.MlflowError)
+async def _mlflow_error(request: Request, exc: mlflow_proxy.MlflowError) -> Response:
+    """MLflow の本文と状態コードをそのまま返す（理由の文言を変えない）。"""
+    return Response(content=exc.body, status_code=exc.status_code)
+
+
+@app.get("/api/mlflow/experiments")
+async def api_mlflow_experiments(_: None = Depends(require_token)) -> dict:
+    """実験の一覧（`POST experiments/search`）。"""
+    return await run_in_threadpool(mlflow_proxy.experiments)
+
+
+@app.get("/api/mlflow/experiments/{experiment_id}")
+async def api_mlflow_experiment(
+    experiment_id: str, _: None = Depends(require_token)
+) -> dict:
+    """実験 1 件（`GET experiments/get`）。"""
+    return await run_in_threadpool(mlflow_proxy.experiment, experiment_id)
+
+
+@app.post("/api/mlflow/runs/search")
+async def api_mlflow_runs_search(
+    payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """実行の検索（`POST runs/search`・本文は C-03 の形）。"""
+    return await run_in_threadpool(mlflow_proxy.runs_search, payload)
+
+
+@app.get("/api/mlflow/runs/{run_id}")
+async def api_mlflow_run(run_id: str, _: None = Depends(require_token)) -> dict:
+    """実行 1 件（`GET runs/get`）。"""
+    return await run_in_threadpool(mlflow_proxy.run, run_id)
+
+
+@app.get("/api/mlflow/metrics/history")
+async def api_mlflow_metric_history(
+    run_id: str,
+    metric_key: str,
+    max_results: int | None = Query(default=None),
+    _: None = Depends(require_token),
+) -> dict:
+    """指標 1 本の履歴（`GET metrics/get-history`）。"""
+    return await run_in_threadpool(
+        mlflow_proxy.metric_history, run_id, metric_key, max_results
+    )
+
+
+@app.get("/api/mlflow/metrics/bulk")
+async def api_mlflow_metric_bulk(
+    run_id: list[str] = Query(default=[]),
+    metric_key: str = "",
+    max_results: int | None = Query(default=None),
+    _: None = Depends(require_token),
+) -> dict:
+    """指標 1 本の履歴をまとめて取る（`GET metrics/get-history-bulk-interval`）。"""
+    return await run_in_threadpool(
+        mlflow_proxy.metric_bulk, run_id, metric_key, max_results
+    )
+
+
+@app.get("/api/mlflow/artifacts")
+async def api_mlflow_artifacts(
+    run_id: str, path: str = "", _: None = Depends(require_token)
+) -> dict:
+    """成果物の一覧（`GET artifacts/list`）。"""
+    return await run_in_threadpool(mlflow_proxy.artifacts, run_id, path or None)
+
+
+@app.get("/api/mlflow/artifact")
+async def api_mlflow_artifact(
+    run_id: str, path: str, _: None = Depends(require_token)
+) -> Response:
+    """成果物 1 件の本文（`GET /get-artifact`・5MB を超えたら 413）。"""
+    return await run_in_threadpool(mlflow_proxy.artifact, run_id, path)
 
 
 # --- Usage タブ（計画 42 §3.3） ---
