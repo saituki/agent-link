@@ -32,7 +32,15 @@ const {
   mlfValueText,
   mlfArtifactKind,
   mlfProjectChoices,
+  mlfCompareRows,
+  mlfCompareSectionTitle,
+  mlfCompareHeadName,
+  mlfMetricKeys,
+  mlfMetricKeysOf,
   MLF_QUERY_KEYS,
+  MLF_COMPARE_MIN,
+  MLF_COMPARE_MAX,
+  MLF_BULK_RUNS,
 } = require(src);
 
 const RUN_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -391,6 +399,127 @@ function testQueryKeysAreFixed() {
   assert.deepStrictEqual(MLF_QUERY_KEYS, ["sai_run", "seed", "study", "status"]);
 }
 
+// --- U07: 指標のグラフと比較の表 -------------------------------------
+
+/** 比較用の run を作る。{id, name, params, metrics, tags} */
+function cmpRun(o) {
+  return {
+    info: { run_id: o.id, run_name: o.name || `run ${o.id.slice(0, 4)}`, status: "FINISHED" },
+    data: {
+      params: (o.params || []).map(([key, value]) => ({ key, value })),
+      metrics: (o.metrics || []).map(([key, value]) => ({ key, value, step: 0, timestamp: 1 })),
+      tags: (o.tags || []).map(([key, value]) => ({ key, value })),
+    },
+  };
+}
+
+// AC3: 3 本で param `lr` が同じ・`depth` が違うとき、差分だけなら `depth` の行を返す
+function testCompareRowsDiffOnly() {
+  const runs = [
+    cmpRun({ id: RUN_A, params: [["lr", "0.01"], ["depth", "2"]] }),
+    cmpRun({ id: RUN_B, params: [["lr", "0.01"], ["depth", "4"]] }),
+    cmpRun({ id: RUN_C, params: [["lr", "0.01"], ["depth", "8"]] }),
+  ];
+  const rows = mlfCompareRows(runs, true);
+  assert.deepStrictEqual(rows.map((r) => r.key), ["depth"]);
+  assert.strictEqual(rows[0].section, "param");
+  assert.deepStrictEqual(rows[0].values, ["2", "4", "8"]);
+  assert.strictEqual(rows[0].same, false);
+
+  // 差分を隠さないときは全部の行が並ぶ（lr は同じなので same）
+  const all = mlfCompareRows(runs, false);
+  assert.deepStrictEqual(all.map((r) => r.key), ["depth", "lr"]);
+  assert.strictEqual(all[1].same, true);
+}
+
+function testCompareRowsAllSame() {
+  // 3 本すべて同じなら「差分だけ」では 0 行
+  const runs = [
+    cmpRun({ id: RUN_A, params: [["lr", "0.01"]] }),
+    cmpRun({ id: RUN_B, params: [["lr", "0.01"]] }),
+    cmpRun({ id: RUN_C, params: [["lr", "0.01"]] }),
+  ];
+  assert.deepStrictEqual(mlfCompareRows(runs, true), []);
+  assert.strictEqual(mlfCompareRows(runs, false).length, 1);
+}
+
+function testCompareRowsSections() {
+  // 設定・指標・タグの 3 つの節が順に並ぶ
+  const runs = [
+    cmpRun({
+      id: RUN_A,
+      params: [["lr", "0.01"]],
+      metrics: [["loss", 0.5]],
+      tags: [["sai.project", "west"], ["mlflow.runName", "a"]],
+    }),
+    cmpRun({
+      id: RUN_B,
+      params: [["lr", "0.02"]],
+      metrics: [["loss", 0.4]],
+      tags: [["sai.project", "west"], ["mlflow.runName", "b"]],
+    }),
+  ];
+  const rows = mlfCompareRows(runs, false);
+  assert.deepStrictEqual(rows.map((r) => r.section), ["param", "metric", "tag", "tag"]);
+  assert.deepStrictEqual(rows.map((r) => r.key), ["lr", "loss", "mlflow.runName", "sai.project"]);
+  // 指標は最後の値
+  assert.deepStrictEqual(rows[1].values, ["0.5", "0.4"]);
+  // sai.project だけは同じなので「差分だけ」では消える
+  assert.deepStrictEqual(mlfCompareRows(runs, true).map((r) => r.key), ["lr", "loss", "mlflow.runName"]);
+  assert.strictEqual(mlfCompareSectionTitle("param"), "設定（param）");
+  assert.strictEqual(mlfCompareSectionTitle("metric"), "指標（metric・最後の値）");
+  assert.strictEqual(mlfCompareSectionTitle("tag"), "タグ");
+}
+
+function testCompareRowsMissingValue() {
+  // 無い値は — になる
+  const runs = [
+    cmpRun({ id: RUN_A, params: [["lr", "0.01"], ["depth", "2"]], metrics: [["loss", 1]] }),
+    cmpRun({ id: RUN_B, params: [["lr", "0.01"]], metrics: [] }),
+  ];
+  const rows = mlfCompareRows(runs, true);
+  const depth = rows.find((r) => r.key === "depth");
+  assert.deepStrictEqual(depth.values, ["2", "—"]);
+  const loss = rows.find((r) => r.key === "loss");
+  assert.deepStrictEqual(loss.values, ["1", "—"]);
+}
+
+function testCompareRowsEmpty() {
+  assert.deepStrictEqual(mlfCompareRows([], true), []);
+  assert.deepStrictEqual(mlfCompareRows(null, false), []);
+  // run として読めないものは外す
+  assert.deepStrictEqual(mlfCompareRows([{ info: {} }], false), []);
+}
+
+function testCompareHeadName() {
+  assert.strictEqual(mlfCompareHeadName(cmpRun({ id: RUN_A, name: "試し 1" })), "試し 1");
+  // 名前が無ければ run_id の先頭 8 字
+  assert.strictEqual(mlfCompareHeadName({ info: { run_id: RUN_A } }), "aaaaaaaa");
+  assert.strictEqual(mlfCompareHeadName(null), "—");
+}
+
+function testMetricKeys() {
+  // 名前順・重複無し
+  const run = cmpRun({ id: RUN_A, metrics: [["loss", 1], ["acc", 0.9], ["loss", 0.8]] });
+  assert.deepStrictEqual(mlfMetricKeys(run), ["acc", "loss"]);
+  // 和集合
+  const keys = mlfMetricKeysOf([
+    run,
+    cmpRun({ id: RUN_B, metrics: [["acc", 0.7], ["f1", 0.5]] }),
+  ]);
+  assert.deepStrictEqual(keys, ["acc", "f1", "loss"]);
+  assert.deepStrictEqual(mlfMetricKeysOf([]), []);
+  assert.deepStrictEqual(mlfMetricKeys(null), []);
+}
+
+function testCompareLimits() {
+  // 比較は 2〜20 件（C-07）。画面と pure 関数の両方で同じ数を使う
+  assert.strictEqual(MLF_COMPARE_MIN, 2);
+  assert.strictEqual(MLF_COMPARE_MAX, 20);
+  // 一括取得は 100 件まで（MLflow の 1 回の返答の上限）
+  assert.strictEqual(MLF_BULK_RUNS, 100);
+}
+
 // --- 実行 ------------------------------------------------------------
 
 const tests = [
@@ -421,6 +550,14 @@ const tests = [
   testArtifactKind,
   testProjectChoices,
   testQueryKeysAreFixed,
+  testCompareRowsDiffOnly,
+  testCompareRowsAllSame,
+  testCompareRowsSections,
+  testCompareRowsMissingValue,
+  testCompareRowsEmpty,
+  testCompareHeadName,
+  testMetricKeys,
+  testCompareLimits,
 ];
 
 let failed = 0;

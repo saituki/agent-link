@@ -32,6 +32,13 @@ const MLF_PROJECT_KEY = "sai_phone_mlf_project";
 const MLF_PROJECT_ALL = "*";
 // 画面の「広いか」の境目（900px 以上）
 const MLF_WIDE_PX = 900;
+// 指標の一括取得で送れる run の数の上限（MLflow の 1 回の返答の上限）
+const MLF_BULK_RUNS = 100;
+// 一度に同時に読む run の数（比較画面で使う）
+const MLF_READ_PARALLEL = 5;
+// 指標の履歴を取る点数の上限（history 25000 点・bulk 2500 点）
+const MLF_HISTORY_MAX = 25000;
+const MLF_BULK_MAX = 2500;
 
 // 状態の日本語（C-04）
 const MLF_STATUS_TEXT = {
@@ -430,6 +437,98 @@ function mlfProjectChoices(projects) {
   return list;
 }
 
+/** run の中の指標の名前のならんだ列（重複無し・名前順）。 */
+function mlfMetricKeys(run) {
+  const out = [];
+  for (const one of (run && run.data && run.data.metrics) || []) {
+    if (!one || one.key == null) continue;
+    const key = String(one.key);
+    if (!out.includes(key)) out.push(key);
+  }
+  return out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** 複数の run にある指標の名前の和集合（名前順）。 */
+function mlfMetricKeysOf(runs) {
+  const out = [];
+  for (const run of Array.isArray(runs) ? runs : []) {
+    for (const key of mlfMetricKeys(run)) if (!out.includes(key)) out.push(key);
+  }
+  return out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * 比較の表の行（U07）を作る。
+ *   runs: 選んだ run の並んだもの
+ *   diffOnly: true なら「値が全部同じ行」を捨てる
+ * 返り値は `[{section, key, values: [...], same}]`。
+ *   section は "param" / "metric" / "tag"（日本語の見出しは mlfCompareSectionTitle）
+ */
+function mlfCompareRows(runs, diffOnly) {
+  const list = (Array.isArray(runs) ? runs : []).filter((r) => r && r.info && r.info.run_id);
+  const rows = [];
+  const push = (section, key, valueOf) => {
+    const values = list.map((run) => {
+      const raw = valueOf(run);
+      return raw == null || raw === "" ? "—" : String(raw);
+    });
+    const first = values.length ? values[0] : "";
+    const same = values.every((v) => v === first);
+    if (diffOnly && same) return;
+    rows.push({ section, key, values, same });
+  };
+
+  // --- 設定（param） ---
+  const paramKeys = new Set();
+  for (const run of list) {
+    for (const one of (run.data && run.data.params) || []) {
+      if (one && one.key != null) paramKeys.add(String(one.key));
+    }
+  }
+  for (const key of [...paramKeys].sort()) {
+    push("param", key, (run) => {
+      for (const one of (run.data && run.data.params) || []) {
+        if (one && String(one.key) === key) return one.value;
+      }
+      return null;
+    });
+  }
+
+  // --- 指標（metric・最後の値） ---
+  for (const key of mlfMetricKeysOf(list)) {
+    push("metric", key, (run) => {
+      const v = mlfMetricValue(run, key);
+      return v == null ? null : mlfValueText(v);
+    });
+  }
+
+  // --- タグ ---
+  const tagKeys = new Set();
+  for (const run of list) {
+    for (const one of (run.data && run.data.tags) || []) {
+      if (one && one.key != null) tagKeys.add(String(one.key));
+    }
+  }
+  for (const key of [...tagKeys].sort()) {
+    push("tag", key, (run) => mlfTag(run, key));
+  }
+  return rows;
+}
+
+/** 比較の表の節の見出し。 */
+function mlfCompareSectionTitle(section) {
+  if (section === "param") return "設定（param）";
+  if (section === "metric") return "指標（metric・最後の値）";
+  if (section === "tag") return "タグ";
+  return String(section || "");
+}
+
+/** 比較の表の見出しの run の名前（無いときは run_id の先頭 8 字）。 */
+function mlfCompareHeadName(run) {
+  const info = (run && run.info) || {};
+  return info.run_name || String(info.run_id || "").slice(0, 8) || "—";
+}
+
 // ============================================================================
 // 状態
 // ============================================================================
@@ -443,6 +542,7 @@ let mlfExperiments = null;     // 実験の一覧
 let mlfExperimentsError = "";  // 実験一覧の読み込みの失敗
 let mlfTable = null;           // run の表の状態
 let mlfDetail = null;          // run の詳細
+let mlfCompare = null;         // run の比較
 let mlfArt = null;             // 成果物
 let mlfOpen = new Set();       // 開いている束・親の鍵（画面の中だけ覚える）
 let mlfWasWide = null;         // 直前の「広いか」
@@ -781,13 +881,22 @@ function mlfOpenSortSheet() {
   const sheet = saiSheet({ title: "並び順", body });
 }
 
-/** 1 本の run の行（狭い画面では札、広い画面では表の 1 行）。 */
+/**
+ * 1 本の run の行（狭い画面では札、広い画面では表の 1 行）。
+ * o.pick が true のときは左端に比較のためのチェックが付く（run の表だけ）。
+ */
 function mlfRunRow(run, opts) {
   const o = opts || {};
   const info = (run && run.info) || {};
   const wide = o.wide === true;
   const wrap = saiEl("div", wide ? "mlf-trow" : "mlf-tcard");
   if (o.nested) wrap.classList.add("nested");
+  const runId = String(info.run_id || "");
+  if (o.pick) {
+    wrap.classList.add("pickable");
+    wrap.dataset.runId = runId;
+    wrap.appendChild(mlfPickCheck(runId, info.run_name));
+  }
   const name = saiEl("span", "mlf-c-name", info.run_name || info.run_id || "—");
   const status = saiEl("span", `mlf-status ${mlfStatusClass(info.status)}`, mlfStatusText(info.status));
   if (wide) {
@@ -820,10 +929,78 @@ function mlfRunRow(run, opts) {
   );
   if (wide) wrap.appendChild(status);
   wrap.addEventListener("click", () => {
-    const id = String(info.run_id || "");
-    if (MLF_RUN_ID_RE.test(id)) location.hash = mlfHash({ page: "run", runId: id });
+    if (MLF_RUN_ID_RE.test(runId)) location.hash = mlfHash({ page: "run", runId });
   });
   return wrap;
+}
+
+/** 比較のためのチェック（押しても run の詳細には跳ばない）。 */
+function mlfPickCheck(runId, label) {
+  const on = mlfTable && mlfTable.pick && mlfTable.pick.has(runId);
+  const box = saiEl("button", `mlf-pick${on ? " on" : ""}`);
+  box.type = "button";
+  box.setAttribute("role", "checkbox");
+  box.setAttribute("aria-checked", on ? "true" : "false");
+  box.setAttribute("aria-label", `${label || "この run"}を比較加える`);
+  box.textContent = on ? "✓" : "";
+  box.addEventListener("click", (e) => {
+    e.stopPropagation();
+    mlfTogglePick(runId);
+  });
+  return box;
+}
+
+/** 比較のために選ぶ run を加える・外す（2〜20 件・C-07）。 */
+function mlfTogglePick(runId) {
+  if (!mlfTable || !MLF_RUN_ID_RE.test(String(runId || ""))) return;
+  if (!mlfTable.pick) mlfTable.pick = new Set();
+  const pick = mlfTable.pick;
+  if (pick.has(runId)) {
+    pick.delete(runId);
+  } else {
+    if (pick.size >= MLF_COMPARE_MAX) {
+      saiToast(`比較は ${MLF_COMPARE_MAX} 件までです。1 つ選び直してください。`, "warn");
+      return;
+    }
+    pick.add(runId);
+  }
+  mlfRenderRuns();
+}
+
+/** 選択した run の番号（選ぶ順に）。 */
+function mlfPickIds() {
+  if (!mlfTable || !mlfTable.pick) return [];
+  return [...mlfTable.pick].filter((id) => MLF_RUN_ID_RE.test(id));
+}
+
+/** 一番下に固定される帯（選んだ件数と「比べる」ボタン）。 */
+function mlfPickBar() {
+  const ids = mlfPickIds();
+  if (ids.length === 0) return null;
+  const bar = saiEl("div", "mlf-pickbar");
+  const can = ids.length >= MLF_COMPARE_MIN;
+  const btn = saiEl("button", "sai-btn primary", `${ids.length} 件を比較`);
+  btn.type = "button";
+  btn.disabled = !can;
+  if (!can) btn.title = `比較は ${MLF_COMPARE_MIN} 件以上から`;
+  btn.addEventListener("click", () => {
+    const list = mlfPickIds();
+    if (list.length < MLF_COMPARE_MIN || list.length > MLF_COMPARE_MAX) return;
+    const hash = mlfHash({ page: "compare", runIds: list });
+    if (hash) location.hash = hash;
+  });
+  const clear = saiEl("button", "mlf-pick-clear", "選び直す");
+  clear.type = "button";
+  clear.addEventListener("click", () => {
+    if (mlfTable) mlfTable.pick = new Set();
+    mlfRenderRuns();
+  });
+  bar.append(
+    saiEl("span", "mlf-pick-note", can ? "選んでいます" : `${MLF_COMPARE_MIN} 件以上選んでください`),
+    clear,
+    btn
+  );
+  return bar;
 }
 
 /** 束の見出し（開閉できる）。 */
@@ -868,7 +1045,7 @@ function mlfRenderTree(box) {
       for (const row of bundle.rows) {
         if (row.kind === "orphan") {
           const card = saiEl("div", "mlf-orphan");
-          card.appendChild(mlfRunRow(row.run, {}));
+          card.appendChild(mlfRunRow(row.run, { pick: true }));
           card.appendChild(saiEl("p", "mlf-note tiny", "親は読み込まれていません"));
           rowsBox.appendChild(card);
           continue;
@@ -893,10 +1070,10 @@ function mlfRenderTree(box) {
           });
           box2.appendChild(head);
         }
-        box2.appendChild(mlfRunRow(row.run, {}));
+        box2.appendChild(mlfRunRow(row.run, { pick: true }));
         if (open2) {
           const kids = saiEl("div", "mlf-children");
-          for (const child of row.children) kids.appendChild(mlfRunRow(child, { nested: true }));
+          for (const child of row.children) kids.appendChild(mlfRunRow(child, { nested: true, pick: true }));
           box2.appendChild(kids);
         }
         rowsBox.appendChild(box2);
@@ -920,7 +1097,7 @@ function mlfRenderFlat(box) {
   const listBox = saiEl("div", "mlf-rows");
   for (const one of rows) {
     const wrap = saiEl("div", "mlf-parent");
-    wrap.appendChild(mlfRunRow(one.run, { nested: one.depth === 1 }));
+    wrap.appendChild(mlfRunRow(one.run, { nested: one.depth === 1, pick: true }));
     listBox.appendChild(wrap);
   }
   box.appendChild(listBox);
@@ -939,6 +1116,7 @@ function mlfRenderRuns() {
   if (filterChips) chips.appendChild(filterChips);
   chips.appendChild(mlfRenderSortChip());
   box.appendChild(chips);
+  box.appendChild(saiEl("p", "mlf-note tiny", "比べる run は左の印で選べます（2〜20 件）。"));
 
   if (mlfTable.error && mlfTable.runs.length === 0) {
     box.appendChild(saiEmpty({ icon: "⚠", title: "run を読めませんでした", body: mlfTable.error }));
@@ -956,6 +1134,8 @@ function mlfRenderRuns() {
   if (mlfIsMetricOrder(mlfTable.orderBy)) mlfRenderFlat(listBox);
   else mlfRenderTree(listBox);
   box.appendChild(listBox);
+  const bar = mlfPickBar();
+  if (bar) box.appendChild(bar);
   if (mlfTable.nextPageToken) {
     const more = saiEl("button", "sai-btn primary mlf-more", mlfTable.loading ? "読み込んでいます…" : "続きを読む");
     more.type = "button";
@@ -972,7 +1152,7 @@ function mlfRenderRuns() {
 /** 詳細の画面を出す。 */
 async function mlfShowRun(params) {
   const runId = params.runId;
-  mlfDetail = { runId, run: null, children: null, error: "" };
+  mlfDetail = { runId, run: null, children: null, error: "", xKind: "step", charts: null, chartError: "", chartLoading: false };
   mlfArt = { runId, path: "", files: [], rootUri: "", loaded: false, loading: false, error: "", open: false, file: null };
   mlfSyncBar("run の詳細");
   // 広い画面では左の表を残したいので、直前の表を出し直す
@@ -1012,6 +1192,77 @@ async function mlfShowRun(params) {
     }
     mlfRenderRun();
   }
+  await mlfLoadCharts();
+}
+
+/**
+ * 詳細の指標の時系列を読む。
+ *   子の無い run: 1 本ずつ get-history
+ *   子のある run: 子のまとめて get-history-bulk-interval（曲線を重ねる）
+ * 間引きは MLflow のサーバに任せる（最初に記録した点と最後の点を残して間引くため）。
+ * 画面では間引かない。
+ */
+async function mlfLoadCharts() {
+  const d = mlfDetail;
+  if (!d || !d.run) return;
+  const children = Array.isArray(d.children) ? d.children : [];
+  const childIds = children
+    .map((one) => String((one && one.info && one.info.run_id) || ""))
+    .filter((id) => MLF_RUN_ID_RE.test(id));
+  // 子の指標の和集合。子の無いときは自分の指標
+  const keys = childIds.length ? mlfMetricKeysOf(children) : mlfMetricKeys(d.run);
+  if (keys.length === 0) {
+    d.charts = null;
+    return;
+  }
+  d.charts = {};
+  d.chartError = "";
+  d.chartLoading = true;
+  mlfRenderRun();
+  for (const key of keys) {
+    if (!mlfDetail || mlfDetail.runId !== d.runId) return; // 画面を離れた
+    try {
+      let metrics = [];
+      if (childIds.length) {
+        const qs = new URLSearchParams();
+        for (const id of childIds.slice(0, MLF_BULK_RUNS)) qs.append("run_ids", id);
+        qs.set("metric_key", key);
+        qs.set("max_results", String(MLF_BULK_MAX));
+        const data = await saiApi(`/api/mlflow/metrics/bulk?${qs.toString()}`);
+        metrics = data && Array.isArray(data.metrics) ? data.metrics : [];
+      } else {
+        const qs = new URLSearchParams({
+          run_id: d.runId,
+          metric_key: key,
+          max_results: String(MLF_HISTORY_MAX),
+        });
+        const data = await saiApi(`/api/mlflow/metrics/history?${qs.toString()}`);
+        metrics = data && Array.isArray(data.metrics) ? data.metrics : [];
+      }
+      if (!mlfDetail || mlfDetail.runId !== d.runId) return;
+      d.charts[key] = { series: mlfSeriesFromMetrics(metrics, d.xKind), metrics };
+    } catch (e) {
+      if (!mlfDetail || mlfDetail.runId !== d.runId) return;
+      d.charts[key] = { series: [], metrics: [], error: (e && e.message) || "指標の時系列を読めませんでした" };
+    }
+    mlfRenderRun();
+  }
+  if (!mlfDetail || mlfDetail.runId !== d.runId) return;
+  d.chartLoading = false;
+  mlfRenderRun();
+}
+
+/** x の種類（step か経過時間か）を入れ替える。読み直さずに描き直す。 */
+function mlfToggleXKind(kind) {
+  if (!mlfDetail || !mlfDetail.charts) return;
+  const next = kind === "time" ? "time" : "step";
+  if (mlfDetail.xKind === next) return;
+  mlfDetail.xKind = next;
+  for (const key of Object.keys(mlfDetail.charts)) {
+    const one = mlfDetail.charts[key];
+    one.series = mlfSeriesFromMetrics(one.metrics, next);
+  }
+  mlfRenderRun();
 }
 
 /** 値を並んだ 2 つの欄で 1 行にする。 */
@@ -1120,6 +1371,9 @@ function mlfRenderRun() {
     box.appendChild(sec);
   }
 
+  // --- 指標のグラフ（時系列） ---
+  if (metrics.length || mlfDetail.children) box.appendChild(mlfChartsBox());
+
   // --- タグ（`mlflow.` で始まるものは畳む） ---
   const tags = (data.tags || []).filter((one) => one && one.key != null);
   const own = tags.filter((one) => !String(one.key).startsWith("mlflow."));
@@ -1152,6 +1406,89 @@ function mlfRenderRun() {
   }
 
   box.appendChild(mlfArtifactsBox());
+}
+
+/**
+ * 指標のグラフの節（詳細画面）。
+ * 上に「step / 経過時間」の切り替えを置き（既定は step）、
+ * metric ごとに 1 つずつ折れ線グラフを出す。
+ */
+function mlfChartsBox() {
+  const d = mlfDetail;
+  const sec = saiEl("div", "mlf-section");
+  const head = saiEl("div", "mlf-charts-head");
+  head.appendChild(saiEl("h3", "mlf-section-title", "グラフ（時系列）"));
+  const toggle = saiEl("div", "mlf-seg");
+  for (const [kind, label] of [["step", "step"], ["time", "経過時間"]]) {
+    const btn = saiEl("button", `mlf-seg-btn${(d && d.xKind) === kind ? " active" : ""}`);
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", () => mlfToggleXKind(kind));
+    toggle.appendChild(btn);
+  }
+  head.appendChild(toggle);
+  sec.appendChild(head);
+
+  if (!d || !d.charts) {
+    sec.appendChild(saiEl("p", "mlf-note", "この run には指標の記録がありません。"));
+    return sec;
+  }
+  if (d.chartError) {
+    sec.appendChild(saiEl("p", "mlf-note", d.chartError));
+    return sec;
+  }
+  const keys = Object.keys(d.charts);
+  if (keys.length === 0) {
+    sec.appendChild(saiEl("p", "mlf-note", d.chartLoading ? "読み込んでいます…" : "この run には指標の記録がありません。"));
+    return sec;
+  }
+
+  const grid = saiEl("div", "mlf-chart-grid");
+  for (const key of keys) {
+    const one = d.charts[key] || {};
+    const cell = saiEl("div", "mlf-chart-cell");
+    cell.appendChild(saiEl("h4", "mlf-chart-title", key));
+    const body = saiEl("div", "mlf-chart-body");
+    if (one.error) {
+      body.appendChild(saiEl("p", "mlf-note tiny", one.error));
+    } else if (d.chartLoading && !mlfHasPoints(one.series)) {
+      body.appendChild(saiEl("p", "mlf-note tiny", "読み込んでいます…"));
+    } else if (!mlfHasPoints(one.series)) {
+      // 最後の値しか記録されていない（get-history が 1 点しか返さない）とき
+      body.appendChild(saiEl("p", "mlf-note tiny", "時系列の記録がありません（最後の値だけ）"));
+    } else {
+      const labeled = mlfLabelSeries(one.series, d.children, d.run);
+      mlfLineChart(body, { series: labeled, xKind: d.xKind, title: key });
+    }
+    cell.appendChild(body);
+    grid.appendChild(cell);
+  }
+  sec.appendChild(grid);
+  if (d.chartLoading) sec.appendChild(saiEl("p", "mlf-note tiny", "指標を読み込んでいます…"));
+  return sec;
+}
+
+/**
+ * series に run の名前（無いものは run_id の先頭 8 字）を付ける。
+ * run_id が無い系列（自分の履歴）は、fallback（その run 自身）の名前を 1 つだけ使う。
+ */
+function mlfLabelSeries(series, children, fallback) {
+  const names = new Map();
+  for (const one of Array.isArray(children) ? children : []) {
+    const id = String((one && one.info && one.info.run_id) || "");
+    if (!id) continue;
+    const info = one.info || {};
+    names.set(id, info.run_name || id.slice(0, 8));
+  }
+  const fb = (fallback && fallback.info) || {};
+  const fbName = fb.run_name || String(fb.run_id || "").slice(0, 8) || "";
+  return (Array.isArray(series) ? series : []).map((one, i) => {
+    const id = one.runId || "";
+    let label = names.get(id) || "";
+    if (!label && !id) label = fbName;
+    if (!label) label = id ? id.slice(0, 8) : `run ${i + 1}`;
+    return { runId: id, label, points: one.points || [] };
+  });
 }
 
 /** 成果物の欄（開くまでは中身を読まない）。 */
@@ -1387,8 +1724,13 @@ function mlfRenderArtifacts() {
 // 画面を開く
 // ============================================================================
 
-/** 比較の画面（U07 で作る。今は準備中）。 */
-function mlfShowCompare(params) {
+/**
+ * 比較の画面（#/mlflow/compare/<run ID>,…）。
+ * 選んだ run を 1 つずつ読み（同時に最大 5 本）、表と重ねたグラフを出す。
+ */
+async function mlfShowCompare(params) {
+  const runIds = (params.runIds || []).filter((id) => MLF_RUN_ID_RE.test(String(id)));
+  mlfCompare = { runIds, runs: [], loading: true, error: "", diffOnly: true, showMlflowTags: false, charts: null };
   mlfSyncBar("run の比較");
   if (mlfTable) mlfRenderRuns();
   const box = document.getElementById("mlf-main");
@@ -1399,13 +1741,231 @@ function mlfShowCompare(params) {
     saiSplitShow(body, "main");
   }
   box.innerHTML = "";
-  box.appendChild(
-    saiEmpty({
-      icon: "⚖",
-      title: "比較の画面はまだありません",
-      body: `いま選んでいるのは ${params.runIds.length} 本の run です。あとで、この画面から指標を並べて比べられるようにします。`,
-    })
+  box.appendChild(saiEl("p", "mlf-note", "読み込んでいます…"));
+  try {
+    mlfCompare.runs = await mlfReadRuns(runIds);
+    const missing = mlfCompare.runs.filter((one) => !one).length;
+    mlfCompare.runs = mlfCompare.runs.filter(Boolean);
+    mlfCompare.error = missing ? `${missing} 本は読み込めませんでした。` : "";
+    mlfCompare.loading = false;
+    mlfRenderCompare();
+  } catch (e) {
+    mlfCompare.loading = false;
+    mlfCompare.error = (e && e.message) || "run を読み込めませんでした";
+    mlfRenderCompare();
+    return;
+  }
+  if (mlfCompare.runs.length >= 2) void mlfLoadCompareCharts();
+}
+
+/** run を 1 つずつ読む（同時に最大 5 本）。読めなかった所は null。 */
+async function mlfReadRuns(runIds) {
+  const out = new Array(runIds.length).fill(null);
+  let next = 0;
+  const worker = async () => {
+    while (next < runIds.length) {
+      const i = next;
+      next += 1;
+      try {
+        const data = await saiApi(`/api/mlflow/runs/${encodeURIComponent(runIds[i])}`);
+        out[i] = (data && data.run) || null;
+      } catch {
+        out[i] = null;
+      }
+    }
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(MLF_READ_PARALLEL, runIds.length); i += 1) workers.push(worker());
+  await Promise.all(workers);
+  return out;
+}
+
+/** 選んだ run に共通の指標の曲線を、重ねて取る（1 指標 1 回）。 */
+async function mlfLoadCompareCharts() {
+  const c = mlfCompare;
+  if (!c) return;
+  const ids = c.runs.map((one) => String(one.info && one.info.run_id)).filter((id) => MLF_RUN_ID_RE.test(id));
+  const keys = c.runs.length
+    ? mlfMetricKeysOf(c.runs).filter((key) => c.runs.every((one) => mlfMetricKeys(one).includes(key)))
+    : [];
+  if (ids.length < 2 || keys.length === 0) {
+    c.charts = {};
+    return;
+  }
+  c.charts = {};
+  for (const key of keys) {
+    if (mlfCompare !== c) return; // 画面を離れた
+    try {
+      const qs = new URLSearchParams();
+      for (const id of ids.slice(0, MLF_BULK_RUNS)) qs.append("run_ids", id);
+      qs.set("metric_key", key);
+      qs.set("max_results", String(MLF_BULK_MAX));
+      const data = await saiApi(`/api/mlflow/metrics/bulk?${qs.toString()}`);
+      c.charts[key] = { series: mlfSeriesFromMetrics((data && data.metrics) || [], "step"), metrics: (data && data.metrics) || [] };
+    } catch (e) {
+      c.charts[key] = { series: [], metrics: [], error: (e && e.message) || "指標の時系列を読めませんでした" };
+    }
+    mlfRenderCompare();
+  }
+}
+
+/** 比較の画面を描く。 */
+function mlfRenderCompare() {
+  const c = mlfCompare;
+  const box = document.getElementById("mlf-main");
+  if (!box || !c) return;
+  box.innerHTML = "";
+  mlfSyncBar("run の比較");
+  if (c.loading) {
+    box.appendChild(saiEl("p", "mlf-note", "読み込んでいます…"));
+    return;
+  }
+  if (c.runs.length < MLF_COMPARE_MIN) {
+    box.appendChild(
+      saiEmpty({
+        icon: "⚖",
+        title: "比べられる run がありません",
+        body: c.error || "2 件以上を選んでください。",
+      })
+    );
+    return;
+  }
+
+  const head = saiEl("div", "mlf-detail");
+  head.append(
+    saiEl("h2", "mlf-detail-name", `${c.runIds.length} 本の run を比べる`),
+    saiEl("p", "mlf-detail-sub", "設定・指標・タグの違いと、指標の推移を並べて見ます。")
   );
+  box.appendChild(head);
+
+  // 戻る（表へ）与ばすリンク
+  const links = saiEl("div", "mlf-links");
+  if (mlfTable) {
+    const back = saiEl("button", "mlf-link");
+    back.type = "button";
+    back.append(saiEl("span", "mlf-link-arrow", "‹"), saiEl("span", "", "run の表に戻る"));
+    back.addEventListener("click", () => {
+      location.hash = mlfHash({ page: "runs", experimentId: mlfTable.experimentId, query: mlfTable.query });
+    });
+    links.appendChild(back);
+  }
+  if (c.error) links.appendChild(saiEl("p", "mlf-note", c.error));
+  box.appendChild(links);
+
+  // 切り替えの札（「差分だけ」と「MLflow のタグ」）
+  const chips = saiEl("div", "mlf-chips");
+  const diffBtn = saiEl("button", `mlf-chip small${c.diffOnly ? " active" : ""}`);
+  diffBtn.type = "button";
+  diffBtn.setAttribute("aria-pressed", c.diffOnly ? "true" : "false");
+  diffBtn.textContent = c.diffOnly ? "✓ 差分だけ" : "差分だけを隠す ▾";
+  diffBtn.addEventListener("click", () => {
+    c.diffOnly = !c.diffOnly;
+    mlfRenderCompare();
+  });
+  const tagBtn = saiEl("button", `mlf-chip small${c.showMlflowTags ? " active" : ""}`);
+  tagBtn.type = "button";
+  tagBtn.setAttribute("aria-pressed", c.showMlflowTags ? "true" : "false");
+  tagBtn.textContent = c.showMlflowTags ? "✓ MLflow のタグ" : "MLflow のタグを隠す";
+  tagBtn.addEventListener("click", () => {
+    c.showMlflowTags = !c.showMlflowTags;
+    mlfRenderCompare();
+  });
+  chips.append(diffBtn, tagBtn);
+  box.appendChild(chips);
+
+  box.appendChild(mlfCompareTable());
+  box.appendChild(mlfCompareChartsBox());
+}
+
+/** 比較の表（最初の列は行の名前を固定し、横に流せるようにする）。 */
+function mlfCompareTable() {
+  const c = mlfCompare;
+  const wrap = saiEl("div", "mlf-cmp");
+  const rows = mlfCompareRows(c.runs, c.diffOnly).filter((row) => {
+    if (c.showMlflowTags) return true;
+    return !(row.section === "tag" && String(row.key).startsWith("mlflow."));
+  });
+  if (rows.length === 0) {
+    wrap.appendChild(saiEl("p", "mlf-note", "違いはありません（すべての値が同じです）。"));
+    return wrap;
+  }
+  const table = saiEl("table", "mlf-cmp-table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const corner = document.createElement("th");
+  corner.textContent = "項目";
+  headRow.appendChild(corner);
+  for (const run of c.runs) {
+    const info = run.info || {};
+    const th = document.createElement("th");
+    const name = saiEl("span", "mlf-cmp-name", mlfCompareHeadName(run));
+    const id = saiEl("span", "mlf-cmp-id", String(info.run_id || "").slice(0, 8));
+    th.append(name, id);
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  let section = "";
+  for (const row of rows) {
+    if (row.section !== section) {
+      section = row.section;
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = c.runs.length + 1;
+      td.className = "mlf-cmp-sec";
+      td.textContent = mlfCompareSectionTitle(section);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    const tr = document.createElement("tr");
+    if (row.same) tr.className = "same";
+    const th = document.createElement("th");
+    th.className = "mlf-cmp-key";
+    th.textContent = row.key;
+    tr.appendChild(th);
+    for (const value of row.values) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+/** 比較の下に置くグラフ（選んだ run に共通の指標ごとに 1 つ）。 */function mlfCompareChartsBox() {
+  const c = mlfCompare;
+  const sec = saiEl("div", "mlf-section");
+  sec.appendChild(saiEl("h3", "mlf-section-title", "指標のグラフ（重ねる）"));
+  const keys = Object.keys(c.charts || {});
+  if (keys.length === 0) {
+    sec.appendChild(
+      saiEl("p", "mlf-note", c.loading ? "読み込んでいます…" : "選んだ run に共通の指標がありません。")
+    );
+    return sec;
+  }
+  const grid = saiEl("div", "mlf-chart-grid");
+  for (const key of keys) {
+    const one = c.charts[key] || {};
+    const cell = saiEl("div", "mlf-chart-cell");
+    cell.appendChild(saiEl("h4", "mlf-chart-title", key));
+    const body = saiEl("div", "mlf-chart-body");
+    if (one.error) {
+      body.appendChild(saiEl("p", "mlf-note tiny", one.error));
+    } else if (!mlfHasPoints(one.series)) {
+      body.appendChild(saiEl("p", "mlf-note tiny", "時系列の記録がありません（最後の値だけ）"));
+    } else {
+      mlfLineChart(body, { series: mlfLabelSeries(one.series, c.runs), xKind: "step", title: key });
+    }
+    cell.appendChild(body);
+    grid.appendChild(cell);
+  }
+  sec.appendChild(grid);
+  return sec;
 }
 
 /** 画面を開く（app.js の SaiRoutes から呼ばれる）。 */
@@ -1433,6 +1993,7 @@ async function mlfOpenPage(params) {
       nextPageToken: "",
       loading: false,
       error: "",
+      pick: new Set(),
     };
     const main = document.getElementById("mlf-main");
     if (main) main.innerHTML = "";
@@ -1441,7 +2002,7 @@ async function mlfOpenPage(params) {
   } else if (p.page === "run") {
     await mlfShowRun(p);
   } else if (p.page === "compare") {
-    mlfShowCompare(p);
+    await mlfShowCompare(p);
   }
   mlfWasWide = mlfIsWideNow();
 }
@@ -1517,5 +2078,14 @@ if (typeof module !== "undefined" && module.exports) {
     mlfArtifactKind,
     mlfExt,
     mlfProjectChoices,
+    // U07（指標の時系列と run の比較）
+    mlfMetricKeys,
+    mlfMetricKeysOf,
+    mlfCompareRows,
+    mlfCompareSectionTitle,
+    mlfCompareHeadName,
+    MLF_COMPARE_MIN,
+    MLF_COMPARE_MAX,
+    MLF_BULK_RUNS,
   };
 }
