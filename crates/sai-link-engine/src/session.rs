@@ -1852,11 +1852,17 @@ pub fn claude_projects_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude").join("projects"))
 }
 
-/// cwd から Claude Code のプロジェクト slug を作る（`/` → `-`）。
+/// cwd から Claude Code のプロジェクト slug を作る（英数字以外は全部 `-`）。
 ///
 /// 例: `/Users/me/proj` → `-Users-me-proj`
+/// `.worktrees` の `.` も `-` になる: `/a/.worktrees/x` → `-a--worktrees-x`
+/// （実機の `~/.claude/projects/` で `.` が `-` になることを確認済み。
+/// `.` 以外の記号は cc の規則に合わせた（推測））。
 pub fn claude_project_slug(cwd: &Path) -> String {
-    cwd.to_string_lossy().replace('/', "-")
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 /// Claude Code のセッション JSONL パスを解決する（存在する場合のみ）。
@@ -1868,6 +1874,19 @@ pub fn claude_session_file(cwd: &Path, session_id: &str) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+/// セッション ID だけで `~/.claude/projects/*/<session_id>.jsonl` を探す。
+///
+/// worktree を消したあとなど cwd が分からないときの予備。セッション ID は UUID で
+/// 別の run のファイルを拾うことはない。
+pub fn claude_session_file_any_cwd(session_id: &str) -> Option<PathBuf> {
+    let file = format!("{}.jsonl", session_id);
+    fs::read_dir(claude_projects_dir()?)
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join(&file))
+        .find(|p| p.is_file())
 }
 
 /// Claude Code の JSONL を 1 行ずつコールバックへ渡す。
@@ -2469,6 +2488,39 @@ pub fn extract_cc_user_assistant_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// cc は cwd の `.` も `-` にする（実機の `~/.claude/projects/` の名前）。
+    /// worktree（`.worktrees/<branch>`）の会話が見つからなくなっていた。
+    #[test]
+    fn test_claude_project_slug_replaces_dot() {
+        assert_eq!(claude_project_slug(Path::new("/Users/me/proj")), "-Users-me-proj");
+        assert_eq!(
+            claude_project_slug(Path::new("/Users/touta/workdir/Sai/sai-moon/.worktrees/bugfix-70")),
+            "-Users-touta-workdir-Sai-sai-moon--worktrees-bugfix-70"
+        );
+    }
+
+    /// cwd が分からなくても、セッション ID だけで会話ファイルを探せる。
+    #[test]
+    fn test_claude_session_file_any_cwd_finds_by_session_id() {
+        let _env = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("sai-any-cwd-{}", std::process::id()));
+        let dir = home.join(".claude/projects/-gone--worktrees-x");
+        fs::create_dir_all(&dir).unwrap();
+        let sid = "cccccccc-3333-4333-8333-333333333333";
+        fs::write(dir.join(format!("{}.jsonl", sid)), "{}\n").unwrap();
+        let old = std::env::var_os("HOME");
+        std::env::set_var("HOME", &home);
+        let found = claude_session_file_any_cwd(sid);
+        let missing = claude_session_file_any_cwd("dddddddd-4444-4444-8444-444444444444");
+        match old {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+        let _ = fs::remove_dir_all(&home);
+        assert_eq!(found, Some(dir.join(format!("{}.jsonl", sid))));
+        assert_eq!(missing, None);
+    }
 
     #[test]
     fn test_sanitize_agent_name() {

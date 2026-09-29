@@ -295,6 +295,7 @@ pub fn project_name_for(project_root: &Path) -> String {
 ///
 /// - **cc**: `session::claude_session_file(cwd, agent_session_id)`。
 ///   cwd はプロジェクトルート（worktree 実行なら `.worktrees/<branch>` も探索）。
+///   それでも無ければセッション ID だけで探す（`claude_session_file_any_cwd`）。
 ///   **`cc_session_files(...)`（全体で一番新しい cc セッション）は使わない**
 ///   （別の実行のファイルを拾うことがあるため）。
 /// - **pi**: `session::resolve_session_dir` → `session::find_main_session_file`。
@@ -315,7 +316,8 @@ pub fn resolve_transcript(exec: &ExecutionHistory, project_root: &Path) -> Optio
                     }
                 }
             }
-            None
+            // worktree を消したあとなど cwd が分からないときは、セッション ID で探す
+            crate::session::claude_session_file_any_cwd(sid)
         }
         "gl" => None,
         _ => {
