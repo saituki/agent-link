@@ -12,6 +12,7 @@ templates:
   - domain
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 ---
 

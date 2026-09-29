@@ -275,6 +275,8 @@ fn card_spec(input: &str) -> Result<card::CardSpec> {
         origin_run: number_of(&value, "origin_run")?,
         role: text_of(&value, "role"),
         depth: text_of(&value, "depth"),
+        // Web からは文書を受け取らない（C-05 の `--input` は CLI の引数だけ）。
+        inputs: Vec::new(),
     })
 }
 

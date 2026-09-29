@@ -174,6 +174,9 @@ pub struct SciCardArgs {
     /// 推薦した実行の run_id
     #[arg(long)]
     pub origin_run: Option<i64>,
+    /// 依頼文に載せる文書の waggle トークン（繰り返し可）
+    #[arg(long = "input")]
+    pub input: Vec<String>,
 }
 
 impl SciCardArgs {
@@ -196,6 +199,7 @@ impl SciCardArgs {
             origin_run: self.origin_run,
             role: self.role.clone().unwrap_or_default(),
             depth: self.depth.clone().unwrap_or_default(),
+            inputs: self.input.clone(),
         })
     }
 }

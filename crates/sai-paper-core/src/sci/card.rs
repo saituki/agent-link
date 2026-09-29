@@ -206,6 +206,8 @@ pub struct CardSpec {
     pub role: String,
     /// 読む札の深さ（C-01）。空なら `full`。
     pub depth: String,
+    /// 依頼文に載せる文書の waggle トークン。`waggle:` を外して検査してから `- waggle:…` の行にする。
+    pub inputs: Vec<String>,
 }
 
 /// カードを作った結果。
@@ -284,6 +286,35 @@ pub struct FinishRead {
 
 // ---- カードを作る -------------------------------------------------------------
 
+/// 文書のトークンの形（英数字と `_` `-` だけ、4 文字から 64 文字）に合うかを見る。
+fn is_token(text: &str) -> bool {
+    let count = text.chars().count();
+    (4..=64).contains(&count)
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// 依頼文に載せる文書のトークンをそろえる（`waggle:` は外す）。
+///
+/// # Errors
+///
+/// 形が違うトークンが混ざっているとき。
+fn check_inputs(inputs: &[String]) -> Result<Vec<String>> {
+    let mut out = Vec::with_capacity(inputs.len());
+    for raw in inputs {
+        let token = raw.trim();
+        let bare = token.strip_prefix("waggle:").unwrap_or(token);
+        if !is_token(bare) {
+            return Err(SciError::Invalid(format!(
+                "文書のトークンの形が違います: {raw}"
+            )));
+        }
+        out.push(bare.to_string());
+    }
+    Ok(out)
+}
+
 /// 目的付きの sci のカードを todo に作り、節点と run を結ぶ。
 ///
 /// 読む札（`runner = user`）のときは `block` が空なら `sci-read` になり、
@@ -292,8 +323,8 @@ pub struct FinishRead {
 /// # Errors
 ///
 /// 検査に通らないもの（節点が無い、目的が無い、ブロックが `sci-` でない、範囲・型が
-/// 知らない値、仮置きや論文が多すぎる、論文が無い、実行者が知らない）、節点が
-/// 見つからない、ブロック定義が無い、DB・ファイルのエラー。
+/// 知らない値、仮置きや論文が多すぎる、論文が無い、実行者が知らない、文書のトークンが
+/// 形と違う）、節点が見つからない、ブロック定義が無い、DB・ファイルのエラー。
 pub fn create_card(
     db: &Database,
     roots: &PaperRoots,
@@ -342,6 +373,9 @@ pub fn create_card(
             purpose.chars().count()
         )));
     }
+
+    // 依頼文に載せる文書（無ければ節は出さない）。
+    let inputs = check_inputs(&spec.inputs)?;
 
     // 節点。
     let node = store::get_node(conn, spec.node).map_err(|_| {
@@ -445,6 +479,18 @@ pub fn create_card(
         description.push_str("\n## 読むときの問い\n");
         for question in &questions {
             description.push_str(&format!("- {question}\n"));
+        }
+        // 末尾の改行は `build_task_body` がつけるので 1 つ落とす。
+        description.pop();
+    }
+    if !inputs.is_empty() {
+        // 節と節のあいだに空行を 1 つ入れる（読む札のときは上で改行を落としている）。
+        if !description.ends_with("\n\n") {
+            description.push('\n');
+        }
+        description.push_str("## 受け取る文書\n");
+        for token in &inputs {
+            description.push_str(&format!("- waggle:{token}\n"));
         }
         // 末尾の改行は `build_task_body` がつけるので 1 つ落とす。
         description.pop();
@@ -926,6 +972,7 @@ mod tests {
             origin_run: None,
             role: String::new(),
             depth: String::new(),
+            inputs: Vec::new(),
         }
     }
 
@@ -1062,6 +1109,85 @@ mod tests {
         assert_ne!(again.run_id, made.run_id);
         let links = store::list_links(conn, Some(node), false).unwrap();
         assert_eq!(links.iter().filter(|l| l.target_kind == "paper").count(), 1);
+    }
+
+    /// 受け取る文書の行が依頼文の末尾に付くこと（`waggle:` は外して検査する）。
+    #[test]
+    fn card_puts_inputs_at_the_end() {
+        let (fix, db) = fixture("inputs", &["sci-compare"]);
+        let conn = db.connection();
+        let node = add_item(conn, "小目的", Some("purpose.subgoal"));
+        let mut card = spec(node);
+        card.inputs = vec!["AbCd1234".to_string(), "waggle:EfGh5678".to_string()];
+        let made = create_card(&db, &fix.roots, &defs(), &card).unwrap();
+        let text = fs::read_to_string(&made.path).unwrap();
+
+        assert!(text.contains("## 受け取る文書"), "{text}");
+        assert!(text.contains("- waggle:AbCd1234\n"), "{text}");
+        assert!(text.contains("- waggle:EfGh5678\n"), "{text}");
+        // `waggle:` を重ねない。
+        assert!(!text.contains("waggle:waggle:"), "{text}");
+        // 読む札のときは「読むときの問い」の後ろに付く。
+        let (rfix, rdb) = fixture("inputs-read", &["sci-read"]);
+        let rconn = rdb.connection();
+        let rnode = add_item(rconn, "小目的", Some("purpose.subgoal"));
+        let mut read = spec(rnode);
+        read.block = String::new();
+        read.runner = "user".to_string();
+        read.papers = vec![37];
+        read.role = "exemplar".to_string();
+        read.inputs = vec!["AbCd1234".to_string()];
+        let rmade = create_card(&rdb, &rfix.roots, &defs(), &read).unwrap();
+        let rtext = fs::read_to_string(&rmade.path).unwrap();
+        let questions = rtext.find("## 読むときの問い").expect("読むときの問い");
+        let inputs_at = rtext.find("## 受け取る文書").expect("受け取る文書");
+        assert!(questions < inputs_at, "{rtext}");
+    }
+
+    /// 受け取る文書の形が違うと作れないこと（カードも run も増えない）。
+    #[test]
+    fn card_rejects_bad_input_token() {
+        let (fix, db) = fixture("bad-input", &["sci-compare"]);
+        let conn = db.connection();
+        let node = add_item(conn, "小目的", Some("purpose.subgoal"));
+        let mut bad = spec(node);
+        bad.inputs = vec!["bad token!".to_string()];
+        let err = create_card(&db, &fix.roots, &defs(), &bad).unwrap_err();
+        assert!(
+            err.to_string().contains("文書のトークンの形が違います"),
+            "{err}"
+        );
+
+        // 短すぎるものも同じ形で弾く。
+        let mut short = spec(node);
+        short.inputs = vec!["ab".to_string()];
+        let err = create_card(&db, &fix.roots, &defs(), &short).unwrap_err();
+        assert!(
+            err.to_string().contains("文書のトークンの形が違います"),
+            "{err}"
+        );
+
+        let outputs = fix.dir.join(".sai").join("outputs").join("todo");
+        let made = fs::read_dir(&outputs).map(|dirs| dirs.count()).unwrap_or(0);
+        assert_eq!(made, 0);
+    }
+
+    /// 受け取る文書が無いとき、依頼文は今までと 1 字も変わらないこと。
+    #[test]
+    fn card_without_inputs_keeps_the_old_body() {
+        let (fix, db) = fixture("no-inputs", &["sci-compare"]);
+        let conn = db.connection();
+        let node = add_item(conn, "小目的", Some("purpose.subgoal"));
+        let made = create_card(&db, &fix.roots, &defs(), &spec(node)).unwrap();
+        let text = fs::read_to_string(&made.path).unwrap();
+
+        assert!(!text.contains("## 受け取る文書"), "{text}");
+        assert!(!text.contains("waggle:"), "{text}");
+        // 依頼文は「- 期待する成果: …」のあと空行で終わる（今までと同じ）。
+        let expected = format!(
+            "# task_text\n\n候補を比べる\n\n- 節点: N{node} 小目的\n- 期待する成果: 比較表と推奨\n\n\n"
+        );
+        assert!(text.ends_with(&expected), "{text}");
     }
 
     /// 知見が無く理由も無いと終えられないこと。

@@ -12,6 +12,7 @@ sci_ops: add_question, answer_question
 sci_scope: node
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 ---
 

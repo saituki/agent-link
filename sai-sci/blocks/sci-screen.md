@@ -13,6 +13,7 @@ sci_ops: link, exclude, add_question
 sci_scope: node
 timeout: 3600
 worktree: none
+layer: root
 enable: true
 ---
 

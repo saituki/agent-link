@@ -10,6 +10,7 @@ templates:
   - literature-hard-rules
 timeout: 3600
 worktree: none
+layer: root
 enable: true
 ---
 
