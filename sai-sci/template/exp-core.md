@@ -276,7 +276,7 @@ seed_run_id: 125
   sai-ssh run <EXP_SSH_HOST> -- env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --with mlflow python <スクリプトのパス>
   ```
 
-- リモートに投げたら、标准出力の 1 行目に出る job_id を控えて `sai-ssh status <job_id> --json` で待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
+- リモートに投げたら、標準出力の 1 行目に出る job_id を控えて `sai-ssh status <job_id> --json` で待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
 - 回収すると、記録は中央の MLflow に入る。branch は自分で台帳を取り直さない。
 
 ## 9. 作業報告書（branch）

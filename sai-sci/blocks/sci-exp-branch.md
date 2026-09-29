@@ -85,7 +85,7 @@ seed_run_id: 125
    EXP_NAME=<mlflow_experiment> uv run --no-project --with mlflow python -c "
    import os, mlflow
    exp = mlflow.get_experiment_by_name(os.environ['EXP_NAME'])
-   runs = mlflow.search_runs([exp.experiment_id], filter_string=\"tags.sai.run_id = '\" + os.environ['SAI_PARENT_RUN_ID'] + \"'\")
+   runs = mlflow.search_runs([exp.experiment_id], filter_string='tags.\`sai.run_id\` = \"' + os.environ['SAI_PARENT_RUN_ID'] + '\"')
    print(runs[['run_id', 'tags.exp.script', 'tags.exp.generation']])"
    ```
 

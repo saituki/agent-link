@@ -175,7 +175,7 @@ subblocks:
 
 4. **記録の無い世代を数える。** 各 branch の返ってきた `report` に作業報告書のトークンが無ければ、その branch の記録は無い。**その世代の branch が 1 つも記録が無いことが 2 代続けて続いたら、往復を止めて利用者に質問する**（`exp-core` §11）。1 代だけなら R4 の `debug` として次へ進む（判定書 6 の R4 が `debug` を返す）。
 
-5. **各 branch の作業報告書（`exp-core` §9）を `sai_read` で読み、状態欄が「記録なし」ではないことを確かめる。** 確かめてから `task_manage finalize` で子を閉じる。閉じる前に次の seed を作る。
+5. **各 branch の作業報告書（`exp-core` §9）を `sai_read` で読み、状態欄が「記録なし」ではないことを確かめる。** 確かめてから `task_manage finalize` で子を閉じる。
 
 ### 7. 次の世代の seed を起こす
 
