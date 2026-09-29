@@ -188,6 +188,10 @@ pub struct BlockConfig {
     #[serde(default)]
     pub round: Option<u32>,
 
+    /// research-tree の層。root / seed / branch。書かなければ図に出さない
+    #[serde(default)]
+    pub layer: Option<String>,
+
     /// テンプレートファイル名のリスト。
     ///
     /// `PROJECTROOT/.sai/template/<名前>.md` から読み込まれた内容が

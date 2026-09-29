@@ -251,6 +251,8 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "execution_history", "session_stats_json", "TEXT")?;
     migrate_add_column(conn, "block_metadata", "tag", "TEXT")?;
     migrate_add_column(conn, "block_metadata", "round", "INTEGER")?;
+    // research-tree の層（root / seed / branch）。無ければ実行の図に出さない
+    migrate_add_column(conn, "block_metadata", "layer", "TEXT")?;
     // id/name 分離（表示名）: sai-tui 等の表示用に display_name を追加
     migrate_add_column(
         conn,

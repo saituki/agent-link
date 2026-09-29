@@ -83,6 +83,8 @@ pub struct BlockMetadata {
     pub tag: Option<String>,
     /// ラウンド番号（1始まり）
     pub round: Option<i64>,
+    /// research-tree の層（`root` / `seed` / `branch`。無ければ図に出さない）
+    pub layer: Option<String>,
     /// 作成日時（ISO 8601）
     pub created_at: String,
     /// 更新日時（ISO 8601）
@@ -127,6 +129,7 @@ impl BlockMetadata {
             body_hash,
             tag: None,
             round: None,
+            layer: None,
             created_at: String::new(), // DB デフォルト値で設定
             updated_at: String::new(), // DB デフォルト値で設定
         }
