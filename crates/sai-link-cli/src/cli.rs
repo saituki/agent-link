@@ -618,6 +618,46 @@ pub enum PhoneCmd {
         period: String,
     },
 
+    /// 文書（task.md / message.md / waggle の md 成果物）の本文を検索して JSON で返す
+    ///
+    /// 検索語は空白区切りの AND（大文字小文字は区別しない）。新しい run から順に見て、
+    /// `--limit` 件で打ち切る（`truncated`）。message.md は run フォルダにあるものだけを見る
+    /// （開いたときに作り直す文書なので、まだ作られていない run は当たらない）。
+    /// 結果は `{items: [{run_id, category, file, token?, block, date, snippet}], truncated}`。
+    Search {
+        /// 検索語（空白区切りで AND）
+        #[arg(long)]
+        word: String,
+
+        /// 対象の種類（カンマ区切り。task / message / waggle）
+        #[arg(long, default_value = "task,message,waggle")]
+        category: String,
+
+        /// この日以降の run（`YYYY-MM-DD`・日本時間の実行日）
+        #[arg(long)]
+        since: Option<String>,
+
+        /// この日以前の run（`YYYY-MM-DD`）
+        #[arg(long)]
+        until: Option<String>,
+
+        /// ブロック名（完全一致）
+        #[arg(long)]
+        block: Option<String>,
+
+        /// run_id の下限
+        #[arg(long)]
+        from_id: Option<i64>,
+
+        /// run_id の上限
+        #[arg(long)]
+        to_id: Option<i64>,
+
+        /// 返す件数の上限
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+
     /// メイン画面（Workflow の実行ブロック線図）の DAG を JSON で返す
     ///
     /// - `nodes`: TUI が描くのと同じ座標（文字マス単位・`x` `y` `w` `h`）で返す
