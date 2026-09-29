@@ -90,7 +90,7 @@ subblocks:
 1. **台帳を取る。** `exp-core` §5 のとおりに呼ぶ。`--direction` は省略しない。
 
    ```bash
-   uv run --no-project --with mlflow python "$EXP_SUMMARY_PY" \
+   uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
      --study <study> --metric <指標名> --direction <maximize|minimize> \
      [--min-delta <min_delta>] [--experiment <mlflow_experiment>]
    ```

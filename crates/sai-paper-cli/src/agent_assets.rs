@@ -82,6 +82,14 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("exp-ssh.md", include_str!("../../../sai-sci/template/exp-ssh.md")),
 ];
 
+/// sai-sci の道具（`.sai/tools/` に置く。実験ループの台帳）。
+///
+/// ブロックは `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py` の名前で呼ぶ（環境変数は要らない）。
+const SCI_TOOLS: &[(&str, &str)] = &[(
+    "exp_summary.py",
+    include_str!("../../../sai-sci/tools/exp_summary.py"),
+)];
+
 /// sai-sci の土壌（`.sai/paper/mind.md`）のひな形。
 ///
 /// 研究方針の木が無いプロジェクトの `mind.md` は、今の `project_files::MIND_TEMPLATE` の
@@ -358,6 +366,9 @@ fn install_sci_parts(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
     }
     for (name, content) in SCI_TEMPLATES {
         written += usize::from(write_if_missing(&sai.join("template").join(name), content)?);
+    }
+    for (name, content) in SCI_TOOLS {
+        written += usize::from(write_if_missing(&sai.join("tools").join(name), content)?);
     }
     done.push(format!(
         "sci のブロックとテンプレートを {written} 件置きました（既にあるものはそのまま）"
@@ -648,6 +659,28 @@ mod tests {
         }
         assert!(root.join(".sai/template/domain.md").is_file());
         assert!(root.join(".sai/template/literature-hard-rules.md").is_file());
+
+        // 実験ループの台帳は `.sai/tools/` に置く。ブロックはこの名前で呼ぶ
+        for (name, content) in SCI_TOOLS {
+            let path = root.join(".sai/tools").join(name);
+            assert!(path.is_file(), "{name} が配られていない");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), *content, "{name} の中身が違う");
+        }
+        for (name, content) in SCI_BLOCKS.iter().chain(SCI_TEMPLATES.iter()) {
+            assert!(!content.contains("EXP_SUMMARY_PY"), "{name} に廃止した EXP_SUMMARY_PY が残っている");
+        }
+        for name in ["sci-exp-seed.md", "sci-exp-branch.md", "exp-core.md"] {
+            let content = SCI_BLOCKS
+                .iter()
+                .chain(SCI_TEMPLATES.iter())
+                .find(|(n, _)| *n == name)
+                .map(|(_, c)| *c)
+                .unwrap_or_else(|| panic!("{name} が無い"));
+            assert!(
+                content.contains("$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py"),
+                "{name} が台帳の置き場を示していない"
+            );
+        }
 
         // 実行直前に範囲を作る命令（実行ファイルの絶対パス + `sci context --run`）
         let settings = read_json(&root.join(".sai/settings.json")).unwrap();

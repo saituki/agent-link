@@ -67,6 +67,7 @@ sai-sci/
 ├── guides/     # 項目ガイド（上の項目 9 本・子の項目 16 本）
 ├── template/   # sci-core.md（エージェントの共通の決まり）と exp-core.md・exp-ssh.md（実験ループの決まり）
 ├── mind.md     # 土壌のひな形
+├── tools/      # 実験ループの台帳 exp_summary.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 └── blocks/     # 18 本のブロック
 ```
 
@@ -186,6 +187,7 @@ sai-moon-paper sci init --type <型>
 |---|---|
 | 18 本の `sci-*` ブロック | `<root>/.sai/blocks/` |
 | `sci-core.md`・`exp-core.md`・`exp-ssh.md`（と 18 本が使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 台帳 `exp_summary.py`（実験ループが判定の材料を取る道具。無いときだけ書く） | `<root>/.sai/tools/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（土壌のひな形。無いときだけ書く） | `<root>/.sai/paper/mind.md` |
 | 型と項目ガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
@@ -278,7 +280,7 @@ sai-moon-link phone card run <返ってきた run_id>
 - **自然に止まる**: 判定が `stop` になるときだけ。`max_generations`（既定 8 世代）に達したときと、成功基準に `ablation` まで済んで達したとき。
 - **利用者に訊いて止める**: 同じ世代で branch の記録が 1 つも無いことが 2 代続けて続いたとき、または判定書が 2 回続けて作られなかったとき。実験を勝手に進めず、MLflow への接続などを訊いて止まる。
 
-**実行場所**は環境変数 `EXP_SSH_HOST` で選ぶ。空なら手元で実行し、空でなければ `sai-ssh run` でリモートに投げて `exp-ssh.md` の手順で回収する。台帳コマンド `exp_summary.py` の置き場は環境変数 `EXP_SUMMARY_PY` で知らせる。
+**実行場所**は環境変数 `EXP_SSH_HOST` で選ぶ。空なら手元で実行し、空でなければ `sai-ssh run` でリモートに投げて `exp-ssh.md` の手順で回収する。台帳コマンド `exp_summary.py` は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く（環境変数は要らない）。
 
 ---
 

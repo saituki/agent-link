@@ -155,12 +155,14 @@ with mlflow.start_run(
 
 ### 台帳コマンド `exp_summary.py`
 
-置き場所は環境変数 `EXP_SUMMARY_PY`。**呼び出すときは必ず `"$EXP_SUMMARY_PY"` を使う**（パスを自分で組み立てない）。空なら `BLOCKED` で報告して終える。
+置き場所は `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py`（`sai-moon-paper sci init` が配る。`SAI_PROJECT_ROOT` は sai-link が必ず入れる）。**呼び出すときは必ずこの形を使う**（別のファイルを探したり、パスを作り変えたりしない）。ファイルが無いときは `BLOCKED` で報告して終える。
+
+`--python ">=3.10"` は、`~/.python-version` などが入っていない Python を指していても、使える Python で動かすための指定である。**外さない。**
 
 呼び出し:
 
 ```bash
-uv run --no-project --with mlflow python "$EXP_SUMMARY_PY" \
+uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
   --study <study> --metric <名前> --direction maximize|minimize \
   [--min-delta 0.0001] [--leak-max 0.999] [--leak-min 1e-6] \
   [--experiment <名前>] [--tracking-uri <URI>]

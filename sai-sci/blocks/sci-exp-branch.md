@@ -94,13 +94,13 @@ seed_run_id: 125
 2. **台帳で自分の世代と script を確認する。** `exp-core` §5 のとおりに呼ぶ。`--direction` は省略しない。
 
    ```bash
-   uv run --no-project --with mlflow python "$EXP_SUMMARY_PY" \
+   uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
      --study <study> --metric <指標名> --direction <maximize|minimize> \
      [--min-delta <min_delta>] [--experiment <mlflow_experiment>]
    ```
 
    - `scripts[]` の中で `script` が依頼の `script` と同じものを探し、`rounds` に自分の `generation` が入っていることを確かめる。この `scripts[]` の自分の欄にある `trials`（試行の数）・`failed`（失敗の数）・`best`（最良値）を控えておく（作業報告書の表に使う）。
-   - `EXP_SUMMARY_PY` が空のとき（`printenv EXP_SUMMARY_PY` で空行だけ）は `BLOCKED` で報告して終える（推測で別のファイルを使うな）。
+   - `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py` が無いとき（`test -f` で確かめる）は `BLOCKED` で報告して終える（推測で別のファイルを使うな）。
 
 ### 4. 報告する
 
