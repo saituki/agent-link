@@ -17,8 +17,8 @@
 
 // 一覧の表示の切り替えを覚える場所（localStorage）
 const ST_MODE_KEY = "sai_phone_sci_mode";
-// 表示の切り替え（一覧 / 根の図 / 表）
-const ST_MODES = [["list", "一覧"], ["graph", "根の図"], ["table", "表"]];
+// 表示の切り替え（一覧 / 根の図 / 表 / 実行の図）
+const ST_MODES = [["list", "一覧"], ["graph", "根の図"], ["table", "表"], ["runs", "実行の図"]];
 // 研究の型（C-01。C-14 の用語の札の解説に並ぶ順）
 const ST_TYPES = [
   ["problem", "課題駆動", "首先要、問いを明らかにする研究です。何をなぜやるのかから決めます。"],
@@ -98,6 +98,19 @@ const ST_LINK_KINDS = {
   run: "実行",
 };
 
+// 実行の図（U08）で読むタグと層（C-02 / C-04）
+const ST_RUN_LAYERS = ["root", "seed", "branch"];
+const ST_RUN_LAYER_LABELS = { root: "方針", seed: "計画", branch: "実行" };
+// 指標を探すときの絞り込み（親 run だけ。`exp.role` = script）
+const ST_RUN_ROLE = "script";
+// 1 回の検索で取る行の数と、`next_page_token` で頁を繰る回数の上限
+const ST_RUN_PAGE_SIZE = 100;
+const ST_RUN_MAX_PAGES = 10;
+// 指標の親 run がないときの注（図の上に 1 行出す）
+const ST_RUN_NO_MLF = "MLflow に接続できないので、指標は出していません";
+// 繋がっているが検索が弾かれたときの注（MLflow の返答を鵜呑みにしない）
+const ST_RUN_NO_METRIC = "指標を読み込めませんでした（MLflow の検索が通らなかった）";
+
 // --- 画面の状態 ---
 
 let stData = null;      // 最後に読んだ status の JSON
@@ -106,6 +119,7 @@ let stNodeId = null;    // 今開いている節点（無ければ null）
 let stSheet = null;     // 狭い画面の板（saiSheet が返した物）
 let stSheetFor = null;  // 板が出している節点
 let stSheetBody = null; // 板の中の入れ物（読み直して作り直すため覚えておく）
+let stRunsTicket = 0;   // 実行の図の読み込みの通し番号（古い返事を捨てる）
 
 // ============================================================================
 // DOM を使わない純関数（tests/test_scitree.js）
@@ -238,6 +252,74 @@ function stDecisionRows(decisions) {
 }
 
 // ============================================================================
+// 実行の図（U08。指標の辞書はここで作る）
+// ============================================================================
+
+/** MLflow の run からタグの値を取る（無ければ空文字）。 */
+function stMlfTag(run, key) {
+  const tags = (run && run.data && run.data.tags) || [];
+  for (const one of tags) if (one && one.key === key) return one.value == null ? "" : String(one.value);
+  return "";
+}
+
+/** MLflow の run から指標の値を取る（指標名が一致するものが無ければ null）。 */
+function stMlfMetricValue(run, key) {
+  const metrics = (run && run.data && run.data.metrics) || [];
+  let found = null;
+  for (const one of metrics) {
+    if (!one || one.key !== key) continue;
+    found = one.value == null ? "" : String(one.value);
+  }
+  return found;
+}
+
+/**
+ * 親 run（`exp.role` = script）から、branch の run ごとの指標の辞書を作る。
+ * `{"<sai.run_id>": "<指標名> <値>"}` の形。
+ *
+ * - 使うタグは `sai.run_id` / `exp.metric` / `exp.direction`（C-04）。
+ *   `exp.metric` か `sai.run_id` が無い run は飛ばす。
+ * - 同じ `sai.run_id` の親 run が 2 つ以上あれば、`exp.direction` に従って
+ *   良いほうを採る（無いときは `maximize`）。比較できない値なら先に来た方を残す。
+ * - 値は C-04 のとおり `data.metrics` のうち `exp.metric` と同じ名前のもの。
+ */
+function stRunMetrics(runs) {
+  const best = new Map(); // sai.run_id → {text, value, minimize}
+  for (const run of Array.isArray(runs) ? runs : []) {
+    const saiRun = stMlfTag(run, "sai.run_id");
+    const metric = stMlfTag(run, "exp.metric");
+    if (!saiRun || !metric) continue;
+    const raw = stMlfMetricValue(run, metric);
+    if (raw == null || raw === "") continue;
+    const value = Number(raw);
+    const minimize = stMlfTag(run, "exp.direction") === "minimize";
+    const text = `${metric} ${raw}`;
+    const prev = best.get(saiRun);
+    if (!prev) {
+      best.set(saiRun, { text, value, minimize });
+      continue;
+    }
+    // 数が読めない値なら先に来た方を残す
+    if (!Number.isFinite(prev.value) || !Number.isFinite(value)) continue;
+    const better = prev.minimize ? value < prev.value : value > prev.value;
+    if (better) best.set(saiRun, { text, value, minimize });
+  }
+  const out = {};
+  for (const [k, v] of best) out[k] = v.text;
+  return out;
+}
+
+/** 実行の図の札の 2 行目に出す状態（日本語）。scigraph.js の sgRunStateOf と同じ表。 */
+function stRunStatusLabel(status) {
+  const s = String(status || "");
+  if (s === "running") return "実行中";
+  if (s === "completed") return "完了";
+  if (s === "failed") return "失敗";
+  if (s === "cancelled") return "中止";
+  return s || "待ち";
+}
+
+// ============================================================================
 // 小さい DOM を作る手（ui.js の saiEl をそのまま使ってもよいが、ここでも同じ形で作る）
 // ============================================================================
 
@@ -295,7 +377,7 @@ function stLine(cls) {
 // 覚えるもの（一覧の表示の切り替え）
 // ============================================================================
 
-/** 一覧の表示の切り替え（list / graph / table）を読み戻す。 */
+/** 一覧の表示の切り替え（list / graph / table / runs）を読み戻す。 */
 function stLoadMode() {
   try {
     const v = localStorage.getItem(ST_MODE_KEY);
@@ -395,7 +477,7 @@ function stSyncSplit() {
   if (board) board.classList.add("sai-split-main");
 }
 
-// --- 表示の切り替え（一覧 / 根の図 / 表） ---
+// --- 表示の切り替え（一覧 / 根の図 / 表 / 実行の図） ---
 
 let stMode = "list";
 
@@ -613,6 +695,14 @@ function stRenderList() {
   const box = document.getElementById("sci-list");
   if (!box) return;
   box.innerHTML = "";
+  if (stMode === "runs") {
+    // 根の図と同じ置き方にする（広い画面は右の板、狭い画面は一覧の欄）
+    const target = document.getElementById(stGraphBoxId(saiIsWide())) || box;
+    target.appendChild(stEl("p", "sci-note", "読み込み中…"));
+    if (target !== box) stRenderListRows(box);
+    void stLoadRuns(target);
+    return;
+  }
   if (stMode === "graph") {
     // 広い画面では根の図を右の板（#sci-board）に描く。一覧の欄は 300px しか無くて
     // 拡大率が下がりすぎるため（狭い画面は今まで通り一覧の欄につる）。
@@ -686,14 +776,129 @@ function stListRow(r) {
 }
 
 // ============================================================================
+// 実行の図（#/papers/tree の 4 つ目の表示・U08）
+// ============================================================================
+
+/** 実行の図の読み込みと描く（U08・C-02 / C-03）。読み込み中は「読み込み中…」を出す。 */
+async function stLoadRuns(target) {
+  const ticket = ++stRunsTicket;
+  const project = selectedPaperProject();
+  const alive = () => ticket === stRunsTicket && stMode === "runs" && target && target.isConnected;
+  let dag = { nodes: [], edges: [] };
+  try {
+    dag = await saiApi(`/api/projects/${encodeURIComponent(project)}/rtree`);
+  } catch (e) {
+    if (!alive()) return;
+    target.innerHTML = "";
+    target.appendChild(stEmpty({
+      icon: "⚠️",
+      title: "実行の図を読めませんでした",
+      body: (e && e.message) || "もう一度読み込んでください。",
+    }));
+    return;
+  }
+  if (!alive()) return;
+
+  // 指標（MLflow が 503 のときは描かずに注だけ出す）
+  let metrics = {};
+  let note = "";
+  try {
+    metrics = await stFetchRunMetrics(project);
+  } catch (e) {
+    metrics = {};
+    note = e && e.status === 503 ? ST_RUN_NO_MLF : ST_RUN_NO_METRIC;
+  }
+  if (!alive()) return;
+
+  if (typeof sgRenderRuns !== "function") {
+    target.innerHTML = "";
+    target.appendChild(stNotYet("実行の図"));
+    return;
+  }
+  sgRenderRuns(target, dag, metrics, (runId) => stOpenRunSheet(runId, dag));
+  // 実行の層の run が 1 つも無いときは指標の注を出さない（出す問題がが無い）
+  const hasBranch = (Array.isArray(dag && dag.nodes) ? dag.nodes : []).some((n) => n && n.layer === "branch");
+  if (note && hasBranch) target.insertBefore(stEl("p", "sci-note sci-runs-note", note), target.firstChild);
+}
+
+/** 実行の図の指標の辞書（MLflow の親 run から作る・C-03 / C-04）。 */
+async function stFetchRunMetrics(project) {
+  const exps = await saiApi("/api/mlflow/experiments");
+  const ids = (Array.isArray(exps && exps.experiments) ? exps.experiments : [])
+    .map((e) => (e && e.experiment_id != null ? String(e.experiment_id) : ""))
+    .filter((id) => id !== "");
+  if (!ids.length) return {};
+
+  const runs = [];
+  let pageToken = "";
+  for (let page = 0; page < ST_RUN_MAX_PAGES; page += 1) {
+    const body = {
+      experiment_ids: ids,
+      project,
+      filter: `tags."exp.role" = "${ST_RUN_ROLE}"`,
+      max_results: ST_RUN_PAGE_SIZE,
+    };
+    if (pageToken) body.page_token = pageToken;
+    const data = await saiApi("/api/mlflow/runs/search", { method: "POST", body });
+    for (const one of Array.isArray(data && data.runs) ? data.runs : []) runs.push(one);
+    pageToken = (data && data.next_page_token) || "";
+    if (!pageToken) break;
+  }
+  return stRunMetrics(runs);
+}
+
+/** 実行の図の札の sheet。run の番号・ブロック・状態・説明と、飛び先の釦。 */
+function stOpenRunSheet(runId, dag) {
+  const d = dag || {};
+  const nodes = Array.isArray(d.nodes) ? d.nodes : [];
+  const node = nodes.find((n) => n && String(n.run_id) === String(runId));
+  if (!node) return;
+  const body = stEl("div", "sci-runs-sheet");
+  const head = stLine("sci-line-main");
+  head.appendChild(stEl("p", "sci-line-title", `#${node.run_id}　${node.name || node.block || ""}`.trim()));
+  head.appendChild(stChip(ST_RUN_LAYER_LABELS[node.layer] || "実行", "muted"));
+  head.appendChild(stChip(stRunStatusLabel(node.status), node.status === "running" ? "warn" : "muted"));
+  body.appendChild(head);
+  if (node.description) body.appendChild(stEl("p", "sci-line-sub", node.description));
+
+  const ops = stLine("sci-ops");
+  ops.appendChild(stBtn("実行を開く", () => {
+    if (typeof saiOverlayShut === "function") saiOverlayShut();
+    location.hash = `#/run/${encodeURIComponent(selectedPaperProject())}/${encodeURIComponent(node.run_id)}`;
+  }));
+  if (node.layer === "branch") {
+    ops.appendChild(stBtn("実験の記録", () => {
+      if (typeof saiOverlayShut === "function") saiOverlayShut();
+      location.hash = `#/mlflow/e/all?sai_run=${encodeURIComponent(node.run_id)}`;
+    }));
+  } else if (node.layer === "seed") {
+    ops.appendChild(stBtn("実験の記録", () => {
+      if (typeof saiOverlayShut === "function") saiOverlayShut();
+      location.hash = `#/mlflow/e/all?seed=${encodeURIComponent(node.run_id)}`;
+    }));
+  }
+  if (node.sci_node) {
+    ops.appendChild(stBtn(`研究方針 ${node.sci_node}`, () => {
+      if (typeof saiOverlayShut === "function") saiOverlayShut();
+      // 一覧の表示に切り替えて、その項目を開く
+      stMode = "list";
+      stSaveMode("list");
+      void stSelect(node.sci_node);
+    }));
+  }
+  body.appendChild(ops);
+  if (typeof saiSheet === "function") saiSheet({ title: "実行", body });
+}
+
+// ============================================================================
 // 項目の板
 // ============================================================================
 
 /** 板を出す（広い画面は右の欄、狭い画面は下から）。 */
 function stRenderBoard() {
   const box = document.getElementById("sci-board");
-  // 広い画面の根の図は stRenderList が板に描く。ここ在上書きしない
-  if (box && stMode === "graph" && saiIsWide()) return;
+  // 広い画面の根の図・実行の図は stRenderList が板に描く。ここ在上書きしない
+  if (box && (stMode === "graph" || stMode === "runs") && saiIsWide()) return;
   if (box && saiIsWide()) {
     box.innerHTML = "";
     if (stSheet) stCloseSheet();
@@ -1253,6 +1458,19 @@ if (typeof module !== "undefined" && module.exports) {
     stPaperHash,
     stGraphBoxId,
     stTableEmptyHint,
+    stLoadMode,
+    stSaveMode,
+    stRunMetrics,
+    stMlfTag,
+    stMlfMetricValue,
+    stRunStatusLabel,
+    ST_MODE_KEY,
+    ST_RUN_LAYERS,
+    ST_RUN_LAYER_LABELS,
+    ST_RUN_PAGE_SIZE,
+    ST_RUN_MAX_PAGES,
+    ST_RUN_NO_MLF,
+    ST_RUN_NO_METRIC,
     ST_MODES,
     ST_TYPES,
     ST_ITEM_TYPES,

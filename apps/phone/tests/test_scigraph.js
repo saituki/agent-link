@@ -27,9 +27,19 @@ const {
   sgGateKeys,
   sgStateOf,
   sgEdgePath,
+  sgRunsLayout,
+  sgRunLayer,
+  sgRunLayerLabel,
+  sgRunStateOf,
+  sgRunTimeLabel,
+  sgRunEdgeStyle,
   SG_CARD_W,
   SG_CARD_H,
   SG_EDGE_KINDS,
+  SG_RUN_LAYERS,
+  SG_RUN_EDGE_KINDS,
+  SG_RUN_STATES,
+  SG_RUN_LAYOUT_KINDS,
 } = require(path.join(__dirname, "..", "src", "sai_phone", "static", "scigraph.js"));
 
 // --- C-08 の status の見本（項目 3 つ・候補 4 つ・4 種類の線） ---
@@ -275,6 +285,213 @@ function testTableRowsEmpty() {
   assert.strictEqual(odd[0].state, "???");
 }
 
+// --- 実行の図（C-02 の 3 層の DAG） ---
+
+/** C-02 の node 1 枚。 */
+function runNode(runId, layer, extra) {
+  return {
+    run_id: runId,
+    block: `sci-${layer}`,
+    name: `🌱 ${layer}-${runId}`,
+    layer,
+    status: "completed",
+    created_at: "2026-09-30 01:02:03",
+    finished_at: null,
+    parent_run_id: null,
+    description: "",
+    sci_node: null,
+    global_round: null,
+    round: null,
+    ...(extra || {}),
+  };
+}
+
+/** C-02 の edge 1 本。 */
+function runEdge(from, to, kind) {
+  return { from, to, kind };
+}
+
+/** AC1 の例（root 2 → seed 1 → branch 3 → 次の seed 1。task_output 3 本）。 */
+function sampleRtree() {
+  return {
+    nodes: [
+      runNode(100, "root"),
+      runNode(101, "root"),
+      runNode(110, "seed"),
+      runNode(120, "branch"),
+      runNode(121, "branch"),
+      runNode(122, "branch"),
+      runNode(130, "seed"),
+    ],
+    edges: [
+      runEdge(100, 101, "waggle_token"),
+      runEdge(101, 110, "waggle_token"),
+      runEdge(110, 120, "delegation"),
+      runEdge(110, 121, "delegation"),
+      runEdge(110, 122, "delegation"),
+      runEdge(122, 130, "waggle_token"),
+      // 返却の線（delegation の逆向き）。配置に使わないので 3 本とも無視される
+      runEdge(120, 110, "task_output"),
+      runEdge(121, 110, "task_output"),
+      runEdge(122, 110, "task_output"),
+    ],
+  };
+}
+
+function colOf(layout, runId) {
+  const card = layout.cards.find((c) => String(c.run_id) === String(runId));
+  assert.ok(card, `run ${runId} の札がありません`);
+  return card.col;
+}
+
+function testRunsLayoutColumns() {
+  const layout = sgRunsLayout(sampleRtree());
+  // 列は深さ（その run までの最長の道）。root 0,1・seed 2・branch 3・次の seed 4
+  assert.strictEqual(colOf(layout, 100), 0);
+  assert.strictEqual(colOf(layout, 101), 1);
+  assert.strictEqual(colOf(layout, 110), 2);
+  assert.strictEqual(colOf(layout, 120), 3);
+  assert.strictEqual(colOf(layout, 121), 3);
+  assert.strictEqual(colOf(layout, 122), 3);
+  assert.strictEqual(colOf(layout, 130), 4);
+  // 札の大きさは根の図にそろえる
+  for (const c of layout.cards) {
+    assert.strictEqual(c.w, SG_CARD_W);
+    assert.strictEqual(c.h, SG_CARD_H);
+  }
+}
+
+function testRunsLayoutBands() {
+  const layout = sgRunsLayout(sampleRtree());
+  // 帯は root・seed・branch の 3 本（上から）
+  assert.deepStrictEqual(layout.bands.map((b) => b.layer), ["root", "seed", "branch"]);
+  // 帯は上から順に積まれている（重ならない）
+  for (let i = 1; i < layout.bands.length; i += 1) {
+    assert.ok(layout.bands[i].y >= layout.bands[i - 1].y + layout.bands[i - 1].h, "帯が重っています");
+  }
+  // 札は自分の層の帯の中に入る
+  for (const c of layout.cards) {
+    const band = layout.bands.find((b) => b.layer === c.layer);
+    assert.ok(c.y >= band.y && c.y + c.h <= band.y + band.h, `札が帯の外です: ${JSON.stringify(c)}`);
+  }
+  // 同じ層の同じ列の 3 つの branch は行が 0,1,2
+  const branch = layout.cards.filter((c) => c.layer === "branch").sort((a, b) => a.row - b.row);
+  assert.deepStrictEqual(branch.map((c) => [c.run_id, c.row]), [[120, 0], [121, 1], [122, 2]]);
+  // 図の大きさは札和外側 Community に入る大きさ
+  assert.ok(layout.width > 0 && layout.height > 0);
+  for (const c of layout.cards) {
+    assert.ok(c.x + c.w <= layout.width, "札が幅の外に出ています");
+    assert.ok(c.y + c.h <= layout.height, "札が高さの外に出ています");
+  }
+}
+
+function testRunsLayoutTaskOutputIgnored() {
+  // task_output が 3 本あっても止まらない（配置に使わない）
+  const layout = sgRunsLayout(sampleRtree());
+  assert.strictEqual(layout.cards.length, 7);
+  // task_output を除いても列は変わらない（逆向きの線なので）
+  const dag = sampleRtree();
+  const without = sgRunsLayout({ nodes: dag.nodes, edges: dag.edges.filter((e) => e.kind !== "task_output") });
+  assert.deepStrictEqual(layout.cards, without.cards);
+  // 同じ 2 つを結ぶ返却の線を 1 本増やしても場所は変わらない
+  const more = { nodes: dag.nodes, edges: dag.edges.concat([runEdge(100, 120, "task_output")]) };
+  assert.deepStrictEqual(sgRunsLayout(more).cards, layout.cards);
+}
+
+function testRunsLayoutCycles() {
+  // 輪があっても止まらない（訪問済みの印で切る）
+  const dag = {
+    nodes: [runNode(1, "root"), runNode(2, "seed"), runNode(3, "branch")],
+    edges: [runEdge(1, 2, "waggle_token"), runEdge(2, 3, "delegation"), runEdge(3, 1, "waggle_token")],
+  };
+  const layout = sgRunsLayout(dag);
+  assert.strictEqual(layout.cards.length, 3);
+  // 輪：同じ node を 2 度踏むとそこで剪断するので、1 → 2 → 3 → 1 の列は 3・1・2
+  // （実際に長い道だけを数えているので、輪の長さ + 1 になる）
+  assert.deepStrictEqual(layout.cards.map((c) => c.col), [3, 1, 2]);
+  // 同じ輪でも 2 回呼んでも同じ（止まらない・同じ場所）
+  assert.deepStrictEqual(sgRunsLayout(dag), layout);
+  // 2 つの node が互いを指すだけの輪
+  const two = {
+    nodes: [runNode(1, "root"), runNode(2, "seed")],
+    edges: [runEdge(1, 2, "waggle_token"), runEdge(2, 1, "waggle_token")],
+  };
+  assert.deepStrictEqual(sgRunsLayout(two).cards.map((c) => c.col), [2, 1]);
+}
+
+
+function testRunsLayoutEdgeCases() {
+  // 0 件・壊れた JSON でも止まらない
+  assert.deepStrictEqual(sgRunsLayout(null).cards, []);
+  assert.deepStrictEqual(sgRunsLayout({}).cards, []);
+  assert.deepStrictEqual(sgRunsLayout({ nodes: [null, {}], edges: [null, {}] }).cards, []);
+  assert.deepStrictEqual(sgRunsLayout(null).bands, []);
+  // 両端が node に無い線は使わない
+  const layout = sgRunsLayout({
+    nodes: [runNode(1, "root"), runNode(2, "seed")],
+    edges: [runEdge(1, 999, "waggle_token"), runEdge(888, 2, "waggle_token")],
+  });
+  assert.deepStrictEqual(layout.cards.map((c) => c.col), [0, 0]);
+  // 1 層だけなら帯も 1 本
+  assert.deepStrictEqual(sgRunsLayout({ nodes: [runNode(1, "branch")], edges: [] }).bands.map((b) => b.layer), ["branch"]);
+  // 同じ入力を 2 回呼んでも同じ位置（開くたびに図が動かない）
+  const a = sgRunsLayout(sampleRtree());
+  const b = sgRunsLayout(sampleRtree());
+  assert.deepStrictEqual(a, b);
+}
+
+function testRunsLayoutUsesOnlyTwoEdgeKinds() {
+  // 配置に使うのは delegation と waggle_token だけ
+  assert.deepStrictEqual(SG_RUN_LAYOUT_KINDS, ["delegation", "waggle_token"]);
+  assert.deepStrictEqual(
+    SG_RUN_EDGE_KINDS.map((k) => k[0]),
+    ["delegation", "waggle_token", "task_output"]
+  );
+  // 委譲は実線、結びは点線、返却は破線
+  assert.strictEqual(sgRunEdgeStyle("delegation").dash, "");
+  assert.strictEqual(sgRunEdgeStyle("waggle_token").dash, "2 4");
+  assert.strictEqual(sgRunEdgeStyle("task_output").dash, "8 5");
+  // 色も 3 つ違う（見分けられる）
+  const colors = SG_RUN_EDGE_KINDS.map((k) => sgRunEdgeStyle(k[0]).colorVar);
+  assert.strictEqual(new Set(colors).size, 3);
+  // 表に無い種類でも止まらない
+  assert.strictEqual(sgRunEdgeStyle("???").dash, "");
+  assert.strictEqual(sgRunEdgeStyle(null).colorVar, "var(--sci-edge-parent)");
+}
+
+function testRunLayerAndState() {
+  // 層は 3 つ。帯の語はその表示名
+  assert.deepStrictEqual(SG_RUN_LAYERS.map((x) => x[0]), ["root", "seed", "branch"]);
+  assert.strictEqual(sgRunLayerLabel("root"), "方針（root）");
+  assert.strictEqual(sgRunLayerLabel("seed"), "計画（seed）");
+  assert.strictEqual(sgRunLayerLabel("branch"), "実行（branch）");
+  // 知らない層は「その他」の帯（図が止まらない）
+  assert.strictEqual(sgRunLayer("???"), "other");
+  assert.strictEqual(sgRunLayer(undefined), "other");
+  assert.strictEqual(sgRunLayerLabel("???"), "その他");
+  // 実行の状態は日本語
+  assert.strictEqual(sgRunStateOf("running").label, "実行中");
+  assert.strictEqual(sgRunStateOf("completed").label, "完了");
+  assert.strictEqual(sgRunStateOf("failed").label, "失敗");
+  assert.strictEqual(sgRunStateOf("cancelled").label, "中止");
+  // 知らない状態でも止まらない
+  assert.strictEqual(sgRunStateOf("???").label, "待ち");
+  assert.strictEqual(sgRunStateOf(null).label, "待ち");
+  // 根の図の札と同じ CSS 変数を使う
+  assert.ok(Object.values(SG_RUN_STATES).every((s) => /^var\(--sci-/.test(s.color)));
+}
+
+function testRunTimeLabel() {
+  // 長い形から minute だけ出す
+  assert.strictEqual(sgRunTimeLabel("2026-09-30 01:02:03"), "09-30 01:02");
+  assert.strictEqual(sgRunTimeLabel("2026-09-30T01:02:03Z"), "09-30 01:02");
+  // 読めない形はそのまま切り詰める
+  assert.strictEqual(sgRunTimeLabel(""), "");
+  assert.strictEqual(sgRunTimeLabel(null), "");
+  assert.strictEqual(sgRunTimeLabel("2026/09/30"), "2026/09/30");
+  assert.strictEqual(sgRunTimeLabel("2026-09-30 01:02:03.123456+09:00").length, 11);
+}
+
 // --- 実行 ---
 
 const tests = [
@@ -290,6 +507,14 @@ const tests = [
   ["表の行の並び", testTableRowsOrder],
   ["表の行の中身", testTableRowsFields],
   ["表の行（空）", testTableRowsEmpty],
+  ["実行の図の列（深さ）", testRunsLayoutColumns],
+  ["実行の図の帯と行", testRunsLayoutBands],
+  ["実行の図は task_output を使わない", testRunsLayoutTaskOutputIgnored],
+  ["実行の図は輪でも止まらない", testRunsLayoutCycles],
+  ["実行の図の配置（空・壊れた入力）", testRunsLayoutEdgeCases],
+  ["実行の図の線（delegation と waggle_token）", testRunsLayoutUsesOnlyTwoEdgeKinds],
+  ["実行の図の層と状態", testRunLayerAndState],
+  ["実行の図の時刻", testRunTimeLabel],
 ];
 
 let failed = 0;
