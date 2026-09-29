@@ -1,0 +1,19 @@
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: test
+    volumes:
+      - ..:/workspace
+    # 接続先は Caddy（http://<Mac の IP>:8443）。../.env から読む。
+    # Mac の IP は `ipconfig getifaddr en0` で確認して ../.env を書き換える。
+    env_file:
+      - ../.env
+    tty: true
+    networks:
+      - mlflow-net-test
+
+networks:
+  mlflow-net-test:
+    external: true

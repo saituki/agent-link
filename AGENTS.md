@@ -24,6 +24,7 @@ Rust の実行エンジン（sai-link と sai-paper）と、Web の窓口（sai-
 | `pi-litbase/` | pi の拡張（TypeScript）。Cargo の外 | 編集可能 |
 | `apps/phone/` | Web の窓口（FastAPI + 素の JavaScript）。`apps/phone/src/sai_phone/` にサーバと画面、`hooks/` に cc のフック、`launchd/` に plist | 編集可能 |
 | `apps/radio/` | 解説音声の裏方サーバー（FastAPI）。`apps/radio/src/sai_radio/` に本体、`tests/` に 3 本のテスト。`README.md` と `ARCHITECTURE.md` はこのフォルダにある | 編集可能 |
+| `apps/mlflow-server/` | 実験の記録を溜める MLflow サーバの compose（postgres・minio・mlflow・caddy）と `templates/mlflow-agent.md`。Docker で動かす。`.env` は無い（鍵が入るので追跡しない。`.env.example` が見本） | 編集可能（`docker-compose.yml` の `name: mlflow-server` は消さない。消すと volume が別になり記録を失う） |
 | `sai-sci/` | 研究方針の木（Research-tree）の型・項目ガイド・sci-core・mind.md のひな形・18 本のブロック・`tools/`（実験ループの台帳）。`sai-moon-paper` に埋め込まれる | 編集可能（直したら release を作り直す） |
 | `docs/` | 開発者向けの文書（`integration.md`・`for-sai-developers.md`） | 編集可能 |
 | `.sai/` | このプロジェクト自身の中のデータ（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`.gitignore` 済み | 書き込み注意 |

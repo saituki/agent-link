@@ -98,6 +98,9 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app \
 | `8200` | `apps/phone`（Web） | `SAI_PHONE_PORT` で変更可 |
 | `8201` | `apps/radio`（裏方サーバー） | `SAI_RADIO_URL` で変更可 |
 | `8202` | `apps/radio` の TTS プロキシ | 使うときだけ別プロセスで起動 |
+| `5001` | MLflow（`apps/mlflow-server`・127.0.0.1 のみ） | 実験タブが読む。`SAI_MLFLOW_URL` |
+| `8443` | MLflow の Caddy（LAN 向け・Basic 認証） | LAN の別 PC から記録を書くとき |
+| `9000` | MLflow の成果物置き場（minio） | 成果物を書く側が使う |
 | `10101` | AivisSpeech Engine | 外部サービス。`AIVISSPEECH_BASE_URL` |
 
 **旧構成の 8100 番（旧 sai-phone）と 8000 番（旧 sai-radio）は別プロセス。** sai-moon の確認では、この 2 つの古いポートと必ず区別すること。古い方を止めたり再起動したりしない。
