@@ -43,8 +43,10 @@
 // （index.html の ?v= も 38。ASSETS にも 2 つを足した。U07 の比較の画面は同じ版から上げる）
 // U07 の指標の時系列グラフと run の比較（mlfchart.js を追加し、mlflow.js にグラフと比較の画面を足す）で v39 に
 // （index.html の ?v= も 39。ASSETS にも /mlfchart.js を足した。U08 の scitree.js / scigraph.js / app.js の更新も同じ版）
-const CACHE = "sai-phone-v39";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/manifest.json"];
+// bugfix-70 の取り込み（Dashboard の文書検索 dashsearch.js・md の waggle リンク・予約 todo の表示など）で v41 に
+// （index.html の ?v= も 41。ASSETS に /dashsearch.js を足した）
+const CACHE = "sai-phone-v41";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）
 const RADIO_CACHE = "sai-phone-radio-audio";

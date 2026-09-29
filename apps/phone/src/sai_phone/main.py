@@ -548,6 +548,27 @@ def api_project_tree(name: str, _: None = Depends(require_token)) -> dict:
     return control.phone_tree(name)
 
 
+@app.get("/api/projects/{name}/search")
+def api_project_search(
+    name: str,
+    q: str = "",
+    category: str = "",
+    since: str | None = None,
+    until: str | None = None,
+    block: str | None = None,
+    from_id: int | None = None,
+    to_id: int | None = None,
+    limit: int = 50,
+    _: None = Depends(require_token),
+) -> dict:
+    """文書（task / message / waggle）の検索（`phone search`・Dashboard の検索）。
+
+    `q` は空白区切りの AND。`category` はカンマ区切り（空なら全部）。`since` / `until` は
+    `YYYY-MM-DD`、`block` は完全一致、`from_id` / `to_id` は run_id の範囲。
+    """
+    return control.phone_search(name, q, category, since, until, block, from_id, to_id, limit)
+
+
 @app.get("/api/projects/{name}/rtree")
 def api_project_rtree(name: str, _: None = Depends(require_token)) -> dict:
     """3 層の実行の図（`phone rtree`・U03 §変更内容 3）。"""

@@ -766,9 +766,9 @@ function renderQuestions() {
   }
 }
 
-// 回答済みの1行に並べる文字（例: 「回答済み: 色：青, 技：探索, 集中」）
-function answerSummary(questions, answers) {
-  const parts = [];
+// 回答済みの行に並べる文字（問ごとに 1 行。例: 「色：青」「技：探索, 集中」）
+function answerRows(questions, answers) {
+  const rows = [];
   (questions || []).forEach((one, i) => {
     const a = (answers || [])[i] || {};
     const opts = one.options || [];
@@ -780,29 +780,48 @@ function answerSummary(questions, answers) {
       label = opts[a.choice_index].label || "";
     }
     if (!label) return;
-    const head = one.header || one.question || `質問${i + 1}`;
-    parts.push(`${head}：${label}`);
+    rows.push({ head: one.header || one.question || `質問${i + 1}`, label });
   });
-  return parts.join(", ");
+  return rows;
 }
 
 // 解決済み（PC で先に答えた／回答済み）のカードを1行にする
-function settledCard(card, className, line) {
+// rows があるときは「回答済み」の題の下に 問ごとの行（見出し：答え）を縦に並べる
+function settledCard(card, className, line, rows) {
   const el = document.createElement("div");
   el.className = `question-card settled ${className}`;
   el.dataset.qid = card.id || "";
   // 回答済みの印と，質問された時刻（UNIX 秒）．カードを置く位置はこの時刻で決める（CP3）
   el.dataset.settled = "1";
   el.dataset.createdAt = card.created_at != null ? String(card.created_at) : "";
-  el.textContent = line;
+  if (!rows || !rows.length) {
+    el.textContent = line;
+    return el;
+  }
+  const title = document.createElement("div");
+  title.className = "q-settled-title";
+  title.textContent = line;
+  el.appendChild(title);
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "q-settled-row";
+    const head = document.createElement("span");
+    head.className = "q-settled-head";
+    head.textContent = r.head;
+    const ans = document.createElement("span");
+    ans.className = "q-settled-ans";
+    ans.textContent = r.label;
+    row.append(head, ans);
+    el.appendChild(row);
+  }
   return el;
 }
 
 function questionCard(q) {
   // 回答済み・PC で回答済みは1行だけ表示（05 §1 の2番）
   if (q.state === "answered") {
-    const line = answerSummary(q.questions, (q.answer && q.answer.answers) || []);
-    return settledCard(q, "q-answered", `回答済み: ${line || "（回答済み）"}`);
+    const rows = answerRows(q.questions, (q.answer && q.answer.answers) || []);
+    return settledCard(q, "q-answered", rows.length ? "回答済み" : "回答済み（内容なし）", rows);
   }
   if (q.state === "resolved_elsewhere") {
     return settledCard(q, "q-elsewhere", "PC で回答済み");

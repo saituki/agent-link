@@ -500,6 +500,21 @@ def test_poll_does_not_resolve_while_sending() -> None:
         assert state_of(qid) == "answered"
 
 
+def test_wrapped_question_text_is_found_on_screen() -> None:
+    """折り返した質問文（行頭に枠の縦線 `│`）も「次の質問が出た」と判定できる．"""
+    qtext = "sai-moon-mlflow の最初の版に入れる機能はどれですか？（実験一覧・入れ子の run 表・run 詳細・sai の run と node への往復リンクは必ず入れます）"
+    screen = (
+        "←  ☒ 既存の木  ☒ 往復の役  ☒ 置き場  ☐ 範囲  ✔ Submit  →\n\n"
+        "│ sai-moon-mlflow の最初の版に入れる機能はどれですか？（実験一覧・入れ子の run 表・run 詳細・sai の run と node\n"
+        "│ への往復リンクは必ず入れます）\n\n"
+        "❯ 1. [ ] 指標の履歴グラフ\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n"
+    )
+    qs = [{"question": "a"}, {"question": "b"}, {"question": "c"}, {"question": qtext}]
+    assert questions._expected_after(screen, qs, 3)
+    # 別の質問文なら一致しない
+    assert not questions._expected_after(screen, [{"question": "全然ちがう質問"}] * 4, 3)
+
+
 def main() -> None:
     test_pi_question_stays_open_when_pane_not_blocked()
     test_claude_question_resolved_elsewhere()
@@ -513,6 +528,7 @@ def main() -> None:
     test_approval_resolved_elsewhere_and_mismatch()
     test_approval_hook_is_silent()
     test_gone_pane_expires_cards()
+    test_wrapped_question_text_is_found_on_screen()
     print("test_questions: すべて通りました")
 
 

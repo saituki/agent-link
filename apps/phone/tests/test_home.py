@@ -385,6 +385,25 @@ def test_projects(fake: Fake) -> None:
     assert rows[1]["running"] == 0, rows[1]
 
 
+def test_folder_runs_passes_scheduled_at() -> None:
+    """todo の行に `scheduled_at` があるときだけ、そのまま返す（予約したもの用）。"""
+    items = [
+        {
+            "type": "folder",
+            "label": "todo",
+            "children": [
+                {"type": "run", "run_id": 1, "label": "a", "scheduled_at": "2026-10-01 09:00"},
+                {"type": "run", "run_id": 2, "label": "b"},
+            ],
+        }
+    ]
+    rows = home._folder_runs(items, "todo")
+    assert rows == [
+        {"run_id": 1, "label": "a", "scheduled_at": "2026-10-01 09:00"},
+        {"run_id": 2, "label": "b"},
+    ], rows
+
+
 def test_papers(fake: Fake) -> None:
     """論文は要対応の件数と先頭 3 件（kind は sai-paper の値のまま）。"""
     setup(fake)
@@ -585,6 +604,7 @@ def main() -> None:
     test_approvals(fake)
     test_title_truncated(fake)
     test_projects(fake)
+    test_folder_runs_passes_scheduled_at()
     test_papers(fake)
     test_errors(fake)
     test_cache(fake)

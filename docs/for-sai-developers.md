@@ -61,7 +61,7 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | 使うもの | 場所 |
 |---|---|
 | `sai-moon-link phone export`（プロジェクトの実行を JSON で書き出す） | CLI: `crates/sai-link-cli/src/cli.rs`（`handle_phone_export`）／本体: `crates/sai-link-engine/src/phone_export.rs` |
-| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有） |
+| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む） |
 | `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`） |
 | `sai-moon-link phone md <id> --kind task\|review\|message`（無ければ **終了コード 3・stderr「まだありません」**） | 同 `phone.rs`（`md`） |
 | `sai-moon-link phone waggle <id> [--token <t>]`（成果物の一覧と本文。一覧の各項目に task_text に貼れる `ref` がある） | 同 `phone.rs`（`waggle`） |
@@ -286,6 +286,7 @@ ls /tmp/smoke-sai-home   # → No such file or directory（作っていないこ
 | （登録簿 `~/.sai-moon/registry.json` を直接読む） | `registry.load_registry()` | `apps/phone` 側 `apps/phone/src/sai_phone/registry.py` |
 | `sai-moon-link phone summary` | `control._project_summary()`（`GET /api/projects`） | `crates/sai-link-cli/src/phone.rs` の `summary()` |
 | `sai-moon-link phone dashboard --period week\|month\|all` | `control.dashboard()` | 同 `phone.rs` の `dashboard()` |
+| `sai-moon-link phone search --word … [--category task,message,waggle] [--since …] [--until …] [--block …] [--from-id N] [--to-id N] [--limit N]`（run の文書の本文検索。新しい run から `--limit` 件で打ち切り・`{items, truncated}`。message.md は run フォルダにあるものだけ） | `control.phone_search()` | 同 `phone.rs` の `search()` |
 | `sai-moon-link daemon <start\|stop>`（**文字出力**・JSON ではない） | `control.daemon()` | `crates/sai-link-cli/src/cli.rs` の `handle_daemon_start` / `handle_daemon_stop` |
 
 - 3 つとも **cwd = プロジェクトの root**、かつ `SAI_PROJECT_ROOT` も root を明示で渡す

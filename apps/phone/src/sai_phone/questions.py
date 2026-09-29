@@ -358,8 +358,12 @@ def _read_screen_retry(pane_id: str) -> str | None:
 
 
 def _norm(text: str) -> str:
-    """画面の折り返しで文が切れないように，空白を全部落として比べる用．"""
-    return re.sub(r"\s+", "", text or "")
+    """画面の折り返しで文が切れないように，空白と枠の縦線を全部落として比べる用．
+
+    質問文は枠の中に出て，折り返した行の頭に縦線 `│` が付く。
+    縦線を残すと長い質問文が画面と一致せず「送信できませんでした」になる。
+    """
+    return re.sub(r"[\s│┃|]+", "", text or "")
 
 
 def _read_screen(pane_id: str) -> str:

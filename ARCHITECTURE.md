@@ -114,8 +114,9 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 
 - **プロジェクトの中の `<root>/.sai/` は変わらない。** `sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/` はここ。
   `sai_link_engine::project::project_root()` / `sai_path()` と `sai_paper_core::paths::project_root()` は変更していない。
-- 例外が 1 つ。`apps/phone/src/sai_phone/usage.py:34` は `~/.sai/phone/cc-rate-limits.json` を読む。
-  これは利用者の statusline が書く**リポジトリの外**のファイルなので、`~/.sai` のまま残してある。
+- `apps/phone/src/sai_phone/usage.py` の `cc_limits_path()` は `<sai_home>/phone/cc-rate-limits.json` を読む。
+  書くのは `sai-moon-link cc-statusline`（`phone_export.rs` の `cc_rate_limits_path()`）で、置き場は同じ `~/.sai-moon/`。
+  旧 `~/.sai/phone/` の同名ファイルは読まない（古いまま残っている）。
 - `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま（`common.rs:177`・`config.py`・`litbase.rs:281`）。
 
 ### 3.4 移行の状況（利用者が把握しておくこと）

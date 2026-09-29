@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import time
+from datetime import date
 
 from fastapi import HTTPException
 
@@ -380,6 +381,83 @@ def phone_waggle(name: str, run_id: int, token: str | None = None) -> dict:
         args += ["--token", token]
     project = _phone_project(name)
     return _phone_json(args, root=project["root"])
+
+
+# --- 文書の検索（`phone search`）で受け取る値の検査 ---
+
+_SEARCH_CATEGORIES = ("task", "message", "waggle")
+_SEARCH_WORD_MAX = 200
+_SEARCH_LIMIT_MAX = 100
+_SEARCH_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# block 名（`.sai/blocks/<名前>.md`）の形
+_SEARCH_BLOCK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def _search_day(label: str, value: str | None) -> str | None:
+    """`YYYY-MM-DD` の実在する日付だけ（空は None）。"""
+    v = (value or "").strip()
+    if not v:
+        return None
+    try:
+        if not _SEARCH_DAY_RE.match(v):
+            raise ValueError(v)
+        date.fromisoformat(v)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{label}は YYYY-MM-DD の形にしてください") from None
+    return v
+
+
+def phone_search(
+    name: str,
+    word: str,
+    category: str = "",
+    since: str | None = None,
+    until: str | None = None,
+    block: str | None = None,
+    from_id: int | None = None,
+    to_id: int | None = None,
+    limit: int = 50,
+) -> dict:
+    """`sai-link phone search`（task / message / waggle の本文検索・Dashboard の検索）。
+
+    外から来る値は CLI を呼ぶ前に全部確かめる（通らなければ 400）。
+    """
+    word = (word or "").strip()
+    if not word:
+        raise HTTPException(status_code=400, detail="検索語を入れてください")
+    if len(word) > _SEARCH_WORD_MAX:
+        raise HTTPException(status_code=400, detail=f"検索語は {_SEARCH_WORD_MAX} 文字までです")
+    cats = [c.strip() for c in (category or "").split(",") if c.strip()]
+    if any(c not in _SEARCH_CATEGORIES for c in cats):
+        raise HTTPException(status_code=400, detail="種類は task / message / waggle のいずれかにしてください")
+    cats = [c for c in _SEARCH_CATEGORIES if c in cats] or list(_SEARCH_CATEGORIES)
+    since = _search_day("開始日", since)
+    until = _search_day("終了日", until)
+    if since and until and since > until:
+        raise HTTPException(status_code=400, detail="開始日は終了日より前にしてください")
+    block = (block or "").strip() or None
+    if block is not None and not _SEARCH_BLOCK_RE.match(block):
+        raise HTTPException(status_code=400, detail="block の指定が正しくありません")
+    for label, n in (("run_id の下限", from_id), ("run_id の上限", to_id)):
+        if n is not None and (isinstance(n, bool) or not isinstance(n, int) or n <= 0):
+            raise HTTPException(status_code=400, detail=f"{label}は 1 以上の整数にしてください")
+    if from_id is not None and to_id is not None and from_id > to_id:
+        raise HTTPException(status_code=400, detail="run_id の下限は上限以下にしてください")
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _SEARCH_LIMIT_MAX:
+        raise HTTPException(status_code=400, detail=f"件数は 1〜{_SEARCH_LIMIT_MAX} にしてください")
+
+    args = ["search", "--word", word, "--category", ",".join(cats), "--limit", str(limit)]
+    for flag, value in (
+        ("--since", since),
+        ("--until", until),
+        ("--block", block),
+        ("--from-id", from_id),
+        ("--to-id", to_id),
+    ):
+        if value is not None:
+            args += [flag, str(value)]
+    project = _phone_project(name)
+    return _phone_json(args, root=project["root"], timeout=60.0)
 
 
 def phone_card_options(name: str) -> dict:

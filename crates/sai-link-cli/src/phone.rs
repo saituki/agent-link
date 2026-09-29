@@ -206,6 +206,25 @@ fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
         PhoneCmd::Rm { run_id } => val(rm(run_id)),
         PhoneCmd::Summary => val(summary()),
         PhoneCmd::Dashboard { period } => dashboard(&period),
+        PhoneCmd::Search {
+            word,
+            category,
+            since,
+            until,
+            block,
+            from_id,
+            to_id,
+            limit,
+        } => val(search(SearchOpts {
+            word,
+            category,
+            since,
+            until,
+            block,
+            from_id,
+            to_id,
+            limit,
+        })),
         PhoneCmd::Workflow => val(workflow()),
         PhoneCmd::Rtree => rtree(),
         PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
@@ -440,6 +459,214 @@ fn tree() -> PhoneResult<Value> {
     Ok(json!({ "items": nest_tree(items) }))
 }
 
+// ============================================================================
+// search — 文書（task / message / waggle）の本文検索
+// ============================================================================
+
+/// `phone search` の引数（`cli.rs` の `PhoneCmd::Search` と同じ）。
+struct SearchOpts {
+    word: String,
+    category: String,
+    since: Option<String>,
+    until: Option<String>,
+    block: Option<String>,
+    from_id: Option<i64>,
+    to_id: Option<i64>,
+    limit: usize,
+}
+
+/// 検索で返す件数の上限の最大（画面から大きな値を渡されても打ち切る）。
+const SEARCH_LIMIT_MAX: usize = 200;
+/// 1 つの文書から読む最大バイト数（大きい文書で遅くならないように）。
+const SEARCH_FILE_MAX: usize = 1024 * 1024;
+/// 抜粋の前後の文字数。
+const SEARCH_SNIPPET_CONTEXT: usize = 40;
+
+/// 本文が全部の語（小文字にしたもの）を含むなら、最初の語の前後を抜き出す。
+fn search_snippet(text: &str, words: &[String]) -> Option<String> {
+    let lower = text.to_lowercase();
+    if !words.iter().all(|w| lower.contains(w.as_str())) {
+        return None;
+    }
+    // 小文字化で長さが変わる文字があるので、文字の位置（何文字目か）で切る。
+    let chars: Vec<char> = text.chars().collect();
+    let lower_chars: Vec<char> = lower.chars().collect();
+    let first: Vec<char> = words[0].chars().collect();
+    let pos = if lower_chars.len() == chars.len() {
+        lower_chars
+            .windows(first.len().max(1))
+            .position(|w| w == first.as_slice())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let start = pos.saturating_sub(SEARCH_SNIPPET_CONTEXT);
+    let end = (pos + first.len() + SEARCH_SNIPPET_CONTEXT).min(chars.len());
+    let body: String = chars[start..end].iter().collect::<String>().replace('\n', " ");
+    Some(format!(
+        "{}{}{}",
+        if start > 0 { "…" } else { "" },
+        body.trim(),
+        if end < chars.len() { "…" } else { "" }
+    ))
+}
+
+/// 文書を読む（上限を超える分は捨てる。読めなければ `None`）。
+fn read_doc_for_search(path: &std::path::Path) -> Option<String> {
+    let mut buf = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(SEARCH_FILE_MAX as u64)
+        .read_to_end(&mut buf)
+        .ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// `phone search`: 新しい run から順に文書を調べ、当たった文書を返す。
+fn search(o: SearchOpts) -> PhoneResult<Value> {
+    let words: Vec<String> = o
+        .word
+        .split_whitespace()
+        .map(|w| w.to_lowercase())
+        .collect();
+    if words.is_empty() {
+        return Err(PhoneError::usage("検索語を入れてください"));
+    }
+    let mut want = std::collections::HashSet::new();
+    for c in o.category.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        match c {
+            "task" | "message" | "waggle" => {
+                want.insert(c.to_string());
+            }
+            other => {
+                return Err(PhoneError::usage(format!(
+                    "不正な種類です: {}（task | message | waggle）",
+                    other
+                )))
+            }
+        }
+    }
+    if want.is_empty() {
+        return Err(PhoneError::usage("種類を 1 つ以上選んでください"));
+    }
+    let parse_day = |s: &Option<String>| -> PhoneResult<Option<NaiveDate>> {
+        match s.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            None => Ok(None),
+            Some(v) => NaiveDate::parse_from_str(v, "%Y-%m-%d")
+                .map(Some)
+                .map_err(|_| PhoneError::usage(format!("日付は YYYY-MM-DD の形です: {}", v))),
+        }
+    };
+    let since = parse_day(&o.since)?;
+    let until = parse_day(&o.until)?;
+    let block_filter = o.block.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let limit = o.limit.clamp(1, SEARCH_LIMIT_MAX);
+
+    let store = open_store()?;
+    let mut execs = store
+        .list_all_executions()
+        .map_err(|e| PhoneError::internal(e.to_string()))?;
+    // 新しい run から見る
+    execs.sort_by_key(|e| std::cmp::Reverse(e.id.unwrap_or(0)));
+    let mut block_names: HashMap<i64, String> = HashMap::new();
+
+    let mut items: Vec<Value> = Vec::new();
+    let mut truncated = false;
+    'runs: for exec in &execs {
+        let Some(run_id) = exec.id else { continue };
+        if o.from_id.is_some_and(|n| run_id < n) || o.to_id.is_some_and(|n| run_id > n) {
+            continue;
+        }
+        let raw = exec
+            .started_at
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&exec.created_at);
+        let date = exec_date_jst(raw);
+        if since.is_some() || until.is_some() {
+            let Some(d) = date else { continue };
+            if since.is_some_and(|s| d < s) || until.is_some_and(|u| d > u) {
+                continue;
+            }
+        }
+        let block = block_names
+            .entry(exec.block_id)
+            .or_insert_with(|| {
+                store
+                    .get_block_by_id(exec.block_id)
+                    .map(|b| b.name)
+                    .unwrap_or_else(|_| "unknown".to_string())
+            })
+            .clone();
+        if block_filter.is_some_and(|b| b != block) {
+            continue;
+        }
+        let Some((_, dir)) = sai_link_engine::run_dir::find_run_dir(run_id) else {
+            continue;
+        };
+
+        // (種類, ファイル名, waggle トークン)
+        let mut docs: Vec<(&str, String, Option<String>)> = Vec::new();
+        if want.contains("task") {
+            docs.push(("task", sai_link_engine::run_dir::TASK_FILE.to_string(), None));
+        }
+        if want.contains("message") {
+            docs.push(("message", sai_link_engine::run_dir::MESSAGE_FILE.to_string(), None));
+        }
+        if want.contains("waggle") {
+            for c in phone_view::waggle_choices(&store, run_id) {
+                docs.push(("waggle", c.file_name, Some(c.token)));
+            }
+        }
+        for (category, file, token) in docs {
+            // ファイル名にパスの区切りがあるものは読まない（run フォルダの外に出さない）
+            if file.contains('/') || file.contains('\\') || file.contains("..") {
+                continue;
+            }
+            let Some(text) = read_doc_for_search(&dir.join(&file)) else {
+                continue;
+            };
+            let Some(snippet) = search_snippet(&text, &words) else {
+                continue;
+            };
+            if items.len() >= limit {
+                truncated = true;
+                break 'runs;
+            }
+            let mut item = json!({
+                "run_id": run_id,
+                "category": category,
+                "file": file,
+                "block": block,
+                "date": date.map(|d| d.to_string()),
+                "snippet": snippet,
+            });
+            if let Some(t) = token {
+                item["token"] = json!(t);
+            }
+            items.push(item);
+        }
+    }
+    Ok(json!({ "items": items, "truncated": truncated }))
+}
+
+/// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）の `scheduled_at:` を読む。
+/// 予約が無い・読めない・形が違うときは `None`。
+fn todo_scheduled_at(run_id: i64) -> Option<String> {
+    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
+        .join(sai_link_engine::run_dir::TODO_OWNER)
+        .join(run_id.to_string())
+        .join(sai_link_engine::run_dir::TASK_FILE);
+    scheduled_at_of(&std::fs::read_to_string(task).ok()?)
+}
+
+/// task.md の本文から予約時刻を取り出す（`parse_scheduled_at` で読める値だけ）。
+fn scheduled_at_of(text: &str) -> Option<String> {
+    let card = sai_link_engine::kanban::parse_card(text)?;
+    let at = card.frontmatter.meta.get("scheduled_at")?.trim().to_string();
+    sai_link_engine::kanban::parse_scheduled_at(&at).map(|_| at)
+}
+
 /// 平らなツリー項目を入れ子 JSON（`children`）に組み替える。
 fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
     let mut roots: Vec<Value> = Vec::new();
@@ -497,13 +724,19 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                     Some(id) => id,
                     None => continue,
                 };
-                let val = json!({
+                let mut val = json!({
                     "type": "run",
                     "run_id": run_id,
                     "label": it.name,
                     "lane": it.lane,
                     "status": it.status,
                 });
+                // 実行予約した todo だけ `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（ホームの「予約」用）
+                if it.lane.as_deref() == Some("todo") {
+                    if let Some(at) = todo_scheduled_at(run_id) {
+                        val["scheduled_at"] = json!(at);
+                    }
+                }
                 attach(&mut stack, &mut roots, val);
             }
         }
@@ -1551,6 +1784,40 @@ mod tests {
     /// `phone_def` のテストも [`ENV_TEST_LOCK`] と同じロックを使う。
     /// 別々のロックだと両方が並列実行して `SAI_PROJECT_ROOT` を奪い合う。
     pub(crate) static ENV_LOCK: &std::sync::Mutex<()> = &super::ENV_TEST_LOCK;
+
+    /// 検索の抜粋: 全部の語を含むときだけ返し、最初の語の前後を切り出す（大文字小文字は区別しない）。
+    #[test]
+    fn search_snippet_needs_all_words() {
+        let words = |s: &str| -> Vec<String> { s.split_whitespace().map(|w| w.to_lowercase()).collect() };
+        let text = "先頭の文\nMLflow の実験一覧を出す。run 表も出す。";
+        let got = super::search_snippet(text, &words("mlflow 実験")).expect("当たる");
+        assert!(got.contains("MLflow の実験一覧"), "{got}");
+        assert!(!got.contains('\n'), "改行は空白にする: {got}");
+        assert_eq!(super::search_snippet(text, &words("mlflow 無い語")), None);
+        // 長い本文は前後を省略記号で切る
+        let long = format!("{}KEYWORD{}", "あ".repeat(100), "い".repeat(100));
+        let got = super::search_snippet(&long, &words("keyword")).unwrap();
+        assert!(got.starts_with('…') && got.ends_with('…') && got.contains("KEYWORD"), "{got}");
+    }
+
+    /// 予約した todo の `scheduled_at:` は読める。無い・空・形が違うときは None。
+    #[test]
+    fn scheduled_at_of_reads_only_valid_value() {
+        let mut card = sai_link_engine::kanban::KanbanCard {
+            frontmatter: sai_link_engine::kanban::CardFrontmatter::new_card("2026/09/29 10:00:00".into()),
+            body: "# task_text\nやること\n".into(),
+        };
+        assert_eq!(super::scheduled_at_of(&sai_link_engine::kanban::render_card(&card)), None);
+        for (v, want) in [
+            ("2026-10-01 09:00", Some("2026-10-01 09:00")),
+            ("", None),
+            ("明日の朝", None),
+        ] {
+            card.frontmatter.set_meta("scheduled_at".to_string(), v.to_string());
+            let got = super::scheduled_at_of(&sai_link_engine::kanban::render_card(&card));
+            assert_eq!(got.as_deref(), want, "値={v:?}");
+        }
+    }
 
     /// `SAI_PROJECT_ROOT` を一時ディレクトリに向けるガード（Drop で元に戻す）。
     struct RootGuard(Option<std::ffi::OsString>);

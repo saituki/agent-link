@@ -81,11 +81,15 @@ function modeHash(name, mode) {
   }
 }
 
-/** List の住所（run と表示は付けなくてもよい・計画 14 §6）。 */
-function listHash(name, runId, view) {
+/**
+ * List の住所（run と表示は付けなくてもよい・計画 14 §6）。
+ * waggle の表示だけは、開く文書の waggle トークンも付けられる（`…/<run_id>/waggle/<トークン>`）。
+ */
+function listHash(name, runId, view, waggleToken) {
   const base = `#/project/${encodeURIComponent(name)}/list`;
   if (runId == null) return base;
-  return `${base}/${encodeURIComponent(String(runId))}/${encodeURIComponent(view || "log")}`;
+  const head = `${base}/${encodeURIComponent(String(runId))}/${encodeURIComponent(view || "log")}`;
+  return view === "waggle" && waggleToken ? `${head}/${encodeURIComponent(waggleToken)}` : head;
 }
 
 /**
@@ -94,12 +98,17 @@ function listHash(name, runId, view) {
  */
 function parseListHash(hash) {
   const m = String(hash || "").match(
-    /^#\/project\/(.+?)\/list(?:\/([^/?#]+)\/([^/?#]+))?\/?$/
+    /^#\/project\/(.+?)\/list(?:\/([^/?#]+)\/([^/?#]+)(?:\/([^/?#]+))?)?\/?$/
   );
   if (!m) return null;
   const name = decodeURIComponent(m[1]);
   if (m[2] == null || !/^\d+$/.test(m[2])) return { name, runId: null, view: null };
-  return { name, runId: Number(m[2]), view: decodeURIComponent(m[3] || "") };
+  const view = decodeURIComponent(m[3] || "");
+  const out = { name, runId: Number(m[2]), view };
+  // waggle の表示だけトークンを持てる（形が合わないものは無いことにする）
+  const token = m[4] ? decodeURIComponent(m[4]) : "";
+  if (view === "waggle" && /^[A-Za-z0-9]{8}$/.test(token)) out.waggleToken = token;
+  return out;
 }
 
 /** Agent タブのメッセージ画面の住所（session の表示から移るときに使う・U11）。 */
@@ -466,6 +475,7 @@ let lvBusy = false;        // ▶ 実行の送信中
 let lvSeq = 0;             // 画面が入れ替わった合図（古い応答を捨てる）
 let lvWaggleList = null;   // 成果物の一覧（同じ run の間だけ使い回す）
 let lvWaggleToken = null;  // 開いている成果物（null＝一覧）
+let lvWaggleFromHash = false; // 開いている成果物が住所のトークンから来たか
 let lvChartMode = "turn";  // Stats のグラフの種類
 let lvMdText = "";         // 表示中の md（task / message）の本文
 let lvEditing = false;     // task を書き換えているか
@@ -559,7 +569,8 @@ async function openList(params) {
   }
 
   // 住所を正しい形に直す（数字でない run_id・todo run の task 以外など）
-  const target = listHash(name, runId, view);
+  const wantToken = view === "waggle" && params && params.waggleToken ? params.waggleToken : null;
+  const target = listHash(name, runId, view, wantToken);
   if (target !== location.hash) {
     location.replace(target); // hashchange で openList をやり直す
     return;
@@ -572,6 +583,15 @@ async function openList(params) {
   if (runChanged) {
     lvWaggleList = null;
     lvWaggleToken = null;
+  }
+  // 住所に文書のトークンがあれば、その文書を開く（md の中の waggle リンクから来た）。
+  // 住所からトークンが消えたら（‹ で戻ったとき）、その文書は閉じて一覧に戻す。
+  if (wantToken) {
+    lvWaggleToken = wantToken;
+    lvWaggleFromHash = true;
+  } else if (lvWaggleFromHash) {
+    lvWaggleToken = null;
+    lvWaggleFromHash = false;
   }
   lvFolds = lvLoadFolds(name);
 
@@ -1345,6 +1365,11 @@ async function lvLoadWaggle(seq) {
       back.textContent = "‹ 一覧";
       back.addEventListener("click", () => {
         lvWaggleToken = null;
+        // 住所にトークンがあるときは外す（開き直しで同じ文書に戻らないように）
+        if (parseListHash(location.hash)?.waggleToken) {
+          location.hash = listHash(lvName, lvRunId, "waggle");
+          return;
+        }
         const s = ++lvSeq;
         void lvLoadContent(s);
       });
@@ -1616,6 +1641,22 @@ if (typeof window !== "undefined") {
     if (wasWide !== lvWideOn) lvSetDrawer(lvRunId == null || lvWideOn === true);
   });
   // ＋（task.md の作成フォーム）はサイドバーの見出しの行の中（lvRenderDrawer・U01 §4）
+}
+
+// --- md の中の waggle リンク（`waggle:<トークン>`）を押したら、その文書の表示へ移る ---
+// 文書に `:path:…/<run_id>/…` があればその run、無ければ今開いている run の下で開く
+// （トークンの解決は run に依らない）。List が見えているときだけ動く。
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (e) => {
+    const a = e.target && typeof e.target.closest === "function" ? e.target.closest("a.md-waggle") : null;
+    if (!a) return;
+    e.preventDefault();
+    const list = document.getElementById("view-list");
+    if (!list || list.hidden || !lvName) return;
+    const run = Number(a.dataset.waggleRun) || lvRunId;
+    if (run == null) return;
+    location.hash = listHash(lvName, run, "waggle", a.dataset.waggleToken);
+  });
 }
 
 // --- node からの読み込み（tests/test_linkview.js・計画 14 §6） ---

@@ -96,8 +96,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 - 環境変数 `SAI_SAI_HOME` があればそれが優先。無ければ `~/.sai-moon`。
   Rust 側は `sai_link_engine::project::sai_home()` と `sai_paper_core::paths::sai_home()`、`apps/phone` 側は `registry.sai_home()`。
-- 例外が 1 つ。`apps/phone/src/sai_phone/usage.py:34` の `CC_LIMITS_PATH` は `~/.sai/phone/cc-rate-limits.json` のまま。
-  これは利用者の statusline が書く**リポジトリの外**のファイルで、`apps/phone` が書かないため。
+- `apps/phone/src/sai_phone/usage.py` の `cc_limits_path()` は `<sai_home>/phone/cc-rate-limits.json` を読む。
+  書くのは `sai-moon-link cc-statusline`（`phone_export.rs` の `cc_rate_limits_path()`）。旧 `~/.sai/phone/` は読まない。
 
 ---
 
@@ -123,7 +123,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 - 質問・承認は `store.list_open_questions` / `store.list_open_approvals` から作る。
   `project` / `run_id` は `runs.load_runs` の中で `run_session_ids` に `session_id` を含む実行を探して付ける（無ければ `null`）。
 - プロジェクトの `review` / `todo` は `sai-moon-link phone tree` の `review` / `todo` フォルダを数える。論文の要対応は `sai-moon-paper attention --json` の件数と先頭 3 件。
-- プロジェクトの `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。画面は `todo_runs` の行を押せるようにする。
+- プロジェクトの `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。画面は `todo_runs` の行を押せるようにする。実行予約した todo の行には `scheduled_at`（`YYYY-MM-DD HH:MM`・`phone tree` の run ノードの追加項目）が付く。画面はこれがある行だけを「予約した todo」に並べる。`review` はホームには出さない（API には残す）。
 - 各プロジェクトは `ThreadPoolExecutor(max_workers=4)` で並べる。1 つが失敗しても全体は止めず `errors` に「<名前>: <理由>」を足す。
 - 結果は 10 秒だけ覚える（`home.forget()` で消す）。
 
@@ -170,6 +170,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | メソッド・パス | 中身 |
 |---|---|
 | `GET /api/projects/{name}/tree` | 引き出しツリー（`phone tree`・TUI の左サイドバーと同じ） |
+| `GET /api/projects/{name}/search?q=…` | 文書（task / message / waggle）の本文検索（`phone search`・Dashboard の検索カード）。`q`（空白区切りで AND・200 文字まで）に加え、`category`（カンマ区切り・空で全部）・`since` / `until`（`YYYY-MM-DD`・実行日）・`block`（完全一致）・`from_id` / `to_id`（run_id の範囲）・`limit`（1〜100・既定 50）。通らない値は CLI を呼ばずに 400。返り値は `{items: [{run_id, category, file, token?, block, date, snippet}], truncated}` |
 | `GET /api/projects/{name}/rtree` | 3 層の実行の図（`phone rtree`・U03。`{"nodes": […], "edges": […]}` をそのまま返す。実行の記録が要るので 404 の決まりは `tree` と同じ） |
 | `GET /api/projects/{name}/runs/{run_id:int}/view/{log\|stats\|history}` | run の中身（`phone run`） |
 | `GET /api/projects/{name}/runs/{run_id:int}/md/{task\|review\|message}` | md 本文（`phone md`・「まだありません」は 404） |
