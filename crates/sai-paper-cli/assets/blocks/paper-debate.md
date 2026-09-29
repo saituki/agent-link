@@ -14,6 +14,7 @@ subblocks:
   - paper-reviewer
 timeout: 7200
 worktree: none
+layer: root
 enable: true
 ---
 

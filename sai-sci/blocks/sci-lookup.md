@@ -14,6 +14,7 @@ sci_ops: add_finding, link
 sci_scope: node
 timeout: 3600
 worktree: none
+layer: root
 enable: true
 ---
 

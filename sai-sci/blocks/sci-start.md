@@ -13,6 +13,7 @@ sci_ops: add_finding, add_question, answer_question, link, add_option, add_child
 sci_scope: summary
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - sci-search

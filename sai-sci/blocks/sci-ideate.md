@@ -14,6 +14,7 @@ sci_ops: add_option, add_child, add_question, add_finding, link
 sci_scope: path
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - sci-analogy

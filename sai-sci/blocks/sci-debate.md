@@ -13,6 +13,7 @@ sci_ops: add_finding, add_question, link
 sci_scope: path
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - paper-debater

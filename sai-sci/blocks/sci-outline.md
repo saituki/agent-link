@@ -13,6 +13,7 @@ sci_ops: add_question, link, add_option, reopen, exclude, add_edge
 sci_scope: summary
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - sci-lookup

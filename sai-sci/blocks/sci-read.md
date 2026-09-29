@@ -14,6 +14,7 @@ sci_ops: add_finding, add_question, answer_question, link, add_option, exclude
 sci_scope: path
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - sci-lookup

@@ -13,6 +13,7 @@ sci_ops: edit_text, add_finding, add_question
 sci_scope: path
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - sci-lookup

@@ -13,6 +13,7 @@ sci_ops: add_seed, add_question, add_finding
 sci_scope: summary
 timeout: 5400
 worktree: none
+layer: root
 enable: true
 subblocks:
   - sci-lookup

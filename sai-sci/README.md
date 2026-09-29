@@ -250,7 +250,7 @@ sai-moon-paper sci init --type <型>
 | `sci apply` | 利用者の操作を 1 つ反映する（標準入力に C-07 の JSON） |
 | `sci proposals [--json]` | 仕分け待ちの一覧 |
 | `sci triage <P> (--accept [--edit <JSON>] \| --reject \| --revert) [--note <文>]` | 提案を仕分ける |
-| `sci card --node <N> --block <id> --purpose <文> [--question <Q>] [--expect <文>] [--scope <範囲>] [--assume <N=値>]… [--mode <型>] [--paper <番号>]… [--runner pi\|cc\|user] [--role <役割>] [--depth <深さ>] [--origin-run <run_id>] [--json]` | 節点のための実行（カード）を作る。`--runner user` は読む札 |
+| `sci card --node <N> --block <id> --purpose <文> [--question <Q>] [--expect <文>] [--scope <範囲>] [--assume <N=値>]… [--mode <型>] [--paper <番号>]… [--runner pi\|cc\|user] [--role <役割>] [--depth <深さ>] [--origin-run <run_id>] [--input <トークン>]… [--json]` | 節点のための実行（カード）を作る。`--runner user` は読む札。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可） |
 | `sci read <run_id> [--json]` | 読む札の中身 |
 | `sci finish-read <run_id> [--no-reflect <理由>]` | 読む札を終える（反映を `reflected` にする） |
 | `sci export` | 木を `state.md` と `tree.md` に書き出す |

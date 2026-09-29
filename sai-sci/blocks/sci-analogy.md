@@ -15,6 +15,7 @@ subblocks:
   - sci-search
 timeout: 3600
 worktree: none
+layer: root
 enable: true
 ---
 
