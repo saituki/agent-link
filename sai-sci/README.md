@@ -65,9 +65,9 @@
 sai-sci/
 ├── types/      # 5 つの型（problem・phenomenon・method・data・improve）
 ├── guides/     # 項目ガイド（上の項目 9 本・子の項目 16 本）
-├── template/   # sci-core.md（エージェントの共通の決まり）
+├── template/   # sci-core.md（エージェントの共通の決まり）と exp-core.md・exp-ssh.md（実験ループの決まり）
 ├── mind.md     # 土壌のひな形
-└── blocks/     # 16 本のブロック
+└── blocks/     # 18 本のブロック
 ```
 
 ### 3.1 5 つの型
@@ -119,9 +119,9 @@ sai-sci/
 | `novelty.closest` | 最も近い研究 | 並べる | `novelty` |
 | `novelty.diff` | 差分 | 書く・確かめる | `novelty` |
 
-### 3.4 16 本のブロック
+### 3.4 18 本のブロック
 
-`blocks/` の 16 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 18 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
 `sci_scope` は「このブロックの行動に切り出す範囲」、`sci_ops` は「このブロックで提案できる op」。
 
 | id | 名前 | 類 | 範囲 | 提案できる op | 呼べる子ブロック |
@@ -142,14 +142,20 @@ sai-sci/
 | `sci-extract` | 📋 抜き出す | support | node | add_finding, link | ― |
 | `sci-lookup` | 📚 Library で答える | support | node | add_finding, link | ― |
 | `sci-analogy` | 🔁 同型を探す | support | node | add_option, add_finding, link, add_question | sci-search |
+| `sci-exp-seed` | 🌱 exp-seed | seed | path | add_finding, add_question, answer_question, link | sci-exp-branch |
+| `sci-exp-branch` | 🌿 exp-branch | branch | ― | ― | ― |
 
-- 16 本すべて `context: true`（実行の直前に研究方針の木から範囲を作る）・`model: inherit`・`worktree: none`。
+- 先の 16 本は全部 `context: true`（実行の直前に研究方針の木から範囲を作る）・`model: inherit`・`worktree: none`。
 - 3 つの類で `timeout` が違う。outline と detail は 5400 秒、support は 3600 秒。
 - `sci-debate` の参加者は `paper-debater` と `paper-reviewer`（普通の `paper-*` のブロック）。
+- 後ろの 2 本は**実験ループ**（5.6 節）。`sci-exp-branch` だけは木の範囲も共通の決まり（`sci-core`）も受け取らない。判定をしないから、範囲も要らない。
+- `layer` は C-01 の層で、`root`（上の 16 本）・`seed`（`sci-exp-seed`）・`branch`（`sci-exp-branch`）の 3 種類。書かないブロックは図に出さない。
 
-### 3.5 `template/sci-core.md` と `mind.md`
+### 3.5 `template/` と `mind.md`
 
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。範囲を出す `{{context}}`、確かめの地点、提案の書き方、使える 14 種類の op、根拠の扱い、迎合しない姿勢。
+- **`template/exp-core.md`** — 実験ループ（seed と branch）の共通の決まり。役割、文書の渡し方、実験仕様書、MLflow の記録の決まり（C-04）、台帳、判定の規則、依頼文の形、実行場所の規則、停止の条件。
+- **`template/exp-ssh.md`** — `sai-ssh` でリモートに計算を投げる手順。`exp-core` の「実行場所の規則」と対で読む。
 - **`mind.md`**（`sai-sci/mind.md`）— 土壌のひな形。「始まり・研究の型・与えられていること・制約・価値の軸・興味がある/無い・メモ」の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** 「価値の軸」は「選ぶ項目」を比べる軸として `sci node` に出す。
 
 ---
@@ -178,8 +184,8 @@ sai-moon-paper sci init --type <型>
 
 | 入るもの | 置き場 |
 |---|---|
-| 16 本の `sci-*` ブロック | `<root>/.sai/blocks/` |
-| `sci-core.md`（と 16 本が使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 18 本の `sci-*` ブロック | `<root>/.sai/blocks/` |
+| `sci-core.md`・`exp-core.md`・`exp-ssh.md`（と 18 本が使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（土壌のひな形。無いときだけ書く） | `<root>/.sai/paper/mind.md` |
 | 型と項目ガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
@@ -216,7 +222,7 @@ sai-moon-paper sci init --type <型>
 
 `sci-*` のブロックは `context: true` です。sai-link は実行の直前に `.sai/settings.json` の `context` を実行し、標準出力を本文の `{{context}}` に入れます。`{{context}}` が無い本文では先頭に入ります。
 
-**`{{context}}` を持つのは `sci-core.md` だけ**です。ブロックの本文には書きません（二重になります）。sai-core は 16 本すべての `templates` に入るので、どのブロックを動かすときにも範囲が入ります。
+**`{{context}}` を持つのは `sci-core.md` だけ**です。ブロックの本文には書きません（二重になります）。sci-core は範囲を作る 17 本（`sci-exp-branch` を除く）の `templates` に入るので、どのブロックを動かすときにも範囲が入ります。
 
 この範囲は「対象の節点・上流の道・範囲外の項目・仮置き（その回で問い直さないと決めた値）」です。範囲を作れなかったときは 1 行の注意が `{{context}}` に入ります（実行は止まりません）。`block preview` は context を実行せず、`{{context}}` のまま見せます。
 
@@ -233,6 +239,46 @@ sai-moon-paper sci init --type <型>
 ### 5.5 TUI の「研究方針」のページ
 
 `sai-moon-paper-tui` の「研究方針」のページは**読むだけ**です。木と `tree.md` を見て、何も書き換えません。直すのは Web か `sai-moon-paper sci` だけです。
+
+### 5.6 実験（seed と branch）
+
+`sci-exp-seed` と `sci-exp-branch` の 2 本で、実験を**世代**で回します。1 世代は並列に走る branch 1 つ以上とひとかたまりで、`sci-exp-seed` が自分で次の世代を起動します。人が「続きを」と頼まなくても最後まで回ります。
+
+```
+sai card --block sci-exp-seed            種づくり（sci-seed）が終わった節点
+        │
+        ▼
+┌──▶ 世代 1 の seed ─────────────────────────────────────────┐
+│    ・実験仕様書 exp-spec-<study>.md を作る（最初の 1 回だけ） │
+│    ・スクリプト <workdir>/<script>/g1.py を書く               │
+│    ・branch を 1〜max_branches 個、並列に task_create する   │
+└──┬──────────────────────────────────────────────────────────┘
+   │  task_execute → task_output で全部待つ → finalize
+   ▼
+┌──▶ 世代 2 の seed ── 台帳 exp_summary.py を取る ────────────┐
+│    ・判定の規則 R1〜R7 を上から当てて判定書 review-…-g2.md   │
+│    ・stop なら完了報告書 exp-final-<study>.md を書いて終える  │
+│    ・そうでなければ世代 3 のスクリプトを書いてまた branch      │
+└──┴──────────────────────────────────────────────────────────┘
+   │  次の seed のカードを作って起動する（sai card → phone card run）
+   └─▶ 世代 3 …（`last.round >= max_generations` で stop）
+```
+
+**最初の seed の起動**は、`sci card` に種の札のトークンを渡して作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
+
+```bash
+sai-moon-paper sci card --node <N> --block sci-exp-seed \
+  --purpose "<study> 世代 1 の計画" \
+  --input <種の札のトークン> --json
+sai-moon-link phone card run <返ってきた run_id>
+```
+
+**止め方**は 2 つ。どちらも利用者が決める。
+
+- **自然に止まる**: 判定が `stop` になるときだけ。`max_generations`（既定 8 世代）に達したときと、成功基準に `ablation` まで済んで達したとき。
+- **利用者に訊いて止める**: 同じ世代で branch の記録が 1 つも無いことが 2 代続けて続いたとき、または判定書が 2 回続けて作られなかったとき。実験を勝手に進めず、MLflow への接続などを訊いて止まる。
+
+**実行場所**は環境変数 `EXP_SSH_HOST` で選ぶ。空なら手元で実行し、空でなければ `sai-ssh run` でリモートに投げて `exp-ssh.md` の手順で回収する。台帳コマンド `exp_summary.py` の置き場は環境変数 `EXP_SUMMARY_PY` で知らせる。
 
 ---
 

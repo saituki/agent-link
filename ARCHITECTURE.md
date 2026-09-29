@@ -251,9 +251,9 @@ sai-moon/
 ├── sai-sci/                  # 研究方針の木（Research-tree）
 │   ├── types/                # 5 つの型（sai-moon-paper に埋め込まれる）
 │   ├── guides/               # 項目ガイド（上の項目 9 本・子の項目 16 本）
-│   ├── template/             # sci-core.md（エージェントの共通の決まり）
+│   ├── template/             # sci-core.md（共通の決まり）と exp-core.md・exp-ssh.md（実験ループの決まり）
 │   ├── mind.md               # 土壌のひな形
-│   └── blocks/               # 16 本の sci-* ブロック
+│   └── blocks/               # 18 本の sci-* ブロック
 ├── apps/
 │   ├── phone/                # Web の窓口（8200）
 │   │   ├── src/sai_phone/    # サーバ（§4.1）
