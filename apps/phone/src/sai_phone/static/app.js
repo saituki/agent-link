@@ -200,12 +200,13 @@ window.addEventListener("hashchange", route);
 
 // --- タブバー（05 §3.3） ---
 
-// 各タブの「最初の画面」（U4: 先頭にホームを足した。ホームは #/home）
+// 各タブの「最初の画面」（U4: 先頭にホームを足した。ホームは #/home。U06 で実験を足した）
 const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
   agent: "#/",
   papers: "#/papers/tree",
+  mlflow: "#/mlflow",
   usage: "#/usage",
 };
 // ホームの住所（app.js 自身が見る。home.js も使うので外に出す）

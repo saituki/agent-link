@@ -22,6 +22,7 @@ API 契約そのもの（JSON の項目・終了コード）は変わってい�
 | ホーム画面から入るアイコンが複数（sai-phone・sai-radio） | アイコンは sai-moon ひとつ |
 
 - **`apps/phone` の画面と API は変えない。** タブも 5 つのまま（ホーム / プロジェクト / 会話 / 論文 / 使用量）、住所（`#/home`・`#/projects`・`#/papers/library` など）も API も旧 sai-phone と同じ。ブラウザに保存済みの PWA は、ポートを 8200 番に合わせて起動し直せばそのまま使える（`sw.js` の `CACHE` が `sai-phone-v30`）。
+  - ここに U06 で「実験」タブを足して 6 つになった（ホーム / プロジェクト / 会話 / 論文 / 実験 / 使用量）。MLflow へ読み取りだけで中継する `/api/mlflow/*`（§5）を見る画面。旧 sai-phone には無い画面。
 - **変わるのは「中身の置き場」と「呼ぶバイナリ名」と「ポート」だけ。** §5〜§7 の表をこの 3 つだけ読み替えること。
 
 ---
@@ -317,13 +318,18 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/papers/log/<name>/<log_id>` | 過去の検索結果 | 論文 | 表示 |
 | `#/papers/log/<name>/<log_id>/<position>` | 未ダウンロード論文の情報 | 論文 | 表示 |
 | `#/radio/<radio_id>` | 再生画面（質問チャット付き） | 論文 | 隠す |
+| `#/mlflow` | 実験（MLflow）の一覧 | 実験 | 表示 |
+| `#/mlflow/e/<experiment_id\|all>` | run の表（`?sai_run=<n>`・`?seed=<n>`・`?study=<s>`・`?status=<S>` を付けられる） | 実験 | 表示 |
+| `#/mlflow/run/<run_id>` | run の詳細（設定・指標・タグ・成果物） | 実験 | 表示 |
+| `#/mlflow/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件。画面は U07 で作る） | 実験 | 表示 |
 
 - 古い住所も開く: `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>`（名前の無い形）は，今選んでいるプロジェクトの同じ画面として開く。
 - 古い住所 `#/papers/canvas` と `#/canvas/…` は研究方針の画面（`#/papers/tree`）へ送る（消した画面の `scitree.js` の登録が `location.replace` で送り直す）。
 - 住所に名前がある画面を開いたら，論文タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `sai_phone_papers_project`（localStorage）に覚える。
+  - 実験タブの「選んでいるプロジェクト」は別の `sai_phone_mlf_project`（localStorage）に覚える（論文タブと別々に持つ）。「すべてのプロジェクト」は `*` として覚え、`POST /api/mlflow/runs/search` には `project` を送らない。
 - **List のサイドバーの一番上（todo フォルダの上）の「実行［＋］［↻］」の行**で，**＋** は **task.md 作成フォーム**（↻ はツリーの読み直し），**↻** でツリーを読み直す（どちらも住所は付けない一枚・`cardform.js` / `linkview.js`）。手順は 10 画面、書きかけは localStorage（プロジェクトごと）。
 - Project の 4 画面（Dashboard / Workflow / List / 設定）の見出しは，同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）にそろえてある（共通のクラス `.proj-bar`・`style.css`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。上向きの固定は `html, body` の `overflow-x: clip` による（`hidden` にすると `body` がスクロールの箱になって `.appbar` と `.inputbar` の `position: sticky` が効かない）。
-- 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js` / `cite.js` / `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
+- 画面ファイル: `index.html`（枠）＋ `stats.js` / `project.js` / `linkview.js` / `cardform.js` / `papers.js` / `radio.js` / `chatorder.js` / `cite.js` / `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `mlflow.js`（画面ごと）＋ `markdown.js` ＋ `app.js`。
   **タブごとのファイルは `app.js` より前**に読み込む。新しい画面は `window.SaiRoutes` に登録する（`app.js` の分岐は増やさない）。
 
 ---

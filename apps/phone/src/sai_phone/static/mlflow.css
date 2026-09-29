@@ -1,0 +1,399 @@
+/* sai-phone の「実験」タブ（MLflow の記録）— 実装計画 U06。
+   style.css の次に読む（index.html）。style.css は他の作業のものなので触らない。
+   使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
+   --accent / --ok / --warn / --danger / --run / --radius だけ。
+   クラスは .mlf- で始める。mlf- や --mlf- は他の画面で使っていない。 */
+
+/* --- 全体（上に帯・下に 2 つの欄） --- */
+
+.mlf-proj-row {
+  display: flex;
+  padding: var(--sp-2) var(--sp-3) 0;
+}
+
+.mlf-body {
+  align-items: stretch;
+  min-height: 0;
+  padding: var(--sp-2) 0 var(--sp-6);
+}
+
+/* 一画面だけを出すとき（左の表が無いとき） */
+.mlf-body.mlf-solo .sai-split-list {
+  flex: 1 1 auto;
+  max-width: none;
+  border-right: none;
+}
+.mlf-body.mlf-solo .sai-split-main {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 900px) {
+  /* 広い画面では左の表を少し広くする（残りは詳細） */
+  .mlf-body .sai-split-list {
+    flex: 0 0 420px;
+    max-width: 420px;
+  }
+  .mlf-body.mlf-solo .sai-split-list {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}
+
+/* --- 札（チップ） --- */
+
+.mlf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mlf-chip.small {
+  min-height: 36px;
+  padding: 0 var(--sp-2);
+  font-size: 13px;
+}
+
+.mlf-chip.ghost {
+  background: none;
+  color: var(--text-soft);
+}
+
+.mlf-chip-x { color: var(--text-soft); }
+
+.mlf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3) 0;
+}
+
+/* --- 実験の一覧 --- */
+
+.mlf-exp {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlf-exp-name { font-size: 15px; }
+.mlf-exp-note { font-size: 12px; color: var(--text-soft); }
+
+/* --- run の入れ子 --- */
+
+.mlf-bundle-box {
+  margin: var(--sp-2) var(--sp-2) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.mlf-bundle,
+.mlf-parent-head,
+.mlf-fold {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  background: var(--bg-soft);
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mlf-parent-head,
+.mlf-fold { background: none; }
+
+.mlf-bundle-caret { color: var(--text-soft); flex: none; }
+.mlf-bundle-name { font-weight: 600; }
+.mlf-parent-name { font-weight: 600; }
+.mlf-bundle-count { margin-left: auto; color: var(--text-soft); font-size: 12px; }
+
+.mlf-rows { padding: var(--sp-1) 0; }
+
+.mlf-parent,
+.mlf-orphan {
+  padding: var(--sp-1) var(--sp-2);
+}
+
+.mlf-orphan {
+  border-left: 3px solid var(--warn);
+}
+
+.mlf-children {
+  margin-left: var(--sp-3);
+  border-left: 2px solid var(--line);
+  padding-left: var(--sp-2);
+}
+
+/* --- 1 本の run の札 --- */
+
+.mlf-tcard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.mlf-tcard:hover { background: var(--bg-soft); }
+
+.mlf-tcard.nested { padding-left: var(--sp-1); }
+
+.mlf-tcard-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.mlf-c-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlf-c-time,
+.mlf-c-dur { font-size: 12px; color: var(--text-soft); }
+
+.mlf-c-metric {
+  display: flex;
+  gap: var(--sp-1);
+  font-size: 13px;
+}
+
+.mlf-c-metric-key { color: var(--text-soft); }
+.mlf-c-metric-val { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.mlf-c-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.mlf-tagline {
+  font-size: 11px;
+  color: var(--text-soft);
+  background: var(--bg-soft);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* 状態 */
+.mlf-status { font-size: 12px; flex: none; }
+.mlf-st-ok { color: var(--ok); }
+.mlf-st-bad { color: var(--danger); }
+.mlf-st-run { color: var(--run); }
+.mlf-st-wait { color: var(--warn); }
+
+/* 狭い画面のときは「表」に見せない（札として出す） */
+.mlf-more { margin: var(--sp-3) var(--sp-3) 0; width: calc(100% - var(--sp-3) * 2); }
+
+/* --- 詳細 --- */
+
+.mlf-detail { padding: var(--sp-3) var(--sp-3) 0; }
+.mlf-detail-name { margin: 0; font-size: 18px; }
+.mlf-detail-sub { margin: 2px 0 0; font-size: 13px; color: var(--text-soft); }
+
+.mlf-kv,
+.mlf-table-box {
+  margin: var(--sp-3) var(--sp-3) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.mlf-kv-row {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.mlf-kv-row:last-child { border-bottom: none; }
+
+.mlf-kv-k {
+  flex: 0 0 40%;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.mlf-kv-v { flex: 1; overflow-wrap: anywhere; }
+
+.mlf-links {
+  display: flex;
+  flex-direction: column;
+  margin: var(--sp-3) var(--sp-3) 0;
+}
+
+.mlf-link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: 0 var(--sp-2);
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlf-link-arrow { flex: none; }
+
+.mlf-section { margin: var(--sp-4) var(--sp-3) 0; }
+.mlf-section .mlf-kv,
+.mlf-section .mlf-table-box { margin: var(--sp-2) 0 0; }
+
+.mlf-section-title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.mlf-note { margin: var(--sp-2) 0; font-size: 13px; color: var(--text-soft); }
+.mlf-note.tiny { font-size: 12px; }
+
+/* --- 成果物 --- */
+
+.mlf-art { padding: 0 0 var(--sp-2); }
+
+.mlf-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+}
+
+.mlf-crumb {
+  min-height: 44px;
+  padding: 0 var(--sp-1);
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mlf-crumb.active { color: var(--text); font-weight: 600; }
+.mlf-crumb-sep { color: var(--text-soft); }
+
+.mlf-art-list { display: flex; flex-direction: column; }
+
+.mlf-art-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: 0 var(--sp-2);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mlf-art-size { margin-left: auto; font-size: 12px; color: var(--text-soft); }
+
+.mlf-art-body {
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--sp-2);
+}
+
+.mlf-art-path {
+  margin: 0 0 var(--sp-2);
+  font-size: 12px;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.mlf-pre {
+  margin: 0;
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mlf-img { max-width: 100%; height: auto; }
+
+.mlf-csv {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  display: block;
+  overflow-x: auto;
+}
+
+.mlf-csv th,
+.mlf-csv td {
+  border: 1px solid var(--line);
+  padding: 2px var(--sp-1);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.mlf-csv th { background: var(--bg-soft); }
+
+/* --- 選ぶ板（saiSheet の中） --- */
+
+.mlf-sheet { display: flex; flex-direction: column; }
+
+.mlf-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.mlf-sheet-item.active { color: var(--accent); font-weight: 600; }
+.mlf-sheet-check { flex: 0 0 16px; color: var(--accent); }
+
+.mlf-sheet-text { display: flex; flex-direction: column; }
+.mlf-sheet-name { font-size: 15px; }
+.mlf-sheet-note { font-size: 12px; color: var(--text-soft); }
