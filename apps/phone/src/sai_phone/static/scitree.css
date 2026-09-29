@@ -370,3 +370,81 @@ button.sci-debt {
 .sci-md { font-size: 14px; line-height: 1.7; color: var(--text); }
 .sci-md > :first-child { margin-top: 0; }
 .sci-md > :last-child { margin-bottom: 0; }
+
+/* --- 実行の図（U08。scitree.css は scigraph.css より前に読むので、ここに足す） --- */
+
+.sci-graph-runs { gap: 6px; }
+
+/* 帯（札より後ろに敷く所。層の枠と、下の色） */
+
+.sci-graph-bands { position: absolute; top: 0; left: 0; }
+
+.sci-graph-band {
+  position: absolute;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  opacity: 0.85;
+  pointer-events: none; /* 帯が札の押しを妨げない */
+}
+
+.sci-graph-band-root { background: color-mix(in srgb, var(--sci-open) 8%, var(--bg)); }
+.sci-graph-band-seed { background: color-mix(in srgb, var(--sci-candidate) 8%, var(--bg)); }
+.sci-graph-band-branch { background: color-mix(in srgb, var(--sci-dormant) 8%, var(--bg)); }
+.sci-graph-band-other { background: var(--bg-soft); }
+
+.sci-graph-band-label {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+/* 札（3 行：run とブロック / 状態と時刻 / 指標） */
+
+.sci-graph-run-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.sci-graph-run-metric {
+  margin-top: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sci-graph-runs-note { margin: 0; }
+.sci-graph-legend-note { opacity: 0.8; }
+
+/* --- 実行の図の注（MLflow に接続できないとき。図の上に 1 行） --- */
+
+.sci-runs-note {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.sci-runs-sheet { display: flex; flex-direction: column; gap: 8px; }
+
+/* --- 実行の見出しの下に出る「実験の記録」（U08。app.js が #run-desc の後ろに作る） --- */
+
+.run-mlf { margin-top: 2px; }
+
+.run-mlf-link {
+  font-size: 12px;
+  color: var(--text-soft);
+  text-decoration: underline;
+}
+
+.run-mlf-link:hover { color: var(--accent); }

@@ -22,6 +22,18 @@ const {
   stGraphBoxId,
   stQuestionLabel,
   stTableEmptyHint,
+  stLoadMode,
+  stSaveMode,
+  stRunMetrics,
+  stMlfTag,
+  stMlfMetricValue,
+  stRunStatusLabel,
+  ST_MODE_KEY,
+  ST_RUN_LAYERS,
+  ST_RUN_LAYER_LABELS,
+  ST_RUN_PAGE_SIZE,
+  ST_RUN_MAX_PAGES,
+  ST_RUN_NO_MLF,
   ST_MODES,
   ST_TYPES,
   ST_ITEM_TYPES,
@@ -252,8 +264,10 @@ function testDecisionRowsNoTime() {
 function testTablesAreShared() {
   // 項目の型は 4 つ（選ぶ・並べる・書く・確かめる）
   assert.deepStrictEqual(ST_ITEM_TYPES.map((x) => x[0]), ["choose", "list", "write", "verify"]);
-  // 表示の切り替えは 3 つ
-  assert.deepStrictEqual(ST_MODES, [["list", "一覧"], ["graph", "根の図"], ["table", "表"]]);
+  // 表示の切り替えは 4 つ（一覧・根の図・表・実行の図）
+  assert.deepStrictEqual(ST_MODES, [
+    ["list", "一覧"], ["graph", "根の図"], ["table", "表"], ["runs", "実行の図"],
+  ]);
   // 研究の型は 5 つ、C-14 の用語の札の解説の順
   assert.deepStrictEqual(ST_TYPES.map((x) => x[0]), ["problem", "phenomenon", "method", "data", "improve"]);
   // 印と表示名は 1 対 1
@@ -296,6 +310,162 @@ function testListIsFullWidthOnNarrow() {
   assert.ok(media > close, "一覧の欄の固定が media query の外にある");
 }
 
+// --- 実行の図（U08） ---
+
+/** localStorage の代わり（記憶した表示の切り替えを読み書きする）。 */
+function fakeLocalStorage() {
+  const map = new Map();
+  return {
+    getItem: (k) => (map.has(String(k)) ? map.get(String(k)) : null),
+    setItem: (k, v) => { map.set(String(k), String(v)); },
+    removeItem: (k) => { map.delete(String(k)); },
+  };
+}
+
+function withLocalStorage(store, fn) {
+  const had = Object.prototype.hasOwnProperty.call(global, "localStorage");
+  const before = had ? global.localStorage : null;
+  global.localStorage = store;
+  try {
+    return fn(store);
+  } finally {
+    if (had) global.localStorage = before;
+    else delete global.localStorage;
+  }
+}
+
+function testModeRunsIsRemembered() {
+  // AC2: 「実行の図」を覚えて開き直すと、その表示になる
+  const store = fakeLocalStorage();
+  withLocalStorage(store, () => {
+    assert.strictEqual(stLoadMode(), "list"); // 覚えていなければ一覧
+    stSaveMode("runs");
+    assert.strictEqual(store.getItem(ST_MODE_KEY), "runs");
+    // 他の表示も覚える
+    for (const [key] of ST_MODES) {
+      stSaveMode(key);
+      assert.strictEqual(stLoadMode(), key);
+    }
+    // 表に無い値は覚えない（一覧に寄る）
+    store.setItem(ST_MODE_KEY, "???");
+    assert.strictEqual(stLoadMode(), "list");
+  });
+  // 開き直す（読み直しのたびに同じ記憶を読む）
+  assert.strictEqual(withLocalStorage(store, () => stLoadMode()), "list");
+  withLocalStorage(store, () => stSaveMode("runs"));
+  assert.strictEqual(withLocalStorage(store, () => stLoadMode()), "runs");
+  // localStorage が無くても止まらない
+  const had = Object.prototype.hasOwnProperty.call(global, "localStorage");
+  const before = had ? global.localStorage : null;
+  delete global.localStorage;
+  try {
+    assert.strictEqual(stLoadMode(), "list");
+    stSaveMode("runs");
+  } finally {
+    if (had) global.localStorage = before;
+  }
+}
+
+/** MLflow の親 run 1 枚（run_id は sai.run_id のタグ、値は exp.metric の名前の指標）。 */
+function mlfParent(saiRunId, metric, value, direction) {
+  const tags = [{ key: "exp.role", value: "script" }];
+  if (saiRunId != null) tags.push({ key: "sai.run_id", value: String(saiRunId) });
+  if (metric != null) tags.push({ key: "exp.metric", value: metric });
+  if (direction != null) tags.push({ key: "exp.direction", value: direction });
+  const metrics = metric != null && value != null ? [{ key: metric, value }] : [];
+  return { info: { run_id: `m${saiRunId}-${metric}` }, data: { tags, metrics } };
+}
+
+function testRunMetrics() {
+  // 親 run → {"<sai.run_id>": "<指標名> <値>"}
+  const one = stRunMetrics([mlfParent(120, "val_auc", 0.871, "maximize")]);
+  assert.deepStrictEqual(one, { 120: "val_auc 0.871" });
+  // 別の指標名も同じ形
+  assert.deepStrictEqual(stRunMetrics([mlfParent(121, "val_f1", 0.42, "minimize")]), { 121: "val_f1 0.42" });
+  // 別の run は別のキー
+  const two = stRunMetrics([mlfParent(120, "val_auc", 0.871, "maximize"), mlfParent(121, "val_auc", 0.9, "maximize")]);
+  assert.deepStrictEqual(two, { 120: "val_auc 0.871", 121: "val_auc 0.9" });
+}
+
+function testRunMetricsMaximize() {
+  // 同じ sai.run_id の親 run が 2 つ。maximize なら大きいほう
+  const runs = [
+    mlfParent(120, "val_auc", 0.871, "maximize"),
+    mlfParent(120, "val_auc", 0.913, "maximize"),
+  ];
+  assert.deepStrictEqual(stRunMetrics(runs), { 120: "val_auc 0.913" });
+  // 並びが逆でも同じ（方向で決める）
+  const rev = [mlfParent(120, "val_auc", 0.913, "maximize"), mlfParent(120, "val_auc", 0.871, "maximize")];
+  assert.deepStrictEqual(stRunMetrics(rev), { 120: "val_auc 0.913" });
+}
+
+function testRunMetricsMinimize() {
+  // minimize なら小さいほう
+  const runs = [
+    mlfParent(120, "val_loss", 0.31, "minimize"),
+    mlfParent(120, "val_loss", 0.17, "minimize"),
+  ];
+  assert.deepStrictEqual(stRunMetrics(runs), { 120: "val_loss 0.17" });
+  // 方向のタグが無ければ maximize として扱う
+  const none = [mlfParent(120, "val_auc", 0.1, null), mlfParent(120, "val_auc", 0.7, null)];
+  assert.deepStrictEqual(stRunMetrics(none), { 120: "val_auc 0.7" });
+  // 知らない方向の値（"minimize" 以外）は maximize 側
+  const odd = [mlfParent(120, "val_auc", 0.1, "minimise"), mlfParent(120, "val_auc", 0.7, "minimise")];
+  assert.deepStrictEqual(stRunMetrics(odd), { 120: "val_auc 0.7" });
+}
+
+function testRunMetricsSkips() {
+  // exp.metric が無い run は飛ばす
+  assert.deepStrictEqual(stRunMetrics([mlfParent(120, null, 0.5, "maximize")]), {});
+  // sai.run_id が無い run も飛ばす
+  assert.deepStrictEqual(stRunMetrics([mlfParent(null, "val_auc", 0.5, "maximize")]), {});
+  // exp.metric の名前の指標が記録されていない run も飛ばす
+  const noValue = { info: { run_id: "x" }, data: { tags: [{ key: "sai.run_id", value: "120" }, { key: "exp.metric", value: "val_auc" }], metrics: [] } };
+  assert.deepStrictEqual(stRunMetrics([noValue]), {});
+  // 壊れた引数でも止まらない
+  assert.deepStrictEqual(stRunMetrics(null), {});
+  assert.deepStrictEqual(stRunMetrics([]), {});
+  assert.deepStrictEqual(stRunMetrics([null, {}, { data: null }]), {});
+}
+
+function testMlfTagAndValue() {
+  const run = mlfParent(120, "val_auc", 0.871, "maximize");
+  assert.strictEqual(stMlfTag(run, "exp.role"), "script");
+  assert.strictEqual(stMlfTag(run, "sai.run_id"), "120");
+  assert.strictEqual(stMlfTag(run, "exp.direction"), "maximize");
+  // 無いタグ・壊れた run でも止まらない
+  assert.strictEqual(stMlfTag(run, "exp.metric"), "val_auc");
+  assert.strictEqual(stMlfTag(run, "???"), "");
+  assert.strictEqual(stMlfTag(null, "exp.role"), "");
+  assert.strictEqual(stMlfTag({}, "exp.role"), "");
+  // 指標の値はその名前のものだけ
+  assert.strictEqual(stMlfMetricValue(run, "val_auc"), "0.871");
+  assert.strictEqual(stMlfMetricValue(run, "exec_time_s"), null);
+  assert.strictEqual(stMlfMetricValue(null, "val_auc"), null);
+}
+
+function testRunStatusLabel() {
+  // 状態は日本語
+  assert.strictEqual(stRunStatusLabel("running"), "実行中");
+  assert.strictEqual(stRunStatusLabel("completed"), "完了");
+  assert.strictEqual(stRunStatusLabel("failed"), "失敗");
+  assert.strictEqual(stRunStatusLabel("cancelled"), "中止");
+  // 知らない状態はそのまま（空なら「待ち」）
+  assert.strictEqual(stRunStatusLabel("???"), "???");
+  assert.strictEqual(stRunStatusLabel(""), "待ち");
+}
+
+function testRunConstants() {
+  // 層は 3 つ（C-02）。帯の語も 3 つ
+  assert.deepStrictEqual(ST_RUN_LAYERS, ["root", "seed", "branch"]);
+  assert.deepStrictEqual(Object.keys(ST_RUN_LAYER_LABELS), ["root", "seed", "branch"]);
+  // 1 回の検索は 100 行、頁を繰るのは 10 まで
+  assert.strictEqual(ST_RUN_PAGE_SIZE, 100);
+  assert.strictEqual(ST_RUN_MAX_PAGES, 10);
+  // MLflow が読めなかったときの注
+  assert.ok(ST_RUN_NO_MLF.includes("MLflow"));
+}
+
 const tests = [
   testParseHash,
   testStateMark,
@@ -314,6 +484,14 @@ const tests = [
   testTableEmptyHint,
   testQuestionLabel,
   testListIsFullWidthOnNarrow,
+  testModeRunsIsRemembered,
+  testRunMetrics,
+  testRunMetricsMaximize,
+  testRunMetricsMinimize,
+  testRunMetricsSkips,
+  testMlfTagAndValue,
+  testRunStatusLabel,
+  testRunConstants,
 ];
 
 let failed = 0;

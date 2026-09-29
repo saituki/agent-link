@@ -605,6 +605,27 @@ function runApiBase() {
   return `/api/runs/${encodeURIComponent(currentRun.project_name)}/${encodeURIComponent(currentRun.run_id)}`;
 }
 
+// 実験タブの run の表への小さなリンク（#run-desc の後ろ・U08）。
+// 作り直さないので、何度和読み込んでも同じ要素を使い回す。
+// 実験タブの表は 0 件でも案内を出すので、この run の層は見ていない。
+function setRunMlfLink(runId) {
+  const desc = document.getElementById("run-desc");
+  if (!desc || !desc.parentNode) return;
+  let box = document.getElementById("run-mlf");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "run-mlf";
+    box.className = "run-mlf";
+    const a = document.createElement("a");
+    a.className = "run-mlf-link";
+    a.textContent = "実験の記録";
+    box.appendChild(a);
+    desc.parentNode.insertBefore(box, desc.nextSibling);
+  }
+  const a = box.querySelector("a");
+  if (a) a.href = `#/mlflow/e/all?sai_run=${encodeURIComponent(runId)}`;
+}
+
 async function openRun(r) {
   currentRun = {
     project_name: r.project,
@@ -649,6 +670,8 @@ async function loadRunMeta() {
       `#${data.run_id} ${data.block_name || ""}`.trim();
     document.getElementById("run-desc").textContent = data.description || "";
     document.getElementById("run-lamp").textContent = runLamp(data);
+    // 実験タブの run の表への小さなリンク（#run-desc の後ろに 1 つだけ置く・U08）
+    setRunMlfLink(data.run_id);
     // ■ 終了は「実行中のメインブロック」のときだけ出す（子ブロックは task_report で完了する）
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id

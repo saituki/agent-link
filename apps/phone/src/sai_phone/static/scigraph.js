@@ -3,6 +3,13 @@
 //
 //   sgRenderGraph(container, status, onSelect)  … 根の図（DAG）。onSelect(nodeId)
 //   sgRenderTable(container, detail)            … 候補の表（選ぶ・並べる項目）
+//   sgRunsLayout(dag)                           … 実行の図の配置（純関数）
+//   sgRenderRuns(container, dag, metrics, onSelect) … 実行の図。onSelect(runId)
+//
+// 実行の図（U08）は research-tree の root / seed / branch の 3 層の run の DAG である。
+// 入力は共有契約 C-02（`GET /api/projects/{name}/rtree`）の {nodes, edges}、
+// 指標は画面が MLflow から取った {run_id: "val_auc 0.871"} の辞書（C-03 / C-04）。
+// 中の処理は Rust のコアと MLflow が返した値だけを使う（apps/phone は他の DB を開かない）。
 //
 // 中の処理は Rust のコアが返した status と node の JSON だけを使う（apps/phone は
 // 他の DB を開かない）。このファイルは新しい情報を足さない。
@@ -71,6 +78,39 @@ const SG_MARK_LABELS = { weak_evidence: "根拠不足", recheck: "要再確認" 
 // 表を出す項目の型（選ぶ・並べる。C-01）
 const SG_TABLE_TYPES = ["choose", "list"];
 
+// --- 実行の図（root / seed / branch の 3 層。U08）---
+
+// 層の帯（上から）。帯の左に書く語。C-02 の layer と 1 対 1
+const SG_RUN_LAYERS = [
+  ["root", "方針（root）"],
+  ["seed", "計画（seed）"],
+  ["branch", "実行（branch）"],
+];
+// C-02 に無い層のための帯（.Root/seed/branch のあとろに足す）
+const SG_RUN_LAYER_OTHER = ["other", "その他"];
+// 配置に使う線（delegation と waggle_token だけ。task_output は輪になるので使わない）
+const SG_RUN_LAYOUT_KINDS = ["delegation", "waggle_token"];
+// 描く線。delegation は実線、waggle_token は点線、task_output は破線（C-02 / 要件 R-L2）
+const SG_RUN_EDGE_KINDS = [
+  ["delegation", "委譲", "", false, "--sci-edge-depends"],
+  ["waggle_token", "結び", "2 4", false, "--sci-edge-parent"],
+  ["task_output", "返却", "8 5", false, "--sci-edge-analogous"],
+];
+// run の状態の印と色（根の図の札と同じ CSS 変数を使う）
+const SG_RUN_STATES = {
+  running: { mark: "▶", label: "実行中", color: "var(--sci-tentative)" },
+  completed: { mark: "✓", label: "完了", color: "var(--sci-decided)" },
+  failed: { mark: "✗", label: "失敗", color: "var(--sci-rejected)" },
+  cancelled: { mark: "✕", label: "中止", color: "var(--sci-excluded)" },
+  pending: { mark: "…", label: "待ち", color: "var(--sci-open)" },
+};
+// 列と行の空き、帯の房地と余り、帯の左の語の幅
+const SG_RUN_GAP_X = 44;
+const SG_RUN_GAP_Y = 22;
+const SG_BAND_PAD = 12;
+const SG_BAND_GAP = 16;
+const SG_BAND_LABEL_W = 96;
+
 // --- 状態 ---
 
 let sgStatus = null;   // 最後に描いた status の JSON
@@ -86,6 +126,9 @@ let sgPtrs = new Map();  // 押している指（1 本 = 移動、2 本 = 拡大
 let sgDown = null;       // 1 本指で押したままの情報
 let sgPinch = null;      // 2 本指の情報
 let sgFitted = false;    // 全体表示を 1 回はしたか
+let sgRunDag = null;     // 実行の図の DAG（C-02）
+let sgRunMetrics = {};   // 実行の図の指標（{run_id: "val_auc 0.871"}）
+let sgShowReturn = false;// 返却の線（task_output）を出すか。既定は隠す
 
 // ============================================================================
 // DOM を使わない部品（node のテストから読む）
@@ -244,6 +287,145 @@ function sgStateOf(node) {
 }
 
 // ============================================================================
+// 実行の図（root / seed / branch の 3 層・U08）
+// ============================================================================
+
+/** C-02 の layer を帯の層に直す。知らない値は「その他」の帯にする。 */
+function sgRunLayer(layer) {
+  const key = String(layer == null ? "" : layer);
+  return SG_RUN_LAYERS.some(([id]) => id === key) ? key : SG_RUN_LAYER_OTHER[0];
+}
+
+/** 帯の左に書く語（「方針（root）」など）。知らない層は「その他」。 */
+function sgRunLayerLabel(layer) {
+  const key = sgRunLayer(layer);
+  const row = SG_RUN_LAYERS.find(([id]) => id === key);
+  return row ? row[1] : SG_RUN_LAYER_OTHER[1];
+}
+
+/** 実行の状態の印と色（表に無い状態は「待ち」）。 */
+function sgRunStateOf(status) {
+  const st = SG_RUN_STATES[String(status || "")] || SG_RUN_STATES.pending;
+  return { mark: st.mark, label: st.label, color: st.color, key: String(status || "pending") };
+}
+
+/** 実行の図の札の 2 行目に出す時刻（`2026-09-30 01:02:03` → `09-30 01:02`）。 */
+function sgRunTimeLabel(text) {
+  const s = String(text || "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(s);
+  if (!m) return s ? s.slice(0, 16) : "";
+  return `${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+}
+
+/** 実行の図の線の描き方。表に無い種類でも止まらない。 */
+function sgRunEdgeStyle(kind) {
+  const key = kind == null ? "" : String(kind);
+  const row = SG_RUN_EDGE_KINDS.find((k) => k[0] === key);
+  if (row) return { dash: row[2], arrow: row[3], colorVar: `var(${row[4]})` };
+  return { dash: "", arrow: false, colorVar: "var(--sci-edge-parent)" };
+}
+
+/**
+ * 実行の図の配置（純関数。DOM を使わない）。
+ *
+ * - 列は、その run までの**最長の道**の長さ（深さ）。配置に使うのは
+ *   `delegation` と `waggle_token` だけ（`task_output` は同じ 2 つを逆向きに
+ *   結ぶので使わない）。輪があっても止まらないよう、訪問済みの印で切る。
+ * - 行は、その層の帯の中の同じ列の何番目か。
+ * - 帯は root → seed → branch の順に上から。node の無い帯は出さない。
+ *
+ * @param dag C-02 の `{nodes, edges}`
+ * @returns `{cards, bands, width, height}`
+ *   cards は {run_id, layer, col, row, x, y, w, h}（x, y は世界上の px）
+ */
+function sgRunsLayout(dag) {
+  const d = dag || {};
+  const nodes = (Array.isArray(d.nodes) ? d.nodes : []).filter((n) => n && n.run_id != null);
+  const edges = Array.isArray(d.edges) ? d.edges : [];
+  const ids = new Set(nodes.map((n) => String(n.run_id)));
+
+  // 親（配置に使う線だけ）。両端が node に入っているものだけ採る
+  const parents = new Map();
+  for (const id of ids) parents.set(id, []);
+  for (const e of edges) {
+    if (!e) continue;
+    if (!SG_RUN_LAYOUT_KINDS.includes(String(e.kind || ""))) continue;
+    const from = String(e.from);
+    const to = String(e.to);
+    if (!ids.has(from) || !ids.has(to)) continue;
+    parents.get(to).push(from);
+  }
+
+  // 列（深さ）。再帰で、輪は訪問済みの印で切って打ち切る
+  const memo = new Map();
+  const visiting = new Set();
+  const depthOf = (id) => {
+    if (memo.has(id)) return memo.get(id);
+    if (visiting.has(id)) return 0; // 輪の中。短く切って打ち切る
+    visiting.add(id);
+    let best = 0;
+    for (const p of parents.get(id) || []) {
+      const v = depthOf(p) + 1;
+      if (v > best) best = v;
+    }
+    visiting.delete(id);
+    memo.set(id, best);
+    return best;
+  };
+
+  // 行（層の帯の中の何番目か）。元の並び（run_id の昇順）のまま
+  const placed = [];
+  const rowCount = new Map();
+  const rowsIn = new Map();
+  for (const n of nodes) {
+    const id = String(n.run_id);
+    const layer = sgRunLayer(n.layer);
+    const col = depthOf(id);
+    const key = `${layer} ${col}`;
+    const row = rowCount.get(key) || 0;
+    rowCount.set(key, row + 1);
+    rowsIn.set(layer, Math.max(rowsIn.get(layer) || 0, row + 1));
+    placed.push({ node: n, id, layer, col, row });
+  }
+
+  // 帯（上から）。node の無い層は出さない
+  const bands = [];
+  let y = 0;
+  const order = SG_RUN_LAYERS.map(([id]) => id);
+  if (rowsIn.has(SG_RUN_LAYER_OTHER[0])) order.push(SG_RUN_LAYER_OTHER[0]);
+  for (const layer of order) {
+    const rows = rowsIn.get(layer) || 0;
+    if (!rows) continue;
+    const h = rows * SG_CARD_H + (rows - 1) * SG_RUN_GAP_Y + SG_BAND_PAD * 2;
+    bands.push({ layer, y, h });
+    y += h + SG_BAND_GAP;
+  }
+  const bandOf = new Map(bands.map((b) => [b.layer, b]));
+
+  // 札の位置
+  let maxCol = 0;
+  const cards = [];
+  for (const p of placed) {
+    const band = bandOf.get(p.layer);
+    if (!band) continue;
+    maxCol = Math.max(maxCol, p.col);
+    cards.push({
+      run_id: p.node.run_id,
+      layer: p.layer,
+      col: p.col,
+      row: p.row,
+      x: SG_BAND_LABEL_W + p.col * (SG_CARD_W + SG_RUN_GAP_X),
+      y: band.y + SG_BAND_PAD + p.row * (SG_CARD_H + SG_RUN_GAP_Y),
+      w: SG_CARD_W,
+      h: SG_CARD_H,
+    });
+  }
+  const width = SG_BAND_LABEL_W + maxCol * (SG_CARD_W + SG_RUN_GAP_X) + SG_CARD_W + SG_BAND_PAD;
+  const height = bands.length ? y - SG_BAND_GAP : 0;
+  return { cards, bands, width, height };
+}
+
+// ============================================================================
 // 小さな部品
 // ============================================================================
 
@@ -331,6 +513,10 @@ function sgRenderGraph(container, status, onSelect) {
   container.innerHTML = "";
   sgStatus = status || null;
   sgOnSelect = typeof onSelect === "function" ? onSelect : null;
+  // 実行の図の残骸を捨てる（どちらの図でも同じ函数の変数を使うため）
+  sgRunDag = null;
+  sgRunMetrics = {};
+  sgShowReturn = false;
   sgView = { tx: 0, ty: 0, z: 1 };
   sgFitted = false;
   sgPtrs = new Map();
@@ -735,6 +921,243 @@ function sgOnWheel(e) {
 }
 
 // ============================================================================
+// 実行の図（root / seed / branch の 3 層・U08）
+// ============================================================================
+
+/** 空の案内（ui.js の saiEmpty が無ければただの文にする）。 */
+function sgEmptyBox(opts) {
+  const o = opts || {};
+  if (typeof saiEmpty === "function") {
+    return saiEmpty({ icon: o.icon, title: o.title, body: o.body });
+  }
+  const box = sgEl("div", "sai-empty");
+  if (o.title) box.appendChild(sgEl("p", "sai-empty-title", o.title));
+  if (o.body) box.appendChild(sgEl("p", "sai-empty-body", o.body));
+  return box;
+}
+
+/**
+ * 実行の図を描く（container の中身を入れ替える）。
+ * @param container 入れる先（広い画面は #sci-board・狭い画面は #sci-list）
+ * @param dag C-02 の `{nodes, edges}`（`GET /api/projects/<name>/rtree` の返答）
+ * @param metrics `{run_id: "val_auc 0.871"}` の辞書（無ければ {} でよい）
+ * @param onSelect 札を押したときに呼ぶ関数（引数は run_id の数）
+ */
+function sgRenderRuns(container, dag, metrics, onSelect) {
+  if (!container) return;
+  container.innerHTML = "";
+  sgRunDag = dag || { nodes: [], edges: [] };
+  sgRunMetrics = metrics && typeof metrics === "object" ? metrics : {};
+  // 札を押したときの種類は data-sg-id と同じ文字列で来るので、数に直して渡す
+  sgOnSelect = typeof onSelect === "function" ? (id) => onSelect(Number(id)) : null;
+  sgView = { tx: 0, ty: 0, z: 1 };
+  sgFitted = false;
+  sgPtrs = new Map();
+  sgDown = null;
+  sgPinch = null;
+  sgOptBtn = null;
+  sgShowReturn = false;
+
+  sgRoot = sgEl("div", "sci-graph sci-graph-runs");
+
+  // 1. 道具の行（返却の線・拡大・縮小・全体を表示）
+  const tools = sgEl("div", "sci-graph-tools sai-toolbar");
+  const retBtn = sgEl("button", "sci-graph-btn");
+  retBtn.type = "button";
+  retBtn.addEventListener("click", () => {
+    sgShowReturn = !sgShowReturn;
+    sgDrawRuns();
+  });
+  tools.appendChild(retBtn);
+  sgOptBtn = retBtn;
+  for (const [label, title, onClick] of [
+    ["＋", "拡大", () => sgZoom(SG_ZOOM_STEP)],
+    ["－", "縮小", () => sgZoom(1 / SG_ZOOM_STEP)],
+    ["⤢", "全体を表示", () => sgFit()],
+  ]) {
+    const b = sgEl("button", "sci-graph-btn", label);
+    b.type = "button";
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", onClick);
+    tools.appendChild(b);
+  }
+  sgRoot.appendChild(tools);
+
+  // 2. 指標が読めなかったときの注（図の上に 1 行）
+  const noteBox = sgEl("div", "sci-graph-runs-note");
+  sgRoot.appendChild(noteBox);
+
+  // 3. 図そのもの（見える範囲の動かし方は根の図と同じ）
+  sgStage = sgEl("div", "sci-graph-stage");
+  sgStage.tabIndex = 0;
+  sgWorld = sgEl("div", "sci-graph-world");
+  sgStage.appendChild(sgWorld);
+  sgRoot.appendChild(sgStage);
+  sgStage.addEventListener("pointerdown", (e) => sgOnPointerDown(e));
+  sgStage.addEventListener("pointermove", (e) => sgOnPointerMove(e));
+  sgStage.addEventListener("pointerup", (e) => sgOnPointerUp(e));
+  sgStage.addEventListener("pointercancel", (e) => sgOnPointerUp(e));
+  sgStage.addEventListener("wheel", (e) => sgOnWheel(e), { passive: false });
+
+  // 4. 凡例
+  sgRoot.appendChild(sgRunsLegend());
+
+  container.appendChild(sgRoot);
+  sgDrawRuns();
+}
+
+/** 実行の図の絵を描く（帯・線・札）。 */
+function sgDrawRuns() {
+  if (!sgWorld) return;
+  if (sgOptBtn) {
+    sgOptBtn.textContent = sgShowReturn ? "返却の線を隠す" : "返却の線を出す";
+    sgOptBtn.title = sgShowReturn
+      ? "返却の線（task_output）を隠します（delegation の逆向きなので輪に見えます）"
+      : "返却の線（task_output）を出します";
+  }
+  sgWorld.innerHTML = "";
+  sgRects = new Map();
+
+  const nodes = Array.isArray(sgRunDag && sgRunDag.nodes) ? sgRunDag.nodes : [];
+  const nodeById = new Map();
+  for (const n of nodes) if (n && n.run_id != null) nodeById.set(String(n.run_id), n);
+
+  // 0 件のときは saiEmpty で案内する
+  if (!nodeById.size) {
+    const empty = sgEl("div", "sci-graph-empty");
+    empty.appendChild(sgEmptyBox({
+      icon: "🧪",
+      title: "実行の図はまだありません",
+      body: "層（root / seed / branch）を持つブロックの実行がまだありません。sci-* や sci-exp-seed を動かすと出ます",
+    }));
+    sgWorld.appendChild(empty);
+    sgApplyView();
+    return;
+  }
+
+  // 1. 配置（帯の行と深さの列）
+  const layout = sgRunsLayout(sgRunDag);
+  for (const c of layout.cards) {
+    const n = nodeById.get(String(c.run_id));
+    if (!n) continue;
+    sgRects.set(String(c.run_id), { x: c.x, y: c.y, width: c.w, height: c.h, node: n });
+  }
+
+  // 2. 帯（札より後ろに敷く。文字は帯の中に置く）
+  const bandBox = sgEl("div", "sci-graph-bands");
+  for (const b of layout.bands) {
+    const box = sgEl("div", `sci-graph-band sci-graph-band-${b.layer}`);
+    box.style.top = `${sgR1(b.y)}px`;
+    box.style.left = "0px";
+    box.style.width = `${sgR1(layout.width)}px`;
+    box.style.height = `${sgR1(b.h)}px`;
+    box.appendChild(sgEl("span", "sci-graph-band-label", sgRunLayerLabel(b.layer)));
+    bandBox.appendChild(box);
+  }
+  sgWorld.appendChild(bandBox);
+
+  // 3. 線（札の下）
+  const svg = sgSvgEl("svg", { class: "sci-graph-edges" });
+  sgWorld.appendChild(svg);
+  sgSetViewBox(svg);
+  const defs = sgSvgEl("defs", {});
+  svg.appendChild(defs);
+  for (const e of Array.isArray(sgRunDag && sgRunDag.edges) ? sgRunDag.edges : []) {
+    if (!e) continue;
+    const kind = String(e.kind || "");
+    // 返却の線（task_output）は既定で隠す（delegation の逆向きで輪に見えるため）
+    if (kind === "task_output" && !sgShowReturn) continue;
+    const a = sgRects.get(String(e.from));
+    const b = sgRects.get(String(e.to));
+    if (!a || !b) continue;
+    const st = sgRunEdgeStyle(kind);
+    const path = sgSvgEl("path", {
+      d: sgEdgePath(a, b),
+      fill: "none",
+      stroke: st.colorVar,
+      "stroke-width": 1.6,
+      class: `sci-graph-edge sci-graph-edge-run sci-graph-edge-${kind || "other"}`,
+    });
+    path.style.strokeWidth = "min(calc(1.6px * var(--sg-z-inv, 1)), 10px)";
+    if (st.dash) path.setAttribute("stroke-dasharray", st.dash);
+    svg.appendChild(path);
+  }
+
+  // 4. 札（一番上）
+  for (const c of layout.cards) {
+    const n = nodeById.get(String(c.run_id));
+    const r = sgRects.get(String(c.run_id));
+    if (!n || !r) continue;
+    sgWorld.appendChild(sgRunCardEl(n, r));
+  }
+
+  // 5. 全体表示（最初だけ）
+  if (!sgFitted) {
+    if (!sgFit() && typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => sgFit());
+    }
+  }
+  sgApplyView();
+}
+
+/** 実行の図の札 1 枚（1 行目: run とブロック、2 行目: 状態と時刻、3 行目: 指標）。 */
+function sgRunCardEl(node, r) {
+  const n = node || {};
+  const st = sgRunStateOf(n.status);
+  const layer = sgRunLayer(n.layer);
+  const b = sgEl("button", `sci-graph-card sci-graph-run sci-graph-run-${layer} sci-graph-state-${st.key}`);
+  b.type = "button";
+  b.setAttribute("data-sg-id", String(n.run_id == null ? "" : n.run_id));
+  b.setAttribute("data-sg-layer", layer);
+  b.style.left = `${sgR1(r.x)}px`;
+  b.style.top = `${sgR1(r.y)}px`;
+  b.style.width = `${r.width}px`;
+  b.style.height = `${r.height}px`;
+  b.style.setProperty("--sg-color", st.color);
+
+  // 1 行目
+  const head = sgEl("span", "sci-graph-card-head");
+  head.appendChild(sgEl("span", "sci-graph-card-id", `#${n.run_id == null ? "" : n.run_id}`));
+  head.appendChild(sgEl("span", "sci-graph-card-title", n.name || n.block || "（名前のない実行）"));
+  b.appendChild(head);
+
+  // 2 行目（状態と開始時刻）
+  const line = sgEl("span", "sci-graph-run-line");
+  line.appendChild(sgEl("span", "sci-graph-card-mark", `${st.mark} ${st.label}`));
+  const time = sgRunTimeLabel(n.created_at);
+  if (time) line.appendChild(sgEl("span", "sci-graph-card-state", time));
+  b.appendChild(line);
+
+  // 3 行目（実行の層だけ。指標の無いときは出さない）
+  if (layer === "branch") {
+    const metric = sgRunMetrics[String(n.run_id)] || "";
+    if (metric) b.appendChild(sgEl("span", "sci-graph-run-metric", String(metric)));
+  }
+  return b;
+}
+
+/** 実行の図の凡例（図の下）。 */
+function sgRunsLegend() {
+  const box = sgEl("div", "sci-graph-legend");
+  box.appendChild(sgEl("span", "sci-graph-legend-title", "線"));
+  for (const [key, label, dash] of SG_RUN_EDGE_KINDS) {
+    const item = sgEl("span", "sci-graph-legend-item");
+    const line = sgEl("span", "sci-graph-legend-line");
+    line.style.setProperty("--sg-color", sgRunEdgeStyle(key).colorVar);
+    if (dash) line.classList.add("dashed");
+    if (dash === "2 4") line.classList.add("dotted");
+    item.appendChild(line);
+    item.appendChild(sgEl("span", null, label));
+    box.appendChild(item);
+  }
+  const tip = sgEl("span", "sci-graph-legend-item sci-graph-legend-note");
+  tip.textContent = "実行の層は指標（MLflow の最良値）を出します";
+  box.appendChild(tip);
+  return box;
+}
+
+// ============================================================================
 // 候補の表
 // ============================================================================
 
@@ -829,6 +1252,13 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     sgRenderGraph,
     sgRenderTable,
+    sgRenderRuns,
+    sgRunsLayout,
+    sgRunLayer,
+    sgRunLayerLabel,
+    sgRunStateOf,
+    sgRunTimeLabel,
+    sgRunEdgeStyle,
     sgGraphInput,
     sgEdgeStyle,
     sgTableRows,
@@ -839,5 +1269,9 @@ if (typeof module !== "undefined" && module.exports) {
     SG_CARD_H,
     SG_EDGE_KINDS,
     SG_OPTION_ORDER,
+    SG_RUN_LAYERS,
+    SG_RUN_EDGE_KINDS,
+    SG_RUN_STATES,
+    SG_RUN_LAYOUT_KINDS,
   };
 }
