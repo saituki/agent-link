@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""ssh の実行先: ssh でつないだ Linux の PC にコードを送って動かす（分配器 exp_exec.py から呼ばれる）。
+
+流れ（run）: ホストに runner.sh を置く → 今の cwd のコードを rsync で送る → コマンドと環境変数の
+ファイルを書く → runner.sh を切り離して起動する。状態・ログはホストの
+`<remote_root>/jobs/<job_id>/`（state・exit_code・pid・log）にあり、status / logs / cancel は
+そこを ssh で読む。結果は手元へ回収しない（スクリプトが中央の MLflow に直接書く）。
+
+設定は target.toml の [ssh]（host・remote_root・forward_env）。ホストの前提: bash・rsync・
+flock・setsid・uv（`check` で確かめる）。
+"""
+
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+DIR = Path(os.environ.get("EXP_TARGET_DIR", "."))
+JOB = os.environ.get("EXP_JOB_ID", "")
+# 切れても計算が止まらないよう、接続は使い回す（ControlMaster）。
+SSH_OPTIONS = [
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=10",
+    "-o", "ServerAliveInterval=30",
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=~/.ssh/exp-exec-%C",
+    "-o", "ControlPersist=10m",
+]
+# 送らないもの（コードだけを送る）。追加は cwd の `.exp-ignore` に 1 行 1 パターンで書く
+EXCLUDES = [".git/", ".venv/", "__pycache__/", "node_modules/", ".sai/", "mlruns/", "*.pyc"]
+ROOT_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
+# ホストへ自動で送る環境変数の名前の頭（MLflow への接続に要る）
+FORWARD_PREFIXES = ("MLFLOW_", "AWS_")
+
+
+class Fail(Exception):
+    """利用者向けの 1 行（標準エラーに出して終了コード 1）。"""
+
+
+def settings() -> dict:
+    path = DIR / "target.toml"
+    cfg = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    ssh = cfg.get("ssh") or {}
+    if not ssh.get("host"):
+        raise Fail(f"{path} の [ssh] host が未設定です")
+    root = ssh.get("remote_root", ".sai-moon-exec")
+    if not ROOT_RE.match(root) or ".." in root.split("/"):
+        raise Fail(f"remote_root が正しくありません: {root!r}（ホームからの相対。.. は使えない）")
+    return {"host": ssh["host"], "root": root, "forward": list(ssh.get("forward_env") or [])}
+
+
+def first_line(text: str | None) -> str:
+    for line in (text or "").splitlines():
+        if line.strip():
+            return line.strip()
+    return "詳細不明"
+
+
+def ssh(host: str, command: str, *, input: str | None = None, timeout: float = 60, check: bool = True):
+    """ホストで `bash -lc '<command>'` を実行する（uv がログインシェルの PATH にあるため）。"""
+    proc = subprocess.run(
+        ["ssh", *SSH_OPTIONS, host, "bash -lc " + shlex.quote(command)],
+        capture_output=True, text=True, input=input, timeout=timeout,
+    )
+    if check and proc.returncode != 0:
+        raise Fail(f"ssh に失敗しました: {first_line(proc.stderr)}")
+    return proc
+
+
+def rsync_code(host: str, dest: str) -> None:
+    excludes = list(EXCLUDES)
+    ignore = Path(".exp-ignore")
+    if ignore.is_file():
+        excludes += [ln.strip() for ln in ignore.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    argv = ["rsync", "-az", "--partial", "--timeout=60", "--delete"]
+    for pattern in excludes:
+        argv += ["--exclude", pattern]
+    argv += ["-e", "ssh " + " ".join(SSH_OPTIONS), "./", f"{host}:{dest}/"]
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=1800)
+    if proc.returncode != 0:
+        raise Fail(f"コードの転送に失敗しました: {first_line(proc.stderr)}")
+
+
+def env_file_text(forward: list[str]) -> str:
+    """ホストのジョブの中で読み込む環境変数（1 行 1 個。改行を含む値は送らない）。"""
+    names = sorted(
+        n for n in os.environ
+        if n.startswith(FORWARD_PREFIXES) or n in forward
+    )
+    return "".join(f"{n}={shlex.quote(os.environ[n])}\n" for n in names if "\n" not in os.environ[n])
+
+
+def job_path(cfg: dict) -> str:
+    return f'"$HOME/{cfg["root"]}/jobs/{JOB}"'
+
+
+def cmd_run(argv: list[str]) -> int:
+    if not argv:
+        raise Fail("実行するコマンドがありません")
+    cfg = settings()
+    host, root = cfg["host"], cfg["root"]
+    job = job_path(cfg)
+    runner = (DIR / "runner.sh").read_text(encoding="utf-8")
+    ssh(host, f'mkdir -p "$HOME/{root}/bin" {job}/code {job}/outputs && cat > "$HOME/{root}/bin/runner.sh" && chmod +x "$HOME/{root}/bin/runner.sh"', input=runner)
+    rsync_code(host, f"{root}/jobs/{JOB}/code")
+    # 環境変数の中には鍵が入る。引数ではなく標準入力で送り、自分だけが読める権限で書く
+    ssh(host, f"umask 077 && cat > {job}/env", input=env_file_text(cfg["forward"]))
+    ssh(host, f"cat > {job}/cmd && printf 'queued\\n' > {job}/state", input=shlex.join(argv) + "\n")
+    limit = os.environ.get("EXP_MAX_JOBS", "1")
+    ssh(
+        host,
+        f'EXP_MAX_JOBS={shlex.quote(limit)} setsid nohup "$HOME/{root}/bin/runner.sh" {job} >/dev/null 2>&1 </dev/null &',
+    )
+    return 0
+
+
+def cmd_status(_: list[str]) -> int:
+    cfg = settings()
+    job = job_path(cfg)
+    probe = (
+        f"d={job}; s=$(cat $d/state 2>/dev/null || echo unknown); p=$(cat $d/pid 2>/dev/null); a=no; "
+        f'[ -n "$p" ] && kill -0 -- "-$p" 2>/dev/null && a=yes; echo "$s $a"'
+    )
+    parts = ssh(cfg["host"], probe).stdout.split()
+    state, alive = (parts + ["unknown", "no"])[:2]
+    # 動いているはずなのにプロセスが無い、または状態が読めない → lost（接続できないときは上で失敗にする）
+    if state in ("queued", "running") and alive == "no":
+        # 投入した直後は pid がまだ無い。pid が書かれていて死んでいる場合だけ lost
+        has_pid = ssh(cfg["host"], f"test -f {job}/pid", check=False).returncode == 0
+        state = "lost" if has_pid or state == "running" else "queued"
+    elif state not in ("queued", "running", "done", "failed", "cancelled"):
+        state = "lost"
+    print(json.dumps({"state": state}))
+    return 0
+
+
+def cmd_logs(argv: list[str]) -> int:
+    n = int(argv[argv.index("-n") + 1]) if "-n" in argv else 50
+    cfg = settings()
+    sys.stdout.write(ssh(cfg["host"], f"tail -n {n} {job_path(cfg)}/log 2>/dev/null || true").stdout)
+    return 0
+
+
+def cmd_cancel(_: list[str]) -> int:
+    cfg = settings()
+    job = job_path(cfg)
+    ssh(cfg["host"], f'p=$(cat {job}/pid 2>/dev/null); [ -n "$p" ] && kill -TERM -- "-$p" 2>/dev/null || true')
+    return 0
+
+
+def cmd_check(_: list[str]) -> int:
+    cfg = settings()
+    host = cfg["host"]
+    ssh(host, "true", timeout=30)
+    missing = [
+        c for c in ("rsync", "flock", "setsid", "uv")
+        if ssh(host, f"command -v {c}", check=False).returncode != 0
+    ]
+    if missing:
+        raise Fail(f"ホストに {', '.join(missing)} がありません")
+    uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+    if uri.startswith("http"):
+        # 認証が要る MLflow は 401 が返る。届いていれば十分（000 は届いていない）
+        code = ssh(
+            host,
+            f"curl -s -o /dev/null -m 8 -w '%{{http_code}}' {shlex.quote(uri.rstrip('/') + '/health')} || true",
+            check=False,
+        ).stdout.strip()
+        if code in ("", "000"):
+            raise Fail(f"ホストから MLflow（{uri}）に届きません。結果が記録されません")
+    return 0
+
+
+VERBS = {"run": cmd_run, "status": cmd_status, "logs": cmd_logs, "cancel": cmd_cancel, "check": cmd_check}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in VERBS:
+        print("usage: adapter run|status|logs|cancel|check", file=sys.stderr)
+        sys.exit(2)
+    try:
+        sys.exit(VERBS[sys.argv[1]](sys.argv[2:]))
+    except Fail as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except subprocess.TimeoutExpired as e:
+        print(f"時間切れです: {e.cmd[0]}", file=sys.stderr)
+        sys.exit(1)

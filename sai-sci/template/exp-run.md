@@ -6,6 +6,7 @@
 ## 1. 規則
 
 - スクリプトの実行は、**必ず分配器 `exp_exec.py` で行う。** `ssh`・`scp`・`rsync`・`docker` で直接動かしてはならない。理由: 実行先ごとの違い（転送・切り離し・回収）は実行先の側が知っている。直接動かすと、状態も中止もできなくなる。
+- **投げる前に、スクリプトのある作業フォルダ（仕様書の `workdir`）へ `cd` する。** 実行先には cwd のコードが送られる（`.git/`・`.venv/`・`.sai/`・`mlruns/` などは除く。足すときは cwd の `.exp-ignore` に 1 行 1 パターンで書く）。スクリプトは workdir からの相対パスで書く。
 - 実行先の名前は環境変数 `EXP_TARGET`。空なら `local`（この PC）。**別の実行先を勝手に選ばない。**
 - 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず `BLOCKED` で報告する。
 - 結果は実行先から**中央の MLflow に直接**入る。手で回収しない。
@@ -29,7 +30,7 @@ EXP='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/
 
 - `run` は投げてすぐ戻り、**標準出力の 1 行目に job_id** が出る。控える。
 - `command` には、環境変数を渡す引数が無い。**命令の前に `env NAME=値` を書く**。
-  例: `... run local -- env EXP_BRANCH_RUN_ID=121 uv run --python ">=3.10" --with mlflow python s01/g1.py`
+  例: `... run local -- env EXP_BRANCH_RUN_ID=121 uv run --python ">=3.10" --with mlflow python s01/g1.py`（先に `cd <workdir>`）
 - `status` の `state` は次のとおり。
 
 | state | 意味 | 次にすること |

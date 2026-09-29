@@ -92,11 +92,15 @@ const SCI_TOOLS: &[(&str, &str)] = &[
 
 /// sai-sci の実行先の見本（`.sai/exec/` に置く）。3 つ目は「実行の権限を付けるか」。
 ///
-/// 実行先はフォルダ 1 つ。`local` は有効（この PC）、`_example` は雛形（下線始まりなので使われない）。
+/// 実行先はフォルダ 1 つ。`local` は有効（この PC）、`ssh` は無効の見本（写して host を書く）、
+/// `_example` は雛形（下線始まりなので使われない）。
 /// 他の実行先（LAN の PC・クラウド）は利用者が `.sai/exec/<名前>/` を足す。
 const SCI_EXEC: &[(&str, &str, bool)] = &[
     ("local/target.toml", include_str!("../../../sai-sci/exec/local/target.toml"), false),
     ("local/adapter", include_str!("../../../sai-sci/exec/local/adapter"), true),
+    ("ssh/target.toml", include_str!("../../../sai-sci/exec/ssh/target.toml"), false),
+    ("ssh/adapter", include_str!("../../../sai-sci/exec/ssh/adapter"), true),
+    ("ssh/runner.sh", include_str!("../../../sai-sci/exec/ssh/runner.sh"), true),
     ("_example/target.toml", include_str!("../../../sai-sci/exec/_example/target.toml"), false),
     ("_example/adapter", include_str!("../../../sai-sci/exec/_example/adapter"), true),
 ];

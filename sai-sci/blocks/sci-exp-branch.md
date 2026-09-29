@@ -65,12 +65,12 @@ seed_run_id: 125
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" check "${EXP_TARGET:-local}"
    ```
 
-2. スクリプトを投げる。標準出力の 1 行目の job_id を控える。
+2. 仕様書の `workdir` へ `cd` してから、スクリプトを投げる（実行先へは cwd のコードが送られるので、スクリプトは workdir からの相対パス、例 `s01/g1.py`）。標準出力の 1 行目の job_id を控える。
 
    ```bash
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
      run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
-     env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --python ">=3.10" --with mlflow python <スクリプトのパス>
+     env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --python ">=3.10" --with mlflow python <workdir からの相対パス>
    ```
 
    環境変数を渡す引数は無い。**コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く。**`EXP_BRANCH_RUN_ID` には **自分の run_id**（`SAI_PARENT_RUN_ID`）を入れる。スクリプトはここから `sai.run_id` のタグを読む。

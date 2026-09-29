@@ -68,7 +68,7 @@ sai-sci/
 ├── template/   # sci-core.md（エージェントの共通の決まり）と exp-core.md・exp-run.md（実験ループの決まり）
 ├── mind.md     # 土壌のひな形
 ├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
-├── exec/       # 実行先の見本: local（この PC・有効）と _example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
+├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
 └── blocks/     # 18 本のブロック
 ```
 
@@ -282,7 +282,7 @@ sai-moon-link phone card run <返ってきた run_id>
 - **自然に止まる**: 判定が `stop` になるときだけ。`max_generations`（既定 8 世代）に達したときと、成功基準に `ablation` まで済んで達したとき。
 - **利用者に訊いて止める**: 同じ世代で branch の記録が 1 つも無いことが 2 代続けて続いたとき、または判定書が 2 回続けて作られなかったとき。実験を勝手に進めず、MLflow への接続などを訊いて止まる。
 
-**実行先**（スクリプトを動かす PC）は環境変数 `EXP_TARGET` で選ぶ。空なら `local`（この PC）。実行先は `<root>/.sai/exec/<名前>/` のフォルダで、Mac 本体・LAN の PC・クラウドなどを利用者が個別に足せる（フォルダを置くだけ。増減で Rust や画面を直さない）。エージェントは分配器 `exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼び、実行先の中身を知らない。フォルダの作り方は `sai-sci/exec/_example/` と `exp_exec.py` の冒頭を読む。記録は実行先から中央の MLflow に直接入る。台帳コマンド `exp_summary.py` と分配器は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く（環境変数は要らない）。
+**実行先**（スクリプトを動かす PC）は環境変数 `EXP_TARGET` で選ぶ。空なら `local`（この PC）。実行先は `<root>/.sai/exec/<名前>/` のフォルダで、Mac 本体・LAN の PC・クラウドなどを利用者が個別に足せる（フォルダを置くだけ。増減で Rust や画面を直さない）。エージェントは分配器 `exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼び、実行先の中身を知らない。LAN の Linux の PC やクラウドの VM は、`ssh/` を PC の名前で写して host を書けば足せる（`cp -r .sai/exec/ssh .sai/exec/lab-linux`。コードを rsync で送り、状態は ssh で読む）。別の種類（Windows・sakura の DOK など）は `_example/` を写して adapter を書く。約束は `exp_exec.py` の冒頭にある。記録は実行先から中央の MLflow に直接入る。台帳コマンド `exp_summary.py` と分配器は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く（環境変数は要らない）。
 
 ---
 

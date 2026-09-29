@@ -267,12 +267,13 @@ seed_run_id: 125
 スクリプトは**実行先（target）**に投げて動かす。実行先は名前を持つフォルダ（`.sai/exec/<名前>/`）で、Mac 本体・LAN の PC・クラウドなどを利用者が個別に用意する。**どの実行先でも、呼び方は同じ**である（使い方は `exp-run`）。
 
 - 実行先の名前は環境変数 `EXP_TARGET`。**空なら `local`**（この PC）。別の実行先を勝手に選ばない。
+- **投入の前に、実験仕様書の `workdir` へ `cd` する。** 実行先には、この cwd の中身（コード）が送られる（`.git/`・`.venv/`・`.sai/` などは除く）。だからスクリプトは **workdir からの相対パス**（例 `s01/g1.py`）で書く。手元（`local`）でも同じ形で動く。
 - 投入は分配器 `exp_exec.py` で行う。branch は実行の前に、自分の `SAI_PARENT_RUN_ID` を `EXP_BRANCH_RUN_ID` に入れる。**環境変数を渡す引数は無いので、コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く**（どの実行先でも効く）。
 
   ```bash
   uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
     run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
-    env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --python ">=3.10" --with mlflow python <スクリプトのパス>
+    env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --python ">=3.10" --with mlflow python <workdir からの相対パス>
   ```
 
 - 標準出力の 1 行目に出る job_id を控え、`status <job_id> --json` で `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
