@@ -144,6 +144,7 @@ def _call(
     query: list[tuple[str, str]] | None = None,
     body: dict | None = None,
     timeout: float = DEFAULT_TIMEOUT,
+    max_bytes: int | None = None,
 ) -> bytes:
     """MLflow の REST API を 1 回呼び、本文のバイト列を返す（U03 §変更内容 2）。
 
@@ -167,9 +168,10 @@ def _call(
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read()
+            # max_bytes があれば、その 1 バイト先までしか読まない（大きすぎる本文でメモリを食わない）
+            return resp.read() if max_bytes is None else resp.read(max_bytes + 1)
     except urllib.error.HTTPError as e:
-        # MLflow の {"error_code": …, "message": …} をそのまま返す（400 の理由もulam そのまま）
+        # MLflow の {"error_code": …, "message": …} をそのまま返す（400 の理由もそのまま）
         raise MlflowError(e.code, e.read()) from e
     except (urllib.error.URLError, OSError) as e:
         raise HTTPException(
@@ -334,6 +336,7 @@ def artifact(run_id: str, path: str) -> Response:
         "/get-artifact",
         query=[("run_uuid", checked_run), ("path", checked_path)],
         timeout=60.0,
+        max_bytes=ARTIFACT_MAX,
     )
     if len(raw) > ARTIFACT_MAX:
         raise HTTPException(

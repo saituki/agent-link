@@ -317,7 +317,7 @@ def phone_tree(name: str) -> dict:
 
 
 def phone_rtree(name: str) -> dict:
-    """`sai-link phone rtree`（実験の beside な木・U03 §変更内容 3）。
+    """`sai-link phone rtree`（3 層の実行の図・U03 §変更内容 3）。
 
     実行の記録が要るため、root と DB が両方無いプロジェクトは 404（`_phone_project`）。
     返すのは C-02 の JSON（`{"nodes": [...], "edges": [...]}`）で、そのまま中継する。

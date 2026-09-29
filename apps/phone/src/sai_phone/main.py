@@ -550,7 +550,7 @@ def api_project_tree(name: str, _: None = Depends(require_token)) -> dict:
 
 @app.get("/api/projects/{name}/rtree")
 def api_project_rtree(name: str, _: None = Depends(require_token)) -> dict:
-    """実験の beside な木（`phone rtree`・U03 §変更内容 3）。"""
+    """3 層の実行の図（`phone rtree`・U03 §変更内容 3）。"""
     return control.phone_rtree(name)
 
 
@@ -1169,14 +1169,14 @@ async def api_mlflow_metric_history(
 
 @app.get("/api/mlflow/metrics/bulk")
 async def api_mlflow_metric_bulk(
-    run_id: list[str] = Query(default=[]),
+    run_ids: list[str] = Query(default=[]),
     metric_key: str = "",
     max_results: int | None = Query(default=None),
     _: None = Depends(require_token),
 ) -> dict:
     """指標 1 本の履歴をまとめて取る（`GET metrics/get-history-bulk-interval`）。"""
     return await run_in_threadpool(
-        mlflow_proxy.metric_bulk, run_id, metric_key, max_results
+        mlflow_proxy.metric_bulk, run_ids, metric_key, max_results
     )
 
 

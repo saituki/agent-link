@@ -168,7 +168,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | メソッド・パス | 中身 |
 |---|---|
 | `GET /api/projects/{name}/tree` | 引き出しツリー（`phone tree`・TUI の左サイドバーと同じ） |
-| `GET /api/projects/{name}/rtree` | 実行の beside な木（`phone rtree`・U03。`{"nodes": […], "edges": […]}` をそのまま返す。実行の記録が要るので 404 の決まりは `tree` と同じ） |
+| `GET /api/projects/{name}/rtree` | 3 層の実行の図（`phone rtree`・U03。`{"nodes": […], "edges": […]}` をそのまま返す。実行の記録が要るので 404 の決まりは `tree` と同じ） |
 | `GET /api/projects/{name}/runs/{run_id:int}/view/{log\|stats\|history}` | run の中身（`phone run`） |
 | `GET /api/projects/{name}/runs/{run_id:int}/md/{task\|review\|message}` | md 本文（`phone md`・「まだありません」は 404） |
 | `PUT /api/projects/{name}/runs/{run_id:int}/md/{task\|review}` | md の保存（body `{"text"}`・`phone md --write`・task は未実行の todo カードだけで、それ以外は 404「未実行のカードが見つかりません」） |
