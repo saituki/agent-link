@@ -264,7 +264,8 @@ def runs_search(payload: dict) -> dict:
         if not isinstance(project, str) or not project.strip():
             raise _bad("プロジェクト名を空では送れません")
         clause = _project_filter(project)
-        filter_expr = clause if not user_filter else f"{clause} AND ({user_filter})"
+        # MLflow の検索式は括弧を解釈できず 400 になる。OR も無いので、括弧なしの AND でつなぐ
+        filter_expr = clause if not user_filter else f"{clause} AND {user_filter}"
 
     body = {
         "experiment_ids": checked_ids,

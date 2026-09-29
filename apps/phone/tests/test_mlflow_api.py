@@ -157,7 +157,7 @@ def test_project_filter() -> None:
                 {"experiment_ids": ["1"], "filter": 'params."a" = "1"', "project": "demo"}
             )
             assert sent[-1]["body"]["filter"] == (
-                'tags."sai.project" = "demo-root" AND (params."a" = "1")'
+                'tags."sai.project" = "demo-root" AND params."a" = "1"'
             ), sent[-1]
             # project が無ければ足さない
             mlflow_proxy.runs_search({"experiment_ids": ["1"], "filter": 'params."a" = "1"'})
