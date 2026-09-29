@@ -32,6 +32,11 @@ function mdEscape(s) {
     .replace(/'/g, "&#39;");
 }
 
+// waggle の参照。前は英数字・_ 以外、トークンは英数字 8 文字、`:path:` 以降は任意
+// （パスの最後の文字が `.` のときは文末の点なので含めない）。
+const RE_WAGGLE_REF =
+  /(^|[^A-Za-z0-9_])waggle:([A-Za-z0-9]{8})(?![A-Za-z0-9])(?::path:((?:[A-Za-z0-9_.\/*+@%~-]*[A-Za-z0-9_\/*+@%~-])?))?/g;
+
 /** 1 行（または1セル）の中の md 記号を整える。エスケープは先に行う。 */
 function mdInline(raw) {
   const text = mdEscape(raw);
@@ -40,6 +45,16 @@ function mdInline(raw) {
   let out = text.replace(/`([^`]+)`/g, (m, code) => {
     codes.push(`<code>${code}</code>`); // code はもうエスケープ済み
     return `\u0000${codes.length - 1}\u0000`;
+  });
+  // 1.5) waggle の参照（`waggle:<トークン>` と `waggle:<トークン>:path:.sai/outputs/*/<run_id>/<ファイル>`）。
+  //      押せるリンクにする（行き先は linkview.js が住所にする）。パスの `*` が斜体にならないよう退避する。
+  const waggles = [];
+  out = out.replace(RE_WAGGLE_REF, (m, pre, token, path) => {
+    const run = /(?:^|\/)outputs\/[^/]+\/(\d+)\//.exec(path || "");
+    waggles.push(
+      `<a href="#" class="md-waggle" data-waggle-token="${token}"${run ? ` data-waggle-run="${run[1]}"` : ""}>${m.slice(pre.length)}</a>`
+    );
+    return `${pre}\u0000W${waggles.length - 1}\u0000`;
   });
   // 2) リンク。http: / https: だけ有効にし、危ない接続辞書は文字のまま残す。
   //    URL は退避して、太字 / 斜体が属性の中を壊さないようにする。
@@ -54,6 +69,7 @@ function mdInline(raw) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>");
   // 4) 退避した URL とコードを戻す（URL を先に戻す。コード番号と取り違えないため）
+  out = out.replace(/\u0000W(\d+)\u0000/g, (m, k) => waggles[Number(k)] || "");
   out = out.replace(/\u0000U(\d+)\u0000/g, (m, k) => urls[Number(k)] || "");
   return out.replace(/\u0000(\d+)\u0000/g, (m, k) => codes[Number(k)] || "");
 }
