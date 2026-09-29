@@ -172,12 +172,14 @@ def _folder_runs(items, label: str) -> list[dict]:
                 continue
             if child.get("run_id") is None:
                 continue
-            out.append(
-                {
-                    "run_id": child.get("run_id"),
-                    "label": _text(child.get("label") or f'ID{child.get("run_id")}'),
-                }
-            )
+            row = {
+                "run_id": child.get("run_id"),
+                "label": _text(child.get("label") or f'ID{child.get("run_id")}'),
+            }
+            # 実行予約した todo だけ `scheduled_at`（`YYYY-MM-DD HH:MM`）が付く
+            if isinstance(child.get("scheduled_at"), str) and child["scheduled_at"]:
+                row["scheduled_at"] = _text(child["scheduled_at"])
+            out.append(row)
     return out
 
 

@@ -26,10 +26,10 @@ const SAMPLE = {
       todo: 2,
       todo_runs: [
         { run_id: 56, label: "ID56/kantoku" },
-        { run_id: 57, label: "ID57/👷 worker" },
+        { run_id: 57, label: "ID57/👷 worker", scheduled_at: "2026-10-02 09:00" },
       ],
     },
-    { name: "sai-old", daemon_alive: false, running: 0, review: [], todo: 3, todo_runs: [{ run_id: 60 }] },
+    { name: "sai-old", daemon_alive: false, running: 0, review: [], todo: 3, todo_runs: [{ run_id: 60, label: "ID60", scheduled_at: "2026-10-01 09:00" }] },
   ],
   papers: [
     { name: "sai-paper", attention: 5, items: [{ key: "question:41:x", kind: "question", title: "この論文は?" }] },
@@ -85,11 +85,10 @@ const keys = (data) => H.hmSections(data).map((s) => s.key);
 
 // 5 種類のカードが C-A3 の並びで出ること
 function testSectionOrder() {
-  assert.deepStrictEqual(keys(SAMPLE), ["wait", "review", "running", "daemon", "papers", "errors"]);
+  assert.deepStrictEqual(keys(SAMPLE), ["wait", "running", "daemon", "papers", "errors"]);
   const byKey = {};
   for (const s of H.hmSections(SAMPLE)) byKey[s.key] = s;
   assert.strictEqual(byKey.wait.title, "質問がある会話");
-  assert.strictEqual(byKey.review.title, "確認を待っています");
   assert.strictEqual(byKey.running.title, "動いています");
   assert.strictEqual(byKey.daemon.title, "止まっている常駐");
   assert.strictEqual(byKey.papers.title, "論文の要対応");
@@ -138,14 +137,24 @@ function testWaitRows() {
   assert.strictEqual(H.hmWaitHash({ project: "a/b, c", run_id: 1 }), `#/run/${encodeURIComponent("a/b, c")}/1`);
 }
 
-// review の行き先（#\/project\/…\/list\/…\/review）
-function testReviewHash() {
-  const sec = H.hmSections(SAMPLE).find((s) => s.key === "review");
-  assert.strictEqual(sec.count, 1);
-  assert.strictEqual(sec.items[0].where, "sai-phone");
-  assert.strictEqual(sec.items[0].title, "ID54/👷 worker");
-  assert.strictEqual(sec.items[0].hash, "#/project/sai-phone/list/54/review");
-  assert.strictEqual(sec.term, "review", "「確認待ち」の札が付く");
+// 「確認を待っています」（review）はホームに出さない（review が 1 件あっても sections に入らない）
+function testNoReviewSection() {
+  assert.ok(SAMPLE.projects[0].review.length > 0, "サンプルに review がある");
+  assert.ok(!H.hmSections(SAMPLE).some((s) => s.key === "review"));
+}
+
+// 予約した todo（scheduled_at がある行だけ・時刻の早い順）
+function testScheduledItems() {
+  const items = H.hmScheduledItems(SAMPLE);
+  assert.deepStrictEqual(items.map((i) => [i.title, i.scheduledAt, i.where]), [
+    ["ID60", "2026-10-01 09:00", "sai-old"],
+    ["ID57/👷 worker", "2026-10-02 09:00", "sai-phone"],
+  ]);
+  assert.strictEqual(items[0].hash, "#/project/sai-old/list/60/task");
+  // 予約の無い todo は todo の行に scheduledAt を付けない
+  assert.strictEqual(H.hmTodoItems(SAMPLE)[0].scheduledAt, undefined);
+  assert.deepStrictEqual(H.hmScheduledItems({ projects: [{ name: "p", todo_runs: [{ run_id: 1 }] }] }), []);
+  assert.deepStrictEqual(H.hmScheduledItems(null), []);
 }
 
 // 動いているプロジェクト（件数と行き先）
@@ -351,7 +360,8 @@ function main() {
   testSectionOrder();
   testEmptySectionsOmitted();
   testWaitRows();
-  testReviewHash();
+  testNoReviewSection();
+  testScheduledItems();
   testRunning();
   testDaemon();
   testPapers();

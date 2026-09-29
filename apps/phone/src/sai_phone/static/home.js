@@ -5,11 +5,11 @@
 //   1. 全プロジェクトの合計（今週 / 今月 / 全期間・実行数・成功率・token・料金・日ごとの棒）
 //   2. 質問がある会話（質問と承認）
 //   3. todo
+//   3'. 予約した todo（実行予約があるときだけ・時刻の早い順）
 //   4. 最近のアクティビティ
-//   5. 確認を待っているもの（review）
-//   6. 動いているもの（実行中）
-//   7. 止まっている常駐
-//   8. 論文の要対応
+//   5. 動いているもの（実行中）
+//   6. 止まっている常駐
+//   7. 論文の要対応
 // を並べ、下に読めなかったプロジェクトを出す。1〜4 は 0 件でもカードを出す。
 //
 // データは GET /api/home（質問・承認・プロジェクト・論文）と
@@ -202,14 +202,24 @@ function hmTodoItems(data) {
     for (const r of Array.isArray(p.todo_runs) ? p.todo_runs : []) {
       const runId = r && r.run_id;
       if (runId == null) continue;
-      out.push({
+      const item = {
         title: (r && r.label) || `ID${runId}`,
         where: name,
         hash: `#/project/${encodeURIComponent(name)}/list/${encodeURIComponent(runId)}/task`,
-      });
+      };
+      // 実行予約があるときだけ時刻（`YYYY-MM-DD HH:MM`）が付く
+      if (r && typeof r.scheduled_at === "string" && r.scheduled_at) item.scheduledAt = r.scheduled_at;
+      out.push(item);
     }
   }
   return out;
+}
+
+/** 実行予約した todo の行（時刻の早い順）。時刻は同じ形の文字列なので文字の順で並べてよい。 */
+function hmScheduledItems(data) {
+  return hmTodoItems(data)
+    .filter((i) => i.scheduledAt)
+    .sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : a.scheduledAt > b.scheduledAt ? 1 : 0));
 }
 
 /** 最近のアクティビティの行（{title, sub, where, ago, hash}）。 */
@@ -269,24 +279,6 @@ function hmSections(data) {
   const wait = hmWaitItems(d);
   if (wait.length > 0) {
     out.push({ key: "wait", title: "質問がある会話", count: wait.length, items: wait });
-  }
-
-  // 2) 確認を待っています（プロジェクトごとの review）
-  const review = [];
-  for (const p of Array.isArray(d.projects) ? d.projects : []) {
-    for (const r of Array.isArray(p.review) ? p.review : []) {
-      review.push({
-        kind: "review",
-        title: r.label || `run ${r.run_id}`,
-        where: p.name || "",
-        runId: r.run_id,
-        ago: "",
-        hash: `#/project/${encodeURIComponent(p.name || "")}/list/${encodeURIComponent(r.run_id)}/review`,
-      });
-    }
-  }
-  if (review.length > 0) {
-    out.push({ key: "review", title: "確認を待っています", count: review.length, items: review, term: "review" });
   }
 
   // 3) 動いています（実行中のプロジェクト）
@@ -559,6 +551,17 @@ function hmTodoCard() {
   return card;
 }
 
+/** 3'. 予約した todo のカード（予約が 1 件も無いときは出さない）。 */
+function hmScheduledCard() {
+  const items = hmScheduledItems(hmData);
+  if (items.length === 0) return null;
+  const card = hmCard("予約した todo");
+  for (const item of items) {
+    card.appendChild(hmRow(item.title, `${item.scheduledAt} に実行`, "", () => { location.hash = item.hash; }, item.where));
+  }
+  return card;
+}
+
 /** 4. 最近のアクティビティのカード（0 件でも出す）。 */
 function hmRecentCard() {
   const items = hmRecentItems(hmOverview);
@@ -619,6 +622,8 @@ function hmRender() {
   body.appendChild(hmOverviewCard());
   body.appendChild(hmWaitCard(sections.find((s) => s.key === "wait") || null));
   body.appendChild(hmTodoCard());
+  const scheduledCard = hmScheduledCard();
+  if (scheduledCard) body.appendChild(scheduledCard);
   body.appendChild(hmRecentCard());
 
   for (const sec of sections) {
@@ -638,9 +643,7 @@ function hmRender() {
     }
 
     for (const item of sec.items) {
-      if (sec.key === "review") {
-        card.appendChild(hmRow(item.where || "(不明)", item.title, "", () => { location.hash = item.hash; }));
-      } else if (sec.key === "running") {
+      if (sec.key === "running") {
         card.appendChild(hmRow(item.title, item.sub, item.ago, () => { location.hash = item.hash; }));
       } else if (sec.key === "daemon") {
         const row = hmRow(item.title, item.sub, "", () => { location.hash = item.hash; });
@@ -756,6 +759,7 @@ if (typeof module !== "undefined" && module.exports) {
     hmOverviewCards,
     hmOverviewNote,
     hmTodoItems,
+    hmScheduledItems,
     hmRecentItems,
     hmAxisLabels,
   };
