@@ -7,7 +7,7 @@
 //!
 //! - **node**: ブロックの `layer`（`root` / `seed` / `branch`）が書いてある
 //!   ブロックの run だけ。1 run = 1 node。`run_id` の昇順に並べる
-//! - **edge**: `block_connections` にある次の 3 種類の線だけ。两端が node に
+//! - **edge**: `block_connections` にある次の 3 種類の線だけ。両端が node に
 //!   入っているものだけを出す
 //!   - `task_delegation`（親 → 子。JSON の `kind` は `delegation`）
 //!   - `waggle_token`（統合する agent と元の node の線）
@@ -144,7 +144,7 @@ pub fn load_research_dag(store: &SaiStore, prep: &ViewPrep) -> ResearchDag {
     // 1 run = 1 node。実行 ID の昇順に並べる（作りたては作成日時順のため並べ替える）。
     nodes.sort_by_key(|n| n.run_id);
 
-    // 線。两端が node に入っているものだけ、同じ (from, to, kind) は 1 本にまとめる。
+    // 線。両端が node に入っているものだけ、同じ (from, to, kind) は 1 本にまとめる。
     let mut edges: Vec<ResearchEdge> = Vec::new();
     let mut seen: std::collections::HashSet<(i64, i64, &str)> = std::collections::HashSet::new();
     for c in store.list_connections().unwrap_or_default() {

@@ -59,3 +59,8 @@ pub mod research_dag;
 pub mod theme;
 pub mod user_run;
 pub mod workflow;
+
+/// テスト用の共有ロック。`SAI_PROJECT_ROOT` はプロセス共通なので、
+/// この環境変数を書き換えるテストは全部このロックを取る（並行実行での干渉を避ける）。
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

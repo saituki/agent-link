@@ -155,16 +155,11 @@ pub fn parse_round_field(value: &str, label: &str) -> Result<Option<i64>, String
 mod tests {
     use super::*;
     use std::path::Path;
-    use std::sync::Mutex;
     use std::sync::MutexGuard;
-
-    /// `SAI_PROJECT_ROOT` はプロセス共通なので、環境変数を触るテストは
-    /// この 1 つのロックを共用する（テストの並行実行での干渉を避けるため）。
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// テスト用の排他（ロックが壊れていてもテストは続行する）。
     fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// 一時フォルダのテスト用プロジェクト（`SAI_PROJECT_ROOT` を向ける）。

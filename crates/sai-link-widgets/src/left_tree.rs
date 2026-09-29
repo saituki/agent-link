@@ -467,6 +467,8 @@ mod tests {
     /// 誤判定されて todo から一斉に消えていた（常駐が止まっていると消えたまま）。
     #[test]
     fn pending_one_card_keeps_other_task_md_cards() {
+        // SAI_PROJECT_ROOT を書き換えるので、ほかのテストと同じロックで排他する
+        let _env = crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!(
             "sai_lefttree_pending_{}_{}",
             std::process::id(),

@@ -1680,7 +1680,7 @@ mod tests {
 
         let text = match rtree().expect("phone rtree") {
             PhoneOut::Text(t) => t,
-            PhoneOut::Value(v) => panic!("順序を保つため文字で返す应当はない: {}", v),
+            PhoneOut::Value(v) => panic!("順序を保つため文字で返すはず: {}", v),
         };
 
         // トップレベルの順序も C-02

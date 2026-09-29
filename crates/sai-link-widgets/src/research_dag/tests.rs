@@ -4,7 +4,6 @@
 //! 3 種類の線だけを出す。一時 DB（メモリ上）と一時フォルダのカードで確かめる。
 
 use std::path::Path;
-use std::sync::Mutex;
 use std::sync::MutexGuard;
 
 use sai_link_engine::db::models::BlockConnection;
@@ -13,13 +12,9 @@ use sai_link_engine::db::SaiStore;
 use super::*;
 use crate::card_entries::ViewPrep;
 
-/// `SAI_PROJECT_ROOT` はプロセス共通なので、環境変数を触るテストは
-/// この 1 つのロックを共用する（テストの並行実行での干渉を避けるため）。
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
 /// テスト用の排他（ロックが壊れていてもテストは続行する）。
 fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// `SAI_PROJECT_ROOT` を一時ディレクトリに向けるガード（Drop で元に戻す）。
