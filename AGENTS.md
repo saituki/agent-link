@@ -77,7 +77,7 @@ PATH 上で旧 `sai-link` / `sai-paper` と衝突しないよう、`[[bin]]` の
   Rust 側は `sai_link_engine::project::sai_home()`（`crates/sai-link-engine/src/project.rs:79`）と `sai_paper_core::paths::sai_home()`（`crates/sai-paper-core/src/paths.rs:172`）、`apps/phone` 側は `registry.sai_home()`（`apps/phone/src/sai_phone/registry.py:41`）。**3 つの値を必ずそろえること。**
   この中に `registry.json`・`phone/runs`・`cc-cost`・共通の `blocks/`・`template/`・`settings.json`・`paper.env` が入る。
 - **プロジェクトの中の `<root>/.sai/` は変わらない。** `sai-engine.db`・`blocks/`・`outputs/` はここ。
-- 例外が 1 つだけある。`apps/phone/src/sai_phone/usage.py:34` は `~/.sai/phone/cc-rate-limits.json` を読む。これは利用者の statusline が書く**リポジトリの外**のファイルなので、そのまま残してある。
+- `apps/phone/src/sai_phone/usage.py` の `cc_limits_path()` は `<sai_home>/phone/cc-rate-limits.json` を読む（書くのは `sai-moon-link cc-statusline`）。旧 `~/.sai/phone/` は読まない。
 
 ### 画面のコード
 

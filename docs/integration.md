@@ -95,8 +95,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 - 環境変数 `SAI_SAI_HOME` があればそれが優先。無ければ `~/.sai-moon`。
   Rust 側は `sai_link_engine::project::sai_home()` と `sai_paper_core::paths::sai_home()`、`apps/phone` 側は `registry.sai_home()`。
-- 例外が 1 つ。`apps/phone/src/sai_phone/usage.py:34` の `CC_LIMITS_PATH` は `~/.sai/phone/cc-rate-limits.json` のまま。
-  これは利用者の statusline が書く**リポジトリの外**のファイルで、`apps/phone` が書かないため。
+- `apps/phone/src/sai_phone/usage.py` の `cc_limits_path()` は `<sai_home>/phone/cc-rate-limits.json` を読む。
+  書くのは `sai-moon-link cc-statusline`（`phone_export.rs` の `cc_rate_limits_path()`）。旧 `~/.sai/phone/` は読まない。
 
 ---
 

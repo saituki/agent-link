@@ -2,7 +2,7 @@
 
 集めるものは 3 つ:
 
-- Claude Code（Team）の 5 時間枠 … ``~/.sai/phone/cc-rate-limits.json``（別の statusline が書く）
+- Claude Code（Team）の 5 時間枠 … ``~/.sai-moon/phone/cc-rate-limits.json``（`sai-moon-link cc-statusline` が書く）
 - OpenRouter の残高・使用料・無料モデル回数 … 公開 API（キーは .env の環境変数）
 - DeepSeek の残高 … 公開 API。使用料は pi の記録（``~/.pi/agent/sessions``）から集計する
 
@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from sai_phone import registry
 from sai_phone.config import settings
 
 # 外部 API のタイムアウト（秒・42 §3.3）
@@ -30,8 +31,12 @@ ACTIVITY_DAYS = 30
 # 1 ページの件数（42 §3.3 の logs）
 LOGS_PAGE = 50
 
-# cc の 5 時間枠を書くファイル（リポジトリの外・42 §3.4）
-CC_LIMITS_PATH = Path.home() / ".sai" / "phone" / "cc-rate-limits.json"
+
+def cc_limits_path() -> Path:
+    """cc の 5 時間枠を書くファイル（`sai-moon-link cc-statusline` が書く・置き場は `SAI_SAI_HOME` に従う）．"""
+    return registry.sai_home() / "phone" / "cc-rate-limits.json"
+
+
 # pi の provider とキーの対応を調べるファイル（42 §3.2）
 PI_MODELS_PATH = Path.home() / ".pi" / "agent" / "models.json"
 PI_AUTH_PATH = Path.home() / ".pi" / "agent" / "auth.json"
@@ -94,7 +99,7 @@ def _error_text(exc: Exception) -> str:
 def cc_limits() -> dict | None:
     """cc の 5 時間枠（``{used_percentage, resets_at, saved_at}``）．無ければ None．"""
     try:
-        obj = json.loads(CC_LIMITS_PATH.read_text(encoding="utf-8"))
+        obj = json.loads(cc_limits_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(obj, dict):
