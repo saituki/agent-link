@@ -16,6 +16,7 @@ WebSocket や SSE は使わない．
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
@@ -76,6 +77,35 @@ def require_local(request: Request) -> None:
         raise HTTPException(status_code=403, detail="内部専用です")
 
 
+def write_token_file() -> None:
+    """合言葉（`SAI_PHONE_TOKEN`）を `<sai_home>/phone/token` に書く（0600）．
+
+    エージェント側の道具 `phone_api.py` はこのファイルから合言葉を読む．
+    設定ファイル（`settings.json` の `env`）ではなくファイルにするのは，
+    `env` は起動コマンドの文字になって pane や記録に残るため（要件 D13）．
+    合言葉が無いときはファイルを消す．書けなくてもサーバは止めず，
+    警告だけログに出す（合言葉の値そのものは決して出さない）．
+    """
+    from sai_phone import registry
+
+    path = registry.sai_home() / "phone" / "token"
+    try:
+        if not settings.api_token:
+            if path.exists():
+                path.unlink()
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # 既に作られたファイルの桁が 0644 でも 0600 へ戻すため chmod もする
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, settings.api_token.encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.chmod(path, 0o600)
+    except OSError as exc:
+        logger.warning("合言葉のファイル (%s) を書けません: %s", path, exc)
+
+
 @app.on_event("startup")
 def _startup() -> None:
     store.init_db()
@@ -83,6 +113,8 @@ def _startup() -> None:
     if not settings.api_token:
         # トークン無しは開発用．外に公開する前に必ず設定すること．
         logger.warning("SAI_PHONE_TOKEN 未設定：認証なしで動作中")
+    # 合言葉をファイルで渡す（`phone_api.py` が読む）
+    write_token_file()
     # 状態の監視ループを起動する（通知用．失敗してもサーバーは止めない）
     asyncio.get_event_loop().create_task(watch_loop())
 
