@@ -437,6 +437,7 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
         "todo": todo,
         "running": running,
         "review": review,
+        "done": done,
     })
 }
 
