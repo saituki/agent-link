@@ -283,7 +283,15 @@ fn run_agent_command(cmd: AgentCmd) {
         } => read_content(&content_file)
             .and_then(|content| agent_api::write(&filename, &content, description.as_deref(), run_id)),
 
-        AgentCmd::Finalize { run_id } => agent_api::finalize(run_id),
+        AgentCmd::Finalize { run_id, report } => {
+            agent_api::finalize(run_id, report.as_deref())
+        }
+
+        AgentCmd::TaskQuestion {
+            qid,
+            text,
+            run_id,
+        } => agent_api::task_question(run_id, &qid, &text),
 
         AgentCmd::TaskCreate {
             tasks_json,

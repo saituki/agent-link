@@ -47,7 +47,7 @@
 // （index.html の ?v= も 41。ASSETS に /dashsearch.js を足した）
 // U1（カードの起動者 executer。professor が起こすカードには ▶ を出さない）で v42 に
 // （index.html の ?v= も 42。ASSETS は変えない・<linkview.js> は入っていた）
-const CACHE = "sai-phone-v42";
+const CACHE = "sai-phone-v43";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）

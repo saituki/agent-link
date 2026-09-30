@@ -14,6 +14,8 @@ pub enum MdKind {
     Task,
     /// message.md（session から再生成）
     Message,
+    /// finalize-report.md（子なら task_report、root なら sai_finalize の report）
+    Report,
 }
 
 impl MdKind {
@@ -22,6 +24,7 @@ impl MdKind {
         match self {
             MdKind::Task => "task",
             MdKind::Message => "message",
+            MdKind::Report => "report",
         }
     }
 
@@ -30,6 +33,7 @@ impl MdKind {
         match self {
             MdKind::Task => "task.md",
             MdKind::Message => "message.md",
+            MdKind::Report => sai_link_engine::agent_api::REPORT_FILE,
         }
     }
 }
@@ -54,6 +58,17 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
         MdKind::Message => match sai_link_engine::orchestrator::write_message_file(store, run_id) {
             Ok(p) => p,
             Err(e) => return MdResolve::Failed(format!("message: 保存に失敗: {}", e)),
+        },
+        // 報告は run フォルダの finalize-report.md にしか無い。todo のカードには無い。
+        MdKind::Report => match sai_link_engine::agent_api::report_path_for_run(run_id) {
+            Some(p) => p,
+            None => {
+                return MdResolve::Missing(format!(
+                    "report: {} が見つかりません (run_id {})",
+                    sai_link_engine::agent_api::REPORT_FILE,
+                    run_id
+                ))
+            }
         },
         MdKind::Task => match crate::card_entries::card_path_for_execution(None, run_id) {
             Some(p) => p,
@@ -84,6 +99,17 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 MdResolve::Found(path)
             } else {
                 MdResolve::Missing(format!("task: task.md がありません ({})", path.display()))
+            }
+        }
+        MdKind::Report => {
+            if path.exists() {
+                MdResolve::Found(path)
+            } else {
+                MdResolve::Missing(format!(
+                    "report: {} がありません ({})",
+                    sai_link_engine::agent_api::REPORT_FILE,
+                    path.display()
+                ))
             }
         }
     }

@@ -587,7 +587,7 @@ def api_project_run_view(
 def api_project_run_md(
     name: str, run_id: int, kind: str, _: None = Depends(require_token)
 ) -> dict:
-    """run の md（task / message・無いときは 404・計画 12 §3.2）。"""
+    """run の md（task / message / report・無いときは 404・計画 12 §3.2）。"""
     return control.phone_md(name, run_id, kind)
 
 

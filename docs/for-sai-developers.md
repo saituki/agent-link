@@ -63,7 +63,7 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | `sai-moon-link phone export`（プロジェクトの実行を JSON で書き出す） | CLI: `crates/sai-link-cli/src/cli.rs`（`handle_phone_export`）／本体: `crates/sai-link-engine/src/phone_export.rs` |
 | `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む）。**全 run ノードに `executer`（`human` / `professor`・既定 `human`）を足す**（カードの frontmatter `executer:` から取る） |
 | `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`） |
-| `sai-moon-link phone md <id> --kind task\|review\|message`（無ければ **終了コード 3・stderr「まだありません」**） | 同 `phone.rs`（`md`） |
+| `sai-moon-link phone md <id> --kind task\|message\|report`（無ければ **終了コード 3・stderr「まだありません」**。`report` は `finalize-report.md`・§2.6） | 同 `phone.rs`（`md`）／本体 `sai_link_widgets::phone_view::resolve_md_path` |
 | `sai-moon-link phone waggle <id> [--token <t>]`（成果物の一覧と本文。一覧の各項目に task_text に貼れる `ref` がある） | 同 `phone.rs`（`waggle`） |
 | `sai-moon-link phone card options`（作成フォームの選択肢） | 同 `phone.rs`（`card_options`）／`sai_link_widgets::card_wizard`（TUI と共有） |
 | `sai-moon-link phone card inputs --block <id>`（手順 4 の入力と候補） | 同 `phone.rs`（`card_inputs`） |
@@ -286,6 +286,48 @@ ls /tmp/smoke-sai-home   # → No such file or directory（作っていないこ
 3. `apps/phone` 側を直す場所（項目を増減した場合）: `apps/phone/src/sai_phone/runs.py`。
 4. **置き場を変えた場合**は 3 か所すべてを直す（`project.rs:79`・`paths.rs:172`・`registry.py:41`）。
 5. この文書と `README.md`・`docs/integration.md` の該当表を更新。
+
+### 2.6 エージェントの道具（`sai-moon-link agent …` と MCP サーバ）
+
+MCP サーバ（`mcp_server.rs`）は `sai_write` / `sai_finalize` / `sai_read` / `task_*` / `block_*` を出す。同じ本体を `sai-moon-link agent <…>` からも呼ぶ（pi 拡張・フックはここを使う）。**CLI も同じ `agent_api` を通すので、戻り値の JSON は 1 か所で決まる。**
+
+#### 報告の置き場（C5）
+
+報告は **run フォルダの `finalize-report.md`** に 1 つだけ置く。
+
+| 誰が書く | どう書く |
+|---|---|
+| 子の run | `task_report`（= `sai-moon-link agent task-report --report-file <パス>`） |
+| root の run | `sai_finalize` の `report`（任意）/ `sai-moon-link agent finalize --report <文>` / `/sai-finalize <文>`（cc のフック） |
+
+- `report` を付けない `finalize` は**保存済みの報告に一切触らない**（pane が閉じたときの `agent finalize --run-id N` は `--report` を付けない）。
+- Web の run の画面は `phone md --kind report <run_id>` で読む（帯は「報告」）。`--write` は `task` だけ。
+- 親の `task_output` は完了の `report` にこの本文を返す。
+
+#### 完了の案内（C7）
+
+`task_output` が完了を返すときは `hint`（閉じる案内）が付く。**`status` / `report` / `outputs` の形は変えない**（`hint` を足すだけ）。子の run は `task_report` で `completed` になるだけで `finalized` は親の `task_manage finalize` が付けるので、閉じ忘れると pane と `running` のフォルダが残る。
+
+#### 質問の通知（C6）
+
+```bash
+# 子の run の中から呼ぶ（親の run から呼ぶとエラー）
+"$SAI_LINK_BIN" agent task-question --qid <質問ID> --text <見出し> [--run-id <N>]
+```
+
+- 実行ファイルのパスは環境変数 `SAI_LINK_BIN`（無ければ `sai-moon-link`）。`orchestrator.rs` の `subtask_env` が `SAI_IS_SUBTASK=1` と一緒に付ける。
+- 実装は `agent_api::task_question`（`agent_api.rs`）。`SAI_PARENT_RUN_ID` の実行を引き、`parent_run_id` が無ければエラー `"task-question は子の run 専用です"`。その実行に対応するタスク（`tasks.execution_id = run_id`）を引いて `task_stalled` 通知を書く。
+- 親の `task_output` は次を返す（`build_task_output_result` の `task_stalled` の分岐）。
+
+```json
+{"task_id": 12, "status": "stalled", "reason": "question", "question_id": "q1",
+ "message": "質問 q1: 資料はどれですか", "hint": "子が質問して、答えを待っています。…"}
+```
+
+- `question_id` は**質問の通知にだけ**付く（他の理由では付けない）。`text` は 1 行に畳んで 500 文字で切る。
+- 質問の全文は `apps/phone` の DB にある。コアは中身を持たない（全文は `apps/phone` の質問 API で読む）。
+
+**要確認**: `write_stalled_notification_in` は古い `task_stalled` の通知を消す。質問の通知の直後に `idle` の通知が来ると質問の通知は消える（Web のホームには質問が残るので致命的ではない・推測）。
 
 ---
 

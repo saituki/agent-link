@@ -798,9 +798,14 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // - SAI_BLOCK_NAME: sai-write の通知ブロック名（block_name）に使用
     // - SAI_IS_SUBTASK: サブタスク実行中の場合に "1"
     let subtask_env = if config.is_subtask {
-        "SAI_IS_SUBTASK=1 "
+        // SAI_LINK_BIN: 子から `agent task-question` を呼ぶための実行ファイルのパス。
+        // pi 拡張（ask_user_phone）はこの値を使うので、shell エスケープして渡す。
+        format!(
+            "SAI_IS_SUBTASK=1 SAI_LINK_BIN={} ",
+            crate::herdr::shell_escape_single_quotes(&crate::cc_command::sai_link_exe())
+        )
     } else {
-        ""
+        String::new()
     };
     // デーモン稼働時（SAI_PROJECT_ROOT 設定済み）のみ付与。
     // デーモン外（テスト等）では従来どおり run_id 指定時のみ付与する。
@@ -3227,6 +3232,7 @@ fn execute_completion_with_sai_write(
                         Some(pid),
                         "timeout",
                         &msg,
+                            None,
                     );
                     deadline = Instant::now() + Duration::from_millis(timeout_ms);
                 } else {
@@ -3398,6 +3404,7 @@ fn execute_completion_with_sai_write(
                                         stalled_parent_run_id,
                                         why,
                                         &msg,
+                                        None,
                                     );
                                 }
                             }
@@ -3655,6 +3662,7 @@ pub fn send_turn_to_pane(
                     parent_run_id,
                     "timeout",
                     &msg,
+                    None,
                 );
                 deadline = Instant::now() + Duration::from_millis(timeout_ms);
             } else {
@@ -3691,6 +3699,7 @@ pub fn send_turn_to_pane(
                             parent_run_id,
                             "long_running",
                             &msg,
+                            None,
                         );
                     }
                 }
@@ -4564,6 +4573,43 @@ mod tests {
             prepared.exit_command.is_none(),
             "gl には付けない: {:?}",
             prepared.exit_command
+        );
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// サブブロックの起動コマンドには SAI_IS_SUBTASK=1 と SAI_LINK_BIN（実行ファイルのパス）が付く。
+    /// pi 拡張は SAI_LINK_BIN で `agent task-question` を呼ぶため。
+    #[test]
+    fn test_prepare_pipeline_subtask_gets_sai_link_bin() {
+        let _env_lock = finalize_env_lock();
+        let _project_root_guard = EnvVarGuard::remove("SAI_PROJECT_ROOT");
+
+        let mut subtask = minimal_config();
+        subtask.run_id = Some(1234);
+        subtask.is_subtask = true;
+        let prepared = prepare_pipeline(&subtask).expect("prepare_pipeline に失敗");
+        let cmd = &prepared.pi_command;
+        assert!(cmd.contains("SAI_IS_SUBTASK=1 "), "{}", cmd);
+        assert!(
+            cmd.contains("SAI_LINK_BIN="),
+            "SAI_LINK_BIN が付くこと: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains(&crate::cc_command::sai_link_exe()),
+            "SAI_LINK_BIN は sai_link_exe() のパス: {}",
+            cmd
+        );
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+
+        // メイン実行には付かない
+        let mut main = minimal_config();
+        main.run_id = Some(1234);
+        let prepared = prepare_pipeline(&main).expect("prepare_pipeline に失敗");
+        assert!(
+            !prepared.pi_command.contains("SAI_LINK_BIN="),
+            "{}",
+            prepared.pi_command
         );
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }

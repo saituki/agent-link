@@ -9,7 +9,7 @@
 - 終了コード 0 で JSON でない応答は 502
 - root / db が無いプロジェクトは CLI を呼ばず 404
 - 5 つの住所が登録済み（計画 14 §3.3）
-- task / review の保存（PUT …/md/{kind}）の検査と呼ぶ形
+- task の保存（PUT …/md/task）と report の読み出し（GET …/md/report）の検査と呼ぶ形
 
 実行:
     cd <作業用コピー>
@@ -85,8 +85,8 @@ def test_validation(cli: FakeCli) -> None:
     # view: log / stats / history
     for bad in ("bogus", "", "LOG", "task"):
         expect(400, lambda bad=bad: control.phone_run_view("demo", 1, bad))
-    # kind: task / review / message
-    for bad in ("bogus", "", "TASK", "log"):
+    # kind: task / message / report
+    for bad in ("bogus", "", "TASK", "log", "review"):
         expect(400, lambda bad=bad: control.phone_md("demo", 1, bad))
     # token: 英数字と -_.: だけ（長さ上限 128・: は入れられる形なので使わない）
     for bad in ("bad token", "a" * 129, "../x", "", "絵文字", "a/b"):
@@ -137,7 +137,7 @@ def test_missing_404(cli: FakeCli) -> None:
     cli.stdout = ""
     cli.stderr = "まだありません"
     cli.calls.clear()
-    e = expect(404, lambda: control.phone_md("demo", 7, "review"))
+    e = expect(404, lambda: control.phone_md("demo", 7, "report"))
     assert str(e.detail) == "まだありません", e.detail
     # run の表示でも同じ形（中身が無いとき）は 404 にしない: 「まだありません」以外は 502
     assert cli.last["args"][2] == "md"
@@ -173,21 +173,24 @@ def test_bad_json_502(cli: FakeCli) -> None:
 
 
 def test_md_save(cli: FakeCli) -> None:
-    """task / review の保存（本文は標準入力・検査は CLI を呼ぶ前・未実行カードが無ければ 404）。"""
+    """task の保存（本文は標準入力・検査は CLI を呼ぶ前・未実行カードが無ければ 404）。
+
+    保存できるのは task だけ（message と report は読み取り）。
+    """
     cli.calls.clear()
-    for bad_kind in ("message", "log", ""):
+    for bad_kind in ("message", "report", "log", ""):
         expect(400, lambda k=bad_kind: control.phone_md_save("demo", 7, k, "x"))
     for bad_text in (None, 3, "x" * (100 * 1024 + 1)):
-        expect(400, lambda t=bad_text: control.phone_md_save("demo", 7, "review", t))
+        expect(400, lambda t=bad_text: control.phone_md_save("demo", 7, "task", t))
     expect(400, lambda: control.phone_md_save("demo", 0, "task", "x"))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
     cli.returncode = 0
-    cli.stdout = '{"kind": "review", "name": "review.md", "text": "本文"}'
+    cli.stdout = '{"kind": "task", "name": "task.md", "text": "本文"}'
     cli.stderr = ""
-    assert control.phone_md_save("demo", 7, "review", "本文")["text"] == "本文"
+    assert control.phone_md_save("demo", 7, "task", "本文")["text"] == "本文"
     assert cli.last["args"] == [
-        "sai-moon-link", "phone", "md", "7", "--kind", "review", "--write",
+        "sai-moon-link", "phone", "md", "7", "--kind", "task", "--write",
     ], cli.last["args"]
     assert cli.last["input_text"] == "本文"
     # 実行済み・送信済みの task は 404（未実行のカードが見つかりません）

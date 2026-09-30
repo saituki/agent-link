@@ -545,12 +545,12 @@ pub enum PhoneCmd {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
 
-        /// md の種別
-        #[arg(long, value_parser = ["task", "review", "message"])]
+        /// md の種別（task / message / report）
+        #[arg(long, value_parser = ["task", "message", "report"])]
         kind: String,
 
-        /// 標準入力の中身で保存する（task は未実行の todo カードだけ・review は実行済みの run だけ。
-        /// message は保存できない）。成功すると保存後の本文を同じ形で返す
+        /// 標準入力の中身で保存する（task は未実行の todo カードだけ。
+        /// message と report は保存できない）。成功すると保存後の本文を同じ形で返す
         #[arg(long)]
         write: bool,
     },
@@ -874,6 +874,24 @@ pub enum AgentCmd {
 
     /// メインブロックの実行を明示的に完了する（/pi-sai-finalize 相当）
     Finalize {
+        #[arg(long)]
+        run_id: Option<i64>,
+
+        /// 報告の本文（要点）。保存すると run の「報告」として Web で読める
+        #[arg(long, value_name = "文")]
+        report: Option<String>,
+    },
+
+    /// サブブロックが親へ質問を通知する（`task_output` が question で返る）
+    TaskQuestion {
+        /// 質問の ID（Web の質問一覧の ID）
+        #[arg(long, value_name = "ID")]
+        qid: String,
+
+        /// 質問の見出し（1 行にする）
+        #[arg(long, value_name = "文")]
+        text: String,
+
         #[arg(long)]
         run_id: Option<i64>,
     },
