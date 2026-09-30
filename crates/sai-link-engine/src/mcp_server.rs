@@ -20,14 +20,39 @@
 //! 通知プロトコル（pending/・results/）は pi/cc 共通のため、
 //! DB への保存・TUI 表示は runner を問わず同じになる。
 //!
+//! ## 待つ道具の扱い（task_output）
+//!
+//! `task_output` だけは待ちになるので、**この 1 つだけ別スレッド**で動かす。
+//! 他の道具は短く終わるので読み取りスレッドで順に処理し、同じターン内の呼び出し順
+//! （`sai_write` → `sai_finalize`、`task_create` → `task_execute`）を保つ。
+//! 待ちのあいだも `task_list` などの別の呼び出しはすぐ返る。
+//!
+//! - 待ちのあいだに取り消し（`notifications/cancelled`）が来たらフラグを立てて止める。
+//!   応答は**書かない**（MCP 仕様どおり）。結果ファイルも消さないので、あとから読み直せる。
+//! - stdin が EOF になったら、残りの待ちをすべて止めてから終わる。
+//! - 返答は出力のロックを取って 1 行ずつ書くので、順番が入れ替わらない。
+//!
 //! 公開ツール名は `cc_command::MCP_TOOL_NAMES` と 1 個ずつ完全一致させること。
 
+use std::collections::HashMap;
 use std::io::{BufRead, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
 /// MCP のプロトコルバージョン（initialize でクライアント値が無い場合の既定）。
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// `task_ids` で受け取れる最大の件数（多すぎると 1 回の待いで全部を見られない）。
+const MAX_TASK_IDS: usize = 50;
+
+/// 応答を待つあいだ他の呼び出しを止めないよう、別スレッドで動かす道具。
+///
+/// 今のところ `task_output` だけ。短い道具は読み取りスレッドで処理する。
+fn is_long_running_tool(name: &str) -> bool {
+    name == "task_output"
+}
 
 /// stdio で MCP サーバを実行する（`sai-link mcp serve` から呼ばれる）。
 ///
@@ -36,33 +61,105 @@ const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 pub fn serve_stdio() {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    let mut out = stdout.lock();
+    serve(stdin.lock(), stdout);
+}
 
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let message: Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
-            Err(e) => {
-                let err = error_response(Value::Null, -32700, &format!("JSON パース失敗: {}", e));
-                write_message(&mut out, &err);
+/// MCP サーバ本体（読み取りは `reader`、書き込みは `writer`）。
+///
+/// 待つ道具（`is_long_running_tool`）だけを別スレッドで動かすので、
+/// 待たされているあいだも他の呼び出しが返る。すべてのスレッドはここで終わる。
+pub fn serve<R: BufRead, W: Write + Send>(reader: R, writer: W) {
+    let out = Mutex::new(writer);
+    // 待つ呼び出しの id と、取り消し用のフラグ
+    let pending: Mutex<HashMap<String, Arc<AtomicBool>>> = Mutex::new(HashMap::new());
+
+    std::thread::scope(|s| {
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 continue;
             }
-        };
-        if let Some(response) = handle_message(&message) {
-            write_message(&mut out, &response);
+            let message: Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(e) => {
+                    let err =
+                        error_response(Value::Null, -32700, &format!("JSON パース失敗: {}", e));
+                    write_message_locked(&out, &err);
+                    continue;
+                }
+            };
+
+            let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            let params = message.get("params").cloned().unwrap_or(Value::Null);
+
+            // 取り消し: 待っているスレッドのフラグを立てる（応答は書かない）
+            if method == "notifications/cancelled" {
+                if let Some(request_id) = params.get("requestId") {
+                    let key = request_id.to_string();
+                    if let Some(flag) = lock(&pending).remove(&key) {
+                        flag.store(true, Ordering::Relaxed);
+                    }
+                }
+                continue;
+            }
+
+            let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if method == "tools/call" && is_long_running_tool(tool_name) {
+                let id = match message.get("id") {
+                    Some(id) => id.clone(),
+                    None => continue, // 応答しない呼び出しなので待たせない
+                };
+                // フラグは読み取りスレッドで登録する（直後の取り消しと取り合いにならないように）
+                let key = id.to_string();
+                let cancel = Arc::new(AtomicBool::new(false));
+                lock(&pending).insert(key.clone(), Arc::clone(&cancel));
+                let out = &out;
+                let pending = &pending;
+                s.spawn(move || {
+                    let response = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        call_tool_with(&params, cancel.as_ref())
+                    })) {
+                        Ok(r) => Some(success_or_error(&id, r)),
+                        Err(_) => Some(error_response(
+                            id.clone(),
+                            -32603,
+                            "内部エラー: 道具の処理が異常終了しました",
+                        )),
+                    };
+                    // pending から取り出せたときだけ応答する（取れなければ取り消し済み）
+                    let still_wanted = lock(pending).remove(&key).is_some();
+                    if still_wanted {
+                        if let Some(response) = response {
+                            write_message_locked(out, &response);
+                        }
+                    }
+                });
+                continue;
+            }
+
+            if let Some(response) = handle_message_with(&message, &AtomicBool::new(false)) {
+                write_message_locked(&out, &response);
+            }
         }
-    }
+
+        // EOF: まだ待っている呼び出しをすべて止めてから終わる
+        for flag in lock(&pending).values() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    });
 }
 
 /// 1 メッセージを処理して応答を返す（通知なら `None`）。
 pub fn handle_message(message: &Value) -> Option<Value> {
+    handle_message_with(message, &AtomicBool::new(false))
+}
+
+/// `handle_message` の本体。`cancel` は待つ道具（`task_output`）の待ちを止めるフラグ。
+fn handle_message_with(message: &Value, cancel: &AtomicBool) -> Option<Value> {
     let id = message.get("id").cloned();
     let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -77,14 +174,24 @@ pub fn handle_message(message: &Value) -> Option<Value> {
         "initialize" => Ok(initialize_result(&params)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(tools_list_result()),
-        "tools/call" => call_tool(&params),
+        "tools/call" => call_tool_with(&params, cancel),
         _ => Err((-32601, format!("未対応のメソッドです: {}", method))),
     };
 
-    Some(match result {
+    Some(success_or_error(&id, result))
+}
+
+/// 処理結果を MCP の応答（`result` か `error`）にまとめる。
+fn success_or_error(id: &Value, result: Result<Value, (i32, String)>) -> Value {
+    match result {
         Ok(value) => json!({ "jsonrpc": "2.0", "id": id, "result": value }),
-        Err((code, message)) => error_response(id, code, &message),
-    })
+        Err((code, message)) => error_response(id.clone(), code, &message),
+    }
+}
+
+/// ロックが汚染されていても（別スレッドでパニックが起きた）拿到了まま使い続ける。
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// `initialize` の応答を組み立てる。
@@ -207,14 +314,14 @@ fn tools_list_result() -> Value {
         },
         {
             "name": "task_output",
-            "description": "タスクの結果を取得する。未完了の場合は timeout_ms まで待機する。完了時は短い報告文（report）と、worker が保存した文書の waggle トークン一覧（outputs）だけを返す。",
+            "description": "タスクの結果を取得する。1 回の待ちは最大 90 秒で、超えると status=in_progress で返る（もう一度呼ぶ）。task_ids を渡すと複数の子を 1 回で待ち、最初に完了・stalled（質問を含む）になった子を 1 件返し、残りを pending で返す。返った子は次の呼び出しの task_ids から外すこと。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "task_id": { "type": "integer", "description": "タスクの server_id" },
-                    "timeout_ms": { "type": "integer", "description": "最大待機時間（ミリ秒）。既定 300000。0 で待機なし" }
-                },
-                "required": ["task_id"]
+                    "task_id": { "type": "integer", "description": "タスクの server_id（task_ids とどちらか一方）" },
+                    "task_ids": { "type": "array", "items": { "type": "integer" }, "description": "複数の子を待つ server_id の配列（task_id とどちらか一方）。最大 50 件" },
+                    "timeout_ms": { "type": "integer", "description": "最大待機時間（ミリ秒）。上限 90000（超える値は 90000 に切り詰める）。既定 90000。0 で待機なし" }
+                }
             }
         },
         {
@@ -282,7 +389,16 @@ fn tools_list_result() -> Value {
 /// 各分岐は `agent_api` を 1 回呼ぶだけ（ロジックは MCP 側に書かない）。
 /// `sai_write` / `sai_finalize` のみ既存の応答文言（人が読む整形テキスト）を
 /// 維持するため `tool_sai_write` / `tool_sai_finalize` 経由で呼ぶ。
+// 取り消しなしで呼ぶ口（待ちがない側で使う）。
+#[allow(dead_code)]
 fn call_tool(params: &Value) -> Result<Value, (i32, String)> {
+    call_tool_with(params, &AtomicBool::new(false))
+}
+
+/// `call_tool` の本体。`cancel` は `task_output` の待ちを止めるフラグ。
+///
+/// 外から来る値（`task_id` / `task_ids`）はここで検査する。
+fn call_tool_with(params: &Value, cancel: &AtomicBool) -> Result<Value, (i32, String)> {
     let name = params
         .get("name")
         .and_then(|v| v.as_str())
@@ -324,10 +440,7 @@ fn call_tool(params: &Value) -> Result<Value, (i32, String)> {
             i("task_id"),
             i("run_id"),
         ),
-        "task_output" => match i("task_id") {
-            Some(id) => crate::agent_api::task_output(id, u("timeout_ms")),
-            None => Err("task_id は必須です（整数）".to_string()),
-        },
+        "task_output" => run_task_output(&arguments, cancel),
         "task_report" => match s("report") {
             Some(r) => crate::agent_api::task_report(&r, i("run_id")),
             None => Err("report は必須です".to_string()),
@@ -360,6 +473,36 @@ fn call_tool(params: &Value) -> Result<Value, (i32, String)> {
     };
 
     Ok(json_content_result(result))
+}
+
+/// `task_output` の引数を検査して待つ。
+///
+/// `task_id`（単体）と `task_ids`（複数待ち）はどちらか一方だけ。検査は
+/// ここ（外から来る値の検査は窓口で行うという約束）で行い、
+/// 通った値だけを `agent_api` に渡す。
+fn run_task_output(arguments: &Value, cancel: &AtomicBool) -> Result<Value, String> {
+    let one = arguments.get("task_id").and_then(|v| v.as_i64());
+    let many = arguments.get("task_ids");
+    let timeout_ms = arguments.get("timeout_ms").and_then(|v| v.as_u64());
+    match (one, many) {
+        (Some(_), Some(_)) => Err("task_id と task_ids は同時に指定できません".to_string()),
+        (None, None) => Err("task_id または task_ids は必須です".to_string()),
+        (Some(id), None) => crate::agent_api::task_output_ids(&[id], timeout_ms, cancel, false),
+        (None, Some(Value::Array(items))) => {
+            if items.is_empty() {
+                return Err("task_ids は 1 件以上の整数の配列にしてください".to_string());
+            }
+            if items.len() > MAX_TASK_IDS {
+                return Err(format!("task_ids は {} 件までです", MAX_TASK_IDS));
+            }
+            let mut ids = Vec::with_capacity(items.len());
+            for item in items {
+                ids.push(item.as_i64().ok_or("task_ids は 1 件以上の整数の配列にしてください")?);
+            }
+            crate::agent_api::task_output_ids(&ids, timeout_ms, cancel, true)
+        }
+        (None, Some(_)) => Err("task_ids は 1 件以上の整数の配列にしてください".to_string()),
+    }
 }
 
 /// 文字列 1 件を MCP の `content` テキストとして組み立てる（`sai_write` / `sai_finalize` 用）。
@@ -447,13 +590,176 @@ fn write_message<W: Write>(out: &mut W, message: &Value) {
     let _ = out.flush();
 }
 
+/// 出力のロックを取って 1 メッセージを書き出す（別スレッドからも使う）。
+fn write_message_locked<W: Write>(out: &Mutex<W>, message: &Value) {
+    let mut guard = lock(out);
+    write_message(&mut *guard, message);
+}
+
 // ============================================================================
 // テスト
 // ============================================================================
 
 #[cfg(test)]
 mod tests {
+    // ここで動かすテストは環境変数（SAI_PROJECT_ROOT など）を書き換えない。
+    // 書き換えると、並列に走る orchestrator のテスト（ロックを取らない
+    // `prepare_pipeline` 系）とぶつかって落ちるので、DB を触らない呼び出しで確かめる。
     use super::*;
+    use std::io::Read;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    /// テスト用の読み取り側。チャネルから 1 行ずつ受け取る（閉じると EOF）。
+    struct ChannelReader {
+        rx: mpsc::Receiver<String>,
+        buf: Vec<u8>,
+    }
+
+    impl ChannelReader {
+        fn new(rx: mpsc::Receiver<String>) -> Self {
+            Self {
+                rx,
+                buf: Vec::new(),
+            }
+        }
+
+        /// 次の 1 行（改行付き）を buf に入れる。無ければ `false`。
+        fn fill_next_line(&mut self) -> bool {
+            match self.rx.recv() {
+                Ok(line) => {
+                    let mut bytes = format!("{}\n", line).into_bytes();
+                    self.buf.append(&mut bytes);
+                    true
+                }
+                Err(_) => false,
+            }
+        }
+    }
+
+    impl Read for ChannelReader {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if self.buf.is_empty() && !self.fill_next_line() {
+                return Ok(0);
+            }
+            let n = self.buf.len().min(out.len());
+            out[..n].copy_from_slice(&self.buf[..n]);
+            self.buf.drain(..n);
+            Ok(n)
+        }
+    }
+
+    // `lines()` を使えるようにするため BufRead も実装する（1 行ずつ返す）。
+    impl BufRead for ChannelReader {
+        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+            if self.buf.is_empty() {
+                self.fill_next_line();
+            }
+            Ok(&self.buf)
+        }
+
+        fn consume(&mut self, amt: usize) {
+            let amt = amt.min(self.buf.len());
+            self.buf.drain(..amt);
+        }
+    }
+
+    /// テスト用の書き込み側。書いた内容を共有バッファに残す。
+    struct SharedWriter {
+        buf: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for SharedWriter {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            lock(&self.buf).extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// テスト用に動かしたサーバ。チャネルで入力を流し、出力を共有バッファで受け取る。
+    struct ServeTest {
+        tx: Option<mpsc::Sender<String>>,
+        done: mpsc::Receiver<()>,
+        out: Arc<Mutex<Vec<u8>>>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl ServeTest {
+        fn start() -> Self {
+            let (tx, rx) = mpsc::channel::<String>();
+            let (done_tx, done_rx) = mpsc::channel::<()>();
+            let out = Arc::new(Mutex::new(Vec::new()));
+            let writer_out = Arc::clone(&out);
+            let handle = std::thread::spawn(move || {
+                serve(ChannelReader::new(rx), SharedWriter { buf: writer_out });
+                let _ = done_tx.send(());
+            });
+            Self {
+                tx: Some(tx),
+                done: done_rx,
+                out,
+                handle: Some(handle),
+            }
+        }
+
+        /// 1 メッセージを 1 行として流す。
+        fn send(&self, message: Value) {
+            self.tx
+                .as_ref()
+                .expect("送信口は閉じられていない")
+                .send(message.to_string())
+                .unwrap();
+        }
+
+        /// 今までの出力を文字列にする。
+        fn output(&self) -> String {
+            String::from_utf8(lock(&self.out).clone()).expect("出力は UTF-8")
+        }
+
+        /// 指定した id の応答があれば返す（1 行ずつ JSON として読めるものだけ）。
+        fn response_of(&self, id: i64) -> Option<Value> {
+            self.output()
+                .lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+                .find(|v| v["id"] == id)
+        }
+
+        /// 指定した id の応答が書かれるまで待つ。時間切れなら `None`。
+        fn wait_for_id(&self, id: i64, limit: Duration) -> Option<Value> {
+            let deadline = Instant::now() + limit;
+            loop {
+                if let Some(value) = self.response_of(id) {
+                    return Some(value);
+                }
+                if Instant::now() >= deadline {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+
+        /// 入力を閉じて（EOF）サーバが終わるのを待つ。時間内に終われば `true`。
+        fn finish(&mut self, limit: Duration) -> bool {
+            self.tx.take();
+            let finished = self.done.recv_timeout(limit).is_ok();
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+            finished
+        }
+    }
+
+    /// 待つ `task_output` を 1 行にする（id と timeout_ms を指定）。
+    fn call_task_output(id: i64, task_id: i64, timeout_ms: i64) -> Value {
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": { "name": "task_output",
+                        "arguments": { "task_id": task_id, "timeout_ms": timeout_ms } }
+        })
+    }
 
     #[test]
     fn initialize_returns_capabilities() {
@@ -539,6 +845,157 @@ mod tests {
         assert!(
             tool["inputSchema"].get("required").is_none(),
             "report は任意: {}",
+            tool["inputSchema"]
+        );
+    }
+
+    /// AC1: 待たれている `task_output` があっても、短い呼び出しは 3 秒以内に返る。
+    /// 取り消しのあとに応答が書かれないことも確かめる（AC4）。
+    ///
+    /// 短い呼び出しは DB を触らないもの（`ping` と、見慣れない道具名）を使う。
+    /// 返るのは読み取りスレッドの処理なので、どの道具でも同じ道理。
+    #[test]
+    fn waiting_task_output_does_not_block_other_calls() {
+        let mut server = ServeTest::start();
+        // 存在しないタスクを 60 秒待つ（上限の 90 秒には届かない）
+        server.send(call_task_output(1, 999_999, 60_000));
+        server.send(json!({ "jsonrpc": "2.0", "id": 2, "method": "ping" }));
+        server.send(json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": { "name": "no_such_tool", "arguments": {} }
+        }));
+
+        assert!(
+            server.wait_for_id(2, Duration::from_secs(3)).is_some(),
+            "ping が 3 秒以内に返る"
+        );
+        assert!(
+            server.wait_for_id(3, Duration::from_secs(3)).is_some(),
+            "tools/call が 3 秒以内に返る"
+        );
+        assert!(
+            server.response_of(1).is_none(),
+            "task_output はまだ待たしている（応答が無い）"
+        );
+
+        // 取り消しを送る → 待ちが終わる。MCP 仕様どおり応答は書かれない。
+        server.send(json!({
+            "jsonrpc": "2.0", "method": "notifications/cancelled",
+            "params": { "requestId": 1 }
+        }));
+        assert!(server.finish(Duration::from_secs(3)), "serve が 3 秒以内に終わる");
+        assert!(
+            server.response_of(1).is_none(),
+            "取り消された task_output には応答しない: {}",
+            server.output()
+        );
+    }
+
+    /// 待っている `task_output` があっても、stdin が閉じた（EOF）ら 3 秒以内に終わる。
+    #[test]
+    fn serve_returns_on_eof_while_task_output_is_waiting() {
+        let mut server = ServeTest::start();
+        server.send(call_task_output(1, 999_999, 60_000));
+        // 別スレッドの待ちが始まるのを少し待つ
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(server.finish(Duration::from_secs(3)), "EOF で 3 秒以内に終わる");
+    }
+
+    /// AC5: 短い道具と待つ道具が同時に走っても、書き込んだ行は 1 行ずつに壊れない。
+    /// 短い道具の応答には id が重複せず全部そろう。
+    #[test]
+    fn output_lines_stay_one_json_per_line() {
+        let mut server = ServeTest::start();
+        for id in 1..=50 {
+            server.send(json!({
+                "jsonrpc": "2.0", "id": id, "method": "tools/call",
+                "params": { "name": "no_such_tool", "arguments": {} }
+            }));
+        }
+        // 待たない task_output（timeout_ms = 0）を混ぜる
+        server.send(call_task_output(1000, 999_999, 0));
+        assert!(server.finish(Duration::from_secs(10)), "全部終わる");
+
+        let output = server.output();
+        let lines: Vec<&str> = output.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 51, "51 件の応答がある");
+        let mut ids = Vec::new();
+        for line in lines {
+            let value: Value =
+                serde_json::from_str(line).unwrap_or_else(|e| panic!("1 行ずつ JSON: {}", e));
+            ids.push(value["id"].as_i64().expect("id がある"));
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 51, "id が重複しない");
+    }
+
+    /// AC5: 短い道具（読み取りスレッドで処理される）の応答は送った順に並ぶ。
+    /// 道具は `task_manage`（引数が足りずエラーになるだけのもの）を使う。
+    #[test]
+    fn short_tool_responses_keep_send_order() {
+        let mut server = ServeTest::start();
+        for id in 1..=2 {
+            server.send(json!({
+                "jsonrpc": "2.0", "id": id, "method": "tools/call",
+                "params": { "name": "task_manage", "arguments": {} }
+            }));
+        }
+        assert!(server.finish(Duration::from_secs(10)));
+
+        let output = server.output();
+        let lines: Vec<&str> = output.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+        let first: Value = serde_json::from_str(lines[0]).unwrap();
+        let second: Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(first["id"], 1, "先に送ったものが先に返る");
+        assert_eq!(second["id"], 2);
+        // 引数が足りないのでエラーになる（= 実際の処理はしていない）
+        assert_eq!(first["result"]["isError"], true);
+    }
+
+    /// `task_output` の引数の検査。task_id / task_ids の両方、どちらも無し、
+    /// 空配列、文字列を含む配列、51 件はすべてエラーになる。
+    #[test]
+    fn task_output_rejects_bad_arguments() {
+        let cases = vec![
+            json!({ "task_id": 1, "task_ids": [1, 2] }),
+            json!({}),
+            json!({ "task_ids": [] }),
+            json!({ "task_ids": ["1"] }),
+            json!({ "task_ids": (1..=51).collect::<Vec<i64>>() }),
+        ];
+        for arguments in cases {
+            let msg = json!({
+                "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                "params": { "name": "task_output", "arguments": arguments }
+            });
+            let res = handle_message(&msg).unwrap();
+            assert_eq!(
+                res["result"]["isError"], true,
+                "エラーになるはず: arguments={}",
+                arguments
+            );
+        }
+    }
+
+    /// tools/list の task_output に task_ids があり、required に task_id が無いこと。
+    #[test]
+    fn task_output_schema_accepts_task_ids() {
+        let list = tools_list_result();
+        let tool = list["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "task_output")
+            .expect("task_output がある");
+        let props = &tool["inputSchema"]["properties"];
+        assert_eq!(props["task_ids"]["type"], "array", "task_ids がある: {}", tool);
+        assert_eq!(props["task_ids"]["items"]["type"], "integer");
+        assert_eq!(props["timeout_ms"]["type"], "integer");
+        assert!(
+            tool["inputSchema"].get("required").is_none(),
+            "task_id は必須ではない: {}",
             tool["inputSchema"]
         );
     }

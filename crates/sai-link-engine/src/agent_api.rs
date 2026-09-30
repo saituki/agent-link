@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -1089,49 +1090,167 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
     }
 }
 
+/// `task_output` が 1 回の呼び出しで待つ最大時間（ミリ秒）。
+///
+/// Claude Code は MCP 呼び出しが 120 秒を超えるとバックグラウンドに回すが、
+/// サーバ側の待ちは止まらない。既定値が 120 秒を超えると待ちが重なり詰まるため、
+/// 必ず 120 秒より短くする。
+pub const TASK_OUTPUT_MAX_WAIT_MS: u64 = 90_000;
+
+/// 待ち時間を上限に切り詰める。`None` は上限と同じ。`0`（即時参照）はそのまま。
+pub fn clamp_wait_ms(requested: Option<u64>) -> u64 {
+    requested.map_or(TASK_OUTPUT_MAX_WAIT_MS, |t| t.min(TASK_OUTPUT_MAX_WAIT_MS))
+}
+
+/// 1 回の待ちは最大何秒か（`TASK_OUTPUT_MAX_WAIT_MS` を秒にしたもの）。文言に使う。
+fn max_wait_seconds() -> u64 {
+    TASK_OUTPUT_MAX_WAIT_MS / 1000
+}
+
+/// 残り（返さなかった子）の `task_id` を `pending` として足す。
+fn add_pending(mut result: Value, task_ids: &[i64], done: i64) -> Value {
+    let pending: Vec<i64> = task_ids.iter().copied().filter(|id| *id != done).collect();
+    if let Some(map) = result.as_object_mut() {
+        map.insert("pending".to_string(), json!(pending));
+    }
+    result
+}
+
 /// タスクの実行結果を取得する（未完了なら待機、または即時参照）。
+///
+/// 単体だけを見る入口。複数を待つ場合は [`task_output_ids`]（`task_ids` 版）を使う。
 pub fn task_output(task_id: i64, timeout_ms: Option<u64>) -> Result<Value, String> {
-    let timeout_ms = timeout_ms.unwrap_or(300_000);
+    task_output_ids(&[task_id], timeout_ms, &AtomicBool::new(false), false)
+}
+
+/// 複数のタスクの実行結果をまとめて取得する（未完了なら待機、または即時参照）。
+///
+/// - `task_ids`: 待つ子の `server_id`（先頭から順に調べる）。
+/// - `timeout_ms`: 待ち時間。`None` と上限を超えた値は [`TASK_OUTPUT_MAX_WAIT_MS`] に切られる。`0` は待機なし。
+/// - `cancel`: 外から立てると待ちが止まる（MCP の `notifications/cancelled` など）。
+/// - `with_pending`: `true` のときは「1 件だけ返して残りを `pending` で返す」形になる。
+///
+/// 見つかった結果ファイルは**消す**（返した子は次の呼び出しで待たないため）。
+/// 取り消しで抜けたときは結果ファイルに触れないので、あとから読み直せる。
+pub fn task_output_ids(
+    task_ids: &[i64],
+    timeout_ms: Option<u64>,
+    cancel: &AtomicBool,
+    with_pending: bool,
+) -> Result<Value, String> {
+    if task_ids.is_empty() {
+        return Err("task_ids は 1 件以上必要です".to_string());
+    }
+    let wait_ms = clamp_wait_ms(timeout_ms);
+    // 要求された時間が上限を超えていたとき（timeout_ms を省略した時も含む）
+    let capped = timeout_ms.map_or(true, |t| t > TASK_OUTPUT_MAX_WAIT_MS);
     let dir = crate::common::notify_results_dir();
 
-    if timeout_ms == 0 {
+    if wait_ms == 0 {
         // 即時参照: 見つかっても結果ファイルは削除しない（移植元 readResult と同じ）
-        return match find_result_file(&dir, task_id) {
-            Some((_, value)) => build_task_output_result(task_id, &value),
-            None => Ok(json!({
-                "task_id": task_id,
-                "status": "in_progress",
-                "message": "タスクはまだ完了していません。task_output を再度呼び出すか、timeout_ms を指定してください。",
-            })),
-        };
+        for &id in task_ids {
+            if let Some((_, value)) = find_result_file(&dir, id) {
+                let result = build_task_output_result(id, &value)?;
+                return Ok(if with_pending { add_pending(result, task_ids, id) } else { result });
+            }
+        }
+        return Ok(in_progress_result(task_ids, with_pending, &format!(
+            "タスクはまだ完了していません。1 回の待ちは最大 {} 秒。timeout_ms を指定するか、あとで task_output を呼んでください。",
+            max_wait_seconds()
+        )));
     }
 
     let started = std::time::Instant::now();
-    let poll_interval = std::time::Duration::from_millis(500);
-    let found = loop {
-        if let Some(found) = find_result_file(&dir, task_id) {
-            break Some(found);
+    // 結果を探す間隔（results/ を読み直すのはこの間隔）
+    let scan_interval = std::time::Duration::from_millis(500);
+    // 取り消しと時間切れを見る間隔（短いほど取り消しが早く効く）
+    let check_interval = std::time::Duration::from_millis(50);
+    let mut next_scan = started;
+    loop {
+        // 取り消しなら結果ファイルに触れずに抜ける（後で読み直せるように）
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(in_progress_result(task_ids, with_pending, &format!(
+                "待ちを中止しました（結果は消していません）。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                max_wait_seconds()
+            )));
         }
-        if started.elapsed().as_millis() as u64 >= timeout_ms {
-            break None;
+        let now = std::time::Instant::now();
+        if now >= next_scan {
+            for &id in task_ids {
+                if let Some((path, value)) = find_result_file(&dir, id) {
+                    let result = build_task_output_result(id, &value)?;
+                    let _ = std::fs::remove_file(&path);
+                    return Ok(if with_pending { add_pending(result, task_ids, id) } else { result });
+                }
+            }
+            next_scan = now + scan_interval;
         }
-        std::thread::sleep(poll_interval);
-    };
+        if started.elapsed().as_millis() as u64 >= wait_ms {
+            break;
+        }
+        std::thread::sleep(check_interval);
+    }
 
-    match found {
-        Some((path, value)) => {
-            let result = build_task_output_result(task_id, &value)?;
-            let _ = std::fs::remove_file(&path);
-            Ok(result)
-        }
-        None => Ok(json!({
-            "task_id": task_id,
+    // 時間切れ
+    Ok(timeout_result(task_ids, wait_ms, capped, with_pending))
+}
+
+/// 時間切れの戻り値を組み立てる。
+///
+/// - 単体（`with_pending == false`）で上限に達したときは `in_progress`（もう一回呼べばよい）。
+/// - 単体で明示した時間が切れたときは、後方互換のため今まで通り `timeout`。
+/// - 複数待ちのときは `task_id` を付けず、`pending`（全件）を返す。
+fn timeout_result(task_ids: &[i64], wait_ms: u64, capped: bool, with_pending: bool) -> Value {
+    if with_pending {
+        return json!({
+            "status": "in_progress",
+            "pending": task_ids,
+            "message": format!(
+                "{}ms 以内に結果の出る子がありませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                wait_ms,
+                max_wait_seconds()
+            ),
+        });
+    }
+    if capped {
+        json!({
+            "task_id": task_ids[0],
+            "status": "in_progress",
+            "message": format!(
+                "{}ms 以内に完了しませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                wait_ms,
+                max_wait_seconds()
+            ),
+        })
+    } else {
+        json!({
+            "task_id": task_ids[0],
             "status": "timeout",
             "error": format!(
-                "タイムアウト: {}ms 以内にタスクが完了しませんでした。task_output を再度呼び出して結果を確認してください。",
-                timeout_ms
+                "タイムアウト: {}ms 以内にタスクが完了しませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+                wait_ms,
+                max_wait_seconds()
             ),
-        })),
+        })
+    }
+}
+
+/// 「まだ結果が無い」場合の戻り値を組み立てる。
+///
+/// 複数待ちのときは `task_id` を付けず、`pending`（全件）と `message` だけ返す。
+fn in_progress_result(task_ids: &[i64], with_pending: bool, message: &str) -> Value {
+    if with_pending {
+        json!({
+            "status": "in_progress",
+            "pending": task_ids,
+            "message": message,
+        })
+    } else {
+        json!({
+            "task_id": task_ids[0],
+            "status": "in_progress",
+            "message": message,
+        })
     }
 }
 
@@ -1816,6 +1935,12 @@ pub fn sai_read(token: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `task_output` の待ちのテストに使う、誰の run にも無いタスク番号。
+    /// （タスクを作ると `SAI_PROJECT_ROOT` を持つロックを長く抱え、
+    /// 環境の取り合いで他のテストが落ちるため）
+    const NO_SUCH_TASK_A: i64 = 999_998;
+    const NO_SUCH_TASK_B: i64 = 999_999;
 
     // 環境変数を設定する他モジュールのテスト（orchestrator / cc_command / task_cwd）と
     // 排他する。モジュール固有のロックに分けると SAI_PROJECT_ROOT が競合する。
@@ -2752,7 +2877,182 @@ mod tests {
         drop(guard);
     }
 
-    /// AC2: finalize に report を付けると finalize-report.md ができ、
+    /// テスト用に親実行と、指定した件数のタスクを作る。
+    /// 戻り値はタスクの id（作った順）。
+    fn create_tasks(tag: &str, count: usize) -> (Vec<i64>, i64) {
+        let store = crate::common::open_db().unwrap();
+        let block = crate::db::models::test_helpers::create_test_block(tag);
+        let block_id = store.insert_block(&block).unwrap();
+        // tasks.parent_run_id は execution_history への FK なので実在する親を作る
+        let parent_run_id = store.create_execution(block_id, None).unwrap();
+        let mut ids = Vec::new();
+        for n in 1..=count {
+            let exec_id = store
+                .create_execution_for_subtask(block_id, None, parent_run_id, None)
+                .unwrap();
+            let task = crate::db::models::Task::new(
+                parent_run_id,
+                format!("件名{}", n),
+                "説明".to_string(),
+                Some("test-block".to_string()),
+                None,
+                None,
+                String::new(),
+                None,
+                Some(format!("t{}", n)),
+            );
+            let task_id = store.insert_task(&task).unwrap();
+            store.update_task_execution_id(task_id, exec_id).unwrap();
+            ids.push(task_id);
+        }
+        (ids, parent_run_id)
+    }
+
+    /// `results/` に `task_completed` の通知を 1 件置いて、パスを返す。
+    fn write_task_completed_result(task_id: i64, parent_run_id: i64) -> PathBuf {
+        let results = crate::common::notify_results_dir();
+        std::fs::create_dir_all(&results).unwrap();
+        let path = results.join(format!("{}-task_{}.json", unix_millis(), task_id));
+        std::fs::write(
+            &path,
+            serde_json::to_string(&json!({
+                "type": "task_completed",
+                "task_id": task_id,
+                "parent_run_id": parent_run_id,
+                "waggle_tokens": [],
+                "round": 1,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        path
+    }
+
+    /// AC2: 待ちは 90 秒で頭打ち。120 秒（MCP 呼び出しをバックグラウンドに回す限界）より短い。
+    #[test]
+    fn clamp_wait_ms_caps_at_90_seconds() {
+        assert!(TASK_OUTPUT_MAX_WAIT_MS < 120_000);
+        assert_eq!(clamp_wait_ms(None), 90_000);
+        assert_eq!(clamp_wait_ms(Some(10_000_000)), 90_000);
+        assert_eq!(clamp_wait_ms(Some(0)), 0);
+        assert_eq!(clamp_wait_ms(Some(1234)), 1234);
+    }
+
+    /// AC3: task_ids の後ろの子が終わっていたら、その子を 1 件だけ返し残りは pending になる。
+    /// 返した子の結果ファイルは消える（次に待つ必要がない）。
+    #[test]
+    fn task_output_ids_returns_first_finished_and_the_rest_pending() {
+        let guard = EnvGuard::new();
+        let (ids, parent_run_id) = create_tasks("agent-api-multi-block", 2);
+        let (a, b) = (ids[0], ids[1]);
+        let path = write_task_completed_result(b, parent_run_id);
+
+        let cancel = AtomicBool::new(false);
+        let out = task_output_ids(&[a, b], Some(3000), &cancel, true).unwrap();
+        assert_eq!(out["task_id"], b);
+        assert_eq!(out["status"], "completed");
+        assert_eq!(out["pending"], json!([a]));
+        assert!(!path.exists(), "返した子の結果ファイルは消える");
+
+        drop(guard);
+    }
+
+    /// 複数待ちで誰も終わらないと、全部が pending で返る。
+    ///
+    /// 待つ対象は作らない（作ると `SAI_PROJECT_ROOT` を持つロックを長く抱え、
+    /// 環境の取り合いで他のテストが落ちるため）。誰も居ないことは大きなタスク番号で確認する。
+    #[test]
+    fn task_output_ids_timeout_lists_all_pending() {
+        let cancel = AtomicBool::new(false);
+        let ids = [NO_SUCH_TASK_A, NO_SUCH_TASK_B];
+
+        let started = std::time::Instant::now();
+        let out = task_output_ids(&ids, Some(200), &cancel, true).unwrap();
+        assert_eq!(out["status"], "in_progress");
+        assert_eq!(out["pending"], json!(ids));
+        assert!(out.get("task_id").is_none(), "複数待ちでは task_id を付けない");
+        let message = out["message"].as_str().unwrap();
+        assert!(message.contains("最大 90 秒"), "{}", message);
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    /// AC4: 待ちのあいだに取り消しが来たら待たずに `in_progress` で返る。
+    /// 誰かの結果があっても良いので、待つ対象は作らない（ロックを短く保つため）。
+    #[test]
+    fn task_output_ids_cancel_stops_waiting_midway() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancel);
+        let handle = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            flag.store(true, Ordering::Relaxed);
+        });
+
+        let started = std::time::Instant::now();
+        let out =
+            task_output_ids(&[NO_SUCH_TASK_A, NO_SUCH_TASK_B], Some(60_000), cancel.as_ref(), true)
+                .unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(out["status"], "in_progress");
+        let message = out["message"].as_str().unwrap();
+        assert!(message.contains("待ちを中止しました"), "{}", message);
+        assert!(message.contains("最大 90 秒"), "{}", message);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "取り消しで早く返る: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// AC4: 取り消しで抜けたときは結果ファイルを消さない（あとから読み直せる）。
+    /// 取り消しは結果を読むより先に確かめるので、完了待ちでもファイルは残る。
+    #[test]
+    fn task_output_ids_cancelled_keeps_result_file() {
+        let guard = EnvGuard::new();
+        // 待つ対象の 1 件目に結果を先に置いておく
+        let path = write_task_completed_result(NO_SUCH_TASK_B, 0);
+
+        let cancel = AtomicBool::new(true); // 最初から取り消し済み
+        let out = task_output_ids(&[NO_SUCH_TASK_B], Some(60_000), &cancel, true).unwrap();
+        assert_eq!(out["status"], "in_progress");
+        assert!(path.exists(), "取り消したときは結果ファイルを残す");
+
+        drop(guard);
+    }
+
+    /// 後方互換: 明示した待ち時間が切れたときは今まで通り timeout。
+    #[test]
+    fn task_output_timeout_status_stays_timeout() {
+        let cancel = AtomicBool::new(false);
+        let out = task_output_ids(&[NO_SUCH_TASK_A], Some(200), &cancel, false).unwrap();
+        assert_eq!(out["task_id"], NO_SUCH_TASK_A);
+        assert_eq!(out["status"], "timeout");
+        let error = out["error"].as_str().unwrap();
+        assert!(error.contains("最大 90 秒"), "{}", error);
+    }
+
+    /// 上限で切った待ち（90 秒以上を要求されたとき、または timeout_ms を省いたとき）は
+    /// in_progress を返す。90 秒は待たず、文の組み立てだけを確かめる。
+    #[test]
+    fn timeout_result_reports_in_progress_when_wait_was_capped() {
+        let single = timeout_result(&[7], TASK_OUTPUT_MAX_WAIT_MS, true, false);
+        assert_eq!(single["task_id"], 7);
+        assert_eq!(single["status"], "in_progress");
+        assert!(single.get("error").is_none(), "in_progress では error にしない");
+        assert!(single["message"].as_str().unwrap().contains("最大 90 秒"));
+
+        let multiple = timeout_result(&[7, 8], TASK_OUTPUT_MAX_WAIT_MS, true, true);
+        assert_eq!(multiple["status"], "in_progress");
+        assert_eq!(multiple["pending"], json!([7, 8]));
+        assert!(multiple.get("task_id").is_none());
+    }
+
+    /// 1 件も指定されなければエラー（待つ対象が居ない）。
+    #[test]
+    fn task_output_ids_rejects_empty_list() {
+        let err = task_output_ids(&[], Some(0), &AtomicBool::new(false), true).unwrap_err();
+        assert!(err.contains("1 件以上"), "err={}", err);
+    }
     /// 付けないと、すでに保存済みの報告は書き換えられない。
     #[test]
     fn finalize_saves_report_only_when_given() {
