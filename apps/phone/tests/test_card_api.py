@@ -240,8 +240,26 @@ def test_missing_messages_do_not_cross(cli: FakeCli) -> None:
     cli.stderr = "未実行のカードが見つかりません"
     cli.calls.clear()
     # md の API では同じ stderr でも 404 にしない（「まだありません」専用の判定のまま）
-    e = expect(502, lambda: control.phone_md("demo", 7, "review"))
+    e = expect(502, lambda: control.phone_md("demo", 7, "report"))
     assert str(e.detail) == "未実行のカードが見つかりません", e.detail
+
+
+def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
+    """md の種類は task / message / report。それ以外は 400 で CLI を呼ばない。"""
+    cli.returncode = 0
+    cli.stdout = json.dumps({"kind": "report", "name": "finalize-report.md", "text": "結果: DONE"})
+    cli.stderr = ""
+    cli.calls.clear()
+
+    out = control.phone_md("demo", 7, "report")
+    assert out["name"] == "finalize-report.md", out
+    assert cli.last["args"] == ["sai-moon-link", "phone", "md", "7", "--kind", "report"], cli.last["args"]
+
+    e = expect(400, lambda: control.phone_md("demo", 7, "review"))
+    assert "task / message / report" in str(e.detail), e.detail
+    # 保存できるのは task だけ（report は読み取り）
+    e = expect(400, lambda: control.phone_md_save("demo", 7, "report", "x"))
+    assert "task だけ" in str(e.detail), e.detail
 
 
 def test_finalize_success(cli: FakeCli) -> None:
@@ -401,6 +419,7 @@ def main() -> None:
         test_start_404(cli)
         test_start_502(cli)
         test_missing_messages_do_not_cross(cli)
+        test_md_kind_check_accepts_report_and_rejects_others(cli)
         test_finalize_success(cli)
         test_finalize_404(cli)
         test_finalize_502(cli)

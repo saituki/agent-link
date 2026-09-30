@@ -437,9 +437,43 @@ fn tokenize_saved_file(path: &Path, description: Option<&str>) -> Option<String>
 // 3.2 finalize
 // ============================================================================
 
+/// 報告のファイル名（`task_report` と `finalize` が同じ場所に書く）。
+pub const REPORT_FILE: &str = "finalize-report.md";
+
+/// 報告（`finalize-report.md`）の読み込み先を探す。run フォルダが無い場合は `None`。
+///
+/// 読むだけなので、フォルダを作らない（未実行の todo カードでも 404 になるようにする）。
+pub fn report_path_for_run(run_id: i64) -> Option<std::path::PathBuf> {
+    let (_, dir) = crate::run_dir::find_run_dir(run_id)?;
+    Some(dir.join(REPORT_FILE))
+}
+
+/// 報告の本文を run フォルダの `finalize-report.md` に書く。
+///
+/// waggle トークン化はしない（通知を書かない）。`task_report` と `finalize` の共用。
+fn write_report_file(run_id: i64, report: &str) -> Result<std::path::PathBuf, String> {
+    let path = match crate::run_dir::find_run_dir(run_id) {
+        Some((_, dir)) => dir.join(REPORT_FILE),
+        None => crate::sai_write_notify::resolve_output_path(run_id, REPORT_FILE)
+            .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?,
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("保存先作成に失敗: {}", e))?;
+    }
+    std::fs::write(&path, report).map_err(|e| format!("報告の保存に失敗: {}", e))?;
+    Ok(path)
+}
+
 /// `finalize_request` 通知を書き込み、実行の明示完了を要求する。
-pub fn finalize(run_id: Option<i64>) -> Result<Value, String> {
+///
+/// `report` が空でなければ、その内容を run フォルダの `finalize-report.md` に
+/// 先に保存する（Web の run の画面と親の `task_output` が読む場所）。
+/// 空なら保存済みの報告に一切触らない。
+pub fn finalize(run_id: Option<i64>, report: Option<&str>) -> Result<Value, String> {
     let run_id = require_run_id(run_id)?;
+    if let Some(text) = report.map(str::trim).filter(|t| !t.is_empty()) {
+        write_report_file(run_id, text)?;
+    }
     crate::daemon::write_finalize_request(run_id)
         .map_err(|e| format!("finalize_request の書き込みに失敗しました: {}", e))?;
     Ok(json!({
@@ -953,7 +987,7 @@ fn task_report_text(task_id: i64) -> Option<String> {
     let task = store.get_task_by_id(task_id).ok()?;
     let exec_id = task.execution_id?;
     let (_, dir) = crate::run_dir::find_run_dir(exec_id)?;
-    std::fs::read_to_string(dir.join("finalize-report.md")).ok()
+    std::fs::read_to_string(dir.join(REPORT_FILE)).ok()
 }
 
 /// 結果通知 JSON を agent_api の戻り値形式に整形する（`task_completed` / `task_stalled` / `task_failed`）。
@@ -1008,29 +1042,44 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
 
             // P6-3: 短い報告（report）と成果物トークンの一覧（outputs）だけを返す。
             // resolved_content / commit_id / elapsed_ms / session_stats は返さない。
+            // hint は B7: 子の run は完了しただけでは閉じない（finalized は親が付ける）。
             Ok(json!({
                 "task_id": task_id,
                 "status": "completed",
                 "round": value.get("round").and_then(|v| v.as_i64()).unwrap_or(1),
                 "report": task_report_text(task_id),
                 "outputs": outputs,
+                "hint": "子は完了しています。report と outputs を読み、成果物を確かめてから task_manage finalize で閉じてください。足りなければ task_manage send で直させてください。閉じないと pane と running のフォルダが残ります。",
             }))
         }
         "task_stalled" => {
             let reason = value.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            // 質問（reason = "question"）のときは question_id も返し、案内を別にします
+            let question_id = if reason == "question" {
+                value.get("question_id").and_then(|v| v.as_str())
+            } else {
+                None
+            };
             // long_running / timeout は子がまだ working なので、止めずに画面を見る案内にする
-            let hint = if reason == "long_running" || reason == "timeout" {
+            let hint = if reason == "question" {
+                "子が質問して、答えを待っています。質問は Web のホームにも出ています。question_id の質問を読み、答え方はあなたのブロックの説明に従ってください。先に Human が Web で答えた場合は、その答えが子に届きます。"
+            } else if reason == "long_running" || reason == "timeout" {
                 "子はまだ working です。task_capture で画面を確かめ、進んでいれば task_output で待ち続けてください。止まっているなら task_manage interrupt で止め、send で原因を調べさせてください。同じ理由のアラートは、working が続く限り繰り返し届きます。"
             } else {
                 "サブブロックが止まっています。task_capture で画面を確かめ、task_manage send で指示を送ってください。作業中（working）や blocked なら先に task_manage interrupt で止めてください。"
             };
-            Ok(json!({
+            let mut out = json!({
                 "task_id": task_id,
                 "status": "stalled",
                 "reason": value.get("reason").cloned().unwrap_or(Value::Null),
                 "message": value.get("message").cloned().unwrap_or(Value::Null),
                 "hint": hint,
-            }))
+            });
+            // question_id は質問の通知にだけ付ける（他の理由では付けない）
+            if let Some(qid) = question_id {
+                out["question_id"] = Value::String(qid.to_string());
+            }
+            Ok(out)
         }
         _ => Ok(json!({
             "task_id": task_id,
@@ -1117,15 +1166,7 @@ pub fn task_report(report: &str, run_id: Option<i64>) -> Result<Value, String> {
 
     // 報告本文は run フォルダ直下の finalize-report.md に保存する。
     // この保存は waggle トークン化しない（file_written 通知を書かない）。
-    let path = match crate::run_dir::find_run_dir(run_id) {
-        Some((_, dir)) => dir.join("finalize-report.md"),
-        None => crate::sai_write_notify::resolve_output_path(run_id, "finalize-report.md")
-            .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?,
-    };
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("保存先作成に失敗: {}", e))?;
-    }
-    std::fs::write(&path, report).map_err(|e| format!("報告の保存に失敗: {}", e))?;
+    write_report_file(run_id, report)?;
 
     crate::daemon::write_finalize_request(run_id)
         .map_err(|e| format!("finalize_request の書き込みに失敗しました: {}", e))?;
@@ -1134,6 +1175,70 @@ pub fn task_report(report: &str, run_id: Option<i64>) -> Result<Value, String> {
         "status": "reported",
         "run_id": run_id,
         "message": "完了報告を送りました。",
+    }))
+}
+
+// ============================================================================
+// 3.6c task_question（サブブロックが親に質問を通知する）
+// ============================================================================
+
+/// 質問の文を 1 行にして 500 文字で切る（通知の message に使うため）。
+fn one_line_short(text: &str) -> String {
+    let flat: String = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if flat.chars().count() <= 500 {
+        flat
+    } else {
+        flat.chars().take(500).collect::<String>() + "…"
+    }
+}
+
+/// サブブロックの質問を親へ知らせる（`agent task-question` の実体）。
+///
+/// 子の run（`parent_run_id` を持つ実行）からのみ呼べる。質問の中身の全文は
+/// `apps/phone` の DB にあるので、ここでは ID と見出しだけを送る。
+pub fn task_question(run_id: Option<i64>, question_id: &str, text: &str) -> Result<Value, String> {
+    let run_id = require_run_id(run_id)?;
+    let qid = question_id.trim();
+    if qid.is_empty() {
+        return Err("question_id（質問の ID）は必須です".to_string());
+    }
+    let store =
+        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+    let exec = store
+        .get_execution_by_id(run_id)
+        .map_err(|e| format!("実行 id = {} の取得に失敗しました: {}", run_id, e))?;
+    let parent_run_id = exec
+        .parent_run_id
+        .ok_or_else(|| "task-question は子の run 専用です".to_string())?;
+
+    // この実行がどのタスクの実行かを引き直す（親の task_output はタスク ID で受ける）
+    let task_id = store
+        .list_tasks_by_parent(parent_run_id)
+        .map_err(|e| format!("タスク一覧の取得に失敗しました: {}", e))?
+        .into_iter()
+        .find(|t| t.execution_id == Some(run_id))
+        .and_then(|t| t.id)
+        .ok_or_else(|| format!("run_id={} に対応するタスクが見つかりません", run_id))?;
+
+    let message = format!("質問 {}: {}", qid, one_line_short(text));
+    crate::task_manager::write_stalled_notification(
+        task_id,
+        Some(parent_run_id),
+        "question",
+        &message,
+        Some(qid),
+    )?;
+
+    Ok(json!({
+        "status": "notified",
+        "task_id": task_id,
+        "parent_run_id": parent_run_id,
+        "question_id": qid,
     }))
 }
 
@@ -2640,7 +2745,104 @@ mod tests {
         assert!(result.get("commit_id").is_none());
         assert!(result.get("elapsed_ms").is_none());
         assert!(result.get("session_stats").is_none());
+        // B7: 完了には閉じる案内（hint）が付く（status / report / outputs の形は変えない）
+        let hint = result["hint"].as_str().expect("hint が返る");
+        assert!(hint.contains("task_manage finalize"), "{}", hint);
 
+        drop(guard);
+    }
+
+    /// AC2: finalize に report を付けると finalize-report.md ができ、
+    /// 付けないと、すでに保存済みの報告は書き換えられない。
+    #[test]
+    fn finalize_saves_report_only_when_given() {
+        let guard = EnvGuard::new();
+        let run_id = create_test_execution(false);
+
+        // report 付きで完了 → finalize-report.md ができる
+        let result = finalize(Some(run_id), Some("結果: DONE\n Waggle: ABC123")).unwrap();
+        assert_eq!(result["status"], "requested");
+        let path = report_path_for_run(run_id).expect("run フォルダがある");
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("DONE"));
+        assert!(saved.contains("Waggle: ABC123"));
+
+        // report 無しで完了 → 保存済みの報告を消さない・書き換えもしない
+        finalize(Some(run_id), None).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        // 空白だけの report も「無し」と同じ
+        finalize(Some(run_id), Some("   ")).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+
+        drop(guard);
+    }
+
+    /// AC4: 子の run の中から task_question を呼ぶと、親の task_output が
+    /// reason = "question" と question_id 付きの stalled を返す。
+    #[test]
+    fn task_question_notifies_parent_with_question_id() {
+        let guard = EnvGuard::new();
+
+        // 親実行 → 子の実行 → その実行に紐づくタスク
+        let store = crate::common::open_db().unwrap();
+        let block = crate::db::models::test_helpers::create_test_block("agent-api-question-block");
+        let block_id = store.insert_block(&block).unwrap();
+        let parent_run_id = store.create_execution(block_id, None).unwrap();
+        let exec_id = store
+            .create_execution_for_subtask(block_id, None, parent_run_id, None)
+            .unwrap();
+        let task = crate::db::models::Task::new(
+            parent_run_id,
+            "件名".to_string(),
+            "説明".to_string(),
+            Some("test-block".to_string()),
+            None,
+            None,
+            String::new(),
+            None,
+            Some("q1".to_string()),
+        );
+        let task_id = store.insert_task(&task).unwrap();
+        store.update_task_execution_id(task_id, exec_id).unwrap();
+
+        let result = task_question(Some(exec_id), "q1", "資料はどれですか\n  1) A  2) B").unwrap();
+        assert_eq!(result["status"], "notified");
+        assert_eq!(result["task_id"], task_id);
+        assert_eq!(result["question_id"], "q1");
+
+        // 親の task_output は question の stalled を返す
+        let out = task_output(task_id, Some(0)).unwrap();
+        assert_eq!(out["status"], "stalled");
+        assert_eq!(out["reason"], "question");
+        assert_eq!(out["question_id"], "q1");
+        // 質問の文は 1 行に畳まれる
+        let msg = out["message"].as_str().unwrap();
+        assert!(msg.contains("質問 q1:"), "{}", msg);
+        assert!(!msg.contains('\n'), "{}", msg);
+        // 質問用の案内（task_capture で止めない）
+        let hint = out["hint"].as_str().unwrap();
+        assert!(hint.contains("質問"), "{}", hint);
+
+        drop(guard);
+    }
+
+    /// AC4: 親のない run では task-question は Err。
+    #[test]
+    fn task_question_rejects_main_block() {
+        let guard = EnvGuard::new();
+        let run_id = create_test_execution(false);
+        let err = task_question(Some(run_id), "q1", "質問").unwrap_err();
+        assert!(err.contains("task-question は子の run 専用です"), "err={}", err);
+        drop(guard);
+    }
+
+    /// AC4: 質問 ID が空なら Err（通知を書かない）。
+    #[test]
+    fn task_question_rejects_empty_question_id() {
+        let guard = EnvGuard::new();
+        let run_id = create_test_execution(true);
+        let err = task_question(Some(run_id), "  ", "質問").unwrap_err();
+        assert!(err.contains("question_id"), "err={}", err);
         drop(guard);
     }
 }

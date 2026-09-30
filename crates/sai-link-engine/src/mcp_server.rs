@@ -118,11 +118,12 @@ fn tools_list_result() -> Value {
         },
         {
             "name": "sai_finalize",
-            "description": "メインブロックの実行を明示的に完了する。出力を確定し、実行を completed にする。",
+            "description": "実行を完了する。report（要点）を付けると run の「報告」として残り、Web の run の画面で読める。子の run は task_report を使う。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "run_id": { "type": "integer", "description": "完了する実行 ID（省略時は SAI_PARENT_RUN_ID）" }
+                    "run_id": { "type": "integer", "description": "完了する実行 ID（省略時は SAI_PARENT_RUN_ID）" },
+                    "report": { "type": "string", "description": "要点（結論・保存した文書のトークン・残った問い）。省略可" }
                 }
             }
         },
@@ -421,7 +422,8 @@ fn tool_sai_write(arguments: &Value) -> Result<String, String> {
 /// `sai_finalize` ツール本体。実体は `agent_api::finalize`（pi / cc 共通）。
 fn tool_sai_finalize(arguments: &Value) -> Result<String, String> {
     let run_id = arguments.get("run_id").and_then(|v| v.as_i64());
-    let result = crate::agent_api::finalize(run_id)?;
+    let report = arguments.get("report").and_then(|v| v.as_str());
+    let result = crate::agent_api::finalize(run_id, report)?;
     let run_id = result.get("run_id").and_then(|v| v.as_i64()).unwrap_or(0);
     Ok(format!(
         "run_id={} の完了処理を要求しました。出力を確定します。",
@@ -519,5 +521,25 @@ mod tests {
         });
         let res = handle_message(&msg).unwrap();
         assert_eq!(res["result"]["isError"], true);
+    }
+
+    /// `sai_finalize` は任意の `report` を受け取る（報告は run の「報告」として残る）。
+    #[test]
+    fn sai_finalize_schema_has_optional_report() {
+        let list = tools_list_result();
+        let tool = list["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "sai_finalize")
+            .expect("sai_finalize がある");
+        let props = &tool["inputSchema"]["properties"];
+        assert!(props["report"].is_object(), "report が無い: {}", tool);
+        assert_eq!(props["report"]["type"], "string");
+        assert!(
+            tool["inputSchema"].get("required").is_none(),
+            "report は任意: {}",
+            tool["inputSchema"]
+        );
     }
 }

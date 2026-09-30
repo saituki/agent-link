@@ -2188,10 +2188,13 @@ pub struct TaskStalledResult {
     pub parent_run_id: Option<i64>,
     /// ステータス: "stalled"
     pub status: String,
-    /// 停止理由: "idle" | "blocked" | "error" | "long_running" | "timeout"
+    /// 停止理由: "idle" | "blocked" | "error" | "long_running" | "timeout" | "question"
     pub reason: String,
     /// 停止内容の説明（介入のヒントを含む）
     pub message: String,
+    /// 子がした質問の ID（`reason` が "question" のときだけ入る）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question_id: Option<String>,
 }
 
 /// 指定ディレクトリへ `task_stalled` 通知を書き込む内部ヘルパー（テスト容易性のため分離）。
@@ -2201,6 +2204,7 @@ fn write_stalled_notification_in(
     parent_run_id: Option<i64>,
     reason: &str,
     message: &str,
+    question_id: Option<&str>,
 ) -> Result<(), String> {
     fs::create_dir_all(results_dir).map_err(|e| e.to_string())?;
 
@@ -2245,6 +2249,7 @@ fn write_stalled_notification_in(
         status: "stalled".to_string(),
         reason: reason.to_string(),
         message: message.to_string(),
+        question_id: question_id.map(str::to_string),
     };
 
     let json = serde_json::to_string_pretty(&stalled).map_err(|e| e.to_string())?;
@@ -2258,9 +2263,17 @@ pub fn write_stalled_notification(
     parent_run_id: Option<i64>,
     reason: &str,
     message: &str,
+    question_id: Option<&str>,
 ) -> Result<(), String> {
     let results_dir = notify_base_dir().join(RESULTS_DIR);
-    write_stalled_notification_in(&results_dir, task_id, parent_run_id, reason, message)
+    write_stalled_notification_in(
+        &results_dir,
+        task_id,
+        parent_run_id,
+        reason,
+        message,
+        question_id,
+    )
 }
 
 // ============================================================================
@@ -2432,7 +2445,7 @@ mod tests {
         let dir = test_results_dir();
         let results_dir = dir.join(RESULTS_DIR);
 
-        write_stalled_notification_in(&results_dir, 42, Some(7), "idle", "サブブロックが停止")
+        write_stalled_notification_in(&results_dir, 42, Some(7), "idle", "サブブロックが停止", None)
             .unwrap();
 
         let entries = fs::read_dir(&results_dir).unwrap();
@@ -2456,14 +2469,53 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// 質問の通知は question_id を持ち、他の理由では question_id が入らないこと。
+    #[test]
+    fn test_write_stalled_notification_carries_question_id() {
+        let dir = test_results_dir();
+        let results_dir = dir.join(RESULTS_DIR);
+
+        // 質問以外には question_id を入れない
+        write_stalled_notification_in(&results_dir, 1, Some(7), "idle", "停止", None).unwrap();
+        let files: Vec<_> = fs::read_dir(&results_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        let content = fs::read_to_string(files[0].path()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(
+            parsed.get("question_id").is_none(),
+            "質問以外の通知には question_id を入れない: {}",
+            content
+        );
+
+        // 質問は question_id 付きで入る
+        let dir2 = test_results_dir();
+        let results2 = dir2.join(RESULTS_DIR);
+        write_stalled_notification_in(&results2, 2, Some(7), "question", "質問 q1: どれ", Some("q1"))
+            .unwrap();
+        let file = fs::read_dir(&results2)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .next()
+            .unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(file.path()).unwrap()).unwrap();
+        assert_eq!(parsed["reason"], "question");
+        assert_eq!(parsed["question_id"], "q1");
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&dir2);
+    }
+
     /// 複数タスクで同時に書いてもそれぞれ別ファイルになること。
     #[test]
     fn test_write_stalled_notification_supports_multiple_tasks() {
         let dir = test_results_dir();
         let results_dir = dir.join(RESULTS_DIR);
 
-        write_stalled_notification_in(&results_dir, 1, None, "blocked", "a").unwrap();
-        write_stalled_notification_in(&results_dir, 2, None, "idle", "b").unwrap();
+        write_stalled_notification_in(&results_dir, 1, None, "blocked", "a", None).unwrap();
+        write_stalled_notification_in(&results_dir, 2, None, "idle", "b", None).unwrap();
 
         let files: Vec<_> = fs::read_dir(&results_dir)
             .unwrap()
@@ -2489,9 +2541,9 @@ mod tests {
         )
         .unwrap();
 
-        write_stalled_notification_in(&results_dir, 42, Some(7), "idle", "1 回目").unwrap();
+        write_stalled_notification_in(&results_dir, 42, Some(7), "idle", "1 回目", None).unwrap();
         std::thread::sleep(Duration::from_millis(5));
-        write_stalled_notification_in(&results_dir, 42, Some(7), "long_running", "2 回目").unwrap();
+        write_stalled_notification_in(&results_dir, 42, Some(7), "long_running", "2 回目", None).unwrap();
 
         let files: Vec<_> = fs::read_dir(&results_dir)
             .unwrap()

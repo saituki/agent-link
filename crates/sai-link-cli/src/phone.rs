@@ -793,7 +793,7 @@ fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
 }
 
 // ============================================================================
-// md — task / review / message
+// md — task / message / report
 // ============================================================================
 
 /// `phone md <id> --kind …`: md 本文を JSON で返す。
@@ -804,9 +804,10 @@ fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
     let md_kind = match kind {
         "task" => phone_view::MdKind::Task,
         "message" => phone_view::MdKind::Message,
+        "report" => phone_view::MdKind::Report,
         other => {
             return Err(PhoneError::usage(format!(
-                "不正な kind です: {}（task | message）",
+                "不正な kind です: {}（task | message | report）",
                 other
             )))
         }
@@ -1223,7 +1224,7 @@ fn finalize(run_id: i64) -> PhoneResult<Value> {
     }
 
     // 5. 完了要求（デーモンが拾って完了処理する）
-    sai_link_engine::agent_api::finalize(Some(run_id)).map_err(PhoneError::usage)?;
+    sai_link_engine::agent_api::finalize(Some(run_id), None).map_err(PhoneError::usage)?;
 
     Ok(json!({ "run_id": run_id, "message": "終了を要求しました" }))
 }
@@ -2728,5 +2729,35 @@ mod tests {
             "waggle:W9knAR4G:path:.sai/outputs/*/3/paper-search-eeg-llm-2026.md"
         );
         assert_eq!(v["token"].as_str().unwrap(), "W9knAR4G");
+    }
+
+    /// `phone md --kind report <run_id>` が finalize-report.md の本文を返すこと。
+    /// 無いときは「まだありません」（404）になる。
+    #[test]
+    fn md_report_returns_finalize_report() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tmp, _guard, _store) = temp_project_store();
+
+        // run フォルダに報告を置く
+        let dir = sai_link_engine::run_dir::ensure_run_dir(
+            sai_link_engine::run_dir::RUNNING_OWNER,
+            77,
+        )
+        .unwrap();
+        std::fs::write(dir.join("finalize-report.md"), "結果: DONE\n Waggle: ABC123").unwrap();
+
+        let out = md(77, "report").expect("phone md --kind report");
+        assert_eq!(out["kind"], "report");
+        assert_eq!(out["name"], "finalize-report.md");
+        assert!(out["text"].as_str().unwrap().contains("DONE"));
+
+        // 別の run には無い（終了コード 3 = 「まだありません」）
+        let err = md(78, "report").unwrap_err();
+        assert_eq!(err.code, EXIT_NOT_FOUND, "err={}", err.msg);
+        assert!(err.msg.contains("まだありません"), "err={}", err.msg);
+
+        // 知らない kind は 400
+        let err = md(77, "review").unwrap_err();
+        assert!(err.msg.contains("task | message | report"), "err={}", err.msg);
     }
 }

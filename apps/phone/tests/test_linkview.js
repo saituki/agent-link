@@ -170,10 +170,10 @@ function testViewMemory() {
 }
 
 function testViewTabs() {
-  // 8 つの表示（帯の並び・計画 14 §1.3。session は Agent 画面への入口・U11）
+  // 8 つの表示（帯の並び・計画 14 §1.3。report は finalize-report.md、session は Agent 画面への入口・U11）
   assert.deepStrictEqual(
     lv.viewTabs(false).map((t) => t.key),
-    ["log", "stats", "history", "task", "review", "message", "waggle", "session"]
+    ["log", "stats", "history", "task", "message", "report", "waggle", "session"]
   );
   // todo run は task だけ選べる（session も出さない）
   const todoTabs = lv.viewTabs(true);
@@ -499,15 +499,14 @@ function testTypeSlices() {
 }
 
 function testCanEdit() {
-  // task は未実行の todo だけ，review は実行済みの run だけ書き換えられる。message は不可
+  // 編集できるのは未実行の todo の task だけ。message と report（finalize-report.md）は不可
   const todo = { lane: "todo", status: "todo" };
   const done = { lane: "done", status: "completed" };
   assert.strictEqual(lv.lvCanEdit("task", todo), true);
   assert.strictEqual(lv.lvCanEdit("task", done), false);
-  assert.strictEqual(lv.lvCanEdit("review", done), true);
-  assert.strictEqual(lv.lvCanEdit("review", todo), false);
-  assert.strictEqual(lv.lvCanEdit("review", null), false);
   assert.strictEqual(lv.lvCanEdit("message", done), false);
+  assert.strictEqual(lv.lvCanEdit("report", done), false);
+  assert.strictEqual(lv.lvCanEdit("report", todo), false);
 }
 
 function testWaggleDirect() {

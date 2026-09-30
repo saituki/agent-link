@@ -469,7 +469,9 @@ pub fn handle_prompt_hook(input: &str) -> Option<String> {
     if !is_finalize_prompt(input) {
         return None;
     }
-    let reason = match crate::agent_api::finalize(None) {
+    // `/sai-finalize <文>` の引数があれば報告として残す（無ければ保存済みの報告に触らない）
+    let report = finalize_prompt_report(input);
+    let reason = match crate::agent_api::finalize(None, report.as_deref()) {
         Ok(v) => format!("run {} を完了しました", v["run_id"]),
         Err(e) => format!("完了できませんでした: {}", e),
     };
@@ -483,6 +485,22 @@ fn is_finalize_prompt(input: &str) -> bool {
     };
     let prompt = value["prompt"].as_str().unwrap_or("").trim();
     prompt == "/sai-finalize" || prompt.starts_with("/sai-finalize ")
+}
+
+/// hook の入力 JSON の `prompt` が `/sai-finalize <文>` のとき、`<文>` を返す。
+/// 引来なければ `None`。
+fn finalize_prompt_report(input: &str) -> Option<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+        return None;
+    };
+    let prompt = value["prompt"].as_str()?.trim();
+    let rest = prompt.strip_prefix("/sai-finalize")?;
+    let text = rest.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
 }
 
 /// `dir` の `.mcp.json` に sai の MCP サーバがあるか。
