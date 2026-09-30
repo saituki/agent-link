@@ -80,7 +80,7 @@ fn all_three_layers_are_valid() {
         let result = validate(&config_with_layer(Some(layer)));
         assert!(
             result.is_valid(),
-            "{} は通어야する: {:?}",
+            "{} は通らなければならない: {:?}",
             layer,
             result.errors
         );

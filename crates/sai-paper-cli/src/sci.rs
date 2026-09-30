@@ -221,7 +221,7 @@ pub(crate) enum Out {
 
 /// `sai-moon-paper sci` を実行する。
 ///
-/// 失敗の形は命令마다違うので [`wants_json`] で決ってから出す。
+/// 失敗の形は命令ごとに違うので [`wants_json`] で決ってから出す。
 pub fn run(cmd: SciCmd) -> Result<()> {
     let as_json = wants_json(&cmd);
     match dispatch(cmd) {

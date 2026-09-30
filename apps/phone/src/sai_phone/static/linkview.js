@@ -694,7 +694,7 @@ function lvRenderActions() {
   };
   if (isTodoRun(lvRun)) {
     if (isProfessorRun(lvRun)) {
-      // professor が起こすカードは人が動かさない（用語の札付きで 이유を出す・U1）。
+      // professor が起こすカードは人が動かさない（用語の札付きで 理由を出す・U1）。
       const note = document.createElement("span");
       note.className = "lv-run-note";
       note.appendChild(document.createTextNode("professor が起こす "));

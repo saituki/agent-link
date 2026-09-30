@@ -239,7 +239,7 @@ pub fn build_resume_command(store: &SaiStore, exec_id: i64) -> Result<String, St
 
 /// 再開コマンドに載せる固定部分（system prompt）のファイル（U6・C10）。
 ///
-/// run フォルダ直下の `system-prompt.md`。この変更よりに始まった run には無いので、
+/// run フォルダ直下の `system-prompt.md`。この変更より前に始まった run には無いので、
 /// 無いときは `None`（フラグを付けない）。
 pub fn resume_system_prompt_file(exec_id: i64) -> Option<PathBuf> {
     let (_, run_dir) = sai_link_engine::run_dir::find_run_dir(exec_id)?;

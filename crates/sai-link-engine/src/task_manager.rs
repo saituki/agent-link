@@ -2722,7 +2722,7 @@ mod tests {
         assert_eq!(task.parent_run_id, parent_run_id);
     }
 
-    /// U3 AC5: `TaskItem.timeout` が Task に 들어가、DB まで届くこと。
+    /// U3 AC5: `TaskItem.timeout` が Task に入り、DB まで届くこと。
     #[test]
     fn test_process_task_created_carries_timeout() {
         let (manager, store) = create_test_manager();

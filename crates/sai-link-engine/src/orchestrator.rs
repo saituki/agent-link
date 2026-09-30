@@ -4761,7 +4761,7 @@ mod tests {
         config.run_id = Some(321);
         config.block_body = "# 依頼\n{{input.task_text}}".to_string();
         let mut inputs = HashMap::new();
-        inputs.insert("task_text".to_string(), "登录を実装せよ".to_string());
+        inputs.insert("task_text".to_string(), "登録を実装せよ".to_string());
         config.user_inputs = inputs;
 
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
@@ -4772,7 +4772,7 @@ mod tests {
         let written = std::fs::read_to_string(&sp).unwrap();
         assert_eq!(written, prepared.system_prompt);
         assert!(written.contains("（最初のメッセージの「# task_text」の節にある）"));
-        assert!(!written.contains("登录を実装せよ"));
+        assert!(!written.contains("登録を実装せよ"));
 
         // 起動コマンドは絶対パスを渡す（run フォルダの system-prompt.md）
         assert!(
@@ -4789,7 +4789,7 @@ mod tests {
         );
 
         // 最初の文は入力値の節だけ
-        assert_eq!(prepared.expanded_prompt, "# task_text\n\n登录を実装せよ");
+        assert_eq!(prepared.expanded_prompt, "# task_text\n\n登録を実装せよ");
 
         let _ = std::fs::remove_dir_all(&root);
     }
