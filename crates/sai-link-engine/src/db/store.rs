@@ -1147,7 +1147,7 @@ impl SaiStore {
 
     /// 同じ todo のカードを既に起こしている未完了タスクを探す（U2・二重起動の検査）。
     ///
-    /// `finalized` / `failed` / `deleted` は終じたタスクなので対象から外す。
+    /// `finalized` / `failed` / `deleted` は終了したタスクなので対象から外す。
     pub fn list_unfinished_tasks_by_card(
         &self,
         card_run_id: i64,
