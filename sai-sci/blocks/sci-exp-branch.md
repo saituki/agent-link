@@ -70,7 +70,7 @@ seed_run_id: 125
    ```bash
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
      run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
-     env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --python ">=3.10" --with mlflow python <workdir からの相対パス>
+     env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --python ">=3.10" --with mlflow <workdir からの相対パス>
    ```
 
    環境変数を渡す引数は無い。**コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く。**`EXP_BRANCH_RUN_ID` には **自分の run_id**（`SAI_PARENT_RUN_ID`）を入れる。スクリプトはここから `sai.run_id` のタグを読む。

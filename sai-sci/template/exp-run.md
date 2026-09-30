@@ -56,8 +56,9 @@ EXP='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/
 
 確認の方法: 質問ツールで尋ねる（Claude Code は `AskUserQuestion`、pi は `ask_user_phone`）。返答の本文だけで尋ねて止まらない。
 
+sai-link は cc を権限確認なしで起動する。そのため、この確認はエージェントである自分の指示として守る。
+
 ## 4. 秘密の扱い
 
 - 鍵・合言葉の値（`settings.json` の `env`・`.env` の中身）を、質問・報告・スクリプト・task.md に書かない。値が要るときは環境変数の名前だけを書く。
 - AWS の鍵と S3 の endpoint は環境変数で受け取る。値をスクリプトに埋め込まない。
-sai-link は cc を権限確認なしで起動する。そのため、この確認はエージェントである自分の指示として守る。

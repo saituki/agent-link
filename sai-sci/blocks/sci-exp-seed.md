@@ -183,7 +183,7 @@ subblocks:
 
 | 起動者 | 世代を終えたら |
 |---|---|
-| professor（`SAI_IS_SUBTASK` が `1`） | この世代作出的文書（判定書・各 branch の作業報告書。`stop` なら完了報告書）は手順ですでに `sai_write` で保存してあるので、`task_report` を 1 回だけ呼ぶ。report には世代・判定・保存した文書のトークン・次の計画・残った問いを書く。**次の seed のカードは作らない。** 次の世代を起こすかどうかは professor が決める |
+| professor（`SAI_IS_SUBTASK` が `1`） | この世代で作った文書（判定書・各 branch の作業報告書。`stop` なら完了報告書）は手順ですでに `sai_write` で保存してあるので、`task_report` を 1 回だけ呼ぶ。report には世代・判定・保存した文書のトークン・次の計画・残った問いを書く。**次の seed のカードは作らない。** 次の世代を起こすかどうかは professor が決める |
 | 利用者（root の run） | `stop` のときは、完了報告書を保存し、質問ツールで「完了してよいか」を確かめてから `sai_finalize` を `report`（要点）付きで呼ぶ。`stop` でないときは、下の 1〜3 で次の seed のカードを作り、動かし始めたことを確かめてから `sai_finalize` を `report`（世代 g の報告の要点）付きで呼ぶ |
 
 **利用者（root の run）で `stop` でないときだけ、次の seed をカードで起こす。**
