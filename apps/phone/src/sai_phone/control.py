@@ -47,8 +47,8 @@ _summary_cache: dict[str, tuple[float, dict]] = {}
 # --- List 画面（計画 14 §3.3）で受け取る値の検査 ---
 # `sai-link phone run --view` が返す 3 種（計画 12 §3.2）
 _PHONE_VIEWS = ("log", "stats", "history")
-# `sai-link phone md --kind` が返す 3 種（計画 12 §3.2）
-_PHONE_MD_KINDS = ("task", "message", "report")
+# `sai-link phone md --kind` が返す 4 種（計画 12 §3.2。system は固定部分・U6）
+_PHONE_MD_KINDS = ("task", "message", "report", "system")
 # 保存できる md（task は未実行の todo カードだけ。確かめるのは sai-link）
 _PHONE_MD_WRITABLE = ("task",)
 # waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き・計画 12 §3.3）
@@ -345,7 +345,7 @@ def phone_md(name: str, run_id: int, kind: str) -> dict:
     if kind not in _PHONE_MD_KINDS:
         raise HTTPException(
             status_code=400,
-            detail="kind は task / message / report のいずれかにしてください",
+            detail="kind は task / message / report / system のいずれかにしてください",
         )
     project = _phone_project(name)
     return _phone_json(["md", str(run_id), "--kind", kind], root=project["root"])

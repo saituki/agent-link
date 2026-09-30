@@ -793,7 +793,7 @@ fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
 }
 
 // ============================================================================
-// md — task / message / report
+// md — task / message / report / system
 // ============================================================================
 
 /// `phone md <id> --kind …`: md 本文を JSON で返す。
@@ -805,9 +805,11 @@ fn md(run_id: i64, kind: &str) -> PhoneResult<Value> {
         "task" => phone_view::MdKind::Task,
         "message" => phone_view::MdKind::Message,
         "report" => phone_view::MdKind::Report,
+        // 固定部分（system prompt・U6）
+        "system" => phone_view::MdKind::System,
         other => {
             return Err(PhoneError::usage(format!(
-                "不正な kind です: {}（task | message | report）",
+                "不正な kind です: {}（task | message | report | system）",
                 other
             )))
         }
@@ -2759,5 +2761,33 @@ mod tests {
         // 知らない kind は 400
         let err = md(77, "review").unwrap_err();
         assert!(err.msg.contains("task | message | report"), "err={}", err.msg);
+    }
+
+    /// U6・AC4: `phone md --kind system <run_id>` が固定部分（system-prompt.md）を返す。
+    /// run フォルダに無いときは「まだありません」（404）になる。
+    #[test]
+    fn md_system_returns_system_prompt() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tmp, _guard, _store) = temp_project_store();
+
+        let dir = sai_link_engine::run_dir::ensure_run_dir(
+            sai_link_engine::run_dir::RUNNING_OWNER,
+            88,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(sai_link_engine::run_dir::SYSTEM_PROMPT_FILE),
+            "# 固定部分\n本文",
+        )
+        .unwrap();
+
+        let out = md(88, "system").expect("phone md --kind system");
+        assert_eq!(out["kind"], "system");
+        assert_eq!(out["name"], "system-prompt.md");
+        assert!(out["text"].as_str().unwrap().contains("# 固定部分"));
+
+        // run フォルダが無い / ファイルが無いときは「まだありません」
+        let err = md(89, "system").unwrap_err();
+        assert_eq!(err.code, EXIT_NOT_FOUND, "err={}", err.msg);
     }
 }

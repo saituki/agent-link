@@ -372,6 +372,9 @@ pub struct PiCommandBuilder {
 
     /// pi-mcp-adapter の MCP 設定ファイル（`--mcp-config`）
     mcp_config: Option<String>,
+
+    /// 固定部分（system prompt）のファイル（`--append-system-prompt`・U6・C10）
+    system_prompt_file: Option<String>,
 }
 
 impl PiCommandBuilder {
@@ -398,6 +401,7 @@ impl PiCommandBuilder {
             obs_tag: None,
             obs_name: None,
             mcp_config: None,
+            system_prompt_file: None,
         }
     }
 
@@ -419,6 +423,15 @@ impl PiCommandBuilder {
     /// 作業用コピーに `.mcp.json` が無いとき、プロジェクトルートの設定を渡すために使う。
     pub fn with_mcp_config(mut self, path: impl Into<String>) -> Self {
         self.mcp_config = Some(path.into());
+        self
+    }
+
+    /// 固定部分（system prompt）のファイル（`--append-system-prompt`）をセットします。
+    ///
+    /// ブロックの template と本文（入力値・範囲の案内文に置き換えたもの）をこのファイルに
+    /// 書き、そのパスを渡す。最初の文には入力値と範囲だけが入る（U6・C10）。
+    pub fn with_system_prompt_file(mut self, path: impl Into<String>) -> Self {
+        self.system_prompt_file = Some(path.into());
         self
     }
 
@@ -485,6 +498,12 @@ impl PiCommandBuilder {
         // --mcp-config <path>: 作業用コピーで sai の MCP を読めるようにする
         if let Some(ref path) = self.mcp_config {
             args.push("--mcp-config".to_string());
+            args.push(path.clone());
+        }
+
+        // --append-system-prompt <path>: 固定部分（template と本文）を足す（U6・C10）
+        if let Some(ref path) = self.system_prompt_file {
+            args.push("--append-system-prompt".to_string());
             args.push(path.clone());
         }
 

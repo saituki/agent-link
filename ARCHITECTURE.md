@@ -67,6 +67,11 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **入口**は表示と入力だけを受け持つ。TUI は Rust の関数を直接呼び、`apps/phone` は CLI を呼ぶ。どちらも同じ関数に行き着く。
 - **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-paper-core/src/sci/`、入口は `sai-moon-paper sci` / `phone sci` / MCP / Web / TUI。
+- **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
+  pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は入力値（`# <id>` の節）と
+  `context: true` のときの `# 範囲` の節だけ。Web の会話の最初の吹き出しと `message.md` には可変部分だけが出るので、
+  依頼が見やすくなります。固定部分は run の画面の「system」の帯で読む（`phone md --kind system <run_id>`）。
+  作り方は `docs/for-sai-developers.md` の「起動時の文の分け方（C10）」。
 
 ---
 
