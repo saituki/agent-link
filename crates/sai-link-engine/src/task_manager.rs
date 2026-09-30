@@ -98,6 +98,12 @@ pub struct TaskItem {
     /// 子の時間上限（秒。省略時はブロック定義の `timeout:` に従う）
     #[serde(default)]
     pub timeout: Option<u32>,
+    /// 起こす todo カードの run_id（U2。`task_create` の `card` 引数）
+    ///
+    /// `Some` のときはこの run_id の予約行をそのまま子として使う（新たに採番しない）。
+    /// 通知の項目名は `card`（呼び出し側の指定にそろえる）。
+    #[serde(rename = "card", default)]
+    pub card_run_id: Option<i64>,
     /// 前バッチで承認済み・内容変更なし（引き継ぎ）
     #[serde(default)]
     pub carried_over: bool,
@@ -542,6 +548,8 @@ impl TaskManager {
             task.cwd = item.cwd.clone();
             // 子の時間上限（task_create の timeout・秒）
             task.timeout = item.timeout;
+            // 起こす todo カード（task_create の card。予約 run_id をそのまま子として使う）
+            task.card_run_id = item.card_run_id;
             // 承認情報付き（新形式）なら approved で直接保存（CLI approve 不要）
             if item.approval.is_some() {
                 task.status = "approved".to_string();
@@ -1555,6 +1563,7 @@ impl TaskManager {
             task_cwd,              // 親が指定した作業フォルダ（絶対パス）
             task.timeout,          // 親が指定した子の時間上限（秒）
             task.batch_id.clone(), // P3-A: タスクバッチID を実行レコードに伝播
+            task.card_run_id,      // U2: todo のカードを自分の子として起こす場合の予約 run_id
             Some(tab_id),          // U2・R4: 動的配置で使用するタブ
             None,          // base_pane_id: 分割は resolve_pane_placement で実施済みのため不使用
             Some(pane_id), // U2・R4 案X: 分割済み pane を再利用（パイプライン内では分割しない）
@@ -2644,6 +2653,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -2683,6 +2693,7 @@ mod tests {
                 cwd: None,
                 timeout: Some(600),
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -2718,6 +2729,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: None,
                 },
                 TaskItem {
@@ -2731,6 +2743,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: None,
                 },
             ],
@@ -2766,6 +2779,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -2801,6 +2815,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -2854,6 +2869,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -2890,6 +2906,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: None,
                 },
                 TaskItem {
@@ -2903,6 +2920,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: None,
                 },
             ],
@@ -2937,6 +2955,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -2974,6 +2993,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -3043,6 +3063,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -3092,6 +3113,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "approved".to_string(),
                         comment: Some("OK 進めて".to_string()),
@@ -3108,6 +3130,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "rejected".to_string(),
                         comment: Some("分割して".to_string()),
@@ -3149,6 +3172,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };
@@ -3172,6 +3196,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: true,
+                card_run_id: None,
                 approval: Some(TaskApproval {
                     status: "approved".to_string(),
                     comment: None,
@@ -3217,6 +3242,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "approved".to_string(),
                         comment: None,
@@ -3233,6 +3259,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "approved".to_string(),
                         comment: None,
@@ -3305,6 +3332,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: Some(TaskApproval {
                     status: "approved".to_string(),
                     comment: None,
@@ -3369,6 +3397,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "approved".to_string(),
                         comment: None,
@@ -3385,6 +3414,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: None, // 旧形式 → pending
                 },
             ],
@@ -3433,6 +3463,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: Some(TaskApproval {
                     status: "approved".to_string(),
                     comment: None,
@@ -3686,6 +3717,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "approved".to_string(),
                         comment: None,
@@ -3784,6 +3816,7 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     carried_over: false,
+                    card_run_id: None,
                     approval: Some(TaskApproval {
                         status: "approved".to_string(),
                         comment: None,
@@ -4080,6 +4113,7 @@ main "$@"
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: Some(TaskApproval {
                     status: "approved".to_string(),
                     comment: None,
@@ -4120,6 +4154,7 @@ main "$@"
                 cwd: None,
                 timeout: None,
                 carried_over: false,
+                card_run_id: None,
                 approval: None,
             }],
         };

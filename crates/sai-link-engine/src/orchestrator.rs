@@ -1413,8 +1413,14 @@ pub fn prepare_execution_record(
 
 /// 実行レコード作成の完全版（予約 run_id 付き・R302）。
 ///
-/// `reserved_run_id` が `Some` かつ親なし（メイン実行）なら予約行を確定させる。
-/// サブタスク・予約なしは従来どおり新規発行する。
+/// `reserved_run_id` が `Some` のときは、次の 2 通りを区別する。
+///
+/// - 親なし（メイン実行・人が起こすカード）: 予約行を確定させて使い回す。
+/// - 親あり（`task_create` の `card` 指定・professor が起こすカード・U2）:
+///   予約行を子として確定させ、`parent_run_id` と `batch_id` を書き込む。
+///   run_id は予約のまま変わらず、親から子への線も今の子と同じように作る。
+///
+/// どちらも `reserved_run_id` が `None` なら従来どおり新規発行する。
 pub fn prepare_execution_record_full(
     store: &crate::db::SaiStore,
     config: &BlockConfig,
@@ -1448,6 +1454,38 @@ pub fn prepare_execution_record_full(
                 block_id,
             });
         }
+    }
+
+    // 予約行を子として起こす（U2: todo のカードを自分の子にする）。
+    // ここでできる子（親から子への線と DB の行）は、今の子（`create_execution_for_subtask`）と同じ形にする。
+    if let (Some(pid), Some(rid)) = (parent_run_id, reserved_run_id) {
+        store
+            .claim_reserved_run_for_subtask(rid, block_id, user_inputs_json, pid, batch_id)
+            .map_err(|e| {
+                OrchestratorError::PiCommandError(format!("予約 run の確定に失敗: {}", e))
+            })?;
+
+        let parent_block_id = store.get_execution_by_id(pid).map_err(|e| {
+            OrchestratorError::PiCommandError(format!("親実行の取得に失敗: {}", e))
+        })?;
+        let parent_block_id = parent_block_id.block_id;
+        let delegation_conn = crate::db::BlockConnection::new_task_delegation(
+            pid,
+            parent_block_id,
+            rid,
+            block_id,
+        );
+        let _ = store.insert_connection(&delegation_conn);
+
+        store.update_execution_status(rid, "running").map_err(|e| {
+            OrchestratorError::PiCommandError(format!("ステータス更新に失敗: {}", e))
+        })?;
+        // カード経由の実行は呼び出し元が `update_execution_kanban_info` で `kanban` に上書きする
+        let _ = store.update_execution_kanban_info(rid, None, "interactive");
+        return Ok(PreparedExecutionInfo {
+            run_id: rid,
+            block_id,
+        });
     }
 
     let run_id = match parent_run_id {
@@ -2428,6 +2466,8 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 /// * `task_cwd` — タスクの作業フォルダ（親が指定した絶対パス。None ならプロジェクトルート）
 /// * `task_timeout` — タスクの時間上限（秒。親が `task_create` で指定。None ならブロック定義に従う）
 /// * `batch_id` — タスクバッチ ID（P3-A。DAG のフェーズ合成に使用）
+/// * `card_run_id` — 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id と
+///   `task.md`（`sci_*` を含む）をそのまま使う。`None` は従来どおり新規に run を作る）
 /// * `tab_id` — バッチ実行時に事前作成された herdr タブの ID（U2・R4。None は従来の分割方式）
 /// * `direction` — タブ内分割方向（U2・R4。タスクのバッチ内インデックスで交互分割。None はデフォルト）
 /// * `watcher_map` — デーモンの実行監視マップ（デーモン稼働時のみ。None なら自己ポーリング）
@@ -2443,6 +2483,7 @@ pub fn run_subtask(
     task_cwd: Option<String>,
     task_timeout: Option<u32>,
     batch_id: Option<String>,
+    card_run_id: Option<i64>,
     tab_id: Option<String>,
     base_pane_id: Option<String>,
     pane_id: Option<String>,
@@ -2499,10 +2540,20 @@ pub fn run_subtask(
 
     // 親実行から round / global_round / tag を継承（§6.2・既存実装を維持）
     let parent_exec = store.get_execution_by_id(parent_run_id).ok();
+
+    // U2: todo のカードを自分の子として起こす場合の実行設定。
+    // カード（`.sai/outputs/todo/<run_id>/task.md`）の model / provider / thinking があれば
+    // ブロック定義より優先する（`kanban_run::run_card_request` と同じ扱い）。
+    // 空欄のときはブロック定義の値に任せる。
+    let card = card_run_id
+        .map(|rid| read_todo_card(rid))
+        .transpose()
+        .map_err(|m| OrchestratorError::PiCommandError(m))?;
+
     let overrides = ExecutionOverrides {
-        model: None,
-        provider: None,
-        thinking: None,
+        model: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.model)),
+        provider: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.provider)),
+        thinking: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.thinking)),
         // timeout はフロントマターの値を尊重する（§7.1.4 の修正点）
         // ただしタスクの timeout（task_create）があればブロック定義より優先する
         timeout: task_timeout,
@@ -2518,7 +2569,11 @@ pub fn run_subtask(
         runner: RunnerKind::Pi,
     };
 
-    execute_block_pipeline(
+    // カード指定の子（U2）は、予約済みの run_id と run フォルダの task.md を使い回す。
+    // run フォルダの todo → running 移動と `execution_mode = 'kanban'` は
+    // `execute_block_pipeline_full` が行う（カード無しの子と同じ経路を通す）。
+    let card_rel = card_run_id.map(todo_card_relative_path);
+    execute_block_pipeline_full(
         store,
         &parsed,
         &block_path,
@@ -2532,8 +2587,68 @@ pub fn run_subtask(
         pane_id,
         task_id,
         watcher_map,
-        None, // サブタスク: カード無し
+        card_rel,
+        card_run_id,
     )
+}
+
+/// 前後の空白を除いて空でない値だけ `Some` にする（カードの設定を読むため）。
+fn non_empty_str(s: &str) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
+
+/// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）の絶対パスを返す。
+pub fn todo_card_path(card_run_id: i64) -> PathBuf {
+    crate::project::sai_path(&format!(
+        "{}/{}/{}/{}",
+        crate::run_dir::OUTPUTS_DIR,
+        crate::run_dir::TODO_OWNER,
+        card_run_id,
+        crate::run_dir::TASK_FILE,
+    ))
+}
+
+/// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）のプロジェクト相対パスを返す。
+///
+/// `execute_block_pipeline_full` は `card_path` をプロジェクト相対で受け取る（DB の
+/// `kanban_card_path` 用）。
+fn todo_card_relative_path(card_run_id: i64) -> String {
+    todo_card_path(card_run_id)
+        .strip_prefix(crate::project::project_root())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| {
+            format!(
+                "{}/{}/{}/{}",
+                crate::run_dir::OUTPUTS_DIR,
+                crate::run_dir::TODO_OWNER,
+                card_run_id,
+                crate::run_dir::TASK_FILE,
+            )
+        })
+}
+
+/// todo のカードを読み、`run_id` がカードの指定と一致することを確認する。
+///
+/// `sci card` が run_id を研究方針の木に結び付けているため、run_id が違うカードを指されれば止める。
+pub fn read_todo_card(card_run_id: i64) -> Result<crate::kanban::KanbanCard, String> {
+    let path = todo_card_path(card_run_id);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|_| format!("todo にカード {} がありません", card_run_id))?;
+    let card = crate::kanban::parse_card(&text)
+        .ok_or_else(|| format!("カード {} の task.md を読み取れません", card_run_id))?;
+    if card.frontmatter.run_id.trim() != card_run_id.to_string() {
+        return Err(format!(
+            "todo にカード {} がありません（task.md の run_id: {}）",
+            card_run_id,
+            card.frontmatter.run_id.trim()
+        ));
+    }
+    Ok(card)
 }
 
 // ============================================================================
@@ -5417,6 +5532,236 @@ mod tests {
             !body2.contains("# タスク: t1"),
             "本文に subject が先頭挿入されない（P1-4）"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // U2: todo のカードを自分の子として起こす（予約 run を子にする）
+    // ---------------------------------------------------------------------
+
+    /// テスト用の子ブロック設定を作る（実行時の設定解決にだけ使う最小のもの）。
+    fn card_child_config(block_id: &str) -> BlockConfig {
+        BlockConfig {
+            id: Some(block_id.to_string()),
+            name: block_id.to_string(),
+            description: None,
+            model: None,
+            provider: None,
+            thinking: None,
+            tools: None,
+            extensions: None,
+            skills: None,
+            subblocks: None,
+            timeout: None,
+            worktree: None,
+            enable: None,
+            category: None,
+            tag: None,
+            round: None,
+            layer: None,
+            templates: None,
+            context: None,
+        }
+    }
+
+    /// U2 AC2: 予約 run を子として起こすと、run_id が予約のまま、親（`parent_run_id`）・
+    /// `batch_id`・親から子への線が今の子と同じ形で作られる。
+    #[test]
+    fn test_prepare_execution_record_full_uses_reserved_run_as_child() {
+        use crate::db::SaiStore;
+
+        let store = SaiStore::open_in_memory().unwrap();
+        let parent_block_id = store
+            .insert_block(&crate::db::models::test_helpers::create_test_block(
+                "reserved-child-parent",
+            ))
+            .unwrap();
+        let parent_run_id = store.create_execution(parent_block_id, None).unwrap();
+        let child_config = card_child_config("reserved-child");
+        let child_file = std::path::Path::new("blocks/reserved-child.md");
+        let reserved = store.create_reserved_run(None).unwrap();
+
+        let prep = prepare_execution_record_full(
+            &store,
+            &child_config,
+            child_file,
+            Some(r#"{"task_text":"カード本文"}"#),
+            Some(parent_run_id),
+            Some("batch_20260930_r1_abcd"),
+            Some(reserved),
+        )
+        .expect("予約 run を子として起こせる");
+
+        // run_id は予約のまま（新たに採番しない）
+        assert_eq!(prep.run_id, reserved);
+
+        let child = store.get_execution_by_id(reserved).unwrap();
+        assert_eq!(child.status, "running");
+        assert_eq!(child.parent_run_id, Some(parent_run_id));
+        assert_eq!(child.batch_id.as_deref(), Some("batch_20260930_r1_abcd"));
+
+        // 親から子への task_delegation 線がある（今の子と同じ作り）
+        let conns = store.list_connections().unwrap();
+        let delegation = conns
+            .iter()
+            .find(|c| c.target_execution_id == reserved)
+            .expect("親から子への線が作られている");
+        assert_eq!(delegation.source_execution_id, parent_run_id);
+        assert_eq!(delegation.target_execution_id, reserved);
+        assert_eq!(
+            delegation.connection_type, "task_delegation",
+            "線は task_delegation と同じ"
+        );
+
+        // もう一度起こそうとすると `todo` でないので失敗する（予約行を使い切っている）
+        let err = prepare_execution_record_full(
+            &store,
+            &child_config,
+            child_file,
+            None,
+            Some(parent_run_id),
+            None,
+            Some(reserved),
+        )
+        .expect_err("予約行は 1 度しか確定できない");
+        assert!(
+            format!("{}", err).contains("予約 run の確定に失敗"),
+            "実際のエラー: {}",
+            err
+        );
+    }
+
+    /// カード無しの子（`reserved_run_id = None`）の挙動が変わっていないこと（AC4）。
+    ///
+    /// 新しく採番され、`parent_run_id` と `batch_id` が入り、親から子への線も作られる。
+    #[test]
+    fn test_prepare_execution_record_full_child_without_card_still_creates_new_run() {
+        use crate::db::SaiStore;
+
+        let store = SaiStore::open_in_memory().unwrap();
+        let parent_block_id = store
+            .insert_block(&crate::db::models::test_helpers::create_test_block(
+                "plain-child-parent",
+            ))
+            .unwrap();
+        let parent_run_id = store.create_execution(parent_block_id, None).unwrap();
+        let child_config = card_child_config("plain-child");
+
+        let prep = prepare_execution_record_full(
+            &store,
+            &child_config,
+            std::path::Path::new("blocks/plain-child.md"),
+            None,
+            Some(parent_run_id),
+            Some("batch_plain_r1"),
+            None,
+        )
+        .expect("カード無しの子は従来どおり作れる");
+
+        assert_ne!(prep.run_id, parent_run_id);
+        let child = store.get_execution_by_id(prep.run_id).unwrap();
+        assert_eq!(child.status, "running");
+        assert_eq!(child.parent_run_id, Some(parent_run_id));
+        assert_eq!(child.batch_id.as_deref(), Some("batch_plain_r1"));
+        let conns = store.list_connections().unwrap();
+        assert!(
+            conns
+                .iter()
+                .any(|c| c.source_execution_id == parent_run_id
+                    && c.target_execution_id == prep.run_id),
+            "カード無しの子にも親から子への線がある"
+        );
+    }
+
+    /// U2 AC3: カード指定の子は run フォルダが `running/<run_id>/` に移り、
+    /// task.md の `sci_*` と `executer: professor` がそのまま残る。
+    #[test]
+    fn test_reserved_child_run_dir_moves_todo_to_running_keeping_sci_frontmatter() {
+        use crate::db::SaiStore;
+
+        let _guard = finalize_env_lock();
+        let temp_root = finalize_test_temp_dir("reserved-child-dir");
+        let _env_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", temp_root.as_os_str());
+
+        let store = SaiStore::open_in_memory().unwrap();
+        let parent_block_id = store
+            .insert_block(&crate::db::models::test_helpers::create_test_block(
+                "reserved-dir-parent",
+            ))
+            .unwrap();
+        let parent_run_id = store.create_execution(parent_block_id, None).unwrap();
+        let child_config = card_child_config("reserved-dir-child");
+        let reserved = store.create_reserved_run(None).unwrap();
+
+        // 予約 run のカードを作る（todo/<run_id>/task.md・研究方針の木の範囲つき）
+        let card_path = todo_card_path(reserved);
+        std::fs::create_dir_all(card_path.parent().unwrap()).unwrap();
+        let card_text = format!(
+            "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {}\n\
+             description: N12 の読解\nrunner: pi\nblock: reserved-dir-child\nthinking: \n\
+             model: \nprovider: \nround: 1\nglobal_round: 1\ntag: \n\
+             executer: professor\nsci_node: N12\n---\n\n# task_text\n\nN12 を読解する\n",
+            reserved
+        );
+        std::fs::write(&card_path, &card_text).unwrap();
+
+        // run フォルダの移動: todo → running（execute_block_pipeline_full と同じ手順）
+        crate::run_dir::ensure_run_dir(crate::run_dir::TODO_OWNER, reserved).unwrap();
+        let prep = prepare_execution_record_full(
+            &store,
+            &child_config,
+            std::path::Path::new("blocks/reserved-dir-child.md"),
+            Some(r#"{"task_text":"N12 を読解する"}"#),
+            Some(parent_run_id),
+            Some("batch_reserved_r1"),
+            Some(reserved),
+        )
+        .expect("予約 run を子として起こせる");
+        assert_eq!(prep.run_id, reserved);
+        crate::run_dir::move_run_dir(reserved, crate::run_dir::TODO_OWNER, crate::run_dir::RUNNING_OWNER)
+            .expect("run フォルダを running へ移せる");
+
+        // 移動後は running/<run_id>/task.md
+        let (owner, dir) = crate::run_dir::find_run_dir(reserved).expect("run フォルダが見つかる");
+        assert_eq!(owner, crate::run_dir::RUNNING_OWNER);
+        assert_eq!(
+            dir,
+            crate::run_dir::ensure_run_dir(crate::run_dir::RUNNING_OWNER, reserved).unwrap()
+        );
+
+        // カード由来の task.md を書き直す処理は task.md があれば何もしない
+        let resolved = resolve_execution_settings(&child_config, &ExecutionOverrides::default());
+        let mut inputs: HashMap<String, String> = HashMap::new();
+        inputs.insert("task_text".to_string(), "別の本文".to_string());
+        write_run_task_md(&store, reserved, &resolved, &inputs, None);
+
+        let moved_text = std::fs::read_to_string(dir.join(crate::run_dir::TASK_FILE)).unwrap();
+        assert!(
+            moved_text.contains("executer: professor"),
+            "executer: professor が残る:\n{}",
+            moved_text
+        );
+        assert!(
+            moved_text.contains("sci_node: N12"),
+            "研究方針の木の範囲（sci_node）が残る:\n{}",
+            moved_text
+        );
+        assert!(
+            moved_text.contains("N12 を読解する"),
+            "カード本文の task_text が残る:\n{}",
+            moved_text
+        );
+        assert!(
+            !moved_text.contains("別の本文"),
+            "既存の task.md を別の本文で上書きしない:\n{}",
+            moved_text
+        );
+
+        // 予約行は running になり、子の行として扱われる
+        let child = store.get_execution_by_id(reserved).unwrap();
+        assert_eq!(child.status, "running");
+        assert_eq!(child.parent_run_id, Some(parent_run_id));
+
+        std::fs::remove_dir_all(&temp_root).ok();
     }
 
     // ---- U4: Ctrl+D finalize（request_main_block_finalize） ----

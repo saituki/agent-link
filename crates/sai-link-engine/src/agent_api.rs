@@ -258,6 +258,7 @@ fn task_to_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
         "worktree": t.worktree,
         "cwd": t.cwd,
         "timeout": t.timeout,
+        "card": t.card_run_id,
         "worktree_info": worktree_info_json(t, defs),
         "execution_id": t.execution_id,
         "batch_id": t.batch_id,
@@ -467,6 +468,62 @@ struct NormalizedTask {
     /// 子の時間上限（秒。`None` はブロック定義の `timeout:` に従う）
     timeout: Option<u32>,
     carried_over: bool,
+    /// 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id をそのまま子として使う）
+    card_run_id: Option<i64>,
+}
+
+/// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）から取り出した値だけを並べたもの。
+///
+/// `task_create` の `card` 指定を検査し、子タスクの入力（task_text・block・説明）にする。
+struct TaskCardSource {
+    /// カードの `block:`
+    block: String,
+    /// カードの `description:`（空のときは `block` の値を使う）
+    description: String,
+    /// カード本文の `# task_text`
+    task_text: String,
+}
+
+/// todo のカードを読んで、`task_create` の `card` 指定として使えるか調べる（U2）。
+///
+/// 検査の順は「所在 → 起動者 → 二重起動」の順で、先に理由の分かるものを出す。
+fn load_task_card(card_run_id: i64) -> Result<TaskCardSource, String> {
+    // `run_subtask` と同じ場所を読む（todo のカード → `.sai/outputs/todo/<run_id>/task.md`）
+    let card = crate::orchestrator::read_todo_card(card_run_id)?;
+    if !card.frontmatter.is_professor_executer() {
+        return Err(format!(
+            "カード {} は人が起こすカードです（executer: {}）。professor が起こすには executer: professor のカードを作ってください",
+            card_run_id,
+            card.frontmatter.executer()
+        ));
+    }
+    // 同じカードを 2 度の子にはしない（予約行は 1 度しか確定できない）
+    if let Ok(store) = crate::common::open_db() {
+        if let Ok(tasks) = store.list_unfinished_tasks_by_card(card_run_id) {
+            if let Some(existing) = tasks.first().and_then(|t| t.id) {
+                return Err(format!(
+                    "カード {} は既にタスク {} で起こしています",
+                    card_run_id, existing
+                ));
+            }
+        }
+    }
+    let block = card.frontmatter.block.trim().to_string();
+    if block.is_empty() {
+        return Err(format!(
+            "カード {} の task.md に block: がありません。block: <block_id> を記載してください",
+            card_run_id
+        ));
+    }
+    let task_text = crate::kanban::resolve_card_inputs(&card, &HashMap::new()).map_err(|e| {
+        format!("カード {} の task_text が取れません: {}", card_run_id, e)
+    })?;
+    let task_text = task_text.get("task_text").cloned().unwrap_or_default();
+    Ok(TaskCardSource {
+        block,
+        description: card.frontmatter.description.trim().to_string(),
+        task_text,
+    })
 }
 
 /// サブタスクをバッチ作成する（承認廃止・全タスクを常に承認済みで作成）。
@@ -497,20 +554,58 @@ pub fn task_create(
                 client_id
             ));
         }
-        let subject = item
+        let subject_raw = item
             .get("subject")
             .and_then(|v| v.as_str())
-            .ok_or("各タスクに subject（文字列）が必要です")?
-            .to_string();
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        // U2: todo のカードを自分の子として起こす場合の指定（`card`）。
+        // 検査は task_create の時点で行う（起動の時点で失敗すると親が理由を見つけにくいため）。
+        let card_run_id = match item.get("card") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(v.as_i64().filter(|n| *n > 0).ok_or_else(|| {
+                format!(
+                    "client_id '{}' の card は 1 以上の整数（todo のカードの run_id）で指定してください",
+                    client_id
+                )
+            })?),
+        };
+        let card_source = card_run_id.map(load_task_card).transpose()?;
+        // subject は省略可（カード指定のときはカードの説明 → ブロックの順で補う）
+        let subject = match (subject_raw, &card_source) {
+            (Some(s), _) => s,
+            (None, Some(c)) => {
+                if c.description.is_empty() {
+                    c.block.clone()
+                } else {
+                    c.description.clone()
+                }
+            }
+            (None, None) => return Err("各タスクに subject（文字列）が必要です".to_string()),
+        };
         // P3: 入力を task_text 1 つに統一する。description / inputs は受け付けない。
         // U05: task.md と同じ項目名 `block` / `description` でも受け付ける（task.md 作成と同一化）。
-        let task_text = item
+        // U2: `card` 指定のときは task_text を書かない（カードの本文を使う）。
+        let task_text_given = item
             .get("task_text")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or("各タスクに task_text（空でない文字列）が必要です")?
-            .to_string();
+            .map(str::to_string);
+        let task_text = match (&card_source, task_text_given) {
+            (Some(_), Some(_)) => {
+                return Err(
+                    "card を指定したときは task_text を書かないでください（カードの本文を使います）"
+                        .to_string(),
+                )
+            }
+            (Some(c), None) => c.task_text.clone(),
+            (None, Some(t)) => t,
+            (None, None) => {
+                return Err("各タスクに task_text（空でない文字列）が必要です".to_string())
+            }
+        };
         // 内部表現では description と inputs.task_text に変換して既存の経路をそのまま使う
         let description = item
             .get("description")
@@ -520,11 +615,29 @@ pub fn task_create(
             .map(str::to_string)
             .unwrap_or_else(|| task_text.clone());
         let inputs = Some(json!({ "task_text": task_text }));
-        let block_type = item
+        // U2: `card` 指定のときはカードの `block:` を使う（書いていてカードと違うならエラー）。
+        let block_given = item
             .get("block_type")
             .or_else(|| item.get("block"))
             .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
             .map(str::to_string);
+        let block_type = match (&card_source, block_given) {
+            (Some(c), Some(b)) => {
+                if b != c.block {
+                    return Err(format!(
+                        "client_id '{}': カード {} の block は「{}」です。block_type はカードの block と一致させてください",
+                        client_id,
+                        card_run_id.unwrap_or(0),
+                        c.block
+                    ));
+                }
+                Some(c.block.clone())
+            }
+            (Some(c), None) => Some(c.block.clone()),
+            (None, b) => b,
+        };
         let depends_on = item
             .get("depends_on")
             .and_then(|v| v.as_array())
@@ -572,6 +685,7 @@ pub fn task_create(
             cwd: cwd_raw,
             timeout,
             carried_over,
+            card_run_id,
         });
     }
 
@@ -660,6 +774,7 @@ pub fn task_create(
                 "cwd": resolved_cwd.get(&t.client_id),
                 "timeout": t.timeout,
                 "carried_over": t.carried_over,
+                "card": t.card_run_id,
                 "approval": { "status": "approved", "comment": null },
             })
         })
@@ -1882,6 +1997,256 @@ mod tests {
         let pending = crate::common::notify_pending_dir();
         let count = std::fs::read_dir(&pending).map(|d| d.flatten().count()).unwrap_or(0);
         assert_eq!(count, 0);
+
+        drop(guard);
+    }
+
+    // -----------------------------------------------------------------------
+    // U2: `card`（todo のカードを自分の子として起こす）
+    // -----------------------------------------------------------------------
+
+    /// テスト用のブロック定義を置く（`task_create` の block_type 検証を通すため）。
+    fn write_test_block(root: &Path, block_id: &str) {
+        let dir = root.join(".sai/blocks");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(format!("{}.md", block_id)),
+            format!(
+                "---\nname: {id}\ndescription: テスト用ブロック\nmodel: anthropic/claude-sonnet-4-5\n---\n# テスト\n\n本文\n",
+                id = block_id
+            ),
+        )
+        .unwrap();
+    }
+
+    /// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）を作る（テスト用）。
+    fn write_todo_card(
+        root: &Path,
+        run_id: i64,
+        block: &str,
+        executer: &str,
+        description: &str,
+        task_text: &str,
+    ) {
+        let dir = root.join(".sai/outputs/todo").join(run_id.to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("task.md"),
+            format!(
+                "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {rid}\n\
+                 description: {desc}\nrunner: pi\nblock: {block}\nthinking: \nmodel: \n\
+                 provider: \nround: 1\nglobal_round: 1\ntag: \nexecuter: {executer}\n\
+                 sci_node: N12\n---\n\n# task_text\n\n{text}\n",
+                rid = run_id,
+                desc = description,
+                block = block,
+                executer = executer,
+                text = task_text
+            ),
+        )
+        .unwrap();
+    }
+
+    /// テスト用の親実行を作る（`tasks.parent_run_id` は `execution_history` を指すため）。
+    ///
+    /// 新しい DB では最初の実行の id が 1 になる。返り値は run_id。
+    fn create_test_parent_run(store: &crate::db::SaiStore, block_id: &str) -> i64 {
+        let block = crate::db::models::test_helpers::create_test_block(block_id);
+        let id = store.insert_block(&block).unwrap();
+        store.create_execution(id, None).unwrap()
+    }
+
+    /// `task_created` 通知 1 枚を読んで `TaskCreatedNotification` にする（デーモン側の入口）。
+    fn read_task_created_notification() -> crate::task_manager::TaskCreatedNotification {
+        let pending = crate::common::notify_pending_dir();
+        let entries: Vec<_> = std::fs::read_dir(&pending).unwrap().flatten().collect();
+        let mut texts = Vec::new();
+        for e in entries {
+            let text = std::fs::read_to_string(e.path()).unwrap();
+            let v: Value = serde_json::from_str(&text).unwrap();
+            if v["type"] == "task_created" {
+                texts.push(text);
+            }
+        }
+        assert_eq!(texts.len(), 1, "task_created 通知が 1 枚だけ書かれる");
+        serde_json::from_str(&texts[0]).unwrap()
+    }
+
+    /// U2 AC1: `card` を渡すと、カードの本文・ブロック・説明からタスクが作られる。
+    /// 通知に `card` が載り、デーモンが作ると `tasks.card_run_id` に入る。
+    #[test]
+    fn task_create_with_card_uses_card_body_block_and_description() {
+        let guard = EnvGuard::new();
+        let store = crate::common::open_db().unwrap();
+        let parent_run_id = create_test_parent_run(&store, "card-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "card-block");
+        write_todo_card(
+            &guard.project_root,
+            120,
+            "card-block",
+            "professor",
+            "N12 の読解",
+            "N12 を読解して報告",
+        );
+
+        // subject を書かないと、カードの description（無ければ block）が入る
+        let tasks = json!([{ "client_id": "R1", "card": 120, "timeout": 3600 }]);
+        let result = task_create(&tasks, None, None, None).unwrap();
+        assert_eq!(result["status"], "approved");
+
+        let notif = read_task_created_notification();
+        assert_eq!(notif.parent_run_id, parent_run_id);
+        assert_eq!(notif.tasks.len(), 1);
+        let t = &notif.tasks[0];
+        assert_eq!(t.subject, "N12 の読解");
+        assert_eq!(t.block_type.as_deref(), Some("card-block"));
+        assert_eq!(t.timeout, Some(3600));
+        assert_eq!(t.card_run_id, Some(120));
+        assert_eq!(
+            t.inputs,
+            Some(json!({ "task_text": "N12 を読解して報告" })),
+            "task_text はカード本文から取る"
+        );
+
+        // デーモンが作っても card_run_id が保存される
+        let manager = crate::task_manager::TaskManager::new(std::sync::Arc::new(store));
+        let ids = manager.process_task_created(&notif).unwrap();
+        assert_eq!(ids.len(), 1);
+        let created = manager.get_task(ids[0]).unwrap();
+        assert_eq!(created.card_run_id, Some(120));
+        assert_eq!(created.subject, "N12 の読解");
+        // task_list / task_status の JSON に "card" が出る
+        assert_eq!(task_to_json(&created, &[])["card"], json!(120));
+
+        drop(guard);
+    }
+
+    /// U2: todo にカードが無い（run_id が違うものは無い）是エラー。
+    #[test]
+    fn task_create_with_card_rejects_missing_card() {
+        let guard = EnvGuard::new();
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        write_test_block(&guard.project_root, "card-block");
+        // 121 のカードがあるだけで、120 は無い
+        write_todo_card(&guard.project_root, 121, "card-block", "professor", "説明", "本文");
+
+        let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120 }]);
+        let err = task_create(&tasks, None, None, None).unwrap_err();
+        assert!(err.contains("todo にカード 120 がありません"), "err={}", err);
+
+        // 通知は書かれていないこと
+        let pending = crate::common::notify_pending_dir();
+        let count = std::fs::read_dir(&pending)
+            .map(|d| d.flatten().count())
+            .unwrap_or(0);
+        assert_eq!(count, 0);
+
+        drop(guard);
+    }
+
+    /// U2: `executer: human` のカードは professor が起こせない。
+    #[test]
+    fn task_create_with_card_rejects_human_executer() {
+        let guard = EnvGuard::new();
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        write_test_block(&guard.project_root, "card-block");
+        write_todo_card(&guard.project_root, 120, "card-block", "human", "説明", "本文");
+
+        let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120 }]);
+        let err = task_create(&tasks, None, None, None).unwrap_err();
+        assert!(err.contains("人が起こすカードです"), "err={}", err);
+        assert!(err.contains("executer: professor"), "err={}", err);
+
+        drop(guard);
+    }
+
+    /// U2: `card` と `task_text` の併用はできない（依頼の正は 1 つ）。
+    #[test]
+    fn task_create_with_card_rejects_task_text() {
+        let guard = EnvGuard::new();
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        write_test_block(&guard.project_root, "card-block");
+        write_todo_card(&guard.project_root, 120, "card-block", "professor", "説明", "本文");
+
+        let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120, "task_text": "書かない" }]);
+        let err = task_create(&tasks, None, None, None).unwrap_err();
+        assert!(
+            err.contains("card を指定したときは task_text を書かないでください"),
+            "err={}",
+            err
+        );
+
+        drop(guard);
+    }
+
+    /// U2: カードの `block:` と違う block_type を書くとエラー。一致すれば通る。
+    #[test]
+    fn task_create_with_card_rejects_different_block_type() {
+        let guard = EnvGuard::new();
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        write_test_block(&guard.project_root, "card-block");
+        write_test_block(&guard.project_root, "other-block");
+        write_todo_card(&guard.project_root, 120, "card-block", "professor", "説明", "本文");
+
+        let tasks = json!([
+            { "client_id": "R1", "subject": "件名", "card": 120, "block_type": "other-block" },
+        ]);
+        let err = task_create(&tasks, None, None, None).unwrap_err();
+        assert!(
+            err.contains("block_type はカードの block と一致させてください"),
+            "err={}",
+            err
+        );
+
+        // 一致していれば通る
+        let tasks = json!([
+            { "client_id": "R2", "subject": "件名", "card": 120, "block_type": "card-block" },
+        ]);
+        assert_eq!(task_create(&tasks, None, None, None).unwrap()["status"], "approved");
+
+        drop(guard);
+    }
+
+    /// U2: 同じカードを 2 度起こせない（既に未完了タスクがあればエラー）。
+    /// 前のタスクが確定（finalized）すれば再び起こせる。
+    #[test]
+    fn task_create_with_card_rejects_duplicate_start() {
+        let guard = EnvGuard::new();
+        let store = crate::common::open_db().unwrap();
+        let parent_run_id = create_test_parent_run(&store, "card-parent-dup");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "card-block");
+        write_todo_card(&guard.project_root, 120, "card-block", "professor", "説明", "本文");
+
+        let tasks = json!([{ "client_id": "R1", "card": 120 }]);
+        assert_eq!(task_create(&tasks, None, None, None).unwrap()["status"], "approved");
+
+        // デーモンがタスクを作る
+        let notif = read_task_created_notification();
+        let first_task_id = {
+            let manager = crate::task_manager::TaskManager::new(std::sync::Arc::new(store));
+            let ids = manager.process_task_created(&notif).unwrap();
+            assert_eq!(ids.len(), 1);
+            ids[0]
+        };
+
+        // もう一度同じカードで起こそうとするとエラー
+        let tasks = json!([{ "client_id": "R2", "card": 120 }]);
+        let err = task_create(&tasks, None, None, None).unwrap_err();
+        assert!(
+            err.contains(&format!("カード 120 は既にタスク {} で起こしています", first_task_id)),
+            "err={}",
+            err
+        );
+
+        // 前のタスクが確定（finalized）すれば再び起こせる
+        let store = crate::common::open_db().unwrap();
+        store.update_task_status(first_task_id, "finalized").unwrap();
+        assert_eq!(
+            task_create(&tasks, None, None, None).unwrap()["status"],
+            "approved"
+        );
 
         drop(guard);
     }
