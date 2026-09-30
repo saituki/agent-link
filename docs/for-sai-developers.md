@@ -291,6 +291,31 @@ ls /tmp/smoke-sai-home   # → No such file or directory（作っていないこ
 
 MCP サーバ（`mcp_server.rs`）は `sai_write` / `sai_finalize` / `sai_read` / `task_*` / `block_*` を出す。同じ本体を `sai-moon-link agent <…>` からも呼ぶ（pi 拡張・フックはここを使う）。**CLI も同じ `agent_api` を通すので、戻り値の JSON は 1 か所で決まる。**
 
+#### 起動時の文の分け方（C10）
+
+ブロックの起動時に送る文は **2 つ**に分かれる。作り方は `orchestrator::prepare_pipeline`（`crates/sai-link-engine/src/orchestrator.rs`）で、分け目の処理は `placeholder::split_fixed_and_variable`（`crates/sai-link-engine/src/placeholder.rs`）。
+
+| | 中身 | 置き場 | 渡し方 |
+|---|---|---|---|
+| 固定部分（system prompt） | template と block.md の本文。中の可変な場所は案内の文に置き換える | run フォルダ直下の `system-prompt.md`（`run_dir::SYSTEM_PROMPT_FILE`） | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
+| 最初の文 | 入力値（`# <id>` の節）と `context: true` のときの `# 範囲` の節だけ | メモリ（`PreparedPipeline::expanded_prompt`） | herdr のテキスト送信（1 通） |
+
+固定部分の置き換えの規則：
+
+| 本文の中 | 固定部分での文 |
+|---|---|
+| `{{input.<id>}}` | `（最初のメッセージの「# <id>」の節にある）` |
+| `{{context}}`（`context: true` のとき） | `（最初のメッセージの「# 範囲」の節にある）` |
+
+- 最初の文の節は **本文に現れた `{{input.<id>}}` の順**（同じ id が何度出ても 1 つだけ）。値が無い id は `{{input.<id>}}` の表記のまま入る。
+- 節が 1 つも無く固定部分が有るときは、最初の文は `system prompt の指示に従って始めてください。` になる。固定部分も空なら最初の文も空（本文が無いので送らない）。
+- `system-prompt.md` に書けなかったとき（run フォルダが無い・書き込み失敗）は、従来どおり 1 通で送り、固定部分を最初の文の先頭に付ける。stderr に警告を出す（run_id が無いプレビュー・テストでは警告を出さない）。
+- 読むのは **`sai-moon-link phone md --kind system <run_id>`**（Web の run の画面の「system」の帯）。`--write` は `task` だけなので `system` は保存できない。
+- 再開（`p`・`pane::build_resume_command`）は run フォルダに `system-prompt.md` があれば同じフラグを付ける。この変更よりに始まった run には無いので、そのときは付けない。
+- `sai-moon-link block preview <定義ファイル> [入力]` は `## system prompt（固定部分）` と `## 最初の文` の 2 節で出す。
+
+**要注意**: cc の `--system-prompt-snapshot` は既定 on（最初の要求の system prompt を記録し、再開では記録した方を使う）。そのため `system-prompt.md` を直して再開しても **cc は古い固定部分を使う**ことがある（この実装では直せない）。固定部分を直して動かしたいときは `--system-prompt-snapshot off` を付けるか、セッションを作り直す（sai-moon-link は付けない・判断は利用者に返す）。
+
 #### 報告の置き場（C5）
 
 報告は **run フォルダの `finalize-report.md`** に 1 つだけ置く。

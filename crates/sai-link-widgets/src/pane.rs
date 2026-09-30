@@ -127,6 +127,10 @@ pub fn build_resume_command(store: &SaiStore, exec_id: i64) -> Result<String, St
         .unwrap_or_else(sai_link_engine::project::project_root);
     let resume_cwd_str = resume_cwd.to_string_lossy().to_string();
 
+    // 固定部分（system prompt）のファイル（U6・C10）。この変更より前に始まった run には
+    // `system-prompt.md` が無いので、そのときはフラグを付けない（従来のまま）。
+    let system_prompt_file = resume_system_prompt_file(exec_id);
+
     // cc: 起動時と同じ組み立てで `--session-id` を `--resume <uuid>` に替えて再開する
     // （道具・MCP は .claude/settings.json と .mcp.json が効く。セッション実体は ~/.claude 側）
     if exec.runner == "cc" {
@@ -143,6 +147,10 @@ pub fn build_resume_command(store: &SaiStore, exec_id: i64) -> Result<String, St
             if dir != resume_cwd {
                 builder = builder.with_config_dir(dir);
             }
+        }
+        // 固定部分（template と本文）を足す（U6）。ファイルが無い run では付けない。
+        if let Some(path) = &system_prompt_file {
+            builder = builder.with_system_prompt_file(path.to_string_lossy());
         }
         let cc = builder
             .build()
@@ -195,6 +203,11 @@ pub fn build_resume_command(store: &SaiStore, exec_id: i64) -> Result<String, St
         env_prefix,
         shell_escape_single_quotes(&session_file)
     );
+    // 固定部分（template と本文）を足す（U6）。ファイルが無い run では付けない。
+    if let Some(path) = &system_prompt_file {
+        resume_cmd.push_str(" --append-system-prompt ");
+        resume_cmd.push_str(&shell_escape_single_quotes(&path.to_string_lossy()));
+    }
     // 作業用コピーに `.mcp.json` が無ければ、プロジェクトルートの設定を渡す（起動時と同じ）
     if let Some(mcp) = sai_link_engine::cc_command::resolve_sai_mcp_config(&resume_cwd) {
         resume_cmd.push_str(" --mcp-config ");
@@ -224,6 +237,20 @@ pub fn build_resume_command(store: &SaiStore, exec_id: i64) -> Result<String, St
     Ok(resume_cmd)
 }
 
+/// 再開コマンドに載せる固定部分（system prompt）のファイル（U6・C10）。
+///
+/// run フォルダ直下の `system-prompt.md`。この変更よりに始まった run には無いので、
+/// 無いときは `None`（フラグを付けない）。
+pub fn resume_system_prompt_file(exec_id: i64) -> Option<PathBuf> {
+    let (_, run_dir) = sai_link_engine::run_dir::find_run_dir(exec_id)?;
+    let path = run_dir.join(sai_link_engine::run_dir::SYSTEM_PROMPT_FILE);
+    if path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 /// Reflection 記録ファイルのパスを返す（`<root>/.sai/reflection/<exec_id>.md`）。
 ///
 /// **存在チェック・テンプレート生成は行わない**（sai-link 仕様 D2: 生成は
@@ -241,6 +268,35 @@ pub fn reflection_path(root: &Path, exec_id: i64) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `SAI_PROJECT_ROOT` を一時フォルダに向けるガード（Drop で元に戻す）。
+    struct EnvGuard(Option<std::ffi::OsString>);
+
+    impl EnvGuard {
+        fn set(path: &Path) -> Self {
+            let prev = std::env::var_os("SAI_PROJECT_ROOT");
+            std::env::set_var("SAI_PROJECT_ROOT", path);
+            Self(prev)
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(v) => std::env::set_var("SAI_PROJECT_ROOT", v),
+                None => std::env::remove_var("SAI_PROJECT_ROOT"),
+            }
+        }
+    }
+
+    /// テスト用のプロジェクトルート（`.sai/outputs` を持つ一時フォルダ）。
+    fn test_root(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!("sai_pane_{}_{}_{}", name, std::process::id(), nanos))
+    }
 
     /// `pi --session` 再開コマンドの組立（provider / model / thinking 引き継ぎ）を検証する。
     ///
@@ -469,6 +525,120 @@ mod tests {
         assert_eq!(path, root.join(".sai/reflection/42.md"), "パスが正しいこと");
         assert!(!path.exists(), "ファイルを生成しないこと（D2）");
         assert!(!root.exists(), "ディレクトリも作らないこと");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// U6・AC3: run フォルダに `system-prompt.md` があるときは、再開コマンドにも
+    /// 固定部分を渡すフラグが付く（pi は `--append-system-prompt`）。
+    #[test]
+    fn build_resume_command_adds_system_prompt_file() {
+        let _lock = crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = test_root("resume-sp");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let _guard = EnvGuard::set(&root);
+
+        let store = SaiStore::open_in_memory().unwrap();
+        let block = sai_link_engine::db::models::BlockMetadata::new(
+            "plan-sp".to_string(),
+            "テスト用ブロック".to_string(),
+            "anthropic/claude-sonnet-4-5".to_string(),
+            None,
+            "off".to_string(),
+            "true".to_string(),
+            "true".to_string(),
+            None,
+            300,
+            "none".to_string(),
+            true,
+            "blocks/plan-sp.md".to_string(),
+            None
+        );
+        let block_id = store.insert_block(&block).unwrap();
+        let exec_id = store.create_execution(block_id, None).unwrap();
+
+        // セッションディレクトリと固定部分のファイルを作る
+        let session_dir = root.join("session");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let jsonl = session_dir.join("2026-09-30T10-00-00-main.jsonl");
+        std::fs::write(&jsonl, "{}\n").unwrap();
+        store
+            .update_execution_session_info(exec_id, &session_dir.to_string_lossy(), "pi")
+            .unwrap();
+
+        // 固定部分のファイルが無いとき（この変更の前の run）はフラグが付かない
+        let run_dir = sai_link_engine::run_dir::ensure_run_dir(
+            sai_link_engine::run_dir::RUNNING_OWNER,
+            exec_id,
+        )
+        .unwrap();
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let cmd = build_resume_command(&store, exec_id).unwrap();
+        assert!(
+            !cmd.contains("--append-system-prompt"),
+            "system-prompt.md が無い run では付かない: {cmd}"
+        );
+        assert!(resume_system_prompt_file(exec_id).is_none());
+
+        // ファイルがあるときだけ付く
+        let sp = run_dir.join(sai_link_engine::run_dir::SYSTEM_PROMPT_FILE);
+        std::fs::write(&sp, "# 固定部分\n").unwrap();
+        assert_eq!(resume_system_prompt_file(exec_id).as_deref(), Some(sp.as_path()));
+        let cmd = build_resume_command(&store, exec_id).unwrap();
+        assert!(
+            cmd.contains(&format!("--append-system-prompt '{}'", sp.to_string_lossy())),
+            "固定部分のファイルが付く: {cmd}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// U6・AC3: runner=cc の再開も `--append-system-prompt-file` が付く。
+    #[test]
+    fn build_resume_command_cc_adds_system_prompt_file() {
+        let _lock = crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = test_root("resume-sp-cc");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let _guard = EnvGuard::set(&root);
+
+        let store = SaiStore::open_in_memory().unwrap();
+        let block = sai_link_engine::db::models::BlockMetadata::new(
+            "plan-cc-sp".to_string(),
+            "テスト用ブロック".to_string(),
+            "claude-sonnet-4-5".to_string(),
+            None,
+            "off".to_string(),
+            "true".to_string(),
+            "true".to_string(),
+            None,
+            300,
+            "none".to_string(),
+            true,
+            "blocks/plan-cc-sp.md".to_string(),
+            None
+        );
+        let block_id = store.insert_block(&block).unwrap();
+        let exec_id = store.create_execution(block_id, None).unwrap();
+        store.update_execution_runner(exec_id, "cc").unwrap();
+        store
+            .update_execution_agent_session_id(exec_id, "11111111-2222-4333-8444-555555555555")
+            .unwrap();
+
+        let run_dir = sai_link_engine::run_dir::ensure_run_dir(
+            sai_link_engine::run_dir::RUNNING_OWNER,
+            exec_id,
+        )
+        .unwrap();
+        let sp = run_dir.join(sai_link_engine::run_dir::SYSTEM_PROMPT_FILE);
+        std::fs::write(&sp, "# 固定部分\n").unwrap();
+
+        let cmd = build_resume_command(&store, exec_id).unwrap();
+        assert!(
+            cmd.contains(&format!("--append-system-prompt-file '{}'", sp.to_string_lossy())),
+            "cc も固定部分のファイルが付く: {cmd}"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -59,7 +59,7 @@ use crate::block_config::BlockConfig;
 use crate::herdr::{HerdrClient, HerdrError, SplitDirection};
 use crate::cc_command::CcCommandBuilder;
 use crate::pi_command::PiCommandBuilder;
-use crate::placeholder::{expand_placeholders, resolve_placeholder_values, PlaceholderValue};
+use crate::placeholder::{resolve_placeholder_values, split_fixed_and_variable, PlaceholderValue};
 use crate::runner::RunnerKind;
 use crate::sai_write_notify;
 use crate::session::{
@@ -463,8 +463,17 @@ pub struct PreparedPipeline {
     pub pi_args: Vec<String>,
     /// セッションディレクトリのパス
     pub session_dir: PathBuf,
-    /// プレースホルダー展開済みのプロンプト本文
+    /// 最初のメッセージ（`herdr.send_text` で 1 通で送る文）。
+    ///
+    /// 入力値（`task_text` など）を `# <id>` の節にして並べ、`context: true` のブロックは
+    /// 最後に `# 範囲` の節を足す。template と block.md の本文（固定部分）は
+    /// [`PreparedPipeline::system_prompt`] に入り、`system-prompt.md` 経由で渡す（U6・C10）。
     pub expanded_prompt: String,
+    /// 固定部分（system prompt・template と本文の案内文に置き換えたもの）。
+    /// run フォルダの `system-prompt.md` に書いて、起動コマンドの
+    /// `--append-system-prompt`（pi）/ `--append-system-prompt-file`（cc）で渡す（U6）。
+    /// ファイルに書けなかったときは、この内容を最初の文の先頭に付けている。
+    pub system_prompt: String,
     /// ブロック名
     pub block_name: String,
     /// 作業ディレクトリ
@@ -658,18 +667,20 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     let (resolved_values, input_waggle_tokens) =
         resolve_placeholder_values(&placeholder_values, &integrator);
 
-    // ── Step 1: プレースホルダー展開 ──
-    let expanded_prompt = expand_placeholders(&config.block_body, &resolved_values);
-
-    // ── Step 1.5: 範囲（context）の差し込み（`context: true` のブロックだけ） ──
-    // ファイルには書かず、メモリ上で本文に入れる（並列の実行で混ざらないように）。
-    // プレースホルダーの展開の後に入れるので、範囲の中の文字が展開されることはない。
-    let expanded_prompt = if config.block_config.context == Some(true) {
-        let text = crate::pre_run::context_text(config.run_id, config.block_config.block_id());
-        insert_context(&expanded_prompt, &text)
+    // ── Step 1: 固定部分（system prompt）と最初の文に分ける ──
+    // 固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
+    // 起動コマンドのフラグで渡す。最初の文には入力値と範囲（`{{context}}`）だけが入る。
+    // context: true のブロックだけ、範囲の文を用意する（`{{context}}` の位置は本文で決める）。
+    let context_text = if config.block_config.context == Some(true) {
+        Some(crate::pre_run::context_text(
+            config.run_id,
+            config.block_config.block_id(),
+        ))
     } else {
-        expanded_prompt
+        None
     };
+    let (system_prompt, first_message) =
+        split_fixed_and_variable(&config.block_body, &resolved_values, context_text.as_deref());
 
     // ── pi起動前の Git コミットハッシュを取得（再現性用） ──
     let git_commit_before = get_git_commit_hash();
@@ -716,6 +727,27 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // ── Step 3: セッションファイル作成 ──
     let _session_path = create_session_file(&session_dir, &config.block_config.block_id())?;
 
+    // ── Step 3.5: 固定部分（system prompt）を run フォルダに書く（U6・C10） ──
+    // run フォルダは Step 2 で用意済み。`system-prompt.md` に書いて起動コマンドの
+    // フラグで渡すので、最初の文には入力値と範囲しか出ない。
+    // 書けなかったとき（run フォルダが無い・書き込み失敗）は従来どおり 1 通で送る。
+    let system_prompt_path = write_system_prompt_file(config.run_id, &system_prompt);
+    let expanded_prompt = match (&system_prompt_path, system_prompt.trim().is_empty()) {
+        (Some(_), _) => first_message,
+        // 固定部分が空なら付け足すものがない
+        (None, true) => first_message,
+        (None, false) => {
+            // run_id 無し（プレビュー・テスト）は最初から run フォルダが無いので警告を出さない。
+            if config.run_id.is_some() {
+                eprintln!(
+                    "[sai-engine] 警告: {} に固定部分を置けません。最初の文の先頭に入れます",
+                    crate::run_dir::SYSTEM_PROMPT_FILE
+                );
+            }
+            format!("{}\n\n{}", system_prompt.trim_end(), first_message)
+        }
+    };
+
     // ── Step 4+5: 起動コマンド構築（runner 分岐） ──
     let session_dir_str = session_dir.to_string_lossy().to_string();
 
@@ -734,6 +766,10 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
                 .unwrap_or_else(crate::project::project_root);
             if let Some(mcp) = crate::cc_command::resolve_sai_mcp_config(&cwd) {
                 builder = builder.with_mcp_config(mcp.to_string_lossy());
+            }
+            // 固定部分（template と本文）を system-prompt.md から足す（U6）
+            if let Some(path) = &system_prompt_path {
+                builder = builder.with_system_prompt_file(path.to_string_lossy());
             }
             let pi_cmd = builder.build().map_err(|e| {
                 OrchestratorError::PiCommandError(format!("pi コマンド構築失敗: {}", e))
@@ -758,6 +794,10 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             // cwd 自身に設定が無い（プロジェクトルートから渡す）ときだけ明示指定する。
             if config_dir != cwd {
                 builder = builder.with_config_dir(config_dir);
+            }
+            // 固定部分（template と本文）を system-prompt.md から足す（U6）
+            if let Some(path) = &system_prompt_path {
+                builder = builder.with_system_prompt_file(path.to_string_lossy());
             }
             let cc_cmd = builder.build()
                 .map_err(|e| {
@@ -867,6 +907,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         pi_args: agent_args,
         session_dir,
         expanded_prompt,
+        system_prompt,
         block_name: config.block_config.block_id().to_string(),
         cwd: config.cwd.clone(),
         uses_sai_write: crate::sai_write_notify::block_uses_sai_write(&config.block_config),
@@ -885,21 +926,23 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     })
 }
 
-/// 範囲（context）の文を本文に入れる（`{{context}}` の差し込み）。
+/// 固定部分（system prompt）を run フォルダの `system-prompt.md` に書く（U6・C10）。
 ///
-/// `{{context}}` があれば最初の 1 つだけを `text` に置き換えます。
-/// 無い場合は（利用者がブロックを直して `{{context}}` を消しても）範囲が失われないよう、
-/// `text` と空行を本文の先頭に置きます。
-pub fn insert_context(body: &str, text: &str) -> String {
-    match body.find("{{context}}") {
-        Some(pos) => {
-            let mut out = String::with_capacity(body.len() + text.len());
-            out.push_str(&body[..pos]);
-            out.push_str(text);
-            out.push_str(&body[pos + "{{context}}".len()..]);
-            out
+/// - 固定部分が空、または run_id が無い場合は `None`（run を作らない）。
+/// - run フォルダが無い場合も `None`（固定部分は最初の文に入る）。
+/// - 書き込みに失敗したときも `None` にして、警告は [`prepare_pipeline`] が出す。
+fn write_system_prompt_file(run_id: Option<i64>, system_prompt: &str) -> Option<PathBuf> {
+    if system_prompt.trim().is_empty() {
+        return None;
+    }
+    let (_, run_dir) = crate::run_dir::find_run_dir(run_id?)?;
+    let path = run_dir.join(crate::run_dir::SYSTEM_PROMPT_FILE);
+    match std::fs::write(&path, system_prompt) {
+        Ok(()) => Some(path),
+        Err(e) => {
+            eprintln!("[sai-engine] {} に書けません: {}", path.display(), e);
+            None
         }
-        None => format!("{text}\n\n{body}"),
     }
 }
 
@@ -4336,6 +4379,7 @@ mod tests {
             .to_string_lossy()
             .contains("pi-sessions-"));
         assert!(prepared.expanded_prompt.is_empty()); // block_body が空なので
+        assert!(prepared.system_prompt.is_empty()); // 固定部分も空
 
         // クリーンアップ（テストではセッションディレクトリを削除）
         crate::session::cleanup_session_dir(&prepared.session_dir);
@@ -4665,9 +4709,14 @@ mod tests {
 
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
 
-        // 本文がプレースホルダー展開されている
-        assert!(prepared.expanded_prompt.contains("# テスト"));
-        assert!(prepared.expanded_prompt.contains("{{input.name}}")); // 値未指定なので残る
+        // 固定部分（system prompt）: 値は案内の文になる
+        assert!(prepared.system_prompt.contains("# テスト"));
+        assert!(prepared
+            .system_prompt
+            .contains("（最初のメッセージの「# name」の節にある）"));
+        // 値が無いので最初の文には `{{input.name}}` がそのまま入る
+        // （run フォルダが無いので固定部分は最初の文の先頭に入る）
+        assert!(prepared.expanded_prompt.contains("{{input.name}}"));
 
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
@@ -4682,10 +4731,67 @@ mod tests {
 
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
 
+        // 固定部分には案内文だけ入り、値は最初の文の節に入る（U6）
+        assert!(prepared
+            .system_prompt
+            .contains("（最初のメッセージの「# name」の節にある）"));
+        assert!(!prepared.system_prompt.contains("MyApp"));
         assert!(prepared.expanded_prompt.contains("MyApp"));
         assert!(!prepared.expanded_prompt.contains("{{input.name}}"));
 
         crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// U6: run フォルダがあるときは固定部分を `system-prompt.md` に書き、
+    /// 起動コマンドは `--append-system-prompt <絶対パス>` になる。
+    /// 最初の文には入力値の節だけが入る。
+    #[test]
+    fn test_prepare_pipeline_writes_system_prompt_file() {
+        let _env_lock = finalize_env_lock();
+        let root = finalize_test_temp_dir("system-prompt");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
+        let _home_guard = EnvVarGuard::set("SAI_SAI_HOME", root.as_os_str());
+
+        // run フォルダを用意する（todo で予約したように）
+        let run_dir = crate::run_dir::ensure_run_dir(crate::run_dir::TODO_OWNER, 321).unwrap();
+
+        let mut config = minimal_config();
+        config.run_id = Some(321);
+        config.block_body = "# 依頼\n{{input.task_text}}".to_string();
+        let mut inputs = HashMap::new();
+        inputs.insert("task_text".to_string(), "登录を実装せよ".to_string());
+        config.user_inputs = inputs;
+
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+
+        // 固定部分は run フォルダ直下の system-prompt.md
+        let sp = run_dir.join(crate::run_dir::SYSTEM_PROMPT_FILE);
+        assert!(sp.is_file(), "{} が作られる", sp.display());
+        let written = std::fs::read_to_string(&sp).unwrap();
+        assert_eq!(written, prepared.system_prompt);
+        assert!(written.contains("（最初のメッセージの「# task_text」の節にある）"));
+        assert!(!written.contains("登录を実装せよ"));
+
+        // 起動コマンドは絶対パスを渡す（run フォルダの system-prompt.md）
+        assert!(
+            std::path::Path::new(&sp).is_absolute(),
+            "system-prompt.md は絶対パスで渡す: {}",
+            sp.display()
+        );
+        assert!(
+            prepared
+                .pi_command
+                .contains(&format!("--append-system-prompt {}", sp.display())),
+            "固定部分のファイルが渡る: {}",
+            prepared.pi_command
+        );
+
+        // 最初の文は入力値の節だけ
+        assert_eq!(prepared.expanded_prompt, "# task_text\n\n登录を実装せよ");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // ---- PipelineProgress ----
@@ -6058,28 +6164,11 @@ mod tests {
         );
     }
 
-    // ── 範囲（context）の差し込み（U16） ──
+    // ── 範囲（context）の扱い（U16・U6） ──
 
-    /// `{{context}}` があれば最初の 1 つだけを置き換え、2 つ目以降は残す。
-    #[test]
-    fn insert_context_replaces_first_or_prepends() {
-        // 置換
-        assert_eq!(
-            insert_context("前\n{{context}}\n後", "範囲"),
-            "前\n範囲\n後"
-        );
-        // 最初の 1 つだけ（2 つ目以降はそのまま残る）
-        assert_eq!(
-            insert_context("{{context}} と {{context}}", "範囲"),
-            "範囲 と {{context}}"
-        );
-        // 無いときは先頭に範囲と空行を置く
-        assert_eq!(insert_context("# 本文", "範囲"), "範囲\n\n# 本文");
-    }
-
-    /// AC1: `context: true` のブロックは `prepare_pipeline` で本文の
-    /// `{{context}}` が命令の標準出力に置き換わる。
-    /// `context` の無いブロックの本文は今と 1 字も変わらない。
+    /// AC1: `context: true` のブロックは `prepare_pipeline` で最初の文に範囲の節が付き、
+    /// 固定部分の `{{context}}` は案内の文になる（U6）。
+    /// `context` の無いブロックは範囲の節がつかない。
     #[test]
     fn test_prepare_pipeline_inserts_context_when_enabled() {
         let _env_lock = finalize_env_lock();
@@ -6095,21 +6184,30 @@ mod tests {
         let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
         let _home_guard = EnvVarGuard::set("SAI_SAI_HOME", root.as_os_str());
 
-        // context: true → 本文の {{context}} が標準出力に置き換わる
+        // context: true → 最初の文に `# 範囲` の節が付き、固定部分は案内文
         let mut config = minimal_config();
         config.run_id = Some(99);
         config.block_config.context = Some(true);
         config.block_body = "前\n{{context}}\n後".to_string();
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert_eq!(prepared.expanded_prompt, "前\nrun=99 block=test-block\n後");
+        assert_eq!(prepared.expanded_prompt, "# 範囲\n\nrun=99 block=test-block");
+        assert_eq!(
+            prepared.system_prompt,
+            "前\n（最初のメッセージの「# 範囲」の節にある）\n後"
+        );
         crate::session::cleanup_session_dir(&prepared.session_dir);
 
-        // context なし → 本文は今と変わらない（settings.json に context が有っても使わない）
+        // context なし → 範囲の節は無く、固定部分は本文のまま（settings.json に有っても使わない）
         let mut config = minimal_config();
         config.run_id = Some(99);
         config.block_body = "前\n{{context}}\n後".to_string();
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert_eq!(prepared.expanded_prompt, "前\n{{context}}\n後");
+        assert_eq!(prepared.system_prompt, "前\n{{context}}\n後");
+        // 固定部分が有るのに節が無いので、最初の文は案内だけ
+        assert_eq!(
+            prepared.expanded_prompt,
+            "system prompt の指示に従って始めてください。"
+        );
         crate::session::cleanup_session_dir(&prepared.session_dir);
 
         let _ = std::fs::remove_dir_all(&root);

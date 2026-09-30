@@ -132,6 +132,8 @@ pub struct CcCommandBuilder {
     /// sai-link 側の設定ディレクトリ（`.mcp.json` / `.claude/settings.json` を持つ）。
     /// cwd の外で起動する場合に `--mcp-config` / `--settings` で明示的に渡す。
     config_dir: Option<std::path::PathBuf>,
+    /// 固定部分（system prompt）のファイル（`--append-system-prompt-file`・U6・C10）
+    system_prompt_file: Option<String>,
 }
 
 impl CcCommandBuilder {
@@ -143,6 +145,7 @@ impl CcCommandBuilder {
             thinking: None,
             resume: false,
             config_dir: None,
+            system_prompt_file: None,
         }
     }
 
@@ -151,6 +154,15 @@ impl CcCommandBuilder {
     /// `--settings` で明示的に渡す。
     pub fn with_config_dir(mut self, dir: std::path::PathBuf) -> Self {
         self.config_dir = Some(dir);
+        self
+    }
+
+    /// 固定部分（system prompt）のファイル（`--append-system-prompt-file`）をセットします。
+    ///
+    /// ブロックの template と本文（入力値・範囲の案内文に置き換えたもの）をこのファイルに
+    /// 書き、そのパスを渡す。最初の文には入力値と範囲だけが入る（U6・C10）。
+    pub fn with_system_prompt_file(mut self, path: impl Into<String>) -> Self {
+        self.system_prompt_file = Some(path.into());
         self
     }
 
@@ -210,6 +222,12 @@ impl CcCommandBuilder {
             let settings = dir.join(".claude/settings.json");
             push_pair(&mut args, "--mcp-config", &mcp.to_string_lossy());
             push_pair(&mut args, "--settings", &settings.to_string_lossy());
+        }
+
+        // 固定部分（system prompt）を足す（U6・C10）。
+        // pi とはフラグ名が違う（cc にはファイル版の引数がある）。
+        if let Some(path) = self.system_prompt_file.as_deref() {
+            push_pair(&mut args, "--append-system-prompt-file", path);
         }
 
         let command = format!("cc {}", args.join(" "));
@@ -926,5 +944,42 @@ mod tests {
                 "--isolated"
             ])
         );
+    }
+
+    /// 固定部分（system prompt）のファイルが `--append-system-prompt-file` で渡ること（U6・C10）。
+    #[test]
+    fn system_prompt_file_is_passed() {
+        let path = "/tmp/sai/outputs/running/42/system-prompt.md";
+        let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
+            .with_system_prompt_file(path)
+            .build()
+            .expect("cc コマンドの構築に失敗");
+        assert!(
+            cmd.command.contains(&format!("--append-system-prompt-file '{}'", path)),
+            "固定部分のファイルが --append-system-prompt-file で渡る: {}",
+            cmd.command
+        );
+    }
+
+    /// 固定部分のファイルを渡さなければ `--append-system-prompt-file` は付かない。
+    #[test]
+    fn system_prompt_file_is_optional() {
+        let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
+            .build()
+            .expect("cc コマンドの構築に失敗");
+        assert!(!cmd.command.contains("--append-system-prompt-file"));
+    }
+
+    /// 再開（`--resume`）でも固定部分のファイルは同じフラグで渡す（U6）。
+    #[test]
+    fn system_prompt_file_with_resume() {
+        let path = "/tmp/sai/outputs/running/42/system-prompt.md";
+        let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
+            .resume()
+            .with_system_prompt_file(path)
+            .build()
+            .expect("cc コマンドの構築に失敗");
+        assert!(cmd.command.contains("--resume '11111111-2222-4333-8444-555555555555'"));
+        assert!(cmd.command.contains(&format!("--append-system-prompt-file '{}'", path)));
     }
 }

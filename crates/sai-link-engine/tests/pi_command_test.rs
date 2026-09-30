@@ -494,3 +494,37 @@ fn test_no_config() {
     assert!(!cmd.command.contains("--model"));
     // --thinking merged into model:thinking
 }
+
+/// 固定部分（system prompt）のファイルが `--append-system-prompt` で渡ること（U6・C10）。
+///
+/// 起動時に run フォルダの `system-prompt.md` を pi に渡すので、絶対パスがそのまま載る。
+#[test]
+fn test_with_system_prompt_file() {
+    let path = "/tmp/sai/outputs/running/42/system-prompt.md";
+    let cmd = PiCommandBuilder::new("/tmp/session")
+        .with_system_prompt_file(path)
+        .build()
+        .expect("コマンドの構築に失敗しました");
+
+    assert!(
+        cmd.command.contains(&format!("--append-system-prompt {}", path)),
+        "固定部分のファイルが --append-system-prompt で渡る: {}",
+        cmd.command
+    );
+    // 引数リストにもフラグとパスが並ぶ
+    let idx = cmd
+        .args
+        .iter()
+        .position(|a| a == "--append-system-prompt")
+        .expect("--append-system-prompt が引数に無い");
+    assert_eq!(cmd.args[idx + 1], path);
+}
+
+/// 固定部分のファイルを渡さなければ `--append-system-prompt` は付かない。
+#[test]
+fn test_without_system_prompt_file() {
+    let cmd = PiCommandBuilder::new("/tmp/session")
+        .build()
+        .expect("コマンドの構築に失敗しました");
+    assert!(!cmd.command.contains("--append-system-prompt"));
+}

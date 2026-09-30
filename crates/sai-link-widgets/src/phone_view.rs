@@ -16,6 +16,8 @@ pub enum MdKind {
     Message,
     /// finalize-report.md（子なら task_report、root なら sai_finalize の report）
     Report,
+    /// system-prompt.md（固定部分・U6。起動時に `--append-system-prompt` で渡す）
+    System,
 }
 
 impl MdKind {
@@ -25,6 +27,7 @@ impl MdKind {
             MdKind::Task => "task",
             MdKind::Message => "message",
             MdKind::Report => "report",
+            MdKind::System => "system",
         }
     }
 
@@ -34,6 +37,7 @@ impl MdKind {
             MdKind::Task => "task.md",
             MdKind::Message => "message.md",
             MdKind::Report => sai_link_engine::agent_api::REPORT_FILE,
+            MdKind::System => sai_link_engine::run_dir::SYSTEM_PROMPT_FILE,
         }
     }
 }
@@ -66,6 +70,17 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 return MdResolve::Missing(format!(
                     "report: {} が見つかりません (run_id {})",
                     sai_link_engine::agent_api::REPORT_FILE,
+                    run_id
+                ))
+            }
+        },
+        // 固定部分は run フォルダの system-prompt.md にしか無い（U6）。
+        MdKind::System => match sai_link_engine::run_dir::find_run_dir(run_id) {
+            Some((_, dir)) => dir.join(sai_link_engine::run_dir::SYSTEM_PROMPT_FILE),
+            None => {
+                return MdResolve::Missing(format!(
+                    "system: {} が見つかりません (run_id {})",
+                    sai_link_engine::run_dir::SYSTEM_PROMPT_FILE,
                     run_id
                 ))
             }
@@ -108,6 +123,18 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
                 MdResolve::Missing(format!(
                     "report: {} がありません ({})",
                     sai_link_engine::agent_api::REPORT_FILE,
+                    path.display()
+                ))
+            }
+        }
+        // 固定部分は起動時に 1 回書くだけなので、無いのは 404（message の再生成はしない）。
+        MdKind::System => {
+            if path.exists() {
+                MdResolve::Found(path)
+            } else {
+                MdResolve::Missing(format!(
+                    "system: {} がありません ({})",
+                    sai_link_engine::run_dir::SYSTEM_PROMPT_FILE,
                     path.display()
                 ))
             }

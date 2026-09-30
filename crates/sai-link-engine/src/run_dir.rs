@@ -22,6 +22,9 @@ pub const DONE_OWNER: &str = "done";
 /// run フォルダ内の固定ファイル名。
 pub const TASK_FILE: &str = "task.md";
 pub const MESSAGE_FILE: &str = "message.md";
+/// 固定部分（system prompt）の置き場（run フォルダ直下・U6・C10）。
+/// pi は `--append-system-prompt`、cc は `--append-system-prompt-file` でこのファイルを渡す。
+pub const SYSTEM_PROMPT_FILE: &str = "system-prompt.md";
 /// session jsonl 置き場（run フォルダ直下）。
 pub const SESSION_SUBDIR: &str = "session";
 

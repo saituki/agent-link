@@ -173,7 +173,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `GET /api/projects/{name}/search?q=…` | 文書（task / message / waggle）の本文検索（`phone search`・Dashboard の検索カード）。`q`（空白区切りで AND・200 文字まで）に加え、`category`（カンマ区切り・空で全部）・`since` / `until`（`YYYY-MM-DD`・実行日）・`block`（完全一致）・`from_id` / `to_id`（run_id の範囲）・`limit`（1〜100・既定 50）。通らない値は CLI を呼ばずに 400。返り値は `{items: [{run_id, category, file, token?, block, date, snippet}], truncated}` |
 | `GET /api/projects/{name}/rtree` | 3 層の実行の図（`phone rtree`・U03。`{"nodes": […], "edges": […]}` をそのまま返す。実行の記録が要るので 404 の決まりは `tree` と同じ） |
 | `GET /api/projects/{name}/runs/{run_id:int}/view/{log\|stats\|history}` | run の中身（`phone run`） |
-| `GET /api/projects/{name}/runs/{run_id:int}/md/{task\|message\|report}` | md 本文（`phone md`・「まだありません」は 404）。`report` は run の報告（`finalize-report.md`・子の `task_report` と root の `sai_finalize report` が書く） |
+| `GET /api/projects/{name}/runs/{run_id:int}/md/{task\|message\|report\|system}` | md 本文（`phone md`・「まだありません」は 404）。`report` は run の報告（`finalize-report.md`・子の `task_report` と root の `sai_finalize report` が書く）。`system` は固定部分（`system-prompt.md`・起動時に `--append-system-prompt` で渡す本文。U6） |
 | `PUT /api/projects/{name}/runs/{run_id:int}/md/{task}` | md の保存（body `{"text"}`・`phone md --write`・task は未実行の todo カードだけで、それ以外は 404「未実行のカードが見つかりません」。message と report は保存できない） |
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle` | 成果物の一覧（`phone waggle`） |
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle/{token}` | 成果物 1 件の本文（`phone waggle --token`） |

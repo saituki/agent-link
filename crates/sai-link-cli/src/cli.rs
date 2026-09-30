@@ -1271,7 +1271,7 @@ pub fn handle_block_preview(
     let pipeline_config = PipelineConfig {
         block_config: resolved.config,
         block_body: String::new(),
-        user_inputs: user_inputs_map,
+        user_inputs: user_inputs_map.clone(),
         cwd: Some(std::env::current_dir()?),
         direction: resolved.direction,
         timeout_ms: resolved.timeout_ms,
@@ -1289,6 +1289,22 @@ pub fn handle_block_preview(
     sai_link_engine::session::cleanup_session_dir(&prepared.session_dir);
 
     println!("{}", prepared.pi_command);
+
+    // 実際に送る 2 通（固定部分＝system prompt と最初の文）を見せる（U6・C10）。
+    // 実行時は固定部分を run フォルダの `system-prompt.md` に書いて
+    // `--append-system-prompt`（pi）/ `--append-system-prompt-file`（cc）で渡すため、
+    // プレビューのコマンドにはそのフラグが付きません。
+    let (system_prompt, first_message) = sai_link_engine::placeholder::split_fixed_and_variable(
+        &parsed.body,
+        &user_inputs_map,
+        None,
+    );
+    println!();
+    println!("## system prompt（固定部分）");
+    println!("{}", system_prompt);
+    println!();
+    println!("## 最初の文");
+    println!("{}", first_message);
     Ok(())
 }
 
