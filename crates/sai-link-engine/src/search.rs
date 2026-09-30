@@ -44,8 +44,6 @@ use serde::Serialize;
 
 use crate::db::models::ExecutionHistory;
 use crate::db::SaiStore;
-use crate::session::find_main_session_file;
-use crate::session::resolve_session_dir;
 
 // ============================================================================
 // データ型
@@ -500,8 +498,11 @@ fn exec_start_date(started_at: &Option<String>) -> Option<NaiveDate> {
 /// 抜粋の最大文字数（表示幅に合わせ TUI 側でも切詰めるための上限）。
 const SNIPPET_MAX_CHARS: usize = 80;
 
-/// メイン jsonl を 1 行ずつ走査し、type / word 条件にマッチしたヒットを返す。
+/// 会話 jsonl を 1 行ずつ走査し、type / word 条件にマッチしたヒットを返す。
 ///
+/// - pi の会話（行の `type` が `message`）と cc の会話（行の `type` が
+///   `user` / `assistant`）の両方を同じ走査で扱う。どちらの行も、候補を作ったあとの
+///   種別絞り込み・語の AND・抜粋は共通の手順を通る
 /// - `turn` は 1 始まりの行番号（`session` ヘッダ行を含む全行カウント）
 /// - パースに失敗した行はスキップ（検索は継続）
 /// - 1 エントリ内の text / thinking / toolCall は別々のマッチ候補になる
@@ -519,65 +520,82 @@ fn scan_session_file(
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue; // パース失敗行はスキップ
         };
-        if v.get("type").and_then(|t| t.as_str()) != Some("message") {
-            continue;
-        }
-        let msg = match v.get("message") {
-            Some(m) => m,
-            None => continue,
-        };
-        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
-        let content_val = msg.get("content");
+        // 行の `type` で会話の runner を判断する。`message` = pi、`user`/`assistant` = cc
+        let row_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         // (種別, 検索対象テキスト) の候補を収集する
         let mut candidates: Vec<(SearchHitType, String)> = Vec::new();
-        match role {
-            "user" => {
-                collect_text_items(content_val, SearchHitType::User, &mut candidates);
-            }
-            "assistant" => {
-                if let Some(items) = content_val.and_then(|c| c.as_array()) {
-                    for item in items {
-                        match item.get("type").and_then(|t| t.as_str()) {
-                            Some("text") => {
-                                if let Some(s) = item.get("text").and_then(|t| t.as_str()) {
-                                    candidates.push((SearchHitType::Agent, s.to_string()));
+        match row_type {
+            "message" => {
+                // pi の会話（message.role で user / assistant / toolResult を見分ける）
+                let Some(msg) = v.get("message") else {
+                    continue;
+                };
+                let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
+                let content_val = msg.get("content");
+                match role {
+                    "user" => {
+                        collect_text_items(content_val, SearchHitType::User, &mut candidates);
+                    }
+                    "assistant" => {
+                        if let Some(items) = content_val.and_then(|c| c.as_array()) {
+                            for item in items {
+                                match item.get("type").and_then(|t| t.as_str()) {
+                                    Some("text") => {
+                                        if let Some(s) = item.get("text").and_then(|t| t.as_str()) {
+                                            candidates.push((SearchHitType::Agent, s.to_string()));
+                                        }
+                                    }
+                                    Some("thinking") => {
+                                        if let Some(s) =
+                                            item.get("thinking").and_then(|t| t.as_str())
+                                        {
+                                            candidates
+                                                .push((SearchHitType::Thinking, s.to_string()));
+                                        }
+                                    }
+                                    Some("toolCall") => {
+                                        let name =
+                                            item.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                                        let args = item
+                                            .get("arguments")
+                                            .map(|a| a.to_string())
+                                            .unwrap_or_default();
+                                        // tool_call: ツール名 + 引数 JSON を対象にする
+                                        candidates.push((
+                                            SearchHitType::ToolCall,
+                                            format!("{name} {args}"),
+                                        ));
+                                        // tool_name: ツール名のみ
+                                        if !name.is_empty() {
+                                            candidates
+                                                .push((SearchHitType::ToolName, name.to_string()));
+                                        }
+                                    }
+                                    _ => {} // 未知の content type は無視
                                 }
                             }
-                            Some("thinking") => {
-                                if let Some(s) = item.get("thinking").and_then(|t| t.as_str()) {
-                                    candidates.push((SearchHitType::Thinking, s.to_string()));
-                                }
-                            }
-                            Some("toolCall") => {
-                                let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                                let args = item
-                                    .get("arguments")
-                                    .map(|a| a.to_string())
-                                    .unwrap_or_default();
-                                // tool_call: ツール名 + 引数 JSON を対象にする
-                                candidates
-                                    .push((SearchHitType::ToolCall, format!("{name} {args}")));
-                                // tool_name: ツール名のみ
-                                if !name.is_empty() {
-                                    candidates.push((SearchHitType::ToolName, name.to_string()));
-                                }
-                            }
-                            _ => {} // 未知の content type は無視
                         }
                     }
-                }
-            }
-            "toolResult" => {
-                // tool_name: toolResult 側の toolName も対象
-                if let Some(name) = msg.get("toolName").and_then(|n| n.as_str()) {
-                    if !name.is_empty() {
-                        candidates.push((SearchHitType::ToolName, name.to_string()));
+                    "toolResult" => {
+                        // tool_name: toolResult 側の toolName も対象
+                        if let Some(name) = msg.get("toolName").and_then(|n| n.as_str()) {
+                            if !name.is_empty() {
+                                candidates.push((SearchHitType::ToolName, name.to_string()));
+                            }
+                        }
+                        collect_text_items(content_val, SearchHitType::ToolResult, &mut candidates);
                     }
+                    _ => {}
                 }
-                collect_text_items(content_val, SearchHitType::ToolResult, &mut candidates);
             }
-            _ => {}
+            // cc の会話（行の `type` が `user` / `assistant`）
+            "user" | "assistant" => {
+                if let Some(msg) = v.get("message") {
+                    collect_cc_candidates(row_type, msg, &mut candidates);
+                }
+            }
+            _ => {} // ヘッダ行など（`session` / `model_change` など）は無視
         }
 
         for (type_, text) in candidates {
@@ -609,6 +627,68 @@ fn scan_session_file(
         }
     }
     Ok(hits)
+}
+
+/// cc（Claude Code）の会話 1 行から (種別, 検索対象テキスト) の候補を収集する。
+///
+/// cc の jsonl は行の `type` が `user` / `assistant` で、`message.content` に
+/// `text` / `thinking` / `tool_use` / `tool_result` の項目が並ぶ（content が
+/// 文字列の形式もある）。項目ごとに別々の候補にするのは pi 側と同じ。
+fn collect_cc_candidates(
+    row_type: &str,
+    msg: &serde_json::Value,
+    out: &mut Vec<(SearchHitType, String)>,
+) {
+    // 文字列の content は user なら User、assistant なら Agent として扱う
+    let text_type = if row_type == "user" {
+        SearchHitType::User
+    } else {
+        SearchHitType::Agent
+    };
+    match msg.get("content") {
+        Some(serde_json::Value::String(s)) => {
+            out.push((text_type, s.clone()));
+        }
+        Some(serde_json::Value::Array(items)) => {
+            for item in items {
+                match item.get("type").and_then(|t| t.as_str()) {
+                    Some("text") => {
+                        if let Some(s) = item.get("text").and_then(|t| t.as_str()) {
+                            out.push((text_type, s.to_string()));
+                        }
+                    }
+                    Some("thinking") => {
+                        if let Some(s) = item.get("thinking").and_then(|t| t.as_str()) {
+                            out.push((SearchHitType::Thinking, s.to_string()));
+                        }
+                    }
+                    Some("tool_use") => {
+                        let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let input = item
+                            .get("input")
+                            .map(|a| a.to_string())
+                            .unwrap_or_default();
+                        // tool_call: ツール名 + 引数 JSON を対象にする（pi と同じ考え方）
+                        out.push((SearchHitType::ToolCall, format!("{name} {input}")));
+                        // tool_name: ツール名のみ
+                        if !name.is_empty() {
+                            out.push((SearchHitType::ToolName, name.to_string()));
+                        }
+                    }
+                    // 工具の返り（cc では user 行に入る）。中身の文字を対象にする
+                    Some("tool_result") => {
+                        collect_text_items(
+                            item.get("content"),
+                            SearchHitType::ToolResult,
+                            out,
+                        );
+                    }
+                    _ => {} // 未知の項目は無視
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// content（配列 or 文字列）から `type:"text"` のテキストを収集する。
@@ -690,10 +770,11 @@ fn extract_snippet_line(text: &str, words: &[String], max_chars: usize) -> Strin
 
 /// 検索を実行する（仕様書 §7.4）。
 ///
-/// 1. DB フィルタで対象実行を決定 → 2. メイン jsonl を特定 →
+/// 1. DB フィルタで対象実行を決定 → 2. 会話 jsonl を特定（`resolve_transcript`。
+///    pi は run の `session_dir`、cc は `~/.claude/projects/…`）→
 /// 3. type / word でマッチ抽出。結果は `(block_id, exec_id, turn)` 昇順で返す。
 ///
-/// `session_dir` が未設定・不存在・jsonl が見つからない実行はスキップする
+/// 会話ファイルが見つからない実行はスキップする
 /// （エラーにはしない。スキップ件数が必要な場合は [`run_search_verbose`] を使う）。
 pub fn run_search(store: &SaiStore, q: &SearchQuery) -> Result<Vec<SearchHit>, SearchError> {
     run_search_verbose(store, q).map(|(hits, _)| hits)
@@ -709,20 +790,16 @@ pub fn run_search_verbose(
     let filtered = filter_executions(store, q)?;
     let mut hits = Vec::new();
     let mut skipped = 0usize;
+    // 会話ファイルの探し方は Web や `message.md` と同じ `resolve_transcript` にそろえる
+    // （cc の run は `~/.claude/projects/…/<session_id>.jsonl` にあるため、
+    //   pi 用の `session_dir` だけを見ると必ずスキップになる）。
+    // owner 移動追従も `resolve_transcript` 之内（`resolve_session_dir`）で行われる。
+    let project_root = crate::project::project_root();
     for fe in &filtered {
-        // owner 移動追従のため `resolve_session_dir()` で現行正本を解決する。
-        // DB の旧 `session_dir` が移動前の owner を指したままの場合も救済する。
         let exec_id = fe.exec.id.unwrap_or(0);
-        let Some(dir) = resolve_session_dir(fe.exec.session_dir.as_deref(), exec_id) else {
+        let Some(path) = crate::phone_export::resolve_transcript(&fe.exec, &project_root) else {
             skipped += 1;
             continue;
-        };
-        let path = match find_main_session_file(&dir) {
-            Ok(p) => p,
-            Err(_) => {
-                skipped += 1;
-                continue;
-            }
         };
         match scan_session_file(&path, fe.exec.block_id, exec_id, q, "") {
             Ok(mut h) => hits.append(&mut h),
@@ -760,14 +837,12 @@ pub fn run_search_projects(
         };
         let filtered = filter_executions(&store, q)?;
         for fe in &filtered {
-            // 単一検索と同様に現行正本を解決する（owner 移動追従）。
+            // 単一検索と同様に `resolve_transcript` で現行正本を探す
+            // （owner 移動追従 + cc の会話ファイルも解決される）。
             let exec_id = fe.exec.id.unwrap_or(0);
-            let Some(dir) = resolve_session_dir(fe.exec.session_dir.as_deref(), exec_id) else {
+            let Some(path) = crate::phone_export::resolve_transcript(&fe.exec, &project.root)
+            else {
                 continue;
-            };
-            let path = match find_main_session_file(&dir) {
-                Ok(p) => p,
-                Err(_) => continue,
             };
             let hits = scan_session_file(
                 &path,
@@ -1044,6 +1119,80 @@ mod tests {
         assert!(hits.iter().all(|h| h.type_ == SearchHitType::Thinking));
     }
 
+    /// cc（Claude Code）の会話のテスト用 jsonl を書き出す。
+    ///
+    /// pi と違い、行の `type` が `user` / `assistant` で、`message.content` に
+    /// `text` / `thinking` / `tool_use` / `tool_result` の項目が並ぶ。
+    fn write_test_cc_jsonl(dir: &std::path::Path) -> PathBuf {
+        let path = dir.join("cccccccc-3333-4333-8333-333333333333.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"summary","summary":"会話の要約"}"#, "\n",
+                r#"{"type":"user","message":{"role":"user","content":"CCWORD について 説明してください"}}"#, "\n",
+                r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"CCWORD を含む思考"},{"type":"text","text":"回答です"},{"type":"tool_use","id":"t1","name":"block_discover","input":{"q":"llm"}}]}}"#, "\n",
+                r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"サブブロック CCWORD 2 件"}]}]}}"#, "\n",
+                "not a json line\n",
+            ),
+        )
+        .unwrap();
+        path
+    }
+
+    /// cc の会話でも各種別が語で当たる（`scan_session_file` 単体）。
+    #[test]
+    fn test_scan_session_file_cc() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_test_cc_jsonl(dir.path());
+        let q = parse_query(&RawSearchForm::default()).unwrap();
+
+        let hits = scan_session_file(&path, 7, 9, &q, "").unwrap();
+
+        // turn は 1 始まりの行番号（summary 行も数える）
+        let by_turn: Vec<(usize, SearchHitType)> = hits.iter().map(|h| (h.turn, h.type_)).collect();
+        assert!(by_turn.contains(&(2, SearchHitType::User)));
+        assert!(by_turn.contains(&(3, SearchHitType::Thinking)));
+        assert!(by_turn.contains(&(3, SearchHitType::Agent)));
+        assert!(by_turn.contains(&(3, SearchHitType::ToolCall)));
+        assert!(by_turn.contains(&(3, SearchHitType::ToolName)));
+        assert!(by_turn.contains(&(4, SearchHitType::ToolResult)));
+
+        // block_id / exec_id / パスの反映
+        assert!(hits.iter().all(|h| h.block_id == 7 && h.exec_id == 9));
+        assert_eq!(hits[0].session_path, path);
+
+        // 種別ごとに語が当たること
+        let by_type = |type_: SearchHitType, word: &str| -> Vec<SearchHit> {
+            let q = parse_query(&RawSearchForm {
+                type_: type_.as_str().to_string(),
+                word: word.to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+            scan_session_file(&path, 7, 9, &q, "").unwrap()
+        };
+        assert!(!by_type(SearchHitType::User, "ccword").is_empty());
+        assert!(!by_type(SearchHitType::Agent, "回答").is_empty());
+        assert!(!by_type(SearchHitType::Thinking, "ccword").is_empty());
+        // tool_call はツール名 + 引数 JSON が対象（ツール名も一致する）
+        assert!(!by_type(SearchHitType::ToolCall, "block_discover").is_empty());
+        // tool_name はツール名のみが対象（引数の値は当たらない）
+        assert!(!by_type(SearchHitType::ToolName, "block_discover").is_empty());
+        assert!(by_type(SearchHitType::ToolName, "llm").is_empty());
+        assert!(!by_type(SearchHitType::ToolResult, "ccword").is_empty());
+
+        // word AND 条件（cc の user 行 1 件だけ）
+        let q = parse_query(&RawSearchForm {
+            word: "ccword, 説明".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let hits = scan_session_file(&path, 7, 9, &q, "").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].type_, SearchHitType::User);
+        assert_eq!(hits[0].matched_words, vec!["ccword", "説明"]);
+    }
+
     // -----------------------------------------------------------------------
     // run_search（DB フィルタ + 結合）
     // -----------------------------------------------------------------------
@@ -1254,6 +1403,88 @@ mod tests {
         let mut sorted = keys.clone();
         sorted.sort();
         assert_eq!(keys, sorted);
+    }
+
+    /// テスト用 DB の実行に runner / agent_session_id を設定する。
+    ///
+    /// 公開 API がないため別接続で直接 UPDATE する（テスト内のみの利用）。
+    fn set_runner(db_path: &std::path::Path, exec_id: i64, runner: &str, session_id: Option<&str>) {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE execution_history SET runner = ?1, agent_session_id = ?2 WHERE id = ?3",
+            rusqlite::params![runner, session_id, exec_id],
+        )
+        .unwrap();
+    }
+
+    /// cc（runner = "cc"）の実行が `skipped` にならず、ヒットに入ることの確認。
+    ///
+    /// cc の会話は run フォルダではなく `~/.claude/projects/…/<session_id>.jsonl`
+    /// に置く。`HOME` と `SAI_PROJECT_ROOT` を一時フォルダに向けて、
+    /// `resolve_transcript` の探索先そのものを一時フォルダ内の物にする。
+    #[test]
+    fn test_run_search_finds_cc_transcript() {
+        // 環境変数（HOME・SAI_PROJECT_ROOT）を書き換えるため直列化する
+        let _env = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let root = dir.path().join("project-root");
+        std::fs::create_dir_all(&root).unwrap();
+
+        // cc の会話ファイル（`~/.claude/projects/<slug(root)>/<session_id>.jsonl`）
+        let sid = "cccccccc-3333-4333-8333-333333333333";
+        let cc_dir = dir
+            .path()
+            .join("home")
+            .join(".claude")
+            .join("projects")
+            .join(crate::session::claude_project_slug(&root));
+        std::fs::create_dir_all(&cc_dir).unwrap();
+        write_test_cc_jsonl(&cc_dir);
+
+        let (_block_id, exec_id) = setup_test_db(
+            &db_path,
+            "test-cc-block",
+            None,
+            Some(1),
+            Some(1),
+            "2026-08-29 01:06:41",
+            None, // cc の実行には session_dir が無い
+        );
+        set_runner(&db_path, exec_id, "cc", Some(sid));
+
+        let old_home = std::env::var_os("HOME");
+        let old_root = std::env::var_os("SAI_PROJECT_ROOT");
+        std::env::set_var("HOME", dir.path().join("home"));
+        std::env::set_var("SAI_PROJECT_ROOT", &root);
+
+        let store = SaiStore::open(&db_path).unwrap();
+        let q = parse_query(&RawSearchForm {
+            word: "ccword".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let result = run_search_verbose(&store, &q);
+        drop(store);
+
+        if let Some(v) = old_home {
+            std::env::set_var("HOME", v);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(v) = old_root {
+            std::env::set_var("SAI_PROJECT_ROOT", v);
+        } else {
+            std::env::remove_var("SAI_PROJECT_ROOT");
+        }
+
+        let (hits, skipped) = result.unwrap();
+        // 会話が見つからないのでスキップされていない（ヒットが出ている）
+        assert_eq!(skipped, 0);
+        assert!(!hits.is_empty(), "cc の会話がヒットに入ること");
+        assert!(hits.iter().all(|h| h.exec_id == exec_id));
+        assert_eq!(hits[0].session_path, cc_dir.join(format!("{sid}.jsonl")));
     }
 
     /// メイン jsonl（UUID パターン）のみが検索対象になることの確認（§5.2）。
