@@ -169,7 +169,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 | メソッド・パス | 中身 |
 |---|---|
-| `GET /api/projects/{name}/tree` | 引き出しツリー（`phone tree`・TUI の左サイドバーと同じ） |
+| `GET /api/projects/{name}/tree` | 引き出しツリー（`phone tree`・TUI の左サイドバーと同じ）。各 run ノードは `executer`（`human` / `professor`）を持つ。`professor` の todo には画面が ▶ 実行を出さない |
 | `GET /api/projects/{name}/search?q=…` | 文書（task / message / waggle）の本文検索（`phone search`・Dashboard の検索カード）。`q`（空白区切りで AND・200 文字まで）に加え、`category`（カンマ区切り・空で全部）・`since` / `until`（`YYYY-MM-DD`・実行日）・`block`（完全一致）・`from_id` / `to_id`（run_id の範囲）・`limit`（1〜100・既定 50）。通らない値は CLI を呼ばずに 400。返り値は `{items: [{run_id, category, file, token?, block, date, snippet}], truncated}` |
 | `GET /api/projects/{name}/rtree` | 3 層の実行の図（`phone rtree`・U03。`{"nodes": […], "edges": […]}` をそのまま返す。実行の記録が要るので 404 の決まりは `tree` と同じ） |
 | `GET /api/projects/{name}/runs/{run_id:int}/view/{log\|stats\|history}` | run の中身（`phone run`） |
@@ -177,14 +177,14 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `PUT /api/projects/{name}/runs/{run_id:int}/md/{task\|review}` | md の保存（body `{"text"}`・`phone md --write`・task は未実行の todo カードだけで、それ以外は 404「未実行のカードが見つかりません」） |
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle` | 成果物の一覧（`phone waggle`） |
 | `GET /api/projects/{name}/runs/{run_id:int}/waggle/{token}` | 成果物 1 件の本文（`phone waggle --token`） |
-| `POST /api/projects/{name}/runs/{run_id:int}/start` | 新形式 todo の ▶ 実行（`phone card run`・未実行カードが無ければ 404） |
+| `POST /api/projects/{name}/runs/{run_id:int}/start` | 新形式 todo の ▶ 実行（`phone card run`・未実行カードが無ければ 404。`executer: professor` のカードは 502「このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください」） |
 | `POST /api/projects/{name}/runs/{run_id:int}/advance` | review → done → Workflow の移動（`phone advance`・その run が無ければ 404「実行が見つかりません」、review / done 以外は 502） |
 | `POST /api/projects/{name}/runs/{run_id:int}/schedule` | todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し・`phone card schedule`）。時刻になると常駐が `phone card run` と同じ流れで実行する |
 | `DELETE /api/projects/{name}/runs/{run_id:int}` | List の項目を消す（`phone rm`・子の実行と run フォルダも消える。実行中は 502） |
 | `GET /api/projects/{name}/card/docs` | 最近の文書（`phone card docs`・task_text に貼る `ref` 付き） |
 | `GET /api/projects/{name}/card/options` | 作成フォームの選択肢（`phone card options`） |
 | `GET /api/projects/{name}/card/inputs?block=<id>` | 手順 4 の入力欄と候補（`phone card inputs`） |
-| `POST /api/projects/{name}/card` | カード（task.md）の作成（`phone card create`・stdin に JSON） |
+| `POST /api/projects/{name}/card` | カード（task.md）の作成（`phone card create`・stdin に JSON。任意の `executer`（`human` / `professor`）も渡せる） |
 
 - 外から来る値は `apps/phone` 自身が CLI を呼ぶ**前**に検査する（`run_id` は正の整数，
   `view` / `kind` は一覧の値だけ，`token` は英数字と `-_.:`・長さ 128 まで）→ 400。

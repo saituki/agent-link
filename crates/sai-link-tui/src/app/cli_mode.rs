@@ -504,6 +504,12 @@ fn do_run_flow(state: &mut AppState) {
             return;
         }
     };
+    // `executer: professor` のカードはここでは起こさない（professor が自分の子として起こす）。
+    if card.frontmatter.is_professor_executer() {
+        state.cli_mode.error =
+            Some(sai_link_engine::kanban::PROFESSOR_EXECUTER_MESSAGE.to_string());
+        return;
+    }
     // `runner: gl` → デーモン要求なし・herdr ペインで `gl` を開くのみ。
     // sai-gemini 側で会話するためタスク書き込み・DB claim は行わない。
     // run フォルダは user と同様に todo → running へ移動する。

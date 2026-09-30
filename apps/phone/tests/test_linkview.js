@@ -8,6 +8,7 @@
 // - ツリーの組み立て（字下げ・同じ run が両方にあっても最初の 1 件）
 // - Log / Stats / History の表示の組み立て
 // - review → done → Workflow の移動ボタンの出し分け（計画書 A の U10）
+// - professor が起こすカード（executer: professor）の判定（U1）
 // 実行:
 //     node tests/test_linkview.js
 
@@ -205,6 +206,31 @@ function testTodoRun() {
   assert.strictEqual(lv.isTodoRun({ lane: "running", status: "todo" }), true);
   assert.strictEqual(lv.isTodoRun({ lane: "review", status: "completed" }), false);
   assert.strictEqual(lv.isTodoRun(null), false);
+}
+
+/** professor が起こすカード（executer: professor）は人が動かさない・U1。 */
+function testProfessorRun() {
+  assert.strictEqual(lv.isProfessorRun({ executer: "professor" }), true);
+  // 未記載・human・知らない値は人が起こす
+  assert.strictEqual(lv.isProfessorRun({ executer: "human" }), false);
+  assert.strictEqual(lv.isProfessorRun({}), false);
+  assert.strictEqual(lv.isProfessorRun({ executer: "" }), false);
+  assert.strictEqual(lv.isProfessorRun(null), false);
+  // ツリーの行に executer が届く（sai-link `phone tree` の項目）
+  const tree = [
+    {
+      type: "folder", id: "todo", label: "todo", depth: 0,
+      children: [
+        { type: "run", run_id: 14, label: "ID14/sub", lane: "todo", status: "todo", executer: "professor" },
+        { type: "run", run_id: 15, label: "ID15/sub", lane: "todo", status: "todo" },
+      ],
+    },
+  ];
+  const rows = lv.flattenTree(tree, null);
+  const prof = rows.find((r) => r.runId === 14);
+  const human = rows.find((r) => r.runId === 15);
+  assert.strictEqual(lv.isProfessorRun(prof), true, "professor の行");
+  assert.strictEqual(lv.isProfessorRun(human), false, "人が起こす行");
 }
 
 function testFolds() {
@@ -500,6 +526,7 @@ function main() {
   testViewTabs();
   testSessionHash();
   testTodoRun();
+  testProfessorRun();
   testFolds();
   testFlatten();
   testFindRun();

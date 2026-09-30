@@ -1233,6 +1233,7 @@ mod search_tests {
                 card_path: None,
                 exec_id: None,
                 runner: String::new(),
+                executer: String::new(),
             })
             .collect();
         scroll_kanban(&mut state, 1);

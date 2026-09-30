@@ -224,6 +224,15 @@ function isTodoRun(run) {
 }
 
 /**
+ * professor が起こすカードか（`executer: professor`・U1）。
+ * 人が起こす道（▶ 実行）では動かさないので、ボタンを出さない。
+ */
+function isProfessorRun(run) {
+  if (!run || typeof run !== "object") return false;
+  return String(run.executer || "") === "professor";
+}
+
+/**
  * ツリーを「今開いているフォルダだけ」並べた行に組み替える（描き方の元・計画 14 §1.2）。
  * open === null は「覚えが無い＝全部開く」。depth は 行ごとの字下げの段。
  */
@@ -253,6 +262,7 @@ function flattenTree(items, open) {
           runId: Number(node.run_id),
           lane: String(node.lane || ""),
           status: String(node.status || ""),
+          executer: String(node.executer || ""),
         });
       }
     }
@@ -680,7 +690,18 @@ function lvRenderActions() {
     box.appendChild(btn);
   };
   if (isTodoRun(lvRun)) {
-    add("▶ 実行", lvRunTodo);
+    if (isProfessorRun(lvRun)) {
+      // professor が起こすカードは人が動かさない（用語の札付きで 이유を出す・U1）。
+      const note = document.createElement("span");
+      note.className = "lv-run-note";
+      note.appendChild(document.createTextNode("professor が起こす "));
+      if (typeof saiTerm === "function") {
+        note.appendChild(saiTerm("professor", "professor が起こす"));
+      }
+      box.appendChild(note);
+    } else {
+      add("▶ 実行", lvRunTodo);
+    }
     add("⏰ 予約", lvSchedule, "ghost");
   } else {
     // review / done の run だけ review → done → Workflow の移動を出す（計画書 A の U10）
@@ -1480,6 +1501,12 @@ function lvRenderDrawer() {
       dot.setAttribute("aria-hidden", "true");
       b.appendChild(dot);
       b.appendChild(el("span", "lv-run-item-label", r.label));
+      // professor が起こす todo には短い印を出す（一覧で分かるように・U1）。
+      if (r.lane === "todo" && isProfessorRun(r)) {
+        const mark = el("span", "lv-run-item-mark", "prof");
+        mark.title = "professor が起こす";
+        b.appendChild(mark);
+      }
       b.addEventListener("click", () => {
         // run を選ぶと閉じ，最後に見ていた表示のまま中身だけ変わる（計画 14 §1.3）
         const view = pickView(isTodoRun(r), lvView || loadViewMemory());
@@ -1679,6 +1706,7 @@ if (typeof module !== "undefined" && module.exports) {
     viewTabs,
     pickView,
     isTodoRun,
+    isProfessorRun,
     lvCanEdit,
     flattenTree,
     findRun,

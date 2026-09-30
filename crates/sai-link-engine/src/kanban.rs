@@ -51,10 +51,18 @@ const FIXED_FM_KEYS: [&str; 13] = [
 ///
 /// - `source_doc`: 元実行の出力トークン列（R112 自動充填・`waggle:` トークン）
 /// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
-const META_FM_KEYS: [&str; 2] = ["source_doc", "scheduled_at"];
+/// - `executer`: カードの起動者（`human` / `professor`）。既定は `human`
+const META_FM_KEYS: [&str; 3] = ["source_doc", "scheduled_at", "executer"];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
 const LEGACY_FM_KEYS: [&str; 2] = ["origin_run_id", "origin_block"];
+
+/// `executer: professor` のカードで、人が起こす道を試したときの文言。
+///
+/// 人が起こすと root の run になり、報告が professor に届かないため止める。
+/// CLI（`kanban_run::run_card_request`）と TUI（`cli_mode::do_run_flow`）で同じ文を出す。
+pub const PROFESSOR_EXECUTER_MESSAGE: &str =
+    "このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください";
 
 /// `scheduled_at:` の値（`YYYY-MM-DD HH:MM`）を読む。読めなければ `None`。
 pub fn parse_scheduled_at(s: &str) -> Option<chrono::NaiveDateTime> {
@@ -132,6 +140,22 @@ impl CardFrontmatter {
     /// 実行主体が `user` か（未記載は `pi` 扱い）。
     pub fn is_user_runner(&self) -> bool {
         self.runner.trim().eq_ignore_ascii_case("user")
+    }
+
+    /// 起動者（`human` / `professor`）。未記載・空・知らない値は `human` 扱い。
+    ///
+    /// - `human`: 人が起こすカード（今の動き）
+    /// - `professor`: professor が自分の子の run として起こすカード
+    pub fn executer(&self) -> &str {
+        match self.meta.get("executer").map(|v| v.trim()) {
+            Some("professor") => "professor",
+            _ => "human",
+        }
+    }
+
+    /// professor が子の run として起こすカードか（人が起こす道の実行は止める）。
+    pub fn is_professor_executer(&self) -> bool {
+        self.executer() == "professor"
     }
 
     /// メタ情報を設定する（`source_doc` / `scheduled_at`）。
@@ -710,6 +734,44 @@ mod tests {
         let empty = parse_card("---\ncreation_date: 2026/08/01 10:00:00\nrun_id: -\n---\n\n# task_text\n\n")
             .unwrap();
         assert!(resolve_card_inputs(&empty, &HashMap::new()).is_err());
+    }
+
+    /// 起動者（`executer`）はメタ情報として読み書きできる（入力検査の対象外）。
+    #[test]
+    fn executer_reads_and_writes() {
+        let mut card = parse_card(SAMPLE).unwrap();
+        // 未記載は人が起こす
+        assert_eq!(card.frontmatter.executer(), "human");
+        assert!(!card.frontmatter.is_professor_executer());
+
+        // professor を書いても読み書きで値が残る（入力の欄には入らない）
+        card.frontmatter
+            .set_meta("executer".to_string(), "professor".to_string());
+        let rendered = render_card(&card);
+        assert!(rendered.contains("executer: professor"), "{rendered}");
+        let reparsed = parse_card(&rendered).expect("再パースできる");
+        assert_eq!(reparsed.frontmatter.executer(), "professor");
+        assert!(reparsed.frontmatter.is_professor_executer());
+        // 入力の欄（extra）には入らない（`resolve_card_inputs` は task_text だけ）
+        let mut with_text = parse_card(SAMPLE_V2).unwrap();
+        with_text
+            .frontmatter
+            .set_meta("executer".to_string(), "professor".to_string());
+        assert_eq!(
+            resolve_card_inputs(&with_text, &HashMap::new())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(with_text.frontmatter.extra.is_empty());
+
+        // 空・知らない値は人が起こす扱い
+        for value in ["", "  ", "robot"] {
+            let mut c = parse_card(SAMPLE).unwrap();
+            c.frontmatter
+                .set_meta("executer".to_string(), value.to_string());
+            assert_eq!(c.frontmatter.executer(), "human", "値 {value:?}");
+        }
     }
 
     #[test]

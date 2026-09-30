@@ -61,14 +61,14 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | 使うもの | 場所 |
 |---|---|
 | `sai-moon-link phone export`（プロジェクトの実行を JSON で書き出す） | CLI: `crates/sai-link-cli/src/cli.rs`（`handle_phone_export`）／本体: `crates/sai-link-engine/src/phone_export.rs` |
-| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む） |
+| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む）。**全 run ノードに `executer`（`human` / `professor`・既定 `human`）を足す**（カードの frontmatter `executer:` から取る） |
 | `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`） |
 | `sai-moon-link phone md <id> --kind task\|review\|message`（無ければ **終了コード 3・stderr「まだありません」**） | 同 `phone.rs`（`md`） |
 | `sai-moon-link phone waggle <id> [--token <t>]`（成果物の一覧と本文。一覧の各項目に task_text に貼れる `ref` がある） | 同 `phone.rs`（`waggle`） |
 | `sai-moon-link phone card options`（作成フォームの選択肢） | 同 `phone.rs`（`card_options`）／`sai_link_widgets::card_wizard`（TUI と共有） |
 | `sai-moon-link phone card inputs --block <id>`（手順 4 の入力と候補） | 同 `phone.rs`（`card_inputs`） |
-| `sai-moon-link phone card create`（**stdin に JSON**・作成後は todo に配置） | 同 `phone.rs`（`card_create`）／`validate_card_spec` + `create_card`（TUI と同じ検査） |
-| `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**） | 同 `phone.rs`（`card_run`） |
+| `sai-moon-link phone card create`（**stdin に JSON**・作成後は todo に配置） | 同 `phone.rs`（`card_create`）／`validate_card_spec` + `create_card`（TUI と同じ検査）。任意の `executer`（`human` / `professor`・空は `human`）を受け取り、frontmatter の `executer:` に書く。知らない値は**終了コード 1** |
+| `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: professor` のカードは **終了コード 1**・stderr「このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください」） | 同 `phone.rs`（`card_run`）／本体: `kanban_run::run_card_request`（`block run --kanban` と常駐の予約実行も同じ入口を通る） |
 | `sai-moon-link phone card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]`（todo の task.md の `scheduled_at:` を書く・省略で消す。常駐が 5 秒ごとに見回って実行する） | 同 `phone.rs`（`card_schedule`）・`daemon.rs`（`run_scheduled_cards`） |
 | `sai-moon-link phone card docs [--limit N]`（最近の文書 `{items: [{token, label, description, status, ref}]}`） | 同 `phone.rs`（`card_docs`） |
 | `sai-moon-link phone rtree`（research-tree の実行の図。root / seed / branch の 3 層 DAG） | 同 `phone.rs`（`rtree`）／組み立て: `sai_link_widgets` の `research_dag::load_research_dag`（§2.2.2） |
@@ -212,6 +212,21 @@ DB が開けないときは終了コード 4。実行が 0 件でも空の配列
 - `edges[]` を作る線は **既存の 3 種だけ**（新しい `connection_type` は作らない）。同じ `(from, to, kind)` は 1 本にまとめる。
 - `phone workflow` とは別の図。`phone workflow` は `workflow_moved = true` の run だけとフェーズ合成を出すが、こちらは **`workflow_moved` を見ない**（Kanban 側の run も 1 枚で node にする）。
 - 中身は `sai_link_widgets::research_dag::load_research_dag`（`crates/sai-link-widgets/src/research_dag.rs`）。TUI も同じ読み方を共有する。
+
+#### カードの frontmatter の `executer`（起動者）
+
+`task.md`（カード）の frontmatter のメタ情報として `executer:` を持つ。**入力の欄ではなく、起動の道を決める情報**（`META_FM_KEYS` なので入力検査の対象外）。
+
+| 値 | 意味 |
+|---|---|
+| `human`（既定） | 人が起こすカード。今までの動き。 |
+| `professor` | professor（root の run）が自分の子の run として起こすカード。**人が起こす道では動かさない**（`run_card_request` と TUI の `do_run_flow` がerrorで止める）。 |
+
+- 読むのは `sai_link_engine::kanban::CardFrontmatter::executer()` / `is_professor_executer()`。未記載・空・知らない値は `human` 扱い。
+- `phone tree` の各 run ノードと `phone workflow` のレーンの各札は `"executer": "human" | "professor"` を持つ（カードが無い run は `human`）。
+- Web の List 画面は `executer: professor` の todo に ▶ 実行を出さず、「professor が起こす」と出す（`apps/phone/src/sai_phone/static/linkview.js` の `isProfessorRun`）。
+- 研究方針の木から作るカードは `sai-moon-paper sci card --executer <human|professor>` で指定する（`professor` は `runner: pi` のときだけ）。省略は `human`。
+- `sai-moon-link phone card create` も任意の `executer` を受ける（空は `human`・知らない値は終了コード 1）。
 
 ### 2.3 壊れる変更・壊れない変更
 
@@ -638,13 +653,14 @@ sai-moon-paper set create <name> … [--node <N>] [--question <Q>] [--purpose <�
 | `runner` | 文字列（`pi` / `cc` / `user`・既定 `pi`） | 実行主体 | `pi` |
 | `role` / `depth` | 文字列 | 論文の役割と読む深さ | ― |
 | `origin_run` | 数値 | 親にする実行 | ― |
+| `executer` | 文字列（`human` / `professor`・既定 `human`） | 起動者。**Web からは指定しない**（professor が起こすカードは CLI だけ） | `human` |
 
 `runner` が `user` のときは `papers` が 1 つで、`role` が必須。**ファイルのパスは受け取らない。**
 
 **その他の応答**
 
 - `phone sci proposals` → `{"proposals": [...]}`。1 件は `node` の `pending[]` と同じ形に `"node": "N12"` を足したもの。
-- `phone sci card` → `{"run_id": N, "path": "…/task.md"}`。
+- `phone sci card` → `{"run_id": N, "path": "…/task.md", "executer": "human"}`。
 - `phone sci finish-read <run_id>` → `{"run_id": N, "findings": 2, "reflected": true}`（理由で終えたときは `"findings": 0`）。
 - `phone sci init --type <型>` → `{"type","created_items","created_edges","warnings","backup","assets"}`。**`assets` は配った部品の 1 行ずつの文字列の配列**（無いファイルは書かない）。
 - 書き込む命令（`init` / `apply` / `triage` / `card` / `finish-read`）は、終わる前に `export::export` を呼ぶ。`apps/phone` は書き込みのあと画面を読み直します。
@@ -935,6 +951,7 @@ curl -s localhost:8200/api/radio/papers
 | `block の指定が正しくありません` `task_text は 100KB までです` `runner は user / pi / cc / gl のいずれか（空でスキップ）` `thinking は none / …` `トークンは waggle: 形式で指定してください` `global_round は数字にしてください（空でスキップ）` `tag は 64 文字までの 1 行にしてください` | 400 | **作成フォームの `apps/phone` 自身の検査**（`control._validate_card_payload`・CLI を呼ぶ前） |
 | `まだありません` | 404 | その run に md（task / review / message）が無い（`phone md` の終了コード 3） |
 | `未実行のカードが見つかりません` | 404 | その run の未実行カードが無い（`phone card run` の終了コード 3・▶ 実行） |
+| `このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください` | 502 | そのカードは professor が起こすカード。人が起こす道（`phone card run`・TUI）では動かさない |
 | `sai-moon-link` の stderr の先頭（例 `実行が見つかりません: ID9999`） | 502 | `phone …` が失敗した。理由は相手の stderr の先頭 200 文字。ログ（7.2）に全文が出る |
 | `プロジェクトが見つかりません` / `このプロジェクトにはまだ実行の記録がありません` | 404 | 登録簿に無い／`db_exists` が偽 |
 | `PDF がありません` / `音声が見つかりません` | 404 | ファイル・音声が無い（相手側の 404） |

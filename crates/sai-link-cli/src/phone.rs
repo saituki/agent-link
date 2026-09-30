@@ -149,9 +149,12 @@ struct CardCreateInput {
     /// タグ（空 = スキップ）
     #[serde(default)]
     tag: String,
-    /// `# task_text` 直下に挿入する本文
+    /// タスク本文の直下に挿入する本文
     #[serde(default)]
     task_text: String,
+    /// 起動者（`human` / `professor`。空 = 人が起こす）
+    #[serde(default)]
+    executer: String,
     /// task_text 先頭に貼る文書トークン（`phone card inputs` の candidates.token。空可）
     /// TUI Step4 と同じく `waggle:<tok>:path:…` 参照行として task_text 先頭に貼られる
     #[serde(default)]
@@ -420,6 +423,7 @@ fn lanes_json(entries: &[card_entries::CardEntry]) -> Value {
             "date": e.date,
             "description": e.description,
             "runner": e.runner,
+            "executer": e.executer,
         });
         use sai_link_engine::kanban::KanbanLane as L;
         match e.lane {
@@ -730,6 +734,8 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                     "label": it.name,
                     "lane": it.lane,
                     "status": it.status,
+                    // 起動者（professor が起こすカードは `professor`・既定は `human`）。
+                    "executer": card_entries::executer_for_run(run_id),
                 });
                 // 実行予約した todo だけ `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（ホームの「予約」用）
                 if it.lane.as_deref() == Some("todo") {
@@ -1069,8 +1075,30 @@ fn card_create() -> PhoneResult<Value> {
     // TUI と同じ検査（runner / thinking は一覧の値・block は存在するもの）
     card_wizard::validate_card_spec(&spec).map_err(PhoneError::usage)?;
 
+    // 起動者（空は人が起こす）。知らない値はここでは弾く。
+    let executer = match parsed.executer.trim() {
+        "" | "human" => "human".to_string(),
+        "professor" => "professor".to_string(),
+        other => {
+            return Err(PhoneError::usage(format!(
+                "知らない起動者です: {}（human / professor）",
+                other
+            )))
+        }
+    };
+
     let path = card_wizard::create_card(&spec)
         .map_err(|e| PhoneError::usage(format!("カード作成に失敗: {}", e)))?;
+
+    // 作成済み task.md の frontmatter に起動者を足す（`executer` はメタ情報）。
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| PhoneError::internal(format!("作成した task.md を読めません: {}", e)))?;
+    let mut card = sai_link_engine::kanban::parse_card(&text)
+        .ok_or_else(|| PhoneError::internal("作成した task.md の frontmatter を読めません"))?;
+    card.frontmatter
+        .set_meta("executer".to_string(), executer.clone());
+    std::fs::write(&path, sai_link_engine::kanban::render_card(&card))
+        .map_err(|e| PhoneError::internal(format!("作成した task.md を書けません: {}", e)))?;
 
     // 作成済み task.md の frontmatter から確定した run_id を読む
     let text = std::fs::read_to_string(&path)
@@ -1082,6 +1110,7 @@ fn card_create() -> PhoneResult<Value> {
     Ok(json!({
         "run_id": run_id,
         "path": path.display().to_string(),
+        "executer": executer,
     }))
 }
 
@@ -2028,6 +2057,52 @@ mod tests {
         let err = card_run(781).unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
         assert_eq!(err.msg, DAEMON_STOPPED);
+
+        // (4-2) `executer: professor` のカードも対象にはなる（見つからない扱いにしない）。
+        // 実行要求の入口（`kanban_run::run_card_request`）が professor を断る。
+        write_task(root, 782, "782");
+        let text = std::fs::read_to_string(root.join(".sai/outputs/todo/782/task.md")).unwrap();
+        let text = text.replace("run_id: 782", "run_id: 782\nexecuter: professor");
+        std::fs::write(root.join(".sai/outputs/todo/782/task.md"), text).unwrap();
+        // 人が起こす入口では必ずこの文言で止まる（常駐の有無に依らない）。
+        let err = crate::kanban_run::run_card_request(
+            &root.join(".sai/outputs/todo/782/task.md"),
+            None,
+            &[],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            sai_link_engine::kanban::PROFESSOR_EXECUTER_MESSAGE
+        );
+        // カード自体は todo の対象として残っている（常駐停止の終了コード 1 で止まる）。
+        let err = card_run(782).unwrap_err();
+        assert_eq!(err.code, EXIT_USAGE);
+        assert_eq!(err.msg, DAEMON_STOPPED);
+        // 人が起こすカード（781）は今までどおり要求を送る。
+        let err = crate::kanban_run::run_card_request(
+            &root.join(".sai/outputs/todo/781/task.md"),
+            None,
+            &[],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_ne!(
+            err.to_string(),
+            sai_link_engine::kanban::PROFESSOR_EXECUTER_MESSAGE,
+            "人が起こすカードは止めない: {err}"
+        );
 
         // (5) task の保存（md --write）: 未実行カードだけ・frontmatter を壊す内容は保存しない
         let path = root.join(".sai/outputs/todo/781/task.md");

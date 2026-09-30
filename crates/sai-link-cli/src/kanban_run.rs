@@ -104,6 +104,13 @@ pub fn run_card_request(
     let card = sai_link_engine::kanban::parse_card(&text)
         .ok_or("カード md の frontmatter をパースできません")?;
 
+    // professor が起こすカードは、人が起こす道（`phone card run`・`block run --kanban`・
+    // 常駐の予約実行）では動かさない。起こすと root の run になり、報告が professor に
+    // 届かないため。professor 自身が子の run として起こすのは別の入口（task_create）。
+    if card.frontmatter.is_professor_executer() {
+        return Err(sai_link_engine::kanban::PROFESSOR_EXECUTER_MESSAGE.into());
+    }
+
     // ブロック選択：`--block` 指定優先、無ければ task.md の `block:` を使用
     let block_selector: String = match block {
         Some(b) => b.to_string(),
