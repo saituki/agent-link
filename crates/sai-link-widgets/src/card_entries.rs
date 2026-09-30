@@ -34,6 +34,8 @@ pub struct TodoCardInfo {
     pub run_id: Option<i64>,
     /// ディレクトリ名と `run_id:` が不一致か（エラー表示用）
     pub run_id_mismatch: bool,
+    /// カードの frontmatter `executer:`（`human` / `professor`・未記載は `human`）
+    pub executer: String,
 }
 
 impl TodoCardInfo {
@@ -166,7 +168,33 @@ pub fn todo_card_info(
         block,
         run_id,
         run_id_mismatch,
+        executer: card.frontmatter.executer().to_string(),
     })
+}
+
+/// カードの frontmatter から起動者（`human` / `professor`）を読む。
+///
+/// カードが読めない・frontmatter が無いときは `human`（人が起こす）。
+pub fn executer_of_card(card_path: Option<&std::path::Path>) -> String {
+    let Some(path) = card_path else {
+        return "human".to_string();
+    };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| sai_link_engine::kanban::parse_card(&text))
+        .map(|card| card.frontmatter.executer().to_string())
+        .unwrap_or_else(|| "human".to_string())
+}
+
+/// run フォルダの task.md から起動者（`human` / `professor`）を読む。
+///
+/// どのレーン（todo / running / review / done）でも run フォルダは
+/// `find_run_dir` で引ける。カードが無い run は `human`。
+pub fn executer_for_run(run_id: i64) -> String {
+    let Some((_, dir)) = sai_link_engine::run_dir::find_run_dir(run_id) else {
+        return "human".to_string();
+    };
+    executer_of_card(Some(&dir.join(sai_link_engine::run_dir::TASK_FILE)))
 }
 
 /// `pending/` 内の未処理 `block_run_request` が指す予約 run_id 一覧（R302）。
@@ -277,6 +305,8 @@ pub struct CardEntry {
     pub exec_id: Option<i64>,
     /// runner（pi / cc など。todo は未実行で空）
     pub runner: String,
+    /// 起動者（`human` / `professor`）。カードが無い run は `human`。
+    pub executer: String,
 }
 
 /// 実行に対応するカード md の絶対パスを解決する。
@@ -400,14 +430,16 @@ pub fn collect_card_entries_from(
                 }
             })
             .unwrap_or_else(|| e.created_at.clone());
+        let card_path = card_path_for_execution(e.kanban_card_path.as_deref(), run_id);
         out.push(CardEntry {
             title: format!("ID{}/{}", run_id, name),
             date,
             description,
             lane,
-            card_path: card_path_for_execution(e.kanban_card_path.as_deref(), run_id),
+            card_path,
             exec_id: Some(run_id),
             runner: e.runner.clone(),
+            executer: executer_for_run(run_id),
         });
     }
     // todo: 未実行カードファイル（`load_data` で事前走査済み・作成日時順）。
@@ -430,6 +462,7 @@ pub fn collect_card_entries_from(
             card_path: Some(info.path.clone()),
             exec_id: None,
             runner: String::new(),
+            executer: info.executer.clone(),
         });
     }
     out

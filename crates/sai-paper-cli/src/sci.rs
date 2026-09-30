@@ -177,6 +177,9 @@ pub struct SciCardArgs {
     /// 依頼文に載せる文書の waggle トークン（繰り返し可）
     #[arg(long = "input")]
     pub input: Vec<String>,
+    /// 起動者（human / professor。省略は human＝人が起こす）
+    #[arg(long)]
+    pub executer: Option<String>,
 }
 
 impl SciCardArgs {
@@ -200,6 +203,7 @@ impl SciCardArgs {
             role: self.role.clone().unwrap_or_default(),
             depth: self.depth.clone().unwrap_or_default(),
             inputs: self.input.clone(),
+            executer: self.executer.clone().unwrap_or_default(),
         })
     }
 }
@@ -629,10 +633,16 @@ fn triage(
 /// `sci card` — 節点のための実行（カード）を作る。
 fn card(spec: sci::card::CardSpec, json: bool) -> Result<Out> {
     let env = open_env()?;
+    // 起動者は省略なら human（検査は create_card がする）。
+    let executer = sci::card::normalize_executer(&spec.executer);
     let result =
         card::create_card(&env.db, &env.roots, &env.defs, &spec).map_err(|err| anyhow!("{err}"))?;
     env.export()?;
-    let value = json!({ "run_id": result.run_id, "path": result.path.to_string_lossy() });
+    let value = json!({
+        "run_id": result.run_id,
+        "path": result.path.to_string_lossy(),
+        "executer": executer,
+    });
     if json {
         return Ok(Out::Json(value));
     }

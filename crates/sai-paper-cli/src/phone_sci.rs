@@ -277,6 +277,8 @@ fn card_spec(input: &str) -> Result<card::CardSpec> {
         depth: text_of(&value, "depth"),
         // Web からは文書を受け取らない（C-05 の `--input` は CLI の引数だけ）。
         inputs: Vec::new(),
+        // Web の画面から作るカードは人が起こすもの（professor が起こすカードは CLI だけ）。
+        executer: String::new(),
     })
 }
 

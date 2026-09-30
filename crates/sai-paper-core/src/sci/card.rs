@@ -102,6 +102,8 @@ pub(crate) const MARK_LABELS: [(&str, &str); 2] =
 
 /// 実行者。
 const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
+/// カードの起動者。空は `human`（人が起こす）。
+const EXECUTERS: [&str; 2] = ["human", "professor"];
 /// 読む札のブロックの既定。
 const READ_BLOCK: &str = "sci-read";
 /// 仮置きの上限。
@@ -208,6 +210,11 @@ pub struct CardSpec {
     pub depth: String,
     /// 依頼文に載せる文書の waggle トークン。`waggle:` を外して検査してから `- waggle:…` の行にする。
     pub inputs: Vec<String>,
+    /// 起動者（`human` / `professor`）。空は `human`（人が起こす）。
+    ///
+    /// `professor` は professor が自分の子の run として起こすカード。
+    /// 人が起こす道（`phone card run` など）では動かさない。
+    pub executer: String,
 }
 
 /// カードを作った結果。
@@ -315,6 +322,17 @@ fn check_inputs(inputs: &[String]) -> Result<Vec<String>> {
     Ok(out)
 }
 
+/// 起動者の値を正規化する（空・空白は `human`）。
+#[must_use]
+pub fn normalize_executer(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        "human".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// 目的付きの sci のカードを todo に作り、節点と run を結ぶ。
 ///
 /// 読む札（`runner = user`）のときは `block` が空なら `sci-read` になり、
@@ -341,6 +359,19 @@ pub fn create_card(
         return Err(SciError::Invalid(format!(
             "知らない実行者です: {runner}"
         )));
+    }
+    // 起動者（空は人が起こす）。professor が起こすカードは pi で動く子だけ。
+    let executer = normalize_executer(&spec.executer);
+    if !EXECUTERS.contains(&executer.as_str()) {
+        return Err(SciError::Invalid(format!(
+            "知らない起動者です: {executer}（human / professor）"
+        )));
+    }
+    if executer == "professor" && runner != "pi" {
+        return Err(SciError::Invalid(
+            "professor が起こすカードは runner が pi だけです（子の run は pi で動くため）"
+                .to_string(),
+        ));
     }
     let is_read = runner == "user";
 
@@ -510,6 +541,8 @@ pub fn create_card(
         .collect::<Vec<_>>()
         .join("; ");
     let extra: Vec<(&str, String)> = vec![
+        // 起動者は先頭に書く（読み手がすぐ分かるように）。
+        ("executer", executer.clone()),
         ("sci_node", fmt_ref('N', node.id)),
         (
             "sci_question",
@@ -973,7 +1006,64 @@ mod tests {
             role: String::new(),
             depth: String::new(),
             inputs: Vec::new(),
+            executer: String::new(),
         }
+    }
+
+    /// 起動者（`executer`）が task.md に入り、知らない値と `cc` との組が弾かれること。
+    #[test]
+    fn card_executer_is_written_and_checked() {
+        let (fix, db) = fixture("executer", &["sci-compare"]);
+        let conn = db.connection();
+        let node = add_item(conn, "小目的", Some("purpose.subgoal"));
+
+        // 空（既定）は人が起こす。human のときも読み手が迷わないよう書く。
+        let human = spec(node);
+        let made = create_card(&db, &fix.roots, &defs(), &human).unwrap();
+        let text = fs::read_to_string(&made.path).unwrap();
+        assert!(text.contains("executer: human"), "{text}");
+
+        // 明示しても同じ。
+        let mut said = spec(node);
+        said.executer = "human".to_string();
+        let made = create_card(&db, &fix.roots, &defs(), &said).unwrap();
+        assert!(
+            fs::read_to_string(&made.path)
+                .unwrap()
+                .contains("executer: human"),
+            "明示の human も書く"
+        );
+
+        // professor が起こすカード。
+        let mut prof = spec(node);
+        prof.executer = "professor".to_string();
+        let made = create_card(&db, &fix.roots, &defs(), &prof).unwrap();
+        let text = fs::read_to_string(&made.path).unwrap();
+        assert!(text.contains("executer: professor"), "{text}");
+
+        // 知らない値は弾く。
+        let mut bad = spec(node);
+        bad.executer = "robot".to_string();
+        let err = create_card(&db, &fix.roots, &defs(), &bad).unwrap_err();
+        assert!(err.to_string().contains("知らない起動者です"), "{err}");
+
+        // professor が起こすカードは pi だけ（子は pi で動く）。
+        for runner in ["cc", "user"] {
+            let mut mixed = spec(node);
+            mixed.executer = "professor".to_string();
+            mixed.runner = runner.to_string();
+            if runner == "user" {
+                mixed.papers = vec![37];
+                mixed.role = "exemplar".to_string();
+            }
+            let err = create_card(&db, &fix.roots, &defs(), &mixed).unwrap_err();
+            assert!(err.to_string().contains("runner が pi だけ"), "{err}");
+        }
+
+        // 空の正規化。
+        assert_eq!(normalize_executer(""), "human");
+        assert_eq!(normalize_executer("  "), "human");
+        assert_eq!(normalize_executer(" professor "), "professor");
     }
 
     /// 目的が無いと作れないこと（既存の実行も残らないこと）。
