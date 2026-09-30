@@ -30,7 +30,8 @@ EXP='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/
 
 - `run` は投げてすぐ戻り、**標準出力の 1 行目に job_id** が出る。控える。
 - `command` には、環境変数を渡す引数が無い。**命令の前に `env NAME=値` を書く**。
-  例: `... run local -- env EXP_BRANCH_RUN_ID=121 uv run --python ">=3.10" --with mlflow python s01/g1.py`（先に `cd <workdir>`）
+  例: `... run local -- env EXP_BRANCH_RUN_ID=121 uv run --python ">=3.10" --with mlflow s01/g1.py`（先に `cd <workdir>`）
+- **スクリプトの前に `python` を付けない。** `uv run <script>.py` はスクリプトの PEP 723 の欄（`# /// script`）の依存を読む。`python <script>.py` の形にすると欄が読まれず、必要な道具が入らない。
 - `status` の `state` は次のとおり。
 
 | state | 意味 | 次にすること |
@@ -46,12 +47,17 @@ EXP='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/
 
 ## 3. 危険な操作の確認（必ず守る）
 
-次は、実行する前に必ず利用者の承認を得る。
+次は、実行する前に必ず**起動者**（カードを起こした人）の承認を得る。
 
 - (a) スクリプトの置き場の外にあるファイルの削除や上書き
 - (b) 道具の導入
 - (c) 他の人のジョブやプロセスの停止（**自分が投入した job_id だけ**を扱う）
 - (d) 実行先の設定（`target.toml`・adapter）の変更
 
-確認の方法: Claude Code は `AskUserQuestion` ツールで尋ねる。pi は返答の中で尋ねて、返事を待つ。
+確認の方法: 質問ツールで尋ねる（Claude Code は `AskUserQuestion`、pi は `ask_user_phone`）。返答の本文だけで尋ねて止まらない。
+
+## 4. 秘密の扱い
+
+- 鍵・合言葉の値（`settings.json` の `env`・`.env` の中身）を、質問・報告・スクリプト・task.md に書かない。値が要るときは環境変数の名前だけを書く。
+- AWS の鍵と S3 の endpoint は環境変数で受け取る。値をスクリプトに埋め込まない。
 sai-link は cc を権限確認なしで起動する。そのため、この確認はエージェントである自分の指示として守る。
