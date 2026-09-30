@@ -90,7 +90,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `sai-moon-link phone card run` / `sai-moon-link phone finalize` / `sai-moon-link phone advance` / `sai-moon-link block run` / `sai-moon-link block rm` / `sai-moon-link phone rm` / `sai-moon-link daemon` / `sai-moon-link init` / `sai-moon-link migrate-outputs` / `sai-moon-link task manage` / `sai-moon-link phone md --write`
 
-`sai-moon-paper init` / `sai-moon-paper sci init` / `sai-moon-paper sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない（`sci triage` は、人が Web からする op の代わりとして使える）。
+`sai-moon-paper init` / `sai-moon-paper sci init` / `sai-moon-paper sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない。ただし professor は、木の仕分けのために `sci triage` と `sci apply`（`decide` など、人がする op）を使ってよい。課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。
 
 ## researcher に渡さないもの
 
