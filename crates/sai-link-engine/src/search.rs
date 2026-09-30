@@ -675,7 +675,7 @@ fn collect_cc_candidates(
                             out.push((SearchHitType::ToolName, name.to_string()));
                         }
                     }
-                    // 工具の返り（cc では user 行に入る）。中身の文字を対象にする
+                    // ツールの返り（cc では user 行に入る）。中身の文字を対象にする
                     Some("tool_result") => {
                         collect_text_items(
                             item.get("content"),
@@ -793,7 +793,7 @@ pub fn run_search_verbose(
     // 会話ファイルの探し方は Web や `message.md` と同じ `resolve_transcript` にそろえる
     // （cc の run は `~/.claude/projects/…/<session_id>.jsonl` にあるため、
     //   pi 用の `session_dir` だけを見ると必ずスキップになる）。
-    // owner 移動追従も `resolve_transcript` 之内（`resolve_session_dir`）で行われる。
+    // owner 移動追従も `resolve_transcript` の中（`resolve_session_dir`）で行われる。
     let project_root = crate::project::project_root();
     for fe in &filtered {
         let exec_id = fe.exec.id.unwrap_or(0);
