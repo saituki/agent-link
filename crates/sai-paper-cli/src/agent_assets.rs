@@ -983,6 +983,16 @@ mod tests {
     /// 共通の決まり（sci-core）も範囲（context: true）も持たず、研究向けの 3 本を受ける。
     /// どちらも `id` がファイル名と一致し、呼ぶ子（professor だけ）も配るブロックの中に無い。
     #[test]
+    fn shipped_sci_blocks_parse_with_engine_parser() {
+        for (name, content) in SCI_BLOCKS {
+            let parsed = sai_link_engine::parser::parse_block_string(content)
+                .unwrap_or_else(|e| panic!("{name} が parser で読めない: {e}"));
+            let id = parsed.config.id.as_deref().unwrap_or_default();
+            assert_eq!(format!("{id}.md"), *name, "{name} の id");
+        }
+    }
+
+    #[test]
     fn professor_and_operator_declare_research_templates() {
         for (name, id, subblocks, headings) in [
             (
