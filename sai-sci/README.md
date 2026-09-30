@@ -65,11 +65,11 @@
 sai-sci/
 ├── types/      # 5 つの型（problem・phenomenon・method・data・improve）
 ├── guides/     # 項目ガイド（上の項目 9 本・子の項目 16 本）
-├── template/   # sci-core.md（エージェントの共通の決まり）と exp-core.md・exp-run.md（実験ループの決まり）
+├── template/   # sci-core.md（エージェントの共通の決まり）・exp-core.md・exp-run.md（実験ループの決まり）・sai-agent.md・sai-task.md・sai-cli.md（professor と operator の共通の決まり）
 ├── mind.md     # 土壌のひな形
-├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
+├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
-└── blocks/     # 18 本のブロック
+└── blocks/     # 20 本のブロック（professor と operator を含む）
 ```
 
 ### 3.1 5 つの型
@@ -121,10 +121,33 @@ sai-sci/
 | `novelty.closest` | 最も近い研究 | 並べる | `novelty` |
 | `novelty.diff` | 差分 | 書く・確かめる | `novelty` |
 
-### 3.4 18 本のブロック
+### 3.4 20 本のブロック
 
-`blocks/` の 18 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 20 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
 `sci_scope` は「このブロックの行動に切り出す範囲」、`sci_ops` は「このブロックで提案できる op」。
+
+- 表の 18 本は木の中で動く researcher（root / seed / branch）。
+- もう 2 本（`professor` と `operator`）は木の中で動かず、木の外から木を見る役。下の 3.4.1 に書く。
+
+#### 3.4.1 3 役の関係
+
+```
+professor（root の run。researcher を直接起こす）
+  |-- researcher（sci-* の 18 本。木の root / seed / branch で働く）
+  `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
+```
+
+| id | 名前 | 役 | 共通の決まり | 研究の判断 |
+|---|---|---|---|---|
+| `professor` | 🎓 professor | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して研究方針（木の仕分け）をする | `sai-agent` / `sai-task` / `sai-cli` | する。root の run になる。研究作業は自分でしない |
+| `operator` | 🛠 operator | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sai-cli` | しない。professor の子。子の `task_id` で professor の子を扱える |
+| `sci-*` | （18 本） | 研究作業そのもの（読む・比べる・候補を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で不起きたもの）に書かれた作業だけ |
+
+- カードの `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人間が Web から起こせず、professor が `task_create` の `card` で自分の子として起こす。
+- 子からの質問は親の `task_output` に `stalled`（`reason: "question"`）で届き、`phone_api.py question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
+- 完了は、子は `task_report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai_finalize` に `report`。報告は run フォルダの `finalize-report.md`（`sai-moon-link phone md --kind report <run_id>` で読む）。
+- 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中）。
+- 3 役が使う共通の決まりは `template/sai-agent.md`・`sai-task.md`・`sai-cli.md` の 3 本（3.5 節）。sai-moon 自身の `.sai/template/sai-base.md` などを元に、研究プロジェクト向けに書き直したもの。
 
 | id | 名前 | 類 | 範囲 | 提案できる op | 呼べる子ブロック |
 |---|---|---|---|---|---|
@@ -158,6 +181,10 @@ sai-sci/
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。範囲を出す `{{context}}`、確かめの地点、提案の書き方、使える 14 種類の op、根拠の扱い、迎合しない姿勢。
 - **`template/exp-core.md`** — 実験ループ（seed と branch）の共通の決まり。役割、文書の渡し方、実験仕様書、MLflow の記録の決まり（C-04）、台帳、判定の規則、依頼文の形、実行場所の規則、停止の条件。
 - **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。`exp-core` の「実行場所の規則」と対で読む。
+- **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり（professor と operator が使う）。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・質問のしかた・合言葉と鍵の扱い・完了のしかた。
+- **`template/sai-task.md`** — 子タスクの扱い（professor が使う）。流れ・`task_output` の status ごとの対処・`task_manage` の表・予約済みのカードから子を起こす形・子の質問への対処・報告を受け取ったあと。
+- **`template/sai-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。実行を調べる命令・研究方針の木の命令・カードを作る命令・`phone_api.py`・実行先・使わない命令。
+- **`tools/phone_api.py`** — sai-phone（Web の窓口）の HTTP API を呼ぶ道具。質問・承認・root の run への送信・MLflow の読み取り。Web と同じ操作がコマンドラインからできる。
 - **`mind.md`**（`sai-sci/mind.md`）— 土壌のひな形。「始まり・研究の型・与えられていること・制約・価値の軸・興味がある/無い・メモ」の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** 「価値の軸」は「選ぶ項目」を比べる軸として `sci node` に出す。
 
 ---
@@ -171,6 +198,15 @@ sai-moon-paper init --sci --type <型>
 ```
 
 `init` 自身を終えたあとに `sci init --type <型>` と同じことをします。`mind.md` が無ければ、`sai-sci/mind.md` の土壌のひな形を書きます（普通の `project_files.rs:13` のひな形の代わり）。
+
+配り終えたら、最初の `professor` のカードを作って人が起こす。professor が現在の地を読み、次の一手を選んで researcher を起こす。
+
+```bash
+sai-moon-paper sci card --node <N1> --block <最初のブロックの id> \
+  --purpose "<研究の構想>" --executer human --origin-run <run_id> --json
+```
+
+`--executer human`（既定）なら Web からそのカードを実行できる。`--executer professor` のカード（研究作業）は、professor が `task_create` の `card` で自分の子として起こす。
 
 ### 4.2 今のプロジェクト
 
@@ -186,9 +222,10 @@ sai-moon-paper sci init --type <型>
 
 | 入るもの | 置き場 |
 |---|---|
-| 18 本の `sci-*` ブロック | `<root>/.sai/blocks/` |
-| `sci-core.md`・`exp-core.md`・`exp-run.md`（と 18 本が使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 18 本の `sci-*` ブロックと `professor.md`・`operator.md` | `<root>/.sai/blocks/` |
+| `sci-core.md`・`exp-core.md`・`exp-run.md`・`sai-agent.md`・`sai-task.md`・`sai-cli.md`（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
 | 台帳 `exp_summary.py`（判定の材料を取る道具）と分配器 `exp_exec.py`（無いときだけ書く） | `<root>/.sai/tools/` |
+| `phone_api.py`（Web と同じ操作をする道具。無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example`（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（土壌のひな形。無いときだけ書く） | `<root>/.sai/paper/mind.md` |
@@ -335,6 +372,8 @@ sai-moon-link phone card run <返ってきた run_id>
 | 木（項目・候補・問い・知見・結び付き・決定の記録・提案・種・検索の記録・墓標） | `papr.db`（migration `0046_sci_tree.sql`） |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/state.md` と `<root>/.sai/paper/tree.md` |
 | 型と項目ガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
+| professor の研究日誌 | `<root>/.sai/paper/professor-log.md` |
+| operator の学び | `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中。無ければ作らない） |
 
 - **`state.md` を手で直さない。** 次の書き出しで消えます。直すのは Web か `sai-moon-paper sci` だけです。
 - **写しは埋め込みより先に読まれます。** `<root>/.sai/sci/` に同じ相対パスの md があれば、それが使われます（無いときはバイナリに埋め込んだ版）。

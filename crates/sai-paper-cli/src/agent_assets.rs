@@ -47,13 +47,17 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
 
-/// sai-sci のブロック 18 本（C-16 の表の順。後ろの 2 本は実験ループの U04 が足した分）。
+/// sai-sci のブロック 20 本（C-16 の表の順。後ろの 2 本は実験ループの U04、最後の 2 本は U8 の足した分）。
 ///
-/// 研究方針の木で動く 3 類（outline / detail / support）。どれも同じ共通の決まり
+/// 大半は研究方針の木で動く 3 類（outline / detail / support）。どれも同じ共通の決まり
 /// （`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
 ///
 /// ただし `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
 /// （受け取るのは実験ループの共通の決まり `exp-core` だけ）。
+///
+/// `professor` と `operator` は木の中で動かず、木（root / seed / branch）の外から木を見る役。
+/// 共通決まり（`sci-core`）も範囲（`context: true`）も持たず、研究プロジェクト向けの
+/// 共通の決まり（`sai-agent` / `sai-task` / `sai-cli`）を受ける。
 const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-start.md", include_str!("../../../sai-sci/blocks/sci-start.md")),
     ("sci-outline.md", include_str!("../../../sai-sci/blocks/sci-outline.md")),
@@ -73,13 +77,23 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
     ("sci-exp-seed.md", include_str!("../../../sai-sci/blocks/sci-exp-seed.md")),
     ("sci-exp-branch.md", include_str!("../../../sai-sci/blocks/sci-exp-branch.md")),
+    ("professor.md", include_str!("../../../sai-sci/blocks/professor.md")),
+    ("operator.md", include_str!("../../../sai-sci/blocks/operator.md")),
 ];
 
-/// sai-sci の共通の決まり（`sci-core.md` と、実験ループの 2 本 `exp-core.md`・`exp-run.md`）。
+/// sai-sci の共通の決まり。
+///
+/// - 木の 3 類（`sci-core.md`）と実験ループの 2 本（`exp-core.md`・`exp-run.md`）
+/// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sai-task.md`・`sai-cli.md`。U8）。
+///   前の 3 本は researcher が使う。後の 3 本は `professor` と `operator` が使う
+///   （引き継ぎ・質問・子タスク・命令）。
 const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md")),
     ("exp-core.md", include_str!("../../../sai-sci/template/exp-core.md")),
     ("exp-run.md", include_str!("../../../sai-sci/template/exp-run.md")),
+    ("sai-agent.md", include_str!("../../../sai-sci/template/sai-agent.md")),
+    ("sai-task.md", include_str!("../../../sai-sci/template/sai-task.md")),
+    ("sai-cli.md", include_str!("../../../sai-sci/template/sai-cli.md")),
 ];
 
 /// sai-sci の道具（`.sai/tools/` に置く。実験ループの台帳と、実行先へ投げる分配器）。
@@ -88,6 +102,7 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
 const SCI_TOOLS: &[(&str, &str)] = &[
     ("exp_summary.py", include_str!("../../../sai-sci/tools/exp_summary.py")),
     ("exp_exec.py", include_str!("../../../sai-sci/tools/exp_exec.py")),
+    ("phone_api.py", include_str!("../../../sai-sci/tools/phone_api.py")),
 ];
 
 /// sai-sci の実行先の見本（`.sai/exec/` に置く）。3 つ目は「実行の権限を付けるか」。
@@ -475,6 +490,13 @@ mod tests {
     /// 木の範囲も共通の決まり（sci-core）も受け取らない 1 本（実験の実行役）。
     const EXP_WITHOUT_SCI_CORE: &str = "sci-exp-branch.md";
 
+    /// 木の中で動かず、外から木を見る 2 本（professor と operator）。
+    ///
+    /// この 2 本は `sci-core` も `context: true` も持たない。節点の範囲を作ってから動く
+    /// のではなく、木そのものを見る窓口だから。共通の決まりは研究向けの 3 本
+    /// （`sai-agent` / `sai-task` / `sai-cli`）を受ける。
+    const SCI_BLOCKS_WITHOUT_SCI_CORE: &[&str] = &[EXP_WITHOUT_SCI_CORE, "professor.md", "operator.md"];
+
     /// 部品を配ると、ブロック・テンプレート・設定・.mcp.json ができる。
     /// 既にある項目とファイルは残り、2 回目も重複しない。
     #[test]
@@ -677,13 +699,13 @@ mod tests {
 
         let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
 
-        // sci のブロック 18 本と、今の部品 17 本もそろう
+        // sci のブロック 20 本と、今の部品 17 本もそろう
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 18, "SCI_BLOCKS が 18 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 20, "SCI_BLOCKS が 20 本でない");
         assert_eq!(sci_blocks, 18, "配った sci のブロックが 18 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
@@ -700,6 +722,15 @@ mod tests {
         }
         assert!(root.join(".sai/template/domain.md").is_file());
         assert!(root.join(".sai/template/literature-hard-rules.md").is_file());
+
+        // U8: professor と operator のブロックと研究向けの共通 template 3 本、Web と同じ操作の道具。
+        for name in ["professor.md", "operator.md"] {
+            assert!(root.join(".sai/blocks").join(name).is_file(), "{name} が配られていない");
+        }
+        for name in ["sai-agent.md", "sai-task.md", "sai-cli.md"] {
+            assert!(root.join(".sai/template").join(name).is_file(), "{name} が配られていない");
+        }
+        assert!(root.join(".sai/tools/phone_api.py").is_file(), "phone_api.py が配られていない");
 
         // 実験ループの台帳は `.sai/tools/` に置く。ブロックはこの名前で呼ぶ
         for (name, content) in SCI_TOOLS {
@@ -836,20 +867,17 @@ mod tests {
 
     /// 2 本の実験ブロックが使うテンプレートは、全部 配る物（テンプレート + 分野の観点）にある。
     /// sai-link はテンプレートが見つからないと実行の前に止めるため、ずれると実行できない。
+    ///
+    /// U8 で足した `professor` と `operator` も同じ検査に含める。
     #[test]
-    fn exp_blocks_use_only_shipped_templates() {
+    fn blocks_use_only_shipped_templates() {
         let mut shipped: Vec<&str> = TEMPLATES.iter().map(|(name, _)| *name).collect();
         shipped.extend(SCI_TEMPLATES.iter().map(|(name, _)| *name));
         // `domain` は `install_domain` が `.sai/template/domain.md` に書く（名前は拡張子無し）。
         shipped.push("domain.md");
         shipped.push("domain");
 
-        for name in ["sci-exp-seed.md", "sci-exp-branch.md"] {
-            let content = SCI_BLOCKS
-                .iter()
-                .find(|(block, _)| *block == name)
-                .map(|(_, content)| *content)
-                .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
+        for (name, content) in SCI_BLOCKS {
             let frontmatter = content
                 .strip_prefix("---\n")
                 .and_then(|rest| rest.split("\n---\n").next())
@@ -872,14 +900,15 @@ mod tests {
         }
     }
 
-    /// sci のブロック 18 本のうち 17 本（`sci-exp-branch` を除く）は、全部 共通の決まり
+    /// sci のブロック 20 本のうち 17 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
     /// `sci-exp-branch` は判定をしないので木の範囲も共通の決まりも要らない。
+    /// `professor` と `operator` は木の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 18);
+        assert_eq!(SCI_BLOCKS.len(), 20);
         for id in [
             "sci-analogy.md",
             "sci-coach.md",
@@ -911,7 +940,7 @@ mod tests {
                 .strip_prefix("---\n")
                 .and_then(|rest| rest.split("\n---\n").next())
                 .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
-            if *name == EXP_WITHOUT_SCI_CORE {
+            if SCI_BLOCKS_WITHOUT_SCI_CORE.contains(name) {
                 continue;
             }
             checked += 1;
@@ -936,5 +965,197 @@ mod tests {
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
         assert_eq!(checked, 17, "共通の決まりを確かめたのは 17 本でない");
+    }
+
+    /// frontmatter から、リスト項目（`templates:` など）に並ぶ値をまとめて読む。
+    fn frontmatter_list<'a>(frontmatter: &'a str, key: &str) -> Vec<&'a str> {
+        frontmatter
+            .lines()
+            .skip_while(|line| *line != key)
+            .skip(1)
+            .take_while(|line| line.trim_start().starts_with("- "))
+            .map(|line| line.trim_start().trim_start_matches("- ").trim())
+            .collect()
+    }
+
+    /// `professor` と `operator` は、木の中で動かず、外から木を見る役。
+    ///
+    /// 共通の決まり（sci-core）も範囲（context: true）も持たず、研究向けの 3 本を受ける。
+    /// どちらも `id` がファイル名と一致し、呼ぶ子（professor だけ）も配るブロックの中に無い。
+    #[test]
+    fn professor_and_operator_declare_research_templates() {
+        for (name, id, subblocks, headings) in [
+            (
+                "professor.md",
+                "professor",
+                true,
+                &[
+                    "## 依頼",
+                    "## 役割",
+                    "## 研究方針の木の読み方",
+                    "## 始めにすること",
+                    "## 1 回の回し方",
+                    "## 質問に答える",
+                    "## 評価の観点",
+                    "## 実験の世代（seed）",
+                    "## operator を使う",
+                    "## Human に上げる",
+                    "## 完了する",
+                    "## やってはいけないこと",
+                ][..],
+            ),
+            (
+                "operator.md",
+                "operator",
+                false,
+                &[
+                    "## 依頼",
+                    "## 役割",
+                    "## 始めにすること",
+                    "## Human が Web でできることと、あなたの命令",
+                    "## よく起きる故障と対処",
+                    "## 情報を取り出す",
+                    "## 学ぶ",
+                    "## 報告",
+                    "## やってはいけないこと",
+                ][..],
+            ),
+        ] {
+            let content = SCI_BLOCKS
+                .iter()
+                .find(|(block, _)| *block == name)
+                .map(|(_, content)| *content)
+                .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
+            let frontmatter = content
+                .strip_prefix("---\n")
+                .and_then(|rest| rest.split("\n---\n").next())
+                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
+
+            assert!(frontmatter.contains(&format!("\nid: {id}\n")), "{name} の id が {id} ではない");
+            assert!(!frontmatter.contains("sci-core"), "{name} の templates に sci-core がある");
+            assert!(!frontmatter.contains("\ncontext: true\n"), "{name} に context: true がある");
+            assert!(!frontmatter.contains("\nsci_ops: "), "{name} に sci_ops がある");
+            assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
+            assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
+            assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
+            assert!(frontmatter.contains("\nthinking: high\n"), "{name} の thinking が high ではない");
+            assert!(content.contains("{{input.task_text}}"), "{name} に依頼の入力が無い");
+            assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
+
+            // 本文に必ずある節（依頼・役割・禁止）を確かめる
+            for heading in headings {
+                assert!(content.contains(heading), "{name} に {heading} が無い");
+            }
+
+            // 使う共通の決まりは研究向けの 3 本（配る物の中）。
+            let templates = frontmatter_list(frontmatter, "templates:");
+            assert!(templates.contains(&"sai-agent"), "{name} の templates に sai-agent が無い");
+            if subblocks {
+                for template in ["sai-task", "sai-cli"] {
+                    assert!(templates.contains(&template), "{name} の templates に {template} が無い");
+                }
+            }
+
+            // 呼べる子は、operator 以外（professor が researcher を起こす）。
+            let children = frontmatter_list(frontmatter, "subblocks:");
+            assert_eq!(subblocks, !children.is_empty(), "{name} の subblocks の有無が違う");
+            if subblocks {
+                assert!(children.contains(&"operator"), "professor の subblocks に operator が無い");
+                for child in children {
+                    let file = SCI_BLOCKS
+                        .iter()
+                        .map(|(block, _)| *block)
+                        .find(|block| block.trim_end_matches(".md") == child);
+                    assert!(file.is_some(), "professor の子「{child}」が SCI_BLOCKS に無い");
+                }
+            }
+        }
+    }
+
+    /// `professor` の本文に、実際に使う道具（C4 のカード・C11 の現在地・C8 の質問の答え方）と、
+    /// Human に上げる 4 つ（課金・鍵・要件の範囲・成功基準）が書いてある。
+    #[test]
+    fn professor_body_names_cards_status_questions_and_human_asks() {
+        let content = SCI_BLOCKS
+            .iter()
+            .find(|(block, _)| *block == "professor.md")
+            .map(|(_, content)| *content)
+            .expect("professor.md が SCI_BLOCKS に無い");
+        for needle in [
+            "\"card\": 120",
+            "--executer professor",
+            "--origin-run \"$SAI_PARENT_RUN_ID\"",
+            "sai-moon-paper sci status --brief",
+            "sci triage",
+            "phone_api.py",
+            "question <qid>",
+            "answer <qid>",
+            "課金",
+            "鍵・合言葉",
+            "要件の範囲",
+            "成功基準",
+            "professor-log.md",
+        ] {
+            assert!(content.contains(needle), "professor.md に {needle} が無い");
+        }
+    }
+
+    /// `operator` の本文に、Web の操作との対応・故障の対処・学びの置き場が書いてある。
+    #[test]
+    fn operator_body_names_web_map_troubles_and_notes() {
+        let content = SCI_BLOCKS
+            .iter()
+            .find(|(block, _)| *block == "operator.md")
+            .map(|(_, content)| *content)
+            .expect("operator.md が SCI_BLOCKS に無い");
+        for needle in [
+            "phone_api.py",
+            "sai-moon-link phone tree",
+            "phone md --kind",
+            "sai-moon-link search -w",
+            "task_capture",
+            "task_manage",
+            "exp_exec.py",
+            "operator-notes.md",
+            "`task_report` を呼ばずに止まる",
+            "Web の答えが子に届かない",
+            "子が閉じられていない",
+            "`failed`",
+            "`timeout`",
+            "常駐が動いていない",
+            "終了コード 2",
+        ] {
+            assert!(content.contains(needle), "operator.md に {needle} が無い");
+        }
+    }
+
+    /// `sai-agent` / `sai-task` / `sai-cli` が配られ、絶対パスと他の言語の語が無い。
+    #[test]
+    fn research_templates_are_shipped_without_absolute_paths() {
+        for name in ["sai-agent.md", "sai-task.md", "sai-cli.md"] {
+            let content = SCI_TEMPLATES
+                .iter()
+                .find(|(block, _)| *block == name)
+                .map(|(_, content)| *content)
+                .unwrap_or_else(|| panic!("{name} が SCI_TEMPLATES に無い"));
+            assert!(content.contains("# "), "{name} に見出しが無い");
+            assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
+            assert!(content.chars().all(|c| !is_foreign_script(c)), "{name} に他の言語の文字がある");
+        }
+        // 道具 phone_api.py も配る（professor と operator が Web と同じ操作をするため）。
+        assert!(
+            SCI_TOOLS.iter().any(|(name, _)| *name == "phone_api.py"),
+            "phone_api.py が SCI_TOOLS に無い"
+        );
+    }
+
+    /// 韓国語・ロシア語・中国簡体字のような、他言語の文字が混ざっていないかを見る。
+    fn is_foreign_script(c: char) -> bool {
+        let o = c as u32;
+        (0x1100..=0x11ff).contains(&o)      // ハングル
+            || (0x3130..=0x318f).contains(&o) // ハングル互換
+            || (0xac00..=0xd7af).contains(&o) // ハングル
+            || (0x0400..=0x04ff).contains(&o) // キリル
+            || (0x0370..=0x03ff).contains(&o) // ギリシャ
     }
 }
