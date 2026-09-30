@@ -7,13 +7,18 @@
 
 {{context}}
 
+## 起動者と質問
+- あなたを起こしたのは、カードの起動者です。`echo "${SAI_IS_SUBTASK:-0}"` が `1` なら子（professor が起こした）、`0` なら root（利用者 Human が起こした）です。
+- 確かめ・質問は、**必ず質問ツール**で聞きます（pi は `ask_user_phone`、Claude Code は `AskUserQuestion`）。返答の本文だけで尋ねて止まってはいけません。質問は Web の画面にも出るので、利用者も見ています。先に答えた方が採られます。
+- 質問の文・選択肢・報告に、鍵・合言葉の値を書きません。値が要るときは環境変数の名前だけを書きます。
+
 ## 最初にすること
 1. 今回の行動の目的を、1 文で言い直して示します。
-2. 範囲の「今回の行動」に節点の指定があれば、その項目（節点の ID と名前）を先頭に書きます。無いときは推測で項目を選び直しません。作業を始めてはいけません。ユーザーへ「研究方針のどの項目のための行動か」を確かめて止まります。
-3. 範囲が「（…範囲を作れませんでした…）」の 1 行だけだったときは、MCP の `sci_context`（pi では `sai-moon-paper sci context --run "$SAI_PARENT_RUN_ID"`）で取り寄せてから始めます。それでも取れなければ、そのことをユーザーに伝えて止まります。木がまだ無いときは、ユーザーに `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼みます。
+2. 範囲の「今回の行動」に節点の指定があれば、その項目（節点の ID と名前）を先頭に書きます。無いときは推測で項目を選び直しません。作業を始めてはいけません。質問ツールで起動者に「研究方針のどの項目のための行動か」を確かめて止まります。
+3. 範囲が「（…範囲を作れませんでした…）」の 1 行だけだったときは、MCP の `sci_context`（pi では `sai-moon-paper sci context --run "$SAI_PARENT_RUN_ID"`）で取り寄せてから始めます。それでも取れなければ、質問ツールでそのことを起動者に伝えて止まります。木がまだ無いときは、起動者に `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼みます。
 
 ## 確かめの地点
-次の 2 か所で止まり、「この方向で進めてよいか」をユーザーに聞いてください。
+次の 2 か所で止まり、質問ツールで「この方向で進めてよいか」を起動者に聞いてください。
 1. 目的を言い直したとき
 2. 提案を出す前
 
@@ -60,7 +65,7 @@
 | `option_state` | `node`（候補）・`state`（`rejected` / `dormant` / `candidate`） | 決定の記録 | 人 |
 | `exclude` | `target`（`paper:37` か `candidate:<dedupe_key>`）・`node`（任意）・`title`（任意） | 墓標 | 人 |
 | `edit_text` | `node`（N）・`title`（1〜120 字）・`body`（2000 字まで）。`title` と `body` のどちらか 1 つは必須 | 項目 `N<id>` | 人 |
-| `add_edge` | `kind`（`depends` 依存 / `derived` 由来 / `analogous` 同型。`parent` 親子は使えない）・`from`（N）・`to`（N）・`note`（200 字まで・任意） | `from` の項目 | 人 |
+| `add_edge` | `kind`（`depends` 依存 / `derived` 由来 / `analogous` 同型。`parent` 親子は使えない）・`from`（N）・`to`（N）・`note`（200 字まで・任意）。線の向きは `from` が上流、`to` が下流 | `from` の項目 | 人 |
 
 ### 自動で入るもの・利用者が仕分けるもの
 - **自動で入るもの**（`add_finding` `add_question` `answer_question` `link` `add_seed`）：出した提案はすぐ木に入り、自動で反映された印が付きます。利用者は 1 押しで取り消せます。迷ったときに取り消せるので、集計に必要な知見はためらわず出してください。
@@ -113,10 +118,10 @@ sai-moon-paper search "<英語の検索語>" --db s2 --save-as <名前> --node N
 ## コマンド
 `sai-moon-paper` のコマンド（`sai-moon-paper sci status` / `sai-moon-paper find` / `sai-moon-paper content report` など）は、そのまま打ちます。
 
-`sai-moon-paper` が `command not found` になったら、自分でフルパスを探さずに、ユーザーに「`sai-moon-paper` に PATH を通してください（README の「起動」）」と伝えて止まってください。
+`sai-moon-paper` が `command not found` になったら、自分でフルパスを探さずに、質問ツールで起動者に「`sai-moon-paper` に PATH を通してください（README の「起動」）」と伝えて止まってください。
 
 ## 出力
-そのブロックの「## 出力の形」の見出しに従ってください。report は `mcp__sai__sai_write` で 1 つだけ保存してください（途中のメモは保存しないでください）。`filename` は `<ブロックID>-<内容を表す短い英字>.md`（例 `sci-read-onset-accuracy.md`）、`description` は「<ブロックの名前>: <内容を 1 文で>」にしてください。保存したらユーザーに要点を伝え、完了の操作は利用者の指示を待ちます。
+そのブロックの「## 出力の形」の見出しに従ってください。report は `mcp__sai__sai_write` で 1 つだけ保存してください（途中のメモは保存しないでください）。`filename` は `<ブロックID>-<内容を表す短い英字>.md`（例 `sci-read-onset-accuracy.md`）、`description` は「<ブロックの名前>: <内容を 1 文で>」にしてください。保存したら要点を伝え、末節の「完了のしかた」のとおりに終えます。
 
 report の先頭には、次の frontmatter を必ず書いてください。無い・形が違う report は一覧で「形が読めない」と表示されます。
 
@@ -147,3 +152,9 @@ report の末尾には、次の 2 つの節を必ず書いてください。項�
 ```
 
 - 「状態」には `自動で反映（できた ID）` か `仕分け待ち` を書きます。
+
+## 完了のしかた
+report を保存したら、次のどちらかで終えます。終えたあとにこの run は何もしません。
+
+- **子の run（`SAI_IS_SUBTASK` が `1`）**: `task_report` を呼びます。report には 3〜10 行で、結論・保存した report のトークン・出した提案の ID・残った問いを書きます。
+- **root の run（`SAI_IS_SUBTASK` が `0` あるいは無い）**: 要点を伝え、質問ツールで「完了してよいか」を起動者に確かめます。了承されたら、`sai_finalize` を `report`（上と同じ要点）付きで呼びます。直しを求められたら、直して保存し直してから、もう一度確かめます。

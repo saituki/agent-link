@@ -12,7 +12,7 @@
 
 - 世代は 1 始まりで数える。1 世代は `sci-exp-branch` の 1 つ以上の実行で、**並列に**走る。
 - 判定の材料（最良・改善の有無・格子の端・漏洩の疑い）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しい手法の案）だけを書く。
-- seed は branch をすべて終えると、次の世代の `sci-exp-seed` を自分で起こす。**この往復を人に頼んだりはしない。**
+- seed は branch をすべて終えると、**そこで 1 世代を終える。1 つの run で 2 世代は回さない。** 次の世代は終え方にしたがって起こす（`sci-exp-seed` の §7）。
 
 ## 2. 文書の渡し方
 
@@ -33,7 +33,7 @@
 ## 3. 実験仕様書
 
 - ファイル名 `exp-spec-<study>.md`、description `実験仕様書 <study>: <研究の 1 文>`。
-- **最初の世代の seed だけが作る。** 途中で書き換えない（変えたいなら往復を止めて利用者に聞く）。
+- **最初の世代の seed だけが作る。** 途中で書き換えない（変えたいなら往復を止めて質問ツールで起動者に聞く）。
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは `{{context}}` と `sai-moon-paper sci status --json` の `purpose.metric`（指標と成功基準）。
 
 ```json
@@ -60,12 +60,14 @@
 | `mlflow_experiment` | MLflow の experiment 名。既定 `"local"` |
 | `workdir` | スクリプトを置くフォルダ。既定 `experiments/<study>` |
 
-- research-tree に書かれていない値は上の既定値を使う。**決まらない値（指標・向き・成功基準）を推測で埋めない。** 利用者に質問して待つ。
+- research-tree に書かれていない値は上の既定値を使う。**決まらない値（指標・向き・成功基準）を推測で埋めない。** 質問ツールで起動者に質問して待つ。
 
 ## 4. MLflow の記録の決まり
 
 - branch 1 つ = MLflow の親 run 1 つ（`exp.role=script`）。パラメータの組ごとに、入れ子の子 run（`exp.role=trial`、`mlflow.start_run(nested=True)`）。
 - experiment は仕様書の `mlflow_experiment`（既定 `local`）。接続先は環境変数 `MLFLOW_TRACKING_URI` に任せる。**スクリプトの中で上書きしない。**
+- **experiment の保存先は `create_experiment(name, artifact_location=…)` で決める。** `mlflow.set_experiment(name)` は `--default-artifact-root`（`/mlruns`）に作ってしまい、実行先から `log_artifact` が `PermissionError` になる。既に在る experiment を取り直すのは `get_experiment_by_name` で行う。
+  - 保存先は環境変数 `EXP_ARTIFACT_LOCATION`（無ければ既定 `s3://mlflow-local/`。これは `local` experiment の保存先）。**接続者の `MLFLOW_S3_ENDPOINT_URL` と AWS 鍵のさす先と同じ名前空間**（`s3://<バケット>/<prefix>`）にすること。
 - 親 run と子 run の両方に付けるタグ（すべて文字列）:
 
 | タグ | 中身 | 例 |
@@ -93,14 +95,24 @@
 
 seed が定数と `GRID` だけを書き換える。`train(params)` の `...` の部分が研究の本体である。MLflow に関する行は書き換えない。
 
+**先頭の PEP 723 の欄は消さない。** 追加の道具はここに書き足す（`uv run <script>.py` はこの欄の依存を読む）。`boto3` が無いと `s3://` への成果物の書き込みができない。
+
 ```python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["mlflow", "boto3"]
+# ///
 import itertools, os, time, mlflow
+from mlflow.tracking import MlflowClient
 
 # 定数（seed が世代ごとに書き換える）
 STUDY, SCI_NODE, SCRIPT = "N12-s120", "N12", "s01"
 GENERATION, ACTION, PARENT = 1, "draft", ""
 SEED_RUN_ID, PROJECT = "120", "west"
 METRIC, DIRECTION, EXPERIMENT = "val_auc", "maximize", "local"
+
+# 成果物の保存先。既定は local experiment と同じ。
+ARTIFACT_LOCATION = os.environ.get("EXP_ARTIFACT_LOCATION", "s3://mlflow-local/")
 
 # 実行している branch の run_id。seed がスクリプトを書く時点では分からないので、
 # 実行する branch が環境変数 EXP_BRANCH_RUN_ID に入れて渡す。
@@ -119,8 +131,15 @@ def train(params: dict) -> float:
     ...  # 研究の本体。METRIC の値を 1 つ返す
 
 
-mlflow.set_experiment(EXPERIMENT)  # 接続先は環境変数 MLFLOW_TRACKING_URI
+# experiment が無ければ保存先つきのまま作る。既に在るものは取り直すだけで、保存先には触らない。
+_client = MlflowClient()  # 接続先は環境変数 MLFLOW_TRACKING_URI
+_exp = _client.get_experiment_by_name(EXPERIMENT)
+if _exp is None:
+    _exp_id = _client.create_experiment(EXPERIMENT, artifact_location=ARTIFACT_LOCATION)
+else:
+    _exp_id = _exp.experiment_id
 with mlflow.start_run(
+        experiment_id=_exp_id,
         run_name=f"{STUDY}-{SCRIPT}-g{GENERATION}",
         tags={**TAGS, "exp.role": "script",
               "exp.metric": METRIC, "exp.direction": DIRECTION}):
@@ -273,8 +292,10 @@ seed_run_id: 125
   ```bash
   uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
     run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
-    env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --python ">=3.10" --with mlflow python <workdir からの相対パス>
+    env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --python ">=3.10" --with mlflow <workdir からの相対パス>
   ```
+
+  **スクリプトの前に `python` を付けない。** `uv run <script>.py` はスクリプトの PEP 723 の欄（`# /// script`）の依存を読むので、`python <script>.py` の形にすると欄が無視される。実験で必要な道具は、PEP 723 の `dependencies` に書いておく。
 
 - 標準出力の 1 行目に出る job_id を控え、`status <job_id> --json` で `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
 - 記録は実行先から**中央の MLflow に直接**入る（回収の手順は無い）。実行先が MLflow に届かないと「記録なし」になる。branch は自分で台帳を取り直さない。
@@ -330,7 +351,7 @@ seed_run_id: 125
 ## 11. 止める条件
 
 - 止めるのは、**判定が `stop` のときだけ**である（規則 R1・R3）。世代の上限に達した R1 は `stop` に入る。
-- 次の 2 つのときにも止める。この 2 つは止まる判断ではなく、利用者に質問するための合図である。
-  - 同じ世代で branch の記録が 1 つも無いことが **2 代続けて続いた**とき。MLflow への接続を疑い、利用者に質問する。（1 代だけなら R4 の `debug` として次へ進む）
-  - 判定書が 2 回続けて作られなかったとき。台帳や木の読み込みで異常があったと疑い、利用者に質問する。
-- 上の 2 つに当たらなければ、`sai_finalize` は**利用者が指示したときだけ**呼ぶ。勝手に完了にしない。
+- 次の 2 つのときにも止める。この 2 つは止まる判断ではなく、質問ツールで起動者に質問するための合図である。
+  - 同じ世代で branch の記録が 1 つも無いことが **2 代続けて続いた**とき。MLflow への接続を疑い、質問ツールで起動者に質問する。（1 代だけなら R4 の `debug` として次へ進む）
+  - 判定書が 2 回続けて作られなかったとき。台帳や木の読み込みで異常があったと疑い、質問ツールで起動者に質問する。
+- 上の 2 つに当たらなければ、**1 つの run では 1 世代だけ回して終える。** 終え方は `sci-exp-seed` の §5・§7 に従う（起動者が professor か利用者かで変わる）。**この節だけで完了のしかたを決めない。**

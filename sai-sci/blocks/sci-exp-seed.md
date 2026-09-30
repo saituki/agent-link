@@ -40,7 +40,7 @@ subblocks:
 - 台帳の数値を自分で作り直さない。命令の結果をそのまま読む。
 - 判定の規則（§6）を自分の都合で変えない。
 
-**この seed は自分で次の seed を起こして最後まで回す。** 人が「続きを」と頼むまで待つ必要はない。
+**1 つの run では 1 世代だけ回す。** branch を動かして世代 g が終わったら、その場で自身を終える（終え方は §7）。世代 g+1 をこの run の中で回さない。
 
 ## 手順
 
@@ -75,7 +75,7 @@ subblocks:
    - **向き**: `maximize`（大きいほどよい）か `minimize`（小さいほどよい）か。台帳の `--direction` にそのまま渡す値である。
    - **成功基準**: 「ここまで出たら成功」という数字。
 
-3. **3 つのどれかが決まらなければ、利用者に質問する。** `AskUserQuestion` か `ask_user_phone` のうち使えるほうを使い、答えを待っているあいだは他へ進まない。**推測で埋めない。**
+3. **3 つのどれかが決まらなければ、質問ツールで起動者に質問する。** `AskUserQuestion` か `ask_user_phone` のうち使えるほうを使い、答えを待っているあいだは他へ進まない。**推測で埋めない。**
 
 4. **残りは `exp-core` §3 の既定値を使う。** `workdir` は `experiments/<study>`。
 
@@ -107,7 +107,7 @@ subblocks:
 
 1. **計画を作る。**
    - 世代 1 なら `draft` の計画を自分で作る（1〜`max_branches` 個。script は `s01` から順に次の番号を振り、`parent_script` は空文字）。
-   - 世代 2 以降なら、判定書（手順 3）の `next` を使う。判定書が無い・読めないとき（`next` が空）は、そのまま自身を終えて利用者に伝える。
+   - 世代 2 以降なら、判定書（手順 3）の `next` を使う。判定書が無い・読めないとき（`next` が空）は、そのまま自身を終えて質問ツールで起動者に伝える。
 
 2. **計画の 1 つ 1 つについて、スクリプトを書く。** 置き場所は `<workdir>/<script>/g<世代>.py`（例 `experiments/N12-s120/s01/g1.py`）。フォルダが無ければ作る。
 
@@ -127,7 +127,7 @@ subblocks:
    | `GRID` | `next` の `grid`（`action` が `new` や `ablation` なら `next` の `idea` に合わせて作り直す） |
 
    - `BRANCH_RUN_ID` は雛形のとおり **環境変数 `EXP_BRANCH_RUN_ID` から読む**。seed がスクリプトを書く時点では branch の run_id が分からないためである。書き換えない。
-   - 雛形の `train(params)` の `...` の部分だけが研究の本体である。MLflow に関する行（`set_experiment` / `start_run` / `log_params` / `log_metric` / `log_artifact` / 例外の扱い）は書き換えない。
+   - 雛形の `train(params)` の `...` の部分だけが研究の本体である。MLflow に関する行（experiment の作成 / `start_run` / `log_params` / `log_metric` / `log_artifact` / 例外の扱い）は書き換えない。
    - `train()` が返す値は仕様書の `metric` の指標の値 1 つにする。指標を計算する集計や前処理・評価のコードは `train()` の中に書く。
    - `action` ごとの書き方:
 
@@ -156,7 +156,7 @@ subblocks:
    - 完了報告書は最後の seed の run（自分の run）として残るので、節点に `run:` で結ぶ: `{"op": "link", "node": "<sci_node>", "target": "run:<自分の run_id>", "reason": "実験が完了した。この run が最後の seed で、完了報告書が残っている"}`
    - 残った問いは `add_question` で出す。実験から分かった事実は `add_finding` で出す（`sci-core` の「根拠」に従う）。
 
-3. **`sai_finalize` は、利用者が指示したときだけ呼ぶ。** 勝手に完了にしない。
+3. **終える。** 終え方は起動者（professor か利用者）で違う。**§7 の表のとおりにだけ終える。**
 
 ### 6. `stop` 以外 — branch を並列に動かす
 
@@ -173,11 +173,20 @@ subblocks:
    - 届いたら `task_capture` で画面を見て、進んでいれば待つ。
    - 1 つの命令が終わらずに止まっているなら `task_manage` の `interrupt` で止めてから、`send` で「その命令が終わらない原因を調べ、時間の上限を付けるか、別の方法で進めよ」と送る。
 
-4. **記録の無い世代を数える。** 各 branch の返ってきた `report` に作業報告書のトークンが無ければ、その branch の記録は無い。**その世代の branch が 1 つも記録が無いことが 2 代続けて続いたら、往復を止めて利用者に質問する**（`exp-core` §11）。1 代だけなら R4 の `debug` として次へ進む（判定書 6 の R4 が `debug` を返す）。
+4. **記録の無い世代を数える。** 各 branch の返ってきた `report` に作業報告書のトークンが無ければ、その branch の記録は無い。**その世代の branch が 1 つも記録が無いことが 2 代続けて続いたら、往復を止めて質問ツールで起動者に質問する**（`exp-core` §11）。1 代だけなら R4 の `debug` として次へ進む（判定書 6 の R4 が `debug` を返す）。
 
 5. **各 branch の作業報告書（`exp-core` §9）を `sai_read` で読み、状態欄が「記録なし」ではないことを確かめる。** 確かめてから `task_manage finalize` で子を閉じる。
 
-### 7. 次の世代の seed を起こす
+### 7. 世代を終える — 起動者で違う
+
+起動者は `echo "${SAI_IS_SUBTASK:-0}"` で分かる。`1` なら子（professor が起こした）、`0` なら root（利用者 Human が起こした）である。**この節だけが完了のしかたを決める。** ほかの手順で終え方を変えない。
+
+| 起動者 | 世代を終えたら |
+|---|---|
+| professor（`SAI_IS_SUBTASK` が `1`） | この世代作出的文書（判定書・各 branch の作業報告書。`stop` なら完了報告書）は手順ですでに `sai_write` で保存してあるので、`task_report` を 1 回だけ呼ぶ。report には世代・判定・保存した文書のトークン・次の計画・残った問いを書く。**次の seed のカードは作らない。** 次の世代を起こすかどうかは professor が決める |
+| 利用者（root の run） | `stop` のときは、完了報告書を保存し、質問ツールで「完了してよいか」を確かめてから `sai_finalize` を `report`（要点）付きで呼ぶ。`stop` でないときは、下の 1〜3 で次の seed のカードを作り、動かし始めたことを確かめてから `sai_finalize` を `report`（世代 g の報告の要点）付きで呼ぶ |
+
+**利用者（root の run）で `stop` でないときだけ、次の seed をカードで起こす。**
 
 1. **カードを作る。** 実験仕様書と、各 branch の作業報告書のトークンを `--input` で渡す（`exp-core` §7 と同じ形）。
 
@@ -185,7 +194,7 @@ subblocks:
    sai-moon-paper sci card --node <sci_node> --block sci-exp-seed \
      --purpose "<study> 世代 <g+1> の判定と計画" \
      --input <実験仕様書のトークン> --input <branch の報告のトークン> … \
-     --origin-run "$SAI_PARENT_RUN_ID" --json
+     --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
    ```
 
    返ってきた JSON の `run_id` を控える。
@@ -198,14 +207,16 @@ subblocks:
 
 3. **`sai-moon-link phone tree` を読み、次の seed の run が `running` になったことを確かめる。** 動いていなければ `sai-moon-link phone card run <run_id>` をもう一度打ち、返り値を確かめる。
 
-4. **`sai_finalize` を呼ぶ。** 鎖は次の seed が継ぐので、ここで自分自身は終える。**終えたあとにこの seed は何もしない。**
+鎖は次の seed が継ぐ。終えたあとにこの seed は何もしない。
 
 ## やってはいけないこと
 
 - **スクリプトを自分で実行すること。** 実行は `sci-exp-branch` の役目である。
 - **判定の規則（R1〜R7）を変えたり、自分で上書きしたりすること。**
 - **台帳の数値を自分で作り直すこと。** 数値は命令の結果だけを読む。
-- **実験仕様書を途中で書き換えること。** 変えたいなら往復を止めて利用者に聞く。
+- **実験仕様書を途中で書き換えること。** 変えたいなら往復を止めて質問ツールで起動者に聞く。
 - **1 世代で `max_branches` を超える branch を動かすこと。**
 - **research-tree を直接書き換えること。** 提案として出す。
-- **`sai_finalize` を勝手に呼ぶこと。**
+- **上の表に無い場面で `sai_finalize` を呼ぶこと。**
+- **1 つの run で 2 世代以上回すこと。** 世代 g が終わったら §7 のとおりに終える。
+- **鍵・合言葉の値（`settings.json` の `env`・`.env` の中身）を、質問・報告・スクリプト・task.md に書くこと。** 値が要るときは環境変数の名前だけを書く。
