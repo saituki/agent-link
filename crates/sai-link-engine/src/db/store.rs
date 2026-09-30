@@ -103,7 +103,7 @@ const TASK_SELECT_COLS: &str = "id, parent_run_id, subject, description, status,
      block_type, inputs_json, depends_on_json, worktree, \
      execution_id, batch_id, client_id, round, supersedes_batch_id, \
      approval_comment, finalized, deleted_by, deleted_at, run_batch_id, \
-     cwd, created_at, updated_at, timeout";
+     cwd, created_at, updated_at, timeout, card_run_id";
 
 /// `tasks` の行を `Task` に変換する共通マッパー。
 fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
@@ -133,6 +133,8 @@ fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
         created_at: row.get(20)?,
         updated_at: row.get(21)?,
         timeout: row.get(22)?,
+        // card_run_id は既存 DB で NULL の行があるため Option として読む
+        card_run_id: row.get(23)?,
     })
 }
 
@@ -1116,6 +1118,52 @@ impl SaiStore {
             return Err(DbError::NotFound(format!("予約 run がありません: {}", run_id)));
         }
         Ok(())
+    }
+
+    /// 予約行をサブタスク（子）の実行開始用に確定させる（U2）。
+    ///
+    /// [`Self::claim_reserved_run`] と違い、親の `run_id` と `batch_id` を同時に書き込む。
+    /// 予約行の id は todo のカードの run_id のまま変わらない（研究方針の木との結び付きを保つ）。
+    pub fn claim_reserved_run_for_subtask(
+        &self,
+        run_id: i64,
+        block_id: i64,
+        user_inputs_json: Option<&str>,
+        parent_run_id: i64,
+        batch_id: Option<&str>,
+    ) -> Result<(), DbError> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute(
+            "UPDATE execution_history SET block_id = ?1, status = 'pending', user_inputs_json = ?2, \
+             parent_run_id = ?3, batch_id = ?4 \
+             WHERE id = ?5 AND status = 'todo'",
+            params![block_id, user_inputs_json, parent_run_id, batch_id, run_id],
+        )?;
+        if affected == 0 {
+            return Err(DbError::NotFound(format!("予約 run がありません: {}", run_id)));
+        }
+        Ok(())
+    }
+
+    /// 同じ todo のカードを既に起こしている未完了タスクを探す（U2・二重起動の検査）。
+    ///
+    /// `finalized` / `failed` / `deleted` は終じたタスクなので対象から外す。
+    pub fn list_unfinished_tasks_by_card(
+        &self,
+        card_run_id: i64,
+    ) -> Result<Vec<Task>, DbError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM tasks WHERE card_run_id = ?1 \
+             AND status NOT IN ('finalized', 'failed', 'deleted') ORDER BY id",
+            TASK_SELECT_COLS
+        ))?;
+        let rows = stmt.query_map(params![card_run_id], |row| task_from_row(row))?;
+        let mut tasks = Vec::new();
+        for row in rows {
+            tasks.push(row?);
+        }
+        Ok(tasks)
     }
 
     /// 新規実行レコードを作成する（status = `pending`）。
@@ -2191,8 +2239,8 @@ impl SaiStore {
             "INSERT INTO tasks (parent_run_id, subject, description, status, \
              block_type, inputs_json, depends_on_json, worktree, batch_id, \
              client_id, round, supersedes_batch_id, approval_comment, finalized, \
-             deleted_by, deleted_at, cwd, timeout) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+             deleted_by, deleted_at, cwd, timeout, card_run_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 task.parent_run_id,
                 task.subject,
@@ -2212,6 +2260,7 @@ impl SaiStore {
                 task.deleted_at,
                 task.cwd,
                 task.timeout,
+                task.card_run_id,
             ],
         )?;
 
@@ -2230,8 +2279,8 @@ impl SaiStore {
                 "INSERT INTO tasks (parent_run_id, subject, description, status, \
                  block_type, inputs_json, depends_on_json, worktree, batch_id, \
                  client_id, round, supersedes_batch_id, approval_comment, finalized, \
-                 deleted_by, deleted_at, cwd, timeout) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                 deleted_by, deleted_at, cwd, timeout, card_run_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 params![
                     task.parent_run_id,
                     task.subject,
@@ -2251,6 +2300,7 @@ impl SaiStore {
                     task.deleted_at,
                     task.cwd,
                     task.timeout,
+                    task.card_run_id,
                 ],
             )?;
             ids.push(tx.last_insert_rowid());
@@ -4422,5 +4472,108 @@ mod tests {
         let agg = store.aggregate_project_stats().unwrap();
         assert_eq!(agg.by_model[0].input_tokens, 111);
         assert_eq!(agg.by_model[0].cache_tokens, 50);
+    }
+
+    // -----------------------------------------------------------------------
+    // U2: todo のカードを自分の子として起こす（予約 run の子としての確定）
+    // -----------------------------------------------------------------------
+
+    /// U2: 予約 run を子として確定すると、`parent_run_id` と `batch_id` が入り、
+    /// `block_id` が実ブロックに付け替わる（run_id 自体は予約のまま変わらない）。
+    #[test]
+    fn test_claim_reserved_run_for_subtask_fills_parent_and_batch() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let parent_block_id = store
+            .insert_block(&create_test_block("claim-sub-parent"))
+            .unwrap();
+        let parent_run_id = store.create_execution(parent_block_id, None).unwrap();
+        let child_block_id = store
+            .insert_block(&create_test_block("claim-sub-child"))
+            .unwrap();
+        let reserved = store.create_reserved_run(None).unwrap();
+
+        store
+            .claim_reserved_run_for_subtask(
+                reserved,
+                child_block_id,
+                Some(r#"{"task_text":"カード本文"}"#),
+                parent_run_id,
+                Some("batch_20260930_r1_abcd"),
+            )
+            .unwrap();
+
+        let exec = store.get_execution_by_id(reserved).unwrap();
+        assert_eq!(exec.id, Some(reserved), "run_id は予約のまま変わらない");
+        assert_eq!(exec.status, "pending");
+        assert_eq!(exec.block_id, child_block_id);
+        assert_eq!(exec.parent_run_id, Some(parent_run_id));
+        assert_eq!(exec.batch_id.as_deref(), Some("batch_20260930_r1_abcd"));
+        assert_eq!(
+            exec.user_inputs_json.as_deref(),
+            Some(r#"{"task_text":"カード本文"}"#)
+        );
+    }
+
+    /// U2: `todo` 以外の行は確定できない（予約でない行・二確定とも `NotFound`）。
+    #[test]
+    fn test_claim_reserved_run_for_subtask_rejects_non_todo_rows() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("claim-sub-twice")).unwrap();
+        let parent_run_id = store.create_execution(block_id, None).unwrap();
+
+        // 予約でない行（`pending`）は確定できない
+        let pending = store.create_execution(block_id, None).unwrap();
+        let err = store
+            .claim_reserved_run_for_subtask(pending, block_id, None, parent_run_id, None)
+            .expect_err("todo 以外の行は確定できない");
+        assert!(matches!(err, DbError::NotFound(_)), "実際のエラー: {:?}", err);
+
+        // 予約行でも 2 度目は確定できない（同じ run_id を 2 つの子にできない）
+        let reserved = store.create_reserved_run(None).unwrap();
+        store
+            .claim_reserved_run_for_subtask(reserved, block_id, None, parent_run_id, None)
+            .unwrap();
+        let err = store
+            .claim_reserved_run_for_subtask(reserved, block_id, None, parent_run_id, None)
+            .expect_err("二度目の確定はできない");
+        assert!(matches!(err, DbError::NotFound(_)), "実際のエラー: {:?}", err);
+    }
+
+    /// U2: タスクの `card_run_id` が保存・読み出しでき、未完了のタスクを引ける。
+    #[test]
+    fn test_task_card_run_id_round_trip_and_unfinished_lookup() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("card-task")).unwrap();
+        let parent_run_id = store.create_execution(block_id, None).unwrap();
+
+        let mut task = Task::new(
+            parent_run_id,
+            "カードの件名".to_string(),
+            "カードの説明".to_string(),
+            Some("card-task".to_string()),
+            Some(r#"{"task_text":"本文"}"#.to_string()),
+            None,
+            "none".to_string(),
+            Some("batch_1".to_string()),
+            Some("R1".to_string()),
+        );
+        task.card_run_id = Some(120);
+        let task_id = store.insert_task(&task).unwrap();
+
+        // 保存と読み出し（task_list の `"card"` に出る値）
+        let fetched = store.get_task_by_id(task_id).unwrap();
+        assert_eq!(fetched.card_run_id, Some(120));
+
+        // 未完了なら同じカードで引ける
+        let unfinished = store.list_unfinished_tasks_by_card(120).unwrap();
+        assert_eq!(unfinished.len(), 1);
+        assert_eq!(unfinished[0].id, Some(task_id));
+
+        // 完了（finalized）してからは引けない（同じカードを再び起こせる）
+        store.update_task_status(task_id, "finalized").unwrap();
+        assert!(store.list_unfinished_tasks_by_card(120).unwrap().is_empty());
+
+        // 別のカードは引っかからない
+        assert!(store.list_unfinished_tasks_by_card(121).unwrap().is_empty());
     }
 }

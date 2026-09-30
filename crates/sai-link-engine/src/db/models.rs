@@ -582,6 +582,12 @@ pub struct Task {
     pub timeout: Option<u32>,
     /// 実行レコードの ID（最新ラウンドの実行を指す。task_send で張り替え）
     pub execution_id: Option<i64>,
+    /// 起こす todo カードの run_id（`task_create` の `card` 引数）
+    ///
+    /// `Some` のときはこの予約 run をそのまま子として使い、run_id を新たに採番しない
+    /// （todo のカードが研究方針の木と結び付いているため）。`None` はカード無し。
+    #[serde(default)]
+    pub card_run_id: Option<i64>,
     /// バッチ確認用グループ ID
     pub batch_id: Option<String>,
     /// クライアント側の一時 ID（task_create で割り当て。carried_over 照合・依存解決用）
@@ -641,6 +647,7 @@ impl Task {
             cwd: None,
             timeout: None,
             execution_id: None,
+            card_run_id: None,
             batch_id,
             client_id,
             round: 1,
