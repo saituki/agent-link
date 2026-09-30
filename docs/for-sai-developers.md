@@ -333,6 +333,36 @@ MCP サーバ（`mcp_server.rs`）は `sai_write` / `sai_finalize` / `sai_read` 
 
 `task_output` が完了を返すときは `hint`（閉じる案内）が付く。**`status` / `report` / `outputs` の形は変えない**（`hint` を足すだけ）。子の run は `task_report` で `completed` になるだけで `finalized` は親の `task_manage finalize` が付けるので、閉じ忘れると pane と `running` のフォルダが残る。
 
+#### task_output の待ちと複数待ち
+
+`task_output` は待つので、**待ちの上限と「待つあいだも他の呼び出しが返ること」**決める。
+
+- 1 回の待ちは**最大 90 秒**。`timeout_ms` を省略したときと 90 秒より大きい値が来たときは 90 秒に切られる（定数 `agent_api::TASK_OUTPUT_MAX_WAIT_MS`、切る処理は `agent_api::clamp_wait_ms`）。120 秒より短くしてあるのは、MCP 呼び出しが 120 秒を超えるとクライアントがバックグラウンドに回すが、サーバ側の待ちは止まらないため。
+- 上限に達したときは `status: "in_progress"`（`message` に文言）。90 秒以内に明示した待ち時間が切れたときは後方互換で `status: "timeout"`（`error` に文言）。どちらの文言にも「1 回の待ちは最大 90 秒。もう一度呼んでください」が入る。
+- `timeout_ms: 0` は待たない即時参照。**このとき結果ファイルは消さない**（あとから読み直せる）。
+- `sai-moon-link agent task-output <task_id> [--timeout-ms N]` も同じ上限（TUI・CLI も同じ `agent_api::task_output` を通る）。
+
+複数を待つには `task_ids`（`task_id` とはどちらか一方。最大 50 件）を渡す。
+
+```json
+{"task_id": 12, "status": "completed", "round": 1, "report": "…", "outputs": ["waggle:AB: …"], "hint": "…", "pending": [11]}
+```
+
+- 1 回の呼び出しで**最初に完了・失敗・stalled（質問を含む）になった子を 1 件だけ**返し、残りを `pending` で返す。
+- 返した子の結果ファイルは消えるので、**返った子は次の呼び出しの `task_ids` から外す**（外さないと、同じ結果を二度読もうとする）。
+- 誰も決まらなければ `{"status": "in_progress", "pending": [全件], "message": "…"}`（`task_id` は付けない）。
+- 単体（`task_id` だけ）の戻り値の形は変わらない。
+
+MCP サーバ（`crates/sai-link-engine/src/mcp_server.rs`）の扱い:
+
+- `task_output` だけ**別スレッド**で動かす（`is_long_running_tool`）。他の道具は短く終わるので読み取りスレッドで順に処理し、同じターン内の呼び出し順（`sai_write` → `sai_finalize`、`task_create` → `task_execute`）を保つ。待ちのあいだも `task_list` などはすぐ返る。
+- `notifications/cancelled`（`params.requestId`）が来るとフラグを立てて待ちを止める。このとき**応答は書かない**（MCP 仕様どおり）。**結果ファイルも消さない**ので、あとから `task_output` で読み直せる。
+- stdin が閉じたら、残りの待ちをすべて止めてから終わる。
+- 応答は出力のロックを取って 1 行ずつ書く（別スレッドと読み取りスレッドが混ざっても壊れない）。
+- `task_id` と `task_ids` の両方、どちらも無し、空配列、整数以外を含む配列、51 件以上は、`agent_api` を呼ぶ前にエラーにする（入口は `mcp_server::run_task_output`）。
+
+**要確認**: 「結果を消費した直後に取り消しが届く」と、結果ファイルだけが残ったまま応答が書かれない窓がある（読み手と取り消しの順番なのでごく僅か）。
+
 #### 質問の通知（C6）
 
 ```bash
