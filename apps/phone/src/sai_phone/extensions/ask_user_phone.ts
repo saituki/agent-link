@@ -68,7 +68,7 @@ interface ToolContext {
 // process.env を読むための小さな宣言（Node の型定義なしで動かすため）
 declare const process: { env: Record<string, string | undefined> } | undefined;
 
-// 環境変数（process.env と同じ形。読み/testing 之外の値を持ち回りしない）
+// 環境変数（process.env と同じ形。テストから差し替えられるように引数で受ける）
 type PhoneEnv = Record<string, string | undefined>;
 
 // サーバーが返す質問 1 件の読み取り結果（`GET /api/questions/{qid}`）
