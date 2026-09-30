@@ -125,7 +125,7 @@ const SAI_PHONE_URL = "http://127.0.0.1:8200";
 const POLL_INTERVAL_MS = 1000;
 // 上限回数はサーバーの期限（`apps/phone/src/sai_phone/questions.py` の
 // `_PI_EXPIRE_SEC` = 600 秒）とそろえる。ここが短いと、サーバーは答えを
-// 受け付けたまま拡張は打ち切るというestadoになり，答えが pi に届かない（B6）。
+// 受け付けたまま拡張は打ち切るという状態になり，答えが pi に届かない（B6）。
 const POLL_MAX_COUNT = 600;
 
 const CUSTOM_LABEL = "Type something.";
