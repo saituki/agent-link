@@ -67,6 +67,14 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **入口**は表示と入力だけを受け持つ。TUI は Rust の関数を直接呼び、`apps/phone` は CLI を呼ぶ。どちらも同じ関数に行き着く。
 - **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-paper-core/src/sci/`、入口は `sai-moon-paper sci` / `phone sci` / MCP / Web / TUI。
+  木には 3 役が乗じる（詳しくは [`sai-sci/README.md`](./sai-sci/README.md) の 3.4.1）。
+  - `professor`（`sai-sci/blocks/professor.md`）— 研究の舵取り。研究の現在地を読み、次の一手を決めてカードを作り、researcher（`sci-*`）を**自分の子として**起こす。root の run。
+  - `operator`（`sai-sci/blocks/operator.md`）— sai-moon の操作係。故障の対処・監視・情報の抽出・Web と同じ操作だけ。professor の子。研究の判断はしない。
+  - `sci-*` の 18 本 — 研究作業そのもの。木の root / seed / branch の 3 層で動く。
+  - カード（task.md）の `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人が起こせず（`phone card run` が断る）、professor が `task_create` の `card` で起こす。runner は pi だけ。
+  - 質問は**そのカードの起動者が答える**（professor が起こしたカードなら professor）。親の `task_output` に `stalled`（`reason: "question"`、`question_id` 付き）で届き、`phone_api.py question` / `answer` で答える。Web で人が先に答えた場合は 400 で断られ、その答えを採る。
+  - 報告は run フォルダの `finalize-report.md`。子は `task_report`、root は `sai_finalize` の `report`。`sai-moon-link phone md --kind report <run_id>` で読む。
+  - 3 役が使う共通の決まりは `sai-sci/template/` の `sai-agent.md`・`sai-task.md`・`sai-cli.md`（Web と同じ操作は `sai-sci/tools/phone_api.py`）。`sai-moon-paper init --sci`（と `--assets-only`）で配る。
 - **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
   pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は入力値（`# <id>` の節）と
   `context: true` のときの `# 範囲` の節だけ。Web の会話の最初の吹き出しと `message.md` には可変部分だけが出るので、
@@ -257,11 +265,11 @@ sai-moon/
 ├── sai-sci/                  # 研究方針の木（Research-tree）
 │   ├── types/                # 5 つの型（sai-moon-paper に埋め込まれる）
 │   ├── guides/               # 項目ガイド（上の項目 9 本・子の項目 16 本）
-│   ├── template/             # sci-core.md（共通の決まり）と exp-core.md・exp-run.md（実験ループの決まり）
-│   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py とテスト（sci init が .sai/tools/ へ配る）
+│   ├── template/             # sci-core.md・exp-core.md・exp-run.md（研究と実験の決まり）と sai-agent.md・sai-task.md・sai-cli.md（professor と operator の決まり）
+│   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とテスト（sci init が .sai/tools/ へ配る）
 │   ├── exec/                 # 実行先の見本（local・ssh・dok・_example。sci init が .sai/exec/ へ配る）
 │   ├── mind.md               # 土壌のひな形
-│   └── blocks/               # 18 本の sci-* ブロック
+│   └── blocks/               # 20 本のブロック（professor・operator と 18 本の sci-*）
 ├── apps/
 │   ├── phone/                # Web の窓口（8200）
 │   │   ├── src/sai_phone/    # サーバ（§4.1）
