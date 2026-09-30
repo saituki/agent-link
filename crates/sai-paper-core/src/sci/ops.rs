@@ -106,6 +106,616 @@ const MAX_PROPOSALS: usize = 20;
 static CITE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^#([1-9][0-9]{0,8})( .{1,80})?$").expect("引用の形"));
 
+/// `add_edge` の線の向き。schema の説明と、輪のエラーで同じ文を使う。
+const EDGE_DIRECTION: &str = "from が上流、to が下流";
+
+// ---- op の項目の表 -----------------------------------------------------------
+
+/// 項目の型。検査（[`check_shapes`]）と schema（[`propose_schema`]）はこの表から作る。
+///
+/// 表と [`Ctx::check`] の実装（`check_*`）が食い違うときは `check_*` に合わせる。
+/// 型の違う値を黙って空にしないこと（型が違うなら `check_*` の前に [`check_shapes`] で止める）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldKind {
+    /// 文字列。
+    Str,
+    /// 文字列の配列。
+    StrArray,
+    /// 整数。数字だけ書いた文字列でも受け付ける（Web は数で送る）。
+    Int,
+    /// 真偽。`"true"` / `"false"` の文字列でも受け付ける。
+    Bool,
+    /// 参照（`N12` の形）。
+    Ref(char),
+    /// 参照の配列。
+    RefArray(char),
+    /// 表に ある値のどれか。
+    Enum(&'static [&'static str]),
+    /// 写しの配列（1 要素がオブジェクト）。
+    ObjArray,
+}
+
+/// op の 1 つの項目。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Field {
+    /// 項目の名前。
+    pub key: &'static str,
+    /// どの型であるべきか。
+    pub kind: FieldKind,
+    /// 省略できないか（検査は `check_*` がする。ここでは表に出すと schema の `required` になる）。
+    pub required: bool,
+    /// 「`cites` は文字列の配列**です**」の「です」の前の文。
+    pub expect: &'static str,
+    /// 「です」の後ろに足す例（例 `（例 ["#37 §3.2"]）`。無ければ空）。
+    pub example: &'static str,
+    /// この値だけは [`check_shapes`] で止めない値（ほかの検査をよりよい文で止める）。
+    pub lenient: &'static [&'static str],
+}
+
+/// op の決まりの 1 つ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpSpec {
+    /// op の名前。
+    pub op: &'static str,
+    /// 何を確かめる操作かの説明（schema の `description` になる）。
+    pub about: &'static str,
+    /// この op の項目。
+    pub fields: &'static [Field],
+}
+
+/// 省略できない項目（例つき）。
+macro_rules! field {
+    ($key:literal, $kind:expr, $expect:literal, $example:literal) => {
+        Field {
+            key: $key,
+            kind: $kind,
+            required: true,
+            expect: $expect,
+            example: $example,
+            lenient: &[],
+        }
+    };
+    ($key:literal, $kind:expr, $expect:literal) => {
+        field!($key, $kind, $expect, "")
+    };
+}
+
+/// 省略できる項目（例つき）。
+macro_rules! opt_field {
+    ($key:literal, $kind:expr, $expect:literal, $example:literal) => {
+        Field {
+            key: $key,
+            kind: $kind,
+            required: false,
+            expect: $expect,
+            example: $example,
+            lenient: &[],
+        }
+    };
+    ($key:literal, $kind:expr, $expect:literal) => {
+        opt_field!($key, $kind, $expect, "")
+    };
+}
+
+/// op ごとの項目（表の 1 行）。検査も schema もここだけを見る。
+///
+/// 線の種類は [`EDGE_KINDS`] と同じ値を使う。`depends` の向きは [`EDGE_DIRECTION`]
+/// （`from` が上流、`to` が下流）。
+///
+/// `expect` が英字で始まるものは先頭に空白を付ける（日本語の文中に英字の列を書くときの体裁）。
+pub const OP_FIELDS: &[OpSpec] = &[
+    OpSpec {
+        op: "add_finding",
+        about: "項目に知見を足す。引用は cites に文字列の配列（例 [\"#37 §3.2\"]）で入れる",
+        fields: &[
+            field!(
+                "node",
+                FieldKind::Ref('N'),
+                "項目・候補の節点参照（N12 の形）"
+            ),
+            opt_field!("question", FieldKind::Ref('Q'), "問いの参照（Q7 の形）"),
+            field!("text", FieldKind::Str, "1〜1200 字の文（3 文まで）"),
+            field!(
+                "cites",
+                FieldKind::StrArray,
+                "文字列の配列",
+                "（例 [\"#37 §3.2\"]）"
+            ),
+            field!(
+                "polarity",
+                FieldKind::Enum(POLARITIES),
+                " support / refute / neutral / none のどれか"
+            ),
+            opt_field!("level", FieldKind::Int, "1〜4 の数"),
+            opt_field!("paper", FieldKind::Int, "論文の番号"),
+            opt_field!("run", FieldKind::Int, "実行の番号"),
+        ],
+    },
+    OpSpec {
+        op: "add_question",
+        about: "項目に問いを足す",
+        fields: &[
+            field!(
+                "node",
+                FieldKind::Ref('N'),
+                "項目・候補の節点参照（N12 の形）"
+            ),
+            field!("text", FieldKind::Str, "1〜300 字の問い"),
+        ],
+    },
+    OpSpec {
+        op: "answer_question",
+        about: "問いに答えを書く",
+        fields: &[
+            field!("question", FieldKind::Ref('Q'), "問いの参照（Q7 の形）"),
+            field!("text", FieldKind::Str, "1〜1200 字の答え"),
+        ],
+    },
+    OpSpec {
+        op: "link",
+        about: "項目を論文・ノート・報告・検索セット・読む札に結ぶ。target は paper:37 のように種類:番号で書く",
+        fields: &[
+            field!(
+                "node",
+                FieldKind::Ref('N'),
+                "項目・候補の節点参照（N12 の形）"
+            ),
+            field!(
+                "target",
+                FieldKind::Str,
+                "結び付けの相手",
+                "（paper:37 / report:R-0012 / set:5 / run:120）"
+            ),
+            opt_field!(
+                "role",
+                FieldKind::Enum(ROLES),
+                " exemplar / compare / issue_evidence / method_source / data_source / background / counter のどれか（論文のときだけ）"
+            ),
+            opt_field!(
+                "read_state",
+                FieldKind::Enum(READ_STATES),
+                " unread / read / reflected / irrelevant のどれか（論文のときだけ）"
+            ),
+        ],
+    },
+    OpSpec {
+        op: "add_seed",
+        about: "研究の種（型の文と一文）を足す",
+        fields: &[
+            field!("title", FieldKind::Str, "1〜120 字の題"),
+            field!("sentence", FieldKind::Str, "1〜600 字の一文"),
+            opt_field!(
+                "path",
+                FieldKind::RefArray('N'),
+                "節点参照の配列",
+                "（[\"N11\"] の形）"
+            ),
+            opt_field!("doc", FieldKind::Str, "文書のパス"),
+        ],
+    },
+    OpSpec {
+        op: "add_option",
+        about: "選ぶ・並べる型の項目に候補を足す",
+        fields: &[
+            field!("node", FieldKind::Ref('N'), "項目の節点参照（N12 の形）"),
+            field!("title", FieldKind::Str, "1〜120 字の候補の題"),
+            opt_field!("body", FieldKind::Str, "2000 字までの候補の本文"),
+        ],
+    },
+    OpSpec {
+        op: "add_child",
+        about: "項目の下に子を足す。key を書くと題と型はガイドから取る。key を書かないときは title と types で書く",
+        fields: &[
+            field!(
+                "node",
+                FieldKind::Ref('N'),
+                "項目・候補の節点参照（N12 の形）"
+            ),
+            field!(
+                "title",
+                FieldKind::Str,
+                "1〜120 字の題（key を書くときは省略できる）"
+            ),
+            field!(
+                "types",
+                FieldKind::StrArray,
+                "文字列の配列",
+                "（choose / list / write / verify）"
+            ),
+            opt_field!(
+                "key",
+                FieldKind::Str,
+                "ガイドの項目キー（例 background.goal）"
+            ),
+        ],
+    },
+    OpSpec {
+        op: "decide",
+        about: "項目の状態を決める。選んだ候補・根拠にした知見・却下した候補を記録する",
+        fields: &[
+            field!("node", FieldKind::Ref('N'), "項目の節点参照（N12 の形）"),
+            opt_field!(
+                "option",
+                FieldKind::Ref('N'),
+                "選ぶ候補の節点参照（N21 の形）"
+            ),
+            opt_field!(
+                "tentative",
+                FieldKind::Bool,
+                "真偽",
+                "（一応の決めかどうか）"
+            ),
+            opt_field!(
+                "evidence",
+                FieldKind::RefArray('F'),
+                "根拠にした知見の参照の配列",
+                "（[\"F31\"] の形）"
+            ),
+            opt_field!(
+                "rejected",
+                FieldKind::ObjArray,
+                "却下した候補の配列",
+                "（[{\"option\": \"N21\", \"reason\": \"…\"}] の形）"
+            ),
+            opt_field!(
+                "counter_searched",
+                FieldKind::Bool,
+                "真偽（反証を探したかどうか）"
+            ),
+        ],
+    },
+    OpSpec {
+        op: "reopen",
+        about: "対象外にした項目を再開する",
+        fields: &[field!(
+            "node",
+            FieldKind::Ref('N'),
+            "項目の節点参照（N12 の形）"
+        )],
+    },
+    OpSpec {
+        op: "exclude_item",
+        about: "項目を対象外にする",
+        fields: &[field!(
+            "node",
+            FieldKind::Ref('N'),
+            "項目の節点参照（N12 の形）"
+        )],
+    },
+    OpSpec {
+        op: "option_state",
+        about: "候補の状態を変える（rejected / dormant / candidate）",
+        fields: &[
+            field!("node", FieldKind::Ref('N'), "候補の節点参照（N12 の形）"),
+            field!(
+                "state",
+                FieldKind::Enum(OPTION_TARGET_STATES),
+                " rejected / dormant / candidate のどれか"
+            ),
+        ],
+    },
+    OpSpec {
+        op: "exclude",
+        about: "論文・ノート・報告・検索セット・読む札・候補を対象外にする",
+        fields: &[
+            field!(
+                "target",
+                FieldKind::Str,
+                "外す相手",
+                "（paper:37 / note:37 / report:R-0012 / set:5 / run:120 / candidate:重複キー）"
+            ),
+            opt_field!(
+                "node",
+                FieldKind::Ref('N'),
+                "結び付ける項目の節点参照（N12 の形）"
+            ),
+            opt_field!("title", FieldKind::Str, "200 字までの題"),
+        ],
+    },
+    OpSpec {
+        op: "edit_text",
+        about: "節点の題か本文を直す。title と body のどちらかを 1 つ以上書く",
+        fields: &[
+            field!(
+                "node",
+                FieldKind::Ref('N'),
+                "項目・候補の節点参照（N12 の形）"
+            ),
+            opt_field!("title", FieldKind::Str, "1〜120 字の題"),
+            opt_field!("body", FieldKind::Str, "2000 字までの本文"),
+        ],
+    },
+    OpSpec {
+        op: "add_edge",
+        about: "節点どうしの線（depends 依存・derived 由来・analogous 同型）を引く。from が上流、to が下流（to のほうが from に依存する側）。parent（親子）は引けない",
+        fields: &[
+            Field {
+                key: "kind",
+                kind: FieldKind::Enum(EDGE_KINDS),
+                required: true,
+                expect: " depends / derived / analogous のどれか",
+                example: "",
+                // parent は引けないという専用の文を出すため、ここでは止めない。
+                lenient: &["parent"],
+            },
+            field!("from", FieldKind::Ref('N'), "節点の参照（N12 の形）"),
+            field!("to", FieldKind::Ref('N'), "節点の参照（N12 の形）"),
+            opt_field!("note", FieldKind::Str, "200 字までの補足"),
+        ],
+    },
+    OpSpec {
+        op: "unlink",
+        about: "結び付きを外す",
+        fields: &[field!(
+            "link",
+            FieldKind::Ref('L'),
+            "結び付きの参照（L3 の形）"
+        )],
+    },
+    OpSpec {
+        op: "remove_finding",
+        about: "知見を消す",
+        fields: &[field!(
+            "finding",
+            FieldKind::Ref('F'),
+            "知見の参照（F31 の形）"
+        )],
+    },
+    OpSpec {
+        op: "set_read_state",
+        about: "論文の結び付きの読み具合を変える",
+        fields: &[
+            field!("link", FieldKind::Ref('L'), "結び付きの参照（L3 の形）"),
+            field!(
+                "state",
+                FieldKind::Enum(READ_STATES),
+                " unread / read / reflected / irrelevant のどれか"
+            ),
+        ],
+    },
+    OpSpec {
+        op: "withdraw_question",
+        about: "問いを消す",
+        fields: &[field!(
+            "question",
+            FieldKind::Ref('Q'),
+            "問いの参照（Q7 の形）"
+        )],
+    },
+    OpSpec {
+        op: "remove_edge",
+        about: "線を外す（向きは引いたときと同じ）",
+        fields: &[
+            Field {
+                key: "kind",
+                kind: FieldKind::Enum(EDGE_KINDS),
+                required: true,
+                expect: " depends / derived / analogous のどれか",
+                example: "",
+                lenient: &["parent"],
+            },
+            field!("from", FieldKind::Ref('N'), "節点の参照（N12 の形）"),
+            field!("to", FieldKind::Ref('N'), "下流の節点参照（N12 の形）"),
+        ],
+    },
+];
+
+/// op の表を 1 行探す。知らない op のときは `None`。
+#[must_use]
+pub fn op_spec(op: &str) -> Option<&'static OpSpec> {
+    OP_FIELDS.iter().find(|spec| spec.op == op)
+}
+
+/// 提案 1 件の JSON Schema（MCP の `sci_propose` の `proposals.items` にする）。
+///
+/// 表（[`OP_FIELDS`]）から作る。提案に出せる op だけ（利用者だけの操作は除く）を
+/// `oneOf` に入れ、`properties.op.const` で op を固定する。
+#[must_use]
+pub fn propose_schema() -> serde_json::Value {
+    let mut one_of = Vec::new();
+    for spec in OP_FIELDS {
+        if USER_ONLY_OPS.contains(&spec.op) {
+            continue;
+        }
+        let mut properties = serde_json::Map::new();
+        properties.insert(
+            "op".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "const": spec.op,
+                "description": spec.about,
+            }),
+        );
+        properties.insert(
+            "reason".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "description": "なぜこの変更をするか（1〜1000 字）。提案には必ず書く",
+            }),
+        );
+        let mut required = vec!["op".to_string(), "reason".to_string()];
+        for field in spec.fields {
+            properties.insert(field.key.to_string(), field_schema(field));
+            if field.required {
+                required.push(field.key.to_string());
+            }
+        }
+        one_of.push(serde_json::json!({
+            "type": "object",
+            "title": spec.op,
+            "description": spec.about,
+            "properties": properties,
+            "required": required,
+        }));
+    }
+    serde_json::json!({ "oneOf": one_of })
+}
+
+/// 項目 1 つの JSON Schema。
+fn field_schema(field: &Field) -> serde_json::Value {
+    match field.kind {
+        // cites などの文字列の配列は、説明を書き足さず例そのものにする。
+        FieldKind::StrArray => serde_json::json!({"type": "array", "items": {"type": "string"}}),
+        FieldKind::Str => serde_json::json!({"type": "string", "description": say(field)}),
+        FieldKind::Int => serde_json::json!({"type": "integer", "description": say(field)}),
+        FieldKind::Bool => serde_json::json!({"type": "boolean", "description": say(field)}),
+        FieldKind::Ref(prefix) => serde_json::json!({
+            "type": "string",
+            "pattern": ref_pattern(prefix),
+            "description": say(field),
+        }),
+        FieldKind::RefArray(prefix) => serde_json::json!({
+            "type": "array",
+            "items": {"type": "string", "pattern": ref_pattern(prefix)},
+            "description": say(field),
+        }),
+        FieldKind::Enum(values) => serde_json::json!({
+            "type": "string",
+            "enum": values,
+            "description": say(field),
+        }),
+        FieldKind::ObjArray => serde_json::json!({
+            "type": "array",
+            "items": {"type": "object"},
+            "description": say(field),
+        }),
+    }
+}
+
+/// 参照の形の正規表現（`parse_ref` と同じ `^[NQFLPS][1-9][0-9]{0,8}$`）。
+fn ref_pattern(prefix: char) -> String {
+    format!("^{prefix}[1-9][0-9]{{0,8}}$")
+}
+
+/// 提案 1 件の型を [`OP_FIELDS`] に従って確かめる（`check_*` の前に呼ぶ）。
+///
+/// ここで止めるのは「形が違う」だけ。無い項目・空・長すぎは、それぞれの `check_*` が
+/// よりよい文で止める。表に無い項目は今どおり無視する。
+pub fn check_shapes(op: &str, input: &serde_json::Value) -> Result<()> {
+    let Some(spec) = op_spec(op) else {
+        return Ok(());
+    };
+    for field in spec.fields {
+        // 無印（null）は「無い」と同じ扱いにする。
+        let Some(value) = input.get(field.key).filter(|value| !value.is_null()) else {
+            continue;
+        };
+        if let Some(error) = shape_error(field, value) {
+            return Err(SciError::Invalid(error));
+        }
+    }
+    Ok(())
+}
+
+/// 項目 1 つの型が表と違えば、エラーの文を返す。違わなければ `None`。
+fn shape_error(field: &Field, value: &serde_json::Value) -> Option<String> {
+    match field.kind {
+        FieldKind::Str => match value {
+            serde_json::Value::String(_) => None,
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::StrArray => match value {
+            serde_json::Value::Array(items) => items
+                .iter()
+                .find(|item| !item.is_string())
+                .map(|item| shape_message(field, "形", shape_name(item))),
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::Int => match value {
+            serde_json::Value::Number(number) if number.is_i64() || number.is_u64() => None,
+            serde_json::Value::Number(number) => {
+                Some(shape_message(field, "値", &number.to_string()))
+            }
+            serde_json::Value::String(text) if text.trim().parse::<i64>().is_ok() => None,
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::Bool => match value {
+            serde_json::Value::Bool(_) => None,
+            serde_json::Value::String(text) if matches!(text.trim(), "true" | "false") => None,
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::Ref(prefix) => match value {
+            serde_json::Value::String(text) if is_ref(text, prefix) => None,
+            serde_json::Value::String(text) => {
+                Some(shape_message(field, "値", &format!("\"{}\"", text.trim())))
+            }
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::RefArray(prefix) => match value {
+            serde_json::Value::Array(items) => items
+                .iter()
+                .find(|item| match item.as_str() {
+                    Some(text) => !is_ref(text, prefix),
+                    None => true,
+                })
+                .map(|item| match item.as_str() {
+                    Some(text) => shape_message(field, "値", &format!("\"{}\"", text.trim())),
+                    None => shape_message(field, "形", shape_name(item)),
+                }),
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::Enum(values) => match value {
+            serde_json::Value::String(text)
+                if values.contains(&text.trim()) || field.lenient.contains(&text.trim()) =>
+            {
+                None
+            }
+            serde_json::Value::String(text) => {
+                Some(shape_message(field, "値", &format!("\"{}\"", text.trim())))
+            }
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+        FieldKind::ObjArray => match value {
+            serde_json::Value::Array(items) => items
+                .iter()
+                .find(|item| !item.is_object())
+                .map(|item| shape_message(field, "形", shape_name(item))),
+            other => Some(shape_message(field, "形", shape_name(other))),
+        },
+    }
+}
+
+/// 参照の形かどうか（`parse_ref` と同じ）。
+fn is_ref(text: &str, prefix: char) -> bool {
+    let mut chars = text.trim().chars();
+    let Some(head) = chars.next() else {
+        return false;
+    };
+    let digits: String = chars.collect();
+    head == prefix
+        && !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit())
+        && matches!(digits.chars().next(), Some('1'..='9'))
+        && (1..=999_999_999).contains(&digits.parse::<i64>().unwrap_or(0))
+}
+
+/// 項目が「何であるべきか」を 1 文にする（schema の `description` にする）。
+fn say(field: &Field) -> String {
+    format!("{}{}です。", field.expect, field.example)
+}
+
+/// 「cites は文字列の配列です（例 ["#37 §3.2"]）。受け取った形: オブジェクト」の文。
+fn shape_message(field: &Field, label: &str, got: &str) -> String {
+    format!(
+        "{} は{}です{}。受け取った{}: {}",
+        field.key, field.expect, field.example, label, got
+    )
+}
+
+/// 受け取った JSON の形を日本語で言う。
+fn shape_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "無印（null）",
+        serde_json::Value::Bool(_) => "真偽",
+        serde_json::Value::Number(_) => "数",
+        serde_json::Value::String(_) => "文字列",
+        serde_json::Value::Array(_) => "配列",
+        serde_json::Value::Object(_) => "オブジェクト",
+    }
+}
+
 // ---- 公開の型 ---------------------------------------------------------------
 
 /// 操作の出所。人の操作なら [`Actor::User`]、エージェントの提案なら [`Actor::Run`]。
@@ -825,6 +1435,9 @@ impl<'a> Ctx<'a> {
             )));
         }
 
+        // 型を先に確かめる（check_* は、型の違う値を空として黙って扱うため）。
+        check_shapes(&op, input)?;
+
         match op.as_str() {
             "add_finding" => self.check_add_finding(input),
             "add_question" => self.check_add_question(input),
@@ -1292,7 +1905,9 @@ impl<'a> Ctx<'a> {
             ));
         }
         if kind == "depends" && self.depends_reaches(to, from)? {
-            return Err(SciError::Invalid("依存の線が輪になります".to_string()));
+            return Err(SciError::Invalid(format!(
+                "依存の線が輪になります。{EDGE_DIRECTION}です。向きが逆でないか確かめてください"
+            )));
         }
         let note = opt_text(input, "note").unwrap_or_default();
         check_len(&note, 0, 200, "note", "補足")?;
@@ -3149,7 +3764,13 @@ mod tests {
             }),
         )
         .expect_err("輪はだめ");
-        assert_eq!(message(&error), "依存の線が輪になります");
+        assert_eq!(
+            message(&error),
+            "依存の線が輪になります。from が上流、to が下流です。向きが逆でないか確かめてください"
+        );
+        // 向きの説明は schema の説明にも同じ文で入っている。
+        let spec = op_spec("add_edge").expect("add_edge の表");
+        assert!(spec.about.contains(EDGE_DIRECTION), "{}", spec.about);
 
         // 同じ組は 2 度引いても増えない。
         apply_user(
@@ -3512,5 +4133,259 @@ mod tests {
         )
         .expect_err("形が違う");
         assert_eq!(message(&error), "提案の形が正しくありません");
+    }
+
+    /// 表は 19 種類の op を 1 つずつ持つ（利用者だけの操作も表にある）。
+    #[test]
+    fn op_fields_table_covers_every_op() {
+        assert_eq!(OP_FIELDS.len(), KNOWN_OPS.len());
+        let mut listed: Vec<&str> = OP_FIELDS.iter().map(|spec| spec.op).collect();
+        listed.sort_unstable();
+        let mut known: Vec<&str> = KNOWN_OPS.to_vec();
+        known.sort_unstable();
+        assert_eq!(listed, known);
+        // 項目名が重複しない。
+        for spec in OP_FIELDS {
+            let mut keys: Vec<&str> = spec.fields.iter().map(|field| field.key).collect();
+            keys.sort_unstable();
+            let before = keys.len();
+            keys.dedup();
+            assert_eq!(keys.len(), before, "{} の項目が重複している", spec.op);
+        }
+    }
+
+    /// 形の違う提案は、どの項目が悪いのかを名指しするエラーになる（B10）。
+    #[test]
+    fn wrong_shapes_name_the_field() {
+        let database = db();
+        let conn = database.connection();
+        let placed = fixture();
+        let defs = defs();
+        let node = add_item(conn, &["write"], "一つ目");
+
+        // cites をオブジェクトで送る（以前は「引用が要ります」のような別の理由で断られていた）。
+        let error = propose(
+            conn,
+            &placed.roots,
+            &defs,
+            &agent(),
+            &json!({
+                "op": "add_finding",
+                "node": format!("N{node}"),
+                "text": "知見",
+                "cites": {"1": "#37"},
+                "polarity": "support",
+                "reason": "確かめた",
+            }),
+        )
+        .expect_err("オブジェクトの cites");
+        let text = message(&error);
+        assert!(text.starts_with("cites は文字列の配列です"), "{text}");
+
+        // 知らない向き。
+        let error = propose(
+            conn,
+            &placed.roots,
+            &defs,
+            &agent(),
+            &json!({
+                "op": "add_finding",
+                "node": format!("N{node}"),
+                "text": "知見",
+                "cites": ["#37"],
+                "polarity": "positive",
+                "reason": "確かめた",
+            }),
+        )
+        .expect_err("知らない向き");
+        let text = message(&error);
+        assert!(
+            text.starts_with("polarity は support / refute / neutral / none のどれかです"),
+            "{text}"
+        );
+        assert!(text.contains("受け取った値: \"positive\""), "{text}");
+
+        // from を数で送る（線の op は sci-t の sci_ops に無いので人の操作で確かめる）。
+        let error = apply_user(
+            conn,
+            &placed.roots,
+            &defs,
+            &json!({
+                "op": "add_edge",
+                "kind": "depends",
+                "from": node,
+                "to": "N2",
+            }),
+        )
+        .expect_err("数の from");
+        let text = message(&error);
+        assert!(
+            text.starts_with("from は節点の参照（N12 の形）です"),
+            "{text}"
+        );
+        assert!(text.contains("受け取った形: 数"), "{text}");
+
+        // N の形ではない参照。
+        let error = check_shapes("reopen", &json!({ "node": "12" })).expect_err("N の形");
+        let text = message(&error);
+        assert!(
+            text.starts_with("node は項目の節点参照（N12 の形）です"),
+            "{text}"
+        );
+        assert!(text.contains("受け取った値: \"12\""), "{text}");
+
+        // 要素が文字列でない配列。
+        let error = check_shapes("add_finding", &json!({ "cites": ["#37", 3] }))
+            .expect_err("数を含む cites");
+        assert!(
+            message(&error).contains("cites は文字列の配列です"),
+            "{}",
+            message(&error)
+        );
+
+        // 写しの配列。
+        let error = check_shapes("decide", &json!({ "rejected": ["N21"] })).expect_err("rejected");
+        assert!(message(&error).starts_with("rejected は却下した候補の配列です"));
+
+        // 真偽。
+        let error = check_shapes("decide", &json!({ "tentative": "yes" })).expect_err("真偽");
+        assert!(
+            message(&error).starts_with("tentative は真偽です（一応の決めかどうか）"),
+            "{}",
+            message(&error)
+        );
+
+        // 表に無い項目は今どおり無視する。
+        check_shapes("reopen", &json!({ "node": "N1", "unknown": {"a": 1} })).expect("未知の項目");
+        // 無印（null）は「無い」と同じ。
+        check_shapes("reopen", &json!({ "node": "N1", "text": null })).expect("無印");
+    }
+
+    /// 形の違う提案は、まとめて出しても何件目かが付く。
+    #[test]
+    fn wrong_shapes_report_the_index() {
+        let database = db();
+        let conn = database.connection();
+        let placed = fixture();
+        let defs = defs();
+        fill_library(conn);
+        let node = add_item(conn, &["write"], "一つ目");
+        let error = propose(
+            conn,
+            &placed.roots,
+            &defs,
+            &agent(),
+            &json!({
+                "proposals": [
+                    {"op": "link", "node": format!("N{node}"), "target": "paper:37",
+                     "role": "exemplar", "reason": "結ぶ"},
+                    {"op": "add_finding", "node": format!("N{node}"), "text": "知見",
+                     "cites": {"1": "#37"}, "polarity": "support", "reason": "確かめた"},
+                ],
+            }),
+        )
+        .expect_err("2 件目が悪い");
+        let text = message(&error);
+        assert!(
+            text.starts_with("2 件目: cites は文字列の配列です"),
+            "{text}"
+        );
+    }
+
+    /// schema は表から作られ、14 種類の op を `oneOf` で持つ（AC2）。
+    #[test]
+    fn propose_schema_comes_from_the_table() {
+        let schema = propose_schema();
+        let one_of = schema["oneOf"].as_array().expect("oneOf");
+        // 提案に出せる op は 14 種類（KNOWN_OPS 19 種類から利用者だけの 5 種類を引く）。
+        assert_eq!(one_of.len(), 14);
+        assert_eq!(one_of.len(), KNOWN_OPS.len() - USER_ONLY_OPS.len());
+        for spec in OP_FIELDS {
+            if USER_ONLY_OPS.contains(&spec.op) {
+                assert!(
+                    !one_of.iter().any(|part| part["title"] == spec.op),
+                    "利用者だけの操作が並んでいる: {}",
+                    spec.op
+                );
+                continue;
+            }
+            let part = one_of
+                .iter()
+                .find(|part| part["title"] == spec.op)
+                .unwrap_or_else(|| panic!("{} が oneOf に無い", spec.op));
+            assert_eq!(part["properties"]["op"]["const"], spec.op);
+            // op と reason は提案に必ず要る。
+            let required = part["required"].as_array().expect("required");
+            assert!(required.contains(&json!("op")), "{}", spec.op);
+            assert!(required.contains(&json!("reason")), "{}", spec.op);
+            for field in spec.fields {
+                assert!(
+                    required.contains(&json!(field.key)) == field.required,
+                    "{} の {}",
+                    spec.op,
+                    field.key
+                );
+                assert!(
+                    part["properties"].get(field.key).is_some(),
+                    "{} に {} が無い",
+                    spec.op,
+                    field.key
+                );
+            }
+        }
+        // cites は文字列の配列。
+        let finding = one_of
+            .iter()
+            .find(|part| part["title"] == "add_finding")
+            .expect("add_finding");
+        assert_eq!(
+            finding["properties"]["cites"],
+            json!({"type": "array", "items": {"type": "string"}})
+        );
+        // from / to は N の形。
+        let edge = one_of
+            .iter()
+            .find(|part| part["title"] == "add_edge")
+            .expect("add_edge");
+        assert_eq!(edge["properties"]["from"]["pattern"], "^N[1-9][0-9]{0,8}$");
+        assert_eq!(edge["properties"]["to"]["pattern"], "^N[1-9][0-9]{0,8}$");
+        // 線の向きが説明に入る。
+        assert!(
+            edge["description"]
+                .as_str()
+                .unwrap_or("")
+                .contains(EDGE_DIRECTION),
+            "{}",
+            edge["description"]
+        );
+    }
+
+    /// 検査は表と食い違わない（表の項目が `check_*` の形を壊さない）。
+    #[test]
+    fn every_table_field_is_known_to_the_check() {
+        for spec in OP_FIELDS {
+            for field in spec.fields {
+                // 参照の表は parse_ref と同じ形。
+                if let FieldKind::Ref(prefix) | FieldKind::RefArray(prefix) = field.kind {
+                    assert!(
+                        is_ref(&format!("{prefix}12"), prefix),
+                        "{} の {}",
+                        spec.op,
+                        field.key
+                    );
+                    assert!(!is_ref("12", prefix), "{} の {}", spec.op, field.key);
+                    assert!(
+                        !is_ref(&format!("{prefix}0"), prefix),
+                        "{} の {}",
+                        spec.op,
+                        field.key
+                    );
+                }
+                // 値の表は KNOWN のどれか。
+                if let FieldKind::Enum(values) = field.kind {
+                    assert!(!values.is_empty(), "{} の {}", spec.op, field.key);
+                }
+            }
+        }
     }
 }

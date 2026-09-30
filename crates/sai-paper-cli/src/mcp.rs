@@ -86,8 +86,10 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_status",
-            "description": "研究方針の木の全体（種の文・関門・項目・負債・次の一手）",
-            "inputSchema": {"type": "object", "properties": {}},
+            "description": "研究方針の木の全体（種の文・関門・項目・負債・次の一手）。brief を true にすると関門・負債・次の一手だけになる",
+            "inputSchema": {"type": "object", "properties": {
+                "brief": {"type": "boolean", "description": "true のとき節点と線を省き、関門・負債・次の一手・走っている実行・注意だけ返す（短い文脈で現在地を読む）"},
+            }},
         },
         {
             "name": "sci_node",
@@ -98,7 +100,7 @@ pub fn tools() -> Value {
             "name": "sci_propose",
             "description": "研究方針の木への変更を提案する。結び付け・問い・知見はすぐ入り、ほかは利用者が仕分ける",
             "inputSchema": {"type": "object", "properties": {
-                "proposals": {"type": "array", "items": {"type": "object"}, "description": "sci-core の決まりの op の JSON"},
+                "proposals": {"type": "array", "items": sai_paper_core::sci::ops::propose_schema(), "description": "1 件ずつの提案。op ごとに必要な項目と型が決まっている（oneOf）"},
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
             }, "required": ["proposals"]},
         },
@@ -290,6 +292,10 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let env = crate::sci::open_env()?;
             let status = sai_paper_core::sci::compute::status(env.conn(), &env.roots, &env.defs)
                 .context("現況を集められませんでした")?;
+            // brief でも全体でも、値は status からそのまま写す（計算し直さない）。
+            if args.get("brief").and_then(Value::as_bool).unwrap_or(false) {
+                return Ok(crate::sci::brief_status(&status));
+            }
             Ok(serde_json::to_value(status)?)
         }
         "sci_node" => {
