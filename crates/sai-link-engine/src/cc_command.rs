@@ -488,7 +488,7 @@ fn is_finalize_prompt(input: &str) -> bool {
 }
 
 /// hook の入力 JSON の `prompt` が `/sai-finalize <文>` のとき、`<文>` を返す。
-/// 引来なければ `None`。
+/// 引数が無ければ `None`。
 fn finalize_prompt_report(input: &str) -> Option<String> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
         return None;
