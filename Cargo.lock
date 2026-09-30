@@ -2961,6 +2961,7 @@ dependencies = [
  "clap",
  "reqwest",
  "rusqlite",
+ "sai-link-engine",
  "sai-paper-core",
  "serde",
  "serde_json",
