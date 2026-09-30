@@ -6,7 +6,7 @@
 // Project 上部の Dashboard | List の切り替えもこのファイルが持つ
 // （Dashboard 側の帯の描き方も fillLinkSeg としてここに置く・計画 14 §1.1）。
 // ツリーは sai-link TUI の左サイドバーと同じ並び（`GET …/tree` のそのまま・計画 14 §1.2）。
-// run の中身は 7 つの表示（Log / Stats / History / task / message / report / waggle）で、
+// run の中身は 8 つの表示（Log / Stats / History / task / message / report / system / waggle）で、
 // 最後に見ていた表示をプロジェクトをまたいで覚える（別の run に切り替えても同じ表示・§1.3）。
 // データはすべて /api/projects/<name>/… 経由で，sai-phone 自身は DB を開かない（00 §2）。
 // グラフ（Stats の推移・History の円）は SVG を手描きで作る（外部ライブラリは入れない・00 §2）。
@@ -26,6 +26,8 @@ const LV_VIEWS = [
   ["task", "task"],
   ["message", "message"],
   ["report", "報告"],
+  // 固定部分（system prompt。起動時に run フォルダの system-prompt.md から渡す・U6）
+  ["system", "system"],
   ["waggle", "waggle"],
   ["session", "session"],
 ];

@@ -170,10 +170,11 @@ function testViewMemory() {
 }
 
 function testViewTabs() {
-  // 8 つの表示（帯の並び・計画 14 §1.3。report は finalize-report.md、session は Agent 画面への入口・U11）
+  // 9 つの表示（帯の並び・計画 14 §1.3。report は finalize-report.md、system は固定部分の
+  // system-prompt.md・U6、session は Agent 画面への入口・U11）
   assert.deepStrictEqual(
     lv.viewTabs(false).map((t) => t.key),
-    ["log", "stats", "history", "task", "message", "report", "waggle", "session"]
+    ["log", "stats", "history", "task", "message", "report", "system", "waggle", "session"]
   );
   // todo run は task だけ選べる（session も出さない）
   const todoTabs = lv.viewTabs(true);
@@ -507,6 +508,9 @@ function testCanEdit() {
   assert.strictEqual(lv.lvCanEdit("message", done), false);
   assert.strictEqual(lv.lvCanEdit("report", done), false);
   assert.strictEqual(lv.lvCanEdit("report", todo), false);
+  // 固定部分（system prompt）は起動時に書いたものなので書き換えない（U6）
+  assert.strictEqual(lv.lvCanEdit("system", done), false);
+  assert.strictEqual(lv.lvCanEdit("system", todo), false);
 }
 
 function testWaggleDirect() {
