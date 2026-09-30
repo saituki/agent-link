@@ -26,7 +26,12 @@
  * iPhone 側の回答の待ち方はポーリング（1秒おきにサーバーへ聞きに行く）．
  * WebSocket は使わない．拡張機能の中で接続を維持する作りは，
  * pi の再読み込みやセッション終了との兼ね合いで壊れやすいため．
+ * Web 側の答えを取りこぼさないため，ポーリングの回数はサーバーの期限
+ * （`questions.py` の `_PI_EXPIRE_SEC`）に合わせてある（B6）．
  */
+
+// 子の run の質問を親（起動者）に知らせるために sai-moon-link を呼ぶ．
+import { execFile } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // 型定義（外部依存なし．pi 本体の型に合わせる）
@@ -63,6 +68,30 @@ interface ToolContext {
 // process.env を読むための小さな宣言（Node の型定義なしで動かすため）
 declare const process: { env: Record<string, string | undefined> } | undefined;
 
+// 環境変数（process.env と同じ形。読み/testing 之外の値を持ち回りしない）
+type PhoneEnv = Record<string, string | undefined>;
+
+// サーバーが返す質問 1 件の読み取り結果（`GET /api/questions/{qid}`）
+type ServerQuestionPayload = {
+  state?: string;
+  answer?: {
+    answers?: Array<{
+      choice_index?: number;
+      choice_indices?: number[];
+      text?: string;
+    }>;
+    choice_index?: number;
+    text?: string;
+  };
+  questions?: PhoneQuestion[];
+};
+
+// 親の通知コマンド（`agent task-question`）
+type ParentNotifyCommand = {
+  bin: string;
+  args: string[];
+};
+
 interface ToolInput {
   name: string;
   label?: string;
@@ -92,9 +121,12 @@ interface ExtensionAPI {
 
 // sai-phone サーバーの場所．家の中だけの接続（Tailscale 前提）．
 const SAI_PHONE_URL = "http://127.0.0.1:8200";
-// iPhone の回答を待つ間隔（ミリ秒）と上限回数（約5分）
+// iPhone の回答を待つ間隔（ミリ秒）と上限回数（10分）
 const POLL_INTERVAL_MS = 1000;
-const POLL_MAX_COUNT = 300;
+// 上限回数はサーバーの期限（`apps/phone/src/sai_phone/questions.py` の
+// `_PI_EXPIRE_SEC` = 600 秒）とそろえる。ここが短いと、サーバーは答えを
+// 受け付けたまま拡張は打ち切るという状態になり，答えが pi に届かない（B6）。
+const POLL_MAX_COUNT = 600;
 
 const CUSTOM_LABEL = "Type something.";
 
@@ -160,6 +192,95 @@ async function tellResolved(questionId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 子の run の質問を親（起動者）に知らせる（共有契約 C6）
+//
+// 利用者の決まりは「研究者の質問には、そのカードの起動者（executer）が答える」．
+// 親の run から起こされたカードで，子のエージェントが
+//  ask_user_phone で聞いたときはその親に知らせる．
+// 返事（`task_output` の `status: "stalled"`）は親が出すので、ここでは
+// 通知だけを送り、待つことはしない（失敗しても質問は Web に出ている）．
+// ---------------------------------------------------------------------------
+
+function shouldNotifyParent(env: PhoneEnv | undefined): boolean {
+  /** 子の run（`SAI_IS_SUBTASK=1`）かどうか。親のない run では呼ばない。 */
+  return !!env && env.SAI_IS_SUBTASK === "1";
+}
+
+function parentNotifyArgs(serverId: string, questions: PhoneQuestion[], env: PhoneEnv | undefined): ParentNotifyCommand {
+  /** 親に知らせるコマンド（通知を待たないため，引数は手で組み立てる）。 */
+  const bin = (env && env.SAI_LINK_BIN) || "sai-moon-link";
+  // 見出しは 1 行に畳んで 400 文字で切る（サーバーが 500 文字で切るのより短くする）
+  const head = questions.map((q) => q.question).join(" / ").replace(/\s+/g, " ").slice(0, 400);
+  return { bin, args: ["agent", "task-question", "--qid", serverId, "--text", head] };
+}
+
+function notifyParent(serverId: string, questions: PhoneQuestion[], env: PhoneEnv | undefined): void {
+  /** 親へ通知する（待たない。失敗しても質問は続ける）。 */
+  if (!shouldNotifyParent(env)) return;
+  const cmd = parentNotifyArgs(serverId, questions, env);
+  // 呼び出しは待たない（質問の待ち時間を増やさないため）
+  void execFile(cmd.bin, cmd.args, { timeout: 10000 }, () => {});
+}
+
+// ---------------------------------------------------------------------------
+// サーバーが保存した答えを読む
+// ---------------------------------------------------------------------------
+
+function answersFromState(data: ServerQuestionPayload): Record<string, string> | null {
+  /** サーバーが保存した答えを pi が使える形（問い → 答え）に変える。
+
+   * 答えが無いとき（`state` が `answered` 以外）は `null` を返す。
+   * ポーリングの変換（`pollAnswer`）と 1 回だけ読む処理（`answeredOnServer`）で共有する。
+   */
+  if (data.state !== "answered" || !data.answer) return null;
+  const qs = data.questions ?? [];
+  // 新形式（全問分の配列）を優先し，無ければ古い1問分の形として扱う（後方互換）
+  const items = data.answer.answers ?? [
+    { choice_index: data.answer.choice_index, text: data.answer.text },
+  ];
+  const answers: Record<string, string> = {};
+  items.forEach((item, i) => {
+    const q = qs[i];
+    if (!q) return;
+    if (item?.text) {
+      answers[q.question] = item.text;
+    } else if (Array.isArray(item?.choice_indices) && item.choice_indices.length) {
+      // 複数選択: 選んだ番号を全部ラベルにして渡す（05 §1 の2番）
+      answers[q.question] = item.choice_indices
+        .map((n) => q.options[n]?.label ?? "")
+        .filter(Boolean)
+        .join(", ");
+    } else if (typeof item?.choice_index === "number") {
+      const opt = q.options[item.choice_index];
+      answers[q.question] = opt?.label ?? "";
+    }
+  });
+  return answers;
+}
+
+async function answeredOnServer(questionId: string, url: string = SAI_PHONE_URL): Promise<Record<string, string> | null> {
+  /** サーバー側に保存済みの答えを 1 回だけ読む（取れなければ `null`）。
+
+   * 端末（herdr）で何かが選ばれたとき、サーバーに既に答えがあっても
+   * 端末の選択を採ると Web の答えが捨てられる（B6）。そこで 1 回だけ読んで
+   * 読み込み済みならそちらを採る。取りに行けないときは取り損ねず
+   * 端末の選択を採る（今までと同じ動き）。
+   */
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${url}/api/questions/${questionId}`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return answersFromState(data);
+  } catch {
+    // 通信できないときは端末の選択を採る（今までと同じ）
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // herdr への「質問待ち」の合図（05 §3.1）
 //
 // pi の質問中は herdr の一覧・プッシュ通知で「質問待ち（blocked）」が分かる
@@ -181,44 +302,10 @@ async function pollAnswer(questionId: string): Promise<Record<string, string> | 
     try {
       const res = await fetch(`${SAI_PHONE_URL}/api/questions/${questionId}`);
       if (!res.ok) continue;
-      const data = (await res.json()) as {
-        state?: string;
-        answer?: {
-          answers?: Array<{
-            choice_index?: number;
-            choice_indices?: number[];
-            text?: string;
-          }>;
-          choice_index?: number;
-          text?: string;
-        };
-        questions?: PhoneQuestion[];
-      };
-      if (data.state === "answered" && data.answer) {
-        const qs = data.questions ?? [];
-        // 新形式（全問分の配列）を優先し，無ければ古い1問分の形として扱う（後方互換）
-        const items = data.answer.answers ?? [
-          { choice_index: data.answer.choice_index, text: data.answer.text },
-        ];
-        const answers: Record<string, string> = {};
-        items.forEach((item, i) => {
-          const q = qs[i];
-          if (!q) return;
-          if (item?.text) {
-            answers[q.question] = item.text;
-          } else if (Array.isArray(item?.choice_indices) && item.choice_indices.length) {
-            // 複数選択: 選んだ番号を全部ラベルにして渡す（05 §1 の2番）
-            answers[q.question] = item.choice_indices
-              .map((n) => q.options[n]?.label ?? "")
-              .filter(Boolean)
-              .join(", ");
-          } else if (typeof item?.choice_index === "number") {
-            const opt = q.options[item.choice_index];
-            answers[q.question] = opt?.label ?? "";
-          }
-        });
-        return answers;
-      }
+      const data = (await res.json()) as ServerQuestionPayload;
+      // 答えに変換する処理は `answeredOnServer` と共有する（変換が二重にならないように）
+      const answers = answersFromState(data);
+      if (answers) return answers;
       if (data.state && data.state !== "open") return null;
     } catch {
       // 通信が切れている間は待ち続ける
@@ -295,6 +382,11 @@ async function handleAskUserPhone(
       questions,
     });
 
+    // 子の run なら，質問を親（カードの起動者）に知らせる（共有契約 C6）。
+    // 待たない。通知に失敗しても質問は Web に出ている。
+    const env: PhoneEnv | undefined = typeof process !== "undefined" ? process.env : undefined;
+    if (serverId) notifyParent(serverId, questions, env);
+
     // この段階では1問ずつ順に聞く．複数問・複数選択の同時操作は
     // 端末画面の仕様に依存し壊れやすいため，順番に1問ずつ出す割り切り．
     // iPhone 側は全問まとめて1回で答えてくるため，届いた時点で全問揃っていれば
@@ -323,6 +415,14 @@ async function handleAskUserPhone(
       const selected = await ui.select(title, selectable, { signal: controller.signal });
 
       if (selected) {
+        // 端末で選ばれても、サーバーに保存済みの答えがあればそちらを採る（B6）。
+        // herdr で送った down・enter が端末の選択になり、Web の答えが
+        // 捨てられていた取りこぼしを塞ぐ。
+        const fromWeb = serverId ? await answeredOnServer(serverId) : null;
+        if (fromWeb && Object.keys(fromWeb).length) {
+          for (const [k, v] of Object.entries(fromWeb)) answers[k] = v;
+          continue;
+        }
         // 端末で選ばれた → サーバーに伝えて iPhone のカードを「PC で回答済み」に
         if (serverId) void tellResolved(serverId);
         if (selected === CUSTOM_LABEL) {

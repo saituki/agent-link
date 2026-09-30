@@ -329,6 +329,21 @@ MCP サーバ（`mcp_server.rs`）は `sai_write` / `sai_finalize` / `sai_read` 
 
 **要確認**: `write_stalled_notification_in` は古い `task_stalled` の通知を消す。質問の通知の直後に `idle` の通知が来ると質問の通知は消える（Web のホームには質問が残るので致命的ではない・推測）。
 
+#### 合言葉の置き場（C9）
+
+`apps/phone` は起動時に `main.write_token_file()` で **`<sai_home>/phone/token` に合言葉（`SAI_PHONE_TOKEN`）を 0600 で書く**（`sai_home()` は `SAI_SAI_HOME` か `~/.sai-moon`）。合言葉が無いときはそのファイルを消す。
+
+```text
+<SAI_SAI_HOME か ~/.sai-moon>/phone/token   # 中身は合言葉だけ。権限 0600
+```
+
+- 読むのは **`sai-sci/tools/phone_api.py`**（`SAI_PHONE_TOKEN` の環境変数を先に、無ければこのファイル）。
+- 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（`apps/phone` の `require_token` は両方を受け付けるが、画面や記録に残るため）。
+- `settings.json` の `env` で配らない（起動コマンドの文字になって pane と記録に残るため・要件 D13）。
+- 書けなくても `apps/phone` は止まらない（警告だけログに出す）。**合言葉の値そのものをログや画面には出さない。**
+- HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う（日本語などは `phone_api.py` が理由を出して送らない）。
+- エージェントの作業記録（session ファイル、run フォルダの成果物）へも**合言葉を書かない**。
+
 ---
 
 <a id="3-プロジェクト一覧とdashboard"></a>
