@@ -39,6 +39,9 @@ pub enum SciCmd {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
+        /// 関門・負債・次の一手だけを出す（いつも JSON。短い文脈で現在地を読む）
+        #[arg(long)]
+        brief: bool,
     },
     /// 節点 1 つの詳細を出す
     Node {
@@ -249,7 +252,9 @@ pub fn run(cmd: SciCmd) -> Result<()> {
 fn wants_json(cmd: &SciCmd) -> bool {
     match cmd {
         SciCmd::Init { .. } | SciCmd::Context { .. } | SciCmd::Export => false,
-        SciCmd::Status { json }
+        // --brief は誰が使っても JSON。
+        SciCmd::Status { brief, .. } if *brief => true,
+        SciCmd::Status { json, .. }
         | SciCmd::Node { json, .. }
         | SciCmd::Proposals { json }
         | SciCmd::Tombstones { json }
@@ -270,7 +275,7 @@ fn dispatch(cmd: SciCmd) -> Result<Out> {
             type_id,
             change_type,
         } => init(&type_id, change_type),
-        SciCmd::Status { json } => status(json),
+        SciCmd::Status { json, brief } => status(json, brief),
         SciCmd::Node { node, json } => node_detail(&node, json),
         SciCmd::Context { run, scope } => context(run, scope.as_deref()),
         SciCmd::Propose { run, block } => propose(run, block),
@@ -503,14 +508,42 @@ fn init(type_id: &str, change_type: bool) -> Result<Out> {
 }
 
 /// `sci status` — 現況。
-fn status(json: bool) -> Result<Out> {
+fn status(json: bool, brief: bool) -> Result<Out> {
     let env = open_env()?;
     let status =
         compute::status(env.conn(), &env.roots, &env.defs).context("現況を集められませんでした")?;
+    // --brief は --json と一緒でも単独でもよく、いつも JSON。
+    if brief {
+        return Ok(Out::Json(brief_status(&status)));
+    }
     if json {
         return Ok(Out::Json(serde_json::to_value(&status)?));
     }
     Ok(Out::Text(status_text(&status)))
+}
+
+/// `sci status --brief` と MCP の `sci_status` の `{"brief": true}` が返す JSON（C-11）。
+///
+/// 短い文脈で現在地を読めるように、関門・負債・次の一手だけを出す。
+/// `nodes` と `edges` と `seeds` は入れない。値は [`compute::status`] の結果から
+/// そのまま写すだけで、計算し直さない（Web・CLI・MCP で同じ値になる）。
+pub fn brief_status(status: &compute::Status) -> Value {
+    json!({
+        "type": status.type_info.as_ref().map(|found| found.id.clone()),
+        "seed": status.seed.as_ref().map(|found| found.text.clone()),
+        "gate": &status.gate,
+        "debts": &status.debts,
+        "next": status.next.iter().map(|next| json!({
+            "kind": next.kind,
+            "block": next.block,
+            "node": next.node,
+            "purpose": next.purpose,
+            "expect": next.expect,
+            "why": next.why,
+        })).collect::<Vec<Value>>(),
+        "running": &status.running,
+        "warnings": &status.warnings,
+    })
 }
 
 /// `sci node <N>` — 節点 1 つの詳細。
@@ -1614,6 +1647,116 @@ mod tests {
     fn status_text_says_not_started_before_init() {
         let text = status_text(&compute::Status::default());
         assert!(text.contains("まだありません"), "{text}");
+    }
+
+    /// `--brief` は関門・負債・次の一手だけを出す（節点と線は出さない）。C-11。
+    #[test]
+    fn brief_status_leaves_out_nodes_and_edges() {
+        let status = compute::Status {
+            initialized: true,
+            type_info: Some(compute::TypeInfo {
+                id: "problem".to_string(),
+                name: "課題駆動".to_string(),
+            }),
+            seed: Some(compute::SeedSentence {
+                text: "「頭皮脳波で［？小目的］を行う。」".to_string(),
+                parts: Vec::new(),
+            }),
+            gate: Some(compute::GateState {
+                current: 2,
+                total: 7,
+                name: "小目的".to_string(),
+                list: vec![compute::GateRow {
+                    name: "背景".to_string(),
+                    when: "decided(background)".to_string(),
+                    passed: true,
+                }],
+            }),
+            debts: compute::Debts {
+                pending_proposals: 3,
+                unreflected_papers: 1,
+                unscreened_sets: 16,
+                empty_reviews: 0,
+            },
+            nodes: vec![compute::NodeRow {
+                id: "N1".to_string(),
+                kind: "item".to_string(),
+                title: "背景".to_string(),
+                ..Default::default()
+            }],
+            edges: vec![compute::EdgeRow {
+                kind: "depends".to_string(),
+                from: "N1".to_string(),
+                to: "N12".to_string(),
+            }],
+            next: vec![compute::NextAction {
+                node: Some("N12".to_string()),
+                block: Some("sci-compare".to_string()),
+                purpose: "小目的の候補を比べる".to_string(),
+                expect: "比較表と推奨".to_string(),
+                why: "判断待ち".to_string(),
+                kind: "blank".to_string(),
+            }],
+            running: Vec::new(),
+            seeds: Vec::new(),
+            warnings: vec!["ガイドが無い key: background.goal".to_string()],
+        };
+
+        let brief = brief_status(&status);
+        // 節点と線と種一覧は出さない。
+        assert!(brief.get("nodes").is_none(), "{brief}");
+        assert!(brief.get("edges").is_none(), "{brief}");
+        assert!(brief.get("seeds").is_none(), "{brief}");
+        // 関門・負債・次の一手と、種・型・走っている実行・注意は出す。
+        assert_eq!(brief["type"], "problem");
+        assert_eq!(brief["seed"], "「頭皮脳波で［？小目的］を行う。」");
+        assert_eq!(brief["gate"]["current"], 2);
+        assert_eq!(brief["gate"]["total"], 7);
+        assert_eq!(brief["gate"]["name"], "小目的");
+        assert_eq!(brief["gate"]["list"][0]["passed"], true);
+        assert_eq!(brief["debts"]["pending_proposals"], 3);
+        assert_eq!(brief["debts"]["unreflected_papers"], 1);
+        assert_eq!(brief["debts"]["unscreened_sets"], 16);
+        assert_eq!(brief["debts"]["empty_reviews"], 0);
+        assert_eq!(brief["next"][0]["kind"], "blank");
+        assert_eq!(brief["next"][0]["block"], "sci-compare");
+        assert_eq!(brief["next"][0]["node"], "N12");
+        assert_eq!(brief["next"][0]["purpose"], "小目的の候補を比べる");
+        assert_eq!(brief["next"][0]["expect"], "比較表と推奨");
+        assert_eq!(brief["next"][0]["why"], "判断待ち");
+        assert_eq!(brief["running"].as_array().map(Vec::len), Some(0));
+        assert_eq!(brief["warnings"][0], "ガイドが無い key: background.goal");
+        // 木が空でも同じ形（同じ項目）になる。
+        let empty = brief_status(&compute::Status::default());
+        assert_eq!(empty["type"], Value::Null);
+        assert_eq!(empty["seed"], Value::Null);
+        assert_eq!(empty["gate"], Value::Null);
+        assert_eq!(empty["debts"]["pending_proposals"], 0);
+    }
+
+    /// `--brief` は `--json` と一緒でも単独でもよく、いつも JSON。
+    #[test]
+    fn status_brief_is_json_with_or_without_json() {
+        for args in [
+            vec!["sai-moon-paper", "sci", "status", "--brief"],
+            vec!["sai-moon-paper", "sci", "status", "--brief", "--json"],
+            vec!["sai-moon-paper", "sci", "status", "--json"],
+        ] {
+            let cli = crate::Cli::try_parse_from(&args).expect("引数が読める");
+            let Some(crate::Cmd::Sci {
+                cmd: crate::sci::SciCmd::Status { json, brief },
+            }) = cli.cmd
+            else {
+                panic!("status ではない: {args:?}");
+            };
+            if args.contains(&"--brief") {
+                assert!(brief, "{args:?}");
+                assert!(
+                    wants_json(&crate::sci::SciCmd::Status { json, brief }),
+                    "{args:?}"
+                );
+            }
+        }
     }
 
     #[test]
