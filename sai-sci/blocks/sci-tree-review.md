@@ -38,7 +38,7 @@ subblocks:
 - CRITERIA に無い重要な問題を見つけたとき、E11 以降として足しているか。
 
 ### 手順
-1. **材料を集める。** 依頼文の復元書と引用の判定表（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）を読みます。`sai-moon-paper sci status --json` で ITEM の状態（TENTATIVE・DECIDED・BLANK）と GATE を読みます。基盤論文の本文は、確かめが要る箇所だけ `sai-moon-paper content paper <番号>` で読みます。
+1. **材料を集める。** 依頼文の復元書と引用の判定表（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）を読みます。`sai-moon-paper sci status --json` で ITEM の状態（TENTATIVE・DECIDED・BLANK）と GATE を読みます。基盤論文の本文は、確かめが要る箇所だけ、`paper_outline` で節を選んで `paper_read` で読みます。
 2. **E1・E2 を審査する。** TENTATIVE の ITEM ごとに、主張の FINDING と論文の該当箇所を並べ、値と割り当てを確かめます。
 3. **E3・E4 を審査する。** 引用の判定表を ITEM ごとに集計します（支持・部分・無関係・反証・孫引き・未確認・根拠なしの件数）。REFUTE の FINDING があるか、反証を探した記録（`sci-probe` の report）があるかを見ます。無ければ「反証は探されていない」と書き、次の一手に `sci-probe` を挙げます。
 4. **E5・E6 を審査する。** `issue.limit` → `issue.root` → `method` → SEED の札（再現）の筋を 1 本の文に書き、筋が切れているところを探します。論文が試した設定の幅（ablation・設定の幅・データの違い・基準線の数）を記載結果表から数えます。
@@ -70,7 +70,7 @@ report（審査書。名前は `bw-core` §12）は次の見出しで書きま�
 | ID | 判定 | 根拠 | 理由 |
 |---|---|---|---|
 | E3 | 要補強 | C2, C5（引用の判定表 waggle:…） | issue.limit の主張 2 つに引用が無い |
-| E7 | 誤り | #12 §4.1, F40 | 同じ患者の記録が学習と評価の両方に入っている |
+| E7 | 誤り | #12.5.1, F40 | 同じ患者の記録が学習と評価の両方に入っている |
 ```
 
 - 「次の一手」は 1 行 1 件で「ブロック・NODE・目的・どの E を補うか」を書きます。

@@ -37,18 +37,18 @@ DEPTH は依頼文の `深さ: ABSTRACT` / `深さ: FIGURES` / `深さ: FULL`（
 ### 手順
 1. **型と深さを読み、ユーザーに確かめる。** 依頼文の `sci_mode` と `深さ` を確認し、1 回だけ見せて確かめます。指定が無ければ「PURPOSE_FIRST・FULL で読みます」と伝えてから始めます。
 2. **読む論文を 1 本決める。** 依頼文に論文の番号があればそれを、無ければ SCOPE の NODE と LINK している論文から 1 本を選びます。決まらないときは手を付けずに案を見せます。
-3. **本文を読む。** `sai-moon-paper content paper <番号>` で本文を読みます。`深さ: ABSTRACT` では題名・要旨・結論・限界だけに絞ります。図が要る DEPTH（FIGURES と FULL）では `sai-moon-paper figures` の出力を使い、論の順番と図の関係を確かめます。
+3. **本文を読む。** MCP の `paper_outline`（`sai-moon-paper content outline <番号> --json`）で節の一覧を見て、目的に要る節だけを `paper_read`（`content read <ID>`）で読みます。`深さ: ABSTRACT` では Abstract と結論の節だけを読みます。全文は読みません。`paper_outline` がエラーになるときだけ、予備として `content paper <番号>` で全文を読みます。図が要る DEPTH（FIGURES と FULL）では `sai-moon-paper figures` の出力を使い、論の順番と図の関係を確かめます。
 4. **型ごとの順番を守る。**
    - **PURPOSE_FIRST** では、NODE の ITEM_GUIDE にある EXTRACT_FIELDS を QUESTION にして、QUESTION ごとに論文を照らし合わせます。書く順番は「NODE と QUESTION → 論文の該当箇所 → 分かったこと」です。
    - **BLIND_FIRST** では、前半を論文だけで読み、問い・方法・結果・限界の要約を先に書き終えます。**木を見る前に要約を書き終えます。** 書き終えてから MCP の `sci_context`（`scope: "path"`。pi では `sai-moon-paper sci context --run "$SAI_PARENT_RUN_ID" --scope path`）で木を取り寄せ、後半で要約と木を照らします。どの NODE にも合わなければ、`exclude` か保留の PROPOSAL を出し、保留の理由を report に書きます。
 5. **見つかったものを 4 段で整理する。** 読み終えた内容を、NODE に加えていく読み・QUESTION を深める読み・NODE が揺れる読み・まだ決着が付かない読みの 4 段（①〜④。段の区分は sci-core の決まりに従う）に整理します。
-6. **FINDING を証拠付きで書く。** `add_finding` で 1〜3 文にまとめ、`cites` に `#<番号> §<節>` か `#<番号> Fig.<番号>` の形で CITE を付けます。数字を含む文には必ず CITE を付けます。論文との LINK は `link`（ROLE 付き）で出し、読み終えたものは `read_state: read`（READ_STATE が READ）にします。REFLECTED にする操作は利用者が行います。
+6. **FINDING を証拠付きで書く。** `add_finding` で 1〜3 文にまとめ、`cites` に塊の ID（`#37.5.2`）か `#37 Fig.3` の形で CITE を付けます。数字を含む文には必ず CITE を付けます。論文との LINK は `link`（ROLE 付き）で出し、読み終えたものは `read_state: read`（READ_STATE が READ）にします。REFLECTED にする操作は利用者が行います。
 7. **QUESTION と OPTION を出す。** ほかの NODE と結び付くなら `link`、新しい QUESTION が出たら `add_question`、新しい選択肢が出たら `add_option`、対象から外れる論文は `exclude` で PROPOSAL にします。どれも PROPOSAL のまま出し、木には触れません。
 8. **利用者に TRIAGE してもらう。** PROPOSAL を出したら一覧を見せ、報告します。木に触れる操作は利用者が行うので、自分では実行しません。利用者が QUESTION に答えたら、その内容を `answer_question` で記録します。
 
 ## 評価の観点
 - 型が守られているか。BLIND_FIRST で、木を見てから要約を書いていないか。
-- FINDING が 1〜3 文に収まっているか。CITE（`#番号 §節` か `Fig.<番号>`）が数字の付いた文にちゃんと付いているか。
+- FINDING が 1〜3 文に収まっているか。CITE（塊の ID `#37.5.2` か `#37 Fig.3`）が数字の付いた文にちゃんと付いているか。
 - 論文に書かれていないことを推測で埋めていないか。読めなかった箇所はそのまま「読めなかった」と書いたか。
 - 主張と根拠の対応が示されているか。根拠の強さ（関連・予測・因果・検証のどれか）を区別しているか。
 - 図を見たときは、図の内容と著者の解釈を分けているか。

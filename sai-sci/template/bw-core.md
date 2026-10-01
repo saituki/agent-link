@@ -27,7 +27,7 @@
 ## 3. 基盤論文
 
 - 基盤論文は Library の番号で指定します。依頼文やカードの目的に `基盤論文: #12 #15` の形で書きます。
-- 本文が読めることが前提です（`sai-moon-paper content paper <番号>`）。読めないときは `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` で本文と引用を抜き出してから読みます（`sai-moon-paper extract` は Library の番号ではなく S2 の ID を取るので使わない）。それでも読めなければ、その論文は抽出の対象から外し、report に書きます。
+- 本文が読めること（MCP の `paper_outline` が返ること）が前提です。読むときは `paper_outline` で節を選び、`paper_read` で読みます。読めないときは `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` で本文と引用を抜き出してから読みます（`sai-moon-paper extract` は Library の番号ではなく S2 の ID を取るので使わない）。それでも読めなければ、その論文は抽出の対象から外し、report に書きます。
 - 2 本以上のときは、最初に関係を 1 つに決めます。
   - **一連の研究**: 前の論文の手法を、後の論文が直している。後の論文ほど新しい決定として扱い、前の論文の決定は OPTION（`add_option`）として残す。
   - **同じ型の研究**: 同じ課題を別の手法で解いている。手法を OPTION として並べ、どれを再現の対象にするかは professor が Human に聞いて決める。
@@ -56,9 +56,9 @@
 
 基盤論文に書いてある文は**主張**です。基盤論文は、自分の主張の証拠になりません。
 
-- 基盤論文から抜き出した FINDING は、`text` を「主張: 」で始め、`polarity` を `neutral` にし、`cites` に基盤論文の場所（`#12 §1`）を書きます。
+- 基盤論文から抜き出した FINDING は、`text` を「主張: 」で始め、`polarity` を `neutral` にし、`cites` に基盤論文の場所（塊の ID `#12.3.2`）を書きます。
 - 基盤論文の主張による決定は、**TENTATIVE**（`decide` の `tentative: true`）で出します。`evidence` には主張の FINDING の ID を入れます。
-- 引用文献を読んで分かった FINDING は、引用文献の番号（`#40 §3.2`）を `cites` に書き、`polarity` を `support`（支持）か `refute`（反証）にします。
+- 引用文献を読んで分かった FINDING は、引用文献の塊の ID（`#40.4.2`）を `cites` に書き、`polarity` を `support`（支持）か `refute`（反証）にします。
 - 評価が済んで主張が支えられた ITEM だけ、professor が DECIDED（`tentative: false`）に上げます。崩れた ITEM は `reopen` します。前向きの GATE の多くは DECIDED で通るので、TENTATIVE のままでは GATE を通りません。これは意図した形です。
 
 ## 6. 主張と引用の対応表
@@ -68,8 +68,8 @@
 ```markdown
 | 主張 | NODE | 基盤論文の場所   | 主張（1 文）                             | 引用の番号 | Library の番号 |
 | ---- | ---- | ---------------- | ---------------------------------------- | ---------- | -------------- |
-| C1   | N12  | #12 §1 第 2 段落 | 頭皮脳波による発作起始の推定は精度が低い | [3], [7]   | #40, 未取得    |
-| C2   | N15  | #12 §2           | 既存の手法は長い記録で精度が落ちる       | なし       | ―              |
+| C1   | N12  | #12.3.2           | 頭皮脳波による発作起始の推定は精度が低い | [3], [7]   | #40, 未取得    |
+| C2   | N15  | #12.4            | 既存の手法は長い記録で精度が落ちる       | なし       | ―              |
 ```
 
 - 引用の番号と引用文は `sai-moon-paper phone citations <基盤論文の番号>` で取ります。`refs[].ref_no` が引用の番号、`refs[].sentences` がその引用を使っている文、`refs[].local_paper_id` が Library の番号（未取得なら `null`）です。`extracted` が `false` なら、先に `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone citations-extract <基盤論文の番号>` を打ちます。

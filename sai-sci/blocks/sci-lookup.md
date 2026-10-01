@@ -59,7 +59,7 @@ sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-lookup
 ```json
 {"proposals": [
   {"op": "link", "node": "N12", "target": "paper:37", "role": "method_source", "read_state": "unread", "reason": "答えの根拠になりうる"},
-  {"op": "add_finding", "node": "N12", "question": "Q7", "text": "…, …。", "cites": ["#37 §3.2"], "polarity": "support", "reason": "QUESTION への答えの根拠"}
+  {"op": "add_finding", "node": "N12", "question": "Q7", "text": "…, …。", "cites": ["#37.4.2"], "polarity": "support", "reason": "QUESTION への答えの根拠"}
 ]}
 ```
 
