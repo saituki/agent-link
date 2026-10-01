@@ -43,38 +43,38 @@ const SG_ZOOM_STEP = 1.2;
 // 線の種類（C-01）。sgEdgeStyle がこの表を返す。
 // [種類, 表示名, 破線, 矢印つきの実線か, 色の CSS 変数]
 const SG_EDGE_KINDS = [
-  ["parent", "親子", "", false, "--sci-edge-parent"],
-  ["depends", "依存", "", true, "--sci-edge-depends"],
-  ["derived", "由来", "8 5", false, "--sci-edge-derived"],
-  ["analogous", "同型", "2 4", false, "--sci-edge-analogous"],
+  ["parent", "PARENT", "", false, "--sci-edge-parent"],
+  ["depends", "DEPENDS", "", true, "--sci-edge-depends"],
+  ["derived", "DERIVED", "8 5", false, "--sci-edge-derived"],
+  ["analogous", "ANALOGOUS", "2 4", false, "--sci-edge-analogous"],
 ];
 
 // 節点の状態（C-01）。札の印と枠の色（CSS 変数）に使う。
 const SG_ITEM_STATES = {
-  open: { mark: "○", label: "未決定", color: "var(--sci-open)" },
-  tentative: { mark: "◐", label: "仮決定", color: "var(--sci-tentative)" },
-  decided: { mark: "●", label: "決定", color: "var(--sci-decided)" },
-  excluded: { mark: "×", label: "対象外", color: "var(--sci-excluded)" },
+  open: { mark: "○", label: "OPEN", color: "var(--sci-open)" },
+  tentative: { mark: "◐", label: "TENTATIVE", color: "var(--sci-tentative)" },
+  decided: { mark: "●", label: "DECIDED", color: "var(--sci-decided)" },
+  excluded: { mark: "×", label: "EXCLUDED", color: "var(--sci-excluded)" },
 };
 // 候補の状態（C-01）
 const SG_OPTION_STATES = {
-  candidate: { mark: "◇", label: "候補", color: "var(--sci-candidate)" },
-  selected: { mark: "◆", label: "選択", color: "var(--sci-decided)" },
-  rejected: { mark: "✕", label: "却下", color: "var(--sci-rejected)" },
-  dormant: { mark: "◌", label: "休眠", color: "var(--sci-dormant)" },
+  candidate: { mark: "◇", label: "CANDIDATE", color: "var(--sci-candidate)" },
+  selected: { mark: "◆", label: "SELECTED", color: "var(--sci-decided)" },
+  rejected: { mark: "✕", label: "REJECTED", color: "var(--sci-rejected)" },
+  dormant: { mark: "◌", label: "DORMANT", color: "var(--sci-dormant)" },
 };
 // 表の並び（選択 → 候補 → 休眠 → 却下）。同じ状態は元の並びのまま
 const SG_OPTION_ORDER = { selected: 0, candidate: 1, dormant: 2, rejected: 3 };
 // 空欄の種類（C-01）
 const SG_BLANK_LABELS = {
-  untouched: "未着手",
-  in_progress: "調査中",
-  insufficient: "情報不足",
-  awaiting_decision: "判断待ち",
-  conflict: "対立",
+  untouched: "UNTOUCHED",
+  in_progress: "IN_PROGRESS",
+  insufficient: "INSUFFICIENT",
+  awaiting_decision: "AWAITING_DECISION",
+  conflict: "CONFLICT",
 };
 // 印（C-01）
-const SG_MARK_LABELS = { weak_evidence: "根拠不足", recheck: "要再確認" };
+const SG_MARK_LABELS = { weak_evidence: "WEAK_EVIDENCE", recheck: "RECHECK" };
 // 表を出す項目の型（選ぶ・並べる。C-01）
 const SG_TABLE_TYPES = ["choose", "list"];
 
@@ -579,10 +579,10 @@ function sgDraw() {
   if (!sgWorld) return;
   // 候補の出し入れの釦の文言を、今の状態に合わせて書き直す
   if (sgOptBtn) {
-    sgOptBtn.textContent = sgShowOptions ? "候補を隠す" : "候補を出す";
+    sgOptBtn.textContent = sgShowOptions ? "OPTION を隠す" : "OPTION を出す";
     sgOptBtn.title = sgShowOptions
-      ? "候補の札を隠します（項目だけの図になります）"
-      : "候補の札を出します";
+      ? "OPTION の札を隠します（ITEM だけの図になります）"
+      : "OPTION の札を出します";
   }
   sgWorld.innerHTML = "";
   sgRects = new Map();
@@ -594,7 +594,7 @@ function sgDraw() {
     // 0 件のときは直接 舞台に入れる（世界は 0 幅。absolute の箱は文字を 1 文字ずつ縦に並べてしまう）
     sgPutEmpty(sgEmptyBox({
       icon: "🌱",
-      title: "項目はまだありません",
+      title: "ITEM はまだありません",
       body: "種類を選んで木を始めると、ここに図が出ます。",
     }));
     sgApplyView();
@@ -724,7 +724,7 @@ function sgCardEl(node, r, gateKeys) {
   head.appendChild(sgEl("span", "sci-graph-card-state", st.label));
   b.appendChild(head);
 
-  b.appendChild(sgEl("span", "sci-graph-card-title", n.title || "（題のない項目）"));
+  b.appendChild(sgEl("span", "sci-graph-card-title", n.title || "（題のない ITEM）"));
 
   const foot = sgEl("span", "sci-graph-card-foot");
   if (n.blank && SG_BLANK_LABELS[n.blank]) {
@@ -1195,11 +1195,11 @@ function sgRenderTable(container, detail) {
   const types = Array.isArray(node.types) ? node.types : [];
   const has = SG_TABLE_TYPES.some((t) => types.includes(t));
   if (!has) {
-    container.appendChild(sgNote("この項目には候補の表がありません。"));
+    container.appendChild(sgNote("この ITEM には OPTION の表がありません。"));
     return;
   }
 
-  // 1. 評価の軸（mind.md の「価値の軸」）
+  // 1. 評価の軸（mind.md の VALUE_AXES）
   const axes = Array.isArray(d.axes) ? d.axes.filter((a) => String(a || "").trim()) : [];
   const head = sgEl("div", "sci-graph-axes");
   if (axes.length) {
@@ -1207,14 +1207,14 @@ function sgRenderTable(container, detail) {
       head.appendChild(sgEl("div", "sci-graph-axis", `${i + 1}. ${String(axes[i]).trim()}`));
     }
   } else {
-    head.appendChild(sgNote("mind.md の「価値の軸」に書くと、ここに出ます。"));
+    head.appendChild(sgNote("mind.md の VALUE_AXES に書くと、ここに出ます。"));
   }
   container.appendChild(head);
 
   // 2. 表（行を押すと stSelect で板が開く）
   const rows = sgTableRows(d);
   if (!rows.length) {
-    container.appendChild(sgNote("候補はまだありません。"));
+    container.appendChild(sgNote("OPTION はまだありません。"));
     return;
   }
   const wrap = sgEl("div", "sci-table-wrap sci-graph-table-wrap");
@@ -1222,7 +1222,7 @@ function sgRenderTable(container, detail) {
   table.className = "sci-table sci-graph-table";
   const thead = document.createElement("thead");
   const hrow = document.createElement("tr");
-  for (const h of ["候補", "状態", "支持", "反証", "論文", "知見"]) {
+  for (const h of ["OPTION", "状態", "SUPPORT", "REFUTE", "論文", "FINDING"]) {
     const th = document.createElement("th");
     th.textContent = h;
     hrow.appendChild(th);
@@ -1238,7 +1238,7 @@ function sgRenderTable(container, detail) {
 
     const name = document.createElement("td");
     name.appendChild(sgEl("span", "sci-id", r.id));
-    name.appendChild(sgEl("span", "sci-cell-title", r.title || "（題のない候補）"));
+    name.appendChild(sgEl("span", "sci-cell-title", r.title || "（題のない OPTION）"));
     if (r.summary) name.appendChild(sgEl("p", "sci-cell-body", r.summary));
     tr.appendChild(name);
 
