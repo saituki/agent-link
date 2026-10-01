@@ -207,6 +207,13 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `GET /api/projects/{name}/papers/logs/{log_id}` | 過去の検索結果 |
 | `GET /api/projects/{name}/papers/{paper_id:int}` | 論文情報 |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate` | 要旨の日本語訳 |
+| `POST /api/projects/{name}/papers/{paper_id:int}/translate-pdf` | PDF の日本語訳を始める（202 `{"key": "pdf:<id>", "status": "processing"}`・翻訳中は 409・仕事は `downloads` に `kind="translate"`・`percent=null` で出る・`phone translate-pdf`） |
+| `POST /api/projects/{name}/papers/browser/open` | Mac の Chrome で DOI のページを開く（body `{"doi": "10.…"}`・不正は 400・Chrome が無ければ 503） |
+| `GET /api/projects/{name}/papers/browser/state` | `{open, url, title, width: 600, height: 1000, downloads: [{name, size, done, modified_at}]}`（`downloads` は新しい順） |
+| `GET /api/projects/{name}/papers/browser/screen` | 画面の JPEG（600×1000・閉じていれば 409） |
+| `POST /api/projects/{name}/papers/browser/input` | 操作（`{"type": "tap", "x": 0〜1, "y": 0〜1}` / `{"type": "scroll", "dy": -3000〜3000}` / `{"type": "text", "text": 1〜200 字の 1 行}` / `{"type": "key", "key": "Enter"\|"Backspace"\|"Tab"\|"Escape"}` / `{"type": "back"}` / `{"type": "reload"}`）→ `{"ok": true}`。形の違反は 400・閉じていれば 409 |
+| `POST /api/projects/{name}/papers/browser/import` | 保存した PDF の取り込み（202・body は `manual/import` と同じ対象のどれか 1 つ＋ `file_name`・404 / 409 / 413。進み具合は `downloads` の `kind="manual"`） |
+| `DELETE /api/projects/{name}/papers/browser` | Chrome を終える（`{"open": false}`） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/text` | 本文（Markdown） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/pdf?lang=ja` | PDF（`lang=ja` で日本語訳・パスがそのプロジェクトの root 外なら 404） |
 | `GET /api/projects/{name}/papers/dashboard` | Dashboard（数字カードと出来事・`phone dashboard`） |
@@ -239,6 +246,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 - 古い `/api/papers/...` は無い。`{name}` は 3.1 の一覧の名前で，無ければ 404。
 - `import` / `downloads` / `manual/candidates` / `manual/import` / `manual/upload` / `project` / `attention` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- `papers/browser/…`（`open` / `state` / `screen` / `input` / `import` と `DELETE papers/browser`）も `{paper_id:int}` より**先に**登録する。
+- リモートブラウザの Chrome は全体で 1 つ・最後の操作から 10 分で終了・専用プロファイル `~/.sai-moon/phone/browser-profile/`・ダウンロード先 `~/.sai-moon/phone/browser-downloads/`（7 日で消える）。DOI だけを受け、任意の URL は受けない。環境変数は `SAI_PHONE_CHROME`（Chrome の実行ファイル）と `SAI_PHONE_BROWSER_HEADED`（`1` で画面あり。出版社が headless を弾くとき）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ・メモは改行なしの 1〜2000 文字・key は 1〜300 文字の 1 行）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
 - アップロードは `FastAPI` の `UploadFile` を使わず、**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
 - `papers/sci` の 10 本は `sci.py` が検査してから CLI を呼ぶ。NODE・PROPOSAL・QUESTION・FINDING・LINK の ID は `^[NQFLPS][1-9][0-9]{0,8}$`、run_id は 1〜999999999 の整数、型は 5 つだけ、`action` は 3 つ、`note` は 1000 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
@@ -340,6 +349,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | 変数 | 既定値 | 用途 |
 |---|---|---|
 | `SAI_PHONE_PORT` | `8200` | 待ち受けポート |
+| `SAI_PHONE_CHROME` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | リモートブラウザが起動する Chrome |
+| `SAI_PHONE_BROWSER_HEADED` | （空＝headless） | `1` で画面ありの Chrome（出版社が headless を弾くとき） |
 | `SAI_PHONE_TOKEN` | （空＝認証なし・開発用） | 合言葉 |
 | `SAI_LINK_BIN` | `sai-moon-link` | プロジェクトタブ・List 画面が呼ぶ CLI。**PATH 上に無い**ので PATH を足すか絶対パスを書く |
 | `SAI_PAPER_BIN` | `…/sai-moon/target/release/sai-moon-paper` | 論文タブが呼ぶ CLI（PATH に無いため絶対パス） |

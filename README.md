@@ -129,6 +129,8 @@ plist は `PYTHONPATH`（`apps/phone/src`）と `PATH`（`target/release`・`tar
 | ------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
 | `SAI_PHONE_TOKEN`                                       | （空＝認証なし・開発用）                               | 合言葉。iPhone 側と合わせる                                                        |
 | `SAI_PHONE_PORT`                                        | `8200`                                                 | 待ち受けポート                                                                     |
+| `SAI_PHONE_CHROME`                                      | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | リモートブラウザ（Papers）が起動する Chrome                                  |
+| `SAI_PHONE_BROWSER_HEADED`                              | （空＝headless）                                       | `1` で画面ありの Chrome（出版社が headless を弾くとき）                            |
 | `SAI_LINK_BIN`                                          | `sai-moon-link`                                        | Project タブ・List 画面が呼ぶ CLI。**PATH に無いので PATH を足すか絶対パスを書く** |
 | `SAI_PAPER_BIN`                                         | `~/workdir/Sai/sai-moon/target/release/sai-moon-paper` | Papers タブが呼ぶ CLI（絶対パス）                                                  |
 | `SAI_SAI_HOME`                                          | （空＝`~/.sai-moon`）                                  | 登録簿 `registry.json` の置き場。空なら `$HOME/.sai-moon/registry.json` を読む     |

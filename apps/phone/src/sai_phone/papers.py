@@ -33,7 +33,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from sai_phone import cli, control, notify
+from sai_phone import cli, control, notify, rbrowser
 from sai_phone.config import settings
 
 logger = logging.getLogger("sai_phone")
@@ -1298,6 +1298,76 @@ async def _manual_import_job(
         await _run_after_download(project, job, paper_id, title)
     except Exception as e:  # サーバーは止めない（Download と同じ扱い）
         logger.exception(f"手動取り込みで失敗: {e}")
+        if job.get("status") not in ("done", "failed"):
+            fail("原因不明のエラー")
+
+
+async def request_browser_import(project: dict, payload) -> dict:
+    """リモートブラウザが保存した PDF を取り込む（`POST …/papers/browser/import`）。
+
+    body は「取り込み対象のどれか 1 つ」＋ `{"file_name": "x.pdf"}`。ファイルはダウンロード先の
+    名前だけで引く（パスは受け取らない）。取り込んだ後もファイルは消さない（失敗したら
+    もう一度押せるように。7 日で消える）。
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="送る値が正しくありません")
+    target = dict(payload)
+    file_name = target.pop("file_name", None)
+    if file_name is None:
+        raise HTTPException(status_code=400, detail="PDF を選んでください")
+    _manual_target(target)
+    path = rbrowser.download_path(file_name)
+    if path.stat().st_size > UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")
+    body = await run_in_threadpool(path.read_bytes)
+    if not body.startswith(PDF_MAGIC):
+        raise HTTPException(status_code=400, detail="PDF ではありません")
+    return await request_manual_import(project, target, body=body)
+
+
+# PDF の日本語訳の待ち時間
+PDF_TRANSLATE_TIMEOUT = 1800.0
+
+
+async def request_translate_pdf(project: dict, paper_id: int) -> dict:
+    """PDF の日本語訳を始める（`POST …/papers/{id}/translate-pdf`・202 ですぐ返す）。
+
+    仕事キーは `pdf:{id}`（要旨の訳 `paper:{id}` と別。同時に出ても上書きしない）。
+    """
+    name = project["name"]
+    key = f"pdf:{paper_id}"
+    job = _download_jobs.get((name, key))
+    if job is not None and job.get("status") in ("downloading", "processing"):
+        raise HTTPException(status_code=409, detail="この論文の PDF は翻訳中です")
+    title = f"#{paper_id} の PDF の訳"
+    job = _new_job("translate", key, title, "processing", [], None)
+    job["paper_id"] = paper_id
+    _download_jobs[(name, key)] = job
+    job["_task"] = asyncio.create_task(_translate_pdf_job(project, paper_id, title, job))
+    return {"key": key, "status": "processing"}
+
+
+async def _translate_pdf_job(project: dict, paper_id: int, title: str, job: dict) -> None:
+    """背景で `phone translate-pdf <id>` を走らせ、結果を通知する。"""
+    url = f"/#/paper/{project['name']}/{paper_id}"
+
+    def fail(error: str) -> None:
+        _finish_download(job, "failed", error=error)
+        notify.broadcast("PDF を翻訳できませんでした", f"{title}: {error}", url)
+
+    try:
+        code, stdout, reason = await _run_paper_command(
+            str(project["root"]), ["phone", "translate-pdf", str(paper_id)], PDF_TRANSLATE_TIMEOUT
+        )
+        if reason:
+            fail(reason)
+        elif code != 0:
+            fail(_radio_error(stdout))
+        else:
+            _finish_download(job, "done")
+            notify.broadcast("📄 PDF の日本語訳ができました", title, url)
+    except Exception as e:  # サーバーは止めない
+        logger.exception(f"PDF の翻訳で失敗: {e}")
         if job.get("status") not in ("done", "failed"):
             fail("原因不明のエラー")
 
