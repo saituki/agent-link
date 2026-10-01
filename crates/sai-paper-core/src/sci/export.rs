@@ -911,7 +911,7 @@ mod tests {
         // 見出しと並び。
         assert!(tree.contains("- RESEARCH_TYPE: PROBLEM_DRIVEN"), "{tree}");
         assert!(tree.contains("## SEED_SENTENCE"), "{tree}");
-        assert!(tree.contains(&format!("## {} 対象", fmt_ref('N', target))), "{tree}");
+        assert!(tree.contains(&format!("## {} TARGET", fmt_ref('N', target))), "{tree}");
         // 候補・知見・論文は項目の中の一行。
         assert!(tree.contains(&format!("- OPTION {} ", fmt_ref('N', choice))), "{tree}");
         assert!(tree.contains("FINDING F"), "{tree}");

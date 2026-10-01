@@ -3233,7 +3233,7 @@ given: background
         assert_eq!(gate.name, "BACKGROUND_GOAL_DECIDED");
         // 種の文は空欄のまま「［？…］」で並ぶ。
         let seed = result.seed.expect("種の文");
-        assert!(seed.text.starts_with("「［？対象］の"));
+        assert!(seed.text.starts_with("「［？TARGET］の"));
         assert!(seed.parts.iter().any(|part| !part.filled));
         // 節点ごとの行も出る。
         let purpose = key_id(conn, "purpose.subgoal");

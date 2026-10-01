@@ -1232,7 +1232,7 @@ mod tests {
         assert!(defs.guide("extra").is_some());
         // 上書きした data 以外のガイドは埋め込みのまま（書き換えの副作用がないことの確かめ）。
         assert_eq!(defs.guides.len(), 26);
-        assert_eq!(defs.guide("novelty").unwrap().name, "新規性");
+        assert_eq!(defs.guide("novelty").unwrap().name, "NOVELTY");
 
         let _ = fs::remove_dir_all(&root);
     }
