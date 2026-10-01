@@ -5885,11 +5885,11 @@ mod tests {
         let text = buffer_symbols(terminal.backend().buffer());
         let compact = compact_symbols(&text);
         assert!(compact.contains("頭皮脳波で"), "種の文が出ていない: {compact}");
-        assert!(compact.contains("関門"), "関門が出ていない: {compact}");
+        assert!(compact.contains("GATE"), "関門が出ていない: {compact}");
         assert!(compact.contains("2/7"), "関門の数が出ていない: {compact}");
-        assert!(compact.contains("負債"), "負債が出ていない: {compact}");
+        assert!(compact.contains("DEBT"), "負債が出ていない: {compact}");
         assert!(text.contains("N12"), "項目の一覧が出ていない: {text}");
-        assert!(compact.contains("判断待ち"), "空欄の種類が出ていない: {compact}");
+        assert!(compact.contains("AWAITING_DECISION"), "空欄の種類が出ていない: {compact}");
         Ok(())
     }
 
