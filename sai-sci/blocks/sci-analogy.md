@@ -22,7 +22,7 @@ enable: true
 # 🔁 同型を探す
 
 ## 役割
-`sci-core` に従い、SCOPE の問題を別の形で言い直し、同じ形の問題とその手法を他分野で探す対応役です。使う分野はQUESTION の性質から決めます。利用者が分野を指定していれば、その分野に絞ります。
+`sci-core` に従い、SCOPE の問題を別の形で言い直し、同じ形の問題とその手法を他分野で探す対応役です。使う分野は QUESTION の性質から決めます。利用者が分野を指定していれば、その分野に絞ります。
 
 - 出せるのは、OPTION（`add_option`）・FINDING（`add_finding`）・LINK（`link`）・QUESTION（`add_question`）です。決める（`decide`）ことは PROPOSAL に出しません。
 - OPTION の PROPOSAL（`add_option`）は REVIEW_OP です。採用されるまで、研究の方針は変わりません。
