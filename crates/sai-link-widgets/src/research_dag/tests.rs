@@ -1,6 +1,6 @@
 //! `load_research_dag`（research-tree の実行の図）のテスト。
 //!
-//! 図は 3 層（root / seed / branch）だけ`、`block_connections` にある
+//! 図は 4 層（seed / root / sprout / branch）だけ`、`block_connections` にある
 //! 3 種類の線だけを出す。一時 DB（メモリ上）と一時フォルダのカードで確かめる。
 
 use std::path::Path;
@@ -148,7 +148,7 @@ fn card_text(run_id: i64, description: &str, sci_node: Option<&str>) -> String {
     };
     format!(
         "---\nrunner: pi\ncreation_date: 2026/09/30 00:00:00\nexecution_date: -\nrun_id: {}\n\
-         block: sci-exp-seed\ndescription: {}\n{}---\n\n# task_text\n\nテスト\n",
+         block: sci-exp-sprout\ndescription: {}\n{}---\n\n# task_text\n\nテスト\n",
         run_id, description, sci_line
     )
 }
@@ -163,7 +163,7 @@ fn card_text(run_id: i64, description: &str, sci_node: Option<&str>) -> String {
 fn dag_has_layered_nodes_and_edges_between_them() {
     let _env = env_lock();
     let f = Fixture::new();
-    let seed_block = f.block("sci-exp-seed", "exp-seed", Some("seed"));
+    let seed_block = f.block("sci-exp-sprout", "exp-seed", Some("seed"));
     let branch_block = f.block("sci-exp-branch", "exp-branch", Some("branch"));
     let plain_block = f.block("plain", "平日のブロック", None);
 
@@ -204,7 +204,7 @@ fn dag_has_layered_nodes_and_edges_between_them() {
 
     // 層と表示名
     assert_eq!(dag.nodes[0].layer, "seed");
-    assert_eq!(dag.nodes[0].block, "sci-exp-seed");
+    assert_eq!(dag.nodes[0].block, "sci-exp-sprout");
     assert_eq!(dag.nodes[0].name, "exp-seed");
     assert_eq!(dag.nodes[1].layer, "branch");
 
@@ -227,7 +227,7 @@ fn dag_has_layered_nodes_and_edges_between_them() {
 fn dag_merges_same_edges() {
     let _env = env_lock();
     let f = Fixture::new();
-    let seed_block = f.block("sci-exp-seed", "exp-seed", Some("seed"));
+    let seed_block = f.block("sci-exp-sprout", "exp-seed", Some("seed"));
     let branch_block = f.block("sci-exp-branch", "exp-branch", Some("branch"));
     let seed = f.run(seed_block);
     let branch = f.run(branch_block);
@@ -251,7 +251,7 @@ fn dag_merges_same_edges() {
 fn dag_reads_sci_node_from_card_frontmatter() {
     let _env = env_lock();
     let f = Fixture::new();
-    let seed_block = f.block("sci-exp-seed", "exp-seed", Some("seed"));
+    let seed_block = f.block("sci-exp-sprout", "exp-seed", Some("seed"));
     let branch_block = f.block("sci-exp-branch", "exp-branch", Some("branch"));
     let with_sci = f.run(seed_block);
     let without_sci = f.run(branch_block);

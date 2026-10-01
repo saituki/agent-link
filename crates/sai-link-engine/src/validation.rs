@@ -37,8 +37,9 @@ pub const VALID_THINKING_LEVELS: &[&str] = &["none", "low", "medium", "high", "x
 
 /// 有効な research-tree の層の一覧（U01）。
 ///
-/// `layer` は `root` / `seed` / `branch` の 3 つだけ。書かなければ図に出さない。
-pub const VALID_LAYERS: &[&str] = &["root", "seed", "branch"];
+/// `layer` は `seed` / `root` / `sprout` / `branch` の 4 つだけ。書かなければ図に出さない。
+/// 図の上から下の並びは branch / sprout / seed / root（図の向き）。
+pub const VALID_LAYERS: &[&str] = &["seed", "root", "sprout", "branch"];
 
 /// 指定された `BlockConfig` を検証し、全てのエラーと警告を収集して返す。
 ///
@@ -147,7 +148,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
         }
     }
 
-    // layer: Some の場合、"root", "seed", "branch" のどれかであること
+    // layer: Some の場合、"seed", "root", "sprout", "branch" のどれかであること
     // （research-tree の実行の図に出る層。書かなければ図には出ない）
     if let Some(ref layer) = config.layer {
         let trimmed = layer.trim();
@@ -155,7 +156,7 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
             errors.push(ParseError::InvalidValue {
                 field: "layer".to_string(),
                 value: layer.clone(),
-                expected: "root / seed / branch のどれかです".to_string(),
+                expected: "seed / root / sprout / branch のどれかです".to_string(),
             });
         }
     }
