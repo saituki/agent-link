@@ -43,12 +43,12 @@ const OPS_NOTE: &str = "提案は MCP の `sci_propose`（pi は `sai-moon-paper
 
 /// 土壌で出す節の並び（この順）。
 const SOIL_HEADINGS: [&str; 6] = [
-    "始まり",
-    "研究の型",
-    "与えられていること",
-    "制約",
-    "価値の軸",
-    "興味がある / 興味が無い",
+    "ORIGIN",
+    "RESEARCH_TYPE",
+    "GIVEN",
+    "CONSTRAINTS",
+    "VALUE_AXES",
+    "INTERESTS",
 ];
 
 /// 長すぎるときに付ける文。
@@ -1325,6 +1325,34 @@ mod tests {
         assert_eq!(text.lines().count(), 3, "{text}");
     }
 
+    /// mind.md が新しい見出しでも、土壌の節が出ること。
+    #[test]
+    fn soil_reads_new_mind_headings() {
+        let (fix, _db, tree) = fixture();
+        fs::write(
+            fix.roots.data_dir.join("mind.md"),
+            "## ORIGIN\nてんかん外科の支援から\n\n## CONSTRAINTS\n学会が 1 年に 1 回\n",
+        )
+        .unwrap();
+        write_run(
+            &fix.roots,
+            120,
+            &format!("sci_node: {}\nsci_purpose: 比べる\n", fmt_ref('N', tree.subgoal)),
+        );
+        let parts = Parts::collect(
+            _db.connection(),
+            &fix.roots,
+            &defs(),
+            &read_run_task(&fix.roots, 120).unwrap(),
+            tree.subgoal,
+            "path",
+        )
+        .unwrap();
+        let text = parts.render(3);
+        assert!(text.contains("- ORIGIN: てんかん外科の支援から"), "{text}");
+        assert!(text.contains("学会が 1 年に 1 回"), "{text}");
+    }
+
     /// 長すぎるときは ①→⑥ の順に削れること。
     #[test]
     fn context_trims_in_order() {
@@ -1366,10 +1394,10 @@ mod tests {
         assert!(level3.contains("- 問い: 1 回の研究で何を達成するか"), "{level3}");
         // ④ 土壌 → 各節 1 行。
         assert!(level3.contains("学会が 1 年に 1 回"), "{level3}");
-        assert!(level3.contains("- 始まり: てんかん外科の支援から 焦点切除を目指す"), "{level3}");
+        assert!(level3.contains("- ORIGIN: てんかん外科の支援から 焦点切除を目指す"), "{level3}");
         let level4 = parts.render(4);
         assert!(!level4.contains("焦点切除を目指す"), "{level4}");
-        assert!(level4.contains("- 始まり: てんかん外科の支援から\n"), "{level4}");
+        assert!(level4.contains("- ORIGIN: てんかん外科の支援から\n"), "{level4}");
 
         // 収まる上限なら切り詰めない。段の境目の長さなら、その段の文そのものになる。
         let text = build_with(&fix, &db, level1.chars().count(), Some("path"));
