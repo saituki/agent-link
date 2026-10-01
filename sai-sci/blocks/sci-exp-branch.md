@@ -1,7 +1,7 @@
 ---
 name: 🌿 exp-branch
 id: sci-exp-branch
-description: seed から受け取ったスクリプトを 1 本だけ実行し、MLflow に記録させて報告する
+description: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える
 model: inherit
 thinking: medium
 templates:
@@ -21,102 +21,116 @@ enable: true
 
 すること:
 
-- seed から受け取ったスクリプトを **1 本だけ**実行し、MLflow に記録させ（`exp-core` §4）、作業報告書（`exp-core` §9）を保存して `task_report` を 1 回呼ぶ。
+- 依頼書に従って、スクリプト（モデル + パラメータの探索範囲 + 学習 + テスト）を **1 本**書く。
+- 実行先に投げ、**始まったことを確かめる**。
+- 作業報告書（`exp-core` §9）を保存し、ジョブ待ちの review のカードを作る。
+- 最後に `sai_finalize` を呼ぶ。
 
 しないこと:
 
-- **判定をしない。** 次の一手（`extend` / `new_script` / `debug` / `ablation` / `stop`）は seed の役目である。報告書にも書かない。
-- **スクリプトの中身を変えない。** 書くのは seed である。
+- **ジョブの終わりを待たない。** 終わると daemon が review（`sci-exp-review`）を起こす。判定は review の役目である。
 - 実験仕様書（`exp-core` §3）を書き換えない。仕様書の `workdir` の外のファイルも書かない。
 - 台帳の数値からパラメータの値を自分で読まない。
 
-**スクリプトは seed が書いている。** あなたの仕事は実行と記録の確認と報告だけである。
+あなたは root の run である。
 
 ## 手順
 
-### 1. 依頼の 7 行を読む
+### 1. 依頼書を読む
 
-依頼文の先頭の 7 行（`exp-core` §7 の形）を読む。
+依頼文の末尾に埋め込まれた依頼書（`exp-core` §7）の先頭 5 行と、実験仕様書（JSON）を読む。
 
 ```text
-study: N12-s120
-generation: 2
-script: s03
+study: N12-ID120
+sprout_run_id: 120
 action: tune
-parent_script: s01
-spec: <実験仕様書のトークン>
-seed_run_id: 125
+parent_branch: 125
+model: cnn-small
 ```
 
-- `spec` の行のトークンから埋め込まれた**実験仕様書の本文を必ず読む**。ここで `sci_node` / `metric` / `direction` / `success` / `min_delta` / `max_generations` / `max_fail` / `max_debug` / `mlflow_experiment` / `workdir` を得る。
-- 埋め込みが無いときは `sai_read { "token": "<spec の値>" }` で読む。
-- 7 行の後の節に「スクリプトに書く中身」が書いてある。**スクリプトは既に書かれているので、書き直さない。** 実行場所のパスだけ確かめる。
+- 実験仕様書から `sci_node`・`project`・`metric`・`direction`・`epochs`・`trial_timeout_s`・`device`・`workdir` を得る。
+- 判定書が付いていれば、その `next` の自分の行（`fix`・`idea`・`grid`）も読む。
+- 埋め込みが無いときは `sai_read` でトークンを読む。
 
-### 2. 実行先に投げて、終わるまで待つ
+### 2. スクリプトを書く
 
-`exp-core` §8 の規則で決める。実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。**どの実行先でも呼び方は同じ**で、使い方は `exp-run` にある。
+`exp-core` §4 の雛形から書く。置き場は `<workdir>/ID<自分の run_id>/train.py`（自分の run_id は `SAI_PARENT_RUN_ID`）。フォルダが無ければ作る。
 
-1. 実行先が使えるか確かめる。失敗したら `BLOCKED` で報告して終える（別の実行先を選ばない）。
+| action | 書き方 |
+|---|---|
+| draft・model・ablation | 雛形から書く。`train()` に依頼書のモデルの案を書く。データの読み込みは `<workdir>/common/` に既にあれば import して使い、無ければそこに書く（branch ごとに写さない）。 |
+| tune | 親の `<workdir>/ID<parent_branch>/train.py` を写し、`GRID`（と `FIXED`）だけを依頼書の値に替える。`train()` を変えない。 |
+| debug | 親のスクリプトを写し、依頼書・判定書の `fix` の点だけを直す。`MODEL` は親と同じ。 |
+
+- 定数は依頼書と仕様書の値を入れる: `PROJECT`・`SCI_NODE`・`STUDY`・`SPROUT_RUN_ID`・`MODEL`・`ACTION`・`PARENT_BRANCH`（無ければ空文字）・`METRIC`・`DIRECTION`・`EPOCHS`・`DEVICE`。
+- MLflow の行・標準出力の行（`device=`・`[trial …]`・`[epoch …]`）・`pick_device`・`main` は書き換えない。
+
+### 3. 手元で構文を確かめる
+
+```bash
+uv run --no-project --python ">=3.10" python -m py_compile <workdir>/ID<run_id>/train.py
+```
+
+通らなければ直す。
+
+### 4. 投げる
+
+`exp-core` §8 の規則で決める。実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。使い方は `exp-run` にある。
+
+1. 先に `check`。失敗したら `BLOCKED` 相当として、報告書に書いて終える（別の実行先を選ばない）。
 
    ```bash
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" check "${EXP_TARGET:-local}"
    ```
 
-2. 仕様書の `workdir` へ `cd` してから、スクリプトを投げる（実行先へは cwd のコードが送られるので、スクリプトは workdir からの相対パス、例 `s01/g1.py`）。標準出力の 1 行目の job_id を控える。
+2. 通れば、仕様書の `workdir` へ `cd` してから `run`。標準出力の 1 行目の job_id を控える。
 
    ```bash
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
-     run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
-     env EXP_BRANCH_RUN_ID="$SAI_PARENT_RUN_ID" uv run --python ">=3.10" --with mlflow <workdir からの相対パス>
+     run "${EXP_TARGET:-local}" --name ID<run_id> -- \
+     env EXP_BRANCH_RUN_ID=<run_id> TRIAL_TIMEOUT_S=<trial_timeout_s> \
+     uv run --python ">=3.10" --with mlflow ID<run_id>/train.py
    ```
 
-   環境変数を渡す引数は無い。**コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く。**`EXP_BRANCH_RUN_ID` には **自分の run_id**（`SAI_PARENT_RUN_ID`）を入れる。スクリプトはここから `sai.run_id` のタグを読む。
+### 5. 始まりを確かめる
 
-3. `status <job_id> --json` で `state` が `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。`failed` / `lost` のときは `logs <job_id>` の末尾を読み、報告書に書く。
+`started` を **1 回**だけ呼ぶ。
 
-### 3. 記録を確かめる
+```bash
+uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" started <job_id> --timeout 600 --json
+```
 
-1. **親 run を探す。** 仕様書の `mlflow_experiment` の中で、タグ `sai.run_id` が自分の run_id と一致する親 run（`exp.role=script`）を探す。run_id とタグだけを見る。
+返りは `{"job_id", "state", "started", "device", "line", "waited_s", "log_tail"}`。結果ごとの動きは `exp-core` §8 の表のとおり。`failed` ならスクリプトの誤りを `log_tail` から直し、投げ直す（**2 回まで**）。2 回で直らなければ、そのまま報告書に書いて review に渡す。
 
-   ```bash
-   EXP_NAME=<mlflow_experiment> uv run --no-project --with mlflow python -c "
-   import os, mlflow
-   exp = mlflow.get_experiment_by_name(os.environ['EXP_NAME'])
-   runs = mlflow.search_runs([exp.experiment_id], filter_string='tags.\`sai.run_id\` = \"' + os.environ['SAI_PARENT_RUN_ID'] + '\"')
-   print(runs[['run_id', 'tags.exp.script', 'tags.exp.generation']])"
-   ```
+### 6. 作業報告書を保存する
 
-   見つからなければ、環境変数 `MLFLOW_TRACKING_URI` と仕様書の `mlflow_experiment` が正しいか、`exp.generation` と `exp.script` のタグが依頼の値と一致しているかを見る。**この検索結果では数値（指標の値）を読まない。** 数値は手順 2 の台帳から取る。
+`exp-core` §9 の形で `sai_write` する。
 
-2. **台帳で自分の世代と script を確認する。** `exp-core` §5 のとおりに呼ぶ。`--direction` は省略しない。
+- ファイル名 `exp-run-<study>-ID<run_id>.md`。
+- description `作業報告書 <study> ID<run_id>: <action> <model> — job <job_id> <state>`。
+- job_id・`started` の結果・投げ直した回数を書く。
 
-   ```bash
-   uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
-     --study <study> --metric <指標名> --direction <maximize|minimize> \
-     [--min-delta <min_delta>] [--experiment <mlflow_experiment>]
-   ```
+### 7. review のカードを作る
 
-   - `scripts[]` の中で `script` が依頼の `script` と同じものを探し、`rounds` に自分の `generation` が入っていることを確かめる。この `scripts[]` の自分の欄にある `trials`（試行の数）・`failed`（失敗の数）・`best`（最良値）を控えておく（作業報告書の表に使う）。
-   - `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py` が無いとき（`test -f` で確かめる）は `BLOCKED` で報告して終える（推測で別のファイルを使うな）。
+```bash
+sai-moon-paper sci card --node <sci_node> --block sci-exp-review \
+  --purpose "<study> ID<run_id> の結果の判定" \
+  --input <実験仕様書のトークン> --input <作業報告書のトークン> \
+  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+sai-moon-link phone card wait <返った run_id> --job <job_id>
+```
 
-### 4. 報告する
+`phone card wait` の戻り値に `after_job` が入っていることを確かめる。
 
-1. **作業報告書（`exp-core` §9）を `sai_write` で保存する。**
-   - ファイル名 `exp-run-<study>-g<世代>-<script>.md`。
-   - description `作業報告書 <study> g<世代> <script>: <action> — 試行 <n> 件・失敗 <m> 件`。`n` と `m` は手順 2 の台帳で控えた値。
-   - 本文は `exp-core` §9 の表をそのまま使う（MLflow の親 run の run_id は手順 3 で探した値を入れる）。
+### 8. 終える
 
-2. **直してよいのは「実行できない単純な誤り」だけである。** 実行できなかったとき、原因が 1 文字の書き損じやデータ名の取り違いのように、原因が確実に分かるなら、1 回だけ直して実行し直してよい。**必ずそのことを報告書に書く。** それ以外は直さず、報告の「状態」を「失敗」または「記録なし」にして終える。
-
-3. **`task_report` を 1 回呼ぶ。** report は 10 行以内に収め、先頭に `<study> g<世代> <script> <action>: 試行 <n> 件・失敗 <m> 件` を書く。
+`sai_finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review のカードの run_id を書く。
 
 ## やってはいけないこと
 
-- **判定をしないこと。** `extend` / `new_script` / `debug` / `ablation` / `stop` を自分で出さない。報告書にも「次に何をするか」を書かない。
-- **スクリプトを書き直すこと。**（手順 4 の 2 で許した単純な誤りだけを除く）
-- **実験仕様書を書き換えること。**
-- **研究の本体の数値を LLM が読んで書き写すこと。** 数値は必ずスクリプトが `log_metric` する。
-- **MLflow の画面や生の run の一覧から目で見ること。** 数値は台帳コマンドの JSON だけを読む。
-- **1 回なおしても記録が残らないときに待ち続けること。** 「記録なし」で報告して終える（放置して待つな）。
-- **他人が投入したジョブを cancel すること。** 自分が投入した job_id だけを扱う。
-- **`sai_finalize` を呼ぶこと。** 終えるのは seed の役目である。
+- **ジョブの終わりを待つこと。**（`sleep` や `status` を繰り返さない）
+- **判定すること・次の branch を起こすこと。** review の役目である。
+- **依頼書に無い組を足すこと。** tune で `train()` を変えることもしない。
+- **`ssh`・`scp`・`rsync` で直接動かすこと。** 必ず `exp_exec.py` を通す。
+- **確認だけのジョブを投げること**（`exp-run` §1）。
+- **自分が投げたもの以外のジョブを止めること。**
