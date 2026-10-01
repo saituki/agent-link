@@ -1,7 +1,7 @@
 ---
 name: 🩺 復元した木の審査
 id: sci-tree-review
-description: 復元した木の審査。論文から復元した研究方針の木をCRITERIA（E1〜E10）で審査し、補う作業を次の一手として並べる（逆向き）
+description: 復元した木の審査。論文から復元した研究方針の木を CRITERIA（E1〜E10）で審査し、補う作業を次の一手として並べる（逆向き）
 model: inherit
 thinking: high
 templates:

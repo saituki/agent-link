@@ -8,7 +8,7 @@ min_findings: 2
 ---
 # PURPOSE
 
-この研究で何をしたいかを 1 つに決めるITEM である。
+この研究で何をしたいかを 1 つに決める ITEM である。
 
 PURPOSE_SUBGOAL・PURPOSE_OUTPUT・PURPOSE_METRIC の 3 つがすべて決まって、決まる。
 

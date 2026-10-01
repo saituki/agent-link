@@ -8,7 +8,7 @@ min_findings: 2
 ---
 # DATA
 
-使うデータを 1 つに決めるITEM である。子の 4 つ（DATA_TYPE・DATA_SIZE・DATA_LABEL・DATA_ACCESS）がすべて決まって決まる。
+使うデータを 1 つに決める ITEM である。子の 4 つ（DATA_TYPE・DATA_SIZE・DATA_LABEL・DATA_ACCESS）がすべて決まって決まる。
 
 決まるのは OPTION の比較までで、入手できることは実際に確かめるまで確定しない。
 

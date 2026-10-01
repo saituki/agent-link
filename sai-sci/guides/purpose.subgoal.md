@@ -8,7 +8,7 @@ min_findings: 2
 ---
 # PURPOSE_SUBGOAL
 
-1 回の研究で到達したい到達点を 1 つに決めるITEM である。
+1 回の研究で到達したい到達点を 1 つに決める ITEM である。
 
 大きすぎると点数にならない。そのため、大目的を少し下げる。
 
@@ -33,7 +33,7 @@ min_findings: 2
 
 ## NEXT_ACTION
 - untouched: sci-ideate | {title}の OPTION を出す | OPTION の一覧
-- insufficient: sci-search | {title}のOPTION を広げて探す | 追加した OPTION
+- insufficient: sci-search | {title}の OPTION を広げて探す | 追加した OPTION
 - awaiting_decision: sci-compare | {title}の OPTION を 1 つに絞る | 選んだ小目的と理由
 - conflict: sci-probe | {title}の OPTION が食い違う理由を調べる | 理由の説明
 - weak_evidence: sci-probe | {title}の OPTION を評価できる形で確かめる | 確かめた結果

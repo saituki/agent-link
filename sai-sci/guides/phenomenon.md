@@ -8,7 +8,7 @@ min_findings: 2
 ---
 # PHENOMENON
 
-必ず起きていることを書き、「なぜそうなるのか」を問うITEM である。PHENOMENON_DRIVEN で使う。
+必ず起きていることを書き、「なぜそうなるのか」を問う ITEM である。PHENOMENON_DRIVEN で使う。
 
 観察した事実と、思った説明を分けて書く。
 

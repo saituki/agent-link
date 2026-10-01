@@ -22,7 +22,7 @@
 | 2. 評価（木）   | 復元した木を CRITERIA（§10）で審査する                                       | `sci-tree-review`                                                                               | 審査書                             |
 | 3. 再現         | SEED の札（再現）で論文の手法を動かす                                        | `sci-exp-seed`                                                                                  | 完了報告書（再現）                 |
 | 4. 更新         | 新しい論文を探して ITEM を直し、新しい SEED を作って動かす                   | `sci-search`・`sci-screen`・`sci-read`・`sci-ideate`・`sci-compare`・`sci-seed`・`sci-exp-seed` | SEED の札（更新）・完了報告書（更新） |
-| 5. 比較         | 論文の記載・再現・更新をCOMPARISON_CRITERIA（§11）で比べる                  | `sci-result-compare`                                                                            | 比較書                             |
+| 5. 比較         | 論文の記載・再現・更新を COMPARISON_CRITERIA（§11）で比べる                  | `sci-result-compare`                                                                            | 比較書                             |
 
 ## 3. 基盤論文
 
