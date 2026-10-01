@@ -1202,7 +1202,7 @@ mod tests {
         assert!(text.contains(&format!("### {subgoal} 小目的")), "{text}");
         assert!(text.contains("## ASSUMPTION（この議論では問い直さない）"), "{text}");
         assert!(text.contains("## OUT_OF_SCOPE（この回では議論しない）"), "{text}");
-        assert!(text.contains("## ITEM_GUIDE: 小目的"), "{text}");
+        assert!(text.contains("## ITEM_GUIDE: PURPOSE_SUBGOAL"), "{text}");
         assert!(text.contains("## SEARCH_HISTORY"), "{text}");
         assert!(text.contains("## ALLOWED_OPS"), "{text}");
         // 節点では上流の道は出さない。対象論文も出さない。

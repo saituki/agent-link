@@ -1,41 +1,41 @@
 ---
 key: novelty.closest
-name: 最も近い研究
+name: NOVELTY_CLOSEST
 type: list
 parent: novelty
 depends_on: existing
 min_findings: 2
 ---
-# 最も近い研究
+# NOVELTY_CLOSEST
 
 自分の研究にもっとも近い研究を 3 本選んで並べる。近いとは、分野が近いことではなく、対象とする問題と解こうとしていることが近いことを指す。
 
-## 問い
+## QUESTION
 - 自分の研究と、もっとも近くにある研究はどれか。
 - その近さは、目的・仕組み・評価・対象・データのどの面で出ているか。
 - 3 本が同じ系統に偏っていないか。
 
-## 埋まった条件
+## CONDITION
 - count(novelty.closest, 3)
 
 近い研究が 3 本そろい、それぞれの 5 つの面が読み取れるときに埋まる。3 本目が「ついでに読んだ」ものだと、あとで差分表が空欄になる。
 
-## 抜き出す項目
+## EXTRACT_FIELDS
 - compare: 目的・仕組み・評価・対象・データ の 5 つの面
 - exemplar: その研究が用いているデータと評価の指標
 
-## 落とし穴
+## PITFALL
 - 分野が同じだから近いとして選ぶ。対象とする問題の距離が遠い研究が入ってしまう。
 - 3 本とも同じ著者の研究。比べる面が 1 つに寄る。
 - 総説だけを 3 本並べる。比べる対象は、自分の研究と同じ問題を扱う研究である。
 
-## 次の一手
-- untouched: sci-search | 自分の研究に近い研究を探す | 近い研究の候補一覧
+## NEXT_ACTION
+- untouched: sci-search | 自分の研究に近い研究を探す | 近い研究の案の一覧
 - insufficient: sci-search | 近い研究をもっと探す | 近い研究の追加
 - awaiting_decision: sci-compare | 近い研究 3 本を決める | 3 本の顔ぶれと選び方の理由
 - conflict: sci-probe | どの研究が近いかの判断を見直す | 近いと決めた根拠
 - weak_evidence: sci-probe | 3 本の 5 つの面が読めるか確かめる | 3 本の面の一覧
 - recheck: - | 目的や手法が変わったので近い研究を選び直す | 選び直した結果
 
-## 子の項目
-<!-- この項目に子は無い -->
+## CHILD_ITEM
+<!-- この ITEM に子は無い -->
