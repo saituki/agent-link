@@ -1252,9 +1252,11 @@ async def _mlflow_error(request: Request, exc: mlflow_proxy.MlflowError) -> Resp
 
 
 @app.get("/api/mlflow/experiments")
-async def api_mlflow_experiments(_: None = Depends(require_token)) -> dict:
-    """実験の一覧（`POST experiments/search`）。"""
-    return await run_in_threadpool(mlflow_proxy.experiments)
+async def api_mlflow_experiments(
+    project: str | None = None, _: None = Depends(require_token)
+) -> dict:
+    """実験の一覧（`POST experiments/search`）。`project` で experiment のタグ `sai.project` を絞る。"""
+    return await run_in_threadpool(mlflow_proxy.experiments, project or None)
 
 
 @app.get("/api/mlflow/experiments/{experiment_id}")

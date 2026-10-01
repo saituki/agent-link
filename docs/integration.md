@@ -268,7 +268,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 
 | メソッド・パス | 中身 | MLflow への送り先 |
 |---|---|---|
-| `GET /api/mlflow/experiments` | 実験の一覧 | `POST experiments/search`（`max_results` は 100・`order_by` は `name ASC`） |
+| `GET /api/mlflow/experiments?project=<name>` | 実験の一覧。`project` を付けると experiment のタグ `sai.project` で絞る（登録簿に無い名前は 404・MLflow は呼ばない） | `POST experiments/search`（`max_results` は 100・`order_by` は `name ASC`・`filter` は `tags."sai.project" = "<root のフォルダ名>"`） |
 | `GET /api/mlflow/experiments/{experiment_id}` | 実験 1 件 | `GET experiments/get` |
 | `POST /api/mlflow/runs/search` | 実行の検索 | `POST runs/search`（`run_view_type` は `ACTIVE_ONLY` 固定） |
 | `GET /api/mlflow/runs/{run_id}` | 実行 1 件 | `GET runs/get` |
@@ -330,7 +330,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/papers/log/<name>/<log_id>/<position>` | 未ダウンロード論文の情報 | 論文 | 表示 |
 | `#/radio/<radio_id>` | 再生画面（質問チャット付き） | 論文 | 隠す |
 | `#/mlflow` | 実験（MLflow）の一覧 | 実験 | 表示 |
-| `#/mlflow/e/<experiment_id\|all>` | run の表（`?sai_run=<n>`・`?seed=<n>`・`?study=<s>`・`?status=<S>` を付けられる） | 実験 | 表示 |
+| `#/mlflow/e/<experiment_id\|all>` | run の表（`?sai_run=<branch>`・`?sprout=<n>`・`?study=<s>`・`?status=<S>` を付けられる。run は sprout → branch → run にまとめる。読むタグ: `sai.project`・`sai.run_id`・`sai.sprout_run_id`・`sci.node`・`exp.study`・`exp.model`・`exp.action`・`exp.parent_branch`・`exp.trial`・`exp.metric`・`exp.direction`・`exp.device`・`exp.error`。旧い `?seed=` は読まない） | 実験 | 表示 |
 | `#/mlflow/run/<run_id>` | run の詳細（設定・指標・タグ・成果物） | 実験 | 表示 |
 | `#/mlflow/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件。表は差分だけに絞れ、指標は重ねたグラフで見比べる） | 実験 | 表示 |
 

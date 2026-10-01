@@ -1,8 +1,8 @@
 "use strict";
 // 実験（MLflow の記録）を見る画面（実装計画 U06・共有契約 C-03 / C-04 / C-07）。
 //
-// 上のタブ「実験」から入る。MLflow の run を seed → 親（branch）→ 子（trial）の
-// 入れ子で見られるようにし、成果物の中身を開けるようにする。
+// 上のタブ「実験」から入る。MLflow の run を sprout → branch → run（パラメータの組）の
+// 束で見られるようにし、成果物の中身を開けるようにする。
 //
 // 中の処理は sai-phone の読み取り用の中継（`/api/mlflow/*`・C-03）と
 // プロジェクト名の一覧（`GET /api/projects`）だけを使う。MLflow へ直接は話さない
@@ -20,7 +20,7 @@
 const MLF_EXPERIMENT_ID_RE = /^\d{1,19}$/;
 const MLF_RUN_ID_RE = /^[0-9a-f]{32}$/;
 // 住所の ? に付ける絞り込みの鍵（この順に並べて URL を作る）
-const MLF_QUERY_KEYS = ["sai_run", "seed", "study", "status"];
+const MLF_QUERY_KEYS = ["sai_run", "sprout", "study", "status"];
 // 比較は 2〜20 件（C-07）
 const MLF_COMPARE_MIN = 2;
 const MLF_COMPARE_MAX = 20;
@@ -53,12 +53,15 @@ const MLF_TAGS = {
   parent: "mlflow.parentRunId",
   saiProject: "sai.project",
   saiRun: "sai.run_id",
-  saiSeed: "sai.seed_run_id",
+  saiSprout: "sai.sprout_run_id",
+  saiSeed: "sai.seed_run_id", // 旧い記録
   study: "exp.study",
-  generation: "exp.generation",
-  script: "exp.script",
   action: "exp.action",
-  role: "exp.role",
+  model: "exp.model",
+  parentBranch: "exp.parent_branch",
+  trial: "exp.trial",
+  device: "exp.device",
+  error: "exp.error",
   sciNode: "sci.node",
   metric: "exp.metric",
   direction: "exp.direction",
@@ -86,7 +89,7 @@ function mlfEscape(value) {
 }
 
 /**
- * 住所の ? 以降を、絞り込みの物（{sai_run, seed, study, status}）にする。
+ * 住所の ? 以降を、絞り込みの物（{sai_run, sprout, study, status}）にする。
  * 知らない鍵と空の値は捨てる（往復を保つため）。
  */
 function mlfParseQuery(qs) {
@@ -103,7 +106,7 @@ function mlfParseQuery(qs) {
   return query;
 }
 
-/** 絞り込みの物を "?sai_run=1&seed=2" の形にする（順序は MLF_QUERY_KEYS 順）。 */
+/** 絞り込みの物を "?sai_run=1&sprout=2" の形にする（順序は MLF_QUERY_KEYS 順）。 */
 function mlfQueryString(query) {
   const q = query || {};
   const parts = [];
@@ -118,7 +121,7 @@ function mlfQueryString(query) {
 /**
  * 住所を解析する（C-07）。
  *   #/mlflow                                                … 実験の一覧
- *   #/mlflow/e/<実験 ID|all>?sai_run=&seed=&study=&status=  … run の表
+ *   #/mlflow/e/<実験 ID|all>?sai_run=&sprout=&study=&status=  … run の表
  *   #/mlflow/run/<run ID>                                   … run の詳細
  *   #/mlflow/compare/<run ID>,<run ID>,…                    … 比較（画面は U07）
  * 返り値は {page, experimentId, runId, runIds, query}。知らない住所は null。
@@ -184,7 +187,7 @@ function mlfHash(state) {
 /**
  * 住所の絞り込みを、MLflow の検索式にする。
  *   sai_run=121     → tags."sai.run_id" = "121"
- *   seed=120        → tags."sai.seed_run_id" = "120"
+ *   sprout=120      → tags."sai.sprout_run_id" = "120"
  *   study=N12-s120  → tags."exp.study" = "N12-s120"
  *   status=FINISHED → attributes.status = "FINISHED"
  * 複数あるときは AND でつなぐ。何も無ければ空文字列。
@@ -192,7 +195,7 @@ function mlfHash(state) {
 function mlfFilterFromQuery(query) {
   const q = query || {};
   const parts = [];
-  for (const [key, tag] of [["sai_run", "sai.run_id"], ["seed", "sai.seed_run_id"], ["study", "exp.study"]]) {
+  for (const [key, tag] of [["sai_run", "sai.run_id"], ["sprout", "sai.sprout_run_id"], ["study", "exp.study"]]) {
     const value = q[key];
     if (value == null || value === "") continue;
     parts.push(`tags."${tag}" = "${mlfEscape(value)}"`);
@@ -239,9 +242,9 @@ function mlfParentId(run) {
   return mlfTag(run, MLF_TAGS.parent);
 }
 
-/** run の中の seed の ID（無ければ空文字列）。 */
-function mlfSeedId(run) {
-  return mlfTag(run, MLF_TAGS.saiSeed);
+/** run の中の sprout の ID（無ければ空文字列）。 */
+function mlfSproutId(run) {
+  return mlfTag(run, MLF_TAGS.saiSprout);
 }
 
 /**
@@ -258,63 +261,85 @@ function mlfHeadMetric(run) {
   return list.length ? list[0] : null;
 }
 
-/**
- * 読み込んだ run を seed → 親 → 子の木にする。
- *   段 1: `sai.seed_run_id` ごとの束（「seed #120」「seed なし」）
- *   段 2: 親 run（`mlflow.parentRunId` が無いもの）と、親が読み込まれていない孤立した子
- *   段 3: 親に属する子
- * 返り値は [{key, seed, label, rows: [{kind, run, children}]}]。kind は "parent" / "orphan"。
- */
-function mlfBuildTree(runs) {
-  const list = (Array.isArray(runs) ? runs : []).filter((r) => r && r.info && r.info.run_id);
-  const bundles = new Map();
-  const bundleOf = (run) => {
-    const seed = mlfSeedId(run);
-    const key = seed ? `seed:${seed}` : "seed:none";
-    if (!bundles.has(key)) {
-      bundles.set(key, { key, seed, label: seed ? `seed #${seed}` : "seed なし", rows: [] });
-    }
-    return bundles.get(key);
-  };
-  const known = new Set(list.map((r) => String(r.info.run_id)));
-  const childMap = new Map(); // 親 ID → 子の run（読み込んだ順）
-  for (const run of list) {
-    const pid = mlfParentId(run);
-    if (!pid || !known.has(pid)) continue;
-    if (!childMap.has(pid)) childMap.set(pid, []);
-    childMap.get(pid).push(run);
+/** 番号の文字列を数として比べる（数でなければ文字の順）。 */
+function mlfNumCompare(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  if (Number.isFinite(x) && Number.isFinite(y) && x !== y) return x - y;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** branch の中で指標が一番よい run（指標が無ければ null）。exp.direction が minimize なら小さい方。 */
+function mlfBestRun(runs) {
+  let best = null;
+  for (const run of runs) {
+    const name = mlfTag(run, MLF_TAGS.metric);
+    if (!name) continue;
+    const value = mlfMetricValue(run, name);
+    if (value == null) continue;
+    const min = mlfTag(run, MLF_TAGS.direction).toLowerCase() === "minimize";
+    if (!best || (min ? value < best.value : value > best.value)) best = { value, run, name };
   }
-  for (const run of list) {
-    const pid = mlfParentId(run);
-    // 親が読み込まれていない子だけは段 2 へ出す。親のある子は段 3 にだけ出る
-    if (pid && !known.has(pid)) {
-      bundleOf(run).rows.push({ kind: "orphan", run, children: [] });
-      continue;
-    }
-    if (pid) continue; // 親がある子。前の処理で親の子にまとめている
-    const bundle = bundleOf(run);
-    bundle.rows.push({
-      kind: "parent",
-      run,
-      children: childMap.get(String(run.info.run_id)) || [],
-    });
-  }
-  return [...bundles.values()].filter((b) => b.rows.length > 0);
+  return best;
 }
 
 /**
- * 入れ子を解いた平らな行（指標で並べ替えたとき用）。
- * 返り値は [{run, depth}]。depth は段 2 が 0、段 3 が 1。
+ * 読み込んだ run を sprout → branch → run にまとめる。
+ *   段 1: `sai.sprout_run_id` ごと（旧い記録は `sai.seed_run_id`・無ければ「sprout なし」）
+ *   段 2: `sai.run_id`（branch）ごと（無ければ「branch なし」）。番号の昇順
+ *   段 3: その branch の run を run 名の昇順。旧い入れ子（mlflow.parentRunId）は見ずに平らに並べる
+ * 返り値は [{key, sprout, label, branches: [{key, branch, label, action, model, parentBranch, best, runs}]}]。
+ * best は {value, run, name}（指標が無ければ null）。
  */
-function mlfFlatRows(runs) {
-  const out = [];
-  for (const bundle of mlfBuildTree(runs)) {
-    for (const row of bundle.rows) {
-      out.push({ run: row.run, depth: 0 });
-      for (const child of row.children) out.push({ run: child, depth: 1 });
+function mlfBuildTree(runs) {
+  const list = (Array.isArray(runs) ? runs : []).filter((r) => r && r.info && r.info.run_id);
+  const sprouts = new Map();
+  for (const run of list) {
+    const sprout = mlfSproutId(run);
+    const seed = sprout ? "" : mlfTag(run, MLF_TAGS.saiSeed);
+    const key = sprout ? `sprout:${sprout}` : seed ? `seed:${seed}` : "sprout:none";
+    if (!sprouts.has(key)) {
+      const label = sprout ? `sprout ID${sprout}` : seed ? `seed ID${seed}（旧）` : "sprout なし";
+      sprouts.set(key, { key, sprout: sprout || seed, label, byBranch: new Map() });
     }
+    const group = sprouts.get(key);
+    const branch = mlfTag(run, MLF_TAGS.saiRun);
+    if (!group.byBranch.has(branch)) group.byBranch.set(branch, []);
+    group.byBranch.get(branch).push(run);
+  }
+  const out = [];
+  for (const group of sprouts.values()) {
+    const branches = [];
+    for (const [branch, members] of group.byBranch) {
+      members.sort((a, b) => {
+        const x = String(a.info.run_name || a.info.run_id);
+        const y = String(b.info.run_name || b.info.run_id);
+        return x < y ? -1 : x > y ? 1 : 0;
+      });
+      const first = members[0];
+      branches.push({
+        key: `${group.key}:branch:${branch || "none"}`,
+        branch,
+        label: branch ? `ID${branch}` : "branch なし",
+        action: mlfTag(first, MLF_TAGS.action),
+        model: mlfTag(first, MLF_TAGS.model),
+        parentBranch: mlfTag(first, MLF_TAGS.parentBranch),
+        best: mlfBestRun(members),
+        runs: members,
+      });
+    }
+    // 番号の昇順。「branch なし」は最後
+    branches.sort((a, b) => (a.branch && b.branch ? mlfNumCompare(a.branch, b.branch) : a.branch ? -1 : b.branch ? 1 : 0));
+    out.push({ key: group.key, sprout: group.sprout, label: group.label, branches });
   }
   return out;
+}
+
+/** 束を解いた平らな行（指標で並べ替えたとき用）。返り値は [{run, depth}]（depth は常に 0）。 */
+function mlfFlatRows(runs) {
+  return (Array.isArray(runs) ? runs : [])
+    .filter((r) => r && r.info && r.info.run_id)
+    .map((run) => ({ run, depth: 0 }));
 }
 
 /** 並べ替えの選択肢（[[order_by, 日本語]]）。 */
@@ -325,7 +350,6 @@ function mlfOrderOptions(runs) {
   ];
   const names = new Set();
   for (const run of Array.isArray(runs) ? runs : []) {
-    if (mlfParentId(run)) continue; // 指標は親が持つ（C-04）
     const name = mlfTag(run, MLF_TAGS.metric);
     if (name) names.add(name);
   }
@@ -555,6 +579,10 @@ function mlfBuild() {
   if (!root || mlfMounted) return;
   root.innerHTML = "";
 
+  const chip = saiEl("button", "mlf-chip");
+  chip.type = "button";
+  chip.id = "mlf-project";
+  chip.addEventListener("click", () => void mlfOpenProjectSheet());
   const bar = saiEl("header", "appbar");
   const back = saiEl("button", "", "‹");
   back.type = "button";
@@ -568,14 +596,8 @@ function mlfBuild() {
   reload.id = "mlf-reload";
   reload.setAttribute("aria-label", "読み直す");
   reload.addEventListener("click", () => void mlfOpenPage(mlfState));
-  bar.append(back, title, reload);
+  bar.append(back, title, reload, chip);
 
-  const projRow = saiEl("div", "mlf-proj-row");
-  const chip = saiEl("button", "mlf-chip");
-  chip.type = "button";
-  chip.id = "mlf-project";
-  chip.addEventListener("click", () => void mlfOpenProjectSheet());
-  projRow.appendChild(chip);
 
   const body = saiEl("main", "mlf-body sai-split");
   body.id = "mlf-body";
@@ -585,7 +607,7 @@ function mlfBuild() {
   main.id = "mlf-main";
   body.append(list, main);
 
-  root.append(bar, projRow, body);
+  root.append(bar, body);
   mlfMounted = true;
 }
 
@@ -683,6 +705,7 @@ async function mlfOpenProjectSheet() {
     btn.appendChild(col);
     btn.addEventListener("click", () => {
       mlfSaveProject(one.name);
+      mlfExperiments = null; // プロジェクトが変わると実験の一覧も変わる
       mlfRenderProjectChip();
       sheet.close();
       void mlfOpenPage(mlfState);
@@ -700,7 +723,8 @@ async function mlfOpenProjectSheet() {
 /** 実験の一覧を読む。 */
 async function mlfLoadExperiments() {
   try {
-    const data = await saiApi("/api/mlflow/experiments");
+    const project = mlfProjectName();
+    const data = await saiApi(project ? `/api/mlflow/experiments?project=${encodeURIComponent(project)}` : "/api/mlflow/experiments");
     mlfExperiments = data && Array.isArray(data.experiments) ? data.experiments : [];
     mlfExperimentsError = "";
   } catch (e) {
@@ -730,7 +754,7 @@ function mlfRenderExperiments() {
   all.type = "button";
   all.append(
     saiEl("span", "mlf-exp-name", "すべての実験"),
-    saiEl("span", "mlf-exp-note", "すべての実験を 1 つの表にまとめて見ます")
+    saiEl("span", "mlf-exp-note", mlfProjectName() ? "このプロジェクトの実験を 1 つの表にまとめて見ます" : "すべての実験を 1 つの表にまとめて見ます")
   );
   all.addEventListener("click", () => { location.hash = mlfHash({ page: "runs", experimentId: "all" }); });
   box.appendChild(all);
@@ -740,8 +764,10 @@ function mlfRenderExperiments() {
     box.appendChild(
       saiEmpty({
         icon: "🧪",
-        title: "まだ実験がありません",
-        body: "MLflow に記録されるようになると、ここに並びます。",
+        title: mlfProjectName() ? "このプロジェクトの実験はまだありません" : "まだ実験がありません",
+        body: mlfProjectName()
+          ? "旧い形の記録は、プロジェクトを『すべて』にすると見られます"
+          : "MLflow に記録されるようになると、ここに並びます。",
       })
     );
     return;
@@ -750,8 +776,16 @@ function mlfRenderExperiments() {
     const id = one && one.experiment_id != null ? String(one.experiment_id) : "";
     const btn = saiEl("button", "mlf-exp");
     btn.type = "button";
+    const tagOf = (k) => {
+      const t = ((one && one.tags) || []).find((x) => x && x.key === k);
+      return t && t.value != null ? String(t.value) : "";
+    };
+    const badges = saiEl("span", "mlf-exp-badges");
+    if (tagOf(MLF_TAGS.saiSprout)) badges.appendChild(saiEl("span", "mlf-tagline", `sprout ID${tagOf(MLF_TAGS.saiSprout)}`));
+    if (tagOf(MLF_TAGS.model)) badges.appendChild(saiEl("span", "mlf-tagline", `model ${tagOf(MLF_TAGS.model)}`));
     btn.append(
       saiEl("span", "mlf-exp-name", (one && one.name) || `実験 ${id}`),
+      badges,
       saiEl("span", "mlf-exp-note", `作った日 ${mlfDayText(one && one.creation_time)} ・ 最後に更新 ${mlfDayText(one && one.last_update_time)}`)
     );
     btn.addEventListener("click", () => {
@@ -821,7 +855,7 @@ async function mlfLoadRuns(reset) {
 /** 絞り込みの札（消すとその条件だけ外す）。 */
 function mlfRenderFilterChips() {
   const q = mlfTable.query || {};
-  const labels = { sai_run: "sai の実行", seed: "seed", study: "研究", status: "状態" };
+  const labels = { sai_run: "branch", sprout: "sprout", study: "研究", status: "状態" };
   let any = false;
   const row = saiEl("div", "mlf-chips");
   for (const key of MLF_QUERY_KEYS) {
@@ -830,7 +864,7 @@ function mlfRenderFilterChips() {
     any = true;
     const chip = saiEl("button", "mlf-chip small");
     chip.type = "button";
-    const text = key === "status" ? `${labels[key]} ${mlfStatusText(value)}` : `${labels[key]} ${value}`;
+    const text = key === "status" ? `${labels[key]} ${mlfStatusText(value)}` : (key === "study" ? `${labels[key]} ${value}` : `${labels[key]} ID${value}`);
     chip.setAttribute("aria-label", `${text}の絞り込みを外す`);
     chip.append(saiEl("span", "", text), saiEl("span", "mlf-chip-x", "✕"));
     const next = { ...q };
@@ -1024,7 +1058,46 @@ function mlfBundleHead(bundle, open, count) {
   return btn;
 }
 
-/** 入れ子の表を描く。 */
+/** branch の見出しの 1 行（ID125 · tune · cnn-static · 親 ID121 · 最良 test_acc 0.871 · 3 run）。 */
+function mlfBranchSummary(br) {
+  const parts = [br.label];
+  if (br.action) parts.push(br.action);
+  if (br.model) parts.push(br.model);
+  if (br.parentBranch) parts.push(`親 ID${br.parentBranch}`);
+  if (br.best) parts.push(`最良 ${br.best.name} ${mlfValueText(br.best.value)}`);
+  parts.push(`${br.runs.length} run`);
+  return parts.join(" · ");
+}
+
+/** branch の行（押すと開閉・番号の釦で sai-moon の run の画面へ）。 */
+function mlfBranchHead(br, open) {
+  const wrap = saiEl("div", "mlf-branch-head");
+  const btn = saiEl("button", "mlf-parent-head");
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  btn.append(saiEl("span", "mlf-bundle-caret", open ? "▾" : "▸"), saiEl("span", "mlf-parent-name", mlfBranchSummary(br)));
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (mlfOpen.has(br.key)) mlfOpen.delete(br.key);
+    else mlfOpen.add(br.key);
+    mlfRenderRuns();
+  });
+  wrap.appendChild(btn);
+  const project = mlfProjectName();
+  if (br.branch && project) {
+    const go = saiEl("button", "mlf-chip small", `ID${br.branch} →`);
+    go.type = "button";
+    go.setAttribute("aria-label", `branch ID${br.branch} の run の画面を開く`);
+    go.addEventListener("click", (e) => {
+      e.stopPropagation();
+      location.hash = `#/run/${encodeURIComponent(project)}/${encodeURIComponent(br.branch)}`;
+    });
+    wrap.appendChild(go);
+  }
+  return wrap;
+}
+
+/** run の表（sprout → branch → run）を描く。 */
 function mlfRenderTree(box) {
   const bundles = mlfBuildTree(mlfTable.runs);
   if (bundles.length === 0) {
@@ -1039,43 +1112,23 @@ function mlfRenderTree(box) {
   }
   for (const bundle of bundles) {
     const group = saiEl("div", "mlf-bundle-box");
-    const count = bundle.rows.reduce((sum, row) => sum + 1 + row.children.length, 0);
+    const count = bundle.branches.reduce((sum, br) => sum + br.runs.length, 0);
     const open = mlfOpen.size === 0 ? true : mlfOpen.has(bundle.key);
     group.appendChild(mlfBundleHead(bundle, open, count));
     if (open) {
       const rowsBox = saiEl("div", "mlf-rows");
-      for (const row of bundle.rows) {
-        if (row.kind === "orphan") {
-          const card = saiEl("div", "mlf-orphan");
-          card.appendChild(mlfRunRow(row.run, { pick: true }));
-          card.appendChild(saiEl("p", "mlf-note tiny", "親は読み込まれていません"));
-          rowsBox.appendChild(card);
-          continue;
-        }
-        const key = `${bundle.key}:${String(row.run.info.run_id)}`;
-        const open2 = mlfOpen.size === 0 ? true : mlfOpen.has(key);
+      for (const br of bundle.branches) {
+        const open2 = mlfOpen.size === 0 ? true : mlfOpen.has(br.key);
         const box2 = saiEl("div", "mlf-parent");
-        if (row.children.length) {
-          const head = saiEl("button", "mlf-parent-head");
-          head.type = "button";
-          head.setAttribute("aria-expanded", open2 ? "true" : "false");
-          head.append(
-            saiEl("span", "mlf-bundle-caret", open2 ? "▾" : "▸"),
-            saiEl("span", "mlf-parent-name", (row.run.info && row.run.info.run_name) || row.run.info.run_id),
-            saiEl("span", "mlf-bundle-count", `${row.children.length} 試行`)
-          );
-          head.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (mlfOpen.has(key)) mlfOpen.delete(key);
-            else mlfOpen.add(key);
-            mlfRenderRuns();
-          });
-          box2.appendChild(head);
-        }
-        box2.appendChild(mlfRunRow(row.run, { pick: true }));
+        box2.appendChild(mlfBranchHead(br, open2));
         if (open2) {
           const kids = saiEl("div", "mlf-children");
-          for (const child of row.children) kids.appendChild(mlfRunRow(child, { nested: true, pick: true }));
+          for (const run of br.runs) {
+            const row = mlfRunRow(run, { nested: true, pick: true });
+            const err = mlfTag(run, MLF_TAGS.error);
+            if (err) row.appendChild(saiEl("span", "mlf-note tiny", err.slice(0, 60)));
+            kids.appendChild(row);
+          }
           box2.appendChild(kids);
         }
         rowsBox.appendChild(box2);
@@ -1095,7 +1148,7 @@ function mlfRenderFlat(box) {
     );
     return;
   }
-  box.appendChild(saiEl("p", "mlf-note tiny", "指標で並べたので親子の入れ子は解いています（MLflow の画面と同じ扱い）。"));
+  box.appendChild(saiEl("p", "mlf-note tiny", "指標で並べたので sprout・branch の束は解いています（MLflow の画面と同じ扱い）。"));
   const listBox = saiEl("div", "mlf-rows");
   for (const one of rows) {
     const wrap = saiEl("div", "mlf-parent");
@@ -1327,10 +1380,10 @@ function mlfRenderRun() {
     // プロジェクトの作りは run に付けた `sai.project` を優先する（無ければいま選んでいるもの）
     const own = mlfTag(run, MLF_TAGS.saiProject);
     const project = own || mlfProjectName() || ((mlfProjects && mlfProjects.projects[0]) || {}).name || "";
-    addLink(`sai の実行 #${saiRunId} を開く`, `#/run/${encodeURIComponent(project)}/${encodeURIComponent(saiRunId)}`);
+    addLink(`branch ID${saiRunId} を開く`, `#/run/${encodeURIComponent(project)}/${encodeURIComponent(saiRunId)}`);
   }
-  const seedId = mlfSeedId(run);
-  if (seedId) addLink(`seed #${seedId} の run を見る`, mlfHash({ page: "runs", experimentId: "all", query: { seed: seedId } }));
+  const sproutId = mlfSproutId(run);
+  if (sproutId) addLink(`sprout ID${sproutId} の run を見る`, mlfHash({ page: "runs", experimentId: "all", query: { sprout: sproutId } }));
   const sciNode = mlfTag(run, MLF_TAGS.sciNode);
   if (sciNode) addLink(`Research tree ${sciNode}`, `#/papers/tree/${encodeURIComponent(sciNode)}`);
   const parentId = mlfParentId(run);
@@ -2071,7 +2124,8 @@ if (typeof module !== "undefined" && module.exports) {
     mlfMetricList,
     mlfHeadMetric,
     mlfParentId,
-    mlfSeedId,
+    mlfSproutId,
+    mlfBestRun,
     mlfStatusText,
     mlfDurationText,
     mlfDurationMs,
