@@ -3230,7 +3230,7 @@ given: background
         // 関門の 1 つめ（出発点）は通らない。
         let gate = result.gate.as_ref().expect("関門");
         assert_eq!(gate.current, 1);
-        assert_eq!(gate.name, "出発点");
+        assert_eq!(gate.name, "BACKGROUND_GOAL_DECIDED");
         // 種の文は空欄のまま「［？…］」で並ぶ。
         let seed = result.seed.expect("種の文");
         assert!(seed.text.starts_with("「［？対象］の"));
