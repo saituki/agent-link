@@ -228,20 +228,20 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `POST /api/projects/{name}/papers/attention/resolve` | 要対応の 1 件を対応済みにする（body `{"key": "…"}`・`phone attention-resolve`） |
 | `GET /api/projects/{name}/papers/sci` | 研究方針の木全体（`phone sci status`） |
 | `POST /api/projects/{name}/papers/sci/init` | 研究方針の木を始める（body `{"type": "problem"}`・型は 5 つだけ。`phone sci init --type <型>`） |
-| `GET /api/projects/{name}/papers/sci/nodes/{node}` | 節点 1 つの中身（`phone sci node <N>`。`{node}` は `N12` の形） |
+| `GET /api/projects/{name}/papers/sci/nodes/{node}` | NODE 1 つの中身（`phone sci node <N>`。`{node}` は `N12` の形） |
 | `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は op の JSON。`phone sci apply` の標準入力へ渡す） |
-| `GET /api/projects/{name}/papers/sci/proposals` | 仕分け待ちの一覧（`phone sci proposals`） |
-| `POST /api/projects/{name}/papers/sci/proposals/{pid}` | 仕分ける（body `{"action": "accept\|reject\|revert", "note": "…", "edit": {…}}`。`phone sci triage <P> --action … [--note …]`・`edit` は標準入力） |
-| `POST /api/projects/{name}/papers/sci/cards` | 節点のための実行（カード）を作る（body はカードの JSON。`phone sci card` の標準入力へ渡す） |
-| `GET /api/projects/{name}/papers/sci/reads/{run_id}` | 読む札の中身（`phone sci read <run_id>`） |
-| `POST /api/projects/{name}/papers/sci/reads/{run_id}/start` | 読む札を始める（`sai-moon-link phone user start <run_id>`） |
-| `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | 読む札を終えて review へ移す（body は `{"no_reflect": "…"}`・任意。`phone sci finish-read <run_id> [--no-reflect …]` の後に `sai-moon-link phone user finish <run_id>`） |
+| `GET /api/projects/{name}/papers/sci/proposals` | TRIAGE 待ちの PROPOSAL の一覧（`phone sci proposals`） |
+| `POST /api/projects/{name}/papers/sci/proposals/{pid}` | PROPOSAL を TRIAGE する（body `{"action": "accept\|reject\|revert", "note": "…", "edit": {…}}`。`phone sci triage <P> --action … [--note …]`・`edit` は標準入力） |
+| `POST /api/projects/{name}/papers/sci/cards` | NODE のための実行（CARD）を作る（body はカードの JSON。`phone sci card` の標準入力へ渡す） |
+| `GET /api/projects/{name}/papers/sci/reads/{run_id}` | READ_CARD の中身（`phone sci read <run_id>`） |
+| `POST /api/projects/{name}/papers/sci/reads/{run_id}/start` | READ_CARD を始める（`sai-moon-link phone user start <run_id>`） |
+| `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | READ_CARD を終えて review へ移す（body は `{"no_reflect": "…"}`・任意。`phone sci finish-read <run_id> [--no-reflect …]` の後に `sai-moon-link phone user finish <run_id>`） |
 
 - 古い `/api/papers/...` は無い。`{name}` は 3.1 の一覧の名前で，無ければ 404。
 - `import` / `downloads` / `manual/candidates` / `manual/import` / `manual/upload` / `project` / `attention` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ・メモは改行なしの 1〜2000 文字・key は 1〜300 文字の 1 行）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
 - アップロードは `FastAPI` の `UploadFile` を使わず、**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
-- `papers/sci` の 10 本は `sci.py` が検査してから CLI を呼ぶ。節点・提案・問い・知見・結び付けの ID は `^[NQFLPS][1-9][0-9]{0,8}$`、run_id は 1〜999999999 の整数、型は 5 つだけ、`action` は 3 つ、`note` は 1000 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
+- `papers/sci` の 10 本は `sci.py` が検査してから CLI を呼ぶ。NODE・PROPOSAL・QUESTION・FINDING・LINK の ID は `^[NQFLPS][1-9][0-9]{0,8}$`、run_id は 1〜999999999 の整数、型は 5 つだけ、`action` は 3 つ、`note` は 1000 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
 - 仕事（`GET …/papers/downloads`）の状態は `apps/phone` のメモリだけに持つ。`downloading` = PDF を取って登録中、`processing` = 登録済みで後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
 - 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。`apps/phone` は release しか叩かない。
 
@@ -306,9 +306,9 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/project/<name>/defs/<kind>/<scope>/<name>` | 設定の編集（`kind` = block / template / settings、`scope` = project / global） | プロジェクト | 表示 |
 | `#/papers/import` | Import（BibTeX の読み込みと一覧） | 論文 | 表示 |
 | `#/papers/tree` | 研究方針（論文タブの最初の画面） | 論文 | 表示 |
-| `#/papers/tree/<N>` | 研究方針（節点 1 つを選んだ状態） | 論文 | 表示 |
-| `#/papers/triage` | 仕分け（提案の採用・却下・取り消し） | 論文 | 表示 |
-| `#/papers/read/<run_id>` | 読む札（1 本の論文を読んで知見を書く） | 論文 | 表示 |
+| `#/papers/tree/<N>` | 研究方針（NODE 1 つを選んだ状態） | 論文 | 表示 |
+| `#/papers/triage` | TRIAGE（PROPOSAL の採用・却下・取り消し） | 論文 | 表示 |
+| `#/papers/read/<run_id>` | READ_CARD（1 本の論文を読んで FINDING を書く） | 論文 | 表示 |
 | `#/papers/dashboard` | Dashboard | 論文 | 表示 |
 | `#/papers/discover` | Discover | 論文 | 表示 |
 | `#/papers/library` | Library | 論文 | 表示 |

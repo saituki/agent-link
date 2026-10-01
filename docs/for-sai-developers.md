@@ -107,7 +107,7 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 
 | 項目 | 型 | `apps/phone` の使いところ | 無いとき |
 |---|---|---|---|
-| `run_id` | 数値 | 読む札の画面の行き先 `#/papers/read/<run_id>` | 画面が遷移先を失う |
+| `run_id` | 数値 | READ_CARD の画面の行き先 `#/papers/read/<run_id>` | 画面が遷移先を失う |
 | `status` | 文字列（`"running"` / `"review"`） | 「始める」で running、「終える」で review へ移ったことを知らせる | 遷移は済んでいるので画面の文言が古くなる |
 
 - **終了コード 3** は 404（`control._phone_json` の決まり）、**終了コード 1** とそれ以外は 502。省略は無い。
@@ -128,7 +128,7 @@ TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警�
 | `default_provider` / `default_model` / `default_thinking_level` | 文字列 \| null | ブロックの frontmatter に無いときの既定 | 壊れない |
 | `wip` / `max_concurrent` | 数値 \| null | タブごとの pane 上限・同時実行数 | 壊れない |
 | `extensions` | 文字列の配列 | 起動時に読み込む拡張 | 壊れない |
-| `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業範囲の準備（シェルは通さない） | 壊れない |
+| `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業 SCOPE の準備（シェルは通さない） | 壊れない |
 | `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** | 壊れない（壊した項目はその項目だけ破棄される） |
 
 #### `env` の決まり
@@ -553,7 +553,7 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 #### 研究方針の検索（`find`・`search`・`set create`）
 
 `apps/phone` からは呼ばないが、**MCP の `find` と `pi-litbase` が読む `--json` の形は変えない**こと。
-範囲の変換は `crates/sai-paper-core/src/retrieval.rs` の `resolve_paper_scope` にあり、CLI（`find`）と MCP（`find`）が同じ関数を使う。
+SCOPE の変換は `crates/sai-paper-core/src/retrieval.rs` の `resolve_paper_scope` にあり、CLI（`find`）と MCP（`find`）が同じ関数を使う。
 
 ```text
 sai-moon-paper find <query> … [--papers <番号,…>] [--node <N> [--subtree]] [--each <m>] [--question <Q>] [--widen <理由>]
@@ -561,8 +561,8 @@ sai-moon-paper search <query> … [--node <N>] [--question <Q>] [--purpose <文>
 sai-moon-paper set create <name> … [--node <N>] [--question <Q>] [--purpose <文>] [--extract <文>]
 ```
 
-- **`--papers` と `--node` を両方書いたら、両方の論文を合わせた範囲**を探す。`--each <m>` は範囲の論文ごとに上位 m 件を返す（論文番号の昇順、各論文の中はスコアの順）。範囲が無いと `--each` は使えない。
-- **墓標の論文**（`sci_tombstones.paper_id`）は、範囲の指定に関係なく結果から除かれる。
+- **`--papers` と `--node` を両方書いたら、両方の論文を合わせた SCOPE**を探す。`--each <m>` は SCOPE の論文ごとに上位 m 件を返す（論文番号の昇順、各論文の中はスコアの順）。SCOPE が無いと `--each` は使えない。
+- **TOMBSTONE の論文**（`sci_tombstones.paper_id`）は、SCOPE の指定に関係なく結果から除かれる。
 - `--node` か `--question` があれば `sci_searches` に 1 行記録される。**`--json` の形は今のまま変えない。**
 
 ### 4.2 `apps/phone` が読んでいる JSON の項目
@@ -698,74 +698,74 @@ sai-moon-paper set create <name> … [--node <N>] [--question <Q>] [--purpose <�
 |---|---|---|---|---|
 | 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に木を表示してしまう |
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
-| 直下 | `seed` | `{"text","parts"}` \| null | 種の文と、未決所の差し込み | 種の文が出ない |
-| `seed.parts[]` | `text` / `key` / `node` / `filled` / `tentative` | 文字列 / 文字列 \| null / 文字列 \| null / 真偽値 / 真偽値 | 種の文のどの所が空欄かの印 | 全部同じ見た目 |
-| 直下 | `gate` | `{"current","total","name","list"}` \| null | 関門の進み（現在の番号・全体数・名前） | 関門の進みが出ない |
-| `gate.list[]` | `name` / `when` / `passed` | 文字列 / 文字列 / 真偽値 | 関門の一覧の 1 行 | 関門の一覧が細かにならない |
-| 直下 | `debts` | `{"pending_proposals","unreflected_papers","unscreened_sets","empty_reviews"}` | 負債の 4 つの数字 | 負債が 0 に見える |
+| 直下 | `seed` | `{"text","parts"}` \| null | SEED_SENTENCE と、未決所の差し込み | SEED_SENTENCE が出ない |
+| `seed.parts[]` | `text` / `key` / `node` / `filled` / `tentative` | 文字列 / 文字列 \| null / 文字列 \| null / 真偽値 / 真偽値 | SEED_SENTENCE のどの所が BLANK かの印 | 全部同じ見た目 |
+| 直下 | `gate` | `{"current","total","name","list"}` \| null | GATE の進み（現在の番号・全体数・名前。名前は `BACKGROUND_GOAL_DECIDED`・`DATA_ACCESS_DECIDED` のような**英語の名前**が来る。確定表は `sai-sci/types/*.md` の `## GATE`） | GATE の進みが出ない |
+| `gate.list[]` | `name` / `when` / `passed` | 文字列 / 文字列 / 真偽値 | GATE の一覧の 1 行（`name` は英語の名前） | GATE の一覧が細かにならない |
+| 直下 | `debts` | `{"pending_proposals","unreflected_papers","unscreened_sets","empty_reviews"}` | DEBT の 4 つの数字 | DEBT が 0 に見える |
 | 直下 | `nodes[]` | 配列 | 木そのもの | 木が描かれない |
-| `nodes[]` | `id` | 文字列（`N12`） | 節点そのもの、行き先 `#/papers/tree/<id>` | 節点が選べない |
-| `nodes[]` | `kind` | `"item"` / `"option"` | 項目の行と候補の行の出し分け | 候補が項目に見える |
-| `nodes[]` | `key` | 文字列 \| null | 項目の名前 | ― |
+| `nodes[]` | `id` | 文字列（`N12`） | NODE そのもの、行き先 `#/papers/tree/<id>` | NODE が選べない |
+| `nodes[]` | `kind` | `"item"` / `"option"` | ITEM の行と OPTION の行の出し分け | OPTION が ITEM に見える |
+| `nodes[]` | `key` | 文字列 \| null | ITEM の名前 | ― |
 | `nodes[]` | `title` | 文字列 | 行のラベル | ― |
 | `nodes[]` | `types` | 文字列の配列 | 選ぶ・並べる・書く・確かめるの印 | 型が分からない |
-| `nodes[]` | `state` | 文字列 | 状態の色分け（未決定・仮決定・決定・対象外 / 候補・選択・却下・休眠） | ― |
-| `nodes[]` | `fixed` | 真偽値 | 与えられている項目の印 | ― |
+| `nodes[]` | `state` | 文字列 | 状態の色分け（OPEN・TENTATIVE・DECIDED・EXCLUDED / CANDIDATE・SELECTED・REJECTED・DORMANT） | ― |
+| `nodes[]` | `fixed` | 真偽値 | 与えられている ITEM の印（FIXED） | ― |
 | `nodes[]` | `parents` / `depth` / `ord` | 文字列の配列 / 数値 / 数値 | 並び（一番上が 0、その下は深さ優先） | 並びが壊れる |
-| `nodes[]` | `value` | 文字列 | 種の文に入る値 | ― |
-| `nodes[]` | `blank` | 文字列 \| null（未決定の項目だけ） | 空欄の種類の印（未着手・調査中・情報不足・判断待ち・対立） | 空欄の理由が分からない |
-| `nodes[]` | `marks` | 文字列の配列（決定・仮決定の項目だけ） | 印（根拠不足・要再確認） | 印が出ない |
+| `nodes[]` | `value` | 文字列 | SEED_SENTENCE に入る値 | ― |
+| `nodes[]` | `blank` | 文字列 \| null（未決定の項目だけ） | BLANK の種類の印（UNTOUCHED・IN_PROGRESS・INSUFFICIENT・AWAITING_DECISION・CONFLICT） | BLANK の理由が分からない |
+| `nodes[]` | `marks` | 文字列の配列（決定・仮決定の項目だけ） | MARK（WEAK_EVIDENCE・RECHECK） | MARK が出ない |
 | `nodes[]` | `counts` | `{"questions_open","options","support","refute","papers","pending"}` | 行の小さな数字 | 数が空 |
 | 直下 | `edges[]` | `{"kind","from","to"}`（`parent` 以外の線だけ） | 根の図の線 | 線が出ない |
-| 直下 | `next[]` | `{"node","block","purpose","expect","why","kind"}` | 「次の一手」の 1 行とカード作成の種 | 次の一手が出ない |
+| 直下 | `next[]` | `{"node","block","purpose","expect","why","kind"}` | 「NEXT_ACTION」の 1 行と CARD 作成の種 | NEXT_ACTION が出ない |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `seeds[]` | `{"id","title","created_at"}` | 種の一覧 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
 | ― | 始めていないとき | | `type`・`seed`・`gate` は `null`、配列は空、`debts` は全部 0 | ― |
 
-**`phone sci node <N>` → 節点 1 つ**（`sci node <N> --json` と MCP `sci_node` と同じ）
+**`phone sci node <N>` → NODE 1 つ**（`sci node <N> --json` と MCP `sci_node` と同じ）
 
 | 階層 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|---|
 | `node` | `id` / `title` / `key` / `kind` / `types` / `state` / `blank` / `marks` / `counts` / `value` / `fixed` / `parents` / `depth` / `ord` | status の `nodes[]` と同じ | 板の見出し | ― |
 | `node` | `body` | 文字列 | 板の本文（利用者が書く説明） | 本文が空 |
-| `guide` | `key` / `name` / `explain` / `condition` / `condition_text` / `condition_met` / `questions[]` / `pitfalls[]` / `extract[]` | 各種 \| null（ガイドが無ければ `null`） | 項目の説明と「埋まった条件」 | 説明が出ない |
-| `questions[]` | `id` / `text` / `state` / `answer` / `from_guide` | 文字列 / 文字列 / 文字列 / 文字列 / 真偽値 | 問いの行。`from_guide` が false の行は「人が足した問い」 | ― |
-| `options[]` | `id` / `title` / `state` / `body` / `support` / `refute` / `papers` | 各種 | 候補の行 | 候補が整理されない |
-| `findings[]` | `id` / `node` / `text` / `cites[]` / `polarity` / `level` / `source` / `report_id` / `paper_id` / `run_id` / `question` / `auto` / `proposal` / `created_at` | 各種 | 知見の行（`polarity` で向き、`cites` で出典、`auto` で自動反映の印） | 知見が整理されない |
-| `links[]` | `id` / `node` / `target` / `title` / `role` / `read_state` / `auto` / `proposal` / `reason` / `created_at` | 各種 | 結び付きの行（論文・report・ノート・検索セット・実行） | 結び付きが出ない |
-| `decisions[]` | `action` / `option` / `reason` / `evidence[]` / `rejected[]` / `counter_searched` / `actor` / `created_at` | 各種 | 決定の記録の履歴 | 履歴が出ない |
-| `actions[]` | `run_id` / `block` / `owner` / `runner` / `purpose` / `created` | 各種 | 節点のための実行（カード）の行 | ― |
+| `guide` | `key` / `name` / `explain` / `condition` / `condition_text` / `condition_met` / `questions[]` / `pitfalls[]` / `extract[]` | 各種 \| null（ガイドが無ければ `null`） | ITEM の説明と CONDITION | 説明が出ない |
+| `questions[]` | `id` / `text` / `state` / `answer` / `from_guide` | 文字列 / 文字列 / 文字列 / 文字列 / 真偽値 | QUESTION の行。`from_guide` が false の行は「人が足した QUESTION」 | ― |
+| `options[]` | `id` / `title` / `state` / `body` / `support` / `refute` / `papers` | 各種 | OPTION の行 | OPTION が整理されない |
+| `findings[]` | `id` / `node` / `text` / `cites[]` / `polarity` / `level` / `source` / `report_id` / `paper_id` / `run_id` / `question` / `auto` / `proposal` / `created_at` | 各種 | FINDING の行（`polarity` で POLARITY、`cites` で CITE、`auto` で AUTO_OP の印） | FINDING が整理されない |
+| `links[]` | `id` / `node` / `target` / `title` / `role` / `read_state` / `auto` / `proposal` / `reason` / `created_at` | 各種 | LINK の行（論文・report・ノート・SEARCH_SET・実行） | LINK が出ない |
+| `decisions[]` | `action` / `option` / `reason` / `evidence[]` / `rejected[]` / `counter_searched` / `actor` / `created_at` | 各種 | DECISION_LOG の履歴 | 履歴が出ない |
+| `actions[]` | `run_id` / `block` / `owner` / `runner` / `purpose` / `created` | 各種 | NODE のための実行（CARD）の行（ACTION_LOG） | ― |
 | `funnel` | `searched` / `screened` / `read` / `reflected` | 数値 | 検索の出口 | ― |
-| `pending[]` | `id` / `op` / `payload` / `reason` / `run_id` / `block` / `created_at` | 各種 | 仕分け待ちの行 | ― |
-| `blocks[]` | `block` / `purpose` / `expect` / `why` | 文字列 | カード候補の行（3 つまで） | ― |
-| `axes[]` | 文字列 | 配列 | 候補の表の見出し（mind.md の「価値の軸」） | 軸の見出しが出ない |
-| `searches[]` | `query` / `scope` / `hits` / `created_at` | 各種 | 節点に結び付いた検索の履歴 | ― |
+| `pending[]` | `id` / `op` / `payload` / `reason` / `run_id` / `block` / `created_at` | 各種 | TRIAGE 待ちの PROPOSAL の行 | ― |
+| `blocks[]` | `block` / `purpose` / `expect` / `why` | 文字列 | CARD の案の行（3 つまで） | ― |
+| `axes[]` | 文字列 | 配列 | OPTION の表の見出し（mind.md の VALUE_AXES） | 軸の見出しが出ない |
+| `searches[]` | `query` / `scope` / `hits` / `created_at` | 各種 | NODE に LINK した検索の履歴（SEARCH_HISTORY） | ― |
 
-**`phone sci read <run_id>` → 読む札**（`sci read <run_id> --json` と同じ）
+**`phone sci read <run_id>` → READ_CARD**（`sci read <run_id> --json` と同じ）
 
 | 階層 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|---|
 | 直下 | `run_id` | 数値 | 読む画面の行き先 `#/papers/read/<run_id>` | 開けない |
 | 直下 | `owner` | 文字列 | 札。まだ todo なら「始める」を出す | ― |
-| 直下 | `node` | `{"id","title"}` | 読む札の節点名 | ― |
+| 直下 | `node` | `{"id","title"}` | READ_CARD の NODE 名 | ― |
 | 直下 | `purpose` / `role` / `depth` | 文字列 | 読む目的・論文の役割・深さ | ― |
 | 直下 | `paper` | `{"id","title","year"}` | 論文情報 | ― |
-| 直下 | `questions[]` | 文字列の配列 | 答える問いの入力欄 | ― |
-| 直下 | `findings[]` | `{"id","text","polarity"}` | この札で書いた知見の一覧 | ― |
+| 直下 | `questions[]` | 文字列の配列 | 答える QUESTION の入力欄 | ― |
+| 直下 | `findings[]` | `{"id","text","polarity"}` | この READ_CARD で書いた FINDING の一覧 | ― |
 
 **`phone sci card` が見る要求の JSON（標準入力）** — 画面が作るもの。`apps/phone` が先に検査し、知らない項目は落とす。
 
 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|
-| `node` | 文字列（`N12` の形） | どの節点のためのカードか。**必須** | 400 |
+| `node` | 文字列（`N12` の形） | どの NODE のための CARD か。**必須** | 400 |
 | `block` | 文字列（`^sci-[a-z-]{2,30}$`） | どのブロックを動かすか。**必須** | 400 |
 | `purpose` | 文字列（1〜300 字） | 依頼文。**必須** | 400 |
-| `question` | 文字列（`Q7` の形） | 答える問い | 問いなし |
+| `question` | 文字列（`Q7` の形） | 答える QUESTION | QUESTION なし |
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 | ― |
-| `scope` | 文字列（`node` / `path` / `subtree` / `siblings` / `summary` / `blind`） | 渡す範囲 | 既定の範囲 |
-| `assume` | 文字列の配列（5 個まで・各 `N12=値`） | 仮置き | 仮置きなし |
-| `mode` | 文字列（**任意**。`purpose_first` 目的先行 / `blind_first` 目的後付け。空なら付けない） | 読む札の読み方 | 既定（目的先行） |
+| `scope` | 文字列（`node` / `path` / `subtree` / `siblings` / `summary` / `blind`） | 渡す SCOPE | 既定の SCOPE |
+| `assume` | 文字列の配列（5 個まで・各 `N12=値`） | ASSUMPTION | ASSUMPTION なし |
+| `mode` | 文字列（**任意**。`purpose_first`（PURPOSE_FIRST・目的先行）/ `blind_first`（BLIND_FIRST・目的後付け）。空なら付けない） | READ_CARD の MODE | 既定（PURPOSE_FIRST） |
 | `papers` | 整数の配列（20 個まで） | 対象論文 | 対象なし |
 | `runner` | 文字列（`pi` / `cc` / `user`・既定 `pi`） | 実行主体 | `pi` |
 | `role` / `depth` | 文字列 | 論文の役割と読む深さ | ― |

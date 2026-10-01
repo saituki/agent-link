@@ -77,13 +77,13 @@ sai-link が pi を起動する際、`--extension` でこの拡張を読み込�
 | `sai_paper_recent_downloads` | ダウンロードフォルダの PDF 候補 |
 | `sai_paper_search_db` | 複数データベースの横断検索（検索セット作成） |
 | `sai_paper_set_list` / `show` / `mark` / `merge` | 検索セットの一覧・表示・判定・統合 |
-| `sai_paper_find` | ハイブリッド検索（word/vector/hybrid）。sci の範囲（papers・node・subtree・each・question） |
+| `sai_paper_find` | ハイブリッド検索（word/vector/hybrid）。sci の SCOPE（papers・node・subtree・each・question） |
 | `sai_paper_neighbors` | 論文の近傍チャンク検索 |
 | `sai_paper_index_status` | インデックス状態 |
-| `sai_paper_sci_context` | 今の実行の範囲（研究方針の木から切り出した入力） |
-| `sai_paper_sci_status` | 研究方針の木の全体（種の文・関門・項目・負債・次の一手） |
-| `sai_paper_sci_node` | 節点 1 つの中身 |
-| `sai_paper_sci_propose` | 研究方針の木への変更を提案 |
+| `sai_paper_sci_context` | 今の実行の SCOPE（研究方針の木から切り出した入力） |
+| `sai_paper_sci_status` | 研究方針の木の全体（SEED_SENTENCE・GATE・ITEM・DEBT・NEXT_ACTION） |
+| `sai_paper_sci_node` | NODE 1 つの中身 |
+| `sai_paper_sci_propose` | 研究方針の木への変更を PROPOSAL として出す |
 
 ## 設計原則
 

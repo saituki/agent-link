@@ -196,7 +196,7 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 | `linkview.js` / `cardform.js` / `stats.js` | List・task.md の作成フォーム・統計 |
 | `defs.js` | 設定（block / template / settings） |
 | `papers.js` / `paperimport.js` | 論文の各画面・Import と Download の見張り |
-| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | 研究方針（`#/papers/tree` と `#/papers/triage` と `#/papers/read/<run_id>`。木・板・操作・仕分け・読む札・根の図・表） |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | 研究方針（`#/papers/tree` と `#/papers/triage` と `#/papers/read/<run_id>`。木・板・操作・TRIAGE・READ_CARD・ROOT_GRAPH・TABLE） |
 | `canvaslayout.js` | 配置・全体表示・拡大の純関数（研究方針の根の図と Workflow が使う） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Radio・声の質問・質問の読み上げと音声回答 |
 | `usage.js` | 使用量 |
@@ -266,11 +266,11 @@ sai-moon/
 ├── pi-litbase/               # pi の拡張（TypeScript・Cargo の外）
 ├── sai-sci/                  # 研究方針の木（Research-tree）
 │   ├── types/                # 5 つの型（sai-moon-paper に埋め込まれる）
-│   ├── guides/               # 項目ガイド（上の項目 9 本・子の項目 16 本）
+│   ├── guides/               # ITEM_GUIDE（上の ITEM 9 本・子の ITEM 16 本）
 │   ├── template/             # sci-core.md・exp-core.md・exp-run.md（研究と実験の決まり）と sai-agent.md・sai-task.md・sai-cli.md（professor と operator の決まり）
 │   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とテスト（sci init が .sai/tools/ へ配る）
 │   ├── exec/                 # 実行先の見本（local・ssh・dok・_example。sci init が .sai/exec/ へ配る）
-│   ├── mind.md               # 土壌のひな形
+│   ├── mind.md               # SOIL のひな形
 │   └── blocks/               # 25 本のブロック（professor・professor-backward・operator と 22 本の sci-*）
 ├── apps/
 │   ├── phone/                # Web の窓口（8200）
