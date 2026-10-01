@@ -527,7 +527,7 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
                 Span::styled(format!(" {} ", option.title), Style::default().fg(color)),
                 Span::styled(
                     format!(
-                        "{label}  支持 {} / 反証 {} / 論文 {}",
+                        "{label}  SUPPORT {} / REFUTE {} / 論文 {}",
                         option.support, option.refute, option.papers
                     ),
                     Style::default().fg(theme.muted),
