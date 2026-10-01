@@ -1,0 +1,25 @@
+/* リモートブラウザ（rbrowser.js）。クラスの頭は rb-。色は style.css の変数を使う */
+.rb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-soft); }
+.rb-wrap { display: flex; flex-direction: column; gap: 12px; }
+.rb-screen-col { width: 100%; max-width: 600px; margin: 0 auto; }
+.rb-screen { display: block; width: 100%; height: auto; border: 1px solid var(--line); background: var(--bg-soft); }
+.rb-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rb-ops, .rb-text { display: flex; flex-wrap: wrap; gap: 8px; }
+.rb-btn { min-height: 44px; min-width: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-soft); color: var(--text); font: inherit; cursor: pointer; }
+.rb-btn.primary { background: var(--run); border-color: var(--run); color: var(--on-accent); }
+.rb-btn.danger { border-color: var(--danger); color: var(--danger); }
+.rb-input { flex: 1 1 160px; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.rb-sub { margin: 0 0 6px; font-size: 1rem; }
+.rb-msg { color: var(--text-soft); margin: 4px 0; }
+.rb-error { color: var(--danger); margin: 4px 0; }
+.rb-dl { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.rb-dl-info { flex: 1; min-width: 0; }
+.rb-dl-name { overflow-wrap: anywhere; }
+.rb-dl-meta { color: var(--text-soft); font-size: 0.875rem; }
+.rb-open-paper { display: inline-block; min-height: 44px; line-height: 44px; }
+@media (min-width: 900px) {
+  .rb-wrap { flex-direction: row; align-items: flex-start; }
+  .rb-screen-col { flex: 0 0 600px; margin: 0; }
+  .rb-side { flex: 1; }
+}

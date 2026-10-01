@@ -2095,7 +2095,18 @@ function renderRemote(target) {
         });
       }));
     }
+    // 学内ネットワークの Mac のブラウザで開く（rbrowser.js が無くても壊れない）
+    if (item.doi && typeof rbOpenHash === "function") {
+      actions.appendChild(paperBtn("Mac のブラウザで開く", () => {
+        rbOpenHash(remoteView.name, item.doi, { log_id: remoteView.logId, position: remoteView.position });
+      }));
+    }
     guide.appendChild(actions);
+    if (item.doi && typeof rbOpenHash === "function") {
+      guide.appendChild(
+        el("p", "paper-msg", "学内ネットワークの Mac のブラウザで論文のページを開きます。PDF を保存して Import すると Library に入ります")
+      );
+    }
     guide.appendChild(
       el("p", "paper-msg", "PDF を取りに行って Library に保存します。数分かかることがあります。")
     );
@@ -2263,12 +2274,26 @@ function renderPaper(target) {
       })
     );
   }
+  if (!files.pdf && p.doi && typeof rbOpenHash === "function") {
+    actions.appendChild(
+      paperBtn("Mac のブラウザで開く", () => {
+        rbOpenHash(paperProject, p.doi, { paper_id: paperIdNum });
+      })
+    );
+  }
+  // PDF 全体を日本語に訳す（pdf_ja があるときは作り直し）
+  if (files.pdf) {
+    actions.appendChild(
+      paperBtn(files.pdf_ja ? "日本語 PDF を作り直す" : "日本語 PDF を作る", () => { void onTranslatePdf(); })
+    );
+  }
   if (actions.childElementCount) body.appendChild(actions);
   // ボタンの下に「何が起きるか」を 1 行ずつ出す（U6・端末に慣れていない人向け）
   const hints = [];
   if (files.pdf) hints.push("📄 PDF: 新しいタブで、取った PDF がそのまま見えます");
   if (files.pdf_ja) hints.push("📄 日本語 PDF: PDF を日本語に訳したものです");
   if (files.extract) hints.push("本文: 取り出した本文だけを、1 ページで読みます");
+  if (files.pdf) hints.push("🈂 日本語 PDF を作る: PDF 全体を日本語に訳します。数分かかります。");
   hints.push("🎙 音声を作る: 数分かかります。できたら通知でお知らせします");
   hints.push("ノート: この論文の覚え書きです。書くとここに残ります");
   for (const text of hints) body.appendChild(el("p", "paper-hint", text));
@@ -2362,6 +2387,24 @@ function abstractCard() {
   card.appendChild(text);
   if (abstractMsg) card.appendChild(el("div", "paper-msg", abstractMsg));
   return card;
+}
+
+/** PDF 全体の翻訳を始める（202 なら仕事は translate・pdf:<id> として進み具合に出る）。 */
+async function onTranslatePdf() {
+  if (paperIdNum == null || !paperProject) return;
+  let res;
+  try {
+    res = await apiFetch(`${papersApiBase(paperProject)}/${paperIdNum}/translate-pdf`, { method: "POST" });
+  } catch {
+    saiToast("接続できていません", "error");
+    return;
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    saiToast(body.detail || "PDF の翻訳を始められませんでした", "error");
+    return;
+  }
+  saiToast("PDF の翻訳を始めました。数分かかります。終わったら通知でお知らせします", "ok");
 }
 
 async function onTranslate() {
