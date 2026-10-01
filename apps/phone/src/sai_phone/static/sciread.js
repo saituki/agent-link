@@ -91,7 +91,7 @@ function srBuildAnswer(card, values) {
   const good = (json) => ({ ok: true, json, error: null });
   const node = srCardNode(c);
   const paper = srCardPaper(c);
-  if (!node) return bad("節点が分かりません");
+  if (!node) return bad("NODE が分かりません");
   if (!paper) return bad("論文が分かりません");
   const text = srTrim(v.text);
   if (!text) return bad("文を入力してください");
@@ -231,12 +231,12 @@ async function srOpen(params) {
   srCard = null;
   const body = document.getElementById("sr-body");
   const title = document.getElementById("sr-title");
-  if (title) title.textContent = "読む札";
+  if (title) title.textContent = "READ_CARD";
   if (typeof ensurePaperProjects === "function") await ensurePaperProjects();
   if (!body) return;
   if (!srRunId) {
     body.innerHTML = "";
-    body.appendChild(saiEmpty({ icon: "❓", title: "読む札の番号が分かりません", body: "住所が「#/papers/read/130」の形ではありません。" }));
+    body.appendChild(saiEmpty({ icon: "❓", title: "READ_CARD の番号が分かりません", body: "住所が「#/papers/read/130」の形ではありません。" }));
     return;
   }
   if (typeof selectedPaperProject !== "function" || !selectedPaperProject()) {
@@ -259,7 +259,7 @@ async function srReload() {
   } catch (e) {
     body.appendChild(saiEmpty({
       icon: "⚠️",
-      title: "読む札を読めませんでした",
+      title: "READ_CARD を読めませんでした",
       body: (e && e.message) || "もう一度読み込んでください。",
     }));
     return;
@@ -274,7 +274,7 @@ function srRender(card) {
   if (!body) return;
   const title = document.getElementById("sr-title");
   const paper = card.paper || {};
-  if (title) title.textContent = paper.title ? `読む札 #${card.run_id || srRunId}` : "読む札";
+  if (title) title.textContent = paper.title ? `READ_CARD #${card.run_id || srRunId}` : "READ_CARD";
   const box = srEl("div", "sci-read-card");
   box.appendChild(srHead(card));
   if (card.owner === "todo") box.appendChild(srStartRow(card));
@@ -286,7 +286,7 @@ function srRender(card) {
 
 /** 見出し（論文・節点・目的・役割・深さ）。 */
 function srHead(card) {
-  const sec = srSec("この読む札", "sci_scope");
+  const sec = srSec("この READ_CARD", "sci_scope");
   const node = card.node || {};
   const paper = card.paper || {};
   const head = srLine("sci-read-head");
@@ -342,9 +342,9 @@ function srStartRow(card) {
 /** 問いごとの答えの欄。問いが無ければ 1 つだけ出す。 */
 function srQuestions(card) {
   const list = Array.isArray(card.questions) ? card.questions.filter(Boolean) : [];
-  const sec = srSec("問いに答える", "sci_finding");
+  const sec = srSec("QUESTION に答える", "sci_finding");
   if (!list.length) {
-    sec.appendChild(srNote("この読む札には問いがありません。分かったことを 1 つだけ下に書いてください。"));
+    sec.appendChild(srNote("この READ_CARD には QUESTION がありません。分かったことを 1 つだけ下に書いてください。"));
     sec.appendChild(srAnswerForm(card, "", list));
     return sec;
   }
@@ -363,7 +363,7 @@ function srAnswerForm(card, question, allQuestions) {
   const paper = card.paper || {};
   const wrap = srEl("div", "sci-read-answer");
   const head = srLine("sci-read-answer-head");
-  head.appendChild(srEl("span", "sci-read-answer-q", question ? String(question) : "問いはありません"));
+  head.appendChild(srEl("span", "sci-read-answer-q", question ? String(question) : "QUESTION はありません"));
   wrap.appendChild(head);
 
   // 問いは 1 つ決まっているときは欄を出さない（答えの形が分かるので）。無いときだけ選べるようにする
@@ -380,7 +380,7 @@ function srAnswerForm(card, question, allQuestions) {
   }
   qSelect.value = question ? String(question) : "";
   const qWrap = srEl("div", "sci-read-form-field");
-  qWrap.appendChild(srEl("label", "sci-read-form-label", "問い"));
+  qWrap.appendChild(srEl("label", "sci-read-form-label", "QUESTION"));
   qWrap.appendChild(qSelect);
   if (!question) wrap.appendChild(qWrap);
 
@@ -421,7 +421,7 @@ function srAnswerForm(card, question, allQuestions) {
   wrap.appendChild(err);
 
   const actions = srEl("div", "sci-read-actions");
-  const send = srBtn("知見を足す", async () => {
+  const send = srBtn("FINDING を足す", async () => {
     send.disabled = true;
     const values = { text: text.value, place: place.value, polarity: pol.value, question: qSelect.value };
     const res = await srSendAnswer(card, values, (why) => {
@@ -443,10 +443,10 @@ function srAnswerForm(card, question, allQuestions) {
 
 /** 入れた知見の一覧。 */
 function srFindings(card) {
-  const sec = srSec("入れた知見", "sci_finding");
+  const sec = srSec("入れた FINDING", "sci_finding");
   const list = Array.isArray(card.findings) ? card.findings.filter(Boolean) : [];
   if (!list.length) {
-    sec.appendChild(srNote("まだ知見を置いていません。1 つも無いまま終えると、反映しない理由を聞かれます。"));
+    sec.appendChild(srNote("まだ FINDING を置いていません。1 つも無いまま終えると、反映しない理由を聞かれます。"));
     return sec;
   }
   for (const f of list) {
@@ -487,12 +487,12 @@ async function srSendAnswer(card, values, onError) {
   }
   try {
     const res = await paperApi(stApi("/apply"), { method: "POST", body: built.json });
-    saiToast("知見を足しました", "ok");
+    saiToast("FINDING を足しました", "ok");
     await srReload();
     return res;
   } catch (e) {
-    if (typeof onError === "function") onError((e && e.message) || "知見を足せませんでした");
-    else saiToast((e && e.message) || "知見を足せませんでした", "error");
+    if (typeof onError === "function") onError((e && e.message) || "FINDING を足せませんでした");
+    else saiToast((e && e.message) || "FINDING を足せませんでした", "error");
   }
   return null;
 }
@@ -538,7 +538,7 @@ function srOpenReadCard(nodeId, detail) {
   const d = detail || {};
   const node = d.node || {};
   const papers = srPaperLinks(d);
-  const title = node.title || "この項目";
+  const title = node.title || "この ITEM";
   const body = srEl("div", "sci-read-wrap");
   const el = srEl("div", "sci-read-form");
 
@@ -613,10 +613,10 @@ function srOpenReadCard(nodeId, detail) {
   body.appendChild(el);
 
   if (!papers.length) {
-    err.textContent = "この節点に結び付いている論文がありません。先に論文を結び付けてください。";
+    err.textContent = "この NODE に LINK されている論文がありません。先に論文を LINK してください。";
     err.hidden = false;
   }
-  const host = saiSheet({ title: "読む札を作る", body });
+  const host = saiSheet({ title: "READ_CARD を作る", body });
   srHost = host;
   actions.appendChild(srBtn("やめる", () => host.close(), "ghost"));
   actions.appendChild(srBtn("作る", async () => {
@@ -637,18 +637,18 @@ function srOpenReadCard(nodeId, detail) {
       depth: depthSel.value,
       mode: "purpose_first",
     };
-    if (!json.node) { err.textContent = "節点が分かりません"; err.hidden = false; return; }
+    if (!json.node) { err.textContent = "NODE が分かりません"; err.hidden = false; return; }
     let res = null;
     try {
       res = await paperApi(stApi("/cards"), { method: "POST", body: json });
     } catch (e) {
-      err.textContent = (e && e.message) || "読む札を作れませんでした";
+      err.textContent = (e && e.message) || "READ_CARD を作れませんでした";
       err.hidden = false;
       return;
     }
     const runId = (typeof seCardRunId === "function" && seCardRunId(res)) || (res && res.run_id) || null;
     host.close();
-    saiToast(runId ? `run ${runId} の読む札を作りました` : "読む札を作りました", "ok");
+    saiToast(runId ? `run ${runId} の READ_CARD を作りました` : "READ_CARD を作りました", "ok");
     if (runId) location.hash = `#/papers/read/${encodeURIComponent(runId)}`;
   }, "primary"));
 }

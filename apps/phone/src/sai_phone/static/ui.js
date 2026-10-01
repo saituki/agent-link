@@ -132,44 +132,64 @@ const SAI_TERMS = {
   },
   // --- 研究方針の木（U19・共有契約 C-14） ---
   sci_seed: {
-    label: "種の文",
-    text: "研究の型ごとの 1 文のひな形です。決まった項目の値が入り、まだ決まっていない所は［？］で出ます。",
+    label: "SEED_SENTENCE（種の文）",
+    text: "研究の型ごとの 1 文のひな形です。決まった ITEM の値が入り、まだ決まっていない所は［？］で出ます。",
   },
   sci_gate: {
-    label: "関門",
-    text: "研究の型ごとに決めた通過条件の並びです。最初に通っていない関門が、今いる所です。",
+    label: "GATE（関門）",
+    text: "研究の型ごとに決めた通過条件の並びです。最初に通っていない GATE が、今いる所です。",
   },
   sci_blank: {
-    label: "空欄の種類",
-    text: "まだ決まっていない項目が、なぜ空いているかの分類です（未着手・調査中・情報不足・判断待ち・対立）。",
+    label: "BLANK の種類（空欄の種類）",
+    text: "まだ決まっていない ITEM が、なぜ空いているかの分類です（UNTOUCHED・IN_PROGRESS・INSUFFICIENT・AWAITING_DECISION・CONFLICT）。",
   },
   sci_debt: {
-    label: "負債",
-    text: "先に片付けたいものです（仕分けていない提案・反映していない論文・選別していない検索・書いていない振り返り）。",
+    label: "DEBT（負債）",
+    text: "先に片付けたいものです（PENDING_PROPOSALS・UNREFLECTED_PAPERS・UNSCREENED_SETS・EMPTY_REVIEWS）。",
   },
   sci_finding: {
-    label: "知見",
-    text: "論文などから分かった 1〜3 文の事実と、その出典です。支持・反証などの向きを持ちます。",
+    label: "FINDING（知見）",
+    text: "論文などから分かった 1〜3 文の事実と、その出典です。SUPPORT・REFUTE などの POLARITY（向き）を持ちます。",
   },
   sci_assume: {
-    label: "仮置き",
+    label: "ASSUMPTION（仮置き）",
     text: "その議論では問い直さない前提として置く値です。",
   },
   sci_scope: {
-    label: "範囲",
+    label: "SCOPE（範囲）",
     text: "エージェントに渡す、研究方針の木から切り出した部分です。",
   },
   sci_triage: {
-    label: "仕分け",
-    text: "エージェントの提案を採用するか却下するかを決めることです。",
+    label: "TRIAGE（仕分け）",
+    text: "エージェントの PROPOSAL を採用するか却下するかを決めることです（ACCEPT・REJECT・REVERT）。",
   },
   sci_tombstone: {
-    label: "墓標",
+    label: "TOMBSTONE（墓標）",
     text: "外した論文の記録です。もう一度検索に出ないように残します。",
   },
   sci_type: {
-    label: "研究の型",
-    text: "研究の始まり方の分類です（課題駆動・現象駆動・手法駆動・データ駆動・改良駆動）。項目の順序と関門が変わります。",
+    label: "RESEARCH_TYPE（研究の型）",
+    text: "研究の始まり方の分類です（PROBLEM_DRIVEN・PHENOMENON_DRIVEN・METHOD_DRIVEN・DATA_DRIVEN・IMPROVE_DRIVEN）。ITEM_ORDER と GATE が変わります。",
+  },
+  sci_item: {
+    label: "ITEM（項目）",
+    text: "研究方針の木で「決める穴」です。状態は OPEN・TENTATIVE・DECIDED・EXCLUDED のどれかです。",
+  },
+  sci_option: {
+    label: "OPTION（候補）",
+    text: "ITEM の下に置く答えの案です。状態は CANDIDATE・SELECTED・REJECTED・DORMANT のどれかです。",
+  },
+  sci_mark: {
+    label: "MARK（印）",
+    text: "ITEM に付く注意の印です（WEAK_EVIDENCE・RECHECK）。",
+  },
+  sci_proposal: {
+    label: "PROPOSAL（提案）",
+    text: "エージェントが木に出す変更の案です。AUTO_OP は自動で入り、REVIEW_OP は利用者が TRIAGE で仕分けます。",
+  },
+  sci_card: {
+    label: "CARD・READ_CARD（カード・読む札）",
+    text: "研究方針の木から作るエージェントへの依頼です。READ_CARD は利用者自身が論文を読んで FINDING を足す CARD です。",
   },
 };
 

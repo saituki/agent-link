@@ -122,7 +122,7 @@ function test_build_answer() {
   // 空・長すぎる・節点や論文が無い
   assert.match(ng(srBuildAnswer(card, { text: "  " })), /文を入力/);
   assert.match(ng(srBuildAnswer(card, { text: "あ".repeat(1201) })), /1200/);
-  assert.match(ng(srBuildAnswer({ ...card, node: {} }, { text: "あ" })), /節点/);
+  assert.match(ng(srBuildAnswer({ ...card, node: {} }, { text: "あ" })), /NODE/);
   assert.match(ng(srBuildAnswer({ ...card, paper: {} }, { text: "あ" })), /論文/);
   // 場所は 80 字まで
   assert.match(ng(srBuildAnswer(card, { text: "あ", place: "あ".repeat(81) })), /80/);

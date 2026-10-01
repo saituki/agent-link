@@ -169,8 +169,8 @@ function testAttentionKindLabel() {
   assert.strictEqual(pimAttentionKindLabel("report_issue"), "出典の要確認");
   assert.strictEqual(pimAttentionKindLabel("new_set_items"), "検索セットの新着");
   // U19: 研究方針の木から出る要対応
-  assert.strictEqual(pimAttentionKindLabel("sci_decision"), "判断待ちの項目");
-  assert.strictEqual(pimAttentionKindLabel("sci_triage"), "仕分け待ちの提案");
+  assert.strictEqual(pimAttentionKindLabel("sci_decision"), "AWAITING_DECISION の ITEM");
+  assert.strictEqual(pimAttentionKindLabel("sci_triage"), "TRIAGE 待ちの PROPOSAL");
   // 知らない種類は札だけを出し、説明は 「要対応」 に落とす
   assert.strictEqual(pimAttentionKindLabel("mystery"), "要対応");
   assert.strictEqual(pimAttentionKindLabel(null), "要対応");
