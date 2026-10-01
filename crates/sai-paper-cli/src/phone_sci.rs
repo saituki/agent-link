@@ -26,6 +26,8 @@ pub enum PhoneSciCmd {
         #[arg(long = "type", value_name = "型")]
         type_id: String,
     },
+    /// ROOT_GRAPH の論文の葉を JSON で返す
+    Graph,
     /// NODE 1 つの詳細を JSON で返す
     Node {
         /// NODE の ID（`N12`）
@@ -68,6 +70,7 @@ pub fn run(cmd: PhoneSciCmd) -> Result<Value> {
     let input = read_stdin_for(&cmd)?;
     match cmd {
         PhoneSciCmd::Status => status(),
+        PhoneSciCmd::Graph => graph(),
         PhoneSciCmd::Init { type_id } => init(&type_id),
         PhoneSciCmd::Node { node } => node_detail(&node),
         PhoneSciCmd::Apply => apply(&input),
@@ -118,6 +121,15 @@ fn status() -> Result<Value> {
         .map_err(|err| anyhow!("{err}"))
         .context("現況を集められませんでした")?;
     Ok(serde_json::to_value(status)?)
+}
+
+/// `phone sci graph` — 論文の葉（`{"papers": [...]}`）。
+fn graph() -> Result<Value> {
+    let env = open_env()?;
+    let papers = sci::compute::paper_leaves(env.conn())
+        .map_err(|err| anyhow!("{err}"))
+        .context("論文の葉を集められませんでした")?;
+    Ok(serde_json::json!({ "papers": papers }))
 }
 
 /// `phone sci init` — 部品を配って木を始める。

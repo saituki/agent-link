@@ -11,7 +11,7 @@
 → ④ 論文を集める → ⑤ 論文を ITEM（項目）に結ぶ → ⑥ READ_CARD（読む札）で読んで FINDING（知見）を書く
 → ⑦ OPTION（候補）と FINDING を足す → ⑧ 決める → ⑨ 決めたことを戻す
 → ⑩ QUESTION（問い）・子の ITEM・文・線 → ⑪ エージェントに頼む → ⑫ TRIAGE（仕分け）
-→ ⑬ Dashboard と DEBT（負債） → ⑭ ROOT_GRAPH（根の図）と TABLE（表） → ⑮ TOMBSTONE（墓標） → ⑯ TUI
+→ ⑬ Dashboard と DEBT（負債） → ⑭ ROOT_GRAPH（根の図）と RUN_GRAPH（実行の図） → ⑮ TOMBSTONE（墓標） → ⑯ TUI
 → ⑰ 同じことをコマンドで → ⑱ 片付け
 ```
 
@@ -161,29 +161,28 @@ PC（横幅の広い画面）では次のように並びます。
 │ GATE    GATE 1/7　BACKGROUND_GOAL_DECIDED                   │ ← B GATE
 │ DEBT    PENDING_PROPOSALS 0 | UNREFLECTED_PAPERS 0 …        │ ← C DEBT
 ├───────────────────────────────────────────────────────────┤
-│ [LIST][ROOT_GRAPH][TABLE][RUN_GRAPH]                        │ ← D 表示の切り替え
-│ ┌──────────────┐ ┌──────────────────────────────────────┐ │
-│ │○ N1 BACKGROUND│ │ ○ OPEN N12 PURPOSE_SUBGOAL           │ │
-│ │  ○ N2 BACKGROUND_GOAL │ [決める][対象外][OPTION を足す]… │ │ ← F 板
-│ │  …           │ │ 次の一手 / QUESTION / OPTION /        │ │
-│ │○ N11 PURPOSE  │ │ FINDING / LINK / 文献の流れ /         │ │
-│ │  ○ N12 PURPOSE_SUBGOAL │ TRIAGE 待ち / 行動の履歴 /      │ │
-│ │              │ │ 決定の記録                            │ │
-│ └──────────────┘ └──────────────────────────────────────┘ │
-│   E ITEM の一覧                                             │
+│ [ROOT_GRAPH][RUN_GRAPH]                                     │ ← D 表示の切り替え
+│ ┌────────┐ ┌─────────────────┐ ┌──────────────────────────┐ │
+│ │○ N1    │ │      図          │ │ ○ OPEN N12 PURPOSE_SUBGOAL│ │
+│ │ ○ N2   │ │ (節点を押すと    │ │ [決める][対象外]…         │ │ ← F 板
+│ │ …      │ │  右に板が開く)   │ │ 次の一手 / QUESTION /     │ │
+│ │○ N11   │ │                 │ │ OPTION の表 / FINDING /   │ │
+│ │ ○ N12  │ │                 │ │ LINK / 行動の履歴 …       │ │
+│ └────────┘ └─────────────────┘ └──────────────────────────┘ │
+│  E 左の一覧                                                  │
 └───────────────────────────────────────────────────────────┘
 ```
 
-iPhone（横幅の狭い画面）では A〜E が縦に並び、一覧の ITEM を押すと F の板が下からせり上がる小窓で開きます。✕ で閉じます。
+iPhone（横幅の狭い画面）では A〜E が縦に並び、節点を押すと F の板が下からせり上がる小窓（sheet）で開きます。✕ で閉じます。PC では板は右に出て（約 420px）、✕ で閉じます。
 
 | 場所 | 何が出るか | いつ変わるか |
 |---|---|---|
 | A SEED_SENTENCE | 研究を 1 文で言ったもの。決まっていない所は **［？ITEM の名前］**（橙色の点線。例 ［？TARGET］）で出る | ITEM を「決める」と、その値が入る |
 | B GATE | 今いる GATE（例 GATE 1/7　BACKGROUND_GOAL_DECIDED）。押すと 7 つの GATE の一覧（通った・まだ）と通る条件が出る。全部通ると「GATE 7/7　SEED にできる」になる | 条件の ITEM が決まると進む |
 | C DEBT | 後回しの片付け物の数。0 のものは薄く出る。PENDING_PROPOSALS を押すと TRIAGE の画面へ | PROPOSAL が来る・論文を読むと増減する |
-| D 切り替え | LIST・ROOT_GRAPH・TABLE・RUN_GRAPH | ― |
-| E 一覧 | ITEM と OPTION の並び。印（下の表）と BLANK の種類の札が付く | 何かを変えるたび |
-| F 板 | 選んだ ITEM の中身と操作のボタン | 何かを変えるたび |
+| D 切り替え | ROOT_GRAPH・RUN_GRAPH | ― |
+| E 左の一覧 | 幹・ITEM・sprout・branch の行。印（下の表）と BLANK の種類の札が付く | 何かを変えるたび |
+| F 板 | 押した節点（ITEM・論文・run）の中身と操作のボタン。OPTION の表は板の中にある | 何かを変えるたび |
 
 ### ITEM と OPTION の印
 
@@ -601,18 +600,17 @@ ITEM には、最初から QUESTION がいくつか付いています（例: N12
 | メモ | 1 行のメモを足せる |
 
 - **AWAITING_DECISION** は、FINDING や OPTION がそろい、あなたが決める番になった ITEM です。
-- `mind.md` の VALUE_AXES に書いたことは、**TABLE**（⑭）の上にも出て、OPTION を比べるときの軸になります。
+- `mind.md` の VALUE_AXES に書いたことは、板の OPTION の表（⑭）の上にも出て、OPTION を比べるときの軸になります。
 
 ---
 
-## 14. ROOT_GRAPH と TABLE
+## 14. ROOT_GRAPH と RUN_GRAPH
 
-研究方針の画面の D で切り替えます。
+研究方針の画面の D で切り替えます。左には幹・ITEM・sprout・branch の一覧が常にあります。
 
-- **LIST**（一覧）: ここまで使ってきた並び。
-- **ROOT_GRAPH**（根の図）: ITEM と OPTION を、左から右へ線でつないだ図です。青い線が親子、灰色の線がほかの関係です。上の **＋** **−** で拡大・縮小、**⤢** で全体を表示、**OPTION を隠す** で OPTION を消せます。図の箱を押すと、その ITEM の板が開きます。
-- **TABLE**（表）: 選んだ ITEM の OPTION を、列（状態・支持・反証・論文・FINDING）で比べる表です。ITEM を選んでいないときは、下に出る一覧から ITEM を選びます。別の ITEM を見るときは **LIST** に戻って選び直します。
-- **RUN_GRAPH**（実行の図）: 実行を ROOT・SEED・BRANCH の 3 層で並べた図です。
+- **ROOT_GRAPH**（根の図）: 4 層の樹です。上から branch（sprout から上へ分かれる）・sprout（幹から上へ）・seed（幹 1 つ。SEED_SENTENCE・型・GATE）・root（幹の下に上位の ITEM、その下に子の ITEM、最下層に論文の葉）です。論文は 1 本 = 1 葉で、FINDING の数が添えてあります。review の run は描かず、branch → review → branch は branch → branch の線になります。節点（幹・ITEM・論文の葉・sprout・branch）を押すと、PC では右に板、iPhone では下から sheet が開きます。論文の葉の板には、その論文の FINDING と読んだ状態が出ます。
+- **RUN_GRAPH**（実行の図）: 実行の DAG です。帯は上から branch / sprout / seed / root です。
+- OPTION の表は板の中にあります（ITEM の板を開くと、状態・支持・反証・論文・FINDING の列で OPTION を比べられます）。
 
 ---
 
@@ -759,7 +757,7 @@ rm -rf ~/research/sci-practice
 - [ ] CARD を作り、run を開いた（⑪）
 - [ ] PROPOSAL を 採用・直して採用・却下 で TRIAGE した（⑫）
 - [ ] Dashboard の要対応・現況・考え を見た（⑬）
-- [ ] ROOT_GRAPH と TABLE を見た（⑭）
+- [ ] ROOT_GRAPH と RUN_GRAPH を見た（⑭）
 - [ ] 論文を TOMBSTONE にした（⑮）
 - [ ] TUI の研究方針で、Web と同じ中身を見た（⑯）
 - [ ] 命令で OPTION を足し、画面に出た（⑰）

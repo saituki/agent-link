@@ -1142,6 +1142,12 @@ def api_sci_status(name: str, _: None = Depends(require_token)) -> dict:
     return sci.status(papers.resolve_project(name))
 
 
+@app.get("/api/projects/{name}/papers/sci/graph")
+def api_sci_graph(name: str, _: None = Depends(require_token)) -> dict:
+    """ROOT_GRAPH の論文の葉（`phone sci graph`）。"""
+    return sci.graph(papers.resolve_project(name))
+
+
 @app.post("/api/projects/{name}/papers/sci/init")
 def api_sci_init(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)

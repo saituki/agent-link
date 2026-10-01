@@ -533,6 +533,11 @@ def status(project: dict) -> dict:
     return _sci_cli(project, ["phone", "sci", "status"], SCI_READ_TIMEOUT)
 
 
+def graph(project: dict) -> dict:
+    """ROOT_GRAPH の論文の葉（`phone sci graph`）。"""
+    return _sci_cli(project, ["phone", "sci", "graph"], SCI_READ_TIMEOUT)
+
+
 def init(project: dict, payload) -> dict:
     """始める（`phone sci init --type <型>`・骨組みの展開で待つ時間は長め）。"""
     if not isinstance(payload, dict):
