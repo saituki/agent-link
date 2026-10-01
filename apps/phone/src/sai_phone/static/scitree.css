@@ -15,10 +15,25 @@
 
 .sci-modes {
   display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px 0;
 }
 
 .sci-modes .dash-seg.small { width: 168px; }
+
+/* 狭い画面の「一覧」の釦（広い画面では一覧がいつも見えるので隠す） */
+.sci-list-toggle {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  margin-left: auto;
+}
+.sci-list-toggle.active { border-color: var(--accent); color: var(--accent); }
 
 .sci-body {
   flex: 1;
@@ -26,25 +41,69 @@
   align-items: stretch;
 }
 
+.sci-body [hidden] { display: none; }
+
 .sci-body .sci-list {
   padding: 8px 8px 24px;
   overflow-y: auto;
 }
 
-/* 一覧の欄を固定するのは 900px 以上だけ（style.css の .sai-split が横並びになる幅）。
-   狭い画面（iPhone の 390px）では全幅にして、右に隙間を空けない。 */
-@media (min-width: 900px) {
-  .sci-body .sci-list {
-    flex: 0 0 320px;
-    max-width: 320px;
-  }
+.sci-body .sci-graph-box {
+  min-width: 0;
+  padding: 8px 12px 32px;
+  overflow: auto;
 }
 
 .sci-body .sci-board {
-  flex: 1;
   min-width: 0;
-  padding: 8px 12px 32px;
+  padding: 0 12px 32px;
   overflow-y: auto;
+}
+
+/* 板の頭（見出しと ✕）。✕ は触れる大きさ 44 × 44px */
+.sci-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  padding: 4px 0;
+}
+.sci-board-title { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.sci-board-close {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+/* 狭い画面: 一覧と図は全幅。一覧を出している間は図を隠し、出していなければ一覧を隠す */
+@media (max-width: 899px) {
+  .sci-list-open .sci-graph-box { display: none; }
+  .sci-body:not(.sci-list-open) .sci-list { display: none; }
+}
+
+/* 広い画面（900px 以上）: 一覧 320px・図は残り・板は 420px（選んだときだけ） */
+@media (min-width: 900px) {
+  .sci-list-toggle { display: none; }
+  .sci-body .sci-list {
+    flex: 0 0 320px;
+    max-width: 320px;
+    border-right: 1px solid var(--line);
+  }
+  .sci-body .sci-graph-box { flex: 1 1 auto; min-width: 0; }
+  .sci-body .sci-board {
+    flex: 0 0 420px;
+    max-width: 420px;
+    border-left: 1px solid var(--line);
+  }
 }
 
 /* --- 上の帯（種の文・関門・負債） --- */
