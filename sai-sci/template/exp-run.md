@@ -10,6 +10,7 @@
 - 実行先の名前は環境変数 `EXP_TARGET`。空なら `local`（この PC）。**別の実行先を勝手に選ばない。**
 - 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず `BLOCKED` で報告する。
 - 結果は実行先から**中央の MLflow に直接**入る。手で回収しない。
+- 確認だけのためにジョブを投げない（データの有無・GPU は、スクリプトの最初の `device=` の行と最初の試行で確かめる）。
 
 ## 2. 呼び方
 
@@ -24,26 +25,27 @@ EXP='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/
 | 実行先の一覧 | `eval $EXP list` |
 | 使えるか確かめる | `eval $EXP check <target>` |
 | 投げる | `eval $EXP run <target> --name <短い名前> -- <command...>` |
+| 始まりを確かめる | `eval $EXP started <job_id> --timeout 600 --json` |
 | 状態を見る | `eval $EXP status <job_id> --json` |
 | ログを見る | `eval $EXP logs <job_id> -n 50` |
 | 中止する | `eval $EXP cancel <job_id>` |
 
 - `run` は投げてすぐ戻り、**標準出力の 1 行目に job_id** が出る。控える。
 - `command` には、環境変数を渡す引数が無い。**命令の前に `env NAME=値` を書く**。
-  例: `... run local -- env EXP_BRANCH_RUN_ID=121 uv run --python ">=3.10" --with mlflow s01/g1.py`（先に `cd <workdir>`）
+  例: `... run local -- env EXP_BRANCH_RUN_ID=121 uv run --python ">=3.10" --with mlflow ID121/train.py`（先に `cd <workdir>`）
 - **スクリプトの前に `python` を付けない。** `uv run <script>.py` はスクリプトの PEP 723 の欄（`# /// script`）の依存を読む。`python <script>.py` の形にすると欄が読まれず、必要な道具が入らない。
 - `status` の `state` は次のとおり。
 
 | state | 意味 | 次にすること |
 |---|---|---|
-| `queued` | 投入済み・まだ動いていない | 待つ |
-| `running` | 動いている | 待つ |
+| `queued` | 投入済み・まだ動いていない | branch は待たない。`started` の結果で決める（`exp-core` §8）。review は `status` を 1 回読むだけ |
+| `running` | 動いている | 同上 |
 | `done` | 終了コード 0 で終わった | 記録を確かめる |
 | `failed` | 0 以外で終わった | `logs` を読んで報告する |
 | `cancelled` | 中止された | 報告する |
 | `lost` | 行方が分からない（実行先が落ちた、など） | 報告する。自分で再投入しない |
 
-- **待ち合わせは 1 回に `sleep 300` まで。** 1 つの長いコマンドで待たない。
+- **終わりまで待たない。** 待つのは `started` の 1 回だけ（最大 600 秒）。
 
 ## 3. 危険な操作の確認（必ず守る）
 
