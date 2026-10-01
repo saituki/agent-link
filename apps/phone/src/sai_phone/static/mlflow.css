@@ -6,9 +6,25 @@
 
 /* --- 全体（上に帯・下に 2 つの欄） --- */
 
-.mlf-proj-row {
+#mlf-project {
+  min-height: 44px;
+  margin-left: auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlf-exp-badges {
   display: flex;
-  padding: var(--sp-2) var(--sp-3) 0;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.mlf-branch-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 .mlf-body {

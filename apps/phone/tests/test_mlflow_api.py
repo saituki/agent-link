@@ -202,6 +202,33 @@ def test_project_unknown_404() -> None:
         os.environ.pop("SAI_SAI_HOME", None)
 
 
+def test_experiments_project() -> None:
+    """実験の一覧は `project` で experiment のタグを絞る。無い名前は 404 で MLflow を呼ばない。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        use_registry(tmp)
+        sent: list[dict] = []
+        original = mlflow_proxy._call
+
+        def fake_call(method, api_path, query=None, body=None, timeout=30.0):
+            sent.append({"api_path": api_path, "body": body})
+            return b'{"experiments": []}'
+
+        mlflow_proxy._call = fake_call  # type: ignore
+        try:
+            mlflow_proxy.experiments("demo")
+            assert sent[-1]["api_path"] == "/api/2.0/mlflow/experiments/search", sent[-1]
+            assert sent[-1]["body"]["filter"] == 'tags."sai.project" = "demo-root"', sent[-1]
+            assert sent[-1]["body"]["order_by"] == ["name ASC"], sent[-1]
+            mlflow_proxy.experiments()
+            assert "filter" not in sent[-1]["body"], sent[-1]
+            n = len(sent)
+            expect_error(lambda: mlflow_proxy.experiments("not-there"), status=404)
+            assert len(sent) == n, "登録簿に無い時は MLflow を呼ばない"
+        finally:
+            mlflow_proxy._call = original  # type: ignore
+        os.environ.pop("SAI_SAI_HOME", None)
+
+
 def test_runs_search_400() -> None:
     """本文の型と各項目を検査し、通らない値は MLflow を呼ばない。"""
     sent: list[dict] = []
@@ -526,6 +553,7 @@ def main() -> None:
     test_max_results_400()
     test_project_filter()
     test_project_unknown_404()
+    test_experiments_project()
     test_runs_search_400()
     test_fake_mlflow()
     test_fake_mlflow_400()

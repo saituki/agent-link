@@ -214,13 +214,15 @@ def _project_filter(name: str) -> str:
 # --- 公開する関数 ----------------------------------------------------
 
 
-def experiments() -> dict:
-    """実験の一覧（`POST experiments/search`・最大 100 個・名前順）。"""
-    return _call_json(
-        "POST",
-        "/api/2.0/mlflow/experiments/search",
-        body={"max_results": 100, "order_by": ["name ASC"]},
-    )
+def experiments(project: str | None = None) -> dict:
+    """実験の一覧（`POST experiments/search`・最大 100 個・名前順）。
+
+    `project` があれば experiment のタグ `sai.project` で絞る（登録簿に無い名前は 404）。
+    """
+    body: dict = {"max_results": 100, "order_by": ["name ASC"]}
+    if project:
+        body["filter"] = _project_filter(project)
+    return _call_json("POST", "/api/2.0/mlflow/experiments/search", body=body)
 
 
 def experiment(experiment_id: str) -> dict:

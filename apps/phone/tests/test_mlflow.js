@@ -25,7 +25,7 @@ const {
   mlfMetricList,
   mlfHeadMetric,
   mlfParentId,
-  mlfSeedId,
+  mlfSproutId,
   mlfStatusText,
   mlfDurationText,
   mlfDurationMs,
@@ -61,7 +61,12 @@ function parsed(hash) {
 /** テスト用の run を作る。{id, seed, parent, role, metric, value, status} */
 function sampleRun(o) {
   const tags = [];
+  if (o.sprout != null) tags.push({ key: "sai.sprout_run_id", value: String(o.sprout) });
   if (o.seed != null) tags.push({ key: "sai.seed_run_id", value: String(o.seed) });
+  if (o.direction) tags.push({ key: "exp.direction", value: o.direction });
+  if (o.action) tags.push({ key: "exp.action", value: o.action });
+  if (o.model) tags.push({ key: "exp.model", value: o.model });
+  if (o.parentBranch != null) tags.push({ key: "exp.parent_branch", value: String(o.parentBranch) });
   if (o.parent != null) tags.push({ key: "mlflow.parentRunId", value: o.parent });
   if (o.role) tags.push({ key: "exp.role", value: o.role });
   if (o.metric) tags.push({ key: "exp.metric", value: o.metric });
@@ -112,10 +117,10 @@ function testParseRuns() {
 }
 
 function testParseRunsQuery() {
-  const p = parsed("#/mlflow/e/3?sai_run=121&seed=120&study=N12-s120&status=FINISHED");
+  const p = parsed("#/mlflow/e/3?sai_run=121&sprout=120&study=N12-s120&status=FINISHED");
   assert.deepStrictEqual(p.query, {
     sai_run: "121",
-    seed: "120",
+    sprout: "120",
     study: "N12-s120",
     status: "FINISHED",
   });
@@ -158,7 +163,7 @@ function testRoundTrip() {
     { page: "experiments" },
     { page: "runs", experimentId: "1" },
     { page: "runs", experimentId: "all" },
-    { page: "runs", experimentId: "7", query: { seed: "120" } },
+    { page: "runs", experimentId: "7", query: { sprout: "120" } },
     { page: "runs", experimentId: "7", query: { sai_run: "121", study: "N12-s120", status: "RUNNING" } },
     { page: "run", runId: RUN_A },
     { page: "compare", runIds: [RUN_A, RUN_B] },
@@ -191,13 +196,13 @@ function testHashRejectsBadState() {
 function testQueryStringOrder() {
   // 順序は MLF_QUERY_KEYS に固定する（往復の安定のため）
   assert.strictEqual(
-    mlfQueryString({ status: "FINISHED", seed: "120", sai_run: "121" }),
-    "sai_run=121&seed=120&status=FINISHED"
+    mlfQueryString({ status: "FINISHED", sprout: "120", sai_run: "121" }),
+    "sai_run=121&sprout=120&status=FINISHED"
   );
   assert.strictEqual(mlfQueryString({}), "");
   // 知らない鍵と空の値は捨てられる
-  assert.strictEqual(mlfQueryString({ unknown: "x", seed: "" }), "");
-  assert.deepStrictEqual(mlfParseQuery("sai_run=1&unknown=2&seed="), { sai_run: "1" });
+  assert.strictEqual(mlfQueryString({ unknown: "x", sprout: "" }), "");
+  assert.deepStrictEqual(mlfParseQuery("sai_run=1&unknown=2&sprout="), { sai_run: "1" });
 }
 
 // ============================================================================
@@ -213,8 +218,8 @@ function testFilterTwoKeys() {
 
 function testFilterAllKeys() {
   assert.strictEqual(
-    mlfFilterFromQuery({ sai_run: "121", seed: "120", study: "N12-s120", status: "FINISHED" }),
-    'tags."sai.run_id" = "121" AND tags."sai.seed_run_id" = "120" ' +
+    mlfFilterFromQuery({ sai_run: "121", sprout: "120", study: "N12-s120", status: "FINISHED" }),
+    'tags."sai.run_id" = "121" AND tags."sai.sprout_run_id" = "120" ' +
       'AND tags."exp.study" = "N12-s120" AND attributes.status = "FINISHED"'
   );
 }
@@ -224,65 +229,96 @@ function testFilterBackslash() {
   assert.strictEqual(mlfFilterFromQuery({ study: "a\\b" }), 'tags."exp.study" = "a\\\\b"');
 }
 
+function testFilterSproutAndBranch() {
+  assert.strictEqual(mlfFilterFromQuery({ sprout: "120" }), 'tags."sai.sprout_run_id" = "120"');
+  assert.strictEqual(
+    mlfFilterFromQuery({ sai_run: "125", status: "FAILED" }),
+    'tags."sai.run_id" = "125" AND attributes.status = "FAILED"'
+  );
+  // 旧い鍵 seed は読まない
+  assert.deepStrictEqual(mlfParseQuery("seed=120"), {});
+}
+
 function testFilterEmpty() {
   assert.strictEqual(mlfFilterFromQuery({}), "");
   assert.strictEqual(mlfFilterFromQuery(null), "");
-  assert.strictEqual(mlfFilterFromQuery({ seed: "", status: "" }), "");
+  assert.strictEqual(mlfFilterFromQuery({ sprout: "", status: "" }), "");
 }
 
 // ============================================================================
 // AC3: 入れ子の木
 // ============================================================================
 
-/** 束 2 つ・親 3・子 5（うち 1 つは親が無い）を作る。 */
+/** sprout 2・branch 3・run 7（1 本は FAILED・1 本は sai.run_id 無し）を作る。 */
 function treeSample() {
+  const id = (n) => String(n).repeat(32).slice(0, 32);
   return [
-    sampleRun({ id: RUN_A, seed: 120, role: "script", metric: "acc", value: 0.8 }),
-    sampleRun({ id: RUN_B, seed: 120, role: "trial", parent: RUN_A }),
-    sampleRun({ id: RUN_C, seed: 120, role: "trial", parent: RUN_A }),
-    sampleRun({ id: RUN_D, seed: 130, role: "script", metric: "loss", value: 0.2 }),
-    sampleRun({ id: "11111111111111111111111111111111", seed: 130, role: "trial", parent: RUN_D }),
-    sampleRun({ id: "22222222222222222222222222222222", seed: 130, role: "trial", parent: RUN_D }),
-    // 親が今の結果に無い子（段 2 の孤立した行になる）
-    sampleRun({ id: "33333333333333333333333333333333", seed: 130, role: "trial", parent: MISSING }),
+    sampleRun({ id: id(1), name: "ID125-p02", sprout: 120, saiRun: 125, action: "tune", model: "cnn-static", parentBranch: 121, metric: "test_acc", value: 0.8, direction: "maximize" }),
+    sampleRun({ id: id(2), name: "ID125-p01", sprout: 120, saiRun: 125, metric: "test_acc", value: 0.871, direction: "maximize" }),
+    sampleRun({ id: id(3), name: "ID125-p03", sprout: 120, saiRun: 125, status: "FAILED" }),
+    sampleRun({ id: id(4), name: "ID121-p01", sprout: 120, saiRun: 121, metric: "val_loss", value: 0.5, direction: "minimize" }),
+    sampleRun({ id: id(5), name: "ID140-p01", sprout: 130, saiRun: 140, metric: "val_loss", value: 0.4, direction: "minimize" }),
+    sampleRun({ id: id(6), name: "ID140-p02", sprout: 130, saiRun: 140, metric: "val_loss", value: 0.2, direction: "minimize" }),
+    sampleRun({ id: id(7), name: "loose", sprout: 130 }),
   ];
 }
 
 function testBuildTreeShape() {
   const tree = mlfBuildTree(treeSample());
-  assert.strictEqual(tree.length, 2, "束は 2 つのはず");
-  assert.deepStrictEqual(tree.map((b) => b.label), ["seed #120", "seed #130"]);
-
-  const first = tree[0];
-  assert.strictEqual(first.seed, "120");
-  assert.strictEqual(first.rows.length, 1, "seed #120 の親は 1 つ");
-  assert.strictEqual(first.rows[0].kind, "parent");
-  assert.strictEqual(first.rows[0].run.info.run_id, RUN_A);
-  assert.deepStrictEqual(
-    first.rows[0].children.map((c) => c.info.run_id),
-    [RUN_B, RUN_C],
-    "seed #120 の子は 2 つ"
-  );
+  assert.deepStrictEqual(tree.map((b) => b.label), ["sprout ID120", "sprout ID130"]);
+  assert.strictEqual(tree[0].sprout, "120");
+  // branch は番号の昇順
+  assert.deepStrictEqual(tree[0].branches.map((b) => b.label), ["ID121", "ID125"]);
+  const b125 = tree[0].branches[1];
+  assert.strictEqual(b125.branch, "125");
+  // run は run 名の昇順（FAILED も入る）
+  assert.deepStrictEqual(b125.runs.map((r) => r.info.run_name), ["ID125-p01", "ID125-p02", "ID125-p03"]);
+  // action・model・parentBranch は先頭の run のタグ（p01 には無い）
+  assert.strictEqual(b125.action, "");
 }
 
-function testBuildTreeOrphanIsSecondLevel() {
+function testBuildTreeBest() {
   const tree = mlfBuildTree(treeSample());
-  const second = tree[1];
-  assert.strictEqual(second.rows.length, 2, "seed #130 の段 2 は 2 行（親 1・孤立 1）");
-  assert.strictEqual(second.rows[0].kind, "parent");
-  assert.strictEqual(second.rows[0].run.info.run_id, RUN_D);
-  assert.strictEqual(second.rows[0].children.length, 2, "seed #130 の子は 2 つ");
-  assert.strictEqual(second.rows[1].kind, "orphan", "親が無い子は段 2 の孤立した行");
-  assert.strictEqual(second.rows[1].run.info.run_id, "33333333333333333333333333333333");
-  assert.strictEqual(second.rows[1].children.length, 0);
+  const b125 = tree[0].branches[1];
+  assert.strictEqual(b125.best.value, 0.871, "maximize は大きい方");
+  assert.strictEqual(b125.best.run.info.run_name, "ID125-p01");
+  assert.strictEqual(tree[1].branches[0].best.value, 0.2, "minimize は小さい方");
+  assert.strictEqual(tree[1].branches[1].best, null, "指標が無ければ null");
 }
 
-function testBuildTreeWithoutSeedTag() {
-  // タグが無い run は「seed なし」の束にまとめられる
+function testBuildTreeNoBranchBundle() {
+  const tree = mlfBuildTree(treeSample());
+  const last = tree[1].branches[tree[1].branches.length - 1];
+  assert.strictEqual(last.label, "branch なし");
+  assert.strictEqual(last.runs[0].info.run_name, "loose");
+}
+
+function testBuildTreeMeta() {
+  const [one] = mlfBuildTree([
+    sampleRun({ id: RUN_A, sprout: 1, saiRun: 5, name: "ID5-p01", action: "tune", model: "cnn-static", parentBranch: 4 }),
+  ]);
+  const br = one.branches[0];
+  assert.strictEqual(br.action, "tune");
+  assert.strictEqual(br.model, "cnn-static");
+  assert.strictEqual(br.parentBranch, "4");
+}
+
+function testBuildTreeLegacySeed() {
+  // 旧い記録: seed の束に入れ子を見ず平らに入る
+  const tree = mlfBuildTree([
+    sampleRun({ id: RUN_A, seed: 120, saiRun: 121, name: "a", metric: "acc", value: 0.8 }),
+    sampleRun({ id: RUN_B, seed: 120, saiRun: 121, name: "b", parent: RUN_A }),
+  ]);
+  assert.strictEqual(tree.length, 1);
+  assert.strictEqual(tree[0].label, "seed ID120（旧）");
+  assert.deepStrictEqual(tree[0].branches[0].runs.map((r) => r.info.run_name), ["a", "b"]);
+}
+
+function testBuildTreeWithoutSproutTag() {
   const tree = mlfBuildTree([sampleRun({ id: RUN_A })]);
   assert.strictEqual(tree.length, 1);
-  assert.strictEqual(tree[0].label, "seed なし");
-  assert.strictEqual(tree[0].rows[0].run.info.run_id, RUN_A);
+  assert.strictEqual(tree[0].label, "sprout なし");
+  assert.strictEqual(tree[0].branches[0].label, "branch なし");
 }
 
 function testBuildTreeEmpty() {
@@ -294,11 +330,7 @@ function testBuildTreeEmpty() {
 function testFlatRows() {
   const rows = mlfFlatRows(treeSample());
   assert.strictEqual(rows.length, 7, "7 本すべてが平らに出る");
-  assert.deepStrictEqual(
-    rows.map((r) => r.depth),
-    [0, 1, 1, 0, 1, 1, 0],
-    "段 2 は 0・段 3 は 1"
-  );
+  assert.ok(rows.every((r) => r.depth === 0));
 }
 
 // ============================================================================
@@ -306,8 +338,8 @@ function testFlatRows() {
 // ============================================================================
 
 function testTagHelpers() {
-  const run = sampleRun({ id: RUN_A, seed: 120, parent: RUN_B, role: "script", saiRun: 121 });
-  assert.strictEqual(mlfSeedId(run), "120");
+  const run = sampleRun({ id: RUN_A, sprout: 120, parent: RUN_B, role: "script", saiRun: 121 });
+  assert.strictEqual(mlfSproutId(run), "120");
   assert.strictEqual(mlfParentId(run), RUN_B);
   assert.strictEqual(mlfTag(run, "exp.role"), "script");
   assert.strictEqual(mlfTag(run, "sai.run_id"), "121");
@@ -335,12 +367,12 @@ function testOrderOptions() {
   const options = mlfOrderOptions(runs);
   assert.deepStrictEqual(options[0], ["attributes.start_time DESC", "開始（新しい順）"]);
   assert.deepStrictEqual(options[1], ["attributes.start_time ASC", "開始（古い順）"]);
-  // 親が持つ `exp.metric` の名前が並ぶ（子の分では増やさない）
+  // run の `exp.metric` の名前が並ぶ
   assert.deepStrictEqual(options.slice(2), [
-    ["metrics.acc DESC", "指標 acc（大きい順）"],
-    ["metrics.acc ASC", "指標 acc（小さい順）"],
-    ["metrics.loss DESC", "指標 loss（大きい順）"],
-    ["metrics.loss ASC", "指標 loss（小さい順）"],
+    ["metrics.test_acc DESC", "指標 test_acc（大きい順）"],
+    ["metrics.test_acc ASC", "指標 test_acc（小さい順）"],
+    ["metrics.val_loss DESC", "指標 val_loss（大きい順）"],
+    ["metrics.val_loss ASC", "指標 val_loss（小さい順）"],
   ]);
   assert.strictEqual(mlfIsMetricOrder("metrics.acc DESC"), true);
   assert.strictEqual(mlfIsMetricOrder("attributes.start_time DESC"), false);
@@ -398,7 +430,7 @@ function testProjectChoices() {
 
 function testQueryKeysAreFixed() {
   // 絞り込みの鍵の順番は往復の安定のために決めてある
-  assert.deepStrictEqual(MLF_QUERY_KEYS, ["sai_run", "seed", "study", "status"]);
+  assert.deepStrictEqual(MLF_QUERY_KEYS, ["sai_run", "sprout", "study", "status"]);
 }
 
 // --- U07: 指標のグラフと比較の表 -------------------------------------
@@ -539,8 +571,12 @@ const tests = [
   testFilterBackslash,
   testFilterEmpty,
   testBuildTreeShape,
-  testBuildTreeOrphanIsSecondLevel,
-  testBuildTreeWithoutSeedTag,
+  testBuildTreeBest,
+  testBuildTreeNoBranchBundle,
+  testBuildTreeMeta,
+  testBuildTreeLegacySeed,
+  testBuildTreeWithoutSproutTag,
+  testFilterSproutAndBranch,
   testBuildTreeEmpty,
   testFlatRows,
   testTagHelpers,
