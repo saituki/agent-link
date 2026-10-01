@@ -437,6 +437,16 @@ pub struct RagConfig {
     pub indexes: Vec<RagIndexSpec>,
     /// 要約付きの検索（`find --evidence`）の設定。
     pub evidence: EvidenceConfig,
+    /// 論文の節の表（`sections`）の設定。
+    pub sections: SectionsConfig,
+}
+
+/// 論文の節の表の設定。model・base_url・API キーは `rag.evidence` の値を使う。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SectionsConfig {
+    /// true のとき、DL 後の自動処理で節の要約（LLM）も作る。
+    pub summarize: bool,
 }
 
 /// `rag.indexes` の 1 件（書かなかった項目は `rag` の値を使う）。
@@ -541,6 +551,7 @@ impl Default for RagConfig {
             default_index: "default".into(),
             indexes: Vec::new(),
             evidence: EvidenceConfig::default(),
+            sections: SectionsConfig::default(),
         }
     }
 }

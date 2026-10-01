@@ -116,6 +116,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
         46,
         include_str!("../migrations/0046_sci_tree.sql"),
     ),
+    (47, include_str!("../migrations/0047_paper_sections.sql")),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。

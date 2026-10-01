@@ -174,7 +174,47 @@ pub fn pending_after_download(db: &Database, paper_id: i64) -> (bool, bool) {
     (!figures_done && key.is_some(), !translated)
 }
 
-/// DL 後の自動処理（図の抽出 → PDF 翻訳）。1 論文の中は順番に、論文どうしは
+/// 節の表を作る（設定があれば要約も）。失敗は通知だけにして、あとの処理を止めない。
+async fn build_sections(
+    db_file: &Path,
+    paper_id: i64,
+    config: &crate::Config,
+    notify: &impl Fn(String),
+) {
+    let count = Database::open(db_file)
+        .map_err(|e| e.to_string())
+        .and_then(|db| {
+            let data_dir = db.data_dir().ok_or("data_dir がありません")?;
+            crate::sections::ensure(db.connection(), data_dir, paper_id).map_err(|e| e.to_string())?;
+            crate::sections::count_sections(db.connection(), paper_id).map_err(|e| e.to_string())
+        });
+    match count {
+        Ok(n) => notify(format!("節を {n} 個に分けました")),
+        Err(e) => return notify(format!("節の表を作れませんでした: {e}")),
+    }
+    let evidence = &config.rag.evidence;
+    if !config.rag.sections.summarize || evidence.model.trim().is_empty() {
+        return;
+    }
+    let result = match crate::evidence::ChatCompletionsClient::from_config(config) {
+        Ok(client) => crate::sections::summarize_file(
+            db_file,
+            paper_id,
+            &client,
+            &evidence.model,
+            evidence.max_concurrent,
+        )
+        .await
+        .map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    match result {
+        Ok(n) => notify(format!("節の要約を {n} 個作りました")),
+        Err(e) => notify(format!("節の要約を作れませんでした: {e}")),
+    }
+}
+
+/// DL 後の自動処理（図の抽出 → 節の表 → PDF 翻訳）。1 論文の中は順番に、論文どうしは
 /// `pipeline.max_parallel` 本まで並べて走らせる。
 ///
 /// `notify` は結果の文（TUI のトースト等）、`on_step` はステップ番号
@@ -203,6 +243,8 @@ pub async fn after_download(
             Err(e) => format!("図抽出失敗: {e}"),
         });
     }
+    // 節の表（読むときの ID）。失敗しても翻訳は続ける。
+    build_sections(db_file, paper_id, config, &notify).await;
     on_step(2);
     if do_translate {
         notify(match translate_pdf(db_file, paper_id, &config.translate.pdf).await {

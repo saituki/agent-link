@@ -401,7 +401,7 @@ fn chunk_sentence(conn: &Connection, index: &crate::config::RagIndex) -> Result<
 }
 
 /// Markdown から data URI 画像（`![...](data:image/...;base64,...)` の形）を除去する。
-fn remove_data_uri_images(text: &str) -> String {
+pub(crate) fn remove_data_uri_images(text: &str) -> String {
     let mut result = String::new();
     let mut chars = text.chars().peekable();
 
@@ -476,7 +476,7 @@ fn remove_data_uri_images(text: &str) -> String {
 
 /// Markdown の見出しの行から `(深さ, 見出しの文字)` を取り出す。見出しでなければ `None`。
 /// 先頭の `#` とそのあとの空白、太字の `**` を外す。
-fn markdown_heading(line: &str) -> Option<(usize, String)> {
+pub(crate) fn markdown_heading(line: &str) -> Option<(usize, String)> {
     let trimmed = line.trim_start();
     let depth = trimmed.chars().take_while(|c| *c == '#').count();
     if depth == 0 {
