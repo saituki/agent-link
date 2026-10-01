@@ -935,9 +935,13 @@ pub const LEGACY_GUIDE_NAMES: [(&str, &str); 25] = [
 /// 題名を移す 1 件。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Retitle {
+    /// 節点の番号。
     pub id: i64,
+    /// 項目ガイドのキー。
     pub key: String,
+    /// 今の題名（旧い名前）。
     pub from: String,
+    /// 移す先（ガイドの今の名前）。
     pub to: String,
 }
 
