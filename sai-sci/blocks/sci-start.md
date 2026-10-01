@@ -61,8 +61,8 @@ subblocks:
    - RESEARCH_TYPE（1 つに絞る。決められないときは案を 2 つまで挙げる）
    - SOIL の案（mind.md の 7 つの節に書くとよいこと）
    - GIVEN（FIXED にする ITEM）
-4. 今の木の型と 3 の案が違うときは、`sai-moon-paper sci init --type <型> --change-type` を**利用者に打ってもらう用の文**として示す。自分ではこのコマンドを打たない。型を変えるとGATE と SEED_SENTENCE が変わるため、利用者の判断で決める。
-5. 既存のプロジェクト（すでに木がある・report がある）なら、材料を木へ移す PROPOSALを出す。
+4. 今の木の型と 3 の案が違うときは、`sai-moon-paper sci init --type <型> --change-type` を**利用者に打ってもらう用の文**として示す。自分ではこのコマンドを打たない。型を変えると GATE と SEED_SENTENCE が変わるため、利用者の判断で決める。
+5. 既存のプロジェクト（すでに木がある・report がある）なら、材料を木へ移す PROPOSAL を出す。
 
    | 材料 | 場所 | 移し方の PROPOSAL |
    |---|---|---|
