@@ -20,8 +20,8 @@
 | 1. 抽出         | 序論を root の ITEM に、手法を seed に割り当てる。結果の数値を記載結果表にする | `sci-restore`                                                                                   | 復元書・SEED の札（再現）          |
 | 2. 評価（引用） | 主張ごとに引用文献を取り寄せ、根拠になっているかを判定する                   | `sci-cite-check`                                                                                | 引用の判定表                       |
 | 2. 評価（木）   | 復元した木を CRITERIA（§10）で審査する                                       | `sci-tree-review`                                                                               | 審査書                             |
-| 3. 再現         | SEED の札（再現）で論文の手法を動かす                                        | `sci-exp-seed`                                                                                  | 完了報告書（再現）                 |
-| 4. 更新         | 新しい論文を探して ITEM を直し、新しい SEED を作って動かす                   | `sci-search`・`sci-screen`・`sci-read`・`sci-ideate`・`sci-compare`・`sci-seed`・`sci-exp-seed` | SEED の札（更新）・完了報告書（更新） |
+| 3. 再現         | SEED の札（再現）で論文の手法を動かす                                        | `sci-exp-sprout`                                                                                  | 完了報告書（再現）                 |
+| 4. 更新         | 新しい論文を探して ITEM を直し、新しい SEED を作って動かす                   | `sci-search`・`sci-screen`・`sci-read`・`sci-ideate`・`sci-compare`・`sci-seed`・`sci-exp-sprout` | SEED の札（更新）・完了報告書（更新） |
 | 5. 比較         | 論文の記載・再現・更新を COMPARISON_CRITERIA（§11）で比べる                  | `sci-result-compare`                                                                            | 比較書                             |
 
 ## 3. 基盤論文
@@ -49,7 +49,7 @@
 | 結果の表・図                               | 記載結果表（§8。木には入れず、比較の材料にする）              | ―    |
 | 限界・今後の課題                           | 更新の材料（`add_question` で QUESTION にする）              | ―    |
 
-- 型の骨組みに無い ITEM は、`add_child`（`key` にガイドのキー）で作ります。たとえば `purpose.metric` が無い型では、`method` の下に `key: purpose.metric` で作ります。実験ループ（`sci-exp-seed`）は `key` が `purpose.metric` の NODE から指標と成功基準を読むからです。
+- 型の骨組みに無い ITEM は、`add_child`（`key` にガイドのキー）で作ります。たとえば `purpose.metric` が無い型では、`method` の下に `key: purpose.metric` で作ります。実験ループ（`sci-exp-sprout`・`sci-exp-review`）は `key` が `purpose.metric` の NODE から指標と成功基準を読むからです。
 - 論文の型（5 つの型のどれで書かれているか）が今の木の型と違うときは、`sai-moon-paper sci init --type <型> --change-type` を**利用者に打ってもらう文**として示します。自分では打ちません。
 
 ## 5. 主張と根拠を分ける
@@ -104,7 +104,7 @@
 
 ## 9. SEED の札（再現）
 
-`sci-seed` の SEED の札と同じ見出しに、最後に「## 再現の決まり」を足します。`sci-exp-seed` はこの札を世代 1 の入力にします。
+`sci-seed` の SEED の札と同じ見出しに、最後に「## 再現の決まり」を足します。`sci-exp-sprout` はこの札を最初の入力にします。
 
 ```markdown
 ## 再現の決まり

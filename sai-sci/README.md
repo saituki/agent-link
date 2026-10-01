@@ -130,19 +130,19 @@ sai-sci/
 | `novelty.closest` | NOVELTY_CLOSEST（最も近い研究） | LIST | `novelty` |
 | `novelty.diff` | NOVELTY_DIFF（差分） | WRITE・VERIFY | `novelty` |
 
-### 3.4 25 本のブロック
+### 3.4 26 本のブロック
 
-`blocks/` の 25 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 26 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
 `sci_scope` は「このブロックの行動に切り出す範囲」、`sci_ops` は「このブロックで PROPOSAL に出せる op」。
 
-- 表の 22 本は木の中で動く researcher（root / seed / branch）。うち 4 本（`sci-restore`・`sci-cite-check`・`sci-tree-review`・`sci-result-compare`）は逆向きの運用（5.7 節）のためのもの。
+- 表の 23 本は木の中で動く researcher（4 つの層 seed / root / sprout / branch）。うち 4 本（`sci-restore`・`sci-cite-check`・`sci-tree-review`・`sci-result-compare`）は逆向きの運用（5.7 節）のためのもの。
 - 残りの 3 本（`professor`・`professor-backward`・`operator`）は木の中で動かず、木の外から木を見る役。下の 3.4.1 に書く。
 
 #### 3.4.1 3 役の関係
 
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
-  |-- researcher（sci-* の 22 本。木の root / seed / branch で働く）
+  |-- researcher（sci-* の 23 本。木の 4 つの層（seed / root / sprout / branch）で働く）
   `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
 ```
 
@@ -151,7 +151,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `professor` | 🎓 professor | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して研究方針（木の TRIAGE）をする | `sai-agent` / `sai-task` / `sai-cli` | する。root の run になる。研究作業は自分でしない |
 | `professor-backward` | 🔙 professor-backward | 既存の論文から始める逆向きの舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす（5.7 節） | `sai-agent` / `sai-task` / `sai-cli` / `bw-core` | する。root の run になる。研究作業は自分でしない |
 | `operator` | 🛠 operator | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sai-cli` | しない。professor の子。子の `task_id` で professor の子を扱える |
-| `sci-*` | （22 本） | 研究作業そのもの（読む・比べる・OPTION を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で起こすもの）に書かれた作業だけ |
+| `sci-*` | （23 本） | 研究作業そのもの（読む・比べる・OPTION を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で起こすもの）に書かれた作業だけ |
 
 - カードの `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人間が Web から起こせず、professor が `task_create` の `card` で自分の子として起こす。
 - 子からの質問は親の `task_output` に `stalled`（`reason: "question"`）で届き、`phone_api.py question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
@@ -177,8 +177,9 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `sci-extract` | 📋 抜き出す | support | node | add_finding, link | ― |
 | `sci-lookup` | 📚 Library で答える | support | node | add_finding, link | ― |
 | `sci-analogy` | 🔁 同型を探す | support | node | add_option, add_finding, link, add_question | sci-search |
-| `sci-exp-seed` | 🌱 exp-seed | seed | path | add_finding, add_question, answer_question, link | sci-exp-branch |
+| `sci-exp-sprout` | 🌱 exp-sprout | sprout | path | add_finding, add_question, answer_question, link | ― |
 | `sci-exp-branch` | 🌿 exp-branch | branch | ― | ― | ― |
+| `sci-exp-review` | 🔍 exp-review | branch | path | add_finding, add_question, answer_question, link | ― |
 | `sci-restore` | 🔙 論文から復元 | backward | summary | add_finding, add_question, link, add_option, add_child, edit_text, decide, add_seed | sci-lookup |
 | `sci-cite-check` | 🔗 引用を確かめる | backward | path | add_finding, add_question, link | sci-lookup |
 | `sci-tree-review` | 🩺 復元した木の審査 | backward | summary | add_finding, add_question, link, reopen, add_edge | sci-lookup |
@@ -187,9 +188,9 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - 先の 16 本は全部 `context: true`（実行の直前に研究方針の木から範囲を作る）・`model: inherit`・`worktree: none`。
 - 3 つの類で `timeout` が違う。outline と detail は 5400 秒、support は 3600 秒。
 - `sci-debate` の参加者は `paper-debater` と `paper-reviewer`（普通の `paper-*` のブロック）。
-- 後ろの 2 本は**実験ループ**（5.6 節）。`sci-exp-branch` だけは木の範囲も共通の決まり（`sci-core`）も受け取らない。判定をしないから、範囲も要らない。
+- 後ろの 3 本は**実験ループ**（5.6 節）。`sci-exp-branch` だけは木の範囲も共通の決まり（`sci-core`）も受け取らない。
 - 最後の 4 本（類が backward）は逆向きの運用（5.7 節）のためのもの。4 本とも `sci-core` と `bw-core` を受け、`context: true`・`layer: root`・`timeout: 5400`。
-- `layer` は C-01 の層で、`root`（上の 16 本と逆向きの 4 本）・`seed`（`sci-exp-seed`）・`branch`（`sci-exp-branch`）の 3 種類。書かないブロックは図に出さない。
+- `layer` は 4 つ。`seed`（`sci-start`・`sci-seed`）・`root`（上の 14 本と逆向きの 4 本）・`sprout`（`sci-exp-sprout`）・`branch`（`sci-exp-branch`・`sci-exp-review`）。図では上から branch / sprout / seed / root。書かないブロックは図に出さない。
 
 ### 3.5 `template/` と `mind.md`
 
@@ -299,43 +300,37 @@ sai-moon-paper sci init --type <型>
 
 `sai-moon-paper-tui` の「研究方針」のページは**読むだけ**です。木と `tree.md` を見て、何も書き換えません。直すのは Web か `sai-moon-paper sci` だけです。
 
-### 5.6 実験（seed と branch）
+### 5.6 実験（sprout・branch・review）
 
-`sci-exp-seed` と `sci-exp-branch` の 2 本で、実験を**世代**で回します。1 世代は並列に走る branch 1 つ以上とひとかたまりで、`sci-exp-seed` が自分で次の世代を起動します。人が「続きを」と頼まなくても最後まで回ります。
+`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review` の 3 本で実験を回します。3 本は互いの終わりを待ちません。sprout は最初の branch を起こして終わり、branch はジョブ待ちの review のカードを作って終わり、review はジョブが終わると daemon に起こされます。
 
 ```
-sai card --block sci-exp-seed            種づくり（sci-seed）が終わった NODE
+sci card --block sci-exp-sprout            SEED の札ができた NODE
         │
         ▼
-┌──▶ 世代 1 の seed ─────────────────────────────────────────┐
-│    ・実験仕様書 exp-spec-<study>.md を作る（最初の 1 回だけ） │
-│    ・スクリプト <workdir>/<script>/g1.py を書く               │
-│    ・branch を 1〜max_branches 個、並列に task_create する   │
-└──┬──────────────────────────────────────────────────────────┘
-   │  task_execute → task_output で全部待つ → finalize
-   ▼
-┌──▶ 世代 2 の seed ── 台帳 exp_summary.py を取る ────────────┐
-│    ・判定の規則 R1〜R7 を上から当てて判定書 review-…-g2.md   │
-│    ・stop なら完了報告書 exp-final-<study>.md を書いて終える  │
-│    ・そうでなければ世代 3 のスクリプトを書いてまた branch      │
-└──┴──────────────────────────────────────────────────────────┘
-   │  次の seed のカードを作って起動する（sai card → phone card run）
-   └─▶ 世代 3 …（`last.round >= max_generations` で stop）
+ sprout ── 実験仕様書を作り、最初の branch を 1〜2 本起こして終わる
+        │  （sci card --block sci-exp-branch → phone card run）
+        ▼
+ branch ── スクリプト 1 本を書いて実行先に投げる。始まりを確かめたら、
+        │  ジョブ待ちの review のカードを作って終わる（phone card wait --job）
+        ▼  …ジョブが終わると daemon が起こす
+ review ── 台帳で判定する。tune・debug → 同じ experiment の次の branch、
+        │  model・ablation → 新しい experiment の次の branch、stop → 完了報告書
+        └─▶ 次の branch …   （stop で終わる。起動元が professor なら起こし直す）
 ```
 
-**最初の seed の起動**は、`sci card` に種の札のトークンを渡して作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
+- **MLflow の形**: experiment は `<project>/ID<sprout>/<model>`、run は `ID<branch>-p<NN>`。epoch ごとに `train_loss`・`val_loss` を記録する。
+- **止め方**: 判定が `stop` のときだけ。`max_branches` が branch の総数の上限になる。
+- **最初の sprout の起動**は、`sci card` に SEED の札のトークンを渡して作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
 
 ```bash
-sai-moon-paper sci card --node <N> --block sci-exp-seed \
-  --purpose "<study> 世代 1 の計画" \
-  --input <種の札のトークン> --json
+sai-moon-paper sci card --node <N> --block sci-exp-sprout \
+  --purpose "<study> の計画" \
+  --input <SEED の札のトークン> --json
 sai-moon-link phone card run <返ってきた run_id>
 ```
 
-**止め方**は 2 つ。どちらも利用者が決める。
-
-- **自然に止まる**: 判定が `stop` になるときだけ。`max_generations`（既定 8 世代）に達したときと、成功基準に `ablation` まで済んで達したとき。
-- **利用者に訊いて止める**: 同じ世代で branch の記録が 1 つも無いことが 2 代続けて続いたとき、または判定書が 2 回続けて作られなかったとき。実験を勝手に進めず、MLflow への接続などを訊いて止まる。
+- 詳しい決まりは `template/exp-core.md`。
 
 **実行先**（スクリプトを動かす PC）は環境変数 `EXP_TARGET` で選ぶ。空なら `local`（この PC）。実行先は `<root>/.sai/exec/<名前>/` のフォルダで、Mac 本体・LAN の PC・クラウドなどを利用者が個別に足せる（フォルダを置くだけ。増減で Rust や画面を直さない）。エージェントは分配器 `exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼び、実行先の中身を知らない。LAN の Linux の PC やクラウドの VM は、`ssh/` を PC の名前で写して host を書けば足せる（`cp -r .sai/exec/ssh .sai/exec/lab-linux`。コードを rsync で送り、状態は ssh で読む）。さくらの高火力 DOK は `dok/`（`README.md`・`SETUP.md` を先に読む。課金される）。Windows など別の種類は `_example/` を写して adapter を書く。約束は `exp_exec.py` の冒頭にある。記録は実行先から中央の MLflow に直接入る。台帳コマンド `exp_summary.py` と分配器は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く（環境変数は要らない）。
 
@@ -347,8 +342,8 @@ sai-moon-link phone card run <返ってきた run_id>
 |---|---|---|
 | 1. 抽出 | 序論を root の ITEM に、手法と実験の設定を seed の ITEM に割り当てる。結果の数値を記載結果表に、主張と引用の組を対応表にする。論文の手法を動かす SEED の札（再現）を書く | `sci-restore` |
 | 2. 評価 | 主張ごとに引用文献を取り寄せて、根拠になっているかを判定する。そのうえで、復元した木を CRITERIA（E1〜E10）で審査する | `sci-cite-check` → `sci-tree-review` |
-| 3. 再現 | SEED の札（再現）で論文の手法を動かす | `sci-exp-seed` |
-| 4. 更新 | 基盤論文より新しい論文を探して ITEM を直し、新しい SEED を作って動かす | 前向きのブロック（`sci-search` から `sci-exp-seed` まで） |
+| 3. 再現 | SEED の札（再現）で論文の手法を動かす | `sci-exp-sprout` |
+| 4. 更新 | 基盤論文より新しい論文を探して ITEM を直し、新しい SEED を作って動かす | 前向きのブロック（`sci-search` から `sci-exp-sprout` まで） |
 | 5. 比較 | 論文の記載値・再現・更新を COMPARISON_CRITERIA（K1〜K8）で比べる | `sci-result-compare` |
 
 - **始め方**: 基盤論文を Library に入れ（Web の論文の画面）、木を作ってから（`sai-moon-paper init --assets-only --sci --type <型>`）、`professor-backward` のカードを人が起こします。依頼文に `基盤論文: #12 #15` の形で番号を書きます。
@@ -479,6 +474,7 @@ mind.md の見出しも同じです（旧い見出しも読む）。
 
 1. 古い写しを消す: `<root>/.sai/sci/`・`<root>/.sai/blocks/`・`<root>/.sai/template/`、利用者全体の `~/.sai-moon/`（`SAI_SAI_HOME` があればその中）の `blocks/`・`template/`。
 2. 打ち直す: `sai-moon-paper sci init`（研究プロジェクト）または `sai-moon-paper init --assets-only`。無いファイルだけが書かれます。
+   `sci-exp-seed` は `sci-exp-sprout` に改名した。古い `.sai/blocks/sci-exp-seed.md` は、消してから打ち直すと無くなる。
 3. 手で直した写しは、消す前に控えておく（消すと直した内容も無くなります）。
 4. 既存の木の題名を新しい名前へ移すには `sai-moon-paper sci retitle`（先に `--dry-run` で一覧を見る）。
 

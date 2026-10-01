@@ -71,7 +71,7 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
   - `professor`（`sai-sci/blocks/professor.md`）— 研究の舵取り。研究の現在地を読み、次の一手を決めてカードを作り、researcher（`sci-*`）を**自分の子として**起こす。root の run。
   - `operator`（`sai-sci/blocks/operator.md`）— sai-moon の操作係。故障の対処・監視・情報の抽出・Web と同じ操作だけ。professor の子。研究の判断はしない。
   - `professor-backward`（`sai-sci/blocks/professor-backward.md`）— 既存の論文から始める逆向き（backward）の舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす。役目の分け方は `professor` と同じ。
-  - `sci-*` の 22 本 — 研究作業そのもの。木の root / seed / branch の 3 層で動く。うち 4 本（`sci-restore`・`sci-cite-check`・`sci-tree-review`・`sci-result-compare`）は逆向きのためのもの。
+  - `sci-*` の 23 本 — 研究作業そのもの。木の 4 つの層（上から branch / sprout / seed / root）で動く。実験の 3 本（`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`）は互いの終わりを待たず、ジョブの終わりで review が起きる。review が完了報告書 `exp-final-<study>.md` を書き、実験仕様書の `return_to` があれば、その professor のカードを作って起こし直す。うち 4 本（`sci-restore`・`sci-cite-check`・`sci-tree-review`・`sci-result-compare`）は逆向きのためのもの。
   - カード（task.md）の `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人が起こせず（`phone card run` が断る）、professor が `task_create` の `card` で起こす。runner は pi だけ。
   - 質問は**そのカードの起動者が答える**（professor が起こしたカードなら professor）。親の `task_output` に `stalled`（`reason: "question"`、`question_id` 付き）で届き、`phone_api.py question` / `answer` で答える。Web で人が先に答えた場合は 400 で断られ、その答えを採る。
   - 報告は run フォルダの `finalize-report.md`。子は `task_report`、root は `sai_finalize` の `report`。`sai-moon-link phone md --kind report <run_id>` で読む。
