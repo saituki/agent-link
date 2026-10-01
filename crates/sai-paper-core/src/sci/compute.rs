@@ -633,9 +633,14 @@ pub fn mind_sections(data_dir: &Path) -> Vec<(String, String)> {
     }
     sections
         .into_iter()
-        .map(|(name, lines)| (name, strip_comments(&lines)))
+        .map(|(name, lines)| (canonical_name(name), strip_comments(&lines)))
         .filter(|(_, body)| !body.is_empty())
         .collect()
+}
+
+/// 見出しを新しい名前にそろえた文字列にする。
+fn canonical_name(name: String) -> String {
+    defs::canonical_mind_heading(&name).to_string()
 }
 
 /// 行の列から `<!-- … -->` と空行を除いた 1 本の文字列に束ねる。
@@ -1192,6 +1197,7 @@ impl Tree {
     fn eval_one(&self, cond: &Cond, warnings: &mut Vec<String>) -> Result<bool> {
         // mind.md は木には無関係なので先に返す。
         if let Cond::Mind(heading) = cond {
+            let heading = defs::canonical_mind_heading(heading);
             return Ok(self
                 .sections
                 .iter()
@@ -1478,6 +1484,7 @@ impl Tree {
             push_literal(&mut parts, &rest[..open]);
             let inner = &rest[open + 1..close];
             if let Some(heading) = inner.strip_prefix("mind:") {
+                let heading = defs::canonical_mind_heading(heading);
                 let body = self
                     .sections
                     .iter()
@@ -2095,7 +2102,7 @@ impl Tree {
 
     /// 価値の軸（mind.md の「価値の軸」の節の行）。
     fn axes(&self) -> Vec<String> {
-        let Some((_, body)) = self.sections.iter().find(|(name, _)| name == "価値の軸") else {
+        let Some((_, body)) = self.sections.iter().find(|(name, _)| name == "VALUE_AXES") else {
             return Vec::new();
         };
         body.lines()
@@ -3242,6 +3249,22 @@ given: background
     }
 
     #[test]
+    fn mind_headings_old_and_new_are_same() {
+        for heading in ["価値の軸", "VALUE_AXES"] {
+            let root = temp_root("mind-alias");
+            write(root.join(".sai/paper/mind.md"), &format!("## {heading}\n\n1. 臨床\n"));
+            let sections = mind_sections(&root.join(".sai/paper"));
+            assert_eq!(sections, vec![("VALUE_AXES".to_string(), "1. 臨床".to_string())]);
+            for h in ["価値の軸", "VALUE_AXES"] {
+                let found = sections
+                    .iter()
+                    .any(|(n, _)| n == defs::canonical_mind_heading(h));
+                assert!(found);
+            }
+        }
+    }
+
+    #[test]
     fn mind_sections_strip_comments() {
         let root = temp_root("mind");
         write(
@@ -3250,7 +3273,7 @@ given: background
         );
         let sections = mind_sections(&root.join(".sai/paper"));
         assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].0, "価値の軸");
+        assert_eq!(sections[0].0, "VALUE_AXES");
         assert_eq!(sections[0].1, "1. 臨床で使える\n2. 少ないデータで学べる");
         assert_eq!(sections[1].0, "別の見方");
         // 中身が空の節は出さない。

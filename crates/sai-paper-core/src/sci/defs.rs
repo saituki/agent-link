@@ -311,7 +311,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
     if id.is_empty() {
         return Err(SciError::Invalid("型に id がありません".to_string()));
     }
-    let order = bullets(section(&sections, "項目の順序"));
+    let order = bullets(section(&sections, "ITEM_ORDER"));
     if order.is_empty() {
         return Err(SciError::Invalid(format!(
             "型 {id} に項目の順序がありません"
@@ -319,8 +319,8 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
     }
     let name = front.get("name");
     let given = split_list(&front.get("given"));
-    let seed = first_nonempty(section(&sections, "種の文")).unwrap_or_default();
-    let gates = section(&sections, "関門")
+    let seed = first_nonempty(section(&sections, "SEED_SENTENCE")).unwrap_or_default();
+    let gates = section(&sections, "GATE")
         .iter()
         .filter_map(|line| {
             // `- <名前>: <条件>`。形が違う行は飛ばす。
@@ -361,9 +361,9 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
         .get("min_findings")
         .parse::<usize>()
         .unwrap_or(DEFAULT_MIN_FINDINGS);
-    let questions = bullets(section(&sections, "問い"));
-    let (condition, condition_text) = split_condition(section(&sections, "埋まった条件"));
-    let extract = section(&sections, "抜き出す項目")
+    let questions = bullets(section(&sections, "QUESTION"));
+    let (condition, condition_text) = split_condition(section(&sections, "CONDITION"));
+    let extract = section(&sections, "EXTRACT_FIELDS")
         .iter()
         .filter_map(|line| {
             // `- <役割>: <抜き出す項目>`。形が違う行は飛ばす。
@@ -372,8 +372,8 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
             Some((role.trim().to_string(), what.trim().to_string()))
         })
         .collect();
-    let pitfalls = bullets(section(&sections, "落とし穴"));
-    let next = section(&sections, "次の一手")
+    let pitfalls = bullets(section(&sections, "PITFALL"));
+    let next = section(&sections, "NEXT_ACTION")
         .iter()
         .filter_map(|line| {
             // `- <種類>: <ブロック> | <目的> | <成果>`。
@@ -397,7 +397,7 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
             })
         })
         .collect();
-    let children = bullets(section(&sections, "子の項目"));
+    let children = bullets(section(&sections, "CHILD_ITEM"));
     Ok(GuideDef {
         key,
         name,
@@ -740,11 +740,51 @@ struct Doc {
     sections: Vec<(String, Vec<String>)>,
 }
 
-/// `## ` の節の行を返す。節が無ければ空。
-fn section<'a>(sections: &'a [(String, Vec<String>)], name: &str) -> &'a [String] {
-    sections
+/// 型・ガイドの節の見出しの別名（新しい名前, 旧い名前）。新旧どちらでも読む。
+const SECTION_ALIASES: [(&str, &str); 9] = [
+    ("ITEM_ORDER", "項目の順序"),
+    ("SEED_SENTENCE", "種の文"),
+    ("GATE", "関門"),
+    ("QUESTION", "問い"),
+    ("CONDITION", "埋まった条件"),
+    ("EXTRACT_FIELDS", "抜き出す項目"),
+    ("PITFALL", "落とし穴"),
+    ("NEXT_ACTION", "次の一手"),
+    ("CHILD_ITEM", "子の項目"),
+];
+
+/// mind.md の見出しの別名（新しい名前, 旧い名前）。
+const MIND_ALIASES: [(&str, &str); 7] = [
+    ("ORIGIN", "始まり"),
+    ("RESEARCH_TYPE", "研究の型"),
+    ("GIVEN", "与えられていること"),
+    ("CONSTRAINTS", "制約"),
+    ("VALUE_AXES", "価値の軸"),
+    ("INTERESTS", "興味がある / 興味が無い"),
+    ("NOTES", "メモ"),
+];
+
+/// mind.md の見出しを新しい名前にそろえる。旧い名前なら新しい名前、それ以外はそのまま。
+#[must_use]
+pub fn canonical_mind_heading(name: &str) -> &str {
+    MIND_ALIASES
         .iter()
-        .find(|(found, _)| found == name)
+        .find(|(_, old)| *old == name)
+        .map_or(name, |(new, _)| new)
+}
+
+/// `## ` の節の行を返す。節が無ければ空。
+///
+/// `name` は新しい名前で渡す。新しい名前を先に探し、無ければ旧い名前を探す。
+fn section<'a>(sections: &'a [(String, Vec<String>)], name: &str) -> &'a [String] {
+    let find = |key: &str| sections.iter().find(|(found, _)| found == key);
+    find(name)
+        .or_else(|| {
+            SECTION_ALIASES
+                .iter()
+                .find(|(new, _)| *new == name)
+                .and_then(|(_, old)| find(old))
+        })
         .map_or(&[], |(_, lines)| lines.as_slice())
 }
 
@@ -1092,6 +1132,31 @@ mod tests {
         assert_eq!(report.created_items, 0);
         assert_eq!(report.created_edges, 0);
         assert_eq!(store::list_nodes(conn).unwrap().len(), nodes);
+    }
+
+    #[test]
+    fn new_headings_parse_and_win_over_old() {
+        let old = embedded_type("types/problem.md");
+        let new = old
+            .replace("## 項目の順序", "## ITEM_ORDER")
+            .replace("## 種の文", "## SEED_SENTENCE")
+            .replace("## 関門", "## GATE");
+        let a = parse_type(old).unwrap();
+        let b = parse_type(&new).unwrap();
+        assert_eq!(a.order, b.order);
+        assert_eq!(a.seed, b.seed);
+        assert_eq!(a.gates.len(), b.gates.len());
+        // 新旧が混ざったら新しい見出しが先。
+        let mixed = format!("{new}\n## 項目の順序\n- zzz\n");
+        assert_eq!(parse_type(&mixed).unwrap().order, a.order);
+    }
+
+    #[test]
+    fn new_headings_parse_guide() {
+        let text = "---\nkey: target\nname: 対象\ntype: choose\nparent:\ndepends_on: background\nmin_findings: 2\n---\n# 対象\n\n説明。\n\n## QUESTION\n- 何か\n\n## CONDITION\n- decided(target)\n\n## PITFALL\n- 広い\n";
+        let g = parse_guide(text).unwrap();
+        assert_eq!(g.questions, vec!["何か".to_string()]);
+        assert_eq!(g.pitfalls, vec!["広い".to_string()]);
     }
 
     #[test]
