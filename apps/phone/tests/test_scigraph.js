@@ -63,7 +63,7 @@ function option(id, title, state, parents) {
 function sampleStatus() {
   return {
     initialized: true,
-    type: { id: "problem", name: "課題駆動" },
+    type: { id: "problem", name: "PROBLEM_DRIVEN" },
     seed: { text: "「頭皮脳波で［？小目的］を行う。」", parts: [] },
     gate: {
       current: 2,
@@ -258,7 +258,7 @@ function testTableRowsFields() {
   const n23 = rows[0];
   assert.strictEqual(n23.title, "波形の特徴");
   assert.strictEqual(n23.mark, "◆");
-  assert.strictEqual(n23.label, "選択");
+  assert.strictEqual(n23.label, "SELECTED");
   assert.strictEqual(n23.support, 5);
   assert.strictEqual(n23.refute, 0);
   assert.strictEqual(n23.papers, 4);
