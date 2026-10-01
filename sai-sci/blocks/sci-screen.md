@@ -39,7 +39,7 @@ enable: true
 3. HIT ごとに、次を決めます。
    - QUESTION との関係（一致・部分・不一致。不一致はどの点が違うか）
    - ROLE（`method_source`・`data_source`・`exemplar`・`background`・`issue_evidence`・`compare`・`counter`）
-   - DEPTH（抄録 / 図 / 精読。ABSTRACT・FIGURES・FULL）
+   - DEPTH（ABSTRACT・FIGURES・FULL）
    - 読む順番（なぜこの順か）
 4. 判定が付けられないもの（抄録の情報が足りない、条件が曖昧）は keep / drop を決めず、「保留」とします。保留にする理由と、あとで何を見れば決まるかを必ず書きます。
 5. 判定を SEARCH_SET に記録します。
@@ -72,7 +72,7 @@ sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-screen
 - 判定の理由が 1 行で説明できているか。説明できないものを keep / drop にしていないか（保留にして、理由を書いているか）。
 - 一致を点数にせず、対象・データの型・出力の型・制約ごとの表で示しているか。
 - ROLE が ITEM_GUIDE の EXTRACT_FIELDS の ROLE に合っているか。
-- DEPTH（抄録 / 図 / 精読）の理由が書けているか。全部を精読にしていないか。
+- DEPTH（ABSTRACT・FIGURES・FULL）の理由が書けているか。全部を FULL にしていないか。
 - TOMBSTONE の PROPOSAL に理由が付いているか。理由が無いまま外す PROPOSAL を出していないか。
 - プレプリントか査読済みかを区別しているか。
 

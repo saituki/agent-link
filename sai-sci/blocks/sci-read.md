@@ -30,14 +30,14 @@ subblocks:
 - **PURPOSE_FIRST（目的先行）**（`purpose_first`・既定）— SCOPE の NODE と ITEM_GUIDE にある EXTRACT_FIELDS を先に読み、QUESTION ごとに論文を照らし合わせる。既に知っている QUESTION に答える読み方。
 - **BLIND_FIRST（目的後付け）**（`blind_first`）— SCOPE を BLIND（目隠し）にして（行動・論文・ALLOWED_OPS だけ）読み、論文だけで要約を先に書く。書き終えてから木を取り寄せ、要約を木に照らす。どの NODE にも合わないと分かったとき、その事実そのものが収穫になる読み方。
 
-DEPTH は依頼文の `深さ: 抄録` / `深さ: 図` / `深さ: 精読`（READ_CARD の `sci_depth` と同じ語。ABSTRACT・FIGURES・FULL）に従う。指定が無ければ `精読`（FULL）で読む。DEPTH ごとに「何を書くか」を変える。
+DEPTH は依頼文の `深さ: ABSTRACT` / `深さ: FIGURES` / `深さ: FULL`（READ_CARD の `sci_depth` と同じ語）に従う。指定が無ければ FULL で読む。DEPTH ごとに「何を書くか」を変える。
 
 共通は次のとおり。CITE は `literature-hard-rules` に従い、木・mind.md・state.md・tree.md を直接書き換えず、成果はすべて PROPOSAL で出す（木に触れる操作は利用者が行う）。
 
 ### 手順
-1. **型と深さを読み、ユーザーに確かめる。** 依頼文の `sci_mode` と `深さ` を確認し、1 回だけ見せて確かめます。指定が無ければ「PURPOSE_FIRST・FULL（精読）で読みます」と伝えてから始めます。
+1. **型と深さを読み、ユーザーに確かめる。** 依頼文の `sci_mode` と `深さ` を確認し、1 回だけ見せて確かめます。指定が無ければ「PURPOSE_FIRST・FULL で読みます」と伝えてから始めます。
 2. **読む論文を 1 本決める。** 依頼文に論文の番号があればそれを、無ければ SCOPE の NODE と LINK している論文から 1 本を選びます。決まらないときは手を付けずに案を見せます。
-3. **本文を読む。** `sai-moon-paper content paper <番号>` で本文を読みます。`深さ: 抄録`（ABSTRACT）では題名・要旨・結論・限界だけに絞ります。図が要る DEPTH（`図` の FIGURES と `精読` の FULL）では `sai-moon-paper figures` の出力を使い、論の順番と図の関係を確かめます。
+3. **本文を読む。** `sai-moon-paper content paper <番号>` で本文を読みます。`深さ: ABSTRACT` では題名・要旨・結論・限界だけに絞ります。図が要る DEPTH（FIGURES と FULL）では `sai-moon-paper figures` の出力を使い、論の順番と図の関係を確かめます。
 4. **型ごとの順番を守る。**
    - **PURPOSE_FIRST** では、NODE の ITEM_GUIDE にある EXTRACT_FIELDS を QUESTION にして、QUESTION ごとに論文を照らし合わせます。書く順番は「NODE と QUESTION → 論文の該当箇所 → 分かったこと」です。
    - **BLIND_FIRST** では、前半を論文だけで読み、問い・方法・結果・限界の要約を先に書き終えます。**木を見る前に要約を書き終えます。** 書き終えてから MCP の `sci_context`（`scope: "path"`。pi では `sai-moon-paper sci context --run "$SAI_PARENT_RUN_ID" --scope path`）で木を取り寄せ、後半で要約と木を照らします。どの NODE にも合わなければ、`exclude` か保留の PROPOSAL を出し、保留の理由を report に書きます。
@@ -67,7 +67,7 @@ report は次の見出しで、この順のまま書きます。
 ## OUT_OF_SCOPE
 ```
 
-- **読んだ論文と深さ** — 論文の番号と題名、読んだ DEPTH（抄録 / 図 / 精読）、使った MODE（PURPOSE_FIRST / BLIND_FIRST）を書きます。
+- **読んだ論文と深さ** — 論文の番号と題名、読んだ DEPTH（ABSTRACT / FIGURES / FULL）、使った MODE（PURPOSE_FIRST / BLIND_FIRST）を書きます。
 - **論文だけの要約** — 問い・方法・結果・限界の 4 点を、論文の中だけで書きます。BLIND_FIRST のときは木を見る前に書きます。PURPOSE_FIRST のときは「QUESTION → 該当箇所 → 分かったこと」の順に書きます。
 - **木に照らして分かったこと** — 照らした NODE と QUESTION ごとに、FINDING を 1〜3 文で書きます。どの NODE にも合わなかった場合は、その旨と外す・保留の理由を書きます。
 - **一致表** — 対象・データの型・出力の型・制約の列を持つ表を書き、各行に「一致・部分・不一致」と根拠を書きます。点数は付けません。根拠は FINDING の ID を添えます。
