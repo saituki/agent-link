@@ -1,18 +1,18 @@
 # 実験ループの共通の決まり（exp-core）
 
-2 つのブロック（`sci-exp-seed` / `sci-exp-branch`）が共通で読む決まり。
-この文書の §4 の表と §6 の規則は**共有契約**であり、`sci-exp-seed`・`sci-exp-branch`・`exp_summary.py` のいずれも書き換えない。
+3 つのブロック（`sci-exp-sprout` / `sci-exp-branch` / `sci-exp-review`）が共通で読む決まり。
+この文書の §4 の表・§5 の欄・§6 の規則は**共有契約**であり、3 つのブロックと `exp_summary.py` のいずれも書き換えない。
 
 ## 1. 役割
 
-| ブロック | すること | しないこと |
-|---|---|---|
-| `sci-exp-seed` | 世代 g の計画を立ててスクリプトを書き、branch を並列に起動する。世代 2 以降は前の世代の判定もする。 | スクリプトを実行しない。台帳の数値を自分で計算しない。 |
-| `sci-exp-branch` | seed から受け取ったスクリプトを 1 本だけ実行し、MLflow に記録させて報告する。 | 判定をしない。スクリプトの中身を変えない。 |
+| ブロック | 層 | すること | しないこと |
+|---|---|---|---|
+| `sci-exp-sprout` | sprout | 実験のアイデア 1 つを、root（研究方針の木）から決める。実験仕様書を作り、最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
+| `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review のカードを作って終わる | 終わりまで待たない・判定しない |
+| `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
-- 世代は 1 始まりで数える。1 世代は `sci-exp-branch` の 1 つ以上の実行で、**並列に**走る。
-- 判定の材料（最良・改善の有無・格子の端・漏洩の疑い）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しい手法の案）だけを書く。
-- seed は branch をすべて終えると、**そこで 1 世代を終える。1 つの run で 2 世代は回さない。** 次の世代は終え方にしたがって起こす（`sci-exp-seed` の §7）。
+- 判定の材料（最良・改善の有無・格子の端・漏洩の疑い・debug の深さ）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しいモデルの案、直す点）だけを書く。
+- 1 つの run は 1 つの仕事だけをして終わる。sprout も branch も review も、ほかの run の終わりを待たない。
 
 ## 2. 文書の渡し方
 
@@ -21,7 +21,7 @@
 - `sai_write` は 3 つの箱（`filename`・`content`・`description`）で保存し、戻ってきた **waggle トークン**（例 `AXANSMpo`）を受け取る。
 
   ```json
-  {"filename": "exp-run-N12-s120-g2-s03.md", "content": "本文", "description": "作業報告書 N12-s120 g2 s03: tune — 試行 6 件・失敗 0 件"}
+  {"filename": "exp-run-N12-ID120-ID125.md", "content": "本文", "description": "作業報告書 N12-ID120 ID125: tune cnn-static — job 7 running"}
   ```
 
 - `description` の形は **`<文書の種類> <ID>: <1 文>`** にする。他のエージェントは一覧の `description` だけを見て、読むかどうかを決める。
@@ -33,142 +33,175 @@
 ## 3. 実験仕様書
 
 - ファイル名 `exp-spec-<study>.md`、description `実験仕様書 <study>: <研究の 1 文>`。
-- **最初の世代の seed だけが作る。** 途中で書き換えない（変えたいなら往復を止めて質問ツールで起動者に聞く）。
-- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-moon-paper sci status --json` の `purpose.metric`（指標と成功基準）。
+- **sprout だけが作る。** 途中で書き換えない。
+- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-moon-paper sci status --json` の `purpose.metric`。
 
 ```json
-{"study": "N12-s120", "sci_node": "N12", "first_seed_run_id": 120,
- "metric": "val_auc", "direction": "maximize", "success": 0.85,
- "min_delta": 0.0001, "max_generations": 8, "max_branches": 4,
- "max_fail": 3, "max_debug": 3,
- "mlflow_experiment": "local", "workdir": "experiments/N12-s120"}
+{"study": "N12-ID120", "sci_node": "N12", "sprout_run_id": 120, "project": "west",
+ "metric": "test_acc", "direction": "maximize", "success": 0.85, "min_delta": 0.0001,
+ "max_branches": 8, "max_children": 2, "max_debug": 3, "max_fail": 3,
+ "allowed_actions": ["draft", "tune", "debug", "model", "ablation"],
+ "epochs": 25, "trial_timeout_s": 5400, "device": "auto",
+ "artifact_location": "", "workdir": "experiments/N12-ID120",
+ "return_to": {"block": "professor-backward", "run_id": 5}}
 ```
 
 | 欄 | 中身 |
 |---|---|
-| `study` | `<sci_node>-s<最初の seed の run_id>`。最初の seed の run_id は環境変数 `SAI_PARENT_RUN_ID`。 |
-| `sci_node` | research-tree の NODE（`N12` のような形） |
-| `first_seed_run_id` | 最初の seed の run_id（`study` の `s` の後ろの数字） |
-| `metric` | 指標名（`val_auc` など） |
-| `direction` | `maximize`（大きいほどよい）か `minimize`（小さいほどよい）か |
-| `success` | 成功基準の数字 |
+| `study` | `<sci_node>-ID<sprout の run_id>`。sprout の run_id は環境変数 `SAI_PARENT_RUN_ID` |
+| `sci_node` | research-tree の NODE（`N12` の形） |
+| `sprout_run_id` | sprout の run_id |
+| `project` | `SAI_PROJECT_ROOT` の末尾のフォルダ名 |
+| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。`purpose.metric` の NODE から読む。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
 | `min_delta` | 「よくなった」と数える最小の幅。既定 `0.0001` |
-| `max_generations` | 世代の数の上限。既定 `8` |
-| `max_branches` | 1 世代に並列で走らせる branch の数の上限。既定 `4` |
-| `max_fail` | 同じスクリプトが改善せずに終わった回数の上限（`stale_rounds`）。既定 `3` |
-| `max_debug` | 同じスクリプトを直しながら続ける回数の上限。既定 `3` |
-| `mlflow_experiment` | MLflow の experiment 名。既定 `"local"` |
+| `max_branches` | この sprout の branch の総数の上限。既定 `8` |
+| `max_children` | 1 回の review（と sprout）が起こす branch の数の上限。既定 `2` |
+| `max_debug` | debug が続けてよい回数。既定 `3` |
+| `max_fail` | 同じ experiment で改善しない branch が続いてよい本数。既定 `3` |
+| `allowed_actions` | 使ってよい action。既定は 5 つ全部。再現（逆向きの段 3）は `["draft", "tune", "debug"]`（モデルを変えない） |
+| `epochs` | 1 試行の epoch 数 |
+| `trial_timeout_s` | 1 試行の時間の上限（秒）。既定 `5400`。スクリプトに環境変数 `TRIAL_TIMEOUT_S` で渡す |
+| `device` | `cuda`（GPU が無ければ止める）/ `auto`（cuda → mps → cpu）/ `cpu`。既定 `auto`。実行先が GPU の PC なら `cuda` |
+| `artifact_location` | 成果物の置き場（空なら環境変数 `EXP_ARTIFACT_LOCATION`、それも無ければ `s3://mlflow-local/`）。大きなモデルで別の置き場（さくらのオブジェクトストレージなど）を使うときに書く |
 | `workdir` | スクリプトを置くフォルダ。既定 `experiments/<study>` |
-
-- research-tree に書かれていない値は上の既定値を使う。**決まらない値（指標・向き・成功基準）を推測で埋めない。** 質問ツールで起動者に質問して待つ。
+| `return_to` | sprout を起こしたのが professor なら `{"block": "<そのブロック>", "run_id": <その run_id>}`。人が起こしたなら `null`。鎖が終わったときに起こし直す相手（§11） |
 
 ## 4. MLflow の記録の決まり
 
-- branch 1 つ = MLflow の親 run 1 つ（`exp.role=script`）。パラメータの組ごとに、入れ子の子 run（`exp.role=trial`、`mlflow.start_run(nested=True)`）。
-- experiment は仕様書の `mlflow_experiment`（既定 `local`）。接続先は環境変数 `MLFLOW_TRACKING_URI` に任せる。**スクリプトの中で上書きしない。**
-- **experiment の保存先は `create_experiment(name, artifact_location=…)` で決める。** `mlflow.set_experiment(name)` は `--default-artifact-root`（`/mlruns`）に作ってしまい、実行先から `log_artifact` が `PermissionError` になる。既に在る experiment を取り直すのは `get_experiment_by_name` で行う。
-  - 保存先は環境変数 `EXP_ARTIFACT_LOCATION`（無ければ既定 `s3://mlflow-local/`。これは `local` experiment の保存先）。**接続者の `MLFLOW_S3_ENDPOINT_URL` と AWS 鍵のさす先と同じ名前空間**（`s3://<バケット>/<prefix>`）にすること。
-- 親 run と子 run の両方に付けるタグ（すべて文字列）:
+- **branch 1 つ = experiment 1 つの中の run の列。run 1 つ = パラメータの組 1 つの 1 回の実行（学習 + テスト）。run は入れ子にしない。**
+- experiment 名は `<project>/ID<sprout_run_id>/<model>`（例 `west/ID120/cnn-static`）。`model` は `^[a-z0-9][a-z0-9-]{0,39}$`。tune と debug は親の branch と同じ `model`（= 同じ experiment）。draft・model・ablation は新しい `model`（= 新しい experiment）。ablation は `<元の model>-abl-<外した成分>`。
+- experiment が無ければ `create_experiment(name, artifact_location=…, tags=…)` で作る。`mlflow.set_experiment` は使わない（`/mlruns` に作られ、実行先から `log_artifact` が `PermissionError` になる）。接続先は環境変数 `MLFLOW_TRACKING_URI` に任せ、スクリプトの中で上書きしない。
+- experiment のタグ（作るときに付ける。すべて文字列）: `sai.project`・`sai.sprout_run_id`・`sci.node`・`exp.study`・`exp.model`・`exp.metric`・`exp.direction`。
+- run 名は `ID<branch の run_id>-p<NN>`（`NN` は GRID の組の順の 2 桁、01 から）。
+- run のタグ:
 
 | タグ | 中身 | 例 |
 |---|---|---|
-| `sai.project` | `SAI_PROJECT_ROOT` の末尾のフォルダ名（seed が定数で書く） | `west` |
-| `sai.run_id` | その branch の run_id（スクリプトが環境変数 `EXP_BRANCH_RUN_ID` から読む） | `121` |
-| `sai.seed_run_id` | その branch を起動した seed の run_id（定数） | `120` |
-| `exp.study` | `<sci_node>-s<最初の seed の run_id>` | `N12-s120` |
-| `exp.generation` | 世代（1 始まり） | `2` |
-| `exp.script` | `s` + 2 桁の連番。debug と tune では同じ ID を使う | `s03` |
-| `exp.action` | `draft` / `tune` / `new` / `debug` / `ablation` | `tune` |
-| `exp.parent_script` | 参考にしたスクリプトの ID（無ければ空文字） | `s01` |
-| `exp.role` | `script` / `trial` | `trial` |
-| `sci.node` | research-tree の NODE | `N12` |
-| `exp.error` | 失敗した試行だけ。例外の 1 行目（500 字まで） | `CUDA out of memory` |
+| `sai.project` | プロジェクトのフォルダ名 | `west` |
+| `sai.run_id` | branch の run_id（環境変数 `EXP_BRANCH_RUN_ID`。**無ければスクリプトは止まる**） | `125` |
+| `sai.sprout_run_id` | sprout の run_id | `120` |
+| `sci.node` | NODE | `N12` |
+| `exp.study` | study | `N12-ID120` |
+| `exp.model` | model | `cnn-static` |
+| `exp.action` | `draft` / `tune` / `debug` / `model` / `ablation` | `tune` |
+| `exp.parent_branch` | 親の branch の run_id（無ければ空文字） | `121` |
+| `exp.trial` | `NN` | `02` |
+| `exp.metric` / `exp.direction` | 仕様書の値 | `test_acc` / `maximize` |
+| `exp.device` | 実際に使った装置 | `cuda:0` |
+| `exp.error` | 失敗した試行だけ。例外の 1 行目（500 字まで） | `timeout: 5400s を超えました` |
 
-- 親 run だけに付けるタグ: `exp.metric`（仕様書の指標名）・`exp.direction`（`maximize` / `minimize`）。
-- metric:
-  - 試行ごとに、仕様書の指標名で最終値を記録する（学習曲線は `step` 付きで記録してよい）。`exec_time_s` も記録する。
-  - 試行が全部終わったら、**親 run にも同じ指標名で最良値を 1 回記録する**。
-- 失敗した試行は `status=FAILED` で終え、`exp.error` を付ける（雛形のとおり、例外を子 run の `with` の外へ出して閉じる）。
-- 成果物: 親 run にスクリプト本体（`code/`）。
+- params: GRID の値と、固定の設定（`FIXED`）を全部。
+- metrics: epoch ごとに `train_loss`・`val_loss`（`step` = epoch、1 始まり。必須）。ほかの途中の指標（`val_acc` など）も同じ形で記録してよい。試行の最後に、仕様書の `metric`（例 `test_acc`）と `exec_time_s` を step 無しで 1 回。
+- 標準出力（`exp_exec.py logs` と `started` が読む。必須）: 最初に `device=<cuda:0|mps|cpu>`。試行の始まりに `[trial <NN>/<総数>] <組の JSON>`。epoch ごとに `[epoch <e>/<E>] train_loss=<x> val_loss=<y> (<経過秒>s)`。
+- 失敗した試行は run が `FAILED` で閉じ、`exp.error` が付く。1 つの組が失敗しても残りの組を続ける。
+- 1 試行の時間が `TRIAL_TIMEOUT_S` を超えたら、その試行を `exp.error = "timeout: …"` で失敗にして次の組へ進む。
+- `device` が `cuda` で GPU が見えないときは、run を 1 つも作らずに終了コード 3 で止まる（CPU で黙って走らない）。
+- 成果物: 各 run にスクリプト本体（`code/`）。
+- スクリプトの置き場: `<workdir>/ID<branch の run_id>/train.py`。共通の部品（データの読み込みなど）は `<workdir>/common/` に置いて import してよい（branch ごとに同じファイルを写さない）。
 
 ### スクリプトの雛形
 
-seed が定数と `GRID` だけを書き換える。`train(params)` の `...` の部分が研究の本体である。MLflow に関する行は書き換えない。
-
-**先頭の PEP 723 の欄は消さない。** 追加の道具はここに書き足す（`uv run <script>.py` はこの欄の依存を読む）。`boto3` が無いと `s3://` への成果物の書き込みができない。
+branch が定数・`FIXED`・`GRID`・`train` の中身だけを書く。MLflow と出力の行は書き換えない。**先頭の PEP 723 の欄は消さない。** 追加の道具はここに書き足す（`uv run <script>.py` はこの欄の依存を読む）。`boto3` が無いと `s3://` への成果物の書き込みができない。
 
 ```python
 # /// script
 # requires-python = ">=3.10"
 # dependencies = ["mlflow", "boto3"]
 # ///
-import itertools, os, time, mlflow
+import itertools, json, os, time
+import mlflow
 from mlflow.tracking import MlflowClient
 
-# 定数（seed が世代ごとに書き換える）
-STUDY, SCI_NODE, SCRIPT = "N12-s120", "N12", "s01"
-GENERATION, ACTION, PARENT = 1, "draft", ""
-SEED_RUN_ID, PROJECT = "120", "west"
-METRIC, DIRECTION, EXPERIMENT = "val_auc", "maximize", "local"
+# 定数（branch が書く。値は依頼文と実験仕様書から）
+PROJECT, SCI_NODE, STUDY = "west", "N12", "N12-ID120"
+SPROUT_RUN_ID, MODEL = "120", "cnn-static"
+ACTION, PARENT_BRANCH = "draft", ""
+METRIC, DIRECTION = "test_acc", "maximize"
+EPOCHS, DEVICE = 25, "auto"
+EXPERIMENT = f"{PROJECT}/ID{SPROUT_RUN_ID}/{MODEL}"
+ARTIFACT_LOCATION = os.environ.get("EXP_ARTIFACT_LOCATION") or "s3://mlflow-local/"
+BRANCH_RUN_ID = os.environ["EXP_BRANCH_RUN_ID"]  # 無ければここで止まる（sai.run_id を空にしない）
+TRIAL_TIMEOUT_S = float(os.environ.get("TRIAL_TIMEOUT_S", "5400"))
 
-# 成果物の保存先。既定は local experiment と同じ。
-ARTIFACT_LOCATION = os.environ.get("EXP_ARTIFACT_LOCATION", "s3://mlflow-local/")
+FIXED = {"batch_size": 50}
+GRID = {"lr": [0.01, 0.03], "dropout": [0.3, 0.5]}
 
-# 実行している branch の run_id。seed がスクリプトを書く時点では分からないので、
-# 実行する branch が環境変数 EXP_BRANCH_RUN_ID に入れて渡す。
-BRANCH_RUN_ID = os.environ.get("EXP_BRANCH_RUN_ID", "")
-
-GRID = {"lr": [0.01, 0.03, 0.1], "depth": [3, 5]}
-
-TAGS = {"sai.project": PROJECT, "sai.run_id": BRANCH_RUN_ID,
-        "sai.seed_run_id": SEED_RUN_ID, "exp.study": STUDY,
-        "exp.generation": str(GENERATION), "exp.script": SCRIPT,
-        "exp.action": ACTION, "exp.parent_script": PARENT,
-        "sci.node": SCI_NODE}
+EXP_TAGS = {"sai.project": PROJECT, "sai.sprout_run_id": SPROUT_RUN_ID, "sci.node": SCI_NODE,
+            "exp.study": STUDY, "exp.model": MODEL, "exp.metric": METRIC, "exp.direction": DIRECTION}
+RUN_TAGS = {**EXP_TAGS, "sai.run_id": BRANCH_RUN_ID, "exp.action": ACTION,
+            "exp.parent_branch": PARENT_BRANCH}
 
 
-def train(params: dict) -> float:
-    ...  # 研究の本体。METRIC の値を 1 つ返す
+class TrialTimeout(Exception):
+    pass
 
 
-# experiment が無ければ保存先つきのまま作る。既に在るものは取り直すだけで、保存先には触らない。
-_client = MlflowClient()  # 接続先は環境変数 MLFLOW_TRACKING_URI
-_exp = _client.get_experiment_by_name(EXPERIMENT)
-if _exp is None:
-    _exp_id = _client.create_experiment(EXPERIMENT, artifact_location=ARTIFACT_LOCATION)
-else:
-    _exp_id = _exp.experiment_id
-with mlflow.start_run(
-        experiment_id=_exp_id,
-        run_name=f"{STUDY}-{SCRIPT}-g{GENERATION}",
-        tags={**TAGS, "exp.role": "script",
-              "exp.metric": METRIC, "exp.direction": DIRECTION}):
-    mlflow.log_artifact(__file__, artifact_path="code")
-    best = None
-    for values in itertools.product(*GRID.values()):
-        params = dict(zip(GRID, values))
+def pick_device() -> str:
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    has_cuda = bool(torch is not None and torch.cuda.is_available())
+    if DEVICE == "cuda" and not has_cuda:
+        print("device=none（仕様書は cuda を求めているが GPU が見えない）", flush=True)
+        raise SystemExit(3)
+    if DEVICE == "cpu":
+        return "cpu"
+    if has_cuda:
+        return "cuda:0"
+    mps = getattr(getattr(torch, "backends", None), "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def train(params: dict, device: str, log_epoch) -> dict:
+    """研究の本体。epoch ごとに log_epoch(epoch, train_loss=…, val_loss=…) を呼び、
+    最後に {METRIC: 値}（ほかの最終の指標も入れてよい）を返す。"""
+    ...
+
+
+def main() -> None:
+    device = pick_device()
+    print(f"device={device}", flush=True)
+    client = MlflowClient()
+    exp = client.get_experiment_by_name(EXPERIMENT)
+    exp_id = exp.experiment_id if exp else client.create_experiment(
+        EXPERIMENT, artifact_location=ARTIFACT_LOCATION, tags=EXP_TAGS)
+    combos = [dict(zip(GRID, values)) for values in itertools.product(*GRID.values())]
+    for i, combo in enumerate(combos, 1):
+        nn = f"{i:02d}"
+        print(f"[trial {nn}/{len(combos):02d}] {json.dumps(combo)}", flush=True)
+        start = time.time()
+
+        def log_epoch(epoch: int, **metrics: float) -> None:
+            for key, value in metrics.items():
+                mlflow.log_metric(key, float(value), step=epoch)
+            shown = " ".join(f"{k}={float(v):.4f}" for k, v in metrics.items())
+            print(f"[epoch {epoch}/{EPOCHS}] {shown} ({time.time() - start:.1f}s)", flush=True)
+            if time.time() - start > TRIAL_TIMEOUT_S:
+                raise TrialTimeout(f"timeout: {TRIAL_TIMEOUT_S:.0f}s を超えました")
+
         try:
-            # 例外が with を抜けると、mlflow がこの子 run だけを FAILED で閉じる
-            with mlflow.start_run(nested=True, tags={**TAGS, "exp.role": "trial"}):
-                mlflow.log_params(params)
-                start = time.time()
+            with mlflow.start_run(experiment_id=exp_id, run_name=f"ID{BRANCH_RUN_ID}-p{nn}",
+                                  tags={**RUN_TAGS, "exp.trial": nn, "exp.device": device}):
+                mlflow.log_params({**FIXED, **combo})
+                mlflow.log_artifact(__file__, artifact_path="code")
                 try:
-                    value = train(params)
+                    final = train({**FIXED, **combo}, device, log_epoch)
                 except Exception as exc:
                     mlflow.set_tag("exp.error", str(exc)[:500])
                     raise
-                mlflow.log_metric(METRIC, value)
+                for key, value in final.items():
+                    mlflow.log_metric(key, float(value))
                 mlflow.log_metric("exec_time_s", time.time() - start)
-                if best is None or (value > best if DIRECTION == "maximize" else value < best):
-                    best = value
-        except Exception:
-            continue  # 1 つの組が失敗しても残りの組を続ける
-    if best is not None:
-        mlflow.log_metric(METRIC, best)  # 親 run にも最良値を 1 回だけ記録する
-```
+        except Exception as exc:  # 1 つの組が失敗しても残りの組を続ける
+            print(f"[trial {nn}] failed: {str(exc)[:200]}", flush=True)
 
-- 入れ子の run の中で `mlflow.end_run()` を呼ばない。呼ぶと、`with` を抜けるときに親の run まで閉じてしまう。
-- スクリプトの置き場所は `<workdir>/<script>/g<世代>.py`。**1 世代で同じ script が 2 回走らない**ため、世代がファイル名に入る。
+
+if __name__ == "__main__":
+    main()
+```
 
 ## 5. 台帳
 
@@ -182,176 +215,172 @@ with mlflow.start_run(
 
 ```bash
 uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
-  --study <study> --metric <名前> --direction maximize|minimize \
-  [--min-delta 0.0001] [--leak-max 0.999] [--leak-min 1e-6] \
-  [--experiment <名前>] [--tracking-uri <URI>]
+  --sprout <id> --metric <名前> --direction maximize|minimize \
+  [--branch <id>] [--min-delta 0.0001] [--leak-max 0.999] [--leak-min 1e-6] [--tracking-uri <URI>]
 ```
 
-- 終了コード: 0 = 成功（該当 run が 0 件でも 0。そのとき `scripts` と `rounds` は空配列）、1 = 実行中の失敗、2 = 引数の誤り・接続先が無い。
+- 終了コード: 0 = 成功（該当 run が 0 件でも 0）、1 = 実行中の失敗、2 = 引数の誤り・接続先が無い。
 - **`--direction` は省略しない**（必須引数）。
 - 標準出力（JSON 1 つ）:
 
 ```json
-{
-  "study": "N12-s120", "metric": "val_auc", "direction": "maximize", "min_delta": 0.0001,
-  "best": {"script": "s02", "round": 3, "run_id": "…", "value": 0.871, "params": {"lr": "0.03"}},
-  "last": {"round": 3, "script": "s02", "action": "tune", "trials": 6, "failed": 0},
-  "rounds": [{"round": 1, "script": "s01", "action": "draft", "best_so_far": 0.84, "improved": true}],
-  "scripts": [{"script": "s01", "action_first": "draft", "parent_script": "", "rounds": [1, 2],
-               "trials": 12, "failed": 1, "best": 0.84, "best_params": {"lr": "0.1"},
-               "stale_rounds": 1, "debug_rounds": 0}],
-  "param_edges": [{"script": "s01", "param": "lr", "side": "max"}],
-  "ablation_done": false,
-  "leak_suspects": [{"script": "s02", "round": 3, "run_id": "…", "value": 0.9995}]
-}
+{"sprout": 120, "metric": "test_acc", "direction": "maximize", "min_delta": 0.0001,
+ "best": {"experiment": "west/ID120/cnn-static", "branch": 125, "run_name": "ID125-p02",
+          "run_id": "…", "value": 0.871, "params": {"lr": "0.01"}},
+ "experiments": [{"name": "west/ID120/cnn-static", "experiment_id": "7", "model": "cnn-static",
+                  "branches": [121, 125], "runs": 9, "failed": 1, "best": 0.871, "best_branch": 125,
+                  "stale": 0, "has_curves": true}],
+ "branches": [{"branch": 125, "experiment": "west/ID120/cnn-static", "model": "cnn-static",
+               "action": "tune", "parent_branch": 121, "depth": 2, "debug_depth": 0,
+               "runs": 6, "failed": 0, "best": 0.871, "best_params": {"lr": "0.01"},
+               "improved": true, "has_curves": true, "param_edges": [{"param": "lr", "side": "max"}]}],
+ "target": {"branch": 125, "runs": 6, "failed": 0, "best": 0.871, "improved": true},
+ "total_branches": 3, "ablation_done": false,
+ "leak_suspects": [{"branch": 125, "run_name": "ID125-p05", "value": 0.9995}],
+ "warnings": []}
 ```
 
 ### 各欄の意味
 
-- `round` は**世代**（`exp.generation`）を指す。同じ世代の branch は全部数える。
-- `best`: direction に従った最良の値。成功試行が 0 件なら `null`。
-- `last`: いちばん大きい世代の内容（`trials` は試行の数、`failed` は失敗の数）。
-- `rounds[]`: 世代ごとの累積。`best_so_far` はその世代までの累積の最良、`improved` は前の世代より `min_delta` を超えてよくなったか。
-- `scripts[]`: スクリプト ID ごとのまとめ。`rounds` はそのスクリプトが走った世代、`stale_rounds` は自分の最良を `min_delta` を超えて更新しなかった世代が何回続いたか、`debug_rounds` は `exp.action=debug` が何回続いたか。
-- `param_edges`: 最良の試行の値が、そのスクリプトの試行の中で最小か最大だったパラメータ（2 種類以上の値が試されたものだけ）。
-- `ablation_done`: `exp.action=ablation` の親 run が 1 つでもあれば true。
-- `leak_suspects`: maximize なら `value >= leak_max`、minimize なら `value <= leak_min` の成功試行。
+- `best`: direction に従った最良の run。成功した run が 0 件なら `null`。
+- `experiments[]`: experiment ごとのまとめ。`stale` は、その experiment の branch を古い順に見て、最後から数えて「それまでの最良を `min_delta` を超えて更新しなかった branch」が続いた本数。
+- `branches[]`: branch ごとのまとめ。`depth` は親をたどった深さ（親が無ければ 1）。`debug_depth` は自分から親へ `debug` が続く本数（自分を含む）。`improved` は同じ experiment の前の branch の最良を `min_delta` を超えてよくしたか。`param_edges` は最良の run の値が試した値の端だったパラメータ。
+- `target`: `--branch` を付けたときの、その branch の要約。
+- `total_branches`: run のある branch の数。
+- `ablation_done`: `exp.action=ablation` の branch が 1 つでもあれば true。
+- `leak_suspects`: maximize なら `value >= leak_max`、minimize なら `value <= leak_min` の成功 run。
 
 **この数値を自分で作り直さない。** 命令の結果をそのまま読む。
 
 ## 6. 判定の規則
 
-seed が世代 2 以降に行う。台帳（§5）の欄だけが材料である。
+review が使う。台帳（§5）の欄だけが材料である。
 
 ### 判定書
 
-- ファイル名 `review-<study>-g<世代>.md`、description `判定書 <study> g<世代>: <decision> — <理由 1 文>`。
+- ファイル名 `review-<study>-ID<branch>.md`、description `判定書 <study> ID<branch>: <decision> <rule> — <理由 1 文>`。
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。
 
 ```json
-{"study": "N12-s120", "sci_node": "N12", "generation": 2,
- "decision": "extend | new_script | debug | ablation | stop",
- "rule": "R1〜R7 のどれを当てはめたか",
- "next": [{"action": "tune", "script": "s01", "parent_script": "",
+{"study": "N12-ID120", "sprout_run_id": 120, "branch": 125, "job_state": "done",
+ "decision": "continue", "rule": "R7",
+ "next": [{"action": "tune", "parent_branch": 125, "model": "cnn-static",
            "grid": {"lr": [0.1, 0.3]}, "idea": "", "fix": ""}],
- "stop_reason": "success | max_generations | none"}
+ "stop_reason": "none"}
 ```
 
-- `next` は次の世代の **branch ごとの計画の配列**で、1〜`max_branches` 個。それぞれの `action` は `draft` / `tune` / `new` / `debug` / `ablation`。`grid` は `tune` のとき、`idea` は `new` と `ablation` のとき、`fix` は `debug` のときに入れる（空文字でもよい）。
-- 判定は `stop` でないかぎりは `next` に必ず 1 つ入れる。
+- `decision` は `continue` か `stop`。`stop_reason` は `success` / `max_branches` / `not_allowed` / `cancelled` / `no_records` / `none`。
+- `next` は 0〜`max_children` 個（`continue` なら 1 個以上）。`grid` は tune のとき、`idea` は model と ablation のとき、`fix` は debug のときに入れる。起こした branch は RUN_GRAPH の線（判定書のトークン → branch）で分かるので、判定書には書かない。
 
-### 規則（上から順に当てはめ、最初に当てはまったものを採る。数字は仕様書の値）
+### 規則
 
-| # | 条件（台帳の欄で判定） | 判定 | 次にすること |
+上から順に当てはめ、最初に当てはまったものを採る。台帳は `--branch <その branch>` で取る。「達した」は maximize なら `best.value >= success`、minimize なら `<= success`。
+
+| # | 条件 | decision | next |
 |---|---|---|---|
-| R1 | `last.round >= max_generations` | `stop`（`stop_reason` は `max_generations`） | 終える。完了報告書を書く |
-| R2 | `best` が成功基準 `success` に達し、`ablation_done == false` | `ablation` | 最良のスクリプトから成分を 1 つ外した branch を 1 つ |
-| R3 | `best` が成功基準に達し、`ablation_done == true` | `stop`（`stop_reason` は `success`） | 終える。完了報告書を書く |
-| R4 | 直前の世代で成功した試行が 1 つも無い（全部失敗、または記録が無い） | `debug` | 原因の当たった script を 1 つだけ選び、`fix` に直す点を書いて動かす |
-| R5 | `leak_suspects` に `round == last.round` の試行がある | `debug` | 漏洩を疑う点を `fix` に書いて 1 つ |
-| R6 | 直前の世代の script の `debug_rounds >= max_debug`、または `stale_rounds >= max_fail` | `new_script` | `best` の script を `parent_script` にして、新しい script を 1 つ |
-| R7 | 上のどれにも当てはまらない | `extend` | `param_edges` があれば端の外側へ、無ければ最良の近くを細かくする branch を 1〜`max_branches` 個 |
+| R0 | ジョブの state が `cancelled` | stop（`cancelled`） | 無し |
+| R1 | `total_branches >= max_branches` | stop（`max_branches`） | 無し |
+| R2 | `best` が達し、`ablation_done == false`、`ablation` が使える | continue | ablation を 1 本（親は `best.branch`、新しい experiment） |
+| R3 | `best` が達した（R2 に当たらない） | stop（`success`） | 無し |
+| R4 | `target.runs == 0`（記録が 1 つも無い）で、親の branch も `runs == 0` | stop（`no_records`）。MLflow への接続を疑い、質問ツールで起動者に聞く | 無し |
+| R5 | 成功した run が 0（`target.runs == target.failed`）で、`debug_depth < max_debug` | continue | debug を 1 本（親はこの branch、同じ experiment。`fix` に直す点。`logs` と `exp.error` から書く） |
+| R6 | `leak_suspects` にこの branch の run がある | continue | debug を 1 本（`fix` に漏洩を疑う点） |
+| R7 | `debug_depth >= max_debug`、または この experiment の `stale >= max_fail` | `model` が使えれば continue、使えなければ stop（`not_allowed`） | model を 1 本（親は `best.branch`、無ければこの branch。新しい experiment。`idea` に新しいモデルの案） |
+| R8 | 上のどれにも当てはまらない | continue | tune を 1 本（親はこの branch、同じ experiment）。`param_edges` があれば端の外側へ、無ければ最良の近くを細かく。`max_children >= 2`・`model` が使える・この experiment の `stale >= 1` なら、model を 1 本足してよい |
 
-- 数字だけを変える（パラメータの値だけを変える、`train()` の構造は変えない）のは `extend` と `debug` の違いではない。両方とも同じ `script` ID を使い続ける。
-- `new` と `ablation` は **使ったことのない次の script 番号**（`s02` など）を作り、`parent_script` に参考にした script を入れる。
+- 起こす本数は、`total_branches + 起こす本数 <= max_branches` に収める（収まらない分は起こさない）。
+- パラメータの値だけを変えるのが tune、スクリプトの誤りを直すのが debug。どちらも同じ `model`（同じ experiment）。`train()` の中身（モデルの構造・手法）を変えるのが model、成分を外すのが ablation。どちらも新しい `model`。
 
-## 7. branch への依頼文の形
+## 7. branch の依頼書
 
-seed が `sci-exp-branch` に渡す依頼文（`task_create` の `task_text`）。**先頭の 7 行は `key: value`** で書く。
+- sprout と review は、branch 1 本ごとに**依頼書**を `sai_write` で保存し、そのトークンを `sci card` の `--input` で渡す（`sci card` には本文を渡す引数が無い。`--input` のトークンは依頼文の末尾に `waggle:` で載り、実行時に本文が埋め込まれる）。
+- ファイル名 `branch-order-<study>-<連番 2 桁>.md`（連番はその run の中で 01 から）、description `branch の依頼書 <study>: <action> <model>（親 ID<parent_branch>）`。
+- 本文の**先頭の 5 行は `key: value`**:
 
 ```text
-study: N12-s120
-generation: 2
-script: s03
+study: N12-ID120
+sprout_run_id: 120
 action: tune
-parent_script: s01
-spec: <実験仕様書のトークン>
-seed_run_id: 125
+parent_branch: 125
+model: cnn-static
 
 ## スクリプトに書く中身
-- 実行するファイル: <workdir>/s03/g2.py
-- action: tune。s01/g1.py を写し、GRID を次のように替える。
-  {"lr": [0.1, 0.3], "depth": [4, 6]}
-- 期待する効果: val_auc を 0.87 以上にする。
+- 元のスクリプト: experiments/N12-ID120/ID125/train.py（tune と debug のとき。写して直す）
+- GRID: {"lr": [0.1, 0.3]}
+- 直す点 / 新しいモデルの案: …
+- 期待する効果: test_acc を 0.87 以上にする
 ```
 
-- `study`・`generation`・`script`・`action`・`parent_script` は §4 のタグの値と同じ。
-- `spec` には**実験仕様書の waggle トークン**を書く。本文が埋め込まれるので、branch は仕様書を読んだことにする。
-- `seed_run_id` は**この seed 自身の run_id**（環境変数 `SAI_PARENT_RUN_ID`）。branch は `sai.seed_run_id` の定数の確認に使う。
-- 7 行の後の節は自由。script の中身（`GRID` の値・直す点・期待する効果）を書く。
-- 文書を渡すときは `waggle:<トークン>` と書く。本文を要約し直さない。
+- `parent_branch` は無ければ `-`。draft のときは「元のスクリプト」の代わりに「モデルの案」と、データの置き場・読み込み方（root の FINDING と仕様書から）を書く。
+- カードの作り方（sprout と review で共通）:
+
+```bash
+sai-moon-paper sci card --node <sci_node> --block sci-exp-branch \
+  --purpose "<study> <action> <model>（親 ID<parent_branch>）" \
+  --input <実験仕様書のトークン> --input <依頼書のトークン> [--input <判定書のトークン>] \
+  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+sai-moon-link phone card run <返った run_id>
+```
+
+- `sai-moon-link phone tree` で、その run が `running` になったことを確かめる。動いていなければ `phone card run` をもう一度打ち、返り値を確かめる。
 
 ## 8. 実行場所の規則
 
 スクリプトは**実行先（target）**に投げて動かす。実行先は名前を持つフォルダ（`.sai/exec/<名前>/`）で、Mac 本体・LAN の PC・クラウドなどを利用者が個別に用意する。**どの実行先でも、呼び方は同じ**である（使い方は `exp-run`）。
 
-- 実行先の名前は環境変数 `EXP_TARGET`。**空なら `local`**（この PC）。別の実行先を勝手に選ばない。
-- **投入の前に、実験仕様書の `workdir` へ `cd` する。** 実行先には、この cwd の中身（コード）が送られる（`.git/`・`.venv/`・`.sai/` などは除く）。だからスクリプトは **workdir からの相対パス**（例 `s01/g1.py`）で書く。手元（`local`）でも同じ形で動く。
-- 投入は分配器 `exp_exec.py` で行う。branch は実行の前に、自分の `SAI_PARENT_RUN_ID` を `EXP_BRANCH_RUN_ID` に入れる。**環境変数を渡す引数は無いので、コマンドの前に `env EXP_BRANCH_RUN_ID=…` と書く**（どの実行先でも効く）。
+- 実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。別の実行先を勝手に選ばない。投げる前に仕様書の `workdir` へ `cd` する。実行先には、この cwd の中身（コード）が送られる。スクリプトは workdir からの相対パスで書く。
+- 投げる命令:
 
-  ```bash
-  uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
-    run "${EXP_TARGET:-local}" --name <script>-g<世代> -- \
-    env EXP_BRANCH_RUN_ID=<自分の run_id> uv run --python ">=3.10" --with mlflow <workdir からの相対パス>
-  ```
+```bash
+cd "$SAI_PROJECT_ROOT/<workdir>"
+uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
+  run "${EXP_TARGET:-local}" --name ID<自分の run_id> -- \
+  env EXP_BRANCH_RUN_ID=<自分の run_id> TRIAL_TIMEOUT_S=<仕様書の trial_timeout_s> \
+  uv run --python ">=3.10" --with mlflow ID<自分の run_id>/train.py
+```
 
-  **スクリプトの前に `python` を付けない。** `uv run <script>.py` はスクリプトの PEP 723 の欄（`# /// script`）の依存を読むので、`python <script>.py` の形にすると欄が無視される。実験で必要な道具は、PEP 723 の `dependencies` に書いておく。
+  `artifact_location` が空でなければ `EXP_ARTIFACT_LOCATION=<値>` も `env` に足す。**スクリプトの前に `python` を付けない**（PEP 723 の欄が読まれなくなる）。
+- 1 行目の job_id を控え、**`started` を 1 回だけ呼ぶ**:
 
-- 標準出力の 1 行目に出る job_id を控え、`status <job_id> --json` で `done` / `failed` / `cancelled` / `lost` のどれかになるまで待つ。**1 回の待ち合わせは `sleep 300` まで**にして、1 つの長いコマンドで待たない。
-- 記録は実行先から**中央の MLflow に直接**入る（回収の手順は無い）。実行先が MLflow に届かないと「記録なし」になる。branch は自分で台帳を取り直さない。
-- 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず `BLOCKED` で報告して終える。
+```bash
+uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" started <job_id> --timeout 600 --json
+```
+
+| `started` の結果 | branch がすること |
+|---|---|
+| `started: true` | 始まった。review のカードを作って終わる |
+| `started: false` で `state` が `queued` / `running` | 実行先の待ち行列にいる（または最初の epoch が長い）。そのまま review のカードを作って終わる |
+| `started: false` で `state` が `failed` | `log_tail` を読む。スクリプトの誤り（import・構文・パス・定数）なら直して投げ直す（**2 回まで**）。3 回目も失敗したら、そのまま review のカードを作って終わる（review が debug を起こす） |
+| `started: false` で `state` が `lost` / `cancelled` | review のカードを作って終わる |
+
+- **ジョブの終わりまで待たない。`sleep` で待ち合わせない。**
+- review のカード:
+
+```bash
+sai-moon-paper sci card --node <sci_node> --block sci-exp-review \
+  --purpose "<study> ID<自分の run_id> の結果の判定" \
+  --input <実験仕様書のトークン> --input <自分の作業報告書のトークン> \
+  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+sai-moon-link phone card wait <返った run_id> --job <job_id>
+```
+
+- 記録は実行先から**中央の MLflow に直接**入る（回収の手順は無い）。branch は自分で台帳を取り直さない。
+- 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず作業報告書に `BLOCKED` と書き、review のカードは作らずに終える（起動者に質問ツールで知らせる）。
 
 ## 9. 作業報告書（branch）
 
-- ファイル名 `exp-run-<study>-g<世代>-<script>.md`。
-- description `作業報告書 <study> g<世代> <script>: <action> — 試行 <n> 件・失敗 <m> 件`。`n` と `m` は、台帳の `scripts[]` にある**自分の script の欄**の `trials` と `failed`（記録が無いときは 0 と 0）。
-- 本文は次の表を置く。「—」は「該当なし」の意味である。
+- ファイル名 `exp-run-<study>-ID<自分の run_id>.md`、description `作業報告書 <study> ID<run_id>: <action> <model> — job <job_id> <state>`。
+- 表: スクリプト（`<workdir>/ID<run_id>/train.py`）・experiment 名・実行先・job_id・`started` の結果（state・started・device・最初の進捗の行）・試行の数（GRID の組の数）・親から変えた点・投げ直した回数。判断（次に何をするか）は書かない。
 
-| 項目 | 値 |
-|---|---|
-| スクリプト | `<workdir>/<script>/g<世代>.py` |
-| 実行場所 | 実行先の名前（`local` など） |
-| job_id | `run` の 1 行目に出た job_id |
-| 状態 | 成功 / 失敗 / 記録なし |
-| MLflow の親 run | run_id |
-| 試行 / 失敗 | 台帳の `scripts[]` の自分の欄の `trials` / `failed` |
-| 最良値 | 台帳の `scripts[]` の自分の欄の `best` |
-| 見積もりと実際の時間 | 分 |
+## 10. 完了報告書（止めた review）
 
-- この表以外の節（実行ログ、原因、次の世代へのメモ）は、短い記入だけでよい。**判断は seed がする。**
-- 報告書には「次に何をするか」を書かない。
+- ファイル名 `exp-final-<study>.md`、description `完了報告書 <study>: <stop_reason> — 最良 <metric> <value>`。
+- 本文: 最良（experiment・branch・run 名・値・パラメータ）／experiment ごとの表（model・branch の数・run の数・失敗・最良）／branch ごとの表（branch・親・action・model・最良・作業報告書のトークン・判定書のトークン）／research-tree に出した PROPOSAL／止めた理由（`stop_reason` と rule）。値は台帳から写す（自分で計算しない）。
 
-## 10. 完了報告書（最後の seed）
+## 11. 止める条件と、鎖の終わり
 
-- ファイル名 `exp-final-<study>.md`。
-- description `完了報告書 <study>: <stop_reason> — 最良 <metric> <value>`。
-- 本文:
-
-  ```markdown
-  ## 最良
-  - スクリプト: <script>
-  - 世代: <世代>
-  - 値: <metric> = <value>
-  - パラメータ: <params>
-  - MLflow の run_id: <run_id>
-
-  ## 世代ごとの表
-  | 世代 | script | action | decision | rule | best_so_far | 作業報告書 | 判定書 |
-
-  ## research-tree に出した PROPOSAL
-  - P<id> ...
-
-  ## 停止の理由
-  <stop_reason と、その判定書の rule>
-  ```
-
-- 最良の値・パラメータ・script・世代は、台帳の `best` と `rounds[]` から書く。**自分で再計算しない。**
-- 世代ごとの表の「作業報告書」と「判定書」の列には **waggle のトークン**を書く。
-
-## 11. 止める条件
-
-- 止めるのは、**判定が `stop` のときだけ**である（規則 R1・R3）。世代の上限に達した R1 は `stop` に入る。
-- 次の 2 つのときにも止める。この 2 つは止まる判断ではなく、質問ツールで起動者に質問するための合図である。
-  - 同じ世代で branch の記録が 1 つも無いことが **2 代続けて続いた**とき。MLflow への接続を疑い、質問ツールで起動者に質問する。（1 代だけなら R4 の `debug` として次へ進む）
-  - 判定書が 2 回続けて作られなかったとき。台帳や木の読み込みで異常があったと疑い、質問ツールで起動者に質問する。
-- 上の 2 つに当たらなければ、**1 つの run では 1 世代だけ回して終える。** 終え方は `sci-exp-seed` の §5・§7 に従う（起動者が professor か利用者かで変わる）。**この節だけで完了のしかたを決めない。**
+- 止めるのは判定が `stop` のときだけ（R0・R1・R3・R4・R7 の一部）。
+- 止めた review は、完了報告書を保存したあと、仕様書の `return_to` を見る:
+  - `return_to` があれば、`sai-moon-link phone md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-moon-link phone card create` で同じブロックのカードを作って `phone card run` で起こす（JSON の形は `sci-exp-review` に書く）。`phone tree` で running を確かめる。
+  - `return_to` が `null` なら起こさない。
+- どちらの場合も最後に `sai_finalize` を呼ぶ（review は daemon が起こした root の run）。
