@@ -42,96 +42,96 @@ struct NodeExtra {
 
 // ---- 表示名 -----------------------------------------------------------------
 
-/// 項目の型の表示名（C-01）。
+/// ITEM_TYPE の表示名（C-01）。
 const TYPE_LABELS: [(&str, &str); 4] = [
-    ("choose", "選ぶ"),
-    ("list", "並べる"),
-    ("write", "書く"),
-    ("verify", "確かめる"),
+    ("choose", "CHOOSE"),
+    ("list", "LIST"),
+    ("write", "WRITE"),
+    ("verify", "VERIFY"),
 ];
 
-/// 項目の状態の表示名（C-01）。
+/// ITEM の状態の表示名（C-01）。
 const ITEM_STATE_LABELS: [(&str, &str); 4] = [
-    ("open", "未決定"),
-    ("tentative", "仮決定"),
-    ("decided", "決定"),
-    ("excluded", "対象外"),
+    ("open", "OPEN"),
+    ("tentative", "TENTATIVE"),
+    ("decided", "DECIDED"),
+    ("excluded", "EXCLUDED"),
 ];
 
-/// 候補の状態の表示名（C-01）。
+/// OPTION の状態の表示名（C-01）。
 const OPTION_STATE_LABELS: [(&str, &str); 4] = [
-    ("candidate", "候補"),
-    ("selected", "選択"),
-    ("rejected", "却下"),
-    ("dormant", "休眠"),
+    ("candidate", "CANDIDATE"),
+    ("selected", "SELECTED"),
+    ("rejected", "REJECTED"),
+    ("dormant", "DORMANT"),
 ];
 
-/// 空欄の種類の表示名（C-01）。
+/// BLANK の種類の表示名（C-01）。
 const BLANK_LABELS: [(&str, &str); 5] = [
-    ("untouched", "未着手"),
-    ("in_progress", "調査中"),
-    ("insufficient", "情報不足"),
-    ("awaiting_decision", "判断待ち"),
-    ("conflict", "対立"),
+    ("untouched", "UNTOUCHED"),
+    ("in_progress", "IN_PROGRESS"),
+    ("insufficient", "INSUFFICIENT"),
+    ("awaiting_decision", "AWAITING_DECISION"),
+    ("conflict", "CONFLICT"),
 ];
 
-/// 印の表示名（C-01）。
+/// MARK の表示名（C-01）。
 const MARK_LABELS: [(&str, &str); 2] = [
-    ("weak_evidence", "根拠不足"),
-    ("recheck", "要再確認"),
+    ("weak_evidence", "WEAK_EVIDENCE"),
+    ("recheck", "RECHECK"),
 ];
 
-/// 知見の向きの表示名（C-01）。
+/// FINDING の向きの表示名（C-01）。
 const POLARITY_LABELS: [(&str, &str); 4] = [
-    ("support", "支持"),
-    ("refute", "反証"),
-    ("neutral", "中立"),
-    ("none", "該当なし"),
+    ("support", "SUPPORT"),
+    ("refute", "REFUTE"),
+    ("neutral", "NEUTRAL"),
+    ("none", "NONE"),
 ];
 
 /// 論文の役割の表示名（C-01）。
 const ROLE_LABELS: [(&str, &str); 7] = [
-    ("exemplar", "代表例"),
-    ("compare", "比較対象"),
-    ("issue_evidence", "課題の根拠"),
-    ("method_source", "手法の供給元"),
-    ("data_source", "データの出典"),
-    ("background", "背景"),
-    ("counter", "反証"),
+    ("exemplar", "EXEMPLAR"),
+    ("compare", "COMPARE"),
+    ("issue_evidence", "ISSUE_EVIDENCE"),
+    ("method_source", "METHOD_SOURCE"),
+    ("data_source", "DATA_SOURCE"),
+    ("background", "BACKGROUND"),
+    ("counter", "COUNTER"),
 ];
 
 /// 読み具合の表示名（C-01）。
 const READ_LABELS: [(&str, &str); 4] = [
-    ("unread", "未読"),
-    ("read", "読んだ・未反映"),
-    ("reflected", "反映済み"),
-    ("irrelevant", "関係なし"),
+    ("unread", "UNREAD"),
+    ("read", "READ"),
+    ("reflected", "REFLECTED"),
+    ("irrelevant", "IRRELEVANT"),
 ];
 
-/// 問いの状態の表示名。
+/// QUESTION の状態の表示名。
 const QUESTION_LABELS: [(&str, &str); 3] = [
-    ("open", "答え待ち"),
-    ("answered", "回答済み"),
-    ("withdrawn", "取り下げ"),
+    ("open", "OPEN"),
+    ("answered", "ANSWERED"),
+    ("withdrawn", "WITHDRAWN"),
 ];
 
-/// 決定の記録の種類の表示名（C-01）。
+/// DECISION_LOG の種類の表示名（C-01）。
 const ACTION_LABELS: [(&str, &str); 7] = [
-    ("decide", "決定"),
-    ("tentative", "仮決定"),
-    ("reopen", "再開"),
-    ("exclude_item", "対象外にする"),
-    ("reject_option", "候補の却下"),
-    ("dormant_option", "候補の休眠"),
-    ("restore_option", "候補に戻す"),
+    ("decide", "DECIDE"),
+    ("tentative", "TENTATIVE"),
+    ("reopen", "REOPEN"),
+    ("exclude_item", "EXCLUDE_ITEM"),
+    ("reject_option", "REJECT_OPTION"),
+    ("dormant_option", "DORMANT_OPTION"),
+    ("restore_option", "RESTORE_OPTION"),
 ];
 
-/// 負債の行の表（`Debts` の項目と表示名）。
+/// DEBT の行の表（`Debts` の項目と表示名）。
 const DEBT_LABELS: [(&str, &str); 4] = [
-    ("pending_proposals", "仕分けていない提案"),
-    ("unreflected_papers", "読んだが反映していない論文"),
-    ("unscreened_sets", "選別していない検索"),
-    ("empty_reviews", "書いていない振り返り"),
+    ("pending_proposals", "PENDING_PROPOSALS"),
+    ("unreflected_papers", "UNREFLECTED_PAPERS"),
+    ("unscreened_sets", "UNSCREENED_SETS"),
+    ("empty_reviews", "EMPTY_REVIEWS"),
 ];
 
 /// 表に無い値はその値そのものを返す。
@@ -177,7 +177,7 @@ pub fn export(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<bool
 
 /// `state.md` の本文を作る（頭の 5 行は [`crate::project_files::parse_state`] が読む形）。
 ///
-/// 種の文・関門・空欄・印・負債・次の 3 手を順に並べる。空のものは `- なし` にする。
+/// SEED_SENTENCE・GATE・BLANK・MARK・DEBT・NEXT_ACTION を順に並べる。空のものは `- なし` にする。
 #[must_use]
 pub fn render_state_md(status: &Status) -> String {
     let seed = status
@@ -190,7 +190,7 @@ pub fn render_state_md(status: &Status) -> String {
         .gate
         .as_ref()
         .map_or_else(|| "なし".to_string(), |gate| {
-            format!("関門 {}/{} {}", gate.current, gate.total, gate.name)
+            format!("GATE {}/{} {}", gate.current, gate.total, gate.name)
         });
 
     let current = if status.running.is_empty() {
@@ -224,7 +224,7 @@ pub fn render_state_md(status: &Status) -> String {
     out.push_str(&format!("- 次の一手: {next}\n"));
     out.push_str(&format!("- 更新日: {}\n", Local::now().date_naive()));
 
-    out.push_str("\n## 種の文\n");
+    out.push_str("\n## SEED_SENTENCE\n");
     if seed.is_empty() {
         out.push_str("（まだありません）\n");
     } else {
@@ -232,13 +232,13 @@ pub fn render_state_md(status: &Status) -> String {
         out.push('\n');
     }
 
-    out.push_str("\n## 関門\n");
+    out.push_str("\n## GATE\n");
     match status.gate.as_ref() {
         Some(gate) if !gate.list.is_empty() => {
             for (index, row) in gate.list.iter().enumerate() {
                 let mark = if row.passed { "x" } else { " " };
                 let here = if i64::try_from(index + 1).ok() == Some(gate.current) {
-                    "  ← 今の関門"
+                    "  ← 今の GATE"
                 } else {
                     ""
                 };
@@ -248,7 +248,7 @@ pub fn render_state_md(status: &Status) -> String {
         _ => out.push_str("- なし\n"),
     }
 
-    out.push_str("\n## 空欄\n");
+    out.push_str("\n## BLANK\n");
     let blanks: Vec<String> = status
         .nodes
         .iter()
@@ -271,7 +271,7 @@ pub fn render_state_md(status: &Status) -> String {
         }
     }
 
-    out.push_str("\n## 印\n");
+    out.push_str("\n## MARK\n");
     let marks: Vec<String> = status
         .nodes
         .iter()
@@ -295,7 +295,7 @@ pub fn render_state_md(status: &Status) -> String {
         }
     }
 
-    out.push_str("\n## 負債\n");
+    out.push_str("\n## DEBT\n");
     for (name, count) in [
         ("pending_proposals", status.debts.pending_proposals),
         ("unreflected_papers", status.debts.unreflected_papers),
@@ -309,7 +309,7 @@ pub fn render_state_md(status: &Status) -> String {
         out.push_str(&format!("- {name}: {count}\n"));
     }
 
-    out.push_str("\n## 次の 3 手\n");
+    out.push_str("\n## NEXT_ACTION（3 手）\n");
     if status.next.is_empty() {
         out.push_str("- なし\n");
     } else {
@@ -351,7 +351,7 @@ pub fn render_tree_md(
         "<!-- 研究方針の木から sai-moon-paper が書き出したファイルです。手で直さないでください -->\n",
     );
     out.push_str(&format!(
-        "- 研究の型: {}\n",
+        "- RESEARCH_TYPE: {}\n",
         status
             .type_info
             .as_ref()
@@ -359,7 +359,7 @@ pub fn render_tree_md(
     ));
     out.push_str(&format!("- 更新日: {}\n", Local::now().date_naive()));
 
-    out.push_str("\n## 種の文\n");
+    out.push_str("\n## SEED_SENTENCE\n");
     match status.seed.as_ref() {
         Some(seed) if !seed.text.is_empty() => {
             out.push_str(&seed.text);
@@ -388,10 +388,10 @@ pub fn render_tree_md(
                 .map(|kind| label(&TYPE_LABELS, kind))
                 .collect::<Vec<_>>()
                 .join("・");
-            out.push_str(&format!("- 種類: {types}\n"));
+            out.push_str(&format!("- ITEM_TYPE: {types}\n"));
         }
         if let Some(blank) = node.blank.as_deref() {
-            out.push_str(&format!("- 空欄: {}\n", label(&BLANK_LABELS, blank)));
+            out.push_str(&format!("- BLANK: {}\n", label(&BLANK_LABELS, blank)));
         }
         if !node.marks.is_empty() {
             let marks = node
@@ -400,7 +400,7 @@ pub fn render_tree_md(
                 .map(|mark| label(&MARK_LABELS, mark))
                 .collect::<Vec<_>>()
                 .join("、");
-            out.push_str(&format!("- 印: {marks}\n"));
+            out.push_str(&format!("- MARK: {marks}\n"));
         }
 
         let Some(node_id) = node_id_of(&node.id) else {
@@ -422,7 +422,7 @@ pub fn render_tree_md(
                 format!("（答え: {}）", question.answer.trim())
             };
             out.push_str(&format!(
-                "- 問い {} {}: {state}{answer}\n",
+                "- QUESTION {} {}: {state}{answer}\n",
                 fmt_ref('Q', question.id),
                 question.text.trim()
             ));
@@ -434,7 +434,7 @@ pub fn render_tree_md(
                 format!("（{}）", finding.cites.join("、"))
             };
             out.push_str(&format!(
-                "- 知見 {} {}: {}{cites}\n",
+                "- FINDING {} {}: {}{cites}\n",
                 fmt_ref('F', finding.id),
                 label(&POLARITY_LABELS, &finding.polarity),
                 finding.text.trim()
@@ -472,7 +472,7 @@ pub fn render_tree_md(
                 format!("（{reason}）")
             };
             out.push_str(&format!(
-                "- 直近の決定: {} {}{reason} {}\n",
+                "- 直近の DECISION_LOG: {} {}{reason} {}\n",
                 label(&ACTION_LABELS, &decision.action),
                 option,
                 decision.created_at
@@ -480,7 +480,7 @@ pub fn render_tree_md(
         }
         for option in options.get(&node_id).into_iter().flatten() {
             out.push_str(&format!(
-                "- 候補 {} {}: {}（支持 {}・反証 {}・論文 {}）\n",
+                "- OPTION {} {}: {}（SUPPORT {}・REFUTE {}・論文 {}）\n",
                 option.id,
                 option.title,
                 state_label(option),
@@ -494,18 +494,18 @@ pub fn render_tree_md(
     // 親を辿れなかった候補は末尾に置く（落とさない）。
     for option in &orphans {
         out.push_str(&format!(
-            "- 候補 {} {}: {}\n",
+            "- OPTION {} {}: {}\n",
             option.id,
             option.title,
             state_label(option)
         ));
     }
 
-    out.push_str("\n## 種\n");
+    out.push_str("\n## SEED\n");
     let seeds = store::list_seeds(conn)?;
     push_seeds(&mut out, &seeds);
 
-    out.push_str("\n## 墓標\n");
+    out.push_str("\n## TOMBSTONE\n");
     let tombstones = store::list_tombstones(conn)?;
     push_tombstones(&mut out, &tombstones);
 
@@ -542,7 +542,7 @@ fn push_tombstones(out: &mut String, tombstones: &[Tombstone]) {
     for tombstone in tombstones {
         let what = match tombstone.kind.as_str() {
             "paper" => "論文",
-            _ => "候補",
+            _ => "OPTION",
         };
         let title = tombstone.title.trim();
         let title = if title.is_empty() {
@@ -769,7 +769,7 @@ mod tests {
         let goal = state.goal.expect("目標");
         assert!(goal.starts_with('「'), "{goal}");
         let stage = state.stage.expect("段階");
-        assert!(stage.starts_with("関門 1/"), "{stage}");
+        assert!(stage.starts_with("GATE 1/"), "{stage}");
         assert_eq!(state.current_task.as_deref(), Some("なし"));
         assert!(state.next_action.is_some_and(|next| !next.is_empty()));
         let updated = state.updated.expect("更新日");
@@ -909,22 +909,22 @@ mod tests {
         let tree = render_tree_md(conn, &roots, &defs, &status).expect("tree.md");
 
         // 見出しと並び。
-        assert!(tree.contains("- 研究の型: 課題駆動"), "{tree}");
-        assert!(tree.contains("## 種の文"), "{tree}");
+        assert!(tree.contains("- RESEARCH_TYPE: 課題駆動"), "{tree}");
+        assert!(tree.contains("## SEED_SENTENCE"), "{tree}");
         assert!(tree.contains(&format!("## {} 対象", fmt_ref('N', target))), "{tree}");
         // 候補・知見・論文は項目の中の一行。
-        assert!(tree.contains(&format!("- 候補 {} ", fmt_ref('N', choice))), "{tree}");
-        assert!(tree.contains("知見 F"), "{tree}");
-        assert!(tree.contains("支持: 公開データ最多的（#37 §3.2）"), "{tree}");
+        assert!(tree.contains(&format!("- OPTION {} ", fmt_ref('N', choice))), "{tree}");
+        assert!(tree.contains("FINDING F"), "{tree}");
+        assert!(tree.contains("SUPPORT: 公開データ最多的（#37 §3.2）"), "{tree}");
         assert!(
-            tree.contains("代表例・読んだ・未反映「Scalp EEG for localization」"),
+            tree.contains("EXEMPLAR・READ「Scalp EEG for localization」"),
             "{tree}"
         );
         // 種と墓標。
-        assert!(tree.contains("## 種"), "{tree}");
+        assert!(tree.contains("## SEED"), "{tree}");
         assert!(tree.contains("S1 最初の種"), "{tree}");
         assert!(tree.contains("waggle:AAAA"), "{tree}");
-        assert!(tree.contains("## 墓標"), "{tree}");
+        assert!(tree.contains("## TOMBSTONE"), "{tree}");
         assert!(tree.contains("論文「scalp only」（系列的が外れた）"), "{tree}");
 
         let _ = fs::remove_dir_all(&root);
@@ -973,7 +973,7 @@ mod tests {
             "{tree}"
         );
         // 候補は親の項目の下の一行。
-        assert!(tree.contains(&format!("- 候補 {} ", fmt_ref('N', choice))), "{tree}");
+        assert!(tree.contains(&format!("- OPTION {} ", fmt_ref('N', choice))), "{tree}");
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -23,82 +23,82 @@ use crate::paths::PaperRoots;
 
 // ---- C-01 の値と表示名 -------------------------------------------------------
 
-/// 項目の型。
+/// ITEM_TYPE。
 pub(crate) const TYPE_LABELS: [(&str, &str); 4] = [
-    ("choose", "選ぶ"),
-    ("list", "並べる"),
-    ("write", "書く"),
-    ("verify", "確かめる"),
+    ("choose", "CHOOSE"),
+    ("list", "LIST"),
+    ("write", "WRITE"),
+    ("verify", "VERIFY"),
 ];
-/// 項目の状態。
+/// ITEM の状態。
 pub(crate) const ITEM_STATE_LABELS: [(&str, &str); 4] = [
-    ("open", "未決定"),
-    ("tentative", "仮決定"),
-    ("decided", "決定"),
-    ("excluded", "対象外"),
+    ("open", "OPEN"),
+    ("tentative", "TENTATIVE"),
+    ("decided", "DECIDED"),
+    ("excluded", "EXCLUDED"),
 ];
-/// 候補の状態。
+/// OPTION の状態。
 pub(crate) const OPTION_STATE_LABELS: [(&str, &str); 4] = [
-    ("candidate", "候補"),
-    ("selected", "選択"),
-    ("rejected", "却下"),
-    ("dormant", "休眠"),
+    ("candidate", "CANDIDATE"),
+    ("selected", "SELECTED"),
+    ("rejected", "REJECTED"),
+    ("dormant", "DORMANT"),
 ];
-/// 範囲。
+/// SCOPE。
 pub(crate) const SCOPE_LABELS: [(&str, &str); 6] = [
-    ("node", "節点"),
-    ("path", "道"),
-    ("subtree", "部分木"),
-    ("siblings", "兄弟"),
-    ("summary", "全体の要約"),
-    ("blind", "目隠し"),
+    ("node", "NODE"),
+    ("path", "PATH"),
+    ("subtree", "SUBTREE"),
+    ("siblings", "SIBLINGS"),
+    ("summary", "SUMMARY"),
+    ("blind", "BLIND"),
 ];
 /// sci-read の型。
 pub(crate) const MODE_LABELS: [(&str, &str); 2] = [
-    ("purpose_first", "目的先行"),
-    ("blind_first", "目的後付け"),
+    ("purpose_first", "PURPOSE_FIRST"),
+    ("blind_first", "BLIND_FIRST"),
 ];
 /// 論文の役割。
 pub(crate) const ROLE_LABELS: [(&str, &str); 7] = [
-    ("exemplar", "代表例"),
-    ("compare", "比較対象"),
-    ("issue_evidence", "課題の根拠"),
-    ("method_source", "手法の供給元"),
-    ("data_source", "データの出典"),
-    ("background", "背景"),
-    ("counter", "反証"),
+    ("exemplar", "EXEMPLAR"),
+    ("compare", "COMPARE"),
+    ("issue_evidence", "ISSUE_EVIDENCE"),
+    ("method_source", "METHOD_SOURCE"),
+    ("data_source", "DATA_SOURCE"),
+    ("background", "BACKGROUND"),
+    ("counter", "COUNTER"),
 ];
 /// 読む深さ。
 pub(crate) const DEPTH_LABELS: [(&str, &str); 3] = [
-    ("abstract", "抄録"),
-    ("figures", "図"),
-    ("full", "精読"),
+    ("abstract", "ABSTRACT"),
+    ("figures", "FIGURES"),
+    ("full", "FULL"),
 ];
 /// 読み具合。
 pub(crate) const READ_STATE_LABELS: [(&str, &str); 4] = [
-    ("unread", "未読"),
-    ("read", "読んだ・未反映"),
-    ("reflected", "反映済み"),
-    ("irrelevant", "関係なし"),
+    ("unread", "UNREAD"),
+    ("read", "READ"),
+    ("reflected", "REFLECTED"),
+    ("irrelevant", "IRRELEVANT"),
 ];
 /// 知見の向き。
 pub(crate) const POLARITY_LABELS: [(&str, &str); 4] = [
-    ("support", "支持"),
-    ("refute", "反証"),
-    ("neutral", "中立"),
-    ("none", "該当なし"),
+    ("support", "SUPPORT"),
+    ("refute", "REFUTE"),
+    ("neutral", "NEUTRAL"),
+    ("none", "NONE"),
 ];
 /// 空欄の種類の表示名。
 pub(crate) const BLANK_LABELS: [(&str, &str); 5] = [
-    ("untouched", "未着手"),
-    ("in_progress", "調査中"),
-    ("insufficient", "情報不足"),
-    ("awaiting_decision", "判断待ち"),
-    ("conflict", "対立"),
+    ("untouched", "UNTOUCHED"),
+    ("in_progress", "IN_PROGRESS"),
+    ("insufficient", "INSUFFICIENT"),
+    ("awaiting_decision", "AWAITING_DECISION"),
+    ("conflict", "CONFLICT"),
 ];
 /// 印の表示名。
 pub(crate) const MARK_LABELS: [(&str, &str); 2] =
-    [("weak_evidence", "根拠不足"), ("recheck", "要再確認")];
+    [("weak_evidence", "WEAK_EVIDENCE"), ("recheck", "RECHECK")];
 
 /// 実行者。
 const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
@@ -411,7 +411,7 @@ pub fn create_card(
     // 節点。
     let node = store::get_node(conn, spec.node).map_err(|_| {
         SciError::Invalid(format!(
-            "対象の節点がなければ sci のカードは作れません: {}",
+            "対象の NODE がなければ sci のカードは作れません: {}",
             fmt_ref('N', spec.node)
         ))
     })?;
@@ -419,25 +419,25 @@ pub fn create_card(
     // 問い。
     if let Some(question) = spec.question {
         store::get_question(conn, question).map_err(|_| {
-            SciError::Invalid(format!("問いがありません: {}", fmt_ref('Q', question)))
+            SciError::Invalid(format!("QUESTION がありません: {}", fmt_ref('Q', question)))
         })?;
     }
 
     // 範囲。
     let scope = spec.scope.trim().to_string();
     if !scope.is_empty() && !SCOPE_LABELS.iter().any(|(key, _)| *key == scope) {
-        return Err(SciError::Invalid(format!("知らない範囲です: {scope}")));
+        return Err(SciError::Invalid(format!("知らない SCOPE です: {scope}")));
     }
 
     // 仮置き。
     if spec.assume.len() > MAX_ASSUME {
         return Err(SciError::Invalid(format!(
-            "仮置きは {MAX_ASSUME} 個までです"
+            "ASSUMPTION は {MAX_ASSUME} 個までです"
         )));
     }
     for (id, _) in &spec.assume {
         store::get_node(conn, *id)
-            .map_err(|_| SciError::Invalid(format!("仮置きの節点がありません: {}", fmt_ref('N', *id))))?;
+            .map_err(|_| SciError::Invalid(format!("ASSUMPTION の NODE がありません: {}", fmt_ref('N', *id))))?;
     }
 
     // 読む札の型は空にする。ほかのカードは C-01 の型だけ。
@@ -446,7 +446,7 @@ pub fn create_card(
     } else {
         let mode = spec.mode.trim().to_string();
         if !mode.is_empty() && !MODE_LABELS.iter().any(|(key, _)| *key == mode) {
-            return Err(SciError::Invalid(format!("知らない型です: {mode}")));
+            return Err(SciError::Invalid(format!("知らない MODE です: {mode}")));
         }
         mode
     };
@@ -480,14 +480,14 @@ pub fn create_card(
             ));
         }
         if !ROLE_LABELS.iter().any(|(key, _)| *key == role) {
-            return Err(SciError::Invalid(format!("知らない論文の役割です: {role}")));
+            return Err(SciError::Invalid(format!("知らない ROLE です: {role}")));
         }
     }
     let depth = if depth.is_empty() {
         if is_read { "full".to_string() } else { String::new() }
     } else {
         if !DEPTH_LABELS.iter().any(|(key, _)| *key == depth) {
-            return Err(SciError::Invalid(format!("知らない読む深さです: {depth}")));
+            return Err(SciError::Invalid(format!("知らない DEPTH です: {depth}")));
         }
         depth
     };
@@ -496,10 +496,10 @@ pub fn create_card(
     let mut description = String::new();
     description.push_str(&purpose);
     description.push_str("\n\n");
-    description.push_str(&format!("- 節点: {} {}\n", fmt_ref('N', node.id), node.title));
+    description.push_str(&format!("- NODE: {} {}\n", fmt_ref('N', node.id), node.title));
     if let Some(question) = spec.question {
         let text = store::get_question(conn, question)?.text;
-        description.push_str(&format!("- 問い: {} {}\n", fmt_ref('Q', question), text));
+        description.push_str(&format!("- QUESTION: {} {}\n", fmt_ref('Q', question), text));
     }
     let expect = one_line(&spec.expect);
     if !expect.is_empty() {
@@ -507,7 +507,7 @@ pub fn create_card(
     }
     if is_read {
         let questions = read_questions(conn, defs, node.id, &role)?;
-        description.push_str("\n## 読むときの問い\n");
+        description.push_str("\n## 読むときの QUESTION\n");
         for question in &questions {
             description.push_str(&format!("- {question}\n"));
         }
@@ -727,7 +727,7 @@ pub fn read_card(
     let node_id = task
         .keys
         .node
-        .ok_or_else(|| SciError::Invalid("読む札には対象の節点がありません".to_string()))?;
+        .ok_or_else(|| SciError::Invalid("読む札には対象の NODE がありません".to_string()))?;
     let node = store::get_node(conn, node_id)?;
     let paper_id = task
         .keys
@@ -790,7 +790,7 @@ pub fn finish_read(
     let node_id = task
         .keys
         .node
-        .ok_or_else(|| SciError::Invalid("読む札には対象の節点がありません".to_string()))?;
+        .ok_or_else(|| SciError::Invalid("読む札には対象の NODE がありません".to_string()))?;
     let paper_id = task
         .keys
         .papers
@@ -806,7 +806,7 @@ pub fn finish_read(
     let reason = no_reflect.map(str::trim).unwrap_or_default();
     if findings == 0 && reason.is_empty() {
         return Err(SciError::Invalid(
-            "知見が 1 つもありません。反映しない理由を書いてください".to_string(),
+            "FINDING が 1 つもありません。反映しない理由を書いてください".to_string(),
         ));
     }
     if reason.chars().count() > MAX_NO_REFLECT {
@@ -815,10 +815,10 @@ pub fn finish_read(
         )));
     }
 
-    // 論文の結び付きを「反映済み」にする。理由の記録と同じトランザクションにまとめる。
+    // 論文の LINK を「REFLECTED」にする。理由の記録と同じトランザクションにまとめる。
     let link_id = find_paper_link(conn, node_id, paper_id, &task.keys.role)?.ok_or_else(|| {
         SciError::NotFound(format!(
-            "節点 {} と論文 {} の結び付きがありません",
+            "NODE {} と論文 {} の LINK がありません",
             fmt_ref('N', node_id),
             paper_id
         ))
@@ -845,14 +845,15 @@ pub fn finish_read(
     })
 }
 
-/// 本文の `## 読むときの問い` の下にある `- ` の行を問いとして読む。
+/// 本文の `## 読むときの QUESTION`（旧い版は `## 読むときの問い`）の下にある `- ` の行を問いとして読む。
 fn questions_in_body(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut inside = false;
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("## ") {
-            inside = trimmed == "## 読むときの問い";
+            // 旧い版の task.md が既存のカードに残っているので、新旧どちらも読む。
+            inside = trimmed == "## 読むときの QUESTION" || trimmed == "## 読むときの問い";
             continue;
         }
         if !inside {
@@ -1078,12 +1079,12 @@ mod tests {
         let err = create_card(&db, &fix.roots, &defs(), &bad).unwrap_err();
         assert!(err.to_string().contains("目的を書いてください"), "{err}");
 
-        // 節点が無い ID でも先に弾く（検査の 1 段目）。
+        // NODE が無い ID でも先に弾く（検査の 1 段目）。
         let mut no_node = spec(node);
         no_node.node = 9999;
         no_node.purpose = "候補を比べる".to_string();
         let err = create_card(&db, &fix.roots, &defs(), &no_node).unwrap_err();
-        assert!(err.to_string().contains("節点"), "{err}");
+        assert!(err.to_string().contains("NODE"), "{err}");
 
         // task.md は 1 枚も作られていない。
         let outputs = fix.dir.join(".sai").join("outputs").join("todo");
@@ -1117,7 +1118,7 @@ mod tests {
         assert!(text.contains("sci_role: exemplar"), "{text}");
         assert!(text.contains("sci_depth: full"), "{text}");
         assert!(!text.contains("sci_mode"), "{text}");
-        assert!(text.contains("## 読むときの問い"), "{text}");
+        assert!(text.contains("## 読むときの QUESTION"), "{text}");
         // 目的が無い行は書かない。
         assert!(!text.contains("- 期待する成果:"), "{text}");
 
@@ -1127,6 +1128,19 @@ mod tests {
         assert_eq!(read.role, "exemplar");
         assert_eq!(read.depth, "full");
         assert_eq!(read.node.id, format!("N{node}"));
+    }
+
+    /// 旧い見出し `## 読むときの問い` の task.md も、新しい見出しも読めること。
+    #[test]
+    fn questions_in_body_reads_old_and_new_heading() {
+        let body = |head: &str| format!("目的\n\n- NODE: N1 x\n\n## {head}\n- 一つ目は？\n- 二つ目は？\n\n## 受け取る文書\n- waggle:AbCd1234\n");
+        for head in ["読むときの問い", "読むときの QUESTION"] {
+            assert_eq!(
+                questions_in_body(&body(head)),
+                vec!["一つ目は？".to_string(), "二つ目は？".to_string()],
+                "{head}"
+            );
+        }
     }
 
     /// 読む札の問いが項目ガイドの「抜き出す項目」になること。
@@ -1217,7 +1231,7 @@ mod tests {
         assert!(text.contains("- waggle:EfGh5678\n"), "{text}");
         // `waggle:` を重ねない。
         assert!(!text.contains("waggle:waggle:"), "{text}");
-        // 読む札のときは「読むときの問い」の後ろに付く。
+        // 読む札のときは「読むときの QUESTION」の後ろに付く。
         let (rfix, rdb) = fixture("inputs-read", &["sci-read"]);
         let rconn = rdb.connection();
         let rnode = add_item(rconn, "小目的", Some("purpose.subgoal"));
@@ -1229,7 +1243,7 @@ mod tests {
         read.inputs = vec!["AbCd1234".to_string()];
         let rmade = create_card(&rdb, &rfix.roots, &defs(), &read).unwrap();
         let rtext = fs::read_to_string(&rmade.path).unwrap();
-        let questions = rtext.find("## 読むときの問い").expect("読むときの問い");
+        let questions = rtext.find("## 読むときの QUESTION").expect("読むときの QUESTION");
         let inputs_at = rtext.find("## 受け取る文書").expect("受け取る文書");
         assert!(questions < inputs_at, "{rtext}");
     }
@@ -1275,7 +1289,7 @@ mod tests {
         assert!(!text.contains("waggle:"), "{text}");
         // 依頼文は「- 期待する成果: …」のあと空行で終わる（今までと同じ）。
         let expected = format!(
-            "# task_text\n\n候補を比べる\n\n- 節点: N{node} 小目的\n- 期待する成果: 比較表と推奨\n\n\n"
+            "# task_text\n\n候補を比べる\n\n- NODE: N{node} 小目的\n- 期待する成果: 比較表と推奨\n\n\n"
         );
         assert!(text.ends_with(&expected), "{text}");
     }
