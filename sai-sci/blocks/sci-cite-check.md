@@ -31,7 +31,7 @@ subblocks:
 
 ## 評価の観点
 - 依頼された主張（C の ID）を 1 つも落とさず判定しているか。
-- 判定ごとに、引用文献の該当箇所（`#番号 §節`）を示しているか。該当箇所が無いときは「該当なし」と書いているか。
+- 判定ごとに、引用文献の該当箇所（塊の ID `#40.6.2`）を示しているか。該当箇所が無いときは「該当なし」と書いているか。
 - 抄録しか読めなかった引用を「支持」にしていないか（`bw-core` §7）。
 - 「部分」の判定で、主張と引用文献の違い（対象・条件・数値）を具体的に書いているか。
 - FINDING の `polarity` が判定と合っているか。
@@ -42,7 +42,7 @@ subblocks:
 2. **引用文献を Library に入れる。** 対象の主張の引用ごとに、`sai-moon-paper phone citations <基盤論文の番号>` の `local_paper_id` を見ます。
    - `null` なら取り寄せます: `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone download --cite <基盤論文の番号> --ref <引用の番号>`。戻りの `paper_id` が Library の番号です。
    - 取り寄せられなかった（PDF の場所が無い）ときは、その引用を「未確認（入手できない）」にします。利用者に手で入れてもらいたいものは、report の「## 手で入れてほしい論文」に題名と引用の番号を書きます。
-3. **本文を読む。** `sai-moon-paper content paper <番号>` で読みます。本文が無ければ `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` を打ってから読みます。それでも無ければ `sai-moon-paper phone paper <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
+3. **本文を読む。** 主張の周りの節を MCP の `paper_outline` で探して、`paper_read` で読みます。節の表が作れなければ（本文が無ければ）`perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` を打ってから、もう一度 `paper_outline` を呼びます。それでも無ければ `sai-moon-paper phone paper <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
 4. **判定する。** 主張と、基盤論文の引用文（`sentences`）と、引用文献の該当箇所を並べ、`bw-core` §7 の語で判定します。1 つの主張に引用が 2 つ以上あるときは、引用ごとに判定し、主張としてのまとめ（最も強い判定と最も弱い判定）を書きます。
 5. **確かめの地点で止まる。** 判定表を見せ、質問ツールで「この判定で PROPOSAL を出してよいか」を起動者に聞きます。
 6. **PROPOSAL を出す。** `sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-cite-check` に出します。
@@ -67,7 +67,7 @@ report（引用の判定表。名前は `bw-core` §12）は次の見出しで�
 ```markdown
 | 主張 | 引用 | Library | 判定 | 引用文献の該当箇所 | 違い・理由 |
 |---|---|---|---|---|---|
-| C1 | [3] | #40 | 部分 | #40 §4.2 | 対象が小児に限られる |
+| C1 | [3] | #40 | 部分 | #40.6.2 | 対象が小児に限られる |
 | C1 | [7] | ― | 未確認（入手できない） | ― | PDF の場所が無い |
 | C2 | なし | ― | 根拠なし | ― | 論文が引用を付けていない |
 ```

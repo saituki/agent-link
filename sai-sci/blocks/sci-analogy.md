@@ -53,7 +53,7 @@ sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-analogy
 ```json
 {"proposals": [
   {"op": "add_option", "node": "N12", "title": "設備センサの故障箇所の特定", "body": "…, …。", "reason": "入力の型・出力の型・制約が同じ"},
-  {"op": "add_finding", "node": "N12", "question": "Q7", "text": "…, …。", "cites": ["#37 §3.2"], "polarity": "support", "reason": "同型の問題で使われている手法の根拠"},
+  {"op": "add_finding", "node": "N12", "question": "Q7", "text": "…, …。", "cites": ["#37.4.2"], "polarity": "support", "reason": "同型の問題で使われている手法の根拠"},
   {"op": "link", "node": "N12", "target": "paper:37", "role": "method_source", "read_state": "unread", "reason": "移せる手法の供給元"}
 ]}
 ```

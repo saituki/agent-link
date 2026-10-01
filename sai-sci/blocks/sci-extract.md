@@ -30,14 +30,15 @@ enable: true
 ### 手順
 
 1. SCOPE の ITEM_GUIDE の EXTRACT_FIELDS と、依頼文の論文を確かめます。依頼文に論文の番号（`#37` の形）が無ければ、NODE に LINK している論文（`sai-moon-paper sci node <N> --json`）を対象の案にします。どれを抜きたいかが決まっていなければ、抜きたい欄を QUESTION として PROPOSAL にし、OUT_OF_SCOPE に書きます。
-2. 対象ごとに本文を読みます。読めない論文（全文が無い・図しかない）は、その旨を書いて抜きません。
+2. 対象ごとに、節の一覧（`paper_outline`）から要る節を選び、`paper_read` で読みます。読めない論文（全文が無い・図しかない）は、その旨を書いて抜きません。
 
    ```bash
-   sai-moon-paper content paper 37
+   sai-moon-paper content outline 37
+   sai-moon-paper content read 37.4
    ```
 
 3. 抜き出し表の 1 行を作ります。各セルの後ろに CITE を括弧で付けます。書き方は `literature-hard-rules` に従います。
-   - 本文中の記述は `#37 §3.2` のように節まで書きます。節が特定できないときは章まで（`#37 §4`）。
+   - 本文中の記述は `#37.4.2` のように塊の ID で書きます。塊が特定できないときは節まで（`#37.4`）。
    - 図の値は `Fig.3` のように図の番号で書きます。
    - 表の値は `Table 2` のように表の番号で書きます。
    - 抄録しか見ていないときは `#37 abstract` と書きます。
@@ -55,7 +56,7 @@ sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-extract
 ```json
 {"proposals": [
   {"op": "link", "node": "N12", "target": "paper:37", "role": "data_source", "read_state": "unread", "reason": "表の値と対象者の数が必要"},
-  {"op": "add_finding", "node": "N12", "question": "Q7", "text": "…, …。", "cites": ["#37 §3.2", "#37 Table 2"], "polarity": "neutral", "reason": "抜き出し表の値の根拠"}
+  {"op": "add_finding", "node": "N12", "question": "Q7", "text": "…, …。", "cites": ["#37.4.2", "#37 Table 2"], "polarity": "neutral", "reason": "抜き出し表の値の根拠"}
 ]}
 ```
 

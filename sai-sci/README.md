@@ -382,7 +382,15 @@ sai-moon-link phone card run <返ってきた run_id>
 
 書き込む命令（`init` / `propose` / `apply` / `triage` / `card` / `finish-read`）は、終わる前に `export` を実行します。
 
-### 6.2 MCP の 4 つの道具（`sai-moon-paper mcp`）
+論文の節と塊を読む命令（`sai-moon-paper content …`）:
+
+| 命令 | 何をするか |
+|---|---|
+| `content outline <番号> [--json]` | 論文の節の一覧（節の ID `#37.5`・文の数・要約）。MCP の `paper_outline` と同じ |
+| `content read <ID>… [--max-chars N] [--json]` | 節・塊を読む（`37`・`37.5`・`37.5.2`・`37.5.2-4`）。MCP の `paper_read` と同じ |
+| `content build [<番号>…] [--all] [--force] [--summarize]` | 節と塊の表を作る（作り直す・要約を付ける） |
+
+### 6.2 MCP の道具（`sai-moon-paper mcp`）
 
 | 道具 | 何をするか |
 |---|---|
@@ -390,6 +398,8 @@ sai-moon-link phone card run <返ってきた run_id>
 | `sci_status` | 研究方針の木の全体（SEED_SENTENCE・GATE・ITEM・DEBT・NEXT_ACTION） |
 | `sci_node` | NODE 1 つの中身 |
 | `sci_propose` | 木への変更を PROPOSAL として出す |
+| `paper_outline` | 論文の節の一覧（節の ID・文の数・要約） |
+| `paper_read` | 節・塊の本文を読む（出典は塊の ID `[#37.5.2]`） |
 
 ### 6.3 pi の拡張の 4 つの道具（`pi-litbase`）
 

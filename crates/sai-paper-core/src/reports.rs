@@ -397,7 +397,7 @@ pub struct Citation {
 pub struct Issue {
     /// `error` / `warning`
     pub level: String,
-    /// `header` / `missing_paper` / `unresolved` / `mismatch` / `retracted` / `style`
+    /// `header` / `missing_paper` / `missing_passage` / `unresolved` / `mismatch` / `retracted` / `style`
     pub kind: String,
     /// 人が読む説明
     pub detail: String,
@@ -615,6 +615,51 @@ fn missing_paper_issues(
     Ok(issues)
 }
 
+/// 無い節・塊を指す出典（`[#37.5.9]`）の警告を集める。表がまだ無い論文は見ない。
+fn missing_passage_issues(
+    conn: &Connection,
+    citations: &[Citation],
+) -> Result<Vec<Issue>, ReportError> {
+    static LOCATOR: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^\.(\d+)(?:\.(\d+)(?:-(\d+))?)?$").expect("passage locator regex")
+    });
+    let mut issues = Vec::new();
+    for citation in citations {
+        let (CitationTarget::Paper(number), Some(locator)) = (&citation.target, &citation.locator)
+        else {
+            continue;
+        };
+        let Some(caps) = LOCATOR.captures(locator) else {
+            continue;
+        };
+        let num = |i: usize| caps.get(i).and_then(|m| m.as_str().parse::<i64>().ok());
+        let Some(sec) = num(1) else { continue };
+        // 範囲は始まりと終わりの両方の塊を確かめる。
+        let mut pas_list = vec![num(2)];
+        if let Some(end) = num(3) {
+            pas_list.push(Some(end));
+        }
+        for pas in pas_list {
+            if crate::sections::passage_exists(conn, *number, sec, pas)
+                .ok()
+                .flatten()
+                == Some(false)
+            {
+                issues.push(Issue {
+                    level: "warning".into(),
+                    kind: "missing_passage".into(),
+                    detail: format!(
+                        "#{number}{locator} は論文 #{number} の節・塊にありません（sai-moon-paper content outline {number} で確かめてください）"
+                    ),
+                    line: Some(citation.line as i64),
+                });
+                break;
+            }
+        }
+    }
+    Ok(issues)
+}
+
 /// ネットを使わずに確かめられる問題を、md と DB から集める。
 fn collect_issues(
     conn: &Connection,
@@ -624,6 +669,7 @@ fn collect_issues(
     let citations = parse_citations(markdown);
     let mut issues = check_header(markdown, Some(block_id));
     issues.extend(missing_paper_issues(conn, &citations)?);
+    issues.extend(missing_passage_issues(conn, &citations)?);
     issues.extend(style_issues(markdown));
     Ok(issues)
 }
@@ -1640,6 +1686,25 @@ mod tests {
         let check = report_check(&conn, &report_id)?.expect("検査結果");
         assert_eq!(check.check_errors, 0);
         Ok(())
+    }
+
+    #[test]
+    fn missing_passage_warns_only_for_built_papers() {
+        let conn = setup();
+        conn.execute("INSERT INTO papers (id, title) VALUES (37, 'A')", []).unwrap();
+        conn.execute("INSERT INTO papers (id, title) VALUES (40, 'B')", []).unwrap();
+        conn.execute_batch(include_str!("../migrations/0047_paper_sections.sql")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO paper_section_builds VALUES (37, 'p', 'x', 't', NULL);
+             INSERT INTO paper_sections VALUES (37, 5, 'R', NULL, 1, 'body', 2, 2, 10, '', NULL);
+             INSERT INTO paper_passages VALUES (37, 5, 1, 'a', 1, 0, 1);
+             INSERT INTO paper_passages VALUES (37, 5, 2, 'b', 1, 1, 2);",
+        )
+        .unwrap();
+        let md = "[#37.5.2] と [#37.5] と [#37.5.1-2] と [#40.1.1] と [#37 Fig.3]\n\n[#37.5.9] と [#37.5.1-9] と [#37.6]";
+        let issues = missing_passage_issues(&conn, &parse_citations(md)).unwrap();
+        assert_eq!(issues.len(), 3, "{issues:?}");
+        assert!(issues.iter().all(|i| i.level == "warning" && i.kind == "missing_passage" && i.line == Some(3)));
     }
 
     #[test]

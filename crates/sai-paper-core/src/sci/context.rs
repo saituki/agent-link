@@ -110,6 +110,14 @@ struct Parts {
     ops: Vec<String>,
     /// 対象論文（`blind` だけ）。
     papers: Vec<String>,
+    /// 対象論文の節の一覧（範囲に関係なく。最初の 5 本まで）。
+    outlines: Vec<OutlineEntry>,
+}
+
+/// 節の一覧 1 本分。作れなかったときは注の 1 行。
+enum OutlineEntry {
+    Built(crate::sections::Outline),
+    Note(String),
 }
 
 /// C-06 の Markdown を作る。`scope_override` があれば task.md の `sci_scope` より優先する。
@@ -375,6 +383,20 @@ impl Parts {
             }
         }
 
+        // 節の一覧（範囲に関係なく出す。失敗しても実行は止めない）。
+        let outlines: Vec<OutlineEntry> = task
+            .keys
+            .papers
+            .iter()
+            .take(5)
+            .map(|id| match crate::sections::outline(conn, &roots.data_dir, *id) {
+                Ok(outline) => OutlineEntry::Built(outline),
+                Err(error) => {
+                    OutlineEntry::Note(format!("- #{id} 節の一覧を作れませんでした: {error}"))
+                }
+            })
+            .collect();
+
         // 既に調べたこと。
         let mut searched = Vec::new();
         if !blind {
@@ -399,6 +421,7 @@ impl Parts {
                 searched,
                 ops,
                 papers,
+                outlines,
             };
             let mentioned = mentioned_ids(&parts.render(0));
             out_scope = rows
@@ -429,6 +452,7 @@ impl Parts {
             searched,
             ops,
             papers,
+            outlines,
         })
     }
 
@@ -490,12 +514,50 @@ impl Parts {
             blocks.push(lines.join("\n"));
         }
         push_block(&mut blocks, &self.ops);
+        if let Some(text) = self.render_outlines(level) {
+            blocks.push(text);
+        }
         if !self.papers.is_empty() {
             let mut lines = vec!["## TARGET_PAPERS".to_string()];
             lines.extend(self.papers.iter().cloned());
             push_block(&mut blocks, &lines);
         }
         blocks.join("\n\n")
+    }
+
+    /// 対象論文の節の一覧。④ 以上は出さない。
+    fn render_outlines(&self, level: u8) -> Option<String> {
+        if level >= 4 || self.outlines.is_empty() {
+            return None;
+        }
+        let mut lines = vec![
+            "## PAPER_OUTLINE".to_string(),
+            "読むときは MCP の `paper_read`（`sai-moon-paper content read <ID>`）で ID を指定する。出典は塊の ID で `[#37.5.2]` と書く。".to_string(),
+        ];
+        for entry in &self.outlines {
+            match entry {
+                OutlineEntry::Note(note) => lines.push(note.clone()),
+                OutlineEntry::Built(outline) => {
+                    lines.push(format!("### #{} {}", outline.paper_id, outline.title));
+                    for s in &outline.sections {
+                        if s.kind == "references" {
+                            lines.push(format!("- {} {}（参考文献。読まない）", s.id, s.heading));
+                            continue;
+                        }
+                        let mut line = format!("- {} {}（{} 文）", s.id, s.heading, s.n_sentences);
+                        if level <= 1 {
+                            let gist = s.summary.as_deref().filter(|t| !t.is_empty()).unwrap_or(&s.lead);
+                            let gist: String = gist.chars().take(80).collect();
+                            if !gist.is_empty() {
+                                line.push_str(&format!("— {gist}"));
+                            }
+                        }
+                        lines.push(line);
+                    }
+                }
+            }
+        }
+        Some(lines.join("\n"))
     }
 
     /// 対象の節点の節。
@@ -1409,6 +1471,43 @@ mod tests {
         let tiny = build_with(&fix, &db, 200, Some("path"));
         assert!(tiny.ends_with(CUT_NOTE), "{tiny}");
         assert!(tiny.chars().count() <= 200, "{}", tiny.chars().count());
+    }
+
+    /// 論文 37 の節の一覧が context に出て、level 4 で消えること。
+    #[test]
+    fn context_shows_paper_outline() {
+        let (fix, db, tree) = fixture();
+        let md = fix.roots.data_dir.join("extract.md");
+        fs::write(
+            &md,
+            "## Abstract\n\nWe report on a series of experiments. It works well.\n\n## References\n\n[1] Kim 2014.\n",
+        )
+        .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO paper_extracts (paper_id, status, md_path, papers_id)
+                 VALUES ('k', 'ready', ?1, 37)",
+                [md.to_string_lossy()],
+            )
+            .unwrap();
+        write_run(
+            &fix.roots,
+            120,
+            &format!(
+                "sci_node: {}\nsci_purpose: 候補を比べる\nsci_papers: 37\n",
+                fmt_ref('N', tree.subgoal)
+            ),
+        );
+        let text = build_with(&fix, &db, 100_000, Some("path"));
+        assert!(text.contains("## PAPER_OUTLINE"), "{text}");
+        assert!(text.contains("### #37 論文 37"), "{text}");
+        assert!(text.contains("- #37.1 Abstract（2 文）— We report"), "{text}");
+        assert!(text.contains("参考文献。読まない"), "{text}");
+        let task = read_run_task(&fix.roots, 120).unwrap();
+        let parts =
+            Parts::collect(db.connection(), &fix.roots, &defs(), &task, tree.subgoal, "path").unwrap();
+        assert!(parts.render(2).contains("- #37.1 Abstract（2 文）\n"));
+        assert!(!parts.render(4).contains("PAPER_OUTLINE"));
     }
 
     /// 目隠しは節点も土壌も見せず、論文の番号と題だけを出すこと。
