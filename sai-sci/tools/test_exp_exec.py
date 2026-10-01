@@ -96,6 +96,29 @@ class ExecTest(unittest.TestCase):
         job_id = self.env.run("run", "local", "--", "sh", "-c", "exit 3").stdout.splitlines()[0]
         self.assertEqual(self.env.wait(job_id, ("done", "failed")), "failed")
 
+    def started(self, script: str, timeout: str = "20") -> dict:
+        job_id = self.env.run("run", "local", "--", "sh", "-c", script).stdout.splitlines()[0]
+        r = self.env.run("started", job_id, "--timeout", timeout, "--poll", "0.2", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_started_when_epoch_line_appears(self) -> None:
+        out = self.started("echo device=cpu; echo '[epoch 1/2] train_loss=0.7 val_loss=0.6 (1.0s)'; sleep 2")
+        self.assertTrue(out["started"])
+        self.assertEqual(out["device"], "cpu")
+        self.assertTrue(out["line"].startswith("[epoch 1/2]"))
+        self.assertEqual(out["log_tail"], "")
+
+    def test_started_false_when_job_fails_early(self) -> None:
+        out = self.started("echo import error; exit 1")
+        self.assertEqual((out["state"], out["started"]), ("failed", False))
+        self.assertIn("import error", out["log_tail"])
+
+    def test_started_false_on_timeout(self) -> None:
+        out = self.started("sleep 30", timeout="2")
+        self.assertEqual((out["state"], out["started"]), ("running", False))
+        self.assertIsNone(out["line"])
+
     def test_cancel(self) -> None:
         job_id = self.env.run("run", "local", "--", "sleep", "60").stdout.splitlines()[0]
         self.assertEqual(self.env.wait(job_id, ("running",)), "running")

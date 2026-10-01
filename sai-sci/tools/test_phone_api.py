@@ -95,7 +95,12 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.endswith("/send"):
             self._send(200, {"ok": True})
         elif self.path == "/api/mlflow/runs/search":
-            self._send(200, {"runs": []})
+            # 本物の中継と同じく、実験の番号は文字列の配列（1〜50 個）で要る
+            ids = (RECEIVED[-1]["body"] or {}).get("experiment_ids") if isinstance(RECEIVED[-1]["body"], dict) else None
+            if not (isinstance(ids, list) and 1 <= len(ids) <= 50 and all(isinstance(i, str) for i in ids)):
+                self._send(400, {"detail": "実験の番号は 1 から 50 個までの配列で指定してください"})
+            else:
+                self._send(200, {"runs": []})
         else:
             self._send(404, {"detail": "見つかりません"})
 
@@ -260,7 +265,7 @@ class PhoneApiTest(unittest.TestCase):
         self.assertEqual(RECEIVED[-1]["path"], "/api/mlflow/runs/search")
         self.assertEqual(
             RECEIVED[-1]["body"],
-            {"experiment_id": "1", "filter": "metrics.loss < 1", "max_results": 5},
+            {"experiment_ids": ["1"], "filter": "metrics.loss < 1", "max_results": 5},
         )
 
     def test_mlflow_run(self) -> None:
@@ -313,6 +318,13 @@ class PhoneApiTest(unittest.TestCase):
         code, out, _err = run_tool("question", "gone", env=self.env)
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(out)["error"], "404 質問が見つかりません")
+
+    # --- mlflow runs: 本文の実験の番号は配列 experiment_ids（T3）
+    def test_mlflow_runs_sends_experiment_ids_array(self) -> None:
+        code, out, err = run_tool("mlflow", "runs", "7", env=self.env)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(RECEIVED[-1]["path"], "/api/mlflow/runs/search")
+        self.assertEqual(RECEIVED[-1]["body"]["experiment_ids"], ["7"])
 
     # --- つながなかったとき: 終了コード 2 と、聞き方の分かる文言
     def test_unreachable(self) -> None:
