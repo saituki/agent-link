@@ -55,7 +55,7 @@ function test_helpers() {
   assert.strictEqual(seTrim(null), "");
   assert.strictEqual(seTrim(undefined), "");
 
-  assert.strictEqual(seOpLabel("add_finding"), "知見を足す");
+  assert.strictEqual(seOpLabel("add_finding"), "FINDING を足す");
   assert.strictEqual(seOpLabel("decide"), "決める");
   assert.strictEqual(seOpLabel("mystery_op"), "mystery_op"); // 表に無い op はそのまま
 
@@ -78,9 +78,9 @@ function test_helpers() {
   assert.ok(!seTargetOk("candidate:abc"));
   assert.ok(!seTargetOk(""));
 
-  assert.strictEqual(seOptionStateLabel("rejected"), "却下");
-  assert.strictEqual(seOptionStateLabel("dormant"), "休眠");
-  assert.strictEqual(seOptionStateLabel("candidate"), "候補に戻す");
+  assert.strictEqual(seOptionStateLabel("rejected"), "REJECTED");
+  assert.strictEqual(seOptionStateLabel("dormant"), "DORMANT");
+  assert.strictEqual(seOptionStateLabel("candidate"), "CANDIDATE に戻す");
 }
 
 // --- 文の数を数える（C-07） ---
@@ -123,11 +123,11 @@ function test_decide() {
   // 理由が空なら送らない
   assert.match(ng(seBuildOp("decide", { node: "N12", option: "N20" })), /理由/);
   // 候補があるのに選んでいない
-  assert.match(ng(seBuildOp("decide", { node: "N12", hasOptions: true, reason: "たぶん" })), /候補/);
+  assert.match(ng(seBuildOp("decide", { node: "N12", hasOptions: true, reason: "たぶん" })), /OPTION/);
   // 候補が無いときは空でもよい
   assert.ok(ok(seBuildOp("decide", { node: "N12", hasOptions: false, reason: "まだ無い" })).option === undefined);
   // 節点が無い
-  assert.match(ng(seBuildOp("decide", { reason: "x" })), /項目/);
+  assert.match(ng(seBuildOp("decide", { reason: "x" })), /ITEM/);
   // 根拠の知見
   const withEvidence = ok(seBuildOp("decide", { node: "N12", reason: "r", evidence: ["F31", " F32 ", ""] }));
   assert.deepStrictEqual(withEvidence.evidence, ["F31", "F32"]);
@@ -159,7 +159,7 @@ function test_simple_decisions() {
     { op: "option_state", node: "N20", state: "candidate", reason: "戻る" }
   );
   assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "N20" })), /状態/);
-  assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "20", state: "rejected" })), /候補/);
+  assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "20", state: "rejected" })), /OPTION/);
   // C-07 の 3 つ以外の状態は受け付けない
   assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "N20", state: "selected" })), /状態/);
 }
@@ -185,13 +185,13 @@ function test_content_ops() {
   assert.deepStrictEqual(ok(seBuildOp("add_question", { node: "N12", text: "N はいくつか" })), {
     op: "add_question", node: "N12", text: "N はいくつか",
   });
-  assert.match(ng(seBuildOp("add_question", { node: "N12" })), /問い/);
+  assert.match(ng(seBuildOp("add_question", { node: "N12" })), /QUESTION/);
   assert.match(ng(seBuildOp("add_question", { node: "N12", text: "あ".repeat(301) })), /300/);
 
   assert.deepStrictEqual(ok(seBuildOp("answer_question", { node: "N12", text: "3 人" }, "Q7")), {
     op: "answer_question", question: "Q7", text: "3 人",
   });
-  assert.match(ng(seBuildOp("answer_question", { text: "3 人" }, null)), /問い/);
+  assert.match(ng(seBuildOp("answer_question", { text: "3 人" }, null)), /QUESTION/);
   assert.match(ng(seBuildOp("answer_question", { text: "" }, "Q7")), /答え/);
 
   // 知見
@@ -204,11 +204,11 @@ function test_content_ops() {
   // 数字があっても出典があれば通る
   assert.ok(ok(seBuildOp("add_finding", { node: "N12", text: "1 例だけ", cites: ["#37"] })));
   // 数字があって出典が無い
-  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "1 例だけ", cites: [] })), /出典/);
+  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "1 例だけ", cites: [] })), /CITE/);
   // 数字が無くても出典は要らない
   assert.ok(ok(seBuildOp("add_finding", { node: "N12", text: "改善が見られた。", cites: [] })));
   // 出典の形
-  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ", cites: ["37"] })), /出典/);
+  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ", cites: ["37"] })), /CITE/);
   // 4 文は弾かれる
   assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ。い。う。え。" })), /3 文/);
   // 出典は 10 個まで
@@ -261,7 +261,7 @@ function test_link_text_edge() {
 // --- 外す系（1 押し）と読み具合 ---
 function test_remove_ops() {
   assert.deepStrictEqual(ok(seBuildOp("remove_finding", {}, "F31")), { op: "remove_finding", finding: "F31" });
-  assert.match(ng(seBuildOp("remove_finding", {}, "31")), /知見/);
+  assert.match(ng(seBuildOp("remove_finding", {}, "31")), /FINDING/);
   assert.deepStrictEqual(ok(seBuildOp("unlink", {}, "L3")), { op: "unlink", link: "L3" });
   assert.deepStrictEqual(ok(seBuildOp("withdraw_question", {}, "Q7")), { op: "withdraw_question", question: "Q7" });
   assert.deepStrictEqual(
@@ -274,7 +274,7 @@ function test_remove_ops() {
   assert.deepStrictEqual(ok(seBuildOp("set_read_state", { state: "reflected" }, "L3")), {
     op: "set_read_state", link: "L3", state: "reflected",
   });
-  assert.match(ng(seBuildOp("set_read_state", { state: "unreaded" }, "L3")), /読み具合/);
+  assert.match(ng(seBuildOp("set_read_state", { state: "unreaded" }, "L3")), /READ_STATE/);
 
   // 外す（墓標）
   assert.deepStrictEqual(
@@ -349,7 +349,7 @@ function test_group_proposals() {
   // 節点の無い提案は「節点なし」にまとめる
   const orphan = seGroupProposals([{ id: "P1", op: "add_seed" }], "node");
   assert.deepStrictEqual(orphan.map((g) => g.key), [""]);
-  assert.strictEqual(orphan[0].label, "節点なし");
+  assert.strictEqual(orphan[0].label, "NODE なし");
   const orphanRun = seGroupProposals([{ id: "P1", op: "add_seed" }], "run");
   assert.strictEqual(orphanRun[0].label, "run 不明");
 
