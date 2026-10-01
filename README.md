@@ -221,7 +221,7 @@ agent は実行ごとに別プロセスで起動し、前回の記憶を持ち�
 
 ### 実験ループと実行先（どの PC で実験を動かすか）
 
-実験（`sci-exp-seed` → `sci-exp-branch` → MLflow → 台帳 → 判定 → 次の seed）は、sai-moon だけで回る。スクリプトを動かす PC を**実行先**と呼び、`<root>/.sai/exec/<名前>/` のフォルダ 1 つが 1 つの実行先になる（`sai-moon-paper sci init` が見本を置く）。
+実験（`sci-exp-sprout` → `sci-exp-branch` → MLflow → ジョブの終わりで `sci-exp-review` → 判定 → 次の branch）は、sai-moon だけで回る。スクリプトを動かす PC を**実行先**と呼び、`<root>/.sai/exec/<名前>/` のフォルダ 1 つが 1 つの実行先になる（`sai-moon-paper sci init` が見本を置く）。
 
 ```
 .sai/exec/

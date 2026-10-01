@@ -58,7 +58,7 @@ subblocks:
 
 | 知りたいこと | 命令・場所（対象のプロジェクトで） |
 |---|---|
-| run の一覧・親子 | `sai-moon-link phone tree` / `phone rtree`（root・seed・branch の 3 層） |
+| run の一覧・親子 | `sai-moon-link phone tree` / `phone rtree`（branch・sprout・seed・root の 4 層） |
 | 1 件の状態・時間・エラー | `sai-moon-link block show <ID>` / `block list --json` / `phone run --view stats\|history <run_id>` |
 | 依頼文・会話・報告・起動時の固定部分 | `sai-moon-link phone md --kind task\|message\|report\|system <run_id>` |
 | 成果物 | `sai-moon-link phone waggle <run_id>`（本文は `sai_read`） |

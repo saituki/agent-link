@@ -16,7 +16,7 @@
 | その実行が保存した文書 | `sai-moon-link phone waggle <run_id>`（`--token <トークン>` で本文。残りも `sai_read` で読める） |
 | 過去の会話を言葉で探す | `sai-moon-link search -w <語,語> [--block <名>] [--json]` |
 | 実行の中身（log / stats / history） | `sai-moon-link phone run --view log\|stats\|history <run_id>` |
-| 3 層の図（root / seed / branch） | `sai-moon-link phone rtree` |
+| 4 つの層の図（branch / sprout / seed / root） | `sai-moon-link phone rtree` |
 
 結果はほとんどが JSON で返る。長いときは必要な部分だけ取り出して読む。
 
