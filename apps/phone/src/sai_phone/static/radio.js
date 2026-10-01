@@ -225,7 +225,7 @@ function syncPlayButtons() {
   const play = document.getElementById("radio-play");
   if (play) {
     play.textContent = paused ? "▶" : "❚❚";
-    play.setAttribute("aria-label", paused ? "再生" : "一時停止");
+    play.setAttribute("aria-label", paused ? "Play" : "Pause");
   }
   const miniToggle = document.getElementById("mini-toggle");
   if (miniToggle) miniToggle.textContent = paused ? "▶" : "❚❚";
@@ -623,7 +623,7 @@ async function openRadioList() {
 /** 読み込めなかったときの表示（見出しの下の1行に出す）。 */
 function playerError(text) {
   const titleEl = document.getElementById("radio-title");
-  if (titleEl) titleEl.textContent = "再生";
+  if (titleEl) titleEl.textContent = "Play";
   const msg = document.getElementById("radio-player-msg");
   if (msg) {
     msg.textContent = text;

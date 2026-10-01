@@ -61,8 +61,8 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | 使うもの | 場所 |
 |---|---|
 | `sai-moon-link phone export`（プロジェクトの実行を JSON で書き出す） | CLI: `crates/sai-link-cli/src/cli.rs`（`handle_phone_export`）／本体: `crates/sai-link-engine/src/phone_export.rs` |
-| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む）。**全 run ノードに `executer`（`human` / `professor`・既定 `human`）を足す**（カードの frontmatter `executer:` から取る） |
-| `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`） |
+| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む）。lane が todo の run ノードは `card`（`creation_date`・`block`・`runner`・`model`・`description`。task.md の frontmatter）も足す（Dashboard とホームの todo の 2 行表示用）。**全 run ノードに `executer`（`human` / `professor`・既定 `human`）を足す**（カードの frontmatter `executer:` から取る） |
+| `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`）。log の JSON には作られた順の `connections`（`direction` `from`/`to`・`kind` `task_text`/`task_create`/`task_output`・`run_id`・`global_round`・`round`・`block_name`・`description`・`waggle_token`・`file_path`）がある（`apps/phone` の Summary の Connection が読む。`connections_from`/`connections_to` の文字列は TUI 用に残す） |
 | `sai-moon-link phone md <id> --kind task\|message\|report`（無ければ **終了コード 3・stderr「まだありません」**。`report` は `finalize-report.md`・§2.6） | 同 `phone.rs`（`md`）／本体 `sai_link_widgets::phone_view::resolve_md_path` |
 | `sai-moon-link phone waggle <id> [--token <t>]`（成果物の一覧と本文。一覧の各項目に task_text に貼れる `ref` がある） | 同 `phone.rs`（`waggle`） |
 | `sai-moon-link phone card options`（作成フォームの選択肢） | 同 `phone.rs`（`card_options`）／`sai_link_widgets::card_wizard`（TUI と共有） |

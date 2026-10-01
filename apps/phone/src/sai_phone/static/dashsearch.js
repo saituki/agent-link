@@ -100,7 +100,7 @@ function dsrMount(box, name) {
   form.setAttribute("role", "search");
   const q = dsrInput("search", "q", { placeholder: "検索語（空白で AND）", "aria-label": "検索語", maxlength: "200" });
   q.className = "dsr-input dsr-q";
-  const go = el("button", "paper-btn dsr-go", "検索");
+  const go = el("button", "paper-btn dsr-go", "Search");
   go.type = "submit";
   const top = el("div", "dsr-top");
   top.append(q, go);
@@ -124,7 +124,7 @@ function dsrMount(box, name) {
   const until = dsrInput("date", "until", {});
   const dates = el("div", "dsr-pair");
   dates.append(since, el("span", "dsr-sep", "〜"), until);
-  det.appendChild(dsrField("日付", dates));
+  det.appendChild(dsrField("Date", dates));
   const block = dsrInput("text", "block", { list: "dsr-blocks", placeholder: "block 名（完全一致）", autocomplete: "off" });
   const dl = document.createElement("datalist");
   dl.id = "dsr-blocks";

@@ -3,11 +3,11 @@
 **Mac 上の coding agent（sai-link）と論文の作業（sai-paper）を、ブラウザと音声で使うためのアプリ**です。
 旧 4 リポジトリ（`sai-link`・`sai-paper`・`sai-phone`・`sai-radio`）を 1 つにまとめたもので、1 つのリポジトリ・3 つのプロセスで動きます。
 
-| プロセス | 何 | ポート |
-|---|---|---|
+| プロセス                                                 | 何                                         | ポート                                            |
+| -------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------- |
 | Rust の実行ファイル（`sai-moon-link`・`sai-moon-paper`） | 常駐・エージェントの実行・論文の検索と保存 | （待受けなし。必要に応じて CLI / TUI で起動する） |
-| **Web の窓口**（`apps/phone`・FastAPI） | iPhone と PC のブラウザから使う画面 | `127.0.0.1:8200` |
-| **Radio の裏方サーバー**（`apps/radio`・FastAPI） | 論文の解説音声の生成と配信 | `127.0.0.1:8201`（TTS プロキシは `8202`） |
+| **Web の窓口**（`apps/phone`・FastAPI）                  | iPhone と PC のブラウザから使う画面        | `127.0.0.1:8200`                                  |
+| **Radio の裏方サーバー**（`apps/radio`・FastAPI）        | 論文の解説音声の生成と配信                 | `127.0.0.1:8201`（TTS プロキシは `8202`）         |
 
 ## 考え方
 
@@ -23,13 +23,13 @@
 
 ## 画面は 5 つのタブ
 
-| タブ | 何ができるか |
-|---|---|
-| **ホーム** | 答えを待っている質問・承認、確認を待っている review、動いている実行、論文の要対応を 1 画面で見る |
-| **プロジェクト** | プロジェクト（Rust コアが管理するもの）を見る・動かす（Dashboard・Workflow・List・設定） |
-| **会話** | coding agent の会話を読み、文字や声で指示を送る。質問と承認に答える |
-| **論文** | 研究方針の木を見て次の行動を決める。論文を探す・取り込む・読む・聴く（研究方針 / Dashboard / Discover / Library / Radio） |
-| **使用量** | LLM の料金と制限（Claude Code・OpenRouter・DeepSeek） |
+| タブ             | 何ができるか                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **ホーム**       | 答えを待っている質問・承認、確認を待っている review、動いている実行、論文の要対応を 1 画面で見る                          |
+| **プロジェクト** | プロジェクト（Rust コアが管理するもの）を見る・動かす（Dashboard・Workflow・List・設定）                                  |
+| **会話**         | coding agent の会話を読み、文字や声で指示を送る。質問と承認に答える                                                       |
+| **論文**         | 研究方針の木を見て次の行動を決める。論文を探す・取り込む・読む・聴く（研究方針 / Dashboard / Discover / Library / Radio） |
+| **使用量**       | LLM の料金と制限（Claude Code・OpenRouter・DeepSeek）                                                                     |
 
 - **ホーム** — いま決めることを 1 枚に。質問と承認、確認を待っている review、動いている実行、止まっている常駐、論文の要対応が並ぶ。15 秒ごとに読み直す。
 - **プロジェクト** — 一覧から選ぶと **Dashboard | Workflow | List | 設定** に切り替わる。
@@ -93,15 +93,15 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app \
 
 `apps/phone` と `apps/radio` が使うポートは次のとおり。
 
-| ポート | 誰 | 備考 |
-|---|---|---|
-| `8200` | `apps/phone`（Web） | `SAI_PHONE_PORT` で変更可 |
-| `8201` | `apps/radio`（裏方サーバー） | `SAI_RADIO_URL` で変更可 |
-| `8202` | `apps/radio` の TTS プロキシ | 使うときだけ別プロセスで起動 |
-| `5001` | MLflow（`apps/mlflow-server`・127.0.0.1 のみ） | 実験タブが読む。`SAI_MLFLOW_URL` |
-| `8443` | MLflow の Caddy（LAN 向け・Basic 認証） | LAN の別 PC から記録を書くとき |
-| `9000` | MLflow の成果物置き場（minio） | 成果物を書く側が使う |
-| `10101` | AivisSpeech Engine | 外部サービス。`AIVISSPEECH_BASE_URL` |
+| ポート  | 誰                                             | 備考                                 |
+| ------- | ---------------------------------------------- | ------------------------------------ |
+| `8200`  | `apps/phone`（Web）                            | `SAI_PHONE_PORT` で変更可            |
+| `8201`  | `apps/radio`（裏方サーバー）                   | `SAI_RADIO_URL` で変更可             |
+| `8202`  | `apps/radio` の TTS プロキシ                   | 使うときだけ別プロセスで起動         |
+| `5001`  | MLflow（`apps/mlflow-server`・127.0.0.1 のみ） | 実験タブが読む。`SAI_MLFLOW_URL`     |
+| `8443`  | MLflow の Caddy（LAN 向け・Basic 認証）        | LAN の別 PC から記録を書くとき       |
+| `9000`  | MLflow の成果物置き場（minio）                 | 成果物を書く側が使う                 |
+| `10101` | AivisSpeech Engine                             | 外部サービス。`AIVISSPEECH_BASE_URL` |
 
 **旧構成の 8100 番（旧 sai-phone）と 8000 番（旧 sai-radio）は別プロセス。** sai-moon の確認では、この 2 つの古いポートと必ず区別すること。古い方を止めたり再起動したりしない。
 
@@ -125,28 +125,28 @@ plist は `PYTHONPATH`（`apps/phone/src`）と `PATH`（`target/release`・`tar
 
 `.env` に書く（`apps/phone/.env.example` が見本）。
 
-| 変数 | 既定値 | 用途 |
-|---|---|---|
-| `SAI_PHONE_TOKEN` | （空＝認証なし・開発用） | 合言葉。iPhone 側と合わせる |
-| `SAI_PHONE_PORT` | `8200` | 待ち受けポート |
-| `SAI_LINK_BIN` | `sai-moon-link` | Project タブ・List 画面が呼ぶ CLI。**PATH に無いので PATH を足すか絶対パスを書く** |
-| `SAI_PAPER_BIN` | `~/workdir/Sai/sai-moon/target/release/sai-moon-paper` | Papers タブが呼ぶ CLI（絶対パス） |
-| `SAI_SAI_HOME` | （空＝`~/.sai-moon`） | 登録簿 `registry.json` の置き場。空なら `$HOME/.sai-moon/registry.json` を読む |
-| `SAI_RADIO_URL` | `http://127.0.0.1:8201` | Radio の中継先 |
-| `SAI_RADIO_TOKEN` | （空） | `apps/radio` に合言葉があるときだけ同じ値 |
-| `SAI_MLFLOW_URL` | `http://127.0.0.1:5001` | MLflow の中継先（実験タブ・読み取りだけ） |
-| `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD` | （空） | MLflow の Basic 認証。空なら付けない（127.0.0.1 の MLflow は認証しない） |
-| `SAI_PHONE_RUNS_DIR` | `~/.sai-moon/phone/runs` | 会話の画面が読む、書き出し |
-| `SAI_PHONE_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」（カンマ区切り） |
-| `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` / `HERDR_BIN` | 各既定 | 会話の記録の置き場・herdr |
+| 変数                                                    | 既定値                                                 | 用途                                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `SAI_PHONE_TOKEN`                                       | （空＝認証なし・開発用）                               | 合言葉。iPhone 側と合わせる                                                        |
+| `SAI_PHONE_PORT`                                        | `8200`                                                 | 待ち受けポート                                                                     |
+| `SAI_LINK_BIN`                                          | `sai-moon-link`                                        | Project タブ・List 画面が呼ぶ CLI。**PATH に無いので PATH を足すか絶対パスを書く** |
+| `SAI_PAPER_BIN`                                         | `~/workdir/Sai/sai-moon/target/release/sai-moon-paper` | Papers タブが呼ぶ CLI（絶対パス）                                                  |
+| `SAI_SAI_HOME`                                          | （空＝`~/.sai-moon`）                                  | 登録簿 `registry.json` の置き場。空なら `$HOME/.sai-moon/registry.json` を読む     |
+| `SAI_RADIO_URL`                                         | `http://127.0.0.1:8201`                                | Radio の中継先                                                                     |
+| `SAI_RADIO_TOKEN`                                       | （空）                                                 | `apps/radio` に合言葉があるときだけ同じ値                                          |
+| `SAI_MLFLOW_URL`                                        | `http://127.0.0.1:5001`                                | MLflow の中継先（実験タブ・読み取りだけ）                                          |
+| `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD`               | （空）                                                 | MLflow の Basic 認証。空なら付けない（127.0.0.1 の MLflow は認証しない）           |
+| `SAI_PHONE_RUNS_DIR`                                    | `~/.sai-moon/phone/runs`                               | 会話の画面が読む、書き出し                                                         |
+| `SAI_PHONE_OPENROUTER_ACCOUNTS`                         | `main=OPENROUTER_API_KEY`                              | 使用量の OpenRouter の「名前=キーの入った環境変数名」（カンマ区切り）              |
+| `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` / `HERDR_BIN` | 各既定                                                 | 会話の記録の置き場・herdr                                                          |
 
 ### Rust 側（`crates/`）
 
-| 変数 | 既定値 | 用途 |
-|---|---|---|
-| `SAI_SAI_HOME` | （空＝`~/.sai-moon`） | 利用者全体の置き場。`registry.json`・`phone/runs`・`cc-cost`・共通の `blocks`・`template`・`settings.json`・`paper.env` がここ |
-| `SAI_PROJECT_ROOT` | （空） | sai-link が DB 解決に使う最優先の root。`apps/phone` は呼び出し時に必ずプロジェクトの root を明示で渡す |
-| `SAI_PAPER_ROOT` | （空） | `sai-moon-paper` が使う root。`apps/phone` は選んだプロジェクトの root を渡す |
+| 変数               | 既定値                | 用途                                                                                                                           |
+| ------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `SAI_SAI_HOME`     | （空＝`~/.sai-moon`） | 利用者全体の置き場。`registry.json`・`phone/runs`・`cc-cost`・共通の `blocks`・`template`・`settings.json`・`paper.env` がここ |
+| `SAI_PROJECT_ROOT` | （空）                | sai-link が DB 解決に使う最優先の root。`apps/phone` は呼び出し時に必ずプロジェクトの root を明示で渡す                        |
+| `SAI_PAPER_ROOT`   | （空）                | `sai-moon-paper` が使う root。`apps/phone` は選んだプロジェクトの root を渡す                                                  |
 
 ### `apps/radio`
 
@@ -160,12 +160,11 @@ plist は `PYTHONPATH`（`apps/phone/src`）と `PATH`（`target/release`・`tar
 
 ```bash
 tailscale serve --bg --https 4443 --set-path /sai-moon http://127.0.0.1:8200
-tailscale serve status        # funnel が含まれていないことを確かめる
+tailscale serve status        
 ```
 
 - iPhone からは `https://<Mac名>.ts.net:4443/sai-moon/` を開きます。初回は `?token=…` を付けると、合言葉がブラウザに残ります。
 - `apps/phone` は必ず `--host 127.0.0.1` で動かします（`0.0.0.0` にすると Tailscale の外からも届きます）。
-- `tailscale funnel` は使いません（インターネット全体に公開されます）。
 - `apps/radio` は公開しません（音声は `apps/phone` の中継からだけ使います）。
 - 旧構成の `http://127.0.0.1:8100` に繋がった場合は新しい plist / PATH を読み直してください（再起動が必要）。
 
@@ -181,6 +180,23 @@ sai-moon-paper init --sci --type <problem|phenomenon|method|data|improve>
 
 ブロックとテンプレート・`.sai/settings.json` の `context`・型と項目ガイドの写し・木・書き出しが、この 1 行で揃います（手で足す設定はありません）。
 使い方は [`sai-sci/README.md`](./sai-sci/README.md) にあります。
+
+配られるブロックは 25 本です（研究を回す `professor`、既存の論文から始める逆向きの `professor-backward`、sai-moon の操作を受け持つ `operator`、22 本の `sci-*`）。研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`・逆向きの `bw-core`）と `.sai/tools/phone_api.py` も一緒に入ります。
+既に研究プロジェクトがあるときは、古い `.sai/template/sci-core.md` などを消してから `sai-moon-paper init --assets-only --sci --type <型>` を打ち直すと、新しい決まりに入れ替わります（既にあるファイルは上書きされません）。
+
+#### professor から研究を回す
+
+```bash
+# professor のカードを作る（起こすのは人）。`--input` に要件定義書などの waggle トークンを渡す
+sai-moon-paper sci card --node <N1> --block professor \
+  --purpose "<研究の構想>" --input <waggle トークン> \
+  --executer human --json
+```
+
+- 返ってきた `run_id` を Web（または TUI）から実行します。
+- 研究作業のカード（`--executer professor`）は人が起こせません。professor が `task_create` の `card` で、自分の子として起こします。
+- professor は `.sai/paper/professor-log.md` に研究日誌を残します。会話が要約されたときは、この日誌と `sai-moon-paper sci status --brief` から読み返します。
+- 3 役の関係は [`sai-sci/README.md`](./sai-sci/README.md) の 3.4.1 にあります。
 
 ### エージェントの実験記録（MLflow への接続情報）
 
@@ -296,10 +312,10 @@ language_servers:
 
 **`sai-moon-link init` がプロジェクトの `.claude/skills/` と `.pi/skills/` に 2 つの design skill を書く。** 中身は同じで、どちらのエージェントからでも同じ名前で呼べます。
 
-| skill | 入っているもの |
-|---|---|
-| `frontend-design` | 配色・文字組み・余白の決め方（Anthropic の `frontend-design` スキル、Apache-2.0） |
-| `ui-ux-rules` | コントラスト・文字の大きさ・タッチの大きさ・フォーカス・ダークモード・グラフの規則（UI/UX Pro Max の `references/quick-reference.md` の一部、MIT） |
+| skill             | 入っているもの                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend-design` | 配色・文字組み・余白の決め方（Anthropic の `frontend-design` スキル、Apache-2.0）                                                                  |
+| `ui-ux-rules`     | コントラスト・文字の大きさ・タッチの大きさ・フォーカス・ダークモード・グラフの規則（UI/UX Pro Max の `references/quick-reference.md` の一部、MIT） |
 
 - **cc** は `/frontend-design` のように名前で呼べます。cc 自身が選んで使うこともあります。同梱の skill は `disableBundledSkills: true` で読まれず、この 2 つだけが使えます。
 - **pi** は、`.pi/skills/` のフォルダを信頼したあとに読みます（`.pi/settings.json` と同じ仕組み）。`/skill:frontend-design` で呼べます。
@@ -309,15 +325,15 @@ language_servers:
 
 ## 安全性
 
-| 項目 | 確かめ方 |
-|---|---|
-| 合言葉が設定されている | `.env` に `SAI_PHONE_TOKEN`。未設定なら起動時に警告が出る |
-| 127.0.0.1 だけで待ち受けている | `lsof -i :8200` |
-| funnel を使っていない・公開は 4443 番だけ | `tailscale serve status` |
-| 内部用の API が外から呼べない | `POST /api/register`・`/api/questions`・`/api/questions/{qid}/resolved`・`/api/approvals` は Mac 自身（127.0.0.1）からだけ受ける（`main.py` の `require_local`） |
-| 他の DB を開いていない | プロジェクト・論文はすべて CLI か中継 API を通す |
-| 読み書きするファイルを iPhone から指定できない | run の md・定義・.bib の置き場は Rust のコアが名前から決める。名前は `apps/phone` が先に形を検査する |
-| 壊れた定義を保存しない | 定義の保存前に Rust 側が検査し、理由を出す |
+| 項目                                           | 確かめ方                                                                                                                                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 合言葉が設定されている                         | `.env` に `SAI_PHONE_TOKEN`。未設定なら起動時に警告が出る                                                                                                        |
+| 合言葉のファイル                               | 起動すると `$SAI_SAI_HOME/phone/token`（既定 `~/.sai-moon/phone/token`）に 0600 でできる。エージェントの道具 `phone_api.py` が読む。**中身を記録や画面に出さない** |
+| 127.0.0.1 だけで待ち受けている                 | `lsof -i :8200`                                                                                                                                                  |
+| 内部用の API が外から呼べない                  | `POST /api/register`・`/api/questions`・`/api/questions/{qid}/resolved`・`/api/approvals` は Mac 自身（127.0.0.1）からだけ受ける（`main.py` の `require_local`） |
+| 他の DB を開いていない                         | プロジェクト・論文はすべて CLI か中継 API を通す                                                                                                                 |
+| 読み書きするファイルを iPhone から指定できない | run の md・定義・.bib の置き場は Rust のコアが名前から決める。名前は `apps/phone` が先に形を検査する                                                             |
+| 壊れた定義を保存しない                         | 定義の保存前に Rust 側が検査し、理由を出す                                                                                                                       |
 
 ## テスト（開発者向け）
 
@@ -352,5 +368,5 @@ plutil -lint apps/phone/launchd/com.sai-moon.plist
 - [`AGENTS.md`](./AGENTS.md) — このリポジトリで作業するエージェントへの指示。
 - [`docs/integration.md`](./docs/integration.md) — `apps/phone` の API と画面の住所の一覧、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — `crates/` と `apps/radio` を直す人が守ること（`apps/phone` を壊さないために）。
-- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（型・項目ガイド・16 本のブロック・命令と MCP・Web の画面）の説明書。
+- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（型・項目ガイド・25 本のブロック・逆向きの運用・命令と MCP・Web の画面）の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio だけ 詳しく知りたときの詳細。

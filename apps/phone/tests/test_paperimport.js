@@ -345,11 +345,11 @@ function testFileSize() {
 // --- 進み具合の一枚（種類と行き先・U05 §6） ---
 
 function testJobKindLabel() {
-  assert.strictEqual(pimJobKindLabel("download"), "ダウンロード");
-  assert.strictEqual(pimJobKindLabel("manual"), "手動取り込み");
-  assert.strictEqual(pimJobKindLabel("cite-extract"), "引用抽出");
-  assert.strictEqual(pimJobKindLabel("radio"), "音声化");
-  assert.strictEqual(pimJobKindLabel("translate"), "要旨の訳");
+  assert.strictEqual(pimJobKindLabel("download"), "Download");
+  assert.strictEqual(pimJobKindLabel("manual"), "Manual import");
+  assert.strictEqual(pimJobKindLabel("cite-extract"), "Citations");
+  assert.strictEqual(pimJobKindLabel("radio"), "Audio");
+  assert.strictEqual(pimJobKindLabel("translate"), "Abstract translation");
   // 知らない種類は表示しない
   assert.strictEqual(pimJobKindLabel("unknown"), "");
   assert.strictEqual(pimJobKindLabel(undefined), "");

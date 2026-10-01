@@ -338,10 +338,10 @@ function runLamp(run) {
 // 行に並べる状態表示（U4 §4：日本語にする。記号は今までと同じ）
 function runStatusText(run) {
   switch (run.status) {
-    case "running": return { text: "●実行中", cls: "st-running" };
+    case "running": return { text: "●Running", cls: "st-running" };
     case "completed": return { text: "✓", cls: "st-done" };
-    case "failed": return { text: "✗ 失敗", cls: "st-failed" };
-    case "cancelled": return { text: "✗ 中止", cls: "st-failed" };
+    case "failed": return { text: "✗ Failed", cls: "st-failed" };
+    case "cancelled": return { text: "✗ Cancelled", cls: "st-failed" };
     default: return { text: run.status || "", cls: "" };
   }
 }
@@ -464,7 +464,7 @@ async function loadDaySide() {
     box.innerHTML = "";
     const title = document.createElement("h2");
     title.className = "sai-section-title";
-    title.textContent = "日付";
+    title.textContent = "Date";
     box.appendChild(title);
     for (const d of data.days || []) {
       const btn = document.createElement("button");
@@ -838,7 +838,7 @@ function questionCard(q) {
 
   const submitBtn = document.createElement("button");
   submitBtn.className = "q-submit";
-  submitBtn.textContent = "送信";
+  submitBtn.textContent = "Send";
   submitBtn.disabled = true;
 
   const answered = (qi) => {
@@ -966,7 +966,7 @@ function questionCard(q) {
 function approvalCard(a) {
   if (a.state === "answered") {
     const d = (a.answer && a.answer.decision) || "";
-    const label = { allow: "許可", always: "今後も許可", deny: "拒否" }[d] || d;
+    const label = { allow: "Allow", always: "Always allow", deny: "Deny" }[d] || d;
     const reason = (a.answer && a.answer.reason) || "";
     return settledCard(a, "q-answered", `回答済み: ${label}${reason ? `（${reason}）` : ""}`);
   }
@@ -993,7 +993,7 @@ function approvalCard(a) {
   let choice = null;
   const submitBtn = document.createElement("button");
   submitBtn.className = "q-submit";
-  submitBtn.textContent = "送信";
+  submitBtn.textContent = "Send";
   submitBtn.disabled = true;
 
   const reasonInput = document.createElement("input");
@@ -1003,12 +1003,12 @@ function approvalCard(a) {
   reasonInput.hidden = true;
 
   const options = [];
-  options.push({ key: "allow", label: "許可", desc: "この1回だけ許可する" });
+  options.push({ key: "allow", label: "Allow", desc: "この1回だけ許可する" });
   if ((a.permission_suggestions || []).length) {
     // 承認画面に「Yes, and always allow …」があるときだけ出す
-    options.push({ key: "always", label: "今後も許可", desc: "似た操作を次からも許可する" });
+    options.push({ key: "always", label: "Always allow", desc: "似た操作を次からも許可する" });
   }
-  options.push({ key: "deny", label: "拒否", desc: "実行しない（理由を書ける）" });
+  options.push({ key: "deny", label: "Deny", desc: "実行しない（理由を書ける）" });
 
   const buttons = [];
   for (const opt of options) {

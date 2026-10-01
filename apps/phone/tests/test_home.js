@@ -6,6 +6,8 @@
 const assert = require("assert");
 const path = require("path");
 
+// home.js は ui.js の saiTodoLines を（ブラウザでは <script> の順で）使う
+global.saiTodoLines = require(path.join(__dirname, "..", "src", "sai_phone", "static", "ui.js")).saiTodoLines;
 const H = require(path.join(__dirname, "..", "src", "sai_phone", "static", "home.js"));
 
 // C-A3 の形そのままの偽データ
@@ -88,7 +90,7 @@ function testSectionOrder() {
   assert.deepStrictEqual(keys(SAMPLE), ["wait", "running", "daemon", "papers", "errors"]);
   const byKey = {};
   for (const s of H.hmSections(SAMPLE)) byKey[s.key] = s;
-  assert.strictEqual(byKey.wait.title, "質問がある会話");
+  assert.strictEqual(byKey.wait.title, "Questions");
   assert.strictEqual(byKey.running.title, "動いています");
   assert.strictEqual(byKey.daemon.title, "止まっている常駐");
   assert.strictEqual(byKey.papers.title, "論文の要対応");
@@ -236,15 +238,15 @@ function testOverviewCards() {
   const cards = H.hmOverviewCards(OVERVIEW);
   assert.deepStrictEqual(
     cards.map((c) => c.label),
-    ["実行", "成功率", "トークン", "料金"]
+    ["Runs", "Success rate", "Tokens", "Cost"]
   );
-  assert.strictEqual(cards[0].value, "12 回");
+  assert.strictEqual(cards[0].value, "12");
   assert.strictEqual(cards[1].value, "83%");
   assert.strictEqual(cards[2].value, "1.2M");
   assert.strictEqual(cards[3].value, "$3.21");
   // 合計が読めてないとき（0 件でもカードを出すので）
   const zero = H.hmOverviewCards(null);
-  assert.deepStrictEqual(zero.map((c) => c.value), ["0 回", "0%", "0", "$0.00"]);
+  assert.deepStrictEqual(zero.map((c) => c.value), ["0", "0%", "0", "$0.00"]);
   // 補足（プロジェクト数・期間・読めなかった件数）
   assert.strictEqual(H.hmOverviewNote(OVERVIEW), "2 プロジェクトの合計・2026-09-21〜2026-09-27");
   assert.strictEqual(
@@ -263,7 +265,7 @@ function testPeriod() {
   assert.strictEqual(H.HM_PERIOD_KEY, "sai_phone_home_period");
   assert.deepStrictEqual(
     H.HM_PERIODS,
-    [["week", "今週"], ["month", "今月"], ["all", "全期間"]]
+    [["week", "Week"], ["month", "Month"], ["all", "All time"]]
   );
   assert.strictEqual(H.hmPeriodValue(), "week", "覚えていなければ week");
   H.hmSavePeriod("month");
@@ -284,6 +286,7 @@ function testTodoItems() {
   assert.strictEqual(items.length, 3, items);
   assert.deepStrictEqual(items[0], {
     title: "ID56/kantoku",
+    sub: "",
     where: "sai-phone",
     hash: "#/project/sai-phone/list/56/task",
   });
@@ -291,6 +294,14 @@ function testTodoItems() {
   // label が無い行は ID<run_id> を出す
   const noLabel = H.hmTodoItems({ projects: [{ name: "p", todo_runs: [{ run_id: 7 }] }] });
   assert.strictEqual(noLabel[0].title, "ID7");
+  // card（task.md の項目）があれば「作成日 ID block runner model」と説明の 2 行
+  const withCard = H.hmTodoItems({
+    projects: [{ name: "p", todo_runs: [{ run_id: 9, label: "ID9/plan", card: {
+      creation_date: "2026/09/30 08:25:12", block: "plan", runner: "cc", model: "opus", description: "議論",
+    } }] }],
+  });
+  assert.strictEqual(withCard[0].title, "2026/09/30 08:25:12 ID9 plan cc opus");
+  assert.strictEqual(withCard[0].sub, "議論");
   // todo_runs が無い（古い /api/home でも）ときは 0 件
   assert.deepStrictEqual(H.hmTodoItems({ projects: [{ name: "p", todo: 3 }] }), []);
   assert.deepStrictEqual(H.hmTodoItems(null), []);

@@ -53,6 +53,9 @@ pub struct BlockDetail {
     pub timeout: Option<i32>,
     pub connections_from: Vec<String>,
     pub connections_to: Vec<String>,
+    /// 接続を作られた順（時系列）に並べた構造化版（phone の Connection 表示用）。
+    /// TUI は `connections_from` / `connections_to` の文字列を使う。
+    pub connections: Vec<ConnectionEntry>,
     /// この実行が出力した waggle トークン一覧（sai-write 使用時）
     pub output_waggle_tokens: Vec<String>,
     /// セッション統計情報
@@ -76,6 +79,27 @@ pub struct BlockDetail {
     /// [`usage_lines`] が `usage_with_children` の結果から作り、Log 画面が
     /// そのままの行を描画する。空 = 実行の usage 記録が無い（描画しない）。
     pub usage_lines: Vec<String>,
+}
+
+/// 接続 1 件（phone の Connection 表示用）。
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct ConnectionEntry {
+    /// `from`（この実行へ来た線）/ `to`（この実行から出る線）
+    pub direction: String,
+    /// `task_text`（waggle の受け渡し）/ `task_create`（子の作成）/ `task_output`（子の出力）
+    pub kind: String,
+    /// 相手の実行 ID
+    pub run_id: i64,
+    pub global_round: Option<i64>,
+    pub round: Option<i64>,
+    /// 相手のブロック名
+    pub block_name: String,
+    /// 相手の task.md の description（`task_create` のときだけ入る）
+    pub description: Option<String>,
+    /// waggle トークン（`task_text` のときだけ入る）
+    pub waggle_token: Option<String>,
+    /// waggle 文書のファイルパス（`task_text` のときだけ。プロジェクト内なら相対）
+    pub file_path: Option<String>,
 }
 
 /// セッション統計データ。
@@ -164,7 +188,7 @@ struct InputRef<'a> {
 impl serde::Serialize for BlockDetail {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let len = 24;
+        let len = 25;
         let mut st = serializer.serialize_struct("BlockDetail", len)?;
         st.serialize_field("exec_id", &self.exec_id)?;
         st.serialize_field("block_name", &self.block_name)?;
@@ -179,6 +203,7 @@ impl serde::Serialize for BlockDetail {
         st.serialize_field("timeout", &self.timeout)?;
         st.serialize_field("connections_from", &self.connections_from)?;
         st.serialize_field("connections_to", &self.connections_to)?;
+        st.serialize_field("connections", &self.connections)?;
         st.serialize_field("output_waggle_tokens", &self.output_waggle_tokens)?;
         st.serialize_field("session_stats", &self.session_stats)?;
         st.serialize_field("git_commit_before", &self.git_commit_before)?;
@@ -412,6 +437,9 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Bloc
         .map(|c| format_conn_line(c, c.target_block_id, c.target_execution_id))
         .collect();
 
+    // 構造化版（作られた順。`list_connections_by_block` が created_at 順で返す）
+    let connections = structured_connections(store, &all_connections, exec_id);
+
     let tag = exec
         .as_ref()
         .and_then(|e| e.tag.clone())
@@ -514,6 +542,7 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Bloc
         timeout: timeout_override,
         connections_from: from,
         connections_to: to,
+        connections,
         output_waggle_tokens: output_tokens,
         input_fields,
         usage_lines: cost_lines,
@@ -525,6 +554,90 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Bloc
         finished_at,
         created_at,
     })
+}
+
+/// 接続を phone 用の構造化した並びにする（`is_shown` と同じ 3 種だけ）。
+fn structured_connections(
+    store: &sai_link_engine::db::SaiStore,
+    all: &[sai_link_engine::db::models::BlockConnection],
+    exec_id: i64,
+) -> Vec<ConnectionEntry> {
+    let mut integrator = None; // waggle の解決が要るときだけ開く
+    let mut out = Vec::new();
+    for c in all {
+        let kind = match c.connection_type.as_str() {
+            "waggle_token" => "task_text",
+            "task_delegation" => "task_create",
+            "task_output" => "task_output",
+            _ => continue,
+        };
+        let (direction, other_bid, other_eid) = if c.target_execution_id == exec_id {
+            ("from", c.source_block_id, c.source_execution_id)
+        } else if c.source_execution_id == exec_id {
+            ("to", c.target_block_id, c.target_execution_id)
+        } else {
+            continue;
+        };
+        let other = store.get_execution_by_id(other_eid).ok();
+        let block_name = store
+            .get_block_by_id(other_bid)
+            .map(|b| b.display_name)
+            .unwrap_or_default();
+        let round = other.as_ref().and_then(|e| e.round).or_else(|| {
+            store.get_block_by_id(other_bid).ok().and_then(|b| b.round)
+        });
+        let mut entry = ConnectionEntry {
+            direction: direction.to_string(),
+            kind: kind.to_string(),
+            run_id: other_eid,
+            global_round: other.as_ref().and_then(|e| e.global_round),
+            round,
+            block_name,
+            ..Default::default()
+        };
+        if kind == "task_create" {
+            entry.description = run_description(other_eid);
+        }
+        if kind == "task_text" {
+            if let Some(t) = &c.waggle_token {
+                entry.waggle_token = Some(t.clone());
+                if integrator.is_none() {
+                    integrator = sai_link_engine::waggle_integration::WaggleIntegrator::open(
+                        &sai_link_engine::project::resolve_db_path(),
+                    )
+                    .ok();
+                }
+                entry.file_path = integrator.as_ref().and_then(|i| waggle_file_path(i, t));
+            }
+        }
+        out.push(entry);
+    }
+    out
+}
+
+/// run の task.md の `description:`（空・読めないときは `None`）。
+fn run_description(run_id: i64) -> Option<String> {
+    let (_, dir) = sai_link_engine::run_dir::find_run_dir(run_id)?;
+    let text = std::fs::read_to_string(dir.join(sai_link_engine::run_dir::TASK_FILE)).ok()?;
+    let d = sai_link_engine::kanban::parse_card(&text)?.frontmatter.description;
+    let d = d.trim();
+    (!d.is_empty()).then(|| d.to_string())
+}
+
+/// waggle トークンの元ファイルのパス（プロジェクトの中なら相対パス）。
+fn waggle_file_path(
+    integrator: &sai_link_engine::waggle_integration::WaggleIntegrator,
+    token: &str,
+) -> Option<String> {
+    let view = integrator.resolve_token(token).ok()?;
+    let target = view.manifest.target.as_str();
+    let path = target
+        .strip_prefix("file://localhost")
+        .or_else(|| target.strip_prefix("file://"))?
+        .replace("%20", " ");
+    let root = sai_link_engine::project::project_root();
+    let rel = std::path::Path::new(&path).strip_prefix(&root).ok();
+    Some(rel.map_or(path.clone(), |r| r.display().to_string()))
 }
 
 /// 実行レコードから出力 waggle トークン一覧を取得する。
@@ -1700,6 +1813,16 @@ mod conn_line_tests {
         let d = build(&store, e2).unwrap();
         assert_eq!(d.connections_from.len(), 1);
         assert!(d.connections_from[0].starts_with("waggle:abc R2.3/ID"));
+        // phone 用の構造化版: waggle は task_text、相手は e1（block a・GR2 / LR3）
+        assert_eq!(d.connections.len(), 1);
+        let c = &d.connections[0];
+        assert_eq!((c.direction.as_str(), c.kind.as_str()), ("from", "task_text"));
+        assert_eq!((c.run_id, c.global_round, c.round), (e1, Some(2), Some(3)));
+        assert_eq!(c.block_name, "a");
+        assert_eq!(c.waggle_token.as_deref(), Some("waggle:abc"));
+        // 相手側から見ると同じ線が to になる
+        let d1 = build(&store, e1).unwrap();
+        assert_eq!(d1.connections[0].direction, "to");
     }
 
 }

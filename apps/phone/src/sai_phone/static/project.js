@@ -15,9 +15,9 @@
 // 期間の選択をタブごとに覚える（06 §4.2）
 const DASH_PERIOD_KEY = "sai_phone_dash_period";
 const DASH_PERIODS = [
-  ["week", "今週"],
-  ["month", "今月"],
-  ["all", "全期間"],
+  ["week", "Week"],
+  ["month", "Month"],
+  ["all", "All time"],
 ];
 // モデル別ドーナツの色（5色・06 §4.2-5）。色は CSS 変数。暗い画面では自動的に変わる。
 const MODEL_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)"];
@@ -464,7 +464,7 @@ function statusCard(d) {
 
   const btn = document.createElement("button");
   btn.className = "dash-btn" + (d.daemon_alive ? " stop" : "");
-  btn.textContent = d.daemon_alive ? "停止" : "起動";
+  btn.textContent = d.daemon_alive ? "Stop" : "Start";
   btn.disabled = daemonBusy;
   btn.addEventListener("click", onDaemonClick);
   card.append(left, btn);
@@ -537,7 +537,7 @@ function summaryCard(d) {
   const grid = document.createElement("div");
   grid.className = "dash-grid";
   const items = [
-    [`${Number(s.executions) || 0} 回`, "実行"],
+    [`${Number(s.executions) || 0} 回`, "Run"],
     [`${Math.round((Number(s.success_rate) || 0) * 100)}%`, "成功率"],
     [formatTokens(s.tokens_total), "トークン"],
     [shortDuration(s.duration_ms), "時間"],
@@ -784,21 +784,17 @@ function todoRow(c, alive) {
   main.className = "dash-todo-main";
   const desc = document.createElement("div");
   desc.className = "dash-todo-desc";
-  // 新形式 todo の行はツリーと同じ label（例: ID14/sub・計画 15）
-  desc.textContent = c.label || `ID${c.run_id}`;
+  // 1 行目: 作成日 ID block runner model / 2 行目: 説明
+  const lines = saiTodoLines(c);
+  desc.textContent = lines.head;
   const meta = document.createElement("div");
   meta.className = "dash-todo-meta";
-  if (c.status || c.lane) {
-    const tag = document.createElement("span");
-    tag.className = "dash-tag";
-    tag.textContent = c.status || c.lane;
-    meta.appendChild(tag);
-  }
+  meta.textContent = lines.desc;
   main.append(desc, meta);
 
   const btn = document.createElement("button");
   btn.className = "dash-run-btn";
-  btn.textContent = "実行";
+  btn.textContent = "Run";
   btn.disabled = !alive || runBusy || c.run_id == null;
   btn.addEventListener("click", () => onRunCardClick(c));
   row.append(main, btn);

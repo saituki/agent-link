@@ -385,6 +385,23 @@ def test_projects(fake: Fake) -> None:
     assert rows[1]["running"] == 0, rows[1]
 
 
+def test_folder_runs_passes_card() -> None:
+    """todo の行に `card`（task.md の項目）があるときだけ、文字にして返す。"""
+    items = [
+        {
+            "type": "folder",
+            "label": "todo",
+            "children": [
+                {"type": "run", "run_id": 9, "label": "ID9/plan", "card": {"creation_date": "2026/09/30 08:25:12", "block": "plan", "runner": "cc", "model": "opus", "description": "議論"}},
+                {"type": "run", "run_id": 10, "label": "ID10/sub"},
+            ],
+        }
+    ]
+    rows = home._folder_runs(items, "todo")
+    assert rows[0]["card"] == {"creation_date": "2026/09/30 08:25:12", "block": "plan", "runner": "cc", "model": "opus", "description": "議論"}, rows
+    assert "card" not in rows[1], rows
+
+
 def test_folder_runs_passes_scheduled_at() -> None:
     """todo の行に `scheduled_at` があるときだけ、そのまま返す（予約したもの用）。"""
     items = [
@@ -604,6 +621,7 @@ def main() -> None:
     test_approvals(fake)
     test_title_truncated(fake)
     test_projects(fake)
+    test_folder_runs_passes_card()
     test_folder_runs_passes_scheduled_at()
     test_papers(fake)
     test_errors(fake)

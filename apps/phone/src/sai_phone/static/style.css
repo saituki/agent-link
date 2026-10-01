@@ -2517,7 +2517,12 @@ code {
 .question-card .va-listen.recording { border-color: var(--danger); color: var(--danger); }
 .va-status { flex: 1 1 auto; min-width: 0; color: var(--text-soft); font-size: 12px; word-break: break-word; }
 
-/* つながりの行からその run の List へ飛ぶボタン */
+/* Connection の 1 件（見出しの行 + 下に waggle / 説明） */
+.lv-conn { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.lv-conn:first-of-type { border-top: none; }
+.lv-conn-sub { margin-top: 2px; font-size: 12px; color: var(--text-soft); white-space: pre-wrap; word-break: break-all; }
+
+/* Connection の行からその run の List へ飛ぶボタン */
 .lv-kv-link {
   flex: 1;
   min-width: 0;

@@ -434,7 +434,7 @@ function wfActions(card, lane, project) {
   const base = `/api/projects/${p}/runs/${encodeURIComponent(runId)}`;
   const out = [];
   if (lane === "todo") {
-    out.push({ key: "start", label: "▶ 実行", method: "POST", path: `${base}/start` });
+    out.push({ key: "start", label: "▶ Run", method: "POST", path: `${base}/start` });
   } else if (lane === "review") {
     out.push({ key: "advance", label: "done にする", method: "POST", path: `${base}/advance`, to: "done" });
   } else if (lane === "done") {
@@ -679,7 +679,7 @@ function wfRenderBar() {
   }
   bar.querySelector(".proj-title").textContent = wfName;
   const back = bar.querySelector(".proj-back");
-  back.setAttribute("aria-label", "プロジェクト一覧へ戻る");
+  back.setAttribute("aria-label", "Back to projects");
   back.onclick = () => { location.hash = "#/projects"; };
   if (typeof fillLinkSeg === "function") fillLinkSeg("wf-mode-seg", "workflow", wfName);
 }
@@ -1117,7 +1117,7 @@ function wfSheetBody(card, lane) {
       });
       go.appendChild(b);
     }
-    const talk = wfEl("button", "sai-btn small", "会話");
+    const talk = wfEl("button", "sai-btn small", "Chats");
     talk.type = "button";
     talk.addEventListener("click", () => {
       if (typeof sessionHash === "function") location.hash = sessionHash(wfName, runId);

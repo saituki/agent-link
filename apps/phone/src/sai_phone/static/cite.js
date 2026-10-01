@@ -371,13 +371,13 @@ function ctFillDetail(body, ref) {
     });
     actions.appendChild(open);
   } else if (r.can_download) {
-    const dl = ctUiEl("button", "sai-btn primary", "⬇ ダウンロード");
+    const dl = ctUiEl("button", "sai-btn primary", "⬇ Download");
     dl.type = "button";
     dl.addEventListener("click", () => {
       if (typeof pimStartDownload !== "function") return;
       void pimStartDownload(
         ctName,
-        { cite_paper_id: ctPaperId, ref_no: r.ref_no, title: r.title || "論文" },
+        { cite_paper_id: ctPaperId, ref_no: r.ref_no, title: r.title || "Papers" },
         `cite:${ctPaperId}:${r.ref_no}`
       );
     });
@@ -400,7 +400,7 @@ function ctFillDetail(body, ref) {
       void pimOpenManual({
         name: ctName,
         target: { cite_paper_id: ctPaperId, ref_no: r.ref_no },
-        title: r.title || "論文",
+        title: r.title || "Papers",
         siteUrl: site,
       });
     });
@@ -490,7 +490,7 @@ function ctNotExtractedBox() {
       void pimOpenManual({
         name: ctName,
         target: { paper_id: ctPaperId },
-        title: (data.paper && data.paper.title) || "論文",
+        title: (data.paper && data.paper.title) || "Papers",
       });
     });
     box.appendChild(b);

@@ -645,7 +645,7 @@ function renderPapersDashboard() {
   const card = el("section", "dash-card");
   const grid = el("div", "dash-grid pd-grid");
   for (const [value, label] of [
-    [String(Number(c.papers) || 0), "論文"],
+    [String(Number(c.papers) || 0), "Papers"],
     [String(Number(c.tags) || 0), "タグ"],
     [String(Number(c.notes) || 0), "ノート"],
     [bytesLabel(c.pdf_bytes), "PDF"],
@@ -1109,7 +1109,7 @@ function papersEmpty(icon, title, body, actions) {
 /** 検索先の表示名（画面の検索先の札は DB ID そのものの名前で出す）。 */
 function papersDbLabel(db) {
   const text = String(db == null ? "" : db).trim();
-  return text || "検索先";
+  return text || "Source";
 }
 
 /**
@@ -1544,7 +1544,7 @@ function syncCondUI() {
   if (panel) panel.hidden = !discoverCondOpen;
   const toggle = document.getElementById("discover-cond-toggle");
   if (toggle) {
-    toggle.textContent = discoverCondOpen ? "条件 ▾" : "条件 ▸";
+    toggle.textContent = discoverCondOpen ? "Filters ▾" : "Filters ▸";
     toggle.setAttribute("aria-expanded", discoverCondOpen ? "true" : "false");
   }
   const summary = document.getElementById("discover-cond-summary");
@@ -1947,7 +1947,7 @@ function renderLog() {
   const sub = document.getElementById("log-sub");
   const list = document.getElementById("log-list");
   if (!list) return;
-  if (title) title.textContent = (logView && logView.data && logView.data.log.query) || "検索結果";
+  if (title) title.textContent = (logView && logView.data && logView.data.log.query) || "Search results";
   if (sub) sub.textContent = "";
   list.innerHTML = "";
   if (!logView) return;
@@ -2080,8 +2080,8 @@ function renderRemote(target) {
     guide.appendChild(jobBox(key));
   } else {
     const actions = el("div", "paper-actions");
-    const dl = paperBtn("⬇ ダウンロード", () => {
-      void pimStartLogDownload(remoteView.name, remoteView.logId, remoteView.position, item.title || "論文");
+    const dl = paperBtn("⬇ Download", () => {
+      void pimStartLogDownload(remoteView.name, remoteView.logId, remoteView.position, item.title || "Papers");
     }, "primary");
     actions.appendChild(dl);
     // 取りに行けないときは自分で保存した PDF を入れられるようにする（U05 §5）
@@ -2090,7 +2090,7 @@ function renderRemote(target) {
         void pimOpenManual({
           name: remoteView.name,
           target: { log_id: remoteView.logId, position: remoteView.position },
-          title: item.title || "論文",
+          title: item.title || "Papers",
           siteUrl: item.doi ? doiUrl(item.doi) : "",
         });
       }));
@@ -2247,7 +2247,7 @@ function renderPaper(target) {
   }
   if (files.extract) {
     actions.appendChild(
-      paperBtn("本文", () => { location.hash = paperHash(paperProject, paperIdNum, true); })
+      paperBtn("Text", () => { location.hash = paperHash(paperProject, paperIdNum, true); })
     );
   }
   // PDF が無い論文は、保存した PDF を手で取り込めるようにする（U05 §5）
@@ -2257,7 +2257,7 @@ function renderPaper(target) {
         void pimOpenManual({
           name: paperProject,
           target: { paper_id: paperIdNum },
-          title: p.title || "論文",
+          title: p.title || "Papers",
           siteUrl: p.doi ? doiUrl(p.doi) : "",
         });
       })
@@ -2402,7 +2402,7 @@ function noteCard() {
   head.appendChild(el("h3", "dash-card-title", "ノート"));
   const note = paperData && paperData.note;
   if (!noteEditing) {
-    head.appendChild(paperBtn(note ? "編集" : "書く", () => {
+    head.appendChild(paperBtn(note ? "Edit" : "書く", () => {
       noteEditing = true;
       noteDraft = note || "";
       noteMsg = "";
@@ -2420,9 +2420,9 @@ function noteCard() {
     ta.addEventListener("input", () => { noteDraft = ta.value; });
     card.appendChild(ta);
     const row = el("div", "paper-actions");
-    const save = paperBtn(noteSaving ? "保存中…" : "保存", () => { void onSaveNote(); });
+    const save = paperBtn(noteSaving ? "保存中…" : "Save", () => { void onSaveNote(); });
     save.disabled = noteSaving;
-    const cancel = paperBtn("やめる", () => {
+    const cancel = paperBtn("Cancel", () => {
       noteEditing = false;
       noteMsg = "";
       renderPaper();

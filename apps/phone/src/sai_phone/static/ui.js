@@ -32,7 +32,7 @@ const SAI_WIDE_PX = 900;
  */
 const SAI_TERMS = {
   run: {
-    label: "実行",
+    label: "Run",
     text:
       "エージェントが 1 つのカードを 1 回動かした記録です。" +
       "［会話］のタブにはプロジェクト名・#番号・実行者の順に並びます。" +
@@ -336,7 +336,7 @@ function saiToast(text, kind) {
 // --- 確認の小窓 ---
 
 /**
- * 確認の小窓。{title, body, ok = "OK", cancel = "やめる", danger = false}
+ * 確認の小窓。{title, body, ok = "OK", cancel = "Cancel", danger = false}
  * → Promise<boolean>。window.confirm は使わない。
  */
 function saiConfirm(opts) {
@@ -347,7 +347,7 @@ function saiConfirm(opts) {
     if (o.title) panel.appendChild(saiEl("h2", "sai-panel-title", o.title));
     if (o.body) panel.appendChild(saiEl("p", "sai-panel-body", o.body));
     const row = saiEl("div", "sai-panel-row");
-    const cancel = saiEl("button", "sai-btn ghost", o.cancel || "やめる");
+    const cancel = saiEl("button", "sai-btn ghost", o.cancel || "Cancel");
     cancel.type = "button";
     cancel.addEventListener("click", () => saiOverlayEnd(false));
     const ok = saiEl("button", `sai-btn ${o.danger ? "danger" : "primary"}`, o.ok || "OK");
@@ -387,7 +387,7 @@ function saiPrompt(opts) {
     });
     panel.appendChild(input);
     const row = saiEl("div", "sai-panel-row");
-    const cancel = saiEl("button", "sai-btn ghost", "やめる");
+    const cancel = saiEl("button", "sai-btn ghost", "Cancel");
     cancel.type = "button";
     cancel.addEventListener("click", () => saiOverlayEnd(null));
     const ok = saiEl("button", "sai-btn primary", o.ok || "OK");
@@ -399,6 +399,24 @@ function saiPrompt(opts) {
     input.focus();
     input.select();
   });
+}
+
+// --- todo の 2 行表示（Dashboard と Home で共通） ---
+
+/**
+ * todo 1 件の 2 行表示: {head, desc}。
+ * head は `<作成日> ID<run_id> <block> <runner> <model>`（空の項目は詰める）、desc は説明。
+ * `card`（task.md の項目）が無いときは head を label にする。
+ */
+function saiTodoLines(run) {
+  const r = run || {};
+  const c = r.card && typeof r.card === "object" ? r.card : null;
+  if (!c) return { head: String(r.label || `ID${r.run_id}`), desc: "" };
+  const head = [c.creation_date, `ID${r.run_id}`, c.block, c.runner, c.model]
+    .map((v) => String(v == null ? "" : v).trim())
+    .filter(Boolean)
+    .join(" ");
+  return { head, desc: String(c.description || "").trim() };
 }
 
 // --- 空の画面 ---
@@ -461,7 +479,7 @@ function saiTerm(key, label) {
     panel.appendChild(saiEl("h2", "sai-panel-title", title));
     panel.appendChild(saiEl("p", "sai-panel-body", saiTermText(key) || "この語の説明はまだありません。"));
     const row = saiEl("div", "sai-panel-row");
-    const ok = saiEl("button", "sai-btn primary", "閉じる");
+    const ok = saiEl("button", "sai-btn primary", "Close");
     ok.type = "button";
     ok.addEventListener("click", () => saiOverlayEnd(null));
     row.appendChild(ok);
@@ -502,7 +520,7 @@ function saiSheet(opts) {
   head.appendChild(saiEl("h2", "sai-sheet-title", o.title || ""));
   const x = saiEl("button", "sai-sheet-close", "✕");
   x.type = "button";
-  x.setAttribute("aria-label", "閉じる");
+  x.setAttribute("aria-label", "Close");
   x.addEventListener("click", close);
   head.appendChild(x);
   panel.appendChild(head);
@@ -763,6 +781,7 @@ if (typeof module !== "undefined" && module.exports) {
     saiConfirm,
     saiPrompt,
     saiEmpty,
+    saiTodoLines,
     saiTerm,
     saiIsWide,
     saiSheet,

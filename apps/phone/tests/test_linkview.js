@@ -82,7 +82,7 @@ function testHash() {
   );
   assert.deepStrictEqual(
     lv.LV_MODES.map((m) => m[1]),
-    ["Dashboard", "Workflow", "List", "設定"]
+    ["Dashboard", "Workflow", "List", "Settings"]
   );
 
   // 読み取る
@@ -365,8 +365,11 @@ function testLogSections() {
       thinking_tokens: 190864,
       total_tokens: 439966,
     },
-    connections_from: ["[out] R5.1/ID29"],
-    connections_to: ["[task] R5.1/ID36"],
+    connections: [
+      { direction: "from", kind: "task_text", run_id: 29, global_round: 5, round: 1, block_name: "plan", waggle_token: "abcd1234", file_path: ".sai/outputs/R5/29/plan.md" },
+      { direction: "to", kind: "task_create", run_id: 36, global_round: 5, round: 1, block_name: "worker", description: "実装する" },
+      { direction: "from", kind: "task_output", run_id: 40, global_round: null, round: 2, block_name: "sub" },
+    ],
     review_from: [],
     review_to: [],
     output_waggle_tokens: ["H9sPKWNJ"],
@@ -375,7 +378,7 @@ function testLogSections() {
   const sections = lv.logSections(data);
   assert.deepStrictEqual(
     sections.map((s) => s.title),
-    ["Inputs", "設定", "統計", "つながり", "出力トークン"]
+    ["Inputs", "Settings", "Connection", "Outputs"]
   );
   // 入力は label / value の対で。task_text は task の表示で読めるので出さない
   assert.deepStrictEqual(sections[0].rows, [["plan_doc", "waggle:abc"]]);
@@ -385,21 +388,25 @@ function testLogSections() {
     []
   );
   const conf = Object.fromEntries(sections[1].rows);
-  assert.strictEqual(conf["ラウンド"], "r1");
-  assert.strictEqual(conf["グローバル"], "R5");
-  assert.strictEqual(conf["モデル"], "opus");
+  assert.strictEqual(conf["Round"], "r1");
+  assert.strictEqual(conf["Global round"], "R5");
+  assert.strictEqual(conf["Model"], "opus");
   assert.strictEqual(conf["thinking"], "high");
   assert.strictEqual(conf["commit"], "aaaaaaa → bbbbbbb");
-  // 統計・つながり・出力
-  const stats = Object.fromEntries(sections[2].rows);
-  assert.strictEqual(stats["ターン数"], "1");
-  assert.strictEqual(stats["ツール"], "78 回");
-  assert.strictEqual(stats["合計トークン"], "439966");
-  assert.deepStrictEqual(sections[3].rows, [
-    ["から", "[out] R5.1/ID29"],
-    ["へ", "[task] R5.1/ID36"],
+  // Connection は作られた順のまま、head と sub と run_id を持つ（統計は Stats の表示へ移した）
+  assert.deepStrictEqual(sections[2].items, [
+    { head: "from [task_text] R5.1/ID29/plan", sub: "waggle:abcd1234 file:.sai/outputs/R5/29/plan.md", runId: 29 },
+    { head: "to [task_create] R5.1/ID36/worker", sub: "実装する", runId: 36 },
+    { head: "from [task_output] R?.2/ID40/sub", sub: "", runId: 40 },
   ]);
-  assert.deepStrictEqual(sections[4].rows, [["waggle", "H9sPKWNJ"]]);
+  assert.deepStrictEqual(sections[3].rows, [["waggle", "H9sPKWNJ"]]);
+  assert.strictEqual(JSON.stringify(sections).includes("turn_count"), false);
+  // session の数字は Stats の表示に出す
+  const sess = Object.fromEntries(lv.sessionStatRows(data.session_stats));
+  assert.strictEqual(sess["Turns"], "1");
+  assert.strictEqual(sess["Tool calls"], "78");
+  assert.strictEqual(sess["Total tokens"], "439966");
+  assert.deepStrictEqual(lv.sessionStatRows(null), []);
   // session_dir（パス）は出さない（iPhone に場所を送らない・計画 12 §1.4 と同じ考え）
   assert.strictEqual(
     JSON.stringify(sections).includes("session_dir"),
@@ -408,17 +415,6 @@ function testLogSections() {
   // 中身が無ければ空配列（画面は「項目がありません」を出す）
   assert.deepStrictEqual(lv.logSections({}), []);
   assert.deepStrictEqual(lv.logSections(null), []);
-}
-
-function testRunIdOfRef() {
-  // つながりの行から run_id を取り出す（sai-link の `R9.10/ID56` 形式・U01）
-  assert.strictEqual(lv.lvRunIdOfRef("FNPsuvtk R9.10/ID56"), 56);
-  assert.strictEqual(lv.lvRunIdOfRef("[task] R3.1/ID12"), 12);
-  assert.strictEqual(lv.lvRunIdOfRef("R?.?/ID56/id:7"), 56);
-  assert.strictEqual(lv.lvRunIdOfRef("ID56"), null);
-  assert.strictEqual(lv.lvRunIdOfRef("R1.2/ID5x"), 5);
-  assert.strictEqual(lv.lvRunIdOfRef(""), null);
-  assert.strictEqual(lv.lvRunIdOfRef(null), null);
 }
 
 function testStatsCells() {
@@ -431,7 +427,7 @@ function testStatsCells() {
   });
   assert.deepStrictEqual(
     cells.map((c) => c.label),
-    ["入力", "出力", "キャッシュ読み", "キャッシュ書き", "費用", "ヒット率"]
+    ["Input", "Output", "Cache read", "Cache write", "Cost", "Hit rate"]
   );
   assert.strictEqual(cells[0].value, 100);
   assert.strictEqual(cells[0].kind, "tokens");
@@ -474,7 +470,7 @@ function testStatsSeries() {
   // 3: 累積量（入力 / 読 / 書の 3 本）
   const cum = lv.statsSeries(data, "cum");
   assert.strictEqual(cum.length, 3);
-  assert.deepStrictEqual(cum.map((s) => s.name), ["入力", "キャッシュ読み", "キャッシュ書き"]);
+  assert.deepStrictEqual(cum.map((s) => s.name), ["Input", "Cache read", "Cache write"]);
   assert.deepStrictEqual(cum[1].values, [20, 60]);
   // データが無いときも壊れない
   assert.deepStrictEqual(lv.statsSeries(null, "turn")[0].values, []);
@@ -535,7 +531,6 @@ function main() {
   testFindRun();
   testAdvanceAction();
   testLogSections();
-  testRunIdOfRef();
   testStatsCells();
   testStatsSeries();
   testTypeSlices();

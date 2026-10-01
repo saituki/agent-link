@@ -265,8 +265,8 @@ function testAllFailed() {
 function testDbLabel() {
   assert.strictEqual(papersDbLabel("s2"), "s2");
   assert.strictEqual(papersDbLabel(" openalex "), "openalex");
-  assert.strictEqual(papersDbLabel(""), "検索先");
-  assert.strictEqual(papersDbLabel(null), "検索先");
+  assert.strictEqual(papersDbLabel(""), "Source");
+  assert.strictEqual(papersDbLabel(null), "Source");
 }
 
 function testAttentionHash() {

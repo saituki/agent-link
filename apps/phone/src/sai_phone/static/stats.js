@@ -115,10 +115,10 @@ function toolBarRows(stats, limit = 10) {
 // --- 状態の表示（app.js に依存せず自己完結させる） ---
 
 const STATUS_LABEL = {
-  running: { text: "🟡 実行中", cls: "st-running" },
-  completed: { text: "✅ 完了", cls: "st-done" },
-  failed: { text: "⚠ 失敗", cls: "st-failed" },
-  cancelled: { text: "⚠ 中止", cls: "st-failed" },
+  running: { text: "🟡 Running", cls: "st-running" },
+  completed: { text: "✅ Done", cls: "st-done" },
+  failed: { text: "⚠ Failed", cls: "st-failed" },
+  cancelled: { text: "⚠ Cancelled", cls: "st-failed" },
 };
 
 // 表示中の実行の住所（戻るボタンでメッセージ画面に戻るため・04 §1-1）
@@ -149,7 +149,7 @@ async function openStats(r) {
   STATS_POS.id = r.id;
   statsFinished = false;
   statsLastJson = "";
-  document.getElementById("stats-title").textContent = "統計";
+  document.getElementById("stats-title").textContent = "Stats";
   document.getElementById("stats-desc").textContent = "";
   document.getElementById("stats-head").innerHTML = "";
   document.getElementById("stats-cards").innerHTML =

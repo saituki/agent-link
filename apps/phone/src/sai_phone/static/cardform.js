@@ -814,7 +814,7 @@ function cfRender() {
   if (back) {
     back.hidden = false; // 読み込み失敗（cfRenderFatal）から戻すため必ず出す
     back.disabled = cfBusy;
-    back.textContent = info.id === "runner" ? "閉じる" : "‹ 戻る";
+    back.textContent = info.id === "runner" ? "Close" : "‹ Back";
   }
   const skip = document.getElementById("cf-skip");
   if (skip) {
@@ -824,7 +824,7 @@ function cfRender() {
   const next = document.getElementById("cf-next");
   if (next) {
     next.hidden = false;
-    next.textContent = info.id === "confirm" ? "作成" : "次へ";
+    next.textContent = info.id === "confirm" ? "作成" : "Next";
     next.disabled = cfBusy;
   }
   const restart = document.getElementById("cf-restart");

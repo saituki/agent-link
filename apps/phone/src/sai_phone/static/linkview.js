@@ -20,12 +20,12 @@
 // run の中身の表示（帯の並び＝TUI のショートカットと同じ・計画 14 §1.3）。
 // 最後の session だけは Agent タブのメッセージ画面へ飛ぶので、sessionHash が作る。
 const LV_VIEWS = [
-  ["log", "Log"],
+  ["log", "Summary"],
   ["stats", "Stats"],
   ["history", "History"],
   ["task", "task"],
   ["message", "message"],
-  ["report", "報告"],
+  ["report", "Report"],
   // 固定部分（system prompt。起動時に run フォルダの system-prompt.md から渡す・U6）
   ["system", "system"],
   ["waggle", "waggle"],
@@ -37,7 +37,7 @@ const LV_MODES = [
   ["dashboard", "Dashboard"],
   ["workflow", "Workflow"],
   ["list", "List"],
-  ["defs", "設定"],
+  ["defs", "Settings"],
 ];
 // 最後に見ていた Project の画面をプロジェクトごとに覚える（localStorage・計画 14 §6・C-F7）
 const LV_MODE_KEY = "sai_phone_link_mode";
@@ -51,9 +51,9 @@ const LV_TYPE_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)",
 const LV_TYPES = ["user", "agent", "toolCall", "toolResult", "thinking"];
 // Stats のグラフの種類（TUI の 1 / 2 / 3 と同じ・4 つ目の「表」は常に下に出す・計画 14 §1.3）
 const LV_CHARTS = [
-  ["turn", "ターン"],
-  ["cumpct", "累積 %"],
-  ["cum", "累積量"],
+  ["turn", "Turn"],
+  ["cumpct", "Cumulative %"],
+  ["cum", "Cumulative"],
 ];
 // レーン名 → 用語の key（見出しの横に置く用語の札用）
 const LV_TERMS = { todo: "todo", running: "running", review: "review", done: "done" };
@@ -326,7 +326,7 @@ function allFolderIds(items) {
   return ids;
 }
 
-/** Log の表示を「節 × 行（ラベル / 値の文字列）」に組み替える（計画 14 §1.3）。 */
+/** Summary（run の log 表示）を「節 × 行（ラベル / 値の文字列）」に組み替える（計画 14 §1.3）。 */
 function logSections(d) {
   const data = d && typeof d === "object" ? d : {};
   const out = [];
@@ -345,50 +345,71 @@ function logSections(d) {
 
   // 2. 設定（ラウンド / モデル / thinking / tag / 時刻 / commit）
   const conf = [];
-  if (data.description) conf.push(["説明", text(data.description)]);
-  if (data.user_block_description) conf.push(["説明", text(data.user_block_description)]);
-  if (data.round != null) conf.push(["ラウンド", `r${data.round}`]);
-  if (data.global_round != null) conf.push(["グローバル", `R${data.global_round}`]);
-  if (data.tag) conf.push(["タグ", text(data.tag)]);
-  if (data.model) conf.push(["モデル", text(data.model)]);
+  if (data.description) conf.push(["Description", text(data.description)]);
+  if (data.user_block_description) conf.push(["Description", text(data.user_block_description)]);
+  if (data.round != null) conf.push(["Round", `r${data.round}`]);
+  if (data.global_round != null) conf.push(["Global round", `R${data.global_round}`]);
+  if (data.tag) conf.push(["Tag", text(data.tag)]);
+  if (data.model) conf.push(["Model", text(data.model)]);
   if (data.thinking) conf.push(["thinking", text(data.thinking)]);
-  if (data.started_at) conf.push(["開始", text(data.started_at)]);
-  if (data.finished_at) conf.push(["終了", text(data.finished_at)]);
+  if (data.started_at) conf.push(["Started", text(data.started_at)]);
+  if (data.finished_at) conf.push(["Finished", text(data.finished_at)]);
   if (data.git_commit_before || data.git_commit_after) {
     const before = text(data.git_commit_before) || "-";
     const after = text(data.git_commit_after);
     conf.push(["commit", after && after !== before ? `${before} → ${after}` : before]);
   }
-  if (conf.length > 0) out.push({ title: "設定", rows: conf });
+  if (conf.length > 0) out.push({ title: "Settings", rows: conf });
 
-  // 3. 統計（ターン数・ツール回数・トークン）
-  const st = data.session_stats;
-  if (st && typeof st === "object") {
-    const rows = [];
-    if (st.turn_count != null) rows.push(["ターン数", text(st.turn_count)]);
-    if (st.tool_call_count != null) rows.push(["ツール", `${text(st.tool_call_count)} 回`]);
-    for (const [key, label] of [
-      ["input_tokens", "入力トークン"],
-      ["output_tokens", "出力トークン"],
-      ["thinking_tokens", "思考トークン"],
-      ["total_tokens", "合計トークン"],
-    ]) {
-      if (st[key] != null) rows.push([label, text(st[key])]);
-    }
-    if (rows.length > 0) out.push({ title: "統計", rows });
-  }
+  // 3. Connection（時系列順・行ごとに run へ飛べる）。統計は Stats の表示へ移した
+  const items = connectionItems(data.connections);
+  if (items.length > 0) out.push({ title: "Connection", items });
 
-  // 4. つながり（どの run から / どの run へ・親子と waggle の受け渡し）
-  const links = [];
-  for (const v of data.connections_from || []) links.push(["から", text(v)]);
-  for (const v of data.connections_to || []) links.push(["へ", text(v)]);
-  if (links.length > 0) out.push({ title: "つながり", rows: links });
-
-  // 5. 出力トークン（成果物）
+  // 4. 出力トークン（成果物）
   const outs = (data.output_waggle_tokens || []).map(text).filter(Boolean);
-  if (outs.length > 0) out.push({ title: "出力トークン", rows: outs.map((t) => ["waggle", t]) });
+  if (outs.length > 0) out.push({ title: "Outputs", rows: outs.map((t) => ["waggle", t]) });
 
   return out;
+}
+
+/**
+ * Connection の行（`connections` は Rust が作られた順で返す・時刻は出さない）。
+ *   head: `from [task_text] R5.2/ID86/kantoku`（押すとその run の表示へ飛ぶ）
+ *   sub:  task_text は `waggle:<token> file:<path>`、task_create は説明、task_output は無し
+ */
+function connectionItems(list) {
+  const out = [];
+  for (const c of Array.isArray(list) ? list : []) {
+    if (!c || typeof c !== "object" || c.run_id == null) continue;
+    const num = (v) => (v == null ? "?" : String(v));
+    const head = `${c.direction} [${c.kind}] R${num(c.global_round)}.${num(c.round)}/ID${c.run_id}/${c.block_name || ""}`;
+    let sub = "";
+    if (c.kind === "task_text" && c.waggle_token) {
+      sub = `waggle:${c.waggle_token}${c.file_path ? ` file:${c.file_path}` : ""}`;
+    } else if (c.kind === "task_create" && c.description) {
+      sub = String(c.description);
+    }
+    out.push({ head, sub, runId: Number(c.run_id) });
+  }
+  return out;
+}
+
+/** Stats の表示の先頭に出す session の数字（turn / tool / token・log の表示から移した）。 */
+function sessionStatRows(st) {
+  if (!st || typeof st !== "object") return [];
+  const rows = [];
+  const text = (v) => String(v);
+  if (st.turn_count != null) rows.push(["Turns", text(st.turn_count)]);
+  if (st.tool_call_count != null) rows.push(["Tool calls", text(st.tool_call_count)]);
+  for (const [key, label] of [
+    ["input_tokens", "Input tokens"],
+    ["output_tokens", "Output tokens"],
+    ["thinking_tokens", "Thinking tokens"],
+    ["total_tokens", "Total tokens"],
+  ]) {
+    if (st[key] != null) rows.push([label, text(st[key])]);
+  }
+  return rows;
 }
 
 /** Stats の大きな数字（入力 / 出力 / 読 / 書 / 費用 / ヒット率・計画 14 §1.3）。 */
@@ -397,17 +418,17 @@ function statsCells(totals) {
   const cost = t.cost && typeof t.cost === "object" ? t.cost : {};
   const denom = lvNum(t.cache_read) + lvNum(t.input);
   return [
-    { label: "入力", value: lvNum(t.input), kind: "tokens" },
-    { label: "出力", value: lvNum(t.output), kind: "tokens" },
-    { label: "キャッシュ読み", value: lvNum(t.cache_read), kind: "tokens" },
-    { label: "キャッシュ書き", value: lvNum(t.cache_write), kind: "tokens" },
+    { label: "Input", value: lvNum(t.input), kind: "tokens" },
+    { label: "Output", value: lvNum(t.output), kind: "tokens" },
+    { label: "Cache read", value: lvNum(t.cache_read), kind: "tokens" },
+    { label: "Cache write", value: lvNum(t.cache_write), kind: "tokens" },
     {
-      label: "費用",
+      label: "Cost",
       value: cost.total == null ? null : Number(cost.total),
       kind: "money",
     },
     {
-      label: "ヒット率",
+      label: "Hit rate",
       value: denom > 0 ? (lvNum(t.cache_read) / denom) * 100 : null,
       kind: "percent",
     },
@@ -423,7 +444,7 @@ function statsSeries(data, mode) {
   if (mode === "turn") {
     return [
       {
-        name: "ターンごとのヒット率",
+        name: "Hit rate per turn",
         color: "var(--series-1)",
         pct: true,
         values: line(msgs.map((m) => (m || {}).cache_hit_percent)),
@@ -433,7 +454,7 @@ function statsSeries(data, mode) {
   if (mode === "cumpct") {
     return [
       {
-        name: "累積ヒット率",
+        name: "Cumulative hit rate",
         color: "var(--series-2)",
         pct: true,
         values: line(cum.cum_hit_percent),
@@ -441,9 +462,9 @@ function statsSeries(data, mode) {
     ];
   }
   return [
-    { name: "入力", color: "var(--series-1)", pct: false, values: line(cum.cum_input) },
-    { name: "キャッシュ読み", color: "var(--series-2)", pct: false, values: line(cum.cum_cache_read) },
-    { name: "キャッシュ書き", color: "var(--series-3)", pct: false, values: line(cum.cum_cache_write) },
+    { name: "Input", color: "var(--series-1)", pct: false, values: line(cum.cum_input) },
+    { name: "Cache read", color: "var(--series-2)", pct: false, values: line(cum.cum_cache_read) },
+    { name: "Cache write", color: "var(--series-3)", pct: false, values: line(cum.cum_cache_write) },
   ];
 }
 
@@ -478,6 +499,7 @@ function waggleDirect(items) {
 let lvName = "";           // 開いているプロジェクト名
 let lvRunId = null;        // 選んでいる run（null＝未選択）
 let lvView = null;         // 今見ている表示（7 つのどれか）
+let lvSession = null;      // Stats の表示に出す session の数字（log の session_stats）
 let lvRun = null;          // 選んでいる run のツリーの行（label / lane / status）
 let lvTree = null;         // ツリー（GET …/tree の items・null＝未読）
 let lvTreeError = "";      // ツリーを読めなかったときの 1 行
@@ -703,9 +725,9 @@ function lvRenderActions() {
       }
       box.appendChild(note);
     } else {
-      add("▶ 実行", lvRunTodo);
+      add("▶ Run", lvRunTodo);
     }
-    add("⏰ 予約", lvSchedule, "ghost");
+    add("⏰ Schedule", lvSchedule, "ghost");
   } else {
     // review / done の run だけ review → done → Workflow の移動を出す（計画書 A の U10）
     const adv = advanceAction(lvTree, lvRunId);
@@ -713,7 +735,7 @@ function lvRenderActions() {
   }
   // 動いている run は消せない（pane が生きているため）
   if (!["running", "pending"].includes(String(lvRun.status || lvRun.lane || ""))) {
-    add("🗑 削除", lvDelete, "ghost");
+    add("🗑 Delete", lvDelete, "ghost");
   }
 }
 
@@ -731,7 +753,7 @@ async function lvSchedule() {
     body: "この時刻になると Mac の常駐が実行します。空にすると予約を取り消します。",
     value: current,
     placeholder: "例: 2026-10-01 09:00",
-    ok: "予約",
+    ok: "Schedule",
   });
   if (at === null) return;
   lvBusy = true;
@@ -760,9 +782,9 @@ async function lvDelete() {
   if (lvBusy || lvRunId == null) return;
   const label = (lvRun && lvRun.label) || `ID${lvRunId}`;
   const ok = await saiConfirm({
-    title: "削除",
+    title: "Delete",
     body: `${label} を消します。子の実行と成果物のフォルダも消え、元に戻せません。`,
-    ok: "削除",
+    ok: "Delete",
     danger: true,
   });
   if (!ok) return;
@@ -865,6 +887,11 @@ async function lvLoadContent(seq) {
         : `md/${lvView}`;
     const data = await lvFetchJson(`${base}/${part}`);
     if (seq !== lvSeq) return; // その間に別の表示を開いた
+    // Stats には session の数字（turn / tool / token）も出す。取れなくても Stats は出す
+    if (lvView === "stats") {
+      lvSession = await lvFetchJson(`${base}/view/log`).then((d) => d && d.session_stats, () => null);
+      if (seq !== lvSeq) return;
+    }
     window.SaiShell.ok();
     body.innerHTML = "";
     if (lvView === "log") lvRenderLog(data);
@@ -881,24 +908,13 @@ async function lvLoadContent(seq) {
   }
 }
 
-/**
- * つながりの行から run_id を取り出す（sai-link の `R9.10/ID56` 形式・block_log.rs:374）。
- * 「/ID<数字>」の最初の数字を返す。無ければ null（リンクにしない）。
- */
-function lvRunIdOfRef(value) {
-  const m = String(value == null ? "" : value).match(/\/ID(\d+)(?!\d)/);
-  if (!m) return null;
-  const id = parseInt(m[1], 10);
-  return Number.isFinite(id) ? id : null;
-}
-
 function lvCard(title) {
   const card = el("section", "lv-card");
   if (title) card.appendChild(el("h3", "lv-card-title", title));
   return card;
 }
 
-// 1. Log: 入力 / 設定 / 統計 / つながり / 出力トークン（計画 14 §1.3）
+// 1. Summary: Inputs / Settings / Connection / Outputs（計画 14 §1.3）
 function lvRenderLog(data) {
   const body = lvBody();
   const sections = logSections(data);
@@ -908,21 +924,22 @@ function lvRenderLog(data) {
   }
   for (const s of sections) {
     const card = lvCard(s.title);
-    for (const [label, value] of s.rows) {
+    for (const item of s.items || []) {
+      // Connection の 1 件: 押すとその run の同じ表示へ飛ぶ（U01）
+      const row = el("div", "lv-conn");
+      const btn = el("button", "lv-kv-link", item.head);
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        location.hash = listHash(lvName, item.runId, pickView(false, lvView || loadViewMemory()));
+      });
+      row.appendChild(btn);
+      if (item.sub) row.appendChild(el("div", "lv-conn-sub", item.sub));
+      card.appendChild(row);
+    }
+    for (const [label, value] of s.rows || []) {
       const row = el("div", "lv-kv");
       row.appendChild(el("span", "lv-kv-label", label));
-      // 「つながり」の行は /ID<数字> を含むとき、その run の List へ飛べるようにする（U01）
-      const linkId = s.title === "つながり" ? lvRunIdOfRef(value) : null;
-      if (linkId != null) {
-        const btn = el("button", "lv-kv-link", value);
-        btn.type = "button";
-        btn.addEventListener("click", () => {
-          location.hash = listHash(lvName, linkId, pickView(false, lvView || loadViewMemory()));
-        });
-        row.appendChild(btn);
-      } else {
-        row.appendChild(el("span", "lv-kv-value", value));
-      }
+      row.appendChild(el("span", "lv-kv-value", value));
       card.appendChild(row);
     }
     body.appendChild(card);
@@ -950,6 +967,18 @@ function lvRenderStats(data) {
   }
   body.appendChild(bigs);
 
+  const sessionRows = sessionStatRows(lvSession);
+  if (sessionRows.length > 0) {
+    const sess = lvCard("Session");
+    for (const [label, value] of sessionRows) {
+      const row = el("div", "lv-kv");
+      row.appendChild(el("span", "lv-kv-label", label));
+      row.appendChild(el("span", "lv-kv-value", value));
+      sess.appendChild(row);
+    }
+    body.appendChild(sess);
+  }
+
   const counts = data.counts || {};
   body.appendChild(
     el(
@@ -965,7 +994,7 @@ function lvRenderStats(data) {
   );
 
   // メッセージごとの推移グラフ（TUI の 1 / 2 / 3 と同じ 3 種・SVG 手描き）
-  const chart = lvCard("メッセージごとの推移");
+  const chart = lvCard("Per-message trend");
   const seg = el("div", "dash-seg small lv-chart-seg");
   for (const [key, label] of LV_CHARTS) {
     const b = document.createElement("button");
@@ -996,7 +1025,7 @@ function lvRenderStats(data) {
       // 色だけに頼らず、最後の値も文字で出す
       const last = s.values.length > 0 ? lvNum(s.values[s.values.length - 1]) : 0;
       row.appendChild(
-        el("span", "lv-leg-num", `最終 ${saiAxisValue(last, s.pct ? "percent" : "tokens")}`)
+        el("span", "lv-leg-num", `Last ${saiAxisValue(last, s.pct ? "percent" : "tokens")}`)
       );
       legend.appendChild(row);
     }
@@ -1006,14 +1035,14 @@ function lvRenderStats(data) {
 
   // メッセージごとの一覧（表は横にはみ出す分だけスクロール・計画 14 §1.4）
   const msgs = Array.isArray(data.messages) ? data.messages : [];
-  const tblCard = lvCard("メッセージごとの一覧");
+  const tblCard = lvCard("Per-message table");
   if (msgs.length === 0) {
     tblCard.appendChild(el("p", "st-note", "データがありません"));
   } else {
     const wrap = el("div", "lv-scroll-x");
     const table = el("table", "lv-table");
     const head = el("tr");
-    for (const h of ["#", "時刻", "入力", "出力", "読", "書", "ヒット", "費用"]) {
+    for (const h of ["#", "Time", "Input", "Output", "Read", "Write", "Hit", "Cost"]) {
       head.appendChild(el("th", null, h));
     }
     table.appendChild(head);
@@ -1051,7 +1080,7 @@ function lvLineSvg(series) {
     viewBox: `0 0 ${W} ${H}`,
     class: "lv-chart",
     role: "img",
-    "aria-label": "メッセージごとの推移グラフ。データがありません",
+    "aria-label": "Per-message trend chart. No data",
   });
   const all = series.flatMap((s) => s.values);
   if (all.length === 0) return svg;
@@ -1286,10 +1315,10 @@ function lvDrawMd() {
     ta.addEventListener("input", () => { lvDraft = ta.value; });
     body.appendChild(ta);
     const row = el("div", "lv-edit-row");
-    const save = el("button", "paper-btn", lvSaving ? "保存中…" : "保存");
+    const save = el("button", "paper-btn", lvSaving ? "保存中…" : "Save");
     save.disabled = lvSaving;
     save.addEventListener("click", () => void lvSaveMd());
-    const cancel = el("button", "paper-btn", "やめる");
+    const cancel = el("button", "paper-btn", "Cancel");
     cancel.disabled = lvSaving;
     cancel.addEventListener("click", () => {
       lvEditing = false;
@@ -1302,7 +1331,7 @@ function lvDrawMd() {
   }
   if (lvCanEdit(lvView, lvRun)) {
     const row = el("div", "lv-edit-row");
-    const edit = el("button", "paper-btn", lvMdText ? "編集" : "書く");
+    const edit = el("button", "paper-btn", lvMdText ? "Edit" : "書く");
     edit.addEventListener("click", () => {
       lvEditing = true;
       lvDraft = lvMdText || "";
@@ -1386,7 +1415,7 @@ async function lvLoadWaggle(seq) {
       body.innerHTML = "";
       const back = document.createElement("button");
       back.className = "lv-md-back";
-      back.textContent = "‹ 一覧";
+      back.textContent = "‹ List";
       back.addEventListener("click", () => {
         lvWaggleToken = null;
         // 住所にトークンがあるときは外す（開き直しで同じ文書に戻らないように）
@@ -1527,7 +1556,7 @@ function lvRenderDrawer() {
 // 狭い画面では引き出しの中、広い画面では左の列の一番上に出る。
 function lvSideHead() {
   const row = el("div", "lv-side-head");
-  row.appendChild(el("span", "lv-side-label", "実行"));
+  row.appendChild(el("span", "lv-side-label", "Run"));
   const add = el("button", "lv-side-btn", "＋");
   add.type = "button";
   add.setAttribute("aria-label", "タスクを作成");
@@ -1538,7 +1567,7 @@ function lvSideHead() {
   });
   const reload = el("button", "lv-side-btn", "↻");
   reload.type = "button";
-  reload.setAttribute("aria-label", "再読み込み");
+  reload.setAttribute("aria-label", "Reload");
   reload.title = "ツリーを読み直す";
   reload.addEventListener("click", () => { void lvReload(); });
   row.append(add, reload);
@@ -1717,7 +1746,8 @@ if (typeof module !== "undefined" && module.exports) {
     advanceAction,
     allFolderIds,
     logSections,
-    lvRunIdOfRef,
+    connectionItems,
+    sessionStatRows,
     statsCells,
     statsSeries,
     typeSlices,

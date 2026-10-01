@@ -30,9 +30,9 @@ const HM_PAPERS_MAX = 3;
 const HM_PAPERS_KEY = "sai_phone_papers_project";
 // 合計の期間（画面の切り替え・project.js の DASH_PERIODS と同じ並び）
 const HM_PERIODS = [
-  ["week", "今週"],
-  ["month", "今月"],
-  ["all", "全期間"],
+  ["week", "Week"],
+  ["month", "Month"],
+  ["all", "All time"],
 ];
 // 合計の期間を覚えておく場所（project.js は sessionStorage・ホームは localStorage）
 const HM_PERIOD_KEY = "sai_phone_home_period";
@@ -175,10 +175,10 @@ function hmOverviewCards(overview) {
   const o = overview || {};
   const s = o.summary || {};
   return [
-    { label: "実行", value: `${Number(s.executions) || 0} 回` },
-    { label: "成功率", value: `${Math.round((Number(s.success_rate) || 0) * 100)}%` },
-    { label: "トークン", value: hmTokens(s.tokens_total) },
-    { label: "料金", value: hmMoney(s.cost_usd) },
+    { label: "Runs", value: String(Number(s.executions) || 0) },
+    { label: "Success rate", value: `${Math.round((Number(s.success_rate) || 0) * 100)}%` },
+    { label: "Tokens", value: hmTokens(s.tokens_total) },
+    { label: "Cost", value: hmMoney(s.cost_usd) },
   ];
 }
 
@@ -202,8 +202,10 @@ function hmTodoItems(data) {
     for (const r of Array.isArray(p.todo_runs) ? p.todo_runs : []) {
       const runId = r && r.run_id;
       if (runId == null) continue;
+      const lines = saiTodoLines(r);
       const item = {
-        title: (r && r.label) || `ID${runId}`,
+        title: lines.head,
+        sub: lines.desc,
         where: name,
         hash: `#/project/${encodeURIComponent(name)}/list/${encodeURIComponent(runId)}/task`,
       };
@@ -278,7 +280,7 @@ function hmSections(data) {
   // 1) 質問がある会話（質問と承認を 1 枚のカードにまとめる・画面は 0 件でも出す）
   const wait = hmWaitItems(d);
   if (wait.length > 0) {
-    out.push({ key: "wait", title: "質問がある会話", count: wait.length, items: wait });
+    out.push({ key: "wait", title: "Questions", count: wait.length, items: wait });
   }
 
   // 3) 動いています（実行中のプロジェクト）
@@ -523,7 +525,7 @@ function hmMoreButton(count, onClick) {
 
 /** 2. 質問がある会話のカード（0 件でも出す）。 */
 function hmWaitCard(section) {
-  const card = hmCard("質問がある会話");
+  const card = hmCard("Questions");
   const items = section ? section.items : [];
   if (items.length === 0) {
     card.appendChild(hmNote("今、答えを待っている会話はありません"));
@@ -543,7 +545,7 @@ function hmTodoCard() {
   }
   const shown = hmShowAll.todo ? items : items.slice(0, HM_TODO_MAX);
   for (const item of shown) {
-    card.appendChild(hmRow(item.title, "", "", () => { location.hash = item.hash; }, item.where));
+    card.appendChild(hmRow(item.title, item.sub, "", () => { location.hash = item.hash; }, item.where));
   }
   if (items.length > shown.length) {
     card.appendChild(hmMoreButton(items.length, () => { hmShowAll.todo = true; hmRender(); }));
@@ -555,7 +557,7 @@ function hmTodoCard() {
 function hmScheduledCard() {
   const items = hmScheduledItems(hmData);
   if (items.length === 0) return null;
-  const card = hmCard("予約した todo");
+  const card = hmCard("Scheduled todo");
   for (const item of items) {
     card.appendChild(hmRow(item.title, `${item.scheduledAt} に実行`, "", () => { location.hash = item.hash; }, item.where));
   }
@@ -565,7 +567,7 @@ function hmScheduledCard() {
 /** 4. 最近のアクティビティのカード（0 件でも出す）。 */
 function hmRecentCard() {
   const items = hmRecentItems(hmOverview);
-  const card = hmCard("最近のアクティビティ");
+  const card = hmCard("Recent activity");
   if (items.length === 0) {
     card.appendChild(hmNote("最近の実行はありません"));
     return card;
@@ -587,7 +589,7 @@ function hmRender() {
   root.innerHTML = "";
 
   const bar = hmEl("header", "appbar");
-  bar.appendChild(hmEl("h1", null, "ホーム"));
+  bar.appendChild(hmEl("h1", null, "Home"));
   root.appendChild(bar);
 
   if (hmError) {

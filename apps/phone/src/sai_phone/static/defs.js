@@ -242,16 +242,16 @@ function dfBuild() {
   back.textContent = "‹";
   if (editing) {
     // 編集の画面は今のまま（一覧へ戻る・切り替えは出さない）
-    back.setAttribute("aria-label", "一覧へ戻る");
+    back.setAttribute("aria-label", "Back to list");
     back.addEventListener("click", () => dfLeave(dfListHash(dfName)));
   } else {
     // 一覧の画面は 4 画面共通の見出し（‹ プロジェクト名 切り替え・U01 §3）
-    back.setAttribute("aria-label", "プロジェクト一覧へ戻る");
+    back.setAttribute("aria-label", "Back to projects");
     back.addEventListener("click", () => { location.hash = "#/projects"; });
   }
   const h1 = document.createElement("h1");
   h1.className = editing ? "df-title" : "proj-title";
-  h1.textContent = editing ? "設定" : dfName;
+  h1.textContent = editing ? "Settings" : dfName;
   bar.append(back, h1);
   if (!editing) {
     // 切り替えは 4 画面の共有の見出しの中に置く（下の段には出さない）
@@ -396,7 +396,7 @@ function dfRenderEdit() {
   back.className = "df-back";
   back.type = "button";
   back.textContent = "‹";
-  back.setAttribute("aria-label", "一覧へ戻る");
+  back.setAttribute("aria-label", "Back to list");
   back.addEventListener("click", () => dfLeave(dfListHash(dfName)));
   const h1 = document.createElement("h1");
   h1.className = "df-title";
@@ -441,7 +441,7 @@ function dfRenderEdit() {
   if (!wide) {
     const seg = document.createElement("div");
     seg.className = "dash-seg df-seg";
-    for (const [key, label] of [["edit", "編集"], ["preview", "プレビュー"]]) {
+    for (const [key, label] of [["edit", "Edit"], ["preview", "プレビュー"]]) {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = label;
@@ -457,7 +457,7 @@ function dfRenderEdit() {
   const save = document.createElement("button");
   save.className = "sai-btn primary";
   save.type = "button";
-  save.textContent = "保存";
+  save.textContent = "Save";
   save.disabled = dfBusy;
   save.addEventListener("click", () => void dfSave());
   tools.appendChild(save);
@@ -465,7 +465,7 @@ function dfRenderEdit() {
     const del = document.createElement("button");
     del.className = "sai-btn danger";
     del.type = "button";
-    del.textContent = "削除";
+    del.textContent = "Delete";
     del.disabled = dfBusy;
     del.addEventListener("click", () => void dfDelete());
     tools.appendChild(del);
@@ -770,12 +770,12 @@ function dfOpenCreate() {
   const cancel = document.createElement("button");
   cancel.className = "sai-btn ghost";
   cancel.type = "button";
-  cancel.textContent = "やめる";
+  cancel.textContent = "Cancel";
   cancel.addEventListener("click", () => sheet.close());
   const make = document.createElement("button");
   make.className = "sai-btn primary";
   make.type = "button";
-  make.textContent = "作る";
+  make.textContent = "Create";
   make.addEventListener("click", () => void dfCreate(state, err, make, sheet));
   row.append(cancel, make);
   body.appendChild(row);

@@ -665,6 +665,23 @@ fn todo_scheduled_at(run_id: i64) -> Option<String> {
     scheduled_at_of(&std::fs::read_to_string(task).ok()?)
 }
 
+/// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）の frontmatter から、
+/// 一覧に出す項目だけを取り出す。読めないときは `None`。
+fn todo_card_meta(run_id: i64) -> Option<Value> {
+    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
+        .join(sai_link_engine::run_dir::TODO_OWNER)
+        .join(run_id.to_string())
+        .join(sai_link_engine::run_dir::TASK_FILE);
+    let fm = sai_link_engine::kanban::parse_card(&std::fs::read_to_string(task).ok()?)?.frontmatter;
+    Some(json!({
+        "creation_date": fm.creation_date,
+        "block": fm.block,
+        "runner": fm.runner,
+        "model": fm.model,
+        "description": fm.description,
+    }))
+}
+
 /// task.md の本文から予約時刻を取り出す（`parse_scheduled_at` で読める値だけ）。
 fn scheduled_at_of(text: &str) -> Option<String> {
     let card = sai_link_engine::kanban::parse_card(text)?;
@@ -742,6 +759,10 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                 if it.lane.as_deref() == Some("todo") {
                     if let Some(at) = todo_scheduled_at(run_id) {
                         val["scheduled_at"] = json!(at);
+                    }
+                    // todo の一覧に出す task.md の項目（作成日・block・runner・model・説明）
+                    if let Some(meta) = todo_card_meta(run_id) {
+                        val["card"] = meta;
                     }
                 }
                 attach(&mut stack, &mut roots, val);

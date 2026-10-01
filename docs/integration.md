@@ -123,7 +123,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 - 質問・承認は `store.list_open_questions` / `store.list_open_approvals` から作る。
   `project` / `run_id` は `runs.load_runs` の中で `run_session_ids` に `session_id` を含む実行を探して付ける（無ければ `null`）。
 - プロジェクトの `review` / `todo` は `sai-moon-link phone tree` の `review` / `todo` フォルダを数える。論文の要対応は `sai-moon-paper attention --json` の件数と先頭 3 件。
-- プロジェクトの `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。画面は `todo_runs` の行を押せるようにする。実行予約した todo の行には `scheduled_at`（`YYYY-MM-DD HH:MM`・`phone tree` の run ノードの追加項目）が付く。画面はこれがある行だけを「予約した todo」に並べる。`review` はホームには出さない（API には残す）。
+- プロジェクトの `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。画面は `todo_runs` の行を押せるようにする。todo の行には `card`（`creation_date`・`block`・`runner`・`model`・`description`）が付く（`phone tree` の run ノードの追加項目。画面は「作成日 ID block runner model」と説明の 2 行で出す）。実行予約した todo の行には `scheduled_at`（`YYYY-MM-DD HH:MM`・`phone tree` の run ノードの追加項目）が付く。画面はこれがある行だけを「予約した todo」に並べる。`review` はホームには出さない（API には残す）。
 - 各プロジェクトは `ThreadPoolExecutor(max_workers=4)` で並べる。1 つが失敗しても全体は止めず `errors` に「<名前>: <理由>」を足す。
 - 結果は 10 秒だけ覚える（`home.forget()` で消す）。
 

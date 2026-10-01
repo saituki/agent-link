@@ -33,11 +33,11 @@ const PIM_MD_PEEK_LINES = 8;
 const PIM_UPLOAD_MAX = 100 * 1024 * 1024;
 // 仕事の種類 → 画面に出す表示名（U05 §6。知らない種類は空文字）
 const PIM_JOB_KINDS = {
-  download: "ダウンロード",
-  manual: "手動取り込み",
-  "cite-extract": "引用抽出",
-  radio: "音声化",
-  translate: "要旨の訳",
+  download: "Download",
+  manual: "Manual import",
+  "cite-extract": "Citations",
+  radio: "Audio",
+  translate: "Abstract translation",
 };
 // 要対応の種類 → [札の文章, 札の色, 1 行の説明]
 const PIM_ATTENTION_KINDS = {
@@ -707,12 +707,12 @@ function pimOpenEntrySheet(entry) {
   const go = document.createElement("button");
   go.type = "button";
   go.className = "sai-btn primary";
-  go.textContent = "⬇ ダウンロード";
+  go.textContent = "⬇ Download";
   go.addEventListener("click", () => {
     sheet.close();
     void pimStartDownload(
       pimProjectName(),
-      { import_id: e.id, title: e.title || "論文" },
+      { import_id: e.id, title: e.title || "Papers" },
       pimImportKey(e.id)
     );
   });
@@ -812,7 +812,7 @@ async function pimStartDownload(projectName, payload, key) {
     pimRetry.set(jobKey, payload);
     pimUpsertJob({
       key: jobKey,
-      title: (payload && payload.title) || "論文",
+      title: (payload && payload.title) || "Papers",
       status: "downloading",
       paper_id: null,
       error: null,
@@ -913,7 +913,7 @@ function pimJobBlock(job, doi) {
         void pimOpenManual({
           name: pimProjectName() || pimJobsName,
           target,
-          title: job.title || "論文",
+          title: job.title || "Papers",
         });
       });
       wrap.appendChild(manual);
@@ -1087,7 +1087,7 @@ async function pimOpenManual(opts) {
       } else {
         await saiApi(`${pimApiBase(name)}/manual/import`, {
           method: "POST",
-          body: { ...(target || {}), title: o.title || "論文", file_name: state.chosen },
+          body: { ...(target || {}), title: o.title || "Papers", file_name: state.chosen },
         });
       }
       sheet.close();

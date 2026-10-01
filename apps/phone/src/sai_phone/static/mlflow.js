@@ -559,9 +559,9 @@ function mlfBuild() {
   const back = saiEl("button", "", "‹");
   back.type = "button";
   back.id = "mlf-back";
-  back.setAttribute("aria-label", "戻る");
+  back.setAttribute("aria-label", "Back");
   back.addEventListener("click", () => void mlfGoBack());
-  const title = saiEl("h1", "", "実験");
+  const title = saiEl("h1", "", "Experiments");
   title.id = "mlf-title";
   const reload = saiEl("button", "", "↻");
   reload.type = "button";
@@ -598,8 +598,8 @@ function mlfIsWideNow() {
 function mlfSyncBar(title) {
   const head = document.getElementById("mlf-title");
   const back = document.getElementById("mlf-back");
-  if (head) head.textContent = title || "実験";
-  if (back) back.hidden = !title || title === "実験";
+  if (head) head.textContent = title || "Experiments";
+  if (back) back.hidden = !title || title === "Experiments";
 }
 
 // ============================================================================
@@ -720,7 +720,7 @@ function mlfRenderExperiments() {
     body.classList.add("mlf-solo");
     saiSplitShow(body, "list");
   }
-  mlfSyncBar("実験");
+  mlfSyncBar("Experiments");
 
   if (mlfExperimentsError) {
     box.appendChild(saiEmpty({ icon: "⚠", title: "実験の一覧を読めませんでした", body: mlfExperimentsError }));
@@ -1303,7 +1303,7 @@ function mlfRenderRun() {
 
   const kv = saiEl("div", "mlf-kv");
   kv.append(
-    mlfKvRow("実験", info.experiment_id != null ? String(info.experiment_id) : ""),
+    mlfKvRow("Experiments", info.experiment_id != null ? String(info.experiment_id) : ""),
     mlfKvRow("run ID", info.run_id || ""),
     mlfKvRow("開始", mlfTimeText(info.start_time)),
     mlfKvRow("終了", mlfTimeText(info.end_time)),
