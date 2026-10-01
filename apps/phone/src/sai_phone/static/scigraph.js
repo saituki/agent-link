@@ -862,6 +862,15 @@ function sgFit() {
   const rects = [...sgRects.values(), ...sgExtraRects].map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height }));
   if (typeof cvFitView === "function") {
     sgView = cvFitView(rects, w, h);
+    // 札が多い樹は、共通の下限（0.1）では全体が入らず左右が切れる。入りきるまで下限を下げる
+    const xs = rects.flatMap((r) => [r.x, r.x + r.width]);
+    const ys = rects.flatMap((r) => [r.y, r.y + r.height]);
+    const bw = Math.max(1, Math.max(...xs) - Math.min(...xs));
+    const bh = Math.max(1, Math.max(...ys) - Math.min(...ys));
+    const z = Math.max(0.02, Math.min(sgView.z, (w - 80) / bw, (h - 80) / bh));
+    if (z < sgView.z) {
+      sgView = { tx: (w - bw * z) / 2 - Math.min(...xs) * z, ty: (h - bh * z) / 2 - Math.min(...ys) * z, z };
+    }
   } else {
     // cvFitView が無いときは、等倍の左上を起点にする
     sgView = { tx: 0, ty: 0, z: 1 };

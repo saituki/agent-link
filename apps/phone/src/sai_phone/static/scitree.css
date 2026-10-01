@@ -104,6 +104,15 @@
     max-width: 420px;
     border-left: 1px solid var(--line);
   }
+  /* ページ全体がスクロールしても、一覧・図・板が画面の高さに収まって付いてくる */
+  .sci-body .sci-list,
+  .sci-body .sci-graph-box,
+  .sci-body .sci-board {
+    position: sticky;
+    top: 60px;
+    align-self: flex-start;
+    max-height: calc(100vh - 70px);
+  }
 }
 
 /* --- 上の帯（種の文・関門・負債） --- */
@@ -503,6 +512,8 @@ button.sci-debt {
 }
 
 .sci-runs-sheet { display: flex; flex-direction: column; gap: 8px; }
+/* 縦に並べる箱では flex-basis（180px）が高さになるので、中身の高さに戻す */
+.sci-runs-sheet .sci-line-main { flex: 0 0 auto; }
 
 /* --- 実行の見出しの下に出る「実験の記録」（U08。app.js が #run-desc の後ろに作る） --- */
 
