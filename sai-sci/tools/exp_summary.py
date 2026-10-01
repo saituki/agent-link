@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""1 つの研究の MLflow の記録から、レビューの判定材料を計算する台帳。
+"""1 つの sprout の MLflow の記録から、レビューの判定材料を計算する台帳。
 
-呼び方（共有契約 C2）:
-    uv run --no-project --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
-        --study <study> --metric <名前> --direction maximize|minimize \
-        [--min-delta 0.0001] [--leak-max 0.999] [--leak-min 1e-6] \
-        [--experiment <名前>] [--tracking-uri <URI>]
+記録の形: branch 1 つ = experiment（`<project>/ID<sprout>/<model>`）の中の平らな run の列。
+run のタグ `sai.run_id` が branch の run_id。親 run も `exp.generation` も無い。
+
+呼び方:
+    uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
+        --sprout <sprout の run_id> --metric <名前> --direction maximize|minimize \
+        [--branch <branch の run_id>] [--min-delta 0.0001] [--leak-max 0.999] [--leak-min 1e-6] \
+        [--tracking-uri <URI>]
 
 接続先は --tracking-uri か、環境変数 MLFLOW_TRACKING_URI の順で決める。
 どちらも無ければ終了コード 2 で終える。
@@ -21,31 +24,23 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass, field
 
 # mlflow の案内メッセージが標準出力に混ざらないようにする。
 # mlflow を import する前に設定する。
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 WARNING_PREFIX = "警告: "
-# 親 run（1 回のスクリプトの実行）に付くタグ `exp.role` の値。
-SCRIPT_ROLE = "script"
-# 入れ子の子 run（パラメータの組 1 つ）に付くタグ `exp.role` の値。
-TRIAL_ROLE = "trial"
-# 成功とみなす run の状態（C1）。
+# 成功とみなす run の状態。
 SUCCESS_STATUS = "FINISHED"
-
-
-def _warning(message: str) -> None:
-    print(WARNING_PREFIX + message, file=sys.stderr)
+FAILED_STATUS = "FAILED"
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="exp_summary.py",
-        description="MLflow に記録された 1 つの研究の台帳を計算する。",
+        description="MLflow に記録された 1 つの sprout の台帳を計算する。",
     )
-    parser.add_argument("--study", required=True, help="研究の ID（タグ exp.study）")
+    parser.add_argument("--sprout", required=True, help="sprout の run_id（experiment のタグ sai.sprout_run_id）")
     parser.add_argument("--metric", required=True, help="指標の名前")
     parser.add_argument(
         "--direction",
@@ -53,215 +48,65 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         choices=["maximize", "minimize"],
         help="よい値の方向（maximize は大きいほどよい）",
     )
+    parser.add_argument("--branch", type=int, default=None, help="要約を target に出す branch の run_id")
     parser.add_argument(
         "--min-delta", type=float, default=0.0001, help="改善とみなす最小の差（既定 0.0001）"
     )
     parser.add_argument(
-        "--leak-max",
-        type=float,
-        default=0.999,
-        help="maximize のとき、この値以上なら漏洩の疑い（既定 0.999）",
+        "--leak-max", type=float, default=0.999, help="maximize のとき、この値以上なら漏洩の疑い（既定 0.999）"
     )
     parser.add_argument(
-        "--leak-min",
-        type=float,
-        default=1e-6,
-        help="minimize のとき、この値以下なら漏洩の疑い（既定 1e-6）",
-    )
-    parser.add_argument(
-        "--experiment", default=None, help="探す experiment（無ければ全 experiment）"
+        "--leak-min", type=float, default=1e-6, help="minimize のとき、この値以下なら漏洩の疑い（既定 1e-6）"
     )
     parser.add_argument("--tracking-uri", default=None, help="mlflow の接続先")
     return parser.parse_args(argv)
 
 
-@dataclass
-class Trial:
-    """試行（`exp.role=trial` の run）1 つ。"""
+class Run:
+    """run 1 つ（branch の試行）。"""
 
-    script: str
-    round: int
-    run_id: str
-    start_time: int
-    status: str
-    value: float | None
-    params: dict[str, str] = field(default_factory=dict)
+    def __init__(self, run, experiment, metric_name: str, branch: int, warn) -> None:
+        tags = run.data.tags or {}
+        self.run_id = run.info.run_id
+        self.name = run.info.run_name or ""
+        self.start_time = run.info.start_time or 0
+        self.status = str(getattr(run.info.status, "value", run.info.status))
+        self.params = dict(run.data.params or {})
+        self.branch = branch
+        self.experiment = experiment.name
+        self.action = tags.get("exp.action", "")
+        self.parent_branch = tags.get("exp.parent_branch", "")
+        self.value: float | None = None
+        recorded = run.data.metrics.get(metric_name)
+        if recorded is not None:
+            # mlflow 3 の run.data.metrics は値（float）で、2.x は Metric オブジェクト。
+            try:
+                self.value = float(getattr(recorded, "value", recorded))
+            except (TypeError, ValueError):
+                warn(f"指標 {metric_name} が数値でないので無視します: run_id={self.run_id}")
 
     @property
     def ok(self) -> bool:
-        """成功した試行か。"""
         return self.status == SUCCESS_STATUS and self.value is not None
 
 
-@dataclass
-class Parent:
-    """親 run（`exp.role=script` の run）1 つ。"""
-
-    script: str
-    round: int
-    action: str
-    parent_script: str
-    run_id: str
-    start_time: int
-
-
-def _status_text(status) -> str:
-    """run の状態を文字列にする。"""
-    return str(getattr(status, "value", status))
-
-
-def _tag(run, key: str) -> str:
-    return (run.data.tags or {}).get(key, "")
-
-
-def _round_of(run) -> int | None:
-    """run の世代を整数にする。読めなければ None。
-
-    `exp.generation` があればそれを、無ければ `exp.round` を使う（C6）。
-    """
-    for key in ("exp.generation", "exp.round"):
-        try:
-            return int(_tag(run, key))
-        except (TypeError, ValueError):
-            continue
-    return None
-
-
-def _quote_filter_value(value: str) -> str:
-    """mlflow の検索条件の中で使う文字列を引用する。"""
+def _quote(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace("'", "\\'")
     return f"'{escaped}'"
 
 
-def _list_runs(client, experiment_id: str, filter_string: str) -> list:
-    """1 つの experiment の run を、ページ送りで全部取り出す。"""
-    runs = []
-    page_token = None
+def _pages(fetch):
+    """mlflow の検索をページ送りで全部取り出す。fetch(page_token) -> PagedList。"""
+    token = None
     while True:
-        page = client.search_runs(
-            [experiment_id],
-            filter_string=filter_string,
-            run_view_type=_view_type_all(),
-            max_results=1000,
-            page_token=page_token,
-        )
-        runs.extend(page)
-        page_token = page.token
-        if not page_token:
-            return runs
+        page = fetch(token)
+        yield from page
+        token = page.token
+        if not token:
+            return
 
 
-def _view_type_all():
-    from mlflow.entities import ViewType
-
-    return ViewType.ALL
-
-
-def _experiment_ids(client, experiment: str | None) -> list[str]:
-    """探す experiment の ID を並べる。experiment 名が無いなら全部。"""
-    if experiment is not None:
-        found = client.get_experiment_by_name(experiment)
-        return [found.experiment_id] if found is not None else []
-    page_token = None
-    ids: list[str] = []
-    while True:
-        page = client.search_experiments(
-            view_type=_view_type_all(), max_results=1000, page_token=page_token
-        )
-        ids.extend(page.experiment_id for page in page)
-        page_token = page.token
-        if not page_token:
-            return ids
-
-
-def _collect(client, study: str, metric_name: str, experiment: str | None):
-    """study の run を取り、親 run と試行に分けて返す。"""
-    filter_string = f"tags.`exp.study` = {_quote_filter_value(study)}"
-    parents: list[Parent] = []
-    trials: list[Trial] = []
-    for experiment_id in _experiment_ids(client, experiment):
-        for run in _list_runs(client, experiment_id, filter_string):
-            role = _tag(run, "exp.role")
-            if role not in (SCRIPT_ROLE, TRIAL_ROLE):
-                continue
-            round_no = _round_of(run)
-            script = _tag(run, "exp.script")
-            if round_no is None or not script:
-                _warning(
-                    "exp.generation（または exp.round）か exp.script が無いので数えません: "
-                    f"run_id={run.info.run_id}"
-                )
-                continue
-            if role == SCRIPT_ROLE:
-                parents.append(
-                    Parent(
-                        script=script,
-                        round=round_no,
-                        action=_tag(run, "exp.action"),
-                        parent_script=_tag(run, "exp.parent_script"),
-                        run_id=run.info.run_id,
-                        start_time=run.info.start_time or 0,
-                    )
-                )
-                continue
-            recorded = run.data.metrics.get(metric_name)
-            value = None
-            if recorded is not None:
-                # mlflow 3 の run.data.metrics は値（float）で、2.x は Metric オブジェクト。
-                raw = getattr(recorded, "value", recorded)
-                try:
-                    value = float(raw)
-                except (TypeError, ValueError):
-                    _warning(
-                        f"指標 {metric_name} が数値でないので無視します: "
-                        f"run_id={run.info.run_id}"
-                    )
-            trials.append(
-                Trial(
-                    script=script,
-                    round=round_no,
-                    run_id=run.info.run_id,
-                    start_time=run.info.start_time or 0,
-                    status=_status_text(run.info.status),
-                    value=value,
-                    params=dict(run.data.params or {}),
-                )
-            )
-    # 新しい round から順に、同じ値のものを安定した順に見られるようにする。
-    trials.sort(key=lambda t: (t.round, t.start_time, t.run_id))
-    parents.sort(key=lambda p: (p.round, p.start_time, p.run_id))
-    return parents, trials
-
-
-def _pick_parents(parents: list[Parent]) -> list[Parent]:
-    """(round, script) ごとに親 run を 1 つだけ選ぶ。同じ組が 2 つ以上あれば新しいほう。
-
-    同じ round でも script が違う親は全部残す（C6）。
-    """
-    chosen: list[Parent] = []
-    for round_no in sorted({p.round for p in parents}):
-        for script in _round_scripts(parents, round_no):
-            same = [p for p in parents if p.round == round_no and p.script == script]
-            if len(same) > 1:
-                _warning(
-                    f"round {round_no} の script {script} の親 run が {len(same)} つあるので、"
-                    f"開始時刻が新しい {same[-1].run_id} を採ります"
-                )
-            chosen.append(same[-1])
-    return chosen
-
-
-def _round_scripts(parents: list[Parent], round_no: int) -> list[str]:
-    """その round にある script を、親の記録が残っている順に並べる。"""
-    seen: list[str] = []
-    for parent in parents:
-        if parent.round == round_no and parent.script not in seen:
-            seen.append(parent.script)
-    return seen
-
-
-def _better(value: float | None, other: float | None, direction: str) -> bool:
-    """value のほうが other より「よい」か。"""
+def _better(value, other, direction: str) -> bool:
     if value is None:
         return False
     if other is None:
@@ -269,256 +114,203 @@ def _better(value: float | None, other: float | None, direction: str) -> bool:
     return value > other if direction == "maximize" else value < other
 
 
-def _improved(value: float | None, other: float | None, direction: str, min_delta: float) -> bool:
-    """value のほうが other より min_delta を超えてよいか。"""
+def _improved(value, other, direction: str, min_delta: float) -> bool:
+    """value のほうが other より min_delta を超えてよいか（other が無ければ value があれば真）。"""
     if not _better(value, other, direction):
         return False
     if other is None:
         return True
-    delta = (value - other) if direction == "maximize" else (other - value)
-    return delta > min_delta
+    return abs(value - other) > min_delta
 
 
-def _best_of(trials: list[Trial], direction: str) -> Trial | None:
-    """成功した試行の中の最良（同じ値なら先に現れたもの）。"""
-    best: Trial | None = None
-    for trial in trials:
-        if not trial.ok:
-            continue
-        if _better(trial.value, best.value if best else None, direction):
-            best = trial
+def _best_of(runs: list[Run], direction: str) -> Run | None:
+    """成功した run の中の最良（同じ値なら先に現れたもの）。"""
+    best = None
+    for run in runs:
+        if run.ok and _better(run.value, best.value if best else None, direction):
+            best = run
     return best
 
 
-def _trailing_rounds(rounds: list[int], improved: dict[int, bool]) -> int:
-    """新しい方から、改善しなかった round が何回続いているか。"""
-    count = 0
-    for round_no in sorted(rounds, reverse=True):
-        if improved.get(round_no, False):
-            return count
-        count += 1
-    return count
-
-
-def _action_of(parents: list[Parent], round_no: int, script: str) -> str:
-    """その世代・その script の親 run の `exp.action`。親が無くければ空文字。"""
-    for parent in parents:
-        if parent.round == round_no and parent.script == script:
-            return parent.action
-    return ""
-
-
-def _generation_script(
-    parents: list[Parent], trials: list[Trial], direction: str, round_no: int
-) -> str:
-    """その世代で最良の試行を出した script を返す。
-
-    成功した試行が無く、記録された script も無いときは、最初の親 run の script を返す。
-    """
-    best = _best_of([t for t in trials if t.round == round_no], direction)
-    scripts = _round_scripts(parents, round_no)
-    if best is not None and best.script in scripts:
-        return best.script
-    return scripts[0]
-
-
-def _round_entries(parents: list[Parent], trials: list[Trial], direction: str, min_delta: float) -> list[dict]:
-    """rounds の欄を作る。世代（round）ごとに 1 行。best_so_far は round 1 から見た累積の最良。"""
-    entries = []
-    best_so_far: float | None = None
-    ok_trials = [t for t in trials if t.ok]
-    for round_no in sorted({p.round for p in parents}):
-        in_round = [t for t in trials if t.round == round_no]
-        cumulative = _best_of([t for t in ok_trials if t.round <= round_no], direction)
-        improved = _improved(
-            cumulative.value if cumulative else None, best_so_far, direction, min_delta
-        )
-        if cumulative is not None:
-            best_so_far = cumulative.value
-        script = _generation_script(parents, trials, direction, round_no)
-        entries.append(
-            {
-                "round": round_no,
-                "script": script,
-                "action": _action_of(parents, round_no, script),
-                "scripts": _round_scripts(parents, round_no),
-                "trials": len(in_round),
-                "failed": sum(1 for t in in_round if not t.ok),
-                "best_so_far": best_so_far,
-                "improved": improved,
-            }
-        )
-    return entries
-
-
-def _debug_rounds(parents: list[Parent], script: str) -> int:
-    """そのスクリプトの round を新しい順に見て、debug が何回続いているか。"""
-    rounds = sorted((p.round for p in parents if p.script == script), reverse=True)
-    actions = {p.round: p.action for p in parents if p.script == script}
-    count = 0
-    for round_no in rounds:
-        if actions[round_no] == "debug":
-            count += 1
-        else:
-            break
-    return count
-
-
-def _stale_rounds(trials: list[Trial], rounds: list[int], direction: str, min_delta: float) -> int:
-    """そのスクリプトの round を新しい順に見て、
-    スクリプト自身の最良を min_delta を超えて更新しなかった round が何回続いているか。"""
-    improved: dict[int, bool] = {}
-    previous: float | None = None
-    for round_no in sorted(rounds):
-        own = _best_of([t for t in trials if t.round <= round_no], direction)
-        improved[round_no] = _improved(
-            own.value if own else None, previous, direction, min_delta
-        )
-        if own is not None:
-            previous = own.value
-    return _trailing_rounds(rounds, improved)
-
-
-def _param_edges(script: str, trials: list[Trial], direction: str) -> list[dict]:
-    """最良の試行の値が、そのスクリプトの試行の中で最小か最大だったパラメータ。"""
-    best = _best_of(trials, direction)
+def _param_edges(runs: list[Run], direction: str) -> list[dict]:
+    """最良の run の値が、その branch で試した値の最小か最大だったパラメータ（2 種類以上試したものだけ）。"""
+    best = _best_of(runs, direction)
     if best is None:
         return []
     edges = []
     for name in sorted(best.params):
+        tried = set()
+        for run in runs:
+            try:
+                tried.add(float(run.params[name]))
+            except (KeyError, TypeError, ValueError):
+                continue  # 無い・数値でない値は数えない
         try:
             value = float(best.params[name])
         except (TypeError, ValueError):
-            continue  # 数値でないパラメータは出さない
-        tried = set()
-        for trial in trials:
-            raw = trial.params.get(name)
-            if raw is None:
-                continue
-            try:
-                tried.add(float(raw))
-            except (TypeError, ValueError):
-                continue
-        if len(tried) < 2:
-            continue  # 2 種類以上の値が試されていないパラメータは出さない
-        if value == max(tried):
-            side = "max"
-        elif value == min(tried):
-            side = "min"
-        else:
             continue
-        edges.append({"script": script, "param": name, "side": side})
+        if len(tried) < 2:
+            continue
+        if value == max(tried):
+            edges.append({"param": name, "side": "max"})
+        elif value == min(tried):
+            edges.append({"param": name, "side": "min"})
     return edges
-
-
-def _script_entries(parents: list[Parent], trials: list[Trial], direction: str, min_delta: float) -> list[dict]:
-    """scripts の欄を作る（round の小さい順に並べる）。"""
-    entries = []
-    for script in sorted({p.script for p in parents}):
-        own_parents = sorted(
-            (p for p in parents if p.script == script), key=lambda p: (p.round, p.start_time)
-        )
-        own_trials = [t for t in trials if t.script == script]
-        rounds = [p.round for p in own_parents]
-        best = _best_of(own_trials, direction)
-        entries.append(
-            {
-                "script": script,
-                "action_first": own_parents[0].action,
-                "parent_script": own_parents[0].parent_script,
-                "rounds": rounds,
-                "trials": len(own_trials),
-                "failed": sum(1 for t in own_trials if not t.ok),
-                "best": best.value if best else None,
-                "best_params": dict(best.params) if best else None,
-                "stale_rounds": _stale_rounds(own_trials, rounds, direction, min_delta),
-                "debug_rounds": _debug_rounds(parents, script),
-            }
-        )
-    return entries
-
-
-def _best_entry(trials: list[Trial], direction: str) -> dict | None:
-    """best の欄。成功した試行が 0 件なら None。"""
-    best = _best_of(trials, direction)
-    if best is None:
-        return None
-    return {
-        "script": best.script,
-        "round": best.round,
-        "run_id": best.run_id,
-        "value": best.value,
-        "params": dict(best.params),
-    }
-
-
-def _last_entry(parents: list[Parent], trials: list[Trial], direction: str) -> dict | None:
-    """いちばん大きい世代（round）の内容。世代が無ければ None。
-
-    trials と failed はその世代にある全部の合計なので、
-    「最後の世代は全部失敗」を trials > 0 かつ failed == trials で判定できる。
-    """
-    if not parents:
-        return None
-    round_no = max(p.round for p in parents)
-    in_round = [t for t in trials if t.round == round_no]
-    script = _generation_script(parents, trials, direction, round_no)
-    return {
-        "round": round_no,
-        "script": script,
-        "action": _action_of(parents, round_no, script),
-        "scripts": _round_scripts(parents, round_no),
-        "trials": len(in_round),
-        "failed": sum(1 for t in in_round if not t.ok),
-    }
 
 
 def build_summary(
     tracking_uri: str,
-    study: str,
+    sprout: str,
     metric: str,
     direction: str,
+    branch: int | None = None,
     min_delta: float = 0.0001,
     leak_max: float = 0.999,
     leak_min: float = 1e-6,
-    experiment: str | None = None,
 ) -> dict:
     """mlflow の記録を呼んで、台帳の JSON 相当の dict を作る。"""
+    from mlflow.entities import ViewType
     from mlflow.tracking import MlflowClient
 
-    client = MlflowClient(tracking_uri=tracking_uri)
-    parents, trials = _collect(client, study, metric, experiment)
-    parents = _pick_parents(parents)
+    warnings: list[str] = []
 
+    def warn(message: str) -> None:
+        warnings.append(message)
+        print(WARNING_PREFIX + message, file=sys.stderr)
+
+    client = MlflowClient(tracking_uri=tracking_uri)
+    flt = f"tags.`sai.sprout_run_id` = {_quote(sprout)}"
+    experiments = sorted(
+        _pages(lambda t: client.search_experiments(
+            view_type=ViewType.ACTIVE_ONLY, filter_string=flt, max_results=1000, page_token=t)),
+        key=lambda e: int(e.experiment_id) if str(e.experiment_id).isdigit() else 0,
+    )
+
+    runs: list[Run] = []
+    for exp in experiments:
+        for raw in _pages(lambda t: client.search_runs(
+                [exp.experiment_id], run_view_type=ViewType.ACTIVE_ONLY, max_results=1000, page_token=t)):
+            try:
+                branch_id = int((raw.data.tags or {}).get("sai.run_id", ""))
+            except ValueError:
+                warn(f"sai.run_id が無い（または整数でない）ので数えません: run_id={raw.info.run_id}")
+                continue
+            runs.append(Run(raw, exp, metric, branch_id, warn))
+    runs.sort(key=lambda r: (r.branch, r.start_time, r.run_id))
+
+    curves: dict[str, bool] = {}
+
+    def has_curve(run: Run) -> bool:
+        if run.run_id not in curves:
+            curves[run.run_id] = len(client.get_metric_history(run.run_id, "train_loss")) >= 2
+        return curves[run.run_id]
+
+    # branch ごと（同じ experiment の中）の親・action
+    parent_of: dict[int, str] = {}
+    action_of: dict[int, str] = {}
+    for run in runs:
+        if run.parent_branch and not parent_of.get(run.branch):
+            parent_of[run.branch] = run.parent_branch
+        if run.action and not action_of.get(run.branch):
+            action_of[run.branch] = run.action
+
+    def depth_and_debug(b: int) -> tuple[int, int]:
+        depth, seen, cur = 1, {b}, b
+        while True:
+            parent = parent_of.get(cur, "")
+            if not parent.isdigit() or int(parent) in seen:
+                break
+            cur = int(parent)
+            seen.add(cur)
+            depth += 1
+        debug, cur, seen = 0, b, set()
+        while action_of.get(cur) == "debug" and cur not in seen:
+            seen.add(cur)
+            debug += 1
+            parent = parent_of.get(cur, "")
+            if not parent.isdigit():
+                break
+            cur = int(parent)
+        return depth, debug
+
+    # (experiment, branch) ごとの entry。experiment の中で branch の小さい順に best を積み上げる
+    exp_entries, branch_entries = [], []
+    for exp in experiments:
+        in_exp = [r for r in runs if r.experiment == exp.name]
+        previous = None  # この experiment のそれまでの最良の値
+        flags = []
+        for b in sorted({r.branch for r in in_exp}):
+            mine = [r for r in in_exp if r.branch == b]
+            best = _best_of(mine, direction)
+            improved = _improved(best.value if best else None, previous, direction, min_delta)
+            if best is not None and _better(best.value, previous, direction):
+                previous = best.value
+            flags.append(improved)
+            depth, debug = depth_and_debug(b)
+            branch_entries.append({
+                "branch": b,
+                "experiment": exp.name,
+                "model": (exp.tags or {}).get("exp.model") or exp.name.rsplit("/", 1)[-1],
+                "action": action_of.get(b, ""),
+                "parent_branch": int(parent_of[b]) if parent_of.get(b, "").isdigit() else None,
+                "depth": depth,
+                "debug_depth": debug,
+                "runs": len(mine),
+                "failed": sum(1 for r in mine if r.status == FAILED_STATUS),
+                "best": best.value if best else None,
+                "best_params": dict(best.params) if best else None,
+                "improved": improved,
+                "has_curves": any(has_curve(r) for r in mine),
+                "param_edges": _param_edges(mine, direction),
+            })
+        stale = 0
+        for flag in reversed(flags):
+            if flag:
+                break
+            stale += 1
+        best = _best_of(in_exp, direction)
+        exp_entries.append({
+            "name": exp.name,
+            "experiment_id": str(exp.experiment_id),
+            "model": (exp.tags or {}).get("exp.model") or exp.name.rsplit("/", 1)[-1],
+            "branches": sorted({r.branch for r in in_exp}),
+            "runs": len(in_exp),
+            "failed": sum(1 for r in in_exp if r.status == FAILED_STATUS),
+            "best": best.value if best else None,
+            "best_branch": best.branch if best else None,
+            "stale": stale,
+            "has_curves": any(has_curve(r) for r in in_exp),
+        })
+
+    best = _best_of(runs, direction)
     if direction == "maximize":
-        leaks = [t for t in trials if t.ok and t.value >= leak_max]
+        leaks = [r for r in runs if r.ok and r.value >= leak_max]
     else:
-        leaks = [t for t in trials if t.ok and t.value <= leak_min]
+        leaks = [r for r in runs if r.ok and r.value <= leak_min]
+
+    target = None
+    if branch is not None:
+        found = next((e for e in branch_entries if e["branch"] == branch), None)
+        keys = ("runs", "failed", "best", "improved")
+        target = {"branch": branch, **({k: found[k] for k in keys} if found else
+                  {"runs": 0, "failed": 0, "best": None, "improved": False})}
 
     return {
-        "study": study,
+        "sprout": int(sprout) if sprout.isdigit() else sprout,
         "metric": metric,
         "direction": direction,
         "min_delta": min_delta,
-        "best": _best_entry(trials, direction),
-        "last": _last_entry(parents, trials, direction),
-        "rounds": _round_entries(parents, trials, direction, min_delta),
-        "scripts": _script_entries(parents, trials, direction, min_delta),
-        "param_edges": [
-            edge
-            for script in sorted({t.script for t in trials})
-            for edge in _param_edges(script, [t for t in trials if t.script == script], direction)
-        ],
-        "ablation_done": any(p.action == "ablation" for p in parents),
-        "leak_suspects": [
-            {
-                "script": t.script,
-                "round": t.round,
-                "run_id": t.run_id,
-                "value": t.value,
-            }
-            for t in leaks
-        ],
+        "best": None if best is None else {
+            "experiment": best.experiment, "branch": best.branch, "run_name": best.name,
+            "run_id": best.run_id, "value": best.value, "params": dict(best.params),
+        },
+        "experiments": exp_entries,
+        "branches": branch_entries,
+        "target": target,
+        "total_branches": len({r.branch for r in runs}),
+        "ablation_done": any(r.action == "ablation" for r in runs),
+        "leak_suspects": [{"branch": r.branch, "run_name": r.name, "value": r.value} for r in leaks],
+        "warnings": warnings,
     }
 
 
@@ -539,16 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         summary = build_summary(
             tracking_uri=tracking_uri,
-            study=args.study,
+            sprout=args.sprout,
             metric=args.metric,
             direction=args.direction,
+            branch=args.branch,
             min_delta=args.min_delta,
             leak_max=args.leak_max,
             leak_min=args.leak_min,
-            experiment=args.experiment,
         )
-    except SystemExit:
-        raise
     except Exception as exc:  # 何が起きても、標準エラー 1 行と終了コード 1 で終わる。
         print(f"{WARNING_PREFIX}台帳の計算に失敗しました: {exc}", file=sys.stderr)
         return 1

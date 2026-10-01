@@ -307,7 +307,7 @@ def cmd_mlflow(args: argparse.Namespace) -> object:
     if args.what == "experiments":
         return request_json("GET", "/api/mlflow/experiments")
     if args.what == "runs":
-        payload: dict = {"experiment_id": args.experiment_id}
+        payload: dict = {"experiment_ids": [args.experiment_id]}
         if args.filter:
             payload["filter"] = args.filter
         if args.max is not None:

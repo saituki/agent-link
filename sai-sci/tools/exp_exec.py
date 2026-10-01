@@ -9,6 +9,7 @@
     uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" \
         run <target> [--name 名前] -- <command...>     # 1 行目に job_id
         status <job_id> [--json]                       # state を出す
+        started <job_id> [--timeout 600] [--poll 15] [--json]  # 最初の epoch の行が出るまで待つ
         logs <job_id> [-n N]                           # ログの末尾
         cancel <job_id>                                # 中止
         check <target>                                 # 接続と前提の確認
@@ -41,6 +42,7 @@ import re
 import secrets
 import subprocess
 import sys
+import time
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -200,6 +202,54 @@ def cmd_status(args) -> int:
     return 0
 
 
+PROGRESS_RE = re.compile(r"^\[epoch \d+/\d+\]")
+DEVICE_RE = re.compile(r"^device=(\S+)")
+END_STATES = ("done", "failed", "cancelled", "lost")
+
+
+def adapter_state(job: dict) -> str:
+    proc = call_adapter(job_folder(job), "status", [], job["job_id"], job.get("name", ""))
+    if proc.returncode != 0:
+        raise ExecError(f"状態を取れません（{job['target']}）: {fail_text(proc)}")
+    try:
+        state = json.loads(proc.stdout)["state"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise ExecError(f"adapter の status が JSON ではありません: {proc.stdout.strip()[:120]!r}") from e
+    if state not in STATES:
+        raise ExecError(f"adapter が知らない state を返しました: {state!r}（{'/'.join(STATES)}）")
+    return state
+
+
+def cmd_started(args) -> int:
+    """ジョブの「始まり」（最初の epoch の行）が出るか、終わるか、時間切れになるまで待つ。"""
+    job = load_job(args.job_id)
+    t0 = time.monotonic()
+    while True:
+        state = adapter_state(job)
+        proc = call_adapter(job_folder(job), "logs", ["-n", "200"], job["job_id"], job.get("name", ""))
+        if proc.returncode != 0:
+            raise ExecError(f"logs に失敗しました（{job['target']}）: {fail_text(proc)}")
+        lines = proc.stdout.splitlines()
+        device = next((m.group(1) for l in lines if (m := DEVICE_RE.match(l))), None)
+        line = next((l for l in lines if PROGRESS_RE.match(l)), None)
+        waited = time.monotonic() - t0
+        if line is not None or state in END_STATES or waited >= args.timeout:
+            break
+        time.sleep(args.poll)
+    started = line is not None
+    result = {
+        "job_id": job["job_id"],
+        "state": state,
+        "started": started,
+        "device": device,
+        "line": line,
+        "waited_s": int(waited),
+        "log_tail": "" if started else "\n".join(lines[-20:]),
+    }
+    print(json.dumps(result, ensure_ascii=False) if args.json else f"{state} {str(started).lower()}")
+    return 0
+
+
 def passthrough(job: dict, verb: str, extra: list[str]) -> int:
     proc = call_adapter(job_folder(job), verb, extra, job["job_id"], job.get("name", ""))
     sys.stdout.write(proc.stdout)
@@ -279,6 +329,13 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("job_id")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=cmd_status)
+
+    started = sub.add_parser("started", help="ジョブが始まった（最初の epoch の行が出た）かを確かめる")
+    started.add_argument("job_id")
+    started.add_argument("--timeout", type=float, default=600)
+    started.add_argument("--poll", type=float, default=15)
+    started.add_argument("--json", action="store_true")
+    started.set_defaults(func=cmd_started)
 
     logs = sub.add_parser("logs", help="ログの末尾")
     logs.add_argument("job_id")

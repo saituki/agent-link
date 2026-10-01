@@ -106,7 +106,7 @@ for f in apps/phone/tests/test_*.py; do PYTHONPATH=apps/phone/src apps/phone/.ve
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
 
 # 実験ループの道具（sai-sci/tools。Python 3.11 以上。`~/.python-version` が未導入の版を指すと uv が失敗するので --python を付ける）
-(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok; do python3.13 -W ignore -m unittest $t || exit 1; done)
+(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_phone_api; do python3.13 -W ignore -m unittest $t || exit 1; done)
 (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
 ```
 
