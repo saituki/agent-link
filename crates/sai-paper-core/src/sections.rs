@@ -823,15 +823,17 @@ pub fn passage_exists(
     Ok(Some(found > 0))
 }
 
-/// 検索結果の `char_start` から塊の ID を引く。`chunk_id` が鍵。
+/// 検索結果の本文から塊の ID を引く。`chunk_id` が鍵。
 ///
+/// RAG の `chunks.char_start` は段落の位置を正しく持たない（`split_markdown_paragraphs` は
+/// 見出しと空行の長さだけ進める）ので、位置ではなく本文の先頭で塊を探す。
 /// 表がまだ無い論文は飛ばす（検索を遅くしないため、ここでは `ensure` を呼ばない）。
 #[must_use]
 pub fn passages_for_hits(conn: &Connection, hits: &[Hit]) -> HashMap<i64, String> {
     let mut built: HashMap<i64, bool> = HashMap::new();
     let mut out = HashMap::new();
     for hit in hits {
-        let (Some(paper_id), Some(pos)) = (hit.paper_id, hit.char_start) else {
+        let Some(paper_id) = hit.paper_id else {
             continue;
         };
         if hit.source_kind != "body" {
@@ -843,29 +845,22 @@ pub fn passages_for_hits(conn: &Connection, hits: &[Hit]) -> HashMap<i64, String
         if !has_table {
             continue;
         }
-        let found: Option<(i64, i64)> = conn
-            .query_row(
+        // 先頭 120 字（段落をまたぐ塊でも先頭の段落は 1 つの塊に入る）。無ければ先頭の行だけで探す。
+        let text = hit.text.trim_start_matches(|c: char| c == '#' || c.is_whitespace());
+        let head: String = text.chars().take(120).collect();
+        let first_line: String = text.lines().next().unwrap_or("").chars().take(120).collect();
+        let found = [head, first_line].iter().filter(|k| !k.trim().is_empty()).find_map(|key| {
+            conn.query_row(
                 "SELECT sec_no, pas_no FROM paper_passages
-                 WHERE paper_id = ?1 AND char_start <= ?2 AND ?2 < char_end
+                 WHERE paper_id = ?1 AND instr(text, ?2) > 0
                  ORDER BY sec_no, pas_no LIMIT 1",
-                params![paper_id, pos],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                params![paper_id, key],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
             )
             .optional()
             .ok()
             .flatten()
-            .or_else(|| {
-                conn.query_row(
-                    "SELECT sec_no, pas_no FROM paper_passages
-                     WHERE paper_id = ?1 AND char_start <= ?2
-                     ORDER BY sec_no DESC, pas_no DESC LIMIT 1",
-                    params![paper_id, pos],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()
-                .ok()
-                .flatten()
-            });
+        });
         if let Some((sec_no, pas_no)) = found {
             out.insert(hit.chunk_id, format!("#{paper_id}.{sec_no}.{pas_no}"));
         }
@@ -1141,37 +1136,33 @@ mod tests {
     }
 
     #[test]
-    fn passages_for_hits_by_char_start() {
+    fn passages_for_hits_by_text() {
         let (db, dir, id) = setup("hits", &sample());
         let conn = db.connection();
-        let hit_at = |pos: i64| Hit {
+        let hit_with = |n: i64, text: &str| Hit {
             score: 1.0,
-            chunk_id: pos,
+            chunk_id: n,
             source_kind: "body".into(),
             source_ref: String::new(),
             paper_id: Some(id),
             title: None,
             authors: None,
             year: None,
-            text: String::new(),
-            char_start: Some(pos),
+            text: text.into(),
+            // RAG の char_start は当てにならない値でも引けること。
+            char_start: Some(0),
             char_end: None,
             md_path: None,
             section: None,
         };
+        let probe = hit_with(1, "Results of our models");
         // 表がまだ無いので飛ばす。
-        assert!(passages_for_hits(conn, &[hit_at(0)]).is_empty());
+        assert!(passages_for_hits(conn, &[probe]).is_empty());
         ensure(conn, &dir, id).unwrap();
-        let start: i64 = conn
-            .query_row(
-                "SELECT char_start FROM paper_passages WHERE paper_id = ?1 AND sec_no = 4",
-                [id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        let hits = [hit_at(start + 5)];
+        let hits = [hit_with(7, "Results of our models against other methods"), hit_with(8, "存在しない文")];
         let map = passages_for_hits(conn, &hits);
-        assert_eq!(map[&(start + 5)], format!("#{id}.4.1"));
+        assert_eq!(map[&7], format!("#{id}.4.1"));
+        assert!(!map.contains_key(&8));
 
         let json = crate::retrieval::hits_to_json_with(&hits, &map);
         assert_eq!(json[0]["passage"], format!("#{id}.4.1"));
