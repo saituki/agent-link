@@ -1,7 +1,7 @@
 //! `layer`（research-tree の層）の統合テスト（U01）。
 //!
-//! ブロック定義の frontmatter に `layer: root / seed / branch` を書くと
-//! `block_metadata.layer` に保存される。3 つ以外の値は登録がスキップされる
+//! ブロック定義の frontmatter に `layer: seed / root / sprout / branch` を書くと
+//! `block_metadata.layer` に保存される。4 つ以外の値は登録がスキップされる
 //! （検査のエラー）。
 
 use sai_link_engine::block_config::BlockConfig;
@@ -12,7 +12,7 @@ use sai_link_engine::validation::validate;
 /// 層だけを変えた有効なブロック定義を作るヘルパー。
 fn config_with_layer(layer: Option<&str>) -> BlockConfig {
     BlockConfig {
-        name: "exp-seed".to_string(),
+        name: "exp-sprout".to_string(),
         description: Some("テスト用のブロック".to_string()),
         model: Some("anthropic/claude-sonnet-4-5".to_string()),
         provider: None,
@@ -30,21 +30,21 @@ fn config_with_layer(layer: Option<&str>) -> BlockConfig {
         layer: layer.map(|s| s.to_string()),
         templates: None,
         context: None,
-        id: Some("exp-seed".to_string()),
+        id: Some("exp-sprout".to_string()),
     }
 }
 
-/// `layer: seed` を書いたブロックを登録すると `block_metadata.layer` が `seed` になること。
+/// `layer: sprout` を書いたブロックを登録すると `block_metadata.layer` が `sprout` になること。
 #[test]
 fn upsert_block_metadata_saves_layer() {
     let store = SaiStore::open_in_memory().unwrap();
-    let path = std::path::Path::new(".sai/blocks/exp-seed.md");
+    let path = std::path::Path::new(".sai/blocks/exp-sprout.md");
 
     let id =
-        upsert_block_metadata(&store, &config_with_layer(Some("seed")), path).expect("登録できる");
+        upsert_block_metadata(&store, &config_with_layer(Some("sprout")), path).expect("登録できる");
     let block = store.get_block_by_id(id).unwrap();
-    assert_eq!(block.layer.as_deref(), Some("seed"));
-    assert_eq!(block.name, "exp-seed");
+    assert_eq!(block.layer.as_deref(), Some("sprout"));
+    assert_eq!(block.name, "exp-sprout");
 
     // 層を書かなければ NULL（図に出さない）
     let id2 = upsert_block_metadata(&store, &config_with_layer(None), path).expect("登録できる");
@@ -55,7 +55,7 @@ fn upsert_block_metadata_saves_layer() {
 #[test]
 fn upsert_block_metadata_rejects_unknown_layer() {
     let store = SaiStore::open_in_memory().unwrap();
-    let path = std::path::Path::new(".sai/blocks/exp-seed.md");
+    let path = std::path::Path::new(".sai/blocks/exp-sprout.md");
 
     let result = validate(&config_with_layer(Some("foo")));
     assert!(!result.is_valid(), "foo は検査を通らない");
@@ -68,15 +68,15 @@ fn upsert_block_metadata_rejects_unknown_layer() {
         "検査の通らないブロックは登録されない"
     );
     assert!(
-        store.get_block_by_name("exp-seed").is_err(),
+        store.get_block_by_name("exp-sprout").is_err(),
         "登録されていない"
     );
 }
 
-/// 3 つの層はすべて通ること。
+/// 4 つの層はすべて通ること。
 #[test]
-fn all_three_layers_are_valid() {
-    for layer in ["root", "seed", "branch"] {
+fn all_four_layers_are_valid() {
+    for layer in ["seed", "root", "sprout", "branch"] {
         let result = validate(&config_with_layer(Some(layer)));
         assert!(
             result.is_valid(),
@@ -85,4 +85,10 @@ fn all_three_layers_are_valid() {
             result.errors
         );
     }
+}
+
+/// 知らない層（`trunk`）は弾かれること。
+#[test]
+fn unknown_layer_trunk_is_rejected() {
+    assert!(!validate(&config_with_layer(Some("trunk"))).is_valid());
 }

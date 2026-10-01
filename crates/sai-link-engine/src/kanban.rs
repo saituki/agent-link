@@ -51,8 +51,9 @@ const FIXED_FM_KEYS: [&str; 13] = [
 ///
 /// - `source_doc`: 元実行の出力トークン列（R112 自動充填・`waggle:` トークン）
 /// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
+/// - `after_job`: ジョブ（`exp_exec.py` の job_id）が終わったら常駐が実行する todo のカード
 /// - `executer`: カードの起動者（`human` / `professor`）。既定は `human`
-const META_FM_KEYS: [&str; 3] = ["source_doc", "scheduled_at", "executer"];
+const META_FM_KEYS: [&str; 4] = ["source_doc", "scheduled_at", "after_job", "executer"];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
 const LEGACY_FM_KEYS: [&str; 2] = ["origin_run_id", "origin_block"];
@@ -67,6 +68,14 @@ pub const PROFESSOR_EXECUTER_MESSAGE: &str =
 /// `scheduled_at:` の値（`YYYY-MM-DD HH:MM`）を読む。読めなければ `None`。
 pub fn parse_scheduled_at(s: &str) -> Option<chrono::NaiveDateTime> {
     chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%d %H:%M").ok()
+}
+
+/// ジョブ ID（`exp_exec.py` の job_id）の形か。`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`。
+pub fn valid_job_id(s: &str) -> bool {
+    let mut it = s.chars();
+    it.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && s.len() <= 64
+        && it.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// カードの frontmatter（`---` ... `---` の中身）。

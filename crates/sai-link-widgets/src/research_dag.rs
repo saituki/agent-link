@@ -1,7 +1,7 @@
-//! research-tree の実行の図（3 層の DAG）の組み立て（U01）。
+//! research-tree の実行の図（4 層の DAG）の組み立て（U01）。
 //!
-//! 利用者は research-tree を「1 run = 1 node」の root / seed / branch の
-//! 3 層 DAG として扱う（要件定義書 R-L1・R-L2）。このモジュールはその
+//! 利用者は research-tree を「1 run = 1 node」の seed / root / sprout / branch の
+//! 4 層 DAG として扱う（要件定義書 R-L1・R-L2）。このモジュールはその
 //! **材料（node と edge）を DB から集める**ところまでを担当する。
 //! Web（`sai-moon-link phone rtree`）が同じ形を使う。
 //!
@@ -31,7 +31,7 @@ const EDGE_KINDS: [(&str, &str); 3] = [
     ("task_output", "task_output"),
 ];
 
-/// research-tree の実行の図（3 層の DAG）。
+/// research-tree の実行の図（4 層の DAG）。
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ResearchDag {
     /// node（1 run = 1 node。`run_id` の昇順）
@@ -45,7 +45,7 @@ pub struct ResearchDag {
 pub struct ResearchNode {
     /// 実行 ID（`execution_history.id`）
     pub run_id: i64,
-    /// ブロックの ID（`block_metadata.name`・例 `sci-exp-seed`）
+    /// ブロックの ID（`block_metadata.name`・例 `sci-exp-sprout`）
     pub block: String,
     /// ブロックの表示名（例 `🌱 exp-seed`）
     pub name: String,

@@ -70,6 +70,7 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 | `sai-moon-link phone card create`（**stdin に JSON**・作成後は todo に配置） | 同 `phone.rs`（`card_create`）／`validate_card_spec` + `create_card`（TUI と同じ検査）。任意の `executer`（`human` / `professor`・空は `human`）を受け取り、frontmatter の `executer:` に書く。知らない値は**終了コード 1** |
 | `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: professor` のカードは **終了コード 1**・stderr「このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください」） | 同 `phone.rs`（`card_run`）／本体: `kanban_run::run_card_request`（`block run --kanban` と常駐の予約実行も同じ入口を通る） |
 | `sai-moon-link phone card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]`（todo の task.md の `scheduled_at:` を書く・省略で消す。常駐が 5 秒ごとに見回って実行する） | 同 `phone.rs`（`card_schedule`）・`daemon.rs`（`run_scheduled_cards`） |
+| `sai-moon-link phone card wait <run_id> [--job <job_id>]`（todo の task.md の `after_job:` を書く・省略で消す。詳細は 2.2.2 の `after_job`） | 同 `phone.rs`（`card_wait`）・`daemon.rs`（`run_job_waiting_cards`） |
 | `sai-moon-link phone card docs [--limit N]`（最近の文書 `{items: [{token, label, description, status, ref}]}`） | 同 `phone.rs`（`card_docs`） |
 | `sai-moon-link phone rtree`（research-tree の実行の図。root / seed / branch の 3 層 DAG） | 同 `phone.rs`（`rtree`）／組み立て: `sai_link_widgets` の `research_dag::load_research_dag`（§2.2.2） |
 | `sai-moon-link phone rm <run_id>`（実行を消す・子と run フォルダも。実行中は終了コード 1、無ければ 3「実行が見つかりません」） | 同 `phone.rs`（`rm`）・`run_dir::delete_run` |
@@ -161,16 +162,25 @@ research-tree の「実行の図」に node として出る。
 
 ```yaml
 ---
-id: sci-exp-seed
-name: "🌱 exp-seed"
-layer: seed        # root / seed / branch のどれか
+id: sci-exp-sprout
+name: "🌱 exp-sprout"
+layer: sprout      # seed / root / sprout / branch のどれか
 ---
 ```
 
-- 値は `root` / `seed` / `branch` の 3 つだけ。**書かなければ図に出さない**（`block_metadata.layer` は NULL）。
-- 3 つ以外の値は**検査エラーで登録されない**（ブロックごと読み飛ばされる）。
+- 値は `seed` / `root` / `sprout` / `branch` の 4 つだけ。図の上から下の並びは branch / sprout / seed / root。**書かなければ図に出さない**（`block_metadata.layer` は NULL）。
+- 4 つ以外の値は**検査エラーで登録されない**（ブロックごと読み飛ばされる）。
 - 保存先は `block_metadata.layer`（TEXT・NULL 可）。読み書きは `orchestrator::upsert_block_metadata` と `SaiStore::{insert_block, update_block, get_block_by_*, list_blocks}`。
 - 検査は `validation::validate`（有効な値は `validation::VALID_LAYERS`）。
+
+層ごとのブロックの割り当て（共有契約）:
+
+| 層 | 図の位置（上から） | ブロック |
+|---|---|---|
+| `branch` | 1 | `sci-exp-branch`・`sci-exp-review` |
+| `sprout` | 2 | `sci-exp-sprout`（旧 `sci-exp-seed`） |
+| `seed` | 3 | `sci-start`・`sci-seed` |
+| `root` | 4 | 上の 5 本と professor・operator・kaizen を除く `sci-*` |
 
 **`sai-moon-link phone rtree` の JSON（C-02）**
 
@@ -180,7 +190,7 @@ DB が開けないときは終了コード 4。実行が 0 件でも空の配列
 ```json
 {
   "nodes": [
-    {"run_id": 120, "block": "sci-exp-seed", "name": "🌱 exp-seed", "layer": "seed",
+    {"run_id": 120, "block": "sci-exp-sprout", "name": "🌱 exp-sprout", "layer": "sprout",
      "status": "completed", "created_at": "2026-09-30 01:02:03", "finished_at": "2026-09-30 02:00:00",
      "parent_run_id": null, "description": "…", "sci_node": "N12",
      "global_round": 5, "round": 1}
@@ -198,7 +208,7 @@ DB が開けないときは終了コード 4。実行が 0 件でも空の配列
 | `nodes[].run_id` | 数値 | `execution_history.id`。1 run = 1 node。`run_id` の昇順に並ぶ |
 | `nodes[].block` | 文字列 | ブロックの ID（`block_metadata.name`） |
 | `nodes[].name` | 文字列 | ブロックの表示名（emoji 可） |
-| `nodes[].layer` | 文字列 | `root` / `seed` / `branch` |
+| `nodes[].layer` | 文字列 | `seed` / `root` / `sprout` / `branch` |
 | `nodes[].status` | 文字列 | `execution_history.status`（`completed` など） |
 | `nodes[].created_at` / `finished_at` | 文字列 / null | 作成・終了時刻 |
 | `nodes[].parent_run_id` | 数値 \| null | サブタスクの親 |
@@ -212,6 +222,16 @@ DB が開けないときは終了コード 4。実行が 0 件でも空の配列
 - `edges[]` を作る線は **既存の 3 種だけ**（新しい `connection_type` は作らない）。同じ `(from, to, kind)` は 1 本にまとめる。
 - `phone workflow` とは別の図。`phone workflow` は `workflow_moved = true` の run だけとフェーズ合成を出すが、こちらは **`workflow_moved` を見ない**（Kanban 側の run も 1 枚で node にする）。
 - 中身は `sai_link_widgets::research_dag::load_research_dag`（`crates/sai-link-widgets/src/research_dag.rs`）。TUI も同じ読み方を共有する。
+
+#### カードの frontmatter の `after_job`（ジョブの終わりを待つ）
+
+todo のカードの frontmatter に `after_job: <job_id>`（`exp_exec.py` の job_id。形は `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`）を書くと、ジョブが終わったときに常駐がそのカードを実行する。`META_FM_KEYS` なので入力検査の対象外。
+
+- 書く命令: `sai-moon-link phone card wait <RUN_ID> --job <JOB_ID>`（`--job` を省くと解除）。戻り値 `{"run_id": N, "after_job": "<job_id>" | null}`。形の違う job_id は usage エラー。
+- 常駐（`daemon.rs` の `run_job_waiting_cards`）は約 60 秒ごとに、カード 1 枚ごとの別の糸で `exp_exec.py status <job_id> --json` を読む（90 秒で打ち切り）。`state` が `done` / `failed` / `cancelled` / `lost` なら `after_job` を消して `phone card run <RUN_ID>` で起こす。`queued` / `running` や、読めなかったとき（失敗のログは前と同じ文なら出さない）は、カードを変えず次の見回りでやり直す。
+- 状態を読む命令は、既定で `uv run --no-project --python ">=3.11" python <root>/.sai/tools/exp_exec.py status <job_id> --json`。環境変数 `SAI_EXP_STATUS_CMD` があれば `<SAI_EXP_STATUS_CMD> status <job_id> --json` に差し替わる（launchd で動く常駐の PATH に `uv` が無いときはこれを使う）。
+- `phone tree` の todo の子には、`after_job` があれば `"after_job": "<job_id>"` が出る。
+- `executer: professor` のカードは `phone card run` が断るので、起こされてもログに残るだけ（`after_job` は消えている）。
 
 #### カードの frontmatter の `executer`（起動者）
 

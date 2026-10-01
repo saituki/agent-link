@@ -764,6 +764,19 @@ pub enum PhoneCardCmd {
         at: Option<String>,
     },
 
+    /// todo のカードを、ジョブ（exp_exec.py の job_id）が終わったら実行するようにする
+    ///
+    /// `--job` を省くと解除する。常駐が約 60 秒ごとにジョブの状態を見回る。
+    Wait {
+        /// 対象の予約 run ID
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+
+        /// 待つジョブの ID（exp_exec.py の job_id）
+        #[arg(long)]
+        job: Option<String>,
+    },
+
     /// todo の未実行カード（`outputs/todo/<run_id>/task.md`）を実行する（非対話）
     ///
     /// 成功は stdout に JSON（`run_id` / `message`）・終了コード 0、
