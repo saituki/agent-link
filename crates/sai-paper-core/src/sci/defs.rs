@@ -314,7 +314,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
     let order = bullets(section(&sections, "ITEM_ORDER"));
     if order.is_empty() {
         return Err(SciError::Invalid(format!(
-            "型 {id} に項目の順序がありません"
+            "型 {id} に ITEM_ORDER がありません"
         )));
     }
     let name = front.get("name");
@@ -350,7 +350,7 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
     let key = front.get("key");
     if key.is_empty() {
         return Err(SciError::Invalid(
-            "項目ガイドに key がありません".to_string(),
+            "ITEM_GUIDE に key がありません".to_string(),
         ));
     }
     let parent = front.get("parent");
@@ -460,7 +460,7 @@ pub fn create_item_from_guide(
 ) -> Result<i64> {
     if let Some(node) = store::find_item_by_key(conn, key)? {
         return Err(SciError::Invalid(format!(
-            "項目 {key} は既にあります（N{}）",
+            "ITEM {key} は既にあります（N{}）",
             node.id
         )));
     }
@@ -517,7 +517,7 @@ pub fn create_item_from_guide(
 pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str) -> Result<InitReport> {
     let Some(type_def) = defs.type_def(type_id) else {
         return Err(SciError::Invalid(format!(
-            "知らない研究の型です: {type_id}"
+            "知らない RESEARCH_TYPE です: {type_id}"
         )));
     };
     let order = type_def.order.clone();
@@ -557,7 +557,7 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str) -> Result<InitRe
 pub fn change_type(conn: &Connection, defs: &Defs, type_id: &str) -> Result<InitReport> {
     let Some(type_def) = defs.type_def(type_id) else {
         return Err(SciError::Invalid(format!(
-            "知らない研究の型です: {type_id}"
+            "知らない RESEARCH_TYPE です: {type_id}"
         )));
     };
     let order = type_def.order.clone();
@@ -613,7 +613,7 @@ fn add_depends_edges(conn: &Connection, defs: &Defs) -> Result<()> {
 /// ガイドが無い key（その子孫も）を警告に並べる。
 fn missing_guides(defs: &Defs, key: &str, out: &mut Vec<String>) {
     let Some(guide) = defs.guide(key) else {
-        out.push(format!("項目ガイドがありません: {key}"));
+        out.push(format!("ITEM_GUIDE がありません: {key}"));
         return;
     };
     for child in &guide.children {
@@ -1195,7 +1195,7 @@ mod tests {
         // 知らない型は通さない。
         let err = change_type(conn, &defs, "nope").unwrap_err();
         assert!(
-            matches!(err, SciError::Invalid(message) if message.contains("知らない研究の型です"))
+            matches!(err, SciError::Invalid(message) if message.contains("知らない RESEARCH_TYPE です"))
         );
     }
 
