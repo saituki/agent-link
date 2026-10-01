@@ -1,7 +1,7 @@
 ---
-name: 💡 候補を増やす
+name: 💡 OPTION を増やす
 id: sci-ideate
-description: 候補を増やす。他分野の同型・前提の逆転から OPTION を出し、確かめ方を添える
+description: OPTION を増やす。他分野の同型・前提の逆転から OPTION を出し、確かめ方を添える
 model: inherit
 thinking: high
 templates:
@@ -21,7 +21,7 @@ subblocks:
   - sci-lookup
 ---
 
-# 💡 候補を増やす
+# 💡 OPTION を増やす
 
 ## 役割
 「今回の SCOPE」の NODE に、まだ無い OPTION を 3〜7 個増やす。出しただけで終わらせず、**各 OPTION に確かめ方まで**を添える。

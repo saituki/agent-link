@@ -169,7 +169,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `sci-compare` | ⚖ 比べる | detail | path | add_finding, link, add_option, decide, option_state | sci-lookup, sci-extract |
 | `sci-probe` | 🔍 確かめる | detail | path | add_finding, add_question, link | sci-search, sci-lookup |
 | `sci-draft` | ✍ 文を書く | detail | path | edit_text, add_finding, add_question | sci-lookup |
-| `sci-ideate` | 💡 候補を増やす | detail | path | add_option, add_child, add_question, add_finding, link | sci-analogy, sci-lookup |
+| `sci-ideate` | 💡 OPTION を増やす | detail | path | add_option, add_child, add_question, add_finding, link | sci-analogy, sci-lookup |
 | `sci-debate` | 🗣 議論 | detail | path | add_finding, add_question, link | paper-debater, paper-reviewer |
 | `sci-coach` | 🎓 理解の確認 | detail | node | add_question, answer_question | ― |
 | `sci-search` | 🔎 外部を探す | support | node | link, add_finding | ― |

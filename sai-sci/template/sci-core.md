@@ -106,8 +106,8 @@ NODE・QUESTION・FINDING・LINK・PROPOSAL・SEED の ID は `N12`・`Q7`・`F3
 ```bash
 sai-moon-paper find "<英語の検索語>" --node N12 --question Q7 --mode word --json
 sai-moon-paper find "<英語の検索語>" --node N12 --subtree --each 3 --json
-sai-moon-paper find "<英語の検索語>" --widen "節点の論文で 0 件だったため" --question Q7 --json
-sai-moon-paper search "<英語の検索語>" --db s2 --save-as <名前> --node N12 --question Q7 --purpose "<目的>" --extract "<抜き出す項目>" --json
+sai-moon-paper find "<英語の検索語>" --widen "NODE の論文で 0 件だったため" --question Q7 --json
+sai-moon-paper search "<英語の検索語>" --db s2 --save-as <名前> --node N12 --question Q7 --purpose "<目的>" --extract "<EXTRACT_FIELDS>" --json
 ```
 
 - 検索の幅は次の順に広げます。NODE の論文 → SUBTREE → SEARCH_SET → Library → 外部。

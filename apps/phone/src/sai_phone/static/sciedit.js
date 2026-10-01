@@ -126,7 +126,7 @@ const SE_BLOCKS = [
   ["sci-compare", "⚖ 比べる"],
   ["sci-probe", "🔍 確かめる"],
   ["sci-draft", "✍ 文を書く"],
-  ["sci-ideate", "💡 候補を増やす"],
+  ["sci-ideate", "💡 OPTION を増やす"],
   ["sci-debate", "🗣 議論"],
   ["sci-coach", "🎓 理解の確認"],
   ["sci-search", "🔎 外部を探す"],

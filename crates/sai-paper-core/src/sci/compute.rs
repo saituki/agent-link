@@ -1679,7 +1679,7 @@ impl Tree {
             push_debt(
                 &mut out,
                 format!(
-                    "振り返りを書いていない実行が {} 件あります",
+                    "EMPTY_REVIEWS が {} 件あります",
                     debts.empty_reviews
                 ),
                 None,

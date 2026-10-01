@@ -1652,7 +1652,7 @@ impl<'a> Ctx<'a> {
             }
             "run" => {
                 if !self.run_exists(number) {
-                    return Err(SciError::Invalid(format!("読む札 {number} がありません")));
+                    return Err(SciError::Invalid(format!("READ_CARD {number} がありません")));
                 }
             }
             _ => {
@@ -2060,7 +2060,7 @@ impl<'a> Ctx<'a> {
                     SciError::Invalid(format!("{key} は実行の番号で指定してください: {text}"))
                 })?;
                 if !self.run_exists(id) {
-                    return Err(SciError::Invalid(format!("読む札 {id} がありません")));
+                    return Err(SciError::Invalid(format!("READ_CARD {id} がありません")));
                 }
                 Ok(Some(id))
             }

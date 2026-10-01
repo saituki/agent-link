@@ -213,7 +213,7 @@ pub struct SciSetFields {
     pub question: Option<i64>,
     /// 何を確かめるための検索か。
     pub purpose: Option<String>,
-    /// 読み，从中を抜き出す項目。
+    /// 検索結果から抜き出したい項目。
     pub extract: Option<String>,
 }
 

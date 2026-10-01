@@ -459,7 +459,7 @@ pub fn create_card(
     }
     if is_read && spec.papers.len() != 1 {
         return Err(SciError::Invalid(
-            "読む札には論文を 1 本だけ指定してください".to_string(),
+            "READ_CARD には論文を 1 本だけ指定してください".to_string(),
         ));
     }
     for paper_id in &spec.papers {
@@ -476,7 +476,7 @@ pub fn create_card(
     if is_read {
         if role.is_empty() {
             return Err(SciError::Invalid(
-                "読む札には論文の役割を指定してください（例: exemplar）".to_string(),
+                "READ_CARD には論文の役割を指定してください（例: exemplar）".to_string(),
             ));
         }
         if !ROLE_LABELS.iter().any(|(key, _)| *key == role) {
@@ -722,19 +722,19 @@ pub fn read_card(
 ) -> Result<ReadCard> {
     let task = read_run_task(roots, run_id)?;
     if task.runner != "user" || !task.keys.is_sci() {
-        return Err(SciError::Invalid("読む札ではありません".to_string()));
+        return Err(SciError::Invalid("READ_CARD ではありません".to_string()));
     }
     let node_id = task
         .keys
         .node
-        .ok_or_else(|| SciError::Invalid("読む札には対象の NODE がありません".to_string()))?;
+        .ok_or_else(|| SciError::Invalid("READ_CARD には対象の NODE がありません".to_string()))?;
     let node = store::get_node(conn, node_id)?;
     let paper_id = task
         .keys
         .papers
         .first()
         .copied()
-        .ok_or_else(|| SciError::Invalid("読む札には論文がありません".to_string()))?;
+        .ok_or_else(|| SciError::Invalid("READ_CARD には論文がありません".to_string()))?;
     let paper = paper_of(conn, paper_id)?
         .ok_or_else(|| SciError::NotFound(format!("論文がありません: {paper_id}")))?;
 
@@ -785,18 +785,18 @@ pub fn finish_read(
 ) -> Result<FinishRead> {
     let task = read_run_task(roots, run_id)?;
     if task.runner != "user" || !task.keys.is_sci() {
-        return Err(SciError::Invalid("読む札ではありません".to_string()));
+        return Err(SciError::Invalid("READ_CARD ではありません".to_string()));
     }
     let node_id = task
         .keys
         .node
-        .ok_or_else(|| SciError::Invalid("読む札には対象の NODE がありません".to_string()))?;
+        .ok_or_else(|| SciError::Invalid("READ_CARD には対象の NODE がありません".to_string()))?;
     let paper_id = task
         .keys
         .papers
         .first()
         .copied()
-        .ok_or_else(|| SciError::Invalid("読む札には論文がありません".to_string()))?;
+        .ok_or_else(|| SciError::Invalid("READ_CARD には論文がありません".to_string()))?;
 
     let findings = store::list_findings(conn, None, false)?
         .into_iter()
