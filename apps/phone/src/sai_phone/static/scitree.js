@@ -766,7 +766,7 @@ function stListRow(r) {
   head.appendChild(stEl("span", "sci-row-title", r.title || "（題のない ITEM）"));
   b.appendChild(head);
   const sub = stLine("sci-row-sub");
-  if (r.blank) sub.appendChild(stChip(r.blank, r.blank === "対立" ? "danger" : "warn"));
+  if (r.blank) sub.appendChild(stChip(r.blank, r.blank === "CONFLICT" ? "danger" : "warn"));
   for (const m of r.marks) sub.appendChild(stChip(m, "muted")); // r.marks は stRows で表示名にしてある
   if (r.papers > 0) sub.appendChild(stChip(`論文 ${r.papers}`, "muted"));
   if (r.pending > 0) sub.appendChild(stChip(`TRIAGE ${r.pending}`, "warn"));
