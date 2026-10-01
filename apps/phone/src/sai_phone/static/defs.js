@@ -112,7 +112,7 @@ function dfTemplate(kind, name, hasSaiBase) {
     "description: このブロックが何をするかを 1 文で",
   ];
   if (hasSaiBase) lines.push("templates: sai-base");
-  lines.push("---", "", "# 依頼", "", "{{input.task_text}}", "");
+  lines.push("---", "", "# 指示", "", "ここに、このブロックのエージェントへの指示を書く", "");
   return lines.join("\n");
 }
 

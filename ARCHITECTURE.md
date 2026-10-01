@@ -77,8 +77,9 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
   - 報告は run フォルダの `finalize-report.md`。子は `task_report`、root は `sai_finalize` の `report`。`sai-moon-link phone md --kind report <run_id>` で読む。
   - 3 役が使う共通の決まりは `sai-sci/template/` の `sai-agent.md`・`sai-task.md`・`sai-cli.md`（Web と同じ操作は `sai-sci/tools/phone_api.py`）。`sai-moon-paper init --sci`（と `--assets-only`）で配る。
 - **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
-  pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は入力値（`# <id>` の節）と
-  `context: true` のときの `# 範囲` の節だけ。Web の会話の最初の吹き出しと `message.md` には可変部分だけが出るので、
+  pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は sai-link が自動で作る
+  `# context`（`context: true` のとき。範囲は研究方針の木から切り出したもの）と `# task_text`（依頼文）の節だけで、順番は context → task_text。
+  ブロック本体に `{{input.task_text}}`・`{{context}}` を書く必要はない（残していても互換で読む）。Web の会話の最初の吹き出しと `message.md` には可変部分だけが出るので、
   依頼が見やすくなります。固定部分は run の画面の「system」の帯で読む（`phone md --kind system <run_id>`）。
   作り方は `docs/for-sai-developers.md` の「起動時の文の分け方（C10）」。
 

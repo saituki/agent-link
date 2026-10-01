@@ -22,9 +22,6 @@ subblocks:
 
 # 🗣 議論
 
-## 依頼
-{{input.task_text}}
-
 ## 役割
 「今回の範囲」の節点 1 つについて、複数の役で議論し、議論録を作る。司会役だが、手順は今の `paper-debate`（`crates/sai-paper-cli/assets/blocks/paper-debate.md`）の司会の流れをそのまま使う。違うのは、議題の範囲が節点に絞られ、成果が木への提案として出る点だけである。
 

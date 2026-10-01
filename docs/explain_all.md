@@ -39,7 +39,7 @@ uv run uvicorn sai_radio.main:app --app-dir src --host 127.0.0.1 --port 8000
 `.sai/blocks/*.md` は **sai-link のブロック定義**（エージェントの指示プロンプト＋実行設定を 1 ファイルにしたもの）です（`sai-link/README.md:1002`）。
 
 1. **置くだけで認識される**: `.sai/blocks/` に置く（ファイル名がブロック ID の推奨値）。同じ名前が `~/.sai/blocks/` にもあればプロジェクト側が優先（`sai-link/README.md:83-84, 382`）。
-2. **書式**: Markdown + YAML frontmatter（`id` / `name` / `description` / `model` / `thinking` / `templates` / `subblocks` / `timeout` / `worktree` / `enable` …）。**入力は `task_text` だけ**（`inputs`/`output` は廃止）。本文には `{{input.task_text}}` を書く（`sai-link/README.md:382-430`）。
+2. **書式**: Markdown + YAML frontmatter（`id` / `name` / `description` / `model` / `thinking` / `templates` / `subblocks` / `timeout` / `worktree` / `enable` …）。**入力は `task_text` だけ**（`inputs`/`output` は廃止）。依頼文は最初のメッセージの `# task_text` 節に自動で入るので、本文に `{{input.task_text}}` を書く必要はない（`sai-link/README.md:382-430`）。
    - **`subblocks` 未指定だとサブタスクを一切呼べません**（`sai-link/README.md:420`）。本Pjでは `.sai/blocks/kantoku.md:11-13` が `worker` / `sub` を許可しています。
 3. **デーモンが必要**: `sai-link daemon start`（未起動なら要求は `pending/` に保留）（`sai-link/README.md` 3.1）。
 4. **実行は kanban 経由**（定義ファイル直指定は廃止）:
@@ -188,11 +188,10 @@ run 50 の概要: `task.md` の `description` は「実装ガイド D: 分野の
 ### 2.1 置かれる場所と、置かれない場所
 `sai-paper init` は `crates/sai-paper-cli/assets/blocks/` の内容を `.sai/blocks/` へ**コピ packed するだけ**で、処理は `agent_assets::install`（`agent_assets.rs:144-159`）の `write_if_missing` です。**一度 init すると二度と更新されません**。 Users' run 50 の残課題にも「古い 4 ブロックを新しい型にしたいときは、そのフォルダの `.sai/blocks/paper-search.md` などを消してから `--assets-only`」とあります（`completion-D-dsr.md`「ユーザーが試す手順」1）。
 
-### 2.2 1 つのブロックの読み方（4 節固定）
-`paper-read.md` を例に取ると、本文は次の 4 節だけです。
+### 2.2 1 つのブロックの読み方（節の並び）
+`paper-read.md` を例に取ると、本文は次の 3 節（+ 引き継ぎ）だけです（`## 依頼` は書きません。依頼文は最初のメッセージの「# task_text」節に入るので）。
 
 ```
-## 依頼        ← {{input.task_text}}（依頼文がそのまま入る）
 ## 役割        ← 何をどの段階でやるか
 ## 評価の観点  ← 「評価の観点」＝ memo が残した SKILL のチェック項目
 ## 出力の形    ← ```markdown コード欄里的 ## 見出し（= report の雛形）
@@ -501,7 +500,7 @@ paper-screen/paper-map は何を入力して，何をして，何を出力する
 
 # `paper-screen` / `paper-map` — 入力・処理・出力
 
-両方とも入力は **`task_text` だけ**です（sai-link の 2026-09-25 の仕様変更で「入力欄」は廃止、`sai-link/README.md:430`「ブロックへの入力は `task_text` の 1 つだけ」）。依頼文はカード本文の `# task_text` 節に書き、`{{input.task_text}}` で本文に差し込まれます。
+両方とも入力は **`task_text` だけ**です（sai-link の 2026-09-25 の仕様変更で「入力欄」は廃止、`sai-link/README.md:430`「ブロックへの入力は `task_text` の 1 つだけ」）。依頼文はカード本文の `# task_text` 節に書き、最初のメッセージの `# task_text` 節に入ります（sai-moon では本文に `{{input.task_text}}` を書きません）。
 
 ---
 
@@ -2607,7 +2606,7 @@ SAI_PAPER_ROOT=$T cargo run -p sai-paper-tui
 
 1. `crates/sai-paper-cli/assets/blocks/` に `paper-xxx.md` を新規作成
    - フロントマター：`id` / `name` / `description` / `templates`（先頭は `project-brief`, `research-core`）
-   - 本文は **4 節だけ**：`## 依頼`（`{{input.task_text}}`）/ `## 役割` / `## 評価の観点` / `## 出力の形`（末尾に `## 引き継ぎ`）
+   - 本文は **4 節だけ**：`## 依頼` / `## 役割` / `## 評価の観点` / `## 出力の形`（末尾に `## 引き継ぎ`。依頼文は最初のメッセージの「# task_text」節に自動で入るので、`## 依頼` は書かなくてもよい。書くと依頼が 2 か所に見える）
 2. `crates/sai-paper-cli/src/agent_assets.rs` の `BLOCKS` 配列に 1 行足す（**忘れると init が配らない**）
 3. テスト `research_blocks_declare_brief_and_review_headings` が形式を検査する（`cargo test` で分かる）
 4. 書き出し（配布）を確かめるには `init --assets-only` を使う

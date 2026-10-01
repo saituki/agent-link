@@ -34,7 +34,7 @@
 
 - ファイル名 `exp-spec-<study>.md`、description `実験仕様書 <study>: <研究の 1 文>`。
 - **最初の世代の seed だけが作る。** 途中で書き換えない（変えたいなら往復を止めて質問ツールで起動者に聞く）。
-- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは `{{context}}` と `sai-moon-paper sci status --json` の `purpose.metric`（指標と成功基準）。
+- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-moon-paper sci status --json` の `purpose.metric`（指標と成功基準）。
 
 ```json
 {"study": "N12-s120", "sci_node": "N12", "first_seed_run_id": 120,

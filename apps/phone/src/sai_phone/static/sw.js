@@ -49,7 +49,9 @@
 // （index.html の ?v= も 42。ASSETS は変えない・<linkview.js> は入っていた）
 // U6（起動時の固定部分。List 画面の帯に system（system-prompt.md）を追加）で v44 に
 // （index.html の ?v= も 44。ASSETS は変えない・<linkview.js> は入っていた）
-const CACHE = "sai-phone-v45";
+// U04（defs.js の新規ブロックのひな形。依頼の古い記法を消して「# 指示」の 1 行にした）で v46 に
+// （index.html の ?v= も 46。ASSETS は変えない・defs.js は入っていた）
+const CACHE = "sai-phone-v46";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）

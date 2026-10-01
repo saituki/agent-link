@@ -184,7 +184,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 
 ### 3.5 `template/` と `mind.md`
 
-- **`template/sci-core.md`** — エージェントに共通で渡す決まり。範囲を出す `{{context}}`、確かめの地点、提案の書き方、使える 14 種類の op、根拠の扱い、迎合しない姿勢。
+- **`template/sci-core.md`** — エージェントに共通で渡す決まり。最初のメッセージの「# context」に入る範囲の読み方、確かめの地点、提案の書き方、使える 14 種類の op、根拠の扱い、迎合しない姿勢。
 - **`template/exp-core.md`** — 実験ループ（seed と branch）の共通の決まり。役割、文書の渡し方、実験仕様書、MLflow の記録の決まり（C-04）、台帳、判定の規則、依頼文の形、実行場所の規則、停止の条件。
 - **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。`exp-core` の「実行場所の規則」と対で読む。
 - **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり（professor と operator が使う）。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・質問のしかた・合言葉と鍵の扱い・完了のしかた。
@@ -268,11 +268,13 @@ sai-moon-paper sci init --type <型>
 
 ### 5.2 sai-link がブロックを動かすとき
 
-`sci-*` のブロックは `context: true` です。sai-link は実行の直前に `.sai/settings.json` の `context` を実行し、標準出力を本文の `{{context}}` に入れます。`{{context}}` が無い本文では先頭に入ります。
+`sci-*` のブロックは `context: true` です。sai-link は実行の直前に `.sai/settings.json` の `context` の命令を実行し、標準出力を、最初のメッセージの `# context` の節に入れます（`# context` の見出しは sai-link が付けます）。依頼文は同じメッセージの `# task_text` の節に入ります。
 
-**`{{context}}` を持つのは `sci-core.md` だけ**です。ブロックの本文には書きません（二重になります）。sci-core は範囲を作る 21 本（`sci-exp-branch` を除く `sci-*`）の `templates` に入るので、どのブロックを動かすときにも範囲が入ります。
+ブロックの本文・template に `{{context}}` を書く必要は無い（古い写しに残っていても互換で読めます。二重にもなりません）。sci-core は範囲を作る 21 本（`sci-exp-branch` を除く `sci-*`）の `templates` に入るので、どのブロックを動かすときにも範囲が入ります。
 
-この範囲は「対象の節点・上流の道・範囲外の項目・仮置き（その回で問い直さないと決めた値）」です。範囲を作れなかったときは 1 行の注意が `{{context}}` に入ります（実行は止まりません）。`block preview` は context を実行せず、`{{context}}` のまま見せます。
+この範囲は「対象の節点・上流の道・範囲外の項目・仮置き（その回で問い直さないと決めた値）」です。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。`block preview` は context を実行せず、`# context` の下に「（実行番号が無いため、範囲を作れませんでした）」の 1 行を見せます。
+
+**決まり:** `.sai/settings.json` の `context` に別の命令を指定するときは、その出力も `##` から始めてください（`# context` の下に並びます）。
 
 ### 5.3 エージェントは提案だけを出す
 

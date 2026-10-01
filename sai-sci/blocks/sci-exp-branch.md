@@ -15,9 +15,6 @@ enable: true
 
 # 🌿 実験の 1 本を動かす者（branch）
 
-## 依頼
-{{input.task_text}}
-
 ## 役割
 
 あなたは **branch** である（`exp-core` §1）。

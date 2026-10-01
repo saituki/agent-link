@@ -17,7 +17,4 @@ enable: true
 
 # 🗣 議論の参加者
 
-## 依頼
-{{input.task_text}}
-
 `debate-participant` の作法に従って意見を返します。

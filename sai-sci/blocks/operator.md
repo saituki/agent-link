@@ -13,9 +13,6 @@ enable: true
 
 # 🛠 operator
 
-## 依頼
-{{input.task_text}}
-
 ## 役割
 
 sai-moon を知り尽くした操作係である。professor の依頼を、sai-moon の命令と道具で片付け、要点を返す。

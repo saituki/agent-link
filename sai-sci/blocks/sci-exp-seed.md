@@ -21,9 +21,6 @@ subblocks:
 
 # 🌱 実験の世代を回す者（seed）
 
-## 依頼
-{{input.task_text}}
-
 ## 役割
 
 あなたは **seed** である（`exp-core` §1）。1 世代の実験を自分で回す。
@@ -60,7 +57,7 @@ subblocks:
 
 1. **`study` を決める。** `<sci_node>-s<自分の run_id>` にする（例 `N12-s120`）。
    - 自分の run_id は環境変数 `SAI_PARENT_RUN_ID` にある。
-   - `<sci_node>` は `{{context}}` に出ている対象の節点（`N12` のような形）。`{{context}}` に無いときは `sai-moon-paper sci status --json` で、`running` に自分の run が載っている節点を探す。
+   - `<sci_node>` は最初のメッセージの「# context」に出ている対象の節点（`N12` のような形）。「# context」に無いときは `sai-moon-paper sci status --json` で、`running` に自分の run が載っている節点を探す。
 
 2. **指標名・向き・成功基準を research-tree から取る。**
 
@@ -133,7 +130,7 @@ subblocks:
 
      | action | 何をするか |
      |---|---|
-     | `draft` | 方針（`{{context}}`）と仕様書から最初のスクリプトを書く。**まず動く基準線（動く最小の版）を作る。** データの用意や前処理の準備が済みならそれも入れてよいが、まず 1 つの組だけで通す。 |
+     | `draft` | 方針（最初のメッセージの「# context」に出るもの）と仕様書から最初のスクリプトを書く。**まず動く基準線（動く最小の版）を作る。** データの用意や前処理の準備が済みならそれも入れてよいが、まず 1 つの組だけで通す。 |
      | `tune` | 前世代の `<workdir>/<script>/g<前>.py` を写し、`GRID` だけを計画の `grid` に替える。**コードの構造は変えない。** |
      | `debug` | 同じ script ID の前世代のスクリプト（`<workdir>/<script>/g<前>.py`）を写し、計画の `fix` に直す。`next` には直すべき点が書かれている。 |
      | `new` | `parent_script` のスクリプトを**参考に**（構造の理解のため）、計画の `idea` の手法で新しいスクリプトを書く。手法が違うので `train()` と `GRID` は作り直す。 |
