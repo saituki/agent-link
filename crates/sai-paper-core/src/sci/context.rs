@@ -29,17 +29,17 @@ use crate::paths::PaperRoots;
 
 /// sci を始めていないときの文。
 const NO_TREE: &str = "\
-## 今回の行動（sai-sci より）
+## CURRENT_ACTION（sai-sci より）
 研究方針の木がまだありません。ユーザーに `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼んでください。";
 
 /// 節点の指定が無いときの文。
 const NO_NODE: &str = "\
-## 今回の行動（sai-sci より）
-節点の指定がありません。この実行は Research-tree の画面か `sai-moon-paper sci card` で作られていません。
-依頼文に書かれた範囲だけで作業し、最初にユーザーへ「研究方針のどの項目のための行動か」を確かめてください。";
+## CURRENT_ACTION（sai-sci より）
+NODE の指定がありません。この実行は Research-tree の画面か `sai-moon-paper sci card` で作られていません。
+依頼文に書かれた範囲だけで作業し、最初にユーザーへ「研究方針のどの ITEM のための行動か」を確かめてください。";
 
 /// 出せる提案の節の注意書き。
-const OPS_NOTE: &str = "提案は MCP の `sci_propose`（pi は `sai-moon-paper sci propose`）で出す。書き方は sci-core の決まりに従う。";
+const OPS_NOTE: &str = "PROPOSAL は MCP の `sci_propose`（pi は `sai-moon-paper sci propose`）で出す。書き方は sci-core の決まりに従う。";
 
 /// 土壌で出す節の並び（この順）。
 const SOIL_HEADINGS: [&str; 6] = [
@@ -82,7 +82,7 @@ enum Section {
 
 /// 組み立てた範囲。節の並びは C-06 の順で固定。
 struct Parts {
-    /// 今回の行動。`blind` のときは節点の行を外す。見出しは `## 今回の行動（sai-sci より）` で始める。
+    /// 今回の行動。`blind` のときは節点の行を外す。見出しは `## CURRENT_ACTION（sai-sci より）` で始める。
     action: Vec<String>,
     /// 研究の現在地。`blind` なら空。
     place: Vec<String>,
@@ -169,7 +169,7 @@ fn resolve_scope(
         }
     };
     if !SCOPE_LABELS.iter().any(|(key, _)| *key == scope) {
-        return Err(SciError::Invalid(format!("知らない範囲です: {scope}")));
+        return Err(SciError::Invalid(format!("知らない SCOPE です: {scope}")));
     }
     Ok(scope)
 }
@@ -215,13 +215,13 @@ impl Parts {
             .find(|row| row.id == fmt_ref('N', target_id))
         else {
             return Err(SciError::NotFound(format!(
-                "節点 {} がありません",
+                "NODE {} がありません",
                 fmt_ref('N', target_id)
             )));
         };
 
         // 今回の行動。ほかの節と同じ深さ（`##`）で始める。`# context` は sai-link が付ける。
-        let mut action = vec!["## 今回の行動（sai-sci より）".to_string()];
+        let mut action = vec!["## CURRENT_ACTION（sai-sci より）".to_string()];
         let block = if task.block.is_empty() {
             "ブロック不明"
         } else {
@@ -229,34 +229,34 @@ impl Parts {
         };
         action.push(format!("- 実行: run {}（{block}）", task.run_id));
         if !blind {
-            action.push(format!("- 節点: {} {}", target_row.id, target_row.title));
+            action.push(format!("- NODE: {} {}", target_row.id, target_row.title));
         }
         action.push(format!("- 目的: {}", none_if_empty(&task.keys.purpose)));
         action.push(format!(
-            "- 問い: {}",
+            "- QUESTION: {}",
             question_text(conn, &task.keys.question)?
         ));
         action.push(format!(
             "- 期待する成果: {}",
             none_if_empty(&task.keys.expect)
         ));
-        action.push(format!("- 範囲: {}", label(&SCOPE_LABELS, scope)));
+        action.push(format!("- SCOPE: {}", label(&SCOPE_LABELS, scope)));
         if !task.keys.mode.is_empty() {
-            action.push(format!("- 型: {}", label(&MODE_LABELS, &task.keys.mode)));
+            action.push(format!("- MODE: {}", label(&MODE_LABELS, &task.keys.mode)));
         }
 
         // 研究の現在地（`blind` なら出さない）。
         let mut place = Vec::new();
         if !blind {
-            place.push("## 研究の現在地".to_string());
+            place.push("## PROGRESS".to_string());
             if let Some(type_info) = &status.type_info {
-                place.push(format!("- 研究の型: {}", type_info.name));
+                place.push(format!("- RESEARCH_TYPE: {}", type_info.name));
             }
             if let Some(seed) = &status.seed {
-                place.push(format!("- 種の文: {}", seed.text));
+                place.push(format!("- SEED_SENTENCE: {}", seed.text));
             }
             if let Some(gate) = &status.gate {
-                place.push(format!("- 関門: {}/{} {}", gate.current, gate.total, gate.name));
+                place.push(format!("- GATE: {}/{} {}", gate.current, gate.total, gate.name));
             }
         }
 
@@ -277,17 +277,17 @@ impl Parts {
         // 対象の節点（節点そのもの / 子孫 / 兄弟 / 全体の要約）。
         let (node_head, nodes) = match scope {
             "blind" => (String::new(), Vec::new()),
-            "summary" => ("## 全体の要約".to_string(), summary_sections(&rows)),
+            "summary" => ("## SUMMARY".to_string(), summary_sections(&rows)),
             "siblings" => (
-                "## 対象の節点".to_string(),
+                "## TARGET_NODE".to_string(),
                 sibling_sections(conn, &rows, target_id)?,
             ),
             "subtree" => (
-                "## 対象の節点".to_string(),
+                "## TARGET_NODE".to_string(),
                 detail_sections(conn, roots, defs, &rows, target_id, true)?,
             ),
             _ => (
-                "## 対象の節点".to_string(),
+                "## TARGET_NODE".to_string(),
                 detail_sections(conn, roots, defs, &rows, target_id, false)?,
             ),
         };
@@ -312,7 +312,7 @@ impl Parts {
                 assume.push(format!("- {node_id} {title} = {value}"));
             }
             if !assume.is_empty() {
-                assume.insert(0, "## 仮置き（この議論では問い直さない）".to_string());
+                assume.insert(0, "## ASSUMPTION（この議論では問い直さない）".to_string());
             }
         }
 
@@ -322,9 +322,9 @@ impl Parts {
         if with_scope {
             let detail = compute::node_detail(conn, roots, defs, target_id)?;
             if let Some(guide) = &detail.guide {
-                guide_full.push(format!("## 項目ガイド: {}", guide.name));
+                guide_full.push(format!("## ITEM_GUIDE: {}", guide.name));
                 if !guide.questions.is_empty() {
-                    let line = format!("- 問い: {}", guide.questions.join(" / "));
+                    let line = format!("- QUESTION: {}", guide.questions.join(" / "));
                     guide_full.push(line.clone());
                     guide_short.push(line);
                 }
@@ -334,7 +334,7 @@ impl Parts {
                     guide.condition_text.clone()
                 };
                 if !condition.trim().is_empty() {
-                    let line = format!("- 埋まった条件: {}", condition.trim());
+                    let line = format!("- CONDITION: {}", condition.trim());
                     guide_full.push(line.clone());
                     guide_short.push(line);
                 }
@@ -350,17 +350,17 @@ impl Parts {
                             )
                         })
                         .collect();
-                    guide_full.push(format!("- 抜き出す項目: {}", extract.join(" / ")));
+                    guide_full.push(format!("- EXTRACT_FIELDS: {}", extract.join(" / ")));
                 }
                 if !guide.pitfalls.is_empty() {
-                    guide_full.push(format!("- 落とし穴: {}", guide.pitfalls.join(" / ")));
+                    guide_full.push(format!("- PITFALL: {}", guide.pitfalls.join(" / ")));
                 }
             }
         }
 
         // 出せる提案。
         let ops = vec![
-            "## 出せる提案".to_string(),
+            "## ALLOWED_OPS".to_string(),
             super::ops::allowed_ops(roots, &task.block).join(", "),
             OPS_NOTE.to_string(),
         ];
@@ -409,11 +409,11 @@ impl Parts {
                 .collect();
             parts.out_scope = out_scope;
             parts.searched_head = (!parts.searched.is_empty())
-                .then(|| "## 既に調べたこと".to_string());
+                .then(|| "## SEARCH_HISTORY".to_string());
             return Ok(parts);
         }
         let searched_head =
-            (!searched.is_empty()).then(|| "## 既に調べたこと".to_string());
+            (!searched.is_empty()).then(|| "## SEARCH_HISTORY".to_string());
         Ok(Self {
             action,
             place,
@@ -438,7 +438,7 @@ impl Parts {
         push_block(&mut blocks, &self.action);
         push_block(&mut blocks, &self.place);
         if !self.soil.is_empty() {
-            let mut lines = vec!["## 土壌（mind.md から）".to_string()];
+            let mut lines = vec!["## SOIL（mind.md から）".to_string()];
             for (heading, body) in &self.soil {
                 // ④ 土壌 → 各節 1 行。
                 let text = if level >= 4 {
@@ -463,7 +463,7 @@ impl Parts {
                 self.out_scope.iter().map(String::as_str).collect()
             };
             let lines = vec![
-                "## 範囲外（この回では議論しない）".to_string(),
+                "## OUT_OF_SCOPE（この回では議論しない）".to_string(),
                 items.join(" / "),
             ];
             push_block(&mut blocks, &lines);
@@ -491,7 +491,7 @@ impl Parts {
         }
         push_block(&mut blocks, &self.ops);
         if !self.papers.is_empty() {
-            let mut lines = vec!["## 対象論文".to_string()];
+            let mut lines = vec!["## TARGET_PAPERS".to_string()];
             lines.extend(self.papers.iter().cloned());
             push_block(&mut blocks, &lines);
         }
@@ -622,11 +622,11 @@ fn detail_of(
         .iter()
         .map(|question| {
             let state = match question.state.as_str() {
-                "open" => "未回答",
-                "withdrawn" => "取り下げた",
-                _ => "答えた",
+                "open" => "OPEN",
+                "withdrawn" => "WITHDRAWN",
+                _ => "ANSWERED",
             };
-            format!("- 問い: {} {}（{state}）", question.id, question.text)
+            format!("- QUESTION: {} {}（{state}）", question.id, question.text)
         })
         .collect();
     let options = detail
@@ -634,7 +634,7 @@ fn detail_of(
         .iter()
         .map(|option| {
             format!(
-                "- 候補: {} {}（{}・支持 {}・反証 {}）",
+                "- OPTION: {} {}（{}・SUPPORT {}・REFUTE {}）",
                 option.id,
                 option.title,
                 label(&OPTION_STATE_LABELS, &option.state),
@@ -659,7 +659,7 @@ fn detail_of(
 /// 知見の行。
 fn finding_line(finding: &compute::FindingRow) -> String {
     let mut line = format!(
-        "- 知見: {}［{}］{}",
+        "- FINDING: {}［{}］{}",
         finding.id,
         label(&POLARITY_LABELS, &finding.polarity),
         finding.text.trim()
@@ -670,7 +670,7 @@ fn finding_line(finding: &compute::FindingRow) -> String {
     line
 }
 
-/// 結び付きの行。論文は `論文`、それ以外は `結び付き`。
+/// 結び付きの行。論文は `論文`、それ以外は `LINK`。
 fn link_line(link: &compute::LinkRow) -> String {
     if let Some(paper_id) = link.target.strip_prefix("paper:") {
         let mut parts: Vec<String> = Vec::new();
@@ -687,7 +687,7 @@ fn link_line(link: &compute::LinkRow) -> String {
             format!("{head}（{}）", parts.join("・"))
         }
     } else {
-        format!("- 結び付き: {} {}", link.target, link.title.trim())
+        format!("- LINK: {} {}", link.target, link.title.trim())
     }
 }
 
@@ -728,7 +728,7 @@ fn one_liner(row: &NodeRow) -> String {
         label(&OPTION_STATE_LABELS, &row.state)
     };
     format!(
-        "- {} {}（{}・支持 {}・反証 {}・論文 {}）",
+        "- {} {}（{}・SUPPORT {}・REFUTE {}・論文 {}）",
         row.id, row.title, state, row.counts.support, row.counts.refute, row.counts.papers
     )
 }
@@ -782,7 +782,7 @@ fn upstream_lines(conn: &Connection, rows: &[NodeRow], target_id: i64) -> Result
     if lines.is_empty() {
         return Ok(lines);
     }
-    let mut out = vec!["## 上流の道（なぜこの節点を扱うか）".to_string()];
+    let mut out = vec!["## UPSTREAM_PATH（なぜこの節点を扱うか）".to_string()];
     out.extend(lines);
     Ok(out)
 }
@@ -843,7 +843,7 @@ fn search_line(search: &SearchRecord) -> String {
         format!("・広げた理由: {}", search.widen_reason.trim())
     };
     format!(
-        "- 検索: {date}「{}」（範囲 {}・{} 件{extra}）",
+        "- 検索: {date}「{}」（SCOPE {}・{} 件{extra}）",
         search.query.trim(),
         search.scope,
         search.hits
@@ -855,7 +855,7 @@ fn rejected_line(proposal: &Proposal) -> String {
     let payload = serde_json::to_string(&proposal.payload).unwrap_or_default();
     let payload: String = payload.chars().take(40).collect();
     format!(
-        "- 却下された提案: {} {}「{payload}」（理由: {}）",
+        "- 却下された PROPOSAL: {} {}「{payload}」（理由: {}）",
         fmt_ref('P', proposal.id),
         proposal.op,
         proposal.reason.trim()
@@ -1189,7 +1189,7 @@ mod tests {
 
         // 節点
         let text = full("node");
-        assert!(text.contains("## 研究の現在地"), "{text}");
+        assert!(text.contains("## PROGRESS"), "{text}");
         // すべての節が `##`（または `###`）で始まり、`#` 1 つの見出しは無い。
         // fixture の mind.md と項目ガイドの本文にも `# ` の行は無い。
         for line in text.lines() {
@@ -1197,30 +1197,30 @@ mod tests {
         }
         // 種の文はかぎ括弧を持っているので、二重に囲まない。
         assert!(!text.contains("「「"), "{text}");
-        assert!(text.contains("## 土壌（mind.md から）"), "{text}");
-        assert!(text.contains("## 対象の節点"), "{text}");
+        assert!(text.contains("## SOIL（mind.md から）"), "{text}");
+        assert!(text.contains("## TARGET_NODE"), "{text}");
         assert!(text.contains(&format!("### {subgoal} 小目的")), "{text}");
-        assert!(text.contains("## 仮置き（この議論では問い直さない）"), "{text}");
-        assert!(text.contains("## 範囲外（この回では議論しない）"), "{text}");
-        assert!(text.contains("## 項目ガイド: 小目的"), "{text}");
-        assert!(text.contains("## 既に調べたこと"), "{text}");
-        assert!(text.contains("## 出せる提案"), "{text}");
+        assert!(text.contains("## ASSUMPTION（この議論では問い直さない）"), "{text}");
+        assert!(text.contains("## OUT_OF_SCOPE（この回では議論しない）"), "{text}");
+        assert!(text.contains("## ITEM_GUIDE: 小目的"), "{text}");
+        assert!(text.contains("## SEARCH_HISTORY"), "{text}");
+        assert!(text.contains("## ALLOWED_OPS"), "{text}");
         // 節点では上流の道は出さない。対象論文も出さない。
-        assert!(!text.contains("## 上流の道"), "{text}");
-        assert!(!text.contains("## 対象論文"), "{text}");
+        assert!(!text.contains("## UPSTREAM_PATH"), "{text}");
+        assert!(!text.contains("## TARGET_PAPERS"), "{text}");
 
         // 道
         let text = full("path");
-        assert!(text.contains("## 上流の道（なぜこの節点を扱うか）"), "{text}");
+        assert!(text.contains("## UPSTREAM_PATH（なぜこの節点を扱うか）"), "{text}");
         assert!(
             text.contains(&format!(
-                "- {} 背景 = てんかん外科の支援（決定）",
+                "- {} 背景 = てんかん外科の支援（DECIDED）",
                 fmt_ref('N', tree.background)
             )),
             "{text}"
         );
         assert!(
-            text.contains(&format!("- {} 目的（未決定）", fmt_ref('N', tree.purpose))),
+            text.contains(&format!("- {} 目的（OPEN）", fmt_ref('N', tree.purpose))),
             "{text}"
         );
 
@@ -1228,36 +1228,36 @@ mod tests {
         let text = full("subtree");
         assert!(text.contains(&format!("### {subgoal} 小目的")), "{text}");
         assert!(text.contains(&format!("### {option} 発作部位の予測")), "{text}");
-        assert!(text.contains("## 上流の道"), "{text}");
+        assert!(text.contains("## UPSTREAM_PATH"), "{text}");
 
         // 兄弟（1 行ずつ）
         let text = full("siblings");
-        assert!(text.contains("## 対象の節点"), "{text}");
-        assert!(text.contains(&format!("- {subgoal} 小目的（未決定")), "{text}");
-        assert!(!text.contains("## 全体の要約"), "{text}");
+        assert!(text.contains("## TARGET_NODE"), "{text}");
+        assert!(text.contains(&format!("- {subgoal} 小目的（OPEN")), "{text}");
+        assert!(!text.contains("## SUMMARY"), "{text}");
 
         // 全体の要約
         let text = full("summary");
-        assert!(text.contains("## 全体の要約"), "{text}");
-        assert!(!text.contains("## 対象の節点"), "{text}");
-        assert!(!text.contains("## 上流の道"), "{text}");
-        assert!(!text.contains("## 範囲外"), "{text}");
-        assert!(!text.contains("## 項目ガイド"), "{text}");
+        assert!(text.contains("## SUMMARY"), "{text}");
+        assert!(!text.contains("## TARGET_NODE"), "{text}");
+        assert!(!text.contains("## UPSTREAM_PATH"), "{text}");
+        assert!(!text.contains("## OUT_OF_SCOPE"), "{text}");
+        assert!(!text.contains("## ITEM_GUIDE"), "{text}");
         assert!(text.contains(&format!("- {} 背景", fmt_ref('N', tree.background))), "{text}");
 
         // 目隠し
         let text = full("blind");
-        assert!(text.contains("- 範囲: 目隠し"), "{text}");
-        assert!(!text.contains("- 節点:"), "{text}");
-        assert!(!text.contains("## 研究の現在地"), "{text}");
-        assert!(!text.contains("## 土壌"), "{text}");
-        assert!(!text.contains("## 対象の節点"), "{text}");
-        assert!(!text.contains("## 仮置き"), "{text}");
-        assert!(!text.contains("## 範囲外"), "{text}");
-        assert!(!text.contains("## 項目ガイド"), "{text}");
-        assert!(!text.contains("## 既に調べたこと"), "{text}");
-        assert!(text.contains("## 出せる提案"), "{text}");
-        assert!(text.contains("## 対象論文"), "{text}");
+        assert!(text.contains("- SCOPE: BLIND"), "{text}");
+        assert!(!text.contains("- NODE:"), "{text}");
+        assert!(!text.contains("## PROGRESS"), "{text}");
+        assert!(!text.contains("## SOIL"), "{text}");
+        assert!(!text.contains("## TARGET_NODE"), "{text}");
+        assert!(!text.contains("## ASSUMPTION"), "{text}");
+        assert!(!text.contains("## OUT_OF_SCOPE"), "{text}");
+        assert!(!text.contains("## ITEM_GUIDE"), "{text}");
+        assert!(!text.contains("## SEARCH_HISTORY"), "{text}");
+        assert!(text.contains("## ALLOWED_OPS"), "{text}");
+        assert!(text.contains("## TARGET_PAPERS"), "{text}");
     }
 
     /// 仮置きが掛かり、範囲外の節点の中身が入らないこと（R-I3）。
@@ -1283,7 +1283,7 @@ mod tests {
         );
         // 範囲外は、上流にも当事人にも出てこなかった一番上の項目。
         let out = text
-            .split("## 範囲外（この回では議論しない）")
+            .split("## OUT_OF_SCOPE（この回では議論しない）")
             .nth(1)
             .unwrap()
             .lines()
@@ -1312,7 +1312,7 @@ mod tests {
         // 木が無い。
         conn.execute("DELETE FROM sci_meta", []).unwrap();
         let text = build(conn, &fix.roots, &defs(), 100_000, 120, None).unwrap();
-        assert!(text.starts_with("## 今回の行動（sai-sci より）"), "{text}");
+        assert!(text.starts_with("## CURRENT_ACTION（sai-sci より）"), "{text}");
         assert!(text.contains("研究方針の木がまだありません"), "{text}");
         assert_eq!(text.lines().count(), 2, "{text}");
 
@@ -1320,8 +1320,8 @@ mod tests {
         store::meta_set(conn, "type", "problem").unwrap();
         write_run(&fix.roots, 121, "sci_purpose: 汎用カード\n");
         let text = build(conn, &fix.roots, &defs(), 100_000, 121, None).unwrap();
-        assert!(text.starts_with("## 今回の行動（sai-sci より）"), "{text}");
-        assert!(text.contains("節点の指定がありません"), "{text}");
+        assert!(text.starts_with("## CURRENT_ACTION（sai-sci より）"), "{text}");
+        assert!(text.contains("NODE の指定がありません"), "{text}");
         assert_eq!(text.lines().count(), 3, "{text}");
     }
 
@@ -1377,21 +1377,21 @@ mod tests {
 
         let full = parts.render(0);
         assert_eq!(count(&full, "- 検索:"), 12);
-        assert_eq!(count(&full, "- 知見:"), 14);
+        assert_eq!(count(&full, "- FINDING:"), 14);
 
         // ① 既に調べたこと → 新しい 5 件ずつ。
         let level1 = parts.render(1);
         assert_eq!(count(&level1, "- 検索:"), 5);
-        assert_eq!(count(&level1, "- 知見:"), 14);
+        assert_eq!(count(&level1, "- FINDING:"), 14);
         // ② 対象の節点の知見 → 新しい 10 件。
         let level2 = parts.render(2);
         assert_eq!(count(&level2, "- 検索:"), 5);
-        assert_eq!(count(&level2, "- 知見:"), 10);
-        assert!(level2.contains("- 抜き出す項目:"), "{level2}");
+        assert_eq!(count(&level2, "- FINDING:"), 10);
+        assert!(level2.contains("- EXTRACT_FIELDS:"), "{level2}");
         // ③ 項目ガイド → 問いと埋まった条件だけ。
         let level3 = parts.render(3);
-        assert!(!level3.contains("- 抜き出す項目:"), "{level3}");
-        assert!(level3.contains("- 問い: 1 回の研究で何を達成するか"), "{level3}");
+        assert!(!level3.contains("- EXTRACT_FIELDS:"), "{level3}");
+        assert!(level3.contains("- QUESTION: 1 回の研究で何を達成するか"), "{level3}");
         // ④ 土壌 → 各節 1 行。
         assert!(level3.contains("学会が 1 年に 1 回"), "{level3}");
         assert!(level3.contains("- ORIGIN: てんかん外科の支援から 焦点切除を目指す"), "{level3}");
@@ -1426,11 +1426,11 @@ mod tests {
         let text = build_with(&fix, &db, 100_000, Some("blind"));
         assert!(text.contains("- 実行: run 120（sci-compare）"), "{text}");
         assert!(text.contains("- 目的: 候補を比べる"), "{text}");
-        assert!(text.contains("- 範囲: 目隠し"), "{text}");
-        assert!(text.contains("## 対象論文\n- #37 論文 37"), "{text}");
+        assert!(text.contains("- SCOPE: BLIND"), "{text}");
+        assert!(text.contains("## TARGET_PAPERS\n- #37 論文 37"), "{text}");
         assert!(!text.contains("小目的"), "{text}");
         assert!(!text.contains("てんかん外科"), "{text}");
-        assert!(!text.contains("既に調べたこと"), "{text}");
+        assert!(!text.contains("SEARCH_HISTORY"), "{text}");
         assert!(text.contains("add_finding"), "{text}");
     }
 }
