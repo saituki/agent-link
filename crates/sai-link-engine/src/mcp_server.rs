@@ -259,7 +259,7 @@ fn tools_list_result() -> Value {
                             "properties": {
                                 "client_id": { "type": "string", "description": "クライアント側の一時 ID（結果の紐付け用・バッチ内で一意）" },
                                 "subject": { "type": "string", "description": "タスク件名" },
-                                "task_text": { "type": "string", "description": "子ブロックの {{input.task_text}} に入るテキスト。文中の waggle:<トークン> は実行時に文書の本文へ置き換わる" },
+                                "task_text": { "type": "string", "description": "子ブロックの最初のメッセージの「# task_text」の節に入るテキスト。文中の waggle:<トークン> は実行時に文書の本文へ置き換わる" },
                                 "card": { "type": "integer", "description": "todo のカードの run_id。executer: professor のカードを、自分の子として起こす。予約済みの run_id と task.md（sci_* を含む）をそのまま使う。task_text は書かない" },
                                 "block_type": { "type": "string", "description": "使用するブロック定義の id（表示名ではなく id。task.md の block と同じ）" },
                                 "block": { "type": "string", "description": "block_type と同じ（task.md 互換の別名）" },
