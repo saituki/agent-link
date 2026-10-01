@@ -412,6 +412,13 @@ def test_calls(order: list) -> None:
         assert paper.last["timeout"] == 20.0, paper.last["timeout"]
         assert paper.last["input_text"] is None, paper.last["input_text"]
 
+        # 1b. 論文の葉（読み取り・戻りはそのまま）
+        leaves = {"papers": [{"node": "N12", "paper": 37, "findings": 3}]}
+        paper.replies.append(leaves)
+        assert sci.graph(project) == leaves
+        assert paper.last["args"][1:] == ["phone", "sci", "graph"], paper.last["args"]
+        assert paper.last["timeout"] == 20.0, paper.last["timeout"]
+
         # 2. 始める（60 秒）
         sci.init(project, {"type": "improve"})
         assert paper.last["args"][1:] == ["phone", "sci", "init", "--type", "improve"]

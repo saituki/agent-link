@@ -271,7 +271,18 @@ sai-moon-paper sci init --type <型>
 
 論文タブの最初の画面が「研究方針」です（`#/papers/tree`）。
 
-- 木を見て、NODE を選ぶ（`#/papers/tree/N12`）と、その NODE の QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG が「板」に出ます。
+- 画面は、左に一覧（幹・ITEM・sprout・branch の行）、真ん中に図です。図の表示は `ROOT_GRAPH` と `RUN_GRAPH` の 2 つを切り替えます。
+  - `ROOT_GRAPH` は 4 層の樹です（上から）。
+
+    ```
+    branch   sprout から上へ分かれる（review の run は描かず、branch → branch の線にする）
+    sprout   幹から上へ
+    seed     幹 1 つ（SEED_SENTENCE・型・GATE）
+    root     幹の下に上位の ITEM、その下に子の ITEM、最下層に論文の葉（論文 1 本 = 1 葉・FINDING の数つき）
+    ```
+
+  - `RUN_GRAPH` は run の DAG です。帯は上から branch / sprout / seed / root です。
+- 節点（幹・ITEM・論文・run）を押す（`#/papers/tree/N12`）と詳細が「板」に出ます。PC 幅（900px 以上）は右の板（✕ で閉じる）、iPhone 幅は下から出る sheet です。ITEM の板には QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG が、論文の葉の板にはその論文の FINDING と読んだ状態が出ます（論文の葉は `GET /api/projects/{name}/papers/sci/graph`）。OPTION の表は ITEM の板の中にあります。
 - 板から行動（カード）を作ります。作ったカードが次に動くものです。
 - TRIAGE（`#/papers/triage`）で、エージェントの PROPOSAL を ACCEPT・REJECT（採用済みのものは REVERT）します。
 - READ_CARD（`#/papers/read/<run_id>`）は、利用者が 1 本の論文を読んで FINDING を書く画面です。

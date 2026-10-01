@@ -235,6 +235,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `POST /api/projects/{name}/papers/attention/resolve` | 要対応の 1 件を対応済みにする（body `{"key": "…"}`・`phone attention-resolve`） |
 | `GET /api/projects/{name}/papers/sci` | 研究方針の木全体（`phone sci status`） |
 | `POST /api/projects/{name}/papers/sci/init` | 研究方針の木を始める（body `{"type": "problem"}`・型は 5 つだけ。`phone sci init --type <型>`） |
+| `GET /api/projects/{name}/papers/sci/graph` | ROOT_GRAPH の論文の葉（`phone sci graph`。`{"papers": [{"node": "N12", "paper": 37, "title", "year", "role", "read_state", "findings"}]}`。外した LINK は出ない） |
 | `GET /api/projects/{name}/papers/sci/nodes/{node}` | NODE 1 つの中身（`phone sci node <N>`。`{node}` は `N12` の形） |
 | `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は op の JSON。`phone sci apply` の標準入力へ渡す） |
 | `GET /api/projects/{name}/papers/sci/proposals` | TRIAGE 待ちの PROPOSAL の一覧（`phone sci proposals`） |
@@ -334,6 +335,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/mlflow/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件。表は差分だけに絞れ、指標は重ねたグラフで見比べる） | 実験 | 表示 |
 
 - 古い住所も開く: `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>`（名前の無い形）は，今選んでいるプロジェクトの同じ画面として開く。
+- 研究方針の画面の表示は `ROOT_GRAPH` と `RUN_GRAPH` の 2 つ。左に一覧、真ん中に図。節点を押すと、PC 幅（900px 以上）は右の板（約 420px・✕ で閉じる）、iPhone 幅は下から sheet で詳細が出る。ROOT_GRAPH の最下層は論文 1 本 = 1 葉（`papers/sci/graph`）。
+- 実験タブは、右上で選んだプロジェクトの experiment だけを出す（experiment のタグ `sai.project`）。run の表は branch（`sai.run_id`）ごとにまとまる。
 - 古い住所 `#/papers/canvas` と `#/canvas/…` は研究方針の画面（`#/papers/tree`）へ送る（消した画面の `scitree.js` の登録が `location.replace` で送り直す）。
 - 住所に名前がある画面を開いたら，論文タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `sai_phone_papers_project`（localStorage）に覚える。
   - 実験タブの「選んでいるプロジェクト」は別の `sai_phone_mlf_project`（localStorage）に覚える（論文タブと別々に持つ）。「すべてのプロジェクト」は `*` として覚え、`POST /api/mlflow/runs/search` には `project` を送らない。

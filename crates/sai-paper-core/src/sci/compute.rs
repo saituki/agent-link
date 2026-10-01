@@ -2243,6 +2243,105 @@ fn link_titles(conn: &Connection, links: &[Link]) -> Result<HashMap<(String, i64
     Ok(found)
 }
 
+// ---- ROOT_GRAPH の論文の葉 ---------------------------------------------------
+
+/// 論文の葉の 1 行（`phone sci graph` の `papers` の 1 要素）。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PaperLeaf {
+    /// 節点の番号（`N12` など）。
+    pub node: String,
+    /// Library の論文番号。
+    pub paper: i64,
+    /// 題。
+    pub title: String,
+    /// 出版年（無ければ `None`）。
+    pub year: Option<i64>,
+    /// LINK の役割（LINK が無ければ `None`）。
+    pub role: Option<String>,
+    /// LINK の読んだ状態（LINK が無ければ `None`）。
+    pub read_state: Option<String>,
+    /// その節点のその論文の FINDING の数。
+    pub findings: i64,
+}
+
+/// 役割の並び順（知らない役割は最後）。
+const ROLE_ORDER: [&str; 7] = [
+    "exemplar",
+    "compare",
+    "issue_evidence",
+    "method_source",
+    "data_source",
+    "background",
+    "counter",
+];
+
+/// 節点ごとの論文の葉を返す（外していない LINK と、論文を出所に持つ FINDING から集める）。
+///
+/// 並びは節点の `ord`・id、同じ節点の中は役割の順、そのあと論文の番号。
+pub fn paper_leaves(conn: &Connection) -> Result<Vec<PaperLeaf>> {
+    let nodes = store::list_nodes(conn)?;
+    let mut leaves: HashMap<(i64, i64), (Option<String>, Option<String>, i64)> = HashMap::new();
+    for link in store::list_links(conn, None, false)? {
+        if link.target_kind != "paper" {
+            continue;
+        }
+        let Ok(paper) = link.target_ref.trim().parse::<i64>() else {
+            continue;
+        };
+        leaves.insert((link.node_id, paper), (link.role, link.read_state, 0));
+    }
+    for finding in store::list_findings(conn, None, false)? {
+        if let Some(paper) = finding.paper_id {
+            leaves.entry((finding.node_id, paper)).or_default().2 += 1;
+        }
+    }
+    let mut papers: HashMap<i64, (String, Option<i64>)> = HashMap::new();
+    let mut statement = conn.prepare(
+        "SELECT id, title, CAST(SUBSTR(published_at, 1, 4) AS INTEGER) FROM papers",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<i64>>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, title, year) = row?;
+        papers.insert(id, (title, year.filter(|year| *year > 0)));
+    }
+    let node_order: HashMap<i64, (i64, i64)> =
+        nodes.iter().map(|node| (node.id, (node.ord, node.id))).collect();
+    let role_rank = |role: &Option<String>| {
+        ROLE_ORDER
+            .iter()
+            .position(|known| Some(*known) == role.as_deref())
+            .unwrap_or(ROLE_ORDER.len())
+    };
+    let mut found: Vec<PaperLeaf> = leaves
+        .into_iter()
+        .filter(|((node, _), _)| node_order.contains_key(node))
+        .map(|((node, paper), (role, read_state, findings))| {
+            let (title, year) = papers.get(&paper).cloned().unwrap_or_default();
+            PaperLeaf {
+                node: fmt_ref('N', node),
+                paper,
+                title,
+                year,
+                role,
+                read_state,
+                findings,
+            }
+        })
+        .collect();
+    let key = |leaf: &PaperLeaf| {
+        let node: i64 = leaf.node[1..].parse().unwrap_or(0);
+        (node_order[&node], role_rank(&leaf.role), leaf.paper)
+    };
+    found.sort_by_key(key);
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3576,6 +3675,63 @@ given: background
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn paper_leaves_skip_removed_and_count_findings() {
+        let database = Database::in_memory().expect("メモリ DB");
+        let conn = database.connection();
+        build_tree(conn);
+        let target = key_id(conn, "target");
+        let data = key_id(conn, "data");
+        for (id, title) in [(37, "A"), (40, "B"), (41, "C")] {
+            conn.execute(
+                "INSERT INTO papers (id, title, published_at) VALUES (?1, ?2, '2014-09-01T00:00:00+00:00')",
+                params![id, title],
+            )
+            .expect("論文を足す");
+        }
+        let link = |node: i64, paper: &str, role: &str| {
+            store::upsert_link(
+                conn,
+                &NewLink {
+                    node_id: node,
+                    target_kind: "paper",
+                    target_ref: paper,
+                    role: Some(role),
+                    read_state: Some("read"),
+                    reason: "",
+                    proposal_id: None,
+                    auto: false,
+                    created_by: "user",
+                },
+            )
+            .expect("結ぶ")
+        };
+        link(target, "37", "exemplar");
+        let removed = link(target, "40", "compare");
+        store::remove_link(conn, removed).expect("外す");
+        let add = |node: i64, paper: i64| {
+            conn.execute(
+                "INSERT INTO sci_findings (node_id, text, polarity, source, paper_id, created_by)
+                 VALUES (?1, 'f', 'support', 'user', ?2, 'user')",
+                params![node, paper],
+            )
+            .expect("知見を足す");
+        };
+        add(target, 37);
+        add(target, 37);
+        add(data, 41);
+
+        let leaves = paper_leaves(conn).expect("葉");
+        assert_eq!(leaves.len(), 2);
+        assert_eq!(leaves[0].paper, 37);
+        assert_eq!(leaves[0].findings, 2);
+        assert_eq!(leaves[0].year, Some(2014));
+        assert_eq!(leaves[0].role.as_deref(), Some("exemplar"));
+        assert_eq!(leaves[1].paper, 41);
+        assert_eq!(leaves[1].findings, 1);
+        assert_eq!(leaves[1].role, None);
     }
 }
 
