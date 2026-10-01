@@ -151,7 +151,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `professor` | 🎓 professor | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して研究方針（木の TRIAGE）をする | `sai-agent` / `sai-task` / `sai-cli` | する。root の run になる。研究作業は自分でしない |
 | `professor-backward` | 🔙 professor-backward | 既存の論文から始める逆向きの舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす（5.7 節） | `sai-agent` / `sai-task` / `sai-cli` / `bw-core` | する。root の run になる。研究作業は自分でしない |
 | `operator` | 🛠 operator | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sai-cli` | しない。professor の子。子の `task_id` で professor の子を扱える |
-| `sci-*` | （22 本） | 研究作業そのもの（読む・比べる・OPTION を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で不起きたもの）に書かれた作業だけ |
+| `sci-*` | （22 本） | 研究作業そのもの（読む・比べる・OPTION を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で起こすもの）に書かれた作業だけ |
 
 - カードの `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人間が Web から起こせず、professor が `task_create` の `card` で自分の子として起こす。
 - 子からの質問は親の `task_output` に `stalled`（`reason: "question"`）で届き、`phone_api.py question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
