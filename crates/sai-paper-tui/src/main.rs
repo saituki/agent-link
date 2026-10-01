@@ -8003,7 +8003,7 @@ fn apply_open_attention(
     Ok(())
 }
 
-/// 要対応の「判断待ち」「仕分けていない提案」を研究方針のページで開く（U23）。
+/// 要対応のAWAITING_DECISION・PENDING_PROPOSALSを研究方針のページで開く（U23）。
 ///
 /// [`apply_open_attention`] から使う。App だけ受け取るのでテストできる。
 fn open_sci_attention_at(item: &papr_core::attention::AttentionItem, app: &mut App) {
@@ -11105,7 +11105,7 @@ mod tests {
         assert_eq!(attention_set_id("set:x"), None);
     }
 
-    /// U23: 要対応の「判断待ち」「仕分けていない提案」は研究方針のページで開く。
+    /// U23: 要対応のAWAITING_DECISION・PENDING_PROPOSALSは研究方針のページで開く。
     ///
     /// 判断待ち（`sci_decision`）のときはキーの 2 番目の節点を選ぶ。
     #[test]
@@ -11115,7 +11115,7 @@ mod tests {
         let item = AttentionItem {
             key: "sci_decision:N12:31".into(),
             kind: AttentionKind::SciDecision,
-            title: "判断待ち".into(),
+            title: "AWAITING_DECISION".into(),
             run_id: None,
             open_path: None,
             report_id: None,
