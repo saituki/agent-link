@@ -1,9 +1,9 @@
 ---
 id: improve
-name: 改良駆動
+name: IMPROVE_DRIVEN
 given: existing
 ---
-# 改良駆動
+# IMPROVE_DRIVEN
 
 すでに動いている手法があり、「これをよくする」ことを目標にする型である。何を直すかは、おおむね決まっている。
 
@@ -11,7 +11,7 @@ given: existing
 
 典型例は、自動注釈が特定の記録条件で壊れるので、壊れる条件を整理して直す工夫を考えるものである。手法は既にあるので、どこに手を入れるかを決めるところが本番になる。
 
-## 項目の順序
+## ITEM_ORDER
 - background
 - existing
 - issue
@@ -20,13 +20,13 @@ given: existing
 - target
 - novelty
 
-## 種の文
+## SEED_SENTENCE
 {existing}の{issue.limit}を、{issue.root}に着目して{method}で直す。
 
-## 関門
-- 対象の手法: count(existing, 1)
-- 課題の確認: level(issue.limit, 2)
-- 根本の原因: decided(issue.root)
-- 改善の方向: decided(method)
-- データの入手: decided(data.access)
-- 新規性: count(novelty.closest, 3) かつ decided(novelty.diff)
+## GATE
+- EXISTING_COUNT_1: count(existing, 1)
+- ISSUE_LIMIT_LEVEL_2: level(issue.limit, 2)
+- ISSUE_ROOT_DECIDED: decided(issue.root)
+- METHOD_DECIDED: decided(method)
+- DATA_ACCESS_DECIDED: decided(data.access)
+- NOVELTY_CLOSEST_AND_DIFF: count(novelty.closest, 3) かつ decided(novelty.diff)

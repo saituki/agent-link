@@ -909,7 +909,7 @@ mod tests {
         let tree = render_tree_md(conn, &roots, &defs, &status).expect("tree.md");
 
         // 見出しと並び。
-        assert!(tree.contains("- RESEARCH_TYPE: 課題駆動"), "{tree}");
+        assert!(tree.contains("- RESEARCH_TYPE: PROBLEM_DRIVEN"), "{tree}");
         assert!(tree.contains("## SEED_SENTENCE"), "{tree}");
         assert!(tree.contains(&format!("## {} 対象", fmt_ref('N', target))), "{tree}");
         // 候補・知見・論文は項目の中の一行。
