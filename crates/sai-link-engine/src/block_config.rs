@@ -107,9 +107,10 @@ impl<'de> Deserialize<'de> for ToolsConfig {
 /// - **テンプレート**: templates（`.sai/template/*.md` の挿入リスト）
 /// - **範囲（context）**: context（起動の直前に範囲を作るかどうか）
 ///
-/// ブロックへの入力は `task_text` の 1 つに統一されており（`{{input.task_text}}`）、
-/// 旧 `inputs:` / `output:` は廃止した。古い定義ファイルに残っていても
-/// 未知フィールドとして無視される。
+/// ブロックへの入力は `task_text` の 1 つに統一されている。
+/// 本文に `{{input.task_text}}` を書かなくても、最初のメッセージには自動で
+/// `# task_text` の節ができる。旧 `inputs:` / `output:` は廃止した。古い定義ファイルに
+/// 残っていても未知フィールドとして無視される。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BlockConfig {
     /// ブロックの機械可読 ID（`[a-z0-9_-]+` パターン）。

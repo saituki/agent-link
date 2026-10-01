@@ -7,7 +7,8 @@
 use std::path::PathBuf;
 
 use sai_link_engine::placeholder::{
-    expand_placeholders, resolve_placeholder_values, PlaceholderValue,
+    expand_placeholders, resolve_placeholder_values, shift_headings, strip_frontmatter,
+    PlaceholderValue,
 };
 use sai_link_engine::waggle_integration::WaggleIntegrator;
 
@@ -20,6 +21,11 @@ fn fixture_path(name: &str) -> PathBuf {
     path.push("fixtures");
     path.push(name);
     path
+}
+
+/// マーカー付きのブロックに埋め込まれる本文（frontmatter を外して 3 段下げたもの）。
+fn embedded_body(content: &str) -> String {
+    shift_headings(strip_frontmatter(content), 3)
 }
 
 /// インメモリ DB のテスト用インテグレーターを作成する。
@@ -254,25 +260,31 @@ fn test_resolve_multiple_waggle_tokens_input() {
     // 解決値に両方の本文が含まれる（wt 文字列そのものは残らない）
     let resolved_text = &resolved["source_docs"];
     assert!(
-        resolved_text.contains(&content_a),
+        resolved_text.contains(&embedded_body(&content_a)),
         "トークン A の本文が含まれるべき"
     );
     assert!(
-        resolved_text.contains(&content_b),
+        resolved_text.contains(&embedded_body(&content_b)),
         "トークン B の本文が含まれるべき"
     );
     assert!(
         resolved_text.contains("waggle:token:"),
         "複数トークン時はマーカー付き連結"
     );
+    // 包みの見出しは `###`、中身は frontmatter を外して 3 段下げられている
+    assert!(resolved_text.contains("### 出力トークン: "), "{resolved_text}");
+    assert!(resolved_text.contains("#### テストブロック出力"), "{resolved_text}");
+    assert!(!resolved_text.contains("\n### テストブロック出力"), "{resolved_text}");
+    // frontmatter は外す
+    assert!(!resolved_text.contains("anthropic/claude-sonnet"), "{resolved_text}");
 
     // ブロック本文の {{input.*}} 展開まで通す（prepare_pipeline の Step 1 相当）
     let expanded = expand_placeholders(
         "以下の資料を踏まえて作業してください:\n\n{{input.source_docs}}",
         &resolved,
     );
-    assert!(expanded.contains(&content_a));
-    assert!(expanded.contains(&content_b));
+    assert!(expanded.contains(&embedded_body(&content_a)));
+    assert!(expanded.contains(&embedded_body(&content_b)));
     assert!(!expanded.contains("{{input."));
 }
 

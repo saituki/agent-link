@@ -465,8 +465,9 @@ pub struct PreparedPipeline {
     pub session_dir: PathBuf,
     /// 最初のメッセージ（`herdr.send_text` で 1 通で送る文）。
     ///
-    /// 入力値（`task_text` など）を `# <id>` の節にして並べ、`context: true` のブロックは
-    /// 最後に `# 範囲` の節を足す。template と block.md の本文（固定部分）は
+    /// `context: true` のブロックは最初に見出し付きの `# context` の節を置き、
+    /// その後に `# task_text` の節を置き、そのほかの入力値を `# <id>` の節にして並べる
+    /// （節の作り方は `split_fixed_and_variable`）。template と block.md の本文（固定部分）は
     /// [`PreparedPipeline::system_prompt`] に入り、`system-prompt.md` 経由で渡す（U6・C10）。
     pub expanded_prompt: String,
     /// 固定部分（system prompt・template と本文の案内文に置き換えたもの）。
@@ -670,7 +671,8 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // ── Step 1: 固定部分（system prompt）と最初の文に分ける ──
     // 固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
     // 起動コマンドのフラグで渡す。最初の文には入力値と範囲（`{{context}}`）だけが入る。
-    // context: true のブロックだけ、範囲の文を用意する（`{{context}}` の位置は本文で決める）。
+    // context: true のブロックだけ、範囲の文を用意する（最初のメッセージの
+    // `# context` の節に入る。本文に `{{context}}` の記法が無くても必ず作る）。
     let context_text = if config.block_config.context == Some(true) {
         Some(crate::pre_run::context_text(
             config.run_id,
@@ -6166,7 +6168,7 @@ mod tests {
 
     // ── 範囲（context）の扱い（U16・U6） ──
 
-    /// AC1: `context: true` のブロックは `prepare_pipeline` で最初の文に範囲の節が付き、
+    /// AC1: `context: true` のブロックは `prepare_pipeline` で最初の文に `# context` の節が付き、
     /// 固定部分の `{{context}}` は案内の文になる（U6）。
     /// `context` の無いブロックは範囲の節がつかない。
     #[test]
@@ -6184,16 +6186,19 @@ mod tests {
         let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
         let _home_guard = EnvVarGuard::set("SAI_SAI_HOME", root.as_os_str());
 
-        // context: true → 最初の文に `# 範囲` の節が付き、固定部分は案内文
+        // context: true → 最初の文に `# context` の節が付き、固定部分は案内文
         let mut config = minimal_config();
         config.run_id = Some(99);
         config.block_config.context = Some(true);
         config.block_body = "前\n{{context}}\n後".to_string();
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert_eq!(prepared.expanded_prompt, "# 範囲\n\nrun=99 block=test-block");
+        assert_eq!(
+            prepared.expanded_prompt,
+            "# context\n\nrun=99 block=test-block"
+        );
         assert_eq!(
             prepared.system_prompt,
-            "前\n（最初のメッセージの「# 範囲」の節にある）\n後"
+            "前\n（最初のメッセージの「# context」の節にある）\n後"
         );
         crate::session::cleanup_session_dir(&prepared.session_dir);
 

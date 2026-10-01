@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use sai_link_engine::placeholder::{resolve_placeholder_values, PlaceholderValue};
+use sai_link_engine::placeholder::{
+    resolve_placeholder_values, shift_headings, strip_frontmatter, PlaceholderValue,
+};
 use sai_link_engine::waggle_integration::WaggleIntegrator;
 
 /// テスト用フィクスチャの絶対パスを取得する。
@@ -17,6 +19,11 @@ fn fixture_path(name: &str) -> PathBuf {
     path.push("fixtures");
     path.push(name);
     path
+}
+
+/// マーカー付きのブロックに埋め込まれる本文（frontmatter を外して 3 段下げたもの）。
+fn embedded_body(content: &str) -> String {
+    shift_headings(strip_frontmatter(content), 3).trim_end().to_string()
 }
 
 /// インメモリ DB のテスト用インテグレーターを作成する。
@@ -52,9 +59,13 @@ fn test_inline_waggle_embedded_in_sentence() {
         resolve_one(&format!("下記を実装せよ。waggle:{}", token), &integrator);
 
     assert!(
-        resolved.contains(content.trim_end()),
+        resolved.contains(&embedded_body(&content)),
         "本文が埋め込まれるべき: {resolved}"
     );
+    // 包みの見出しは `###`、中身は 3 段下げられている
+    assert!(resolved.contains("### 出力トークン: "), "{resolved}");
+    assert!(resolved.contains("#### テストブロック出力"), "{resolved}");
+    assert!(!resolved.contains("\n# テストブロック出力"), "{resolved}");
     assert_eq!(tokens, vec![token.clone()]);
     // 生の参照記法は残らない（マーカーの `waggle:token:` は本文側）
     assert!(
@@ -75,7 +86,7 @@ fn test_inline_waggle_followed_by_text() {
 
     assert!(!resolved.contains("形式が不正"), "回帰: {}", resolved);
     assert!(!resolved.contains("解決に失敗"), "回帰: {}", resolved);
-    assert!(resolved.contains(content.trim_end()));
+    assert!(resolved.contains(&embedded_body(&content)));
     assert_eq!(tokens, vec![token]);
 }
 
@@ -91,7 +102,7 @@ fn test_inline_waggle_with_path_reference() {
     );
 
     assert!(!resolved.contains(":path:"), ":path: も消えるべき: {resolved}");
-    assert!(resolved.contains(content.trim_end()));
+    assert!(resolved.contains(&embedded_body(&content)));
     assert_eq!(tokens, vec![token]);
 }
 
@@ -107,7 +118,7 @@ fn test_standalone_path_reference() {
     );
 
     assert!(!resolved.contains(":path:"), ":path: も消えるべき: {resolved}");
-    assert!(resolved.contains(content.trim_end()));
+    assert!(resolved.contains(&embedded_body(&content)));
     assert_eq!(tokens, vec![token]);
 }
 
