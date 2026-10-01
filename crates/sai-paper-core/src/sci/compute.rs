@@ -36,7 +36,7 @@ const MARK_LABELS: [(&str, &str); 2] = [("weak_evidence", "WEAK_EVIDENCE"), ("re
 const DEBT_WHY: &str = "DEBT";
 
 /// 関門を全部通ったときの名前。
-const GATE_DONE_NAME: &str = "種にできる";
+const GATE_DONE_NAME: &str = "SEED にできる";
 
 /// 次の一手に出す件数の上限。
 const NEXT_LIMIT: usize = 10;
@@ -2740,7 +2740,7 @@ given: background
         let result = status(conn, &roots, &defs()).expect("status");
         let gate = result.gate.as_ref().expect("関門");
         assert_eq!(gate.current, 3);
-        assert_eq!(gate.name, "種にできる");
+        assert_eq!(gate.name, "SEED にできる");
 
         // 仮決定の値には「（仮）」が付く。
         set_state(conn, subgoal, "tentative");
