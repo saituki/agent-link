@@ -21,9 +21,9 @@ const { cvlLayoutBoard } = require(path.join(
 global.cvlLayoutBoard = cvlLayoutBoard;
 
 const {
-  sgGraphInput,
+  sgTreeLayout,
+  sgSelectionOf,
   sgEdgeStyle,
-  sgTableRows,
   sgGateKeys,
   sgStateOf,
   sgEdgePath,
@@ -96,67 +96,6 @@ function sampleStatus() {
   };
 }
 
-// --- 図の入力 ---
-
-function testGraphInputShowsOptions() {
-  const input = sgGraphInput(sampleStatus(), true);
-  // 項目と候補が 1 つずつ札になる（元の並びのまま）
-  assert.deepStrictEqual(input.cards.map((c) => c.id), ["N9", "N12", "N20", "N21", "N22", "N23", "N30"]);
-  // 札の大きさは固定
-  for (const c of input.cards) {
-    assert.strictEqual(c.type, "card");
-    assert.strictEqual(c.width, SG_CARD_W);
-    assert.strictEqual(c.height, SG_CARD_H);
-    assert.strictEqual(c.group, null);
-  }
-  // 描く線は 4 種類とも（親子の線は parents から作る）
-  const kinds = new Set(input.drawEdges.map((e) => e.kind));
-  assert.deepStrictEqual([...kinds].sort(), ["analogous", "depends", "derived", "parent"]);
-  // 親子の線（parents から作ったもの）が入っている
-  assert.ok(input.drawEdges.some((e) => e.kind === "parent" && e.from === "N12" && e.to === "N20"));
-}
-
-function testGraphInputHidesOptions() {
-  const input = sgGraphInput(sampleStatus(), false);
-  // 候補を隠すと項目だけになる
-  assert.deepStrictEqual(input.cards.map((c) => c.id), ["N9", "N12", "N30"]);
-  // 隠した候補につながる線は描かない（始点と終点が札の無い線は落とす）
-  for (const e of input.drawEdges) {
-    assert.ok(["N9", "N12", "N30"].includes(e.from), `線のもう片方が消えています: ${JSON.stringify(e)}`);
-    assert.ok(["N9", "N12", "N30"].includes(e.to), `線のもう片方が消えています: ${JSON.stringify(e)}`);
-  }
-  // showOptions を省くと候補を出す
-  assert.strictEqual(sgGraphInput(sampleStatus()).cards.length, 7);
-}
-
-function testLayoutEdgesExcludeDerivedAndAnalogous() {
-  const input = sgGraphInput(sampleStatus(), true);
-  // 配置に使うのは親子の線と依存だけ
-  const kinds = new Set(input.layoutEdges.map((e) => e.kind));
-  assert.deepStrictEqual([...kinds].sort(), ["depends", "parent"]);
-  assert.ok(!input.layoutEdges.some((e) => e.kind === "derived"));
-  assert.ok(!input.layoutEdges.some((e) => e.kind === "analogous"));
-  // 描く線よりは少ない（由来と同型は配置に入れない）
-  assert.ok(input.drawEdges.length > input.layoutEdges.length);
-}
-
-function testLayoutIsStable() {
-  // 同じ status なら 2 回呼んでも同じ位置（開くたびに図が動かない）
-  const a = sgGraphInput(sampleStatus(), true);
-  const b = sgGraphInput(sampleStatus(), true);
-  assert.deepStrictEqual(cvlLayoutBoard(a.cards, a.layoutEdges), cvlLayoutBoard(b.cards, b.layoutEdges));
-  // 別の呼び出しでも同じ（入力を壊さない）
-  const c = sgGraphInput(sampleStatus(), true);
-  assert.deepStrictEqual(cvlLayoutBoard(c.cards, c.layoutEdges), cvlLayoutBoard(a.cards, a.layoutEdges));
-}
-
-function testGraphInputEmpty() {
-  // status が空でもJF を出さない
-  assert.deepStrictEqual(sgGraphInput(null, true), { cards: [], layoutEdges: [], drawEdges: [] });
-  assert.deepStrictEqual(sgGraphInput({}, true).cards, []);
-  assert.deepStrictEqual(sgGraphInput({ nodes: [null, {}] }, true).cards, []);
-}
-
 // --- 線の種類 ---
 
 function testEdgeStyle() {
@@ -223,66 +162,6 @@ function testGateKeys() {
   const dup = sampleStatus();
   dup.gate.list[1].when = "decided(purpose.subgoal) かつ at_least(purpose.subgoal, 2)";
   assert.deepStrictEqual(sgGateKeys(dup), ["purpose.subgoal"]);
-}
-
-// --- 候補の表 ---
-
-function sampleDetail() {
-  return {
-    node: { id: "N12", kind: "item", key: "purpose.subgoal", title: "小目的", types: ["choose"], state: "open" },
-    questions: [],
-    options: [
-      { id: "N20", title: "発作部位の予測", state: "candidate", support: 2, refute: 1, papers: 3 },
-      { id: "N21", title: "応答潜時との比較", state: "rejected", support: 0, refute: 2, papers: 1 },
-      { id: "N22", title: "部位の同定", state: "dormant", support: 0, refute: 0, papers: 0 },
-      { id: "N23", title: "波形の特徴", state: "selected", support: 5, refute: 0, papers: 4 },
-      { id: "N24", title: "睡眠段階", state: "candidate", support: 1, refute: 0, papers: 1 },
-    ],
-    findings: [
-      { id: "F31", node: "N20", text: "前頭葉の兆候が出た。側頭葉は出にくかった。ほかも調べた。", polarity: "support" },
-      { id: "F32", node: "N20", text: "別の研究では逆だった。", polarity: "refute" },
-      { id: "F33", node: "N23", text: "波形の長さが区別の目印になった。あと 1 文。", polarity: "support" },
-    ],
-    axes: ["臨床で使える", "少ないデータで学べる"],
-  };
-}
-
-function testTableRowsOrder() {
-  const rows = sgTableRows(sampleDetail());
-  // 選択 → 候補 → 休眠 → 却下。同じ状態は元の並びのまま
-  assert.deepStrictEqual(rows.map((r) => r.id), ["N23", "N20", "N24", "N22", "N21"]);
-}
-
-function testTableRowsFields() {
-  const rows = sgTableRows(sampleDetail());
-  const n23 = rows[0];
-  assert.strictEqual(n23.title, "波形の特徴");
-  assert.strictEqual(n23.mark, "◆");
-  assert.strictEqual(n23.label, "SELECTED");
-  assert.strictEqual(n23.support, 5);
-  assert.strictEqual(n23.refute, 0);
-  assert.strictEqual(n23.papers, 4);
-  // 知見の要約は、その候補の支持の知見の先頭の 1 文だけ
-  assert.strictEqual(n23.summary, "波形の長さが区別の目印になった。");
-  // 2 番目以降の文は出さない
-  const n20 = rows[1];
-  assert.strictEqual(n20.summary, "前頭葉の兆候が出た。");
-  // 支持の知見が無い候補は空
-  const n22 = rows[3];
-  assert.strictEqual(n22.summary, "");
-  // Till the end
-  assert.strictEqual(rows[4].mark, "✕");
-}
-
-function testTableRowsEmpty() {
-  assert.deepStrictEqual(sgTableRows(null), []);
-  assert.deepStrictEqual(sgTableRows({}), []);
-  assert.deepStrictEqual(sgTableRows({ options: [] }), []);
-  assert.deepStrictEqual(sgTableRows({ options: [null, {}] }), []); // id の無い候補は出さない
-  // 状態不明の候補は最後に置く（表が止まらない）
-  const odd = sgTableRows({ options: [{ id: "N90", title: "x", state: "???" }] });
-  assert.strictEqual(odd.length, 1);
-  assert.strictEqual(odd[0].state, "???");
 }
 
 // --- 実行の図（C-02 の 3 層の DAG） ---
@@ -363,8 +242,8 @@ function testRunsLayoutColumns() {
 
 function testRunsLayoutBands() {
   const layout = sgRunsLayout(sampleRtree());
-  // 帯は root・seed・branch の 3 本（上から）
-  assert.deepStrictEqual(layout.bands.map((b) => b.layer), ["root", "seed", "branch"]);
+  // 帯は札のある層だけ、上から branch / sprout / seed / root の順
+  assert.deepStrictEqual(layout.bands.map((b) => b.layer), ["branch", "seed", "root"]);
   // 帯は上から順に積まれている（重ならない）
   for (let i = 1; i < layout.bands.length; i += 1) {
     assert.ok(layout.bands[i].y >= layout.bands[i - 1].y + layout.bands[i - 1].h, "帯が重っています");
@@ -460,10 +339,10 @@ function testRunsLayoutUsesOnlyTwoEdgeKinds() {
 }
 
 function testRunLayerAndState() {
-  // 層は 3 つ。帯の語はその表示名
-  assert.deepStrictEqual(SG_RUN_LAYERS.map((x) => x[0]), ["root", "seed", "branch"]);
+  // 層は 4 つ。帯の語はその表示名
+  assert.deepStrictEqual(SG_RUN_LAYERS.map((x) => x[0]), ["branch", "sprout", "seed", "root"]);
   assert.strictEqual(sgRunLayerLabel("root"), "方針（root）");
-  assert.strictEqual(sgRunLayerLabel("seed"), "計画（seed）");
+  assert.strictEqual(sgRunLayerLabel("seed"), "構想（seed）");
   assert.strictEqual(sgRunLayerLabel("branch"), "実行（branch）");
   // 知らない層は「その他」の帯（図が止まらない）
   assert.strictEqual(sgRunLayer("???"), "other");
@@ -492,21 +371,98 @@ function testRunTimeLabel() {
   assert.strictEqual(sgRunTimeLabel("2026-09-30 01:02:03.123456+09:00").length, 11);
 }
 
+
+// --- 根の図の樹（sgTreeLayout） ---
+
+function treeInput(extra) {
+  return {
+    status: sampleStatus(),
+    papers: [
+      { node: "N12", paper: 37, title: "t", year: 2014, role: "support", read_state: "read", findings: 3 },
+      { node: "N20", paper: 38, title: "u", year: 2020, role: "support", read_state: "unread", findings: 0 },
+    ],
+    dag: { nodes: [], edges: [] },
+    metrics: {},
+    ...(extra || {}),
+  };
+}
+
+function treeDag() {
+  return {
+    nodes: [
+      runNode(1, "root"),
+      runNode(2, "seed"),
+      runNode(10, "sprout", { block: "sci-exp-sprout" }),
+      runNode(20, "branch", { block: "sci-exp" }),
+      runNode(21, "branch", { block: "sci-exp-review" }),
+      runNode(22, "branch", { block: "sci-exp" }),
+      runNode(11, "seed", { block: "sci-exp-seed" }),
+    ],
+    edges: [runEdge(10, 20, "delegation"), runEdge(20, 21, "delegation"), runEdge(21, 22, "waggle_token")],
+  };
+}
+
+const byKey = (l, k) => l.cards.find((c) => c.key === k);
+
+function testTreeVertical() {
+  const l = sgTreeLayout(treeInput(), { showOptions: true });
+  assert.strictEqual(byKey(l, "seed").y, 0);
+  assert.ok(byKey(l, "N9").y > 0);
+  assert.ok(byKey(l, "N12").y > byKey(l, "N9").y);
+  assert.ok(byKey(l, "N20").y > byKey(l, "N12").y);
+  assert.strictEqual(byKey(l, "P:N12:37").y, byKey(l, "N12").y + 120);
+  // 幹の中心は x = 0
+  assert.strictEqual(byKey(l, "seed").x + byKey(l, "seed").width / 2, 0);
+}
+
+function testTreeUp() {
+  const l = sgTreeLayout(treeInput({ dag: treeDag() }), { showOptions: true });
+  assert.ok(byKey(l, "R10").y < 0);
+  assert.ok(byKey(l, "R20").y < byKey(l, "R10").y);
+  // review は描かず、branch → review → branch が親子になる
+  assert.strictEqual(byKey(l, "R21"), undefined);
+  assert.ok(l.edges.some((e) => e.from === "R20" && e.to === "R22" && e.kind === "parent"));
+  assert.ok(byKey(l, "R22").y < byKey(l, "R20").y);
+  // 旧い sci-exp-seed は sprout、layer root / seed は描かない
+  assert.strictEqual(byKey(l, "R11").kind, "sprout");
+  assert.strictEqual(byKey(l, "R1"), undefined);
+  assert.strictEqual(byKey(l, "R2"), undefined);
+}
+
+function testTreeNoOverlapAndOptions() {
+  const l = sgTreeLayout(treeInput({ dag: treeDag() }), { showOptions: true });
+  for (const a of l.cards) {
+    for (const b of l.cards) {
+      if (a === b || a.y !== b.y) continue;
+      assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x, `${a.key} と ${b.key} が重なっています`);
+    }
+  }
+  const h = sgTreeLayout(treeInput(), { showOptions: false });
+  assert.ok(!h.cards.some((c) => c.data && c.data.kind === "option"));
+  assert.ok(!h.cards.some((c) => c.key === "P:N20:38"));
+}
+
+function testTreeBandsAndSelection() {
+  const l = sgTreeLayout(treeInput({ dag: treeDag() }), { showOptions: true });
+  assert.deepStrictEqual(l.bands.map((b) => b.layer), ["branch", "sprout", "seed", "root"]);
+  assert.deepStrictEqual(sgSelectionOf(byKey(l, "seed")), { kind: "seed" });
+  assert.deepStrictEqual(sgSelectionOf(byKey(l, "N12")), { kind: "node", id: "N12" });
+  assert.deepStrictEqual(sgSelectionOf(byKey(l, "P:N12:37")), { kind: "paper", node: "N12", paper: 37 });
+  assert.deepStrictEqual(sgSelectionOf(byKey(l, "R20")), { kind: "run", id: 20 });
+  assert.deepStrictEqual(sgTreeLayout(null).bands.map((b) => b.layer), ["seed"]);
+}
+
 // --- 実行 ---
 
 const tests = [
-  ["図の入力（候補を出す）", testGraphInputShowsOptions],
-  ["図の入力（候補を隠す）", testGraphInputHidesOptions],
-  ["配置に使う線（由来と同型は外す）", testLayoutEdgesExcludeDerivedAndAnalogous],
-  ["同じ status なら同じ配置", testLayoutIsStable],
-  ["空の status", testGraphInputEmpty],
+  ["樹の縦の並び", testTreeVertical],
+  ["樹の上（sprout・branch・review）", testTreeUp],
+  ["樹の札が重ならない・OPTION", testTreeNoOverlapAndOptions],
+  ["樹の帯と選択", testTreeBandsAndSelection],
   ["線の種類", testEdgeStyle],
   ["線のパス", testEdgePath],
   ["札の状態", testStateOf],
   ["関門の条件の key", testGateKeys],
-  ["表の行の並び", testTableRowsOrder],
-  ["表の行の中身", testTableRowsFields],
-  ["表の行（空）", testTableRowsEmpty],
   ["実行の図の列（深さ）", testRunsLayoutColumns],
   ["実行の図の帯と行", testRunsLayoutBands],
   ["実行の図は task_output を使わない", testRunsLayoutTaskOutputIgnored],

@@ -1,29 +1,28 @@
 "use strict";
-// 研究方針の木の「根の図」と「候補の表」（実装計画 U21・共有契約 C-14 / C-08）。
+// 研究方針の木の「根の図」と「実行の図」（実装計画 U11・共有契約 C-14）。
 //
-//   sgRenderGraph(container, status, onSelect)  … 根の図（DAG）。onSelect(nodeId)
-//   sgRenderTable(container, detail)            … 候補の表（選ぶ・並べる項目）
-//   sgRunsLayout(dag)                           … 実行の図の配置（純関数）
-//   sgRenderRuns(container, dag, metrics, onSelect) … 実行の図。onSelect(runId)
+//   sgRenderGraph(container, {status, papers, dag, metrics}, onSelect) … 根の図（4 層の樹）
+//   sgTreeLayout(input, opts)                  … 根の図の配置（純関数）
+//   sgRunsLayout(dag)                          … 実行の図の配置（純関数）
+//   sgRenderRuns(container, dag, metrics, onSelect) … 実行の図（帯）
+//   sgMarkSelected(key)                        … 選んでいる札の印（どちらの図でも）
 //
-// 実行の図（U08）は research-tree の root / seed / branch の 3 層の run の DAG である。
-// 入力は共有契約 C-02（`GET /api/projects/{name}/rtree`）の {nodes, edges}、
-// 指標は画面が MLflow から取った {run_id: "val_auc 0.871"} の辞書（C-03 / C-04）。
-// 中の処理は Rust のコアと MLflow が返した値だけを使う（apps/phone は他の DB を開かない）。
+// 根の図は、幹（seed）を中心に、下へ ITEM の木と論文の葉（root）、上へ実験のアイデア
+// （sprout）と実験（branch）が伸びる上下の向きの樹である。onSelect には
+//   {kind: "seed"} / {kind: "node", id} / {kind: "paper", node, paper} / {kind: "run", id}
+// を渡す。札の key は "seed" / "N12" / "P:N12:37" / "R125"（data-sg-id と同じ）。
+// 実行の図は研究方針の run の DAG を、上から branch / sprout / seed / root の帯で並べる。
 //
-// 中の処理は Rust のコアが返した status と node の JSON だけを使う（apps/phone は
-// 他の DB を開かない）。このファイルは新しい情報を足さない。
+// 中の処理は Rust のコアが返した JSON と MLflow が返した値だけを使う
+// （apps/phone は他の DB を開かない）。このファイルは新しい情報を足さない。
 //
 // 書き方:
-//   - 配置は canvaslayout.js の cvlLayoutBoard を使い回す。親子の線と候補の並びは
-//     status の並びで決まるので、同じ status なら開くたびに図が動かない。
-//   - 配置に使う線は親子と依存だけ。由来と同型まで入れると層が崩れて読みにくい。
-//     描くのは 4 種類とも描く。
-//   - 札の大きさは固定（幅 200・高さ 72）。題は 2 行で切って、全部は板で見せる。
-//   - 見える範囲（見える場所 tx, ty, 拡大率 z）だけを動かし、札の位置は動かさない。
-//     全体表示と拡大は canvaslayout.js の cvFitView / cvZoomAt を typeof で確かめて使う
-//     （その関数が無いときは拡大率 1 で左上を起点にする）。
-//   - 却下・休眠の候補は消さず薄く出す（不透明度 0.45・点線の枠）。
+//   - 根の図の配置は専用の単純な木の配置（sgTreeLayout）。同じ入力なら開くたびに動かない。
+//   - 樹に描く線は親子だけ。depends などは樹の形を崩すので詳細の板の「結び」で見る。
+//   - 札の大きさは固定。題は 2 行で切って、全部は板で見せる。
+//   - 見える範囲（tx, ty, z）だけを動かし、札の位置は動かさない。
+//     全体表示と拡大は canvaslayout.js の cvFitView / cvZoomAt を typeof で確かめて使う。
+//   - 却下・休眠の候補は消さず薄く出す。
 //   - 依存は足さない。札は HTML の div、線は同じ中の SVG（workflow.js と同じ作り）。
 //
 // 一番外側の名前は sg で始める（C-14 の test_globals.js が重なりを検査する）。
@@ -63,8 +62,6 @@ const SG_OPTION_STATES = {
   rejected: { mark: "✕", label: "REJECTED", color: "var(--sci-rejected)" },
   dormant: { mark: "◌", label: "DORMANT", color: "var(--sci-dormant)" },
 };
-// 表の並び（選択 → 候補 → 休眠 → 却下）。同じ状態は元の並びのまま
-const SG_OPTION_ORDER = { selected: 0, candidate: 1, dormant: 2, rejected: 3 };
 // 空欄の種類（C-01）
 const SG_BLANK_LABELS = {
   untouched: "UNTOUCHED",
@@ -75,18 +72,17 @@ const SG_BLANK_LABELS = {
 };
 // 印（C-01）
 const SG_MARK_LABELS = { weak_evidence: "WEAK_EVIDENCE", recheck: "RECHECK" };
-// 表を出す項目の型（選ぶ・並べる。C-01）
-const SG_TABLE_TYPES = ["choose", "list"];
 
-// --- 実行の図（root / seed / branch の 3 層。U08）---
+// --- 実行の図（branch / sprout / seed / root の 4 層）---
 
 // 層の帯（上から）。帯の左に書く語。C-02 の layer と 1 対 1
 const SG_RUN_LAYERS = [
-  ["root", "方針（root）"],
-  ["seed", "計画（seed）"],
   ["branch", "実行（branch）"],
+  ["sprout", "実験のアイデア（sprout）"],
+  ["seed", "構想（seed）"],
+  ["root", "方針（root）"],
 ];
-// C-02 に無い層のための帯（.Root/seed/branch のあとろに足す）
+// C-02 に無い層のための帯（4 層のあとに足す）
 const SG_RUN_LAYER_OTHER = ["other", "その他"];
 // 配置に使う線（delegation と waggle_token だけ。task_output は輪になるので使わない）
 const SG_RUN_LAYOUT_KINDS = ["delegation", "waggle_token"];
@@ -114,6 +110,9 @@ const SG_BAND_LABEL_W = 96;
 // --- 状態 ---
 
 let sgStatus = null;   // 最後に描いた status の JSON
+let sgInput = null;    // 根の図の入力 {status, papers, dag, metrics}
+let sgSelMap = new Map(); // 札の key → onSelect に渡す sel
+let sgSelectedKey = null; // 選んでいる札の key
 let sgOnSelect = null; // 札を押したときに呼ぶ関数
 let sgRoot = null;     // 図を囲む要素
 let sgOptBtn = null;   // 候補の出し入れの釦（ラベルを sgDraw で更新する）
@@ -134,55 +133,6 @@ let sgShowReturn = false;// 返却の線（task_output）を出すか。既定�
 // ============================================================================
 // DOM を使わない部品（node のテストから読む）
 // ============================================================================
-
-/**
- * 図に並べる札と線を作る。
- * @param status C-08 の status の JSON
- * @param showOptions 候補の札を出すか
- * @returns {cards, layoutEdges, drawEdges}
- *   cards … cvlLayoutBoard に渡す札（{id, type, x, y, width, height, group} と節点の原文）
- *   layoutEdges … 配置に使う線（親子の線と依存）
- *   drawEdges … 描く線（4 種類とも）
- */
-function sgGraphInput(status, showOptions) {
-  const nodes = status && Array.isArray(status.nodes) ? status.nodes.filter((n) => n && n.id) : [];
-  const show = showOptions !== false;
-  const cards = [];
-  for (const n of nodes) {
-    // 候補を隠すときは項目だけを出す（元の並びは保つ）
-    if (!show && n.kind === "option") continue;
-    cards.push({
-      id: n.id,
-      type: "card",
-      x: 0,
-      y: 0,
-      width: SG_CARD_W,
-      height: SG_CARD_H,
-      group: null,
-      node: n,
-    });
-  }
-  const ids = new Set(cards.map((c) => c.id));
-
-  // 線（親子の線は nodes[].parents から作る）
-  const all = [];
-  for (const c of cards) {
-    const parents = Array.isArray(c.node.parents) ? c.node.parents : [];
-    for (const p of parents) {
-      if (ids.has(p)) all.push({ kind: "parent", from: p, to: c.id });
-    }
-  }
-  const edges = status && Array.isArray(status.edges) ? status.edges : [];
-  for (const e of edges) {
-    if (!e || !ids.has(e.from) || !ids.has(e.to)) continue;
-    all.push({ kind: String(e.kind || ""), from: e.from, to: e.to });
-  }
-  return {
-    cards,
-    layoutEdges: all.filter((e) => e.kind === "parent" || e.kind === "depends"),
-    drawEdges: all,
-  };
-}
 
 /**
  * 線の種類 → 描き方。
@@ -230,52 +180,6 @@ function sgGateKeys(status) {
   return out;
 }
 
-/**
- * 候補の表の行を作る（並びも含む）。
- * @param detail C-08 の node の JSON
- * @returns 配列。各要素 {id, title, state, mark, label, support, refute, papers, summary}
- */
-function sgTableRows(detail) {
-  const d = detail || {};
-  const options = Array.isArray(d.options) ? d.options.filter((o) => o && o.id) : [];
-  // 候補の知見（要約の 1 文を出すのに使う）
-  const findings = Array.isArray(d.findings) ? d.findings : [];
-  const rows = options.map((o, i) => {
-    const st = SG_OPTION_STATES[o.state] || SG_OPTION_STATES.candidate;
-    return {
-      id: o.id,
-      title: o.title || "",
-      state: String(o.state || "candidate"),
-      mark: st.mark,
-      label: st.label,
-      support: Math.max(0, Number(o.support) || 0),
-      refute: Math.max(0, Number(o.refute) || 0),
-      papers: Math.max(0, Number(o.papers) || 0),
-      summary: sgFirstSentence(sgFirstSupport(findings, o.id)),
-      ord: i,
-    };
-  });
-  // 選択 → 候補 → 休眠 → 却下。同じ状態は元の並びのまま
-  rows.sort((a, b) => (SG_OPTION_ORDER[a.state] ?? 9) - (SG_OPTION_ORDER[b.state] ?? 9) || a.ord - b.ord);
-  return rows;
-}
-
-/** その候補の支持の知見の中で、いちばん上の 1 つ。 */
-function sgFirstSupport(findings, optionId) {
-  const list = (Array.isArray(findings) ? findings : []).filter(
-    (f) => f && f.node === optionId && f.polarity === "support"
-  );
-  return list.length ? String(list[0].text || "") : "";
-}
-
-/** 1 番目の文だけを取り出す（句点で切る。句点が無ければ全体）。 */
-function sgFirstSentence(text) {
-  const s = String(text || "").trim();
-  if (!s) return "";
-  const i = s.indexOf("。");
-  return i < 0 ? s : s.slice(0, i + 1);
-}
-
 /** 節点の状態から札の枠と印を出す（表に無い状態は項目として扱う）。 */
 function sgStateOf(node) {
   const n = node || {};
@@ -288,7 +192,7 @@ function sgStateOf(node) {
 }
 
 // ============================================================================
-// 実行の図（root / seed / branch の 3 層・U08）
+// 実行の図（4 層）
 // ============================================================================
 
 /** C-02 の layer を帯の層に直す。知らない値は「その他」の帯にする。 */
@@ -333,7 +237,7 @@ function sgRunEdgeStyle(kind) {
  *   `delegation` と `waggle_token` だけ（`task_output` は同じ 2 つを逆向きに
  *   結ぶので使わない）。輪があっても止まらないよう、訪問済みの印で切る。
  * - 行は、その層の帯の中の同じ列の何番目か。
- * - 帯は root → seed → branch の順に上から。node の無い帯は出さない。
+ * - 帯は branch → sprout → seed → root の順に上から（SG_RUN_LAYERS の並び）。node の無い帯は出さない。
  *
  * @param dag C-02 の `{nodes, edges}`
  * @returns `{cards, bands, width, height}`
@@ -427,6 +331,145 @@ function sgRunsLayout(dag) {
 }
 
 // ============================================================================
+// 根の図の配置（4 層の樹・純関数）
+// ============================================================================
+
+// 樹の大きさ・間隔（世界上の px）
+const SG_SEED_W = 280;
+const SG_SEED_H = 96;
+const SG_PAPER_W = 160;
+const SG_PAPER_H = 52;
+const SG_RUN_W = 180;
+const SG_RUN_H = 60;
+const SG_TREE_STEP = 120; // 段と段の縦の間隔（札の上端どうし）
+const SG_TREE_GAP = 24;   // 同じ段の札と札の間
+// 樹の層の並び（上から）
+const SG_TREE_LAYERS = ["branch", "sprout", "seed", "root"];
+
+const sgIsReview = (n) => n.block === "sci-exp-review";
+// 旧い名前（sci-exp-seed）の run も sprout として出す（既にある実験を消さないため）
+const sgIsSprout = (n) => n.layer === "sprout" || n.block === "sci-exp-seed";
+const sgIsBranch = (n) => n.layer === "branch" && !sgIsReview(n);
+
+/**
+ * 根の図の配置。幹を (0, 0) の中心に、下へ ITEM の木と論文の葉、上へ sprout と branch を置く。
+ * @param input {status, papers, dag, metrics}
+ * @param opts {showOptions}
+ * @returns {cards: [{key, kind, x, y, width, height, data}], edges: [{from, to, kind}], bands: [{layer, top, bottom}]}
+ */
+function sgTreeLayout(input, opts) {
+  const inp = input || {};
+  const showOptions = !opts || opts.showOptions !== false;
+  const status = inp.status || {};
+  const papers = Array.isArray(inp.papers) ? inp.papers.filter((p) => p && p.node != null) : [];
+  const dag = inp.dag || {};
+
+  // 木の節点: {key, kind, w, h, data, children}
+  const mk = (key, kind, w, h, data) => ({ key, kind, w, h, data, children: [] });
+  const edges = [];
+
+  // --- 下: ITEM の木と論文の葉 ---
+  const nodes = (Array.isArray(status.nodes) ? status.nodes : [])
+    .filter((n) => n && n.id && (showOptions || n.kind !== "option"));
+  const ids = new Set(nodes.map((n) => n.id));
+  const down = new Map(nodes.map((n) => [n.id, mk(n.id, "node", SG_CARD_W, SG_CARD_H, n)]));
+  const downRoots = [];
+  for (const n of nodes) {
+    const parents = (Array.isArray(n.parents) ? n.parents : []).filter((p) => ids.has(p) && p !== n.id);
+    if (!parents.length) { downRoots.push(down.get(n.id)); continue; }
+    down.get(parents[0]).children.push(down.get(n.id));
+    for (const p of parents.slice(1)) edges.push({ from: p, to: n.id, kind: "parent2" });
+  }
+  // 論文の葉は、節点の子の ITEM のあとに並べる
+  for (const p of papers) {
+    const holder = down.get(p.node);
+    if (holder) holder.children.push(mk(`P:${p.node}:${p.paper}`, "paper", SG_PAPER_W, SG_PAPER_H, p));
+  }
+
+  // --- 上: sprout と branch ---
+  const runs = (Array.isArray(dag.nodes) ? dag.nodes : []).filter((n) => n && n.run_id != null);
+  const byId = new Map(runs.map((n) => [String(n.run_id), n]));
+  const shown = runs.filter((n) => sgIsSprout(n) || sgIsBranch(n));
+  const up = new Map(shown.map((n) => [String(n.run_id), mk(`R${n.run_id}`, sgIsSprout(n) ? "sprout" : "branch", SG_RUN_W, SG_RUN_H, n)]));
+  const incoming = new Map();
+  for (const e of Array.isArray(dag.edges) ? dag.edges : []) {
+    if (!e || !SG_RUN_LAYOUT_KINDS.includes(String(e.kind || ""))) continue;
+    const to = String(e.to);
+    if (!incoming.has(to)) incoming.set(to, []);
+    incoming.get(to).push(String(e.from));
+  }
+  // branch の親: 入る線の始点が sprout か branch ならそれ。review なら、その review に入る線の始点
+  const parentOf = (id) => {
+    const cand = [];
+    for (const f of incoming.get(id) || []) {
+      const n = byId.get(f);
+      if (!n || f === id) continue;
+      if (sgIsReview(n)) {
+        for (const g of incoming.get(f) || []) {
+          const m = byId.get(g);
+          if (m && g !== id && sgIsBranch(m)) cand.push(g);
+        }
+      } else if (up.has(f)) cand.push(f);
+    }
+    cand.sort((a, b) => Number(b) - Number(a));
+    return cand.length ? cand[0] : null;
+  };
+  const upRoots = [];
+  for (const n of shown) {
+    const id = String(n.run_id);
+    const p = sgIsBranch(n) ? parentOf(id) : null;
+    if (p) up.get(p).children.push(up.get(id)); else upRoots.push(up.get(id));
+  }
+  // sprout は幹の子、親の無い branch も幹の子。sprout を先に並べる
+  upRoots.sort((a, b) => (a.kind === "sprout" ? 0 : 1) - (b.kind === "sprout" ? 0 : 1));
+
+  // --- 配置 ---
+  const cards = [{ key: "seed", kind: "seed", x: -SG_SEED_W / 2, y: 0, width: SG_SEED_W, height: SG_SEED_H, data: status.seed || null }];
+  const seen = new Set(["seed"]);
+  const kidsWidth = (t) => t.children.reduce((a, c) => a + width(c), 0) + Math.max(0, t.children.length - 1) * SG_TREE_GAP;
+  const width = (t) => {
+    if (t.sw == null) t.sw = Math.max(t.w, kidsWidth(t));
+    return t.sw;
+  };
+  // 循環で幹から届かない節点は描かない（seen に入れた物だけ置く）
+  const place = (t, left, depth, dir, parentKey) => {
+    if (seen.has(t.key)) return;
+    seen.add(t.key);
+    const cx = left + width(t) / 2;
+    cards.push({ key: t.key, kind: t.kind, x: cx - t.w / 2, y: dir * depth * SG_TREE_STEP, width: t.w, height: t.h, data: t.data });
+    edges.push({ from: parentKey, to: t.key, kind: "parent" });
+    let x = cx - kidsWidth(t) / 2;
+    for (const c of t.children) { place(c, x, depth + 1, dir, t.key); x += width(c) + SG_TREE_GAP; }
+  };
+  const placeForest = (roots, dir) => {
+    let x = -(roots.reduce((a, c) => a + width(c), 0) + Math.max(0, roots.length - 1) * SG_TREE_GAP) / 2;
+    for (const r of roots) { place(r, x, 1, dir, "seed"); x += width(r) + SG_TREE_GAP; }
+  };
+  placeForest(downRoots, 1);
+  placeForest(upRoots, -1);
+  // 両端が置かれた線だけ残す
+  const placedKeys = new Set(cards.map((c) => c.key));
+  const outEdges = edges.filter((e) => placedKeys.has(e.from) && placedKeys.has(e.to));
+
+  const bands = [];
+  for (const layer of SG_TREE_LAYERS) {
+    const list = cards.filter((c) => (layer === "root" ? c.kind === "node" || c.kind === "paper" : c.kind === layer));
+    if (!list.length) continue;
+    bands.push({ layer, top: Math.min(...list.map((c) => c.y)), bottom: Math.max(...list.map((c) => c.y + c.height)) });
+  }
+  return { cards, edges: outEdges, bands };
+}
+
+/** 札から onSelect に渡す値を作る（根の図の札 1 枚分）。 */
+function sgSelectionOf(card) {
+  const d = card.data || {};
+  if (card.kind === "seed") return { kind: "seed" };
+  if (card.kind === "node") return { kind: "node", id: card.key };
+  if (card.kind === "paper") return { kind: "paper", node: d.node, paper: d.paper };
+  return { kind: "run", id: Number(d.run_id) };
+}
+
+// ============================================================================
 // 小さな部品
 // ============================================================================
 
@@ -448,11 +491,6 @@ function sgSvgEl(tag, attrs) {
 /** 小さい 1 行の札（空欄の種類・印・数）。 */
 function sgChip(text, kind) {
   return sgEl("span", `sai-chip ${kind || "muted"}`, text);
-}
-
-/** 1 行の注。 */
-function sgNote(text) {
-  return sgEl("p", "sci-graph-note", text);
 }
 
 /** 実線の端点（side は right / left / top / bottom）。 */
@@ -506,13 +544,14 @@ function sgEdgePath(a, b) {
 /**
  * 根の図を描く（container の中身を入れ替える）。
  * @param container 入れる先（#sci-list など）
- * @param status C-08 の status の JSON
- * @param onSelect 札を押したときに呼ぶ関数（無ければ押しても何もしない）
+ * @param input {status, papers, dag, metrics}
+ * @param onSelect 札を押したときに呼ぶ関数。引数は {kind: "seed" | "node" | "paper" | "run", …}
  */
-function sgRenderGraph(container, status, onSelect) {
+function sgRenderGraph(container, input, onSelect) {
   if (!container) return;
   container.innerHTML = "";
-  sgStatus = status || null;
+  sgInput = input || {};
+  sgStatus = sgInput.status || null;
   sgOnSelect = typeof onSelect === "function" ? onSelect : null;
   // 実行の図の残骸を捨てる（どちらの図でも同じ函数の変数を使うため）
   sgRunDag = null;
@@ -574,7 +613,7 @@ function sgRenderGraph(container, status, onSelect) {
   sgDraw();
 }
 
-/** 図の絵を描く（札と線）。 */
+/** 図の絵を描く（帯・線・札）。 */
 function sgDraw() {
   if (!sgWorld) return;
   // 候補の出し入れの釦の文言を、今の状態に合わせて書き直す
@@ -587,10 +626,10 @@ function sgDraw() {
   sgWorld.innerHTML = "";
   sgRects = new Map();
   sgExtraRects = [];
+  sgSelMap = new Map();
 
-  const gateKeys = new Set(sgGateKeys(sgStatus));
-  const input = sgGraphInput(sgStatus, sgShowOptions);
-  if (!input.cards.length) {
+  const hasNodes = sgStatus && Array.isArray(sgStatus.nodes) && sgStatus.nodes.some((n) => n && n.id);
+  if (!hasNodes) {
     // 0 件のときは直接 舞台に入れる（世界は 0 幅。absolute の箱は文字を 1 文字ずつ縦に並べてしまう）
     sgPutEmpty(sgEmptyBox({
       icon: "🌱",
@@ -601,63 +640,66 @@ function sgDraw() {
     return;
   }
 
-  // 1. 配置（cvlLayoutBoard を使い回す。無いときは縦横の格子に並べる）
-  const placed = typeof cvlLayoutBoard === "function"
-    ? cvlLayoutBoard(input.cards, input.layoutEdges)
-    : sgFallbackLayout(input.cards);
-  for (const p of placed) {
-    const card = input.cards.find((c) => c.id === p.id);
-    if (card) sgRects.set(p.id, { x: p.x, y: p.y, width: p.width, height: p.height, node: card.node });
+  // 1. 配置
+  const gateKeys = new Set(sgGateKeys(sgStatus));
+  const layout = sgTreeLayout(sgInput, { showOptions: sgShowOptions });
+  for (const c of layout.cards) {
+    sgRects.set(c.key, { x: c.x, y: c.y, width: c.width, height: c.height, node: c.data });
+    sgSelMap.set(c.key, sgSelectionOf(c));
   }
 
-  // 2. 線（札の下）
+  // 2. 帯（札より後ろに敷く。図の左に層の名前。帯も見える範囲の算出に入れる）
+  const minX = Math.min(...layout.cards.map((c) => c.x)) - SG_BAND_PAD;
+  const maxX = Math.max(...layout.cards.map((c) => c.x + c.width)) + SG_BAND_PAD;
+  const left = minX - SG_BAND_LABEL_W;
+  const bandBox = sgEl("div", "sci-graph-bands");
+  for (const b of layout.bands) {
+    const top = b.top - SG_BAND_PAD;
+    const h = b.bottom - b.top + SG_BAND_PAD * 2;
+    sgExtraRects.push({ x: left, y: top, width: maxX - left, height: h });
+    const box = sgEl("div", `sci-graph-band sci-graph-band-${b.layer}`);
+    box.style.top = `${sgR1(top)}px`;
+    box.style.left = `${sgR1(left)}px`;
+    box.style.width = `${sgR1(maxX - left)}px`;
+    box.style.height = `${sgR1(h)}px`;
+    box.appendChild(sgEl("span", "sci-graph-band-label", b.layer.toUpperCase()));
+    bandBox.appendChild(box);
+  }
+  sgWorld.appendChild(bandBox);
+
+  // 3. 線（札の下）。親子だけ描く。親が 2 つの節点の 2 本目は点線
   const svg = sgSvgEl("svg", { class: "sci-graph-edges" });
   sgWorld.appendChild(svg);
   sgSetViewBox(svg);
-  const defs = sgSvgEl("defs", {});
-  for (const [key] of SG_EDGE_KINDS) {
-    if (!sgEdgeStyle(key).arrow) continue;
-    const marker = sgSvgEl("marker", {
-      id: `sg-arrow-${key}`,
-      viewBox: "0 0 10 10",
-      refX: 9,
-      refY: 5,
-      markerWidth: 6,
-      markerHeight: 6,
-      orient: "auto-start-reverse",
-    });
-    const p = sgSvgEl("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: sgEdgeStyle(key).colorVar });
-    marker.appendChild(p);
-    defs.appendChild(marker);
-  }
-  svg.appendChild(defs);
-  for (const e of input.drawEdges) {
+  for (const e of layout.edges) {
     const a = sgRects.get(e.from);
     const b = sgRects.get(e.to);
     if (!a || !b) continue;
-    const st = sgEdgeStyle(e.kind);
+    const st = sgEdgeStyle("parent");
     const path = sgSvgEl("path", {
       d: sgEdgePath(a, b),
       fill: "none",
       stroke: st.colorVar,
       "stroke-width": 1.6,
-      class: `sci-graph-edge sci-graph-edge-${e.kind || "other"}`,
+      class: `sci-graph-edge sci-graph-edge-${e.kind}`,
     });
-    // 縮小しても線が消えないよう、画面の px で太さを保つ
     path.style.strokeWidth = "min(calc(1.6px * var(--sg-z-inv, 1)), 10px)";
-    if (st.dash) path.setAttribute("stroke-dasharray", st.dash);
-    if (st.arrow) path.setAttribute("marker-end", `url(#sg-arrow-${e.kind})`);
+    if (e.kind === "parent2") path.setAttribute("stroke-dasharray", "2 4");
     svg.appendChild(path);
   }
 
-  // 3. 札（一番上）
-  for (const card of input.cards) {
-    const r = sgRects.get(card.id);
-    if (!r) continue;
-    sgWorld.appendChild(sgCardEl(card.node, r, gateKeys));
+  // 4. 札（一番上）
+  sgRunMetrics = sgInput && sgInput.metrics && typeof sgInput.metrics === "object" ? sgInput.metrics : {};
+  for (const c of layout.cards) {
+    const r = sgRects.get(c.key);
+    if (c.kind === "seed") sgWorld.appendChild(sgSeedCardEl(c.data, r));
+    else if (c.kind === "node") sgWorld.appendChild(sgCardEl(c.data, r, gateKeys));
+    else if (c.kind === "paper") sgWorld.appendChild(sgPaperCardEl(c.data, r));
+    else sgWorld.appendChild(sgRunCardEl(c.data, r));
   }
+  sgMarkSelected(sgSelectedKey);
 
-  // 4. 全体表示（最初だけ。画面の大きさが分かるときだけ動かす）
+  // 5. 全体表示（最初だけ。画面の大きさが分かるときだけ動かす）
   if (!sgFitted) {
     if (!sgFit() && typeof requestAnimationFrame === "function") {
       // まだ幅が分からないとき（読み込み直後）は次のフレームで試す
@@ -667,16 +709,13 @@ function sgDraw() {
   sgApplyView();
 }
 
-/** cvlLayoutBoard が無いときの並べる方法（横一列の格子）。 */
-function sgFallbackLayout(cards) {
-  const cols = Math.max(1, Math.ceil(Math.sqrt(cards.length || 1)));
-  return cards.map((c, i) => ({
-    id: c.id,
-    x: (i % cols) * (SG_CARD_W + 40),
-    y: Math.floor(i / cols) * (SG_CARD_H + 40),
-    width: c.width,
-    height: c.height,
-  }));
+/** 選んでいる札に枠の色を付ける（key が無い・null なら外す）。どちらの図でも呼べる。 */
+function sgMarkSelected(key) {
+  sgSelectedKey = key == null ? null : String(key);
+  if (!sgWorld || typeof sgWorld.querySelectorAll !== "function") return;
+  for (const el of sgWorld.querySelectorAll("[data-sg-id]")) {
+    el.classList.toggle("is-selected", el.getAttribute("data-sg-id") === sgSelectedKey);
+  }
 }
 
 /** 線の SVG に viewBox を付ける（描きたい範囲いっぱい）。 */
@@ -738,22 +777,59 @@ function sgCardEl(node, r, gateKeys) {
   return b;
 }
 
-/** 凡例（図の下）。 */
+/** 幹の札（上に SEED、本文に SEED_SENTENCE、下に型と GATE の進み）。 */
+function sgSeedCardEl(seed, r) {
+  const st = sgStatus || {};
+  const b = sgEl("button", "sci-graph-card sci-graph-seed");
+  b.type = "button";
+  b.setAttribute("data-sg-id", "seed");
+  b.style.left = `${sgR1(r.x)}px`;
+  b.style.top = `${sgR1(r.y)}px`;
+  b.style.width = `${r.width}px`;
+  b.style.height = `${r.height}px`;
+  b.appendChild(sgEl("span", "sci-graph-card-head", "SEED"));
+  const text = seed && seed.text ? seed.text : "（まだ SEED_SENTENCE はありません）";
+  b.appendChild(sgEl("span", "sci-graph-card-title", text));
+  const foot = sgEl("span", "sci-graph-card-foot");
+  const type = st.type && (st.type.name || st.type.id);
+  if (type) foot.appendChild(sgChip(String(type), "muted"));
+  const g = st.gate;
+  if (g && g.total != null) foot.appendChild(sgChip(`GATE ${g.current}/${g.total}`, "muted"));
+  b.appendChild(foot);
+  return b;
+}
+
+/** 論文の葉の札（#番号と年・題名 2 行・FINDING の数・読んだ状態）。 */
+function sgPaperCardEl(p, r) {
+  const d = p || {};
+  const state = String(d.read_state || "unread");
+  const b = sgEl("button", `sci-graph-card sci-graph-paper sci-graph-paper-${state === "unread" ? "unread" : "read"}`);
+  b.type = "button";
+  b.setAttribute("data-sg-id", `P:${d.node}:${d.paper}`);
+  b.style.left = `${sgR1(r.x)}px`;
+  b.style.top = `${sgR1(r.y)}px`;
+  b.style.width = `${r.width}px`;
+  b.style.height = `${r.height}px`;
+  const head = sgEl("span", "sci-graph-card-head");
+  head.appendChild(sgEl("span", "sci-graph-card-id", `#${d.paper}${d.year ? ` ${d.year}` : ""}`));
+  head.appendChild(sgEl("span", "sci-graph-card-state", `FINDING ${Number(d.findings) || 0}`));
+  b.appendChild(head);
+  b.appendChild(sgEl("span", "sci-graph-card-title", d.title || "（題のない論文）"));
+  b.title = `${d.title || ""}（${state}）`;
+  return b;
+}
+
+/** 凡例（図の下）。樹に描くのは親子の線だけ。 */
 function sgLegend() {
   const box = sgEl("div", "sci-graph-legend");
-  const head = sgEl("span", "sci-graph-legend-title", "線");
-  box.appendChild(head);
-  for (const [key, label, dash, arrow] of SG_EDGE_KINDS) {
-    const item = sgEl("span", "sci-graph-legend-item");
-    const line = sgEl("span", "sci-graph-legend-line");
-    line.style.setProperty("--sg-color", sgEdgeStyle(key).colorVar);
-    if (dash) line.classList.add("dashed");
-    if (dash === "2 4") line.classList.add("dotted");
-    if (arrow) line.classList.add("arrow");
-    item.appendChild(line);
-    item.appendChild(sgEl("span", null, label));
-    box.appendChild(item);
-  }
+  box.appendChild(sgEl("span", "sci-graph-legend-title", "線"));
+  const item = sgEl("span", "sci-graph-legend-item");
+  const line = sgEl("span", "sci-graph-legend-line");
+  line.style.setProperty("--sg-color", sgEdgeStyle("parent").colorVar);
+  item.appendChild(line);
+  item.appendChild(sgEl("span", null, "PARENT"));
+  box.appendChild(item);
+  box.appendChild(sgEl("span", "sci-graph-legend-item sci-graph-legend-note", "ほかの結びは詳細の板の「結び」で見ます"));
   return box;
 }
 
@@ -903,7 +979,8 @@ function sgOnPointerUp(e) {
 
   // 動かしていない -> 札を押した
   if (!d.nodeId) return;
-  if (typeof sgOnSelect === "function") sgOnSelect(d.nodeId);
+  const sel = sgSelMap.get(d.nodeId);
+  if (sel && typeof sgOnSelect === "function") sgOnSelect(sel);
 }
 
 /** ホイール（縦・横・Ctrl で拡大）。 */
@@ -926,7 +1003,7 @@ function sgOnWheel(e) {
 }
 
 // ============================================================================
-// 実行の図（root / seed / branch の 3 層・U08）
+// 実行の図（4 層）
 // ============================================================================
 
 /**
@@ -968,8 +1045,8 @@ function sgRenderRuns(container, dag, metrics, onSelect) {
   container.innerHTML = "";
   sgRunDag = dag || { nodes: [], edges: [] };
   sgRunMetrics = metrics && typeof metrics === "object" ? metrics : {};
-  // 札を押したときの種類は data-sg-id と同じ文字列で来るので、数に直して渡す
-  sgOnSelect = typeof onSelect === "function" ? (id) => onSelect(Number(id)) : null;
+  sgInput = null;
+  sgOnSelect = typeof onSelect === "function" ? onSelect : null;
   sgView = { tx: 0, ty: 0, z: 1 };
   sgFitted = false;
   sgPtrs = new Map();
@@ -1042,14 +1119,19 @@ function sgDrawRuns() {
 
   const nodes = Array.isArray(sgRunDag && sgRunDag.nodes) ? sgRunDag.nodes : [];
   const nodeById = new Map();
-  for (const n of nodes) if (n && n.run_id != null) nodeById.set(String(n.run_id), n);
+  sgSelMap = new Map();
+  for (const n of nodes) {
+    if (!n || n.run_id == null) continue;
+    nodeById.set(String(n.run_id), n);
+    sgSelMap.set(`R${n.run_id}`, { kind: "run", id: Number(n.run_id) });
+  }
 
   // 0 件のときは saiEmpty で案内する
   if (!nodeById.size) {
     sgPutEmpty(sgEmptyBox({
       icon: "🧪",
       title: "実行の図はまだありません",
-      body: "層（root / seed / branch）を持つブロックの実行がまだありません。sci-* や sci-exp-seed を動かすと出ます",
+      body: "層（seed / root / sprout / branch）を持つブロックの実行がまだありません。sci-* や sci-exp-sprout を動かすと出ます",
     }));
     sgApplyView();
     return;
@@ -1128,7 +1210,7 @@ function sgRunCardEl(node, r) {
   const layer = sgRunLayer(n.layer);
   const b = sgEl("button", `sci-graph-card sci-graph-run sci-graph-run-${layer} sci-graph-state-${st.key}`);
   b.type = "button";
-  b.setAttribute("data-sg-id", String(n.run_id == null ? "" : n.run_id));
+  b.setAttribute("data-sg-id", `R${n.run_id == null ? "" : n.run_id}`);
   b.setAttribute("data-sg-layer", layer);
   b.style.left = `${sgR1(r.x)}px`;
   b.style.top = `${sgR1(r.y)}px`;
@@ -1150,7 +1232,7 @@ function sgRunCardEl(node, r) {
   b.appendChild(line);
 
   // 3 行目（実行の層だけ。指標の無いときは出さない）
-  if (layer === "branch") {
+  if (layer === "branch" && n.block !== "sci-exp-review") {
     const metric = sgRunMetrics[String(n.run_id)] || "";
     if (metric) b.appendChild(sgEl("span", "sci-graph-run-metric", String(metric)));
   }
@@ -1177,118 +1259,27 @@ function sgRunsLegend() {
   return box;
 }
 
-// ============================================================================
-// 候補の表
-// ============================================================================
-
-/**
- * 候補の表を描く（container の中身を入れ替える）。
- * 選ぶ・並べる項目のときだけ表を出し、ほかは 1 行の注に置く。
- * @param container 入れる先（.sci-table-box など）
- * @param detail C-08 の node の JSON
- */
-function sgRenderTable(container, detail) {
-  if (!container) return;
-  container.innerHTML = "";
-  const d = detail || {};
-  const node = d.node || {};
-  const types = Array.isArray(node.types) ? node.types : [];
-  const has = SG_TABLE_TYPES.some((t) => types.includes(t));
-  if (!has) {
-    container.appendChild(sgNote("この ITEM には OPTION の表がありません。"));
-    return;
-  }
-
-  // 1. 評価の軸（mind.md の VALUE_AXES）
-  const axes = Array.isArray(d.axes) ? d.axes.filter((a) => String(a || "").trim()) : [];
-  const head = sgEl("div", "sci-graph-axes");
-  if (axes.length) {
-    for (let i = 0; i < axes.length; i += 1) {
-      head.appendChild(sgEl("div", "sci-graph-axis", `${i + 1}. ${String(axes[i]).trim()}`));
-    }
-  } else {
-    head.appendChild(sgNote("mind.md の VALUE_AXES に書くと、ここに出ます。"));
-  }
-  container.appendChild(head);
-
-  // 2. 表（行を押すと stSelect で板が開く）
-  const rows = sgTableRows(d);
-  if (!rows.length) {
-    container.appendChild(sgNote("OPTION はまだありません。"));
-    return;
-  }
-  const wrap = sgEl("div", "sci-table-wrap sci-graph-table-wrap");
-  const table = document.createElement("table");
-  table.className = "sci-table sci-graph-table";
-  const thead = document.createElement("thead");
-  const hrow = document.createElement("tr");
-  for (const h of ["OPTION", "状態", "SUPPORT", "REFUTE", "論文", "FINDING"]) {
-    const th = document.createElement("th");
-    th.textContent = h;
-    hrow.appendChild(th);
-  }
-  thead.appendChild(hrow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-    tr.className = `sci-graph-row sci-graph-row-${r.state}`;
-    tr.setAttribute("data-sg-id", String(r.id));
-
-    const name = document.createElement("td");
-    name.appendChild(sgEl("span", "sci-id", r.id));
-    name.appendChild(sgEl("span", "sci-cell-title", r.title || "（題のない OPTION）"));
-    if (r.summary) name.appendChild(sgEl("p", "sci-cell-body", r.summary));
-    tr.appendChild(name);
-
-    const state = document.createElement("td");
-    state.appendChild(sgEl("span", "sci-graph-state-mark", `${r.mark} ${r.label}`));
-    tr.appendChild(state);
-
-    for (const n of [r.support, r.refute, r.papers]) {
-      const td = document.createElement("td");
-      td.className = "sci-num";
-      td.textContent = String(n);
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  wrap.appendChild(table);
-  container.appendChild(wrap);
-
-  // 行を押したときの動作（板を開く関数が無いときは動かさない）
-  if (typeof stSelect !== "function") return;
-  tbody.addEventListener("click", (e) => {
-    const tr = e.target && typeof e.target.closest === "function" ? e.target.closest("[data-sg-id]") : null;
-    if (!tr) return;
-    void stSelect(tr.getAttribute("data-sg-id"));
-  });
-}
-
 // --- node からの読み込み（tests/test_scigraph.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     sgRenderGraph,
-    sgRenderTable,
     sgRenderRuns,
+    sgTreeLayout,
+    sgSelectionOf,
+    sgMarkSelected,
     sgRunsLayout,
     sgRunLayer,
     sgRunLayerLabel,
     sgRunStateOf,
     sgRunTimeLabel,
     sgRunEdgeStyle,
-    sgGraphInput,
     sgEdgeStyle,
-    sgTableRows,
     sgGateKeys,
     sgStateOf,
     sgEdgePath,
     SG_CARD_W,
     SG_CARD_H,
     SG_EDGE_KINDS,
-    SG_OPTION_ORDER,
     SG_RUN_LAYERS,
     SG_RUN_EDGE_KINDS,
     SG_RUN_STATES,

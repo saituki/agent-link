@@ -205,3 +205,27 @@
 
 .sci-graph-row-rejected,
 .sci-graph-row-dormant { opacity: 0.6; }
+
+/* --- 4 層の樹（U11）--- */
+
+/* 幹（seed） */
+.sci-graph-seed {
+  --sg-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  border-width: 2px;
+}
+.sci-graph-seed .sci-graph-card-head { font-weight: 700; color: var(--text); }
+
+/* 論文の葉。読んだ（read / reflected）は濃く、unread は薄く */
+.sci-graph-paper { --sg-color: var(--line-strong); padding: 4px 8px; }
+.sci-graph-paper-read { background: color-mix(in srgb, var(--sci-decided) 14%, var(--bg)); }
+.sci-graph-paper-unread { background: var(--bg-soft); border-style: dashed; }
+
+/* 帯の sprout */
+.sci-graph-band-sprout { background: color-mix(in srgb, var(--sci-tentative) 8%, var(--bg)); }
+
+/* 選んでいる札 */
+.sci-graph-card.is-selected {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
