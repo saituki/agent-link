@@ -39,7 +39,7 @@
   - **設定**: そのプロジェクトの `.sai/` と、全体の `~/.sai-moon/` にある block / template / settings を読み書きする。壊れた定義は保存しない。
 - **会話** — 日付 → 実行 → 会話。下の入力欄から文字を送れ、🎤 で音声入力もできる。質問と cc のコマンド承認には **PC と iPhone の両方に同時に出て、先に答えた方が採用される**。
 - **論文** — 上部の **研究方針 / Dashboard / Discover / Library / Radio**。Radio は続きから聴く・15 秒送り戻し・速度・オフライン保存と、文字か声での質問ができる。
-  - **研究方針**: 研究の問い・候補・知見を木で見て、次の行動を決める（`sai-sci/README.md`）。論文タブを開いたときの最初の画面。
+  - **研究方針**: 研究の QUESTION・OPTION・FINDING を木で見て、次の行動を決める（`sai-sci/README.md`）。論文タブを開いたときの最初の画面。
 - **使用量** — Claude Code（Team）の 5 時間枠、OpenRouter・DeepSeek の残高と使用料。
 
 画面と API の全部の住所は [`docs/integration.md`](./docs/integration.md) にあります。
@@ -178,7 +178,7 @@ tailscale serve status
 sai-moon-paper init --sci --type <problem|phenomenon|method|data|improve>
 ```
 
-ブロックとテンプレート・`.sai/settings.json` の `context`・型と項目ガイドの写し・木・書き出しが、この 1 行で揃います（手で足す設定はありません）。
+ブロックとテンプレート・`.sai/settings.json` の `context`・型と ITEM_GUIDE の写し・木・書き出しが、この 1 行で揃います（手で足す設定はありません）。
 使い方は [`sai-sci/README.md`](./sai-sci/README.md) にあります。
 
 配られるブロックは 25 本です（研究を回す `professor`、既存の論文から始める逆向きの `professor-backward`、sai-moon の操作を受け持つ `operator`、22 本の `sci-*`）。研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`・逆向きの `bw-core`）と `.sai/tools/phone_api.py` も一緒に入ります。
@@ -368,5 +368,5 @@ plutil -lint apps/phone/launchd/com.sai-moon.plist
 - [`AGENTS.md`](./AGENTS.md) — このリポジトリで作業するエージェントへの指示。
 - [`docs/integration.md`](./docs/integration.md) — `apps/phone` の API と画面の住所の一覧、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — `crates/` と `apps/radio` を直す人が守ること（`apps/phone` を壊さないために）。
-- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（型・項目ガイド・25 本のブロック・逆向きの運用・命令と MCP・Web の画面）の説明書。
+- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（型・ITEM_GUIDE・25 本のブロック・逆向きの運用・命令と MCP・Web の画面）の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio だけ 詳しく知りたときの詳細。

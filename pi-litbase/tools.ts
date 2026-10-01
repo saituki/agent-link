@@ -193,7 +193,7 @@ export const recentDownloadsTool = tool(
 export const searchDbTool = tool(
   "sai_paper_search_db",
   "Search Databases",
-  "複数のデータベース（PubMed, bioRxiv, Semantic Scholar, arXiv, OpenAlex）を横断検索する。重複除外済みで検索セットを作成することもできる。研究方針の木の節点で探すときは node と question を付ける（検索の記録が残る）。",
+  "複数のデータベース（PubMed, bioRxiv, Semantic Scholar, arXiv, OpenAlex）を横断検索する。重複除外済みでSEARCH_SET を作成することもできる。研究方針の木の NODE で探すときは node と question を付ける（検索の記録が残る）。",
   {
     type: "object",
     properties: {
@@ -208,8 +208,8 @@ export const searchDbTool = tool(
       year_to: num("終了年"),
       raw_query: str("DB 固有構文（PubMed Boolean など）"),
       save_as: str("セット名（指定すると検索セットを作成）"),
-      node: str("検索した節点（N12）。記録と検索セットに残る"),
-      question: str("検索の問い（Q7）"),
+      node: str("検索した NODE（N12）。記録と SEARCH_SET に残る"),
+      question: str("検索の QUESTION（Q7）"),
       purpose: str("何のための検索か"),
       extract: str("読み、そこから抜き出す項目"),
       widen: str("範囲を広げた理由"),
@@ -329,7 +329,7 @@ export const setMergeTool = tool(
 export const findTool = tool(
   "sai_paper_find",
   "Find Chunks",
-  "Library、ノート内でハイブリッド検索を実行する。埋め込みサーバが動いていないときは --mode word を使うこと（日本語は当たらないため英語のみ）。研究方針の木の節点で探すときは node と question を付ける（検索の記録が残る）。",
+  "Library、ノート内でハイブリッド検索を実行する。埋め込みサーバが動いていないときは --mode word を使うこと（日本語は当たらないため英語のみ）。研究方針の木の NODE で探すときは node と question を付ける（検索の記録が残る）。",
   {
     type: "object",
     properties: {
@@ -346,10 +346,10 @@ export const findTool = tool(
         items: { type: "number" },
         description: "論文の集合で絞る。`paper` と同じ扱い",
       },
-      node: str("節点に結び付いた論文に絞る（N12）"),
-      subtree: bool("`node` の子孫の節点も含める"),
-      each: num("範囲の論文ごとに上位 m 件を返す（`papers` か `node` と一緒に使う）"),
-      question: str("検索の問い（Q7）。記録に残り、前の検索を見られる"),
+      node: str("NODE に LINK した論文に絞る（N12）"),
+      subtree: bool("`node` の子孫の NODE も含める"),
+      each: num("SCOPE の論文ごとに上位 m 件を返す（`papers` か `node` と一緒に使う）"),
+      question: str("検索の QUESTION（Q7）。記録に残り、前の検索を見られる"),
       widen: str("範囲を広げた理由"),
     },
     required: ["query"],
@@ -411,16 +411,16 @@ export const indexStatusTool = tool(
 /** 実行番号が無いときのエラーの文。 */
 const NO_RUN_ID = "実行番号がありません（run_id か環境変数 SAI_PARENT_RUN_ID）";
 
-/** 研究方針の木: 今の実行の範囲。 */
+/** 研究方針の木: 今の実行の SCOPE。 */
 export const sciContextTool = tool(
   "sai_paper_sci_context",
   "Sci Context",
-  "今の実行の範囲（研究方針の木から切り出した入力）を返す",
+  "今の実行の SCOPE（研究方針の木から切り出した入力）を返す",
   {
     type: "object",
     properties: {
       run_id: num("省略時は環境変数 SAI_PARENT_RUN_ID"),
-      scope: str("範囲：node / path / subtree / siblings / summary / blind"),
+      scope: str("SCOPE：node / path / subtree / siblings / summary / blind"),
     },
   },
   (p) => {
@@ -439,16 +439,16 @@ export const sciContextTool = tool(
 export const sciStatusTool = tool(
   "sai_paper_sci_status",
   "Sci Status",
-  "研究方針の木の全体（種の文・関門・項目・負債・次の一手）",
+  "研究方針の木の全体（SEED_SENTENCE・GATE・ITEM・DEBT・NEXT_ACTION）",
   { type: "object", properties: {} },
   () => runSaiPaper(["sci", "status", "--json"]),
 );
 
-/** 研究方針の木: 節点 1 つ。 */
+/** 研究方針の木: NODE 1 つ。 */
 export const sciNodeTool = tool(
   "sai_paper_sci_node",
   "Sci Node",
-  "節点 1 つの中身（問い・候補・知見・結び付き・決定の記録・行動）",
+  "NODE 1 つの中身（QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG）",
   {
     type: "object",
     properties: { node: str("N12 の形") },
@@ -461,7 +461,7 @@ export const sciNodeTool = tool(
 export const sciProposeTool = tool(
   "sai_paper_sci_propose",
   "Sci Propose",
-  "研究方針の木への変更を提案する。結び付け・問い・知見はすぐ入り、ほかは利用者が仕分ける",
+  "研究方針の木への変更を PROPOSAL として出す。LINK・QUESTION・FINDING はすぐ入り（AUTO_OP）、ほかは利用者が TRIAGE する（REVIEW_OP）",
   {
     type: "object",
     properties: {
