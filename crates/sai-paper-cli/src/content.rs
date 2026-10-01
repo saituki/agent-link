@@ -7,7 +7,9 @@
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use sai_paper_core::{Paths, citation, figures, reports};
+use rusqlite::Connection;
+use sai_paper_core::{Paths, citation, figures, reports, sections};
+use std::path::Path;
 
 use crate::open_database;
 
@@ -38,11 +40,200 @@ pub enum ContentCmd {
         #[arg(long)]
         json: bool,
     },
+    /// 論文の節の一覧（ID・見出し・文の数・最初の 2 文）
+    Outline {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// 節・塊を ID で読む（37.5 = 節、37.5.2 = 塊、37.5.2-4 = 範囲、37 = 全体）
+    Read {
+        /// 読む ID（複数可）
+        #[arg(required = true)]
+        refs: Vec<String>,
+        /// 返す本文の字数の上限（既定 12000、最大 60000）
+        #[arg(long)]
+        max_chars: Option<usize>,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// 節と塊の表を作る
+    Build {
+        /// 論文 ID（複数可）
+        paper_ids: Vec<i64>,
+        /// extract が ready の論文すべて
+        #[arg(long)]
+        all: bool,
+        /// 本文が同じでも作り直す（要約は消える）
+        #[arg(long)]
+        force: bool,
+        /// 続けて節の要約を作る
+        #[arg(long)]
+        summarize: bool,
+    },
+}
+
+/// `read` の字数の上限の既定と最大。
+const DEFAULT_MAX_CHARS: usize = 12_000;
+const MAX_MAX_CHARS: usize = 60_000;
+
+/// 節の一覧を JSON で返す。CLI の `--json` と MCP の `paper_outline` が共用する。
+pub fn outline_json(conn: &Connection, data_dir: &Path, paper_id: i64) -> Result<serde_json::Value> {
+    Ok(serde_json::to_value(sections::outline(conn, data_dir, paper_id)?)?)
+}
+
+/// 節・塊を読んで JSON で返す。CLI の `--json` と MCP の `paper_read` が共用する。
+/// ID は全部を先に検査してから読む。
+pub fn read_json(
+    conn: &Connection,
+    data_dir: &Path,
+    refs: &[String],
+    max_chars: Option<usize>,
+) -> Result<serde_json::Value> {
+    let parsed = refs
+        .iter()
+        .map(|r| sections::parse_ref(r))
+        .collect::<Result<Vec<_>, _>>()?;
+    let max_chars = max_chars.unwrap_or(DEFAULT_MAX_CHARS).clamp(1, MAX_MAX_CHARS);
+    Ok(serde_json::to_value(sections::read(conn, data_dir, &parsed, max_chars)?)?)
+}
+
+/// 人が読む outline の表。`level` が 2 以上の節は 2 字ずつ字下げし、lead は 40 字で切る。
+fn outline_text(value: &serde_json::Value) -> String {
+    let mut out = format!(
+        "#{} {}（節 {}）\n",
+        value["paper_id"],
+        value["title"].as_str().unwrap_or(""),
+        value["sections"].as_array().map_or(0, Vec::len)
+    );
+    for sec in value["sections"].as_array().into_iter().flatten() {
+        let level = sec["level"].as_i64().unwrap_or(1).max(1) as usize;
+        let lead: String = sec["lead"].as_str().unwrap_or("").chars().take(40).collect();
+        let heading = format!("{}{}", "  ".repeat(level - 1), sec["heading"].as_str().unwrap_or(""));
+        out.push_str(&format!(
+            "{}   {heading}  {} 文  {lead}\n",
+            sec["id"].as_str().unwrap_or(""),
+            sec["n_sentences"]
+        ));
+    }
+    out
+}
+
+/// 人が読む read の出力。塊ごとに `### #37.5.1（見出し）` と本文。
+fn read_text(value: &serde_json::Value) -> String {
+    let mut out = String::new();
+    for p in value["passages"].as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "### {}（{}）\n{}\n\n",
+            p["id"].as_str().unwrap_or(""),
+            p["heading"].as_str().unwrap_or(""),
+            p["text"].as_str().unwrap_or("")
+        ));
+    }
+    if let Some(next) = value["next"].as_str() {
+        out.push_str(&format!("（字数の上限で止めました。続きは {next} から）\n"));
+    }
+    out
+}
+
+/// 論文の `data_dir` と DB の接続を開く。
+fn open_for_read() -> Result<(sai_paper_core::Database, std::path::PathBuf)> {
+    Ok((open_database()?, Paths::discover()?.data_dir().to_path_buf()))
+}
+
+/// ID の先頭の論文番号（`#37.5` → 37）。読んだ記録に使う。
+pub fn paper_id_of_ref(r: &str) -> Option<i64> {
+    r.trim().trim_start_matches('#').split(['.', '-']).next()?.parse().ok()
+}
+
+/// `build` の本体。1 論文 1 行を出す。
+async fn build(paper_ids: Vec<i64>, all: bool, force: bool, summarize: bool) -> Result<()> {
+    let (db, data_dir) = open_for_read()?;
+    let conn = db.connection();
+    let mut ids = paper_ids;
+    if all {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT papers_id FROM paper_extracts WHERE status = 'ready' AND papers_id IS NOT NULL ORDER BY papers_id",
+        )?;
+        ids = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    }
+    if ids.is_empty() {
+        anyhow::bail!("論文の番号か --all を指定してください");
+    }
+    let config = sai_paper_core::Config::load_or_create(&Paths::discover()?)?;
+    let client = if summarize {
+        Some(sai_paper_core::evidence::ChatCompletionsClient::from_config(&config)?)
+    } else {
+        None
+    };
+    for id in ids {
+        let state = if force {
+            sections::rebuild(conn, &data_dir, id)
+        } else {
+            sections::ensure(conn, &data_dir, id)
+        };
+        let state = match state {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("#{id}: {e}");
+                continue;
+            }
+        };
+        let n_sections = sections::count_sections(conn, id)?;
+        let n_passages: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM paper_passages WHERE paper_id = ?1",
+            [id],
+            |r| r.get(0),
+        )?;
+        let label = if state == sections::BuildState::Rebuilt { "作り直した" } else { "変わらず" };
+        println!("#{id} 節 {n_sections} 個・塊 {n_passages} 個（{label}）");
+        if let Some(client) = &client {
+            let model = &config.rag.evidence.model;
+            let n = sections::summarize_file(
+                &Paths::discover()?.database_file,
+                id,
+                client,
+                model,
+                config.rag.evidence.max_concurrent,
+            )
+            .await?;
+            println!("要約 {n} 節（model: {model}）");
+        }
+    }
+    Ok(())
 }
 
 /// `sai-moon-paper content` を実行する。
-pub fn handle_content(cmd: ContentCmd) -> Result<()> {
+pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
     match cmd {
+        ContentCmd::Outline { paper_id, json } => {
+            let (db, data_dir) = open_for_read()?;
+            let value = outline_json(db.connection(), &data_dir, paper_id)?;
+            if json {
+                println!("{value}");
+            } else {
+                print!("{}", outline_text(&value));
+            }
+            crate::activity::record_agent_read("cli", "outline", Some(paper_id), None);
+            Ok(())
+        }
+        ContentCmd::Read { refs, max_chars, json } => {
+            let (db, data_dir) = open_for_read()?;
+            let value = read_json(db.connection(), &data_dir, &refs, max_chars)?;
+            if json {
+                println!("{value}");
+            } else {
+                print!("{}", read_text(&value));
+            }
+            for id in refs.iter().filter_map(|r| paper_id_of_ref(r)).collect::<std::collections::BTreeSet<_>>() {
+                crate::activity::record_agent_read("cli", "read", Some(id), None);
+            }
+            Ok(())
+        }
+        ContentCmd::Build { paper_ids, all, force, summarize } => build(paper_ids, all, force, summarize).await,
         ContentCmd::Paper { paper_id, json } => print_paper(paper_id, json),
         ContentCmd::Chunk { chunk_id, json } => print_chunk(chunk_id, json),
         ContentCmd::Report { report_id, json } => print_report(&report_id, json),
@@ -162,4 +353,66 @@ fn print_report(report_id: &str, json: bool) -> Result<()> {
     let report_path = reports::resolve_md_path(&report);
     crate::activity::record_agent_read("cli", "report", None, report_path.as_deref());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sai_paper_core::Database;
+
+    /// 一時フォルダの papr.db に論文 1 件と extract.md（ready）を置く。
+    fn setup(name: &str) -> (Database, std::path::PathBuf, i64) {
+        let dir = std::env::temp_dir().join(format!("content-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::in_memory_with_data_dir(&dir).unwrap();
+        let id = db.insert_paper("Test paper", None).unwrap();
+        let body = "Convolutional networks have been used widely in vision tasks. We apply them to text and report the results here. ";
+        let md = format!(
+            "## Test paper\n\nA short front matter line with several words in it for the test.\n\n\
+             ## Abstract\n\n{0}\n\n## 1 Introduction\n\n{0}\n\n{0}\n\n### 1.1 Detail\n\n{0}\n",
+            body.repeat(3)
+        );
+        let md_path = dir.join("extract.md");
+        std::fs::write(&md_path, md).unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO paper_extracts (paper_id, status, md_path, papers_id) VALUES ('k', 'ready', ?1, ?2)",
+                rusqlite::params![md_path.to_string_lossy(), id],
+            )
+            .unwrap();
+        (db, dir, id)
+    }
+
+    /// outline の JSON が共有契約の項目を持ち、人が読む表に節が並ぶ。
+    #[test]
+    fn outline_json_has_contract_fields() {
+        let (db, dir, id) = setup("outline");
+        let v = outline_json(db.connection(), &dir, id).unwrap();
+        assert_eq!(v["paper_id"], id);
+        assert!(v["extract_sha256"].as_str().unwrap().len() == 12);
+        let secs = v["sections"].as_array().unwrap();
+        assert!(secs.len() >= 3);
+        for key in ["id", "sec_no", "heading", "level", "kind", "n_passages", "n_sentences", "lead"] {
+            assert!(secs[0].get(key).is_some(), "{key} が無い");
+        }
+        assert!(outline_text(&v).contains(&format!("#{id}.")));
+    }
+
+    /// 2 つの範囲を順に返し、上限を超えると truncated と next が入る。誤った ID は読む前に失敗する。
+    #[test]
+    fn read_json_orders_truncates_and_rejects_bad_ref() {
+        let (db, dir, id) = setup("read");
+        let conn = db.connection();
+        let outline = outline_json(conn, &dir, id).unwrap();
+        let sec = outline["sections"][1]["sec_no"].as_i64().unwrap();
+        let full = read_json(conn, &dir, &[format!("{id}.{sec}")], None).unwrap();
+        assert_eq!(full["truncated"], false);
+        assert!(!full["passages"].as_array().unwrap().is_empty());
+        let whole = read_json(conn, &dir, &[id.to_string()], Some(50)).unwrap();
+        assert_eq!(whole["truncated"], true);
+        assert!(whole["next"].is_string());
+        assert!(read_text(&whole).contains("### #"));
+        assert!(read_json(conn, &dir, &["abc".to_string()], None).is_err());
+    }
 }

@@ -1331,7 +1331,10 @@ async fn main() -> Result<()> {
                         println!(
                             "{}",
                             serde_json::to_string_pretty(
-                                &sai_paper_core::retrieval::hits_to_json(&hits)
+                                &sai_paper_core::retrieval::hits_to_json_with(
+                                    &hits,
+                                    &sai_paper_core::sections::passages_for_hits(db.connection(), &hits)
+                                )
                             )?
                         );
                     } else {
@@ -1367,7 +1370,10 @@ async fn main() -> Result<()> {
             if json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&sai_paper_core::retrieval::hits_to_json(&hits))?
+                    serde_json::to_string_pretty(&sai_paper_core::retrieval::hits_to_json_with(
+                        &hits,
+                        &sai_paper_core::sections::passages_for_hits(db.connection(), &hits)
+                    ))?
                 );
             } else {
                 for hit in hits {
@@ -1422,7 +1428,7 @@ async fn main() -> Result<()> {
             enrich_retraction(force).await?;
         }
         Some(Cmd::Content { cmd }) => {
-            content::handle_content(cmd)?;
+            content::handle_content(cmd).await?;
         }
         Some(Cmd::Dsr { cmd }) => {
             dsr::handle(cmd)?;

@@ -69,6 +69,27 @@ pub fn tools() -> Value {
             },
         },
         {
+            "name": "paper_outline",
+            "description": "論文の節の一覧（ID・見出し・文の数・最初の 2 文・要約）。論文を読むときは、まずこれを見て読む節を選ぶ。全文は読まない",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"paper_id": {"type": "integer", "description": "Library の番号（#37 なら 37）"}},
+                "required": ["paper_id"],
+            },
+        },
+        {
+            "name": "paper_read",
+            "description": "論文の節・塊を ID で読む（37.5 = 節、37.5.2 = 塊、37.5.2-4 = 塊の範囲、37 = 全体）。出典は返った塊の ID で [#37.5.2] と書く",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "refs": {"type": "array", "items": {"type": "string"}, "description": "読む ID（1〜20 個）"},
+                    "max_chars": {"type": "integer", "description": "返す本文の字数の上限（既定 12000、最大 60000）。超えたら next に続きの ID が入る"},
+                },
+                "required": ["refs"],
+            },
+        },
+        {
             "name": "search_sets",
             "description": "検索の記録（検索セット）。set_id を省くと一覧、指定するとその中身",
             "inputSchema": {
@@ -220,7 +241,10 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             )?;
             match outcome {
                 sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
-                    Ok(sai_paper_core::retrieval::hits_to_json(&hits))
+                    Ok(sai_paper_core::retrieval::hits_to_json_with(
+                        &hits,
+                        &sai_paper_core::sections::passages_for_hits(conn, &hits),
+                    ))
                 }
                 sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
                     Ok(serde_json::to_value(&result)?)
@@ -237,7 +261,10 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                 int_arg(args, "top_k"),
                 str_arg(args, "index").as_deref(),
             )?;
-            Ok(sai_paper_core::retrieval::hits_to_json(&hits))
+            Ok(sai_paper_core::retrieval::hits_to_json_with(
+                &hits,
+                &sai_paper_core::sections::passages_for_hits(db.connection(), &hits),
+            ))
         }
         "index_status" => {
             let (db, config) = open()?;
@@ -258,6 +285,35 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                 Some(paper_id),
                 extract.map(std::path::Path::new),
             );
+            Ok(value)
+        }
+        "paper_outline" => {
+            let paper_id =
+                int_arg(args, "paper_id").ok_or_else(|| anyhow!("paper_id が必要です"))?;
+            let (db, _) = open()?;
+            let data_dir = Paths::discover()?.data_dir().to_path_buf();
+            let value = crate::content::outline_json(db.connection(), &data_dir, paper_id)?;
+            crate::activity::record_agent_read("mcp", "outline", Some(paper_id), None);
+            Ok(value)
+        }
+        "paper_read" => {
+            let refs: Vec<String> = args
+                .get("refs")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            if refs.is_empty() || refs.len() > 20 {
+                return Err(anyhow!("refs は 1〜20 個にしてください"));
+            }
+            let (db, _) = open()?;
+            let data_dir = Paths::discover()?.data_dir().to_path_buf();
+            let max_chars = int_arg(args, "max_chars").map(|n| n.max(1) as usize);
+            let value = crate::content::read_json(db.connection(), &data_dir, &refs, max_chars)?;
+            for r in &refs {
+                if let Some(id) = crate::content::paper_id_of_ref(r) {
+                    crate::activity::record_agent_read("mcp", "read", Some(id), None);
+                }
+            }
             Ok(value)
         }
         "search_sets" => {
@@ -395,7 +451,7 @@ pub async fn serve() -> Result<()> {
 mod tests {
     use super::*;
 
-    /// tools/list に 9 つの道具が並び、どれも入力の形を持つ。
+    /// tools/list に 11 個の道具が並び、どれも入力の形を持つ。
     #[tokio::test]
     async fn tools_list_has_all_tools() {
         let reply = handle_message(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
@@ -417,6 +473,8 @@ mod tests {
                 "neighbors",
                 "index_status",
                 "paper",
+                "paper_outline",
+                "paper_read",
                 "search_sets",
                 "sci_context",
                 "sci_status",
@@ -458,6 +516,24 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("proposals"));
+    }
+
+    /// paper_read に refs が 0 個のとき、paper_outline に paper_id が無いときは isError で返す。
+    #[tokio::test]
+    async fn paper_tools_validate_arguments() {
+        for (name, args, word) in [
+            ("paper_read", json!({"refs": []}), "refs"),
+            ("paper_outline", json!({}), "paper_id"),
+        ] {
+            let reply = handle_message(&json!({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": {"name": name, "arguments": args},
+            }))
+            .await
+            .unwrap();
+            assert_eq!(reply["result"]["isError"], true, "{name}");
+            assert!(reply["result"]["content"][0]["text"].as_str().unwrap().contains(word));
+        }
     }
 
     /// sci_node に node が無いときは isError で返す。
