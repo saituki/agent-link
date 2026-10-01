@@ -71,8 +71,8 @@ impl AttentionKind {
             Self::RecommendCard => "推薦",
             Self::ReportIssue => "出典",
             Self::NewSetItems => "新着",
-            Self::SciDecision => "判断待ち",
-            Self::SciTriage => "仕分け",
+            Self::SciDecision => "AWAITING_DECISION",
+            Self::SciTriage => "TRIAGE",
         }
     }
 
@@ -487,7 +487,7 @@ fn sci_decisions(
             key: format!("sci_decision:{}:{latest}", node.id),
             kind: AttentionKind::SciDecision,
             title: format!(
-                "判断待ち: {} {}（候補 {}）",
+                "AWAITING_DECISION: {} {}（OPTION {}）",
                 node.id, node.title, node.counts.options
             ),
             run_id: None,
@@ -515,7 +515,7 @@ fn sci_triage(
         key: format!("sci_triage:{latest}"),
         kind: AttentionKind::SciTriage,
         title: format!(
-            "仕分け待ちの提案が {} 件あります",
+            "TRIAGE 待ちの PROPOSAL が {} 件あります",
             status.debts.pending_proposals
         ),
         run_id: None,
@@ -950,8 +950,8 @@ mod tests {
         assert_eq!(AttentionKind::StateUpdate.label(), "現況");
         assert_eq!(AttentionKind::SciDecision.as_str(), "sci_decision");
         assert_eq!(AttentionKind::SciTriage.as_str(), "sci_triage");
-        assert_eq!(AttentionKind::SciDecision.label(), "判断待ち");
-        assert_eq!(AttentionKind::SciTriage.label(), "仕分け");
+        assert_eq!(AttentionKind::SciDecision.label(), "AWAITING_DECISION");
+        assert_eq!(AttentionKind::SciTriage.label(), "TRIAGE");
     }
 
     // ---- 7 と 8: 研究方針の木 ----
@@ -1049,16 +1049,16 @@ mod tests {
         let decision = items
             .iter()
             .find(|item| item.kind == AttentionKind::SciDecision)
-            .expect("判断待ちが出る");
-        assert_eq!(decision.title, "判断待ち: N1 対象（候補 2）");
+            .expect("AWAITING_DECISION が出る");
+        assert_eq!(decision.title, "AWAITING_DECISION: N1 対象（OPTION 2）");
         assert_eq!(decision.key, "sci_decision:N1:2");
         assert_eq!(decision.open_path, Some(roots.data_dir.join("tree.md")));
         assert!(decision.run_id.is_none());
         let triage = items
             .iter()
             .find(|item| item.kind == AttentionKind::SciTriage)
-            .expect("仕分けが出る");
-        assert_eq!(triage.title, "仕分け待ちの提案が 1 件あります");
+            .expect("TRIAGE が出る");
+        assert_eq!(triage.title, "TRIAGE 待ちの PROPOSAL が 1 件あります");
         assert_eq!(triage.key, "sci_triage:1");
         assert!(triage.open_path.is_none());
         // 木がある間は「現況の更新案」を出さない。
