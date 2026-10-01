@@ -315,7 +315,7 @@ fn keychain_value(service: &str, account: Option<&str>) -> Option<String> {
 /// `paper_roots()` / `project_root()` を使う。ここでは扱わない。
 ///
 /// `sai-paper-core` は `sai_link_engine` に依存しないため、同じ規則の小さな
-/// 関数を这边に置いてある。値は必ず `sai_link_engine::project::sai_home` と一致させること。
+/// 関数をここに置いてある。値は必ず `sai_link_engine::project::sai_home` と一致させること。
 #[must_use]
 pub fn sai_home() -> Option<PathBuf> {
     resolve_sai_home(

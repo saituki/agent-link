@@ -1,37 +1,37 @@
 ---
 key: data.size
-name: データの量
+name: DATA_SIZE
 type: write, verify
 parent: data
 depends_on: data.type
 min_findings: 2
 ---
-# データの量
+# DATA_SIZE
 
-データがいくつあるかを書き、足りるかを確かめる項目である。
+データがいくつあるかを書き、足りるかを確かめる ITEM である。
 
 数字だけを書いて終わりにしない。1 件がどれだけ重いかまで書くと、足りるかが判断できる。
 
-## 問い
+## QUESTION
 - データはいくつあるか
 - クラスごとにいくつあるか
 - その量で調べたいことを分けられるか
 
-## 埋まった条件
+## CONDITION
 - decided(data.size)
 
 件数が書けて、足りるかも判断できている。
 
-## 抜き出す項目
+## EXTRACT_FIELDS
 - data_source: 件数・クラスごとの件数・1 件の記録時間
 - compare: 件数と結果の関係をどう書いているか
 
-## 落とし穴
+## PITFALL
 - 総数だけ書いて、クラスごとの数を書かない
-- 項目数が多い項目と少ない項目を足して、1 件と数える
+- 要素数が多い記録と少ない記録を足して、1 件と数える
 - 学習と検証で分けられるかを確かめずに件数だけ書く
 
-## 次の一手
+## NEXT_ACTION
 - untouched: sci-search | {title}の目安を外部から探す | 目安になった論文の一覧
 - insufficient: sci-lookup | {title}の目安を Library で探す | 見つかった目安
 - awaiting_decision: sci-probe | {title}が足りるかを判断してもらう | 決まった目標件数
@@ -39,4 +39,4 @@ min_findings: 2
 - weak_evidence: sci-probe | {title}の件数を実際に確かめる | 確かめた件数
 - recheck: - | 上流の決定が変わったので{title}を見直す | 見直した結果
 
-## 子の項目
+## CHILD_ITEM

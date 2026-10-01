@@ -588,6 +588,9 @@ pub struct Task {
     /// （todo のカードが研究方針の木と結び付いているため）。`None` はカード無し。
     #[serde(default)]
     pub card_run_id: Option<i64>,
+    /// 子の実行主体（`pi` / `cc`。`task_create` の runner 引数。`None` は `pi`）
+    #[serde(default)]
+    pub runner: Option<String>,
     /// バッチ確認用グループ ID
     pub batch_id: Option<String>,
     /// クライアント側の一時 ID（task_create で割り当て。carried_over 照合・依存解決用）
@@ -648,6 +651,7 @@ impl Task {
             timeout: None,
             execution_id: None,
             card_run_id: None,
+            runner: None,
             batch_id,
             client_id,
             round: 1,

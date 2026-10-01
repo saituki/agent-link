@@ -259,6 +259,7 @@ fn task_to_json(t: &Task, defs: &[(PathBuf, BlockConfig)]) -> Value {
         "worktree": t.worktree,
         "cwd": t.cwd,
         "timeout": t.timeout,
+        "runner": t.runner,
         "card": t.card_run_id,
         "worktree_info": worktree_info_json(t, defs),
         "execution_id": t.execution_id,
@@ -505,6 +506,8 @@ struct NormalizedTask {
     carried_over: bool,
     /// 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id をそのまま子として使う）
     card_run_id: Option<i64>,
+    /// 子の実行主体（`pi` / `cc`。`None` はカードの runner、無ければ `pi`）
+    runner: Option<String>,
 }
 
 /// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）から取り出した値だけを並べたもの。
@@ -704,6 +707,19 @@ pub fn task_create(
                 }
             },
         };
+        // 子の実行主体（pi / cc だけ受け付ける。task_create の時点で弾く）
+        let runner = match item.get("runner") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
+                Some(s) if s == "pi" || s == "cc" => Some(s),
+                _ => {
+                    return Err(format!(
+                        "client_id '{}' の runner は pi か cc で指定してください",
+                        client_id
+                    ))
+                }
+            },
+        };
         let carried_over = item
             .get("carried_over")
             .and_then(|v| v.as_bool())
@@ -721,6 +737,7 @@ pub fn task_create(
             timeout,
             carried_over,
             card_run_id,
+            runner,
         });
     }
 
@@ -808,6 +825,7 @@ pub fn task_create(
                 "worktree": t.worktree,
                 "cwd": resolved_cwd.get(&t.client_id),
                 "timeout": t.timeout,
+                "runner": t.runner,
                 "carried_over": t.carried_over,
                 "card": t.card_run_id,
                 "approval": { "status": "approved", "comment": null },
@@ -2348,6 +2366,36 @@ mod tests {
         assert_eq!(created.subject, "N12 の読解");
         // task_list / task_status の JSON に "card" が出る
         assert_eq!(task_to_json(&created, &[])["card"], json!(120));
+
+        drop(guard);
+    }
+
+    /// `runner` は pi / cc だけ通り、通知に載る。それ以外の値は task_create で弾く。
+    #[test]
+    fn task_create_runner_accepts_pi_cc_and_rejects_others() {
+        let guard = EnvGuard::new();
+        let store = crate::common::open_db().unwrap();
+        let parent_run_id = create_test_parent_run(&store, "runner-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "runner-block");
+
+        let bad = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
+            "block_type": "runner-block", "runner": "gl" }]);
+        let err = task_create(&bad, None, None, None).unwrap_err();
+        assert!(err.contains("runner は pi か cc"), "err={}", err);
+
+        let ok = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
+            "block_type": "runner-block", "runner": "CC" }]);
+        let result = task_create(&ok, None, None, None).unwrap();
+        assert_eq!(result["status"], "approved");
+        let notif = read_task_created_notification();
+        assert_eq!(notif.tasks[0].runner.as_deref(), Some("cc"));
+
+        let manager = crate::task_manager::TaskManager::new(std::sync::Arc::new(store));
+        let ids = manager.process_task_created(&notif).unwrap();
+        let created = manager.get_task(ids[0]).unwrap();
+        assert_eq!(created.runner.as_deref(), Some("cc"));
+        assert_eq!(task_to_json(&created, &[])["runner"], json!("cc"));
 
         drop(guard);
     }

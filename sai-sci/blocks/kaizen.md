@@ -35,7 +35,7 @@ subblocks:
 | 項目 | 例 | 無いとき |
 |---|---|---|
 | 調査対象のプロジェクトのパス | `~/research/test-moon-260929` | 聞く |
-| 起点の run（main ブロック） | `run_id=102`・`main.md` | `phone tree` で root の run を一覧し、候補を示して聞く |
+| 起点の run（main ブロック） | `run_id=102`・`main.md` | `phone tree` で root の run を一覧し、run の選択肢を示して聞く |
 | 重点の観点（任意） | 「mlflow まわり」 | 全観点を調べる |
 
 パスは依頼文に書かれたものだけを使う。読み取りだけを行い、調査対象の中に書かない。
@@ -63,26 +63,26 @@ subblocks:
 | 依頼文・会話・報告・起動時の固定部分 | `sai-moon-link phone md --kind task\|message\|report\|system <run_id>` |
 | 成果物 | `sai-moon-link phone waggle <run_id>`（本文は `sai_read`） |
 | エラー・停止の言葉を探す | `sai-moon-link search -w <語> --type tool_result --status failed` など |
-| 木の現在地・提案・外した候補 | `sai-moon-paper sci status --json` / `sci proposals --json` / `sci tombstones` / `sci node <N12>` |
+| 木の現在地・PROPOSAL・外した OPTION | `sai-moon-paper sci status --json` / `sci proposals --json` / `sci tombstones` / `sci node <N12>` |
 | 実験の台帳・仕様・結果 | `.sai/tools/exp_summary.py`・`experiments/`・`phone_api.py mlflow …` |
 | Human の待ち | `phone_api.py questions` / `approvals`（過去分は `message` から） |
 | コスト | `~/.sai-moon/cc-cost`・`sai-moon-link usage`（使えるときだけ） |
 
-- `block show` の ID と `phone tree` の `run_id` が違うことがある。見つからなければもう一方で試し、**違いそのものも C の候補にする**。
+- `block show` の ID と `phone tree` の `run_id` が違うことがある。見つからなければもう一方で試し、**違いそのものも C の問題にする**。
 - 長い調査は `operator` の子に頼む（`block_discover` → `task_create`）。頼むのは「この run の時系列を表にして返す」のような**抽出**だけ。評価は自分で行う。
 - session の jsonl は直接開かない。`search` と `phone md` で当たりを付けてから読む。
 
-### 調査項目
+### 調査の観点
 
-各項目で「何が起きたか」「何を見て分かったか（run_id・`path:line`・トークン）」を残す。
+各観点で「何が起きたか」「何を見て分かったか（run_id・`path:line`・トークン）」を残す。
 
 1. **operator の実行タイムライン**: 起こした順・所要・状態・待ち（質問・承認・stalled）。止まっていた時間の最大の原因を見る。
 2. **operator が起こした researcher のタスク**: 依頼文（`task_text`）の中身と、実際に要った情報。次を数える。
    - 関係のない template・`task.md`・過去の会話が入っていないか（無駄な文脈）。
    - 依頼文に書かれず、子が自分で探し直した情報（足りない文脈）。
    - 出力が後で 1 度も読まれていない子（使われない成果物）。同じ調べを複数の子が重ねていないか。
-3. **research-tree の使われ方**: 提案（`propose`）が採用・却下・放置のどれになったか。木に載らず会話・ファイルだけで済ませた判断が無いか。木を直接書き換えた・即興のツールを作った跡が無いか。
-4. **root → seed → branch の流れ**: 節点の選び方、seed の世代、branch の起こし方。つながらずに途切れた線・飛ばした層・やり直しの回数。
+3. **research-tree の使われ方**: PROPOSAL（`propose`）が ACCEPT・REJECT・放置のどれになったか。木に載らず会話・ファイルだけで済ませた判断が無いか。木を直接書き換えた・即興のツールを作った跡が無いか。
+4. **root → seed → branch の流れ**: NODE の選び方、seed の世代、branch の起こし方。つながらずに途切れた線・飛ばした層・やり直しの回数。
 5. **branch の結果の評価と次の実験**: 台帳・MLflow の値と完了報告書が合っているか。次の実験が前の結果から出ているか（根拠の引用があるか）。失敗の原因（実装の誤りか・方法の限界か）の切り分けが妥当か。
 6. **権限と責任の抜け**: professor / operator が、持つべき権限（`sci triage`・`sci apply`・`task_manage`）を持たず止まっていないか。課題に当たる役の researcher（ブロック）が無く、手が打てなかった所が無いか。
 7. **配布物の整合**: 対象の `.sai/blocks`・`.sai/template`・`.sai/tools` が、今の `sai-sci/` の版と合っているか（`diff -rq`）。足りない・古いファイルは、実行時の不具合の原因になる。
@@ -127,13 +127,13 @@ subblocks:
 ```markdown
 ## 調査の範囲（対象・run・期間・見られなかったもの）
 ## タイムライン（run_id・ブロック・所要・状態・待ちの原因）
-## 調査項目ごとの所見（1〜9）
+## 調査の観点ごとの所見（1〜9）
 ## 問題の一覧（T / O / E）
 ## 改善案（A ワークフロー / B スクリプトと連携 / C CLI / D エージェント）
 ## 先にやる 5 件
 ## Human の判断が要るもの
 ## 残すべき良い点
-## 範囲外のメモ・未調査
+## OUT_OF_SCOPE・未調査
 ```
 
 - 見られなかったもの（読めなかった log・つながらなかった MLflow など）は「調査の範囲」に必ず書く。見ていないものを「問題なし」と書かない。
@@ -153,7 +153,7 @@ subblocks:
 - 確かめ方: …
 ```
 
-1. **解消の判定**: 既存の項目ごとに、調査対象の記録（調査項目 8）か `git log` で、もう起きないと言える証拠があるものだけ、`状態` を「解消」にする。証拠が弱いものは「有効」のまま、計画書の「範囲外のメモ・未調査」に書く。
+1. **解消の判定**: 既存の項目ごとに、調査対象の記録（調査の観点 8）か `git log` で、もう起きないと言える証拠があるものだけ、`状態` を「解消」にする。証拠が弱いものは「有効」のまま、計画書の「OUT_OF_SCOPE・未調査」に書く。
 2. **新しい項目**: 計画書の T / O のうち、確からしさが「確認済み」で、operator が現場で当たる故障（対処と確かめ方を書けるもの）だけ足す。推測・sai-sci の md の改善（A）・コードの不具合（C）は足さない。同じ症状の項目が既にあれば足さず、その項目の `状態` を見直す。
 3. **消さない**: 項目の削除・書き換えは、`状態` の行だけ。原因・対処・確かめ方の文は直さない。
 4. **確かめてから書く**: 変更の一覧（どの項目を解消にするか・何を足すか・根拠）を Human に見せ、質問ツールで「この内容で更新してよいか」を聞く。了承されたら、書く前に `operator-notes.md.bak` へ複写し、新しい項目は Bash の追記（`>>`）、`状態` の変更は 1 行だけの置き換えで行う。

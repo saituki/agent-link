@@ -48,7 +48,7 @@ const {
 function sampleStatus() {
   return {
     initialized: true,
-    type: { id: "problem", name: "課題駆動" },
+    type: { id: "problem", name: "PROBLEM_DRIVEN" },
     seed: {
       text: "「頭皮脳波で［？小目的］を行う。…」",
       parts: [
@@ -113,9 +113,9 @@ function sampleStatus() {
 }
 
 function testQuestionLabel() {
-  assert.strictEqual(stQuestionLabel({ state: "open" }), "答え待ち");
-  assert.strictEqual(stQuestionLabel({ state: "answered", answer: "x" }), "答えた");
-  assert.strictEqual(stQuestionLabel({ state: "withdrawn", answer: "x" }), "取り下げた");
+  assert.strictEqual(stQuestionLabel({ state: "open" }), "OPEN");
+  assert.strictEqual(stQuestionLabel({ state: "answered", answer: "x" }), "ANSWERED");
+  assert.strictEqual(stQuestionLabel({ state: "withdrawn", answer: "x" }), "WITHDRAWN");
 }
 
 function testParseHash() {
@@ -132,14 +132,14 @@ function testParseHash() {
 
 function testStateMark() {
   // 項目と候補で別の記号・表示名
-  assert.deepStrictEqual(stStateMark("item", "decided"), { mark: "●", label: "決定", cls: "sci-mark-decided" });
-  assert.deepStrictEqual(stStateMark("item", "tentative"), { mark: "◐", label: "仮決定", cls: "sci-mark-tentative" });
-  assert.deepStrictEqual(stStateMark("item", "open"), { mark: "○", label: "未決定", cls: "sci-mark-open" });
-  assert.deepStrictEqual(stStateMark("item", "excluded"), { mark: "×", label: "対象外", cls: "sci-mark-excluded" });
-  assert.deepStrictEqual(stStateMark("option", "candidate"), { mark: "◇", label: "候補", cls: "sci-mark-candidate" });
-  assert.deepStrictEqual(stStateMark("option", "selected"), { mark: "◆", label: "選択", cls: "sci-mark-selected" });
-  assert.deepStrictEqual(stStateMark("option", "rejected"), { mark: "✕", label: "却下", cls: "sci-mark-rejected" });
-  assert.deepStrictEqual(stStateMark("option", "dormant"), { mark: "◌", label: "休眠", cls: "sci-mark-dormant" });
+  assert.deepStrictEqual(stStateMark("item", "decided"), { mark: "●", label: "DECIDED", cls: "sci-mark-decided" });
+  assert.deepStrictEqual(stStateMark("item", "tentative"), { mark: "◐", label: "TENTATIVE", cls: "sci-mark-tentative" });
+  assert.deepStrictEqual(stStateMark("item", "open"), { mark: "○", label: "OPEN", cls: "sci-mark-open" });
+  assert.deepStrictEqual(stStateMark("item", "excluded"), { mark: "×", label: "EXCLUDED", cls: "sci-mark-excluded" });
+  assert.deepStrictEqual(stStateMark("option", "candidate"), { mark: "◇", label: "CANDIDATE", cls: "sci-mark-candidate" });
+  assert.deepStrictEqual(stStateMark("option", "selected"), { mark: "◆", label: "SELECTED", cls: "sci-mark-selected" });
+  assert.deepStrictEqual(stStateMark("option", "rejected"), { mark: "✕", label: "REJECTED", cls: "sci-mark-rejected" });
+  assert.deepStrictEqual(stStateMark("option", "dormant"), { mark: "◌", label: "DORMANT", cls: "sci-mark-dormant" });
   // 知らない状態は未決定・候補に寄せる（表示が壊れないように）
   assert.deepStrictEqual(stStateMark("item", "???"), stStateMark("item", "open"));
   assert.deepStrictEqual(stStateMark("option", undefined), stStateMark("option", "candidate"));
@@ -161,13 +161,13 @@ function testRowsMarks() {
   const rows = stRows(sampleStatus());
   const n12 = rows[1];
   assert.strictEqual(n12.mark, "○");
-  assert.strictEqual(n12.label, "未決定");
-  assert.strictEqual(n12.blank, "判断待ち"); // awaiting_decision → 日本語
+  assert.strictEqual(n12.label, "OPEN");
+  assert.strictEqual(n12.blank, "AWAITING_DECISION"); // awaiting_decision → 大文字の表示名
   assert.strictEqual(n12.papers, 4);
   assert.strictEqual(n12.pending, 1);
-  // 固定の項目は📌、印（weak_evidence）は日本語
+  // 固定の項目は📌、印（weak_evidence）は大文字の表示名
   assert.strictEqual(rows[0].fixed, true);
-  assert.deepStrictEqual(rows[4].marks, ["根拠不足"]);
+  assert.deepStrictEqual(rows[4].marks, ["WEAK_EVIDENCE"]);
   // 対象外・休眠など、候補以外は空欄の種類を持たない
   assert.strictEqual(rows[3].blank, "");
   assert.strictEqual(rows[3].mark, "✕");
@@ -210,7 +210,7 @@ function testGateInfo() {
   // 全部通っていれば all が真で「種にできる」
   const done = stGateInfo({ gate: { current: 8, total: 7, name: "小目的", list: [] } });
   assert.strictEqual(done.all, true);
-  assert.strictEqual(done.name, "種にできる");
+  assert.strictEqual(done.name, "SEED にできる");
   // 関門が無いとき
   const none = stGateInfo(null);
   assert.strictEqual(none.all, false);
@@ -267,7 +267,7 @@ function testTablesAreShared() {
   assert.deepStrictEqual(ST_ITEM_TYPES.map((x) => x[0]), ["choose", "list", "write", "verify"]);
   // 表示の切り替えは 4 つ（一覧・根の図・表・実行の図）
   assert.deepStrictEqual(ST_MODES, [
-    ["list", "一覧"], ["graph", "根の図"], ["table", "表"], ["runs", "実行の図"],
+    ["list", "LIST"], ["graph", "ROOT_GRAPH"], ["table", "TABLE"], ["runs", "RUN_GRAPH"],
   ]);
   // 研究の型は 5 つ、C-14 の用語の札の解説の順
   assert.deepStrictEqual(ST_TYPES.map((x) => x[0]), ["problem", "phenomenon", "method", "data", "improve"]);
@@ -290,7 +290,7 @@ function testTableEmptyHint() {
   // 指摘 4: 節点が選ばれていないときは「まだ無い」ではなく「選んでください」
   assert.strictEqual(stTableEmptyHint({ id: "N12" }), null);
   const hint = stTableEmptyHint(null);
-  assert.strictEqual(hint.title, "項目を選んでください");
+  assert.strictEqual(hint.title, "ITEM を選んでください");
   assert.ok(!/まだありません/.test(hint.body), hint.body);
   // 節点が無くても「表の画面はまだありません」とは言わない
   assert.ok(!/画面はまだありません/.test(hint.title + hint.body), hint);

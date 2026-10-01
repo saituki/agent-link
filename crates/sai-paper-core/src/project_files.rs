@@ -128,7 +128,7 @@ fn insert_memo(content: &str, line: &str) -> String {
     let lines: Vec<&str> = content.split_inclusive('\n').collect();
     let heading = lines
         .iter()
-        .position(|l| l.trim_end_matches(['\n', '\r']).trim() == "## メモ");
+        .position(|l| matches!(l.trim_end_matches(['\n', '\r']).trim(), "## メモ" | "## NOTES"));
     let Some(h) = heading else {
         // 節が無ければ末尾に `## メモ` を作る。
         let mut out = content.to_string();
@@ -402,6 +402,18 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&mind).unwrap(),
             "# mind\n\n## メモ\n- 09/24 10:00 古い\n- 09/26 21:40 新しいメモ\n\n## 次の節\n本文\n",
+        );
+    }
+
+    #[test]
+    fn append_memo_into_notes_section() {
+        let dir = temp_data_dir("memo-notes");
+        let mind = crate::paths::mind_path(&dir);
+        fs::write(&mind, "# mind\n\n## NOTES\n- 09/24 10:00 古い\n\n## 次\n本文\n").unwrap();
+        append_memo(&dir, "新しいメモ", "09/26 21:40").unwrap();
+        assert_eq!(
+            fs::read_to_string(&mind).unwrap(),
+            "# mind\n\n## NOTES\n- 09/24 10:00 古い\n- 09/26 21:40 新しいメモ\n\n## 次\n本文\n",
         );
     }
 

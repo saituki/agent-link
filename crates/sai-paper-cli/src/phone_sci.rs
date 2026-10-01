@@ -22,42 +22,42 @@ pub enum PhoneSciCmd {
     Status,
     /// 研究方針の木を始める
     Init {
-        /// 研究の型（problem / phenomenon / method / data / improve）
+        /// RESEARCH_TYPE（problem / phenomenon / method / data / improve）
         #[arg(long = "type", value_name = "型")]
         type_id: String,
     },
-    /// 節点 1 つの詳細を JSON で返す
+    /// NODE 1 つの詳細を JSON で返す
     Node {
-        /// 節点の ID（`N12`）
+        /// NODE の ID（`N12`）
         node: String,
     },
     /// 利用者の操作を 1 つ反映する（標準入力に C-07 の JSON）
     Apply,
-    /// 仕分け待ちの提案を JSON で返す
+    /// TRIAGE 待ちの PROPOSAL を JSON で返す
     Proposals,
-    /// 提案を仕分ける（採用のときの中身の上書きは標準入力。空なら無し）
+    /// PROPOSAL を TRIAGE する（採用のときの中身の上書きは標準入力。空なら無し）
     Triage {
-        /// 提案の ID（`P56`）
+        /// PROPOSAL の ID（`P56`）
         proposal: String,
-        /// 仕分け（accept / reject / revert）
+        /// TRIAGE（accept / reject / revert）
         #[arg(long)]
         action: String,
-        /// 仕分けのメモ
+        /// TRIAGE のメモ
         #[arg(long)]
         note: Option<String>,
     },
-    /// 節点のための実行（カード）を作る（標準入力に C-09 の JSON）
+    /// NODE のための実行（CARD）を作る（標準入力に C-09 の JSON）
     Card,
-    /// 読む札の中身を JSON で返す
+    /// READ_CARD の中身を JSON で返す
     Read {
         /// 実行 ID
         run_id: i64,
     },
-    /// 読む札を終える
+    /// READ_CARD を終える
     FinishRead {
         /// 実行 ID
         run_id: i64,
-        /// 反映しない理由（知見が無いとき必要）
+        /// 反映しない理由（FINDING が無いとき必要）
         #[arg(long)]
         no_reflect: Option<String>,
     },
@@ -160,7 +160,7 @@ fn node_detail(node: &str) -> Result<Value> {
     let id = parse_id(node, 'N')?;
     let detail = sci::compute::node_detail(env.conn(), &env.roots, &env.defs, id)
         .map_err(|err| anyhow!("{err}"))
-        .context("節点の詳細を集められませんでした")?;
+        .context("NODE の詳細を集められませんでした")?;
     Ok(serde_json::to_value(detail)?)
 }
 
@@ -179,7 +179,7 @@ fn proposals() -> Result<Value> {
     let env = open_env()?;
     let rows = store::list_proposals(env.conn(), Some("pending"))
         .map_err(|err| anyhow!("{err}"))
-        .context("提案を読めませんでした")?;
+        .context("PROPOSAL を読めませんでした")?;
     let list: Vec<Value> = rows.iter().map(proposal_json).collect();
     Ok(json!({ "proposals": list }))
 }
@@ -208,7 +208,7 @@ fn triage_action(action: &str, input: &str) -> Result<ops::TriageAction> {
         "accept" => Ok(ops::TriageAction::Accept { edit: edit_from_input(input)? }),
         "reject" => Ok(ops::TriageAction::Reject),
         "revert" => Ok(ops::TriageAction::Revert),
-        other => anyhow::bail!("知らない仕分けです: {other}（accept / reject / revert）"),
+        other => anyhow::bail!("知らない TRIAGE です: {other}（accept / reject / revert）"),
     }
 }
 
@@ -460,7 +460,7 @@ mod tests {
 
         // 知らない仕分けは日本語で断つ。
         let err = triage_action("取り消し", "").unwrap_err();
-        assert!(format!("{err:#}").contains("知らない仕分けです"), "{err:#}");
+        assert!(format!("{err:#}").contains("知らない TRIAGE です"), "{err:#}");
     }
 
     /// `sai-moon-paper phone sci …` を clap で読む（テスト用の読み込み）。

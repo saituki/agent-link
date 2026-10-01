@@ -25,27 +25,27 @@ use crate::open_database;
 /// `sai-moon-paper sci` のサブコマンド（C-09）。
 #[derive(Subcommand, Debug)]
 pub enum SciCmd {
-    /// 研究方針の木を始める（型と項目ガイドを .sai/sci/ に置いて骨組みを作る）
+    /// 研究方針の木を始める（型と ITEM_GUIDE を .sai/sci/ に置いて骨組みを作る）
     Init {
-        /// 研究の型（problem / phenomenon / method / data / improve）
+        /// RESEARCH_TYPE（problem / phenomenon / method / data / improve）
         #[arg(long = "type", value_name = "型")]
         type_id: String,
-        /// 型を変える（木は壊さず、無い項目だけ足す）
+        /// 型を変える（木は壊さず、無い ITEM だけ足す）
         #[arg(long = "change-type")]
         change_type: bool,
     },
-    /// 現況（種の文・関門・負債・木・次の一手）を出す
+    /// 現況（SEED_SENTENCE・GATE・DEBT・木・NEXT_ACTION）を出す
     Status {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
-        /// 関門・負債・次の一手だけを出す（いつも JSON。短い文脈で現在地を読む）
+        /// GATE・DEBT・NEXT_ACTION だけを出す（いつも JSON。短い文脈で現在地を読む）
         #[arg(long)]
         brief: bool,
     },
-    /// 節点 1 つの詳細を出す
+    /// NODE 1 つの詳細を出す
     Node {
-        /// 節点の ID（`N12`）
+        /// NODE の ID（`N12`）
         node: String,
         /// JSON で出力する
         #[arg(long)]
@@ -56,11 +56,11 @@ pub enum SciCmd {
         /// 実行 ID
         #[arg(long)]
         run: i64,
-        /// 範囲（node / path / subtree / siblings / summary / blind）
+        /// SCOPE（node / path / subtree / siblings / summary / blind）
         #[arg(long)]
         scope: Option<String>,
     },
-    /// 提案する（標準入力に C-07 の JSON。いつも JSON）
+    /// PROPOSAL を出す（標準入力に C-07 の JSON。いつも JSON）
     Propose {
         /// 実行 ID（無ければ環境変数 SAI_PARENT_RUN_ID）
         #[arg(long)]
@@ -71,18 +71,24 @@ pub enum SciCmd {
     },
     /// 利用者の操作を 1 つ反映する（標準入力に C-07 の JSON。いつも JSON）
     Apply,
-    /// 仕分け待ちの提案を一覧する
+    /// 旧い日本語のガイド名のままの ITEM の題名を、今のガイドの名前へ移す
+    Retitle {
+        /// 書かずに、移す一覧だけ出す
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
+    /// TRIAGE 待ちの PROPOSAL を一覧する
     Proposals {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
     },
-    /// 提案を仕分ける（採用・却下・取り消しの 1 つ）
+    /// PROPOSAL を TRIAGE する（採用・却下・取り消しの 1 つ）
     #[command(group(
         clap::ArgGroup::new("triage").required(true).multiple(false).args(["accept", "reject", "revert"]),
     ))]
     Triage {
-        /// 提案の ID（`P56`）
+        /// PROPOSAL の ID（`P56`）
         proposal: String,
         /// 採用する
         #[arg(long)]
@@ -96,11 +102,11 @@ pub enum SciCmd {
         /// 採用するとき、中身の上書き（JSON 文字列）
         #[arg(long, requires = "accept")]
         edit: Option<String>,
-        /// 仕分けのメモ
+        /// TRIAGE のメモ
         #[arg(long)]
         note: Option<String>,
     },
-    /// 節点のための実行（カード）を作る
+    /// NODE のための実行（CARD）を作る
     Card {
         /// カード命令の引数
         #[command(flatten)]
@@ -109,7 +115,7 @@ pub enum SciCmd {
         #[arg(long)]
         json: bool,
     },
-    /// 読む札の中身を出す
+    /// READ_CARD の中身を出す
     Read {
         /// 実行 ID
         run_id: i64,
@@ -117,17 +123,17 @@ pub enum SciCmd {
         #[arg(long)]
         json: bool,
     },
-    /// 読む札を終える（この実行で入れた知見を反映済みにする。いつも JSON）
+    /// READ_CARD を終える（この実行で入れた FINDING を REFLECTED にする。いつも JSON）
     FinishRead {
         /// 実行 ID
         run_id: i64,
-        /// 反映しない理由（知見が無いとき必要）
+        /// 反映しない理由（FINDING が無いとき必要）
         #[arg(long)]
         no_reflect: Option<String>,
     },
     /// state.md と tree.md を書き出す
     Export,
-    /// 墓標（外した論文と候補）を一覧する
+    /// TOMBSTONE（外した論文と OPTION）を一覧する
     Tombstones {
         /// JSON で出力する
         #[arg(long)]
@@ -138,25 +144,25 @@ pub enum SciCmd {
 /// `sci card` の引数（[`SciCmd::Card`] から `flatten` で取る）。
 #[derive(clap::Args, Debug)]
 pub struct SciCardArgs {
-    /// 対象の節点（`N12`）
+    /// 対象の NODE（`N12`）
     #[arg(long)]
     pub node: String,
     /// 実行するブロックの id
     #[arg(long)]
     pub block: Option<String>,
-    /// 行動の目的
+    /// CURRENT_ACTION の目的
     #[arg(long)]
     pub purpose: String,
-    /// 答える問い（`Q7`）
+    /// 答える QUESTION（`Q7`）
     #[arg(long)]
     pub question: Option<String>,
     /// 期待する成果
     #[arg(long)]
     pub expect: Option<String>,
-    /// 範囲（node / path / subtree / siblings / summary / blind）
+    /// SCOPE（node / path / subtree / siblings / summary / blind）
     #[arg(long)]
     pub scope: Option<String>,
-    /// 仮置き（`N9=発作部位の予測（仮）`。繰り返し可）
+    /// ASSUMPTION（`N9=発作部位の予測（仮）`。繰り返し可）
     #[arg(long)]
     pub assume: Vec<String>,
     /// sci-read の型（purpose_first / blind_first）
@@ -165,13 +171,13 @@ pub struct SciCardArgs {
     /// 対象論文の番号（繰り返し可）
     #[arg(long)]
     pub paper: Vec<i64>,
-    /// 実行者（pi / cc / user。`user` なら読む札）
+    /// 実行者（pi / cc / user。`user` なら READ_CARD）
     #[arg(long, default_value = "pi")]
     pub runner: String,
-    /// 読む札の論文の役割
+    /// READ_CARD の論文の ROLE
     #[arg(long)]
     pub role: Option<String>,
-    /// 読む札の深さ（abstract / figures / full）
+    /// READ_CARD の DEPTH（abstract / figures / full）
     #[arg(long)]
     pub depth: Option<String>,
     /// 推薦した実行の run_id
@@ -251,7 +257,10 @@ pub fn run(cmd: SciCmd) -> Result<()> {
 /// 失敗を `{"error": …}` にする命令か。
 fn wants_json(cmd: &SciCmd) -> bool {
     match cmd {
-        SciCmd::Init { .. } | SciCmd::Context { .. } | SciCmd::Export => false,
+        SciCmd::Init { .. }
+        | SciCmd::Context { .. }
+        | SciCmd::Export
+        | SciCmd::Retitle { .. } => false,
         // --brief は誰が使っても JSON。
         SciCmd::Status { brief, .. } if *brief => true,
         SciCmd::Status { json, .. }
@@ -300,6 +309,7 @@ fn dispatch(cmd: SciCmd) -> Result<Out> {
         SciCmd::Read { run_id, json } => read(run_id, json),
         SciCmd::FinishRead { run_id, no_reflect } => finish_read(run_id, no_reflect.as_deref()),
         SciCmd::Export => export(),
+        SciCmd::Retitle { dry_run } => retitle(dry_run),
         SciCmd::Tombstones { json } => tombstones(json),
     }
 }
@@ -399,12 +409,12 @@ impl InitOutcome {
     pub fn text(&self, change_type: bool) -> String {
         let head = if change_type {
             format!(
-                "型を変えました（型: {}・追加 項目 {}・線 {}）",
+                "型を変えました（型: {}・追加 ITEM {}・線 {}）",
                 self.type_name, self.created_items, self.created_edges
             )
         } else {
             format!(
-                "研究方針の木を作りました（型: {}・項目 {}・線 {}）",
+                "研究方針の木を作りました（型: {}・ITEM {}・線 {}）",
                 self.type_name, self.created_items, self.created_edges
             )
         };
@@ -452,7 +462,7 @@ pub(crate) fn init_tree_and_export(
     }
 
     defs::write_local_copies(&env.roots.root)
-        .context(".sai/sci/ に型と項目ガイドを置けませんでした")?;
+        .context(".sai/sci/ に型と ITEM_GUIDE を置けませんでした")?;
     let backup = export::backup_state_once(&env.roots.data_dir).context("今の state.md を残せませんでした")?;
     let report = if change_type {
         defs::change_type(env.conn(), &env.defs, type_id).context("型を変えられませんでした")?
@@ -551,7 +561,7 @@ fn node_detail(node: &str, json: bool) -> Result<Out> {
     let env = open_env()?;
     let id = parse_id(node, 'N')?;
     let detail = compute::node_detail(env.conn(), &env.roots, &env.defs, id)
-        .context("節点の詳細を集められませんでした")?;
+        .context("NODE の詳細を集められませんでした")?;
     if json {
         return Ok(Out::Json(serde_json::to_value(&detail)?));
     }
@@ -569,7 +579,7 @@ fn context(run: i64, scope: Option<&str>) -> Result<Out> {
         run,
         scope,
     )
-    .context("入力の範囲を組み立てられませんでした")?;
+    .context("入力の SCOPE を組み立てられませんでした")?;
     Ok(Out::Text(text))
 }
 
@@ -598,13 +608,13 @@ fn apply() -> Result<Out> {
 fn proposals(json: bool) -> Result<Out> {
     let env = open_env()?;
     let rows =
-        store::list_proposals(env.conn(), Some("pending")).context("提案を読めませんでした")?;
+        store::list_proposals(env.conn(), Some("pending")).context("PROPOSAL を読めませんでした")?;
     if json {
         let list: Vec<Value> = rows.iter().map(proposal_json).collect();
         return Ok(Out::Json(json!({ "proposals": list })));
     }
     if rows.is_empty() {
-        return Ok(Out::Text("仕分け待ちの提案はありません\n".to_string()));
+        return Ok(Out::Text("TRIAGE 待ちの PROPOSAL はありません\n".to_string()));
     }
     let mut text = String::new();
     for row in &rows {
@@ -717,15 +727,39 @@ fn export() -> Result<Out> {
     }
 }
 
+/// `retitle` の出力文（人が読む）。
+fn retitle_text(items: &[defs::Retitle], dry_run: bool) -> String {
+    if items.is_empty() {
+        return "移す ITEM はありません\n".to_string();
+    }
+    let note = if dry_run { "（まだ書いていません）" } else { "" };
+    let mut text = format!("移す ITEM{note}: {} 件\n", items.len());
+    for item in items {
+        text.push_str(&format!("N{} {} ← {}\n", item.id, item.to, item.from));
+    }
+    text
+}
+
+/// `sci retitle [--dry-run]` — 旧い日本語のガイド名の題名を、今のガイドの名前へ移す。
+fn retitle(dry_run: bool) -> Result<Out> {
+    let env = open_env()?;
+    let items = defs::retitle_legacy_items(env.conn(), &env.defs, dry_run)
+        .context("題名を移せませんでした")?;
+    if !dry_run && !items.is_empty() {
+        env.export()?;
+    }
+    Ok(Out::Text(retitle_text(&items, dry_run)))
+}
+
 /// `sci tombstones` — 墓標の一覧。
 fn tombstones(json: bool) -> Result<Out> {
     let env = open_env()?;
-    let rows = store::list_tombstones(env.conn()).context("墓標を読めませんでした")?;
+    let rows = store::list_tombstones(env.conn()).context("TOMBSTONE を読めませんでした")?;
     if json {
         return Ok(Out::Json(serde_json::to_value(rows)?));
     }
     if rows.is_empty() {
-        return Ok(Out::Text("墓標はありません\n".to_string()));
+        return Ok(Out::Text("TOMBSTONE はありません\n".to_string()));
     }
     let mut text = String::new();
     for row in rows {
@@ -834,7 +868,7 @@ pub(crate) fn parse_search_refs(
         (Some(node), _) => Some(node),
         (None, Some(id)) => Some(
             store::get_question(conn, id)
-                .map_err(|err| anyhow!("問いの節点を読めません: {err}"))?
+                .map_err(|err| anyhow!("QUESTION の NODE を読めません: {err}"))?
                 .node_id,
         ),
         (None, None) => None,
@@ -974,19 +1008,19 @@ fn status_text(status: &compute::Status) -> String {
         .map(|seed| seed.text.clone())
         .unwrap_or_default();
     if seed.is_empty() {
-        text.push_str("種の文がまだありません\n");
+        text.push_str("SEED_SENTENCE がまだありません\n");
     } else {
         text.push_str(&format!("{seed}\n"));
     }
     if let Some(gate) = &status.gate {
         text.push_str(&format!(
-            "関門 {}/{} {}\n",
+            "GATE {}/{} {}\n",
             gate.current, gate.total, gate.name
         ));
     }
     let debts = &status.debts;
     text.push_str(&format!(
-        "負債: 仕分け {}・未反映 {}・未選別 {}・振り返り {}\n",
+        "DEBT: PENDING_PROPOSALS {}・UNREFLECTED_PAPERS {}・UNSCREENED_SETS {}・EMPTY_REVIEWS {}\n",
         debts.pending_proposals,
         debts.unreflected_papers,
         debts.unscreened_sets,
@@ -996,7 +1030,7 @@ fn status_text(status: &compute::Status) -> String {
         text.push_str(&node_line(node));
     }
     if !status.next.is_empty() {
-        text.push_str("次の一手:\n");
+        text.push_str("NEXT_ACTION:\n");
         for (index, next) in status.next.iter().enumerate() {
             let mut head = String::new();
             if let Some(node) = &next.node {
@@ -1041,22 +1075,22 @@ fn node_line(node: &compute::NodeRow) -> String {
     let counts = &node.counts;
     let mut extra = Vec::new();
     if counts.questions_open > 0 {
-        extra.push(format!("問い {}", counts.questions_open));
+        extra.push(format!("QUESTION {}", counts.questions_open));
     }
     if counts.options > 0 {
-        extra.push(format!("候補 {}", counts.options));
+        extra.push(format!("OPTION {}", counts.options));
     }
     if counts.support > 0 {
-        extra.push(format!("支持 {}", counts.support));
+        extra.push(format!("SUPPORT {}", counts.support));
     }
     if counts.refute > 0 {
-        extra.push(format!("反証 {}", counts.refute));
+        extra.push(format!("REFUTE {}", counts.refute));
     }
     if counts.papers > 0 {
         extra.push(format!("論文 {}", counts.papers));
     }
     if counts.pending > 0 {
-        extra.push(format!("仕分け {}", counts.pending));
+        extra.push(format!("TRIAGE {}", counts.pending));
     }
     if extra.is_empty() {
         format!("{indent}{} {} [{mark}]\n", node.id, node.title)
@@ -1076,28 +1110,28 @@ fn node_text(detail: &compute::NodeDetail) -> String {
     let mut text = format!("{} {}", node.id, node.title);
     text.push_str(&format!(" [{}]\n", state_label(&node.state)));
     if let Some(blank) = &node.blank {
-        text.push_str(&format!("空欄: {}\n", blank_label(blank)));
+        text.push_str(&format!("BLANK: {}\n", blank_label(blank)));
     }
     for mark in &node.marks {
-        text.push_str(&format!("印: {}\n", blank_label(mark)));
+        text.push_str(&format!("MARK: {}\n", blank_label(mark)));
     }
     if !node.body.is_empty() {
         text.push_str(&format!("\n{}\n", node.body));
     }
     if let Some(guide) = &detail.guide {
         text.push_str(&format!(
-            "\n項目ガイド {}: {}{}\n",
+            "\nITEM_GUIDE {}: {}{}\n",
             guide.name,
             guide.explain,
             if guide.condition_met {
-                "（埋まった条件は満たしている）"
+                "（CONDITION は満たしている）"
             } else {
-                "（埋まった条件はまだ）"
+                "（CONDITION はまだ）"
             }
         ));
     }
     if !detail.questions.is_empty() {
-        text.push_str("\n問い:\n");
+        text.push_str("\nQUESTION:\n");
         for question in &detail.questions {
             text.push_str(&format!(
                 "  {} {}（{}）\n",
@@ -1108,10 +1142,10 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.options.is_empty() {
-        text.push_str("\n候補:\n");
+        text.push_str("\nOPTION:\n");
         for option in &detail.options {
             text.push_str(&format!(
-                "  {} {} [{}] 支持 {}・反証 {}・論文 {}\n",
+                "  {} {} [{}] SUPPORT {}・REFUTE {}・論文 {}\n",
                 option.id,
                 option.title,
                 state_label(&option.state),
@@ -1122,7 +1156,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.findings.is_empty() {
-        text.push_str("\n知見:\n");
+        text.push_str("\nFINDING:\n");
         for finding in &detail.findings {
             let mut line = format!(
                 "  {}［{}］{}",
@@ -1155,7 +1189,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.decisions.is_empty() {
-        text.push_str("\n決定の記録:\n");
+        text.push_str("\nDECISION_LOG:\n");
         for decision in &detail.decisions {
             let mut line = format!(
                 "  {} {} {}",
@@ -1174,7 +1208,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.pending.is_empty() {
-        text.push_str("\n仕分け待ち:\n");
+        text.push_str("\nTRIAGE 待ち:\n");
         for pending in &detail.pending {
             text.push_str(&format!(
                 "  {} {}: {}\n",
@@ -1211,13 +1245,13 @@ fn read_text(card: &card::ReadCard) -> String {
         text.push_str(&format!("目的: {}\n", one_line(&card.purpose)));
     }
     if !card.questions.is_empty() {
-        text.push_str("問い:\n");
+        text.push_str("QUESTION:\n");
         for question in &card.questions {
             text.push_str(&format!("  {question}\n"));
         }
     }
     if !card.findings.is_empty() {
-        text.push_str("知見:\n");
+        text.push_str("FINDING:\n");
         for finding in &card.findings {
             text.push_str(&format!(
                 "  {}［{}］{}\n",
@@ -1246,21 +1280,22 @@ pub(crate) fn proposal_json(row: &store::Proposal) -> Value {
 
 /// 墓標の種類の表示名。
 fn target_kind_label(kind: &str) -> &'static str {
-    if kind == "paper" { "論文" } else { "候補" }
+    if kind == "paper" { "論文" } else { "OPTION" }
 }
 
 // ---- 表示名 -----------------------------------------------------------------
 
 /// 節点の状態の表示名（項目と候補）。
 fn state_label(state: &str) -> String {
-    const LABELS: [(&str, &str); 7] = [
-        ("open", "未決定"),
-        ("tentative", "仮決定"),
-        ("decided", "決定"),
-        ("excluded", "対象外"),
-        ("candidate", "候補"),
-        ("selected", "選択"),
-        ("rejected", "却下"),
+    const LABELS: [(&str, &str); 8] = [
+        ("open", "OPEN"),
+        ("tentative", "TENTATIVE"),
+        ("decided", "DECIDED"),
+        ("excluded", "EXCLUDED"),
+        ("candidate", "CANDIDATE"),
+        ("selected", "SELECTED"),
+        ("rejected", "REJECTED"),
+        ("dormant", "DORMANT"),
     ];
     label_of(&LABELS, state)
 }
@@ -1268,13 +1303,13 @@ fn state_label(state: &str) -> String {
 /// 空欄の種類の表示名（印も同じ表を使う）。
 fn blank_label(blank: &str) -> String {
     const LABELS: [(&str, &str); 7] = [
-        ("untouched", "未着手"),
-        ("in_progress", "調査中"),
-        ("insufficient", "情報不足"),
-        ("awaiting_decision", "判断待ち"),
-        ("conflict", "対立"),
-        ("weak_evidence", "根拠不足"),
-        ("recheck", "要再確認"),
+        ("untouched", "UNTOUCHED"),
+        ("in_progress", "IN_PROGRESS"),
+        ("insufficient", "INSUFFICIENT"),
+        ("awaiting_decision", "AWAITING_DECISION"),
+        ("conflict", "CONFLICT"),
+        ("weak_evidence", "WEAK_EVIDENCE"),
+        ("recheck", "RECHECK"),
     ];
     label_of(&LABELS, blank)
 }
@@ -1282,9 +1317,9 @@ fn blank_label(blank: &str) -> String {
 /// 問いの状態の表示名。
 fn question_state_label(state: &str) -> String {
     const LABELS: [(&str, &str); 3] = [
-        ("open", "答え待ち"),
-        ("answered", "回答済み"),
-        ("withdrawn", "取り下げ"),
+        ("open", "OPEN"),
+        ("answered", "ANSWERED"),
+        ("withdrawn", "WITHDRAWN"),
     ];
     label_of(&LABELS, state)
 }
@@ -1292,10 +1327,10 @@ fn question_state_label(state: &str) -> String {
 /// 知見の向きの表示名。
 fn polarity_label(polarity: &str) -> String {
     const LABELS: [(&str, &str); 4] = [
-        ("support", "支持"),
-        ("refute", "反証"),
-        ("neutral", "中立"),
-        ("none", "該当なし"),
+        ("support", "SUPPORT"),
+        ("refute", "REFUTE"),
+        ("neutral", "NEUTRAL"),
+        ("none", "NONE"),
     ];
     label_of(&LABELS, polarity)
 }
@@ -1303,13 +1338,13 @@ fn polarity_label(polarity: &str) -> String {
 /// 論文の役割の表示名。
 fn role_label(role: &str) -> String {
     const LABELS: [(&str, &str); 7] = [
-        ("exemplar", "代表例"),
-        ("compare", "比較対象"),
-        ("issue_evidence", "課題の根拠"),
-        ("method_source", "手法の供給元"),
-        ("data_source", "データの出典"),
-        ("background", "背景"),
-        ("counter", "反証"),
+        ("exemplar", "EXEMPLAR"),
+        ("compare", "COMPARE"),
+        ("issue_evidence", "ISSUE_EVIDENCE"),
+        ("method_source", "METHOD_SOURCE"),
+        ("data_source", "DATA_SOURCE"),
+        ("background", "BACKGROUND"),
+        ("counter", "COUNTER"),
     ];
     label_of(&LABELS, role)
 }
@@ -1317,30 +1352,34 @@ fn role_label(role: &str) -> String {
 /// 論文の読み具合の表示名。
 fn read_label(state: &str) -> String {
     const LABELS: [(&str, &str); 4] = [
-        ("unread", "未読"),
-        ("read", "読んだ・未反映"),
-        ("reflected", "反映済み"),
-        ("irrelevant", "関係なし"),
+        ("unread", "UNREAD"),
+        ("read", "READ"),
+        ("reflected", "REFLECTED"),
+        ("irrelevant", "IRRELEVANT"),
     ];
     label_of(&LABELS, state)
 }
 
 /// 読む深さの表示名。
 fn depth_label(depth: &str) -> String {
-    const LABELS: [(&str, &str); 3] = [("abstract", "抄録"), ("figures", "図"), ("full", "精読")];
+    const LABELS: [(&str, &str); 3] = [
+        ("abstract", "ABSTRACT"),
+        ("figures", "FIGURES"),
+        ("full", "FULL"),
+    ];
     label_of(&LABELS, depth)
 }
 
 /// 決定の記録の種類の表示名。
 fn action_label(action: &str) -> String {
     const LABELS: [(&str, &str); 7] = [
-        ("decide", "決定"),
-        ("tentative", "仮決定"),
-        ("reopen", "再開"),
-        ("exclude_item", "対象外にする"),
-        ("reject_option", "候補の却下"),
-        ("dormant_option", "候補の休眠"),
-        ("restore_option", "候補に戻す"),
+        ("decide", "DECIDE"),
+        ("tentative", "TENTATIVE"),
+        ("reopen", "REOPEN"),
+        ("exclude_item", "EXCLUDE_ITEM"),
+        ("reject_option", "REJECT_OPTION"),
+        ("dormant_option", "DORMANT_OPTION"),
+        ("restore_option", "RESTORE_OPTION"),
     ];
     label_of(&LABELS, action)
 }
@@ -1360,7 +1399,7 @@ fn type_name(defs: &defs::Defs, type_id: &str) -> Result<String> {
         .ok_or_else(|| {
             let known: Vec<&str> = defs.types.iter().map(|def| def.id.as_str()).collect();
             anyhow!(
-                "知らない研究の型です: {type_id}（{}）",
+                "知らない RESEARCH_TYPE です: {type_id}（{}）",
                 if known.is_empty() {
                     "型が読み込まれていません".to_string()
                 } else {
@@ -1384,6 +1423,23 @@ fn one_line(text: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser as _;
+
+    /// `retitle` の出力の文字。
+    #[test]
+    fn retitle_text_format() {
+        let item = defs::Retitle {
+            id: 12,
+            key: "background.goal".into(),
+            from: "大目的".into(),
+            to: "BACKGROUND_GOAL".into(),
+        };
+        assert_eq!(
+            retitle_text(std::slice::from_ref(&item), false),
+            "移す ITEM: 1 件\nN12 BACKGROUND_GOAL ← 大目的\n"
+        );
+        assert!(retitle_text(&[item], true).starts_with("移す ITEM（まだ書いていません）: 1 件\n"));
+        assert_eq!(retitle_text(&[], false), "移す ITEM はありません\n");
+    }
 
     /// `find` の範囲の引数は `--node` / `--papers` が要る（`--subtree` と `--each`）。
     #[test]
@@ -1565,7 +1621,7 @@ mod tests {
             gate: Some(compute::GateState {
                 current: 2,
                 total: 7,
-                name: "小目的".to_string(),
+                name: "PURPOSE_SUBGOAL_DECIDED".to_string(),
                 list: Vec::new(),
             }),
             debts: compute::Debts {
@@ -1604,7 +1660,7 @@ mod tests {
                     block: None,
                     purpose: "仕分けていない提案が 3 件あります".to_string(),
                     expect: String::new(),
-                    why: "負債".to_string(),
+                    why: "DEBT".to_string(),
                     kind: "debt".to_string(),
                 },
                 compute::NextAction {
@@ -1612,7 +1668,7 @@ mod tests {
                     block: Some("sci-compare".to_string()),
                     purpose: "小目的の候補を価値の軸で比べる".to_string(),
                     expect: "比較表と推奨".to_string(),
-                    why: "判断待ち".to_string(),
+                    why: "AWAITING_DECISION".to_string(),
                     kind: "blank".to_string(),
                 },
             ],
@@ -1623,22 +1679,22 @@ mod tests {
             text.starts_with("「頭皮脳波で［？小目的］を行う。」\n"),
             "{text}"
         );
-        assert!(text.contains("関門 2/7 小目的\n"), "{text}");
+        assert!(text.contains("GATE 2/7 PURPOSE_SUBGOAL_DECIDED\n"), "{text}");
         assert!(
-            text.contains("負債: 仕分け 3・未反映 2・未選別 1・振り返り 0\n"),
+            text.contains("DEBT: PENDING_PROPOSALS 3・UNREFLECTED_PAPERS 2・UNSCREENED_SETS 1・EMPTY_REVIEWS 0\n"),
             "{text}"
         );
-        assert!(text.contains("N1 背景 [決定]\n"), "{text}");
+        assert!(text.contains("N1 背景 [DECIDED]\n"), "{text}");
         assert!(
-            text.contains("  N12 小目的 [未決定・判断待ち] 候補 2・支持 3\n"),
-            "{text}"
-        );
-        assert!(
-            text.contains("1. 仕分けていない提案が 3 件あります（負債）\n"),
+            text.contains("  N12 小目的 [OPEN・AWAITING_DECISION] OPTION 2・SUPPORT 3\n"),
             "{text}"
         );
         assert!(
-            text.contains("2. N12 sci-compare 小目的の候補を価値の軸で比べる（判断待ち）\n"),
+            text.contains("1. 仕分けていない提案が 3 件あります（DEBT）\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("2. N12 sci-compare 小目的の候補を価値の軸で比べる（AWAITING_DECISION）\n"),
             "{text}"
         );
     }
@@ -1665,7 +1721,7 @@ mod tests {
             gate: Some(compute::GateState {
                 current: 2,
                 total: 7,
-                name: "小目的".to_string(),
+                name: "PURPOSE_SUBGOAL_DECIDED".to_string(),
                 list: vec![compute::GateRow {
                     name: "背景".to_string(),
                     when: "decided(background)".to_string(),
@@ -1694,7 +1750,7 @@ mod tests {
                 block: Some("sci-compare".to_string()),
                 purpose: "小目的の候補を比べる".to_string(),
                 expect: "比較表と推奨".to_string(),
-                why: "判断待ち".to_string(),
+                why: "AWAITING_DECISION".to_string(),
                 kind: "blank".to_string(),
             }],
             running: Vec::new(),
@@ -1712,7 +1768,7 @@ mod tests {
         assert_eq!(brief["seed"], "「頭皮脳波で［？小目的］を行う。」");
         assert_eq!(brief["gate"]["current"], 2);
         assert_eq!(brief["gate"]["total"], 7);
-        assert_eq!(brief["gate"]["name"], "小目的");
+        assert_eq!(brief["gate"]["name"], "PURPOSE_SUBGOAL_DECIDED");
         assert_eq!(brief["gate"]["list"][0]["passed"], true);
         assert_eq!(brief["debts"]["pending_proposals"], 3);
         assert_eq!(brief["debts"]["unreflected_papers"], 1);
@@ -1723,7 +1779,7 @@ mod tests {
         assert_eq!(brief["next"][0]["node"], "N12");
         assert_eq!(brief["next"][0]["purpose"], "小目的の候補を比べる");
         assert_eq!(brief["next"][0]["expect"], "比較表と推奨");
-        assert_eq!(brief["next"][0]["why"], "判断待ち");
+        assert_eq!(brief["next"][0]["why"], "AWAITING_DECISION");
         assert_eq!(brief["running"].as_array().map(Vec::len), Some(0));
         assert_eq!(brief["warnings"][0], "ガイドが無い key: background.goal");
         // 木が空でも同じ形（同じ項目）になる。
@@ -1779,7 +1835,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
 
         let err = init_with_assets(&root, "todo", false).err().unwrap();
-        assert!(format!("{err:#}").contains("知らない研究の型です"), "{err:#}");
+        assert!(format!("{err:#}").contains("知らない RESEARCH_TYPE です"), "{err:#}");
         // 何も置いていない（型を確かめたところで止まる）。
         assert!(!root.join(".sai").exists(), "型を確かめる前にファイルを置いた");
         assert!(!root.join(".mcp.json").exists(), "型を確かめる前にファイルを置いた");

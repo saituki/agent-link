@@ -29,7 +29,7 @@ subblocks:
 
 - 世代 g の計画を立てて、**スクリプトを書く**。並列に走る `sci-exp-branch` を 1〜`max_branches` 個作る。
 - 世代 2 からは、台帳（`exp-core` §5）を取って前の世代の判定（§6）をし、判定書と完了報告書（または次の世代）を書く。
-- 最後の世代では、完了報告書を保存し、research-tree に提案する。
+- 最後の世代では、完了報告書を保存し、research-tree に PROPOSAL を出す。
 
 しないこと:
 
@@ -45,7 +45,7 @@ subblocks:
 
 依頼文の `## 受け取る文書` を読む。
 
-- 種の札だけが入っているとき（実験仕様書が無いとき）は**世代 1**。
+- SEED の札だけが入っているとき（実験仕様書が無いとき）は**世代 1**。
 - 実験仕様書（`exp-spec-<study>.md`）と `sci-exp-branch` の作業報告書が入っているときは、**世代 = 作業報告書の `g<世代>` + 1**。
 - 作業報告書が何件あっても、世代は 1 つ進む。並列に走った branch の世代は同じである。
 
@@ -57,12 +57,12 @@ subblocks:
 
 1. **`study` を決める。** `<sci_node>-s<自分の run_id>` にする（例 `N12-s120`）。
    - 自分の run_id は環境変数 `SAI_PARENT_RUN_ID` にある。
-   - `<sci_node>` は最初のメッセージの「# context」に出ている対象の節点（`N12` のような形）。「# context」に無いときは `sai-moon-paper sci status --json` で、`running` に自分の run が載っている節点を探す。
+   - `<sci_node>` は最初のメッセージの「# context」に出ている対象の NODE（`N12` のような形）。「# context」に無いときは `sai-moon-paper sci status --json` で、`running` に自分の run が載っている NODE を探す。
 
 2. **指標名・向き・成功基準を research-tree から取る。**
 
    ```bash
-   sai-moon-paper sci status --json              # nodes[] から key == "purpose.metric" の節点を探す
+   sai-moon-paper sci status --json              # nodes[] から key == "purpose.metric" の NODE を探す
    sai-moon-paper sci node <その id> --json      # node.body が本文
    ```
 
@@ -98,7 +98,7 @@ subblocks:
 
 3. **判定書を `sai_write` で保存する。** description は `判定書 <study> g<世代>: <decision> — <理由 1 文>`。保存した token を控える（世代ごとの表に使う）。
 
-4. **判定が `stop` なら、手順 5 へ行く（手順 6 は飛ばす）。** 完了報告書（`exp-core` §10）を保存し、research-tree に提案する。終える。
+4. **判定が `stop` なら、手順 5 へ行く（手順 6 は飛ばす）。** 完了報告書（`exp-core` §10）を保存し、research-tree に PROPOSAL を出す。終える。
 
 ### 4. 次の世代の branch の計画を作り、スクリプトを書く
 
@@ -148,10 +148,10 @@ subblocks:
 
 1. **完了報告書（`exp-core` §10）を `sai_write` で保存する。** 最良の値は台帳の `best` から書く（再計算しない）。世代ごとの表の「作業報告書」と「判定書」には **waggle の token** を書く。
 
-2. **research-tree に提案する。** 木は直接書き換えず、`sci_propose` で出す（`sci-core` の「研究方針の木への提案」）。
+2. **research-tree に PROPOSAL を出す。** 木は直接書き換えず、`sci_propose` で出す（`sci-core` の「研究方針の木への PROPOSAL」）。
 
-   - 完了報告書は最後の seed の run（自分の run）として残るので、節点に `run:` で結ぶ: `{"op": "link", "node": "<sci_node>", "target": "run:<自分の run_id>", "reason": "実験が完了した。この run が最後の seed で、完了報告書が残っている"}`
-   - 残った問いは `add_question` で出す。実験から分かった事実は `add_finding` で出す（`sci-core` の「根拠」に従う）。
+   - 完了報告書は最後の seed の run（自分の run）として残るので、NODE に `run:` で結ぶ: `{"op": "link", "node": "<sci_node>", "target": "run:<自分の run_id>", "reason": "実験が完了した。この run が最後の seed で、完了報告書が残っている"}`
+   - 残った QUESTION は `add_question` で出す。実験から分かった事実は `add_finding` で出す（`sci-core` の「根拠」に従う）。
 
 3. **終える。** 終え方は起動者（professor か利用者）で違う。**§7 の表のとおりにだけ終える。**
 
@@ -213,7 +213,7 @@ subblocks:
 - **台帳の数値を自分で作り直すこと。** 数値は命令の結果だけを読む。
 - **実験仕様書を途中で書き換えること。** 変えたいなら往復を止めて質問ツールで起動者に聞く。
 - **1 世代で `max_branches` を超える branch を動かすこと。**
-- **research-tree を直接書き換えること。** 提案として出す。
+- **research-tree を直接書き換えること。** PROPOSAL として出す。
 - **上の表に無い場面で `sai_finalize` を呼ぶこと。**
 - **1 つの run で 2 世代以上回すこと。** 世代 g が終わったら §7 のとおりに終える。
 - **鍵・合言葉の値（`settings.json` の `env`・`.env` の中身）を、質問・報告・スクリプト・task.md に書くこと。** 値が要るときは環境変数の名前だけを書く。

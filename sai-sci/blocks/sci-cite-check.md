@@ -34,20 +34,20 @@ subblocks:
 - 判定ごとに、引用文献の該当箇所（`#番号 §節`）を示しているか。該当箇所が無いときは「該当なし」と書いているか。
 - 抄録しか読めなかった引用を「支持」にしていないか（`bw-core` §7）。
 - 「部分」の判定で、主張と引用文献の違い（対象・条件・数値）を具体的に書いているか。
-- 知見の `polarity` が判定と合っているか。
+- FINDING の `polarity` が判定と合っているか。
 - 引用の無い主張を「根拠なし」として表に残しているか。
 
 ### 手順
-1. **範囲を確かめる。** 依頼文の復元書（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）から「主張と引用の対応表」を読み、依頼された主張の ID を並べます。依頼文に主張の ID が無ければ、範囲の節点に当たる主張をすべて対象にします。
+1. **SCOPE を確かめる。** 依頼文の復元書（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）から「主張と引用の対応表」を読み、依頼された主張の ID を並べます。依頼文に主張の ID が無ければ、SCOPE の NODE に当たる主張をすべて対象にします。
 2. **引用文献を Library に入れる。** 対象の主張の引用ごとに、`sai-moon-paper phone citations <基盤論文の番号>` の `local_paper_id` を見ます。
    - `null` なら取り寄せます: `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone download --cite <基盤論文の番号> --ref <引用の番号>`。戻りの `paper_id` が Library の番号です。
    - 取り寄せられなかった（PDF の場所が無い）ときは、その引用を「未確認（入手できない）」にします。利用者に手で入れてもらいたいものは、report の「## 手で入れてほしい論文」に題名と引用の番号を書きます。
 3. **本文を読む。** `sai-moon-paper content paper <番号>` で読みます。本文が無ければ `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` を打ってから読みます。それでも無ければ `sai-moon-paper phone paper <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
 4. **判定する。** 主張と、基盤論文の引用文（`sentences`）と、引用文献の該当箇所を並べ、`bw-core` §7 の語で判定します。1 つの主張に引用が 2 つ以上あるときは、引用ごとに判定し、主張としてのまとめ（最も強い判定と最も弱い判定）を書きます。
-5. **確かめの地点で止まる。** 判定表を見せ、質問ツールで「この判定で提案してよいか」を起動者に聞きます。
-6. **提案する。** `sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-cite-check` に出します。
-   - 「未確認」以外の判定ごとに `add_finding`（主張の節点に。`cites` は引用文献の場所、`polarity` は `bw-core` §7、本文の先頭に「C3 の引用 [7]: 」と主張と引用の番号を書く）。
-   - 読んだ引用文献を節点に `link`（`role` は、支持・部分なら `issue_evidence` か `method_source`、反証なら `counter`、無関係・孫引きなら `background`。`read_state` は `read`）。
+5. **確かめの地点で止まる。** 判定表を見せ、質問ツールで「この判定で PROPOSAL を出してよいか」を起動者に聞きます。
+6. **PROPOSAL を出す。** `sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-cite-check` に出します。
+   - 「未確認」以外の判定ごとに `add_finding`（主張の NODE に。`cites` は引用文献の場所、`polarity` は `bw-core` §7、本文の先頭に「C3 の引用 [7]: 」と主張と引用の番号を書く）。
+   - 読んだ引用文献を NODE に `link`（`role` は、支持・部分なら `issue_evidence` か `method_source`、反証なら `counter`、無関係・孫引きなら `background`。`read_state` は `read`）。
    - 根拠が足りない主張（引用なし・無関係・未確認だけの主張）は `add_question`（「C2 の根拠になる文献はあるか」の形）。
 
 ## 出力の形
@@ -58,8 +58,8 @@ report（引用の判定表。名前は `bw-core` §12）は次の見出しで�
 ## 引用の判定表
 ## 主張ごとのまとめ
 ## 手で入れてほしい論文
-## 提案したこと
-## 範囲外のメモ
+## PROPOSAL
+## OUT_OF_SCOPE
 ```
 
 引用の判定表は次の形です。

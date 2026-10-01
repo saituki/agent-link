@@ -79,8 +79,8 @@ fn kind_heading(kind: AttentionKind) -> &'static str {
         AttentionKind::RecommendCard => "推薦のカード",
         AttentionKind::ReportIssue => "出典の要確認",
         AttentionKind::NewSetItems => "検索セットの新着",
-        AttentionKind::SciDecision => "判断待ちの項目",
-        AttentionKind::SciTriage => "仕分け待ちの提案",
+        AttentionKind::SciDecision => "AWAITING_DECISION の ITEM",
+        AttentionKind::SciTriage => "TRIAGE 待ちの PROPOSAL",
     }
 }
 

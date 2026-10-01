@@ -109,6 +109,7 @@
   flex-wrap: wrap;
   gap: 3px;
   margin-top: auto;
+  overflow-wrap: anywhere; /* AWAITING_DECISION など長い英語名で札からはみ出さない */
 }
 
 /* 今の関門の条件に出てくる項目は太い枠で目立たせる */

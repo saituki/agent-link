@@ -30,10 +30,10 @@ pub fn tools() -> Value {
                     "scope": {"type": "string", "enum": ["papers", "notes", "figures", "all"]},
                     "paper_id": {"type": "integer", "description": "この論文に絞る（Library の番号）"},
                     "papers": {"type": "array", "items": {"type": "integer"}, "description": "論文の集合で絞る（paper_id と足して使う）"},
-                    "node": {"type": "string", "description": "節点に結び付いた論文に絞る（N12）"},
-                    "subtree": {"type": "boolean", "description": "node の子孫の節点も含める（node と一緒に使う）"},
-                    "each": {"type": "integer", "description": "範囲の論文ごとに上位 m 件を返す（papers か node と一緒に使う）"},
-                    "question": {"type": "string", "description": "検索の問い（Q7）。記録に残り、前の検索を見られる"},
+                    "node": {"type": "string", "description": "NODE に LINK した論文に絞る（N12）"},
+                    "subtree": {"type": "boolean", "description": "node の子孫の NODE も含める（node と一緒に使う）"},
+                    "each": {"type": "integer", "description": "SCOPE の論文ごとに上位 m 件を返す（papers か node と一緒に使う）"},
+                    "question": {"type": "string", "description": "検索の QUESTION（Q7）。記録に残り、前の検索を見られる"},
                     "widen": {"type": "string", "description": "範囲を広げた理由"},
                     "index": index,
                     "evidence": {"type": "boolean", "description": "true のとき上位の結果に LLM の要約と関連度を付ける（費用がかかる。必要なときだけ）"},
@@ -78,7 +78,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_context",
-            "description": "今の実行の範囲（研究方針の木から切り出した入力）を返す",
+            "description": "今の実行の SCOPE（研究方針の木から切り出した入力）を返す",
             "inputSchema": {"type": "object", "properties": {
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
                 "scope": {"type": "string", "enum": ["node", "path", "subtree", "siblings", "summary", "blind"]},
@@ -86,21 +86,21 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_status",
-            "description": "研究方針の木の全体（種の文・関門・項目・負債・次の一手）。brief を true にすると関門・負債・次の一手だけになる",
+            "description": "研究方針の木の全体（SEED_SENTENCE・GATE・ITEM・DEBT・NEXT_ACTION）。brief を true にすると GATE・DEBT・NEXT_ACTION だけになる",
             "inputSchema": {"type": "object", "properties": {
-                "brief": {"type": "boolean", "description": "true のとき節点と線を省き、関門・負債・次の一手・走っている実行・注意だけ返す（短い文脈で現在地を読む）"},
+                "brief": {"type": "boolean", "description": "true のとき NODE と線を省き、GATE・DEBT・NEXT_ACTION・走っている実行・注意だけ返す（短い文脈で現在地を読む）"},
             }},
         },
         {
             "name": "sci_node",
-            "description": "節点 1 つの中身（問い・候補・知見・結び付き・決定の記録・行動）",
+            "description": "NODE 1 つの中身（QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG）",
             "inputSchema": {"type": "object", "properties": {"node": {"type": "string", "description": "N12 の形"}}, "required": ["node"]},
         },
         {
             "name": "sci_propose",
-            "description": "研究方針の木への変更を提案する。結び付け・問い・知見はすぐ入り、ほかは利用者が仕分ける",
+            "description": "研究方針の木への変更を PROPOSAL として出す。LINK・QUESTION・FINDING はすぐ入り（AUTO_OP）、ほかは利用者が TRIAGE する（REVIEW_OP）",
             "inputSchema": {"type": "object", "properties": {
-                "proposals": {"type": "array", "items": sai_paper_core::sci::ops::propose_schema(), "description": "1 件ずつの提案。op ごとに必要な項目と型が決まっている（oneOf）"},
+                "proposals": {"type": "array", "items": sai_paper_core::sci::ops::propose_schema(), "description": "1 件ずつの PROPOSAL。op ごとに必要な項目と型が決まっている（oneOf）"},
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
             }, "required": ["proposals"]},
         },
@@ -285,7 +285,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                 run_id,
                 str_arg(args, "scope").as_deref(),
             )
-            .context("入力の範囲を組み立てられませんでした")?;
+            .context("入力の SCOPE を組み立てられませんでした")?;
             Ok(json!({ "text": text }))
         }
         "sci_status" => {
@@ -304,7 +304,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let env = crate::sci::open_env()?;
             let detail =
                 sai_paper_core::sci::compute::node_detail(env.conn(), &env.roots, &env.defs, id)
-                    .context("節点の詳細を集められませんでした")?;
+                    .context("NODE の詳細を集められませんでした")?;
             Ok(serde_json::to_value(detail)?)
         }
         "sci_propose" => {

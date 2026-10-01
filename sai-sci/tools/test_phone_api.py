@@ -22,7 +22,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 SCRIPT = TOOLS / "phone_api.py"
 
-# 偽のサーバが受け取ったもの（テスト从中から読む）
+# 偽のサーバが受け取ったもの（テストの中から読む）
 RECEIVED: list[dict] = []
 
 QUESTIONS = [

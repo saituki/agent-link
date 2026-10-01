@@ -223,10 +223,10 @@ fn seed_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) ->
 /// 関門の進み（例「関門 2/7 小目的」）。
 fn gate_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) -> Line<'static> {
     let Some(gate) = status.and_then(|s| s.gate.as_ref()) else {
-        return Line::styled(" 関門: —", Style::default().fg(theme.muted));
+        return Line::styled(" GATE: —", Style::default().fg(theme.muted));
     };
     Line::from(vec![
-        Span::styled(" 関門 ", Style::default().fg(theme.secondary)),
+        Span::styled(" GATE ", Style::default().fg(theme.secondary)),
         Span::styled(
             format!("{}/{} ", gate.current, gate.total),
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
@@ -246,17 +246,17 @@ fn gate_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) ->
 /// 負債の 4 つの数。
 fn debts_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) -> Line<'static> {
     let Some(status) = status else {
-        return Line::styled(" 負債: —", Style::default().fg(theme.muted));
+        return Line::styled(" DEBT: —", Style::default().fg(theme.muted));
     };
     let debts = status.debts;
     let parts: [(&str, i64); 4] = [
-        ("仕分けていない提案", debts.pending_proposals),
-        ("読んだが反映していない論文", debts.unreflected_papers),
-        ("選別していない検索", debts.unscreened_sets),
-        ("書いていない振り返り", debts.empty_reviews),
+        ("PENDING_PROPOSALS", debts.pending_proposals),
+        ("UNREFLECTED_PAPERS", debts.unreflected_papers),
+        ("UNSCREENED_SETS", debts.unscreened_sets),
+        ("EMPTY_REVIEWS", debts.empty_reviews),
     ];
     let mut spans: Vec<Span<'static>> =
-        vec![Span::styled(" 負債 ", Style::default().fg(theme.secondary))];
+        vec![Span::styled(" DEBT ", Style::default().fg(theme.secondary))];
     let mut first = true;
     for (name, count) in parts {
         if !first {
@@ -296,11 +296,11 @@ fn state_mark(state: &str) -> &'static str {
 /// 空欄の種類と印の表示名（C-01）。
 fn blank_label(blank: Option<&str>) -> Option<String> {
     blank.map(|value| match value {
-        "untouched" => "未着手".to_string(),
-        "in_progress" => "調査中".to_string(),
-        "insufficient" => "情報不足".to_string(),
-        "awaiting_decision" => "判断待ち".to_string(),
-        "conflict" => "対立".to_string(),
+        "untouched" => "UNTOUCHED".to_string(),
+        "in_progress" => "IN_PROGRESS".to_string(),
+        "insufficient" => "INSUFFICIENT".to_string(),
+        "awaiting_decision" => "AWAITING_DECISION".to_string(),
+        "conflict" => "CONFLICT".to_string(),
         other => other.to_string(),
     })
 }
@@ -308,8 +308,8 @@ fn blank_label(blank: Option<&str>) -> Option<String> {
 /// 印の表示名（C-01）。
 fn mark_label(mark: &str) -> String {
     match mark {
-        "weak_evidence" => "根拠不足".to_string(),
-        "recheck" => "要再確認".to_string(),
+        "weak_evidence" => "WEAK_EVIDENCE".to_string(),
+        "recheck" => "RECHECK".to_string(),
         other => other.to_string(),
     }
 }
@@ -317,10 +317,10 @@ fn mark_label(mark: &str) -> String {
 /// 項目の型の表示名（C-01）。
 fn type_label(value: &str) -> &'static str {
     match value {
-        "choose" => "選ぶ",
-        "list" => "並べる",
-        "write" => "書く",
-        "verify" => "確かめる",
+        "choose" => "CHOOSE",
+        "list" => "LIST",
+        "write" => "WRITE",
+        "verify" => "VERIFY",
         _ => "",
     }
 }
@@ -333,7 +333,7 @@ fn build_list_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = vec![Line::raw("")];
     if status.nodes.is_empty() {
         lines.push(Line::styled(
-            " 項目がまだありません".to_string(),
+            " ITEM がまだありません".to_string(),
             Style::default().fg(theme.muted),
         ));
     }
@@ -433,7 +433,7 @@ fn list_line(
     };
     let prefix = if selected { "▶ " } else { "  " };
     let counts = if node.counts.options > 0 {
-        format!("  候補{}", node.counts.options)
+        format!("  OPTION {}", node.counts.options)
     } else if node.counts.papers > 0 {
         format!("  論文{}", node.counts.papers)
     } else {
@@ -475,12 +475,12 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     // 問い
     if !detail.questions.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(section_heading("問い", theme));
+        lines.push(section_heading("QUESTION", theme));
         for question in detail.questions.iter().take(8) {
             let state = if question.state == "open" {
-                "未解決"
+                "OPEN"
             } else {
-                "解決"
+                "ANSWERED"
             };
             let color = if question.state == "open" {
                 theme.warning
@@ -501,13 +501,13 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     // 候補
     if !detail.options.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(section_heading("候補", theme));
+        lines.push(section_heading("OPTION", theme));
         for option in detail.options.iter().take(10) {
             let label = match option.state.as_str() {
-                "selected" => "選択",
-                "rejected" => "却下",
-                "dormant" => "休眠",
-                _ => "候補",
+                "selected" => "SELECTED",
+                "rejected" => "REJECTED",
+                "dormant" => "DORMANT",
+                _ => "CANDIDATE",
             };
             let color = match option.state.as_str() {
                 "selected" => theme.success,
@@ -527,7 +527,7 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
                 Span::styled(format!(" {} ", option.title), Style::default().fg(color)),
                 Span::styled(
                     format!(
-                        "{label}  支持 {} / 反証 {} / 論文 {}",
+                        "{label}  SUPPORT {} / REFUTE {} / 論文 {}",
                         option.support, option.refute, option.papers
                     ),
                     Style::default().fg(theme.muted),
@@ -539,13 +539,13 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     // 知見
     if !detail.findings.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(section_heading("知見", theme));
+        lines.push(section_heading("FINDING", theme));
         for finding in detail.findings.iter().take(10) {
             let polarity = match finding.polarity.as_str() {
-                "support" => "支持",
-                "refute" => "反証",
-                "neutral" => "中立",
-                _ => "該当なし",
+                "support" => "SUPPORT",
+                "refute" => "REFUTE",
+                "neutral" => "NEUTRAL",
+                _ => "NONE",
             };
             let color = match finding.polarity.as_str() {
                 "support" => theme.success,
@@ -592,7 +592,7 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     // 次の一手
     if !detail.blocks.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(section_heading("次の一手", theme));
+        lines.push(section_heading("NEXT_ACTION", theme));
         for block in detail.blocks.iter().take(3) {
             lines.push(Line::from(vec![
                 Span::styled("  • ".to_string(), Style::default().fg(theme.muted)),
@@ -618,7 +618,7 @@ fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     // 直近の決定の記録 1 件
     if let Some(decision) = detail.decisions.first() {
         lines.push(Line::raw(""));
-        lines.push(section_heading("直近の決定", theme));
+        lines.push(section_heading("直近の DECISION_LOG", theme));
         let action = decision_action_label(&decision.action);
         let option = decision.option.clone().unwrap_or_default();
         lines.push(Line::from(vec![
@@ -646,13 +646,13 @@ fn section_heading(text: &str, theme: &Theme) -> Line<'static> {
 /// 論文の役割の表示名（C-01）。
 fn paper_role_label(role: &str) -> &str {
     match role {
-        "exemplar" => "代表例",
-        "compare" => "比較対象",
-        "issue_evidence" => "課題の根拠",
-        "method_source" => "手法の供給元",
-        "data_source" => "データの出典",
-        "background" => "背景",
-        "counter" => "反証",
+        "exemplar" => "EXEMPLAR",
+        "compare" => "COMPARE",
+        "issue_evidence" => "ISSUE_EVIDENCE",
+        "method_source" => "METHOD_SOURCE",
+        "data_source" => "DATA_SOURCE",
+        "background" => "BACKGROUND",
+        "counter" => "COUNTER",
         _ => "",
     }
 }
@@ -660,10 +660,10 @@ fn paper_role_label(role: &str) -> &str {
 /// 論文の読み具合の表示名（C-01）。
 fn read_state_label(state: &str) -> &str {
     match state {
-        "unread" => "未読",
-        "read" => "読んだ・未反映",
-        "reflected" => "反映済み",
-        "irrelevant" => "関係なし",
+        "unread" => "UNREAD",
+        "read" => "READ",
+        "reflected" => "REFLECTED",
+        "irrelevant" => "IRRELEVANT",
         _ => "",
     }
 }
@@ -671,13 +671,13 @@ fn read_state_label(state: &str) -> &str {
 /// 決定の記録の種類の表示名（C-01）。
 fn decision_action_label(action: &str) -> &str {
     match action {
-        "decide" => "決定",
-        "tentative" => "仮決定",
-        "reopen" => "再開",
-        "exclude_item" => "対象外にする",
-        "reject_option" => "候補の却下",
-        "dormant_option" => "候補の休眠",
-        "restore_option" => "候補に戻す",
+        "decide" => "DECIDE",
+        "tentative" => "TENTATIVE",
+        "reopen" => "REOPEN",
+        "exclude_item" => "EXCLUDE_ITEM",
+        "reject_option" => "REJECT_OPTION",
+        "dormant_option" => "DORMANT_OPTION",
+        "restore_option" => "RESTORE_OPTION",
         _ => action,
     }
 }
@@ -833,9 +833,9 @@ mod tests {
         let buffer = terminal.backend().buffer().clone();
         let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
         assert!(text.contains("頭皮脳波で"), "種の文が出ていない: {text}");
-        assert!(text.contains("関門"), "関門が出ていない: {text}");
+        assert!(text.contains("GATE"), "関門が出ていない: {text}");
         assert!(text.contains("2/7"), "関門の数が出ていない: {text}");
-        assert!(text.contains("負債"), "負債が出ていない: {text}");
+        assert!(text.contains("DEBT"), "負債が出ていない: {text}");
         assert!(text.contains("N1"), "項目の一覧が出ていない: {text}");
         assert!(
             text.contains("先行研究を做的事"),

@@ -1,7 +1,7 @@
 ---
 name: 🧭 全体の見直し
 id: sci-outline
-description: 全体の見直し。空欄・食い違い・片付けを見て、次の 3 手をカードにする（利用者が始めたときだけ）
+description: 全体の見直し。BLANK・食い違い・DEBT を見て、NEXT_ACTION（3 手）をカードにする（利用者が始めたときだけ）
 model: inherit
 thinking: high
 templates:
@@ -29,47 +29,47 @@ subblocks:
 自分では論文を読み込みません。読むのは `sci-lookup` 宣言済みの子ブロックの仕事です。
 
 ## 評価の観点
-- 全体を 1 項目 1 行で読み取れているか。抜けている項目はないか。
-- 空欄の種類を、`untouched` 未着手 / `in_progress` 調査中 / `insufficient` 情報不足 / `awaiting_decision` 判断待ち / `conflict` 対立 で分けているか。
-- 印（`weak_evidence` 根拠不足 / `recheck` 要再確認）を気にしているか。
-- 負債（`pending_proposals` 仕分けていない提案 / `unreflected_papers` 読んだが反映していない論文 / `unscreened_sets` 選別していない検索 / `empty_reviews` 書いていない振り返り）を数えているか。
-- 食い違い（決定した内容と、知見の向きが合わない所）を挙げているか。放置していないか。
-- 片付けの案が、利用者しかできない操作（知見の削除など）を含んでいないか。
-- 次の 3 手は、ブロック・節点・目的・期待する成果・理由が揃っているか。そのカードだけで作業できる依頼文になっているか。
-- 利用者が選んでいない候補をカードにしていないか。
+- 全体を 1 ITEM 1 行で読み取れているか。抜けている ITEM はないか。
+- BLANK の種類を、`untouched` UNTOUCHED / `in_progress` IN_PROGRESS / `insufficient` INSUFFICIENT / `awaiting_decision` AWAITING_DECISION / `conflict` CONFLICT で分けているか。
+- MARK（`weak_evidence` WEAK_EVIDENCE / `recheck` RECHECK）を気にしているか。
+- DEBT（`pending_proposals` PENDING_PROPOSALS / `unreflected_papers` UNREFLECTED_PAPERS / `unscreened_sets` UNSCREENED_SETS / `empty_reviews` EMPTY_REVIEWS）を数えているか。
+- 食い違い（DECIDED にした内容と、FINDING の POLARITY が合わない所）を挙げているか。放置していないか。
+- 片付けの案が、利用者しかできない操作（FINDING の削除など）を含んでいないか。
+- NEXT_ACTION の 3 手は、ブロック・NODE・目的・期待する成果・理由が揃っているか。そのカードだけで作業できる依頼文になっているか。
+- 利用者が選んでいない案をカードにしていないか。
 
 ### 手順
-1. 範囲（全体の要約）と、`sai-moon-paper sci status --json` を読む。
-2. 項目ごとに、次の状態を表にする。
+1. SCOPE（SUMMARY）と、`sai-moon-paper sci status --json` を読む。
+2. ITEM ごとに、次の状態を表にする。
 
    | 列 | 中身 |
    |---|---|
-   | 項目 | 節点の ID と名前 |
-   | 型 | 選ぶ / 並べる / 書く / 確かめる |
-   | 状態 | 未決定 / 仮決定 / 決定 / 対象外 |
-   | 空欄 | 未着手 / 調査中 / 情報不足 / 判断待ち / 対立 |
-   | 印 | 根拠不足 / 要再確認 |
-   | 負債 | 仕分けていない提案 / 読んだが反映していない論文 / 選別していない検索 / 書いていない振り返り |
-   | 食い違い | 決定と知見の向きが合わない所（無ければ「なし」） |
+   | ITEM | NODE の ID と名前 |
+   | 型 | CHOOSE / LIST / WRITE / VERIFY |
+   | 状態 | OPEN / TENTATIVE / DECIDED / EXCLUDED |
+   | BLANK | UNTOUCHED / IN_PROGRESS / INSUFFICIENT / AWAITING_DECISION / CONFLICT |
+   | MARK | WEAK_EVIDENCE / RECHECK |
+   | DEBT | PENDING_PROPOSALS / UNREFLECTED_PAPERS / UNSCREENED_SETS / EMPTY_REVIEWS |
+   | 食い違い | DECIDED と FINDING の POLARITY が合わない所（無ければ「なし」） |
 
 3. 片付けの案を挙げる。
 
    | 散らかりかた | 案 | 実際に行うこと |
    |---|---|---|
-   | どこにも結び付いていない論文 | この論文を木から外す | `exclude` の提案（`target: "paper:37"`） |
-   | 却下した候補にだけ結び付いた論文 | この論文を外す | `exclude` の提案 |
+   | どこにも LINK されていない論文 | この論文を木から外す | `exclude` の PROPOSAL（`target: "paper:37"`） |
+   | REJECTED の OPTION にだけ LINK された論文 | この論文を外す | `exclude` の PROPOSAL |
    | 古い report | たたむか | report に ID を書くだけ。利用者が畳む |
-   | 重なった知見 | まとめるか | report にまとめる対象の ID を書くだけ |
+   | 重なった FINDING | まとめるか | report にまとめる対象の ID を書くだけ |
 
-   - 知見を外す `remove_finding` は人の操作です。自分で外そうとはしません（重複や古さを指摘するだけで十分です）。
-   - 候補の却下や項目の再開が必要なら、`option_state` や `reopen` はこのブロックの `sci_ops` に無いので提案しません。利用者に画面での操作を頼みます。
-4. 次の 3 手を挙げる。`status` の `next` を材料にしてよいですが、並べ替えて構いません。各手に、次の 5 つを付けます。
+   - FINDING を外す `remove_finding` は人の操作です。自分で外そうとはしません（重複や古さを指摘するだけで十分です）。
+   - OPTION の却下や ITEM の再開が必要なら、`option_state` や `reopen` はこのブロックの `sci_ops` に無いので PROPOSAL にしません。利用者に画面での操作を頼みます。
+4. NEXT_ACTION の 3 手を挙げる。`status` の `next` を材料にしてよいですが、並べ替えて構いません。各手に、次の 5 つを付けます。
    - ブロック（実行する sci ブロックの ID）
-   - 節点（対象の項目の ID）
+   - NODE（対象の ITEM の ID）
    - 目的（1 文）
    - 期待する成果（1 文。どのようなものがあれば成功か）
-   - 理由（どの記録から判断したか。例「N12 が判断待ち」「F31 の根拠不足」）
-5. 利用者に番号で選んでもらう。**選ばれたものだけ** をカードにする。選ばれなかった候補は、候補のまま提案にもカードにもしません。
+   - 理由（どの記録から判断したか。例「N12 が AWAITING_DECISION」「F31 の WEAK_EVIDENCE」）
+5. 利用者に番号で選んでもらう。**選ばれたものだけ** をカードにする。選ばれなかった案は、案のまま PROPOSAL にもカードにもしません。
 
 ```bash
 sai-moon-paper sci card --node <N> --block <ブロック> --purpose "<目的>" --expect "<期待する成果>" --origin-run "$SAI_PARENT_RUN_ID" --json
@@ -82,10 +82,10 @@ report は次の見出しで書きます。
 
 ```markdown
 ## 全体の読み取り
-## 空欄と食い違い（表）
+## BLANK と食い違い（表）
 ## 片付けの案
-## 次の 3 手（表: 番号 / ブロック / 節点 / 目的 / 期待する成果 / 理由）
+## NEXT_ACTION（3 手。表: 番号 / ブロック / NODE / 目的 / 期待する成果 / 理由）
 ## 選ばれた手と作ったカード（run 番号）
-## 提案したこと
-## 範囲外のメモ
+## PROPOSAL
+## OUT_OF_SCOPE
 ```

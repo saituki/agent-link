@@ -453,14 +453,14 @@ fn install_sci_parts(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
         );
         write_json(&settings_path, &settings)?;
         done.push(
-            "context（実行直前に研究方針の木から範囲を作る）を .sai/settings.json に登録しました"
+            "context（実行直前に研究方針の木から SCOPE を作る）を .sai/settings.json に登録しました"
                 .to_string(),
         );
     }
 
     // 土壌のひな形（既にある mind.md は利用者の考えなので、そのままにする）
     if write_if_missing(&sai.join("paper/mind.md"), SCI_MIND)? {
-        done.push("mind.md（土壌のひな形）を作りました".to_string());
+        done.push("mind.md（SOIL のひな形）を作りました".to_string());
     }
     Ok(done)
 }
@@ -799,11 +799,11 @@ mod tests {
         );
         assert!(
             done.iter()
-                .any(|line| line.contains("context（実行直前に研究方針の木から範囲を作る）")),
+                .any(|line| line.contains("context（実行直前に研究方針の木から SCOPE を作る）")),
             "context を登録した行が無い: {done:?}"
         );
         assert!(
-            done.iter().any(|line| line.contains("mind.md（土壌のひな形）を作りました")),
+            done.iter().any(|line| line.contains("mind.md（SOIL のひな形）を作りました")),
             "mind.md を作った行が無い: {done:?}"
         );
         std::fs::remove_dir_all(&root).ok();

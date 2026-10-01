@@ -22,21 +22,21 @@ use crate::paths::PaperRoots;
 
 /// 空欄の種類の表示名（C-01）。
 const BLANK_LABELS: [(&str, &str); 5] = [
-    ("untouched", "未着手"),
-    ("in_progress", "調査中"),
-    ("insufficient", "情報不足"),
-    ("awaiting_decision", "判断待ち"),
-    ("conflict", "対立"),
+    ("untouched", "UNTOUCHED"),
+    ("in_progress", "IN_PROGRESS"),
+    ("insufficient", "INSUFFICIENT"),
+    ("awaiting_decision", "AWAITING_DECISION"),
+    ("conflict", "CONFLICT"),
 ];
 
 /// 印の表示名（C-01）。
-const MARK_LABELS: [(&str, &str); 2] = [("weak_evidence", "根拠不足"), ("recheck", "要再確認")];
+const MARK_LABELS: [(&str, &str); 2] = [("weak_evidence", "WEAK_EVIDENCE"), ("recheck", "RECHECK")];
 
 /// 負債の行の `why`。
-const DEBT_WHY: &str = "負債";
+const DEBT_WHY: &str = "DEBT";
 
 /// 関門を全部通ったときの名前。
-const GATE_DONE_NAME: &str = "種にできる";
+const GATE_DONE_NAME: &str = "SEED にできる";
 
 /// 次の一手に出す件数の上限。
 const NEXT_LIMIT: usize = 10;
@@ -633,9 +633,14 @@ pub fn mind_sections(data_dir: &Path) -> Vec<(String, String)> {
     }
     sections
         .into_iter()
-        .map(|(name, lines)| (name, strip_comments(&lines)))
+        .map(|(name, lines)| (canonical_name(name), strip_comments(&lines)))
         .filter(|(_, body)| !body.is_empty())
         .collect()
+}
+
+/// 見出しを新しい名前にそろえた文字列にする。
+fn canonical_name(name: String) -> String {
+    defs::canonical_mind_heading(&name).to_string()
 }
 
 /// 行の列から `<!-- … -->` と空行を除いた 1 本の文字列に束ねる。
@@ -898,7 +903,7 @@ impl Tree {
     /// 節点を番号で探す（無ければ [`SciError::NotFound`]）。
     fn need_node(&self, id: i64) -> Result<&Node> {
         self.node(id)
-            .ok_or_else(|| SciError::NotFound(format!("節点 {} がありません", fmt_ref('N', id))))
+            .ok_or_else(|| SciError::NotFound(format!("NODE {} がありません", fmt_ref('N', id))))
     }
 
     /// 項目キーで項目を探す。
@@ -1192,6 +1197,7 @@ impl Tree {
     fn eval_one(&self, cond: &Cond, warnings: &mut Vec<String>) -> Result<bool> {
         // mind.md は木には無関係なので先に返す。
         if let Cond::Mind(heading) = cond {
+            let heading = defs::canonical_mind_heading(heading);
             return Ok(self
                 .sections
                 .iter()
@@ -1207,7 +1213,7 @@ impl Tree {
             Cond::Mind(_) => unreachable!("上で返す"),
         };
         let Some(item) = self.item_of_key(key) else {
-            warnings.push(format!("関門の条件の項目がありません: {key}"));
+            warnings.push(format!("GATE の条件の ITEM がありません: {key}"));
             return Ok(false);
         };
         let live = self.live_options(item.id);
@@ -1303,7 +1309,7 @@ impl Tree {
         };
         let Some(type_def) = self.defs.type_def(&type_id).cloned() else {
             let mut warnings = warnings;
-            warnings.push(format!("知らない研究の型です: {type_id}"));
+            warnings.push(format!("知らない RESEARCH_TYPE です: {type_id}"));
             return Ok(Status {
                 initialized: true,
                 type_info: Some(TypeInfo {
@@ -1478,6 +1484,7 @@ impl Tree {
             push_literal(&mut parts, &rest[..open]);
             let inner = &rest[open + 1..close];
             if let Some(heading) = inner.strip_prefix("mind:") {
+                let heading = defs::canonical_mind_heading(heading);
                 let body = self
                     .sections
                     .iter()
@@ -1641,7 +1648,7 @@ impl Tree {
         if debts.pending_proposals > 0 {
             push_debt(
                 &mut out,
-                format!("仕分けていない提案が {} 件あります", debts.pending_proposals),
+                format!("PENDING_PROPOSALS が {} 件あります", debts.pending_proposals),
                 None,
                 None,
                 "",
@@ -1651,7 +1658,7 @@ impl Tree {
             push_debt(
                 &mut out,
                 format!(
-                    "読んだが反映していない論文が {} 本あります",
+                    "UNREFLECTED_PAPERS が {} 本あります",
                     debts.unreflected_papers
                 ),
                 None,
@@ -1662,7 +1669,7 @@ impl Tree {
         for (node, name, _count) in &self.unscreened {
             push_debt(
                 &mut out,
-                format!("検索セット「{name}」を選別する"),
+                format!("SEARCH_SET「{name}」を選別する"),
                 Some(*node),
                 Some("sci-screen".to_string()),
                 "読む論文と外す論文",
@@ -1672,7 +1679,7 @@ impl Tree {
             push_debt(
                 &mut out,
                 format!(
-                    "振り返りを書いていない実行が {} 件あります",
+                    "EMPTY_REVIEWS が {} 件あります",
                     debts.empty_reviews
                 ),
                 None,
@@ -2095,7 +2102,7 @@ impl Tree {
 
     /// 価値の軸（mind.md の「価値の軸」の節の行）。
     fn axes(&self) -> Vec<String> {
-        let Some((_, body)) = self.sections.iter().find(|(name, _)| name == "価値の軸") else {
+        let Some((_, body)) = self.sections.iter().find(|(name, _)| name == "VALUE_AXES") else {
             return Vec::new();
         };
         body.lines()
@@ -2264,7 +2271,7 @@ given: background
 
 ## 関門
 - 出発点: decided(background.goal)
-- 小目的: decided(purpose.subgoal)
+- PURPOSE_SUBGOAL_DECIDED: decided(purpose.subgoal)
 "#;
 
     /// テストに使う項目キー。
@@ -2297,7 +2304,7 @@ given: background
             "data" => ("データ", "write"),
             "data.type" => ("データの型", "choose"),
             "purpose" => ("目的", "write"),
-            "purpose.subgoal" => ("小目的", "choose"),
+            "purpose.subgoal" => ("PURPOSE_SUBGOAL", "choose"),
             "existing" => ("既存の手段", "choose"),
             _ => ("限界", "verify"),
         };
@@ -2725,7 +2732,7 @@ given: background
         let gate = result.gate.as_ref().expect("関門").clone();
         assert_eq!(gate.total, 2);
         assert_eq!(gate.current, 2);
-        assert_eq!(gate.name, "小目的");
+        assert_eq!(gate.name, "PURPOSE_SUBGOAL_DECIDED");
         assert!(gate.list[0].passed && !gate.list[1].passed);
 
         // 2 つとも通せば「種にできる」。
@@ -2733,7 +2740,7 @@ given: background
         let result = status(conn, &roots, &defs()).expect("status");
         let gate = result.gate.as_ref().expect("関門");
         assert_eq!(gate.current, 3);
-        assert_eq!(gate.name, "種にできる");
+        assert_eq!(gate.name, "SEED にできる");
 
         // 仮決定の値には「（仮）」が付く。
         set_state(conn, subgoal, "tentative");
@@ -2745,7 +2752,7 @@ given: background
         set_state(conn, kind, "selected");
         let result = status(conn, &roots, &defs()).expect("status");
         let seed = result.seed.expect("種の文");
-        assert_eq!(seed.text, "「頭皮脳波の動脈瘤（仮）で［？小目的］を行う。」");
+        assert_eq!(seed.text, "「頭皮脳波の動脈瘤（仮）で［？PURPOSE_SUBGOAL］を行う。」");
         // 差し込み 3 つ＋文字 3 つ。
         assert_eq!(seed.parts.len(), 6);
         assert_eq!(seed.parts[0].text, "頭皮脳波");
@@ -2757,7 +2764,7 @@ given: background
         assert_eq!(seed.parts[2].text, "動脈瘤（仮）");
         assert_eq!(seed.parts[2].key.as_deref(), Some("data.type"));
         assert!(seed.parts[2].filled && seed.parts[2].tentative);
-        assert_eq!(seed.parts[4].text, "［？小目的］");
+        assert_eq!(seed.parts[4].text, "［？PURPOSE_SUBGOAL］");
         assert_eq!(seed.parts[4].node.as_deref(), Some(&fmt_ref('N', subgoal)[..]));
         assert!(!seed.parts[4].filled);
 
@@ -2782,7 +2789,7 @@ given: background
             result
                 .warnings
                 .iter()
-                .any(|line| line.contains("関門の条件の項目がありません: background.goal")),
+                .any(|line| line.contains("GATE の条件の ITEM がありません: background.goal")),
             "{:?}",
             result.warnings
         );
@@ -3001,11 +3008,11 @@ given: background
         let result = status(conn, &roots, &defs()).expect("status");
         // 負債が 1 番目、関門の項目が 2 番目。
         assert_eq!(result.next[0].kind, "debt");
-        assert_eq!(result.next[0].why, "負債");
-        assert!(result.next[0].purpose.contains("仕分けていない提案"));
+        assert_eq!(result.next[0].why, "DEBT");
+        assert!(result.next[0].purpose.contains("PENDING_PROPOSALS"));
         assert_eq!(result.next[1].node.as_deref(), Some("N1"));
         assert_eq!(result.next[1].kind, "blank");
-        assert_eq!(result.next[1].why, "未着手");
+        assert_eq!(result.next[1].why, "UNTOUCHED");
         assert_eq!(result.next[1].purpose, "出発点の候補を出す");
         assert_eq!(result.next[1].block.as_deref(), Some("sci-ideate"));
 
@@ -3019,7 +3026,7 @@ given: background
             .filter(|action| action.kind == "mark")
             .collect();
         assert!(!marked.is_empty());
-        assert_eq!(marked[0].why, "根拠不足");
+        assert_eq!(marked[0].why, "WEAK_EVIDENCE");
         // 節点の並びで 1 番目（出発点）の行が先に来る。
         assert_eq!(marked[0].node.as_deref(), Some("N1"));
         assert_eq!(marked[0].purpose, "出発点を確かめる");
@@ -3147,7 +3154,7 @@ given: background
         // 使うブロック（同じブロックは 1 回）。
         assert_eq!(detail.blocks.len(), 1);
         assert_eq!(detail.blocks[0].block.as_deref(), Some("sci-search"));
-        assert_eq!(detail.blocks[0].why, "情報不足");
+        assert_eq!(detail.blocks[0].why, "INSUFFICIENT");
         // 検索の記録。
         assert_eq!(detail.searches.len(), 1);
         // 実行は結び付いた節点だけ。
@@ -3166,7 +3173,7 @@ given: background
             SciError::NotFound(message) => message,
             other => panic!("NotFound ではない: {other}"),
         };
-        assert!(message.contains("節点 N9999 がありません"), "{message}");
+        assert!(message.contains("NODE N9999 がありません"), "{message}");
 
         // 候補にはガイドが無い。
         let second_detail = node_detail(conn, &roots, &defs(), second).expect("node");
@@ -3218,15 +3225,15 @@ given: background
         );
         // 何も手を入れてないので全項目が未着手、次の一手も「未着手」の行。
         assert!(result.nodes.iter().all(|row| row.blank.as_deref() == Some("untouched")));
-        assert!(result.next.iter().all(|action| action.why == "未着手"));
+        assert!(result.next.iter().all(|action| action.why == "UNTOUCHED"));
         assert!(result.next.len() <= 10);
         // 関門の 1 つめ（出発点）は通らない。
         let gate = result.gate.as_ref().expect("関門");
         assert_eq!(gate.current, 1);
-        assert_eq!(gate.name, "出発点");
+        assert_eq!(gate.name, "BACKGROUND_GOAL_DECIDED");
         // 種の文は空欄のまま「［？…］」で並ぶ。
         let seed = result.seed.expect("種の文");
-        assert!(seed.text.starts_with("「［？対象］の"));
+        assert!(seed.text.starts_with("「［？TARGET］の"));
         assert!(seed.parts.iter().any(|part| !part.filled));
         // 節点ごとの行も出る。
         let purpose = key_id(conn, "purpose.subgoal");
@@ -3242,6 +3249,22 @@ given: background
     }
 
     #[test]
+    fn mind_headings_old_and_new_are_same() {
+        for heading in ["価値の軸", "VALUE_AXES"] {
+            let root = temp_root("mind-alias");
+            write(root.join(".sai/paper/mind.md"), &format!("## {heading}\n\n1. 臨床\n"));
+            let sections = mind_sections(&root.join(".sai/paper"));
+            assert_eq!(sections, vec![("VALUE_AXES".to_string(), "1. 臨床".to_string())]);
+            for h in ["価値の軸", "VALUE_AXES"] {
+                let found = sections
+                    .iter()
+                    .any(|(n, _)| n == defs::canonical_mind_heading(h));
+                assert!(found);
+            }
+        }
+    }
+
+    #[test]
     fn mind_sections_strip_comments() {
         let root = temp_root("mind");
         write(
@@ -3250,7 +3273,7 @@ given: background
         );
         let sections = mind_sections(&root.join(".sai/paper"));
         assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].0, "価値の軸");
+        assert_eq!(sections[0].0, "VALUE_AXES");
         assert_eq!(sections[0].1, "1. 臨床で使える\n2. 少ないデータで学べる");
         assert_eq!(sections[1].0, "別の見方");
         // 中身が空の節は出さない。

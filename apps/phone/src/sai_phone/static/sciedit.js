@@ -20,55 +20,55 @@
 
 // op の表示名（C-07 の op の一覧。表に無い op はそのまま出す）
 const SE_OPS = {
-  add_finding: "知見を足す",
-  add_question: "問いを足す",
-  answer_question: "問いに答える",
+  add_finding: "FINDING を足す",
+  add_question: "QUESTION を足す",
+  answer_question: "QUESTION に答える",
   link: "結ぶ",
-  add_seed: "種を足す",
-  add_option: "候補を足す",
-  add_child: "項目を足す",
+  add_seed: "SEED を足す",
+  add_option: "OPTION を足す",
+  add_child: "ITEM を足す",
   decide: "決める",
   reopen: "開き直す",
   exclude_item: "対象外にする",
-  option_state: "候補の状態を変える",
-  exclude: "外す（墓標）",
+  option_state: "OPTION の状態を変える",
+  exclude: "外す（TOMBSTONE）",
   edit_text: "文を直す",
   add_edge: "線を引く",
-  unlink: "結び付きを外す",
-  remove_finding: "知見を外す",
+  unlink: "LINK を外す",
+  remove_finding: "FINDING を外す",
   set_read_state: "読み具合を変える",
-  withdraw_question: "問いを取り下げる",
+  withdraw_question: "QUESTION を取り下げる",
   remove_edge: "線を外す",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
-  add_finding: "知見を足しました",
-  add_question: "問いを足しました",
+  add_finding: "FINDING を足しました",
+  add_question: "QUESTION を足しました",
   answer_question: "答えました",
-  link: "結び付けました",
-  add_option: "候補を足しました",
-  add_child: "項目を足しました",
+  link: "LINK を作りました",
+  add_option: "OPTION を足しました",
+  add_child: "ITEM を足しました",
   decide: "決めました",
   reopen: "開き直しました",
   exclude_item: "対象外にしました",
-  option_state: "候補の状態を変えました",
-  exclude: "外しました（記録は墓標に残ります）",
+  option_state: "OPTION の状態を変えました",
+  exclude: "外しました（記録は TOMBSTONE に残ります）",
   edit_text: "直しました",
   add_edge: "線を引きました",
   unlink: "外しました",
   remove_finding: "外しました",
   set_read_state: "読み具合を変えました",
-  withdraw_question: "問いを取り下げました",
+  withdraw_question: "QUESTION を取り下げました",
   remove_edge: "線を外しました",
 };
 // 1 押しで送る op（確かめは出さない。R-P4 の「1 押しで外せる」）
 const SE_ONE_TOUCH = { remove_finding: 1, unlink: 1, withdraw_question: 1, remove_edge: 1 };
 // 項目の型（C-01。組み合わせてよい）
-const SE_ITEM_TYPES = [["choose", "選ぶ"], ["list", "並べる"], ["write", "書く"], ["verify", "確かめる"]];
+const SE_ITEM_TYPES = [["choose", "CHOOSE"], ["list", "LIST"], ["write", "WRITE"], ["verify", "VERIFY"]];
 // 候補の状態（C-07 の option_state。3 つだけ）
-const SE_OPTION_STATES = [["rejected", "却下"], ["dormant", "休眠"], ["candidate", "候補に戻す"]];
+const SE_OPTION_STATES = [["rejected", "REJECTED"], ["dormant", "DORMANT"], ["candidate", "CANDIDATE に戻す"]];
 // 知見の向き（C-01）
-const SE_POLARITY = [["support", "支持"], ["refute", "反証"], ["neutral", "中立"], ["none", "該当なし"]];
+const SE_POLARITY = [["support", "SUPPORT"], ["refute", "REFUTE"], ["neutral", "NEUTRAL"], ["none", "NONE"]];
 // 根拠の段（C-01 の level。1〜4・任意）
 const SE_LEVELS = [
   ["1", "① 著者自身の限界"],
@@ -78,42 +78,42 @@ const SE_LEVELS = [
 ];
 // 論文の役割（C-01）
 const SE_ROLES = [
-  ["exemplar", "代表例"],
-  ["compare", "比較対象"],
-  ["issue_evidence", "課題の根拠"],
-  ["method_source", "手法の供給元"],
-  ["data_source", "データの出典"],
-  ["background", "背景"],
-  ["counter", "反証"],
+  ["exemplar", "EXEMPLAR"],
+  ["compare", "COMPARE"],
+  ["issue_evidence", "ISSUE_EVIDENCE"],
+  ["method_source", "METHOD_SOURCE"],
+  ["data_source", "DATA_SOURCE"],
+  ["background", "BACKGROUND"],
+  ["counter", "COUNTER"],
 ];
 // 論文の読み具合（C-01）
 const SE_READ_STATES = [
-  ["unread", "未読"],
-  ["read", "読んだ・未反映"],
-  ["reflected", "反映済み"],
-  ["irrelevant", "関係なし"],
+  ["unread", "UNREAD"],
+  ["read", "READ"],
+  ["reflected", "REFLECTED"],
+  ["irrelevant", "IRRELEVANT"],
 ];
 // 線の種類（C-07。parent は指定できない）
-const SE_EDGE_KINDS = [["depends", "依存"], ["derived", "由来"], ["analogous", "同型"]];
+const SE_EDGE_KINDS = [["depends", "DEPENDS"], ["derived", "DERIVED"], ["analogous", "ANALOGOUS"]];
 // 結び付きの相手（C-13 の target の形）
 const SE_TARGET_KINDS = [
   ["paper", "論文"],
   ["report", "報告"],
   ["note", "ノート"],
-  ["set", "検索セット"],
+  ["set", "SEARCH_SET"],
   ["run", "実行"],
 ];
 // 範囲（C-01）
 const SE_SCOPES = [
-  ["node", "節点"],
-  ["path", "道"],
-  ["subtree", "部分木"],
-  ["siblings", "兄弟"],
-  ["summary", "全体の要約"],
-  ["blind", "目隠し"],
+  ["node", "NODE"],
+  ["path", "PATH"],
+  ["subtree", "SUBTREE"],
+  ["siblings", "SIBLINGS"],
+  ["summary", "SUMMARY"],
+  ["blind", "BLIND"],
 ];
 // 読む深さ（C-01）
-const SE_DEPTHS = [["abstract", "抄録"], ["figures", "図"], ["full", "精読"]];
+const SE_DEPTHS = [["abstract", "ABSTRACT"], ["figures", "FIGURES"], ["full", "FULL"]];
 // 実行するもの（C-09。読む札の user は sciread.js 側で扱う）
 const SE_RUNNERS = [["pi", "pi"], ["cc", "cc"]];
 // 16 本のブロック（C-16）
@@ -126,7 +126,7 @@ const SE_BLOCKS = [
   ["sci-compare", "⚖ 比べる"],
   ["sci-probe", "🔍 確かめる"],
   ["sci-draft", "✍ 文を書く"],
-  ["sci-ideate", "💡 候補を増やす"],
+  ["sci-ideate", "💡 OPTION を増やす"],
   ["sci-debate", "🗣 議論"],
   ["sci-coach", "🎓 理解の確認"],
   ["sci-search", "🔎 外部を探す"],
@@ -136,7 +136,7 @@ const SE_BLOCKS = [
   ["sci-analogy", "🔁 同型を探す"],
 ];
 // 読む札の型（C-01 の sci_mode）
-const SE_MODES = [["purpose_first", "目的先行"], ["blind_first", "目的後付け"]];
+const SE_MODES = [["purpose_first", "PURPOSE_FIRST"], ["blind_first", "BLIND_FIRST"]];
 // 出典の形（C-07。`#37` か `#37 §3.2`）
 const SE_CITE_RE = /^#[1-9][0-9]{0,8}( .{1,80})?$/;
 // 結び付きの相手の形（C-13）
@@ -216,7 +216,7 @@ function seBuildOp(kind, values, target) {
   const node = seTrim(v.node);
   const bad = (error) => ({ ok: false, json: null, error });
   const good = (json) => ({ ok: true, json, error: null });
-  const needNode = () => (node ? "" : "項目を選んでください");
+  const needNode = () => (node ? "" : "ITEM を選んでください");
   // reason は共通項目（C-07）。空でなければ付ける
   const withReason = (json) => {
     const reason = seTrim(v.reason);
@@ -230,8 +230,8 @@ function seBuildOp(kind, values, target) {
       if (msg) return bad(msg);
       if (!seTrim(v.reason)) return bad("理由を入力してください");
       const option = seTrim(v.option);
-      if (option && !seRefOk(option, "N")) return bad("候補の形が正しくありません");
-      if (!option && v.hasOptions) return bad("候補を選んでください");
+      if (option && !seRefOk(option, "N")) return bad("OPTION の形が正しくありません");
+      if (!option && v.hasOptions) return bad("OPTION を選んでください");
       const json = { op: "decide", node, tentative: !!v.tentative, counter_searched: !!v.counter_searched };
       if (option) json.option = option;
       const evidence = (Array.isArray(v.evidence) ? v.evidence : []).map(seTrim).filter(Boolean);
@@ -242,10 +242,10 @@ function seBuildOp(kind, values, target) {
         if (!r) continue;
         const opt = seTrim(r.option);
         if (!opt) continue;
-        if (!seRefOk(opt, "N")) return bad(`外す候補 ${opt} の形が正しくありません`);
+        if (!seRefOk(opt, "N")) return bad(`外す OPTION ${opt} の形が正しくありません`);
         const why = seTrim(r.reason);
         if (!why) return bad(`${opt} を外す理由を入力してください`);
-        if (rejected.length >= 10) return bad("まとめて外す候補は 10 個までです");
+        if (rejected.length >= 10) return bad("まとめて外す OPTION は 10 個までです");
         rejected.push({ option: opt, reason: why });
       }
       if (rejected.length) json.rejected = rejected;
@@ -268,7 +268,7 @@ function seBuildOp(kind, values, target) {
       const t = target && typeof target === "object" ? target : {};
       const opt = seTrim(t.option || target) || node;
       const state = seTrim(t.state || v.state);
-      if (!seRefOk(opt, "N")) return bad("候補を選んでください");
+      if (!seRefOk(opt, "N")) return bad("OPTION を選んでください");
       if (!SE_OPTION_STATES.some((x) => x[0] === state)) return bad("状態を選んでください");
       if (!seTrim(v.reason)) return bad("理由を入力してください");
       return good(withReason({ op: "option_state", node: opt, state }));
@@ -303,14 +303,14 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const text = seTrim(v.text);
-      if (!text) return bad("問いを入力してください");
-      if (text.length > SE_MAX.question) return bad("問いは 300 字までです");
+      if (!text) return bad("QUESTION を入力してください");
+      if (text.length > SE_MAX.question) return bad("QUESTION は 300 字までです");
       return good({ op: "add_question", node, text });
     }
 
     case "answer_question": {
       const question = seTrim(target && typeof target === "object" ? target.question : target);
-      if (!seRefOk(question, "Q")) return bad("問いが見つかりません");
+      if (!seRefOk(question, "Q")) return bad("QUESTION が見つかりません");
       const text = seTrim(v.text);
       if (!text) return bad("答えを入力してください");
       if (text.length > SE_MAX.text) return bad("答えは 1200 字までです");
@@ -325,9 +325,9 @@ function seBuildOp(kind, values, target) {
       if (text.length > SE_MAX.text) return bad("文は 1200 字までです");
       if (seCountSentences(text) > 3) return bad("文は 1〜3 文までにしてください");
       const cites = (Array.isArray(v.cites) ? v.cites : []).map(seTrim).filter(Boolean);
-      if (cites.length > 10) return bad("出典は 10 個までです");
-      for (const c of cites) if (!seCiteOk(c)) return bad(`出典「${c}」の形が正しくありません（例 #37 §3.2）`);
-      if (seNeedsCite(text, cites)) return bad("数値を含む知見には出典が要ります");
+      if (cites.length > 10) return bad("CITE は 10 個までです");
+      for (const c of cites) if (!seCiteOk(c)) return bad(`CITE「${c}」の形が正しくありません（例 #37 §3.2）`);
+      if (seNeedsCite(text, cites)) return bad("数値を含む FINDING には CITE が要ります");
       const json = { op: "add_finding", node, text, cites };
       if (seRefOk(v.question, "Q")) json.question = seTrim(v.question);
       if (seTrim(v.polarity)) json.polarity = seTrim(v.polarity);
@@ -342,7 +342,7 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const t = seTrim(v.target);
-      if (!t) return bad("結び付ける相手を入力してください");
+      if (!t) return bad("LINK する相手を入力してください");
       if (!seTargetOk(t)) return bad("相手の形が正しくありません（例 paper:37）");
       const json = { op: "link", node, target: t };
       if (t.startsWith("paper:")) {
@@ -369,10 +369,10 @@ function seBuildOp(kind, values, target) {
 
     case "add_edge": {
       const kind = seTrim(v.kind);
-      if (!node) return bad("元の節点を選んでください");
+      if (!node) return bad("元の NODE を選んでください");
       if (!SE_EDGE_KINDS.some((x) => x[0] === kind)) return bad("線の種類を選んでください");
       const to = seTrim(v.to);
-      if (!seRefOk(to, "N")) return bad("相手の節点を選んでください");
+      if (!seRefOk(to, "N")) return bad("相手の NODE を選んでください");
       if (to === node) return bad("自分自身へは線を引けません");
       const note = seTrim(v.note);
       if (note.length > SE_MAX.note) return bad("メモは 200 字までです");
@@ -393,19 +393,19 @@ function seBuildOp(kind, values, target) {
 
     case "remove_finding": {
       const finding = seTrim(target && typeof target === "object" ? target.finding : target);
-      if (!seRefOk(finding, "F")) return bad("知見が見つかりません");
+      if (!seRefOk(finding, "F")) return bad("FINDING が見つかりません");
       return good({ op: "remove_finding", finding });
     }
 
     case "unlink": {
       const link = seTrim(target && typeof target === "object" ? target.link : target);
-      if (!seRefOk(link, "L")) return bad("結び付きが見つかりません");
+      if (!seRefOk(link, "L")) return bad("LINK が見つかりません");
       return good({ op: "unlink", link });
     }
 
     case "withdraw_question": {
       const question = seTrim(target && typeof target === "object" ? target.question : target);
-      if (!seRefOk(question, "Q")) return bad("問いが見つかりません");
+      if (!seRefOk(question, "Q")) return bad("QUESTION が見つかりません");
       return good({ op: "withdraw_question", question });
     }
 
@@ -422,8 +422,8 @@ function seBuildOp(kind, values, target) {
     case "set_read_state": {
       const link = seTrim(target && typeof target === "object" ? target.link : target);
       const state = seTrim(v.state);
-      if (!seRefOk(link, "L")) return bad("結び付きが見つかりません");
-      if (!SE_READ_STATES.some((x) => x[0] === state)) return bad("読み具合を選んでください");
+      if (!seRefOk(link, "L")) return bad("LINK が見つかりません");
+      if (!SE_READ_STATES.some((x) => x[0] === state)) return bad("READ_STATE を選んでください");
       return good({ op: "set_read_state", link, state });
     }
 
@@ -460,7 +460,7 @@ function seGroupProposals(list, by) {
       const title = seTrim(p.node_title);
       const label = by === "run"
         ? (key ? `run ${key}` : "run 不明")
-        : (key ? `${key}${title ? ` ${title}` : ""}` : "節点なし");
+        : (key ? `${key}${title ? ` ${title}` : ""}` : "NODE なし");
       map.set(key, { key, label, items: [] });
     }
     map.get(key).items.push(p);
@@ -763,8 +763,8 @@ function seFieldTarget(key, init, hint) {
   numWrap.appendChild(num);
   row.appendChild(numWrap);
   el.appendChild(row);
-  const role = seFieldSelect("role", "論文の役割", SE_ROLES, "", "論文のときは必ず選ぶ", true);
-  const readState = seFieldSelect("read_state", "読み具合", SE_READ_STATES, "unread", null, true);
+  const role = seFieldSelect("role", "ROLE", SE_ROLES, "", "論文のときは必ず選ぶ", true);
+  const readState = seFieldSelect("read_state", "READ_STATE", SE_READ_STATES, "unread", null, true);
   el.appendChild(role.el);
   el.appendChild(readState.el);
   if (hint) el.appendChild(seNote(hint));
@@ -889,11 +889,11 @@ function seFieldsFor(kind, nodeId, detail, target) {
         values: Object.assign({}, base, { hasOptions: options.length > 0 }),
         fields: [
           nodeOptions.length
-            ? seFieldSelect("option", "選ぶ候補", nodeOptions, "", "候補が無いときは空のままにする", true)
-            : seFieldText("option", "選ぶ候補", "", "候補の番号（N20 の形）"),
-          seFieldToggle("tentative", "仮決定にする", false, "決め切らず、仮として残す"),
-          seFieldChecks("evidence", "根拠の知見", findingOptions, [], "この節点の知見から選ぶ（無くてもよい）"),
-          seFieldPairs("rejected", "外す候補と理由", free.map((o) => [o.id, o.title || ""]), "チェックを付けて理由を書く"),
+            ? seFieldSelect("option", "選ぶ OPTION", nodeOptions, "", "OPTION が無いときは空のままにする", true)
+            : seFieldText("option", "選ぶ OPTION", "", "OPTION の番号（N20 の形）"),
+          seFieldToggle("tentative", "TENTATIVE にする", false, "決め切らず、仮として残す"),
+          seFieldChecks("evidence", "根拠の FINDING", findingOptions, [], "この NODE の FINDING から選ぶ（無くてもよい）"),
+          seFieldPairs("rejected", "外す OPTION と理由", free.map((o) => [o.id, o.title || ""]), "チェックを付けて理由を書く"),
           seFieldToggle("counter_searched", "反証を探した", false),
           seFieldArea("reason", "理由", "", 3, "この判断の理由（必須）"),
         ],
@@ -910,17 +910,17 @@ function seFieldsFor(kind, nodeId, detail, target) {
       const opt = seTrim(t.option || target);
       const found = options.find((o) => o.id === opt);
       return {
-        title: `候補の状態を変える　${opt}`,
+        title: `OPTION の状態を変える　${opt}`,
         values: Object.assign({}, base, { state: t.state || "rejected" }),
         fields: [
           seFieldPick("state", "状態", SE_OPTION_STATES, t.state || "rejected"),
-          seFieldArea("reason", "理由", "", 3, `${opt || "この候補"} の状態を ${seOptionStateLabel(t.state)} にする理由（必須）`),
+          seFieldArea("reason", "理由", "", 3, `${opt || "この OPTION"} の状態を ${seOptionStateLabel(t.state)} にする理由（必須）`),
         ],
       };
     }
     case "add_option":
       return {
-        title: `候補を足す　${base.node}`,
+        title: `OPTION を足す　${base.node}`,
         values: base,
         fields: [
           seFieldText("title", "題", "", "必須・120 字まで"),
@@ -929,39 +929,39 @@ function seFieldsFor(kind, nodeId, detail, target) {
       };
     case "add_child":
       return {
-        title: `項目を足す　${base.node}`,
+        title: `ITEM を足す　${base.node}`,
         values: base,
         fields: [
           seFieldText("title", "題", "", "必須・120 字まで"),
-          seFieldChecks("types", "型", SE_ITEM_TYPES, [], "1 つ以上選ぶ（組み合わせてもよい）"),
+          seFieldChecks("types", "ITEM_TYPE", SE_ITEM_TYPES, [], "1 つ以上選ぶ（組み合わせてもよい）"),
         ],
       };
     case "add_question":
       return {
-        title: `問いを足す　${base.node}`,
+        title: `QUESTION を足す　${base.node}`,
         values: base,
-        fields: [seFieldArea("text", "問い", "", 3, "必須・300 字まで")],
+        fields: [seFieldArea("text", "QUESTION", "", 3, "必須・300 字まで")],
       };
     case "answer_question": {
       const qid = seTrim(target);
       const q = questions.find((x) => x.id === qid);
       return {
-        title: `問いに答える　${qid}`,
+        title: `QUESTION に答える　${qid}`,
         values: base,
         fields: [seFieldArea("text", "答え", q && q.answer ? q.answer : "", 4, `必須・1200 字まで（${qid}）`)],
       };
     }
     case "add_finding":
       return {
-        title: `知見を足す　${base.node}`,
+        title: `FINDING を足す　${base.node}`,
         values: Object.assign({}, base, { polarity: "support" }),
         fields: [
           seFieldArea("text", "文", "", 3, "必須・1〜3 文・1200 字まで"),
-          seFieldLines("cites", "出典", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは必ず出典）", "#37 §3.2"),
-          seFieldSelect("polarity", "向き", SE_POLARITY, "support", null, true),
+          seFieldLines("cites", "CITE", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは必ず CITE）", "#37 §3.2"),
+          seFieldSelect("polarity", "POLARITY", SE_POLARITY, "support", null, true),
           seFieldSelect("level", "根拠の段", SE_LEVELS, "", "任意", true),
-          questionOptions.length ? seFieldSelect("question", "問い", questionOptions, "", "この問いへの答えなら選ぶ", true) : null,
-          paperOptions.length ? seFieldSelect("paper", "論文", paperOptions, "", "任意（この節点に結び付いている論文）", true) : null,        ],
+          questionOptions.length ? seFieldSelect("question", "QUESTION", questionOptions, "", "この QUESTION への答えなら選ぶ", true) : null,
+          paperOptions.length ? seFieldSelect("paper", "論文", paperOptions, "", "任意（この NODE に LINK されている論文）", true) : null,        ],
       };
     case "link":
       return {
@@ -986,7 +986,7 @@ function seFieldsFor(kind, nodeId, detail, target) {
         values: Object.assign({}, base, { kind: "depends" }),
         fields: [
           seFieldPick("kind", "線の種類", SE_EDGE_KINDS, "depends"),
-          seFieldSelect("to", "相手の節点", otherNodes, "", "どの節点へ線を引くか", false),
+          seFieldSelect("to", "相手の NODE", otherNodes, "", "どの NODE へ線を引くか", false),
           seFieldText("note", "メモ", "", "200 字まで（任意）"),
         ],
       };
@@ -997,7 +997,7 @@ function seFieldsFor(kind, nodeId, detail, target) {
         title: `外す　${link ? link.title || lid : lid}`,
         values: Object.assign({}, base, { target: link ? link.target : "", title: link ? link.title || "" : "" }),
         fields: [
-          seEl("p", "sci-edit-note", "外した論文は以後の検索結果に出なくなります（記録は墓標に残します）。"),
+          seEl("p", "sci-edit-note", "外した論文は以後の検索結果に出なくなります（記録は TOMBSTONE に残します）。"),
           seFieldArea("reason", "理由", "", 3, "必須"),
         ],
       };
@@ -1009,7 +1009,7 @@ function seFieldsFor(kind, nodeId, detail, target) {
       return {
         title: `読み具合　${link ? link.title || lid : lid}`,
         values: Object.assign({}, base, { state }),
-        fields: [seFieldPick("state", "読み具合", SE_READ_STATES, state)],
+        fields: [seFieldPick("state", "READ_STATE", SE_READ_STATES, state)],
       };
     }
     default:
@@ -1041,7 +1041,7 @@ function seOpenAction(kind, nodeId, detail, target) {
     void (async () => {
       const ok = await saiConfirm({
         title: "開き直しますか",
-        body: "未決定に戻し、選んだ候補を候補に戻します。",
+        body: "OPEN に戻し、SELECTED の OPTION を CANDIDATE に戻します。",
         ok: "開く",
       });
       if (!ok) return;
@@ -1074,7 +1074,7 @@ function seOpenAction(kind, nodeId, detail, target) {
     form.actions.appendChild(seBtn("外す", async () => {
       const ok = await saiConfirm({
         title: "この論文は検索結果に出なくなります",
-        body: "外した記録は墓標に残ります。もう一度結べば元に戻ります。",
+        body: "外した記録は TOMBSTONE に残ります。もう一度結べば元に戻ります。",
         ok: "外す",
         danger: true,
       });
@@ -1099,7 +1099,7 @@ async function seOpenCard(nodeId, suggestion) {
     try {
       detail = await paperApi(stApi(`/nodes/${encodeURIComponent(node)}`));
     } catch (e) {
-      saiToast((e && e.message) || "項目を読み込めませんでした", "error");
+      saiToast((e && e.message) || "ITEM を読み込めませんでした", "error");
       return;
     }
   } else {
@@ -1116,19 +1116,19 @@ async function seOpenCard(nodeId, suggestion) {
   const fields = [];
   // nodeId が無かったとき（種づくりなど）は節点を選ばせる
   if (!seTrim(nodeId)) {
-    if (picks.length) fields.push(seFieldSelect("node", "節点", picks, node, "カードを向ける節点", false));
-    else fields.push(seEl("p", "sci-edit-note", "項目がまだありません。まず項目を足してください。"));
+    if (picks.length) fields.push(seFieldSelect("node", "NODE", picks, node, "CARD を向ける NODE", false));
+    else fields.push(seEl("p", "sci-edit-note", "ITEM がまだありません。まず ITEM を足してください。"));
   }
   fields.push(seFieldSelect("block", "ブロック", SE_BLOCKS, block, "実行するブロック（16 本から選ぶ）", false));
   fields.push(seFieldText("purpose", "目的", s.purpose || "", "必須・300 字まで。エージェントが何を達成するか", "何を達成するか"));
   fields.push(seFieldText("expect", "期待する成果", s.expect || "", "300 字まで（任意）"));
-  if (questions.length) fields.push(seFieldSelect("question", "問い", questions, "", "この問いに答える（任意）", true));
-  fields.push(seFieldSelect("runner", "実行するもの", SE_RUNNERS, "pi", "読む札（人が読む）は「読む札」ボタンから作る", false));
-  fields.push(seFieldSelect("scope", "範囲", SE_SCOPES, "", "空のときはブロックの既定", true));
-  fields.push(seFieldSelect("mode", "読み方", SE_MODES, "purpose_first", "1 本を読むときだけ使う", true));
-  fields.push(seFieldLines("assume", "仮置き", [], 5, "1 行 1 つ。`N12=発作部位` の形（5 個まで）", "N12=発作部位"));
+  if (questions.length) fields.push(seFieldSelect("question", "QUESTION", questions, "", "この QUESTION に答える（任意）", true));
+  fields.push(seFieldSelect("runner", "実行するもの", SE_RUNNERS, "pi", "READ_CARD（人が読む）は「READ_CARD」ボタンから作る", false));
+  fields.push(seFieldSelect("scope", "SCOPE", SE_SCOPES, "", "空のときはブロックの既定", true));
+  fields.push(seFieldSelect("mode", "MODE", SE_MODES, "purpose_first", "1 本を読むときだけ使う", true));
+  fields.push(seFieldLines("assume", "ASSUMPTION", [], 5, "1 行 1 つ。`N12=発作部位` の形（5 個まで）", "N12=発作部位"));
   if (papers.length) {
-    fields.push(seFieldChecks("papers", "論文", papers.map((p) => [String(p.id), `#${p.id} ${p.title}`]), [], "この節点に結び付いている論文から選ぶ"));
+    fields.push(seFieldChecks("papers", "論文", papers.map((p) => [String(p.id), `#${p.id} ${p.title}`]), [], "この NODE に LINK されている論文から選ぶ"));
   }
   const form = seForm(fields);
   // 「読み方」は sci-read のときだけ出す
@@ -1136,12 +1136,12 @@ async function seOpenCard(nodeId, suggestion) {
   if (mode) mode.show = (v) => v.block === "sci-read";
   form.refresh();
 
-  const host = saiSheet({ title: "カードを作る", body: form.el });
+  const host = saiSheet({ title: "CARD を作る", body: form.el });
   form.host = host;
   form.actions.appendChild(seBtn("やめる", () => host.close(), "ghost"));
   form.actions.appendChild(seBtn("作る", async () => {
     const v = Object.assign({ node }, form.read());
-    if (!seRefOk(v.node, "N")) { form.say("節点を選んでください"); return; }
+    if (!seRefOk(v.node, "N")) { form.say("NODE を選んでください"); return; }
     if (!SE_BLOCKS.some((b) => b[0] === v.block)) { form.say("ブロックを選んでください"); return; }
     const purpose = seTrim(v.purpose);
     if (!purpose) { form.say("目的を入力してください（空の目的では作りません）"); return; }
@@ -1149,8 +1149,8 @@ async function seOpenCard(nodeId, suggestion) {
     const expect = seTrim(v.expect);
     if (expect.length > SE_MAX.expect) { form.say("期待する成果は 300 字までです"); return; }
     const assume = (Array.isArray(v.assume) ? v.assume : []).map(seTrim).filter(Boolean);
-    if (assume.length > 5) { form.say("仮置きは 5 個までです"); return; }
-    for (const a of assume) if (!SE_ASSUME_RE.test(a)) { form.say(`仮置き「${a}」の形が正しくありません（N12=値）`); return; }
+    if (assume.length > 5) { form.say("ASSUMPTION は 5 個までです"); return; }
+    for (const a of assume) if (!SE_ASSUME_RE.test(a)) { form.say(`ASSUMPTION「${a}」の形が正しくありません（N12=値）`); return; }
     const paperIds = (Array.isArray(v.papers) ? v.papers : []).map(Number).filter((n) => n > 0);
     if (paperIds.length > 20) { form.say("論文は 20 本までです"); return; }
     const json = { node: v.node, block: v.block, purpose, runner: v.runner || "pi", papers: paperIds };
@@ -1163,15 +1163,15 @@ async function seOpenCard(nodeId, suggestion) {
     try {
       res = await paperApi(stApi("/cards"), { method: "POST", body: json });
     } catch (e) {
-      form.say((e && e.message) || "カードを作れませんでした");
+      form.say((e && e.message) || "CARD を作れませんでした");
       return;
     }
     const runId = seCardRunId(res);
-    saiToast(runId ? `run ${runId} のカードを作りました` : "カードを作りました", "ok");
+    saiToast(runId ? `run ${runId} のCARD を作りました` : "CARD を作りました", "ok");
     // Project の run の画面へ移る釦を出す（小窓の中に残す）
     form.el.innerHTML = "";
     const done = seEl("div", "sci-edit-done");
-    done.appendChild(seEl("p", "sci-edit-done-text", runId ? `run ${runId} のカードを作りました（${json.block}）` : "カードを作りました"));
+    done.appendChild(seEl("p", "sci-edit-done-text", runId ? `run ${runId} のCARD を作りました（${json.block}）` : "CARD を作りました"));
     const row = seLine("sci-edit-done-row");
     if (runId) {
       row.appendChild(seBtn(`run ${runId} を開く`, () => {
@@ -1331,7 +1331,7 @@ async function seTriageReload() {
   } catch (e) {
     box.appendChild(saiEmpty({
       icon: "⚠️",
-      title: "提案を読めませんでした",
+      title: "PROPOSAL を読めませんでした",
       body: (e && e.message) || "もう一度読み込んでください。",
     }));
     return;
@@ -1348,13 +1348,13 @@ async function seTriageReload() {
 
   if (seBulkErrors.length) {
     const failed = seEl("div", "sci-edit-bulk-errors");
-    failed.appendChild(seEl("h2", "sci-edit-sub", "まとめて仕分けられなかった件"));
+    failed.appendChild(seEl("h2", "sci-edit-sub", "まとめて TRIAGE できなかった件"));
     for (const f of seBulkErrors) failed.appendChild(seEl("p", "sci-edit-error", `${f.id} ${f.why}`));
     box.appendChild(failed);
   }
 
   const seg = seEl("div", "dash-seg small sci-edit-by");
-  for (const [key, label] of [["node", "節点ごと"], ["run", "run ごと"]]) {
+  for (const [key, label] of [["node", "NODE ごと"], ["run", "run ごと"]]) {
     const b = seEl("button", seTriageBy === key ? "active" : "", label);
     b.type = "button";
     b.addEventListener("click", () => {
@@ -1367,7 +1367,7 @@ async function seTriageReload() {
   box.appendChild(seg);
 
   if (!pending.length) {
-    box.appendChild(saiEmpty({ icon: "✅", title: "仕分け待ちの提案はありません" }));
+    box.appendChild(saiEmpty({ icon: "✅", title: "TRIAGE 待ちの PROPOSAL はありません" }));
     return;
   }
   for (const g of groups) {

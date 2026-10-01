@@ -1,9 +1,9 @@
 ---
 id: phenomenon
-name: 現象駆動
+name: PHENOMENON_DRIVEN
 given: phenomenon
 ---
-# 現象駆動
+# PHENOMENON_DRIVEN
 
 必ず起きている現象を先に捉え、「なぜそうなるのか」を問う型である。使う手法より先に、観察できる事実がある。説明の型と確かめ方が決まってから、はじめて研究になる。
 
@@ -11,7 +11,7 @@ given: phenomenon
 
 典型例は、安静時と運動後で指標の挙動が変わるという現象から、その切り替わりがどの仕組みで起きるのかを調べるものである。現象は用意済みだが、原因を測るデータと確かめ方はまだ決まっていない。
 
-## 項目の順序
+## ITEM_ORDER
 - background
 - phenomenon
 - target
@@ -20,14 +20,14 @@ given: phenomenon
 - issue
 - novelty
 
-## 種の文
+## SEED_SENTENCE
 {target}の{phenomenon}の原因を、{data.type}と{method}で調べる。{issue.limit}は{method.adapt}で補う。
 
-## 関門
-- 出発点: decided(background.goal)
-- 現象: decided(phenomenon)
-- 対象: decided(target)
-- データの入手: decided(data.access)
-- 手法: decided(method)
-- 手法の限界: level(issue.limit, 2)
-- 新規性: count(novelty.closest, 3) かつ decided(novelty.diff)
+## GATE
+- BACKGROUND_GOAL_DECIDED: decided(background.goal)
+- PHENOMENON_DECIDED: decided(phenomenon)
+- TARGET_DECIDED: decided(target)
+- DATA_ACCESS_DECIDED: decided(data.access)
+- METHOD_DECIDED: decided(method)
+- ISSUE_LIMIT_LEVEL_2: level(issue.limit, 2)
+- NOVELTY_CLOSEST_AND_DIFF: count(novelty.closest, 3) かつ decided(novelty.diff)
