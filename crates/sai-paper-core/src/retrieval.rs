@@ -824,9 +824,9 @@ pub fn resolve_paper_scope(
     if let Some(node_id) = node {
         // 節点が無いときは、そのことを伝える（黙って Library 全体を返さない）。
         crate::sci::store::get_node(conn, node_id)
-            .map_err(|_| RetrievalError::Other(format!("節点 N{node_id} がありません")))?;
+            .map_err(|_| RetrievalError::Other(format!("NODE N{node_id} がありません")))?;
         let node_ids = crate::sci::store::node_paper_ids(conn, node_id, subtree)
-            .map_err(|e| RetrievalError::Other(format!("節点 N{node_id} を読みません: {e}")))?;
+            .map_err(|e| RetrievalError::Other(format!("NODE N{node_id} を読みません: {e}")))?;
         ids.extend(node_ids);
     }
     ids.sort_unstable();
@@ -2225,7 +2225,7 @@ fn resolve_paper_scope_unions_and_names_scope() {
             kind: "item",
             item_key: None,
             types: &[],
-            title: "空の節点",
+            title: "空の NODE",
             body: "",
             state: "open",
             fixed: false,
@@ -2240,7 +2240,7 @@ fn resolve_paper_scope_unions_and_names_scope() {
 
     // 節点が無ければそのことを伝える。
     let err = resolve_paper_scope(conn, None, &[], Some(9999), false).unwrap_err();
-    assert!(err.to_string().contains("節点 N9999 がありません"), "{err}");
+    assert!(err.to_string().contains("NODE N9999 がありません"), "{err}");
 }
 
 /// 論文の集合で絞る条件が word 側と vector 側の両方に効く。
