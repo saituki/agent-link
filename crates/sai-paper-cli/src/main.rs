@@ -146,7 +146,7 @@ enum Cmd {
         /// 研究方針の木（sai-sci）を使う（`--type` と一緒に使う）
         #[arg(long)]
         sci: bool,
-        /// 研究の型（`--sci` と一緒に使う）
+        /// RESEARCH_TYPE（`--sci` と一緒に使う）
         #[arg(long = "type", value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
         sci_type: Option<String>,
     },
