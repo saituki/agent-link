@@ -2568,6 +2568,7 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 /// * `worktree` — タスクの worktree 指定（"isolation" / "none" / ブランチ名）
 /// * `task_cwd` — タスクの作業フォルダ（親が指定した絶対パス。None ならプロジェクトルート）
 /// * `task_timeout` — タスクの時間上限（秒。親が `task_create` で指定。None ならブロック定義に従う）
+/// * `task_runner` — 子の実行主体（`pi` / `cc`。親が `task_create` で指定。None ならカードの `runner:`、無ければ `pi`）
 /// * `batch_id` — タスクバッチ ID（P3-A。DAG のフェーズ合成に使用）
 /// * `card_run_id` — 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id と
 ///   `task.md`（`sci_*` を含む）をそのまま使う。`None` は従来どおり新規に run を作る）
@@ -2585,6 +2586,7 @@ pub fn run_subtask(
     worktree: Option<String>,
     task_cwd: Option<String>,
     task_timeout: Option<u32>,
+    task_runner: Option<String>,
     batch_id: Option<String>,
     card_run_id: Option<i64>,
     tab_id: Option<String>,
@@ -2668,8 +2670,16 @@ pub fn run_subtask(
         worktree,
         cwd: task_cwd,
         keep_pane: false,
-        // サブタスクは pi のみ（cc からの task_* は本タスク外）
-        runner: RunnerKind::Pi,
+        // 実行主体: task_create の runner → カードの runner → pi の順
+        runner: task_runner
+            .as_deref()
+            .map(RunnerKind::parse)
+            .or_else(|| {
+                card.as_ref()
+                    .and_then(|c| non_empty_str(&c.frontmatter.runner))
+                    .map(|r| RunnerKind::parse(&r))
+            })
+            .unwrap_or(RunnerKind::Pi),
     };
 
     // カード指定の子（U2）は、予約済みの run_id と run フォルダの task.md を使い回す。

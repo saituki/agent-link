@@ -267,6 +267,7 @@ fn tools_list_result() -> Value {
                                 "depends_on": { "type": "array", "items": { "type": "string" }, "description": "依存するタスクの client_id（同一バッチ内）" },
                                 "cwd": { "type": "string", "description": "サブタスクの作業フォルダ。絶対パス・~/ 始まり・プロジェクトルートからの相対パス。存在するフォルダであること。省略時はプロジェクトルート" },
                                 "timeout": { "type": "integer", "description": "子の時間上限（秒）。ブロック定義の timeout を上書きする。超えてもタスクは失敗にせず、親の task_output に stalled(reason=timeout) を返す。完了しないあいだは同じ間隔で繰り返し知らせる。省略時はブロック定義に従う" },
+                                "runner": { "type": "string", "enum": ["pi", "cc"], "description": "子の実行主体。pi か cc（Claude Code）。省略時は pi。card を指定したときは省略するとカードの runner を使う" },
                                 "worktree": { "type": "string", "enum": ["isolation", "none"], "description": "作業用コピー（git worktree）の指定。未指定ならブロック定義の worktree に従う。isolation なら cwd を含むリポジトリの .worktrees/<block>-<run_id> を作る。none なら作らない（ブロック定義の isolation も打ち消す）" },
                                 "carried_over": { "type": "boolean", "description": "前バッチからの引き継ぎタスク" }
                             },

@@ -103,7 +103,7 @@ const TASK_SELECT_COLS: &str = "id, parent_run_id, subject, description, status,
      block_type, inputs_json, depends_on_json, worktree, \
      execution_id, batch_id, client_id, round, supersedes_batch_id, \
      approval_comment, finalized, deleted_by, deleted_at, run_batch_id, \
-     cwd, created_at, updated_at, timeout, card_run_id";
+     cwd, created_at, updated_at, timeout, card_run_id, runner";
 
 /// `tasks` の行を `Task` に変換する共通マッパー。
 fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
@@ -135,6 +135,7 @@ fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
         timeout: row.get(22)?,
         // card_run_id は既存 DB で NULL の行があるため Option として読む
         card_run_id: row.get(23)?,
+        runner: row.get(24)?,
     })
 }
 
@@ -2239,8 +2240,8 @@ impl SaiStore {
             "INSERT INTO tasks (parent_run_id, subject, description, status, \
              block_type, inputs_json, depends_on_json, worktree, batch_id, \
              client_id, round, supersedes_batch_id, approval_comment, finalized, \
-             deleted_by, deleted_at, cwd, timeout, card_run_id) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+             deleted_by, deleted_at, cwd, timeout, card_run_id, runner) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 task.parent_run_id,
                 task.subject,
@@ -2261,6 +2262,7 @@ impl SaiStore {
                 task.cwd,
                 task.timeout,
                 task.card_run_id,
+                task.runner,
             ],
         )?;
 
@@ -2279,8 +2281,8 @@ impl SaiStore {
                 "INSERT INTO tasks (parent_run_id, subject, description, status, \
                  block_type, inputs_json, depends_on_json, worktree, batch_id, \
                  client_id, round, supersedes_batch_id, approval_comment, finalized, \
-                 deleted_by, deleted_at, cwd, timeout, card_run_id) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                 deleted_by, deleted_at, cwd, timeout, card_run_id, runner) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
                 params![
                     task.parent_run_id,
                     task.subject,
@@ -2301,6 +2303,7 @@ impl SaiStore {
                     task.cwd,
                     task.timeout,
                     task.card_run_id,
+                    task.runner,
                 ],
             )?;
             ids.push(tx.last_insert_rowid());
@@ -4540,6 +4543,37 @@ mod tests {
     }
 
     /// U2: タスクの `card_run_id` が保存・読み出しでき、未完了のタスクを引ける。
+    /// `runner` が insert_task → get_task_by_id で往復すること（未指定は None）。
+    #[test]
+    fn test_task_runner_round_trip() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("runner-task")).unwrap();
+        let parent_run_id = store.create_execution(block_id, None).unwrap();
+        let make = |cid: &str| {
+            Task::new(
+                parent_run_id,
+                "件名".to_string(),
+                "説明".to_string(),
+                Some("runner-task".to_string()),
+                None,
+                None,
+                "none".to_string(),
+                Some("batch_1".to_string()),
+                Some(cid.to_string()),
+            )
+        };
+        let mut with_runner = make("A");
+        with_runner.runner = Some("cc".to_string());
+        let ids = store
+            .insert_tasks_batch(&[with_runner, make("B")])
+            .unwrap();
+        assert_eq!(
+            store.get_task_by_id(ids[0]).unwrap().runner.as_deref(),
+            Some("cc")
+        );
+        assert_eq!(store.get_task_by_id(ids[1]).unwrap().runner, None);
+    }
+
     #[test]
     fn test_task_card_run_id_round_trip_and_unfinished_lookup() {
         let store = SaiStore::open_in_memory().unwrap();

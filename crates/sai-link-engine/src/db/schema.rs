@@ -164,6 +164,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             cwd             TEXT,              -- サブタスクの作業フォルダ（絶対パス。NULL = プロジェクトルート）
             timeout         INTEGER,          -- 子の時間上限（秒）。超えると親へ stalled(timeout) を繰り返し通知する。NULL = ブロック定義に従う
             card_run_id     INTEGER,          -- 起こす todo カードの run_id（task_create の card 引数。NULL = カード無し）
+            runner          TEXT,             -- 子の実行主体（task_create の runner 引数。pi / cc。NULL = pi）
             execution_id    INTEGER REFERENCES execution_history(id),
             batch_id        TEXT,
             client_id       TEXT,              -- クライアント側一時ID（carried_over 照合・依存解決用）
@@ -335,6 +336,8 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "tasks", "timeout", "INTEGER")?;
     // 起こす todo カードの run_id（task_create の card 引数）
     migrate_add_column(conn, "tasks", "card_run_id", "INTEGER")?;
+    // 子の実行主体（task_create の runner 引数。pi / cc）
+    migrate_add_column(conn, "tasks", "runner", "TEXT")?;
 
     // tasks の新カラム（実行バッチ所属）
     migrate_add_column(conn, "tasks", "run_batch_id", "INTEGER")?;

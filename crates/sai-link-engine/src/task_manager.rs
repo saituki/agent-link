@@ -104,6 +104,9 @@ pub struct TaskItem {
     /// 通知の項目名は `card`（呼び出し側の指定にそろえる）。
     #[serde(rename = "card", default)]
     pub card_run_id: Option<i64>,
+    /// 子の実行主体（`pi` / `cc`。省略時は card の runner、無ければ `pi`）
+    #[serde(default)]
+    pub runner: Option<String>,
     /// 前バッチで承認済み・内容変更なし（引き継ぎ）
     #[serde(default)]
     pub carried_over: bool,
@@ -550,6 +553,8 @@ impl TaskManager {
             task.timeout = item.timeout;
             // 起こす todo カード（task_create の card。予約 run_id をそのまま子として使う）
             task.card_run_id = item.card_run_id;
+            // 子の実行主体（task_create の runner）
+            task.runner = item.runner.clone();
             // 承認情報付き（新形式）なら approved で直接保存（CLI approve 不要）
             if item.approval.is_some() {
                 task.status = "approved".to_string();
@@ -1562,6 +1567,7 @@ impl TaskManager {
             worktree,
             task_cwd,              // 親が指定した作業フォルダ（絶対パス）
             task.timeout,          // 親が指定した子の時間上限（秒）
+            task.runner.clone(),   // 親が指定した子の実行主体（pi / cc。None はカード → pi）
             task.batch_id.clone(), // P3-A: タスクバッチID を実行レコードに伝播
             task.card_run_id,      // U2: todo のカードを自分の子として起こす場合の予約 run_id
             Some(tab_id),          // U2・R4: 動的配置で使用するタブ
@@ -2704,6 +2710,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2744,6 +2751,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: Some(600),
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2780,6 +2788,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2794,6 +2803,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2830,6 +2840,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2866,6 +2877,7 @@ mod tests {
                 worktree: "isolation".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2920,6 +2932,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2957,6 +2970,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2971,6 +2985,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -3006,6 +3021,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3044,6 +3060,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3114,6 +3131,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3164,6 +3182,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3181,6 +3200,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3223,6 +3243,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3247,6 +3268,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: true,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3293,6 +3315,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3310,6 +3333,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3383,6 +3407,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3448,6 +3473,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3465,6 +3491,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None, // 旧形式 → pending
@@ -3514,6 +3541,7 @@ mod tests {
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3768,6 +3796,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3867,6 +3896,7 @@ mod tests {
                     worktree: "none".to_string(),
                     cwd: None,
                     timeout: None,
+                    runner: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -4164,6 +4194,7 @@ main "$@"
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -4205,6 +4236,7 @@ main "$@"
                 worktree: "none".to_string(),
                 cwd: None,
                 timeout: None,
+                runner: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
