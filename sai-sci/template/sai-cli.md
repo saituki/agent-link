@@ -15,7 +15,7 @@
 | 依頼文・会話・報告・起動時の固定部分を読む | `sai-moon-link phone md --kind task\|message\|report\|system <run_id>` |
 | その実行が保存した文書 | `sai-moon-link phone waggle <run_id>`（`--token <トークン>` で本文。残りも `sai_read` で読める） |
 | 過去の会話を言葉で探す | `sai-moon-link search -w <語,語> [--block <名>] [--json]` |
-| 実行の中身（log / stats / history） | `sai-moon-link phone run <run_id>` |
+| 実行の中身（log / stats / history） | `sai-moon-link phone run --view log\|stats\|history <run_id>` |
 | 3 層の図（root / seed / branch） | `sai-moon-link phone rtree` |
 
 結果はほとんどが JSON で返る。長いときは必要な部分だけ取り出して読む。
@@ -68,7 +68,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/phone_api.py" mlflow metric <mlflow_run_id
 ```
 
 - 終了コード 0 = 終わった、1 = サーバがエラーを返した・引数が違う、2 = sai-phone につながなかった。
-- 2 のときは、常駐が動いていない可能性がある。自分で起動せず要点を親に返す。
+- 2 のときは、常駐が動いていない可能性がある。自分で起動しない。親がある run（operator など）は要点を親に返し、親が無い run（professor）は Human に上げる。
 
 ## 実行先
 
@@ -79,7 +79,9 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `exp_exec.py check <target>` は実行先の接続と前提を確かめる、`status <job_id>` は投げたジョブの状態を返す（`--json` で JSON）。
 
-## カード（task.md）を作る（人が実行する）
+## 人が起こすカード（task.md）を作る
+
+これは `executer: human` のカード（Human が Web の ▶ で起こすもの）の作り方である。研究方針の木の節点のためのカードは、上の `sci card --executer professor` で作り、professor が `task_create` の `card` で起こす。この節ではない。
 
 `sai-moon-link phone card options` で使えるブロック・runner・model・thinking を確かめ、標準入力に JSON を渡して `sai-moon-link phone card create` する。
 戻りの `path` を編集して `description:` と `origin_run_id:` を埋める。**実行は Human が行う。あなたはカードを作るだけで、実行しない。**
@@ -90,7 +92,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `sai-moon-link phone card run` / `sai-moon-link phone finalize` / `sai-moon-link phone advance` / `sai-moon-link block run` / `sai-moon-link block rm` / `sai-moon-link phone rm` / `sai-moon-link daemon` / `sai-moon-link init` / `sai-moon-link migrate-outputs` / `sai-moon-link task manage` / `sai-moon-link phone md --write`
 
-`sai-moon-paper init` / `sai-moon-paper sci init` / `sai-moon-paper sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない。ただし professor は、木の仕分けのために `sci triage` と `sci apply`（`decide` など、人がする op）を使ってよい。課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。
+`sai-moon-paper init` / `sai-moon-paper sci init` / `sai-moon-paper sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない。ただし professor（逆向きの `professor-backward` を含む）だけは、木の仕分けのために `sci triage` と `sci apply`（標準入力に op の JSON。`decide` など、人がする op）を使ってよい。課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。operator は、木を書き換える `sci` の命令を打たない（読む命令だけ）。
 
 ## researcher に渡さないもの
 

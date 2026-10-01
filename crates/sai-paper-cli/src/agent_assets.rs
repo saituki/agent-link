@@ -47,7 +47,8 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
 
-/// sai-sci のブロック 20 本（C-16 の表の順。後ろの 2 本は実験ループの U04、最後の 2 本は U8 の足した分）。
+/// sai-sci のブロック 26 本（C-16 の表の順。後ろの 2 本は実験ループの U04、次の 2 本は U8 の足した分、
+/// 次の 5 本は逆向き（backward）の運用で足した分、最後の 1 本は実行履歴の改善案を作る `kaizen`）。
 ///
 /// 大半は研究方針の木で動く 3 類（outline / detail / support）。どれも同じ共通の決まり
 /// （`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
@@ -79,6 +80,12 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-exp-branch.md", include_str!("../../../sai-sci/blocks/sci-exp-branch.md")),
     ("professor.md", include_str!("../../../sai-sci/blocks/professor.md")),
     ("operator.md", include_str!("../../../sai-sci/blocks/operator.md")),
+    ("sci-restore.md", include_str!("../../../sai-sci/blocks/sci-restore.md")),
+    ("sci-cite-check.md", include_str!("../../../sai-sci/blocks/sci-cite-check.md")),
+    ("sci-tree-review.md", include_str!("../../../sai-sci/blocks/sci-tree-review.md")),
+    ("sci-result-compare.md", include_str!("../../../sai-sci/blocks/sci-result-compare.md")),
+    ("professor-backward.md", include_str!("../../../sai-sci/blocks/professor-backward.md")),
+    ("kaizen.md", include_str!("../../../sai-sci/blocks/kaizen.md")),
 ];
 
 /// sai-sci の共通の決まり。
@@ -87,6 +94,7 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
 /// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sai-task.md`・`sai-cli.md`。U8）。
 ///   前の 3 本は researcher が使う。後の 3 本は `professor` と `operator` が使う
 ///   （引き継ぎ・質問・子タスク・命令）。
+/// - 逆向き（backward）の共通の決まり（`bw-core.md`）。逆向きの 4 本と `professor-backward` が使う。
 const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md")),
     ("exp-core.md", include_str!("../../../sai-sci/template/exp-core.md")),
@@ -94,6 +102,7 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("sai-agent.md", include_str!("../../../sai-sci/template/sai-agent.md")),
     ("sai-task.md", include_str!("../../../sai-sci/template/sai-task.md")),
     ("sai-cli.md", include_str!("../../../sai-sci/template/sai-cli.md")),
+    ("bw-core.md", include_str!("../../../sai-sci/template/bw-core.md")),
 ];
 
 /// sai-sci の道具（`.sai/tools/` に置く。実験ループの台帳と、実行先へ投げる分配器）。
@@ -490,12 +499,13 @@ mod tests {
     /// 木の範囲も共通の決まり（sci-core）も受け取らない 1 本（実験の実行役）。
     const EXP_WITHOUT_SCI_CORE: &str = "sci-exp-branch.md";
 
-    /// 木の中で動かず、外から木を見る 2 本（professor と operator）。
+    /// 木の中で動かず、外から木を見る 4 本（professor・professor-backward・operator・kaizen）。
     ///
-    /// この 2 本は `sci-core` も `context: true` も持たない。節点の範囲を作ってから動く
+    /// この 4 本は `sci-core` も `context: true` も持たない。節点の範囲を作ってから動く
     /// のではなく、木そのものを見る窓口だから。共通の決まりは研究向けの 3 本
     /// （`sai-agent` / `sai-task` / `sai-cli`）を受ける。
-    const SCI_BLOCKS_WITHOUT_SCI_CORE: &[&str] = &[EXP_WITHOUT_SCI_CORE, "professor.md", "operator.md"];
+    const SCI_BLOCKS_WITHOUT_SCI_CORE: &[&str] =
+        &[EXP_WITHOUT_SCI_CORE, "professor.md", "professor-backward.md", "operator.md", "kaizen.md"];
 
     /// 部品を配ると、ブロック・テンプレート・設定・.mcp.json ができる。
     /// 既にある項目とファイルは残り、2 回目も重複しない。
@@ -699,14 +709,14 @@ mod tests {
 
         let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
 
-        // sci のブロック 20 本と、今の部品 17 本もそろう
+        // sci のブロック 26 本と、今の部品 17 本もそろう
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 20, "SCI_BLOCKS が 20 本でない");
-        assert_eq!(sci_blocks, 18, "配った sci のブロックが 18 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 26, "SCI_BLOCKS が 26 本でない");
+        assert_eq!(sci_blocks, 22, "配った sci のブロックが 22 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
         }
@@ -900,7 +910,7 @@ mod tests {
         }
     }
 
-    /// sci のブロック 20 本のうち 17 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
+    /// sci のブロック 26 本のうち 21 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
@@ -908,9 +918,10 @@ mod tests {
     /// `professor` と `operator` は木の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 20);
+        assert_eq!(SCI_BLOCKS.len(), 26);
         for id in [
             "sci-analogy.md",
+            "sci-cite-check.md",
             "sci-coach.md",
             "sci-compare.md",
             "sci-debate.md",
@@ -923,10 +934,13 @@ mod tests {
             "sci-outline.md",
             "sci-probe.md",
             "sci-read.md",
+            "sci-restore.md",
+            "sci-result-compare.md",
             "sci-screen.md",
             "sci-search.md",
             "sci-seed.md",
             "sci-start.md",
+            "sci-tree-review.md",
         ] {
             assert!(
                 SCI_BLOCKS.iter().any(|(name, _)| *name == id),
@@ -964,7 +978,7 @@ mod tests {
             assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
-        assert_eq!(checked, 17, "共通の決まりを確かめたのは 17 本でない");
+        assert_eq!(checked, 21, "共通の決まりを確かめたのは 21 本でない");
     }
 
     /// frontmatter から、リスト項目（`templates:` など）に並ぶ値をまとめて読む。
@@ -1008,6 +1022,25 @@ mod tests {
                     "## 質問に答える",
                     "## 評価の観点",
                     "## 実験の世代（seed）",
+                    "## operator を使う",
+                    "## Human に上げる",
+                    "## 完了する",
+                    "## やってはいけないこと",
+                ][..],
+            ),
+            (
+                "professor-backward.md",
+                "professor-backward",
+                true,
+                &[
+                    "## 依頼",
+                    "## 役割",
+                    "## 研究方針の木の読み方",
+                    "## 始めにすること",
+                    "## 段の進め方",
+                    "## 1 回の回し方",
+                    "## 質問に答える",
+                    "## 評価の観点",
                     "## operator を使う",
                     "## Human に上げる",
                     "## 完了する",
@@ -1086,27 +1119,78 @@ mod tests {
     /// Human に上げる 4 つ（課金・鍵・要件の範囲・成功基準）が書いてある。
     #[test]
     fn professor_body_names_cards_status_questions_and_human_asks() {
-        let content = SCI_BLOCKS
-            .iter()
-            .find(|(block, _)| *block == "professor.md")
-            .map(|(_, content)| *content)
-            .expect("professor.md が SCI_BLOCKS に無い");
-        for needle in [
-            "\"card\": 120",
-            "--executer professor",
-            "--origin-run \"$SAI_PARENT_RUN_ID\"",
-            "sai-moon-paper sci status --brief",
-            "sci triage",
-            "phone_api.py",
-            "question <qid>",
-            "answer <qid>",
-            "課金",
-            "鍵・合言葉",
-            "要件の範囲",
-            "成功基準",
-            "professor-log.md",
+        for (name, log) in [
+            ("professor.md", "professor-log.md"),
+            ("professor-backward.md", "professor-backward-log.md"),
         ] {
-            assert!(content.contains(needle), "professor.md に {needle} が無い");
+            let content = SCI_BLOCKS
+                .iter()
+                .find(|(block, _)| *block == name)
+                .map(|(_, content)| *content)
+                .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
+            for needle in [
+                "\"card\": 120",
+                "--executer professor",
+                "--origin-run \"$SAI_PARENT_RUN_ID\"",
+                "sai-moon-paper sci status --brief",
+                "sci triage",
+                "phone_api.py",
+                "question <qid>",
+                "answer <qid>",
+                "課金",
+                "鍵・合言葉",
+                "要件の範囲",
+                "成功基準",
+                log,
+            ] {
+                assert!(content.contains(needle), "{name} に {needle} が無い");
+            }
+        }
+    }
+
+    /// 逆向き（backward）の 4 本と `professor-backward` は共通の決まり `bw-core` を受け、
+    /// `professor-backward` は 5 つの段のブロックを全部呼べる。
+    #[test]
+    fn backward_blocks_declare_bw_core_and_phases() {
+        let find = |name: &str| {
+            SCI_BLOCKS
+                .iter()
+                .find(|(block, _)| *block == name)
+                .map(|(_, content)| *content)
+                .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"))
+        };
+        for name in [
+            "sci-restore.md",
+            "sci-cite-check.md",
+            "sci-tree-review.md",
+            "sci-result-compare.md",
+            "professor-backward.md",
+        ] {
+            let content = find(name);
+            let frontmatter = content
+                .strip_prefix("---\n")
+                .and_then(|rest| rest.split("\n---\n").next())
+                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
+            assert!(
+                frontmatter_list(frontmatter, "templates:").contains(&"bw-core"),
+                "{name} の templates に bw-core が無い"
+            );
+        }
+        let frontmatter = find("professor-backward.md")
+            .strip_prefix("---\n")
+            .and_then(|rest| rest.split("\n---\n").next())
+            .unwrap();
+        let children = frontmatter_list(frontmatter, "subblocks:");
+        for child in [
+            "sci-restore",
+            "sci-cite-check",
+            "sci-tree-review",
+            "sci-exp-seed",
+            "sci-search",
+            "sci-seed",
+            "sci-result-compare",
+        ] {
+            assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");
         }
     }
 
