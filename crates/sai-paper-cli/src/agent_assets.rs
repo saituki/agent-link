@@ -47,16 +47,16 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
 
-/// sai-sci のブロック 26 本（C-16 の表の順。後ろの 2 本は実験ループの U04、次の 2 本は U8 の足した分、
+/// sai-sci のブロック 27 本（C-16 の表の順。後ろの 3 本は実験ループ（sprout・branch・review）、次の 2 本は U8 の足した分、
 /// 次の 5 本は逆向き（backward）の運用で足した分、最後の 1 本は実行履歴の改善案を作る `kaizen`）。
 ///
 /// 大半は研究方針の木で動く 3 類（outline / detail / support）。どれも同じ共通の決まり
 /// （`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
 ///
-/// ただし `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
+/// ただし実験ループの `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
 /// （受け取るのは実験ループの共通の決まり `exp-core` だけ）。
 ///
-/// `professor` と `operator` は木の中で動かず、木（root / seed / branch）の外から木を見る役。
+/// `professor` と `operator` は木の中で動かず、木（seed / root / sprout / branch）の外から木を見る役。
 /// 共通決まり（`sci-core`）も範囲（`context: true`）も持たず、研究プロジェクト向けの
 /// 共通の決まり（`sai-agent` / `sai-task` / `sai-cli`）を受ける。
 const SCI_BLOCKS: &[(&str, &str)] = &[
@@ -76,8 +76,9 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-extract.md", include_str!("../../../sai-sci/blocks/sci-extract.md")),
     ("sci-lookup.md", include_str!("../../../sai-sci/blocks/sci-lookup.md")),
     ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
-    ("sci-exp-seed.md", include_str!("../../../sai-sci/blocks/sci-exp-seed.md")),
+    ("sci-exp-sprout.md", include_str!("../../../sai-sci/blocks/sci-exp-sprout.md")),
     ("sci-exp-branch.md", include_str!("../../../sai-sci/blocks/sci-exp-branch.md")),
+    ("sci-exp-review.md", include_str!("../../../sai-sci/blocks/sci-exp-review.md")),
     ("professor.md", include_str!("../../../sai-sci/blocks/professor.md")),
     ("operator.md", include_str!("../../../sai-sci/blocks/operator.md")),
     ("sci-restore.md", include_str!("../../../sai-sci/blocks/sci-restore.md")),
@@ -709,14 +710,14 @@ mod tests {
 
         let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
 
-        // sci のブロック 26 本と、今の部品 17 本もそろう
+        // sci のブロック 27 本と、今の部品 17 本もそろう
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 26, "SCI_BLOCKS が 26 本でない");
-        assert_eq!(sci_blocks, 22, "配った sci のブロックが 22 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 27, "SCI_BLOCKS が 27 本でない");
+        assert_eq!(sci_blocks, 23, "配った sci のブロックが 23 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
         }
@@ -764,7 +765,7 @@ mod tests {
                 assert!(mode & 0o111 != 0, "{name} に実行の権限が無い");
             }
         }
-        for name in ["sci-exp-seed.md", "sci-exp-branch.md", "exp-core.md"] {
+        for name in ["sci-exp-review.md", "exp-core.md"] {
             let content = SCI_BLOCKS
                 .iter()
                 .chain(SCI_TEMPLATES.iter())
@@ -855,10 +856,10 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// 実験ループの 2 本の `layer`（C-01）。`sci-exp-seed` は `seed`、`sci-exp-branch` は `branch`。
+    /// 実験ループの 2 本の `layer`（C-01）。`sci-exp-sprout` は `sprout`、`sci-exp-branch` は `branch`。
     #[test]
     fn exp_blocks_declare_layer() {
-        for (name, expected) in [("sci-exp-seed.md", "seed"), ("sci-exp-branch.md", "branch")] {
+        for (name, expected) in [("sci-exp-sprout.md", "sprout"), ("sci-exp-branch.md", "branch")] {
             let content = SCI_BLOCKS
                 .iter()
                 .find(|(block, _)| *block == name)
@@ -910,7 +911,7 @@ mod tests {
         }
     }
 
-    /// sci のブロック 26 本のうち 21 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
+    /// sci のブロック 27 本のうち 21 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
@@ -918,7 +919,7 @@ mod tests {
     /// `professor` と `operator` は木の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 26);
+        assert_eq!(SCI_BLOCKS.len(), 27);
         for id in [
             "sci-analogy.md",
             "sci-cite-check.md",
@@ -927,7 +928,8 @@ mod tests {
             "sci-debate.md",
             "sci-digest.md",
             "sci-draft.md",
-            "sci-exp-seed.md",
+            "sci-exp-review.md",
+            "sci-exp-sprout.md",
             "sci-extract.md",
             "sci-ideate.md",
             "sci-lookup.md",
@@ -978,7 +980,7 @@ mod tests {
             assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
-        assert_eq!(checked, 21, "共通の決まりを確かめたのは 21 本でない");
+        assert_eq!(checked, 22, "共通の決まりを確かめたのは 22 本でない");
     }
 
     /// frontmatter から、リスト項目（`templates:` など）に並ぶ値をまとめて読む。
@@ -1020,7 +1022,7 @@ mod tests {
                     "## 1 回の回し方",
                     "## 質問に答える",
                     "## 評価の観点",
-                    "## 実験の世代（seed）",
+                    "## 実験（sprout と branch）",
                     "## operator を使う",
                     "## Human に上げる",
                     "## 完了する",
@@ -1187,7 +1189,7 @@ mod tests {
             "sci-restore",
             "sci-cite-check",
             "sci-tree-review",
-            "sci-exp-seed",
+            "sci-exp-sprout",
             "sci-search",
             "sci-seed",
             "sci-result-compare",

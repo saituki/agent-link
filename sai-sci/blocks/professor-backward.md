@@ -28,7 +28,7 @@ subblocks:
   - sci-extract
   - sci-lookup
   - sci-analogy
-  - sci-exp-seed
+  - sci-exp-sprout
 ---
 
 # 🔙 professor-backward
@@ -71,8 +71,8 @@ subblocks:
 | 1. 抽出 | `sci-restore` を 1 本（NODE は `background` など一番上の ITEM） | なし（`--purpose` に基盤論文の番号） | 復元書と SEED の札（再現）がある。PROPOSAL を TRIAGE し終え、「残した仮決定」も出し終えた |
 | 2. 評価（引用） | `sci-cite-check` を、主張を NODE ごとに分けて 1〜3 本ずつ | 復元書 | 対応表の主張がすべて判定された（未確認を含む） |
 | 2. 評価（木） | `sci-tree-review` を 1 本 | 復元書・引用の判定表の全部 | 審査書がある。「要補強」「誤り」の次の一手を片付けるか、Human が「このまま進めてよい」と答えた |
-| 3. 再現 | `sci-exp-seed`（NODE は `purpose.metric`） | SEED の札（再現） | 判定が `stop`。または下の「再現の世代」で止めた |
-| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-seed` → `sci-exp-seed` | 前の段の報告 | SEED の札（更新）の実験の判定が `stop` |
+| 3. 再現 | `sci-exp-sprout`（NODE は `purpose.metric`） | SEED の札（再現） | review の判定が `stop`（完了報告書）。または下の「再現の実験」で止めた |
+| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-seed` → `sci-exp-sprout` | 前の段の報告 | SEED の札（更新）の実験で、review の判定が `stop`（完了報告書） |
 | 5. 比較 | `sci-result-compare` を 1 本 | 復元書・引用の判定表・審査書・再現と更新の完了報告書と実験仕様書 | 比較書がある |
 
 - 段は順に進める。段を飛ばすのは Human が指示したときだけ（例: 「再現はしない」「更新はしない」）。更新をしないときは、段 5 で再現だけを比べる。
@@ -92,15 +92,17 @@ subblocks:
 - 審査書の「DECIDED に上げてよい ITEM」は、E1〜E4 の判定を確かめてから、`echo '{"op": "decide", "node": "<N>", "option": "<N>", "tentative": false, "evidence": ["<F>"], "counter_searched": true, "reason": "…"}' | sai-moon-paper sci apply` で DECIDED に上げる（`option` は選ぶ OPTION で、OPTION があるときだけ書く）。反証を探していない ITEM は `counter_searched` を `false` にする。
 - 「誤り」の ITEM の `reopen` の PROPOSAL は ACCEPT する。ACCEPT したら、その ITEM を前向きと同じやり方（`sci-read`・`sci-compare` など）で埋め直すか、Human に上げる。
 
-### 再現の世代
+### 再現の実験
 
 - 再現を始める前に、質問ツールで Human に 2 つを聞く。1 つ目は実行先（`EXP_TARGET`。課金のある実行先かどうか）。2 つ目は許容幅（成功基準）で、記載結果表の ★ の値とばらつきを添え、「論文の記載値 ± どれだけなら再現できたとするか」を聞く。答えを `purpose.metric` の本文に反映する（`edit_text` を `sci apply` で）。
-- 再現の seed のカードは `--input <SEED の札（再現）のトークン>` で作る。`--purpose` に「再現。SEED の札の『再現で守ること』に従う」と書く。
-- 次の世代を起こすかは、判定書の `decision` で決める。
-  - `extend`・`debug`・`ablation`: 次の世代を起こす（前の seed の報告のトークンを `--input` に入れる）。
-  - `new_script`: 次の世代は起こさない。論文と違う手法になり、再現の外だからである。再現は「合わなかった」として段 5 の比較の材料にし、段 4 に進む。
-  - `stop`: 段 3 を終える。
-- 同じ `debug` が 2 回続いても実行できないときは、「評価の観点」のとおり Human に上げる。
+- 再現の sprout のカードは `--input <SEED の札（再現）のトークン>` で作る。`--purpose` に「再現。SEED の札の『再現で守ること』に従う。allowed_actions は draft・tune・debug（モデルを変えない）。起動元: professor-backward run <自分の run_id>」と書く。
+- sprout の報告を受けたら研究日誌に書き、`professor` と同じく、実験の間は終えてよい（実験の鎖の最後の review が起こし直す）。
+- 起こし直されたら、完了報告書の `stop_reason` で決める。
+  - `success`: 段 3 を終える。
+  - `not_allowed`（モデルを変えないと続けられない）: 再現は「合わなかった」として段 5 の比較の材料にし、段 4 に進む。
+  - `max_branches`: 段 5 の材料にする。Human に上げるか段 4 に進むかを日誌に書いて決める。
+  - `no_records`・`cancelled`: Human に上げる。
+- debug が `max_debug` 回続いて止まったときは、「評価の観点」のとおり Human に上げる。
 
 ### 段 4 の決め方
 

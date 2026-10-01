@@ -28,7 +28,7 @@ subblocks:
   - sci-extract
   - sci-lookup
   - sci-analogy
-  - sci-exp-seed
+  - sci-exp-sprout
 ---
 
 # 🎓 professor
@@ -107,16 +107,18 @@ subblocks:
 ## 評価の観点
 
 - 成功基準（`purpose.metric`）が、指標の計算のしかた（例: point-adjust）で意味を失っていないか。**実験の前に確かめる。** 反証（`polarity: refute`）の FINDING が出たら、基準を Human に上げて問い直す。
-- 失敗が「実装の誤り」か「方法の限界」かを区別する。同じ手順が 2 回続けて失敗したら、まず実装を疑い、seed に debug を頼む（1 回だけ）。debug のあとも同じ失敗なら、Human に上げる（下の「Human に上げる」）。
+- 失敗が「実装の誤り」か「方法の限界」かを区別する。同じ手順が 2 回続けて失敗したら、まず実装を疑い、review が debug の branch を起こす（1 回だけ）。debug のあとも同じ失敗なら、Human に上げる（下の「Human に上げる」）。
 - 結果が、OPTION を選んだ根拠を崩したら、上流の ITEM に戻る（`reopen` を Human に提案する、または `sci-outline` を起こす）。
 - researcher の出典が `#番号` の形で付いているか、反証を探したか（`sci-core` の決まり）。
 - 言葉の崩れ（意味の無い英字・他の言語の語）があれば、直させてから採る。
 
-## 実験の世代（seed）
+## 実験（sprout と branch）
 
-- seed のカードも `--executer professor` で作る。seed は **1 世代を回して報告を返す。**
-- 報告の判定と台帳の値を見て、次の世代を起こすか、止めるか、上流に戻るかを決める。
-- 次の世代は、前の seed の報告のトークンを `--input` に入れて、**新しいカード**で起こす。
+- 実験は `sci-exp-sprout` のカードを `--executer professor` で作り、`task_create` の `card` で自分の子として起こす。依頼文の目的（`--purpose`）の最後に `起動元: professor run <自分の run_id>` と書く（sprout が実験仕様書の `return_to` に入れる）。
+- sprout は最初の branch を起こしてすぐ報告を返す。報告の実験仕様書のトークンと branch の run_id を研究日誌に書き、sprout を `finalize` する。
+- **実験の終わりを待たない。** 実験が走っている間にほかの研究作業（文献など）が無ければ、研究日誌に「実験 <study> の終わりを待つ」と書いて `sai_finalize` で終える。実験の鎖の最後の review が、完了報告書のトークン付きで professor のカードを作って起こし直す。
+- 起こし直された professor は、研究日誌と完了報告書を読み、続きから判断する（次の sprout・上流に戻る・止める）。
+- 同じ研究で 2 つの professor が同時に動かないようにする。実験の間にほかの作業を続けるときは、鎖の終わりで起こされた新しい professor の run を `phone tree` で見つけたら、自分は研究日誌に引き継ぎを書いて終える。
 
 ## operator を使う
 
