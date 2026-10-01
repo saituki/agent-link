@@ -377,6 +377,7 @@ sai-moon-link phone card run <返ってきた run_id>
 | `sci read <run_id> [--json]` | READ_CARD の中身 |
 | `sci finish-read <run_id> [--no-reflect <理由>]` | READ_CARD を終える（反映を `reflected` にする） |
 | `sci export` | 木を `state.md` と `tree.md` に書き出す |
+| `sci retitle [--dry-run]` | 旧い日本語のガイド名のままの ITEM の題名を、今のガイドの名前へ移す。先に `--dry-run` で一覧を見る |
 | `sci tombstones [--json]` | TOMBSTONE（外した論文）の一覧 |
 
 書き込む命令（`init` / `propose` / `apply` / `triage` / `card` / `finish-read`）は、終わる前に `export` を実行します。
@@ -469,6 +470,7 @@ mind.md の見出しも同じです（旧い見出しも読む）。
 1. 古い写しを消す: `<root>/.sai/sci/`・`<root>/.sai/blocks/`・`<root>/.sai/template/`、利用者全体の `~/.sai-moon/`（`SAI_SAI_HOME` があればその中）の `blocks/`・`template/`。
 2. 打ち直す: `sai-moon-paper sci init`（研究プロジェクト）または `sai-moon-paper init --assets-only`。無いファイルだけが書かれます。
 3. 手で直した写しは、消す前に控えておく（消すと直した内容も無くなります）。
+4. 既存の木の題名を新しい名前へ移すには `sai-moon-paper sci retitle`（先に `--dry-run` で一覧を見る）。
 
 この手順は文書に書くだけで、開発の作業では実行しません。
 

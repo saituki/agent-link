@@ -71,6 +71,12 @@ pub enum SciCmd {
     },
     /// 利用者の操作を 1 つ反映する（標準入力に C-07 の JSON。いつも JSON）
     Apply,
+    /// 旧い日本語のガイド名のままの ITEM の題名を、今のガイドの名前へ移す
+    Retitle {
+        /// 書かずに、移す一覧だけ出す
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
     /// TRIAGE 待ちの PROPOSAL を一覧する
     Proposals {
         /// JSON で出力する
@@ -251,7 +257,10 @@ pub fn run(cmd: SciCmd) -> Result<()> {
 /// 失敗を `{"error": …}` にする命令か。
 fn wants_json(cmd: &SciCmd) -> bool {
     match cmd {
-        SciCmd::Init { .. } | SciCmd::Context { .. } | SciCmd::Export => false,
+        SciCmd::Init { .. }
+        | SciCmd::Context { .. }
+        | SciCmd::Export
+        | SciCmd::Retitle { .. } => false,
         // --brief は誰が使っても JSON。
         SciCmd::Status { brief, .. } if *brief => true,
         SciCmd::Status { json, .. }
@@ -300,6 +309,7 @@ fn dispatch(cmd: SciCmd) -> Result<Out> {
         SciCmd::Read { run_id, json } => read(run_id, json),
         SciCmd::FinishRead { run_id, no_reflect } => finish_read(run_id, no_reflect.as_deref()),
         SciCmd::Export => export(),
+        SciCmd::Retitle { dry_run } => retitle(dry_run),
         SciCmd::Tombstones { json } => tombstones(json),
     }
 }
@@ -715,6 +725,30 @@ fn export() -> Result<Out> {
     } else {
         Ok(Out::Text("研究方針の木がありません\n".to_string()))
     }
+}
+
+/// `retitle` の出力文（人が読む）。
+fn retitle_text(items: &[defs::Retitle], dry_run: bool) -> String {
+    if items.is_empty() {
+        return "移す ITEM はありません\n".to_string();
+    }
+    let note = if dry_run { "（まだ書いていません）" } else { "" };
+    let mut text = format!("移す ITEM{note}: {} 件\n", items.len());
+    for item in items {
+        text.push_str(&format!("N{} {} ← {}\n", item.id, item.to, item.from));
+    }
+    text
+}
+
+/// `sci retitle [--dry-run]` — 旧い日本語のガイド名の題名を、今のガイドの名前へ移す。
+fn retitle(dry_run: bool) -> Result<Out> {
+    let env = open_env()?;
+    let items = defs::retitle_legacy_items(env.conn(), &env.defs, dry_run)
+        .context("題名を移せませんでした")?;
+    if !dry_run && !items.is_empty() {
+        env.export()?;
+    }
+    Ok(Out::Text(retitle_text(&items, dry_run)))
 }
 
 /// `sci tombstones` — 墓標の一覧。
@@ -1389,6 +1423,23 @@ fn one_line(text: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser as _;
+
+    /// `retitle` の出力の文字。
+    #[test]
+    fn retitle_text_format() {
+        let item = defs::Retitle {
+            id: 12,
+            key: "background.goal".into(),
+            from: "大目的".into(),
+            to: "BACKGROUND_GOAL".into(),
+        };
+        assert_eq!(
+            retitle_text(std::slice::from_ref(&item), false),
+            "移す ITEM: 1 件\nN12 BACKGROUND_GOAL ← 大目的\n"
+        );
+        assert!(retitle_text(&[item], true).starts_with("移す ITEM（まだ書いていません）: 1 件\n"));
+        assert_eq!(retitle_text(&[], false), "移す ITEM はありません\n");
+    }
 
     /// `find` の範囲の引数は `--node` / `--papers` が要る（`--subtree` と `--each`）。
     #[test]

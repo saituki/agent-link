@@ -903,6 +903,77 @@ fn split_list(value: &str) -> Vec<String> {
         .collect()
 }
 
+/// 旧い日本語のガイド名（key → 旧い名前）。`sci retitle` が、同じ題名の ITEM だけを新しい名前へ移す。
+pub const LEGACY_GUIDE_NAMES: [(&str, &str); 25] = [
+    ("background.goal", "大目的"),
+    ("background", "背景"),
+    ("background.problem", "問題の背景"),
+    ("data.access", "入手"),
+    ("data.label", "ラベル"),
+    ("data", "データ"),
+    ("data.size", "データの量"),
+    ("data.type", "データの型"),
+    ("existing", "既存手法"),
+    ("issue.limit", "既存手法の課題"),
+    ("issue", "課題"),
+    ("issue.root", "根本の原因"),
+    ("method.adapt", "取り入れ方"),
+    ("method.analog", "同型の問題"),
+    ("method", "手法"),
+    ("novelty.closest", "最も近い研究"),
+    ("novelty.diff", "差分"),
+    ("novelty", "新規性"),
+    ("phenomenon", "現象"),
+    ("purpose", "目的"),
+    ("purpose.metric", "評価指標と成功基準"),
+    ("purpose.output", "出力の型"),
+    ("purpose.subgoal", "小目的"),
+    ("target", "対象"),
+    ("target.subgroup", "対象の細分"),
+];
+
+/// 題名を移す 1 件。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retitle {
+    pub id: i64,
+    pub key: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// 旧い名前のままの ITEM の題名を、今のガイドの名前へ移す。`dry_run` なら書かずに一覧だけ返す。
+///
+/// 移すのは「ITEM で、item_key のガイドがあり、題名が [`LEGACY_GUIDE_NAMES`] の旧い名前と同じで、
+/// ガイドの今の名前と違うもの」だけ。利用者が変えた題名・OPTION・ガイドの無い ITEM は触らない。
+pub fn retitle_legacy_items(conn: &Connection, defs: &Defs, dry_run: bool) -> Result<Vec<Retitle>> {
+    let mut found = Vec::new();
+    for node in store::list_nodes(conn)? {
+        let Some(key) = node.item_key.as_deref().filter(|_| node.kind == "item") else {
+            continue;
+        };
+        let Some(guide) = defs.guide(key).filter(|guide| !guide.name.is_empty()) else {
+            continue;
+        };
+        let legacy = LEGACY_GUIDE_NAMES.iter().find(|(k, _)| *k == key).map(|(_, name)| *name);
+        if legacy == Some(node.title.as_str()) && guide.name != node.title {
+            found.push(Retitle {
+                id: node.id,
+                key: key.to_string(),
+                from: node.title.clone(),
+                to: guide.name.clone(),
+            });
+        }
+    }
+    if !dry_run {
+        let tx = conn.unchecked_transaction()?;
+        for item in &found {
+            store::update_node_text(&tx, item.id, Some(&item.to), None)?;
+        }
+        tx.commit()?;
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1346,5 +1417,76 @@ mod tests {
             .iter()
             .find(|(path, _)| *path == relative)
             .map_or("", |(_, text)| *text)
+    }
+
+    /// 旧い名前の ITEM だけが移る。dry_run は書かない。2 回目は 0 件。
+    #[test]
+    fn retitle_moves_only_legacy_titles() {
+        let database = db();
+        let conn = database.connection();
+        let defs = defs();
+        let make = |key: &str, kind: &str, title: &str| {
+            store::insert_node(
+                conn,
+                &NewNode {
+                    kind,
+                    item_key: Some(key),
+                    types: &[],
+                    title,
+                    body: "本文",
+                    state: if kind == "item" { "open" } else { "candidate" },
+                    fixed: false,
+                    ord: 0,
+                    created_by: "user",
+                },
+            )
+            .expect("節点を作る")
+        };
+        let legacy = make("background.goal", "item", "大目的");
+        let renamed = make("background", "item", "私の背景");
+        let option = make("purpose", "option", "目的");
+        let no_guide = make("no.such.key", "item", "大目的");
+
+        let dry = retitle_legacy_items(conn, &defs, true).unwrap();
+        assert_eq!(dry.len(), 1);
+        assert_eq!((dry[0].id, dry[0].to.as_str()), (legacy, "BACKGROUND_GOAL"));
+        assert_eq!(store::get_node(conn, legacy).unwrap().title, "大目的");
+
+        assert_eq!(retitle_legacy_items(conn, &defs, false).unwrap().len(), 1);
+        assert_eq!(store::get_node(conn, legacy).unwrap().title, "BACKGROUND_GOAL");
+        assert_eq!(store::get_node(conn, legacy).unwrap().body, "本文");
+        assert_eq!(store::get_node(conn, renamed).unwrap().title, "私の背景");
+        assert_eq!(store::get_node(conn, option).unwrap().title, "目的");
+        assert_eq!(store::get_node(conn, no_guide).unwrap().title, "大目的");
+        assert!(retitle_legacy_items(conn, &defs, false).unwrap().is_empty());
+    }
+
+    /// 旧い写し（ガイドの名前が旧い日本語）では何も移さない。
+    #[test]
+    fn retitle_skips_legacy_guide_copies() {
+        let database = db();
+        let conn = database.connection();
+        let mut defs = defs();
+        for guide in &mut defs.guides {
+            if let Some((_, old)) = LEGACY_GUIDE_NAMES.iter().find(|(k, _)| *k == guide.key) {
+                guide.name = (*old).to_string();
+            }
+        }
+        store::insert_node(
+            conn,
+            &NewNode {
+                kind: "item",
+                item_key: Some("background.goal"),
+                types: &[],
+                title: "大目的",
+                body: "",
+                state: "open",
+                fixed: false,
+                ord: 0,
+                created_by: "user",
+            },
+        )
+        .unwrap();
+        assert!(retitle_legacy_items(conn, &defs, false).unwrap().is_empty());
     }
 }
