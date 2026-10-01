@@ -79,8 +79,8 @@ const ATTENTION_CHIPS = {
   report_issue: ["出典", "danger"],
   new_set_items: ["新着", "muted"],
   // U19: 研究方針の木から出る要対応
-  sci_decision: ["判断待ち", "warn"],
-  sci_triage: ["仕分け", "warn"],
+  sci_decision: ["AWAITING_DECISION", "warn"],
+  sci_triage: ["TRIAGE", "warn"],
 };
 // 広い画面の「中身」に出しているもの（"" は何も出していない）
 let sideKind = "";       // "paper" | "remote" | ""
