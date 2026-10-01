@@ -1014,7 +1014,6 @@ mod tests {
                 "professor",
                 true,
                 &[
-                    "## 依頼",
                     "## 役割",
                     "## 研究方針の木の読み方",
                     "## 始めにすること",
@@ -1033,7 +1032,6 @@ mod tests {
                 "professor-backward",
                 true,
                 &[
-                    "## 依頼",
                     "## 役割",
                     "## 研究方針の木の読み方",
                     "## 始めにすること",
@@ -1052,7 +1050,6 @@ mod tests {
                 "operator",
                 false,
                 &[
-                    "## 依頼",
                     "## 役割",
                     "## 始めにすること",
                     "## Human が Web でできることと、あなたの命令",
@@ -1082,10 +1079,15 @@ mod tests {
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(frontmatter.contains("\nthinking: high\n"), "{name} の thinking が high ではない");
-            assert!(content.contains("{{input.task_text}}"), "{name} に依頼の入力が無い");
+            // 依頼文は最初のメッセージの「# task_text」節に自動で入る（U04）。
+            // 配るブロックに古い記法（{{input.task_text}}・{{context}}）は無い。
+            assert!(
+                !content.contains("{{input.task_text}}") && !content.contains("{{context}}"),
+                "{name} に古い記法の {{input.…}} が残っている"
+            );
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
 
-            // 本文に必ずある節（依頼・役割・禁止）を確かめる
+            // 本文に必ずある節（役割・禁止など）を確かめる
             for heading in headings {
                 assert!(content.contains(heading), "{name} に {heading} が無い");
             }

@@ -93,11 +93,15 @@ function testTemplate() {
   assert.ok(withBase.includes("\nid: u5-check\n"));
   assert.ok(withBase.includes("\ntemplates: sai-base\n"));
   assert.ok(withBase.includes("\n---\n"));
-  assert.ok(withBase.includes("{{input.task_text}}"));
+  // 依頼は最初のメッセージの「# task_text」に入るので、古い記法は入れない
+  assert.ok(!withBase.includes("{{input.task_text}}"));
+  assert.ok(withBase.includes("\n# 指示\n"));
+  assert.ok(withBase.includes("ここに、このブロックのエージェントへの指示を書く"));
   // sai-base が無ければ templates: の行を入れない
   const noBase = df.dfTemplate("block", "u5-check", false);
   assert.ok(!noBase.includes("templates:"));
-  assert.ok(noBase.includes("{{input.task_text}}"));
+  assert.ok(!noBase.includes("{{input.task_text}}"));
+  assert.ok(noBase.includes("\n# 指示\n"));
   // template は 1 行
   assert.strictEqual(df.dfTemplate("template", "u5-check", true), "# u5-check\n\n");
   // settings は JSON

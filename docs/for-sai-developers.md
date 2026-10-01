@@ -297,17 +297,22 @@ MCP サーバ（`mcp_server.rs`）は `sai_write` / `sai_finalize` / `sai_read` 
 
 | | 中身 | 置き場 | 渡し方 |
 |---|---|---|---|
-| 固定部分（system prompt） | template と block.md の本文。中の可変な場所は案内の文に置き換える | run フォルダ直下の `system-prompt.md`（`run_dir::SYSTEM_PROMPT_FILE`） | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
-| 最初の文 | 入力値（`# <id>` の節）と `context: true` のときの `# 範囲` の節だけ | メモリ（`PreparedPipeline::expanded_prompt`） | herdr のテキスト送信（1 通） |
+| 固定部分（system prompt） | template と block.md の本文。古い記法の可変な場所は案内の文に置き換える | run フォルダ直下の `system-prompt.md`（`run_dir::SYSTEM_PROMPT_FILE`） | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
+| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ（`PreparedPipeline::expanded_prompt`） | herdr のテキスト送信（1 通） |
 
-固定部分の置き換えの規則：
+**最初の文の節は sai-link が自動で作る（U01）。** 本文に古い記法が無くても、次の順に節が並ぶ。節の間は空行 1 行。
 
-| 本文の中 | 固定部分での文 |
-|---|---|
-| `{{input.<id>}}` | `（最初のメッセージの「# <id>」の節にある）` |
-| `{{context}}`（`context: true` のとき） | `（最初のメッセージの「# 範囲」の節にある）` |
+1. `# context` — `context: true` で、中身が空でないときだけ。`context` の出力（中身は `##` から始まる）をそのまま入れる（見出しを付け直さない）。
+2. `# task_text` — 依頼文が無い・空のときは作らない。
+3. そのほかの id — 本文に `{{input.<id>}}` として現れた順（`task_text` は除く）。同じ id が何度出ても節は 1 つだけ。値が無い id は `{{input.<id>}}` の表記のまま入る。
 
-- 最初の文の節は **本文に現れた `{{input.<id>}}` の順**（同じ id が何度出ても 1 つだけ）。値が無い id は `{{input.<id>}}` の表記のまま入る。
+そのうえで、固定部分の**先頭**に次の案内文を足す（2 文は 1 行、空行 1 行を置いて本文から続ける）。固定部分が空のときは足さない。
+
+- context があるとき（`範囲（研究方針の木から切り出した文脈）は、最初のメッセージの「# context」の節にあります。`）
+- 依頼文があるとき（`依頼は、最初のメッセージの「# task_text」の節にあります。`）
+
+**古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要なし。** 配布するブロックと template からは消した（U04）。本文に古い記法が残っている場合は、固定部分には案内の文（`（最初のメッセージの「# <id>」の節にある）`）が置かれ、同じ案内文を先頭に重ねて足さないので二重にならない。読み取りの互換を消すのは段階 3 の予定。
+
 - 節が 1 つも無く固定部分が有るときは、最初の文は `system prompt の指示に従って始めてください。` になる。固定部分も空なら最初の文も空（本文が無いので送らない）。
 - `system-prompt.md` に書けなかったとき（run フォルダが無い・書き込み失敗）は、従来どおり 1 通で送り、固定部分を最初の文の先頭に付ける。stderr に警告を出す（run_id が無いプレビュー・テストでは警告を出さない）。
 - 読むのは **`sai-moon-link phone md --kind system <run_id>`**（Web の run の画面の「system」の帯）。`--write` は `task` だけなので `system` は保存できない。
