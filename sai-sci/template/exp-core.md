@@ -47,7 +47,7 @@
 | 欄 | 中身 |
 |---|---|
 | `study` | `<sci_node>-s<最初の seed の run_id>`。最初の seed の run_id は環境変数 `SAI_PARENT_RUN_ID`。 |
-| `sci_node` | research-tree の節点（`N12` のような形） |
+| `sci_node` | research-tree の NODE（`N12` のような形） |
 | `first_seed_run_id` | 最初の seed の run_id（`study` の `s` の後ろの数字） |
 | `metric` | 指標名（`val_auc` など） |
 | `direction` | `maximize`（大きいほどよい）か `minimize`（小さいほどよい）か |
@@ -81,7 +81,7 @@
 | `exp.action` | `draft` / `tune` / `new` / `debug` / `ablation` | `tune` |
 | `exp.parent_script` | 参考にしたスクリプトの ID（無ければ空文字） | `s01` |
 | `exp.role` | `script` / `trial` | `trial` |
-| `sci.node` | research-tree の節点 | `N12` |
+| `sci.node` | research-tree の NODE | `N12` |
 | `exp.error` | 失敗した試行だけ。例外の 1 行目（500 字まで） | `CUDA out of memory` |
 
 - 親 run だけに付けるタグ: `exp.metric`（仕様書の指標名）・`exp.direction`（`maximize` / `minimize`）。
@@ -338,7 +338,7 @@ seed_run_id: 125
   ## 世代ごとの表
   | 世代 | script | action | decision | rule | best_so_far | 作業報告書 | 判定書 |
 
-  ## research-tree に出した提案
+  ## research-tree に出した PROPOSAL
   - P<id> ...
 
   ## 停止の理由
