@@ -970,12 +970,32 @@ fn first_number(s: &str) -> Option<String> {
 
 /// 検索結果を JSON にし、各要素に `cite` を足す（CLI の --json と MCP で共用）。
 pub fn hits_to_json(hits: &[Hit]) -> serde_json::Value {
+    hits_to_json_with(hits, &std::collections::HashMap::new())
+}
+
+/// [`hits_to_json`] に塊の ID（`passage`）を足す版。`passages` は `chunk_id` が鍵
+/// （[`crate::sections::passages_for_hits`] の戻り値）。`passage` があるとき `cite` は `[#37.5.2]` にする。
+pub fn hits_to_json_with(
+    hits: &[Hit],
+    passages: &std::collections::HashMap<i64, String>,
+) -> serde_json::Value {
     let mut value = serde_json::to_value(hits).expect("Hit は必ず JSON にできる");
     if let serde_json::Value::Array(items) = &mut value {
         for (item, hit) in items.iter_mut().zip(hits.iter()) {
             if let serde_json::Value::Object(map) = item {
-                let cite = cite_for(hit).map_or(serde_json::Value::Null, serde_json::Value::String);
-                map.insert("cite".to_string(), cite);
+                let passage = passages.get(&hit.chunk_id);
+                let cite = match passage {
+                    Some(id) => Some(format!("[{id}]")),
+                    None => cite_for(hit),
+                };
+                map.insert(
+                    "cite".to_string(),
+                    cite.map_or(serde_json::Value::Null, serde_json::Value::String),
+                );
+                map.insert(
+                    "passage".to_string(),
+                    passage.map_or(serde_json::Value::Null, |id| serde_json::Value::String(id.clone())),
+                );
             }
         }
     }
