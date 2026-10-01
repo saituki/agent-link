@@ -206,14 +206,14 @@ macro_rules! opt_field {
 pub const OP_FIELDS: &[OpSpec] = &[
     OpSpec {
         op: "add_finding",
-        about: "項目に知見を足す。引用は cites に文字列の配列（例 [\"#37 §3.2\"]）で入れる",
+        about: "ITEM に FINDING を足す。引用は cites に文字列の配列（例 [\"#37 §3.2\"]）で入れる",
         fields: &[
             field!(
                 "node",
                 FieldKind::Ref('N'),
-                "項目・候補の節点参照（N12 の形）"
+                " ITEM・OPTION の NODE 参照（N12 の形）"
             ),
-            opt_field!("question", FieldKind::Ref('Q'), "問いの参照（Q7 の形）"),
+            opt_field!("question", FieldKind::Ref('Q'), " QUESTION の参照（Q7 の形）"),
             field!("text", FieldKind::Str, "1〜1200 字の文（3 文まで）"),
             field!(
                 "cites",
@@ -233,32 +233,32 @@ pub const OP_FIELDS: &[OpSpec] = &[
     },
     OpSpec {
         op: "add_question",
-        about: "項目に問いを足す",
+        about: "ITEM に QUESTION を足す",
         fields: &[
             field!(
                 "node",
                 FieldKind::Ref('N'),
-                "項目・候補の節点参照（N12 の形）"
+                " ITEM・OPTION の NODE 参照（N12 の形）"
             ),
-            field!("text", FieldKind::Str, "1〜300 字の問い"),
+            field!("text", FieldKind::Str, "1〜300 字の QUESTION"),
         ],
     },
     OpSpec {
         op: "answer_question",
-        about: "問いに答えを書く",
+        about: "QUESTION に答えを書く",
         fields: &[
-            field!("question", FieldKind::Ref('Q'), "問いの参照（Q7 の形）"),
+            field!("question", FieldKind::Ref('Q'), " QUESTION の参照（Q7 の形）"),
             field!("text", FieldKind::Str, "1〜1200 字の答え"),
         ],
     },
     OpSpec {
         op: "link",
-        about: "項目を論文・ノート・報告・検索セット・読む札に結ぶ。target は paper:37 のように種類:番号で書く",
+        about: "ITEM を論文・ノート・報告・SEARCH_SET・READ_CARD に結ぶ。target は paper:37 のように種類:番号で書く",
         fields: &[
             field!(
                 "node",
                 FieldKind::Ref('N'),
-                "項目・候補の節点参照（N12 の形）"
+                " ITEM・OPTION の NODE 参照（N12 の形）"
             ),
             field!(
                 "target",
@@ -280,14 +280,14 @@ pub const OP_FIELDS: &[OpSpec] = &[
     },
     OpSpec {
         op: "add_seed",
-        about: "研究の種（型の文と一文）を足す",
+        about: "SEED（SEED_SENTENCE と題）を足す",
         fields: &[
             field!("title", FieldKind::Str, "1〜120 字の題"),
             field!("sentence", FieldKind::Str, "1〜600 字の一文"),
             opt_field!(
                 "path",
                 FieldKind::RefArray('N'),
-                "節点参照の配列",
+                " NODE 参照の配列",
                 "（[\"N11\"] の形）"
             ),
             opt_field!("doc", FieldKind::Str, "文書のパス"),
@@ -295,21 +295,21 @@ pub const OP_FIELDS: &[OpSpec] = &[
     },
     OpSpec {
         op: "add_option",
-        about: "選ぶ・並べる型の項目に候補を足す",
+        about: "CHOOSE・LIST の ITEM に OPTION を足す",
         fields: &[
-            field!("node", FieldKind::Ref('N'), "項目の節点参照（N12 の形）"),
-            field!("title", FieldKind::Str, "1〜120 字の候補の題"),
-            opt_field!("body", FieldKind::Str, "2000 字までの候補の本文"),
+            field!("node", FieldKind::Ref('N'), " ITEM の NODE 参照（N12 の形）"),
+            field!("title", FieldKind::Str, "1〜120 字の OPTION の題"),
+            opt_field!("body", FieldKind::Str, "2000 字までの OPTION の本文"),
         ],
     },
     OpSpec {
         op: "add_child",
-        about: "項目の下に子を足す。key を書くと題と型はガイドから取る。key を書かないときは title と types で書く",
+        about: "ITEM の下に子を足す。key を書くと題と ITEM_TYPE は ITEM_GUIDE から取る。key を書かないときは title と types で書く",
         fields: &[
             field!(
                 "node",
                 FieldKind::Ref('N'),
-                "項目・候補の節点参照（N12 の形）"
+                " ITEM・OPTION の NODE 参照（N12 の形）"
             ),
             field!(
                 "title",
@@ -325,19 +325,19 @@ pub const OP_FIELDS: &[OpSpec] = &[
             opt_field!(
                 "key",
                 FieldKind::Str,
-                "ガイドの項目キー（例 background.goal）"
+                " ITEM_GUIDE の ITEM キー（例 background.goal）"
             ),
         ],
     },
     OpSpec {
         op: "decide",
-        about: "項目の状態を決める。選んだ候補・根拠にした知見・却下した候補を記録する",
+        about: "ITEM の状態を決める（DECIDED・TENTATIVE）。SELECTED にした OPTION・根拠にした FINDING・REJECTED にした OPTION を記録する",
         fields: &[
-            field!("node", FieldKind::Ref('N'), "項目の節点参照（N12 の形）"),
+            field!("node", FieldKind::Ref('N'), " ITEM の NODE 参照（N12 の形）"),
             opt_field!(
                 "option",
                 FieldKind::Ref('N'),
-                "選ぶ候補の節点参照（N21 の形）"
+                "選ぶ OPTION の NODE 参照（N21 の形）"
             ),
             opt_field!(
                 "tentative",
@@ -348,45 +348,45 @@ pub const OP_FIELDS: &[OpSpec] = &[
             opt_field!(
                 "evidence",
                 FieldKind::RefArray('F'),
-                "根拠にした知見の参照の配列",
+                "根拠にした FINDING の参照の配列",
                 "（[\"F31\"] の形）"
             ),
             opt_field!(
                 "rejected",
                 FieldKind::ObjArray,
-                "却下した候補の配列",
+                " REJECTED にした OPTION の配列",
                 "（[{\"option\": \"N21\", \"reason\": \"…\"}] の形）"
             ),
             opt_field!(
                 "counter_searched",
                 FieldKind::Bool,
-                "真偽（反証を探したかどうか）"
+                "真偽（REFUTE を探したかどうか）"
             ),
         ],
     },
     OpSpec {
         op: "reopen",
-        about: "対象外にした項目を再開する",
+        about: "EXCLUDED にした ITEM を再開する",
         fields: &[field!(
             "node",
             FieldKind::Ref('N'),
-            "項目の節点参照（N12 の形）"
+            " ITEM の NODE 参照（N12 の形）"
         )],
     },
     OpSpec {
         op: "exclude_item",
-        about: "項目を対象外にする",
+        about: "ITEM を EXCLUDED にする",
         fields: &[field!(
             "node",
             FieldKind::Ref('N'),
-            "項目の節点参照（N12 の形）"
+            " ITEM の NODE 参照（N12 の形）"
         )],
     },
     OpSpec {
         op: "option_state",
-        about: "候補の状態を変える（rejected / dormant / candidate）",
+        about: "OPTION の状態を変える（rejected / dormant / candidate。REJECTED・DORMANT・CANDIDATE）",
         fields: &[
-            field!("node", FieldKind::Ref('N'), "候補の節点参照（N12 の形）"),
+            field!("node", FieldKind::Ref('N'), " OPTION の NODE 参照（N12 の形）"),
             field!(
                 "state",
                 FieldKind::Enum(OPTION_TARGET_STATES),
@@ -396,7 +396,7 @@ pub const OP_FIELDS: &[OpSpec] = &[
     },
     OpSpec {
         op: "exclude",
-        about: "論文・ノート・報告・検索セット・読む札・候補を対象外にする",
+        about: "論文・ノート・報告・SEARCH_SET・READ_CARD・OPTION を対象外にする",
         fields: &[
             field!(
                 "target",
@@ -407,19 +407,19 @@ pub const OP_FIELDS: &[OpSpec] = &[
             opt_field!(
                 "node",
                 FieldKind::Ref('N'),
-                "結び付ける項目の節点参照（N12 の形）"
+                "結び付ける ITEM の NODE 参照（N12 の形）"
             ),
             opt_field!("title", FieldKind::Str, "200 字までの題"),
         ],
     },
     OpSpec {
         op: "edit_text",
-        about: "節点の題か本文を直す。title と body のどちらかを 1 つ以上書く",
+        about: "NODE の題か本文を直す。title と body のどちらかを 1 つ以上書く",
         fields: &[
             field!(
                 "node",
                 FieldKind::Ref('N'),
-                "項目・候補の節点参照（N12 の形）"
+                " ITEM・OPTION の NODE 参照（N12 の形）"
             ),
             opt_field!("title", FieldKind::Str, "1〜120 字の題"),
             opt_field!("body", FieldKind::Str, "2000 字までの本文"),
@@ -427,7 +427,7 @@ pub const OP_FIELDS: &[OpSpec] = &[
     },
     OpSpec {
         op: "add_edge",
-        about: "節点どうしの線（depends 依存・derived 由来・analogous 同型）を引く。from が上流、to が下流（to のほうが from に依存する側）。parent（親子）は引けない",
+        about: "NODE どうしの線（depends＝DEPENDS 依存・derived＝DERIVED 由来・analogous＝ANALOGOUS 同型）を引く。kind に入れる値は depends などの小文字のまま。from が上流、to が下流（to のほうが from に依存する側）。parent（親子）は引けない",
         fields: &[
             Field {
                 key: "kind",
@@ -438,34 +438,34 @@ pub const OP_FIELDS: &[OpSpec] = &[
                 // parent は引けないという専用の文を出すため、ここでは止めない。
                 lenient: &["parent"],
             },
-            field!("from", FieldKind::Ref('N'), "節点の参照（N12 の形）"),
-            field!("to", FieldKind::Ref('N'), "節点の参照（N12 の形）"),
+            field!("from", FieldKind::Ref('N'), " NODE の参照（N12 の形）"),
+            field!("to", FieldKind::Ref('N'), " NODE の参照（N12 の形）"),
             opt_field!("note", FieldKind::Str, "200 字までの補足"),
         ],
     },
     OpSpec {
         op: "unlink",
-        about: "結び付きを外す",
+        about: "LINK を外す",
         fields: &[field!(
             "link",
             FieldKind::Ref('L'),
-            "結び付きの参照（L3 の形）"
+            " LINK の参照（L3 の形）"
         )],
     },
     OpSpec {
         op: "remove_finding",
-        about: "知見を消す",
+        about: "FINDING を消す",
         fields: &[field!(
             "finding",
             FieldKind::Ref('F'),
-            "知見の参照（F31 の形）"
+            " FINDING の参照（F31 の形）"
         )],
     },
     OpSpec {
         op: "set_read_state",
-        about: "論文の結び付きの読み具合を変える",
+        about: "論文の LINK の READ_STATE を変える",
         fields: &[
-            field!("link", FieldKind::Ref('L'), "結び付きの参照（L3 の形）"),
+            field!("link", FieldKind::Ref('L'), " LINK の参照（L3 の形）"),
             field!(
                 "state",
                 FieldKind::Enum(READ_STATES),
@@ -475,11 +475,11 @@ pub const OP_FIELDS: &[OpSpec] = &[
     },
     OpSpec {
         op: "withdraw_question",
-        about: "問いを消す",
+        about: "QUESTION を消す",
         fields: &[field!(
             "question",
             FieldKind::Ref('Q'),
-            "問いの参照（Q7 の形）"
+            " QUESTION の参照（Q7 の形）"
         )],
     },
     OpSpec {
@@ -494,8 +494,8 @@ pub const OP_FIELDS: &[OpSpec] = &[
                 example: "",
                 lenient: &["parent"],
             },
-            field!("from", FieldKind::Ref('N'), "節点の参照（N12 の形）"),
-            field!("to", FieldKind::Ref('N'), "下流の節点参照（N12 の形）"),
+            field!("from", FieldKind::Ref('N'), " NODE の参照（N12 の形）"),
+            field!("to", FieldKind::Ref('N'), "下流の NODE 参照（N12 の形）"),
         ],
     },
 ];
@@ -532,7 +532,7 @@ pub fn propose_schema() -> serde_json::Value {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 1000,
-                "description": "なぜこの変更をするか（1〜1000 字）。提案には必ず書く",
+                "description": "なぜこの変更をするか（1〜1000 字）。PROPOSAL には必ず書く",
             }),
         );
         let mut required = vec!["op".to_string(), "reason".to_string()];
@@ -969,7 +969,7 @@ pub fn triage(
         TriageAction::Reject => {
             if proposal.status != "pending" {
                 return Err(SciError::Invalid(format!(
-                    "この提案は {} なので却下できません",
+                    "この PROPOSAL は {} なので却下できません",
                     status_name(&proposal.status)
                 )));
             }
@@ -992,7 +992,7 @@ pub fn triage(
         TriageAction::Revert => {
             if proposal.status != "applied" {
                 return Err(SciError::Invalid(format!(
-                    "この提案は {} なので取り消せません",
+                    "この PROPOSAL は {} なので取り消せません",
                     status_name(&proposal.status)
                 )));
             }
@@ -1016,7 +1016,7 @@ pub fn triage(
         TriageAction::Accept { edit } => {
             if proposal.status != "pending" {
                 return Err(SciError::Invalid(format!(
-                    "この提案は {} なので採用できません",
+                    "この PROPOSAL は {} なので採用できません",
                     status_name(&proposal.status)
                 )));
             }
@@ -1039,7 +1039,7 @@ pub fn triage(
             let plan = ctx.check(&payload)?;
             if plan.op() != proposal.op {
                 return Err(SciError::Invalid(format!(
-                    "採用するときの操作は変えられません（提案は {}、直したものは {}）",
+                    "採用するときの操作は変えられません（PROPOSAL は {}、直したものは {}）",
                     proposal.op,
                     plan.op()
                 )));
@@ -1258,7 +1258,7 @@ impl<'a> Ctx<'a> {
         let node = self.node_input(input, key)?;
         if node.kind != "item" {
             return Err(SciError::Invalid(format!(
-                "{key} は候補ではなく項目でなければなりません: {}",
+                "{key} は OPTION ではなく ITEM でなければなりません: {}",
                 fmt_ref('N', node.id)
             )));
         }
@@ -1270,7 +1270,7 @@ impl<'a> Ctx<'a> {
         let node = self.node_input(input, key)?;
         if node.kind != "option" {
             return Err(SciError::Invalid(format!(
-                "{key} は項目ではなく候補でなければなりません: {}",
+                "{key} は ITEM ではなく OPTION でなければなりません: {}",
                 fmt_ref('N', node.id)
             )));
         }
@@ -1403,7 +1403,7 @@ impl<'a> Ctx<'a> {
     /// 1 件の操作を検査して [`Plan`] にする。
     fn check(&self, input: &serde_json::Value) -> Result<Plan> {
         if !input.is_object() {
-            return Err(SciError::Invalid("提案の形が正しくありません".to_string()));
+            return Err(SciError::Invalid("PROPOSAL の形が正しくありません".to_string()));
         }
         let op = text_of(input, "op");
         if op.is_empty() {
@@ -1419,12 +1419,12 @@ impl<'a> Ctx<'a> {
         if self.from_proposal {
             if USER_ONLY_OPS.contains(&op.as_str()) {
                 return Err(SciError::Invalid(format!(
-                    "{op} は提案できません（利用者だけの操作です）"
+                    "{op} は PROPOSAL にできません（利用者だけの操作です）"
                 )));
             }
             if !self.allowed.iter().any(|allowed| allowed == &op) {
                 return Err(SciError::Invalid(format!(
-                    "このブロックは {op} を提案できません"
+                    "このブロックは {op} を PROPOSAL にできません"
                 )));
             }
             self.check_reason(input)?;
@@ -1482,23 +1482,23 @@ impl<'a> Ctx<'a> {
         let node = self.node_input_kinds(input, "node", &["item", "option"])?;
         let question = self.opt_question(input, "question")?;
         let text = text_of(input, "text");
-        check_len(&text, 1, 1200, "text", "知見")?;
+        check_len(&text, 1, 1200, "text", "FINDING")?;
         let sentences = sentence_count(&text);
         if sentences > 3 {
             return Err(SciError::Invalid(format!(
-                "知見は 3 文までにしてください（今は {sentences} 文）"
+                "FINDING は 3 文までにしてください（今は {sentences} 文）"
             )));
         }
         let cites = text_list(input, "cites");
         self.check_cites(&cites)?;
         if self.from_proposal && cites.is_empty() {
             return Err(SciError::Invalid(
-                "エージェントの知見には引用が要ります".to_string(),
+                "エージェントの FINDING には引用が要ります".to_string(),
             ));
         }
         if cites.is_empty() && text.chars().any(|ch| ch.is_ascii_digit()) {
             return Err(SciError::Invalid(
-                "数値を含む知見には出典が要ります".to_string(),
+                "数値を含む FINDING には出典（CITE）が要ります".to_string(),
             ));
         }
         let polarity = text_of(input, "polarity");
@@ -1536,7 +1536,7 @@ impl<'a> Ctx<'a> {
     fn check_add_question(&self, input: &serde_json::Value) -> Result<Plan> {
         let node = self.node_input_kinds(input, "node", &["item", "option"])?;
         let text = text_of(input, "text");
-        check_len(&text, 1, 300, "text", "問い")?;
+        check_len(&text, 1, 300, "text", "QUESTION")?;
         Ok(Plan::AddQuestion {
             node: node.id,
             text,
@@ -1566,13 +1566,13 @@ impl<'a> Ctx<'a> {
             };
             if !ROLES.contains(&found) {
                 return Err(SciError::Invalid(format!(
-                    "知らない論文の役割です: {found}"
+                    "知らない ROLE です: {found}"
                 )));
             }
             read_state = opt_text(input, "read_state").unwrap_or_else(|| "unread".to_string());
             if !READ_STATES.contains(&read_state.as_str()) {
                 return Err(SciError::Invalid(format!(
-                    "知らない読み具合です: {read_state}"
+                    "知らない READ_STATE です: {read_state}"
                 )));
             }
         }
@@ -1615,10 +1615,10 @@ impl<'a> Ctx<'a> {
         if kind == "candidate" {
             if !allow_candidate {
                 return Err(SciError::Invalid(
-                    "候補は exclude のときだけ指定できます".to_string(),
+                    "OPTION は exclude のときだけ指定できます".to_string(),
                 ));
             }
-            check_len(rest, 1, 200, "target", "候補の重複キー")?;
+            check_len(rest, 1, 200, "target", "OPTION の重複キー")?;
             return Ok(("candidate".to_string(), rest.to_string()));
         }
         if kind == "report" {
@@ -1666,9 +1666,9 @@ impl<'a> Ctx<'a> {
 
     fn check_add_seed(&self, input: &serde_json::Value) -> Result<Plan> {
         let title = text_of(input, "title");
-        check_len(&title, 1, 120, "title", "種の題名")?;
+        check_len(&title, 1, 120, "title", "SEED の題名")?;
         let sentence = text_of(input, "sentence");
-        check_len(&sentence, 1, 600, "sentence", "種の一文")?;
+        check_len(&sentence, 1, 600, "sentence", "SEED_SENTENCE")?;
         let mut path = Vec::new();
         for (index, value) in text_list(input, "path").into_iter().enumerate() {
             let id = parse_ref(&value, 'N').map_err(|_| {
@@ -1696,14 +1696,14 @@ impl<'a> Ctx<'a> {
             .any(|found| found == "choose" || found == "list")
         {
             return Err(SciError::Invalid(format!(
-                "候補を足せるのは、選ぶ・並べるの型の項目だけです: {}",
+                "OPTION を足せるのは、CHOOSE・LIST の ITEM だけです: {}",
                 fmt_ref('N', node.id)
             )));
         }
         let title = text_of(input, "title");
-        check_len(&title, 1, 120, "title", "候補の題名")?;
+        check_len(&title, 1, 120, "title", "OPTION の題名")?;
         let body = opt_text(input, "body").unwrap_or_default();
-        check_len(&body, 0, 2000, "body", "候補の本文")?;
+        check_len(&body, 0, 2000, "body", "OPTION の本文")?;
         Ok(Plan::AddOption {
             node: node.id,
             title,
@@ -1724,17 +1724,17 @@ impl<'a> Ctx<'a> {
             });
         }
         let title = text_of(input, "title");
-        check_len(&title, 1, 120, "title", "項目の題名")?;
+        check_len(&title, 1, 120, "title", "ITEM の題名")?;
         let types = text_list(input, "types");
         if types.is_empty() {
             return Err(SciError::Invalid(
-                "types（型）を 1 つ以上指定してください（choose / list / write / verify）"
+                "types（ITEM_TYPE）を 1 つ以上指定してください（choose / list / write / verify）"
                     .to_string(),
             ));
         }
         for found in &types {
             if !TYPES.contains(&found.as_str()) {
-                return Err(SciError::Invalid(format!("知らない型です: {found}")));
+                return Err(SciError::Invalid(format!("知らない ITEM_TYPE です: {found}")));
             }
         }
         Ok(Plan::AddChild {
@@ -1765,7 +1765,7 @@ impl<'a> Ctx<'a> {
             })
         {
             return Err(SciError::Invalid(
-                "選ぶ項目なので、選ぶ候補を指定してください".to_string(),
+                "CHOOSE の ITEM なので、選ぶ OPTION を指定してください".to_string(),
             ));
         }
         let mut evidence = Vec::new();
@@ -1807,7 +1807,7 @@ impl<'a> Ctx<'a> {
     fn require_child_option(&self, item: i64, option: i64, key: &str) -> Result<()> {
         if !self.child_options(item)?.contains(&option) {
             return Err(SciError::Invalid(format!(
-                "{key} の {} は {} の候補ではありません",
+                "{key} の {} は {} の OPTION ではありません",
                 fmt_ref('N', option),
                 fmt_ref('N', item)
             )));
@@ -1843,7 +1843,7 @@ impl<'a> Ctx<'a> {
         let state = text_of(input, "state");
         if !OPTION_TARGET_STATES.contains(&state.as_str()) {
             return Err(SciError::Invalid(format!(
-                "候補の状態は rejected / dormant / candidate のどれかにしてください: {state}"
+                "OPTION の状態は rejected / dormant / candidate のどれかにしてください: {state}"
             )));
         }
         Ok(Plan::OptionState {
@@ -1901,12 +1901,12 @@ impl<'a> Ctx<'a> {
         self.node(to)?;
         if from == to {
             return Err(SciError::Invalid(
-                "from と to に同じ節点は指定できません".to_string(),
+                "from と to に同じ NODE は指定できません".to_string(),
             ));
         }
         if kind == "depends" && self.depends_reaches(to, from)? {
             return Err(SciError::Invalid(format!(
-                "依存の線が輪になります。{EDGE_DIRECTION}です。向きが逆でないか確かめてください"
+                "DEPENDS の線が輪になります。{EDGE_DIRECTION}です。向きが逆でないか確かめてください"
             )));
         }
         let note = opt_text(input, "note").unwrap_or_default();
@@ -1999,13 +1999,13 @@ impl<'a> Ctx<'a> {
         let link = self.link_input(input, "link")?;
         if link.target_kind != "paper" {
             return Err(SciError::Invalid(format!(
-                "結び付き {} は論文ではないため、読み具合を決められません",
+                "LINK {} は論文ではないため、READ_STATE を決められません",
                 fmt_ref('L', link.id)
             )));
         }
         let state = text_of(input, "state");
         if !READ_STATES.contains(&state.as_str()) {
-            return Err(SciError::Invalid(format!("知らない読み具合です: {state}")));
+            return Err(SciError::Invalid(format!("知らない READ_STATE です: {state}")));
         }
         Ok(Plan::SetReadState {
             link: link.id,
@@ -2518,25 +2518,25 @@ fn revert(conn: &Connection, proposal: &store::Proposal) -> Result<()> {
 /// 提案の入力を 1 件ずつのリストにする。2 つ目の戻り値は「まとめて出したか」。
 fn read_proposal_list(input: &serde_json::Value) -> Result<(Vec<&serde_json::Value>, bool)> {
     let Some(object) = input.as_object() else {
-        return Err(SciError::Invalid("提案の形が正しくありません".to_string()));
+        return Err(SciError::Invalid("PROPOSAL の形が正しくありません".to_string()));
     };
     let Some(list) = object.get("proposals") else {
         if !object.contains_key("op") {
-            return Err(SciError::Invalid("提案の形が正しくありません".to_string()));
+            return Err(SciError::Invalid("PROPOSAL の形が正しくありません".to_string()));
         }
         return Ok((vec![input], false));
     };
     let Some(items) = list.as_array() else {
-        return Err(SciError::Invalid("提案の形が正しくありません".to_string()));
+        return Err(SciError::Invalid("PROPOSAL の形が正しくありません".to_string()));
     };
     if items.is_empty() {
-        return Err(SciError::Invalid("提案は 1 回に 1〜20 件です".to_string()));
+        return Err(SciError::Invalid("PROPOSAL は 1 回に 1〜20 件です".to_string()));
     }
     if items.len() > MAX_PROPOSALS {
-        return Err(SciError::Invalid("提案は 1 回に 20 件までです".to_string()));
+        return Err(SciError::Invalid("PROPOSAL は 1 回に 20 件までです".to_string()));
     }
     if items.iter().any(|item| !item.is_object()) {
-        return Err(SciError::Invalid("提案の形が正しくありません".to_string()));
+        return Err(SciError::Invalid("PROPOSAL の形が正しくありません".to_string()));
     }
     Ok((items.iter().collect(), true))
 }
@@ -2580,7 +2580,7 @@ fn risk_of(op: &str) -> Result<&'static str> {
         Ok("human")
     } else {
         Err(SciError::Invalid(format!(
-            "{op} は提案できません（利用者だけの操作です）"
+            "{op} は PROPOSAL にできません（利用者だけの操作です）"
         )))
     }
 }
@@ -2599,8 +2599,8 @@ fn actor_text(actor: &Actor) -> String {
 /// 提案の状態の表示名。
 fn status_name(status: &str) -> &'static str {
     match status {
-        "applied" => "自動で反映",
-        "pending" => "仕分け待ち",
+        "applied" => "AUTO_OP で反映",
+        "pending" => "REVIEW_OP（TRIAGE 待ち）",
         "accepted" => "採用",
         "rejected" => "却下",
         "reverted" => "取り消し",
@@ -3100,7 +3100,7 @@ mod tests {
             }),
         )
         .expect_err("このブロックは decide を提案できない");
-        assert_eq!(message(&error), "このブロックは decide を提案できません");
+        assert_eq!(message(&error), "このブロックは decide を PROPOSAL にできません");
     }
 
     #[test]
@@ -3154,7 +3154,7 @@ mod tests {
         .expect_err("提案には remove_finding を使えない");
         assert_eq!(
             message(&error),
-            "remove_finding は提案できません（利用者だけの操作です）"
+            "remove_finding は PROPOSAL にできません（利用者だけの操作です）"
         );
         assert!(
             store::get_finding(conn, finding)
@@ -3192,7 +3192,7 @@ mod tests {
 
         // 数字だけ・出典が無い知見は通らない。
         let error = send(base("精度は 0.85 だった。", json!([]))).expect_err("出典が要る");
-        assert_eq!(message(&error), "エージェントの知見には引用が要ります");
+        assert_eq!(message(&error), "エージェントの FINDING には引用が要ります");
 
         // 4 文の知見は通らない。
         let error = send(base("一。二。三。四。", json!(["#37 §1"]))).expect_err("3 文まで");
@@ -3212,7 +3212,7 @@ mod tests {
             }),
         )
         .expect_err("出典が要る");
-        assert_eq!(message(&error), "数値を含む知見には出典が要ります");
+        assert_eq!(message(&error), "数値を含む FINDING には出典（CITE）が要ります");
 
         // 数字の無い知見は、人の操作なら出典無くても通る。
         let result = apply_user(
@@ -3304,7 +3304,7 @@ mod tests {
         .expect_err("選ぶ候補が要る");
         assert_eq!(
             message(&error),
-            "選ぶ項目なので、選ぶ候補を指定してください"
+            "CHOOSE の ITEM なので、選ぶ OPTION を指定してください"
         );
 
         // 項目でない候補の option は受け付けない。
@@ -3321,7 +3321,7 @@ mod tests {
         )
         .expect_err("項目は選べない");
         assert!(
-            message(&error).contains("候補ではありません"),
+            message(&error).contains("OPTION ではありません"),
             "{}",
             message(&error)
         );
@@ -3566,7 +3566,7 @@ mod tests {
         )
         .expect_err("空の題名はだめ");
         assert!(
-            message(&error).contains("候補の題名"),
+            message(&error).contains("OPTION の題名"),
             "{}",
             message(&error)
         );
@@ -3766,7 +3766,7 @@ mod tests {
         .expect_err("輪はだめ");
         assert_eq!(
             message(&error),
-            "依存の線が輪になります。from が上流、to が下流です。向きが逆でないか確かめてください"
+            "DEPENDS の線が輪になります。from が上流、to が下流です。向きが逆でないか確かめてください"
         );
         // 向きの説明は schema の説明にも同じ文で入っている。
         let spec = op_spec("add_edge").expect("add_edge の表");
@@ -3802,7 +3802,7 @@ mod tests {
             }),
         )
         .expect_err("自分自身はだめ");
-        assert!(message(&error).contains("同じ節点"), "{}", message(&error));
+        assert!(message(&error).contains("同じ NODE"), "{}", message(&error));
 
         // 親子は引けない。
         let error = apply_user(
@@ -3909,7 +3909,7 @@ mod tests {
             "",
         )
         .expect_err("却下したものは採用できない");
-        assert_eq!(message(&error), "この提案は 却下 なので採用できません");
+        assert_eq!(message(&error), "この PROPOSAL は 却下 なので採用できません");
 
         // 取り消しは自動で反映したものだけ。
         let error = triage(
@@ -3921,7 +3921,7 @@ mod tests {
             "",
         )
         .expect_err("採用したものは取り消せない");
-        assert_eq!(message(&error), "この提案は 採用 なので取り消せません");
+        assert_eq!(message(&error), "この PROPOSAL は 採用 なので取り消せません");
     }
 
     #[test]
@@ -4114,7 +4114,7 @@ mod tests {
             &json!({ "proposals": [] }),
         )
         .expect_err("空の提案");
-        assert_eq!(message(&error), "提案は 1 回に 1〜20 件です");
+        assert_eq!(message(&error), "PROPOSAL は 1 回に 1〜20 件です");
         let error = propose(
             conn,
             &placed.roots,
@@ -4123,7 +4123,7 @@ mod tests {
             &json!({ "proposals": (0..21).map(|_| json!({ "op": "link" })).collect::<Vec<_>>() }),
         )
         .expect_err("21 件");
-        assert_eq!(message(&error), "提案は 1 回に 20 件までです");
+        assert_eq!(message(&error), "PROPOSAL は 1 回に 20 件までです");
         let error = propose(
             conn,
             &placed.roots,
@@ -4132,7 +4132,7 @@ mod tests {
             &json!({ "text": "だけ" }),
         )
         .expect_err("形が違う");
-        assert_eq!(message(&error), "提案の形が正しくありません");
+        assert_eq!(message(&error), "PROPOSAL の形が正しくありません");
     }
 
     /// 表は 19 種類の op を 1 つずつ持つ（利用者だけの操作も表にある）。
@@ -4220,7 +4220,7 @@ mod tests {
         .expect_err("数の from");
         let text = message(&error);
         assert!(
-            text.starts_with("from は節点の参照（N12 の形）です"),
+            text.starts_with("from は NODE の参照（N12 の形）です"),
             "{text}"
         );
         assert!(text.contains("受け取った形: 数"), "{text}");
@@ -4229,7 +4229,7 @@ mod tests {
         let error = check_shapes("reopen", &json!({ "node": "12" })).expect_err("N の形");
         let text = message(&error);
         assert!(
-            text.starts_with("node は項目の節点参照（N12 の形）です"),
+            text.starts_with("node は ITEM の NODE 参照（N12 の形）です"),
             "{text}"
         );
         assert!(text.contains("受け取った値: \"12\""), "{text}");
@@ -4245,7 +4245,7 @@ mod tests {
 
         // 写しの配列。
         let error = check_shapes("decide", &json!({ "rejected": ["N21"] })).expect_err("rejected");
-        assert!(message(&error).starts_with("rejected は却下した候補の配列です"));
+        assert!(message(&error).starts_with("rejected は REJECTED にした OPTION の配列です"));
 
         // 真偽。
         let error = check_shapes("decide", &json!({ "tentative": "yes" })).expect_err("真偽");

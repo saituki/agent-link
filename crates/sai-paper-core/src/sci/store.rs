@@ -731,7 +731,7 @@ where
 pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
     if node.title.trim().is_empty() {
         return Err(SciError::Invalid(format!(
-            "節点の題名は空にできません: {}",
+            "NODE の題名は空にできません: {}",
             node.title
         )));
     }
@@ -742,7 +742,7 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
     };
     if !allowed.contains(&node.state) {
         return Err(SciError::Invalid(format!(
-            "この節点にはその状態を入れられません: {}",
+            "この NODE にはその状態を入れられません: {}",
             node.state
         )));
     }
@@ -773,7 +773,7 @@ pub fn get_node(conn: &Connection, id: i64) -> Result<Node> {
         node_of,
     )
     .optional()?
-    .ok_or_else(|| SciError::NotFound(format!("節点 {} がありません", super::fmt_ref('N', id))))
+    .ok_or_else(|| SciError::NotFound(format!("NODE {} がありません", super::fmt_ref('N', id))))
 }
 
 /// 節点を全部読む（番号の昇順）。
@@ -809,7 +809,7 @@ pub fn update_node_text(
     let body = body.unwrap_or(node.body.as_str());
     if title.trim().is_empty() {
         return Err(SciError::Invalid(format!(
-            "節点 {} の題名は空にできません",
+            "NODE {} の題名は空にできません",
             super::fmt_ref('N', id)
         )));
     }
@@ -830,7 +830,7 @@ pub fn set_node_state(conn: &Connection, id: i64, state: &str) -> Result<()> {
     };
     if !allowed.contains(&state) {
         return Err(SciError::Invalid(format!(
-            "この節点にはその状態を入れられません: {state}"
+            "この NODE にはその状態を入れられません: {state}"
         )));
     }
     // 状態が同じなら何もしない（時刻も変えない）。
@@ -940,7 +940,7 @@ pub fn insert_question(
     created_by: &str,
 ) -> Result<i64> {
     if text.trim().is_empty() {
-        return Err(SciError::Invalid("問いは空にできません".to_string()));
+        return Err(SciError::Invalid("QUESTION は空にできません".to_string()));
     }
     conn.execute(
         "INSERT INTO sci_questions (node_id, text, from_guide, created_by)
@@ -958,7 +958,7 @@ pub fn get_question(conn: &Connection, id: i64) -> Result<Question> {
         question_of,
     )
     .optional()?
-    .ok_or_else(|| SciError::NotFound(format!("問い {} がありません", super::fmt_ref('Q', id))))
+    .ok_or_else(|| SciError::NotFound(format!("QUESTION {} がありません", super::fmt_ref('Q', id))))
 }
 
 /// 問いを読む。`node_id` が `Some` ならその節点のものだけ（番号の昇順）。
@@ -1004,7 +1004,7 @@ pub fn withdraw_question(conn: &Connection, id: i64) -> Result<()> {
 /// 知見を足して、できた番号を返す。
 pub fn insert_finding(conn: &Connection, finding: &NewFinding<'_>) -> Result<i64> {
     if finding.text.trim().is_empty() {
-        return Err(SciError::Invalid("知見は空にできません".to_string()));
+        return Err(SciError::Invalid("FINDING は空にできません".to_string()));
     }
     conn.execute(
         "INSERT INTO sci_findings
@@ -1038,7 +1038,7 @@ pub fn get_finding(conn: &Connection, id: i64) -> Result<Finding> {
         finding_of,
     )
     .optional()?
-    .ok_or_else(|| SciError::NotFound(format!("知見 {} がありません", super::fmt_ref('F', id))))
+    .ok_or_else(|| SciError::NotFound(format!("FINDING {} がありません", super::fmt_ref('F', id))))
 }
 
 /// 知見を読む。`include_removed` が false なら外したものは除く（番号の昇順）。
@@ -1138,7 +1138,7 @@ pub fn get_link(conn: &Connection, id: i64) -> Result<Link> {
         link_of,
     )
     .optional()?
-    .ok_or_else(|| SciError::NotFound(format!("結び付き {} がありません", super::fmt_ref('L', id))))
+    .ok_or_else(|| SciError::NotFound(format!("LINK {} がありません", super::fmt_ref('L', id))))
 }
 
 /// 結び付きを読む。`node_id` が `Some` ならその節点のものだけ（番号の昇順）。
@@ -1185,7 +1185,7 @@ pub fn set_read_state(conn: &Connection, id: i64, state: &str) -> Result<()> {
     let link = get_link(conn, id)?;
     if link.target_kind != "paper" {
         return Err(SciError::Invalid(format!(
-            "結び付き {} は論文ではないため、読み具合を決められません",
+            "LINK {} は論文ではないため、READ_STATE を決められません",
             super::fmt_ref('L', id)
         )));
     }
@@ -1299,7 +1299,7 @@ pub fn get_proposal(conn: &Connection, id: i64) -> Result<Proposal> {
         proposal_of,
     )
     .optional()?
-    .ok_or_else(|| SciError::NotFound(format!("提案 {} がありません", super::fmt_ref('P', id))))
+    .ok_or_else(|| SciError::NotFound(format!("PROPOSAL {} がありません", super::fmt_ref('P', id))))
 }
 
 /// 提案を読む。`status` が `Some` ならその状態のものだけ（新しい順）。
@@ -1349,7 +1349,7 @@ pub fn finish_proposal(
 pub fn insert_tombstone(conn: &Connection, tombstone: &NewTombstone<'_>) -> Result<i64> {
     if tombstone.reason.trim().is_empty() {
         return Err(SciError::Invalid(
-            "外した論文・候補には理由を書く必要があります".to_string(),
+            "外した論文・OPTION には理由を書く必要があります".to_string(),
         ));
     }
     if tombstone.paper_id.is_none()
@@ -1358,7 +1358,7 @@ pub fn insert_tombstone(conn: &Connection, tombstone: &NewTombstone<'_>) -> Resu
         && tombstone.dedupe_key.is_none()
     {
         return Err(SciError::Invalid(
-            "外した論文・候補は、論文番号・DOI・arXiv・重複キーのどれかで特定してください"
+            "外した論文・OPTION は、論文番号・DOI・arXiv・重複キーのどれかで特定してください"
                 .to_string(),
         ));
     }
@@ -1670,7 +1670,7 @@ mod tests {
         let SciError::Invalid(message) = err else {
             panic!("Invalid ではない");
         };
-        assert_eq!(message, "この節点にはその状態を入れられません: candidate");
+        assert_eq!(message, "この NODE にはその状態を入れられません: candidate");
         // 変わっていない。
         assert_eq!(get_node(conn, id).unwrap().state, "open");
 
@@ -1750,11 +1750,11 @@ mod tests {
             get_link(conn, 5).unwrap_err().to_string(),
             get_proposal(conn, 5).unwrap_err().to_string(),
         ];
-        assert_eq!(messages[0], "節点 N5 がありません");
-        assert_eq!(messages[1], "問い Q5 がありません");
-        assert_eq!(messages[2], "知見 F5 がありません");
-        assert_eq!(messages[3], "結び付き L5 がありません");
-        assert_eq!(messages[4], "提案 P5 がありません");
+        assert_eq!(messages[0], "NODE N5 がありません");
+        assert_eq!(messages[1], "QUESTION Q5 がありません");
+        assert_eq!(messages[2], "FINDING F5 がありません");
+        assert_eq!(messages[3], "LINK L5 がありません");
+        assert_eq!(messages[4], "PROPOSAL P5 がありません");
     }
 
     #[test]
