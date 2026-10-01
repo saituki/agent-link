@@ -1332,7 +1332,7 @@ function mlfRenderRun() {
   const seedId = mlfSeedId(run);
   if (seedId) addLink(`seed #${seedId} の run を見る`, mlfHash({ page: "runs", experimentId: "all", query: { seed: seedId } }));
   const sciNode = mlfTag(run, MLF_TAGS.sciNode);
-  if (sciNode) addLink(`研究方針 ${sciNode}`, `#/papers/tree/${encodeURIComponent(sciNode)}`);
+  if (sciNode) addLink(`Research tree ${sciNode}`, `#/papers/tree/${encodeURIComponent(sciNode)}`);
   const parentId = mlfParentId(run);
   if (parentId) addLink("親を開く", mlfHash({ page: "run", runId: parentId }));
   if (links.children.length) box.appendChild(links);

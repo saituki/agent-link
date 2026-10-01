@@ -810,9 +810,9 @@ function renderToolbar(blocks) {
     .join("");
   return (
     `<div class="md-toolbar">` +
-    `<button type="button" class="sai-btn small ghost" data-md-all="fold">全部たたむ</button>` +
-    `<button type="button" class="sai-btn small ghost" data-md-all="open">全部開く</button>` +
-    `<button type="button" class="sai-btn small ghost" data-md-toc aria-expanded="false">目次</button>` +
+    `<button type="button" class="sai-btn small ghost" data-md-all="fold">Collapse all</button>` +
+    `<button type="button" class="sai-btn small ghost" data-md-all="open">Expand all</button>` +
+    `<button type="button" class="sai-btn small ghost" data-md-toc aria-expanded="false">Contents</button>` +
     `<div class="md-toc" hidden>${rows}</div>` +
     `</div>`
   );

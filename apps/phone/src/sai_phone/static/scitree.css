@@ -267,6 +267,9 @@ button.sci-debt {
 
 .sci-node-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .sci-node-chips:empty { display: none; }
+/* 選べる値を全部並べ、今の値以外は薄くする */
+.sci-scale { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.sci-dim { opacity: 0.4; }
 
 .sci-ops { display: flex; flex-wrap: wrap; gap: 6px; }
 .sci-ops:empty { display: none; }

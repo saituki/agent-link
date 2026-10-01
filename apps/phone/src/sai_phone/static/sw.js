@@ -55,7 +55,14 @@
 // （index.html の ?v= も 47。ASSETS は変えない・足したファイルは無い）
 // リモートブラウザの画面（rbrowser.js / rbrowser.css を追加）と日本語 PDF ボタンで v48 に
 // （index.html の ?v= も 48。ASSETS に 2 ファイルを足した）
-const CACHE = "sai-phone-v48";
+// research-tree の操作の釦と op の表示名を英語に（scitree.js・sciedit.js）で v49 に（index.html の ?v= も 49。ASSETS は変えない）
+// 操作の小窓（sciedit.js）の項目名・説明・エラーも英語に、で v50 に（index.html の ?v= も 50）
+// 板の各節（scitree.js）の見出し・釦・空の文も英語に、で v51 に（index.html の ?v= も 51）
+// Dashboard・Papers の切り替え・目次の釦（papers.js・markdown.js・ui.js ほか）も英語に、で v52 に（index.html の ?v= も 52）
+// Radio の出来事名・取り込みの要対応・研究方針の始まりの文も英語に、で v53 に（index.html の ?v= も 53）
+// 板の見出しで ITEM の状態と ITEM_TYPE を全部並べ、今の値以外を薄く出す（scitree.js・scitree.css）で v54 に（index.html の ?v= も 54）
+// 板の BLANK・MARK・QUESTION・OPTION・FINDING・LINK も同じ方針で、で v55 に（index.html の ?v= も 55）
+const CACHE = "sai-phone-v55";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）

@@ -397,7 +397,7 @@ pub struct Citation {
 pub struct Issue {
     /// `error` / `warning`
     pub level: String,
-    /// `header` / `missing_paper` / `unresolved` / `mismatch` / `retracted` / `unsupported_number` / `style`
+    /// `header` / `missing_paper` / `unresolved` / `mismatch` / `retracted` / `style`
     pub kind: String,
     /// 人が読む説明
     pub detail: String,
@@ -564,195 +564,10 @@ fn mask_inline_code(line: &str) -> String {
     out.into_iter().collect()
 }
 
-/// 日付（`2026-09-24`）を数値とみなさないための正規表現。
-static DATE_NUMBER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\d{4}-\d{2}-\d{2}").expect("date regex"));
-
-/// 年（`2023 年`）を数値とみなさないための正規表現。
-static YEAR_NUMBER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\d{4}\s*年").expect("year regex"));
-
-/// 章番号（`§3.2` / `3.2 節`）を数値とみなさないための正規表現。
-static SECTION_NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"§\s*\d+(?:\.\d+)*|\d+(?:\.\d+)*\s*節").expect("section regex")
-});
-
-/// Library の番号（`#37`）を数値とみなさないための正規表現。
-static LIBRARY_NUMBER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"#\d+").expect("library number regex"));
-
-/// 根拠が必要な数字（単位・割合・有意差つき）。
-static UNIT_NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\d+(?:\.\d+)?\s*(?:%|％|倍|ms|Hz|mg|kg|人|例|件|歳)")
-        .expect("unit number regex")
-});
-
-/// 根拠が必要な数字（`p <` / `p=` / `n =` など）。
-static PN_NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[pnPN]\s*[<>=]\s*\d+(?:\.\d+)?").expect("p/n number regex")
-});
-
-/// 小数点を含む数（`0.87`）。
-static DECIMAL_NUMBER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\d+\.\d+").expect("decimal regex"));
-
 /// 決まりに合わない引用の書き方（`Smith 2020` / `Smith et al., 2020` / `Smith ら (2020)`）。
 static AUTHOR_YEAR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\(?[A-Z][a-zA-Z-]+( et al\.?| ら)?,? \(?\d{4}\)?").expect("author year regex")
 });
-
-/// 括弧の中に引用（共有契約の形）があるかを返す。
-fn has_citation(text: &str) -> bool {
-    CITATION_RE
-        .captures_iter(text)
-        .any(|capture| parse_citation_inner(capture[1].trim(), 0).is_some())
-}
-
-/// 1 行を文に分ける。区切りは `。` / `. ` / 行の終わり。
-fn split_sentences(line: &str) -> Vec<String> {
-    let chars: Vec<char> = line.chars().collect();
-    let mut sentences = Vec::new();
-    let mut current = String::new();
-    let mut index = 0;
-    while index < chars.len() {
-        let ch = chars[index];
-        if ch == '。' {
-            current.push(ch);
-            let sentence = current.trim().to_string();
-            if !sentence.is_empty() {
-                sentences.push(sentence);
-            }
-            current.clear();
-            index += 1;
-        } else if ch == '.' && chars.get(index + 1) == Some(&' ') {
-            current.push(ch);
-            let sentence = current.trim().to_string();
-            if !sentence.is_empty() {
-                sentences.push(sentence);
-            }
-            current.clear();
-            index += 2;
-        } else {
-            current.push(ch);
-            index += 1;
-        }
-    }
-    let sentence = current.trim().to_string();
-    if !sentence.is_empty() {
-        sentences.push(sentence);
-    }
-    sentences
-}
-
-/// 1 つの文に「根拠が必要な数字」があるかを返す。
-fn sentence_has_target_number(sentence: &str) -> bool {
-    // 日付・年・章番号・Library の番号を先に空白へ置き換える。
-    let mut cleaned = DATE_NUMBER_RE.replace_all(sentence, " ").into_owned();
-    cleaned = YEAR_NUMBER_RE.replace_all(&cleaned, " ").into_owned();
-    cleaned = SECTION_NUMBER_RE.replace_all(&cleaned, " ").into_owned();
-    cleaned = LIBRARY_NUMBER_RE.replace_all(&cleaned, " ").into_owned();
-    DECIMAL_NUMBER_RE.is_match(&cleaned)
-        || UNIT_NUMBER_RE.is_match(&cleaned)
-        || PN_NUMBER_RE.is_match(&cleaned)
-}
-
-/// 文の先頭 60 字（長いときは `…` を付ける）。
-fn head_60(sentence: &str) -> String {
-    if sentence.chars().count() > 60 {
-        let head: String = sentence.chars().take(60).collect();
-        format!("{head}…")
-    } else {
-        sentence.to_string()
-    }
-}
-
-/// 引用の無い数字（根拠の無い数字）を拾う。
-///
-/// 戻り値は `(1 始まりの行番号, その文の先頭 60 字)`。
-/// 同じ文に共有契約の引用が 1 つでもあれば対象外。コード欄・インラインコード・
-/// frontmatter・見出しの行・`## 引き継ぎ` 節の中も対象外。表の行は、表の直前 3 行か
-/// 直後 3 行に引用があれば対象外。
-#[must_use]
-pub fn unsupported_numbers(markdown: &str) -> Vec<(usize, String)> {
-    let masked = mask_code(markdown);
-    let lines: Vec<&str> = masked.split('\n').collect();
-    let count = lines.len();
-
-    // 除外する行（frontmatter・見出し・`## 引き継ぎ` 節）
-    let mut skip = vec![false; count];
-    if lines.first().is_some_and(|line| line.trim() == "---") {
-        skip[0] = true;
-        for (index, line) in lines.iter().enumerate().skip(1) {
-            skip[index] = true;
-            if line.trim() == "---" {
-                break;
-            }
-        }
-    }
-    let mut handoff_level: Option<usize> = None;
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix('#') {
-            let level = 1 + rest.chars().take_while(|ch| *ch == '#').count();
-            let text = rest.trim_start_matches('#').trim();
-            skip[index] = true;
-            handoff_level = match handoff_level {
-                Some(open) if level <= open => None,
-                Some(open) => Some(open),
-                None if text.contains("引き継ぎ") => Some(level),
-                None => None,
-            };
-            continue;
-        }
-        if handoff_level.is_some() {
-            skip[index] = true;
-        }
-    }
-
-    // 表の行（`|` で始まる連続行）は、前後 3 行に引用があればまとめて対象外。
-    let citation_lines: HashSet<usize> = parse_citations(markdown)
-        .into_iter()
-        .map(|citation| citation.line)
-        .collect();
-    let mut table_covered = vec![false; count];
-    let mut index = 0;
-    while index < count {
-        if skip[index] || !lines[index].trim_start().starts_with('|') {
-            index += 1;
-            continue;
-        }
-        let start = index;
-        let mut end = index;
-        while end + 1 < count && !skip[end + 1] && lines[end + 1].trim_start().starts_with('|') {
-            end += 1;
-        }
-        let near = (start.saturating_sub(3)..start)
-            .chain(end + 1..=(end + 3).min(count.saturating_sub(1)))
-            .any(|line| citation_lines.contains(&(line + 1)));
-        if near {
-            for slot in table_covered.iter_mut().take(end + 1).skip(start) {
-                *slot = true;
-            }
-        }
-        index = end + 1;
-    }
-
-    let mut found = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if skip[index] || table_covered[index] {
-            continue;
-        }
-        for sentence in split_sentences(line) {
-            if has_citation(&sentence) {
-                continue;
-            }
-            if sentence_has_target_number(&sentence) {
-                found.push((index + 1, head_60(&sentence)));
-            }
-        }
-    }
-    found
-}
 
 /// 決まりに合わない引用の書き方（著者 年 の形）の件数を数える。
 #[must_use]
@@ -809,14 +624,6 @@ fn collect_issues(
     let citations = parse_citations(markdown);
     let mut issues = check_header(markdown, Some(block_id));
     issues.extend(missing_paper_issues(conn, &citations)?);
-    for (line, head) in unsupported_numbers(markdown) {
-        issues.push(Issue {
-            level: "warning".into(),
-            kind: "unsupported_number".into(),
-            detail: format!("根拠の無い数字: {head}"),
-            line: Some(line as i64),
-        });
-    }
     issues.extend(style_issues(markdown));
     Ok(issues)
 }
@@ -1747,55 +1554,6 @@ mod tests {
             &format!("---\nrun_id: {run_id}\nblock: paper-search\n---\n"),
         );
         root
-    }
-
-    #[test]
-    fn unsupported_numbers_picks_only_unsupported() {
-        let md = r"---
-kind: 回答
-block: paper-critic
-papers: [37]
----
-
-根拠の無い 85% の文。
-根拠のある 85% の文 [#37]。
-日付は 2026-09-24 と 2023 年、章は §3.2 と 3.2 節、番号は #37。
-0.87 は根拠なし。
-```
-コード 0.99
-```
-
-[#37]
-
-| 精度 | 値 |
-|---|---|
-| A | 0.87 |
-
-## 引き継ぎ
-引き継ぎの 0.5。
-
-## 結果
-
-| B | 0.93 |
-
-| C | 0.95 |
-
-[#37]
-";
-        let found = unsupported_numbers(md);
-        let lines: Vec<usize> = found.iter().map(|(line, _)| *line).collect();
-        assert_eq!(lines, vec![7, 10, 26], "拾う行: {found:?}");
-        assert_eq!(found[0].1, "根拠の無い 85% の文。");
-        assert_eq!(found[1].1, "0.87 は根拠なし。");
-        assert_eq!(found[2].1, "| B | 0.93 |");
-        // 引用のある文、日付・章番号・Library の番号、コード欄、引き継ぎ節は拾わない
-        assert!(!found.iter().any(|(_, head)| head.contains("根拠のある")));
-        assert!(!found.iter().any(|(_, head)| head.contains("日付は")));
-        assert!(!found.iter().any(|(_, head)| head.contains("コード")));
-        assert!(!found.iter().any(|(_, head)| head.contains("引き継ぎ")));
-        // 表の前後に引用があれば、その表の数字は拾わない
-        assert!(!found.iter().any(|(_, head)| head.contains("| A |")));
-        assert!(!found.iter().any(|(_, head)| head.contains("| C |")));
     }
 
     #[test]

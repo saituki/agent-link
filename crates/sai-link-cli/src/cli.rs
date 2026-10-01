@@ -545,8 +545,8 @@ pub enum PhoneCmd {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
 
-        /// md の種別（task / message / report）
-        #[arg(long, value_parser = ["task", "message", "report"])]
+        /// md の種別（task / message / report / system）
+        #[arg(long, value_parser = ["task", "message", "report", "system"])]
         kind: String,
 
         /// 標準入力の中身で保存する（task は未実行の todo カードだけ。

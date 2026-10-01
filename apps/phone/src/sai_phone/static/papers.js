@@ -25,7 +25,7 @@
 // Papers の上部の切り替え（07 §4.1）。押すと該当の # へ移る。
 // U19: 先頭に研究方針（#/papers/tree）を足した。論文タブの最初の画面。
 const PAPERS_SEG = [
-  ["tree", "研究方針", "#/papers/tree"],
+  ["tree", "Research tree", "#/papers/tree"],
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["discover", "Discover", "#/papers/discover"],
   ["library", "Library", "#/papers/library"],
@@ -56,14 +56,14 @@ const DISCOVER_RECENT_N = 10;
 const PAPERS_PROJECT_KEY = "sai_phone_papers_project";
 // Dashboard の出来事の種類 → [表示名, 色の class]（Mac の sai-paper-tui の RECENT ACTIVITY と同じ分け方）
 const ACTIVITY_KINDS = {
-  discover: ["Discover検索", "ak-discover"],
+  discover: ["Discover search", "ak-discover"],
   download: ["Download", "ak-download"],
   import: ["Import", "ak-import"],
-  translate: ["翻訳", "ak-translate"],
-  notes: ["ノート", "ak-notes"],
-  radio: ["Radio作成", "ak-radio"],
-  radio_play: ["Radio再生", "ak-radio-play"],
-  radio_question: ["Radio質問", "ak-radio-question"],
+  translate: ["Translate", "ak-translate"],
+  notes: ["Notes", "ak-notes"],
+  radio: ["Radio create", "ak-radio"],
+  radio_play: ["Radio play", "ak-radio-play"],
+  radio_question: ["Radio question", "ak-radio-question"],
 };
 // 論文の置き場があるプロジェクトが1つもないときの案内文（18 §1.1）
 const NO_PROJECT_MSG =
@@ -73,11 +73,11 @@ const PAPER_SIDE_IDS = { library: "library-side", discover: "discover-side" };
 // 要対応の種類 → [札の文, 札の色]（paperimport.js の PIM_ATTENTION_KINDS と同じ種類）
 const ATTENTION_CHIPS = {
   empty_review: ["review", "muted"],
-  question: ["質問", "warn"],
-  state_update: ["現況", "warn"],
-  recommend_card: ["推薦", "ok"],
-  report_issue: ["出典", "danger"],
-  new_set_items: ["新着", "muted"],
+  question: ["Question", "warn"],
+  state_update: ["State", "warn"],
+  recommend_card: ["Recommend", "ok"],
+  report_issue: ["Source", "danger"],
+  new_set_items: ["New", "muted"],
   // U19: 研究方針の木から出る要対応
   sci_decision: ["AWAITING_DECISION", "warn"],
   sci_triage: ["TRIAGE", "warn"],
@@ -646,8 +646,8 @@ function renderPapersDashboard() {
   const grid = el("div", "dash-grid pd-grid");
   for (const [value, label] of [
     [String(Number(c.papers) || 0), "Papers"],
-    [String(Number(c.tags) || 0), "タグ"],
-    [String(Number(c.notes) || 0), "ノート"],
+    [String(Number(c.tags) || 0), "Tags"],
+    [String(Number(c.notes) || 0), "Notes"],
     [bytesLabel(c.pdf_bytes), "PDF"],
     [bytesLabel(c.db_bytes), "DB"],
   ]) {
@@ -661,9 +661,9 @@ function renderPapersDashboard() {
 
   // 2. 出来事（新しい順・種類ごとに色分け）
   const list = el("section", "dash-card");
-  list.appendChild(el("h3", "dash-card-title", "最近の出来事"));
+  list.appendChild(el("h3", "dash-card-title", "Recent activity"));
   const items = Array.isArray(dashboardData.activity) ? dashboardData.activity : [];
-  if (items.length === 0) list.appendChild(el("p", "lib-empty", "まだ出来事がありません"));
+  if (items.length === 0) list.appendChild(el("p", "lib-empty", "No activity yet"));
   for (const item of items) list.appendChild(activityRow(item));
   if (dashboardError) list.appendChild(el("p", "paper-msg", dashboardError));
   box.appendChild(list);
@@ -695,7 +695,7 @@ async function loadDashboardProject(name, force) {
 function projectCards() {
   const wrap = el("div", "pd-project");
   if (projectData === null) {
-    wrap.appendChild(el("p", "lib-empty", projectError || "読み込み中…"));
+    wrap.appendChild(el("p", "lib-empty", projectError || "Loading…"));
     return wrap;
   }
   wrap.appendChild(attentionCard());
@@ -721,9 +721,9 @@ function projectCard(title, term, termLabel) {
 /** 要対応（まだ人が見ていないもの）。「対応済みにする」で消せる。 */
 function attentionCard() {
   const items = Array.isArray(projectData.attention) ? projectData.attention : [];
-  const card = projectCard(`要対応（${items.length}）`, "attention", "要対応");
+  const card = projectCard(`Attention (${items.length})`, "attention", "Attention");
   if (items.length === 0) {
-    card.appendChild(el("p", "lib-empty", "要対応はありません"));
+    card.appendChild(el("p", "lib-empty", "Nothing needs attention"));
     return card;
   }
   const list = el("div", "pd-att-list");
@@ -750,14 +750,14 @@ function papersAttentionHash(item) {
 /** 要対応の 1 行（種類の札・題・対応済みにする・実行があれば開く）。 */
 function attentionRow(item) {
   const it = item || {};
-  const kind = ATTENTION_CHIPS[it.kind] || ["要対応", "muted"];
+  const kind = ATTENTION_CHIPS[it.kind] || ["Attention", "muted"];
   const row = el("div", "pd-att");
 
   const main = document.createElement("button");
   main.type = "button";
   main.className = "pd-att-main";
   main.appendChild(el("span", `sai-chip ${kind[1]}`, kind[0]));
-  main.appendChild(el("span", "pd-att-title", it.title || "（題のない要対応）"));
+  main.appendChild(el("span", "pd-att-title", it.title || "(untitled item)"));
   // U19: 研究方針の木から出る要対応は、節点つきで研究方針（または仕分け）へ移る
   const sciHash = papersAttentionHash(it);
   if (sciHash) {
@@ -776,7 +776,7 @@ function attentionRow(item) {
   const done = document.createElement("button");
   done.type = "button";
   done.className = "sai-btn small";
-  done.textContent = "対応済みにする";
+  done.textContent = "Mark resolved";
   done.disabled = attentionBusy.has(it.key);
   done.addEventListener("click", () => { void resolveAttention(it); });
   row.appendChild(done);
@@ -788,9 +788,9 @@ async function resolveAttention(item) {
   const name = selectedProject;
   if (!name || !item || !item.key || attentionBusy.has(item.key)) return;
   const ok = await paperConfirm({
-    title: "対応済みしますか",
-    body: `${item.title || "この要対応"} を「対応済み」にします。`,
-    ok: "対応済みにする",
+    title: "Mark as resolved?",
+    body: `Mark ${item.title || "this item"} as resolved.`,
+    ok: "Mark resolved",
   });
   if (!ok) return;
   attentionBusy.add(item.key);
@@ -803,11 +803,11 @@ async function resolveAttention(item) {
     if (projectData && Array.isArray(projectData.attention)) {
       projectData.attention = projectData.attention.filter((a) => a && a.key !== item.key);
     }
-    if (typeof saiToast === "function") saiToast("対応済みにしました", "ok");
+    if (typeof saiToast === "function") saiToast("Marked as resolved", "ok");
     void loadDashboardProject(name, true); // 現況・考え・要対応を読み直す
   } catch (e) {
     if (typeof saiToast === "function") {
-      saiToast((e && e.message) || "対応済みにできませんでした", "error");
+      saiToast((e && e.message) || "Could not mark as resolved", "error");
     }
   } finally {
     attentionBusy.delete(item.key);
@@ -817,15 +817,15 @@ async function resolveAttention(item) {
 
 /** 現況（state.md）。読むだけ（sai-paper の決まりでスマホからは書き換えない）。 */
 function stateCard() {
-  const card = projectCard("現況", "state", "現況");
-  card.appendChild(projectMd(projectData.state, "まだ現況がありません。エージェントが研究を進めると書かれます"));
+  const card = projectCard("State", "state", "State");
+  card.appendChild(projectMd(projectData.state, "No state yet. It is written as the agent advances the research"));
   return card;
 }
 
 /** 考え（mind.md）。下に 1 行のメモを足せる。 */
 function mindCard() {
-  const card = projectCard("考え", "mind", "考え");
-  card.appendChild(projectMd(projectData.mind, "まだ考えがありません。下の欄からメモを足すとここに出ます"));
+  const card = projectCard("Mind", "mind", "Mind");
+  card.appendChild(projectMd(projectData.mind, "No mind yet. Add a memo below and it appears here"));
 
   const line = el("div", "pd-memo-line");
   const input = document.createElement("input");
@@ -896,9 +896,9 @@ function briefCard() {
   const brief = String(projectData.brief || "");
   const det = document.createElement("details");
   det.className = "pd-brief";
-  det.appendChild(el("summary", null, "状況のまとめ（エージェントに渡す文）"));
+  det.appendChild(el("summary", null, "Status summary (text for the agent)"));
   if (!brief.trim()) {
-    det.appendChild(el("p", "lib-empty", "まだ状況のまとめがありません"));
+    det.appendChild(el("p", "lib-empty", "No status summary yet"));
   } else {
     const box = el("div", "pd-md");
     box.innerHTML = renderMarkdown(brief, { toolbar: true });
@@ -2442,7 +2442,7 @@ function noteCard() {
   const card = document.createElement("section");
   card.className = "dash-card paper-card";
   const head = el("div", "dash-card-head");
-  head.appendChild(el("h3", "dash-card-title", "ノート"));
+  head.appendChild(el("h3", "dash-card-title", "Notes"));
   const note = paperData && paperData.note;
   if (!noteEditing) {
     head.appendChild(paperBtn(note ? "Edit" : "書く", () => {

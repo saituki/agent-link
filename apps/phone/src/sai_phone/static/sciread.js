@@ -316,7 +316,7 @@ function srHead(card) {
   if (meta.childNodes.length) sec.appendChild(meta);
 
   if (card.purpose) sec.appendChild(srEl("p", "sci-read-purpose", card.purpose));
-  const back = srBtn("研究方針へ戻る", () => { location.hash = srBackHash(card); }, "ghost");
+  const back = srBtn("Back to Research tree", () => { location.hash = srBackHash(card); }, "ghost");
   sec.appendChild(back);
   return sec;
 }

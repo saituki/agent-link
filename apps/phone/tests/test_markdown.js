@@ -220,9 +220,9 @@ function testToolbar() {
   // 見出し 2 つ以上 → 道具の行が付く
   const two = renderMarkdown("# A\n\n本文\n\n## B\n\n本文", { toolbar: true });
   assert.ok(two.includes('class="md-toolbar"'), "道具の行が付く");
-  assert.ok(two.includes("全部たたむ"), "全部たたむ");
-  assert.ok(two.includes("全部開く"), "全部開く");
-  assert.ok(two.includes("目次"), "目次");
+  assert.ok(two.includes("Collapse all"), "全部たたむ");
+  assert.ok(two.includes("Expand all"), "全部開く");
+  assert.ok(two.includes("Contents"), "目次");
   // 目次の行は見出しの数だけ
   assert.strictEqual((two.match(/data-md-goto=/g) || []).length, 2, "見出し 2 つ");
   // 見出し 1 つでは付かない

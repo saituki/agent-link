@@ -117,17 +117,17 @@ const SAI_TERMS = {
     text: "論文の著者・題名・発行年などを書いた文字の書き方です。論文をまとめて読み込むときに使います。",
   },
   attention: {
-    label: "要対応",
+    label: "Attention",
     text:
       "論文のリーダーが、まだ人が見ていないものを出した状態です。" +
       "「書いていない review」「ユーザーへの質問」「出典の要確認」など。",
   },
   state: {
-    label: "現況 state.md",
+    label: "State (state.md)",
     text: "プロジェクトがいまどうなっているかをエージェントが継続的に書いているメモ（state.md）です。",
   },
   mind: {
-    label: "考え mind.md",
+    label: "Mind (mind.md)",
     text: "これまでの経緯と、次にやりたいことをエージェントが継続的に書いているメモ（mind.md）です。",
   },
   // --- 研究方針の木（U19・共有契約 C-14） ---

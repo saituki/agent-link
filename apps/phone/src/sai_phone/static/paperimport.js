@@ -41,15 +41,15 @@ const PIM_JOB_KINDS = {
 };
 // 要対応の種類 → [札の文章, 札の色, 1 行の説明]
 const PIM_ATTENTION_KINDS = {
-  empty_review: ["review", "muted", "書いていない review"],
-  question: ["質問", "warn", "ユーザーへの質問"],
-  state_update: ["現況", "warn", "現況の更新案"],
-  recommend_card: ["推薦", "ok", "推薦のカード"],
-  report_issue: ["出典", "danger", "出典の要確認"],
-  new_set_items: ["新着", "muted", "検索セットの新着"],
+  empty_review: ["review", "muted", "Review not written"],
+  question: ["Question", "warn", "Question for the user"],
+  state_update: ["State", "warn", "Proposed State update"],
+  recommend_card: ["Recommend", "ok", "Recommendation card"],
+  report_issue: ["Source", "danger", "Source needs checking"],
+  new_set_items: ["New", "muted", "New items in a search set"],
   // U19: 研究方針の木から出る要対応
-  sci_decision: ["AWAITING_DECISION", "warn", "AWAITING_DECISION の ITEM"],
-  sci_triage: ["TRIAGE", "warn", "TRIAGE 待ちの PROPOSAL"],
+  sci_decision: ["AWAITING_DECISION", "warn", "ITEM awaiting decision"],
+  sci_triage: ["TRIAGE", "warn", "PROPOSAL awaiting TRIAGE"],
 };
 
 // --- 画面の状態 ---
@@ -204,7 +204,7 @@ function pimJobErrorNotFound(error) {
 /** 要対応の種類 → 1 行の説明（知らない種類は「要対応」）。 */
 function pimAttentionKindLabel(kind) {
   const k = PIM_ATTENTION_KINDS[kind];
-  return k ? k[2] : "要対応";
+  return k ? k[2] : "Attention";
 }
 
 /** 仕事の種類 → 表示名（知らない種類は空文字・U05 §6）。 */

@@ -20,61 +20,61 @@
 
 // op の表示名（C-07 の op の一覧。表に無い op はそのまま出す）
 const SE_OPS = {
-  add_finding: "FINDING を足す",
-  add_question: "QUESTION を足す",
-  answer_question: "QUESTION に答える",
-  link: "結ぶ",
-  add_seed: "SEED を足す",
-  add_option: "OPTION を足す",
-  add_child: "ITEM を足す",
-  decide: "決める",
-  reopen: "開き直す",
-  exclude_item: "対象外にする",
-  option_state: "OPTION の状態を変える",
-  exclude: "外す（TOMBSTONE）",
-  edit_text: "文を直す",
-  add_edge: "線を引く",
-  unlink: "LINK を外す",
-  remove_finding: "FINDING を外す",
-  set_read_state: "読み具合を変える",
-  withdraw_question: "QUESTION を取り下げる",
-  remove_edge: "線を外す",
+  add_finding: "Add finding",
+  add_question: "Add question",
+  answer_question: "Answer QUESTION",
+  link: "Link",
+  add_seed: "Add SEED",
+  add_option: "Add option",
+  add_child: "Add child",
+  decide: "Decide",
+  reopen: "Reopen",
+  exclude_item: "Exclude",
+  option_state: "Change OPTION state",
+  exclude: "Remove (TOMBSTONE)",
+  edit_text: "Edit text",
+  add_edge: "Add edge",
+  unlink: "Unlink",
+  remove_finding: "Remove FINDING",
+  set_read_state: "Change read state",
+  withdraw_question: "Withdraw QUESTION",
+  remove_edge: "Remove edge",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
-  add_finding: "FINDING を足しました",
-  add_question: "QUESTION を足しました",
-  answer_question: "答えました",
-  link: "LINK を作りました",
-  add_option: "OPTION を足しました",
-  add_child: "ITEM を足しました",
-  decide: "決めました",
-  reopen: "開き直しました",
-  exclude_item: "対象外にしました",
-  option_state: "OPTION の状態を変えました",
-  exclude: "外しました（記録は TOMBSTONE に残ります）",
-  edit_text: "直しました",
-  add_edge: "線を引きました",
-  unlink: "外しました",
-  remove_finding: "外しました",
-  set_read_state: "読み具合を変えました",
-  withdraw_question: "QUESTION を取り下げました",
-  remove_edge: "線を外しました",
+  add_finding: "FINDING added",
+  add_question: "QUESTION added",
+  answer_question: "Answered",
+  link: "LINK created",
+  add_option: "OPTION added",
+  add_child: "ITEM added",
+  decide: "Decided",
+  reopen: "Reopened",
+  exclude_item: "Excluded",
+  option_state: "OPTION state changed",
+  exclude: "Removed (kept in TOMBSTONE)",
+  edit_text: "Text edited",
+  add_edge: "Edge added",
+  unlink: "Unlinked",
+  remove_finding: "FINDING removed",
+  set_read_state: "Read state changed",
+  withdraw_question: "QUESTION withdrawn",
+  remove_edge: "Edge removed",
 };
 // 1 押しで送る op（確かめは出さない。R-P4 の「1 押しで外せる」）
 const SE_ONE_TOUCH = { remove_finding: 1, unlink: 1, withdraw_question: 1, remove_edge: 1 };
 // 項目の型（C-01。組み合わせてよい）
 const SE_ITEM_TYPES = [["choose", "CHOOSE"], ["list", "LIST"], ["write", "WRITE"], ["verify", "VERIFY"]];
 // 候補の状態（C-07 の option_state。3 つだけ）
-const SE_OPTION_STATES = [["rejected", "REJECTED"], ["dormant", "DORMANT"], ["candidate", "CANDIDATE に戻す"]];
+const SE_OPTION_STATES = [["rejected", "REJECTED"], ["dormant", "DORMANT"], ["candidate", "Back to CANDIDATE"]];
 // 知見の向き（C-01）
 const SE_POLARITY = [["support", "SUPPORT"], ["refute", "REFUTE"], ["neutral", "NEUTRAL"], ["none", "NONE"]];
 // 根拠の段（C-01 の level。1〜4・任意）
 const SE_LEVELS = [
-  ["1", "① 著者自身の限界"],
-  ["2", "② 別の研究が指摘"],
-  ["3", "③ 比較実験で示す"],
-  ["4", "④ 自分で確かめた"],
+  ["1", "① Limitation stated by the authors"],
+  ["2", "② Pointed out by other research"],
+  ["3", "③ Shown by a comparison experiment"],
+  ["4", "④ Verified myself"],
 ];
 // 論文の役割（C-01）
 const SE_ROLES = [
@@ -97,11 +97,11 @@ const SE_READ_STATES = [
 const SE_EDGE_KINDS = [["depends", "DEPENDS"], ["derived", "DERIVED"], ["analogous", "ANALOGOUS"]];
 // 結び付きの相手（C-13 の target の形）
 const SE_TARGET_KINDS = [
-  ["paper", "論文"],
-  ["report", "報告"],
-  ["note", "ノート"],
+  ["paper", "Paper"],
+  ["report", "Report"],
+  ["note", "Note"],
   ["set", "SEARCH_SET"],
-  ["run", "実行"],
+  ["run", "Run"],
 ];
 // 範囲（C-01）
 const SE_SCOPES = [
@@ -216,7 +216,7 @@ function seBuildOp(kind, values, target) {
   const node = seTrim(v.node);
   const bad = (error) => ({ ok: false, json: null, error });
   const good = (json) => ({ ok: true, json, error: null });
-  const needNode = () => (node ? "" : "ITEM を選んでください");
+  const needNode = () => (node ? "" : "Select an ITEM");
   // reason は共通項目（C-07）。空でなければ付ける
   const withReason = (json) => {
     const reason = seTrim(v.reason);
@@ -228,24 +228,24 @@ function seBuildOp(kind, values, target) {
     case "decide": {
       const msg = needNode();
       if (msg) return bad(msg);
-      if (!seTrim(v.reason)) return bad("理由を入力してください");
+      if (!seTrim(v.reason)) return bad("Enter a reason");
       const option = seTrim(v.option);
-      if (option && !seRefOk(option, "N")) return bad("OPTION の形が正しくありません");
-      if (!option && v.hasOptions) return bad("OPTION を選んでください");
+      if (option && !seRefOk(option, "N")) return bad("Invalid OPTION format");
+      if (!option && v.hasOptions) return bad("Select an OPTION");
       const json = { op: "decide", node, tentative: !!v.tentative, counter_searched: !!v.counter_searched };
       if (option) json.option = option;
       const evidence = (Array.isArray(v.evidence) ? v.evidence : []).map(seTrim).filter(Boolean);
-      for (const f of evidence) if (!seRefOk(f, "F")) return bad(`根拠 ${f} の形が正しくありません`);
+      for (const f of evidence) if (!seRefOk(f, "F")) return bad(`Invalid evidence format: ${f}`);
       if (evidence.length) json.evidence = evidence;
       const rejected = [];
       for (const r of Array.isArray(v.rejected) ? v.rejected : []) {
         if (!r) continue;
         const opt = seTrim(r.option);
         if (!opt) continue;
-        if (!seRefOk(opt, "N")) return bad(`外す OPTION ${opt} の形が正しくありません`);
+        if (!seRefOk(opt, "N")) return bad(`Invalid format for OPTION to drop: ${opt}`);
         const why = seTrim(r.reason);
-        if (!why) return bad(`${opt} を外す理由を入力してください`);
-        if (rejected.length >= 10) return bad("まとめて外す OPTION は 10 個までです");
+        if (!why) return bad(`Enter a reason to drop ${opt}`);
+        if (rejected.length >= 10) return bad("Up to 10 OPTIONs can be dropped at once");
         rejected.push({ option: opt, reason: why });
       }
       if (rejected.length) json.rejected = rejected;
@@ -260,7 +260,7 @@ function seBuildOp(kind, values, target) {
     case "exclude_item": {
       const msg = needNode();
       if (msg) return bad(msg);
-      if (!seTrim(v.reason)) return bad("理由を入力してください");
+      if (!seTrim(v.reason)) return bad("Enter a reason");
       return good(withReason({ op: "exclude_item", node }));
     }
 
@@ -268,9 +268,9 @@ function seBuildOp(kind, values, target) {
       const t = target && typeof target === "object" ? target : {};
       const opt = seTrim(t.option || target) || node;
       const state = seTrim(t.state || v.state);
-      if (!seRefOk(opt, "N")) return bad("OPTION を選んでください");
-      if (!SE_OPTION_STATES.some((x) => x[0] === state)) return bad("状態を選んでください");
-      if (!seTrim(v.reason)) return bad("理由を入力してください");
+      if (!seRefOk(opt, "N")) return bad("Select an OPTION");
+      if (!SE_OPTION_STATES.some((x) => x[0] === state)) return bad("Select a state");
+      if (!seTrim(v.reason)) return bad("Enter a reason");
       return good(withReason({ op: "option_state", node: opt, state }));
     }
 
@@ -278,10 +278,10 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const title = seTrim(v.title);
-      if (!title) return bad("題を入力してください");
-      if (title.length > SE_MAX.title) return bad("題は 120 字までです");
+      if (!title) return bad("Enter a title");
+      if (title.length > SE_MAX.title) return bad("Title is limited to 120 characters");
       const body = seTrim(v.body);
-      if (body.length > SE_MAX.body) return bad("本文は 2000 字までです");
+      if (body.length > SE_MAX.body) return bad("Body is limited to 2000 characters");
       const json = { op: "add_option", node, title };
       if (body) json.body = body;
       return good(json);
@@ -291,11 +291,11 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const title = seTrim(v.title);
-      if (!title) return bad("題を入力してください");
-      if (title.length > SE_MAX.title) return bad("題は 120 字までです");
+      if (!title) return bad("Enter a title");
+      if (title.length > SE_MAX.title) return bad("Title is limited to 120 characters");
       const types = (Array.isArray(v.types) ? v.types : []).map(seTrim).filter(Boolean);
-      if (!types.length) return bad("型を 1 つ以上選んでください");
-      for (const t of types) if (!SE_ITEM_TYPES.some((x) => x[0] === t)) return bad(`型「${t}」が分かりません`);
+      if (!types.length) return bad("Select at least one type");
+      for (const t of types) if (!SE_ITEM_TYPES.some((x) => x[0] === t)) return bad(`Unknown type: ${t}`);
       return good({ op: "add_child", node, title, types });
     }
 
@@ -303,17 +303,17 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const text = seTrim(v.text);
-      if (!text) return bad("QUESTION を入力してください");
-      if (text.length > SE_MAX.question) return bad("QUESTION は 300 字までです");
+      if (!text) return bad("Enter a QUESTION");
+      if (text.length > SE_MAX.question) return bad("QUESTION is limited to 300 characters");
       return good({ op: "add_question", node, text });
     }
 
     case "answer_question": {
       const question = seTrim(target && typeof target === "object" ? target.question : target);
-      if (!seRefOk(question, "Q")) return bad("QUESTION が見つかりません");
+      if (!seRefOk(question, "Q")) return bad("QUESTION not found");
       const text = seTrim(v.text);
-      if (!text) return bad("答えを入力してください");
-      if (text.length > SE_MAX.text) return bad("答えは 1200 字までです");
+      if (!text) return bad("Enter an answer");
+      if (text.length > SE_MAX.text) return bad("Answer is limited to 1200 characters");
       return good({ op: "answer_question", question, text });
     }
 
@@ -321,13 +321,13 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const text = seTrim(v.text);
-      if (!text) return bad("文を入力してください");
-      if (text.length > SE_MAX.text) return bad("文は 1200 字までです");
-      if (seCountSentences(text) > 3) return bad("文は 1〜3 文までにしてください");
+      if (!text) return bad("Enter text");
+      if (text.length > SE_MAX.text) return bad("Text is limited to 1200 characters");
+      if (seCountSentences(text) > 3) return bad("Text must be 1 to 3 sentences");
       const cites = (Array.isArray(v.cites) ? v.cites : []).map(seTrim).filter(Boolean);
-      if (cites.length > 10) return bad("CITE は 10 個までです");
-      for (const c of cites) if (!seCiteOk(c)) return bad(`CITE「${c}」の形が正しくありません（例 #37 §3.2）`);
-      if (seNeedsCite(text, cites)) return bad("数値を含む FINDING には CITE が要ります");
+      if (cites.length > 10) return bad("Up to 10 CITEs");
+      for (const c of cites) if (!seCiteOk(c)) return bad(`Invalid CITE format: ${c} (e.g. #37 §3.2)`);
+      if (seNeedsCite(text, cites)) return bad("A FINDING with numbers needs a CITE");
       const json = { op: "add_finding", node, text, cites };
       if (seRefOk(v.question, "Q")) json.question = seTrim(v.question);
       if (seTrim(v.polarity)) json.polarity = seTrim(v.polarity);
@@ -342,11 +342,11 @@ function seBuildOp(kind, values, target) {
       const msg = needNode();
       if (msg) return bad(msg);
       const t = seTrim(v.target);
-      if (!t) return bad("LINK する相手を入力してください");
-      if (!seTargetOk(t)) return bad("相手の形が正しくありません（例 paper:37）");
+      if (!t) return bad("Enter the target to LINK");
+      if (!seTargetOk(t)) return bad("Invalid target format (e.g. paper:37)");
       const json = { op: "link", node, target: t };
       if (t.startsWith("paper:")) {
-        if (!seTrim(v.role)) return bad("論文の役割を選んでください");
+        if (!seTrim(v.role)) return bad("Select the paper ROLE");
         json.role = seTrim(v.role);
         if (seTrim(v.read_state)) json.read_state = seTrim(v.read_state);
       }
@@ -358,9 +358,9 @@ function seBuildOp(kind, values, target) {
       if (msg) return bad(msg);
       const title = seTrim(v.title);
       const body = seTrim(v.body);
-      if (!title && !body) return bad("題か本文のどちらかを入力してください");
-      if (title.length > SE_MAX.title) return bad("題は 120 字までです");
-      if (body.length > SE_MAX.body) return bad("本文は 2000 字までです");
+      if (!title && !body) return bad("Enter a title or a body");
+      if (title.length > SE_MAX.title) return bad("Title is limited to 120 characters");
+      if (body.length > SE_MAX.body) return bad("Body is limited to 2000 characters");
       const json = { op: "edit_text", node };
       if (title) json.title = title;
       if (body) json.body = body;
@@ -369,13 +369,13 @@ function seBuildOp(kind, values, target) {
 
     case "add_edge": {
       const kind = seTrim(v.kind);
-      if (!node) return bad("元の NODE を選んでください");
-      if (!SE_EDGE_KINDS.some((x) => x[0] === kind)) return bad("線の種類を選んでください");
+      if (!node) return bad("Select the source NODE");
+      if (!SE_EDGE_KINDS.some((x) => x[0] === kind)) return bad("Select an edge kind");
       const to = seTrim(v.to);
-      if (!seRefOk(to, "N")) return bad("相手の NODE を選んでください");
-      if (to === node) return bad("自分自身へは線を引けません");
+      if (!seRefOk(to, "N")) return bad("Select the target NODE");
+      if (to === node) return bad("Cannot add an edge to itself");
       const note = seTrim(v.note);
-      if (note.length > SE_MAX.note) return bad("メモは 200 字までです");
+      if (note.length > SE_MAX.note) return bad("Note is limited to 200 characters");
       const json = { op: "add_edge", kind, from: node, to };
       if (note) json.note = note;
       return good(json);
@@ -383,8 +383,8 @@ function seBuildOp(kind, values, target) {
 
     case "exclude": {
       const t = seTrim(v.target || (target && typeof target === "object" ? target.target : target));
-      if (!seTargetOk(t)) return bad("外す相手が見つかりません");
-      if (!seTrim(v.reason)) return bad("理由を入力してください");
+      if (!seTargetOk(t)) return bad("Target to remove not found");
+      if (!seTrim(v.reason)) return bad("Enter a reason");
       const json = { op: "exclude", target: t };
       if (seRefOk(node, "N")) json.node = node;
       if (seTrim(v.title)) json.title = seTrim(v.title);
@@ -393,19 +393,19 @@ function seBuildOp(kind, values, target) {
 
     case "remove_finding": {
       const finding = seTrim(target && typeof target === "object" ? target.finding : target);
-      if (!seRefOk(finding, "F")) return bad("FINDING が見つかりません");
+      if (!seRefOk(finding, "F")) return bad("FINDING not found");
       return good({ op: "remove_finding", finding });
     }
 
     case "unlink": {
       const link = seTrim(target && typeof target === "object" ? target.link : target);
-      if (!seRefOk(link, "L")) return bad("LINK が見つかりません");
+      if (!seRefOk(link, "L")) return bad("LINK not found");
       return good({ op: "unlink", link });
     }
 
     case "withdraw_question": {
       const question = seTrim(target && typeof target === "object" ? target.question : target);
-      if (!seRefOk(question, "Q")) return bad("QUESTION が見つかりません");
+      if (!seRefOk(question, "Q")) return bad("QUESTION not found");
       return good({ op: "withdraw_question", question });
     }
 
@@ -414,21 +414,21 @@ function seBuildOp(kind, values, target) {
       const kind = seTrim(t.kind || v.kind);
       const from = seTrim(t.from || v.from);
       const to = seTrim(t.to || v.to);
-      if (!SE_EDGE_KINDS.some((x) => x[0] === kind)) return bad("線の種類が要ります");
-      if (!seRefOk(from, "N") || !seRefOk(to, "N")) return bad("線の両端が要ります");
+      if (!SE_EDGE_KINDS.some((x) => x[0] === kind)) return bad("Edge kind is required");
+      if (!seRefOk(from, "N") || !seRefOk(to, "N")) return bad("Both ends of the edge are required");
       return good({ op: "remove_edge", kind, from, to });
     }
 
     case "set_read_state": {
       const link = seTrim(target && typeof target === "object" ? target.link : target);
       const state = seTrim(v.state);
-      if (!seRefOk(link, "L")) return bad("LINK が見つかりません");
-      if (!SE_READ_STATES.some((x) => x[0] === state)) return bad("READ_STATE を選んでください");
+      if (!seRefOk(link, "L")) return bad("LINK not found");
+      if (!SE_READ_STATES.some((x) => x[0] === state)) return bad("Select a READ_STATE");
       return good({ op: "set_read_state", link, state });
     }
 
     default:
-      return bad("知らない操作です");
+      return bad("Unknown operation");
   }
 }
 
@@ -607,7 +607,7 @@ function seFieldSelect(key, label, options, init, hint, allowEmpty) {
   if (allowEmpty) {
     const none = document.createElement("option");
     none.value = "";
-    none.textContent = "なし";
+    none.textContent = "None";
     sel.appendChild(none);
   }
   const list = Array.isArray(options) ? options : [];
@@ -697,11 +697,11 @@ function seFieldPairs(key, label, options, hint) {
     const row = seEl("div", "sci-edit-pair");
     const check = document.createElement("input");
     check.type = "checkbox";
-    check.setAttribute("aria-label", `${text} を外す`);
+    check.setAttribute("aria-label", `Drop ${text}`);
     const why = document.createElement("input");
     why.type = "text";
     why.className = "sai-input sci-edit-input";
-    why.placeholder = "外す理由";
+    why.placeholder = "Reason to drop";
     row.appendChild(check);
     row.appendChild(seEl("span", "sci-edit-pair-name", `${value} ${text}`));
     row.appendChild(why);
@@ -735,7 +735,7 @@ function seFieldLines(key, label, init, max, hint, placeholder) {
   const start = (Array.isArray(init) ? init : []).filter((x) => seTrim(x) !== "");
   if (start.length) for (const s of start) push(s);
   else push("");
-  const add = seBtn("1 行足す", () => {
+  const add = seBtn("Add a line", () => {
     if (inputs.length >= max) return;
     push("");
     add.disabled = inputs.length >= max;
@@ -749,12 +749,12 @@ function seFieldLines(key, label, init, max, hint, placeholder) {
 /** 相手の種類と番号で target を作る（link 用。論文のときだけ役割と読み具合を出す）。 */
 function seFieldTarget(key, init, hint) {
   const el = seLine("sci-edit-field");
-  el.appendChild(seEl("label", "sci-edit-label", "相手"));
+  el.appendChild(seEl("label", "sci-edit-label", "Target"));
   const row = seLine("sci-edit-target");
   const kinds = seFieldPick("__kind", "", SE_TARGET_KINDS, seTrim(init).split(":")[0] || "paper");
   row.appendChild(kinds.el);
   const numWrap = seLine("sci-edit-field");
-  numWrap.appendChild(seEl("label", "sci-edit-label", "番号"));
+  numWrap.appendChild(seEl("label", "sci-edit-label", "Number"));
   // 報告だけは R-0012 の形なので、数の入力にはしない
   const num = document.createElement("input");
   num.type = "text";
@@ -763,7 +763,7 @@ function seFieldTarget(key, init, hint) {
   numWrap.appendChild(num);
   row.appendChild(numWrap);
   el.appendChild(row);
-  const role = seFieldSelect("role", "ROLE", SE_ROLES, "", "論文のときは必ず選ぶ", true);
+  const role = seFieldSelect("role", "ROLE", SE_ROLES, "", "Required for a paper", true);
   const readState = seFieldSelect("read_state", "READ_STATE", SE_READ_STATES, "unread", null, true);
   el.appendChild(role.el);
   el.appendChild(readState.el);
@@ -841,11 +841,11 @@ async function seApply(json, form) {
   try {
     const res = await paperApi(stApi("/apply"), { method: "POST", body: json });
     if (form && form.host && typeof form.host.close === "function") form.host.close();
-    saiToast(SE_DONE[json.op] || "反映しました", "ok");
+    saiToast(SE_DONE[json.op] || "Applied", "ok");
     if (typeof stReload === "function") await stReload();
     return res;
   } catch (e) {
-    const why = (e && e.message) || "反映できませんでした";
+    const why = (e && e.message) || "Could not apply";
     if (form && typeof form.say === "function") form.say(why);
     else saiToast(why, "error");
   }
@@ -885,120 +885,120 @@ function seFieldsFor(kind, nodeId, detail, target) {
     case "decide": {
       const free = options.filter((o) => o.state !== "selected");
       return {
-        title: `決める　${base.node}`,
+        title: `Decide ${base.node}`,
         values: Object.assign({}, base, { hasOptions: options.length > 0 }),
         fields: [
           nodeOptions.length
-            ? seFieldSelect("option", "選ぶ OPTION", nodeOptions, "", "OPTION が無いときは空のままにする", true)
-            : seFieldText("option", "選ぶ OPTION", "", "OPTION の番号（N20 の形）"),
-          seFieldToggle("tentative", "TENTATIVE にする", false, "決め切らず、仮として残す"),
-          seFieldChecks("evidence", "根拠の FINDING", findingOptions, [], "この NODE の FINDING から選ぶ（無くてもよい）"),
-          seFieldPairs("rejected", "外す OPTION と理由", free.map((o) => [o.id, o.title || ""]), "チェックを付けて理由を書く"),
-          seFieldToggle("counter_searched", "反証を探した", false),
-          seFieldArea("reason", "理由", "", 3, "この判断の理由（必須）"),
+            ? seFieldSelect("option", "OPTION to select", nodeOptions, "", "Leave empty if there is no OPTION", true)
+            : seFieldText("option", "OPTION to select", "", "OPTION id (like N20)"),
+          seFieldToggle("tentative", "Make TENTATIVE", false, "Keep as provisional, not final"),
+          seFieldChecks("evidence", "Evidence FINDINGs", findingOptions, [], "Pick from this NODE's FINDINGs (optional)"),
+          seFieldPairs("rejected", "OPTIONs to drop, with reasons", free.map((o) => [o.id, o.title || ""]), "Check and write a reason"),
+          seFieldToggle("counter_searched", "Searched for counter-evidence", false),
+          seFieldArea("reason", "Reason", "", 3, "Reason for this decision (required)"),
         ],
       };
     }
     case "exclude_item":
       return {
-        title: `対象外にする　${base.node}`,
+        title: `Exclude ${base.node}`,
         values: base,
-        fields: [seFieldArea("reason", "理由", "", 3, "対象外にする理由（必須）")],
+        fields: [seFieldArea("reason", "Reason", "", 3, "Reason for excluding (required)")],
       };
     case "option_state": {
       const t = target && typeof target === "object" ? target : {};
       const opt = seTrim(t.option || target);
       const found = options.find((o) => o.id === opt);
       return {
-        title: `OPTION の状態を変える　${opt}`,
+        title: `Change OPTION state ${opt}`,
         values: Object.assign({}, base, { state: t.state || "rejected" }),
         fields: [
-          seFieldPick("state", "状態", SE_OPTION_STATES, t.state || "rejected"),
-          seFieldArea("reason", "理由", "", 3, `${opt || "この OPTION"} の状態を ${seOptionStateLabel(t.state)} にする理由（必須）`),
+          seFieldPick("state", "State", SE_OPTION_STATES, t.state || "rejected"),
+          seFieldArea("reason", "Reason", "", 3, `Reason for changing ${opt || "this OPTION"} to ${seOptionStateLabel(t.state)} (required)`),
         ],
       };
     }
     case "add_option":
       return {
-        title: `OPTION を足す　${base.node}`,
+        title: `Add option ${base.node}`,
         values: base,
         fields: [
-          seFieldText("title", "題", "", "必須・120 字まで"),
-          seFieldArea("body", "本文", "", 4, "2000 字まで（無くてもよい）"),
+          seFieldText("title", "Title", "", "Required, up to 120 characters"),
+          seFieldArea("body", "Body", "", 4, "Up to 2000 characters (optional)"),
         ],
       };
     case "add_child":
       return {
-        title: `ITEM を足す　${base.node}`,
+        title: `Add child ${base.node}`,
         values: base,
         fields: [
-          seFieldText("title", "題", "", "必須・120 字まで"),
-          seFieldChecks("types", "ITEM_TYPE", SE_ITEM_TYPES, [], "1 つ以上選ぶ（組み合わせてもよい）"),
+          seFieldText("title", "Title", "", "Required, up to 120 characters"),
+          seFieldChecks("types", "ITEM_TYPE", SE_ITEM_TYPES, [], "Select one or more (can be combined)"),
         ],
       };
     case "add_question":
       return {
-        title: `QUESTION を足す　${base.node}`,
+        title: `Add question ${base.node}`,
         values: base,
-        fields: [seFieldArea("text", "QUESTION", "", 3, "必須・300 字まで")],
+        fields: [seFieldArea("text", "QUESTION", "", 3, "Required, up to 300 characters")],
       };
     case "answer_question": {
       const qid = seTrim(target);
       const q = questions.find((x) => x.id === qid);
       return {
-        title: `QUESTION に答える　${qid}`,
+        title: `Answer question ${qid}`,
         values: base,
-        fields: [seFieldArea("text", "答え", q && q.answer ? q.answer : "", 4, `必須・1200 字まで（${qid}）`)],
+        fields: [seFieldArea("text", "Answer", q && q.answer ? q.answer : "", 4, `Required, up to 1200 characters (${qid})`)],
       };
     }
     case "add_finding":
       return {
-        title: `FINDING を足す　${base.node}`,
+        title: `Add finding ${base.node}`,
         values: Object.assign({}, base, { polarity: "support" }),
         fields: [
-          seFieldArea("text", "文", "", 3, "必須・1〜3 文・1200 字まで"),
-          seFieldLines("cites", "CITE", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは必ず CITE）", "#37 §3.2"),
+          seFieldArea("text", "Text", "", 3, "Required, 1 to 3 sentences, up to 1200 characters"),
+          seFieldLines("cites", "CITE", [], 10, "One per line, like `#37 §3.2` (a CITE is required when writing numbers)", "#37 §3.2"),
           seFieldSelect("polarity", "POLARITY", SE_POLARITY, "support", null, true),
-          seFieldSelect("level", "根拠の段", SE_LEVELS, "", "任意", true),
-          questionOptions.length ? seFieldSelect("question", "QUESTION", questionOptions, "", "この QUESTION への答えなら選ぶ", true) : null,
-          paperOptions.length ? seFieldSelect("paper", "論文", paperOptions, "", "任意（この NODE に LINK されている論文）", true) : null,        ],
+          seFieldSelect("level", "Evidence level", SE_LEVELS, "", "Optional", true),
+          questionOptions.length ? seFieldSelect("question", "QUESTION", questionOptions, "", "Select if this answers the QUESTION", true) : null,
+          paperOptions.length ? seFieldSelect("paper", "Paper", paperOptions, "", "Optional (a paper LINKed to this NODE)", true) : null,        ],
       };
     case "link":
       return {
-        title: `結ぶ　${base.node}`,
+        title: `Link ${base.node}`,
         values: Object.assign({}, base, { target: "paper:" }),
         fields: [
-          seFieldTarget("target", "paper:", "番号は Library にある番号（論文 37・報告 R-0012）"),          seFieldArea("reason", "理由", "", 3, "任意（記録に残る）"),
+          seFieldTarget("target", "paper:", "Use the number in Library (paper 37, report R-0012)"),          seFieldArea("reason", "Reason", "", 3, "Optional (kept in the record)"),
         ],
       };
     case "edit_text":
       return {
-        title: `文を直す　${base.node}`,
+        title: `Edit text ${base.node}`,
         values: Object.assign({}, base, { title: node.title || "", body: node.body || "" }),
         fields: [
-          seFieldText("title", "題", node.title || "", "120 字まで"),
-          seFieldArea("body", "本文", node.body || "", 6, "2000 字まで"),
+          seFieldText("title", "Title", node.title || "", "Up to 120 characters"),
+          seFieldArea("body", "Body", node.body || "", 6, "Up to 2000 characters"),
         ],
       };
     case "add_edge":
       return {
-        title: `線を引く　${base.node}`,
+        title: `Add edge ${base.node}`,
         values: Object.assign({}, base, { kind: "depends" }),
         fields: [
-          seFieldPick("kind", "線の種類", SE_EDGE_KINDS, "depends"),
-          seFieldSelect("to", "相手の NODE", otherNodes, "", "どの NODE へ線を引くか", false),
-          seFieldText("note", "メモ", "", "200 字まで（任意）"),
+          seFieldPick("kind", "Edge kind", SE_EDGE_KINDS, "depends"),
+          seFieldSelect("to", "Target NODE", otherNodes, "", "Which NODE to draw the edge to", false),
+          seFieldText("note", "Note", "", "Up to 200 characters (optional)"),
         ],
       };
     case "exclude": {
       const lid = seTrim(target);
       const link = links.find((l) => l.id === lid);
       return {
-        title: `外す　${link ? link.title || lid : lid}`,
+        title: `Remove ${link ? link.title || lid : lid}`,
         values: Object.assign({}, base, { target: link ? link.target : "", title: link ? link.title || "" : "" }),
         fields: [
-          seEl("p", "sci-edit-note", "外した論文は以後の検索結果に出なくなります（記録は TOMBSTONE に残します）。"),
-          seFieldArea("reason", "理由", "", 3, "必須"),
+          seEl("p", "sci-edit-note", "A removed paper no longer appears in search results (the record is kept in TOMBSTONE)."),
+          seFieldArea("reason", "Reason", "", 3, "Required"),
         ],
       };
     }
@@ -1007,7 +1007,7 @@ function seFieldsFor(kind, nodeId, detail, target) {
       const link = links.find((l) => l.id === lid);
       const state = (link && link.read_state) || "unread";
       return {
-        title: `読み具合　${link ? link.title || lid : lid}`,
+        title: `Read state ${link ? link.title || lid : lid}`,
         values: Object.assign({}, base, { state }),
         fields: [seFieldPick("state", "READ_STATE", SE_READ_STATES, state)],
       };
@@ -1040,9 +1040,9 @@ function seOpenAction(kind, nodeId, detail, target) {
   if (name === "reopen") {
     void (async () => {
       const ok = await saiConfirm({
-        title: "開き直しますか",
-        body: "OPEN に戻し、SELECTED の OPTION を CANDIDATE に戻します。",
-        ok: "開く",
+        title: "Reopen?",
+        body: "Set back to OPEN and return the SELECTED OPTION to CANDIDATE.",
+        ok: "Reopen",
       });
       if (!ok) return;
       const built = seBuildOp("reopen", { node: seTrim(nodeId) }, target);
@@ -1058,7 +1058,7 @@ function seOpenAction(kind, nodeId, detail, target) {
   body.appendChild(form.el);
   const host = saiSheet({ title: spec.title, body });
   form.host = host;
-  form.actions.appendChild(seBtn("やめる", () => host.close(), "ghost"));
+  form.actions.appendChild(seBtn("Cancel", () => host.close(), "ghost"));
 
   const send = async () => {
     const v = values();
@@ -1071,11 +1071,11 @@ function seOpenAction(kind, nodeId, detail, target) {
 
   // 外す（墓標）は確かめを出す
   if (name === "exclude") {
-    form.actions.appendChild(seBtn("外す", async () => {
+    form.actions.appendChild(seBtn("Remove", async () => {
       const ok = await saiConfirm({
-        title: "この論文は検索結果に出なくなります",
-        body: "外した記録は TOMBSTONE に残ります。もう一度結べば元に戻ります。",
-        ok: "外す",
+        title: "This paper will no longer appear in search results",
+        body: "The removal is kept in TOMBSTONE. LINK it again to restore.",
+        ok: "Remove",
         danger: true,
       });
       if (!ok) return;
@@ -1083,7 +1083,7 @@ function seOpenAction(kind, nodeId, detail, target) {
     }, "danger"));
     return;
   }
-  form.actions.appendChild(seBtn("送る", send, "primary"));
+  form.actions.appendChild(seBtn("Send", send, "primary"));
 }
 
 /**

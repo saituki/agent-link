@@ -162,18 +162,18 @@ function testJobErrorNotFound() {
 }
 
 function testAttentionKindLabel() {
-  assert.strictEqual(pimAttentionKindLabel("empty_review"), "書いていない review");
-  assert.strictEqual(pimAttentionKindLabel("question"), "ユーザーへの質問");
-  assert.strictEqual(pimAttentionKindLabel("state_update"), "現況の更新案");
-  assert.strictEqual(pimAttentionKindLabel("recommend_card"), "推薦のカード");
-  assert.strictEqual(pimAttentionKindLabel("report_issue"), "出典の要確認");
-  assert.strictEqual(pimAttentionKindLabel("new_set_items"), "検索セットの新着");
+  assert.strictEqual(pimAttentionKindLabel("empty_review"), "Review not written");
+  assert.strictEqual(pimAttentionKindLabel("question"), "Question for the user");
+  assert.strictEqual(pimAttentionKindLabel("state_update"), "Proposed State update");
+  assert.strictEqual(pimAttentionKindLabel("recommend_card"), "Recommendation card");
+  assert.strictEqual(pimAttentionKindLabel("report_issue"), "Source needs checking");
+  assert.strictEqual(pimAttentionKindLabel("new_set_items"), "New items in a search set");
   // U19: 研究方針の木から出る要対応
-  assert.strictEqual(pimAttentionKindLabel("sci_decision"), "AWAITING_DECISION の ITEM");
-  assert.strictEqual(pimAttentionKindLabel("sci_triage"), "TRIAGE 待ちの PROPOSAL");
+  assert.strictEqual(pimAttentionKindLabel("sci_decision"), "ITEM awaiting decision");
+  assert.strictEqual(pimAttentionKindLabel("sci_triage"), "PROPOSAL awaiting TRIAGE");
   // 知らない種類は札だけを出し、説明は 「要対応」 に落とす
-  assert.strictEqual(pimAttentionKindLabel("mystery"), "要対応");
-  assert.strictEqual(pimAttentionKindLabel(null), "要対応");
+  assert.strictEqual(pimAttentionKindLabel("mystery"), "Attention");
+  assert.strictEqual(pimAttentionKindLabel(null), "Attention");
   // 札の 8 種類が揃っていること（toast と札の両方で使う）
   assert.strictEqual(Object.keys(PIM_ATTENTION_KINDS).length, 8);
 }

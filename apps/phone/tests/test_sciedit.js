@@ -55,8 +55,8 @@ function test_helpers() {
   assert.strictEqual(seTrim(null), "");
   assert.strictEqual(seTrim(undefined), "");
 
-  assert.strictEqual(seOpLabel("add_finding"), "FINDING を足す");
-  assert.strictEqual(seOpLabel("decide"), "決める");
+  assert.strictEqual(seOpLabel("add_finding"), "Add finding");
+  assert.strictEqual(seOpLabel("decide"), "Decide");
   assert.strictEqual(seOpLabel("mystery_op"), "mystery_op"); // 表に無い op はそのまま
 
   assert.ok(seCiteOk("#37"));
@@ -80,7 +80,7 @@ function test_helpers() {
 
   assert.strictEqual(seOptionStateLabel("rejected"), "REJECTED");
   assert.strictEqual(seOptionStateLabel("dormant"), "DORMANT");
-  assert.strictEqual(seOptionStateLabel("candidate"), "CANDIDATE に戻す");
+  assert.strictEqual(seOptionStateLabel("candidate"), "Back to CANDIDATE");
 }
 
 // --- 文の数を数える（C-07） ---
@@ -121,7 +121,7 @@ function test_decide() {
   assert.strictEqual(tentative.counter_searched, true);
 
   // 理由が空なら送らない
-  assert.match(ng(seBuildOp("decide", { node: "N12", option: "N20" })), /理由/);
+  assert.match(ng(seBuildOp("decide", { node: "N12", option: "N20" })), /reason/i);
   // 候補があるのに選んでいない
   assert.match(ng(seBuildOp("decide", { node: "N12", hasOptions: true, reason: "たぶん" })), /OPTION/);
   // 候補が無いときは空でもよい
@@ -131,7 +131,7 @@ function test_decide() {
   // 根拠の知見
   const withEvidence = ok(seBuildOp("decide", { node: "N12", reason: "r", evidence: ["F31", " F32 ", ""] }));
   assert.deepStrictEqual(withEvidence.evidence, ["F31", "F32"]);
-  assert.match(ng(seBuildOp("decide", { node: "N12", reason: "r", evidence: ["31"] })), /F31|形/);
+  assert.match(ng(seBuildOp("decide", { node: "N12", reason: "r", evidence: ["31"] })), /F31|format/);
   // 外す候補と理由
   const rejected = ok(seBuildOp("decide", {
     node: "N12", reason: "r", rejected: [{ option: "N21", reason: "別の目的" }, { option: "", reason: "—" }],
@@ -147,7 +147,7 @@ function test_simple_decisions() {
   assert.deepStrictEqual(ok(seBuildOp("exclude_item", { node: "N12", reason: "やめる" })), {
     op: "exclude_item", node: "N12", reason: "やめる",
   });
-  assert.match(ng(seBuildOp("exclude_item", { node: "N12" })), /理由/);
+  assert.match(ng(seBuildOp("exclude_item", { node: "N12" })), /reason/i);
 
   // 候補の状態を変える（scitree.js が target に option と state を入れる）
   assert.deepStrictEqual(
@@ -158,10 +158,10 @@ function test_simple_decisions() {
     ok(seBuildOp("option_state", { node: "N12", reason: "戻る" }, { option: "N20", state: "candidate" })),
     { op: "option_state", node: "N20", state: "candidate", reason: "戻る" }
   );
-  assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "N20" })), /状態/);
+  assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "N20" })), /state/i);
   assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "20", state: "rejected" })), /OPTION/);
   // C-07 の 3 つ以外の状態は受け付けない
-  assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "N20", state: "selected" })), /状態/);
+  assert.match(ng(seBuildOp("option_state", { node: "N12", reason: "r" }, { option: "N20", state: "selected" })), /state/i);
 }
 
 // --- 項目・候補・問い・知見 ---
@@ -172,15 +172,15 @@ function test_content_ops() {
   assert.deepStrictEqual(ok(seBuildOp("add_option", { node: "N12", title: "前頭葉", body: "… " })), {
     op: "add_option", node: "N12", title: "前頭葉", body: "…",
   });
-  assert.match(ng(seBuildOp("add_option", { node: "N12" })), /題/);
+  assert.match(ng(seBuildOp("add_option", { node: "N12" })), /title/i);
   assert.match(ng(seBuildOp("add_option", { node: "N12", title: "あ".repeat(121) })), /120/);
   assert.match(ng(seBuildOp("add_option", { node: "N12", title: "x", body: "あ".repeat(2001) })), /2000/);
 
   assert.deepStrictEqual(ok(seBuildOp("add_child", { node: "N12", title: "手順", types: ["list", "verify"] })), {
     op: "add_child", node: "N12", title: "手順", types: ["list", "verify"],
   });
-  assert.match(ng(seBuildOp("add_child", { node: "N12", title: "手順" })), /型/);
-  assert.match(ng(seBuildOp("add_child", { node: "N12", title: "手順", types: ["everything"] })), /型/);
+  assert.match(ng(seBuildOp("add_child", { node: "N12", title: "手順" })), /type/i);
+  assert.match(ng(seBuildOp("add_child", { node: "N12", title: "手順", types: ["everything"] })), /type/i);
 
   assert.deepStrictEqual(ok(seBuildOp("add_question", { node: "N12", text: "N はいくつか" })), {
     op: "add_question", node: "N12", text: "N はいくつか",
@@ -192,7 +192,7 @@ function test_content_ops() {
     op: "answer_question", question: "Q7", text: "3 人",
   });
   assert.match(ng(seBuildOp("answer_question", { text: "3 人" }, null)), /QUESTION/);
-  assert.match(ng(seBuildOp("answer_question", { text: "" }, "Q7")), /答え/);
+  assert.match(ng(seBuildOp("answer_question", { text: "" }, "Q7")), /answer/i);
 
   // 知見
   const f = ok(seBuildOp("add_finding", {
@@ -210,9 +210,9 @@ function test_content_ops() {
   // 出典の形
   assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ", cites: ["37"] })), /CITE/);
   // 4 文は弾かれる
-  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ。い。う。え。" })), /3 文/);
+  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ。い。う。え。" })), /3 sentences/);
   // 出典は 10 個まで
-  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ", cites: Array(11).fill("#1") })), /10 個/);
+  assert.match(ng(seBuildOp("add_finding", { node: "N12", text: "あ", cites: Array(11).fill("#1") })), /10 CITE/);
   // 任意の項目
   const full = ok(seBuildOp("add_finding", {
     node: "N12", text: "あ", question: "Q7", paper: "37", run: "130", level: "4",
@@ -233,29 +233,29 @@ function test_link_text_edge() {
     { op: "link", node: "N12", target: "paper:37", role: "compare", read_state: "read" }
   );
   // 論文のときは役割が必須
-  assert.match(ng(seBuildOp("link", { node: "N12", target: "paper:37" })), /役割/);
+  assert.match(ng(seBuildOp("link", { node: "N12", target: "paper:37" })), /ROLE/);
   // 論文でなければ役割は不要
   assert.deepStrictEqual(ok(seBuildOp("link", { node: "N12", target: "report:R-0012" })), {
     op: "link", node: "N12", target: "report:R-0012",
   });
-  assert.match(ng(seBuildOp("link", { node: "N12", target: "paper:abc" })), /形/);
-  assert.match(ng(seBuildOp("link", { node: "N12", target: "" })), /相手/);
+  assert.match(ng(seBuildOp("link", { node: "N12", target: "paper:abc" })), /format/);
+  assert.match(ng(seBuildOp("link", { node: "N12", target: "" })), /target/i);
 
   assert.deepStrictEqual(ok(seBuildOp("edit_text", { node: "N12", title: "小目的", body: "本文" })), {
     op: "edit_text", node: "N12", title: "小目的", body: "本文",
   });
   // どちらかが 1 つは必要
-  assert.match(ng(seBuildOp("edit_text", { node: "N12", title: "", body: " " })), /題か本文/);
+  assert.match(ng(seBuildOp("edit_text", { node: "N12", title: "", body: " " })), /title or a body/);
   assert.match(ng(seBuildOp("edit_text", { node: "N12", title: "あ".repeat(121) })), /120/);
 
   assert.deepStrictEqual(ok(seBuildOp("add_edge", { node: "N11", kind: "depends", to: "N30", note: "要る" })), {
     op: "add_edge", kind: "depends", from: "N11", to: "N30", note: "要る",
   });
   // parent は指定できない
-  assert.match(ng(seBuildOp("add_edge", { node: "N11", kind: "parent", to: "N30" })), /種類/);
+  assert.match(ng(seBuildOp("add_edge", { node: "N11", kind: "parent", to: "N30" })), /edge kind/i);
   // 自分自身
-  assert.match(ng(seBuildOp("add_edge", { node: "N11", kind: "depends", to: "N11" })), /自分/);
-  assert.match(ng(seBuildOp("add_edge", { node: "N11", kind: "depends" })), /相手/);
+  assert.match(ng(seBuildOp("add_edge", { node: "N11", kind: "depends", to: "N11" })), /itself/);
+  assert.match(ng(seBuildOp("add_edge", { node: "N11", kind: "depends" })), /target/i);
 }
 
 // --- 外す系（1 押し）と読み具合 ---
@@ -268,8 +268,8 @@ function test_remove_ops() {
     ok(seBuildOp("remove_edge", {}, { kind: "depends", from: "N11", to: "N30" })),
     { op: "remove_edge", kind: "depends", from: "N11", to: "N30" }
   );
-  assert.match(ng(seBuildOp("remove_edge", {}, { kind: "parent", from: "N11", to: "N30" })), /種類/);
-  assert.match(ng(seBuildOp("remove_edge", {}, { kind: "depends", from: "N11" })), /両端/);
+  assert.match(ng(seBuildOp("remove_edge", {}, { kind: "parent", from: "N11", to: "N30" })), /edge kind/i);
+  assert.match(ng(seBuildOp("remove_edge", {}, { kind: "depends", from: "N11" })), /Both ends/);
 
   assert.deepStrictEqual(ok(seBuildOp("set_read_state", { state: "reflected" }, "L3")), {
     op: "set_read_state", link: "L3", state: "reflected",
@@ -281,14 +281,14 @@ function test_remove_ops() {
     ok(seBuildOp("exclude", { node: "N12", target: "paper:37", title: "Scalp EEG", reason: "主題が違う" })),
     { op: "exclude", target: "paper:37", node: "N12", title: "Scalp EEG", reason: "主題が違う" }
   );
-  assert.match(ng(seBuildOp("exclude", { node: "N12", target: "paper:37" })), /理由/);
-  assert.match(ng(seBuildOp("exclude", { node: "N12", target: "", reason: "x" })), /相手/);
+  assert.match(ng(seBuildOp("exclude", { node: "N12", target: "paper:37" })), /reason/i);
+  assert.match(ng(seBuildOp("exclude", { node: "N12", target: "", reason: "x" })), /target/i);
 }
 
 // --- 知らない op ---
 function test_unknown() {
-  assert.match(ng(seBuildOp("add_seed", { node: "N1", title: "x" })), /知らない/);
-  assert.match(ng(seBuildOp("", {})), /知らない/);
+  assert.match(ng(seBuildOp("add_seed", { node: "N1", title: "x" })), /Unknown/);
+  assert.match(ng(seBuildOp("", {})), /Unknown/);
 }
 
 // --- 19 の op のうち Web から使える 18 が全部定義されていること ---
