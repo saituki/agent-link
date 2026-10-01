@@ -59,7 +59,9 @@ use crate::block_config::BlockConfig;
 use crate::herdr::{HerdrClient, HerdrError, SplitDirection};
 use crate::cc_command::CcCommandBuilder;
 use crate::pi_command::PiCommandBuilder;
-use crate::placeholder::{resolve_placeholder_values, split_fixed_and_variable, PlaceholderValue};
+use crate::placeholder::{
+    resolve_placeholder_values, shift_headings, split_fixed_and_variable, PlaceholderValue,
+};
 use crate::runner::RunnerKind;
 use crate::sai_write_notify;
 use crate::session::{
@@ -2350,7 +2352,28 @@ pub fn message_path(run_id: i64) -> PathBuf {
     crate::project::sai_path(MESSAGE_DIR).join(format!("{}.md", run_id))
 }
 
-/// user / assistant メッセージ列から message md 本文を組み立てる。
+/// 利用者の最初の発話が自動の節（`# context` か `# task_text`）で始まるかを返す。
+///
+/// 先頭の空白を無視して ` # context` / `# task_text` で始まり、その直後が改行か
+/// 文字列の終わりなら真。`# contextual` のように語が繋がるものは偽。
+fn starts_with_auto_section(text: &str) -> bool {
+    let head = text.trim_start();
+    for prefix in ["# context", "# task_text"] {
+        if let Some(rest) = head.strip_prefix(prefix) {
+            if rest.is_empty() || rest.starts_with('\n') || rest.starts_with('\r') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// user / assistant メッセージ列から message md 本文を組み立てる（U03）。
+///
+/// 区切りは `# user (n)` / `# assistant (n)`。最初の利用者の発話が `# context` か
+/// `# task_text` で始まるなら、その 2 節がそのまま最上位に出て、区切りは出ない。
+/// それ以外は `# user (1)` として出す。区切り以外の本文の見出しは 1 段下げる
+/// （最初の発話の内部は下げない）。
 ///
 /// ```md
 /// ---
@@ -2358,11 +2381,23 @@ pub fn message_path(run_id: i64) -> PathBuf {
 /// run_id: 10
 /// ---
 ///
-/// ## user (1)
+/// # context
+/// ## 今回の行動
 ///
+/// # task_text
+/// <依頼>
+///
+/// # assistant (1)
+///
+/// ## 結論
 /// <本文>
 ///
-/// ## assistant (1)
+/// # user (1)
+///
+/// ## 追加
+/// <本文>
+///
+/// # assistant (2)
 ///
 /// <本文>
 /// ```
@@ -2374,13 +2409,31 @@ pub fn render_message_md(block_name: &str, run_id: i64, messages: &[(String, Str
     ));
     let mut user_n = 0u32;
     let mut asst_n = 0u32;
+    // 最初の利用者の発話を 1 回だけ、自動の節として除外できるかどうかを調べる。
+    let mut first_user_seen = false;
     for (role, text) in messages {
         if role == "user" {
+            if !first_user_seen {
+                first_user_seen = true;
+                if starts_with_auto_section(text) {
+                    // 中身はすでに正しい深さ（U01 が waggle の中で下げている）。下げない。
+                    out.push_str(&format!("\n{}\n", text.trim()));
+                    continue;
+                }
+            }
             user_n += 1;
-            out.push_str(&format!("\n## user ({})\n\n{}\n", user_n, text.trim()));
+            out.push_str(&format!(
+                "\n# user ({})\n\n{}\n",
+                user_n,
+                shift_headings(text.trim(), 1)
+            ));
         } else {
             asst_n += 1;
-            out.push_str(&format!("\n## assistant ({})\n\n{}\n", asst_n, text.trim()));
+            out.push_str(&format!(
+                "\n# assistant ({})\n\n{}\n",
+                asst_n,
+                shift_headings(text.trim(), 1)
+            ));
         }
     }
     out
@@ -6110,7 +6163,7 @@ mod tests {
         let md = write_message_file(&store, run_id).expect("message.md を書ける");
         let text = std::fs::read_to_string(&md).unwrap();
         assert!(
-            !text.contains("## user") && !text.contains("## assistant"),
+            !text.contains("# user") && !text.contains("# assistant"),
             "セッションが無いときは会話が出ない: {}",
             text
         );
@@ -6216,5 +6269,90 @@ mod tests {
         crate::session::cleanup_session_dir(&prepared.session_dir);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- U03: render_message_md の見出しの構造 ----
+
+    /// 発話列を (role, text) の vec にする補助。
+    fn render_msgs(pairs: &[(&str, &str)]) -> String {
+        let messages: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(role, text)| (role.to_string(), text.to_string()))
+            .collect();
+        render_message_md("plan", 129, &messages)
+    }
+
+    /// 最初の発話が `# context` で始まるなら、区切りなしでそのまま出る。
+    #[test]
+    fn test_render_message_md_first_user_context_has_no_divider() {
+        let text = render_msgs(&[
+            ("user", "# context\n## 今回の行動\n## 資料\n\n# task_text\n依頼"),
+            ("assistant", "# 結論\n本文"),
+            ("user", "# 追加\n続けて"),
+            ("assistant", "了解"),
+        ]);
+        assert!(!text.contains("# user (0)"), "{}", text);
+        assert!(!text.contains("# user (2)"), "{}", text);
+        assert!(text.contains("# context\n## 今回の行動\n## 資料"), "{}", text);
+        assert!(text.contains("# task_text\n依頼"), "{}", text);
+        // 最初の発話の内部は下げない
+        assert!(text.contains("\n# context\n"), "{}", text);
+        assert!(text.contains("\n# task_text\n"), "{}", text);
+        // 次の利用者の発話は 1 から
+        assert!(text.contains("# user (1)\n\n## 追加\n続けて"), "{}", text);
+        assert!(text.contains("# assistant (1)\n\n## 結論\n本文"), "{}", text);
+        assert!(text.contains("# assistant (2)\n\n了解"), "{}", text);
+        assert!(!text.contains("## user ("), "{}", text);
+        assert!(!text.contains("## assistant ("), "{}", text);
+    }
+
+    /// context が無く最初の発話が `# task_text` で始まる場合も同じ。
+    #[test]
+    fn test_render_message_md_first_user_task_text_has_no_divider() {
+        let text = render_msgs(&[
+            ("user", "# task_text\n依頼"),
+            ("assistant", "はい"),
+        ]);
+        assert!(text.contains("\n# task_text\n依頼\n"), "{}", text);
+        assert!(!text.contains("# user ("), "{}", text);
+        assert!(text.contains("# assistant (1)"), "{}", text);
+    }
+
+    /// 最初の発話が自動の節で始まらないときは `# user (1)` として残る。
+    #[test]
+    fn test_render_message_md_first_user_plain_keeps_divider() {
+        let text = render_msgs(&[
+            ("user", "hello"),
+            ("assistant", "world"),
+            ("user", "again"),
+            ("assistant", "ok"),
+        ]);
+        assert!(text.contains("# user (1)\n\nhello"), "{}", text);
+        assert!(text.contains("# assistant (1)\n\nworld"), "{}", text);
+        assert!(text.contains("# user (2)\n\nagain"), "{}", text);
+        assert!(text.contains("# assistant (2)\n\nok"), "{}", text);
+    }
+
+    /// assistant の本文の見出しは 1 段下がる。コードブロックの中の `#` は下がらない。
+    #[test]
+    fn test_render_message_md_shifts_assistant_headings() {
+        let text = render_msgs(&[("assistant", "# 結論\n本文\n\n```bash\n# コメント\n```\n\n## 補足")]);
+        assert!(text.contains("# assistant (1)\n\n## 結論\n"), "{}", text);
+        assert!(text.contains("\n```bash\n# コメント\n```"), "{}", text);
+        assert!(text.contains("### 補足"), "{}", text);
+    }
+
+    /// `# contextual` で始まる最初の発話は、自動の節として除外しない。
+    #[test]
+    fn test_render_message_md_contextual_prefix_is_not_auto_section() {
+        let text = render_msgs(&[("user", "# contextual\n本文")]);
+        assert!(text.contains("# user (1)\n\n## contextual\n本文"), "{}", text);
+    }
+
+    /// 空の発話列なら frontmatter だけ。
+    #[test]
+    fn test_render_message_md_empty_is_frontmatter_only() {
+        let text = render_message_md("plan", 1, &[]);
+        assert_eq!(text, "---\nblock_name: plan\nrun_id: 1\n---\n");
     }
 }

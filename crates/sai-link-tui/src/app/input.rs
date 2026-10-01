@@ -1713,12 +1713,12 @@ mod message_tests {
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("block_name: test"));
         assert!(body.contains("run_id:"));
-        assert!(body.contains("## user (1)"));
+        assert!(body.contains("# user (1)"));
         assert!(body.contains("hello"));
-        assert!(body.contains("## assistant (1)"));
+        assert!(body.contains("# assistant (1)"));
         assert!(body.contains("world"));
-        assert!(body.contains("## user (2)"));
-        assert!(body.contains("## assistant (2)"));
+        assert!(body.contains("# user (2)"));
+        assert!(body.contains("# assistant (2)"));
         assert!(!body.contains("hidden"), "thinking は除外される");
 
         // `Space m` 再押しでは戻らない。Esc で Workflow に戻る
