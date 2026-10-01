@@ -1294,10 +1294,20 @@ pub fn handle_block_preview(
     // 実行時は固定部分を run フォルダの `system-prompt.md` に書いて
     // `--append-system-prompt`（pi）/ `--append-system-prompt-file`（cc）で渡すため、
     // プレビューのコマンドにはそのフラグが付きません。
+    // `context: true` のブロックは `run_id` が無いので、context の節の中身は
+    // 「範囲を作れませんでした」の 1 行になる（実行時と同じ形を見せられる）。
+    let preview_context = if parsed.config.context == Some(true) {
+        Some(sai_link_engine::pre_run::context_text(
+            None,
+            parsed.config.block_id(),
+        ))
+    } else {
+        None
+    };
     let (system_prompt, first_message) = sai_link_engine::placeholder::split_fixed_and_variable(
         &parsed.body,
         &user_inputs_map,
-        None,
+        preview_context.as_deref(),
     );
     println!();
     println!("## system prompt（固定部分）");
