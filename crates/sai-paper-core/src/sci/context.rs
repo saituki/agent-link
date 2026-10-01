@@ -5,6 +5,7 @@
 //!
 //! sai-link が起動の直前に `sci context --run <id>` を呼び、標準出力をメモリ上に詰める。
 //! したがって **ファイルは作らない**（標準出力に流すのは呼び出し側の仕事）。
+//! 出力の節はすべて `##` で始める。最上位の `# context` の見出しは sai-link が付けるので、ここでは付けない。
 //!
 //! 長さは `settings.json` の `sci.context_max_chars`（既定 12000 字）で制限する。
 //! はみ出したときは C-06 の ①〜⑥ の順に 1 段ずつ削る。
@@ -28,12 +29,12 @@ use crate::paths::PaperRoots;
 
 /// sci を始めていないときの文。
 const NO_TREE: &str = "\
-# 今回の行動（sai-sci より）
+## 今回の行動（sai-sci より）
 研究方針の木がまだありません。ユーザーに `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼んでください。";
 
 /// 節点の指定が無いときの文。
 const NO_NODE: &str = "\
-# 今回の行動（sai-sci より）
+## 今回の行動（sai-sci より）
 節点の指定がありません。この実行は Research-tree の画面か `sai-moon-paper sci card` で作られていません。
 依頼文に書かれた範囲だけで作業し、最初にユーザーへ「研究方針のどの項目のための行動か」を確かめてください。";
 
@@ -81,7 +82,7 @@ enum Section {
 
 /// 組み立てた範囲。節の並びは C-06 の順で固定。
 struct Parts {
-    /// 今回の行動。`blind` のときは節点の行を外す。
+    /// 今回の行動。`blind` のときは節点の行を外す。見出しは `## 今回の行動（sai-sci より）` で始める。
     action: Vec<String>,
     /// 研究の現在地。`blind` なら空。
     place: Vec<String>,
@@ -219,8 +220,8 @@ impl Parts {
             )));
         };
 
-        // 今回の行動。
-        let mut action = vec!["# 今回の行動（sai-sci より）".to_string()];
+        // 今回の行動。ほかの節と同じ深さ（`##`）で始める。`# context` は sai-link が付ける。
+        let mut action = vec!["## 今回の行動（sai-sci より）".to_string()];
         let block = if task.block.is_empty() {
             "ブロック不明"
         } else {
@@ -1189,6 +1190,11 @@ mod tests {
         // 節点
         let text = full("node");
         assert!(text.contains("## 研究の現在地"), "{text}");
+        // すべての節が `##`（または `###`）で始まり、`#` 1 つの見出しは無い。
+        // fixture の mind.md と項目ガイドの本文にも `# ` の行は無い。
+        for line in text.lines() {
+            assert!(!line.starts_with("# "), "`# ` 1 つの見出しがある: {line}");
+        }
         // 種の文はかぎ括弧を持っているので、二重に囲まない。
         assert!(!text.contains("「「"), "{text}");
         assert!(text.contains("## 土壌（mind.md から）"), "{text}");
@@ -1306,7 +1312,7 @@ mod tests {
         // 木が無い。
         conn.execute("DELETE FROM sci_meta", []).unwrap();
         let text = build(conn, &fix.roots, &defs(), 100_000, 120, None).unwrap();
-        assert!(text.starts_with("# 今回の行動（sai-sci より）"), "{text}");
+        assert!(text.starts_with("## 今回の行動（sai-sci より）"), "{text}");
         assert!(text.contains("研究方針の木がまだありません"), "{text}");
         assert_eq!(text.lines().count(), 2, "{text}");
 
@@ -1314,6 +1320,7 @@ mod tests {
         store::meta_set(conn, "type", "problem").unwrap();
         write_run(&fix.roots, 121, "sci_purpose: 汎用カード\n");
         let text = build(conn, &fix.roots, &defs(), 100_000, 121, None).unwrap();
+        assert!(text.starts_with("## 今回の行動（sai-sci より）"), "{text}");
         assert!(text.contains("節点の指定がありません"), "{text}");
         assert_eq!(text.lines().count(), 3, "{text}");
     }
