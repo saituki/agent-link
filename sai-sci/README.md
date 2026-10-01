@@ -49,7 +49,7 @@
 
 ## 2. 3 つの考え
 
-### 2.1 骨組みと候補の木
+### 2.1 骨組みと OPTION の木
 
 研究の穴（ITEM）と、その穴の OPTION を木で表す。型が決まると、一番上の ITEM の並び（骨組み）と、その下に OPTION を置くかが決まる。
 木には親子（`parent`）のほかに、DEPENDS（依存）・DERIVED（由来）・ANALOGOUS（同型）の線も引ける。
@@ -64,7 +64,7 @@
 | 危険度 | それは | 例 |
 |---|---|---|
 | 自動（AUTO_OP） | 出した PROPOSAL はすぐ木に入る。取り消せるので、迷ったら出してよい | FINDING・QUESTION・LINK・SEED |
-| 人（REVIEW_OP） | PROPOSAL は仕分け箱で待つ。利用者が ACCEPT すると反映される | OPTION・ITEM の追加・DECIDED にする・線・EXCLUDED にする |
+| 人（REVIEW_OP） | PROPOSAL は TRIAGE の待ち箱で待つ。利用者が ACCEPT すると反映される | OPTION・ITEM の追加・DECIDED にする・線・EXCLUDED にする |
 
 ---
 
@@ -75,7 +75,7 @@ sai-sci/
 ├── types/      # 5 つの型（problem・phenomenon・method・data・improve）
 ├── guides/     # ITEM_GUIDE（項目ガイド。上の ITEM 9 本・子の ITEM 16 本）
 ├── template/   # sci-core.md（エージェントの共通の決まり）・exp-core.md・exp-run.md（実験ループの決まり）・sai-agent.md・sai-task.md・sai-cli.md（professor と operator の共通の決まり）・bw-core.md（逆向きの共通の決まり）
-├── mind.md     # 土壌のひな形
+├── mind.md     # SOIL のひな形
 ├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
 └── blocks/     # 25 本のブロック（professor・professor-backward・operator を含む）
@@ -133,7 +133,7 @@ sai-sci/
 ### 3.4 25 本のブロック
 
 `blocks/` の 25 本。`sai-moon-paper` はこれらを `--assets-only` の `init` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
-`sci_scope` は「このブロックの行動に切り出す範囲」、`sci_ops` は「このブロックで提案できる op」。
+`sci_scope` は「このブロックの行動に切り出す範囲」、`sci_ops` は「このブロックで PROPOSAL に出せる op」。
 
 - 表の 22 本は木の中で動く researcher（root / seed / branch）。うち 4 本（`sci-restore`・`sci-cite-check`・`sci-tree-review`・`sci-result-compare`）は逆向きの運用（5.7 節）のためのもの。
 - 残りの 3 本（`professor`・`professor-backward`・`operator`）は木の中で動かず、木の外から木を見る役。下の 3.4.1 に書く。
@@ -148,10 +148,10 @@ professor / professor-backward（root の run。researcher を直接起こす）
 
 | id | 名前 | 役 | 共通の決まり | 研究の判断 |
 |---|---|---|---|---|
-| `professor` | 🎓 professor | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して研究方針（木の仕分け）をする | `sai-agent` / `sai-task` / `sai-cli` | する。root の run になる。研究作業は自分でしない |
+| `professor` | 🎓 professor | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して研究方針（木の TRIAGE）をする | `sai-agent` / `sai-task` / `sai-cli` | する。root の run になる。研究作業は自分でしない |
 | `professor-backward` | 🔙 professor-backward | 既存の論文から始める逆向きの舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす（5.7 節） | `sai-agent` / `sai-task` / `sai-cli` / `bw-core` | する。root の run になる。研究作業は自分でしない |
 | `operator` | 🛠 operator | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sai-cli` | しない。professor の子。子の `task_id` で professor の子を扱える |
-| `sci-*` | （22 本） | 研究作業そのもの（読む・比べる・候補を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で不起きたもの）に書かれた作業だけ |
+| `sci-*` | （22 本） | 研究作業そのもの（読む・比べる・OPTION を出す・考える・書く・探す・実験する） | `sci-core`（+ `literature-hard-rules` / `domain` / `exp-core`） | しない。カード（`--executer professor` で不起きたもの）に書かれた作業だけ |
 
 - カードの `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人間が Web から起こせず、professor が `task_create` の `card` で自分の子として起こす。
 - 子からの質問は親の `task_output` に `stalled`（`reason: "question"`）で届き、`phone_api.py question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
@@ -159,7 +159,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中）。
 - 3 役が使う共通の決まりは `template/sai-agent.md`・`sai-task.md`・`sai-cli.md` の 3 本（3.5 節）。sai-moon 自身の `.sai/template/sai-base.md` などを元に、研究プロジェクト向けに書き直したもの。
 
-| id | 名前 | 類 | SCOPE | 提案できる op | 呼べる子ブロック |
+| id | 名前 | 類 | SCOPE | 出せる op（ALLOWED_OPS） | 呼べる子ブロック |
 |---|---|---|---|---|---|
 | `sci-start` | 🌱 研究の入口 | outline | summary | add_finding, add_question, answer_question, link, add_option, add_child, edit_text, decide | sci-search, sci-lookup |
 | `sci-outline` | 🧭 全体の見直し | outline | summary | add_question, link, add_option, reopen, exclude, add_edge | sci-lookup |
@@ -198,7 +198,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。`exp-core` の「実行場所の規則」と対で読む。
 - **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり（professor と operator が使う）。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・質問のしかた・合言葉と鍵の扱い・完了のしかた。
 - **`template/sai-task.md`** — 子タスクの扱い（professor が使う）。流れ・`task_output` の status ごとの対処・`task_manage` の表・予約済みのカードから子を起こす形・子の質問への対処・報告を受け取ったあと。
-- **`template/bw-core.md`** — 逆向きの運用の共通の決まり（逆向きの 4 本と `professor-backward` が使う）。5 つの段、基盤論文の扱い、論文の節と木の項目の対応、主張と根拠の分け方、主張と引用の対応表、引用の判定の語、記載結果表、種の札（再現）、評価項目（E1〜E10）、比較項目（K1〜K8）。
+- **`template/bw-core.md`** — 逆向きの運用の共通の決まり（逆向きの 4 本と `professor-backward` が使う）。5 つの段、基盤論文の扱い、論文の節と木の ITEM の対応、主張と根拠の分け方、主張と引用の対応表、引用の判定の語、記載結果表、SEED の札（再現）、CRITERIA（評価基準。E1〜E10）、COMPARISON_CRITERIA（比較項目。K1〜K8）。
 - **`template/sai-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。実行を調べる命令・研究方針の木の命令・カードを作る命令・`phone_api.py`・実行先・使わない命令。
 - **`tools/phone_api.py`** — sai-phone（Web の窓口）の HTTP API を呼ぶ道具。質問・承認・root の run への送信・MLflow の読み取り。Web と同じ操作がコマンドラインからできる。
 - **`mind.md`**（`sai-sci/mind.md`）— SOIL（土壌）のひな形。`ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES・INTERESTS・NOTES` の 7 節（旧 始まり・研究の型・与えられていること・制約・価値の軸・興味がある/無い・メモ）。旧い日本語の見出しも読みます。**利用者が書くファイルで、エージェントは直接書き換えません。** VALUE_AXES は CHOOSE の ITEM を比べる軸として `sci node` に出す。
@@ -213,7 +213,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 sai-moon-paper init --sci --type <型>
 ```
 
-`init` 自身を終えたあとに `sci init --type <型>` と同じことをします。`mind.md` が無ければ、`sai-sci/mind.md` の土壌のひな形を書きます（普通の `project_files.rs:13` のひな形の代わり）。
+`init` 自身を終えたあとに `sci init --type <型>` と同じことをします。`mind.md` が無ければ、`sai-sci/mind.md` の SOIL のひな形を書きます（普通の `project_files.rs:13` のひな形の代わり）。
 
 配り終えたら、最初の `professor` のカードを作って人が起こす。professor が現在の地を読み、次の一手を選んで researcher を起こす。
 
@@ -244,8 +244,8 @@ sai-moon-paper sci init --type <型>
 | `phone_api.py`（Web と同じ操作をする道具。無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example`（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
-| `mind.md`（土壌のひな形。無いときだけ書く） | `<root>/.sai/paper/mind.md` |
-| 型と項目ガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
+| `mind.md`（SOIL のひな形。無いときだけ書く） | `<root>/.sai/paper/mind.md` |
+| 型と ITEM_GUIDE の写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
 | 木 | `papr.db` の `sci_*` の表 |
 | `state.md` を 1 度だけ写して残す（`state.pre-sci.md`。`state.md` がひな形のままなら写さない） | `<root>/.sai/paper/` |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/` |
@@ -270,10 +270,10 @@ sai-moon-paper sci init --type <型>
 
 論文タブの最初の画面が「研究方針」です（`#/papers/tree`）。
 
-- 木を見て、節点を選ぶ（`#/papers/tree/N12`）と、その節点の問い・候補・知見・結び付き・決定の記録・行動が「板」に出ます。
+- 木を見て、NODE を選ぶ（`#/papers/tree/N12`）と、その NODE の QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG が「板」に出ます。
 - 板から行動（カード）を作ります。作ったカードが次に動くものです。
-- 「仕分け」（`#/papers/triage`）で、エージェントの提案を採用・却下（採用済みのものは取り消し）します。
-- 「読む札」（`#/papers/read/<run_id>`）は、利用者が 1 本の論文を読んで知見を書く画面です。
+- TRIAGE（`#/papers/triage`）で、エージェントの PROPOSAL を ACCEPT・REJECT（採用済みのものは REVERT）します。
+- READ_CARD（`#/papers/read/<run_id>`）は、利用者が 1 本の論文を読んで FINDING を書く画面です。
 
 ### 5.2 sai-link がブロックを動かすとき
 
@@ -281,19 +281,19 @@ sai-moon-paper sci init --type <型>
 
 ブロックの本文・template に `{{context}}` を書く必要は無い（古い写しに残っていても互換で読めます。二重にもなりません）。sci-core は範囲を作る 21 本（`sci-exp-branch` を除く `sci-*`）の `templates` に入るので、どのブロックを動かすときにも範囲が入ります。
 
-この範囲は「対象の節点・上流の道・範囲外の項目・仮置き（その回で問い直さないと決めた値）」です。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。`block preview` は context を実行せず、`# context` の下に「（実行番号が無いため、範囲を作れませんでした）」の 1 行を見せます。
+この範囲は「TARGET_NODE・UPSTREAM_PATH・OUT_OF_SCOPE の ITEM・ASSUMPTION（その回で問い直さないと決めた値）」です。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。`block preview` は context を実行せず、`# context` の下に「（実行番号が無いため、範囲を作れませんでした）」の 1 行を見せます。
 
 **決まり:** `.sai/settings.json` の `context` に別の命令を指定するときは、その出力も `##` から始めてください（`# context` の下に並びます）。
 
-### 5.3 エージェントは提案だけを出す
+### 5.3 エージェントは PROPOSAL だけを出す
 
-- 自動で入るもの（知見・問い・問いへの回答・結び付き・種）は、出した提案がすぐ木に入り、自動で反映された印が付きます。
-- 「仕分け」の画面を利用者が決めるもの（候補や項目の追加・決定・線・対象外にする）は、採用するまで木に入りません。
+- AUTO_OP（FINDING・QUESTION・QUESTION への回答・LINK・SEED）は、出した PROPOSAL がすぐ木に入り、自動で反映された印が付きます。
+- REVIEW_OP（TRIAGE の画面で利用者が決めるもの。OPTION や ITEM の追加・DECIDED にする・線・EXCLUDED にする）は、採用するまで木に入りません。
 - どちらの場合も、利用者は 1 押しで取り消せます。
 
-### 5.4 利用者が読む札
+### 5.4 利用者が読む READ_CARD
 
-`sci card --runner user --paper <番号> --role <役割>` は「読む札」を作ります。`apps/phone` からは「読む」の画面で始めて、知見を書き、終えます（`sai-moon-link phone user start` → 知見を書く → `sai-moon-paper phone sci finish-read` → `sai-moon-link phone user finish`）。知見が 1 つも無いまま終えようとすると、理由（`--no-reflect`）を求められます。理由は論文の結び付きと節点と run の結び付きに残り、その論文は「反映済み」になります。
+`sci card --runner user --paper <番号> --role <役割>` は READ_CARD を作ります。`apps/phone` からは READ_CARD の画面で始めて、FINDING を書き、終えます（`sai-moon-link phone user start` → FINDING を書く → `sai-moon-paper phone sci finish-read` → `sai-moon-link phone user finish`）。FINDING が 1 つも無いまま終えようとすると、理由（`--no-reflect`）を求められます。理由は論文の LINK と NODE と run の結び付きに残り、その論文は「反映済み」になります。
 
 ### 5.5 TUI の「研究方針」のページ
 
@@ -304,7 +304,7 @@ sai-moon-paper sci init --type <型>
 `sci-exp-seed` と `sci-exp-branch` の 2 本で、実験を**世代**で回します。1 世代は並列に走る branch 1 つ以上とひとかたまりで、`sci-exp-seed` が自分で次の世代を起動します。人が「続きを」と頼まなくても最後まで回ります。
 
 ```
-sai card --block sci-exp-seed            種づくり（sci-seed）が終わった節点
+sai card --block sci-exp-seed            種づくり（sci-seed）が終わった NODE
         │
         ▼
 ┌──▶ 世代 1 の seed ─────────────────────────────────────────┐
@@ -341,19 +341,19 @@ sai-moon-link phone card run <返ってきた run_id>
 
 ### 5.7 逆向き（既存の論文から始める）
 
-前向き（5.1〜5.6）は研究の構想から木を育てます。**逆向き**は、既存の論文（基盤論文 1〜5 本）を出発点にして、論文に書いてある研究方針を木に復元し、その根拠を確かめ、論文の手法を再現し、新しい論文で直し、比べます。木・提案・カード・実験ループは前向きと同じで、運用の順番だけが違います。決まりは `template/bw-core.md` にまとめてあります。
+前向き（5.1〜5.6）は研究の構想から木を育てます。**逆向き**は、既存の論文（基盤論文 1〜5 本）を出発点にして、論文に書いてある研究方針を木に復元し、その根拠を確かめ、論文の手法を再現し、新しい論文で直し、比べます。木・PROPOSAL・CARD・実験ループは前向きと同じで、運用の順番だけが違います。決まりは `template/bw-core.md` にまとめてあります。
 
 | 段 | すること | ブロック |
 |---|---|---|
-| 1. 抽出 | 序論を root の項目に、手法と実験の設定を seed の項目に割り当てる。結果の数値を記載結果表に、主張と引用の組を対応表にする。論文の手法を動かす種の札（再現）を書く | `sci-restore` |
-| 2. 評価 | 主張ごとに引用文献を取り寄せて、根拠になっているかを判定する。そのうえで、復元した木を評価項目（E1〜E10）で審査する | `sci-cite-check` → `sci-tree-review` |
-| 3. 再現 | 種の札（再現）で論文の手法を動かす | `sci-exp-seed` |
-| 4. 更新 | 基盤論文より新しい論文を探して項目を直し、新しい種を作って動かす | 前向きのブロック（`sci-search` から `sci-exp-seed` まで） |
-| 5. 比較 | 論文の記載値・再現・更新を比較項目（K1〜K8）で比べる | `sci-result-compare` |
+| 1. 抽出 | 序論を root の ITEM に、手法と実験の設定を seed の ITEM に割り当てる。結果の数値を記載結果表に、主張と引用の組を対応表にする。論文の手法を動かす SEED の札（再現）を書く | `sci-restore` |
+| 2. 評価 | 主張ごとに引用文献を取り寄せて、根拠になっているかを判定する。そのうえで、復元した木を CRITERIA（E1〜E10）で審査する | `sci-cite-check` → `sci-tree-review` |
+| 3. 再現 | SEED の札（再現）で論文の手法を動かす | `sci-exp-seed` |
+| 4. 更新 | 基盤論文より新しい論文を探して ITEM を直し、新しい SEED を作って動かす | 前向きのブロック（`sci-search` から `sci-exp-seed` まで） |
+| 5. 比較 | 論文の記載値・再現・更新を COMPARISON_CRITERIA（K1〜K8）で比べる | `sci-result-compare` |
 
 - **始め方**: 基盤論文を Library に入れ（Web の論文の画面）、木を作ってから（`sai-moon-paper init --assets-only --sci --type <型>`）、`professor-backward` のカードを人が起こします。依頼文に `基盤論文: #12 #15` の形で番号を書きます。
-- **主張と根拠を分けます。** 基盤論文の文は「主張」として知見にし（向きは中立）、項目は**仮決定**で入ります。引用文献で支えられ、審査で「良」になった項目だけを professor-backward が決定に上げます。前向きの関門は決定で通るので、評価が済むまで関門は通りません。
-- **再現は論文に合わせにいきません。** 論文に無い設定だけを仮に置き、論文に書いてある値と手法は変えません。判定が `new_script`（別の手法を試す）になったら、再現はそこで止めて比較の材料にします。
+- **主張と根拠を分けます。** 基盤論文の文は「主張」として FINDING にし（POLARITY は NEUTRAL）、ITEM は **TENTATIVE** で入ります。引用文献で支えられ、審査で「良」になった ITEM だけを professor-backward が DECIDED に上げます。前向きの GATE は DECIDED で通るので、評価が済むまで GATE は通りません。
+- **再現は論文に合わせにいきません。** 論文に無い設定だけを ASSUMPTION として置き、論文に書いてある値と手法は変えません。判定が `new_script`（別の手法を試す）になったら、再現はそこで止めて比較の材料にします。
 - **Human に聞くこと**: 再現の許容幅（論文の記載値 ± どれだけなら再現できたとするか）、実行先（課金の有無）、同じ型の論文が 2 本以上あるときにどれを再現するか、段を飛ばすか。
 - 研究日誌は `.sai/paper/professor-backward-log.md` です。
 
@@ -408,7 +408,7 @@ sai-moon-link phone card run <返ってきた run_id>
 |---|---|
 | 木（ITEM・OPTION・QUESTION・FINDING・LINK・DECISION_LOG・PROPOSAL・SEED・検索の記録・TOMBSTONE） | `papr.db`（migration `0046_sci_tree.sql`） |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/state.md` と `<root>/.sai/paper/tree.md` |
-| 型と項目ガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
+| 型と ITEM_GUIDE の写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
 | professor の研究日誌 | `<root>/.sai/paper/professor-log.md` |
 | professor-backward の研究日誌 | `<root>/.sai/paper/professor-backward-log.md` |
 | operator の学び | `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中。無ければ作らない） |
@@ -420,8 +420,8 @@ sai-moon-link phone card run <返ってきた run_id>
 
 ## 8. md を直すとき（開発者向け）
 
-- **型・項目ガイド・ブロックは `sai-moon-paper` に埋め込まれています**（`include_str!`）。`sai-sci/` の md を直したら `cargo build --release` で作り直さないと反映されません（`apps/phone` が叩くのは release の実行ファイル）。
-- **形の決まり**: 型は `id` と「項目の順序」の節、項目ガイドは `key` と `parent` と `min_findings` の frontmatter が要ります。条文が崩れていれば 1 行の warning として `status` の `warnings` に入ります。
+- **型・ITEM_GUIDE・ブロックは `sai-moon-paper` に埋め込まれています**（`include_str!`）。`sai-sci/` の md を直したら `cargo build --release` で作り直さないと反映されません（`apps/phone` が叩くのは release の実行ファイル）。
+- **形の決まり**: 型は `id` と ITEM_ORDER の節、ITEM_GUIDE は `key` と `parent` と `min_findings` の frontmatter が要ります。条文が崩れていれば 1 行の warning として `status` の `warnings` に入ります。
 - **確かめ**:
   ```bash
   cd ~/workdir/Sai/sai-moon
