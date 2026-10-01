@@ -19,9 +19,9 @@ const {
   stDebtChips,
   stNextLines,
   stDecisionRows,
-  stGraphBoxId,
+  stSelKey,
+  stSidebarRows,
   stQuestionLabel,
-  stTableEmptyHint,
   stLoadMode,
   stSaveMode,
   stRunMetrics,
@@ -265,10 +265,8 @@ function testDecisionRowsNoTime() {
 function testTablesAreShared() {
   // 項目の型は 4 つ（選ぶ・並べる・書く・確かめる）
   assert.deepStrictEqual(ST_ITEM_TYPES.map((x) => x[0]), ["choose", "list", "write", "verify"]);
-  // 表示の切り替えは 4 つ（一覧・根の図・表・実行の図）
-  assert.deepStrictEqual(ST_MODES, [
-    ["list", "LIST"], ["graph", "ROOT_GRAPH"], ["table", "TABLE"], ["runs", "RUN_GRAPH"],
-  ]);
+  // 表示の切り替えは 2 つ（根の図・実行の図）。TABLE と LIST は無い
+  assert.deepStrictEqual(ST_MODES, [["graph", "ROOT_GRAPH"], ["runs", "RUN_GRAPH"]]);
   // 研究の型は 5 つ、C-14 の用語の札の解説の順
   assert.deepStrictEqual(ST_TYPES.map((x) => x[0]), ["problem", "phenomenon", "method", "data", "improve"]);
   // 印と表示名は 1 対 1
@@ -280,35 +278,20 @@ function testTablesAreShared() {
   assert.deepStrictEqual(Object.keys(ST_NODE_MARKS), ["weak_evidence", "recheck"]);
 }
 
-function testGraphBoxId() {
-  // 指摘 3: 根の図は広い画面なら板（#sci-board）、狭い画面なら一覧の欄（#sci-list）
-  assert.strictEqual(stGraphBoxId(true), "sci-board");
-  assert.strictEqual(stGraphBoxId(false), "sci-list");
-}
-
-function testTableEmptyHint() {
-  // 指摘 4: 節点が選ばれていないときは「まだ無い」ではなく「選んでください」
-  assert.strictEqual(stTableEmptyHint({ id: "N12" }), null);
-  const hint = stTableEmptyHint(null);
-  assert.strictEqual(hint.title, "ITEM を選んでください");
-  assert.ok(!/まだありません/.test(hint.body), hint.body);
-  // 節点が無くても「表の画面はまだありません」とは言わない
-  assert.ok(!/画面はまだありません/.test(hint.title + hint.body), hint);
-}
-
 function testListIsFullWidthOnNarrow() {
-  // 指摘 6: 一覧の欄を 320px に固定するのは 900px 以上だけ（iPhone 390px で右に隙間を空けない）
+  // 一覧 320px・板 420px の固定は 900px 以上だけ（iPhone 390px で右に隙間を空けない）
   const css = fs.readFileSync(
     path.join(__dirname, "..", "src", "sai_phone", "static", "scitree.css"),
     "utf8"
   );
-  // 固定の宣言が @media (min-width: 900px) の中にあるか
-  const at = css.indexOf(".sci-body .sci-list {\n    flex: 0 0 320px;");
-  assert.ok(at > 0, "一覧の欄の固定が @media の中に無い");
-  const before = css.slice(0, at);
-  const media = before.lastIndexOf("@media (min-width: 900px)");
-  const close = before.lastIndexOf("}");
-  assert.ok(media > close, "一覧の欄の固定が media query の外にある");
+  for (const decl of [".sci-body .sci-list {\n    flex: 0 0 320px;", ".sci-body .sci-board {\n    flex: 0 0 420px;"]) {
+    const at = css.indexOf(decl);
+    assert.ok(at > 0, `${decl} が無い`);
+    const before = css.slice(0, at);
+    const media = before.lastIndexOf("@media (min-width: 900px)");
+    const close = before.lastIndexOf("\n}");
+    assert.ok(media > close, `${decl} が media query の外にある`);
+  }
 }
 
 // --- 実行の図（U08） ---
@@ -339,7 +322,12 @@ function testModeRunsIsRemembered() {
   // AC2: 「実行の図」を覚えて開き直すと、その表示になる
   const store = fakeLocalStorage();
   withLocalStorage(store, () => {
-    assert.strictEqual(stLoadMode(), "list"); // 覚えていなければ一覧
+    assert.strictEqual(stLoadMode(), "graph"); // 覚えていなければ根の図
+    // 旧い値（list / table）は根の図になる
+    store.setItem(ST_MODE_KEY, "list");
+    assert.strictEqual(stLoadMode(), "graph");
+    store.setItem(ST_MODE_KEY, "table");
+    assert.strictEqual(stLoadMode(), "graph");
     stSaveMode("runs");
     assert.strictEqual(store.getItem(ST_MODE_KEY), "runs");
     // 他の表示も覚える
@@ -349,10 +337,10 @@ function testModeRunsIsRemembered() {
     }
     // 表に無い値は覚えない（一覧に寄る）
     store.setItem(ST_MODE_KEY, "???");
-    assert.strictEqual(stLoadMode(), "list");
+    assert.strictEqual(stLoadMode(), "graph");
   });
   // 開き直す（読み直しのたびに同じ記憶を読む）
-  assert.strictEqual(withLocalStorage(store, () => stLoadMode()), "list");
+  assert.strictEqual(withLocalStorage(store, () => stLoadMode()), "graph");
   withLocalStorage(store, () => stSaveMode("runs"));
   assert.strictEqual(withLocalStorage(store, () => stLoadMode()), "runs");
   // localStorage が無くても止まらない
@@ -360,7 +348,7 @@ function testModeRunsIsRemembered() {
   const before = had ? global.localStorage : null;
   delete global.localStorage;
   try {
-    assert.strictEqual(stLoadMode(), "list");
+    assert.strictEqual(stLoadMode(), "graph");
     stSaveMode("runs");
   } finally {
     if (had) global.localStorage = before;
@@ -386,6 +374,45 @@ function testRunMetrics() {
   // 別の run は別のキー
   const two = stRunMetrics([mlfParent(120, "val_auc", 0.871, "maximize"), mlfParent(121, "val_auc", 0.9, "maximize")]);
   assert.deepStrictEqual(two, { 120: "val_auc 0.871", 121: "val_auc 0.9" });
+}
+
+function testRunMetricsFlat() {
+  // 親 run の無い平らな run（同じ sai.run_id が 3 本）から最良を採る
+  const flat = (v) => {
+    const r = mlfParent(120, "test_acc", v, "maximize");
+    r.data.tags = r.data.tags.filter((t) => t.key !== "exp.role");
+    return r;
+  };
+  assert.deepStrictEqual(stRunMetrics([flat(0.7), flat(0.9), flat(0.8)]), { 120: "test_acc 0.9" });
+}
+
+function testSelKey() {
+  assert.strictEqual(stSelKey(null), null);
+  assert.strictEqual(stSelKey({ kind: "seed" }), "seed");
+  assert.strictEqual(stSelKey({ kind: "node", id: "N12" }), "N12");
+  assert.strictEqual(stSelKey({ kind: "paper", node: "N12", paper: 37 }), "P:N12:37");
+  assert.strictEqual(stSelKey({ kind: "run", id: 125 }), "R125");
+}
+
+function testSidebarRows() {
+  const status = { ...sampleStatus(), nodes: [{ id: "N1", kind: "item", title: "背景", state: "decided", depth: 0 }] };
+  const dag = { nodes: [
+    { run_id: 120, layer: "sprout", block: "sci-exp-sprout", description: "芽", status: "completed" },
+    { run_id: 124, layer: "branch", block: "sci-exp-review", status: "completed" },
+    { run_id: 125, layer: "branch", block: "sci-exp-branch", status: "running" },
+  ], edges: [] };
+  // review を畳んだ layout（sprout → branch の辺）
+  const layout = { edges: [{ from: "R120", to: "R125", kind: "run" }] };
+  const rows = stSidebarRows(status, dag, layout, { 125: "test_acc 0.871" });
+  assert.strictEqual(rows[0].type, "seed");
+  assert.ok(rows[0].text.length <= 40);
+  assert.deepStrictEqual(rows.map((r) => r.type), ["seed", "item", "exp-head", "sprout", "branch"]);
+  assert.deepStrictEqual(rows[1].sel, { kind: "node", id: "N1" });
+  assert.deepStrictEqual(rows[4].sel, { kind: "run", id: 125 });
+  assert.strictEqual(rows[4].metric, "test_acc 0.871");
+  assert.ok(!rows.some((r) => r.key === "R124"), "review は出さない");
+  // layout が無ければ実験の行は出さない
+  assert.deepStrictEqual(stSidebarRows(status, dag, null).map((r) => r.type), ["seed", "item"]);
 }
 
 function testRunMetricsMaximize() {
@@ -457,9 +484,9 @@ function testRunStatusLabel() {
 }
 
 function testRunConstants() {
-  // 層は 3 つ（C-02）。帯の語も 3 つ
-  assert.deepStrictEqual(ST_RUN_LAYERS, ["root", "seed", "branch"]);
-  assert.deepStrictEqual(Object.keys(ST_RUN_LAYER_LABELS), ["root", "seed", "branch"]);
+  // 層は 4 つ（上から branch / sprout / seed / root）。帯の語も 4 つ
+  assert.deepStrictEqual(ST_RUN_LAYERS, ["branch", "sprout", "seed", "root"]);
+  assert.deepStrictEqual(Object.keys(ST_RUN_LAYER_LABELS), ["branch", "sprout", "seed", "root"]);
   // 1 回の検索は 100 行、頁を繰るのは 10 まで
   assert.strictEqual(ST_RUN_PAGE_SIZE, 100);
   assert.strictEqual(ST_RUN_MAX_PAGES, 10);
@@ -483,12 +510,13 @@ const tests = [
   testDecisionRowsNewestFirst,
   testDecisionRowsNoTime,
   testTablesAreShared,
-  testGraphBoxId,
-  testTableEmptyHint,
   testQuestionLabel,
   testListIsFullWidthOnNarrow,
   testModeRunsIsRemembered,
   testRunMetrics,
+  testRunMetricsFlat,
+  testSelKey,
+  testSidebarRows,
   testRunMetricsMaximize,
   testRunMetricsMinimize,
   testRunMetricsSkips,
