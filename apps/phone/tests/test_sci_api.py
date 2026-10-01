@@ -347,9 +347,9 @@ def test_card() -> None:
     expect_400(lambda: sci.validate_card({**ok_user, "mode": "quick"}), "mode が正しくありません")
     expect_400(lambda: sci.validate_card({**ok_user, "mode": 1}))
     expect_400(lambda: sci.validate_card({**ok_user, "papers": [37, 40]}),
-               "読む札は論文を 1 つだけ指定してください")
+               "READ_CARD は論文を 1 つだけ指定してください")
     expect_400(lambda: sci.validate_card({k: v for k, v in ok_user.items() if k != "role"}),
-               "読む札には role が要ります")
+               "READ_CARD には role が要ります")
     expect_400(lambda: sci.validate_card({**ok_user, "purpose": ""}),
                "purpose がありません")
     # 形の違う項目
