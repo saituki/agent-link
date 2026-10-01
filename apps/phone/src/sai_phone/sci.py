@@ -485,9 +485,9 @@ def validate_card(payload) -> dict:
 
     if out["runner"] == "user":
         if len(papers_list) != 1:
-            raise _bad("読む札は論文を 1 つだけ指定してください")
+            raise _bad("READ_CARD は論文を 1 つだけ指定してください")
         if not out.get("role"):
-            raise _bad("読む札には role が要ります")
+            raise _bad("READ_CARD には role が要ります")
     return out
 
 
