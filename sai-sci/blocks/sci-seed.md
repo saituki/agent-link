@@ -1,7 +1,7 @@
 ---
 name: 🌰 種づくり
 id: sci-seed
-description: other: ★ の道 1 本を 1 文にした SEED の札を作る
+description: "other: ★ の道 1 本を 1 文にした SEED の札を作る"
 model: inherit
 thinking: high
 templates:

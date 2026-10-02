@@ -1,7 +1,7 @@
 ---
 name: 🔗 引用を確かめる
 id: sci-cite-check
-description: F を探す: 基盤論文の主張（O）ごとに、引用された論文が本当にそう言っているかを確かめ、判定を F として O に付ける（逆向き）
+description: "F を探す: 基盤論文の主張（O）ごとに、引用された論文が本当にそう言っているかを確かめ、判定を F として O に付ける（逆向き）"
 model: inherit
 thinking: high
 templates:

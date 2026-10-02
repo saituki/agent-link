@@ -1,7 +1,7 @@
 ---
 name: 🔙 論文から復元
 id: sci-restore
-description: Q を分ける: 基盤論文から Q・O・F（と E）の木を復元し、主張と引用の対応表を作る（逆向き）
+description: "Q を分ける: 基盤論文から Q・O・F（と E）の木を復元し、主張と引用の対応表を作る（逆向き）"
 model: inherit
 thinking: high
 templates:

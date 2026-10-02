@@ -1,7 +1,7 @@
 ---
 name: 🧬 型を抜き出す
 id: sci-typify
-description: その他: 今の木から Q の階層を抜き出し、研究の型として保存する
+description: "その他: 今の木から Q の階層を抜き出し、研究の型として保存する"
 model: inherit
 thinking: high
 templates:

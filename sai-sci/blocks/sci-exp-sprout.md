@@ -1,7 +1,7 @@
 ---
 name: 🌱 exp-sprout
 id: sci-exp-sprout
-description: experiment: 実験のアイデアを 1 つ決める。実験仕様書を作り、最初の 1 回の実行を起こして、待たずに終える
+description: "experiment: 実験のアイデアを 1 つ決める。実験仕様書を作り、最初の 1 回の実行を起こして、待たずに終える"
 model: inherit
 thinking: high
 templates:

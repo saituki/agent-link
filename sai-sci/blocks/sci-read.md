@@ -1,7 +1,7 @@
 ---
 name: 📖 1 本を読む
 id: sci-read
-description: F を探す: 論文を 1 本読み、対象の O に F を付け、note.md を書く（新しい答えの候補があれば O も足す）
+description: "F を探す: 論文を 1 本読み、対象の O に F を付け、note.md を書く（新しい答えの候補があれば O も足す）"
 model: inherit
 thinking: high
 templates:

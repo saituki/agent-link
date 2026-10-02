@@ -1,7 +1,7 @@
 ---
 name: 🎓 理解の確かめ
 id: sci-coach
-description: other: 利用者が対象の Node を理解しているかを、質問ツールで 1 問ずつ確かめる
+description: "other: 利用者が対象の Node を理解しているかを、質問ツールで 1 問ずつ確かめる"
 model: inherit
 thinking: high
 templates:

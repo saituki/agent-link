@@ -1,7 +1,7 @@
 ---
 name: 🧹 選別
 id: sci-screen
-description: F を探す: 検索セットの未選別を keep / drop に分けて未選別を 0 にし、読む論文の計画を作る
+description: "F を探す: 検索セットの未選別を keep / drop に分けて未選別を 0 にし、読む論文の計画を作る"
 model: inherit
 thinking: high
 templates:

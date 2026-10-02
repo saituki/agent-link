@@ -1,7 +1,7 @@
 ---
 name: ✂ Q を分ける
 id: sci-split
-description: Q を分ける: 対象の Q を、ガイドの Child Q を手がかりに子の Q に分ける
+description: "Q を分ける: 対象の Q を、ガイドの Child Q を手がかりに子の Q に分ける"
 model: inherit
 thinking: high
 templates:

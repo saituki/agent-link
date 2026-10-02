@@ -1,7 +1,7 @@
 ---
 name: 🌱 研究を始める
 id: sci-start
-description: Q を分ける: 利用者の聞き取りから、研究の型の案・mind.md の案・最初の Q の案を出す（初めての人向け）
+description: "Q を分ける: 利用者の聞き取りから、研究の型の案・mind.md の案・最初の Q の案を出す（初めての人向け）"
 model: inherit
 thinking: high
 templates:

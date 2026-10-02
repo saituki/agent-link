@@ -1,7 +1,7 @@
 ---
 name: 📋 抜き出す
 id: sci-extract
-description: F を探す: ガイドの Extract の項目を論文ごとに抜き出して表にし、呼んだ agent に返す（support）
+description: "F を探す: ガイドの Extract の項目を論文ごとに抜き出して表にし、呼んだ agent に返す（support）"
 model: inherit
 thinking: high
 templates:

@@ -1,7 +1,7 @@
 ---
 name: 💡 O を書く
 id: sci-ideate
-description: O を書く: 子の Q を持たない Q に、答えの候補（O）を広く出すか、利用者と 1 案を練って出す
+description: "O を書く: 子の Q を持たない Q に、答えの候補（O）を広く出すか、利用者と 1 案を練って出す"
 model: inherit
 thinking: high
 templates:
