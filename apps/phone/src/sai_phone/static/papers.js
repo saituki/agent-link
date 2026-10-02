@@ -744,9 +744,9 @@ function papersAttentionHash(item) {
   const it = item || {};
   if (it.kind === "sci_triage") return "#/papers/triage";
   if (it.kind !== "sci_decision") return "";
-  // キーは `sci_decision:Q<番号>`。Q の住所は無いので研究方針の画面を開く
-  if (!/^sci_decision:Q[1-9][0-9]{0,8}$/.test(String(it.key || ""))) return "";
-  return "#/papers/tree";
+  // キーは `sci_decision:<Q の ID>`。その Q を選んだ研究方針の画面を開く
+  const m = /^sci_decision:([QOFE][1-9][0-9]{0,8})$/.exec(String(it.key || ""));
+  return m ? `#/papers/tree/${m[1]}` : "";
 }
 
 /** 要対応の 1 行（種類の札・題・対応済みにする・実行があれば開く）。 */
