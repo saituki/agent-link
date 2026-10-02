@@ -69,12 +69,9 @@ enum Cmd {
         /// Save results as a named search set.
         #[arg(long)]
         save_as: Option<String>,
-        /// 検索した節点（`N12`）。記録と検索セットに残る
+        /// 検索した研究方針の Node の ID（`Q12`・`O5` など）。記録と検索セットに残る
         #[arg(long)]
         node: Option<String>,
-        /// 検索の問い（`Q7`）
-        #[arg(long)]
-        question: Option<String>,
         /// 何のための検索か
         #[arg(long)]
         purpose: Option<String>,
@@ -230,9 +227,6 @@ enum Cmd {
         /// 範囲の論文ごとに上位 m 件を返す（`--papers` か `--node` と一緒に使う）
         #[arg(long)]
         each: Option<i64>,
-        /// 検索の問い（`Q7`）。記録に残り、前の検索を見られる
-        #[arg(long)]
-        question: Option<String>,
         /// 範囲を広げた理由
         #[arg(long)]
         widen: Option<String>,
@@ -762,14 +756,14 @@ fn check_sci_args(sci: bool, sci_type: Option<&str>) -> Result<()> {
 /// 研究プロジェクトを開けないとき、木を作れないとき、書き出しに失敗したとき。
 fn init_sci_tree(root: &std::path::Path, type_id: &str) -> Result<()> {
     let outcome =
-        sci::init_tree_and_export(root, type_id, false).context("研究方針の木を作れませんでした")?;
+        sci::init_tree_and_export(root, type_id).context("研究方針の木を作れませんでした")?;
     if outcome.already {
         println!(
-            "✅ 研究方針の木は既にあります（型: {}）。型を変えるには sai-moon-paper sci init --type <型> --change-type",
+            "✅ 研究方針の木は既にあります（型: {}）",
             outcome.type_name
         );
     } else {
-        let text = outcome.text(false);
+        let text = outcome.text();
         print!("✅ {text}");
         if !text.ends_with('\n') {
             println!();
@@ -933,32 +927,6 @@ fn paper_ids_of_hits(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
     ids
 }
 
-/// 墓標の候補（DOI か dedupe_key が墓標と一致するもの）を結果から外す（R-R7）。
-///
-/// 外した候補は検索セットには `drop` で残すため、ここでは数えるだけ。
-/// 返すのは（残す論文, 外した件数）。
-fn split_tombstones(
-    conn: &rusqlite::Connection,
-    papers: &[RemotePaper],
-) -> (Vec<RemotePaper>, usize) {
-    use sai_paper_core::sci::store;
-    let mut kept = Vec::with_capacity(papers.len());
-    let mut dropped = 0usize;
-    for paper in papers {
-        let key = sai_paper_core::api::dedupe_key(paper);
-        let marked = store::find_tombstone(conn, None, paper.doi.as_deref(), None, Some(&key))
-            .ok()
-            .flatten()
-            .is_some();
-        if marked {
-            dropped += 1;
-        } else {
-            kept.push(paper.clone());
-        }
-    }
-    (kept, dropped)
-}
-
 /// `sai-moon-paper search --save-as <名前>` の保存（U06）。
 ///
 /// セットが無ければ作り、あれば同じセットへ足す（`expand --save-as` と同じ動き）。
@@ -1014,7 +982,6 @@ async fn main() -> Result<()> {
             raw_query,
             save_as,
             node,
-            question,
             purpose,
             extract,
             widen,
@@ -1028,20 +995,13 @@ async fn main() -> Result<()> {
                 run_search(&cfg, &query, &db, limit, year_from, year_to, raw_query.as_deref())
                     .await?;
 
-            // 問いと節点（`--node` / `--question`）は、記録とセットに書く前に読む。
+            // Node（`--node`）は、記録とセットに書く前に読む。
             let database = open_database().ok();
             let refs = match database.as_ref() {
-                Some(db) => {
-                    sci::parse_search_refs(db.connection(), node.as_deref(), question.as_deref())?
-                }
+                Some(db) => sci::parse_search_refs(db.connection(), node.as_deref())?,
                 None => sci::SearchRefs::default(),
             };
-
-            // 墓標の候補は出力から除く（R-R7）。セットには `drop` で残すので、除前の結果を渡す。
-            let (kept, dropped) = match database.as_ref() {
-                Some(db) => split_tombstones(db.connection(), &deduped),
-                None => (deduped.clone(), 0usize),
-            };
+            let kept = deduped.clone();
 
             // --save-as オプションで検索セットを保存（同じ名前なら 1 つのセットに足す）
             let set_id = if let Some(set_name) = save_as {
@@ -1074,7 +1034,7 @@ async fn main() -> Result<()> {
                 None
             };
 
-            // 問いか節点が指定されたときだけ検索の記録を残す。
+            // Node が指定されたときだけ検索の記録を残す。
             if let Some(database) = database.as_ref() {
                 let scope = format!("external:{}", dbs_to_use.join(","));
                 sci::record_search(
@@ -1110,15 +1070,6 @@ async fn main() -> Result<()> {
                         println!("  Abstract: {}", preview);
                     }
                     println!();
-                }
-            }
-            // 除外した件数は最後に 1 行で伝える（`--json` のときは JSON を壊さないよう標準エラー）。
-            if dropped > 0 {
-                let line = format!("除外済み {dropped} 件（理由は sai-moon-paper sci tombstones）");
-                if json {
-                    eprintln!("{line}");
-                } else {
-                    println!("{line}");
                 }
             }
         }
@@ -1227,7 +1178,6 @@ async fn main() -> Result<()> {
             node,
             subtree,
             each,
-            question,
             widen,
             json,
         }) => {
@@ -1237,18 +1187,14 @@ async fn main() -> Result<()> {
             let config = sai_paper_core::Config::load_or_create(&Paths::discover()?)
                 .context("failed to load or create configuration")?;
 
-            // 問いと節点（`--node` / `--question`）は、範囲を決める前に読む。
-            let refs = sci::parse_search_refs(
-                db.connection(),
-                node.as_deref(),
-                question.as_deref(),
-            )?;
+            // Node（`--node`）は、範囲を決める前に読む。
+            let refs = sci::parse_search_refs(db.connection(), node.as_deref())?;
             // 論文の集合と、記録に書く範囲の文字列（C-09）。
             let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
                 db.connection(),
                 paper,
                 &papers,
-                refs.given,
+                refs.node,
                 subtree,
             )
             .map_err(|err| anyhow!("{err}"))?;
@@ -1291,7 +1237,7 @@ async fn main() -> Result<()> {
             )
             .await
             .context("search failed")?;
-            // 節点か問いの指定があれば検索の記録に残す（R-R3 / R-R4）。
+            // Node の指定があれば検索の記録に残す（R-R3 / R-R4）。
             let (hit_count, hit_papers): (i64, Vec<i64>) = match &outcome {
                 sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
                     (hits.len() as i64, paper_ids_of_hits(hits))
