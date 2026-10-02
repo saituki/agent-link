@@ -63,8 +63,9 @@
 // 板の見出しで ITEM の状態と ITEM_TYPE を全部並べ、今の値以外を薄く出す（scitree.js・scitree.css）で v54 に（index.html の ?v= も 54）
 // 板の BLANK・MARK・QUESTION・OPTION・FINDING・LINK も同じ方針で、で v55 に（index.html の ?v= も 55）
 // 研究方針の画面を「一覧 + 図 + 詳細の板」にし、根の図・実験の画面（scigraph.js・mlflow.js）もまとめて配る、で v56 に（index.html の ?v= も 56）
-const CACHE = "sai-phone-v56";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
+// Dashboard の DEBT と Action の行・要対応の住所・sciset.js / sciset.css を配る、で v57 に（index.html の ?v= も 57）
+const CACHE = "sai-phone-v57";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/sciset.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/sciset.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）
 const RADIO_CACHE = "sai-phone-radio-audio";
