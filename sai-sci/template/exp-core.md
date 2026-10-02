@@ -5,23 +5,27 @@
 
 ## 1. 役割
 
-| ブロック | 層 | すること | しないこと |
+| ブロック | 役 | すること | しないこと |
 |---|---|---|---|
-| `sci-exp-sprout` | sprout | 実験のアイデア 1 つを、root（研究方針の木）から決める。実験仕様書を作り、最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
+| `sci-exp-sprout` | sprout | 実験のアイデア 1 つを、研究方針の木の Issue の O から決める。実験仕様書を作り、最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
 | `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review のカードを作って終わる | 終わりまで待たない・判定しない |
 | `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
+- 木への置き方（PROPOSAL。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
+  - sprout: Issue の O の下に E（実験のアイデア）を `add_e` で作る。最初の branch のために、その E の下にもう 1 つ E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
+  - review: 結果を F として、branch の E の下に `add_f` で入れる。出典は MLflow の run 名と値（例 `ID125-p02 test_acc=0.871`）。続けるなら次の branch の E を足す。
+  - 課題が解けたら、利用者がその O を Answer に変える。agent は変えられない。`link` の op は無い。
 - 判定の材料（最良・改善の有無・格子の端・漏洩の疑い・debug の深さ）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しいモデルの案、直す点）だけを書く。
 - 1 つの run は 1 つの仕事だけをして終わる。sprout も branch も review も、ほかの run の終わりを待たない。
 
 ## 2. 文書の渡し方
 
-チャットは次の人に届かない。引き継ぎは文書だけで完結させる。
+チャットは次の人に届かない。次に必要なことは文書で渡し、文書だけで完結させる。
 
 - `sai_write` は 3 つの箱（`filename`・`content`・`description`）で保存し、戻ってきた **waggle トークン**（例 `AXANSMpo`）を受け取る。
 
   ```json
-  {"filename": "exp-run-N12-ID120-ID125.md", "content": "本文", "description": "作業報告書 N12-ID120 ID125: tune cnn-static — job 7 running"}
+  {"filename": "exp-run-O6-ID120-ID125.md", "content": "本文", "description": "作業報告書 O6-ID120 ID125: tune cnn-static — job 7 running"}
   ```
 
 - `description` の形は **`<文書の種類> <ID>: <1 文>`** にする。他のエージェントは一覧の `description` だけを見て、読むかどうかを決める。
@@ -37,22 +41,22 @@
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-moon-paper sci status --json` の `purpose.metric`。
 
 ```json
-{"study": "N12-ID120", "sci_node": "N12", "sprout_run_id": 120, "project": "west",
+{"study": "O6-ID120", "sci_node": "O6", "sprout_run_id": 120, "project": "west",
  "metric": "test_acc", "direction": "maximize", "success": 0.85, "min_delta": 0.0001,
  "max_branches": 8, "max_children": 2, "max_debug": 3, "max_fail": 3,
  "allowed_actions": ["draft", "tune", "debug", "model", "ablation"],
  "epochs": 25, "trial_timeout_s": 5400, "device": "auto",
- "artifact_location": "", "workdir": "experiments/N12-ID120",
+ "artifact_location": "", "workdir": "experiments/O6-ID120",
  "return_to": {"block": "professor-backward", "run_id": 5}}
 ```
 
 | 欄 | 中身 |
 |---|---|
 | `study` | `<sci_node>-ID<sprout の run_id>`。sprout の run_id は環境変数 `SAI_PARENT_RUN_ID` |
-| `sci_node` | research-tree の NODE（`N12` の形） |
+| `sci_node` | 実験の対象の Node（Issue の O か E の ID。例 `O6`・`E3`） |
 | `sprout_run_id` | sprout の run_id |
 | `project` | `SAI_PROJECT_ROOT` の末尾のフォルダ名 |
-| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。`purpose.metric` の NODE から読む。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
+| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。指標の Q（`sci status --json` と `sci node` で探す）から読む。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
 | `min_delta` | 「よくなった」と数える最小の幅。既定 `0.0001` |
 | `max_branches` | この sprout の branch の総数の上限。既定 `8` |
 | `max_children` | 1 回の review（と sprout）が起こす branch の数の上限。既定 `2` |
@@ -80,8 +84,8 @@
 | `sai.project` | プロジェクトのフォルダ名 | `west` |
 | `sai.run_id` | branch の run_id（環境変数 `EXP_BRANCH_RUN_ID`。**無ければスクリプトは止まる**） | `125` |
 | `sai.sprout_run_id` | sprout の run_id | `120` |
-| `sci.node` | NODE | `N12` |
-| `exp.study` | study | `N12-ID120` |
+| `sci.node` | 実験の対象の Node（`sci_node` と同じ値） | `O6` |
+| `exp.study` | study | `O6-ID120` |
 | `exp.model` | model | `cnn-static` |
 | `exp.action` | `draft` / `tune` / `debug` / `model` / `ablation` | `tune` |
 | `exp.parent_branch` | 親の branch の run_id（無ければ空文字） | `121` |
@@ -113,7 +117,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 
 # 定数（branch が書く。値は依頼文と実験仕様書から）
-PROJECT, SCI_NODE, STUDY = "west", "N12", "N12-ID120"
+PROJECT, SCI_NODE, STUDY = "west", "O6", "O6-ID120"
 SPROUT_RUN_ID, MODEL = "120", "cnn-static"
 ACTION, PARENT_BRANCH = "draft", ""
 METRIC, DIRECTION = "test_acc", "maximize"
@@ -262,7 +266,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。
 
 ```json
-{"study": "N12-ID120", "sprout_run_id": 120, "branch": 125, "job_state": "done",
+{"study": "O6-ID120", "sprout_run_id": 120, "branch": 125, "job_state": "done",
  "decision": "continue", "rule": "R7",
  "next": [{"action": "tune", "parent_branch": 125, "model": "cnn-static",
            "grid": {"lr": [0.1, 0.3]}, "idea": "", "fix": ""}],
@@ -298,20 +302,20 @@ review が使う。台帳（§5）の欄だけが材料である。
 - 本文の**先頭の 5 行は `key: value`**:
 
 ```text
-study: N12-ID120
+study: O6-ID120
 sprout_run_id: 120
 action: tune
 parent_branch: 125
 model: cnn-static
 
 ## スクリプトに書く中身
-- 元のスクリプト: experiments/N12-ID120/ID125/train.py（tune と debug のとき。写して直す）
+- 元のスクリプト: experiments/O6-ID120/ID125/train.py（tune と debug のとき。写して直す）
 - GRID: {"lr": [0.1, 0.3]}
 - 直す点 / 新しいモデルの案: …
 - 期待する効果: test_acc を 0.87 以上にする
 ```
 
-- `parent_branch` は無ければ `-`。draft のときは「元のスクリプト」の代わりに「モデルの案」と、データの置き場・読み込み方（root の FINDING と仕様書から）を書く。
+- `parent_branch` は無ければ `-`。draft のときは「元のスクリプト」の代わりに「モデルの案」と、データの置き場・読み込み方（研究方針の木の F と仕様書から）を書く。
 - カードの作り方（sprout と review で共通）:
 
 ```bash
