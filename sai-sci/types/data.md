@@ -1,7 +1,7 @@
 ---
 id: data
 name: DATA_DRIVEN
-given: data
+root: この研究は、手元のどのデータで、何を明らかにするか
 ---
 # DATA_DRIVEN
 
@@ -11,23 +11,31 @@ given: data
 
 典型例は、病院の生理信号が 1 つのデータベースにまとまっていて、その中のどの話をするかから始めるものである。データの型は決まっているが、小目的も比較対象も決まっていない。
 
-## ITEM_ORDER
+## Q
 - background
-- data
-- purpose
+  - background.goal
+  - background.problem
 - target
-- existing
-- issue
-- method
-- novelty
+  - target.subgroup
+- data
+  - data.type
+  - data.size
+  - data.label
+  - data.access
+- purpose
+  - purpose.subgoal
+    + purpose.output
+    + purpose.metric
+    + existing
+    + issue
+      - issue.limit
+      - issue.root
+    + method
+      - method.analog
+      - method.adapt
+    + novelty
+      - novelty.closest
+      - novelty.diff
 
-## SEED_SENTENCE
+## SEED
 手元の{data.type}で{purpose.subgoal}を行う。既存の{existing}は{issue.limit}が弱い。
-
-## GATE
-- DATA_ACCESS_DECIDED: decided(data.access)
-- PURPOSE_SUBGOAL_DECIDED: decided(purpose.subgoal)
-- EXISTING_SATURATED: saturated(existing)
-- ISSUE_LIMIT_LEVEL_2: level(issue.limit, 2)
-- METHOD_DECIDED: decided(method)
-- NOVELTY_CLOSEST_AND_DIFF: count(novelty.closest, 3) かつ decided(novelty.diff)

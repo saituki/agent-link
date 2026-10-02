@@ -1,41 +1,28 @@
 ---
 key: data.type
 name: DATA_TYPE
-type: choose
-parent: data
-depends_on: target
-min_findings: 2
+target: 2
 ---
 # DATA_TYPE
 
-データの型を決める ITEM である。波形か、数値か、画像か、文章か。扱いがすべて変わるので、最初に決める。
+データの型に ★ を付けて答える Q である。波形か、数値か、画像か、文章か。扱いがすべて変わるので、最初に決める。
 
 型が決まると、量とラベルの付け方も決まる。
 
-## QUESTION
+型が 1 つに決まっている。
+
+## Q
+データの型は何か（波形・数値・画像・文章など）。
+
+## Child Q
 - どんな型のデータか
 - その型で何が測れるか
 - ほかの型と混ぜなくてよいか
 
-## CONDITION
-- decided(data.type)
+## Extract
+- データの型・測定機器・サンプリング・単位
+- その型を前提とした前処理・予測の設定
 
-型が 1 つに決まっている。
-
-## EXTRACT_FIELDS
-- data_source: データの型・測定機器・サンプリング・単位
-- exemplar: その型を前提とした前処理・予測の設定
-
-## PITFALL
+## Pitfall
 - 型を「データ」など抽象的に書いて、決める意味を失う
 - 処理しやすさを基準に選んで、測っている対象を無視する
-
-## NEXT_ACTION
-- untouched: sci-ideate | {title}の OPTION を出す | 型の OPTION の一覧
-- insufficient: sci-search | {title}の型を広げて OPTION を探す | 追加した OPTION
-- awaiting_decision: sci-compare | {title}の型を 1 つに決める | 選んだ型と理由
-- conflict: sci-probe | {title}の型の OPTION の食い違いを調べる | 違いの説明
-- weak_evidence: sci-probe | {title}の型が対象に合うか確かめる | 確かめた結果
-- recheck: - | 上流の決定が変わったので{title}を見直す | 見直した結果
-
-## CHILD_ITEM

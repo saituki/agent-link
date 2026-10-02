@@ -20,7 +20,18 @@ use crate::runs::{list_run_dirs, read_frontmatter, run_block_id};
 /// ブロック定義の置き場の候補（`<root>/.sai/blocks/<id>.md` → `<sai_home>/blocks/<id>.md`）。id が `^[a-z0-9-]+$` でなければ空。
 #[must_use]
 pub fn block_def_paths(roots: &PaperRoots, block: &str) -> Vec<PathBuf> {
-    crate::sci::ops::block_def_paths(roots, block)
+    let valid = !block.is_empty()
+        && block
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !valid {
+        return Vec::new();
+    }
+    let mut candidates = vec![roots.root.join(".sai").join("blocks").join(format!("{block}.md"))];
+    if let Some(dir) = crate::paths::sai_home_path("blocks") {
+        candidates.push(dir.join(format!("{block}.md")));
+    }
+    candidates
 }
 
 /// 最初に見つかったブロック定義の frontmatter。
@@ -556,5 +567,18 @@ mod tests {
         let w: Vec<_> = block_warnings(&e.roots).into_iter().filter(|w| w.starts_with("x:") || w.starts_with("ok:")).collect();
         assert_eq!(w.len(), 2, "{w:?}");
         assert!(w[0].contains("foo") && w[1].contains("bar"));
+    }
+
+    #[test]
+    fn block_id_must_be_lowercase_before_it_becomes_a_file_name() {
+        // `^[a-z0-9-]+$` に通る ID だけを読む。外へ出る値をそのままファイル名にしない。
+        let e = env("bid");
+        for good in ["sci-t", "a", "0", "a-b-9"] {
+            assert!(!block_def_paths(&e.roots, good).is_empty(), "{good}");
+        }
+        for bad in ["", "..", "../sci-t", "a/b", "Sci-T", "sci_t", "sci.t", "a b"] {
+            assert!(block_def_paths(&e.roots, bad).is_empty(), "{bad}");
+        }
+        let _ = fs::remove_dir_all(&e.dir);
     }
 }

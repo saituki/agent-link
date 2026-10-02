@@ -1,7 +1,7 @@
 ---
 id: problem
 name: PROBLEM_DRIVEN
-given: background
+root: この研究は、どの現場の、どんな課題を解くか
 ---
 # PROBLEM_DRIVEN
 
@@ -11,24 +11,31 @@ given: background
 
 典型例は、てんかん外科の支援という大目的から「頭皮脳波だけで発作部位を推定できるか」という問題に絞るものである。対象もデータも既存の臨床記録で足りると分かるので、残りは「既存の定位手法がこの条件では何に弱いのか」という説明を組み立てることに使う。
 
-## ITEM_ORDER
+## Q
 - background
+  - background.goal
+  - background.problem
 - target
-- data
+  - target.subgroup
 - purpose
-- existing
-- issue
-- method
-- novelty
+  - purpose.subgoal
+    + purpose.output
+    + purpose.metric
+    + data
+      - data.type
+      - data.size
+      - data.label
+      - data.access
+    + existing
+    + issue
+      - issue.limit
+      - issue.root
+    + method
+      - method.analog
+      - method.adapt
+    + novelty
+      - novelty.closest
+      - novelty.diff
 
-## SEED_SENTENCE
+## SEED
 {target}の{data.type}で{purpose.subgoal}を行う。既存の{existing}は{issue.limit}が弱い。{method.analog}の{method}で解く。新しさは{novelty.diff}。
-
-## GATE
-- BACKGROUND_GOAL_DECIDED: decided(background.goal)
-- PURPOSE_SUBGOAL_DECIDED: decided(purpose.subgoal)
-- DATA_ACCESS_DECIDED: decided(data.access)
-- EXISTING_SATURATED: saturated(existing)
-- ISSUE_LIMIT_LEVEL_2: level(issue.limit, 2)
-- METHOD_DECIDED: decided(method)
-- NOVELTY_CLOSEST_AND_DIFF: count(novelty.closest, 3) かつ decided(novelty.diff)
