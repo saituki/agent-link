@@ -459,6 +459,29 @@ fn install_sci_parts(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
         );
     }
 
+    // 保存前の検査（U01 の `sai_write` が呼ぶ。キーが無いときだけ書く）。
+    let obj = settings
+        .as_object_mut()
+        .context(".sai/settings.json がオブジェクトではありません")?;
+    if !obj.contains_key("write_check") {
+        obj.insert(
+            "write_check".to_string(),
+            json!([
+                sai_paper_bin.to_string_lossy(),
+                "report",
+                "prepare",
+                "--run",
+                "{run_id}",
+                "--block",
+                "{block}",
+                "--filename",
+                "{filename}"
+            ]),
+        );
+        write_json(&settings_path, &settings)?;
+        done.push("write_check（保存前の検査）を .sai/settings.json に登録しました".to_string());
+    }
+
     // 土壌のひな形（既にある mind.md は利用者の考えなので、そのままにする）
     if write_if_missing(&sai.join("paper/mind.md"), SCI_MIND)? {
         done.push("mind.md（SOIL のひな形）を作りました".to_string());
@@ -785,6 +808,17 @@ mod tests {
             json!(["/opt/bin/sai-moon-paper", "sci", "context", "--run", "{run_id}"]),
             "context が実行ファイルの絶対パスと sci context --run の設定ではない"
         );
+        assert_eq!(
+            settings["write_check"],
+            json!(["/opt/bin/sai-moon-paper", "report", "prepare", "--run", "{run_id}", "--block", "{block}", "--filename", "{filename}"]),
+        );
+        // 既にある write_check は上書きしない
+        let mut custom = settings.clone();
+        custom["write_check"] = json!(["mine"]);
+        write_json(&root.join(".sai/settings.json"), &custom).unwrap();
+        install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
+        let again = read_json(&root.join(".sai/settings.json")).unwrap();
+        assert_eq!(again["write_check"], json!(["mine"]));
         // 今からある pre_run と拡張は、そのまま残す
         assert_eq!(settings["pre_run"], json!(["/opt/bin/sai-moon-paper", "brief", "--write"]));
         assert_eq!(settings["extensions"].as_array().unwrap().len(), 1);

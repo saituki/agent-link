@@ -699,11 +699,6 @@ pub fn check_header(markdown: &str, run_block_id: Option<&str>) -> Vec<Issue> {
 
     let mut issues = Vec::new();
 
-    match get("kind") {
-        None | Some("") => issues.push(header_issue("kind が空です")),
-        Some(_) => {}
-    }
-
     match get("block") {
         None | Some("") => issues.push(header_issue("block が空です")),
         Some(actual) => {
@@ -1534,12 +1529,12 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert!(issues[0].detail.contains("先頭情報"));
 
-        // kind が空
+        // kind が無くても error にならない
         let issues = check_header(
-            "---\nkind:\nblock: paper-critic\npapers: []\n---\n",
+            "---\nblock: paper-critic\npapers: []\n---\n",
             Some("paper-critic"),
         );
-        assert!(issues.iter().any(|issue| issue.detail == "kind が空です"));
+        assert!(issues.is_empty(), "{issues:?}");
 
         // block 違い
         let issues = check_header(
