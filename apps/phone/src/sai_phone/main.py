@@ -1136,16 +1136,16 @@ def api_paper_pdf(
 # 読む札の「始め」「終え」だけは sai-link の `phone user …`（C-12）を sci.py 越しに呼ぶ。
 
 
-@app.get("/api/projects/{name}/papers/sci")
+@app.get("/api/projects/{name}/papers/sci/status")
 def api_sci_status(name: str, _: None = Depends(require_token)) -> dict:
     """研究方針の木全体（`phone sci status`）。"""
     return sci.status(papers.resolve_project(name))
 
 
-@app.get("/api/projects/{name}/papers/sci/graph")
-def api_sci_graph(name: str, _: None = Depends(require_token)) -> dict:
-    """ROOT_GRAPH の論文の葉（`phone sci graph`）。"""
-    return sci.graph(papers.resolve_project(name))
+@app.get("/api/projects/{name}/papers/sci/types")
+def api_sci_types(name: str, _: None = Depends(require_token)) -> dict:
+    """使える研究の型（`phone sci types`）。"""
+    return sci.types(papers.resolve_project(name))
 
 
 @app.post("/api/projects/{name}/papers/sci/init")
@@ -1156,19 +1156,19 @@ def api_sci_init(
     return sci.init(papers.resolve_project(name), payload)
 
 
-@app.get("/api/projects/{name}/papers/sci/nodes/{node}")
+@app.get("/api/projects/{name}/papers/sci/nodes/{node_id}")
 def api_sci_node(
-    name: str, node: str, _: None = Depends(require_token)
+    name: str, node_id: str, _: None = Depends(require_token)
 ) -> dict:
-    """節点の中身（`phone sci node <N>`）。"""
-    return sci.node(papers.resolve_project(name), node)
+    """Node の中身（`phone sci node <ID>`）。"""
+    return sci.node(papers.resolve_project(name), node_id)
 
 
 @app.post("/api/projects/{name}/papers/sci/apply")
 def api_sci_apply(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """人の操作を反映する（body は C-07 の op の JSON）。"""
+    """人の操作を反映する（body は C-OP の op の JSON）。"""
     return sci.apply(papers.resolve_project(name), payload)
 
 
@@ -1212,10 +1212,41 @@ def api_sci_read_start(
 
 @app.post("/api/projects/{name}/papers/sci/reads/{run_id}/finish")
 def api_sci_read_finish(
-    name: str, run_id: str, payload: dict = Body(default={}), _: None = Depends(require_token)
+    name: str, run_id: str, _: None = Depends(require_token)
 ) -> dict:
-    """読む札を終えて review へ移す（body は `{"no_reflect": "…"}`・任意）。"""
-    return sci.read_finish(papers.resolve_project(name), run_id, payload)
+    """読む札を終えて review へ移す（F が 0 でも止めない）。"""
+    return sci.read_finish(papers.resolve_project(name), run_id)
+
+
+# --- 検索セット（`phone set …`） ---
+
+
+@app.get("/api/projects/{name}/papers/sets")
+def api_set_list(name: str, _: None = Depends(require_token)) -> dict:
+    """検索セットの一覧（`phone set list`）。"""
+    return sci.set_list(papers.resolve_project(name))
+
+
+@app.get("/api/projects/{name}/papers/sets/{set_id}")
+def api_set_show(name: str, set_id: str, _: None = Depends(require_token)) -> dict:
+    """検索セット 1 つと候補（`phone set show`）。"""
+    return sci.set_show(papers.resolve_project(name), set_id)
+
+
+@app.post("/api/projects/{name}/papers/sets/{set_id}/mark")
+def api_set_mark(
+    name: str, set_id: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """候補に keep / drop を付ける（body は `{"positions","decision","reason"?}`）。"""
+    return sci.set_mark(papers.resolve_project(name), set_id, payload)
+
+
+@app.post("/api/projects/{name}/papers/sets/{set_id}/drop-pending")
+def api_set_drop_pending(
+    name: str, set_id: str, payload: dict = Body(default={}), _: None = Depends(require_token)
+) -> dict:
+    """未判定の候補をまとめて drop にする（body は `{"reason"?}`）。"""
+    return sci.set_drop_pending(papers.resolve_project(name), set_id, payload)
 
 
 # --- Radio 中継（計画 09 §3） ---

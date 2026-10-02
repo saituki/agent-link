@@ -21,7 +21,7 @@ use sai_paper_core::citation::db::get_refs_for;
 use sai_paper_core::paths::PaperRoots;
 use sai_paper_core::{
     Config, Database, LibraryIndexer, LibraryPaper, Paths, S2Client, figures, library_tree, paths,
-    podcast_client, search_log, translation,
+    podcast_client, search_log, search_sets, translation,
 };
 use serde_json::{Value, json};
 
@@ -162,6 +162,46 @@ pub enum PhoneCmd {
         #[command(subcommand)]
         cmd: crate::phone_sci::PhoneSciCmd,
     },
+    /// 検索セット（一覧・候補・選別。`sai-moon-paper set …` と同じ核を呼ぶ）
+    Set {
+        #[command(subcommand)]
+        cmd: PhoneSetCmd,
+    },
+}
+
+/// `sai-moon-paper phone set` のサブコマンド。
+#[derive(Subcommand, Debug)]
+pub enum PhoneSetCmd {
+    /// セット一覧（判定ごとの件数つき）
+    List,
+    /// セット 1 つと候補の一覧
+    Show {
+        /// セット ID
+        id: i64,
+    },
+    /// 候補の判定を付ける（`imported` の候補は変えない）
+    Mark {
+        /// セット ID
+        id: i64,
+        /// 位置（0 始まり。コンマ区切りで複数）
+        #[arg(long, value_delimiter = ',', required = true)]
+        position: Vec<i64>,
+        /// 判定（keep / drop）
+        #[arg(long)]
+        decision: String,
+        /// 理由
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// `pending` の候補をすべて drop にする
+    #[command(name = "drop-pending")]
+    DropPending {
+        /// セット ID
+        id: i64,
+        /// 理由（既定は「まとめて drop」）
+        #[arg(long)]
+        reason: Option<String>,
+    },
 }
 
 /// `sai-moon-paper phone` を実行し、JSON 1 行を標準出力へ出す。
@@ -220,6 +260,7 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         PhoneCmd::AfterDownload { paper_id } => crate::phone_import::after_download(paper_id).await,
         PhoneCmd::AttentionResolve { key } => crate::phone_import::attention_resolve(&key),
         PhoneCmd::Sci { cmd } => crate::phone_sci::run(cmd),
+        PhoneCmd::Set { cmd } => set_run(cmd),
     };
     match outcome {
         Ok(value) => {
@@ -231,6 +272,150 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
             std::process::exit(1);
         }
     }
+}
+
+// ---- 検索セット（phone set） ------------------------------------------------
+
+/// `phone set …` の入口。中身は `sai_paper_core::search_sets` を呼ぶだけ。
+fn set_run(cmd: PhoneSetCmd) -> Result<Value> {
+    let db = open_database()?;
+    let conn = db.connection();
+    match cmd {
+        PhoneSetCmd::List => set_list(conn),
+        PhoneSetCmd::Show { id } => set_show(conn, id),
+        PhoneSetCmd::Mark {
+            id,
+            position,
+            decision,
+            reason,
+        } => set_mark(conn, id, &position, &decision, reason.as_deref()),
+        PhoneSetCmd::DropPending { id, reason } => set_drop_pending(conn, id, reason.as_deref()),
+    }
+}
+
+/// 取り込み済みの判定（保存値は `downloaded`）。
+fn is_imported(item: &search_sets::SearchSetItem) -> bool {
+    item.decision == "downloaded"
+}
+
+/// セット 1 件の JSON（`rt_node`・`purpose`・`extract` は核の関数が無いのでここで読む）。
+fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet) -> Result<Value> {
+    let (rt_node, purpose, extract): (Option<i64>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT rt_node, purpose, extract FROM search_sets WHERE id = ?1",
+            [set.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+    // 木から消えた Node は null にする（古い番号を出さない）
+    let node = rt_node.and_then(|id| {
+        sai_paper_core::rt::store::get_node(conn, id)
+            .ok()
+            .map(|row| sai_paper_core::rt::fmt_id(row.kind, row.id))
+    });
+    let items = search_sets::items(conn, set.id)?;
+    let count = |name: &str| items.iter().filter(|i| i.decision == name).count();
+    Ok(json!({
+        "id": set.id,
+        "name": set.name,
+        "query": set.query,
+        "source_dbs": set.source_dbs,
+        "created_at": set.created_at,
+        "node": node,
+        "purpose": purpose,
+        "extract": extract,
+        "counts": {
+            "pending": count("pending"),
+            "keep": count("keep"),
+            "drop": count("drop"),
+            "imported": items.iter().filter(|i| is_imported(i)).count(),
+            "total": items.len(),
+        },
+    }))
+}
+
+/// `phone set list`。
+fn set_list(conn: &rusqlite::Connection) -> Result<Value> {
+    let mut sets = Vec::new();
+    for set in search_sets::list(conn)? {
+        let mut one = set_json(conn, &set)?;
+        // 一覧には長い `extract` を出さない（`show` で見る）
+        one.as_object_mut().map(|o| o.remove("extract"));
+        sets.push(one);
+    }
+    Ok(json!({ "sets": sets }))
+}
+
+/// `phone set show <id>`。
+fn set_show(conn: &rusqlite::Connection, id: i64) -> Result<Value> {
+    let set = search_sets::get(conn, id)?;
+    let items: Vec<Value> = search_sets::items(conn, id)?
+        .into_iter()
+        .map(|item| {
+            json!({
+                "position": item.position,
+                "title": item.remote.title,
+                "authors": item.remote.authors,
+                "year": remote_year(&item.remote.published),
+                "venue": item.remote.journal_ref,
+                "doi": item.remote.doi,
+                "abstract": item.remote.abstract_text,
+                "decision": item.decision,
+                "reason": item.reason,
+                "paper_id": item.paper_id,
+            })
+        })
+        .collect();
+    Ok(json!({ "set": set_json(conn, &set)?, "items": items }))
+}
+
+/// 位置の列に判定を付ける。取り込み済みは変えず、数えない。
+fn mark_positions(
+    conn: &rusqlite::Connection,
+    id: i64,
+    positions: &[i64],
+    decision: &str,
+    reason: Option<&str>,
+) -> Result<Value> {
+    if decision != "keep" && decision != "drop" {
+        bail!("decision は keep か drop にしてください");
+    }
+    // 無いセットは先に断る
+    search_sets::get(conn, id)?;
+    let items = search_sets::items(conn, id)?;
+    let mut changed = 0;
+    for &position in positions {
+        let Some(item) = items.iter().find(|i| i.position == position) else {
+            bail!("候補 set_id={id}, position={position} が見つかりません");
+        };
+        if is_imported(item) {
+            continue;
+        }
+        search_sets::mark(conn, id, position, decision, reason)?;
+        changed += 1;
+    }
+    Ok(json!({ "set_id": id, "changed": changed }))
+}
+
+/// `phone set mark`。
+fn set_mark(
+    conn: &rusqlite::Connection,
+    id: i64,
+    positions: &[i64],
+    decision: &str,
+    reason: Option<&str>,
+) -> Result<Value> {
+    mark_positions(conn, id, positions, decision, reason)
+}
+
+/// `phone set drop-pending`。
+fn set_drop_pending(conn: &rusqlite::Connection, id: i64, reason: Option<&str>) -> Result<Value> {
+    search_sets::get(conn, id)?;
+    let pending: Vec<i64> = search_sets::items(conn, id)?
+        .into_iter()
+        .filter(|i| i.decision == "pending")
+        .map(|i| i.position)
+        .collect();
+    mark_positions(conn, id, &pending, "drop", Some(reason.unwrap_or("まとめて drop")))
 }
 
 /// 読み取り系サブコマンド共通の準備（DB・config・パス）。
@@ -878,6 +1063,74 @@ fn read_text(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// 検索セットの 4 つの命令: 一覧・詳細・選別・まとめて drop（imported は変えない）。
+    #[test]
+    fn set_commands_list_show_mark_and_drop_pending() {
+        use super::{set_drop_pending, set_list, set_mark, set_show};
+        use chrono::Utc;
+        use sai_paper_core::RemotePaper;
+        use sai_paper_core::search_sets::{self, CreateSearchSetParams};
+
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        let id = search_sets::create(
+            conn,
+            CreateSearchSetParams {
+                name: "s".into(),
+                source_dbs: "s2".into(),
+                query: "q".into(),
+                raw_query: None,
+                created_by: "user".into(),
+                note: None,
+            },
+        )
+        .unwrap();
+        let papers: Vec<RemotePaper> = (0..4)
+            .map(|n| RemotePaper {
+                id: format!("p{n}"),
+                title: format!("題{n}"),
+                authors: vec!["A".into()],
+                abstract_text: "要旨".into(),
+                published: Utc::now(),
+                updated: Utc::now(),
+                categories: vec![],
+                pdf_url: None,
+                doi: None,
+                journal_ref: None,
+                citation_count: None,
+            })
+            .collect();
+        search_sets::add_items(conn, id, papers).unwrap();
+        // 位置 3 は取り込み済み
+        search_sets::mark(conn, id, 3, "downloaded", None).unwrap();
+
+        let list = set_list(conn).unwrap();
+        let one = &list["sets"][0];
+        assert_eq!(one["id"], id);
+        assert!(one["node"].is_null());
+        assert_eq!(one["counts"]["pending"], 3);
+        assert_eq!(one["counts"]["imported"], 1);
+        assert_eq!(one["counts"]["total"], 4);
+
+        let shown = set_show(conn, id).unwrap();
+        assert_eq!(shown["items"].as_array().unwrap().len(), 4);
+        assert_eq!(shown["items"][0]["title"], "題0");
+        assert!(shown["set"].get("extract").is_some());
+
+        // keep / drop 以外は失敗。imported は数えない
+        assert!(set_mark(conn, id, &[0], "pending", None).is_err());
+        let got = set_mark(conn, id, &[0, 3], "keep", Some("要る")).unwrap();
+        assert_eq!(got["changed"], 1);
+
+        let got = set_drop_pending(conn, id, None).unwrap();
+        assert_eq!(got["changed"], 2);
+        let after = set_list(conn).unwrap();
+        assert_eq!(after["sets"][0]["counts"]["pending"], 0);
+        assert_eq!(after["sets"][0]["counts"]["drop"], 2);
+        let shown = set_show(conn, id).unwrap();
+        assert_eq!(shown["items"][1]["reason"], "まとめて drop");
+    }
+
     use super::{project_json, with_failed, year_label};
     use clap::Parser;
     use serde_json::json;
