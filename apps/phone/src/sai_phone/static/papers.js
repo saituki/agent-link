@@ -64,6 +64,8 @@ const ACTIVITY_KINDS = {
   radio: ["Radio create", "ak-radio"],
   radio_play: ["Radio play", "ak-radio-play"],
   radio_question: ["Radio question", "ak-radio-question"],
+  // U22: Action（run）の行。色は ak-other のまま
+  action: ["Action", "ak-other"],
 };
 // 論文の置き場があるプロジェクトが1つもないときの案内文（18 §1.1）
 const NO_PROJECT_MSG =
@@ -79,8 +81,8 @@ const ATTENTION_CHIPS = {
   report_issue: ["Source", "danger"],
   new_set_items: ["New", "muted"],
   // U19: 研究方針の木から出る要対応
-  sci_decision: ["AWAITING_DECISION", "warn"],
-  sci_triage: ["TRIAGE", "warn"],
+  sci_decision: ["NO_STAR", "warn"],
+  sci_triage: ["PROPOSAL", "warn"],
 };
 // 広い画面の「中身」に出しているもの（"" は何も出していない）
 let sideKind = "";       // "paper" | "remote" | ""
@@ -640,7 +642,7 @@ function renderPapersDashboard() {
     pdFocusMemo();
     return;
   }
-  // 1. 数字カード（Mac の sai-paper の Dashboard と同じ 5 つ）
+  // 1. 数字カード（Mac の Dashboard の 5 つ + DEBT）
   const c = dashboardData.cards || {};
   const card = el("section", "dash-card");
   const grid = el("div", "dash-grid pd-grid");
@@ -650,6 +652,7 @@ function renderPapersDashboard() {
     [String(Number(c.notes) || 0), "Notes"],
     [bytesLabel(c.pdf_bytes), "PDF"],
     [bytesLabel(c.db_bytes), "DB"],
+    [String(papersDebtCount(dashboardData.activity)), "DEBT"],
   ]) {
     const cell = el("div", "dash-cell");
     cell.appendChild(el("div", "dash-big", value));
@@ -734,17 +737,16 @@ function attentionCard() {
 
 /** 要対応の行き先（研究方針の木・仕分けの画面の住所）。開けないときは空文字。
  *
- * `sci_decision` のキーはコアが `sci_decision:<節点>:<最新の知見 id>` の形で作る
- * （crates/sai-paper-core/src/attention.rs）。2 番目の節点だけを取り出して画面の住所を作る。
+ * `sci_decision` のキーはコアが `sci_decision:Q<番号>` の形で作る
+ * （crates/sai-paper-core/src/attention.rs）。形が合えば研究方針の画面を開く。
  */
 function papersAttentionHash(item) {
   const it = item || {};
   if (it.kind === "sci_triage") return "#/papers/triage";
   if (it.kind !== "sci_decision") return "";
-  const parts = String(it.key || "").split(":");
-  if (parts.length !== 3 || parts[0] !== "sci_decision") return "";
-  if (!/^N[1-9][0-9]{0,8}$/.test(parts[1])) return "";
-  return `#/papers/tree/${parts[1]}`;
+  // キーは `sci_decision:Q<番号>`。Q の住所は無いので研究方針の画面を開く
+  if (!/^sci_decision:Q[1-9][0-9]{0,8}$/.test(String(it.key || ""))) return "";
+  return "#/papers/tree";
 }
 
 /** 要対応の 1 行（種類の札・題・対応済みにする・実行があれば開く）。 */
@@ -935,12 +937,19 @@ function pdFocusMemo() {
   try { input.setSelectionRange(at, at); } catch { /* 数値の欄だけなら無視 */ }
 }
 
+/** Recent Activity の Action の行のうち DEBT のある行の数。 */
+function papersDebtCount(items) {
+  return (Array.isArray(items) ? items : []).filter((i) => i && i.kind === "action" && i.debt).length;
+}
+
 function activityRow(item) {
   const [label, cls] = ACTIVITY_KINDS[item && item.kind] || [String((item && item.kind) || ""), "ak-other"];
   const row = document.createElement("button");
   row.className = "pd-act";
   row.appendChild(el("span", `pd-kind ${cls}`, label));
-  row.appendChild(el("span", "pd-label", (item && item.label) || ""));
+  const debt = item && item.kind === "action" && item.debt;
+  row.appendChild(el("span", "pd-label", (debt ? "⚠ " : "") + ((item && item.label) || "")));
+  if (debt && Array.isArray(item.debt_messages)) row.title = item.debt_messages.join("\n");
   row.appendChild(el("span", "pd-time", activityTime(item && item.occurred_at)));
   const hash = activityHash(item, selectedProject);
   if (hash) row.addEventListener("click", () => { location.hash = hash; });
@@ -2966,5 +2975,6 @@ if (typeof module !== "undefined" && module.exports) {
     papersFailedLines,
     papersAllFailed,
     papersAttentionHash,
+    papersDebtCount,
   };
 }

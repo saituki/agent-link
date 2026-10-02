@@ -20,6 +20,7 @@ const {
   papersFailedLines,
   papersAllFailed,
   papersAttentionHash,
+  papersDebtCount,
 } = require(path.join(
   __dirname,
   "..",
@@ -270,28 +271,25 @@ function testDbLabel() {
 }
 
 function testAttentionHash() {
-  // 指摘 1: `sci_decision` のキーはコアが `sci_decision:<節点>:<最新の知見 id>` の形で作る
-  assert.strictEqual(
-    papersAttentionHash({ kind: "sci_decision", key: "sci_decision:N12:0" }),
-    "#/papers/tree/N12"
-  );
-  assert.strictEqual(
-    papersAttentionHash({ kind: "sci_decision", key: "sci_decision:N7:42", run_id: null }),
-    "#/papers/tree/N7"
-  );
-  // 仕分けは節点が無くても開く
-  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }),
-    "#/papers/triage");
-  // 節点の形の違うキーは開かない（main.disabled のまま）
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:12:0" }), "");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "N12" }), "");
+  // `sci_decision` のキーはコアが `sci_decision:Q<番号>` の形で作る
+  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:Q12" }), "#/papers/tree");
+  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }), "#/papers/triage");
+  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:N12:0" }), "");
+  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:12" }), "");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "" }), "");
   assert.strictEqual(papersAttentionHash({ kind: "question", key: "N12" }), "");
   assert.strictEqual(papersAttentionHash({}), "");
   assert.strictEqual(papersAttentionHash(null), "");
 }
 
+function testDebtCount() {
+  assert.strictEqual(papersDebtCount([{ kind: "action", debt: true }, { kind: "action", debt: false }, { kind: "notes", debt: true }]), 1);
+  assert.strictEqual(papersDebtCount(null), 0);
+  assert.strictEqual(activityHash({ kind: "action", paper_id: null }, "sai-paper"), null);
+}
+
 function main() {
+  testDebtCount();
   testActivityHash();
   testAuthorShort();
   testFilterPapers();

@@ -48,8 +48,8 @@ const PIM_ATTENTION_KINDS = {
   report_issue: ["Source", "danger", "Source needs checking"],
   new_set_items: ["New", "muted", "New items in a search set"],
   // U19: 研究方針の木から出る要対応
-  sci_decision: ["AWAITING_DECISION", "warn", "ITEM awaiting decision"],
-  sci_triage: ["TRIAGE", "warn", "PROPOSAL awaiting TRIAGE"],
+  sci_decision: ["NO_STAR", "warn", "Q has no star"],
+  sci_triage: ["PROPOSAL", "warn", "PROPOSAL awaiting TRIAGE"],
 };
 
 // --- 画面の状態 ---
