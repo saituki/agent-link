@@ -112,18 +112,6 @@
   overflow-wrap: anywhere; /* AWAITING_DECISION など長い英語名で札からはみ出さない */
 }
 
-/* 今の関門の条件に出てくる項目は太い枠で目立たせる */
-.sci-graph-gate {
-  border-width: 2px;
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-/* 却下・休眠の候補は薄く出す（消さない） */
-.sci-graph-faint {
-  opacity: 0.45;
-  border-style: dashed;
-}
-
 .sci-graph-empty {
   position: absolute;
   top: 12px;
@@ -206,23 +194,24 @@
 .sci-graph-row-rejected,
 .sci-graph-row-dormant { opacity: 0.6; }
 
-/* --- 4 層の樹（U11）--- */
+/* --- Q・O・F・E・SEED の札（U20）。枠の色で種類を分ける --- */
 
-/* 幹（seed） */
-.sci-graph-seed {
+.sci-graph-Q { --sg-color: var(--accent); }
+.sci-graph-O { --sg-color: var(--sci-decided); }
+.sci-graph-F { --sg-color: var(--sci-tentative); }
+.sci-graph-E { --sg-color: var(--sci-candidate); }
+.sci-graph-S {
   --sg-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, var(--bg));
-  border-width: 2px;
+  border-style: dashed;
 }
-.sci-graph-seed .sci-graph-card-head { font-weight: 700; color: var(--text); }
+.sci-graph-S .sci-graph-card-head { font-weight: 700; color: var(--text); }
 
-/* 論文の葉。読んだ（read / reflected）は濃く、unread は薄く */
-.sci-graph-paper { --sg-color: var(--line-strong); padding: 4px 8px; }
-.sci-graph-paper-read { background: color-mix(in srgb, var(--sci-decided) 14%, var(--bg)); }
-.sci-graph-paper-unread { background: var(--bg-soft); border-style: dashed; }
+/* ★ の O は濃い枠 */
+.sci-graph-starred { border-width: 2px; border-left-width: 6px; }
 
-/* 帯の sprout */
-.sci-graph-band-sprout { background: color-mix(in srgb, var(--sci-tentative) 8%, var(--bg)); }
+/* ★ の道から外れた札は淡く出す（消さない） */
+.sci-graph-dim { opacity: 0.5; }
 
 /* 選んでいる札 */
 .sci-graph-card.is-selected {
