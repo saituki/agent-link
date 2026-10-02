@@ -1,0 +1,115 @@
+/* 検索セットの画面（sciset.js）。クラスは .ss- で始める。 */
+
+.ss-body {
+  padding: 10px 12px 24px;
+}
+
+.ss-list,
+.ss-set-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 900px;
+}
+
+.ss-set,
+.ss-top,
+.ss-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 10px 12px;
+}
+
+.ss-set {
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.ss-set-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ss-set-query,
+.ss-note,
+.ss-item-meta {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.ss-set-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.875rem;
+}
+
+.ss-counts {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+}
+
+.ss-counts.warn {
+  font-weight: 600;
+}
+
+.ss-node {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.ss-filters,
+.ss-item-actions,
+.ss-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ss-filters .sai-btn,
+.ss-item-actions .sai-btn,
+.ss-bottom .sai-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.ss-item-title {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+/* 抄録は初めは 3 行で畳み、押すと開く */
+.ss-item-abstract {
+  margin: 6px 0 0;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ss-item-abstract.open {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
+.ss-imported {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
