@@ -75,7 +75,7 @@ subblocks:
 ## 始めにすること
 
 1. 最初のメッセージの「# task_text」節（依頼文）を読む。依頼文に `waggle:` のトークンがあれば、`sai_read` でその文書を読む。
-2. `.sai/paper/mind.md`（SOIL。Human が書いたもの。直接は書き換えない）を読む。
+2. `.sai/paper/mind.md`（研究の土台。Human が書いたもの。直接は書き換えない）を読む。
 3. `sai-moon-paper sci status --brief` を読み、現在地と次の一手を確かめる。木がまだ無いと返ったときは、自分で `init` を打たず、質問ツールで Human に `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼んで待つ。
 4. 研究日誌 `.sai/paper/professor-log.md` があれば読む。会話が要約されて前のことが分からなくなったときは、ここの日誌と `sci status --brief`、`sai-moon-link phone tree` から再開する。
 

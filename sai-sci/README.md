@@ -82,7 +82,7 @@ sai-sci/
 ├── mind.md     # 研究の土台（mind.md）のひな形
 ├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
-└── blocks/     # 27 本のブロック（役 4 本 + sci 23 本）
+└── blocks/     # 26 本のブロック（役 4 本 + sci 22 本）
 ```
 
 ### 3.1 研究の型（5 本）
@@ -145,12 +145,12 @@ sai-sci/
 | `novelty.diff` | NOVELTY_DIFF | `novelty` |
 | `phenomenon` | PHENOMENON | ― |
 
-### 3.3 27 本のブロック
+### 3.3 26 本のブロック
 
-`blocks/` の 27 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 26 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
 
 - 役 4 本（`professor`・`professor-backward`・`operator`・`kaizen`）は、木の外から木を見る役（3.3.1 節）。
-- sci の 23 本は、木の中で動く researcher。Action の種類で分ける。
+- sci の 22 本は、木の中で動く researcher。Action の種類で分ける。
 
 | Action | ブロック | support |
 |---|---|---|
@@ -170,7 +170,7 @@ sai-sci/
 
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
-  |-- researcher（sci の 23 本。木の Node に向けて働く）
+  |-- researcher（sci の 22 本。木の Node に向けて働く）
   `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
 ```
 
@@ -229,7 +229,7 @@ sai-moon-paper sci init --type <型>
 
 | 入るもの | 置き場 |
 |---|---|
-| 27 本のブロック | `<root>/.sai/blocks/` |
+| 26 本のブロック | `<root>/.sai/blocks/` |
 | template 9 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
 | 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`phone_api.py`（無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example` など（無いときだけ書く） | `<root>/.sai/exec/` |

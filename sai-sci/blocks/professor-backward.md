@@ -58,7 +58,7 @@ subblocks:
 
 1. 依頼を読む。依頼に `waggle:` のトークンがあれば、`sai_read` でその文書を読む。依頼から基盤論文の番号（`基盤論文: #12 #15`）を取る。無ければ、質問ツールで Human に番号を聞いて待つ。
 2. 基盤論文が Library にあるかを `sai-moon-paper phone paper <番号>` で確かめる（本文は読まない）。無ければ、Web の論文の画面で取り込むよう Human に頼んで待つ。
-3. `.sai/paper/mind.md`（SOIL。Human が書いたもの。直接は書き換えない）を読む。
+3. `.sai/paper/mind.md`（研究の土台。Human が書いたもの。直接は書き換えない）を読む。
 4. `sai-moon-paper sci status --brief` を読む。木がまだ無いと返ったときは、自分で `init` を打たず、質問ツールで Human に `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼んで待つ。型が分からなければ `problem` を勧める（型が違えば、段 1 の `sci-restore` が知らせる）。
 5. 研究日誌 `.sai/paper/professor-backward-log.md` があれば読み、今どの段にいるかを確かめる。会話が要約されて前のことが分からなくなったときは、ここの日誌と `sci status --brief`、`sai-moon-link phone tree` から再開する。
 
