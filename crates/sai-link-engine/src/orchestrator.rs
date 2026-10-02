@@ -4769,6 +4769,7 @@ mod tests {
 
     #[test]
     fn test_prepare_pipeline_with_body() {
+        let _env_lock = finalize_env_lock();
         let mut config = minimal_config();
         config.block_body = "# テスト\nプロジェクト: {{input.name}}".to_string();
 
@@ -4788,6 +4789,7 @@ mod tests {
 
     #[test]
     fn test_prepare_pipeline_with_user_inputs() {
+        let _env_lock = finalize_env_lock();
         let mut config = minimal_config();
         config.block_body = "プロジェクト: {{input.name}}".to_string();
         let mut inputs = HashMap::new();

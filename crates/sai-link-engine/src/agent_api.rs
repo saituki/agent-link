@@ -2080,6 +2080,7 @@ mod tests {
         content: &str,
     ) -> Result<Value, String> {
         let root = &guard.project_root;
+        std::fs::create_dir_all(root.join("empty-home")).unwrap();
         std::env::set_var("SAI_SAI_HOME", root.join("empty-home"));
         std::env::set_var("SAI_PARENT_RUN_ID", "42");
         std::env::set_var("SAI_BLOCK_NAME", "blk");
@@ -2143,6 +2144,7 @@ mod tests {
     fn write_check_missing_binary_saves_original_with_warning() {
         let g = EnvGuard::new();
         let root = &g.project_root;
+        std::fs::create_dir_all(root.join("empty-home")).unwrap();
         std::env::set_var("SAI_SAI_HOME", root.join("empty-home"));
         std::env::set_var("SAI_PARENT_RUN_ID", "42");
         std::fs::create_dir_all(root.join(".sai")).unwrap();
@@ -2175,6 +2177,7 @@ mod tests {
     #[test]
     fn write_without_write_check_has_no_checked_key() {
         let g = EnvGuard::new();
+        std::fs::create_dir_all(g.project_root.join("empty-home")).unwrap();
         std::env::set_var("SAI_SAI_HOME", g.project_root.join("empty-home"));
         std::env::set_var("SAI_PARENT_RUN_ID", "42");
         let r = write("doc.md", "x", None, None).unwrap();
