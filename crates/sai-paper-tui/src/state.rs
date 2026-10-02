@@ -2306,36 +2306,25 @@ mod tests {
     /// U23: 研究方針の木の選択は端で止まり、移動したら中身を読み直す。
     #[test]
     fn tree_selection_moves_and_clamps() {
-        fn status_with_nodes() -> papr_core::sci::compute::Status {
-            papr_core::sci::compute::Status {
-                nodes: (1..=3)
-                    .map(|id| papr_core::sci::compute::NodeRow {
-                        id: format!("N{id}"),
-                        title: format!("項目{id}"),
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            }
-        }
-
         let mut app = App {
             page: Page::Tree,
             content_focused: true,
             ..App::default()
         };
-        app.tree.status = Some(status_with_nodes());
+        app.tree.status = Some(crate::tree_view::testing::sample_status("move"));
+        let last = app.tree.status.as_ref().map_or(0, |s| s.nodes.len()) - 1;
+        assert!(last >= 2);
         assert_eq!(app.tree.selected, 0);
 
-        // 4 回下へ動かしても 3 個の末尾（位置 2）で止まる。
-        for _ in 0..4 {
+        // 一覧より多く下へ動かしても末尾で止まる。
+        for _ in 0..=last + 1 {
             app.dispatch(Command::MoveDown);
         }
-        assert_eq!(app.tree.selected, 2);
+        assert_eq!(app.tree.selected, last);
         assert!(app.tree.detail_stale, "中身を読み直す旗が立つ");
 
         // 上へ戻す。0 未満にはならない。
-        for _ in 0..4 {
+        for _ in 0..=last + 1 {
             app.dispatch(Command::MoveUp);
         }
         assert_eq!(app.tree.selected, 0);
