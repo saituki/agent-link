@@ -131,7 +131,6 @@
 
 /* 入力欄の入れ子は `.sci-edit-line` を借りても中央寄せにならないようにする */
 .sci-edit-checks,
-.sci-edit-pairs,
 .sci-edit-lines,
 .sci-edit-picks {
   align-items: stretch;
@@ -198,7 +197,6 @@
 }
 
 .sci-edit-checks,
-.sci-edit-pairs,
 .sci-edit-lines {
   display: flex;
   flex-direction: column;
@@ -239,31 +237,6 @@
   height: 20px;
   margin-top: 1px;
   flex: 0 0 auto;
-}
-
-.sci-edit-pair {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 8px;
-  align-items: center;
-}
-
-.sci-edit-pair-name {
-  grid-column: 2;
-  font-size: 12px;
-  color: var(--text-soft);
-  overflow-wrap: anywhere;
-}
-
-.sci-edit-pair input[type="text"] {
-  grid-column: 2;
-}
-
-.sci-edit-target {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-  align-items: end;
 }
 
 .sci-edit-actions,
