@@ -35,6 +35,7 @@ pub mod project_files;
 pub mod rag_eval;
 pub mod reports;
 pub mod retrieval;
+pub mod rt;
 pub mod runs;
 pub mod sci;
 pub mod search_log;
