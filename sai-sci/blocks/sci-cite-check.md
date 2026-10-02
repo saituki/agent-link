@@ -1,20 +1,25 @@
 ---
 name: 🔗 引用を確かめる
 id: sci-cite-check
-description: 引用を確かめる。基盤論文の主張ごとに引用文献を取り寄せて読み、主張の根拠になっているかを判定する（逆向き）
+description: F を探す: 基盤論文の主張（O）ごとに、引用された論文が本当にそう言っているかを確かめ、判定を F として O に付ける（逆向き）
 model: inherit
 thinking: high
 templates:
   - sci-core
   - bw-core
+  - sci-find
+  - sci-match
   - literature-hard-rules
   - domain
 context: true
-sci_ops: add_finding, add_question, link
+sci_ops: add_f
 sci_scope: path
+sci_action: find_f
+sci_support: false
+sci_done_agent: report, review, f_added
+sci_done_user:
 timeout: 5400
 worktree: none
-layer: root
 enable: true
 subblocks:
   - sci-lookup
@@ -23,35 +28,45 @@ subblocks:
 # 🔗 引用を確かめる
 
 ## 役割
-逆向き（`bw-core`）の段 2「評価（引用）」を受け持つ確かめ役です。復元書の「主張と引用の対応表」の主張ごとに、論文が根拠として挙げた引用文献を取り寄せて読み、本当に根拠になっているかを判定します。
+逆向き（`bw-core`）の段 2「評価（引用）」を受け持つ確かめ役です。復元書の「主張と引用の対応表」（`bw-core` §6）の主張（O）ごとに、論文が根拠として挙げた引用文献を取り寄せて読み、本当に根拠になっているかを判定し、判定を F として O に付けます。
 
-- 判定の語は `bw-core` §7 の 6 つだけです。
-- 判定するのは「引用文献が主張を支えるか」だけです。主張そのものが正しいかを、別の論文を探して確かめることはしません（それは `sci-probe` の仕事です）。
+- 判定の語は `bw-core` §7 の 6 つだけです（支持・部分・無関係・反証・孫引き・未確認）。
+- 判定するのは「引用文献が主張を支えるか」だけです。主張そのものが正しいかを、別の論文を探して確かめることはしません。
 - 引用文献を Library に入れるのは、この回で判定する主張の引用だけです。対応表の全部を取り寄せません。
+- F は O に付けます。判定は F の本文の先頭に書きます。
+
+### 手順
+1. **対象を確かめる。** 依頼文の復元書（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）から対応表を読み、依頼された主張（C の ID）を並べます。依頼文に ID が無ければ、対象の Node に当たる主張をすべて対象にします。
+2. **引用文献を Library に入れる。** 対象の主張の引用ごとに、`sai-moon-paper phone citations <基盤論文の番号>` の `local_paper_id` を見ます。
+   - `null` なら取り寄せます: `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone download --cite <基盤論文の番号> --ref <引用の番号>`。戻りの `paper_id` が Library の番号です。
+   - 取り寄せられなかった（PDF の場所が無い）ときは「未確認（入手できない）」にします。利用者に手で入れてもらいたいものは、report の「## 手で入れてほしい論文」に題名と引用の番号を書きます。
+3. **本文を読む。** 主張の周りの節を `sai-moon-paper content outline <番号>` で探し、`content read <ID>` で読みます。節の表が無ければ `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` を打ち、`content build <番号>` で作ってからもう一度読みます。それでも無ければ `sai-moon-paper phone paper <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
+4. **判定する。** 主張と、基盤論文の引用文（`sentences`）と、引用文献の該当箇所を並べ、`bw-core` §7 の語で判定します。1 つの主張に引用が 2 つ以上あるときは、引用ごとに判定し、主張としてのまとめ（最も強い判定と最も弱い判定）を書きます。
+5. **確かめの地点で止まる。** 判定表を見せ、質問ツールで「この判定で PROPOSAL を出してよいか」を起動者に聞きます。
+6. **PROPOSAL を出す。** 「未確認」以外の判定ごとに `add_f` を、主張の O に付けます。`cites` は引用文献の場所、本文の先頭に「C3 の引用 [7] 支持: 」のように主張・引用の番号・判定を書きます。根拠が足りない主張（引用なし・無関係・未確認だけ）は、OUT_OF_SCOPE と「主張ごとのまとめ」に、根拠になる文献を探す必要があると書きます。
+
+### PROPOSAL のしかた
+`sci-core` の op の表に従います。
+
+```json
+{"proposals": [
+  {"op": "add_f", "node": "O12", "text": "C1 の引用 [3] 部分: 対象が小児に限られ、主張の成人には当たらない。", "cites": ["#40.6.2"], "reason": "引用文献の該当箇所と主張の違い"}
+]}
+```
 
 ## 評価の観点
 - 依頼された主張（C の ID）を 1 つも落とさず判定しているか。
-- 判定ごとに、引用文献の該当箇所（塊の ID `#40.6.2`）を示しているか。該当箇所が無いときは「該当なし」と書いているか。
+- 判定ごとに、引用文献の該当箇所（塊の ID `#40.6.2`）を示しているか。無いときは「該当なし」と書いているか。
 - 抄録しか読めなかった引用を「支持」にしていないか（`bw-core` §7）。
 - 「部分」の判定で、主張と引用文献の違い（対象・条件・数値）を具体的に書いているか。
-- FINDING の `polarity` が判定と合っているか。
 - 引用の無い主張を「根拠なし」として表に残しているか。
 
-### 手順
-1. **SCOPE を確かめる。** 依頼文の復元書（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）から「主張と引用の対応表」を読み、依頼された主張の ID を並べます。依頼文に主張の ID が無ければ、SCOPE の NODE に当たる主張をすべて対象にします。
-2. **引用文献を Library に入れる。** 対象の主張の引用ごとに、`sai-moon-paper phone citations <基盤論文の番号>` の `local_paper_id` を見ます。
-   - `null` なら取り寄せます: `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone download --cite <基盤論文の番号> --ref <引用の番号>`。戻りの `paper_id` が Library の番号です。
-   - 取り寄せられなかった（PDF の場所が無い）ときは、その引用を「未確認（入手できない）」にします。利用者に手で入れてもらいたいものは、report の「## 手で入れてほしい論文」に題名と引用の番号を書きます。
-3. **本文を読む。** 主張の周りの節を MCP の `paper_outline` で探して、`paper_read` で読みます。節の表が作れなければ（本文が無ければ）`perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` を打ってから、もう一度 `paper_outline` を呼びます。それでも無ければ `sai-moon-paper phone paper <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
-4. **判定する。** 主張と、基盤論文の引用文（`sentences`）と、引用文献の該当箇所を並べ、`bw-core` §7 の語で判定します。1 つの主張に引用が 2 つ以上あるときは、引用ごとに判定し、主張としてのまとめ（最も強い判定と最も弱い判定）を書きます。
-5. **確かめの地点で止まる。** 判定表を見せ、質問ツールで「この判定で PROPOSAL を出してよいか」を起動者に聞きます。
-6. **PROPOSAL を出す。** `sai-moon-paper sci propose --run "$SAI_PARENT_RUN_ID" --block sci-cite-check` に出します。
-   - 「未確認」以外の判定ごとに `add_finding`（主張の NODE に。`cites` は引用文献の場所、`polarity` は `bw-core` §7、本文の先頭に「C3 の引用 [7]: 」と主張と引用の番号を書く）。
-   - 読んだ引用文献を NODE に `link`（`role` は、支持・部分なら `issue_evidence` か `method_source`、反証なら `counter`、無関係・孫引きなら `background`。`read_state` は `read`）。
-   - 根拠が足りない主張（引用なし・無関係・未確認だけの主張）は `add_question`（「C2 の根拠になる文献はあるか」の形）。
+## 完了の基準
+- Agent: 主張ごとの判定を F として入れた。
+- User: なし
 
 ## 出力の形
-report（引用の判定表。名前は `bw-core` §12）は次の見出しで書きます。
+report（引用の判定表。名前は `bw-core` §12）は次の見出しで、この順のまま書きます。
 
 ```markdown
 ## 対象の主張
