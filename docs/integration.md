@@ -233,17 +233,21 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `GET /api/projects/{name}/papers/project` | 現況・考え・状況のまとめ・要対応（`phone project`） |
 | `POST /api/projects/{name}/papers/project/memo` | mind.md のメモを 1 行足す（body `{"text": "…"}`・`phone mind-append`・本文は標準入力） |
 | `POST /api/projects/{name}/papers/attention/resolve` | 要対応の 1 件を対応済みにする（body `{"key": "…"}`・`phone attention-resolve`） |
-| `GET /api/projects/{name}/papers/sci` | 研究方針の木全体（`phone sci status`） |
+| `GET /api/projects/{name}/papers/sci/status` | 研究方針の木全体（`phone sci status`） |
+| `GET /api/projects/{name}/papers/sci/types` | 使える研究の型（`phone sci types`） |
 | `POST /api/projects/{name}/papers/sci/init` | 研究方針の木を始める（body `{"type": "problem"}`・型は 5 つだけ。`phone sci init --type <型>`） |
-| `GET /api/projects/{name}/papers/sci/graph` | ROOT_GRAPH の論文の葉（`phone sci graph`。`{"papers": [{"node": "N12", "paper": 37, "title", "year", "role", "read_state", "findings"}]}`。外した LINK は出ない） |
-| `GET /api/projects/{name}/papers/sci/nodes/{node}` | NODE 1 つの中身（`phone sci node <N>`。`{node}` は `N12` の形） |
-| `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は op の JSON。`phone sci apply` の標準入力へ渡す） |
-| `GET /api/projects/{name}/papers/sci/proposals` | TRIAGE 待ちの PROPOSAL の一覧（`phone sci proposals`） |
-| `POST /api/projects/{name}/papers/sci/proposals/{pid}` | PROPOSAL を TRIAGE する（body `{"action": "accept\|reject\|revert", "note": "…", "edit": {…}}`。`phone sci triage <P> --action … [--note …]`・`edit` は標準入力） |
-| `POST /api/projects/{name}/papers/sci/cards` | NODE のための実行（CARD）を作る（body はカードの JSON。`phone sci card` の標準入力へ渡す） |
-| `GET /api/projects/{name}/papers/sci/reads/{run_id}` | READ_CARD の中身（`phone sci read <run_id>`） |
-| `POST /api/projects/{name}/papers/sci/reads/{run_id}/start` | READ_CARD を始める（`sai-moon-link phone user start <run_id>`） |
-| `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | READ_CARD を終えて review へ移す（body は `{"no_reflect": "…"}`・任意。`phone sci finish-read <run_id> [--no-reflect …]` の後に `sai-moon-link phone user finish <run_id>`） |
+| `GET /api/projects/{name}/papers/sci/nodes/{node_id}` | Node 1 つの中身（`phone sci node <ID>`。`{node_id}` は `Q12`・`O5`・`F3`・`E2` の形） |
+| `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 13 種の op の JSON。`phone sci apply` の標準入力へ渡す） |
+| `GET /api/projects/{name}/papers/sci/proposals` | 仕分け待ちの提案の一覧（`phone sci proposals`） |
+| `POST /api/projects/{name}/papers/sci/proposals/{pid}` | 提案を仕分ける（body `{"action": "accept\|reject\|revert", "note": "…", "edit": {…}}`。`phone sci triage <P> --action … [--note=…]`・`edit` は標準入力） |
+| `POST /api/projects/{name}/papers/sci/cards` | Node のための札（カード）を作る（body は C-CARD の JSON。`phone sci card` の標準入力へ渡す） |
+| `GET /api/projects/{name}/papers/sci/reads/{run_id}` | 読む札の中身（`phone sci read <run_id>`） |
+| `POST /api/projects/{name}/papers/sci/reads/{run_id}/start` | 読む札を始める（`sai-moon-link phone user start <run_id>`） |
+| `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | 読む札を終えて review へ移す（body なし。始まっていなければ先に始める。F が 0 でも止めない。戻りは `{"run_id","status":"review","findings":n,"debts":[…]}`） |
+| `GET /api/projects/{name}/papers/sets` | 検索セットの一覧（`phone set list`。判定ごとの件数つき） |
+| `GET /api/projects/{name}/papers/sets/{set_id}` | 検索セット 1 つと候補（`phone set show <id>`） |
+| `POST /api/projects/{name}/papers/sets/{set_id}/mark` | 候補に keep / drop を付ける（body `{"positions": [0, 2], "decision": "keep\|drop", "reason": "…"}`。取り込み済みは変えない） |
+| `POST /api/projects/{name}/papers/sets/{set_id}/drop-pending` | 未判定（pending）の候補をまとめて drop にする（body `{"reason": "…"}`・任意） |
 
 - 古い `/api/papers/...` は無い。`{name}` は 3.1 の一覧の名前で，無ければ 404。
 - `import` / `downloads` / `manual/candidates` / `manual/import` / `manual/upload` / `project` / `attention` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
@@ -251,7 +255,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 - リモートブラウザの Chrome は全体で 1 つ・最後の操作から 10 分で終了・専用プロファイル `~/.sai-moon/phone/browser-profile/`・ダウンロード先 `~/.sai-moon/phone/browser-downloads/`（7 日で消える）。DOI だけを受け、任意の URL は受けない。環境変数は `SAI_PHONE_CHROME`（Chrome の実行ファイル）と `SAI_PHONE_BROWSER_HEADED`（`1` で画面あり。出版社が headless を弾くとき）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ・メモは改行なしの 1〜2000 文字・key は 1〜300 文字の 1 行）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
 - アップロードは `FastAPI` の `UploadFile` を使わず、**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
-- `papers/sci` の 10 本は `sci.py` が検査してから CLI を呼ぶ。NODE・PROPOSAL・QUESTION・FINDING・LINK の ID は `^[NQFLPS][1-9][0-9]{0,8}$`、run_id は 1〜999999999 の整数、型は 5 つだけ、`action` は 3 つ、`note` は 1000 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
+- `papers/sci` と `papers/sets` の 15 本は `sci.py` が検査してから CLI を呼ぶ。Node の ID は `^[QOFE][1-9][0-9]{0,8}$`、提案の ID は `^P[1-9][0-9]{0,8}$`、run_id と set_id は 1〜999999999 の整数、型は 5 つだけ、op は 13 種（項目と字数は C-OP の表）、`action` は 3 つ、`note` は 1000 字まで。検索セットの `positions` は 1〜500 個の 0 以上の整数（候補の位置は 0 始まり）、`decision` は keep か drop、`reason` は 200 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
 - 仕事（`GET …/papers/downloads`）の状態は `apps/phone` のメモリだけに持つ。`downloading` = PDF を取って登録中、`processing` = 登録済みで後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
 - 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。`apps/phone` は release しか叩かない。
 
@@ -318,6 +322,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/papers/tree` | 研究方針（論文タブの最初の画面） | 論文 | 表示 |
 | `#/papers/tree/<N>` | 研究方針（NODE 1 つを選んだ状態） | 論文 | 表示 |
 | `#/papers/triage` | TRIAGE（PROPOSAL の採用・却下・取り消し） | 論文 | 表示 |
+| `#/papers/sets` | 検索セットの一覧 | 論文 | 表示 |
+| `#/papers/sets/<id>` | 検索セット 1 つの選別（keep / drop・まとめて drop） | 論文 | 表示 |
 | `#/papers/read/<run_id>` | READ_CARD（1 本の論文を読んで FINDING を書く） | 論文 | 表示 |
 | `#/papers/dashboard` | Dashboard | 論文 | 表示 |
 | `#/papers/discover` | Discover | 論文 | 表示 |
@@ -335,7 +341,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/mlflow/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件。表は差分だけに絞れ、指標は重ねたグラフで見比べる） | 実験 | 表示 |
 
 - 古い住所も開く: `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>`（名前の無い形）は，今選んでいるプロジェクトの同じ画面として開く。
-- 研究方針の画面の表示は `ROOT_GRAPH` と `RUN_GRAPH` の 2 つ。左に一覧、真ん中に図。節点を押すと、PC 幅（900px 以上）は右の板（約 420px・✕ で閉じる）、iPhone 幅は下から sheet で詳細が出る。ROOT_GRAPH の最下層は論文 1 本 = 1 葉（`papers/sci/graph`）。
+- 研究方針の画面は、左に一覧（Q・O・F・E の木）、真ん中に方針の図（下に伸びる木 1 つ）、PC 幅（900px 以上）は右の板（約 420px・✕ で閉じる）、iPhone 幅は下から sheet。実行の図は無い。検索セットの画面 `#/papers/sets`（一覧）と `#/papers/sets/<id>`（候補を keep / drop で選別。まとめて drop もできる）は、負債（DEBT）の `fix.kind = "set"` が開く。
 - 実験タブは、右上で選んだプロジェクトの experiment だけを出す（experiment のタグ `sai.project`）。run の表は branch（`sai.run_id`）ごとにまとまる。
 - 古い住所 `#/papers/canvas` と `#/canvas/…` は研究方針の画面（`#/papers/tree`）へ送る（消した画面の `scitree.js` の登録が `location.replace` で送り直す）。
 - 住所に名前がある画面を開いたら，論文タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `sai_phone_papers_project`（localStorage）に覚える。

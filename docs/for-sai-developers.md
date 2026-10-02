@@ -483,6 +483,18 @@ MCP サーバ（`crates/sai-link-engine/src/mcp_server.rs`）の扱い:
 `apps/phone` 側が `recent[]` に**追加で足す**項目: `description`（文字列）・`linkable`（真偽値・
 メッセージ画面が開けるか）・`project`（文字列）。これは `sai-moon-link` の側では不要。
 
+**論文側の dashboard（`sai-moon-paper phone dashboard`）の `activity[]`** に、研究方針の札（card）の実行が `kind: "action"` の行として入る（`todo` のものは除く）。
+`kind`・`label`・`occurred_at` は他の行と同じで、`action` の行は次の項目を足して持つ:
+
+| 項目 | 型 | 使途 |
+|---|---|---|
+| `run_id` | 数値 | 札の run（`#/papers/read/<run_id>` などの行き先） |
+| `node` | 文字列 \| null | 札が付いた Node の ID（`Q12` など） |
+| `block` | 文字列 | 札のブロック名（`sci-ideate` など） |
+| `owner` | 文字列 | `todo` 以外の状態（`running`・`review` など） |
+| `debt` | 真偽値 | 残っている負債があるか（⚠ を出す） |
+| `debt_messages` | 文字列の配列 | 負債の文（`debt` が偽なら空） |
+
 ### 3.3 壊れる変更・壊れない変更
 
 | 変更 | 結果 |
@@ -558,6 +570,7 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 | `phone radio <id>`（**数分・終わるまで戻らない**） | `papers._radio_job()`（背景・2000 秒） | 同（core の `podcast_client.rs` → apps/radio `POST /api/papers/from-extract`） |
 | `content paper <id> --json`（既存・本文） | `papers.text()` | `crates/sai-paper-cli/src/content.rs` |
 | `phone sci status` / `init` / `node` / `apply` / `proposals` / `triage` / `card` / `read` / `types`（`apply`・`card`・`triage` の edit は **標準入力に JSON**） | `sci.py` | `crates/sai-paper-cli/src/phone_sci.rs`（中の処理は `crates/sai-paper-core/src/rt/`） |
+| `phone set list` / `show <id>` / `mark <id> --position <p,p,…> --decision keep\|drop [--reason=…]` / `drop-pending <id> [--reason=…]` | `sci.py`（`set_list`・`set_show`・`set_mark`・`set_drop_pending`） | `crates/sai-paper-cli/src/phone.rs`（中の処理は `crates/sai-paper-core/src/search_sets.rs`） |
 
 - **cwd と環境変数 `SAI_PAPER_ROOT` は「論文の置き場があるプロジェクト」の root**（`papers.resolve_project(name)` が引く一覧の `root`）を必ず付ける（`.env` の API キーを読ませるため）。iPhone からはパスを受け取らない。
 - 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。
@@ -819,6 +832,10 @@ Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）�
 - `phone sci card` → `{"run_id": N, "path": "…/task.md", "executer": "human"}`。
 - `phone sci init --type <型>` → `{"type","created","warnings","backup","assets"}`。**`created` は作った Q の数、`assets` は配った部品の 1 行ずつの文字列の配列**。新しい木が既にあると失敗する（`既に始めています（型: <名前>）`）。
 - `phone sci types` → `{"types":[{"id","name","root"}]}`（`root` は一番上の Q の文。型の選択画面が使う）。
+- `phone set list` → `{"sets":[{"id","name","query","source_dbs","created_at","node","purpose","counts":{"pending","keep","drop","imported","total"}}]}`（`node` は結んだ Node の ID（`Q12` など）か `null`。`imported` は取り込み済みの候補の数）。
+- `phone set show <id>` → `{"set":{…list の 1 件と同じ…,"extract"},"items":[{"position","title","authors","year","venue","doi","abstract","decision","reason","paper_id"}]}`（`position` は 0 始まり。`decision` は `pending` / `keep` / `drop` / `downloaded`）。
+- `phone set mark <id> --position <p,p,…> --decision keep|drop [--reason=…]` → `{"set_id","changed":n}`。`decision` が keep / drop 以外なら失敗。取り込み済み（`downloaded`）の候補は変えず、`changed` に数えない。
+- `phone set drop-pending <id> [--reason=…]` → `{"set_id","changed":n}`。`pending` の候補をすべて `drop` にする（理由の既定は「まとめて drop」）。
 - 書き込む命令（`init` / `apply` / `triage` / `card`）は、終わる前に `rt::export::export` を呼ぶ。`apps/phone` は書き込みのあと画面を読み直す。
 - 方針の図は `status.nodes` から描く（図だけを返す命令は無い）。
 
