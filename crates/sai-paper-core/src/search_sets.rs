@@ -128,8 +128,7 @@ pub fn create(conn: &Connection, params: CreateSearchSetParams) -> Result<i64> {
 ///
 /// 重複排除キーが既にセット内に存在する候補はスキップされる。
 /// 既に存在する候補の paper_id / decision は更新されない。
-/// 墓標（`sci_tombstones`）と一致する候補は、`decision = 'drop'`・
-/// `reason = '除外済み: <墓標の理由>'` で入れる（候補自体は残す）。
+/// 候補は `pending` で入る（採否は利用者が選別して決める）。
 ///
 /// # Errors
 ///
@@ -166,33 +165,15 @@ pub fn add_items(conn: &Connection, set_id: i64, papers: Vec<RemotePaper>) -> Re
             continue;
         }
 
-        // 墓標にした論文・候補は、候補としては残すが「除外済み」で入れる。
-        // 候補を捨てると「なぜ出てこないのか」が分からなくなるため（R-R7）。
-        let tombstone = crate::sci::store::find_tombstone(
-            conn,
-            None,
-            paper.doi.as_deref(),
-            None,
-            Some(&dedupe_key),
-        )
-        .ok()
-        .flatten();
-        let (decision, reason) = match &tombstone {
-            Some(mark) => ("drop", Some(format!("除外済み: {}", mark.reason))),
-            None => ("pending", None),
-        };
-
         conn.execute(
             "INSERT INTO search_set_items
              (set_id, position, remote_json, dedupe_key, decision, reason, added_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             VALUES (?1, ?2, ?3, ?4, 'pending', NULL, ?5)",
             rusqlite::params![
                 set_id,
                 next_pos,
                 serde_json::to_string(&paper)?,
                 dedupe_key,
-                decision,
-                reason,
                 now,
             ],
         )?;
@@ -217,7 +198,8 @@ pub struct SciSetFields {
     pub extract: Option<String>,
 }
 
-/// 検索セットに、何のための検索かを書く（節点・問い・目的・抜き出す項目）。
+/// 検索セットに、何のための検索かを書く（Node・目的・抜き出す項目）。`node` は `rt_nodes.id`。
+/// `question` は読まない（古い `sci_question` 列は NULL にする）。
 ///
 /// # Errors
 ///
@@ -225,11 +207,11 @@ pub struct SciSetFields {
 pub fn set_sci_fields(conn: &Connection, set_id: i64, fields: &SciSetFields) -> Result<()> {
     let updated = conn.execute(
         "UPDATE search_sets
-            SET sci_node = ?1, sci_question = ?2, purpose = ?3, extract = ?4
+            SET rt_node = ?1, sci_question = NULL, purpose = ?3, extract = ?4
           WHERE id = ?5",
         params![
             fields.node,
-            fields.question,
+            Option::<i64>::None,
             fields.purpose,
             fields.extract,
             set_id,
@@ -1052,17 +1034,17 @@ mod tests {
         assert_eq!(items[0].decision, "downloaded");
     }
 
-    // ---- C-02: 墓標の候補と「何のための検索か」 ----
+    // ---- 「何のための検索か」 ----
 
-    /// 墓標と一致する候補は、候補を残したまま「除外済み」で入れる。
+    /// 候補はいつも `pending` で入る（墓標は無い）。
     #[test]
-    fn add_items_marks_tombstoned_as_dropped() {
+    fn add_items_inserts_pending() {
         let db = Database::in_memory().unwrap();
         let conn = db.connection();
         let set_id = create(
             conn,
             CreateSearchSetParams {
-                name: "tomb".to_string(),
+                name: "pend".to_string(),
                 source_dbs: "s2".to_string(),
                 query: "ferroptosis".to_string(),
                 raw_query: None,
@@ -1071,40 +1053,13 @@ mod tests {
             },
         )
         .unwrap();
-        // 1 件目の DOI を持つ候補を外す。
-        crate::sci::store::insert_tombstone(
-            conn,
-            &crate::sci::store::NewTombstone {
-                kind: "candidate",
-                paper_id: None,
-                doi: Some("10.1234/example1"),
-                arxiv_id: None,
-                dedupe_key: None,
-                title: "Ferroptosis in glioma",
-                reason: "主題が外れている",
-                node_id: None,
-                run_id: None,
-                created_by: "user",
-            },
-        )
-        .unwrap();
-
         add_items(conn, set_id, create_test_papers()).unwrap();
-
         let listed = items(conn, set_id).unwrap();
         assert_eq!(listed.len(), 2);
-        // 墓標の候補は残るが、判定は drop、理由に墓標の理由が入る。
-        assert_eq!(listed[0].decision, "drop");
-        assert_eq!(
-            listed[0].reason.as_deref(),
-            Some("除外済み: 主題が外れている")
-        );
-        // 墓標に無い候補は pending のまま。
-        assert_eq!(listed[1].decision, "pending");
-        assert!(listed[1].reason.is_none());
+        assert!(listed.iter().all(|item| item.decision == "pending" && item.reason.is_none()));
     }
 
-    /// `set_sci_fields` は検索セットの 4 列に書く。無いセットはエラー。
+    /// `set_sci_fields` は検索セットの `rt_node`・`purpose`・`extract` に書く。無いセットはエラー。
     #[test]
     fn set_sci_fields_writes_columns() {
         let db = Database::in_memory().unwrap();
@@ -1136,13 +1091,14 @@ mod tests {
 
         let row: (Option<i64>, Option<i64>, Option<String>, Option<String>) = conn
             .query_row(
-                "SELECT sci_node, sci_question, purpose, extract FROM search_sets WHERE id = ?1",
+                "SELECT rt_node, sci_question, purpose, extract FROM search_sets WHERE id = ?1",
                 [set_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
         assert_eq!(row.0, Some(7));
-        assert_eq!(row.1, Some(3));
+        // `question` は読まず、古い列は NULL のまま。
+        assert_eq!(row.1, None);
         assert_eq!(row.2.as_deref(), Some("手法の候補を探す"));
         assert_eq!(row.3.as_deref(), Some("Dataset と Loss"));
 

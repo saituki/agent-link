@@ -1417,86 +1417,78 @@ fn chunk_figures(conn: &Connection, index: &crate::config::RagIndex) -> Result<B
 /// 木の中身（sai-sci）を索引に入れる（1 もの = 1 塊。分けない）。
 ///
 /// 入れるものは 2 つ:
-/// - 外していない知見 1 つにつき 1 塊（`source_ref = "F<id>"`、`section = "<節点の ID> <節点の題>"`）
-/// - 状態が `decided` / `tentative` の項目と `selected` の候補で、本文が空でないもの 1 つにつき 1 塊（`source_ref = "N<id>"`）
+/// - 生きた F 1 つにつき 1 塊（`source_ref = "F<id>"`、`section = "<親の ID> <親の文>"`）
+/// - ★ の付いた生きた O で、本文（`body`）が空でないもの 1 つにつき 1 塊（`source_ref = "O<id>"`）
 ///
 /// `paper_id` は NULL（論文の中の根拠ではないため）。長すぎるときは分けずに先頭だけを入れる。
 /// 同じ `source_ref` で同じ `text` の塊が既にこの索引にあれば残す（埋め込みも残る）。
 /// `text` が変わったものは消して入れ直し、入れたいものに無い `source_ref` の塊は消す。
 fn chunk_tree(conn: &Connection, index: &crate::config::RagIndex) -> Result<BuildReport> {
-    // 節点（id → 題）。
-    let mut titles: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
-    {
-        let mut stmt = conn.prepare("SELECT id, title FROM sci_nodes")?;
-        let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?;
-        for row in rows {
-            let (id, title) = row?;
-            titles.insert(id, title);
-        }
+    // Node（id → (kind, 文, 親の id)）。親の文を引くため、外したものも含めて読む。
+    struct Row {
+        id: i64,
+        kind: String,
+        parent_id: Option<i64>,
+        text: String,
+        body: String,
+        starred: bool,
+        cites: String,
+        alive: bool,
     }
+    let rows: Vec<Row> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, parent_id, text, body, starred, cites, removed_at IS NULL
+               FROM rt_nodes ORDER BY id",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok(Row {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                parent_id: row.get(2)?,
+                text: row.get(3)?,
+                body: row.get(4)?,
+                starred: row.get::<_, i64>(5)? != 0,
+                cites: row.get(6)?,
+                alive: row.get(7)?,
+            })
+        })?;
+        mapped.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let parents: std::collections::HashMap<i64, (String, &str)> = rows
+        .iter()
+        .map(|row| (row.id, (format!("{}{}", row.kind, row.id), row.text.as_str())))
+        .collect();
 
     // 入れたいもの（`source_ref` → 本文と章）。順序は id の昇順に揃える。
     let mut wanted: Vec<(String, String, Option<String>)> = Vec::new();
-
-    // 外していない知見。
-    {
-        let mut stmt = conn.prepare(
-            "SELECT id, node_id, text, cites FROM sci_findings
-              WHERE removed_at IS NULL ORDER BY id",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
-        for row in rows {
-            let (id, node_id, text, cites) = row?;
-            let node_title = titles.get(&node_id).cloned().unwrap_or_default();
-            // cites は JSON の文字列の配列。読めなければ空として扱う。
-            let cited: Vec<String> = serde_json::from_str::<Vec<String>>(&cites).unwrap_or_default();
-            let body = if cited.is_empty() {
-                format!("{node_title}: {text}")
-            } else {
-                format!("{node_title}: {text}（{}）", cited.join("、"))
-            };
-            let section = format!(
-                "{} {}",
-                crate::sci::fmt_ref('N', node_id),
-                node_title
-            );
-            wanted.push((format!("F{id}"), body, Some(section)));
-        }
-    }
-
-    // 決まった項目と採用した候補（本文が空でないもの）。
-    {
-        let mut stmt = conn.prepare(
-            "SELECT id, kind, state, title, body FROM sci_nodes ORDER BY id",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            ))
-        })?;
-        for row in rows {
-            let (id, kind, state, title, body) = row?;
-            // 項目は decided / tentative、候補は selected だけを入れる。
-            let keep = matches!(
-                (kind.as_str(), state.as_str()),
-                ("item", "decided" | "tentative") | ("option", "selected")
-            );
-            if !keep || body.trim().is_empty() {
-                continue;
+    for row in rows.iter().filter(|row| row.alive) {
+        match row.kind.as_str() {
+            "F" => {
+                let (parent_id, parent_text) = row
+                    .parent_id
+                    .and_then(|id| parents.get(&id))
+                    .map_or((String::new(), ""), |(id, text)| (id.clone(), *text));
+                // cites は JSON の文字列の配列。読めなければ空として扱う。
+                let cited: Vec<String> =
+                    serde_json::from_str::<Vec<String>>(&row.cites).unwrap_or_default();
+                let body = if cited.is_empty() {
+                    format!("{parent_text}: {}", row.text)
+                } else {
+                    format!("{parent_text}: {}（{}）", row.text, cited.join("、"))
+                };
+                let section = format!("{parent_id} {parent_text}");
+                wanted.push((format!("F{}", row.id), body, Some(section)));
             }
-            let section = format!("{} {}", crate::sci::fmt_ref('N', id), title);
-            wanted.push((format!("N{id}"), format!("{title}: {body}"), Some(section)));
+            // ★ の付いた O は、本文が空でないものだけを入れる。
+            "O" if row.starred && !row.body.trim().is_empty() => {
+                let section = format!("O{} {}", row.id, row.text);
+                wanted.push((
+                    format!("O{}", row.id),
+                    format!("{}: {}", row.text, row.body),
+                    Some(section),
+                ));
+            }
+            _ => {}
         }
     }
 
@@ -1844,6 +1836,23 @@ pub fn status(conn: &Connection) -> Result<IndexStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 木に必要な表だけを足す（chunking のテスト DB は CREATE のみ。列は読むものだけ）。
+    fn create_rt_nodes(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE rt_nodes (
+               id INTEGER PRIMARY KEY,
+               kind TEXT NOT NULL,
+               parent_id INTEGER,
+               text TEXT NOT NULL,
+               body TEXT NOT NULL DEFAULT '',
+               starred INTEGER NOT NULL DEFAULT 0,
+               cites TEXT NOT NULL DEFAULT '[]',
+               removed_at TEXT
+             );",
+        )
+        .unwrap();
+    }
 
     fn test_db() -> Result<Connection> {
         let conn = Connection::open_in_memory()?;
@@ -2702,56 +2711,15 @@ Methods text.
     #[test]
     fn tree_chunks_keep_unchanged_and_replace_changed() {
         let conn = test_db().unwrap();
-        // 木に必要な表だけを足す（chunking のテスト DB は.CREATE のみ）。
-        conn.execute_batch(
-            "CREATE TABLE sci_nodes (
-               id INTEGER PRIMARY KEY,
-               kind TEXT NOT NULL,
-               item_key TEXT,
-               item_types TEXT NOT NULL DEFAULT '',
-               title TEXT NOT NULL,
-               body TEXT NOT NULL DEFAULT '',
-               state TEXT NOT NULL,
-               fixed INTEGER NOT NULL DEFAULT 0,
-               ord INTEGER NOT NULL DEFAULT 0,
-               created_by TEXT NOT NULL DEFAULT 'user',
-               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-               updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-               state_changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-             );
-             CREATE TABLE sci_findings (
-               id INTEGER PRIMARY KEY,
-               node_id INTEGER NOT NULL,
-               question_id INTEGER,
-               text TEXT NOT NULL,
-               cites TEXT NOT NULL DEFAULT '[]',
-               polarity TEXT NOT NULL DEFAULT 'none',
-               level INTEGER,
-               source TEXT NOT NULL DEFAULT 'user',
-               report_id TEXT,
-               paper_id INTEGER,
-               run_id INTEGER,
-               proposal_id INTEGER,
-               auto INTEGER NOT NULL DEFAULT 0,
-               removed_at TEXT,
-               created_by TEXT NOT NULL DEFAULT 'user',
-               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-             );",
-        )
-        .unwrap();
-        // 節点 1（決定した項目、本文あり）と節点 2（開いている項目）。
+        create_rt_nodes(&conn);
+        // Q1 の下に、★ の O2（本文あり）・★ の無い O5（本文あり）・F3・F4（O2 の根拠）。
         conn.execute(
-            "INSERT INTO sci_nodes (id, kind, title, body, state, ord)
-             VALUES (1, 'item', '手法', 'CET の前に正規化をする', 'decided', 0),
-                    (2, 'item', '尺度', '本文が無い', 'open', 1)",
-            [],
-        )
-        .unwrap();
-        // 知見 2 つ（1 つは 2 回目の実行の前に外す）。
-        conn.execute(
-            "INSERT INTO sci_findings (id, node_id, text, cites) VALUES
-               (1, 1, '正規化が効くと残差が小さくなる', '[\"#3 §2.1\"]'),
-               (2, 1, 'Batch を 32 にすると速い', '[]')",
+            "INSERT INTO rt_nodes (id, kind, parent_id, text, body, starred, cites) VALUES
+               (1, 'Q', NULL, '尺度', '', 0, '[]'),
+               (2, 'O', 1, '手法', 'CET の前に正規化をする', 1, '[]'),
+               (3, 'F', 2, '正規化が効くと残差が小さくなる', '', 0, '[\"#3 §2.1\"]'),
+               (4, 'F', 2, 'Batch を 32 にすると速い', '', 0, '[]'),
+               (5, 'O', 1, '別案', '本文はあるが ★ が無い', 0, '[]')",
             [],
         )
         .unwrap();
@@ -2759,7 +2727,7 @@ Methods text.
         let index = crate::config::RagConfig::default().index(None).unwrap();
         let dir = std::env::temp_dir().join("sai-rag-scope-tree");
         let first = build(&conn, Scope::Tree, &index, &dir).unwrap();
-        // 知見 2 つ + 節点 1 つ（本文が空でない決まった項目）。
+        // F 2 つ + ★ の O 1 つ（本文あり）。
         assert_eq!(first.chunks_created, 3);
         assert_eq!(first.sources_skipped, 0);
 
@@ -2778,40 +2746,40 @@ Methods text.
         };
         let before = tree_rows(&conn);
         assert_eq!(before.len(), 3);
-        // 節点の塊は題と本文を並べる。論文の無い塊（paper_id が NULL）。
+        // O の塊は文と本文を並べる。論文の無い塊（paper_id が NULL）。
         let node_chunk: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM chunks WHERE source_ref = 'N1' AND paper_id IS NULL",
+                "SELECT COUNT(*) FROM chunks WHERE source_ref = 'O2' AND paper_id IS NULL",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(node_chunk, 1);
 
-        // 知見 2 を外し、節点 1 の本文を直す。
-        conn.execute("UPDATE sci_findings SET removed_at = 'now' WHERE id = 2", [])
+        // F4 を ✕ し、O2 の本文を直す。
+        conn.execute("UPDATE rt_nodes SET removed_at = 'now' WHERE id = 4", [])
             .unwrap();
         conn.execute(
-            "UPDATE sci_nodes SET body = 'CET と尺度を同時に使う' WHERE id = 1",
+            "UPDATE rt_nodes SET body = 'CET と尺度を同時に使う' WHERE id = 2",
             [],
         )
         .unwrap();
 
         let second = build(&conn, Scope::Tree, &index, &dir).unwrap();
-        // 入れ直したのは 1 つ（直した節点）。残ったのは 1 つ（知見 1）。
-        // 外した知見の塊（F2）は消えるが、入れた数には数えない。
+        // 入れ直したのは 1 つ（直した O）。残ったのは 1 つ（F3）。
+        // ✕ した F の塊（F4）は消えるが、入れた数には数えない。
         assert_eq!(second.chunks_created, 1);
         assert_eq!(second.sources_skipped, 1);
 
         let after = tree_rows(&conn);
-        // 外した知見の塊（F2）は消え、他は 1 つずつ残る。
+        // ✕ した F の塊（F4）は消え、他は 1 つずつ残る。
         let refs: Vec<&String> = after.iter().map(|(r, _)| r).collect();
-        assert!(!refs.iter().any(|r| *r == "F2"), "{after:?}");
+        assert!(!refs.iter().any(|r| *r == "F4"), "{after:?}");
         assert_eq!(after.len(), 2);
-        // 節点の塊は直した本文に変わっている。
+        // O の塊は直した本文に変わっている。
         let node_text = after
             .iter()
-            .find(|(r, _)| r == "N1")
+            .find(|(r, _)| r == "O2")
             .map(|(_, t)| t.clone())
             .unwrap();
         assert_eq!(node_text, "手法: CET と尺度を同時に使う");
@@ -2829,48 +2797,14 @@ Methods text.
     #[test]
     fn tree_chunks_long_text_is_not_rebuilt_every_time() {
         let conn = test_db().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sci_nodes (
-               id INTEGER PRIMARY KEY,
-               kind TEXT NOT NULL,
-               item_key TEXT,
-               item_types TEXT NOT NULL DEFAULT '',
-               title TEXT NOT NULL,
-               body TEXT NOT NULL DEFAULT '',
-               state TEXT NOT NULL,
-               fixed INTEGER NOT NULL DEFAULT 0,
-               ord INTEGER NOT NULL DEFAULT 0,
-               created_by TEXT NOT NULL DEFAULT 'user',
-               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-               updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-               state_changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-             );
-             CREATE TABLE sci_findings (
-               id INTEGER PRIMARY KEY,
-               node_id INTEGER NOT NULL,
-               question_id INTEGER,
-               text TEXT NOT NULL,
-               cites TEXT NOT NULL DEFAULT '[]',
-               polarity TEXT NOT NULL DEFAULT 'none',
-               level INTEGER,
-               source TEXT NOT NULL DEFAULT 'user',
-               report_id TEXT,
-               paper_id INTEGER,
-               run_id INTEGER,
-               proposal_id INTEGER,
-               auto INTEGER NOT NULL DEFAULT 0,
-               removed_at TEXT,
-               created_by TEXT NOT NULL DEFAULT 'user',
-               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-             );",
-        )
-        .unwrap();
+        create_rt_nodes(&conn);
 
         // 上限（既定 450 トークン）を大きく超える本文（日本語は 1 字 = 1 トークン）。
         let long: String = "報告の要点を書く。".repeat(400);
         conn.execute(
-            "INSERT INTO sci_nodes (id, kind, title, body, state, ord)
-             VALUES (1, 'item', '長い項目', ?1, 'decided', 0)",
+            "INSERT INTO rt_nodes (id, kind, parent_id, text, body, starred) VALUES
+               (1, 'Q', NULL, '問い', '', 0),
+               (2, 'O', 1, '長い項目', ?1, 1)",
             [&long],
         )
         .unwrap();
@@ -2885,13 +2819,13 @@ Methods text.
         // 入れるのは先頭だけ（上限どおり）。
         let stored: String = conn
             .query_row(
-                "SELECT text FROM chunks WHERE source_kind = 'tree' AND source_ref = 'N1'",
+                "SELECT text FROM chunks WHERE source_kind = 'tree' AND source_ref = 'O2'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert!(stored.chars().count() < long.chars().count(), "切り詰められていない");
-        // 節点の塊は「題: 本文」なので、本文の先頭から切られている。
+        // O の塊は「文: 本文」なので、本文の先頭から切られている。
         let prefix = "長い項目: ";
         assert!(stored.starts_with(prefix), "{stored}");
         assert!(

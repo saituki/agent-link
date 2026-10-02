@@ -531,11 +531,11 @@ fn gather_understanding(
 ///
 /// 決めるのは 3 つ。
 ///
-/// - 決定・仮決定の記録（`sci_decisions` の `action` が `decide` か `tentative`）
-/// - 採用した提案（`sci_proposals` の `status = accepted` で、その日 `decided_at` があるもの）
-/// - 種（`sci_seeds` の `created_at` がその日のもの）
+/// - 決定の記録（`rt_log` の `action` が `star`・`set_kind`・`remove`）
+/// - 採用した提案（`rt_proposals` の `status = accepted` で、その日 `decided_at` があるもの）
+/// - 種（`rt_seeds` の生きたもので、`created_at` がその日のもの）
 ///
-/// 表が無い（sci を始める前の DB）ときは何もしない。
+/// 表が無い（新しい木を始める前の DB）ときは何もしない。
 fn gather_sci(
     conn: &Connection,
     days: &mut BTreeMap<NaiveDate, DayAccum>,
@@ -543,28 +543,32 @@ fn gather_sci(
     to: NaiveDate,
     offset: FixedOffset,
 ) -> rusqlite::Result<()> {
-    if !sci_tables_exist(conn)? {
+    if !rt_tables_exist(conn)? {
         return Ok(());
     }
 
-    // 節点番号 → 題（決定の記録の行に出す）。
-    let mut titles: HashMap<i64, String> = HashMap::new();
+    // Node 番号 → (ID, 文)（決定の記録の行に出す）。
+    let mut titles: HashMap<i64, (String, String)> = HashMap::new();
     {
-        let mut stmt = conn.prepare("SELECT id, title FROM sci_nodes")?;
+        let mut stmt = conn.prepare("SELECT id, kind, text FROM rt_nodes")?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })?;
         for row in rows {
-            let (id, title) = row?;
-            titles.insert(id, title);
+            let (id, kind, text) = row?;
+            titles.insert(id, (format!("{kind}{id}"), text));
         }
     }
 
-    // 決定・仮決定。
+    // 決定。
     {
         let mut stmt = conn.prepare(
-            "SELECT node_id, created_at FROM sci_decisions
-             WHERE action IN ('decide', 'tentative')
+            "SELECT node_id, created_at FROM rt_log
+             WHERE action IN ('star', 'set_kind', 'remove')
              ORDER BY created_at ASC, id ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -573,13 +577,16 @@ fn gather_sci(
         for row in rows {
             let (node_id, created_at) = row?;
             if let Some(date) = date_in_range(&created_at, offset, from, to) {
-                let title = titles.get(&node_id).cloned().unwrap_or_default();
+                let (id, title) = titles
+                    .get(&node_id)
+                    .cloned()
+                    .unwrap_or_else(|| (format!("N{node_id}"), String::new()));
                 days.entry(date)
                     .or_default()
                     .sci
                     .get_or_insert_with(SciLine::default)
                     .decisions
-                    .push((crate::sci::fmt_ref('N', node_id), title));
+                    .push((id, title));
             }
         }
     }
@@ -587,7 +594,7 @@ fn gather_sci(
     // 採用した提案。
     {
         let mut stmt = conn.prepare(
-            "SELECT decided_at FROM sci_proposals
+            "SELECT decided_at FROM rt_proposals
              WHERE status = 'accepted' AND decided_at IS NOT NULL",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
@@ -605,7 +612,7 @@ fn gather_sci(
 
     // 種。
     {
-        let mut stmt = conn.prepare("SELECT created_at FROM sci_seeds")?;
+        let mut stmt = conn.prepare("SELECT created_at FROM rt_seeds WHERE removed_at IS NULL")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         for row in rows {
             let created_at = row?;
@@ -622,10 +629,10 @@ fn gather_sci(
 }
 
 /// 研究方針の表があるか（無い DB でも日誌は作り続けるため）。
-fn sci_tables_exist(conn: &Connection) -> rusqlite::Result<bool> {
+fn rt_tables_exist(conn: &Connection) -> rusqlite::Result<bool> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master
-         WHERE type = 'table' AND name IN ('sci_decisions', 'sci_proposals', 'sci_seeds')",
+         WHERE type = 'table' AND name IN ('rt_log', 'rt_proposals', 'rt_seeds')",
         [],
         |row| row.get(0),
     )?;
@@ -1357,23 +1364,28 @@ mod tests {
         let conn = database.connection();
         let root = temp_root("sci");
         let roots = roots_of(&root);
-        use crate::sci::store::{self, NewDecision, NewNode, NewProposal};
+        use crate::rt::store::{self, NewNode};
+        use crate::rt::Kind;
 
-        // 節点を 2 つ作る。
-        let mut items = Vec::new();
-        for (key, title) in [("purpose.subgoal", "小目的"), ("method", "手法")] {
-            items.push(
+        // Node を 2 つ作る（Q1・O2）。
+        let mut ids = Vec::new();
+        for (kind, text) in [(Kind::Q, "小目的"), (Kind::O, "手法")] {
+            ids.push(
                 store::insert_node(
                     conn,
                     &NewNode {
-                        kind: "item",
-                        item_key: Some(key),
-                        types: &["choose".to_string()],
-                        title,
+                        kind,
+                        parent_id: ids.first().copied(),
+                        guide_key: None,
+                        text,
                         body: "",
-                        state: "decided",
-                        fixed: false,
-                        ord: 0,
+                        answer_kind: (kind == Kind::O).then_some("answer"),
+                        cites: &[],
+                        paper_id: None,
+                        run_id: None,
+                        report_id: None,
+                        mlflow_ref: None,
+                        proposal_id: None,
                         created_by: "user",
                     },
                 )
@@ -1381,55 +1393,32 @@ mod tests {
             );
         }
 
-        // 決定の記録 2 件（追記だけなので時刻は今のままにする）。
-        for node in &items {
-            store::insert_decision(
-                conn,
-                &NewDecision {
-                    node_id: *node,
-                    action: "decide",
-                    option_id: None,
-                    reason: "小さな方法がよい",
-                    evidence: &[],
-                    rejected: &[],
-                    counter_searched: true,
-                    actor: "user",
-                    proposal_id: None,
-                },
-            )
-            .unwrap();
+        // 決定の記録 2 件（追記だけなので時刻は今のままにする）。ほかの action は数えない。
+        for node in &ids {
+            store::insert_log(conn, *node, "star", "", "小さな方法がよい", "user", None).unwrap();
         }
+        store::insert_log(conn, ids[0], "edit", "", "", "user", None).unwrap();
         // 採用した提案 2 件と種 1 個。
         for _ in 0..2 {
             store::insert_proposal(
                 conn,
-                &NewProposal {
-                    run_id: Some(120),
-                    block: "sci-compare",
-                    op: "add_finding",
-                    node_id: None,
-                    payload: &serde_json::json!({}),
-                    reason: "比べる",
-                    risk: "auto",
-                    status: "pending",
-                },
+                Some(120),
+                Some("sci-compare"),
+                "add_finding",
+                None,
+                &serde_json::json!({}),
+                "比べる",
+                "auto",
+                "pending",
             )
             .unwrap();
         }
         conn.execute(
-            "UPDATE sci_proposals SET status = 'accepted', decided_by = 'user', decided_at = ?1",
-            rusqlite::params![crate::sci::now_text()],
+            "UPDATE rt_proposals SET status = 'accepted', decided_by = 'user', decided_at = ?1",
+            rusqlite::params![crate::rt::now_text()],
         )
         .unwrap();
-        store::insert_seed(
-            conn,
-            "最初の種",
-            "「頭皮脳波で小目的を行う」",
-            &[],
-            "",
-            None,
-        )
-        .unwrap();
+        store::insert_seed(conn, "最初の種", "「頭皮脳波で小目的を行う」", &[], None, "user").unwrap();
 
         // 記録は UTC なので JST では日付が変わることがある。2 日ぶん見て 1 行だけ出す。
         let today = Local::now().date_naive();
@@ -1456,7 +1445,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            "研究方針: 決定 2 件（N1 小目的・N2 手法）・採用 2 件・種 1 件"
+            "研究方針: 決定 2 件（Q1 小目的・O2 手法）・採用 2 件・種 1 件"
         );
 
         // 決定が 4 つ以上なら「など」を付ける。0 件のものは書かない。

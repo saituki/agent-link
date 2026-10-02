@@ -70,7 +70,7 @@ pub struct VectorSearchOptions {
     pub scope: Option<String>,
     /// 論文の集合で絞る（`None` なら絞らない。`Some(空)` なら何も返さない）。
     pub paper_ids: Option<Vec<i64>>,
-    /// 結果から除く論文（墓標）。
+    /// 結果から除く論文。
     pub exclude_papers: Vec<i64>,
 }
 
@@ -98,7 +98,7 @@ pub struct WordSearchOptions {
     pub paper_id: Option<i64>,
     /// 論文の集合で絞る（`None` なら絞らない。`Some(空)` なら何も返さない）。
     pub paper_ids: Option<Vec<i64>>,
-    /// 結果から除く論文（墓標）。
+    /// 結果から除く論文。
     pub exclude_papers: Vec<i64>,
     /// FTS5 式として渡すか（true = 生式、false = 自然言語でクォート）
     pub fts_expr: bool,
@@ -131,7 +131,7 @@ pub struct HybridSearchOptions {
     pub paper_id: Option<i64>,
     /// 論文の集合で絞る（`None` なら絞らない。`Some(空)` なら何も返さない）。
     pub paper_ids: Option<Vec<i64>>,
-    /// 結果から除く論文（墓標）。
+    /// 結果から除く論文。
     pub exclude_papers: Vec<i64>,
     /// 埋め込みモデル名（省略時は config のデフォルト）
     pub model: Option<String>,
@@ -642,8 +642,6 @@ pub struct FindRequest {
 ///
 /// `req.each` が `Some(m)` なら、範囲の論文ごとに上位 m 件を論文の番号の昇順に並べる。
 /// 範囲の指定が無い（`paper_id` も `paper_ids` も無い）のときは `each` を使えない。
-/// 墓標にした論文（`sci_tombstones`）は、範囲の指定に関係なく結果から除く。
-///
 /// # Errors
 ///
 /// `each` に範囲が無い・索引が無い・モードが不明・埋め込みの失敗・DB エラー。
@@ -653,14 +651,8 @@ pub async fn find(db: &Connection, config: &crate::Config, req: FindRequest) -> 
     rag.index(req.index.as_deref()).map_err(RetrievalError::Other)?;
     let top_k = req.top_k.unwrap_or(rag.top_k);
     let per_paper = req.per_paper.unwrap_or(rag.per_paper);
-    // 墓標にした論文は、範囲の指定に関係なく結果から除く（墓標表が無いときは何もしない）。
-    let exclude_papers: Vec<i64> = crate::sci::store::tombstoned_paper_ids(db)
-        .map(|set| {
-            let mut ids: Vec<i64> = set.into_iter().collect();
-            ids.sort_unstable();
-            ids
-        })
-        .unwrap_or_default();
+    // 新しい木には墓標が無い（✕ した Node は木から消えるだけ）ので、除く論文は無い。
+    let exclude_papers: Vec<i64> = Vec::new();
 
     // `--each`：範囲の論文ごとに上位 m 件を返す（論文の番号の昇順につなぐ）。
     if let Some(each) = req.each {
@@ -802,14 +794,16 @@ async fn run_search(
 }
 
 /// `--paper` `--papers` `--node` `--subtree` を、検索の論文の集合と、
-/// 検索の記録（`sci_searches.scope`）に書く範囲の文字列にする。
+/// 検索の記録（`rt_searches.scope`）に書く範囲の文字列にする。
 ///
 /// どれも無ければ `(None, "library")`。
-/// `--node` の論文が 0 本なら `(Some(空), "node:N7")`（0 本の節点では Library 全体を返さない）。
+/// `--node` は `rt_nodes.id`。その Node と直の子（`subtree` なら子孫すべて）の生きた F の
+/// `paper_id` と `cites` の論文番号を集める。論文が 0 本なら `(Some(空), "node:Q7")`
+/// （0 本の Node では Library 全体を返さない）。
 ///
 /// # Errors
 ///
-/// 節点が無い、または DB エラー。
+/// 生きた Node が無い、または DB エラー。
 pub fn resolve_paper_scope(
     conn: &Connection,
     paper: Option<i64>,
@@ -821,22 +815,51 @@ pub fn resolve_paper_scope(
     if let Some(one) = paper {
         ids.push(one);
     }
+    let mut node_name = String::new();
     if let Some(node_id) = node {
-        // 節点が無いときは、そのことを伝える（黙って Library 全体を返さない）。
-        crate::sci::store::get_node(conn, node_id)
-            .map_err(|_| RetrievalError::Other(format!("NODE N{node_id} がありません")))?;
-        let node_ids = crate::sci::store::node_paper_ids(conn, node_id, subtree)
-            .map_err(|e| RetrievalError::Other(format!("NODE N{node_id} を読みません: {e}")))?;
-        ids.extend(node_ids);
+        // Node が無いときは、そのことを伝える（黙って Library 全体を返さない）。
+        let row = crate::rt::store::get_node(conn, node_id)
+            .ok()
+            .filter(|row| row.removed_at.is_none())
+            .ok_or_else(|| {
+                RetrievalError::Other(format!("{} はありません", crate::rt::fmt_ref('N', node_id)))
+            })?;
+        node_name = crate::rt::fmt_id(row.kind, row.id);
+        let read_err = |e: crate::rt::RtError| {
+            RetrievalError::Other(format!("{node_name} を読めません: {e}"))
+        };
+        let targets = if subtree {
+            crate::rt::store::subtree_ids(conn, node_id).map_err(read_err)?
+        } else {
+            let mut targets = vec![node_id];
+            for child in crate::rt::store::children(conn, node_id).map_err(read_err)? {
+                targets.push(child.id);
+            }
+            targets
+        };
+        for id in targets {
+            let found = crate::rt::store::get_node(conn, id).map_err(read_err)?;
+            if found.kind != crate::rt::Kind::F {
+                continue;
+            }
+            ids.extend(found.paper_id);
+            ids.extend(
+                found
+                    .cites
+                    .iter()
+                    .filter_map(|cite| crate::textcheck::parse_cite(cite))
+                    .map(|cite| cite.paper),
+            );
+        }
     }
     ids.sort_unstable();
     ids.dedup();
 
-    // 記録に書く範囲の文字列（C-02 の書き方）。
+    // 記録に書く範囲の文字列。
     let scope = match node {
-        Some(node_id) => {
+        Some(_) => {
             let prefix = if subtree { "subtree" } else { "node" };
-            format!("{prefix}:N{node_id}")
+            format!("{prefix}:{node_name}")
         }
         None => {
             if ids.is_empty() {
@@ -2145,7 +2168,7 @@ mod tests {
     }
 }
 
-// ---- C-09: 論文の集合で絞る・論文ごとに返す・墓標を除く -------------------------
+// ---- C-09: 論文の集合で絞る・論文ごとに返す -------------------------
 
 #[cfg(test)]
 mod scope_tests {
@@ -2184,49 +2207,49 @@ fn resolve_paper_scope_unions_and_names_scope() {
     let db = crate::Database::in_memory().unwrap();
     let conn = db.connection();
 
-    // 節点 N1 に論文 1 と 3 を結ぶ。
-    let node = crate::sci::store::insert_node(
-        conn,
-        &crate::sci::store::NewNode {
-            kind: "item",
-            item_key: None,
-            types: &[],
-            title: "手法",
-            body: "",
-            state: "open",
-            fixed: false,
-            ord: 0,
-            created_by: "user",
-        },
-    )
-    .unwrap();
-    for (paper, role) in [("1", "exemplar"), ("3", "compare")] {
-        crate::sci::store::upsert_link(
+    // Q の下に O を置き、O の F（論文 1 は paper_id・論文 3 は cites）と、
+    // 孫の F（論文 4）と、✕ した F（論文 5）を作る。
+    let add = |kind, parent: Option<i64>, text: &str, paper: Option<i64>, cites: &[String]| {
+        crate::rt::store::insert_node(
             conn,
-            &crate::sci::store::NewLink {
-                node_id: node,
-                target_kind: "paper",
-                target_ref: paper,
-                role: Some(role),
-                read_state: Some("unread"),
-                reason: "",
+            &crate::rt::store::NewNode {
+                kind,
+                parent_id: parent,
+                guide_key: None,
+                text,
+                body: "",
+                answer_kind: (kind == crate::rt::Kind::O).then_some("answer"),
+                cites,
+                paper_id: paper,
+                run_id: None,
+                report_id: None,
+                mlflow_ref: None,
                 proposal_id: None,
-                auto: false,
                 created_by: "user",
             },
         )
-        .unwrap();
-    }
+        .unwrap()
+    };
+    use crate::rt::Kind;
+    let q = add(Kind::Q, None, "問い", None, &[]);
+    let node = add(Kind::O, Some(q), "手法", None, &[]);
+    add(Kind::F, Some(node), "根拠 1", Some(1), &[]);
+    add(Kind::F, Some(node), "根拠 3", None, &["#3 §2.1".to_string()]);
+    let removed = add(Kind::F, Some(node), "外した根拠", Some(5), &[]);
+    crate::rt::store::remove_subtree(conn, removed, "違う").unwrap();
+    let child_q = add(Kind::Q, Some(node), "下の問い", None, &[]);
+    let child_o = add(Kind::O, Some(child_q), "下の答え", None, &[]);
+    add(Kind::F, Some(child_o), "根拠 4", Some(4), &[]);
 
-    // 節点の論文（1, 3）に `--paper 2` を足した集合。
-    let (ids, scope) =
-        resolve_paper_scope(conn, Some(2), &[], Some(node), false).unwrap();
+    // O の直の F（1, 3）に `--paper 2` を足した集合。
+    let (ids, scope) = resolve_paper_scope(conn, Some(2), &[], Some(node), false).unwrap();
     assert_eq!(ids, Some(vec![1, 2, 3]));
-    assert_eq!(scope, format!("node:N{node}"));
+    assert_eq!(scope, format!("node:O{node}"));
 
-    // 子孫もなら `subtree:N`。
-    let (_, scope) = resolve_paper_scope(conn, None, &[], Some(node), true).unwrap();
-    assert_eq!(scope, format!("subtree:N{node}"));
+    // 子孫もなら `subtree:O…` で、孫の F の論文 4 も入る。
+    let (ids, scope) = resolve_paper_scope(conn, None, &[], Some(node), true).unwrap();
+    assert_eq!(ids, Some(vec![1, 3, 4]));
+    assert_eq!(scope, format!("subtree:O{node}"));
 
     // 節点が無ければ `papers:1,2`。
     let (ids, scope) = resolve_paper_scope(conn, None, &[2, 1, 2], None, false).unwrap();
@@ -2238,29 +2261,19 @@ fn resolve_paper_scope_unions_and_names_scope() {
     assert_eq!(ids, None);
     assert_eq!(scope, "library");
 
-    // 節点に論文が無くても `Some(空)`（Library 全体を返さない）。
-    let empty = crate::sci::store::insert_node(
-        conn,
-        &crate::sci::store::NewNode {
-            kind: "item",
-            item_key: None,
-            types: &[],
-            title: "空の NODE",
-            body: "",
-            state: "open",
-            fixed: false,
-            ord: 1,
-            created_by: "user",
-        },
-    )
-    .unwrap();
-    let (ids, scope) = resolve_paper_scope(conn, None, &[], Some(empty), false).unwrap();
+    // Node に論文が無くても `Some(空)`（Library 全体を返さない）。
+    let (ids, scope) = resolve_paper_scope(conn, None, &[], Some(child_q), true).unwrap();
+    assert_eq!(ids, Some(vec![4]));
+    assert_eq!(scope, format!("subtree:Q{child_q}"));
+    let (ids, scope) = resolve_paper_scope(conn, None, &[], Some(q), false).unwrap();
     assert_eq!(ids, Some(Vec::new()));
-    assert_eq!(scope, format!("node:N{empty}"));
+    assert_eq!(scope, format!("node:Q{q}"));
 
-    // 節点が無ければそのことを伝える。
+    // ✕ した Node と、無い Node は失敗する。
+    let err = resolve_paper_scope(conn, None, &[], Some(removed), false).unwrap_err();
+    assert!(err.to_string().contains(&format!("N{removed} はありません")), "{err}");
     let err = resolve_paper_scope(conn, None, &[], Some(9999), false).unwrap_err();
-    assert!(err.to_string().contains("NODE N9999 がありません"), "{err}");
+    assert!(err.to_string().contains("N9999 はありません"), "{err}");
 }
 
 /// 論文の集合で絞る条件が word 側と vector 側の両方に効く。
@@ -2354,62 +2367,6 @@ async fn empty_paper_ids_return_nothing() {
     .await
     .unwrap();
     assert!(hits.is_empty());
-}
-
-/// 墓標にした論文は、範囲の指定に関係なく出ない。
-#[tokio::test]
-async fn tombstoned_papers_are_excluded() {
-    let db = scope_db();
-    let conn = db.connection();
-    insert_needle_chunks(conn, 1, 2);
-    insert_needle_chunks(conn, 2, 1);
-    crate::sci::store::insert_tombstone(
-        conn,
-        &crate::sci::store::NewTombstone {
-            kind: "paper",
-            paper_id: Some(1),
-            doi: None,
-            arxiv_id: None,
-            dedupe_key: None,
-            title: "P1",
-            reason: "主題が違う",
-            node_id: None,
-            run_id: None,
-            created_by: "user",
-        },
-    )
-    .unwrap();
-
-    // 範囲の指定が無い検索でも、論文 1 は出ない。
-    let hits = find(
-        conn,
-        &crate::Config::default(),
-        FindRequest {
-            query: "needle".to_string(),
-            mode: Some("word".to_string()),
-            per_paper: Some(0),
-            ..FindRequest::default()
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].paper_id, Some(2));
-
-    // 範囲に入れているときも出ない。
-    let hits = find(
-        conn,
-        &crate::Config::default(),
-        FindRequest {
-            query: "needle".to_string(),
-            mode: Some("word".to_string()),
-            paper_ids: Some(vec![1, 2]),
-            ..FindRequest::default()
-        },
-    )
-    .await
-    .unwrap();
-    assert!(hits.iter().all(|h| h.paper_id != Some(1)));
 }
 
 /// `each` は範囲の論文ごとに上位 m 件を、論文の番号の昇順に並べる。
