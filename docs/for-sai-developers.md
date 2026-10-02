@@ -130,6 +130,7 @@ TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警�
 | `wip` / `max_concurrent` | 数値 \| null | タブごとの pane 上限・同時実行数 | 壊れない |
 | `extensions` | 文字列の配列 | 起動時に読み込む拡張 | 壊れない |
 | `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業 SCOPE の準備（シェルは通さない） | 壊れない |
+| `write_check` | 文字列の配列 \| null | `sai_write` / `agent write` が保存の前に本文を標準入力で通す命令。`{run_id}`・`{block}`・`{filename}` を置き換える（シェルは通さない）。環境変数 `SAI_WRITE_FILENAME`・`SAI_WRITE_DESCRIPTION`・`SAI_PARENT_RUN_ID`・`SAI_BLOCK_NAME`。終了コード 0: 標準出力が空でなければそれを保存、空なら元の本文を保存。1: 標準エラーを返して保存しない。それ以外（起動失敗・30 秒の時間切れ・2 以上）: 元の本文を保存し `warning` を返す | 壊れない |
 | `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** | 壊れない（壊した項目はその項目だけ破棄される） |
 
 #### `env` の決まり

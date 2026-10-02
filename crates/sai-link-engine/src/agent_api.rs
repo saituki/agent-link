@@ -362,6 +362,20 @@ pub fn write(
     description: Option<&str>,
     run_id: Option<i64>,
 ) -> Result<Value, String> {
+    write_with_timeout(filename, content, description, run_id, WRITE_CHECK_TIMEOUT)
+}
+
+/// `write_check` の命令の打ち切り時間。
+const WRITE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// [`write`] の本体。`write_check` の時間の上限を引数で受ける（テストで短くするため）。
+fn write_with_timeout(
+    filename: &str,
+    content: &str,
+    description: Option<&str>,
+    run_id: Option<i64>,
+    check_timeout: std::time::Duration,
+) -> Result<Value, String> {
     let trimmed = filename.trim();
     if trimmed.is_empty() {
         return Err("filename は必須です".to_string());
@@ -373,6 +387,46 @@ pub fn write(
         .ok_or("filename が不正です")?;
 
     let run_id = require_run_id(run_id)?;
+
+    // settings.json の write_check があれば、保存の前に本文を通す。
+    let mut checked: Option<bool> = None;
+    let mut warning: Option<String> = None;
+    let mut saved_content = content.to_string();
+    let check_cmd = crate::pi_command::load_settings_quiet().0.write_check.unwrap_or_default();
+    if !check_cmd.is_empty() {
+        let block = block_name();
+        let cmd: Vec<String> = check_cmd
+            .iter()
+            .map(|a| {
+                a.replace("{run_id}", &run_id.to_string())
+                    .replace("{block}", &block)
+                    .replace("{filename}", &basename)
+            })
+            .collect();
+        let envs = [
+            ("SAI_WRITE_FILENAME", basename.clone()),
+            ("SAI_WRITE_DESCRIPTION", description.unwrap_or("").to_string()),
+            ("SAI_PARENT_RUN_ID", run_id.to_string()),
+            ("SAI_BLOCK_NAME", block),
+        ];
+        use crate::pre_run::StdinOutcome;
+        match crate::pre_run::run_with_stdin(&cmd, &crate::project::project_root(), &envs, content, check_timeout) {
+            StdinOutcome::Ok(out) => {
+                checked = Some(true);
+                if !out.is_empty() {
+                    saved_content = out;
+                }
+            }
+            StdinOutcome::Rejected(msg) => {
+                return Err(format!("保存しませんでした。決まりに合わない点があります:\n{msg}"));
+            }
+            StdinOutcome::Broken(why) => {
+                checked = Some(false);
+                warning = Some(format!("検査の道具が動きませんでした（{why}）。検査せずに保存しました"));
+            }
+        }
+    }
+    let content = saved_content.as_str();
 
     let path = crate::sai_write_notify::resolve_output_path(run_id, &basename)
         .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?;
@@ -399,7 +453,7 @@ pub fn write(
     }
     write_notification("file_written", payload)?;
 
-    Ok(match token {
+    let mut result = match token {
         Some(tok) => json!({
             "status": "ok",
             "path": path.to_string_lossy(),
@@ -416,7 +470,14 @@ pub fn write(
             "ref": Value::Null,
             "message": "保存しました。waggle トークン化はデーモンが非同期で行います。",
         }),
-    })
+    };
+    if let Some(c) = checked {
+        result["checked"] = json!(c);
+    }
+    if let Some(w) = warning {
+        result["warning"] = json!(w);
+    }
+    Ok(result)
 }
 
 /// 保存直後のファイルをその場で waggle トークン化し、トークン文字列を返す（P4）。
@@ -2009,6 +2070,118 @@ mod tests {
     /// P4: sai_write がトークンと ref を返し、通知に waggle_token が入る。
     /// デーモン相当の処理（poll_and_process_one）でも同じトークンが返り、
     /// 再トークン化されない（トークンが増えない）ことを確認する。
+    // ── write_check ──
+
+    /// write_check を設定した一時プロジェクトで `write` を呼ぶ補助。script は sh の本文。
+    fn write_with_check(
+        guard: &EnvGuard,
+        script: &str,
+        timeout_ms: u64,
+        content: &str,
+    ) -> Result<Value, String> {
+        let root = &guard.project_root;
+        std::env::set_var("SAI_SAI_HOME", root.join("empty-home"));
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        std::env::set_var("SAI_BLOCK_NAME", "blk");
+        let sh = root.join("check.sh");
+        std::fs::write(&sh, script).unwrap();
+        let cmd = json!([ "sh", sh.to_string_lossy(), "{run_id}", "{block}", "{filename}" ]);
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        std::fs::write(
+            root.join(".sai/settings.json"),
+            json!({ "write_check": cmd }).to_string(),
+        )
+        .unwrap();
+        let r = write_with_timeout(
+            "a/doc.md",
+            content,
+            Some("説明"),
+            None,
+            std::time::Duration::from_millis(timeout_ms),
+        );
+        std::env::remove_var("SAI_SAI_HOME");
+        std::env::remove_var("SAI_BLOCK_NAME");
+        r
+    }
+
+    #[test]
+    fn write_check_rejected_does_not_save() {
+        let g = EnvGuard::new();
+        let err = write_with_check(&g, "echo 違反です >&2; exit 1", 5000, "x").unwrap_err();
+        assert!(err.contains("違反です"), "{err}");
+        assert!(!g.project_root.join(".sai/outputs").exists()
+            || !walk_has(&g.project_root.join(".sai/outputs"), "doc.md"));
+    }
+
+    fn walk_has(dir: &Path, name: &str) -> bool {
+        std::fs::read_dir(dir).map(|rd| rd.flatten().any(|e| {
+            e.file_name() == name || (e.path().is_dir() && walk_has(&e.path(), name))
+        })).unwrap_or(false)
+    }
+
+    #[test]
+    fn write_check_stdout_replaces_content() {
+        let g = EnvGuard::new();
+        let r = write_with_check(&g, "sed 's/^/X/'", 5000, "abc\n").unwrap();
+        assert_eq!(r["checked"], true);
+        let saved = std::fs::read_to_string(r["path"].as_str().unwrap()).unwrap();
+        assert_eq!(saved, "Xabc\n");
+    }
+
+    #[test]
+    fn write_check_broken_saves_original_with_warning() {
+        let g = EnvGuard::new();
+        for (script, ms) in [("exit 3", 5000), ("sleep 5", 300)] {
+            let r = write_with_check(&g, script, ms, "orig").unwrap();
+            assert_eq!(r["checked"], false);
+            assert!(r["warning"].as_str().unwrap().contains("検査せずに保存"));
+            assert_eq!(std::fs::read_to_string(r["path"].as_str().unwrap()).unwrap(), "orig");
+        }
+    }
+
+    #[test]
+    fn write_check_missing_binary_saves_original_with_warning() {
+        let g = EnvGuard::new();
+        let root = &g.project_root;
+        std::env::set_var("SAI_SAI_HOME", root.join("empty-home"));
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        std::fs::write(
+            root.join(".sai/settings.json"),
+            r#"{"write_check":["/no/such/bin"]}"#,
+        )
+        .unwrap();
+        let r = write("doc.md", "orig", None, None).unwrap();
+        std::env::remove_var("SAI_SAI_HOME");
+        assert_eq!(r["checked"], false);
+        assert!(r["warning"].is_string());
+    }
+
+    #[test]
+    fn write_check_expands_placeholders_and_env() {
+        let g = EnvGuard::new();
+        let out = g.project_root.join("seen.txt");
+        let script = format!(
+            "echo \"$1 $2 $3 $SAI_WRITE_FILENAME $SAI_WRITE_DESCRIPTION\" > {}; cat >/dev/null",
+            out.display()
+        );
+        write_with_check(&g, &script, 5000, "x").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out).unwrap().trim(),
+            "42 blk doc.md doc.md 説明"
+        );
+    }
+
+    #[test]
+    fn write_without_write_check_has_no_checked_key() {
+        let g = EnvGuard::new();
+        std::env::set_var("SAI_SAI_HOME", g.project_root.join("empty-home"));
+        std::env::set_var("SAI_PARENT_RUN_ID", "42");
+        let r = write("doc.md", "x", None, None).unwrap();
+        std::env::remove_var("SAI_SAI_HOME");
+        assert!(r.get("checked").is_none() && r.get("warning").is_none());
+    }
+
     #[test]
     fn write_returns_token_and_ref_and_daemon_keeps_the_same_token() {
         let guard = EnvGuard::new();

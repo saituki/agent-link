@@ -551,16 +551,21 @@ fn tool_sai_write(arguments: &Value) -> Result<String, String> {
     let byte_size = result.get("byte_size").and_then(|v| v.as_u64()).unwrap_or(0);
     let token = result.get("token").and_then(|v| v.as_str());
     let reference = result.get("ref").and_then(|v| v.as_str());
-    match (token, reference) {
-        (Some(token), Some(reference)) => Ok(format!(
+    let mut text = match (token, reference) {
+        (Some(token), Some(reference)) => format!(
             "保存しました: {} ({} bytes)。waggle トークン: {} / 他の文書から参照するときは {} の形で書いてください。",
             path, byte_size, token, reference
-        )),
-        _ => Ok(format!(
+        ),
+        _ => format!(
             "保存しました: {} ({} bytes)。waggle トークン化はデーモンが非同期で行います。",
             path, byte_size
-        )),
+        ),
+    };
+    if let Some(w) = result.get("warning").and_then(|v| v.as_str()) {
+        text.push('\n');
+        text.push_str(w);
     }
+    Ok(text)
 }
 
 /// `sai_finalize` ツール本体。実体は `agent_api::finalize`（pi / cc 共通）。
