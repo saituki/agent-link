@@ -40,6 +40,7 @@ pub mod sci;
 pub mod search_log;
 pub mod search_sets;
 pub mod sections;
+pub mod textcheck;
 pub mod translation;
 pub mod understanding;
 

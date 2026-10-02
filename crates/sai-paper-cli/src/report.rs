@@ -83,6 +83,18 @@ pub enum ReportCmd {
         /// report_id（例: R-0007）
         id: String,
     },
+    /// 保存前の検査。通れば frontmatter を付けた本文を標準出力へ出す（本文は標準入力、description は SAI_WRITE_DESCRIPTION）
+    Prepare {
+        /// 実行 ID
+        #[arg(long)]
+        run: Option<i64>,
+        /// ブロック id
+        #[arg(long)]
+        block: Option<String>,
+        /// 保存するファイル名
+        #[arg(long)]
+        filename: Option<String>,
+    },
     /// 外部の引用（Library に無い論文）を公開の API で照合する
     Check {
         /// report_id（例: R-0007）
@@ -95,6 +107,9 @@ pub enum ReportCmd {
 
 /// `sai-moon-paper report` を実行する。
 pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
+    if let ReportCmd::Prepare { run, block, filename } = &cmd {
+        std::process::exit(prepare(*run, block.clone(), filename.clone()));
+    }
     let db = open_database()?;
     let conn = db.connection();
     match cmd {
@@ -159,8 +174,20 @@ pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
         }
         ReportCmd::List { paper, json } => {
             let rows = reports::list_reports(conn, paper).context("report 一覧の取得に失敗")?;
+            // 説明は md の frontmatter の description。無ければ title。
+            let description = |md_path: &str| -> Option<String> {
+                let text = std::fs::read_to_string(md_path).ok()?;
+                sai_paper_core::runs::read_frontmatter(&text)
+                    .into_iter()
+                    .find(|(key, value)| key == "description" && !value.is_empty())
+                    .map(|(_, value)| value)
+            };
             if json {
-                println!("{}", serde_json::to_string_pretty(&rows)?);
+                let mut value = serde_json::to_value(&rows)?;
+                for (item, row) in value.as_array_mut().into_iter().flatten().zip(&rows) {
+                    item["description"] = serde_json::json!(description(&row.md_path));
+                }
+                println!("{}", serde_json::to_string_pretty(&value)?);
             } else if rows.is_empty() {
                 println!("report はありません");
             } else {
@@ -172,7 +199,10 @@ pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
                     println!(
                         "{}\t{}\t{}{}",
                         row.id,
-                        row.title.as_deref().unwrap_or("-"),
+                        description(&row.md_path)
+                            .as_deref()
+                            .or(row.title.as_deref())
+                            .unwrap_or("-"),
                         row.md_path,
                         mark
                     );
@@ -309,8 +339,149 @@ pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
         ReportCmd::Check { id, all } => {
             check_reports(conn, id.as_deref(), all).await?;
         }
+        ReportCmd::Prepare { .. } => unreachable!("先に処理済み"),
     }
     Ok(())
+}
+
+/// 実験ループの文書（出力の形・引き継ぎの検査をしない）。
+const EXP_PREFIXES: [&str; 5] = ["exp-spec", "exp-run", "review", "branch-order", "exp-final"];
+
+/// `report prepare` の本体。終了コードを返す（0 通過・1 違反・2 使い方の誤り）。
+fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) -> i32 {
+    use sai_paper_core::reports::{CitationTarget, parse_citations};
+    use sai_paper_core::{dsr_check, runs, sections, textcheck};
+    use std::io::Read;
+
+    let (Some(run), Some(block), Some(filename)) = (run, block, filename) else {
+        eprintln!("使い方: report prepare --run <run_id> --block <block> --filename <name>");
+        return 2;
+    };
+    if !filename.ends_with(".md") {
+        return 0;
+    }
+    let mut body = String::new();
+    if let Err(err) = std::io::stdin().read_to_string(&mut body) {
+        eprintln!("標準入力を読めません: {err}");
+        return 2;
+    }
+    let description = std::env::var("SAI_WRITE_DESCRIPTION").unwrap_or_default();
+    let description = description.trim();
+    let mut errors: Vec<String> = Vec::new();
+
+    // 1. description
+    if description.is_empty() {
+        errors.push("description が空です。sai_write の description に『<文書の種類> <ID>: <内容を 1 文で>』の形で書いてください".into());
+    } else if description.contains('\n')
+        || description.chars().count() > 200
+        || description.starts_with("```")
+        || description.starts_with('#')
+    {
+        errors.push("description は 1 行・200 字以内で、``` や # で始めないでください".into());
+    }
+
+    // 2. 文字種
+    for f in textcheck::foreign_chars(&body) {
+        errors.push(format!("{}行目: {}「{}」が混ざっています", f.line, f.script, f.ch));
+    }
+    if let Some(message) = textcheck::foreign_message(description) {
+        errors.push(format!("description: {message}"));
+    }
+
+    // 3. 引用
+    let citations = parse_citations(&body);
+    let mut papers: Vec<i64> = citations
+        .iter()
+        .filter_map(|c| match c.target {
+            CitationTarget::Paper(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+    papers.sort_unstable();
+    papers.dedup();
+    match open_database() {
+        Ok(db) => {
+            let conn = db.connection();
+            for citation in &citations {
+                let CitationTarget::Paper(n) = citation.target else { continue };
+                let exists = conn
+                    .query_row("SELECT 1 FROM papers WHERE id = ?1", [n], |_| Ok(()))
+                    .is_ok();
+                if !exists {
+                    errors.push(format!("{}行目: Library に #{n} がありません", citation.line));
+                    continue;
+                }
+                let Some(locator) = &citation.locator else { continue };
+                let Ok(parsed) = sections::parse_ref(&format!("{n}{locator}")) else { continue };
+                let (sec, pass): (i64, Vec<i64>) = match parsed {
+                    sections::PassageRef::Passage { sec_no, pas_no, .. } => (sec_no, vec![pas_no]),
+                    sections::PassageRef::Range { sec_no, from, to, .. } => (sec_no, vec![from, to]),
+                    _ => continue,
+                };
+                for pas in pass {
+                    if sections::passage_exists(conn, n, sec, Some(pas)).ok().flatten() == Some(false) {
+                        errors.push(format!(
+                            "{}行目: 塊 #{n}.{sec}.{pas} は論文 {n} にありません",
+                            citation.line
+                        ));
+                    }
+                }
+            }
+        }
+        Err(err) => eprintln!("注意: papr.db を開けないので引用の存在は確かめていません: {err}"),
+    }
+
+    // 4・5. 出力の形と引き継ぎ（実験ループの文書は見ない）
+    let root = sai_paper_core::paths::project_root();
+    let stem_is_exp = EXP_PREFIXES.iter().any(|p| filename.starts_with(p));
+    let block_md = root.as_ref().and_then(|root| {
+        let mut paths = vec![root.join(".sai/blocks").join(format!("{block}.md"))];
+        paths.extend(sai_paper_core::paths::sai_home_path("blocks").map(|d| d.join(format!("{block}.md"))));
+        paths.iter().find_map(|p| std::fs::read_to_string(p).ok())
+    });
+    if let (false, Some(block_md)) = (stem_is_exp, &block_md) {
+        let expected = dsr_check::expected_headings(block_md);
+        let result = dsr_check::check(&body, &expected);
+        if result.missing.len() < expected.len() {
+            for heading in &result.missing {
+                errors.push(format!("見出し『{heading}』がありません"));
+            }
+        }
+        let sci = runs::read_frontmatter(block_md)
+            .iter()
+            .any(|(k, v)| k == "templates" && v.split(',').any(|t| t.trim() == "sci-core"));
+        if sci && result.has_handoff {
+            errors.push("sci のブロックの文書に『## 引き継ぎ』は書きません".into());
+        }
+    }
+
+    if !errors.is_empty() {
+        for message in errors {
+            eprintln!("- {message}");
+        }
+        return 1;
+    }
+
+    // frontmatter を付ける
+    let sci_node = root.as_ref().and_then(|root| {
+        let dir = runs::list_run_dirs(root).into_iter().find(|d| d.run_id == run)?;
+        let task = std::fs::read_to_string(dir.path.join("task.md")).ok()?;
+        runs::read_frontmatter(&task)
+            .into_iter()
+            .find(|(k, v)| k == "sci_node" && !v.is_empty())
+            .map(|(_, v)| v)
+    });
+    let papers = papers.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+    let run = run.to_string();
+    let mut pairs = vec![("block", block.as_str(), true), ("run", run.as_str(), true), ("description", description, true)];
+    if let Some(node) = &sci_node {
+        pairs.push(("sci_node", node, false));
+    }
+    if !papers.is_empty() {
+        pairs.push(("papers", &papers, false));
+    }
+    print!("{}", textcheck::with_frontmatter(&body, &pairs));
+    0
 }
 
 /// `report check` の本体。
