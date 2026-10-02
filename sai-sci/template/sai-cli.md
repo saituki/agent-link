@@ -16,7 +16,7 @@
 | その実行が保存した文書 | `sai-moon-link phone waggle <run_id>`（`--token <トークン>` で本文。残りも `sai_read` で読める） |
 | 過去の会話を言葉で探す | `sai-moon-link search -w <語,語> [--block <名>] [--json]` |
 | 実行の中身（log / stats / history） | `sai-moon-link phone run --view log\|stats\|history <run_id>` |
-| 4 つの層の図（branch / sprout / seed / root） | `sai-moon-link phone rtree` |
+| run の木の図 | `sai-moon-link phone rtree` |
 
 結果はほとんどが JSON で返る。長いときは必要な部分だけ取り出して読む。
 
@@ -24,29 +24,39 @@
 
 | やりたいこと | コマンド |
 |---|---|
-| 現況の要点（GATE・DEBT・NEXT_ACTION） | `sai-moon-paper sci status --brief` |
-| 現況の全体（SEED_SENTENCE・GATE・DEBT・木・NEXT_ACTION） | `sai-moon-paper sci status [--json]` |
-| NODE 1 つの詳細 | `sai-moon-paper sci node <N12>` |
-| 実行のための入力（実行の SCOPE の説明） | `sai-moon-paper sci context --run <run_id>` |
-| TRIAGE 待ちの PROPOSAL | `sai-moon-paper sci proposals [--json]` |
-| TRIAGE（ACCEPT・REJECT・REVERT） | `sai-moon-paper sci triage <P56> (--accept \| --reject \| --revert) [--note 文]` |
+| 現況の要点 | `sai-moon-paper sci status --brief` |
+| 現況の全体 | `sai-moon-paper sci status [--json]` |
+| Node 1 つの詳細 | `sai-moon-paper sci node <Q12> [--json]` |
+| 実行のための入力（`# context`） | `sai-moon-paper sci context --run <run_id>` |
+| 仕分け待ちの PROPOSAL | `sai-moon-paper sci proposals [--json]` |
+| 仕分け（採用・却下・取り消し） | `sai-moon-paper sci triage <P56> (--accept \| --reject \| --revert) [--note 文]` |
+| 読む札（`--runner user` のカード）の中身 | `sai-moon-paper sci read <run_id>` |
 
-`sci status --brief` は現在の状態を最も短く示す。最初に読むのはこれ。全体（`sci status`）は大きいので、要るときだけ読む。
+`sci status --brief` は最初に読む。いつも JSON で、次の項目を返す。全体（`sci status`）は大きいので、要るときだけ読む。
 
-### NODE のための実行（CARD）を作る
+- `progress`: 進み具合。
+- `next`: Next Action の一覧。各項目は `kind`・`node`・`block`・`purpose`・`expect` と、なぜそれを勧めるかを示す `why`（コード）。
+- `debt_count`: DEBT の数。
+- `pending_proposals`: 仕分け待ちの PROPOSAL の数。
+- `running`: 動いている実行。
+- `warnings`: 注意。
+
+### Node のための実行（カード）を作る
 
 ```bash
-sai-moon-paper sci card --node <N12> --block <sci-read> \
-  --purpose <行動の目的> [--question <Q7>] [--expect <期待する成果>] \
+sai-moon-paper sci card --node <Q12> --block <sci-read> \
+  --purpose <行動の目的> [--expect <期待する成果>] [--scope <範囲>] \
+  [--assume <ID=文>]… [--papers <番号,番号>] [--runner pi|cc|user] [--depth abstract|figures|full] \
   [--input <waggle トークン>]… --executer professor \
   --origin-run "$SAI_PARENT_RUN_ID" --json
 ```
 
-- `--node`（対象の NODE）と `--purpose`（行動の目的）は必ず書く。
-- `--block`（実行するブロックの id）・`--question`（答える QUESTION）・`--expect`（期待する成果）を足せる。
+- `--node`（対象の Node。Q・O・F・E）・`--block`・`--purpose` は必ず書く。
+- `--assume` は仮置き（`Q9=SST-2 を使う（仮）`）。繰り返し可。
+- `--runner user` は、利用者が自分で読む札になる。`--depth` はその読む深さ。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai_write` で保存してから渡す。
 - `--executer professor` を付けると、Human が Web からこのカードを起こしても動かず、professor が子として起こす。付けない（既定の `human`）と、人が起こすカードになる。
-- `--origin-run` は自分がその NODE を選んだ実行の run_id。省略すると `SAI_PARENT_RUN_ID`。
+- `--origin-run` は自分がその Node を選んだ実行の run_id。省略すると `SAI_PARENT_RUN_ID`。
 - `--json` を付けると戻り値が JSON になり、カードの `run_id` が分かる。
 
 ## Web と同じ操作（phone_api.py）
@@ -81,7 +91,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 ## 人が起こすカード（task.md）を作る
 
-これは `executer: human` のカード（Human が Web の ▶ で起こすもの）の作り方である。研究方針の木の NODE のための CARD は、上の `sci card --executer professor` で作り、professor が `task_create` の `card` で起こす。この節ではない。
+これは `executer: human` のカード（Human が Web の ▶ で起こすもの）の作り方である。研究方針の木の Node のためのカードは、上の `sci card --executer professor` で作り、professor が `task_create` の `card` で起こす。この節ではない。
 
 `sai-moon-link phone card options` で使えるブロック・runner・model・thinking を確かめ、標準入力に JSON を渡して `sai-moon-link phone card create` する。
 戻りの `path` を編集して `description:` と `origin_run_id:` を埋める。**実行は Human が行う。あなたはカードを作るだけで、実行しない。**
@@ -92,7 +102,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `sai-moon-link phone card run` / `sai-moon-link phone finalize` / `sai-moon-link phone advance` / `sai-moon-link block run` / `sai-moon-link block rm` / `sai-moon-link phone rm` / `sai-moon-link daemon` / `sai-moon-link init` / `sai-moon-link migrate-outputs` / `sai-moon-link task manage` / `sai-moon-link phone md --write`
 
-`sai-moon-paper init` / `sai-moon-paper sci init` / `sai-moon-paper sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない。ただし professor（逆向きの `professor-backward` を含む）だけは、木の TRIAGE のために `sci triage` と `sci apply`（標準入力に op の JSON。`decide` など、人がする op）を使ってよい。課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。operator は、木を書き換える `sci` の命令を打たない（読む命令だけ）。
+`sai-moon-paper init` / `sai-moon-paper sci init` / `sai-moon-paper sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない。ただし professor（逆向きの `professor-backward` を含む）だけは、木の仕分けのために `sci triage` と、利用者が行う操作の `sci apply`（標準入力に 1 件の JSON）を使ってよい。**★（Answer）は利用者だけが付ける。professor も付けない。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。operator は、木を書き換える `sci` の命令を打たない（読む命令だけ）。
 
 ## researcher に渡さないもの
 

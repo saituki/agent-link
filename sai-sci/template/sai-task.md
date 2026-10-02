@@ -35,16 +35,16 @@ block_discover → task_create → task_execute → task_output（待つ・見�
 
 ## 予約済みのカードから子を起こす
 
-研究方針の木の NODE のための実行（CARD）は、`sai-moon-paper sci card …` を作り終えて、todo に予約済みで置かれている。
+研究方針の木の Node のための実行（カード）は、`sai-moon-paper sci card …` を作り終えて、todo に予約済みで置かれている。
 そのカードを自分の子として起こすには、`task_create` の `card` にカードの run_id を渡す。
 
 ```json
-{ "tasks": [{ "client_id": "R1", "subject": "N12 の読解", "card": 120, "timeout": 3600 }] }
+{ "tasks": [{ "client_id": "R1", "subject": "Q12 の読解", "card": 120, "timeout": 3600 }] }
 ```
 
 - カードの `block:`・依頼文・説明をそのまま使う。`task_text` と `block_type` は**書かない**。書くと断られる。
 - `card` は自分の子として親子関係を結ぶので、`task_output` で報告を待てる。`task_execute` で始めてよい。
-- `timeout`（秒）はブロックの目安に合わせる（`root` の層は 3600〜5400、`seed` は 14400）。
+- `timeout`（秒）はそのブロックの `timeout` に合わせる。
 - `client_id` は文書・局面を表す短い名にする（`R1`・`R2`…）。
 
 ## 依頼文の書き方
