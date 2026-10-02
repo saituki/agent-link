@@ -1,7 +1,7 @@
 ---
 name: 🔎 外部を探す
 id: sci-search
-description: F を探す: 対象の Node（O か Q）の F を探すために、目的と抜き出す項目を付けて外部の論文 DB を検索し、検索セットを作って Node に結ぶ
+description: "F を探す: 対象の Node（O か Q）の F を探すために、目的と抜き出す項目を付けて外部の論文 DB を検索し、検索セットを作って Node に結ぶ"
 model: inherit
 thinking: high
 templates:

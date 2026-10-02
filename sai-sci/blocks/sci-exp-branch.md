@@ -1,7 +1,7 @@
 ---
 name: 🌿 exp-branch
 id: sci-exp-branch
-description: experiment: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える
+description: "experiment: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える"
 model: inherit
 thinking: medium
 templates:

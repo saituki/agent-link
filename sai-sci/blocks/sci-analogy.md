@@ -1,7 +1,7 @@
 ---
 name: 🔁 同型を探す
 id: sci-analogy
-description: O を書く: 問いを言い直し、別の分野の同じ形の問題とその答えを探して返す（部品）
+description: "O を書く: 問いを言い直し、別の分野の同じ形の問題とその答えを探して返す（部品）"
 model: inherit
 thinking: high
 templates:

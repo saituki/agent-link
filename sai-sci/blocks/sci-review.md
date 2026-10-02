@@ -1,7 +1,7 @@
 ---
 name: 🩺 全体の審査
 id: sci-review
-description: check_logic: 研究全体の筋が通っているかを確かめ、一番上の Q に Logicality を残す
+description: "check_logic: 研究全体の筋が通っているかを確かめ、一番上の Q に Logicality を残す"
 model: inherit
 thinking: high
 templates:

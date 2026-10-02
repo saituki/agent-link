@@ -1,7 +1,7 @@
 ---
 name: 📚 Library で答える
 id: sci-lookup
-description: F を探す: 呼んだ agent の問いを Library の索引で調べ、答えと塊 ID を返す（support）
+description: "F を探す: 呼んだ agent の問いを Library の索引で調べ、答えと塊 ID を返す（support）"
 model: inherit
 thinking: high
 templates:

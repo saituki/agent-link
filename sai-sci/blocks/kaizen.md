@@ -63,7 +63,7 @@ subblocks:
 | 依頼文・会話・報告・起動時の固定部分 | `sai-moon-link phone md --kind task\|message\|report\|system <run_id>` |
 | 成果物 | `sai-moon-link phone waggle <run_id>`（本文は `sai_read`） |
 | エラー・停止の言葉を探す | `sai-moon-link search -w <語> --type tool_result --status failed` など |
-| 木の現在地・PROPOSAL・外した OPTION | `sai-moon-paper sci status --json` / `sci proposals --json` / `sci tombstones` / `sci node <N12>` |
+| 木の現在地・PROPOSAL・外した O | `sai-moon-paper sci status --json` / `sci proposals --json` / `sci tombstones` / `sci node <N12>` |
 | 実験の台帳・仕様・結果 | `.sai/tools/exp_summary.py`・`experiments/`・`phone_api.py mlflow …` |
 | Human の待ち | `phone_api.py questions` / `approvals`（過去分は `message` から） |
 | コスト | `~/.sai-moon/cc-cost`・`sai-moon-link usage`（使えるときだけ） |
@@ -82,7 +82,7 @@ subblocks:
    - 依頼文に書かれず、子が自分で探し直した情報（足りない文脈）。
    - 出力が後で 1 度も読まれていない子（使われない成果物）。同じ調べを複数の子が重ねていないか。
 3. **research-tree の使われ方**: PROPOSAL（`propose`）が ACCEPT・REJECT・放置のどれになったか。木に載らず会話・ファイルだけで済ませた判断が無いか。木を直接書き換えた・即興のツールを作った跡が無いか。
-4. **root → seed → branch の流れ**: NODE の選び方、seed の世代、branch の起こし方。つながらずに途切れた線・飛ばした層・やり直しの回数。
+4. **root → seed → branch の流れ**: Node の選び方、seed の世代、branch の起こし方。つながらずに途切れた線・飛ばした層・やり直しの回数。
 5. **branch の結果の評価と次の実験**: 台帳・MLflow の値と完了報告書が合っているか。次の実験が前の結果から出ているか（根拠の引用があるか）。失敗の原因（実装の誤りか・方法の限界か）の切り分けが妥当か。
 6. **権限と責任の抜け**: professor / operator が、持つべき権限（`sci triage`・`sci apply`・`task_manage`）を持たず止まっていないか。課題に当たる役の researcher（ブロック）が無く、手が打てなかった所が無いか。
 7. **配布物の整合**: 対象の `.sai/blocks`・`.sai/template`・`.sai/tools` が、今の `sai-sci/` の版と合っているか（`diff -rq`）。足りない・古いファイルは、実行時の不具合の原因になる。

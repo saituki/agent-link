@@ -1,7 +1,7 @@
 ---
 name: ⚖ 比較
 id: sci-compare
-description: choose: 子の Q を持たない Q の O を軸で比べ、★ の選び方の手伝いをする
+description: "choose: 子の Q を持たない Q の O を軸で比べ、★ の選び方の手伝いをする"
 model: inherit
 thinking: high
 templates:

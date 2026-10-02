@@ -1,7 +1,7 @@
 ---
 name: 🗣 議論
 id: sci-debate
-description: check_logic: 対象の Q の F どうしに矛盾が無いかを、複数の役で議論して確かめる
+description: "check_logic: 対象の Q の F どうしに矛盾が無いかを、複数の役で議論して確かめる"
 model: inherit
 thinking: high
 templates:

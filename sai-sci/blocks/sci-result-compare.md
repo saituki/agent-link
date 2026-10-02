@@ -1,7 +1,7 @@
 ---
 name: 📊 結果を比べる
 id: sci-result-compare
-description: other: 結果を比べる。論文の記載値・再現の結果・更新の結果を COMPARISON_CRITERIA（K1〜K8）で比べ、論文の主張への影響をまとめる（逆向き）
+description: "other: 結果を比べる。論文の記載値・再現の結果・更新の結果を COMPARISON_CRITERIA（K1〜K8）で比べ、論文の主張への影響をまとめる（逆向き）"
 model: inherit
 thinking: high
 templates:

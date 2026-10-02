@@ -1,7 +1,7 @@
 ---
 name: 🔍 exp-review
 id: sci-exp-review
-description: experiment: ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて完了報告書を書く
+description: "experiment: ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて完了報告書を書く"
 model: inherit
 thinking: high
 templates:
