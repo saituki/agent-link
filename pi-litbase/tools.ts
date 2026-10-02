@@ -193,7 +193,7 @@ export const recentDownloadsTool = tool(
 export const searchDbTool = tool(
   "sai_paper_search_db",
   "Search Databases",
-  "複数のデータベース（PubMed, bioRxiv, Semantic Scholar, arXiv, OpenAlex）を横断検索する。重複除外済みでSEARCH_SET を作成することもできる。研究方針の木の NODE で探すときは node と question を付ける（検索の記録が残る）。",
+  "複数のデータベース（PubMed, bioRxiv, Semantic Scholar, arXiv, OpenAlex）を横断検索する。重複除外済みでSEARCH_SET を作成することもできる。研究方針の木の NODE で探すときは node を付ける（検索の記録が残る）。",
   {
     type: "object",
     properties: {
@@ -208,8 +208,7 @@ export const searchDbTool = tool(
       year_to: num("終了年"),
       raw_query: str("DB 固有構文（PubMed Boolean など）"),
       save_as: str("セット名（指定すると検索セットを作成）"),
-      node: str("検索した NODE（N12）。記録と SEARCH_SET に残る"),
-      question: str("検索の QUESTION（Q7）"),
+      node: str("研究方針の Node（Q12・O5 など）。記録に残り、前の検索を見られる。find ではその Node の下の F の論文に絞る"),
       purpose: str("何のための検索か"),
       extract: str("読み、そこから抜き出す項目"),
       widen: str("範囲を広げた理由"),
@@ -227,7 +226,6 @@ export const searchDbTool = tool(
     if (p.raw_query) args.push("--raw-query", String(p.raw_query));
     if (p.save_as) args.push("--save-as", String(p.save_as));
     if (p.node) args.push("--node", String(p.node));
-    if (p.question) args.push("--question", String(p.question));
     if (p.purpose) args.push("--purpose", String(p.purpose));
     if (p.extract) args.push("--extract", String(p.extract));
     if (p.widen) args.push("--widen", String(p.widen));
@@ -329,7 +327,7 @@ export const setMergeTool = tool(
 export const findTool = tool(
   "sai_paper_find",
   "Find Chunks",
-  "Library、ノート内でハイブリッド検索を実行する。埋め込みサーバが動いていないときは --mode word を使うこと（日本語は当たらないため英語のみ）。研究方針の木の NODE で探すときは node と question を付ける（検索の記録が残る）。",
+  "Library、ノート内でハイブリッド検索を実行する。埋め込みサーバが動いていないときは --mode word を使うこと（日本語は当たらないため英語のみ）。研究方針の木の NODE で探すときは node を付ける（検索の記録が残る）。",
   {
     type: "object",
     properties: {
@@ -346,10 +344,9 @@ export const findTool = tool(
         items: { type: "number" },
         description: "論文の集合で絞る。`paper` と同じ扱い",
       },
-      node: str("NODE に LINK した論文に絞る（N12）"),
+      node: str("研究方針の Node（Q12・O5 など）。記録に残り、前の検索を見られる。find ではその Node の下の F の論文に絞る"),
       subtree: bool("`node` の子孫の NODE も含める"),
       each: num("SCOPE の論文ごとに上位 m 件を返す（`papers` か `node` と一緒に使う）"),
-      question: str("検索の QUESTION（Q7）。記録に残り、前の検索を見られる"),
       widen: str("範囲を広げた理由"),
     },
     required: ["query"],
@@ -369,7 +366,6 @@ export const findTool = tool(
     if (p.node) args.push("--node", String(p.node));
     if (p.subtree) args.push("--subtree");
     if (p.each) args.push("--each", String(p.each));
-    if (p.question) args.push("--question", String(p.question));
     if (p.widen) args.push("--widen", String(p.widen));
     args.push("--json");
     return runSaiPaper(args);
@@ -415,7 +411,7 @@ const NO_RUN_ID = "実行番号がありません（run_id か環境変数 SAI_P
 export const sciContextTool = tool(
   "sai_paper_sci_context",
   "Sci Context",
-  "今の実行の SCOPE（研究方針の木から切り出した入力）を返す",
+  "今の実行の文脈（研究方針の木から範囲を切り出したもの・出せる PROPOSAL の op の説明）を返す",
   {
     type: "object",
     properties: {
@@ -439,19 +435,24 @@ export const sciContextTool = tool(
 export const sciStatusTool = tool(
   "sai_paper_sci_status",
   "Sci Status",
-  "研究方針の木の全体（SEED_SENTENCE・GATE・ITEM・DEBT・NEXT_ACTION）",
-  { type: "object", properties: {} },
-  () => runSaiPaper(["sci", "status", "--json"]),
+  "研究方針の木の全体（Q・O・F・E、Objectivity・Logicality、進み具合、SEED、Next Action、DEBT）。brief を true にすると進み具合・Next Action・DEBT の数・注意だけになる",
+  {
+    type: "object",
+    properties: {
+      brief: bool("true のとき進み具合・Next Action・DEBT の数・注意だけ返す"),
+    },
+  },
+  (p) => runSaiPaper(["sci", "status", p.brief ? "--brief" : "--json"]),
 );
 
 /** 研究方針の木: NODE 1 つ。 */
 export const sciNodeTool = tool(
   "sai_paper_sci_node",
   "Sci Node",
-  "NODE 1 つの中身（QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG）",
+  "Node 1 つの中身（親までの道・子・ガイド・Logicality の記録・決定の記録・Action の履歴・仕分け待ち・Next Action・検索の記録）",
   {
     type: "object",
-    properties: { node: str("N12 の形") },
+    properties: { node: str("Q12・O5・F3・E2 の形") },
     required: ["node"],
   },
   (p) => runSaiPaper(["sci", "node", String(p.node), "--json"]),
@@ -461,7 +462,7 @@ export const sciNodeTool = tool(
 export const sciProposeTool = tool(
   "sai_paper_sci_propose",
   "Sci Propose",
-  "研究方針の木への変更を PROPOSAL として出す。LINK・QUESTION・FINDING はすぐ入り（AUTO_OP）、ほかは利用者が TRIAGE する（REVIEW_OP）",
+  "研究方針の木への変更を PROPOSAL として出す。O・F・E・Logicality はすぐ入り、Q を足す・写す・✕ は利用者が仕分けてから入る。★ などは出せない。1 件でも違反があれば何も入らない",
   {
     type: "object",
     properties: {

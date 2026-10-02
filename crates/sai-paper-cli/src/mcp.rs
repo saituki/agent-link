@@ -30,10 +30,9 @@ pub fn tools() -> Value {
                     "scope": {"type": "string", "enum": ["papers", "notes", "figures", "all"]},
                     "paper_id": {"type": "integer", "description": "この論文に絞る（Library の番号）"},
                     "papers": {"type": "array", "items": {"type": "integer"}, "description": "論文の集合で絞る（paper_id と足して使う）"},
-                    "node": {"type": "string", "description": "NODE に LINK した論文に絞る（N12）"},
+                    "node": {"type": "string", "description": "研究方針の Node（Q12・O5 など）。記録に残り、前の検索を見られる。find ではその Node の下の F の論文に絞る"},
                     "subtree": {"type": "boolean", "description": "node の子孫の NODE も含める（node と一緒に使う）"},
                     "each": {"type": "integer", "description": "SCOPE の論文ごとに上位 m 件を返す（papers か node と一緒に使う）"},
-                    "question": {"type": "string", "description": "検索の QUESTION（Q7）。記録に残り、前の検索を見られる"},
                     "widen": {"type": "string", "description": "範囲を広げた理由"},
                     "index": index,
                     "evidence": {"type": "boolean", "description": "true のとき上位の結果に LLM の要約と関連度を付ける（費用がかかる。必要なときだけ）"},
@@ -99,7 +98,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_context",
-            "description": "今の実行の SCOPE（研究方針の木から切り出した入力）を返す",
+            "description": "今の実行の文脈（研究方針の木から範囲を切り出したもの・出せる PROPOSAL の op の説明）を返す",
             "inputSchema": {"type": "object", "properties": {
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
                 "scope": {"type": "string", "enum": ["node", "path", "subtree", "siblings", "summary", "blind"]},
@@ -107,21 +106,21 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_status",
-            "description": "研究方針の木の全体（SEED_SENTENCE・GATE・ITEM・DEBT・NEXT_ACTION）。brief を true にすると GATE・DEBT・NEXT_ACTION だけになる",
+            "description": "研究方針の木の全体（Q・O・F・E、Objectivity・Logicality、進み具合、SEED、Next Action、DEBT）。brief を true にすると進み具合・Next Action・DEBT の数・注意だけになる",
             "inputSchema": {"type": "object", "properties": {
-                "brief": {"type": "boolean", "description": "true のとき NODE と線を省き、GATE・DEBT・NEXT_ACTION・走っている実行・注意だけ返す（短い文脈で現在地を読む）"},
+                "brief": {"type": "boolean", "description": "true のとき進み具合・Next Action・DEBT の数・注意だけ返す（短い文脈で現在地を読む）"},
             }},
         },
         {
             "name": "sci_node",
-            "description": "NODE 1 つの中身（QUESTION・OPTION・FINDING・LINK・DECISION_LOG・ACTION_LOG）",
-            "inputSchema": {"type": "object", "properties": {"node": {"type": "string", "description": "N12 の形"}}, "required": ["node"]},
+            "description": "Node 1 つの中身（親までの道・子・ガイド・Logicality の記録・決定の記録・Action の履歴・仕分け待ち・Next Action・検索の記録）",
+            "inputSchema": {"type": "object", "properties": {"node": {"type": "string", "description": "Q12・O5・F3・E2 の形"}}, "required": ["node"]},
         },
         {
             "name": "sci_propose",
-            "description": "研究方針の木への変更を PROPOSAL として出す。LINK・QUESTION・FINDING はすぐ入り（AUTO_OP）、ほかは利用者が TRIAGE する（REVIEW_OP）",
+            "description": "研究方針の木への変更を PROPOSAL として出す。O・F・E・Logicality はすぐ入り、Q を足す・写す・✕ は利用者が仕分けてから入る。★ などは出せない。1 件でも違反があれば何も入らない",
             "inputSchema": {"type": "object", "properties": {
-                "proposals": {"type": "array", "items": sai_paper_core::sci::ops::propose_schema(), "description": "1 件ずつの PROPOSAL。op ごとに必要な項目と型が決まっている（oneOf）"},
+                "proposals": {"type": "array", "items": sai_paper_core::rt::ops::propose_schema()["properties"]["proposals"]["items"].clone(), "description": "1 件ずつの PROPOSAL。op ごとに必要な項目と型が決まっている（oneOf）"},
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
             }, "required": ["proposals"]},
         },
@@ -479,7 +478,7 @@ mod tests {
         );
     }
 
-    /// find の入力に範囲を絞る引数がある（papers / node / subtree / each / question）。
+    /// find の入力に範囲を絞る引数がある（papers / node / subtree / each）。
     #[test]
     fn find_tool_exposes_scope_arguments() {
         let listed = tools();
@@ -489,12 +488,31 @@ mod tests {
             .iter()
             .find(|tool| tool["name"] == "find")
             .unwrap();
-        for name in ["papers", "node", "subtree", "each", "question"] {
+        for name in ["papers", "node", "subtree", "each"] {
             assert!(
                 find["inputSchema"]["properties"][name].is_object(),
                 "find に {name} が無い"
             );
         }
+    }
+
+    /// sci_propose の items は Auto・Human の op だけ（star などの利用者専用は無い）。
+    #[test]
+    fn sci_propose_schema_has_no_user_only_ops() {
+        let listed = tools();
+        let tool = listed.as_array().unwrap().iter().find(|t| t["name"] == "sci_propose").unwrap();
+        let variants = tool["inputSchema"]["properties"]["proposals"]["items"]["oneOf"].as_array().unwrap();
+        let ops: Vec<&str> = variants.iter().map(|v| v["properties"]["op"]["const"].as_str().unwrap()).collect();
+        for op in ["add_q", "add_o", "add_f", "add_e", "record_logic", "copy", "remove"] {
+            assert!(ops.contains(&op), "{op} が無い");
+        }
+        for op in ["star", "unstar", "set_kind", "edit", "set_target"] {
+            assert!(!ops.contains(&op), "{op} が出ている");
+        }
+        let find = listed.as_array().unwrap().iter().find(|t| t["name"] == "find").unwrap();
+        assert!(find["inputSchema"]["properties"]["question"].is_null());
+        let node = listed.as_array().unwrap().iter().find(|t| t["name"] == "sci_node").unwrap();
+        assert!(node["inputSchema"]["properties"]["node"]["description"].as_str().unwrap().contains("Q12"));
     }
 
     /// sci_propose に proposals が無いときは isError で返す（接続は切らない）。

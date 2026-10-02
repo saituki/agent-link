@@ -57,7 +57,7 @@ try {
   process.env.SAI_PAPER_BIN = fakeBin;
   process.env.SAI_PAPER_ROOT = dir;
 
-  const { findTool, sciProposeTool, sciContextTool, litbaseTools } = await import(
+  const { findTool, sciProposeTool, sciContextTool, sciStatusTool, litbaseTools } = await import(
     join(here, "tools.ts")
   );
 
@@ -66,7 +66,7 @@ try {
     await findTool.execute("call-1", {
       query: "eeg",
       papers: [37, 40],
-      node: "N7",
+      node: "Q7",
       subtree: true,
       each: 2,
       question: "Q3",
@@ -74,8 +74,20 @@ try {
   );
   assert.equal(
     found.args,
-    "find eeg --papers 37,40 --node N7 --subtree --each 2 --question Q3 --json",
+    "find eeg --papers 37,40 --node Q7 --subtree --each 2 --json",
   );
+
+  // 1b. question を渡しても `--question` は付かない（新しい木では node で指す）。
+  const withQuestion = readResult(
+    await findTool.execute("call-1a", { query: "eeg", node: "Q7", question: "Q3" }),
+  );
+  assert.equal(withQuestion.args, "find eeg --node Q7 --json");
+
+  // 1c. sci_status は brief で `--brief`、無ければ `--json`。
+  const briefStatus = readResult(await sciStatusTool.execute("call-1c", { brief: true }));
+  assert.equal(briefStatus.args, "sci status --brief");
+  const fullStatus = readResult(await sciStatusTool.execute("call-1d", {}));
+  assert.equal(fullStatus.args, "sci status --json");
 
   // 2. 論文の集合が空なら `--papers` は付けない（空文字列を送ると CLI が怒る）。
   const noPapers = readResult(
@@ -85,7 +97,7 @@ try {
 
   // 3. propose は --run を付け、標準入力に提案の JSON を書く。
   const proposals = [
-    { op: "add_question", node: "N7", text: "問いの文", reason: "理由" },
+    { op: "add_o", q: "Q7", text: "選択肢の文", reason: "理由" },
   ];
   const proposed = readResult(
     await sciProposeTool.execute("call-2", { proposals, run_id: 5 }),
