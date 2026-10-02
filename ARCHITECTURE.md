@@ -66,12 +66,14 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 - **公開された約束**（`phone` CLI の JSON と終了コード・書き出し・登録簿・HTTP API）が、コアと Web の境目である。`apps/phone` はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **入口**は表示と入力だけを受け持つ。TUI は Rust の関数を直接呼び、`apps/phone` は CLI を呼ぶ。どちらも同じ関数に行き着く。
-- **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-paper-core/src/sci/`、入口は `sai-moon-paper sci` / `phone sci` / MCP / Web / TUI。
-  木には 3 役が乗じる（詳しくは [`sai-sci/README.md`](./sai-sci/README.md) の 3.4.1）。
+- **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-paper-core/src/rt/`、入口は `sai-moon-paper sci` / `phone sci` / MCP / Web / TUI。
+  木には 3 役が乗じる（詳しくは [`sai-sci/README.md`](./sai-sci/README.md) の 3.3.1）。
+  木は Q（問い）・O（答えの候補。Answer か Issue）・F（知見）・E（実験）でできている。評価は Q ごとの Objectivity（F の本数の目安）と Logicality（筋の確かめ）、研究の 1 文は SEED。
+  木に向けた 1 回の実行が Action（task.md）で、Next Action がその候補、終わった Action の完了基準を満たしていない残りが DEBT。
   - `professor`（`sai-sci/blocks/professor.md`）— 研究の舵取り。研究の現在地を読み、次の一手を決めてカードを作り、researcher（`sci-*`）を**自分の子として**起こす。root の run。
   - `operator`（`sai-sci/blocks/operator.md`）— sai-moon の操作係。故障の対処・監視・情報の抽出・Web と同じ操作だけ。professor の子。研究の判断はしない。
   - `professor-backward`（`sai-sci/blocks/professor-backward.md`）— 既存の論文から始める逆向き（backward）の舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす。役目の分け方は `professor` と同じ。
-  - `sci-*` の 23 本 — 研究作業そのもの。木の 4 つの層（上から branch / sprout / seed / root）で動く。実験の 3 本（`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`）は互いの終わりを待たず、ジョブの終わりで review が起きる。review が完了報告書 `exp-final-<study>.md` を書き、実験仕様書の `return_to` があれば、その professor のカードを作って起こし直す。うち 4 本（`sci-restore`・`sci-cite-check`・`sci-tree-review`・`sci-result-compare`）は逆向きのためのもの。
+  - `sci-*` の 23 本 — 研究作業そのもの。木の Node（Q・O・F・E）に向けて動く。実験の 3 本（`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`）は互いの終わりを待たず、ジョブの終わりで review が起きる。review が完了報告書 `exp-final-<study>.md` を書き、実験仕様書の `return_to` があれば、その professor のカードを作って起こし直す。うち 3 本（`sci-restore`・`sci-cite-check`・`sci-result-compare`）は逆向きのためのもの。役の 4 本目の `kaizen` は、実行履歴から改善計画書を作る。
   - カード（task.md）の `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人が起こせず（`phone card run` が断る）、professor が `task_create` の `card` で起こす。runner は pi だけ。
   - 質問は**そのカードの起動者が答える**（professor が起こしたカードなら professor）。親の `task_output` に `stalled`（`reason: "question"`、`question_id` 付き）で届き、`phone_api.py question` / `answer` で答える。Web で人が先に答えた場合は 400 で断られ、その答えを採る。
   - 報告は run フォルダの `finalize-report.md`。子は `task_report`、root は `sai_finalize` の `report`。`sai-moon-link phone md --kind report <run_id>` で読む。
@@ -196,7 +198,7 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
 | `linkview.js` / `cardform.js` / `stats.js` | List・task.md の作成フォーム・統計 |
 | `defs.js` | 設定（block / template / settings） |
 | `papers.js` / `paperimport.js` | 論文の各画面・Import と Download の見張り |
-| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | 研究方針（`#/papers/tree` と `#/papers/triage` と `#/papers/read/<run_id>`。木・板・操作・TRIAGE・READ_CARD・ROOT_GRAPH・TABLE） |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `sciset.js` | 研究方針（`#/papers/tree`・`#/papers/triage`・`#/papers/read/<run_id>`・`#/papers/sets`。一覧と板（`scitree.js`）・操作と仕分け（`sciedit.js`）・読む札（`sciread.js`）・方針の図（`scigraph.js`）・検索セットの選別（`sciset.js`）） |
 | `canvaslayout.js` | 配置・全体表示・拡大の純関数（研究方針の根の図と Workflow が使う） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Radio・声の質問・質問の読み上げと音声回答 |
 | `usage.js` | 使用量 |
@@ -265,13 +267,13 @@ sai-moon/
 ├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
 ├── pi-litbase/               # pi の拡張（TypeScript・Cargo の外）
 ├── sai-sci/                  # 研究方針の木（Research-tree）
-│   ├── types/                # 5 つの型（sai-moon-paper に埋め込まれる）
-│   ├── guides/               # ITEM_GUIDE（上の ITEM 9 本・子の ITEM 16 本）
-│   ├── template/             # sci-core.md・exp-core.md・exp-run.md（研究と実験の決まり）と sai-agent.md・sai-task.md・sai-cli.md（professor と operator の決まり）
+│   ├── types/                # 研究の型 5 本（Q の階層の雛形。sai-moon-paper に埋め込まれる）
+│   ├── guides/               # ガイド 25 本（Q の文・Child Q・Extract・Pitfall・目安）
+│   ├── template/             # 9 本。sci-core・sci-find・sci-match・bw-core（研究の決まり）、exp-core・exp-run（実験の決まり）、sai-agent・sai-task・sai-cli（professor と operator の決まり）
 │   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とテスト（sci init が .sai/tools/ へ配る）
 │   ├── exec/                 # 実行先の見本（local・ssh・dok・_example。sci init が .sai/exec/ へ配る）
-│   ├── mind.md               # SOIL のひな形
-│   └── blocks/               # 25 本のブロック（professor・professor-backward・operator と 22 本の sci-*）
+│   ├── mind.md               # mind.md（研究の土台）のひな形
+│   └── blocks/               # 27 本のブロック（役 4 本 professor・professor-backward・operator・kaizen と 23 本の sci-*）
 ├── apps/
 │   ├── phone/                # Web の窓口（8200）
 │   │   ├── src/sai_phone/    # サーバ（§4.1）

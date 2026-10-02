@@ -28,7 +28,7 @@
 | **ホーム**       | 答えを待っている質問・承認、確認を待っている review、動いている実行、論文の要対応を 1 画面で見る                          |
 | **プロジェクト** | プロジェクト（Rust コアが管理するもの）を見る・動かす（Dashboard・Workflow・List・設定）                                  |
 | **会話**         | coding agent の会話を読み、文字や声で指示を送る。質問と承認に答える                                                       |
-| **論文**         | 研究方針の木を見て次の行動を決める。論文を探す・取り込む・読む・聴く（研究方針 / Dashboard / Discover / Library / Radio） |
+| **論文**         | 研究方針の木（Q・O・F・E）を見て次の行動を決める。論文を探す・取り込む・読む・聴く（研究方針 / Dashboard / Discover / Library / Radio） |
 | **使用量**       | LLM の料金と制限（Claude Code・OpenRouter・DeepSeek）                                                                     |
 
 - **ホーム** — いま決めることを 1 枚に。質問と承認、確認を待っている review、動いている実行、止まっている常駐、論文の要対応が並ぶ。15 秒ごとに読み直す。
@@ -39,7 +39,7 @@
   - **設定**: そのプロジェクトの `.sai/` と、全体の `~/.sai-moon/` にある block / template / settings を読み書きする。壊れた定義は保存しない。
 - **会話** — 日付 → 実行 → 会話。下の入力欄から文字を送れ、🎤 で音声入力もできる。質問と cc のコマンド承認には **PC と iPhone の両方に同時に出て、先に答えた方が採用される**。
 - **論文** — 上部の **研究方針 / Dashboard / Discover / Library / Radio**。Radio は続きから聴く・15 秒送り戻し・速度・オフライン保存と、文字か声での質問ができる。
-  - **研究方針**: 研究の QUESTION・OPTION・FINDING を木で見て、次の行動を決める（`sai-sci/README.md`）。論文タブを開いたときの最初の画面。
+  - **研究方針**: 研究の Q（問い）・O（答えの候補）・F（知見）・E（実験）を木で見て、Next Action から次の行動（Action）を決める。★ を付ける・仕分け（`#/papers/triage`）・検索セットの選別（`#/papers/sets`）・読む札（`#/papers/read/<run_id>`）もここから行う（`sai-sci/README.md`）。論文タブを開いたときの最初の画面。
 - **使用量** — Claude Code（Team）の 5 時間枠、OpenRouter・DeepSeek の残高と使用料。
 
 画面と API の全部の住所は [`docs/integration.md`](./docs/integration.md) にあります。
@@ -180,17 +180,17 @@ tailscale serve status
 sai-moon-paper init --sci --type <problem|phenomenon|method|data|improve>
 ```
 
-ブロックとテンプレート・`.sai/settings.json` の `context`・型と ITEM_GUIDE の写し・木・書き出しが、この 1 行で揃います（手で足す設定はありません）。
+ブロックとテンプレート・`.sai/settings.json` の `context`・研究の型とガイドの写し・一番上の Q・書き出しが、この 1 行で揃います（手で足す設定はありません）。
 使い方は [`sai-sci/README.md`](./sai-sci/README.md) にあります。
 
-配られるブロックは 25 本です（研究を回す `professor`、既存の論文から始める逆向きの `professor-backward`、sai-moon の操作を受け持つ `operator`、22 本の `sci-*`）。研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`・逆向きの `bw-core`）と `.sai/tools/phone_api.py` も一緒に入ります。
-既に研究プロジェクトがあるときは、古い `.sai/template/sci-core.md` などを消してから `sai-moon-paper init --assets-only --sci --type <型>` を打ち直すと、新しい決まりに入れ替わります（既にあるファイルは上書きされません）。
+配られるブロックは 27 本です（役 4 本 — 研究を回す `professor`、既存の論文から始める逆向きの `professor-backward`、sai-moon の操作を受け持つ `operator`、実行履歴から改善を洗い出す `kaizen` — と、23 本の `sci-*`）。研究向けの template 9 本（`sci-core`・`sci-find`・`sci-match`・`bw-core`・`exp-core`・`exp-run`・`sai-agent`・`sai-task`・`sai-cli`）と `.sai/tools/phone_api.py` も一緒に入ります。研究の型は 5 本、ガイドは 25 本です。
+配った写し（`.sai/blocks/`・`.sai/template/`・`.sai/sci/`）は自動では新しくなりません。新しい版にする手順（写しを別の名前へ移し、`sai-moon-paper init --assets-only --sci --type <型>` を打ち直す）は [`sai-sci/README.md`](./sai-sci/README.md) の 8.2 節にあります。
 
 #### professor から研究を回す
 
 ```bash
 # professor のカードを作る（起こすのは人）。`--input` に要件定義書などの waggle トークンを渡す
-sai-moon-paper sci card --node <N1> --block professor \
+sai-moon-paper sci card --node <Q1> --block professor \
   --purpose "<研究の構想>" --input <waggle トークン> \
   --executer human --json
 ```
@@ -198,7 +198,7 @@ sai-moon-paper sci card --node <N1> --block professor \
 - 返ってきた `run_id` を Web（または TUI）から実行します。
 - 研究作業のカード（`--executer professor`）は人が起こせません。professor が `task_create` の `card` で、自分の子として起こします。
 - professor は `.sai/paper/professor-log.md` に研究日誌を残します。会話が要約されたときは、この日誌と `sai-moon-paper sci status --brief` から読み返します。
-- 3 役の関係は [`sai-sci/README.md`](./sai-sci/README.md) の 3.4.1 にあります。
+- 3 役の関係は [`sai-sci/README.md`](./sai-sci/README.md) の 3.3.1 にあります。
 
 ### エージェントの実験記録（MLflow への接続情報）
 
@@ -370,5 +370,5 @@ plutil -lint apps/phone/launchd/com.sai-moon.plist
 - [`AGENTS.md`](./AGENTS.md) — このリポジトリで作業するエージェントへの指示。
 - [`docs/integration.md`](./docs/integration.md) — `apps/phone` の API と画面の住所の一覧、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — `crates/` と `apps/radio` を直す人が守ること（`apps/phone` を壊さないために）。
-- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（型・ITEM_GUIDE・25 本のブロック・逆向きの運用・命令と MCP・Web の画面）の説明書。
+- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（研究の型・ガイド・27 本のブロック・逆向きの運用・命令と MCP・Web の画面・写しの更新手順）の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio だけ 詳しく知りたときの詳細。

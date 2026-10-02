@@ -156,6 +156,8 @@ TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警�
 
 ### 2.2.2 `layer` キーと `phone rtree`（research-tree の実行の図）
 
+- sci のブロック（`sci-*`）は `layer` を持たない（研究方針の画面の実行の図はやめた）。下の `layer` と `phone rtree` は sai-link 側の機能として残る。
+
 **ブロック定義の `layer` キー（C-01）**
 
 ブロック定義（`.sai/blocks/<id>.md`）の frontmatter に `layer:` を書くと、そのブロックの run が
