@@ -559,7 +559,7 @@ fn research_runs(root: &Path) -> Vec<(RunDir, String)> {
 }
 
 /// `review.md` の frontmatter（先頭の `---` から次の `---` まで）を外す。
-fn strip_frontmatter(text: &str) -> &str {
+pub(crate) fn strip_frontmatter(text: &str) -> &str {
     let first_end = text.find('\n').map_or(text.len(), |index| index + 1);
     if text[..first_end].trim() != "---" {
         return text;
@@ -575,7 +575,7 @@ fn strip_frontmatter(text: &str) -> &str {
 }
 
 /// `###` の見出しの下に空白以外の文字があるか（`brief` と同じ決まり）。
-fn review_has_content(body: &str) -> bool {
+pub(crate) fn review_has_content(body: &str) -> bool {
     let mut in_section = false;
     for line in body.lines() {
         let trimmed = line.trim();

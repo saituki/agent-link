@@ -764,19 +764,32 @@ fn dashboard() -> Result<Value> {
     let notes = sai_paper_core::paths::note_count(&paths.data_dir());
     let mut activity = db.all_activity()?;
     podcast_client::merge_radio_activity(&mut activity, &cfg.radio, db.connection());
-    activity.truncate(DASHBOARD_ACTIVITY_MAX);
-    let items: Vec<Value> = activity
+    let mut timed: Vec<(chrono::DateTime<chrono::Utc>, Value)> = activity
         .iter()
         .map(|a| {
-            json!({
-                "kind": a.kind,
-                "label": a.label,
-                "occurred_at": a.occurred_at.to_rfc3339(),
-                "paper_id": a.paper_id,
-                "radio_id": a.radio_id,
-            })
+            (
+                a.occurred_at,
+                json!({
+                    "kind": a.kind,
+                    "label": a.label,
+                    "occurred_at": a.occurred_at.to_rfc3339(),
+                    "paper_id": a.paper_id,
+                    "radio_id": a.radio_id,
+                }),
+            )
         })
         .collect();
+    // sci の run（Action）の行。研究方針の木が無くても run があれば出す。
+    if let Some(roots) = sai_paper_core::paper_roots() {
+        for item in sai_paper_core::rt::action::activity(db.connection(), &roots).unwrap_or_default() {
+            if let Ok(at) = chrono::DateTime::parse_from_rfc3339(&item.occurred_at) {
+                timed.push((at.with_timezone(&chrono::Utc), json!(item)));
+            }
+        }
+    }
+    timed.sort_by(|a, b| b.0.cmp(&a.0));
+    timed.truncate(DASHBOARD_ACTIVITY_MAX);
+    let items: Vec<Value> = timed.into_iter().map(|(_, v)| v).collect();
     Ok(json!({
         "cards": {
             "papers": LibraryIndexer::count_pdfs(&collection_roots),
