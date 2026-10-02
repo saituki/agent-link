@@ -370,8 +370,15 @@ pub fn propose(
 pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &Value) -> Result<ApplyResult> {
     let op = input.get("op").and_then(Value::as_str).unwrap_or("").to_string();
     let tx = conn.unchecked_transaction()?;
-    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id: None, proposal_id: None };
-    let result = execute(&cx, input)?;
+    // 読む札（runner=user の run）の画面から足す F は、その run の F として残す
+    // （`run` は op の項目ではないので、検査に渡す前に外す）
+    let run_id = input.get("run").and_then(Value::as_i64).filter(|r| *r > 0);
+    let mut input = input.clone();
+    if let Some(map) = input.as_object_mut() {
+        map.remove("run");
+    }
+    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id, proposal_id: None };
+    let result = execute(&cx, &input)?;
     tx.commit()?;
     Ok(ApplyResult { op, result: Some(result) })
 }
@@ -935,6 +942,19 @@ mod tests {
         ).unwrap();
         assert!(f("精度は 85 %", json!(["#37.5.2"])).is_ok());
         assert!(err(f("精度は 85 %", json!(["#37.5.3"]))).contains("塊 #37.5.3 は論文 37 にありません"));
+    }
+
+    #[test]
+    fn user_add_f_keeps_run() {
+        let e = env();
+        let o = e.o("A");
+        let f = e.user(json!({"op": "add_f", "parent": o, "text": "読んで分かった", "run": 31})).unwrap().result.unwrap();
+        let run: Option<i64> = e
+            .conn()
+            .query_row("SELECT run_id FROM rt_nodes WHERE kind = 'F'", [], |r| r.get(0))
+            .unwrap();
+        assert!(f.starts_with('F'));
+        assert_eq!(run, Some(31));
     }
 
     #[test]

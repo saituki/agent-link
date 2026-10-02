@@ -90,7 +90,7 @@ function test_parents() {
 function test_build_answer() {
   const card = sampleCard();
   assert.deepStrictEqual(ok(srBuildAnswer(card, { parent: "O12", text: "改善が見られた。" })), {
-    op: "add_f", parent: "O12", text: "改善が見られた。", cites: ["#37"], paper: 37,
+    op: "add_f", parent: "O12", text: "改善が見られた。", cites: ["#37"], paper: 37, run: 130,
   });
   assert.deepStrictEqual(ok(srBuildAnswer(card, { parent: "E3", text: "あ", place: " §3.2 " })).cites, ["#37 §3.2"]);
   // 3 文まで

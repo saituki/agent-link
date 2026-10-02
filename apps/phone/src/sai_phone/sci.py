@@ -109,6 +109,7 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
         "cites": "ocites",
         "paper": "opaper",
         "report": "oreport",
+        "run": "orun",
     },
     "add_e": {"parent": "ref:OE", "text": "text:120", "body": "body", "mlflow": "otext:200"},
     "record_logic": {
@@ -272,7 +273,7 @@ def _check_one(key: str, kind: str, value):
         return text
     if name == "ocites":
         return _check_cites(value)
-    if name == "opaper":
+    if name in ("opaper", "orun"):
         return check_run_id(value)
     if name == "oreport":
         text = _trim(value)
@@ -311,7 +312,7 @@ def validate_op(payload) -> dict:
         raw = payload.get(key)
         # `ref:`・`enum:`・`text:`・`seedpath`・`target` は必須、ほかは任意
         optional = kind.split(":")[0] in (
-            "oenum", "otext", "body", "oguide", "ocites", "opaper", "oreport", "ofindings"
+            "oenum", "otext", "body", "oguide", "ocites", "opaper", "orun", "oreport", "ofindings"
         )
         if raw is None and kind == "target" and key in payload:
             out[key] = None  # 目標を外す（null）

@@ -98,7 +98,11 @@ function srBuildAnswer(card, values) {
   if (place.length > 80) return bad("場所は 80 字までです");
   const cite = place ? `#${paper} ${place}` : `#${paper}`;
   if (!SR_CITE_RE.test(cite)) return bad("出典の形が正しくありません");
-  return { ok: true, json: { op: "add_f", parent, text, cites: [cite], paper }, error: null };
+  const json = { op: "add_f", parent, text, cites: [cite], paper };
+  // この札（run）で入れた F として残す（「この札で入れた F」と DEBT の f_added に数える）
+  const run = Number(card && card.run_id);
+  if (Number.isInteger(run) && run > 0) json.run = run;
+  return { ok: true, json, error: null };
 }
 
 /** 対象 Node の画面へ戻る住所。 */

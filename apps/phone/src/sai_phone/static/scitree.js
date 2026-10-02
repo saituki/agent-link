@@ -553,17 +553,9 @@ function stRowEl(r, opts) {
   return row;
 }
 
-/** Answer と Issue を入れ替える（確認ののち）。 */
-async function stToggleKind(r) {
+/** Answer と Issue を入れ替える（確認は seQuick が出す）。 */
+function stToggleKind(r) {
   const next = r.answerKind === "answer" ? "issue" : "answer";
-  if (typeof saiConfirm === "function") {
-    const ok = await saiConfirm({
-      title: "種類を変える",
-      body: `${r.id} を ${ST_KIND_LABEL[r.answerKind]} から ${ST_KIND_LABEL[next]} に変えます。`,
-      ok: "変える",
-    });
-    if (!ok) return;
-  }
   stCall("seQuick", "set_kind", { o: r.id, kind: next });
 }
 

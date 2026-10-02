@@ -237,7 +237,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `GET /api/projects/{name}/papers/sci/types` | 使える研究の型（`phone sci types`） |
 | `POST /api/projects/{name}/papers/sci/init` | 研究方針の木を始める（body `{"type": "problem"}`・型は 5 つだけ。`phone sci init --type <型>`） |
 | `GET /api/projects/{name}/papers/sci/nodes/{node_id}` | Node 1 つの中身（`phone sci node <ID>`。`{node_id}` は `Q12`・`O5`・`F3`・`E2` の形） |
-| `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 13 種の op の JSON。`phone sci apply` の標準入力へ渡す） |
+| `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 13 種の op の JSON。`phone sci apply` の標準入力へ渡す。読む札の画面が足す `add_f` だけは、任意の `run`（読む札の run_id）を付け、その run の F として残す） |
 | `GET /api/projects/{name}/papers/sci/proposals` | 仕分け待ちの提案の一覧（`phone sci proposals`） |
 | `POST /api/projects/{name}/papers/sci/proposals/{pid}` | 提案を仕分ける（body `{"action": "accept\|reject\|revert", "note": "…", "edit": {…}}`。`phone sci triage <P> --action … [--note=…]`・`edit` は標準入力） |
 | `POST /api/projects/{name}/papers/sci/cards` | Node のための札（カード）を作る（body は C-CARD の JSON。`phone sci card` の標準入力へ渡す） |

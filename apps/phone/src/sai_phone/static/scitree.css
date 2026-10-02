@@ -247,6 +247,7 @@ button.sci-debt {
 }
 
 .sci-row-sub { display: flex; flex-wrap: wrap; gap: 4px; }
+.sci-row-main .sci-row-head { max-width: 100%; }
 .sci-row-sub:empty { display: none; }
 
 .sci-row-title {
@@ -413,7 +414,7 @@ button.sci-debt {
 .sci-next { display: flex; flex-direction: column; gap: 4px; }
 
 /* 一覧の行: 押す部分・★・Answer/Issue・✕。押せる物は 44px 以上 */
-.sci-row { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.sci-row { display: flex; flex-direction: row; align-items: center; gap: 4px; border-radius: 8px; padding-top: 0; padding-bottom: 0; padding-right: 4px; cursor: default; }
 .sci-row.selected { background: var(--bg-soft); }
 .sci-row-main {
   flex: 1 1 auto;
@@ -424,6 +425,7 @@ button.sci-debt {
   align-items: flex-start;
   gap: 2px;
   padding: 4px 0;
+  overflow: hidden;
   border: 0;
   background: transparent;
   color: var(--text);

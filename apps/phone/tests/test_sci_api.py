@@ -108,6 +108,7 @@ OP_EXAMPLES = {
         "cites": ["#37.3.1 速さ", "#40", "#41.2-4"],
         "paper": 37,
         "report": "R-0012",
+        "run": 130,
     },
     "add_e": {"parent": "O2", "text": "実験", "body": "b", "mlflow": "run/abc"},
     "record_logic": {"q": "Q1", "value": "contradiction", "note": "n", "findings": ["F1", "F2"]},
