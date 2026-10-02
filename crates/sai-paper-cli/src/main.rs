@@ -218,10 +218,10 @@ enum Cmd {
         /// 論文の集合で絞る（カンマ区切り。`--paper` と同じ扱い）
         #[arg(long, value_delimiter = ',')]
         papers: Vec<i64>,
-        /// 節点に結び付いた論文に絞る（`N12`）
+        /// 研究方針の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
         #[arg(long)]
         node: Option<String>,
-        /// `--node` の子孫の節点も含める
+        /// `--node` の子孫の Node も含める
         #[arg(long)]
         subtree: bool,
         /// 範囲の論文ごとに上位 m 件を返す（`--papers` か `--node` と一緒に使う）
