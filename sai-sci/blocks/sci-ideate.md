@@ -1,73 +1,68 @@
 ---
-name: 💡 OPTION を増やす
+name: 💡 O を書く
 id: sci-ideate
-description: OPTION を増やす。他分野の同型・前提の逆転から OPTION を出し、確かめ方を添える
+description: O を書く: 子の Q を持たない Q に、答えの候補（O）を広く出すか、利用者と 1 案を練って出す
 model: inherit
 thinking: high
 templates:
   - sci-core
+  - sci-find
   - search-internal
   - literature-hard-rules
   - domain
 context: true
-sci_ops: add_option, add_child, add_question, add_finding, link
+sci_ops: add_o, add_f
 sci_scope: path
+sci_action: write_o
+sci_support: false
+sci_done_agent: report, review, o_added
+sci_done_user:
 timeout: 5400
 worktree: none
-layer: root
 enable: true
 subblocks:
   - sci-analogy
   - sci-lookup
 ---
 
-# 💡 OPTION を増やす
+# 💡 O を書く
 
 ## 役割
-「今回の SCOPE」の NODE に、まだ無い OPTION を 3〜7 個増やす。出しただけで終わらせず、**各 OPTION に確かめ方まで**を添える。
+子の Q を持たない Q に、答えの候補（O）を出す Action です。対象は `# context` の `## TARGET_NODE` の Q です。子の Q を持つ Q には O を置けません。そのときは `sci-split` が先だと report に書きます。
 
-出し方は 4 つある。全部を同じ数だけ使う必要はないが、1 種類だけで済ませない。
+出し方は 2 つあります。どちらにするかは依頼文に従います。無ければ質問ツールで決めます。
 
-- **他分野の同型** — 他の分野で、同じ形の問いをどう解いているかを探す。同じ言葉ではなく、同じ形の問いを探す。`sci-analogy` を子として呼んでよい。
-- **前提の逆転** — 現在の前提を 1 つ明示し、それを逆にして何が変わるかを見る。
-- **制約の付け外し** — いつもの制約を 1 つ外して OPTION を出す。戻すと何が変わるかも書く。
-- **組み合わせ** — 既に OPTION として入っているものどうしを組み合わせる。
+- (a) **広く出す** — 文献や類推から、3〜7 個の O を出す。類推は support の `sci-analogy` を子として呼んでよい。
+- (b) **利用者と 1 案を練る** — 質問ツールで 1 案を見せ、直してもらい、決まった文を O にする。
 
-批判や実現性の判断は後回しにする。まず数を出し、根拠の無い断定はせず、推測は推測と書く。
-
-共通は次のとおり。出典は `literature-hard-rules` に従い、木・mind.md・state.md・tree.md を直接書き換えず、成果はすべて PROPOSAL で出す（木に触れる操作は利用者が行う）。
+O ごとに、Answer か Issue を決めます。Answer は答えの候補。Issue は、文献に答えが無い、つまり研究課題です。根拠があれば F を O に付けます。
 
 ### 手順
-1. **NODE と手元の OPTION を把握する。** SCOPE の NODE と、既に付いている OPTION を読みます。重複する OPTION は出しません。
-2. **出し方を決める。** 上の 4 つのうち、どれを何個ずつ使うかを決めて利用者に見せます。
-3. **他分野の同型を探す（使う場合のみ）。** `mcp__sai__block_discover` で `sci-analogy` が呼べることを確かめてから、`mcp__sai__task_create` で仕事を作ります。`worktree` は `"none"`、`subject` は「同型を探す: <NODE 名>」にします。作り終えたら `mcp__sai__task_execute` で送り、`mcp__sai__task_output`（`timeout_ms` は 300000 以下）で結果を待ちます。返ってきた文書を `mcp__sai__sai_read` で読みます。`failed` なら自分で代わりの材料を探すか、利用者に知らせます。 **`mcp__sai__task_manage` の `finalize` は、同型の文書を読んだあとに 1 回だけ**呼びます。
-4. **OPTION を 3〜7 個書く。** 1 OPTION 1〜3 文で、名前と中身を書きます。3 個未満にしませんし、7 個を超えません。
-5. **確かめ方を各 OPTION に添える。** 各 OPTION について「何を読めば分かるか」「何を調べれば分かるか」を 1〜2 文で書きます。検証結果ではなく、確かめ方を書きます。根拠が無いものは「根拠は未確認」と書きます。
-6. **根拠を付ける。** 他分野の同型や既存研究から来た OPTION には、出典を付けます。分かったことは `add_finding`、関係する論文との LINK は `link` で PROPOSAL にします。
-7. **OPTION を PROPOSAL として出す。** OPTION は `add_option` で PROPOSAL にします。OPTION をそのまま子に分けたいときは `add_child`（NODE の型を `types` に書く）でも PROPOSAL にします。どちらも REVIEW_OP（TRIAGE 待ち）なので、そのままでは入りません。確かめたい QUESTION は `add_question` で PROPOSAL にします。
-8. **利用者に TRIAGE してもらう。** PROPOSAL を出したら一覧を見せ、報告します。
+1. `# context` の `## TARGET_NODE`・`## UPSTREAM_PATH`・`## GUIDE` と、すでにある O を読む。重複する O は出さない。
+2. 出し方（a か b）を決める。
+3. (a) のとき: 出し方（文献・他分野の同型・前提の逆転・制約の付け外し・組み合わせ）を決めて利用者に見せる。同型を探すなら、`mcp__sai__block_discover` で `sci-analogy` を確かめ、`mcp__sai__task_create`（`worktree` は `"none"`）で作って `mcp__sai__task_execute` で送り、`mcp__sai__task_output`（`timeout_ms` は 300000 以下）で待って `mcp__sai__sai_read` で読む。`mcp__sai__task_manage` の `finalize` は文書を読んだあとに 1 回だけ呼ぶ。
+4. (b) のとき: 根拠を先に集め、1 案を書く。質問ツールで直したい点を 2〜3 問だけ聞き、答えを反映して書き直す。変えた点と理由を 1 つずつ残す。利用者が決めた文を O にする。
+5. 各 O に「Answer か Issue」と確かめ方（何を読めば・何を調べれば分かるか。検証結果は書かない）を付ける。根拠が無ければ「根拠は未確認」と書く。
+6. O を `add_o`、根拠を `add_f`（出典付き）で出す。`add_o` の `kind` に Answer か Issue を書く。
 
 ## 評価の観点
-- OPTION が 3〜7 個に収まっているか。1 個の OPTION が 1〜3 文で説明されているか。
-- 4 つの出し方（他分野の同型 / 前提の逆転 / 制約の付け外し / 組み合わせ）のうち、複数を使っているか。
-- 各 OPTION に確かめ方（何を読めば・何を調べれば分かるか）が付いているか。検証結果を確かめ方に書いていないか。
-- 既存の OPTION の繰り返しを、新しそうな OPTION として出していないか。
+- 対象の Q に子の Q が無いことを確かめたか。
+- (a) は O が 3〜7 個に収まり、複数の出し方を使っているか。(b) は 1 案を出してから 2〜3 問で直したか。一人で書き上げていないか。
+- 各 O に Answer か Issue と確かめ方が付いているか。Issue は「文献に答えが無い」と確かめた上で付けたか。
+- 文中の事実の全部に出典（塊の ID `#37.5.2`）が付き、根拠が F として出ているか。
 - 推測を事実のように書いていないか。「根拠は未確認」と書いた箇所があるか。
-- 他分野の同型を出したとき、出典と元の分野が示されているか。
-- 子の OPTION を出したとき、NODE の型（`types`）が書かれているか。
-- 数の多さだけで中身が薄い OPTION を足していないか。
+- すでにある O の繰り返しを、新しい O として出していないか。
+
+## 完了の基準
+- Agent: O を 1 つ以上入れたら終わり。PROPOSAL の仕分けは要らない。
+- User: なし
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。
 
 ```markdown
 ## 出し方
-## OPTION（表: OPTION / 出し方 / 確かめ方 / 根拠）
+## O（表: O / Answer か Issue / 確かめ方 / 根拠）
 ## PROPOSAL
 ## OUT_OF_SCOPE
 ```
-
-- **出し方** — 4 つの出し方のどれを何個ずつ使ったか、`sci-analogy` を子として呼んだか（呼ばないならその理由）を書きます。
-- **OPTION** — 次の 4 列を持つ表を書きます。| OPTION | 出し方 | 確かめ方 | 根拠 |。OPTION は 1〜3 文で書き、確かめ方は「何を調べるか」の形で書きます。根拠は出典（塊の ID `#37.5.2`）か「未確認」のどちらかを書きます。
-- **PROPOSAL** — PROPOSAL の ID（`P<数>`）と op 名、短い理由の表を書きます。
-- **OUT_OF_SCOPE** — SCOPE の外だと分かったこと、出さなかった OPTION と理由、保留した理由を書きます。
