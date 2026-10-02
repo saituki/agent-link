@@ -9,6 +9,7 @@
 
 pub mod action;
 pub mod compute;
+pub mod context;
 pub mod defs;
 pub mod ops;
 pub mod store;
