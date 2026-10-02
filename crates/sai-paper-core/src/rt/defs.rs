@@ -1,6 +1,6 @@
 //! 研究の型とガイドの読み込み、型から Q の木を作る処理（C-DEF）。
 //!
-//! 元の版はリポジトリの `sai-sci/rt/types/` と `sai-sci/rt/guides/` で、ここに埋め込む。
+//! 元の版はリポジトリの `sai-sci/types/` と `sai-sci/guides/` で、ここに埋め込む。
 //! 読む順は 埋め込み → 利用者全体 `<sai_home>/sci/` → プロジェクト `<root>/.sai/sci/`（あとが強い）。
 //! 古い書式のファイルと読めないファイルは止めずに飛ばし、[`Defs::warnings`] に 1 行入れる。
 
@@ -92,10 +92,10 @@ impl Defs {
 pub const TYPE_ORDER: [&str; 5] = ["problem", "phenomenon", "method", "data", "improve"];
 
 /// 埋め込みの一覧を `include_str!` の繰り返しなく書くための補助。
-/// 相対パスは `rt/` を付けない（ファイルを `sai-sci/types/` へ移すときはここの文字列だけ直す）。
+/// 相対パスは `sai-sci/` からの道筋（`types/<id>.md`・`guides/<key>.md`）。
 macro_rules! embedded_files {
     ($($relative:literal),* $(,)?) => {
-        &[$(($relative, include_str!(concat!("../../../../sai-sci/rt/", $relative)))),*]
+        &[$(($relative, include_str!(concat!("../../../../sai-sci/", $relative)))),*]
     };
 }
 
