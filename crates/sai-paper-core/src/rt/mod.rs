@@ -9,6 +9,7 @@
 
 pub mod action;
 pub mod defs;
+pub mod ops;
 pub mod store;
 
 /// 研究方針の木の操作のエラー。`Invalid` と `NotFound` の文は利用者にそのまま見せる日本語。
