@@ -1,8 +1,8 @@
-//! 研究方針（sai-sci の木）を読むだけのページ。
+//! 研究方針（Q・O・F・E の木）を読むだけのページ。
 //!
-//! U23 で Canvas のページを置き換えてできたもの。画面には種の文・関門・
-//! 負債・項目の一覧・選んだ項目の中身を出す。木の形は変えない。
-//! 操作は Web の研究方針の画面か `sai-moon-paper sci` で行う（R-M3）。
+//! 画面には SEED の下書き・進み具合・DEBT と仕分け待ちの数・Node の一覧・
+//! 選んだ Node の中身を出す。計算は `rt::compute` の値をそのまま写す。
+//! 操作は Web の研究方針の画面か `sai-moon-paper sci` で行う（TUI は読み取り専用）。
 
 use ratatui::{
     Frame,
@@ -22,30 +22,34 @@ const DETAIL_MIN_WIDTH: u16 = 90;
 /// 案内行の文言（`r` / `o`）。
 const HINT: &str = "操作は Web の研究方針の画面か sai-moon-paper sci で行います（r: 読み直す / o: tree.md を開く）";
 
+/// 進み具合のバーのマス数。
+const BAR_CELLS: usize = 10;
+
 /// 研究方針のページの状態。
 #[derive(Debug, Default)]
 pub struct TreeState {
     /// 木全体の様子（`status.nodes` が一覧）。
-    pub status: Option<papr_core::sci::compute::Status>,
-    /// 選んだ節点の中身。
-    pub detail: Option<papr_core::sci::compute::NodeDetail>,
+    pub status: Option<papr_core::rt::compute::Status>,
+    /// 選んだ Node の中身。
+    pub detail: Option<papr_core::rt::compute::NodeDetail>,
     /// `status.nodes` の中の位置。
     pub selected: usize,
-    /// 次に読み直したとき選ぶ節点（要対応から来たとき。`N12` の数）。
+    /// 次に読み直したとき選ぶ Node（要対応から来たとき。`rt_nodes.id`）。
     pub pending_select: Option<i64>,
     /// 読めなかったときの文。
     pub error: Option<String>,
     /// true なら status と中身を読み直す。
     pub stale: bool,
-    /// true なら選んだ節点の中身だけを読み直す。
+    /// true なら選んだ Node の中身だけを読み直す。
     pub detail_stale: bool,
 }
 
 /// 木を読み直す。
 ///
-/// `stale` なら status を作り直し、`pending_select` があればその節点を選ぶ。
-/// どちらかが立っていれば選んだ節点の中身を読み直し、2 つの旗を下ろす。
-/// 木が無ければ status と detail を None にする。読めなければ error に文を入れる。
+/// `stale` なら status を作り直し、`pending_select` があればその Node を選ぶ。
+/// どちらかが立っていれば選んだ Node の中身を読み直し、2 つの旗を下ろす。
+/// 木が無ければ status と detail を None にする（古い木だけのときは注意を出すため status は残す）。
+/// 読めなければ error に文を入れる。
 pub fn reload(state: &mut TreeState, db: &papr_core::Database, roots: &papr_core::PaperRoots) {
     if !state.stale && !state.detail_stale {
         return;
@@ -56,25 +60,25 @@ pub fn reload(state: &mut TreeState, db: &papr_core::Database, roots: &papr_core
     state.error = None;
 
     if full {
-        let defs = papr_core::sci::defs::load(&roots.root);
-        let initialized = papr_core::sci::store::is_initialized(db.connection()).unwrap_or(false);
-        if !initialized {
-            state.status = None;
-            state.detail = None;
-            state.selected = 0;
-            return;
-        }
-        match papr_core::sci::compute::status(db.connection(), roots, &defs) {
-            Ok(status) => {
+        let defs = papr_core::rt::defs::load(&roots.root);
+        match papr_core::rt::compute::status(db.connection(), roots, &defs) {
+            Ok(status) if status.initialized => {
                 if let Some(wanted) = state.pending_select.take()
                     && let Some(index) = status.nodes.iter().position(|node| {
-                        papr_core::sci::parse_ref(&node.id, 'N').ok() == Some(wanted)
+                        papr_core::rt::parse_id(&node.id).ok().map(|(_, n)| n) == Some(wanted)
                     })
                 {
                     state.selected = index;
                 }
                 state.selected = clamp_selected(state.selected, &status);
                 state.status = Some(status);
+            }
+            Ok(status) => {
+                // 木が無い。古い木だけのときは作り直しの注意を出すため status を残す。
+                state.status = status.legacy.then_some(status);
+                state.detail = None;
+                state.selected = 0;
+                return;
             }
             Err(error) => {
                 state.status = None;
@@ -88,22 +92,18 @@ pub fn reload(state: &mut TreeState, db: &papr_core::Database, roots: &papr_core
     reload_detail(state, db, roots);
 }
 
-/// 選んだ節点の中身だけを読む。
+/// 選んだ Node の中身だけを読む。
 fn reload_detail(state: &mut TreeState, db: &papr_core::Database, roots: &papr_core::PaperRoots) {
-    let Some(status) = state.status.as_ref() else {
+    let Some(node) = state
+        .status
+        .as_ref()
+        .and_then(|status| status.nodes.get(state.selected))
+    else {
         state.detail = None;
         return;
     };
-    let Some(node) = status.nodes.get(state.selected) else {
-        state.detail = None;
-        return;
-    };
-    let defs = papr_core::sci::defs::load(&roots.root);
-    let Ok(id) = papr_core::sci::parse_ref(&node.id, 'N') else {
-        state.detail = None;
-        return;
-    };
-    match papr_core::sci::compute::node_detail(db.connection(), roots, &defs, id) {
+    let defs = papr_core::rt::defs::load(&roots.root);
+    match papr_core::rt::compute::node_detail(db.connection(), roots, &defs, &node.id) {
         Ok(detail) => state.detail = Some(detail),
         Err(error) => {
             state.detail = None;
@@ -113,7 +113,7 @@ fn reload_detail(state: &mut TreeState, db: &papr_core::Database, roots: &papr_c
 }
 
 /// 選択位置を木の高さに収める。
-fn clamp_selected(index: usize, status: &papr_core::sci::compute::Status) -> usize {
+fn clamp_selected(index: usize, status: &papr_core::rt::compute::Status) -> usize {
     index.min(status.nodes.len().saturating_sub(1))
 }
 
@@ -145,7 +145,7 @@ pub fn render_tree(frame: &mut Frame<'_>, area: Rect, app: &mut App, theme: &The
         return;
     }
 
-    // 上の 3 行（種・関門・負債）は常に全体に出す。
+    // 上の 3 行（SEED・進み具合・DEBT）は常に全体に出す。
     let header_rows = Layout::vertical([Constraint::Length(1); 3]).split(inner);
     for (rect, line) in header_rows
         .iter()
@@ -169,7 +169,7 @@ pub fn render_tree(frame: &mut Frame<'_>, area: Rect, app: &mut App, theme: &The
     let list_lines = build_list_lines(app, theme);
     if wide {
         let columns =
-            Layout::horizontal([Constraint::Percentage(38), Constraint::Min(20)]).split(body);
+            Layout::horizontal([Constraint::Percentage(45), Constraint::Min(20)]).split(body);
         frame.render_widget(Paragraph::new(list_lines), columns[0]);
         frame.render_widget(Paragraph::new(build_detail_lines(app, theme)), columns[1]);
     } else {
@@ -185,185 +185,110 @@ fn hint_line(theme: &Theme) -> Line<'static> {
     Line::styled(format!(" {HINT}"), Style::default().fg(theme.muted))
 }
 
-/// 上の 3 行（種の文・関門・負債）。
+/// 上の 3 行（SEED・進み具合・DEBT と仕分け待ち）。
 fn build_header_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
-    let mut lines = vec![seed_line(app.tree.status.as_ref(), theme)];
-    lines.push(gate_line(app.tree.status.as_ref(), theme));
-    lines.push(debts_line(app.tree.status.as_ref(), theme));
-    lines
+    let status = app.tree.status.as_ref();
+    vec![
+        seed_line(status, theme),
+        progress_line(status, theme),
+        debts_line(status, theme),
+    ]
 }
 
-/// 種の文。空欄の部分は強調の色にする。
-fn seed_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) -> Line<'static> {
-    let Some(seed) = status.and_then(|s| s.seed.as_ref()) else {
-        return Line::styled(" 種: まだありません", Style::default().fg(theme.muted));
+/// SEED の下書き。埋まっていない差し込みは警告の色にする。
+fn seed_line(status: Option<&papr_core::rt::compute::Status>, theme: &Theme) -> Line<'static> {
+    let Some(seed) = status.and_then(|s| s.seed_draft.as_ref()) else {
+        return Line::styled(" SEED: まだありません", Style::default().fg(theme.muted));
     };
     let mut spans: Vec<Span<'static>> =
-        vec![Span::styled(" 種 ", Style::default().fg(theme.secondary))];
+        vec![Span::styled(" SEED ", Style::default().fg(theme.secondary))];
     for part in &seed.parts {
-        let color = if part.filled {
-            if part.tentative {
-                theme.warning
-            } else {
-                theme.text
-            }
-        } else {
-            theme.accent
-        };
         let style = if part.filled {
-            Style::default().fg(color)
+            Style::default().fg(theme.text)
         } else {
-            Style::default().fg(color).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme.warning)
+                .add_modifier(Modifier::BOLD)
         };
         spans.push(Span::styled(part.text.clone(), style));
     }
     Line::from(spans)
 }
 
-/// 関門の進み（例「関門 2/7 小目的」）。
-fn gate_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) -> Line<'static> {
-    let Some(gate) = status.and_then(|s| s.gate.as_ref()) else {
-        return Line::styled(" GATE: —", Style::default().fg(theme.muted));
+/// 進み具合（例「進み具合 12/24  [■■■■■□□□□□]」）。古い木だけなら作り直しの注意。
+fn progress_line(
+    status: Option<&papr_core::rt::compute::Status>,
+    theme: &Theme,
+) -> Line<'static> {
+    let Some(status) = status else {
+        return Line::styled(" 進み具合: —", Style::default().fg(theme.muted));
     };
+    if status.legacy {
+        return Line::styled(
+            " 古い形式の木です。作り直してください（sai-moon-paper sci init）",
+            Style::default().fg(theme.warning),
+        );
+    }
+    let progress = status.progress;
+    let filled = if progress.total > 0 {
+        usize::try_from(progress.answered.clamp(0, progress.total)).unwrap_or(0) * BAR_CELLS
+            / usize::try_from(progress.total).unwrap_or(1)
+    } else {
+        0
+    };
+    let bar = format!(
+        "[{}{}]",
+        "■".repeat(filled),
+        "□".repeat(BAR_CELLS - filled)
+    );
     Line::from(vec![
-        Span::styled(" GATE ", Style::default().fg(theme.secondary)),
+        Span::styled(" 進み具合 ", Style::default().fg(theme.secondary)),
         Span::styled(
-            format!("{}/{} ", gate.current, gate.total),
+            format!("{}/{}", progress.answered, progress.total),
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(gate.name.clone(), Style::default().fg(theme.text)),
-        Span::styled(
-            format!(
-                "  （{}/{} 通過）",
-                gate.list.iter().filter(|row| row.passed).count(),
-                gate.total
-            ),
-            Style::default().fg(theme.muted),
-        ),
+        Span::styled(format!("  {bar}"), Style::default().fg(theme.success)),
     ])
 }
 
-/// 負債の 4 つの数。
-fn debts_line(status: Option<&papr_core::sci::compute::Status>, theme: &Theme) -> Line<'static> {
-    let Some(status) = status else {
+/// DEBT・仕分け待ち・次の一手（例「DEBT 3 / PROPOSAL 仕分け待ち 4 / Next: …」）。
+fn debts_line(status: Option<&papr_core::rt::compute::Status>, theme: &Theme) -> Line<'static> {
+    let Some(status) = status.filter(|s| s.initialized) else {
         return Line::styled(" DEBT: —", Style::default().fg(theme.muted));
     };
-    let debts = status.debts;
-    let parts: [(&str, i64); 4] = [
-        ("PENDING_PROPOSALS", debts.pending_proposals),
-        ("UNREFLECTED_PAPERS", debts.unreflected_papers),
-        ("UNSCREENED_SETS", debts.unscreened_sets),
-        ("EMPTY_REVIEWS", debts.empty_reviews),
-    ];
-    let mut spans: Vec<Span<'static>> =
-        vec![Span::styled(" DEBT ", Style::default().fg(theme.secondary))];
-    let mut first = true;
-    for (name, count) in parts {
-        if !first {
-            spans.push(Span::styled("  ", Style::default()));
-        }
-        first = false;
-        if count > 0 {
-            spans.push(Span::styled(
-                format!("{name} {count}"),
-                Style::default().fg(theme.warning),
-            ));
-        } else {
-            spans.push(Span::styled(
-                format!("{name} 0"),
-                Style::default().fg(theme.muted),
-            ));
-        }
-    }
-    Line::from(spans)
+    let count_color = |n: usize| if n > 0 { theme.warning } else { theme.muted };
+    let next = status
+        .next
+        .first()
+        .map_or("—".to_string(), |next| next.purpose.clone());
+    Line::from(vec![
+        Span::styled(
+            format!(" DEBT {}", status.debt_count),
+            Style::default().fg(count_color(status.debt_count)),
+        ),
+        Span::styled(" / ", Style::default().fg(theme.muted)),
+        Span::styled(
+            format!("PROPOSAL 仕分け待ち {}", status.pending_proposals),
+            Style::default().fg(count_color(status.pending_proposals)),
+        ),
+        Span::styled(" / ", Style::default().fg(theme.muted)),
+        Span::styled(format!("Next: {next}"), Style::default().fg(theme.text)),
+    ])
 }
 
-/// 状態の印（C-01 の値から）。
-fn state_mark(state: &str) -> &'static str {
-    match state {
-        "decided" => "●",
-        "tentative" => "◐",
-        "open" => "○",
-        "excluded" => "×",
-        "candidate" => "◇",
-        "selected" => "◆",
-        "rejected" => "✕",
-        "dormant" => "◌",
-        _ => " ",
-    }
-}
-
-/// 空欄の種類と印の表示名（C-01）。
-fn blank_label(blank: Option<&str>) -> Option<String> {
-    blank.map(|value| match value {
-        "untouched" => "UNTOUCHED".to_string(),
-        "in_progress" => "IN_PROGRESS".to_string(),
-        "insufficient" => "INSUFFICIENT".to_string(),
-        "awaiting_decision" => "AWAITING_DECISION".to_string(),
-        "conflict" => "CONFLICT".to_string(),
-        other => other.to_string(),
-    })
-}
-
-/// 印の表示名（C-01）。
-fn mark_label(mark: &str) -> String {
-    match mark {
-        "weak_evidence" => "WEAK_EVIDENCE".to_string(),
-        "recheck" => "RECHECK".to_string(),
-        other => other.to_string(),
-    }
-}
-
-/// 項目の型の表示名（C-01）。
-fn type_label(value: &str) -> &'static str {
-    match value {
-        "choose" => "CHOOSE",
-        "list" => "LIST",
-        "write" => "WRITE",
-        "verify" => "VERIFY",
-        _ => "",
-    }
-}
-
-/// 左の欄（項目の一覧）。
+/// 左の欄（Node の一覧）。
 fn build_list_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
-    let Some(status) = app.tree.status.as_ref() else {
+    let Some(status) = app.tree.status.as_ref().filter(|s| s.initialized) else {
         return empty_lines(app, theme);
     };
     let mut lines: Vec<Line<'static>> = vec![Line::raw("")];
-    if status.nodes.is_empty() {
-        lines.push(Line::styled(
-            " ITEM がまだありません".to_string(),
-            Style::default().fg(theme.muted),
-        ));
-    }
     for (index, node) in status.nodes.iter().enumerate() {
         lines.push(list_line(node, index == app.tree.selected, theme));
-    }
-    if !status.next.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(Line::styled(
-            " 次の一手 ".to_string(),
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        ));
-        for next in status.next.iter().take(5) {
-            let node = next
-                .node
-                .as_ref()
-                .map_or_else(String::new, |id| format!(" {id} "));
-            lines.push(Line::from(vec![
-                Span::styled("  • ".to_string(), Style::default().fg(theme.muted)),
-                Span::styled(node, Style::default().fg(theme.secondary)),
-                Span::styled(next.purpose.clone(), Style::default().fg(theme.text)),
-            ]));
-        }
     }
     lines
 }
 
-/// 木が無いときの案内。status が無ければ「始めてください」を出す。
+/// 木が無いときの案内。古い木だけなら作り直しの注意、読めなければ error を出す。
 fn empty_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     if let Some(error) = app.tree.error.as_ref() {
         return vec![
@@ -373,6 +298,19 @@ fn empty_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
                 Style::default().fg(theme.error),
             ),
             Line::styled(format!("  {error}"), Style::default().fg(theme.error)),
+        ];
+    }
+    if app.tree.status.as_ref().is_some_and(|s| s.legacy) {
+        return vec![
+            Line::raw(""),
+            Line::styled(
+                " 古い形式の木だけがあります".to_string(),
+                Style::default().fg(theme.warning),
+            ),
+            Line::styled(
+                "  新しい木を作り直してください".to_string(),
+                Style::default().fg(theme.muted),
+            ),
         ];
     }
     vec![
@@ -388,246 +326,302 @@ fn empty_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     ]
 }
 
-/// 一覧の 1 行（深さで字下げ、状態印、ID・題・空欄の種類か印）。
+/// 値の頭を大文字にする（`answer` → `Answer`）。
+fn capitalize(value: &str) -> String {
+    let mut chars = value.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
+}
+
+/// 一覧の 1 行（深さで字下げ、ID・文、種類ごとの要約）。
 fn list_line(
-    node: &papr_core::sci::compute::NodeRow,
+    node: &papr_core::rt::compute::NodeJson,
     selected: bool,
     theme: &Theme,
 ) -> Line<'static> {
-    let indent = "  ".repeat(usize::try_from(node.depth.max(0)).unwrap_or(0) + 1);
-    let mark = state_mark(&node.state);
-    let mark_color = match node.state.as_str() {
-        "decided" => theme.success,
-        "tentative" => theme.warning,
-        "excluded" | "rejected" => theme.muted,
-        "open" | "candidate" => theme.text,
-        "selected" => theme.success,
-        _ => theme.text,
-    };
-    let tail = blank_label(node.blank.as_deref())
-        .map(|label| format!("［{label}］"))
-        .or_else(|| {
-            node.marks
-                .first()
-                .map(|mark| format!("［{}］", mark_label(mark)))
-        })
-        .unwrap_or_else(|| {
-            let types: Vec<&str> = node
-                .types
-                .iter()
-                .map(|t| type_label(t))
-                .filter(|s| !s.is_empty())
-                .collect();
-            if types.is_empty() {
-                String::new()
-            } else {
-                format!("（{}）", types.join("・"))
-            }
-        });
-
-    let base = Style::default().fg(theme.text);
-    let style = if selected {
-        base.add_modifier(Modifier::BOLD)
-    } else {
-        base
-    };
+    let indent = "  ".repeat(node.depth);
     let prefix = if selected { "▶ " } else { "  " };
-    let counts = if node.counts.options > 0 {
-        format!("  OPTION {}", node.counts.options)
-    } else if node.counts.papers > 0 {
-        format!("  論文{}", node.counts.papers)
+    let base = if node.on_path { theme.text } else { theme.muted };
+    let text_style = if selected {
+        Style::default().fg(base).add_modifier(Modifier::BOLD)
     } else {
-        String::new()
+        Style::default().fg(base)
     };
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             format!("{prefix}{indent}"),
             Style::default().fg(theme.accent),
         ),
-        Span::styled(mark.to_string(), Style::default().fg(mark_color)),
-        Span::styled(
-            format!(" {} ", node.id),
-            Style::default().fg(theme.secondary),
-        ),
-        Span::styled(node.title.clone(), style),
-        Span::styled(counts, Style::default().fg(theme.muted)),
-        Span::styled(tail, Style::default().fg(theme.warning)),
-    ])
+        Span::styled(format!("{} ", node.id), Style::default().fg(theme.secondary)),
+    ];
+    match node.kind.as_str() {
+        "O" => {
+            let star = if node.starred {
+                format!(
+                    "★ {} ",
+                    node.answer_kind.as_deref().map_or_else(String::new, capitalize)
+                )
+            } else {
+                "  ".to_string()
+            };
+            spans.push(Span::styled(star, Style::default().fg(theme.warning)));
+            spans.push(Span::styled(node.text.clone(), text_style));
+            spans.push(Span::styled(
+                format!("  F {}", node.counts.f),
+                Style::default().fg(theme.muted),
+            ));
+        }
+        "F" => {
+            spans.push(Span::styled(node.text.clone(), text_style));
+            if !node.cites.is_empty() {
+                spans.push(Span::styled(
+                    format!("  [{}]", node.cites.join(", ")),
+                    Style::default().fg(theme.muted),
+                ));
+            }
+        }
+        "E" => {
+            spans.push(Span::styled(node.text.clone(), text_style));
+            if let Some(mlflow) = &node.mlflow {
+                spans.push(Span::styled(
+                    format!("  mlflow: {mlflow}"),
+                    Style::default().fg(theme.muted),
+                ));
+            }
+        }
+        _ => {
+            spans.push(Span::styled(node.text.clone(), text_style));
+            if let Some(obj) = &node.objectivity {
+                let color = if obj.met { theme.success } else { theme.warning };
+                let check = if obj.met { " ✓" } else { "" };
+                spans.push(Span::styled(
+                    format!("  Obj {}/{}{check}", obj.count, obj.target),
+                    Style::default().fg(color),
+                ));
+            }
+            if let Some(logic) = &node.logicality {
+                spans.push(Span::styled(
+                    format!("  Logic {}", logic.value),
+                    Style::default().fg(logic_color(&logic.value, theme)),
+                ));
+            }
+        }
+    }
+    Line::from(spans)
 }
 
-/// 右の欄（選んだ節点の中身）。
+/// Logicality の値の色。
+fn logic_color(value: &str, theme: &Theme) -> ratatui::style::Color {
+    match value {
+        "ok" => theme.success,
+        "contradiction" => theme.error,
+        _ => theme.muted,
+    }
+}
+
+/// 右の欄（選んだ Node の中身）。
 fn build_detail_lines(app: &App, theme: &Theme) -> Vec<Line<'static>> {
     let Some(detail) = app.tree.detail.as_ref() else {
         return vec![Line::raw("")];
     };
+    let node = &detail.node;
     let mut lines = vec![Line::raw("")];
 
-    // 本文
-    if !detail.node.body.trim().is_empty() {
-        for line in detail.node.body.lines() {
+    // 見出し・本文
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!(" {} ", node.id),
+            Style::default()
+                .fg(theme.secondary)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("［{}］ ", node.kind), Style::default().fg(theme.muted)),
+        Span::styled(node.text.clone(), Style::default().fg(theme.text)),
+    ]));
+    for line in node.body.lines().filter(|l| !l.trim().is_empty()) {
+        lines.push(Line::styled(
+            format!(" {line}"),
+            Style::default().fg(theme.text),
+        ));
+    }
+
+    // 親までの道
+    if detail.path.len() > 1 {
+        let path = detail
+            .path
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>()
+            .join(" › ");
+        lines.push(Line::styled(
+            format!(" 道: {path}"),
+            Style::default().fg(theme.muted),
+        ));
+    }
+
+    // Q の Objectivity・Logicality・ガイド
+    if let Some(obj) = &node.objectivity {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("Objectivity", theme));
+        lines.push(Line::styled(
+            format!(
+                "  {}/{}{}",
+                obj.count,
+                obj.target,
+                if obj.met { " ✓" } else { "" }
+            ),
+            Style::default().fg(if obj.met { theme.success } else { theme.warning }),
+        ));
+    }
+    if let Some(logic) = &node.logicality {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("Logicality", theme));
+        let checked = logic
+            .checked_at
+            .as_deref()
+            .map_or(String::new(), |at| format!("（{at}）"));
+        lines.push(Line::styled(
+            format!("  {}{checked}", logic.value.to_uppercase()),
+            Style::default().fg(logic_color(&logic.value, theme)),
+        ));
+        if !logic.note.trim().is_empty() {
             lines.push(Line::styled(
-                format!(" {line}"),
+                format!("  {}", logic.note),
+                Style::default().fg(theme.text),
+            ));
+        }
+        if !logic.findings.is_empty() {
+            lines.push(Line::styled(
+                format!("  指摘の F: {}", logic.findings.join(", ")),
+                Style::default().fg(theme.warning),
+            ));
+        }
+    }
+    if let Some(guide) = &detail.guide {
+        lines.push(Line::raw(""));
+        lines.push(section_heading(&format!("ガイド {}", guide.name), theme));
+        lines.push(Line::styled(
+            format!("  {}", guide.question),
+            Style::default().fg(theme.text),
+        ));
+        for (label, values) in [
+            ("Child Q", &guide.child_candidates),
+            ("Extract", &guide.extract),
+            ("Pitfall", &guide.pitfalls),
+        ] {
+            if !values.is_empty() {
+                lines.push(Line::styled(
+                    format!("  {label}: {}", values.join(" / ")),
+                    Style::default().fg(theme.muted),
+                ));
+            }
+        }
+        lines.push(Line::styled(
+            format!("  目安: O {} 個", guide.target),
+            Style::default().fg(theme.muted),
+        ));
+    }
+
+    // 子
+    if !detail.children.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("子", theme));
+        for child in detail.children.iter().take(12) {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {} ", child.id),
+                    Style::default().fg(theme.secondary),
+                ),
+                Span::styled(child.text.clone(), Style::default().fg(theme.text)),
+            ]));
+        }
+    }
+
+    // Next Action
+    if !detail.next.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("Next Action", theme));
+        for next in detail.next.iter().take(3) {
+            lines.push(Line::from(vec![
+                Span::styled("  • ".to_string(), Style::default().fg(theme.muted)),
+                Span::styled(
+                    next.block.clone().unwrap_or_else(|| "人の作業".to_string()),
+                    Style::default().fg(theme.secondary),
+                ),
+                Span::styled(format!(" {}", next.purpose), Style::default().fg(theme.text)),
+                Span::styled(format!("（{}）", next.why), Style::default().fg(theme.warning)),
+            ]));
+        }
+    }
+
+    // Action の履歴（DEBT があれば ⚠ とその文）
+    if !detail.actions.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("Action", theme));
+        for action in detail.actions.iter().take(8) {
+            let mark = if action.debt { "⚠ " } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {mark}"), Style::default().fg(theme.warning)),
+                Span::styled(
+                    format!("run {} {} ", action.run_id, action.block),
+                    Style::default().fg(theme.secondary),
+                ),
+                Span::styled(action.purpose.clone(), Style::default().fg(theme.text)),
+                Span::styled(
+                    format!("  {}", action.occurred_at),
+                    Style::default().fg(theme.muted),
+                ),
+            ]));
+            for message in &action.debt_messages {
+                lines.push(Line::styled(
+                    format!("      {message}"),
+                    Style::default().fg(theme.warning),
+                ));
+            }
+        }
+    }
+
+    // 仕分け待ち
+    if !detail.pending.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("仕分け待ち", theme));
+        for pending in detail.pending.iter().take(8) {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {} {} ", pending.id, pending.op),
+                    Style::default().fg(theme.secondary),
+                ),
+                Span::styled(pending.reason.clone(), Style::default().fg(theme.text)),
+            ]));
+        }
+    }
+
+    // 検索の記録
+    if !detail.searches.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(section_heading("検索の記録", theme));
+        for search in detail.searches.iter().take(8) {
+            lines.push(Line::styled(
+                format!("  {} 「{}」 {} 件", search.tool, search.query, search.hits),
                 Style::default().fg(theme.text),
             ));
         }
     }
 
-    // 問い
-    if !detail.questions.is_empty() {
+    // 決定の記録
+    if !detail.decisions.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(section_heading("QUESTION", theme));
-        for question in detail.questions.iter().take(8) {
-            let state = if question.state == "open" {
-                "OPEN"
-            } else {
-                "ANSWERED"
-            };
-            let color = if question.state == "open" {
-                theme.warning
-            } else {
-                theme.muted
-            };
+        lines.push(section_heading("決定の記録", theme));
+        for decision in detail.decisions.iter().take(8) {
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("  {} ", question.id),
-                    Style::default().fg(theme.secondary),
+                    format!("  {} {} ", decision.action, decision.detail),
+                    Style::default().fg(theme.success),
                 ),
-                Span::styled(question.text.clone(), Style::default().fg(theme.text)),
-                Span::styled(format!("［{state}］"), Style::default().fg(color)),
+                Span::styled(decision.reason.clone(), Style::default().fg(theme.text)),
             ]));
         }
-    }
-
-    // 候補
-    if !detail.options.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(section_heading("OPTION", theme));
-        for option in detail.options.iter().take(10) {
-            let label = match option.state.as_str() {
-                "selected" => "SELECTED",
-                "rejected" => "REJECTED",
-                "dormant" => "DORMANT",
-                _ => "CANDIDATE",
-            };
-            let color = match option.state.as_str() {
-                "selected" => theme.success,
-                "rejected" => theme.muted,
-                "dormant" => theme.warning,
-                _ => theme.text,
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {} ", option.id),
-                    Style::default().fg(theme.secondary),
-                ),
-                Span::styled(
-                    state_mark(&option.state).to_string(),
-                    Style::default().fg(color),
-                ),
-                Span::styled(format!(" {} ", option.title), Style::default().fg(color)),
-                Span::styled(
-                    format!(
-                        "{label}  SUPPORT {} / REFUTE {} / 論文 {}",
-                        option.support, option.refute, option.papers
-                    ),
-                    Style::default().fg(theme.muted),
-                ),
-            ]));
-        }
-    }
-
-    // 知見
-    if !detail.findings.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(section_heading("FINDING", theme));
-        for finding in detail.findings.iter().take(10) {
-            let polarity = match finding.polarity.as_str() {
-                "support" => "SUPPORT",
-                "refute" => "REFUTE",
-                "neutral" => "NEUTRAL",
-                _ => "NONE",
-            };
-            let color = match finding.polarity.as_str() {
-                "support" => theme.success,
-                "refute" => theme.error,
-                "neutral" => theme.text,
-                _ => theme.muted,
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {} ", finding.id),
-                    Style::default().fg(theme.secondary),
-                ),
-                Span::styled(format!("{polarity} "), Style::default().fg(color)),
-                Span::styled(finding.text.clone(), Style::default().fg(theme.text)),
-                Span::styled(
-                    format!("（{}）", finding.source),
-                    Style::default().fg(theme.muted),
-                ),
-            ]));
-        }
-    }
-
-    // 論文
-    if !detail.links.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(section_heading("論文", theme));
-        for link in detail.links.iter().take(10) {
-            let role = link.role.as_deref().map_or("", paper_role_label);
-            let read = link.read_state.as_deref().map_or("", read_state_label);
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {} ", link.id),
-                    Style::default().fg(theme.secondary),
-                ),
-                Span::styled(link.title.clone(), Style::default().fg(theme.text)),
-                Span::styled(
-                    format!("（{role} / {read}）"),
-                    Style::default().fg(theme.muted),
-                ),
-            ]));
-        }
-    }
-
-    // 次の一手
-    if !detail.blocks.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(section_heading("NEXT_ACTION", theme));
-        for block in detail.blocks.iter().take(3) {
-            lines.push(Line::from(vec![
-                Span::styled("  • ".to_string(), Style::default().fg(theme.muted)),
-                Span::styled(
-                    block
-                        .block
-                        .clone()
-                        .unwrap_or_else(|| "人の作業".to_string()),
-                    Style::default().fg(theme.secondary),
-                ),
-                Span::styled(
-                    format!(" {}", block.purpose),
-                    Style::default().fg(theme.text),
-                ),
-                Span::styled(
-                    format!("（{}）", block.why),
-                    Style::default().fg(theme.warning),
-                ),
-            ]));
-        }
-    }
-
-    // 直近の決定の記録 1 件
-    if let Some(decision) = detail.decisions.first() {
-        lines.push(Line::raw(""));
-        lines.push(section_heading("直近の DECISION_LOG", theme));
-        let action = decision_action_label(&decision.action);
-        let option = decision.option.clone().unwrap_or_default();
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("  {action} {option} "),
-                Style::default().fg(theme.success),
-            ),
-            Span::styled(decision.reason.clone(), Style::default().fg(theme.text)),
-        ]));
     }
 
     lines
@@ -643,59 +637,21 @@ fn section_heading(text: &str, theme: &Theme) -> Line<'static> {
     )
 }
 
-/// 論文の役割の表示名（C-01）。
-fn paper_role_label(role: &str) -> &str {
-    match role {
-        "exemplar" => "EXEMPLAR",
-        "compare" => "COMPARE",
-        "issue_evidence" => "ISSUE_EVIDENCE",
-        "method_source" => "METHOD_SOURCE",
-        "data_source" => "DATA_SOURCE",
-        "background" => "BACKGROUND",
-        "counter" => "COUNTER",
-        _ => "",
-    }
-}
-
-/// 論文の読み具合の表示名（C-01）。
-fn read_state_label(state: &str) -> &str {
-    match state {
-        "unread" => "UNREAD",
-        "read" => "READ",
-        "reflected" => "REFLECTED",
-        "irrelevant" => "IRRELEVANT",
-        _ => "",
-    }
-}
-
-/// 決定の記録の種類の表示名（C-01）。
-fn decision_action_label(action: &str) -> &str {
-    match action {
-        "decide" => "DECIDE",
-        "tentative" => "TENTATIVE",
-        "reopen" => "REOPEN",
-        "exclude_item" => "EXCLUDE_ITEM",
-        "reject_option" => "REJECT_OPTION",
-        "dormant_option" => "DORMANT_OPTION",
-        "restore_option" => "RESTORE_OPTION",
-        _ => action,
-    }
-}
-
+/// 他のモジュールのテストが使う、本物の木から作った status。
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use papr_core::sci::compute::{NodeDetail, NodeRow, Status};
+pub(crate) mod testing {
+    use papr_core::rt::compute::Status;
 
     /// 一時フォルダのルート（`defs::load` は `<root>/.sai/paper` を読む）。
     ///
     /// 終えたら呼び出し側が [`remove_temp_roots`] で消す。
-    fn temp_roots(tag: &str) -> papr_core::PaperRoots {
+    pub(crate) fn temp_roots(tag: &str) -> papr_core::PaperRoots {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "papr-tree-{}-{}-{tag}",
-            std::process::id(),
-            unique_suffix(),
+            "papr-tree-{}-{n}-{tag}",
+            std::process::id()
         ));
         let data_dir = root.join(".sai").join("paper");
         std::fs::create_dir_all(&data_dir).expect("データフォルダ");
@@ -703,74 +659,99 @@ mod tests {
     }
 
     /// 一時フォルダを消す。
-    fn remove_temp_roots(roots: &papr_core::PaperRoots) {
+    pub(crate) fn remove_temp_roots(roots: &papr_core::PaperRoots) {
         let _ = std::fs::remove_dir_all(&roots.root);
     }
 
-    /// 同じテストを 2 回走らせても衝突しないよう、実行ごとに違う名前を付ける。
-    fn unique_suffix() -> u128 {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let clock = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        clock ^ u128::from(n) << 32
+    /// problem の型で木を作って計算した status（Node は 3 つ以上ある）。
+    pub(crate) fn sample_status(tag: &str) -> Status {
+        let db = papr_core::Database::in_memory().expect("DB");
+        let roots = temp_roots(tag);
+        let defs = papr_core::rt::defs::load(&roots.root);
+        papr_core::rt::defs::init_tree(db.connection(), &defs, "problem", "user").expect("木");
+        let status =
+            papr_core::rt::compute::status(db.connection(), &roots, &defs).expect("status");
+        remove_temp_roots(&roots);
+        status
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{remove_temp_roots, temp_roots};
+    use super::*;
+
+    use papr_core::rt::{Kind, store};
+
+    /// 木に Node を 1 つ足す。
+    fn add(
+        db: &papr_core::Database,
+        kind: Kind,
+        parent: i64,
+        text: &str,
+        answer: Option<&str>,
+    ) -> i64 {
+        let node = store::NewNode {
+            kind,
+            parent_id: Some(parent),
+            guide_key: None,
+            text,
+            body: "",
+            answer_kind: answer,
+            cites: &[],
+            paper_id: None,
+            run_id: None,
+            report_id: None,
+            mlflow_ref: None,
+            proposal_id: None,
+            created_by: "user",
+        };
+        store::insert_node(db.connection(), &node).expect("Node")
     }
 
-    /// 節点 3 つを持つ status を作る。
-    fn status_with(ids: &[&str]) -> Status {
-        Status {
-            nodes: ids
-                .iter()
-                .enumerate()
-                .map(|(index, id)| NodeRow {
-                    id: (*id).to_string(),
-                    title: format!("項目{id}"),
-                    depth: i64::try_from(index).unwrap_or(0),
-                    ..Default::default()
-                })
-                .collect(),
-            ..Default::default()
-        }
+    fn draw(app: &mut App, width: u16) -> String {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let theme = Theme::load("nord").expect("テーマ");
+        let mut terminal = Terminal::new(TestBackend::new(width, 40)).expect("端末");
+        terminal
+            .draw(|frame| render_tree(frame, frame.area(), app, &theme))
+            .expect("描く");
+        let buffer = terminal.backend().buffer().clone();
+        compact(buffer.content().iter().map(|cell| cell.symbol()))
     }
 
-    /// U23: `pending_select` の節点が選ばれ、中身が入ること。
+    /// `pending_select` の Node が選ばれ、中身が入ること。
     #[test]
     fn reload_reads_tree_and_pending_select() -> Result<(), Box<dyn std::error::Error>> {
         let db = papr_core::Database::in_memory()?;
         let roots = temp_roots("select");
-        let defs = papr_core::sci::defs::load(&roots.root);
-        papr_core::sci::defs::init_tree(db.connection(), &defs, "problem")?;
+        let defs = papr_core::rt::defs::load(&roots.root);
+        papr_core::rt::defs::init_tree(db.connection(), &defs, "problem", "user")?;
 
         let mut state = TreeState {
             stale: true,
-            // 一番上から 3 番目の節点を選ぶ。
-            pending_select: Some(3),
+            // 一覧の 2 番目の Node を選ぶ。
+            pending_select: None,
             ..Default::default()
         };
         reload(&mut state, &db, &roots);
-
         let status = state.status.as_ref().expect("木が読める");
         assert!(status.initialized);
-        assert!(!status.nodes.is_empty());
-        assert!(
-            !state.stale && !state.detail_stale,
-            "旗は読み直したあと下りる"
-        );
-        // pending_select の節点が選ばれている。
-        let picked = status.nodes[state.selected].id.clone();
-        assert_eq!(
-            papr_core::sci::parse_ref(&picked, 'N').ok(),
-            Some(3),
-            "pending_select の節点が選ばれている: {picked}"
-        );
-        assert!(state.detail.is_some(), "選んだ節点の中身が入る");
-        assert!(state.error.is_none(), "{:?}", state.error);
+        assert!(status.nodes.len() >= 2);
+        let target = status.nodes[1].id.clone();
+        let wanted = papr_core::rt::parse_id(&target)?.1;
 
-        let detail = state.detail.as_ref().expect("中身");
-        assert_eq!(detail.node.id, picked);
+        state.selected = 0;
+        state.stale = true;
+        state.pending_select = Some(wanted);
+        reload(&mut state, &db, &roots);
+
+        assert!(!state.stale && !state.detail_stale, "旗は読み直したあと下りる");
+        let status = state.status.as_ref().expect("木が読める");
+        assert_eq!(status.nodes[state.selected].id, target);
+        assert_eq!(state.detail.as_ref().expect("中身").node.id, target);
+        assert!(state.error.is_none(), "{:?}", state.error);
         remove_temp_roots(&roots);
         Ok(())
     }
@@ -791,98 +772,57 @@ mod tests {
         Ok(())
     }
 
-    /// 上の 3 行（種・関門・負債）と一覧の行が出る。
+    /// AC2: 進み具合・Obj・Logic・★・Answer・F の件数が出る。
     #[test]
-    fn render_tree_shows_seed_gate_and_list() {
-        use ratatui::{Terminal, backend::TestBackend};
+    fn render_tree_shows_progress_obj_logic_and_star() -> Result<(), Box<dyn std::error::Error>> {
+        let db = papr_core::Database::in_memory()?;
+        let roots = temp_roots("render");
+        let defs = papr_core::rt::defs::load(&roots.root);
+        let init = papr_core::rt::defs::init_tree(db.connection(), &defs, "problem", "user")?;
+        let o = add(&db, Kind::O, init.root, "術前 MRI と頭皮脳波 120 例", Some("answer"));
+        store::set_starred(db.connection(), o, true)?;
+        add(&db, Kind::F, o, "施設の記録に 120 例ある", None);
 
-        let theme = Theme::load("nord").expect("テーマ");
         let mut app = App::default();
-        let mut status = status_with(&["N1", "N2"]);
-        status.initialized = true;
-        status.seed = Some(papr_core::sci::compute::SeedSentence {
-            text: "頭皮脳波で".into(),
-            parts: vec![papr_core::sci::compute::SeedPart {
-                text: "頭皮脳波で".into(),
-                filled: true,
-                ..Default::default()
-            }],
-        });
-        status.gate = Some(papr_core::sci::compute::GateState {
-            current: 2,
-            total: 7,
-            name: "小目的".into(),
-            ..Default::default()
-        });
-        app.tree.status = Some(status);
-        app.tree.detail = Some(NodeDetail {
-            node: NodeRow {
-                id: "N1".into(),
-                title: "出発点".into(),
-                body: "先行研究を做的事".into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
+        app.tree.stale = true;
+        reload(&mut app.tree, &db, &roots);
+        remove_temp_roots(&roots);
 
-        let mut terminal = Terminal::new(TestBackend::new(140, 30)).expect("端末");
-        terminal
-            .draw(|frame| render_tree(frame, frame.area(), &mut app, &theme))
-            .expect("描く");
-
-        let buffer = terminal.backend().buffer().clone();
-        let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
-        assert!(text.contains("頭皮脳波で"), "種の文が出ていない: {text}");
-        assert!(text.contains("GATE"), "関門が出ていない: {text}");
-        assert!(text.contains("2/7"), "関門の数が出ていない: {text}");
-        assert!(text.contains("DEBT"), "負債が出ていない: {text}");
-        assert!(text.contains("N1"), "項目の一覧が出ていない: {text}");
-        assert!(
-            text.contains("先行研究を做的事"),
-            "選んだ項目の中身が出ていない: {text}"
-        );
-        assert!(text.contains("r:読み直す"), "案内が出ていない: {text}");
+        let text = draw(&mut app, 160);
+        for want in ["進み具合", "Obj", "Logic", "★", "Answer", "DEBT", "PROPOSAL仕分け待ち", "施設の記録に120例ある"] {
+            assert!(text.contains(want), "{want} が出ていない: {text}");
+        }
+        Ok(())
     }
 
-    /// 木が無いときは「まだありません」の案内が出る。
+    /// AC3: 木が無ければ始め方、古い木だけなら作り直しの注意が出る。
     #[test]
-    fn render_tree_shows_hint_without_tree() {
-        use ratatui::{Terminal, backend::TestBackend};
-
-        let theme = Theme::load("nord").expect("テーマ");
+    fn render_tree_guides_without_tree_and_warns_legacy() -> Result<(), Box<dyn std::error::Error>> {
         let mut app = App::default();
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("端末");
-        terminal
-            .draw(|frame| render_tree(frame, frame.area(), &mut app, &theme))
-            .expect("描く");
+        let text = draw(&mut app, 100);
+        assert!(text.contains("研究方針の木はまだありません"), "{text}");
 
-        let buffer = terminal.backend().buffer().clone();
-        let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
-        assert!(
-            text.contains("研究方針の木はまだありません"),
-            "案内の文が出ていない: {text}"
-        );
+        let db = papr_core::Database::in_memory()?;
+        let roots = temp_roots("legacy");
+        db.connection().execute_batch(
+            "INSERT INTO sci_meta (key, value) VALUES ('initialized_at', '2026-01-01');",
+        )?;
+        app.tree.stale = true;
+        reload(&mut app.tree, &db, &roots);
+        remove_temp_roots(&roots);
+        let text = draw(&mut app, 100);
+        assert!(text.contains("作り直してください"), "{text}");
+        assert!(text.contains("古い形式の木だけがあります"), "{text}");
+        Ok(())
     }
 
     /// 読めなかったときはエラーの文が出る。
     #[test]
     fn render_tree_shows_error() {
-        use ratatui::{Terminal, backend::TestBackend};
-
-        let theme = Theme::load("nord").expect("テーマ");
         let mut app = App::default();
         app.tree.error = Some("閉じている".into());
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("端末");
-        terminal
-            .draw(|frame| render_tree(frame, frame.area(), &mut app, &theme))
-            .expect("描く");
-
-        let buffer = terminal.backend().buffer().clone();
-        let text = compact(buffer.content().iter().map(|cell| cell.symbol()));
-        assert!(
-            text.contains("研究方針の木を読めませんでした"),
-            "エラーの文が出ていない: {text}"
-        );
+        let text = draw(&mut app, 100);
+        assert!(text.contains("研究方針の木を読めませんでした"), "{text}");
     }
 
     /// ワイド文字のセル分割を吸収して、空白を詰めた文字列にする。

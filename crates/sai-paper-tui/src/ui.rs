@@ -5831,8 +5831,6 @@ mod tests {
     /// U23: 研究方針のページに、種の文・関門・項目の一覧が出る。
     #[test]
     fn tree_page_renders_seed_gate_and_rows() -> Result<(), Box<dyn std::error::Error>> {
-        use papr_core::sci::compute::{NodeRow, SeedPart, SeedSentence, Status};
-
         let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
         let theme = Theme::load("nord")?;
         let mut app = App {
@@ -5840,41 +5838,8 @@ mod tests {
             content_focused: true,
             ..App::default()
         };
-        let mut status = Status {
-            initialized: true,
-            seed: Some(SeedSentence {
-                text: "頭皮脳波で［？小目的］を行う".into(),
-                parts: vec![SeedPart {
-                    text: "頭皮脳波で".into(),
-                    filled: true,
-                    ..Default::default()
-                }],
-            }),
-            ..Default::default()
-        };
-        status.gate = Some(papr_core::sci::compute::GateState {
-            current: 2,
-            total: 7,
-            name: "小目的".into(),
-            ..Default::default()
-        });
-        status.nodes = vec![
-            NodeRow {
-                id: "N1".into(),
-                title: "出発点".into(),
-                state: "decided".into(),
-                depth: 0,
-                ..Default::default()
-            },
-            NodeRow {
-                id: "N12".into(),
-                title: "小目的".into(),
-                state: "open".into(),
-                blank: Some("awaiting_decision".into()),
-                depth: 1,
-                ..Default::default()
-            },
-        ];
+        let status = crate::tree_view::testing::sample_status("ui");
+        let picked = status.nodes[1].id.clone();
         app.tree.status = Some(status);
         app.tree.selected = 1;
 
@@ -5884,12 +5849,10 @@ mod tests {
         })?;
         let text = buffer_symbols(terminal.backend().buffer());
         let compact = compact_symbols(&text);
-        assert!(compact.contains("頭皮脳波で"), "種の文が出ていない: {compact}");
-        assert!(compact.contains("GATE"), "関門が出ていない: {compact}");
-        assert!(compact.contains("2/7"), "関門の数が出ていない: {compact}");
-        assert!(compact.contains("DEBT"), "負債が出ていない: {compact}");
-        assert!(text.contains("N12"), "項目の一覧が出ていない: {text}");
-        assert!(compact.contains("AWAITING_DECISION"), "空欄の種類が出ていない: {compact}");
+        assert!(compact.contains("SEED"), "SEED が出ていない: {compact}");
+        assert!(compact.contains("進み具合"), "進み具合が出ていない: {compact}");
+        assert!(compact.contains("DEBT"), "DEBT が出ていない: {compact}");
+        assert!(text.contains(&picked), "Node の一覧が出ていない: {text}");
         Ok(())
     }
 

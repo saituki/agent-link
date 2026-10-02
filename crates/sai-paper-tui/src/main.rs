@@ -7863,7 +7863,7 @@ fn apply_open_project_file(
 /// state.md が研究方針の木からの書き出しか（=`sci init` をしているか）。
 #[must_use]
 fn state_md_is_sci_backed(db: &papr_core::Database) -> bool {
-    papr_core::sci::store::is_initialized(db.connection()).unwrap_or(false)
+    papr_core::rt::store::is_initialized(db.connection()).unwrap_or(false)
 }
 
 /// S01: 最近 7 日の研究日誌を内蔵 Markdown ビューアで開く（`J`）。
@@ -8014,13 +8014,14 @@ fn open_sci_attention_at(item: &papr_core::attention::AttentionItem, app: &mut A
         .iter()
         .position(|page| *page == Page::Tree)
         .unwrap_or(app.sidebar_index);
-    // SciDecision はキーが `sci_decision:<節点>:<知見の id>`。2 番目の節点を選ぶ。
+    // SciDecision はキーが `sci_decision:<Q の ID>`（例 `sci_decision:Q12`）。その Q を選ぶ。
     if item.kind == papr_core::attention::AttentionKind::SciDecision
         && let Some(node) = item
             .key
             .split(':')
             .nth(1)
-            .and_then(|ref_id| papr_core::sci::parse_ref(ref_id, 'N').ok())
+            .and_then(|id| papr_core::rt::parse_id(id).ok())
+            .map(|(_, number)| number)
     {
         app.tree.pending_select = Some(node);
     }
@@ -11107,13 +11108,13 @@ mod tests {
 
     /// U23: 要対応のAWAITING_DECISION・PENDING_PROPOSALSは研究方針のページで開く。
     ///
-    /// 判断待ち（`sci_decision`）のときはキーの 2 番目の節点を選ぶ。
+    /// 判断待ち（`sci_decision`）のときはキーの Q を選ぶ。
     #[test]
     fn sci_attention_opens_tree_page_and_selects_node() {
         use papr_core::attention::{AttentionItem, AttentionKind};
 
         let item = AttentionItem {
-            key: "sci_decision:N12:31".into(),
+            key: "sci_decision:Q12".into(),
             kind: AttentionKind::SciDecision,
             title: "AWAITING_DECISION".into(),
             run_id: None,
@@ -11184,8 +11185,8 @@ mod tests {
 
         // 一時フォルダのルートに埋め込みの定義を足して `sci init` 相当を再現する。
         let root = std::env::temp_dir().join(format!("papr-state-md-{}", std::process::id()));
-        let defs = papr_core::sci::defs::load(&root);
-        papr_core::sci::defs::init_tree(db.connection(), &defs, "problem")?;
+        let defs = papr_core::rt::defs::load(&root);
+        papr_core::rt::defs::init_tree(db.connection(), &defs, "problem", "user")?;
         let _ = std::fs::remove_dir_all(&root);
         assert!(state_md_is_sci_backed(&db), "始めていれば読むだけ");
         Ok(())
@@ -11480,15 +11481,7 @@ mod tests {
             content_focused: true,
             ..App::default()
         };
-        app.tree.status = Some(papr_core::sci::compute::Status {
-            nodes: (1..=3)
-                .map(|id| papr_core::sci::compute::NodeRow {
-                    id: format!("N{id}"),
-                    ..Default::default()
-                })
-                .collect(),
-            ..Default::default()
-        });
+        app.tree.status = Some(crate::tree_view::testing::sample_status("wheel"));
         handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollDown));
         assert_eq!(app.tree.selected, 1, "研究方針のページのホイール下");
         handle_mouse_event(&mut app, wheel(MouseEventKind::ScrollUp));
