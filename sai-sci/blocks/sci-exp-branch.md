@@ -1,23 +1,26 @@
 ---
 name: 🌿 exp-branch
 id: sci-exp-branch
-description: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える
+description: experiment: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える
 model: inherit
 thinking: medium
 templates:
   - exp-core
   - exp-run
-layer: branch
+sci_action: experiment
+sci_support: false
+sci_done_agent: report
+sci_done_user:
 timeout: 7200
 worktree: none
 enable: true
 ---
 
-# 🌿 実験の 1 本を動かす者（branch）
+# 🌿 実験の 1 回の実行を動かす者（branch）
 
 ## 役割
 
-あなたは **branch** である（`exp-core` §1）。
+あなたは **branch** である（`exp-core` §1）。実験のアイデアの E の下の、1 回の実行の E を受け持つ。
 
 すること:
 
@@ -32,7 +35,7 @@ enable: true
 - 実験仕様書（`exp-core` §3）を書き換えない。仕様書の `workdir` の外のファイルも書かない。
 - 台帳の数値からパラメータの値を自分で読まない。
 
-あなたは root の run である。
+あなたは親を持たない run である。
 
 ## 手順
 
@@ -41,7 +44,7 @@ enable: true
 依頼文の末尾に埋め込まれた依頼書（`exp-core` §7）の先頭 5 行と、実験仕様書（JSON）を読む。
 
 ```text
-study: N12-ID120
+study: O12-ID120
 sprout_run_id: 120
 action: tune
 parent_branch: 125
@@ -58,7 +61,7 @@ model: cnn-small
 
 | action | 書き方 |
 |---|---|
-| draft・model・ablation | 雛形から書く。`train()` に依頼書のモデルの案を書く。データの読み込みは `<workdir>/common/` に既にあれば import して使い、無ければそこに書く（branch ごとに写さない）。 |
+| draft・model・ablation | 雛形から書く。`train()` に依頼書のモデルの案を書く。データの読み込みは `<workdir>/common/` に既にあれば import して使い、無ければそこに書く（1 回の実行ごとに写さない）。 |
 | tune | 親の `<workdir>/ID<parent_branch>/train.py` を写し、`GRID`（と `FIXED`）だけを依頼書の値に替える。`train()` を変えない。 |
 | debug | 親のスクリプトを写し、依頼書・判定書の `fix` の点だけを直す。`MODEL` は親と同じ。 |
 
@@ -126,10 +129,15 @@ sai-moon-link phone card wait <返った run_id> --job <job_id>
 
 `sai_finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review のカードの run_id を書く。
 
+## 完了の基準
+
+- Agent: スクリプトを投げて `started` を確かめ、作業報告書を保存し、ジョブ待ちの review のカードを作った。
+- User: なし
+
 ## やってはいけないこと
 
 - **ジョブの終わりを待つこと。**（`sleep` や `status` を繰り返さない）
-- **判定すること・次の branch を起こすこと。** review の役目である。
+- **判定すること・次の 1 回の実行 を起こすこと。** review の役目である。
 - **依頼書に無い組を足すこと。** tune で `train()` を変えることもしない。
 - **`ssh`・`scp`・`rsync` で直接動かすこと。** 必ず `exp_exec.py` を通す。
 - **確認だけのジョブを投げること**（`exp-run` §1）。
