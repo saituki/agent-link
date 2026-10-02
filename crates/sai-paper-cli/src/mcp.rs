@@ -168,20 +168,16 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let (db, config) = open()?;
             let conn = db.connection();
             // 節点と問い（記録に残す）。節点だけなら検索の範囲も狭める。
-            let refs = crate::sci::parse_search_refs(
-                conn,
-                str_arg(args, "node").as_deref(),
-                str_arg(args, "question").as_deref(),
-            )?;
+            let refs = crate::sci::parse_search_refs(conn, str_arg(args, "node").as_deref())?;
             let papers = int_list_arg(args, "papers");
             let subtree = args.get("subtree").and_then(Value::as_bool).unwrap_or(false);
             // `--subtree` と `--each` には範囲の指定が要る（CLI の find と同じ検査）。
-            crate::sci::check_find_scope(subtree, refs.given.is_some(), int_arg(args, "each"), papers.is_empty())?;
+            crate::sci::check_find_scope(subtree, refs.node.is_some(), int_arg(args, "each"), papers.is_empty())?;
             let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
                 conn,
                 int_arg(args, "paper_id"),
                 &papers,
-                refs.given,
+                refs.node,
                 subtree,
             )
             .map_err(|err| anyhow!("{err}"))?;
@@ -333,7 +329,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let Some(run_id) = run else {
                 return Err(anyhow!("run_id が必要です"));
             };
-            let text = sai_paper_core::sci::context::build(
+            let text = sai_paper_core::rt::context::build(
                 env.conn(),
                 &env.roots,
                 &env.defs,
@@ -346,7 +342,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
         }
         "sci_status" => {
             let env = crate::sci::open_env()?;
-            let status = sai_paper_core::sci::compute::status(env.conn(), &env.roots, &env.defs)
+            let status = sai_paper_core::rt::compute::status(env.conn(), &env.roots, &env.defs)
                 .context("現況を集められませんでした")?;
             // brief でも全体でも、値は status からそのまま写す（計算し直さない）。
             if args.get("brief").and_then(Value::as_bool).unwrap_or(false) {
@@ -356,11 +352,10 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
         }
         "sci_node" => {
             let node = str_arg(args, "node").ok_or_else(|| anyhow!("node が必要です"))?;
-            let id = crate::sci::parse_id(&node, 'N')?;
             let env = crate::sci::open_env()?;
             let detail =
-                sai_paper_core::sci::compute::node_detail(env.conn(), &env.roots, &env.defs, id)
-                    .context("NODE の詳細を集められませんでした")?;
+                sai_paper_core::rt::compute::node_detail(env.conn(), &env.roots, &env.defs, node.trim())
+                    .map_err(|err| anyhow!("{err}"))?;
             Ok(serde_json::to_value(detail)?)
         }
         "sci_propose" => {
@@ -374,7 +369,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                 std::env::var("SAI_BLOCK_NAME").ok(),
             );
             let results =
-                sai_paper_core::sci::ops::propose(env.conn(), &env.roots, &env.defs, &actor, &json!({
+                sai_paper_core::rt::ops::propose(env.conn(), &env.roots, &env.defs, &actor, &json!({
                     "proposals": proposals.clone(),
                 }))
                 .map_err(|err| anyhow!("{err}"))?;

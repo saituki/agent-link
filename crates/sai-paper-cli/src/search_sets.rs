@@ -41,12 +41,9 @@ pub enum SearchSetCmd {
         /// 作成者（既定: "user"）
         #[arg(long, default_value = "user")]
         created_by: String,
-        /// 何のための検索か（節点・問い・目的・抜き出す項目）
+        /// 結ぶ研究方針の Node の ID（`Q12`・`O5` など）
         #[arg(long)]
         node: Option<String>,
-        /// 検索の問い（`Q7`）
-        #[arg(long)]
-        question: Option<String>,
         /// 何のための検索か
         #[arg(long)]
         purpose: Option<String>,
@@ -106,7 +103,6 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
             file,
             created_by,
             node,
-            question,
             purpose,
             extract,
         } => {
@@ -118,7 +114,6 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
                 file: file.as_deref(),
                 created_by: &created_by,
                 node: node.as_deref(),
-                question: question.as_deref(),
                 purpose: purpose.as_deref(),
                 extract: extract.as_deref(),
             })
@@ -230,7 +225,6 @@ struct CreateArgs<'a> {
     file: Option<&'a str>,
     created_by: &'a str,
     node: Option<&'a str>,
-    question: Option<&'a str>,
     purpose: Option<&'a str>,
     extract: Option<&'a str>,
 }
@@ -244,7 +238,6 @@ async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
         file,
         created_by,
         node,
-        question,
         purpose,
         extract,
     } = args;
@@ -284,8 +277,8 @@ async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
         search_sets::add_items(conn, set_id, papers)?;
     }
 
-    // 何のための検索かをセットに書く（R-R6）。1 つも無ければ何もしない。
-    let refs = crate::sci::parse_search_refs(conn, node, question)?;
+    // 何のための検索かをセットに書く。1 つも無ければ何もしない。
+    let refs = crate::sci::parse_search_refs(conn, node)?;
     if let Some(fields) = crate::sci::set_fields(&refs, purpose, extract) {
         search_sets::set_sci_fields(conn, set_id, &fields)?;
     }
