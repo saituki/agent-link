@@ -323,7 +323,8 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
 
 // ---- 読み込み ------------------------------------------------------------------------
 
-fn overlay(map: &mut BTreeMap<String, String>, base: &Path) {
+/// 古い書式のファイルは重ねずに飛ばす（埋め込みの新しい版を残すため）。
+fn overlay(map: &mut BTreeMap<String, String>, base: &Path, warnings: &mut Vec<String>) {
     for sub in ["types", "guides"] {
         let Ok(entries) = fs::read_dir(base.join("sci").join(sub)) else { continue };
         for entry in entries.flatten() {
@@ -332,8 +333,13 @@ fn overlay(map: &mut BTreeMap<String, String>, base: &Path) {
             if !file.ends_with(".md") {
                 continue;
             }
-            if let Ok(text) = fs::read_to_string(&path) {
-                map.insert(format!("{sub}/{file}"), text);
+            let Ok(text) = fs::read_to_string(&path) else { continue };
+            let doc = read_doc(&text);
+            let relative = format!("{sub}/{file}");
+            if (sub == "types" && is_old_type(&doc)) || (sub == "guides" && is_old_guide(&doc)) {
+                warnings.push(format!("古い書式のため読みませんでした: {relative}"));
+            } else {
+                map.insert(relative, text);
             }
         }
     }
@@ -348,18 +354,15 @@ pub fn load(root: &Path) -> Defs {
 fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
     let mut files: BTreeMap<String, String> =
         EMBEDDED.iter().map(|(p, t)| ((*p).to_string(), (*t).to_string())).collect();
-    if let Some(home) = home {
-        overlay(&mut files, home);
-    }
-    overlay(&mut files, &root.join(".sai"));
-
     let mut defs = Defs::default();
+    if let Some(home) = home {
+        overlay(&mut files, home, &mut defs.warnings);
+    }
+    overlay(&mut files, &root.join(".sai"), &mut defs.warnings);
+
     for (path, text) in &files {
-        let doc = read_doc(text);
         let is_type = path.starts_with("types/");
-        if (is_type && is_old_type(&doc)) || (!is_type && is_old_guide(&doc)) {
-            defs.warnings.push(format!("古い書式のため読みませんでした: {path}"));
-        } else if is_type {
+        if is_type {
             match parse_type(text) {
                 Ok(t) => defs.types.push(t),
                 Err(e) => defs.warnings.push(format!("読めませんでした: {path}: {e}")),
@@ -655,7 +658,7 @@ mod tests {
         fs::write(dir.join("problem.md"), "---\nid: problem\nname: X\n---\n## ITEM_ORDER\n- a\n").unwrap();
         let defs = load_with_home(&root, None);
         assert_eq!(defs.warnings, ["古い書式のため読みませんでした: types/problem.md"]);
-        assert_eq!(defs.types.len(), 4, "古い写しが上書きしたので problem は消える");
+        assert_eq!(defs.types.len(), 5, "埋め込みの新しい problem が残る");
         let _ = fs::remove_dir_all(&root);
     }
 
