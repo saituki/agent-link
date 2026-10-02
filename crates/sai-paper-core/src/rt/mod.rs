@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 pub mod action;
+pub mod card;
 pub mod compute;
 pub mod defs;
 pub mod ops;
