@@ -85,6 +85,9 @@ pub struct SettingsJson {
     /// 起動の直前に範囲を作る命令（配列。`{run_id}` と `{block}` を置き換える。シェルは通さない）
     #[serde(default)]
     pub context: Option<Vec<String>>,
+    /// `sai_write` が保存の前に本文を標準入力で通す命令（配列。`{run_id}`・`{block}`・`{filename}` を置き換える。シェルは通さない）
+    #[serde(default)]
+    pub write_check: Option<Vec<String>>,
     /// エージェントの起動コマンドの先頭に付ける環境変数（KEY → 値）。
     ///
     /// `.sai/settings.json` と `~/.sai-moon/settings.json` の両方で書ける（後者が優先）。
@@ -210,6 +213,9 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
     }
     if parsed.context.is_some() {
         merged.context = parsed.context;
+    }
+    if parsed.write_check.is_some() {
+        merged.write_check = parsed.write_check;
     }
     if !parsed.env.is_empty() {
         // `env` もキー単位のマージ。同じキーが両方にあればグローバル側が勝つ。

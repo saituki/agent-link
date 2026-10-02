@@ -79,7 +79,7 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
     if cmd.is_empty() {
         return PreRunOutcome::NotConfigured;
     }
-    let (status, stdout, stderr) = match run_child(cmd, root, &[], timeout) {
+    let (status, stdout, stderr) = match run_child(cmd, root, &[], None, timeout) {
         Ok(v) => v,
         Err(reason) => return PreRunOutcome::Failed(reason),
     };
@@ -120,7 +120,7 @@ pub fn run_capture(
     if cmd.is_empty() {
         return Err("命令が空です".to_string());
     }
-    let (status, stdout, stderr) = match run_child(cmd, root, envs, timeout) {
+    let (status, stdout, stderr) = match run_child(cmd, root, envs, None, timeout) {
         Ok(v) => v,
         Err(reason) => return Err(truncate_reason(reason)),
     };
@@ -159,6 +159,7 @@ fn run_child(
     cmd: &[String],
     root: &Path,
     envs: &[(&str, String)],
+    stdin_text: Option<&str>,
     timeout: Duration,
 ) -> Result<(Option<std::process::ExitStatus>, Vec<u8>, Vec<u8>), String> {
     let program = &cmd[0];
@@ -168,7 +169,7 @@ fn run_child(
         .current_dir(root)
         .env("SAI_PROJECT_ROOT", root)
         .env("SAI_PAPER_ROOT", root)
-        .stdin(Stdio::null())
+        .stdin(if stdin_text.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     for (key, value) in envs {
@@ -178,6 +179,15 @@ fn run_child(
         Ok(child) => child,
         Err(e) => return Err(format!("起動できません: {program}: {e}")),
     };
+
+    // 本文は別スレッドで書いて閉じる（子が読まずに終わっても詰まらない）。
+    if let (Some(text), Some(mut stdin)) = (stdin_text, child.stdin.take()) {
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(text.as_bytes());
+        });
+    }
 
     // 子が大量に出力してもブロックしないよう、パイプは別スレッドで読み切る。
     let stdout_reader = child.stdout.take().map(|mut s| {
@@ -226,6 +236,45 @@ fn run_child(
         .and_then(|h| h.join().ok())
         .unwrap_or_default();
     Ok((status, stdout, stderr))
+}
+
+/// 本文を標準入力で渡して命令を動かした結果（`write_check` 用）。
+pub enum StdinOutcome {
+    /// 終了コード 0。標準出力（先頭 [`MAX_CAPTURE_CHARS`] 文字まで）。
+    Ok(String),
+    /// 終了コード 1。標準エラー（先頭 4000 文字まで、前後の空白を除く）。
+    Rejected(String),
+    /// 起動できない・時間切れ・0 と 1 以外の終了コード。理由の 1 行（200 文字まで）。
+    Broken(String),
+}
+
+/// 本文を標準入力で渡して命令を動かす。終了コードで [`StdinOutcome`] を分ける。
+pub fn run_with_stdin(
+    cmd: &[String],
+    root: &Path,
+    envs: &[(&str, String)],
+    stdin_text: &str,
+    timeout: Duration,
+) -> StdinOutcome {
+    if cmd.is_empty() {
+        return StdinOutcome::Broken("命令が空です".to_string());
+    }
+    match run_child(cmd, root, envs, Some(stdin_text), timeout) {
+        Err(reason) => StdinOutcome::Broken(truncate_reason(reason)),
+        Ok((None, ..)) => StdinOutcome::Broken(format!("{} 秒で終わりませんでした", timeout.as_secs())),
+        Ok((Some(status), stdout, stderr)) => match status.code() {
+            Some(0) => StdinOutcome::Ok(
+                String::from_utf8_lossy(&stdout).chars().take(MAX_CAPTURE_CHARS).collect(),
+            ),
+            Some(1) => StdinOutcome::Rejected(
+                String::from_utf8_lossy(&stderr).trim().chars().take(4000).collect(),
+            ),
+            code => StdinOutcome::Broken(truncate_reason(format!(
+                "終了コード {}",
+                code.map(|c| c.to_string()).unwrap_or_else(|| "不明".to_string())
+            ))),
+        },
+    }
 }
 
 /// 失敗理由の 1 行を作る。
