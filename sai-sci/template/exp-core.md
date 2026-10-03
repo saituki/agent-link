@@ -1,12 +1,16 @@
 # 実験ループの共通の決まり（exp-core）
 
 3 つのブロック（`sci-exp-sprout` / `sci-exp-branch` / `sci-exp-review`）が共通で読む決まり。
+`sci-exp-scout` はこの文書ではなく `exp-ref` を読む。
 この文書の §4 の表・§5 の欄・§6 の規則は**共有契約**であり、3 つのブロックと `exp_summary.py` のいずれも書き換えない。
 
 ## 1. 役割
 
+実験の鎖は **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout がそれを仕様書に書き込み、branch がそれを写してスクリプトに `# src:` を付ける。
+
 | ブロック | 役 | すること | しないこと |
 |---|---|---|---|
+| `sci-exp-scout` | scout | 実験の前に参照実装（Library・ModelDB・GitHub）を探し、参照コード調査書を保存する。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
 | `sci-exp-sprout` | sprout | 実験のアイデア 1 つを、研究方針の木の Issue の O から決める。実験仕様書を作り、最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
 | `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review のカードを作って終わる | 終わりまで待たない・判定しない |
 | `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
@@ -47,6 +51,7 @@
  "allowed_actions": ["draft", "tune", "debug", "model", "ablation"],
  "epochs": 25, "trial_timeout_s": 5400, "device": "auto",
  "artifact_location": "", "workdir": "experiments/O6-ID120",
+ "reference_code": [{"id": "miscco/NM_TC", "sha": "1c8f5f09d3a9", "path": "…", "role": "土台"}],
  "return_to": {"block": "professor-backward", "run_id": 5}}
 ```
 
@@ -69,6 +74,9 @@
 | `artifact_location` | 成果物の置き場（空なら環境変数 `EXP_ARTIFACT_LOCATION`、それも無ければ `s3://mlflow-local/`）。大きなモデルで別の置き場（さくらのオブジェクトストレージなど）を使うときに書く |
 | `workdir` | スクリプトを置くフォルダ。既定 `experiments/<study>` |
 | `return_to` | sprout を起こしたのが professor なら `{"block": "<そのブロック>", "run_id": <その run_id>}`。人が起こしたなら `null`。鎖が終わったときに起こし直す相手（§11） |
+| `reference_code` | 参照実装の一覧。`sci-exp-scout` の参照コード調査書からそのまま写す（`{"id", "url", "sha", "path", "license", "role", "paper"}`）。`role` は `土台` か `参考`。参照実装なしで進むと起動者が決めたときだけ `[]` にして、理由を本文に書く |
+
+- 仕様書の本文には「## パラメータの出典表」を置く（書き方は `exp-ref` §6）。モデルの名前付き定数と、掃引の軸の幅を、出典つきで載せる。
 
 ## 4. MLflow の記録の決まり
 
@@ -106,6 +114,8 @@
 ### スクリプトの雛形
 
 branch が定数・`FIXED`・`GRID`・`train` の中身だけを書く。MLflow と出力の行は書き換えない。**先頭の PEP 723 の欄は消さない。** 追加の道具はここに書き足す（`uv run <script>.py` はこの欄の依存を読む）。`boto3` が無いと `s3://` への成果物の書き込みができない。
+
+**モデルの数値の定数と、数値を使う関数には `# src:` を付ける**（書き方は `exp-ref` §5）。雛形の定数（`PROJECT` … `RUN_TAGS`）には要らない。
 
 ```python
 # /// script
@@ -310,6 +320,7 @@ model: cnn-static
 
 ## スクリプトに書く中身
 - 元のスクリプト: experiments/O6-ID120/ID125/train.py（tune と debug のとき。写して直す）
+- 土台のコード: <reference_code の path>（式と値はここと仕様書の出典表から写す）
 - GRID: {"lr": [0.1, 0.3]}
 - 直す点 / 新しいモデルの案: …
 - 期待する効果: test_acc を 0.87 以上にする
