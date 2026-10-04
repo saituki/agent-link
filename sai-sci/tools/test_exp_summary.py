@@ -48,7 +48,8 @@ class Store:
 
     def run(self, experiment: str, branch: str, n: int, value: float | None, params: dict,
             action: str = "tune", parent: str = "", failed: bool = False,
-            curve: int = 2) -> str:
+            curve: int = 2, repro: float | None = None,
+            repro_values: dict | None = None) -> str:
         self.clock += 1000
         run = self.client.create_run(
             self.ids[experiment],
@@ -64,6 +65,10 @@ class Store:
         metrics = [Metric("train_loss", 1.0 / (e + 1), self.clock, e + 1) for e in range(curve)]
         if value is not None:
             metrics.append(Metric(METRIC, value, self.clock, 0))
+        if repro is not None:
+            metrics.append(Metric("repro_pass", repro, self.clock, 0))
+        for name, v in sorted((repro_values or {}).items()):
+            metrics.append(Metric(f"repro.{name}", v, self.clock, 0))
         self.client.log_batch(
             run.info.run_id, metrics=metrics,
             params=[Param(k, str(v)) for k, v in sorted(params.items())],
@@ -134,7 +139,9 @@ class ExpSummaryTest(unittest.TestCase):
         self.assertEqual(br[121]["param_edges"], [{"param": "lr", "side": "max"}])
         self.assertEqual((br[125]["action"], br[125]["parent_branch"], br[125]["best_params"]), ("tune", 121, {"lr": "0.01"}))
         self.assertEqual((br[121]["runs"], br[121]["failed"], br[130]["has_curves"]), (3, 1, False))
-        self.assertEqual(s["target"], {"branch": 125, "runs": 2, "failed": 0, "best": 0.871, "improved": True})
+        self.assertIsNone(br[125]["repro_pass"], "再現の確かめを記録していない実験は null")
+        self.assertEqual(s["target"], {"branch": 125, "runs": 2, "failed": 0, "best": 0.871,
+                                       "improved": True, "repro_pass": None, "repro": None})
         self.assertEqual(s["total_branches"], 4)
         self.assertFalse(s["ablation_done"], "別の sprout の ablation は数えない")
         self.assertEqual(s["leak_suspects"], [{"branch": 125, "run_name": "ID125-p02", "value": 0.871}])
@@ -143,7 +150,31 @@ class ExpSummaryTest(unittest.TestCase):
     def test_target_without_runs(self) -> None:
         build(self.store)
         s = self.summary("--branch", "777")
-        self.assertEqual(s["target"], {"branch": 777, "runs": 0, "failed": 0, "best": None, "improved": False})
+        self.assertEqual(s["target"], {"branch": 777, "runs": 0, "failed": 0, "best": None,
+                                       "improved": False, "repro_pass": None, "repro": None})
+
+    def test_repro_pass_is_min_of_finished_runs(self) -> None:
+        build(self.store)
+        # 140: 成功した run の repro_pass の最小値が 0.5。失敗した run の 0.0 は数えない。
+        self.store.run(STATIC, "140", 1, 0.80, {"lr": 0.1}, parent="125", repro=1.0,
+                       repro_values={"so_peak_hz": 1.0, "rate_hz": 8.0})
+        self.store.run(STATIC, "140", 2, 0.79, {"lr": 0.2}, parent="125", repro=0.5,
+                       repro_values={"so_peak_hz": 2.3, "rate_hz": 7.5})
+        self.store.run(STATIC, "140", 3, None, {"lr": 0.3}, parent="125", failed=True, repro=0.0,
+                       repro_values={"so_peak_hz": 0.9})
+        # 141: 再現の確かめを記録しない run だけ。
+        self.store.run(STATIC, "141", 1, 0.70, {"lr": 0.1}, parent="140")
+
+        s = self.summary("--branch", "140")
+        self.assertEqual(s["target"]["repro_pass"], 0.5)
+        self.assertEqual(s["target"]["repro"], {"so_peak_hz": 2.3, "rate_hz": 7.5})
+        br = {b["branch"]: b for b in s["branches"]}
+        self.assertEqual(br[140]["repro_pass"], 0.5, "失敗した run の repro_pass は数えない")
+        self.assertIsNone(br[141]["repro_pass"], "記録が無ければ null")
+
+        s2 = self.summary("--branch", "141")
+        self.assertIsNone(s2["target"]["repro_pass"])
+        self.assertIsNone(s2["target"]["repro"])
 
     def test_minimize_and_ablation(self) -> None:
         build(self.store)

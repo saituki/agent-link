@@ -33,6 +33,9 @@ WARNING_PREFIX = "警告: "
 # 成功とみなす run の状態。
 SUCCESS_STATUS = "FINISHED"
 FAILED_STATUS = "FAILED"
+# 再現の確かめを記録する指標の名前。`repro.` で始まる指標は、目標ごとの測定値になる。
+REPRO_PASS = "repro_pass"
+REPRO_PREFIX = "repro."
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -77,13 +80,30 @@ class Run:
         self.action = tags.get("exp.action", "")
         self.parent_branch = tags.get("exp.parent_branch", "")
         self.value: float | None = None
-        recorded = run.data.metrics.get(metric_name)
+        metrics = run.data.metrics or {}
+        recorded = metrics.get(metric_name)
         if recorded is not None:
             # mlflow 3 の run.data.metrics は値（float）で、2.x は Metric オブジェクト。
             try:
                 self.value = float(getattr(recorded, "value", recorded))
             except (TypeError, ValueError):
                 warn(f"指標 {metric_name} が数値でないので無視します: run_id={self.run_id}")
+        # 再現の確かめ（`sim_model` があるとき）。`repro_pass` は割合、`repro.<name>` は目標ごとの測定値。
+        self.repro: float | None = None
+        self.repro_values: dict[str, float] = {}
+        if metrics.get(REPRO_PASS) is not None:
+            try:
+                self.repro = float(getattr(metrics[REPRO_PASS], "value", metrics[REPRO_PASS]))
+            except (TypeError, ValueError):
+                warn(f"{REPRO_PASS} が数値でないので無視します: run_id={self.run_id}")
+        for name, recorded_value in metrics.items():
+            if not name.startswith(REPRO_PREFIX):
+                continue
+            try:
+                self.repro_values[name[len(REPRO_PREFIX):]] = float(
+                    getattr(recorded_value, "value", recorded_value))
+            except (TypeError, ValueError):
+                warn(f"{name} が数値でないので無視します: run_id={self.run_id}")
 
     @property
     def ok(self) -> bool:
@@ -130,6 +150,17 @@ def _best_of(runs: list[Run], direction: str) -> Run | None:
         if run.ok and _better(run.value, best.value if best else None, direction):
             best = run
     return best
+
+
+def _repro_of(runs: list[Run]) -> tuple[float | None, dict[str, float] | None]:
+    """成功した run の中の repro_pass の最小値と、その run の repro.<name> の値。"""
+    best_pass, best_values = None, None
+    for run in runs:
+        if run.status != SUCCESS_STATUS or run.repro is None:
+            continue
+        if best_pass is None or run.repro < best_pass:
+            best_pass, best_values = run.repro, dict(run.repro_values)
+    return best_pass, best_values
 
 
 def _param_edges(runs: list[Run], direction: str) -> list[dict]:
@@ -262,6 +293,7 @@ def build_summary(
                 "improved": improved,
                 "has_curves": any(has_curve(r) for r in mine),
                 "param_edges": _param_edges(mine, direction),
+                "repro_pass": _repro_of(mine)[0],
             })
         stale = 0
         for flag in reversed(flags):
@@ -292,8 +324,10 @@ def build_summary(
     if branch is not None:
         found = next((e for e in branch_entries if e["branch"] == branch), None)
         keys = ("runs", "failed", "best", "improved")
-        target = {"branch": branch, **({k: found[k] for k in keys} if found else
-                  {"runs": 0, "failed": 0, "best": None, "improved": False})}
+        base = {k: found[k] for k in keys} if found else {
+            "runs": 0, "failed": 0, "best": None, "improved": False}
+        repro_pass, repro_values = _repro_of([r for r in runs if r.branch == branch])
+        target = {"branch": branch, **base, "repro_pass": repro_pass, "repro": repro_values}
 
     return {
         "sprout": int(sprout) if sprout.isdigit() else sprout,

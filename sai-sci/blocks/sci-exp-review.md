@@ -57,7 +57,7 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 
 ### 4. 判定する
 
-`exp-core` §6 の R0〜R8 を上から当てはめ、最初に当てはまったものを採る。判定書（`review-<study>-ID<branch>.md`）を `sai_write` で保存する。description は `判定書 <study> ID<branch>: <decision> <rule> — <理由 1 文>`。
+`exp-core` §6 の R0〜R8（R1a を含む）を上から当てはめ、最初に当てはまったものを採る。判定書（`review-<study>-ID<branch>.md`）を `sai_write` で保存する。description は `判定書 <study> ID<branch>: <decision> <rule> — <理由 1 文>`。
 
 起こす本数は `total_branches + 起こす本数 <= max_branches` に収め、1 回に起こす数は `max_children` 以下にする。
 
@@ -76,7 +76,7 @@ sai-moon-link phone card run <返った run_id>
 `sai-moon-link phone tree` で running を確かめる。
 
 - **tune**: GRID は台帳の `param_edges` を見て決める（端の外側へ広げる。端が無ければ最良の近くを細かく）。
-- **debug**: `fix` には `logs` と run の `exp.error` から、直す点を具体的に書く（ファイル・行・誤りの文）。
+- **debug**: `fix` には `logs` と run の `exp.error` から、直す点を具体的に書く（ファイル・行・誤りの文）。R1a（`exp-core` §6）で debug にしたときは、`fix` に**外れた目標の名前・台帳の `target.repro` の値・モデル定義書の `repro[].range`** を書く（`target.repro_pass` が `null` なら「`repro_pass` が記録されていない」と書く）。モデル定義書の「## 食い違い」に該当行があれば、それも引く。
 - **model / ablation**: `idea` に新しいモデルの案（木の F と O から）を書く。`model` は新しい名前にする（ablation は `<元>-abl-<外した成分>`）。
 
 ### 6. stop のとき
@@ -84,6 +84,7 @@ sai-moon-link phone card run <返った run_id>
 完了報告書（`exp-final-<study>.md`、`exp-core` §10）を保存する。description は `完了報告書 <study>: <stop_reason> — 最良 <metric> <value>`。
 
 - `no_records`（R4）なら、先に質問ツールで起動者（人）に MLflow への接続を確かめるよう聞き、答えを判定書に書く。
+- `repro_failed` で止めたときは、完了報告書に**「土台が論文の再現の目標に届かなかった」**と書き、**改良の結論を書かない**（最良の値から改良が効いたとは書かない）。
 - 仕様書の `return_to` があれば、professor を起こし直す（`exp-core` §11）。`return_to` が `null` なら起こさない。
 
 ```bash
