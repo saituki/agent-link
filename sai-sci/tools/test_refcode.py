@@ -509,6 +509,149 @@ class ParamsTest(Base):
         self.assertIn("gl = 0.1", out)
 
 
+MOD_CODE = (
+    "NEURON { SUFFIX cad }\n"
+    "PARAMETER {\n"
+    "    taur = 5 (ms) : 減衰\n"
+    "}\n"
+    "BREAKPOINT {\n"
+    "    SOLVE state METHOD cnexp\n"
+    "}\n"
+    "DERIVATIVE state {\n"
+    "    : カルシウムの減衰\n"
+    "    cai' = -ica * 10 - (cai - cainf) / taur\n"
+    "}\n"
+)
+ODE_CODE = (
+    "# erse の書き方\n"
+    "net_test() {\n"
+    "  par a=1, b=0.5\n"
+    "  init v=-65, w=-10\n"
+    "  @ dt=0.05\n"
+    "  v' = (a - b*v) / tau\n"
+    "  dw/dt = -w / tau\n"
+    "  aux current\n"
+    "  f(x) = x * 2\n"
+    "  done\n"
+    "}\n"
+)
+CPP_CODE = (
+    "void step() {\n"
+    "  x += dt * f(x);\n"
+    "  if (t == dt * 2) { return; }\n"
+    "  V[N] = V[0] + dt * (-(I_L + I_AMPA) / tau);\n"
+    "}\n"
+)
+PY_CODE = "eqs = '''dv/dt = (-v + I) / tau : volt\ntau = 10*ms\n'''\n"
+
+
+class EqsTest(Base):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dir = self.env.work / "eqs"
+        self.dir.mkdir()
+        (self.dir / "cad.mod").write_text(MOD_CODE, encoding="utf-8")
+        (self.dir / "net.ode").write_text(ODE_CODE, encoding="utf-8")
+        (self.dir / "col.cpp").write_text(CPP_CODE, encoding="utf-8")
+        (self.dir / "brian.py").write_text(PY_CODE, encoding="utf-8")
+
+    def eqs(self, *args: str):
+        return self.env.run_json("eqs", *args, "--json")
+
+    def line_at(self, rows, line: int):
+        hits = [r for r in rows if r["line"] == line]
+        self.assertEqual(len(hits), 1, f"{line}: {rows}")
+        return hits[0]
+
+    def test_mod_derivative_and_solve(self) -> None:
+        """`.mod` は DERIVATIVE の式と BREAKPOINT の SOLVE だけを出す（AC2）。"""
+        rows = self.eqs(str(self.dir / "cad.mod"))
+        self.assertEqual(rows, [
+            {"file": "cad.mod", "line": 6, "block": "BREAKPOINT", "kind": "mod",
+             "text": "SOLVE state METHOD cnexp", "src": "cad.mod:6"},
+            {"file": "cad.mod", "line": 10, "block": "DERIVATIVE state", "kind": "mod",
+             "text": "cai' = -ica * 10 - (cai - cainf) / taur", "src": "cad.mod:10"},
+        ])
+
+    def test_mod_nested_brace_in_function(self) -> None:
+        """FUNCTION の中の `{` が入れ子でも、ブロックの終わりを正しく追う。"""
+        (self.dir / "fn.mod").write_text(
+            "FUNCTION alpha(v(mV)) {\n"
+            "  if (v > -40) {\n"
+            "    alpha = 0.02 * v\n"
+            "  }\n"
+            "  beta = 0.1\n"
+            "}\n"
+            "PARAMETER {\n"
+            "  g = 0.3\n"
+            "}\n"
+            "DERIVATIVE d {\n"
+            "  x' = -x / 5\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        rows = self.eqs(str(self.dir / "fn.mod"))
+        # `if (v > -40) {` のような文だけの行も入れる（空行・注記だけの行・`{`/`}` だけの行を除く）
+        self.assertEqual([r["line"] for r in rows], [2, 3, 5, 11])
+        self.assertEqual([r["block"] for r in rows], ["FUNCTION alpha(v(mV))"] * 3 + ["DERIVATIVE d"])
+        # 終わった後の PARAMETER の中の行は出さない
+        self.assertNotIn("g = 0.3", [r["text"] for r in rows])
+
+    def test_ode_equations_only(self) -> None:
+        """.ode は式と更新だけを出す（par・init・@・注記・done は出さない）。"""
+        rows = self.eqs(str(self.dir / "net.ode"))
+        self.assertEqual([r["line"] for r in rows], [6, 7, 9])
+        self.assertEqual({r["kind"] for r in rows}, {"ode"})
+        self.assertEqual(self.line_at(rows, 7)["text"], "dw/dt = -w / tau")
+
+    def test_python_brian2_is_dxdt(self) -> None:
+        rows = self.eqs(str(self.dir / "brian.py"))
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["kind"], "dxdt")
+        self.assertEqual(rows[0]["line"], 1)
+        self.assertIn("dv/dt = (-v + I) / tau : volt", rows[0]["text"])
+        self.assertIsNone(rows[0]["block"])
+
+    def test_cpp_euler_and_no_comparison(self) -> None:
+        rows = self.eqs(str(self.dir / "col.cpp"))
+        self.assertEqual([r["line"] for r in rows], [2, 4])
+        self.assertEqual({r["kind"] for r in rows}, {"euler"})
+        # 代入の無い `if (t == dt * 2)` は出さない
+        self.assertNotIn("if (t == dt * 2)", [r["text"] for r in rows])
+
+    def test_src_has_id_and_sha_when_meta_exists(self) -> None:
+        """`.refcode.json` があれば `src` に `id@sha12` が付く。"""
+        sha = "1c8f5f09d3a9" + "0" * 28
+        (self.dir / ".refcode.json").write_text(
+            json.dumps({"id": "miscco/NM_TC", "sha": sha, "kind": "github"}), encoding="utf-8"
+        )
+        rows = self.eqs(str(self.dir / "cad.mod"))
+        self.assertEqual(
+            [r["src"] for r in rows],
+            [f"miscco/NM_TC@{sha[:12]}:cad.mod:6", f"miscco/NM_TC@{sha[:12]}:cad.mod:10"],
+        )
+
+    def test_missing_path_fails(self) -> None:
+        code, _, err = self.env.run("eqs", str(self.dir / "no-such.mod"))
+        self.assertEqual(code, 1)
+        self.assertIn("見つかりません", err)
+
+    def test_table_and_ext_filter(self) -> None:
+        code, out, err = self.env.run("eqs", str(self.dir), "--ext", ".mod")
+        self.assertEqual(code, 0, err)
+        self.assertIn("cad.mod:6\t[BREAKPOINT] SOLVE state METHOD cnexp", out)
+        rows = self.eqs(str(self.dir), "--ext", ".mod,.ode")
+        self.assertEqual({r["file"] for r in rows}, {"cad.mod", "net.ode"})
+
+    def test_no_hits_is_success(self) -> None:
+        """式が 0 件でも終了コード 0 で `[]` を出す。"""
+        empty = self.env.work / "empty.py"
+        empty.write_text("A = 1\n", encoding="utf-8")
+        code, out, err = self.env.run("eqs", str(empty), "--json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), [])
+
+
 # --------------------------------------------------------------------------
 # 6. check
 # --------------------------------------------------------------------------
@@ -670,10 +813,10 @@ class MainTest(Base):
             [sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        for verb in ("links", "gh-search", "fetch", "params", "check"):
+        for verb in ("links", "gh-search", "fetch", "params", "eqs", "check"):
             self.assertIn(verb, proc.stdout)
         self.assertIn("参照コード", proc.stdout)
-        for verb in ("links", "gh-search", "fetch", "params", "check"):
+        for verb in ("links", "gh-search", "fetch", "params", "eqs", "check"):
             with self.subTest(verb=verb):
                 out = subprocess.run(
                     [sys.executable, str(SCRIPT), verb, "--help"],
@@ -682,6 +825,17 @@ class MainTest(Base):
                 self.assertEqual(out.returncode, 0, out.stderr)
                 self.assertIn("usage", out.stdout)
                 self.assertNotIn("Traceback", out.stderr)
+
+    def test_eqs_help_is_japanese(self) -> None:
+        """`eqs --help` が日本語の説明を出す（AC3）。"""
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "eqs", "--help"],
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("式の行", proc.stdout)
+        self.assertIn("usage", proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 if __name__ == "__main__":
