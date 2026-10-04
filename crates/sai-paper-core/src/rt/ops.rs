@@ -95,7 +95,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_f",
         risk: Risk::Auto,
-        about: "O か E の下に F（根拠）を足す。数字を含む文には出典（cites）が要る",
+        about: "O か E の下に F（根拠）を足す。数字を含む文には出典（cites）か報告書のトークン（report）が要る",
         fields: &[
             req("parent", Ty::Id),
             req("text", Ty::Text(1, 1200)),
@@ -686,8 +686,10 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
                 return invalid("text は 3 文までです");
             }
             let cites = strings(op, "cites");
-            if cites.is_empty() && t.chars().any(char::is_numeric) {
-                return invalid("数字を含む F には出典を付けてください");
+            // 数字を含む F は、論文の出典（cites）か、自分の報告書のトークン（report）を根拠にする。
+            let report = op.get("report").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+            if cites.is_empty() && report.is_none() && t.chars().any(char::is_numeric) {
+                return invalid("数字を含む F には出典（cites）か報告書のトークン（report）を付けてください");
             }
             let papers = check_cites(conn, &cites)?;
             let paper = op.get("paper").and_then(Value::as_i64);
@@ -927,6 +929,10 @@ mod tests {
         assert!(err(f("한 国", json!([]))).contains("text: ハングル"));
         assert!(err(f("一。二。三。四。", json!([]))).contains("3 文"));
         assert!(f("数字なし", json!([])).is_ok());
+        // 報告書のトークンがあれば、数字を含んでいても通る。空白だけの report は出典にならない。
+        let fr = |t: &str, report: &str| e.one(json!({"op": "add_f", "parent": o, "text": t, "report": report}));
+        assert!(fr("H1 の効果量は g=0.47", "AbCdEf12").is_ok());
+        assert!(fr("精度は 85 %", "  ").is_err());
         assert!(err(f("x", json!(["37"]))).contains("#<論文番号>"));
         assert!(err(f("x", json!(["#37"]))).contains("論文 37 が Library にありません"));
         e.conn().execute("INSERT INTO papers(id, title) VALUES (37, 't')", []).unwrap();

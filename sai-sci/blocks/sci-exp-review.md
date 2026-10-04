@@ -103,10 +103,10 @@ sai-moon-link phone card run <返った run_id>
 
 木は `sci_propose` で出す（`sci-core`）。
 
-1. 結果を F として、その 1 回の実行の E の下に `add_f` で出す。文に MLflow の run 名と値を書く。`cites` は論文を引くときだけ付ける（MLflow の出典は `cites` に入れない）。
+1. 結果を F として、その 1 回の実行の E の下に `add_f` で出す。文に MLflow の run 名と値を書く。`cites` は論文を引くときだけ付ける（MLflow の出典は `cites` に入れない）。`report` に判定書のトークンを入れる（数字を含む F の出典になる）。
 
    ```json
-   {"op": "add_f", "parent": "<1 回の実行の E の ID>", "text": "ID125-p02 で test_acc=0.871（基準 0.80 を超えた）"}
+   {"op": "add_f", "parent": "<1 回の実行の E の ID>", "text": "ID125-p02 で test_acc=0.871（基準 0.80 を超えた）", "report": "<判定書のトークン>"}
    ```
 
 2. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. のカードは、この E の ID を `--node` に使う。**カードを作る前に出す。**
@@ -118,7 +118,7 @@ sai-moon-link phone card run <返った run_id>
 3. stop のとき、止めた理由を F として、アイデアの E の下に `add_f` で出す。
 
    ```json
-   {"op": "add_f", "parent": "<アイデアの E の ID>", "text": "実験 <study> を止めた（<stop_reason>）。最良は <metric>=<value>"}
+   {"op": "add_f", "parent": "<アイデアの E の ID>", "text": "実験 <study> を止めた（<stop_reason>）。最良は <metric>=<value>", "report": "<判定書のトークン>"}
    ```
 
 課題が解けたと判断したら、report の「Answer に変えてほしい O」に O の ID と理由を書く。O を Answer に変えるのは利用者である。
