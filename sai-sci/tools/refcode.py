@@ -2,7 +2,7 @@
 """参照コードの道具。実験の計画要用に、既存のコードを探して中身の数値に出典を付ける。
 
 Library（論文の本文の塊とメモ）にある参照実装のリンクを抜き、リポジトリを浅く取得して、
-取得したコードから数値の定数を抜き出し、`train.py` の数値に出典の注記が付いているかを確かめる。
+取得したコードから数値の定数と式の行を抜き出し、`train.py` の数値に出典の注記が付いているかを確かめる。
 
 呼び方（標準ライブラリだけ。Python 3.11 以上）:
     uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refcode.py" <命令> …
@@ -12,6 +12,7 @@ Library（論文の本文の塊とメモ）にある参照実装のリンクを�
     gh-search <検索語> [--language L] [--limit N] [--json]   # GitHub を検索する
     fetch <URL | modeldb:<id>> [--ref REF] [--json]         # リポジトリを浅く取得する
     params <パス> [--ext .h,.cpp,…] [--json]                # コードから数値の定数を抜く
+    eqs <パス> [--ext .mod,.ode,…] [--json]                 # コードから式の行を出典つきで抜く
     check <train.py> [--json]                               # 数値に出典の注記があるか確かめる
 
 置き場（利用者全体で共有する）:
@@ -977,6 +978,159 @@ def cmd_params(args) -> int:
 
 
 # --------------------------------------------------------------------------
+# eqs: コードから式の行を抜き出す
+# --------------------------------------------------------------------------
+
+# `.mod` の「式が書けるブロック」（見出しの最初の語。`{` で中が変わる）
+MOD_BLOCKS = frozenset(
+    {
+        "DERIVATIVE", "BREAKPOINT", "KINETIC", "PROCEDURE",
+        "FUNCTION", "INITIAL", "NET_RECEIVE", "LINEAR", "NONLINEAR",
+    }
+)
+# `.ode` の「代入以外」と分かる行頭の語
+ODE_SKIP_HEADS = frozenset(
+    {
+        "par", "param", "p", "number", "n", "init", "i", "@", "done",
+        "#", "table", "wiener", "global", "bdry", "set",
+    }
+)
+# `d<名前>/dt = …`（Brian2 の式の文字列・Julia・注釈の中の式）
+DXDT_RE = re.compile(r"\bd([A-Za-z_]\w*)\s*/\s*dt\b[^=\n]*=")
+# 代入（`=`・`+=`・`-=`）。比較（`==`・`<=`・`>=`・`!=`）は数えない
+ASSIGN_OP_RE = re.compile(r"(?<![=!<>])[-+]?=(?!=)")
+# 更新式に必ず出る `dt` の掛け算
+EULER_DT_RE = re.compile(r"\bdt\b\s*\*|\*\s*\(?\s*\bdt\b")
+# コメントだけの行の先頭（この行は式として出さない）
+COMMENT_HEADS = ("#", "%", "//", "/*", "*")
+# 1 行から出す text の上限（文字）
+MAX_EQ_TEXT = 300
+
+
+def is_comment_only(text: str) -> bool:
+    """注記だけの行かどうか。"""
+    return text.startswith(COMMENT_HEADS)
+
+
+def make_eq(file_label: str, line: int, block: str | None, kind: str, text: str, src_of) -> dict:
+    """eqs の出力 1 件（C1 の形）。"""
+    body = text.strip()
+    if len(body) > MAX_EQ_TEXT:
+        body = body[:MAX_EQ_TEXT]
+    return {
+        "file": file_label,
+        "line": line,
+        "block": block,
+        "kind": kind,
+        "text": body,
+        "src": src_of(line),
+    }
+
+
+def hits_in_mod_eqs(text: str, file_label: str, src_of) -> list[dict]:
+    """`.mod` から、式が書けるブロックの中の文の行を抜く。
+
+    中は `{` と `}` の数で追うので、ブロックの中に `if (…) { … }` が入れ子でも区別できる。
+    """
+    rows: list[dict] = []
+    block: str | None = None
+    depth = 0
+    for n, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if block is None:
+            head = stripped.split(None, 1)[0] if stripped else ""
+            if head in MOD_BLOCKS and "{" in stripped:
+                block = stripped.replace("{", "", 1).strip()
+                depth = stripped.count("{") - stripped.count("}")
+                if depth <= 0:
+                    block = None
+            continue
+        depth += stripped.count("{") - stripped.count("}")
+        if not stripped or stripped in ("{", "}") or stripped.startswith(":") or is_comment_only(stripped):
+            if depth <= 0:
+                block = None
+            continue
+        rows.append(make_eq(file_label, n, block, "mod", stripped, src_of))
+        if depth <= 0:
+            block = None
+    return rows
+
+
+def hits_in_ode_eqs(text: str, file_label: str, src_of) -> list[dict]:
+    """`.ode` から、式か更新の行を抜く（`par`・`init` などは出さない）。"""
+    rows: list[dict] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or is_comment_only(stripped):
+            continue
+        head = stripped.split(None, 1)[0] if stripped else ""
+        if head in ODE_SKIP_HEADS:
+            continue
+        if "=" not in stripped:
+            continue
+        rows.append(make_eq(file_label, n, None, "ode", stripped, src_of))
+    return rows
+
+
+def hits_in_code_eqs(text: str, file_label: str, src_of) -> list[dict]:
+    """C 系とスクリプトから、`d<x>/dt` と `dt` の入った更新式の行を抜く。
+
+    関数の範囲までは追わない。取りこぼしより拾いすぎを選ぶ（読むのは LLM なので余分な行は読み飛ばせる）。
+    """
+    rows: list[dict] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or is_comment_only(stripped):
+            continue
+        if DXDT_RE.search(stripped):
+            kind = "dxdt"
+        elif ASSIGN_OP_RE.search(stripped) and EULER_DT_RE.search(stripped):
+            kind = "euler"
+        else:
+            continue
+        rows.append(make_eq(file_label, n, None, kind, stripped, src_of))
+    return rows
+
+
+def scan_eqs_file(path: Path, root: Path) -> list[dict]:
+    """1 個のファイルから式の行を抜く。"""
+    text = read_text(path)
+    if text is None:
+        return []
+    src_of = src_maker(path, root)
+    label = file_label(path, root)
+    ext = path.suffix
+    if ext == ".mod":
+        return hits_in_mod_eqs(text, label, src_of)
+    if ext == ".ode":
+        return hits_in_ode_eqs(text, label, src_of)
+    if ext in C_EXTS or ext in SCRIPT_EXTS:
+        return hits_in_code_eqs(text, label, src_of)
+    return []
+
+
+def cmd_eqs(args) -> int:
+    path = Path(args.path)
+    if not path.exists():
+        raise RefcodeError(f"パスが見つかりません: {path}")
+    exts = tuple(
+        e if e.startswith(".") else f".{e}" for e in (x.strip() for x in args.ext.split(",")) if e
+    ) or DEFAULT_EXTS
+    root = path if path.is_dir() else path.parent
+    rows: list[dict] = []
+    for target in walk_files(path, exts):
+        rows.extend(scan_eqs_file(target, root))
+    rows.sort(key=lambda r: (r["file"], r["line"]))
+
+    def table(items: list[dict]) -> None:
+        for row in items:
+            print(f"{row['src']}\t[{row['block'] or row['kind']}] {row['text']}")
+
+    emit(rows, args.json, table)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # check: train.py の数値に出典の注記があるか確かめる
 # --------------------------------------------------------------------------
 
@@ -1229,6 +1383,16 @@ def build_parser() -> argparse.ArgumentParser:
     params.add_argument("--ext", default="", help="読む拡張子（例: .h,.cpp。既定は数種類）")
     params.add_argument("--json", action="store_true", help="JSON 1 つだけ出す")
     params.set_defaults(func=cmd_params)
+
+    eqs = sub.add_parser(
+        "eqs",
+        help="コードから式の行を出典つきで抜き出す",
+        description="参照コードから微分方程式と更新式の行を、src つきで抜き出す",
+    )
+    eqs.add_argument("path", help="ファイルかフォルダ")
+    eqs.add_argument("--ext", default="", help="読む拡張子（例: .mod,.ode。既定は数種類）")
+    eqs.add_argument("--json", action="store_true", help="JSON 1 つだけ出す")
+    eqs.set_defaults(func=cmd_eqs)
 
     check = sub.add_parser("check", help="train.py の数値に出典の注記があるか確かめる")
     check.add_argument("path", help="train.py のパス")
