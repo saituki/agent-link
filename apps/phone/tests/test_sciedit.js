@@ -136,8 +136,8 @@ function test_tables() {
   assert.deepStrictEqual(Object.keys(SE_DONE).sort(), keys);
   for (const q of SE_QUICK) assert.ok(keys.includes(q));
   const ids = SE_BLOCKS.map(([id]) => id);
-  assert.strictEqual(ids.length, 19);
-  assert.strictEqual(new Set(ids).size, 19);
+  assert.strictEqual(ids.length, 21);
+  assert.strictEqual(new Set(ids).size, 21);
   for (const id of ids) assert.match(id, /^sci-[a-z-]{2,30}$/);
   assert.ok(ids.includes("sci-read") && ids.includes("sci-split"));
   for (const gone of ["sci-draft", "sci-probe", "sci-outline", "sci-tree-review"]) assert.ok(!ids.includes(gone), gone);

@@ -25,7 +25,7 @@ Rust の実行エンジン（sai-link と sai-paper）と、Web の窓口（sai-
 | `apps/phone/` | Web の窓口（FastAPI + 素の JavaScript）。`apps/phone/src/sai_phone/` にサーバと画面、`hooks/` に cc のフック、`launchd/` に plist | 編集可能 |
 | `apps/radio/` | 解説音声の裏方サーバー（FastAPI）。`apps/radio/src/sai_radio/` に本体、`tests/` に 3 本のテスト。`README.md` と `ARCHITECTURE.md` はこのフォルダにある | 編集可能 |
 | `apps/mlflow-server/` | 実験の記録を溜める MLflow サーバの compose（postgres・minio・mlflow・caddy）と `templates/mlflow-agent.md`。Docker で動かす。`.env` は無い（鍵が入るので追跡しない。`.env.example` が見本） | 編集可能（`docker-compose.yml` の `name: mlflow-server` は消さない。消すと volume が別になり記録を失う） |
-| `sai-sci/` | 研究方針の木（Research-tree）の型・項目ガイド・sci-core・mind.md のひな形・29 本のブロック（professor・professor-backward・operator・kaizen と 25 本の `sci-*`）・研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`）・逆向きの共通の決まり（`bw-core`）・`tools/`（実験ループの台帳と、実行先への分配器、`phone_api.py`、参照コードの道具 `refcode.py`・ModelDB のカタログ `modeldb.py`）・`exec/`（実行先の見本）。`sai-moon-paper` に埋め込まれる | 編集可能（直したら release を作り直す） |
+| `sai-sci/` | 研究方針の木（Research-tree）の型・項目ガイド・sci-core・mind.md のひな形・31 本のブロック（professor・professor-backward・operator・kaizen と 27 本の `sci-*`）・研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`）・逆向きの共通の決まり（`bw-core`）・`tools/`（実験ループの台帳と、実行先への分配器、`phone_api.py`、参照コードの道具 `refcode.py`・ModelDB のカタログ `modeldb.py`、データ分析の検査と記録 `data_result.py`・K-Dense の EDA と生体信号の CLI の写し（`eda/`・`biosignal/`））・`exec/`（実行先の見本）。`sai-moon-paper` に埋め込まれる | 編集可能（直したら release を作り直す） |
 | `docs/` | 開発者向けの文書（`integration.md`・`for-sai-developers.md`） | 編集可能 |
 | `.sai/` | このプロジェクト自身の中のデータ（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`.gitignore` 済み | 書き込み注意 |
 
@@ -106,7 +106,7 @@ for f in apps/phone/tests/test_*.py; do PYTHONPATH=apps/phone/src apps/phone/.ve
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
 
 # 実験ループの道具（sai-sci/tools。Python 3.11 以上。`~/.python-version` が未導入の版を指すと uv が失敗するので --python を付ける）
-(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_phone_api test_refcode test_modeldb; do python3.13 -W ignore -m unittest $t || exit 1; done)
+(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_phone_api test_refcode test_modeldb test_data_result test_data_eda; do python3.13 -W ignore -m unittest $t || exit 1; done)
 (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
 ```
 

@@ -47,7 +47,7 @@ const SE_RUNNERS = [["pi", "pi"], ["cc", "cc"], ["user", "自分で読む（読�
 const SE_MODES = [["purpose_first", "purpose_first"], ["blind_first", "blind_first"]];
 // O の種類
 const SE_KINDS = [["answer", "Answer"], ["issue", "Issue"]];
-// カードで選べる 19 本のブロック（Next Action に出るもの）
+// カードで選べる 21 本のブロック（Next Action に出るもの）
 const SE_BLOCKS = [
   ["sci-start", "研究の入口: 最初の Q を立てる"],
   ["sci-split", "Q を分ける: 子の Q の案を出す"],
@@ -68,6 +68,8 @@ const SE_BLOCKS = [
   ["sci-exp-branch", "実験を分ける: 実験を枝分かれさせる"],
   ["sci-exp-review", "実験を見直す: 結果を点検する"],
   ["sci-result-compare", "結果を比べる: 実験の結果を比べる"],
+  ["sci-data-explore", "データを調べる: データ表・EDA・前処理"],
+  ["sci-data-test", "データで確かめる: 計画どおりに検定して報告"],
 ];
 // 出典の形（C-CITE。`#37`・`#37.3.2`・`#37.3.2-4 注`）
 const SE_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)?( .{1,80})?$/;
