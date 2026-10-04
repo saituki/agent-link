@@ -47,11 +47,12 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
 
-/// sai-sci のブロック 29 本。並びは Action の種類ごと:
+/// sai-sci のブロック 31 本。並びは Action の種類ごと:
 /// 役 4 本（professor・professor-backward・operator・kaizen）→ Q を分ける（start・split・restore・typify）
 /// → O を書く（ideate・analogy）→ F を探す（search・screen・read・lookup・extract・cite-check）
 /// → Logicality（debate・review）→ ★ の手伝い（compare・seed）→ その他（digest・coach）
-/// → 実験（exp-scout・sim-model・sim-compose・exp-sprout・exp-branch・exp-review・result-compare）。
+/// → 実験（exp-scout・sim-model・sim-compose・exp-sprout・exp-branch・exp-review・result-compare）
+/// → データ分析（data-explore・data-test）。
 ///
 /// sci ブロックは同じ共通の決まり（`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
 /// frontmatter に Action の種類（`sci_action`）・support か（`sci_support`）・完了基準（`sci_done_agent`）を持つ。
@@ -92,11 +93,14 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-exp-branch.md", include_str!("../../../sai-sci/blocks/sci-exp-branch.md")),
     ("sci-exp-review.md", include_str!("../../../sai-sci/blocks/sci-exp-review.md")),
     ("sci-result-compare.md", include_str!("../../../sai-sci/blocks/sci-result-compare.md")),
+    ("sci-data-explore.md", include_str!("../../../sai-sci/blocks/sci-data-explore.md")),
+    ("sci-data-test.md", include_str!("../../../sai-sci/blocks/sci-data-test.md")),
 ];
 
 /// sai-sci の共通の決まり。
 ///
 /// - 木の共通の決まり（`sci-core.md`）・F を探す決まり（`sci-find.md`）・照合の決まり（`sci-match.md`）と実験ループの 4 本（`exp-core.md`・`exp-run.md`・`exp-ref.md`・`sim-core.md`）
+/// - データ分析の 2 本（`data-core.md`・`stat-core.md`）。`sci-data-explore` と `sci-data-test` が読む。
 /// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sai-task.md`・`sai-cli.md`。U8）。
 ///   前の 3 本は researcher が使う。後の 3 本は `professor` などの役が使う
 ///   （引き継ぎ・質問・子タスク・命令）。
@@ -109,6 +113,8 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("exp-run.md", include_str!("../../../sai-sci/template/exp-run.md")),
     ("exp-ref.md", include_str!("../../../sai-sci/template/exp-ref.md")),
     ("sim-core.md", include_str!("../../../sai-sci/template/sim-core.md")),
+    ("data-core.md", include_str!("../../../sai-sci/template/data-core.md")),
+    ("stat-core.md", include_str!("../../../sai-sci/template/stat-core.md")),
     ("sai-agent.md", include_str!("../../../sai-sci/template/sai-agent.md")),
     ("sai-task.md", include_str!("../../../sai-sci/template/sai-task.md")),
     ("sai-cli.md", include_str!("../../../sai-sci/template/sai-cli.md")),
@@ -118,13 +124,42 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
 /// sai-sci の道具（`.sai/tools/` に置く。実験ループの台帳、実行先へ投げる分配器、
 /// 参照コードの道具と ModelDB のカタログ）。
 ///
+/// データ分析の検査と記録（`data_result.py`）と、K-Dense の EDA・生体信号の CLI の写し（`eda/`・`biosignal/`、MIT）。
+///
 /// ブロックは `$SAI_PROJECT_ROOT/.sai/tools/<名前>` で呼ぶ（環境変数は要らない）。
+/// フォルダごと（`eda/<名前>`・`biosignal/<名前>`）で呼ぶ。
 const SCI_TOOLS: &[(&str, &str)] = &[
     ("exp_summary.py", include_str!("../../../sai-sci/tools/exp_summary.py")),
     ("exp_exec.py", include_str!("../../../sai-sci/tools/exp_exec.py")),
     ("phone_api.py", include_str!("../../../sai-sci/tools/phone_api.py")),
     ("refcode.py", include_str!("../../../sai-sci/tools/refcode.py")),
     ("modeldb.py", include_str!("../../../sai-sci/tools/modeldb.py")),
+    ("data_result.py", include_str!("../../../sai-sci/tools/data_result.py")),
+    // 写し: K-Dense の EDA（MIT）。
+    ("eda/README.md", include_str!("../../../sai-sci/tools/eda/README.md")),
+    ("eda/LICENSE", include_str!("../../../sai-sci/tools/eda/LICENSE")),
+    ("eda/_capabilities.py", include_str!("../../../sai-sci/tools/eda/_capabilities.py")),
+    ("eda/_common.py", include_str!("../../../sai-sci/tools/eda/_common.py")),
+    ("eda/_structured.py", include_str!("../../../sai-sci/tools/eda/_structured.py")),
+    ("eda/_tabular.py", include_str!("../../../sai-sci/tools/eda/_tabular.py")),
+    ("eda/capability_manifest.py", include_str!("../../../sai-sci/tools/eda/capability_manifest.py")),
+    ("eda/distribution_sensitivity.py", include_str!("../../../sai-sci/tools/eda/distribution_sensitivity.py")),
+    ("eda/eda_analyzer.py", include_str!("../../../sai-sci/tools/eda/eda_analyzer.py")),
+    ("eda/image_inspector.py", include_str!("../../../sai-sci/tools/eda/image_inspector.py")),
+    ("eda/missingness_leakage_audit.py", include_str!("../../../sai-sci/tools/eda/missingness_leakage_audit.py")),
+    ("eda/report_scaffold.py", include_str!("../../../sai-sci/tools/eda/report_scaffold.py")),
+    ("eda/sequence_inspector.py", include_str!("../../../sai-sci/tools/eda/sequence_inspector.py")),
+    ("eda/tabular_profile.py", include_str!("../../../sai-sci/tools/eda/tabular_profile.py")),
+    // 写し: K-Dense の生体信号の CLI（MIT）。
+    ("biosignal/README.md", include_str!("../../../sai-sci/tools/biosignal/README.md")),
+    ("biosignal/LICENSE", include_str!("../../../sai-sci/tools/biosignal/LICENSE")),
+    ("biosignal/_common.py", include_str!("../../../sai-sci/tools/biosignal/_common.py")),
+    ("biosignal/ecg_hrv_pipeline.py", include_str!("../../../sai-sci/tools/biosignal/ecg_hrv_pipeline.py")),
+    ("biosignal/eda_pipeline.py", include_str!("../../../sai-sci/tools/biosignal/eda_pipeline.py")),
+    ("biosignal/generate_synthetic.py", include_str!("../../../sai-sci/tools/biosignal/generate_synthetic.py")),
+    ("biosignal/inspect_signal.py", include_str!("../../../sai-sci/tools/biosignal/inspect_signal.py")),
+    ("biosignal/plan_epochs.py", include_str!("../../../sai-sci/tools/biosignal/plan_epochs.py")),
+    ("biosignal/validate_multimodal.py", include_str!("../../../sai-sci/tools/biosignal/validate_multimodal.py")),
 ];
 
 /// sai-sci の実行先の見本（`.sai/exec/` に置く）。3 つ目は「実行の権限を付けるか」。
@@ -745,15 +780,15 @@ mod tests {
 
         let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
 
-        // sci のブロック 29 本と、今の部品 17 本もそろう
+        // sci のブロック 31 本と、今の部品 17 本もそろう
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 29, "SCI_BLOCKS が 29 本でない");
-        assert_eq!(SCI_TEMPLATES.len(), 11, "SCI_TEMPLATES が 11 本でない");
-        assert_eq!(sci_blocks, 25, "配った sci のブロックが 25 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 31, "SCI_BLOCKS が 31 本でない");
+        assert_eq!(SCI_TEMPLATES.len(), 13, "SCI_TEMPLATES が 13 本でない");
+        assert_eq!(sci_blocks, 27, "配った sci のブロックが 27 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
         }
@@ -935,7 +970,7 @@ mod tests {
                 other => panic!("{name} の sci_support が true/false でない: {other:?}"),
             }
         }
-        assert_eq!(count, 25);
+        assert_eq!(count, 27);
         assert_eq!(
             support,
             [
@@ -984,7 +1019,7 @@ mod tests {
         }
     }
 
-    /// sci のブロック 29 本のうち 24 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
+    /// sci のブロック 31 本のうち 26 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
@@ -992,12 +1027,14 @@ mod tests {
     /// `professor` と `operator` は木の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 29);
+        assert_eq!(SCI_BLOCKS.len(), 31);
         for id in [
             "sci-analogy.md",
             "sci-cite-check.md",
             "sci-coach.md",
             "sci-compare.md",
+            "sci-data-explore.md",
+            "sci-data-test.md",
             "sci-debate.md",
             "sci-digest.md",
             "sci-exp-review.md",
@@ -1059,7 +1096,7 @@ mod tests {
             assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
-        assert_eq!(checked, 24, "共通の決まりを確かめたのは 24 本でない");
+        assert_eq!(checked, 26, "共通の決まりを確かめたのは 26 本でない");
     }
 
     /// frontmatter から、リスト項目（`templates:` など）に並ぶ値をまとめて読む。
@@ -1193,10 +1230,11 @@ mod tests {
                         "sci-read", "sci-lookup", "sci-extract", "sci-debate", "sci-review", "sci-compare",
                         "sci-seed", "sci-digest", "sci-coach", "sci-typify", "sci-exp-scout",
                         "sci-sim-model", "sci-sim-compose", "sci-exp-sprout",
+                        "sci-data-explore", "sci-data-test",
                     ] {
                         assert!(children.contains(&child), "professor の subblocks に {child} が無い");
                     }
-                    assert_eq!(children.len(), 21, "professor の子が 21 本でない");
+                    assert_eq!(children.len(), 23, "professor の子が 23 本でない");
                 }
                 for child in children {
                     let file = SCI_BLOCKS

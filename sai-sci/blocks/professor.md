@@ -32,6 +32,8 @@ subblocks:
   - sci-sim-model
   - sci-sim-compose
   - sci-exp-sprout
+  - sci-data-explore
+  - sci-data-test
 ---
 
 # 🎓 professor
@@ -71,7 +73,9 @@ subblocks:
 | `UNCHECKED` | Logicality をまだ確かめていない | `sci-debate`・`sci-review` |
 | `CONTRADICTION` | Logicality が矛盾と出ている | `sci-debate`・`sci-ideate` |
 | `NO_STAR` | ★ の O が無い。★ は利用者だけが付ける | Human に頼む |
-| `NO_EXPERIMENT` | ★ の O に実験が無い | `sci-seed` → `sci-exp-sprout` |
+| `NO_EXPERIMENT` | ★ の O に実験が無い | `sci-seed` → `sci-exp-sprout`（手元のデータで仮説を確かめる Issue なら `sci-data-explore` → `sci-data-test`） |
+
+`sci-data-explore` の report の `## 次の一手` に `sci-data-test` のカードを作る命令が書いてある。explore の report を評価してから、その命令で test のカードを作って起こす（explore 自身は test を起こさない）。
 
 現在地はまず `sai-moon-paper sci status --brief` で読む。細部がほしいときだけ `sci node <N12>`、`sci status`（全体）を見る。
 

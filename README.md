@@ -183,7 +183,7 @@ sai-moon-paper init --sci --type <problem|phenomenon|method|data|improve>
 ブロックとテンプレート・`.sai/settings.json` の `context`・研究の型とガイドの写し・一番上の Q・書き出しが、この 1 行で揃います（手で足す設定はありません）。
 使い方は [`sai-sci/README.md`](./sai-sci/README.md) にあります。
 
-配られるブロックは 29 本です（役 4 本 — 研究を回す `professor`、既存の論文から始める逆向きの `professor-backward`、sai-moon の操作を受け持つ `operator`、実行履歴から改善を洗い出す `kaizen` — と、25 本の `sci-*`）。研究向けの template 11 本（`sci-core`・`sci-find`・`sci-match`・`bw-core`・`exp-core`・`exp-run`・`exp-ref`・`sim-core`・`sai-agent`・`sai-task`・`sai-cli`）と `.sai/tools/phone_api.py`・`refcode.py`（参照コードを探す）・`modeldb.py`（ModelDB のカタログ）も一緒に入ります。研究の型は 5 本、ガイドは 25 ファイルです。
+配られるブロックは 31 本です（役 4 本 — 研究を回す `professor`、既存の論文から始める逆向きの `professor-backward`、sai-moon の操作を受け持つ `operator`、実行履歴から改善を洗い出す `kaizen` — と、27 本の `sci-*`）。研究向けの template 13 本（`sci-core`・`sci-find`・`sci-match`・`bw-core`・`exp-core`・`exp-run`・`exp-ref`・`sim-core`・`data-core`・`stat-core`・`sai-agent`・`sai-task`・`sai-cli`）と `.sai/tools/phone_api.py`・`refcode.py`（参照コードを探す）・`modeldb.py`（ModelDB のカタログ）・`data_result.py`（データ分析の検査と記録）・`eda/`（EDA）・`biosignal/`（生体信号の CLI。いずれも K-Dense からの写しで MIT）も一緒に入ります。研究の型は 5 本、ガイドは 25 ファイルです。
 配った写し（`.sai/blocks/`・`.sai/template/`・`.sai/sci/`）は自動では新しくなりません。新しい版にする手順（写しを別の名前へ移し、`sai-moon-paper init --assets-only --sci --type <型>` を打ち直す）は [`sai-sci/README.md`](./sai-sci/README.md) の 8.2 節にあります。
 
 #### professor から研究を回す
@@ -356,7 +356,7 @@ for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
 
 # 実験ループの道具（sai-sci/tools。Python 3.11 以上。台帳のテストは mlflow が要る）
-(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok; do python3.13 -W ignore -m unittest $t || exit 1; done)
+(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_phone_api test_refcode test_modeldb test_data_result test_data_eda; do python3.13 -W ignore -m unittest $t || exit 1; done)
 (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
 
 plutil -lint apps/phone/launchd/com.sai-moon.plist
@@ -370,5 +370,5 @@ plutil -lint apps/phone/launchd/com.sai-moon.plist
 - [`AGENTS.md`](./AGENTS.md) — このリポジトリで作業するエージェントへの指示。
 - [`docs/integration.md`](./docs/integration.md) — `apps/phone` の API と画面の住所の一覧、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — `crates/` と `apps/radio` を直す人が守ること（`apps/phone` を壊さないために）。
-- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（研究の型・ガイド・29 本のブロック・逆向きの運用・命令と MCP・Web の画面・写しの更新手順）の説明書。
+- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木（研究の型・ガイド・31 本のブロック・逆向きの運用・命令と MCP・Web の画面・写しの更新手順）の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio だけ 詳しく知りたときの詳細。

@@ -61,7 +61,7 @@ Q（研究の型の一番上）
 
 Q ごとに、2 つの目で進み具合を見る。
 
-- **Objectivity** — F が目安（target）の本数そろっているか。数字を含む F には出典が要る。
+- **Objectivity** — F が目安（target）の本数そろっているか。数字を含む F には出典（論文の `cites` か、エージェントの報告書のトークン `report`）が要る。
 - **Logicality** — Q の答えの筋が通っているかを確かめた結果。矛盾（`CONTRADICTION`）が見つかれば、指摘の文と F を 2 つ以上添えて記録する。
 
 ### 2.3 Action = task.md、Next Action、DEBT
@@ -78,11 +78,11 @@ Q ごとに、2 つの目で進み具合を見る。
 sai-sci/
 ├── types/      # 研究の型 5 本（problem・phenomenon・method・data・improve）
 ├── guides/     # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
-├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・sai-agent・sai-task・sai-cli の 11 本
+├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sai-task・sai-cli の 13 本
 ├── mind.md     # 研究の土台（mind.md）のひな形
-├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
+├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py・データ分析の検査と記録 data_result.py と写し（K-Dense の EDA `eda/` と生体信号の CLI `biosignal/`）と、そのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
-└── blocks/     # 29 本のブロック（役 4 本 + sci 25 本）
+└── blocks/     # 31 本のブロック（役 4 本 + sci 27 本）
 ```
 
 ### 3.1 研究の型（5 本）
@@ -145,12 +145,12 @@ sai-sci/
 | `novelty.diff` | NOVELTY_DIFF | `novelty` |
 | `phenomenon` | PHENOMENON | ― |
 
-### 3.3 29 本のブロック
+### 3.3 31 本のブロック
 
-`blocks/` の 29 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 31 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
 
 - 役 4 本（`professor`・`professor-backward`・`operator`・`kaizen`）は、木の外から木を見る役（3.3.1 節）。
-- sci の 25 本は、木の中で動く researcher。Action の種類で分ける。
+- sci の 27 本は、木の中で動く researcher。Action の種類で分ける。
 
 | Action | ブロック | support |
 |---|---|---|
@@ -160,6 +160,7 @@ sai-sci/
 | Logicality を確かめる | `sci-debate`・`sci-review` | ― |
 | ★ を選ぶ | なし（利用者だけ）。手伝いに `sci-compare` | ― |
 | 実験 | `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`・`sci-result-compare`（逆向き） | `sci-exp-scout`（参照実装を探す）・`sci-sim-model`（論文 1 本のモデル定義書）・`sci-sim-compose`（つなぎのモデル定義書） |
+| データ分析 | `sci-data-explore`・`sci-data-test` | ― |
 | その他 | `sci-seed`・`sci-digest`・`sci-coach`・`sci-typify` | ― |
 
 - 「support」は、ほかのブロックが呼ぶ手伝い役。単独の Action としては動かさない。
@@ -170,7 +171,7 @@ sai-sci/
 
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
-  |-- researcher（sci の 25 本。木の Node に向けて働く）
+  |-- researcher（sci の 27 本。木の Node に向けて働く）
   `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
 ```
 
@@ -187,7 +188,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - 完了は、子は `task_report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai_finalize` に `report`。
 - 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中）。
 
-### 3.4 template（11 本）と mind.md
+### 3.4 template（13 本）と mind.md
 
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。SCOPE の読み方、PROPOSAL の書き方、使える op、根拠の扱い、迎合しない姿勢。
 - **`template/sci-find.md`** — F を探すブロックの共通の決まり。
@@ -197,12 +198,17 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。
 - **`template/exp-ref.md`** — 参照コードと出典の決まり。参照実装をどう探すか（Library → GitHub → ModelDB）、値にどう `# src:` で出典を付けるか、どこで止めるか。取得は `refcode.py` で行い、置き場は `<sai_home>/refcode/`。
 - **`template/sim-core.md`** — 神経シミュレーションの共通の決まり。モデル定義書の書式、式・定数を `refcode.py eqs` / `params` で抜く順序、単位と数値計算の決まり、再現の目標の決め方、改良と組み合わせの決まり。`sci-sim-model` と `sci-sim-compose` が読む。
+- **`template/data-core.md`** — データ分析の共通の決まり。データの安全（元のデータを壊さない）・データ表・EDA・前処理・時系列の EDA・MLflow への記録・作業フォルダ・再現性。`sci-data-explore` と `sci-data-test` の 2 本が読む。
+- **`template/stat-core.md`** — 統計解析の決まり。解析計画の写法・検定の選び方・前提の確かめ・多重比較・効果量と検出力・回帰・時系列・機械学習・ベイズ・図・`results.json`・報告。`sci-data-test` が読む。
 - **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・完了のしかた。
 - **`template/sai-task.md`** — 子タスクの扱い（professor が使う）。
 - **`template/sai-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。
 - **`tools/phone_api.py`** — Web の窓口（sai-phone）の HTTP API を呼ぶ道具。質問・承認・root の run への送信・MLflow の読み取り。
 - **`tools/refcode.py`** — 参照コードの道具。Library からリンクを引く（`links`）・GitHub を検索する（`gh-search`）・リポジトリを浅く取る（`fetch`）・コードから数値の定数を抜く（`params`）・`train.py` の数値に出典の注記があるか確かめる（`check`）。
 - **`tools/modeldb.py`** — ModelDB のカタログ。カタログを手元の jsonl に写す（`sync`）・カタログだけを読む（`search`・`show`・`status`）。カタログは `<sai_home>/refcode/modeldb/catalog.jsonl` に置く。
+- **`tools/data_result.py`** — データ分析の検査と記録。データ表・前処理の結果・検定の結果を `results.json` として読み書きし、報告書の骨を作る。
+- **`tools/eda/`** — データ表・画像・時系列・構造化データの EDA の CLI（K-Dense からの写し。MIT。`LICENSE` と `README.md` つき）。
+- **`tools/biosignal/`** — 心電（HRV）・皮膚電反応・合成信号生成・解析の epochs の計画の CLI（K-Dense からの写し。MIT）。
 - **`mind.md`**（`sai-sci/mind.md`）— 研究の土台のひな形。`ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES・INTERESTS・NOTES` の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** `GIVEN` は研究の型で最初から与えられている物（一番上の Q の近くに置く物）、`VALUE_AXES` は O を比べるときの軸（`sci-compare`）になる。
 
 ---
@@ -233,9 +239,9 @@ sai-moon-paper sci init --type <型>
 
 | 入るもの | 置き場 |
 |---|---|
-| 29 本のブロック | `<root>/.sai/blocks/` |
-| template 11 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
-| 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`phone_api.py`・`refcode.py`・`modeldb.py`（無いときだけ書く） | `<root>/.sai/tools/` |
+| 31 本のブロック | `<root>/.sai/blocks/` |
+| template 13 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`phone_api.py`・`refcode.py`・`modeldb.py`・`data_result.py`・写しの `eda/`・`biosignal/`（無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example` など（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（無いときだけ書く） | `<root>/.sai/paper/mind.md` |
@@ -358,6 +364,41 @@ sai-moon-link phone card run <返ってきた run_id>
 - **再現は論文に合わせにいきません。** 論文に無い設定だけを仮置きとして置き、論文に書いてある値と手法は変えません。判定が `new_script`（別の手法を試す）になったら、再現はそこで止めて比較の材料にします。
 - **Human に聞くこと**: 再現の許容幅、実行先（課金の有無）、同じ型の論文が 2 本以上あるときにどれを再現するか、段を飛ばすか。
 - 研究日誌は `.sai/paper/professor-backward-log.md` です。
+
+### 5.9 データ分析（手元のデータ）
+
+実験（5.7 節）がスクリプトを回すのに対し、データ分析は**手元にあるデータ**（データ表・CSV・画像・時系列・生体信号）を読みます。2 本のブロックで道筋を分けます。
+
+```
+sci card --node <N> --block sci-data-explore
+        │
+        ▼
+ explore ── データを受け取り、データ表・EDA・前処理（欠損・重複・外れ値・分布）を
+        │  作り、変換の台帳に「何をしたか」を残す。検定はしない。
+        │  報告書の「## 次の一手」に sci-data-test のカードを作る命令を書く
+        ▼
+ professor ── その報告書を評価し、命令どおりに test のカードを作って起こす
+        │
+        ▼
+ test ── 解析計画書を先に保存して固定し、そのあとは計画どおりに検定する。
+        │  効果量と検出力・前提・多重比較を確かめ、図と results.json を作り、
+        │  木に E と F を足す
+```
+
+- **最初の explore のカードの作り方**: データの path と、調べたいことを `--purpose` に書きます。
+
+```bash
+sai-moon-paper sci card --node <N> --block sci-data-explore \
+  --purpose "<データのパスと調べたいこと>" --json
+sai-moon-link phone card run <返ってきた run_id>
+```
+
+- **test のカードは explore の報告書から作ります。** `sci-data-explore` 自身は test を起こしません。報告書（run フォルダの `finalize-report.md`）の `## 次の一手` に書かれた命令をそのまま使います。professor はその報告書を評価してから起こします（5.7 節の sprout → branch と同じ考え方）。
+- **置き場**: 作業は `analysis/<study>/` に置きます。`<study>` は `<sci_node>-ID<explore の run_id>` の形です（5.7 節と同じ名前）。元のデータは書き換えません（前処理の出力は `analysis/<study>/` の中にだけ作ります）。
+- **MLflow の名前**: experiment は `<project>/ID<explore の run_id>/data`、run は explore が `ID<run_id>-eda`、test が `ID<run_id>-test`。タグは `sai.project`・`sai.run_id`・`exp.study`・`sci.node`・`exp.kind`。
+- **解析はこの PC で動かします。** 30 分を超えるもの・データの量が大きいものはデータ分析ではなく実験の鎖（5.7 節）へ回します。
+- 詳しい決まりは `template/data-core.md`（データの安全・データ表・EDA・前処理・MLflow・木・再現性）と `template/stat-core.md`（解析計画・検定の選び方・前提・多重比較・効果量と検出力・回帰・時系列・機械学習・ベイズ・図・`results.json`・報告）。
+- 使う道具は `tools/data_result.py` と、写しの `tools/eda/`（データ表・画像・時系列の EDA）と `tools/biosignal/`（心電・皮膚電反応）です。写しは K-Dense（MIT。commit `1549884`）からのもので、`.sai/tools/eda/`・`.sai/tools/biosignal/` にそのまま配られます（`$SAI_PROJECT_ROOT/.sai/tools/eda/<名前>` で呼びます）。
 
 ---
 
