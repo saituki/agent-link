@@ -16,8 +16,8 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 | `sci-exp-scout` | 依頼文と対象 | 参照コード調査書（参照実装の在処と、定数の出典表の下書き） |
 | `sci-sim-model` / `sci-sim-compose` | scout の参照コード調査書のトークン（compose は部品ごとのモデル定義書のトークンも） | **モデル定義書**（式と値の正） |
 | `sci-exp-sprout` | モデル定義書のトークン | 実験仕様書（`sim_model` にモデル定義書のトークンを入れる） |
-| `sci-exp-branch` | 依頼書 | 実験仕様書のトークン |
-| `sci-exp-review` | 台帳 | 判定書 |
+| `sci-exp-branch` | 実験仕様書と依頼書（`- モデル定義書:` の行） | `train.py`（式と値はモデル定義書から写し、再現の確かめを MLflow に記録する）と作業報告書 |
+| `sci-exp-review` | 台帳（`target.repro_pass`・`target.repro`） | 判定書（再現の目標を外れたら debug、使い切ったら `repro_failed` で止める） |
 
 - **モデル定義書が式と値の正である。** `sprout` と `branch` はそこから写す（`exp-core` §3・§7）。実験仕様書のパラメータの出典表は、モデル定義書の「## パラメータの出典表」をもとに作る。
 - 神経のモデルでない実験（画像・音声・言語の実験など）では、この鎖は使わない。実験仕様書の `sim_model` は `null` になる（`exp-core` §3）。
@@ -119,7 +119,7 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 | 種類 | 式を書くファイル | 網の組み方・刺激・刻みを書くファイル |
 |---|---|---|
 | NEURON | `.mod` | `.hoc`（`dt` を含む） |
-| XPP | `.ode` | `.ode` の `INIT` と `CONTINUE` |
+| XPP | `.ode` | `.ode` の `init` の行と `@` の行（`dt`・`total`） |
 | Brian2 | Python の式の文字列（`equations`） | Python のコード（`dt` と `run`） |
 | C/C++ | `dt` を掛ける更新式 | 初期化と刺激の部分 |
 
@@ -146,7 +146,7 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 - `measure`（測り方）は、**何をどの指標で測るか**を 1 文で書く。branch がそのまま書けるように書く。例「PY の膜電位の Welch で 0.1〜4 Hz の最大の周波数」。
 - `src` は `exp-ref` §5 の **chunk・f・ref のどれか**。参照コードの README や出力の例なら ref（`miscco/NM_TC@1c8f5f09d3a9:README.md:42`）。`目安` と `仕様書` は **`repro` には使わない。**
 - **1 個も書けないときは BLOCKED として質問ツールで起動者に聞く。** 記憶や目安で目標を作らない。
-- 記録と判定のしかたは共有契約の C3（`exp-core` §4・§6）から引く。`repro.<name>` を MLflow に記録し、`repro_pass` で判定する。**この判定で改良の結論は出さない。** `stop_reason` が `repro_failed` のときは、土台が論文どおりに動いていない。
+- 記録と判定のしかたは `exp-core` §4（再現の確かめ）と §6（R1a）に従う。`repro.<name>` を MLflow に記録し、`repro_pass` で判定する。**この判定で改良の結論は出さない。** `stop_reason` が `repro_failed` のときは、土台が論文どおりに動いていない。
 
 ## 7. 改良の決まり
 
@@ -179,7 +179,7 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 
 ## 10. 呼び方
 
-共通契約 C1 どおり、次の形で呼ぶ。別のファイルを探したり、パスを作り変えたりしない。
+`exp-ref` §9 と同じく、次の形で呼ぶ。別のファイルを探したり、パスを作り変えたりしない。
 
 ```bash
 REF='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refcode.py"'

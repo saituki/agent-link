@@ -72,7 +72,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
   sai-moon-paper find "<英語の語>" --node <TARGET_NODE> --json
   ```
 
-- 論文に無い式・値・再現の目標は、**ないことを帳簿にせず `## GAP` に質問の形に書く。**
+- 論文にも参照コードにも無い式・値・再現の目標は、**`## GAP` に質問の形で書く。**
 - `formula-not-decoded` の塊から式を推測しない。
 
 ### 5. 単位と数値計算をそろえる
@@ -92,7 +92,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ### 8. モデル定義書を保存する
 
-`sai-core` の「完了のしかた」に従う（`sai_write` で保存する）。書式は下の「## モデル定義書」。
+`sai_write` で保存する。書式は下の「## モデル定義書」。
 
 ### 9. 確かめた事実を F として出す
 
@@ -126,7 +126,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 ## やってはいけないこと
 
 - **記憶で式や値を埋めること。** 出典が「記憶」の値を出典表に書くこと。
-- **`目安` の式を「## 式」に書くこと。再現の目安で目標を作ること。**
+- **`目安` の式を「## 式」に書くこと。目安で再現の目標を作ること。**
 - 実験仕様書を書くこと・スクリプトを書くこと・実行すること。参照コードを動かすこと。
 - `modeldb.py sync` を、起動者の了承なしに走らせること。
 - `license` が `null` のリポジトリのコードを写すこと（`exp-ref` §8）。

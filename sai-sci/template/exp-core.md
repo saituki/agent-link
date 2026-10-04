@@ -8,7 +8,7 @@
 
 実験の鎖は **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout がそれを仕様書に書き込み、branch がそれを写してスクリプトに `# src:` を付ける。
 
-モデルの追加は別で、鎖の外側にある。**神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）のときは scout の後に `sci-sim-model`（2 本以上をつなぐなら `sci-sim-compose`）が**モデル定義書**を作り、sprout がそのトークンを実験仕様書の `sim_model` に入れる。branch はそこから式・値・再現の目標を写し、**すべての試行で土台が再現の目標を満たすかを MLflow に記録する**（`§4` の「再現の確かめ」）。review は、目標を外れた土台を成功と数えず debug に戻す（`§6` の R1a）。
+**神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）のときは scout の後に `sci-sim-model`（2 本以上をつなぐなら `sci-sim-compose`）が**モデル定義書**を作り、sprout がそのトークンを実験仕様書の `sim_model` に入れる。branch はそこから式・値・再現の目標を写し、**すべての試行で土台が再現の目標を満たすかを MLflow に記録する**（`§4` の「再現の確かめ」）。review は、目標を外れた土台を成功と数えず debug に戻す（`§6` の R1a）。
 
 | ブロック | 役 | すること | しないこと |
 |---|---|---|---|
@@ -152,13 +152,13 @@ def repro_check(params: dict) -> dict:
 
 def train(params: dict, device: str, log_epoch) -> dict:
     measured = features(simulate(params))
-    log_epoch(1, **{k: v for k, v in measured.items() if k.endswith("_loss")})
-    return {METRIC: measured["test_acc"], **repro_check(params)}
+    log_epoch(1, **measured)  # 学習が無いので epoch は 1 回。特徴量を途中の指標として出す
+    return {METRIC: score(measured), **repro_check(params)}
 ```
 
 - `REPRO` は `{名前: (下限, 上限)}` の形で、**各行に `# src:` にモデル定義書の `repro[].src` を書く**（出典が無い値は使わない）。
 - `BASELINE_SWITCHES` はモデル定義書の `baseline.switches` をそのまま使う（改良・つなぎを外すための値）。
-- `features` と `simulate` は branch が書く関数（測定値を出すところ）。**tune と debug で親のスクリプトを写すときも `repro_check` を残す。**
+- `simulate`・`features`・`score` は branch が書く関数（模擬・特徴量・仕様書の `metric` の計算）。**tune と debug で親のスクリプトを写すときも `repro_check` を残す。**
 
 ### スクリプトの雛形
 
