@@ -27,6 +27,8 @@ subblocks:
   - sci-lookup
   - sci-analogy
   - sci-exp-scout
+  - sci-sim-model
+  - sci-sim-compose
   - sci-exp-sprout
 ---
 
@@ -72,8 +74,8 @@ subblocks:
 | 1. 抽出 | `sci-restore` を 1 本（Node は `background` など一番上の Q） | なし（`--purpose` に基盤論文の番号） | 復元書と SEED の札（再現）がある。PROPOSAL を仕分け終え、論文の答えの O の ★ を Human に頼み終えた |
 | 2. 評価（引用） | `sci-cite-check` を、主張を Node ごとに分けて 1〜3 本ずつ | 復元書 | 対応表の主張がすべて判定された（未確認を含む） |
 | 2. 評価（木） | `sci-review` を 1 本（`bw-core` の V1〜V10） | 復元書・引用の判定表の全部 | 審査書がある。「要補強」「誤り」の次の一手を片付けるか、Human が「このまま進めてよい」と答えた |
-| 3. 再現 | `sci-exp-scout` → `sci-exp-sprout`（Node は `purpose.metric`） | SEED の札（再現） | review の判定が `stop`（完了報告書）。または下の「再現の実験」で止めた |
-| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-seed` → `sci-exp-scout` → `sci-exp-sprout` | 前の段の報告 | SEED の札（更新）の実験で、review の判定が `stop`（完了報告書） |
+| 3. 再現 | `sci-exp-scout` → `sci-sim-model`（神経のモデルのとき）→ `sci-exp-sprout`（Node は `purpose.metric`） | SEED の札（再現） | review の判定が `stop`（完了報告書）。または下の「再現の実験」で止めた |
+| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-seed` → `sci-exp-scout` → `sci-sim-model` / `sci-sim-compose`（神経のモデルのとき）→ `sci-exp-sprout` | 前の段の報告 | SEED の札（更新）の実験で、review の判定が `stop`（完了報告書） |
 | 5. 比較 | `sci-result-compare` を 1 本 | 復元書・引用の判定表・審査書・再現と更新の完了報告書と実験仕様書 | 比較書がある |
 
 - 段は順に進める。段を飛ばすのは Human が指示したときだけ（例: 「再現はしない」「更新はしない」）。更新をしないときは、段 5 で再現だけを比べる。
@@ -97,12 +99,14 @@ subblocks:
 
 - 再現を始める前に、質問ツールで Human に 2 つを聞く。1 つ目は実行先（`EXP_TARGET`。課金のある実行先かどうか）。2 つ目は許容幅（成功基準）で、記載結果表の ★ の値とばらつきを添え、「論文の記載値 ± どれだけなら再現できたとするか」を聞く。答えを `purpose.metric` の本文に反映する（`edit_text` を `sci apply` で）。
 - 再現の scout のカードと sprout のカードは、`--input <SEED の札（再現）のトークン>` で作る。`sci-exp-scout` の `--purpose` に「再現。元の論文の参照実装を探す。基盤論文: #12」と書き、返った参照コード調査書のトークンを sprout のカードの `--input` に**足す**。**再現では、元の論文の参照実装を土台にする。**
+- **再現のモデルが神経のモデルのときは、scout の調査書を `--input` にして `sci-sim-model` を起こす。** `--purpose` に「再現。基盤論文: #12」と書く。返った**モデル定義書のトークン**を sprout のカードの `--input` に**足す**（sprout は実験仕様書の `sim_model` に入れる）。2 本以上の論文のモデルをつなぐなら `sci-sim-model` の代わりに `sci-sim-compose` を起こす。神経のモデルでない実験では、この 2 本は起こさない。
 - sprout の `--purpose` に「再現。SEED の札の『再現で守ること』に従う。allowed_actions は draft・tune・debug（モデルを変えない）。起動元: professor-backward run <自分の run_id>」と書く。
 - sprout の報告を受けたら研究日誌に書き、`professor` と同じく、実験の間は終えてよい（実験の鎖の最後の review が起こし直す）。
 - 起こし直されたら、完了報告書の `stop_reason` で決める。
   - `success`: 段 3 を終える。
   - `not_allowed`（モデルを変えないと続けられない）: 再現は「合わなかった」として段 5 の比較の材料にし、段 4 に進む。
   - `max_branches`: 段 5 の材料にする。Human に上げるか段 4 に進むかを日誌に書いて決める。
+  - `repro_failed`（土台が論文の目標に届かない）: 段 1 の復元書とモデル定義書の「## 食い違い」「## GAP」を見直す。`sci-sim-model` を起こし直すか Human に上げるかを決める。**再現の結果に論文の値を合わせてよい。**
   - `no_records`・`cancelled`: Human に上げる。
 - debug が `max_debug` 回続いて止まったときは、「評価の観点」のとおり Human に上げる。
 
