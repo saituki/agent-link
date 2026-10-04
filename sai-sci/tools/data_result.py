@@ -208,7 +208,7 @@ def check(results: dict, plan: dict, plan_hash: str) -> list[dict]:
             out.extend(_check_frequentist(key, item, planned is not None and _text(planned.get("kind")) == "confirmatory"))
         # K6: family の補正
         if planned is not None:
-            # K6 は p があるもの（frequentist）にだけ掛ける。p の無い観に補正は掛からない。
+            # K6 は p があるもの（frequentist）にだけ掛ける。p の無い結果（bayes・ml など）に補正は掛からない。
             # frequentist な結果が p 無しでも K5 が出るので、p_adj の忘れは見つかる。
             out.extend(_check_family(key, item, planned, families, paradigm))
         # K7: bayes

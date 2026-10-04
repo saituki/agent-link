@@ -353,7 +353,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 | K3 | 計画に無い `id` の結果は、`deviation` が空でない（表では「計画外」と出す） |
 | K4 | `test` が計画の `test` と違うときは `deviation` が空でない。計画の `fallback` に替えたときは、`assumptions` に `ok: false` が 1 つ以上ある |
 | K5 | `frequentist`: `p` が 0〜1、`effect.value` が有限、`effect.ci` が有限の 2 数で小さい順、`ci_level` が 0〜1 の間。`confirmatory` なら `assumptions` が空でない |
-| K6 | 属する `family` の `members` が 2 つ以上で `correction` が `none` でなければ、`p_adj` があり `p_adj >= p` |
+| K6 | 属する `family` の `members` が 2 つ以上で `correction` が `none` でなければ、`p_adj` があり `p_adj >= p`（p を持つ frequentist の結果にだけ掛ける） |
 | K7 | `bayes`: `rhat_max <= 1.01`、`ess_bulk_min >= 400`、`divergences == 0`。`hdi` が小さい順 |
 | K8 | `ml`: `cv.folds >= 2`、`cv.scheme` が空でない |
 | K9 | `descriptive`: `estimate.value` が有限 |

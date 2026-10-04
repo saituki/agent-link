@@ -168,10 +168,9 @@ uv run --no-project --python ">=3.11" python "$EDA/missingness_leakage_audit.py"
 
 uv run --no-project --python ">=3.11" python "$EDA/distribution_sensitivity.py" <csv> --root <dir> \
   --column C --reveal-identifiers --output <out.json>
-
-uv run --no-project --python ">=3.11" python "$EDA/report_scaffold.py" \
-  --input <file> --root <dir> --output <out.md>
 ```
+
+- `report_scaffold.py` は配った形では動かない（`.sai/tools/eda/README.md`）。使わない。
 
 - 出力が既にあるときは `--force` を付ける。`--root` には、読むファイルと出力先の両方を含むフォルダ（ふつうはプロジェクトルート）を渡す。
 - 群・人・分割・時刻の列は分かったものだけ渡す。分からない項目は推測で埋めない。
