@@ -77,12 +77,12 @@ Q ごとに、2 つの目で進み具合を見る。
 ```
 sai-sci/
 ├── types/      # 研究の型 5 本（problem・phenomenon・method・data・improve）
-├── guides/     # ガイド 25 本（Q の文・Child Q・Extract・Pitfall・目安）
-├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・sai-agent・sai-task・sai-cli の 9 本
+├── guides/     # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
+├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sai-agent・sai-task・sai-cli の 10 本
 ├── mind.md     # 研究の土台（mind.md）のひな形
-├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
+├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py とそのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
-└── blocks/     # 26 本のブロック（役 4 本 + sci 22 本）
+└── blocks/     # 27 本のブロック（役 4 本 + sci 23 本）
 ```
 
 ### 3.1 研究の型（5 本）
@@ -105,9 +105,9 @@ sai-sci/
 
 一覧は `sai-moon-paper sci types`。型の本文に、最初から与えられていることが多い物と、序盤の進め方が書いてある。よく分からないときは `problem` から始める。
 
-### 3.2 ガイド（25 本）
+### 3.2 ガイド（25 ファイル）
 
-`guides/` の 25 本。Q 1 つごとに、次の節を持つ。
+`guides/` の 25 ファイル。Q 1 つごとに、次の節を持つ。
 
 - frontmatter の `key`・`name`・`target`（Objectivity の目安の本数）
 - `## Q` — Q の文
@@ -145,12 +145,12 @@ sai-sci/
 | `novelty.diff` | NOVELTY_DIFF | `novelty` |
 | `phenomenon` | PHENOMENON | ― |
 
-### 3.3 26 本のブロック
+### 3.3 27 本のブロック
 
-`blocks/` の 26 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 27 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
 
 - 役 4 本（`professor`・`professor-backward`・`operator`・`kaizen`）は、木の外から木を見る役（3.3.1 節）。
-- sci の 22 本は、木の中で動く researcher。Action の種類で分ける。
+- sci の 23 本は、木の中で動く researcher。Action の種類で分ける。
 
 | Action | ブロック | support |
 |---|---|---|
@@ -159,7 +159,7 @@ sai-sci/
 | F を探す | `sci-search`・`sci-screen`・`sci-read`・`sci-cite-check`（逆向き） | `sci-lookup`・`sci-extract`（`sci-search` も呼ばれれば support） |
 | Logicality を確かめる | `sci-debate`・`sci-review` | ― |
 | ★ を選ぶ | なし（利用者だけ）。手伝いに `sci-compare` | ― |
-| 実験 | `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`・`sci-result-compare`（逆向き） | ― |
+| 実験 | `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`・`sci-result-compare`（逆向き） | `sci-exp-scout`（参照実装を探す） |
 | その他 | `sci-seed`・`sci-digest`・`sci-coach`・`sci-typify` | ― |
 
 - 「support」は、ほかのブロックが呼ぶ手伝い役。単独の Action としては動かさない。
@@ -170,7 +170,7 @@ sai-sci/
 
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
-  |-- researcher（sci の 22 本。木の Node に向けて働く）
+  |-- researcher（sci の 23 本。木の Node に向けて働く）
   `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
 ```
 
@@ -187,7 +187,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - 完了は、子は `task_report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai_finalize` に `report`。
 - 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中）。
 
-### 3.4 template（9 本）と mind.md
+### 3.4 template（10 本）と mind.md
 
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。SCOPE の読み方、PROPOSAL の書き方、使える op、根拠の扱い、迎合しない姿勢。
 - **`template/sci-find.md`** — F を探すブロックの共通の決まり。
@@ -195,10 +195,13 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - **`template/bw-core.md`** — 逆向きの運用の共通の決まり（5.6 節）。
 - **`template/exp-core.md`** — 実験ループの共通の決まり。役割、文書の渡し方、実験仕様書、MLflow の記録の決まり、台帳、判定の規則、実行場所の規則、停止の条件。
 - **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。
+- **`template/exp-ref.md`** — 参照コードと出典の決まり。参照実装をどう探すか（Library → GitHub → ModelDB）、値にどう `# src:` で出典を付けるか、どこで止めるか。取得は `refcode.py` で行い、置き場は `<sai_home>/refcode/`。
 - **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・完了のしかた。
 - **`template/sai-task.md`** — 子タスクの扱い（professor が使う）。
 - **`template/sai-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。
 - **`tools/phone_api.py`** — Web の窓口（sai-phone）の HTTP API を呼ぶ道具。質問・承認・root の run への送信・MLflow の読み取り。
+- **`tools/refcode.py`** — 参照コードの道具。Library からリンクを引く（`links`）・GitHub を検索する（`gh-search`）・リポジトリを浅く取る（`fetch`）・コードから数値の定数を抜く（`params`）・`train.py` の数値に出典の注記があるか確かめる（`check`）。
+- **`tools/modeldb.py`** — ModelDB のカタログ。カタログを手元の jsonl に写す（`sync`）・カタログだけを読む（`search`・`show`・`status`）。カタログは `<sai_home>/refcode/modeldb/catalog.jsonl` に置く。
 - **`mind.md`**（`sai-sci/mind.md`）— 研究の土台のひな形。`ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES・INTERESTS・NOTES` の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** `GIVEN` は研究の型で最初から与えられている物（一番上の Q の近くに置く物）、`VALUE_AXES` は O を比べるときの軸（`sci-compare`）になる。
 
 ---
@@ -229,13 +232,14 @@ sai-moon-paper sci init --type <型>
 
 | 入るもの | 置き場 |
 |---|---|
-| 26 本のブロック | `<root>/.sai/blocks/` |
-| template 9 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
-| 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`phone_api.py`（無いときだけ書く） | `<root>/.sai/tools/` |
+| 27 本のブロック | `<root>/.sai/blocks/` |
+| template 10 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`phone_api.py`・`refcode.py`・`modeldb.py`（無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example` など（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（無いときだけ書く） | `<root>/.sai/paper/mind.md` |
 | 型とガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
+| 取得した参照コードと ModelDB のカタログ | `<sai_home>/refcode/`（`SAI_SAI_HOME` が無ければ `~/.sai-moon`） |
 | 木 | `papr.db` の `sci_*` の表 |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/` |
 

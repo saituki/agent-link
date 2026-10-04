@@ -73,7 +73,7 @@ sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 
   - `professor`（`sai-sci/blocks/professor.md`）— 研究の舵取り。研究の現在地を読み、次の一手を決めてカードを作り、researcher（`sci-*`）を**自分の子として**起こす。root の run。
   - `operator`（`sai-sci/blocks/operator.md`）— sai-moon の操作係。故障の対処・監視・情報の抽出・Web と同じ操作だけ。professor の子。研究の判断はしない。
   - `professor-backward`（`sai-sci/blocks/professor-backward.md`）— 既存の論文から始める逆向き（backward）の舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす。役目の分け方は `professor` と同じ。
-  - `sci-*` の 22 本 — 研究作業そのもの。木の Node（Q・O・F・E）に向けて動く。実験の 3 本（`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`）は互いの終わりを待たず、ジョブの終わりで review が起きる。review が完了報告書 `exp-final-<study>.md` を書き、実験仕様書の `return_to` があれば、その professor のカードを作って起こし直す。うち 3 本（`sci-restore`・`sci-cite-check`・`sci-result-compare`）は逆向きのためのもの。役の 4 本目の `kaizen` は、実行履歴から改善計画書を作る。
+  - `sci-*` の 23 本 — 研究作業そのもの。木の Node（Q・O・F・E）に向けて動く。実験の前に `sci-exp-scout` が参照実装（Library・ModelDB・GitHub）を探して取り、パラメータの出典表の下書きを作る。実験の 3 本（`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`）は互いの終わりを待たず、ジョブの終わりで review が起きる。review が完了報告書 `exp-final-<study>.md` を書き、実験仕様書の `return_to` があれば、その professor のカードを作って起こし直す。うち 3 本（`sci-restore`・`sci-cite-check`・`sci-result-compare`）は逆向きのためのもの。役の 4 本目の `kaizen` は、実行履歴から改善計画書を作る。
   - カード（task.md）の `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人が起こせず（`phone card run` が断る）、professor が `task_create` の `card` で起こす。runner は pi だけ。
   - 質問は**そのカードの起動者が答える**（professor が起こしたカードなら professor）。親の `task_output` に `stalled`（`reason: "question"`、`question_id` 付き）で届き、`phone_api.py question` / `answer` で答える。Web で人が先に答えた場合は 400 で断られ、その答えを採る。
   - 報告は run フォルダの `finalize-report.md`。子は `task_report`、root は `sai_finalize` の `report`。`sai-moon-link phone md --kind report <run_id>` で読む。
@@ -268,12 +268,12 @@ sai-moon/
 ├── pi-litbase/               # pi の拡張（TypeScript・Cargo の外）
 ├── sai-sci/                  # 研究方針の木（Research-tree）
 │   ├── types/                # 研究の型 5 本（Q の階層の雛形。sai-moon-paper に埋め込まれる）
-│   ├── guides/               # ガイド 25 本（Q の文・Child Q・Extract・Pitfall・目安）
-│   ├── template/             # 9 本。sci-core・sci-find・sci-match・bw-core（研究の決まり）、exp-core・exp-run（実験の決まり）、sai-agent・sai-task・sai-cli（professor と operator の決まり）
-│   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py とテスト（sci init が .sai/tools/ へ配る）
+│   ├── guides/               # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
+│   ├── template/             # 10 本。sci-core・sci-find・sci-match・bw-core（研究の決まり）、exp-core・exp-run・exp-ref（実験の決まり）、sai-agent・sai-task・sai-cli（professor と operator の決まり）
+│   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードの道具 refcode.py・ModelDB のカタログ modeldb.py とテスト（sci init が .sai/tools/ へ配る）
 │   ├── exec/                 # 実行先の見本（local・ssh・dok・_example。sci init が .sai/exec/ へ配る）
 │   ├── mind.md               # mind.md（研究の土台）のひな形
-│   └── blocks/               # 26 本のブロック（役 4 本 professor・professor-backward・operator・kaizen と 22 本の sci-*）
+│   └── blocks/               # 27 本のブロック（役 4 本 professor・professor-backward・operator・kaizen と 23 本の sci-*）
 ├── apps/
 │   ├── phone/                # Web の窓口（8200）
 │   │   ├── src/sai_phone/    # サーバ（§4.1）
