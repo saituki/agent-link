@@ -7,6 +7,7 @@ thinking: medium
 templates:
   - exp-core
   - exp-run
+  - exp-ref
 sci_action: experiment
 sci_support: false
 sci_done_agent: report
@@ -66,6 +67,9 @@ model: cnn-small
 | debug | 親のスクリプトを写し、依頼書・判定書の `fix` の点だけを直す。`MODEL` は親と同じ。 |
 
 - 定数は依頼書と仕様書の値を入れる: `PROJECT`・`SCI_NODE`・`STUDY`・`SPROUT_RUN_ID`・`MODEL`・`ACTION`・`PARENT_BRANCH`（無ければ空文字）・`METRIC`・`DIRECTION`・`EPOCHS`・`DEVICE`。
+- **モデルの数値は、仕様書の「パラメータの出典表」と、`reference_code` の土台のコードから写す。** 記憶や、前の実験の値をそのまま使わない。
+- 写した値には、`exp-ref` §5 の書き方で `# src:` を付ける（出典は仕様書の出典表の欄をそのまま写す）。
+- tune と debug で親の `train.py` を写すときも、`# src:` を残す。消さない。
 - MLflow の行・標準出力の行（`device=`・`[trial …]`・`[epoch …]`）・`pick_device`・`main` は書き換えない。
 
 ### 3. 手元で構文を確かめる
@@ -75,6 +79,16 @@ uv run --no-project --python ">=3.10" python -m py_compile <workdir>/ID<run_id>/
 ```
 
 通らなければ直す。
+
+次に、出典の注記を確かめる（`exp-ref` §5）。
+
+```bash
+uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refcode.py" check <workdir>/ID<run_id>/train.py --json
+```
+
+- 終了コード 1 なら、`errors` の行に出典を付けて直す。
+- 出典表にも参照コードにも無い値しか直せないときは、投げない。作業報告書に `BLOCKED`（出典の無い値の一覧）と書き、review のカードは作らずに終える。起動者には質問ツールで知らせる（`exp-core` §8 の `check` が失敗したときと同じ扱い）。
+- `guesses`（目安）の数は、作業報告書に書く。
 
 ### 4. 投げる
 
@@ -141,4 +155,5 @@ sai-moon-link phone card wait <返った run_id> --job <job_id>
 - **依頼書に無い組を足すこと。** tune で `train()` を変えることもしない。
 - **`ssh`・`scp`・`rsync` で直接動かすこと。** 必ず `exp_exec.py` を通す。
 - **確認だけのジョブを投げること**（`exp-run` §1）。
+- **`refcode.py check` が通らない `train.py` を投げること。**
 - **自分が投げたもの以外のジョブを止めること。**

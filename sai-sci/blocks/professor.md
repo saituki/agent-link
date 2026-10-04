@@ -28,6 +28,7 @@ subblocks:
   - sci-digest
   - sci-coach
   - sci-typify
+  - sci-exp-scout
   - sci-exp-sprout
 ---
 
@@ -129,7 +130,10 @@ subblocks:
 
 ## 実験（sprout と branch）
 
+- **実験を起こす前に、`sci-exp-scout` を子として起こす。** カードの `--node` に対象の Issue の O を、`--purpose` に実験の案を書く。`--input` には scout に見てほしい文書（SEED の札など）を書く。
+- scout は参照コード調査書を保存してすぐ報告を返す。返った**調査書のトークン**を、sprout のカードの `--input` に足す。
 - 実験は `sci-exp-sprout` のカードを `--executer professor` で作り、`task_create` の `card` で自分の子として起こす。依頼文の目的（`--purpose`）の最後に `起動元: professor run <自分の run_id>` と書く（sprout が実験仕様書の `return_to` に入れる）。
+- **子の確かめ（2 つ目の確かめ）を省略させてよいのは、実験仕様書の「パラメータの出典表」に「記憶」の行が無く、出典の無い値も無いときだけである。** 目安（`exp-ref` §5 の `guess`）の行が成功基準や結論に効くなら、省略させない。さもなくば、確かめを省略した実験になり、後から値を直すことになる。
 - sprout は最初の branch を起こしてすぐ報告を返す。報告の実験仕様書のトークンと branch の run_id を研究日誌に書き、sprout を `finalize` する。
 - **実験の終わりを待たない。** 実験が走っている間にほかの研究作業（文献など）が無ければ、研究日誌に「実験 <study> の終わりを待つ」と書いて `sai_finalize` で終える。実験の鎖の最後の review が、完了報告書のトークン付きで professor のカードを作って起こし直す。
 - 起こし直された professor は、研究日誌と完了報告書を読み、続きから判断する（次の sprout・上流に戻る・止める）。

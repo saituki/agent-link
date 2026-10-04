@@ -8,6 +8,7 @@ templates:
   - sci-core
   - domain
   - exp-core
+  - exp-ref
 context: true
 sci_ops: add_e, add_f
 sci_scope: path
@@ -48,6 +49,9 @@ enable: true
 - 最初のメッセージの `# context` の TARGET_NODE と UPSTREAM_PATH を読む。TARGET_NODE（task.md の `sci_node`）が実験の対象の Issue の O である。
 - TARGET_NODE が Issue の O でなければ、先へ進まない。質問ツール（`AskUserQuestion` か `ask_user_phone` のうち使えるほう）で起動者に、どの Issue の O の下に置くかを聞く。
 - データの置き場・取り寄せ方は F と SEED の札から探す。無ければ質問ツールで起動者に聞く。**推測で書かない。**
+- 依頼文に「参照コード調査書」（`sci-exp-scout` の出力）のトークンがあれば、`sai_read` で読む。
+  - 無ければ、質問ツールで起動者に、`sci-exp-scout` を先に走らせるか、参照実装なしで進めるかを聞く。答えを待つあいだ、先へ進まない。
+  - 参照実装なしで進むときは、仕様書の `reference_code` を `[]` にし、理由を本文に書く。
 
 ### 2. 実験仕様書を作る
 
@@ -65,12 +69,18 @@ enable: true
 3. **`return_to` を決める。** 依頼文に「起動元: <block> run <id>」の行があれば `{"block": "<block>", "run_id": <id>}`。無ければ `null`。
 4. **`device` と `allowed_actions`。** 実行先（`EXP_TARGET`）が GPU の PC なら `device` は `cuda`。`allowed_actions` は依頼文の指示に従う（再現なら `["draft", "tune", "debug"]`）。無ければ既定。
 5. 残りは `exp-core` §3 の既定値を使う。`workdir` は `experiments/<study>`。
-6. 先頭に ```json コードブロックを置き、`exp-spec-<study>.md` で `sai_write` で保存する。description は `実験仕様書 <study>: <研究の 1 文>`。**トークンを控える。**
+6. **`reference_code` を書く。** 仕様書の JSON に、参照コード調査書の `reference_code` をそのまま写す。調査書が無いとき（参照実装なしで進むと起動者が決めたとき）は `[]` にして、理由を本文に書く。
+7. **本文に「## パラメータの出典表」を置く**（書き方は `exp-ref` §6）。
+   - 参照コード調査書の下書きを元に、**モデルの名前付き定数のすべて**と、**GRID の軸の幅**を載せる。
+   - 出典が `目安` の行で成功基準や結論に効くものは、`exp-ref` §6 のとおり `GRID` に入れるか、Issue の O を出す（`sci_propose` の `add_e`）。どちらにしたかを備考に書く。
+   - 出典が「記憶」の行は書かない。代わりに参照コード調査書の GAP として、質問ツールで起動者に聞く。
+8. 先頭に ```json コードブロックを置き、`exp-spec-<study>.md` で `sai_write` で保存する。description は `実験仕様書 <study>: <研究の 1 文>`。**トークンを控える。**
 
 ### 3. 最初の 1 回の実行を決める
 
 - `draft` を 1〜`max_children` 本。モデルを変えて比べたいときだけ 2 本にする（それぞれ別の `model`、つまり別の experiment）。
 - 1 回の実行ごとに依頼書（`exp-core` §7）を `sai_write` で保存し、トークンを控える。draft の依頼書には、モデルの案とデータの置き場・読み込み方を書く。
+- 依頼書には、**土台のコード**（`reference_code` の `role: 土台` の `path`）を書き、式と値はそこと仕様書の出典表から写すよう指示する。
 
 ### 4. 木に記録する
 
@@ -128,5 +138,6 @@ sai-moon-link phone card run <返った run_id>
 - `task_create` で `sci-exp-branch` を子として起こすこと。これは親を持たない run である（sprout が先に終わるため）。
 - 実験仕様書を保存したあとで書き換えること。変えたいなら質問ツールで起動者に聞く。
 - 対象が Issue の O でないのに、推測で E を作ること。
+- **出典が「記憶」の値を、出典表と依頼書に書くこと。** 出典の無い値を埋めること。
 - 木を直接書き換えること。`sci_propose` で出す。
 - 鍵・合言葉の値（`settings.json` の `env`・`.env` の中身）を、質問・報告・task.md に書くこと。値が要るときは環境変数の名前だけを書く。
