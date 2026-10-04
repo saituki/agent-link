@@ -624,6 +624,26 @@ class CheckTest(Base):
         code, _, err = self.env.run("check", path)
         self.assertEqual(code, 0, err)
 
+    def test_trailing_comment_does_not_cover_the_next_line(self) -> None:
+        """コードの後ろの行末コメントは、次の文の注記には数えない。"""
+        path = self.write('PROJECT = "west"\nA = 3.3  # src: 目安\nB = 4.4\n')
+        code, out, err = self.env.run("check", path, "--json")
+        self.assertEqual(code, 1, err)
+        data = json.loads(out)
+        self.assertFalse(data["ok"])
+        names = [row["name"] for row in data["errors"]]
+        self.assertEqual(names, ["B"], data["errors"])
+        self.assertEqual(data["errors"][0]["line"], 3)
+        # A の注記は A の分として数えられている
+        self.assertEqual(data["counts"]["guess"], 1)
+        self.assertEqual([row["name"] for row in data["guesses"]], ["A"])
+
+    def test_comment_only_line_above_still_covers(self) -> None:
+        """コメントだけの行の注記は、次の文に効く（従来の挙動）。"""
+        path = self.write('PROJECT = "west"\nA = 3.3  # src: 目安\n# src: 仕様書\nB = 4.4\n')
+        code, _, err = self.env.run("check", path)
+        self.assertEqual(code, 0, err)
+
     def test_table_without_json(self) -> None:
         code, out, _ = self.env.run("check", self.write(BARE_TRAIN))
         self.assertEqual(code, 1)

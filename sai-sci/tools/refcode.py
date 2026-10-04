@@ -1092,6 +1092,14 @@ def assigned_names(node: ast.AST) -> list[str]:
     return names
 
 
+def comment_only_lines(text: str) -> set[int]:
+    """コメントだけの行の集合（コードの後ろに付いた注記は行に数えない）。
+
+    文の「すぐ上の行の注記」を数えるのは、この行のときだけにする。
+    """
+    return {n for n, line in enumerate(text.splitlines(), 1) if line.strip().startswith("#")}
+
+
 def command_check(args) -> int:
     path = Path(args.path)
     if not path.is_file():
@@ -1105,6 +1113,7 @@ def command_check(args) -> int:
         raise RefcodeError(f"{path} が Python として読めません: {e}") from e
 
     sources = comment_sources(text)
+    alone = comment_only_lines(text)
     errors: list[dict] = []
     guesses: list[dict] = []
     counts = {kind: 0 for kind in SOURCE_KINDS}
@@ -1134,8 +1143,9 @@ def command_check(args) -> int:
         lines = sorted(nontrivial_lines(node))
         first = node.lineno
         for line in lines:
-            # 文の 1 行目だけは、すぐ上の行の注記でもよい
-            ok = bool(sources.get(line)) or (line == first and bool(sources.get(line - 1)))
+            # 文の 1 行目だけは、すぐ上の行がコメントだけの行なら、その注記でもよい
+            above = line - 1 in alone and bool(sources.get(line - 1))
+            ok = bool(sources.get(line)) or (line == first and above)
             if not ok:
                 errors.append({"line": line, "name": label, "reason": "数値に出典の注記が無い（`# src:` を付ける）"})
 
