@@ -55,6 +55,7 @@ model: cnn-small
 - 実験仕様書から `sci_node`・`project`・`metric`・`direction`・`epochs`・`trial_timeout_s`・`device`・`workdir` を得る。
 - 判定書が付いていれば、その `next` の自分の行（`fix`・`idea`・`grid`）も読む。
 - 埋め込みが無いときは `sai_read` でトークンを読む。
+- 仕様書の `sim_model` が `null` でなければ、依頼書の「モデル定義書」の行のトークンを `sai_read` で読んでおく（式・値・再現の目標・baseline はここから写す）。
 
 ### 2. スクリプトを書く
 
@@ -68,6 +69,11 @@ model: cnn-small
 
 - 定数は依頼書と仕様書の値を入れる: `PROJECT`・`SCI_NODE`・`STUDY`・`SPROUT_RUN_ID`・`MODEL`・`ACTION`・`PARENT_BRANCH`（無ければ空文字）・`METRIC`・`DIRECTION`・`EPOCHS`・`DEVICE`。
 - **モデルの数値は、仕様書の「パラメータの出典表」と、`reference_code` の土台のコードから写す。** 記憶や、前の実験の値をそのまま使わない。
+- `sim_model` が `null` でなければ（**神経のモデルのときだけ**）、次のように書く。
+  - **式はモデル定義書の「## 式」から写す。** 式を実装した関数に、その式の `出典` を `# src:` で書く（手順 3 の `refcode.py check` の R2 を満たす）。
+  - **定数は「## パラメータの出典表」から、状態変数の初期値は「## 状態変数」から写す。** 単位はモデル定義書の `units` のままにする。積分法・`dt`・`warmup` も JSON の値を使う。
+  - **`REPRO` と `BASELINE_SWITCHES` を書き、`exp-core` §4 の「再現の確かめ」のとおりに `repro_check(params)` を入れる。** すべての試行で `repro.<name>` と `repro_pass` が記録される。
+  - tune と debug で親の `train.py` を写すときも **`repro_check` を残す**（消さない）。
 - 写した値には、`exp-ref` §5 の書き方で `# src:` を付ける（出典は仕様書の出典表の欄をそのまま写す）。
 - tune と debug で親の `train.py` を写すときも、`# src:` を残す。消さない。
 - MLflow の行・標準出力の行（`device=`・`[trial …]`・`[epoch …]`）・`pick_device`・`main` は書き換えない。

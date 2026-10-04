@@ -8,9 +8,12 @@
 
 実験の鎖は **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout がそれを仕様書に書き込み、branch がそれを写してスクリプトに `# src:` を付ける。
 
+モデルの追加は別で、鎖の外側にある。**神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）のときは scout の後に `sci-sim-model`（2 本以上をつなぐなら `sci-sim-compose`）が**モデル定義書**を作り、sprout がそのトークンを実験仕様書の `sim_model` に入れる。branch はそこから式・値・再現の目標を写し、**すべての試行で土台が再現の目標を満たすかを MLflow に記録する**（`§4` の「再現の確かめ」）。review は、目標を外れた土台を成功と数えず debug に戻す（`§6` の R1a）。
+
 | ブロック | 役 | すること | しないこと |
 |---|---|---|---|
 | `sci-exp-scout` | scout | 実験の前に参照実装（Library・ModelDB・GitHub）を探し、参照コード調査書を保存する。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
+| `sci-sim-model` / `sci-sim-compose` | modeler | 神経のモデルの式・値・再現の目標を、参照コードと論文から出典つきで抜き、モデル定義書を保存する（書式は `sim-core`）。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
 | `sci-exp-sprout` | sprout | 実験のアイデア 1 つを、研究方針の木の Issue の O から決める。実験仕様書を作り、最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
 | `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review のカードを作って終わる | 終わりまで待たない・判定しない |
 | `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
@@ -52,6 +55,7 @@
  "epochs": 25, "trial_timeout_s": 5400, "device": "auto",
  "artifact_location": "", "workdir": "experiments/O6-ID120",
  "reference_code": [{"id": "miscco/NM_TC", "sha": "1c8f5f09d3a9", "path": "…", "role": "土台"}],
+ "sim_model": null,
  "return_to": {"block": "professor-backward", "run_id": 5}}
 ```
 
@@ -75,8 +79,10 @@
 | `workdir` | スクリプトを置くフォルダ。既定 `experiments/<study>` |
 | `return_to` | sprout を起こしたのが professor なら `{"block": "<そのブロック>", "run_id": <その run_id>}`。人が起こしたなら `null`。鎖が終わったときに起こし直す相手（§11） |
 | `reference_code` | 参照実装の一覧。`sci-exp-scout` の参照コード調査書からそのまま写す（`{"id", "url", "sha", "path", "license", "role", "paper"}`）。`role` は `土台` か `参考`。参照実装なしで進むと起動者が決めたときだけ `[]` にして、理由を本文に書く |
+| `sim_model` | モデル定義書のトークン（`sci-sim-model` / `sci-sim-compose` の出力）。神経のモデルでない実験は `null`。`null` でなければ、branch は式・値・再現の目標をそこから写し、`§4` の再現の確かめを記録する |
 
 - 仕様書の本文には「## パラメータの出典表」を置く（書き方は `exp-ref` §6）。モデルの名前付き定数と、掃引の軸の幅を、出典つきで載せる。
+- `sim_model` が `null` でなければ、**本文の「## パラメータの出典表」はモデル定義書の「## パラメータの出典表」を写す**（scout の下書きより優先する）。さらに**「## 再現の目標」の表も本文に写す**。
 
 ## 4. MLflow の記録の決まり
 
@@ -110,6 +116,49 @@
 - `device` が `cuda` で GPU が見えないときは、run を 1 つも作らずに終了コード 3 で止まる（CPU で黙って走らない）。
 - 成果物: 各 run にスクリプト本体（`code/`）。
 - スクリプトの置き場: `<workdir>/ID<branch の run_id>/train.py`。共通の部品（データの読み込みなど）は `<workdir>/common/` に置いて import してよい（branch ごとに同じファイルを写さない）。
+
+### 再現の確かめ（`sim_model` があるとき）
+
+仕様書の `sim_model` が `null` でなければ、**すべての試行（run）で**次の 2 つを **step 無しで 1 回だけ** MLflow に記録する。
+
+- `repro.<name>`（`name` はモデル定義書の `repro[].name` ごと）: `baseline` の設定で測った値。
+- `repro_pass`: `range` に入った目標の割合（0〜1）。
+
+**土台が論文どおりに動くかの確かめは、改良や組み合わせより先である。** 1 つも記録しない試行があれば、台帳の `target.repro_pass` が `null` になり、review は debug に戻す（`§6` の R1a）。
+
+- `baseline` の計算はスクリプトの中で 1 回だけ行い、すべての試行で同じ値を記録してよい（`~/research/west/experiments/O42-ID31/ID32/train.py` の `_reference` と同じ置き方）。
+- 神経のシミュレーションは学習が無いので `EPOCHS = 1` とする。`train_loss` が無いと台帳の `has_curves` が false になるが、判定の規則は `has_curves` を使わないので、そのままでよい。`[epoch …]` の行を出すために `log_epoch(1, …)` に指標の材料（特徴量）を渡してよい。
+
+定数（`REPRO` と `BASELINE_SWITCHES`）と、次の関数を、`train()` を書くところに足す。**`train()` の返り値に `**repro_check(params)` を混ぜれば**、雛形の `main` がそのままこの 2 つを `log_metric` する。
+
+```python
+# モデル定義書の「## 再現の目標」と「## パラメータの出典表」から写す
+REPRO = {
+    "so_peak_hz": (0.5, 1.5),  # src: #9.5.2
+}
+BASELINE_SWITCHES = {"use_im_nap": False, "col_coupling": 0.0}
+
+_BASE: dict = {}
+
+
+def repro_check(params: dict) -> dict:
+    """baseline の設定で 1 回だけ測り、モデル定義書の再現の目標と比べる。"""
+    if not _BASE:
+        measured = features(simulate({**params, **BASELINE_SWITCHES}))
+        hits = [lo <= measured[name] <= hi for name, (lo, hi) in REPRO.items()]
+        _BASE.update({f"repro.{name}": measured[name] for name in REPRO}, repro_pass=sum(hits) / len(hits))
+    return dict(_BASE)
+
+
+def train(params: dict, device: str, log_epoch) -> dict:
+    measured = features(simulate(params))
+    log_epoch(1, **{k: v for k, v in measured.items() if k.endswith("_loss")})
+    return {METRIC: measured["test_acc"], **repro_check(params)}
+```
+
+- `REPRO` は `{名前: (下限, 上限)}` の形で、**各行に `# src:` にモデル定義書の `repro[].src` を書く**（出典が無い値は使わない）。
+- `BASELINE_SWITCHES` はモデル定義書の `baseline.switches` をそのまま使う（改良・つなぎを外すための値）。
+- `features` と `simulate` は branch が書く関数（測定値を出すところ）。**tune と debug で親のスクリプトを写すときも `repro_check` を残す。**
 
 ### スクリプトの雛形
 
@@ -247,8 +296,10 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
  "branches": [{"branch": 125, "experiment": "west/ID120/cnn-static", "model": "cnn-static",
                "action": "tune", "parent_branch": 121, "depth": 2, "debug_depth": 0,
                "runs": 6, "failed": 0, "best": 0.871, "best_params": {"lr": "0.01"},
-               "improved": true, "has_curves": true, "param_edges": [{"param": "lr", "side": "max"}]}],
- "target": {"branch": 125, "runs": 6, "failed": 0, "best": 0.871, "improved": true},
+               "improved": true, "has_curves": true, "param_edges": [{"param": "lr", "side": "max"}],
+               "repro_pass": null}],
+ "target": {"branch": 125, "runs": 6, "failed": 0, "best": 0.871, "improved": true,
+            "repro_pass": null, "repro": null},
  "total_branches": 3, "ablation_done": false,
  "leak_suspects": [{"branch": 125, "run_name": "ID125-p05", "value": 0.9995}],
  "warnings": []}
@@ -258,8 +309,8 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 
 - `best`: direction に従った最良の run。成功した run が 0 件なら `null`。
 - `experiments[]`: experiment ごとのまとめ。`stale` は、その experiment の branch を古い順に見て、最後から数えて「それまでの最良を `min_delta` を超えて更新しなかった branch」が続いた本数。
-- `branches[]`: branch ごとのまとめ。`depth` は親をたどった深さ（親が無ければ 1）。`debug_depth` は自分から親へ `debug` が続く本数（自分を含む）。`improved` は同じ experiment の前の branch の最良を `min_delta` を超えてよくしたか。`param_edges` は最良の run の値が試した値の端だったパラメータ。
-- `target`: `--branch` を付けたときの、その branch の要約。
+- `branches[]`: branch ごとのまとめ。`depth` は親をたどった深さ（親が無ければ 1）。`debug_depth` は自分から親へ `debug` が続く本数（自分を含む）。`improved` は同じ experiment の前の branch の最良を `min_delta` を超えてよくしたか。`param_edges` は最良の run の値が試した値の端だったパラメータ。`repro_pass` は、その branch の成功した run が記録した `repro_pass` の最小値。記録が 1 つも無ければ `null`。
+- `target`: `--branch` を付けたときの、その branch の要約。`repro_pass` は `branches[]` と同じ。`repro` は、`repro_pass` が最小の run の `repro.<name>` の値（`{"so_peak_hz": 2.3}` の形。頭の `repro.` を外す）。記録が無ければ `null`。
 - `total_branches`: run のある branch の数。
 - `ablation_done`: `exp.action=ablation` の branch が 1 つでもあれば true。
 - `leak_suspects`: maximize なら `value >= leak_max`、minimize なら `value <= leak_min` の成功 run。
@@ -283,7 +334,7 @@ review が使う。台帳（§5）の欄だけが材料である。
  "stop_reason": "none"}
 ```
 
-- `decision` は `continue` か `stop`。`stop_reason` は `success` / `max_branches` / `not_allowed` / `cancelled` / `no_records` / `none`。
+- `decision` は `continue` か `stop`。`stop_reason` は `success` / `max_branches` / `not_allowed` / `cancelled` / `no_records` / `repro_failed` / `none`。
 - `next` は 0〜`max_children` 個（`continue` なら 1 個以上）。`grid` は tune のとき、`idea` は model と ablation のとき、`fix` は debug のときに入れる。起こした branch は RUN_GRAPH の線（判定書のトークン → branch）で分かるので、判定書には書かない。
 
 ### 規則
@@ -294,6 +345,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 |---|---|---|---|
 | R0 | ジョブの state が `cancelled` | stop（`cancelled`） | 無し |
 | R1 | `total_branches >= max_branches` | stop（`max_branches`） | 無し |
+| R1a | 仕様書の `sim_model` が `null` でなく、成功した run が 1 つ以上ある（`target.runs > target.failed`）のに、`target.repro_pass` が `null` か 1 未満 | `debug_depth < max_debug` なら continue。そうでなければ stop（`repro_failed`） | debug を 1 本（親はこの branch、同じ experiment）。`fix` に、外れた目標（台帳の `target.repro` の値とモデル定義書の範囲）か「repro_pass が記録されていない」と書く |
 | R2 | `best` が達し、`ablation_done == false`、`ablation` が使える | continue | ablation を 1 本（親は `best.branch`、新しい experiment） |
 | R3 | `best` が達した（R2 に当たらない） | stop（`success`） | 無し |
 | R4 | `target.runs == 0`（記録が 1 つも無い）で、親の branch も `runs == 0` | stop（`no_records`）。MLflow への接続を疑い、質問ツールで起動者に聞く | 無し |
@@ -321,6 +373,7 @@ model: cnn-static
 ## スクリプトに書く中身
 - 元のスクリプト: experiments/O6-ID120/ID125/train.py（tune と debug のとき。写して直す）
 - 土台のコード: <reference_code の path>（式と値はここと仕様書の出典表から写す）
+- モデル定義書: <sim_model のトークン>（式・値・再現の目標・baseline はここから写す。無ければこの行を書かない）
 - GRID: {"lr": [0.1, 0.3]}
 - 直す点 / 新しいモデルの案: …
 - 期待する効果: test_acc を 0.87 以上にする
