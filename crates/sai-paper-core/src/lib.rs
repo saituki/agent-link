@@ -18,6 +18,7 @@ pub mod embeddings;
 pub mod enrichment;
 pub mod evidence;
 pub mod figures;
+pub mod find_log;
 pub mod handoff;
 pub mod jobs;
 pub mod journal;

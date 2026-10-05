@@ -560,8 +560,9 @@ for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period 
 
 | コマンド | 呼び出し側 | 実装場所 |
 |---|---|---|
-| `phone library` / `phone tree` / `phone paper <id>` / `phone log <id>` / `phone providers` | `papers.py` | `crates/sai-paper-cli/src/phone.rs`（共通化は `crates/sai-paper-core/src/library_tree.rs`） |
+| `phone library` / `phone tree` / `phone paper <id>` / `phone log <id>` / `phone providers` / `phone find-log <id>` | `papers.py` | `crates/sai-paper-cli/src/phone.rs`（共通化は `crates/sai-paper-core/src/library_tree.rs`） |
 | `phone search <query> [--db …] [--year-from …] [--year-to …] [--limit …] -- <語>` | `papers.build_search_args()` | 同 `phone.rs` |
+| `phone find [--mode …] [--top-k …] [--scope …] [--paper <番号> …] [--node <ID> [--subtree]] [--each <m>] -- <語>`（Library の中を検索し、内部検索の履歴に残す。要約なし） | U02 が呼ぶ | 同 `phone.rs`（中の処理は `crates/sai-paper-core/src/find_log.rs`） |
 | `phone download <log/import/cite の指定>`（**数分かかる**） | `papers._download_job()`（背景・300 秒） | `crates/sai-paper-cli/src/phone_import.rs` |
 | `phone citations <paper_id>`（読み取りだけ） | `papers.py` | `crates/sai-paper-cli/src/phone_cite.rs`（照合は `sai-paper-core/src/citation/library.rs`） |
 | `phone citations-extract <paper_id>`（**数分かかる。標準エラーを 1 行ずつ読む**） | `papers._run_paper_command_lines()`（背景） | 同（抽出は core の `citation::ensure_extract`） |
@@ -600,6 +601,21 @@ sai-moon-paper set create <name> … [--node <ID>] [--purpose <文>] [--extract 
 - **`--papers` と `--node` を両方書いたら、両方の論文を合わせた SCOPE**を探す。`--each <m>` は SCOPE の論文ごとに上位 m 件を返す（論文番号の昇順、各論文の中はスコアの順）。SCOPE が無いと `--each` は使えない。
 - `--node` は研究方針の Node の ID（`Q12`・`O5` など）。`--subtree` は子孫の Node の論文も含める。範囲の記録の文字列は `node:Q12` / `subtree:Q12`。`--question` は無い。
 - `--node` があれば `rt_searches` に 1 行記録され、同じ範囲の 2 回目の `find` は「前回の検索」の行を出す。**`--json` の形は今のまま変えない。**
+
+#### 内部検索の履歴（U01。`phone find`・`phone find-log`・`find_groups`）
+
+外部検索の `search_sets` とは別の表（`find_logs` / `find_log_hits`）に残す。Node を付けない検索も含め、人も agent も**毎回**記録し、ヒットした断片を丸ごと保存する（履歴を開くだけで同じ結果が出る）。
+
+```text
+sai-moon-paper phone find [--mode word|vector|hybrid] [--top-k <N>] [--scope papers|notes|figures|all]
+  [--paper <番号> …] [--node <ID> [--subtree]] [--each <m>] -- <語>
+sai-moon-paper phone find-log <log_id>
+```
+
+- `phone find` は内部検索（`find`）して新しい履歴を作り、下の `phone find-log` と同じ形で返す（要約は付けない）。失敗は終了コード 1 と標準エラーの日本語の 1 行。`--subtree` だけ（`--node` 無し）はエラー。`--node` があれば `rt_searches` にも 1 行残す。
+- `phone find-log <id>` は C-2 の形を返す。存在しない id は `{"error":"検索履歴が見つかりません"}` と終了コード 1。
+- `phone tree` は `{"groups": […], "find_groups": […]}` を返す（`groups` は従来と同じ）。`find_groups` は新しい順で、1 つの履歴につき 1 組（`log_id`・`date`・`query`・`hit_count`・`paper_ids`（Library にある論文だけ。ヒット順・重複なし）・`actor`（`{"kind"}` のみ。1 組ずつ task.md を探すと遅いため block 名は入れない））。
+- `log.actor` は `{"kind": "human"}` か `{"kind": "agent", "run_id": 数値|null, "block": 文字列|null}`（`origin = 'mcp'` か `run_id` があれば agent）。`log.node` は `{"id": "Q12"}` か `null`。`log.mode`・`log.scope` は指定が無ければ空文字、`log.top_k` は無ければ `null`。`hits[]` の `authors` は文字列の配列（`Hit.authors` の JSON 配列の文字列を読み直す。読めなければ空配列）。
 
 ### 4.2 `apps/phone` が読んでいる JSON の項目
 

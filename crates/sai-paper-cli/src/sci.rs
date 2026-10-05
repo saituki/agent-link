@@ -908,6 +908,16 @@ pub(crate) fn check_find_scope(
     Ok(())
 }
 
+/// 検索結果から論文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
+///
+/// CLI の find・MCP の find・phone の find で共用（U01）。
+pub(crate) fn hit_paper_ids(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
+    let mut ids: Vec<i64> = hits.iter().filter_map(|hit| hit.paper_id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
 /// 検索セットに何のための検索かを書く Fields を作る（1 つも無ければ `None`）。
 pub(crate) fn set_fields(
     refs: &SearchRefs,
