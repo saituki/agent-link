@@ -365,8 +365,8 @@ function lfindBody(state) {
     : [];
   if (papers.length > 20) return { ok: false, body: null, error: "論文は 20 本までしか選べません" };
   const node = String(s.node || "").trim();
-  if (node !== "" && !/^Q[1-9][0-9]*$/.test(node)) {
-    return { ok: false, body: null, error: "Node の番号が正しくありません（Q12 の形）" };
+  if (node !== "" && !/^[QOFE][1-9][0-9]{0,8}$/.test(node)) {
+    return { ok: false, body: null, error: "Node の番号が正しくありません（Q12・O5 の形）" };
   }
   const body = { query, top_k: count };
   if (mode) body.mode = mode;
@@ -2069,7 +2069,8 @@ async function runDiscoverSearch() {
   window.SaiShell.ok();
   // 新しい検索が階層に増えるので読み直し、広い画面は右の欄に結果を出す（狭い画面は結果の画面へ）
   libGroups = null;
-  const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);  if (side) void showLogInSide(side, name, data.log.id);
+  const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
+  if (side) void showLogInSide(side, name, data.log.id);
   else location.hash = logHash(name, data.log.id, null);
   await loadLibrary();
 }
