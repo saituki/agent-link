@@ -13,7 +13,7 @@
   width: 100%;
 }
 
-/* --- 道具の行（候補の出し入れ・＋・－・⤢） --- */
+/* --- 道具の行（F と O の出し入れ・拡大・縮小・全体を表示） --- */
 
 .sci-graph-tools {
   flex-wrap: wrap;
@@ -23,6 +23,19 @@
 .sci-graph-btn {
   min-width: 32px;
   font-size: 13px;
+}
+
+/* 出しているときだけ色を付ける（隠しているときは普通の釦） */
+.sci-graph-btn.on.sg-btn-F {
+  background: color-mix(in srgb, var(--sci-tentative) 25%, var(--bg));
+  border-color: var(--sci-tentative);
+  color: var(--text);
+}
+
+.sci-graph-btn.on.sg-btn-O {
+  background: color-mix(in srgb, var(--sci-decided) 25%, var(--bg));
+  border-color: var(--sci-decided);
+  color: var(--text);
 }
 
 /* --- 図そのもの（見える範囲を出す所。中は transform で動かす） --- */
@@ -217,4 +230,9 @@
 .sci-graph-card.is-selected {
   outline: 3px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* 畳んだ札（子孫を隠している。sub に `▸ +N` が出る） */
+.sci-graph-collapsed {
+  border-bottom: 3px double var(--sg-color, var(--line-strong));
 }

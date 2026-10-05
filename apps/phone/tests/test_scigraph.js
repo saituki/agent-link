@@ -14,6 +14,7 @@ const {
   sgEdgeStyle,
   sgEdgePath,
   sgObjBar,
+  sgCenterView,
   SG_CARD_W,
   SG_CARD_H,
 } = require(path.join(__dirname, "..", "src", "sai_phone", "static", "scigraph.js"));
@@ -129,6 +130,71 @@ function testEdgePath() {
   assert.ok(/^M 200 72 /.test(d) || /^M 100 72 /.test(d), d);
 }
 
+// --- F ・ O の出し入れと叠み（U02）: Q1 → O2 → F3・F4、Q1 → O5 ---
+
+function miniStatus() {
+  return {
+    nodes: [
+      node("Q1", "Q", null, 0),
+      node("O2", "O", "Q1", 1, { answer_kind: "answer" }),
+      node("F3", "F", "O2", 2),
+      node("F4", "F", "O2", 2),
+      node("O5", "O", "Q1", 1, { answer_kind: "issue" }),
+    ],
+    seeds: [],
+  };
+}
+
+const idsOf = (l) => l.cards.map((c) => c.id);
+const treeEdges = (l) => l.edges.filter((e) => e.kind === "tree").map((e) => `${e.from}→${e.to}`);
+
+function testCollapsed() {
+  const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["O2"] });
+  assert.deepStrictEqual(idsOf(l).sort(), ["O2", "O5", "Q1"]);
+  assert.strictEqual(byId(l, "F3"), undefined);
+  assert.strictEqual(byId(l, "F4"), undefined);
+  assert.strictEqual(byId(l, "O2").collapsed, true);
+  assert.ok(byId(l, "O2").sub.endsWith("▸ +2"), byId(l, "O2").sub);
+  assert.strictEqual(byId(l, "O5").collapsed, false);
+  assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→O2", "Q1→O5"]);
+}
+
+function testHideO() {
+  const l = sgTreeLayout({ status: miniStatus() }, { hideO: true });
+  assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "Q1"]);
+  // O を隠すとその下は O の父の Q につなぎる
+  assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→F3", "Q1→F4"]);
+}
+
+function testHideFAndO() {
+  const l = sgTreeLayout({ status: miniStatus() }, { hideF: true, hideO: true });
+  assert.deepStrictEqual(idsOf(l), ["Q1"]);
+  assert.ok(byId(l, "Q1").sub.includes("F 2"), byId(l, "Q1").sub);
+  assert.deepStrictEqual(l.edges, []);
+}
+
+function testCollapsedWithoutChildren() {
+  // 子孫の無い札を叠みに入れても印はつかない
+  const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["O5"] });
+  assert.strictEqual(byId(l, "O5").collapsed, false);
+  assert.strictEqual(byId(l, "O5").canCollapse, false);
+  assert.ok(!byId(l, "O5").sub.includes("▸"), byId(l, "O5").sub);
+  assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "O2", "O5", "Q1"]);
+
+  // 子孫のある Q1 を叠むと、他は子孫と印だけ
+  const l2 = sgTreeLayout({ status: miniStatus() }, { collapsed: ["Q1"] });
+  assert.deepStrictEqual(idsOf(l2), ["Q1"]);
+  assert.strictEqual(byId(l2, "Q1").collapsed, true);
+  assert.ok(byId(l2, "Q1").sub.includes("▸ +4"), byId(l2, "Q1").sub);
+}
+
+function testCenterView() {
+  const v = sgCenterView({ x: 100, y: 50, width: 200, height: 72 }, 800, 600, 2);
+  assert.deepStrictEqual(v, { tx: 400 - 200 * 2, ty: 300 - 86 * 2, z: 2 });
+  assert.strictEqual(v.tx, 0);
+  assert.strictEqual(v.ty, 128);
+}
+
 const tests = [
   ["子は親より下", testChildBelowParent],
   ["札が重ならない", testNoOverlap],
@@ -139,6 +205,11 @@ const tests = [
   ["空の入力", testEmpty],
   ["線の種類", testEdgeStyle],
   ["線の形", testEdgePath],
+  ["叠んだ子孫", testCollapsed],
+  ["hideO", testHideO],
+  ["hideF と hideO", testHideFAndO],
+  ["子孫の無い札の叠み", testCollapsedWithoutChildren],
+  ["中央に出す tx と ty", testCenterView],
 ];
 
 let failed = 0;
