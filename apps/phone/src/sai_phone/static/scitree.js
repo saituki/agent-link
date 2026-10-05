@@ -402,6 +402,56 @@ async function stOpen(params) {
   await stReload();
 }
 
+// --- 境界線のドラッグ（広い画面だけ。幅は localStorage の sai-sci-split に覚える） ---
+
+/** 一覧と板の幅を #sci-body の CSS 変数に入れる。 */
+function stApplySplit() {
+  const body = document.getElementById("sci-body");
+  if (!body) return;
+  body.style.setProperty("--sci-list-w", `${stSplit.list}px`);
+  body.style.setProperty("--sci-board-w", `${stSplit.board}px`);
+}
+
+/** 境界線 2 本にドラッグの仕掛けを 1 回だけ付け、覚えた幅を戻す。 */
+function stInitSplit() {
+  if (stSplitInit) return;
+  stSplitInit = true;
+  try {
+    const v = JSON.parse(localStorage.getItem("sai-sci-split") || "null");
+    if (v && Number(v.list) > 0) stSplit.list = Number(v.list);
+    if (v && Number(v.board) > 0) stSplit.board = Number(v.board);
+  } catch { /* 読めなければ既定の幅 */ }
+  stApplySplit();
+  const body = document.getElementById("sci-body");
+  if (!body) return;
+  for (const bar of body.querySelectorAll(".sci-split-handle")) {
+    const which = bar.dataset.split === "board" ? "board" : "list";
+    const other = which === "list" ? "board" : "list";
+    bar.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { bar.setPointerCapture(e.pointerId); } catch { /* 捕まえなくてもよい */ }
+      bar.classList.add("dragging");
+    });
+    bar.addEventListener("pointermove", (e) => {
+      if (!bar.classList.contains("dragging")) return;
+      const r = body.getBoundingClientRect();
+      const px = which === "list" ? e.clientX - r.left : r.right - e.clientX;
+      // 板を出していないときは、板の幅を図の残りに数えない
+      const otherW = other === "board" && !body.classList.contains("has-board") ? 0 : stSplit[other];
+      stSplit[which] = stClampSplit(which, px, r.width, otherW);
+      stApplySplit();
+    });
+    const end = (e) => {
+      if (!bar.classList.contains("dragging")) return;
+      bar.classList.remove("dragging");
+      try { bar.releasePointerCapture(e.pointerId); } catch { /* 解放できなくてもよい */ }
+      try { localStorage.setItem("sai-sci-split", JSON.stringify(stSplit)); } catch { /* 保存できなくてもよい */ }
+    };
+    bar.addEventListener("pointerup", end);
+    bar.addEventListener("pointercancel", end);
+  }
+}
+
 function stSyncListOpen() {
   const body = document.getElementById("sci-body");
   if (body) body.classList.toggle("sci-list-open", stListOpen);
@@ -988,7 +1038,7 @@ function stBuildBoard(d) {
   if (nl.length) next.appendChild(stNextRows(nl));
   else next.appendChild(stEl("p", "sci-note", "なし"));
   box.appendChild(next);
-  box.appendChild(stBoardActions(d.actions));
+  box.appendChild(stBoardActions(d));
   box.appendChild(stBoardPending(d.pending));
   box.appendChild(stBoardSearches(d.searches));
   const dec = stSec("決定の記録");
