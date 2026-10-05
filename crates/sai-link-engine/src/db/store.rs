@@ -1460,6 +1460,28 @@ impl SaiStore {
         Ok(executions)
     }
 
+    /// 画面（Workflow・サイドバー・Kanban）用の実行履歴を取得する（`created_at DESC`）。
+    ///
+    /// 直近 `limit` 件に加え、Workflow へ移した run（`workflow_moved = 1`）は
+    /// 古くても全件含める。直近だけだと古い完了済み run が画面から消える。
+    pub fn list_view_executions(&self, limit: i64) -> Result<Vec<ExecutionHistory>, DbError> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM execution_history \
+             WHERE workflow_moved = 1 OR id IN \
+             (SELECT id FROM execution_history ORDER BY created_at DESC, id DESC LIMIT ?1) \
+             ORDER BY created_at DESC, id DESC",
+            EXECUTION_SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], |row| execution_from_row(row))?;
+        let mut executions = Vec::new();
+        for row in rows {
+            executions.push(row?);
+        }
+        Ok(executions)
+    }
+
     // -----------------------------------------------------------------------
     // GitCommit CRUD
     // -----------------------------------------------------------------------
@@ -3363,6 +3385,21 @@ mod tests {
 
         let recent = store.list_recent_executions(2).unwrap();
         assert_eq!(recent.len(), 2);
+    }
+
+    #[test]
+    fn test_list_view_executions_keeps_workflow_moved() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("view-exec")).unwrap();
+        let old = store.create_execution(block_id, None).unwrap();
+        store.update_execution_workflow_moved(old, true).unwrap();
+        for _ in 0..3 {
+            store.create_execution(block_id, None).unwrap();
+        }
+        // 直近 2 件の窓から外れても、moved の古い run は残る
+        let v = store.list_view_executions(2).unwrap();
+        assert_eq!(v.len(), 3);
+        assert!(v.iter().any(|e| e.id == Some(old)));
     }
 
     #[test]

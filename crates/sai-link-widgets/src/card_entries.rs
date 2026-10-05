@@ -477,7 +477,7 @@ pub fn collect_card_entries_from(
 /// 実行履歴の取得 → run フォルダの status 同期 → mb 複製集合 → todo カード走査 →
 /// カード一覧の組み立てまでを 1 度に行う。
 pub struct ViewPrep {
-    /// 直近 100 件の実行履歴（フォルダ同期済み）
+    /// 直近 100 件と Workflow 移動済み全件の実行履歴（フォルダ同期済み）
     pub executions: Vec<ExecutionHistory>,
     /// メインブロック複製（mb1.x）の実行 ID 集合
     pub mb_replica_execs: HashSet<i64>,
@@ -492,7 +492,7 @@ pub struct ViewPrep {
 
 /// ビュー組み立ての事前準備を行う（TUI `load_data` と同じ手順の部品）。
 pub fn prepare_view(store: &SaiStore) -> ViewPrep {
-    let mut executions = match store.list_recent_executions(100) {
+    let mut executions = match store.list_view_executions(100) {
         Ok(v) => v,
         Err(_) => Vec::new(),
     };
