@@ -792,10 +792,12 @@ Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）�
 | 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls","target"}` \| null | Q の説明と目安 | 説明が出ない |
 | 直下 | `logic[]` | `{"value","note","findings","f_count","run","created_at"}` | Logicality の確かめの履歴 | ― |
 | 直下 | `decisions[]` | status の `decisions[]` と同じ | この Node の決定の記録 | 履歴が出ない |
-| 直下 | `actions[]` | `{"run_id","block","owner","purpose","occurred_at","debt","debt_messages"}` | この Node のための実行の行 | ― |
+| 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at","debt","debt_messages"}` | この Node のための実行の行。`node` はその run の対象の Node（子孫の run も入る）。Web の側で `node` で絞る | ― |
+| 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run。`by` は `user` か `run:<N>`。`by` が `user` のときは `run_id` が null で `block`・`owner`・`purpose` は空、`global_round`・`node` は null | ― |
 | 直下 | `pending[]` | `{"id","op","payload","reason","run","created_at"}` | 仕分け待ちの提案の行 | ― |
 | 直下 | `next[]` | NextAction の配列 | この Node の次の一手 | ― |
-| 直下 | `searches[]` | `{"id","run","tool","query","hits","set_id","created_at"}` | この Node に結んだ検索の履歴 | ― |
+| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","created_at"}` | この Node に結んだ検索の履歴。`block` はその run の block（見つからなければ null） | ― |
+| 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典。Library に無ければ `title` は空、節・塊の表が無ければ `section`・`passage` は null。`passage` は先頭 200 字 | ― |
 
 **`phone sci read <run_id>` → 読む札**（`sci read <run_id> --json` と同じ。runner が `user` のカード）
 

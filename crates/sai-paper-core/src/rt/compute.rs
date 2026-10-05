@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -227,6 +227,10 @@ pub struct ActionJson {
     pub run_id: i64,
     pub block: String,
     pub owner: String,
+    /// この run の対象の Node（`O12` など）。
+    pub node: Option<String>,
+    /// task.md の global_round（無ければ null）。
+    pub global_round: Option<i64>,
     pub purpose: String,
     pub occurred_at: String,
     pub debt: bool,
@@ -249,11 +253,48 @@ pub struct PendingJson {
 pub struct SearchJson {
     pub id: i64,
     pub run: Option<i64>,
+    /// その run の block（sci の run に見つからなければ null）。
+    pub block: Option<String>,
     pub tool: String,
     pub query: String,
     pub hits: i64,
     pub set_id: Option<i64>,
     pub created_at: String,
+}
+
+/// `node_detail.creator`。この Node を作った人と run。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CreatorJson {
+    /// created_by のまま（`user` / `run:<N>`）。
+    pub by: String,
+    /// created_by が `run:<N>` なら N。
+    pub run_id: Option<i64>,
+    /// その run の block（sci の run に見つからなければ空）。
+    pub block: String,
+    /// その run のフォルダの親の名前（見つからなければ空）。
+    pub owner: String,
+    /// その run の global_round（見つからなければ null）。
+    pub global_round: Option<i64>,
+    /// その run の対象の Node（F を作った run なら親の O など）。
+    pub node: Option<String>,
+    pub purpose: String,
+    /// Node の created_at。
+    pub at: String,
+}
+
+/// `node_detail.sources` の 1 要素。Node の cites 1 つ分。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SourceJson {
+    /// cites の文字のまま（`#54.11.3`）。
+    pub cite: String,
+    /// 論文の番号（読めなければ null）。
+    pub paper: Option<i64>,
+    /// 論文の題（Library に無ければ空）。
+    pub title: String,
+    /// 節の見出し（節の番号が無い・節の表が無ければ null）。
+    pub section: Option<String>,
+    /// 塊の本文の先頭 200 字（塊の番号が無い・見つからなければ null）。
+    pub passage: Option<String>,
 }
 
 /// `node` の JSON。
@@ -267,9 +308,11 @@ pub struct NodeDetail {
     pub logic: Vec<LogicJson>,
     pub decisions: Vec<Decision>,
     pub actions: Vec<ActionJson>,
+    pub creator: CreatorJson,
     pub pending: Vec<PendingJson>,
     pub next: Vec<NextAction>,
     pub searches: Vec<SearchJson>,
+    pub sources: Vec<SourceJson>,
 }
 
 // ---- 木 -------------------------------------------------------------------------------
@@ -957,6 +1000,64 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
     Ok(out)
 }
 
+/// この Node を作った人と run を並べる。
+fn creator_json(node: &NodeRow, runs: &[action::SciRun]) -> CreatorJson {
+    let by = node.created_by.clone();
+    let run_id = by.strip_prefix("run:").and_then(|s| s.trim().parse::<i64>().ok());
+    let run = run_id.and_then(|id| runs.iter().find(|r| r.run_id == id));
+    CreatorJson {
+        by,
+        run_id,
+        block: run.map(|r| r.block.clone()).unwrap_or_default(),
+        owner: run.map(|r| r.owner.clone()).unwrap_or_default(),
+        global_round: run.and_then(|r| r.global_round),
+        node: run.and_then(|r| r.keys.node.map(|(k, n)| fmt_id(k, n))),
+        purpose: run.map(|r| r.keys.purpose.clone()).unwrap_or_default(),
+        at: node.created_at.clone(),
+    }
+}
+
+/// cites 1 つから論文・節・塊を引く。表が無い・無ければ空や null にする。
+fn source_json(conn: &Connection, cite: &str) -> SourceJson {
+    let parsed = crate::textcheck::parse_cite(cite);
+    let paper = parsed.as_ref().map(|c| c.paper);
+    let sec = parsed.as_ref().and_then(|c| c.section);
+    let title = paper
+        .and_then(|id| {
+            conn.query_row("SELECT title FROM papers WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
+                .optional()
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_default();
+    let section = match (paper, sec) {
+        (Some(id), Some(sec)) => conn
+            .query_row(
+                "SELECT heading FROM paper_sections WHERE paper_id = ?1 AND sec_no = ?2",
+                params![id, sec],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten(),
+        _ => None,
+    };
+    let passage = match (paper, sec, parsed.as_ref().and_then(|c| c.passage)) {
+        (Some(id), Some(sec), Some(pas)) => conn
+            .query_row(
+                "SELECT text FROM paper_passages WHERE paper_id = ?1 AND sec_no = ?2 AND pas_no = ?3",
+                params![id, sec, pas],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .map(|t| t.chars().take(200).collect()),
+        _ => None,
+    };
+    SourceJson { cite: cite.to_string(), paper, title, section, passage }
+}
+
 /// `node` の JSON。
 pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str) -> Result<NodeDetail> {
     let (kind, num) = parse_id(id)?;
@@ -985,23 +1086,27 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
     let family_set: HashSet<i64> = family.iter().copied().collect();
 
     let debts = action::debts(conn, roots)?;
-    let actions = action::sci_runs(roots)
-        .into_iter()
+    let runs = action::sci_runs(roots);
+    let actions: Vec<ActionJson> = runs
+        .iter()
         .filter(|r| r.keys.node.is_some_and(|(_, n)| family_set.contains(&n)))
         .map(|r| {
             let messages: Vec<String> =
                 debts.iter().filter(|d| d.run_id == r.run_id).map(|d| d.message.clone()).collect();
             ActionJson {
                 run_id: r.run_id,
-                block: r.block,
-                owner: r.owner,
-                purpose: r.keys.purpose,
-                occurred_at: r.occurred_at,
+                block: r.block.clone(),
+                owner: r.owner.clone(),
+                node: r.keys.node.map(|(k, n)| fmt_id(k, n)),
+                global_round: r.global_round,
+                purpose: r.keys.purpose.clone(),
+                occurred_at: r.occurred_at.clone(),
                 debt: !messages.is_empty(),
                 debt_messages: messages,
             }
         })
         .collect();
+    let creator = creator_json(node, &runs);
 
     let is_q = node.kind == Kind::Q;
     Ok(NodeDetail {
@@ -1034,6 +1139,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
             .collect(),
         decisions: tree.log.iter().filter(|r| family_set.contains(&r.node_id)).take(30).map(|r| tree.decision(r)).collect(),
         actions,
+        creator,
         pending: tree
             .pending
             .iter()
@@ -1050,8 +1156,12 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
         next: next_actions(&tree, &debts, usize::MAX).into_iter().filter(|a| a.targets.contains(&num)).take(3).collect(),
         searches: store::list_searches(conn, Some(num))?
             .into_iter()
-            .map(|s| SearchJson { id: s.id, run: s.run_id, tool: s.tool, query: s.query, hits: s.hits, set_id: s.set_id, created_at: s.created_at })
+            .map(|s| {
+                let block = s.run_id.and_then(|id| runs.iter().find(|r| r.run_id == id)).map(|r| r.block.clone());
+                SearchJson { id: s.id, run: s.run_id, block, tool: s.tool, query: s.query, hits: s.hits, set_id: s.set_id, created_at: s.created_at }
+            })
             .collect(),
+        sources: node.cites.iter().map(|c| source_json(conn, c)).collect(),
     })
 }
 
@@ -1341,12 +1451,69 @@ mod tests {
         let dv = serde_json::to_value(&d).unwrap();
         assert_eq!(
             keys(&dv),
-            want(&["node", "path", "children", "subtree", "guide", "logic", "decisions", "actions", "pending", "next", "searches"])
+            want(&["node", "path", "children", "subtree", "guide", "logic", "decisions", "actions", "creator", "pending", "next", "searches", "sources"])
         );
         assert!(d.next.len() <= 3);
         assert!(matches!(
             node_detail(e.db.connection(), &e.roots, &Defs::default(), "Q999"),
             Err(RtError::NotFound(m)) if m == "Q999 はありません"
         ));
+    }
+
+    #[test]
+    fn node_detail_creator_sources_and_action_node() {
+        let e = env("detail2");
+        let conn = e.db.connection();
+        conn.execute("INSERT INTO papers (id, title) VALUES (?1, ?2)", params![54i64, "GABA 系の study"]).unwrap();
+        let q0 = q(&e, None, "Q", None);
+        let o1 = o(&e, q0, "O");
+        // cites を持つ F。run:7 が作ったことにする。
+        let n = store::NewNode {
+            kind: Kind::F, parent_id: Some(o1), guide_key: None, text: "根拠", body: "", answer_kind: None,
+            cites: &["#54.11.3".to_string()], paper_id: None, run_id: Some(7), report_id: None, mlflow_ref: None, proposal_id: None,
+            created_by: "run:7",
+        };
+        let f1 = store::insert_node(conn, &n).unwrap();
+        // 対象が O の sci の run。global_round は 2。
+        let dir = e.dir.join(".sai/outputs/R2/7");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("task.md"),
+            &format!(
+                "---\nrunner: pi\nblock: sci-read\nglobal_round: 2\nexecution_date: 2026/10/02 09:16:54\nsci_node: {}\nsci_purpose: 読む\n---\n本文\n",
+                fmt_id(Kind::O, o1)
+            ),
+        )
+        .unwrap();
+
+        // F の詳細：作成者が run:7。block・owner が入る。出典は論文の題だけ分かる（節の表が無いので null）。
+        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
+        assert_eq!(d.creator.by, "run:7");
+        assert_eq!(d.creator.run_id, Some(7));
+        assert_eq!(d.creator.block, "sci-read");
+        assert_eq!(d.creator.owner, "R2");
+        assert_eq!(d.creator.global_round, Some(2));
+        assert_eq!(d.creator.node.as_deref(), Some(fmt_id(Kind::O, o1).as_str()));
+        assert_eq!(d.creator.purpose, "読む");
+        assert_eq!(d.sources.len(), 1);
+        assert_eq!(d.sources[0].cite, "#54.11.3");
+        assert_eq!(d.sources[0].paper, Some(54));
+        assert_eq!(d.sources[0].title, "GABA 系の study");
+        assert_eq!(d.sources[0].section, None);
+        assert_eq!(d.sources[0].passage, None);
+        // run の対象は親の O1 なので、F の actions には入らない。
+        assert!(d.actions.is_empty());
+
+        // O1 の詳細：作ったのは user。actions の行に対象の Node と global_round が入る。
+        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::O, o1)).unwrap();
+        assert_eq!(d.creator.by, "user");
+        assert_eq!(d.creator.run_id, None);
+        assert_eq!(d.creator.block, "");
+        assert_eq!(d.creator.global_round, None);
+        assert_eq!(d.actions.len(), 1);
+        assert_eq!(d.actions[0].node, Some(fmt_id(Kind::O, o1)));
+        assert_eq!(d.actions[0].global_round, Some(2));
+        // cites が無いので出典は空。
+        assert!(d.sources.is_empty());
     }
 }
