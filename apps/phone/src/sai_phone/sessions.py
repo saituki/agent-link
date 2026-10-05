@@ -54,8 +54,86 @@ def _herdr_status_to_api(status: str | None) -> str:
 # --- 会話の変換 ---
 
 
+def _mcp_short_name(name: str) -> str | None:
+    """mcp__<サーバ>__<ツール> から <ツール> だけを取り出す（MCP の名前でなければ None）．"""
+    parts = (name or "").split("__", 2)
+    if len(parts) == 3 and parts[0] == "mcp" and parts[1] and parts[2]:
+        return parts[2]
+    return None
+
+
+def _readable(value: object, indent: int = 0) -> str:
+    """辞書・配列を「キー: 値」の行にする（字下げでネストを表す）．JSON の括弧と引用符は出さない．"""
+    pad = "  " * indent
+    if isinstance(value, dict):
+        if not value:
+            return f"{pad}(なし)"
+        lines: list[str] = []
+        for key, val in value.items():
+            if _is_block(val):
+                lines.append(f"{pad}{key}:")
+                lines.append(_readable(val, indent + 1))
+            else:
+                lines.append(f"{pad}{key}: {_scalar(val)}")
+        return "\n".join(lines)
+    if isinstance(value, list):
+        if not value:
+            return f"{pad}(なし)"
+        lines = []
+        for val in value:
+            if _is_block(val):
+                lines.append(f"{pad}-")
+                lines.append(_readable(val, indent + 1))
+            else:
+                lines.append(f"{pad}- {_scalar(val)}")
+        return "\n".join(lines)
+    if isinstance(value, str):
+        return "\n".join(f"{pad}{line}" for line in value.split("\n"))
+    return f"{pad}{_scalar(value)}"
+
+
+def _is_block(val: object) -> bool:
+    """値を次の行から字下げして書くべきか（辞書・配列・改行を含む文字列）．"""
+    return isinstance(val, (dict, list)) or (isinstance(val, str) and "\n" in val)
+
+
+def _scalar(val: object) -> str:
+    """1 行に収まる値の文字．文字列は引用符なし，数・真偽・null は JSON の書き方．"""
+    return val if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
+
+
+def _mcp_result_text(text: str) -> str:
+    """戻り値の本文が JSON（辞書か配列）なら _readable に通し，そうでなければそのまま返す．"""
+    if text.strip()[:1] in ("{", "["):
+        try:
+            return _readable(json.loads(text))
+        except ValueError:
+            pass
+    return text
+
+
+def _mcp_use_detail(name: str, args: dict) -> str:
+    """tool_use の detail．MCP は引数を読みやすい文に，他は今までの JSON．"""
+    if not args:
+        return ""
+    if _mcp_short_name(name) is None:
+        return json.dumps(args, ensure_ascii=False)
+    return "引数\n" + _readable(args)
+
+
+def _join_result(target: dict, plain: str) -> None:
+    """tool_result の本文 plain を tool 項目 target の detail へ足す（cc と pi で共通）．"""
+    if _mcp_short_name(target.get("tool") or "") is not None:
+        plain = "戻り値\n" + _mcp_result_text(plain)
+    prev = target.get("detail") or ""
+    target["detail"] = f"{prev}\n---\n{plain}" if prev else plain
+
+
 def _tool_label(name: str, args: dict) -> str:
     """ツール名と引数から，日本語の見出し1行を作る．凝った仕組みは作らない．"""
+    short = _mcp_short_name(name)
+    if short is not None:
+        return short
     lower = (name or "").lower()
 
     def basename(p: object) -> str:
@@ -518,7 +596,7 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
                 "time": timestamp,
                 "label": _tool_label(name, args),
                 "tool": name,
-                "detail": json.dumps(args, ensure_ascii=False) if args else "",
+                "detail": _mcp_use_detail(name, args),
                 "ok": True,
             }
             items.append(item)
@@ -536,8 +614,7 @@ def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) 
                 plain, events = analyze_special(result_text)
                 _extend_events(events, tool_id or uid, timestamp, items)
                 if plain:
-                    prev = target.get("detail") or ""
-                    target["detail"] = f"{prev}\n---\n{plain}" if prev else plain
+                    _join_result(target, plain)
             if _is_tool_error_cc(block):
                 target["ok"] = False
         # それ以外のブロックは表示しない
@@ -581,7 +658,7 @@ def _convert_pi_row(row: dict, items: list[dict], pending: dict[str, dict]) -> N
                     "time": timestamp,
                     "label": _tool_label(name, args),
                     "tool": name,
-                    "detail": json.dumps(args, ensure_ascii=False) if args else "",
+                    "detail": _mcp_use_detail(name, args),
                     "ok": True,
                 }
                 items.append(item)
@@ -600,8 +677,7 @@ def _convert_pi_row(row: dict, items: list[dict], pending: dict[str, dict]) -> N
             plain, events = analyze_special(result_text)
             _extend_events(events, tool_id or uid, timestamp, items)
             if plain:
-                prev = target.get("detail") or ""
-                target["detail"] = f"{prev}\n---\n{plain}" if prev else plain
+                _join_result(target, plain)
         details = msg.get("details") if isinstance(msg.get("details"), dict) else {}
         if msg.get("isError") is True or details.get("isError") is True:
             target["ok"] = False

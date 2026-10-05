@@ -766,63 +766,91 @@ function renderQuestions() {
   }
 }
 
-// 回答済みの行に並べる文字（問ごとに 1 行。例: 「色：青」「技：探索, 集中」）
-function answerRows(questions, answers) {
-  const rows = [];
-  (questions || []).forEach((one, i) => {
-    const a = (answers || [])[i] || {};
-    const opts = one.options || [];
-    let label = a.text || "";
-    if (!label && Array.isArray(a.choice_indices) && a.choice_indices.length) {
-      label = a.choice_indices.map((n) => (opts[n] ? opts[n].label : "")).filter(Boolean).join(", ");
-    }
-    if (!label && a.choice_index != null && opts[a.choice_index]) {
-      label = opts[a.choice_index].label || "";
-    }
-    if (!label) return;
-    rows.push({ head: one.header || one.question || `質問${i + 1}`, label });
-  });
-  return rows;
-}
-
-// 解決済み（PC で先に答えた／回答済み）のカードを1行にする
-// rows があるときは「回答済み」の題の下に 問ごとの行（見出し：答え）を縦に並べる
-function settledCard(card, className, line, rows) {
+// 解決済み（PC で先に答えた）のカードを1行の帯にする
+function settledCard(card, className, line) {
   const el = document.createElement("div");
   el.className = `question-card settled ${className}`;
   el.dataset.qid = card.id || "";
   // 回答済みの印と，質問された時刻（UNIX 秒）．カードを置く位置はこの時刻で決める（CP3）
   el.dataset.settled = "1";
   el.dataset.createdAt = card.created_at != null ? String(card.created_at) : "";
-  if (!rows || !rows.length) {
-    el.textContent = line;
-    return el;
+  el.textContent = line;
+  return el;
+}
+
+// 回答済みカードの外枠．settled の印と時刻は帯と同じ 3 つを付ける（置く位置はこれで決まる）
+function doneFrame(card, extraClass) {
+  const el = document.createElement("div");
+  el.className = `question-card q-done${extraClass ? ` ${extraClass}` : ""}`;
+  el.dataset.qid = card.id || "";
+  el.dataset.settled = "1";
+  el.dataset.createdAt = card.created_at != null ? String(card.created_at) : "";
+  return el;
+}
+
+// 押せない選択肢（button ではなく div）．selected なら選んだ印の色になる
+function doneOption(labelText, descText, selected, multi) {
+  const opt = document.createElement("div");
+  opt.className = "q-option static" + (multi ? " multi" : "") + (selected ? " selected" : "");
+  const label = document.createElement("div");
+  label.className = "q-label";
+  label.textContent = labelText;
+  opt.appendChild(label);
+  if (descText) {
+    const desc = document.createElement("div");
+    desc.className = "q-desc";
+    desc.textContent = descText;
+    opt.appendChild(desc);
   }
+  return opt;
+}
+
+// 回答済みの 1 問で，どの選択肢が選ばれたか。戻り値は { picked: 選んだ index の配列, text: 自由入力の文字 }
+function answeredPicks(answer) {
+  const a = answer || {};
+  if (typeof a.text === "string" && a.text.trim()) return { picked: [], text: a.text.trim() };
+  if (Array.isArray(a.choice_indices)) return { picked: a.choice_indices.slice(), text: "" };
+  if (a.choice_index != null) return { picked: [a.choice_index], text: "" };
+  return { picked: [], text: "" };
+}
+
+// 回答済みの質問カード．質問時と同じ選択肢をすべて残し，選んだものを強調する
+function answeredCard(q) {
+  const el = doneFrame(q, "");
+  const answers = (q.answer && q.answer.answers) || [];
+  const qs = q.questions || [];
+  const picks = qs.map((_, i) => answeredPicks(answers[i]));
+  const any = picks.some((p) => p.picked.length || p.text);
   const title = document.createElement("div");
   title.className = "q-settled-title";
-  title.textContent = line;
+  title.textContent = any ? "回答済み" : "回答済み（内容なし）";
   el.appendChild(title);
-  for (const r of rows) {
-    const row = document.createElement("div");
-    row.className = "q-settled-row";
-    const head = document.createElement("span");
-    head.className = "q-settled-head";
-    head.textContent = r.head;
-    const ans = document.createElement("span");
-    ans.className = "q-settled-ans";
-    ans.textContent = r.label;
-    row.append(head, ans);
-    el.appendChild(row);
-  }
+  qs.forEach((one, qi) => {
+    const block = document.createElement("div");
+    block.className = "q-block";
+    const head = document.createElement("div");
+    head.className = "q-header";
+    head.textContent = one.header || `質問${qi + 1}`;
+    const body = document.createElement("div");
+    body.className = "q-body";
+    body.textContent = one.question || "";
+    block.append(head, body);
+    const multi = one.multiSelect === true;
+    (one.options || []).forEach((opt, oi) => {
+      const on = picks[qi].picked.includes(oi);
+      const mark = multi ? (on ? "☑ " : "☐ ") : (on ? "✓ " : "");
+      const desc = opt.description && opt.description !== opt.label ? opt.description : "";
+      block.appendChild(doneOption(`${mark}${opt.label || ""}`, desc, on, multi));
+    });
+    if (picks[qi].text) block.appendChild(doneOption(`✎ その他: ${picks[qi].text}`, "", true, false));
+    el.appendChild(block);
+  });
   return el;
 }
 
 function questionCard(q) {
-  // 回答済み・PC で回答済みは1行だけ表示（05 §1 の2番）
-  if (q.state === "answered") {
-    const rows = answerRows(q.questions, (q.answer && q.answer.answers) || []);
-    return settledCard(q, "q-answered", rows.length ? "回答済み" : "回答済み（内容なし）", rows);
-  }
+  // 回答済みは選択肢を残して選んだものを強調，PC で回答済みは1行だけ表示（05 §1 の2番）
+  if (q.state === "answered") return answeredCard(q);
   if (q.state === "resolved_elsewhere") {
     return settledCard(q, "q-elsewhere", "PC で回答済み");
   }
@@ -960,16 +988,57 @@ function questionCard(q) {
   return card;
 }
 
+// 承認カードの 1 行。例: 「Bash: rm -rf build/」（05 §1 の3番）
+function approvalLine(a) {
+  const input = a.tool_input || {};
+  const inner = input.command || input.file_path || input.path || input.description || "";
+  return `${a.tool_name || ""}${inner ? `: ${String(inner).split("\n")[0]}` : ""}`;
+}
+
+// 承認の選択肢。「今後も許可」は承認画面に「Yes, and always allow …」があるときだけ出す
+function approvalOptions(a) {
+  const options = [{ key: "allow", label: "Allow", desc: "この1回だけ許可する" }];
+  if ((a.permission_suggestions || []).length) {
+    options.push({ key: "always", label: "Always allow", desc: "似た操作を次からも許可する" });
+  }
+  options.push({ key: "deny", label: "Deny", desc: "実行しない（理由を書ける）" });
+  return options;
+}
+
+// 回答済みの承認カード．未回答時と同じ選択肢をすべて残し，選んだ決定を強調する
+function approvalDoneCard(a) {
+  const el = doneFrame(a, "approval-card");
+  const title = document.createElement("div");
+  title.className = "q-settled-title";
+  title.textContent = "回答済み";
+  const head = document.createElement("div");
+  head.className = "q-header";
+  head.textContent = "承認を求めています";
+  const body = document.createElement("div");
+  body.className = "q-body";
+  body.textContent = approvalLine(a);
+  el.append(title, head, body);
+  const decision = (a.answer && a.answer.decision) || "";
+  const reason = (a.answer && a.answer.reason) || "";
+  for (const opt of approvalOptions(a)) {
+    const on = opt.key === decision;
+    const row = doneOption(`${on ? "✓ " : ""}${opt.label}`, opt.desc, on, false);
+    if (on && opt.key === "deny" && reason) {
+      const why = document.createElement("div");
+      why.className = "q-desc";
+      why.textContent = `理由: ${reason}`;
+      row.appendChild(why);
+    }
+    el.appendChild(row);
+  }
+  return el;
+}
+
 // 承認カード（05 §1 の3番）: 「許可 / 今後も許可 / 拒否」の1問の質問として扱う。
 // 「今後も許可」は permission_suggestions（承認画面にその選択肢があるときだけ）。
 // 拒否のときだけ理由欄を出す。質問カードと同じ 選ぶ → 送信 の2段階。
 function approvalCard(a) {
-  if (a.state === "answered") {
-    const d = (a.answer && a.answer.decision) || "";
-    const label = { allow: "Allow", always: "Always allow", deny: "Deny" }[d] || d;
-    const reason = (a.answer && a.answer.reason) || "";
-    return settledCard(a, "q-answered", `回答済み: ${label}${reason ? `（${reason}）` : ""}`);
-  }
+  if (a.state === "answered") return approvalDoneCard(a);
   if (a.state === "resolved_elsewhere") {
     return settledCard(a, "q-elsewhere", "PC で回答済み");
   }
@@ -983,10 +1052,7 @@ function approvalCard(a) {
   title.textContent = "承認を求めています";
   const body = document.createElement("div");
   body.className = "q-body";
-  // 例: 「Bash: rm -rf build/」（05 §1 の3番）
-  const input = a.tool_input || {};
-  const inner = input.command || input.file_path || input.path || input.description || "";
-  body.textContent = `${a.tool_name || ""}${inner ? `: ${String(inner).split("\n")[0]}` : ""}`;
+  body.textContent = approvalLine(a);
   card.append(title, body);
 
   // choice: null は未選択
@@ -1002,13 +1068,7 @@ function approvalCard(a) {
   reasonInput.placeholder = "拒否の理由（任意）";
   reasonInput.hidden = true;
 
-  const options = [];
-  options.push({ key: "allow", label: "Allow", desc: "この1回だけ許可する" });
-  if ((a.permission_suggestions || []).length) {
-    // 承認画面に「Yes, and always allow …」があるときだけ出す
-    options.push({ key: "always", label: "Always allow", desc: "似た操作を次からも許可する" });
-  }
-  options.push({ key: "deny", label: "Deny", desc: "実行しない（理由を書ける）" });
+  const options = approvalOptions(a);
 
   const buttons = [];
   for (const opt of options) {
