@@ -876,16 +876,9 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   color: var(--text-soft);
 }
 
-/* 回答済み（答えの内容）は読む文なので、大きめ・通常の色・左寄せの箱にする。
-   問が多くても 1 問 1 行で並ぶ。 */
-.question-card.settled.q-answered {
-  align-self: stretch;
-  color: var(--text);
-  font-size: 15px;
-  line-height: 1.6;
-  padding: 8px 14px;
-  border-radius: 12px;
-  text-align: left;
+/* 回答済みの質問・承認カード: 質問時と同じ選択肢を残し，選んだものを強調する。
+   選択肢は button ではなく div（押せない）。選ばなかったものは薄くする。 */
+.question-card.q-done {
   border-left: 3px solid var(--ok);
 }
 
@@ -895,22 +888,14 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   font-size: 13px;
 }
 
-.q-settled-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 8px;
-  padding-top: 2px;
-}
-
-.q-settled-head {
-  color: var(--text-soft);
-  flex: 0 0 auto;
-}
-
-.q-settled-ans {
-  font-weight: 600;
-  min-width: 0;
+.question-card .q-option.static {
+  cursor: default;
+  opacity: 0.6;
   overflow-wrap: anywhere;
+}
+
+.question-card .q-option.static.selected {
+  opacity: 1;
 }
 
 /* 承認カード（05 §1 の3番）は内容が短いので区切り線を強めに */

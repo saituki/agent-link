@@ -294,6 +294,80 @@ def test_tool_result_tags_cleaned() -> None:
     assert all(i["kind"] != "event" for i in items)
 
 
+_MCP_ARGS = {"query": "foo", "limit": 5, "opts": {"year": 2024, "tags": ["a", "b"]}, "memo": "a\nb"}
+_MCP_RESULT = '{"ok": true, "count": 2}'
+_MCP_DETAIL = (
+    "引数\nquery: foo\nlimit: 5\nopts:\n  year: 2024\n  tags:\n    - a\n    - b\n"
+    "memo:\n  a\n  b\n---\n戻り値\nok: true\ncount: 2"
+)
+
+
+def test_tool_label_mcp() -> None:
+    """MCP の見出しは mcp__<サーバ>__ を外す．他のツールは従来どおり．"""
+    assert sessions._tool_label("mcp__sai-paper__paper_search", {}) == "paper_search"
+    assert sessions._tool_label("mcp__sai__sai_write", {}) == "sai_write"
+    assert sessions._tool_label("mcp__a__b__c", {}) == "b__c"
+    assert sessions._tool_label("mcp", {}) == "mcp を実行した"
+    assert sessions._tool_label("Bash", {"command": "ls"}) == "ls を実行した"
+
+
+def test_mcp_detail_cc() -> None:
+    """cc の MCP ツールは detail が読みやすい文になり，tool は生の名前のまま．"""
+    name = "mcp__sai-paper__paper_search"
+    use = {"type": "assistant", "uuid": "m1", "timestamp": "2026-09-23T05:00:00Z",
+           "message": {"role": "assistant", "content": [
+               {"type": "tool_use", "id": "t1", "name": name, "input": _MCP_ARGS}]}}
+    res = {"type": "user", "uuid": "m2", "timestamp": "2026-09-23T05:01:00Z",
+           "message": {"role": "user", "content": [
+               {"type": "tool_result", "tool_use_id": "t1", "content": _MCP_RESULT}]}}
+    items: list[dict] = []
+    pending: dict[str, dict] = {}
+    sessions._convert_claude_row(use, items, pending)
+    sessions._convert_claude_row(res, items, pending)
+    tool = next(i for i in items if i["kind"] == "tool")
+    assert tool["tool"] == name
+    assert tool["label"] == "paper_search"
+    assert tool["detail"] == _MCP_DETAIL, tool["detail"]
+
+
+def test_mcp_detail_pi() -> None:
+    """pi の MCP ツールも cc と同じ detail になる．引数なしなら戻り値の節だけ．"""
+    name = "mcp__sai-paper__paper_search"
+    call = {"type": "message", "id": "p1", "timestamp": "2026-09-23T05:00:00Z",
+            "message": {"role": "assistant", "content": [
+                {"type": "toolCall", "id": "c1", "name": name, "arguments": _MCP_ARGS},
+                {"type": "toolCall", "id": "c2", "name": name, "arguments": {}}]}}
+    res1 = {"type": "message", "id": "p2", "timestamp": "2026-09-23T05:01:00Z",
+            "message": {"role": "toolResult", "toolCallId": "c1",
+                        "content": [{"type": "text", "text": _MCP_RESULT}]}}
+    res2 = {"type": "message", "id": "p3", "timestamp": "2026-09-23T05:01:00Z",
+            "message": {"role": "toolResult", "toolCallId": "c2",
+                        "content": [{"type": "text", "text": "ただの文"}]}}
+    items: list[dict] = []
+    pending: dict[str, dict] = {}
+    for row in (call, res1, res2):
+        sessions._convert_pi_row(row, items, pending)
+    tools = [i for i in items if i["kind"] == "tool"]
+    assert tools[0]["detail"] == _MCP_DETAIL, tools[0]["detail"]
+    assert tools[1]["detail"] == "戻り値\nただの文", tools[1]["detail"]
+
+
+def test_non_mcp_detail_unchanged() -> None:
+    """MCP でないツールの detail は従来どおり JSON と本文を --- でつなぐ．"""
+    use = {"type": "assistant", "uuid": "n1", "timestamp": "2026-09-23T05:00:00Z",
+           "message": {"role": "assistant", "content": [
+               {"type": "tool_use", "id": "t1", "name": "Task", "input": {"description": "x"}}]}}
+    res = {"type": "user", "uuid": "n2", "timestamp": "2026-09-23T05:01:00Z",
+           "message": {"role": "user", "content": [
+               {"type": "tool_result", "tool_use_id": "t1", "content": "{\"a\": 1}"}]}}
+    items: list[dict] = []
+    pending: dict[str, dict] = {}
+    sessions._convert_claude_row(use, items, pending)
+    sessions._convert_claude_row(res, items, pending)
+    tool = next(i for i in items if i["kind"] == "tool")
+    assert tool["detail"] == '{"description": "x"}\n---\n{"a": 1}', tool["detail"]
+
+
 def test_time_required_for_all_items() -> None:
     """timestamp の無い行は直前の項目の時刻で補われる（03 §2）．"""
     rows = [
@@ -340,6 +414,10 @@ def main() -> None:
     test_normal_text_with_div_not_event()
     test_user_row_becomes_event_item()
     test_tool_result_tags_cleaned()
+    test_tool_label_mcp()
+    test_mcp_detail_cc()
+    test_mcp_detail_pi()
+    test_non_mcp_detail_unchanged()
     test_time_required_for_all_items()
     print("test_events: すべて通りました")
 
