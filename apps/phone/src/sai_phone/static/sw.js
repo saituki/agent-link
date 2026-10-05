@@ -65,7 +65,8 @@
 // 研究方針の画面を「一覧 + 図 + 詳細の板」にし、根の図・実験の画面（scigraph.js・mlflow.js）もまとめて配る、で v56 に（index.html の ?v= も 56）
 // Dashboard の DEBT と Action の行・要対応の住所・sciset.js / sciset.css を配る、で v57 に（index.html の ?v= も 57）
 // データ分析の 2 本（sci-data-explore・sci-data-test）をカードの選択肢に足して v58 に（index.html の ?v= も 58。ASSETS は変えない）
-const CACHE = "sai-phone-v58";
+// 研究方針の画面の境界線のドラッグ・一覧の畳みと絞り込み・板の出典と作成者（scitree.js・scitree.css・index.html）で v59 に（index.html の ?v= も 59。ASSETS は変えない）
+const CACHE = "sai-phone-v59";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/sciset.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/sciset.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）

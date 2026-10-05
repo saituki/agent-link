@@ -7,7 +7,7 @@
 //
 // 読むのは sai-paper の `phone sci status` / `types` / `nodes/<ID>` だけ（API は U17）。
 // 操作は sciedit.js（seOpenAction・seOpenCard・seQuick・seOpLabel・seProposalRow）、図は
-// scigraph.js（sgRenderGraph・sgMarkSelected）の関数を typeof で確かめてから呼ぶ。
+// scigraph.js（sgRenderGraph・sgMarkSelected・sgCenterOn）の関数を typeof で確かめてから呼ぶ。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_scitree.js）。
 // 画面の名詞（Q・O・F・E・Answer・Issue・SEED・Objectivity・Logicality・DEBT など）は英語のまま出す。
 
@@ -23,6 +23,14 @@ const ST_TYPES = [
 ];
 const ST_LOGIC = { ok: ["OK", "ok"], contradiction: ["CONTRADICTION", "warn"], unchecked: ["UNCHECKED", "dim"] };
 const ST_KIND_LABEL = { answer: "Answer", issue: "Issue" };
+// 左の一覧の絞り込みで切り替えられる種類（図の札と同じ 4 つ）
+const ST_ALL_KINDS = ["Q", "O", "E", "F"];
+// 境界線をドラッグしたときの幅の範囲（px）
+const ST_SPLIT_LIMITS = { list: [200, 600], board: [280, 720] };
+// 図の最小の幅（px）。これより狭くしない。
+const ST_GRAPH_MIN = 300;
+// 境界線 2 本ぶんの幅（図の幅を計算するとき引く）
+const ST_SPLIT_BAR = 12;
 // 板に出す操作（表示名と送り方は sciedit.js の seOpLabel・seOpenAction・seQuick）
 const ST_NODE_OPS = {
   Q: ["add_q", "add_o", "edit", "set_target", "remove"],
@@ -42,6 +50,11 @@ let stSheet = null;     // 狭い画面の板（saiSheet が返した物）
 let stSheetBody = null; // 板の中の入れ物
 let stSheetFor = null;  // 板が出している物の鍵
 let stListOpen = false; // 狭い画面で一覧を出しているか（出している間は図を隠す）
+let stFolded = new Set();   // 左の一覧で畳んでいる Node の ID
+let stSplit = { list: 320, board: 420 }; // 境界線で変えた幅（px）
+let stSplitInit = false;    // 境界線の仕掛けを付けたか
+let stFilterInit = false;   // 一番上の絞り込みを作ったか
+const stFilter = { word: "", kinds: new Set(ST_ALL_KINDS) }; // 一番上の絞り込み（覚えない）
 
 // ============================================================================
 // DOM を使わない純関数（tests/test_scitree.js）
@@ -142,6 +155,117 @@ function stOpsFor(node, children) {
     if (op === "remove") return !(node.kind === "Q" && !node.parent);
     return true;
   }).map((op) => (op === "star" && node.starred ? "unstar" : op));
+}
+
+/** 並びの値（Set・配列・それ以外）を Set にする。 */
+function stToSet(v, fallback) {
+  if (v instanceof Set) return v;
+  if (Array.isArray(v)) return new Set(v);
+  return new Set(fallback || []);
+}
+
+/** 行の親の ID（無ければ null）。 */
+function stRowParentId(r) {
+  const p = r && r.node ? r.node.parent : null;
+  return p == null || p === "" ? null : String(p);
+}
+
+/** 絞り込みの文字が ID か文に入っているか（大文字・小文字を区別しない）。 */
+function stRowHasWord(r, word) {
+  if (!word) return true;
+  return String(r.id || "").toLowerCase().includes(word) || String(r.text || "").toLowerCase().includes(word);
+}
+
+/**
+ * 一覧に出す行を純関数だけで決める。
+ * 絞り込みが無いとき: 畳んだ行の子孫を除いた全部。
+ * 絞り込みがあるとき（絞り込み中は畳みを無視する）: 合う行と、合う行の ancestor（ctx: true）。
+ * 返すのは {row, hasKids, ctx} の並び（rows の順のまま）。
+ */
+function stVisibleRows(rows, opts) {
+  const o = opts || {};
+  const list = Array.isArray(rows) ? rows : [];
+  const folded = stToSet(o.folded);
+  const kinds = stToSet(o.kinds, ST_ALL_KINDS);
+  const word = String(o.word || "").trim().toLowerCase();
+  const filtering = word !== "" || !ST_ALL_KINDS.every((k) => kinds.has(k));
+
+  const byId = new Map();
+  for (const r of list) byId.set(r.id, r);
+  const kids = new Map();
+  for (const r of list) {
+    const p = stRowParentId(r);
+    if (p != null && byId.has(p)) {
+      if (!kids.has(p)) kids.set(p, []);
+      kids.get(p).push(r);
+    }
+  }
+  const kidList = (id) => kids.get(id) || [];
+
+  // ancestor をたどる（自分自身は含めない）
+  const ancestorsOf = (r) => {
+    const out = [];
+    const seen = new Set([r.id]);
+    let p = stRowParentId(r);
+    while (p != null && byId.has(p) && !seen.has(p)) {
+      seen.add(p);
+      out.push(byId.get(p));
+      p = stRowParentId(byId.get(p));
+    }
+    return out;
+  };
+
+  if (!filtering) {
+    const out = [];
+    for (const r of list) {
+      if (ancestorsOf(r).some((a) => folded.has(a.id))) continue;
+      out.push({ row: r, hasKids: kidList(r.id).length > 0, ctx: false });
+    }
+    return out;
+  }
+
+  // 絞り込み中は畳みを無視する。下から上へ「子孫に合う行があるか」を覚えて、上の行へ伝える
+  const sub = new Map();
+  const out = [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const r = list[i];
+    const hit = kinds.has(r.kind) && stRowHasWord(r, word);
+    const kidHit = kidList(r.id).some((k) => sub.get(k.id) === true);
+    sub.set(r.id, hit || kidHit);
+    if (hit) out.push({ row: r, hasKids: kidList(r.id).length > 0, ctx: false });
+    else if (kidHit) out.push({ row: r, hasKids: kidList(r.id).length > 0, ctx: true });
+  }
+  out.reverse();
+  return out;
+}
+
+/** Action の履歴の頭の部分（`run 5 sci-read R2 O12`）。空の部分は詰めて飛ばす。 */
+function stActionMeta(a) {
+  const o = a || {};
+  const parts = [];
+  if (o.run_id != null && o.run_id !== "") parts.push(`run ${o.run_id}`);
+  const block = String(o.block == null ? "" : o.block).trim();
+  if (block) parts.push(block);
+  const round = o.global_round != null && o.global_round !== "" ? `R${o.global_round}` : String(o.owner == null ? "" : o.owner).trim();
+  if (round) parts.push(round);
+  const node = String(o.node == null ? "" : o.node).trim();
+  if (node) parts.push(node);
+  return parts.join(" ");
+}
+
+/**
+ * 境界線をドラッグしたときの幅を決める。
+ * which は "list" か "board"。otherW はもう一方の幅、bodyW は sci-body の幅。
+ * 図（bodyW − this − otherW − 12）が ST_GRAPH_MIN を割らないように抑える。
+ */
+function stClampSplit(which, px, bodyW, otherW) {
+  const lim = ST_SPLIT_LIMITS[which] || ST_SPLIT_LIMITS.list;
+  const other = Math.max(0, Number(otherW) || 0);
+  const body = Math.max(0, Number(bodyW) || 0);
+  let v = Math.max(lim[0], Math.min(lim[1], Math.round(Number(px) || 0)));
+  const room = body - other - ST_SPLIT_BAR - ST_GRAPH_MIN;
+  if (v > room) v = Math.max(lim[0], Math.min(v, room));
+  return Math.round(v);
 }
 
 // ============================================================================
@@ -272,6 +396,9 @@ async function stOpen(params) {
   updateProjectChips();
   const body = document.getElementById("sci-body");
   if (body) body.classList.add("sai-split");
+  stInitSplit();
+  stInitFilter();
+  stLoadFold();
   await stReload();
 }
 
@@ -504,12 +631,29 @@ async function stInitTree(typeId, typeName) {
 /** 木の 1 行（.sci-row）。一覧と板の子で共通。 */
 function stRowEl(r, opts) {
   const o = opts || {};
-  const row = stEl("div", `sci-row sci-row-${r.kind}${r.onPath ? "" : " sci-dim"}${r.id === stNodeId ? " selected" : ""}`);
+  const row = stEl("div", `sci-row sci-row-${r.kind}${r.onPath ? "" : " sci-dim"}${r.id === stNodeId ? " selected" : ""}${o.ctx ? " sci-row-ctx" : ""}`);
   row.dataset.id = r.id;
   row.style.paddingLeft = `${8 + (o.flat ? 0 : r.depth) * 14}px`;
+  // 畳み・開くの釦（一覧だけ。板の子には付けない）
+  if (o.twisty) {
+    if (o.twisty.hasKids) {
+      const t = stEl("button", "sci-twisty", o.twisty.folded ? "▸" : "▾");
+      t.type = "button";
+      t.setAttribute("aria-expanded", String(!o.twisty.folded));
+      t.setAttribute("aria-label", `${r.id} を${o.twisty.folded ? "開く" : "畳む"}`);
+      t.addEventListener("click", () => { stFoldToggle(r.id); });
+      row.appendChild(t);
+    } else {
+      row.appendChild(stEl("span", "sci-twisty-space"));
+    }
+  }
   const main = stEl("button", "sci-row-main");
   main.type = "button";
-  main.addEventListener("click", () => { void stSelect(r.id); });
+  main.addEventListener("click", async () => {
+    await stSelect(r.id);
+    // 一覧から選んだときだけ、図の真ん中にその Node を出す（図や板からなら寄せない）
+    if (o.center && typeof sgCenterOn === "function") sgCenterOn(r.id);
+  });
   const head = stEl("span", "sci-row-head");
   head.appendChild(stEl("span", "sci-id", r.id));
   let title = r.text;
@@ -559,16 +703,107 @@ function stToggleKind(r) {
   stCall("seQuick", "set_kind", { o: r.id, kind: next });
 }
 
-function stRenderSidebar(box) {
+// --- 左の一覧の絞り込み（一番上・作り直さない） ---
+
+/** 一番上の絞り込みを 1 回だけ作る（入力中に一覧を描き直しても入力欄は残る）。 */
+function stInitFilter() {
+  if (stFilterInit) return;
+  stFilterInit = true;
+  const box = document.getElementById("sci-filter");
   if (!box) return;
   box.innerHTML = "";
-  if (!stData || !stData.initialized) return;
+  const input = stEl("input", "sci-filter-input");
+  input.type = "search";
+  input.placeholder = "ID・文で絞り込み";
+  input.setAttribute("aria-label", "ID・文で絞り込む");
+  input.addEventListener("input", () => {
+    stFilter.word = input.value || "";
+    stRenderSidebar(document.getElementById("sci-list"));
+  });
+  box.appendChild(input);
+  const row = stEl("div", "sci-filter-kinds");
+  for (const k of ST_ALL_KINDS) {
+    const b = stEl("button", `sci-filter-kind sci-filter-kind-${k}`, k);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(stFilter.kinds.has(k)));
+    b.addEventListener("click", () => {
+      if (stFilter.kinds.has(k)) stFilter.kinds.delete(k);
+      else stFilter.kinds.add(k);
+      b.setAttribute("aria-pressed", String(stFilter.kinds.has(k)));
+      stRenderSidebar(document.getElementById("sci-list"));
+    });
+    row.appendChild(b);
+  }
+  box.appendChild(row);
+}
+
+// --- 左の一覧の畳み（図の畳みとは連動させない） ---
+
+/** 畳んだ ID を覚える場所（プロジェクトごとに別）。 */
+function stFoldKey() {
+  return `sai-sci-fold:${selectedPaperProject() || ""}`;
+}
+
+/** 畳んだ ID を覚える（読めなくても書けなくても画面は動く）。 */
+function stSaveFold() {
+  try { localStorage.setItem(stFoldKey(), JSON.stringify([...stFolded])); } catch { /* 保存できなくてもよい */ }
+}
+
+/** 覚えた畳みを読む。読み込みは stOpen。 */
+function stLoadFold() {
+  stFolded = new Set();
+  try {
+    const raw = localStorage.getItem(stFoldKey());
+    if (!raw) return;
+    const v = JSON.parse(raw);
+    if (Array.isArray(v)) for (const id of v) stFolded.add(String(id));
+  } catch { /* 読めなければ畳まない */ }
+}
+
+/** 今の木に無い ID を覚えておく（消えた Node の畳みを捨てる）。 */
+function stPruneFolded(rows) {
+  const ids = new Set(rows.map((r) => r.id));
+  let changed = false;
+  for (const id of [...stFolded]) {
+    if (!ids.has(id)) { stFolded.delete(id); changed = true; }
+  }
+  if (changed) stSaveFold();
+}
+
+/** 畳み・開くを反転して、一覧だけ描き直す（図と板は変えない）。 */
+function stFoldToggle(id) {
+  if (stFolded.has(id)) stFolded.delete(id);
+  else stFolded.add(id);
+  stSaveFold();
+  stRenderSidebar(document.getElementById("sci-list"));
+}
+
+function stRenderSidebar(box) {
+  if (!box) return;
+  stInitFilter();
+  const filterBox = document.getElementById("sci-filter");
+  const ready = !!(stData && stData.initialized);
+  if (filterBox) filterBox.hidden = !ready;
+  box.innerHTML = "";
+  if (!ready) return;
   const rows = stRows(stData);
   if (!rows.length) {
     box.appendChild(stEmpty({ title: "Node がありません", body: "" }));
     return;
   }
-  for (const r of rows) box.appendChild(stRowEl(r));
+  stPruneFolded(rows);
+  const list = stVisibleRows(rows, { folded: stFolded, word: stFilter.word, kinds: stFilter.kinds });
+  if (!list.length) {
+    box.appendChild(stEl("p", "sci-note", "合う行がありません"));
+    return;
+  }
+  for (const x of list) {
+    box.appendChild(stRowEl(x.row, {
+      twisty: { hasKids: x.hasKids, folded: stFolded.has(x.row.id) },
+      center: true,   // 一覧から押したら図の真ん中に出す
+      ctx: x.ctx,     // 絞り込みの ancestor は薄くする
+    }));
+  }
 }
 
 // ============================================================================
@@ -584,7 +819,7 @@ function stRenderGraph() {
     box.appendChild(stEl("p", "sci-note", "方針の図はまだ使えません"));
     return;
   }
-  sgRenderGraph(box, { status: stData }, (sel) => {
+  sgRenderGraph(box, { status: stData, key: selectedPaperProject() }, (sel) => {
     if (sel && (sel.kind === "node" || sel.kind === "seed")) void stSelect(sel.id);
   });
   stMarkGraph();
@@ -730,13 +965,18 @@ function stBuildSeedBoard() {
   return box;
 }
 
-/** Node の板。節の順は計画 U18 の 4。 */
+/** Node の板。節の順は計画 U18 の 4。F は「見出し・道・操作・出典・Action の履歴」だけ。 */
 function stBuildBoard(d) {
   const node = d.node || {};
   const box = stEl("div", "sci-card");
   box.appendChild(stBoardHead(node));
   box.appendChild(stBoardPath(d.path));
   box.appendChild(stBoardOps(d));
+  if (node.kind === "F") {
+    box.appendChild(stBoardSources(d));
+    box.appendChild(stBoardActions(d));
+    return box;
+  }
   if (node.kind === "Q") {
     box.appendChild(stBoardObjectivity(node));
     box.appendChild(stBoardLogic(node));
@@ -874,18 +1114,83 @@ function stBoardChildren(children) {
   return sec;
 }
 
-/** Action の履歴。押すとその run へ。 */
-function stBoardActions(actions) {
+/**
+ * Action の履歴。上に作成者、その下にこの Node の分だけの Action。
+ * 子孫の Node の run は出さない（`a.node === d.node.id` の行だけ）。
+ */
+function stBoardActions(d) {
   const sec = stSec("Action の履歴");
+  const node = (d && d.node) || {};
   const project = selectedPaperProject();
-  if (!(actions || []).length) sec.appendChild(stEl("p", "sci-note", "なし"));
-  for (const a of actions || []) {
+  const creator = (d && d.creator) || null;
+  const all = d && Array.isArray(d.actions) ? d.actions : [];
+  const actions = all.filter((a) => a && a.node === node.id);
+
+  // 誰がこの Node を作ったか（押すとその run へ）
+  if (creator) {
+    const head = creator.by === "user" ? "user" : stActionMeta(creator);
+    const row = stEl("div", "sci-line");
+    row.appendChild(stEl("span", "sci-chip", "作成"));
+    if (creator.run_id != null) {
+      const b = stEl("button", "sci-action-meta", head);
+      b.type = "button";
+      b.addEventListener("click", () => stGo(`#/run/${encodeURIComponent(project)}/${creator.run_id}`));
+      row.appendChild(b);
+    } else {
+      row.appendChild(stEl("span", "sci-action-meta", head));
+    }
+    if (creator.at) row.appendChild(stEl("span", "sci-id", String(creator.at)));
+    sec.appendChild(row);
+  }
+
+  if (!actions.length) sec.appendChild(stEl("p", "sci-note", "なし"));
+  for (const a of actions) {
     const debts = a.debt_messages || [];
-    const b = stEl("button", "sci-action", `${debts.length ? "⚠ " : ""}run ${a.run_id} ${a.block || ""} ${a.owner || ""} ${a.purpose || ""}`.replace(/\s+/g, " ").trim());
+    const b = stEl("button", "sci-action");
     b.type = "button";
+    b.appendChild(stEl("span", "sci-action-meta", `${debts.length ? "⚠ " : ""}${stActionMeta(a)}`));
+    b.appendChild(stEl("span", "", String(a.purpose || "")));
     b.addEventListener("click", () => stGo(`#/run/${encodeURIComponent(project)}/${a.run_id}`));
     sec.appendChild(b);
     for (const m of debts) sec.appendChild(stEl("p", "sci-line-sub", m));
+  }
+  return sec;
+}
+
+/** 出典（.sci-source）。F の板に出す。 */
+function stBoardSources(d) {
+  const sec = stSec("出典");
+  const list = d && Array.isArray(d.sources) ? d.sources.filter(Boolean) : [];
+  if (!list.length) {
+    // 出典の項目が無いときは cites を並べる（どちらも無ければ「なし」）
+    const cites = d && d.node ? d.node.cites : null;
+    const arr = Array.isArray(cites) ? cites : (cites == null || cites === "" ? [] : [cites]);
+    if (!arr.length) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
+    const row = stEl("div", "sci-chips");
+    for (const c of arr) row.appendChild(stEl("span", "sci-chip", String(c)));
+    sec.appendChild(row);
+    return sec;
+  }
+  const project = selectedPaperProject();
+  for (const s of list) {
+    const item = stEl("div", "sci-source");
+    const head = stEl("div", "sci-line");
+    head.appendChild(stEl("span", "sci-chip", String(s.cite || "")));
+    const title = String(s.title || "") || (s.paper != null ? `論文 ${s.paper}` : "");
+    if (title) {
+      if (s.paper != null && typeof paperHash === "function") {
+        const b = stEl("button", "sci-link-title", title);
+        b.type = "button";
+        b.addEventListener("click", () => stGo(paperHash(project, s.paper, false)));
+        head.appendChild(b);
+      } else {
+        head.appendChild(stEl("span", "sci-line-main", title));
+      }
+    }
+    item.appendChild(head);
+    if (s.section) item.appendChild(stEl("p", "sci-line-sub", `§ ${s.section}`));
+    if (s.passage) item.appendChild(stEl("p", "sci-source-passage", String(s.passage)));
+    sec.appendChild(item);
   }
   return sec;
 }
@@ -900,20 +1205,27 @@ function stBoardPending(pending) {
   return sec;
 }
 
-/** 検索の記録。set_id があれば押すと検索セットへ。 */
+/** 検索の記録。頭に実行した run と block を出す。set_id があれば押すと検索セットへ。 */
 function stBoardSearches(searches) {
   const sec = stSec("検索の記録");
-  if (!(searches || []).length) sec.appendChild(stEl("p", "sci-note", "なし"));
-  for (const s of searches || []) {
-    const text = String(s.query || s.title || s.set_id || "");
+  const list = Array.isArray(searches) ? searches : [];
+  if (!list.length) sec.appendChild(stEl("p", "sci-note", "なし"));
+  for (const s of list) {
+    const line = stEl("div", "sci-line");
+    if (s.run != null) {
+      const meta = stActionMeta({ run_id: s.run, block: s.block });
+      if (meta) line.appendChild(stEl("span", "sci-action-meta", meta));
+    }
+    const text = `${String(s.query || s.title || s.set_id || "")}${s.hits != null ? ` （${s.hits} 件）` : ""}`;
     if (s.set_id) {
-      const b = stEl("button", "sci-action", text);
+      const b = stEl("button", "sci-link-title", text);
       b.type = "button";
       b.addEventListener("click", () => stGo(`#/papers/sets/${s.set_id}`));
-      sec.appendChild(b);
+      line.appendChild(b);
     } else {
-      sec.appendChild(stEl("p", "sci-line-sub", text));
+      line.appendChild(stEl("span", "sci-line-main", text));
     }
+    sec.appendChild(line);
   }
   return sec;
 }
@@ -928,6 +1240,8 @@ function stClearAll() {
     const e = document.getElementById(id);
     if (e) e.innerHTML = "";
   }
+  const filter = document.getElementById("sci-filter");
+  if (filter) { filter.innerHTML = ""; filter.hidden = true; }
   const b = document.getElementById("sci-board");
   if (b) { b.innerHTML = ""; b.hidden = true; }
   return document.getElementById("sci-list");
@@ -982,6 +1296,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     stParseHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
     stFixHash, stDecisionRows, stOpsFor,
-    ST_TYPES, ST_LOGIC, ST_KIND_LABEL, ST_NODE_OPS,
+    stVisibleRows, stActionMeta, stClampSplit,
+    ST_TYPES, ST_LOGIC, ST_KIND_LABEL, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   };
 }
