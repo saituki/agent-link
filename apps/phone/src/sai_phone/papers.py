@@ -327,6 +327,150 @@ def search(project: dict, req: SearchRequest) -> dict:
     return _paper_cli(project, args, timeout=120.0)
 
 
+# --- 内部検索（Library 内の検索・U02） ---
+# 外部検索（`phone search`）と同じ作り。検査はここで行い（大原則）、
+# CLI 側の検査だけに頼らない。既定値は sai-paper 側（`rag.*` の設定）に任せ、
+# 省略した項目は引数に出さない。
+
+# 内部検索の取り方（省略で既定）
+FIND_MODES = ("word", "vector", "hybrid")
+# 内部検索の範囲（省略で既定）
+FIND_SCOPES = ("papers", "notes", "figures", "all")
+# 内部検索の件数（1〜100）
+FIND_TOP_K_MIN = 1
+FIND_TOP_K_MAX = 100
+# 内部検索の論文番号（1〜999999999・20 個まで）
+FIND_PAPER_MIN = 1
+FIND_PAPER_MAX = 999999999
+FIND_PAPERS_MAX = 20
+# 内部検索の論文ごとの件数（1〜20）
+FIND_EACH_MIN = 1
+FIND_EACH_MAX = 20
+# 研究方針の Node の形（sci.py と同じ値。sci を import せず持つのは
+# 循環 import を避けるため・U02 計画書の前提）
+_FIND_NODE_RE = re.compile(r"^[QOFE][1-9][0-9]{0,8}$")
+
+
+class FindRequest(BaseModel):
+    """内部検索の依頼（`POST …/papers/find` の body・U02）。
+
+    外から来る値なので，中身の検査は `validate_find` で必ず行う。
+    """
+
+    query: str
+    mode: str | None = None  # word / vector / hybrid（省略で既定）
+    top_k: int | None = None  # 1〜100（省略で既定）
+    scope: str | None = None  # papers / notes / figures / all（省略で既定）
+    papers: list[int] | None = None  # Library の論文番号（20 個まで）
+    node: str | None = None  # 研究方針の Node（Q12・O5・F3・E2）
+    subtree: bool = False  # node の子孫も含める
+    each: int | None = None  # 範囲の論文ごとに上位 m 件（1〜20）
+
+
+def validate_find(req: FindRequest) -> str:
+    """内部検索の依頼を検査し，前後の空白を取った検索語を返す（違反は 400・U02）。"""
+    query = str(req.query or "").strip()
+    if not (1 <= len(query) <= SEARCH_QUERY_MAX):
+        raise HTTPException(
+            status_code=400,
+            detail=f"検索語は前後の空白を取って1〜{SEARCH_QUERY_MAX}文字で入れてください",
+        )
+    if req.mode is not None and req.mode not in FIND_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail="検索の取り方は word・vector・hybrid のどれかにしてください",
+        )
+    if req.scope is not None and req.scope not in FIND_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail="検索の範囲は papers・notes・figures・all のどれかにしてください",
+        )
+    if req.top_k is not None and (
+        isinstance(req.top_k, bool) or not (FIND_TOP_K_MIN <= req.top_k <= FIND_TOP_K_MAX)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"件数は{FIND_TOP_K_MIN}〜{FIND_TOP_K_MAX}で入れてください",
+        )
+    if req.papers is not None:
+        if len(req.papers) > FIND_PAPERS_MAX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"論文は{FIND_PAPERS_MAX}個までにしてください",
+            )
+        for paper_id in req.papers:
+            if (
+                isinstance(paper_id, bool)
+                or not isinstance(paper_id, int)
+                or not (FIND_PAPER_MIN <= paper_id <= FIND_PAPER_MAX)
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"論文の番号は{FIND_PAPER_MIN}〜{FIND_PAPER_MAX}の整数にしてください",
+                )
+    node = None
+    if req.node is not None:
+        if not isinstance(req.node, str) or not _FIND_NODE_RE.match(req.node.strip()):
+            raise HTTPException(status_code=400, detail="Node の ID の形が正しくありません")
+        node = req.node.strip()
+    if req.subtree and node is None:
+        raise HTTPException(
+            status_code=400,
+            detail="子孫も含める（subtree）ときは Node を指定してください",
+        )
+    if req.each is not None:
+        if isinstance(req.each, bool) or not (FIND_EACH_MIN <= req.each <= FIND_EACH_MAX):
+            raise HTTPException(
+                status_code=400,
+                detail=f"論文ごとの件数は{FIND_EACH_MIN}〜{FIND_EACH_MAX}で入れてください",
+            )
+        if node is None and not (req.papers or []):
+            raise HTTPException(
+                status_code=400,
+                detail="論文ごとの件数（each）を指定するときは Node か論文を指定してください",
+            )
+    return query
+
+
+def build_find_args(req: FindRequest) -> list[str]:
+    """`phone find` の引数を作る（検査もここで行う・U02）。
+
+    検索語は最後に `--` を置いて渡す（語が `-` で始めると clap が
+    オプションと間違えるため・`build_search_args` と同じ）。
+    """
+    query = validate_find(req)
+    args = ["phone", "find"]
+    if req.mode is not None:
+        args += ["--mode", req.mode]
+    if req.top_k is not None:
+        args += ["--top-k", str(req.top_k)]
+    if req.scope is not None:
+        args += ["--scope", req.scope]
+    for paper_id in req.papers or []:
+        args += ["--paper", str(paper_id)]
+    if req.node is not None:
+        args += ["--node", req.node.strip()]
+    if req.subtree:
+        args += ["--subtree"]
+    if req.each is not None:
+        args += ["--each", str(req.each)]
+    args += ["--", query]
+    return args
+
+
+def find(project: dict, req: FindRequest) -> dict:
+    """内部検索（`phone find`・検索履歴にも残る・U02）。
+
+    意味検索は埋め込みの計算で数十秒かかりうるため待ちは 120 秒。
+    """
+    return _paper_cli(project, build_find_args(req), timeout=120.0)
+
+
+def find_log(project: dict, log_id: int) -> dict:
+    """過去の内部検索の結果（`phone find-log <log_id>`・U02）。"""
+    return _paper_cli(project, ["phone", "find-log", str(log_id)])
+
+
 # --- 音声化の依頼（計画 10 §3・プロジェクト付きは 17 §3.3・§3.4） ---
 
 # 今動いている音声化（(プロジェクト名, 論文 id) → タスク）。サーバーを再起動すると完了通知は失われる
