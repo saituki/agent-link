@@ -130,7 +130,7 @@ function testEdgePath() {
   assert.ok(/^M 200 72 /.test(d) || /^M 100 72 /.test(d), d);
 }
 
-// --- F ・ O の出し入れと叠み（U02）: Q1 → O2 → F3・F4、Q1 → O5 ---
+// --- F ・ O の出し入れと畳み（U02）: Q1 → O2 → F3・F4、Q1 → O5 ---
 
 function miniStatus() {
   return {
@@ -174,14 +174,14 @@ function testHideFAndO() {
 }
 
 function testCollapsedWithoutChildren() {
-  // 子孫の無い札を叠みに入れても印はつかない
+  // 子孫の無い札を畳みに入れても印はつかない
   const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["O5"] });
   assert.strictEqual(byId(l, "O5").collapsed, false);
   assert.strictEqual(byId(l, "O5").canCollapse, false);
   assert.ok(!byId(l, "O5").sub.includes("▸"), byId(l, "O5").sub);
   assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "O2", "O5", "Q1"]);
 
-  // 子孫のある Q1 を叠むと、他は子孫と印だけ
+  // 子孫のある Q1 を畳むと、他は子孫と印だけ
   const l2 = sgTreeLayout({ status: miniStatus() }, { collapsed: ["Q1"] });
   assert.deepStrictEqual(idsOf(l2), ["Q1"]);
   assert.strictEqual(byId(l2, "Q1").collapsed, true);
@@ -205,10 +205,10 @@ const tests = [
   ["空の入力", testEmpty],
   ["線の種類", testEdgeStyle],
   ["線の形", testEdgePath],
-  ["叠んだ子孫", testCollapsed],
+  ["畳んだ子孫", testCollapsed],
   ["hideO", testHideO],
   ["hideF と hideO", testHideFAndO],
-  ["子孫の無い札の叠み", testCollapsedWithoutChildren],
+  ["子孫の無い札の畳み", testCollapsedWithoutChildren],
   ["中央に出す tx と ty", testCenterView],
 ];
 

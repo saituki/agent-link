@@ -31,7 +31,7 @@ const SG_MANY_NODES = 60;
 const SG_DRAG_SLOP = 4;
 // 拡大・縮小の釦を 1 回押したときの拡大率の倍率
 const SG_ZOOM_STEP = 1.2;
-// 位置・倍率・F と O・叠んを覚える localStorage の鍵の前
+// 位置・倍率・F と O・畳みを覚える localStorage の鍵の前
 const SG_MEMO_PREFIX = "sai-sg-view:";
 // localStorage へ書くのをまとめるミリ秒
 const SG_MEMO_WAIT = 120;
