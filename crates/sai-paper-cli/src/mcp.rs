@@ -180,6 +180,12 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                 subtree,
             )
             .map_err(|err| anyhow!("{err}"))?;
+            // 内部検索の履歴に残す範囲のコピー（U01。`request` が動くため先に写す）。
+            let log_mode = str_arg(args, "mode");
+            let log_scope = str_arg(args, "scope");
+            let log_papers: Vec<i64> = paper_ids.clone().unwrap_or_default();
+            let log_each = int_arg(args, "each");
+            let log_widen = str_arg(args, "widen").unwrap_or_default();
             let request = sai_paper_core::retrieval::FindRequest {
                 query: query.clone(),
                 mode: str_arg(args, "mode"),
@@ -211,6 +217,37 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                     .map(|c| c as &dyn sai_paper_core::evidence::ChatClient),
             )
             .await?;
+            // 内部検索の履歴（U01。Node の有無に関わらず毎回。失敗しても検索は続ける）。
+            {
+                let plain_hits: Vec<sai_paper_core::Hit> = match &outcome {
+                    sai_paper_core::evidence::SearchOutcome::Plain(hits) => hits.clone(),
+                    sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
+                        result.hits.iter().map(|item| item.hit.clone()).collect()
+                    }
+                };
+                let passages = sai_paper_core::sections::passages_for_hits(conn, &plain_hits);
+                if let Err(err) = sai_paper_core::find_log::record(
+                    conn,
+                    &sai_paper_core::find_log::FindLogInput {
+                        query: &query,
+                        mode: log_mode.as_deref(),
+                        top_k: int_arg(args, "top_k"),
+                        scope: log_scope.as_deref(),
+                        range_text: &scope_note,
+                        papers: &log_papers,
+                        node_id: refs.node,
+                        subtree,
+                        each: log_each,
+                        widen_reason: &log_widen,
+                        origin: "mcp",
+                        run_id: crate::sci::parent_run_id(),
+                    },
+                    &plain_hits,
+                    &passages,
+                ) {
+                    eprintln!("検索履歴を残せませんでした: {err:#}");
+                }
+            }
             // 節点か問いがあれば検索の記録に残す（CLI の find と同じ処理）。
             let (count, hit_papers) = match &outcome {
                 sai_paper_core::evidence::SearchOutcome::Plain(hits) => {

@@ -1223,6 +1223,10 @@ async fn main() -> Result<()> {
                 sci::previous_search_line(db.connection(), &refs, &scope_note)
             };
 
+            // 内部検索の履歴に残す範囲のコピー（U01。`request` が `mode` / `scope` / `paper_ids` を動かすため先に写す）。
+            let log_mode = mode.clone();
+            let log_scope = scope.clone();
+            let log_papers: Vec<i64> = paper_ids.clone().unwrap_or_default();
             // CLI・TUI・MCP で同じ core の関数を呼ぶ（段階 7）
             let request = sai_paper_core::retrieval::FindRequest {
                 query: query.clone(),
@@ -1254,6 +1258,38 @@ async fn main() -> Result<()> {
             )
             .await
             .context("search failed")?;
+            // 内部検索の履歴（U01。Node の有無に関わらず毎回。失敗しても検索は続ける）。
+            {
+                let plain_hits: Vec<sai_paper_core::Hit> = match &outcome {
+                    sai_paper_core::evidence::SearchOutcome::Plain(hits) => hits.clone(),
+                    sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
+                        result.hits.iter().map(|item| item.hit.clone()).collect()
+                    }
+                };
+                let passages =
+                    sai_paper_core::sections::passages_for_hits(db.connection(), &plain_hits);
+                if let Err(err) = sai_paper_core::find_log::record(
+                    db.connection(),
+                    &sai_paper_core::find_log::FindLogInput {
+                        query: &query,
+                        mode: log_mode.as_deref(),
+                        top_k,
+                        scope: log_scope.as_deref(),
+                        range_text: &scope_note,
+                        papers: &log_papers,
+                        node_id: refs.node,
+                        subtree,
+                        each,
+                        widen_reason: widen.as_deref().unwrap_or(""),
+                        origin: "cli",
+                        run_id: sci::parent_run_id(),
+                    },
+                    &plain_hits,
+                    &passages,
+                ) {
+                    eprintln!("検索履歴を残せませんでした: {err:#}");
+                }
+            }
             // Node の指定があれば検索の記録に残す（R-R3 / R-R4）。
             let (hit_count, hit_papers): (i64, Vec<i64>) = match &outcome {
                 sai_paper_core::evidence::SearchOutcome::Plain(hits) => {

@@ -20,8 +20,8 @@ use sai_paper_core::citation;
 use sai_paper_core::citation::db::get_refs_for;
 use sai_paper_core::paths::PaperRoots;
 use sai_paper_core::{
-    Config, Database, LibraryIndexer, LibraryPaper, Paths, S2Client, figures, library_tree, paths,
-    podcast_client, search_log, search_sets, translation,
+    Config, Database, LibraryIndexer, LibraryPaper, Paths, S2Client, figures, find_log,
+    library_tree, paths, podcast_client, search_log, search_sets, translation,
 };
 use serde_json::{Value, json};
 
@@ -167,6 +167,38 @@ pub enum PhoneCmd {
         #[command(subcommand)]
         cmd: PhoneSetCmd,
     },
+    /// Library の中を検索し、内部検索の履歴に残す（U01。要約なし）
+    Find {
+        /// 検索モード（word / vector / hybrid。無ければ設定の既定）
+        #[arg(long)]
+        mode: Option<String>,
+        /// 上位 K 件
+        #[arg(long)]
+        top_k: Option<i64>,
+        /// 検索対象（papers / notes / figures / all。無ければ設定の既定）
+        #[arg(long)]
+        scope: Option<String>,
+        /// 論文 ID（指定時はその論文に絞り込む。繰り返し指定可）
+        #[arg(long)]
+        paper: Vec<i64>,
+        /// 研究方針の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
+        #[arg(long)]
+        node: Option<String>,
+        /// `--node` の子孫の Node も含める
+        #[arg(long)]
+        subtree: bool,
+        /// 範囲の論文ごとに上位 M 件を返す（`--paper` か `--node` と一緒に使う）
+        #[arg(long)]
+        each: Option<i64>,
+        /// 検索ワード
+        query: String,
+    },
+    /// 内部検索の履歴 1 件とヒット一覧（U01）
+    #[command(name = "find-log")]
+    FindLog {
+        /// 内部検索の履歴 ID（find_logs.id）
+        log_id: i64,
+    },
 }
 
 /// `sai-moon-paper phone set` のサブコマンド。
@@ -261,6 +293,32 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         PhoneCmd::AttentionResolve { key } => crate::phone_import::attention_resolve(&key),
         PhoneCmd::Sci { cmd } => crate::phone_sci::run(cmd),
         PhoneCmd::Set { cmd } => set_run(cmd),
+        PhoneCmd::Find {
+            mode,
+            top_k,
+            scope,
+            paper,
+            node,
+            subtree,
+            each,
+            query,
+        } => {
+            find(FindArgs {
+                mode: &mode,
+                top_k,
+                scope: &scope,
+                papers: &paper,
+                node: node.as_deref(),
+                subtree,
+                each,
+                query: &query,
+            })
+            .await
+        }
+        PhoneCmd::FindLog { log_id } => {
+            let (db, _cfg, _paths) = open_context()?;
+            find_log_view(&db, log_id)
+        }
     };
     match outcome {
         Ok(value) => {
@@ -566,7 +624,12 @@ fn tree() -> Result<Value> {
     let (db, cfg, paths) = open_context()?;
     let papers = library_papers(&db, &cfg, &paths)?;
     let groups = library_tree::build_groups(db.connection(), &papers);
-    Ok(json!({ "groups": serde_json::to_value(groups)? }))
+    // 内部検索の履歴（U01。新しい順。`groups` は変えない）。
+    let find_groups = find_log::groups(db.connection(), &papers)?;
+    Ok(json!({
+        "groups": serde_json::to_value(groups)?,
+        "find_groups": serde_json::to_value(find_groups)?,
+    }))
 }
 
 /// `phone paper <id>`: 論文 1 件の詳細（00 §7.2）。
@@ -837,6 +900,208 @@ fn search_actor(conn: &rusqlite::Connection, log_id: i64) -> (Value, Value) {
         .and_then(|id| sai_paper_core::rt::store::get_node(conn, id).ok())
         .map(|node| json!({ "id": sai_paper_core::rt::fmt_id(node.kind, node.id) }));
     (actor, node.unwrap_or(Value::Null))
+}
+
+/// `phone find` の引数（`PhoneCmd::Find` から写す。clippy の引数過多を避けるため）。
+struct FindArgs<'a> {
+    mode: &'a Option<String>,
+    top_k: Option<i64>,
+    scope: &'a Option<String>,
+    papers: &'a [i64],
+    node: Option<&'a str>,
+    subtree: bool,
+    each: Option<i64>,
+    query: &'a str,
+}
+
+/// `phone find …`: Library の中を検索し、内部検索の履歴に残す（U01。要約なし）。
+///
+/// 出力は `phone find-log <新しい log_id>` と同じ形。結果 0 件でも履歴は残す。
+async fn find(args: FindArgs<'_>) -> Result<Value> {
+    let FindArgs {
+        mode,
+        top_k,
+        scope,
+        papers,
+        node,
+        subtree,
+        each,
+        query,
+    } = args;
+    let query = query.trim();
+    if query.is_empty() {
+        bail!("検索語が空です");
+    }
+    if let Some(mode) = mode
+        && !matches!(mode.as_str(), "word" | "vector" | "hybrid")
+    {
+        bail!("検索モードが正しくありません（word / vector / hybrid）");
+    }
+    if let Some(scope) = scope
+        && !matches!(scope.as_str(), "papers" | "notes" | "figures" | "all")
+    {
+        bail!("検索対象が正しくありません（papers / notes / figures / all）");
+    }
+    // `--subtree` と `--each` には範囲の指定が要る（CLI の find と同じ検査）。
+    crate::sci::check_find_scope(subtree, node.is_some(), each, papers.is_empty())?;
+
+    let (db, cfg, _paths) = open_context()?;
+    let conn = db.connection();
+    let refs = crate::sci::parse_search_refs(conn, node)?;
+    let (paper_ids, range_text) = sai_paper_core::retrieval::resolve_paper_scope(
+        conn,
+        None,
+        papers,
+        refs.node,
+        subtree,
+    )
+    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    let widen = "";
+    let hits = sai_paper_core::retrieval::find(
+        conn,
+        &cfg,
+        sai_paper_core::retrieval::FindRequest {
+            query: query.to_string(),
+            mode: mode.clone(),
+            top_k,
+            per_paper: None,
+            scope: scope.clone(),
+            paper_id: None,
+            paper_ids: paper_ids.clone(),
+            each,
+            index: None,
+            alpha: None,
+            fusion: None,
+            fts_expr: false,
+        },
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    let passages = sai_paper_core::sections::passages_for_hits(conn, &hits);
+    let range_papers: Vec<i64> = paper_ids.unwrap_or_default();
+    let log_id = find_log::record(
+        conn,
+        &find_log::FindLogInput {
+            query,
+            mode: mode.as_deref(),
+            top_k,
+            scope: scope.as_deref(),
+            range_text: &range_text,
+            papers: &range_papers,
+            node_id: refs.node,
+            subtree,
+            each,
+            widen_reason: widen,
+            origin: "phone",
+            run_id: None,
+        },
+        &hits,
+        &passages,
+    )?;
+    // Node が結び付いていれば `rt_searches` にも残す（CLI の find と同じ）。
+    crate::sci::record_search(
+        conn,
+        &crate::sci::SearchLog {
+            refs: &refs,
+            tool: "find",
+            query,
+            scope: &range_text,
+            widen_reason: widen,
+            hits: hits.len() as i64,
+            hit_papers: &crate::sci::hit_paper_ids(&hits),
+            set_id: None,
+            log_id: None,
+        },
+    )?;
+    find_log_view(&db, log_id)
+}
+
+/// 内部検索の履歴 1 件を、使い回しの JSON（C-2）にする。
+///
+/// `phone find`（検索直後）と `phone find-log`（過去の履歴）で共用。
+fn find_log_json(
+    conn: &rusqlite::Connection,
+    row: &find_log::FindLogRow,
+    rows: &[(i64, Option<i64>, Value)],
+) -> Value {
+    // 実行者: `run_id` ありか `origin = 'mcp'` なら agent（`search_actor` と同じ作り）。
+    let run_id = row.run_id;
+    let actor = if find_log::is_agent(&row.origin, run_id) {
+        // 実行フォルダの task.md（無ければ sai-link の DB）から block の名前を引く。
+        let block = run_id.and_then(|run_id| {
+            let root = paths::project_root()?;
+            let dir = sai_paper_core::runs::list_run_dirs(&root)
+                .into_iter()
+                .find(|dir| dir.run_id == run_id)?;
+            sai_paper_core::runs::run_block_id(&root, &dir)
+        });
+        json!({ "kind": "agent", "run_id": run_id, "block": block })
+    } else {
+        json!({ "kind": "human" })
+    };
+    let node = row
+        .node_id
+        .and_then(|id| sai_paper_core::rt::store::get_node(conn, id).ok())
+        .map(|node| json!({ "id": sai_paper_core::rt::fmt_id(node.kind, node.id) }));
+    let hits: Vec<Value> = rows
+        .iter()
+        .map(|(position, paper_id, item)| {
+            let map = item.as_object();
+            let authors: Vec<Value> = map
+                .and_then(|map| map.get("authors"))
+                .and_then(|value| value.as_str())
+                .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .map(Value::String)
+                .collect();
+            let get = |key: &str| map.and_then(|map| map.get(key)).cloned().unwrap_or(Value::Null);
+            json!({
+                "position": position,
+                "score": get("score"),
+                "chunk_id": get("chunk_id"),
+                "source_kind": get("source_kind"),
+                "source_ref": get("source_ref"),
+                "paper_id": paper_id.map_or(Value::Null, Value::from),
+                "title": get("title"),
+                "authors": authors,
+                "year": get("year"),
+                "section": get("section"),
+                "text": get("text"),
+                "cite": get("cite"),
+                "passage": get("passage"),
+            })
+        })
+        .collect();
+    json!({
+        "log": {
+            "id": row.id,
+            "date": row.log_date,
+            "searched_at": row.searched_at,
+            "query": row.query,
+            "mode": row.mode,
+            "top_k": row.top_k,
+            "scope": row.scope,
+            "range": row.range_text,
+            "papers": row.papers,
+            "node": node.unwrap_or(Value::Null),
+            "subtree": row.subtree,
+            "each": row.each,
+            "widen": row.widen_reason,
+            "actor": actor,
+        },
+        "hits": hits,
+    })
+}
+
+/// `phone find-log <id>`: 内部検索の履歴 1 件とヒット一覧（U01）。
+fn find_log_view(db: &Database, log_id: i64) -> Result<Value> {
+    let conn = db.connection();
+    let Some(row) = find_log::get(conn, log_id)? else {
+        bail!("検索履歴が見つかりません");
+    };
+    let rows = find_log::hits(conn, log_id)?;
+    Ok(find_log_json(conn, &row, &rows))
 }
 
 /// `phone providers`: 既定の DB（設定の `discover.providers`）と全 DB の一覧。
@@ -1138,6 +1403,101 @@ mod tests {
         sai_paper_core::search_log::set_run_id(conn, by_set, Some(9)).unwrap();
         let (actor, _) = search_actor(conn, by_set);
         assert_eq!((actor["kind"].as_str(), actor["run_id"].as_i64()), (Some("agent"), Some(9)));
+    }
+
+    /// 内部検索の履歴: `find-log` は人と agent を見分け、`find_groups` は新しい順に並ぶ。
+    #[test]
+    fn find_log_view_distinguishes_human_and_agent() {
+        use super::find_log_view;
+        use sai_paper_core::find_log::{self, FindLogInput};
+        use std::collections::HashMap;
+
+        /// 記録用のヒット 1 件。
+        fn hit(chunk_id: i64, paper_id: Option<i64>) -> sai_paper_core::Hit {
+            sai_paper_core::Hit {
+                score: 0.8,
+                chunk_id,
+                source_kind: "body".to_string(),
+                source_ref: "3".to_string(),
+                paper_id,
+                title: Some("題".to_string()),
+                authors: Some("[\"A. Smith\"]".to_string()),
+                year: Some(2024),
+                text: "本文".to_string(),
+                char_start: None,
+                char_end: None,
+                md_path: None,
+                section: Some("Methods".to_string()),
+            }
+        }
+
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        let empty: HashMap<i64, String> = HashMap::new();
+        // 古い履歴（人）→新しい履歴（agent）の順に作る。
+        let human = find_log::record(
+            conn,
+            &FindLogInput {
+                query: "人の検索",
+                mode: Some("hybrid"),
+                top_k: Some(10),
+                scope: Some("all"),
+                range_text: "library",
+                papers: &[3],
+                node_id: None,
+                subtree: false,
+                each: None,
+                widen_reason: "",
+                origin: "phone",
+                run_id: None,
+            },
+            &[hit(1, Some(3))],
+            &empty,
+        )
+        .unwrap();
+        let agent = find_log::record(
+            conn,
+            &FindLogInput {
+                query: "agent の検索",
+                mode: Some("hybrid"),
+                top_k: Some(10),
+                scope: Some("all"),
+                range_text: "library",
+                papers: &[],
+                node_id: None,
+                subtree: false,
+                each: None,
+                widen_reason: "",
+                origin: "mcp",
+                run_id: Some(5),
+            },
+            &[hit(2, None)],
+            &empty,
+        )
+        .unwrap();
+
+        let shown = find_log_view(&db, human).unwrap();
+        assert_eq!(shown["log"]["query"], "人の検索");
+        assert_eq!(shown["log"]["actor"]["kind"], "human");
+        assert_eq!(shown["hits"][0]["position"], 0);
+        assert_eq!(shown["hits"][0]["paper_id"], 3);
+        assert_eq!(shown["hits"][0]["authors"][0], "A. Smith");
+        assert!(shown["log"]["node"].is_null());
+
+        let shown = find_log_view(&db, agent).unwrap();
+        assert_eq!(shown["log"]["actor"]["kind"], "agent");
+        assert_eq!(shown["log"]["actor"]["run_id"], 5);
+        assert!(find_log_view(&db, human + agent + 99).is_err());
+
+        let found = find_log::groups(conn, &[]).unwrap();
+        assert_eq!(found.len(), 2);
+        // 新しい順（agent が先）。論文に結び付かないヒットは数えるが論文一覧には入れない。
+        assert_eq!(found[0].log_id, agent);
+        assert_eq!(found[0].hit_count, 1);
+        assert!(found[0].paper_ids.is_empty());
+        assert_eq!(found[0].actor.kind, "agent");
+        assert_eq!(found[1].log_id, human);
+        assert_eq!(found[1].actor.kind, "human");
     }
 
     /// 検索セットの 4 つの命令: 一覧・詳細・選別・まとめて drop（imported は変えない）。
