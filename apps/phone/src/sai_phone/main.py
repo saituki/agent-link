@@ -873,6 +873,20 @@ def api_papers_search_log(
     return papers.search_log(papers.resolve_project(name), log_id)
 
 
+@app.post("/api/projects/{name}/papers/find")
+def api_papers_find(name: str, req: papers.FindRequest, _: None = Depends(require_token)) -> dict:
+    """内部検索（sai-paper `phone find`・履歴にも残る）。"""
+    return papers.find(papers.resolve_project(name), req)
+
+
+@app.get("/api/projects/{name}/papers/find-logs/{log_id:int}")
+def api_papers_find_log(
+    name: str, log_id: int, _: None = Depends(require_token)
+) -> dict:
+    """過去の内部検索の結果（sai-paper `phone find-log <log_id>`）。"""
+    return papers.find_log(papers.resolve_project(name), log_id)
+
+
 # --- Import・Download・Project（U3 §変更内容 2・共有契約 C-A2） ---
 # sai-paper-tui の BibTeX の取り込み・PDF の Download・Project の画面を Web からも使う。
 # 固定の住所（import / downloads / project / attention）は

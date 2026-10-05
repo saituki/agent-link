@@ -201,10 +201,12 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 |---|---|
 | `GET /api/paper-projects` | 論文の置き場があるプロジェクトの一覧 `[{name, root_name, last_executed_at}]` |
 | `GET /api/projects/{name}/papers/library` | Library 一覧 |
-| `GET /api/projects/{name}/papers/tree` | Library 階層 |
+| `GET /api/projects/{name}/papers/tree` | Library 階層（`find_groups`（内部検索の履歴の組）も返る） |
 | `GET /api/projects/{name}/papers/providers` | 検索先の一覧と既定 |
 | `POST /api/projects/{name}/papers/search` | 検索（履歴にも残る） |
 | `GET /api/projects/{name}/papers/logs/{log_id}` | 過去の検索結果 |
+| `POST /api/projects/{name}/papers/find` | 内部検索（Library 内の検索・履歴にも残る） |
+| `GET /api/projects/{name}/papers/find-logs/{log_id}` | 過去の内部検索の結果 |
 | `GET /api/projects/{name}/papers/{paper_id:int}` | 論文情報 |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate` | 要旨の日本語訳 |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate-pdf` | PDF の日本語訳を始める（202 `{"key": "pdf:<id>", "status": "processing"}`・翻訳中は 409・仕事は `downloads` に `kind="translate"`・`percent=null` で出る・`phone translate-pdf`） |
@@ -250,7 +252,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `POST /api/projects/{name}/papers/sets/{set_id}/drop-pending` | 未判定（pending）の候補をまとめて drop にする（body `{"reason": "…"}`・任意） |
 
 - 古い `/api/papers/...` は無い。`{name}` は 3.1 の一覧の名前で，無ければ 404。
-- `import` / `downloads` / `manual/candidates` / `manual/import` / `manual/upload` / `project` / `attention` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- `import` / `downloads` / `manual/candidates` / `manual/import` / `manual/upload` / `project` / `attention` / `find` / `find-logs` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - `papers/browser/…`（`open` / `state` / `screen` / `input` / `import` と `DELETE papers/browser`）も `{paper_id:int}` より**先に**登録する。
 - リモートブラウザの Chrome は全体で 1 つ・最後の操作から 10 分で終了・専用プロファイル `~/.sai-moon/phone/browser-profile/`・ダウンロード先 `~/.sai-moon/phone/browser-downloads/`（7 日で消える）。DOI だけを受け、任意の URL は受けない。環境変数は `SAI_PHONE_CHROME`（Chrome の実行ファイル）と `SAI_PHONE_BROWSER_HEADED`（`1` で画面あり。出版社が headless を弾くとき）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ・メモは改行なしの 1〜2000 文字・key は 1〜300 文字の 1 行）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
@@ -298,7 +300,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 `POST /api/questions/{qid}/answer` `/api/approvals/{aid}/answer` /
 `GET /api/push/key` `POST /api/push/subscribe`。
 
-> **登録順の決まり**: FastAPI は登録した順に照合する。`/api/projects/{name}/papers/library`・`tree`・`providers`・`search`・`logs/{log_id}` は **`/api/projects/{name}/papers/{paper_id:int}` より前**に登録しないと ID として誤認される（`main.py` のコメント参照）。
+> **登録順の決まり**: FastAPI は登録した順に照合する。`/api/projects/{name}/papers/library`・`tree`・`providers`・`search`・`logs/{log_id}`・`find`・`find-logs/{log_id}` は **`/api/projects/{name}/papers/{paper_id:int}` より前**に登録しないと ID として誤認される（`main.py` のコメント参照）。
 
 ---
 
@@ -334,6 +336,8 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/paper/<name>/<id>/cites` | 引用一覧（絞り込み・詳細・引用の抜き出し・手動取り込み） | 論文 | 表示 |
 | `#/papers/log/<name>/<log_id>` | 過去の検索結果 | 論文 | 表示 |
 | `#/papers/log/<name>/<log_id>/<position>` | 未ダウンロード論文の情報 | 論文 | 表示 |
+| `#/papers/find/<name>/<log_id>` | 過去の内部検索の結果 | 論文 | 表示 |
+| `#/papers/library/find/<log_id>` | 過去の内部検索の結果（今選んでいるプロジェクト） | 論文 | 表示 |
 | `#/radio/<radio_id>` | 再生画面（質問チャット付き） | 論文 | 隠す |
 | `#/mlflow` | 実験（MLflow）の一覧 | 実験 | 表示 |
 | `#/mlflow/e/<experiment_id\|all>` | run の表（`?sai_run=<branch>`・`?sprout=<n>`・`?study=<s>`・`?status=<S>` を付けられる。run は sprout → branch → run にまとめる。読むタグ: `sai.project`・`sai.run_id`・`sai.sprout_run_id`・`sci.node`・`exp.study`・`exp.model`・`exp.action`・`exp.parent_branch`・`exp.trial`・`exp.metric`・`exp.direction`・`exp.device`・`exp.error`。旧い `?seed=` は読まない） | 実験 | 表示 |
@@ -391,7 +395,7 @@ launchd（`apps/phone/launchd/com.sai-moon.plist`）では `PYTHONPATH`（`apps/
 | **`sai-moon-link phone` の `SAI_PROJECT_ROOT`** | sai-moon-link は `SAI_PROJECT_ROOT`（デーモン起動時に設定された値）を最優先で DB 解決に使う。List の API は cwd = root に加え `control._phone_env` で必ず root を渡している。これを消すと，起動元の環境によっては**全プロジェクトが同じ DB を開いてしまう**（ツリーが全部同じになる） |
 | **Radio の論文 ID は英数字** | ID は「論文 ID（`<root のフォルダ名>-<番号>`・例 `sai-moon-30`）」と「apps/radio が作った音声（12 桁の 16 進・`demo001` 等）」の両方がある。数字だけと当て込むと壊れる。判定は `radio.js` の `isRadioPaperId` |
 | **長すぎる論文は音声化できない** | apps/radio が論文全文をそのまま LLM に 1 回で渡す（`llm.py`）ため、約 13 万トークンを超える論文は文脈上限で失敗する（**apps/radio 側の制限**）。`apps/phone` / `sai-moon-paper` 側に分割処理はない |
-| **FastAPI の登録順** | 固定パス（`library` `tree` `providers` `search` `logs/{log_id}` `manual/candidates` `manual/import` `manual/upload`）を `/api/projects/{name}/papers/{paper_id:int}` より前に登録しないと 404 / 400 になる。順番を変えたら curl で一覧を確かめる |
+| **FastAPI の登録順** | 固定パス（`library` `tree` `providers` `search` `logs/{log_id}` `find` `find-logs/{log_id}` `manual/candidates` `manual/import` `manual/upload`）を `/api/projects/{name}/papers/{paper_id:int}` より前に登録しないと 404 / 400 になる。順番を変えたら curl で一覧を確かめる |
 | **`sw.js` の `CACHE`** | 版（今は `sai-phone-v31`）を上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。音声の倉庫 `sai-phone-radio-audio` は別物なので消さない |
 | **launchd の PATH** | plist に `PATH` が無いとプロジェクトタブ全部が 503（「`sai-moon-link` が見つかりません」）になる |
 | **常駐・実行を動かす操作** | 常駐の起動停止・todo 実行・音声化の依頼は実際にエージェントや生成を動かす。確認は `--help` と不正値で行う |
