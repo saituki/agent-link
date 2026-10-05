@@ -83,10 +83,10 @@
   cursor: pointer;
 }
 /* 押しているときだけ、図の札と同じ色を薄く敷く */
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-Q { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--accent); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-O { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--sci-decided); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-tentative); background: color-mix(in srgb, var(--sci-tentative) 18%, var(--bg)); color: var(--sci-tentative); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-candidate); background: color-mix(in srgb, var(--sci-candidate) 18%, var(--bg)); color: var(--sci-candidate); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-Q { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-O { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-tentative); background: color-mix(in srgb, var(--sci-tentative) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-candidate); background: color-mix(in srgb, var(--sci-candidate) 18%, var(--bg)); color: var(--text); }
 
 .sci-list-rows {
   flex: 1 1 auto;
@@ -332,7 +332,7 @@ button.sci-debt {
 .sci-id {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-soft);
+  color: var(--text);
 }
 
 .sci-pin { font-size: 12px; }
@@ -377,7 +377,7 @@ button.sci-debt {
 .sci-node-chips:empty { display: none; }
 /* 選べる値を全部並べ、今の値以外は薄くする */
 .sci-scale { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.sci-dim { opacity: 0.4; }
+.sci-dim { opacity: 1; }
 
 .sci-ops { display: flex; flex-wrap: wrap; gap: 6px; }
 .sci-ops:empty { display: none; }
@@ -465,8 +465,12 @@ button.sci-debt {
 .sci-legacy { padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; }
 .sci-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sci-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 32px;
   padding: 0 10px;
+  line-height: 1;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: var(--bg);
@@ -487,35 +491,42 @@ button.sci-debt {
 /* 一覧の行: 押す部分・★・Answer/Issue・✕。押せる物は 44px 以上 */
 .sci-row { display: flex; flex-direction: row; align-items: center; gap: 4px; border-radius: 8px; padding-top: 0; padding-bottom: 0; padding-right: 4px; cursor: default; }
 .sci-row.selected { background: var(--bg-soft); }
+/* 一覧の行は Q/O/F/E で ID と題の色を変える（絞り込みボタンと同じ色） */
+.sci-row-Q .sci-row-head { color: var(--accent); }
+.sci-row-O .sci-row-head { color: var(--sci-decided); }
+.sci-row-F .sci-row-head { color: var(--sci-tentative); }
+.sci-row-E .sci-row-head { color: var(--sci-candidate); }
+.sci-row-head .sci-id { color: inherit; }
 /* 絞り込みで ancestor として出した行（自分の種類が絞り込みに合わない行。薄くする） */
-.sci-row-ctx { opacity: 0.55; }
+.sci-row-ctx { opacity: 1; }
 
 /* 畳み・開くの釦。子の無い行には同じ幅の空きを置く（文字の頭をそろえる） */
 .sci-twisty, .sci-twisty-space {
   flex: 0 0 auto;
   width: 28px;
-  min-height: 32px;
+  min-height: 30px;
   align-self: stretch;
 }
 .sci-twisty {
   border: 0;
   background: transparent;
-  color: var(--text-soft);
+  color: var(--text);
   font: inherit;
   font-size: 0.9rem;
   padding: 0;
   cursor: pointer;
 }
-.sci-twisty:hover { color: var(--accent); }
+.sci-twisty:hover { color: var(--text); }
 .sci-row-main {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 44px;
+  min-height: 30px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 4px 0;
+  justify-content: center;
+  gap: 0;
+  padding: 2px 0;
   overflow: hidden;
   border: 0;
   background: transparent;
@@ -523,19 +534,19 @@ button.sci-debt {
   font: inherit;
   text-align: left;
 }
-.sci-star, .sci-remove {
+.sci-star {
   flex: 0 0 auto;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 36px;
+  min-height: 30px;
   border: 0;
   background: transparent;
-  color: var(--text-soft);
+  color: var(--text);
   font-size: 1.1rem;
 }
-.sci-star.on { color: var(--accent); }
+.sci-star.on { color: var(--text); }
 .sci-kind {
   flex: 0 0 auto;
-  min-height: 44px;
+  min-height: 30px;
   padding: 0 8px;
   border: 0;
   background: transparent;
@@ -543,15 +554,15 @@ button.sci-debt {
   font: inherit;
   font-size: 12px;
 }
-.sci-kind-issue { color: var(--accent); }
+.sci-kind-issue { color: var(--text); }
 
 /* Objectivity の棒と Logicality の札。色だけに頼らず文字も出す */
-.sci-obj { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-soft); letter-spacing: 1px; }
+.sci-obj { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); letter-spacing: 1px; }
 .sci-obj.met { color: var(--text); font-weight: 700; }
-.sci-logic { font-size: 11px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 999px; }
+.sci-logic { display: inline-flex; align-items: center; justify-content: center; line-height: 1.6; font-size: 11px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 999px; }
 .sci-logic-ok { color: var(--text); }
-.sci-logic-warn { color: var(--accent); border-color: var(--accent); }
-.sci-logic-dim { color: var(--text-soft); opacity: 0.7; }
+.sci-logic-warn { color: var(--text); border-color: var(--accent); }
+.sci-logic-dim { color: var(--text); opacity: 0.7; }
 
 .sci-target-input { width: 96px; min-height: 44px; font: inherit; padding: 0 8px; }
 .sci-action {

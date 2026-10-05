@@ -326,7 +326,7 @@ iPhone（Safari・ホーム画面のアイコン 1 つ）
 | `#/papers/sets/<id>` | 検索セット 1 つの選別（keep / drop・まとめて drop） | 論文 | 表示 |
 | `#/papers/read/<run_id>` | READ_CARD（1 本の論文を読んで FINDING を書く） | 論文 | 表示 |
 | `#/papers/dashboard` | Dashboard | 論文 | 表示 |
-| `#/papers/discover` | Discover | 論文 | 表示 |
+| `#/papers/discover` | 旧 Discover（Library へ移すだけ） | 論文 | 表示 |
 | `#/papers/library` | Library | 論文 | 表示 |
 | `#/papers/radio` | Radio 一覧 | 論文 | 表示 |
 | `#/paper/<name>/<id>` | 論文情報 | 論文 | 表示 |

@@ -259,6 +259,8 @@ pub struct SearchJson {
     pub query: String,
     pub hits: i64,
     pub set_id: Option<i64>,
+    /// その 1 回の検索の履歴（Library の検索結果へのリンク先）。
+    pub log_id: Option<i64>,
     pub created_at: String,
 }
 
@@ -1158,7 +1160,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
             .into_iter()
             .map(|s| {
                 let block = s.run_id.and_then(|id| runs.iter().find(|r| r.run_id == id)).map(|r| r.block.clone());
-                SearchJson { id: s.id, run: s.run_id, block, tool: s.tool, query: s.query, hits: s.hits, set_id: s.set_id, created_at: s.created_at }
+                SearchJson { id: s.id, run: s.run_id, block, tool: s.tool, query: s.query, hits: s.hits, set_id: s.set_id, log_id: s.log_id, created_at: s.created_at }
             })
             .collect(),
         sources: node.cites.iter().map(|c| source_json(conn, c)).collect(),

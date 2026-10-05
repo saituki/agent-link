@@ -221,8 +221,8 @@
 @media (min-width: 900px) {
   .papers-split { align-items: flex-start; }
   .papers-split > .sai-split-list {
-    flex: 0 0 340px;
-    max-width: 340px;
+    flex: 0 0 var(--papers-list-w, 340px);
+    max-width: none;
     min-height: 100dvh;
     max-height: 100dvh;
     overflow-y: auto;
@@ -492,4 +492,51 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .pim-progress-bar-working { animation: none; }
+}
+
+/* 結果の行の DOI と要旨（要旨は 3 行で切る） */
+.paper-row-doi { overflow-wrap: anywhere; }
+.paper-row-abst {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+/* --- Library の階層（旧 Discover を統合・▶ で開閉、文字で右の欄に検索結果） --- */
+.lib-g-twisty {
+  flex: none;
+  width: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+.lib-group-head.active { background: var(--bg-soft); }
+.paper-row-remote .paper-title { color: var(--text-soft); }
+.lib-remote-toggle { display: flex; align-items: center; gap: 4px; margin: 4px 0 8px; font-size: 13px; }
+
+/* hidden 属性が display に負けないようにする */
+.papers-cond[hidden], #discover-status[hidden] { display: none; }
+
+/* 左の階層と右の欄の境界線（ドラッグで幅を変える・広い画面だけ） */
+.papers-split-handle { display: none; }
+@media (min-width: 900px) {
+  .papers-split-handle {
+    display: block;
+    flex: 0 0 6px;
+    align-self: stretch;
+    margin: 0 -3px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 1;
+  }
+  .papers-split-handle:hover,
+  .papers-split-handle.dragging { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 }

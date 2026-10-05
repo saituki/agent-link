@@ -649,6 +649,8 @@ sai-moon-paper set create <name> … [--node <ID>] [--purpose <文>] [--extract 
 | `log` | `id` | 数値 | 画面を移っても結果を取り直すための鍵 | 検索直後の復元が出来ない |
 | `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
 | `log` | `searched_at` / `year` | ― | 未使用 | ― |
+| `log` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 検索結果の見出しの下の「実行者」（agent は `search_sets.run_id`（`sai-moon-paper search` が `SAI_PARENT_RUN_ID` から書く）、無ければ `rt_searches` の `set_id` = ログ ID から引く。`search` は `--save-as` が無くても必ず履歴を残す） | 出さない |
+| `log` | `node` | `{"id":"O5"}` \| null | 見出しの下の Node へのリンク（`#/papers/tree/O5`） | リンクを出さない |
 | `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
 | `items[]` | `title` `authors`（**配列**）`year` `journal` `doi` `abstract` `citation_count` | 各種 | 行と詳細の表示 | ― |
 | `items[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の札と行き先 | 未ダウンロード論文の情報画面 |
@@ -796,7 +798,7 @@ Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）�
 | 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run。`by` は `user` か `run:<N>`。`by` が `user` のときは `run_id` が null で `block`・`owner`・`purpose` は空、`global_round`・`node` は null | ― |
 | 直下 | `pending[]` | `{"id","op","payload","reason","run","created_at"}` | 仕分け待ちの提案の行 | ― |
 | 直下 | `next[]` | NextAction の配列 | この Node の次の一手 | ― |
-| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","created_at"}` | この Node に結んだ検索の履歴。`block` はその run の block（見つからなければ null） | ― |
+| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴。`log_id` はその 1 回の検索の履歴（Library の検索結果へのリンク先）、`set_id` は `--save-as` の名前付きセット（複数回の検索が足される）。`block` はその run の block（見つからなければ null） | ― |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典。Library に無ければ `title` は空、節・塊の表が無ければ `section`・`passage` は null。`passage` は先頭 200 字 | ― |
 
 **`phone sci read <run_id>` → 読む札**（`sci read <run_id> --json` と同じ。runner が `user` のカード）

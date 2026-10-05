@@ -98,10 +98,10 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--text-soft);
+  color: var(--text);
 }
 
-.sci-graph-card-mark { color: var(--sg-color, var(--text)); font-size: 12px; }
+.sci-graph-card-mark { color: var(--text); font-size: 12px; }
 .sci-graph-card-id { font-variant-numeric: tabular-nums; }
 .sci-graph-card-state { margin-left: auto; }
 .sci-graph-pin { font-size: 11px; }
@@ -224,7 +224,7 @@
 .sci-graph-starred { border-width: 2px; border-left-width: 6px; }
 
 /* ★ の道から外れた札は淡く出す（消さない） */
-.sci-graph-dim { opacity: 0.5; }
+.sci-graph-dim { opacity: 1; }
 
 /* 選んでいる札 */
 .sci-graph-card.is-selected {

@@ -21,7 +21,7 @@ const PROPOSAL_COLUMNS: &str = "id, run_id, block, op, node_id, payload, reason,
      result_ref, decided_by, decided_at, decide_note, created_at";
 const SEED_COLUMNS: &str = "id, title, sentence, path, run_id, removed_at, created_by, created_at";
 const SEARCH_COLUMNS: &str = "id, run_id, node_id, tool, query, scope, widen_reason, hits, \
-     hit_papers, set_id, created_at";
+     hit_papers, set_id, created_at, log_id";
 
 /// 文字列の JSON 配列を読む。読めないときは空。
 fn parse_vec<T: for<'de> Deserialize<'de>>(text: &str) -> Vec<T> {
@@ -551,13 +551,15 @@ pub struct SearchRow {
     pub hit_papers: Vec<i64>,
     pub set_id: Option<i64>,
     pub created_at: String,
+    /// その 1 回の検索の履歴（`search_sets` の行）。
+    pub log_id: Option<i64>,
 }
 
 /// 検索の記録を足す。`id` と `created_at` は無視して振る。
 pub fn insert_search(conn: &Connection, row: &SearchRow) -> Result<i64> {
     conn.execute(
         "INSERT INTO rt_searches (run_id, node_id, tool, query, scope, widen_reason, hits, \
-         hit_papers, set_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         hit_papers, set_id, log_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             row.run_id,
             row.node_id,
@@ -568,6 +570,7 @@ pub fn insert_search(conn: &Connection, row: &SearchRow) -> Result<i64> {
             row.hits,
             write_vec(&row.hit_papers)?,
             row.set_id,
+            row.log_id,
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -592,6 +595,7 @@ pub fn list_searches(conn: &Connection, node_id: Option<i64>) -> Result<Vec<Sear
             hit_papers: parse_vec(&row.get::<_, String>(8)?),
             set_id: row.get(9)?,
             created_at: row.get(10)?,
+            log_id: row.get(11)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -778,7 +782,7 @@ mod tests {
         let row = SearchRow {
             id: 0, run_id: None, node_id: Some(q), tool: "t".into(), query: "q".into(),
             scope: String::new(), widen_reason: String::new(), hits: 1, hit_papers: vec![7],
-            set_id: None, created_at: String::new(),
+            set_id: None, created_at: String::new(), log_id: None,
         };
         insert_search(conn, &row).unwrap();
         assert_eq!(list_searches(conn, Some(q)).unwrap()[0].hit_papers, vec![7]);

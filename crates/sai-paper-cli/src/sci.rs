@@ -828,6 +828,8 @@ pub(crate) struct SearchLog<'a> {
     pub hit_papers: &'a [i64],
     /// 作った検索セットの番号。
     pub set_id: Option<i64>,
+    /// その 1 回の検索の履歴（`search_sets` の行）の番号。
+    pub log_id: Option<i64>,
 }
 
 /// 検索の記録（`rt_searches` に 1 行）を残す。
@@ -852,6 +854,7 @@ pub(crate) fn record_search(conn: &Connection, log: &SearchLog<'_>) -> Result<()
             hit_papers: log.hit_papers.to_vec(),
             set_id: log.set_id,
             created_at: String::new(),
+            log_id: log.log_id,
         },
     )
     .map(|_| ())
@@ -1364,6 +1367,7 @@ mod tests {
                 hits: 2,
                 hit_papers: &[7, 9],
                 set_id: None,
+                log_id: None,
             },
         )
         .unwrap();
@@ -1381,6 +1385,7 @@ mod tests {
                 hits: 0,
                 hit_papers: &[],
                 set_id: None,
+                log_id: None,
             },
         )
         .unwrap();

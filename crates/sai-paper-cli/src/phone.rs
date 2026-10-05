@@ -778,6 +778,7 @@ fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Result<Value>
         }));
     }
 
+    let (actor, node) = search_actor(conn, log_id);
     Ok(json!({
         "log": {
             "id": log_meta.id,
@@ -786,9 +787,56 @@ fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Result<Value>
             "query": log_meta.query,
             "year": log_meta.year,
             "source_dbs": log_meta.source_dbs,
+            "actor": actor,
+            "node": node,
         },
         "items": items,
     }))
+}
+
+/// 検索の実行者と、結び付いた研究方針の Node（`log.actor` / `log.node`）。
+///
+/// 検索の記録は `search_sets` の 1 行（`origin` が窓口）。agent の検索は `rt_searches` に
+/// run_id と Node が残る（`set_id` が検索のログ ID）。読めないものは空にする（エラーにしない）。
+/// - `actor`: `{"kind": "human"}` か `{"kind": "agent", "run_id": 数 | null, "block": 名前 | null}`
+/// - `node`: `{"id": "O5"}`（Node が結び付いていなければ `null`）
+fn search_actor(conn: &rusqlite::Connection, log_id: i64) -> (Value, Value) {
+    let (origin, set_node, set_run): (Option<String>, Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT origin, rt_node, run_id FROM search_sets WHERE id = ?1",
+            [log_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap_or((None, None, None));
+    let rt: Option<(Option<i64>, Option<i64>)> = conn
+        .query_row(
+            "SELECT run_id, node_id FROM rt_searches WHERE log_id = ?1 OR set_id = ?1 ORDER BY id LIMIT 1",
+            [log_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    let run_id = set_run.or(rt.and_then(|(run, _)| run));
+    let node_id = set_node.or(rt.and_then(|(_, node)| node));
+
+    let actor = if origin.as_deref() == Some("agent") || run_id.is_some() {
+        // 実行フォルダの task.md（無ければ sai-link の DB）から block の名前を引く。
+        let block = run_id.and_then(|run_id| {
+            let root = paths::project_root()?;
+            let dir = sai_paper_core::runs::list_run_dirs(&root)
+                .into_iter()
+                .find(|dir| dir.run_id == run_id)?;
+            sai_paper_core::runs::run_block_id(&root, &dir)
+        });
+        json!({ "kind": "agent", "run_id": run_id, "block": block })
+    } else {
+        json!({ "kind": "human" })
+    };
+    let node = node_id
+        .and_then(|id| sai_paper_core::rt::store::get_node(conn, id).ok())
+        .map(|node| json!({ "id": sai_paper_core::rt::fmt_id(node.kind, node.id) }));
+    (actor, node.unwrap_or(Value::Null))
 }
 
 /// `phone providers`: 既定の DB（設定の `discover.providers`）と全 DB の一覧。
@@ -1063,6 +1111,35 @@ fn read_text(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// 検索の実行者: 窓口の検索は human、agent の検索は rt_searches の run_id と Node を返す。
+    #[test]
+    fn search_actor_is_human_or_agent_with_node() {
+        use super::search_actor;
+        use sai_paper_core::search_log::record_search;
+
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        let human = record_search(conn, "phone", "q", "", "10", "s2", &[]).unwrap();
+        assert_eq!(search_actor(conn, human).0["kind"], "human");
+        assert!(search_actor(conn, human).1.is_null());
+
+        let agent = record_search(conn, "agent", "q2", "", "10", "s2", &[]).unwrap();
+        conn.execute(
+            "INSERT INTO rt_searches (run_id, tool, query, set_id) VALUES (7, 'search', 'q2', ?1)",
+            [agent],
+        )
+        .unwrap();
+        let (actor, _node) = search_actor(conn, agent);
+        assert_eq!(actor["kind"], "agent");
+        assert_eq!(actor["run_id"], 7);
+
+        // search_sets に run_id が残っていれば、rt_searches が無くても agent。
+        let by_set = record_search(conn, "cli", "q3", "", "10", "s2", &[]).unwrap();
+        sai_paper_core::search_log::set_run_id(conn, by_set, Some(9)).unwrap();
+        let (actor, _) = search_actor(conn, by_set);
+        assert_eq!((actor["kind"].as_str(), actor["run_id"].as_i64()), (Some("agent"), Some(9)));
+    }
+
     /// 検索セットの 4 つの命令: 一覧・詳細・選別・まとめて drop（imported は変えない）。
     #[test]
     fn set_commands_list_show_mark_and_drop_pending() {

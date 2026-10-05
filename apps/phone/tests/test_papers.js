@@ -13,6 +13,7 @@ const {
   parsePaperHash,
   logHash,
   parseLogHash,
+  parseLibraryHash,
   migrateTreeFolds,
   migrateDiscoverLast,
   activityHash,
@@ -304,3 +305,11 @@ function main() {
 }
 
 main();
+
+// Library の住所（論文を右の欄に開く形も読める）
+assert.deepStrictEqual(parseLibraryHash("#/papers/library"), { paper: null, log: null });
+assert.deepStrictEqual(parseLibraryHash("#/papers/library/57"), { paper: 57, log: null });
+assert.deepStrictEqual(parseLibraryHash("#/papers/library/log/12"), { paper: null, log: 12 });
+assert.strictEqual(parseLibraryHash("#/papers/library/log/0"), null);
+assert.strictEqual(parseLibraryHash("#/papers/library/0"), null);
+assert.strictEqual(parseLibraryHash("#/papers/discover"), null);

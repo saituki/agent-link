@@ -239,6 +239,13 @@ function stVisibleRows(rows, opts) {
   return out;
 }
 
+/** run の移り先。Project の List 画面でその run を開く（session の画面ではない）。 */
+function stRunListHash(project, runId) {
+  return typeof listHash === "function"
+    ? listHash(project, runId, null)
+    : `#/run/${encodeURIComponent(project)}/${runId}`;
+}
+
 /** Action の履歴の頭の部分（`run 5 sci-read R2 O12`）。空の部分は詰めて飛ばす。 */
 function stActionMeta(a) {
   const o = a || {};
@@ -711,15 +718,7 @@ function stRowEl(r, opts) {
   head.appendChild(stEl("span", "sci-row-title", title));
   main.appendChild(head);
   const sub = stEl("span", "sci-row-sub");
-  if (r.kind === "Q") {
-    if (r.obj) sub.appendChild(stEl("span", `sci-obj${r.obj.met ? " met" : ""}`, stObjBar(r.obj)));
-    const [label, tone] = stLogicLabel(r.logic);
-    sub.appendChild(stEl("span", `sci-logic sci-logic-${tone}`, label));
-  } else if (r.kind === "O") {
-    if (r.counts && r.counts.f != null) sub.appendChild(stEl("span", "sci-id", `F ${r.counts.f}`));
-  } else if (r.kind === "F") {
-    if (r.node.cites) sub.appendChild(stEl("span", "sci-id", String(Array.isArray(r.node.cites) ? r.node.cites.join(", ") : r.node.cites)));
-  } else if (r.kind === "E") {
+  if (r.kind === "E") {
     if (r.node.mlflow) sub.appendChild(stEl("span", "sci-id", String(r.node.mlflow)));
   }
   main.appendChild(sub);
@@ -736,13 +735,6 @@ function stRowEl(r, opts) {
       k.addEventListener("click", () => { void stToggleKind(r); });
       row.appendChild(k);
     }
-  }
-  if (!(r.kind === "Q" && !r.node.parent)) {
-    const x = stEl("button", "sci-remove", "✕");
-    x.type = "button";
-    x.setAttribute("aria-label", `${r.id} を消す`);
-    x.addEventListener("click", () => { stCall("seOpenAction", "remove", r.id, r.node); });
-    row.appendChild(x);
   }
   return row;
 }
@@ -1184,7 +1176,7 @@ function stBoardActions(d) {
     if (creator.run_id != null) {
       const b = stEl("button", "sci-action-meta", head);
       b.type = "button";
-      b.addEventListener("click", () => stGo(`#/run/${encodeURIComponent(project)}/${creator.run_id}`));
+      b.addEventListener("click", () => stGo(stRunListHash(project, creator.run_id)));
       row.appendChild(b);
     } else {
       row.appendChild(stEl("span", "sci-action-meta", head));
@@ -1200,11 +1192,27 @@ function stBoardActions(d) {
     b.type = "button";
     b.appendChild(stEl("span", "sci-action-meta", `${debts.length ? "⚠ " : ""}${stActionMeta(a)}`));
     b.appendChild(stEl("span", "", String(a.purpose || "")));
-    b.addEventListener("click", () => stGo(`#/run/${encodeURIComponent(project)}/${a.run_id}`));
+    b.addEventListener("click", () => stGo(stRunListHash(project, a.run_id)));
     sec.appendChild(b);
     for (const m of debts) sec.appendChild(stEl("p", "sci-line-sub", m));
   }
   return sec;
+}
+
+/** 出典の cite（`#57.3.2` など）の先頭の数を Library の論文の番号として読む（読めなければ null）。 */
+function stCitePaperId(cite) {
+  const m = /^#?([1-9][0-9]{0,8})(?:\.|$)/.exec(String(cite == null ? "" : cite).trim());
+  return m ? Number(m[1]) : null;
+}
+
+/** cite の札。論文の番号が分かれば、Library の論文詳細へ飛ぶ釦にする。 */
+function stCiteChip(cite, paper) {
+  const id = paper != null ? paper : stCitePaperId(cite);
+  if (id == null || typeof libraryPaperHash !== "function") return stEl("span", "sci-chip", String(cite || ""));
+  const b = stEl("button", "sci-chip sci-link-title", String(cite || `論文 ${id}`));
+  b.type = "button";
+  b.addEventListener("click", () => stGo(libraryPaperHash(id)));
+  return b;
 }
 
 /** 出典（.sci-source）。F の板に出す。 */
@@ -1217,21 +1225,20 @@ function stBoardSources(d) {
     const arr = Array.isArray(cites) ? cites : (cites == null || cites === "" ? [] : [cites]);
     if (!arr.length) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
     const row = stEl("div", "sci-chips");
-    for (const c of arr) row.appendChild(stEl("span", "sci-chip", String(c)));
+    for (const c of arr) row.appendChild(stCiteChip(c, null));
     sec.appendChild(row);
     return sec;
   }
-  const project = selectedPaperProject();
   for (const s of list) {
     const item = stEl("div", "sci-source");
     const head = stEl("div", "sci-line");
-    head.appendChild(stEl("span", "sci-chip", String(s.cite || "")));
+    head.appendChild(stCiteChip(s.cite, s.paper));
     const title = String(s.title || "") || (s.paper != null ? `論文 ${s.paper}` : "");
     if (title) {
-      if (s.paper != null && typeof paperHash === "function") {
+      if (s.paper != null && typeof libraryPaperHash === "function") {
         const b = stEl("button", "sci-link-title", title);
         b.type = "button";
-        b.addEventListener("click", () => stGo(paperHash(project, s.paper, false)));
+        b.addEventListener("click", () => stGo(libraryPaperHash(s.paper)));
         head.appendChild(b);
       } else {
         head.appendChild(stEl("span", "sci-line-main", title));
@@ -1255,7 +1262,7 @@ function stBoardPending(pending) {
   return sec;
 }
 
-/** 検索の記録。頭に実行した run と block を出す。set_id があれば押すと検索セットへ。 */
+/** 検索の記録。頭に実行した run と block を出す。set_id があれば押すと Library の検索結果へ。 */
 function stBoardSearches(searches) {
   const sec = stSec("検索の記録");
   const list = Array.isArray(searches) ? searches : [];
@@ -1267,10 +1274,13 @@ function stBoardSearches(searches) {
       if (meta) line.appendChild(stEl("span", "sci-action-meta", meta));
     }
     const text = `${String(s.query || s.title || s.set_id || "")}${s.hits != null ? ` （${s.hits} 件）` : ""}`;
-    if (s.set_id) {
+    // log_id はその 1 回の検索の履歴。古い記録は無いので set_id（名前付きセット）で代える
+    const target = s.log_id || s.set_id;
+    if (target) {
       const b = stEl("button", "sci-link-title", text);
       b.type = "button";
-      b.addEventListener("click", () => stGo(`#/papers/sets/${s.set_id}`));
+      // 検索の履歴は Library の階層にも出るので、左の階層を出したまま検索結果を開く
+      b.addEventListener("click", () => stGo(typeof libraryLogHash === "function" ? libraryLogHash(target) : `#/papers/sets/${target}`));
       line.appendChild(b);
     } else {
       line.appendChild(stEl("span", "sci-line-main", text));

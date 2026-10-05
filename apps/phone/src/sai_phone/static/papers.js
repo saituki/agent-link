@@ -2,8 +2,7 @@
 //
 // 画面は7つ（Radio は radio.js が持つ・09）:
 //   Dashboard     #/papers/dashboard（数字カードと出来事の一覧。Radio の出来事も混ざる）
-//   Library 一覧   #/papers/library
-//   Discover      #/papers/discover（検索と最近の検索・計画 08 §4.1）
+//   Library       #/papers/library（左に検索の階層・右に検索結果と論文の中身。旧 Discover の検索欄もここ）
 //   過去の検索結果  #/papers/log/<name>/<log_id>（08 §4.2・18 §3.5）
 //   未DL論文の情報 #/papers/log/<name>/<log_id>/<position>（08 §4.4・18 §3.5）
 //   論文情報       #/paper/<name>/<id>（07 §4.4・18 §3.5）
@@ -27,12 +26,11 @@
 const PAPERS_SEG = [
   ["tree", "Research tree", "#/papers/tree"],
   ["dashboard", "Dashboard", "#/papers/dashboard"],
-  ["discover", "Discover", "#/papers/discover"],
   ["library", "Library", "#/papers/library"],
   ["radio", "Radio", "#/papers/radio"],
 ];
-// 一覧 / 階層 の選択を覚える（localStorage・07 §4.3）
-const LIB_MODE_KEY = "sai_phone_library_mode";
+// 検索結果の一覧で「未ダウンロードも表示」の選択を覚える（localStorage・"0" が OFF・既定は ON）
+const LIB_REMOTE_KEY = "sai_phone_library_remote";
 // 階層の開閉を覚える（sessionStorage・07 §4.3）
 const TREE_FOLDS_KEY = "sai_phone_tree_folds";
 // 「最後に見ていた一覧」＝論文情報の戻る先（sessionStorage・07 §4.2）
@@ -50,8 +48,6 @@ const REFS_INITIAL = 10;
 const DISCOVER_DBS_KEY = "sai_phone_discover_dbs";
 // Discover: 最後に見た結果（sessionStorage・08 §4.1）
 const DISCOVER_LAST_KEY = "sai_phone_discover_last";
-// Discover: 「最近の検索」に出す件数（08 §4.1）
-const DISCOVER_RECENT_N = 10;
 // 選んでいるプロジェクトを覚える（localStorage・18 §3.6）
 const PAPERS_PROJECT_KEY = "sai_phone_papers_project";
 // Dashboard の出来事の種類 → [表示名, 色の class]（Mac の sai-paper-tui の RECENT ACTIVITY と同じ分け方）
@@ -71,7 +67,7 @@ const ACTIVITY_KINDS = {
 const NO_PROJECT_MSG =
   "論文の置き場があるプロジェクトがありません（Mac で sai-paper init を実行してください）";
 // 広い画面（900px 以上）で Library と Discover の一覧の横に置く「中身」の欄の id
-const PAPER_SIDE_IDS = { library: "library-side", discover: "discover-side" };
+const PAPER_SIDE_IDS = { library: "library-side" };
 // 要対応の種類 → [札の文, 札の色]（paperimport.js の PIM_ATTENTION_KINDS と同じ種類）
 const ATTENTION_CHIPS = {
   empty_review: ["review", "muted"],
@@ -85,9 +81,10 @@ const ATTENTION_CHIPS = {
   sci_triage: ["PROPOSAL", "warn"],
 };
 // 広い画面の「中身」に出しているもの（"" は何も出していない）
-let sideKind = "";       // "paper" | "remote" | ""
+let sideKind = "";       // "paper" | "remote" | "log" | ""
 let sidePaperId = null;  // 論文の id（sideKind = "paper"）
 let sideRemote = null;   // {logId, name, position}（sideKind = "remote"）
+let sideLog = null;      // {logId, name}（sideKind = "log"）
 // Library・Discover の上に出す「ダウンロード中」の帯（作ったものを覚えておく）
 let downloadBand = null;
 // Download の表示を入れる箱（画面の中に置く・key で探せるように覚えておく）
@@ -95,17 +92,17 @@ const jobBoxes = [];
 
 // --- ブラウザの保存場所（プライベートブラウズでも動くように必ず失敗に備える） ---
 
-function libMode() {
+function libRemote() {
   try {
-    return localStorage.getItem(LIB_MODE_KEY) === "tree" ? "tree" : "list";
+    return localStorage.getItem(LIB_REMOTE_KEY) !== "0";
   } catch {
-    return "list";
+    return true;
   }
 }
 
-function saveLibMode(mode) {
+function saveLibRemote(on) {
   try {
-    localStorage.setItem(LIB_MODE_KEY, mode === "tree" ? "tree" : "list");
+    localStorage.setItem(LIB_REMOTE_KEY, on ? "1" : "0");
   } catch { /* 保存できなくても動く */ }
 }
 
@@ -373,11 +370,8 @@ let discoverYears = { from: "", to: "" }; // 年の範囲（空欄は送らな�
 let discoverLimit = 20;         // 件数（10 / 20 / 50・既定 20）
 let discoverCondOpen = false;   // 条件を開いているか
 let discoverQuery = "";         // 検索欄の今の文字（画面を移っても消さない）
-let discoverMode = "recent";    // "recent" | "results" | "loading" | "error"
-let discoverResult = null;      // {logId, query}（mode = "results" の中身）
+let discoverMode = "idle";      // "idle" | "loading" | "error"（結果は右の欄・住所に出す）
 let discoverError = "";         // 失敗の detail（mode = "error" に出す）
-let discoverRecent = null;      // 最近の検索（null＝未読込）
-let discoverRecentError = "";   // 最近の検索を読めなかったときの文
 // 同じ log の結果は画面を移っても取り直さない（08 §4.4）
 const logCache = new Map();
 let logView = null;    // 開いている過去の検索 {id, name, data, error}
@@ -414,16 +408,14 @@ function resetProjectScreens() {
   sideKind = "";
   sidePaperId = null;
   sideRemote = null;
+  sideLog = null;
   jobBoxes.length = 0;
   libPapers = null;
   libGroups = null;
   libError = "";
   discoverProviders = null;
-  discoverRecent = null;
-  discoverRecentError = "";
-  discoverResult = null;
   discoverError = "";
-  discoverMode = "recent";
+  discoverMode = "idle";
   logCache.clear();
   logView = null;
   remoteView = null;
@@ -558,7 +550,6 @@ async function openProjectSheet() {
 function reopenCurrentScreen() {
   // U19: 研究方針の木（節点つきでも同じ画面を作り直す）
   if (/^#\/papers\/tree(?:\/N[1-9][0-9]{0,8})?$/.test(location.hash) && typeof stOpen === "function") void stOpen(stParseHash(location.hash));
-  else if (location.hash === "#/papers/discover") void openDiscover();
   else if (location.hash === "#/papers/dashboard") void openPapersDashboard();
   else if (location.hash === "#/papers/radio") void openRadioList(); // radio.js
   else if (location.hash === "#/papers/import" && typeof pimOpenImport === "function") void pimOpenImport(); // paperimport.js（U6）
@@ -1014,9 +1005,48 @@ function paperSidePane(hostId, mainId) {
     list.className = "sai-split-list";
     wrap.appendChild(list);
     list.appendChild(host); // 一覧は左の欄の中に入れる（住所は変えない）
+    wrap.appendChild(papersSplitHandle(wrap));
     wrap.appendChild(main);
   }
   return main;
+}
+
+const PAPERS_SPLIT_KEY = "sai_phone_papers_split";
+
+/** 左の階層と右の欄の境界線（ドラッグで左の幅を変え、localStorage に覚える）。 */
+function papersSplitHandle(wrap) {
+  try {
+    const w = Number(localStorage.getItem(PAPERS_SPLIT_KEY));
+    if (w > 0) wrap.style.setProperty("--papers-list-w", `${w}px`);
+  } catch { /* 読めなければ既定の幅 */ }
+  const bar = document.createElement("div");
+  bar.className = "papers-split-handle";
+  bar.setAttribute("role", "separator");
+  bar.setAttribute("aria-orientation", "vertical");
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { bar.setPointerCapture(e.pointerId); } catch { /* 捕まえなくてもよい */ }
+    bar.classList.add("dragging");
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!bar.classList.contains("dragging")) return;
+    const r = wrap.getBoundingClientRect();
+    // 左は 200px 以上、右は 320px 以上残す
+    const w = Math.max(200, Math.min(e.clientX - r.left, r.width - 320));
+    wrap.style.setProperty("--papers-list-w", `${Math.round(w)}px`);
+  });
+  const end = (e) => {
+    if (!bar.classList.contains("dragging")) return;
+    bar.classList.remove("dragging");
+    try { bar.releasePointerCapture(e.pointerId); } catch { /* 解放できなくてもよい */ }
+    try {
+      const list = wrap.querySelector(".sai-split-list");
+      localStorage.setItem(PAPERS_SPLIT_KEY, String(Math.round(list.getBoundingClientRect().width)));
+    } catch { /* 保存できなくてもよい */ }
+  };
+  bar.addEventListener("pointerup", end);
+  bar.addEventListener("pointercancel", end);
+  return bar;
 }
 
 /** 右の欄を「まだ選んでいません」の案内に戻す。 */
@@ -1037,12 +1067,92 @@ function showPaperInSide(main, projectName, paperId) {
   sideKind = "paper";
   sidePaperId = paperId;
   sideRemote = null;
+  sideLog = null;
+  main.dataset.showing = `paper:${paperId}`;
   // 音声や図の置き場はここ（論文情報の変数）
   paperProject = projectName;
   paperIdNum = paperId;
   main.innerHTML = "";
   main.appendChild(el("p", "lib-empty", "読み込み中…"));
   void loadPaper(paperId, main);
+}
+
+/** 検索の実行者の文（human / run 12 · block 名）。log.actor が無い古い応答は空。 */
+function searchActorText(log) {
+  const a = log && log.actor;
+  if (!a) return "";
+  if (a.kind !== "agent") return "実行者: human";
+  const parts = [a.run_id != null ? `run ${a.run_id}` : "", a.block || ""].filter(Boolean);
+  return `実行者: ${parts.join(" · ") || "agent"}`;
+}
+
+/** 検索結果の見出しの下の行（日付・検索先・実行者・結び付いた Node へのリンク）。 */
+function searchMetaLine(log) {
+  const line = el("div", "paper-meta", [log.date, log.source_dbs, searchActorText(log)].filter(Boolean).join(" · "));
+  if (log.node && log.node.id) {
+    line.appendChild(document.createTextNode(" · "));
+    const a = el("a", "paper-doi", log.node.id);
+    a.href = `#/papers/tree/${log.node.id}`; // 研究方針の木の Node（検索の記録の持ち主）
+    line.appendChild(a);
+  }
+  return line;
+}
+
+/** 広い画面なら右の欄に検索結果の一覧を出す（旧 Discover の結果画面）。狭い画面は過去の検索結果の画面へ。 */
+async function showLogInSide(main, projectName, logId) {
+  if (!main) {
+    location.hash = logHash(projectName, logId, null);
+    return;
+  }
+  sideKind = "log";
+  sidePaperId = null;
+  sideRemote = null;
+  sideLog = { logId, name: projectName };
+  main.dataset.showing = `log:${logId}`;
+  main.innerHTML = "";
+  main.appendChild(el("p", "lib-empty", "読み込み中…"));
+  let data;
+  let error = "";
+  try {
+    data = await getLog(projectName, logId);
+  } catch (e) {
+    error = (e && e.message) || "読み込めませんでした";
+  }
+  if (sideKind !== "log" || !sideLog || sideLog.logId !== logId) return; // 読み込み中に別の物へ移った
+  main.innerHTML = "";
+  if (error) {
+    main.appendChild(el("p", "lib-empty", error));
+    return;
+  }
+  const all = Array.isArray(data.items) ? data.items : [];
+  const failedBox = papersFailedBox(data);
+  if (failedBox) main.appendChild(failedBox);
+  // 「未DLも表示」を切るとダウンロード済みだけにする（左の階層は常にダウンロード済みだけ）
+  const showRemote = libRemote();
+  const items = showRemote ? all : all.filter((it) => it.local_paper_id != null && it.local_paper_id !== "");
+  main.appendChild(el("h2", "papers-heading", `“${(data.log && data.log.query) || ""}” の結果 ${items.length} 件`));
+  main.appendChild(searchMetaLine(data.log || {}));
+  const label = el("label", "lib-remote-toggle");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = showRemote;
+  box.addEventListener("change", () => {
+    saveLibRemote(box.checked);
+    void showLogInSide(main, projectName, logId);
+  });
+  label.appendChild(box);
+  label.appendChild(document.createTextNode(" 未DLも表示"));
+  main.appendChild(label);
+  if (items.length === 0) {
+    // 全部の検索先が失敗したときは「見つかりません」と言わない（理由を出して終える）
+    if (!papersAllFailed(data.failed, data.log && data.log.source_dbs)) {
+      main.appendChild(
+        papersEmpty("🔍", "見つかりませんでした", "別の言葉で探すか、「Filters」で検索先や年を変えてみてください。", null)
+      );
+    }
+    return;
+  }
+  for (const item of items) main.appendChild(resultRow(item, projectName, logId));
 }
 
 /** 広い画面なら右の欄に検索の結果（未ダウンロードの論文の情報）を出す。 */
@@ -1053,7 +1163,9 @@ async function showRemoteInSide(main, projectName, logId, position) {
   }
   sideKind = "remote";
   sidePaperId = null;
+  sideLog = null;
   sideRemote = { logId, name: projectName, position };
+  main.dataset.showing = `remote:${logId}:${position}`;
   remoteView = {
     logId,
     name: projectName,
@@ -1078,7 +1190,9 @@ function paperSideRender(main) {
     ? `paper:${sidePaperId}`
     : sideKind === "remote" && sideRemote
       ? `remote:${sideRemote.logId}:${sideRemote.position}`
-      : "";
+      : sideKind === "log" && sideLog
+        ? `log:${sideLog.logId}`
+        : "";
   if (main.dataset.showing === want) return;
   main.dataset.showing = want;
   if (sideKind === "paper" && sidePaperId != null) {
@@ -1087,6 +1201,10 @@ function paperSideRender(main) {
   }
   if (sideKind === "remote" && sideRemote) {
     void showRemoteInSide(main, sideRemote.name, sideRemote.logId, sideRemote.position);
+    return;
+  }
+  if (sideKind === "log" && sideLog) {
+    void showLogInSide(main, sideLog.name, sideLog.logId);
     return;
   }
   paperSideEmpty(main);
@@ -1265,17 +1383,65 @@ async function papersPollExtras() {
 
 // --- Library（#/papers/library・07 §4.3） ---
 
+/**
+ * Library の住所。`#/papers/library`・論文を右の欄に開く `#/papers/library/<論文の番号>`・
+ * 検索結果を右の欄に開く `#/papers/library/log/<検索の番号>`。
+ */
+function parseLibraryHash(hash) {
+  const m = /^#\/papers\/library(?:\/(log\/)?([1-9][0-9]{0,8}))?$/.exec(String(hash || ""));
+  if (!m) return null;
+  const n = m[2] ? Number(m[2]) : null;
+  return { paper: m[1] ? null : n, log: m[1] ? n : null };
+}
+
+/** 左の階層を出したまま検索結果を右に開く住所（研究方針の木の「検索の記録」から使う）。 */
+function libraryLogHash(id) {
+  return `#/papers/library/log/${encodeURIComponent(id)}`;
+}
+
+/** 左の階層を出したまま論文の詳細を右に開く住所（他の画面の出典リンクから使う）。 */
+function libraryPaperHash(id) {
+  return `#/papers/library/${encodeURIComponent(id)}`;
+}
+
 async function openLibrary(opts) {
   // 論文情報の戻る先として今の住所を覚える（07 §4.2）
   savePapersList("#/papers/library");
   fillSegment("library-seg", "library");
-  updateModeButtons();
   papersImportButton(); // 道具行の「＋ BibTeX を読み込む」
   const input = document.getElementById("library-filter");
   if (input) input.value = libFilter;
+  const dInput = document.getElementById("discover-input");
+  if (dInput) dInput.value = discoverQuery;
+  syncCondUI();
   // どのプロジェクトの Library を出すか決める（↻ は一覧も取り直す・18 §1.1）
   await ensurePaperProjects(opts && opts.force);
-  if (location.hash !== "#/papers/library") return; // 既に別の画面へ移っている
+  if (!parseLibraryHash(location.hash)) return; // 既に別の画面へ移っている
+  if (opts && opts.log != null && selectedProject) {
+    if (typeof saiIsWide === "function" && saiIsWide()) {
+      // 広い画面は左の階層を出したまま、右の欄に検索結果を開く
+      sideKind = "log";
+      sidePaperId = null;
+      sideRemote = null;
+      sideLog = { logId: opts.log, name: selectedProject };
+    } else {
+      location.replace(logHash(selectedProject, opts.log, null));
+      return;
+    }
+  }
+  if (opts && opts.paper != null && selectedProject) {
+    if (typeof saiIsWide === "function" && saiIsWide()) {
+      // 広い画面は左の階層を出したまま、右の欄に論文の詳細を開く
+      sideKind = "paper";
+      sidePaperId = opts.paper;
+      sideRemote = null;
+      sideLog = null;
+    } else {
+      // 狭い画面は右の欄が無いので、論文の詳細の画面へ
+      location.replace(paperHash(selectedProject, opts.paper, false));
+      return;
+    }
+  }
   if (!selectedProject) {
     // 置き場があるプロジェクトが1つも無い（案内文・18 §1.1）
     libPapers = null;
@@ -1288,13 +1454,15 @@ async function openLibrary(opts) {
   if (libPapers === null) renderLibrary();
   // 走っている Download があれば上の帯を出す（Import を開いたときの一度きりの読み出し）
   if (typeof pimRefreshJobs === "function") void pimRefreshJobs(selectedProject);
+  void loadProviders(); // 検索欄の条件（検索先）
   await loadLibrary();
 }
 
 /** Library の道具行に「＋ BibTeX を読み込む」を足す（1 回だけ）。 */
 function papersImportButton() {
   if (document.getElementById("library-import")) return;
-  const tools = document.querySelector("#view-papers-library .lib-tools");
+  const filter = document.getElementById("library-filter");
+  const tools = filter && filter.parentNode;
   if (!tools) return;
   const btn = document.createElement("button");
   btn.id = "library-import";
@@ -1309,19 +1477,14 @@ async function loadLibrary() {
   const hash = location.hash;
   const name = selectedProject;
   if (!name) return;
-  const withTree = libMode() === "tree";
   try {
     const res = await apiFetch(`${papersApiBase(name)}/library`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
-    let groups = null;
-    if (withTree) {
-      // 階層表示のときは tree も読む（一覧表示では要らないため後から）
-      const res2 = await apiFetch(`${papersApiBase(name)}/tree`);
-      const body2 = await res2.json().catch(() => ({}));
-      if (!res2.ok) throw new Error(body2.detail || "階層を読み込めませんでした");
-      groups = Array.isArray(body2.groups) ? body2.groups : [];
-    }
+    const res2 = await apiFetch(`${papersApiBase(name)}/tree`);
+    const body2 = await res2.json().catch(() => ({}));
+    if (!res2.ok) throw new Error(body2.detail || "階層を読み込めませんでした");
+    const groups = Array.isArray(body2.groups) ? body2.groups : [];
     // 既に別の画面へ移った，またはその間にプロジェクトが切り替わったら捨てる（18 §1.1）
     if (location.hash !== hash || selectedProject !== name) return;
     libPapers = Array.isArray(body.papers) ? body.papers : [];
@@ -1364,41 +1527,11 @@ function renderLibrary() {
     return;
   }
   box.innerHTML = "";
-  if (libMode() === "tree") {
-    if (libGroups) renderTree(box);
-    else box.appendChild(el("p", "lib-empty", libError || "読み込み中…"));
-  } else {
-    renderList(box);
-  }
-  // 広い画面は左の一覧・右に選んだ論文の中身を出す（狭い画面は作らない）
+  if (libGroups) renderTree(box);
+  else box.appendChild(el("p", "lib-empty", libError || "読み込み中…"));
+  // 広い画面は左の階層・右に検索結果や選んだ論文の中身を出す（狭い画面は作らない）
   const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
   if (side) paperSideRender(side);
-}
-
-function renderList(box) {
-  const rows = filterPapers(libPapers, libFilter);
-  if (rows.length === 0) {
-    if (libPapers.length === 0) {
-      // 論文が 1 本も無いときは何をするかを出す
-      box.appendChild(
-        papersEmpty(
-          "📚",
-          "まだ論文がありません",
-          "Discover で探すか、BibTeX を読み込んでください。",
-          [
-            { label: "論文を探す（Discover）", onClick: () => { location.hash = "#/papers/discover"; } },
-            { label: "BibTeX を読み込む", onClick: () => { location.hash = "#/papers/import"; } },
-          ]
-        )
-      );
-      return;
-    }
-    box.appendChild(
-      papersEmpty("🔍", "一致する論文がありません", "上の絞り込みの欄の言葉を短くすると出てきます。", null)
-    );
-    return;
-  }
-  for (const p of rows) box.appendChild(paperRow(p, false));
 }
 
 /** 一覧の行（階層の中は small で小さく・題名 1 行＋年）。 */
@@ -1463,40 +1596,47 @@ function renderTree(box) {
     const rows = headingHit
       ? all
       : all.filter((p) => includesAll(`${p.title || ""} ${p.authors || ""}`, words));
-    // 合う論文が 0 件のまとまりは出さない（見出しの合致時を除く・07 §4.3）
-    if (rows.length === 0 && !headingHit) continue;
 
     const key = treeKey(g);
     const open = folds.includes(key);
-    // 見出しの行は「開閉の部分」と右端の「検索結果 ›」に分ける（08 §4.5）
+    const isQuery = g.kind === "query" && g.log_id != null;
+    // 合う論文が 0 件のまとまりは出さない（見出しの合致時を除く・07 §4.3）
+    if (rows.length === 0 && !headingHit) continue;
+
+    // 見出しの行は「▶ の開閉」と「文字（検索結果を右の欄に出す）」に分ける
     const head = document.createElement("div");
     head.className = "lib-group-head";
+    if (isQuery && sideKind === "log" && sideLog && sideLog.logId === g.log_id) head.classList.add("active");
+    const fold = () => {
+      const cur = loadFolds(selectedProject);
+      saveFolds(selectedProject, cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key]);
+      renderLibrary();
+    };
+    const arrow = document.createElement("button");
+    arrow.className = "lib-g-twisty";
+    arrow.textContent = open ? "▼" : "▶";
+    arrow.setAttribute("aria-expanded", String(open));
+    arrow.setAttribute("aria-label", open ? "畳む" : "開く");
+    arrow.addEventListener("click", fold);
+    head.appendChild(arrow);
     const toggle = document.createElement("button");
     toggle.className = "lib-g-main";
-    toggle.appendChild(el("span", "lib-g-arrow", open ? "▼" : "▶"));
     toggle.appendChild(el("span", "lib-g-date", String(g.date || "")));
-    toggle.appendChild(
-      el("span", "lib-g-query", g.kind === "query" ? String(g.query || "(検索)") : "Import")
-    );
-    toggle.appendChild(el("span", "lib-g-count", `(${rows.length})`));
+    toggle.appendChild(el("span", "lib-g-query", g.kind === "query" ? String(g.query || "(検索)") : "Import"));
+    // query は (ダウンロード数/ヒット数)・Import は論文数
+    toggle.appendChild(el("span", "lib-g-count", isQuery ? `(${all.length}/${g.hit_count ?? all.length})` : `(${all.length})`));
     toggle.addEventListener("click", () => {
-      const cur = loadFolds(selectedProject);
-      const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
-      saveFolds(selectedProject, next);
-      renderLibrary();
+      if (!isQuery) { fold(); return; } // Import の見出しは検索結果が無いので開閉だけ
+      // 広い画面は右の欄に検索結果を出し、狭い画面は過去の検索結果の画面へ（左の階層は動かさない）
+      const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
+      if (side) {
+        void showLogInSide(side, selectedProject, g.log_id);
+        renderLibrary(); // 選んでいる見出しの強調を付け替える
+      } else {
+        location.hash = logHash(selectedProject, g.log_id, null);
+      }
     });
     head.appendChild(toggle);
-    if (g.kind === "query" && g.log_id != null) {
-      // 開閉とは別に反応する小さなリンク（押しても開閉しない・08 §4.5）
-      const link = document.createElement("button");
-      link.className = "lib-g-log";
-      link.textContent = "検索結果 ›";
-      link.addEventListener("click", (e) => {
-        e.stopPropagation();
-        location.hash = logHash(selectedProject, g.log_id, null);
-      });
-      head.appendChild(link);
-    }
     box.appendChild(head);
     shown += 1;
     if (!open) continue;
@@ -1509,7 +1649,7 @@ function renderTree(box) {
         "📚",
         libPapers.length === 0 ? "まだ論文がありません" : "一致する論文がありません",
         libPapers.length === 0
-          ? "Discover で探すか、BibTeX を読み込んでください。"
+          ? "上の欄で論文を検索するか、BibTeX を読み込んでください。"
           : "上の絞り込みの欄の言葉を短くすると出てきます。",
         libPapers.length === 0
           ? [{ label: "BibTeX を読み込む", onClick: () => { location.hash = "#/papers/import"; } }]
@@ -1519,33 +1659,15 @@ function renderTree(box) {
   }
 }
 
-/** 一覧 / 階層 の選択（localStorage に覚える・07 §4.3）。 */
-function updateModeButtons() {
-  const box = document.getElementById("library-mode");
-  if (!box) return;
-  const now = libMode();
-  box.querySelectorAll("button").forEach((b) => {
-    b.classList.toggle("active", b.dataset.mode === now);
-  });
-}
-
-function onModeClick(mode) {
-  if (mode !== "list" && mode !== "tree") return;
-  if (libMode() === mode) return;
-  saveLibMode(mode);
-  updateModeButtons();
-  // 階層をまだ読んだことが無ければ，読むところから（一覧の読むのも兼ねる）
-  if (mode === "tree" && libGroups === null) {
-    void loadLibrary();
-    return;
-  }
-  renderLibrary();
+/** 著者の欄（配列でも文字でも 1 本の文字にする）。 */
+function authorsText(authors) {
+  return Array.isArray(authors) ? authors.join(", ") : String(authors || "");
 }
 
 // --- Radio は radio.js（計画 09）が持つ ---
 // （かつての準備中画面 openSoon は 09 で radio.js に置き換わった）
 
-// --- Discover（#/papers/discover・08 §4.1） ---
+// --- 検索（Library の上の検索欄・旧 Discover・08 §4.1） ---
 
 /** 条件の札と要約を今の値に合わせる（08 §4.1）。 */
 function syncCondUI() {
@@ -1616,29 +1738,6 @@ async function loadProviders() {
   window.SaiShell.ok();
 }
 
-/** 最近の検索（Library 階層の query まとめの上から 10 件・08 §4.1）。 */
-async function loadRecent() {
-  if (discoverRecent !== null) return;
-  const name = selectedProject;
-  if (!name) return;
-  try {
-    const res = await apiFetch(`${papersApiBase(name)}/tree`);
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
-    if (selectedProject !== name) return; // その間に切り替わった（18 §1.1）
-    const groups = Array.isArray(body.groups) ? body.groups : [];
-    discoverRecent = groups.filter((g) => g.kind === "query").slice(0, DISCOVER_RECENT_N);
-    discoverRecentError = "";
-    window.SaiShell.ok();
-  } catch (e) {
-    if (selectedProject !== name) return; // その間に切り替わった（18 §1.1）
-    discoverRecent = [];
-    discoverRecentError = (e && e.message) || "読み込めませんでした";
-    window.SaiShell.fail();
-  }
-  if (discoverMode === "recent") renderDiscover();
-}
-
 /** log の記憶の鍵（log_id はプロジェクトごとに違うため名前と組にする・18 §3.6）。 */
 function logCacheKey(projectName, logId) {
   return `${projectName || ""}/${logId}`;
@@ -1656,54 +1755,23 @@ async function getLog(projectName, logId) {
   return body;
 }
 
-async function openDiscover() {
-  // 論文情報の戻る先として今の住所を覚える（07 §4.2）
-  savePapersList("#/papers/discover");
-  fillSegment("discover-seg", "discover");
-  const input = document.getElementById("discover-input");
-  if (input) input.value = discoverQuery;
-  syncCondUI();
-  // どのプロジェクトの検索か決める（18 §1.1）
-  await ensurePaperProjects();
-  if (location.hash !== "#/papers/discover") return; // 既に別の画面へ移っている
-  const name = selectedProject;
-  if (name) {
-    // 前に見た結果を出しておく（検索し直さない・08 §4.1）
-    if (discoverMode === "recent" && !discoverResult) {
-      const last = loadDiscoverLast(name);
-      if (last != null) {
-        try {
-          const data = await getLog(name, last);
-          if (location.hash !== "#/papers/discover" || selectedProject !== name) return;
-          discoverResult = { logId: last, name, query: (data.log && data.log.query) || "" };
-          discoverMode = "results";
-        } catch {
-          saveDiscoverLast(name, null); // 消えた結果の覚え書きも消す
-        }
-      }
-    } else if (discoverMode === "results" && discoverResult
-      && !logCache.has(logCacheKey(discoverResult.name, discoverResult.logId))) {
-      try {
-        await getLog(discoverResult.name, discoverResult.logId);
-      } catch {
-        discoverMode = "recent";
-        discoverResult = null;
-      }
-    }
-  }
-  renderDiscover();
-  if (name) {
-    void loadProviders();
-    void loadRecent();
-  }
-}
-
 /** 今の条件で送る検索先（読んでいる available にあるものだけ・08 §4.1）。 */
 function selectedDbs() {
   if (!discoverDbs || discoverDbs.length === 0) return null;
   if (!discoverProviders) return discoverDbs.slice();
   const picked = discoverDbs.filter((d) => discoverProviders.available.includes(d));
   return picked.length > 0 ? picked : null;
+}
+
+/** 検索の進み具合・失敗を検索欄の下に出す（空文字なら隠す）。 */
+function discoverStatus(text, busy) {
+  const p = document.getElementById("discover-status");
+  if (p) {
+    p.hidden = !text;
+    p.textContent = text || "";
+  }
+  const goBtn = document.getElementById("discover-go");
+  if (goBtn) goBtn.disabled = !!busy;
 }
 
 async function runDiscoverSearch() {
@@ -1714,18 +1782,12 @@ async function runDiscoverSearch() {
   const name = selectedProject;
   if (!name) return; // 置き場が無いときは案内文が出ているだけ（18 §1.1）
   if (!query) {
-    // 空欄で検索 → 結果を消して「最近の検索」に戻る（08 §4.1）
-    saveDiscoverLast(name, null);
-    discoverResult = null;
-    discoverError = "";
-    discoverMode = "recent";
-    renderDiscover();
-    if (discoverRecent === null) void loadRecent();
+    discoverMode = "idle";
+    discoverStatus("", false);
     return;
   }
   discoverMode = "loading";
-  discoverError = "";
-  renderDiscover(); // この中で検索ボタンを押せなくなる（08 §4.1）
+  discoverStatus("Mac の sai-paper で検索中…", true);
 
   const body = { query, limit: discoverLimit };
   const dbs = selectedDbs();
@@ -1745,116 +1807,34 @@ async function runDiscoverSearch() {
   } catch {
     if (selectedProject !== name) return; // その間に切り替わった（18 §1.1）
     discoverMode = "error";
-    discoverError = "接続できていません";
-    renderDiscover();
+    discoverStatus("接続できていません", false);
     window.SaiShell.fail();
     return;
   }
   const data = await res.json().catch(() => ({}));
   if (selectedProject !== name) return; // その間に切り替わった（古いプロジェクトの結果を出さない・18 §1.1）
-  if (!res.ok) {
-    // 失敗の detail を結果の場所に出す（08 §4.1）
+  if (!res.ok || !data || !data.log) {
+    // 失敗の detail を検索欄の下に出す（08 §4.1）
     discoverMode = "error";
-    discoverError = data.detail || "検索できませんでした";
-    renderDiscover();
-    return;
-  }
-  if (!data || !data.log) {
-    discoverMode = "error";
-    discoverError = "sai-paper の応答を読めませんでした";
-    renderDiscover();
+    discoverStatus(
+      res.ok ? "sai-paper の応答を読めませんでした" : (data.detail || "検索できませんでした"),
+      false
+    );
     return;
   }
   logCache.set(logCacheKey(name, data.log.id), data);
-  saveDiscoverLast(name, data.log.id);
-  discoverResult = { logId: data.log.id, name, query: data.log.query || query };
-  discoverMode = "results";
-  discoverRecent = null; // 履歴に新しい検索が増えたので次に取り直す（08 §4.1）
-  renderDiscover();
+  discoverMode = "idle";
+  discoverStatus("", false);
   window.SaiShell.ok();
+  // 新しい検索が階層に増えるので読み直し、広い画面は右の欄に結果を出す（狭い画面は結果の画面へ）
+  libGroups = null;
+  const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
+  if (side) void showLogInSide(side, name, data.log.id);
+  else location.hash = logHash(name, data.log.id, null);
+  await loadLibrary();
 }
 
-function renderDiscover() {
-  const box = document.getElementById("discover-body");
-  if (!box) return;
-  const goBtn = document.getElementById("discover-go");
-  if (goBtn) goBtn.disabled = discoverMode === "loading";
-  // 広い画面は左に結果・右に選んだ論文の中身を出す（U6）
-  const side = paperSidePane("discover-body", PAPER_SIDE_IDS.discover);
-  if (discoverMode !== "results") {
-    sideKind = "";
-    sidePaperId = null;
-    sideRemote = null;
-  }
-  if (side) paperSideRender(side);
-  box.innerHTML = "";
-  if (paperProjects !== null && !selectedProject) {
-    // 置き場があるプロジェクトが1つも無い（案内文・18 §1.1）
-    box.appendChild(el("p", "lib-empty", NO_PROJECT_MSG));
-    return;
-  }
-  if (discoverMode === "loading") {
-    const wrap = document.createElement("div");
-    wrap.className = "papers-loading";
-    wrap.appendChild(el("span", "papers-spin"));
-    wrap.appendChild(el("span", null, "Mac の sai-paper で検索中…"));
-    box.appendChild(wrap);
-    return;
-  }
-  if (discoverMode === "error") {
-    box.appendChild(el("p", "lib-empty", discoverError || "検索できませんでした"));
-    return;
-  }
-  if (discoverMode === "results" && discoverResult) {
-    const data = logCache.get(logCacheKey(discoverResult.name, discoverResult.logId)) || { items: [] };
-    const items = Array.isArray(data.items) ? data.items : [];
-    const failedBox = papersFailedBox(data);
-    if (failedBox) box.appendChild(failedBox);
-    box.appendChild(
-      el("h2", "papers-heading", `“${discoverResult.query}” の結果 ${items.length} 件`)
-    );
-    if (items.length === 0) {
-      // 全部の検索先が失敗したときは「見つかりません」と言わない（理由を出して終える）
-      if (!papersAllFailed(data.failed, data.log && data.log.source_dbs)) {
-        box.appendChild(
-          papersEmpty(
-            "🔍",
-            "見つかりませんでした",
-            "別の言葉で探すか、下の「条件」で検索先や年を変えてみてください。",
-            null
-          )
-        );
-      }
-      return;
-    }
-    for (const item of items) box.appendChild(resultRow(item, discoverResult.name, discoverResult.logId));
-    return;
-  }
-  // 最近の検索（08 §4.1）
-  box.appendChild(el("h2", "papers-heading", "最近の検索"));
-  if (discoverRecent === null) {
-    box.appendChild(el("p", "lib-empty", "読み込み中…"));
-    return;
-  }
-  if (discoverRecentError) {
-    box.appendChild(el("p", "lib-empty", discoverRecentError));
-    return;
-  }
-  if (discoverRecent.length === 0) {
-    box.appendChild(
-      papersEmpty(
-        "🔍",
-        "まだ検索がありません",
-        "上の欄に論文の題名やキーワードを入れて「検索」を押してください。",
-        null
-      )
-    );
-    return;
-  }
-  for (const g of discoverRecent) box.appendChild(discoverRecentRow(g));
-}
-
-/** 結果の 1 行（Discover と過去の検索結果で共通・08 §4.3）。 */
+/** 結果の 1 行（Library の右の欄と過去の検索結果で共通・08 §4.3）。 */
 function resultRow(item, projectName, logId) {
   const local = item.local_paper_id != null && item.local_paper_id !== "";
   const btn = document.createElement("button");
@@ -1876,9 +1856,12 @@ function resultRow(item, projectName, logId) {
     .filter(Boolean)
     .join(" · ");
   if (meta) btn.appendChild(el("div", "paper-meta", meta));
+  // 後から Download/Import を選べるよう、DOI と要旨の頭も一覧に出す（押すと開く行なので DOI は文字だけ）
+  if (item.doi) btn.appendChild(el("div", "paper-meta paper-row-doi", `DOI ${item.doi}`));
+  if (item.abstract) btn.appendChild(el("div", "paper-row-abst", item.abstract));
   btn.addEventListener("click", () => {
     // 広い画面は右の欄に出し、狭い画面は今まで通り論文情報の画面へ（U6）
-    const side = paperSidePane("discover-body", PAPER_SIDE_IDS.discover);
+    const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
     if (side) {
       if (local) showPaperInSide(side, projectName, item.local_paper_id);
       else void showRemoteInSide(side, projectName, logId, item.position);
@@ -1888,25 +1871,6 @@ function resultRow(item, projectName, logId) {
     location.hash = local
       ? paperHash(projectName, item.local_paper_id, false)
       : logHash(projectName, logId, item.position);
-  });
-  return btn;
-}
-
-/**
- * 最近の検索の 1 行（検索語・件数・日付・08 §4.1）。
- * 名前は project.js の recentRow（直近の実行）と重ねない（同じ名前だと後から読む papers.js が上書きする）。
- */
-function discoverRecentRow(g) {
-  const btn = document.createElement("button");
-  btn.className = "paper-row";
-  const line1 = document.createElement("div");
-  line1.className = "paper-line1";
-  line1.appendChild(el("span", "paper-title", g.query || "(検索)"));
-  if (g.hit_count != null) line1.appendChild(el("span", "paper-count", `${g.hit_count} 件`));
-  btn.appendChild(line1);
-  if (g.date) btn.appendChild(el("div", "paper-meta", String(g.date)));
-  btn.addEventListener("click", () => {
-    location.hash = logHash(selectedProject, g.log_id, null);
   });
   return btn;
 }
@@ -1967,7 +1931,7 @@ function renderLog() {
   const log = logView.data.log || {};
   const items = Array.isArray(logView.data.items) ? logView.data.items : [];
   if (sub) {
-    sub.textContent = [log.date, log.source_dbs, `${items.length} 件`]
+    sub.textContent = [log.date, log.source_dbs, searchActorText(log), `${items.length} 件`]
       .map((x) => String(x || "").trim())
       .filter(Boolean)
       .join(" · ");
@@ -2021,6 +1985,12 @@ function renderRemote(target) {
   if (!body) return;
   body.innerHTML = "";
   if (!remoteView) return;
+  // 右の欄に出しているときは、検索結果の一覧へ戻る釦を付ける（狭い画面は上の ‹ が戻る）
+  if (target) {
+    body.appendChild(paperBtn("‹ 検索結果", () => {
+      void showLogInSide(target, remoteView.name, remoteView.logId);
+    }));
+  }
   if (!remoteView.data) {
     body.appendChild(el("p", "lib-empty", remoteView.error || "読み込み中…"));
     return;
@@ -2717,34 +2687,31 @@ const dashboardRoute = {
 // Library 一覧・階層
 const libraryRoute = {
   match(hash) {
-    return hash === "#/papers/library" ? {} : null;
+    return parseLibraryHash(hash);
   },
   view: "view-papers-library",
   tab: "papers",
   hideTabbar: false,
   interval: 0, // 定期更新はしない（↻ で読み直す・07 §4.3）
-  async open() {
-    await openLibrary();
+  async open(params) {
+    await openLibrary({ paper: params && params.paper, log: params && params.log });
   },
   async poll() {
     await papersPollExtras();
   },
 };
 
-// Discover（検索と最近の検索・08 §4.1）
+// 旧 Discover の住所（ブックマーク用）。Library に統合したので移すだけ
 const discoverRoute = {
   match(hash) {
     return hash === "#/papers/discover" ? {} : null;
   },
-  view: "view-papers-discover",
+  view: "view-papers-library",
   tab: "papers",
   hideTabbar: false,
-  interval: 0, // 定期更新はしない（検索はボタンで行う・08 §4.1）
+  interval: 0,
   async open() {
-    await openDiscover();
-  },
-  async poll() {
-    await papersPollExtras();
+    location.replace("#/papers/library");
   },
 };
 
@@ -2840,7 +2807,7 @@ if (typeof window !== "undefined") {
   // 上部のプロジェクト名（押すと切り替えの一覧が下から出る・18 §1.1）
   const libChip = document.getElementById("library-project");
   if (libChip) libChip.addEventListener("click", () => { void openProjectSheet(); });
-  for (const id of ["dashboard-project", "discover-project", "radio-project", "sci-project"]) {
+  for (const id of ["dashboard-project", "radio-project", "sci-project"]) {
     const chip = document.getElementById(id);
     if (chip) chip.addEventListener("click", () => { void openProjectSheet(); });
   }
@@ -2853,14 +2820,6 @@ if (typeof window !== "undefined") {
     filter.addEventListener("input", (e) => {
       libFilter = (e.target && e.target.value) || "";
       if (libPapers !== null) renderLibrary();
-    });
-  }
-
-  // 一覧 / 階層
-  const modeBox = document.getElementById("library-mode");
-  if (modeBox) {
-    modeBox.querySelectorAll("button").forEach((b) => {
-      b.addEventListener("click", () => onModeClick(b.dataset.mode));
     });
   }
 
@@ -2945,16 +2904,16 @@ if (typeof window !== "undefined") {
       });
     });
   }
-  // 過去の検索結果の戻る → Discover（08 §4.2）
+  // 過去の検索結果の戻る → Library（08 §4.2）
   const logBack = document.getElementById("log-back");
-  if (logBack) logBack.addEventListener("click", () => { location.hash = "#/papers/discover"; });
+  if (logBack) logBack.addEventListener("click", () => { location.hash = "#/papers/library"; });
   // 未ダウンロードの論文情報の戻る → その検索結果（08 §4.4）
   const remoteBack = document.getElementById("remote-back");
   if (remoteBack) {
     remoteBack.addEventListener("click", () => {
       location.hash = remoteView
         ? logHash(remoteView.name, remoteView.logId, null)
-        : "#/papers/discover";
+        : "#/papers/library";
     });
   }
 }
@@ -2968,6 +2927,7 @@ if (typeof module !== "undefined" && module.exports) {
     parsePaperHash,
     logHash,
     parseLogHash,
+    parseLibraryHash,
     migrateTreeFolds,
     migrateDiscoverLast,
     activityHash,

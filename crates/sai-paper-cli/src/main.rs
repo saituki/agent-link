@@ -1003,35 +1003,51 @@ async fn main() -> Result<()> {
             };
             let kept = deduped.clone();
 
-            // --save-as オプションで検索セットを保存（同じ名前なら 1 つのセットに足す）
-            let set_id = if let Some(set_name) = save_as {
-                let Some(database) = database.as_ref() else {
-                    bail!("検索セットを保存するには研究プロジェクト（.sai/paper）が必要です");
-                };
+            // 検索の履歴は毎回必ず残す（Library の階層に出る）。1 回ごとに別の履歴にする。
+            // --save-as があれば、その名前のセットにも足す（同じ名前なら 1 つのセットに足す）。
+            let (set_id, log_id) = if let Some(database) = database.as_ref() {
+                let conn = database.connection();
                 let source_dbs_str = dbs_to_use.join(",");
-
-                let set_id = save_search_results(
-                    database.connection(),
-                    &set_name,
-                    &source_dbs_str,
+                let year = match (year_from, year_to) {
+                    (Some(from), Some(to)) => format!("{from}-{to}"),
+                    (Some(from), None) => format!("{from}-"),
+                    (None, Some(to)) => format!("-{to}"),
+                    (None, None) => String::new(),
+                };
+                let log_id = sai_paper_core::search_log::record_search(
+                    conn,
+                    "cli",
                     &query,
-                    raw_query.as_deref(),
-                    deduped.clone(),
+                    &year,
+                    &limit.to_string(),
+                    &source_dbs_str,
+                    &deduped,
                 )?;
-
-                // 何のための検索かをセットに書く（R-R6）。1 つでもあれば書く。
+                let set_id = match save_as {
+                    Some(set_name) => Some(save_search_results(
+                        conn,
+                        &set_name,
+                        &source_dbs_str,
+                        &query,
+                        raw_query.as_deref(),
+                        deduped.clone(),
+                    )?),
+                    None => None,
+                };
+                // 履歴とセットの両方に、実行した run（Agent の検索なら）と、何のための検索か（R-R6）を書く。
                 let fields = sci::set_fields(&refs, purpose.as_deref(), extract.as_deref());
-                if let Some(fields) = fields {
-                    sai_paper_core::search_sets::set_sci_fields(
-                        database.connection(),
-                        set_id,
-                        &fields,
-                    )
-                    .context("検索セットに検索の目的を書けませんでした")?;
+                for id in std::iter::once(log_id).chain(set_id) {
+                    sai_paper_core::search_log::set_run_id(conn, id, sci::parent_run_id())?;
+                    if let Some(fields) = &fields {
+                        sai_paper_core::search_sets::set_sci_fields(conn, id, fields)
+                            .context("検索セットに検索の目的を書けませんでした")?;
+                    }
                 }
-                Some(set_id)
+                (set_id, Some(log_id))
+            } else if save_as.is_some() {
+                bail!("検索セットを保存するには研究プロジェクト（.sai/paper）が必要です");
             } else {
-                None
+                (None, None)
             };
 
             // Node が指定されたときだけ検索の記録を残す。
@@ -1048,6 +1064,7 @@ async fn main() -> Result<()> {
                         hits: kept.len() as i64,
                         hit_papers: &[],
                         set_id,
+                        log_id,
                     },
                 )?;
             }
@@ -1264,6 +1281,7 @@ async fn main() -> Result<()> {
                     hits: hit_count,
                     hit_papers: &hit_papers,
                     set_id: None,
+                    log_id: None,
                 },
             )?;
 

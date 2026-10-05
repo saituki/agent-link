@@ -96,6 +96,23 @@ pub fn record_search(
     Ok(log_id)
 }
 
+/// 検索を実行した sai-link の実行 ID を記録に残す（Agent の検索。`None` なら何もしない）。
+///
+/// 実行 ID があれば `origin` も `agent` にする（窓口が人の検索と見分けるため）。
+///
+/// # Errors
+///
+/// DB エラーの場合。
+pub fn set_run_id(conn: &Connection, log_id: i64, run_id: Option<i64>) -> Result<(), SearchLogError> {
+    if let Some(run_id) = run_id {
+        conn.execute(
+            "UPDATE search_sets SET run_id = ?1, origin = 'agent' WHERE id = ?2",
+            params![run_id, log_id],
+        )?;
+    }
+    Ok(())
+}
+
 /// 既存のログにヒット論文を追記する（重複排除キーで重複はスキップ）。
 ///
 /// Discover の「さらに読み込む（r）」で追加取得した分を同じログへ反映する。

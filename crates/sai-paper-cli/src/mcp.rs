@@ -232,6 +232,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                     hits: count,
                     hit_papers: &hit_papers,
                     set_id: None,
+                    log_id: None,
                 },
             )?;
             match outcome {
