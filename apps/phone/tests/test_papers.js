@@ -306,10 +306,12 @@ function main() {
 
 main();
 
-// Library の住所（論文を右の欄に開く形も読める）
-assert.deepStrictEqual(parseLibraryHash("#/papers/library"), { paper: null, log: null });
-assert.deepStrictEqual(parseLibraryHash("#/papers/library/57"), { paper: 57, log: null });
-assert.deepStrictEqual(parseLibraryHash("#/papers/library/log/12"), { paper: null, log: 12 });
+// Library の住所（論文を右の欄に開く形も読める。U03 で find を追加）
+assert.deepStrictEqual(parseLibraryHash("#/papers/library"), { paper: null, log: null, find: null });
+assert.deepStrictEqual(parseLibraryHash("#/papers/library/57"), { paper: 57, log: null, find: null });
+assert.deepStrictEqual(parseLibraryHash("#/papers/library/log/12"), { paper: null, log: 12, find: null });
+assert.deepStrictEqual(parseLibraryHash("#/papers/library/find/12"), { paper: null, log: null, find: 12 });
 assert.strictEqual(parseLibraryHash("#/papers/library/log/0"), null);
+assert.strictEqual(parseLibraryHash("#/papers/library/find/0"), null);
 assert.strictEqual(parseLibraryHash("#/papers/library/0"), null);
 assert.strictEqual(parseLibraryHash("#/papers/discover"), null);

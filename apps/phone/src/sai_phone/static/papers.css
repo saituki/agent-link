@@ -525,6 +525,34 @@
 /* hidden 属性が display に負けないようにする */
 .papers-cond[hidden], #discover-status[hidden] { display: none; }
 
+/* U03: Library 内の検索（内部 DB）。外／内の切り替えは dash-seg をそのまま使う */
+#library-kind { margin-bottom: 8px; }
+#find-papers-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.find-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.find-chip-x {
+  border: none;
+  background: none;
+  color: var(--text-soft);
+  font-size: 12px;
+  padding: 0 4px;
+}
+#find-node { max-width: 100%; }
+#find-each { width: 4em; }
+#find-subtree-wrap, #find-each-wrap { display: block; margin-top: 6px; font-size: 13px; }
+#find-subtree-wrap[hidden], #find-each-wrap[hidden] { display: none; }
+#find-node-note { overflow-wrap: anywhere; }
+
 /* 左の階層と右の欄の境界線（ドラッグで幅を変える・広い画面だけ） */
 .papers-split-handle { display: none; }
 @media (min-width: 900px) {
