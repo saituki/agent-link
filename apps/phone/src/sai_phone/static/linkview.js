@@ -232,12 +232,14 @@ function isTodoRun(run) {
 }
 
 /**
- * professor が起こすカードか（`executer: professor`・U1）。
+ * エージェントが起こすカードか（`executer` が空でなく `human` でない・U1・U12）。
  * 人が起こす道（▶ 実行）では動かさないので、ボタンを出さない。
+ * 古い書き出しに残った `professor` も同じく人が起こさないカードとして扱う。
  */
-function isProfessorRun(run) {
+function isAgentRun(run) {
   if (!run || typeof run !== "object") return false;
-  return String(run.executer || "") === "professor";
+  const executer = String(run.executer || "").trim();
+  return executer !== "" && executer !== "human";
 }
 
 /**
@@ -720,13 +722,18 @@ function lvRenderActions() {
     box.appendChild(btn);
   };
   if (isTodoRun(lvRun)) {
-    if (isProfessorRun(lvRun)) {
-      // professor が起こすカードは人が動かさない（用語の札付きで 理由を出す・U1）。
+    if (isAgentRun(lvRun)) {
+      // エージェントが起こすカードは人が動かさない（理由を出す・U1）。
       const note = document.createElement("span");
       note.className = "lv-run-note";
-      note.appendChild(document.createTextNode("professor が起こす "));
-      if (typeof saiTerm === "function") {
-        note.appendChild(saiTerm("professor", "professor が起こす"));
+      note.appendChild(document.createTextNode("エージェントが起こす "));
+      // 用語集に `agent` の項目があれば札を付け、無ければ付けない（U12）。
+      if (
+        typeof saiTerm === "function" &&
+        typeof saiTermText === "function" &&
+        saiTermText("agent")
+      ) {
+        note.appendChild(saiTerm("agent", "エージェントが起こす"));
       }
       box.appendChild(note);
     } else {
@@ -1538,10 +1545,10 @@ function lvRenderDrawer() {
       dot.setAttribute("aria-hidden", "true");
       b.appendChild(dot);
       b.appendChild(el("span", "lv-run-item-label", r.label));
-      // professor が起こす todo には短い印を出す（一覧で分かるように・U1）。
-      if (r.lane === "todo" && isProfessorRun(r)) {
-        const mark = el("span", "lv-run-item-mark", "prof");
-        mark.title = "professor が起こす";
+      // エージェントが起こす todo には短い印を出す（一覧で分かるように・U1）。
+      if (r.lane === "todo" && isAgentRun(r)) {
+        const mark = el("span", "lv-run-item-mark", "AI");
+        mark.title = "エージェントが起こす";
         b.appendChild(mark);
       }
       b.addEventListener("click", () => {
@@ -1743,7 +1750,7 @@ if (typeof module !== "undefined" && module.exports) {
     viewTabs,
     pickView,
     isTodoRun,
-    isProfessorRun,
+    isAgentRun,
     lvCanEdit,
     flattenTree,
     findRun,

@@ -614,7 +614,7 @@ pub enum CardCmd {
     Wait {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
-        /// 待つジョブの ID（exp_exec.py の job_id）
+        /// 待つジョブの ID
         #[arg(long)]
         job: Option<String>,
         #[arg(long, default_value_t = false)]
@@ -1252,7 +1252,7 @@ pub enum PhoneCardCmd {
         at: Option<String>,
     },
 
-    /// todo のカードを、ジョブ（exp_exec.py の job_id）が終わったら実行するようにする
+    /// todo のカードを、ジョブが終わったら実行するようにする
     ///
     /// `--job` を省くと解除する。常駐が約 60 秒ごとにジョブの状態を見回る。
     Wait {
@@ -1260,7 +1260,7 @@ pub enum PhoneCardCmd {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
 
-        /// 待つジョブの ID（exp_exec.py の job_id）
+        /// 待つジョブの ID
         #[arg(long)]
         job: Option<String>,
     },

@@ -39,6 +39,10 @@ const MAX_CAPTURE_CHARS: usize = 200_000;
 /// [`run_capture`] が失敗理由として返す最大文字数。
 const MAX_CAPTURE_REASON_CHARS: usize = 200;
 
+/// `.sai/settings.json` に `job_status` が無いときの文（常駐と `card wait` で同じ）。
+pub const JOB_STATUS_MISSING: &str =
+    "ジョブの状態を確かめる命令（.sai/settings.json の job_status）がありません";
+
 /// 準備コマンドの実行結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreRunOutcome {
@@ -357,6 +361,32 @@ pub fn context_text(run_id: Option<i64>, block_id: &str) -> String {
     }
 }
 
+/// `.sai/settings.json` の `job_status` を読む（プロジェクトのルート基準）。
+///
+/// ジョブの状態を確かめる命令（文字の配列。先頭が実行ファイル）を返す。
+/// `{job}` は呼び出し側がジョブの ID に置き換える。
+/// 無い・空・形が違う（配列でない・空配列・先頭が空文字）ときは `None`。
+/// 研究のプロジェクトでは `sai-sci init` が書く（sai-link は読むだけ）。
+pub fn job_status_template() -> Option<Vec<String>> {
+    job_status_template_at(&crate::project::project_root())
+}
+
+/// `.sai/settings.json` の `job_status` を、指定したルートで読む（テスト用）。
+pub fn job_status_template_at(root: &Path) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(root.join(".sai/settings.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let out: Vec<String> = value
+        .get("job_status")?
+        .as_array()?
+        .iter()
+        .map(|v| v.as_str().map(str::to_string))
+        .collect::<Option<Vec<_>>>()?;
+    if out.is_empty() || out[0].trim().is_empty() {
+        return None;
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -622,6 +652,31 @@ mod tests {
         let text = context_text(Some(7), "sci-impl");
         assert!(text.starts_with("（範囲を作れませんでした: "), "理由: {text}");
         assert!(text.contains("終了コード"), "理由: {text}");
+    }
+
+    /// `.sai/settings.json` の `job_status` を読む。無い・空・形が違うときは None。
+    #[test]
+    fn job_status_template_reads_array_or_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        // 設定が無い
+        assert_eq!(job_status_template_at(&root), None);
+        // 正しい形（配列。先頭が実行ファイル）
+        write_settings(&root, r#"{"job_status": ["uv", "run", "{job}"]}"#);
+        assert_eq!(
+            job_status_template_at(&root),
+            Some(vec!["uv".to_string(), "run".to_string(), "{job}".to_string()])
+        );
+        // 空・形が違う
+        for body in [
+            r#"{"job_status": []}"#,
+            r#"{"job_status": "uv run"}"#,
+            r#"{"job_status": ["", "run"]}"#,
+            r#"{"job_status": ["uv", 1]}"#,
+        ] {
+            write_settings(&root, body);
+            assert_eq!(job_status_template_at(&root), None, "body={body}");
+        }
     }
 
     /// 範囲の文を入れてもファイルを作らない。

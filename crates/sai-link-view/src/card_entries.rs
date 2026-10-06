@@ -34,7 +34,7 @@ pub struct TodoCardInfo {
     pub run_id: Option<i64>,
     /// ディレクトリ名と `run_id:` が不一致か（エラー表示用）
     pub run_id_mismatch: bool,
-    /// カードの frontmatter `executer:`（`human` / `professor`・未記載は `human`）
+    /// カードの frontmatter `executer:`（`human` / `agent`・未記載は `human`）
     pub executer: String,
 }
 
@@ -172,7 +172,7 @@ pub fn todo_card_info(
     })
 }
 
-/// カードの frontmatter から起動者（`human` / `professor`）を読む。
+/// カードの frontmatter から起動者（`human` / `agent`）を読む。
 ///
 /// カードが読めない・frontmatter が無いときは `human`（人が起こす）。
 pub fn executer_of_card(card_path: Option<&std::path::Path>) -> String {
@@ -186,7 +186,7 @@ pub fn executer_of_card(card_path: Option<&std::path::Path>) -> String {
         .unwrap_or_else(|| "human".to_string())
 }
 
-/// run フォルダの task.md から起動者（`human` / `professor`）を読む。
+/// run フォルダの task.md から起動者（`human` / `agent`）を読む。
 ///
 /// どのレーン（todo / running / review / done）でも run フォルダは
 /// `find_run_dir` で引ける。カードが無い run は `human`。
@@ -305,7 +305,7 @@ pub struct CardEntry {
     pub exec_id: Option<i64>,
     /// runner（pi / cc など。todo は未実行で空）
     pub runner: String,
-    /// 起動者（`human` / `professor`）。カードが無い run は `human`。
+    /// 起動者（`human` / `agent`）。カードが無い run は `human`。
     pub executer: String,
 }
 

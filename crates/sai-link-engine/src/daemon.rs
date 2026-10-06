@@ -169,12 +169,12 @@ fn write_finalize_result(run_id: i64, ok: bool, reason: &str) {
     }
 }
 
-/// `exp_exec.py status` の `state` が「終わった」を表す値か。
+/// ジョブの状態の `state` が「終わった」を表す値か。
 fn job_state_finished(state: &str) -> bool {
     matches!(state, "done" | "failed" | "cancelled" | "lost")
 }
 
-/// `exp_exec.py status <job_id> --json` の標準出力から `state` を読む。読めなければ `None`。
+/// ジョブの状態を読む命令の標準出力から `state` を読む。読めなければ `None`。
 fn parse_job_state(stdout: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(stdout.trim()).ok()?;
     v.get("state")?.as_str().map(str::to_string)
@@ -182,27 +182,26 @@ fn parse_job_state(stdout: &str) -> Option<String> {
 
 /// ジョブの状態を読む命令を作る。
 ///
-/// 環境変数 `SAI_EXP_STATUS_CMD` があれば `<cmd> status <job_id> --json`、
-/// 無ければ `uv run ... exp_exec.py status <job_id> --json`。
-fn job_status_command(root: &Path, job_id: &str) -> std::process::Command {
-    let mut cmd = match std::env::var_os("SAI_EXP_STATUS_CMD") {
-        Some(exe) => std::process::Command::new(exe),
-        None => {
-            let mut c = std::process::Command::new("uv");
-            c.args(["run", "--no-project", "--python", ">=3.11", "python"])
-                .arg(root.join(".sai/tools/exp_exec.py"));
-            c
-        }
-    };
-    cmd.args(["status", job_id, "--json"])
+/// `.sai/settings.json` の `job_status`（文字の配列。先頭が実行ファイル）を読み、
+/// `{job}` をジョブの ID に置き換えて使う。設定が無い・形が違うときは `Err`。
+fn job_status_command(root: &Path, job_id: &str) -> Result<std::process::Command, String> {
+    let template = crate::pre_run::job_status_template_at(root)
+        .ok_or_else(|| crate::pre_run::JOB_STATUS_MISSING.to_string())?;
+    let mut args: Vec<String> = template
+        .iter()
+        .map(|arg| arg.replace("{job}", job_id))
+        .collect();
+    let program = args.remove(0);
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args)
         .current_dir(root)
         .env("SAI_PROJECT_ROOT", root);
-    cmd
+    Ok(cmd)
 }
 
 /// ジョブの状態を読む（90 秒で打ち切る）。失敗は文で返す。
 fn read_job_state(root: &Path, job_id: &str) -> Result<String, String> {
-    let mut child = job_status_command(root, job_id)
+    let mut child = job_status_command(root, job_id)?
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -1509,7 +1508,7 @@ mod tests {
         }
     }
 
-    /// 偽の命令（`SAI_EXP_STATUS_CMD`）が出す状態で、カードを起こす対象に選ぶかが決まる。
+    /// `.sai/settings.json` の `job_status` が出す状態で、カードを起こす対象に選ぶかが決まる。
     #[test]
     fn job_card_is_released_only_when_job_finished() {
         use std::os::unix::fs::PermissionsExt;
@@ -1527,25 +1526,62 @@ mod tests {
         };
         write(&card);
 
-        let fake = |state: &str| {
-            let exe = root.join("fake.sh");
-            std::fs::write(&exe, format!("#!/bin/sh\necho '{{\"state\":\"{}\"}}'\n", state)).unwrap();
-            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
-            std::env::set_var("SAI_EXP_STATUS_CMD", &exe);
+        // 状態はファイルから出す偽の命令（`job_status` が指す小さなスクリプト）
+        let state = root.join("state.txt");
+        let exe = root.join("fake.sh");
+        std::fs::write(&exe, format!("#!/bin/sh\ncat '{}'\n", state.display())).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = format!(
+            "{{\"job_status\": [\"{}\", \"status\", \"{{job}}\", \"--json\"]}}",
+            exe.display()
+        );
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        std::fs::write(root.join(".sai/settings.json"), settings).unwrap();
+
+        let fake = |s: &str| {
+            std::fs::write(&state, s).unwrap();
             read_job_state(root, "j1")
         };
-        let running = fake("running").unwrap();
+        let running = fake(r#"{"state":"running"}"#).unwrap();
         assert_eq!(release_job_card(&task, "j1", Some(&running)), None);
         assert!(std::fs::read_to_string(&task).unwrap().contains("after_job: j1"));
 
         // 別の値に変わっていたら何もしない
-        let done = fake("done").unwrap();
+        let done = fake(r#"{"state":"done"}"#).unwrap();
         assert_eq!(release_job_card(&task, "other", Some(&done)), None);
         assert_eq!(release_job_card(&task, "j1", None), None);
 
         assert_eq!(release_job_card(&task, "j1", Some(&done)), Some(42));
         assert!(!std::fs::read_to_string(&task).unwrap().contains("after_job"));
-        std::env::remove_var("SAI_EXP_STATUS_CMD");
+    }
+
+    /// `.sai/settings.json` に `job_status` が無い・空・形が違うときは、状態を読めない。
+    /// 常駐は起こさない（`release_job_card` は `None` を返す）。
+    #[test]
+    fn job_card_not_released_without_job_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let task = root.join("task.md");
+        let mut card = crate::kanban::KanbanCard {
+            frontmatter: crate::kanban::CardFrontmatter::new_card("2026/10/02 10:00:00".into()),
+            body: "# task_text\nやること\n".into(),
+        };
+        card.frontmatter.run_id = "42".into();
+        card.frontmatter.set_meta("after_job".into(), "j1".into());
+        std::fs::write(&task, crate::kanban::render_card(&card)).unwrap();
+
+        // 設定が無い（.sai/settings.json 自体が無い）
+        let err = read_job_state(root, "j1").unwrap_err();
+        assert!(err.contains(crate::pre_run::JOB_STATUS_MISSING), "err={err}");
+        assert_eq!(release_job_card(&task, "j1", None), None);
+        assert!(std::fs::read_to_string(&task).unwrap().contains("after_job: j1"));
+
+        // 空配列・形が違うときも同じ
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        for body in [r#"{"job_status": []}"#, r#"{"job_status": "uv run"}"#] {
+            std::fs::write(root.join(".sai/settings.json"), body).unwrap();
+            assert!(read_job_state(root, "j1").is_err(), "body={body}");
+        }
     }
 
     // ---- PID ファイル管理（実デーモンの PID ファイルに影響しないよう一時パスで実行）----

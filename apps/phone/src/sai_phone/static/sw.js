@@ -73,7 +73,9 @@
 // U10 の「コマンド」画面と会話の検索（commands.js・sessionsearch.js を追加し、
 // cardform.js・papers.js・linkview.js・style.css を更新）で v82 に
 // （index.html の ?v= も 82。ASSETS に 2 つを足した）
-const CACHE = "sai-phone-v82";
+// U12 の List の ▶ の判定（エージェントが起こすカードに ▶ を出さない・linkview.js）で v83 に
+// （index.html の ?v= も 83。ASSETS は変えない）
+const CACHE = "sai-phone-v83";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/sciset.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/sciset.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-phone-v… とは別なので activate で消さない）

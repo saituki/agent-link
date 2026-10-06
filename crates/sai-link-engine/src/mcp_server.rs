@@ -247,7 +247,7 @@ fn tools_list_result() -> Value {
         },
         {
             "name": "task_create",
-            "description": "新しいサブタスクを作成する。承認は不要で、指定したタスクはそのまま作成される。block_type（task.md の block と同じ）には block_discover で確認した id を指定する。task_text は子ブロックの {{input.task_text}} に入るテキストで、文中の waggle:<トークン> は実行時に文書の本文へ置き換わる。description（task.md の説明・省略時は task_text と同じ）を付けられる。cwd で作業フォルダ（別プロジェクト等）、worktree で作業用コピーの有無を指定できる。card（整数）を渡すと、todo のカード（executer: professor）を自分の子として起こす（予約済みの run_id と task.md をそのまま使う。task_text・block_type は書かない）。実行すると子の run フォルダに task.md（description と task_text）が保存され、TUI / Web で見られる。",
+            "description": "新しいサブタスクを作成する。承認は不要で、指定したタスクはそのまま作成される。block_type（task.md の block と同じ）には block_discover で確認した id を指定する。task_text は子ブロックの {{input.task_text}} に入るテキストで、文中の waggle:<トークン> は実行時に文書の本文へ置き換わる。description（task.md の説明・省略時は task_text と同じ）を付けられる。cwd で作業フォルダ（別プロジェクト等）、worktree で作業用コピーの有無を指定できる。card（整数）を渡すと、todo のカード（executer: agent）を自分の子として起こす（予約済みの run_id と task.md をそのまま使う。task_text・block_type は書かない）。実行すると子の run フォルダに task.md（description と task_text）が保存され、TUI / Web で見られる。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -260,7 +260,7 @@ fn tools_list_result() -> Value {
                                 "client_id": { "type": "string", "description": "クライアント側の一時 ID（結果の紐付け用・バッチ内で一意）" },
                                 "subject": { "type": "string", "description": "タスク件名" },
                                 "task_text": { "type": "string", "description": "子ブロックの最初のメッセージの「# task_text」の節に入るテキスト。文中の waggle:<トークン> は実行時に文書の本文へ置き換わる" },
-                                "card": { "type": "integer", "description": "todo のカードの run_id。executer: professor のカードを、自分の子として起こす。予約済みの run_id と task.md（sci_* を含む）をそのまま使う。task_text は書かない" },
+                                "card": { "type": "integer", "description": "todo のカードの run_id。executer: agent のカードを、自分の子として起こす。予約済みの run_id と task.md（sci_* を含む）をそのまま使う。task_text は書かない" },
                                 "block_type": { "type": "string", "description": "使用するブロック定義の id（表示名ではなく id。task.md の block と同じ）" },
                                 "block": { "type": "string", "description": "block_type と同じ（task.md 互換の別名）" },
                                 "description": { "type": "string", "description": "タスクの説明（task.md の description。省略時は task_text と同じ）" },
