@@ -1,0 +1,72 @@
+# CI: Rust・Web（JS・Python）・Radio・sai-sci の道具のテストを回す。
+# 命令は AGENTS.md の「テストと確認」と同じ物にそろえる（直すときは両方直す）。
+# 利用者の環境（Mac 上の道具）に合わせて macOS で動かす。秘密の値・ネットワークに出る試験は使わない。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # 環境変数が混ざっていると History テスト 1 件が落ちるので env -u で外す
+      - name: cargo test
+        run: |
+          env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
+            perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
+
+  web:
+    name: Web（JS・Python）
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 仮想環境を作る
+        run: (cd apps/web && uv sync)
+      - name: JS のテスト
+        run: for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
+      - name: Python のテスト
+        run: for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
+
+  radio:
+    name: Radio
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: 仮想環境を作る
+        run: (cd apps/radio && uv sync)
+      - name: Radio のテスト
+        run: (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+
+  sai-sci-tools:
+    name: sai-sci の道具
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: 実験ループの道具
+        run: (cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_refcode test_modeldb test_data_result test_data_eda; do python -W ignore -m unittest $t || exit 1; done)
+      - name: 実験の要約（mlflow が要る）
+        run: (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
