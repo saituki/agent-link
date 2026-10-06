@@ -331,10 +331,15 @@ pub fn recent_docs(store: &SaiStore, limit: usize) -> Vec<WaggleChoiceData> {
 
 /// 全体（実行中含む）の md 文書を DB 状態付きで返す（`Origin` の後半用）。
 ///
-/// `list_waggle_tokens(include_running=true)` のトークンを integrator で解決し、
+/// `list_waggle_tokens` のトークンを integrator で解決し、
 /// md のみ・解決不可は除外。状態はトークン行の `status` を載せる。
-fn choices_all_including_running(store: &SaiStore) -> Vec<WaggleChoiceData> {
-    let entries = store.list_waggle_tokens(None, None, -1, true).unwrap_or_default();
+///
+/// `include_running=false` のときは完了済み（+ 仮 completed）の実行だけを返す
+/// （`doc list` の `--all` なしと対応）。
+pub fn all_docs(store: &SaiStore, include_running: bool) -> Vec<WaggleChoiceData> {
+    let entries = store
+        .list_waggle_tokens(None, None, -1, include_running)
+        .unwrap_or_default();
     if entries.is_empty() {
         return Vec::new();
     }
@@ -354,6 +359,11 @@ fn choices_all_including_running(store: &SaiStore) -> Vec<WaggleChoiceData> {
         })
         .collect();
     build_choices(&integrator, entries)
+}
+
+/// 全体（実行中含む）の md 文書を DB 状態付きで返す（`Origin` の後半用）。
+fn choices_all_including_running(store: &SaiStore) -> Vec<WaggleChoiceData> {
+    all_docs(store, true)
 }
 
 /// waggle トークン 1 件の内容（`phone waggle --token` 用）。

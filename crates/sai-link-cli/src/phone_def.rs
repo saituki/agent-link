@@ -425,6 +425,14 @@ fn list() -> PhoneResult<Value> {
                     "error": error,
                     "used_by": used_by(kind, &name),
                 });
+                // block の項目だけ `templates` を足す（sai-sci が読む。読めなければ []）
+                let mut val = val;
+                if kind == DefKind::Block {
+                    let templates: Vec<String> = parse_block_string(&text)
+                        .map(|p| p.config.templates.clone().unwrap_or_default())
+                        .unwrap_or_default();
+                    val["templates"] = json!(templates);
+                }
                 items.push((kind.order(), si as u8, name, val));
             }
         }

@@ -92,7 +92,7 @@ pub(crate) static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 /// 持つため、`phone dashboard` のように**項目の並び順まで共有契約**の
 /// 出力は、構造体でシリアライズしたテキストで持つ（`dashboard` 参照）。
 #[derive(Debug)]
-enum PhoneOut {
+pub(crate) enum PhoneOut {
     /// JSON 値
     Value(Value),
     /// シリアライズ済みの JSON テキスト（項目順を保つ）
@@ -159,6 +159,9 @@ struct CardCreateInput {
     /// TUI Step4 と同じく `waggle:<tok>:path:…` 参照行として task_text 先頭に貼られる
     #[serde(default)]
     doc_tokens: Vec<String>,
+    /// frontmatter に足す任意のメタ情報（キーは `^[a-z][a-z0-9_]*$` のみ・標準のキーは不可）
+    #[serde(default)]
+    meta: HashMap<String, String>,
 }
 
 // ============================================================================
@@ -183,8 +186,21 @@ pub fn handle(cmd: PhoneCmd) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// 新しい命令の木（`cmd_*`）から phone の実装をそのまま呼ぶための入口。
+///
+/// 成功時の出力（JSON は pretty・Text はそのまま）を 1 つの文字列で返す。
+/// 失敗は [`PhoneError`] のまま返すので、呼び出し側が CLI 共通の約束の
+/// 終了コード（2・3・1）に読み替える。処理を写さない（出力を 1 文字も変えない）。
+pub(crate) fn render(cmd: PhoneCmd) -> PhoneResult<String> {
+    match run(cmd)? {
+        PhoneOut::Value(v) => serde_json::to_string_pretty(&v)
+            .map_err(|e| PhoneError::internal(format!("JSON 変換に失敗: {}", e))),
+        PhoneOut::Text(s) => Ok(s),
+    }
+}
+
 /// サブコマンド本体（`Export` は main 側で処理するため到達しない）。
-fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
+pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
     match cmd {
         PhoneCmd::Export { .. } => Err(PhoneError::usage(
             "内部エラー: phone export は handle_phone_export が処理する",
@@ -1094,6 +1110,8 @@ fn card_create() -> PhoneResult<Value> {
         .map_err(|e| PhoneError::usage(format!("標準入力の読み込みに失敗: {}", e)))?;
     let parsed: CardCreateInput = serde_json::from_str(&input)
         .map_err(|e| PhoneError::usage(format!("JSON の解析に失敗: {}", e)))?;
+    // `meta` はカードを作る前に検査する（標準のキー・キーの形）
+    let meta = validate_card_meta(&parsed.meta)?;
 
     // TUI Step4 と同じ貼り付け（doc_tokens → task_text 先頭の参照行＋本文）
     let doc_refs: Vec<String> = parsed
@@ -1152,7 +1170,11 @@ fn card_create() -> PhoneResult<Value> {
         .ok_or_else(|| PhoneError::internal("作成した task.md の frontmatter を読めません"))?;
     card.frontmatter
         .set_meta("executer".to_string(), executer.clone());
-    std::fs::write(&path, sai_link_engine::kanban::render_card(&card))
+    // `meta`（任意の追加項目）を frontmatter に書く（改行は空白に置き換え済み）
+    for (key, value) in &meta {
+        card.frontmatter.set_meta(key.clone(), value.clone());
+    }
+    std::fs::write(&path, render_card_with_meta(&card, &meta))
         .map_err(|e| PhoneError::internal(format!("作成した task.md を書けません: {}", e)))?;
 
     // 作成済み task.md の frontmatter から確定した run_id を読む
@@ -1172,6 +1194,81 @@ fn card_create() -> PhoneResult<Value> {
 // ============================================================================
 // card run — todo の未実行カードを実行する
 // ============================================================================
+
+/// `card create` の `meta` を検査して、frontmatter に書く形へ整える。
+///
+/// - キーは `^[a-z][a-z0-9_]*$` だけ受ける。
+/// - 標準のキー（run_id など）は受け付けない（終了コード 2）。
+/// - 値の改行は空白に置き換える。
+fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String, String)>> {
+    const STANDARD_KEYS: [&str; 16] = [
+        "runner",
+        "creation_date",
+        "execution_date",
+        "run_id",
+        "block",
+        "thinking",
+        "model",
+        "provider",
+        "round",
+        "global_round",
+        "tag",
+        "description",
+        "executer",
+        "source_doc",
+        "scheduled_at",
+        "after_job",
+    ];
+    let mut out = Vec::with_capacity(meta.len());
+    for (key, value) in meta {
+        if !valid_meta_key(key) {
+            return Err(PhoneError::parse(format!(
+                "meta のキーは小文字英数字と _ だけにしてください: {}",
+                key
+            )));
+        }
+        if STANDARD_KEYS.contains(&key.as_str()) {
+            return Err(PhoneError::parse(format!(
+                "meta に標準のキーは使えません: {}",
+                key
+            )));
+        }
+        out.push((key.clone(), value.replace('\n', " ").replace('\r', " ")));
+    }
+    Ok(out)
+}
+
+/// `render_card` の出力の frontmatter 末尾に、任意の `meta` を差し込む。
+///
+/// `kanban::render_card` は決まったキー（`META_FM_KEYS`）しか出さないため、
+/// `card create` の `meta` を task.md に書くにはここで足す。
+/// 差し込むのは frontmatter の閉じ `---` の直前（値の改行は空白に置き換え済み）。
+fn render_card_with_meta(
+    card: &sai_link_engine::kanban::KanbanCard,
+    meta: &[(String, String)],
+) -> String {
+    let mut text = sai_link_engine::kanban::render_card(card);
+    if meta.is_empty() {
+        return text;
+    }
+    // 先頭の `---\n` の次にある閉じ `---` の直前に差し込む
+    if let Some(rel) = text.find("\n---\n") {
+        let at = rel + 1;
+        let mut add = String::new();
+        for (key, value) in meta {
+            add.push_str(&format!("{}: {}\n", key, value));
+        }
+        text.insert_str(at, &add);
+    }
+    text
+}
+
+/// `meta` のキーが `^[a-z][a-z0-9_]*$` に合うか。
+fn valid_meta_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
 
 /// todo に未実行カードが無いときの stderr 文言（終了コード 3）。
 const TODO_NOT_FOUND: &str = "未実行のカードが見つかりません";

@@ -11,13 +11,30 @@
 //!
 //! ## 優先順位
 //!
-//! 1. 環境変数 `SAI_PROJECT_ROOT`（デーモンが起動時に設定）
-//! 2. カレントディレクトリ（デーモン未使用時のフォールバック。テスト互換）
+//! [`project_root`]（デーモン・エンジン内部が使う）:
+//! 1. 環境変数 `SAI_PROJECT_ROOT`（デーモンが起動時に設定。フォルダの有無は見ない）
+//! 2. カレントディレクトリ（デーモン未使用時のフォールバック）
+//!
+//! [`project_root_checked`]（CLI の入口が使う。CLI 共通の約束 5）:
+//! 1. 環境変数 `SAI_PROJECT_ROOT`（空でない値。フォルダが無ければエラー）
+//! 2. カレントディレクトリから上へたどり、`.sai/` を持つ最初のフォルダ
+//!
+//! 上へたどるとき、ホーム（`HOME`）とそれより上のフォルダは数えない。
+//! `~/.sai` は利用者全体の置き場であり、プロジェクトではないため
+//! （CLI 共通の約束 5）。
 
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// プロジェクトルート（`.sai` の基準ディレクトリ）を解決する。
+///
+/// `SAI_PROJECT_ROOT`（空でない値）があればそれをそのまま使う（デーモンが
+/// 起動時に設定する。フォルダの有無は見ない。デーモン・pane の既存の使い方を
+/// そのまま保つため）。無ければカレントディレクトリ。
+///
+/// 上へたどって `.sai/` を探すのは [`project_root_checked`] の方で行う
+/// （CLI の入口が使う）。ここで上へたどると、プロジェクトの外で打った命令が
+/// ホームより上の別の `.sai/` を見つけて意図しない場所に書いてしまうため。
 pub fn project_root() -> PathBuf {
     if let Some(p) = std::env::var_os("SAI_PROJECT_ROOT") {
         let pb = PathBuf::from(p);
@@ -26,6 +43,56 @@ pub fn project_root() -> PathBuf {
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// プロジェクトルートを解決し、見つからなければ理由（日本語 1 行）を返す。
+///
+/// 順序は CLI 共通の約束 5 のとおり。
+/// - 環境変数 `SAI_PROJECT_ROOT`（空でない値）があればそれを使う。
+///   ただしフォルダが無ければエラーにする（上へたどらない）。
+/// - 無ければカレントディレクトリから上へたどり、`.sai/` を持つ最初のフォルダ。
+///   ホーム（`HOME`）とそれより上は数えない。
+/// - 見つからなければエラー（`.sai/` を勝手に作らない）。
+pub fn project_root_checked() -> Result<PathBuf, String> {
+    if let Some(p) = std::env::var_os("SAI_PROJECT_ROOT") {
+        let pb = PathBuf::from(p);
+        if !pb.as_os_str().is_empty() {
+            if pb.is_dir() {
+                return Ok(pb);
+            }
+            return Err(format!(
+                "SAI_PROJECT_ROOT のフォルダがありません: {}",
+                pb.display()
+            ));
+        }
+    }
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("カレントディレクトリを取得できません: {e}"))?;
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty());
+    if let Some(root) = find_project_root(&cwd, home.as_deref()) {
+        return Ok(root);
+    }
+    Err("プロジェクトが見つかりません（sai-moon-link init を実行してください）".to_string())
+}
+
+/// `start` から上へたどり、`.sai/` を持つ最初のフォルダを返す。
+///
+/// `home` に着いたらそこで止める（ホームとそれより上は数えない）。
+/// `home` が `start` の先祖でなければ、根（`/`）までたどる。
+fn find_project_root(start: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    let mut dir = Some(start);
+    while let Some(d) = dir {
+        if Some(d) == home {
+            break;
+        }
+        if d.join(".sai").is_dir() {
+            return Some(d.to_path_buf());
+        }
+        dir = d.parent();
+    }
+    None
 }
 
 /// プロジェクトルートからの相対パスを絶対パスに解決する。
@@ -130,5 +197,45 @@ mod tests {
         );
         // ④ HOME も無ければ None
         assert_eq!(resolve_sai_home(None, None), None);
+    }
+
+    /// 上へたどって `.sai/` を持つ最初のフォルダを見つける。
+    #[test]
+    fn find_project_root_walks_up() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("proj");
+        let sub = root.join("a/b");
+        std::fs::create_dir_all(&sub).unwrap();
+        // root に `.sai/` を作る（sub には作らないので root が見つかる）
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let found = find_project_root(&sub, None);
+        assert_eq!(found.as_deref(), Some(root.as_path()));
+    }
+
+    /// ホームに着いたら止める（ホームの `.sai/` は数えない）。
+    #[test]
+    fn find_project_root_stops_at_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let sub = home.join("work");
+        std::fs::create_dir_all(home.join(".sai")).unwrap();
+        std::fs::create_dir_all(&sub).unwrap();
+        // sub にもホームにも `.sai/` は無い（ホームにはあるが数えない）
+        assert_eq!(find_project_root(&sub, Some(&home)), None);
+        // ホームそのものでも止まる
+        assert_eq!(find_project_root(&home, Some(&home)), None);
+    }
+
+    /// ホームの外なら根までたどる。
+    #[test]
+    fn find_project_root_outside_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("p");
+        let sub = root.join("a");
+        std::fs::create_dir_all(&sub).unwrap();
+        let home = tmp.path().join("elsewhere");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        assert_eq!(find_project_root(&sub, Some(&home)), Some(root));
     }
 }
