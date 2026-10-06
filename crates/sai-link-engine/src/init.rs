@@ -4,7 +4,7 @@
 //!
 //! - `PROJECTROOT/.sai/` ディレクトリと必要なサブフォルダを作成する（既存は触らない）
 //! - `settings.json` をシード作成する（`{}`。既にあれば触らない）
-//! - `models.json` は作成しない（`~/.sai-moon/models.json` のグローバル設定にフォールバック）
+//! - `models.json` は作成しない（`~/.sai/models.json` のグローバル設定にフォールバック）
 //! - Claude Code の設定 `.mcp.json` と `.claude/settings.json`、pi の設定 `.pi/settings.json` を作る。
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
 //! - serena の設定 `.serena/project.yml` を作る（使う言語はプロジェクトのファイルの拡張子から選ぶ）。
@@ -16,13 +16,13 @@
 //!
 //! ```text
 //! <root>/
-//! ├── .mcp.json                                # cc の MCP（sai / serena / headroom / donsetch / playwright）
+//! ├── .mcp.json                                # cc/pi の外部 MCP（serena / headroom / donsetch / playwright）
 //! ├── .claude/settings.json                    # cc の道具制限・同梱 skill の抑止・statusLine・hook
 //! ├── .claude/commands/sai-finalize.md         # /sai-finalize（hook が LLM を通さず処理）
 //! ├── .claude/skills/                         # design skill（cc が読む）
 //! │   ├── frontend-design/{SKILL.md,LICENSE.txt}
 //! │   └── ui-ux-rules/{SKILL.md,LICENSE}
-//! ├── .pi/settings.json                        # pi の質問ツール（ask_user_phone.ts）
+//! ├── .pi/settings.json                        # pi の質問ツール（ask_user.ts）
 //! ├── .pi/skills/                             # design skill（pi が読む・中身は .claude と同じ）
 //! ├── .serena/project.yml                      # serena の言語サーバ（拡張子から選ぶ）
 //! └── .sai/
@@ -297,7 +297,7 @@ fn serena_project_yml(root: &Path, languages: &[&str]) -> String {
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| "project".to_string());
     let mut yml = String::new();
-    yml.push_str("# sai-moon-link init が書いた serena の設定（言語はプロジェクトのファイルの拡張子から選んだ）\n");
+    yml.push_str("# sai-link init が書いた serena の設定（言語はプロジェクトのファイルの拡張子から選んだ）\n");
     yml.push_str(&format!("project_name: {}\n", yaml_quoted(&name)));
     yml.push_str("language_servers:\n");
     for lang in languages {
@@ -467,13 +467,17 @@ mod tests {
         // .sai/ の既存ファイルは書き換えられていない
         assert!(std::fs::read_to_string(&settings).unwrap().contains("marker"));
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
-        // cc と pi と serena の設定と design skill の 8 ファイルは退避され、新しく作られる
-        assert_eq!(second.backed_up.len(), 5 + 8);
-        let pi: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(root.join(".pi/settings.json")).unwrap(),
-        )
-        .unwrap();
-        assert!(pi["extensions"][0].as_str().unwrap().ends_with("ask_user_phone.ts"));
+        // cc と pi と serena の設定と design skill のファイルは退避され、新しく作られる
+        // （`.pi/settings.json` は pi の質問の拡張が見つかったときだけ）
+        let expected_backups = 4 + usize::from(root.join(".pi/settings.json.bak").is_file()) + 8;
+        assert_eq!(second.backed_up.len(), expected_backups);
+        if root.join(".pi/settings.json").is_file() {
+            let pi: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(root.join(".pi/settings.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(pi["extensions"][0].as_str().unwrap().ends_with("ask_user.ts"));
+        }
         assert!(root.join(".claude/commands/sai-finalize.md").is_file());
         assert_eq!(
             std::fs::read_to_string(root.join(".mcp.json.bak")).unwrap(),
@@ -486,7 +490,8 @@ mod tests {
         let mcp: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap())
                 .unwrap();
-        assert!(mcp["mcpServers"]["sai"].is_object());
+        assert!(mcp["mcpServers"].get("sai").is_none(), ".mcp.json に sai を書かない: {}", mcp);
+        assert!(mcp["mcpServers"]["serena"].is_object());
 
         // 3 回目は .bak が既にあるので日時付きで退避される
         let third = init_project(root, false).unwrap();

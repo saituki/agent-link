@@ -504,7 +504,7 @@ mod tests {
     // ── 範囲（context）のテスト ──
 
     /// 環境変数を退避してから設定し、終了時に復元する補助。
-    /// グローバル設定（`~/.sai-moon/settings.json`）も空の一時フォルダに向ける。
+    /// グローバル設定（`~/.sai/settings.json`）も空の一時フォルダに向ける。
     struct EnvGuard {
         _lock: std::sync::MutexGuard<'static, ()>,
         project_root: Option<std::ffi::OsString>,
@@ -513,17 +513,17 @@ mod tests {
 
     impl EnvGuard {
         /// 一時フォルダを `SAI_PROJECT_ROOT` にして、空の一時フォルダを
-        /// `SAI_SAI_HOME` にする（テスト中は他のテストと干渉しない）。
+        /// `SAI_HOME` にする（テスト中は他のテストと干渉しない）。
         fn new(root: &Path) -> Self {
             let lock = crate::common::SAI_ENV_TEST_LOCK
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             let project_root = std::env::var_os("SAI_PROJECT_ROOT");
-            let sai_home = std::env::var_os("SAI_SAI_HOME");
+            let sai_home = std::env::var_os("SAI_HOME");
             std::env::set_var("SAI_PROJECT_ROOT", root);
             let empty_home = root.join("empty-home");
             std::fs::create_dir_all(&empty_home).unwrap();
-            std::env::set_var("SAI_SAI_HOME", &empty_home);
+            std::env::set_var("SAI_HOME", &empty_home);
             Self {
                 _lock: lock,
                 project_root,
@@ -539,8 +539,8 @@ mod tests {
                 None => std::env::remove_var("SAI_PROJECT_ROOT"),
             }
             match &self.sai_home {
-                Some(v) => std::env::set_var("SAI_SAI_HOME", v),
-                None => std::env::remove_var("SAI_SAI_HOME"),
+                Some(v) => std::env::set_var("SAI_HOME", v),
+                None => std::env::remove_var("SAI_HOME"),
             }
         }
     }

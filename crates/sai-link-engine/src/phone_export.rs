@@ -1,7 +1,7 @@
 //! sai-phone 向け実行情報の書き出し（実装計画 01 §2.2 / 00 §3）。
 //!
 //! sai-link デーモン（および CLI `sai-link phone export`）が、実行 1 件につき
-//! JSON ファイル 1 個を `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` に書く。
+//! JSON ファイル 1 個を `<SAI_HOME>/web/runs/<project_name>/<run_id>.json` に書く。
 //! sai-phone はこのフォルダを読むだけで、sai-phone への HTTP 送信はしない。
 //!
 //! - JSON の形（schema_version = 1）は **00-overview.md §3.2 が正**。
@@ -29,7 +29,7 @@ pub const SCHEMA_VERSION: i64 = 1;
 pub struct PhoneRunDoc {
     /// 常に 1
     pub schema_version: i64,
-    /// `~/.sai-moon/registry.json` の登録名（無ければフォルダ名）
+    /// `~/.sai/registry.json` の登録名（無ければフォルダ名）
     pub project_name: String,
     /// プロジェクトルートの絶対パス
     pub project_root: String,
@@ -188,7 +188,7 @@ fn folder_name(project_root: &Path) -> String {
         .to_string()
 }
 
-/// レジストリ JSON（`~/.sai-moon/registry.json`）からプロジェクト名を引く。
+/// レジストリ JSON（`~/.sai/registry.json`）からプロジェクト名を引く。
 ///
 /// `root` がプロジェクトルートと一致する項目の `name` を返す（パスは正規化して比較）。
 /// 見つからなければ `None`。
@@ -234,10 +234,10 @@ pub enum RegistryAdd {
     AlreadyRegistered(String),
 }
 
-/// レジストリ JSON（`~/.sai-moon/registry.json`）にプロジェクトを足す（`sai-moon-link init` 用）。
+/// レジストリ JSON（`~/.sai/registry.json`）にプロジェクトを足す（`sai-link init` 用）。
 ///
 /// 同じルートが既にあれば何もしない。同じ名前で別のルートがあればエラーにする
-/// （apps/phone は名前でプロジェクトを引くため）。ファイルが無ければ作る。
+/// （apps/web は名前でプロジェクトを引くため）。ファイルが無ければ作る。
 ///
 /// # Errors
 /// 読み書きに失敗したとき、ファイルが配列でないとき、名前が他のルートで使われているとき。
@@ -281,7 +281,7 @@ pub fn register_project(registry: &Path, name: &str, project_root: &Path) -> Res
     Ok(RegistryAdd::Added)
 }
 
-/// 現在のプロジェクトのプロジェクト名（`~/.sai-moon/registry.json` → フォルダ名）。
+/// 現在のプロジェクトのプロジェクト名（`~/.sai/registry.json` → フォルダ名）。
 pub fn project_name_for(project_root: &Path) -> String {
     let registry = crate::project::sai_home().map(|h| h.join("registry.json"));
     project_name_using(registry.as_deref(), project_root)
@@ -365,7 +365,7 @@ fn description_for(task_md: Option<&Path>) -> String {
         .unwrap_or_default()
 }
 
-/// cc 自身のセッション金額（`~/.sai-moon/cc-cost/<session_id>.json`・00 §3.8）を読む。
+/// cc 自身のセッション金額（`~/.sai/cc-cost/<session_id>.json`・00 §3.8）を読む。
 ///
 /// 無ければ `None`（呼び出し側は概算にフォールバックする）。
 pub fn read_cc_cost(session_id: &str) -> Option<f64> {
@@ -629,12 +629,12 @@ fn write_json_atomic(tmp: &Path, dst: &Path, body: &serde_json::Value) -> std::i
 // ファイル書き出し
 // ============================================================================
 
-/// `~/.sai-moon/phone/runs` のルート（置き場を解決できなければ None）。
+/// `<SAI_HOME>/web/runs` のルート（置き場を解決できなければ None）。
 pub fn export_root() -> Option<PathBuf> {
-    crate::project::sai_home().map(|h| h.join("phone").join("runs"))
+    crate::project::sai_home().map(|h| h.join("web").join("runs"))
 }
 
-/// 書き出し先フォルダ `~/.sai-moon/phone/runs/<project_name>`（置き場を解決できなければ None）。
+/// 書き出し先フォルダ `<SAI_HOME>/web/runs/<project_name>`（置き場を解決できなければ None）。
 pub fn export_dir(project_name: &str) -> Option<PathBuf> {
     export_root().map(|r| r.join(project_name))
 }
@@ -869,20 +869,20 @@ pub fn export_one(store: &SaiStore, run_id: i64) -> std::io::Result<Option<bool>
 // cc statusLine（00 §3.8 / 01 §2.5）
 // ============================================================================
 
-/// `~/.sai-moon/cc-cost` の出力先（置き場を解決できなければ None）。
+/// `~/.sai/cc-cost` の出力先（置き場を解決できなければ None）。
 pub fn cc_cost_dir() -> Option<PathBuf> {
     crate::project::sai_home().map(|h| h.join("cc-cost"))
 }
 
-/// `~/.sai-moon/phone` の出力先（置き場を解決できなければ None）。
+/// `<SAI_HOME>/web` の出力先（置き場を解決できなければ None）。
 ///
-/// sai-phone の Usage タブ（`usage.py` の `cc_limits`）がここから
+/// sai-web の Usage タブ（`usage.py` の `cc_limits`）がここから
 /// `cc-rate-limits.json` を読む。
 pub fn cc_rate_limits_dir() -> Option<PathBuf> {
-    crate::project::sai_home().map(|h| h.join("phone"))
+    crate::project::sai_home().map(|h| h.join("web"))
 }
 
-/// `~/.sai-moon/phone/cc-rate-limits.json` の出力先（置き場を解決できなければ None）。
+/// `<SAI_HOME>/web/cc-rate-limits.json` の出力先（置き場を解決できなければ None）。
 pub fn cc_rate_limits_path() -> Option<PathBuf> {
     cc_rate_limits_dir().map(|d| d.join("cc-rate-limits.json"))
 }
@@ -890,7 +890,7 @@ pub fn cc_rate_limits_path() -> Option<PathBuf> {
 /// cc の statusLine 標準入力 1 件を処理する（`sai-link cc-statusline` の本体）。
 ///
 /// - 標準入力 JSON から `session_id` と `cost.total_cost_usd` を取り出し、
-///   `~/.sai-moon/cc-cost/<session_id>.json` に `{session_id, total_cost_usd, updated_at}`
+///   `~/.sai/cc-cost/<session_id>.json` に `{session_id, total_cost_usd, updated_at}`
 ///   を書く（一時ファイル → rename）。
 /// - 戻り値は cc の画面下に出す 1 行（例 `sai #58 $1.27`）。
 /// - 読めない・JSON が壊れている・書けない場合は **空行**（cc の画面を壊さない）。
@@ -920,7 +920,7 @@ pub fn handle_cc_statusline_in(
     }
     // 5 時間枠（rate_limits）を sai-phone へ保存する（U04）。
     // sai-link は cc の statusLine を差し替えるため、既定の statusline-command.sh が
-    // 書いていた `~/.sai-moon/phone/cc-rate-limits.json` が更新されなくなる。
+    // 書いていた `~/.sai/phone/cc-rate-limits.json` が更新されなくなる。
     // cost の有無に関係なく、rate_limits があれば書く。失敗しても画面表示は変えない。
     if let Some(rate_limits) = value.get("rate_limits") {
         if let Some(path) = rate_limits_path {
@@ -1206,7 +1206,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// statusLine 入力に `rate_limits` があれば `~/.sai-moon/phone/cc-rate-limits.json`
+    /// statusLine 入力に `rate_limits` があれば `~/.sai/phone/cc-rate-limits.json`
     /// が書かれること（U04）。cost が無くても書く。
     #[test]
     fn cc_statusline_writes_rate_limits_without_cost() {
@@ -1354,6 +1354,26 @@ mod tests {
         match prev_root {
             Some(v) => std::env::set_var("SAI_PROJECT_ROOT", v),
             None => std::env::remove_var("SAI_PROJECT_ROOT"),
+        }
+    }
+
+    /// 書き出しは `<SAI_HOME>/web/` に出る（旧 `phone/` ではない）。
+    #[test]
+    fn export_paths_use_web_directory_under_sai_home() {
+        let _env = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("SAI_HOME");
+        let home = std::path::PathBuf::from("/tmp/sai-home-web-test");
+        std::env::set_var("SAI_HOME", &home);
+        assert_eq!(export_root(), Some(home.join("web").join("runs")));
+        assert_eq!(export_dir("demo"), Some(home.join("web/runs/demo")));
+        assert_eq!(cc_rate_limits_dir(), Some(home.join("web")));
+        assert_eq!(
+            cc_rate_limits_path(),
+            Some(home.join("web/cc-rate-limits.json"))
+        );
+        match prev {
+            Some(v) => std::env::set_var("SAI_HOME", v),
+            None => std::env::remove_var("SAI_HOME"),
         }
     }
 }

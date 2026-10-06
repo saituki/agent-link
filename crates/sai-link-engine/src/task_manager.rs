@@ -1979,7 +1979,7 @@ impl TaskManager {
     /// 通知の種類に応じて適切なハンドラを呼び出します。
     /// 処理後、通知ファイルは `processed/` に移動されます。
     /// ただし `file_written` や `block_run_request` など task 系以外の通知は
-    /// スキップし、`pending/` に残します（それぞれ `sai_write_notify` / デーモンが処理する）。
+    /// スキップし、`pending/` に残します（それぞれ `doc_write_notify` / デーモンが処理する）。
     ///
     /// **Started タスクの同期実行は行いません**（§7.1.4）。
     /// デーモンが `started_task_ids` を受け取り、AgentPool ワーカーで非同期実行します。
@@ -2008,7 +2008,7 @@ impl TaskManager {
 
         // P7: 非 task 通知（file_written / block_run_request 等）はスキップして
         // 後続の task 通知を探す（1.13 の修正）。
-        // それらは sai_write_notify / デーモンの別ルートが処理するため、
+        // それらは doc_write_notify / デーモンの別ルートが処理するため、
         // pending/ に残したまま先頭で諦めずに次の通知へ進む。
         for entry in entries {
             let notification_path = entry.path();
@@ -2029,7 +2029,7 @@ impl TaskManager {
                 .unwrap_or("unknown");
 
             // task 系以外の通知（file_written / block_run_request 等）は処理しない。
-            // 移動せず pending/ に残し、sai_write_notify / デーモンに任せる。
+            // 移動せず pending/ に残し、doc_write_notify / デーモンに任せる。
             let is_task_notification = matches!(
                 notif_type,
                 "task_created"

@@ -7,7 +7,7 @@
 use crate::cli::{DefCmd, PhoneCmd, PhoneDefCmd};
 use crate::cmd_common::{agent_result, other_error, print_json, print_phone, CmdError};
 
-/// `sai-moon-link def <sub>` のハンドラ。
+/// `sai-link def <sub>` のハンドラ。
 pub(crate) fn run(cmd: DefCmd) -> Result<(), CmdError> {
     match cmd {
         DefCmd::List { parent, json: _ } => match parent {

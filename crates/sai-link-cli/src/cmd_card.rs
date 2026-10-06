@@ -5,7 +5,7 @@
 use crate::cli::{CardCmd, PhoneCardCmd, PhoneCmd, PhoneUserCmd};
 use crate::cmd_common::{print_phone, CmdError};
 
-/// `sai-moon-link card <sub>` のハンドラ。
+/// `sai-link card <sub>` のハンドラ。
 pub(crate) fn run(cmd: CardCmd) -> Result<(), CmdError> {
     match cmd {
         CardCmd::Options { json: _ } => print_phone(PhoneCmd::Card {

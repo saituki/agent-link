@@ -20,7 +20,7 @@
 //! }
 //! ```
 //!
-//! `sai_write`（P4 以降）はエージェント側で発行済みのトークンを
+//! `sai-link doc write`（P4 以降）はエージェント側で発行済みのトークンを
 //! `"waggle_token": "AXANSMpo"` として含めます。このフィールドがある場合、
 //! Sai-Engine は再トークン化せず、そのトークンをそのまま使います
 //! （mint はランダムなので、再トークン化するとトークンが 2 つになるため）。
@@ -76,7 +76,7 @@ pub struct SaiWriteNotification {
     /// 通知タイムスタンプ（ISO 8601）
     #[serde(default)]
     pub timestamp: Option<String>,
-    /// エージェント側（`sai_write`）で発行済みの waggle トークン（P4）。
+    /// エージェント側（`sai-link doc write`）で発行済みの waggle トークン（P4）。
     /// 設定されている場合、デーモンは再トークン化しない（mint はランダムなので
     /// 再トークン化するとトークンが 2 つになる）。未設定なら従来どおり
     /// デーモンがトークン化する。
@@ -369,7 +369,7 @@ use crate::block_config::{BlockConfig, ToolsConfig};
 /// ```yaml
 /// tools: sai-write,bash,read
 /// ```
-pub fn block_uses_sai_write(config: &BlockConfig) -> bool {
+pub fn block_uses_doc_write(config: &BlockConfig) -> bool {
     match &config.tools {
         Some(ToolsConfig::List(tools)) => tools.iter().any(|t| t == "sai-write"),
         Some(ToolsConfig::All) => {
@@ -396,7 +396,7 @@ mod tests {
     /// ディレクトリの作成/削除が競合しないようにする。
     // NOTIFY_DIR_LOCK は common::SAI_ENV_TEST_LOCK に一元化（U4）
 
-    // ---- block_uses_sai_write ----
+    // ---- block_uses_doc_write ----
 
     fn config_with_tools(tools: Option<ToolsConfig>) -> BlockConfig {
         BlockConfig {
@@ -423,35 +423,35 @@ mod tests {
     }
 
     #[test]
-    fn test_block_uses_sai_write_true() {
+    fn test_block_uses_doc_write_true() {
         let config = config_with_tools(Some(ToolsConfig::List(vec![
             "sai-write".to_string(),
             "bash".to_string(),
             "read".to_string(),
         ])));
-        assert!(block_uses_sai_write(&config));
+        assert!(block_uses_doc_write(&config));
     }
 
     #[test]
-    fn test_block_uses_sai_write_false() {
+    fn test_block_uses_doc_write_false() {
         let config = config_with_tools(Some(ToolsConfig::List(vec![
             "read".to_string(),
             "bash".to_string(),
             "edit".to_string(),
         ])));
-        assert!(!block_uses_sai_write(&config));
+        assert!(!block_uses_doc_write(&config));
     }
 
     #[test]
-    fn test_block_uses_sai_write_none() {
+    fn test_block_uses_doc_write_none() {
         let config = config_with_tools(None);
-        assert!(!block_uses_sai_write(&config));
+        assert!(!block_uses_doc_write(&config));
     }
 
     #[test]
-    fn test_block_uses_sai_write_all() {
+    fn test_block_uses_doc_write_all() {
         let config = config_with_tools(Some(ToolsConfig::All));
-        assert!(!block_uses_sai_write(&config));
+        assert!(!block_uses_doc_write(&config));
     }
 
     // ---- notification JSON のパース ----
@@ -590,7 +590,7 @@ mod tests {
         .unwrap();
 
         // 2. 実在ファイルを指す file_written 通知を書き込む
-        let target_file = std::env::temp_dir().join("sai_write_test_target.md");
+        let target_file = std::env::temp_dir().join("doc_write_test_target.md");
         fs::write(&target_file, "# テスト").unwrap();
         let file_notif = pending.join("2000-file_written.json");
         fs::write(
@@ -634,7 +634,7 @@ mod tests {
 
         let integrator = WaggleIntegrator::open_in_memory().expect("インメモリDBの作成に失敗");
 
-        let target_file = std::env::temp_dir().join("sai_write_skip_tokenize_test.md");
+        let target_file = std::env::temp_dir().join("doc_write_skip_tokenize_test.md");
         fs::write(&target_file, "# テスト").unwrap();
         let notif = pending.join("3000-file_written.json");
         fs::write(

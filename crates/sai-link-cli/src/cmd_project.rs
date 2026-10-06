@@ -6,7 +6,7 @@
 use crate::cli::{PhoneCmd, ProjectCmd, SessionCmd};
 use crate::cmd_common::{other_error, print_phone, CmdError};
 
-/// `sai-moon-link project <sub>` のハンドラ。
+/// `sai-link project <sub>` のハンドラ。
 pub(crate) fn run(cmd: ProjectCmd) -> Result<(), CmdError> {
     match cmd {
         ProjectCmd::Summary { json: _ } => print_phone(PhoneCmd::Summary),
@@ -16,7 +16,7 @@ pub(crate) fn run(cmd: ProjectCmd) -> Result<(), CmdError> {
     }
 }
 
-/// `sai-moon-link session search …` のハンドラ。
+/// `sai-link session search …` のハンドラ。
 pub(crate) fn run_session(cmd: SessionCmd) -> Result<(), CmdError> {
     match cmd {
         SessionCmd::Search {

@@ -8,7 +8,7 @@ authors = ["Sai Contributors"]
 license = "MIT OR Apache-2.0"
 
 [[bin]]
-name = "sai-moon-link"
+name = "sai-link"
 path = "src/main.rs"
 
 [dependencies]

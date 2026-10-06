@@ -4,9 +4,12 @@
 //!
 //! ## サブコマンド
 //!
-//! - `block run <定義ファイル> [ユーザー入力]` — ブロックを実行する
-//! - `block list` — 実行履歴を表示する
-//! - `block show <id>` — 特定の実行詳細を表示する
+//! - `card …` — カード（実行予約）の参照・作成・実行
+//! - `run …` — 実行の参照・操作
+//! - `doc …` — 文書（waggle トークン）の読み書き
+//! - `def …` — 定義ファイル（block / template / settings）の参照・編集
+//! - `task …` — サブタスクの操作
+//! - `project` / `session` / `workflow` / `schema` — 集計・検索・画面・命令一覧
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,7 +47,7 @@ pub const EXIT_DB: i32 = sai_link_engine::common::EXIT_DB;
 /// ルート CLI 構造体。
 #[derive(Parser)]
 #[command(
-    name = "sai-moon-link",
+    name = "sai-link",
     version = env!("CARGO_PKG_VERSION"),
     about = "Sai-Engine: ブロック定義ファイルに基づく AI コーディングエージェント実行エンジン",
     long_about = None,
@@ -57,18 +60,6 @@ pub struct Cli {
 /// トップレベルのサブコマンド。
 #[derive(Subcommand)]
 pub enum Cmd {
-    /// ブロック操作のサブコマンド群（古い木・隠した別名。新しい木は `run` / `def`）
-    #[command(hide = true)]
-    Block {
-        #[command(subcommand)]
-        cmd: BlockCmd,
-    },
-    /// ブロック定義の参照（古い木・隠した別名。新しい木は `def`）
-    #[command(hide = true)]
-    BlockDef {
-        #[command(subcommand)]
-        cmd: BlockDefCmd,
-    },
     /// サブタスク操作のサブコマンド群
     Task {
         #[command(subcommand)]
@@ -78,41 +69,6 @@ pub enum Cmd {
     Daemon {
         #[command(subcommand)]
         cmd: DaemonCmd,
-    },
-    /// セッション履歴を検索する（古い木・隠した別名。新しい木は `session search`）
-    #[command(hide = true)]
-    Search {
-        /// Round（グローバルラウンド）N または N-M
-        #[arg(short = 'R', long = "global-round", value_name = "N|N-M")]
-        global_round: Option<String>,
-        /// round（実行ラウンド）N または N-M
-        #[arg(short = 'r', long, value_name = "N|N-M")]
-        round: Option<String>,
-        /// ブロック ID 範囲
-        #[arg(long, value_name = "N|N-M")]
-        id: Option<String>,
-        /// ブロック名の部分一致（大小無視）
-        #[arg(long, value_name = "NAME")]
-        block: Option<String>,
-        /// 実行日 YYYY/MM/DD または YYYY/MM/DD-YYYY/MM/DD
-        #[arg(long, value_name = "D|D-D")]
-        date: Option<String>,
-        /// ステータス絞り込み（カンマ区切り・R304）: todo,pending,running,completed,failed,cancelled
-        /// 省略時は todo を除外する。todo 指定時のみ予約行を含む。
-        #[arg(long, value_name = "S[,S...]")]
-        status: Option<String>,
-        /// 種別（カンマ区切り）: user,agent,thinking,tool_call,tool_name,tool_result,tool
-        #[arg(long, value_name = "T[,T...]")]
-        r#type: Option<String>,
-        /// 検索語（カンマ区切り・AND・大小無視）
-        #[arg(short = 'w', long, value_name = "W[,W...]")]
-        word: Option<String>,
-        /// プロジェクト名（結果の出自表示。自プロジェクト内検索のため表示名のみ・テスト用）
-        #[arg(long, value_name = "NAME")]
-        project: Option<String>,
-        /// 結果を JSON で出力する
-        #[arg(long, default_value_t = false)]
-        json: bool,
     },
     /// 実行 usage（provider の実際の token / cost）の管理（L1）
     Usage {
@@ -182,33 +138,10 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: WaggleCmd,
     },
-    /// MCP サーバ（Claude Code 連携用・隠したまま）
-    ///
-    /// `--mcp-config` から起動され、sai_write / sai_finalize を提供する。
-    #[command(hide = true)]
-    Mcp {
-        #[command(subcommand)]
-        cmd: McpCmd,
-    },
-    /// エージェント（pi / cc）共通の操作（古い木・隠した別名。新しい木は `task` / `doc` など）。
-    /// 出力は常に JSON 1 行（成功・失敗とも stdout）。
-    #[command(hide = true)]
-    Agent {
-        #[command(subcommand)]
-        cmd: AgentCmd,
-    },
-    /// sai-phone への実行情報の書き出し（古い木・隠した別名。新しい木は `card …` / `run …`）。
-    ///
-    /// `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` に 00 §3.2 形式で書く。
-    #[command(hide = true)]
-    Phone {
-        #[command(subcommand)]
-        cmd: PhoneCmd,
-    },
     /// cc の statusLine コマンド（内部用・00 §3.8 / 01 §2.5）。
     ///
     /// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-    /// `~/.sai-moon/cc-cost/<session_id>.json` に書く。cc の画面下へ短い 1 行を出す。
+    /// `~/.sai/cc-cost/<session_id>.json` に書く。cc の画面下へ短い 1 行を出す。
     /// どの入力でも終了コード 0（cc の画面を壊さないため）。
     #[command(hide = true)]
     CcStatusline,
@@ -218,194 +151,6 @@ pub enum Cmd {
     /// 送信を止める JSON を出す。それ以外は何も出さない（終了コードは常に 0）。
     #[command(hide = true)]
     CcPromptHook,
-}
-
-/// ブロック操作のサブコマンド。
-#[derive(Subcommand)]
-pub enum BlockCmd {
-    /// ブロック定義ファイル（.md）のパス（--kanban / --block 指定時は省略可）
-    Run {
-        /// ブロック定義ファイル（.md）のパス（--kanban 時は省略可・後方互換用）
-        #[arg(value_name = "定義ファイル")]
-        definition_file: Option<PathBuf>,
-
-        /// ブロックへのユーザー入力（テキスト）。プレースホルダー {{input.<id>}} を置換する
-        #[arg(value_name = "ユーザー入力")]
-        user_input: Option<String>,
-
-        /// herdr ペイン分割方向
-        #[arg(long, default_value = "right", value_parser = ["right", "down"])]
-        direction: String,
-
-        /// エージェント完了待機のタイムアウト（ミリ秒）。
-        /// 未指定時はブロック定義のフロントマター timeout（デフォルト 300 秒）を使用する
-        #[arg(long)]
-        timeout: Option<u64>,
-
-        /// デバッグ用: 実行後にペインを閉じない
-        #[arg(long, default_value_t = false)]
-        keep_pane: bool,
-
-        /// Kanban モード: todo の未実行カード一覧から選択して実行する
-        /// （実行方式の統一先。省略時も kanban 扱い）
-        #[arg(long, default_value_t = false)]
-        kanban: bool,
-
-        /// 実行に使うカードのファイル名（`--card` 未指定・複数カード時は対話選択）
-        #[arg(long, value_name = "CARD")]
-        card: Option<String>,
-
-        // ── 非対話モード用オプション ──
-        /// ブロック名または定義ファイルパス（非対話モード用）
-        /// blocks/ ディレクトリ内のブロック名、または .md ファイルのパス
-        #[arg(long, value_name = "NAME_OR_PATH")]
-        block: Option<String>,
-
-        /// 入力フィールド値。形式: id=value（複数指定可）
-        /// 例: --field project_name=myproject --field language=rust
-        #[arg(long = "field", value_name = "ID=VALUE")]
-        field: Vec<String>,
-
-        /// ラウンド番号（1始まり）
-        #[arg(short = 'r', long, value_name = "N")]
-        round: Option<i64>,
-
-        /// グローバルラウンド番号（GR）。DAG の行グループと区切り線に使用（1始まり）
-        #[arg(short = 'R', long = "global-round", value_name = "N")]
-        global_round: Option<i64>,
-
-        /// タグ（例: brst, plan, code）
-        #[arg(long, value_name = "TAG")]
-        tag: Option<String>,
-
-        /// thinking budget: none, low, medium, high, xhigh, max
-        #[arg(long, value_name = "BUDGET", value_parser = ["none", "low", "medium", "high", "xhigh", "max"])]
-        think: Option<String>,
-
-        /// モデル指定（例: anthropic/claude-sonnet-4-5）
-        #[arg(long, value_name = "MODEL")]
-        model: Option<String>,
-
-        /// ブロック実行タイムアウト（秒）
-        #[arg(long = "block-timeout", value_name = "SECS")]
-        block_timeout: Option<u32>,
-
-        /// 確認プロンプトをスキップして即実行
-        #[arg(long, short = 'y', default_value_t = false)]
-        yes: bool,
-
-        // ── user-block 用オプション（--block user-block 指定時のみ使用）──
-        /// 入力 waggle トークン（複数可・省略可 = 入力なし。指定時は入力辺が付く）
-        #[arg(short = 't', long = "input-token", value_name = "トークン")]
-        input_tokens: Vec<String>,
-
-        /// トークン化するファイルパス（user-block の出力・必須）
-        #[arg(short = 'f', long = "input-file", value_name = "ファイルパス")]
-        input_file: Option<PathBuf>,
-
-        /// 出力の説明（省略時はファイル名から生成）
-        #[arg(long)]
-        description: Option<String>,
-    },
-
-    /// 過去のブロック実行履歴を表示する
-    List {
-        /// 表示件数（デフォルト: 20）
-        #[arg(long, default_value = "20")]
-        limit: i64,
-
-        /// JSON 形式で出力する（pi-sai / デバッグ用・P1）
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
-
-    /// 特定のブロック実行の詳細を表示する
-    Show {
-        /// 実行 ID（`block list` で確認可能）
-        #[arg(value_name = "実行ID")]
-        run_id: i64,
-    },
-
-    /// 実行記録を削除する（DB＋run フォルダを全削除・確認必須・R601/R602）
-    Rm {
-        /// 実行 ID（`block list` の左端 ID 列で確認可能）
-        #[arg(value_name = "実行ID")]
-        exec_id: i64,
-
-        /// 確認プロンプトをスキップする（スクリプト用）
-        #[arg(long, short = 'y', default_value_t = false)]
-        yes: bool,
-    },
-
-    /// 実行時の pi 起動コマンドをプレビュー表示する（実行はしない）
-    Preview {
-        /// ブロック定義ファイル（.md）のパス
-        #[arg(value_name = "定義ファイル")]
-        definition_file: PathBuf,
-
-        /// ブロックへのユーザー入力（テキスト）。プレースホルダー {{input.<id>}} を置換する
-        #[arg(value_name = "ユーザー入力")]
-        user_input: Option<String>,
-
-        /// herdr ペイン分割方向
-        #[arg(long, default_value = "right", value_parser = ["right", "down"])]
-        direction: String,
-
-        /// エージェント完了待機のタイムアウト（ミリ秒）
-        #[arg(long)]
-        timeout: Option<u64>,
-
-        /// ラウンド番号（1始まり）
-        #[arg(long, value_name = "N")]
-        round: Option<i64>,
-
-        /// グローバルラウンド番号（GR）
-        #[arg(long = "global-round", value_name = "N")]
-        global_round: Option<i64>,
-
-        /// タグ
-        #[arg(long, value_name = "TAG")]
-        tag: Option<String>,
-
-        /// thinking budget: none, low, medium, high, xhigh, max
-        #[arg(long, value_name = "BUDGET", value_parser = ["none", "low", "medium", "high", "xhigh", "max"])]
-        think: Option<String>,
-
-        /// モデル指定
-        #[arg(long, value_name = "MODEL")]
-        model: Option<String>,
-
-        /// ブロック実行タイムアウト（秒）
-        #[arg(long = "block-timeout", value_name = "SECS")]
-        block_timeout: Option<u32>,
-    },
-}
-
-/// ブロック定義の参照サブコマンド（pi-sai の block_discover / block_inspect 用・P2）。
-#[derive(Subcommand)]
-pub enum BlockDefCmd {
-    /// ブロック定義の一覧を表示する（block_discover 用）。
-    /// 親ブロック名を指定すると、その subblocks 制限を考慮して絞り込む。
-    List {
-        /// 親ブロック名（subblocks 制限の確認元。省略時は全ブロック）
-        #[arg(long, value_name = "親ブロック名")]
-        parent: Option<String>,
-
-        /// JSON 形式で出力する（pi-sai 用）
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
-
-    /// ブロック定義の詳細（description / subblocks / worktree / templates）を表示する（block_inspect 用）。
-    Show {
-        /// ブロック名
-        #[arg(value_name = "ブロック名")]
-        name: String,
-
-        /// JSON 形式で出力する（pi-sai 用）
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
 }
 
 /// サブタスク操作のサブコマンド（新しい木）。
@@ -561,18 +306,6 @@ pub enum TaskCmd {
         json: bool,
     },
 
-    /// 旧 `task manage`（隠した別名。新しい木では send / interrupt / …）
-    #[command(hide = true)]
-    Manage {
-        /// 操作: delete | finalize | send | requeue | interrupt
-        #[arg(value_name = "アクション", value_parser = ["delete", "finalize", "send", "requeue", "interrupt"])]
-        action: String,
-        #[arg(value_name = "タスクID")]
-        task_id: i64,
-        /// 追加指示（send 時）
-        #[arg(long, value_name = "メッセージ")]
-        message: Option<String>,
-    },
 }
 
 /// カード（実行予約）のサブコマンド（新しい木）。
@@ -999,13 +732,6 @@ pub enum WaggleCmd {
     },
 }
 
-/// MCP サーバのサブコマンド。
-#[derive(Subcommand)]
-pub enum McpCmd {
-    /// stdio で MCP サーバを起動する（Claude Code の `--mcp-config` から呼ばれる）
-    Serve,
-}
-
 /// sai-phone への書き出しサブコマンド（実装計画 01 §2.4 / 12 §3.2）。
 #[derive(Subcommand)]
 pub enum PhoneCmd {
@@ -1169,7 +895,7 @@ pub enum PhoneCmd {
 
     /// 定義ファイル（block / template / settings）の一覧・読み書き・削除
     ///
-    /// 対象はプロジェクト（`<project_root>/.sai/`）とグローバル（`~/.sai-moon/`）の
+    /// 対象はプロジェクト（`<project_root>/.sai/`）とグローバル（`~/.sai/`）の
     /// 2 か所。保存前に sai-link が検査し、壊れた定義は保存しない（終了コード 2）。
     /// 検査でエラーにならない警告（frontmatter の id とファイル名の不一致など）は
     /// そのまま保存し、`warnings` で返す。
@@ -1300,7 +1026,7 @@ pub enum PhoneDefCmd {
         #[arg(long, value_parser = ["block", "template", "settings"])]
         kind: String,
 
-        /// 置き場（project = プロジェクト内 / global = `~/.sai-moon/`）
+        /// 置き場（project = プロジェクト内 / global = `~/.sai/`）
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
 
@@ -1318,7 +1044,7 @@ pub enum PhoneDefCmd {
         #[arg(long, value_parser = ["block", "template", "settings"])]
         kind: String,
 
-        /// 置き場（project = プロジェクト内 / global = `~/.sai-moon/`）
+        /// 置き場（project = プロジェクト内 / global = `~/.sai/`）
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
 
@@ -1341,187 +1067,13 @@ pub enum PhoneDefCmd {
         #[arg(long, value_parser = ["block", "template", "settings"])]
         kind: String,
 
-        /// 置き場（project = プロジェクト内 / global = `~/.sai-moon/`）
+        /// 置き場（project = プロジェクト内 / global = `~/.sai/`）
         #[arg(long, value_parser = ["project", "global"])]
         scope: String,
 
         /// 定義の名前（拡張子 `.md` は付けない。settings は必ず `settings`）
         #[arg(long, value_name = "名前")]
         name: String,
-    },
-}
-
-/// エージェント共通操作のサブコマンド（`sai-link agent <...>`）。
-#[derive(Subcommand)]
-pub enum AgentCmd {
-    /// 成果物を run フォルダへ保存し、waggle トークン化を通知する（sai-write 相当）
-    Write {
-        /// 保存ファイル名（run フォルダ直下。ディレクトリ部分は無視される）
-        #[arg(long, value_name = "ファイル名")]
-        filename: String,
-
-        /// ファイル内容を読み込むパス（`-` で標準入力）
-        #[arg(long, value_name = "パス")]
-        content_file: String,
-
-        /// 成果物の説明（waggle トークンのラベル）
-        #[arg(long)]
-        description: Option<String>,
-
-        /// 実行 ID（省略時は SAI_PARENT_RUN_ID）
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// メインブロックの実行を明示的に完了する（/pi-sai-finalize 相当）
-    Finalize {
-        #[arg(long)]
-        run_id: Option<i64>,
-
-        /// 報告の本文（要点）。保存すると run の「報告」として Web で読める
-        #[arg(long, value_name = "文")]
-        report: Option<String>,
-    },
-
-    /// サブブロックが親へ質問を通知する（`task_output` が question で返る）
-    TaskQuestion {
-        /// 質問の ID（Web の質問一覧の ID）
-        #[arg(long, value_name = "ID")]
-        qid: String,
-
-        /// 質問の見出し（1 行にする）
-        #[arg(long, value_name = "文")]
-        text: String,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// サブタスクをバッチ作成する（承認なし・即時作成）
-    TaskCreate {
-        /// タスク配列の JSON（`-` で標準入力から読む）
-        #[arg(long, value_name = "JSON")]
-        tasks_json: String,
-
-        /// 修正ラウンド番号（1 始まり）
-        #[arg(long)]
-        round: Option<i64>,
-
-        /// 置き換え元バッチ ID
-        #[arg(long)]
-        supersedes_batch_id: Option<String>,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// サブタスク一覧を取得する
-    TaskList {
-        #[arg(long)]
-        status: Option<String>,
-
-        /// ソート順: id | recent | oldest
-        #[arg(long)]
-        sort: Option<String>,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// 承認済みタスクを実行キューへ送る
-    TaskExecute {
-        #[arg(long)]
-        batch_id: Option<String>,
-
-        #[arg(long)]
-        task_id: Option<i64>,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// タスクの結果を取得する（未完了なら待機する）
-    TaskOutput {
-        #[arg(value_name = "タスクID")]
-        task_id: i64,
-
-        /// 最大待機時間（ミリ秒）。0 で待たない
-        #[arg(long)]
-        timeout_ms: Option<u64>,
-    },
-
-    /// サブブロックの完了報告を保存し、完了（finalize_request）を要求する
-    TaskReport {
-        /// 完了報告の本文を読み込むパス（`-` で標準入力）
-        #[arg(long, value_name = "パス")]
-        report_file: String,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// タスクを操作する（delete / finalize / send / requeue / interrupt）
-    TaskManage {
-        #[arg(value_name = "アクション")]
-        action: String,
-
-        #[arg(value_name = "タスクID")]
-        task_id: i64,
-
-        /// action=send の追加指示テキスト
-        #[arg(long)]
-        message: Option<String>,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// タスクの状態を詳細に取得する
-    TaskStatus {
-        #[arg(long)]
-        status: Option<String>,
-
-        #[arg(long)]
-        task_id: Option<i64>,
-
-        #[arg(long)]
-        run_id: Option<i64>,
-    },
-
-    /// タスクの pane 出力を取得する
-    TaskCapture {
-        #[arg(value_name = "タスクID")]
-        task_id: i64,
-
-        #[arg(long)]
-        lines: Option<u32>,
-    },
-
-    /// 呼び出し可能なサブブロック一覧を取得する
-    BlockDiscover {
-        /// 親ブロック名（省略時は SAI_BLOCK_NAME）
-        #[arg(long)]
-        parent: Option<String>,
-    },
-
-    /// ブロック定義の詳細を取得する
-    BlockInspect {
-        #[arg(value_name = "ブロック名")]
-        name: String,
-    },
-
-    /// waggle 文書を読む: `sai-read list [RUN_ID]` / `sai-read <TOKEN>`
-    /// U03: `--all` で実行中（running / review）の文書も含める（w キー用）
-    SaiRead {
-        #[arg(value_name = "list|トークン")]
-        target: String,
-
-        #[arg(value_name = "RUN_ID")]
-        run_id: Option<i64>,
-
-        /// 実行中の文書も含める（既定は完了済みのみ）
-        #[arg(long)]
-        all: bool,
     },
 }
 
@@ -2436,7 +1988,7 @@ pub fn handle_phone_export(
 /// `sai-link cc-statusline`（cc の statusLine 用・00 §3.8-1 / 01 §2.5）。
 ///
 /// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-/// `~/.sai-moon/cc-cost/<session_id>.json` に書く。標準出力に短い 1 行を出す。
+/// `~/.sai/cc-cost/<session_id>.json` に書く。標準出力に短い 1 行を出す。
 /// 入力が読めない・壊れている場合も空行 + 終了コード 0（cc の画面を壊さない）。
 pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Read;
@@ -2504,7 +2056,7 @@ pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Erro
 /// 1. `PROJECTROOT/.sai/` と必要なフォルダ・`settings.json` を作成する（既存は触らない）。
 ///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
 ///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に読む札を作れるように）
-/// 2. 登録簿（`~/.sai-moon/registry.json`）にプロジェクトを登録する
+/// 2. 登録簿（`~/.sai/registry.json`）にプロジェクトを登録する
 pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std::error::Error>> {
     use sai_link_engine::assets::AssetOutcome;
     use sai_link_engine::init::init_project;
@@ -2547,7 +2099,7 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
         "   次: .mcp.json・.claude/・.pi/ を git commit してください（worktree の cc と pi が読むため）"
     );
 
-    // 2. 登録簿（`~/.sai-moon/registry.json`）への登録（apps/phone がプロジェクトを名前で引くため）
+    // 2. 登録簿（`~/.sai/registry.json`）への登録（apps/web がプロジェクトを名前で引くため）
     let project_name = match name {
         Some(n) if !n.is_empty() => n,
         _ => project_root

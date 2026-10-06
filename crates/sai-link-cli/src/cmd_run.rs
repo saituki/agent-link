@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::cli::{PhoneCmd, RunCmd};
 use crate::cmd_common::{agent_result, other_error, print_json, print_phone, CmdError};
 
-/// `sai-moon-link run <sub>` のハンドラ。
+/// `sai-link run <sub>` のハンドラ。
 pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
     match cmd {
         RunCmd::List { limit, json } => {

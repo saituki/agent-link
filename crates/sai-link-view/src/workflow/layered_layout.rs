@@ -33,7 +33,7 @@ const SEPARATOR_LINES: i32 = 3;
 /// 札どうしの間隔と区切り線の太さ行数の設定。
 ///
 /// 既定値は TUI（`sai-link-tui`）の画面がそのまま使っている値。
-/// Web（`sai-moon-link phone workflow`）は文字マスが 10×20px と大きく、
+/// Web（`sai-link phone workflow`）は文字マスが 10×20px と大きく、
 /// 既定値では札が詰まって見えないので、こちらだけ [`LayoutOptions`] で
 /// 広げて使う。間隔の計算は Rust のままなので、どちらの画面でも
 /// 「札は sai-link が決めた場所に固定する」約束は変わらない。

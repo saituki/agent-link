@@ -32,7 +32,7 @@ use crate::db::SaiStore;
 use crate::orchestrator::{self, CompletionEvent, ExecutionOverrides, RunningExecutions};
 use crate::parser::parse_block_file;
 use crate::phone_export;
-use crate::sai_write_notify;
+use crate::doc_write_notify;
 use crate::task_manager::TaskManager;
 use crate::waggle_integration::WaggleIntegrator;
 /// サブタスク実行ワーカーの最大並列数（AgentPool の max_concurrent と同等）
@@ -247,13 +247,20 @@ fn release_job_card(path: &Path, job_id: &str, state: Option<&str>) -> Option<i6
     Some(run_id)
 }
 
-/// `sai-moon-link phone card run <run_id>` を別プロセスで起こす（終わりは別の糸で待つ）。
+/// デーモンがカード実行のために呼ぶ引数（`card run <run_id>`）。
+///
+/// 旧 `phone card run` の別名ではなく、新しい木の `card run` を使う。
+fn card_run_args(run_id: i64) -> [String; 3] {
+    ["card".to_string(), "run".to_string(), run_id.to_string()]
+}
+
+/// `sai-link card run <run_id>` を別プロセスで起こす（終わりは別の糸で待つ）。
 fn spawn_card_run(root: &Path, run_id: i64) {
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
     let spawned = std::process::Command::new(exe)
-        .args(["phone", "card", "run", &run_id.to_string()])
+        .args(card_run_args(run_id))
         .current_dir(root)
         .env("SAI_PROJECT_ROOT", root)
         .stdin(std::process::Stdio::null())
@@ -292,7 +299,7 @@ pub struct Daemon {
     job_errs: Arc<Mutex<HashMap<i64, String>>>,
 }
 
-/// phone 書き出し（`~/.sai-moon/phone/runs/`）の差分管理状態（01 §2.3）。
+/// phone 書き出し（`~/.sai/phone/runs/`）の差分管理状態（01 §2.3）。
 struct PhoneExportState {
     /// 書き出し器（プロジェクト名解決済み・初回サイクルで遅延作成）
     exporter: Option<phone_export::Exporter>,
@@ -427,7 +434,7 @@ impl Daemon {
             }
 
             // 2. file_written 通知の処理（① waggle トークン化 + 完了イベント送信）
-            match sai_write_notify::poll_and_process_one(&integrator) {
+            match doc_write_notify::poll_and_process_one(&integrator) {
                 Ok(Some(processed)) => {
                     if let Some(run_id) = processed.run_id {
                         // P4: エージェント側で発行済みのトークンを実行中でも DB に載せる。
@@ -497,7 +504,7 @@ impl Daemon {
 
     /// `pending/` 内の `block_run_request` 通知を処理する。
     ///
-    /// `TaskManager::poll_one_event` / `sai_write_notify` は block_run_request を
+    /// `TaskManager::poll_one_event` / `doc_write_notify` は block_run_request を
     /// 処理しないため、デーモン側で独自にスキャンします（§7.1.1）。
     fn process_block_run_request(&self) -> Result<(), Box<dyn std::error::Error>> {
         let pending = self.notify_base.join("pending");
@@ -555,7 +562,7 @@ impl Daemon {
     /// 通知ファイルを processed/ に移動する（ベストエフォート）。
     /// 実行予定時刻（task.md の `scheduled_at:`）を過ぎた todo のカードを実行する。
     ///
-    /// 予定を先に消してから、`sai-moon-link phone card run <run_id>`（Web の ▶ 実行と同じ流れ）を
+    /// 予定を先に消してから、`sai-link card run <run_id>`（Web の ▶ 実行と同じ流れ）を
     /// 別プロセスで呼ぶ。失敗しても繰り返さない（予定は消えている）。
     fn run_scheduled_cards(&self) {
         let todo = crate::project::sai_path(crate::run_dir::OUTPUTS_DIR)
@@ -594,7 +601,7 @@ impl Daemon {
             eprintln!("[sai-engine] 予定の時刻になったので実行します: run_id={}", run_id);
             let root = crate::project::project_root();
             let spawned = std::process::Command::new(&exe)
-                .args(["phone", "card", "run", &run_id.to_string()])
+                .args(card_run_args(run_id))
                 .current_dir(&root)
                 .env("SAI_PROJECT_ROOT", &root)
                 .stdin(std::process::Stdio::null())
@@ -1036,7 +1043,7 @@ impl Daemon {
     // phone 書き出し（実装計画 01 §2.3・status ファイルと同じ周期）
     // -----------------------------------------------------------------------
 
-    /// 変わった実行だけ `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` へ書き出す。
+    /// 変わった実行だけ `~/.sai/phone/runs/<project_name>/<run_id>.json` へ書き出す。
     ///
     /// - `todo` / `pending` と runner=`user` は対象外（`phone_export::should_export`）
     /// - `status` / `finished_at` / `session_stats_json` が変わった実行だけ書き直す
@@ -1506,6 +1513,15 @@ mod tests {
         for s in ["queued", "running"] {
             assert!(!job_state_finished(s), "{s}");
         }
+    }
+
+    /// デーモンは `card run <run_id>` を呼ぶ（旧 `phone card run` ではない）。
+    #[test]
+    fn card_run_args_use_new_command_tree() {
+        assert_eq!(
+            card_run_args(42),
+            ["card".to_string(), "run".to_string(), "42".to_string()]
+        );
     }
 
     /// `.sai/settings.json` の `job_status` が出す状態で、カードを起こす対象に選ぶかが決まる。

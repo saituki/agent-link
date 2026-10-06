@@ -8,7 +8,7 @@ use clap::{ArgAction, CommandFactory};
 use crate::cli::Cli;
 use crate::cmd_common::{print_json, CmdError};
 
-/// `sai-moon-link schema` のハンドラ。
+/// `sai-link schema` のハンドラ。
 pub(crate) fn run(json: bool) -> Result<(), CmdError> {
     let root = Cli::command();
     let bin = root.get_name().to_string();
