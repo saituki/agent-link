@@ -454,59 +454,6 @@ pub struct PaperMeta {
     pub pdf_path: Option<String>,
 }
 
-/// `papers.id`（Library の番号）から論文メタデータを取得する（段階 2c）。
-///
-/// `paper_id`（抽出キー）は `s2_paper_id` → `arxiv_id` → `doi` から組み立てて返す。
-pub fn get_paper_meta_by_papers_id(
-    conn: &Connection,
-    papers_id: i64,
-) -> Result<Option<PaperMeta>, CitationDbError> {
-    let mut stmt = conn.prepare(
-        "SELECT p.id, p.title, p.published_at, p.journal, p.abstract, p.doi, p.arxiv_id, p.pdf_path,
-                p.s2_paper_id,
-                (SELECT GROUP_CONCAT(a.name, ', ') FROM paper_authors pa
-                 JOIN authors a ON a.id = pa.author_id
-                 WHERE pa.paper_id = p.id) AS authors_csv
-         FROM papers p
-         WHERE p.id = ?1",
-    )?;
-    let meta = stmt
-        .query_row(params![papers_id], |row| {
-            let published_at: Option<String> = row.get(2)?;
-            let doi: Option<String> = row.get(5)?;
-            let arxiv_id: Option<String> = row.get(6)?;
-            let s2_paper_id: Option<String> = row.get(8)?;
-            Ok(PaperMeta {
-                db_id: row.get(0)?,
-                // 抽出キーは正規化して返す（呼び出し側がそのまま照合に使えるように）。
-                paper_id: super::normalize_paper_id(
-                    &s2_paper_id
-                        .or_else(|| arxiv_id.clone())
-                        .or_else(|| doi.clone())
-                        .unwrap_or_default(),
-                ),
-                title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                year: published_at.as_deref().and_then(extract_year),
-                venue: row.get(3)?,
-                authors: row
-                    .get::<_, Option<String>>(9)?
-                    .map(|csv| {
-                        csv.split(", ")
-                            .map(str::to_string)
-                            .filter(|s| !s.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                abstract_text: row.get(4)?,
-                doi,
-                arxiv_id,
-                pdf_path: row.get(7)?,
-            })
-        })
-        .optional()?;
-    Ok(meta)
-}
-
 /// 抽出キー（s2_paper_id / arxiv_id / doi 正規化値）から論文メタデータを取得する。
 ///
 /// papr.db の `papers` テーブルは INTEGER 主キーのため、引用パイプラインのキーとの

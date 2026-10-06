@@ -191,10 +191,12 @@ pub async fn download(
     // 取りに行く URL の候補（pdf_url → OA の候補）。
     let candidates = pdf_candidates(client, &paper).await?;
     if candidates.is_empty() {
-        bail!("PDF の場所が見つかりません。Mac の sai-paper-tui で PDF を取り込んでください");
+        bail!(
+            "PDF の場所が見つかりません。Web の「PDF を手動で取り込む」か `sai-moon-paper phone manual-import` で取り込んでください"
+        );
     }
 
-    // 置き場は TUI と同じ（設定の library.download_path、無ければ .sai/paper/papers）。
+    // 置き場（設定の library.download_path、無ければ .sai/paper/papers）。
     let download_dir = cfg
         .library
         .download_path

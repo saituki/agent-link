@@ -508,25 +508,6 @@ pub fn move_pdf_file(source: &Path, destination: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Error when an invalid collection name is provided.
-#[derive(Debug, thiserror::Error)]
-#[error("group name must be one safe directory name")]
-pub struct InvalidCollectionName;
-
-/// Validates that a collection name is a safe directory name.
-///
-/// # Errors
-///
-/// Returns [`InvalidCollectionName`] when the name is empty, reserved, or
-/// contains a path separator.
-pub fn validate_collection_name(name: &str) -> Result<(), InvalidCollectionName> {
-    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-        Err(InvalidCollectionName)
-    } else {
-        Ok(())
-    }
-}
-
 /// 論文フォルダの固定ファイル名（第 2 段で再利用可）。
 ///
 /// 論文 1 件分のフォルダ内で使用される標準的なファイル名。
@@ -661,15 +642,6 @@ pub fn paper_file_path(paper_dir: &Path, file_type: &str) -> PathBuf {
     paper_dir.join(filename)
 }
 
-/// 論文フォルダにある Radio の音声（`radio.m4a`、無ければ `radio.mp3`）。
-#[must_use]
-pub fn radio_audio_path(paper_dir: &Path) -> Option<PathBuf> {
-    [paper_file_names::RADIO, "radio.mp3"]
-        .into_iter()
-        .map(|name| paper_dir.join(name))
-        .find(|path| path.is_file())
-}
-
 /// 日本語訳 PDF のパス（`<stem>-dual.pdf` 優先、無ければ `<stem>-ja.pdf`）。
 ///
 /// 元 PDF のパス（`pdf_path`）と同一フォルダの対訳版を探す。
@@ -718,26 +690,6 @@ pub fn mind_path(data_dir: &Path) -> PathBuf {
 #[must_use]
 pub fn state_path(data_dir: &Path) -> PathBuf {
     data_dir.join("state.md")
-}
-
-/// Gets the page count of a PDF using `pdfinfo`.
-/// Falls back to returning 1 if it fails.
-#[must_use]
-pub fn get_pdf_page_count(path: &Path) -> usize {
-    if let Ok(output) = std::process::Command::new("pdfinfo").arg(path).output()
-        && output.status.success()
-    {
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines() {
-            if line.starts_with("Pages:")
-                && let Some(pages_str) = line.split_whitespace().nth(1)
-                && let Ok(pages) = pages_str.parse::<usize>()
-            {
-                return pages;
-            }
-        }
-    }
-    1
 }
 
 #[cfg(test)]

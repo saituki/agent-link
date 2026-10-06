@@ -296,15 +296,6 @@ pub fn list_reports(conn: &Connection, paper_id: Option<i64>) -> Result<Vec<Repo
     }
 }
 
-/// 論文（`papers.id`）を参照している report の一覧を返す。
-///
-/// # Errors
-///
-/// SQLite エラー。
-pub fn reports_for_paper(conn: &Connection, papers_id: i64) -> Result<Vec<Report>, ReportError> {
-    list_reports(conn, Some(papers_id))
-}
-
 /// report の md の実パスを解決する。
 ///
 /// 登録時のパスが無い場合（run が `running` → `done` → `R<n>` と進んで移動した場合）、
@@ -865,26 +856,6 @@ pub fn issue_counts(conn: &Connection, report_id: &str) -> Result<IssueCounts, R
     })
 }
 
-/// DB 全体の問題の件数を数える。
-///
-/// # Errors
-///
-/// SQLite エラー。
-pub fn total_issue_counts(conn: &Connection) -> Result<IssueCounts, ReportError> {
-    let (errors, warnings) = conn.query_row(
-        "SELECT
-            COALESCE(SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN level = 'warning' THEN 1 ELSE 0 END), 0)
-         FROM report_issues",
-        [],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-    )?;
-    Ok(IssueCounts {
-        errors: errors as usize,
-        warnings: warnings as usize,
-    })
-}
-
 /// report とその問題を一覧する。
 ///
 /// `report_id` を指定すると、その report だけを返す（存在しなければ空）。
@@ -1383,7 +1354,6 @@ mod tests {
 
         let sources = report_sources(&conn, "R-0001")?;
         assert_eq!(sources.len(), 2);
-        assert_eq!(reports_for_paper(&conn, 1)?.len(), 1);
         assert_eq!(list_reports(&conn, None)?.len(), 2);
         assert_eq!(
             read_report_markdown(&conn, "R-0001")?,
@@ -1738,9 +1708,6 @@ mod tests {
         let listed = list_issues(&conn, Some(&report_id))?;
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].issues.len(), 2);
-        let total = total_issue_counts(&conn)?;
-        assert_eq!(total.errors, 1);
-        assert_eq!(total.warnings, 1);
         assert_eq!(list_issues(&conn, None)?.len(), 1);
         Ok(())
     }

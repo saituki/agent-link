@@ -9,7 +9,6 @@
 # - crates/sai-paper-core  : lib sai_paper_core — 検索/取得/解析/保存
 # - crates/sai-paper-cli   : bin sai-moon-paper — スクリプト用 CLI
 # - waggle/                : 独立 [workspace] を持つ vendor クレート群（exclude・名前維持）
-# - pi-litbase/            : pi 拡張（TypeScript、Cargo 外）
 #
 # バイナリ名は PATH 上で旧 sai-link / sai-paper と衝突しないよう `sai-moon-*` にリネーム済み。
 # ライブラリ crate 名（sai_link_engine / sai_link_view / sai_paper_core）は変更しない。
@@ -24,7 +23,7 @@ members = [
     "crates/sai-paper-cli",
 ]
 # waggle は独自 [workspace] を持つため除外（Cargo の構造制約）
-exclude = ["waggle", "pi-litbase"]
+exclude = ["waggle"]
 
 [workspace.package]
 version = "0.1.0"
@@ -44,7 +43,6 @@ directories = "6.0"
 regex = "1"
 dunce = "1.0"
 iana-time-zone = "0.1"
-notify = "8.0"
 quick-xml = { version = "0.38", features = ["serialize", "overlapped-lists"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "stream", "blocking", "json"] }
 rusqlite = { version = "0.32", default-features = false, features = ["chrono", "bundled"] }

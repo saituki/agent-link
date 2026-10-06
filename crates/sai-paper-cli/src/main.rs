@@ -153,12 +153,6 @@ enum Cmd {
         #[arg(long)]
         write: bool,
     },
-    /// litbase 連携（pi-litbase 拡張が呼ぶ決定論的 API）
-    Litbase {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: litbase::LitbaseCmd,
-    },
     /// 検索セット管理
     Set {
         /// サブコマンド
@@ -914,8 +908,7 @@ fn handle_init(
         "✅ 研究プロジェクトを初期化しました: {}",
         paper_dir.display()
     );
-    println!("   起動: sai-moon-paper-tui  (直接操作)");
-    println!("         sai-moon-link-tui   (pi agent 管理)");
+    println!("   使い方: Web の Papers タブ、または `sai-moon-paper --help`");
     Ok(())
 }
 
@@ -1166,9 +1159,6 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Brief { write }) => {
             handle_brief(write)?;
-        }
-        Some(Cmd::Litbase { cmd }) => {
-            litbase::handle(cmd, &client).await?;
         }
         Some(Cmd::Set { cmd }) => {
             search_sets::handle_search_set(cmd).await?;

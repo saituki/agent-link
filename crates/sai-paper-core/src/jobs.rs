@@ -21,9 +21,6 @@ fn origin() -> &'static str {
     ORIGIN.get().copied().unwrap_or("cli")
 }
 
-/// `running` のまま残った行を「中断」とみなすまでの時間。
-pub const STALE_HOURS: i64 = 3;
-
 /// `jobs` の 1 行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobRow {
@@ -85,20 +82,6 @@ pub fn finish(conn: &Connection, id: i64, error: Option<&str>) -> rusqlite::Resu
         params![id, if error.is_some() { "failed" } else { "done" }, error],
     )?;
     Ok(())
-}
-
-/// `running` のまま `hours` 時間を過ぎた行を `failed`（中断）にする。直した行数を返す。
-///
-/// # Errors
-/// DB の書き込みに失敗したとき。
-pub fn cleanup_stale(conn: &Connection, hours: i64) -> rusqlite::Result<usize> {
-    conn.execute(
-        "UPDATE jobs SET status = 'failed', error = '中断',
-                finished_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-          WHERE status IN ('queued', 'running')
-            AND started_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",
-        [format!("-{hours} hours")],
-    )
 }
 
 /// 新しい順に `limit` 件（実行中を先に）。
@@ -196,23 +179,4 @@ mod tests {
         assert!(start(conn, "translate_pdf", Some(1)).unwrap().is_some());
     }
 
-    /// 古い running は「中断」になり、新しい running は残る。
-    #[test]
-    fn stale_running_rows_become_failed() {
-        let db = db();
-        let conn = db.connection();
-        let old = start(conn, "figures", Some(1)).unwrap().unwrap();
-        conn.execute(
-            "UPDATE jobs SET started_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-4 hours') WHERE id = ?1",
-            [old],
-        )
-        .unwrap();
-        let fresh = start(conn, "radio", Some(1)).unwrap().unwrap();
-        assert_eq!(cleanup_stale(conn, STALE_HOURS).unwrap(), 1);
-        let rows = recent(conn, 10).unwrap();
-        let row = |id| rows.iter().find(|r| r.id == id).unwrap().clone();
-        assert_eq!(row(old).status, "failed");
-        assert_eq!(row(old).error.as_deref(), Some("中断"));
-        assert_eq!(row(fresh).status, "running");
-    }
 }

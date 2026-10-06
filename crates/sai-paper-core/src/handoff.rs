@@ -258,37 +258,6 @@ pub struct HandoffRequest<'a> {
     pub reason: Option<&'a str>,
 }
 
-/// task.md を発行する（従来の入口。TUI と CLI の既存呼び出しが使う）。
-///
-/// `origin_run` と `reason` は無しで [`create_handoff_with`] に委譲する。
-///
-/// # Errors
-///
-/// DB エラー、ファイル I/O エラー、ブロック未検出等。
-pub fn create_handoff(
-    db: &Database,
-    roots: &PaperRoots,
-    block_id: &str,
-    paper_ids: &[i64],
-    description: &str,
-    tag: Option<&str>,
-    runner: &str,
-) -> Result<HandoffResult> {
-    create_handoff_with(
-        db,
-        roots,
-        &HandoffRequest {
-            block_id,
-            paper_ids,
-            description,
-            tag,
-            runner,
-            origin_run: None,
-            reason: None,
-        },
-    )
-}
-
 /// task.md を発行する。
 ///
 /// # Errors

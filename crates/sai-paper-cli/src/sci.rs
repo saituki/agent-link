@@ -244,7 +244,7 @@ fn wants_json(cmd: &SciCmd) -> bool {
         | SciCmd::Types { json }
         | SciCmd::Card { json, .. }
         | SciCmd::Read { json, .. } => *json,
-        // エージェントと pi-litbase が読むので、いつも JSON。
+        // エージェントが読むので、いつも JSON。
         SciCmd::Propose { .. } | SciCmd::Apply | SciCmd::Triage { .. } | SciCmd::TypeSave => true,
     }
 }

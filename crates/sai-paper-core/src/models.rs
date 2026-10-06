@@ -51,36 +51,6 @@ pub struct Paper {
     pub created_at: DateTime<Utc>,
 }
 
-/// Counts displayed on the dashboard.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DashboardStats {
-    /// Total catalog entries.
-    pub papers: u64,
-    /// Papers waiting in the reading queue.
-    pub queued: u64,
-    /// Locally available PDF files.
-    pub downloaded: u64,
-    /// Papers marked as favorites.
-    pub favorites: u64,
-}
-
-/// Metadata required to generate or fetch a BibTeX citation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CitationMetadata {
-    /// Canonical title.
-    pub title: String,
-    /// Comma-separated author list.
-    pub authors: String,
-    /// Digital Object Identifier.
-    pub doi: Option<String>,
-    /// arXiv ID.
-    pub arxiv_id: Option<String>,
-    /// Original publication year extracted from `published_at`.
-    pub year: Option<String>,
-    /// Journal reference.
-    pub journal_ref: Option<String>,
-}
-
 /// A paper row shown in the local library.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryPaper {
@@ -158,17 +128,6 @@ pub struct CollectionSummary {
     pub folder_path: Option<String>,
 }
 
-/// Summary of an author and their library presence.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuthorSummary {
-    /// Stable author identifier.
-    pub id: i64,
-    /// Author name.
-    pub name: String,
-    /// Number of papers in the library by this author.
-    pub paper_count: u64,
-}
-
 /// A bookmarked paper or position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BookmarkSummary {
@@ -228,73 +187,7 @@ pub struct ActivityItem {
     pub radio_id: Option<String>,
 }
 
-/// One day in the reading heatmap.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadingDay {
-    /// Calendar date formatted as `YYYY-MM-DD`.
-    pub date: String,
-    /// Papers opened on that date.
-    pub count: u64,
-}
-
-/// Aggregated research and reading statistics.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ReadingStatistics {
-    /// Consecutive reading days ending today or yesterday.
-    pub current_streak: u64,
-    /// Papers opened during the current calendar month.
-    pub monthly_reading: u64,
-    /// Papers opened during the current calendar year.
-    pub yearly_reading: u64,
-    /// Total recorded reading sessions.
-    pub sessions: u64,
-    /// Average recorded session duration in seconds.
-    pub average_reading_seconds: u64,
-    /// Total recorded reading duration in seconds.
-    pub total_reading_seconds: u64,
-    /// Weekday with the most reading sessions.
-    pub most_active_day: Option<String>,
-    /// Most frequently opened author.
-    pub most_read_author: Option<String>,
-    /// Most frequently opened journal.
-    pub most_read_journal: Option<String>,
-    /// Recent daily activity used by the heatmap.
-    pub heatmap: Vec<ReadingDay>,
-}
-
-/// Data displayed on the research dashboard.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ResearchDashboard {
-    /// Standard library counters.
-    pub counts: DashboardStats,
-    /// Papers that have not been marked read.
-    pub read: u64,
-    /// Number of user collections.
-    pub collections: u64,
-    /// Total known local PDF bytes.
-    pub disk_usage: u64,
-    /// Total bytes of downloads.
-    pub downloads_size: u64,
-    /// Current internal database file size in bytes.
-    pub database_size: u64,
-    /// Current reading analytics.
-    pub reading: ReadingStatistics,
-    /// Most recent user activity.
-    pub recent_activity: Vec<ActivityItem>,
-}
-
-/// One tag with its attached paper count.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TagSummary {
-    /// Tag database ID.
-    pub id: i64,
-    /// Tag name.
-    pub name: String,
-    /// Number of papers carrying this tag.
-    pub paper_count: u64,
-}
-
-/// sai-paper-cite（引用リスト TUI）での Library 照合に使う最小限の論文情報（R5）。
+/// Web（`phone_cite`・`phone_import`）での Library 照合に使う最小限の論文情報（R5）。
 ///
 /// `pdf_path` は照合時に実ファイル存在を確認し、ローカル PDF が実在する
 /// 論文のみ「Library 存在（緑色表示）」と判定する。

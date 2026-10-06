@@ -2,9 +2,8 @@
 //!
 //! - `.sai/blocks/paper-*.md`（sai-link のブロック）と `.sai/template/*.md` を書き出す。
 //!   既にあるファイルは上書きしない（利用者が直したものを消さない）。
-//! - ブロックには拡張（pi の `--extension`）の絶対パスを書かない。代わりに、この PC での
-//!   pi-sai-link と pi-litbase の場所を探し、プロジェクトの `.sai/settings.json` の
-//!   `extensions` に足す（sai-link は全ブロックでこれを読み込む）。
+//! - ブロックには絶対パスを書かない。実行直前の準備はプロジェクトの
+//!   `.sai/settings.json` の `pre_run` に書く。
 //! - cc（Claude Code）用に、プロジェクトの `.mcp.json` に `sai-paper` の MCP サーバーを足す。
 //!   既にある項目は消さない。
 
@@ -62,7 +61,7 @@ const TEMPLATES: &[(&str, &str)] = &[
 ///
 /// `professor`・`professor-backward`・`operator`・`kaizen` は木の中で動かず、木の外から木を見る役。
 /// 共通決まり（`sci-core`）も範囲（`context: true`）も持たず、研究プロジェクト向けの
-/// 共通の決まり（`sai-agent` / `sai-task` / `sai-cli`）を受ける。
+/// 共通の決まり（`sai-agent` / `sci-task` / `sci-cli`）を受ける。
 const SCI_BLOCKS: &[(&str, &str)] = &[
     ("professor.md", include_str!("../../../sai-sci/blocks/professor.md")),
     ("professor-backward.md", include_str!("../../../sai-sci/blocks/professor-backward.md")),
@@ -101,7 +100,7 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
 ///
 /// - 木の共通の決まり（`sci-core.md`）・F を探す決まり（`sci-find.md`）・照合の決まり（`sci-match.md`）と実験ループの 4 本（`exp-core.md`・`exp-run.md`・`exp-ref.md`・`sim-core.md`）
 /// - データ分析の 2 本（`data-core.md`・`stat-core.md`）。`sci-data-explore` と `sci-data-test` が読む。
-/// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sai-task.md`・`sai-cli.md`。U8）。
+/// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sci-task.md`・`sci-cli.md`。U8）。
 ///   前の 3 本は researcher が使う。後の 3 本は `professor` などの役が使う
 ///   （引き継ぎ・質問・子タスク・命令）。
 /// - 逆向き（backward）の共通の決まり（`bw-core.md`）。逆向きのブロックと `professor-backward` が使う。
@@ -116,8 +115,8 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("data-core.md", include_str!("../../../sai-sci/template/data-core.md")),
     ("stat-core.md", include_str!("../../../sai-sci/template/stat-core.md")),
     ("sai-agent.md", include_str!("../../../sai-sci/template/sai-agent.md")),
-    ("sai-task.md", include_str!("../../../sai-sci/template/sai-task.md")),
-    ("sai-cli.md", include_str!("../../../sai-sci/template/sai-cli.md")),
+    ("sci-task.md", include_str!("../../../sai-sci/template/sci-task.md")),
+    ("sci-cli.md", include_str!("../../../sai-sci/template/sci-cli.md")),
     ("bw-core.md", include_str!("../../../sai-sci/template/bw-core.md")),
 ];
 
@@ -225,41 +224,6 @@ fn domain_sample(domain: &str) -> Option<&'static str> {
 /// 置き換える。
 const BRIEF_PLACEHOLDER: &str = "<!-- sai-paper brief がエージェントの起動直前に作り直す -->\n# プロジェクトの状況（sai-paper より）\n\n（まだ作られていません）\n";
 
-/// `start` から親へたどり、`relative` があるフォルダを探す。
-fn find_upwards(start: &Path, relative: &str) -> Option<PathBuf> {
-    start
-        .ancestors()
-        .map(|dir| dir.join(relative))
-        .find(|path| path.is_file())
-}
-
-/// PATH の中から実行ファイルを探し、実体（シンボリックリンクの先）を返す。
-fn which(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|dir| dir.join(name))
-        .find(|path| path.is_file())
-        .and_then(|path| std::fs::canonicalize(path).ok())
-}
-
-/// この PC での pi の拡張の場所（見つかったものだけ）。
-///
-/// 環境変数 `SAI_LINK_PI_EXTENSION` / `SAI_PAPER_PI_LITBASE` があればそれを使う。
-/// 無ければ、`sai-link` と `sai-paper` の実行ファイルの場所から、それぞれの
-/// リポジトリの `pi-sai-link/extension.ts` と `pi-litbase/index.ts` を探す。
-fn pi_extensions() -> Vec<PathBuf> {
-    let from_env = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_file());
-    let sai_link = from_env("SAI_LINK_PI_EXTENSION").or_else(|| {
-        which("sai-moon-link").and_then(|bin| find_upwards(&bin, "pi-sai-link/extension.ts"))
-    });
-    let litbase = from_env("SAI_PAPER_PI_LITBASE").or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|bin| std::fs::canonicalize(bin).ok())
-            .and_then(|bin| find_upwards(&bin, "pi-litbase/index.ts"))
-    });
-    [sai_link, litbase].into_iter().flatten().collect()
-}
-
 /// JSON ファイルを読む（無ければ空のオブジェクト）。
 fn read_json(path: &Path) -> Result<Value> {
     match std::fs::read_to_string(path) {
@@ -307,7 +271,7 @@ fn make_executable(path: &Path) -> Result<()> {
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
-pub fn install(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Result<Vec<String>> {
+pub fn install(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
     let mut done = Vec::new();
     let sai = root.join(".sai");
 
@@ -326,24 +290,12 @@ pub fn install(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Res
     )?);
     done.push(format!("ブロックとテンプレートを {written} 件置きました（既にあるものはそのまま）"));
 
-    // pi の拡張: .sai/settings.json の extensions に足す（重複は足さない）
+    // 実行直前の準備コマンド: 無ければ足す（あれば利用者の設定をそのまま残す）
     let settings_path = sai.join("settings.json");
     let mut settings = read_json(&settings_path)?;
     let obj = settings
         .as_object_mut()
         .context(".sai/settings.json がオブジェクトではありません")?;
-    {
-        let list = obj.entry("extensions").or_insert_with(|| json!([]));
-        if let Some(list) = list.as_array_mut() {
-            for path in extensions {
-                let path = Value::String(path.to_string_lossy().into_owned());
-                if !list.contains(&path) {
-                    list.push(path);
-                }
-            }
-        }
-    }
-    // 実行直前の準備コマンド: 無ければ足す（あれば利用者の設定をそのまま残す）
     let mut pre_run_added = false;
     if !obj.contains_key("pre_run") {
         obj.insert(
@@ -353,13 +305,6 @@ pub fn install(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Res
         pre_run_added = true;
     }
     write_json(&settings_path, &settings)?;
-    if extensions.is_empty() {
-        done.push(
-            "⚠ pi の拡張が見つかりません。SAI_LINK_PI_EXTENSION / SAI_PAPER_PI_LITBASE を指定して init し直すか、.sai/settings.json の extensions に書いてください".to_string(),
-        );
-    } else {
-        done.push(format!("pi の拡張を .sai/settings.json に登録しました（{} 件）", extensions.len()));
-    }
     if pre_run_added {
         done.push(
             "pre_run（実行直前に状況まとめを作る）を .sai/settings.json に登録しました".to_string(),
@@ -430,7 +375,7 @@ pub fn install_here(root: &Path) -> Result<Vec<String>> {
     let bin = std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
-    install(root, &bin, &pi_extensions())
+    install(root, &bin)
 }
 
 /// sci の部品を研究プロジェクト（`root`）に配る。何をしたかの一覧を返す（表示用）。
@@ -446,8 +391,8 @@ pub fn install_here(root: &Path) -> Result<Vec<String>> {
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
-pub fn install_sci(root: &Path, sai_paper_bin: &Path, extensions: &[PathBuf]) -> Result<Vec<String>> {
-    let mut done = install(root, sai_paper_bin, extensions)?;
+pub fn install_sci(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
+    let mut done = install(root, sai_paper_bin)?;
     let sai = root.join(".sai");
 
     // 分野の観点: sci ブロックはすべて `domain` を使うので、無ければ普通の分野を配る
@@ -545,7 +490,7 @@ pub fn install_sci_here(root: &Path) -> Result<Vec<String>> {
     let bin = std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
-    install_sci(root, &bin, &pi_extensions())
+    install_sci(root, &bin)
 }
 
 /// この PC の実行ファイルで [`install_sci_parts`] を呼ぶ（`init --sci` 用）。
@@ -574,7 +519,7 @@ mod tests {
     ///
     /// この 4 本は `sci-core` も `context: true` も持たない。節点の範囲を作ってから動く
     /// のではなく、木そのものを見る窓口だから。共通の決まりは研究向けの 3 本
-    /// （`sai-agent` / `sai-task` / `sai-cli`）を受ける。
+    /// （`sai-agent` / `sci-task` / `sci-cli`）を受ける。
     const SCI_BLOCKS_WITHOUT_SCI_CORE: &[&str] =
         &[EXP_WITHOUT_SCI_CORE, "professor.md", "professor-backward.md", "operator.md", "kaizen.md"];
 
@@ -591,11 +536,8 @@ mod tests {
             r#"{"mcpServers": {"other": {"command": "x"}}}"#,
         )
         .unwrap();
-        let ext = root.join("ext.ts");
-        std::fs::write(&ext, "").unwrap();
-
         for _ in 0..2 {
-            install(&root, Path::new("/bin/sai-paper"), std::slice::from_ref(&ext)).unwrap();
+            install(&root, Path::new("/bin/sai-paper")).unwrap();
         }
 
         assert_eq!(
@@ -613,7 +555,6 @@ mod tests {
             assert!(!content.contains("/Users/"), "{name} に絶対パスが無い");
         }
         let settings = read_json(&root.join(".sai/settings.json")).unwrap();
-        assert_eq!(settings["extensions"].as_array().unwrap().len(), 1);
         assert_eq!(
             settings["pre_run"],
             json!(["/bin/sai-paper", "brief", "--write"]),
@@ -638,7 +579,7 @@ mod tests {
         )
         .unwrap();
 
-        install(&root, Path::new("/bin/sai-paper"), &[]).unwrap();
+        install(&root, Path::new("/bin/sai-paper")).unwrap();
 
         let settings = read_json(&root.join(".sai/settings.json")).unwrap();
         assert_eq!(settings["pre_run"], json!(["my-command", "--flag"]));
@@ -774,11 +715,9 @@ mod tests {
         let root = std::env::temp_dir().join(format!("sai-paper-sci-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".sai")).unwrap();
-        let ext = root.join("ext.ts");
-        std::fs::write(&ext, "").unwrap();
         let bin = Path::new("/opt/bin/sai-moon-paper");
 
-        let done = install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
+        let done = install_sci(&root, bin).unwrap();
 
         // sci のブロック 31 本と、今の部品 17 本もそろう
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
@@ -809,7 +748,7 @@ mod tests {
         for name in ["professor.md", "operator.md"] {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name} が配られていない");
         }
-        for name in ["sai-agent.md", "sai-task.md", "sai-cli.md"] {
+        for name in ["sai-agent.md", "sci-task.md", "sci-cli.md"] {
             assert!(root.join(".sai/template").join(name).is_file(), "{name} が配られていない");
         }
         assert!(root.join(".sai/tools/phone_api.py").is_file(), "phone_api.py が配られていない");
@@ -864,12 +803,11 @@ mod tests {
         let mut custom = settings.clone();
         custom["write_check"] = json!(["mine"]);
         write_json(&root.join(".sai/settings.json"), &custom).unwrap();
-        install_sci(&root, bin, std::slice::from_ref(&ext)).unwrap();
+        install_sci(&root, bin).unwrap();
         let again = read_json(&root.join(".sai/settings.json")).unwrap();
         assert_eq!(again["write_check"], json!(["mine"]));
-        // 今からある pre_run と拡張は、そのまま残す
+        // 今からある pre_run は、そのまま残す
         assert_eq!(settings["pre_run"], json!(["/opt/bin/sai-moon-paper", "brief", "--write"]));
-        assert_eq!(settings["extensions"].as_array().unwrap().len(), 1);
 
         // 土壌のひな形
         assert_eq!(
@@ -911,10 +849,10 @@ mod tests {
         .unwrap();
         let bin = Path::new("/opt/bin/sai-moon-paper");
 
-        install_sci(&root, bin, &[]).unwrap();
+        install_sci(&root, bin).unwrap();
         // 2 回目は、既に置いた sci のブロックを動かさない。
         let before = std::fs::read_to_string(root.join(".sai/blocks/sci-start.md")).unwrap();
-        install_sci(&root, bin, &[]).unwrap();
+        install_sci(&root, bin).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(root.join(".sai/blocks/sci-compare.md")).unwrap(),
@@ -1214,7 +1152,7 @@ mod tests {
             let templates = frontmatter_list(frontmatter, "templates:");
             assert!(templates.contains(&"sai-agent"), "{name} の templates に sai-agent が無い");
             if subblocks {
-                for template in ["sai-task", "sai-cli"] {
+                for template in ["sci-task", "sci-cli"] {
                     assert!(templates.contains(&template), "{name} の templates に {template} が無い");
                 }
             }
@@ -1355,10 +1293,10 @@ mod tests {
         }
     }
 
-    /// `sai-agent` / `sai-task` / `sai-cli` が配られ、絶対パスと他の言語の語が無い。
+    /// `sai-agent` / `sci-task` / `sci-cli` が配られ、絶対パスと他の言語の語が無い。
     #[test]
     fn research_templates_are_shipped_without_absolute_paths() {
-        for name in ["sai-agent.md", "sai-task.md", "sai-cli.md"] {
+        for name in ["sai-agent.md", "sci-task.md", "sci-cli.md"] {
             let content = SCI_TEMPLATES
                 .iter()
                 .find(|(block, _)| *block == name)
