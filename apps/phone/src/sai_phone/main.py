@@ -28,6 +28,7 @@ from starlette.concurrency import run_in_threadpool
 
 from sai_phone import (
     approvals,
+    commands,
     control,
     herdr,
     home,
@@ -116,6 +117,11 @@ def _startup() -> None:
         logger.warning("SAI_PHONE_TOKEN 未設定：認証なしで動作中")
     # 合言葉をファイルで渡す（`phone_api.py` が読む）
     write_token_file()
+    # 確かめ用のサーバは見張りを止められる（SAI_PHONE_NO_WATCH=1）。
+    # 見張りは herdr を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
+    if os.getenv("SAI_PHONE_NO_WATCH") == "1":
+        logger.warning("見張りを止めて起動しました（SAI_PHONE_NO_WATCH=1）")
+        return
     # 状態の監視ループを起動する（通知用．失敗してもサーバーは止めない）
     asyncio.get_event_loop().create_task(watch_loop())
 
@@ -721,6 +727,58 @@ def api_project_card_docs(
 ) -> dict:
     """最近の文書（task_text に `waggle:<tok>:path:<path>` を貼る候補）。"""
     return control.phone_card_docs(name)
+
+
+# --- Web の「コマンド」画面（U10） ---
+# 3 つの CLI（link / paper / sci）の schema から入力欄を作り，命令を実行する。
+# 外から来る値は CLI を呼ぶ前に commands 側で確かめる（通らなければ 400）。
+# `bytes` の命令（ファイルを送る物）は Web には出さず，実行も断る。
+
+
+@app.get("/api/projects/{name}/commands")
+def api_project_commands(name: str, _: None = Depends(require_token)) -> dict:
+    """Web に出せる命令の一覧（`web: true` だけ・sci が無ければ外れる）。"""
+    return commands.list_commands(name)
+
+
+@app.post("/api/projects/{name}/commands/run")
+def api_project_command_run(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """命令を実行する（共有契約「コマンドの実行の口」）。"""
+    return commands.run_command(name, payload)
+
+
+# --- 会話の検索（U10） ---
+# `sai-link session search`（エージェントの会話の履歴）を Web から使う。
+# 検査は control.phone_session_search が CLI を呼ぶ前に全部行う。
+
+
+@app.get("/api/projects/{name}/sessions/search")
+def api_project_session_search(
+    name: str,
+    word: str | None = Query(default=None),
+    global_round: str | None = Query(default=None),
+    round: str | None = Query(default=None),
+    id: str | None = Query(default=None),
+    block: str | None = Query(default=None),
+    date: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    type: str | None = Query(default=None),
+    _: None = Depends(require_token),
+) -> dict:
+    """会話の検索（先頭 200 件・`{"items", "truncated"}`）。"""
+    return control.phone_session_search(
+        name,
+        word=word,
+        global_round=global_round,
+        round=round,
+        run_id=id,
+        block=block,
+        on_date=date,
+        status=status,
+        sess_type=type,
+    )
 
 
 # --- ホーム（U3 §変更内容 3） ---

@@ -217,6 +217,46 @@ function cfToggleRef(text, ref, on) {
   return lines.filter((l) => l.trim() !== ref).join("\n");
 }
 
+/**
+ * task_text の末尾に文を足す（`opts.taskText`・U10）。
+ * 空でなければ空行を 1 つはさむ。同じ文が既にあれば足さない。書きかけは消さない。
+ */
+function cfAppendTaskText(text, add) {
+  const base = String(text || "");
+  const line = String(add == null ? "" : add);
+  if (!line.trim()) return base;
+  if (base.split("\n").some((l) => l.trim() === line.trim())) return base;
+  const trimmed = base.replace(/\s+$/, "");
+  return trimmed ? `${trimmed}\n\n${line}` : line;
+}
+
+/**
+ * 開くプロジェクト名を決める（`opts.project`・U10）。
+ * `opts.project` があればそれを使い，`parseListHash` に頼らない。
+ * 無ければ今の List の住所の名前，それも無ければ今の名前のまま。
+ */
+function cfTargetName(opts, hash, current) {
+  const fromOpts = opts && opts.project ? String(opts.project) : "";
+  if (fromOpts) return fromOpts;
+  const parsed =
+    typeof parseListHash === "function" ? parseListHash(hash) : null;
+  return (parsed && parsed.name) || current || "";
+}
+
+/**
+ * フォームを閉じるか（U10）。
+ * 開いたときが List の住所なら，List の住所でなくなったら閉じる（今までどおり）。
+ * そうでなければ（論文の詳細などから開いたとき），開いたときの住所から変わったら閉じる。
+ */
+function cfShouldClose(openedHash, nowHash) {
+  const opened = String(openedHash || "");
+  const now = String(nowHash || "");
+  if (!opened) return false;
+  const parse = typeof parseListHash === "function" ? parseListHash : null;
+  if (parse && parse(opened)) return !parse(now);
+  return now !== opened;
+}
+
 /** `POST …/card` に送る JSON（項目名は計画 12 §3.2 の形のまま）。 */
 function cfBuildPayload(state) {
   const rounds = state.rounds || {};
@@ -285,6 +325,7 @@ let cfError = "";      // 手順の下に出す 1 行
 let cfWarn = "";       // options の warnings（settings.json の注意など）
 let cfBusy = false;    // 送信中
 let cfDocs = null;     // 最近の文書（`GET …/card/docs` の items・null＝未読）
+let cfOpenedHash = ""; // フォームを開いたときの住所（閉じ方を決める・U10）
 
 function cfSheet() {
   return document.getElementById("cardform-wrap");
@@ -310,16 +351,20 @@ async function cfFetchJson(path) {
  * `opts.ref` があれば task_text にその参照行（`waggle:<tok>:path:<path>`）を足して開く（List の waggle の ＋）。
  */
 async function cfOpen(opts) {
-  const ref = String((opts && opts.ref) || "");
-  const parsed = typeof parseListHash === "function" ? parseListHash(location.hash) : null;
-  if (parsed && parsed.name && parsed.name !== cfName) {
+  const o = opts || {};
+  const ref = String(o.ref || "");
+  const taskText = String(o.taskText || "");
+  const project = cfTargetName(o, location.hash, cfName);
+  if (project && project !== cfName) {
     // プロジェクトが変われば選択肢は取り直す（別プロジェクトの選択肢を出さないため）
-    cfName = parsed.name;
+    cfName = project;
     cfOptions = null;
     cfState = null;
     cfError = "";
   }
   if (!cfName) return;
+  // 開いたときの住所を覚える（閉じ方を決める・U10）
+  cfOpenedHash = location.hash;
 
   // 選択肢を取りに行く間も画面は開いたままにする（下から出る形のまま）
   const sheet = cfSheet();
@@ -348,6 +393,11 @@ async function cfOpen(opts) {
   cfDocs = null; // 最近の文書は開くたびに取り直す
   if (ref) {
     cfState.task_text = cfToggleRef(cfState.task_text, ref, true);
+    cfSaveDraft(cfName, cfState);
+  }
+  if (taskText) {
+    // 論文の詳細などから開いたときの 1 行を足す（書きかけは消さない・U10）
+    cfState.task_text = cfAppendTaskText(cfState.task_text, taskText);
     cfSaveDraft(cfName, cfState);
   }
 
@@ -757,11 +807,9 @@ if (typeof window !== "undefined") {
       cfRender();
     });
   }
-  // List を離れたときはフォームを閉じる（隠れた場所に残さない）
+  // 開いたときの住所から離れたらフォームを閉じる（隠れた場所に残さない・U10）
   window.addEventListener("hashchange", () => {
-    if (cfState && typeof parseListHash === "function" && !parseListHash(location.hash)) {
-      cfClose();
-    }
+    if (cfState && cfShouldClose(cfOpenedHash, location.hash)) cfClose();
   });
 }
 
@@ -780,6 +828,9 @@ if (typeof module !== "undefined" && module.exports) {
     cfBack,
     cfBuildPayload,
     cfToggleRef,
+    cfAppendTaskText,
+    cfTargetName,
+    cfShouldClose,
     cfDraftKey,
     cfLoadDraft,
     cfSaveDraft,

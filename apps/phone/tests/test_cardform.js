@@ -195,6 +195,52 @@ function testToggleRef() {
   assert.strictEqual(cf.cfToggleRef("本文", "", true), "本文");
 }
 
+function testAppendTaskText() {
+  const line = "対象の論文: #12「Attention」（2021・DOI 10.1000/xyz）";
+  // 空ならそのまま，書きかけがあれば空行をはさんで末尾に
+  assert.strictEqual(cf.cfAppendTaskText("", line), line);
+  assert.strictEqual(cf.cfAppendTaskText("本文", line), `本文\n\n${line}`);
+  // 同じ文は 2 度足さない
+  assert.strictEqual(cf.cfAppendTaskText(`本文\n\n${line}`, line), `本文\n\n${line}`);
+  // 書きかけは消さない（末尾の空白は整える）
+  assert.strictEqual(cf.cfAppendTaskText("本文\n", line), `本文\n\n${line}`);
+  // 空の文は足さない
+  assert.strictEqual(cf.cfAppendTaskText("本文", "  "), "本文");
+}
+
+function testTargetName() {
+  // opts.project があれば List の住所に頼らない（論文の詳細から開ける・U10）
+  assert.strictEqual(cf.cfTargetName({ project: "sai-moon" }, "#/paper/x/1", ""), "sai-moon");
+  global.parseListHash = (h) => {
+    const m = String(h || "").match(/^#\/project\/([^/]+)\/list/);
+    return m ? { name: decodeURIComponent(m[1]), runId: null, view: null } : null;
+  };
+  try {
+    assert.strictEqual(cf.cfTargetName({}, "#/project/res/list", "old"), "res");
+    assert.strictEqual(cf.cfTargetName({}, "#/paper/x/1", "old"), "old");
+    assert.strictEqual(cf.cfTargetName({}, "#/paper/x/1", ""), "");
+  } finally {
+    delete global.parseListHash;
+  }
+}
+
+function testShouldClose() {
+  global.parseListHash = (h) =>
+    /\/list/.test(String(h)) ? { name: "x", runId: null, view: null } : null;
+  try {
+    // List で開いた: List のままなら閉じない，離れたら閉じる
+    assert.strictEqual(cf.cfShouldClose("#/project/x/list", "#/project/x/list/3/log"), false);
+    assert.strictEqual(cf.cfShouldClose("#/project/x/list", "#/project/x/sessions"), true);
+    // List でない住所で開いた: 変わったら閉じる（論文の詳細から開いたとき）
+    assert.strictEqual(cf.cfShouldClose("#/paper/x/1", "#/paper/x/1"), false);
+    assert.strictEqual(cf.cfShouldClose("#/paper/x/1", "#/project/x/list"), true);
+    // 住所が無ければ閉じない
+    assert.strictEqual(cf.cfShouldClose("", "#/paper/x/1"), false);
+  } finally {
+    delete global.parseListHash;
+  }
+}
+
 function testDraft() {
   store.clear();
   // 最初は無し
@@ -252,6 +298,9 @@ function main() {
   testSkip();
   testPayload();
   testToggleRef();
+  testAppendTaskText();
+  testTargetName();
+  testShouldClose();
   testDraft();
   testStepHints();
   console.log("test_cardform: すべて通りました");

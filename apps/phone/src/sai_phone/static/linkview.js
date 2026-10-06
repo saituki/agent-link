@@ -38,6 +38,9 @@ const LV_MODES = [
   ["workflow", "Workflow"],
   ["list", "List"],
   ["defs", "Settings"],
+  // U10 で足した 2 つの専用の画面（どちらもプロジェクトごとの命令・共有契約 C-F7）
+  ["commands", "コマンド"],
+  ["sessions", "会話検索"],
 ];
 // 最後に見ていた Project の画面をプロジェクトごとに覚える（localStorage・計画 14 §6・C-F7）
 const LV_MODE_KEY = "sai_phone_link_mode";
@@ -80,6 +83,8 @@ function modeHash(name, mode) {
     case "list": return listHash(name, null, null);
     case "workflow": return `${base}/workflow`;
     case "defs": return `${base}/defs`;
+    case "commands": return `${base}/commands`;
+    case "sessions": return `${base}/sessions`;
     default: return base;
   }
 }

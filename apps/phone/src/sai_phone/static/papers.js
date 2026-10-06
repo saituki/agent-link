@@ -2817,6 +2817,20 @@ function doiUrl(doi) {
   return /^https?:\/\//i.test(s) ? s : `https://doi.org/${s}`;
 }
 
+/**
+ * 論文からカードを作るときの task_text に入れる 1 行（U10）。
+ * 題名・年・DOI はある物だけ書く。実行ファイルの名前は書かない
+ * （名前は最後のガイドで変わるため・エージェントは番号から読み方を知っている）。
+ */
+function paperCardText(p, id) {
+  const paper = p || {};
+  const parts = [];
+  if (paper.year) parts.push(String(paper.year));
+  if (paper.doi) parts.push(`DOI ${paper.doi}`);
+  const tail = parts.length ? `（${parts.join("・")}）` : "";
+  return `対象の論文: #${id}「${paper.title || "(無題)"}」${tail}`;
+}
+
 function renderPaper(target) {
   // target を省略したとき（翻訳・要旨の言語の切り替え・ノートなど）は
   // 直前に描いた場所を使う（広い画面の欄でも動く）。
@@ -2888,6 +2902,14 @@ function renderPaper(target) {
       })
     );
   }
+  // この論文を書いたカードを作る（作成フォームを開き task_text に論文の行を入れる・U10）
+  if (typeof cfOpen === "function" && paperProject) {
+    actions.appendChild(
+      paperBtn("カードを作る", () => {
+        void cfOpen({ project: paperProject, taskText: paperCardText(p, paperIdNum) });
+      })
+    );
+  }
   // PDF 全体を日本語に訳す（pdf_ja があるときは作り直し）
   if (files.pdf) {
     actions.appendChild(
@@ -2902,6 +2924,7 @@ function renderPaper(target) {
   if (files.extract) hints.push("本文: 取り出した本文だけを、1 ページで読みます");
   if (files.pdf) hints.push("🈂 日本語 PDF を作る: PDF 全体を日本語に訳します。数分かかります。");
   hints.push("🎙 音声を作る: 数分かかります。できたら通知でお知らせします");
+  hints.push("カードを作る: この論文の行を入れた task.md の作成フォームを開きます");
   hints.push("ノート: この論文の覚え書きです。書くとここに残ります");
   for (const text of hints) body.appendChild(el("p", "paper-hint", text));
 
@@ -3665,5 +3688,6 @@ if (typeof module !== "undefined" && module.exports) {
     papersAllFailed,
     papersAttentionHash,
     papersDebtCount,
+    paperCardText,
   };
 }
