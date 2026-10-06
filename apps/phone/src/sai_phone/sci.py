@@ -1,4 +1,4 @@
-"""sai-paper の `sai-moon-paper phone sci …` と `phone set …`（研究方針の木・検索セット）を中継する。
+"""研究の `sai-sci …` と、検索セットの `sai-moon-paper set …` を中継する。
 
 中の処理は Rust のコア、窓口は apps/phone だけ（AGENTS.md の「設計」）。
 ここでは中の処理をせず、DB（`papr.db` など）を開くこともしない。
@@ -8,19 +8,19 @@
 
 | 住所 | 本文 | 呼ぶ CLI |
 |---|---|---|
-| `GET …/papers/sci/status` | — | `phone sci status` |
-| `GET …/papers/sci/types` | — | `phone sci types` |
-| `POST …/papers/sci/init` | `{"type": "problem"}` | `phone sci init --type <型>` |
-| `GET …/papers/sci/nodes/{node_id}` | — | `phone sci node <ID>` |
-| `POST …/papers/sci/apply` | C-OP の op の JSON | `phone sci apply`（標準入力） |
-| `GET …/papers/sci/proposals` | — | `phone sci proposals` |
-| `POST …/papers/sci/proposals/{pid}` | `{"action","note","edit"}` | `phone sci triage <P> --action …`（edit は標準入力） |
-| `POST …/papers/sci/cards` | C-CARD の JSON | `phone sci card`（標準入力） |
-| `GET …/papers/sci/reads/{run_id}` | — | `phone sci read <run_id>` |
+| `GET …/papers/sci/status` | — | `sai-sci status --json` |
+| `GET …/papers/sci/types` | — | `sai-sci types --json` |
+| `POST …/papers/sci/init` | `{"type": "problem"}` | `sai-sci init --type <型> --json` |
+| `GET …/papers/sci/nodes/{node_id}` | — | `sai-sci node <ID> --json` |
+| `POST …/papers/sci/apply` | C-OP の op の JSON | `sai-sci apply --json`（標準入力） |
+| `GET …/papers/sci/proposals` | — | `sai-sci proposals --json` |
+| `POST …/papers/sci/proposals/{pid}` | `{"action","note","edit"}` | `sai-sci triage <P> --accept/--reject/--revert [--edit=…]` |
+| `POST …/papers/sci/cards` | C-CARD の JSON | `sai-sci card --from-json --json`（標準入力） |
+| `GET …/papers/sci/reads/{run_id}` | — | `sai-sci read <run_id> --json` |
 | `POST …/papers/sci/reads/{run_id}/start` | — | `sai-moon-link phone user start <run_id>` |
 | `POST …/papers/sci/reads/{run_id}/finish` | — | `sai-moon-link phone user finish <run_id>` |
-| `GET …/papers/sets` | — | `phone set list` |
-| `GET …/papers/sets/{set_id}` | — | `phone set show <id>` |
+| `GET …/papers/sets` | — | `sai-moon-paper set list` |
+| `GET …/papers/sets/{set_id}` | — | `sai-moon-paper set show <id>` |
 | `POST …/papers/sets/{set_id}/mark` | `{"positions","decision","reason"?}` | `set mark <id> --position … --decision …` |
 | `POST …/papers/sets/{set_id}/drop-pending` | `{"reason"?}` | `set drop-pending <id>` |
 
@@ -88,6 +88,7 @@ SET_POSITION_MAX = 999_999
 REASON_MAX = 500
 BODY_MAX = 2000
 TRIAGE_NOTE_MAX = 1000
+TRIAGE_EDIT_MAX = 20_000
 SET_REASON_MAX = 200
 
 # --- C-OP の op ごとの項目 ---
@@ -407,7 +408,8 @@ def validate_triage(payload) -> tuple[str, str, dict | None]:
 
     - `action` は accept / reject / revert の 3 つ
     - `note` は 1000 字まで
-    - `edit` があれば C-07 の op として検査する（無いなら None）
+    - `edit` があれば C-07 の op として検査する（無いなら None）。
+      JSON にした文字が 20,000 字を超えるものは 400。
     """
     if not isinstance(payload, dict):
         raise _bad("送る JSON が正しくありません")
@@ -417,6 +419,9 @@ def validate_triage(payload) -> tuple[str, str, dict | None]:
     edit = None
     if raw_edit is not None:
         edit = validate_op(raw_edit)
+        text = json.dumps(edit, ensure_ascii=False)
+        if len(text) > TRIAGE_EDIT_MAX:
+            raise _bad(f"edit は {TRIAGE_EDIT_MAX} 字までです")
     return action, note, edit
 
 
@@ -424,7 +429,20 @@ def validate_triage(payload) -> tuple[str, str, dict | None]:
 
 
 def _sci_cli(project: dict, args: list[str], timeout: float, input_text: str | None = None):
-    """sai-paper の CLI を呼ぶ（cwd = root，`SAI_PROJECT_ROOT` = root，`SAI_ORIGIN` = phone）。"""
+    """sai-sci の CLI を呼ぶ（cwd = root，`SAI_PROJECT_ROOT` = root，`SAI_ORIGIN` = phone）。"""
+    root = str(project["root"])
+    return cli.run_json(
+        [settings.sai_sci_bin, *args],
+        app="sai-sci",
+        cwd=root,
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
+        timeout=timeout,
+        input_text=input_text,
+    )
+
+
+def _paper_cli(project: dict, args: list[str], timeout: float, input_text: str | None = None):
+    """sai-moon-paper の CLI を呼ぶ（検索セットだけが使う）。"""
     root = str(project["root"])
     return cli.run_json(
         [settings.sai_paper_bin, *args],
@@ -437,78 +455,88 @@ def _sci_cli(project: dict, args: list[str], timeout: float, input_text: str | N
 
 
 def status(project: dict) -> dict:
-    """研究方針の木全体（`phone sci status`）。"""
-    return _sci_cli(project, ["phone", "sci", "status"], SCI_READ_TIMEOUT)
+    """研究方針の木全体（`sai-sci status --json`）。"""
+    return _sci_cli(project, ["status", "--json"], SCI_READ_TIMEOUT)
 
 
 def types(project: dict) -> dict:
-    """使える研究の型の一覧（`phone sci types`）。"""
-    return _sci_cli(project, ["phone", "sci", "types"], SCI_READ_TIMEOUT)
+    """使える研究の型の一覧（`sai-sci types --json`）。"""
+    return _sci_cli(project, ["types", "--json"], SCI_READ_TIMEOUT)
 
 
 def init(project: dict, payload) -> dict:
-    """始める（`phone sci init --type <型>`・骨組みの展開で待つ時間は長め）。"""
+    """始める（`sai-sci init --type <型> --json`・骨組みの展開で待つ時間は長め）。
+
+    出力の `tree` だけを返す（画面が読む形は今の `phone sci init` と同じ）。
+    木を作れず `tree` が無いときは 502。
+    """
     if not isinstance(payload, dict):
         raise _bad("送る JSON が正しくありません")
     kind = check_type(payload.get("type"))
-    return _sci_cli(project, ["phone", "sci", "init", "--type", kind], SCI_INIT_TIMEOUT)
+    data = _sci_cli(
+        project, ["init", "--type", kind, "--json"], SCI_INIT_TIMEOUT
+    )
+    tree = data.get("tree") if isinstance(data, dict) else None
+    if not tree:
+        raise HTTPException(
+            status_code=502, detail="研究方針の木を作れませんでした"
+        )
+    return tree
 
 
 def node(project: dict, node_id) -> dict:
-    """Node の中身（`phone sci node <ID>`）。"""
-    return _sci_cli(project, ["phone", "sci", "node", check_node(node_id)], SCI_READ_TIMEOUT)
+    """Node の中身（`sai-sci node <ID> --json`）。"""
+    return _sci_cli(project, ["node", check_node(node_id), "--json"], SCI_READ_TIMEOUT)
 
 
 def apply(project: dict, payload) -> dict:
-    """人の操作を反映する（`phone sci apply`・本文は標準入力）。"""
+    """人の操作を反映する（`sai-sci apply --json`・本文は標準入力）。"""
     data = validate_op(payload)
     return _sci_cli(
         project,
-        ["phone", "sci", "apply"],
+        ["apply", "--json"],
         SCI_WRITE_TIMEOUT,
         input_text=json.dumps(data, ensure_ascii=False),
     )
 
 
 def proposals(project: dict) -> dict:
-    """仕分け待ちの一覧（`phone sci proposals`）。"""
-    return _sci_cli(project, ["phone", "sci", "proposals"], SCI_READ_TIMEOUT)
+    """仕分け待ちの一覧（`sai-sci proposals --json`）。"""
+    return _sci_cli(project, ["proposals", "--json"], SCI_READ_TIMEOUT)
 
 
 def triage(project: dict, pid, payload) -> dict:
-    """仕分ける（`phone sci triage <P> --action … [--note …]`・edit は標準入力）。
+    """仕分ける（`sai-sci triage <P> --accept/--reject/--revert …`）。
 
-    `edit` が無ければ標準入力には空文字を渡す（コアが「空なら無し」と見る）。
+    `edit` は `--edit=<JSON の文字>` で渡す（値が `-` で始まっても引数の名と
+    取り違えないよう `=` でつなぐ）。`note` も同じく `--note=<文>`。
     """
     proposal = check_proposal(pid)
     action, note, edit = validate_triage(payload)
-    args = ["phone", "sci", "triage", proposal, "--action", action]
+    flag = {"accept": "--accept", "reject": "--reject", "revert": "--revert"}[action]
+    args = ["triage", proposal, flag]
     if note:
-        # 値が `--` で始まっていてもオプションと誤解されないように 1 つの引数にする
         args += [f"--note={note}"]
-    return _sci_cli(
-        project,
-        args,
-        SCI_WRITE_TIMEOUT,
-        input_text=json.dumps(edit, ensure_ascii=False) if edit is not None else "",
-    )
+    if edit is not None:
+        args += [f"--edit={json.dumps(edit, ensure_ascii=False)}"]
+    return _sci_cli(project, args, SCI_WRITE_TIMEOUT)
 
 
 def create_card(project: dict, payload) -> dict:
-    """読む札を作る（`phone sci card`・本文は標準入力）。"""
+    """読む札を作る（`sai-sci card --from-json --json`・本文は標準入力）。"""
     data = validate_card(payload)
     return _sci_cli(
         project,
-        ["phone", "sci", "card"],
+        ["card", "--from-json", "--json"],
         SCI_WRITE_TIMEOUT,
         input_text=json.dumps(data, ensure_ascii=False),
     )
 
 
 def read(project: dict, run_id) -> dict:
-    """読む札の中身（`phone sci read <run_id>`）。"""
+    """読む札の中身（`sai-sci read <run_id> --json`）。"""
     return _sci_cli(
-        project, ["phone", "sci", "read", str(check_run_id(run_id))], SCI_READ_TIMEOUT
+        project, ["read", str(check_run_id(run_id)), "--json"], SCI_READ_TIMEOUT
     )
 
 
@@ -561,12 +589,12 @@ def _check_set_reason(payload) -> str | None:
 
 def set_list(project: dict) -> dict:
     """検索セットの一覧（`sai-moon-paper set list`）。"""
-    return _sci_cli(project, ["set", "list"], SCI_READ_TIMEOUT)
+    return _paper_cli(project, ["set", "list"], SCI_READ_TIMEOUT)
 
 
 def set_show(project: dict, set_id) -> dict:
     """検索セット 1 つと候補（`set show <id>`）。"""
-    return _sci_cli(project, ["set", "show", str(check_set_id(set_id))], SCI_READ_TIMEOUT)
+    return _paper_cli(project, ["set", "show", str(check_set_id(set_id))], SCI_READ_TIMEOUT)
 
 
 def set_mark(project: dict, set_id, payload) -> dict:
@@ -589,7 +617,7 @@ def set_mark(project: dict, set_id, payload) -> dict:
     ]
     if reason:
         args.append(f"--reason={reason}")
-    return _sci_cli(project, args, SCI_WRITE_TIMEOUT)
+    return _paper_cli(project, args, SCI_WRITE_TIMEOUT)
 
 
 def set_drop_pending(project: dict, set_id, payload=None) -> dict:
@@ -599,4 +627,4 @@ def set_drop_pending(project: dict, set_id, payload=None) -> dict:
     args = ["set", "drop-pending", str(sid)]
     if reason:
         args.append(f"--reason={reason}")
-    return _sci_cli(project, args, SCI_WRITE_TIMEOUT)
+    return _paper_cli(project, args, SCI_WRITE_TIMEOUT)

@@ -19,8 +19,6 @@
 | 起動できない | 503 | 今のまま |
 | 時間切れ | 504 | 今のまま |
 
-例外: 研究の `phone …`（次のガイドまで残る）は，終了コードが 0 でなく，標準出力が
-`{"error": …}` の JSON なら 400 でその文を `detail` にする（古い phone 系の形）。
 """
 
 from __future__ import annotations
@@ -56,31 +54,13 @@ def last_reason(proc: subprocess.CompletedProcess) -> str:
     return ""
 
 
-def _old_phone_error(proc: subprocess.CompletedProcess) -> str | None:
-    """古い phone 系の失敗の形（標準出力の `{"error": …}`）を読む（無ければ None）。
-
-    # ponytail: 古い phone 系（stdout の {"error"}）の読み替え。研究の phone 呼び出しが
-    # 無くなったら消す（U14）
-    """
-    try:
-        data = json.loads(proc.stdout or "")
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if isinstance(data, dict) and data.get("error"):
-        return str(data["error"])
-    return None
-
-
 def raise_for_failure(app: str, proc: subprocess.CompletedProcess):
     """終了コード 0 以外を，共有契約の HTTP の状態に読み替えて `HTTPException` を出す。
 
     `run_json`（JSON を返す呼び出し）と `result_json`，文字出力を扱う `daemon` が
-    同じ読み替えを使うための入口。
+    同じ読み替えを使うための入口。理由は終了コードと標準エラーだけで決める。
     """
     _log_stderr(app, proc)
-    old = _old_phone_error(proc)
-    if old is not None:
-        raise HTTPException(status_code=400, detail=old)
     detail = last_reason(proc) or f"{app} が失敗しました"
     status = {2: 400, 3: 404, 4: 409}.get(proc.returncode, 502)
     raise HTTPException(status_code=status, detail=detail)

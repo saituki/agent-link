@@ -200,13 +200,13 @@ window.addEventListener("hashchange", route);
 
 // --- タブバー（05 §3.3） ---
 
-// 各タブの「最初の画面」（U4: 先頭にホームを足した。ホームは #/home。U06 で実験を足した）
+// 各タブの「最初の画面」（U4: 先頭にホームを足した。U06 で実験を足し，U14 で Research に替えた）
 const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
   agent: "#/",
-  papers: "#/papers/tree",
-  mlflow: "#/mlflow",
+  papers: "#/papers/dashboard",
+  research: "#/research/tree",
   usage: "#/usage",
 };
 // ホームの住所（app.js 自身が見る。home.js も使うので外に出す）
@@ -623,7 +623,7 @@ function setRunMlfLink(runId) {
     desc.parentNode.insertBefore(box, desc.nextSibling);
   }
   const a = box.querySelector("a");
-  if (a) a.href = `#/mlflow/e/all?sai_run=${encodeURIComponent(runId)}`;
+  if (a) a.href = `#/research/experiments/e/all?sai_run=${encodeURIComponent(runId)}`;
 }
 
 async function openRun(r) {

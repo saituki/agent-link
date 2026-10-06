@@ -3,8 +3,8 @@
 第 1 弾の Web 機能（U3）で足したもの:
 - Import（BibTeX の読み込み）: `import list / add / remove`
 - Download（PDF の取得と Library への登録）: `paper download` → `paper after-download`（背景で走らせる）
-- Project（state.md / mind.md / 要対応。研究の命令なので古い `phone …` のまま・U14 で移す）:
-  `phone project` / `phone mind-append` / `phone attention-resolve`
+- Project（state.md / mind.md / 要対応。研究の命令は sai-sci が行う・U14）:
+  `project show` / `project memo` / `attention resolve` / `attention list`
 
 sai-phone は他アプリの DB を直接開かない（00 §2）ため，ここはすべて CLI に頼る。
 呼ぶ先は「論文の置き場があるプロジェクト」（計画 17 §3.1）で決めるもので，
@@ -132,6 +132,18 @@ def _paper_cli(project: dict, args: list[str], timeout: float = 30.0):
     return cli.run_json(
         [settings.sai_paper_bin, *args],
         app="sai-paper",
+        cwd=root,
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
+        timeout=timeout,
+    )
+
+
+def _sci_cli(project: dict, args: list[str], timeout: float = 30.0):
+    """sai-sci の CLI を呼ぶ（研究の命令。cwd・env の約束は `_paper_cli` と同じ）。"""
+    root = str(project["root"])
+    return cli.run_json(
+        [settings.sai_sci_bin, *args],
+        app="sai-sci",
         cwd=root,
         env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         timeout=timeout,
@@ -467,7 +479,10 @@ def find(project: dict, req: FindRequest) -> dict:
     """内部検索（`phone find`・検索履歴にも残る・U02）。
 
     意味検索は埋め込みの計算で数十秒かかりうるため待ちは 120 秒。
+    `node` を付けた検索は範囲の決定と記録を sai-sci が行う（U14）。
     """
+    if req.node is not None:
+        return _sci_cli(project, build_find_args(req), timeout=120.0)
     return _paper_cli(project, build_find_args(req), timeout=120.0)
 
 
@@ -1587,41 +1602,35 @@ async def read_pdf_upload(request, target) -> bytes:
 
 
 def project_view(project: dict) -> dict:
-    """現況・考え・状況のまとめ・要対応（`phone project`・U3 §変更内容 2）。
+    """現況・考え・状況のまとめ・要対応（`sai-sci project show --json`・U14）。
 
-    研究の命令なので argv は変えない（次のガイドで sai-sci へ移る・U14）。
+    研究の命令は sai-sci が行う（U14）。
     """
-    return _paper_cli(project, ["phone", "project"], timeout=30.0)
+    return _sci_cli(project, ["project", "show", "--json"], timeout=30.0)
 
 
 def mind_append(project: dict, text) -> dict:
-    """mind.md のメモを 1 行足す（`phone mind-append`・本文は標準入力）。
+    """mind.md のメモを 1 行足す（`sai-sci project memo <文> --json`・U14）。
 
-    研究の命令なので argv は変えない（U14）。env だけ新しくする。
+    文は 1 行・空でない・2000 字以下・NUL を含まない（値が `-` で始まってもよいよう
+    `--` の後ろに置く）。
     """
     if (
         not isinstance(text, str)
         or not (1 <= len(text) <= MEMO_MAX)
-        or any(c in text for c in "\r\n")
+        or any(c in text for c in "\r\n\0")
     ):
         raise HTTPException(
-            status_code=400, detail=f"メモは改行なしで 1〜{MEMO_MAX} 文字にしてください"
+            status_code=400,
+            detail=f"メモは改行なしで 1〜{MEMO_MAX} 文字にしてください",
         )
-    root = str(project["root"])
-    return cli.run_json(
-        [settings.sai_paper_bin, "phone", "mind-append"],
-        app="sai-paper",
-        cwd=root,
-        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
-        input_text=text,
+    return _sci_cli(
+        project, ["project", "memo", "--json", "--", text], timeout=30.0
     )
 
 
 def attention_resolve(project: dict, key) -> dict:
-    """要対応の 1 件を「対応済み」にする（`phone attention-resolve <key>`・研究の命令）。
-
-    研究の命令なので argv は変えない（U14）。
-    """
+    """要対応の 1 件を「対応済み」にする（`sai-sci attention resolve <key> --json`・U14）。"""
     if (
         not isinstance(key, str)
         or not (1 <= len(key) <= ATTENTION_KEY_MAX)
@@ -1631,10 +1640,10 @@ def attention_resolve(project: dict, key) -> dict:
             status_code=400,
             detail=f"key は改行のない 1〜{ATTENTION_KEY_MAX} 文字にしてください",
         )
-    return _paper_cli(project, ["phone", "attention-resolve", key])
+    return _sci_cli(project, ["attention", "resolve", key, "--json"])
 
 
 def attention_list(project: dict) -> list:
-    """要対応の一覧（`attention --json`・ホームの集計に使う）。研究の命令なので argv は変えない。"""
-    data = _paper_cli(project, ["attention", "--json"], timeout=15.0)
+    """要対応の一覧（`sai-sci attention list --json`・ホームの集計に使う・U14）。"""
+    data = _sci_cli(project, ["attention", "list", "--json"], timeout=15.0)
     return data if isinstance(data, list) else []

@@ -11,7 +11,7 @@ const path = require("path");
 
 const dir = path.join(__dirname, "..", "src", "sai_phone", "static");
 const {
-  stParseHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
+  stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
   stFixHash, stDecisionRows, stOpsFor, ST_NODE_OPS, ST_LOGIC,
   stVisibleRows, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   stFmtAt, stHistoryText, stSeedRows, ST_SEED_DEPTH,
@@ -21,10 +21,26 @@ const tests = [];
 const test = (fn) => tests.push(fn);
 
 test(function testParseHash() {
-  assert.deepStrictEqual(stParseHash("#/papers/tree"), {});
-  for (const id of ["Q12", "O5", "F3", "E2", "S1"]) assert.deepStrictEqual(stParseHash(`#/papers/tree/${id}`), { id });
-  for (const h of ["#/papers/tree/N12", "#/papers/tree/Q0", "#/papers/tree/Q12/x", "#/papers/other", "", null]) {
+  assert.deepStrictEqual(stParseHash("#/research/tree"), {});
+  for (const id of ["Q12", "O5", "F3", "E2", "S1"]) assert.deepStrictEqual(stParseHash(`#/research/tree/${id}`), { id });
+  for (const h of ["#/research/tree/N12", "#/research/tree/Q0", "#/research/tree/Q12/x", "#/research/other", "", null]) {
     assert.strictEqual(stParseHash(h), null, String(h));
+  }
+});
+
+test(function testLegacyHash() {
+  // 古い住所 6 種 → 新しい住所（? の後ろと ID はそのまま写す）
+  assert.strictEqual(stLegacyHash("#/papers/tree"), "#/research/tree");
+  assert.strictEqual(stLegacyHash("#/papers/tree/Q1"), "#/research/tree/Q1");
+  assert.strictEqual(stLegacyHash("#/papers/triage"), "#/research/triage");
+  assert.strictEqual(stLegacyHash("#/papers/read/12"), "#/research/read/12");
+  assert.strictEqual(stLegacyHash("#/mlflow/e/all?sai_run=5"), "#/research/experiments/e/all?sai_run=5");
+  assert.strictEqual(stLegacyHash("#/mlflow"), "#/research/experiments");
+  assert.strictEqual(stLegacyHash("#/papers/canvas"), "#/research/tree");
+  assert.strictEqual(stLegacyHash("#/canvas/Q1"), "#/research/tree");
+  // 関係ない住所は null
+  for (const h of ["#/research/tree", "#/papers/dashboard", "#/papers/sets/7", "#/home", "", null]) {
+    assert.strictEqual(stLegacyHash(h), null, String(h));
   }
 });
 
@@ -80,9 +96,9 @@ test(function testNextLines() {
 
 test(function testFixHash() {
   global.paperHash = (p, id) => `#/paper/${p}/${id}`;
-  assert.strictEqual(stFixHash({ kind: "triage" }, "p"), "#/papers/triage");
+  assert.strictEqual(stFixHash({ kind: "triage" }, "p"), "#/research/triage");
   assert.strictEqual(stFixHash({ kind: "set", set_id: 7 }, "p"), "#/papers/sets/7");
-  assert.strictEqual(stFixHash({ kind: "node", node: "Q3" }, "p"), "#/papers/tree/Q3");
+  assert.strictEqual(stFixHash({ kind: "node", node: "Q3" }, "p"), "#/research/tree/Q3");
   assert.strictEqual(stFixHash({ kind: "run", run_id: 9 }, "p"), "#/run/p/9");
   assert.strictEqual(stFixHash({ kind: "paper", paper_id: 4 }, "p"), "#/paper/p/4");
   assert.strictEqual(stFixHash({ kind: "card", card: {} }, "p"), null);

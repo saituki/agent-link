@@ -52,10 +52,10 @@ function ng(built) {
 }
 
 function test_parse_hash() {
-  assert.deepStrictEqual(srParseHash("#/papers/read/130"), { runId: 130 });
-  assert.deepStrictEqual(srParseHash("#/papers/read/999999999"), { runId: 999999999 });
-  for (const h of ["#/papers/read/0", "#/papers/read/012", "#/papers/read/", "#/papers/read/abc",
-    "#/papers/read/130/x", "#/papers/tree/O12", "#/papers/read/1300000000", "", null]) {
+  assert.deepStrictEqual(srParseHash("#/research/read/130"), { runId: 130 });
+  assert.deepStrictEqual(srParseHash("#/research/read/999999999"), { runId: 999999999 });
+  for (const h of ["#/research/read/0", "#/research/read/012", "#/research/read/", "#/research/read/abc",
+    "#/research/read/130/x", "#/research/tree/O12", "#/research/read/1300000000", "#/papers/read/130", "", null]) {
     assert.strictEqual(srParseHash(h), null, String(h));
   }
 }
@@ -68,8 +68,8 @@ function test_card_parts() {
   assert.strictEqual(srCardPaper(card), 37);
   assert.strictEqual(srCardPaper({ paper: { id: 0 } }), 0);
   assert.strictEqual(srCardPaper(null), 0);
-  assert.strictEqual(srBackHash(card), "#/papers/tree/O12");
-  assert.strictEqual(srBackHash({}), "#/papers/tree");
+  assert.strictEqual(srBackHash(card), "#/research/tree/O12");
+  assert.strictEqual(srBackHash({}), "#/research/tree");
 }
 
 function test_parents() {

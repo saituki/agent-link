@@ -1,5 +1,5 @@
 "use strict";
-// 研究方針の画面（Q・O・F・E の木）。住所は #/papers/tree と #/papers/tree/<ID>。
+// 研究方針の画面（Q・O・F・E の木）。住所は #/research/tree と #/research/tree/<ID>。
 //
 // 上の帯に Sprout・進み具合・Next Action（先頭 3 件）・DEBT・注意、左に木の一覧、真ん中に
 // 方針の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ決定の記録）を出す。
@@ -60,11 +60,38 @@ const stFilter = { word: "", kinds: new Set(ST_ALL_KINDS) }; // 一番上の絞�
 // DOM を使わない純関数（tests/test_scitree.js）
 // ============================================================================
 
-/** 住所を読む（`#/papers/tree` と `#/papers/tree/<ID>`）。合わなければ null。 */
+/** 住所を読む（`#/research/tree` と `#/research/tree/<ID>`）。合わなければ null。 */
 function stParseHash(hash) {
-  const m = /^#\/papers\/tree(?:\/([QOFES][1-9][0-9]{0,8}))?$/.exec(String(hash || ""));
+  const m = /^#\/research\/tree(?:\/([QOFES][1-9][0-9]{0,8}))?$/.exec(String(hash || ""));
   if (!m) return null;
   return m[1] ? { id: m[1] } : {};
+}
+
+/**
+ * 古い住所を新しい住所に直す（U14）。古い住所でなければ null。
+ *
+ * iPhone の通知・ブックマーク・`sessionStorage` の「最後に開いた住所」に古い住所が
+ * 残っていても開けるようにするためである。`?` の後ろと ID はそのまま写す。
+ *   #/papers/tree[/<ID>]  → #/research/tree[/<ID>]
+ *   #/papers/triage       → #/research/triage
+ *   #/papers/read/<run>   → #/research/read/<run>
+ *   #/mlflow…             → #/research/experiments…
+ *   #/papers/canvas・#/canvas/… → #/research/tree
+ */
+function stLegacyHash(hash) {
+  const h = String(hash || "");
+  if (h === "#/papers/tree" || h.startsWith("#/papers/tree/")) {
+    return "#/research/tree" + h.slice("#/papers/tree".length);
+  }
+  if (h === "#/papers/triage") return "#/research/triage";
+  if (h.startsWith("#/papers/read/")) {
+    return "#/research/read" + h.slice("#/papers/read".length);
+  }
+  if (h === "#/mlflow" || h.startsWith("#/mlflow/") || h.startsWith("#/mlflow?")) {
+    return "#/research/experiments" + h.slice("#/mlflow".length);
+  }
+  if (h === "#/papers/canvas" || h.startsWith("#/canvas/")) return "#/research/tree";
+  return null;
 }
 
 /** status.nodes を並びのまま一覧の行にする。 */
@@ -127,9 +154,9 @@ function stNextLines(status, n = 3) {
 function stFixHash(fix, projectName) {
   if (!fix) return null;
   switch (fix.kind) {
-    case "triage": return "#/papers/triage";
+    case "triage": return "#/research/triage";
     case "set": return `#/papers/sets/${fix.set_id}`;
-    case "node": return `#/papers/tree/${fix.node}`;
+    case "node": return `#/research/tree/${fix.node}`;
     case "run": return `#/run/${encodeURIComponent(projectName)}/${fix.run_id}`;
     case "paper": return typeof paperHash === "function" ? paperHash(projectName, fix.paper_id, false) : null;
     default: return null;
@@ -450,7 +477,7 @@ async function stSelect(id) {
 
 function stSetHash() {
   const id = stNodeId || stSeedId;
-  const next = id ? `#/papers/tree/${id}` : "#/papers/tree";
+  const next = id ? `#/research/tree/${id}` : "#/research/tree";
   if (location.hash !== next) history.replaceState(null, "", next);
 }
 
@@ -463,7 +490,7 @@ async function stOpen(params) {
   stNode = null;
   stListOpen = false;
   await ensurePaperProjects();
-  fillSegment("sci-seg", "tree");
+  fillSegment("sci-seg", "tree", RESEARCH_SEG);
   updateProjectChips();
   const body = document.getElementById("sci-body");
   if (body) body.classList.add("sai-split");
@@ -673,7 +700,7 @@ function stChipBand(s) {
   row.appendChild(debt);
   const pend = stEl("button", "sci-chip sci-proposal", `PROPOSAL ${s.pending_proposals || 0}`);
   pend.type = "button";
-  pend.addEventListener("click", () => stGo("#/papers/triage"));
+  pend.addEventListener("click", () => stGo("#/research/triage"));
   row.appendChild(pend);
   const w = s.warnings || [];
   if (w.length) {
@@ -1385,24 +1412,25 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   (window.SaiRoutes = window.SaiRoutes || []).push({
     match(hash) { return stParseHash(hash); },
     view: "view-sci-tree",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     interval: 0, // 定期更新はしない（↻ で読み直す）
     async open(params) { await stOpen(params); },
     async poll() {},
   });
 
-  // 消した画面の古い住所（#/papers/canvas・#/canvas/…）は研究方針へ送る
+  // 古い住所（#/papers/tree・#/papers/triage・#/papers/read/…・#/mlflow…・
+  // #/papers/canvas・#/canvas/…）は新しい住所へ送る（U14）。
   window.SaiRoutes.push({
-    match(hash) {
-      const h = String(hash || "");
-      return h === "#/papers/canvas" || h.startsWith("#/canvas/") ? {} : null;
-    },
+    match(hash) { return stLegacyHash(hash) ? {} : null; },
     view: "view-sci-tree",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     interval: 0,
-    async open() { location.replace("#/papers/tree"); },
+    async open() {
+      const next = stLegacyHash(location.hash);
+      if (next) location.replace(next);
+    },
     async poll() {},
   });
 
@@ -1413,7 +1441,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 // --- node からの読み込み（tests/test_scitree.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    stParseHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
+    stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
     stFixHash, stDecisionRows, stOpsFor,
     stVisibleRows, stActionMeta, stClampSplit, stFmtAt, stHistoryText, stSeedRows,
     ST_TYPES, ST_LOGIC, ST_KIND_LABEL, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_SEED_DEPTH,

@@ -120,15 +120,15 @@ function mlfQueryString(query) {
 
 /**
  * 住所を解析する（C-07）。
- *   #/mlflow                                                … 実験の一覧
- *   #/mlflow/e/<実験 ID|all>?sai_run=&sprout=&study=&status=  … run の表
- *   #/mlflow/run/<run ID>                                   … run の詳細
- *   #/mlflow/compare/<run ID>,<run ID>,…                    … 比較（画面は U07）
+ *   #/research/experiments                                                … 実験の一覧
+ *   #/research/experiments/e/<実験 ID|all>?sai_run=&sprout=&study=&status=  … run の表
+ *   #/research/experiments/run/<run ID>                                   … run の詳細
+ *   #/research/experiments/compare/<run ID>,<run ID>,…                    … 比較（画面は U07）
  * 返り値は {page, experimentId, runId, runIds, query}。知らない住所は null。
  */
 function mlfParseHash(hash) {
   const raw = String(hash == null ? "" : hash);
-  const head = "#/mlflow";
+  const head = "#/research/experiments";
   if (raw !== head && !raw.startsWith(`${head}/`) && !raw.startsWith(`${head}?`)) return null;
   const restAll = raw.slice(head.length);
   const qi = restAll.indexOf("?");
@@ -163,23 +163,23 @@ function mlfParseHash(hash) {
 /** 住所の作り手（`mlfParseHash` と往復する）。形が違えば null。 */
 function mlfHash(state) {
   const s = state || {};
-  if (s.page === "experiments") return "#/mlflow";
+  if (s.page === "experiments") return "#/research/experiments";
   if (s.page === "runs") {
     const id = s.experimentId == null ? "" : String(s.experimentId);
     if (id !== "all" && !MLF_EXPERIMENT_ID_RE.test(id)) return null;
     const q = mlfQueryString(s.query);
-    return `#/mlflow/e/${id}${q ? `?${q}` : ""}`;
+    return `#/research/experiments/e/${id}${q ? `?${q}` : ""}`;
   }
   if (s.page === "run") {
     const id = String(s.runId == null ? "" : s.runId);
     if (!MLF_RUN_ID_RE.test(id)) return null;
-    return `#/mlflow/run/${id}`;
+    return `#/research/experiments/run/${id}`;
   }
   if (s.page === "compare") {
     const ids = (Array.isArray(s.runIds) ? s.runIds : []).map((one) => String(one));
     if (ids.length < MLF_COMPARE_MIN || ids.length > MLF_COMPARE_MAX) return null;
     if (ids.some((one) => !MLF_RUN_ID_RE.test(one))) return null;
-    return `#/mlflow/compare/${ids.join(",")}`;
+    return `#/research/experiments/compare/${ids.join(",")}`;
   }
   return null;
 }
@@ -598,6 +598,9 @@ function mlfBuild() {
   reload.addEventListener("click", () => void mlfOpenPage(mlfState));
   bar.append(back, title, reload, chip);
 
+  // Research の小さなタブの枠（U14。中身は papers.js の fillSegment）
+  const seg = saiEl("div", "papers-seg-row");
+  seg.id = "mlflow-seg";
 
   const body = saiEl("main", "mlf-body sai-split");
   body.id = "mlf-body";
@@ -607,7 +610,9 @@ function mlfBuild() {
   main.id = "mlf-main";
   body.append(list, main);
 
-  root.append(bar, body);
+  root.append(bar, seg, body);
+  // 枠を DOM に入れてから中身を描く（先に呼ぶと要素が見つからない）
+  if (typeof fillSegment === "function") fillSegment("mlflow-seg", "experiments", RESEARCH_SEG);
   mlfMounted = true;
 }
 
@@ -717,7 +722,7 @@ async function mlfOpenProjectSheet() {
 }
 
 // ============================================================================
-// 実験の一覧（#/mlflow）
+// 実験の一覧（#/research/experiments）
 // ============================================================================
 
 /** 実験の一覧を読む。 */
@@ -797,7 +802,7 @@ function mlfRenderExperiments() {
 }
 
 // ============================================================================
-// run の表（#/mlflow/e/<実験 ID>）
+// run の表（#/research/experiments/e/<実験 ID>）
 // ============================================================================
 
 /** 検索の本文を組み立てる。 */
@@ -1201,7 +1206,7 @@ function mlfRenderRuns() {
 }
 
 // ============================================================================
-// run の詳細（#/mlflow/run/<run ID>）
+// run の詳細（#/research/experiments/run/<run ID>）
 // ============================================================================
 
 /** 詳細の画面を出す。 */
@@ -1385,7 +1390,7 @@ function mlfRenderRun() {
   const sproutId = mlfSproutId(run);
   if (sproutId) addLink(`sprout ID${sproutId} の run を見る`, mlfHash({ page: "runs", experimentId: "all", query: { sprout: sproutId } }));
   const sciNode = mlfTag(run, MLF_TAGS.sciNode);
-  if (sciNode) addLink(`Research tree ${sciNode}`, `#/papers/tree/${encodeURIComponent(sciNode)}`);
+  if (sciNode) addLink(`Research tree ${sciNode}`, `#/research/tree/${encodeURIComponent(sciNode)}`);
   const parentId = mlfParentId(run);
   if (parentId) addLink("親を開く", mlfHash({ page: "run", runId: parentId }));
   if (links.children.length) box.appendChild(links);
@@ -1780,7 +1785,7 @@ function mlfRenderArtifacts() {
 // ============================================================================
 
 /**
- * 比較の画面（#/mlflow/compare/<run ID>,…）。
+ * 比較の画面（#/research/experiments/compare/<run ID>,…）。
  * 選んだ run を 1 つずつ読み（同時に最大 5 本）、表と重ねたグラフを出す。
  */
 async function mlfShowCompare(params) {
@@ -2070,7 +2075,7 @@ function mlfGoBack() {
     return;
   }
   if (page === "experiments") return;
-  location.hash = "#/mlflow";
+  location.hash = "#/research/experiments";
 }
 
 /** 幅が変わったとき（広い⇔狭い）。描き直す。 */
@@ -2091,7 +2096,7 @@ if (typeof window !== "undefined") {
       return mlfParseHash(hash);
     },
     view: "view-mlflow",
-    tab: "mlflow",
+    tab: "research",
     hideTabbar: false,
     interval: 0,
     async open(params) {
