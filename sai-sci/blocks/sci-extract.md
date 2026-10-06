@@ -32,12 +32,12 @@ enable: true
 - 値は論文に書いてあるものだけを書きます。単位・標本数・条件の無い数字は「記載なし」と書きます。
 
 ### 手順
-1. ガイドの Extract と、依頼文の論文（`#37` の形）を確かめます。論文の番号が無ければ、対象の Node に結ばれた論文（`sai-moon-paper sci node <ID> --json`）を案にします。抜きたい項目が決まっていないときは、手を付けずに OUT_OF_SCOPE に書いて返します。
+1. ガイドの Extract と、依頼文の論文（`#37` の形）を確かめます。論文の番号が無ければ、対象の Node に結ばれた論文（`sai-sci node <ID> --json`）を案にします。抜きたい項目が決まっていないときは、手を付けずに OUT_OF_SCOPE に書いて返します。
 2. 論文ごとに、節の一覧から要る節を選んで読みます。読めない論文（全文が無い・図しかない）は、その旨を書いて抜きません。
 
    ```bash
-   sai-moon-paper content outline 37
-   sai-moon-paper content read 37.4
+   sai-paper content outline 37
+   sai-paper content read 37.4
    ```
 
 3. 抜き出し表の 1 行を作り、各セルの後ろに CITE を付けます。書き方は `literature-hard-rules` に従います。

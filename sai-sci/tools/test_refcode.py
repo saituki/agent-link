@@ -1,8 +1,8 @@
 """参照コードの道具 `refcode.py` のテスト。
 
-一時フォルダの中だけで動かす（`SAI_SAI_HOME` と `SAI_PROJECT_ROOT` を差し替える）。
+一時フォルダの中だけで動かす（`SAI_HOME` と `SAI_PROJECT_ROOT` を差し替える）。
 ネットは使わない（`gh-search` は `http_get` を差し替える。`fetch` は `file://` の手元のリポジトリを使う）。
-実際の ~/.sai-moon やプロジェクトは触らない。
+実際の ~/.sai やプロジェクトは触らない。
 
     cd sai-sci/tools && python3.13 -W ignore -m unittest test_refcode -v      # Python 3.11 以上
 """
@@ -39,8 +39,8 @@ class Env:
         self.work = self.tmp / "work"
         for d in (self.home, self.project, self.work):
             d.mkdir(parents=True)
-        self.saved = {k: os.environ.get(k) for k in ("SAI_SAI_HOME", "SAI_PROJECT_ROOT", "SAI_PAPER_BIN", "GITHUB_TOKEN")}
-        os.environ["SAI_SAI_HOME"] = str(self.home)
+        self.saved = {k: os.environ.get(k) for k in ("SAI_HOME", "SAI_PROJECT_ROOT", "SAI_PAPER_BIN", "GITHUB_TOKEN")}
+        os.environ["SAI_HOME"] = str(self.home)
         os.environ["SAI_PROJECT_ROOT"] = str(self.project)
         os.environ.pop("SAI_PAPER_BIN", None)
         os.environ.pop("GITHUB_TOKEN", None)
@@ -282,7 +282,7 @@ class GhSearchTest(Base):
         headers = self.seen[-1][1]
         self.assertNotIn("Authorization", headers)
         self.assertEqual(headers["Accept"], "application/vnd.github+json")
-        self.assertEqual(headers["User-Agent"], "sai-moon-refcode/1")
+        self.assertEqual(headers["User-Agent"], "sai-refcode/1")
 
         os.environ["GITHUB_TOKEN"] = "sekret"
         try:

@@ -29,15 +29,17 @@
 
 チャットは次の人に届かない。次に必要なことは文書で渡し、文書だけで完結させる。
 
-- `sai_write` は 3 つの箱（`filename`・`content`・`description`）で保存し、戻ってきた **waggle トークン**（例 `AXANSMpo`）を受け取る。
+- `sai-link doc write` は `--filename`・`--description` と標準入力の本文で保存し、戻ってきた **waggle トークン**（例 `AXANSMpo`）を受け取る。
 
-  ```json
-  {"filename": "exp-run-O6-ID120-ID125.md", "content": "本文", "description": "作業報告書 O6-ID120 ID125: tune cnn-static — job 7 running"}
+  ```bash
+  sai-link doc write --filename exp-run-O6-ID120-ID125.md --description "作業報告書 O6-ID120 ID125: tune cnn-static — job 7 running" <<'EOF'
+  （本文）
+  EOF
   ```
 
-- `description` の形は **`<文書の種類> <ID>: <1 文>`** にする。他のエージェントは一覧の `description` だけを見て、読むかどうかを決める。
+- `--description` の形は **`<文書の種類> <ID>: <1 文>`** にする。他のエージェントは一覧の `description` だけを見て、読むかどうかを決める。
 - 文書を渡すときは必ず **トークン**で渡す。ファイルパスだけで渡さない（run フォルダは移動するので、パスはすぐに無効になる）。依頼文には `waggle:<トークン>` と書けば、実行時にその位置へ本文が埋め込まれる（1 段だけ）。
-- あとで読み返すときは `sai_read { "token": "<トークン>" }`。一覧を出すだけなら `sai_read {}`。
+- あとで読み返すときは `sai-link doc read <トークン>`。一覧を出すだけなら `sai-link doc list`。
 - 改訂したら `-r2` を付けた新しい名前で保存する。古いトークンを参照している文書があれば、それも改訂する。
 - 作業メモや途中経過は保存しない。保存するのは最終成果物だけである。
 
@@ -45,10 +47,10 @@
 
 - ファイル名 `exp-spec-<study>.md`、description `実験仕様書 <study>: <研究の 1 文>`。
 - **sprout だけが作る。** 途中で書き換えない。
-- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-moon-paper sci status --json` の `purpose.metric`。
+- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-sci status --json` の `purpose.metric`。
 
 ```json
-{"study": "O6-ID120", "sci_node": "O6", "sprout_run_id": 120, "project": "west",
+{"study": "O6-ID120", "node": "O6", "sprout_run_id": 120, "project": "west",
  "metric": "test_acc", "direction": "maximize", "success": 0.85, "min_delta": 0.0001,
  "max_branches": 8, "max_children": 2, "max_debug": 3, "max_fail": 3,
  "allowed_actions": ["draft", "tune", "debug", "model", "ablation"],
@@ -61,11 +63,11 @@
 
 | 欄 | 中身 |
 |---|---|
-| `study` | `<sci_node>-ID<sprout の run_id>`。sprout の run_id は環境変数 `SAI_PARENT_RUN_ID` |
-| `sci_node` | 実験の対象の Node（Issue の O か E の ID。例 `O6`・`E3`） |
+| `study` | `<Node の ID>-ID<sprout の run_id>`。sprout の run_id は環境変数 `SAI_PARENT_RUN_ID` |
+| `node` | 実験の対象の Node（Issue の O か E の ID。例 `O6`・`E3`） |
 | `sprout_run_id` | sprout の run_id |
 | `project` | `SAI_PROJECT_ROOT` の末尾のフォルダ名 |
-| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。指標の Q（`sci status --json` と `sci node` で探す）から読む。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
+| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。指標の Q（`sai-sci status --json` と `sai-sci node` で探す）から読む。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
 | `min_delta` | 「よくなった」と数える最小の幅。既定 `0.0001` |
 | `max_branches` | この sprout の branch の総数の上限。既定 `8` |
 | `max_children` | 1 回の review（と sprout）が起こす branch の数の上限。既定 `2` |
@@ -98,7 +100,7 @@
 | `sai.project` | プロジェクトのフォルダ名 | `west` |
 | `sai.run_id` | branch の run_id（環境変数 `EXP_BRANCH_RUN_ID`。**無ければスクリプトは止まる**） | `125` |
 | `sai.sprout_run_id` | sprout の run_id | `120` |
-| `sci.node` | 実験の対象の Node（`sci_node` と同じ値） | `O6` |
+| `sci.node` | 実験の対象の Node（`node` と同じ値） | `O6` |
 | `exp.study` | study | `O6-ID120` |
 | `exp.model` | model | `cnn-static` |
 | `exp.action` | `draft` / `tune` / `debug` / `model` / `ablation` | `tune` |
@@ -270,7 +272,7 @@ if __name__ == "__main__":
 
 ### 台帳コマンド `exp_summary.py`
 
-置き場所は `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py`（`sai-moon-paper sci init` が配る。`SAI_PROJECT_ROOT` は sai-link が必ず入れる）。**呼び出すときは必ずこの形を使う**（別のファイルを探したり、パスを作り変えたりしない）。ファイルが無いときは `BLOCKED` で報告して終える。
+置き場所は `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py`（`sai-sci init` が配る。`SAI_PROJECT_ROOT` は sai-link が必ず入れる）。**呼び出すときは必ずこの形を使う**（別のファイルを探したり、パスを作り変えたりしない）。ファイルが無いときは `BLOCKED` で報告して終える。
 
 `--python ">=3.10"` は、`~/.python-version` などが入っていない Python を指していても、使える Python で動かすための指定である。**外さない。**
 
@@ -359,7 +361,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 
 ## 7. branch の依頼書
 
-- sprout と review は、branch 1 本ごとに**依頼書**を `sai_write` で保存し、そのトークンを `sci card` の `--input` で渡す（`sci card` には本文を渡す引数が無い。`--input` のトークンは依頼文の末尾に `waggle:` で載り、実行時に本文が埋め込まれる）。
+- sprout と review は、branch 1 本ごとに**依頼書**を `sai-link doc write` で保存し、そのトークンを `sai-sci card` の `--input` で渡す（`sai-sci card` には本文を渡す引数が無い。`--input` のトークンは依頼文の末尾に `waggle:` で載り、実行時に本文が埋め込まれる）。
 - ファイル名 `branch-order-<study>-<連番 2 桁>.md`（連番はその run の中で 01 から）、description `branch の依頼書 <study>: <action> <model>（親 ID<parent_branch>）`。
 - 本文の**先頭の 5 行は `key: value`**:
 
@@ -383,14 +385,14 @@ model: cnn-static
 - カードの作り方（sprout と review で共通）:
 
 ```bash
-sai-moon-paper sci card --node <sci_node> --block sci-exp-branch \
+sai-sci card --node <Node の ID> --block sci-exp-branch \
   --purpose "<study> <action> <model>（親 ID<parent_branch>）" \
   --input <実験仕様書のトークン> --input <依頼書のトークン> [--input <判定書のトークン>] \
   --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
-sai-moon-link phone card run <返った run_id>
+sai-link card run <返った run_id>
 ```
 
-- `sai-moon-link phone tree` で、その run が `running` になったことを確かめる。動いていなければ `phone card run` をもう一度打ち、返り値を確かめる。
+- `sai-link run tree` で、その run が `running` になったことを確かめる。動いていなければ `sai-link card run` をもう一度打ち、返り値を確かめる。
 
 ## 8. 実行場所の規則
 
@@ -425,12 +427,14 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 - review のカード:
 
 ```bash
-sai-moon-paper sci card --node <sci_node> --block sci-exp-review \
+sai-sci card --node <Node の ID> --block sci-exp-review \
   --purpose "<study> ID<自分の run_id> の結果の判定" \
   --input <実験仕様書のトークン> --input <自分の作業報告書のトークン> \
   --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
-sai-moon-link phone card wait <返った run_id> --job <job_id>
+sai-link card wait <返った run_id> --job <job_id>
 ```
+
+- `sai-sci init` が `.sai/settings.json` に `job_status` を書く。無いと `sai-link card wait` は終了コード 2。
 
 - 記録は実行先から**中央の MLflow に直接**入る（回収の手順は無い）。branch は自分で台帳を取り直さない。
 - 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず作業報告書に `BLOCKED` と書き、review のカードは作らずに終える（起動者に質問ツールで知らせる）。
@@ -449,6 +453,6 @@ sai-moon-link phone card wait <返った run_id> --job <job_id>
 
 - 止めるのは判定が `stop` のときだけ（R0・R1・R3・R4・R7 の一部）。
 - 止めた review は、完了報告書を保存したあと、仕様書の `return_to` を見る:
-  - `return_to` があれば、`sai-moon-link phone md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-moon-link phone card create` で同じブロックのカードを作って `phone card run` で起こす（JSON の形は `sci-exp-review` に書く）。`phone tree` で running を確かめる。
+  - `return_to` があれば、`sai-link run md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-link card create` で同じブロックのカードを作って `sai-link card run` で起こす（JSON の形は `sci-exp-review` に書く）。`sai-link run tree` で running を確かめる。
   - `return_to` が `null` なら起こさない。
-- どちらの場合も最後に `sai_finalize` を呼ぶ（review は daemon が起こした root の run）。
+- どちらの場合も最後に `sai-link run finalize` を呼ぶ（review は daemon が起こした root の run）。

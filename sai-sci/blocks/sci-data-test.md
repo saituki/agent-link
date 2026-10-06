@@ -45,8 +45,8 @@ enable: true
 
 ### 1. 受け取った文書を読む
 
-- 依頼文のデータ表（カードの `--input` に渡されたトークン）を `sai_read` で読む。
-- データ表の先頭にある JSON（C3）から **study・project・explore の run_id・`sci_node`** を取る。作業フォルダは `analysis/<study>/`（C1）。
+- 依頼文のデータ表（カードの `--input` に渡されたトークン）を `sai-link doc read` で読む。
+- データ表の先頭にある JSON（C3）から **study・project・explore の run_id・`node`** を取る。作業フォルダは `analysis/<study>/`（C1）。
 - `# context` の対象の Node は、explore が作った E である。違うときは、質問ツールで起動者に確認して止まる。
 - **データ表が無ければ、質問ツールで起動者に聞いて止まる。** 推測でデータ表を作らない。
 
@@ -54,7 +54,7 @@ enable: true
 
 - `stat-core` §1・§2・§3・§4・§5 を使って、仮説・検定・補正・効果量・前提を決める。データを見てから足した仮説は「データから出た候補である」と書く。比較対象の数が 2 つ以上なら、多重比較の族を §4 に従ってまとめる。
 - `analysis/<study>/ID<自分の run_id>/plan.json` を書く（書式は C4）。
-- **同じ JSON を先頭に置いた `ana-plan-<study>-ID<自分の run_id>.md` を `sai_write` で保存する**（C2）。description は `解析計画書 <study> ID<自分の run_id>: <主な仮説を 1 文で>`。JSON は ```json のコードブロックで 1 つだけ置く。
+- **同じ JSON を先頭に置いた `ana-plan-<study>-ID<自分の run_id>.md` を `sai-link doc write` で保存する**（C2）。description は `解析計画書 <study> ID<自分の run_id>: <主な仮説を 1 文で>`。JSON は ```json のコードブロックで 1 つだけ置く。
 - トークンを控える。解析結果書と report で使う。
 
 **この保存より前に、結果の変数を検定してはいけない。** データを見てから検定の種類を変えると、計画ではなく結果から作った検定になる。
@@ -125,7 +125,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 
 ### 8. 解析結果書を保存する
 
-`stat-core` §12 の書式で `ana-result-<study>-ID<自分の run_id>.md` を `sai_write` で保存する（C2）。
+`stat-core` §12 の書式で `ana-result-<study>-ID<自分の run_id>.md` を `sai-link doc write` で保存する（C2）。
 
 - description は `解析結果書 <study> ID<自分の run_id>: <結論を 1 文で>`。
 - **6. の `table` の出力をそのまま貼る。**
@@ -151,7 +151,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 
 O を Answer に変えてよいと思えば、「## 次の一手」に O の ID と理由を書き、「## PROPOSAL」にその op を出しておく。**O を Answer に変えるのは利用者である。** 自分が変えない。
 
-完了は `sci-core` の「完了のしかた」に従う（`SAI_IS_SUBTASK` が `1` なら `task_report`、`0` なら質問ツールで確かめて `sai_finalize`）。`task_report` には**解析計画書・解析結果書のトークン**と**出した PROPOSAL の ID**、**残った `check` の違反**を書く。
+完了は `sci-core` の「完了のしかた」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**出した PROPOSAL の ID**、**残った `check` の違反**を書く。
 
 ## 出力の形
 

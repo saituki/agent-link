@@ -61,9 +61,9 @@ class ExecError(Exception):
 
 
 def sai_home() -> Path:
-    """利用者全体の置き場（`SAI_SAI_HOME` があればそれ、無ければ `~/.sai-moon`）。"""
-    value = os.environ.get("SAI_SAI_HOME")
-    return Path(value) if value else Path.home() / ".sai-moon"
+    """利用者全体の置き場（`SAI_HOME` があればそれ、無ければ `~/.sai`）。"""
+    value = os.environ.get("SAI_HOME")
+    return Path(value) if value else Path.home() / ".sai"
 
 
 def project_root() -> Path:
@@ -309,7 +309,7 @@ def cmd_list(args) -> int:
         print(json.dumps({"targets": rows}, ensure_ascii=False))
         return 0
     if not rows:
-        print("実行先がありません（`sai-moon-paper sci init` が local を置きます）")
+        print("実行先がありません（`sai-paper sci init` が local を置きます）")
     for row in rows:
         mark = "有効" if row["enable"] else "無効"
         print(f"{row['name']}\t{mark}\t{row['kind']}\t{row['description']}")

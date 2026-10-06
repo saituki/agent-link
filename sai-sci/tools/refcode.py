@@ -21,11 +21,11 @@ Library（論文の本文の塊とメモ）にある参照実装のリンクを�
     <sai_home>/refcode/modeldb/<id>@v<ver_number>/        # ModelDB の zip
     取得したフォルダには必ず `.refcode.json` がある（`url`・`kind`・`id`・`sha`・`ref`・`fetched_at`・`license`）。
 
-`sai_home()` は環境変数 `SAI_SAI_HOME`（無ければ `~/.sai-moon`）。`project_root()` は環境変数
-`SAI_PROJECT_ROOT`（無ければ作業中のフォルダ）。`links` は `sai-moon-paper find`（実行ファイルは
-環境変数 `SAI_PAPER_BIN`、無ければ PATH の `sai-moon-paper`）を呼ぶだけで、`papr.db` を直接は開かない。
+`sai_home()` は環境変数 `SAI_HOME`（無ければ `~/.sai`）。`project_root()` は環境変数
+`SAI_PROJECT_ROOT`（無ければ作業中のフォルダ）。`links` は `sai-paper find`（実行ファイルは
+環境変数 `SAI_PAPER_BIN`、無ければ PATH の `sai-paper`）を呼ぶだけで、`papr.db` を直接は開かない。
 
-外部の命令は `git` と `sai-moon-paper` だけ。取得は `git clone --depth 1` で行い、GitHub の API は
+外部の命令は `git` と `sai-paper` だけ。取得は `git clone --depth 1` で行い、GitHub の API は
 検索（`gh-search`）と ModelDB の版の確認にだけ使う。認証なしの API の上限（検索は 10 回/分）を
 避けるため、取得では API を使わない。
 
@@ -108,9 +108,9 @@ class RateLimited(Exception):
 
 
 def sai_home() -> Path:
-    """利用者全体の置き場（`SAI_SAI_HOME` があればそれ、無ければ `~/.sai-moon`）。"""
-    value = os.environ.get("SAI_SAI_HOME")
-    return Path(value) if value else Path.home() / ".sai-moon"
+    """利用者全体の置き場（`SAI_HOME` があればそれ、無ければ `~/.sai`）。"""
+    value = os.environ.get("SAI_HOME")
+    return Path(value) if value else Path.home() / ".sai"
 
 
 def project_root() -> Path:
@@ -124,8 +124,8 @@ def refcode_root() -> Path:
 
 
 def paper_bin() -> str:
-    """`sai-moon-paper` の実行ファイル（`SAI_PAPER_BIN` が優先）。"""
-    return os.environ.get("SAI_PAPER_BIN") or "sai-moon-paper"
+    """`sai-paper` の実行ファイル（`SAI_PAPER_BIN` が優先）。"""
+    return os.environ.get("SAI_PAPER_BIN") or "sai-paper"
 
 
 def emit(data, as_json: bool, table) -> None:
@@ -251,7 +251,7 @@ def extract_links(text: str) -> list[dict]:
 
 
 def run_paper(args: list[str], timeout: int) -> str:
-    """`sai-moon-paper` を実行して標準出力を返す。"""
+    """`sai-paper` を実行して標準出力を返す。"""
     try:
         proc = subprocess.run(
             [paper_bin(), *args],
@@ -273,7 +273,7 @@ def run_paper(args: list[str], timeout: int) -> str:
 
 
 def find_chunks(papers: list[int]) -> list[dict]:
-    """`sai-moon-paper find` で、参照実装のリンクがありそうな塊を引く。"""
+    """`sai-paper find` で、参照実装のリンクがありそうな塊を引く。"""
     out = run_paper(
         [
             "find", LINKS_QUERY,
@@ -371,7 +371,7 @@ def http_get(url: str, headers: dict, timeout: int = TIMEOUT_HTTP) -> bytes:
 
 def gh_headers() -> dict:
     """GitHub の API に送るヘッダ。`GITHUB_TOKEN` があるときだけ認証を付ける。"""
-    headers = {"Accept": "application/vnd.github+json", "User-Agent": "sai-moon-refcode/1"}
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "sai-refcode/1"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -655,7 +655,7 @@ def done_record(url: str, kind: str, ident: str, sha: str | None, ref: str, dest
 
 def http_download(url: str, dest: Path, timeout: int, limit: int = MAX_ZIP_BYTES) -> None:
     """大きなファイルを取り込む（`url` の通りに見て、上限を超えたら止める）。"""
-    request = urllib.request.Request(url, headers={"User-Agent": "sai-moon-refcode/1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "sai-refcode/1"})
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp, dest.open("wb") as out:

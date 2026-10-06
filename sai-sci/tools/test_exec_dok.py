@@ -71,7 +71,7 @@ class Env:
             (self.work / d / "x").write_text("送らない")
         self.key = self.tmp / "key"
         self.env = dict(
-            os.environ, SAI_SAI_HOME=str(self.home), SAI_PROJECT_ROOT=str(self.project),
+            os.environ, SAI_HOME=str(self.home), SAI_PROJECT_ROOT=str(self.project),
             MLFLOW_TRACKING_PASSWORD="ひみつ",
         )
 

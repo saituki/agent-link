@@ -29,13 +29,13 @@ subblocks:
 ## 役割
 Action `check_logic`。研究全体（一番上の Q から ★ の道）の筋が通っているかを確かめ、結果を一番上の Q の Logicality（`OK` / `CONTRADICTION`）として残す。forward の木にも backward の木にも使う。査読者のように、弱い所を探す。
 
-- 材料は木（`sci status` と `# context` の `## TREE`）。各 Q の Objectivity と Logicality を表にする。
+- 材料は木（`sai-sci status` と `# context` の `## TREE`）。各 Q の Objectivity と Logicality を表にする。
 - 足りない作業は自分で片付けない。F が足りない Q は挙げ、足りない Q は `add_q`（仕分け待ち）で出す。
 - ★ を付けるのは利用者だけ。付けてよい O は「★ を付けてほしい O」に書く。
 - backward の木のときは `bw-core` の CRITERIA（`V1`〜`V10`）で 1 つずつ審査する。
 
 ### 手順
-1. **材料を集める。** `sai-moon-paper sci status --json` と `## TREE` を読む。依頼文に復元書や判定表があれば読む。確かめが要る箇所だけ `sci-lookup` や論文本文で確かめる。
+1. **材料を集める。** `sai-sci status --json` と `## TREE` を読む。依頼文に復元書や判定表があれば読む。確かめが要る箇所だけ `sci-lookup` や論文本文で確かめる。
 2. **審査表を作る。** 各 Q の Objectivity と Logicality を表にし、弱い所（F が足りない・`CONTRADICTION`・`UNCHECKED`）を挙げる。
 3. **不利な根拠を探す。** 今の方針（★ の O）に不利な根拠を少なくとも 1 つ探す（`sci-find`）。見つかれば反する内容を F の文に書いて `add_f` に出す。見つからなければそう書く。
 4. **筋を確かめる。** 一番上の Q から ★ の道まで、1 本の文として筋が通るかを書く。切れている所を探す。backward の木なら `V1`〜`V10` を審査し、当てはまらないものは「対象外」と理由を書く。

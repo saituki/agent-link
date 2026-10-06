@@ -27,7 +27,7 @@
 ## 3. 基盤論文
 
 - 基盤論文は Library の番号で指定します。依頼文やカードの目的に `基盤論文: #12 #15` の形で書きます。
-- 本文が読めること（MCP の `paper_outline` が返ること）が前提です。読むときは `paper_outline` で節を選び、`paper_read` で読みます。読めないときは `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` で本文と引用を抜き出してから読みます（`sai-moon-paper extract` は Library の番号ではなく S2 の ID を取るので使わない）。それでも読めなければ、その論文は抽出の対象から外し、report に書きます。
+- 本文が読めること（`sai-paper content outline` が返ること）が前提です。読むときは `sai-paper content outline <番号>` で節を選び、`sai-paper content read <節の ID>` で読みます。読めないときは `perl -e 'alarm 600; exec @ARGV' sai-paper paper citations-extract <番号>` で本文と引用を抜き出してから読みます（`sai-paper paper extract` は Library の番号ではなく S2 の ID を取るので使わない）。それでも読めなければ、その論文は抽出の対象から外し、report に書きます。
 - 2 本以上のときは、最初に関係を 1 つに決めます。
   - **一連の研究**: 前の論文の手法を、後の論文が直している。後の論文ほど新しい決定として扱い、前の論文の答えは O（`add_o`）として残す。
   - **同じ型の研究**: 同じ課題を別の手法で解いている。手法を O として並べ、どれを再現の対象にするかは professor が Human に聞いて決める。
@@ -49,7 +49,7 @@
 | 限界・今後の課題                           | 更新の材料（`add_q` で Q にする）                      |
 
 - 該当する Q が無いときは、`add_q`（利用者が仕分ける）で足します。指標の Q が無いと、実験ループ（`sci-exp-sprout`・`sci-exp-review`）が指標と成功基準を読めません。
-- 論文の型が今の木の型と違うときは、利用者に Web で木を始め直してもらう文として示します。自分では `sci init` を打ちません。
+- 論文の型が今の木の型と違うときは、利用者に Web で木を始め直してもらう文として示します。自分では `sai-sci init` を打ちません。
 
 ## 5. 主張は O、根拠は F
 
@@ -71,7 +71,7 @@
 | C2   | O15  | #12.4            | 既存の手法は長い記録で精度が落ちる       | なし       | ―              |
 ```
 
-- 引用の番号と引用文は `sai-moon-paper phone citations <基盤論文の番号>` で取ります。`refs[].ref_no` が引用の番号、`refs[].sentences` がその引用を使っている文、`refs[].local_paper_id` が Library の番号（未取得なら `null`）です。`extracted` が `false` なら、先に `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone citations-extract <基盤論文の番号>` を打ちます。
+- 引用の番号と引用文は `sai-paper paper citations <基盤論文の番号>` で取ります。`refs[].ref_no` が引用の番号、`refs[].sentences` がその引用を使っている文、`refs[].local_paper_id` が Library の番号（未取得なら `null`）です。`extracted` が `false` なら、先に `perl -e 'alarm 300; exec @ARGV' sai-paper paper citations-extract <基盤論文の番号>` を打ちます。
 - 引用の無い主張も必ず書きます（引用の番号は「なし」）。根拠が足りない主張です。
 - 主張の ID（`C1`…）は復元書の中だけの通し番号です。他の文書から指すときは「C3（復元書 `waggle:<トークン>`）」と書きます。
 
@@ -159,7 +159,7 @@
 
 ## 12. 文書の名前
 
-| 文書           | `filename`                         | `description`                                   |
+| 文書           | `--filename`                         | `--description`                                   |
 | -------------- | ---------------------------------- | ----------------------------------------------- |
 | 復元書         | `sci-restore-<短い英字>.md`        | `復元書: <基盤論文の番号>: <1 文>`              |
 | SEED の札（再現） | `sci-restore-seed-<短い英字>.md`   | `SEED の札: <研究の名>（再現）: <何をするか 1 文>` |

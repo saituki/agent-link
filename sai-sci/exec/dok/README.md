@@ -332,7 +332,7 @@ experiment は**作らない**（作ると `artifact_location` が `--default-ar
 実験ループ（`sci-exp-branch`）は、分配器 `exp_exec.py` 経由でこの実行先を使う。`dok.py` を直接打つ必要はない。
 
 1. `SETUP.md` の A・B（さくらのクラウドと Tailscale）を済ませ、`python3 dok.py ssh-key` で鍵を作って登録する。
-2. 秘密（`SAKURA_API_ACCESS_TOKEN`・`SAKURA_API_SECRET_KEY`・`SAKURA_S3_ACCESS_KEY`・`SAKURA_S3_SECRET_KEY`・`MLFLOW_BASIC_USER`・`MLFLOW_BASIC_PASSWORD`）を、`~/.sai-moon/dok.env`（権限 600）か `settings.json` の `env` に書く。`target.toml` の `env_file` に前者のパスを書く。
+2. 秘密（`SAKURA_API_ACCESS_TOKEN`・`SAKURA_API_SECRET_KEY`・`SAKURA_S3_ACCESS_KEY`・`SAKURA_S3_SECRET_KEY`・`MLFLOW_BASIC_USER`・`MLFLOW_BASIC_PASSWORD`）を、`~/.sai/dok.env`（権限 600）か `settings.json` の `env` に書く。`target.toml` の `env_file` に前者のパスを書く。
 3. `target.toml` の `[env] MLFLOW_TRACKING_URI` に、コンテナから届く MLflow の URL を書く。`enable = true` にする。
 4. 確かめる（課金されない）: 分配器の `check dok`。認証と鍵だけを見る。
 5. 使う: `EXP_TARGET=dok`。branch が `run dok -- <コマンド>` を呼ぶと、cwd のコードが tar.gz で送られ、`setup` のあとにコマンドが動く。
@@ -341,7 +341,7 @@ experiment は**作らない**（作ると `artifact_location` が `--default-ar
 - DOK は同時に 1 タスクだけ。動いている間は 2 本目の `run` を断る。
 - 中止（`cancel`）は運転役へ SIGTERM を送る。`dok.py` が受けて DOK のタスクを止める。
 - 運転役が異常に終わったとき（`dok.py` が終了コード 4 = タスクを止められなかった）は、状態が `failed` になり、ログに警告が残る。**そのときは `python3 dok.py list` と `cancel <task_id>` で手で確かめる。**
-- ログは `~/.sai-moon/exec/dok/<job_id>/log`。
+- ログは `~/.sai/exec/dok/<job_id>/log`。
 
 **実験のコマンドの注意**
 - コンテナの image には `uv` が無い。`target.toml` の `setup` で入れる（既定は `pip install -q uv`）。

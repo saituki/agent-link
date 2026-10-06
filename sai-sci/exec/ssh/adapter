@@ -47,7 +47,7 @@ def settings() -> dict:
     ssh = cfg.get("ssh") or {}
     if not ssh.get("host"):
         raise Fail(f"{path} の [ssh] host が未設定です")
-    root = ssh.get("remote_root", ".sai-moon-exec")
+    root = ssh.get("remote_root", ".sai-exec")
     if not ROOT_RE.match(root) or ".." in root.split("/"):
         raise Fail(f"remote_root が正しくありません: {root!r}（ホームからの相対。.. は使えない）")
     return {"host": ssh["host"], "root": root, "forward": list(ssh.get("forward_env") or [])}

@@ -40,7 +40,7 @@ O ごとに、Answer か Issue を決めます。Answer は答えの候補。Iss
 ### 手順
 1. `# context` の `## TARGET_NODE`・`## UPSTREAM_PATH`・`## GUIDE` と、すでにある O を読む。重複する O は出さない。
 2. 出し方（a か b）を決める。
-3. (a) のとき: 出し方（文献・他分野の同型・前提の逆転・制約の付け外し・組み合わせ）を決めて利用者に見せる。同型を探すなら、`mcp__sai__block_discover` で `sci-analogy` を確かめ、`mcp__sai__task_create`（`worktree` は `"none"`）で作って `mcp__sai__task_execute` で送り、`mcp__sai__task_output`（`timeout_ms` は 300000 以下）で待って `mcp__sai__sai_read` で読む。`mcp__sai__task_manage` の `finalize` は文書を読んだあとに 1 回だけ呼ぶ。
+3. (a) のとき: 出し方（文献・他分野の同型・前提の逆転・制約の付け外し・組み合わせ）を決めて利用者に見せる。同型を探すなら、`sai-link def list` で `sci-analogy` を確かめ、`sai-link task create`（`worktree` は `"none"`）で作って `sai-link task execute` で送り、`sai-link task wait`（`timeout_ms` は 300000 以下）で待って `sai-link doc read` で読む。`sai-link task` の `finalize` は文書を読んだあとに 1 回だけ呼ぶ。
 4. (b) のとき: 根拠を先に集め、1 案を書く。質問ツールで直したい点を 2〜3 問だけ聞き、答えを反映して書き直す。変えた点と理由を 1 つずつ残す。利用者が決めた文を O にする。
 5. 各 O に「Answer か Issue」と確かめ方（何を読めば・何を調べれば分かるか。検証結果は書かない）を付ける。根拠が無ければ「根拠は未確認」と書く。
 6. O を `add_o`、根拠を `add_f`（出典付き）で出す。`add_o` の `kind` に Answer か Issue を書く。

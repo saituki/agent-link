@@ -3,8 +3,8 @@
 
 研究の前に「既にあるモデルを探したい」「この論文にコードはあるか」を、**ネットを使わずに**
 引けるようにするのが目的。カタログは 1 行 1 モデルの jsonl で、
-`<sai_home>/refcode/modeldb/catalog.jsonl` に置く（`<sai_home>` は環境変数 `SAI_SAI_HOME`、
-無ければ `~/.sai-moon`）。モデルごとに、説明・分類（脳領域・細胞種・電流・受容体・概念・
+`<sai_home>/refcode/modeldb/catalog.jsonl` に置く（`<sai_home>` は環境変数 `SAI_HOME`、
+無ければ `~/.sai`）。モデルごとに、説明・分類（脳領域・細胞種・電流・受容体・概念・
 型）・論文（タイトル・著者・DOI・PubMed ID・アブストラクト）・ソースコードの URL を入れる。
 
 呼び方（標準ライブラリだけ。Python 3.11 以上）:
@@ -39,7 +39,7 @@
 ネットの守り:
     - HTTP はすべて、このモジュールの関数 `http_get(url, timeout) -> (status, bytes)` 1 か所を通す。
       テストはここを偽物に差し替える。
-    - `User-Agent: sai-moon-modeldb/1 (+https://modeldb.science/api)`。1 回の上限は 30 秒。
+    - `User-Agent: sai-modeldb/1 (+https://modeldb.science/api)`。1 回の上限は 30 秒。
     - ホストごとに、要求の間を最低 0.3 秒あける（定数 `MIN_INTERVAL_S`。テストでは 0 にする）。
     - 再試行は 429・5xx・接続の失敗だけ（最大 3 回、待ちは 1・2・4 秒＝定数 `RETRY_SLEEPS`）。404 は再試行しない。
     - パスが `/download` か `/getModelFile` で始まるもの、`/search`・`/login` は、入口で例外を出して拒む。
@@ -78,7 +78,7 @@ CROSSREF_URL = "https://api.crossref.org/works"
 CATALOG_PARTS = ("refcode", "modeldb", "catalog.jsonl")
 
 # ---- ネットの守り ----------------------------------------------------------------------
-USER_AGENT = "sai-moon-modeldb/1 (+https://modeldb.science/api)"
+USER_AGENT = "sai-modeldb/1 (+https://modeldb.science/api)"
 HTTP_TIMEOUT = 30          # 1 回の要求の上限（秒）
 MIN_INTERVAL_S = 0.3       # 同じホストの要求の間隔（秒）。テストでは 0 にする
 MAX_RETRIES = 3            # 再試行する回数（初回は数えない。合計 4 回まで）
@@ -100,9 +100,9 @@ class ModelDBError(Exception):
 
 
 def sai_home() -> Path:
-    """利用者全体の置き場（`SAI_SAI_HOME` があればそれ、無ければ `~/.sai-moon`）。"""
-    value = os.environ.get("SAI_SAI_HOME")
-    return Path(value) if value else Path.home() / ".sai-moon"
+    """利用者全体の置き場（`SAI_HOME` があればそれ、無ければ `~/.sai`）。"""
+    value = os.environ.get("SAI_HOME")
+    return Path(value) if value else Path.home() / ".sai"
 
 
 def catalog_path() -> Path:

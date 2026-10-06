@@ -36,11 +36,11 @@ subblocks:
 - F は O に付けます。判定は F の本文の先頭に書きます。
 
 ### 手順
-1. **対象を確かめる。** 依頼文の復元書（`waggle:` で埋め込まれているか、`sai_read` で読むトークン）から対応表を読み、依頼された主張（C の ID）を並べます。依頼文に ID が無ければ、対象の Node に当たる主張をすべて対象にします。
-2. **引用文献を Library に入れる。** 対象の主張の引用ごとに、`sai-moon-paper phone citations <基盤論文の番号>` の `local_paper_id` を見ます。
-   - `null` なら取り寄せます: `perl -e 'alarm 300; exec @ARGV' sai-moon-paper phone download --cite <基盤論文の番号> --ref <引用の番号>`。戻りの `paper_id` が Library の番号です。
+1. **対象を確かめる。** 依頼文の復元書（`waggle:` で埋め込まれているか、`sai-link doc read` で読むトークン）から対応表を読み、依頼された主張（C の ID）を並べます。依頼文に ID が無ければ、対象の Node に当たる主張をすべて対象にします。
+2. **引用文献を Library に入れる。** 対象の主張の引用ごとに、`sai-paper paper citations <基盤論文の番号>` の `local_paper_id` を見ます。
+   - `null` なら取り寄せます: `perl -e 'alarm 300; exec @ARGV' sai-paper paper download --cite <基盤論文の番号> --ref <引用の番号>`。戻りの `paper_id` が Library の番号です。
    - 取り寄せられなかった（PDF の場所が無い）ときは「未確認（入手できない）」にします。利用者に手で入れてもらいたいものは、report の「## 手で入れてほしい論文」に題名と引用の番号を書きます。
-3. **本文を読む。** 主張の周りの節を `sai-moon-paper content outline <番号>` で探し、`content read <ID>` で読みます。節の表が無ければ `perl -e 'alarm 600; exec @ARGV' sai-moon-paper phone citations-extract <番号>` を打ち、`content build <番号>` で作ってからもう一度読みます。それでも無ければ `sai-moon-paper phone paper <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
+3. **本文を読む。** 主張の周りの節を `sai-paper content outline <番号>` で探し、`content read <ID>` で読みます。節の表が無ければ `perl -e 'alarm 600; exec @ARGV' sai-paper paper citations-extract <番号>` を打ち、`content build <番号>` で作ってからもう一度読みます。それでも無ければ `sai-paper paper show <番号>` の抄録だけで読み、「未確認（抄録のみ）」にします。
 4. **判定する。** 主張と、基盤論文の引用文（`sentences`）と、引用文献の該当箇所を並べ、`bw-core` §7 の語で判定します。1 つの主張に引用が 2 つ以上あるときは、引用ごとに判定し、主張としてのまとめ（最も強い判定と最も弱い判定）を書きます。
 5. **確かめの地点で止まる。** 判定表を見せ、質問ツールで「この判定で PROPOSAL を出してよいか」を起動者に聞きます。
 6. **PROPOSAL を出す。** 「未確認」以外の判定ごとに `add_f` を、主張の O に付けます。`cites` は引用文献の場所、本文の先頭に「C3 の引用 [7] 支持: 」のように主張・引用の番号・判定を書きます。根拠が足りない主張（引用なし・無関係・未確認だけ）は、OUT_OF_SCOPE と「主張ごとのまとめ」に、根拠になる文献を探す必要があると書きます。

@@ -11,7 +11,7 @@
 → ④ Q を分ける → ⑤ O を書く → ⑥ 論文を集める（検索セットの選別）
 → ⑦ 読む札で F を付ける → ⑧ ★ を付ける → ⑨ Logicality を確かめる
 → ⑩ Issue と実験（E）・エージェントに頼む → ⑪ SEED を作る → ⑫ 仕分け
-→ ⑬ Dashboard と DEBT → ⑭ TUI → ⑮ 命令（CLI）→ ⑯ 片付け
+→ ⑬ Dashboard と DEBT → ⑭ 命令（CLI）→ ⑮ 片付け
 ```
 
 練習用のプロジェクトは本物の研究とは別の場所（`~/research/sci-practice`）に作ります。**練習で打つ命令は、すべてこの練習用のフォルダの中で行います。** 何を押しても本物の研究には影響しません。安心して試してください。
@@ -65,21 +65,21 @@ echo こんにちは
 ターミナルで次を打ちます。
 
 ```bash
-which sai-moon-paper sai-moon-link
+which sai-sci sai-paper sai-link
 ```
 
-2 行とも `/Users/<あなたの名前>/.local/bin/…` のように出れば準備はできています。
-`not found` と出たら、開発者に「`~/.local/bin` に sai-moon の実行ファイルへのリンクを置いてほしい」と頼んでください。
+3 行とも `/Users/<あなたの名前>/.local/bin/…` のように出れば準備はできています。
+`not found` と出たら、開発者に「`~/.local/bin` に sai の実行ファイルへのリンクを置いてほしい」と頼んでください。
 
-### 1.2 Web の画面（apps/phone）を起動する
+### 1.2 Web の画面（apps/web）を起動する
 
 ターミナルの窓を**新しく 1 つ**開きます（`⌘ + N`）。この窓は Web の画面を動かし続けるための窓なので、作業中は閉じないでください。
 
 ```bash
 cd ~/workdir/Sai/sai-moon
 PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
-  apps/phone/.venv/bin/uvicorn sai_phone.main:app \
-  --host 127.0.0.1 --port 8200 --app-dir apps/phone/src
+  apps/web/.venv/bin/uvicorn sai_web.main:app \
+  --host 127.0.0.1 --port 8200 --app-dir apps/web/src
 ```
 
 `Uvicorn running on http://127.0.0.1:8200` と出たら起動できています。
@@ -87,10 +87,10 @@ PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
 
 > 止めるときは、この窓で `control + C` を押します。
 
-画面の左（iPhone では下）に、次の 5 つのタブがあります。
+画面の左（iPhone では下）に、次の 6 つのタブがあります。
 
 ```
-ホーム / プロジェクト / 会話 / 論文 / 使用量
+ホーム / プロジェクト / 会話 / 論文 / 研究 / 使用量
 ```
 
 このチュートリアルで主に使うのは **論文** タブです。エージェントを動かす章（⑩）では **プロジェクト** と **会話** も使います。
@@ -106,14 +106,14 @@ PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
 ```bash
 mkdir -p ~/research/sci-practice
 cd ~/research/sci-practice
-sai-moon-paper init --sci --type problem
+sai-sci init --type problem
 ```
 
 - `mkdir -p` はフォルダを作る命令です。
 - `cd` はそのフォルダへ移る命令です。
-- `sai-moon-paper init --sci --type problem` は、ここを「研究方針の木を使う研究プロジェクト」にする命令です。`--type problem` は研究の型を PROBLEM_DRIVEN（課題駆動）にするという意味です。
+- `sai-sci init --type problem` は、ここを「研究方針の木を使う研究プロジェクト」にする命令です。`--type problem` は研究の型を PROBLEM_DRIVEN（課題駆動）にするという意味です。
 
-研究の型は 5 つあります（`sai-moon-paper sci types` で一覧が出ます）。練習では `problem` を使います。
+研究の型は 5 つあります（`sai-sci types` で一覧が出ます）。練習では `problem` を使います。
 
 | `--type` の値 | 名前 | どんな研究か |
 |---|---|---|
@@ -129,7 +129,7 @@ sai-moon-paper init --sci --type problem
 
 1. フォルダの中に `.sai/` という隠しフォルダができ、論文の置き場（`.sai/paper/papr.db`）と研究方針の木（一番上の Q 1 つ）が作られた。
 2. エージェント（cc と pi）がこのプロジェクトで使う設定（`.mcp.json`・`.claude/`・`.pi/`）が置かれた。
-3. プロジェクトが登録簿（`~/.sai-moon/registry.json`）に `sci-practice` という名前で載った。**これで Web の画面にこのプロジェクトが出ます。**
+3. プロジェクトが登録簿（`~/.sai/registry.json`）に `sci-practice` という名前で載った。**これで Web の画面にこのプロジェクトが出ます。**
 
 最後の方に `✅ 登録簿に登録しました: sci-practice` と出ていれば成功です。
 
@@ -142,12 +142,12 @@ sai-moon-paper init --sci --type problem
 論文タブの中には、さらに次のタブがあります。
 
 ```
-研究方針 / Dashboard / Discover / Library / Radio
+Dashboard / Library / Import / Radio / 検索セット
 ```
 
-**研究方針** を押すと、研究方針の木の画面（`#/papers/tree`）になります。
+研究方針の木は **研究** タブにあります。**研究方針** を押すと、研究方針の木の画面（`#/research/tree`）になります。
 
-> 木がまだ無いプロジェクトでは「研究方針の木がまだありません」と出ます。**始める** を押して研究の型を選ぶと、`sci init` と同じことが行われます。古い形の木だけがあるプロジェクトでは「古い形の木です」と出ます。その場合は新しい木を作り直します（`sai-sci/README.md` の 4.2 節）。
+> 木がまだ無いプロジェクトでは「研究方針の木がまだありません」と出ます。**始める** を押して研究の型を選ぶと、`sai-sci init` と同じことが行われます。古い形の木だけがあるプロジェクトでは「古い形の木です」と出ます。その場合は新しい木を作り直します（`sai-sci/README.md` の 4.2 節）。
 
 ---
 
@@ -181,14 +181,14 @@ iPhone（横幅の狭い画面）では A〜D が縦に並び、Node を押す�
 | A SEED | 研究を 1 文で言ったもの。決まっていない所は［？…］（橙色の点線）で出る。押すと、その Q の板が開く。「SEED を作る」釦で SEED を作る | ★ を付けると文に入る |
 | 進み具合 | 答えが出た Q の数 / 全部 | ★ を付ける・Q を足すと変わる |
 | B Next Action | 今やるとよい Action の先頭 3 件。「Create CARD」でカードのフォームが開く | 何かを変えるたび |
-| C DEBT・PROPOSAL・注意 | DEBT の数。押すと一覧（片付ける釦つき）。PROPOSAL の数。押すと仕分け（`#/papers/triage`）。⚠ は木の決まりに合わない所 | Action が終わる・PROPOSAL が来ると変わる |
+| C DEBT・PROPOSAL・注意 | DEBT の数。押すと一覧（片付ける釦つき）。PROPOSAL の数。押すと仕分け（`#/research/triage`）。⚠ は木の決まりに合わない所 | Action が終わる・PROPOSAL が来ると変わる |
 | D 左の一覧 | Q・O・F・E の木。O には ★ と Answer / Issue の札が付く | 何かを変えるたび |
 | 方針の図 | 下に伸びる木 1 つ。「F を出す」で F の札を出し入れできる。「SEED の道」は ★ の道 | 何かを変えるたび |
 | E 板 | 押した Node の中身と操作の釦 | 何かを変えるたび |
 
 ### 板の中身
 
-一覧で Q を押すと、右に板が出ます。住所（ブラウザの上の欄）は `…/#/papers/tree/Q12` に変わります。
+一覧で Q を押すと、右に板が出ます。住所（ブラウザの上の欄）は `…/#/research/tree/Q12` に変わります。
 
 | 欄 | 中身 |
 |---|---|
@@ -296,7 +296,7 @@ Q への答えの案（O）を足します。
 
 ### 7.2 読む札の画面
 
-読む札の画面（`#/papers/read/<run_id>`）が開きます。
+読む札の画面（`#/research/read/<run_id>`）が開きます。
 
 1. **読んでいる** の状態にして読み始めます（「読み始めました」と出ます）。抄録・図・節を読みます。
 2. 「F を足す」に、分かったことを 1〜3 文で書きます（必須）。出典は `#1 abstract` や `#37 §3.2` の形で書きます。付ける先は O か E を選びます。
@@ -359,7 +359,7 @@ Q の答えの筋が通っているかを確かめて、記録します。
    - エージェントが途中で質問してきたら、**ホーム** の質問の札か、エージェントの窓で答えます。
    - 様子は **会話** タブで見られます。止めたいときは **■ 終了** を押します。
 
-> 常駐を起動せずに体験だけしたいときは、⑮の「エージェントの PROPOSAL をまねる」の命令で PROPOSAL を手で出せます。
+> 常駐を起動せずに体験だけしたいときは、⑭の「エージェントの PROPOSAL をまねる」の命令で PROPOSAL を手で出せます。
 
 ---
 
@@ -377,7 +377,7 @@ Q の答えの筋が通っているかを確かめて、記録します。
 
 エージェントが出した PROPOSAL のうち、仕分けが要る物を採用・却下します。
 
-1. 上の帯の PROPOSAL の札（または DEBT の一覧）を押します。住所は `#/papers/triage` になります。
+1. 上の帯の PROPOSAL の札（または DEBT の一覧）を押します。住所は `#/research/triage` になります。
 2. **Node ごと** と **run ごと** を切り替えられます。
 3. PROPOSAL 1 つずつに、次の釦があります。
 
@@ -429,19 +429,19 @@ cd ~/research/sci-practice
 
 | したいこと | 命令 |
 |---|---|
-| 使える研究の型を見る | `sai-moon-paper sci types` |
-| 木の様子を見る | `sai-moon-paper sci status`（数だけなら `--brief`） |
-| Node の中身を見る | `sai-moon-paper sci node Q2` |
-| エージェントに見せる範囲を見る | `sai-moon-paper sci context --run 2`（⑩ のカードの番号） |
-| 仕分け待ちの PROPOSAL を見る | `sai-moon-paper sci proposals` |
-| 読む札の中身を見る | `sai-moon-paper sci read 3`（読む札の run 番号） |
-| 書き出しを作り直す | `sai-moon-paper sci export` |
-| 検索セットを見る | `sai-moon-paper set list` |
+| 使える研究の型を見る | `sai-sci types` |
+| 木の様子を見る | `sai-sci status`（数だけなら `--brief`） |
+| Node の中身を見る | `sai-sci node Q2` |
+| エージェントに見せる範囲を見る | `sai-sci context --run 2`（⑩ のカードの番号） |
+| 仕分け待ちの PROPOSAL を見る | `sai-sci proposals` |
+| 読む札の中身を見る | `sai-sci read 3`（読む札の run 番号） |
+| 書き出しを作り直す | `sai-sci export` |
+| 検索セットを見る | `sai-paper set list` |
 
-木を変える命令は、1 行の JSON を `sai-moon-paper sci apply` に渡します。例として O を 1 つ足します（`Q2` は自分の木にある Q の番号に直します）。
+木を変える命令は、1 行の JSON を `sai-sci apply` に渡します。例として O を 1 つ足します（`Q2` は自分の木にある Q の番号に直します）。
 
 ```bash
-echo '{"op":"add_o","q":"Q2","text":"発作の予知","kind":"answer"}' | sai-moon-paper sci apply
+echo '{"op":"add_o","q":"Q2","text":"発作の予知","kind":"answer"}' | sai-sci apply
 ```
 
 `{"op":"add_o","result":"O1"}` のような JSON が出たら成功です。ブラウザの研究方針の画面で再読み込みすると、Q2 の下に O が増えています。
@@ -452,10 +452,10 @@ echo '{"op":"add_o","q":"Q2","text":"発作の予知","kind":"answer"}' | sai-mo
 
 ```bash
 echo '{"proposals":[{"op":"add_q","parent":"Q2","text":"新生児と成人で発作の見え方はどう違うか","reason":"対象を絞るため"}]}' \
-  | sai-moon-paper sci propose --run 2 --block sci-split
+  | sai-sci propose --run 2 --block sci-split
 ```
 
-- 子の Q（`add_q`）は仕分け待ち（pending）になります。`sai-moon-paper sci proposals` で ID（`P1` など）を見て、`sai-moon-paper sci triage P1 --accept` で採用します（却下は `--reject`）。
+- 子の Q（`add_q`）は仕分け待ち（pending）になります。`sai-sci proposals` で ID（`P1` など）を見て、`sai-sci triage P1 --accept` で採用します（却下は `--reject`）。
 - ブロックが出せない PROPOSAL は断られます。
 
 ### 書き出されるファイル
@@ -477,10 +477,10 @@ echo '{"proposals":[{"op":"add_q","parent":"Q2","text":"新生児と成人で発
 3. 登録簿から `sci-practice` を外します。次の命令は、登録簿の写し（`registry.json.bak`）を取ってから、`sci-practice` の行だけを外します。
 
 ```bash
-cp ~/.sai-moon/registry.json ~/.sai-moon/registry.json.bak
+cp ~/.sai/registry.json ~/.sai/registry.json.bak
 python3 -c '
 import json, pathlib
-p = pathlib.Path.home() / ".sai-moon" / "registry.json"
+p = pathlib.Path.home() / ".sai" / "registry.json"
 rows = json.loads(p.read_text())
 p.write_text(json.dumps([r for r in rows if r.get("name") != "sci-practice"], ensure_ascii=False, indent=2))
 print("外しました")'
@@ -498,7 +498,7 @@ rm -rf ~/research/sci-practice
 
 | 起きたこと | 直し方 |
 |---|---|
-| Web にプロジェクトが出ない | 📁 を押して選び直す。無ければ `~/research/sci-practice` で `sai-moon-paper init --sci --type problem` をもう一度打つ（何度打っても壊れない） |
+| Web にプロジェクトが出ない | 📁 を押して選び直す。無ければ `~/research/sci-practice` で `sai-sci init --type problem` をもう一度打つ（何度打っても壊れない） |
 | 画面が古いまま | ブラウザで再読み込み（`⌘ + R`） |
 | 「研究方針の木がまだありません」 | **始める** を押して型を選ぶ |
 | 「古い形の木です」 | 新しい木を作り直す（`sai-sci/README.md` の 4.2 節） |
@@ -526,6 +526,5 @@ rm -rf ~/research/sci-practice
 - [ ] SEED を作った（⑪）
 - [ ] PROPOSAL を採用・直して採用・却下で仕分けした（⑫）
 - [ ] DEBT の一覧と、Dashboard の要対応・現況・考えを見た（⑬）
-- [ ] TUI の研究方針で、Web と同じ中身を見た（⑭）
-- [ ] 命令で O を足し、画面に出た（⑮）
-- [ ] 片付けた（⑯）
+- [ ] 命令で O を足し、画面に出た（⑭）
+- [ ] 片付けた（⑮）

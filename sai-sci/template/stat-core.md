@@ -6,7 +6,7 @@
 
 ## 1. 解析計画書
 
-- 解析を動かす**前に**、解析計画 `plan.json` を `analysis/<study>/ID<自分の run_id>/plan.json` に書き、**同じ JSON を本文の先頭に置いた解析計画書**を `sai_write` で保存する。ファイル名 `ana-plan-<study>-ID<run_id>.md`、description `解析計画書 <study> ID<run_id>: <主な仮説を 1 文で>`。返ってきた **waggle トークンを控える。**
+- 解析を動かす**前に**、解析計画 `plan.json` を `analysis/<study>/ID<自分の run_id>/plan.json` に書き、**同じ JSON を本文の先頭に置いた解析計画書**を `sai-link doc write` で保存する。ファイル名 `ana-plan-<study>-ID<run_id>.md`、description `解析計画書 <study> ID<run_id>: <主な仮説を 1 文で>`。返ってきた **waggle トークンを控える。**
 - **順序は守る（計画 → 保存 → 解析）。** 結果を先に見てから計画を書くと、計画は結果の言い換えになる。
 - 仮説の出どころは 3 つだけである。カードの Node の O、SEED、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
 - `kind: confirmatory` は事前に決めた主な仮説だけ（**多くても 3〜5 個**）。それ以外は `exploratory`。
@@ -369,7 +369,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 ```bash
 uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PROJECT_ROOT/.sai/tools/data_result.py" \
   log --experiment "<project>/ID<explore の run_id>/data" --run-name "ID<自分の run_id>-test" \
-  --project <project> --run-id <自分の run_id> --study <study> --node <sci_node> --kind test \
+  --project <project> --run-id <自分の run_id> --study <study> --node <Node の ID> --kind test \
   --plan "analysis/<study>/ID<自分の run_id>/plan.json" --results "analysis/<study>/ID<自分の run_id>/out/results.json" \
   --artifact "analysis/<study>/ID<自分の run_id>/out/fig" --artifact "analysis/<study>/ID<自分の run_id>/analysis.py"
 ```

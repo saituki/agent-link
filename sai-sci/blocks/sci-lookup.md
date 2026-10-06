@@ -36,15 +36,15 @@ enable: true
 2. 索引の状態を確かめます。
 
    ```bash
-   sai-moon-paper index status
+   sai-paper index status
    ```
 
 3. 狭い順に探します。Node の論文に答えが無いときだけ、次に部分木、その後に Library 全体を見ます。
 
    ```bash
-   sai-moon-paper find "<語>" --node O5 --json
-   sai-moon-paper find "<語>" --node O5 --subtree --each 2 --json
-   sai-moon-paper find "<語>" --widen "部分木の論文で答えが無かったため" --json
+   sai-sci find "<語>" --node O5 --json
+   sai-sci find "<語>" --node O5 --subtree --each 2 --json
+   sai-sci find "<語>" --widen "部分木の論文で答えが無かったため" --json
    ```
 
    - `--each <m>` は、範囲の論文ごとに上位 m 件を返します。`--papers` か `--node` と一緒に使います。
@@ -67,7 +67,7 @@ enable: true
 - 検索の対象が狭い順に広がっていて、広げた理由が `--widen` に残っているか。
 - 答えられない部分に `[GAP: 推奨検索: …]` を残しているか。
 - 問いに不利な記述も探しているか（見つからなければ、そう書いているか）。
-- CITE の著者・年・DOI が `sai-moon-paper find` の返り値と一致しているか。
+- CITE の著者・年・DOI が `sai-sci find` の返り値と一致しているか。
 
 ## 完了の基準
 - Agent: 呼んだ agent に答えを返した。

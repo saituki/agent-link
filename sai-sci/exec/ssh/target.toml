@@ -12,13 +12,13 @@ max_jobs = 1
 # ~/.ssh/config の名前、または user@host。パスワード無しでつながること（鍵か ssh-agent）
 host = ""
 # ホスト側の作業場所（ホームからの相対。コードとログとジョブの状態が入る）
-remote_root = ".sai-moon-exec"
+remote_root = ".sai-exec"
 # ホストへ送る環境変数の名前。MLFLOW_* と AWS_* は自動で送る。ほかに要るものだけ足す
 forward_env = []
 
 # 実行先ごとに違う環境変数。この PC から中央の MLflow に届く場所を書く。
 #   LAN の Mac の MLflow: http://<Mac の IP>:8443（Caddy・Basic 認証）
 # 認証の値（MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD）はここに書かず、
-# ~/.sai-moon/settings.json の env に書く（自動で送られる）。
+# ~/.sai/settings.json の env に書く（自動で送られる）。
 [env]
 MLFLOW_TRACKING_URI = "http://<Mac の IP>:8443"

@@ -1,7 +1,7 @@
 """ModelDB のカタログ `modeldb.py` のテスト。
 
 ネットは使わない。`http_get` を URL から応答を返す辞書の偽物に差し替え、
-`SAI_SAI_HOME` は一時フォルダにする。実際の ModelDB も `~/.sai-moon` も触らない。
+`SAI_HOME` は一時フォルダにする。実際の ModelDB も `~/.sai` も触らない。
 
     cd sai-sci/tools && python3 -m unittest test_modeldb -v      # Python 3.11 以上
 """
@@ -188,8 +188,8 @@ class Base(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="modeldb-"))
         self.home = self.tmp / "home"
-        self._env = os.environ.get("SAI_SAI_HOME")
-        os.environ["SAI_SAI_HOME"] = str(self.home)
+        self._env = os.environ.get("SAI_HOME")
+        os.environ["SAI_HOME"] = str(self.home)
         self._saved = (modeldb.MIN_INTERVAL_S, modeldb.RETRY_SLEEPS, modeldb.http_get)
         modeldb.MIN_INTERVAL_S = 0.0
         modeldb.RETRY_SLEEPS = ()
@@ -200,9 +200,9 @@ class Base(unittest.TestCase):
     def tearDown(self) -> None:
         modeldb.MIN_INTERVAL_S, modeldb.RETRY_SLEEPS, modeldb.http_get = self._saved
         if self._env is None:
-            os.environ.pop("SAI_SAI_HOME", None)
+            os.environ.pop("SAI_HOME", None)
         else:
-            os.environ["SAI_SAI_HOME"] = self._env
+            os.environ["SAI_HOME"] = self._env
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # --- 呼ぶヘルパ ---------------------------------------------------------------------

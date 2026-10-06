@@ -83,7 +83,7 @@ ModelDB のカタログが無いときは終了コード 1 で返る。`sync` �
 
 ### 7. 確かめた事実を F として出す
 
-`sci_propose` の `add_f` で出す（`sci-core`）。例:
+`sai-sci propose` の `add_f` で出す（`sci-core`）。例:
 
 ```json
 {"proposals": [

@@ -34,18 +34,18 @@ Action `check_logic`。「今回の SCOPE」の Q の下にある F どうしに
 **参加者に渡す背景は、対象の Q・Q までの道（上の Q と ★ の O）・前提だけにする。** SCOPE の外の話は渡さない。出たら司会が切る。
 
 ### 手順
-1. **対象を確かめる。** 依頼文の `議題`・`型`（無ければ `対話`）・`往復`（既定 2、最大 3）を読む。対象の Q が決まっていなければ利用者に確認する。`sai-moon-paper sci status --json` で Q の下の F と、今の Logicality を読む。
+1. **対象を確かめる。** 依頼文の `議題`・`型`（無ければ `対話`）・`往復`（既定 2、最大 3）を読む。対象の Q が決まっていなければ利用者に確認する。`sai-sci status --json` で Q の下の F と、今の Logicality を読む。
 2. **不利な根拠を探す。** 今の方針（★ の O）に不利な根拠を少なくとも 1 つ探す（`sci-find` の決まりに従う）。見つかった根拠は、反する内容を F の文に書いて `add_f` に出す。探して見つからなければ、そのことを書く。「支持が見つかった」とは別の結果として書く。
 3. **背景を作る。** 対象の Q・道・前提を 5〜10 行にまとめる。
-4. **呼べることを確かめる。** `mcp__sai__block_discover` で `paper-debater` と `paper-reviewer` が呼べることを確かめる。出なければ利用者に知らせて止まる。
-5. **回ごとに子の仕事を作る。** 回ごと・参加者ごとに `mcp__sai__task_create`（`worktree` は `"none"`、`runner` は `cc`）。`task_text` は `役` / `回` / `議題` / `背景` / `材料` / `前の回の要約` の形。同じ回の参加者は 1 つのバッチで `mcp__sai__task_execute` する。
-6. **結果を待つ。** `mcp__sai__task_output`（`timeout_ms` は 300000 以下）を 1 人ずつ呼び、意見の文書を `mcp__sai__sai_read` で読む。`stalled` は `mcp__sai__task_capture` を見て利用者に知らせ、勝手にやり直さない。`failed` は利用者に知らせて続けるかを聞く。
+4. **呼べることを確かめる。** `sai-link def list` で `paper-debater` と `paper-reviewer` が呼べることを確かめる。出なければ利用者に知らせて止まる。
+5. **回ごとに子の仕事を作る。** 回ごと・参加者ごとに `sai-link task create`（`worktree` は `"none"`、`runner` は `cc`）。`task_text` は `役` / `回` / `議題` / `背景` / `材料` / `前の回の要約` の形。同じ回の参加者は 1 つのバッチで `sai-link task execute` する。
+6. **結果を待つ。** `sai-link task wait`（`timeout_ms` は 300000 以下）を 1 人ずつ呼び、意見の文書を `sai-link doc read` で読む。`stalled` は `sai-link task capture` を見て利用者に知らせ、勝手にやり直さない。`failed` は利用者に知らせて続けるかを聞く。
 7. **回ごとにまとめを見せる。** 合意・対立・未解決を各 3 点までにして見せ、「続ける / 論点を指定して続ける / やめる」を聞く。「前の回の要約」は他の参加者の意見だけにする。
 8. **Logicality を残す。** F どうしの矛盾の有無を文で確かめ、`record_logic` を出す。
    - 矛盾が無い: `{"op":"record_logic","q":"Q12","value":"ok","reason":"…"}`
    - 矛盾がある: `{"op":"record_logic","q":"Q12","value":"contradiction","note":"F3 は A と述べ、F9 は A でないと述べる","findings":["F3","F9"],"reason":"…"}`。`contradiction` には `note` と 2 つ以上の F が要る。
    議論で出た新しい根拠は `add_f`（出典付き）で出す。
-9. **議論録を保存し、子を確定する。** 「出力の形」の議論録を `mcp__sai__sai_write` で保存した**後**に、`mcp__sai__task_manage` の `finalize` で子の仕事を確定する。
+9. **議論録を保存し、子を確定する。** 「出力の形」の議論録を `sai-link doc write` で保存した**後**に、`sai-link task` の `finalize` で子の仕事を確定する。
 
 ## 評価の観点
 - 参加者に渡した背景が、対象の Q・道・前提だけか。

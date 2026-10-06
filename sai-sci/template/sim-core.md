@@ -107,7 +107,7 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 2. **論文の本文の塊**。検索の決まりは `sci-find` のとおりである。
 
    ```bash
-   sai-moon-paper find "<英語の語>" --node <TARGET_NODE> --json
+   sai-sci find "<英語の語>" --node <TARGET_NODE> --json
    ```
 
    - **式の塊が `formula-not-decoded`（数式として読めない状態）のときは、そこから式を推測しない。** その節を `## GAP` に書いて質問にする。

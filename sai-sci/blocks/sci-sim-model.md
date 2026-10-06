@@ -49,7 +49,7 @@ enable: true
 
 ### 2. 参照コード調査書を読む
 
-- 依頼文の「参照コード調査書」（`sci-exp-scout` の出力）のトークンを `sai_read` で読む。
+- 依頼文の「参照コード調査書」（`sci-exp-scout` の出力）のトークンを `sai-link doc read` で読む。
 - その文書が無いときは、質問ツールで起動者に「`sci-exp-scout` を先に走らせてよいか」を聞いて待つ。
 - 調査書の `reference_code` のうち `role: 土台` のものの `path` を控える。土台が無ければ `role: 参考` のものを使う。
 
@@ -69,7 +69,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 - 検索の決まりは `sci-find` のとおりである。
 
   ```bash
-  sai-moon-paper find "<英語の語>" --node <TARGET_NODE> --json
+  sai-sci find "<英語の語>" --node <TARGET_NODE> --json
   ```
 
 - 論文にも参照コードにも無い式・値・再現の目標は、**`## GAP` に質問の形で書く。**
@@ -92,11 +92,11 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ### 8. モデル定義書を保存する
 
-`sai_write` で保存する。書式は下の「## モデル定義書」。
+`sai-link doc write` で保存する。書式は下の「## モデル定義書」。
 
 ### 9. 確かめた事実を F として出す
 
-`sci_propose` の `add_f` で出す（`sci-core`）。例:
+`sai-sci propose` の `add_f` で出す（`sci-core`）。例:
 
 ```json
 {"proposals": [
@@ -109,7 +109,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ### 10. 終える
 
-`sci-core` の「完了のしかた」で終える。`task_report` の報告に、**モデル定義書のトークン**を書く。
+`sci-core` の「完了のしかた」で終える。`sai-link task report` の報告に、**モデル定義書のトークン**を書く。
 
 ## モデル定義書
 
