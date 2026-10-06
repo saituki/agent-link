@@ -22,6 +22,15 @@ __pycache__/
 .worktrees/
 .serena/
 
+# sai-moon-link init が作る設定（プロジェクトごとに作り直す）
+.mcp.json
+.claude/settings.json
+.claude/commands/
+.claude/skills/
+
+# 画面の確認の道具が作るフォルダ
+.playwright-mcp/
+
 # Node
 node_modules/
 
