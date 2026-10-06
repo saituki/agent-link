@@ -1,7 +1,7 @@
 """研究方針の木（Q・O・F・E）と検索セットの API のテスト。
 
 確かめること:
-- 中継が表どおりに CLI を呼ぶ（引数・標準入力・cwd・`SAI_PAPER_ROOT`・待ち時間）
+- 中継が表どおりに CLI を呼ぶ（引数・標準入力・cwd・`SAI_PROJECT_ROOT`・待ち時間）
 - 検査に通らない値では CLI が 1 回も呼ばれず、400 と日本語の理由が返る
 - 知らない項目と `path` のようなファイルのパスが CLI に渡らない
 - 読む札の終わりは、始まっていない札でも 1 回の操作で review まで進む
@@ -287,7 +287,8 @@ def test_calls(order: list) -> None:
     try:
         sci.status(project)
         assert paper.last["args"][1:] == ["phone", "sci", "status"], paper.last["args"]
-        assert paper.last["cwd"] == root and paper.last["env"]["SAI_PAPER_ROOT"] == root
+        assert paper.last["cwd"] == root and paper.last["env"]["SAI_PROJECT_ROOT"] == root
+        assert paper.last["env"]["SAI_ORIGIN"] == "phone", paper.last["env"]
         assert paper.last["timeout"] == 20.0 and paper.last["input_text"] is None
 
         sci.types(project)
@@ -335,26 +336,26 @@ def test_calls(order: list) -> None:
         assert paper.last["args"][1:] == ["phone", "sci", "read", "130"]
 
         sci.read_start(project, 130)
-        assert link.last["args"] == ["user", "start", "130"] and link.last["root"] == root
+        assert link.last["args"] == ["card", "start", "130"] and link.last["root"] == root
 
         # 検索セット
         sci.set_list(project)
-        assert paper.last["args"][1:] == ["phone", "set", "list"] and paper.last["timeout"] == 20.0
+        assert paper.last["args"][1:] == ["set", "list"] and paper.last["timeout"] == 20.0
         sci.set_show(project, "7")
-        assert paper.last["args"][1:] == ["phone", "set", "show", "7"], paper.last["args"]
+        assert paper.last["args"][1:] == ["set", "show", "7"], paper.last["args"]
         sci.set_mark(project, 7, {"positions": [0, 2, 5], "decision": "keep", "reason": " 要る "})
         assert paper.last["args"][1:] == [
-            "phone", "set", "mark", "7", "--position=0,2,5", "--decision", "keep", "--reason=要る",
+            "set", "mark", "7", "--position=0,2,5", "--decision", "keep", "--reason=要る",
         ], paper.last["args"]
         assert paper.last["timeout"] == 30.0 and paper.last["cwd"] == root
         sci.set_mark(project, 7, {"positions": [1], "decision": "drop"})
         assert paper.last["args"][1:] == [
-            "phone", "set", "mark", "7", "--position=1", "--decision", "drop",
+            "set", "mark", "7", "--position=1", "--decision", "drop",
         ], paper.last["args"]
         sci.set_drop_pending(project, 7, {"reason": "古い"})
-        assert paper.last["args"][1:] == ["phone", "set", "drop-pending", "7", "--reason=古い"]
+        assert paper.last["args"][1:] == ["set", "drop-pending", "7", "--reason=古い"]
         sci.set_drop_pending(project, 7, {})
-        assert paper.last["args"][1:] == ["phone", "set", "drop-pending", "7"]
+        assert paper.last["args"][1:] == ["set", "drop-pending", "7"]
 
         count = len(paper.calls)
         for bad in (
@@ -395,7 +396,7 @@ def test_read_finish() -> None:
         restore()
     assert got == {"run_id": 130, "status": "review", "findings": 2, "debts": ["メモが無い"]}, got
     assert [f"{k}: {a}" for k, a in order] == [
-        "paper: phone sci read 130", "link: user start 130", "link: user finish 130",
+        "paper: phone sci read 130", "link: card start 130", "link: card finish 130",
     ], order
     assert link.calls[0]["root"] == root and link.calls[1]["root"] == root
 
@@ -408,7 +409,7 @@ def test_read_finish() -> None:
         restore()
     assert got == {"run_id": 130, "status": "review", "findings": 0, "debts": []}, got
     assert [f"{k}: {a}" for k, a in order] == [
-        "paper: phone sci read 130", "link: user finish 130",
+        "paper: phone sci read 130", "link: card finish 130",
     ], order
 
     # run_id の検査
@@ -444,8 +445,8 @@ def test_user_cli_args() -> None:
     finally:
         control.run_cli = orig
     assert [c["args"][1:] for c in calls] == [
-        ["phone", "user", "start", "130"],
-        ["phone", "user", "finish", "130"],
+        ["card", "start", "130"],
+        ["card", "finish", "130"],
     ], calls
     assert all(c["cwd"] == "/tmp/root" for c in calls), calls
     assert all(c["env"]["SAI_PROJECT_ROOT"] == "/tmp/root" for c in calls), calls

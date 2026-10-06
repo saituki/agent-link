@@ -206,7 +206,7 @@ class FakeRequest:
 
 
 def test_citations(cli: FakeRunJson) -> None:
-    """引用一覧は `phone citations <id>`。"""
+    """引用一覧は `paper citations <id>`。"""
     cli.calls.clear()
     cli.value = {
         "paper": {"id": 12, "title": "題名"},
@@ -217,20 +217,21 @@ def test_citations(cli: FakeRunJson) -> None:
     }
     out = papers.citations(PROJECT, 12)
     assert out["extracted"] is True, out
-    assert cli.last["args"] == ["sai-paper", "phone", "citations", "12"], cli.last["args"]
+    assert cli.last["args"] == ["sai-paper", "paper", "citations", "12"], cli.last["args"]
     assert cli.last["cwd"] == "/root/sai-paper", cli.last["cwd"]
-    assert cli.last["env"]["SAI_PAPER_ROOT"] == "/root/sai-paper", cli.last["env"]
+    assert cli.last["env"]["SAI_PROJECT_ROOT"] == "/root/sai-paper", cli.last["env"]
+    assert cli.last["env"]["SAI_ORIGIN"] == "phone", cli.last["env"]
 
 
 def test_manual_candidates(cli: FakeRunJson) -> None:
-    """候補は `phone manual-candidates --minutes 30`（利用者が決めた 30 分）。"""
+    """候補は `paper candidates --minutes 30`（利用者が決めた 30 分）。"""
     cli.calls.clear()
     cli.value = {"dir": "~/Downloads", "minutes": 30, "items": []}
     assert papers.manual_candidates(PROJECT)["minutes"] == 30
     assert cli.last["args"] == [
         "sai-paper",
-        "phone",
-        "manual-candidates",
+        "paper",
+        "candidates",
         "--minutes",
         "30",
     ], cli.last["args"]
@@ -244,7 +245,7 @@ def test_cite_extract_success(fake: FakeNotify) -> None:
     fake.calls.clear()
     create, seen, _procs = fake_exec(
         {
-            "phone citations-extract 12": FakeProc(
+            "paper citations-extract 12": FakeProc(
                 json.dumps(
                     {"paper_id": 12, "refs": 42, "sentences": 87, "docling_error": None}
                 ).encode(),
@@ -280,7 +281,7 @@ def test_cite_extract_success(fake: FakeNotify) -> None:
     finally:
         papers.asyncio.create_subprocess_exec = original
         papers._download_jobs.clear()
-    assert seen[0][1:] == ["phone", "citations-extract", "12"], seen
+    assert seen[0][1:] == ["paper", "citations-extract", "12"], seen
     assert len(fake.calls) == 1 and fake.calls[0][2].endswith("/cites"), fake.calls
 
 
@@ -289,7 +290,7 @@ def test_cite_extract_docling_error(fake: FakeNotify) -> None:
     fake.calls.clear()
     create, _seen, _procs = fake_exec(
         {
-            "phone citations-extract 13": FakeProc(
+            "paper citations-extract 13": FakeProc(
                 json.dumps(
                     {
                         "paper_id": 13,
@@ -329,7 +330,7 @@ def test_cite_extract_failed(fake: FakeNotify) -> None:
     fake.calls.clear()
     create, _seen, _procs = fake_exec(
         {
-            "phone citations-extract 14": FakeProc(
+            "paper citations-extract 14": FakeProc(
                 json.dumps({"error": "PDF がありません"}).encode(), 1
             )
         }
@@ -357,7 +358,7 @@ def test_cite_extract_failed(fake: FakeNotify) -> None:
 def test_cite_extract_conflict() -> None:
     """同じ論文の 2 回目は 409。"""
     create, _seen, _procs = fake_exec(
-        {"phone citations-extract 15": FakeProc(b"{}", 0, hang=True)}
+        {"paper citations-extract 15": FakeProc(b"{}", 0, hang=True)}
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
@@ -463,7 +464,7 @@ def test_manual_import_file(fake: FakeNotify) -> None:
     fake.calls.clear()
     create, seen, _procs = fake_exec(
         {
-            "phone manual-import --log 3 --position 2 --file paper.pdf --minutes 30": FakeProc(
+            "paper import-pdf --log 3 --position 2 --file paper.pdf --minutes 30": FakeProc(
                 json.dumps(
                     {
                         "paper_id": 71,
@@ -473,7 +474,7 @@ def test_manual_import_file(fake: FakeNotify) -> None:
                     }
                 ).encode()
             ),
-            "phone after-download 71": FakeProc(
+            "paper after-download 71": FakeProc(
                 json.dumps({"paper_id": 71, "messages": []}).encode(),
                 stderr="sai-progress step=1\nsai-progress msg=図を 2 件抽出しました\n".encode(),
             ),
@@ -508,8 +509,8 @@ def test_manual_import_file(fake: FakeNotify) -> None:
         papers.asyncio.create_subprocess_exec = original
         papers._download_jobs.clear()
     assert seen[0][1:] == [
-        "phone",
-        "manual-import",
+        "paper",
+        "import-pdf",
         "--log",
         "3",
         "--position",
@@ -519,7 +520,7 @@ def test_manual_import_file(fake: FakeNotify) -> None:
         "--minutes",
         "30",
     ], seen
-    assert seen[1][1:] == ["phone", "after-download", "71"], seen
+    assert seen[1][1:] == ["paper", "after-download", "71"], seen
     # 「保存しました」と「取り込みました」の 2 回
     assert [c[0] for c in fake.calls] == ["📄 論文を保存しました"], fake.calls
 
@@ -530,13 +531,13 @@ def test_manual_import_stdin(fake: FakeNotify) -> None:
     body = b"%PDF-1.7\nhello"
     create, seen, procs = fake_exec(
         {
-            "phone manual-import --paper-id 12 --stdin": FakeProc(
+            "paper import-pdf --paper-id 12 --stdin": FakeProc(
                 json.dumps(
                     {"paper_id": 12, "title": "題名", "status": "imported", "pdf_path": "/x.pdf"}
                 ).encode(),
                 has_stdin=True,
             ),
-            "phone after-download 12": FakeProc(json.dumps({"paper_id": 12}).encode()),
+            "paper after-download 12": FakeProc(json.dumps({"paper_id": 12}).encode()),
         }
     )
     original = papers.asyncio.create_subprocess_exec
@@ -558,7 +559,7 @@ def test_manual_import_stdin(fake: FakeNotify) -> None:
     finally:
         papers.asyncio.create_subprocess_exec = original
         papers._download_jobs.clear()
-    assert seen[0][1:] == ["phone", "manual-import", "--paper-id", "12", "--stdin"], seen
+    assert seen[0][1:] == ["paper", "import-pdf", "--paper-id", "12", "--stdin"], seen
     assert procs[0].stdin.written == body, procs[0].stdin.written
     assert procs[0].stdin.closed, "標準入力は閉じる"
 
@@ -608,7 +609,7 @@ def test_manual_import_failed(fake: FakeNotify) -> None:
     fake.calls.clear()
     create, seen, _procs = fake_exec(
         {
-            "phone manual-import --cite 12 --ref 3 --file a.pdf --minutes 30": FakeProc(
+            "paper import-pdf --cite 12 --ref 3 --file a.pdf --minutes 30": FakeProc(
                 json.dumps({"error": "この論文は既に Library にあります（ID 34）"}).encode(), 1
             )
         }
@@ -646,7 +647,7 @@ def test_manual_import_conflict() -> None:
     """同じキーの 2 回目は 409。"""
     create, _seen, _procs = fake_exec(
         {
-            "phone manual-import --paper-id 20 --file a.pdf --minutes 30": FakeProc(
+            "paper import-pdf --paper-id 20 --file a.pdf --minutes 30": FakeProc(
                 b"{}", 0, hang=True
             )
         }

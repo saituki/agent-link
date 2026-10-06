@@ -60,9 +60,9 @@ class FakeCli:
             out = self.by_cwd[cwd]
         return subprocess.CompletedProcess(list(args), self.returncode, out, self.stderr)
 
-    def phone_calls(self) -> list[list[str]]:
-        """`sai-link phone …` だけを取り出す。"""
-        return [c["args"] for c in self.calls if "phone" in c["args"]]
+    def link_calls(self) -> list[list[str]]:
+        """sai-link を呼んだ argv を全部取り出す（U09 で接頭辞の `phone` が消えた）。"""
+        return [c["args"] for c in self.calls]
 
 
 def make_registry(home: Path, base: Path) -> None:
@@ -180,13 +180,14 @@ def test_list_projects(base: Path) -> None:
     assert rows[3]["root_exists"] is False, rows[3]
 
     # summary を呼ぶのは alpha と beta だけ（DB と root が両方ある物）
-    assert cli.phone_calls() == [
-        [settings.sai_link_bin, "phone", "summary"],
-        [settings.sai_link_bin, "phone", "summary"],
-    ], cli.phone_calls()
+    assert cli.link_calls() == [
+        [settings.sai_link_bin, "project", "summary"],
+        [settings.sai_link_bin, "project", "summary"],
+    ], cli.link_calls()
     for call in cli.calls:
         assert call["cwd"] in (str(base / "alpha"), str(base / "beta")), call
         assert call["env"]["SAI_PROJECT_ROOT"] == call["cwd"], call
+        assert call["env"]["SAI_ORIGIN"] == "phone", call
 
 
 def test_summary_cache(base: Path) -> None:
@@ -293,7 +294,7 @@ def test_dashboard(base: Path) -> None:
     assert len(dash) == 1, cli.calls
     assert dash[0]["args"] == [
         settings.sai_link_bin,
-        "phone",
+        "project",
         "dashboard",
         "--period",
         "week",
@@ -370,7 +371,7 @@ def test_daemon(base: Path) -> None:
         assert res == {"ok": True, "message": "起動を要求しました"}, res
         assert cli.calls[-1]["args"] == [settings.sai_link_bin, "daemon", "start"], cli.calls[-1]
 
-        # 失敗は 502 に stderr の先頭 200 文字
+        # 失敗は 502 に stderr の最後の行（共有契約の読み替え）
         cli.returncode = 1
         cli.stderr = "実行中の作業があるため停止しませんでした"
         e = expect(502, lambda: control.daemon("alpha", "stop"))

@@ -3,9 +3,10 @@
 確かめること:
 - 外から来る値の検査（run_id は正の整数 / view・kind は一覧の値 / token は英数字と -_.:）
 - 検査は CLI を呼ぶ前に行う（呼び出し 0 回）
-- `sai-link phone …` は cwd = プロジェクトの root，`SAI_PROJECT_ROOT` = 同じ root で呼ばれる
-- CLI が失敗（終了コード ≠ 0）なら 502 に stderr の先頭 200 文字
-- md が無いとき（終了コード 3・stderr「まだありません」）だけ 404
+- `sai-link <新しい命令>` は cwd = プロジェクトの root，`SAI_PROJECT_ROOT` = 同じ root，
+  `SAI_ORIGIN` = phone で呼ばれる
+- CLI の失敗の読み替えは共有契約のとおり（2 → 400・3 → 404・4 → 409・1 とそのほか → 502。
+  理由は標準エラーの最後の行）
 - 終了コード 0 で JSON でない応答は 502
 - root / db が無いプロジェクトは CLI を呼ばず 404
 - 5 つの住所が登録済み（計画 14 §3.3）
@@ -103,63 +104,74 @@ def test_calls(cli: FakeCli) -> None:
 
     assert control.phone_tree("demo") == {"items": []}
     call = cli.last
-    assert call["args"] == ["sai-moon-link", "phone", "tree"], call["args"]
+    assert call["args"] == ["sai-moon-link", "run", "tree"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    # 起動元の環境変数に引きずられないよう root を明示で渡す
+    # 起動元の環境変数に引きずられないよう root を明示で渡す。出どころも phone にする
     assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root", call["env"].get(
         "SAI_PROJECT_ROOT"
     )
+    assert call["env"]["SAI_ORIGIN"] == "phone", call["env"].get("SAI_ORIGIN")
+    assert "SAI_PAPER_ROOT" not in call["env"], call["env"]
 
     cli.stdout = "{}"
     control.phone_run_view("demo", 7, "stats")
-    assert cli.last["args"] == ["sai-moon-link", "phone", "run", "7", "--view", "stats"]
+    assert cli.last["args"] == ["sai-moon-link", "run", "stats", "7"]
 
     control.phone_run_view("demo", 7, "history")
-    assert cli.last["args"] == [
-        "sai-moon-link", "phone", "run", "7", "--view", "history",
-    ], cli.last["args"]
+    assert cli.last["args"] == ["sai-moon-link", "run", "history", "7"], cli.last["args"]
 
     control.phone_md("demo", 7, "task")
-    assert cli.last["args"] == ["sai-moon-link", "phone", "md", "7", "--kind", "task"]
+    assert cli.last["args"] == ["sai-moon-link", "run", "md", "7", "--kind", "task"]
 
     control.phone_waggle("demo", 7)
-    assert cli.last["args"] == ["sai-moon-link", "phone", "waggle", "7"]
+    assert cli.last["args"] == [
+        "sai-moon-link", "doc", "list", "--run", "7", "--json",
+    ], cli.last["args"]
 
     control.phone_waggle("demo", 7, "abc-123_x.y")
     assert cli.last["args"] == [
-        "sai-moon-link", "phone", "waggle", "7", "--token", "abc-123_x.y",
-    ]
+        "sai-moon-link", "doc", "read", "abc-123_x.y", "--json",
+    ], cli.last["args"]
 
 
 def test_missing_404(cli: FakeCli) -> None:
-    """md が無いとき（終了コード 3・stderr「まだありません」）だけ 404（計画 12 §3.2）。"""
+    """終了コード 3 は文に関係なく 404（共有契約「Web が CLI を呼ぶ約束」）。"""
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "まだありません"
     cli.calls.clear()
     e = expect(404, lambda: control.phone_md("demo", 7, "report"))
     assert str(e.detail) == "まだありません", e.detail
-    # run の表示でも同じ形（中身が無いとき）は 404 にしない: 「まだありません」以外は 502
-    assert cli.last["args"][2] == "md"
+    assert cli.last["args"][1] == "run"
+    # 文が「実行が見つかりません」でも 404（文の一致は見ない）
+    cli.stderr = "実行が見つかりません: ID9999"
+    e = expect(404, lambda: control.phone_run_view("demo", 9999, "log"))
+    assert str(e.detail) == "実行が見つかりません: ID9999", e.detail
 
 
 def test_cli_failure_502(cli: FakeCli) -> None:
-    """CLI の失敗は 502 に stderr の先頭 200 文字（計画 12 §3.1）。"""
+    """1 とそのほかは 502（理由は stderr の最後の行），4 は 409。"""
     cli.returncode = 1
     cli.stdout = ""
     cli.stderr = "x" * 500
     cli.calls.clear()
     e = expect(502, lambda: control.phone_tree("demo"))
-    assert len(str(e.detail)) == 200, len(str(e.detail))
+    assert str(e.detail) == "x" * 500, str(e.detail)
 
-    # 終了コード 3 でも「まだありません」以外は 502（実行が見つからない等）
-    cli.returncode = 3
-    cli.stderr = "実行が見つかりません: ID9999"
-    e = expect(502, lambda: control.phone_run_view("demo", 9999, "log"))
-    assert str(e.detail) == "実行が見つかりません: ID9999", e.detail
+    # 最後の空でない行だけを使う（`sai-progress` の行は飛ばす）
+    cli.returncode = 1
+    cli.stderr = "sai-progress step=1\n本当の理由です\n"
+    e = expect(502, lambda: control.phone_tree("demo"))
+    assert str(e.detail) == "本当の理由です", e.detail
 
-    # stderr が空でも 502（文言は Japanese の落とし込み）
+    # 終了コード 4 は 409
     cli.returncode = 4
+    cli.stderr = "実行中です"
+    e = expect(409, lambda: control.phone_tree("demo"))
+    assert str(e.detail) == "実行中です", e.detail
+
+    # stderr が空でも 502（文言は日本語）
+    cli.returncode = 1
     cli.stderr = ""
     expect(502, lambda: control.phone_tree("demo"))
 
@@ -190,7 +202,7 @@ def test_md_save(cli: FakeCli) -> None:
     cli.stderr = ""
     assert control.phone_md_save("demo", 7, "task", "本文")["text"] == "本文"
     assert cli.last["args"] == [
-        "sai-moon-link", "phone", "md", "7", "--kind", "task", "--write",
+        "sai-moon-link", "run", "md", "7", "--kind", "task", "--write",
     ], cli.last["args"]
     assert cli.last["input_text"] == "本文"
     # 実行済み・送信済みの task は 404（未実行のカードが見つかりません）

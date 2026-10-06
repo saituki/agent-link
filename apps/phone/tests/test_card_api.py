@@ -1,22 +1,17 @@
-"""task.md 作成フォームと新形式 todo の ▶ 実行の API（計画 15 §3.3）の小さなテスト。
+"""task.md 作成フォームと新形式 todo の ▶ 実行の API（計画 15 §3.3・U09）の小さなテスト。
 
 確かめること:
-- 外から来る値の検査（block / task_text / runner / thinking / トークン / round / tag）
+- 外から来る値の検査（block / task_text / runner / thinking / round / tag）
 - 検査は CLI を呼ぶ前に行う（呼び出し 0 回）
-- `card create` は stdin に JSON を渡して呼ぶ（cwd = プロジェクトの root）
-- ▶ 実行（`phone card run`）:
+- `card create` は stdin に JSON を渡して呼ぶ（cwd = プロジェクトの root）。
+  入力は task_text に統一したので `inputs` は送らない（受け取っても断らない・U09）
+- ▶ 実行（`card run`）:
     - 成功（終了コード 0）は中の JSON をそのまま返す
-    - 終了コード 3 と stderr「未実行のカードが見つかりません」だけ 404
-    - 常駐停止などその他は 502 に stderr の先頭 200 文字
-- ■ 終了（`phone finalize`・計画書 A の D2）:
-    - 成功（終了コード 0）は中の JSON をそのまま返す
-    - 終了コード 3 と stderr「実行が見つかりません」だけ 404
-    - 実行中でない・子ブロック・常駐停止などは 502 に stderr の先頭 200 文字
-- review → done → Workflow の移動（`phone advance`・計画書 A の U10）:
-    - 成功（終了コード 0）は中の JSON をそのまま返す
-    - 終了コード 3 と stderr「実行が見つかりません」だけ 404
-    - review / done 以外（終了コード 1）は 502 に stderr の先頭 200 文字
-- 旧 API `GET …/todo` と `POST …/run` は消え，新しい 4 つの住所が登録済み
+    - 終了コード 3 は 404（文に関係なく）
+    - 常駐停止などその他は 502（理由は標準エラーの最後の行）
+- ■ 終了（`run finalize`・計画書 A の D2）
+- review → done → Workflow の移動（`run advance`・計画書 A の U10）
+- 旧 API `GET …/todo`・`POST …/run`・`GET …/card/inputs` は消え，新しい住所が登録済み
 
 実行:
     cd <作業用コピー>
@@ -85,7 +80,10 @@ def make_find_project(rows: list[dict]):
 
 
 def good_payload() -> dict:
-    """通るはずの送り値（毎回新しく作る・中身を壊して試すため）。"""
+    """通るはずの送り値（毎回新しく作る・中身を壊して試すため）。
+
+    古い画面が送る `inputs` も混ぜておき，受け取っても断らないことも確かめる（U09）。
+    """
     return {
         "done_ids": [26],
         "runner": "cc",
@@ -105,10 +103,6 @@ def test_validation(cli: FakeCli) -> None:
     """外から来る値は CLI を呼ぶ前に弾く（計画 15 §3.3）。"""
     cli.calls.clear()
 
-    # block は英数字と -_.: のみ（手順 4 の inputs）
-    for bad in ("a/b", "", "a" * 129, "ブロック", "a b"):
-        expect(400, lambda bad=bad: control.phone_card_inputs("demo", bad))
-
     def with_payload(**change):
         p = good_payload()
         p.update(change)
@@ -120,32 +114,29 @@ def test_validation(cli: FakeCli) -> None:
     expect(400, with_payload(runner="claude"))
     expect(400, with_payload(runner=5))
     expect(400, with_payload(thinking="turbo"))
-    # トークンは waggle: 形式
-    expect(400, with_payload(inputs={"plan_doc": "aaa"}))
-    expect(400, with_payload(inputs={"plan_doc": "waggle:"}))
-    expect(400, with_payload(inputs={"plan_doc": "waggle:a, bbb"}))
-    expect(400, with_payload(inputs={"a/b": "waggle:a"}))
-    expect(400, with_payload(inputs=[["plan_doc", "waggle:a"]]))
     # done_ids は 1 以上の整数の配列
     expect(400, with_payload(done_ids=[True]))
     expect(400, with_payload(done_ids=["1"]))
     expect(400, with_payload(done_ids=26))
-    # block も同じ文字（create の方）
+    # block は英数字と -_.: のみ
     expect(400, with_payload(block="a/b"))
     # global_round / round は数字、tag は 1 行
     expect(400, with_payload(global_round="five"))
     expect(400, with_payload(round="2x"))
-    expect(400, with_payload(tag="2 行\nにじむ"))    # provider / model は名前として読める文字だけ
+    expect(400, with_payload(tag="2 行\nにじむ"))
+    # provider / model は名前として読める文字だけ
     expect(400, with_payload(provider="open router"))
     expect(400, with_payload(model="opus; rm -rf"))
     # 形が違うもの
     expect(400, lambda: control.phone_card_create("demo", "这不是对象"))
+    # 古い `inputs` は中身が変でも断らない（入力は task_text に統一・U09）
+    control.phone_card_create("demo", good_payload() | {"inputs": {"a/b": "これは形式違反"}})
 
-    assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
+    assert len(cli.calls) == 1, f"inputs を断った: {cli.calls}"
 
 
 def test_create_calls_cli(cli: FakeCli) -> None:
-    """`card create` は stdin に JSON を載せて，root で呼ぶ。"""
+    """`card create` は stdin に JSON を載せて，root で呼ぶ。`inputs` は送らない。"""
     cli.returncode = 0
     cli.stdout = json.dumps({"run_id": 39, "path": "/tmp/task.md"})
     cli.stderr = ""
@@ -154,12 +145,13 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     out = control.phone_card_create("demo", good_payload())
     assert out["run_id"] == 39
     call = cli.last
-    assert call["args"] == ["sai-moon-link", "phone", "card", "create"], call["args"]
+    assert call["args"] == ["sai-moon-link", "card", "create"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
     assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
+    assert call["env"]["SAI_ORIGIN"] == "phone"
     sent = json.loads(call["input_text"])
-    # 送った JSON は検査を通った形（waggle: 形式のまま・空文字はスキップのまま）
-    assert sent["inputs"] == {"plan_doc": "waggle:aaa, waggle:bbb"}, sent["inputs"]
+    # 送った JSON に入力ファイルの指定は入らない（U09）
+    assert "inputs" not in sent, sent
     assert sent["runner"] == "cc"
     assert sent["done_ids"] == [26]
 
@@ -169,19 +161,15 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     control.phone_card_create("demo", minimal)
     sent = json.loads(cli.last["input_text"])
     assert sent["runner"] == ""
-    assert sent["inputs"] == {}, sent["inputs"]
+    assert "inputs" not in sent, sent
 
-    # options と inputs の呼ぶ形
+    # options の呼ぶ形
     control.phone_card_options("demo")
-    assert cli.last["args"] == ["sai-moon-link", "phone", "card", "options"]
-    control.phone_card_inputs("demo", "sub")
-    assert cli.last["args"] == [
-        "sai-moon-link", "phone", "card", "inputs", "--block", "sub",
-    ], cli.last["args"]
+    assert cli.last["args"] == ["sai-moon-link", "card", "options"], cli.last["args"]
 
 
 def test_start_success(cli: FakeCli) -> None:
-    """▶ 実行は `phone card run <run_id>` を root で呼び，応答をそのまま返す。"""
+    """▶ 実行は `card run <run_id>` を root で呼び，応答をそのまま返す。"""
     cli.returncode = 0
     cli.stdout = json.dumps({"run_id": 39, "message": "実行を要求しました"})
     cli.stderr = ""
@@ -190,7 +178,7 @@ def test_start_success(cli: FakeCli) -> None:
     out = control.phone_card_start("demo", 39)
     assert out == {"run_id": 39, "message": "実行を要求しました"}
     call = cli.last
-    assert call["args"] == ["sai-moon-link", "phone", "card", "run", "39"], call["args"]
+    assert call["args"] == ["sai-moon-link", "card", "run", "39"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
     assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
 
@@ -202,17 +190,21 @@ def test_start_success(cli: FakeCli) -> None:
 
 
 def test_start_404(cli: FakeCli) -> None:
-    """未実行カードが無いとき（終了コード 3・stderr「未実行のカードが見つかりません」）だけ 404。"""
+    """未実行カードが無い（終了コード 3）は 404（文に関係なく・U09）。"""
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "未実行のカードが見つかりません"
     cli.calls.clear()
     e = expect(404, lambda: control.phone_card_start("demo", 99999))
     assert str(e.detail) == "未実行のカードが見つかりません", e.detail
+    # 別の文でも終了コード 3 なら 404（文の一致は見ない）
+    cli.stderr = "まだありません"
+    e = expect(404, lambda: control.phone_card_start("demo", 39))
+    assert str(e.detail) == "まだありません", e.detail
 
 
 def test_start_502(cli: FakeCli) -> None:
-    """常駐停止などその他の失敗は 502 に stderr の先頭 200 文字（計画 15 の▶ 実行）。"""
+    """常駐停止などその他の失敗は 502（理由は標準エラーの最後の行）。"""
     # 常駐が止まっている（終了コード 1）
     cli.returncode = 1
     cli.stdout = ""
@@ -220,32 +212,15 @@ def test_start_502(cli: FakeCli) -> None:
     e = expect(502, lambda: control.phone_card_start("demo", 39))
     assert "常駐が止まっています" in str(e.detail), e.detail
 
-    # 終了コード 3 でも文言が違えば 404 にしない（md の「まだありません」との違いも確認）
-    cli.returncode = 3
-    cli.stderr = "まだありません"
-    e = expect(502, lambda: control.phone_card_start("demo", 39))
-    assert str(e.detail) == "まだありません", e.detail
-
-    # 長い stderr は先頭 200 文字
+    # 最後の空でない行だけを使う（`sai-progress` は飛ばす）
     cli.returncode = 1
-    cli.stderr = "x" * 500
+    cli.stderr = "sai-progress step=1\n本当の理由"
     e = expect(502, lambda: control.phone_card_start("demo", 39))
-    assert len(str(e.detail)) == 200, len(str(e.detail))
-
-
-def test_missing_messages_do_not_cross(cli: FakeCli) -> None:
-    """404 の文言は呼び出し側で渡すもの（md と ▶ 実行で入れ替わらない）。"""
-    cli.returncode = 3
-    cli.stdout = ""
-    cli.stderr = "未実行のカードが見つかりません"
-    cli.calls.clear()
-    # md の API では同じ stderr でも 404 にしない（「まだありません」専用の判定のまま）
-    e = expect(502, lambda: control.phone_md("demo", 7, "report"))
-    assert str(e.detail) == "未実行のカードが見つかりません", e.detail
+    assert str(e.detail) == "本当の理由", e.detail
 
 
 def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
-    """md の種類は task / message / report。それ以外は 400 で CLI を呼ばない。"""
+    """md の種類は task / message / report / system。それ以外は 400 で CLI を呼ばない。"""
     cli.returncode = 0
     cli.stdout = json.dumps({"kind": "report", "name": "finalize-report.md", "text": "結果: DONE"})
     cli.stderr = ""
@@ -253,7 +228,7 @@ def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
 
     out = control.phone_md("demo", 7, "report")
     assert out["name"] == "finalize-report.md", out
-    assert cli.last["args"] == ["sai-moon-link", "phone", "md", "7", "--kind", "report"], cli.last["args"]
+    assert cli.last["args"] == ["sai-moon-link", "run", "md", "7", "--kind", "report"], cli.last["args"]
 
     e = expect(400, lambda: control.phone_md("demo", 7, "review"))
     assert "task / message / report" in str(e.detail), e.detail
@@ -263,7 +238,7 @@ def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
 
 
 def test_finalize_success(cli: FakeCli) -> None:
-    """■ 終了は `phone finalize <run_id>` を root で呼び，応答をそのまま返す（計画書 A の D2）。"""
+    """■ 終了は `run finalize <run_id>` を root で呼び，応答をそのまま返す（計画書 A の D2）。"""
     cli.returncode = 0
     cli.stdout = json.dumps({"run_id": 84, "message": "終了を要求しました"})
     cli.stderr = ""
@@ -272,7 +247,7 @@ def test_finalize_success(cli: FakeCli) -> None:
     out = control.phone_finalize("demo", 84)
     assert out == {"run_id": 84, "message": "終了を要求しました"}
     call = cli.last
-    assert call["args"] == ["sai-moon-link", "phone", "finalize", "84"], call["args"]
+    assert call["args"] == ["sai-moon-link", "run", "finalize", "84"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
     assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
 
@@ -284,37 +259,30 @@ def test_finalize_success(cli: FakeCli) -> None:
 
 
 def test_finalize_404(cli: FakeCli) -> None:
-    """その run が無いとき（終了コード 3・stderr「実行が見つかりません」）だけ 404。"""
+    """その run が無い（終了コード 3）は 404（文に関係なく）。"""
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "実行が見つかりません"
     cli.calls.clear()
     e = expect(404, lambda: control.phone_finalize("demo", 99999))
     assert str(e.detail) == "実行が見つかりません", e.detail
+    # 別の文でも終了コード 3 なら 404
+    cli.stderr = "子ブロックは task_report で完了します"
+    e = expect(404, lambda: control.phone_finalize("demo", 84))
+    assert str(e.detail) == "子ブロックは task_report で完了します", e.detail
 
 
 def test_finalize_502(cli: FakeCli) -> None:
-    """実行中でない・子ブロック・常駐停止などは 502 に stderr の先頭 200 文字。"""
+    """実行中でない・常駐停止など（終了コード 1）は 502。"""
     cli.returncode = 1
     cli.stdout = ""
     cli.stderr = "実行中ではありません（status=completed）"
     e = expect(502, lambda: control.phone_finalize("demo", 84))
     assert "実行中ではありません" in str(e.detail), e.detail
 
-    # 終了コード 3 でも文言が違えば 404 にしない（「未実行のカード…」との入れ替わりを防ぐ）
-    cli.returncode = 3
-    cli.stderr = "子ブロックは task_report で完了します"
-    e = expect(502, lambda: control.phone_finalize("demo", 84))
-    assert str(e.detail) == "子ブロックは task_report で完了します", e.detail
-
-    cli.returncode = 1
-    cli.stderr = "x" * 500
-    e = expect(502, lambda: control.phone_finalize("demo", 84))
-    assert len(str(e.detail)) == 200, len(str(e.detail))
-
 
 def test_advance_calls(cli: FakeCli) -> None:
-    """review → done → Workflow の移動（`phone advance <run_id>`・計画書 A の U10）。"""
+    """review → done → Workflow の移動（`run advance <run_id>`・計画書 A の U10）。"""
     cli.returncode = 0
     cli.stdout = '{"run_id": 42, "from": "review", "to": "done"}'
     cli.stderr = ""
@@ -323,7 +291,7 @@ def test_advance_calls(cli: FakeCli) -> None:
     out = control.phone_advance("demo", 42)
     assert out == {"run_id": 42, "from": "review", "to": "done"}
     call = cli.last
-    assert call["args"] == ["sai-moon-link", "phone", "advance", "42"], call["args"]
+    assert call["args"] == ["sai-moon-link", "run", "advance", "42"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
     assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
 
@@ -333,24 +301,29 @@ def test_advance_calls(cli: FakeCli) -> None:
         expect(400, lambda bad=bad: control.phone_advance("demo", bad))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
-    # その run が無いとき（終了コード 3・stderr「実行が見つかりません」）だけ 404
+    # その run が無いとき（終了コード 3）は 404
     cli.returncode = 3
     cli.stdout = ""
     cli.stderr = "実行が見つかりません"
     e = expect(404, lambda: control.phone_advance("demo", 99999))
     assert str(e.detail) == "実行が見つかりません", e.detail
 
-    # review / done 以外（終了コード 1）は 502 に stderr
+    # review / done 以外（終了コード 1）は 502 に標準エラーの最後の行
     cli.returncode = 1
     cli.stderr = "review / done の run だけ移動できます"
     e = expect(502, lambda: control.phone_advance("demo", 42))
     assert str(e.detail) == "review / done の run だけ移動できます", e.detail
 
-    # 404 の文言は ▶ 実行（別の物）と入れ替わらない
-    cli.returncode = 3
-    cli.stderr = "未実行のカードが見つかりません"
-    e = expect(502, lambda: control.phone_advance("demo", 42))
-    assert str(e.detail) == "未実行のカードが見つかりません", e.detail
+
+def test_rm_calls(cli: FakeCli) -> None:
+    """List の項目を消す（`run rm <run_id> --yes`）。"""
+    cli.returncode = 0
+    cli.stdout = '{"run_id": 42, "executions": 3}'
+    cli.stderr = ""
+    cli.calls.clear()
+    out = control.phone_rm("demo", 42)
+    assert out == {"run_id": 42, "executions": 3}
+    assert cli.last["args"] == ["sai-moon-link", "run", "rm", "42", "--yes"], cli.last["args"]
 
 
 def test_project_checks(cli: FakeCli) -> None:
@@ -366,7 +339,7 @@ def test_project_checks(cli: FakeCli) -> None:
 
 
 def test_routes() -> None:
-    """新しい 4 つの住所が登録済みで，旧 API（…/todo と …/run）は消えている。"""
+    """新しい住所が登録済みで，旧 API（…/todo・…/run・…/card/inputs）は消えている。"""
     from sai_phone.main import app
 
     paths = set()
@@ -376,13 +349,14 @@ def test_routes() -> None:
 
     for path in [
         "/api/projects/{name}/card/options",
-        "/api/projects/{name}/card/inputs",
         "/api/projects/{name}/card",
         "/api/projects/{name}/runs/{run_id:int}/start",
     ]:
         method = "POST" if path.endswith("/card") or path.endswith("/start") else "GET"
         assert (path, method) in paths, f"住所が無い: {path} {method}"
 
+    # 入力ファイルの手順は無くなったので住所も消している（U09）
+    assert ("/api/projects/{name}/card/inputs", "GET") not in paths, "旧 …/card/inputs が残っている"
     # 旧 API は使わなくなったので消している（計画 15 §2）
     assert ("/api/projects/{name}/todo", "GET") not in paths, "旧 …/todo が残っている"
     assert ("/api/projects/{name}/run", "POST") not in paths, "旧 …/run が残っている"
@@ -418,12 +392,12 @@ def main() -> None:
         test_start_success(cli)
         test_start_404(cli)
         test_start_502(cli)
-        test_missing_messages_do_not_cross(cli)
         test_md_kind_check_accepts_report_and_rejects_others(cli)
         test_finalize_success(cli)
         test_finalize_404(cli)
         test_finalize_502(cli)
         test_advance_calls(cli)
+        test_rm_calls(cli)
         test_project_checks(cli)
     finally:
         control.run_cli = original_run_cli
