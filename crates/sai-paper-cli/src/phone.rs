@@ -12,13 +12,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
-use chrono::{Datelike, Local};
+use anyhow::{Result, bail};
+use chrono::Datelike;
 use clap::Subcommand;
 use rusqlite::OptionalExtension;
 use sai_paper_core::citation;
 use sai_paper_core::citation::db::get_refs_for;
-use sai_paper_core::paths::PaperRoots;
 use sai_paper_core::{
     Config, Database, LibraryIndexer, LibraryPaper, Paths, S2Client, figures, find_log,
     library_tree, paths, podcast_client, search_log, search_sets, translation,
@@ -26,6 +25,7 @@ use sai_paper_core::{
 use serde_json::{Value, json};
 
 use crate::open_database;
+use crate::sci_bridge;
 
 /// `api::PaperSourceResolver::resolve` が受け付ける DB ID（resolver を参照）。
 const AVAILABLE_PROVIDERS: [&str; 6] = ["s2", "pubmed", "biorxiv", "medrxiv", "openalex", "arxiv"];
@@ -157,10 +157,10 @@ pub enum PhoneCmd {
         /// 対応済みにする key（例: `question:41:対象は?`）
         key: String,
     },
-    /// 研究方針の木（phone sci）
+    /// 研究方針の木（phone sci。古い別名。`sai-sci` に渡す）
     Sci {
         #[command(subcommand)]
-        cmd: crate::phone_sci::PhoneSciCmd,
+        cmd: PhoneSciCmd,
     },
     /// 検索セット（一覧・候補・選別。`sai-moon-paper set …` と同じ核を呼ぶ）
     Set {
@@ -199,6 +199,48 @@ pub enum PhoneCmd {
         /// 内部検索の履歴 ID（find_logs.id）
         log_id: i64,
     },
+}
+
+/// `sai-moon-paper phone sci` のサブコマンド（古い別名。`sai-sci` に渡す。ガイド 4 で消す）。
+#[derive(Subcommand, Debug)]
+pub enum PhoneSciCmd {
+    /// 現況を JSON で返す
+    Status,
+    /// 研究方針の木を始める
+    Init {
+        /// 研究の型（problem / phenomenon / method / data / improve など）
+        #[arg(long = "type", value_name = "型")]
+        type_id: String,
+    },
+    /// Node 1 つの詳細を JSON で返す
+    Node {
+        /// Node の ID（`Q12`・`O5` など）
+        node: String,
+    },
+    /// 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON）
+    Apply,
+    /// 仕分け待ちの提案を JSON で返す
+    Proposals,
+    /// 提案を仕分ける（採用のときの中身の上書きは標準入力）
+    Triage {
+        /// 提案の ID（`P56`）
+        proposal: String,
+        /// 仕分け（accept / reject / revert）
+        #[arg(long)]
+        action: String,
+        /// 仕分けのメモ
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Node のための実行（カード）を作る（標準入力に C-CARD の JSON）
+    Card,
+    /// 読む札（runner が user のカード）の中身を JSON で返す
+    Read {
+        /// 実行 ID
+        run_id: i64,
+    },
+    /// 使える研究の型を JSON で返す
+    Types,
 }
 
 /// `sai-moon-paper phone set` のサブコマンド。
@@ -263,8 +305,15 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         PhoneCmd::TranslatePdf { paper_id } => translate_pdf(paper_id).await,
         PhoneCmd::Dashboard => dashboard(),
         PhoneCmd::Note { paper_id } => save_note(paper_id),
-        PhoneCmd::Project => project(),
-        PhoneCmd::MindAppend => mind_append(),
+        PhoneCmd::Project => sci_bridge::run_json(&sci_args(&["project", "show", "--json"]), None),
+        PhoneCmd::MindAppend => {
+            // 標準入力の 1 行を `project memo` の引数にする。
+            use std::io::BufRead as _;
+            let mut line = String::new();
+            let _ = std::io::stdin().lock().read_line(&mut line);
+            let text = line.trim_end_matches(['\n', '\r']);
+            sci_bridge::run_json(&sci_args(&["project", "memo", text, "--json"]), None)
+        }
         PhoneCmd::Import { cmd } => crate::phone_import::run_import(cmd),
         PhoneCmd::Download {
             log,
@@ -290,8 +339,11 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         PhoneCmd::ManualCandidates { minutes } => crate::phone_cite::manual_candidates(minutes),
         PhoneCmd::ManualImport { args } => crate::phone_cite::manual_import_command(&args),
         PhoneCmd::AfterDownload { paper_id } => crate::phone_import::after_download(paper_id).await,
-        PhoneCmd::AttentionResolve { key } => crate::phone_import::attention_resolve(&key),
-        PhoneCmd::Sci { cmd } => crate::phone_sci::run(cmd),
+        PhoneCmd::AttentionResolve { key } => sci_bridge::run_json(
+            &sci_args(&["attention", "resolve", &key, "--json"]),
+            None,
+        ),
+        PhoneCmd::Sci { cmd } => phone_sci_bridge(cmd),
         PhoneCmd::Set { cmd } => set_run(cmd),
         PhoneCmd::Find {
             mode,
@@ -303,13 +355,35 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
             each,
             query,
         } => {
+            // Node に結び付ける検索は sai-sci が行う（古い別名。ガイド 4 で消す）。
+            if node.is_some() || subtree {
+                let mut args = vec!["find".to_string(), query.clone()];
+                push_opt(&mut args, "--mode", mode.as_deref());
+                if let Some(top_k) = top_k {
+                    args.push("--top-k".to_string());
+                    args.push(top_k.to_string());
+                }
+                push_opt(&mut args, "--scope", scope.as_deref());
+                for one in &paper {
+                    args.push("--paper".to_string());
+                    args.push(one.to_string());
+                }
+                push_opt(&mut args, "--node", node.as_deref());
+                if subtree {
+                    args.push("--subtree".to_string());
+                }
+                if let Some(each) = each {
+                    args.push("--each".to_string());
+                    args.push(each.to_string());
+                }
+                args.push("--json".to_string());
+                sci_bridge::run_json(&args, None);
+            }
             find(FindArgs {
                 mode: &mode,
                 top_k,
                 scope: &scope,
                 papers: &paper,
-                node: node.as_deref(),
-                subtree,
                 each,
                 query: &query,
             })
@@ -328,6 +402,89 @@ pub async fn handle(cmd: PhoneCmd, client: &S2Client) -> Result<()> {
         Err(err) => {
             println!("{}", json!({ "error": format!("{err:#}") }));
             std::process::exit(1);
+        }
+    }
+}
+
+// ---- `sai-sci` への別名（ガイド 4 で消す） ------------------------------------
+
+/// 文字列の並びを `sai-sci` に渡す引数にする。
+fn sci_args(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|part| (*part).to_string()).collect()
+}
+
+/// 値のある任意の引数を足す。
+fn push_opt(out: &mut Vec<String>, name: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        out.push(name.to_string());
+        out.push(value.to_string());
+    }
+}
+
+/// 標準入力の中身を読む（端末のままなら読まずに空を返す。書く命令だけが使う）。
+fn read_stdin_text() -> String {
+    use std::io::{IsTerminal as _, Read as _};
+    if std::io::stdin().is_terminal() {
+        return String::new();
+    }
+    let mut text = String::new();
+    let _ = std::io::stdin().read_to_string(&mut text);
+    text
+}
+
+/// `phone sci` を `sai-sci` の子として呼び、JSON をそのまま出す（形 A）。
+fn phone_sci_bridge(cmd: PhoneSciCmd) -> ! {
+    match cmd {
+        PhoneSciCmd::Status => sci_bridge::run_json(&sci_args(&["status", "--json"]), None),
+        PhoneSciCmd::Types => sci_bridge::run_json(&sci_args(&["types", "--json"]), None),
+        PhoneSciCmd::Proposals => sci_bridge::run_json(&sci_args(&["proposals", "--json"]), None),
+        PhoneSciCmd::Node { node } => {
+            sci_bridge::run_json(&sci_args(&["node", &node, "--json"]), None)
+        }
+        PhoneSciCmd::Read { run_id } => {
+            let run = run_id.to_string();
+            sci_bridge::run_json(&sci_args(&["read", &run, "--json"]), None)
+        }
+        PhoneSciCmd::Init { type_id } => {
+            sci_bridge::run_init_tree(&sci_args(&["init", "--type", &type_id, "--json"]))
+        }
+        PhoneSciCmd::Apply => {
+            let input = read_stdin_text();
+            sci_bridge::run_json(&sci_args(&["apply", "--json"]), Some(&input))
+        }
+        PhoneSciCmd::Card => {
+            let input = read_stdin_text();
+            sci_bridge::run_json(&sci_args(&["card", "--from-json", "--json"]), Some(&input))
+        }
+        PhoneSciCmd::Triage {
+            proposal,
+            action,
+            note,
+        } => {
+            let mut out = vec!["triage".to_string(), proposal];
+            match action.as_str() {
+                "accept" => {
+                    out.push("--accept".to_string());
+                    let edit = read_stdin_text();
+                    if !edit.trim().is_empty() {
+                        out.push(format!("--edit={edit}"));
+                    }
+                }
+                "reject" => out.push("--reject".to_string()),
+                "revert" => out.push("--revert".to_string()),
+                other => {
+                    // 知らない仕分けは、今の文で形 A の失敗にする。
+                    println!(
+                        "{}",
+                        json!({ "error": format!("知らない仕分けです: {other}（accept / reject / revert）") })
+                    );
+                    std::process::exit(1);
+                }
+            }
+            if let Some(note) = note {
+                out.push(format!("--note={note}"));
+            }
+            sci_bridge::run_json(&out, None)
         }
     }
 }
@@ -364,12 +521,8 @@ pub(crate) fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet
             [set.id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
-    // 木から消えた Node は null にする（古い番号を出さない）
-    let node = rt_node.and_then(|id| {
-        sai_sci_core::rt::store::get_node(conn, id)
-            .ok()
-            .map(|row| sai_sci_core::rt::fmt_id(row.kind, row.id))
-    });
+    // 木から消えた Node も、`rt_label` は今までどおり返す（`get_node` と同じ）。
+    let node = rt_node.and_then(|id| sai_paper_core::search_sets::rt_label(conn, id));
     let items = search_sets::items(conn, set.id)?;
     let count = |name: &str| items.iter().filter(|i| i.decision == name).count();
     Ok(json!({
@@ -890,21 +1043,14 @@ fn search_actor(conn: &rusqlite::Connection, log_id: i64) -> (Value, Value) {
     let node_id = set_node.or(rt.and_then(|(_, node)| node));
 
     let actor = if origin.as_deref() == Some("agent") || run_id.is_some() {
-        // 実行フォルダの task.md（無ければ sai-link の DB）から block の名前を引く。
-        let block = run_id.and_then(|run_id| {
-            let root = paths::project_root()?;
-            let dir = sai_sci_core::runs::list_run_dirs(&root)
-                .into_iter()
-                .find(|dir| dir.run_id == run_id)?;
-            sai_sci_core::runs::run_block_id(&root, &dir)
-        });
-        json!({ "kind": "agent", "run_id": run_id, "block": block })
+        // block の名前は、sai-paper が sai-link のデータを読まないので出さない（null）。
+        json!({ "kind": "agent", "run_id": run_id, "block": Value::Null })
     } else {
         json!({ "kind": "human" })
     };
     let node = node_id
-        .and_then(|id| sai_sci_core::rt::store::get_node(conn, id).ok())
-        .map(|node| json!({ "id": sai_sci_core::rt::fmt_id(node.kind, node.id) }));
+        .and_then(|id| sai_paper_core::search_sets::rt_label(conn, id))
+        .map(|label| json!({ "id": label }));
     (actor, node.unwrap_or(Value::Null))
 }
 
@@ -914,8 +1060,6 @@ struct FindArgs<'a> {
     top_k: Option<i64>,
     scope: &'a Option<String>,
     papers: &'a [i64],
-    node: Option<&'a str>,
-    subtree: bool,
     each: Option<i64>,
     query: &'a str,
 }
@@ -923,14 +1067,13 @@ struct FindArgs<'a> {
 /// `phone find …`: Library の中を検索し、内部検索の履歴に残す（U01。要約なし）。
 ///
 /// 出力は `phone find-log <新しい log_id>` と同じ形。結果 0 件でも履歴は残す。
+/// 研究方針の Node（`--node`）が付いた検索は、別名として `sai-sci` が行う。
 async fn find(args: FindArgs<'_>) -> Result<Value> {
     let FindArgs {
         mode,
         top_k,
         scope,
         papers,
-        node,
-        subtree,
         each,
         query,
     } = args;
@@ -954,20 +1097,15 @@ async fn find(args: FindArgs<'_>) -> Result<Value> {
         )
         .into());
     }
-    // `--subtree` と `--each` には範囲の指定が要る（CLI の find と同じ検査）。
-    crate::sci::check_find_scope(subtree, node.is_some(), each, papers.is_empty())?;
+    // `--each` には範囲の指定が要る（Node の指定は別名が先に取る）。
+    if each.is_some() && papers.is_empty() {
+        return Err(crate::cli_error::CliError::input("--each は --paper と一緒に使います").into());
+    }
 
     let (db, cfg, _paths) = open_context()?;
     let conn = db.connection();
-    let refs = crate::sci::parse_search_refs(conn, node)?;
-    let (paper_ids, range_text) = sai_sci_core::rt::scope::resolve_scope(
-        conn,
-        None,
-        papers,
-        refs.node,
-        subtree,
-    )
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    let (paper_ids, range_text) =
+        sai_paper_core::retrieval::resolve_paper_scope(conn, None, papers)?;
     let widen = "";
     let hits = sai_paper_core::retrieval::find(
         conn,
@@ -1000,8 +1138,8 @@ async fn find(args: FindArgs<'_>) -> Result<Value> {
             scope: scope.as_deref(),
             range_text: &range_text,
             papers: &range_papers,
-            node_id: refs.node,
-            subtree,
+            node_id: None,
+            subtree: false,
             each,
             widen_reason: widen,
             origin: "phone",
@@ -1009,21 +1147,6 @@ async fn find(args: FindArgs<'_>) -> Result<Value> {
         },
         &hits,
         &passages,
-    )?;
-    // Node が結び付いていれば `rt_searches` にも残す（CLI の find と同じ）。
-    crate::sci::record_search(
-        conn,
-        &crate::sci::SearchLog {
-            refs: &refs,
-            tool: "find",
-            query,
-            scope: &range_text,
-            widen_reason: widen,
-            hits: hits.len() as i64,
-            hit_papers: &crate::sci::hit_paper_ids(&hits),
-            set_id: None,
-            log_id: None,
-        },
     )?;
     find_log_view(&db, log_id)
 }
@@ -1039,22 +1162,25 @@ pub(crate) fn find_log_json(
     // 実行者: `run_id` ありか `origin = 'mcp'` なら agent（`search_actor` と同じ作り）。
     let run_id = row.run_id;
     let actor = if find_log::is_agent(&row.origin, run_id) {
-        // 実行フォルダの task.md（無ければ sai-link の DB）から block の名前を引く。
-        let block = run_id.and_then(|run_id| {
-            let root = paths::project_root()?;
-            let dir = sai_sci_core::runs::list_run_dirs(&root)
-                .into_iter()
-                .find(|dir| dir.run_id == run_id)?;
-            sai_sci_core::runs::run_block_id(&root, &dir)
-        });
-        json!({ "kind": "agent", "run_id": run_id, "block": block })
+        // block の名前は、sai-paper が sai-link のデータを読まないので出さない（null）。
+        json!({ "kind": "agent", "run_id": run_id, "block": Value::Null })
     } else {
         json!({ "kind": "human" })
     };
-    let node = row
-        .node_id
-        .and_then(|id| sai_sci_core::rt::store::get_node(conn, id).ok())
-        .map(|node| json!({ "id": sai_sci_core::rt::fmt_id(node.kind, node.id) }));
+    // `find_log` に Node がなければ、`sai-sci find` が残した `rt_searches` から読む。
+    let node_id = row.node_id.or_else(|| {
+        conn.query_row(
+            "SELECT node_id FROM rt_searches WHERE tool = 'find' AND log_id = ?1 ORDER BY id DESC LIMIT 1",
+            [row.id],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+    });
+    let node = node_id
+        .and_then(|id| sai_paper_core::search_sets::rt_label(conn, id))
+        .map(|label| json!({ "id": label }));
     let hits: Vec<Value> = rows
         .iter()
         .map(|(position, paper_id, item)| {
@@ -1289,14 +1415,7 @@ pub(crate) fn dashboard() -> Result<Value> {
             )
         })
         .collect();
-    // sci の run（Action）の行。研究方針の木が無くても run があれば出す。
-    if let Some(roots) = sai_paper_core::paper_roots() {
-        for item in sai_sci_core::rt::action::activity(db.connection(), &roots).unwrap_or_default() {
-            if let Ok(at) = chrono::DateTime::parse_from_rfc3339(&item.occurred_at) {
-                timed.push((at.with_timezone(&chrono::Utc), json!(item)));
-            }
-        }
-    }
+    // 研究の run（Action）の行は、sai-sci が持つのでここでは混ぜない（要件定義書 A8）。
     timed.sort_by(|a, b| b.0.cmp(&a.0));
     timed.truncate(DASHBOARD_ACTIVITY_MAX);
     let items: Vec<Value> = timed.into_iter().map(|(_, v)| v).collect();
@@ -1337,53 +1456,6 @@ pub(crate) fn save_note(paper_id: i64) -> Result<Value> {
     db.record_activity("notes", Some(paper_id), None)?;
     let note = text.trim();
     Ok(json!({ "id": paper_id, "note": (!note.is_empty()).then_some(note) }))
-}
-
-/// `phone project`: 現況（state.md）・考え（mind.md）・状況のまとめ（brief）・要対応を出す（S05）。
-fn project() -> Result<Value> {
-    let (db, cfg, _paths) = open_context()?;
-    let roots = paths::paper_roots().context("プロジェクトルート（.sai/paper）が見つかりません")?;
-    project_json(&roots, &db, &cfg)
-}
-
-/// `phone project` の本体（テストからは場所を直接渡す）。
-///
-/// JSON のキーは `state` / `mind` / `brief` / `attention` の 4 つで、
-/// `brief --write` と違い `project-brief.md` は書き換えない。
-fn project_json(roots: &PaperRoots, db: &Database, cfg: &Config) -> Result<Value> {
-    let state = read_text(&paths::state_path(&roots.data_dir));
-    let mind = read_text(&paths::mind_path(&roots.data_dir));
-    let brief = sai_sci_core::brief::build_brief(
-        roots,
-        Some(db.connection()),
-        &cfg.brief,
-        &cfg.rag.default_index,
-    );
-    let attention = sai_sci_core::attention::collect(db.connection(), roots)?;
-    Ok(json!({
-        "state": state,
-        "mind": mind,
-        "brief": brief,
-        "attention": attention,
-    }))
-}
-
-/// `phone mind-append`: 標準入力の 1 行を mind.md の「## メモ」の節に足す（S05）。
-///
-/// state.md はスマホからは読むだけ（書き換えない）。
-fn mind_append() -> Result<Value> {
-    let roots = paths::paper_roots().context("プロジェクトルート（.sai/paper）が見つかりません")?;
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    let text = input.trim_end_matches(['\n', '\r']);
-    let stamp = Local::now().format("%m/%d %H:%M").to_string();
-    let line = sai_sci_core::project_files::append_memo(&roots.data_dir, text, &stamp)?;
-    Ok(json!({ "ok": true, "line": line }))
-}
-
-/// ファイルの中身（無い・読めないときは空の文字）。
-fn read_text(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1499,7 +1571,24 @@ mod tests {
         let shown = find_log_view(&db, agent).unwrap();
         assert_eq!(shown["log"]["actor"]["kind"], "agent");
         assert_eq!(shown["log"]["actor"]["run_id"], 5);
+        // block の名前は sai-link のデータを読まないので null。
+        assert!(shown["log"]["actor"]["block"].is_null());
         assert!(find_log_view(&db, human + agent + 99).is_err());
+
+        // `rt_searches` に `tool='find'` の行があれば、`find_log` の node が無くても
+        // `rt_label` で Node を出す（U13 の `sai-sci find` がこう書く）。
+        conn.execute(
+            "INSERT INTO rt_nodes (id, kind, text, created_by) VALUES (5, 'Q', '問い', 'user')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO rt_searches (node_id, tool, query, log_id) VALUES (5, 'find', '人の検索', ?1)",
+            [human],
+        )
+        .unwrap();
+        let with_node = find_log_view(&db, human).unwrap();
+        assert_eq!(with_node["log"]["node"]["id"], "Q5");
 
         let found = find_log::groups(conn, &[]).unwrap();
         assert_eq!(found.len(), 2);
@@ -1580,11 +1669,10 @@ mod tests {
         assert_eq!(shown["items"][1]["reason"], "まとめて drop");
     }
 
-    use super::{project_json, with_failed, year_label};
+    use super::{with_failed, year_label};
     use clap::Parser;
     use serde_json::json;
-    use sai_paper_core::paths::PaperRoots;
-    use sai_paper_core::{Config, Database};
+    use sai_paper_core::Database;
 
     /// `sai-moon-paper phone download --cite <id> --ref <no>` が引数として通ること（AC5）。
     ///
@@ -1685,35 +1773,36 @@ mod tests {
         assert!(one["items"].as_array().unwrap().is_empty());
     }
 
-    /// `phone project` は 4 つのキーを返し、`project-brief.md` を書き換えない（AC2）。
+    /// 検索セットの Node の表示は、`rt_label` が `rt_nodes` を読んで作る。
     #[test]
-    fn project_json_has_keys_and_does_not_write_brief() {
-        let dir = std::env::temp_dir().join(format!(
-            "sai-paper-phone-project-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        let data_dir = dir.join(".sai/paper");
-        std::fs::create_dir_all(&data_dir).unwrap();
-        std::fs::write(data_dir.join("state.md"), "# 現況\n\n- 目標: テスト\n").unwrap();
-        std::fs::write(data_dir.join("mind.md"), "# mind\n\n## メモ\n").unwrap();
+    fn set_json_uses_rt_label_for_the_node() {
+        use super::set_json;
+        use sai_paper_core::search_sets::{self, CreateSearchSetParams};
 
-        let db = Database::open(&data_dir.join("papr.db")).unwrap();
-        let roots = PaperRoots {
-            root: dir.clone(),
-            data_dir: data_dir.clone(),
-        };
-        let value = project_json(&roots, &db, &Config::default()).unwrap();
-
-        for key in ["state", "mind", "brief", "attention"] {
-            assert!(value.get(key).is_some(), "missing key: {key}");
-        }
-        assert!(value["attention"].is_array());
-        assert!(value["state"].as_str().unwrap().contains("テスト"));
-        // `brief --write` と違い `project-brief.md` は作らない。
-        assert!(!dir.join(".sai/template/project-brief.md").exists());
-
-        let _ = std::fs::remove_dir_all(&dir);
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        let id = search_sets::create(
+            conn,
+            CreateSearchSetParams {
+                name: "set".into(),
+                source_dbs: "s2".into(),
+                query: "q".into(),
+                raw_query: None,
+                created_by: "user".into(),
+                note: None,
+            },
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO rt_nodes (id, kind, text, created_by) VALUES (5, 'Q', '問い', 'user')",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE search_sets SET rt_node = 5 WHERE id = ?1", [id])
+            .unwrap();
+        assert_eq!(search_sets::rt_label(conn, 5).as_deref(), Some("Q5"));
+        assert_eq!(set_json(conn, &search_sets::get(conn, id).unwrap()).unwrap()["node"], "Q5");
+        // 行が無ければ `None`（表が無い・行が無いときも同じ）。
+        assert_eq!(search_sets::rt_label(conn, 9999), None);
     }
 }

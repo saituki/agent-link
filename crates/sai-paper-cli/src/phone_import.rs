@@ -1,5 +1,7 @@
-//! `sai-moon-paper phone import` / `phone download` / `phone after-download` /
-//! `phone attention-resolve` — sai-phone（Web）の Import・Download 画面用（U2）。
+//! `sai-moon-paper phone import` / `phone download` / `phone after-download`
+//! — sai-phone（Web）の Import・Download 画面用（U2）。
+//!
+//! `phone attention-resolve` は `sai-sci attention resolve` に移り、`phone.rs` が別名で呼ぶ。
 //!
 //! sai-phone は sai-paper の DB を直接開かず、このコマンドの JSON だけを読む。
 //! 共通ルール（`crates/sai-paper-cli/src/phone.rs` と同じ）:
@@ -23,15 +25,13 @@ use clap::Subcommand;
 use sai_paper_core::bibtex::{self, list_bib_files, load_bibtex_dir_detailed};
 use sai_paper_core::downloads::{DownloadEvent, DownloadManager, download_destination};
 use sai_paper_core::{
-    Config, Database, Paths, S2Client, downloads, library_tree, paths, pipeline, search_log,
+    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_log,
     translation,
 };
-use sai_sci_core::attention;
-use serde_json::{Value, json};
-use tokio::sync::mpsc;
-
 use crate::open_database;
 use crate::phone::{library_papers, open_context, remote_year};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
 
 /// `phone import add` で受け付ける .bib の最大バイト（1MB）。
 const MAX_BIB_BYTES: usize = 1024 * 1024;
@@ -522,22 +522,6 @@ pub async fn after_download(paper_id: i64) -> Result<Value> {
         .map(|messages| messages.clone())
         .unwrap_or_default();
     Ok(json!({ "paper_id": paper_id, "messages": messages }))
-}
-
-/// `phone attention-resolve <key>`: 要対応の 1 件を「対応済み」にする（JSON で返す）。
-///
-/// 処理は `sai-moon-paper attention resolve` と同じ（core の
-/// [`attention::collect`] → [`attention::resolve`]）。違うのは表示が JSON なだけ。
-pub fn attention_resolve(key: &str) -> Result<Value> {
-    let db = open_database()?;
-    let roots = paths::paper_roots().context("プロジェクトルート（.sai/paper）が見つかりません")?;
-    let items = attention::collect(db.connection(), &roots)?;
-    let item = items
-        .iter()
-        .find(|item| item.key == key)
-        .with_context(|| format!("要対応の key が見つかりません: {key}"))?;
-    attention::resolve(&db, item)?;
-    Ok(json!({ "ok": true, "key": key }))
 }
 
 #[cfg(test)]

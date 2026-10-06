@@ -48,9 +48,6 @@ pub enum SearchSetCmd {
         /// 作成者（既定: "user"）
         #[arg(long, default_value = "user")]
         created_by: String,
-        /// 結ぶ研究方針の Node の ID（`Q12`・`O5` など）
-        #[arg(long)]
-        node: Option<String>,
         /// 何のための検索か
         #[arg(long)]
         purpose: Option<String>,
@@ -134,7 +131,6 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
             raw_query,
             file,
             created_by,
-            node,
             purpose,
             extract,
             json: _,
@@ -146,7 +142,6 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
                 raw_query: raw_query.as_deref(),
                 file: file.as_deref(),
                 created_by: &created_by,
-                node: node.as_deref(),
                 purpose: purpose.as_deref(),
                 extract: extract.as_deref(),
             })
@@ -234,7 +229,6 @@ struct CreateArgs<'a> {
     raw_query: Option<&'a str>,
     file: Option<&'a str>,
     created_by: &'a str,
-    node: Option<&'a str>,
     purpose: Option<&'a str>,
     extract: Option<&'a str>,
 }
@@ -247,7 +241,6 @@ async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
         raw_query,
         file,
         created_by,
-        node,
         purpose,
         extract,
     } = args;
@@ -296,10 +289,18 @@ async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
         search_sets::add_items(conn, set_id, papers)?;
     }
 
-    // 何のための検索かをセットに書く。1 つも無ければ何もしない。
-    let refs = crate::sci::parse_search_refs(conn, node)?;
-    if let Some(fields) = crate::sci::set_fields(&refs, purpose, extract) {
-        search_sets::set_sci_fields(conn, set_id, &fields)?;
+    // 目的と抜き出す項目は、セットの覚え書きとして書く（Node は研究の物なので書かない）。
+    if purpose.is_some() || extract.is_some() {
+        search_sets::set_sci_fields(
+            conn,
+            set_id,
+            &search_sets::SciSetFields {
+                node: None,
+                question: None,
+                purpose: purpose.map(str::to_string),
+                extract: extract.map(str::to_string),
+            },
+        )?;
     }
 
     print_json(&serde_json::json!({ "id": set_id, "name": name }));
