@@ -8,6 +8,7 @@
 # - crates/sai-link-view   : lib sai_link_view — Web と CLI が使う組み立て処理（描画は無い）
 # - crates/sai-paper-core  : lib sai_paper_core — 検索/取得/解析/保存
 # - crates/sai-sci-core    : lib sai_sci_core — 研究方針の木・研究の記録・報告の検査
+# - crates/sai-sci-cli     : bin sai-sci — 研究の CLI（研究方針の木・検索の記録・報告）
 # - crates/sai-paper-cli   : bin sai-moon-paper — スクリプト用 CLI
 # - waggle/                : 独立 [workspace] を持つ vendor クレート群（exclude・名前維持）
 #
@@ -22,6 +23,7 @@ members = [
     "crates/sai-link-view",
     "crates/sai-paper-core",
     "crates/sai-sci-core",
+    "crates/sai-sci-cli",
     "crates/sai-paper-cli",
 ]
 # waggle は独自 [workspace] を持つため除外（Cargo の構造制約）

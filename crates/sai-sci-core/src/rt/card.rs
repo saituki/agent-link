@@ -16,7 +16,8 @@ use crate::handoff::{HandoffError, HandoffRequest, create_handoff_with_extra};
 use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
 
 const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
-const EXECUTERS: [&str; 2] = ["human", "professor"];
+// 起動者（U13）: `agent` は 2026 の改名で、旧 `professor` も同じ意味で受け付ける。
+const EXECUTERS: [&str; 2] = ["human", "agent"];
 const MODES: [&str; 2] = ["purpose_first", "blind_first"];
 const DEPTHS: [&str; 3] = ["abstract", "figures", "full"];
 const READ_BLOCK: &str = "sci-read";
@@ -163,11 +164,13 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         return invalid(format!("知らない実行者です: {runner}（pi / cc / user）"));
     }
     let executer = if spec.executer.trim().is_empty() { "human" } else { spec.executer.trim() };
+    // 旧 `professor` は `agent` と読む（ガイド 4 まで古い値を出す block があるため）。
+    let executer = if executer == "professor" { "agent" } else { executer };
     if !EXECUTERS.contains(&executer) {
-        return invalid(format!("知らない起動者です: {executer}（human / professor）"));
+        return invalid(format!("知らない起動者です: {executer}（human / agent）"));
     }
-    if executer == "professor" && runner != "pi" {
-        return invalid("professor が起こすカードは runner が pi だけです（子の run は pi で動くため）");
+    if executer == "agent" && runner != "pi" {
+        return invalid("agent が起こすカードは runner が pi だけです（子の run は pi で動くため）");
     }
     let is_read = runner == "user";
 
@@ -526,5 +529,42 @@ mod tests {
         // 読む札でないカードは弾く。
         let r2 = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
         assert!(read_card(e.db.connection(), &e.roots, &e.defs, r2.run_id).unwrap_err().to_string().contains("読む札ではありません"));
+    }
+
+    /// 起動者（U13）: 空は human、旧 `professor` は `agent` と読んで frontmatter に書き、
+    /// `agent` は runner が `pi` のときだけ、知らない値は Invalid。
+    #[test]
+    fn executer_accepts_agent_and_old_professor() {
+        let e = env("executer");
+
+        // 省略は human。
+        let r = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
+        let text = fs::read_to_string(&r.path).unwrap();
+        assert!(text.contains("executer: human"), "{text}");
+
+        // 旧 `professor` は `agent` として書く。
+        let mut s = spec();
+        s.executer = "professor".into();
+        let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
+        let text = fs::read_to_string(&r.path).unwrap();
+        assert!(text.contains("executer: agent"), "{text}");
+
+        // `agent` も同じ。
+        let mut s = spec();
+        s.executer = "agent".into();
+        let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
+        let text = fs::read_to_string(&r.path).unwrap();
+        assert!(text.contains("executer: agent"), "{text}");
+
+        // 知らない値は断る。
+        let mut s = spec();
+        s.executer = "robot".into();
+        assert!(err(&e, &s).contains("知らない起動者"));
+
+        // `agent` が起こすカードは runner が pi のときだけ。
+        let mut s = spec();
+        s.executer = "agent".into();
+        s.runner = "cc".into();
+        assert!(err(&e, &s).contains("runner が pi"));
     }
 }
