@@ -14,6 +14,7 @@ const {
   stParseHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
   stFixHash, stDecisionRows, stOpsFor, ST_NODE_OPS, ST_LOGIC,
   stVisibleRows, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
+  stFmtAt, stHistoryText, stSeedRows, ST_SEED_DEPTH,
 } = require(path.join(dir, "scitree.js"));
 
 const tests = [];
@@ -98,17 +99,98 @@ test(function testDecisionRows() {
 
 test(function testNodeOps() {
   assert.deepStrictEqual(Object.keys(ST_NODE_OPS), ["Q", "O", "F", "E"]);
-  assert.deepStrictEqual(ST_NODE_OPS.F, ["edit", "remove"]);
-  // 一番上の Q は remove を出さない。子の Q を持つ Q は add_o を出さない
-  assert.ok(!stOpsFor({ kind: "Q", parent: null }, []).includes("remove"));
-  assert.ok(stOpsFor({ kind: "Q", parent: "O1" }, []).includes("remove"));
-  assert.ok(!stOpsFor({ kind: "Q", parent: "O1" }, [{ kind: "Q" }]).includes("add_o"));
-  // add_e は Issue の O と E だけ。★ なら unstar
+  assert.deepStrictEqual(ST_NODE_OPS, {
+    Q: ["add_q", "add_o"],
+    O: ["add_q", "add_f", "add_e", "copy"],
+    F: [],
+    E: ["add_f", "add_e"],
+  });
+  // F は何も出さない
+  assert.deepStrictEqual(stOpsFor({ kind: "F", parent: "O1" }, []), []);
+  // Q で子に O があれば add_q を出さない
+  assert.ok(stOpsFor({ kind: "Q", parent: null }, []).includes("add_q"));
+  assert.ok(!stOpsFor({ kind: "Q", parent: null }, [{ kind: "O" }]).includes("add_q"));
+  // 子に Q があれば add_o を出さない
+  assert.ok(stOpsFor({ kind: "Q", parent: null }, []).includes("add_o"));
+  assert.ok(!stOpsFor({ kind: "Q", parent: null }, [{ kind: "Q" }]).includes("add_o"));
+  // add_e は E と Issue の O だけ
   assert.ok(!stOpsFor({ kind: "O", answer_kind: "answer" }, []).includes("add_e"));
   assert.ok(stOpsFor({ kind: "O", answer_kind: "issue" }, []).includes("add_e"));
   assert.ok(stOpsFor({ kind: "E" }, []).includes("add_e"));
-  assert.ok(stOpsFor({ kind: "O", starred: true }, []).includes("unstar"));
-  assert.ok(stOpsFor({ kind: "O", starred: false }, []).includes("star"));
+  assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_q"));
+  // O の add_q は常に出す
+  assert.deepStrictEqual(stOpsFor({ kind: "O", answer_kind: "answer" }, []), ["add_q", "add_f", "copy"]);
+});
+
+test(function testFmtAt() {
+  // 読めない文字はそのまま返す（地方時に依らない）
+  assert.strictEqual(stFmtAt("読めない"), "読めない");
+  assert.strictEqual(stFmtAt(""), "");
+  assert.strictEqual(stFmtAt(null), "");
+  assert.strictEqual(stFmtAt(undefined), "");
+  // 読める時刻は YYYY-MM-DD HH:MM の形になる
+  const v = stFmtAt("2026-10-02T00:00:00Z");
+  assert.ok(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(v), v);
+});
+
+test(function testHistoryText() {
+  const at = "2026-10-02T00:00:00Z";
+  const date = stFmtAt(at);
+  assert.strictEqual(stHistoryText({ action: "init", by: "user", at }), `init ${date} human`);
+  assert.strictEqual(
+    stHistoryText({ action: "Add F", by: "run:210", at, run_id: 210, block: "sci-read" }),
+    `Add F ${date} run 210 sci-read`,
+  );
+  assert.strictEqual(
+    stHistoryText({ action: "Run", at, run_id: 215, block: "sci-read", global_round: 12, round: 2 }),
+    `Run 215 sci-read R12.2 ${date}`,
+  );
+  assert.strictEqual(
+    stHistoryText({ action: "Run", at, run_id: 216, block: "sci-ideate", global_round: null, round: null }),
+    `Run 216 sci-ideate ${date}`,
+  );
+  assert.strictEqual(stHistoryText({ action: "edit", by: "user", at }), `edit ${date} human`);
+  // block が空なら run の番号だけ
+  assert.strictEqual(
+    stHistoryText({ action: "Add O", by: "run:3", at, run_id: 3, block: "" }),
+    `Add O ${date} run 3`,
+  );
+  // round が null なら R<global_round> だけ
+  assert.strictEqual(
+    stHistoryText({ action: "Run", at, run_id: 1, block: "sci-read", global_round: 4, round: null }),
+    `Run 1 sci-read R4 ${date}`,
+  );
+});
+
+test(function testSeedRows() {
+  const nodes = [
+    { id: "Q1", kind: "Q", text: "q" },
+    { id: "O2", kind: "O", text: "o" },
+    { id: "F7", kind: "F", text: "f" },
+    { id: "O4", kind: "O", text: "o" },
+    { id: "E5", kind: "E", text: "e" },
+  ];
+  // seed.nodes の順に、種類ごとの depth を返す
+  assert.deepStrictEqual(
+    stSeedRows({ nodes: ["Q1", "O2", "F7", "O4", "E5"] }, nodes),
+    [
+      { id: "Q1", kind: "Q", depth: 0 },
+      { id: "O2", kind: "O", depth: 1 },
+      { id: "F7", kind: "F", depth: 2 },
+      { id: "O4", kind: "O", depth: 1 },
+      { id: "E5", kind: "E", depth: 2 },
+    ],
+  );
+  // nodes が無ければ path を使う。見つからない ID は飛ばす
+  assert.deepStrictEqual(
+    stSeedRows({ path: ["Q1", "X9", "O2"] }, nodes),
+    [
+      { id: "Q1", kind: "Q", depth: 0 },
+      { id: "O2", kind: "O", depth: 1 },
+    ],
+  );
+  assert.deepStrictEqual(stSeedRows({}, nodes), []);
+  assert.deepStrictEqual(ST_SEED_DEPTH, { Q: 0, O: 1, F: 2, E: 2 });
 });
 
 // Q1 → O2 → F3 と Q1 → O4 の 4 行（並びは status.nodes と同じ順）
