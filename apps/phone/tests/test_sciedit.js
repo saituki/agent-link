@@ -13,6 +13,7 @@ const {
   seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
   seCardValues, seBuildCard, seProposalNodeKey, seProposalRunKey, seGroupProposals,
   seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
+  seNearestO, seSproutStartOs, seSproutNext, seChainPlan, seChainPath,
   SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS,
 } = require(src);
 
@@ -34,7 +35,15 @@ function ng(built) {
 function test_helpers() {
   assert.strictEqual(seTrim("  あ  "), "あ");
   assert.strictEqual(seTrim(null), "");
-  assert.strictEqual(seOpLabel("add_q"), "Q を足す");
+  // C4 の表示名
+  assert.strictEqual(seOpLabel("add_q"), "Add Q");
+  assert.strictEqual(seOpLabel("add_o"), "Add O");
+  assert.strictEqual(seOpLabel("add_f"), "Add F");
+  assert.strictEqual(seOpLabel("add_e"), "Add E");
+  assert.strictEqual(seOpLabel("copy"), "Copy O");
+  assert.strictEqual(seOpLabel("edit"), "Edit");
+  assert.strictEqual(seOpLabel("remove"), "Delete");
+  assert.strictEqual(seOpLabel("add_seed"), "Sprout を作る");
   assert.strictEqual(seOpLabel("mystery_op"), "mystery_op");
   assert.ok(seRefOk("Q12", "Q"));
   assert.ok(seRefOk("E3", "QOFE"));
@@ -233,6 +242,59 @@ function test_proposal_text() {
   assert.ok(seProposalSummary({}).includes("中身がありません"));
 }
 
+// --- Sprout の鎖（Q1 → O2 → Q3 → O4(Issue)、Q3 → Q5 → O6、Q1 → O7） ---
+function sproutNodes() {
+  const n = (id, parent, extra) => Object.assign({ id, parent, text: `${id} の文` }, extra || {});
+  return [
+    n("Q1", null),
+    n("O2", "Q1", { answer_kind: "answer" }),
+    n("Q3", "O2"),
+    n("O4", "Q3", { answer_kind: "issue" }),
+    n("Q5", "Q3"),
+    n("O6", "Q5", { answer_kind: "answer" }),
+    n("O7", "Q1", { answer_kind: "answer" }),
+  ];
+}
+
+function test_sprout_chain() {
+  const nodes = sproutNodes();
+  // seNearestO: O から上へ Q をたどって最初に会う O
+  assert.strictEqual(seNearestO(nodes, "O4"), "O2");
+  assert.strictEqual(seNearestO(nodes, "O6"), "O2");
+  assert.strictEqual(seNearestO(nodes, "O2"), null);
+  assert.strictEqual(seNearestO(nodes, "O7"), null);
+  assert.strictEqual(seNearestO(nodes, "Q1"), null);
+  // seSproutStartOs: Q の直の子の O
+  assert.deepStrictEqual(seSproutStartOs(nodes, "Q1").map((o) => o.id), ["O2", "O7"]);
+  assert.deepStrictEqual(seSproutStartOs(nodes, "Q3").map((o) => o.id), ["O4"]);
+  assert.deepStrictEqual(seSproutStartOs(nodes, "Q9"), []);
+  // seSproutNext: 直前の O の下の O
+  assert.deepStrictEqual(seSproutNext(nodes, "O2").map((o) => o.id), ["O4", "O6"]);
+  assert.deepStrictEqual(seSproutNext(nodes, "O4"), []);
+  assert.deepStrictEqual(seSproutNext(nodes, "O7"), []);
+}
+
+function test_chain_plan() {
+  const nodes = sproutNodes();
+  // 開始の Q を選んでいないときは 1 段だけ
+  assert.strictEqual(seChainPlan(nodes, ["", ""]).rows.length, 1);
+  // Q1 → 2 段目（O2・O7）
+  const r1 = seChainPlan(nodes, ["Q1", ""]);
+  assert.strictEqual(r1.rows.length, 2);
+  assert.deepStrictEqual(r1.rows[1].options.map((x) => x[0]), ["O2", "O7"]);
+  // Q1 → O2 → 3 段目（O4・O6）
+  const r2 = seChainPlan(nodes, ["Q1", "O2", ""]);
+  assert.strictEqual(r2.rows.length, 3);
+  assert.deepStrictEqual(r2.rows[2].options.map((x) => x[0]), ["O4", "O6"]);
+  // Q1 → O2 → O4 → 候補が無いので 3 段で止まる
+  const r3 = seChainPlan(nodes, ["Q1", "O2", "O4"]);
+  assert.strictEqual(r3.rows.length, 3);
+  // seChainPath: 空で止める
+  assert.deepStrictEqual(seChainPath(nodes, ["Q1", "O2", "O4"]), ["O2", "O4"]);
+  assert.deepStrictEqual(seChainPath(nodes, ["Q1", "O2", ""]), ["O2"]);
+  assert.deepStrictEqual(seChainPath(nodes, ["Q1", ""]), []);
+}
+
 function test_response_shapes() {
   assert.deepStrictEqual(seProposalList([{ id: "P1" }]), [{ id: "P1" }]);
   assert.deepStrictEqual(seProposalList({ proposals: [{ id: "P1" }] }), [{ id: "P1" }]);
@@ -253,6 +315,8 @@ function main() {
   test_unknown();
   test_tables();
   test_card();
+  test_sprout_chain();
+  test_chain_plan();
   test_group_proposals();
   test_proposal_text();
   test_response_shapes();

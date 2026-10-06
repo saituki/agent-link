@@ -11,12 +11,15 @@ const path = require("path");
 const {
   sgTreeLayout,
   sgSelectionOf,
+  sgSproutId,
+  sgSproutKeep,
   sgEdgeStyle,
   sgEdgePath,
   sgObjBar,
   sgCenterView,
   SG_CARD_W,
   SG_CARD_H,
+  SG_TREE_STEP,
 } = require(path.join(__dirname, "..", "src", "sai_phone", "static", "scigraph.js"));
 
 // --- 要件の図の木: Q0 → Q1 → O★・O → Q2・Q2 → O(Issue) → F・E → F・E・E ---
@@ -79,15 +82,51 @@ function testParentCentered() {
   }
 }
 
-function testSeedBelowPath() {
+function testSproutAboveRoot() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   const s = byId(l, "S1");
   assert.strictEqual(s.kind, "S");
-  // 道の一番深い O（O3）の部分木（E2 まで）より下
-  assert.ok(s.y > byId(l, "E2").y);
-  assert.ok(l.edges.some((e) => e.kind === "seed" && e.from === "O3" && e.to === "S1"));
+  // Sprout の札は根（Q0）の真上（y < 0）に並ぶ。線は根 → Sprout。
+  assert.ok(s.y < 0, `y=${s.y}`);
+  assert.strictEqual(s.y, -SG_TREE_STEP);
+  assert.ok(l.edges.some((e) => e.kind === "seed" && e.from === "Q0" && e.to === "S1"));
   assert.deepStrictEqual(sgSelectionOf(s), { kind: "seed", id: "S1" });
   assert.deepStrictEqual(sgSelectionOf(byId(l, "Q0")), { kind: "node", id: "Q0" });
+}
+
+function testSproutId() {
+  // id が "S1" の文字でも数の 1 でも、札の ID は S1 になる。
+  assert.strictEqual(sgSproutId("S1"), "S1");
+  assert.strictEqual(sgSproutId(1), "S1");
+  const num = sgTreeLayout({ status: { nodes: sampleStatus().nodes, seeds: [{ id: 1, title: "t", sentence: "s", path: ["O1"] }] } }, {});
+  assert.ok(byId(num, "S1"), "数の id でも S1 になる");
+  const str = sgTreeLayout({ status: { nodes: sampleStatus().nodes, seeds: [{ id: "S1", title: "t", sentence: "s", path: ["O1"] }] } }, {});
+  assert.ok(byId(str, "S1"), "文字の id でも S1 になる");
+  assert.strictEqual(byId(str, "SS1"), undefined);
+}
+
+function testSproutKeep() {
+  const status = {
+    nodes: [],
+    seeds: [{ id: "S1", title: "t", sentence: "s", path: ["O2", "O4"], nodes: ["Q1", "O2", "F7", "Q3", "O4", "E5", "F6"] }],
+  };
+  // nodes があれば nodes と札自身を返す。
+  assert.deepStrictEqual([...sgSproutKeep(status, "S1")].sort(), ["E5", "F6", "F7", "O2", "O4", "Q1", "Q3", "S1"].sort());
+  // nodes が無ければ path と札自身を返す。
+  const noNodes = { nodes: [], seeds: [{ id: 2, title: "t", sentence: "s", path: ["O2", "O4"] }] };
+  assert.deepStrictEqual([...sgSproutKeep(noNodes, "S2")].sort(), ["O2", "O4", "S2"].sort());
+  // Sprout でない ID には null を返す。
+  assert.strictEqual(sgSproutKeep(status, "Q1"), null);
+  assert.strictEqual(sgSproutKeep(status, "S9"), null);
+  assert.strictEqual(sgSproutKeep(status, null), null);
+}
+
+function testHideE() {
+  const l = sgTreeLayout({ status: sampleStatus() }, { hideE: true });
+  assert.strictEqual(byId(l, "E1"), undefined);
+  assert.strictEqual(byId(l, "E2"), undefined);
+  // 隠した E の下の F・E は一番近い見える祖先（O3）につなぐ。
+  assert.ok(l.edges.some((e) => e.from === "O3" && e.to === "F1"), JSON.stringify(l.edges));
 }
 
 function testHideF() {
@@ -199,7 +238,10 @@ const tests = [
   ["子は親より下", testChildBelowParent],
   ["札が重ならない", testNoOverlap],
   ["親は子の真ん中", testParentCentered],
-  ["SEED の札は道の下", testSeedBelowPath],
+  ["Sprout の札は根の上", testSproutAboveRoot],
+  ["Sprout の札の ID", testSproutId],
+  ["sgSproutKeep", testSproutKeep],
+  ["hideE", testHideE],
   ["hideF", testHideF],
   ["dim と札の中身", testDimAndContent],
   ["空の入力", testEmpty],
