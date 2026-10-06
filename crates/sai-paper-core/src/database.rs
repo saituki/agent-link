@@ -1,21 +1,18 @@
 //! `SQLite` persistence and schema migrations.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use thiserror::Error;
 
 use crate::{
     library::ImportedPdf,
-    models::{
-        ActivityItem, AuthorSummary, DashboardStats, LibraryPaper,
-        ReadingDay, ReadingStatistics, RemotePaper, ResearchDashboard, TagSummary,
-    },
+    models::{ActivityItem, LibraryPaper, RemotePaper},
 };
 
 const MIGRATIONS: &[(i64, &str)] = &[
@@ -608,32 +605,6 @@ impl Database {
         Ok(())
     }
 
-    /// Read summary counts used by the dashboard.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the aggregate query fails.
-    pub fn dashboard_stats(&self) -> Result<DashboardStats, DatabaseError> {
-        let stats = self.connection.query_row(
-            "SELECT
-                COUNT(*),
-                COALESCE(SUM(CASE WHEN reading_status = 'queued' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN pdf_path IS NOT NULL THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(is_favorite), 0)
-             FROM papers",
-            [],
-            |row| {
-                Ok(DashboardStats {
-                    papers: row.get(0)?,
-                    queued: row.get(1)?,
-                    downloaded: row.get(2)?,
-                    favorites: row.get(3)?,
-                })
-            },
-        )?;
-        Ok(stats)
-    }
-
     /// Add a minimal paper record while enforcing DOI uniqueness.
     ///
     /// # Errors
@@ -750,40 +721,6 @@ impl Database {
                 params![stored],
                 |row| row.get(0),
             )
-            .optional()
-            .map_err(Into::into)
-    }
-
-    /// Retrieve citation metadata for a specific paper.
-    ///
-    /// # Errors
-    /// Returns an error when the database query fails.
-    pub fn paper_citation_metadata(
-        &self,
-        paper_id: i64,
-    ) -> Result<Option<crate::models::CitationMetadata>, DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "SELECT p.title,
-                    COALESCE((SELECT GROUP_CONCAT(name, ' and ')
-                              FROM (SELECT a.name
-                                    FROM paper_authors pa JOIN authors a ON a.id = pa.author_id
-                                    WHERE pa.paper_id = p.id
-                                    ORDER BY pa.position)), ''),
-                    p.doi, p.arxiv_id, strftime('%Y', p.published_at), p.journal
-             FROM papers p
-             WHERE p.id = ?1 LIMIT 1",
-        )?;
-        statement
-            .query_row(params![paper_id], |row| {
-                Ok(crate::models::CitationMetadata {
-                    title: row.get(0)?,
-                    authors: row.get(1)?,
-                    doi: row.get(2)?,
-                    arxiv_id: row.get(3)?,
-                    year: row.get(4)?,
-                    journal_ref: row.get(5)?,
-                })
-            })
             .optional()
             .map_err(Into::into)
     }
@@ -907,108 +844,6 @@ impl Database {
                     .is_some_and(|path| crate::paths::is_file_in_roots(Path::new(path), roots))
             })
             .collect())
-    }
-
-    /// Load the cached dashboard feed for one local date and keyword set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the query or JSON decoding fails.
-    pub fn dashboard_feed_cache(
-        &self,
-        feed_date: &str,
-        keyword_signature: &str,
-    ) -> Result<Option<Vec<RemotePaper>>, DatabaseError> {
-        let papers = self
-            .connection
-            .query_row(
-                "SELECT payload FROM dashboard_feed_cache
-                 WHERE feed_date = ?1 AND keyword_signature = ?2",
-                params![feed_date, keyword_signature],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .map(|payload| serde_json::from_str(&payload).map_err(DatabaseError::from))
-            .transpose()?;
-
-        if papers.as_ref().is_some_and(Vec::is_empty) {
-            self.connection.execute(
-                "DELETE FROM dashboard_feed_cache
-                 WHERE feed_date = ?1 AND keyword_signature = ?2",
-                params![feed_date, keyword_signature],
-            )?;
-            return Ok(None);
-        }
-
-        if let Some(papers) = &papers {
-            self.record_dashboard_feed_history(feed_date, keyword_signature, papers)?;
-        }
-
-        Ok(papers)
-    }
-
-    /// Save the dashboard feed for one local date and keyword set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when JSON encoding or persistence fails.
-    pub fn save_dashboard_feed_cache(
-        &self,
-        feed_date: &str,
-        keyword_signature: &str,
-        papers: &[RemotePaper],
-    ) -> Result<(), DatabaseError> {
-        if papers.is_empty() {
-            return Ok(());
-        }
-        let payload = serde_json::to_string(papers)?;
-        self.connection.execute(
-            "INSERT INTO dashboard_feed_cache
-                (feed_date, keyword_signature, payload, refreshed_at)
-             VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
-             ON CONFLICT(feed_date, keyword_signature) DO UPDATE SET
-                payload = excluded.payload,
-                refreshed_at = CURRENT_TIMESTAMP",
-            params![feed_date, keyword_signature, payload],
-        )?;
-        self.record_dashboard_feed_history(feed_date, keyword_signature, papers)?;
-        Ok(())
-    }
-
-    /// Return remote paper IDs displayed on the dashboard on or after `feed_date`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the query fails.
-    pub fn dashboard_paper_ids_since(
-        &self,
-        feed_date: &str,
-    ) -> Result<HashSet<String>, DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "SELECT DISTINCT paper_id FROM dashboard_feed_history
-             WHERE feed_date >= ?1",
-        )?;
-        let ids = statement
-            .query_map([feed_date], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
-        Ok(ids)
-    }
-
-    fn record_dashboard_feed_history(
-        &self,
-        feed_date: &str,
-        keyword_signature: &str,
-        papers: &[RemotePaper],
-    ) -> Result<(), DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "INSERT OR IGNORE INTO dashboard_feed_history
-                (feed_date, keyword_signature, paper_id)
-             VALUES (?1, ?2, ?3)",
-        )?;
-        for paper in papers {
-            statement.execute(params![feed_date, keyword_signature, paper.id])?;
-        }
-        Ok(())
     }
 
     /// Upsert downloaded arXiv metadata and attach its local PDF path.
@@ -1576,149 +1411,6 @@ impl Database {
         Ok(())
     }
 
-    /// Read the full dashboard snapshot in a bounded set of local queries.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when any aggregate or activity query fails.
-    pub fn research_dashboard(&self) -> Result<ResearchDashboard, DatabaseError> {
-        let counts = self.dashboard_stats()?;
-        let (read, collections, disk_usage) = self.connection.query_row(
-            "SELECT
-                (SELECT COUNT(*) FROM papers WHERE reading_status = 'read'),
-                (SELECT COUNT(*) FROM tags),
-                (SELECT COALESCE(SUM(file_size), 0) FROM papers)",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?;
-        let page_count: u64 = self
-            .connection
-            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
-        let page_size: u64 = self
-            .connection
-            .query_row("PRAGMA page_size", [], |row| row.get(0))?;
-        Ok(ResearchDashboard {
-            counts,
-            read,
-            collections,
-            disk_usage,
-            downloads_size: 0,
-            database_size: page_count.saturating_mul(page_size),
-            reading: self.reading_statistics()?,
-            recent_activity: self.all_activity()?,
-        })
-    }
-
-    /// Compute persisted reading metrics and an 84-day activity heatmap.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when history aggregates cannot be queried.
-    pub fn reading_statistics(&self) -> Result<ReadingStatistics, DatabaseError> {
-        let now = chrono::Local::now();
-        let (sessions, monthly_reading, yearly_reading, average_reading_seconds, total_reading_seconds) =
-            self.connection.query_row(
-                "SELECT COUNT(*),
-                    COALESCE(SUM(CASE WHEN strftime('%Y-%m', opened_at, 'localtime') = ?1 THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN strftime('%Y', opened_at, 'localtime') = ?2 THEN 1 ELSE 0 END), 0),
-                    CAST(COALESCE((SELECT AVG(duration_s) FROM reading_history WHERE duration_s > 0), 0) AS INTEGER),
-                    COALESCE(SUM(duration_s), 0)
-                 FROM reading_history",
-                params![now.format("%Y-%m").to_string(), now.year().to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-            )?;
-        let heatmap = self.reading_heatmap()?;
-        let dates = heatmap
-            .iter()
-            .filter(|day| day.count > 0)
-            .filter_map(|day| NaiveDate::parse_from_str(&day.date, "%Y-%m-%d").ok())
-            .collect::<std::collections::HashSet<_>>();
-        let current_streak = reading_streak(&dates, now.date_naive());
-        let most_active_day = self
-            .connection
-            .query_row(
-                "SELECT strftime('%w', opened_at, 'localtime'), COUNT(*) FROM reading_history
-                 GROUP BY strftime('%w', opened_at, 'localtime') ORDER BY COUNT(*) DESC LIMIT 1",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .and_then(|day| weekday_name(&day).map(str::to_owned));
-        let most_read_author = self.top_history_label(
-            "SELECT a.name FROM reading_history h
-             JOIN paper_authors pa ON pa.paper_id = h.paper_id
-             JOIN authors a ON a.id = pa.author_id
-             GROUP BY a.id ORDER BY COUNT(*) DESC, MIN(pa.position), a.name LIMIT 1",
-        )?;
-        let most_read_journal = self.most_read_journal()?;
-        Ok(ReadingStatistics {
-            current_streak,
-            monthly_reading,
-            yearly_reading,
-            sessions,
-            average_reading_seconds,
-            total_reading_seconds,
-            most_active_day,
-            most_read_author,
-            most_read_journal,
-            heatmap,
-        })
-    }
-
-    fn reading_heatmap(&self) -> Result<Vec<ReadingDay>, DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "SELECT date(opened_at, 'localtime'), COUNT(*) FROM reading_history
-             WHERE date(opened_at, 'localtime') >= date('now', 'localtime', '-83 days')
-             GROUP BY date(opened_at, 'localtime') ORDER BY date(opened_at, 'localtime')",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
-        })?;
-        let counts = rows.collect::<Result<std::collections::HashMap<_, _>, _>>()?;
-        let today = chrono::Local::now().date_naive();
-        Ok((0_i64..84)
-            .rev()
-            .map(|offset| {
-                let date = today - Duration::days(offset);
-                let date = date.format("%Y-%m-%d").to_string();
-                ReadingDay {
-                    count: counts.get(&date).copied().unwrap_or(0),
-                    date,
-                }
-            })
-            .collect())
-    }
-
-    fn top_history_label(&self, sql: &str) -> Result<Option<String>, DatabaseError> {
-        self.connection
-            .query_row(sql, [], |row| row.get(0))
-            .optional()
-            .map_err(Into::into)
-    }
-
-    fn most_read_journal(&self) -> Result<Option<String>, DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "SELECT p.journal FROM reading_history h JOIN papers p ON p.id = h.paper_id
-             WHERE p.journal IS NOT NULL AND trim(p.journal) != ''",
-        )?;
-        let journals = statement.query_map([], |row| row.get::<_, String>(0))?;
-        let mut counts = HashMap::<String, u64>::new();
-        for journal in journals {
-            let journal = canonical_journal_name(&journal?);
-            if !journal.is_empty() {
-                *counts.entry(journal).or_default() += 1;
-            }
-        }
-        Ok(counts
-            .into_iter()
-            .max_by(|(left_name, left_count), (right_name, right_count)| {
-                left_count
-                    .cmp(right_count)
-                    .then_with(|| right_name.cmp(left_name))
-            })
-            .map(|(name, _)| name))
-    }
-
     /// Return recent activity for dashboard and history views.
     ///
     /// # Errors
@@ -1750,28 +1442,6 @@ impl Database {
     /// Returns an error when the database query fails.
     pub fn all_activity(&self) -> Result<Vec<ActivityItem>, DatabaseError> {
         self.recent_activity(u16::MAX)
-    }
-
-    /// List tags with their paper counts, most used first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the database query fails.
-    pub fn tags(&self) -> Result<Vec<TagSummary>, DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "SELECT t.id, t.name, COUNT(pt.paper_id)
-             FROM tags t LEFT JOIN paper_tags pt ON pt.tag_id = t.id
-             GROUP BY t.id
-             ORDER BY COUNT(pt.paper_id) DESC, t.name COLLATE NOCASE ASC",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok(TagSummary {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                paper_count: row.get(2)?,
-            })
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
     /// Create a tag if missing and return its ID.
@@ -1840,7 +1510,7 @@ impl Database {
         Ok(())
     }
 
-    /// sai-paper-cite（引用リスト TUI）の Library 照合用に
+    /// Web（`phone_cite`・`phone_import`）の Library 照合用に
     /// papers テーブルの最小限情報（arxiv_id / doi / s2_paper_id / title / pdf_path）を
     /// 全件取得する（R5）。
     ///
@@ -1924,120 +1594,6 @@ impl Database {
         Ok(papers)
     }
 
-    /// List all authors associated with local PDFs (using the first 5 authors per paper).
-    ///
-    /// # Errors
-    /// Returns an error when the query fails.
-    pub fn authors(&self, roots: &[PathBuf]) -> Result<Vec<AuthorSummary>, DatabaseError> {
-        let valid_papers: HashSet<i64> = self
-            .library_papers()?
-            .into_iter()
-            .filter(|paper| {
-                paper
-                    .pdf_path
-                    .as_deref()
-                    .is_some_and(|path| crate::paths::is_file_in_roots(Path::new(path), roots))
-            })
-            .map(|paper| paper.id)
-            .collect();
-
-        let mut statement = self.connection.prepare(
-            "SELECT a.id, a.name, pa.paper_id
-             FROM authors a
-             JOIN paper_authors pa ON pa.author_id = a.id AND pa.position < 5",
-        )?;
-
-        let mut author_counts: HashMap<i64, (String, u64)> = HashMap::new();
-        let mut rows = statement.query([])?;
-        while let Some(row) = rows.next()? {
-            let author_id: i64 = row.get(0)?;
-            let name: String = row.get(1)?;
-            let paper_id: i64 = row.get(2)?;
-            if valid_papers.contains(&paper_id) {
-                let entry = author_counts.entry(author_id).or_insert((name, 0));
-                entry.1 += 1;
-            }
-        }
-
-        let mut result: Vec<AuthorSummary> = author_counts
-            .into_iter()
-            .map(|(id, (name, count))| AuthorSummary {
-                id,
-                name,
-                paper_count: count,
-            })
-            .collect();
-
-        result.sort_by(|a, b| {
-            b.paper_count
-                .cmp(&a.paper_count)
-                .then_with(|| a.name.cmp(&b.name))
-        });
-        Ok(result)
-    }
-
-    /// List all local papers associated with a specific author (using the first 5 authors per paper).
-    ///
-    /// # Errors
-    /// Returns an error when the query fails.
-    pub fn author_papers(
-        &self,
-        author_id: i64,
-        roots: &[PathBuf],
-    ) -> Result<Vec<LibraryPaper>, DatabaseError> {
-        let mut statement = self.connection.prepare(
-            "SELECT p.id, p.title,
-                    COALESCE((SELECT GROUP_CONCAT(name, ', ')
-                              FROM (SELECT a.name
-                                    FROM paper_authors pa2 JOIN authors a ON a.id = pa2.author_id
-                                    WHERE pa2.paper_id = p.id
-                                    ORDER BY pa2.position)), ''),
-                    p.doi, p.arxiv_id, p.pdf_path, p.file_size, p.reading_status, p.is_favorite,
-                    p.abstract, p.abstract_ja, p.abstract_ja_translated_at, p.journal, p.published_at, p.updated_at, p.citation_count, p.is_retracted, p.retraction_checked_at
-             FROM papers p
-             JOIN paper_authors pa ON pa.paper_id = p.id
-             WHERE p.pdf_path IS NOT NULL
-               AND pa.author_id = ?1
-               AND pa.position < 5
-             ORDER BY p.created_at DESC, p.id DESC",
-        )?;
-        let rows = statement.query_map([author_id], |row| {
-            let file_size: Option<i64> = row.get(6)?;
-            Ok(LibraryPaper {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                authors: row.get(2)?,
-                doi: row.get(3)?,
-                arxiv_id: row.get(4)?,
-                // 読む側は実ファイルパスへ解決する（段階 2b）。
-                pdf_path: self.resolve_opt(&row.get(5)?),
-                file_size: file_size.and_then(|size| u64::try_from(size).ok()),
-                reading_status: row.get(7)?,
-                is_favorite: row.get(8)?,
-                abstract_text: row.get(9)?,
-                journal: row.get(12)?,
-                published_at: row.get(13)?,
-                updated_at: row.get(14)?,
-                abstract_ja: row.get(10)?,
-                abstract_ja_translated_at: row.get(11)?,
-                citation_count: row.get(15)?,
-                is_retracted: row.get(16)?,
-                retraction_checked_at: row.get(17)?,
-            })
-        })?;
-        let mut papers = Vec::new();
-        for paper in rows {
-            let paper = paper?;
-            let valid = paper
-                .pdf_path
-                .as_deref()
-                .is_some_and(|path| crate::paths::is_file_in_roots(Path::new(path), roots));
-            if valid {
-                papers.push(paper);
-            }
-        }
-        Ok(papers)
-    }
     /// Return local papers that can be enriched by a scholarly provider.
     ///
     /// Each entry is `(paper_id, candidate_arxiv_id, pdf_path)` ready for API lookup.
@@ -2380,55 +1936,6 @@ fn extract_arxiv_id(path: &str) -> Option<String> {
 /// arXiv commonly provides references such as `Phys. Rev. D 104, 043008 (2021)`.
 /// The first volume-like numeric token marks the end of the journal name; entries
 /// that are already venue names are returned unchanged.
-fn canonical_journal_name(value: &str) -> String {
-    let words = value.split_whitespace().collect::<Vec<_>>();
-    if words.is_empty() {
-        return String::new();
-    }
-    let end = words
-        .iter()
-        .position(|word| {
-            let token = word.trim_matches(|character: char| {
-                matches!(character, ',' | ';' | ':' | '.' | '(' | ')' | '[' | ']')
-            });
-            token.len() >= 2 && token.chars().all(|character| character.is_ascii_digit())
-        })
-        .unwrap_or(words.len());
-    words[..end]
-        .join(" ")
-        .trim_matches(|character: char| {
-            matches!(character, ',' | ';' | ':' | '.' | '(' | ')' | '[' | ']')
-        })
-        .to_owned()
-}
-
-fn reading_streak(dates: &std::collections::HashSet<NaiveDate>, today: NaiveDate) -> u64 {
-    let mut cursor = if dates.contains(&today) {
-        today
-    } else {
-        today - Duration::days(1)
-    };
-    let mut streak = 0_u64;
-    while dates.contains(&cursor) {
-        streak = streak.saturating_add(1);
-        cursor -= Duration::days(1);
-    }
-    streak
-}
-
-fn weekday_name(value: &str) -> Option<&'static str> {
-    match value {
-        "0" => Some("Sunday"),
-        "1" => Some("Monday"),
-        "2" => Some("Tuesday"),
-        "3" => Some("Wednesday"),
-        "4" => Some("Thursday"),
-        "5" => Some("Friday"),
-        "6" => Some("Saturday"),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -2439,7 +1946,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use rusqlite::params;
 
-    use super::{Database, PAPER_KEY_TABLES, canonical_journal_name};
+    use super::{Database, PAPER_KEY_TABLES};
     use crate::{
         library::{ImportedPdf, LibraryIndexer},
         models::RemotePaper,
@@ -2450,8 +1957,10 @@ mod tests {
     fn migrations_create_queryable_schema() -> Result<(), Box<dyn std::error::Error>> {
         let database = Database::in_memory()?;
         database.insert_paper("A useful paper", Some("10.1000/test"))?;
-        let stats = database.dashboard_stats()?;
-        assert_eq!(stats.papers, 1);
+        let count: i64 = database
+            .connection()
+            .query_row("SELECT COUNT(*) FROM papers", [], |row| row.get(0))?;
+        assert_eq!(count, 1);
         Ok(())
     }
 
@@ -3083,10 +2592,6 @@ mod tests {
             .library_paper_by_id(paper_id)?
             .ok_or("missing library paper")?;
         assert_eq!(library_paper.authors, "Zulu Author, Alpha Author");
-        let citation = database
-            .paper_citation_metadata(paper_id)?
-            .ok_or("missing citation metadata")?;
-        assert_eq!(citation.authors, "Zulu Author and Alpha Author");
 
         // Once persisted, metadata refreshes must retain the stored sequence.
         paper.authors.reverse();
@@ -3095,259 +2600,6 @@ mod tests {
             .library_paper_by_id(paper_id)?
             .ok_or("missing refreshed library paper")?;
         assert_eq!(library_paper.authors, "Zulu Author, Alpha Author");
-        Ok(())
-    }
-
-    #[test]
-    fn recorded_opens_feed_dashboard_history_and_statistics()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let database = Database::in_memory()?;
-        let paper_id = database.insert_paper("History paper", None)?;
-        database.connection.execute(
-            "UPDATE papers SET journal = 'Nature' WHERE id = ?1",
-            [paper_id],
-        )?;
-        let session_id = database.record_open(paper_id, true)?;
-        database.record_reading_duration(session_id, 120)?;
-        database.record_activity("search", None, Some("gravity waves"))?;
-
-        let dashboard = database.research_dashboard()?;
-        assert_eq!(dashboard.reading.sessions, 1);
-        assert_eq!(dashboard.reading.average_reading_seconds, 120);
-        assert_eq!(dashboard.reading.current_streak, 1);
-        assert_eq!(
-            dashboard.reading.most_read_journal.as_deref(),
-            Some("Nature")
-        );
-        assert_eq!(dashboard.reading.heatmap.len(), 84);
-        // PDF/paper open は activity_log へ記録しない（reading_history のみ）
-        assert_eq!(dashboard.recent_activity.len(), 1);
-        assert_eq!(dashboard.recent_activity[0].label, "gravity waves");
-        Ok(())
-    }
-
-    #[test]
-    fn most_read_journal_aggregates_canonical_venue_names() -> Result<(), Box<dyn std::error::Error>>
-    {
-        assert_eq!(
-            canonical_journal_name("Phys. Rev. D 104, 043008 (2021)"),
-            "Phys. Rev. D"
-        );
-        assert_eq!(
-            canonical_journal_name("Physical Review Letters 125, 1 (2020)"),
-            "Physical Review Letters"
-        );
-        assert_eq!(
-            canonical_journal_name("Classical and Quantum Gravity"),
-            "Classical and Quantum Gravity"
-        );
-
-        let database = Database::in_memory()?;
-        let first = database.insert_paper("First", None)?;
-        let second = database.insert_paper("Second", None)?;
-        let other = database.insert_paper("Other", None)?;
-        database.connection.execute(
-            "UPDATE papers SET journal = ?1 WHERE id = ?2",
-            params!["Phys. Rev. D 104, 043008 (2021)", first],
-        )?;
-        database.connection.execute(
-            "UPDATE papers SET journal = ?1 WHERE id = ?2",
-            params!["Phys. Rev. D 105, 012345 (2022)", second],
-        )?;
-        database.connection.execute(
-            "UPDATE papers SET journal = ?1 WHERE id = ?2",
-            params!["Physical Review Letters 125, 1 (2020)", other],
-        )?;
-        database.record_open(first, true)?;
-        database.record_open(second, true)?;
-        database.record_open(other, true)?;
-
-        let statistics = database.reading_statistics()?;
-        assert_eq!(
-            statistics.most_read_journal.as_deref(),
-            Some("Phys. Rev. D")
-        );
-        let stored: String = database.connection.query_row(
-            "SELECT journal FROM papers WHERE id = ?1",
-            [first],
-            |row| row.get(0),
-        )?;
-        assert_eq!(stored, "Phys. Rev. D 104, 043008 (2021)");
-        Ok(())
-    }
-
-    #[test]
-    fn dashboard_feed_cache_is_scoped_by_date_and_keywords()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let database = Database::in_memory()?;
-        let paper = RemotePaper {
-            id: "https://arxiv.org/abs/2607.00001".into(),
-            title: "Cached daily paper".into(),
-            authors: vec!["Researcher".into()],
-            abstract_text: "Cached abstract".into(),
-            published: Utc::now(),
-            updated: Utc::now(),
-            categories: vec!["astro-ph".into()],
-            pdf_url: None,
-            doi: None,
-            journal_ref: None,
-            citation_count: None,
-        };
-        database.save_dashboard_feed_cache("2026-07-13", "gravity", &[paper])?;
-
-        let cached = database
-            .dashboard_feed_cache("2026-07-13", "gravity")?
-            .ok_or("daily cache was not stored")?;
-        assert_eq!(cached[0].title, "Cached daily paper");
-        assert!(
-            database
-                .dashboard_feed_cache("2026-07-14", "gravity")?
-                .is_none()
-        );
-        assert!(
-            database
-                .dashboard_feed_cache("2026-07-13", "different")?
-                .is_none()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn empty_dashboard_feed_cache_is_not_retained_or_returned()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let database = Database::in_memory()?;
-
-        database.save_dashboard_feed_cache("2026-07-13", "gravity", &[])?;
-        assert!(
-            database
-                .dashboard_feed_cache("2026-07-13", "gravity")?
-                .is_none()
-        );
-
-        database.connection.execute(
-            "INSERT INTO dashboard_feed_cache (feed_date, keyword_signature, payload)
-             VALUES (?1, ?2, ?3)",
-            params!["2026-07-13", "legacy-empty", "[]"],
-        )?;
-        assert!(
-            database
-                .dashboard_feed_cache("2026-07-13", "legacy-empty")?
-                .is_none()
-        );
-        let retained: i64 = database.connection.query_row(
-            "SELECT COUNT(*) FROM dashboard_feed_cache
-             WHERE feed_date = ?1 AND keyword_signature = ?2",
-            params!["2026-07-13", "legacy-empty"],
-            |row| row.get(0),
-        )?;
-        assert_eq!(retained, 0);
-
-        Ok(())
-    }
-
-    #[test]
-    fn dashboard_history_tracks_cached_feed_papers_by_date()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let database = Database::in_memory()?;
-        let paper = RemotePaper {
-            id: "https://arxiv.org/abs/2607.00001".into(),
-            title: "Dashboard history paper".into(),
-            authors: vec!["Researcher".into()],
-            abstract_text: String::new(),
-            published: Utc::now(),
-            updated: Utc::now(),
-            categories: vec![],
-            pdf_url: None,
-            doi: None,
-            journal_ref: None,
-            citation_count: None,
-        };
-        database.save_dashboard_feed_cache("2026-07-13", "gravity", &[paper])?;
-
-        assert!(
-            database
-                .dashboard_paper_ids_since("2026-07-13")?
-                .contains("https://arxiv.org/abs/2607.00001")
-        );
-        assert!(database.dashboard_paper_ids_since("2026-07-14")?.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn authors_and_author_papers_stay_synchronized_with_filesystem()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let mut database = Database::in_memory()?;
-        let root = std::env::temp_dir().join(format!(
-            "papr-authors-sync-{}-{}",
-            std::process::id(),
-            Utc::now().timestamp_micros()
-        ));
-        fs::create_dir_all(&root)?;
-        let pdf_path = root.join("test_author_paper.pdf");
-        fs::write(&pdf_path, "%PDF-1.4 test")?;
-
-        let timestamp = Utc::now();
-        let paper = RemotePaper {
-            id: "https://arxiv.org/abs/2602.00003".into(),
-            title: "Test Author Paper".into(),
-            authors: vec!["Alice Specialist".into()],
-            abstract_text: "Testing authors list synchronization.".into(),
-            published: timestamp,
-            updated: timestamp,
-            categories: vec!["cs.SE".into()],
-            pdf_url: None,
-            doi: None,
-            journal_ref: None,
-            citation_count: None,
-        };
-
-        let pdf = ImportedPdf {
-            path: pdf_path.clone(),
-            title: "Test Author Paper".into(),
-            content_hash: "hash".into(),
-            file_size: 14,
-            library_root: Some(root.clone()),
-            relative_directory: None,
-        };
-
-        let paper_id = database.attach_download(&paper, &pdf, &root)?;
-
-        // attach_download で PDF が論文フォルダに移動されるため、DB から新しいパスを取得
-        let lib_paper = database
-            .library_paper_by_id(paper_id)?
-            .ok_or("paper not found")?;
-        let moved_pdf_path = lib_paper.pdf_path.as_deref().ok_or("pdf_path is null")?;
-        let moved_pdf_full_path = std::path::PathBuf::from(moved_pdf_path);
-
-        // Case 1: Valid roots, file exists -> Alice should be returned with count 1
-        let authors = database.authors(std::slice::from_ref(&root))?;
-        assert_eq!(authors.len(), 1);
-        assert_eq!(authors[0].name, "Alice Specialist");
-        assert_eq!(authors[0].paper_count, 1);
-
-        let papers = database.author_papers(authors[0].id, std::slice::from_ref(&root))?;
-        assert_eq!(papers.len(), 1);
-        assert_eq!(papers[0].id, paper_id);
-
-        // Case 2: File is missing -> Alice should NOT be returned
-        fs::remove_file(&moved_pdf_full_path)?;
-        let authors = database.authors(std::slice::from_ref(&root))?;
-        assert!(authors.is_empty());
-        let papers = database.author_papers(1, std::slice::from_ref(&root))?;
-        assert!(papers.is_empty());
-
-        // Case 3: Re-create file but query with wrong/different roots -> Alice should NOT be returned
-        fs::write(&moved_pdf_full_path, "%PDF-1.4 test")?;
-        let different_root = root.join("other_dir");
-        let authors = database.authors(std::slice::from_ref(&different_root))?;
-        assert!(authors.is_empty());
-        let papers = database.author_papers(1, std::slice::from_ref(&different_root))?;
-        assert!(papers.is_empty());
-
-        // Clean up
-        let _ = fs::remove_file(&pdf_path);
-        let _ = fs::remove_dir(&root);
-
         Ok(())
     }
 
@@ -3499,14 +2751,21 @@ mod tests {
         let database = Database::in_memory()?;
         let id = database.insert_paper("Test Paper", None)?;
         database.record_activity("paper_browsed", Some(id), None)?;
-        let dashboard = database.research_dashboard()?;
-        assert_eq!(dashboard.reading.sessions, 0);
+        let sessions: i64 = database
+            .connection
+            .query_row("SELECT COUNT(*) FROM reading_history", [], |row| row.get(0))?;
+        assert_eq!(sessions, 0);
 
         let session_id = database.record_open(id, true)?;
         database.record_reading_duration(session_id, 30)?;
-        let dashboard = database.research_dashboard()?;
-        assert_eq!(dashboard.reading.sessions, 1);
-        assert_eq!(dashboard.reading.average_reading_seconds, 30);
+        let (sessions, average): (i64, i64) = database.connection.query_row(
+            "SELECT COUNT(*), CAST(COALESCE(AVG(duration_s), 0) AS INTEGER)
+               FROM reading_history WHERE duration_s > 0",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(sessions, 1);
+        assert_eq!(average, 30);
         Ok(())
     }
 

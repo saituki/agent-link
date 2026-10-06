@@ -16,9 +16,6 @@ use crate::models::RemotePaper;
 use crate::paths::{self, move_pdf_file, paper_file_path, paper_folder};
 use crate::LibraryIndexer;
 
-/// TUI が見せる候補の窓（5 分）。
-pub const TUI_WINDOW: Duration = Duration::from_secs(5 * 60);
-
 /// 取り込み先の出し先。
 #[derive(Debug, Clone)]
 pub enum ManualTarget {
@@ -278,7 +275,7 @@ pub fn import_pdf(
 #[cfg(test)]
 mod tests {
     use super::{
-        ManualTarget, TUI_WINDOW, import_pdf, is_pdf_file, recent_pdfs, resolve_download_dir,
+        ManualTarget, import_pdf, is_pdf_file, recent_pdfs, resolve_download_dir,
         unique_pdf_destination, user_dirs_download_dir,
     };
     use crate::models::RemotePaper;
@@ -333,7 +330,10 @@ mod tests {
             .and_then(|file| file.set_times(std::fs::FileTimes::new().set_modified(old)))
             .expect("更新時刻を戻す");
 
-        assert_eq!(recent_pdfs(&dir, TUI_WINDOW), vec![fresh]);
+        assert_eq!(
+            recent_pdfs(&dir, std::time::Duration::from_secs(5 * 60)),
+            vec![fresh]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

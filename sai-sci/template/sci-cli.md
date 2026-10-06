@@ -1,4 +1,4 @@
-# 研究プロジェクトでの命令（sai-cli）
+# 研究プロジェクトでの命令（sci-cli）
 
 `sai-moon-link` と `sai-moon-paper` は、シェル（Bash）から記録を調べたり、次のカードを作ったりするときに使う。
 `sai-link`・`sai-paper`（名前に `moon` が無いほう）は旧版で、別の記録を読み書きする。使わない。

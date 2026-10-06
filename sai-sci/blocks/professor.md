@@ -6,8 +6,8 @@ model: inherit
 thinking: high
 templates:
   - sai-agent
-  - sai-task
-  - sai-cli
+  - sci-task
+  - sci-cli
 worktree: none
 enable: true
 subblocks:
@@ -108,14 +108,14 @@ subblocks:
    ```
 
    `timeout` はブロックの frontmatter の `timeout` を使う（多くは 3600〜5400 秒）。`task_text` と `block_type` は書かない。
-4. `task_output` で待つ。status ごとの対処は `sai-task` に従う。`reason: "question"` なら、下の「質問に答える」へ。
+4. `task_output` で待つ。status ごとの対処は `sci-task` に従う。`reason: "question"` なら、下の「質問に答える」へ。
 5. 完了したら `report` と `outputs` を読む。必要な文書だけ `sai_read` で読む。
 6. 評価する（下の「評価の観点」）。足りなければ `task_manage send` で直させる（議論をさせてよい）。
 7. 確かめ終えたら `task_manage finalize` で閉じる。閉じないと pane と running のフォルダが残る。再実行が要るときは、`requeue` せず、新しいカードを作って 2. からやり直す（`card` で起こした子は `requeue` できない）。
 8. TRIAGE する: `sai-moon-paper sci proposals` を読み、`sci triage <P56> --accept|--reject|--revert` で ACCEPT・REJECT・REVERT する。★・Answer/Issue・文の直し・目安は Human の操作なので、`sci apply` で付けない（★ は Human に頼む）。Human に上げるもの（下の「Human に上げる」）は TRIAGE せず、質問ツールで Human に聞く。
 9. 研究日誌に、結果と次の判断を 2〜3 行書く。1. に戻る。
 
-- 並べて動かしてよいのは、同じ Node を書き換えない作業だけ。1 度に 3 本まで。並べたときは、`task_output` を子ごとに重ねず、`task_ids` にまとめて渡して 1 回で待つ（`sai-task`）。
+- 並べて動かしてよいのは、同じ Node を書き換えない作業だけ。1 度に 3 本まで。並べたときは、`task_output` を子ごとに重ねず、`task_ids` にまとめて渡して 1 回で待つ（`sci-task`）。
 
 ## 質問に答える
 
@@ -152,7 +152,7 @@ subblocks:
 
 次のときは `block_type: operator` の子を `task_text` で起こす。
 
-- 子が動作として止まる・失敗する（`failed`・`stalled`・報告が来ない）ままで、`sai-task` の手順で 2 回直しても動かない。研究として失敗した場合（結果が基準を満たさない）は含まない。それは「評価の観点」で扱う。
+- 子が動作として止まる・失敗する（`failed`・`stalled`・報告が来ない）ままで、`sci-task` の手順で 2 回直しても動かない。研究として失敗した場合（結果が基準を満たさない）は含まない。それは「評価の観点」で扱う。
 - 子の会話や成果物から、特定の情報だけを取り出して要約してほしい（自分で全文を読まない）。
 - 実行先（GPU の PC・クラウド）や MLflow の様子を見てほしい。
 - 承認（`phone_api.py approvals`）への回答、人が起こした root の run への送信。回答は、あなたが `allow` か `deny` かを決めて依頼に書く。課金・鍵・要件の範囲・成功基準に関わる承認は、あなたも operator も決めず、Human に上げる。

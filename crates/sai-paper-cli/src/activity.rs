@@ -1,7 +1,7 @@
 //! `sai-moon-paper activity` — 「開いた」「エージェントが読んだ」の記録（N01）。
 //!
 //! - `activity open`: ユーザーが開いた記録を `activity_log` に足す。呼ぶ側
-//!   （sai-link-tui など）を止めないため、**失敗しても 0 で終わる**
+//!   （Web の画面など）を止めないため、**失敗しても 0 で終わる**
 //!   （標準エラーに 1 行だけ出す）。
 //! - `activity list`: 記録を新しい順に出す。
 //!
@@ -30,8 +30,8 @@ pub enum ActivityCmd {
         /// 論文 ID（papers.id。省略時はパスから決める）
         #[arg(long)]
         paper: Option<i64>,
-        /// 開いた画面（tui / sai-link / phone）
-        #[arg(long, default_value = "tui")]
+        /// 開いた画面（cli / sai-link / phone）
+        #[arg(long, default_value = "cli")]
         surface: String,
         /// 記録の種類（省略時はパスから決める: note / extract / mind / state / report / review / canvas）
         #[arg(long)]

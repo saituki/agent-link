@@ -6,13 +6,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 
 use thiserror::Error;
 use walkdir::WalkDir;
 
-use crate::database::{Database, DatabaseError};
 
 /// Metadata collected from a local PDF before database ingestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,83 +38,12 @@ pub struct CollectionDirectory {
     pub relative_path: PathBuf,
 }
 
-/// One paper processed by a library ingestion workflow.
-#[derive(Debug, Clone)]
-pub struct IngestedPdf {
-    /// Inspected filesystem metadata.
-    pub pdf: ImportedPdf,
-    /// Resolved database identifier.
-    pub paper_id: Option<i64>,
-    /// Whether this ingestion created a new database paper.
-    pub newly_imported: bool,
-}
-
-/// Result of reconciling one complete filesystem scan.
-#[derive(Debug, Clone)]
-pub struct LibraryIngestionResult {
-    /// Number of PDFs found by the scan.
-    pub found: usize,
-    /// Per-paper persistence results.
-    pub papers: Vec<IngestedPdf>,
-}
-
-/// Coordinates filesystem scan results with persistent library organization.
-pub struct LibraryIngestionService<'a> {
-    database: &'a Database,
-}
-
-impl<'a> LibraryIngestionService<'a> {
-    /// Bind ingestion to one database.
-    #[must_use]
-    pub const fn new(database: &'a Database) -> Self {
-        Self { database }
-    }
-
-    /// Persist and reconcile one complete filesystem scan.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a collection or paper cannot be persisted or
-    /// reconciled with the database.
-    pub fn ingest_scan(
-        &self,
-        pdfs: Vec<ImportedPdf>,
-        _directories: &[CollectionDirectory],
-    ) -> Result<LibraryIngestionResult, DatabaseError> {
-        let found = pdfs.len();
-        let mut papers = Vec::with_capacity(found);
-        for pdf in pdfs {
-            papers.push(self.ingest_pdf(pdf)?);
-        }
-        Ok(LibraryIngestionResult { found, papers })
-    }
-
-    /// Persist and classify one inspected PDF.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the paper cannot be imported, resolved, or assigned
-    /// to its filesystem collection.
-    pub fn ingest_pdf(&self, pdf: ImportedPdf) -> Result<IngestedPdf, DatabaseError> {
-        let newly_imported = self.database.import_pdf(&pdf)?;
-        let paper_id = self.database.paper_id_for_pdf(&pdf)?;
-        Ok(IngestedPdf {
-            pdf,
-            paper_id,
-            newly_imported,
-        })
-    }
-}
-
 /// Local library indexing errors.
 #[derive(Debug, Error)]
 pub enum LibraryError {
     /// Reading a PDF failed.
     #[error("could not read PDF: {0}")]
     Io(#[from] io::Error),
-    /// Starting or configuring a filesystem watcher failed.
-    #[error("filesystem watcher failed: {0}")]
-    Notify(#[from] notify::Error),
 }
 
 /// Stateless recursive PDF indexer.
@@ -291,36 +218,6 @@ impl LibraryIndexer {
                 .map(Path::to_path_buf);
         }
         Ok(pdf)
-    }
-}
-
-/// Keeps a native filesystem watcher alive for configured library roots.
-pub struct LibraryWatcher {
-    _watcher: RecommendedWatcher,
-}
-
-impl LibraryWatcher {
-    /// Watch roots recursively and invoke a callback for changed PDF paths.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the platform watcher cannot start or watch a root.
-    pub fn start<F>(roots: &[PathBuf], mut on_event: F) -> Result<Self, LibraryError>
-    where
-        F: FnMut() + Send + 'static,
-    {
-        let mut watcher =
-            notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
-                if let Ok(event) = result
-                    && !matches!(event.kind, notify::EventKind::Access(_))
-                {
-                    on_event();
-                }
-            })?;
-        for root in roots.iter().filter(|root| root.exists()) {
-            watcher.watch(root, RecursiveMode::Recursive)?;
-        }
-        Ok(Self { _watcher: watcher })
     }
 }
 

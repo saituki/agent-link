@@ -242,62 +242,6 @@ pub fn items(conn: &Connection, log_id: i64) -> Result<Vec<SearchLogItem>, Searc
     Ok(items)
 }
 
-/// 指定した重複排除キーが過去の検索で何回ヒットしたかを返す。
-///
-/// 回数は `search_set_items` の行数ではなく、その論文が出現した**検索セットの数**
-/// (`COUNT(DISTINCT set_id)`) とする（同一検索内の重複は `dedupe_key` で排除済み）。
-///
-/// # Errors
-///
-/// DB エラーの場合。
-pub fn hit_counts_for_keys(
-    conn: &Connection,
-    keys: &[String],
-) -> Result<std::collections::HashMap<String, i64>, SearchLogError> {
-    let mut counts = std::collections::HashMap::new();
-    // SQLite のバインド変数上限を超えないよう分割する。
-    for chunk in keys.chunks(500) {
-        if chunk.is_empty() {
-            continue;
-        }
-        let placeholders = std::iter::repeat_n("?", chunk.len())
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT dedupe_key, COUNT(DISTINCT set_id) FROM search_set_items
-             WHERE dedupe_key IN ({placeholders}) GROUP BY dedupe_key"
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let params: Vec<&dyn rusqlite::ToSql> = chunk
-            .iter()
-            .map(|key| key as &dyn rusqlite::ToSql)
-            .collect();
-        let rows = stmt.query_map(params.as_slice(), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?;
-        for row in rows {
-            let (key, count) = row?;
-            counts.insert(key, count);
-        }
-    }
-    Ok(counts)
-}
-
-/// QUERY 画面で入力した検索理由（Reason）を保存する。
-///
-/// # Errors
-///
-/// DB エラーの場合。
-pub fn set_reason(conn: &Connection, log_id: i64, reason: &str) -> Result<(), SearchLogError> {
-    let value = reason.trim();
-    let stored = if value.is_empty() { None } else { Some(value) };
-    conn.execute(
-        "UPDATE search_sets SET note = ?1 WHERE id = ?2",
-        params![stored, log_id],
-    )?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,32 +284,6 @@ mod tests {
         assert_eq!(items.len(), 2, "DOI 重複は排除される");
         assert_eq!(items[0].remote.title, "First");
 
-        set_reason(conn, log_id, " testing ")?;
-        let loaded = get(conn, log_id)?.expect("log exists");
-        assert_eq!(loaded.reason.as_deref(), Some("testing"));
-        Ok(())
-    }
-
-    #[test]
-    fn hit_counts_span_multiple_searches() -> Result<(), Box<dyn std::error::Error>> {
-        let db = Database::in_memory()?;
-        let conn = db.connection();
-        let first = vec![
-            remote("2401.00001", "First", None),
-            remote("2401.00002", "Second", None),
-        ];
-        record_search(conn, "discover", "q1", "", "10", "s2", &first)?;
-        // 2 回目の検索で First が再来（Second は来ない）
-        let second = vec![remote("2401.00001", "First", None)];
-        record_search(conn, "discover", "q2", "", "10", "s2", &second)?;
-
-        let key_first = crate::api::dedupe_key(&first[0]);
-        let key_second = crate::api::dedupe_key(&first[1]);
-        let counts = hit_counts_for_keys(conn, &[key_first.clone(), key_second.clone()])?;
-        assert_eq!(counts.get(&key_first).copied(), Some(2));
-        assert_eq!(counts.get(&key_second).copied(), Some(1));
-        // 未ヒットのキーは結果に含まれない
-        assert_eq!(counts.get("unknown").copied(), None);
         Ok(())
     }
 

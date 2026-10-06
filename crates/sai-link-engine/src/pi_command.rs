@@ -58,7 +58,7 @@ use crate::block_config::{BlockConfig, ToolsConfig};
 /// `.sai/settings.json` の構造。
 ///
 /// ブロック定義の frontmatter に `model`/`provider`/`thinking` が無い場合の
-/// デフォルト値、および拡張機能の一覧を提供します。
+/// デフォルト値を提供します。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct SettingsJson {
     /// デフォルトプロバイダ名（例: "opencode-go"）
@@ -76,9 +76,6 @@ pub struct SettingsJson {
     /// グローバル同時実行上限（デフォルト 16）
     #[serde(default)]
     pub max_concurrent: Option<u32>,
-    /// 拡張機能のファイルパス一覧
-    #[serde(default)]
-    pub extensions: Vec<String>,
     /// エージェント起動直前に走らせるコマンド（配列の先頭がプログラム、残りが引数。シェルは通さない）
     #[serde(default)]
     pub pre_run: Option<Vec<String>>,
@@ -204,9 +201,6 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
     }
     if parsed.max_concurrent.is_some() {
         merged.max_concurrent = parsed.max_concurrent;
-    }
-    if !parsed.extensions.is_empty() {
-        merged.extensions = parsed.extensions;
     }
     if parsed.pre_run.is_some() {
         merged.pre_run = parsed.pre_run;
@@ -620,16 +614,6 @@ pub fn agent_args_for_config(config: &BlockConfig) -> Vec<String> {
         }
     }
 
-    // R12: `.sai/settings.json` の extensions は U01 で廃止（pi は MCP 使用）。
-    // 旧設定が残っていても --extension は付けない（警告のみ）。
-    let settings = load_settings();
-    for item in &settings.extensions {
-        eprintln!(
-            "[sai-engine] settings.json の extensions '{}' は無視します（U01: pi は MCP で道具を使うため）",
-            item
-        );
-    }
-
     // pi の --tools は道具を絞る一覧で、skill を有効にする仕組みではない（知らない名前は黙って無視される）。
     // skill はプロジェクトに .pi/skills/ を置けば pi が読むので、block の skills: は使わない（警告のみ）。
     if let Some(ref skills) = config.skills {
@@ -1035,9 +1019,7 @@ mod tests {
     #[test]
     fn test_u01_pi_sai_link_path_ignored() {
         let mut config = mock_config();
-        config.extensions = Some(ToolsConfig::List(vec![
-            "/Users/touta/workdir/Sai/sai-link/pi-sai-link/extension.ts".to_string(),
-        ]));
+        config.extensions = Some(ToolsConfig::List(vec!["/path/to/extension.ts".to_string()]));
         let cmd = PiCommandBuilder::new("/tmp/session")
             .with_config(config)
             .build()
@@ -1270,7 +1252,8 @@ mod tests {
         std::fs::create_dir_all(&proj_sai).unwrap();
         std::fs::create_dir_all(&home_sai).unwrap();
 
-        // プロジェクト側: wip / max_concurrent / extensions を設定
+        // プロジェクト側: wip / max_concurrent / default_provider を設定
+        // （廃止した extensions が残っていても読み込みが失敗しないことも見る）
         std::fs::write(
             proj_sai.join("settings.json"),
             r#"{
@@ -1281,7 +1264,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        // グローバル側: wip / extensions / default_model のみ上書き
+        // グローバル側: wip / default_model のみ上書き（旧 extensions が残っていても無視される）
         std::fs::write(
             home_sai.join("settings.json"),
             r#"{
@@ -1302,11 +1285,6 @@ mod tests {
 
         // グローバル側が優先される
         assert_eq!(settings.wip, Some(12), "グローバルの wip が優先される");
-        assert_eq!(
-            settings.extensions,
-            vec!["global.ts".to_string()],
-            "グローバルの extensions が優先される"
-        );
         assert_eq!(settings.default_model, Some("global/model-1".to_string()));
         // グローバルに無いキーはプロジェクト側の値が保持される
         assert_eq!(

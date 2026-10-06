@@ -29,7 +29,7 @@ pub const MIND_TEMPLATE: &str = r#"# mind
 
 /// `state.md` のひな形。
 pub const STATE_TEMPLATE: &str = r#"# 現況
-<!-- sai-paper-tui の W キーで編集する。エージェントは直接書き換えず、report の「引き継ぎ」に更新案を書く -->
+<!-- エディタで直接編集する。エージェントは直接書き換えず、report の「引き継ぎ」に更新案を書く -->
 <!-- 段階は 探索 / 絞り込み / 精読・議論 / 計画化 / 外部委託 のどれか -->
 
 - 目標:

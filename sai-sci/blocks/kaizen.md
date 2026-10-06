@@ -6,8 +6,8 @@ model: inherit
 thinking: high
 templates:
   - sai-agent
-  - sai-task
-  - sai-cli
+  - sci-task
+  - sci-cli
 worktree: none
 enable: true
 subblocks:
@@ -111,7 +111,7 @@ subblocks:
 
 1. 問題を原因の層（A〜D）ごとにまとめる。同じ原因の問題は 1 つの改善にまとめる。
 2. 改善案ごとに次を書く。
-   - **変更**: どのファイルをどう変えるか（例: `sai-sci/template/sai-cli.md` に `sci …` の使い方を足す）。
+   - **変更**: どのファイルをどう変えるか（例: `sai-sci/template/sci-cli.md` に `sci …` の使い方を足す）。
    - **解く問題**: T/O/E の ID。
    - **受け入れ条件**: 直ったと言える観測（再実行で何が変わるか）。
    - **検証**: 動かす検査（`AGENTS.md` の「テストと確認」のどれか）。

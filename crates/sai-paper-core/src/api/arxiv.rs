@@ -465,32 +465,6 @@ fn rank_by_query_relevance(input: &str, papers: &mut [RemotePaper]) {
     });
 }
 
-/// Public helper to rank arbitrary `RemotePaper` slices by query relevance.
-/// Used by Discover's multi-provider merge (arXiv + S2).
-#[allow(missing_docs)]
-pub fn rank_remote_papers_by_query(query: &str, papers: &mut [RemotePaper]) {
-    rank_by_query_relevance(query, papers);
-}
-
-/// Deduplicate `RemotePaper`s by DOI (case-insensitive) or normalized title.
-#[allow(missing_docs)]
-pub fn dedupe_remote_papers(papers: Vec<RemotePaper>) -> Vec<RemotePaper> {
-    use std::collections::HashSet;
-    let mut seen = HashSet::new();
-    let mut out = Vec::with_capacity(papers.len());
-    for p in papers {
-        let key = if let Some(doi) = &p.doi {
-            doi.trim().to_lowercase()
-        } else {
-            p.title.trim().to_lowercase()
-        };
-        if key.is_empty() || seen.insert(key) {
-            out.push(p);
-        }
-    }
-    out
-}
-
 fn score_paper(search: &QueryTerms, paper: &RemotePaper) -> usize {
     let title = paper.title.to_lowercase();
     let authors = paper.authors.join(" ").to_lowercase();

@@ -78,7 +78,7 @@ Q ごとに、2 つの目で進み具合を見る。
 sai-sci/
 ├── types/      # 研究の型 5 本（problem・phenomenon・method・data・improve）
 ├── guides/     # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
-├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sai-task・sai-cli の 13 本
+├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sci-task・sci-cli の 13 本
 ├── mind.md     # 研究の土台（mind.md）のひな形
 ├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py・データ分析の検査と記録 data_result.py と写し（K-Dense の EDA `eda/` と生体信号の CLI `biosignal/`）と、そのテスト（`sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
@@ -177,10 +177,10 @@ professor / professor-backward（root の run。researcher を直接起こす）
 
 | id | 役 | 共通の決まり | 研究の判断 |
 |---|---|---|---|
-| `professor` | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して仕分け（TRIAGE）をする | `sai-agent` / `sai-task` / `sai-cli` | する。root の run になる。研究作業は自分でしない |
+| `professor` | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して仕分け（TRIAGE）をする | `sai-agent` / `sci-task` / `sci-cli` | する。root の run になる。研究作業は自分でしない |
 | `professor-backward` | 既存の論文から始める逆向きの舵取り（5.6 節） | 上の 3 本と `bw-core` | する。root の run になる |
-| `operator` | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sai-cli` | しない。professor の子 |
-| `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも木も直さない | `sai-agent` / `sai-task` / `sai-cli` | しない |
+| `operator` | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sci-cli` | しない。professor の子 |
+| `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも木も直さない | `sai-agent` / `sci-task` / `sci-cli` | しない |
 | `sci-*` | 研究作業そのもの（読む・比べる・O を出す・考える・書く・探す・実験する） | `sci-core`（+ `sci-find`・`sci-match`・`exp-core`） | しない。カードに書かれた作業だけ |
 
 - カードの `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人間が Web から起こせず、professor が `task_create` の `card` で自分の子として起こす。
@@ -201,8 +201,8 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - **`template/data-core.md`** — データ分析の共通の決まり。データの安全（元のデータを壊さない）・データ表・EDA・前処理・時系列の EDA・MLflow への記録・作業フォルダ・再現性。`sci-data-explore` と `sci-data-test` の 2 本が読む。
 - **`template/stat-core.md`** — 統計解析の決まり。解析計画の写法・検定の選び方・前提の確かめ・多重比較・効果量と検出力・回帰・時系列・機械学習・ベイズ・図・`results.json`・報告。`sci-data-test` が読む。
 - **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・完了のしかた。
-- **`template/sai-task.md`** — 子タスクの扱い（professor が使う）。
-- **`template/sai-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。
+- **`template/sci-task.md`** — 子タスクの扱い（professor が使う）。
+- **`template/sci-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。
 - **`tools/phone_api.py`** — Web の窓口（sai-phone）の HTTP API を呼ぶ道具。質問・承認・root の run への送信・MLflow の読み取り。
 - **`tools/refcode.py`** — 参照コードの道具。Library からリンクを引く（`links`）・GitHub を検索する（`gh-search`）・リポジトリを浅く取る（`fetch`）・コードから数値の定数を抜く（`params`）・`train.py` の数値に出典の注記があるか確かめる（`check`）。
 - **`tools/modeldb.py`** — ModelDB のカタログ。カタログを手元の jsonl に写す（`sync`）・カタログだけを読む（`search`・`show`・`status`）。カタログは `<sai_home>/refcode/modeldb/catalog.jsonl` に置く。
@@ -309,9 +309,9 @@ DEBT は、終わった Action が完了基準を満たしていないときの�
 
 `sci card --runner user --papers <番号> --depth <abstract|figures|full>` は読む札を作ります。`apps/phone` の読む札の画面で始めて、F を書き、終えます。F が 1 つも無いまま終えても止まりません（DEBT の「反映していない論文」が残ります）。
 
-### 5.6 TUI の「研究方針」のページ
+### 5.6 木の直し方
 
-`sai-moon-paper-tui` の「研究方針」のページは**読むだけ**です。木と `tree.md` を見て、何も書き換えません。直すのは Web か `sai-moon-paper sci` だけです。
+木と `tree.md` は、Web か `sai-moon-paper sci` でだけ直します。`state.md` を手で直さないでください（次の書き出しで消えます）。
 
 ### 5.7 実験（E）
 
@@ -442,15 +442,6 @@ sai-moon-link phone card run <返ってきた run_id>
 | `sci_propose` | PROPOSAL を出す |
 | `paper_outline` | 論文の節の一覧（節の ID・文の数・要約） |
 | `paper_read` | 節・塊の本文を読む（出典は塊の ID `[#37.5.2]`） |
-
-### 6.3 pi の拡張の 4 つの道具（`pi-litbase`）
-
-| 道具 | 何をするか |
-|---|---|
-| `sai_paper_sci_context` | 今の実行の SCOPE を返す |
-| `sai_paper_sci_status` | 研究方針の木の全体 |
-| `sai_paper_sci_node` | Node 1 つの詳細 |
-| `sai_paper_sci_propose` | PROPOSAL を出す |
 
 ---
 
