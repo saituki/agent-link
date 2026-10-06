@@ -1,253 +1,294 @@
-# sai-moon アーキテクチャ（開発者向け）
+# sai アーキテクチャ（開発者向け）
 
-**対象読者:** sai-moon を直す人と、`crates/`（Rust）または `apps/radio` に Web 向けの機能を足す人。
-使い方は [`README.md`](./README.md)、API と住所の一覧は [`docs/integration.md`](./docs/integration.md) を正とする。
+**対象読者:** sai を直す人と、sai-link・sai-paper・sai-sci（Rust）か `apps/radio` に Web 向けの機能を足す人。
+使い方は [`README.md`](./README.md)、API と住所の一覧は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON の項目は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md)、言葉の意味は [`docs/glossary.md`](./docs/glossary.md) を正とする。
 ここには、全体の考え方・層の分け方・守る約束・置き場を書く。**正はコード**である。この文書とコードが食い違ったら、コードに合わせて直す。
 
 ---
 
 ## 1. 3 つの考え
 
-### 1.1 統合 — 中身は 1 つ、入口は 3 つ
+### 1.1 部品 — 3 つの部品と Web の窓口
 
-sai-moon を「中身（コア）」と「入口（UI）」に分ける。旧 4 リポジトリを 1 つの Cargo ワークスペースと 2 つの Python アプリにまとめた。
+アプリの名前は `sai`。次の 3 つの部品と、Web の窓口でできている。
 
-| 区分 | クレート・フォルダ | 持つもの |
-|---|---|---|
-| **コア** | `crates/sai-link-engine` | 実行の DB（`sai-engine.db`）・常駐（daemon）・ブロック定義の解析と検査・Workflow の配置の計算・書き出し |
-| **コア** | `crates/sai-link-widgets` | ダッシュボードの部品群（L3）。`left_tree`・`block_log`・`block_history`・`card_wizard` など。TUI と `phone` CLI が共有する |
-| **コア** | `crates/sai-paper-core` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層 |
-| **コア** | `crates/sai-paper-cli` / `crates/sai-paper-tui` | 論文の CLI と TUI の実装（コアの上） |
-| （周辺） | `apps/radio` | 解説音声の生成と配信（HTTP API・8201 番） |
-| **入口** | `crates/sai-link-tui` → `sai-moon-link-tui` | 端末の画面（ratatui） |
-| **入口** | `crates/sai-paper-tui` → `sai-moon-paper-tui` | 端末の画面（ratatui） |
-| **入口** | `apps/phone` | Web の画面（FastAPI + 素の JavaScript） |
+| 部品 | クレート・フォルダ | 実行ファイル | 持つもの |
+|---|---|---|---|
+| **sai-link**（基盤） | `crates/sai-link-engine`・`crates/sai-link-view`・`crates/sai-link-cli` | `sai-link` | 実行の DB（`sai-engine.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
+| **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・検索セット・音声化の依頼 |
+| **sai-sci**（研究の仕組み） | `crates/sai-sci-core`・`crates/sai-sci-cli`・`sai-sci/`（md の部品） | `sai-sci` | 研究方針の木（`papr.db` の `rt_*` 表）・研究の記録・エージェントの報告・研究用の block と template（LabAgent） |
+| **sai-web**（Web の窓口） | `apps/web` | `apps/web/bin/sai-web` | 画面（FastAPI + 素の JavaScript）。質問・承認・通知・使用量・MLflow と Radio の中継 |
+| （周辺） | `apps/radio` | — | 解説音声の生成と配信（HTTP API・8201 番） |
+| （周辺） | `apps/mlflow-server` | — | 実験の記録（MLflow）の compose。Docker で動かす |
 
-- **入口の中にしか無い処理を作らない。** 以前は TUI の中にしか無い処理（Workflow の配置、BibTeX の保存、Download の後の登録、Library の階層）があった。
-  それらをコアのクレート（`sai_link_widgets::workflow`・`sai_paper_core::bibtex` / `downloads` / `library_tree`）へ移し、**TUI も同じ関数を呼ぶ**ようにした。
-  Web のために CLI へ処理を写すことはしない（写すと処理が 2 か所になり、片方だけ直る不具合が起きるため）。
-- 1 つのバイナリに 3 つの入口を押し込まず、`[[bin]]` で分ける。**ライブラリ crate 名（`sai_link_engine` / `sai_link_widgets` / `sai_paper_core`）は旧名のまま**にして、移植 معدل直言が crate の外に出ないようにしている。
+- sai-link と sai-paper は、それぞれ**単独で**使える。sai-sci は両方の CLI を使うアプリで、単独では動かない。
+- 部品の関係の細部（誰が誰を知っているか）は §2.1 の境界で決める。
 
-### 1.2 Web ユーザーファースト
+### 1.2 人は CLI と Web、エージェントは CLI
 
-`apps/phone` を sai-moon の主な入口にする。端末に慣れていない人が、Web（iPhone と PC のブラウザ）だけで sai-link と sai-paper を使えるようにする。
+- 人は CLI と Web を使い、エージェントは CLI を使う。**画面は Web だけ**（端末の画面は持たない）。
+- エージェントは MCP の道具を持たない。`sai-link`・`sai-paper`・`sai-sci`・`sai-web` を Bash で呼ぶ。
+  外部の MCP（serena・playwright・donsetch・headroom）は `sai-link init` が `.mcp.json` に書く。
+- **入口の中にしか無い処理を作らない。** Web に要る処理が CLI に無ければ、コアのクレートに足して CLI の命令に出す。
+  Web のために処理を `apps/web` に写すことはしない（写すと処理が 2 か所になり、片方だけ直る不具合が起きるため）。
 
-- **TUI でできる操作を Web でもできるようにする。** Workflow・定義の編集・BibTeX・Download・論文の Project を移し終えた。残りは §8。
-- **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `SAI_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
-- **言葉で迷わせない。** 表示は日本語にする（`data-tab` や住所などの識別子は英語のまま）。
-  sai 独自の言葉は `saiTerm` の札で説明する。空の画面には次の一手を出す（`saiEmpty`）。
-- **入口はホーム。** 開いたらまず「いま決めること」（質問・承認・review・要対応）を 1 画面で見せる。
-- **答えは先着。** 質問と承認は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
+### 1.3 Web と CLI の同等
 
-### 1.3 全体の再構成 — 層を分ける
+- **CLI でできることは Web でもでき、Web でできることは CLI でもできる。**
+- CLI → Web: 3 つの CLI は `schema --json` で命令の一覧を出す。Web の「コマンド」画面（`#/project/<名前>/commands`）は、これを読んで `web: true` の命令を入力欄つきで出す。
+  CLI に命令を足せば、Web の画面を足さなくても「コマンド」画面から使える。
+- Web → CLI: Web の HTTP API は、すべて `sai-web api <METHOD> <path>` から呼べる。Web にしか無い機能（質問・承認・送信・使用量・MLflow）にも専用の命令がある（`sai-web questions`・`answer`・`approvals`・`approve`・`send`・`usage`・`mlflow …`）。
+- Web の専用の画面は、**一覧・図・編集のように専用の見た目が要るときだけ**足す。
+
+### 1.4 層の図
 
 ```
-┌──────────────────────── 入口（UI） ────────────────────────┐
-│ sai-moon-link-tui    sai-moon-paper-tui    apps/phone（Web）│
-│   │                       │              iPhone / PC ブラウザ │
-│   │                       │                   │ HTTPS（Tailscale serve :4443）
-│   │                       │            127.0.0.1:8200 FastAPI（窓口）
-└───┼───────────────────────┼───────────────────┼───────────┘
-    │ Rust の関数を直接       │                   │ 公開された約束だけを使う
-    │                  ┌────┴───────────────────┴──────────────┐
-    │                  │ `sai-moon-link phone …` / `daemon …`（JSON）│
-    │                  │ `sai-moon-paper phone …`（JSON）          │
-    │                  │ `~/.sai-moon/phone/runs/*.json`（書き出し）   │
-    │                  │ `~/.sai-moon/registry.json`（登録簿）        │
-    │                  │ apps/radio の HTTP API（127.0.0.1:8201）   │
-    │                  └────┬───────────────────┬──────────────┘
-┌───┼───────────────────────┼───────────────────┼───────────┐
-│ crates/sai-link-*（engine・widgets・cli・tui） crates/sai-paper-* │
-│   sai-engine.db                                   papr.db      │
-└──────────────────────── コア ─────────────────────────────────┘
+┌────────────────────────── 入口 ──────────────────────────┐
+│ 人: ブラウザ（iPhone / PC）          人・エージェント: CLI  │
+│      │ HTTPS（Tailscale serve :4443）       │               │
+│      ▼                                     │               │
+│ sai-web  127.0.0.1:8200 FastAPI            │               │
+│      │ 3 つの CLI（--json）と HTTP API だけを使う          │
+└──────┼─────────────────────────────────────┼───────────────┘
+       ▼                                     ▼
+ sai-link ◀─────CLI──────── sai-sci ────ライブラリ────▶ sai-paper
+ sai-engine.db                (研究の木)                 papr.db
+ .sai/outputs                                            ▲
+                                  apps/radio (:8201) ◀── HTTP
 ```
 
-- **コア**は DB と処理を持つ。
-- **公開された約束**（`phone` CLI の JSON と終了コード・書き出し・登録簿・HTTP API）が、コアと Web の境目である。`apps/phone` はここだけを使う。
+- **コア**（sai-link・sai-paper・sai-sci）は DB と処理を持つ。
+- **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API）が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
-- **入口**は表示と入力だけを受け持つ。TUI は Rust の関数を直接呼び、`apps/phone` は CLI を呼ぶ。どちらも同じ関数に行き着く。
-- **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-paper-core/src/rt/`、入口は `sai-moon-paper sci` / `phone sci` / MCP / Web / TUI。
-  木には 3 役が乗じる（詳しくは [`sai-sci/README.md`](./sai-sci/README.md) の 3.3.1）。
-  木は Q（問い）・O（答えの候補。Answer か Issue）・F（知見）・E（実験）でできている。評価は Q ごとの Objectivity（F の本数の目安）と Logicality（筋の確かめ）、研究の 1 文は SEED。
-  木に向けた 1 回の実行が Action（task.md）で、Next Action がその候補、終わった Action の完了基準を満たしていない残りが DEBT。
-  - `professor`（`sai-sci/blocks/professor.md`）— 研究の舵取り。研究の現在地を読み、次の一手を決めてカードを作り、researcher（`sci-*`）を**自分の子として**起こす。root の run。
-  - `operator`（`sai-sci/blocks/operator.md`）— sai-moon の操作係。故障の対処・監視・情報の抽出・Web と同じ操作だけ。professor の子。研究の判断はしない。
-  - `professor-backward`（`sai-sci/blocks/professor-backward.md`）— 既存の論文から始める逆向き（backward）の舵取り。抽出 → 評価 → 再現 → 更新 → 比較の順に researcher を起こす。役目の分け方は `professor` と同じ。
-  - `sci-*` の 27 本 — 研究作業そのもの。木の Node（Q・O・F・E）に向けて動く。実験の前に `sci-exp-scout` が参照実装（Library・ModelDB・GitHub）を探して取り、パラメータの出典表の下書きを作る。**神経のモデルなら、`sci-sim-model`（論文 1 本の再現・改良）と `sci-sim-compose`（2 本以上をつなぐ）が、参照コードと論文から式・値・再現の目標をモデル定義書にまとめる。** 実験の 3 本（`sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`）は互いの終わりを待たず、ジョブの終わりで review が起きる。review が完了報告書 `exp-final-<study>.md` を書き、実験仕様書の `return_to` があれば、その professor のカードを作って起こし直す。手元のデータの解析は `sci-data-explore`（データ表・EDA・前処理）→ `sci-data-test`（計画を先に固定して検定・報告）の順で、`sci-data-explore` の報告書の次の一手に書かれる命令で次のカードを作る。うち 3 本（`sci-restore`・`sci-cite-check`・`sci-result-compare`）は逆向きのためのもの。役の 4 本目の `kaizen` は、実行履歴から改善計画書を作る。
-  - カード（task.md）の `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人が起こせず（`phone card run` が断る）、professor が `task_create` の `card` で起こす。runner は pi だけ。
-  - 質問は**そのカードの起動者が答える**（professor が起こしたカードなら professor）。親の `task_output` に `stalled`（`reason: "question"`、`question_id` 付き）で届き、`phone_api.py question` / `answer` で答える。Web で人が先に答えた場合は 400 で断られ、その答えを採る。
-  - 報告は run フォルダの `finalize-report.md`。子は `task_report`、root は `sai_finalize` の `report`。`sai-moon-link phone md --kind report <run_id>` で読む。
-  - 3 役が使う共通の決まりは `sai-sci/template/` の `sai-agent.md`・`sai-task.md`・`sai-cli.md`（Web と同じ操作は `sai-sci/tools/phone_api.py`）。`sai-moon-paper init --sci`（と `--assets-only`）で配る。
+- **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`、入口は `sai-sci` の CLI と Web の Research タブ。
+  木は Q（問い）・O（答えの候補）・F（知見）・E（実験）の Node でできている。木に向けた 1 回の実行が Action（task.md のカード）で、
+  professor が研究を回し、`sci-*` の block が研究作業を行う。詳しくは [`sai-sci/README.md`](./sai-sci/README.md)。
 - **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
   pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は sai-link が自動で作る
-  `# context`（`context: true` のとき。範囲は研究方針の木から切り出したもの）と `# task_text`（依頼文）の節だけで、順番は context → task_text。
-  ブロック本体に `{{input.task_text}}`・`{{context}}` を書く必要はない（残していても互換で読む）。Web の会話の最初の吹き出しと `message.md` には可変部分だけが出るので、
-  依頼が見やすくなります。固定部分は run の画面の「system」の帯で読む（`phone md --kind system <run_id>`）。
-  作り方は `docs/for-sai-developers.md` の「起動時の文の分け方（C10）」。
+  `# context`（`context: true` のとき）と `# task_text`（依頼文）の節だけ。作り方は `docs/for-sai-developers.md` の「起動時の文の分け方」。
 
 ---
 
 ## 2. 大原則
 
-1. **`apps/phone` は窓口だけ。** 処理とデータの保管はコアがする。
-   - 他のアプリの DB（`sai-engine.db` / `papr.db` / `sai_radio.db`）を**開かない**。DB の形が変わったときに `apps/phone` が黙って壊れるのを防ぐため。
-   - `apps/phone` 自身が持つのは、質問・承認・pane の対応表だけ（`apps/phone/src/data/sai_phone.db`・`store.py`）。
-   - Download と音声化の進み具合は `apps/phone` のメモリにだけ持つ（再起動で消えてよい。結果はコアに残る）。
-2. **足りない機能はコアに足す。** Web に要る処理が TUI の中にしか無ければ、コアのクレートへ移して TUI もそれを使うようにし、`phone` CLI で出す。`apps/phone` で計算し直さない。
-3. **外から来る値は、CLI を呼ぶ前に `apps/phone` が検査する。** 名前の形・大きさ・種類の一覧を `apps/phone` が先に確かめる。通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは iPhone から受け取らない。置き場はコアが名前から決める。
+### 2.1 境界
+
+| 部品 | 知ってよい物 | 知らない物 |
+|---|---|---|
+| **sai-link** | 自分の DB（`sai-engine.db`）・`.sai/outputs`・登録簿 | sai-paper・sai-sci（呼ばない・読まない） |
+| **sai-paper** | 自分の DB（`papr.db`）・`.sai/paper/`・`apps/radio` の HTTP API | sai-link のデータ（`sai-engine.db`・`.sai/outputs`）は**読まない**。sai-link と sai-sci は**呼ばない** |
+| **sai-sci** | sai-paper を**ライブラリ**（`sai-paper-core`）で、sai-link を **CLI** で使う | sai-link の DB を開かない |
+| **sai-web** | 3 つの CLI と、`apps/radio`・MLflow の HTTP API、登録簿と書き出しのファイル | `sai-engine.db`・`papr.db`・`sai_radio.db` を**開かない** |
+
+- 他の部品の DB の形が変わったときに、黙って壊れるのを防ぐための境界である。
+- sai-sci が sai-link の情報（run の一覧・カードの作成）を使うときは、`sai-link run list --json`・`sai-link card create` を呼ぶ。入出力の形は `docs/for-sai-developers.md` の「sai-sci が読む sai-link の出力」。
+
+### 2.2 Cargo の依存の向き
+
+| 向き | 可否 |
+|---|---|
+| `sai-sci-*` → `sai-paper-core` | よい |
+| `sai-sci-*` → `sai-link-*` | 実行ファイルの本体は CLI で呼ぶ（クレートの依存にしない）。テストが block を読むための `dev-dependencies` だけ許す |
+| `sai-paper-*` → `sai-sci-*`・`sai-link-*` | **いけない** |
+| `sai-link-*` → `sai-paper-*`・`sai-sci-*` | **いけない** |
+| `sai-link-cli` → `sai-link-engine`・`sai-link-view` | よい（同じ部品の中） |
+
+### 2.3 3 つの CLI の約束
+
+`sai-link`・`sai-paper`・`sai-sci` は同じ約束を守る（全文は `docs/for-sai-developers.md`）。
+
+1. **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗。
+2. **失敗**: 標準出力には何も書かない。標準エラーの最後の行に、日本語で理由を 1 行書く。clap の誤りは最後の行が `引数の誤り: <clap の文の 1 行目>`。
+3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。
+4. **進み具合**: 時間のかかる命令は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい。
+5. **プロジェクトの決め方**: `SAI_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.sai/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`SAI_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない。
+6. **記録の出どころ**: `SAI_ORIGIN`（無ければ `cli`。Web が呼ぶときは `phone`）。
+7. **`schema --json`**: 命令の一覧（`bin`・`version`・`commands[]`（`path`・`about`・`stdin`・`json`・`web`・`args[]`））を出す。
+
+### 2.4 そのほかの原則
+
+1. **sai-web は窓口だけ。** 処理とデータの保管はコアがする。
+   - sai-web 自身が持つのは、質問・承認・pane の対応表・通知の購読だけ（`$SAI_HOME/web/sai_web.db`・`store.py`）。
+   - Download と音声化の進み具合は sai-web のメモリにだけ持つ（再起動で消えてよい。結果はコアに残る）。
+2. **足りない機能はコアに足す。** Web に要る処理がコアに無ければ、コアのクレートへ足して CLI の命令に出す。`apps/web` で計算し直さない。
+3. **外から来る値は、CLI を呼ぶ前に sai-web が検査する。** 名前の形・大きさ・種類の一覧を sai-web が先に確かめる。通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは iPhone から受け取らない。置き場はコアが名前から決める。
 4. **依存を増やさない。** サーバは FastAPI と標準ライブラリ、画面は素の JavaScript（フレームワーク・ビルド無し）。グラフと Workflow の線は SVG を手で描く。md の色分けも自前の簡易版で行う。
-5. **合言葉（`SAI_PHONE_TOKEN`）で入口を守る。** 127.0.0.1 でだけ待ち受け、外へは Tailscale serve で tailnet の中にだけ出す。
+5. **合言葉（`SAI_WEB_TOKEN`）で入口を守る。** 127.0.0.1 でだけ待ち受け、外へは Tailscale serve で tailnet の中にだけ出す。
 6. **エラーは日本語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。
+7. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `SAI_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
+8. **言葉で迷わせない。** 表示は日本語にする（`data-tab` や住所などの識別子は英語のまま）。sai 独自の言葉は `saiTerm` の札で説明する。空の画面には次の一手を出す（`saiEmpty`）。
+9. **答えは先着。** 質問と承認は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
 
 ---
 
-## 3. 置き場（`~/.sai-moon/`）
+## 3. 置き場（`SAI_HOME`）
 
-利用者全体で共有する置き場は **`~/.sai-moon/`**。旧構成の `~/.sai/` ではない。環境変数 `SAI_SAI_HOME` があればそれが優先する。
+利用者全体で共有する置き場は **`SAI_HOME`**。空でない値があればそれ、無ければ **`~/.sai`**。
 
 ### 3.1 決める場所
 
-| 場所 | 定義している場所 | 既定値 |
-|---|---|---|
-| Rust（sai-link） | `sai_link_engine::project::sai_home()`（`crates/sai-link-engine/src/project.rs:79`） | `SAI_SAI_HOME` → `~/.sai-moon` → `HOME` も無ければ `None` |
-| Rust（sai-paper） | `sai_paper_core::paths::sai_home()`（`crates/sai-paper-core/src/paths.rs:172`） | 同じ規則の小さなコピー。**値は必ず engine 側と一致させること** |
-| `apps/phone` | `registry.sai_home()`（`apps/phone/src/sai_phone/registry.py:41`） | `SAI_SAI_HOME` → `~/.sai-moon` |
-
-3 つは同じ規則のコピーが 3 枚ある。**どれか 1 つだけ直さないこと。**
-
-### 3.2 `~/.sai-moon/` に入るもの
-
-| 物 | 参照している場所 |
+| 場所 | 規則 |
 |---|---|
-| `registry.json`（プロジェクトの登録簿） | `phone_export.rs:230`・`registry.py` |
-| `phone/runs/<project_name>/<run_id>.json`（書き出し） | `phone_export.rs` |
-| `cc-cost` | `phone_export.rs` |
-| 共通の `blocks/` | `common.rs:72`・`orchestrator.rs:2725`・`handoff.rs:96`・`runs.rs:170`・`dsr.rs:96` |
-| 共通の `template/` | `parser.rs:168` |
-| 共通の `settings.json` | `pi_command.rs:115` |
-| `paper.env`（全プロジェクト共通の API キー） | `paths.rs:152` |
+| sai-link（`sai_link_engine::project::sai_home()`・`crates/sai-link-engine/src/project.rs:146`） | `SAI_HOME` → `~/.sai` → `HOME` も無ければ `None` |
+| sai-paper（`sai_paper_core::paths::sai_home()`・`crates/sai-paper-core/src/paths.rs:281`） | 同じ規則の小さなコピー。**値は必ず sai-link と一致させること** |
+| sai-sci | 自前の規則を持たず、`sai_paper_core::paths::sai_home()` を使う |
+| sai-web（`registry.sai_home()`） | 同じ規則のコピー（Python） |
 
-### 3.3 `~/.sai-moon/` に入らないもの
+規則のコピーが 3 つある（sai-link・sai-paper・sai-web）。**どれか 1 つだけ直さないこと。**
 
-- **プロジェクトの中の `<root>/.sai/` は変わらない。** `sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/` はここ。
-  `sai_link_engine::project::project_root()` / `sai_path()` と `sai_paper_core::paths::project_root()` は変更していない。
-- `apps/phone/src/sai_phone/usage.py` の `cc_limits_path()` は `<sai_home>/phone/cc-rate-limits.json` を読む。
-  書くのは `sai-moon-link cc-statusline`（`phone_export.rs` の `cc_rate_limits_path()`）で、置き場は同じ `~/.sai-moon/`。
-  旧 `~/.sai/phone/` の同名ファイルは読まない（古いまま残っている）。
-- `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま（`common.rs:177`・`config.py`・`litbase.rs:281`）。
+### 3.2 `SAI_HOME` に入るもの
 
-### 3.4 移行の状況（利用者が把握しておくこと）
+| 物 | 何 |
+|---|---|
+| `registry.json` | プロジェクトの登録簿 |
+| `blocks/` | 全プロジェクト共通の block |
+| `template/` | 全プロジェクト共通の template |
+| `settings.json` | 全プロジェクト共通の settings（プロジェクトの `.sai/settings.json` を**キー単位で上書き**する） |
+| `paper.env` | 全プロジェクト共通の API キー（プロジェクトの `.env` より優先順位が低い） |
+| `sci/types/<型>.md` | 利用者が保存した研究の型（`sai-sci type-save`） |
+| `web/runs/<project_name>/<run_id>.json` | sai-link が書き出す実行の記録。会話の画面が読む |
+| `web/cc-rate-limits.json` | Claude Code の制限。書くのは `sai-link cc-statusline`、読むのは Web の使用量 |
+| `web/token` | Web の合言葉（0600）。エージェントの道具が読む |
+| `web/sai_web.db` | 質問・承認・pane の対応表・通知の購読 |
+| `web/vapid.json` | プッシュ通知の鍵 |
+| `web/sai-web.log` | Web のログ（launchd で動かしたとき） |
 
-- `~/.sai-moon/registry.json` は kantoku が作ったもので、中身は sai-moon の 1 件だけ。
-  古いプロジェクトを新旧どちらの常駐にも同時に扱わせないための決定。
-- 旧 `~/.sai/blocks` は空だったので、写すものは無かった。
-- 別に旧 `~/.sai/registry.json` にも sai-moon を登録してある（sai-moon 自身の開発を旧 sai-link で管理するため）。
-- `~/.sai/phone/runs` に溜まっている過去分は `~/.sai-moon/phone/runs` に自動で移らない。`sai-moon-link phone export` を流的と新しい場所へ出る。
+### 3.3 `SAI_HOME` に入らないもの
+
+- **プロジェクトの中の `<root>/.sai/`** は別。`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`（sai-paper の置き場）がここにある。
+- `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
+
+### 3.4 切り替え
+
+旧構成（`~/.sai-moon` など）からの移し方と切り替えの順番は [`docs/switch-over.md`](./docs/switch-over.md) にある。
 
 ---
 
-## 4. `apps/phone` の中身
+## 4. Web の中身（`apps/web`）
 
-### 4.1 サーバ（`apps/phone/src/sai_phone/`）
+### 4.1 サーバ（`apps/web/src/sai_web/`）
 
 | ファイル | 受け持ち |
 |---|---|
 | `main.py` | FastAPI の住所の登録・合言葉（`require_token`）・Mac 自身からだけ受ける内部 API（`require_local`） |
-| `cli.py` | 外部 CLI を呼ぶ共通の受け口。起動できない → 503、応答が JSON でない → 502 |
-| `control.py` | sai-moon-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カードの作成と実行・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
-| `papers.py` | sai-moon-paper の呼び出し（Library・Discover・Import・Download・Project・音声化の依頼）。cwd と `SAI_PAPER_ROOT` を選んだプロジェクトの root にする |
+| `cli.py` | 3 つの CLI を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
+| `control.py` | sai-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
+| `papers.py` | sai-paper の呼び出し（Library・検索・Import・Download・音声化の依頼）と、sai-sci の要対応・プロジェクトの現況 |
+| `sci.py` | sai-sci の呼び出し（研究方針の木・提案の仕分け・読む札）と検索セット（sai-paper の `set …`） |
+| `commands.py` | 「コマンド」画面。3 つの CLI の `schema --json` を読んで命令の一覧を作り、入力欄から命令を実行する |
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
-| `registry.py` | 登録簿 `~/.sai-moon/registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
-| `runs.py` / `sessions.py` | sai-moon-link の書き出し（`~/.sai-moon/phone/runs/`）と会話の記録（.jsonl）の読み取り |
+| `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
+| `runs.py` / `sessions.py` | sai-link の書き出し（`web/runs/`）と会話の記録（.jsonl）の読み取り |
 | `questions.py` / `approvals.py` / `store.py` | 質問と cc のコマンド承認の保管と回答（先着） |
 | `herdr.py` / `watch.py` / `notify.py` | herdr の呼び出し・2 秒ごとの状態の監視・プッシュ通知 |
 | `radio.py` | `apps/radio`（127.0.0.1:8201）への中継 |
+| `mlflow_proxy.py` | MLflow（127.0.0.1:5001）への読み取りだけの中継 |
+| `rbrowser.py` | 遠隔ブラウザ（Mac の Chrome）の操作 |
 | `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek・pi の記録） |
-| `extensions/ask_user_phone.ts` | pi に iPhone 連携付きの質問ツールを足す拡張（既定 URL は `http://127.0.0.1:8200`） |
-| `hooks/`（`apps/phone/hooks/`） | cc のフック（質問・承認・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
+| `webcli.py` | `sai-web` の命令（`serve`・`projects`・`home`・`questions`・`answer`・`approvals`・`approve`・`send`・`usage`・`mlflow …`・`api`） |
+| `extensions/ask_user.ts` | pi に Web 連携付きの質問ツールを足す拡張（既定の接続先は `SAI_WEB_URL`） |
+| `hooks/`（`apps/web/hooks/`） | cc のフック（質問・承認・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
 
-### 4.2 CLI の失敗を HTTP に直す
+### 4.2 CLI を呼ぶ約束
 
-| コアの返し方 | `apps/phone` の返し方 |
+- 呼び方: シェルを使わず、引数の配列で渡す。env は `{**os.environ, "SAI_PROJECT_ROOT": <root>, "SAI_ORIGIN": "phone"}`、cwd は root。
+  プロジェクトの root は登録簿（`registry.json`）から名前で引く。iPhone からパスは受け取らない。
+- 実行ファイルの場所は `SAI_LINK_BIN`・`SAI_PAPER_BIN`・`SAI_SCI_BIN`（既定はそれぞれ `sai-link`・`sai-paper`・`sai-sci`）。
+- 検索語や文のように `-` で始まりうる値は、`--` のあとに置いて渡す。
+- 終了コードから HTTP の状態への読み替えは `cli.py` の 1 か所:
+
+| CLI の結果 | sai-web の返し方 |
 |---|---|
-| sai-moon-link の終了コード 0 と JSON | 200（JSON が読めなければ 502） |
-| sai-moon-link の終了コード 2（検査に通らない） | 400（stderr の理由） |
-| sai-moon-link の終了コード 3（見つからない） | 404 |
-| sai-moon-link の終了コード 1 で「同じ名前の定義があります」 | 409 |
-| sai-moon-paper の `{"error": "…"}` と終了コード 1 | 400（その文） |
+| 終了コード 0 で標準出力が JSON | 200（JSON をそのまま返す） |
+| 終了コード 0 で標準出力が JSON でない | 502「…の応答を読めませんでした」 |
+| 終了コード 2（入力の誤り） | 400 |
+| 終了コード 3（見つからない） | 404 |
+| 終了コード 4（状態の衝突） | 409 |
+| 終了コード 1 とそのほか | 502 |
 | CLI が起動できない | 503（設定の場所を確かめる文） |
-| それ以外 | 502（stderr の先頭 200 文字） |
+| 時間切れ | 504 |
 
-### 4.3 画面（`apps/phone/src/sai_phone/static/`）
+`detail` は標準エラーの空でない最後の行（`sai-progress` で始まる行は除く）。無ければ「<CLI 名> が失敗しました」。
 
-- **枠**: `index.html` が全画面の `<section class="view">` とタブを持ち、JS を決まった順に読む。
-  - CSS: `style.css` → `markdown.css`・`home.css`・`workflow.css`・`defs.css`・`papers.css` → `scitree.css`・`sciedit.css`・`scigraph.css`
-  - JS: `markdown.js` → `ui.js` → 各画面の JS → `home.js`・`workflow.js`・`defs.js`・`paperimport.js`（`workflow.js` と `scigraph.js` は `canvaslayout.js` の関数を使うので後）→ 最後に `app.js`
+### 4.3 「コマンド」画面と `sai-web api`
+
+- `GET /api/projects/{name}/commands` は、3 つの CLI の `schema --json` を 60 秒だけ覚えて、`web: true` の命令と引数だけを返す。`stdin` が `bytes` の命令は出さない（iPhone からファイルを送れないため）。`sai-sci` が無い環境では sai-sci の命令だけが外れる。
+- `POST /api/projects/{name}/commands/run`（body は `{"cli": "link|paper|sci", "path": ["card", "run"], "args": {…}, "stdin": "…"}`）は、値を **CLI を呼ぶ前に** schema に照らして検査し（通らなければ 400）、argv を `[bin, *path, <--json>, オプション, フラグ, --, 位置引数]` の順に組んで実行する。失敗の読み替えは §4.2 と同じ。
+- `sai-web api <METHOD> <path> [--data <JSON>|--data -]` は、Web のすべての HTTP API をそのまま呼ぶ。合言葉は `Authorization: Bearer` で送り、値は出力・ログに出さない。終了コードは HTTP の状態から 400・422 → 2、404 → 3、409 → 4、そのほか → 1 に直す。
+
+### 4.4 画面（`apps/web/src/sai_web/static/`）
+
+- **枠**: `index.html` が全画面の `<section class="view">` とタブを持ち、JS を決まった順に読む。タブは Home・Projects・Chats・Papers・Research・Usage（`data-tab` は `home`・`project`・`agent`・`papers`・`research`・`usage`）。
 - **画面の登録**: 各画面の JS が `window.SaiRoutes` に「住所の照合・描画」を登録し、`app.js` が照合して切り替える。**`app.js` に画面ごとの分岐を足さない。**
 - **共通部品**（`ui.js`）: `saiApi`（通信と日本語のエラー）・`saiToast`・`saiConfirm`・`saiPrompt`・`saiSheet`（下から出る板）・`saiEmpty`（空の画面の案内）・`saiTerm`（用語の札。用語は `SAI_TERMS`）・`saiIsWide` / `saiSplitShow`（広い画面の 2 列）。新しい画面はこれを使い、同じ物を作り直さない。
-- **md の表示**（`markdown.js`）: `renderMarkdown(text, {toolbar: true})` で、色分け・全部たたむ / 開く・目次・長いコードのたたみが付く。コードの色分けは `mdHighlight`。
-- **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定・`pim` Import など）を付け、`apps/phone/tests/test_globals.js` で検査する。
-- **版**: `sw.js` の `CACHE`（今は `sai-phone-v36`）と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
+- **md の表示**（`markdown.js`）: `renderMarkdown(text, {toolbar: true})`。コードの色分けは `mdHighlight`。
+- **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定・`pim` Import など）を付け、`apps/web/tests/test_globals.js` で検査する。
+- **版**: `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
 
 | ファイル | 画面 |
 |---|---|
-| `app.js` | 切り替えの本体・会話（日付・実行・メッセージ）・タブ |
-| `home.js` | ホーム |
-| `project.js` | プロジェクト一覧・Dashboard・上部の切り替え |
-| `workflow.js` | Workflow（sai-moon-link-tui の Workflow と**同じ並び**の図。配置は Rust 側が計算する） |
-| `linkview.js` / `cardform.js` / `stats.js` | List・task.md の作成フォーム・統計 |
-| `defs.js` | 設定（block / template / settings） |
-| `papers.js` / `paperimport.js` | 論文の各画面・Import と Download の見張り |
-| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `sciset.js` | 研究方針（`#/papers/tree`・`#/papers/triage`・`#/papers/read/<run_id>`・`#/papers/sets`。一覧と板（`scitree.js`）・操作と仕分け（`sciedit.js`）・読む札（`sciread.js`）・方針の図（`scigraph.js`）・検索セットの選別（`sciset.js`）） |
-| `canvaslayout.js` | 配置・全体表示・拡大の純関数（研究方針の根の図と Workflow が使う） |
+| `app.js` | 切り替えの本体・Chats（日付・実行・メッセージ）・タブ |
+| `home.js` | Home |
+| `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
+| `commands.js` / `sessionsearch.js` / `dashsearch.js` | 「コマンド」画面・セッション検索・Dashboard の文書検索 |
+| `papers.js` / `paperimport.js` / `cite.js` / `rbrowser.js` | Papers（Dashboard・Library・Import・検索・引用・遠隔ブラウザ） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Radio・声の質問・質問の読み上げと音声回答 |
-| `usage.js` | 使用量 |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `sciset.js` | Research の木（一覧と板・操作と仕分け・読む札・方針の図・検索セットの選別） |
+| `mlflow.js` / `mlfchart.js` | Research の Experiments（MLflow の記録） |
+| `canvaslayout.js` | 配置・全体表示・拡大の純関数（方針の図と Workflow が使う） |
+| `usage.js` | Usage |
 | `chatorder.js` | 会話の中に行やカードを置く位置（DOM を使わない関数） |
 
-### 4.4 処理の流れの型
+### 4.5 Research タブの住所
 
-- **すぐ返る操作**（一覧・中身・保存）: 画面 → `saiApi` → `apps/phone` の住所 → 値の検査 → CLI（JSON）→ 画面。
-- **時間がかかる操作**（Download・音声化）: `apps/phone` が 202 を返し、背景で CLI を走らせる。画面は一覧の住所を見張り、終わったらプッシュ通知を出す。
-  Download は 2 段で、`phone download`（PDF を取って登録。ここで「保存しました」を通知）→ `phone after-download`（図の抽出・PDF の翻訳）。
+| 住所 | 画面 |
+|---|---|
+| `#/research/tree` / `#/research/tree/<ID>` | 研究方針の木（Q・O・F・E。`<ID>` は `Q12` の形） |
+| `#/research/triage` | 仕分け（提案の採用・却下・取り消し） |
+| `#/research/read/<run_id>` | 読む札（1 本の論文を読んで F を書く） |
+| `#/research/experiments` ほか（`/e/<ID\|all>`・`/run/<ID>`・`/compare/<ID>,…`） | 実験（MLflow の記録） |
+
+古い住所 `#/papers/tree`・`#/papers/triage`・`#/papers/read/<run_id>`・`#/mlflow…`・`#/papers/canvas`・`#/canvas/…` は、`scitree.js` の登録が `location.replace` で Research の住所へ送る。
+
+### 4.6 処理の流れの型
+
+- **すぐ返る操作**（一覧・中身・保存）: 画面 → `saiApi` → sai-web の住所 → 値の検査 → CLI（`--json`）→ 画面。
+- **時間がかかる操作**（Download・音声化・引用の抜き出し・PDF の翻訳）: sai-web が 202 を返し、背景で CLI を走らせる。画面は仕事の一覧の住所を見張り、終わったらプッシュ通知を出す。
+  Download は 2 段で、`sai-paper paper download`（PDF を取って登録。ここで「保存しました」を通知）→ `sai-paper paper after-download`（図の抽出・PDF の翻訳。標準エラーの `sai-progress` を読んで進み具合を出す）。
 - **エージェントからの質問**: cc のフックと pi の拡張が `POST /api/questions`（Mac 自身からだけ）に登録する → 画面に出て通知 → PC と iPhone の先に答えた方を採用する。
 
 ---
 
 ## 5. 機能を足すときの手順
 
-1. **処理はどこにあるか。** コアにあればそれを使う。TUI の中にしか無ければ、コアのクレートへ移して TUI もそれを使うようにする（§1.1）。
-2. **`phone` CLI で出す。** `sai-moon-link phone …` / `sai-moon-paper phone …`。JSON 1 個を stdout に出し、失敗は決まった終了コードで返す。
-   `docs/for-sai-developers.md` に、`apps/phone` が読む項目を書き足す。
-3. **`apps/phone` に住所を足す。** `control.py` か `papers.py` に関数を書き、値の検査を CLI を呼ぶ前に置く。`main.py` に登録する（固定の住所は `{paper_id:int}` のような変数の住所より先に登録する）。
-   テストは `FakeCli` などで CLI を偽物にして、検査で CLI が呼ばれないことまで確かめる。
-4. **画面を足す。** 新しい JS に `window.SaiRoutes` で登録し、`index.html` に枠と読み込みを足し、`sw.js` の版と `ASSETS` を上げる。
-   `ui.js` の部品を使い、390px と 1280px の両方で確かめる。
-5. **文書を直す。** README（使い方）・この文書（仕組みが変わったとき）・`docs/integration.md`（API と住所）・`docs/for-sai-developers.md`（コア側の約束）。
+1. **処理はどこにあるか。** コア（`sai-link-engine`・`sai-link-view`・`sai-paper-core`・`sai-sci-core`）にあればそれを使う。無ければコアに足す。CLI や `apps/web` に処理を写さない。
+2. **CLI の命令に出す。** 該当する CLI（`sai-link`・`sai-paper`・`sai-sci`）に命令を足す。成功は標準出力に JSON 1 個、失敗は決まった終了コードと日本語の理由 1 行（§2.3）。
+   命令は `schema --json` に**自動で**出る。Web に出してよい命令には `web` の印を付ける。ここまでで「コマンド」画面から使える。
+3. **Web の専用の画面が要るときだけ足す。** `apps/web` の `control.py`・`papers.py`・`sci.py` に関数を書き、値の検査を CLI を呼ぶ前に置く。`main.py` に登録する（固定の住所は `{paper_id:int}` のような変数の住所より先に登録する）。
+   テストは偽の CLI（`FakeCli` など）で、検査で CLI が呼ばれないことまで確かめる。
+4. **画面を足す。** 新しい JS に `window.SaiRoutes` で登録し、`index.html` に枠と読み込みを足し、`sw.js` の版と `ASSETS` を上げる。`ui.js` の部品を使い、390px と 1280px の両方で確かめる。
+5. **文書を直す。** `README.md`（使い方）・この文書（仕組みが変わったとき）・`docs/integration.md`（API と住所）・`docs/for-sai-developers.md`（Web が読む JSON の項目）・`docs/glossary.md`（言葉が増えたとき）。
+   Web が読む項目を変えたら、`docs/for-sai-developers.md` と `apps/web` を**一緒に**直す。
 
 ---
 
 ## 6. テストと確認
 
-```bash
-cd ~/workdir/Sai/sai-moon
+テストの命令は [`AGENTS.md`](./AGENTS.md) の「テストと確認」を正とする。種類と場所だけ書く。
 
-# Rust（24 ターゲット）。SAI_PROJECT_ROOT などが混ざっていると History テスト 1 件が落ちる
-env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
-  perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
-
-# Web（JS 24 本・Python 18 本）
-for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
-(cd apps/phone && export PYTHONPATH=src && for f in tests/test_*.py; do .venv/bin/python "$f" || exit 1; done)
-
-# Radio（3 本）
-(cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
-```
+| 種類 | 場所 |
+|---|---|
+| Rust の結合テスト | `crates/*/tests/*.rs`（`cargo test --workspace`） |
+| Web の画面テスト | `apps/web/tests/test_*.js`（`node`） |
+| Web のサーバテスト | `apps/web/tests/test_*.py`（素の `python`・`PYTHONPATH=apps/web/src`） |
+| Radio のテスト | `apps/radio/tests/test_*.py` |
+| 実験ループの道具 | `sai-sci/tools/test_*.py`（`unittest`） |
 
 - JS のテストは DOM を使わない関数を確かめる（画面の関数は DOM を使わない部分に分けて書く）。
-- 画面の確認は **8200 / 8201 / 8202 番**で行う。**旧構成の 8100 番（旧 sai-phone）と 8000 番（旧 sai-radio）は、確認のために再起動しない。**
+- 画面の確認は **8200 / 8201 / 8202 番**で行う。**旧構成の 8100 番と 8000 番は、確認のために再起動しない。**
 - サーバ・ブラウザ・ネットワークを使う確認の命令には時間の上限を付ける（例 `perl -e 'alarm 180; exec @ARGV' <命令>`）。背景で起動したサーバは最後に止める。
-- 書き込みを確かめるときは、確認用の物（例: block `guide-check`・確認用の .bib）か一時フォルダを使い、最後に消す。本物の定義・`papr.db` の中身を確かめのために変えない。
-- **旧 4 リポジトリ（`~/workdir/Sai/sai-link`・`sai-paper`・`sai-phone`・`sai-radio`）は読み取り専用。** 触る前に `git status --short` を控え、終わりに同じであることを確かめる。
+- 書き込みを確かめるときは、一時フォルダを作り、`SAI_HOME` と `SAI_PROJECT_ROOT` をその中に向けて行い、最後に消す。本物の `.sai/`・`$SAI_HOME`・`papr.db` を確かめのために変えない。
+- `sai-link daemon start`・`launchctl load`・MLflow の `docker compose up / down / restart` は確認のために実行しない。
 
 ---
 
@@ -255,73 +296,73 @@ for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
 
 ```
 sai-moon/
-├── crates/                   # Rust のワークスペース（8 クレート）
-│   ├── sai-link-engine/      # lib  実行エンジン
-│   ├── sai-link-cli/         # bin  sai-moon-link
-│   ├── sai-link-tui/         # bin  sai-moon-link-tui
-│   ├── sai-link-widgets/     # lib  ダッシュボードの部品群
+├── crates/                   # Rust のワークスペース（7 クレート）
+│   ├── sai-link-engine/      # lib  実行エンジン（DB・常駐・パース・オーケストレーター）
+│   ├── sai-link-view/        # lib  Web と CLI が使う組み立て処理（描画は持たない）
+│   ├── sai-link-cli/         # bin  sai-link
 │   ├── sai-paper-core/       # lib  検索/取得/解析/保存
-│   ├── sai-paper-cli/        # bin  sai-moon-paper
-│   ├── sai-paper-tui/        # bin  sai-moon-paper-tui
-│   └── sai-paper-cite/       # bin  sai-moon-paper-cite
+│   ├── sai-paper-cli/        # bin  sai-paper
+│   ├── sai-sci-core/         # lib  研究方針の木・研究の記録・報告の検査
+│   └── sai-sci-cli/          # bin  sai-sci
 ├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
-├── pi-litbase/               # pi の拡張（TypeScript・Cargo の外）
-├── sai-sci/                  # 研究方針の木（Research-tree）
-│   ├── types/                # 研究の型 5 本（Q の階層の雛形。sai-moon-paper に埋め込まれる）
-│   ├── guides/               # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
-│   ├── template/             # 13 本。sci-core・sci-find・sci-match・bw-core（研究の決まり）、exp-core・exp-run・exp-ref・sim-core（実験の決まり）、data-core・stat-core（データ分析の決まり）、sai-agent・sai-task・sai-cli（professor と operator の決まり）
-│   ├── tools/                # 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードの道具 refcode.py・ModelDB のカタログ modeldb.py・データ分析の検査と記録 data_result.py と写しの eda/（EDA）・biosignal/（生体信号）とテスト（sci init が .sai/tools/ へ配る）
-│   ├── exec/                 # 実行先の見本（local・ssh・dok・_example。sci init が .sai/exec/ へ配る）
-│   ├── mind.md               # mind.md（研究の土台）のひな形
-│   └── blocks/               # 31 本のブロック（役 4 本 professor・professor-backward・operator・kaizen と 27 本の sci-*）
 ├── apps/
-│   ├── phone/                # Web の窓口（8200）
-│   │   ├── src/sai_phone/    # サーバ（§4.1）
-│   │   │   ├── static/       # 画面（§4.3）
-│   │   │   └── extensions/   # pi の拡張
-│   │   ├── src/data/         # sai_phone.db（質問・承認・pane）とログ（.gitignore 済み）
+│   ├── web/                  # Web の窓口（8200）
+│   │   ├── bin/sai-web       # sai-web の CLI（apps/web/.venv の Python で動く）
+│   │   ├── src/sai_web/      # サーバ（§4.1）
+│   │   │   ├── static/       # 画面（§4.4）
+│   │   │   └── extensions/   # pi の拡張（ask_user.ts）
 │   │   ├── hooks/            # cc のフック
-│   │   ├── launchd/          # com.sai-moon.plist
+│   │   ├── launchd/          # launchd のひな形
 │   │   └── tests/            # test_*.js（node）と test_*.py（素の python）
 │   ├── radio/                # Radio の裏方サーバー（8201・TTS プロキシは 8202）
 │   │   ├── src/sai_radio/
 │   │   ├── config/           # podcast-creator 用の設定 JSON
-│   │   └── tests/            # 3 本
+│   │   └── tests/
 │   └── mlflow-server/        # MLflow の compose（postgres・minio・mlflow・caddy。Docker で動かす）
-├── docs/                     # 統合の経緯・API 一覧・コアを直す人向けの約束
+├── sai-sci/                  # 研究の仕組みの md の部品（`sai-sci` に埋め込まれる。直したら release を作り直す）
+│   ├── types/                # 研究の型（Q の階層の雛形）
+│   ├── guides/               # ガイド（Q の文・Child Q・Extract・Pitfall・目安）
+│   ├── template/             # 研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli` ほか）
+│   ├── blocks/               # block（professor・professor-backward・operator・kaizen と `sci-*`）
+│   ├── tools/                # 実験ループの台帳・実行先への分配器・参照コードの道具・データ分析の道具とテスト
+│   ├── exec/                 # 実行先の見本（local・ssh・dok・_example）
+│   └── mind.md               # mind.md（研究の土台）のひな形
+├── docs/                     # 開発者向けの文書
+│   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
+│   ├── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
+│   ├── glossary.md           # 用語集
+│   ├── switch-over.md        # 旧構成から切り替える手順書
+│   └── archive/              # 過去の記録
 ├── .sai/                     # このプロジェクト自身の中のデータ（.gitignore 済み）
-├── AGENTS.md                 # エージェントへの指示
+├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示
 ├── CLAUDE.md                 # @AGENTS.md の 1 行
-├── README.md                 # 3 プロセスの起動手順
+├── README.md                 # 概要・入れ方・最初の一歩
 └── ARCHITECTURE.md           # この文書
 ```
 
 ---
 
-## 8. 今回移植しなかったもの
+## 8. 入れていないもの・やめたもの
 
-`sai-moon` は v1.0 の最初の統合。以下は**意図的に入れていない**。必要になったら別計画で入れる。
-
-| 入れていないもの | 状況 |
+| 物 | 状況 |
 |---|---|
-| **`lib/`**（参考リポジトリ置き場） | 旧 sai-phone の `ARCHITECTURE.md` にあったが、実体は存在しなかった（`~/workdir/Sai/sai-phone/lib` は無い）。sai-moon では作っていない |
-| **global の cc フック・pi 拡張** | `~/.claude/settings.json` と `~/.pi/agent/extensions/` には**入れない**。`sai-moon-link init` がプロジェクトの `.claude/settings.json`（フック 3 本）と `.pi/settings.json`（`ask_user_phone.ts`）に書く。手順は `README.md` の「エージェントとつなぐ」 |
-| **launchd の登録** | `apps/phone/launchd/com.sai-moon.plist` はあるが、`launchctl load` は**していない**。旧 `com.sai-phone` は有効のまま |
-| **単一ディスパッチャ CLI** | 「1 つの `sai-moon` コマンドですべてをまとめる」案は**不採用**。`sai-moon-link` と `sai-moon-paper` の 2 系統に分けたままにした。理由: 旧 sai-link・sai-paper のバイナリの分け方をそのまま引き継げ、v1.0 の差分が最も小さいため。必要になれば後からまとめる入口を足せる |
-| **`src/tools/cc_usage.py`** | 旧 sai-phone にある単体ツール。移植の対象外とした（使われていない） |
-| **Rust のプリセット領域** | `sai-moon-paper-tui` の `assets/`・`docs/`・`package-metadata/` は旧 sai-paper からそのまま写した。sai-moon 用の見直しはしていない |
+| **端末の画面（TUI）** | やめた。画面は Web だけ。TUI にしか無かった処理は、先にコア（`sai-link-view`・`sai-paper-core`）へ移してある |
+| **MCP の `sai`**（エージェントの道具） | やめた。エージェントは CLI を Bash で呼ぶ。外部の MCP（serena・playwright・donsetch・headroom）は残る |
+| **`phone …` の命令**（Web 専用の JSON の出口） | やめた。Web は普通の命令を `--json` で呼ぶ（`docs/for-sai-developers.md`） |
+| **`lib/`**（参考リポジトリ置き場） | 作っていない |
+| **global の cc フック・pi 拡張** | `~/.claude/settings.json` と `~/.pi/agent/extensions/` には**入れない**。`sai-link init` がプロジェクトの `.claude/settings.json`・`.pi/settings.json` に書く |
+| **単一ディスパッチャ CLI** | 「1 つの `sai` コマンドですべてをまとめる」案は不採用。`sai-link`・`sai-paper`・`sai-sci`・`sai-web` の 4 本に分けたまま。必要になれば後からまとめる入口を足せる |
+| **Rust のプリセット領域** | 旧 sai-paper からそのまま写した物は、sai 用の見直しをしていない |
 
 ## 9. 経緯
 
-- 2026-09-27: v1.0。旧 `sai-link` と `sai-paper` の 8 クレートを 1 つの Cargo ワークスペース（`crates/`）に統合し、バイナリ名を `sai-moon-*` にリネーム（U01）。
-  利用者全体の置き場を `~/.sai` から `~/.sai-moon` へ切り替え、`SAI_SAI_HOME` で上書きできるようにした（U01-r3）。
-  旧 sai-phone の Web 層を `apps/phone/` へ移植し、既定値を 8200・`sai-moon-link`・`~/.sai-moon`・8201 に変更（U02）。
-  旧 sai-radio を `apps/radio/` へ移植し、ポートを 8201 / 8202 に変更（U03）。
-  文書一式（`AGENTS.md`・`README.md`・`ARCHITECTURE.md`・`docs/`）を書き直し、最終統合確認（U04）。
+- 2026-09-27: 旧 4 リポジトリ（`sai-link`・`sai-paper`・`sai-phone`・`sai-radio`）を 1 つにまとめた（バイナリ名は `sai-moon-*`、置き場は `~/.sai-moon`、Web は `apps/phone`）。
+- 2026-10: 名前と境界を整理した。アプリの名前を `sai` にし、sai-link・sai-paper・sai-sci・sai-web の 4 つに分けた。
+  TUI・MCP・`phone` 命令をやめ、3 つの CLI に共通の約束（終了コード・`--json`・`schema`）を置いた。Web は `apps/web`、置き場は `SAI_HOME`（`~/.sai`）、実行ファイルは `sai-link`・`sai-paper`・`sai-sci`・`sai-web` になった。
+  Web に Research タブ（研究方針の木と実験）と「コマンド」画面を足した。旧構成からの切り替えは [`docs/switch-over.md`](./docs/switch-over.md)。
 
 ## 10. 次に回すもの
 
-- sai-link: 会話の検索（`sai-moon-link search`）・Summary.md・実行の削除・runner=user の成果物の登録・子タスクの操作・Model の画面・セッションの再開。
-- sai-paper: Tags・Authors・Notes・Search Sets・RAG 検索・report の表示・PDF の翻訳のボタン・引用文献の抽出・論文を block に渡すカード・研究日誌・PDF の手動取り込み・DOI / arXiv ID での取り込み。
-- 両方: プロジェクトの作成（`sai-moon-link init` / `sai-moon-paper init`）と常駐の起動までの案内。
-- 統合: §8 の「移植しなかったもの」のうち、cc フック・pi 拡張・launchd の実運用切り替え。
+- sai-link: 会話の再開・Model の画面。
+- sai-paper: Tags・Authors・DOI / arXiv ID での取り込み・論文を block に渡すカード。
+- 統合: iPhone からの Tailscale 公開の手順の実機確認。

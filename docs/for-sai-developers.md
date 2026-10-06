@@ -1,12 +1,9 @@
-# sai-moon 連携ガイド（`crates/`・`apps/radio` を直す人向け）
+# CLI の約束（Web と各部品の間）
 
-作成日: 2026-09-27
-対象: **`crates/`（Rust 8 クレート）か `apps/radio` のどれかを直す人**。
-目的: 直した結果として **`apps/phone`（Web の窓口・8200 番）を壊さないこと**。
-全体の話は [`integration.md`](./integration.md)。文中のコマンドはすべて 2026-09-27 に実行して確かめている。
-
-旧 sai-phone の `docs/for-sai-developers.md` を土台に、sai-moon の値（バイナリ名・パス・ポート・置き場）に置き換えたもの。
-JSON の項目など API 契約は変えていないので、表の構造は流用できる。
+対象: **`crates/`（sai-link・sai-paper・sai-sci）か `apps/radio` のどれかを直す人**。
+目的: 直した結果として **sai-web（Web の窓口・8200 番）を壊さないこと**。
+全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`glossary.md`](./glossary.md)。
+この文書の JSON の項目は、Web のコード（`apps/web/src/sai_web/` と `static/`）が実際に読む物と、2026-10 に `target/release/` の CLI を一時フォルダのプロジェクトで実行して確かめた物。**正はコード**。
 
 ---
 
@@ -14,132 +11,546 @@ JSON の項目など API 契約は変えていないので、表の構造は流�
 
 | 直すもの | その節 | 最低限守ること |
 |---|---|---|
-| **sai-link 側**（`crates/sai-link-*`） | [§2](#2-cratessai-link-)・[§3](#3-プロジェクト一覧とdashboard) | `sai-moon-link phone export` と、書き出す JSON の `schema_version` / `run_id` / `project_name`。加えて `phone tree` / `run` / `md` / `waggle` / `card …` の形、`phone summary` / `phone dashboard` の項目名 |
-| **sai-paper 側**（`crates/sai-paper-*`） | [§4](#4-cratessai-paper-) | `phone …` の JSON の項目名と、`target/release/sai-moon-paper` に作り直す手順 |
+| **3 つの CLI のどれか** | [§1](#1-3-つの-cli-の約束) | 終了コード・失敗の出し方・`--json`・`schema --json` |
+| **sai-link**（`crates/sai-link-*`） | [§2.2](#22-sai-link-が出す-json) | 命令の名前と、Web が読む JSON の項目名。`run export` の書き出しの形 |
+| **sai-paper**（`crates/sai-paper-*`） | [§2.3](#23-sai-paper-が出す-json) | 命令の名前と JSON の項目名。`target/release/sai-paper` に作り直す手順 |
+| **sai-sci**（`crates/sai-sci-*`） | [§2.4](#24-sai-sci-が出す-json) | 研究方針の木の JSON の項目名。`card --from-json` の入力 |
+| **sai-sci が sai-link を呼ぶところ** | [§3](#3-sai-sci-が読む-sai-link-の出力) | `run list --json`・`card create` の入出力 |
 | **apps/radio** | [§5](#5-appsradio) | `/api/papers` 以下のパスと JSON、論文 ID は**英数字**、Range（206）応答 |
-| **apps/phone 自分** | [§6](#6-appsphone-自身を直す人向け) | 画面は `window.SaiRoutes` に登録、`sw.js` の `CACHE` を上げる |
-
-### 共通の約束（どの CLI も同じ）
-
-| | 約束 | 違えたときの画面 |
-|---|---|---|
-| 成功 | **終了コード 0**・標準出力に **JSON 1 個**（前後に余計な文字を出さない） | そのまま表示 |
-| 失敗 | **終了コード 1**・標準出力に `{"error": "<日本語のメッセージ>"}` | 400 で error 文をそのまま表示 |
-| 出力が読めない | （事故）JSON でない文字列 | 502「…の応答を読めませんでした」 |
-| 起動できない | （事故）実行ファイルが無い・PATH 間違い | 503「…が見つかりません（設定の場所を確認してください）」 |
-| 時間切れ | （事故）既定 20 秒（sai-paper 検索 120 秒・訳 90 秒） | 504「…が時間内に応答しませんでした」 |
-| 標準エラー | 何を出してもよい（先頭 300 文字がログに残る） | 画面には出ない |
-
-標準出力に `println!` やデバッグ表示を 1 行でも足すと **502 になる**（`apps/phone/src/sai_phone/cli.py`）。
+| **項目を変える** | [§6](#6-項目を変えるときの決まり) | Web が読む項目を変えたら、この文書と Web を一緒に直す |
 
 ---
 
-## 1. 呼ばれ方の全体像
+## 1. 3 つの CLI の約束
 
-| アプリ | `apps/phone` から呼ばれる形 | cwd / 環境変数 | 時間切れ |
-|---|---|---|---|
-| sai-link | `sai-moon-link phone export` / `phone tree` / `phone run` / `phone md` / `phone waggle` / `phone card options` / `card inputs` / `card create` / `phone card run` / `phone summary` / `phone dashboard`、`sai-moon-link daemon <start\|stop>` | **そのプロジェクトの root**（`SAI_PROJECT_ROOT` も同じ root を明示で渡す） | 10 秒（export）・20 秒（daemon 30） |
-| sai-paper | `sai-moon-paper phone …` / `content paper … --json` | **そのプロジェクトの root**（プロジェクト名から `papers.resolve_project` で引く）・`SAI_PAPER_ROOT` も同じ値 | 30 秒（訳 90・検索 120・音声化 2000） |
-| apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | ― | 質問（`…/ask`）180 秒・他 30 秒 |
+`sai-link`・`sai-paper`・`sai-sci` は、次の約束を同じに守る。Web は終了コードと標準エラーの最後の行だけで失敗を扱う。
 
-- どの呼び出しも **シェルは使わない**（`shell=True` 禁止）。引数は配列で渡される。
-- 呼ばれる CLI の場所は環境変数で変えられる（`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_RADIO_URL`）。**既定値を動く形から変えない。**
-- **バイナリ名を変えてはいけない。** 次の名前がそのまま PATH や既定値で使われる。
-  `sai-moon-link`（`sai-link` ではない）・`sai-moon-paper`（`sai-paper` ではない）。
-  名前の髓を変えると 503 になる。
-- **`sai-moon-link` は PATH に無い。** `apps/phone` を起動するときは
-  `PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH` を足すか、`SAI_LINK_BIN` に絶対パスを書くこと。
-  `SAI_PAPER_BIN` の既定は絶対パス（`target/release/sai-moon-paper`）なので追加は不要。
-
----
-
-<a id="2-cratessai-link-"></a>
-## 2. `crates/sai-link-*`
-
-### 2.1 `apps/phone` が使っているもの
-
-| 使うもの | 場所 |
+| # | 約束 |
 |---|---|
-| `sai-moon-link phone export`（プロジェクトの実行を JSON で書き出す） | CLI: `crates/sai-link-cli/src/cli.rs`（`handle_phone_export`）／本体: `crates/sai-link-engine/src/phone_export.rs` |
-| `sai-moon-link phone tree`（左サイドバーと同じツリーを JSON で返す） | CLI: `crates/sai-link-cli/src/phone.rs`（`tree`）／組み立て: `sai_link_widgets` の `left_tree`（TUI と共有）。lane が todo の run ノードは、実行予約があるとき `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（`apps/phone` のホームが読む）。lane が todo の run ノードは `card`（`creation_date`・`block`・`runner`・`model`・`description`。task.md の frontmatter）も足す（Dashboard とホームの todo の 2 行表示用）。**全 run ノードに `executer`（`human` / `professor`・既定 `human`）を足す**（カードの frontmatter `executer:` から取る） |
-| `sai-moon-link phone run <id> --view log\|stats\|history`（run の中身） | 同 `phone.rs`（`run_view`）／`block_log::build`・`cache_stats`・`block_history::build`（`sai-link-widgets`）。log の JSON には作られた順の `connections`（`direction` `from`/`to`・`kind` `task_text`/`task_create`/`task_output`・`run_id`・`global_round`・`round`・`block_name`・`description`・`waggle_token`・`file_path`）がある（`apps/phone` の Summary の Connection が読む。`connections_from`/`connections_to` の文字列は TUI 用に残す） |
-| `sai-moon-link phone md <id> --kind task\|message\|report`（無ければ **終了コード 3・stderr「まだありません」**。`report` は `finalize-report.md`・§2.6） | 同 `phone.rs`（`md`）／本体 `sai_link_widgets::phone_view::resolve_md_path` |
-| `sai-moon-link phone waggle <id> [--token <t>]`（成果物の一覧と本文。一覧の各項目に task_text に貼れる `ref` がある） | 同 `phone.rs`（`waggle`） |
-| `sai-moon-link phone card options`（作成フォームの選択肢） | 同 `phone.rs`（`card_options`）／`sai_link_widgets::card_wizard`（TUI と共有） |
-| `sai-moon-link phone card inputs --block <id>`（手順 4 の入力と候補） | 同 `phone.rs`（`card_inputs`） |
-| `sai-moon-link phone card create`（**stdin に JSON**・作成後は todo に配置） | 同 `phone.rs`（`card_create`）／`validate_card_spec` + `create_card`（TUI と同じ検査）。任意の `executer`（`human` / `professor`・空は `human`）を受け取り、frontmatter の `executer:` に書く。知らない値は**終了コード 1** |
-| `sai-moon-link phone card run <run_id>`（新形式 todo の ▶ 実行。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: professor` のカードは **終了コード 1**・stderr「このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください」） | 同 `phone.rs`（`card_run`）／本体: `kanban_run::run_card_request`（`block run --kanban` と常駐の予約実行も同じ入口を通る） |
-| `sai-moon-link phone card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]`（todo の task.md の `scheduled_at:` を書く・省略で消す。常駐が 5 秒ごとに見回って実行する） | 同 `phone.rs`（`card_schedule`）・`daemon.rs`（`run_scheduled_cards`） |
-| `sai-moon-link phone card wait <run_id> [--job <job_id>]`（todo の task.md の `after_job:` を書く・省略で消す。詳細は 2.2.2 の `after_job`） | 同 `phone.rs`（`card_wait`）・`daemon.rs`（`run_job_waiting_cards`） |
-| `sai-moon-link phone card docs [--limit N]`（最近の文書 `{items: [{token, label, description, status, ref}]}`） | 同 `phone.rs`（`card_docs`） |
-| `sai-moon-link phone rtree`（research-tree の実行の図。root / seed / branch の 3 層 DAG） | 同 `phone.rs`（`rtree`）／組み立て: `sai_link_widgets` の `research_dag::load_research_dag`（§2.2.2） |
-| `sai-moon-link phone rm <run_id>`（実行を消す・子と run フォルダも。実行中は終了コード 1、無ければ 3「実行が見つかりません」） | 同 `phone.rs`（`rm`）・`run_dir::delete_run` |
-| `sai-moon-link phone user start <run_id>`（`runner: user` の札を running にする。未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**、`runner: user` で無ければ **終了コード 1**） | 同 `phone.rs`（`user_start`）／本体: `sai_link_widgets::user_run`（TUI の Enter と共通） |
-| `sai-moon-link phone user finish <run_id>`（実行中の利用者の札を review へ移す。実行が無ければ **終了コード 3**、`runner: user` で状態 `running` で無ければ **終了コード 1**） | 同 `phone.rs`（`user_finish`）／本体: 同 `user_run`（TUI の `e` と共通） |
-| `apps/phone` が呼ぶ側 | `apps/phone/src/sai_phone/control.py`（`phone_tree` / `phone_run_view` / `phone_md` / `phone_waggle` / `phone_card_options` / `phone_card_inputs` / `phone_card_create` / `phone_card_start` / `user_start` / `user_finish`。値の検査と 400 / 404 / 502 の変換もここで行う） |
-| 書き出し先 `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` | 同上（一時ファイル → rename で書く） |
-| `apps/phone` が読む側 | `apps/phone/src/sai_phone/runs.py`（`load_runs`）・`control.py`（`export_runs`＝60 秒に 1 回だけ呼び直す） |
-| 共通定義の置き場 | `crates/sai-link-engine/src/project.rs:79`（`sai_home()`）と `sai_home_path(rel)` |
+| 1 | **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗 |
+| 2 | **失敗したとき**: 標準出力には何も書かない。標準エラーの最後の行に、日本語で理由を 1 行書く。clap の誤りは最後の行に `引数の誤り: <clap の文の 1 行目>` |
+| 3 | **成功したとき**: `--json` があれば標準出力に JSON を 1 つだけ書く（前後に余計な文字を出さない） |
+| 4 | **時間のかかる命令**は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい（1 行 = 1 つ。段落内の改行は空白にする） |
+| 5 | **プロジェクトの決め方**: `SAI_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.sai/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`SAI_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない |
+| 6 | **記録の出どころ**: `SAI_ORIGIN`（無ければ `cli`）。Web が呼ぶときは `phone` |
+| 7 | **`schema --json`** で命令の一覧を出す（下） |
 
-- 常駐の起動停止と一覧の集計は `sai-moon-link` 自身が持つ（`daemon …` と `phone summary` / `phone dashboard`）。それは §3。
-- `sai-moon-link` 自体は **DB を直接開かれていない**（`apps/phone` はこの JSON だけを読む）。
+標準出力に `println!` やデバッグ表示を 1 行でも足すと、Web が **502 になる**（`apps/web/src/sai_web/cli.py`）。標準エラーには何を出してもよい（先頭 300 文字が Web のログに残る）。
 
-### 2.2 `apps/phone` が読んでいる JSON の項目
+実測の例（一時フォルダのプロジェクト）:
 
-`sai-moon-link phone export` が書く 1 ファイル分（`runs.py` の `_read_run`）。**足し算は安全、減らすのは危険。**
+```
+$ sai-link run md 999 --kind task      → 終了コード 3・標準エラーの最後の行「まだありません」
+$ sai-paper paper show 999999          → 終了コード 3・「論文が見つかりません」
+$ sai-sci node Q999 --json             → 終了コード 3・「Q999 はありません」
+$ sai-link run list --bogus            → 終了コード 2・「引数の誤り: unexpected argument '--bogus' found」
+$ （プロジェクトの外で）sai-link run list --json → 終了コード 2・「プロジェクトが見つかりません（sai-link init を実行してください）」
+```
+
+### `schema --json` の形
+
+```json
+{
+  "bin": "sai-link", "version": "0.1.0",
+  "commands": [
+    {"path": ["card", "create"], "about": "カードを作成する（標準入力に JSON）",
+     "stdin": "json", "json": true, "web": true,
+     "args": [
+       {"name": "period", "kind": "option", "type": "enum", "values": ["week","month","all"],
+        "required": true, "multiple": false, "default": null, "help": "…", "web": true}
+     ]}
+  ]
+}
+```
+
+| 項目 | 型 | 意味 |
+|---|---|---|
+| `bin` / `version` | 文字列 | 実行ファイルの名前と版 |
+| `commands[].path` | 文字列の配列 | 命令の語（`["run", "list"]`）。サブコマンドの無い命令は 1 語 |
+| `commands[].about` | 文字列 | 1 行の説明（Web の「コマンド」画面に出る） |
+| `commands[].stdin` | `"none"` / `"text"` / `"json"` / `"bytes"` | 標準入力の種類。`bytes` の命令は Web に出さない |
+| `commands[].json` | 真偽値 | `--json` を受けるか |
+| `commands[].web` | 真偽値 | Web の「コマンド」画面に出してよいか |
+| `args[].name` | 文字列 | 引数の ID（clap の ID。オプションの綴りは `--` + 名前だが、`_` は `-` と書く物がある。例: `year_from` は `--year-from`） |
+| `args[].kind` | `"option"` / `"flag"` / `"positional"` | 引数の種類 |
+| `args[].type` | `"string"` / `"int"` / `"float"` / `"enum"` / `"path"` | 値の型（enum は `values` に選択肢） |
+| `args[].required` / `multiple` / `default` / `help` / `web` | 真偽値・真偽値・値・文字列・真偽値 | 必須・複数・既定・説明・Web に出してよいか |
+
+- `schema --json` は **3 つの CLI すべてが持つ**。命令を足すと自動で出る。Web に出してはいけない命令（ファイルの送信・常駐の内部命令など）は `web: false` のままにする。
+- Web の「コマンド」画面は argv を `[bin, *path, <--json>, オプション, フラグ, --, 位置引数]` の順に組む。位置引数は `--` のあとに置く（`-` で始まる値を守るため）。
+
+### Web が CLI を呼ぶ約束
+
+- env は `{**os.environ, "SAI_PROJECT_ROOT": <root>, "SAI_ORIGIN": "phone"}`、cwd は root。シェルは使わない（`shell=True` 禁止・引数は配列）。
+- 終了コードから HTTP の状態へ: 2 → 400、3 → 404、4 → 409、1 とそのほか → 502。0 で JSON でない → 502。起動できない → 503、時間切れ → 504。`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。
+- 時間切れは既定 20 秒。個別に、検索・内部検索 120 秒、訳 90 秒、PDF の訳・音声化・Download の後処理は長め（`papers.py` の定数）、「コマンド」画面の実行は 120 秒。
+- 実行ファイルの場所は `SAI_LINK_BIN`・`SAI_PAPER_BIN`・`SAI_SCI_BIN`。**バイナリ名（`sai-link`・`sai-paper`・`sai-sci`）と、Web が呼ぶ命令の名前を変えてはいけない**（変えると 503 / 400 になる）。
+- `sai-link` は `SAI_PROJECT_ROOT` を最優先で DB 解決に使う。Web は呼び出しのたびに必ず root を渡す。
+
+---
+
+## 2. Web が呼ぶ命令と、Web が読む JSON の項目
+
+### 2.1 呼ばれ方の一覧
+
+cwd は **そのプロジェクトの root**（論文は `papers.resolve_project(name)` が引く一覧の `root`）。
+
+| 部品 | Web が呼ぶ命令（呼ぶ側のモジュール） | 時間切れ |
+|---|---|---|
+| sai-link | `run export`（`control.export_runs`・60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|start\|finish\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop`（すべて `control.py`） | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
+| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-log`・`find`・`find-log`・`providers`・`dashboard`・`import list\|add\|remove`・`set list\|show\|mark\|drop-pending`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
+| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`proposals`・`triage`・`card --from-json`・`read`・`find --node`・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
+| 3 つの CLI | `schema --json`（`commands.py`・60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
+| apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | 質問（`…/ask`）180 秒・他 30 秒 |
+
+- どの呼び出しも**シェルを使わず**、引数は配列で渡される。
+- 検索語や文のように `-` で始まりうる値は、最後に `--` を置いて渡される。
+- **`target/release/` の実行ファイルを作り直す**（`cargo build --release`）。直しても作り直さないと Web は古いまま。
+
+### 2.2 sai-link が出す JSON
+
+#### `run export`（書き出し。Chats が読む）
+
+`$SAI_HOME/web/runs/<project_name>/<run_id>.json`（一時ファイル → rename で書く）。1 ファイル分の項目（`runs.py` の `_read_run`）。**足し算は安全、減らすのは危険。**
 
 | 項目 | 型 | 何に使う | 無い・型が違うとき |
 |---|---|---|---|
-| `schema_version` | 数値（**1 固定**） | 受け入れ判定 | `1` 以外は**そのファイルを丸ごと捨てる**（ログに 1 行） |
+| `schema_version` | 数値（**1 固定**） | 受け入れ判定 | `1` 以外は**そのファイルを丸ごと捨てる** |
 | `run_id` | 数値 | 実行の ID・URL `#/run/<project>/<run_id>` | 無ければ捨てる |
 | `project_name` | 文字列 | 一覧の並び・URL | 無ければ捨てる |
-| `runner` | 文字列（`cc` / `pi` …） | 記録の読み分け・表示順 | `"user"` は**一覧に出さない** |
+| `runner` | 文字列（`cc` / `pi` …） | 記録の読み分け | `"user"` は**一覧に出さない** |
 | `status` | 文字列 | 一覧に出す判定 | `running / completed / failed / cancelled` のみ表示。**それ以外（todo・pending）は出さない** |
-| `started_at` / `updated_at` | 文字列（無い時刻 TZ） | どの日の実行か（**UTC とみて日本時間に変換**）・並び順 | 無ければ日付なしで一覧から落ちる |
+| `started_at` / `updated_at` | 文字列（タイムゾーン無し） | どの日の実行か（**UTC とみて日本時間に変換**）・並び順 | 無ければ日付なしで一覧から落ちる |
 | `finished_at` / `duration_ms` | 文字列 / 数値 | 実行ごとの表示 | 空欄でも動く |
 | `description` / `block_name` | 文字列 | 一覧の行・検索 | 空文字扱い |
 | `parent_run_id` | 数値 \| null | サブタスクを親の直下に字下げ | 通常の位置に出る |
 | `model` | 文字列 \| null | 統計画面 | ― |
 | `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
-| `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない（メッセージは空表示） |
+| `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない |
 | `herdr_pane_id` / `herdr_pane_label` | 文字列 \| null | 実行中の pane への文字送り | 「この実行は終了しています」と出る |
 
-**`sai-moon-link phone user start` / `phone user finish` → `{"run_id": N, "status": "running" \| "review"}`**
+#### `project summary` → オブジェクト
 
-| 項目 | 型 | `apps/phone` の使いところ | 無いとき |
+| 項目 | 型 | 使うところ | 無い・違うとき |
 |---|---|---|---|
-| `run_id` | 数値 | READ_CARD の画面の行き先 `#/papers/read/<run_id>` | 画面が遷移先を失う |
-| `status` | 文字列（`"running"` / `"review"`） | 「始める」で running、「終える」で review へ移ったことを知らせる | 遷移は済んでいるので画面の文言が古くなる |
+| `running` | 数値 | 「実行中 N」 | 0 |
+| `last_executed_at` | 文字列 \| null | 「5分前」と並び順 | 最後尾・時刻なし |
 
-- **終了コード 3** は 404（`control._phone_json` の決まり）、**終了コード 1** とそれ以外は 502。省略は無い。
-- 中身は `sai_link_widgets::user_run`（`start_user_run`・`finish_user_run`・`move_running_to_review`）。TUI も同じ関数を呼ぶので、**片方だけ直さない。**
+#### `project dashboard --period week|month|all` → オブジェクト
 
-### 2.2.1 `.sai/settings.json` の項目（agent に渡す環境変数）
+| 階層 | 項目 | 型 | 使途 | 無いとき |
+|---|---|---|---|---|
+| 直下 | `name` / `since` / `until` | 文字列 | 見出しと期間 | ― |
+| 直下 | `period` | 文字列 | グラフ横軸のラベルの出し分け | 今週扱い |
+| 直下 | `daemon_alive` | 真偽値 | ランプ・ボタン | 停止中 |
+| 直下 | `daily` | 配列 | 日ごとの棒グラフ | グラフ空 |
+| `daily[]` | `date` / `executions` / `tokens` | 文字列 / 数値 / 数値 | 棒とタップ中の 1 行 | 0 の棒 |
+| 直下 | `by_model` | 配列（`model` / `tokens`） | ドーナツ | 「データがありません」 |
+| 直下 | `by_block` | 配列（`block` / `tokens` / `executions`） | 横棒（上位 8） | 「データがありません」 |
+| 直下 | `recent` | 配列 | 直近の実行 | 「この期間の実行はありません」 |
+| `recent[]` | `run_id` / `parent_run_id` / `block` / `status` / `started_at` / `duration_ms` | 数値 / 数値 \| null / 文字列 / 文字列 / 文字列 / 数値 | 行の形と `#/run/...` の URL | ― |
+| `summary` | `executions` / `completed` / `failed` / `running` / `success_rate` / `tokens_total` / `tokens_input` / `tokens_output` / `tokens_cache` / `duration_ms` / `cost_usd` | 数値 | 大きな数字と補足行 | 0 |
 
-settings は 2 か所で書ける。**後者（`~/.sai-moon`）が前者（プロジェクト）をキー単位で上書きする。**
+Web が `recent[]` に**追加で足す**項目: `description`（文字列）・`linkable`（真偽値・メッセージ画面が開けるか）・`project`（文字列）。sai-link の側では不要。
+
+#### `run tree` → `{"items": [...]}`（左サイドバーと同じツリー）
+
+| 項目 | 型 | 使うところ |
+|---|---|---|
+| `items[].type` | `"folder"` / `"run"` | 行の種類 |
+| `items[].id` / `label` / `depth` | 文字列 / 文字列 / 数値 | フォルダ（`todo`・`running`・`review`・`done`・`R<n>` …）の行 |
+| `items[].children[]` | 配列 | フォルダの中身。run は `type: "run"` のノード |
+| run ノード: `run_id` / `label` / `lane` / `status` | 数値 / 文字列 / 文字列 / 文字列 | 行・色・Workflow との対応 |
+| run ノード: `executer` | `"human"` / `"agent"` | カードの起動者（既定 `human`。`agent` の todo には画面が ▶ 実行を出さない） |
+| todo の run ノード: `card` | `{creation_date, block, runner, model, description}` | Dashboard とホームの todo の 2 行表示 |
+| todo の run ノード: `scheduled_at` | `YYYY-MM-DD HH:MM`（予約があるときだけ） | ホームの「予約した todo」 |
+| todo の run ノード: `after_job` | 文字列（`card wait` したときだけ） | ジョブ待ちの印 |
+
+ホーム（`home.py`）は top レベルの `review`・`todo` フォルダの中の run ノードを読む。
+
+#### `run log|stats|history <run_id>`
+
+オブジェクトをそのまま画面に出す。`run log` の `connections[]`（作られた順。`direction` `from`/`to`・`kind` `task_text`/`task_create`/`task_output`・`run_id`・`global_round`・`round`・`block_name`・`description`・`waggle_token`・`file_path`）を Summary の Connection が読む。`block_name` / `exec_id` / `created_at` / `finished_at` / `input_fields[]` / `model` なども見出しに使う。
+
+#### `run md <run_id> --kind task|message|report|system [--write]` → `{"kind", "name", "text"}`
+
+- 無ければ **終了コード 3・stderr「まだありません」**。`--write` は `task` だけ（未実行の todo カードだけ。無ければ 3「未実行のカードが見つかりません」）。本文は標準入力。
+- `report` は run の報告（`finalize-report.md`）、`system` は固定部分（`system-prompt.md`）。
+
+#### `run finalize` / `run advance` / `run rm`
+
+- `run finalize <run_id>` → `{"run_id", "status": "requested", "message"}`。その run が無ければ 3、実行中でない・子ブロック・常駐停止は 1。
+- `run advance <run_id>` → `{"run_id", "from", "to"}`。review / done 以外は **終了コード 2**「review / done の run だけ移動できます」。無ければ 3。
+- `run rm <run_id> --yes` → `{"run_id", "executions": 消した数}`。実行中は 1、無ければ 3。
+
+#### `doc list --run <id> --json` / `doc read <token> --json` / `doc search …`
+
+| 命令 | 返り値 | Web が読む項目 |
+|---|---|---|
+| `doc list --run <id> --json` | `{"count", "items": [...]}` | `items[].token`・`label`・`description`・`status`・`ref`（task_text に貼れる `waggle:<token>:path:…`） |
+| `doc read <token> --json` | `{"token", "label", "text"}` | `token`・`label`・`text` |
+| `doc search --word … [--category task,message,waggle] [--since …] [--until …] [--block …] [--from-id N] [--to-id N] [--limit N]` | `{"items": [...], "truncated": 真偽値}` | `items[].run_id`・`category`・`file`・`token`（waggle のとき）・`block`・`date`・`snippet`。新しい run から `--limit` 件で打ち切り。message.md は run フォルダにあるものだけ |
+
+#### `card options` / `card docs` / `card create` / `card run|start|finish|schedule|wait`
+
+| 命令 | 返り値 | Web が読む項目 |
+|---|---|---|
+| `card options` | `{"blocks", "cc_models", "providers", "runners", "thinking", "warnings"}` | `blocks[]`（`id`・`label`）・`runners`（`user`・`pi`・`cc`・`gl`）・`thinking`・`providers`（キーが provider、値がモデルの配列）・`cc_models` |
+| `card docs [--limit N]` | `{"items": [{token, label, description, status, ref}]}` | 同左（task_text に貼る候補） |
+| `card create`（**標準入力に JSON**・作成後は todo に配置） | `{"run_id", "path", "executer"}` | `run_id`（次の画面の行き先） |
+| `card run <run_id>` | JSON | 未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: agent` のカードは **終了コード 1**・stderr「このカードはエージェントが子の run として起こします（executer: agent）。人が起こすときは、カードの executer を human に直してください」 |
+| `card start <run_id>` / `card finish <run_id>` | `{"run_id", "status": "running" \| "review"}` | `runner: user` の札を running にする / review へ移す。未実行カードが無ければ 3、`runner: user` で無ければ 2「runner: user のカードではありません」（`finish` は実行中の利用者の札で無ければ 2「実行中の利用者の札ではありません」） |
+| `card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]` | `{"run_id", "scheduled_at"}` | `--at` を省くと予定を消す。常駐が 5 秒ごとに見回って実行する |
+| `card wait <run_id> [--job <job_id>]` | `{"run_id", "after_job"}` | `--job` を省くと解除。形は `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`。詳しくは [§4.2](#42-カードの-frontmatter) |
+
+`card create` の標準入力の JSON（Web が作る形）:
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `runner` | 文字列 | `user` / `pi` / `cc` / `gl`（空でスキップ） |
+| `block` | 文字列 | block の ID（`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`） |
+| `provider` / `model` / `thinking` | 文字列 | 空でスキップ。`thinking` は `none / low / medium / high / xhigh / max` |
+| `global_round` / `round` / `tag` / `description` | 文字列 | ラウンドは数字、`tag` は 1 行 |
+| `task_text` | 文字列（100KB まで） | 依頼文。`waggle:<トークン>` で文書を埋め込める |
+| `executer` | 文字列 | `human`（既定）/ `agent`（旧 `professor` も `agent`）。知らない値は**終了コード 2** |
+| `doc_tokens` / `done_ids` | 配列 | 貼る文書のトークン・完了済みの run（Web の作成フォームが渡す） |
+| `meta` | オブジェクト | frontmatter に足す任意の項目（sai-sci が使う。§3） |
+
+#### `workflow` → オブジェクト
+
+`nodes`・`edges`・`lanes`（`todo`・`running`・`review`・`done`）・`separators`・`width`・`height`。配置は sai-link が計算する（Web で計算し直さない）。各札に `executer` が付く。実行の記録（DB）が要るので、無いと 404。
+
+#### `def list|show|write|delete`
+
+| 命令 | 返り値 | 注意 |
+|---|---|---|
+| `def list [--parent <名前>]` | `{"global_root", "project_root", "items": [...]}` | `items[]` は `kind`・`name`・`scope`・`title`・`description`・`exists`・`shadowed`・`used_by`・`templates`・`error` |
+| `def show --kind block\|template\|settings --scope project\|global --name <名前>` | `{"kind", "scope", "name", "path", "exists", "text", "used_by", "warnings", "error"}` | `--scope` を省くと解決済みの定義 |
+| `def write --kind … --scope … --name … [--create]`（本文は標準入力） | JSON | 壊れた定義は保存せず**終了コード 2**で理由を出す。`--create` で同じ名前があるときも今は 2「同じ名前の定義があります」（Web が 409 に読み替える） |
+| `def delete --kind … --scope … --name …` | JSON | settings は消せない |
+
+`scope=global` の置き場は `$SAI_HOME`。定義の編集は DB が無くてもできる。
+
+#### `session search … --json`
+
+`-R <round>`（global_round）・`-r <round>`・`--id <run_id>`・`--block`・`--date`・`--status`・`--type`・`-w <語>`。返り値は配列、または `{"items": [...]}`（Web は両方を受け、先頭 200 件に切って `truncated` を付ける）。
+
+#### `daemon start|stop`
+
+**文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
+
+### 2.3 sai-paper が出す JSON
+
+cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）があるプロジェクト」の root。共通 API キーは `$SAI_HOME/paper.env`（プロジェクトの `.env` より優先順位が低い）。
+
+#### `library list` → `{"papers": [...]}`
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `id` | 数値 | 行を押したときの `#/paper/<name>/<id>` | その行が開けない |
+| `title` | 文字列 | 1 行目 | 空行 |
+| `authors` | 文字列（`"A, B"`） | 2 行目（最初の 1 人＋「ほか」） | 著者なし表示 |
+| `year` / `journal` | 文字列 \| null | 2 行目 | 部分を省略 |
+| `reading_status` | 文字列 | 札（`unread/queued/reading/read`） | 札なし |
+| `podcast` | 文字列 \| null | 札（`ready` →「🎧 音声あり」／`generating` →「音声作成中」） | 札なし |
+| `created_at` / `has_pdf` / `has_extract` / `is_favorite` | ― | **画面では未使用** | ― |
+
+#### `library tree` → `{"groups": [...], "find_groups": [...]}`
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `groups[].kind` | `"query"` / `"import"` | 見出しの形（`query` は「検索結果 ›」も出る） | そのまとまりが出ない |
+| `groups[].log_id` | 数値 \| null | 「検索結果 ›」の行き先 `#/papers/log/<name>/<log_id>` | リンクなし |
+| `groups[].date` / `query` | 文字列 \| null | 見出しの文言 | ― |
+| `groups[].hit_count` | 数値 | 「N 件」 | 0 件扱い |
+| `groups[].paper_ids` | 数値の配列 | 中の論文を引く | そのまとまりが空 |
+| `find_groups[]` | `log_id`・`date`・`query`・`hit_count`・`paper_ids`（Library にある論文だけ。ヒット順・重複なし）・`actor`（`{"kind"}` のみ） | 内部検索の履歴の組（新しい順・1 つの履歴につき 1 組） | ― |
+
+#### `paper show <id>` → `{"paper", "files", "note", "refs", "podcast"}`
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `paper` | `id` `title` `authors` `year` `journal` `doi` `citation_count` `abstract` `abstract_ja` `reading_status` | 各種 | 題名・著者・年・掲載誌・被引用・DOI リンク・要旨の切替 | ― |
+| `files` | `pdf` / `pdf_ja` / `extract` | 絶対パス \| null | 「PDF」「日本語 PDF」「本文」ボタン。**パスは画面に出さず、開けるかだけ見る**（Web が配信する `/pdf` はこのパスを読む。プロジェクトの root の外なら 404） | そのボタンが出ない |
+| `figures` | `items[].image` | 絶対パス | 図の画像（`/figures/<n>`。root の外なら 404） | 図が出ない |
+| 直下 | `note` | 文字列 \| null | ノートの本文 | 「ノートはありません」 |
+| `refs[]` | `title` `authors` `year` `journal` `doi` `local_paper_id` | 各種 | 引用文献の行。`local_paper_id` があれば Library へ移動 | ― |
+| `podcast` | `status` | `"ready"/"generating"/"failed"` \| null | 音声ボタンの出し分け（`generating` は 10 秒ごとに読み直す） | なし扱い |
+| `podcast` | `error` | 文字列 \| null | 「前回は失敗しました: …」 | ― |
+| ― | 論文が無いとき | | **終了コード 3・「論文が見つかりません」** | ― |
+
+#### `search-log <id>` / `search` → `{"log", "items"}`
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `log` | `id` | 数値 | 画面を移っても結果を取り直すための鍵 | 検索直後の復元ができない |
+| `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
+| `log` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 「実行者」（agent は `SAI_PARENT_RUN_ID` を書いた検索） | 出さない |
+| `log` | `node` | `{"id":"O5"}` \| null | 見出しの下の Node へのリンク（`#/research/tree/O5`） | リンクを出さない |
+| `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
+| `items[]` | `title` `authors`（**配列**）`year` `journal` `doi` `abstract` `citation_count` | 各種 | 行と詳細の表示 | ― |
+| `items[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の札と行き先 | 未ダウンロード論文の情報画面 |
+| `failed[]`（**`search` だけ**） | `db` / `reason` | 文字列 | 検索の失敗の帯。`reason` の 429 は「混雑」、403 は「キーが使えない」 | 帯を出さない |
+
+- `search --json --limit N [--db <ID>]… [--year-from Y] [--year-to Y] -- <語>`。失敗した DB は標準エラーに `<db>: <理由>` の 1 行と、標準出力の `failed` へ出す。検索は履歴に残る。
+- `find --json [--mode word|vector|hybrid] [--top-k N] [--scope papers|notes|figures|all] [--paper <番号>]… [--each m] -- <語>` は内部検索（要約なし）。新しい履歴を作り、`find-log <id>` と同じ形で返す。`sai-sci find --node <ID> [--subtree]` は範囲の決定と記録を sai-sci が行う。
+- `find-log <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
+
+#### `providers` → `{"default": [...], "available": [...]}`
+
+両方**文字列の配列**。`available` が来ないと検索を始められない（502「検索先を読めませんでした」）。`default` は初期選択。Web は `available` で `--db` を検査する（増減は `providers` と同時に変える）。
+
+#### `content paper <id> --json` → `{"id", "md_path", "text"}`
+
+画面は `id` と `text` のみ。
+
+#### `paper translate <id>` → `{"id", "abstract_ja"}` / `paper translate-pdf <id> --json`
+
+`translate` は画面が `abstract_ja` のみ読む。`translate-pdf` は数分かかる（Web は 202 を返し背景で待つ）。
+
+#### `paper citations <id>` → `{"paper", "key", "has_pdf", "extracted", "refs"}`
+
+抜き出し済みでも未済みでも同じ形（読み取りだけ）。
+
+| 階層 | 項目 | 型 | 使うところ |
+|---|---|---|---|
+| `paper` | `id` / `title` | 数値 / 文字列 | 見出しと戻る先 |
+| 直下 | `key` | 文字列 \| null | 引用の抜き出しが要るかを見る（`ArXiv:…` / `DOI:…` / 40hex） |
+| 直下 | `has_pdf` / `extracted` | 真偽値 | 「先に PDF を取り込んでください」・引用の行と引用文の出し分け |
+| `refs[]` | `ref_no` | 数値 | 行番号と `--ref` に渡す値 |
+| `refs[]` | `title` / `first_author` / `year` / `journal` | 文字列 \| null / 文字列 \| null / 数値 \| null / 文字列 \| null | 行の表示 |
+| `refs[]` | `doi` / `s2_paper_id` / `raw_text` / `url` | 文字列 \| null | 詳細表示・開くボタン |
+| `refs[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の行き先 |
+| `refs[]` | `can_download` / `can_import` | 真偽値 | 「取りに行く」「手動取り込み」ボタン |
+| `refs[].sentences[]` | `sent_no` / `text` | 数値 / 文字列 | その引用を引用している文（`text` は 300 字まで） |
+
+#### `paper citations-extract <id>` → `{"paper_id", "refs", "sentences", "docling_error"}`
+
+標準エラーに `sai-progress step=1` を 1 行出す（段は `0 = PDF確認`（Web）→ `1 = 引用抽出` → `2 = 完了`（Web））。`docling` が無い・失敗したときも終了コード 0 で、`docling_error` に理由が入る。arXiv ID か DOI が無い・PDF が無いときは終了コード 1。
+
+#### `paper download` / `paper after-download <id>`
+
+- `paper download (--log <id> --position <p> | --import-id <id> | --cite <paper_id> --ref <ref_no>)`（**数分かかる**）→ `status` が `exists`（既に Library にある）か `downloaded`（`paper_id` を持つ）。
+- `paper after-download <paper_id>`（**数分かかる**）は標準エラーに 1 行 = 1 文で次を出す。Web が 1 行ずつ読む。別の形（`warning: …` など）は進捗ではなく Web のログに出る。標準出力の JSON は変えない。
+  - `sai-progress step=<n>` — 段。`0 = PDF取得` / `1 = 図抽出` / `2 = 翻訳` / `3 = 完了`。0 と 3 は Web が決める（`after-download` は 1 と 2 を知らせる）。
+  - `sai-progress msg=<文>` — ログの 1 行。
+
+#### `paper candidates --minutes N` → `{"dir", "minutes", "items"}`
+
+ダウンロードフォルダ（`XDG_DOWNLOAD_DIR` → `~/.config/user-dirs.dirs` → `~/Downloads` → `~/ダウンロード`）の最近の PDF。
+
+| 階層 | 項目 | 型 | 使うところ |
+|---|---|---|---|
+| 直下 | `dir` | 文字列 \| null | 見出しのフォルダ名（ホームを `~` に置き換える） |
+| 直下 | `minutes` | 数値 | 表示の期間（Web は 30 を渡す） |
+| `items[]` | `name` | 文字列 | 選ぶときのラベル。**フルパスは返さない** |
+| `items[]` | `size` / `modified_at` | 数値 / 文字列 | 大きさ・更新時刻 |
+
+#### `paper import-pdf <対象> (--file <名前> [--minutes N] | --stdin)` → `{"paper_id", "title", "status", "pdf_path"}`
+
+ブラウザで保存した PDF（または Web のアップロード）を Library に入れる。`paper_id`・`title`・`status`（`"imported"`）を Web が読む。`pdf_path` は**画面に出さない**。
+
+- 対象は 1 つだけ: `--log <id> --position <p>` / `--import-id <id>` / `--cite <paper_id> --ref <ref_no>` / `--paper-id <id>`。
+- 中身は 1 つだけ: `--file <名前>`（**ファイル名だけ**。`/`・`\`・`..` は失敗。ダウンロードフォルダの最近 `--minutes` 分の PDF に同じ名前が要る。**移動される**）か `--stdin`（**100MB まで**）。
+- 図の抽出と PDF の翻訳は**しない**。Web が続けて `paper after-download <paper_id>` を呼ぶ。
+- `--cite` の取り込み先が既に Library にあるときは、`--file` の元のファイルを動かさず終了コード 1（`この論文は既に Library にあります（ID <n>）`）。PDF を付け替えたいときは `--paper-id` を使う。
+
+#### `paper radio <id>`（**数分・終わるまで戻らない**）
+
+`apps/radio` の `POST /api/papers/from-extract` を呼んで音声化を依頼する。Web は背景で 2000 秒まで待ち、終わったら通知する。返り値の `radio_id` を使う。
+
+#### `paper note <id>`（標準入力 = 本文）→ JSON
+
+100KB まで。
+
+#### `dashboard` → `{"cards", "activity"}`
+
+数字カード（`cards`: `papers`・`notes`・`tags`・`db_bytes`・`pdf_bytes`）と、Radio の出来事を混ぜた `activity[]`。研究方針の札（card）の実行は `kind: "action"` の行として入る（`todo` のものは除く）。`kind`・`label`・`occurred_at` は他の行と同じで、`action` の行は次を足して持つ:
+
+| 項目 | 型 | 使途 |
+|---|---|---|
+| `run_id` | 数値 | 札の run（`#/research/read/<run_id>` などの行き先） |
+| `node` | 文字列 \| null | 札が付いた Node の ID（`Q12` など） |
+| `block` | 文字列 | 札の block 名（`sci-ideate` など） |
+| `owner` | 文字列 | `todo` 以外の状態（`running`・`review` など） |
+| `debt` | 真偽値 | 残っている負債があるか（⚠ を出す） |
+| `debt_messages` | 文字列の配列 | 負債の文（`debt` が偽なら空） |
+
+#### `import list|add|remove`
+
+- `import list` → `{"dir", "files", "entries", "errors"}`（.bib の一覧と中の論文）。
+- `import add --name <名前>`（標準入力 = BibTeX・1MB まで）。名前は `^[A-Za-z0-9._-]{1,80}\.bib$`。
+- `import remove --name <名前>`。
+
+#### `set list|show|mark|drop-pending`（検索セット）
+
+- `set list` → `{"sets":[{"id","name","query","source_dbs","created_at","node","purpose","counts":{"pending","keep","drop","imported","total"}}]}`（`node` は結んだ Node の ID か `null`。`imported` は取り込み済みの候補の数）。
+- `set show <id>` → `{"set":{…list の 1 件と同じ…,"extract"},"items":[{"position","title","authors","year","venue","doi","abstract","decision","reason","paper_id"}]}`（`position` は 0 始まり。`decision` は `pending` / `keep` / `drop` / `downloaded`）。
+- `set mark <id> --position=<p,p,…> --decision keep|drop [--reason=…]` → `{"set_id","changed":n}`。取り込み済み（`downloaded`）の候補は変えず、`changed` に数えない。
+- `set drop-pending <id> [--reason=…]` → `{"set_id","changed":n}`。`pending` の候補をすべて `drop` にする（理由の既定は「まとめて drop」）。
+
+### 2.4 sai-sci が出す JSON
+
+Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答えの候補）・F（知見）・E（実験）の 4 種。ID は `Q12`・`O5`・`F3`・`E2`、提案は `P3`、種は `S2`。
+`status` と `node` の JSON は `sai-sci-core` の `Status` / `NodeDetail` を `serde_json::to_value` したもので、CLI は項目を足したり名前を変えたりしない。書き込む命令（`init`・`apply`・`triage`・`card`）は、終わる前に `state.md` と `tree.md` を書き出す。Web は書き込みのあと画面を読み直す。
+
+#### `status --json` → 木全体
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に木を表示してしまう |
+| 直下 | `legacy` | 真偽値 | 古い形の木だけがあるときの「作り直し」の案内 | 古い木に気づけない |
+| 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
+| 直下 | `progress` | `{"answered","total"}` | 進み具合の表示 | 進みが出ない |
+| 直下 | `nodes[]` | 配列（深さ優先） | 木そのもの。方針の図もここから描く（図だけを返す命令は無い） | 木が描かれない |
+| 直下 | `seeds[]` | `{"id","title","sentence","path","run","created_at","nodes"}` | 種の一覧（`path` は Node の ID の配列） | ― |
+| 直下 | `seed_draft` | `{"text","parts"}` \| null | 種の下書き（`parts[]` は `key`・`text`・`filled`） | 下書きが出ない |
+| 直下 | `next[]` | NextAction の配列 | 「次の一手」の行とカード作成の種 | 出ない |
+| 直下 | `debts[]` / `debt_count` | Debt の配列 / 数値 | 負債の行・件数 | 負債が見えない |
+| 直下 | `pending_proposals` | 数値 | 仕分け待ちの提案の数 | 0 に見える |
+| 直下 | `decisions[]` | `{"node","node_text","action","detail","reason","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
+| 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
+| 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
+| ― | 始めていないとき | | `type`・`seed_draft` は `null`、配列は空、数は 0 | ― |
+
+**NodeRow**（`status.nodes[]` と `node.node` / `children[]` / `subtree[]` の 1 件）
+
+| 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|
+| `id` / `kind` | 文字列（`Q12`）/ `"Q"` `"O"` `"F"` `"E"` | 行の種類の出し分け、行き先 `#/research/tree/<id>` | Node が選べない |
+| `parent` / `depth` / `ord` | 文字列 \| null / 数値 / 数値 | 並びと字下げ（一番上の Q が深さ 0） | 並びが壊れる |
+| `text` / `body` | 文字列 | 行のラベル / 本文 | ― |
+| `guide` | 文字列 \| null（Q だけ） | Q のガイドの key | ガイドの説明が出ない |
+| `answer_kind` | 文字列 \| null（O だけ） | O の種類の印 | ― |
+| `starred` | 真偽値（O だけ） | ★ の印 | ★ が出ない |
+| `on_path` | 真偽値 | ★ の道の上にある印（太く描く） | 道が分からない |
+| `leaf` | 真偽値 | 子の Q が無い Q の印 | ― |
+| `objectivity` | `{"count","target","met"}` \| null（Q だけ） | 目安の数に届いたか | 出ない |
+| `logicality` | `{"value","note","findings","checked_at"}` \| null（Q だけ。`value` は `ok` / `contradiction` / `unchecked`） | F どうしに矛盾が無いかの印 | 出ない |
+| `counts` | `{"q","o","f","e"}` | 直の子の数 | 数が空 |
+| `cites[]` / `paper` | 文字列の配列 / 数値 \| null | F の引用と論文 | ― |
+| `run` / `mlflow` | 数値 \| null / 文字列 \| null | E の実行と実験の記録 | ― |
+| `created_by` / `created_at` | 文字列 | 作った人（`user` / `run:<N>`）と時刻 | ― |
+
+**NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）・`fix`（負債を直す操作 \| null）。
+**Debt**（`status.debts[]` の 1 件）: `run_id`（数値）・`block`・`node`（文字列 \| null）・`side`（`agent` / `user`）・`criterion`・`message`（そのまま見せる文）・`fix`（JSON。`fix.kind = "set"` は検索セットの画面を開く）。
+
+#### `node <ID> --json` → Node 1 つ
+
+| 階層 | 項目 | 型 | 使うところ |
+|---|---|---|---|
+| 直下 | `node` | NodeRow | 板の見出しと本文 |
+| 直下 | `path[]` | `{"id","kind","text"}`（一番上の Q から順） | パンくず |
+| 直下 | `children[]` / `subtree[]` | NodeRow の配列 | 直の子 / 子孫すべて |
+| 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls","target"}` \| null | Q の説明と目安 |
+| 直下 | `logic[]` | `{"value","note","findings","f_count","run","created_at"}` | Logicality の確かめの履歴 |
+| 直下 | `decisions[]` | status の `decisions[]` と同じ | この Node の決定の記録 |
+| 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at","debt","debt_messages"}` | この Node のための実行の行（子孫の run も入る。Web の側で `node` で絞る） |
+| 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run（`by` が `user` のときは `run_id` が null） |
+| 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
+| 直下 | `pending[]` | `{"id","op","payload","reason","run","created_at"}` | 仕分け待ちの提案の行 |
+| 直下 | `next[]` | NextAction の配列 | この Node の次の一手 |
+| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
+| 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
+
+#### `read <run_id> --json` → 読む札
+
+`run_id` / `owner`（まだ `todo` なら「始める」を出す）・`node`（`{"id","kind","text"}`）・`purpose` / `depth`・`paper`（`{"id","title","year"}`）・`questions[]` / `extract[]`・`findings[]`（`{"id","parent","text","cites"}`）・`note` / `debts[]`。行き先は `#/research/read/<run_id>`。
+
+#### `card --from-json --json`（標準入力 = C-CARD）→ `{"run_id","path","executer"}`
+
+Web が作る要求の JSON。Web が先に検査し、知らない項目は落とす。
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `node` | 文字列（`Q12` の形。Q・O・F・E） | どの Node のためのカードか。**必須** |
+| `block` | 文字列（`^sci-[a-z-]{2,30}$`） | 動かす block。**必須**（runner が `user` で空なら `sci-read`） |
+| `purpose` | 文字列（1〜300 字） | 依頼文。**必須** |
+| `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
+| `scope` | `node` / `path` / `subtree` / `siblings` / `summary` / `blind` | 渡す範囲 |
+| `assume` | 文字列の配列（5 個まで） | 仮置き |
+| `mode` | `purpose_first` / `blind_first` | 読む札の型 |
+| `papers` | 整数の配列（20 個まで。`user` はちょうど 1 本） | 対象論文 |
+| `runner` | `pi` / `cc` / `user`（既定 `pi`） | 実行主体 |
+| `depth` | `abstract` / `figures` / `full`（`user` のときだけ） | 読む深さ |
+| `origin_run` | 数値 | 推薦した実行 |
+
+`executer` と `input` は Web からは指定しない（CLI の `--executer` / `--input` だけ）。**ファイルのパスは受け取らない。**
+
+#### そのほかの命令
+
+- `types --json` → `{"types":[{"id","name","root"}]}`（`root` は一番上の Q の文）。
+- `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配った部品の文字列の配列。新しい木が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
+- `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
+- `proposals --json` → `{"proposals":[{"id","op","run","block","payload","reason","created_at"}]}`（`id` は `P56`）。
+- `triage <P> --accept|--reject|--revert [--note=…] [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
+- `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形（`rt_searches` にも 1 行残す）。
+- `project show --json` → `{"mind","state","brief","attention"}`。`project memo --json -- <文>`（改行なしの 1〜2000 字）→ mind.md の「## メモ」に 1 行足す。
+- `attention list --json` → 配列（要対応の `key`・文）。`attention resolve <key> --json` → 対応済みにする。
+
+### 2.5 `apps/radio` を呼ぶ側
+
+`sai-paper paper radio` は `POST /api/papers/from-extract` を、Web は `/api/radio/*` の中継を使う。項目は [§5](#5-appsradio)。
+
+---
+
+## 3. sai-sci が読む sai-link の出力
+
+sai-sci は sai-link の DB と実行フォルダの並び（`.sai/outputs/`）を**直に開かない**。次の 2 つの命令だけを CLI で呼ぶ（呼び出しは `crates/sai-sci-core/src/link.rs`。実行ファイルは `SAI_LINK_BIN` → 自分の隣 → PATH）。
+
+### `sai-link run list --json --limit 0` → `{"runs": [...]}`
+
+`--limit 0` で全件。`runs[]` の項目（`run_id` が無い項目があると sai-sci は失敗する。値が無い項目は `null`・空）:
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `run_id` | 数値 | 実行 ID（**必須**） |
+| `block` / `tag` / `description` | 文字列 | block 名・タグ・1 行の説明 |
+| `status` | 文字列 | `todo`・`pending`・`running`・`completed` … |
+| `lane` | 文字列 | 実行フォルダの親の名前（`todo`・`running`・`review`・`done`・`R<n>`）。次の `global_round` は `R<n>` の最大 + 1 |
+| `parent_run_id` | 数値 \| null | 親の実行 ID |
+| `global_round` / `round` | 文字または数 \| null | ラウンド（sai-sci は文字にして読む） |
+| `created_at` / `started_at` / `finished_at` | 文字列 \| null | 日時 |
+| `dir` | 文字列 \| null | 実行フォルダの絶対パス（空は `None` 扱い） |
+
+### `sai-link card create`（標準入力に JSON）→ `{"run_id", "path", "executer"}`
+
+sai-sci が渡す項目: `runner`（`pi` / `cc`）・`block`・`global_round`・`round`・`tag`・`description`・`task_text`・`executer`（`human` / `agent`）・`meta`（frontmatter に足す任意の文字列の組）。`thinking`・`model`・`provider`・`doc_tokens` は渡さない。
+返り値の `run_id` と `path`（task.md の絶対パス）を読む。無ければ失敗。成功したら sai-sci は覚えていた run の一覧を捨てる。
+
+---
+
+## 4. sai-web とエージェントの間の約束
+
+エージェントは CLI を Bash で呼ぶ。Web が読む・書く物のうち、エージェント側の約束を書く。
+
+### 4.1 `.sai/settings.json` の項目（agent に渡す環境変数ほか）
+
+settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロジェクト）をキー単位で上書きする。**
 
 1. `<project>/.sai/settings.json`
-2. `~/.sai-moon/settings.json`（**2. が優先**）
+2. `$SAI_HOME/settings.json`（**こちらが優先**）
 
-読み込みは `crates/sai-link-engine/src/pi_command.rs` の `load_settings()` / `load_settings_quiet()`。
-TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警告を stderr に出すと枠外に残る）。
+| 項目 | 型 | 何に使う |
+|---|---|---|
+| `default_provider` / `default_model` / `default_thinking_level` | 文字列 \| null | block の frontmatter に無いときの既定 |
+| `wip` / `max_concurrent` | 数値 \| null | タブごとの pane 上限・同時実行数 |
+| `extensions` | 文字列の配列 | 起動時に読み込む拡張 |
+| `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業範囲の準備（シェルは通さない） |
+| `write_check` | 文字列の配列 \| null | `sai-link doc write` が保存の前に本文を標準入力で通す命令。`{run_id}`・`{block}`・`{filename}` を置き換える（シェルは通さない）。環境変数 `SAI_WRITE_FILENAME`・`SAI_WRITE_DESCRIPTION`・`SAI_PARENT_RUN_ID`・`SAI_BLOCK_NAME`。終了コード 0: 標準出力が空でなければそれを保存、空なら元の本文を保存。1: 標準エラーを返して保存しない。それ以外（起動失敗・30 秒の時間切れ・2 以上）: 元の本文を保存し警告を返す。研究のプロジェクトでは `sai-sci init` が `sai-sci report prepare …` を書く |
+| `job_status` | 文字列の配列 \| null | ジョブの状態を確かめる命令（先頭が実行ファイル。`{job}` をジョブの ID に置き換える）。常駐と `card wait` が読む。出力の `state` が `done` / `failed` / `cancelled` / `lost` なら終わり。無いと `card wait` は終了コード 2。`sai-sci init` が書く |
+| `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** |
 
-| 項目 | 型 | 何に使う | 壊れる・壊れない |
-|---|---|---|---|
-| `default_provider` / `default_model` / `default_thinking_level` | 文字列 \| null | ブロックの frontmatter に無いときの既定 | 壊れない |
-| `wip` / `max_concurrent` | 数値 \| null | タブごとの pane 上限・同時実行数 | 壊れない |
-| `extensions` | 文字列の配列 | 起動時に読み込む拡張 | 壊れない |
-| `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業 SCOPE の準備（シェルは通さない） | 壊れない |
-| `write_check` | 文字列の配列 \| null | `sai_write` / `agent write` が保存の前に本文を標準入力で通す命令。`{run_id}`・`{block}`・`{filename}` を置き換える（シェルは通さない）。環境変数 `SAI_WRITE_FILENAME`・`SAI_WRITE_DESCRIPTION`・`SAI_PARENT_RUN_ID`・`SAI_BLOCK_NAME`。終了コード 0: 標準出力が空でなければそれを保存、空なら元の本文を保存。1: 標準エラーを返して保存しない。それ以外（起動失敗・30 秒の時間切れ・2 以上）: 元の本文を保存し `warning` を返す | 壊れない |
-| `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** | 壊れない（壊した項目はその項目だけ破棄される） |
+読み込みは `crates/sai-link-engine/src/pi_command.rs` の `load_settings()`。
 
 #### `env` の決まり
 
 - キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
 - **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
-- 通らない項目は**エラーにせず、警告を 1 行出して破棄する**（`extensions` と同じ方針。設定が 1 つ壊れていて実行が止まるほうが困る）。
+- 通らない項目は**エラーにせず、警告を 1 行出して破棄する**。
 - 並びは `SAI_*` → `env` → エージェントの実行ファイル。値は shell のシングルクォート 1 つで囲むので、`export` や連結の文字列を書く必要はない。
-- **`export` を書かなくてよい。** 接続情報はここ 1 か所に書けば、そのプロジェクトの全 agent（pi / cc / サブタスク）に渡る。
+- 実装は `pi_command::agent_env_pairs()` と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。
+- `env` には**平文の鍵・合言葉が入りうる**ので `.gitignore` にする（利用者が決める。sai は `.gitignore` を書き換えない）。合言葉は `env` で配らない（起動コマンドの文字になって pane と記録に残るため）。
 
 ```json
 "env": {
@@ -151,793 +562,71 @@ TUI など alternate screen から呼ぶときは `load_settings_quiet()`（警�
 }
 ```
 
-- 実装は `pi_command::agent_env_pairs()`（検証済みの `(String, String)` の並びを返す）と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。
-- `env` は 1 か所でも **平文の鍵・合言葉が入るので `.gitignore` にする**（利用者が決める。sai-moon は `.gitignore` を書き換えない）。
+### 4.2 カードの frontmatter
 
-### 2.2.2 `layer` キーと `phone rtree`（research-tree の実行の図）
+`task.md`（カード）の frontmatter のメタ情報。**入力の欄ではなく、起動の道を決める情報**（入力検査の対象外）。
 
-- sci のブロック（`sci-*`）は `layer` を持たない（研究方針の画面の実行の図はやめた）。下の `layer` と `phone rtree` は sai-link 側の機能として残る。
-
-**ブロック定義の `layer` キー（C-01）**
-
-ブロック定義（`.sai/blocks/<id>.md`）の frontmatter に `layer:` を書くと、そのブロックの run が
-research-tree の「実行の図」に node として出る。
-
-```yaml
----
-id: sci-exp-sprout
-name: "🌱 exp-sprout"
-layer: sprout      # seed / root / sprout / branch のどれか
----
-```
-
-- 値は `seed` / `root` / `sprout` / `branch` の 4 つだけ。図の上から下の並びは branch / sprout / seed / root。**書かなければ図に出さない**（`block_metadata.layer` は NULL）。
-- 4 つ以外の値は**検査エラーで登録されない**（ブロックごと読み飛ばされる）。
-- 保存先は `block_metadata.layer`（TEXT・NULL 可）。読み書きは `orchestrator::upsert_block_metadata` と `SaiStore::{insert_block, update_block, get_block_by_*, list_blocks}`。
-- 検査は `validation::validate`（有効な値は `validation::VALID_LAYERS`）。
-
-層ごとのブロックの割り当て（共有契約）:
-
-| 層 | 図の位置（上から） | ブロック |
+| キー | 値 | 意味 |
 |---|---|---|
-| `branch` | 1 | `sci-exp-branch`・`sci-exp-review` |
-| `sprout` | 2 | `sci-exp-sprout`（旧 `sci-exp-seed`） |
-| `seed` | 3 | `sci-start`・`sci-seed` |
-| `root` | 4 | 上の 5 本と professor・operator・kaizen を除く `sci-*` |
+| `executer` | `human`（既定）/ `agent`（旧 `professor` も `agent` と読む） | 起動者。`agent` は、エージェント（professor など）が自分の子の run として起こすカード。**人が起こす道（`card run`・常駐の予約実行）では動かさない**（起こすと root の run になり、報告が起こす側に届かないため） |
+| `scheduled_at` | `YYYY-MM-DD HH:MM` | 実行予定時刻。`card schedule` が書く。常駐が 5 秒ごとに見回る |
+| `after_job` | `<job_id>`（`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`） | ジョブの終わりを待つ。`card wait --job` が書く |
 
-**`sai-moon-link phone rtree` の JSON（C-02）**
+- `executer` は `sai_link_engine::kanban::CardFrontmatter::executer()` / `is_agent_executer()` が読む。未記載・空・知らない値は `human` 扱い。`run tree` の各 run ノードと `workflow` の各札が `"executer"` を持つ。
+- `sai-sci card --executer <human|agent>` で指定する（`agent` は `runner: pi` のときだけ。省略は `human`）。
+- `after_job`: 常駐は約 60 秒ごとに、カード 1 枚ごとの別の糸で `job_status` の命令を呼ぶ（90 秒で打ち切り）。`state` が `done` / `failed` / `cancelled` / `lost` なら `after_job` を消してそのカードを起こす。`queued` / `running` や、読めなかったときは、カードを変えず次の見回りでやり直す。環境変数 `SAI_EXP_STATUS_CMD` があれば状態を読む命令を差し替える。`agent` のカードは断られるので、起こされてもログに残るだけ。
 
-cwd はプロジェクトの root。終了コード 0 で標準出力に JSON を 1 個出す（項目順も契約）。
-DB が開けないときは終了コード 4。実行が 0 件でも空の配列で成功する。
+### 4.3 起動時の文の分け方
 
-```json
-{
-  "nodes": [
-    {"run_id": 120, "block": "sci-exp-sprout", "name": "🌱 exp-sprout", "layer": "sprout",
-     "status": "completed", "created_at": "2026-09-30 01:02:03", "finished_at": "2026-09-30 02:00:00",
-     "parent_run_id": null, "description": "…", "sci_node": "N12",
-     "global_round": 5, "round": 1}
-  ],
-  "edges": [
-    {"from": 120, "to": 121, "kind": "delegation"},
-    {"from": 121, "to": 125, "kind": "waggle_token"},
-    {"from": 121, "to": 120, "kind": "task_output"}
-  ]
-}
-```
-
-| 項目 | 型 | 何 |
-|---|---|---|
-| `nodes[].run_id` | 数値 | `execution_history.id`。1 run = 1 node。`run_id` の昇順に並ぶ |
-| `nodes[].block` | 文字列 | ブロックの ID（`block_metadata.name`） |
-| `nodes[].name` | 文字列 | ブロックの表示名（emoji 可） |
-| `nodes[].layer` | 文字列 | `seed` / `root` / `sprout` / `branch` |
-| `nodes[].status` | 文字列 | `execution_history.status`（`completed` など） |
-| `nodes[].created_at` / `finished_at` | 文字列 / null | 作成・終了時刻 |
-| `nodes[].parent_run_id` | 数値 \| null | サブタスクの親 |
-| `nodes[].description` | 文字列 | カード（task.md）の frontmatter の `description`（無ければ空文字） |
-| `nodes[].sci_node` | 文字列 \| null | カードの frontmatter の `sci_node:`（`N12` の形。カードが無いとき・キーが無いときは null） |
-| `nodes[].global_round` / `round` | 数値 \| null | グローバルラウンド / ローカルラウンド |
-| `edges[].from` / `to` | 数値 | 実行 ID（**両端が node に入っている線だけ**） |
-| `edges[].kind` | 文字列 | `delegation`（DB の `task_delegation`）/ `waggle_token` / `task_output` の 3 つだけ |
-
-- 値が無い項目は `null`（`description` だけは空文字）。
-- `edges[]` を作る線は **既存の 3 種だけ**（新しい `connection_type` は作らない）。同じ `(from, to, kind)` は 1 本にまとめる。
-- `phone workflow` とは別の図。`phone workflow` は `workflow_moved = true` の run だけとフェーズ合成を出すが、こちらは **`workflow_moved` を見ない**（Kanban 側の run も 1 枚で node にする）。
-- 中身は `sai_link_widgets::research_dag::load_research_dag`（`crates/sai-link-widgets/src/research_dag.rs`）。TUI も同じ読み方を共有する。
-
-#### カードの frontmatter の `after_job`（ジョブの終わりを待つ）
-
-todo のカードの frontmatter に `after_job: <job_id>`（`exp_exec.py` の job_id。形は `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`）を書くと、ジョブが終わったときに常駐がそのカードを実行する。`META_FM_KEYS` なので入力検査の対象外。
-
-- 書く命令: `sai-moon-link phone card wait <RUN_ID> --job <JOB_ID>`（`--job` を省くと解除）。戻り値 `{"run_id": N, "after_job": "<job_id>" | null}`。形の違う job_id は usage エラー。
-- 常駐（`daemon.rs` の `run_job_waiting_cards`）は約 60 秒ごとに、カード 1 枚ごとの別の糸で `exp_exec.py status <job_id> --json` を読む（90 秒で打ち切り）。`state` が `done` / `failed` / `cancelled` / `lost` なら `after_job` を消して `phone card run <RUN_ID>` で起こす。`queued` / `running` や、読めなかったとき（失敗のログは前と同じ文なら出さない）は、カードを変えず次の見回りでやり直す。
-- 状態を読む命令は、既定で `uv run --no-project --python ">=3.11" python <root>/.sai/tools/exp_exec.py status <job_id> --json`。環境変数 `SAI_EXP_STATUS_CMD` があれば `<SAI_EXP_STATUS_CMD> status <job_id> --json` に差し替わる（launchd で動く常駐の PATH に `uv` が無いときはこれを使う）。
-- `phone tree` の todo の子には、`after_job` があれば `"after_job": "<job_id>"` が出る。
-- `executer: professor` のカードは `phone card run` が断るので、起こされてもログに残るだけ（`after_job` は消えている）。
-
-#### カードの frontmatter の `executer`（起動者）
-
-`task.md`（カード）の frontmatter のメタ情報として `executer:` を持つ。**入力の欄ではなく、起動の道を決める情報**（`META_FM_KEYS` なので入力検査の対象外）。
-
-| 値 | 意味 |
-|---|---|
-| `human`（既定） | 人が起こすカード。今までの動き。 |
-| `professor` | professor（root の run）が自分の子の run として起こすカード。**人が起こす道では動かさない**（`run_card_request` と TUI の `do_run_flow` がerrorで止める）。 |
-
-- 読むのは `sai_link_engine::kanban::CardFrontmatter::executer()` / `is_professor_executer()`。未記載・空・知らない値は `human` 扱い。
-- `phone tree` の各 run ノードと `phone workflow` のレーンの各札は `"executer": "human" | "professor"` を持つ（カードが無い run は `human`）。
-- Web の List 画面は `executer: professor` の todo に ▶ 実行を出さず、「professor が起こす」と出す（`apps/phone/src/sai_phone/static/linkview.js` の `isProfessorRun`）。
-- 研究方針の木から作るカードは `sai-moon-paper sci card --executer <human|professor>` で指定する（`professor` は `runner: pi` のときだけ）。省略は `human`。
-- `sai-moon-link phone card create` も任意の `executer` を受ける（空は `human`・知らない値は終了コード 1）。
-
-### 2.3 壊れる変更・壊れない変更
-
-| 変更 | 結果 |
-|---|---|
-| 項目の**追加** | **壊れない**（読まないだけ） |
-| `schema_version` を 2 にする | **壊れる**（全ファイルが無視され会話タブが空になる） |
-| `run_id` / `project_name` の型変更（文字列化など） | **壊れる**（ファイルごと捨てる） |
-| `status` の語の変更（`done` など） | **壊れる**（一覧に出なくなる） |
-| フォルダの形 `~/.sai-moon/phone/runs/<project>/<id>.json` の変更 | **壊れる** |
-| 書き出しを止める（export を外す） | **壊れる**（会話タブ・Dashboard の「直近の実行」が開けない。`linkable: false` の行ばかりになる） |
-| ファイル名の一時ファイル（`.` 始まり）を増やす | **壊れない**（`.` 始まりは無視される） |
-| **バイナリ名 `sai-moon-link` を `sai-link` に戻す** | **壊れる**（既定値がそのまま `sai-moon-link` なので 503） |
-
-### 2.4 直したあとに流す確認（読み取りだけ）
-
-```bash
-# 0) ビルド
-cd ~/workdir/Sai/sai-moon
-env -u SAI_PROJECT_ROOT perl -e 'alarm 900; exec @ARGV' cargo build --workspace
-
-# 1) 書き出しが動くか（実際に書かずに JSON を見せる。書き込みはしない）
-./target/release/sai-moon-link phone export --dry-run | head -c 300; echo
-
-# 2) 必須項目があるか
-./target/release/sai-moon-link phone export --dry-run | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-row = d[0] if isinstance(d, list) else d
-need = ['schema_version','run_id','project_name','runner','status','started_at']
-missing = [k for k in need if k not in row]
-print('不足:', missing or 'なし'); assert not missing
-assert row['schema_version'] == 1, 'schema_version が 1 でない'
-print('OK')"
-
-# 3) 既存の書き出しが読めているか（apps/phone が読む場所）
-ls ~/.sai-moon/phone/runs/ | head
-
-# 4) 作成フォームの選択肢と手順 4（読み取りだけ）
-./target/release/sai-moon-link phone card options | head -c 300; echo
-./target/release/sai-moon-link phone card inputs --block sub | head -c 300; echo
-
-# 5) 置き場が ~/.sai-moon になっているか（SAI_SAI_HOME で上書きできること・ファイルは作らない）
-SAI_PROJECT_ROOT=$PWD SAI_SAI_HOME=/tmp/smoke-sai-home ./target/release/sai-moon-link phone def list
-ls /tmp/smoke-sai-home   # → No such file or directory（作っていないこと）
-```
-
-実測結果: `--dry-run` は説明文とオプション（`--run` `--dry-run`）を出力、`~/.sai-moon/phone/runs/` に `sai-moon` 1 プロジェクト分がある。
-`SAI_SAI_HOME=/tmp/smoke-sai-home` を渡すと `global_root` がそのパスになり、**そのフォルダは作られない**。
-
-### 2.5 変更したらすること
-
-1. `cargo build`（`apps/phone` は release を叩くので、通常は `cargo build --release`）。
-2. 既存の書き出しを 1 回作り直す: `./target/release/sai-moon-link phone export`（プロジェクトの root で）。
-   → **常駐が動いていると自動で書き出されるので、再起動不要なことが多い。**
-   `phone card …` を直したときも同じ（フォームは都度取りに行くので再起動不要）。`card create` / `card run` は**カードを作る・実行する**ので流さない。
-3. `apps/phone` 側を直す場所（項目を増減した場合）: `apps/phone/src/sai_phone/runs.py`。
-4. **置き場を変えた場合**は 3 か所すべてを直す（`project.rs:79`・`paths.rs:172`・`registry.py:41`）。
-5. この文書と `README.md`・`docs/integration.md` の該当表を更新。
-
-### 2.6 エージェントの道具（`sai-moon-link agent …` と MCP サーバ）
-
-MCP サーバ（`mcp_server.rs`）は `sai_write` / `sai_finalize` / `sai_read` / `task_*` / `block_*` を出す。同じ本体を `sai-moon-link agent <…>` からも呼ぶ（pi 拡張・フックはここを使う）。**CLI も同じ `agent_api` を通すので、戻り値の JSON は 1 か所で決まる。**
-
-#### 起動時の文の分け方（C10）
-
-ブロックの起動時に送る文は **2 つ**に分かれる。作り方は `orchestrator::prepare_pipeline`（`crates/sai-link-engine/src/orchestrator.rs`）で、分け目の処理は `placeholder::split_fixed_and_variable`（`crates/sai-link-engine/src/placeholder.rs`）。
+ブロックの起動時に送る文は **2 つ**に分かれる。作り方は `orchestrator::prepare_pipeline`（`crates/sai-link-engine/src/orchestrator.rs`）、分け目の処理は `placeholder::split_fixed_and_variable`（`crates/sai-link-engine/src/placeholder.rs`）。
 
 | | 中身 | 置き場 | 渡し方 |
 |---|---|---|---|
-| 固定部分（system prompt） | template と block.md の本文。古い記法の可変な場所は案内の文に置き換える | run フォルダ直下の `system-prompt.md`（`run_dir::SYSTEM_PROMPT_FILE`） | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
-| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ（`PreparedPipeline::expanded_prompt`） | herdr のテキスト送信（1 通） |
+| 固定部分（system prompt） | template と block.md の本文 | run フォルダ直下の `system-prompt.md` | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
+| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | herdr のテキスト送信（1 通） |
 
-**最初の文の節は sai-link が自動で作る（U01）。** 本文に古い記法が無くても、次の順に節が並ぶ。節の間は空行 1 行。
+- 節の順は `# context` → `# task_text` → 本文に `{{input.<id>}}` として現れた順。節の間は空行 1 行。固定部分の**先頭**に案内文（`依頼は、最初のメッセージの「# task_text」の節にあります。` など）を足す。
+- 古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要は無い。
+- `system-prompt.md` は `sai-link run md <run_id> --kind system` で読める（`--write` は `task` だけ）。
+- cc の `--system-prompt-snapshot` は既定 on。`system-prompt.md` を直して再開しても cc は古い固定部分を使うことがある（固定部分を直して動かしたいときは `off` を付けるか、セッションを作り直す）。
 
-1. `# context` — `context: true` で、中身が空でないときだけ。`context` の出力（中身は `##` から始まる）をそのまま入れる（見出しを付け直さない）。
-2. `# task_text` — 依頼文が無い・空のときは作らない。
-3. そのほかの id — 本文に `{{input.<id>}}` として現れた順（`task_text` は除く）。同じ id が何度出ても節は 1 つだけ。値が無い id は `{{input.<id>}}` の表記のまま入る。
-
-そのうえで、固定部分の**先頭**に次の案内文を足す（2 文は 1 行、空行 1 行を置いて本文から続ける）。固定部分が空のときは足さない。
-
-- context があるとき（`範囲（研究方針の木から切り出した文脈）は、最初のメッセージの「# context」の節にあります。`）
-- 依頼文があるとき（`依頼は、最初のメッセージの「# task_text」の節にあります。`）
-
-**古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要なし。** 配布するブロックと template からは消した（U04）。本文に古い記法が残っている場合は、固定部分には案内の文（`（最初のメッセージの「# <id>」の節にある）`）が置かれ、同じ案内文を先頭に重ねて足さないので二重にならない。読み取りの互換を消すのは段階 3 の予定。
-
-- 節が 1 つも無く固定部分が有るときは、最初の文は `system prompt の指示に従って始めてください。` になる。固定部分も空なら最初の文も空（本文が無いので送らない）。
-- `system-prompt.md` に書けなかったとき（run フォルダが無い・書き込み失敗）は、従来どおり 1 通で送り、固定部分を最初の文の先頭に付ける。stderr に警告を出す（run_id が無いプレビュー・テストでは警告を出さない）。
-- 読むのは **`sai-moon-link phone md --kind system <run_id>`**（Web の run の画面の「system」の帯）。`--write` は `task` だけなので `system` は保存できない。
-- 再開（`p`・`pane::build_resume_command`）は run フォルダに `system-prompt.md` があれば同じフラグを付ける。この変更よりに始まった run には無いので、そのときは付けない。
-- `sai-moon-link block preview <定義ファイル> [入力]` は `## system prompt（固定部分）` と `## 最初の文` の 2 節で出す。
-
-**要注意**: cc の `--system-prompt-snapshot` は既定 on（最初の要求の system prompt を記録し、再開では記録した方を使う）。そのため `system-prompt.md` を直して再開しても **cc は古い固定部分を使う**ことがある（この実装では直せない）。固定部分を直して動かしたいときは `--system-prompt-snapshot off` を付けるか、セッションを作り直す（sai-moon-link は付けない・判断は利用者に返す）。
-
-#### 報告の置き場（C5）
+### 4.4 報告の置き場
 
 報告は **run フォルダの `finalize-report.md`** に 1 つだけ置く。
 
 | 誰が書く | どう書く |
 |---|---|
-| 子の run | `task_report`（= `sai-moon-link agent task-report --report-file <パス>`） |
-| root の run | `sai_finalize` の `report`（任意）/ `sai-moon-link agent finalize --report <文>` / `/sai-finalize <文>`（cc のフック） |
+| 子の run | `sai-link task report`（本文は標準入力。`--run-id` を省くと自分の run） |
+| root の run | `sai-link run finalize --report <文>` / `/sai-finalize <文>`（cc のフック） |
 
-- `report` を付けない `finalize` は**保存済みの報告に一切触らない**（pane が閉じたときの `agent finalize --run-id N` は `--report` を付けない）。
-- Web の run の画面は `phone md --kind report <run_id>` で読む（帯は「報告」）。`--write` は `task` だけ。
-- 親の `task_output` は完了の `report` にこの本文を返す。
+- `--report` を付けない `run finalize` は**保存済みの報告に一切触らない**。
+- Web の run の画面は `run md --kind report` で読む（帯は「報告」）。親の `sai-link task wait` は完了の `report` にこの本文を返す。
+- 文書の保存は `sai-link doc write --filename <名前> [--description <文>]`（本文は標準入力。`write_check` を通る）。
 
-#### 完了の案内（C7）
-
-`task_output` が完了を返すときは `hint`（閉じる案内）が付く。**`status` / `report` / `outputs` の形は変えない**（`hint` を足すだけ）。子の run は `task_report` で `completed` になるだけで `finalized` は親の `task_manage finalize` が付けるので、閉じ忘れると pane と `running` のフォルダが残る。
-
-#### task_output の待ちと複数待ち
-
-`task_output` は待つので、**待ちの上限と「待つあいだも他の呼び出しが返ること」**決める。
-
-- 1 回の待ちは**最大 90 秒**。`timeout_ms` を省略したときと 90 秒より大きい値が来たときは 90 秒に切られる（定数 `agent_api::TASK_OUTPUT_MAX_WAIT_MS`、切る処理は `agent_api::clamp_wait_ms`）。120 秒より短くしてあるのは、MCP 呼び出しが 120 秒を超えるとクライアントがバックグラウンドに回すが、サーバ側の待ちは止まらないため。
-- 上限に達したときは `status: "in_progress"`（`message` に文言）。90 秒以内に明示した待ち時間が切れたときは後方互換で `status: "timeout"`（`error` に文言）。どちらの文言にも「1 回の待ちは最大 90 秒。もう一度呼んでください」が入る。
-- `timeout_ms: 0` は待たない即時参照。**このとき結果ファイルは消さない**（あとから読み直せる）。
-- `sai-moon-link agent task-output <task_id> [--timeout-ms N]` も同じ上限（TUI・CLI も同じ `agent_api::task_output` を通る）。
-
-複数を待つには `task_ids`（`task_id` とはどちらか一方。最大 50 件）を渡す。
-
-```json
-{"task_id": 12, "status": "completed", "round": 1, "report": "…", "outputs": ["waggle:AB: …"], "hint": "…", "pending": [11]}
-```
-
-- 1 回の呼び出しで**最初に完了・失敗・stalled（質問を含む）になった子を 1 件だけ**返し、残りを `pending` で返す。
-- 返した子の結果ファイルは消えるので、**返った子は次の呼び出しの `task_ids` から外す**（外さないと、同じ結果を二度読もうとする）。
-- 誰も決まらなければ `{"status": "in_progress", "pending": [全件], "message": "…"}`（`task_id` は付けない）。
-- 単体（`task_id` だけ）の戻り値の形は変わらない。
-
-MCP サーバ（`crates/sai-link-engine/src/mcp_server.rs`）の扱い:
-
-- `task_output` だけ**別スレッド**で動かす（`is_long_running_tool`）。他の道具は短く終わるので読み取りスレッドで順に処理し、同じターン内の呼び出し順（`sai_write` → `sai_finalize`、`task_create` → `task_execute`）を保つ。待ちのあいだも `task_list` などはすぐ返る。
-- `notifications/cancelled`（`params.requestId`）が来るとフラグを立てて待ちを止める。このとき**応答は書かない**（MCP 仕様どおり）。**結果ファイルも消さない**ので、あとから `task_output` で読み直せる。
-- stdin が閉じたら、残りの待ちをすべて止めてから終わる。
-- 応答は出力のロックを取って 1 行ずつ書く（別スレッドと読み取りスレッドが混ざっても壊れない）。
-- `task_id` と `task_ids` の両方、どちらも無し、空配列、整数以外を含む配列、51 件以上は、`agent_api` を呼ぶ前にエラーにする（入口は `mcp_server::run_task_output`）。
-
-**要確認**: 「結果を消費した直後に取り消しが届く」と、結果ファイルだけが残ったまま応答が書かれない窓がある（読み手と取り消しの順番なのでごく僅か）。
-
-#### 質問の通知（C6）
+### 4.5 質問の通知
 
 ```bash
 # 子の run の中から呼ぶ（親の run から呼ぶとエラー）
-"$SAI_LINK_BIN" agent task-question --qid <質問ID> --text <見出し> [--run-id <N>]
+"$SAI_LINK_BIN" task question --qid <質問ID> --text <見出し> [--run-id <N>]
 ```
 
-- 実行ファイルのパスは環境変数 `SAI_LINK_BIN`（無ければ `sai-moon-link`）。`orchestrator.rs` の `subtask_env` が `SAI_IS_SUBTASK=1` と一緒に付ける。
-- 実装は `agent_api::task_question`（`agent_api.rs`）。`SAI_PARENT_RUN_ID` の実行を引き、`parent_run_id` が無ければエラー `"task-question は子の run 専用です"`。その実行に対応するタスク（`tasks.execution_id = run_id`）を引いて `task_stalled` 通知を書く。
-- 親の `task_output` は次を返す（`build_task_output_result` の `task_stalled` の分岐）。
+- `SAI_PARENT_RUN_ID` の実行を引き、親が無ければエラー「task-question は子の run 専用です」。親の `sai-link task wait` は `{"task_id", "status": "stalled", "reason": "question", "question_id": "q1", "message": "質問 q1: …"}` を返す。`question_id` は質問の通知にだけ付く。`text` は 1 行に畳んで 500 文字で切る。
+- 質問の全文は Web の DB（`$SAI_HOME/web/sai_web.db`）にある。コアは中身を持たない。答えるのは `sai-web answer`。
 
-```json
-{"task_id": 12, "status": "stalled", "reason": "question", "question_id": "q1",
- "message": "質問 q1: 資料はどれですか", "hint": "子が質問して、答えを待っています。…"}
-```
+### 4.6 合言葉の置き場
 
-- `question_id` は**質問の通知にだけ**付く（他の理由では付けない）。`text` は 1 行に畳んで 500 文字で切る。
-- 質問の全文は `apps/phone` の DB にある。コアは中身を持たない（全文は `apps/phone` の質問 API で読む）。
+Web は起動時に **`$SAI_HOME/web/token` に合言葉（`SAI_WEB_TOKEN`）を 0600 で書く**。合言葉が無いときはそのファイルを消す。
 
-**要確認**: `write_stalled_notification_in` は古い `task_stalled` の通知を消す。質問の通知の直後に `idle` の通知が来ると質問の通知は消える（Web のホームには質問が残るので致命的ではない・推測）。
-
-#### 合言葉の置き場（C9）
-
-`apps/phone` は起動時に `main.write_token_file()` で **`<sai_home>/phone/token` に合言葉（`SAI_PHONE_TOKEN`）を 0600 で書く**（`sai_home()` は `SAI_SAI_HOME` か `~/.sai-moon`）。合言葉が無いときはそのファイルを消す。
-
-```text
-<SAI_SAI_HOME か ~/.sai-moon>/phone/token   # 中身は合言葉だけ。権限 0600
-```
-
-- 読むのは **`sai-sci/tools/phone_api.py`**（`SAI_PHONE_TOKEN` の環境変数を先に、無ければこのファイル）。
-- 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（`apps/phone` の `require_token` は両方を受け付けるが、画面や記録に残るため）。
-- `settings.json` の `env` で配らない（起動コマンドの文字になって pane と記録に残るため・要件 D13）。
-- 書けなくても `apps/phone` は止まらない（警告だけログに出す）。**合言葉の値そのものをログや画面には出さない。**
-- HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う（日本語などは `phone_api.py` が理由を出して送らない）。
-- エージェントの作業記録（session ファイル、run フォルダの成果物）へも**合言葉を書かない**。
+- 読むのは `sai-web` の命令とエージェントの道具（環境変数 `SAI_WEB_TOKEN` を先に、無ければこのファイル）。
+- 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（Web は両方を受け付けるが、画面や記録に残るため）。
+- HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う。
+- **合言葉の値そのものを、ログ・画面・エージェントの作業記録（session ファイル・run フォルダの成果物）に出さない。**
 
 ---
 
-<a id="3-プロジェクト一覧とdashboard"></a>
-## 3. プロジェクト一覧・Dashboard（sai-link 側）
-
-一覧・Dashboard・常駐の操作はすべて `sai-moon-link` が提供する。以下は `crates/sai-link-*` 側を直す人が守るべき形。
-
-### 3.1 `apps/phone` が使っているもの
-
-| コマンド | 呼び出し側 | 実装場所 |
-|---|---|---|
-| （登録簿 `~/.sai-moon/registry.json` を直接読む） | `registry.load_registry()` | `apps/phone` 側 `apps/phone/src/sai_phone/registry.py` |
-| `sai-moon-link phone summary` | `control._project_summary()`（`GET /api/projects`） | `crates/sai-link-cli/src/phone.rs` の `summary()` |
-| `sai-moon-link phone dashboard --period week\|month\|all` | `control.dashboard()` | 同 `phone.rs` の `dashboard()` |
-| `sai-moon-link phone search --word … [--category task,message,waggle] [--since …] [--until …] [--block …] [--from-id N] [--to-id N] [--limit N]`（run の文書の本文検索。新しい run から `--limit` 件で打ち切り・`{items, truncated}`。message.md は run フォルダにあるものだけ） | `control.phone_search()` | 同 `phone.rs` の `search()` |
-| `sai-moon-link daemon <start\|stop>`（**文字出力**・JSON ではない） | `control.daemon()` | `crates/sai-link-cli/src/cli.rs` の `handle_daemon_start` / `handle_daemon_stop` |
-
-- 3 つとも **cwd = プロジェクトの root**、かつ `SAI_PROJECT_ROOT` も root を明示で渡す
-  （`control._phone_env`）。`sai-moon-link` は `SAI_PROJECT_ROOT` を最優先で DB 解決に使うため、
-  ここを消すと全プロジェクトが同じ DB を開く。
-- `summary` と `dashboard` は **DB が無いプロジェクトで呼ぶと空の DB を作ってしまう**。
-  `apps/phone` 側は `registry.load_registry()` の `db_exists` が真のものだけ呼ぶ。
-- 一覧（`list_projects`）は登録簿から作る。`name` / `root` / `kind` / `root_exists` /
-  `db_exists` / `daemon_alive` は登録簿とファイルの確認だけで決まり、`running` と
-  `last_executed_at` だけが `phone summary` から来る。**`summary` の結果は 5 秒だけ覚える**
-  （失敗しても一覧は止めない。`running=0` / `last_executed_at=null` にする）。
-- 登録簿の並びは `last_opened` の降順、`list_projects` はそのあと `last_executed_at` の
-  あるものを新しい順に並べ、無いものを後ろに回す。
-
-### 3.2 `apps/phone` が読んでいる JSON の項目
-
-**`phone summary`（オブジェクト）**
-
-| 項目 | 型 | 使うところ | 無い・違うとき |
-|---|---|---|---|
-| `running` | 数値 | 「実行中 N」 | 0 |
-| `last_executed_at` | 文字列 \| null | 「5分前」と並び順 | 最後尾・時刻なし |
-
-**`phone dashboard`（オブジェクト）** — 画面（`static/project.js`）が読むもの:
-
-| 階層 | 項目 | 型 | 使途 | 無いとき |
-|---|---|---|---|---|
-| 直下 | `name` / `since` / `until` | 文字列 | 見出しと期間 | ― |
-| 直下 | `period` | 文字列 | グラフ横軸のラベルの出し分け | 今週扱い |
-| 直下 | `daemon_alive` | 真偽値 | ランプ・ボタン | 停止中 |
-| 直下 | `daily` | 配列 | 日ごとの棒グラフ | グラフ空 |
-| `daily[]` | `date` / `executions` / `tokens` | 文字列 / 数値 / 数値 | 棒とタップ中の 1 行 | 0 の棒 |
-| 直下 | `by_model` | 配列 | ドーナツ | 「データがありません」 |
-| `by_model[]` | `model` / `tokens` | 文字列 / 数値 | モデル名と割合 | ― |
-| 直下 | `by_block` | 配列 | 横棒（上位 8） | 「データがありません」 |
-| `by_block[]` | `block` / `tokens` / `executions` | 文字列 / 数値 / 数値 | 名前・長さ・回数 | ― |
-| 直下 | `recent` | 配列 | 直近の実行 | 「この期間の実行はありません」 |
-| `recent[]` | `run_id` / `parent_run_id` / `block` / `status` / `started_at` / `duration_ms` | 数値 / 数値 \| null / 文字列 / 文字列 / 文字列 / 数値 | 行の形と `#/run/...` の URL | ― |
-| `summary` | `executions` / `completed` / `failed` / `running` / `success_rate` / `tokens_total` / `tokens_input` / `tokens_output` / `tokens_cache` / `duration_ms` / `cost_usd` | 数値 | 2×2 の大きな数字と補足行 | 0 |
-
-`apps/phone` 側が `recent[]` に**追加で足す**項目: `description`（文字列）・`linkable`（真偽値・
-メッセージ画面が開けるか）・`project`（文字列）。これは `sai-moon-link` の側では不要。
-
-**論文側の dashboard（`sai-moon-paper phone dashboard`）の `activity[]`** に、研究方針の札（card）の実行が `kind: "action"` の行として入る（`todo` のものは除く）。
-`kind`・`label`・`occurred_at` は他の行と同じで、`action` の行は次の項目を足して持つ:
-
-| 項目 | 型 | 使途 |
-|---|---|---|
-| `run_id` | 数値 | 札の run（`#/papers/read/<run_id>` などの行き先） |
-| `node` | 文字列 \| null | 札が付いた Node の ID（`Q12` など） |
-| `block` | 文字列 | 札のブロック名（`sci-ideate` など） |
-| `owner` | 文字列 | `todo` 以外の状態（`running`・`review` など） |
-| `debt` | 真偽値 | 残っている負債があるか（⚠ を出す） |
-| `debt_messages` | 文字列の配列 | 負債の文（`debt` が偽なら空） |
-
-### 3.3 壊れる変更・壊れない変更
-
-| 変更 | 結果 |
-|---|---|
-| JSON の**項目の追加** | **壊れない** |
-| 項目の**削除・名前変更**（`daemon_alive` → `alive` 等） | **壊れる**（ランプ・数字が消える／行が押せない） |
-| **型の変更**（数値を文字列に、真偽値を 0/1 に） | **壊れる**（`Number(...)` で見えるものもあるが `bool` 判定は崩れる） |
-| 配列をオブジェクトに包む（`{projects: [...]}` に） | **壊れる**（502「応答を読めませんでした」相当） |
-| サブコマンド名の変更（`dashboard` → `dash`） | **壊れる**（`sai-moon-link` の起動失敗として 503/504 になる） |
-| `--period` の値を減らす／外す | **壊れる**（400 または 502） |
-| 標準出力への余計な 1 行（デバッグ表示） | **壊れる**（502） |
-| `period` の値を増やす（`year` 等） | **`apps/phone` 側の検査で 400**（`control.py` の `_PERIODS` と画面のボタンも直す） |
-| 失敗時の終了コード 1 + `{"error": "…"}` の形を守る範囲の文言変更 | **壊れない**（文言は画面にそのまま出るだけ） |
-| 登録簿の `kind` の絞り込みを変える | **壊れる**（一覧に出る・出ないプロジェクトが変わる） |
-
-### 3.4 直したあとに流す確認（実際に動くものは流さない）
-
-```bash
-cd ~/workdir/Sai/sai-moon
-B=./target/release/sai-moon-link
-
-# 1) サブコマンドが生きているか
-$B phone --help | head -20
-
-# 2) summary の形（プロジェクトの root で実行する）
-env -u SAI_PROJECT_ROOT $B phone summary | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for k in ('running', 'last_executed_at'): assert k in d, k
-print('summary OK:', d)"
-
-# 3) dashboard の形
-env -u SAI_PROJECT_ROOT $B phone dashboard --period week | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for k in ('name','period','since','until','daemon_alive','daily','by_model','by_block','recent','summary'):
-    assert k in d, k
-for k in ('executions','completed','failed','running','success_rate','tokens_total','duration_ms','cost_usd'):
-    assert k in d['summary'], k
-print('dashboard OK:', d['since'], '〜', d['until'], '実行', d['summary']['executions'])"
-
-# 4) period 3 つの形が同じか
-for p in week month all; do env -u SAI_PROJECT_ROOT $B phone dashboard --period $p | head -3; done
-```
-
-`daemon start` / `daemon stop` は**実行すると常駐を起動・停止するので流さない**（画面から押して確認する）。
-
-### 3.5 変更したらすること
-
-1. `cargo build --release`（`apps/phone` は release の実行ファイルを叩く）。**PATH 上の名前 `sai-moon-link` は変えない。**
-2. `apps/phone` 側を直す場所: 項目変更 → `apps/phone/src/sai_phone/control.py` と `static/project.js`、期間値の追加 → `control.py` の `_PERIODS`。
-3. 動作確認は 8200 番で（[§6.4](#64-確認は別ポート)）。
-4. この文書の表を更新。
-
----
-
-<a id="4-cratessai-paper-"></a>
-## 4. `crates/sai-paper-*`
-
-### 4.1 `apps/phone` が使っているもの
-
-| コマンド | 呼び出し側 | 実装場所 |
-|---|---|---|
-| `phone library` / `phone tree` / `phone paper <id>` / `phone log <id>` / `phone providers` / `phone find-log <id>` | `papers.py` | `crates/sai-paper-cli/src/phone.rs`（共通化は `crates/sai-paper-core/src/library_tree.rs`） |
-| `phone search <query> [--db …] [--year-from …] [--year-to …] [--limit …] -- <語>` | `papers.build_search_args()` | 同 `phone.rs` |
-| `phone find [--mode …] [--top-k …] [--scope …] [--paper <番号> …] [--node <ID> [--subtree]] [--each <m>] -- <語>`（Library の中を検索し、内部検索の履歴に残す。要約なし） | U02 が呼ぶ | 同 `phone.rs`（中の処理は `crates/sai-paper-core/src/find_log.rs`） |
-| `phone download <log/import/cite の指定>`（**数分かかる**） | `papers._download_job()`（背景・300 秒） | `crates/sai-paper-cli/src/phone_import.rs` |
-| `phone citations <paper_id>`（読み取りだけ） | `papers.py` | `crates/sai-paper-cli/src/phone_cite.rs`（照合は `sai-paper-core/src/citation/library.rs`） |
-| `phone citations-extract <paper_id>`（**数分かかる。標準エラーを 1 行ずつ読む**） | `papers._run_paper_command_lines()`（背景） | 同（抽出は core の `citation::ensure_extract`） |
-| `phone manual-candidates [--minutes <N>]` | `papers.py` | 同（候補は core の `manual_import`） |
-| `phone manual-import <対象> (--file <名前> [--minutes N] | --stdin)` | `papers.py` | 同（登録は core の `manual_import::import_pdf`） |
-| `phone after-download <paper_id>`（**数分かかる。標準エラーを 1 行ずつ読む**） | `papers._run_paper_command_lines()`（背景・2000 秒） | 同（core の `pipeline::after_download`） |
-| `phone translate <id> [--force]` | `papers.translate()` | 同（訳は `sai-paper-core` の translation） |
-| `phone radio <id>`（**数分・終わるまで戻らない**） | `papers._radio_job()`（背景・2000 秒） | 同（core の `podcast_client.rs` → apps/radio `POST /api/papers/from-extract`） |
-| `content paper <id> --json`（既存・本文） | `papers.text()` | `crates/sai-paper-cli/src/content.rs` |
-| `phone sci status` / `init` / `node` / `apply` / `proposals` / `triage` / `card` / `read` / `types`（`apply`・`card`・`triage` の edit は **標準入力に JSON**） | `sci.py` | `crates/sai-paper-cli/src/phone_sci.rs`（中の処理は `crates/sai-paper-core/src/rt/`） |
-| `phone set list` / `show <id>` / `mark <id> --position <p,p,…> --decision keep\|drop [--reason=…]` / `drop-pending <id> [--reason=…]` | `sci.py`（`set_list`・`set_show`・`set_mark`・`set_drop_pending`） | `crates/sai-paper-cli/src/phone.rs`（中の処理は `crates/sai-paper-core/src/search_sets.rs`） |
-
-- **cwd と環境変数 `SAI_PAPER_ROOT` は「論文の置き場があるプロジェクト」の root**（`papers.resolve_project(name)` が引く一覧の `root`）を必ず付ける（`.env` の API キーを読ませるため）。iPhone からはパスを受け取らない。
-- 実行ファイルは **`target/release/sai-moon-paper`**（PATH に無く、既定が絶対パス）。
-- 検索語は最後に `--` を置いて渡す（`-` で始まる語を clap がオプションと間違えないため）。
-- `phone search` は失敗した DB を**標準エラー**に（`sai-paper search` と同じ `<db>: <理由>` の 1 行）と、**標準出力の `failed`** へ出す（下記 4.2）。
-- **`phone after-download` の標準エラーは 1 行 = 1 文**にする。`apps/phone` が `readline()` で読む 2 つの形:
-  - `sai-progress step=<n>` — 段。`0 = PDF取得` / `1 = 図抽出` / `2 = 翻訳` / `3 = 完了`。0 と 3 はサーバーが決める（`after-download` は 1 と 2 を知らせる）。
-  - `sai-progress msg=<文>` — ログの 1 行。段落内の改行は空白に置き換える。
-  - 別の形（`warning: …` など）は進捗ではなくサーバーのログに出る。標準出力の JSON は変えない。
-- **`phone citations-extract` の標準エラーは 1 行**で、`sai-progress step=1`（引用の抽出中）だけを出す。段は `0 = PDF確認`（サーバー）→ `1 = 引用抽出` → `2 = 完了`（サーバー）。
-- 共通 API キーは **`~/.sai-moon/paper.env`**（`crates/sai-paper-core/src/paths.rs:152`）。プロジェクトの `.env` より優先順位が低い。
-- **`phone sci` の 3 つの命令は標準入力で JSON を読む**: `apply`（C-07 の op）と `card`（カードの JSON）は常に読み、`triage` は `--action accept` のときの `edit` だけを読む（**空なら無し**）。
-
-#### 研究方針の検索（`find`・`search`・`set create`）
-
-`apps/phone` からは呼ばないが、**MCP の `find` と `pi-litbase` が読む `--json` の形は変えない**こと。
-SCOPE の変換は `crates/sai-paper-core/src/retrieval.rs` の `resolve_paper_scope` にあり、CLI（`find`）と MCP（`find`）が同じ関数を使う。
-
-```text
-sai-moon-paper find <query> … [--papers <番号,…>] [--node <ID> [--subtree]] [--each <m>] [--widen <理由>]
-sai-moon-paper search <query> … [--node <ID>] [--purpose <文>] [--extract <文>] [--widen <理由>]
-sai-moon-paper set create <name> … [--node <ID>] [--purpose <文>] [--extract <文>]
-```
-
-- **`--papers` と `--node` を両方書いたら、両方の論文を合わせた SCOPE**を探す。`--each <m>` は SCOPE の論文ごとに上位 m 件を返す（論文番号の昇順、各論文の中はスコアの順）。SCOPE が無いと `--each` は使えない。
-- `--node` は研究方針の Node の ID（`Q12`・`O5` など）。`--subtree` は子孫の Node の論文も含める。範囲の記録の文字列は `node:Q12` / `subtree:Q12`。`--question` は無い。
-- `--node` があれば `rt_searches` に 1 行記録され、同じ範囲の 2 回目の `find` は「前回の検索」の行を出す。**`--json` の形は今のまま変えない。**
-
-#### 内部検索の履歴（U01。`phone find`・`phone find-log`・`find_groups`）
-
-外部検索の `search_sets` とは別の表（`find_logs` / `find_log_hits`）に残す。Node を付けない検索も含め、人も agent も**毎回**記録し、ヒットした断片を丸ごと保存する（履歴を開くだけで同じ結果が出る）。
-
-```text
-sai-moon-paper phone find [--mode word|vector|hybrid] [--top-k <N>] [--scope papers|notes|figures|all]
-  [--paper <番号> …] [--node <ID> [--subtree]] [--each <m>] -- <語>
-sai-moon-paper phone find-log <log_id>
-```
-
-- `phone find` は内部検索（`find`）して新しい履歴を作り、下の `phone find-log` と同じ形で返す（要約は付けない）。失敗は終了コード 1 と標準エラーの日本語の 1 行。`--subtree` だけ（`--node` 無し）はエラー。`--node` があれば `rt_searches` にも 1 行残す。
-- `phone find-log <id>` は C-2 の形を返す。存在しない id は `{"error":"検索履歴が見つかりません"}` と終了コード 1。
-- `phone tree` は `{"groups": […], "find_groups": […]}` を返す（`groups` は従来と同じ）。`find_groups` は新しい順で、1 つの履歴につき 1 組（`log_id`・`date`・`query`・`hit_count`・`paper_ids`（Library にある論文だけ。ヒット順・重複なし）・`actor`（`{"kind"}` のみ。1 組ずつ task.md を探すと遅いため block 名は入れない））。
-- `log.actor` は `{"kind": "human"}` か `{"kind": "agent", "run_id": 数値|null, "block": 文字列|null}`（`origin = 'mcp'` か `run_id` があれば agent）。`log.node` は `{"id": "Q12"}` か `null`。`log.mode`・`log.scope` は指定が無ければ空文字、`log.top_k` は無ければ `null`。`hits[]` の `authors` は文字列の配列（`Hit.authors` の JSON 配列の文字列を読み直す。読めなければ空配列）。
-
-### 4.2 `apps/phone` が読んでいる JSON の項目
-
-**`phone library` → `{"papers": [...]}`**
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `id` | 数値 | 行を押したときの `#/paper/<name>/<id>` | その行が開けない |
-| `title` | 文字列 | 1 行目 | 空行 |
-| `authors` | 文字列（`"A, B"`） | 2 行目（最初の 1 人＋「ほか」） | 著者なし表示 |
-| `year` / `journal` | 文字列 \| null | 2 行目 | 部分を省略 |
-| `reading_status` | 文字列 | 札（`unread/queued/reading/read`） | 札なし |
-| `podcast` | 文字列 \| null | 札（`ready` →「🎧 音声あり」／`generating` →「音声作成中」） | 札なし |
-| `created_at` / `has_pdf` / `has_extract` / `is_favorite` | ― | **画面では未使用**（返っていれば無くても動く） | ― |
-
-**`phone tree` → `{"groups": [...}`**
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `kind` | `"query"` / `"import"` | 見出しの形（`query` は「検索結果 ›」も出る） | そのまとまりが出ない |
-| `log_id` | 数値 \| null | 「検索結果 ›」の行き先 `#/papers/log/<name>/<log_id>` | リンクなし |
-| `date` / `query` | 文字列 \| null | 見出しの文言 | ― |
-| `hit_count` | 数値 | 「N 件」 | 0 件扱い |
-| `paper_ids` | 数値の配列 | 中の論文を引く（絞り込みにも使う） | そのまとまりが空 |
-| `source_dbs` | 文字列 | 一覧の見出しでは未使用（検索結果画面で使用） | ― |
-
-**`phone paper <id>` → `{"paper", "files", "note", "refs", "podcast"}`**
-
-| 階層 | 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|---|
-| `paper` | `id` `title` `authors` `year` `journal` `doi` `citation_count` `abstract` `abstract_ja` `reading_status` | 各種 | 題名・著者・年・掲載誌・被引用・DOI リンク・要旨の切替 | ― |
-| `paper` | `arxiv_id` `s2_paper_id` | ― | **画面未使用** | ― |
-| `files` | `pdf` / `pdf_ja` / `extract` | 絶対パス \| null | 「PDF」「日本語 PDF」「本文」ボタン。**パスは表示せず、開けるかだけ見る** | そのボタンが出ない |
-| `files` | `note` | ― | 未使用（本文は `note` の文字列を使う） | ― |
-| `note` | 文字列 \| null | ノートの本文 | 「ノートはありません」 |
-| `refs[]` | `title` `authors` `year` `journal` `doi` `local_paper_id` | 各種 | 引用文献の行。`local_paper_id` があれば Library へ移動 | ― |
-| `refs[]` | `ref_no` `s2_paper_id` | ― | 未使用（番号は配列の添字） | ― |
-| `podcast` | `status` | `"ready"/"generating"/"failed"` \| null | 音声ボタンの出し分け（`generating` は 10 秒ごとに読み直す） | なし扱い |
-| `podcast` | `error` | 文字列 \| null | 「前回は失敗しました: …」 | ― |
-| `podcast` | `generated_at` | ― | 未使用 | ― |
-| ― | 論文が無いとき | | **終了コード 1 + `{"error":"論文が見つかりません"}`** → 画面は 400 で文言表示 | ― |
-
-**`phone log <id>` / `phone search` → `{"log", "items"}`**
-
-| 階層 | 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|---|
-| `log` | `id` | 数値 | 画面を移っても結果を取り直すための鍵 | 検索直後の復元が出来ない |
-| `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
-| `log` | `searched_at` / `year` | ― | 未使用 | ― |
-| `log` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 検索結果の見出しの下の「実行者」（agent は `search_sets.run_id`（`sai-moon-paper search` が `SAI_PARENT_RUN_ID` から書く）、無ければ `rt_searches` の `set_id` = ログ ID から引く。`search` は `--save-as` が無くても必ず履歴を残す） | 出さない |
-| `log` | `node` | `{"id":"O5"}` \| null | 見出しの下の Node へのリンク（`#/papers/tree/O5`） | リンクを出さない |
-| `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
-| `items[]` | `title` `authors`（**配列**）`year` `journal` `doi` `abstract` `citation_count` | 各種 | 行と詳細の表示 | ― |
-| `items[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の札と行き先 | 未ダウンロード論文の情報画面 |
-| `failed[]`（**`phone search` だけ**。`phone log` には無い） | `db` / `reason` | 文字列 | 検索の失敗の帯。`reason` の 429 は「混雑」、403 は「キーが使えない」 | 帯を出さない |
-
-**`phone providers` → `{"default": [...], "available": [...]}`** — 両方**文字列の配列**。`available` が来ないと検索を始められない（502「検索先を読めませんでした」）。`default` は初期選択。
-
-**`content paper <id> --json` → `{"id", "md_path", "text"}`** — 画面は `id` と `text` のみ（`md_path` は渡さない）。
-
-**`phone translate <id>` → `{"id", "abstract_ja"}`** — 画面は `abstract_ja` のみ。
-
-**`phone citations <paper_id>` → `{"paper", "key", "has_pdf", "extracted", "refs"}`**
-
-引用一覧（Citations 画面）。抜き出し済みの論文でも未済みの論文でも同じ形を返す。
-
-| 階層 | 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|---|
-| `paper` | `id` / `title` | 数値 / 文字列 | 画面の見出しと戻る先 | ― |
-| 直下 | `key` | 文字列 \| null | 引用の抜き出しが要るかを見る（`ArXiv:…` / `DOI:…` / 40hex） | 抜き出し不可 |
-| 直下 | `has_pdf` | 真偽値 | 「先に PDF を取り込んでください」の出し分け | ― |
-| 直下 | `extracted` | 真偽値 | 引用の行と引用文の出し分け（`refs` が空でも引用文が皆有る） | ― |
-| `refs[]` | `ref_no` | 数値 | 行番号と `--ref` に渡す値 | ― |
-| `refs[]` | `title` / `first_author` / `year` / `journal` | 文字列 \| null / 文字列 \| null / 数値 \| null / 文字列 \| null | 行の表示 | ― |
-| `refs[]` | `doi` / `s2_paper_id` / `raw_text` | 文字列 \| null | 詳細表示 | ― |
-| `refs[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の行き先 | 未取り込み扱い |
-| `refs[]` | `url` | 文字列 \| null | 開くボタン（無ければ出し分ける） | ボタンなし |
-| `refs[]` | `can_download` | 真偽値 | 「取りに行く」ボタン（題名だけの行は S2 の題名検索で ID を探す） | 押せない |
-| `refs[]` | `can_import` | 真偽値 | 手動取り込みボタン（`s2_paper_id` か DOI が要る） | 押せない |
-| `refs[]` | `sentences[]` | 配列 | その引用を引用している文（`sent_no` の順・`text` は 300 字まで） | ― |
-| `refs[]` | `sentences[]` | `sent_no` / `text` | 数値 / 文字列 | ― |
-| ― | 論文が無いとき | | **終了コード 1 + `{"error":"論文が見つかりません"}`** | ― |
-
-**`phone citations-extract <paper_id>` → `{"paper_id", "refs", "sentences", "docling_error"}`**
-
-引用を PDF から抜き出す。**標準エラーに `sai-progress step=1` を 1 行出す**。
-`docling` が無い・失敗したときも終了コード 0 で、`docling_error` に理由が入る（S2 の引用だけが入る）。
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `paper_id` | 数値 | 続きの処理に渡す論文 | ― |
-| `refs` / `sentences` | 数値 | 抜き出した件数（「N 件の引用を抜き出しました」） | 0 件扱い |
-| `docling_error` | 文字列 \| null | 「本文からの引用は取れませんでした」の帯 | 帯を出さない |
-
-段（`sai-progress step=`）の決まり: **`0 = PDF確認`（サーバーが出す）` / `1 = 引用抽出` / `2 = 完了`（サーバーが出す）**。
-`arXiv ID か DOI が無いとき`・`PDF が無いとき` は終了コード 1 の `{"error": …}`。
-
-**`phone manual-candidates [--minutes <N>]` → `{"dir", "minutes", "items"}`**
-
-ダウンロードフォルダ（`XDG_DOWNLOAD_DIR` → `~/.config/user-dirs.dirs` → `~/Downloads` → `~/ダウンロード`）の最近の PDF。
-`--minutes` の既定は 5 分（Web は 30 を渡す）。
-
-| 階層 | 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|---|
-| 直下 | `dir` | 文字列 \| null | 見出しのフォルダ名（ホームを `~` に置き換える） | 候補を出さない |
-| 直下 | `minutes` | 数値 | 表示の期間 | ― |
-| `items[]` | `name` | 文字列 | 選ぶときのラベル。**フルパスは返らない** | ― |
-| `items[]` | `size` / `modified_at` | 数値 / 文字列 | 大きさ・更新時刻（ローカルの時刻つき ISO8601） | ― |
-
-**`phone manual-import <対象> (--file <名前> [--minutes N] | --stdin)` → `{"paper_id", "title", "status", "pdf_path"}`**
-
-ブラウザで保存した PDF（または Web のアップロード）を Library に入れる。
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `paper_id` | 数値 | 続きの `after-download` に渡す論文 | ― |
-| `title` | 文字列 | 完了の文 | ― |
-| `status` | 文字列（`"imported"`） | 完了の出し分け | ― |
-| `pdf_path` | 文字列（絶対パス） | **表示せず**、開けるかだけ見る | ― |
-
-- 対象は 1 つだけ: `--log <id> --position <p>` / `--import-id <id>` / `--cite <paper_id> --ref <ref_no>` / `--paper-id <id>`。
-- 中身は 1 つだけ: `--file <名前>`（**ファイル名だけ**。`/`・`\`・`..` は失敗。ダウンロードフォルダの最近 `--minutes` 分の PDF に同じ名前が要る。**移動される**）か `--stdin`（**100MB まで**）。
-- 図の抽出と PDF の翻訳は**しない**。Web が続けて `phone after-download <paper_id>` を呼ぶ。
-- `--cite` の取り込み先が既に Library にあるときは、**`--file` の元のファイルを動かさず** 終了コード 1（`この論文は既に Library にあります（ID <n>）`）。PDF を付け替えたいときは `--paper-id` を使う。
-- `phone download --cite <paper_id> --ref <ref_no>` の出力は `phone download` と同じ形（`exists` / `downloaded`）。
-
-#### 研究方針の木（`phone sci …`）
-
-`apps/phone` の `sci.py` が検査してから呼ぶ。上の共通約束（終了コード 0 と JSON 1 行 / 失敗は `{"error": …}` と終了コード 1）はそのまま。
-Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）の 4 種。ID は `Q12`・`O5`・`F3`・`E2`、提案は `P3`、種は `S2`。
-`status` と `node` の JSON は `rt::compute::Status` / `NodeDetail` を `serde_json::to_value` したもの（C-JSON）で、CLI は項目を足したり名前を変えたりしない。`sci status --json`・MCP の `sci_status` と同じ値が出る。
-
-**`phone sci status` → 木全体**
-
-| 階層 | 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|---|
-| 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に木を表示してしまう |
-| 直下 | `legacy` | 真偽値 | 古い形の木だけがあるときの「作り直し」の案内 | 古い木に気づけない |
-| 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
-| 直下 | `progress` | `{"answered","total"}` | 進み具合の表示 | 進みが出ない |
-| 直下 | `nodes[]` | 配列（上の順が深さ優先） | 木そのもの。方針の図もここから描く | 木が描かれない |
-| 直下 | `seeds[]` | `{"id","title","sentence","path","run","created_at","nodes"}` | 種の一覧（`path` は Node の ID の配列、`nodes` は道の Q/O と道の O の下の F/E の ID を道の順に並べたもの） | ― |
-| 直下 | `seed_draft` | `{"text","parts"}` \| null | 種の下書き（`parts[]` は `key`・`text`・`filled`） | 下書きが出ない |
-| 直下 | `next[]` | NextAction の配列 | 「次の一手」の行とカード作成の種 | 次の一手が出ない |
-| 直下 | `debts[]` | Debt の配列 | 負債の行（`debt_count` は件数） | 負債が見えない |
-| 直下 | `debt_count` / `pending_proposals` | 数値 | 見出しの数字（仕分け待ちの提案の数） | 数が 0 に見える |
-| 直下 | `decisions[]` | `{"node","node_text","action","detail","reason","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
-| 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
-| 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
-| ― | 始めていないとき | | `type`・`seed_draft` は `null`、配列は空、数は 0 | ― |
-
-**NodeRow（`status.nodes[]` と `node_detail.node` / `children[]` / `subtree[]` の 1 件）**
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `id` / `kind` | 文字列（`Q12`）/ `"Q"` `"O"` `"F"` `"E"` | 行の種類の出し分け、行き先 `#/papers/tree/<id>` | Node が選べない |
-| `parent` / `depth` / `ord` | 文字列 \| null / 数値 / 数値 | 並びと字下げ（一番上の Q が深さ 0） | 並びが壊れる |
-| `text` / `body` | 文字列 | 行のラベル / 本文（利用者が書く説明） | ― |
-| `guide` | 文字列 \| null（Q だけ） | Q のガイドの key | ガイドの説明が出ない |
-| `answer_kind` | 文字列 \| null（O だけ） | O の種類の印 | ― |
-| `starred` | 真偽値（O だけ） | ★ の印 | ★ が出ない |
-| `on_path` | 真偽値 | ★ の道の上にある印（太く描く） | 道が分からない |
-| `leaf` | 真偽値 | 子の Q が無い Q の印 | ― |
-| `objectivity` | `{"count","target","met"}` \| null（Q だけ） | 目安の数に届いたか（`3/2 met` の表示） | Objectivity が出ない |
-| `logicality` | `{"value","note","findings","checked_at"}` \| null（Q だけ。`value` は `ok` / `contradiction` / `unchecked`） | F どうしに矛盾が無いかの印 | Logicality が出ない |
-| `counts` | `{"q","o","f","e"}` | 直の子の数 | 数が空 |
-| `cites[]` / `paper` | 文字列の配列 / 数値 \| null | F の引用と論文 | ― |
-| `run` / `mlflow` | 数値 \| null / 文字列 \| null | E の実行と実験の記録 | ― |
-| `created_by` / `created_at` | 文字列 | 作った人（`user` / `run:<N>`）と時刻 | ― |
-
-**NextAction（`status.next[]` / `node_detail.next[]` の 1 件）**
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `kind` | 文字列 | 行の種類（カード・負債の直しなど） | 見分けがつかない |
-| `node` / `option` | 文字列 \| null | 対象の Node と O | ― |
-| `block` | 文字列 \| null | 動かすブロック | ― |
-| `purpose` / `expect` | 文字列 | 行の文と、カードの目的・期待する成果 | 行が空 |
-| `why` | 文字列 | なぜ今かの理由 | 理由が出ない |
-| `card` | JSON \| null | そのまま `phone sci card` に渡せる C-CARD | 釦が作れない |
-| `fix` | JSON \| null | 負債を直す操作 | ― |
-
-**Debt（`status.debts[]` の 1 件）**: `run_id`（数値）・`block`・`node`（文字列 \| null）・`side`（`agent` / `user`）・`criterion`・`message`（そのまま見せる文）・`fix`（JSON）。
-
-**`phone sci node <ID>` → Node 1 つ**（`sci node <ID> --json` と MCP `sci_node` と同じ）
-
-| 階層 | 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|---|
-| 直下 | `node` | NodeRow | 板の見出しと本文 | ― |
-| 直下 | `path[]` | `{"id","kind","text"}`（一番上の Q から順） | パンくず | ― |
-| 直下 | `children[]` / `subtree[]` | NodeRow の配列 | 直の子 / 子孫すべて | 子が出ない |
-| 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls","target"}` \| null | Q の説明と目安 | 説明が出ない |
-| 直下 | `logic[]` | `{"value","note","findings","f_count","run","created_at"}` | Logicality の確かめの履歴 | ― |
-| 直下 | `decisions[]` | status の `decisions[]` と同じ | この Node の決定の記録 | 履歴が出ない |
-| 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at","debt","debt_messages"}` | この Node のための実行の行。`node` はその run の対象の Node（子孫の run も入る）。Web の側で `node` で絞る | ― |
-| 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run。`by` は `user` か `run:<N>`。`by` が `user` のときは `run_id` が null で `block`・`owner`・`purpose` は空、`global_round`・`node` は null | ― |
-| 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` の配列 | この Node の履歴。先頭は必ず `init`、残り（`Add Q/O/F/E`・`Run`・決定）は `at` の古い順。`at` は RFC3339（UTC） | ― |
-| 直下 | `pending[]` | `{"id","op","payload","reason","run","created_at"}` | 仕分け待ちの提案の行 | ― |
-| 直下 | `next[]` | NextAction の配列 | この Node の次の一手 | ― |
-| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴。`log_id` はその 1 回の検索の履歴（Library の検索結果へのリンク先）、`set_id` は `--save-as` の名前付きセット（複数回の検索が足される）。`block` はその run の block（見つからなければ null） | ― |
-| 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典。Library に無ければ `title` は空、節・塊の表が無ければ `section`・`passage` は null。`passage` は先頭 200 字 | ― |
-
-**`phone sci read <run_id>` → 読む札**（`sci read <run_id> --json` と同じ。runner が `user` のカード）
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `run_id` / `owner` | 数値 / 文字列 | 行き先 `#/papers/read/<run_id>`。まだ `todo` なら「始める」を出す | 開けない |
-| `node` | `{"id","kind","text"}` | F を付ける先の O（か Q） | ― |
-| `purpose` / `depth` | 文字列 | 読む目的と深さ | ― |
-| `paper` | `{"id","title","year"}` | 論文情報 | ― |
-| `questions[]` / `extract[]` | 文字列の配列 | 読むときの Q と抜き出すもの | ― |
-| `findings[]` | `{"id","parent","text","cites"}` | この札で書いた F の一覧 | ― |
-| `note` / `debts[]` | 真偽値 / 文字列の配列 | メモの有無と、残っている負債の文 | ― |
-
-**`phone sci card` が見る要求の JSON（標準入力。C-CARD）** — 画面が作るもの。`apps/phone` が先に検査し、知らない項目は落とす。
-
-| 項目 | 型 | 使うところ | 無いとき |
-|---|---|---|---|
-| `node` | 文字列（`Q12` の形。Q・O・F・E） | どの Node のためのカードか。**必須** | 400 |
-| `block` | 文字列（`^sci-[a-z-]{2,30}$`） | どのブロックを動かすか。**必須**（runner が `user` で空なら `sci-read`） | 400 |
-| `purpose` | 文字列（1〜300 字） | 依頼文。**必須** | 400 |
-| `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 | ― |
-| `scope` | 文字列（`node` / `path` / `subtree` / `siblings` / `summary` / `blind`） | 渡す範囲 | ブロック定義の範囲、無ければ `path` |
-| `assume` | 文字列の配列（5 個まで・各 `Q9=SST-2 を使う（仮）`） | 仮置き | 仮置きなし |
-| `mode` | 文字列（`purpose_first` / `blind_first`。空なら付けない） | 読む札の型 | 既定（purpose_first） |
-| `papers` | 整数の配列（20 個まで。`user` はちょうど 1 本） | 対象論文 | 対象なし |
-| `runner` | 文字列（`pi` / `cc` / `user`・既定 `pi`） | 実行主体 | `pi` |
-| `depth` | 文字列（`abstract` / `figures` / `full`。`user` のときだけ） | 読む深さ | `full` |
-| `origin_run` | 数値 | 推薦した実行 | ― |
-
-`executer` と `input` は Web からは指定しない（CLI の `--executer` / `--input` だけ）。**ファイルのパスは受け取らない。**
-
-**その他の応答**
-
-- `phone sci proposals` → `{"proposals":[{"id","op","run","block","payload","reason","created_at"}]}`（`id` は `P56`、`run` は数値 \| null）。
-- `phone sci apply` → `{"op","result"}`。`phone sci triage <P> --action accept|reject|revert` → `{"proposal","status","result"}`（採用のときの `edit` だけ標準入力）。
-- `phone sci card` → `{"run_id": N, "path": "…/task.md", "executer": "human"}`。
-- `phone sci init --type <型>` → `{"type","created","warnings","backup","assets"}`。**`created` は作った Q の数、`assets` は配った部品の 1 行ずつの文字列の配列**。新しい木が既にあると失敗する（`既に始めています（型: <名前>）`）。
-- `phone sci types` → `{"types":[{"id","name","root"}]}`（`root` は一番上の Q の文。型の選択画面が使う）。
-- `phone set list` → `{"sets":[{"id","name","query","source_dbs","created_at","node","purpose","counts":{"pending","keep","drop","imported","total"}}]}`（`node` は結んだ Node の ID（`Q12` など）か `null`。`imported` は取り込み済みの候補の数）。
-- `phone set show <id>` → `{"set":{…list の 1 件と同じ…,"extract"},"items":[{"position","title","authors","year","venue","doi","abstract","decision","reason","paper_id"}]}`（`position` は 0 始まり。`decision` は `pending` / `keep` / `drop` / `downloaded`）。
-- `phone set mark <id> --position <p,p,…> --decision keep|drop [--reason=…]` → `{"set_id","changed":n}`。`decision` が keep / drop 以外なら失敗。取り込み済み（`downloaded`）の候補は変えず、`changed` に数えない。
-- `phone set drop-pending <id> [--reason=…]` → `{"set_id","changed":n}`。`pending` の候補をすべて `drop` にする（理由の既定は「まとめて drop」）。
-- 書き込む命令（`init` / `apply` / `triage` / `card`）は、終わる前に `rt::export::export` を呼ぶ。`apps/phone` は書き込みのあと画面を読み直す。
-- 方針の図は `status.nodes` から描く（図だけを返す命令は無い）。
-
-### 4.3 壊れる変更・壊れない変更
-
-| 変更 | 結果 |
-|---|---|
-| JSON の**項目の追加** | **壊れない** |
-| サブコマンド名の変更（`phone` → `mobile`） | **壊れる**（503「`sai-moon-paper` が見つかりません」） |
-| 項目の削除・名前変更（`reading_status` → `status`） | **壊れる**（札・ボタンが消える、絞り込み不能） |
-| `authors` を**配列→文字列**やその逆に | **壊れる**（著者名が `A,B` とそのまま／`A, B` のように壊れて表示） |
-| `local_paper_id` を**無いとき `0`** にする | **壊れる**（`0` が「ある」とみなされて `#/paper/<name>/0` へ行く） |
-| `podcast` をオブジェクトに包む（`{"status": ...}`） | **壊れる**（Library の「🎧 音声あり」が消える。論文情報側は `podcast` がオブジェクト前提なので**両方揃えて直す**） |
-| 論文が無いときの `{"error": "論文が見つかりません"}` の変更 | 文言が変わるだけ（**終了コード 1 の形は必ず守る**） |
-| 標準出力への余計な表示 | **壊れる**（502） |
-| **`phone sci` の項目の名前・値の名前（`objectivity`・`logicality`・`on_path`・`next` の `why` と `kind` など）を変える** | **壊れる**（Web の研究方針の画面が壊れる。画面が名前で読んでいる） |
-| `phone sci card` の標準入力を読まない | **壊れる**（カードが作れない。`apply`・`triage` の `edit` も同じ） |
-| `phone search` の `--` なし渡し・`--db` の ID の増減 | 増減は `providers` の `available` と**同時に**変える（`apps/phone` は `available` で検査して 400 にする） |
-| `SAI_PAPER_ROOT` 無しでも動く形にする（`.env` を読まない） | 検索・音声化が壊れる（API キー不足） |
-| **バイナリ名 `sai-moon-paper` を `sai-paper` に戻す** | **壊れる**（既定値が絶対パス `…/sai-moon/target/release/sai-moon-paper` なので起動しない） |
-
-### 4.4 直したあとに流す確認
-
-```bash
-# 0) 作り直し（必ず release。PATH 上には無い）
-cd ~/workdir/Sai/sai-moon
-perl -e 'alarm 1800; exec @ARGV' cargo build --release
-B=./target/release/sai-moon-paper
-export SAI_PAPER_ROOT=$PWD
-# cwd もルート（apps/phone と同じ条件）
-
-# 1) サブコマンドが生きているか
-$B phone --help | head -20
-
-# 2) providers（available が無ければ検索が 502 になる）
-$B phone providers
-
-# 3) 一覧・階層・詳細（読み取りだけ）
-$B phone library | head -c 300; echo
-$B phone tree     | head -c 300; echo
-$B phone paper 49 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for k in ('paper','files','note','refs','podcast'): assert k in d, k
-for k in ('id','title','authors','abstract'): assert k in d['paper'], k
-print('paper OK / podcast =', d['podcast'])"
-
-# 4) 本文
-$B content paper 49 --json | head -c 200; echo
-
-# 5) 失敗の形（終了コード 1）
-$B phone paper 999999; echo "exit=$?"     # {"error":"論文が見つかりません"} exit=1
-
-# 6) 研究方針の木（書き込みは一時フォルダの中だけで行う）
-TMP=$(mktemp -d)
-(cd "$TMP" && SAI_PAPER_ROOT="$TMP" "$B" init --sci --type problem) # 一時フォルダの中に木を作る
-(cd "$TMP" && SAI_PAPER_ROOT="$TMP" "$B" phone sci status | head -c 300; echo)
-(cd "$TMP" && SAI_PAPER_ROOT="$TMP" "$B" phone sci node Q1 | head -c 300; echo)
-rm -rf "$TMP"
-```
-
-**流さないこと**: `phone radio`（数分の生成）、`phone search`（検索履歴が 1 件増える。履歴を増やさずに済むのは `--help` だけ）、`phone translate`（DB に訳を書き込む）、`phone sci init`（本物の `papr.db` と `.sai/` を書く。上の 6 のように **一時フォルダの中で**行う）。
-
-実測結果: `providers` = `{"available":["s2","pubmed","biorxiv","medrxiv","openalex","arxiv"],"default":["arxiv","s2"]}`、`phone paper 999999` = `{"error":"論文が見つかりません"}` `exit=1`。
-
-### 4.5 変更したらすること
-
-1. **`cargo build --release`**（`apps/phone` は release の実行ファイルを叩く。直しても作り直さないと古いまま）。
-2. `apps/phone` 側を直す場所: JSON の形が変わったら `apps/phone/src/sai_phone/papers.py` と `static/papers.js`。
-3. 8200 番で画面確認（[§6.4](#64-確認は別ポート)）。
-4. 置き場を変えた場合は `paths.rs:172` の `sai_home()` と `project.rs:79`・`registry.py:41` をそろえる。
-5. この文書の表を更新。
-
----
-
-<a id="5-appsradio"></a>
 ## 5. `apps/radio`
 
-`apps/phone` は **HTTP の中継しかしない**（`apps/phone/src/sai_radio/` は開かない。合言葉は `Authorization: Bearer` でだけ付ける）。
+Web は **HTTP の中継しかしない**（`apps/radio` のコードや DB は開かない。合言葉は `Authorization: Bearer` でだけ付ける）。
 
 | 呼ばれる API | 実装場所 | 画面 |
 |---|---|---|
@@ -951,15 +640,14 @@ rm -rf "$TMP"
 | `POST /api/papers/{id}/ask` | `api_ask` | 文字の質問（中継の時間切れ 180 秒） |
 | `POST /api/papers/{id}/live-session` | `api_live_session` | 声の質問の合鍵（iPhone は Google へ直結） |
 | `POST /api/papers/{id}/question-log` | `api_question_log` | 声の質問の記録 |
-| `POST /api/papers/from-extract` | `api_from_extract` | **`apps/phone` からは中継禁止（403）**。`sai-moon-paper` が直接呼ぶ |
+| `POST /api/papers/from-extract` | `api_from_extract` | **Web からは中継禁止（403）**。`sai-paper paper radio` が直接呼ぶ |
 | `POST /api/papers/upload` | ― | **中継禁止（403）・削除済み**（`tests/test_main_routes.py` が確かめている） |
 
-- 中継先は `SAI_RADIO_URL`（既定 **`http://127.0.0.1:8201`**）。合言葉 `SAI_RADIO_TOKEN` は `apps/phone` 側にも同じ値を設定する。
-- 中継で **パスの文字は `A-Za-z0-9_./-` のみ**（それ以外・`..` は 400）。`..` を含むパスや `/` の増減で新しい API を足すと通らないことがある。
-- **画面（`static/`）と PDF アップロードは削除済み。** `127.0.0.1:8201` で動く前提で読む。残っているのは API だけ。
-- TTS プロキシ（`tts_proxy.py`）は 8202 番の別プロセス。使わなければ起動しなくてよい。
+- 中継先は `SAI_RADIO_URL`（既定 `http://127.0.0.1:8201`）。合言葉 `SAI_RADIO_TOKEN` は Web 側にも同じ値を設定する。
+- 中継で **パスの文字は `A-Za-z0-9_./-` のみ**（それ以外・`..` は 400）。
+- **画面（`static/`）と PDF アップロードは削除済み。** 残っているのは API だけ。TTS プロキシ（`tts_proxy.py`）は 8202 番の別プロセスで、使わなければ起動しなくてよい。
 
-### 5.2 `apps/phone` が読んでいる JSON の項目（`static/radio.js`）
+### Web が読んでいる JSON の項目（`static/radio.js`）
 
 | API | 項目 | 型 | 使うところ | 無い・違うとき |
 |---|---|---|---|---|
@@ -975,204 +663,118 @@ rm -rf "$TMP"
 | 同 | `by_day` | 配列（`date` 文字列・`count` 数値） | カレンダー | 空 |
 | `GET /api/logs?paper_id=` | `created_at`（UNIX 秒） / `kind` / `payload.position_sec` / `payload.question` / `payload.answer` | 各種 | 質問の吹き出し | 行が出ない（`kind=="question"` のみ表示） |
 | `POST …/ask` | `answer` | 文字列 | 回答の吹き出し | 「考え中…」が残る |
-| `POST …/live-session` | `token` / `ws_url` / `system_instruction` / `model` | 文字列 | Google への直結 | 声の質問が失敗（エラー文を表示） |
+| `POST …/live-session` | `token` / `ws_url` / `system_instruction` / `model` | 文字列 | Google への直結 | 声の質問が失敗 |
 | 見つからないとき | `{"detail": "論文が見つかりません"}`（**FastAPI 形**・`{"error"}` ではない） | | 再生画面は「音声が見つかりません」 | ― |
 
-### 5.3 壊れる変更・壊れない変更
+---
+
+## 6. 項目を変えるときの決まり
+
+**Web が読む項目を変えたら、この文書と Web（`apps/web`）を一緒に直す。** 項目を足すだけなら Web は壊れない。
+
+### 6.1 壊れる変更・壊れない変更
 
 | 変更 | 結果 |
 |---|---|
-| JSON の**項目の追加** | **壊れない** |
-| パスの変更（`/api/papers` → `/api/audio-list`） | **壊れる**（一覧が開けない） |
-| `id` を**数値に変える**／ID に `-` `.` 以外の記号を足す | **壊れる**（`isRadioPaperId` を通らない。**ID は英数字という前提**。数字だけと当て込むのも壊れる: `4ee6474932af` や `demo001` が実在する） |
-| `duration` を文字列にする | **壊れる**（`formatSec` が `NaN:NaN` を出す） |
-| `sections[]` の `start`/`end` の削除 | **壊れる**（文字起こしの位置が飛べない） |
-| 音声ファイルへの **Range（206・`Content-Range`）応答をやめる** | **壊れる**（Safari の途中からの再生ができなくなる） |
-| `audio` の `Content-Type` を `audio/mp4` 以外の不定なものに | 再生できないことがある（`.m4a` は `audio/mp4` に統一されている） |
-| `from-extract` の入力形（`paper_id` / `title` / `markdown`）の変更 | **壊れる**（音声化の依頼が全て失敗） |
-| 音声生成が長時間ブロックする書き戻し | **壊れる**（`asyncio.to_thread` を外さない。`tests/test_ingest_nonblocking.py` が防ぐ） |
-| **ポートを 8201 以外に変える** | **`apps/phone` 側が繋がらない**（既定 `SAI_RADIO_URL=http://127.0.0.1:8201`。変えないなら `SAI_RADIO_URL` も変える） |
+| JSON の**項目の追加** | **壊れない**（読まないだけ） |
+| 項目の**削除・名前変更**（`daemon_alive` → `alive`、`reading_status` → `status` など） | **壊れる**（ランプ・札・ボタンが消える／行が押せない） |
+| **型の変更**（数値を文字列に、真偽値を 0/1 に。`authors` の配列と文字列の入れ替え） | **壊れる** |
+| 配列をオブジェクトに包む（`[...]` → `{projects: [...]}`） | **壊れる**（502「応答を読めませんでした」） |
+| 「無いとき `null`」を `0` や空文字にする（`local_paper_id` を `0` に） | **壊れる**（`0` が「ある」とみなされる） |
+| `podcast` をオブジェクトに包む | **壊れる**（Library と論文情報の両方を揃えて直す） |
+| **命令名・サブコマンド名の変更**（`run tree` → `run list-tree`） | **壊れる**（Web は 400 / 502 を返す。「コマンド」画面は `schema` から自動で追従する） |
+| `--period` の値を減らす／外す | **壊れる**（400 または 502） |
+| 標準出力への余計な 1 行（デバッグ表示） | **壊れる**（502） |
+| 失敗時の終了コードと標準エラーの最後の行の形を守る範囲の文言変更 | **壊れない**（文言は画面にそのまま出るだけ） |
+| 終了コードの意味を変える（3 → 1 など） | **壊れる**（404 が 502 になる。「まだありません」「未実行のカードが見つかりません」も 3 を前提にしている） |
+| 書き出し `run export` の `schema_version` を 2 にする | **壊れる**（全ファイルが無視され Chats が空になる） |
+| `run_id` / `project_name` の型変更・`status` の語の変更・フォルダの形の変更 | **壊れる** |
+| 研究方針の JSON の項目の名前・値の名前（`objectivity`・`logicality`・`on_path`・`next` の `why` と `kind` など）を変える | **壊れる**（Research の画面が名前で読んでいる） |
+| `card --from-json`・`apply`・`triage --edit` の標準入力を読まない | **壊れる** |
+| `search` の `--db` の ID の増減 | `providers` の `available` と**同時に**変える |
+| `SAI_PROJECT_ROOT` を見ない形にする | **壊れる**（全プロジェクトが同じ DB を開く） |
+| バイナリ名の変更 | **壊れる**（503） |
+| 置き場の規則（`SAI_HOME`）を 1 か所だけ変える | **壊れる**（3 か所そろえる。[ARCHITECTURE.md](../ARCHITECTURE.md) の §3） |
 
-### 5.4 直したあとに流す確認（読み取りだけ）
+### 6.2 直したあとに流す確認（読み取りだけ）
+
+一時フォルダにプロジェクトを作り、`SAI_HOME` と `SAI_PROJECT_ROOT` をその中へ向けて行う。本物の `.sai/`・`$SAI_HOME`・`papr.db` を確かめのために変えない。
 
 ```bash
 cd ~/workdir/Sai/sai-moon
+perl -e 'alarm 1800; exec @ARGV' cargo build --release      # 必ず release。Web は release を呼ぶ
 
-# 1) 一覧と統計（8201 は本プロセス。8198 などで別の番号で確認してもよい）
-curl -s localhost:8201/api/papers | head -c 300; echo
-curl -s localhost:8201/api/stats  | head -c 200; echo
+T=$(mktemp -d); export SAI_HOME=$T/home SAI_PROJECT_ROOT=$T/proj; mkdir -p $SAI_HOME $SAI_PROJECT_ROOT
+B=$PWD/target/release
+(cd $SAI_PROJECT_ROOT && $B/sai-sci init --type problem --json >/dev/null)   # sai-link・sai-paper の初期化も含む
 
-# 2) Range（206 が返らなければ再生が壊れる）
-ID=$(curl -s localhost:8201/api/papers | python3 -c "import sys,json;print(json.load(sys.stdin)[0]['id'])")
-curl -s -D - -o /dev/null -H 'Range: bytes=0-99' "localhost:8201/api/papers/$ID/audio" | head -6
-# → 206 Partial Content / content-type: audio/mp4 / content-length: 100
+# 1) schema が 3 つとも出るか
+for b in sai-link sai-paper sai-sci; do $B/$b schema --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['bin'],len(d['commands']))"; done
 
-# 3) 見つからない ID（404 が FastAPI 形であること）
-curl -s -o /dev/null -w '%{http_code}\n' localhost:8201/api/papers/999999    # 404
+# 2) 形（読み取りだけ）
+cd $SAI_PROJECT_ROOT
+$B/sai-link project dashboard --period week | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in ('name','period','since','until','daemon_alive','daily','by_model','by_block','recent','summary'): assert k in d, k
+print('dashboard OK')"
+$B/sai-link run tree | head -c 200; echo
+$B/sai-link card options | head -c 200; echo
+$B/sai-paper library list; $B/sai-paper providers
+$B/sai-sci status --json | head -c 200; echo
 
-# 4) テストと import（3 本）
-(cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
-PYTHONPATH=apps/radio/src apps/radio/.venv/bin/python -c "import sai_radio.main"
+# 3) 失敗の形（終了コード 3・標準出力が空・標準エラーの最後の行が日本語）
+$B/sai-paper paper show 999999 >/dev/null; echo "exit=$?"
 
-# 5) 動作確認は別ポートで（8201 は再起動しない）
-PYTHONPATH=apps/radio/src apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8198 &
-curl -s localhost:8198/api/papers | head -c 200; echo
-kill %1
+rm -rf $T; unset SAI_HOME SAI_PROJECT_ROOT
 ```
 
-**流さないこと**: `POST …/ask` と `/live-session`（LLM・Google を実際に使う）、`from-extract`（数分の生成）、`purge_non_paper_audio.py --apply`（音声を消す。確認だけなら `--apply` なし）。
+**流さないこと**: `daemon start`（常駐が起動する）・`card run`・`paper radio`（数分の生成）・`search`（検索履歴が増える）・`paper translate`（DB に訳を書く）・DOK や MLflow の起動。
 
-実測結果: テスト 3 本は「すべて通りました」（`test_ingest_nonblocking.py`・`test_main_routes.py`・`test_podcast_request_settings.py`）。
+### 6.3 変更したらすること
 
-### 5.5 変更したらすること
-
-1. **8201 は再起動しない**（動いている間に直すのは中身だけで、確認は 8198 など別ポート）。
-2. 画面を復活させるなら、`apps/phone` の中継（`radio.py`）の禁止パスの判定を同時に直す。
-3. `apps/phone` 側を直す場所: パス・項目の変更 → `apps/phone/src/sai_phone/radio.py`（中継の検査）と `static/radio.js`。
-4. 「長い論文が音声化できない」等の制限を直したら `integration.md` の注意点を更新。
-5. `apps/radio/README.md`・`apps/radio/ARCHITECTURE.md` も更新。
-6. この文書の表を更新。
+1. `cargo build --release`（Web は release の実行ファイルを叩く）。**PATH 上の名前 `sai-link`・`sai-paper`・`sai-sci` は変えない。**
+2. 既存の書き出しを作り直す: `sai-link run export`（プロジェクトの root で）。常駐が動いていると自動で書き出される。
+3. Web 側を直す場所: 項目の変更 → `apps/web/src/sai_web/` の `control.py`（sai-link）・`papers.py`（sai-paper）・`sci.py`（sai-sci）と、画面の `static/*.js`。値の検査の追加 → 同じモジュール。
+4. 動作確認は 8200 番で（`apps/radio` は 8201 を再起動せず、別の番号で）。**旧構成の 8100 番・8000 番は触らない。**
+5. この文書の表と `docs/integration.md` の該当表を更新する。
 
 ---
 
-<a id="6-appsphone-自身を直す人向け"></a>
-## 6. `apps/phone` 自身を直す人向け
-
-### 6.1 画面を足す手順
-
-1. `static/index.html` に `<section id="view-…" class="view" hidden>` を置く。
-2. 画面ファイル（例 `static/hoge.js`）の先頭〜末尾で登録する:
-
-   ```js
-   (window.SaiRoutes = window.SaiRoutes || []).push({
-     match(hash) { const m = hash.match(/^#\/hoge\/(.+)$/); return m ? { id: m[1] } : null; },
-     view: "view-hoge",
-     tab: "project",        // "project" | "agent" | "papers"
-     hideTabbar: false,     // 入力欄がある画面は true
-     interval: 10000,       // 定期更新 ms（0 で無効）
-     async open(params) { /* 最初の読み込み */ window.SaiShell.ok(); },
-     async poll(params) { /* 定期更新 */ },
-   });
-   ```
-
-3. `index.html` で **`app.js` より前**に `<script src="/hoge.js"></script>` を読む。
-4. `static/sw.js`: `CACHE` を 1 つ上げ（今は `sai-phone-v28`）、`ASSETS` に `/hoge.js` を足す。**上げないと iPhone に古い画面が残る。**
-5. `app.js` の分岐（`parseRoute`）は増やさない（`window.SaiRoutes` の登録だけで通る）。
-
-### 6.2 共通部品
-
-| 部品 | 場所 | 役割 |
-|---|---|---|
-| `apiFetch(path, opts)` | `static/app.js` | 合言葉（`Authorization: Bearer`）を自動で付ける fetch |
-| `window.SaiShell.ok() / .fail()` | `static/app.js` | 通信の成否で帯（`.offline-bar`）を出し入れ |
-| `renderMarkdown(text)` | `static/markdown.js` | md の整形表示（見出し折りたたみ・表・コードの枠・frontmatter） |
-| `attachVoiceInput(btn, ta, onGrow)` | `static/app.js` | 🎤 音声入力の部品 |
-| `parseListHash` `listHash` `el` `formatTokens` など | `static/linkview.js` / `static/stats.js` | List の住所・要素作り（作成フォームもこれを使う） |
-| `formatTokens` `formatDuration` `formatMoney` `svgEl` `el` | `static/stats.js` | 数字の整形・SVG 作成（グローバル関数） |
-| `run_json` / `run_cli` | `src/sai_phone/cli.py` | CLI 呼び出しとエラー変換（503/504/400/502）。**JSON 契約はここで守られる** |
-| `require_token` | `src/sai_phone/main.py` | 合言葉認証（`?token=` も可） |
-| `.fold-item` `.bubble-user` `.bubble-agent` `.inputbar` | `static/style.css` | 会話・入力欄の見た目 |
-| CSS 変数（`--bg` `--text` `--accent` `--danger` …） | `static/style.css` | **色はこれだけ使う**（ダークモード自動対応） |
-
-### 6.3 テストの流し方（毎回個別に実行する）
-
-```bash
-cd ~/workdir/Sai/sai-moon
-
-# JS（19 本。全部通ると "test_…: すべて通りました"）
-for f in apps/phone/tests/test_*.js; do node "$f" || exit 1; done
-
-# Python（17 本。PYTHONPATH が必要）
-(cd apps/phone && export PYTHONPATH=src && for f in tests/test_*.py; do .venv/bin/python "$f" || exit 1; done)
-
-# Radio（3 本）
-(cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
-
-plutil -lint apps/phone/launchd/com.sai-moon.plist
-```
-
-- `SAI_PROJECT_ROOT` などが混ざっていると Rust の History テスト 1 件が落ちる。
-  `cargo test` は `env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME` を付ける。
-- `apps/phone` の Python テストは **`PYTHONPATH=src` が無いと `sai_phone` が import できない**。
-
-<a id="64-確認は別ポート"></a>
-### 6.4 確認は 8200 / 8198
-
-**旧構成の 8100 番（旧 sai-phone）と 8000 番（旧 sai-radio）は再起動しない。**
-
-```bash
-cd ~/workdir/Sai/sai-moon
-PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
-PYTHONPATH=apps/phone/src SAI_PHONE_TOKEN= SAI_PROJECT_ROOT= SAI_PARENT_RUN_ID= SAI_BLOCK_NAME= \
-  apps/phone/.venv/bin/uvicorn sai_phone.main:app --host 127.0.0.1 --port 8200 &
-
-curl -s localhost:8200/api/health            # {"ok":true,...}
-curl -s localhost:8200/api/projects | head -c 300; echo   # プロジェクト一覧（sai-moon が出ること）
-curl -s localhost:8200/api/paper-projects | head -c 200; echo
-curl -s localhost:8200/api/radio/papers | head -c 200; echo
-kill %1
-```
-
-失敗の形も環境変数で再現できる（**確認後に必ず元の環境変数で戻す**）:
-
-```bash
-# CLI が無い → 503
-SAI_LINK_BIN=/nonexistent-sai-moon-link … uvicorn … --port 8200
-curl -s localhost:8200/api/projects/sai-moon/tree
-# {"detail":"sai-moon-link が見つかりません（設定の場所を確認してください）"}  503
-
-# apps/radio が無い → 503
-SAI_RADIO_URL=http://127.0.0.1:59999 … uvicorn … --port 8200
-curl -s localhost:8200/api/radio/papers
-# {"detail":"Mac の apps/radio が応答しません"}  503
-
-# PATH が無い / CLI が JSON でない応答を返す → 502（SAI_PAPER_BIN=/bin/echo で再現）
-# CLI が error JSON で終了コード 1 → 400（error 文がそのまま出る）
-```
-
----
-
-<a id="7-連携が壊れたときの見分け方"></a>
 ## 7. 連携が壊れたときの見分け方
 
-### 7.1 iPhone の画面に出る文言 → 原因
+### 7.1 画面に出る文言 → 原因
 
 | 画面の文言（`detail` の中身） | 状態 | 原因と直し方 |
 |---|---|---|
-| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` と PATH（launchd は plist の `PATH`）を確認。**バイナリ名やサブコマンド名を変えても同じ文が出る** |
+| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` と PATH（launchd は plist の `PATH`）を確認。**バイナリ名を変えても同じ文が出る** |
 | `Mac の apps/radio が応答しません` | 503 | `apps/radio`（8201）が止まっている／`SAI_RADIO_URL` 間違い |
 | `…の応答を読めませんでした` | 502 | 終了コード 0 なのに JSON でない（**標準出力への余計な表示**を疑う） |
-| CLI の error 文（例 `論文が見つかりません` `プロジェクト '…' が見つかりません（registry に未登録）`） | 400 | CLI が失敗した。文言は相手側の `{"error"}` のまま |
-| `period は week / month / all のいずれかにしてください` `action は start / stop を指定してください` `検索先が分かりません: …` など | 400 | **`apps/phone` 自身の検査**。相手側を疑わない |
-| `view は log / stats / history のいずれかにしてください` `kind は task / review / message のいずれかにしてください` `run_id は 1 以上の整数にしてください` `token の指定が正しくありません` | 400 | **List の `apps/phone` 自身の検査**。`sai-moon-link phone …` を呼ぶ前に弾いている |
-| `block の指定が正しくありません` `task_text は 100KB までです` `runner は user / pi / cc / gl のいずれか（空でスキップ）` `thinking は none / …` `トークンは waggle: 形式で指定してください` `global_round は数字にしてください（空でスキップ）` `tag は 64 文字までの 1 行にしてください` | 400 | **作成フォームの `apps/phone` 自身の検査**（`control._validate_card_payload`・CLI を呼ぶ前） |
-| `まだありません` | 404 | その run に md（task / review / message）が無い（`phone md` の終了コード 3） |
-| `未実行のカードが見つかりません` | 404 | その run の未実行カードが無い（`phone card run` の終了コード 3・▶ 実行） |
-| `このカードは professor が起こします（executer: professor）。人が起こすときは、カードの executer を human に直してください` | 502 | そのカードは professor が起こすカード。人が起こす道（`phone card run`・TUI）では動かさない |
-| `sai-moon-link` の stderr の先頭（例 `実行が見つかりません: ID9999`） | 502 | `phone …` が失敗した。理由は相手の stderr の先頭 200 文字。ログ（7.2）に全文が出る |
+| CLI の標準エラーの最後の行（例 `論文が見つかりません`） | 404 / 400 / 409 / 502 | 終了コードが 3 / 2 / 4 / 1。文言は CLI のまま |
+| `period は week / month / all のいずれかにしてください` `action は start / stop を指定してください` `検索先が分かりません: …` `run_id は 1 以上の整数にしてください` `block の指定が正しくありません` など | 400 | **Web 自身の検査**。CLI を呼ぶ前に弾いている。相手側を疑わない |
+| `まだありません` | 404 | その run に md が無い（`run md` の終了コード 3） |
+| `未実行のカードが見つかりません` | 404 | その run の未実行カードが無い（`card run` / `card start` の終了コード 3） |
+| `このカードはエージェントが子の run として起こします（executer: agent）。…` | 502 | `executer: agent` のカードは人が起こす道では動かさない |
 | `プロジェクトが見つかりません` / `このプロジェクトにはまだ実行の記録がありません` | 404 | 登録簿に無い／`db_exists` が偽 |
-| `PDF がありません` / `音声が見つかりません` | 404 | ファイル・音声が無い（相手側の 404） |
-| `この操作は apps/phone からは使えません` | 403 | 中継先で `papers/upload` / `papers/from-extract` を呼ぼうとした（仕様） |
-| `認証エラー` | 401 | 合言葉が合わない（`SAI_PHONE_TOKEN` / `SAI_RADIO_TOKEN`） |
-| `…が時間内に応答しませんでした` | 504 | 時間切れ（既定 20 秒。重い操作は個別の時間切れ） |
+| `PDF がありません` / `音声が見つかりません` | 404 | ファイル・音声が無い |
+| `この操作は sai-web からは使えません` | 403 | 中継先で `papers/upload` / `papers/from-extract` を呼ぼうとした（仕様） |
+| `認証エラー` | 401 | 合言葉が合わない（`SAI_WEB_TOKEN` / `SAI_RADIO_TOKEN`） |
+| `…が時間内に応答しませんでした` | 504 | 時間切れ |
 | 画面の帯 `接続できていません` | 通信失敗 | 8200 自体に届かない（サーバー・tailscale・ネットワーク） |
-| プロジェクト一覧が **空** | ― | `SAI_SAI_HOME` が `~/.sai-moon` を指しているか、`~/.sai-moon/registry.json` にそのプロジェクトがあるか確かめる |
+| プロジェクト一覧が **空** | ― | `SAI_HOME` が正しいか、`$SAI_HOME/registry.json` にそのプロジェクトがあるか確かめる |
 
 ### 7.2 ログの見方
 
 | どこを見る | 中身 |
 |---|---|
-| **`apps/phone`**: `apps/phone/src/data/sai-moon.log`（launchd 起動時）／起動したターミナル（手動起動時） | `sai-moon-link の標準エラー: …`（先頭 300 文字）、`最小集計に失敗（一覧は続けます）: …`、`sai-moon-paper の応答を読めませんでした` の前の標準エラー、書き出し失敗、音声化の例外。**CLI の失敗原因はまずここ** |
-| 手動起動したとき | そのターミナルの stderr |
-| **apps/radio** | 起動しているターミナル。`sai-moon-paper phone radio の標準エラー`（`apps/phone` 側）と、apps/radio 自身の例外・LLM のエラー |
-| **crates/sai-paper-*・crates/sai-link-*** | 単発の CLI なので、`apps/phone` のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
-| Safari（iPhone / 開発者ツール） | ネットワークの応答の `detail` を見る（上の表と突き合わせる） |
+| **Web**: `$SAI_HOME/web/sai-web.log`（launchd 起動時）／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
+| **apps/radio** | 起動しているターミナル。音声化の失敗は Web のログの `sai-paper` の標準エラーと、`apps/radio` 自身の例外・LLM のエラー |
+| **3 つの CLI** | 単発の CLI なので、Web のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
 | 音声化の状態 | sai-paper の DB の `paper_podcasts`（`generating` / `ready` / `failed` + `error`）。論文情報画面にも「前回は失敗しました: …」が出る |
 
 ### 7.3 直す順番
 
-1. 画面の `detail` 文から **503 / 502 / 400 / 404 のどれか**を決める。
-2. 503 → 場所（PATH・設定・常駐）。502 → **出力の混入**。400 → error 文の元のアプリ。404 → データの有無。
-3. 上の各アプリの「確認コマンド」を**読み取りだけで**流す。
-4. 直したら「変更したらすること」のビルド・作り直し・`sw.js` の `CACHE`・文書更新を行う。
-5. 動作確認は必ず **8200**（`apps/radio` は 8198）。**旧の 8100 番・8000 番には触らない。**
+1. 画面の `detail` から **503 / 502 / 400 / 404 / 409 のどれか**を決める。
+2. 503 → 場所（PATH・設定・常駐）。502 → **出力の混入**か終了コード 1。400 → Web の検査か CLI の終了コード 2。404 → データの有無。
+3. §6.2 の確認を**読み取りだけで**流す。
+4. 直したら §6.3 のビルド・作り直し・文書更新を行う。
