@@ -3,6 +3,7 @@
 //! 論文とノートの処理は `sai_paper_core` にある。このクレートは sai-paper-core に依存する。
 
 pub mod attention;
+pub mod bins;
 pub mod brief;
 pub mod citation_check;
 pub mod dsr_check;
