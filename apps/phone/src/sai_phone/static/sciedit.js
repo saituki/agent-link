@@ -1,12 +1,12 @@
 "use strict";
-// 仕分け箱（#/papers/triage）と、Research-tree の操作の入力欄・カードのフォーム（実装計画 U19）。
+// 仕分け箱（#/research/triage）と、Research-tree の操作の入力欄・カードのフォーム（実装計画 U19）。
 //
 // 板の釦は scitree.js から次の形で呼ばれる（この関数が無ければその釦は出さない）。
 //   seOpenAction(op, nodeId, detail)   op は C-OP の 13 個。detail は node の JSON
 //   seQuick(op, payload)               ★・Answer/Issue・目安は入力欄を出さずに送る
 //   seOpenCard(nodeId, preset)         preset は C-CARD。値の入ったフォームを開く
 //   seProposalRow(proposal, onDone)    → HTMLElement（採用・却下・取り消しの釦つき）
-//   seOpenTriage()                     #/papers/triage を開く
+//   seOpenTriage()                     #/research/triage を開く
 //
 // 中の処理は `POST …/sci/apply` / `…/sci/cards` / `…/sci/proposals` だけを使う。
 // この画面はファイルのパスを受け取らない。送る前に画面でも必須の項目と字数と出典を確かめる。
@@ -1120,7 +1120,7 @@ async function seOpenCard(nodeId, preset) {
       row.appendChild(seBtn(toRead ? "読む札を開く" : `run ${runId} を開く`, () => {
         host.close();
         location.hash = toRead
-          ? `#/papers/read/${encodeURIComponent(runId)}`
+          ? `#/research/read/${encodeURIComponent(runId)}`
           : `#/run/${encodeURIComponent(selectedPaperProject())}/${encodeURIComponent(runId)}`;
       }, "primary"));
     }
@@ -1361,13 +1361,13 @@ async function seBulk(group, action) {
 // ============================================================================
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
-  // 仕分け箱（#/papers/triage）
+  // 仕分け箱（#/research/triage）
   (window.SaiRoutes = window.SaiRoutes || []).push({
     match(hash) {
-      return /^#\/papers\/triage$/.test(String(hash || "")) ? {} : null;
+      return /^#\/research\/triage$/.test(String(hash || "")) ? {} : null;
     },
     view: "view-sci-triage",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     interval: 0, // 定期更新はしない（↻ で読み直す）
     async open() {
@@ -1377,7 +1377,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   });
 
   const back = document.getElementById("se-triage-back");
-  if (back) back.addEventListener("click", () => { location.hash = "#/papers/tree"; });
+  if (back) back.addEventListener("click", () => { location.hash = "#/research/tree"; });
   const reload = document.getElementById("se-triage-reload");
   if (reload) reload.addEventListener("click", () => { void seTriageReload(); });
 }

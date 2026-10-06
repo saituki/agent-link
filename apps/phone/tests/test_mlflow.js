@@ -97,7 +97,7 @@ function sampleRun(o) {
 // ============================================================================
 
 function testParseExperiments() {
-  assert.deepStrictEqual(mlfParseHash("#/mlflow"), {
+  assert.deepStrictEqual(mlfParseHash("#/research/experiments"), {
     page: "experiments",
     experimentId: null,
     runId: null,
@@ -107,17 +107,17 @@ function testParseExperiments() {
 }
 
 function testParseRuns() {
-  const p = parsed("#/mlflow/e/1");
+  const p = parsed("#/research/experiments/e/1");
   assert.strictEqual(p.page, "runs");
   assert.strictEqual(p.experimentId, "1");
   assert.deepStrictEqual(p.query, {});
 
-  const all = parsed("#/mlflow/e/all");
+  const all = parsed("#/research/experiments/e/all");
   assert.strictEqual(all.experimentId, "all");
 }
 
 function testParseRunsQuery() {
-  const p = parsed("#/mlflow/e/3?sai_run=121&sprout=120&study=N12-s120&status=FINISHED");
+  const p = parsed("#/research/experiments/e/3?sai_run=121&sprout=120&study=N12-s120&status=FINISHED");
   assert.deepStrictEqual(p.query, {
     sai_run: "121",
     sprout: "120",
@@ -127,13 +127,13 @@ function testParseRunsQuery() {
 }
 
 function testParseRunDetail() {
-  const p = parsed(`#/mlflow/run/${RUN_A}`);
+  const p = parsed(`#/research/experiments/run/${RUN_A}`);
   assert.strictEqual(p.page, "run");
   assert.strictEqual(p.runId, RUN_A);
 }
 
 function testParseCompare() {
-  const p = parsed(`#/mlflow/compare/${RUN_A},${RUN_B}`);
+  const p = parsed(`#/research/experiments/compare/${RUN_A},${RUN_B}`);
   assert.strictEqual(p.page, "compare");
   assert.deepStrictEqual(p.runIds, [RUN_A, RUN_B]);
 }
@@ -144,15 +144,15 @@ function testUnknownIsNull() {
     "#/",
     "#/home",
     "#/papers/tree",
-    "#/mlflowx",
-    "#/mlflow/e",
-    "#/mlflow/e/",
-    "#/mlflow/e/abc",
-    "#/mlflow/e/1/2",
-    "#/mlflow/run/zzz",
-    "#/mlflow/run/abc",
-    `#/mlflow/compare/${RUN_A}`, // 1 件だけの比較
-    "#/mlflow/compare/a,b",
+    "#/research/experimentsx",
+    "#/research/experiments/e",
+    "#/research/experiments/e/",
+    "#/research/experiments/e/abc",
+    "#/research/experiments/e/1/2",
+    "#/research/experiments/run/zzz",
+    "#/research/experiments/run/abc",
+    `#/research/experiments/compare/${RUN_A}`, // 1 件だけの比較
+    "#/research/experiments/compare/a,b",
   ]) {
     assert.strictEqual(mlfParseHash(hash), null, `${hash} は null のはず`);
   }

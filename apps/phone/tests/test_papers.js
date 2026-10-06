@@ -21,8 +21,9 @@ const {
   papersFailedLines,
   papersAllFailed,
   papersAttentionHash,
-  papersDebtCount,
   paperCardText,
+  PAPERS_SEG,
+  RESEARCH_SEG,
 } = require(path.join(
   __dirname,
   "..",
@@ -274,8 +275,8 @@ function testDbLabel() {
 
 function testAttentionHash() {
   // `sci_decision` のキーはコアが `sci_decision:<Q の ID>` の形で作る
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:Q12" }), "#/papers/tree/Q12");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }), "#/papers/triage");
+  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:Q12" }), "#/research/tree/Q12");
+  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }), "#/research/triage");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:N12:0" }), "");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:12" }), "");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "" }), "");
@@ -284,10 +285,21 @@ function testAttentionHash() {
   assert.strictEqual(papersAttentionHash(null), "");
 }
 
-function testDebtCount() {
-  assert.strictEqual(papersDebtCount([{ kind: "action", debt: true }, { kind: "action", debt: false }, { kind: "notes", debt: true }]), 1);
-  assert.strictEqual(papersDebtCount(null), 0);
+function testActivityHash() {
   assert.strictEqual(activityHash({ kind: "action", paper_id: null }, "sai-paper"), null);
+}
+
+function testSegments() {
+  // Papers の小さなタブ（U14）
+  assert.deepStrictEqual(PAPERS_SEG.map((x) => x[0]), ["dashboard", "library", "import", "radio", "sets"]);
+  assert.deepStrictEqual(PAPERS_SEG.map((x) => x[2]), [
+    "#/papers/dashboard", "#/papers/library", "#/papers/import", "#/papers/radio", "#/papers/sets",
+  ]);
+  // Research の小さなタブ（U14）
+  assert.deepStrictEqual(RESEARCH_SEG, [
+    ["tree", "Research tree", "#/research/tree"],
+    ["experiments", "Experiments", "#/research/experiments"],
+  ]);
 }
 
 function testPaperCardText() {
@@ -304,8 +316,8 @@ function testPaperCardText() {
 }
 
 function main() {
-  testDebtCount();
   testActivityHash();
+  testSegments();
   testAuthorShort();
   testFilterPapers();
   testPaperHash();

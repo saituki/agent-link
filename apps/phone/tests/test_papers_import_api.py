@@ -9,7 +9,7 @@
     - 失敗 → `failed` と通知
     - 時間切れ → `failed`
     - 同じキーの 2 回目は 409
-- Project: `phone project` / `phone mind-append`（改行は 400）/ `phone attention-resolve`
+- Project: `sai-sci project show` / `project memo`（改行・NUL は 400）/ `attention resolve` / `attention list`
 - 新しい住所が登録済みで、固定の住所が `/papers/{paper_id:int}` に取られない
 
 実行:
@@ -300,7 +300,7 @@ def test_download_success(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         res = await papers.request_download(
@@ -361,7 +361,7 @@ def test_download_exists(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"import_id": "DOI:1", "title": "題名"})
@@ -392,7 +392,7 @@ def test_download_failed(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 1, "position": 1, "title": "題名"})
@@ -420,7 +420,7 @@ def test_download_unreadable(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 2, "position": 1, "title": "題名"})
@@ -446,7 +446,7 @@ def test_download_not_found_bin(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 4, "position": 1, "title": "題名"})
@@ -471,7 +471,7 @@ def test_download_timeout(fake: FakeNotify) -> None:
     create, _seen = fake_exec({"paper download --log 5 --position 1": proc})
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
     # 待ちは一瞬に縮める（テストが待たないように）
     original_timeout = papers.DOWNLOAD_TIMEOUT
     papers.DOWNLOAD_TIMEOUT = 0.05
@@ -507,7 +507,7 @@ def test_download_after_failed(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 6, "position": 1, "title": "題名"})
@@ -538,7 +538,7 @@ def test_download_stderr_reason(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 13, "position": 1, "title": "題名"})
@@ -572,7 +572,7 @@ def test_after_download_stderr_reason(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 14, "position": 1, "title": "題名"})
@@ -651,7 +651,7 @@ def test_download_progress_lines(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 8, "position": 1, "title": "題名"})
@@ -694,7 +694,7 @@ def test_download_after_keeps_step_on_failure(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 10, "position": 1, "title": "題名"})
@@ -724,7 +724,7 @@ def test_download_failure_keeps_percent(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
 
     async def main() -> None:
         await papers.request_download(PROJECT, {"log_id": 11, "position": 1, "title": "題名"})
@@ -756,7 +756,7 @@ def test_download_after_timeout(fake: FakeNotify) -> None:
     )
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
     original_timeout = papers.AFTER_DOWNLOAD_TIMEOUT
     papers.AFTER_DOWNLOAD_TIMEOUT = 0.05
 
@@ -782,7 +782,7 @@ def test_download_conflict() -> None:
     create, _seen = fake_exec({"paper download --log 7 --position 1": FakeProc(b"{}", 0, hang=True)})
     original = papers.asyncio.create_subprocess_exec
     papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
     original_timeout = papers.DOWNLOAD_TIMEOUT
     papers.DOWNLOAD_TIMEOUT = 30.0
 
@@ -834,40 +834,41 @@ def test_download_expired() -> None:
 
 
 def test_project_view(cli: FakeRunJson) -> None:
-    """現況は `phone project`（待ち 30 秒）。"""
+    """現況は `sai-sci project show --json`（待ち 30 秒・U14）。"""
     cli.calls.clear()
     cli.value = {"state": "# 現況", "mind": "", "brief": {}, "attention": []}
     out = papers.project_view(PROJECT)
     assert out["state"] == "# 現況", out
-    assert cli.last["args"] == ["sai-paper", "phone", "project"], cli.last["args"]
+    assert cli.last["args"] == ["sai-sci", "project", "show", "--json"], cli.last["args"]
     assert cli.last["timeout"] == 30.0, cli.last["timeout"]
 
 
 def test_mind_append(cli: FakeRunJson) -> None:
-    """メモは 1 行・2000 文字まで（標準入力）。"""
+    """メモは 1 行・2000 文字まで・NUL を含まない（`sai-sci project memo`）。"""
     cli.calls.clear()
     cli.value = {"ok": True, "line": "- 09/26 12:00 メモ"}
     out = papers.mind_append(PROJECT, "メモ")
     assert out == {"ok": True, "line": "- 09/26 12:00 メモ"}, out
-    assert cli.last["args"] == ["sai-paper", "phone", "mind-append"], cli.last["args"]
-    assert cli.last["input_text"] == "メモ", cli.last["input_text"]
+    assert cli.last["args"] == ["sai-sci", "project", "memo", "--json", "--", "メモ"], cli.last["args"]
+    assert cli.last["input_text"] is None, cli.last["input_text"]
     cli.calls.clear()
-    for bad in ("", "x" * 2001, "a\nb", "a\rb", None, 12):
+    for bad in ("", "x" * 2001, "a\nb", "a\rb", "a\0b", None, 12):
         expect(400, lambda bad=bad: papers.mind_append(PROJECT, bad))
     assert cli.calls == [], cli.calls
 
 
 def test_attention_resolve(cli: FakeRunJson) -> None:
-    """要対応の 1 件を「対応済み」にする（key は 1〜300 文字の 1 行）。"""
+    """要対応の 1 件を「対応済み」にする（key は 1〜300 文字の 1 行・U14）。"""
     cli.calls.clear()
     cli.value = {"ok": True, "key": "question:41:対象は?"}
     out = papers.attention_resolve(PROJECT, "question:41:対象は?")
     assert out == {"ok": True, "key": "question:41:対象は?"}, out
     assert cli.last["args"] == [
-        "sai-paper",
-        "phone",
-        "attention-resolve",
+        "sai-sci",
+        "attention",
+        "resolve",
         "question:41:対象は?",
+        "--json",
     ], cli.last["args"]
     cli.calls.clear()
     for bad in ("", "x" * 301, "a\nb", None, 12):
@@ -876,11 +877,11 @@ def test_attention_resolve(cli: FakeRunJson) -> None:
 
 
 def test_attention_list(cli: FakeRunJson) -> None:
-    """ホーム用の要対応一覧は `attention --json`（待ち 15 秒）。"""
+    """ホーム用の要対応一覧は `sai-sci attention list --json`（待ち 15 秒・U14）。"""
     cli.calls.clear()
     cli.value = [{"key": "k", "kind": "question", "title": "題"}]
     assert papers.attention_list(PROJECT) == [{"key": "k", "kind": "question", "title": "題"}]
-    assert cli.last["args"] == ["sai-paper", "attention", "--json"], cli.last["args"]
+    assert cli.last["args"] == ["sai-sci", "attention", "list", "--json"], cli.last["args"]
     assert cli.last["timeout"] == 15.0, cli.last["timeout"]
     # 配列でなければ空の並びにする
     cli.value = {"error": "x"}
@@ -939,8 +940,8 @@ def test_routes() -> None:
 def main() -> None:
     cli = FakeRunJson()
     papers.cli.run_json = cli
-    # 引数を文字列として確かめるため、CLI の場所を "sai-paper" に固定する
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
+    # 引数を文字列として確かめるため、CLI の場所を "sai-paper" / "sai-sci" に固定する
+    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
     fake = FakeNotify()
     papers.notify = fake  # 通知は記録するだけの偽物（実機へは送らない）
     test_import_list(cli)

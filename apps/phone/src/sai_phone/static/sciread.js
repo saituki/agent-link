@@ -1,5 +1,5 @@
 "use strict";
-// 読む札（#/papers/read/<run_id>）の画面（U21）。
+// 読む札（#/research/read/<run_id>）の画面（U21）。
 //
 // 読む札は人が読む札（runner = user）。利用者は論文を読み、O（または E）に F を付け、
 // note.md を書いて終える。読み終わりの判定は DEBT（f_added・note）が行い、終える操作は止めない。
@@ -39,9 +39,9 @@ function srTrim(value) {
   return value == null ? "" : String(value).trim();
 }
 
-/** 住所を読む（`#/papers/read/130` だけ）。合わなければ null。 */
+/** 住所を読む（`#/research/read/130` だけ）。合わなければ null。 */
 function srParseHash(hash) {
-  const m = /^#\/papers\/read\/([1-9][0-9]{0,8})$/.exec(String(hash || ""));
+  const m = /^#\/research\/read\/([1-9][0-9]{0,8})$/.exec(String(hash || ""));
   if (!m) return null;
   return { runId: Number(m[1]) };
 }
@@ -108,7 +108,7 @@ function srBuildAnswer(card, values) {
 /** 対象 Node の画面へ戻る住所。 */
 function srBackHash(card) {
   const id = srCardNode(card);
-  return id ? `#/papers/tree/${id}` : "#/papers/tree";
+  return id ? `#/research/tree/${id}` : "#/research/tree";
 }
 
 // ============================================================================
@@ -183,7 +183,7 @@ async function srOpen(params) {
   if (!body) return;
   if (!srRunId) {
     body.innerHTML = "";
-    body.appendChild(saiEmpty({ icon: "❓", title: "読む札の番号が分かりません", body: "住所が「#/papers/read/130」の形ではありません。" }));
+    body.appendChild(saiEmpty({ icon: "❓", title: "読む札の番号が分かりません", body: "住所が「#/research/read/130」の形ではありません。" }));
     return;
   }
   if (typeof selectedPaperProject !== "function" || !selectedPaperProject()) {
@@ -461,12 +461,12 @@ function srFinishRow(card) {
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   (window.SaiRoutes = window.SaiRoutes || []).push({
-    // 読む札（#/papers/read/130）
+    // 読む札（#/research/read/130）
     match(hash) {
       return srParseHash(hash);
     },
     view: "view-sci-read",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     interval: 0, // 定期更新はしない
     async open(params) {

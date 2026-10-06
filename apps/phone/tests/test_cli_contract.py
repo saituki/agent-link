@@ -6,7 +6,7 @@
   - 0 で JSON でない → 502
   - 2 → 400・3 → 404・4 → 409・1 とそのほか → 502
   - 理由は標準エラーの最後の空でない行（`sai-progress` の行は飛ばす）
-  - 古い phone 系の形（標準出力の `{"error": …}`）は 400 でその文
+  - 標準出力の `{"error": …}` は理由に使わない（終了コードで決める）
 - 起動できない → 503・時間切れ → 504（`run_cli`）
 - 呼び出しの env（`_phone_env` / sai-paper の `_paper_cli`）
   - `SAI_PROJECT_ROOT` と `SAI_ORIGIN=phone` があり，`SAI_PAPER_ROOT` が無い
@@ -85,10 +85,13 @@ def test_reason_is_last_line() -> None:
     assert e.detail == "sai-link が失敗しました", e.detail
 
 
-def test_old_phone_shape() -> None:
-    """古い phone 系（終了コード 1・標準出力の `{"error"}`）は 400 でその文。"""
-    e = expect(400, lambda: call(1, '{"error": "古い形の理由"}'))
-    assert e.detail == "古い形の理由", e.detail
+def test_stdout_error_is_not_special() -> None:
+    """標準出力の `{"error"}` は理由に使わない（終了コードで決める・U14 で形 A を消した）。"""
+    e = expect(502, lambda: call(1, '{"error": "stdout の理由"}'))
+    assert e.detail == "sai-link が失敗しました", e.detail
+    # 2 なら標準エラーの理由で 400
+    e = expect(400, lambda: call(2, '{"error": "stdout の理由"}', "引数の誤り"))
+    assert e.detail == "引数の誤り", e.detail
     # 0 で `{"error"}` でも成功として JSON を返す
     assert call(0, '{"error": "これは値"}') == {"error": "これは値"}
 
@@ -132,7 +135,7 @@ def main() -> None:
     test_zero_json()
     test_exit_codes()
     test_reason_is_last_line()
-    test_old_phone_shape()
+    test_stdout_error_is_not_special()
     test_run_cli_503_504()
     test_phone_env()
     test_paper_env()

@@ -196,6 +196,17 @@ function testPapers() {
   assert.strictEqual(sec.items[0].hash, "#/papers/dashboard");
   assert.strictEqual(sec.items[0].project, "p", "プロジェクト名を覚えておく");
   assert.strictEqual(sec.term, "attention");
+  // 先頭 3 件に研究方針の要対応（sci_）があれば研究方針の木へ行く（U14）
+  const sci = H.hmSections({
+    papers: [
+      {
+        name: "p",
+        attention: 1,
+        items: [{ key: "k0", kind: "sci_triage", title: "仕分け" }],
+      },
+    ],
+  }).find((s) => s.key === "papers");
+  assert.strictEqual(sci.items[0].hash, "#/research/tree");
   // papers.js と同じ場所（共有契約 C-F1）
   assert.strictEqual(H.HM_PAPERS_KEY, "sai_phone_papers_project");
 }

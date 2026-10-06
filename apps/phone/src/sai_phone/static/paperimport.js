@@ -730,6 +730,11 @@ function pimRender() {
   root.innerHTML = "";
   pimJobNodes.clear(); // 前の画面で使った箱はもう無い
   root.appendChild(pimHeader());
+  // Papers の小さなタブの枠（U14。中身は papers.js の fillSegment）
+  const seg = pimEl("div", "papers-seg-row");
+  seg.id = "import-seg";
+  root.appendChild(seg);
+  if (typeof fillSegment === "function") fillSegment("import-seg", "import");
   const body = pimEl("div", "pim-body");
   root.appendChild(body);
 

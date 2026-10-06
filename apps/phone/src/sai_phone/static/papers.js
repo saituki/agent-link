@@ -21,13 +21,18 @@
 
 // --- 定数 ---
 
-// Papers の上部の切り替え（07 §4.1）。押すと該当の # へ移る。
-// U19: 先頭に研究方針（#/papers/tree）を足した。論文タブの最初の画面。
+// Papers の上部の切り替え（07 §4.1・U14 で 5 つにした）。押すと該当の # へ移る。
 const PAPERS_SEG = [
-  ["tree", "Research tree", "#/papers/tree"],
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["library", "Library", "#/papers/library"],
+  ["import", "Import", "#/papers/import"],
   ["radio", "Radio", "#/papers/radio"],
+  ["sets", "検索セット", "#/papers/sets"],
+];
+// Research の上部の切り替え（U14）。研究方針の木と実験。
+const RESEARCH_SEG = [
+  ["tree", "Research tree", "#/research/tree"],
+  ["experiments", "Experiments", "#/research/experiments"],
 ];
 // 検索結果の一覧で「未ダウンロードも表示」の選択を覚える（localStorage・"0" が OFF・既定は ON）
 const LIB_REMOTE_KEY = "sai_phone_library_remote";
@@ -749,7 +754,7 @@ function renderPapersDashboard() {
     pdFocusMemo();
     return;
   }
-  // 1. 数字カード（Mac の Dashboard の 5 つ + DEBT）
+  // 1. 数字カード（Mac の Dashboard の 5 つ）
   const c = dashboardData.cards || {};
   const card = el("section", "dash-card");
   const grid = el("div", "dash-grid pd-grid");
@@ -759,7 +764,6 @@ function renderPapersDashboard() {
     [String(Number(c.notes) || 0), "Notes"],
     [bytesLabel(c.pdf_bytes), "PDF"],
     [bytesLabel(c.db_bytes), "DB"],
-    [String(papersDebtCount(dashboardData.activity)), "DEBT"],
   ]) {
     const cell = el("div", "dash-cell");
     cell.appendChild(el("div", "dash-big", value));
@@ -849,11 +853,11 @@ function attentionCard() {
  */
 function papersAttentionHash(item) {
   const it = item || {};
-  if (it.kind === "sci_triage") return "#/papers/triage";
+  if (it.kind === "sci_triage") return "#/research/triage";
   if (it.kind !== "sci_decision") return "";
   // キーは `sci_decision:<Q の ID>`。その Q を選んだ研究方針の画面を開く
   const m = /^sci_decision:([QOFE][1-9][0-9]{0,8})$/.exec(String(it.key || ""));
-  return m ? `#/papers/tree/${m[1]}` : "";
+  return m ? `#/research/tree/${m[1]}` : "";
 }
 
 /** 要対応の 1 行（種類の札・題・対応済みにする・実行があれば開く）。 */
@@ -1044,11 +1048,6 @@ function pdFocusMemo() {
   try { input.setSelectionRange(at, at); } catch { /* 数値の欄だけなら無視 */ }
 }
 
-/** Recent Activity の Action の行のうち DEBT のある行の数。 */
-function papersDebtCount(items) {
-  return (Array.isArray(items) ? items : []).filter((i) => i && i.kind === "action" && i.debt).length;
-}
-
 function activityRow(item) {
   const [label, cls] = ACTIVITY_KINDS[item && item.kind] || [String((item && item.kind) || ""), "ak-other"];
   const row = document.createElement("button");
@@ -1077,7 +1076,7 @@ function papersRenderProgressButton() {
   old.parentNode.replaceChild(pimProgressButton(), old);
 }
 
-function fillSegment(containerId, active) {
+function fillSegment(containerId, active, segs) {
   const box = document.getElementById(containerId);
   if (!box) return;
   box.innerHTML = "";
@@ -1086,7 +1085,8 @@ function fillSegment(containerId, active) {
   row.className = "papers-seg-bar";
   const seg = document.createElement("div");
   seg.className = "dash-seg papers-seg"; // 06 の期間切り替えと同じ見た目
-  for (const [key, label, hash] of PAPERS_SEG) {
+  const items = Array.isArray(segs) ? segs : PAPERS_SEG;
+  for (const [key, label, hash] of items) {
     const b = document.createElement("button");
     b.textContent = label;
     if (key === active) b.className = "active";
@@ -1094,8 +1094,10 @@ function fillSegment(containerId, active) {
     seg.appendChild(b);
   }
   row.appendChild(seg);
-  // 走っている Download があれば数をつける（paperimport.js が作る）
-  if (typeof pimProgressButton === "function") row.appendChild(pimProgressButton());
+  // 走っている Download があれば数をつける（paperimport.js が作る。Papers の帯だけ）
+  if (items === PAPERS_SEG && typeof pimProgressButton === "function") {
+    row.appendChild(pimProgressButton());
+  }
   box.appendChild(row);
 }
 
@@ -1209,7 +1211,7 @@ function searchMetaLine(log) {
   if (log.node && log.node.id) {
     line.appendChild(document.createTextNode(" · "));
     const a = el("a", "paper-doi", log.node.id);
-    a.href = `#/papers/tree/${log.node.id}`; // 研究方針の木の Node（検索の記録の持ち主）
+    a.href = `#/research/tree/${log.node.id}`; // 研究方針の木の Node（検索の記録の持ち主）
     line.appendChild(a);
   }
   return line;
@@ -2179,7 +2181,7 @@ function lfindMetaLine(log) {
   if (l.node && l.node.id) {
     line.appendChild(document.createTextNode(" · "));
     const a = el("a", "paper-doi", String(l.node.id));
-    a.href = `#/papers/tree/${l.node.id}`;
+    a.href = `#/research/tree/${l.node.id}`;
     line.appendChild(a);
   }
   return line;
@@ -3687,7 +3689,8 @@ if (typeof module !== "undefined" && module.exports) {
     papersFailedLines,
     papersAllFailed,
     papersAttentionHash,
-    papersDebtCount,
     paperCardText,
+    PAPERS_SEG,
+    RESEARCH_SEG,
   };
 }

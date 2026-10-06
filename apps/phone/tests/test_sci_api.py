@@ -37,8 +37,8 @@ class Recorder:
         self.order = order
         self.replies = list(replies or [])
         self.app = app
-        # paper 側は先頭が実行ファイル・link 側（`phone user …` の引数）はそのまま
-        self.trim = 1 if app == "paper" else 0
+        # sai-sci / sai-paper 側は先頭が実行ファイル・link 側（`phone user …` の引数）はそのまま
+        self.trim = 1 if app in ("sci", "paper") else 0
 
     def __call__(self, args, **kw) -> dict:
         self.calls.append({"app": self.app, "args": list(args), **kw})
@@ -86,8 +86,8 @@ def expect_400(fn, detail: str = "") -> None:
 
 
 def swap(order: list, replies: list | None = None):
-    """偽の CLI を差し込む。(paper, link, 元に戻す関数) を返す。"""
-    paper = Recorder(order, replies=replies, app="paper")
+    """偽の CLI を差し込む。(sci, link, 元に戻す関数) を返す。"""
+    paper = Recorder(order, replies=replies, app="sci")
     link = Recorder(order, app="link")
     orig = cli.run_json, control._phone_json
     cli.run_json, control._phone_json = paper, link
@@ -286,41 +286,50 @@ def test_calls(order: list) -> None:
     paper, link, restore = swap(order)
     try:
         sci.status(project)
-        assert paper.last["args"][1:] == ["phone", "sci", "status"], paper.last["args"]
+        assert paper.last["args"][1:] == ["status", "--json"], paper.last["args"]
         assert paper.last["cwd"] == root and paper.last["env"]["SAI_PROJECT_ROOT"] == root
         assert paper.last["env"]["SAI_ORIGIN"] == "phone", paper.last["env"]
         assert paper.last["timeout"] == 20.0 and paper.last["input_text"] is None
 
         sci.types(project)
-        assert paper.last["args"][1:] == ["phone", "sci", "types"] and paper.last["timeout"] == 20.0
+        assert paper.last["args"][1:] == ["types", "--json"] and paper.last["timeout"] == 20.0
 
-        sci.init(project, {"type": "improve"})
-        assert paper.last["args"][1:] == ["phone", "sci", "init", "--type", "improve"]
+        paper.replies = [{"messages": ["ok"], "tree": {"type": "improve"}}]
+        assert sci.init(project, {"type": "improve"}) == {"type": "improve"}
+        assert paper.last["args"][1:] == ["init", "--type", "improve", "--json"]
         assert paper.last["timeout"] == 60.0
+        # `tree` が無い出力は 502（画面に渡す木が作れない）
+        paper.replies = [{"messages": [], "tree": None}]
+        try:
+            sci.init(project, {"type": "improve"})
+            raise AssertionError("502 になるはず")
+        except HTTPException as e:
+            assert e.status_code == 502, e.status_code
         expect_400(lambda: sci.init(project, {"type": "unknown"}))
 
         sci.node(project, "O12")
-        assert paper.last["args"][1:] == ["phone", "sci", "node", "O12"], paper.last["args"]
+        assert paper.last["args"][1:] == ["node", "O12", "--json"], paper.last["args"]
         expect_400(lambda: sci.node(project, "N12"))
 
         sci.apply(project, {"op": "add_q", "parent": "Q1", "text": "なぜ？"})
-        assert paper.last["args"][1:] == ["phone", "sci", "apply"]
+        assert paper.last["args"][1:] == ["apply", "--json"]
         assert json.loads(paper.last["input_text"]) == {
             "op": "add_q", "parent": "Q1", "text": "なぜ？",
         }
         assert paper.last["timeout"] == 30.0
 
         sci.proposals(project)
-        assert paper.last["args"][1:] == ["phone", "sci", "proposals"]
+        assert paper.last["args"][1:] == ["proposals", "--json"]
 
         sci.triage(project, "P55", {"action": "reject", "note": "--help"})
         assert paper.last["args"][1:] == [
-            "phone", "sci", "triage", "P55", "--action", "reject", "--note=--help",
+            "triage", "P55", "--reject", "--note=--help",
         ], paper.last["args"]
-        assert paper.last["input_text"] == ""
+        assert paper.last["input_text"] is None
         sci.triage(project, "P56", {"action": "accept", "edit": {"op": "star", "o": "O1"}})
-        assert paper.last["args"][1:] == ["phone", "sci", "triage", "P56", "--action", "accept"]
-        assert json.loads(paper.last["input_text"]) == {"op": "star", "o": "O1"}
+        assert paper.last["args"][1:] == [
+            "triage", "P56", "--accept", '--edit={"op": "star", "o": "O1"}',
+        ], paper.last["args"]
         expect_400(lambda: sci.triage(project, "N55", {"action": "reject"}))
         expect_400(lambda: sci.triage(project, "P55", {"action": "keep"}))
 
@@ -329,11 +338,11 @@ def test_calls(order: list) -> None:
             {"node": "Q1", "block": "sci-read", "purpose": "目的", "papers": [37],
              "mode": "blind_first"},
         )
-        assert paper.last["args"][1:] == ["phone", "sci", "card"]
+        assert paper.last["args"][1:] == ["card", "--from-json", "--json"]
         assert json.loads(paper.last["input_text"])["mode"] == "blind_first"
 
         sci.read(project, 130)
-        assert paper.last["args"][1:] == ["phone", "sci", "read", "130"]
+        assert paper.last["args"][1:] == ["read", "130", "--json"]
 
         sci.read_start(project, 130)
         assert link.last["args"] == ["card", "start", "130"] and link.last["root"] == root
@@ -396,7 +405,7 @@ def test_read_finish() -> None:
         restore()
     assert got == {"run_id": 130, "status": "review", "findings": 2, "debts": ["メモが無い"]}, got
     assert [f"{k}: {a}" for k, a in order] == [
-        "paper: phone sci read 130", "link: card start 130", "link: card finish 130",
+        "sci: read 130 --json", "link: card start 130", "link: card finish 130",
     ], order
     assert link.calls[0]["root"] == root and link.calls[1]["root"] == root
 
@@ -409,7 +418,7 @@ def test_read_finish() -> None:
         restore()
     assert got == {"run_id": 130, "status": "review", "findings": 0, "debts": []}, got
     assert [f"{k}: {a}" for k, a in order] == [
-        "paper: phone sci read 130", "link: card finish 130",
+        "sci: read 130 --json", "link: card finish 130",
     ], order
 
     # run_id の検査
@@ -421,6 +430,27 @@ def test_read_finish() -> None:
         assert not order, "検査で落ちたときは CLI を呼ばない"
     finally:
         restore()
+
+
+def test_failure_codes() -> None:
+    """sai-sci の失敗は終了コードで 400 / 404 / 409 / 502 に読み替える（U14 で形 A を消した）。"""
+    import subprocess
+
+    project = papers.resolve_project("sai-paper")
+    orig = cli.run_cli
+    try:
+        for code, status in ((2, 400), (3, 404), (4, 409), (1, 502)):
+            cli.run_cli = (
+                lambda *a, _c=code, **k: subprocess.CompletedProcess(a[0], _c, "", "理由")
+            )
+            try:
+                sci.status(project)
+                raise AssertionError(f"{status} になるはず")
+            except HTTPException as e:
+                assert e.status_code == status, (code, e.status_code)
+                assert e.detail == "理由", e.detail
+    finally:
+        cli.run_cli = orig
 
 
 def test_user_cli_args() -> None:
@@ -513,6 +543,7 @@ def main() -> None:
             test_triage()
             test_calls([])
             test_read_finish()
+            test_failure_codes()
             test_user_cli_args()
         finally:
             control.list_projects = orig_list

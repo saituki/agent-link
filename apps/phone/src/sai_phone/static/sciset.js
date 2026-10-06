@@ -89,16 +89,21 @@ function ssRoot() {
     const back = ssEl("button", "", "‹");
     back.id = "ss-back";
     back.setAttribute("aria-label", "戻る");
-    back.addEventListener("click", () => { location.hash = ssSetId ? "#/papers/sets" : "#/papers"; });
+    back.addEventListener("click", () => { location.hash = ssSetId ? "#/papers/sets" : "#/papers/dashboard"; });
     head.appendChild(back);
     const h1 = ssEl("h1", "", "検索セット");
     h1.id = "ss-title";
     head.appendChild(h1);
     view.appendChild(head);
+    // Papers の小さなタブの枠（U14。中身は papers.js の fillSegment）
+    const seg = ssEl("div", "papers-seg-row");
+    seg.id = "set-seg";
+    view.appendChild(seg);
     body = ssEl("main", "ss-body");
     body.id = "ss-body";
     view.appendChild(body);
   }
+  if (typeof fillSegment === "function") fillSegment("set-seg", "sets");
   return body;
 }
 
@@ -144,7 +149,7 @@ function ssNodeBtn(node) {
   if (!id) return null;
   const b = ssEl("button", "ss-node", String(id));
   b.type = "button";
-  b.addEventListener("click", (ev) => { ev.stopPropagation(); location.hash = `#/papers/tree/${id}`; });
+  b.addEventListener("click", (ev) => { ev.stopPropagation(); location.hash = `#/research/tree/${id}`; });
   return b;
 }
 

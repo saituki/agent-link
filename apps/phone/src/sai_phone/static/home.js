@@ -334,7 +334,7 @@ function hmSections(data) {
       count: n,
       sub: head.map((i) => i.title || "").filter(Boolean),
       ago: "",
-      hash: sciFirst ? "#/papers/tree" : "#/papers/dashboard",
+      hash: sciFirst ? "#/research/tree" : "#/papers/dashboard",
       project: p.name || "",
     });
   }
