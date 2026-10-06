@@ -1,4 +1,4 @@
-//! `sai-moon-paper report` — agent の report の登録・参照コマンド。
+//! `sai-sci report` — agent の report の登録・参照コマンド。
 //!
 //! report の md は sai-link の出力フォルダに置かれたまま扱う。
 //! **md を書き換えるコマンドは用意しない**（要件 R3.3）。
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use crate::open_database;
 
-/// `sai-moon-paper report` のサブコマンド。
+/// `sai-sci report` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum ReportCmd {
     /// report を登録し、採番した report_id を出力する
@@ -108,7 +108,7 @@ pub enum ReportCmd {
     },
 }
 
-/// `sai-moon-paper report` を実行する。
+/// `sai-sci report` を実行する。
 pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
     if let ReportCmd::Prepare { run, block, filename } = &cmd {
         std::process::exit(prepare(*run, block.clone(), filename.clone()));
@@ -401,7 +401,7 @@ fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) ->
 
     // 1. description
     if description.is_empty() {
-        errors.push("description が空です。sai_write の description に『<文書の種類> <ID>: <内容を 1 文で>』の形で書いてください".into());
+        errors.push("description が空です。`sai-link doc write` の `--description` に『<文書の種類> <ID>: <内容を 1 文で>』の形で書いてください".into());
     } else if description.contains('\n')
         || description.chars().count() > 200
         || description.starts_with("```")

@@ -1,4 +1,4 @@
-//! `sai-moon-paper understanding` — トピックごとの理解の状態の記録（N04）。
+//! `sai-sci understanding` — トピックごとの理解の状態の記録（N04）。
 //!
 //! - `understanding add`: 「理解の確認」の DSR が、**ユーザーの確認を取った後**に
 //!   1 件足す。状態は `ok`（理解している）/ `vague`（あいまい）/ `unknown`
@@ -12,7 +12,7 @@ use sai_sci_core::understanding::{self, UnderstandingEntry};
 
 use crate::open_database;
 
-/// `sai-moon-paper understanding` のサブコマンド。
+/// `sai-sci understanding` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum UnderstandingCmd {
     /// 理解の状態を 1 件足す（ユーザーの確認の後に呼ぶ）
@@ -41,7 +41,7 @@ pub enum UnderstandingCmd {
     },
 }
 
-/// `sai-moon-paper understanding` を実行する。
+/// `sai-sci understanding` を実行する。
 pub fn handle(cmd: UnderstandingCmd) -> Result<()> {
     match cmd {
         UnderstandingCmd::Add {

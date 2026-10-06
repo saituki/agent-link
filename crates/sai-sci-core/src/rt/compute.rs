@@ -1,5 +1,5 @@
 //! 木の計算（Objectivity・Logicality・★ の道・進み具合・SEED の下書き・Next Action・注意）と、
-//! `status` / `node` の JSON（C-JSON）。CLI・MCP・Web・TUI はこの結果を写すだけにする。
+//! `status` / `node` の JSON（C-JSON）。CLI・Web・TUI はこの結果を写すだけにする。
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -21,7 +21,7 @@ pub const SCOPES: [&str; 6] = ["node", "path", "subtree", "siblings", "summary",
 
 /// 古い形の木だけがあるときの注意。
 const LEGACY_WARNING: &str =
-    "古い形の木です。`sai-moon-paper sci init --type <型>` で作り直してください";
+    "古い形の木です。`sai-sci init --type <型>` で作り直してください";
 
 /// mind.md の見出しの別名（新しい名前, 旧い名前）。
 const MIND_ALIASES: [(&str, &str); 7] = [

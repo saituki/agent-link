@@ -1,7 +1,7 @@
 //! task.md 発行：論文をエージェントに引き渡す。
 //!
 //! sai-paper から選択した論文を sai-link のカンバンボードに task.md 作成して
-//! 引き渡す。カードは `sai-moon-link card create`（標準入力に JSON）で作り、
+//! 引き渡す。カードは `sai-link card create`（標準入力に JSON）で作り、
 //! run_id はその出力から得る。sai-link の DB は直に開かない。
 
 use sai_paper_core::database::Database;
@@ -133,7 +133,7 @@ pub fn list_blocks(roots: &PaperRoots) -> Result<Vec<BlockInfo>> {
 
 /// `lane` が `todo` の run の `task.md` のカードを一覧する。
 ///
-/// run の一覧は `sai-moon-link run list --json` から取り、`dir` の下の
+/// run の一覧は `sai-link run list --json` から取り、`dir` の下の
 /// `task.md` を読む。`tag` を指定すると frontmatter の `tag` が一致するカードだけを返す。
 /// 返り値は `run_id` の昇順。sai-link の一覧を読めないときは空を返す。
 ///
@@ -280,7 +280,7 @@ pub fn create_handoff_with(
 /// 処理:
 /// 1. ブロックの存在を確認
 /// 2. 論文情報を集める
-/// 3. `sai-moon-link card create` でカードを作る（本文と `extra` を渡す）
+/// 3. `sai-link card create` でカードを作る（本文と `extra` を渡す）
 /// 4. { run_id, path } を返す
 ///
 /// `extra` は `(キー, 値)` の並び。値の改行は空白に置き換え、空の値は書かない。
@@ -358,7 +358,7 @@ pub fn create_handoff_with_extra(
         }
     }
 
-    // 6. `sai-moon-link card create` でカードを作る。
+    // 6. `sai-link card create` でカードを作る。
     let card = link::CardCreate {
         runner: request.runner.to_string(),
         block: block_id.to_string(),
@@ -626,7 +626,7 @@ mod tests {
         }
     }
 
-    /// カードの項目を `sai-moon-link card create` に渡し、task.md もできること。
+    /// カードの項目を `sai-link card create` に渡し、task.md もできること。
     #[test]
     fn test_create_handoff_passes_card_fields() {
         let root = temp_root("no-papers");

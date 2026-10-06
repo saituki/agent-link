@@ -37,7 +37,7 @@ const SUMMARY_SYSTEM: &str =
 pub enum SectionsError {
     /// `extract.md` が無い。
     #[error(
-        "論文 #{0} の extract.md がありません。`sai-moon-paper figures {0}` か `sai-moon-paper extract {0}` で作ってください"
+        "論文 #{0} の extract.md がありません。`sai-paper paper figures {0}` か `sai-paper paper citations-extract {0}` で作ってください"
     )]
     NoExtract(i64),
     /// ID の形が違う。

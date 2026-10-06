@@ -147,8 +147,8 @@ pub(crate) fn open_env() -> Result<SciEnv> {
 
 /// 研究プロジェクトのルート（`root`）を指定して [`open_env`] と同じものを開く。
 ///
-/// `sai-moon-paper init --sci` は研究プロジェクトの置き場を `--root` で受け取るので、
-/// この関数を使う（`SAI_PAPER_ROOT` に頼らない）。
+/// 呼び出し側が決めた研究プロジェクトのルート（`root`）を使って [`open_env`] と同じものを開く。
+/// ルートは引数で受け取る（環境変数に頼らない）。
 pub(crate) fn open_env_at(root: &Path) -> Result<SciEnv> {
     let data_dir = root.join(".sai").join("paper");
     let roots = PaperRoots { root: root.to_path_buf(), data_dir: data_dir.clone() };
@@ -231,8 +231,8 @@ impl InitOutcome {
 /// 木を作って state.md と tree.md を書き出す（`sci init` の本体）。
 ///
 /// 新しい木が既にあるときは `already` が真の返り値を返し、エラーにしない。
-/// そこから先をどうするかは呼び出し側が決める（`sci init` はエラー、
-/// `sai-moon-paper init --sci` は案内だけ出して続ける）。古い木だけがあるときは新しく作る
+/// そこから先をどうするかは呼び出し側が決める（`sai-sci init` はエラーにする）。
+/// 古い木だけがあるときは新しく作る
 /// （古い表は触らない）。
 ///
 /// # Errors
@@ -278,7 +278,7 @@ pub(crate) fn init_tree_and_export(root: &Path, type_id: &str) -> Result<InitOut
 
 /// 部品（ブロック・テンプレート・`context`・土壌のひな形）を配ってから木を作る。
 ///
-/// `phone sci init` と `sai-moon-paper init --sci` はここを呼ぶ。
+/// `sai-sci init` はここを呼ぶ。
 ///
 /// # Errors
 /// 部品を配れないとき、木を作れないとき、書き出しに失敗したとき。
@@ -307,11 +307,11 @@ pub(crate) fn status(json: bool, brief: bool) -> Result<Out> {
     Ok(Out::Text(status_text(&status)))
 }
 
-/// `sci status --brief` と MCP の `sci_status` の `{"brief": true}` が返す JSON。
+/// `sci status --brief`（`{"brief": true}`）が返す JSON。
 ///
 /// 短い文脈で現在地を読めるように、進み具合・種の下書き・次の一手・負債の数だけを出す。
 /// 値は [`compute::status`] の結果からそのまま写すだけで、計算し直さない
-/// （Web・CLI・MCP で同じ値になる）。
+/// （Web と CLI で同じ値になる）。
 pub fn brief_status(status: &compute::Status) -> Value {
     json!({
         "type": status.type_info.as_ref().map(|found| found.id.clone()),
@@ -598,7 +598,7 @@ pub(crate) fn actor_of(run: Option<i64>, block: Option<String>) -> ops::Actor {
     }
 }
 
-// ---- Node に結び付いた検索の記録（find / search / MCP） ------------------------
+// ---- Node に結び付いた検索の記録（find / search） ------------------------
 
 /// 検索が結び付いた Node（`find` と `search` の `--node`）。
 #[derive(Debug, Clone, Copy, Default)]
@@ -607,7 +607,7 @@ pub(crate) struct SearchRefs {
     pub node: Option<i64>,
 }
 
-/// `find` / `search` / MCP の `find` の引数検査。
+/// `find` / `search` の引数検査。
 ///
 /// `--node` は `Q12`・`O5` のような形だけを受け付ける。指定が無ければ何も調べない
 /// （木が無いプロジェクトでも `find` / `search` を今までどおり使えるようにするため）。
@@ -618,7 +618,7 @@ pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result
     let text = text.trim();
     if !store::is_initialized(conn).map_err(rt_err)? {
         return Err(crate::cli_error::CliError::input(
-            "研究方針の木がありません（sai-moon-paper sci init）",
+            "研究方針の木がありません（sai-sci init）",
         )
         .into());
     }
@@ -633,7 +633,7 @@ pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result
     Ok(SearchRefs { node: Some(id) })
 }
 
-/// 検索の記録に残す内容（`find` / `search` / MCP の `find` で同じものを使う）。
+/// 検索の記録に残す内容（`find` / `search` で同じものを使う）。
 pub(crate) struct SearchLog<'a> {
     /// 検索が結び付いた Node。
     pub refs: &'a SearchRefs,
@@ -712,7 +712,7 @@ pub(crate) fn previous_search_line(
     ))
 }
 
-/// `find` の範囲の引数の組み合わせを検査する（CLI と MCP の `find` で共用）。
+/// `find` の範囲の引数の組み合わせを検査する（CLI で共用）。
 ///
 /// Node や論文の集合が無いのに `--subtree` / `--each` が来たときは、黙って Library
 /// 全体を探すことにせず、文で伝える。
@@ -739,7 +739,7 @@ pub(crate) fn check_find_scope(
 
 /// 検索結果から論文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
 ///
-/// CLI の find・MCP の find・phone の find で共用（U01）。
+/// CLI の find で共用（U01）。
 pub(crate) fn hit_paper_ids(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
     let mut ids: Vec<i64> = hits.iter().filter_map(|hit| hit.paper_id).collect();
     ids.sort_unstable();
@@ -769,7 +769,7 @@ pub(crate) fn set_fields(
 /// `sci status` の文（型・進み具合・種の下書き・負債・木・次の一手）。
 fn status_text(status: &compute::Status) -> String {
     if !status.initialized {
-        let mut text = "研究方針の木がまだありません。`sai-moon-paper sci init --type <型>` で始めてください。\n"
+        let mut text = "研究方針の木がまだありません。`sai-sci init --type <型>` で始めてください。\n"
             .to_string();
         for warning in &status.warnings {
             text.push_str(&format!("⚠ {warning}\n"));

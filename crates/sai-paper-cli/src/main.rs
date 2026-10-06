@@ -19,20 +19,18 @@ mod expand;
 mod figures;
 mod index;
 mod litbase;
-mod mcp;
 mod phone;
 mod phone_cite;
 mod phone_import;
 mod relayout;
 mod schema;
-mod sci_bridge;
 mod search_sets;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "sai-moon-paper",
+    name = "sai-paper",
     version,
-    about = "sai-moon-paper CLI (Rust native, Node非依存)"
+    about = "sai-paper CLI (Rust native, Node非依存)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -63,18 +61,6 @@ enum Cmd {
         /// Save results as a named search set.
         #[arg(long)]
         save_as: Option<String>,
-        /// （古い別名。`--node` があると `sai-sci search` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        node: Option<String>,
-        /// （古い別名。`sai-sci search` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        purpose: Option<String>,
-        /// （古い別名。`sai-sci search` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        extract: Option<String>,
-        /// （古い別名。`sai-sci search` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        widen: Option<String>,
         /// JSON 出力（`{"log","items","failed"}`）
         #[arg(long)]
         json: bool,
@@ -125,13 +111,7 @@ enum Cmd {
         /// 上位の結果に LLM の要約と関連度を付ける（費用がかかる。必要なときだけ）
         #[arg(long)]
         evidence: bool,
-        /// （古い別名。`--node` があると `sai-sci find` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        node: Option<String>,
-        /// （古い別名。`sai-sci find` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        subtree: bool,
-        /// 範囲の論文ごとに上位 m 件を返す（`--papers` か `--node` と一緒に使う）
+        /// 範囲の論文ごとに上位 m 件を返す（`--papers` と一緒に使う）
         #[arg(long)]
         each: Option<i64>,
         /// 範囲を広げた理由
@@ -255,33 +235,11 @@ enum Cmd {
     },
     /// 研究プロジェクトを初期化する（`.sai/paper/` と `papr.db`）
     Init {
-        /// （古い・使わない）プロジェクト名
-        #[arg(long, hide = true)]
-        name: Option<String>,
-        /// （古い・使わない）足りない部品だけを配る（今は付けない時と同じ）
-        #[arg(long, hide = true)]
-        assets_only: bool,
-        /// （古い・使わない）分野の観点。`sai-sci init --domain` が配る
-        #[arg(long, hide = true, default_value = "general", value_parser = ["medical", "signal-ml", "general"])]
-        domain: String,
         /// 部品を新しい版へ更新する（古い物は退避する）
         #[arg(long)]
         update: bool,
-        /// （古い別名）研究方針の木を作る（`sai-sci init` を呼ぶ。ガイド 4 で消す）
-        #[arg(long, hide = true)]
-        sci: bool,
-        /// （古い別名）RESEARCH_TYPE（`--sci` と一緒に使う。ガイド 4 で消す）
-        #[arg(long = "type", hide = true, value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
-        sci_type: Option<String>,
     },
-    /// （古い別名）`sai-sci brief` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Brief {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// 論文本文 / 引用箇所 / report の内容を出力する（sai-link の入力展開用）
+    /// 論文本文 / 引用箇所 / 節の内容を出力する（sai-link の入力展開用）
     Content {
         /// サブコマンド
         #[command(subcommand)]
@@ -299,92 +257,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
-    /// （古い別名）`sai-sci dsr` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Dsr {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// （古い別名）`sai-sci understanding` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Understanding {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// （古い別名）`sai-sci progress` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Progress {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// （古い別名）`sai-sci journal` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Journal {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// （古い別名）`sai-sci attention` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Attention {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// （古い別名）`sai-sci report` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Report {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// （古い別名）`sai-sci` を呼ぶ。ガイド 4 で消す
-    #[command(hide = true)]
-    Sci {
-        /// そのまま `sai-sci` に渡す引数
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// 命令の一覧を JSON で出す
     Schema {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
     },
-
-    /// sai-phone（iPhone 窓口）向けの JSON 出力（古い別名。隠している）
-    #[command(hide = true)]
-    Phone {
-        #[command(subcommand)]
-        cmd: phone::PhoneCmd,
-    },
-    /// 論文の PDF を取得して置く（古い別名。隠している）
-    #[command(name = "get-pdf", hide = true)]
-    GetPdf { ids: Vec<String> },
-    /// Docling extract + ref parse + S2 match（古い別名。隠している）
-    #[command(hide = true)]
-    Extract { paper_id: String },
-    /// PDF を日本語に訳す（古い別名。隠している）
-    #[command(name = "translate-pdf", hide = true)]
-    TranslatePdf { paper_id: i64 },
-    /// 図表（Figure / Table）を抽出する（古い別名。隠している）
-    #[command(hide = true)]
-    Figures {
-        /// 対象論文 ID（複数指定可）
-        paper_ids: Vec<i64>,
-        /// ライブラリ内の全論文を対象にする
-        #[arg(long)]
-        all: bool,
-        /// 既に抽出済みでも再実行する
-        #[arg(long)]
-        force: bool,
-    },
-    /// キャッシュした引用グラフを表示する（古い別名。隠している）
-    #[command(name = "graph-show", hide = true)]
-    GraphShow { paper_id: String },
     /// 既存データを新しい置き場の規則へ移す（古い別名。隠している）
     #[command(name = "relayout", hide = true)]
     Relayout {
@@ -402,12 +280,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: EvalCmd,
     },
-    /// MCP サーバー（標準入出力）（古い別名。隠している）
-    #[command(hide = true)]
-    Mcp,
 }
 
-/// `sai-moon-paper library` のサブコマンド。
+/// `sai-paper library` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum LibraryCmd {
     /// Library の論文一覧（DB 登録日の新しい順、JSON）
@@ -424,7 +299,7 @@ enum LibraryCmd {
     },
 }
 
-/// `sai-moon-paper paper` のサブコマンド。
+/// `sai-paper paper` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum PaperCmd {
     /// 論文 1 件の詳細（JSON）
@@ -557,7 +432,7 @@ enum PaperCmd {
     Extract { paper_id: String },
 }
 
-/// `sai-moon-paper graph` のサブコマンド。
+/// `sai-paper graph` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum GraphCmd {
     /// 引用グラフのキャッシュを作る
@@ -610,7 +485,7 @@ struct GraphLegacyArgs {
     library_only: bool,
 }
 
-/// `sai-moon-paper eval` のサブコマンド。
+/// `sai-paper eval` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum EvalCmd {
     /// 質問集の問いごとに検索し、正解が上位に入った割合と MRR を索引ごとに出す
@@ -636,7 +511,7 @@ enum EvalCmd {
     },
 }
 
-/// `sai-moon-paper config` のサブコマンド。
+/// `sai-paper config` のサブコマンド。
 #[derive(Subcommand, Debug)]
 enum ConfigCmd {
     /// 今の設定を JSON で表示する（足りない環境変数は警告する）
@@ -663,7 +538,7 @@ pub(crate) fn open_database() -> Result<Database> {
 ///
 /// 検索そのものは [`sai_paper_core::api::run_search`]（core）にある。
 /// DB ごとの検索エラーは標準エラーに出して続ける（1 つでも成功すればその結果を返す）。
-/// `sai-moon-paper search` と `sai-moon-paper phone search` の共通処理。
+/// `sai-paper search` の共通処理。
 pub(crate) async fn run_search(
     cfg: &Config,
     query: &str,
@@ -682,7 +557,7 @@ pub(crate) async fn run_search(
     Ok((dbs_to_use, deduped, failed))
 }
 
-/// `sai-moon-paper enrich --retraction` の本体。
+/// `sai-paper enrich --retraction` の本体。
 ///
 /// DOI のある論文のうち、まだ撤回を確かめていないもの（`--force` なら全部）を
 /// 1 秒に 1 件 OpenAlex に問い合わせ、`papers.is_retracted` と
@@ -746,7 +621,7 @@ async fn enrich_retraction(force: bool) -> Result<()> {
     Ok(())
 }
 
-/// `sai-moon-paper eval rag` の本体。
+/// `sai-paper eval rag` の本体。
 ///
 /// 質問集（既定: `<root>/.sai/paper/eval/rag-questions.json`）の問いごとに検索し、
 /// 索引ごとの成績（@1・@5・@10・MRR）を出す。
@@ -870,40 +745,14 @@ fn paper_paths(paper_dir: &std::path::Path) -> Paths {
     }
 }
 
-/// `--sci` と `--type` の組み合わせを確かめる（どちらか片方だけならエラー）。
-///
-/// # Errors
-/// `--sci` に `--type` が無いとき、`--type` に `--sci` が無いとき。
-fn check_sci_args(sci: bool, sci_type: Option<&str>) -> Result<()> {
-    match (sci, sci_type) {
-        (true, None) => {
-            bail!("--sci には --type が要ります（problem / phenomenon / method / data / improve）")
-        }
-        (false, Some(_)) => bail!("--type は --sci と一緒に使います"),
-        _ => Ok(()),
-    }
-}
-
 /// 研究プロジェクトを初期化する（`.sai/paper/` と `papr.db`）。
 ///
 /// root は `SAI_PROJECT_ROOT`（空でない値）→ cwd。`.sai/paper/` と `papr.db` を作り、
 /// `sai-link init` は呼ばない。sai-link が初期化済み（`.sai/settings.json` がある）
-/// のときだけ、template・設定・MCP を配る。初期化済みでも失敗にしない。
+/// のときだけ、template を配る。初期化済みでも失敗にしない。
 ///
 /// `update` が `true` のときは、古い template を退避して新しい版に置き換える。
-///
-/// `--sci --type K` は `sai-sci init --type K` の別名（ガイド 4 で消す）。
-fn handle_init(update: bool, sci_flag: bool, sci_type: Option<&str>) -> Result<()> {
-    check_sci_args(sci_flag, sci_type)?;
-    // 研究方針の木は sai-sci が作る（sai-paper は研究を知らない）。
-    if let Some(type_id) = sci_type {
-        let args = vec![
-            "init".to_string(),
-            "--type".to_string(),
-            type_id.to_string(),
-        ];
-        sci_bridge::exec(&args, 1);
-    }
+fn handle_init(update: bool) -> Result<()> {
     // root は `SAI_PROJECT_ROOT`（空でない値）→ cwd。上へたどらない。
     let root = match std::env::var("SAI_PROJECT_ROOT") {
         Ok(value) if !value.is_empty() => PathBuf::from(value),
@@ -923,7 +772,7 @@ fn handle_init(update: bool, sci_flag: bool, sci_type: Option<&str>) -> Result<(
     Database::open(&paths.database_file).context("papr.db の作成に失敗")?;
     sai_paper_core::Config::load_or_create(&paths).context("settings.json の作成に失敗")?;
 
-    // sai-link の部品（template・設定・MCP）は、初期化済みのときだけ配る。
+    // sai-link の部品（template）は、初期化済みのときだけ配る。
     if link_initialized {
         for line in agent_assets::install_here(&root, update)
             .context("エージェントの部品を配れませんでした")?
@@ -938,13 +787,13 @@ fn handle_init(update: bool, sci_flag: bool, sci_type: Option<&str>) -> Result<(
     );
     if !link_initialized {
         println!(
-            "   sai-link と使うときは、`sai-link init` のあとで `sai-moon-paper init` をもう一度実行してください"
+            "   sai-link と使うときは、`sai-link init` のあとで `sai-paper init` をもう一度実行してください"
         );
     }
     Ok(())
 }
 
-/// `sai-moon-paper search --save-as <名前>` の保存（U06）。
+/// `sai-paper search --save-as <名前>` の保存（U06）。
 ///
 /// セットが無ければ作り、あれば同じセットへ足す（`expand --save-as` と同じ動き）。
 /// 同じ名前で何度 `--save-as` してもセットは 1 つのままで、重複（`dedupe_key`）は
@@ -1067,34 +916,8 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             year_to,
             raw_query,
             save_as,
-            node,
-            purpose,
-            extract,
-            widen,
             json,
         }) => {
-            // `--node`・`--purpose`・`--extract`・`--widen` は sai-sci の別名（ガイド 4 で消す）。
-            if node.is_some() || purpose.is_some() || extract.is_some() || widen.is_some() {
-                let mut args = vec!["search".to_string(), query.clone()];
-                push_flag(&mut args, "--node", node.as_deref());
-                push_flag(&mut args, "--purpose", purpose.as_deref());
-                push_flag(&mut args, "--extract", extract.as_deref());
-                push_flag(&mut args, "--widen", widen.as_deref());
-                for database in &db {
-                    args.push("--db".to_string());
-                    args.push(database.clone());
-                }
-                args.push("--limit".to_string());
-                args.push(limit.to_string());
-                push_flag(&mut args, "--year-from", year_from.map(|y| y.to_string()).as_deref());
-                push_flag(&mut args, "--year-to", year_to.map(|y| y.to_string()).as_deref());
-                push_flag(&mut args, "--raw-query", raw_query.as_deref());
-                push_flag(&mut args, "--save-as", save_as.as_deref());
-                if json {
-                    args.push("--json".to_string());
-                }
-                sci_bridge::exec(&args, 1);
-            }
             handle_search(SearchArgs {
                 query,
                 db,
@@ -1111,33 +934,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             let (db, cfg, paths) = phone::open_context()?;
             let value = phone::log(&db, &cfg, &paths, log_id)?;
             println!("{}", serde_json::to_string(&value)?);
-        }
-        Some(Cmd::GetPdf { ids }) => {
-            // 論文フォルダ（番号＋短いタイトル）に置くため、`papers.id` の解決に DB を使う。
-            // DB が開けない環境では従来どおり `papers/` 直下に保存される。
-            let db = open_database().ok();
-            for id in ids {
-                let key = citation::normalize_paper_id(&id);
-                match litbase::ensure_pdf(&client, &key, db.as_ref()).await {
-                    Ok(path) => println!("{key} -> {}", path.display()),
-                    Err(e) => eprintln!("{key}: {e:#}"),
-                }
-            }
-        }
-        Some(Cmd::Extract { paper_id }) => {
-            let db = open_database()?;
-            let key = citation::normalize_paper_id(&paper_id);
-            let pdf = litbase::ensure_pdf(&client, &key, Some(&db)).await?;
-            let data_dir = Paths::discover()?.data_dir();
-            println!("extracting {key} from {} ...", pdf.display());
-            let out =
-                citation::ensure_extract(db.connection(), &client, &key, &pdf, &data_dir).await?;
-            println!(
-                "{key}: {} refs, {} sentences (style: {})",
-                out.refs.len(),
-                out.sentences.len(),
-                out.style
-            );
         }
         Some(Cmd::Graph { cmd, args }) => match cmd {
             Some(GraphCmd::Show { paper_id }) => {
@@ -1168,11 +964,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 .await?;
             }
         },
-        Some(Cmd::GraphShow { paper_id }) => {
-            let db = open_database()?;
-            let root = citation::normalize_paper_id(&paper_id);
-            show_graph(&db, &root)?;
-        }
         Some(Cmd::Expand {
             papers,
             direction,
@@ -1187,18 +978,8 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             let db = open_database()?;
             show_status(&db)?;
         }
-        Some(Cmd::Init {
-            name: _,
-            assets_only: _,
-            domain: _,
-            update,
-            sci,
-            sci_type,
-        }) => {
-            handle_init(update, sci, sci_type.as_deref())?;
-        }
-        Some(Cmd::Brief { args }) => {
-            sci_bridge::exec(&alias_args("brief", &args), 1);
+        Some(Cmd::Init { update }) => {
+            handle_init(update)?;
         }
         Some(Cmd::Set { cmd }) => {
             search_sets::handle_search_set(cmd).await?;
@@ -1219,53 +1000,10 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             fusion,
             fts_expr,
             evidence,
-            node,
-            subtree,
             each,
             widen,
             json,
         }) => {
-            // `--node`・`--subtree` は sai-sci の別名（ガイド 4 で消す）。
-            if node.is_some() || subtree {
-                let mut args = vec!["find".to_string(), query.clone()];
-                push_flag(&mut args, "--mode", mode.as_deref());
-                push_i64_flag(&mut args, "--top-k", top_k);
-                push_i64_flag(&mut args, "--per-paper", per_paper);
-                push_flag(&mut args, "--scope", scope.as_deref());
-                for one in &paper {
-                    args.push("--paper".to_string());
-                    args.push(one.to_string());
-                }
-                if !papers.is_empty() {
-                    args.push("--papers".to_string());
-                    args.push(
-                        papers
-                            .iter()
-                            .map(i64::to_string)
-                            .collect::<Vec<_>>()
-                            .join(","),
-                    );
-                }
-                push_flag(&mut args, "--index", index.as_deref());
-                push_f64_flag(&mut args, "--alpha", alpha);
-                push_flag(&mut args, "--fusion", fusion.as_deref());
-                if fts_expr {
-                    args.push("--fts-expr".to_string());
-                }
-                if evidence {
-                    args.push("--evidence".to_string());
-                }
-                push_flag(&mut args, "--node", node.as_deref());
-                if subtree {
-                    args.push("--subtree".to_string());
-                }
-                push_i64_flag(&mut args, "--each", each);
-                push_flag(&mut args, "--widen", widen.as_deref());
-                if json {
-                    args.push("--json".to_string());
-                }
-                sci_bridge::exec(&args, 1);
-            }
             handle_find(FindCliArgs {
                 query,
                 mode,
@@ -1351,19 +1089,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         Some(Cmd::Relayout { apply, json }) => {
             relayout::handle_relayout(apply, json).await?;
         }
-        Some(Cmd::TranslatePdf { paper_id }) => {
-            let paths = Paths::discover()?;
-            let config = sai_paper_core::Config::load_or_create(&paths)?;
-            let path = sai_paper_core::pipeline::translate_pdf(
-                &paths.database_file,
-                paper_id,
-                &config.translate.pdf,
-            )
-            .await
-            .map_err(|message| anyhow::anyhow!(message))?;
-            println!("翻訳 PDF: {}", path.display());
-        }
-        Some(Cmd::Mcp) => mcp::serve().await?,
         Some(Cmd::Config { cmd }) => {
             let paths = Paths::discover()?;
             match cmd {
@@ -1377,19 +1102,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 }
             }
         }
-        Some(Cmd::Figures {
-            paper_ids,
-            all,
-            force,
-        }) => {
-            figures::handle_figures(paper_ids, all, force).await?;
-        }
-        Some(Cmd::Report { args }) => {
-            // `report prepare` だけは、sai-sci が見つからないとき 2 で終わる
-            // （sai-link の `write_check` が 1 を「断った」と読むため）。
-            let missing_code = if args.first().map(String::as_str) == Some("prepare") { 2 } else { 1 };
-            sci_bridge::exec(&alias_args("report", &args), missing_code);
-        }
         Some(Cmd::Enrich { retraction, force }) => {
             if !retraction {
                 bail!("使い方: sai-paper enrich --retraction [--force]");
@@ -1399,42 +1111,8 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         Some(Cmd::Content { cmd }) => {
             content::handle_content(cmd).await?;
         }
-        Some(Cmd::Dsr { args }) => {
-            sci_bridge::exec(&alias_args("dsr", &args), 1);
-        }
         Some(Cmd::Activity { cmd }) => {
             activity::handle(cmd)?;
-        }
-        Some(Cmd::Understanding { args }) => {
-            sci_bridge::exec(&alias_args("understanding", &args), 1);
-        }
-        Some(Cmd::Progress { args }) => {
-            sci_bridge::exec(&alias_args("progress", &args), 1);
-        }
-        Some(Cmd::Journal { args }) => {
-            sci_bridge::exec(&alias_args("journal", &args), 1);
-        }
-        Some(Cmd::Attention { args }) => {
-            // 下位の命令（`resolve`）が無いときは一覧（`attention list`）にする。
-            let mut full = vec!["attention".to_string()];
-            match args.first() {
-                Some(first) if !first.starts_with('-') => full.extend(args.iter().cloned()),
-                _ => {
-                    full.push("list".to_string());
-                    full.extend(args.iter().cloned());
-                }
-            }
-            sci_bridge::exec(&full, 1);
-        }
-        Some(Cmd::Sci { args }) => {
-            // `sci init --json` だけは `tree` を取り出して出す。ほかはそのまま渡す。
-            if args.first().map(String::as_str) == Some("init") && args.iter().any(|a| a == "--json") {
-                sci_bridge::run_init_tree(&args);
-            }
-            sci_bridge::exec(&args, 1);
-        }
-        Some(Cmd::Phone { cmd }) => {
-            phone::handle(cmd, &client).await?;
         }
         Some(Cmd::Eval { cmd }) => match cmd {
             EvalCmd::Rag {
@@ -1450,45 +1128,21 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         },
         None => {
             println!(
-                "sai-paper — sai-paper-core CLI\nusage:\n  sai-paper search \"<query>\" --limit 10\n  sai-paper get-pdf <paperId>\n  sai-paper extract <paperId>\n  sai-paper graph <paperId> --depth 2 --direction both\n  sai-paper graph-show <paperId>\n  sai-paper status"
+                "sai-paper — sai-paper-core CLI\nusage:\n  sai-paper search \"<query>\" --limit 10\n  sai-paper paper download --import-id <id>\n  sai-paper graph build <paperId> --depth 2 --direction both\n  sai-paper status"
             );
         }
     }
     Ok(())
 }
 
-/// 古い別名の引数を、先頭の命令名付きで `sai-sci` に渡す形にする。
-fn alias_args(name: &str, args: &[String]) -> Vec<String> {
-    let mut out = vec![name.to_string()];
-    out.extend(args.iter().cloned());
-    out
+/// `SAI_PARENT_RUN_ID` の実行 ID（空・数でないときは `None`）。
+fn parent_run_id() -> Option<i64> {
+    std::env::var("SAI_PARENT_RUN_ID")
+        .ok()
+        .and_then(|text| text.trim().parse::<i64>().ok())
 }
 
-/// 値のある任意の引数を足す。
-fn push_flag(out: &mut Vec<String>, name: &str, value: Option<&str>) {
-    if let Some(value) = value {
-        out.push(name.to_string());
-        out.push(value.to_string());
-    }
-}
-
-/// 整数の任意の引数を足す。
-fn push_i64_flag(out: &mut Vec<String>, name: &str, value: Option<i64>) {
-    if let Some(value) = value {
-        out.push(name.to_string());
-        out.push(value.to_string());
-    }
-}
-
-/// 小数の任意の引数を足す。
-fn push_f64_flag(out: &mut Vec<String>, name: &str, value: Option<f64>) {
-    if let Some(value) = value {
-        out.push(name.to_string());
-        out.push(value.to_string());
-    }
-}
-
-/// `search` の引数（clap の [`Cmd::Search`] の 1 対 1。研究の引数は別名が先に取る）。
+/// `search` の引数（clap の [`Cmd::Search`] の 1 対 1）。
 struct SearchArgs {
     query: String,
     db: Vec<String>,
@@ -1550,7 +1204,7 @@ async fn handle_search(args: SearchArgs) -> Result<()> {
     };
     // 履歴とセットの両方に、実行した run を書く（エージェントの検索を人と見分ける）。
     for id in std::iter::once(log_id).chain(set_id) {
-        sai_paper_core::search_log::set_run_id(conn, id, sci_bridge::parent_run_id())?;
+        sai_paper_core::search_log::set_run_id(conn, id, parent_run_id())?;
     }
     // Dashboard の出来事に「discover」として残すのは、窓口から呼ばれたときだけ。
     if origin == "phone" {
@@ -1715,7 +1369,7 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
             each,
             widen_reason: widen.as_deref().unwrap_or(""),
             origin: origin_name(),
-            run_id: sci_bridge::parent_run_id(),
+            run_id: parent_run_id(),
         },
         &plain_hits,
         &passages,
@@ -2217,49 +1871,53 @@ mod tests {
         }
     }
 
-    /// U15 AC4: `--sci` だけ・`--type` だけは、終了コード 1 になる分かる文。
-    /// 両方あれば通る。
+    /// U19 AC2: 消した隠した命令・隠した引数は clap の誤りになる（終了コード 2）。
     #[test]
-    fn init_sci_requires_type() {
-        let err = check_sci_args(true, None).expect_err("--sci だけならエラー");
-        let message = format!("{err}");
-        assert!(message.contains("--sci には --type が要ります"), "文が分からない: {message}");
-        for type_id in ["problem", "phenomenon", "method", "data", "improve"] {
-            assert!(message.contains(type_id), "型の候補が文に出ていない: {message}");
+    fn removed_commands_and_args_are_rejected() {
+        use clap::Parser as _;
+        for args in [
+            vec!["sai-paper", "phone", "dashboard"],
+            vec!["sai-paper", "sci", "status"],
+            vec!["sai-paper", "mcp"],
+            vec!["sai-paper", "brief"],
+            vec!["sai-paper", "journal"],
+            vec!["sai-paper", "understanding", "ls"],
+            vec!["sai-paper", "attention"],
+            vec!["sai-paper", "dsr", "check"],
+            vec!["sai-paper", "report", "list"],
+            vec!["sai-paper", "get-pdf", "1"],
+            vec!["sai-paper", "extract", "1"],
+            vec!["sai-paper", "translate-pdf", "1"],
+            vec!["sai-paper", "figures", "1"],
+            vec!["sai-paper", "graph-show", "1"],
+            vec!["sai-paper", "init", "--sci", "--type", "problem"],
+            vec!["sai-paper", "init", "--name", "x", "--assets-only"],
+            vec!["sai-paper", "search", "EEG", "--node", "O5"],
+            vec!["sai-paper", "find", "EEG", "--node", "O5"],
+            vec!["sai-paper", "find", "EEG", "--subtree"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_err(), "通ってしまう: {args:?}");
         }
-
-        let err = check_sci_args(false, Some("problem")).expect_err("--type だけならエラー");
-        assert!(format!("{err}").contains("--type は --sci と一緒に使います"), "文が分からない: {err}");
-
-        assert!(check_sci_args(true, Some("data")).is_ok());
-        assert!(check_sci_args(false, None).is_ok());
     }
 
-    /// U15 AC4: `--sci` と `--type` は引数として受け付け、知らない型は受け付けない。
-    /// （`--sci` と `--type` の組み合わせは [`check_sci_args`] で確かめる）
+    /// U19: 残す隠した命令（`relayout`・`eval rag`）は今までどおり解釈できる。
     #[test]
-    fn init_parse_accepts_sci_and_type() {
+    fn kept_hidden_commands_still_parse() {
         use clap::Parser as _;
-        let cli = Cli::try_parse_from([
-            "sai-moon-paper",
-            "init",
-            "--assets-only",
-            "--sci",
-            "--type",
-            "problem",
-        ])
-        .expect("init --assets-only --sci --type problem は通る");
-        match cli.cmd {
-            Some(Cmd::Init { sci, sci_type, .. }) => {
-                assert!(sci);
-                assert_eq!(sci_type.as_deref(), Some("problem"));
-            }
-            other => panic!("init ではない: {other:?}"),
+        for args in [
+            vec!["sai-paper", "relayout", "--json"],
+            vec!["sai-paper", "eval", "rag"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "解釈できない: {args:?}");
         }
-        assert!(
-            Cli::try_parse_from(["sai-moon-paper", "init", "--sci", "--type", "nope"]).is_err(),
-            "知らない型の研究が通っている"
-        );
+    }
+
+    /// U19: `init` は `--update` だけを受ける。
+    #[test]
+    fn init_accepts_only_update() {
+        use clap::Parser as _;
+        let cli = Cli::try_parse_from(["sai-paper", "init", "--update"]).expect("init --update は通る");
+        assert!(matches!(cli.cmd, Some(Cmd::Init { update: true })));
     }
 
     /// U06 AC3: 同じ名前で 2 回 `--save-as` しても、セットは 1 つで候補は重複なく足される。

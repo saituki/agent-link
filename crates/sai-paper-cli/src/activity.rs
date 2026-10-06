@@ -1,10 +1,10 @@
-//! `sai-moon-paper activity` — 「開いた」「エージェントが読んだ」の記録（N01）。
+//! `sai-paper activity` — 「開いた」「エージェントが読んだ」の記録（N01）。
 //!
 //! - `activity open`: ユーザーが開いた記録を `activity_log` に足す。失敗は
 //!   標準エラーに 1 行出して終了コード 1 にする（約束どおり 0 で隠さない）。
 //! - `activity list`: 記録を新しい順に出す。
 //!
-//! エージェントが読んだ記録は `sai-moon-paper content` と MCP の `paper` から
+//! エージェントが読んだ記録は `sai-paper content` と `sai-paper paper` から
 //! [`record_agent_read`] で残す。
 
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ use serde_json::json;
 
 use crate::open_database;
 
-/// `sai-moon-paper activity` のサブコマンド。
+/// `sai-paper activity` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum ActivityCmd {
     /// ユーザーが開いた記録を残す
@@ -50,7 +50,7 @@ pub enum ActivityCmd {
     },
 }
 
-/// `sai-moon-paper activity` を実行する。
+/// `sai-paper activity` を実行する。
 pub fn handle(cmd: ActivityCmd) -> Result<()> {
     match cmd {
         ActivityCmd::Open {
@@ -146,7 +146,7 @@ fn handle_list(kind: Option<&str>, limit: usize, json: bool) -> Result<()> {
 
 /// エージェントが読んだ記録を残す（[`record_agent_read`] の失敗は無視する）。
 ///
-/// `sai-moon-paper content` と MCP の `paper` から呼ぶ。記録に失敗しても
+/// `sai-paper content` と `sai-paper paper show` から呼ぶ。記録に失敗しても
 /// 本文の出力は止めない（標準エラーに 1 行だけ出す）。
 pub(crate) fn record_agent_read(
     via: &str,

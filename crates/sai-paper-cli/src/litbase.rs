@@ -1,4 +1,4 @@
-//! PDF の確保（`get-pdf`・`extract`・`phone download` が使う）。
+//! PDF の確保（`sai-paper paper get-pdf`・`paper extract`・`paper download` が使う）。
 //!
 //! 取得できた最初の有効な PDF（`%PDF` マジックナンバー検証）を保存して返す。
 //! paywall 回避・出版社サイトのスクレイピングは行わない。

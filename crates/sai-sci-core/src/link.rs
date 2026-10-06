@@ -2,8 +2,8 @@
 //!
 //! sci-core は sai-link の DB と実行フォルダの並び
 //! （`.sai/outputs/`）を直に開かない。run の一覧は
-//! `sai-moon-link run list --json --limit 0`、カードの作成は
-//! `sai-moon-link card create`（標準入力に JSON）で行う。
+//! `sai-link run list --json --limit 0`、カードの作成は
+//! `sai-link card create`（標準入力に JSON）で行う。
 //!
 //! 子の実行ファイルの見つけ方と呼び方は [`crate::bins`] に任せる。
 
@@ -62,7 +62,7 @@ pub fn forget(root: &Path) {
     }
 }
 
-/// `sai-moon-link run list --json --limit 0` で run の一覧を読む。
+/// `sai-link run list --json --limit 0` で run の一覧を読む。
 ///
 /// 同じ root について 1 回だけ子を呼び、結果を覚えておく
 /// （[`forget`] を呼ぶまで）。形が違えば [`BinError`]。
@@ -144,7 +144,7 @@ fn string_field(item: &Value, key: &str) -> String {
     }
 }
 
-/// `sai-moon-link card create`（標準入力の JSON）に渡す項目。
+/// `sai-link card create`（標準入力の JSON）に渡す項目。
 #[derive(Debug, Clone)]
 pub struct CardCreate {
     /// 実行エージェント（`pi` / `cc`）。
@@ -167,7 +167,7 @@ pub struct CardCreate {
     pub meta: BTreeMap<String, String>,
 }
 
-/// `sai-moon-link card create` でカードを作る。
+/// `sai-link card create` でカードを作る。
 ///
 /// 標準入力に [`CardCreate`] の JSON を渡す（`thinking`・`model`・`provider`・
 /// `doc_tokens` は渡さない）。返り値は `(run_id, task.md のパス)`。

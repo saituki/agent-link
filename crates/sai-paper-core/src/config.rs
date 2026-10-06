@@ -13,10 +13,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ConfigError {
     /// 研究プロジェクト（`.sai/`）が見つからなかった（CLI 共通の約束で終了コード 2）。
-    #[error("プロジェクトが見つかりません（`sai-link init` か `sai-moon-paper init` を実行してください）")]
+    #[error("プロジェクトが見つかりません（`sai-link init` か `sai-paper init` を実行してください）")]
     ProjectNotFound,
     /// プロジェクトはあるが、論文の置き場（`.sai/paper/`）が無かった（終了コード 2）。
-    #[error("論文の置き場がありません（`sai-moon-paper init` を実行してください）")]
+    #[error("論文の置き場がありません（`sai-paper init` を実行してください）")]
     PaperDirMissing,
     /// Configuration I/O failed.
     #[error("configuration I/O failed: {0}")]
@@ -352,7 +352,7 @@ impl Default for PipelineConfig {
 /// 要約付きの検索（`find --evidence`）の設定。
 ///
 /// LLM を余分に呼ぶので、指定したときだけ使う。`model` が空のときは
-/// `--evidence` / MCP の `evidence: true` / TUI の切り替えをエラーにする。
+/// `--evidence` / TUI の切り替えをエラーにする。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct EvidenceConfig {
@@ -418,7 +418,7 @@ pub struct RagConfig {
     /// 実測に基づいた見積もり: ASCII は約 4.4 文字 / トークン、非 ASCII は約 1.28 文字 / トークン。
     /// OpenRouter の embedding モデルの 512 トークン制限に対する保守的なマージンとして 450 を既定とする。
     pub chunk_max_tokens: usize,
-    /// 普段使う索引の名前（`find` / TUI の `f` / MCP で `--index` を省いたとき）。
+    /// 普段使う索引の名前（`find` / TUI の `f` で `--index` を省いたとき）。
     pub default_index: String,
     /// 名前付きの索引（分け方・大きさ・埋め込みモデルの組）。書かなかった項目は上の値を使う。
     /// `default` という名前は、ここに書かなくても上の値そのままの索引として使える。

@@ -609,7 +609,7 @@ pub fn neighbors(
     load_hits(db, &ranked)
 }
 
-/// CLI の `find` / TUI の `f` / MCP の `find` が受け取る条件。
+/// CLI の `find` / TUI の `f` が受け取る条件。
 #[derive(Debug, Clone, Default)]
 pub struct FindRequest {
     /// 検索語。
@@ -638,7 +638,7 @@ pub struct FindRequest {
     pub fts_expr: bool,
 }
 
-/// 設定を読んだうえで検索する（CLI・TUI・MCP の共通の入口。段階 7）。
+/// 設定を読んだうえで検索する（CLI と TUI の共通の入口。段階 7）。
 ///
 /// `req.each` が `Some(m)` なら、範囲の論文ごとに上位 m 件を論文の番号の昇順に並べる。
 /// 範囲の指定が無い（`paper_id` も `paper_ids` も無い）のときは `each` を使えない。
@@ -863,7 +863,7 @@ pub fn limit_per_paper(mut hits: Vec<Hit>, per_paper: usize, top_k: usize) -> Ve
     out
 }
 
-/// 設定を読んだうえで近傍の断片を探す（CLI・MCP の共通の入口）。
+/// 設定を読んだうえで近傍の断片を探す（CLI の入口）。
 ///
 /// # Errors
 ///
@@ -878,7 +878,7 @@ pub fn find_neighbors(
     let index = config.rag.index(index).map_err(RetrievalError::Other)?;
     let model_id = model_id_of(db, &index.embed_model).map_err(|_| {
         RetrievalError::Other(format!(
-            "索引 '{}' の埋め込み（{}）がありません。先に `sai-moon-paper index embed --index {}` を実行してください",
+            "索引 '{}' の埋め込み（{}）がありません。先に `sai-paper index embed --index {}` を実行してください",
             index.name, index.embed_model, index.name
         ))
     })?;
@@ -942,7 +942,7 @@ fn first_number(s: &str) -> Option<String> {
     if number.is_empty() { None } else { Some(number) }
 }
 
-/// 検索結果を JSON にし、各要素に `cite` を足す（CLI の --json と MCP で共用）。
+/// 検索結果を JSON にし、各要素に `cite` を足す（CLI の --json 用）。
 pub fn hits_to_json(hits: &[Hit]) -> serde_json::Value {
     hits_to_json_with(hits, &std::collections::HashMap::new())
 }

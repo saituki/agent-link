@@ -170,7 +170,7 @@ pub enum RegisterError {
 
 /// Download し終えた PDF（`.pdf.part`）を `.pdf` にし、Library に登録する。
 ///
-/// TUI の Download 完了時と `sai-moon-paper phone download` が共通で使う処理。
+/// TUI の Download 完了時と `sai-paper paper download` が共通で使う処理。
 /// 検索セットへの紐付け・プラグイン通知・要旨の訳・図抽出のパイプラインなど
 /// 画面固有の処理は呼び出し側（TUI / CLI）が行う。
 ///

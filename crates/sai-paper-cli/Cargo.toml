@@ -7,7 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "sai-moon-paper"
+name = "sai-paper"
 path = "src/main.rs"
 
 [dependencies]

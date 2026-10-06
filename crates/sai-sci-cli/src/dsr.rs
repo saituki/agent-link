@@ -1,4 +1,4 @@
-//! `sai-moon-paper dsr` — DSR（研究用ブロック）の report を LLM を使わずに確かめるコマンド。
+//! `sai-sci dsr` — DSR（研究用ブロック）の report を LLM を使わずに確かめるコマンド。
 //!
 //! `dsr check` は、report がブロックの `## 出力の形` 節の見出しを持っているかだけを見る。
 //! 見出しの一覧はブロックの本文から読む（別のファイルに写すと 2 か所になるため）。
@@ -9,7 +9,7 @@ use sai_sci_core::dsr_check::{self, CheckResult};
 use sai_paper_core::paths::paper_roots;
 use std::path::{Path, PathBuf};
 
-/// `sai-moon-paper dsr` のサブコマンド。
+/// `sai-sci dsr` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum DsrCmd {
     /// DSR の report が出力の形の見出しを持っているか確かめる（LLM は使わない）
@@ -25,7 +25,7 @@ pub enum DsrCmd {
     },
 }
 
-/// `sai-moon-paper dsr` を実行する。
+/// `sai-sci dsr` を実行する。
 ///
 /// 終了コードは共有契約に従う（0 = 揃っている、1 = 足りない見出しがある、
 /// 2 = ブロックが見つからない）。
@@ -39,7 +39,7 @@ pub fn handle(cmd: DsrCmd) -> Result<()> {
     }
 }
 
-/// `sai-moon-paper dsr check` の本体。足りない見出しがあれば終了コード 1 で終わる。
+/// `sai-sci dsr check` の本体。足りない見出しがあれば終了コード 1 で終わる。
 fn handle_check(report_path: &Path, block: &str, json: bool) -> Result<()> {
     let block_md = match read_block(block) {
         Ok(text) => text,

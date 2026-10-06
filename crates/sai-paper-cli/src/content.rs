@@ -1,6 +1,6 @@
-//! `sai-moon-paper content` — 論文本文 / 引用箇所 / report の内容を標準出力へ出す。
+//! `sai-paper content` — 論文本文 / 引用箇所 / 節の内容を標準出力へ出す。
 //!
-//! sai-link は task.md の入力展開（`paper_id` / `chunk_id` / `report_id`）で
+//! sai-link は task.md の入力展開（`paper_id` / `chunk_id`）で
 //! このコマンドを呼ぶ。**papr.db を直接読ませない**（core を唯一の真実とする）。
 //!
 //! `--json` では `{ "id": ..., "title": ..., "text": ... }` を返す。
@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::open_database;
 
-/// `sai-moon-paper content` のサブコマンド。
+/// `sai-paper content` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum ContentCmd {
     /// 論文本文（extract.md）の全文
@@ -28,14 +28,6 @@ pub enum ContentCmd {
     Chunk {
         /// chunk_id（chunks.id）
         chunk_id: i64,
-        /// JSON で出力する
-        #[arg(long)]
-        json: bool,
-    },
-    /// report の md 全文
-    Report {
-        /// report_id（例: R-0001）
-        report_id: String,
         /// JSON で出力する
         #[arg(long)]
         json: bool,
@@ -214,7 +206,7 @@ async fn build(paper_ids: Vec<i64>, all: bool, force: bool, summarize: bool) -> 
     Ok(())
 }
 
-/// `sai-moon-paper content` を実行する。
+/// `sai-paper content` を実行する。
 pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
     match cmd {
         ContentCmd::Outline { paper_id, json } => {
@@ -244,14 +236,6 @@ pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
         ContentCmd::Build { paper_ids, all, force, summarize } => build(paper_ids, all, force, summarize).await,
         ContentCmd::Paper { paper_id, json } => print_paper(paper_id, json),
         ContentCmd::Chunk { chunk_id, json } => print_chunk(chunk_id, json),
-        ContentCmd::Report { report_id, json } => {
-            // report は sai-sci が持つ（ガイド 4 で消す一時の別名）。
-            let mut args = vec!["report".to_string(), "content".to_string(), report_id];
-            if json {
-                args.push("--json".to_string());
-            }
-            crate::sci_bridge::exec(&args, 1);
-        }
     }
 }
 

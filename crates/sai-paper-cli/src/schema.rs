@@ -1,4 +1,4 @@
-//! `sai-moon-paper schema --json` — 命令の一覧を JSON で出す。
+//! `sai-paper schema --json` — 命令の一覧を JSON で出す。
 //!
 //! 形は CLI 共通の約束の「schema の形」と同じ。`sai-link` 側（U06）と同じ形にするが、
 //! 2 つのクレートは互いに依存しない約束なので、クレートをまたいで共有はしない。
@@ -160,15 +160,12 @@ fn value_type(arg: &Arg, path: &[String]) -> &'static str {
     "string"
 }
 
-/// 標準入力から読むもの（`none`・`json`・`text`・`bytes`）。
+/// 標準入力から読むもの（`none`・`text`・`bytes`）。
 fn stdin_kind(path: &[String]) -> &'static str {
     let words: Vec<&str> = path.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["paper", "note"] | ["import", "add"] | ["report", "prepare"] | ["sci", "type-save"] => {
-            "text"
-        }
+        ["paper", "note"] | ["import", "add"] => "text",
         ["paper", "import-pdf"] => "bytes",
-        ["sci", "propose"] | ["sci", "apply"] => "json",
         _ => "none",
     }
 }
@@ -178,14 +175,7 @@ fn web_allowed(path: &[String]) -> bool {
     let words: Vec<&str> = path.iter().map(String::as_str).collect();
     !matches!(
         words.as_slice(),
-        ["init"]
-            | ["schema"]
-            | ["report", "prepare"]
-            | ["sci", "context"]
-            | ["sci", "propose"]
-            | ["report", "add"]
-            | ["dsr", "check"]
-            | ["activity", "open"]
+        ["init"] | ["schema"] | ["activity", "open"]
     )
 }
 
@@ -197,7 +187,7 @@ mod tests {
     #[test]
     fn schema_has_expected_shape() {
         let value = schema_json();
-        assert_eq!(value["bin"], "sai-moon-paper");
+        assert_eq!(value["bin"], "sai-paper");
         let commands = value["commands"].as_array().expect("commands は配列");
         assert!(!commands.is_empty(), "命令が 1 つも無い");
 
