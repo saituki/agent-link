@@ -12,7 +12,7 @@
 
 実行:
     cd <作業用コピー>
-    PYTHONPATH=src /Users/touta/workdir/Sai/sai-phone/.venv/bin/python tests/test_home.py
+    PYTHONPATH=src .venv/bin/python tests/test_home.py
 """
 
 from __future__ import annotations

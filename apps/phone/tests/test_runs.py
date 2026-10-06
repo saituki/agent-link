@@ -1,7 +1,7 @@
 """runs.py の日付まとめ処理の小さなテスト（assert だけ）・02 §5．
 
 実行:
-    python3 tests/test_runs.py
+    PYTHONPATH=src .venv/bin/python tests/test_runs.py
     （または PYTHONPATH=src python3 -m pytest tests/test_runs.py）
 """
 
@@ -33,7 +33,7 @@ def make_run(
     run = {
         "schema_version": 1,
         "project_name": project_name,
-        "project_root": "/Users/touta/workdir/Sai/sai-phone",
+        "project_root": "/Users/alice/work/sai-phone",
         "run_id": run_id,
         "parent_run_id": parent_run_id,
         "block_name": "sai2",

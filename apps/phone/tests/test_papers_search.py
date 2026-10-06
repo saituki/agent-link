@@ -2,7 +2,7 @@
 
 実行:
     cd <作業用コピー>
-    PYTHONPATH=src /Users/touta/workdir/Sai/sai-phone/.venv/bin/python tests/test_papers_search.py
+    PYTHONPATH=src .venv/bin/python tests/test_papers_search.py
 """
 
 from __future__ import annotations
