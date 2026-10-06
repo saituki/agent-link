@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::store;
 use super::{Kind, Result, RtKeys, fmt_id, task_keys};
-use crate::paths::{PaperRoots, paper_file_names, paper_folder};
+use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
 use crate::runs::{list_run_dirs, read_frontmatter, run_block_id};
 
 /// ブロック定義の置き場の候補（`<root>/.sai/blocks/<id>.md` → `<sai_home>/blocks/<id>.md`）。id が `^[a-z0-9-]+$` でなければ空。
@@ -28,7 +28,7 @@ pub fn block_def_paths(roots: &PaperRoots, block: &str) -> Vec<PathBuf> {
         return Vec::new();
     }
     let mut candidates = vec![roots.root.join(".sai").join("blocks").join(format!("{block}.md"))];
-    if let Some(dir) = crate::paths::sai_home_path("blocks") {
+    if let Some(dir) = sai_paper_core::paths::sai_home_path("blocks") {
         candidates.push(dir.join(format!("{block}.md")));
     }
     candidates
@@ -103,7 +103,7 @@ pub fn block_action(roots: &PaperRoots, block: &str) -> BlockAction {
 #[must_use]
 pub fn block_warnings(roots: &PaperRoots) -> Vec<String> {
     let mut dirs = vec![roots.root.join(".sai").join("blocks")];
-    dirs.extend(crate::paths::sai_home_path("blocks"));
+    dirs.extend(sai_paper_core::paths::sai_home_path("blocks"));
     let mut out = Vec::new();
     for dir in dirs {
         let Ok(entries) = fs::read_dir(dir) else { continue };
@@ -427,7 +427,7 @@ pub fn activity(conn: &Connection, roots: &PaperRoots) -> Result<Vec<ActionItem>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
 
     struct Env {
         dir: PathBuf,

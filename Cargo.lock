@@ -1633,6 +1633,7 @@ dependencies = [
  "rusqlite",
  "sai-link-engine",
  "sai-paper-core",
+ "sai-sci-core",
  "serde",
  "serde_json",
  "tokio",
@@ -1665,6 +1666,24 @@ dependencies = [
  "toml",
  "url",
  "walkdir",
+]
+
+[[package]]
+name = "sai-sci-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "sai-paper-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

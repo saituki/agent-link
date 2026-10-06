@@ -172,7 +172,7 @@ pub fn is_research_block(root: &Path, block_id: &str) -> bool {
             .join("blocks")
             .join(format!("{block_id}.md")),
     ];
-    if let Some(dir) = crate::paths::sai_home_path("blocks") {
+    if let Some(dir) = sai_paper_core::paths::sai_home_path("blocks") {
         candidates.push(dir.join(format!("{block_id}.md")));
     }
 

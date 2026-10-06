@@ -5,8 +5,8 @@
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
-use sai_paper_core::citation_check::{self, CheckOptions, CheckSummary};
-use sai_paper_core::{NewReport, ReportSource, reports};
+use sai_sci_core::citation_check::{self, CheckOptions, CheckSummary};
+use sai_sci_core::{NewReport, ReportSource, reports};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -177,7 +177,7 @@ pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
             // 説明は md の frontmatter の description。無ければ title。
             let description = |md_path: &str| -> Option<String> {
                 let text = std::fs::read_to_string(md_path).ok()?;
-                sai_paper_core::runs::read_frontmatter(&text)
+                sai_sci_core::runs::read_frontmatter(&text)
                     .into_iter()
                     .find(|(key, value)| key == "description" && !value.is_empty())
                     .map(|(_, value)| value)
@@ -349,8 +349,9 @@ const EXP_PREFIXES: [&str; 5] = ["exp-spec", "exp-run", "review", "branch-order"
 
 /// `report prepare` の本体。終了コードを返す（0 通過・1 違反・2 使い方の誤り）。
 fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) -> i32 {
-    use sai_paper_core::reports::{CitationTarget, parse_citations};
-    use sai_paper_core::{dsr_check, runs, sections, textcheck};
+    use sai_sci_core::reports::{CitationTarget, parse_citations};
+    use sai_paper_core::{sections, textcheck};
+    use sai_sci_core::{dsr_check, runs};
     use std::io::Read;
 
     let (Some(run), Some(block), Some(filename)) = (run, block, filename) else {

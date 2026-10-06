@@ -13,8 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::config::BriefConfig;
-use crate::paths::{PaperRoots, mind_path, note_count, state_path};
+use sai_paper_core::config::BriefConfig;
+use sai_paper_core::paths::{PaperRoots, mind_path, note_count, state_path};
 use crate::reports::{IssueCounts, issue_counts, list_reports};
 use crate::runs::{RunDir, is_research_block, list_run_dirs, run_block_id, run_tag};
 use crate::understanding::{self, UnderstandingEntry};
@@ -1167,7 +1167,7 @@ mod tests {
         let text = build_brief(&roots, None, &config(8000), "default");
         assert!(!text.contains("理解の状態"), "{text}");
 
-        let db = crate::Database::in_memory()?;
+        let db = sai_paper_core::Database::in_memory()?;
         let conn = db.connection();
         crate::understanding::add(conn, "公開データセットの違い", "ok", "", None)?;
         crate::understanding::add(conn, "評価の分け方", "unknown", "", None)?;
@@ -1209,7 +1209,7 @@ mod tests {
     fn understanding_section_drops_ok_when_over_limit() -> Result<(), Box<dyn std::error::Error>> {
         let root = temp_root("understanding-limit");
         let roots = roots_of(&root);
-        let db = crate::Database::in_memory()?;
+        let db = sai_paper_core::Database::in_memory()?;
         let conn = db.connection();
         crate::understanding::add(conn, "あいまいな話", "vague", "", None)?;
         crate::understanding::add(conn, "確かめていない話", "unknown", "", None)?;
@@ -1317,9 +1317,9 @@ mod tests {
         write(root.join(".sai/outputs/review/41/answer.md"), HANDOFF);
 
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("../migrations/0028_reports.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0028_reports.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../migrations/0039_report_scan.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0039_report_scan.sql"))
             .unwrap();
         // run 41 の answer.md を report として登録し、要確認 2 件・注意 1 件を入れる。
         conn.execute(

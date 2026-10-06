@@ -159,7 +159,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnderstandingEntry>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Database;
+    use sai_paper_core::Database;
 
     /// トピックの最新 1 件と並び（vague → unknown → ok）を確かめる。
     #[test]

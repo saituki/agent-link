@@ -6,7 +6,7 @@
 //! [`Progress`] にまとめる。
 //!
 //! 「読むべき論文」（READ NEXT）は [`read_next`] が点数で並べる。点数は
-//! 設定 `progress.read_next`（[`crate::config::ReadNextWeights`]）で変えられる。
+//! 設定 `progress.read_next`（[`sai_paper_core::config::ReadNextWeights`]）で変えられる。
 //! **PDF が無い論文は外す**（まずダウンロードが要るため）。
 //!
 //! 速さのために、論文ごとに DB を引き直さない。集計クエリ（`GROUP BY`）を
@@ -21,10 +21,10 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::activity::to_activity_path;
+use sai_paper_core::activity::to_activity_path;
 use crate::brief;
-use crate::config::ReadNextWeights;
-use crate::paths::PaperRoots;
+use sai_paper_core::config::ReadNextWeights;
+use sai_paper_core::paths::PaperRoots;
 use crate::project_files;
 use crate::understanding::{self, UnderstandingEntry};
 
@@ -518,7 +518,7 @@ fn paper_numbers(text: &str) -> Vec<i64> {
 /// `papers/` の論文フォルダを 1 回だけ走査し、`papers.id` → note.md の文字数を作る。
 ///
 /// フォルダ名は `{id:04}` か `{id:04}_...`。同じ番号が複数あれば、名前の
-/// 辞書順で最初のものを [`crate::paths::paper_folder`] と同じ規則で選ぶ。
+/// 辞書順で最初のものを [`sai_paper_core::paths::paper_folder`] と同じ規則で選ぶ。
 fn note_chars_by_paper(data_dir: &Path) -> HashMap<i64, usize> {
     let mut folders: HashMap<i64, (String, PathBuf)> = HashMap::new();
     let papers_root = data_dir.join("papers");
@@ -543,7 +543,7 @@ fn note_chars_by_paper(data_dir: &Path) -> HashMap<i64, usize> {
 
     let mut note_chars: HashMap<i64, usize> = HashMap::new();
     for (id, (_, folder)) in folders {
-        if let Ok(text) = fs::read_to_string(folder.join(crate::paths::paper_file_names::NOTE)) {
+        if let Ok(text) = fs::read_to_string(folder.join(sai_paper_core::paths::paper_file_names::NOTE)) {
             note_chars.insert(id, text.trim().chars().count());
         }
     }
@@ -552,7 +552,7 @@ fn note_chars_by_paper(data_dir: &Path) -> HashMap<i64, usize> {
 
 /// `0030` / `0030_Title` のフォルダ名から `papers.id` を読む。
 ///
-/// `00301_Title` のような余分な桁は拾わない（[`crate::paths::paper_folder`] と同じ規則）。
+/// `00301_Title` のような余分な桁は拾わない（[`sai_paper_core::paths::paper_folder`] と同じ規則）。
 fn paper_id_from_folder(name: &str) -> Option<i64> {
     let prefix: String = name.chars().take(4).collect();
     if prefix.len() != 4 || !prefix.chars().all(|ch| ch.is_ascii_digit()) {
@@ -568,7 +568,7 @@ fn paper_id_from_folder(name: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Database;
+    use sai_paper_core::Database;
 
     /// テスト用の一時プロジェクトルート（`.sai/paper` と `.sai/outputs` 付き）。
     fn temp_root(tag: &str) -> PathBuf {

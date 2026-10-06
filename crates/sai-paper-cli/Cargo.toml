@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 sai-paper-core = { path = "../sai-paper-core" }
+# 一時: U15 で外す（sai-paper は sai-sci に依存しない約束）
+sai-sci-core.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

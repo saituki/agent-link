@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use sai_paper_core::attention::{self, AttentionItem, AttentionKind};
+use sai_sci_core::attention::{self, AttentionItem, AttentionKind};
 use sai_paper_core::paths::paper_roots;
 
 use crate::open_database;

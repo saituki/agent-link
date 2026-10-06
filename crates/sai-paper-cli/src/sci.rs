@@ -1,6 +1,6 @@
 //! `sai-moon-paper sci …` — 研究方針の木（Research-tree）を扱う命令。
 //!
-//! 木の計算と書き込みは `sai_paper_core::rt` が担う。ここは外から来る値の検査・
+//! 木の計算と書き込みは `sai_sci_core::rt` が担う。ここは外から来る値の検査・
 //! core の関数の呼び出し・出力の形だけを持つ。
 //!
 //! - `--json` の無い命令は人が読む文を標準出力へ、失敗は標準エラー 1 行
@@ -15,7 +15,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::Subcommand;
 use rusqlite::Connection;
 use sai_paper_core::paths::{self, PaperRoots};
-use sai_paper_core::rt::{self, card, compute, context, defs, export, ops, store};
+use sai_sci_core::rt::{self, card, compute, context, defs, export, ops, store};
 use sai_paper_core::search_sets;
 use sai_paper_core::{Config, Database, Paths};
 use serde_json::{Value, json};

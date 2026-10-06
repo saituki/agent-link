@@ -366,9 +366,9 @@ pub(crate) fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet
         )?;
     // 木から消えた Node は null にする（古い番号を出さない）
     let node = rt_node.and_then(|id| {
-        sai_paper_core::rt::store::get_node(conn, id)
+        sai_sci_core::rt::store::get_node(conn, id)
             .ok()
-            .map(|row| sai_paper_core::rt::fmt_id(row.kind, row.id))
+            .map(|row| sai_sci_core::rt::fmt_id(row.kind, row.id))
     });
     let items = search_sets::items(conn, set.id)?;
     let count = |name: &str| items.iter().filter(|i| i.decision == name).count();
@@ -893,18 +893,18 @@ fn search_actor(conn: &rusqlite::Connection, log_id: i64) -> (Value, Value) {
         // 実行フォルダの task.md（無ければ sai-link の DB）から block の名前を引く。
         let block = run_id.and_then(|run_id| {
             let root = paths::project_root()?;
-            let dir = sai_paper_core::runs::list_run_dirs(&root)
+            let dir = sai_sci_core::runs::list_run_dirs(&root)
                 .into_iter()
                 .find(|dir| dir.run_id == run_id)?;
-            sai_paper_core::runs::run_block_id(&root, &dir)
+            sai_sci_core::runs::run_block_id(&root, &dir)
         });
         json!({ "kind": "agent", "run_id": run_id, "block": block })
     } else {
         json!({ "kind": "human" })
     };
     let node = node_id
-        .and_then(|id| sai_paper_core::rt::store::get_node(conn, id).ok())
-        .map(|node| json!({ "id": sai_paper_core::rt::fmt_id(node.kind, node.id) }));
+        .and_then(|id| sai_sci_core::rt::store::get_node(conn, id).ok())
+        .map(|node| json!({ "id": sai_sci_core::rt::fmt_id(node.kind, node.id) }));
     (actor, node.unwrap_or(Value::Null))
 }
 
@@ -960,7 +960,7 @@ async fn find(args: FindArgs<'_>) -> Result<Value> {
     let (db, cfg, _paths) = open_context()?;
     let conn = db.connection();
     let refs = crate::sci::parse_search_refs(conn, node)?;
-    let (paper_ids, range_text) = sai_paper_core::retrieval::resolve_paper_scope(
+    let (paper_ids, range_text) = sai_sci_core::rt::scope::resolve_scope(
         conn,
         None,
         papers,
@@ -1042,10 +1042,10 @@ pub(crate) fn find_log_json(
         // 実行フォルダの task.md（無ければ sai-link の DB）から block の名前を引く。
         let block = run_id.and_then(|run_id| {
             let root = paths::project_root()?;
-            let dir = sai_paper_core::runs::list_run_dirs(&root)
+            let dir = sai_sci_core::runs::list_run_dirs(&root)
                 .into_iter()
                 .find(|dir| dir.run_id == run_id)?;
-            sai_paper_core::runs::run_block_id(&root, &dir)
+            sai_sci_core::runs::run_block_id(&root, &dir)
         });
         json!({ "kind": "agent", "run_id": run_id, "block": block })
     } else {
@@ -1053,8 +1053,8 @@ pub(crate) fn find_log_json(
     };
     let node = row
         .node_id
-        .and_then(|id| sai_paper_core::rt::store::get_node(conn, id).ok())
-        .map(|node| json!({ "id": sai_paper_core::rt::fmt_id(node.kind, node.id) }));
+        .and_then(|id| sai_sci_core::rt::store::get_node(conn, id).ok())
+        .map(|node| json!({ "id": sai_sci_core::rt::fmt_id(node.kind, node.id) }));
     let hits: Vec<Value> = rows
         .iter()
         .map(|(position, paper_id, item)| {
@@ -1291,7 +1291,7 @@ pub(crate) fn dashboard() -> Result<Value> {
         .collect();
     // sci の run（Action）の行。研究方針の木が無くても run があれば出す。
     if let Some(roots) = sai_paper_core::paper_roots() {
-        for item in sai_paper_core::rt::action::activity(db.connection(), &roots).unwrap_or_default() {
+        for item in sai_sci_core::rt::action::activity(db.connection(), &roots).unwrap_or_default() {
             if let Ok(at) = chrono::DateTime::parse_from_rfc3339(&item.occurred_at) {
                 timed.push((at.with_timezone(&chrono::Utc), json!(item)));
             }
@@ -1353,13 +1353,13 @@ fn project() -> Result<Value> {
 fn project_json(roots: &PaperRoots, db: &Database, cfg: &Config) -> Result<Value> {
     let state = read_text(&paths::state_path(&roots.data_dir));
     let mind = read_text(&paths::mind_path(&roots.data_dir));
-    let brief = sai_paper_core::brief::build_brief(
+    let brief = sai_sci_core::brief::build_brief(
         roots,
         Some(db.connection()),
         &cfg.brief,
         &cfg.rag.default_index,
     );
-    let attention = sai_paper_core::attention::collect(db.connection(), roots)?;
+    let attention = sai_sci_core::attention::collect(db.connection(), roots)?;
     Ok(json!({
         "state": state,
         "mind": mind,
@@ -1377,7 +1377,7 @@ fn mind_append() -> Result<Value> {
     std::io::stdin().read_line(&mut input)?;
     let text = input.trim_end_matches(['\n', '\r']);
     let stamp = Local::now().format("%m/%d %H:%M").to_string();
-    let line = sai_paper_core::project_files::append_memo(&roots.data_dir, text, &stamp)?;
+    let line = sai_sci_core::project_files::append_memo(&roots.data_dir, text, &stamp)?;
     Ok(json!({ "ok": true, "line": line }))
 }
 

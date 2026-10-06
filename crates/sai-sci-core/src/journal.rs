@@ -28,8 +28,8 @@ use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::activity;
-use crate::paths::PaperRoots;
+use sai_paper_core::activity;
+use sai_paper_core::paths::PaperRoots;
 use crate::runs;
 
 /// 実行フォルダの中で、日誌の成果物として数えないファイル（引き継ぎ用）。
@@ -979,7 +979,7 @@ fn weekday_ja(date: NaiveDate) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Database;
+    use sai_paper_core::Database;
 
     /// テスト用の時差（日本標準時）。
     fn jst() -> FixedOffset {

@@ -3,8 +3,8 @@
 //! sai-paper から選択した論文を sai-link のカンバンボードに task.md 作成して
 //! 引き渡す。run_id は sai-link の execution_history テーブルに reserve して得る。
 
-use crate::database::Database;
-use crate::paths::PaperRoots;
+use sai_paper_core::database::Database;
+use sai_paper_core::paths::PaperRoots;
 use rusqlite::OptionalExtension;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ pub enum HandoffError {
     Io(#[from] std::io::Error),
     /// DB 操作失敗
     #[error("database error: {0}")]
-    Database(#[from] crate::database::DatabaseError),
+    Database(#[from] sai_paper_core::database::DatabaseError),
     /// SQLite 操作失敗
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -91,7 +91,7 @@ pub fn list_blocks(roots: &PaperRoots) -> Result<Vec<BlockInfo>> {
     let mut blocks: HashMap<String, BlockInfo> = HashMap::new();
 
     // グローバルブロック（`~/.sai-moon/blocks/`）を先に読む
-    let global_blocks_dir = crate::paths::sai_home_path("blocks").filter(|p: &PathBuf| p.exists());
+    let global_blocks_dir = sai_paper_core::paths::sai_home_path("blocks").filter(|p: &PathBuf| p.exists());
 
     if let Some(dir) = global_blocks_dir {
         for entry in fs::read_dir(&dir)? {
@@ -391,10 +391,10 @@ fn parse_year(published_at: &Option<String>) -> Option<String> {
 ///
 /// 現行レイアウトは `papers/{id:04}_{短いタイトル}/` で、`papers.pdf_path` の親が
 /// そのフォルダになる。pdf_path が無い場合は置き場の規則
-/// （[`crate::paths::paper_folder`]）から推定する。
+/// （[`sai_paper_core::paths::paper_folder`]）から推定する。
 fn resolve_paper_folder(
     roots: &PaperRoots,
-    paper: &crate::models::LibraryPaper,
+    paper: &sai_paper_core::models::LibraryPaper,
 ) -> Option<PathBuf> {
     if let Some(pdf) = paper.pdf_path.as_deref() {
         if let Some(parent) = Path::new(pdf).parent() {
@@ -403,26 +403,26 @@ fn resolve_paper_folder(
             }
         }
     }
-    let candidate = crate::paths::paper_folder(&roots.data_dir, paper.id, &paper.title);
+    let candidate = sai_paper_core::paths::paper_folder(&roots.data_dir, paper.id, &paper.title);
     candidate.is_dir().then_some(candidate)
 }
 
 /// 論文の抽出 Markdown パスを解決する（記録 → 論文フォルダ → 旧レイアウト）。
 ///
 /// 引用抽出の記録（`paper_extracts`）を、まず `papers_id` で、無ければ抽出キーで
-/// 探す（core 共通の [`crate::citation::resolve_extract_md`]。段階 2c）。
+/// 探す（core 共通の [`sai_paper_core::citation::resolve_extract_md`]。段階 2c）。
 fn get_paper_extracts_path(
     db: &Database,
     roots: &PaperRoots,
-    paper: &crate::models::LibraryPaper,
+    paper: &sai_paper_core::models::LibraryPaper,
 ) -> Option<PathBuf> {
     if let Some(path) =
-        crate::citation::resolve_extract_md(db.connection(), Some(paper.id), None, &roots.data_dir)
+        sai_paper_core::citation::resolve_extract_md(db.connection(), Some(paper.id), None, &roots.data_dir)
     {
         return Some(path);
     }
     if let Some(folder) = resolve_paper_folder(roots, paper) {
-        let candidate = folder.join(crate::paths::paper_file_names::EXTRACT);
+        let candidate = folder.join(sai_paper_core::paths::paper_file_names::EXTRACT);
         if candidate.exists() {
             return Some(candidate);
         }
@@ -438,10 +438,10 @@ fn get_paper_extracts_path(
 /// 論文の日本語翻訳 PDF パスを解決する。
 fn get_paper_translations_path(
     roots: &PaperRoots,
-    paper: &crate::models::LibraryPaper,
+    paper: &sai_paper_core::models::LibraryPaper,
 ) -> Option<PathBuf> {
     if let Some(folder) = resolve_paper_folder(roots, paper) {
-        let candidate = folder.join(crate::paths::paper_file_names::PDF_JA);
+        let candidate = folder.join(sai_paper_core::paths::paper_file_names::PDF_JA);
         if candidate.exists() {
             return Some(candidate);
         }
@@ -454,9 +454,9 @@ fn get_paper_translations_path(
 }
 
 /// 論文のノートファイルパスを解決する。
-fn get_paper_note_path(roots: &PaperRoots, paper: &crate::models::LibraryPaper) -> Option<PathBuf> {
+fn get_paper_note_path(roots: &PaperRoots, paper: &sai_paper_core::models::LibraryPaper) -> Option<PathBuf> {
     if let Some(folder) = resolve_paper_folder(roots, paper) {
-        let candidate = folder.join(crate::paths::paper_file_names::NOTE);
+        let candidate = folder.join(sai_paper_core::paths::paper_file_names::NOTE);
         if candidate.exists() {
             return Some(candidate);
         }

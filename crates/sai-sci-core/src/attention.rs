@@ -31,9 +31,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::brief;
-use crate::database::Database;
+use sai_paper_core::database::Database;
 use crate::handoff;
-use crate::paths::{PaperRoots, state_path};
+use sai_paper_core::paths::{PaperRoots, state_path};
 use crate::progress;
 use crate::reports;
 use crate::runs::{RunDir, is_research_block, list_run_dirs, run_block_id};
@@ -114,7 +114,7 @@ pub struct AttentionItem {
 pub enum AttentionError {
     /// データベースの操作に失敗した。
     #[error("database error: {0}")]
-    Database(#[from] crate::database::DatabaseError),
+    Database(#[from] sai_paper_core::database::DatabaseError),
     /// SQLite の操作に失敗した。
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -382,7 +382,7 @@ fn report_issues(conn: &Connection) -> Result<Vec<AttentionItem>, AttentionError
 ///
 /// 最後の `rerun` の記録が `new > 0` で、その後に新着の候補が 1 つも
 /// `pending` から動いていないセットを出す。新着の候補は `added_at` が
-/// その回の `searched_at` と一致する行（[`crate::search_sets::apply_rerun`] が
+/// その回の `searched_at` と一致する行（[`sai_paper_core::search_sets::apply_rerun`] が
 /// そうそろえる）。key は `set:<set_id>:<searched_at>`。
 fn new_set_items(conn: &Connection) -> Result<Vec<AttentionItem>, AttentionError> {
     // `rerun` の記録を新しい順に読み、set_id ごとに最後の 1 件だけ残す。

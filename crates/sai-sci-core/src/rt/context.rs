@@ -13,7 +13,7 @@ use super::defs::Defs;
 use super::ops::{self, Field, Risk, Ty};
 use super::store::{self, NodeRow};
 use super::{Kind, Result, RtError, RtKeys, action, fmt_id, task_keys};
-use crate::paths::PaperRoots;
+use sai_paper_core::paths::PaperRoots;
 
 const NO_TREE: &str = "\
 ## CURRENT_ACTION
@@ -372,7 +372,7 @@ impl Parts {
         let mut outlines = Vec::new();
         let mut outline_gists = Vec::new();
         for id in keys.papers.iter().take(5) {
-            match crate::sections::outline(conn, &roots.data_dir, *id) {
+            match sai_paper_core::sections::outline(conn, &roots.data_dir, *id) {
                 Ok(o) => {
                     let mut short = vec![format!("### #{} {}", o.paper_id, o.title)];
                     let mut gist = short.clone();
@@ -498,7 +498,7 @@ impl Parts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
     use super::super::defs;
     use std::fs;
     use std::path::PathBuf;

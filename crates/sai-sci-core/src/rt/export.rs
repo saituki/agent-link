@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use super::compute::{self, NodeJson, Status};
 use super::defs::Defs;
 use super::{Result, store};
-use crate::paths::PaperRoots;
+use sai_paper_core::paths::PaperRoots;
 
 /// 新しい木を始めたプロジェクトなら `state.md` と `tree.md` を書く。始めていなければ何もしない。戻り値は「書いたか」。
 ///
@@ -26,7 +26,7 @@ pub fn export(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<bool
     let status = compute::status(conn, roots, defs)?;
     let data_dir = &roots.data_dir;
     fs::create_dir_all(data_dir)?;
-    write_atomic(&crate::paths::state_path(data_dir), &render_state_md(&status))?;
+    write_atomic(&sai_paper_core::paths::state_path(data_dir), &render_state_md(&status))?;
     write_atomic(&data_dir.join("tree.md"), &render_tree_md(&status))?;
     Ok(true)
 }
@@ -193,7 +193,7 @@ pub fn render_tree_md(status: &Status) -> String {
 ///
 /// ファイルの読み書きに失敗したとき。
 pub fn backup_state_once(data_dir: &Path) -> Result<Option<PathBuf>> {
-    let state = crate::paths::state_path(data_dir);
+    let state = sai_paper_core::paths::state_path(data_dir);
     let Ok(text) = fs::read_to_string(&state) else {
         return Ok(None);
     };
@@ -220,7 +220,7 @@ fn write_atomic(path: &Path, content: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
     use crate::rt::Kind;
 
     fn env(tag: &str, init: bool) -> (PaperRoots, Database) {
@@ -284,6 +284,6 @@ mod tests {
         let (roots, db) = env("none", false);
         assert!(!export(db.connection(), &roots, &Defs::default()).unwrap());
         assert!(!roots.data_dir.join("tree.md").exists());
-        assert!(!crate::paths::state_path(&roots.data_dir).exists());
+        assert!(!sai_paper_core::paths::state_path(&roots.data_dir).exists());
     }
 }

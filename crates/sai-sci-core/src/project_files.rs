@@ -67,8 +67,8 @@ pub fn ensure(data_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     fs::create_dir_all(data_dir)?;
     let mut written = Vec::new();
     for (path, template) in [
-        (crate::paths::mind_path(data_dir), MIND_TEMPLATE),
-        (crate::paths::state_path(data_dir), STATE_TEMPLATE),
+        (sai_paper_core::paths::mind_path(data_dir), MIND_TEMPLATE),
+        (sai_paper_core::paths::state_path(data_dir), STATE_TEMPLATE),
     ] {
         if ensure_one(&path, template)? {
             written.push(path);
@@ -112,7 +112,7 @@ pub fn append_memo(data_dir: &Path, text: &str, stamp: &str) -> std::io::Result<
         ));
     }
     fs::create_dir_all(data_dir)?;
-    let path = crate::paths::mind_path(data_dir);
+    let path = sai_paper_core::paths::mind_path(data_dir);
     // 無ければひな形から作る（ひな形には「## メモ」がある）。
     let content = fs::read_to_string(&path).unwrap_or_else(|_| MIND_TEMPLATE.to_string());
 
@@ -193,7 +193,7 @@ fn write_atomic(path: &Path, content: &str) -> std::io::Result<()> {
 /// ファイルが無い・読めないときは全項目 `None` を返す（エラーにはしない）。
 #[must_use]
 pub fn read_state(data_dir: &Path) -> ProjectState {
-    match fs::read_to_string(crate::paths::state_path(data_dir)) {
+    match fs::read_to_string(sai_paper_core::paths::state_path(data_dir)) {
         Ok(text) => parse_state(&text),
         Err(_) => ProjectState::default(),
     }
@@ -303,8 +303,8 @@ mod tests {
     #[test]
     fn ensure_keeps_existing() {
         let dir = temp_data_dir("keep");
-        let mind = crate::paths::mind_path(&dir);
-        let state = crate::paths::state_path(&dir);
+        let mind = sai_paper_core::paths::mind_path(&dir);
+        let state = sai_paper_core::paths::state_path(&dir);
         fs::write(&mind, "# 自分の考え\n\n消してはだめ\n").unwrap();
 
         let written = ensure(&dir).unwrap();
@@ -323,8 +323,8 @@ mod tests {
         let written = ensure(&dir).unwrap();
 
         assert_eq!(written.len(), 2);
-        assert_eq!(fs::read_to_string(crate::paths::mind_path(&dir)).unwrap(), MIND_TEMPLATE);
-        assert_eq!(fs::read_to_string(crate::paths::state_path(&dir)).unwrap(), STATE_TEMPLATE);
+        assert_eq!(fs::read_to_string(sai_paper_core::paths::mind_path(&dir)).unwrap(), MIND_TEMPLATE);
+        assert_eq!(fs::read_to_string(sai_paper_core::paths::state_path(&dir)).unwrap(), STATE_TEMPLATE);
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn append_memo_into_existing_section() {
         let dir = temp_data_dir("memo-section");
-        let mind = crate::paths::mind_path(&dir);
+        let mind = sai_paper_core::paths::mind_path(&dir);
         fs::write(
             &mind,
             "# mind\n\n## メモ\n- 09/24 10:00 古い\n\n## 次の節\n本文\n",
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn append_memo_into_notes_section() {
         let dir = temp_data_dir("memo-notes");
-        let mind = crate::paths::mind_path(&dir);
+        let mind = sai_paper_core::paths::mind_path(&dir);
         fs::write(&mind, "# mind\n\n## NOTES\n- 09/24 10:00 古い\n\n## 次\n本文\n").unwrap();
         append_memo(&dir, "新しいメモ", "09/26 21:40").unwrap();
         assert_eq!(
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn append_memo_creates_section_at_end() {
         let dir = temp_data_dir("memo-create-section");
-        let mind = crate::paths::mind_path(&dir);
+        let mind = sai_paper_core::paths::mind_path(&dir);
         fs::write(&mind, "# mind\n\n## 大きな問い\n").unwrap();
 
         append_memo(&dir, "浮かんだこと", "09/26 21:40").unwrap();
@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn append_memo_creates_mind_from_template() {
         let dir = temp_data_dir("memo-create-file");
-        let mind = crate::paths::mind_path(&dir);
+        let mind = sai_paper_core::paths::mind_path(&dir);
         assert!(!mind.exists());
 
         append_memo(&dir, "最初のメモ", "09/26 21:40").unwrap();
@@ -450,6 +450,6 @@ mod tests {
         let dir = temp_data_dir("memo-empty");
         assert!(append_memo(&dir, "   \n", "09/26 21:40").is_err());
         // 空のときは mind.md を作らない。
-        assert!(!crate::paths::mind_path(&dir).exists());
+        assert!(!sai_paper_core::paths::mind_path(&dir).exists());
     }
 }

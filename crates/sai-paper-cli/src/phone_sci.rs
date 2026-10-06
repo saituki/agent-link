@@ -5,13 +5,13 @@
 //! - 成功: 終了コード 0、標準出力に JSON 1 行
 //! - 失敗: 終了コード 1、標準出力に `{"error": "<日本語の文>"}`
 //!
-//! 中の処理は core（`sai_paper_core::rt`）が担う。ここは外から来る値の検査と
+//! 中の処理は core（`sai_sci_core::rt`）が担う。ここは外から来る値の検査と
 //! JSON の形だけを持つ。準備の [`crate::sci::open_env`] は `sci` 側と共有する。
 //! 書き込む命令（`init`・`apply`・`triage`・`card`）は終わる前に state.md と tree.md を書き直す。
 
 use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
-use sai_paper_core::rt::{self, card, compute, ops, store};
+use sai_sci_core::rt::{self, card, compute, ops, store};
 use serde_json::{Value, json};
 
 use crate::sci::{open_env, parse_stdin_text, proposal_json};

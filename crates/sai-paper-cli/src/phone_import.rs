@@ -23,9 +23,10 @@ use clap::Subcommand;
 use sai_paper_core::bibtex::{self, list_bib_files, load_bibtex_dir_detailed};
 use sai_paper_core::downloads::{DownloadEvent, DownloadManager, download_destination};
 use sai_paper_core::{
-    Config, Database, Paths, S2Client, attention, downloads, library_tree, paths, pipeline,
-    search_log, translation,
+    Config, Database, Paths, S2Client, downloads, library_tree, paths, pipeline, search_log,
+    translation,
 };
+use sai_sci_core::attention;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 

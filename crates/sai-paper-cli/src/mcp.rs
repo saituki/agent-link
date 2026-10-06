@@ -120,7 +120,7 @@ pub fn tools() -> Value {
             "name": "sci_propose",
             "description": "研究方針の木への変更を PROPOSAL として出す。O・F・E・Logicality はすぐ入り、Q を足す・写す・✕ は利用者が仕分けてから入る。★ などは出せない。1 件でも違反があれば何も入らない",
             "inputSchema": {"type": "object", "properties": {
-                "proposals": {"type": "array", "items": sai_paper_core::rt::ops::propose_schema()["properties"]["proposals"]["items"].clone(), "description": "1 件ずつの PROPOSAL。op ごとに必要な項目と型が決まっている（oneOf）"},
+                "proposals": {"type": "array", "items": sai_sci_core::rt::ops::propose_schema()["properties"]["proposals"]["items"].clone(), "description": "1 件ずつの PROPOSAL。op ごとに必要な項目と型が決まっている（oneOf）"},
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
             }, "required": ["proposals"]},
         },
@@ -172,7 +172,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let subtree = args.get("subtree").and_then(Value::as_bool).unwrap_or(false);
             // `--subtree` と `--each` には範囲の指定が要る（CLI の find と同じ検査）。
             crate::sci::check_find_scope(subtree, refs.node.is_some(), int_arg(args, "each"), papers.is_empty())?;
-            let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
+            let (paper_ids, scope_note) = sai_sci_core::rt::scope::resolve_scope(
                 conn,
                 int_arg(args, "paper_id"),
                 &papers,
@@ -366,7 +366,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let Some(run_id) = run else {
                 return Err(anyhow!("run_id が必要です"));
             };
-            let text = sai_paper_core::rt::context::build(
+            let text = sai_sci_core::rt::context::build(
                 env.conn(),
                 &env.roots,
                 &env.defs,
@@ -379,7 +379,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
         }
         "sci_status" => {
             let env = crate::sci::open_env()?;
-            let status = sai_paper_core::rt::compute::status(env.conn(), &env.roots, &env.defs)
+            let status = sai_sci_core::rt::compute::status(env.conn(), &env.roots, &env.defs)
                 .context("現況を集められませんでした")?;
             // brief でも全体でも、値は status からそのまま写す（計算し直さない）。
             if args.get("brief").and_then(Value::as_bool).unwrap_or(false) {
@@ -391,7 +391,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             let node = str_arg(args, "node").ok_or_else(|| anyhow!("node が必要です"))?;
             let env = crate::sci::open_env()?;
             let detail =
-                sai_paper_core::rt::compute::node_detail(env.conn(), &env.roots, &env.defs, node.trim())
+                sai_sci_core::rt::compute::node_detail(env.conn(), &env.roots, &env.defs, node.trim())
                     .map_err(|err| anyhow!("{err}"))?;
             Ok(serde_json::to_value(detail)?)
         }
@@ -406,7 +406,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                 std::env::var("SAI_BLOCK_NAME").ok(),
             );
             let results =
-                sai_paper_core::rt::ops::propose(env.conn(), &env.roots, &env.defs, &actor, &json!({
+                sai_sci_core::rt::ops::propose(env.conn(), &env.roots, &env.defs, &actor, &json!({
                     "proposals": proposals.clone(),
                 }))
                 .map_err(|err| anyhow!("{err}"))?;
