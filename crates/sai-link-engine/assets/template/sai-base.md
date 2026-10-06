@@ -5,11 +5,23 @@
 
 ## 道具の呼び方
 
-sai の道具は MCP サーバ `sai` が提供する。道具の名前は `mcp__sai__<道具名>`（例 `mcp__sai__sai_write`）である。この説明では `sai_write` のように短い名前で書く。
+sai の機能は、シェル（Bash）から CLI で呼ぶ。
+
+| CLI | 受け持ち |
+|---|---|
+| `sai-link` | 文書（doc）・カード（card）・run・子タスク（task）・定義（def） |
+| `sai-paper` | 論文（Library・検索・本文） |
+| `sai-sci` | 研究方針の木と研究の記録 |
+| `sai-web` | Web の窓口（質問・承認・使用量） |
+
+- 命令は名前だけで呼ぶ。前に環境変数を付けない。プロジェクトと自分の run は、CLI が環境変数 `SAI_PROJECT_ROOT`・`SAI_PARENT_RUN_ID` から読む。
+- 結果を読むときは `--json` を付ける。成功すると、標準出力に JSON が 1 つ出る。
+- 失敗すると、標準出力は空になり、標準エラーの最後の行に理由が 1 行出る。終了コードは 2（入力の誤り）・3（見つからない）・4（状態の衝突）・1（その他）。
+- 引数は `<CLI> <命令> --help` で確かめる。
 
 ## waggle トークン
 
-`sai_write` で保存した文書には **waggle トークン**（例: `AXANSMpo`）が付く。
+`sai-link doc write` で保存した文書には **waggle トークン**（例: `AXANSMpo`）が付く。
 文書を渡すときは必ずトークンを使う。ファイルパスだけで渡さない。run フォルダは実行の状態に合わせて移動するので、パスはすぐに無効になる。
 
 文書の中で別の文書を指すときは、トークンとパスを両方書く。正はトークンで、パスは人間向けの目安である（owner の部分は `*`）。
@@ -18,29 +30,31 @@ sai の道具は MCP サーバ `sai` が提供する。道具の名前は `mcp__
 waggle:<トークン>:path:.sai/outputs/*/<run_id>/<ファイル名>
 ```
 
-task.md の `# task_text` や、`task_create` の `task_text` に `waggle:<トークン>` と書くと、実行時にその位置へ文書の本文が埋め込まれる。
+task.md の `# task_text` や、`sai-link task create` の `task_text` に `waggle:<トークン>` と書くと、実行時にその位置へ文書の本文が埋め込まれる。
 
-- 埋め込みは 1 段だけである。埋め込まれた文書の中の `waggle:` はそのまま残るので、必要なら `sai_read` で読む。
-- 本文を埋め込まずに渡すときは `waggle:` を付けず、「`sai_read` で `<トークン>` を読むこと」と書く。
+- 埋め込みは 1 段だけである。埋め込まれた文書の中の `waggle:` はそのまま残るので、必要なら `sai-link doc read <トークン>` で読む。
+- 本文を埋め込まずに渡すときは `waggle:` を付けず、「`sai-link doc read <トークン>` で読むこと」と書く。
 
-## `sai_write` — 文書を保存する
+## `sai-link doc write` — 文書を保存する
 
-```json
-{ "filename": "report-U01.md", "content": "…", "description": "作業報告書 U01: DONE、placeholder.rs の文中展開を実装" }
+```bash
+sai-link doc write --filename report-U01.md --description "作業報告書 U01: DONE、placeholder.rs の文中展開を実装" <<'EOF'
+（本文）
+EOF
 ```
 
-- 自分の run フォルダに保存される。戻り値の `token` がこの文書のトークン、`ref` が上の参照記法である。
+- 自分の run フォルダに保存される。出力の「トークン」がこの文書のトークン、「参照」が上の参照記法である（`--json` なら `token`・`ref`）。
 - 保存するのは最終成果物だけである。作業メモや途中経過は保存しない。
-- `description` は `<文書の種類> <ID>: <内容を 1 文で>` の形にする。他のエージェントは一覧の description だけを見て、読むかどうかを決める。
+- `--description` は `<文書の種類> <ID>: <内容を 1 文で>` の形にする。他のエージェントは一覧の description だけを見て、読むかどうかを決める。
 - 改訂するときは `-r2`、`-r3` を付けた新しいファイル名で保存する。古いトークンを参照している文書があれば、それも改訂する。
 
-## `sai_read` — 文書を探す・読む
+## `sai-link doc list` / `sai-link doc read` — 文書を探す・読む
 
 | 呼び方 | 結果 |
 |---|---|
-| `sai_read {}` | 完了済み run の文書の一覧 |
-| `sai_read { "run_id": 70 }` | run 70 の文書の一覧（実行中の run も出る） |
-| `sai_read { "token": "AXANSMpo" }` | その文書の本文 |
+| `sai-link doc list` | 完了済み run の文書の一覧 |
+| `sai-link doc list --run 70 --all` | run 70 の文書の一覧（実行中の run も出る） |
+| `sai-link doc read AXANSMpo` | その文書の本文 |
 
 まず一覧の description を見て、必要な文書だけ本文を読む。一覧を見ずに全部読まない。
 

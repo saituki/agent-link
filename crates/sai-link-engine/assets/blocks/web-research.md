@@ -41,8 +41,8 @@ enable: true
 
 ### 4. 答える
 
-- 答えが 20 行を超えるときは、`web-<ID>.md` に書いて `sai_write` で保存する。description は `ウェブ調査報告 <ID>: <答えを 1 文で>` にする。
-- 最後に `task_report` を呼ぶ。`要約` に問いへの答えの核を書く。
+- 答えが 20 行を超えるときは、`web-<ID>.md` に書いて `sai-link doc write` で保存する。description は `ウェブ調査報告 <ID>: <答えを 1 文で>` にする。
+- 最後に `sai-link task report` を実行する。`要約` に問いへの答えの核を書く。
 
 ```markdown
 # ウェブ調査報告 <ID>: <件名>

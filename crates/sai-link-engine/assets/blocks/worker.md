@@ -1,7 +1,7 @@
 ---
 name: 👷 worker
 id: worker
-description: 親から渡された 1 つの実装計画書を実装し、作業報告書と task_report で報告する
+description: 親から渡された 1 つの実装計画書を実装し、作業報告書と `sai-link task report` で報告する
 model: inherit
 thinking: high
 templates: sai-base,sai-report,doc-report
@@ -19,7 +19,7 @@ enable: true
 ### 1. 計画を読む
 
 - 実装計画書の「目的」「変更内容」「共有契約」「ファイルの所有権」「完了条件」を読む。
-- 計画書の中の `waggle:<トークン>:path:…` が作業に必要なら、`sai_read` で読む。
+- 計画書の中の `waggle:<トークン>:path:…` が作業に必要なら、`sai-link doc read <トークン>` で読む。
 - 同じ作業がもう終わっていないか確かめる（今のコード・ブランチ・コミット）。終わっていて完了条件を満たしているなら、実装せずに報告する。
 
 ### 2. 前提を確かめる
@@ -43,8 +43,8 @@ enable: true
 
 ### 5. 報告する
 
-1. `doc-report` の書式で作業報告書を書き、`sai_write` で保存する。
-2. 最後に `task_report` を呼ぶ。
+1. `doc-report` の書式で作業報告書を書き、`sai-link doc write` で保存する。
+2. 最後に `sai-link task report` を実行する。
 
 ## 禁止事項
 
