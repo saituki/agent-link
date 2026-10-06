@@ -5,10 +5,10 @@
 //!
 //! # サブコマンド
 //!
-//! - `init` — プロジェクトを初期化する（`PROJECTROOT/.sai/` 作成 + sai-control レジストリ登録）
-//! - `block run <定義ファイル> [ユーザー入力]` — ブロックを実行する
-//! - `block list` — 実行履歴を表示する
-//! - `block show <id>` — 実行詳細を表示する
+//! 新しい木（用途ごと）: `card`・`run`・`doc`・`task`・`def`・`project`・
+//! `session`・`workflow`・`schema`。
+//! 古い命令（`phone`・`agent`・`block`・`block-def`・トップの `search`・`mcp`）は
+//! 隠した別名として同じ動きのまま残す。
 //!
 //! # 使用例
 //!
@@ -16,29 +16,29 @@
 //! # プロジェクトを初期化（開始時に 1 度のみ）
 //! cargo run -- init
 //!
-//! # プロジェクト名を指定して初期化
-//! cargo run -- init --name myproject
-//!
-//! # ブロックを実行
-//! cargo run -- block run my-block.md
-//!
-//! # ユーザー入力付きで実行
-//! cargo run -- block run my-block.md "AI搭載のタスク管理ツール"
-//!
 //! # 実行履歴を表示
-//! cargo run -- block list --limit 10
+//! cargo run -- run list --limit 10
 //!
 //! # 詳細表示
-//! cargo run -- block show 3
+//! cargo run -- run show 3
 //! ```
 
 mod cli;
+mod cmd_card;
+mod cmd_common;
+mod cmd_def;
+mod cmd_doc;
+mod cmd_project;
+mod cmd_run;
+mod cmd_schema;
+mod cmd_task;
 mod kanban_run;
 mod phone;
 mod phone_def;
 mod search;
 mod usage;
 
+use clap::error::ErrorKind;
 use clap::Parser;
 use cli::{
     AgentCmd, BlockCmd, BlockDefCmd, Cli, Cmd, DaemonCmd, McpCmd, PhoneCmd, TaskCmd, UsageCmd,
@@ -46,10 +46,53 @@ use cli::{
 };
 
 fn main() {
-    let cli = Cli::parse();
+    // clap の使い方の誤りも、最後の行を日本語 1 行にする（CLI 共通の約束 2）
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => handle_clap_error(e),
+    };
+
+    // 新しい木はプロジェクトを要る（`init`・`schema` は要らない）。
+    // 見つからなければ終了コード 2 で止める（`.sai/` を勝手に作らない）。
+    let needs_project = matches!(
+        &cli.cmd,
+        Cmd::Card { .. }
+            | Cmd::Run { .. }
+            | Cmd::Doc { .. }
+            | Cmd::Task { .. }
+            | Cmd::Def { .. }
+            | Cmd::Project { .. }
+            | Cmd::Session { .. }
+            | Cmd::Workflow { .. }
+    );
+    if needs_project {
+        if let Err(msg) = sai_link_engine::project::project_root_checked() {
+            eprintln!("{}", msg);
+            std::process::exit(cmd_common::EXIT_INPUT);
+        }
+    }
 
     let result = match cli.cmd {
         Cmd::Init { name, update } => cli::handle_init(name, update),
+        // ── 新しい木 ──
+        Cmd::Card { cmd } => run_new(cmd_card::run(cmd)),
+        Cmd::Run { cmd } => run_new(cmd_run::run(cmd)),
+        Cmd::Doc { cmd } => run_new(cmd_doc::run(cmd)),
+        Cmd::Def { cmd } => run_new(cmd_def::run(cmd)),
+        Cmd::Project { cmd } => run_new(cmd_project::run(cmd)),
+        Cmd::Session { cmd } => run_new(cmd_project::run_session(cmd)),
+        Cmd::Workflow { json: _ } => run_new(cmd_run::run_workflow()),
+        Cmd::Schema { json } => run_new(cmd_schema::run(json)),
+        Cmd::Task { cmd } => match cmd {
+            // 旧 `task manage`（隠した別名）は今のまま
+            TaskCmd::Manage {
+                action,
+                task_id,
+                message,
+            } => cli::handle_task_manage(&action, task_id, message.as_deref()),
+            other => run_new(cmd_task::run(other)),
+        },
+        // ── 古い木（隠した別名）──
         Cmd::Block { cmd } => match cmd {
             BlockCmd::Run {
                 definition_file,
@@ -145,21 +188,6 @@ fn main() {
             }
             BlockDefCmd::Show { name, json } => cli::handle_block_def_show(&name, json),
         },
-        Cmd::Task { cmd } => match cmd {
-            TaskCmd::List {
-                parent_run_id,
-                status,
-                json,
-            } => cli::handle_task_list(parent_run_id, status.as_deref(), json),
-            TaskCmd::Show { task_id } => cli::handle_task_show(task_id),
-            TaskCmd::Capture { task_id, lines } => cli::handle_task_capture(task_id, lines),
-            TaskCmd::Manage {
-                action,
-                task_id,
-                message,
-            } => cli::handle_task_manage(&action, task_id, message.as_deref()),
-            TaskCmd::Poll { all } => cli::handle_task_poll(all),
-        },
         Cmd::Daemon { cmd } => match cmd {
             DaemonCmd::Start => cli::handle_daemon_start(),
             DaemonCmd::Stop { force } => cli::handle_daemon_stop(force),
@@ -223,6 +251,43 @@ fn main() {
     if let Err(e) = result {
         eprintln!("致命的エラー: {}", e);
         std::process::exit(1);
+    }
+}
+
+/// 新しい木のハンドラを走らせ、失敗なら契約の終了コードで終わる。
+fn run_new(result: Result<(), cmd_common::CmdError>) -> Result<(), Box<dyn std::error::Error>> {
+    if let Err(e) = result {
+        cmd_common::exit(e);
+    }
+    Ok(())
+}
+
+/// clap のパース誤りを CLI 共通の約束の形で扱う。
+///
+/// - `--help`・`--version` などの表示は、今のとおり出して終了コード 0。
+/// - それ以外は clap の文を標準エラーに出したあと、最後の行に
+///   `引数の誤り: <clap の文の 1 行目から先頭の "error: " を除いた物>` を書いて終了コード 2。
+fn handle_clap_error(e: clap::Error) -> ! {
+    match e.kind() {
+        ErrorKind::DisplayHelp
+        | ErrorKind::DisplayVersion
+        | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+            let _ = e.print();
+            std::process::exit(0);
+        }
+        _ => {
+            let message = e.to_string();
+            // clap の文（「error: …」）を標準エラーへ
+            let _ = e.print();
+            let first = message
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            let first = first.strip_prefix("error: ").unwrap_or(first);
+            eprintln!("引数の誤り: {}", first);
+            std::process::exit(cmd_common::EXIT_INPUT);
+        }
     }
 }
 

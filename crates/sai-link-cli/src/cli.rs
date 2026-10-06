@@ -20,7 +20,6 @@ use sai_link_engine::db::SaiStore;
 use sai_link_engine::herdr::SplitDirection;
 use sai_link_engine::orchestrator::{self, ExecutionOverrides, PipelineConfig};
 use sai_link_engine::parser::parse_block_file;
-use sai_link_engine::task_manager::TaskManager;
 use std::sync::Arc;
 
 // ============================================================================
@@ -58,12 +57,14 @@ pub struct Cli {
 /// トップレベルのサブコマンド。
 #[derive(Subcommand)]
 pub enum Cmd {
-    /// ブロック操作のサブコマンド群
+    /// ブロック操作のサブコマンド群（古い木・隠した別名。新しい木は `run` / `def`）
+    #[command(hide = true)]
     Block {
         #[command(subcommand)]
         cmd: BlockCmd,
     },
-    /// ブロック定義の参照（pi-sai の block_discover / block_inspect 用）
+    /// ブロック定義の参照（古い木・隠した別名。新しい木は `def`）
+    #[command(hide = true)]
     BlockDef {
         #[command(subcommand)]
         cmd: BlockDefCmd,
@@ -78,7 +79,8 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: DaemonCmd,
     },
-    /// セッション履歴を検索する（仕様書 `docs/spec-session-search.md`）
+    /// セッション履歴を検索する（古い木・隠した別名。新しい木は `session search`）
+    #[command(hide = true)]
     Search {
         /// Round（グローバルラウンド）N または N-M
         #[arg(short = 'R', long = "global-round", value_name = "N|N-M")]
@@ -130,28 +132,75 @@ pub enum Cmd {
         #[arg(long)]
         update: bool,
     },
+    /// カード（実行予約）の参照・作成・実行（新しい木）
+    Card {
+        #[command(subcommand)]
+        cmd: CardCmd,
+    },
+    /// 実行（run）の参照・操作（新しい木）
+    Run {
+        #[command(subcommand)]
+        cmd: RunCmd,
+    },
+    /// 文書（waggle トークン）の読み書き（新しい木）
+    Doc {
+        #[command(subcommand)]
+        cmd: DocCmd,
+    },
+    /// 定義ファイルの参照・編集（新しい木）
+    Def {
+        #[command(subcommand)]
+        cmd: DefCmd,
+    },
+    /// プロジェクトの集計（新しい木）
+    Project {
+        #[command(subcommand)]
+        cmd: ProjectCmd,
+    },
+    /// セッション履歴の検索（新しい木）
+    Session {
+        #[command(subcommand)]
+        cmd: SessionCmd,
+    },
+    /// メイン画面（Workflow の実行ブロック線図）の DAG を JSON で返す
+    ///
+    /// この命令は常に JSON。`--json` を付けても同じ。
+    Workflow {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+    /// CLI の命令一覧（Web の「コマンド」画面が読む）
+    ///
+    /// `--json` で「schema の形」の JSON を出す。
+    Schema {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
     /// waggle トークン操作（内部用）
     #[command(hide = true)]
     Waggle {
         #[command(subcommand)]
         cmd: WaggleCmd,
     },
-    /// MCP サーバ（Claude Code 連携用）
+    /// MCP サーバ（Claude Code 連携用・隠したまま）
     ///
     /// `--mcp-config` から起動され、sai_write / sai_finalize を提供する。
+    #[command(hide = true)]
     Mcp {
         #[command(subcommand)]
         cmd: McpCmd,
     },
-    /// エージェント（pi / cc）共通の操作。pi 拡張から呼ばれる。
+    /// エージェント（pi / cc）共通の操作（古い木・隠した別名。新しい木は `task` / `doc` など）。
     /// 出力は常に JSON 1 行（成功・失敗とも stdout）。
+    #[command(hide = true)]
     Agent {
         #[command(subcommand)]
         cmd: AgentCmd,
     },
-    /// sai-phone への実行情報の書き出し（実装計画 01）。
+    /// sai-phone への実行情報の書き出し（古い木・隠した別名。新しい木は `card …` / `run …`）。
     ///
     /// `~/.sai-moon/phone/runs/<project_name>/<run_id>.json` に 00 §3.2 形式で書く。
+    #[command(hide = true)]
     Phone {
         #[command(subcommand)]
         cmd: PhoneCmd,
@@ -359,64 +408,541 @@ pub enum BlockDefCmd {
     },
 }
 
-/// サブタスク操作のサブコマンド。
+/// サブタスク操作のサブコマンド（新しい木）。
+///
+/// 旧 `task list --parent-run-id` / `task show` / `task capture` / `task poll` は
+/// なくした。旧 `task manage` は隠した別名として残す。
 #[derive(Subcommand)]
 pub enum TaskCmd {
+    /// サブタスクをバッチ作成する（標準入力に JSON）
+    ///
+    /// 標準入力は子の配列 `[…]`。`{"tasks":[…]}` も受ける。
+    Create {
+        /// 修正ラウンド番号（1 始まり）
+        #[arg(long)]
+        round: Option<i64>,
+        /// 置き換え元バッチ ID
+        #[arg(long)]
+        supersedes_batch_id: Option<String>,
+        #[arg(long)]
+        run_id: Option<i64>,
+        /// JSON で出力する（この命令は常に JSON。付いても同じ）
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 承認済みタスクを実行キューへ送る
+    Execute {
+        #[arg(long)]
+        batch: Option<String>,
+        #[arg(long, value_name = "N")]
+        task: Option<i64>,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 子タスクを複数まとめて待つ（1〜50 件）
+    Wait {
+        /// 待つ子タスクの ID（1 件以上）
+        #[arg(value_name = "タスクID", required = true)]
+        task_ids: Vec<i64>,
+        /// 最大待機時間（ミリ秒）。0 で待たない
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
     /// サブタスク一覧を表示する
     List {
-        /// 親実行IDでフィルタ（省略時は全件）
         #[arg(long)]
-        parent_run_id: Option<i64>,
-
-        /// ステータスでフィルタ
-        #[arg(long, value_parser = ["pending", "approved", "in_progress", "completed", "failed", "all"])]
         status: Option<String>,
-
-        /// JSON 形式で出力する（pi-sai 用・P1）
+        /// ソート順: id | recent | oldest
+        #[arg(long)]
+        sort: Option<String>,
+        #[arg(long)]
+        run_id: Option<i64>,
         #[arg(long, default_value_t = false)]
         json: bool,
     },
 
     /// サブタスクの詳細を表示する
     Show {
-        /// タスク ID
         #[arg(value_name = "タスクID")]
         task_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 
-    /// タスクの pane 出力をキャプチャする（task_capture 用・P4）
+    /// タスクの pane 出力をキャプチャする
     Capture {
-        /// タスク ID
         #[arg(value_name = "タスクID")]
         task_id: i64,
-
         /// 読み取る行数
-        #[arg(long, default_value_t = 50)]
-        lines: u32,
+        #[arg(long)]
+        lines: Option<u32>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 
-    /// タスクを操作する（delete / finalize / send / requeue / interrupt・P4）
-    /// delete / finalize / requeue はデーモンが処理するため、通知を pending/ に書き込む。
-    /// interrupt と作業中（in_progress）タスクへの send は MCP サーバが herdr を直接呼ぶ
+    /// 追加指示を送る
+    Send {
+        #[arg(value_name = "タスクID")]
+        task_id: i64,
+        #[arg(long, value_name = "文")]
+        message: String,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 作業中の子タスクを止める（esc）
+    Interrupt {
+        #[arg(value_name = "タスクID")]
+        task_id: i64,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 子タスクを消す
+    Delete {
+        #[arg(value_name = "タスクID")]
+        task_id: i64,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 子タスクの完了を確定する
+    Finalize {
+        #[arg(value_name = "タスクID")]
+        task_id: i64,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 失敗・削除した子タスクを再実行する
+    Requeue {
+        #[arg(value_name = "タスクID")]
+        task_id: i64,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 完了報告を保存する（本文は標準入力）
+    Report {
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 親へ質問を通知する
+    Question {
+        /// 質問の ID（Web の質問一覧の ID）
+        #[arg(long, value_name = "ID")]
+        qid: String,
+        /// 質問の見出し（1 行にする）
+        #[arg(long, value_name = "文")]
+        text: String,
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 旧 `task manage`（隠した別名。新しい木では send / interrupt / …）
+    #[command(hide = true)]
     Manage {
         /// 操作: delete | finalize | send | requeue | interrupt
         #[arg(value_name = "アクション", value_parser = ["delete", "finalize", "send", "requeue", "interrupt"])]
         action: String,
-
-        /// タスク ID
         #[arg(value_name = "タスクID")]
         task_id: i64,
-
         /// 追加指示（send 時）
         #[arg(long, value_name = "メッセージ")]
         message: Option<String>,
     },
+}
 
-    /// pending ディレクトリの通知を処理する（デーモン稼働時は無効）
-    Poll {
-        /// 全件処理する（デフォルト: 1件のみ）
+/// カード（実行予約）のサブコマンド（新しい木）。
+#[derive(Subcommand)]
+pub enum CardCmd {
+    /// ウィザードの選択肢（runner / block / provider / model / thinking）
+    Options {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 最近の文書（running / review / done / Workflow の md 成果物）を新しい順に返す
+    Docs {
+        /// 返す件数の上限
+        #[arg(long, default_value_t = 40)]
+        limit: usize,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// カードを作成する（標準入力に JSON）
+    Create {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// todo のカードに実行予定時刻を書く（`--at` 省略で予定を消す）
+    Schedule {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// 実行予定時刻（`YYYY-MM-DD HH:MM`）
+        #[arg(long)]
+        at: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// todo のカードを、ジョブが終わったら実行するようにする（`--job` 省略で解除）
+    Wait {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// 待つジョブの ID（exp_exec.py の job_id）
+        #[arg(long)]
+        job: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// todo の未実行カードを実行する（非対話）
+    Run {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 利用者の札（runner: user）を始める（running にする）
+    Start {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 利用者の札（runner: user）を review へ移す
+    Finish {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+}
+
+/// 実行（run）のサブコマンド（新しい木）。
+#[derive(Subcommand)]
+pub enum RunCmd {
+    /// 実行履歴を一覧表示する（`--json` で sai-sci の形）
+    List {
+        /// 表示件数（既定 20。0 で全部）
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 特定の実行の詳細を表示する（文字）
+    Show {
+        #[arg(value_name = "実行ID")]
+        run_id: i64,
+    },
+
+    /// 左サイドバーと同形のツリーを JSON で返す
+    Tree {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// run の log を JSON で返す
+    Log {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// run の stats を JSON で返す
+    Stats {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// run の history を JSON で返す
+    History {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// task / message / report / system の md 本文を返す（`--write` は標準入力に本文）
+    Md {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// md の種別（task / message / report / system）
+        #[arg(long, value_parser = ["task", "message", "report", "system"])]
+        kind: String,
+        /// 標準入力の中身で保存する
+        #[arg(long, default_value_t = false)]
+        write: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// run の完了を要求する（run_id 省略時は自分の run）
+    Finalize {
+        #[arg(value_name = "RUN_ID")]
+        run_id: Option<i64>,
+        /// 報告の本文（要点）
+        #[arg(long, value_name = "文")]
+        report: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行を次の状態へ進める（review → done → Workflow）
+    Advance {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行を消す（DB の行と run フォルダ・子の実行も一緒に）
+    Rm {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// 確認をスキップする（無ければ終了コード 2）
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+
+    /// 現在のプロジェクトの実行を sai-phone 向け JSON に書き出す（文字）
+    Export {
+        /// 1 件だけ書き出す（省略時は全件）
+        #[arg(long, value_name = "RUN_ID")]
+        run: Option<i64>,
+        /// 書かずに JSON を標準出力へ
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
+}
+
+/// 文書（waggle トークン）のサブコマンド（新しい木）。
+#[derive(Subcommand)]
+pub enum DocCmd {
+    /// 成果物を run フォルダへ保存する（本文は標準入力）
+    Write {
+        /// 保存ファイル名（run フォルダ直下）
+        #[arg(long, value_name = "ファイル名")]
+        filename: String,
+        /// 成果物の説明（waggle トークンのラベル）
+        #[arg(long)]
+        description: Option<String>,
+        /// 実行 ID（省略時は SAI_PARENT_RUN_ID）
+        #[arg(long)]
+        run_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// waggle 文書の本文を読む
+    Read {
+        #[arg(value_name = "トークン")]
+        token: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// waggle 文書の一覧（`--all` は実行中も含める）
+    List {
+        /// 実行 ID（省略時は全体）
+        #[arg(long, value_name = "N")]
+        run: Option<i64>,
+        /// 実行中（running / review）の文書も含める
         #[arg(long, default_value_t = false)]
         all: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 文書（task.md / message.md / waggle の md 成果物）の本文を検索する
+    Search {
+        /// 検索語（空白区切りで AND）
+        #[arg(long)]
+        word: String,
+        /// 対象の種類（カンマ区切り。task / message / waggle）
+        #[arg(long, default_value = "task,message,waggle")]
+        category: String,
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        until: Option<String>,
+        #[arg(long)]
+        block: Option<String>,
+        #[arg(long)]
+        from_id: Option<i64>,
+        #[arg(long)]
+        to_id: Option<i64>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+}
+
+/// 定義ファイル（block / template / settings）のサブコマンド（新しい木）。
+#[derive(Subcommand)]
+pub enum DefCmd {
+    /// 定義ファイルの一覧（`--parent` で呼べる子の一覧）
+    List {
+        /// 親ブロック名（subblocks 制限の確認元）
+        #[arg(long, value_name = "ブロック名")]
+        parent: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 定義ファイルの中身（`--kind block` で `--scope` 省略時は解決済みの定義）
+    Show {
+        #[arg(long, value_parser = ["block", "template", "settings"])]
+        kind: String,
+        /// 置き場（project / global。省略時は解決済みの block 定義）
+        #[arg(long, value_parser = ["project", "global"])]
+        scope: Option<String>,
+        #[arg(long, value_name = "名前")]
+        name: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 定義ファイルを標準入力の内容で保存する
+    Write {
+        #[arg(long, value_parser = ["block", "template", "settings"])]
+        kind: String,
+        #[arg(long, value_parser = ["project", "global"])]
+        scope: String,
+        #[arg(long, value_name = "名前")]
+        name: String,
+        /// 新規作成する（既に同名があるなら終了コード 4）
+        #[arg(long, default_value_t = false)]
+        create: bool,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 定義ファイルを削除する
+    Delete {
+        #[arg(long, value_parser = ["block", "template", "settings"])]
+        kind: String,
+        #[arg(long, value_parser = ["project", "global"])]
+        scope: String,
+        #[arg(long, value_name = "名前")]
+        name: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行時の pi 起動コマンドをプレビュー表示する（実行はしない・文字）
+    Preview {
+        /// ブロック定義ファイル（.md）のパス
+        #[arg(value_name = "定義ファイル")]
+        definition_file: PathBuf,
+        /// ブロックへのユーザー入力（テキスト）
+        #[arg(value_name = "ユーザー入力")]
+        user_input: Option<String>,
+        #[arg(long, default_value = "right", value_parser = ["right", "down"])]
+        direction: String,
+        #[arg(long)]
+        timeout: Option<u64>,
+        #[arg(long, value_name = "N")]
+        round: Option<i64>,
+        #[arg(long = "global-round", value_name = "N")]
+        global_round: Option<i64>,
+        #[arg(long, value_name = "TAG")]
+        tag: Option<String>,
+        #[arg(long, value_name = "BUDGET", value_parser = ["none", "low", "medium", "high", "xhigh", "max"])]
+        think: Option<String>,
+        #[arg(long, value_name = "MODEL")]
+        model: Option<String>,
+        #[arg(long = "block-timeout", value_name = "SECS")]
+        block_timeout: Option<u32>,
+    },
+}
+
+/// プロジェクトの集計のサブコマンド（新しい木）。
+#[derive(Subcommand)]
+pub enum ProjectCmd {
+    /// プロジェクト一覧に出す最小集計を JSON で返す
+    Summary {
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 期間ダッシュボードを JSON で返す
+    Dashboard {
+        /// 集計期間
+        #[arg(long, value_parser = ["week", "month", "all"])]
+        period: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+}
+
+/// セッション履歴検索のサブコマンド（新しい木）。
+#[derive(Subcommand)]
+pub enum SessionCmd {
+    /// セッション履歴を検索する
+    Search {
+        /// Round（グローバルラウンド）N または N-M
+        #[arg(short = 'R', long = "global-round", value_name = "N|N-M")]
+        global_round: Option<String>,
+        /// round（実行ラウンド）N または N-M
+        #[arg(short = 'r', long, value_name = "N|N-M")]
+        round: Option<String>,
+        /// ブロック ID 範囲
+        #[arg(long, value_name = "N|N-M")]
+        id: Option<String>,
+        /// ブロック名の部分一致（大小無視）
+        #[arg(long, value_name = "NAME")]
+        block: Option<String>,
+        /// 実行日 YYYY/MM/DD または YYYY/MM/DD-YYYY/MM/DD
+        #[arg(long, value_name = "D|D-D")]
+        date: Option<String>,
+        /// ステータス絞り込み（カンマ区切り）
+        #[arg(long, value_name = "S[,S...]")]
+        status: Option<String>,
+        /// 種別（カンマ区切り）
+        #[arg(long, value_name = "T[,T...]")]
+        r#type: Option<String>,
+        /// 検索語（カンマ区切り・AND・大小無視）
+        #[arg(short = 'w', long, value_name = "W[,W...]")]
+        word: Option<String>,
+        /// プロジェクト名（結果の出自表示）
+        #[arg(long, value_name = "NAME")]
+        project: Option<String>,
+        /// JSON で出力する
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 }
 
@@ -1827,199 +2353,6 @@ pub(crate) fn open_db() -> Result<SaiStore, Box<dyn std::error::Error>> {
 // サブタスク操作ハンドラ
 // ============================================================================
 
-/// サブタスク一覧を表示する。
-///
-/// `json = true` のときは構造化 JSON を出力する（pi-sai の `task_list` 用・P1）。
-pub fn handle_task_list(
-    parent_run_id: Option<i64>,
-    status: Option<&str>,
-    json: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let store = open_db()?;
-    let store = Arc::new(store);
-    let manager = TaskManager::new(Arc::clone(&store));
-
-    let tasks = if let Some(pid) = parent_run_id {
-        manager
-            .list_tasks(pid)
-            .map_err(|e| format!("タスク一覧取得エラー: {}", e))?
-    } else {
-        // 全親のタスクを取得（storeの生APIを使用）
-        // 簡易実装: parent_run_id が指定されていない場合はエラー
-        return Err("--parent-run-id を指定してください（全件一覧は未実装）".into());
-    };
-
-    // ステータスフィルタ
-    let filtered: Vec<_> = if let Some(s) = status {
-        if s == "all" {
-            tasks
-        } else {
-            tasks.into_iter().filter(|t| t.status == s).collect()
-        }
-    } else {
-        tasks
-    };
-
-    if json {
-        // P1: pi-sai 用の JSON 出力（全フィールドを含む）
-        let entries: Vec<sai_link_engine::agent_api::TaskJsonEntry> = filtered
-            .iter()
-            .map(|t| sai_link_engine::agent_api::TaskJsonEntry {
-                server_id: t.id.unwrap_or(0),
-                parent_run_id: t.parent_run_id,
-                subject: t.subject.clone(),
-                description: t.description.clone(),
-                status: t.status.clone(),
-                block_type: t.block_type.clone(),
-                inputs: t
-                    .inputs_json
-                    .as_deref()
-                    .and_then(|j| serde_json::from_str(j).ok()),
-                depends_on: t
-                    .depends_on_json
-                    .as_deref()
-                    .and_then(|j| serde_json::from_str(j).ok())
-                    .unwrap_or_default(),
-                worktree: t.worktree.clone(),
-                cwd: t.cwd.clone(),
-                timeout: t.timeout,
-                execution_id: t.execution_id,
-                batch_id: t.batch_id.clone(),
-                client_id: t.client_id.clone(),
-                round: t.round,
-                supersedes_batch_id: t.supersedes_batch_id.clone(),
-                approval_comment: t.approval_comment.clone(),
-                finalized: t.finalized,
-                deleted_by: t.deleted_by.clone(),
-                created_at: t.created_at.clone(),
-                updated_at: t.updated_at.clone(),
-            })
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&entries)?);
-        return Ok(());
-    }
-
-    if filtered.is_empty() {
-        println!("サブタスクはありません。");
-        return Ok(());
-    }
-
-    println!(
-        "{:<6} | {:<6} | {:<12} | {:<20} | {:<14} | {}",
-        "ID", "親ID", "ステータス", "件名", "ブロック種別", "バッチID"
-    );
-    println!(
-        "{:-<6}-+-{:-<6}-+-{:-<12}-+-{:-<20}-+-{:-<14}-+-{}",
-        "", "", "", "", "", ""
-    );
-
-    for task in &filtered {
-        println!(
-            "{:<6} | {:<6} | {:<12} | {:<20} | {:<14} | {}",
-            task.id.unwrap_or(0),
-            task.parent_run_id,
-            format_task_status(&task.status),
-            truncate_str(&task.subject, 20),
-            task.block_type.as_deref().unwrap_or("-"),
-            task.batch_id.as_deref().unwrap_or("-"),
-        );
-    }
-
-    println!("\n合計: {} 件", filtered.len());
-    Ok(())
-}
-
-/// サブタスクの詳細を表示する。
-pub fn handle_task_show(task_id: i64) -> Result<(), Box<dyn std::error::Error>> {
-    let store = open_db()?;
-    let store = Arc::new(store);
-    let manager = TaskManager::new(Arc::clone(&store));
-
-    let task = manager
-        .get_task(task_id)
-        .map_err(|e| format!("タスク取得エラー: {}", e))?;
-
-    println!("{}", "═".repeat(55));
-    println!("  タスク ID:      {}", task.id.unwrap_or(0));
-    println!("  親実行 ID:      {}", task.parent_run_id);
-    println!("  件名:           {}", task.subject);
-    println!("  ステータス:     {}", format_task_status(&task.status));
-    println!(
-        "  ブロック種別:   {}",
-        task.block_type.as_deref().unwrap_or("-")
-    );
-    println!("  worktree:       {}", task.worktree);
-    println!(
-        "  バッチ ID:      {}",
-        task.batch_id.as_deref().unwrap_or("-")
-    );
-    println!(
-        "  実行 ID:        {}",
-        task.execution_id.map_or("-".to_string(), |v| v.to_string())
-    );
-    println!("  作成日時:       {}", task.created_at);
-    println!("  更新日時:       {}", task.updated_at);
-    println!("{}", "─".repeat(55));
-    println!("  説明:");
-    println!("    {}", task.description);
-
-    if let Some(ref inputs) = task.inputs_json {
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(inputs) {
-            println!("  入力:");
-            println!(
-                "    {}",
-                serde_json::to_string_pretty(&parsed).unwrap_or_default()
-            );
-        }
-    }
-
-    if let Some(ref deps) = task.depends_on_json {
-        if let Ok(parsed) = serde_json::from_str::<Vec<String>>(deps) {
-            if !parsed.is_empty() {
-                println!("  依存タスク:     {}", parsed.join(", "));
-            }
-        }
-    }
-
-    println!("{}", "═".repeat(55));
-    Ok(())
-}
-
-/// タスクの pane 出力をキャプチャする（task_capture 用・P4）。
-///
-/// タスクの最新ラウンドの実行レコードから pane を特定し、
-/// `herdr pane read` で最近の出力テキストを取得する。
-pub fn handle_task_capture(task_id: i64, lines: u32) -> Result<(), Box<dyn std::error::Error>> {
-    let store = Arc::new(open_db()?);
-    let manager = TaskManager::new(Arc::clone(&store));
-
-    let task = manager
-        .get_task(task_id)
-        .map_err(|e| format!("タスク取得エラー: {}", e))?;
-
-    let exec_id = task
-        .execution_id
-        .ok_or_else(|| format!("タスク {} はまだ実行されていません", task_id))?;
-    let exec = store
-        .get_execution_by_id(exec_id)
-        .map_err(|e| format!("実行レコード取得エラー: {}", e))?;
-    let pane_id = exec
-        .herdr_pane_id
-        .ok_or_else(|| format!("実行 {} に pane がありません", exec_id))?;
-
-    let client = sai_link_engine::herdr::HerdrClient::new();
-    let output = client
-        .read_pane_output(&pane_id, lines)
-        .map_err(|e| format!("pane 読み取りに失敗: {}", e))?;
-
-    if output.is_empty() {
-        println!("(pane '{}' の出力は空です)", pane_id);
-    } else {
-        println!("{}", output);
-    }
-    Ok(())
-}
-
 /// タスクを操作する（task_manage 用・P4）。
 ///
 /// `agent_api::task_manage` に委譲する（通知を書く処理を二重に持たない）。
@@ -2038,17 +2371,6 @@ pub fn handle_task_manage(
             .and_then(|m| m.as_str())
             .unwrap_or("(結果なし)")
     );
-    Ok(())
-}
-
-/// pending 通知を処理する。
-///
-/// **デーモン化に伴い無効化**（§7.1.2・D17）。
-/// 通知処理はデーモンが自動で行うため、このコマンドは無効化メッセージを表示して終了する。
-pub fn handle_task_poll(_all: bool) -> Result<(), Box<dyn std::error::Error>> {
-    println!("⚠ `sai task poll` は無効化されています。");
-    println!("   通知処理は sai デーモンが自動で行います。");
-    println!("   `sai daemon start` でデーモンを起動してください。");
     Ok(())
 }
 
@@ -2169,17 +2491,6 @@ pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Erro
     }
 }
 
-/// タスクステータスを表示用にフォーマットする。
-fn format_task_status(status: &str) -> &str {
-    match status {
-        "pending" => "⏳ 承認待ち",
-        "approved" => "✅ 承認済み",
-        "in_progress" => "🔄 実行中",
-        "completed" => "✅ 完了",
-        "failed" => "❌ 失敗",
-        _ => status,
-    }
-}
 
 // 非対話実行は `kanban_run::kanban_block_run` に一本化されているため、
 // `handle_block_run_non_interactive`（後方互換ラッパー）は削除済み。

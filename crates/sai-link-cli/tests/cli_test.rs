@@ -45,7 +45,7 @@ fn cleanup_temp_dir(dir: &PathBuf) {
 // CLI 引数パーステスト
 // ============================================================================
 
-/// `--help` が Sai-Engine の説明を含むこと
+/// `--help` が Sai-Engine の説明と新しい命令の木を含み、古いグループを出さないこと
 #[test]
 fn test_cli_help() {
     let output = Command::new(sai_binary())
@@ -58,10 +58,17 @@ fn test_cli_help() {
         stdout.contains("Sai-Engine"),
         "ヘルプに Sai-Engine が含まれること"
     );
-    assert!(
-        stdout.contains("block"),
-        "ヘルプに block サブコマンドが含まれること"
-    );
+    // 新しい木のグループが出る
+    for name in ["card", "run", "doc", "task", "def", "project", "session", "schema"] {
+        assert!(stdout.contains(name), "ヘルプに {name} が含まれること: {stdout}");
+    }
+    // 古いグループは隠れている
+    for name in ["phone", "agent", "block-def"] {
+        assert!(
+            !stdout.contains(name),
+            "ヘルプに古いグループ {name} が出ないこと: {stdout}"
+        );
+    }
 }
 
 /// `block --help` が 3 つのサブコマンドを表示すること
@@ -496,5 +503,275 @@ fn test_init_creates_engine_db_and_registers() {
     assert!(root.join(".sai/sai-engine/sai-engine.db").exists(), "DB が作られること");
     let registry = std::fs::read_to_string(home.join("registry.json")).unwrap();
     assert!(registry.contains("init-check"), "登録簿に名前が載ること");
+    cleanup_temp_dir(&dir);
+}
+
+// ============================================================================
+// U06: 新しい命令の木と CLI 共通の約束
+// ============================================================================
+
+/// `.sai/` を持つ一時プロジェクトを作る（DB は命令を打った時点でできる）。
+fn create_temp_project() -> PathBuf {
+    let dir = create_temp_dir();
+    std::fs::create_dir_all(dir.join(".sai")).expect("`.sai/` 作成に失敗");
+    dir
+}
+
+/// 標準入力を与えて実行し、出力を返す。
+fn run_with_stdin(args: &[&str], dir: &std::path::Path, input: &[u8]) -> std::process::Output {
+    use std::io::Write;
+    let mut child = Command::new(sai_binary())
+        .args(args)
+        .env("SAI_PROJECT_ROOT", dir)
+        .env_remove("SAI_PARENT_RUN_ID")
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("コマンド起動に失敗");
+    child
+        .stdin
+        .take()
+        .expect("stdin を取れること")
+        .write_all(input)
+        .expect("標準入力の書き込みに失敗");
+    child.wait_with_output().expect("実行に失敗")
+}
+
+/// `run tree` と古い `phone tree` が同じ出力を返すこと。
+#[test]
+fn test_cli_run_tree_matches_phone_tree() {
+    let dir = create_temp_project();
+    let run = Command::new(sai_binary())
+        .args(["run", "tree"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let phone = Command::new(sai_binary())
+        .args(["phone", "tree"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(run.status.success(), "run tree: {}", String::from_utf8_lossy(&run.stderr));
+    assert!(phone.status.success(), "phone tree: {}", String::from_utf8_lossy(&phone.stderr));
+    assert_eq!(run.stdout, phone.stdout, "run tree と phone tree は同じ出力");
+    cleanup_temp_dir(&dir);
+}
+
+/// `card options` と古い `phone card options` が同じ出力を返すこと。
+#[test]
+fn test_cli_card_options_matches_phone() {
+    let dir = create_temp_project();
+    let new = Command::new(sai_binary())
+        .args(["card", "options"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let old = Command::new(sai_binary())
+        .args(["phone", "card", "options"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(new.status.success(), "card options: {}", String::from_utf8_lossy(&new.stderr));
+    assert!(old.status.success(), "phone card options: {}", String::from_utf8_lossy(&old.stderr));
+    assert_eq!(new.stdout, old.stdout, "card options と phone card options は同じ出力");
+    cleanup_temp_dir(&dir);
+}
+
+/// `task wait` の件数の検査（0 件・51 件は終了コード 2、2 件は pending 付き JSON）。
+#[test]
+fn test_cli_task_wait_counts() {
+    let dir = create_temp_project();
+    // 0 件は clap が弾く
+    let zero = Command::new(sai_binary())
+        .args(["task", "wait"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(zero.status.code(), Some(2), "0 件は 2");
+    // 51 件は 2
+    let mut args: Vec<String> = vec!["task".into(), "wait".into()];
+    for i in 1..=51 {
+        args.push(i.to_string());
+    }
+    let many = Command::new(sai_binary())
+        .args(&args)
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(many.status.code(), Some(2), "51 件は 2");
+    // 2 件・待たない: pending 付きの JSON
+    let two = Command::new(sai_binary())
+        .args(["task", "wait", "1", "2", "--timeout-ms", "0"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(two.status.success(), "task wait 1 2: {}", String::from_utf8_lossy(&two.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&two.stdout).expect("JSON であること");
+    assert!(value.get("pending").is_some(), "pending が付く: {value:?}");
+    cleanup_temp_dir(&dir);
+}
+
+/// `run show 999999` は終了コード 3・stdout 空・stderr 1 行。
+#[test]
+fn test_cli_run_show_not_found() {
+    let dir = create_temp_project();
+    let out = Command::new(sai_binary())
+        .args(["run", "show", "999999"])
+        .env("SAI_PROJECT_ROOT", &dir)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "見つからない: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(out.stdout.is_empty(), "stdout は空");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "stderr は 1 行: {stderr:?}");
+    cleanup_temp_dir(&dir);
+}
+
+/// `run show abc` は終了コード 2・stderr の最後の行が `引数の誤り: ` で始まる。
+#[test]
+fn test_cli_run_show_parse_error() {
+    let out = Command::new(sai_binary())
+        .args(["run", "show", "abc"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "引数の誤りは 2");
+    assert!(out.stdout.is_empty(), "stdout は空");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let last = stderr
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .last()
+        .unwrap_or("");
+    assert!(
+        last.starts_with("引数の誤り: "),
+        "最後の行が「引数の誤り: 」で始まる: {stderr:?}"
+    );
+}
+
+/// `.sai/` の無いフォルダで `run list` は終了コード 2。
+#[test]
+fn test_cli_run_list_without_project() {
+    let dir = create_temp_dir();
+    let home = create_temp_dir();
+    let out = Command::new(sai_binary())
+        .args(["run", "list"])
+        .env_remove("SAI_PROJECT_ROOT")
+        .env("HOME", &home)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "プロジェクトが無ければ 2: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty(), "stdout は空");
+    cleanup_temp_dir(&dir);
+    cleanup_temp_dir(&home);
+}
+
+/// ホームの `.sai/` をプロジェクトと見なさない。
+#[test]
+fn test_cli_run_list_ignores_home_sai() {
+    let base = create_temp_dir().canonicalize().unwrap();
+    let home = base.join("home");
+    let sub = home.join("sub");
+    std::fs::create_dir_all(home.join(".sai")).unwrap();
+    std::fs::create_dir_all(&sub).unwrap();
+    let out = Command::new(sai_binary())
+        .args(["run", "list"])
+        .env_remove("SAI_PROJECT_ROOT")
+        .env("HOME", &home)
+        .current_dir(&sub)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "ホームの .sai は数えない: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    cleanup_temp_dir(&base);
+}
+
+/// `schema --json` が「schema の形」で出る。
+#[test]
+fn test_cli_schema_json() {
+    let out = Command::new(sai_binary())
+        .args(["schema", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "schema: {}", String::from_utf8_lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(value["bin"], "sai-moon-link");
+    let commands = value["commands"].as_array().expect("commands 配列");
+    let card_create = commands
+        .iter()
+        .find(|c| c["path"] == serde_json::json!(["card", "create"]))
+        .expect("card create があること");
+    assert_eq!(card_create["stdin"], "json");
+    assert_eq!(card_create["json"], true);
+    let doc_write = commands
+        .iter()
+        .find(|c| c["path"] == serde_json::json!(["doc", "write"]))
+        .expect("doc write があること");
+    assert_eq!(doc_write["web"], false, "doc write は Web に出さない");
+    // 隠した命令は出ない
+    for hidden in ["phone", "agent", "block", "block-def", "mcp", "search"] {
+        assert!(
+            commands.iter().all(|c| {
+                c["path"].as_array().and_then(|p| p.first()).and_then(|x| x.as_str())
+                    != Some(hidden)
+            }),
+            "隠した命令 {hidden} が出ないこと"
+        );
+    }
+}
+
+/// `card create` の `meta` が task.md の frontmatter に書かれる。
+#[test]
+fn test_cli_card_create_writes_meta() {
+    let dir = create_temp_project();
+    let out = run_with_stdin(
+        &["card", "create"],
+        &dir,
+        br#"{"task_text":"hello","meta":{"sci_node":"Q12"}}"#,
+    );
+    assert!(
+        out.status.success(),
+        "card create: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let path = value["path"].as_str().expect("path があること");
+    let text = std::fs::read_to_string(path).expect("task.md を読めること");
+    assert!(text.contains("sci_node: Q12"), "meta が frontmatter に書かれる: {text}");
+    cleanup_temp_dir(&dir);
+}
+
+/// `card create` の `meta` は標準のキーを断る（終了コード 2）。
+#[test]
+fn test_cli_card_create_rejects_standard_meta() {
+    let dir = create_temp_project();
+    let out = run_with_stdin(
+        &["card", "create"],
+        &dir,
+        br#"{"task_text":"x","meta":{"run_id":"7"}}"#,
+    );
+    assert_eq!(out.status.code(), Some(2), "標準のキーは 2");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("標準のキー"), "理由を出す: {stderr:?}");
     cleanup_temp_dir(&dir);
 }

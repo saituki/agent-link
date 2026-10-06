@@ -53,7 +53,7 @@ pub enum PreRunOutcome {
 /// `.sai/settings.json` の `pre_run` を読んで実行する。
 ///
 /// 未設定・空なら何もせず [`PreRunOutcome::NotConfigured`] を返します。
-/// 作業フォルダと環境変数（`SAI_PROJECT_ROOT` / `SAI_PAPER_ROOT`）には
+/// 作業フォルダと環境変数（`SAI_PROJECT_ROOT`）には
 /// [`crate::project::project_root`] を使います。打ち切りは 20 秒です。
 pub fn run_if_configured() -> PreRunOutcome {
     let (settings, _warnings) = crate::pi_command::load_settings_quiet();
@@ -70,7 +70,7 @@ pub fn run_if_configured() -> PreRunOutcome {
 /// # 引数
 ///
 /// * `cmd` — 配列の先頭がプログラム、残りが引数（シェルは通さない）
-/// * `root` — 作業フォルダ。`SAI_PROJECT_ROOT` / `SAI_PAPER_ROOT` にも入れる
+/// * `root` — 作業フォルダ。`SAI_PROJECT_ROOT` にも入れる
 /// * `timeout` — この時間を超えたらプロセスを kill する
 ///
 /// 標準入力は閉じ、標準出力・標準エラーは読み取ります（失敗のときだけ
@@ -103,12 +103,12 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
 /// 命令を実行して、0 で終わったら標準出力を返す（最大 [`MAX_CAPTURE_CHARS`] 文字）。
 ///
 /// 失敗・時間切れは理由（先頭 [`MAX_CAPTURE_REASON_CHARS`] 文字）を `Err` で返す。
-/// `envs` は [`run_with`] が入れる 2 つに加えて足す環境変数。
+/// `envs` は [`run_with`] が入れる環境変数に加えて足す環境変数。
 ///
 /// # 引数
 ///
 /// * `cmd` — 配列の先頭がプログラム、残りが引数（シェルは通さない）
-/// * `root` — 作業フォルダ。`SAI_PROJECT_ROOT` / `SAI_PAPER_ROOT` にも入る
+/// * `root` — 作業フォルダ。`SAI_PROJECT_ROOT` にも入る
 /// * `envs` — 追加の環境変数（例: `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME`）
 /// * `timeout` — この時間を超えたらプロセスを kill する
 pub fn run_capture(
@@ -168,7 +168,6 @@ fn run_child(
         .args(&cmd[1..])
         .current_dir(root)
         .env("SAI_PROJECT_ROOT", root)
-        .env("SAI_PAPER_ROOT", root)
         .stdin(if stdin_text.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -432,8 +431,7 @@ mod tests {
         let cmd = vec![
             "sh".to_string(),
             "-c".to_string(),
-            "test \"$SAI_PAPER_ROOT\" = \"$SAI_PROJECT_ROOT\" \
-             && test \"$SAI_PAPER_ROOT\" = \"$PWD\""
+            "test \"$SAI_PROJECT_ROOT\" = \"$PWD\""
                 .to_string(),
         ];
         // 作業フォルダもプロジェクトルートであること（$PWD で確認）を併せて検証する。
