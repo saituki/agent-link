@@ -43,7 +43,7 @@
 //! use sai_link_engine::init::init_project;
 //!
 //! // カレントディレクトリをプロジェクトルートとして初期化
-//! let report = init_project(std::path::Path::new("."))
+//! let report = init_project(std::path::Path::new("."), false)
 //!     .expect("プロジェクトの初期化に失敗しました");
 //!
 //! for path in &report.created {
@@ -54,6 +54,8 @@
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
+
+use crate::assets::AssetOutcome;
 
 /// 初期化で作成するディレクトリ一覧（`.sai/` からの相対パス）。
 ///
@@ -140,6 +142,11 @@ pub struct InitReport {
     pub created: Vec<PathBuf>,
     /// 退避した既存ファイル（元のパス, 退避先）
     pub backed_up: Vec<(PathBuf, PathBuf)>,
+    /// 配った基盤の block・template（パス, 結果）。
+    ///
+    /// 設定ファイルと違い、block・template は毎回作り直さない。`--update` のときだけ
+    /// 中身が違う物を退避して置き換える（[`crate::assets`] を参照）。
+    pub assets: Vec<(PathBuf, AssetOutcome)>,
 }
 
 /// プロジェクトルート直下の `.sai/` ディレクトリのパスを返す。
@@ -153,7 +160,10 @@ pub fn sai_dir(root: &Path) -> PathBuf {
 /// cc と pi の設定ファイル（`.mcp.json` / `.claude/settings.json` / `.pi/settings.json`）は
 /// 毎回作り直す（既存は退避する）。design skill も同じように作り直す。pi は `.mcp.json` も
 /// 読むので、MCP は cc と共通。
-pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
+///
+/// 基盤の block・template は、無ければ書き、`update` が true なら中身が違う物を退避して
+/// 新しい版に置き換える（`<root>/.sai/blocks/`・`<root>/.sai/template/`）。
+pub fn init_project(root: &Path, update: bool) -> Result<InitReport, InitError> {
     let base = sai_dir(root);
     let mut report = InitReport::default();
 
@@ -172,6 +182,9 @@ pub fn init_project(root: &Path) -> Result<InitReport, InitError> {
         std::fs::write(&settings_path, "{}\n")?;
         report.created.push(settings_path);
     }
+
+    // 基盤の block・template（無ければ書き、--update なら中身が違う物を置き換える）
+    crate::assets::install_assets(&base, update, &mut report)?;
 
     // Claude Code と pi の設定ファイル
     std::fs::create_dir_all(root.join(".claude/commands"))?;
@@ -310,7 +323,9 @@ fn yaml_quoted(value: &str) -> String {
 }
 
 /// 退避先 `<名前>.bak`（既にあれば `<名前>.bak.<YYYYMMDD-HHMMSS>`）。
-fn backup_path(path: &Path) -> PathBuf {
+///
+/// 設定ファイルと基盤の部品（[`crate::assets`]）の両方で使う。
+pub(crate) fn backup_path(path: &Path) -> PathBuf {
     let bak = PathBuf::from(format!("{}.bak", path.display()));
     if !bak.exists() {
         return bak;
@@ -329,7 +344,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
 
-        let created = init_project(root).unwrap().created;
+        let created = init_project(root, false).unwrap().created;
 
         // .sai/ 直下の主要フォルダが存在する
         for rel in [
@@ -409,7 +424,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
 
-        init_project(root).unwrap();
+        init_project(root, false).unwrap();
 
         for base in [".claude/skills", ".pi/skills"] {
             for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
@@ -435,7 +450,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
 
-        let first = init_project(root).unwrap();
+        let first = init_project(root, false).unwrap();
         assert!(first.backed_up.is_empty());
         assert!(root.join(".mcp.json").is_file());
         assert!(root.join(".claude/settings.json").is_file());
@@ -447,7 +462,7 @@ mod tests {
         std::fs::write(&marker, "keep").unwrap();
         std::fs::write(root.join(".mcp.json"), "old").unwrap();
 
-        let second = init_project(root).unwrap();
+        let second = init_project(root, false).unwrap();
 
         // .sai/ の既存ファイルは書き換えられていない
         assert!(std::fs::read_to_string(&settings).unwrap().contains("marker"));
@@ -474,7 +489,7 @@ mod tests {
         assert!(mcp["mcpServers"]["sai"].is_object());
 
         // 3 回目は .bak が既にあるので日時付きで退避される
-        let third = init_project(root).unwrap();
+        let third = init_project(root, false).unwrap();
         assert!(third.backed_up[0].1.to_string_lossy().contains(".bak."));
     }
 
@@ -483,5 +498,123 @@ mod tests {
     fn test_sai_dir() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(sai_dir(dir.path()), dir.path().join(".sai"));
+    }
+
+    /// 空のフォルダに基盤の block 10 本と template 12 本が配られ、
+    /// block の frontmatter が `model: inherit` で `provider:` を持たないこと。
+    #[test]
+    fn test_init_project_installs_base_assets() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        init_project(root, false).unwrap();
+
+        assert_eq!(crate::assets::BASE_BLOCKS.len(), 10);
+        assert_eq!(crate::assets::BASE_TEMPLATES.len(), 12);
+        for (name, _) in crate::assets::BASE_BLOCKS {
+            let p = root.join(".sai/blocks").join(name);
+            assert!(p.is_file(), "欠落: {}", p.display());
+            let text = std::fs::read_to_string(&p).unwrap();
+            assert!(text.contains("model: inherit"), "{name}: {text}");
+            let fm = text.split("---\n").nth(1).unwrap();
+            assert!(
+                !fm.lines().any(|l| l.starts_with("provider:")),
+                "{name} に provider: がある: {fm}"
+            );
+        }
+        for (name, _) in crate::assets::BASE_TEMPLATES {
+            let p = root.join(".sai/template").join(name);
+            assert!(p.is_file(), "欠落: {}", p.display());
+        }
+    }
+
+    /// template は `--update` のときだけ置き換え、変えた物は `.bak` に逃がすこと。
+    #[test]
+    fn test_init_project_updates_template_only_with_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_project(root, false).unwrap();
+
+        let path = root.join(".sai/template/sai-task.md");
+        let shipped = crate::assets::BASE_TEMPLATES
+            .iter()
+            .find(|(n, _)| *n == "sai-task.md")
+            .unwrap()
+            .1;
+        std::fs::write(&path, "古い中身\n").unwrap();
+
+        // --update なしでは変わらない
+        init_project(root, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "古い中身\n");
+        assert!(!root.join(".sai/template/sai-task.md.bak").exists());
+
+        // --update ありでは新しい版になり、.bak に古い中身が残る
+        init_project(root, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), shipped);
+        assert_eq!(
+            std::fs::read_to_string(root.join(".sai/template/sai-task.md.bak")).unwrap(),
+            "古い中身\n"
+        );
+    }
+
+    /// block の更新では `model`・`provider`・`thinking` を元の値で残し、
+    /// 本文は新しい版に置き換えること。
+    #[test]
+    fn test_init_project_update_block_keeps_user_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_project(root, false).unwrap();
+
+        let path = root.join(".sai/blocks/kantoku.md");
+        let old = "---\nname: 🎬 kantoku\nid: kantoku\ndescription: 手で直した\nmodel: sonnet\nprovider: x\nthinking: max\ntemplates: sai-base\nworktree: none\nenable: true\n---\n\n利用者が書いた古い本文\n";
+        std::fs::write(&path, old).unwrap();
+
+        init_project(root, true).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("model: sonnet\n"), "{text}");
+        assert!(text.contains("provider: x\n"), "{text}");
+        assert!(text.contains("thinking: max\n"), "{text}");
+        assert!(!text.contains("model: inherit"), "{text}");
+        assert!(!text.contains("利用者が書いた古い本文"), "{text}");
+        // 本文は新しい版（frontmatter の後ろが一致する）
+        let shipped = crate::assets::BASE_BLOCKS
+            .iter()
+            .find(|(n, _)| *n == "kantoku.md")
+            .unwrap()
+            .1;
+        assert_eq!(
+            text.split("---\n").nth(2).unwrap(),
+            shipped.split("---\n").nth(2).unwrap()
+        );
+        // 元のファイルは .bak に逃がす
+        assert!(root.join(".sai/blocks/kantoku.md.bak").is_file());
+    }
+
+    /// 中身が新しい版と同じときは `--update` でも `.bak` を作らないこと。
+    #[test]
+    fn test_init_project_update_no_backup_when_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_project(root, false).unwrap();
+
+        init_project(root, true).unwrap();
+
+        assert!(!root.join(".sai/template/sai-task.md.bak").exists());
+        assert!(!root.join(".sai/blocks/kantoku.md.bak").exists());
+    }
+
+    /// 配る block がすべて既存の parser で読めること。
+    #[test]
+    fn test_base_blocks_parse() {
+        for (name, content) in crate::assets::BASE_BLOCKS {
+            let parsed = crate::parser::parse_block_string(content)
+                .unwrap_or_else(|e| panic!("{name} を解析できない: {e}"));
+            assert_eq!(
+                parsed.config.id.as_deref(),
+                Some(name.trim_end_matches(".md")),
+                "{name}"
+            );
+        }
     }
 }
