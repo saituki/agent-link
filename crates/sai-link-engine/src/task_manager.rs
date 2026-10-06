@@ -358,15 +358,27 @@ pub enum PlacementResult {
 /// - 新規バッチ: 直前バッチのアンカー（`batch_anchors`）を `Down` 分割して縦に展開（mb1.1）。
 /// - 最初のバッチ: `root` を `Right` 分割して最初の行を作る（mb1）。
 ///
+/// `batch_anchors`・`batch_last` に残った pane が既に閉じられている場合
+/// （確定・削除で pane だけが消えた場合）は、その pane を基点にしない。
+/// 代わりに今ある pane から決める `next_split_target` にフォールバックする。
+///
+/// # 引数
+///
+/// * `effective` — root を除いた、タブ内に今ある実 pane の `(pane_id, x, y)` 一覧。
+/// * `root_exists` — ルートペインがタブ内に今もあるか（未使用 root の生死判定用）。
+///
 /// # 戻り値
 ///
-/// `(分割基底paneID, 分割方向, 新規バッチか)`。
+/// `(分割基底paneID, 分割方向, 新規バッチか)`。WIP 上限に達していて分割できないときは `None`。
 pub fn resolve_batch_split(
     g: &TabGroup,
     rb: i64,
     root_pane_id: &str,
-) -> (String, SplitDirection, bool) {
-    if let Some(last) = g.batch_last.get(&rb) {
+    effective: &[(String, i64, i64)],
+    root_exists: bool,
+) -> Option<(String, SplitDirection, bool)> {
+    // 今の規則どおりに基点と方向を決める
+    let (cand, dir, new_batch) = if let Some(last) = g.batch_last.get(&rb) {
         // 同一バッチ内: 行の右端を Right 分割して横並び
         (last.clone(), SplitDirection::Right, false)
     } else {
@@ -386,6 +398,17 @@ pub fn resolve_batch_split(
             SplitDirection::Down
         };
         (base, dir, true)
+    };
+
+    // 基点が今もあるか確かめる。閉じられていたらグリッド配置へ戻す。
+    // 未使用のルートペインだけは `effective` から除かれているため別に判定する。
+    let alive = effective.iter().any(|(p, _, _)| *p == cand)
+        || (cand == root_pane_id && !g.root_used && root_exists);
+    if alive {
+        Some((cand, dir, new_batch))
+    } else {
+        // 新しいバッチかどうかは元の判定のまま返す（呼び出し側のアンカー登録のため）
+        next_split_target(effective, root_pane_id).map(|(b, d)| (b, d, new_batch))
     }
 }
 
@@ -893,7 +916,17 @@ impl TaskManager {
             };
 
             match task.run_batch_id {
-                Some(rb) => resolve_batch_split(g, rb, &root_pane_id),
+                Some(rb) => match resolve_batch_split(
+                    g,
+                    rb,
+                    &root_pane_id,
+                    &effective,
+                    root_exists,
+                ) {
+                    Some((b, d, nb)) => (b, d, nb),
+                    // 閉じた基点しか無く、今ある pane も分割できない（WIP 上限）
+                    None => return Ok(PlacementResult::Waiting),
+                },
                 None => {
                     // run_batch 未紐付け: 従来のグリッド配置へフォールバック
                     match next_split_target(&effective, &root_pane_id) {
@@ -4423,30 +4456,39 @@ main "$@"
             batch_last: std::collections::HashMap::new(),
             batch_order: Vec::new(),
         };
+        // タブ内に今ある実 pane（テストの流れに合わせて増やす）
+        let mut effective: Vec<(String, i64, i64)> = Vec::new();
 
         // バッチ1 最初のタスク: root を Right 分割（mb1 位置）
-        let (base, dir, new) = resolve_batch_split(&g, 1, "root");
+        let (base, dir, new) =
+            resolve_batch_split(&g, 1, "root", &effective, true).expect("配置できるはず");
         assert_eq!((base.as_str(), dir), ("root", D::Right));
         assert!(new, "最初のバッチは新規バッチ");
         // 状態更新（resolve_pane_placement と同じ処理を再現）
         g.batch_order.push(1);
         g.batch_anchors.insert(1, "mb1".to_string());
         g.batch_last.insert(1, "mb1".to_string());
+        effective.push(("mb1".to_string(), 0, 0));
 
         // バッチ1 の 2 つ目: mb1 の右（sb1）
-        let (base, dir, new) = resolve_batch_split(&g, 1, "root");
+        let (base, dir, new) =
+            resolve_batch_split(&g, 1, "root", &effective, true).expect("配置できるはず");
         assert_eq!((base.as_str(), dir), ("mb1", D::Right));
         assert!(!new);
         g.batch_last.insert(1, "sb1".to_string());
+        effective.push(("sb1".to_string(), 100, 0));
 
         // バッチ1 の 3 つ目: sb1 の右（sb2）
-        let (base, dir, new) = resolve_batch_split(&g, 1, "root");
+        let (base, dir, new) =
+            resolve_batch_split(&g, 1, "root", &effective, true).expect("配置できるはず");
         assert_eq!((base.as_str(), dir), ("sb1", D::Right));
         assert!(!new);
         g.batch_last.insert(1, "sb2".to_string());
+        effective.push(("sb2".to_string(), 200, 0));
 
         // バッチ2 最初: 直前アンカー mb1 の下（mb1.1）
-        let (base, dir, new) = resolve_batch_split(&g, 2, "root");
+        let (base, dir, new) =
+            resolve_batch_split(&g, 2, "root", &effective, true).expect("配置できるはず");
         assert_eq!(
             (base.as_str(), dir),
             ("mb1", D::Down),
@@ -4456,10 +4498,64 @@ main "$@"
         g.batch_order.push(2);
         g.batch_anchors.insert(2, "mb1.1".to_string());
         g.batch_last.insert(2, "mb1.1".to_string());
+        effective.push(("mb1.1".to_string(), 0, 100));
 
         // バッチ2 の 2 つ目: mb1.1 の右（sb3）
-        let (base, dir, new) = resolve_batch_split(&g, 2, "root");
+        let (base, dir, new) =
+            resolve_batch_split(&g, 2, "root", &effective, true).expect("配置できるはず");
         assert_eq!((base.as_str(), dir), ("mb1.1", D::Right));
         assert!(!new);
+    }
+
+    /// U04: 直前バッチのアンカー（`batch_anchors`）が閉じられていたら、
+    /// 今ある pane から決める `next_split_target` にフォールバックする。
+    #[test]
+    fn test_resolve_batch_split_falls_back_when_anchor_closed() {
+        use crate::herdr::SplitDirection as D;
+        let mut g = TabGroup {
+            tab_id: "t1".to_string(),
+            root_pane_id: "root".to_string(),
+            root_used: true,
+            batch_anchors: std::collections::HashMap::new(),
+            batch_last: std::collections::HashMap::new(),
+            batch_order: Vec::new(),
+        };
+        g.batch_order.push(1);
+        g.batch_anchors.insert(1, "mb1".to_string());
+        g.batch_last.insert(1, "sb1".to_string());
+
+        // mb1 は閉じられ、sb1 だけが今ある
+        let effective = vec![("sb1".to_string(), 0, 0)];
+        let (base, dir, new) = resolve_batch_split(&g, 2, "root", &effective, true)
+            .expect("今ある pane から配置できるはず");
+        assert_eq!(base, "sb1", "閉じた mb1 ではなく今ある pane を使う");
+        assert_eq!(dir, D::Right);
+        assert!(new, "新しいバッチの判定は元のまま");
+    }
+
+    /// U04: 同一バッチの `batch_last` が閉じられていたら、
+    /// 今ある pane から決める `next_split_target` にフォールバックする。
+    #[test]
+    fn test_resolve_batch_split_falls_back_when_last_closed() {
+        use crate::herdr::SplitDirection as D;
+        let mut g = TabGroup {
+            tab_id: "t1".to_string(),
+            root_pane_id: "root".to_string(),
+            root_used: true,
+            batch_anchors: std::collections::HashMap::new(),
+            batch_last: std::collections::HashMap::new(),
+            batch_order: Vec::new(),
+        };
+        g.batch_order.push(1);
+        g.batch_anchors.insert(1, "mb1".to_string());
+        g.batch_last.insert(1, "mb1".to_string());
+
+        // mb1 は閉じられ、sb1・sb2 が今ある
+        let effective = vec![("sb1".to_string(), 0, 0), ("sb2".to_string(), 100, 0)];
+        let (base, dir, new) = resolve_batch_split(&g, 1, "root", &effective, true)
+            .expect("今ある pane から配置できるはず");
+        assert_eq!(base, "sb2", "閉じた mb1 ではなく今ある pane を使う");
+        assert_eq!(dir, D::Right);
+        assert!(!new, "同一バッチの判定は元のまま");
     }
 }
