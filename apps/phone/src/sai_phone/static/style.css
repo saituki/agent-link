@@ -2888,3 +2888,77 @@ code {
 
 /* md の中の waggle 参照（押すとその文書へ） */
 .md-doc a.md-waggle { overflow-wrap: anywhere; }
+
+/* --- Web の「コマンド」画面（U10） --- */
+/* Project 上部の切り替えは 6 つになった。狭い画面では横に送れるようにする。 */
+.proj-bar .list-mode .dash-seg { overflow-x: auto; }
+.proj-bar .list-mode .dash-seg button {
+  flex: 0 0 auto; padding: 6px 8px; white-space: nowrap; font-size: 12px;
+}
+
+.cmd-body { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.cmd-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cmd-cli-seg { width: auto; }
+.cmd-cli-seg button { padding: 6px 14px; }
+.cmd-filter {
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.cmd-list { display: flex; flex-direction: column; }
+.cmd-group { font-size: 12px; color: var(--text-soft); margin: 10px 0 4px; }
+.cmd-item {
+  text-align: left; background: none; border: none; border-bottom: 1px solid var(--line);
+  color: var(--text); font: inherit; padding: 8px 4px; cursor: pointer;
+}
+.cmd-item.active { color: var(--accent); font-weight: 600; }
+.cmd-main { min-width: 0; }
+.cmd-title { font-size: 16px; margin: 0 0 4px; }
+.cmd-about { color: var(--text-soft); font-size: 13px; margin: 0 0 10px; }
+.cmd-fields { display: flex; flex-direction: column; gap: 10px; }
+.cmd-field { display: flex; flex-direction: column; gap: 4px; }
+.cmd-label { font-size: 13px; font-weight: 600; }
+.cmd-input {
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.cmd-help { font-size: 12px; color: var(--text-soft); margin: 0; }
+.cmd-run-row { margin: 12px 0; }
+.cmd-result {
+  background: var(--bg-soft); border-radius: 8px; padding: 10px;
+  overflow: auto; max-height: 50vh; font-size: 13px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cmd-result:empty { display: none; }
+
+@media (min-width: 900px) {
+  .cmd-body { flex-direction: row; align-items: flex-start; gap: 24px; }
+  .cmd-side { width: 300px; flex: none; max-height: calc(100vh - 120px); overflow: auto; }
+  .cmd-main { flex: 1; }
+}
+
+/* --- 会話の検索の画面（U10） --- */
+.sess-body { padding: 12px 16px 24px; }
+.sess-form { display: flex; flex-direction: column; gap: 12px; }
+.sess-field { display: flex; flex-direction: column; gap: 4px; }
+.sess-label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.sess-input {
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.sess-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sess-check-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.sess-check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.sess-run-row { display: flex; justify-content: flex-end; }
+.sess-results { margin-top: 16px; }
+.sess-count { color: var(--text-soft); font-size: 13px; margin: 0 0 8px; }
+.sess-run { border-top: 1px solid var(--line); padding: 10px 0; }
+.sess-run-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.sess-run-head a { font-weight: 600; color: var(--accent); text-decoration: none; }
+.sess-run-count { font-size: 12px; color: var(--text-soft); }
+.sess-hit { display: flex; gap: 8px; font-size: 12px; color: var(--text-soft); }
+.sess-hit-type { font-weight: 600; }
+.sess-hit-text { font-size: 14px; margin: 2px 0 8px; overflow-wrap: anywhere; }
+
+@media (min-width: 900px) {
+  .sess-grid { grid-template-columns: repeat(3, 1fr); }
+}
