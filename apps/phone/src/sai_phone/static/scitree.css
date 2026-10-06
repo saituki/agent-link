@@ -565,6 +565,46 @@ button.sci-debt {
 .sci-logic-dim { color: var(--text); opacity: 0.7; }
 
 .sci-target-input { width: 96px; min-height: 44px; font: inherit; padding: 0 8px; }
+
+/* 見出しの ★・Answer/Issue の釦（枠・背景なしの文字の釦） */
+.sci-head-star, .sci-head-kind {
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0.4;
+}
+.sci-head-star.on, .sci-head-kind.on { opacity: 1; font-weight: 700; }
+
+/* 文と本文の下の Edit / Delete の行 */
+.sci-node-edit { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* History の 1 行（run_id のある行は釦） */
+.sci-history-row {
+  display: block;
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+  text-align: left;
+}
+button.sci-history-row {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+button.sci-history-row:hover, button.sci-history-row:focus-visible { text-decoration: underline; }
+
+/* 出典の cite の並び（楕円は使わない） */
+.sci-cites { display: flex; flex-wrap: wrap; gap: 8px; }
+.sci-cite { font-size: 14px; color: var(--text); }
 .sci-action {
   display: flex;
   flex-wrap: wrap;
