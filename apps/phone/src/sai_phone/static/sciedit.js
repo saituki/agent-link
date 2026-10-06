@@ -662,10 +662,13 @@ function seFieldChain(key, label, nodes, init) {
       const sel = document.createElement("select");
       sel.className = "sai-input sci-edit-select";
       sel.setAttribute("aria-label", stageLabel(i));
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = i === 1 ? "選ぶ" : "ここで止める";
-      sel.appendChild(none);
+      // 1 段目（開始の Q）は必ずどれかを選ぶので、空の選択肢は置かない（候補が 1 つも無いときだけ置く）。
+      if (i !== 0 || !row.options.length) {
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = i === 1 ? "選ぶ" : "ここで止める";
+        sel.appendChild(none);
+      }
       for (const [value, text] of row.options) {
         const o = document.createElement("option");
         o.value = value;
