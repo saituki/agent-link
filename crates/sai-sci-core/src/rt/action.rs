@@ -552,11 +552,13 @@ mod tests {
         block(&e, "u", "sci_done_agent: report, review, f_added\n");
         run(&e, "done", 11, "u", "");
         fs::write(e.dir.join(".sai/outputs/done/11/task.md"), "---\nrunner: user\nblock: u\nsci_node: Q1\nsci_purpose: p\n---\n").unwrap();
+        crate::link::forget(&e.dir);
         let d: Vec<_> = debts(e.db.connection(), &e.roots).unwrap().into_iter().filter(|d| d.run_id == 11).collect();
         assert_eq!(d.iter().map(|d| (d.side.as_str(), d.criterion.as_str())).collect::<Vec<_>>(), [("user", "f_added")]);
 
         run(&e, "running", 12, "u", "");
         run(&e, "todo", 13, "u", "");
+        crate::link::forget(&e.dir);
         let d = debts(e.db.connection(), &e.roots).unwrap();
         assert!(d.iter().all(|d| d.run_id < 12));
         let a = activity(e.db.connection(), &e.roots).unwrap();

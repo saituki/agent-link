@@ -130,6 +130,15 @@ fn handoff_error(error: HandoffError) -> RtError {
         HandoffError::Sqlite(e) => RtError::Db(e),
         HandoffError::Json(e) => RtError::Json(e),
         HandoffError::BlockNotFound(id) => RtError::Invalid(format!("ブロック定義がありません: {id}")),
+        // sai-link の 3（見つからない）はそのまま伝える。
+        HandoffError::Link(error) => {
+            let message = format!("カードを作れませんでした: {error}");
+            if error.code == 3 {
+                RtError::NotFound(message)
+            } else {
+                RtError::Invalid(message)
+            }
+        }
         other => RtError::Invalid(format!("カードを作れませんでした: {other}")),
     }
 }
@@ -399,7 +408,6 @@ mod tests {
         let data_dir = dir.join(".sai/paper");
         fs::create_dir_all(&data_dir).unwrap();
         fs::create_dir_all(dir.join(".sai/blocks")).unwrap();
-        fs::create_dir_all(dir.join(".sai/sai-engine")).unwrap();
         for b in ["sci-ideate", "sci-read"] {
             fs::write(
                 dir.join(format!(".sai/blocks/{b}.md")),
@@ -407,12 +415,6 @@ mod tests {
             )
             .unwrap();
         }
-        let conn = Connection::open(dir.join(".sai/sai-engine/sai-engine.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE block_metadata (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, display_name TEXT, description TEXT, model TEXT, thinking TEXT, tools TEXT, extensions TEXT, max_turns INTEGER, timeout INTEGER, worktree TEXT, enable INTEGER, file_path TEXT NOT NULL);\n CREATE TABLE execution_history (id INTEGER PRIMARY KEY AUTOINCREMENT, block_id INTEGER, status TEXT, user_inputs_json TEXT, execution_mode TEXT);",
-        )
-        .unwrap();
-        drop(conn);
         let db = Database::open(&data_dir.join("papr.db")).unwrap();
         db.connection()
             .execute("INSERT INTO papers (id, title, published_at) VALUES (37, '論文 37', '2021-05-01')", [])
@@ -566,5 +568,20 @@ mod tests {
         s.executer = "agent".into();
         s.runner = "cc".into();
         assert!(err(&e, &s).contains("runner が pi"));
+    }
+
+    /// sai-link の終了コード 3（見つからない）は NotFound に、ほかは Invalid に直す。
+    #[test]
+    fn link_error_keeps_not_found_code() {
+        let not_found = handoff_error(HandoffError::Link(crate::bins::BinError {
+            code: 3,
+            message: "x".into(),
+        }));
+        assert!(matches!(not_found, RtError::NotFound(_)), "{not_found:?}");
+        let invalid = handoff_error(HandoffError::Link(crate::bins::BinError {
+            code: 2,
+            message: "x".into(),
+        }));
+        assert!(matches!(invalid, RtError::Invalid(_)), "{invalid:?}");
     }
 }

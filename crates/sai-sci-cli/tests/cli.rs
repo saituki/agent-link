@@ -60,13 +60,32 @@ fn write_script(path: &Path, body: &str) {
     }
 }
 
-/// 偽の `sai-moon-link`（呼ばれた引数を `ARGS_LOG` に足し、settings.json を無ければ作る）。
+/// 偽の `sai-moon-link`。
+///
+/// - 呼ばれた引数を `ARGS_LOG` に足す。
+/// - `run list --json` は空の run の一覧を出す。
+/// - `card create` は標準入力の JSON を残し、todo に task.md を作って
+///   `{"run_id","path","executer"}` を出す。
+/// - `init` では settings.json を無ければ作る。
 fn fake_link(dir: &Path) -> PathBuf {
     let path = dir.join("fake-link.sh");
     write_script(
         &path,
         "#!/bin/sh\n\
          echo \"link $@\" >> \"$ARGS_LOG\"\n\
+         case \"$1 $2\" in\n\
+           \"run list\")\n\
+             echo '{\"runs\":[]}'\n\
+             exit 0\n\
+             ;;\n\
+           \"card create\")\n\
+             cat > \"${FAKE_CARD:-/dev/null}\"\n\
+             mkdir -p .sai/outputs/todo/1\n\
+             printf '# task_text\\n' > .sai/outputs/todo/1/task.md\n\
+             echo \"{\\\"run_id\\\":1,\\\"path\\\":\\\"$PWD/.sai/outputs/todo/1/task.md\\\",\\\"executer\\\":\\\"agent\\\"}\"\n\
+             exit 0\n\
+             ;;\n\
+         esac\n\
          [ -f .sai/settings.json ] || { mkdir -p .sai; echo '{}' > .sai/settings.json; }\n\
          echo \"link done\"\n",
     );

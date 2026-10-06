@@ -299,25 +299,21 @@ pub fn list_reports(conn: &Connection, paper_id: Option<i64>) -> Result<Vec<Repo
 /// report の md の実パスを解決する。
 ///
 /// 登録時のパスが無い場合（run が `running` → `done` → `R<n>` と進んで移動した場合）、
-/// `run_id` から `<root>/.sai/outputs/*/<run_id>/<ファイル名>` を探す。
+/// `sai-moon-link run list --json` の同じ `run_id` の `dir` の下の
+/// 同じファイル名を探す。
 #[must_use]
 pub fn resolve_md_path(report: &Report) -> Option<PathBuf> {
     let stored = Path::new(&report.md_path);
     if stored.is_file() {
         return Some(stored.to_path_buf());
     }
-    let run_id = report.run_id.as_deref()?;
+    let run_id: i64 = report.run_id.as_deref()?.trim().parse().ok()?;
     let filename = stored.file_name()?;
     let root = sai_paper_core::paths::project_root()?;
-    let outputs = root.join(".sai").join("outputs");
-    let entries = std::fs::read_dir(&outputs).ok()?;
-    for entry in entries.flatten() {
-        let candidate = entry.path().join(run_id).join(filename);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
+    let runs = crate::link::runs(&root).ok()?;
+    let run = runs.into_iter().find(|run| run.run_id == run_id)?;
+    let candidate = run.dir?.join(filename);
+    candidate.is_file().then_some(candidate)
 }
 
 /// report の md 本文を読み出す。
@@ -1786,6 +1782,7 @@ mod tests {
             root.join(".sai/outputs/running/5"),
             root.join(".sai/outputs/R3/5"),
         )?;
+        crate::link::forget(&root);
         let third = scan(&conn, &root)?;
         assert_eq!(third.added, 0);
         assert_eq!(third.updated, 2);
@@ -1797,6 +1794,7 @@ mod tests {
             root.join(".sai/outputs/R3/5/paper-map-a.md"),
             "---\nkind: 分野の地図\nblock: paper-search\npapers: [37]\n---\n\n本文 [#37]。\n",
         );
+        crate::link::forget(&root);
         let fourth = scan(&conn, &root)?;
         assert_eq!(fourth.updated, 1);
         assert_eq!(report_sources(&conn, &map_id)?.len(), 1);

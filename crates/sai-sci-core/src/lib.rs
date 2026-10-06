@@ -5,6 +5,9 @@
 pub mod attention;
 pub mod bins;
 pub mod brief;
+#[cfg(test)]
+pub(crate) mod fake_link;
+pub mod link;
 pub mod citation_check;
 pub mod dsr_check;
 pub mod handoff;

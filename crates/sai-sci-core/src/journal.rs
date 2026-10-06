@@ -1,7 +1,7 @@
 //! 研究日誌（S01）: 記録から「日ごとに何が起きたか」を並べる。
 //!
-//! LLM は使わない。sai-paper の `papr.db`、sai-link の `sai-engine.db`、
-//! 実行フォルダ（`.sai/outputs/`）の記録を読み、**手元の時刻（ローカル）の 0 時**で
+//! LLM は使わない。sai-paper の `papr.db`、sai-link の実行の一覧、
+//! 実行フォルダ（`run list --json` の `dir`）の記録を読み、**手元の時刻（ローカル）の 0 時**で
 //! 日に分けて 1 日に 1 つの [`JournalDay`] にまとめる。
 //!
 //! - ファイルには保存しない（開くたびに記録から作る）。
@@ -14,7 +14,7 @@
 //!   `understanding.created_at` は `2026-09-24 00:58:38`（SQLite の
 //!   `CURRENT_TIMESTAMP` = UTC）。
 //! - `search_sets.searched_at` は `2026-09-23T21:49:41+09:00`（時差つき）。
-//! - sai-link の `execution_history.started_at` などは `2026-09-25 06:01:02`
+//! - sai-link の実行の開始時刻などは `2026-09-25 06:01:02`
 //!   （`datetime('now')` = UTC）。
 //!
 //! [`parse_time_in`] は時差つきをその時差で、時差なしを UTC として読む。
@@ -24,7 +24,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -255,7 +255,7 @@ fn collect_at(
     // 研究方針の表が無い古い DB では研究方針の行は出さない（他はそのまま作る）。
     let _ = gather_sci(conn, &mut days, from, to, offset);
     // sai-link の DB は「読めなくても研究日誌は作る」方針なので、失敗は捨てる。
-    let _ = gather_runs(roots, &mut days, from, to, offset);
+    gather_runs(roots, &mut days, from, to, offset);
 
     Ok(days
         .into_iter()
@@ -296,6 +296,9 @@ fn parse_time_in(value: &str, offset: FixedOffset) -> Option<DateTime<FixedOffse
         return Some(datetime.with_timezone(&offset));
     }
     if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
+        return Some(naive.and_utc().with_timezone(&offset));
+    }
+    if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y/%m/%d %H:%M:%S") {
         return Some(naive.and_utc().with_timezone(&offset));
     }
     if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
@@ -675,7 +678,7 @@ impl SciLine {
     }
 }
 
-/// sai-link の `execution_history` からエージェントの実行を集める。
+/// sai-link の `run list --json` からエージェントの実行を集める。
 ///
 /// 子の実行は親の行に `（子 N 件）` と添えるだけにする（親だけを並べる）。
 fn gather_runs(
@@ -684,57 +687,39 @@ fn gather_runs(
     from: NaiveDate,
     to: NaiveDate,
     offset: FixedOffset,
-) -> rusqlite::Result<()> {
-    let db_path = roots
-        .root
-        .join(".sai")
-        .join("sai-engine")
-        .join("sai-engine.db");
-    if !db_path.exists() {
-        return Ok(());
-    }
-    let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+) {
+    let Ok(runs) = crate::link::runs(&roots.root) else {
+        return;
+    };
 
     let mut children: HashMap<i64, usize> = HashMap::new();
-    {
-        let mut stmt = conn.prepare(
-            "SELECT parent_run_id, COUNT(*) FROM execution_history
-             WHERE parent_run_id IS NOT NULL GROUP BY parent_run_id",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-        })?;
-        for row in rows {
-            let (parent, count) = row?;
-            children.insert(parent, usize::try_from(count).unwrap_or(0));
+    for run in &runs {
+        if let Some(parent) = run.parent_run_id {
+            *children.entry(parent).or_default() += 1;
         }
     }
 
-    let run_dirs: HashMap<i64, PathBuf> = runs::list_run_dirs(&roots.root)
-        .into_iter()
-        .map(|run| (run.run_id, run.path))
+    let run_dirs: HashMap<i64, PathBuf> = runs
+        .iter()
+        .filter_map(|run| run.dir.clone().map(|dir| (run.run_id, dir)))
         .collect();
 
-    let mut stmt = conn.prepare(
-        "SELECT e.id, COALESCE(b.name, ''), e.status, COALESCE(e.started_at, e.created_at)
-         FROM execution_history e
-         LEFT JOIN block_metadata b ON b.id = e.block_id
-         WHERE e.parent_run_id IS NULL",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-        ))
-    })?;
-    for row in rows {
-        let (run_id, block, status, time) = row?;
-        let Some(date) = date_in_range(&time, offset, from, to) else {
+    for run in &runs {
+        if run.parent_run_id.is_some() {
+            continue;
+        }
+        // 時刻は `started_at`、空なら `created_at`。
+        let time = if run.started_at.is_empty() {
+            run.created_at.as_str()
+        } else {
+            run.started_at.as_str()
+        };
+        let Some(date) = date_in_range(time, offset, from, to) else {
             continue;
         };
-        let dev = !runs::is_research_block(&roots.root, &block);
+        let run_id = run.run_id;
+        let block = run.block.as_str();
+        let dev = !runs::is_research_block(&roots.root, block);
         let files = run_dirs
             .get(&run_id)
             .map(|path| run_md_files(path))
@@ -743,7 +728,10 @@ fn gather_runs(
         if dev {
             text.push_str("（開発）");
         }
-        text.push_str(&format!("実行 run {run_id} {block}（{}）", status_label(&status)));
+        text.push_str(&format!(
+            "実行 run {run_id} {block}（{}）",
+            status_label(&run.status)
+        ));
         if let Some(count) = children.get(&run_id).copied().filter(|count| *count > 0) {
             text.push_str(&format!("（子 {count} 件）"));
         }
@@ -768,7 +756,6 @@ fn gather_runs(
             text,
         });
     }
-    Ok(())
 }
 
 /// 実行フォルダの md（`task.md` などの引き継ぎ用を除く）を名前順で返す。
@@ -1279,9 +1266,9 @@ mod tests {
         Ok(())
     }
 
-    /// sai-link の DB から実行を取り、開発用ブロックには印を付ける。
+    /// sai-link の `run list --json` から実行を取り、開発用ブロックには印を付ける。
     #[test]
-    fn runs_come_from_sai_link_db() -> Result<(), Box<dyn std::error::Error>> {
+    fn runs_come_from_sai_link() -> Result<(), Box<dyn std::error::Error>> {
         let root = temp_root("runs");
         // 研究用ブロック（`project-brief` テンプレート付き）。
         fs::create_dir_all(root.join(".sai/blocks")).unwrap();
@@ -1292,27 +1279,28 @@ mod tests {
         .unwrap();
         fs::create_dir_all(root.join(".sai/outputs/running/41")).unwrap();
         fs::write(root.join(".sai/outputs/running/41/answer.md"), "答\n").unwrap();
-        fs::write(root.join(".sai/outputs/running/41/task.md"), "---\n---\n").unwrap();
-        fs::create_dir_all(root.join(".sai/sai-engine")).unwrap();
-        {
-            let link = Connection::open(root.join(".sai/sai-engine/sai-engine.db"))?;
-            link.execute_batch(
-                "CREATE TABLE block_metadata (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-                 CREATE TABLE execution_history (
-                     id INTEGER PRIMARY KEY, block_id INTEGER, status TEXT,
-                     started_at TEXT, created_at TEXT, parent_run_id INTEGER);",
-            )?;
-            link.execute(
-                "INSERT INTO block_metadata (id, name) VALUES (41, 'paper-library-qa'), (42, 'main')",
-                [],
-            )?;
-            link.execute(
-                "INSERT INTO execution_history (id, block_id, status, started_at, created_at)
-                 VALUES (41, 41, 'completed', '2026-09-25 03:00:00', '2026-09-25 03:00:00'),
-                        (42, 42, 'completed', '2026-09-25 05:00:00', '2026-09-25 05:00:00')",
-                [],
-            )?;
-        }
+        crate::fake_link::write_runs(
+            &root,
+            &[
+                serde_json::json!({
+                    "run_id": 41, "block": "paper-library-qa", "tag": "",
+                    "status": "completed", "lane": "running",
+                    "parent_run_id": null, "global_round": "", "round": "",
+                    "created_at": "2026-09-25 03:00:00",
+                    "started_at": "2026-09-25 03:00:00",
+                    "finished_at": "", "description": "",
+                    "dir": root.join(".sai/outputs/running/41").display().to_string(),
+                }),
+                serde_json::json!({
+                    "run_id": 42, "block": "main", "tag": "",
+                    "status": "completed", "lane": "done",
+                    "parent_run_id": null, "global_round": "", "round": "",
+                    "created_at": "2026-09-25 05:00:00",
+                    "started_at": "2026-09-25 05:00:00",
+                    "finished_at": "", "description": "", "dir": null,
+                }),
+            ],
+        );
 
         let db = Database::in_memory()?;
         let conn = db.connection();
