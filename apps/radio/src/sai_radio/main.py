@@ -1,11 +1,11 @@
-"""sai-radio 本体サーバー (Mac 側)．sai-phone から中継で使われる裏方サーバー．
+"""sai-radio 本体サーバー (Mac 側)．sai-web から中継で使われる裏方サーバー．
 
 - 登録済み論文の一覧・音声配信
 - 質問(録音)を受け取り，回答音声を返す
 - ログ(いつ・どの論文を聞いたか／質問したか)の確認
 - 新規論文の登録(sai-paper連携・CLI)
 
-画面は持たない(画面は sai-phone の Papers タブ → Radio)．
+画面は持たない(画面は sai-web の Papers タブ → Radio)．
 """
 
 from __future__ import annotations
@@ -278,7 +278,7 @@ async def api_from_extract(
 ) -> dict:
     """sai-paper から：抽出済みMarkdown + paper_id/title を受け取り，ポッドキャスト音声を生成する．
 
-    sai-paper の `r` キーと sai-phone の「音声を作る」の両方がこの窓口を使う．
+    sai-paper の `r` キーと sai-web の「音声を作る」の両方がこの窓口を使う．
     処理には数分かかる．同期的に応答を待つ．
     """
     if req.mode != "podcast":
@@ -298,5 +298,5 @@ async def api_from_extract(
 
     return {"paper_id": paper.id, "title": paper.title, "mode": paper.mode}
 
-# 画面は持たない(11-cleanup §3 A)．画面は sai-phone (Papers タブ → Radio) が持つ，
+# 画面は持たない(11-cleanup §3 A)．画面は sai-web (Papers タブ → Radio) が持つ，
 # GET / は 404 になる．
