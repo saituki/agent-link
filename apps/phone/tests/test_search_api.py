@@ -68,7 +68,7 @@ def test_calls(cli: FakeCli) -> None:
     cli.calls.clear()
     assert control.phone_search("demo", " mlflow  run ") == {"items": [], "truncated": False}
     assert cli.calls[-1] == [
-        "sai-moon-link", "phone", "search",
+        "sai-moon-link", "doc", "search",
         "--word", "mlflow  run", "--category", "task,message,waggle", "--limit", "50",
     ], cli.calls[-1]
 
@@ -84,7 +84,7 @@ def test_calls(cli: FakeCli) -> None:
         limit=5,
     )
     assert cli.calls[-1] == [
-        "sai-moon-link", "phone", "search",
+        "sai-moon-link", "doc", "search",
         "--word", "x", "--category", "task,waggle", "--limit", "5",
         "--since", "2026-09-01", "--until", "2026-09-30", "--block", "worker",
         "--from-id", "10", "--to-id", "99",

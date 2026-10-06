@@ -3,17 +3,19 @@ task.md 作成と新形式 todo の実行は計画 15、
 一覧・Dashboard・常駐の操作の移設は実装計画 C）。
 
  sai-phone は DB を直接開かない（00 §2）ため，ここはすべて CLI に頼る。
- - 一覧       : 登録簿（`registry.load_registry`）+ `sai-link phone summary`
- - Dashboard  : `sai-link phone dashboard --period …`（cwd = プロジェクトの root）
+ - 一覧       : 登録簿（`registry.load_registry`）+ `sai-link project summary`
+ - Dashboard  : `sai-link project dashboard --period …`（cwd = プロジェクトの root）
  - 常駐の操作 : `sai-link daemon <start|stop>`（cwd = プロジェクトの root・文字出力）
- - 書き出し   : `sai-link phone export`（cwd = プロジェクトの root）
- - List 画面  : `sai-link phone tree / run <id> --view … / md <id> --kind … / waggle <id> [--token …]`
-   （cwd = root かつ `SAI_PROJECT_ROOT` = root。値の検査と 400 / 404 / 502 もここで）
- - 作成フォーム: `sai-link phone card options / inputs --block <id> / create`（計画 15 §1.5）
- - ▶ 実行     : `sai-link phone card run <run_id>`（新形式 todo・計画 15）
+ - 書き出し   : `sai-link run export`（cwd = プロジェクトの root）
+ - List 画面  : `sai-link run tree / run log|stats|history <id> / run md <id> --kind … /
+   doc list --run <id> / doc read <token>`
+   （cwd = root かつ `SAI_PROJECT_ROOT` = root，`SAI_ORIGIN` = phone。値の検査と
+   400 / 404 / 409 / 502 もここで・共有契約「Web が CLI を呼ぶ約束」）
+ - 作成フォーム: `sai-link card options / create`（計画 15 §1.5。入力は task_text に統一）
+ - ▶ 実行     : `sai-link card run <run_id>`（新形式 todo・計画 15）
  - Workflow と定義の編集（U3）:
-     - Workflow 盤面: `sai-link phone workflow`
-     - 定義（block / template / settings）: `sai-link phone def list / show / write / delete`
+     - Workflow 盤面: `sai-link workflow`
+     - 定義（block / template / settings）: `sai-link def list / show / write / delete`
        （検査と 400 / 404 / 409 / 502 の分け方もここで）
 """
 
@@ -29,7 +31,7 @@ from datetime import date
 from fastapi import HTTPException
 
 from sai_phone import registry, runs
-from sai_phone.cli import run_cli
+from sai_phone.cli import raise_for_failure, run_cli, run_json
 from sai_phone.config import settings
 
 logger = logging.getLogger("sai_phone")
@@ -53,12 +55,6 @@ _PHONE_MD_KINDS = ("task", "message", "report", "system")
 _PHONE_MD_WRITABLE = ("task",)
 # waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き・計画 12 §3.3）
 _PHONE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
-# md が無いときに sai-link が返す stderr（終了コード 3・計画 12 §3.2）
-_PHONE_MISSING = "まだありません"
-# 未実行カードが無いときに sai-link が返す stderr（終了コード 3・計画 15 の ▶ 実行）
-_PHONE_MISSING_START = "未実行のカードが見つかりません"
-# 実行が見つからないときに sai-link が返す stderr（終了コード 3・メッセージ画面の ■ 終了）
-_PHONE_MISSING_RUN = "実行が見つかりません"
 
 # --- task.md 作成フォーム（計画 15 §1.5・§3.3）で受け取る値の検査 ---
 # runner / thinking は一覧の値だけ（TUI の RUNNER_OPTIONS / THINKING_OPTIONS と同じ）
@@ -66,10 +62,6 @@ _CARD_RUNNERS = ("user", "pi", "cc", "gl")
 _CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
 # provider / model に許す文字（`openrouter-xiaomi` / `deepseek/deepseek-v4-flash` など）
 _CARD_NAME_RE = re.compile(r"^[A-Za-z0-9._:/@+-]{1,200}$")
-# file_token 入力の値は「waggle:<token>」をカンマ区切りで（TUI の validate_card_spec と同じ形）
-_CARD_TOKENS_RE = re.compile(
-    r"^waggle:[A-Za-z0-9._:-]+(\s*,\s*waggle:[A-Za-z0-9._:-]+)*$"
-)
 # task_text の上限（100KB・UTF-8 のバイト数で数える・計画 15 §3.3）
 _TASK_TEXT_MAX = 100 * 1024
 # global_round / round は数字（空 = スキップ）
@@ -95,7 +87,7 @@ def _project_summary(name: str, root: str) -> dict:
     if not root:
         return empty
     try:
-        data = _phone_json(["summary"], root=root, timeout=10.0)
+        data = _phone_json(["project", "summary"], root=root, timeout=10.0)
     except HTTPException as e:
         logger.warning(f"最小集計に失敗（一覧は続けます）: {name}: {e.detail}")
         return empty
@@ -173,9 +165,10 @@ def export_runs(project: dict) -> None:
     _last_export[name] = now
     try:
         run_cli(
-            [settings.sai_link_bin, "phone", "export"],
+            [settings.sai_link_bin, "run", "export"],
             app="sai-link",
             cwd=root,
+            env=_phone_env(root),
             timeout=10,
         )
     except HTTPException as e:
@@ -192,7 +185,7 @@ def dashboard(name: str, period: str) -> dict:
     if not project.get("db_exists"):
         raise HTTPException(status_code=404, detail="このプロジェクトにはまだ実行の記録がありません")
     export_runs(project)
-    data = _phone_json(["dashboard", "--period", period], root=project["root"])
+    data = _phone_json(["project", "dashboard", "--period", period], root=project["root"])
     # recent の各行に description と linkable を足す（06 §3.3）。
     # メッセージ画面は書き出しファイルが無いと開けないため。
     root = project.get("root") or ""
@@ -234,13 +227,14 @@ def daemon(name: str, action: str) -> dict:
         lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
         fallback = "起動を要求しました" if action == "start" else "停止を要求しました"
         return {"ok": True, "message": lines[-1].strip() if lines else fallback}
-    msg = (proc.stderr or proc.stdout or "").strip()
-    logger.warning(f"常駐の操作に失敗: {name} {action}: {msg[:300]}")
-    raise HTTPException(status_code=502, detail=(msg[:200] or "失敗しました"))
+    # 失敗は JSON を返す命令と同じ読み替え（共有契約「Web が CLI を呼ぶ約束」）
+    logger.warning(f"常駐の操作に失敗: {name} {action}")
+    raise_for_failure("sai-link", proc)
+    raise AssertionError("raise_for_failure は必ず失敗させる")
 
 
 def _phone_env(root: str) -> dict:
-    """`sai-link phone …` 用の環境変数。
+    """`sai-link <新しい命令>` 用の環境変数。
 
     `SAI_PROJECT_ROOT` はデーモン起動時に設定された値が優先されるため，
     起動元の環境に引きずられず選んだプロジェクトの DB を開けるよう，
@@ -248,6 +242,8 @@ def _phone_env(root: str) -> dict:
     """
     env = dict(os.environ)
     env["SAI_PROJECT_ROOT"] = root
+    # 記録の出どころ（CLI 共通の約束 6）。DB に残る値は既存と同じ `phone`
+    env["SAI_ORIGIN"] = "phone"
     return env
 
 
@@ -256,39 +252,26 @@ def _phone_json(
     *,
     root: str,
     timeout: float = 20.0,
-    missing: str = _PHONE_MISSING,
     stdin_text: str | None = None,
 ):
-    """`sai-link phone …`（cwd = プロジェクトの root）を呼んで JSON を返す（計画 12 §3.1）。
+    """`sai-link <新しい命令>`（cwd = プロジェクトの root）を呼んで JSON を返す。
 
-    - 終了コード 0: 標準出力の JSON をそのまま返す。
-    - 終了コード 3 かつ stderr が `missing` と同じ: 404（`missing` は呼び出し側で
-      文言を渡せる・md は「まだありません」、▶ 実行は「未実行のカードが見つかりません」）。
-    - それ以外の失敗: 502 に stderr の先頭 200 文字（計画 12 §3.1）。
-    - JSON として読めない: 502。
-    - `stdin_text` は標準入力へ渡す（`card create` の JSON・計画 15 §1.5）。
+    読み替えは `cli.run_json` の 1 か所に集めた（共有契約「Web が CLI を呼ぶ約束」）。
+    終了コード 3 は文に関係なく 404，2 は 400，4 は 409，1 とそのほかは 502。
+    `stdin_text` は標準入力へ渡す（`card create` の JSON・計画 15 §1.5）。
+
+    テストが `control.run_cli` を差し替えても効くよう，`runner` にこのモジュールの
+    `run_cli`（差し替え可能な名前）を渡す。
     """
-    proc = run_cli(
-        [settings.sai_link_bin, "phone", *args],
+    return run_json(
+        [settings.sai_link_bin, *args],
         app="sai-link",
         cwd=root,
         env=_phone_env(root),
         timeout=timeout,
         input_text=stdin_text,
+        runner=run_cli,
     )
-    err = (proc.stderr or "").strip()
-    if proc.returncode == 3 and err == missing:
-        raise HTTPException(status_code=404, detail=missing)
-    if proc.returncode != 0:
-        logger.warning(f"sai-link phone が失敗: {' '.join(args)}: {err[:300]}")
-        raise HTTPException(
-            status_code=502, detail=(err or "sai-link が失敗しました")[:200]
-        )
-    try:
-        return json.loads(proc.stdout or "")
-    except (json.JSONDecodeError, TypeError):
-        logger.warning(f"sai-link phone の応答を読めません: {' '.join(args)}")
-        raise HTTPException(status_code=502, detail="sai-link の応答を読めませんでした")
 
 
 def _phone_project(name: str) -> dict:
@@ -312,13 +295,13 @@ def _check_run_id(run_id: int) -> None:
 
 
 def phone_tree(name: str) -> dict:
-    """`sai-link phone tree`（左サイドバーと同じツリー・計画 12 §3.2）。"""
+    """`sai-link run tree`（左サイドバーと同じツリー・計画 12 §3.2）。"""
     project = _phone_project(name)
-    return _phone_json(["tree"], root=project["root"])
+    return _phone_json(["run", "tree"], root=project["root"])
 
 
 def phone_run_view(name: str, run_id: int, view: str) -> dict:
-    """`sai-link phone run <id> --view <view>`（Log / Stats / History・計画 12 §3.2）。"""
+    """`sai-link run log|stats|history <id>`（Log / Stats / History・計画 12 §3.2）。"""
     _check_run_id(run_id)
     if view not in _PHONE_VIEWS:
         raise HTTPException(
@@ -326,11 +309,11 @@ def phone_run_view(name: str, run_id: int, view: str) -> dict:
             detail="view は log / stats / history のいずれかにしてください",
         )
     project = _phone_project(name)
-    return _phone_json(["run", str(run_id), "--view", view], root=project["root"])
+    return _phone_json(["run", view, str(run_id)], root=project["root"])
 
 
 def phone_md(name: str, run_id: int, kind: str) -> dict:
-    """`sai-link phone md <id> --kind <kind>`（無いときは 404・計画 12 §3.2）。"""
+    """`sai-link run md <id> --kind <kind>`（無いときは 404・計画 12 §3.2）。"""
     _check_run_id(run_id)
     if kind not in _PHONE_MD_KINDS:
         raise HTTPException(
@@ -338,14 +321,14 @@ def phone_md(name: str, run_id: int, kind: str) -> dict:
             detail="kind は task / message / report / system のいずれかにしてください",
         )
     project = _phone_project(name)
-    return _phone_json(["md", str(run_id), "--kind", kind], root=project["root"])
+    return _phone_json(["run", "md", str(run_id), "--kind", kind], root=project["root"])
 
 
 def phone_md_save(name: str, run_id: int, kind: str, text) -> dict:
-    """`sai-link phone md <id> --kind <kind> --write`（本文は標準入力・保存後の本文を返す）。
+    """`sai-link run md <id> --kind <kind> --write`（本文は標準入力・保存後の本文を返す）。
 
-    - 未実行のカードでない task（実行済み・送信済み）は 404「未実行のカードが見つかりません」。
-    - frontmatter を壊す内容などその他の失敗は 502 に stderr の先頭 200 文字。
+    - 未実行のカードでない task（実行済み・送信済み）は 404（CLI の文をそのまま使う）。
+    - frontmatter を壊す内容などその他の失敗は共有契約の読み替え。
     """
     _check_run_id(run_id)
     if kind not in _PHONE_MD_WRITABLE:
@@ -354,21 +337,25 @@ def phone_md_save(name: str, run_id: int, kind: str, text) -> dict:
         raise HTTPException(status_code=400, detail="本文は 100KB までの文字にしてください")
     project = _phone_project(name)
     return _phone_json(
-        ["md", str(run_id), "--kind", kind, "--write"],
+        ["run", "md", str(run_id), "--kind", kind, "--write"],
         root=project["root"],
-        missing=_PHONE_MISSING_START,
         stdin_text=text,
     )
 
 
 def phone_waggle(name: str, run_id: int, token: str | None = None) -> dict:
-    """`sai-link phone waggle <id> [--token <t>]`（成果物の一覧と本文・計画 12 §3.2）。"""
+    """`sai-link doc list --run <id> --json` / `doc read <token> --json`（成果物の一覧と本文）。
+
+    画面が読む項目（`items[].token|label|description|status|ref`・`token|label|text`）は
+    今までと同じ形で返す。
+    """
     _check_run_id(run_id)
-    args = ["waggle", str(run_id)]
     if token is not None:
         if not _PHONE_TOKEN_RE.match(token or ""):
             raise HTTPException(status_code=400, detail="token の指定が正しくありません")
-        args += ["--token", token]
+        args = ["doc", "read", token, "--json"]
+    else:
+        args = ["doc", "list", "--run", str(run_id), "--json"]
     project = _phone_project(name)
     return _phone_json(args, root=project["root"])
 
@@ -436,7 +423,7 @@ def phone_search(
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _SEARCH_LIMIT_MAX:
         raise HTTPException(status_code=400, detail=f"件数は 1〜{_SEARCH_LIMIT_MAX} にしてください")
 
-    args = ["search", "--word", word, "--category", ",".join(cats), "--limit", str(limit)]
+    args = ["doc", "search", "--word", word, "--category", ",".join(cats), "--limit", str(limit)]
     for flag, value in (
         ("--since", since),
         ("--until", until),
@@ -451,19 +438,9 @@ def phone_search(
 
 
 def phone_card_options(name: str) -> dict:
-    """`sai-link phone card options`（ウィザードの選択肢・計画 15 §1.5）。"""
+    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。"""
     project = _phone_project(name)
     return _phone_json(["card", "options"], root=project["root"])
-
-
-def phone_card_inputs(name: str, block: str) -> dict:
-    """`sai-link phone card inputs --block <id>`（手順 4 の入力欄と候補・計画 15 §1.5）。"""
-    if not _PHONE_TOKEN_RE.match(block or ""):
-        raise HTTPException(status_code=400, detail="block の指定が正しくありません")
-    project = _phone_project(name)
-    return _phone_json(
-        ["card", "inputs", "--block", block], root=project["root"]
-    )
 
 
 def _validate_card_payload(payload: dict) -> dict:
@@ -472,8 +449,10 @@ def _validate_card_payload(payload: dict) -> dict:
     - `block` / 入力のキーは英数字と `-_.:` のみ
     - `task_text` は 100KB（UTF-8 のバイト数）まで
     - `runner` / `thinking` は一覧の値
-    - file_token 入力の値は `waggle:` 形式（カンマ区切り）
     返すのは形をそろえた dict（送る JSON そのもの）。
+
+    `inputs` は受け取っても検査も送りもしない（入力は task_text に統一した）。
+    古い画面がしばらく送ってくるかもしれないが、断らない。
     """
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="送る値が正しくありません")
@@ -542,25 +521,7 @@ def _validate_card_payload(payload: dict) -> dict:
             status_code=400, detail="tag は 64 文字までの 1 行にしてください"
         )
 
-    # file_token 入力（`{"plan_doc": "waggle:abc, waggle:def"}`）
-    raw_inputs = payload.get("inputs", {})
-    if raw_inputs is None:
-        raw_inputs = {}
-    if not isinstance(raw_inputs, dict) or len(raw_inputs) > 64:
-        raise HTTPException(
-            status_code=400, detail="inputs は対の形で送ってください"
-        )
-    inputs: dict[str, str] = {}
-    for key, value in raw_inputs.items():
-        if not isinstance(key, str) or not _PHONE_TOKEN_RE.match(key):
-            raise HTTPException(
-                status_code=400, detail="inputs の名前が正しくありません"
-            )
-        if not isinstance(value, str) or not _CARD_TOKENS_RE.match(value):
-            raise HTTPException(
-                status_code=400, detail="トークンは waggle: 形式で指定してください"
-            )
-        inputs[key] = value
+    # file_token 入力（古い画面が送る `inputs`）は受け取っても使わない（入力は task_text に統一）
 
     task_text = text("task_text")
     if len(task_text.encode("utf-8")) > _TASK_TEXT_MAX:
@@ -570,7 +531,6 @@ def _validate_card_payload(payload: dict) -> dict:
         "done_ids": done_ids,
         "runner": runner,
         "block": block,
-        "inputs": inputs,
         "provider": text("provider"),
         "model": text("model"),
         "thinking": thinking,
@@ -582,7 +542,7 @@ def _validate_card_payload(payload: dict) -> dict:
 
 
 def phone_card_create(name: str, payload: dict) -> dict:
-    """`sai-link phone card create`（stdin に JSON・作成後は todo に配置・計画 15 §1.5）。"""
+    """`sai-link card create`（stdin に JSON・作成後は todo に配置・計画 15 §1.5）。"""
     data = _validate_card_payload(payload)
     project = _phone_project(name)
     return _phone_json(
@@ -593,18 +553,17 @@ def phone_card_create(name: str, payload: dict) -> dict:
 
 
 def phone_card_start(name: str, run_id: int) -> dict:
-    """`sai-link phone card run <run_id>`（新形式 todo の ▶ 実行・計画 15）。
+    """`sai-link card run <run_id>`（新形式 todo の ▶ 実行・計画 15）。
 
     - 成功: `{'run_id': N, 'message': '実行を要求しました'}` をそのまま返す。
-    - 未実行カードが無い（終了コード 3・stderr「未実行のカードが見つかりません」）: 404。
-    - 常駐停止などその他: 502 に stderr の先頭 200 文字。
+    - 未実行カードが無い（終了コード 3）: 404。
+    - 常駐停止などその他: 共有契約の読み替え（1 とそのほかは 502）。
     """
     _check_run_id(run_id)
     project = _phone_project(name)
     return _phone_json(
         ["card", "run", str(run_id)],
         root=project["root"],
-        missing=_PHONE_MISSING_START,
     )
 
 
@@ -615,74 +574,69 @@ def phone_card_start(name: str, run_id: int) -> dict:
 
 
 def phone_user_start(root: str, run_id: int) -> dict:
-    """読む札を始める（`sai-moon-link phone user start <run_id>`・C-12）。"""
+    """読む札を始める（`sai-moon-link card start <run_id>`・C-12）。"""
     _check_run_id(run_id)
     return _phone_json(
-        ["user", "start", str(run_id)],
+        ["card", "start", str(run_id)],
         root=root,
-        missing=_PHONE_MISSING_START,
     )
 
 
 def phone_user_finish(root: str, run_id: int) -> dict:
-    """読む札を終える（`sai-moon-link phone user finish <run_id>`・C-12）。"""
+    """読む札を終える（`sai-moon-link card finish <run_id>`・C-12）。"""
     _check_run_id(run_id)
     return _phone_json(
-        ["user", "finish", str(run_id)],
+        ["card", "finish", str(run_id)],
         root=root,
-        missing=_PHONE_MISSING_RUN,
     )
 
 
 def phone_finalize(name: str, run_id: int) -> dict:
-    """`sai-link phone finalize <run_id>`（メッセージ画面の ■ 終了・計画書 A の D2）。
+    """`sai-link run finalize <run_id>`（メッセージ画面の ■ 終了・計画書 A の D2）。
 
     - 成功: `{'run_id': N, 'message': '終了を要求しました'}` をそのまま返す。
-    - その run が無い（終了コード 3・stderr「実行が見つかりません」）: 404。
-    - 実行中でない・子ブロック・常駐停止など: 502 に stderr の先頭 200 文字。
+    - その run が無い（終了コード 3）: 404。
+    - 実行中でない・子ブロック・常駐停止など: 共有契約の読み替え（1 とそのほかは 502）。
     """
     _check_run_id(run_id)
     project = _phone_project(name)
     return _phone_json(
-        ["finalize", str(run_id)],
+        ["run", "finalize", str(run_id)],
         root=project["root"],
-        missing=_PHONE_MISSING_RUN,
     )
 
 
 def phone_advance(name: str, run_id: int) -> dict:
-    """`sai-link phone advance <run_id>`（review → done → Workflow の移動・計画書 A の U10）。
+    """`sai-link run advance <run_id>`（review → done → Workflow の移動・計画書 A の U10）。
 
     - 成功: `{'run_id': N, 'from': '…', 'to': '…'}` をそのまま返す。
-    - その run が無い（終了コード 3・stderr「実行が見つかりません」）: 404。
-    - review / done 以外・run フォルダが無いとき: 502 に stderr の先頭 200 文字。
+    - その run が無い（終了コード 3）: 404。
+    - review / done 以外・run フォルダが無いとき: 共有契約の読み替え。
     """
     _check_run_id(run_id)
     project = _phone_project(name)
     return _phone_json(
-        ["advance", str(run_id)],
+        ["run", "advance", str(run_id)],
         root=project["root"],
-        missing=_PHONE_MISSING_RUN,
     )
 
 
 def phone_rm(name: str, run_id: int) -> dict:
-    """`sai-moon-link phone rm <run_id>`（List の項目を消す。子の実行も一緒に消える）。
+    """`sai-moon-link run rm <run_id> --yes`（List の項目を消す。子の実行も一緒に消える）。
 
     - 成功: `{'run_id': N, 'executions': 消した実行の数}`。
-    - その run が無い（終了コード 3）: 404。実行中など: 502 に stderr。
+    - その run が無い（終了コード 3）: 404。実行中など: 共有契約の読み替え。
     """
     _check_run_id(run_id)
     project = _phone_project(name)
     return _phone_json(
-        ["rm", str(run_id)],
+        ["run", "rm", str(run_id), "--yes"],
         root=project["root"],
-        missing=_PHONE_MISSING_RUN,
     )
 
 
 def phone_card_docs(name: str) -> dict:
-    """`sai-moon-link phone card docs`（最近の文書・task_text に貼る候補）。"""
+    """`sai-moon-link card docs`（最近の文書・task_text に貼る候補）。"""
     project = _phone_project(name)
     return _phone_json(["card", "docs"], root=project["root"])
 
@@ -692,7 +646,7 @@ _SCHEDULE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$")
 
 
 def phone_card_schedule(name: str, run_id: int, at: str) -> dict:
-    """`sai-moon-link phone card schedule <run_id> [--at …]`（todo の実行予定時刻）。
+    """`sai-moon-link card schedule <run_id> [--at …]`（todo の実行予定時刻）。
 
     `at` が空なら予定を消す。形が違えば CLI を呼ばずに 400。
     """
@@ -704,7 +658,7 @@ def phone_card_schedule(name: str, run_id: int, at: str) -> dict:
             raise HTTPException(status_code=400, detail="時刻の形が正しくありません")
         args += ["--at", at.replace("T", " ")]
     project = _phone_project(name)
-    return _phone_json(args, root=project["root"], missing=_PHONE_MISSING_START)
+    return _phone_json(args, root=project["root"])
 
 
 # --- Workflow と定義の編集（U3・共有契約 C-A1） ---
@@ -738,42 +692,30 @@ def _phone_def_project(name: str) -> dict:
 
 
 def _phone_def_json(args: list[str], *, root: str, stdin_text: str | None = None):
-    """`sai-link phone def …`（cwd = プロジェクトの root）を呼んで JSON を返す（U3 §変更内容 1）。
+    """`sai-link def …`（cwd = プロジェクトの root）を呼んで JSON を返す（U3 §変更内容 1）。
 
-    - 終了コード 0: 標準出力の JSON をそのまま返す（読めなければ 502）。
-    - 終了コード 2: 400（検査に通らない中身の誤りなので、stderr の理由をそのまま見せる）。
-    - 終了コード 3: 404（stderr の文言）。
-    - 終了コード 1 かつ stderr が「同じ名前の定義があります」: 409（その文）。
-    - そのほか: 502 に stderr の先頭 200 文字（無ければ「sai-link が失敗しました」）。
+    読み替えは共有契約「Web が CLI を呼ぶ約束」と同じ（`cli.run_json` の 1 か所）。
+    - 終了コード 0: 標準出力の JSON をそのまま返す。
+    - 2: 400（検査に通らない中身の誤り）・3: 404・4: 409・1 とそのほか: 502。
     - `stdin_text` は本文を標準入力へ渡す（`write`）。
     """
-    proc = run_cli(
-        [settings.sai_link_bin, "phone", "def", *args],
-        app="sai-link",
-        cwd=root,
-        env=_phone_env(root),
-        timeout=20.0,
-        input_text=stdin_text,
-    )
-    err = (proc.stderr or "").strip()
-    if proc.returncode == 3:
-        raise HTTPException(status_code=404, detail=err or "定義が見つかりません")
-    if proc.returncode == 2:
-        # 利用者が書いた中身の誤り（壊れた frontmatter・settings が JSON オブジェクトでない等）
-        logger.warning(f"sai-link phone def の検査エラー: {' '.join(args)}: {err[:300]}")
-        raise HTTPException(status_code=400, detail=(err or "中身が正しくありません")[:300])
-    if proc.returncode == 1 and err == _DEF_DUPLICATE:
-        raise HTTPException(status_code=409, detail=_DEF_DUPLICATE)
-    if proc.returncode != 0:
-        logger.warning(f"sai-link phone def が失敗: {' '.join(args)}: {err[:300]}")
-        raise HTTPException(
-            status_code=502, detail=(err[:200] or "sai-link が失敗しました")
-        )
     try:
-        return json.loads(proc.stdout or "")
-    except (json.JSONDecodeError, TypeError):
-        logger.warning(f"sai-link phone def の応答を読めません: {' '.join(args)}")
-        raise HTTPException(status_code=502, detail="sai-link の応答を読めませんでした")
+        return run_json(
+            [settings.sai_link_bin, "def", *args],
+            app="sai-link",
+            cwd=root,
+            env=_phone_env(root),
+            timeout=20.0,
+            input_text=stdin_text,
+            runner=run_cli,
+        )
+    except HTTPException as e:
+        # ponytail: U06 の def write --create は終了コード 4 ではなく 2 で
+        # 「同じ名前の定義があります」を返す（マージ済みの実装で確かめた）。
+        # 同じ名前を 409 に見せるための暫定の読み替え。4 になったら消す。
+        if e.status_code == 400 and e.detail == _DEF_DUPLICATE:
+            raise HTTPException(status_code=409, detail=_DEF_DUPLICATE) from None
+        raise
 
 
 def _validate_def(kind, scope, def_name) -> None:
@@ -808,7 +750,7 @@ def _validate_def_text(text) -> str:
 
 
 def phone_workflow(name: str) -> dict:
-    """Workflow 盤面（`sai-link phone workflow`・U3 §変更内容 1）。
+    """Workflow 盤面（`sai-link workflow`・U3 §変更内容 1）。
 
     実行の記録が要るため、root と DB が両方無いプロジェクトは 404（`_phone_project`）。
     """
@@ -817,13 +759,13 @@ def phone_workflow(name: str) -> dict:
 
 
 def phone_def_list(name: str) -> dict:
-    """定義の一覧（`phone def list`・U3 §変更内容 1）。"""
+    """定義の一覧（`sai-link def list`・U3 §変更内容 1）。"""
     project = _phone_def_project(name)
     return _phone_def_json(["list"], root=project["root"])
 
 
 def phone_def_show(name: str, kind: str, scope: str, def_name: str) -> dict:
-    """定義 1 件の中身（`phone def show`・U3 §変更内容 1）。"""
+    """定義 1 件の中身（`sai-link def show`・U3 §変更内容 1）。"""
     _validate_def(kind, scope, def_name)
     project = _phone_def_project(name)
     return _phone_def_json(
@@ -835,7 +777,7 @@ def phone_def_show(name: str, kind: str, scope: str, def_name: str) -> dict:
 def phone_def_write(
     name: str, kind: str, scope: str, def_name: str, text, create: bool = False
 ) -> dict:
-    """定義の保存（`phone def write`・本文は標準入力・U3 §変更内容 1）。
+    """定義の保存（`sai-link def write`・本文は標準入力・U3 §変更内容 1）。
 
     - 検査に通らない本文（壊れた frontmatter 等）は 400（sai-link が終了コード 2 で返す）。
     - 無い定義は 404、`--create` で同じ名前があるときは 409。
@@ -853,7 +795,7 @@ def phone_def_write(
 
 
 def phone_def_delete(name: str, kind: str, scope: str, def_name: str) -> dict:
-    """定義の削除（`phone def delete`・U3 §変更内容 1）。settings は消せない（400）。"""
+    """定義の削除（`sai-link def delete`・U3 §変更内容 1）。settings は消せない（400）。"""
     _validate_def(kind, scope, def_name)
     if kind == "settings":
         raise HTTPException(status_code=400, detail="settings は消せません")

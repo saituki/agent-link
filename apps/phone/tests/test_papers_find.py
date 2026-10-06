@@ -37,7 +37,7 @@ def test_normal() -> None:
     )
     args = build_find_args(req)
     assert args == [
-        "phone", "find",
+        "find", "--json",
         "--mode", "hybrid",
         "--top-k", "10",
         "--scope", "all",
@@ -52,7 +52,7 @@ def test_normal() -> None:
 def test_defaults() -> None:
     """指定しない項目は引数に出ない。`-` で始まる語も最後に `--` の後ろへ入る。"""
     args = build_find_args(FindRequest(query="  attention  "))
-    assert args == ["phone", "find", "--", "attention"], args
+    assert args == ["find", "--json", "--", "attention"], args
 
     args2 = build_find_args(FindRequest(query="-x attention"))
     assert args2[-2:] == ["--", "-x attention"], args2

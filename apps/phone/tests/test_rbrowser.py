@@ -160,7 +160,7 @@ async def test_translate_pdf() -> None:
         await papers._download_jobs[("p", "pdf:7")]["_task"]
         job = papers._download_jobs[("p", "pdf:7")]
         assert job["status"] == "done" and job["kind"] == "translate" and job["percent"] is None
-        assert calls == [["phone", "translate-pdf", "7"]]
+        assert calls == [["paper", "translate-pdf", "7", "--json"]]
         assert notes[-1][0].startswith("📄")
         result["v"] = (0, b"", "時間内に終わりませんでした")
         await papers.request_translate_pdf(PROJECT, 7)  # 終わった後は再依頼できる

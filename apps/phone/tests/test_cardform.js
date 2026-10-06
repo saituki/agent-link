@@ -1,13 +1,13 @@
 "use strict";
-// task.md 作成フォーム（計画 15）の DOM を使わない関数の小さなテスト（assert だけ）。
+// task.md 作成フォーム（計画 15・U09）の DOM を使わない関数の小さなテスト（assert だけ）。
 // 確かめること:
-// - 手順番号の出し方（10 固定・入力は 4.1, 4.2）
-// - runner ごとの飛ばし方（user / gl は 3 → 8、cc は provider なし、入力が無ければ 4 / 5 を飛ばす）
-// - 戻る（runner 別の戻り先・入力は 1 つ前、先頭はブロック、引き継ぎ画面で閉じる）
-// - 必須入力で止まる（候補 0 件なら許容・スキップも止める）
-// - トークン選択（単一選択は 1 個・max_tokens の上限）
-// - 送る JSON の形（waggle: 形式・スキップは空文字）
-// - 書きかけの保存（プロジェクトごと・作成後に消す）
+// - 手順の並びと番号（8 固定。runner → block → provider → model → thinking
+//   → rounds → task_text → confirm）
+// - runner ごとの飛ばし方（user / gl は 2 → 6、cc は provider を飛ばす）
+// - 戻る（runner 別の戻り先・先頭は閉じる）
+// - 送る JSON の形（入力ファイルの手順が無くなり，inputs を送らない）
+// - 書きかけの保存（プロジェクトごと・作成後に消す・古い inputs の手順は無し扱い）
+// - 8 画面それぞれに日本語の説明がある
 // 実行:
 //     node tests/test_cardform.js
 
@@ -31,55 +31,6 @@ const cf = require(path.join(
   "cardform.js"
 ));
 
-// --- 使う道具（card/inputs の形を小さくした例） ---
-
-// 必須・単一選択の入力 1 つ
-const REQUIRED_FIELD = {
-  id: "plan_doc",
-  label: "実装計画書",
-  required: true,
-  multiple: false,
-  max_tokens: 1,
-  runs: [
-    {
-      run_id: 36,
-      label: "ID36/sub",
-      tokens: [
-        { token: "aaa", label: "plan.md" },
-        { token: "bbb", label: "other.md" },
-      ],
-    },
-  ],
-};
-// 任意・複数選択・上限 2
-const OPT_FIELD = {
-  id: "refs",
-  label: "参考資料",
-  required: false,
-  multiple: true,
-  max_tokens: 2,
-  runs: [
-    {
-      run_id: 36,
-      label: "ID36/sub",
-      tokens: [
-        { token: "aaa", label: "plan.md" },
-        { token: "bbb", label: "other.md" },
-        { token: "ccc", label: "third.md" },
-      ],
-    },
-  ],
-};
-// 必須だが候補が 1 件も無い入力（選べないので許容される・TUI と同じ）
-const EMPTY_REQUIRED = {
-  id: "note",
-  label: "メモ",
-  required: true,
-  multiple: false,
-  max_tokens: null,
-  runs: [],
-};
-
 /** runner → block まで進んだ状態を作る。 */
 function atBlock(runner) {
   const s = cf.cfNewDraft();
@@ -92,28 +43,24 @@ function atBlock(runner) {
 function testStepLabel() {
   assert.deepStrictEqual(
     cf.cfStepInfo(cf.cfNewDraft()),
-    { id: "runner", no: 1, title: "runner", label: "Step 1/9" }
+    { id: "runner", no: 1, title: "runner", label: "Step 1/8" }
   );
-  // 手順 3 は 3.1, 3.2 と続く（番号は 3 のまま）
-  const s = atBlock("pi");
-  cf.cfNext(s, [REQUIRED_FIELD]);
-  assert.strictEqual(s.step, "inputs");
-  assert.strictEqual(cf.cfStepInfo(s).label, "Step 3.1/9");
-  // 必須の入力を選ばないと 4.2 へ進めない（先に選ぶ）
-  assert.strictEqual(cf.cfToggleToken(s, [REQUIRED_FIELD], "plan_doc", "aaa"), null);
-  cf.cfNext(s, [REQUIRED_FIELD, OPT_FIELD]);
-  assert.strictEqual(cf.cfStepInfo(s).label, "Step 3.2/9");
-  assert.strictEqual(cf.cfStepInfo({ step: "confirm" }).label, "Step 9/9");
+  assert.strictEqual(cf.cfStepInfo({ step: "confirm" }).label, "Step 8/8");
+  assert.strictEqual(cf.cfStepInfo({ step: "provider" }).label, "Step 3/8");
+  // 手順の並びは TUI と同じ（runner → block → provider → model → thinking → rounds → task_text）
+  assert.deepStrictEqual(
+    cf.CF_STEPS.map((s) => s.id),
+    ["runner", "block", "provider", "model", "thinking", "rounds", "task_text", "confirm"]
+  );
 }
 
 function testRunnerSkips() {
-  // user / gl は 2（ブロック）から 7（ラウンド）へ飛ぶ（3〜6 は対象外）
+  // user / gl は 2（ブロック）から 6（ラウンド）へ飛ぶ（provider〜thinking は対象外）
   for (const runner of ["user", "gl"]) {
     const s = atBlock(runner);
-    assert.strictEqual(cf.cfNext(s, [REQUIRED_FIELD]), null, runner);
+    assert.strictEqual(cf.cfNext(s), null, runner);
     assert.strictEqual(s.step, "rounds", `${runner} が ${s.step} になった`);
-    assert.strictEqual(cf.cfStepInfo(s).label, "Step 7/9");
-    // 一度も選ばない → provider / model も空のまま
+    assert.strictEqual(cf.cfStepInfo(s).label, "Step 6/8");
     assert.strictEqual(s.provider, "");
     assert.strictEqual(s.model, "");
     // 戻る先はブロック（TUI の rounds の戻り先と同じ）
@@ -121,46 +68,35 @@ function testRunnerSkips() {
     assert.strictEqual(s.step, "block");
   }
 
-  // cc は provider が無い（入力のあと 6 モデルへ）
+  // cc は provider が無い（ブロックのあと 4 モデルへ）
   const cc = atBlock("cc");
-  assert.strictEqual(cf.cfNext(cc, [REQUIRED_FIELD]), null);
-  assert.strictEqual(cc.step, "inputs");
-  cc.inputs.plan_doc = ["aaa"];
-  assert.strictEqual(cf.cfNext(cc, [REQUIRED_FIELD]), null);
+  assert.strictEqual(cf.cfNext(cc), null);
   assert.strictEqual(cc.step, "model");
-  assert.strictEqual(cf.cfStepInfo(cc).label, "Step 5/9");
+  assert.strictEqual(cf.cfStepInfo(cc).label, "Step 4/8");
+  assert.strictEqual(cc.provider, "");
 
-  // cc で入力が無ければ 4 を飛ばして 6 へ
-  const ccNoInput = atBlock("cc");
-  assert.strictEqual(cf.cfNext(ccNoInput, []), null);
-  assert.strictEqual(ccNoInput.step, "model");
-
-  // pi は入力のあと 5 provider → 6 モデル → 7 thinking → 8 ラウンド
+  // pi は 3 provider → 4 モデル → 5 thinking → 6 ラウンド
   const pi = atBlock("pi");
-  assert.strictEqual(cf.cfNext(pi, [REQUIRED_FIELD]), null);
-  assert.strictEqual(pi.step, "inputs");
-  pi.inputs.plan_doc = ["aaa"];
-  assert.strictEqual(cf.cfNext(pi, [REQUIRED_FIELD]), null);
+  assert.strictEqual(cf.cfNext(pi), null);
   assert.strictEqual(pi.step, "provider");
-  assert.strictEqual(cf.cfNext(pi, []), null);
+  assert.strictEqual(cf.cfNext(pi), null);
   assert.strictEqual(pi.step, "model");
-  assert.strictEqual(cf.cfNext(pi, []), null);
+  assert.strictEqual(cf.cfNext(pi), null);
   assert.strictEqual(pi.step, "thinking");
-  assert.strictEqual(cf.cfNext(pi, []), null);
+  assert.strictEqual(cf.cfNext(pi), null);
   assert.strictEqual(pi.step, "rounds");
-
-  // pi で入力が無ければ 4 を飛ばして 5 へ
-  const piNoInput = atBlock("pi");
-  assert.strictEqual(cf.cfNext(piNoInput, []), null);
-  assert.strictEqual(piNoInput.step, "provider");
+  assert.strictEqual(cf.cfNext(pi), null);
+  assert.strictEqual(pi.step, "task_text");
+  assert.strictEqual(cf.cfNext(pi), null);
+  assert.strictEqual(pi.step, "confirm");
 
   // runner をスキップした（空文字）ときも pi 扱い（TUI と同じ）
   const skipRunner = cf.cfNewDraft();
   skipRunner.step = "runner";
   skipRunner.runner = "";
-  assert.strictEqual(cf.cfSkip(skipRunner, []), null);
+  assert.strictEqual(cf.cfSkip(skipRunner), null);
   assert.strictEqual(skipRunner.step, "block");
-  assert.strictEqual(cf.cfNext(skipRunner, []), null);
+  assert.strictEqual(cf.cfNext(skipRunner), null);
   assert.strictEqual(skipRunner.step, "provider");
 }
 
@@ -173,15 +109,6 @@ function testBack() {
   b.step = "block";
   assert.strictEqual(cf.cfBack(b), null);
   assert.strictEqual(b.step, "runner");
-
-  // 入力は 1 つ前、先頭（4.1）からはブロックへ
-  const i = atBlock("pi");
-  i.step = "inputs";
-  i.inputIdx = 1;
-  assert.strictEqual(cf.cfBack(i), null);
-  assert.strictEqual(i.inputIdx, 0);
-  assert.strictEqual(cf.cfBack(i), null);
-  assert.strictEqual(i.step, "block");
 
   // provider → block、model → cc なら block で pi なら provider
   const p = atBlock("pi"); p.step = "provider";
@@ -209,101 +136,63 @@ function testBack() {
   const tt = cf.cfNewDraft(); tt.step = "task_text";
   assert.strictEqual(cf.cfBack(tt), null);
   assert.strictEqual(tt.step, "rounds");
-  const cf10 = cf.cfNewDraft(); cf10.step = "confirm";
-  assert.strictEqual(cf.cfBack(cf10), null);
-  assert.strictEqual(cf10.step, "task_text");
+  const cf8 = cf.cfNewDraft(); cf8.step = "confirm";
+  assert.strictEqual(cf.cfBack(cf8), null);
+  assert.strictEqual(cf8.step, "task_text");
 }
 
-function testRequiredBlocks() {
+function testSkip() {
+  // 引き継ぎと確認はスキップできない
+  const confirm = cf.cfNewDraft();
+  confirm.step = "confirm";
+  assert.strictEqual(cf.cfSkip(confirm), "スキップできません");
+  assert.strictEqual(cf.cfCanSkip(confirm), false);
+  // 途中の画面はスキップできる
+  for (const step of ["runner", "block", "provider", "model", "thinking", "rounds", "task_text"]) {
+    assert.strictEqual(cf.cfCanSkip({ step }), true, step);
+  }
+  // provider をスキップするとモデルへ
   const s = atBlock("pi");
-  assert.strictEqual(cf.cfNext(s, [REQUIRED_FIELD]), null); // ブロック → 手順 4
-  assert.strictEqual(s.step, "inputs");
-  // 必須で未選択 → 進めない（理由が返り，手順は変わらない）
-  const err = cf.cfNext(s, [REQUIRED_FIELD]);
-  assert.strictEqual(typeof err, "string");
-  assert.ok(err.includes("plan_doc"), err);
-  assert.strictEqual(s.step, "inputs");
-  // スキップも同じく止まる（TUI と同じ文言）
-  const skipErr = cf.cfSkip(s, [REQUIRED_FIELD]);
-  assert.ok(skipErr && skipErr.includes("必須のためスキップできません"), skipErr);
-  assert.strictEqual(s.step, "inputs");
-
-  // 選べば進む（単一選択なので 1 個で足りる・入力は 1 つなので次は 5 provider）
-  assert.strictEqual(cf.cfToggleToken(s, [REQUIRED_FIELD], "plan_doc", "aaa"), null);
-  assert.strictEqual(cf.cfNext(s, [REQUIRED_FIELD]), null);
-  assert.strictEqual(s.step, "provider");
-
-  // 必須でも候補 0 件なら選べないので進める（TUI と同じ）
-  const e = atBlock("pi");
-  assert.strictEqual(cf.cfNext(e, [EMPTY_REQUIRED]), null); // 手順 4 へ
-  assert.strictEqual(e.step, "inputs");
-  assert.strictEqual(cf.cfNext(e, [EMPTY_REQUIRED]), null);
-  assert.strictEqual(e.step, "provider");
-
-  // 任意の入力は未選択でも進める
-  const o = atBlock("pi");
-  assert.strictEqual(cf.cfNext(o, [OPT_FIELD]), null); // 手順 4 へ
-  assert.strictEqual(o.step, "inputs");
-  assert.strictEqual(cf.cfNext(o, [OPT_FIELD]), null);
-  assert.strictEqual(o.step, "provider");
-}
-
-function testToggle() {
-  const s = cf.cfNewDraft();
-  // 単一選択（multiple: false）は 1 個に絞る
-  assert.strictEqual(cf.cfToggleToken(s, [REQUIRED_FIELD], "plan_doc", "aaa"), null);
-  assert.deepStrictEqual(s.inputs.plan_doc, ["aaa"]);
-  assert.strictEqual(cf.cfToggleToken(s, [REQUIRED_FIELD], "plan_doc", "bbb"), null);
-  assert.deepStrictEqual(s.inputs.plan_doc, ["bbb"]);
-  // 押しなおすと外れる
-  assert.strictEqual(cf.cfToggleToken(s, [REQUIRED_FIELD], "plan_doc", "bbb"), null);
-  assert.deepStrictEqual(s.inputs.plan_doc, []);
-
-  // 複数選択は上限（max_tokens: 2）まで
-  assert.strictEqual(cf.cfToggleToken(s, [OPT_FIELD], "refs", "aaa"), null);
-  assert.strictEqual(cf.cfToggleToken(s, [OPT_FIELD], "refs", "bbb"), null);
-  const over = cf.cfToggleToken(s, [OPT_FIELD], "refs", "ccc");
-  assert.ok(over && over.includes("max 2"), over);
-  assert.deepStrictEqual(s.inputs.refs, ["aaa", "bbb"]);
-  // 定義に無い入力名は弾く
-  assert.ok(cf.cfToggleToken(s, [OPT_FIELD], "bogus", "aaa"));
+  s.step = "provider";
+  assert.strictEqual(cf.cfSkip(s), null);
+  assert.strictEqual(s.provider, "");
+  assert.strictEqual(s.step, "model");
 }
 
 function testPayload() {
   const s = cf.cfNewDraft();
   s.runner = "cc";
   s.block = "sub";
-  s.inputs = { plan_doc: ["aaa"], refs: [] }; // 空の入力は送らない
   s.model = "opus";
   s.thinking = "high";
   s.rounds = { global_round: "5", round: "2", tag: "" };
   s.task_text = "計画を読んで実装せよ";
   const payload = cf.cfBuildPayload(s);
-  // 項目名は計画 12 §3.2 の card create の形のまま
+  // 入力ファイルの手順は無い（inputs を送らない・U09）
   assert.deepStrictEqual(Object.keys(payload), [
-    "runner", "block", "inputs", "provider", "model",
+    "runner", "block", "provider", "model",
     "thinking", "global_round", "round", "tag", "task_text",
   ]);
-  // トークンは waggle: 形式のカンマ区切り
-  assert.strictEqual(payload.inputs.plan_doc, "waggle:aaa");
-  assert.deepStrictEqual(payload.inputs, { plan_doc: "waggle:aaa" });
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(payload, "inputs"), false);
   // スキップした項目は空文字（sai-link が自動値にする）
   assert.strictEqual(payload.provider, "");
   assert.strictEqual(payload.tag, "");
   assert.strictEqual(payload.runner, "cc");
+  assert.strictEqual(payload.task_text, "計画を読んで実装せよ");
 
   // 初期状態（全部スキップ）でも形が壊れない
   const empty = cf.cfBuildPayload(cf.cfNewDraft());
-  assert.deepStrictEqual(empty.inputs, {});
   assert.strictEqual(empty.task_text, "");
+  assert.strictEqual(empty.block, "");
+  assert.strictEqual(empty.model, "");
+}
 
-  // 2 個選んだ入力はカンマ区切り
-  const two = cf.cfNewDraft();
-  two.inputs = { refs: ["aaa", "bbb"] };
-  assert.strictEqual(
-    cf.cfBuildPayload(two).inputs.refs,
-    "waggle:aaa, waggle:bbb"
-  );
+function testToggleRef() {
+  const ref = "waggle:ABCD1234:path:.sai/outputs/*/3/report.md";
+  assert.strictEqual(cf.cfToggleRef("", ref, true), ref);
+  assert.strictEqual(cf.cfToggleRef(`本文\n${ref}`, ref, true), `本文\n${ref}`);
+  assert.strictEqual(cf.cfToggleRef(`本文\n${ref}`, ref, false), "本文");
+  assert.strictEqual(cf.cfToggleRef("本文", "", true), "本文");
 }
 
 function testDraft() {
@@ -330,10 +219,13 @@ function testDraft() {
   assert.strictEqual(cf.cfLoadDraft("broken"), null);
   store.set(cf.cfDraftKey("no-step"), JSON.stringify({ runner: "pi" }));
   assert.strictEqual(cf.cfLoadDraft("no-step"), null);
+  // U09 より前の「入力ファイル」の手順は無し扱い（番号が変わったため）
+  store.set(cf.cfDraftKey("old-inputs"), JSON.stringify({ step: "inputs", runner: "pi", inputs: { a: ["x"] } }));
+  assert.strictEqual(cf.cfLoadDraft("old-inputs"), null);
 }
 
 function testStepHints() {
-  // 10 画面それぞれに説明がある（端末に慣れていない人向け・U5 §3）
+  // 8 画面それぞれに説明がある（端末に慣れていない人向け・U5 §3）
   for (const step of cf.CF_STEPS) {
     const hint = cf.cfStepHint(step.id);
     assert.strictEqual(typeof hint, "string");
@@ -346,6 +238,7 @@ function testStepHints() {
   );
   // 知らない手順には説明を出さない（画面が止まらない）
   assert.strictEqual(cf.cfStepHint("oreason"), "");
+  assert.strictEqual(cf.cfStepHint("inputs"), "");
   // 説明は日本語だけ（英語だけの文は入れていない）
   for (const [id, hint] of Object.entries(cf.CF_STEP_HINTS)) {
     assert.ok(/[\u3040-\u30ff\u4e00-\u9fff]/.test(hint), `${id} の説明に日本語がありません`);
@@ -356,9 +249,9 @@ function main() {
   testStepLabel();
   testRunnerSkips();
   testBack();
-  testRequiredBlocks();
-  testToggle();
+  testSkip();
   testPayload();
+  testToggleRef();
   testDraft();
   testStepHints();
   console.log("test_cardform: すべて通りました");

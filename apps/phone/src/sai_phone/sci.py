@@ -21,12 +21,12 @@
 | `POST …/papers/sci/reads/{run_id}/finish` | — | `sai-moon-link phone user finish <run_id>` |
 | `GET …/papers/sets` | — | `phone set list` |
 | `GET …/papers/sets/{set_id}` | — | `phone set show <id>` |
-| `POST …/papers/sets/{set_id}/mark` | `{"positions","decision","reason"?}` | `phone set mark <id> --position … --decision …` |
-| `POST …/papers/sets/{set_id}/drop-pending` | `{"reason"?}` | `phone set drop-pending <id>` |
+| `POST …/papers/sets/{set_id}/mark` | `{"positions","decision","reason"?}` | `set mark <id> --position … --decision …` |
+| `POST …/papers/sets/{set_id}/drop-pending` | `{"reason"?}` | `set drop-pending <id>` |
 
 - どの住所も合言葉（`main.require_token`）で守る。
 - `{name}` は論文の置き場があるプロジェクトの名前（`papers.resolve_project`）。
-  CLI は cwd と `SAI_PAPER_ROOT` をそのプロジェクトの root にして呼ぶ（`papers._paper_cli` と同じ）。
+  CLI は cwd と `SAI_PROJECT_ROOT` をそのプロジェクトの root にして呼ぶ（`papers._paper_cli` と同じ）。
 - **ファイルのパスは iPhone から受け取らない。** 知らない項目は落としてから渡す。
 """
 
@@ -424,13 +424,13 @@ def validate_triage(payload) -> tuple[str, str, dict | None]:
 
 
 def _sci_cli(project: dict, args: list[str], timeout: float, input_text: str | None = None):
-    """`sai-moon-paper phone …` を呼ぶ（cwd と SAI_PAPER_ROOT はそのプロジェクトの root）。"""
+    """sai-paper の CLI を呼ぶ（cwd = root，`SAI_PROJECT_ROOT` = root，`SAI_ORIGIN` = phone）。"""
     root = str(project["root"])
     return cli.run_json(
         [settings.sai_paper_bin, *args],
         app="sai-paper",
         cwd=root,
-        env={**os.environ, "SAI_PAPER_ROOT": root},
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         timeout=timeout,
         input_text=input_text,
     )
@@ -560,17 +560,17 @@ def _check_set_reason(payload) -> str | None:
 
 
 def set_list(project: dict) -> dict:
-    """検索セットの一覧（`phone set list`）。"""
-    return _sci_cli(project, ["phone", "set", "list"], SCI_READ_TIMEOUT)
+    """検索セットの一覧（`sai-moon-paper set list`）。"""
+    return _sci_cli(project, ["set", "list"], SCI_READ_TIMEOUT)
 
 
 def set_show(project: dict, set_id) -> dict:
-    """検索セット 1 つと候補（`phone set show <id>`）。"""
-    return _sci_cli(project, ["phone", "set", "show", str(check_set_id(set_id))], SCI_READ_TIMEOUT)
+    """検索セット 1 つと候補（`set show <id>`）。"""
+    return _sci_cli(project, ["set", "show", str(check_set_id(set_id))], SCI_READ_TIMEOUT)
 
 
 def set_mark(project: dict, set_id, payload) -> dict:
-    """候補に keep / drop を付ける（`phone set mark <id> --position … --decision …`）。"""
+    """候補に keep / drop を付ける（`set mark <id> --position … --decision …`）。"""
     sid = check_set_id(set_id)
     if not isinstance(payload, dict):
         raise _bad("送る JSON が正しくありません")
@@ -583,7 +583,7 @@ def set_mark(project: dict, set_id, payload) -> dict:
     decision = _enum(payload.get("decision"), ("keep", "drop"), "decision")
     reason = _check_set_reason(payload)
     args = [
-        "phone", "set", "mark", str(sid),
+        "set", "mark", str(sid),
         f"--position={','.join(str(n) for n in positions)}",
         "--decision", decision,
     ]
@@ -593,10 +593,10 @@ def set_mark(project: dict, set_id, payload) -> dict:
 
 
 def set_drop_pending(project: dict, set_id, payload=None) -> dict:
-    """未判定の候補をまとめて drop にする（`phone set drop-pending <id>`）。"""
+    """未判定の候補をまとめて drop にする（`set drop-pending <id>`）。"""
     sid = check_set_id(set_id)
     reason = _check_set_reason(payload)
-    args = ["phone", "set", "drop-pending", str(sid)]
+    args = ["set", "drop-pending", str(sid)]
     if reason:
         args.append(f"--reason={reason}")
     return _sci_cli(project, args, SCI_WRITE_TIMEOUT)

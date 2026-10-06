@@ -1,21 +1,22 @@
 """sai-paper の呼び出し（Papers タブ・計画 07・複数プロジェクト対応は 17）。
 
 第 1 弾の Web 機能（U3）で足したもの:
-- Import（BibTeX の読み込み）: `phone import list / add / remove`
-- Download（PDF の取得と Library への登録）: `phone download` → `phone after-download`（背景で走らせる）
-- Project（state.md / mind.md / 要対応）: `phone project` / `phone mind-append` / `phone attention-resolve`
+- Import（BibTeX の読み込み）: `import list / add / remove`
+- Download（PDF の取得と Library への登録）: `paper download` → `paper after-download`（背景で走らせる）
+- Project（state.md / mind.md / 要対応。研究の命令なので古い `phone …` のまま・U14 で移す）:
+  `phone project` / `phone mind-append` / `phone attention-resolve`
 
 sai-phone は他アプリの DB を直接開かない（00 §2）ため，ここはすべて CLI に頼る。
 呼ぶ先は「論文の置き場があるプロジェクト」（計画 17 §3.1）で決めるもので，
-cwd と `SAI_PAPER_ROOT` を **そのプロジェクトの root** にする
-（sai-paper の `.env` の API キーを読ませるため・00 §8・17 §3.2）。
+cwd と `SAI_PROJECT_ROOT` を **そのプロジェクトの root** にし，`SAI_ORIGIN=phone` を渡す
+（sai-paper の `.env` の API キーを読ませるため・00 §8・17 §3.2・共有契約「Web が CLI を呼ぶ約束」）。
 iPhone からはパスを受け取らず，プロジェクト名から root を引く（17 §3.2）。
 
 使う CLI（00 §7.2）:
-- `phone library` / `phone tree` / `phone paper <id>`（読み取り・02）
-- `phone translate <id>`（要旨の日本語訳・03）
+- `library list` / `library tree` / `paper show <id>`（読み取り・02）
+- `paper translate <id>`（要旨の日本語訳・03）
 - `content paper <id> --json`（本文・既存）
-- `phone providers` / `phone search` / `phone log <id>`（Discover・02・03・計画 08）
+- `providers` / `search --json` / `search-log <id>`（Discover・02・03・計画 08）
 """
 
 from __future__ import annotations
@@ -122,35 +123,39 @@ def resolve_project(name: str) -> dict:
 
 
 def _paper_cli(project: dict, args: list[str], timeout: float = 30.0):
-    """sai-paper の CLI を呼ぶ（cwd と SAI_PAPER_ROOT をそのプロジェクトの root にする・17 §3.2）。"""
+    """sai-paper の CLI を呼ぶ（cwd = root，`SAI_PROJECT_ROOT` = root，`SAI_ORIGIN` = phone）。
+
+    環境変数は `SAI_PROJECT_ROOT` と `SAI_ORIGIN`（プロジェクトは `SAI_PROJECT_ROOT` と
+    `.sai/` の探索で決める）。
+    """
     root = str(project["root"])
     return cli.run_json(
         [settings.sai_paper_bin, *args],
         app="sai-paper",
         cwd=root,
-        env={**os.environ, "SAI_PAPER_ROOT": root},
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         timeout=timeout,
     )
 
 
 def library(project: dict) -> dict:
-    """Library 一覧（`phone library`）。"""
-    return _paper_cli(project, ["phone", "library"])
+    """Library 一覧（`sai-moon-paper library list`）。"""
+    return _paper_cli(project, ["library", "list"])
 
 
 def tree(project: dict) -> dict:
-    """Library 階層（`phone tree`）。"""
-    return _paper_cli(project, ["phone", "tree"])
+    """Library 階層（`sai-moon-paper library tree`）。"""
+    return _paper_cli(project, ["library", "tree"])
 
 
 def detail(project: dict, paper_id: int) -> dict:
-    """論文情報（`phone paper <id>`）。見つからなければ 400 で失敗。"""
-    return _paper_cli(project, ["phone", "paper", str(paper_id)])
+    """論文情報（`sai-moon-paper paper show <id>`）。見つからなければ 400 で失敗。"""
+    return _paper_cli(project, ["paper", "show", str(paper_id)])
 
 
 def translate(project: dict, paper_id: int) -> dict:
-    """要旨の日本語訳を作る（`phone translate <id>`）。数十秒かかりうるため待ちは長め。"""
-    return _paper_cli(project, ["phone", "translate", str(paper_id)], timeout=90.0)
+    """要旨の日本語訳を作る（`paper translate <id>`）。数十秒かかりうるため待ちは長め。"""
+    return _paper_cli(project, ["paper", "translate", str(paper_id)], timeout=90.0)
 
 
 def translate_with_job(project: dict, paper_id: int) -> dict:
@@ -189,8 +194,8 @@ def text(project: dict, paper_id: int) -> dict:
 
 
 def dashboard(project: dict) -> dict:
-    """Dashboard（`phone dashboard`・数字カードと Radio の出来事を混ぜた出来事の一覧）。"""
-    return _paper_cli(project, ["phone", "dashboard"])
+    """Dashboard（`dashboard`・数字カードと Radio の出来事を混ぜた出来事の一覧）。"""
+    return _paper_cli(project, ["dashboard"])
 
 
 # ノートの大きさの上限（100KB・task.md と同じ）
@@ -198,15 +203,15 @@ NOTE_MAX = 100 * 1024
 
 
 def save_note(project: dict, paper_id: int, body) -> dict:
-    """ノート（note.md）を保存する（`phone note <id>`・本文は標準入力）。"""
+    """ノート（note.md）を保存する（`paper note <id>`・本文は標準入力）。"""
     if not isinstance(body, str) or len(body.encode("utf-8")) > NOTE_MAX:
         raise HTTPException(status_code=400, detail="ノートは 100KB までの文字にしてください")
     root = str(project["root"])
     return cli.run_json(
-        [settings.sai_paper_bin, "phone", "note", str(paper_id)],
+        [settings.sai_paper_bin, "paper", "note", str(paper_id)],
         app="sai-paper",
         cwd=root,
-        env={**os.environ, "SAI_PAPER_ROOT": root},
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         input_text=body,
     )
 
@@ -256,13 +261,13 @@ class SearchRequest(BaseModel):
 
 
 def providers(project: dict) -> dict:
-    """検索先の一覧と既定（`phone providers`・08 §3）。"""
-    return _paper_cli(project, ["phone", "providers"])
+    """検索先の一覧と既定（`providers`・08 §3）。"""
+    return _paper_cli(project, ["providers"])
 
 
 def search_log(project: dict, log_id: int) -> dict:
-    """過去の検索結果（`phone log <log_id>`・08 §3）。"""
-    return _paper_cli(project, ["phone", "log", str(log_id)])
+    """過去の検索結果（`search-log <log_id>`・08 §3）。"""
+    return _paper_cli(project, ["search-log", str(log_id)])
 
 
 def validate_search(req: SearchRequest, available: list[str]) -> str:
@@ -297,13 +302,13 @@ def validate_search(req: SearchRequest, available: list[str]) -> str:
 
 
 def build_search_args(req: SearchRequest, available: list[str]) -> list[str]:
-    """`phone search` の引数を作る（検査もここで行う・08 §3）。
+    """`search --json` の引数を作る（検査もここで行う・08 §3）。
 
     検索語は最後に `--` を置いて渡す（語が `-` で始めると clap が
-    オプションと間違えるため・08 §2）。
+    オプションと間違えるため・08 §2）。`--json` が無いと人向けの文が出るので必ず付ける。
     """
     query = validate_search(req, available)
-    args = ["phone", "search", "--limit", str(req.limit)]
+    args = ["search", "--json", "--limit", str(req.limit)]
     for db in req.dbs or []:
         args += ["--db", db]
     if req.year_from is not None:
@@ -439,7 +444,7 @@ def build_find_args(req: FindRequest) -> list[str]:
     オプションと間違えるため・`build_search_args` と同じ）。
     """
     query = validate_find(req)
-    args = ["phone", "find"]
+    args = ["find", "--json"]
     if req.mode is not None:
         args += ["--mode", req.mode]
     if req.top_k is not None:
@@ -467,8 +472,8 @@ def find(project: dict, req: FindRequest) -> dict:
 
 
 def find_log(project: dict, log_id: int) -> dict:
-    """過去の内部検索の結果（`phone find-log <log_id>`・U02）。"""
-    return _paper_cli(project, ["phone", "find-log", str(log_id)])
+    """過去の内部検索の結果（`find-log <log_id>`・U02）。"""
+    return _paper_cli(project, ["find-log", str(log_id)])
 
 
 # --- 音声化の依頼（計画 10 §3・プロジェクト付きは 17 §3.3・§3.4） ---
@@ -557,11 +562,11 @@ async def _radio_job(project: dict, paper_id: int, title: str) -> None:
         try:
             proc = await asyncio.create_subprocess_exec(
                 settings.sai_paper_bin,
-                "phone",
+                "paper",
                 "radio",
                 str(paper_id),
                 cwd=root,
-                env={**os.environ, "SAI_PAPER_ROOT": root},
+                env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -593,7 +598,9 @@ async def _radio_job(project: dict, paper_id: int, title: str) -> None:
             radio_id = _radio_id_from_output(stdout) or radio_id_for(project, paper_id)
             notify.broadcast("🎧 音声ができました", title, f"/#/radio/{radio_id}")
         else:
-            notify.broadcast("音声を作れませんでした", f"{title}: {_radio_error(stdout)}", fail_url)
+            # 理由は標準エラーの最後の行 → 標準出力の {"error"} → 「原因不明のエラー」（U09）
+            reason = _last_stderr_reason(stderr) or _radio_error(stdout)
+            notify.broadcast("音声を作れませんでした", f"{title}: {reason}", fail_url)
     except Exception as e:  # サーバーは止めない（10 §3）
         logger.exception(f"音声化の背景実行で失敗: {e}")
     finally:
@@ -685,15 +692,15 @@ def _validate_bib_text(text) -> str:
 
 
 def import_list(project: dict) -> dict:
-    """.bib の一覧と中の論文（`phone import list`・U3 §変更内容 2）。"""
-    return _paper_cli(project, ["phone", "import", "list"])
+    """.bib の一覧と中の論文（`import list`・U3 §変更内容 2）。"""
+    return _paper_cli(project, ["import", "list"])
 
 
 def import_add(project: dict, name, text) -> dict:
-    """.bib の保存（`phone import add --name <name>`・本文は標準入力）。
+    """.bib の保存（`import add --name <name>`・本文は標準入力）。
 
     名前に空文字が来たときは `phone-<YYYYMMDD-HHMMSS>.bib` を作る。
-    `save_note` と同じく `cli.run_json` を直接呼ぶ（cwd と `SAI_PAPER_ROOT` も同じ）。
+    `save_note` と同じく `cli.run_json` を直接呼ぶ（cwd と env も同じ）。
     """
     if name is None:
         name = ""
@@ -703,18 +710,18 @@ def import_add(project: dict, name, text) -> dict:
     body = _validate_bib_text(text)
     root = str(project["root"])
     return cli.run_json(
-        [settings.sai_paper_bin, "phone", "import", "add", "--name", file_name],
+        [settings.sai_paper_bin, "import", "add", "--name", file_name],
         app="sai-paper",
         cwd=root,
-        env={**os.environ, "SAI_PAPER_ROOT": root},
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         input_text=body,
     )
 
 
 def import_remove(project: dict, file_name) -> dict:
-    """.bib の削除（`phone import remove --name <name>`）。"""
+    """.bib の削除（`import remove --name <name>`）。"""
     name = _validate_bib_name(file_name)
-    return _paper_cli(project, ["phone", "import", "remove", "--name", name])
+    return _paper_cli(project, ["import", "remove", "--name", name])
 
 
 # --- Download（PDF を取って Library に登録する・U3 §変更内容 2） ---
@@ -926,21 +933,36 @@ async def _write_stdin(proc, payload: bytes) -> None:
         logger.warning(f"標準入力へ書けません: {e}")
 
 
+def _last_stderr_reason(stderr: bytes | None) -> str:
+    """標準エラーの最後の空でない行（`sai-progress` で始まる行を除く）。
+
+    背景の仕事の失敗の理由（無ければ空文字・共有契約「Web が CLI を呼ぶ約束」）。
+    """
+    if not stderr:
+        return ""
+    for line in reversed(stderr.decode("utf-8", "replace").splitlines()):
+        text = line.strip()
+        if text and not text.startswith("sai-progress"):
+            return text
+    return ""
+
+
 async def _run_paper_command(
     root: str, args: list[str], timeout: float, input_bytes: bytes | None = None
 ) -> tuple[int, bytes, str]:
-    """sai-paper の phone サブコマンドを背景で走らせて `(終了コード, stdout, 失敗理由)` を返す。
+    """sai-paper の新しい命令を背景で走らせて `(終了コード, stdout, 失敗理由)` を返す。
 
-    失敗理由は「起動できない」「時間切れ」の 2 つだけ。それ以外は空文字で、
-    応答の中身は呼び出し側が見る（`_radio_job` と同じ作り）。
-    `input_bytes` を渡すと標準入力に本文を書く（`phone manual-import --stdin`・U05 §3）。
+    `reason` は起動できない・時間切れのときの文，または終了コードが 0 でないときの
+    標準エラーの最後の空でない行（`sai-progress` を除く）。成功なら空文字。
+    呼び出し側は reason → `_radio_error(stdout)` → 「原因不明のエラー」の順に使う。
+    `input_bytes` を渡すと標準入力に本文を書く（`paper import-pdf --stdin`・U05 §3）。
     """
     try:
         proc = await asyncio.create_subprocess_exec(
             settings.sai_paper_bin,
             *args,
             cwd=root,
-            env={**os.environ, "SAI_PAPER_ROOT": root},
+            env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
             stdin=asyncio.subprocess.PIPE if input_bytes is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -964,7 +986,8 @@ async def _run_paper_command(
             f"sai-paper {' '.join(args)} の標準エラー: "
             f"{stderr.decode('utf-8', 'replace')[:300]}"
         )
-    return proc.returncode or 0, stdout, ""
+    code = proc.returncode or 0
+    return code, stdout, ("" if code == 0 else _last_stderr_reason(stderr))
 
 
 async def _run_paper_command_lines(
@@ -976,17 +999,18 @@ async def _run_paper_command_lines(
 ) -> tuple[int, bytes, str]:
     """`_run_paper_command` と同じ作りだが、標準エラーを 1 行ずつ `on_line` に渡す。
 
-    `phone after-download` は図の抽出と PDF の翻訳で数分かかることがあるため、
+    `paper after-download` は図の抽出と PDF の翻訳で数分かかることがあるため、
     待つあいだの標準エラー（`sai-progress step=…` / `sai-progress msg=…`）を
     途中で受け取る。標準出力は終わってから読む。
-    返り値と時間切れの扱いは `_run_paper_command` と同じ。
+    返り値と時間切れの扱いは `_run_paper_command` と同じ（失敗の理由は
+    最後の `sai-progress` 以外の行）。
     """
     try:
         proc = await asyncio.create_subprocess_exec(
             settings.sai_paper_bin,
             *args,
             cwd=root,
-            env={**os.environ, "SAI_PAPER_ROOT": root},
+            env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
             stdin=asyncio.subprocess.PIPE if input_bytes is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -997,12 +1021,19 @@ async def _run_paper_command_lines(
     if input_bytes is not None:
         await _write_stdin(proc, input_bytes)
 
+    last_line = ""
+
     async def run() -> tuple[int, bytes]:
+        nonlocal last_line
         while True:
             raw = await proc.stderr.readline()
             if not raw:
                 break
-            on_line(raw.decode("utf-8", "replace").rstrip("\r\n"))
+            line = raw.decode("utf-8", "replace").rstrip("\r\n")
+            on_line(line)
+            text = line.strip()
+            if text and not text.startswith("sai-progress"):
+                last_line = text
         stdout = await proc.stdout.read()
         await proc.wait()
         return proc.returncode or 0, stdout
@@ -1016,7 +1047,7 @@ async def _run_paper_command_lines(
         except Exception:
             pass
         return -2, b"", "時間内に終わりませんでした"
-    return code, stdout, ""
+    return code, stdout, ("" if code == 0 else last_line)
 
 
 async def _run_after_download(project: dict, job: dict, paper_id: int, title: str) -> None:
@@ -1045,7 +1076,7 @@ async def _run_after_download(project: dict, job: dict, paper_id: int, title: st
 
     code, stdout, reason = await _run_paper_command_lines(
         root,
-        ["phone", "after-download", str(paper_id)],
+        ["paper", "after-download", str(paper_id)],
         AFTER_DOWNLOAD_TIMEOUT,
         on_line,
     )
@@ -1080,7 +1111,7 @@ async def _download_job(
 
     try:
         code, stdout, reason = await _run_paper_command(
-            root, ["phone", "download", *args], DOWNLOAD_TIMEOUT
+            root, ["paper", "download", *args], DOWNLOAD_TIMEOUT
         )
         if reason:
             fail(reason)
@@ -1196,8 +1227,8 @@ CITE_EXTRACT_TIMEOUT = 900.0
 
 
 def citations(project: dict, paper_id: int) -> dict:
-    """引用一覧（`phone citations <id>`・読み取りだけ）。"""
-    return _paper_cli(project, ["phone", "citations", str(paper_id)])
+    """引用一覧（`paper citations <id>`・読み取りだけ）。"""
+    return _paper_cli(project, ["paper", "citations", str(paper_id)])
 
 
 async def request_cite_extract(project: dict, paper_id: int) -> dict:
@@ -1242,7 +1273,7 @@ async def _cite_extract_job(project: dict, paper_id: int, job: dict) -> None:
 
     try:
         code, stdout, reason = await _run_paper_command_lines(
-            root, ["phone", "citations-extract", str(paper_id)], CITE_EXTRACT_TIMEOUT, on_line
+            root, ["paper", "citations-extract", str(paper_id)], CITE_EXTRACT_TIMEOUT, on_line
         )
         if reason:
             _finish_download(job, "failed", error=reason)
@@ -1362,9 +1393,9 @@ def _validate_pdf_name(name) -> str:
 
 
 def manual_candidates(project: dict) -> dict:
-    """ダウンロードフォルダの最近の PDF 一覧（`phone manual-candidates`）。"""
+    """ダウンロードフォルダの最近の PDF 一覧（`paper candidates`）。"""
     return _paper_cli(
-        project, ["phone", "manual-candidates", "--minutes", str(MANUAL_MINUTES)]
+        project, ["paper", "candidates", "--minutes", str(MANUAL_MINUTES)]
     )
 
 
@@ -1425,7 +1456,7 @@ async def _manual_import_job(
 
     try:
         code, stdout, reason = await _run_paper_command(
-            root, ["phone", "manual-import", *args], MANUAL_TIMEOUT, input_bytes=payload
+            root, ["paper", "import-pdf", *args], MANUAL_TIMEOUT, input_bytes=payload
         )
         if reason:
             fail(reason)
@@ -1501,7 +1532,7 @@ async def _translate_pdf_job(project: dict, paper_id: int, title: str, job: dict
 
     try:
         code, stdout, reason = await _run_paper_command(
-            str(project["root"]), ["phone", "translate-pdf", str(paper_id)], PDF_TRANSLATE_TIMEOUT
+            str(project["root"]), ["paper", "translate-pdf", str(paper_id), "--json"], PDF_TRANSLATE_TIMEOUT
         )
         if reason:
             fail(reason)
@@ -1556,12 +1587,18 @@ async def read_pdf_upload(request, target) -> bytes:
 
 
 def project_view(project: dict) -> dict:
-    """現況・考え・状況のまとめ・要対応（`phone project`・U3 §変更内容 2）。"""
+    """現況・考え・状況のまとめ・要対応（`phone project`・U3 §変更内容 2）。
+
+    研究の命令なので argv は変えない（次のガイドで sai-sci へ移る・U14）。
+    """
     return _paper_cli(project, ["phone", "project"], timeout=30.0)
 
 
 def mind_append(project: dict, text) -> dict:
-    """mind.md のメモを 1 行足す（`phone mind-append`・本文は標準入力）。"""
+    """mind.md のメモを 1 行足す（`phone mind-append`・本文は標準入力）。
+
+    研究の命令なので argv は変えない（U14）。env だけ新しくする。
+    """
     if (
         not isinstance(text, str)
         or not (1 <= len(text) <= MEMO_MAX)
@@ -1575,13 +1612,16 @@ def mind_append(project: dict, text) -> dict:
         [settings.sai_paper_bin, "phone", "mind-append"],
         app="sai-paper",
         cwd=root,
-        env={**os.environ, "SAI_PAPER_ROOT": root},
+        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         input_text=text,
     )
 
 
 def attention_resolve(project: dict, key) -> dict:
-    """要対応の 1 件を「対応済み」にする（`phone attention-resolve <key>`）。"""
+    """要対応の 1 件を「対応済み」にする（`phone attention-resolve <key>`・研究の命令）。
+
+    研究の命令なので argv は変えない（U14）。
+    """
     if (
         not isinstance(key, str)
         or not (1 <= len(key) <= ATTENTION_KEY_MAX)
@@ -1595,6 +1635,6 @@ def attention_resolve(project: dict, key) -> dict:
 
 
 def attention_list(project: dict) -> list:
-    """要対応の一覧（`attention --json`・ホームの集計に使う）。"""
+    """要対応の一覧（`attention --json`・ホームの集計に使う）。研究の命令なので argv は変えない。"""
     data = _paper_cli(project, ["attention", "--json"], timeout=15.0)
     return data if isinstance(data, list) else []

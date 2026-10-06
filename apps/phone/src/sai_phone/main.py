@@ -669,17 +669,6 @@ def api_project_card_options(
     return control.phone_card_options(name)
 
 
-@app.get("/api/projects/{name}/card/inputs")
-def api_project_card_inputs(
-    name: str, block: str = Query(""), _: None = Depends(require_token)
-) -> dict:
-    """手順 4 の入力欄と候補トークン（`?block=<id>`・計画 15 §1.5）．
-
-    無い・空でも 422 ではなく control の 400（日本語）で返すため既定は空文字。
-    """
-    return control.phone_card_inputs(name, block)
-
-
 @app.post("/api/projects/{name}/card")
 def api_project_card(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)

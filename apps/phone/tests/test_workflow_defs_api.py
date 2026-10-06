@@ -109,7 +109,7 @@ WORKFLOW_JSON = {
 
 
 def test_workflow(cli: FakeCli) -> None:
-    """Workflow 盤面は `phone workflow` の JSON をそのまま返す（待ち 30 秒）。"""
+    """Workflow 盤面は `sai-link workflow` の JSON をそのまま返す（待ち 30 秒）。"""
     cli.returncode = 0
     cli.stdout = json.dumps(WORKFLOW_JSON)
     cli.stderr = ""
@@ -117,9 +117,10 @@ def test_workflow(cli: FakeCli) -> None:
     out = control.phone_workflow("demo")
     assert out == WORKFLOW_JSON, out
     call = cli.last
-    assert call["args"] == ["sai-moon-link", "phone", "workflow"], call["args"]
+    assert call["args"] == ["sai-moon-link", "workflow"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
     assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
+    assert call["env"]["SAI_ORIGIN"] == "phone"
     assert call["timeout"] == 30.0, call["timeout"]
 
 
@@ -159,7 +160,7 @@ def test_def_list(cli: FakeCli) -> None:
     cli.stderr = ""
     cli.calls.clear()
     assert control.phone_def_list("demo") == LIST_JSON
-    assert cli.last["args"] == ["sai-moon-link", "phone", "def", "list"], cli.last["args"]
+    assert cli.last["args"] == ["sai-moon-link", "def", "list"], cli.last["args"]
     # 実行の記録が無いプロジェクトでも定義の一覧は出せる
     cli.calls.clear()
     control.phone_def_list("fresh")
@@ -179,7 +180,6 @@ def test_def_show(cli: FakeCli) -> None:
     control.phone_def_show("demo", "block", "project", "kantoku")
     assert cli.last["args"] == [
         "sai-moon-link",
-        "phone",
         "def",
         "show",
         "--kind",
@@ -203,7 +203,6 @@ def test_def_write(cli: FakeCli) -> None:
     call = cli.last
     assert call["args"] == [
         "sai-moon-link",
-        "phone",
         "def",
         "write",
         "--kind",
@@ -267,7 +266,6 @@ def test_def_delete(cli: FakeCli) -> None:
     assert out == {"deleted": True}, out
     assert cli.last["args"] == [
         "sai-moon-link",
-        "phone",
         "def",
         "delete",
         "--kind",
@@ -284,7 +282,11 @@ def test_def_delete(cli: FakeCli) -> None:
 
 
 def test_def_exit_codes(cli: FakeCli) -> None:
-    """`_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 1+「同じ名前の定義があります」 / その他）。"""
+    """`_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4 / その他）。
+
+    U06 の `def write --create` は，同じ名前があるとき終了コード 4 ではなく 2 に
+    「同じ名前の定義があります」を出す。control はこれを暫定で 409 に見せる。
+    """
     # 0 以外では JSON を読まず、終了コードを先に分ける
     cli.returncode = 3
     cli.stdout = ""
@@ -297,11 +299,19 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     cli.stderr = "frontmatter が読めません"
     e = expect(400, lambda: control.phone_def_write("demo", "block", "project", "x", "---\n"))
     assert "frontmatter が読めません" in str(e.detail), e.detail
-    # 2 の 502 にしない（502 は sai-link 自体の失敗だけに使う）
     assert e.status_code == 400, e.status_code
 
-    # 1 かつ「同じ名前の定義があります」→ 409
-    cli.returncode = 1
+    # 2 かつ「同じ名前の定義があります」→ 409（U06 の暫定の読み替え）
+    cli.returncode = 2
+    cli.stderr = "同じ名前の定義があります"
+    e = expect(
+        409,
+        lambda: control.phone_def_write("demo", "block", "project", "x", "t", True),
+    )
+    assert str(e.detail) == "同じ名前の定義があります", e.detail
+
+    # 4 は 409（U06 が直ったあとの本来の形）
+    cli.returncode = 4
     cli.stderr = "同じ名前の定義があります"
     e = expect(
         409,
@@ -310,11 +320,13 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     assert str(e.detail) == "同じ名前の定義があります", e.detail
 
     # 1 で別の文言 → 502
+    cli.returncode = 1
     cli.stderr = "HOME が分かりません"
     e = expect(502, lambda: control.phone_def_show("demo", "block", "global", "x"))
     assert "HOME が分かりません" in str(e.detail), e.detail
 
     # 1 で stderr が空 → 502 の既定の文
+    cli.returncode = 1
     cli.stderr = ""
     e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
     assert str(e.detail) == "sai-link が失敗しました", e.detail
@@ -326,16 +338,16 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     assert str(e.detail) == "sai-link の応答を読めませんでした", e.detail
 
 
-def test_def_errors_truncated(cli: FakeCli) -> None:
-    """400 は stderr の先頭 300 文字、502 は先頭 200 文字。"""
+def test_def_errors_not_truncated(cli: FakeCli) -> None:
+    """失敗の理由は標準エラーの最後の行をそのまま使う（切り詰めない・共有契約）。"""
     cli.returncode = 2
     cli.stderr = "あ" * 500
     e = expect(400, lambda: control.phone_def_write("demo", "block", "project", "x", "t"))
-    assert len(str(e.detail)) == 300, len(str(e.detail))
+    assert str(e.detail) == "あ" * 500, len(str(e.detail))
     cli.returncode = 1
     cli.stderr = "い" * 500
     e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
-    assert len(str(e.detail)) == 200, len(str(e.detail))
+    assert str(e.detail) == "い" * 500, len(str(e.detail))
 
 
 # --- 住所の登録（AC1） ---
@@ -379,7 +391,7 @@ def main() -> None:
     test_def_write_validation(cli)
     test_def_delete(cli)
     test_def_exit_codes(cli)
-    test_def_errors_truncated(cli)
+    test_def_errors_not_truncated(cli)
     test_routes()
     test_def_name_variable()
     print("test_workflow_defs_api: すべて通りました")

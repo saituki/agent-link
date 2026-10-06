@@ -29,7 +29,7 @@ def test_normal() -> None:
     """正常な依頼の引数（08 §5 の正常の例）。"""
     req = SearchRequest(query="-x attention", dbs=["s2"], year_from=2020, limit=20)
     args = build_search_args(req, AVAILABLE)
-    assert args[:2] == ["phone", "search"], args
+    assert args[:3] == ["search", "--json", "--limit"], args
     # - で始まる検索語でもオプションと間違えないよう最後は ["--", 語]（08 §2）
     assert args[-2:] == ["--", "-x attention"], args
     assert args[args.index("--db") + 1] == "s2", args
