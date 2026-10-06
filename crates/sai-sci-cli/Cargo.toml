@@ -1,0 +1,35 @@
+[package]
+name = "sai-sci-cli"
+description = "sai-sci CLI — 研究方針の木・研究の記録・エージェントの報告（実行ファイル sai-sci）"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "sai-sci"
+path = "src/main.rs"
+
+[dependencies]
+sai-sci-core.workspace = true
+sai-paper-core.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+# 配るブロックが本物の parser で読めることの検査用
+sai-link-engine = { path = "../sai-link-engine" }
+# 約束の試験が、木と DB を直接作るため
+sai-sci-core.workspace = true
+sai-paper-core.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+
+[lints]
+workspace = true
