@@ -154,6 +154,8 @@ async fn build(paper_ids: Vec<i64>, all: bool, force: bool, summarize: bool) -> 
     let (db, data_dir) = open_for_read()?;
     let conn = db.connection();
     let mut ids = paper_ids;
+    let mut ok = 0usize;
+    let mut failed = 0usize;
     if all {
         let mut stmt = conn.prepare(
             "SELECT DISTINCT papers_id FROM paper_extracts WHERE status = 'ready' AND papers_id IS NOT NULL ORDER BY papers_id",
@@ -179,6 +181,7 @@ async fn build(paper_ids: Vec<i64>, all: bool, force: bool, summarize: bool) -> 
             Ok(s) => s,
             Err(e) => {
                 eprintln!("#{id}: {e}");
+                failed += 1;
                 continue;
             }
         };
@@ -190,6 +193,7 @@ async fn build(paper_ids: Vec<i64>, all: bool, force: bool, summarize: bool) -> 
         )?;
         let label = if state == sections::BuildState::Rebuilt { "作り直した" } else { "変わらず" };
         println!("#{id} 節 {n_sections} 個・塊 {n_passages} 個（{label}）");
+        ok += 1;
         if let Some(client) = &client {
             let model = &config.rag.evidence.model;
             let n = sections::summarize_file(
@@ -202,6 +206,10 @@ async fn build(paper_ids: Vec<i64>, all: bool, force: bool, summarize: bool) -> 
             .await?;
             println!("要約 {n} 節（model: {model}）");
         }
+    }
+    // 全部失敗したときだけ終了コード 1 にする（1 件ずつの失敗は続ける）。
+    if ok == 0 && failed > 0 {
+        anyhow::bail!("すべて失敗しました（{failed} 件）");
     }
     Ok(())
 }
@@ -252,13 +260,19 @@ fn print_paper(paper_id: i64, json: bool) -> Result<()> {
         )
         .ok()
         .flatten();
-    let title = title.with_context(|| format!("論文が見つかりません: id={paper_id}"))?;
+    let title = title.ok_or_else(|| {
+        crate::cli_error::CliError::not_found(format!("論文が見つかりません: id={paper_id}"))
+    })?;
 
     // 抽出キーは無くてもよい（S2 ハッシュのみの論文でも papers.id から解決できる）。
     let key = figures::extract_key_for_paper(conn, paper_id)?;
     let data_dir = Paths::discover()?.data_dir().to_path_buf();
     let md_path = citation::resolve_extract_md(conn, Some(paper_id), key.as_deref(), &data_dir)
-        .with_context(|| format!("論文 {paper_id} の extract.md が見つかりません（抽出未実行？）"))?;
+        .ok_or_else(|| {
+            crate::cli_error::CliError::not_found(format!(
+                "論文 {paper_id} の extract.md が見つかりません（抽出未実行？）"
+            ))
+        })?;
     let text = std::fs::read_to_string(&md_path)
         .with_context(|| format!("extract.md の読み込みに失敗: {}", md_path.display()))?;
 

@@ -108,8 +108,19 @@ fn heading_text(line: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// D05 で作った批判役のブロック（期待する見出しは 6 つ）。
-    const CRITIC: &str = include_str!("../../sai-paper-cli/assets/blocks/paper-critic.md");
+    /// 批判役のブロック（`paper-critic.md` は 2026 の整理で消したので、見出しだけをここに写す。期待する見出しは 6 つ）。
+    const CRITIC: &str = r#"## 出力の形
+report は次の見出しで書きます。
+
+```markdown
+## 主張ごとの証拠の強さ
+## 方法の弱点
+## 結果の信頼性
+## 食い違う報告とその理由
+## 著者に聞きたいこと
+## 引き継ぎ
+```
+"#;
 
     #[test]
     fn コード欄の中の見出しを拾う() {

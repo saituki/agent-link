@@ -357,7 +357,7 @@ fn is_imported(item: &search_sets::SearchSetItem) -> bool {
 }
 
 /// セット 1 件の JSON（`rt_node`・`purpose`・`extract` は核の関数が無いのでここで読む）。
-fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet) -> Result<Value> {
+pub(crate) fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet) -> Result<Value> {
     let (rt_node, purpose, extract): (Option<i64>, Option<String>, Option<String>) = conn
         .query_row(
             "SELECT rt_node, purpose, extract FROM search_sets WHERE id = ?1",
@@ -392,7 +392,7 @@ fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet) -> Result
 }
 
 /// `phone set list`。
-fn set_list(conn: &rusqlite::Connection) -> Result<Value> {
+pub(crate) fn set_list(conn: &rusqlite::Connection) -> Result<Value> {
     let mut sets = Vec::new();
     for set in search_sets::list(conn)? {
         let mut one = set_json(conn, &set)?;
@@ -404,7 +404,7 @@ fn set_list(conn: &rusqlite::Connection) -> Result<Value> {
 }
 
 /// `phone set show <id>`。
-fn set_show(conn: &rusqlite::Connection, id: i64) -> Result<Value> {
+pub(crate) fn set_show(conn: &rusqlite::Connection, id: i64) -> Result<Value> {
     let set = search_sets::get(conn, id)?;
     let items: Vec<Value> = search_sets::items(conn, id)?
         .into_iter()
@@ -427,7 +427,7 @@ fn set_show(conn: &rusqlite::Connection, id: i64) -> Result<Value> {
 }
 
 /// 位置の列に判定を付ける。取り込み済みは変えず、数えない。
-fn mark_positions(
+pub(crate) fn mark_positions(
     conn: &rusqlite::Connection,
     id: i64,
     positions: &[i64],
@@ -435,7 +435,10 @@ fn mark_positions(
     reason: Option<&str>,
 ) -> Result<Value> {
     if decision != "keep" && decision != "drop" {
-        bail!("decision は keep か drop にしてください");
+        return Err(crate::cli_error::CliError::input(
+            "decision は keep か drop にしてください",
+        )
+        .into());
     }
     // 無いセットは先に断る
     search_sets::get(conn, id)?;
@@ -443,7 +446,10 @@ fn mark_positions(
     let mut changed = 0;
     for &position in positions {
         let Some(item) = items.iter().find(|i| i.position == position) else {
-            bail!("候補 set_id={id}, position={position} が見つかりません");
+            return Err(crate::cli_error::CliError::not_found(format!(
+                "候補 set_id={id}, position={position} が見つかりません"
+            ))
+            .into());
         };
         if is_imported(item) {
             continue;
@@ -466,7 +472,7 @@ fn set_mark(
 }
 
 /// `phone set drop-pending`。
-fn set_drop_pending(conn: &rusqlite::Connection, id: i64, reason: Option<&str>) -> Result<Value> {
+pub(crate) fn set_drop_pending(conn: &rusqlite::Connection, id: i64, reason: Option<&str>) -> Result<Value> {
     search_sets::get(conn, id)?;
     let pending: Vec<i64> = search_sets::items(conn, id)?
         .into_iter()
@@ -593,7 +599,7 @@ pub(crate) fn remote_year(published: &chrono::DateTime<chrono::Utc>) -> Option<S
 /// `phone library`: Library の論文一覧（00 §7.2）。
 ///
 /// `created_at` は `papers` から、`podcast` は `paper_podcasts` から 1 回ずつ読む。
-fn library() -> Result<Value> {
+pub(crate) fn library() -> Result<Value> {
     let (db, cfg, paths) = open_context()?;
     let papers = library_papers(&db, &cfg, &paths)?;
     let created = created_at_map(&db)?;
@@ -620,7 +626,7 @@ fn library() -> Result<Value> {
 }
 
 /// `phone tree`: 階層グループ一覧（TUI の階層表示と同じまとめ方）。
-fn tree() -> Result<Value> {
+pub(crate) fn tree() -> Result<Value> {
     let (db, cfg, paths) = open_context()?;
     let papers = library_papers(&db, &cfg, &paths)?;
     let groups = library_tree::build_groups(db.connection(), &papers);
@@ -636,7 +642,7 @@ fn tree() -> Result<Value> {
 pub(crate) fn paper(paper_id: i64) -> Result<Value> {
     let (db, _cfg, paths) = open_context()?;
     let Some(paper) = db.library_paper_by_id(paper_id)? else {
-        bail!("論文が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
     };
 
     // s2_paper_id は LibraryPaper に無いため DB から直接読む。
@@ -812,13 +818,13 @@ fn local_paper_id(
 /// `phone log <log_id>`: 検索履歴とヒット一覧（00 §7.2）。
 ///
 /// `phone search`（03）も記録直後のログをこの関数で出力する。
-fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Result<Value> {
+pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Result<Value> {
     let conn = db.connection();
     let Some(log_meta) = search_log::list(conn)?
         .into_iter()
         .find(|entry| entry.id == log_id)
     else {
-        bail!("検索履歴が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("検索履歴が見つかりません").into());
     };
 
     let papers = library_papers(db, cfg, paths)?;
@@ -930,17 +936,23 @@ async fn find(args: FindArgs<'_>) -> Result<Value> {
     } = args;
     let query = query.trim();
     if query.is_empty() {
-        bail!("検索語が空です");
+        return Err(crate::cli_error::CliError::input("検索語が空です").into());
     }
     if let Some(mode) = mode
         && !matches!(mode.as_str(), "word" | "vector" | "hybrid")
     {
-        bail!("検索モードが正しくありません（word / vector / hybrid）");
+        return Err(crate::cli_error::CliError::input(
+            "検索モードが正しくありません（word / vector / hybrid）",
+        )
+        .into());
     }
     if let Some(scope) = scope
         && !matches!(scope.as_str(), "papers" | "notes" | "figures" | "all")
     {
-        bail!("検索対象が正しくありません（papers / notes / figures / all）");
+        return Err(crate::cli_error::CliError::input(
+            "検索対象が正しくありません（papers / notes / figures / all）",
+        )
+        .into());
     }
     // `--subtree` と `--each` には範囲の指定が要る（CLI の find と同じ検査）。
     crate::sci::check_find_scope(subtree, node.is_some(), each, papers.is_empty())?;
@@ -1019,7 +1031,7 @@ async fn find(args: FindArgs<'_>) -> Result<Value> {
 /// 内部検索の履歴 1 件を、使い回しの JSON（C-2）にする。
 ///
 /// `phone find`（検索直後）と `phone find-log`（過去の履歴）で共用。
-fn find_log_json(
+pub(crate) fn find_log_json(
     conn: &rusqlite::Connection,
     row: &find_log::FindLogRow,
     rows: &[(i64, Option<i64>, Value)],
@@ -1095,17 +1107,17 @@ fn find_log_json(
 }
 
 /// `phone find-log <id>`: 内部検索の履歴 1 件とヒット一覧（U01）。
-fn find_log_view(db: &Database, log_id: i64) -> Result<Value> {
+pub(crate) fn find_log_view(db: &Database, log_id: i64) -> Result<Value> {
     let conn = db.connection();
     let Some(row) = find_log::get(conn, log_id)? else {
-        bail!("検索履歴が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("検索履歴が見つかりません").into());
     };
     let rows = find_log::hits(conn, log_id)?;
     Ok(find_log_json(conn, &row, &rows))
 }
 
 /// `phone providers`: 既定の DB（設定の `discover.providers`）と全 DB の一覧。
-fn providers() -> Result<Value> {
+pub(crate) fn providers() -> Result<Value> {
     let paths = Paths::discover()?;
     let cfg = Config::load_or_create(&paths)?;
     Ok(json!({
@@ -1117,7 +1129,7 @@ fn providers() -> Result<Value> {
 /// 検索年のラベル（`search_logs.year` に保存する文字列）。
 ///
 /// 両方指定 `2010-2020` / 下限だけ `2010-` / 上限だけ `-2020` / 指定なしは空文字。
-fn year_label(from: Option<u16>, to: Option<u16>) -> String {
+pub(crate) fn year_label(from: Option<u16>, to: Option<u16>) -> String {
     match (from, to) {
         (Some(from), Some(to)) => format!("{from}-{to}"),
         (Some(from), None) => format!("{from}-"),
@@ -1138,7 +1150,7 @@ async fn search(
 ) -> Result<Value> {
     let query = query.trim();
     if query.is_empty() {
-        bail!("検索語が空です");
+        return Err(crate::cli_error::CliError::input("検索語が空です").into());
     }
     let limit = limit.clamp(1, 100);
 
@@ -1171,7 +1183,7 @@ async fn search(
 /// 失敗した DB と理由を `[{"db": "s2", "reason": "…"}]` の形で入れる。
 /// 1 件も失敗していなければ空の配列。`phone log <id>`（過去の検索結果）には
 /// 使わない（履歴には理由を残していないため）。
-fn with_failed(value: Value, failed: &[(String, String)]) -> Result<Value> {
+pub(crate) fn with_failed(value: Value, failed: &[(String, String)]) -> Result<Value> {
     let Value::Object(mut map) = value else {
         // 想定より別の形が来たら、そのまま返す（検索の応答は常に object）。
         return Ok(value);
@@ -1191,10 +1203,10 @@ fn with_failed(value: Value, failed: &[(String, String)]) -> Result<Value> {
 /// `phone translate <id>`: 要旨の日本語訳（TUI の `a` / `A` キーと同じ）。
 ///
 /// 訳文は `papers.abstract_ja` に保存され、次の呼び出しでは再利用される。
-async fn translate(paper_id: i64, force: bool) -> Result<Value> {
+pub(crate) async fn translate(paper_id: i64, force: bool) -> Result<Value> {
     let (db, _cfg, _paths) = open_context()?;
     let Some(paper) = db.library_paper_by_id(paper_id)? else {
-        bail!("論文が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
     };
     let abstract_en = paper.abstract_text.as_deref().unwrap_or("").trim();
     if abstract_en.is_empty() {
@@ -1223,7 +1235,7 @@ async fn translate(paper_id: i64, force: bool) -> Result<Value> {
 ///
 /// `paper_podcasts` を generating → ready / failed に更新するのは core の共通処理。
 /// `radio_id` は sai-radio に登録された音声の名前（<フォルダ名>-<番号>）。
-async fn radio(paper_id: i64) -> Result<Value> {
+pub(crate) async fn radio(paper_id: i64) -> Result<Value> {
     let paths = Paths::discover()?;
     let cfg = Config::load_or_create(&paths)?;
     let radio_id = podcast_client::generate_for_paper(&paths.database_file, paper_id, &cfg.radio)
@@ -1233,7 +1245,7 @@ async fn radio(paper_id: i64) -> Result<Value> {
 }
 
 /// `phone translate-pdf`: PDF を訳し、できた翻訳 PDF の場所を返す。
-async fn translate_pdf(paper_id: i64) -> Result<Value> {
+pub(crate) async fn translate_pdf(paper_id: i64) -> Result<Value> {
     let paths = Paths::discover()?;
     let cfg = Config::load_or_create(&paths)?;
     let path = sai_paper_core::pipeline::translate_pdf(&paths.database_file, paper_id, &cfg.translate.pdf)
@@ -1249,7 +1261,7 @@ const DASHBOARD_ACTIVITY_MAX: usize = 300;
 ///
 /// - 数字は TUI と同じ数え方（論文は Library フォルダの PDF 数、ノートは論文フォルダの note.md の数）。
 /// - 出来事には sai-radio の「聴いた・質問した」を混ぜる（止まっていれば sai-paper の分だけ）。
-fn dashboard() -> Result<Value> {
+pub(crate) fn dashboard() -> Result<Value> {
     let (db, cfg, paths) = open_context()?;
     let collection_roots: Vec<PathBuf> = cfg
         .library.import_folders
@@ -1304,11 +1316,11 @@ fn dashboard() -> Result<Value> {
 ///
 /// 既にあるノートはその場所で上書きする。無ければ論文フォルダ
 /// （`paths::paper_folder`）に作る。保存したら出来事に「notes」を残す。
-fn save_note(paper_id: i64) -> Result<Value> {
+pub(crate) fn save_note(paper_id: i64) -> Result<Value> {
     use std::io::Read as _;
     let (db, _cfg, paths) = open_context()?;
     let Some(paper) = db.library_paper_by_id(paper_id)? else {
-        bail!("論文が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
     };
     let mut text = String::new();
     std::io::stdin().read_to_string(&mut text)?;

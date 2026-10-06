@@ -1,8 +1,7 @@
 //! `sai-moon-paper activity` — 「開いた」「エージェントが読んだ」の記録（N01）。
 //!
-//! - `activity open`: ユーザーが開いた記録を `activity_log` に足す。呼ぶ側
-//!   （Web の画面など）を止めないため、**失敗しても 0 で終わる**
-//!   （標準エラーに 1 行だけ出す）。
+//! - `activity open`: ユーザーが開いた記録を `activity_log` に足す。失敗は
+//!   標準エラーに 1 行出して終了コード 1 にする（約束どおり 0 で隠さない）。
 //! - `activity list`: 記録を新しい順に出す。
 //!
 //! エージェントが読んだ記録は `sai-moon-paper content` と MCP の `paper` から
@@ -22,7 +21,7 @@ use crate::open_database;
 /// `sai-moon-paper activity` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum ActivityCmd {
-    /// ユーザーが開いた記録を残す（失敗しても 0 で終わる）
+    /// ユーザーが開いた記録を残す
     Open {
         /// 開いたファイルのパス
         #[arg(long)]
@@ -64,17 +63,14 @@ pub fn handle(cmd: ActivityCmd) -> Result<()> {
     }
 }
 
-/// `activity open` の本体。失敗しても 0 で終わる（標準エラーに 1 行だけ出す）。
+/// `activity open` の本体。失敗は約束どおり終了コード 1 にする（0 で隠さない）。
 fn handle_open(
     path: &Path,
     paper: Option<i64>,
     surface: &str,
     target: Option<&str>,
 ) -> Result<()> {
-    if let Err(error) = record_open_inner(path, paper, surface, target) {
-        eprintln!("activity open: {error}");
-    }
-    Ok(())
+    record_open_inner(path, paper, surface, target)
 }
 
 fn record_open_inner(

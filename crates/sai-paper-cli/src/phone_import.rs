@@ -39,27 +39,37 @@ const MAX_BIB_BYTES: usize = 1024 * 1024;
 #[derive(Subcommand, Debug)]
 pub enum PhoneImportCmd {
     /// BibTeX フォルダの .bib 一覧と、取り込める論文の一覧を出す
-    List,
+    List {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
     /// 標準入力の BibTeX（1MB まで）を .bib として保存する
     Add {
         /// 保存するファイル名（例: `refs.bib`）
         #[arg(long)]
         name: String,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
     /// .bib を 1 件消す
     Remove {
         /// 消すファイル名（例: `refs.bib`）
         #[arg(long)]
         name: String,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
 }
 
 /// `sai-moon-paper phone import` を実行して JSON 1 行を返す。
 pub fn run_import(cmd: PhoneImportCmd) -> Result<Value> {
     match cmd {
-        PhoneImportCmd::List => import_list(),
-        PhoneImportCmd::Add { name } => import_add(&name),
-        PhoneImportCmd::Remove { name } => import_remove(&name),
+        PhoneImportCmd::List { json: _ } => import_list(),
+        PhoneImportCmd::Add { name, json: _ } => import_add(&name),
+        PhoneImportCmd::Remove { name, json: _ } => import_remove(&name),
     }
 }
 
@@ -130,9 +140,14 @@ fn import_add(name: &str) -> Result<Value> {
 /// `phone import remove --name <file.bib>`: .bib を 1 件消す。
 fn import_remove(name: &str) -> Result<Value> {
     let paths = Paths::discover()?;
-    bibtex::remove_bib_file(&bibtex_dir(&paths), name)
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
-    Ok(json!({ "name": name, "removed": true }))
+    match bibtex::remove_bib_file(&bibtex_dir(&paths), name) {
+        Ok(()) => Ok(json!({ "name": name, "removed": true })),
+        Err(bibtex::BibtexError::NotFound) => Err(crate::cli_error::CliError::not_found(
+            format!("{name} が見つかりません"),
+        )
+        .into()),
+        Err(error) => Err(anyhow::anyhow!("{error}")),
+    }
 }
 
 /// 標準入力を [`MAX_BIB_BYTES`] まで読んで文字にする（超えたら日本語エラー）。
@@ -316,7 +331,10 @@ fn find_target_paper(
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)
-                .context("論文が見つかりません")
+                .ok_or_else(|| {
+                    crate::cli_error::CliError::not_found("論文が見つかりません")
+                })
+                .map_err(anyhow::Error::from)
         }
         (None, Some(import_id)) => load_bibtex_dir_detailed(&bibtex_dir(paths))?
             .papers
@@ -466,7 +484,7 @@ pub async fn after_download(paper_id: i64) -> Result<Value> {
     {
         let db = open_database()?;
         let Some(paper) = db.library_paper_by_id(paper_id)? else {
-            bail!("論文が見つかりません");
+            return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
         };
         if paper
             .pdf_path

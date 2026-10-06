@@ -6,16 +6,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors produced while resolving or loading configuration.
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    /// The operating system did not expose standard user directories.
-    #[error("could not resolve platform application directories")]
-    MissingPlatformDirectories,
+    /// 研究プロジェクト（`.sai/`）が見つからなかった（CLI 共通の約束で終了コード 2）。
+    #[error("プロジェクトが見つかりません（`sai-moon-link init` か `sai-moon-paper init` を実行してください）")]
+    ProjectNotFound,
+    /// プロジェクトはあるが、論文の置き場（`.sai/paper/`）が無かった（終了コード 2）。
+    #[error("論文の置き場がありません（`sai-moon-paper init` を実行してください）")]
+    PaperDirMissing,
     /// Configuration I/O failed.
     #[error("configuration I/O failed: {0}")]
     Io(#[from] std::io::Error),
@@ -43,42 +45,28 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// Resolve paths using the operating system's standard directories.
-    /// For sai-paper workspace, prefers project-root `.sai/paper/` when detected.
+    /// 研究プロジェクトの `.sai/paper/` を解決する（CLI 共通の約束の 5）。
+    ///
+    /// プロジェクトが見つからないときは [`ConfigError::ProjectNotFound`]、
+    /// `.sai/paper/` が無いときは [`ConfigError::PaperDirMissing`] を返す。
+    /// 勝手にフォルダを作らない。
     ///
     /// # Errors
     ///
-    /// Returns an error when platform application directories are unavailable.
+    /// プロジェクト、または論文の置き場が見つからないとき。
     pub fn discover() -> Result<Self, ConfigError> {
-        // 研究プロジェクト（`.sai/paper/`）を優先する。旧レイアウト（`data/`）は使わない。
-        if let Some(roots) = crate::paths::paper_roots() {
-            return Ok(Self {
-                config_file: roots.data_dir.join(SETTINGS_FILE),
-                database_file: roots.data_dir.join("papr.db"),
-                downloads_dir: roots.data_dir.join("papers"),
-                plugins_dir: roots.data_dir.join("plugins"),
-                plugins_config_file: roots.data_dir.join("plugins.toml"),
-            });
+        let root = crate::paths::project_root().ok_or(ConfigError::ProjectNotFound)?;
+        let data_dir = root.join(".sai").join("paper");
+        if !data_dir.is_dir() {
+            return Err(ConfigError::PaperDirMissing);
         }
-        // `organization` becomes a path component on Windows and part of the
-        // bundle identifier on macOS. Papr is independently distributed, so
-        // using its application name for both fields created `papr/papr` on
-        // Windows (and `org.papr.papr` on macOS).
-        let dirs =
-            ProjectDirs::from("org", "", "papr").ok_or(ConfigError::MissingPlatformDirectories)?;
-        Ok(Self::from_project_dirs(&dirs))
-    }
-
-    /// Build all application locations from one platform-directory source.
-    /// Resource names are appended exactly once and never repeat the app name.
-    fn from_project_dirs(dirs: &ProjectDirs) -> Self {
-        Self {
-            config_file: dirs.config_dir().join(SETTINGS_FILE),
-            database_file: dirs.data_dir().join("papr.db"),
-            downloads_dir: dirs.data_dir().join("papers"),
-            plugins_dir: dirs.data_dir().join("plugins"),
-            plugins_config_file: dirs.config_dir().join("plugins.toml"),
-        }
+        Ok(Self {
+            config_file: data_dir.join(SETTINGS_FILE),
+            database_file: data_dir.join("papr.db"),
+            downloads_dir: data_dir.join("papers"),
+            plugins_dir: data_dir.join("plugins"),
+            plugins_config_file: data_dir.join("plugins.toml"),
+        })
     }
 
     /// Return the data directory that contains the database file.
@@ -943,7 +931,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::{s2_api_key_env_names, Config, Paths};
-    use directories::ProjectDirs;
+    use std::path::PathBuf;
 
     fn temp_paths(tag: &str) -> Paths {
         let unique_id = std::time::SystemTime::now()
@@ -1016,22 +1004,17 @@ mod tests {
     }
 
     #[test]
-    fn platform_paths_use_the_application_component_once() -> Result<(), std::io::Error> {
-        let dirs = ProjectDirs::from("org", "", "papr")
-            .ok_or_else(|| std::io::Error::other("platform directories unavailable"))?;
-        #[cfg(target_os = "windows")]
-        assert_eq!(dirs.project_path(), std::path::Path::new("papr"));
-        #[cfg(target_os = "macos")]
-        assert_eq!(dirs.project_path(), std::path::Path::new("org.papr"));
-        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-        assert_eq!(dirs.project_path(), std::path::Path::new("papr"));
-
-        let paths = Paths::from_project_dirs(&dirs);
-        assert_eq!(paths.config_file.parent(), Some(dirs.config_dir()));
-        assert_eq!(paths.database_file.parent(), Some(dirs.data_dir()));
-        assert_eq!(paths.downloads_dir, dirs.data_dir().join("papers"));
-        assert_eq!(paths.plugins_dir, dirs.data_dir().join("plugins"));
-        Ok(())
+    fn paths_discover_requires_a_project_with_paper_dir() {
+        // 環境変数を書き換えられないので、`discover` がプロジェクトを見つけない
+        // ことを直接は確かめられない。ここでは `Paths` の組み立てだけを確かめる。
+        let paths = Paths {
+            config_file: PathBuf::from("/tmp/p/.sai/paper/settings.json"),
+            database_file: PathBuf::from("/tmp/p/.sai/paper/papr.db"),
+            downloads_dir: PathBuf::from("/tmp/p/.sai/paper/papers"),
+            plugins_dir: PathBuf::from("/tmp/p/.sai/paper/plugins"),
+            plugins_config_file: PathBuf::from("/tmp/p/.sai/paper/plugins.toml"),
+        };
+        assert_eq!(paths.data_dir(), PathBuf::from("/tmp/p/.sai/paper"));
     }
 
     /// 項目が欠けた JSON・知らない項目がある JSON も読め、欠けた所は既定値になる。
