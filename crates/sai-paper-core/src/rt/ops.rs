@@ -132,7 +132,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_seed",
         risk: Risk::Auto,
-        about: "★ の付いた O の道（path）から研究の種を作る",
+        about: "Q から子の Q へ降りる O の 1 本の鎖（path）から Sprout を作る（Issue の O を 1 つ以上）",
         fields: &[
             req("title", Ty::Text(1, 120)),
             req("sentence", Ty::Text(1, 600)),
@@ -741,10 +741,36 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             let mut path = Vec::new();
             for o in strings(op, "path") {
                 let n = node(cx, &o, &[Kind::O])?;
-                if !n.starred {
-                    return invalid(format!("{o} には ★ が付いていません"));
-                }
                 path.push(n.id);
+            }
+            // Q から子の Q へ降りる O の 1 本の鎖か。`o_i`（i ≥ 1）の親から上へ Q をたどって
+            // 最初に会う O が `o_{i-1}` であること。
+            for (i, id) in path.iter().enumerate().skip(1) {
+                let prev = path[i - 1];
+                let mut at = store::get_node(conn, *id)?.parent_id;
+                let mut found = false;
+                while let Some(p) = at {
+                    let n = store::get_node(conn, p)?;
+                    if n.kind != Kind::Q {
+                        break;
+                    }
+                    at = n.parent_id;
+                }
+                // Q の列を抜けた先が前の O か。
+                if let Some(p) = at {
+                    found = p == prev;
+                }
+                if !found {
+                    let cur = fmt_id(Kind::O, *id);
+                    let before = fmt_id(Kind::O, prev);
+                    return invalid(format!("{cur} は {before} の下の子の Q の O ではありません"));
+                }
+            }
+            let has_issue = path
+                .iter()
+                .any(|id| store::get_node(conn, *id).is_ok_and(|n| n.answer_kind.as_deref() == Some("issue")));
+            if !has_issue {
+                return invalid("Issue の O を 1 つ以上含めてください");
             }
             let id = store::insert_seed(conn, text(op, "title"), text(op, "sentence"), &path, cx.run_id, &cx.by)?;
             Ok(fmt_ref('S', id))
@@ -989,13 +1015,29 @@ mod tests {
     }
 
     #[test]
-    fn add_seed_needs_stars() {
+    fn add_seed_needs_chain_and_issue() {
         let e = env();
-        let o = e.o("A");
-        let seed = json!({"op": "add_seed", "title": "種", "sentence": "文", "path": [o]});
-        assert!(err(e.one(seed.clone())).contains("★"));
-        e.user(json!({"op": "star", "o": o})).unwrap();
-        assert_eq!(e.one(seed).unwrap().result.unwrap(), "S1");
+        // Q(sub) → O(A, answer) → Q → O(B)。star は付けない。
+        let a = e.o("A");
+        let (_, aid) = parse_id(&a).unwrap();
+        let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap().id;
+        let b = e.one(json!({"op": "add_o", "q": fmt_id(Kind::Q, child_q), "text": "B"})).unwrap().result.unwrap();
+        // Answer だけの path は断られ、Issue を含むよう求められる。
+        assert!(err(e.one(json!({"op": "add_seed", "title": "種", "sentence": "文", "path": [a]}))).contains("Issue"));
+        // Answer の O を Issue に変えても、兄弟の O との path は鎖でないので断られる。
+        e.user(json!({"op": "set_kind", "o": b, "kind": "issue"})).unwrap();
+        let other = e.o("C");
+        assert!(
+            err(e.one(json!({"op": "add_seed", "title": "種", "sentence": "文", "path": [a, other]})))
+                .contains("の下の子の Q の O ではありません")
+        );
+        // Q(sub)→O(answer)→Q→O(issue) の 2 つの O の path は通り、`S1` が返る。★ が無くても通る。
+        e.user(json!({"op": "set_kind", "o": a, "kind": "issue"})).unwrap();
+        e.user(json!({"op": "set_kind", "o": b, "kind": "answer"})).unwrap();
+        assert_eq!(
+            e.one(json!({"op": "add_seed", "title": "種", "sentence": "文", "path": [a, b]})).unwrap().result.unwrap(),
+            "S1"
+        );
     }
 
     #[test]

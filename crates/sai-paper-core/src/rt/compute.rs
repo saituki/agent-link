@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use chrono::{DateTime, NaiveDateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -151,6 +152,8 @@ pub struct SeedJson {
     pub path: Vec<String>,
     pub run: Option<i64>,
     pub created_at: String,
+    /// Sprout に含まれる Node の ID。道の Q/O と、道の O の下の F/E を道の順に並べたもの。
+    pub nodes: Vec<String>,
 }
 
 /// 走っている run。
@@ -299,6 +302,22 @@ pub struct SourceJson {
     pub passage: Option<String>,
 }
 
+/// `node_detail.history` の 1 行。init が先頭、残りは古い順。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HistoryJson {
+    /// `init` / `Add Q` / `Add O` / `Add F` / `Add E` / `Run` / rt_log の action（`edit` など）
+    pub action: String,
+    /// RFC3339（UTC）。DB の `YYYY-MM-DD HH:MM:SS` は UTC として読み替える。
+    pub at: String,
+    /// `user` か `run:<N>`（Run の行は `run:<run_id>`）。
+    pub by: String,
+    pub run_id: Option<i64>,
+    /// その run の block（見つからなければ空）。
+    pub block: String,
+    pub global_round: Option<i64>,
+    pub round: Option<i64>,
+}
+
 /// `node` の JSON。
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeDetail {
@@ -315,6 +334,7 @@ pub struct NodeDetail {
     pub next: Vec<NextAction>,
     pub searches: Vec<SearchJson>,
     pub sources: Vec<SourceJson>,
+    pub history: Vec<HistoryJson>,
 }
 
 // ---- 木 -------------------------------------------------------------------------------
@@ -925,6 +945,23 @@ pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
 
 // ---- status / node_detail -------------------------------------------------------------
 
+/// DB の時刻（`YYYY-MM-DD HH:MM:SS`、UTC）や RFC3339 の時刻を UTC の RFC3339 に直す。読めなければ元の文字のまま。
+fn rfc3339_utc(text: &str) -> String {
+    let text = text.trim();
+    if let Ok(naive) = NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S") {
+        return DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc).to_rfc3339();
+    }
+    if let Ok(dt) = DateTime::parse_from_rfc3339(text) {
+        return dt.with_timezone(&Utc).to_rfc3339();
+    }
+    text.to_string()
+}
+
+/// `run:<N>` から N を読む（`creator_json` と同じ読み方）。
+fn run_id_of(by: &str) -> Option<i64> {
+    by.strip_prefix("run:").and_then(|s| s.trim().parse::<i64>().ok())
+}
+
 fn seed_json(tree: &Tree, s: &SeedRow) -> SeedJson {
     SeedJson {
         id: fmt_ref('S', s.id),
@@ -933,7 +970,74 @@ fn seed_json(tree: &Tree, s: &SeedRow) -> SeedJson {
         path: s.path.iter().map(|id| tree.label(*id).0).collect(),
         run: s.run_id,
         created_at: s.created_at.clone(),
+        nodes: seed_nodes(tree, &s.path),
     }
+}
+
+/// Sprout に含まれる Node の ID を道の順に並べる。生きている Node だけを数え、消えた Node は飛ばす。
+///
+/// path の O の i 番目を `o_i` として繰り返す。
+/// 1. `o_i` の親から上へ Q をたどる。O か根に着くまで Q を集める。i = 0 のときは親の Q 1 つだけにする。集めた Q を上から順に入れる。
+/// 2. `o_i` を入れる。
+/// 3. `o_i` の下の F・E を木の順（深さ優先・ord 順）に入れる。E の下の F・E は入れる。Q の下へは降りない。
+///
+/// 同じ ID は 2 回入れない。
+fn seed_nodes(tree: &Tree, path: &[i64]) -> Vec<String> {
+    let mut out: Vec<i64> = Vec::new();
+    let push = |out: &mut Vec<i64>, id: i64| {
+        if tree.node(id).is_some() && !out.contains(&id) {
+            out.push(id);
+        }
+    };
+    // 道の O の下の F・E を木の順（深さ優先・ord 順）に入れる。E の下はたどり、Q の下へは降りない。
+    fn push_evidence(tree: &Tree, out: &mut Vec<i64>, id: i64) {
+        let mut stack: Vec<i64> = tree.kids.get(&id).cloned().unwrap_or_default().into_iter().rev().collect();
+        while let Some(kid) = stack.pop() {
+            let Some(n) = tree.node(kid) else { continue };
+            match n.kind {
+                Kind::F | Kind::E => {
+                    if !out.contains(&kid) {
+                        out.push(kid);
+                    }
+                    if n.kind == Kind::E {
+                        let kids = tree.kids.get(&kid).cloned().unwrap_or_default();
+                        stack.extend(kids.into_iter().rev());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for (i, o) in path.iter().enumerate() {
+        if tree.node(*o).filter(|n| n.kind == Kind::O).is_none() {
+            continue;
+        }
+        // 上の Q を集める（O か根に着くまで）。i = 0 のときは親の Q 1 つだけ。
+        let mut ups: Vec<i64> = Vec::new();
+        if i == 0 {
+            if let Some(parent) = tree.node(*o).and_then(|n| n.parent_id) {
+                if tree.node(parent).is_some_and(|n| n.kind == Kind::Q) {
+                    ups.push(parent);
+                }
+            }
+        } else {
+            let mut at = tree.node(*o).and_then(|n| n.parent_id);
+            while let Some(id) = at {
+                let Some(n) = tree.node(id) else { break };
+                if n.kind != Kind::Q {
+                    break;
+                }
+                ups.push(id);
+                at = n.parent_id;
+            }
+        }
+        for id in ups.into_iter().rev() {
+            push(&mut out, id);
+        }
+        push(&mut out, *o);
+        push_evidence(tree, &mut out, *o);
+    }
+    out.into_iter().map(|id| tree.label(id).0).collect()
 }
 
 fn running_runs(roots: &PaperRoots) -> Vec<RunningJson> {
@@ -1000,6 +1104,108 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
     out.decisions = tree.log.iter().take(30).map(|r| tree.decision(r)).collect();
     out.running = running_runs(roots);
     Ok(out)
+}
+
+/// `node_detail.history` を組み立てる。init が先頭、残り（Add・Run・決定）は at の昇順。
+/// at が同じときは Add → Run → 決定の順、その中は元の順にする（安定ソート）。
+fn history_json(node: &NodeRow, num: i64, tree: &Tree, runs: &[action::SciRun]) -> Vec<HistoryJson> {
+    let run_of = |run_id: Option<i64>| run_id.and_then(|id| runs.iter().find(|r| r.run_id == id));
+    let fill = |run: Option<&action::SciRun>| {
+        (
+            run.map(|r| r.block.clone()).unwrap_or_default(),
+            run.and_then(|r| r.global_round),
+            run.and_then(|r| r.round),
+        )
+    };
+    // 行の種類（Add → Run → 決定の順）と元の順。init は先頭に置くので別扱い。
+    struct Row {
+        rank: u8,
+        at: String,
+        pos: usize,
+        action: String,
+        by: String,
+        run_id: Option<i64>,
+        block: String,
+        global_round: Option<i64>,
+        round: Option<i64>,
+    }
+    let mut rows: Vec<Row> = Vec::new();
+    let mut pos = 0;
+    // Add: この Node の生きている直の子ごとに 1 行。
+    for kid in tree.kids.get(&num).into_iter().flatten() {
+        let Some(k) = tree.node(*kid) else { continue };
+        let by = k.created_by.clone();
+        let run_id = run_id_of(&by);
+        let (block, global_round, round) = fill(run_of(run_id));
+        rows.push(Row {
+            rank: 0,
+            at: rfc3339_utc(&k.created_at),
+            pos,
+            action: format!("Add {}", k.kind.as_str()),
+            by,
+            run_id,
+            block,
+            global_round,
+            round,
+        });
+        pos += 1;
+    }
+    // Run: この Node を対象にする run ごとに 1 行（子孫の run は入れない）。
+    for r in runs.iter().filter(|r| r.keys.node.is_some_and(|(_, n)| n == num)) {
+        rows.push(Row {
+            rank: 1,
+            at: rfc3339_utc(&r.occurred_at),
+            pos,
+            action: "Run".into(),
+            by: format!("run:{}", r.run_id),
+            run_id: Some(r.run_id),
+            block: r.block.clone(),
+            global_round: r.global_round,
+            round: r.round,
+        });
+        pos += 1;
+    }
+    // 決定: `rt_log` のうちこの Node の行ごとに 1 行。
+    for row in tree.log.iter().filter(|r| r.node_id == num) {
+        let run_id = run_id_of(&row.actor);
+        let (block, global_round, round) = fill(run_of(run_id));
+        rows.push(Row {
+            rank: 2,
+            at: rfc3339_utc(&row.created_at),
+            pos,
+            action: row.action.clone(),
+            by: row.actor.clone(),
+            run_id,
+            block,
+            global_round,
+            round,
+        });
+        pos += 1;
+    }
+    rows.sort_by(|a, b| a.at.cmp(&b.at).then(a.rank.cmp(&b.rank)).then(a.pos.cmp(&b.pos)));
+    // init: 必ず 1 行・先頭。
+    let by = node.created_by.clone();
+    let run_id = run_id_of(&by);
+    let (block, global_round, round) = fill(run_of(run_id));
+    let mut out = vec![HistoryJson {
+        action: "init".into(),
+        at: rfc3339_utc(&node.created_at),
+        by,
+        run_id,
+        block,
+        global_round,
+        round,
+    }];
+    out.extend(rows.into_iter().map(|r| HistoryJson {
+        action: r.action,
+        at: r.at,
+        by: r.by,
+        run_id: r.run_id,
+        block: r.block,
+        global_round: r.global_round,
+        round: r.round,
+    }));
+    out
 }
 
 /// この Node を作った人と run を並べる。
@@ -1109,6 +1315,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
         })
         .collect();
     let creator = creator_json(node, &runs);
+    let history = history_json(node, num, &tree, &runs);
 
     let is_q = node.kind == Kind::Q;
     Ok(NodeDetail {
@@ -1164,6 +1371,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
             })
             .collect(),
         sources: node.cites.iter().map(|c| source_json(conn, c)).collect(),
+        history,
     })
 }
 
@@ -1453,7 +1661,7 @@ mod tests {
         let dv = serde_json::to_value(&d).unwrap();
         assert_eq!(
             keys(&dv),
-            want(&["node", "path", "children", "subtree", "guide", "logic", "decisions", "actions", "creator", "pending", "next", "searches", "sources"])
+            want(&["node", "path", "children", "subtree", "guide", "logic", "decisions", "actions", "creator", "pending", "next", "searches", "sources", "history"])
         );
         assert!(d.next.len() <= 3);
         assert!(matches!(
@@ -1482,7 +1690,7 @@ mod tests {
         fs::write(
             dir.join("task.md"),
             &format!(
-                "---\nrunner: pi\nblock: sci-read\nglobal_round: 2\nexecution_date: 2026/10/02 09:16:54\nsci_node: {}\nsci_purpose: 読む\n---\n本文\n",
+                "---\nrunner: pi\nblock: sci-read\nglobal_round: 2\nround: 3\nexecution_date: 2026/10/02 09:16:54\nsci_node: {}\nsci_purpose: 読む\n---\n本文\n",
                 fmt_id(Kind::O, o1)
             ),
         )
@@ -1506,7 +1714,7 @@ mod tests {
         // run の対象は親の O1 なので、F の actions には入らない。
         assert!(d.actions.is_empty());
 
-        // O1 の詳細：作ったのは user。actions の行に対象の Node と global_round が入る。
+        // O1 の詳細：init の行は user（round なし）、Run の行には task.md の round が出る。
         let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::O, o1)).unwrap();
         assert_eq!(d.creator.by, "user");
         assert_eq!(d.creator.run_id, None);
@@ -1517,5 +1725,57 @@ mod tests {
         assert_eq!(d.actions[0].global_round, Some(2));
         // cites が無いので出典は空。
         assert!(d.sources.is_empty());
+        assert_eq!(d.history[0].action, "init");
+        assert_eq!(d.history[0].round, None);
+        let run_row = d.history.iter().find(|h| h.action == "Run").unwrap();
+        assert_eq!(run_row.by, "run:7");
+        assert_eq!(run_row.round, Some(3));
+        assert_eq!(run_row.global_round, Some(2));
+        // F1 の init の行は run:7 が作ったので round が出る。
+        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
+        assert_eq!(d.history[0].action, "init");
+        assert_eq!(d.history[0].run_id, Some(7));
+        assert_eq!(d.history[0].round, Some(3));
+        assert_eq!(d.history[0].block, "sci-read");
+    }
+
+    #[test]
+    fn node_detail_history_init_first() {
+        let e = env("history");
+        let conn = e.db.connection();
+        let q0 = q(&e, None, "Q", None);
+        let o1 = o(&e, q0, "O");
+        let f1 = f(&e, o1);
+        // `rt_log` に `edit` を 1 行入れる（created_at は DB の UTC の形）。
+        store::insert_log(conn, f1, "edit", "text", "直した", "user", None).unwrap();
+        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
+        assert_eq!(d.history[0].action, "init");
+        assert!(d.history[0].at.ends_with("+00:00"));
+        assert!(d.history.iter().any(|h| h.action == "edit" && h.by == "user"));
+        // O の詳細：子の F の Add 行と、edit の行は無い（edit は F の行）。at は昇順。
+        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::O, o1)).unwrap();
+        assert_eq!(d.history[0].action, "init");
+        assert!(d.history.iter().any(|h| h.action == "Add F"));
+        let ats: Vec<&str> = d.history.iter().skip(1).map(|h| h.at.as_str()).collect();
+        assert!(ats.windows(2).all(|w| w[0] <= w[1]), "{ats:?}");
+    }
+
+    #[test]
+    fn seed_nodes_follow_chain() {
+        // Q1 → O2(Answer) → Q3 → O4(Issue) → E5 → F6、O2 → F7。path は `["O2","O4"]`。
+        let e = env("seed-nodes");
+        let conn = e.db.connection();
+        let q1 = q(&e, None, "Q1", None);
+        let o2 = add(&e, Kind::O, Some(q1), "答え", None, Some("answer"));
+        let q3 = q(&e, Some(o2), "Q3", None);
+        let o4 = add(&e, Kind::O, Some(q3), "課題", None, Some("issue"));
+        let e5 = add(&e, Kind::E, Some(o4), "実験", None, None);
+        let f6 = add(&e, Kind::F, Some(e5), "根拠6", None, None);
+        let f7 = add(&e, Kind::F, Some(o2), "根拠7", None, None);
+        let id = store::insert_seed(conn, "種", "文", &[o2, o4], None, "user").unwrap();
+        let s = status(conn, &e.roots, &Defs::default()).unwrap();
+        let seed = s.seeds.iter().find(|x| x.id == fmt_ref('S', id)).unwrap();
+        let want = [q1, o2, f7, q3, o4, e5, f6].map(|n| tree(&e).label(n).0);
+        assert_eq!(seed.nodes, want);
     }
 }

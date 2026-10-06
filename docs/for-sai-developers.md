@@ -757,7 +757,7 @@ Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）�
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
 | 直下 | `progress` | `{"answered","total"}` | 進み具合の表示 | 進みが出ない |
 | 直下 | `nodes[]` | 配列（上の順が深さ優先） | 木そのもの。方針の図もここから描く | 木が描かれない |
-| 直下 | `seeds[]` | `{"id","title","sentence","path","run","created_at"}` | 種の一覧（`path` は Node の ID の配列） | ― |
+| 直下 | `seeds[]` | `{"id","title","sentence","path","run","created_at","nodes"}` | 種の一覧（`path` は Node の ID の配列、`nodes` は道の Q/O と道の O の下の F/E の ID を道の順に並べたもの） | ― |
 | 直下 | `seed_draft` | `{"text","parts"}` \| null | 種の下書き（`parts[]` は `key`・`text`・`filled`） | 下書きが出ない |
 | 直下 | `next[]` | NextAction の配列 | 「次の一手」の行とカード作成の種 | 次の一手が出ない |
 | 直下 | `debts[]` | Debt の配列 | 負債の行（`debt_count` は件数） | 負債が見えない |
@@ -812,6 +812,7 @@ Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）�
 | 直下 | `decisions[]` | status の `decisions[]` と同じ | この Node の決定の記録 | 履歴が出ない |
 | 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at","debt","debt_messages"}` | この Node のための実行の行。`node` はその run の対象の Node（子孫の run も入る）。Web の側で `node` で絞る | ― |
 | 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run。`by` は `user` か `run:<N>`。`by` が `user` のときは `run_id` が null で `block`・`owner`・`purpose` は空、`global_round`・`node` は null | ― |
+| 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` の配列 | この Node の履歴。先頭は必ず `init`、残り（`Add Q/O/F/E`・`Run`・決定）は `at` の古い順。`at` は RFC3339（UTC） | ― |
 | 直下 | `pending[]` | `{"id","op","payload","reason","run","created_at"}` | 仕分け待ちの提案の行 | ― |
 | 直下 | `next[]` | NextAction の配列 | この Node の次の一手 | ― |
 | 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴。`log_id` はその 1 回の検索の履歴（Library の検索結果へのリンク先）、`set_id` は `--save-as` の名前付きセット（複数回の検索が足される）。`block` はその run の block（見つからなければ null） | ― |

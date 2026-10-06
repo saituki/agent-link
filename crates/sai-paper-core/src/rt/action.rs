@@ -146,6 +146,8 @@ pub struct SciRun {
     pub occurred_at: String,
     /// task.md の `global_round`。空や数でなければ `None`。
     pub global_round: Option<i64>,
+    /// task.md の `round`。空や数でなければ `None`。
+    pub round: Option<i64>,
     pub path: PathBuf,
 }
 
@@ -183,6 +185,7 @@ pub fn sci_runs(roots: &PaperRoots) -> Vec<SciRun> {
             keys,
             occurred_at: when.to_rfc3339(),
             global_round: get("global_round").and_then(|v| v.trim().parse::<i64>().ok()),
+            round: get("round").and_then(|v| v.trim().parse::<i64>().ok()),
             path: run.path,
         });
     }
