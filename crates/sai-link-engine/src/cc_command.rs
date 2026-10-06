@@ -13,7 +13,7 @@
 //!
 //! ## 設定はファイルで持つ
 //!
-//! 道具の制限・MCP（`sai` を含む）・Skill の抑止・statusLine は、`sai-link init` が
+//! 道具の制限・外部 MCP（serena など）・Skill の抑止・statusLine は、`sai-link init` が
 //! プロジェクト直下に作る `.claude/settings.json` と `.mcp.json` で制御する
 //! （[`cc_settings_json`] / [`mcp_config_json`]）。sai-link を通さずに起動した cc にも
 //! 同じ設定が効く。起動コマンドに残すのは `--session-id`（復元時は `--resume`）・
@@ -28,41 +28,21 @@ use std::path::{Path, PathBuf};
 use crate::block_config::BlockConfig;
 use crate::herdr::shell_escape_single_quotes;
 
-/// MCP サーバ名（Claude Code からは `mcp__sai__<tool>` として見える）。
-pub const MCP_SERVER_NAME: &str = "sai";
-
 /// `.mcp.json` に書く Playwright MCP のパッケージ（版を固定する）。
 ///
 /// `@latest` にすると MCP の版と入れた WebKit の版がずれて「WebKit が見つからない」になる。
 /// WebKit の導入は README の手順（`install-browser webkit`）で行う。
 pub const PLAYWRIGHT_MCP_PACKAGE: &str = "@playwright/mcp@0.0.82";
 
-/// MCP サーバが公開するツール名（`plan-05` で MCP サーバが公開する 13 ツール）。
-pub const MCP_TOOL_NAMES: &[&str] = &[
-    "sai_write",
-    "sai_finalize",
-    "sai_read",
-    "task_create",
-    "task_report",
-    "task_list",
-    "task_execute",
-    "task_output",
-    "task_manage",
-    "task_status",
-    "task_capture",
-    "block_discover",
-    "block_inspect",
-];
-
 /// cc に使わせない組み込みツール（`.claude/settings.json` の `permissions.deny` に入れる）。
 ///
 /// 残すのは Read / Write / Edit / Bash / AskUserQuestion / ToolSearch（と、版によって
 /// 単独で存在する Glob / Grep）。`Agent` / `Task` を外すことで cc 自身の子エージェント
-/// 生成を封じ、子タスクの委譲を `mcp__sai__task_create` / `task_execute` に一本化する。
+/// 生成を封じ、子タスクの委譲を `sai-link task create` / `sai-link task execute` に一本化する。
 /// `Skill` は残す。`sai-link init` がプロジェクトの `.claude/skills/` に design skill
 /// （`frontend-design` と `ui-ux-rules`）を配るため。`disableBundledSkills: true` なので
 /// cc が同梱している skill は読まれない（プロジェクトに配った分だけ使える）。
-/// `AskUserQuestion` は sai-phone（iPhone 通知）が hook で使うため必ず残す。
+/// `AskUserQuestion` は sai-web（iPhone 通知）が hook で使うため必ず残す。
 pub const CC_DENIED_TOOLS: &[&str] = &[
     "Agent",
     "Task",
@@ -220,8 +200,12 @@ impl CcCommandBuilder {
         if let Some(dir) = self.config_dir.as_deref() {
             let mcp = dir.join(".mcp.json");
             let settings = dir.join(".claude/settings.json");
-            push_pair(&mut args, "--mcp-config", &mcp.to_string_lossy());
-            push_pair(&mut args, "--settings", &settings.to_string_lossy());
+            if mcp.is_file() {
+                push_pair(&mut args, "--mcp-config", &mcp.to_string_lossy());
+            }
+            if settings.is_file() {
+                push_pair(&mut args, "--settings", &settings.to_string_lossy());
+            }
         }
 
         // 固定部分（system prompt）を足す（U6・C10）。
@@ -291,26 +275,15 @@ pub fn normalize_effort(thinking: &str) -> Option<String> {
     }
 }
 
-/// `sai` MCP サーバの起動コマンド（`SAI_BIN` → `SAI_ENGINE_BIN` → `"sai-moon-link"` の順で解決）。
-fn sai_mcp_command() -> String {
-    std::env::var("SAI_BIN")
-        .ok()
-        .or_else(|| std::env::var("SAI_ENGINE_BIN").ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "sai-moon-link".to_string())
-}
-
-/// プロジェクト直下の `.mcp.json` の内容（`sai-link init` が書く）。
+/// `.mcp.json` の内容（`sai-link init` が書く）。
 ///
-/// `sai`（sai_write / task_create 等）に加え、serena・headroom・donsetch（Web 検索）と
-/// playwright（WebKit・iPhone 15 の画面）で画面を確かめる MCP を使う。
-/// `sai` は sai-link 自身の絶対パスで呼ぶ（PATH にある旧 sai-link を拾わないため）。
+/// serena・headroom・donsetch（Web 検索）と playwright（WebKit・iPhone 15 の画面）で
+/// 画面を確かめる外部 MCP を並べる。sai 自身の道具は CLI（`sai-link …`）で呼ぶため、
+/// sai の MCP サーバはここに書かない。
 /// playwright は Safari に近い WebKit を画面なし（`--headless`）で動かす。
 pub fn mcp_config_json() -> serde_json::Value {
     serde_json::json!({
         "mcpServers": {
-            MCP_SERVER_NAME: { "command": sai_link_exe(), "args": ["mcp", "serve"] },
             "serena": {
                 "command": "uvx",
                 "args": [
@@ -337,20 +310,19 @@ pub fn mcp_config_json() -> serde_json::Value {
 
 /// sai-link 自身の絶対パス（cc の PATH やシェルに依存せずに sai-link を呼ぶため）。
 ///
-/// `std::env::current_exe()` が存在すればその絶対パス、無ければ環境変数
-/// （`SAI_BIN` / `SAI_ENGINE_BIN`）、最後は `sai-link`（PATH 検索）。
+/// `std::env::current_exe()` が存在すればその絶対パス、無ければ `sai-link`（PATH 検索）。
 pub fn sai_link_exe() -> String {
     std::env::current_exe()
         .ok()
         .filter(|p| p.exists())
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(sai_mcp_command)
+        .unwrap_or_else(|| "sai-link".to_string())
 }
 
 /// プロジェクト直下の `.claude/settings.json` の内容（`sai-link init` が書く）。
 ///
 /// - `permissions.deny`: [`CC_DENIED_TOOLS`]（道具の制限・別エージェント起動の禁止）
-/// - `permissions.allow`: sai の MCP ツール（acceptEdits 運用時も確認を出さない）
+/// - `permissions.allow`: sai-link の CLI（`Bash(sai-link *)` など）を無確認で使う
 /// - `.mcp.json` のサーバを承認なしで使う / claude.ai 連携と同梱 Skill を読まない
 /// - `statusLine`: cc 自身のセッション金額を `sai-link cc-statusline` で受け取る（01 §2.5）。
 ///   sai-link は `std::env::current_exe()` の絶対パスで呼ぶ（cc の PATH に頼らない）。
@@ -358,7 +330,12 @@ pub fn cc_settings_json() -> serde_json::Value {
     let exe = sai_link_exe();
     serde_json::json!({
         "permissions": {
-            "allow": [format!("mcp__{}", MCP_SERVER_NAME)],
+            "allow": [
+                "Bash(sai-link *)",
+                "Bash(sai-paper *)",
+                "Bash(sai-sci *)",
+                "Bash(sai-web *)",
+            ],
             "deny": CC_DENIED_TOOLS,
         },
         "enableAllProjectMcpServers": true,
@@ -368,24 +345,24 @@ pub fn cc_settings_json() -> serde_json::Value {
             "type": "command",
             "command": format!("{} cc-statusline", shell_escape_single_quotes(&exe)),
         },
-        "hooks": cc_hooks_json(&exe, phone_hooks_dir().as_deref()),
+        "hooks": cc_hooks_json(&exe, web_hooks_dir().as_deref()),
     })
 }
 
 /// `.claude/settings.json` の `hooks`。
 ///
 /// - `UserPromptSubmit`: `/sai-finalize` を LLM に送らず、その場で完了処理を行う（[`handle_prompt_hook`]）
-/// - `PreToolUse`（AskUserQuestion）/ `SessionStart` / `PermissionRequest`: `apps/phone` のフック。
-///   質問・セッション・承認を Web の窓口へ知らせる（`phone_dir` が無ければ書かない）。
+/// - `PreToolUse`（AskUserQuestion）/ `SessionStart` / `PermissionRequest`: `apps/web` のフック。
+///   質問・セッション・承認を Web の窓口へ知らせる（`web_dir` が無ければ書かない）。
 ///   利用者全体の `~/.claude/settings.json` ではなく、init したプロジェクトにだけ入れる。
-fn cc_hooks_json(exe: &str, phone_dir: Option<&Path>) -> serde_json::Value {
+fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
     let command = |text: String| serde_json::json!([{ "type": "command", "command": text }]);
     let mut hooks = serde_json::json!({
         "UserPromptSubmit": [{
             "hooks": command(format!("{} cc-prompt-hook", shell_escape_single_quotes(exe))),
         }]
     });
-    if let Some(dir) = phone_dir {
+    if let Some(dir) = web_dir {
         let script = |name: &str| shell_escape_single_quotes(&dir.join(name).to_string_lossy());
         hooks["PreToolUse"] = serde_json::json!([{
             "matcher": "AskUserQuestion",
@@ -402,28 +379,41 @@ fn cc_hooks_json(exe: &str, phone_dir: Option<&Path>) -> serde_json::Value {
     hooks
 }
 
-/// `apps/phone` の cc フック（`cc_question.py` など 3 本）の置き場。
+/// `apps/web` の cc フック（`cc_question.py` など 3 本）の置き場。
 ///
-/// 環境変数 `SAI_PHONE_HOOKS_DIR` があればそれ、無ければこのクレートをビルドした
-/// リポジトリの `apps/phone/hooks`。3 本が揃っていなければ `None`（壊れたフックを書かない）。
-pub fn phone_hooks_dir() -> Option<PathBuf> {
-    let dir = std::env::var_os("SAI_PHONE_HOOKS_DIR")
+/// 環境変数 `SAI_WEB_HOOKS_DIR` があればそれ、無ければこのクレートをビルドした
+/// リポジトリの `apps/web/hooks`。3 本が揃っていなければ `None`（壊れたフックを書かない）。
+pub fn web_hooks_dir() -> Option<PathBuf> {
+    let dir = std::env::var_os("SAI_WEB_HOOKS_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/phone/hooks"));
-    let dir = dir.canonicalize().ok()?;
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/web/hooks")
+        });
+    hooks_dir_in(&dir)
+}
+
+/// `base` に cc のフック 3 本が揃っていれば、その絶対パスを返す。
+///
+/// 環境変数に依存しない純関数。試験では一時フォルダに 3 本を置いて確かめる。
+fn hooks_dir_in(base: &Path) -> Option<PathBuf> {
+    let dir = base.canonicalize().ok()?;
     ["cc_question.py", "cc_register.py", "cc_permission.py"]
         .iter()
         .all(|name| dir.join(name).is_file())
         .then_some(dir)
 }
 
-/// pi の質問ツール（`apps/phone` の `ask_user_phone.ts`）の絶対パス。
+/// pi の質問ツール（`apps/web` の `ask_user.ts`）の絶対パス。
 ///
 /// このクレートをビルドしたリポジトリの中を指す。ファイルが無ければ `None`
 /// （壊れた拡張を `.pi/settings.json` に書かない）。
 pub fn pi_question_extension() -> Option<PathBuf> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/phone/src/sai_phone/extensions/ask_user_phone.ts")
+    pi_question_extension_in(Path::new(env!("CARGO_MANIFEST_DIR")))
+}
+
+/// `base` の `apps/web/src/sai_web/extensions/ask_user.ts` を返す（環境変数に依存しない純関数）。
+fn pi_question_extension_in(base: &Path) -> Option<PathBuf> {
+    base.join("../../apps/web/src/sai_web/extensions/ask_user.ts")
         .canonicalize()
         .ok()
         .filter(|p| p.is_file())
@@ -445,7 +435,7 @@ pub const SAI_FINALIZE_COMMAND_MD: &str = "\
 description: sai-link のブロック実行を完了として確定する
 ---
 
-`mcp__sai__sai_finalize` を引数なしで呼び出す。
+Bash で `sai-link run finalize` を実行する。
 成功したら「run <id> を完了しました」の 1 行だけを出力して終了する。
 失敗したら理由をそのまま 1 行で出力する。
 ";
@@ -521,46 +511,34 @@ fn finalize_prompt_report(input: &str) -> Option<String> {
     }
 }
 
-/// `dir` の `.mcp.json` に sai の MCP サーバがあるか。
-pub fn has_sai_mcp(dir: &Path) -> bool {
-    std::fs::read_to_string(dir.join(".mcp.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .is_some_and(|v| v["mcpServers"][MCP_SERVER_NAME].is_object())
-}
-
-/// `dir` に sai-link の cc 設定（`.mcp.json` の sai / `.claude/settings.json`）があるか。
-fn has_sai_config(dir: &Path) -> bool {
-    has_sai_mcp(dir) && dir.join(".claude/settings.json").is_file()
-}
-
 /// pi に `--mcp-config` で渡す、プロジェクトルートの `.mcp.json` を返す。
 ///
 /// worktree は commit 済みのファイルしか持たないため、`.mcp.json` が未 commit だと
-/// 作業用コピー内の pi は sai の MCP を読めない。その場合だけルートの設定を渡す。
-/// `cwd` 自身に sai があれば `None`（pi が cwd の `.mcp.json` を読む）。
-pub fn resolve_sai_mcp_config(cwd: &Path) -> Option<std::path::PathBuf> {
-    if has_sai_mcp(cwd) {
+/// 作業用コピー内の pi は外部 MCP を読めない。その場合だけルートの設定を渡す。
+/// `cwd` 自身に `.mcp.json` があれば `None`（pi が cwd の `.mcp.json` を読む）。
+pub fn resolve_mcp_config(cwd: &Path) -> Option<std::path::PathBuf> {
+    if cwd.join(".mcp.json").is_file() {
         return None;
     }
     let root = crate::project::project_root();
-    (root != cwd && has_sai_mcp(&root)).then(|| root.join(".mcp.json"))
+    let mcp = root.join(".mcp.json");
+    (root != cwd && mcp.is_file()).then_some(mcp)
 }
 
-/// cc に渡す sai-link 設定（`.mcp.json` / `.claude/settings.json`）の場所を解決する。
+/// cc に渡す sai-link 設定（`.claude/settings.json`）の場所を解決する。
 ///
 /// 優先順位:
 /// 1. `cwd` 自身（プロジェクトルート・作業用コピーで `sai-link init` 済みの場合）
 /// 2. sai-link のプロジェクトルート（`cwd` が別プロジェクトのとき。呼び出し元が
-///    `--mcp-config` / `--settings` で明示的に渡す）
+///    `--settings` で明示的に渡す）
 ///
 /// どちらにも無ければ `None`。
 pub fn resolve_sai_config_dir(cwd: &Path) -> Option<std::path::PathBuf> {
-    if has_sai_config(cwd) {
+    if cwd.join(".claude/settings.json").is_file() {
         return Some(cwd.to_path_buf());
     }
     let root = crate::project::project_root();
-    if root != cwd && has_sai_config(&root) {
+    if root != cwd && root.join(".claude/settings.json").is_file() {
         return Some(root);
     }
     None
@@ -569,17 +547,18 @@ pub fn resolve_sai_config_dir(cwd: &Path) -> Option<std::path::PathBuf> {
 /// cc の作業フォルダに `sai-link init` の設定ファイルがあるか確かめ、
 /// cc に渡すべき設定ディレクトリを返す。
 ///
-/// worktree は commit 済みのファイルしか持たないため、未 commit だと sai の MCP が
-/// 読めず sai_write もできない。起動前に分かりやすく止める。
+/// worktree は commit 済みのファイルしか持たないため、未 commit だと道具の許可が
+/// 読めず、エージェントが CLI を無確認で呼べない。起動前に分かりやすく止める。
+/// `.mcp.json` は外部 MCP 用で、無くてもよい（外部の MCP を使わないだけ）。
 /// `cwd` がプロジェクトルートの外でも、sai-link 側の設定があればそれを返す
-/// （呼び出し元が `--mcp-config` / `--settings` で渡す）。
+/// （呼び出し元が `--settings` で渡す）。
 pub fn check_project_files(cwd: &Path) -> Result<std::path::PathBuf, String> {
     if let Some(dir) = resolve_sai_config_dir(cwd) {
         return Ok(dir);
     }
     Err(format!(
-        "{} および sai-link のプロジェクトルート ({}) に cc の設定（.mcp.json の sai / .claude/settings.json）がありません。\
-         プロジェクトルートで `sai-link init` を実行し、.mcp.json と .claude/ を commit してください",
+        "{} および sai-link のプロジェクトルート ({}) に cc の設定（.claude/settings.json）がありません。\
+         プロジェクトルートで `sai-link init` を実行し、.claude/ を commit してください",
         cwd.display(),
         crate::project::project_root().display()
     ))
@@ -694,11 +673,24 @@ mod tests {
         assert!(!cmd.command.contains("--effort"));
     }
 
-    /// フックは UserPromptSubmit に加え、apps/phone の 3 本（質問・登録・承認）を入れる。
+    /// フックは UserPromptSubmit に加え、`apps/web` の 3 本（質問・登録・承認）を入れる。
+    /// 置き場の判定は環境変数に依らない純関数（`hooks_dir_in`）で確かめる。
     #[test]
-    fn cc_hooks_include_phone_hooks_only_when_dir_exists() {
+    fn cc_hooks_include_web_hooks_only_when_dir_exists() {
+        // 3 本が揃っていなければ None
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(hooks_dir_in(&tmp.path().join("none")).is_none());
+        let hooks = tmp.path().join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        std::fs::write(hooks.join("cc_question.py"), "").unwrap();
+        assert!(hooks_dir_in(&hooks).is_none(), "3 本揃っていない");
+        for name in ["cc_question.py", "cc_register.py", "cc_permission.py"] {
+            std::fs::write(hooks.join(name), "").unwrap();
+        }
+        assert_eq!(hooks_dir_in(&hooks), Some(hooks.canonicalize().unwrap()));
+
         let dir = std::path::Path::new("/opt/sai moon/hooks");
-        let with = cc_hooks_json("/bin/sai-moon-link", Some(dir));
+        let with = cc_hooks_json("/bin/sai-link", Some(dir));
         assert_eq!(with["PreToolUse"][0]["matcher"], "AskUserQuestion");
         assert_eq!(
             with["PreToolUse"][0]["hooks"][0]["command"],
@@ -712,17 +704,24 @@ mod tests {
         );
         assert_eq!(
             with["UserPromptSubmit"][0]["hooks"][0]["command"],
-            "'/bin/sai-moon-link' cc-prompt-hook"
+            "'/bin/sai-link' cc-prompt-hook"
         );
         // 置き場が無いときは UserPromptSubmit だけ
-        let without = cc_hooks_json("/bin/sai-moon-link", None);
+        let without = cc_hooks_json("/bin/sai-link", None);
         assert!(without.get("PreToolUse").is_none());
         assert!(without.get("SessionStart").is_none());
         assert!(without.get("PermissionRequest").is_none());
-        // このリポジトリでは apps/phone/hooks と pi の質問ツールが見つかる
-        assert!(phone_hooks_dir().is_some());
-        let ext = pi_question_extension().unwrap();
-        assert_eq!(pi_settings_json(&ext)["extensions"][0], serde_json::json!(ext));
+        // pi の質問ツールの場所も基準のフォルダから決まる純関数（ファイルが無ければ None）
+        // 基準はクレートのフォルダ（`crates/sai-link-engine`）。`../../apps/web/...` を見る。
+        let base = tempfile::tempdir().unwrap();
+        let crate_dir = base.path().join("crates/sai-link-engine");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        assert!(pi_question_extension_in(&crate_dir).is_none());
+        let ext_dir = base.path().join("apps/web/src/sai_web/extensions");
+        std::fs::create_dir_all(&ext_dir).unwrap();
+        let ext = ext_dir.join("ask_user.ts");
+        std::fs::write(&ext, "").unwrap();
+        assert_eq!(pi_question_extension_in(&crate_dir), Some(ext.canonicalize().unwrap()));
     }
 
     /// `.claude/settings.json` の内容: 子エージェント禁止・質問は残す・statusLine。
@@ -742,7 +741,15 @@ mod tests {
         for t in ["Read", "Write", "Edit", "Bash", "AskUserQuestion", "ToolSearch", "Skill"] {
             assert!(!deny.contains(&t), "{} は残す", t);
         }
-        assert_eq!(v["permissions"]["allow"], serde_json::json!(["mcp__sai"]));
+        assert_eq!(
+            v["permissions"]["allow"],
+            serde_json::json!([
+                "Bash(sai-link *)",
+                "Bash(sai-paper *)",
+                "Bash(sai-sci *)",
+                "Bash(sai-web *)"
+            ])
+        );
         assert_eq!(v["enableAllProjectMcpServers"], true);
         assert_eq!(v["disableClaudeAiConnectors"], true);
         // 同梱の skill は読ませない（プロジェクトの `.claude/skills/` に配ったものだけ使う）
@@ -773,72 +780,64 @@ mod tests {
         }
     }
 
-    /// `.mcp.json` が無い / sai が無いフォルダは起動前にエラーになること。
+    /// `.claude/settings.json` が無いフォルダは起動前にエラーになること。
+    /// `.mcp.json` は要らない（外部 MCP を使わないだけ）。
     #[test]
-    fn check_project_files_requires_sai() {
+    fn check_project_files_requires_cc_settings() {
         // フォールバック先（SAI_PROJECT_ROOT）を空にして、cwd のみを見るようにする。
         // 実行環境の SAI_PROJECT_ROOT に本物の設定があると結果が変わってしまうため。
         let _env_lock = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let _env_guard = EnvGuard::set_project_root(dir.path());
         assert!(check_project_files(dir.path()).is_err());
+        // `.mcp.json` だけでは足りない
+        std::fs::write(dir.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
+        assert!(check_project_files(dir.path()).is_err());
+        // `.claude/settings.json` があればよい
         std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
         std::fs::write(dir.path().join(".claude/settings.json"), "{}").unwrap();
-        std::fs::write(dir.path().join(".mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
-        assert!(check_project_files(dir.path()).is_err());
-        std::fs::write(
-            dir.path().join(".mcp.json"),
-            mcp_config_json().to_string(),
-        )
-        .unwrap();
         assert!(check_project_files(dir.path()).is_ok());
     }
 
     /// cwd に設定が無くても sai-link のプロジェクトルートに設定があれば
-    /// その場所を返す（cwd の外で cc を起動するときに `--mcp-config` /
-    /// `--settings` で渡すため）。
+    /// その場所を返す（cwd の外で cc を起動するときに `--settings` で渡すため）。
     #[test]
     fn check_project_files_falls_back_to_project_root() {
         let _env_lock = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap();
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join(".claude")).unwrap();
         std::fs::write(root.path().join(".claude/settings.json"), "{}").unwrap();
-        std::fs::write(
-            root.path().join(".mcp.json"),
-            mcp_config_json().to_string(),
-        )
-        .unwrap();
         let other = tempfile::tempdir().unwrap();
         let _env_guard = EnvGuard::set_project_root(root.path());
         let resolved = check_project_files(other.path()).unwrap();
         assert_eq!(resolved, root.path());
     }
 
-    /// pi 用: cwd に sai の MCP が無く、プロジェクトルートにだけあるときに
+    /// pi 用: cwd に `.mcp.json` が無く、プロジェクトルートにだけあるときに
     /// ルートの `.mcp.json` を返す（作業用コピーに `.mcp.json` が無い場合）。
     #[test]
-    fn resolve_sai_mcp_config_falls_back_to_project_root() {
+    fn resolve_mcp_config_falls_back_to_project_root() {
         let _env_lock = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap();
         let root = tempfile::tempdir().unwrap();
         let worktree = tempfile::tempdir().unwrap();
         let _env_guard = EnvGuard::set_project_root(root.path());
 
         // 両方に無い → None
-        assert_eq!(resolve_sai_mcp_config(worktree.path()), None);
+        assert_eq!(resolve_mcp_config(worktree.path()), None);
 
         // ルートにだけある → ルートの .mcp.json
         std::fs::write(root.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
         assert_eq!(
-            resolve_sai_mcp_config(worktree.path()),
+            resolve_mcp_config(worktree.path()),
             Some(root.path().join(".mcp.json"))
         );
 
         // cwd にもある → None（pi が cwd の .mcp.json を読む）
         std::fs::write(worktree.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
-        assert_eq!(resolve_sai_mcp_config(worktree.path()), None);
+        assert_eq!(resolve_mcp_config(worktree.path()), None);
 
         // cwd がルート自身 → None
-        assert_eq!(resolve_sai_mcp_config(root.path()), None);
+        assert_eq!(resolve_mcp_config(root.path()), None);
     }
 
     /// cwd の外で起動するとき、sai-link 側の設定が `--mcp-config` /
@@ -847,6 +846,9 @@ mod tests {
     fn build_passes_external_config_when_cwd_is_outside_project() {
         std::env::remove_var("SAI_CC_SKIP_PERMISSIONS");
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        std::fs::write(dir.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
+        std::fs::write(dir.path().join(".claude/settings.json"), "{}").unwrap();
         let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
             .with_config(mock_config())
             .with_config_dir(dir.path().to_path_buf())
@@ -916,17 +918,15 @@ mod tests {
         assert_eq!(handle_prompt_hook(r#"{"prompt":"こんにちは"}"#), None);
     }
 
+    /// `.mcp.json` は外部の 4 つだけ。sai 自身の MCP サーバは書かない。
     #[test]
-    fn mcp_config_json_has_servers() {
-        std::env::remove_var("SAI_BIN");
-        std::env::remove_var("SAI_ENGINE_BIN");
+    fn mcp_config_json_has_only_external_servers() {
         let v = mcp_config_json();
-        assert_eq!(v["mcpServers"]["sai"]["command"], serde_json::json!(sai_link_exe()));
-        assert!(Path::new(v["mcpServers"]["sai"]["command"].as_str().unwrap()).is_absolute());
-        assert_eq!(v["mcpServers"]["sai"]["args"], serde_json::json!(["mcp", "serve"]));
+        assert!(v["mcpServers"].get("sai").is_none(), "sai を書かない: {}", v);
         for name in ["serena", "headroom", "donsetch", "playwright"] {
             assert!(v["mcpServers"][name].is_object(), "{} がありません", name);
         }
+        assert_eq!(v["mcpServers"].as_object().unwrap().len(), 4);
     }
 
     /// playwright が WebKit・iPhone 15 の画面・画面なしで起動ること（版は固定）。

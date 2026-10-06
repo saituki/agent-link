@@ -5,8 +5,8 @@
 //!
 //! - `project`: `<project_root>/.sai/blocks/<name>.md` /
 //!   `<project_root>/.sai/template/<name>.md` / `<project_root>/.sai/settings.json`
-//! - `global`: `~/.sai-moon/blocks/<name>.md` / `~/.sai-moon/template/<name>.md` /
-//!   `~/.sai-moon/settings.json`（置き場を解決できなければ終了コード 1）
+//! - `global`: `~/.sai/blocks/<name>.md` / `~/.sai/template/<name>.md` /
+//!   `~/.sai/settings.json`（置き場を解決できなければ終了コード 1）
 //!
 //! 開発用の相対パス（`blocks` / `../blocks` など。engine の `block_dir_candidates`）
 //! は**扱わない**。利用者が触るのはプロジェクトとグローバルの 2 か所だけ。
@@ -128,12 +128,12 @@ fn base_dir(scope: Scope) -> PhoneResult<PathBuf> {
     })
 }
 
-/// `scope` のルートフォルダ（project = `<project_root>/.sai` / global = 利用者全体の置き場 `~/.sai-moon`）。
+/// `scope` のルートフォルダ（project = `<project_root>/.sai` / global = 利用者全体の置き場 `~/.sai`）。
 fn root_dir(scope: Scope) -> PhoneResult<PathBuf> {
     match scope {
         Scope::Project => Ok(sai_link_engine::project::project_root().join(".sai")),
         Scope::Global => sai_link_engine::project::sai_home()
-            .ok_or_else(|| PhoneError::usage("sai の置き場（SAI_SAI_HOME か HOME）を解決できません")),
+            .ok_or_else(|| PhoneError::usage("sai の置き場（SAI_HOME か HOME）を解決できません")),
     }
 }
 
@@ -637,9 +637,9 @@ mod tests {
             std::fs::write(p, text).expect("write");
         }
 
-        /// 利用者全体の置き場（`~/.sai-moon`）配下にファイルを置く。
+        /// 利用者全体の置き場（`~/.sai`）配下にファイルを置く。
         fn put_home(&self, rel: &str, text: &str) {
-            let p = self.home.join(".sai-moon").join(rel);
+            let p = self.home.join(".sai").join(rel);
             std::fs::create_dir_all(p.parent().expect("親がある")).expect("mkdir");
             std::fs::write(p, text).expect("write");
         }
@@ -799,7 +799,7 @@ id: x\n---\nhello\n";
         );
         assert_eq!(
             out["global_root"].as_str().expect("global_root"),
-            _s.home.join(".sai-moon").to_str().expect("UTF-8")
+            _s.home.join(".sai").to_str().expect("UTF-8")
         );
         let items = out["items"].as_array().expect("items");
         let find = |kind: &str, scope: &str, name: &str| {

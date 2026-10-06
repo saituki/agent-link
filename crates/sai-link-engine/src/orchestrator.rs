@@ -63,7 +63,7 @@ use crate::placeholder::{
     resolve_placeholder_values, shift_headings, split_fixed_and_variable, PlaceholderValue,
 };
 use crate::runner::RunnerKind;
-use crate::sai_write_notify;
+use crate::doc_write_notify;
 use crate::session::{
     create_session_dir, create_session_file, extract_output_from_dir, SessionError,
 };
@@ -482,7 +482,7 @@ pub struct PreparedPipeline {
     /// 作業ディレクトリ
     pub cwd: Option<PathBuf>,
     /// sai-write ツールを使用するブロックかどうか
-    pub uses_sai_write: bool,
+    pub uses_doc_write: bool,
     /// 入力として解決された waggle トークン一覧
     pub input_waggle_tokens: Vec<String>,
     /// pi起動時のHEADコミットハッシュ（再現性用）
@@ -763,12 +763,12 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             let mut builder = PiCommandBuilder::new(&session_dir_str);
             builder = builder.with_config(config.block_config.clone());
             // 作業用コピーに `.mcp.json` が無い（未 commit）ときは、プロジェクトルートの
-            // 設定を渡す。渡さないと pi は sai の MCP を 1 つも読めない（cc の --mcp-config と同じ）。
+            // 外部 MCP の設定を渡す。渡さないと pi は外部 MCP を 1 つも読めない（cc の --mcp-config と同じ）。
             let cwd = config
                 .cwd
                 .clone()
                 .unwrap_or_else(crate::project::project_root);
-            if let Some(mcp) = crate::cc_command::resolve_sai_mcp_config(&cwd) {
+            if let Some(mcp) = crate::cc_command::resolve_mcp_config(&cwd) {
                 builder = builder.with_mcp_config(mcp.to_string_lossy());
             }
             // 固定部分（template と本文）を system-prompt.md から足す（U6）
@@ -818,7 +818,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     };
 
     // ── 設定ファイル (env:) の環境変数をコマンド先頭に付与 ──
-    // `.sai/settings.json` と `~/.sai-moon/settings.json` の `env` を、
+    // `.sai/settings.json` と `~/.sai/settings.json` の `env` を、
     // エージェントの実行ファイルより前に並べる。
     // 値は shell のシングルクォートで囲む（herdr::shell_escape_single_quotes）。
     // 予約キー（SAI_* の 4 つ）は設定の読み込み側で破棄される。
@@ -836,14 +836,14 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // エージェントプロセスは herdr ペインのシェルで起動されるため、
     // `SAI_PROJECT_ROOT`（= プロジェクトルート）と `SAI_PARENT_RUN_ID`（= 実行 ID）を
     // シェル変数として先頭に前置する。
-    // - SAI_PROJECT_ROOT: pi-sai / MCP サーバが `.sai/` をプロジェクトルート基準で解決するため
+    // - SAI_PROJECT_ROOT: 実行の中で `.sai/` をプロジェクトルート基準で解決するため
     //   （worktree 実行時は cwd が `.worktrees/<branch>` に変わるため必須）
-    // - SAI_PARENT_RUN_ID: task_create / task_execute / sai_write の run_id に使用
-    // - SAI_BLOCK_NAME: sai-write の通知ブロック名（block_name）に使用
+    // - SAI_PARENT_RUN_ID: task create / task execute / doc write の run_id に使用
+    // - SAI_BLOCK_NAME: doc write の通知ブロック名（block_name）に使用
     // - SAI_IS_SUBTASK: サブタスク実行中の場合に "1"
     let subtask_env = if config.is_subtask {
-        // SAI_LINK_BIN: 子から `agent task-question` を呼ぶための実行ファイルのパス。
-        // pi 拡張（ask_user_phone）はこの値を使うので、shell エスケープして渡す。
+        // SAI_LINK_BIN: 子から `sai-link task question` を呼ぶための実行ファイルのパス。
+        // pi 拡張（ask_user）はこの値を使うので、shell エスケープして渡す。
         format!(
             "SAI_IS_SUBTASK=1 SAI_LINK_BIN={} ",
             crate::herdr::shell_escape_single_quotes(&crate::cc_command::sai_link_exe())
@@ -879,9 +879,26 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         );
     }
 
+    // ── CLI を名前だけで呼べるようにする（子の pane・エージェントの pane）──
+    // テンプレートとフックは `sai-link …`・`sai-paper …`・`sai-sci …` を名前だけで呼ぶ。
+    // 3 つの実行ファイルは同じフォルダにできるので、`sai_link_exe()` のあるフォルダを
+    // PATH の先頭に足す。利用者の PATH の設定に頼らない。
+    {
+        let exe = crate::cc_command::sai_link_exe();
+        if let Some(dir) = std::path::Path::new(&exe).parent() {
+            if !dir.as_os_str().is_empty() {
+                agent_command = format!(
+                    "PATH={}:$PATH {}",
+                    crate::herdr::shell_escape_single_quotes(&dir.to_string_lossy()),
+                    agent_command
+                );
+            }
+        }
+    }
+
     // ── エージェント終了後の自動完了コマンド（U01・D1）──
     // pi / cc は Ctrl+D で終わるだけなので、pane のシェルが続けて
-    // `sai-link agent finalize --run-id N` を実行するようにする。
+    // `sai-link run finalize N` を実行するようにする。
     // - 対象はメインブロックの pi / cc だけ（サブブロックは task_report で完了する）
     // - 直前の `SAI_PROJECT_ROOT=…` はエージェントのプロセスにしか効かないため、
     //   このコマンドには自前で `SAI_PROJECT_ROOT` を付ける
@@ -896,7 +913,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
                     crate::project::project_root().to_string_lossy().to_string()
                 });
             format!(
-                "SAI_PROJECT_ROOT={} {} agent finalize --run-id {}",
+                "SAI_PROJECT_ROOT={} {} run finalize {}",
                 crate::herdr::shell_escape_single_quotes(&root),
                 crate::herdr::shell_escape_single_quotes(&crate::cc_command::sai_link_exe()),
                 run_id
@@ -914,7 +931,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         system_prompt,
         block_name: config.block_config.block_id().to_string(),
         cwd: config.cwd.clone(),
-        uses_sai_write: crate::sai_write_notify::block_uses_sai_write(&config.block_config),
+        uses_doc_write: crate::doc_write_notify::block_uses_doc_write(&config.block_config),
         input_waggle_tokens,
         git_commit_before,
         run_id: config.run_id,
@@ -1808,7 +1825,7 @@ pub fn close_execution_pane(pane_id: &str) {
 ///
 /// 1. `finalize_request` 通知を `pending/` に書き込む。
 ///    デーモンがこれを処理して実行監視スレッドへ `FinalizeRequested` を送信し、
-///    `execute_completion_with_sai_write` のケース5（ユーザー要求による正常完了）で
+///    `execute_completion_with_doc_write` のケース5（ユーザー要求による正常完了）で
 ///    `execute_block_pipeline` の Ok パス DB 更新順序（status=completed 等）を再利用する。
 /// 2. 実行中 pane をベストエフォートで閉じる（pi プロセス終了。ケース4 でも正常完了になる）。
 /// 3. DB を直接 `completed` + `finalized` にする（デーモン非稼働時のフォールバック。
@@ -2844,7 +2861,7 @@ fn is_subblock_allowed(
 /// 1. `.sai/blocks/<block_type>.md`
 /// 2. `blocks/<block_type>.md`
 /// 3. `lib/herdrs/blocks/<block_type>.md`
-/// 4. `~/.sai-moon/blocks/<block_type>.md`（グローバル・全プロジェクトで使用可能）
+/// 4. `~/.sai/blocks/<block_type>.md`（グローバル・全プロジェクトで使用可能）
 pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
     // まず .sai/blocks/ ディレクトリを検索（プロジェクトルート基準）
     let path0 = crate::project::sai_path(".sai/blocks").join(format!("{}.md", block_type));
@@ -2864,7 +2881,7 @@ pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
         return path2;
     }
 
-    // グローバル ~/.sai-moon/blocks/ を検索（全プロジェクトで使用可能）
+    // グローバル ~/.sai/blocks/ を検索（全プロジェクトで使用可能）
     if let Some(dir) = crate::project::sai_home_path("blocks") {
         let path3 = dir.join(format!("{}.md", block_type));
         if path3.exists() {
@@ -3068,7 +3085,7 @@ fn execute_pipeline_background(
     // ---- Step 13-15: 完了待機 → 出力抽出 → クリーンアップ ----
     // 完了判定は「pi idle/done」ではなく「自分の run_id の sai-write 検出」（D4）。
     // `execute_completion_normal` は廃止し、全ブロックを sai-write 方式に統一する（§7.1.3・D22）。
-    execute_completion_with_sai_write(
+    execute_completion_with_doc_write(
         &herdr,
         &pane_info.pane_id,
         timeout_ms,
@@ -3261,7 +3278,7 @@ fn should_finalize_run_batch(parent_run_id: Option<i64>) -> bool {
 /// その時点で利用可能な出力を抽出して正常完了とみなす。これにより、
 /// ユーザーが ctrl+d で pi を終了 → pane 削除 した場合でも、
 /// "completed" ステータスになる。
-fn execute_completion_with_sai_write(
+fn execute_completion_with_doc_write(
     herdr: &HerdrClient,
     pane_id: &str,
     timeout_ms: u64,
@@ -3289,8 +3306,8 @@ fn execute_completion_with_sai_write(
     };
 
     // sai-write 通知ディレクトリを事前作成
-    let _ = sai_write_notify::ensure_pending_dir();
-    let _ = sai_write_notify::ensure_processed_dir();
+    let _ = doc_write_notify::ensure_pending_dir();
+    let _ = doc_write_notify::ensure_processed_dir();
 
     let run_start = Instant::now();
     // timeout 超過時、子ブロックは失敗にせず通知を繰り返し送るので deadline を延ばす
@@ -3345,7 +3362,7 @@ fn execute_completion_with_sai_write(
                     deadline = Instant::now() + Duration::from_millis(timeout_ms);
                 } else {
                     *progress.lock().unwrap() = PipelineProgress::Failed {
-                        error: format!("タイムアウト: {}ms 以内にファイナライズ（/pi-sai-finalize または task_manage(finalize)）による完了を検出できませんでした。以降はユーザーが手動で対応してください。", timeout_ms),
+                        error: format!("タイムアウト: {}ms 以内にファイナライズ（sai-link run finalize）による完了を検出できませんでした。以降はユーザーが手動で対応してください。", timeout_ms),
                     };
 
                     return;
@@ -3552,7 +3569,7 @@ fn execute_completion_with_sai_write(
             // タイムアウトチェック
             if Instant::now() >= deadline {
                 // タイムアウト前に残りの通知を処理
-                match sai_write_notify::poll_and_process_all(&integrator) {
+                match doc_write_notify::poll_and_process_all(&integrator) {
                     Ok(results) => {
                         for r in &results {
                             if let Some(ref token) = r.waggle_token {
@@ -3580,7 +3597,7 @@ fn execute_completion_with_sai_write(
                 Ok(info) => {
                     if info.agent_status == "blocked" {
                         // blocked 検出 → 残りの通知を処理してからキャンセル
-                        match sai_write_notify::poll_and_process_all(&integrator) {
+                        match doc_write_notify::poll_and_process_all(&integrator) {
                             Ok(results) => {
                                 for r in &results {
                                     if let Some(ref token) = r.waggle_token {
@@ -3600,7 +3617,7 @@ fn execute_completion_with_sai_write(
             };
 
             // --- 2. sai-write 通知を1件処理 ---
-            match sai_write_notify::poll_and_process_one(&integrator) {
+            match doc_write_notify::poll_and_process_one(&integrator) {
                 Ok(Some(result)) => {
                     if let Some(ref token) = result.waggle_token {
                         waggle_tokens.push(token.clone());
@@ -3618,7 +3635,7 @@ fn execute_completion_with_sai_write(
 
             // --- pi が完了したら残りの通知を一括処理して終了 ---
             if pi_done {
-                match sai_write_notify::poll_and_process_all(&integrator) {
+                match doc_write_notify::poll_and_process_all(&integrator) {
                     Ok(results) => {
                         for r in &results {
                             if let Some(ref token) = r.waggle_token {
@@ -3744,8 +3761,8 @@ pub fn send_turn_to_pane(
     let integrator = WaggleIntegrator::open(&waggle_db_path).map_err(|e| {
         OrchestratorError::PiCommandError(format!("waggle DB の初期化に失敗: {}", e))
     })?;
-    let _ = sai_write_notify::ensure_pending_dir();
-    let _ = sai_write_notify::ensure_processed_dir();
+    let _ = doc_write_notify::ensure_pending_dir();
+    let _ = doc_write_notify::ensure_processed_dir();
 
     // 子ブロックは timeout を超えても失敗にせず、stalled(timeout) を繰り返し送る
     let mut deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -3823,7 +3840,7 @@ pub fn send_turn_to_pane(
         }
 
         // sai-write 通知の収集（ターン中にファイル保存があればトークン化）
-        if let Ok(Some(result)) = sai_write_notify::poll_and_process_one(&integrator) {
+        if let Ok(Some(result)) = doc_write_notify::poll_and_process_one(&integrator) {
             if let Some(ref token) = result.waggle_token {
                 waggle_tokens.push(token.clone());
             }
@@ -4437,7 +4454,16 @@ mod tests {
         let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
 
         assert_eq!(prepared.block_name, "test-block");
-        assert!(prepared.pi_command.starts_with("pi "));
+        assert!(
+            prepared.pi_command.starts_with("PATH="),
+            "PATH を先頭に付ける: {}",
+            prepared.pi_command
+        );
+        assert!(
+            prepared.pi_command.contains(" pi --session-dir"),
+            "pi を起動する: {}",
+            prepared.pi_command
+        );
         assert!(prepared.pi_command.contains("--session-dir"));
         assert!(prepared
             .session_dir
@@ -4466,8 +4492,13 @@ mod tests {
         assert!(
             prepared
                 .pi_command
-                .starts_with("SAI_PARENT_RUN_ID=1234 SAI_BLOCK_NAME=sai-test-main pi "),
+                .contains("SAI_PARENT_RUN_ID=1234 SAI_BLOCK_NAME=sai-test-main pi "),
             "環境変数プレフィックスが付与されるべき: {}",
+            prepared.pi_command
+        );
+        assert!(
+            prepared.pi_command.starts_with("PATH="),
+            "PATH を先頭に付ける: {}",
             prepared.pi_command
         );
         assert!(prepared.pi_command.contains("--session-dir"));
@@ -4476,7 +4507,7 @@ mod tests {
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
-    /// `env` を設定したテスト用の環境（プロジェクトルートと `~/.sai-moon` 差し替え）を作る。
+    /// `env` を設定したテスト用の環境（プロジェクトルートと `~/.sai` 差し替え）を作る。
     ///
     /// 返り値の一本目・二本目はスコープを抜けたときに元へ戻すガード。
     /// 三本目・四本目は後片付け用のディレクトリ。
@@ -4507,11 +4538,11 @@ mod tests {
             std::fs::write(home.join("settings.json"), body).unwrap();
         }
         let root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
-        let home_guard = EnvVarGuard::set("SAI_SAI_HOME", home.as_os_str());
+        let home_guard = EnvVarGuard::set("SAI_HOME", home.as_os_str());
         (root_guard, home_guard, root, home)
     }
 
-    /// 利用者全体（`~/.sai-moon/settings.json`）の `env` が agent の起動コマンドへ付くこと。
+    /// 利用者全体（`~/.sai/settings.json`）の `env` が agent の起動コマンドへ付くこと。
     /// MLflow の接続情報を 1 か所に書けば 全 agent に配られる。
     #[test]
     fn test_prepare_pipeline_adds_settings_env_prefix() {
@@ -4622,7 +4653,7 @@ mod tests {
     }
 
     /// メインブロックの pi / cc には、エージェント終了後に実行する
-    /// `sai-link agent finalize --run-id N` が `exit_command` に入る（U01・D1）。
+    /// `sai-link run finalize N` が `exit_command` に入る（U01・D1）。
     /// `pi_command`（DB に保存する起動コマンド）には混ぜない。
     #[test]
     fn test_prepare_pipeline_sets_exit_command_for_main_block() {
@@ -4638,13 +4669,13 @@ mod tests {
             .clone()
             .expect("メインブロックの pi には exit_command が付くべき");
         assert!(
-            exit.contains("agent finalize --run-id 1234"),
-            "exit_command に agent finalize が入るべき: {}",
+            exit.contains("run finalize 1234"),
+            "exit_command に run finalize が入るべき: {}",
             exit
         );
         assert!(
-            !prepared.pi_command.contains("agent finalize"),
-            "pi_command に agent finalize を混ぜない: {}",
+            !prepared.pi_command.contains("run finalize"),
+            "pi_command に run finalize を混ぜない: {}",
             prepared.pi_command
         );
         assert!(
@@ -4687,7 +4718,7 @@ mod tests {
     }
 
     /// サブブロックの起動コマンドには SAI_IS_SUBTASK=1 と SAI_LINK_BIN（実行ファイルのパス）が付く。
-    /// pi 拡張は SAI_LINK_BIN で `agent task-question` を呼ぶため。
+    /// pi 拡張は SAI_LINK_BIN で `sai-link task question` を呼ぶため。
     #[test]
     fn test_prepare_pipeline_subtask_gets_sai_link_bin() {
         let _env_lock = finalize_env_lock();
@@ -4707,6 +4738,19 @@ mod tests {
         assert!(
             cmd.contains(&crate::cc_command::sai_link_exe()),
             "SAI_LINK_BIN は sai_link_exe() のパス: {}",
+            cmd
+        );
+        // 子の pane は CLI を名前だけで呼べるよう PATH の先頭に実行ファイルのフォルダが付く
+        let exe_dir = std::path::Path::new(&crate::cc_command::sai_link_exe())
+            .parent()
+            .expect("実行ファイルの親フォルダ")
+            .to_path_buf();
+        assert!(
+            cmd.contains(&format!(
+                "PATH='{}':$PATH ",
+                exe_dir.display()
+            )),
+            "PATH の先頭に実行ファイルのフォルダが付く: {}",
             cmd
         );
         crate::session::cleanup_session_dir(&prepared.session_dir);
@@ -4819,7 +4863,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".sai")).unwrap();
         let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
-        let _home_guard = EnvVarGuard::set("SAI_SAI_HOME", root.as_os_str());
+        let _home_guard = EnvVarGuard::set("SAI_HOME", root.as_os_str());
 
         // run フォルダを用意する（todo で予約したように）
         let run_dir = crate::run_dir::ensure_run_dir(crate::run_dir::TODO_OWNER, 321).unwrap();
@@ -6249,7 +6293,7 @@ mod tests {
         )
         .unwrap();
         let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
-        let _home_guard = EnvVarGuard::set("SAI_SAI_HOME", root.as_os_str());
+        let _home_guard = EnvVarGuard::set("SAI_HOME", root.as_os_str());
 
         // context: true → 最初の文に `# context` の節が付き、固定部分は案内文
         let mut config = minimal_config();

@@ -2,7 +2,7 @@
 //!
 //! TUI の CLI モード（`sai-link-tui/src/app/cli_mode.rs`）に
 //! あった「todo のカードを running にする」「実行中の札を review へ移す」を
-//! そのまま移したもの。TUI と `sai-moon-link phone user start|finish` が
+//! そのまま移したもの。TUI と `sai-link phone user start|finish` が
 //! 同じ関数を使うので、両者の挙動が食い違わない。
 //!
 //! 利用者の札は常駐（デーモン）を要らない。`phone card run`（常駐に実行を

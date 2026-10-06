@@ -74,7 +74,7 @@ pub fn project_root_checked() -> Result<PathBuf, String> {
     if let Some(root) = find_project_root(&cwd, home.as_deref()) {
         return Ok(root);
     }
-    Err("プロジェクトが見つかりません（sai-moon-link init を実行してください）".to_string())
+    Err("プロジェクトが見つかりません（sai-link init を実行してください）".to_string())
 }
 
 /// `start` から上へたどり、`.sai/` を持つ最初のフォルダを返す。
@@ -134,25 +134,25 @@ pub fn resolve_db_path() -> PathBuf {
 /// 利用者全体の置き場（sai のグローバルデータ置き場）を返す。
 ///
 /// 解決順:
-/// 1. 環境変数 `SAI_SAI_HOME`（テスト・隔離環境・複数-home で上書きする）
-/// 2. `~/.sai-moon`
+/// 1. 環境変数 `SAI_HOME`（テスト・隔離環境・複数-home で上書きする）
+/// 2. `~/.sai`
 ///
 /// `HOME` も設定されていない場合は `None`（呼び出し側は「この場所は無い」として
-/// 読み書きを飛ばすか、エラーにする）。デフォルトは旧 `~/.sai` ではなく `~/.sai-moon`。
+/// 読み書きを飛ばすか、エラーにする）。
 ///
 /// プロジェクトごとの `<root>/.sai/`（sai-engine.db・blocks・outputs 等）は
 /// [`project_root`] / [`sai_path`] を使う。ここでは扱わない。
 #[must_use]
 pub fn sai_home() -> Option<PathBuf> {
     resolve_sai_home(
-        std::env::var_os("SAI_SAI_HOME").as_deref(),
+        std::env::var_os("SAI_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
 }
 
 /// 利用者全体の置き場配下の相対パスを返す（`sai_home()` が無ければ `None`）。
 ///
-/// 例: `sai_home_path("phone/runs")` → `~/.sai-moon/phone/runs`
+/// 例: `sai_home_path("web/runs")` → `~/.sai/web/runs`
 pub fn sai_home_path(rel: &str) -> Option<PathBuf> {
     sai_home().map(|h| h.join(rel))
 }
@@ -166,34 +166,34 @@ fn resolve_sai_home(sai_home_env: Option<&OsStr>, home_env: Option<&OsStr>) -> O
     }
     home_env
         .filter(|h| !h.is_empty())
-        .map(|h| PathBuf::from(h).join(".sai-moon"))
+        .map(|h| PathBuf::from(h).join(".sai"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// `SAI_SAI_HOME` があればそれ、無ければ `~/.sai-moon` を返す。
+    /// `SAI_HOME` があればそれ、無ければ `~/.sai` を返す。
     #[test]
-    fn sai_home_prefers_env_then_sai_moon_dir() {
-        // ① SAI_SAI_HOME があればそれが優先される
+    fn sai_home_prefers_env_then_sai_dir() {
+        // ① SAI_HOME があればそれが優先される
         assert_eq!(
             resolve_sai_home(
                 Some(OsStr::new("/tmp/sai-home-test")),
                 Some(OsStr::new("/home/u"))
             ),
             Some(PathBuf::from("/tmp/sai-home-test")),
-            "SAI_SAI_HOME があればそれを使う"
+            "SAI_HOME があればそれを使う"
         );
-        // ② 無ければ ~/.sai-moon（~/.sai ではない）
+        // ② 無ければ ~/.sai
         assert_eq!(
             resolve_sai_home(None, Some(OsStr::new("/home/u"))),
-            Some(PathBuf::from("/home/u/.sai-moon"))
+            Some(PathBuf::from("/home/u/.sai"))
         );
-        // ③ 空文字の SAI_SAI_HOME は無視して ~/.sai-moon に落ちる
+        // ③ 空文字の SAI_HOME は無視して ~/.sai に落ちる
         assert_eq!(
             resolve_sai_home(Some(OsStr::new("")), Some(OsStr::new("/home/u"))),
-            Some(PathBuf::from("/home/u/.sai-moon"))
+            Some(PathBuf::from("/home/u/.sai"))
         );
         // ④ HOME も無ければ None
         assert_eq!(resolve_sai_home(None, None), None);

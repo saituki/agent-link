@@ -1,15 +1,15 @@
 //! # エージェント共通 API（pi / cc 共通の実体）
 //!
-//! pi/cc 共通 MCP サーバ（`mcp_server.rs`・`sai-link mcp serve` の `sai`）から
-//! 呼ばれる機能の唯一の実装です。pi は `pi-mcp-adapter` が `.mcp.json` を読み
-//! `mcp__sai__*` として呼び、cc は `.mcp.json` + `.claude/settings.json` で呼ぶ。
-//! 旧 pi-sai-link/（TypeScript 拡張・`sai-link agent` 薄皮）は廃止し削除済み。
+//! pi/cc から CLI（`sai-link doc write`・`sai-link task create` など）を通じて
+//! 呼ばれる機能の唯一の実装です。エージェントは Bash で CLI を呼ぶ
+//! （cc は `.claude/settings.json` の `Bash(sai-link *)` の許可、
+//! pi は同じ CLI）。旧 MCP サーバと旧 pi-sai-link/（TypeScript 拡張）は廃止し削除済み。
 //!
 //! すべての関数は `Result<serde_json::Value, String>` を返します。
 //! `Err` の文字列はそのままエージェントへ見せる日本語のメッセージです。
 //!
 //! ツール承認機能（task_create / task_manage のユーザー確認 UI）は廃止済みです。
-//! `task_create` は受け取った全タスクを常に承認済みとして作成します。
+//! `sai-link task create` は受け取った全タスクを常に承認済みとして作成します。
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -428,7 +428,7 @@ fn write_with_timeout(
     }
     let content = saved_content.as_str();
 
-    let path = crate::sai_write_notify::resolve_output_path(run_id, &basename)
+    let path = crate::doc_write_notify::resolve_output_path(run_id, &basename)
         .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("保存先作成に失敗: {}", e))?;
@@ -517,7 +517,7 @@ pub fn report_path_for_run(run_id: i64) -> Option<std::path::PathBuf> {
 fn write_report_file(run_id: i64, report: &str) -> Result<std::path::PathBuf, String> {
     let path = match crate::run_dir::find_run_dir(run_id) {
         Some((_, dir)) => dir.join(REPORT_FILE),
-        None => crate::sai_write_notify::resolve_output_path(run_id, REPORT_FILE)
+        None => crate::doc_write_notify::resolve_output_path(run_id, REPORT_FILE)
             .map_err(|e| format!("保存先の解決に失敗しました: {}", e))?,
     };
     if let Some(parent) = path.parent() {
@@ -1341,7 +1341,7 @@ fn in_progress_result(task_ids: &[i64], with_pending: bool, message: &str) -> Va
 ///
 /// 保存した報告は waggle トークン化しない（通知を書かない）。親は `task_output` の
 /// `report` として読む。このツールはサブブロック専用で、メインブロックでは `Err` になる
-/// （メインブロックの完了は `finalize` / `sai_finalize` を使う）。
+/// （メインブロックの完了は `sai-link run finalize` を使う）。
 pub fn task_report(report: &str, run_id: Option<i64>) -> Result<Value, String> {
     let report = report.trim();
     if report.is_empty() {
@@ -1356,7 +1356,7 @@ pub fn task_report(report: &str, run_id: Option<i64>) -> Result<Value, String> {
         .map_err(|e| format!("実行 id = {} の取得に失敗しました: {}", run_id, e))?;
     if exec.parent_run_id.is_none() {
         return Err(
-            "task_report はサブブロック専用です。メインブロックの完了は sai_finalize を使ってください"
+            "task report はサブブロック専用です。メインブロックの完了は sai-link run finalize を使ってください"
                 .to_string(),
         );
     }
@@ -1397,7 +1397,7 @@ fn one_line_short(text: &str) -> String {
 /// サブブロックの質問を親へ知らせる（`agent task-question` の実体）。
 ///
 /// 子の run（`parent_run_id` を持つ実行）からのみ呼べる。質問の中身の全文は
-/// `apps/phone` の DB にあるので、ここでは ID と見出しだけを送る。
+/// `apps/web` の DB にあるので、ここでは ID と見出しだけを送る。
 pub fn task_question(run_id: Option<i64>, question_id: &str, text: &str) -> Result<Value, String> {
     let run_id = require_run_id(run_id)?;
     let qid = question_id.trim();
@@ -1827,7 +1827,7 @@ pub fn block_discover(parent: Option<&str>) -> Result<Value, String> {
     let mut result = json!({
         "count": blocks.len(),
         "blocks": blocks,
-        "hint": "task_create の block_type には id を指定してください。詳細は block_inspect <id>。",
+        "hint": "sai-link task create の block_type には id を指定してください。詳細は sai-link def show --kind block --name <id>。",
     });
     if defs.is_empty() {
         result["message"] = json!("呼び出し可能なサブブロックがありません。メインブロック定義の subblocks を確認してください。");
@@ -2066,7 +2066,7 @@ mod tests {
         drop(guard);
     }
 
-    /// P4: sai_write がトークンと ref を返し、通知に waggle_token が入る。
+    /// P4: doc write がトークンと ref を返し、通知に waggle_token が入る。
     /// デーモン相当の処理（poll_and_process_one）でも同じトークンが返り、
     /// 再トークン化されない（トークンが増えない）ことを確認する。
     // ── write_check ──
@@ -2080,7 +2080,7 @@ mod tests {
     ) -> Result<Value, String> {
         let root = &guard.project_root;
         std::fs::create_dir_all(root.join("empty-home")).unwrap();
-        std::env::set_var("SAI_SAI_HOME", root.join("empty-home"));
+        std::env::set_var("SAI_HOME", root.join("empty-home"));
         std::env::set_var("SAI_PARENT_RUN_ID", "42");
         std::env::set_var("SAI_BLOCK_NAME", "blk");
         let sh = root.join("check.sh");
@@ -2099,7 +2099,7 @@ mod tests {
             None,
             std::time::Duration::from_millis(timeout_ms),
         );
-        std::env::remove_var("SAI_SAI_HOME");
+        std::env::remove_var("SAI_HOME");
         std::env::remove_var("SAI_BLOCK_NAME");
         r
     }
@@ -2144,7 +2144,7 @@ mod tests {
         let g = EnvGuard::new();
         let root = &g.project_root;
         std::fs::create_dir_all(root.join("empty-home")).unwrap();
-        std::env::set_var("SAI_SAI_HOME", root.join("empty-home"));
+        std::env::set_var("SAI_HOME", root.join("empty-home"));
         std::env::set_var("SAI_PARENT_RUN_ID", "42");
         std::fs::create_dir_all(root.join(".sai")).unwrap();
         std::fs::write(
@@ -2153,7 +2153,7 @@ mod tests {
         )
         .unwrap();
         let r = write("doc.md", "orig", None, None).unwrap();
-        std::env::remove_var("SAI_SAI_HOME");
+        std::env::remove_var("SAI_HOME");
         assert_eq!(r["checked"], false);
         assert!(r["warning"].is_string());
     }
@@ -2177,10 +2177,10 @@ mod tests {
     fn write_without_write_check_has_no_checked_key() {
         let g = EnvGuard::new();
         std::fs::create_dir_all(g.project_root.join("empty-home")).unwrap();
-        std::env::set_var("SAI_SAI_HOME", g.project_root.join("empty-home"));
+        std::env::set_var("SAI_HOME", g.project_root.join("empty-home"));
         std::env::set_var("SAI_PARENT_RUN_ID", "42");
         let r = write("doc.md", "x", None, None).unwrap();
-        std::env::remove_var("SAI_SAI_HOME");
+        std::env::remove_var("SAI_HOME");
         assert!(r.get("checked").is_none() && r.get("warning").is_none());
     }
 
@@ -2208,7 +2208,7 @@ mod tests {
         // デーモン相当の処理：同じトークンが返り、再トークン化されない
         let db_path = crate::project::sai_path(".sai/sai-engine/sai-engine.db");
         let integrator = crate::waggle_integration::WaggleIntegrator::open(&db_path).unwrap();
-        let processed = crate::sai_write_notify::poll_and_process_one(&integrator)
+        let processed = crate::doc_write_notify::poll_and_process_one(&integrator)
             .unwrap()
             .expect("通知が処理される");
         assert_eq!(processed.waggle_token.as_deref(), Some(token.as_str()));

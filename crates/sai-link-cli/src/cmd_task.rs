@@ -9,7 +9,7 @@ use crate::cli::TaskCmd;
 use crate::cmd_common::{agent_result, print_json, CmdError};
 use sai_link_engine::agent_api;
 
-/// `sai-moon-link task <sub>` のハンドラ。
+/// `sai-link task <sub>` のハンドラ。
 pub(crate) fn run(cmd: TaskCmd) -> Result<(), CmdError> {
     match cmd {
         TaskCmd::Create {
@@ -135,10 +135,6 @@ pub(crate) fn run(cmd: TaskCmd) -> Result<(), CmdError> {
             let v = agent_result(agent_api::task_question(run_id, &qid, &text))?;
             print_json(&v)
         }
-        // 旧 `task manage`（隠した別名）は main が処理する
-        TaskCmd::Manage { .. } => Err(CmdError::other(
-            "内部エラー: task manage は main が処理します",
-        )),
     }
 }
 

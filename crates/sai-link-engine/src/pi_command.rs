@@ -3,10 +3,11 @@
 //! `BlockConfig` から pi コーディングエージェントの起動コマンド文字列を
 //! 構築するためのモジュールです。
 //!
-//! U01: pi も cc と同じ MCP（`sai-link mcp serve` の 13 ツール）を使う。
-//! pi-mcp-adapter が `.mcp.json` の `sai` サーバを読むため、ブロック定義の
+//! U01: pi も cc と同じ外部 MCP（serena・playwright など）を使う。
+//! sai 自身の道具は CLI（`sai-link …`）を Bash で呼ぶ。pi-mcp-adapter が
+//! `.mcp.json` を読むが、そこに sai のサーバは無い。ブロック定義の
 //! `extensions: pi-sai-link/extension.ts` は不要。pi 起動コマンドに
-//! `--extension` は付けない（MCP 経由で道具を使う）。
+//! `--extension` は付けない（外部 MCP と CLI で道具を使う）。
 //!
 //! このモジュールは `lib/herdrs/runner.ts` の `buildPiCommand()` 関数と
 //! 同等の機能を Rust で提供します。構築されたコマンドは
@@ -82,12 +83,12 @@ pub struct SettingsJson {
     /// 起動の直前に範囲を作る命令（配列。`{run_id}` と `{block}` を置き換える。シェルは通さない）
     #[serde(default)]
     pub context: Option<Vec<String>>,
-    /// `sai_write` が保存の前に本文を標準入力で通す命令（配列。`{run_id}`・`{block}`・`{filename}` を置き換える。シェルは通さない）
+    /// `sai-link doc write` が保存の前に本文を標準入力で通す命令（配列。`{run_id}`・`{block}`・`{filename}` を置き換える。シェルは通さない）
     #[serde(default)]
     pub write_check: Option<Vec<String>>,
     /// エージェントの起動コマンドの先頭に付ける環境変数（KEY → 値）。
     ///
-    /// `.sai/settings.json` と `~/.sai-moon/settings.json` の両方で書ける（後者が優先）。
+    /// `.sai/settings.json` と `~/.sai/settings.json` の両方で書ける（後者が優先）。
     /// MLflow の接続情報を 1 か所に書いておく例:
     ///
     /// ```json
@@ -123,7 +124,7 @@ const RESERVED_ENV_KEYS: [&str; 4] = [
 /// 設定順序（`docs/user-demand2.md`・設定順序）:
 ///
 /// 1. `PROJECTROOT/.sai/settings.json`
-/// 2. `~/.sai-moon/settings.json`（**2. が優先**。キー単位で 1. を上書きする）
+/// 2. `~/.sai/settings.json`（**2. が優先**。キー単位で 1. を上書きする）
 ///
 /// 両方とも存在しない場合はデフォルト値（空）を返す。
 /// ファイルの読み込み・パースに失敗したキーはスキップされる（エラーにはしない）。
@@ -420,7 +421,7 @@ impl PiCommandBuilder {
 
     /// pi-mcp-adapter に読ませる MCP 設定ファイルをセットします（`--mcp-config`）。
     ///
-    /// 作業用コピーに `.mcp.json` が無いとき、プロジェクトルートの設定を渡すために使う。
+    /// 作業用コピーに `.mcp.json` が無いとき、プロジェクトルートの外部 MCP の設定を渡すために使う。
     pub fn with_mcp_config(mut self, path: impl Into<String>) -> Self {
         self.mcp_config = Some(path.into());
         self
@@ -495,7 +496,7 @@ impl PiCommandBuilder {
             args.extend(agent_args_for_config(config));
         }
 
-        // --mcp-config <path>: 作業用コピーで sai の MCP を読めるようにする
+        // --mcp-config <path>: 作業用コピーで外部 MCP を読めるようにする
         if let Some(ref path) = self.mcp_config {
             args.push("--mcp-config".to_string());
             args.push(path.clone());
@@ -599,10 +600,10 @@ pub fn agent_args_for_config(config: &BlockConfig) -> Vec<String> {
             }
         }
     }
-    // U01: pi-sai-link/extension.ts は廃止。pi も MCP（.mcp.json の sai）で
-    // 道具を使うため、`--extension` は付けない。ブロック定義に旧パスが
-    // 残っていても無視する（警告のみ）。ツール名形式（herdrs 等）は U01 で
-    // 使わない（MCP の mcp__sai__* を使うため --tools にも入れない）。
+    // U01: pi-sai-link/extension.ts は廃止。pi は外部 MCP（.mcp.json）と
+    // CLI（`sai-link …` を Bash で呼ぶ）で道具を使うため、`--extension` は付けない。
+    // ブロック定義に旧パスが残っていても無視する（警告のみ）。ツール名形式（herdrs 等）は U01 で
+    // 使わない（--tools にも入れない）。
     if let Some(ref extensions) = config.extensions {
         if let ToolsConfig::List(items) = extensions {
             for item in items {
@@ -997,7 +998,7 @@ mod tests {
     #[test]
     fn test_build_extensions_list() {
         // U01: extensions は --extension ではなく --tools に入らない。
-        // pi は MCP（.mcp.json の sai）で道具を使うため、パス指定は無視する。
+        // pi は外部 MCP（.mcp.json）と CLI で道具を使うため、パス指定は無視する。
         let mut config = mock_config();
         config.extensions = Some(ToolsConfig::List(vec![
             "herdrs".to_string(),

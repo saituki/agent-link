@@ -163,7 +163,7 @@ pub fn apply_templates(
 ) -> Result<String, ParseError> {
     // テンプレート探索ディレクトリ（優先度順）:
     // 1. 指定されたディレクトリ（通常は `PROJECTROOT/.sai/template`）
-    // 2. グローバル `~/.sai-moon/template`（全プロジェクトで使用可能）
+    // 2. グローバル `~/.sai/template`（全プロジェクトで使用可能）
     let mut template_dirs: Vec<PathBuf> = vec![template_dir.to_path_buf()];
     if let Some(global) = crate::project::sai_home_path("template") {
         if global != template_dir.to_path_buf() {

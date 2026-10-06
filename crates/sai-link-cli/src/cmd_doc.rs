@@ -7,7 +7,7 @@ use crate::cli::{DocCmd, PhoneCmd};
 use crate::cmd_common::{agent_result, print_json, print_phone, CmdError};
 use sai_link_engine::agent_api;
 
-/// `sai-moon-link doc <sub>` のハンドラ。
+/// `sai-link doc <sub>` のハンドラ。
 pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
     match cmd {
         DocCmd::Write {
