@@ -25,13 +25,13 @@
 
 [Rust TUI]
   └─ sai-paper (別リポジトリ, port 8201への HTTP POST)
-       └─ POST /api/papers/from-extract … `r` キーで抽出済みMarkdownを送って音声化を依頼
+       └─ POST /api/papers/from-extract … `sai-paper paper radio` が抽出済みMarkdownを送って音声化を依頼
 
-[sai-phone (FastAPI, port 8100)]
+[sai-web (FastAPI, port 8200)]
   └─ Papers タブ → Radio 画面
        ├─ /api/radio/* を sai-radio の /api/* へ中継 (127.0.0.1:8201)
-       ├─ 「音声を作る」も POST /api/papers/from-extract を使う (sai-paper の `r` キーと同じ窓口)
-       ├─ 音声の事前ダウンロード (オフライン再生) は sai-phone 側が担当
+       ├─ 「音声を作る」も POST /api/papers/from-extract を使う (`sai-paper paper radio`と同じ窓口)
+       ├─ 音声の事前ダウンロード (オフライン再生) は sai-web 側が担当
        └─ 質問時は Mac からトークンと論文本文をもらい Google へ直結 (Live API)
 
 Mac・sai-paper は Tailscale VPN で相互に接続する．
@@ -39,8 +39,8 @@ Mac・sai-paper は Tailscale VPN で相互に接続する．
 (以前使っていた Windows PC の音声認識サーバーは削除済み)
 ```
 
-**重要**: sai-radio は常時起動する必要があります（決定事項#11）．sai-paper の `r` キーを使うには sai-radio サーバーが起動していることが前提です．
-起動コマンドは次のこと（`127.0.0.1` 固定．sai-radio に画面は無く，sai-phone からのみ中継で使われる）:
+**重要**: sai-radio は常時起動する必要があります（決定事項#11）．`sai-paper paper radio`を使うには sai-radio サーバーが起動していることが前提です．
+起動コマンドは次のこと（`127.0.0.1` 固定．sai-radio に画面は無く，sai-web からのみ中継で使われる）:
 
 ```bash
 uv run uvicorn sai_radio.main:app --app-dir src --host 127.0.0.1 --port 8201
@@ -78,7 +78,7 @@ lib/
 ```
 
 以前あった `src/sai_radio/static/` (PWAの画面) も削除済み (11-cleanup §3 A)．
-画面は sai-phone (Papers タブ → Radio) が持ち，sai-radio は API だけの裏方サーバーになった．
+画面は sai-web (Papers タブ → Radio) が持ち，sai-radio は API だけの裏方サーバーになった．
 
 以前の `src/tsukasa-server/` (Windows PC 用の音声認識サーバー) は削除済み．
 質問機能は Gemini Live API に移行したため不要になった．
@@ -123,7 +123,7 @@ Mac は最初に「使い捨ての合鍵(トークン)」と「今聞いてい�
 
 ### エフェメラルトークン (使い捨ての合鍵) によるブラウザ直結
 
-iPhone のブラウザから Google に直接 WebSocket 接続でき，API キーを sai-phone 側に置く必要がない．
+iPhone のブラウザから Google に直接 WebSocket 接続でき，API キーを sai-web 側に置く必要がない．
 
 **トークン発行** (Mac 側で実行する):
 
@@ -243,8 +243,8 @@ API バージョンも **`v1alpha` 固定** (`v1beta` は不可)．
   (ファイルの先頭に再生に必要な情報を置く)．
   配信側は `.m4a` を `audio/mp4` として返す．シークのための Range リクエストには
   `FileResponse` が 206 を自前で返している (Starlette の標準機能)．
-- **オフライン再生は sai-phone 側の機能になった** (sai-radio に画面は無いため)．
-  sai-phone の Radio 画面が音声をキャッシュし，通信なしで再生できるようにする．
+- **オフライン再生は sai-web 側の機能になった** (sai-radio に画面は無いため)．
+  sai-web の Radio 画面が音声をキャッシュし，通信なしで再生できるようにする．
 
 ## モジュールの役割
 
@@ -286,7 +286,7 @@ docling は `~/.local/bin/docling` にインストール済みで，Python パ�
 要約・質問応答を LLM に直接委譲するモジュール．`esperanto` ライブラリ経由で OpenRouter 等のプロバイダの LLM を呼びます．
 
 - `summarize_to_radio_script(markdown_text)`: PDFから抽出したMarkdown全文を日本語のラジオ原稿風に要約
-- `answer(section_text, question)`: 論文の該当箇所＋質問文から回答を生成 (sai-phone の文字での質問 `POST /api/papers/{paper_id}/ask` から呼ばれる)
+- `answer(section_text, question)`: 論文の該当箇所＋質問文から回答を生成 (sai-web の文字での質問 `POST /api/papers/{paper_id}/ask` から呼ばれる)
 
 LLMのプロンプトは元の `notebook.py` から一字一句移植したものです（意思決定含む）．
 
@@ -340,7 +340,7 @@ SQLite1ファイルで完結する永続化層．テーブルは`papers`（論�
 
 ### `sai_radio/main.py`
 
-FastAPIアプリ本体．論文の一覧・詳細・音声配信・質問応答のAPI，新規論文の登録（sai-paper連携・CLI）のAPIを1つのアプリにまとめています．画面（静的ファイル）と PDF アップロード（`POST /api/papers/upload`）は削除済みで，`GET /` は 404 を返します（11-cleanup §3 A）．sai-phone から中継で使われる裏方サーバーです．
+FastAPIアプリ本体．論文の一覧・詳細・音声配信・質問応答のAPI，新規論文の登録（sai-paper連携・CLI）のAPIを1つのアプリにまとめています．画面（静的ファイル）と PDF アップロード（`POST /api/papers/upload`）は削除済みで，`GET /` は 404 を返します（11-cleanup §3 A）．sai-web から中継で使われる裏方サーバーです．
 
 主要なAPI：
 - `GET /api/papers`: 論文一覧（`favorite`フラグ・再生時間を含む）
@@ -351,12 +351,12 @@ FastAPIアプリ本体．論文の一覧・詳細・音声配信・質問応答�
   回答テキストを生成して返す．同期呼び出しなので数秒待たせる
 - `GET /api/stats`: ホーム画面用の集計．登録数・聴いた論文数・直近84日分の日別再生回数
   （`store.stats_by_day()`）を返す
-- `POST /api/papers/from-extract`: 抽出済みMarkdownを受信してポッドキャスト生成（podcast専用）．sai-paperの`r`キーとsai-phoneの「音声を作る」の両方がこの窓口を使う
+- `POST /api/papers/from-extract`: 抽出済みMarkdownを受信してポッドキャスト生成（podcast専用）．`sai-paper paper radio` と sai-webの「音声を作る」の両方がこの窓口を使う
 - `POST /api/papers/{paper_id}/live-session`: **声で**質問する用．再生位置から該当セクションを逆引きし，Live API 用のトークン＋論文本文を返す
 - `POST /api/papers/{paper_id}/question-log`: 声で質問した内容(質問・回答のテキスト)をログに記録するだけのエンドポイント
 
 声の質問(`live-session`)と文字の質問(`ask`)は，どちらも同じ`events`テーブルに`kind="question"`で
-記録され，sai-phone 側の再生画面ではこの2つを区別なく同じチャット履歴として表示する．
+記録され，sai-web 側の再生画面ではこの2つを区別なく同じチャット履歴として表示する．
 
 質問の流れ (`POST /api/papers/{paper_id}/live-session` + Live API 直結):
 
@@ -371,7 +371,7 @@ FastAPIアプリ本体．論文の一覧・詳細・音声配信・質問応答�
 
 ## 既知の制約・落とし穴
 
-- **sai-radio は常時起動が必要**: sai-paper の `r` キーを使うには sai-radio サーバーが `http://127.0.0.1:8201` で起動していることが前提です（決定事項#11）．起動していない場合は sai-paper 側でエラーになります
+- **sai-radio は常時起動が必要**: `sai-paper paper radio`を使うには sai-radio サーバーが `http://127.0.0.1:8201` で起動していることが前提です（決定事項#11）．起動していない場合は sai-paper 側でエラーになります
 - **ローカルのポート衝突に注意**: 開発機で他プロセスが `8201` / `8202` / `10101` などのポートを掴んでいることがある．起動前に `lsof -i :<ポート>` で確認するか，`.env` で `AIVISSPEECH_BASE_URL` 等を変更してください
   - **実例(2026-09-22，旧構成の記録)**: 使っていない`open-notebook`のDockerコンテナ`opennotebook-surrealdb-1`
     (`surrealdb/surrealdb:v2`)が`127.0.0.1:8000`を先に握っていたため，sai-radioが起動していても
@@ -384,6 +384,6 @@ FastAPIアプリ本体．論文の一覧・詳細・音声配信・質問応答�
 - **GEMINI_API_KEY の設定が必須 (質問機能)**: `.env` に `GEMINI_API_KEY` を設定してください．未設定のままだと質問開始時に日本語のエラーが出ます
 - **podcast-creator の設定JSONが必須**: `config/episode_config.json` / `config/speakers_config.json` が存在し，有効な JSON 形式である必要があります．ポッドキャスト生成開始時にバリデーションされ，エラーがあると生成が失敗します
 - **AivisSpeech Engine の話者スタイルID**: `config/speakers_config.json` の `voice_id` フィールドは数字として解釈可能な文字列である必要があります（AivisSpeechへ `int` で渡される）．`GET http://127.0.0.1:10101/speakers` で確認できる ID を使用してください
-- **質問機能はHTTPS必須**: ブラウザのマイクAPIは `https://` または `localhost` でのみ動きます．iPhoneからは `tailscale serve`（4443番）でHTTPS化された sai-phone の画面を使うので，sai-radio 本体は `127.0.0.1` のままで足りる
+- **質問機能はHTTPS必須**: ブラウザのマイクAPIは `https://` または `localhost` でのみ動きます．iPhoneからは `tailscale serve`（4443番）でHTTPS化された sai-web の画面を使うので，sai-radio 本体は `127.0.0.1` のままで足りる
 - **Docling CLI のパス**: `docling` CLI は `~/.local/bin/docling` にインストール済みと仮定しています．別の場所にある場合は `.env` に `DOCLING_BIN=/path/to/docling` を設定してください
 - **ポッドキャスト生成には複数のLLM呼び出しが発生**: outline 生成 1 回 + transcript 生成 1 回＋最初の日本語要約用 LLM が 1 回，合計 3 回のLLM API 呼び出しが発生します．無料枠のモデルを使う場合はレート制限に注意してください
