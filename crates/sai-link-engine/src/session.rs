@@ -2495,8 +2495,8 @@ mod tests {
     fn test_claude_project_slug_replaces_dot() {
         assert_eq!(claude_project_slug(Path::new("/Users/me/proj")), "-Users-me-proj");
         assert_eq!(
-            claude_project_slug(Path::new("/Users/touta/workdir/Sai/sai-moon/.worktrees/bugfix-70")),
-            "-Users-touta-workdir-Sai-sai-moon--worktrees-bugfix-70"
+            claude_project_slug(Path::new("/Users/alice/work/proj/.worktrees/bugfix-70")),
+            "-Users-alice-work-proj--worktrees-bugfix-70"
         );
     }
 
