@@ -16,7 +16,6 @@ anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 clap.workspace = true
-directories.workspace = true
 dunce.workspace = true
 futures-util.workspace = true
 iana-time-zone.workspace = true

@@ -22,76 +22,51 @@ pub fn canonicalize_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
     dunce::canonicalize(path)
 }
 
-/// `<dir>` が研究プロジェクトのルートかどうかを判定する。
+/// 研究プロジェクトのルートを実行時に解決する（CLI 共通の約束の 5）。
 ///
-/// 判定条件（この順で見る）:
-/// 1. `<dir>/.sai/paper/` が存在する（研究プロジェクトのデータ置き場）
-/// 2. `<dir>/Cargo.toml` が "sai-paper" を含む（開発リポジトリの検出用）
+/// 順序:
+/// 1. 環境変数 `SAI_PROJECT_ROOT`（空でない値）。フォルダが無ければ `None`。
+/// 2. `cwd` から上へたどり、`.sai/` フォルダを持つ最初のフォルダ。
 ///
-/// 旧レイアウト（`<dir>/data/papr.db` + `<dir>/crates/`）はプロジェクトと
-/// みなさない（段階 2d で判定を削除。開発リポジトリ自身も `.sai/paper/` だけを使う）。
-/// `.sai/` 単独でもプロジェクトとみなさない。`~/.sai-moon/` があるだけで
-/// ホームがプロジェクト扱いされ、ホームに DB が作られる問題を避けるため。
-/// 環境に依存しないよう、判定はこの関数に切り出してある。
-#[must_use]
-pub fn is_project_root(dir: &Path) -> bool {
-    if dir.join(".sai").join("paper").exists() {
-        return true;
-    }
-    if dir.join("Cargo.toml").exists()
-        && fs::read_to_string(dir.join("Cargo.toml")).is_ok_and(|txt| txt.contains("sai-paper"))
-    {
-        return true;
-    }
-    false
-}
-
-/// sai-paper ワークスペースのルートを実行時に解決する。
-///
-/// 優先順位:
-/// 1. `SAI_PAPER_ROOT` 環境変数（存在するパスのみ採用）
-/// 2. `cwd` / 実行ファイル位置から上向き探索（[`is_project_root`] と
-///    `<dir>/sai-paper/Cargo.toml` の存在で判定）
-/// 3. ビルド時の `CARGO_MANIFEST_DIR` から導いたワークスペースルート
-///    （in-tree ビルド時の最終フォールバック）
+/// 上へたどるとき、ホーム（環境変数 `HOME`）とそれより上は数えない
+/// （`~/.sai` は利用者全体の置き場で、プロジェクトではない）。
+/// 実行ファイルの場所やビルドした場所からは探さない。
 #[must_use]
 pub fn project_root() -> Option<PathBuf> {
-    if let Ok(root) = std::env::var("SAI_PAPER_ROOT") {
+    resolve_project_root(
+        std::env::var_os("SAI_PROJECT_ROOT").as_deref(),
+        std::env::current_dir().ok().as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// [`project_root`] の本体（環境変数を書き換えないのでテストが並列でも壊れない）。
+#[must_use]
+fn resolve_project_root(
+    sai_project_root: Option<&OsStr>,
+    cwd: Option<&Path>,
+    home: Option<&OsStr>,
+) -> Option<PathBuf> {
+    if let Some(root) = sai_project_root.filter(|value| !value.is_empty()) {
         let p = PathBuf::from(root);
-        if p.exists() {
-            return Some(p);
+        return p.is_dir().then_some(p);
+    }
+    let home = home.map(PathBuf::from);
+    let mut dir = cwd?.to_path_buf();
+    loop {
+        // ホーム自体は数えない（ホームの `.sai` をプロジェクトと誤認しない）。
+        if let Some(home) = &home
+            && dir == *home
+        {
+            break;
         }
-    }
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd);
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(par) = exe.parent()
-    {
-        candidates.push(par.to_path_buf());
-    }
-    for base in candidates {
-        let mut p = base;
-        for _ in 0..7 {
-            // 研究プロジェクト（`.sai/paper/` がある等）を検出する。
-            // （sai-paper を開発リポジトリ外の研究プロジェクトで実行する場合）
-            if is_project_root(&p) {
-                return Some(p);
-            }
-            if p.join("sai-paper").join("Cargo.toml").exists() {
-                return Some(p.join("sai-paper"));
-            }
-            if let Some(par) = p.parent() {
-                p = par.to_path_buf();
-            } else {
-                break;
-            }
+        if dir.join(".sai").is_dir() {
+            return Some(dir);
         }
-    }
-    let def = compile_time_workspace_root();
-    if def.join("Cargo.toml").exists() {
-        return Some(def);
+        match dir.parent() {
+            Some(parent) => dir = parent.to_path_buf(),
+            None => break,
+        }
     }
     None
 }
@@ -120,19 +95,6 @@ pub fn paper_roots() -> Option<PaperRoots> {
         root,
         data_dir: dot_sai_paper,
     })
-}
-
-/// ビルド時のクレート位置（`<root>/crates/<crate>`）からワークスペースルートを導く。
-///
-/// 絶対パスのハードコードを避けるための最終フォールバック。
-/// out-of-tree にバイナリを移動した場合は機能しない（`project_root()` が優先される）。
-#[must_use]
-pub fn compile_time_workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// プロジェクトルートの `.env` を読み込む（既存の環境変数は上書きしない）。
@@ -935,42 +897,54 @@ mod tests {
         let _ = fs::remove_dir_all(&data);
     }
 
-    /// 一時ディレクトリで、`.sai/` だけではプロジェクトとみなさず、
-    /// `.sai/paper/` があればプロジェクトとみなすこと（段階 1）。
+    /// 一段下のフォルダに `.sai` があれば、そこをプロジェクトにする。
+    /// ホーム自体とそれより上は数えない。`SAI_PROJECT_ROOT` があれば優先する。
     #[test]
-    fn project_root_requires_dot_sai_paper() -> Result<(), Box<dyn std::error::Error>> {
+    fn project_root_traverses_up_to_dot_sai_and_skips_home() -> Result<(), Box<dyn std::error::Error>> {
         let temp = std::env::temp_dir().join(format!(
             "papr-project-root-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));
-        // `.sai/` だけ: プロジェクトとみなさない（ホーム誤認の防止）。
-        let dot_sai_only = temp.join("dot-sai-only");
-        fs::create_dir_all(dot_sai_only.join(".sai"))?;
-        assert!(!is_project_root(&dot_sai_only));
+        let _ = fs::remove_dir_all(&temp);
+        let home = temp.join("home");
+        let project = home.join("work/proj");
+        let nested = project.join("sub/deep");
+        fs::create_dir_all(&nested)?;
 
-        // `.sai/paper/` があればプロジェクトとみなす。
-        let dot_sai_paper = temp.join("dot-sai-paper");
-        fs::create_dir_all(dot_sai_paper.join(".sai").join("paper"))?;
-        assert!(is_project_root(&dot_sai_paper));
+        // 上へたどっても `.sai` が無ければ見つからない。
+        assert_eq!(
+            resolve_project_root(None, Some(&nested), Some(home.as_os_str())),
+            None,
+            "`.sai` が無ければ見つからない"
+        );
+        // proj に `.sai` を置いてからは proj が返る。
+        fs::create_dir_all(project.join(".sai"))?;
+        assert_eq!(
+            resolve_project_root(None, Some(&nested), Some(home.as_os_str())),
+            Some(project.clone())
+        );
 
-        // 旧レイアウト（`data/papr.db` + `crates/`）はプロジェクトとみなさない
-        // （段階 2d で旧レイアウトの判定を削除した）。
-        let legacy = temp.join("legacy");
-        fs::create_dir_all(legacy.join("data"))?;
-        fs::create_dir_all(legacy.join("crates"))?;
-        fs::write(legacy.join("data").join("papr.db"), b"")?;
-        assert!(!is_project_root(&legacy));
+        // ホーム自体にしか `.sai` が無ければ見つからない。
+        let only_home = home.join("no-proj/sub");
+        fs::create_dir_all(&only_home)?;
+        fs::create_dir_all(home.join(".sai"))?;
+        assert_eq!(
+            resolve_project_root(None, Some(&only_home), Some(home.as_os_str())),
+            None,
+            "ホームはプロジェクトとみなさない"
+        );
 
-        // Cargo.toml 判定もこの段階では残す。
-        let dev_repo = temp.join("dev-repo");
-        fs::create_dir_all(&dev_repo)?;
-        fs::write(dev_repo.join("Cargo.toml"), "[package]\nname = \"sai-paper\"\n")?;
-        assert!(is_project_root(&dev_repo));
-        // Cargo.toml が無く `.sai/` 単独なら不算出。
-        let empty = temp.join("empty");
-        fs::create_dir_all(&empty)?;
-        assert!(!is_project_root(&empty));
+        // `SAI_PROJECT_ROOT` があればそこを使う。無いフォルダなら None。
+        assert_eq!(
+            resolve_project_root(Some(project.as_os_str()), Some(&nested), None),
+            Some(project.clone())
+        );
+        let missing = temp.join("missing");
+        assert_eq!(
+            resolve_project_root(Some(missing.as_os_str()), Some(&nested), None),
+            None
+        );
 
         fs::remove_dir_all(&temp)?;
         Ok(())
