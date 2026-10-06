@@ -1,14 +1,18 @@
 //! task.md 発行：論文をエージェントに引き渡す。
 //!
 //! sai-paper から選択した論文を sai-link のカンバンボードに task.md 作成して
-//! 引き渡す。run_id は sai-link の execution_history テーブルに reserve して得る。
+//! 引き渡す。カードは `sai-moon-link card create`（標準入力に JSON）で作り、
+//! run_id はその出力から得る。sai-link の DB は直に開かない。
 
 use sai_paper_core::database::Database;
 use sai_paper_core::paths::PaperRoots;
-use rusqlite::OptionalExtension;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+use crate::bins::BinError;
+use crate::link;
 
 /// task.md 発行操作のエラー。
 #[derive(Debug, Error)]
@@ -28,6 +32,9 @@ pub enum HandoffError {
     /// ブロック未検出
     #[error("block not found: {0}")]
     BlockNotFound(String),
+    /// sai-link の CLI の失敗（終了コード付き）
+    #[error("sai-link に失敗しました（終了コード {}）: {}", .0.code, .0.message)]
+    Link(BinError),
     /// その他エラー
     #[error("{0}")]
     Other(String),
@@ -124,47 +131,44 @@ pub fn list_blocks(roots: &PaperRoots) -> Result<Vec<BlockInfo>> {
     Ok(result)
 }
 
-/// `<root>/.sai/outputs/todo/*/task.md` のカードを一覧する。
+/// `lane` が `todo` の run の `task.md` のカードを一覧する。
 ///
-/// `todo` 以外のフォルダ（`running` / `done` 等）は見ない。
-/// `tag` を指定すると、frontmatter の `tag` が一致するカードだけを返す。
-/// 返り値は `run_id` の昇順。
+/// run の一覧は `sai-moon-link run list --json` から取り、`dir` の下の
+/// `task.md` を読む。`tag` を指定すると frontmatter の `tag` が一致するカードだけを返す。
+/// 返り値は `run_id` の昇順。sai-link の一覧を読めないときは空を返す。
 ///
 /// # Errors
 ///
-/// `todo` ディレクトリの読み込み失敗、`task.md` の読み込み失敗の場合。
+/// カードの読み込みに失敗したとき。
 pub fn list_todo_cards(roots: &PaperRoots, tag: Option<&str>) -> Result<Vec<TodoCard>> {
-    let todo_dir = roots.root.join(".sai").join("outputs").join("todo");
-    let mut cards = Vec::new();
-    if !todo_dir.exists() {
-        return Ok(cards);
-    }
+    let Ok(runs) = link::runs(&roots.root) else {
+        return Ok(Vec::new());
+    };
 
-    for entry in fs::read_dir(&todo_dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
+    let mut cards = Vec::new();
+    for run in runs {
+        if run.lane != "todo" {
             continue;
         }
-        let task_path = entry.path().join("task.md");
-        if !task_path.exists() {
+        let Some(dir) = run.dir else {
             continue;
-        }
-        let content = fs::read_to_string(&task_path)?;
+        };
+        let task_path = dir.join("task.md");
+        let Ok(content) = fs::read_to_string(&task_path) else {
+            continue;
+        };
         // frontmatter が無い / 壊れているカードは飛ばす。
         let Ok((frontmatter, _)) = split_frontmatter(&content) else {
             continue;
         };
         let card_tag = get_fm_value(&frontmatter, "tag").unwrap_or_default();
-        if let Some(want) = tag {
-            if card_tag != want {
-                continue;
-            }
+        if let Some(want) = tag
+            && card_tag != want
+        {
+            continue;
         }
-        let run_id = get_fm_value(&frontmatter, "run_id")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
         cards.push(TodoCard {
-            run_id,
+            run_id: run.run_id,
             block: get_fm_value(&frontmatter, "block").unwrap_or_default(),
             tag: card_tag,
             description: get_fm_value(&frontmatter, "description").unwrap_or_default(),
@@ -274,18 +278,18 @@ pub fn create_handoff_with(
 /// task.md を発行する（frontmatter の最後に `extra` のキーを足す）。
 ///
 /// 処理:
-/// 1. sai-link DB に run_id を予約
-/// 2. ブロックの存在を確認
-/// 3. 論文情報を集める
-/// 4. `<root>/.sai/outputs/todo/<run_id>/task.md` に書く
-/// 5. { run_id, path } を返す
+/// 1. ブロックの存在を確認
+/// 2. 論文情報を集める
+/// 3. `sai-moon-link card create` でカードを作る（本文と `extra` を渡す）
+/// 4. { run_id, path } を返す
 ///
 /// `extra` は `(キー, 値)` の並び。値の改行は空白に置き換え、空の値は書かない。
+/// `executer` は `card create` の起動者に、それ以外は `meta` に入れる。
 /// 並びは呼び出し側が決める（sai-sci のカードは `sci_node` から `sci_depth` までをこの順に足す）。
 ///
 /// # Errors
 ///
-/// DB エラー、ファイル I/O エラー、ブロック未検出等。
+/// sai-link の CLI の失敗、ファイル I/O エラー、ブロック未検出等。
 pub fn create_handoff_with_extra(
     db: &Database,
     roots: &PaperRoots,
@@ -293,6 +297,8 @@ pub fn create_handoff_with_extra(
     extra: &[(&str, String)],
 ) -> Result<HandoffResult> {
     let block_id = request.block_id;
+    // `origin_run` はカードには書かない（結び付けは呼び出し側が別に記録する）。
+    let _ = request.origin_run;
 
     // 1. ブロック情報を検索
     let blocks = list_blocks(roots)?;
@@ -301,13 +307,11 @@ pub fn create_handoff_with_extra(
         .find(|b| b.id == block_id)
         .ok_or_else(|| HandoffError::BlockNotFound(block_id.to_string()))?;
 
-    // 2. sai-link DB に run_id を予約
-    let run_id = reserve_run_id(roots)?;
+    // 2. 次の global_round を求める（`R<n>` の最大 + 1）。
+    let runs = link::runs(&roots.root).map_err(HandoffError::Link)?;
+    let global_round = link::next_global_round(&runs);
 
-    // 3. global_round を決定
-    let global_round = calculate_global_round(roots)?;
-
-    // 4. 論文情報を集める
+    // 3. 論文情報を集める
     let mut paper_infos = Vec::new();
     for paper_id in request.paper_ids {
         if let Ok(Some(paper)) = db.library_paper_by_id(*paper_id) {
@@ -331,37 +335,44 @@ pub fn create_handoff_with_extra(
         }
     }
 
-    // 5. task.md の本文を構築
+    // 4. 本文を作る（`sai-link card create` が `# task_text` の見出しを付けるので、
+    //    先頭の見出しは外して task_text にする）。
     let body = build_task_body(request.description, &paper_infos, request.reason);
+    let task_text = body
+        .strip_prefix("# task_text\n\n")
+        .unwrap_or(&body)
+        .to_string();
 
-    // 6. frontmatter を構築
-    let frontmatter = build_frontmatter(
-        run_id,
-        block_id,
-        global_round,
-        request.tag.unwrap_or(""),
-        request.runner,
-        request.description,
-        extra,
-    )?;
+    // 5. `extra` を起動者と meta に分ける。
+    let mut executer = String::new();
+    let mut meta: BTreeMap<String, String> = BTreeMap::new();
+    for (key, value) in extra {
+        let value = one_line(value);
+        if value.is_empty() {
+            continue;
+        }
+        if *key == "executer" {
+            executer = value;
+        } else {
+            meta.insert((*key).to_string(), value);
+        }
+    }
 
-    // 7. task.md を出力ディレクトリに書く
-    let output_dir = roots
-        .root
-        .join(".sai")
-        .join("outputs")
-        .join("todo")
-        .join(run_id.to_string());
-    fs::create_dir_all(&output_dir)?;
-    let task_path = output_dir.join("task.md");
+    // 6. `sai-moon-link card create` でカードを作る。
+    let card = link::CardCreate {
+        runner: request.runner.to_string(),
+        block: block_id.to_string(),
+        global_round: global_round.to_string(),
+        round: "1".to_string(),
+        tag: request.tag.unwrap_or("").to_string(),
+        description: request.description.lines().next().unwrap_or("").to_string(),
+        task_text,
+        executer,
+        meta,
+    };
+    let (run_id, path) = link::card_create(&roots.root, &card).map_err(HandoffError::Link)?;
 
-    let task_md = format!("{}\n---\n\n{}\n", frontmatter, body);
-    fs::write(&task_path, &task_md)?;
-
-    Ok(HandoffResult {
-        run_id,
-        path: task_path,
-    })
+    Ok(HandoffResult { run_id, path })
 }
 
 /// task.md 用の情報（1 論文）。
@@ -525,125 +536,9 @@ fn build_task_body(description: &str, papers: &[PaperInfo], reason: Option<&str>
     body
 }
 
-/// task.md の frontmatter を構築する。
-///
-/// sai-link の `render_card`（`sai-link-engine/src/kanban.rs`）と同じキーと順で書く。
-/// 説明文は最初の行のみを frontmatter に書く。
-/// `extra` のキーはこの 12 個の後ろに足す（値は 1 行に潰し、空なら書かない）。
-fn build_frontmatter(
-    run_id: i64,
-    block_id: &str,
-    global_round: i64,
-    tag: &str,
-    runner: &str,
-    description: &str,
-    extra: &[(&str, String)],
-) -> Result<String> {
-    let creation_date = chrono::Local::now().format("%Y/%m/%d %H:%M:%S").to_string();
-    // 説明文は最初の行のみを frontmatter に書く
-    let desc_first_line = description.lines().next().unwrap_or("").to_string();
-
-    let fm = format!(
-        "---\nrunner: {}\ncreation_date: {}\nexecution_date: -\nrun_id: {}\nblock: {}\nthinking: \nmodel: \nprovider: \nround: 1\nglobal_round: {}\ntag: {}\ndescription: {}",
-        runner, creation_date, run_id, block_id, global_round, tag, desc_first_line
-    );
-
-    // 追加のキー（sai-sci の `sci_node` など）。値は 1 行にしてから書く。
-    let mut out = fm;
-    for (key, value) in extra {
-        let value = one_line(value);
-        if value.is_empty() {
-            continue;
-        }
-        out.push_str(&format!("\n{key}: {value}"));
-    }
-
-    Ok(out)
-}
-
 /// 値の改行を空白に置き換えて 1 行にする。
 fn one_line(value: &str) -> String {
     value.replace(['\r', '\n'], " ").trim().to_string()
-}
-
-/// 最大の global_round を計算する。
-///
-/// `.sai/outputs/R<n>/` ディレクトリを探して最大の `n` を取得し、`n + 1` を返す。
-/// 無ければ 1 を返す。
-fn calculate_global_round(roots: &PaperRoots) -> Result<i64> {
-    let outputs_dir = roots.root.join(".sai").join("outputs");
-    if !outputs_dir.exists() {
-        return Ok(1);
-    }
-
-    let mut max_round = 0i64;
-    for entry in fs::read_dir(&outputs_dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if let Some(rest) = name_str.strip_prefix('R') {
-            if let Ok(n) = rest.parse::<i64>() {
-                max_round = max_round.max(n);
-            }
-        }
-    }
-
-    Ok(max_round + 1)
-}
-
-/// sai-link DB に run_id を予約する。
-///
-/// sai-link の `<project_root>/.sai/sai-engine/sai-engine.db` に
-/// `execution_history` テーブルの行を INSERT して run_id を得る。
-fn reserve_run_id(roots: &PaperRoots) -> Result<i64> {
-    use rusqlite::Connection;
-
-    let db_path = roots
-        .root
-        .join(".sai")
-        .join("sai-engine")
-        .join("sai-engine.db");
-    if !db_path.exists() {
-        return Err(HandoffError::Other(
-            "sai-link DB が見つからない".to_string(),
-        ));
-    }
-
-    let conn = Connection::open(&db_path)?;
-
-    // `__todo__` ブロック ID を確保または取得
-    let todo_block_id = get_or_create_todo_block(&conn)?;
-
-    // execution_history に insert
-    let user_inputs_json: Option<&str> = None;
-    conn.execute(
-        "INSERT INTO execution_history (block_id, status, user_inputs_json, execution_mode)
-         VALUES (?1, 'todo', ?2, 'kanban')",
-        rusqlite::params![todo_block_id, user_inputs_json],
-    )?;
-
-    let id = conn.last_insert_rowid();
-    Ok(id)
-}
-
-/// `__todo__` プレースホルダーブロックを確保または取得する。
-fn get_or_create_todo_block(conn: &rusqlite::Connection) -> Result<i64> {
-    // 既存の `__todo__` を探す
-    let mut stmt = conn.prepare("SELECT id FROM block_metadata WHERE name = '__todo__' LIMIT 1")?;
-    if let Ok(Some(id)) = stmt.query_row([], |row| row.get::<_, i64>(0)).optional() {
-        return Ok(id);
-    }
-
-    // 存在しなければ作成する
-    // `file_path` は NOT NULL のため、sai-link 本体（`store.rs` の
-    // `get_or_create_todo_block`）と同じく空文字を入れる。
-    conn.execute(
-        "INSERT INTO block_metadata (name, display_name, description, model, thinking, tools, extensions, max_turns, timeout, worktree, enable, file_path)
-         VALUES ('__todo__', '未割当', 'カード予約用プレースホルダー', 'inherit', 'off', 'false', 'false', NULL, 300, 'none', 0, '')",
-        [],
-    )?;
-
-    Ok(conn.last_insert_rowid())
 }
 
 #[cfg(test)]
@@ -668,97 +563,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_frontmatter_matches_render_card_keys() {
-        let fm =
-            build_frontmatter(42, "test_block", 5, "tag1", "pi", "Test description", &[])
-                .unwrap();
-        // sai-link の render_card と同じキーと順
-        let keys: Vec<&str> = fm
-            .lines()
-            .filter_map(|l| l.split_once(':').map(|(k, _)| k))
-            .collect();
-        assert_eq!(
-            keys,
-            vec![
-                "runner",
-                "creation_date",
-                "execution_date",
-                "run_id",
-                "block",
-                "thinking",
-                "model",
-                "provider",
-                "round",
-                "global_round",
-                "tag",
-                "description",
-            ]
-        );
-        // 廃止されたキーは書かない
-        assert!(!fm.contains("inputs:"), "fm={fm}");
-        assert!(!fm.contains("timeout:"), "fm={fm}");
-        assert!(!fm.contains("max_turns:"), "fm={fm}");
-    }
-
-    /// 廃止した `origin_run_id` は書かない（review の引き継ぎは廃止）。
-    #[test]
-    fn test_build_frontmatter_omits_origin_run_id() {
-        let fm = build_frontmatter(7, "b", 1, "推薦", "pi", "desc", &[]).unwrap();
-        assert!(!fm.contains("origin_run_id"), "fm={fm}");
-    }
-
-    /// 追加のキーは固定の 13 個の後ろに並び、空の値は書かないこと。
-    #[test]
-    fn extra_keys_are_written_after_fixed_keys() {
-        let fm = build_frontmatter(
-            42,
-            "sci-compare",
-            5,
-            "",
-            "pi",
-            "目的を書く",
-            &[
-                ("sci_node", "N12".to_string()),
-                ("sci_purpose", "目的を書く".to_string()),
-                ("sci_assume", "N9=発作部位の予測（仮）".to_string()),
-                // 値は空。書かれない。
-                ("sci_mode", String::new()),
-                // 改行は空白に置き換わる。
-                ("sci_expect", "比較表と\n推奨".to_string()),
-            ],
-        )
-        .unwrap();
-        let keys: Vec<&str> = fm
-            .lines()
-            .filter_map(|l| l.split_once(':').map(|(k, _)| k))
-            .collect();
-        assert_eq!(
-            keys,
-            vec![
-                "runner",
-                "creation_date",
-                "execution_date",
-                "run_id",
-                "block",
-                "thinking",
-                "model",
-                "provider",
-                "round",
-                "global_round",
-                "tag",
-                "description",
-                "sci_node",
-                "sci_purpose",
-                "sci_assume",
-                "sci_expect",
-            ]
-        );
-        assert!(fm.contains("sci_node: N12"), "fm={fm}");
-        assert!(fm.contains("sci_expect: 比較表と 推奨"), "fm={fm}");
-        assert!(!fm.contains("sci_mode"), "fm={fm}");
-    }
-
-    #[test]
     fn test_build_task_body_prepends_reason_and_omits_papers() {
         let body = build_task_body("EEG の公開データを探す", &[], Some("引用が伸びている"));
         assert!(
@@ -776,58 +580,6 @@ mod tests {
         assert_eq!(year, Some("2024".to_string()));
     }
 
-    #[test]
-    fn test_build_frontmatter() {
-        let fm = build_frontmatter(
-            42,
-            "test_block",
-            5,
-            "tag1",
-            "pi",
-            "Test description",
-            &[],
-        )
-        .unwrap();
-        assert!(fm.contains("run_id: 42"));
-        assert!(fm.contains("runner: pi"));
-        assert!(fm.contains("creation_date:"));
-        assert!(fm.contains("block: test_block"));
-        assert!(fm.contains("global_round: 5"));
-        assert!(fm.contains("round: 1"));
-        assert!(fm.contains("tag: tag1"));
-        assert!(fm.contains("description: Test description"));
-    }
-
-    #[test]
-    fn test_task_md_structure() {
-        let fm = build_frontmatter(
-            42,
-            "test_block",
-            5,
-            "tag1",
-            "pi",
-            "My description",
-            &[],
-        )
-        .unwrap();
-        let body = String::from("# task_text\n\nTest body");
-        let task_md = format!("{}\n---\n\n{}\n", fm, body);
-
-        // frontmatter は `---` で始まり、`---` で終わる
-        assert!(task_md.starts_with("---\n"));
-
-        // ちょうど2つの `---` 行を含む
-        let dashes_count = task_md.lines().filter(|l| *l == "---").count();
-        assert_eq!(
-            dashes_count, 2,
-            "Expected exactly 2 '---' lines, found {}",
-            dashes_count
-        );
-
-        // description フィールドに説明文が含まれている
-        assert!(task_md.contains("description: My description"));
-    }
-
     /// テスト用に一意な一時ディレクトリを作る。
     fn temp_root(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -842,24 +594,15 @@ mod tests {
         dir
     }
 
-    /// 一時ルートに最小の sai-link DB とブロック定義を作る。
+    /// 一時ルートにブロック定義を作る（sai-link の DB は作らない）。
     fn setup_temp_project(root: &Path, block_id: &str) {
         fs::create_dir_all(root.join(".sai").join("blocks")).unwrap();
         fs::create_dir_all(root.join(".sai").join("paper")).unwrap();
-        fs::create_dir_all(root.join(".sai").join("sai-engine")).unwrap();
         fs::write(
             root.join(".sai")
                 .join("blocks")
                 .join(format!("{block_id}.md")),
             format!("---\nid: {block_id}\nname: Test\ndescription: test block\n---\n\n# task_text\n"),
-        )
-        .unwrap();
-        let conn = rusqlite::Connection::open(
-            root.join(".sai").join("sai-engine").join("sai-engine.db"),
-        )
-        .unwrap();
-        conn.execute_batch(
-            "CREATE TABLE block_metadata (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, display_name TEXT, description TEXT, model TEXT, thinking TEXT, tools TEXT, extensions TEXT, max_turns INTEGER, timeout INTEGER, worktree TEXT, enable INTEGER, file_path TEXT NOT NULL);\n             CREATE TABLE execution_history (id INTEGER PRIMARY KEY AUTOINCREMENT, block_id INTEGER, status TEXT, user_inputs_json TEXT, execution_mode TEXT);",
         )
         .unwrap();
     }
@@ -871,39 +614,78 @@ mod tests {
         }
     }
 
-    /// 論文が無くてもカードが作れ、`origin_run_id` と推薦の理由が書かれること。
+    fn request<'a>() -> HandoffRequest<'a> {
+        HandoffRequest {
+            block_id: "paper-search",
+            paper_ids: &[],
+            description: "EEG の公開データを探す",
+            tag: Some("推薦"),
+            runner: "pi",
+            origin_run: Some(5),
+            reason: Some("引用が伸びている"),
+        }
+    }
+
+    /// カードの項目を `sai-moon-link card create` に渡し、task.md もできること。
     #[test]
-    fn test_create_handoff_without_papers() {
+    fn test_create_handoff_passes_card_fields() {
         let root = temp_root("no-papers");
         setup_temp_project(&root, "paper-search");
         let roots = roots_for(&root);
         let db = Database::in_memory().unwrap();
 
-        let result = create_handoff_with(
+        let result = create_handoff_with_extra(
             &db,
             &roots,
-            &HandoffRequest {
-                block_id: "paper-search",
-                paper_ids: &[],
-                description: "EEG の公開データを探す",
-                tag: Some("推薦"),
-                runner: "pi",
-                origin_run: Some(5),
-                reason: Some("引用が伸びている"),
-            },
+            &request(),
+            &[
+                ("executer", "agent".to_string()),
+                ("sci_node", "Q1".to_string()),
+                ("sci_mode", String::new()),
+                ("sci_expect", "比較表と\n推奨".to_string()),
+            ],
         )
         .unwrap();
 
+        assert_eq!(result.run_id, 1);
+        let card = crate::fake_link::last_card(&root).expect("card create に JSON を渡した");
+        assert_eq!(card["block"], "paper-search");
+        assert_eq!(card["tag"], "推薦");
+        assert_eq!(card["runner"], "pi");
+        assert_eq!(card["round"], "1");
+        assert_eq!(card["global_round"], "1");
+        assert_eq!(card["executer"], "agent");
+        assert_eq!(card["description"], "EEG の公開データを探す");
+        assert_eq!(card["meta"]["sci_node"], "Q1");
+        assert_eq!(card["meta"]["sci_expect"], "比較表と 推奨");
+        assert!(card["meta"].get("sci_mode").is_none(), "card={card}");
+        let text = card["task_text"].as_str().unwrap();
+        assert!(text.contains("推薦の理由: 引用が伸びている"), "text={text}");
+        assert!(text.contains("EEG の公開データを探す"), "text={text}");
+        assert!(!text.contains("# task_text"), "text={text}");
+        assert!(!text.contains("## 対象論文"), "text={text}");
+
         let content = fs::read_to_string(&result.path).unwrap();
-        assert!(!content.contains("origin_run_id"), "content={content}");
-        assert!(content.contains("tag: 推薦"), "content={content}");
-        assert!(content.contains("推薦の理由: 引用が伸びている"), "content={content}");
-        assert!(content.contains("# task_text"));
-        assert!(content.contains("EEG の公開データを探す"));
-        assert!(!content.contains("## 対象論文"), "content={content}");
-        assert!(!content.contains("inputs:"), "content={content}");
-        assert!(!content.contains("timeout:"), "content={content}");
-        assert!(!content.contains("max_turns:"), "content={content}");
+        assert!(content.contains("# task_text"), "content={content}");
+        assert!(content.contains("executer: agent"), "content={content}");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 子が終了コード 3 で失敗したとき、その番号がエラーに残ること。
+    #[test]
+    fn link_failure_keeps_exit_code() {
+        let root = temp_root("fail");
+        setup_temp_project(&root, "paper-search");
+        let roots = roots_for(&root);
+        let db = Database::in_memory().unwrap();
+        crate::fake_link::fail_card_create(&root, 3);
+
+        let error = create_handoff_with(&db, &roots, &request()).unwrap_err();
+        match error {
+            HandoffError::Link(bin) => assert_eq!(bin.code, 3),
+            other => panic!("Link でない: {other:?}"),
+        }
 
         fs::remove_dir_all(root).unwrap();
     }

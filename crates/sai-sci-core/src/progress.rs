@@ -378,17 +378,17 @@ fn detail_path(detail: &str) -> Option<String> {
 /// 記録用の相対パス（`.sai/outputs/<owner>/<run_id>/<file>`）から
 /// `(run_id, file_name)` を取り出す。形が違えば `None`。
 fn run_file_key(path: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = path.split('/').collect();
-    let outputs = parts.iter().position(|part| *part == "outputs")?;
-    let run_id = parts.get(outputs + 2)?;
+    let rest = path.split(".sai/outputs/").nth(1)?;
+    let parts: Vec<&str> = rest.split('/').collect();
+    let run_id = parts.get(1)?;
     if run_id.parse::<i64>().is_err() {
         return None;
     }
-    let file = parts.last()?;
+    let file = *parts.last()?;
     if file.is_empty() {
         return None;
     }
-    Some(((*run_id).to_string(), (*file).to_string()))
+    Some(((*run_id).to_string(), file.to_string()))
 }
 
 /// 「読むべき論文」を点数で並べて上位 `limit` 本を返す。

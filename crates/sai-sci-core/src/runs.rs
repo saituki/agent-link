@@ -1,17 +1,18 @@
-//! sai-link の実行フォルダ（`<root>/.sai/outputs/<owner>/<run_id>/`）を読む。
+//! sai-link の実行フォルダ（`run list --json` の `dir`）を読む。
 //!
-//! 実行フォルダは実行が進むと `todo/` → `running/` → `review/` → `done/` と
-//! フォルダごと移る。`run_id` は変わらないので、同じ番号が 2 か所にあるときは
-//! 更新時刻の新しい方を採用する。
+//! 実行フォルダの一覧は sai-moon-link の CLI（`run list --json --limit 0`）から取り、
+//! ここではその `dir` だけを使う。`run_id` は変わらないので、同じ番号が 2 か所に
+//! あるときは新しい方を採用する。
 //!
 //! ここは「実行とは何か」だけを知る層で、brief（状況まとめ）や出典の自動登録が
-//! 共通で使う。ブロック定義の frontmatter と sai-link の DB の読み取りだけを行い、
-//! どちらも書き換えない。
+//! 共通で使う。ブロック定義の frontmatter は読むが、sai-link の DB と実行フォルダの
+//! 並びは直に開かない。
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::sync::OnceLock;
+
+use crate::link;
 
 /// 1 つの実行フォルダ。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,62 +25,49 @@ pub struct RunDir {
     pub path: PathBuf,
 }
 
-/// `<root>/.sai/outputs/*/*/` のうち、フォルダ名が数字のものを新しい順で返す。
+/// `<root>` の run を新しい順で返す。
 ///
-/// 同じ `run_id` が 2 か所にあれば、フォルダの更新時刻が新しい方を採用する。
-/// `.sai/outputs/` が無い・読めないときは空を返す（エラーにはしない）。
+/// `sai-moon-link run list --json` の `dir` がある物だけを [`RunDir`] にする。
+/// 同じ `run_id` が 2 つあれば `run_id` の大きい方を先にする（新しい実行が先）。
+///
+/// sai-link の一覧を読めないときは空を返し、標準エラーに理由を 1 回だけ出す
+/// （今までも `.sai/outputs` が無ければ空を返し、エラーにしなかった）。
 #[must_use]
 pub fn list_run_dirs(root: &Path) -> Vec<RunDir> {
-    let outputs = root.join(".sai").join("outputs");
-    let mut by_id: HashMap<i64, (SystemTime, RunDir)> = HashMap::new();
-
-    let Ok(owners) = fs::read_dir(&outputs) else {
-        return Vec::new();
-    };
-    for owner in owners.flatten() {
-        let owner_name = owner.file_name().to_string_lossy().to_string();
-        let Ok(runs) = fs::read_dir(owner.path()) else {
-            continue;
-        };
-        for run in runs.flatten() {
-            let name = run.file_name().to_string_lossy().to_string();
-            let Ok(run_id) = name.parse::<i64>() else {
-                continue;
-            };
-            let path = run.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let modified = modified_at(&path);
-            let entry = RunDir {
-                run_id,
-                owner: owner_name.clone(),
-                path,
-            };
-            match by_id.get(&run_id) {
-                Some((known, _)) if *known >= modified => {}
-                _ => {
-                    by_id.insert(run_id, (modified, entry));
-                }
-            }
+    match link::runs(root) {
+        Ok(runs) => {
+            let mut out: Vec<RunDir> = runs
+                .into_iter()
+                .filter_map(|run| {
+                    let path = run.dir?;
+                    Some(RunDir {
+                        run_id: run.run_id,
+                        owner: run.lane,
+                        path,
+                    })
+                })
+                .collect();
+            out.sort_by(|a, b| b.run_id.cmp(&a.run_id));
+            out
+        }
+        Err(error) => {
+            // 1 回だけ出す（status・brief などが何度も呼ぶため）。
+            static WARNED: OnceLock<()> = OnceLock::new();
+            WARNED.get_or_init(|| {
+                eprintln!("sai-link の run の一覧を読めませんでした: {error}");
+            });
+            Vec::new()
         }
     }
-
-    let mut runs: Vec<RunDir> = by_id.into_values().map(|(_, run)| run).collect();
-    // 新しい実行が先。同じフォルダ内で決定的にするため run_id の降順。
-    runs.sort_by(|a, b| b.run_id.cmp(&a.run_id));
-    runs
 }
 
 /// その実行のブロック ID を返す。
 ///
 /// ① 実行フォルダの `task.md` の frontmatter の `block:`
-/// ② 無ければ sai-link の DB（`<root>/.sai/sai-engine/sai-engine.db`）を
-///    **読み取り専用** で開き `execution_history` から引く
+/// ② 無ければ `sai-moon-link run list --json` の同じ `run_id` の `block`
 /// ③ どちらも無ければ `None`
 ///
 /// 子タスクの実行フォルダには `task.md` が無いことがあるため ② が要る。
-/// DB が無い・開けない・表が無いときも `None`（エラーにしない）。
 #[must_use]
 pub fn run_block_id(root: &Path, run: &RunDir) -> Option<String> {
     if let Ok(text) = fs::read_to_string(run.path.join("task.md")) {
@@ -91,14 +79,13 @@ pub fn run_block_id(root: &Path, run: &RunDir) -> Option<String> {
             return Some(value);
         }
     }
-    block_id_from_db(root, run.run_id)
+    field_from_link(root, run.run_id, "block")
 }
 
 /// その実行のタグ（仮説の名前など）を返す。
 ///
 /// ① 実行フォルダの `task.md` の frontmatter の `tag:`
-/// ② 無ければ sai-link の DB（`<root>/.sai/sai-engine/sai-engine.db`）を
-///    **読み取り専用** で開き `execution_history.tag` から引く
+/// ② 無ければ `sai-moon-link run list --json` の同じ `run_id` の `tag`
 /// ③ どちらも無い・空なら `None`
 ///
 /// 子タスクの実行フォルダには `task.md` が無いことがあるため ② が要る。
@@ -113,44 +100,19 @@ pub fn run_tag(root: &Path, run: &RunDir) -> Option<String> {
             return Some(value);
         }
     }
-    tag_from_db(root, run.run_id)
+    field_from_link(root, run.run_id, "tag")
 }
 
-/// sai-link の DB から実行のブロック ID を引く（[`run_block_id`] の ②）。
-fn block_id_from_db(root: &Path, run_id: i64) -> Option<String> {
-    let db_path = root.join(".sai").join("sai-engine").join("sai-engine.db");
-    if !db_path.exists() {
-        return None;
-    }
-    let conn =
-        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .ok()?;
-    conn.query_row(
-        "SELECT b.name FROM execution_history e \
-         JOIN block_metadata b ON b.id = e.block_id WHERE e.id = ?1",
-        [run_id],
-        |row| row.get::<_, String>(0),
-    )
-    .ok()
-}
-
-/// sai-link の DB から実行のタグを引く（[`run_tag`] の ②）。
-///
-/// `tag` の列が無い・値が NULL・空のときは `None`。
-fn tag_from_db(root: &Path, run_id: i64) -> Option<String> {
-    let db_path = root.join(".sai").join("sai-engine").join("sai-engine.db");
-    if !db_path.exists() {
-        return None;
-    }
-    let conn =
-        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .ok()?;
-    conn.query_row("SELECT tag FROM execution_history WHERE id = ?1", [run_id], |row| {
-        row.get::<_, Option<String>>(0)
-    })
-    .ok()
-    .flatten()
-    .filter(|value| !value.is_empty())
+/// `run list --json` の同じ `run_id` の項目を返す（空なら `None`）。
+fn field_from_link(root: &Path, run_id: i64, field: &str) -> Option<String> {
+    let runs = link::runs(root).ok()?;
+    let run = runs.into_iter().find(|run| run.run_id == run_id)?;
+    let value = match field {
+        "block" => run.block,
+        "tag" => run.tag,
+        _ => String::new(),
+    };
+    (!value.is_empty()).then_some(value)
 }
 
 /// 研究用と見てよい `templates` の値（C-15）。
@@ -255,13 +217,6 @@ fn normalize_value(raw: &str) -> String {
         .to_string()
 }
 
-/// フォルダの更新時刻（取れなければ UNIX エポック）。
-fn modified_at(path: &Path) -> SystemTime {
-    fs::metadata(path)
-        .and_then(|meta| meta.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,16 +277,19 @@ mod tests {
     }
 
     #[test]
-    fn list_run_dirs_keeps_newest_of_same_run() {
+    fn list_run_dirs_uses_link_runs_and_sorts() {
         let root = temp_root("run-dirs");
-        write(
-            root.join(".sai/outputs/todo/7/task.md"),
-            "---\nblock: main\n---\n",
+        let dir8 = root.join(".sai/outputs/review/8");
+        let dir7 = root.join(".sai/outputs/running/7");
+        fs::create_dir_all(&dir8).unwrap();
+        fs::create_dir_all(&dir7).unwrap();
+        crate::fake_link::write_runs(
+            &root,
+            &[
+                crate::fake_link::run_value(7, "running", &dir7, "main", "", "completed"),
+                crate::fake_link::run_value(8, "review", &dir8, "", "", "completed"),
+            ],
         );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        write(root.join(".sai/outputs/running/7/answer.md"), "本体\n");
-        write(root.join(".sai/outputs/review/8/task.md"), "---\n---\n");
-        write(root.join(".sai/outputs/not-a-run/x/task.md"), "---\n---\n");
 
         let runs = list_run_dirs(&root);
 
@@ -350,8 +308,6 @@ mod tests {
             dir.join("task.md"),
             "---\nrun_id: 11\nblock: paper-search\n---\n",
         );
-        // DB には別の名前を入れておき、task.md が優先されることを見る
-        make_link_db(&root, &[(11, "main")]);
 
         let run = RunDir {
             run_id: 11,
@@ -362,11 +318,21 @@ mod tests {
     }
 
     #[test]
-    fn run_block_id_falls_back_to_db() {
-        let root = temp_root("block-db");
+    fn run_block_id_falls_back_to_link() {
+        let root = temp_root("block-link");
         let dir = root.join(".sai/outputs/R9/12");
         fs::create_dir_all(&dir).unwrap();
-        make_link_db(&root, &[(12, "paper-library-qa")]);
+        crate::fake_link::write_runs(
+            &root,
+            &[crate::fake_link::run_value(
+                12,
+                "R9",
+                &dir,
+                "paper-library-qa",
+                "",
+                "completed",
+            )],
+        );
 
         let run = RunDir {
             run_id: 12,
@@ -380,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn run_block_id_without_db_is_none() {
+    fn run_block_id_without_link_is_none() {
         let root = temp_root("block-none");
         let dir = root.join(".sai/outputs/R9/13");
         fs::create_dir_all(&dir).unwrap();
@@ -401,9 +367,6 @@ mod tests {
             dir.join("task.md"),
             "---\nrun_id: 21\nblock: paper-search\ntag: 仮説B\n---\n",
         );
-        // DB には別のタグを入れておき、task.md が優先されることを見る
-        make_link_db(&root, &[(21, "paper-search")]);
-        set_link_db_tag(&root, 21, "仮説Z");
 
         let run = RunDir {
             run_id: 21,
@@ -414,12 +377,21 @@ mod tests {
     }
 
     #[test]
-    fn run_tag_falls_back_to_db() {
-        let root = temp_root("tag-db");
+    fn run_tag_falls_back_to_link() {
+        let root = temp_root("tag-link");
         let dir = root.join(".sai/outputs/R9/22");
         fs::create_dir_all(&dir).unwrap();
-        make_link_db(&root, &[(22, "paper-library-qa")]);
-        set_link_db_tag(&root, 22, "仮説C");
+        crate::fake_link::write_runs(
+            &root,
+            &[crate::fake_link::run_value(
+                22,
+                "R9",
+                &dir,
+                "paper-library-qa",
+                "仮説C",
+                "completed",
+            )],
+        );
 
         let run = RunDir {
             run_id: 22,
@@ -445,7 +417,7 @@ mod tests {
         };
         assert_eq!(run_tag(&root, &run), None);
 
-        // task.md も DB も無い
+        // task.md も sai-link の一覧も無い
         let dir = root.join(".sai/outputs/R9/24");
         fs::create_dir_all(&dir).unwrap();
         let run = RunDir {
@@ -493,39 +465,5 @@ mod tests {
 
         assert!(is_research_block(&root, "sci-compare"));
         assert!(is_research_block(&root, "sci-search"));
-    }
-
-    /// sai-link の DB の最小の表（`execution_history` と `block_metadata`）を作る。
-    fn make_link_db(root: &Path, runs: &[(i64, &str)]) {
-        let path = root.join(".sai/sai-engine/sai-engine.db");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE block_metadata(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-             CREATE TABLE execution_history(id INTEGER PRIMARY KEY, block_id INTEGER NOT NULL, tag TEXT);",
-        )
-        .unwrap();
-        for (run_id, name) in runs {
-            conn.execute(
-                "INSERT INTO block_metadata (id, name) VALUES (?1, ?2)",
-                rusqlite::params![run_id, name],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO execution_history (id, block_id) VALUES (?1, ?1)",
-                rusqlite::params![run_id],
-            )
-            .unwrap();
-        }
-    }
-
-    /// テスト用の DB の実行にタグを入れる（[`make_link_db`] の後で呼ぶ）。
-    fn set_link_db_tag(root: &Path, run_id: i64, tag: &str) {
-        let conn = rusqlite::Connection::open(root.join(".sai/sai-engine/sai-engine.db")).unwrap();
-        conn.execute(
-            "UPDATE execution_history SET tag = ?2 WHERE id = ?1",
-            rusqlite::params![run_id, tag],
-        )
-        .unwrap();
     }
 }

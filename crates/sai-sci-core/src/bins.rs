@@ -38,9 +38,37 @@ fn resolve(env_name: &str, bin_name: &str) -> PathBuf {
     PathBuf::from(bin_name)
 }
 
+// 試験のときだけ使う、偽の sai-link への差し替え（スレッドごと）。
+#[cfg(test)]
+thread_local! {
+    static LINK_OVERRIDE: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// そのスレッドの間だけ、偽の sai-link を使う（試験用）。
+#[cfg(test)]
+pub(crate) fn with_link_bin<T>(path: PathBuf, f: impl FnOnce() -> T) -> T {
+    let previous = LINK_OVERRIDE.with(|cell| cell.borrow_mut().replace(path));
+    let out = f();
+    LINK_OVERRIDE.with(|cell| {
+        *cell.borrow_mut() = previous;
+    });
+    out
+}
+
 /// sai-link の実行ファイル（`SAI_LINK_BIN` → 自分の隣 → PATH）。
+///
+/// 試験のときは、偽の sai-link（[`crate::fake_link`]）を返す。
 #[must_use]
 pub fn link_bin() -> PathBuf {
+    #[cfg(test)]
+    {
+        if let Some(path) = LINK_OVERRIDE.with(|cell| cell.borrow().clone()) {
+            return path;
+        }
+        return crate::fake_link::script();
+    }
+    #[cfg(not(test))]
     resolve("SAI_LINK_BIN", LINK_BIN_NAME)
 }
 

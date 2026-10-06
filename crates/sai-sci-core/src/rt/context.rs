@@ -652,6 +652,7 @@ mod tests {
             other => panic!("{other:?}"),
         }
         task(&e, 2, "sci_node: Q999\nsci_purpose: p\n");
+        crate::link::forget(&e.dir);
         let r = build(e.db.connection(), &e.roots, &e.defs, 1000, 2, None);
         assert!(matches!(r, Err(RtError::NotFound(m)) if m == "Q999 はありません"));
         let _ = fs::remove_dir_all(&e.dir);

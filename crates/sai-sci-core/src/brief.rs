@@ -953,7 +953,17 @@ mod tests {
         write_block(&root, "paper-library-qa", "project-brief");
         let dir = root.join(".sai/outputs/R9/45");
         write(dir.join("answer.md"), HANDOFF);
-        make_link_db(&root, &[(45, "paper-library-qa")]);
+        crate::fake_link::write_runs(
+            &root,
+            &[crate::fake_link::run_value(
+                45,
+                "R9",
+                &dir,
+                "paper-library-qa",
+                "",
+                "completed",
+            )],
+        );
 
         let handoffs = recent_handoffs(&root, 10);
 
@@ -1347,6 +1357,7 @@ mod tests {
         // 未登録の run 42 の見出しには件数を添えない。
         write_run(&root, "review", 42, "paper-search");
         write(root.join(".sai/outputs/review/42/answer.md"), HANDOFF);
+        crate::link::forget(&root);
         let text = build_brief(&roots_of(&root), Some(&conn), &config(8000), "default");
         let line42 = text
             .lines()
@@ -1405,8 +1416,17 @@ mod tests {
         // task.md が無い実行。タグは DB から引く。
         let dir = root.join(".sai/outputs/R9/45");
         write(dir.join("answer.md"), HANDOFF);
-        make_link_db(&root, &[(45, "paper-library-qa")]);
-        set_link_db_tag(&root, 45, "仮説C");
+        crate::fake_link::write_runs(
+            &root,
+            &[crate::fake_link::run_value(
+                45,
+                "R9",
+                &dir,
+                "paper-library-qa",
+                "仮説C",
+                "completed",
+            )],
+        );
 
         let text = build_brief(&roots_of(&root), None, &config(8000), "default");
         let line45 = text
@@ -1419,37 +1439,4 @@ mod tests {
         );
     }
 
-    /// sai-link の DB の最小の表を作る（`task.md` が無い実行のため）。
-    fn make_link_db(root: &Path, runs: &[(i64, &str)]) {
-        let path = root.join(".sai/sai-engine/sai-engine.db");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE block_metadata(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-             CREATE TABLE execution_history(id INTEGER PRIMARY KEY, block_id INTEGER NOT NULL, tag TEXT);",
-        )
-        .unwrap();
-        for (run_id, name) in runs {
-            conn.execute(
-                "INSERT INTO block_metadata (id, name) VALUES (?1, ?2)",
-                rusqlite::params![run_id, name],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO execution_history (id, block_id) VALUES (?1, ?1)",
-                rusqlite::params![run_id],
-            )
-            .unwrap();
-        }
-    }
-
-    /// テスト用の DB の実行にタグを入れる（[`make_link_db`] の後で呼ぶ）。
-    fn set_link_db_tag(root: &Path, run_id: i64, tag: &str) {
-        let conn = rusqlite::Connection::open(root.join(".sai/sai-engine/sai-engine.db")).unwrap();
-        conn.execute(
-            "UPDATE execution_history SET tag = ?2 WHERE id = ?1",
-            rusqlite::params![run_id, tag],
-        )
-        .unwrap();
-    }
 }
