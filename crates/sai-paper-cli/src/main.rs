@@ -15,6 +15,7 @@ use std::path::PathBuf;
 mod activity;
 mod agent_assets;
 mod attention;
+mod cli_error;
 mod content;
 mod dsr;
 mod expand;
@@ -30,6 +31,7 @@ mod phone_sci;
 mod progress;
 mod relayout;
 mod report;
+mod schema;
 mod sci;
 mod search_sets;
 mod understanding;
@@ -81,101 +83,20 @@ enum Cmd {
         /// 範囲を広げた理由
         #[arg(long)]
         widen: Option<String>,
-        /// Output as JSON.
+        /// JSON 出力（`{"log","items","failed"}`）
         #[arg(long)]
         json: bool,
     },
-    /// Ensure PDF downloaded (S2 open access / arXiv)
-    #[command(name = "get-pdf")]
-    GetPdf { ids: Vec<String> },
-    /// Docling extract + ref parse + S2 match (saves to papr.db)
-    Extract { paper_id: String },
-    /// Build S2 citation graph cache (references / citations)
-    Graph {
-        paper_id: String,
-        #[arg(long, default_value_t = 2)]
-        depth: u8,
-        /// references / citations / both
-        #[arg(long, default_value = "both")]
-        direction: String,
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// Restrict traversal to papers in local database
-        #[arg(long)]
-        library_only: bool,
-    },
-    /// Show cached citation graph
-    #[command(name = "graph-show")]
-    GraphShow { paper_id: String },
-    /// 論文の引用の前後を 1 段たどり、Library に無いものを検索セットに入れる（ネットを使う）
-    Expand {
-        /// 論文 ID（`papers.id`。複数指定可）
-        papers: Vec<i64>,
-        /// たどる向き（both / refs / cited）
-        #[arg(long, default_value = "both")]
-        direction: String,
-        /// 向きごとに取る最大件数
-        #[arg(long, default_value_t = 20)]
-        limit: usize,
-        /// 入れる検索セット名（無ければ作る、あれば足す）
-        #[arg(long)]
-        save_as: String,
-        /// JSON 出力
+    /// 検索履歴 1 件とヒット一覧（JSON）
+    #[command(name = "search-log")]
+    SearchLog {
+        /// 検索ログ ID（search_logs.id）
+        log_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
         #[arg(long)]
         json: bool,
     },
-    /// DB status
-    Status,
-    /// 研究プロジェクトを初期化する（`.sai/` と `.sai/paper/`）
-    Init {
-        /// プロジェクト名（登録簿 `~/.sai-moon/registry.json` に載せる名前。省略時はフォルダ名）
-        #[arg(long)]
-        name: Option<String>,
-        /// プロジェクトルート（既定: `SAI_PAPER_ROOT` または cwd）
-        #[arg(long)]
-        root: Option<PathBuf>,
-        /// 既にある研究プロジェクトに、足りないブロック・テンプレート・設定だけを配る（DB と既存のファイルは触らない）
-        #[arg(long)]
-        assets_only: bool,
-        /// DSR が使う分野の観点
-        #[arg(long, default_value = "general", value_parser = ["medical", "signal-ml", "general"])]
-        domain: String,
-        /// 研究方針の木（sai-sci）を使う（`--type` と一緒に使う）
-        #[arg(long)]
-        sci: bool,
-        /// RESEARCH_TYPE（`--sci` と一緒に使う）
-        #[arg(long = "type", value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
-        sci_type: Option<String>,
-    },
-    /// エージェントに渡すプロジェクトの状況のまとめを作る
-    Brief {
-        /// `.sai/template/project-brief.md` に書く（既定は標準出力）
-        #[arg(long)]
-        write: bool,
-    },
-    /// 検索セット管理
-    Set {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: search_sets::SearchSetCmd,
-    },
-    /// 論文をエージェントに引き渡す (task.md 発行)
-    #[command(args_conflicts_with_subcommands = true)]
-    Handoff {
-        /// サブコマンド（無ければ今までどおりカードを作る）
-        #[command(subcommand)]
-        cmd: Option<handoff::HandoffCmd>,
-        /// カードを作る引数（サブコマンドなしで使う）
-        #[command(flatten)]
-        args: Box<handoff::HandoffCreateArgs>,
-    },
-    /// RAG インデックス管理（チャンク化・全文索引）
-    Index {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: index::IndexCmd,
-    },
-    /// ベクトル/全文/ハイブリッド検索
+    /// Library の中を検索し、内部検索の履歴に残す
     Find {
         /// 検索クエリ（自然言語）
         query: String,
@@ -188,12 +109,15 @@ enum Cmd {
         /// 1 本の論文から出す最大の件数（0 で制限なし、既定は config の rag.per_paper）
         #[arg(long)]
         per_paper: Option<i64>,
-        /// インデックス対象（papers/notes/all）
+        /// インデックス対象（papers/notes/figures/all）
         #[arg(long)]
         scope: Option<String>,
-        /// 論文 ID（指定時はその論文に絞り込む）
+        /// 論文 ID（繰り返し指定可）
         #[arg(long)]
-        paper: Option<i64>,
+        paper: Vec<i64>,
+        /// 論文の集合で絞る（カンマ区切り。`--paper` と同じ扱い）
+        #[arg(long, value_delimiter = ',')]
+        papers: Vec<i64>,
         /// 索引の名前（既定: rag.default_index。埋め込みモデルも索引で決まる）
         #[arg(long)]
         index: Option<String>,
@@ -209,9 +133,6 @@ enum Cmd {
         /// 上位の結果に LLM の要約と関連度を付ける（費用がかかる。必要なときだけ）
         #[arg(long)]
         evidence: bool,
-        /// 論文の集合で絞る（カンマ区切り。`--paper` と同じ扱い）
-        #[arg(long, value_delimiter = ',')]
-        papers: Vec<i64>,
         /// 研究方針の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
         #[arg(long)]
         node: Option<String>,
@@ -224,7 +145,16 @@ enum Cmd {
         /// 範囲を広げた理由
         #[arg(long)]
         widen: Option<String>,
-        /// JSON 出力
+        /// JSON 出力（`{"log","hits"}`）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 内部検索の履歴 1 件とヒット一覧（JSON）
+    #[command(name = "find-log")]
+    FindLog {
+        /// 内部検索の履歴 ID（find_logs.id）
+        log_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
         #[arg(long)]
         json: bool,
     },
@@ -242,36 +172,22 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// 既存データを新しい置き場の規則へ移す（`papers/{id:04}_短いタイトル/` に集める）。
-    /// 既定は dry-run（予定の表示だけ）。`--apply` の前に `papr.db` のバックアップを作る。
-    #[command(name = "relayout")]
-    Relayout {
-        /// 実際に動かす（既定は予定の表示だけ）
+    /// 論文の引用の前後を 1 段たどり、Library に無いものを検索セットに入れる（ネットを使う）
+    Expand {
+        /// 論文 ID（`papers.id`。複数指定可）
+        papers: Vec<i64>,
+        /// たどる向き（both / refs / cited）
+        #[arg(long, default_value = "both")]
+        direction: String,
+        /// 向きごとに取る最大件数
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// 入れる検索セット名（無ければ作る、あれば足す）
         #[arg(long)]
-        apply: bool,
-        /// 機械可読出力（JSON）
+        save_as: String,
+        /// JSON 出力
         #[arg(long)]
         json: bool,
-    },
-    /// PDF を日本語に訳す（TUI の `T` キーと同じ。数分かかる）
-    #[command(name = "translate-pdf")]
-    TranslatePdf {
-        /// 論文 ID（papers.id）
-        paper_id: i64,
-    },
-    /// MCP サーバー（標準入出力）。cc / pi から find・neighbors・index_status・paper・search_sets を使う
-    Mcp,
-    /// 設定（`.sai/paper/settings.json`）を確かめる
-    Config {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: ConfigCmd,
-    },
-    /// agent の report の登録・参照
-    Report {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: report::ReportCmd,
     },
     /// 論文のメタデータをまとめて確かめる（ネットを使う）
     Enrich {
@@ -281,6 +197,106 @@ enum Cmd {
         /// 確かめ済みでももう一度問い合わせる
         #[arg(long)]
         force: bool,
+    },
+
+    /// Library の論文の一覧・階層（JSON）
+    Library {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: LibraryCmd,
+    },
+    /// 論文 1 件への操作（表示・訳・音声・引用・PDF）
+    Paper {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: PaperCmd,
+    },
+    /// BibTeX の取り込み（sai-phone の Import 画面用）
+    Import {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: phone_import::PhoneImportCmd,
+    },
+    /// 検索セット管理
+    Set {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: search_sets::SearchSetCmd,
+    },
+    /// RAG インデックス管理（チャンク化・全文索引）
+    Index {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: index::IndexCmd,
+    },
+    /// 引用グラフのキャッシュを作る（`build`）／表示する（`show`）。
+    ///
+    /// 下位の命令が無いときは古い形（`graph <paper_id> …`）として受ける。
+    #[command(args_conflicts_with_subcommands = true)]
+    Graph {
+        /// サブコマンド（無ければ古い形の引数を使う）
+        #[command(subcommand)]
+        cmd: Option<GraphCmd>,
+        /// 古い形の引数（サブコマンドなしで使う）
+        #[command(flatten)]
+        args: Box<GraphLegacyArgs>,
+    },
+
+    /// Dashboard（TUI と同じ数字カード＋ Radio の出来事を混ぜた RECENT ACTIVITY）
+    Dashboard {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 検索に使う DB 一覧（既定の DB と、使える全 DB）
+    Providers {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// DB status
+    Status {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 研究プロジェクトを初期化する（`.sai/paper/` と `papr.db`）
+    Init {
+        /// （古い・使わない）プロジェクト名
+        #[arg(long, hide = true)]
+        name: Option<String>,
+        /// （古い・使わない）足りない部品だけを配る（今は付けない時と同じ）
+        #[arg(long, hide = true)]
+        assets_only: bool,
+        /// DSR が使う分野の観点
+        #[arg(long, default_value = "general", value_parser = ["medical", "signal-ml", "general"])]
+        domain: String,
+        /// 部品を新しい版へ更新する（古い物は退避する）
+        #[arg(long)]
+        update: bool,
+        /// 研究方針の木（sai-sci）を使う（`--type` と一緒に使う）
+        #[arg(long)]
+        sci: bool,
+        /// RESEARCH_TYPE（`--sci` と一緒に使う）
+        #[arg(long = "type", value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
+        sci_type: Option<String>,
+    },
+    /// エージェントに渡すプロジェクトの状況のまとめを作る
+    Brief {
+        /// `.sai/template/project-brief.md` に書く（既定は標準出力）
+        #[arg(long)]
+        write: bool,
+    },
+    /// 論文をエージェントに引き渡す (task.md 発行)
+    #[command(args_conflicts_with_subcommands = true)]
+    Handoff {
+        /// サブコマンド（無ければ今までどおりカードを作る）
+        #[command(subcommand)]
+        cmd: Option<handoff::HandoffCmd>,
+        /// カードを作る引数（サブコマンドなしで使う）
+        #[command(flatten)]
+        args: Box<handoff::HandoffCreateArgs>,
     },
     /// 論文本文 / 引用箇所 / report の内容を出力する（sai-link の入力展開用）
     Content {
@@ -333,7 +349,48 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// 図表（Figure / Table）を抽出して figures/ と DB に保存する
+    /// 設定（`.sai/paper/settings.json`）を確かめる
+    Config {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: ConfigCmd,
+    },
+    /// agent の report の登録・参照
+    Report {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: report::ReportCmd,
+    },
+    /// 研究方針の木（sai-sci）
+    Sci {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: sci::SciCmd,
+    },
+    /// 命令の一覧を JSON で出す
+    Schema {
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// sai-phone（iPhone 窓口）向けの JSON 出力（古い別名。隠している）
+    #[command(hide = true)]
+    Phone {
+        #[command(subcommand)]
+        cmd: phone::PhoneCmd,
+    },
+    /// 論文の PDF を取得して置く（古い別名。隠している）
+    #[command(name = "get-pdf", hide = true)]
+    GetPdf { ids: Vec<String> },
+    /// Docling extract + ref parse + S2 match（古い別名。隠している）
+    #[command(hide = true)]
+    Extract { paper_id: String },
+    /// PDF を日本語に訳す（古い別名。隠している）
+    #[command(name = "translate-pdf", hide = true)]
+    TranslatePdf { paper_id: i64 },
+    /// 図表（Figure / Table）を抽出する（古い別名。隠している）
+    #[command(hide = true)]
     Figures {
         /// 対象論文 ID（複数指定可）
         paper_ids: Vec<i64>,
@@ -344,23 +401,232 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// sai-phone（iPhone 窓口）向けの JSON 出力
-    Phone {
-        #[command(subcommand)]
-        cmd: phone::PhoneCmd,
+    /// キャッシュした引用グラフを表示する（古い別名。隠している）
+    #[command(name = "graph-show", hide = true)]
+    GraphShow { paper_id: String },
+    /// 既存データを新しい置き場の規則へ移す（古い別名。隠している）
+    #[command(name = "relayout", hide = true)]
+    Relayout {
+        /// 実際に動かす（既定は予定の表示だけ）
+        #[arg(long)]
+        apply: bool,
+        /// 機械可読出力（JSON）
+        #[arg(long)]
+        json: bool,
     },
-    /// 研究方針の木（sai-sci）
-    Sci {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: sci::SciCmd,
-    },
-    /// Library の検索（RAG）の精度を測る
+    /// Library の検索（RAG）の精度を測る（古い別名。隠している）
+    #[command(hide = true)]
     Eval {
         /// サブコマンド
         #[command(subcommand)]
         cmd: EvalCmd,
     },
+    /// MCP サーバー（標準入出力）（古い別名。隠している）
+    #[command(hide = true)]
+    Mcp,
+}
+
+/// `sai-moon-paper library` のサブコマンド。
+#[derive(Subcommand, Debug)]
+enum LibraryCmd {
+    /// Library の論文一覧（DB 登録日の新しい順、JSON）
+    List {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// Library の階層表示（検索ログごと → 日付ごとの Import、JSON）
+    Tree {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// `sai-moon-paper paper` のサブコマンド。
+#[derive(Subcommand, Debug)]
+enum PaperCmd {
+    /// 論文 1 件の詳細（JSON）
+    Show {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// ノート（note.md）を標準入力の中身で保存する（JSON）
+    Note {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 要旨を日本語に訳して保存する（JSON）
+    Translate {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// 訳済みでももう一度訳す
+        #[arg(long)]
+        force: bool,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// PDF を日本語に訳す（数分かかる）
+    #[command(name = "translate-pdf")]
+    TranslatePdf {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（`{"id","pdf_ja_path","status"}`）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 音声化する（数分かかる。JSON）
+    Radio {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 図表（Figure / Table）を抽出して figures/ と DB に保存する（文）
+    Figures {
+        /// 対象論文 ID（複数指定可）
+        paper_ids: Vec<i64>,
+        /// ライブラリ内の全論文を対象にする
+        #[arg(long)]
+        all: bool,
+        /// 既に抽出済みでも再実行する
+        #[arg(long)]
+        force: bool,
+    },
+    /// 引用一覧（読み取りだけ。抜き出す前の論文にも空の形で返る。JSON）
+    Citations {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 引用を PDF から抜き出す（docling を使うので数十秒。JSON）
+    #[command(name = "citations-extract")]
+    CitationsExtract {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 論文の PDF を取得して Library に登録する（JSON）
+    #[command(group(
+        clap::ArgGroup::new("target").required(true).multiple(false).args(["log", "import_id", "cite"]),
+    ))]
+    Download {
+        /// 検索履歴 ID（`--position` とセットで指定）
+        #[arg(long, requires = "position")]
+        log: Option<i64>,
+        /// 検索履歴の中での位置（0 始まり。`--log` とセットで指定）
+        #[arg(long, requires = "log")]
+        position: Option<i64>,
+        /// BibTeX からの `RemotePaper.id`（例: `ArXiv:1706.03762`）
+        #[arg(long = "import-id")]
+        import_id: Option<String>,
+        /// 引用を持つ論文 ID（`--ref` とセットで指定）
+        #[arg(long)]
+        cite: Option<i64>,
+        /// 引用の番号（`--cite` とセットで指定）
+        #[arg(long = "ref", requires = "cite")]
+        ref_no: Option<i64>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// Download の後の自動処理（図の抽出 → PDF の翻訳。JSON。標準エラーに sai-progress）
+    #[command(name = "after-download")]
+    AfterDownload {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// ダウンロードフォルダの最近の PDF 一覧（手動取り込みの候補。JSON）
+    Candidates {
+        /// 何分前まで候補に出すか（既定 5 分）
+        #[arg(long, default_value_t = 5)]
+        minutes: u64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 手動で保存した PDF（またはアップロード）を Library に入れる（JSON）
+    #[command(name = "import-pdf")]
+    ImportPdf {
+        #[command(flatten)]
+        args: Box<crate::phone_cite::ManualImportArgs>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// PDF を取得して論文フォルダへ置く（文）
+    #[command(name = "get-pdf")]
+    GetPdf { ids: Vec<String> },
+    /// Docling extract + ref parse + S2 match（saves to papr.db。文）
+    Extract { paper_id: String },
+}
+
+/// `sai-moon-paper graph` のサブコマンド。
+#[derive(Subcommand, Debug)]
+enum GraphCmd {
+    /// 引用グラフのキャッシュを作る
+    Build(GraphBuildArgs),
+    /// キャッシュした引用グラフを表示する
+    Show {
+        /// 論文 ID
+        paper_id: String,
+    },
+}
+
+/// 引用グラフを作る引数（古い形 `graph <paper_id>` と `graph build` で共用）。
+#[derive(clap::Args, Debug, Clone)]
+struct GraphBuildArgs {
+    /// 論文 ID（S2 / arXiv / DOI など）
+    paper_id: String,
+    /// たどる段数
+    #[arg(long, default_value_t = 2)]
+    depth: u8,
+    /// references / citations / both
+    #[arg(long, default_value = "both")]
+    direction: String,
+    /// 書き出すファイル
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Library にある論文だけに絞る
+    #[arg(long)]
+    library_only: bool,
+}
+
+/// 古い形 `graph <paper_id> …` の引数（`args_conflicts_with_subcommands` 用）。
+///
+/// 下位の命令があるときは使われないため、`paper_id` は `Option` にしてある。
+#[derive(clap::Args, Debug)]
+struct GraphLegacyArgs {
+    /// 論文 ID（S2 / arXiv / DOI など）
+    #[arg(value_name = "PAPER_ID")]
+    paper_id: Option<String>,
+    /// たどる段数
+    #[arg(long, default_value_t = 2)]
+    depth: u8,
+    /// references / citations / both
+    #[arg(long, default_value = "both")]
+    direction: String,
+    /// 書き出すファイル
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Library にある論文だけに絞る
+    #[arg(long)]
+    library_only: bool,
 }
 
 /// `sai-moon-paper eval` のサブコマンド。
@@ -443,7 +709,7 @@ fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// 複数 DB で検索し、重複を除いた結果と、実際に使った DB 一覧を返す。
+/// 複数 DB で検索し、重複を除いた結果と、実際に使った DB 一覧、失敗した DB を返す。
 ///
 /// 検索そのものは [`sai_paper_core::api::run_search`]（core）にある。
 /// DB ごとの検索エラーは標準エラーに出して続ける（1 つでも成功すればその結果を返す）。
@@ -456,14 +722,14 @@ pub(crate) async fn run_search(
     year_from: Option<u16>,
     year_to: Option<u16>,
     raw_query: Option<&str>,
-) -> Result<(Vec<String>, Vec<RemotePaper>)> {
+) -> Result<(Vec<String>, Vec<RemotePaper>, Vec<(String, String)>)> {
     let (dbs_to_use, deduped, failed) =
         sai_paper_core::api::run_search(cfg, query, db, limit, year_from, year_to, raw_query).await;
     // 従来と同じ形（`<db>: <理由>`）で標準エラーに出す。
     for (db_id, reason) in &failed {
         eprintln!("{db_id}: {reason}");
     }
-    Ok((dbs_to_use, deduped))
+    Ok((dbs_to_use, deduped, failed))
 }
 
 /// `sai-moon-paper enrich --retraction` の本体。
@@ -752,155 +1018,84 @@ fn init_sci_tree(root: &std::path::Path, type_id: &str) -> Result<()> {
     let outcome =
         sci::init_tree_and_export(root, type_id).context("研究方針の木を作れませんでした")?;
     if outcome.already {
-        println!(
-            "✅ 研究方針の木は既にあります（型: {}）",
+        // 既にある木を作り直さない（状態の衝突、終了コード 4）。
+        return Err(crate::cli_error::CliError::conflict(format!(
+            "研究方針の木は既にあります（型: {}）",
             outcome.type_name
-        );
-    } else {
-        let text = outcome.text();
-        print!("✅ {text}");
-        if !text.ends_with('\n') {
-            println!();
-        }
+        ))
+        .into());
+    }
+    let text = outcome.text();
+    print!("✅ {text}");
+    if !text.ends_with('\n') {
+        println!();
     }
     Ok(())
 }
 
-/// 研究プロジェクトを初期化する（`.sai/` と `.sai/paper/`）。
+/// 研究プロジェクトを初期化する（`.sai/paper/` と `papr.db`）。
 ///
-/// `assets_only` が `false` のときは 1 度だけ実行する。`.sai/` が無ければ
-/// `sai-link init` をサブプロセスで実行し、`.sai/paper/` と `papr.db` を作成する。
-/// `assets_only` が `true` のときは、既にあるプロジェクトに足りない部品だけを配り
-/// （ブロック・テンプレート・設定）、`papr.db`・`sai-link init`・sai-control 登録は
-/// 行わない。legacy `data/` の移行と `.sai/blocks/` の操作は行わない。
+/// root は `SAI_PROJECT_ROOT`（空でない値）→ cwd。`.sai/paper/` と `papr.db` を作り、
+/// `sai-moon-link init` は呼ばない。sai-link が初期化済み（`.sai/settings.json` がある）
+/// のときだけ、block・template・設定・MCP を配る。初期化済みでも失敗にしない。
 ///
 /// `domain` は DSR が使う分野の観点（`medical` / `signal-ml` / `general`）。
-/// `--assets-only` でも選べる。
+/// `update` が `true` のときは、古い block・template・分野の見本を退避して新しい版に置き換える。
 ///
-/// `sci_type` が `Some` のときは、足りない部品を配ったあとに研究方針の木も作る
-/// （`--sci` が無ければ `None`。組み合わせは [`check_sci_args`] で確かめてある）。
-fn handle_init(
-    name: Option<String>,
-    root: Option<PathBuf>,
-    assets_only: bool,
-    domain: &str,
-    sci_flag: bool,
-    sci_type: Option<&str>,
-) -> Result<()> {
+/// `sci_type` が `Some` のときは研究方針の木も作る（sai-link の初期化が要る）。
+fn handle_init(domain: &str, update: bool, sci_flag: bool, sci_type: Option<&str>) -> Result<()> {
     check_sci_args(sci_flag, sci_type)?;
-    let root = root
-        .or_else(|| std::env::var("SAI_PAPER_ROOT").ok().map(PathBuf::from))
-        .unwrap_or(std::env::current_dir().context("cwd が取得できません")?);
+    // root は `SAI_PROJECT_ROOT`（空でない値）→ cwd。上へたどらない。
+    let root = match std::env::var("SAI_PROJECT_ROOT") {
+        Ok(value) if !value.is_empty() => PathBuf::from(value),
+        _ => std::env::current_dir().context("cwd が取得できません")?,
+    };
     let sai_dir = root.join(".sai");
     let paper_dir = sai_dir.join("paper");
+    // sai-link が初期化済みか（`<root>/.sai/settings.json` があるか）だけを見る。
+    let link_initialized = sai_dir.join("settings.json").is_file();
 
-    // 足りない部品だけを配るモード（既にあるプロジェクトを直さない）。
-    if assets_only {
-        if !sai_dir.is_dir() {
-            bail!(
-                "先に `sai-moon-paper init` を実行してください: {} がありません",
-                sai_dir.display()
-            );
-        }
-        // エージェントの部品（ブロック・テンプレート・設定・MCP）を配る（段階 7）
-        for line in
-            agent_assets::install_here(&root).context("エージェントの部品を配れませんでした")?
-        {
-            println!("✅ {line}");
-        }
-        // 分野の観点（見本と、選んだ分野の domain.md）を配る
-        for line in
-            agent_assets::install_domain(&root, domain).context("分野の観点を配れませんでした")?
-        {
-            println!("✅ {line}");
-        }
-        // sci の部品（sci ブロック・sci-core・context・土壌のひな形）を配る。
-        // mind.md のひな形を土壌のものにするため、mind.md より前に配る。
-        if sci_type.is_some() {
-            if !paper_dir.join("papr.db").exists() {
-                bail!(
-                    "先に `sai-moon-paper init` を実行してください: {} がありません",
-                    paper_dir.join("papr.db").display()
-                );
-            }
-            for line in
-                agent_assets::install_sci_parts_here(&root).context("sci の部品を配れませんでした")?
-            {
-                println!("✅ {line}");
-            }
-        }
-        let paths = paper_paths(&paper_dir);
-        ensure_project_files_and_brief(&paths, &root, &paper_dir, None);
-        // 部品を配ったあとで木を作る（研究方針の木の準備が init だけで終わる）
-        if let Some(type_id) = sci_type {
-            init_sci_tree(&root, type_id)?;
-        }
-        println!("✅ 足りない部品を配りました: {}", paper_dir.display());
-        return Ok(());
-    }
-
-    if paper_dir.join("papr.db").exists() {
-        bail!(
-            "既に初期化されています: {}\n`sai-moon-paper init` はプロジェクト開始時に 1 度のみ使用します\n足りない部品だけ配るには `sai-moon-paper init --assets-only`",
-            paper_dir.display()
-        );
-    }
-
-    // sai-moon-link 側の初期化（未実行なら実行する）
-    if !sai_dir.exists() {
-        let mut link_init = std::process::Command::new("sai-moon-link");
-        link_init.arg("init");
-        // 登録簿の名前（無ければフォルダ名）
-        if let Some(name) = name.as_deref().filter(|n| !n.is_empty()) {
-            link_init.args(["--name", name]);
-        }
-        match link_init
-            .current_dir(&root)
-            .env("SAI_PROJECT_ROOT", &root)
-            .status()
-        {
-            Ok(status) if status.success() => println!("✅ sai-moon-link init を実行しました"),
-            _ => bail!(
-                "sai-moon-link init を実行できませんでした。先に実行してください: cd {} && sai-moon-link init",
-                root.display()
-            ),
-        }
-    }
-
+    // `.sai/paper/` の置き場と DB・settings.json を作る（あれば何もしない）。
+    // `sai-moon-link init` は呼ばない（sai-paper は単独で使える）。
     for dir in ["papers", "extracts", "bibtex", "plugins"] {
         std::fs::create_dir_all(paper_dir.join(dir))?;
     }
-
-    // DB 作成（マイグレーション実行）
     let paths = paper_paths(&paper_dir);
     let database = Database::open(&paths.database_file).context("papr.db の作成に失敗")?;
     sai_paper_core::Config::load_or_create(&paths).context("settings.json の作成に失敗")?;
 
-    // 登録簿（`~/.sai-moon/registry.json`）への登録は `sai-moon-link init` が行う。
-
-    // エージェントの部品（ブロック・テンプレート・pi の拡張・cc の MCP）を配る（段階 7）
-    for line in agent_assets::install_here(&root).context("エージェントの部品を配れませんでした")? {
-        println!("✅ {line}");
-    }
-    // 分野の観点（見本と、選んだ分野の domain.md）を配る
-    for line in
-        agent_assets::install_domain(&root, domain).context("分野の観点を配れませんでした")?
-    {
-        println!("✅ {line}");
-    }
-    // sci の部品（sci ブロック・sci-core・context・土壌のひな形）を配る。
-    // mind.md のひな形を土壌のものにするため、mind.md より前に配る。
-    if sci_type.is_some() {
-        for line in agent_assets::install_sci_parts_here(&root).context("sci の部品を配れませんでした")? {
+    // sai-link の部品（block・template・設定・MCP）は、初期化済みのときだけ配る。
+    if link_initialized {
+        for line in agent_assets::install_here(&root, update)
+            .context("エージェントの部品を配れませんでした")?
+        {
             println!("✅ {line}");
+        }
+        for line in agent_assets::install_domain(&root, domain, update)
+            .context("分野の観点を配れませんでした")?
+        {
+            println!("✅ {line}");
+        }
+        if sci_type.is_some() {
+            for line in agent_assets::install_sci_parts_here(&root)
+                .context("sci の部品を配れませんでした")?
+            {
+                println!("✅ {line}");
+            }
         }
     }
 
-    // mind.md / state.md のひな形と、最初の状況まとめを作る（段階 8）
+    // mind.md / state.md のひな形と、最初の状況まとめを作る。
     ensure_project_files_and_brief(&paths, &root, &paper_dir, Some(database.connection()));
 
-    // 部品を配ったあとで木を作る（研究方針の木の準備が init だけで終わる）
+    // 研究方針の木は sai-link の block を使うので、初期化済みでなければ断る。
     if let Some(type_id) = sci_type {
+        if !link_initialized {
+            return Err(cli_error::CliError::input(
+                "研究方針の木を使うには sai-link の初期化が要ります（`sai-moon-link init` のあとで `sai-moon-paper init --sci --type …` を実行してください）",
+            )
+            .into());
+        }
         init_sci_tree(&root, type_id)?;
     }
 
@@ -908,7 +1103,11 @@ fn handle_init(
         "✅ 研究プロジェクトを初期化しました: {}",
         paper_dir.display()
     );
-    println!("   使い方: Web の Papers タブ、または `sai-moon-paper --help`");
+    if !link_initialized {
+        println!(
+            "   sai-link と使うときは、`sai-moon-link init` のあとで `sai-moon-paper init` をもう一度実行してください"
+        );
+    }
     Ok(())
 }
 
@@ -959,13 +1158,82 @@ fn save_search_results(
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    let code = run().await;
+    std::process::exit(code);
+}
+
+/// CLI の入口。終了コードを返す（CLI 共通の約束）。
+async fn run() -> i32 {
     // プロジェクトルートの .env を読み込む（S2 API キーのみ使用。既存の環境変数は上書きしない）
     sai_paper_core::paths::load_project_dotenv();
-    let cli = Cli::parse();
-    let client = S2Client::new(resolve_api_key())?;
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => return clap_exit_code(err),
+    };
+    // 記録の出どころ（SAI_ORIGIN、無ければ cli）。
+    sai_paper_core::jobs::set_origin(origin_name());
+    let client = match S2Client::new(resolve_api_key()) {
+        Ok(client) => client,
+        Err(err) => return report_error(&anyhow::Error::from(err)),
+    };
+    match dispatch(cli.cmd, &client).await {
+        Ok(()) => 0,
+        Err(err) => report_error(&err),
+    }
+}
 
-    match cli.cmd {
+/// 記録の出どころ（CLI 共通の約束の 6）。
+fn origin_name() -> &'static str {
+    match std::env::var("SAI_ORIGIN") {
+        Ok(value) if value == "phone" => "phone",
+        _ => "cli",
+    }
+}
+
+/// clap の使い方の誤りの終了コード。`--help`・`--version` は 0。
+fn clap_exit_code(err: clap::Error) -> i32 {
+    use clap::error::ErrorKind;
+    let kind = err.kind();
+    let _ = err.print();
+    if matches!(kind, ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
+        return 0;
+    }
+    let text = err.to_string();
+    let first = text.lines().next().unwrap_or("").trim();
+    let stripped = first.strip_prefix("error: ").unwrap_or(first);
+    eprintln!("引数の誤り: {stripped}");
+    2
+}
+
+/// エラーを標準エラーの最後の行に 1 行で出し、約束の終了コードを返す。
+fn report_error(err: &anyhow::Error) -> i32 {
+    let code = exit_code_of(err);
+    let message = format!("{err:#}").replace('\n', " ");
+    eprintln!("{message}");
+    code
+}
+
+/// 約束の終了コードを決める（2・3・4。それ以外は 1）。
+fn exit_code_of(err: &anyhow::Error) -> i32 {
+    for cause in err.chain() {
+        if let Some(cli_error) = cause.downcast_ref::<cli_error::CliError>() {
+            return cli_error.code;
+        }
+        if let Some(config_error) = cause.downcast_ref::<sai_paper_core::config::ConfigError>() {
+            return match config_error {
+                sai_paper_core::config::ConfigError::ProjectNotFound
+                | sai_paper_core::config::ConfigError::PaperDirMissing => 2,
+                _ => 1,
+            };
+        }
+    }
+    1
+}
+
+/// 命令を振り分ける。
+async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
+    match cmd {
         Some(Cmd::Search {
             query,
             db,
@@ -980,108 +1248,26 @@ async fn main() -> Result<()> {
             widen,
             json,
         }) => {
-            let paths = Paths::discover()?;
-            let cfg = sai_paper_core::Config::load_or_create(&paths)?;
-
-            // 複数 DB で検索して重複を除く（`phone search` も同じ関数を使う）。
-            let (dbs_to_use, deduped) =
-                run_search(&cfg, &query, &db, limit, year_from, year_to, raw_query.as_deref())
-                    .await?;
-
-            // Node（`--node`）は、記録とセットに書く前に読む。
-            let database = open_database().ok();
-            let refs = match database.as_ref() {
-                Some(db) => sci::parse_search_refs(db.connection(), node.as_deref())?,
-                None => sci::SearchRefs::default(),
-            };
-            let kept = deduped.clone();
-
-            // 検索の履歴は毎回必ず残す（Library の階層に出る）。1 回ごとに別の履歴にする。
-            // --save-as があれば、その名前のセットにも足す（同じ名前なら 1 つのセットに足す）。
-            let (set_id, log_id) = if let Some(database) = database.as_ref() {
-                let conn = database.connection();
-                let source_dbs_str = dbs_to_use.join(",");
-                let year = match (year_from, year_to) {
-                    (Some(from), Some(to)) => format!("{from}-{to}"),
-                    (Some(from), None) => format!("{from}-"),
-                    (None, Some(to)) => format!("-{to}"),
-                    (None, None) => String::new(),
-                };
-                let log_id = sai_paper_core::search_log::record_search(
-                    conn,
-                    "cli",
-                    &query,
-                    &year,
-                    &limit.to_string(),
-                    &source_dbs_str,
-                    &deduped,
-                )?;
-                let set_id = match save_as {
-                    Some(set_name) => Some(save_search_results(
-                        conn,
-                        &set_name,
-                        &source_dbs_str,
-                        &query,
-                        raw_query.as_deref(),
-                        deduped.clone(),
-                    )?),
-                    None => None,
-                };
-                // 履歴とセットの両方に、実行した run（Agent の検索なら）と、何のための検索か（R-R6）を書く。
-                let fields = sci::set_fields(&refs, purpose.as_deref(), extract.as_deref());
-                for id in std::iter::once(log_id).chain(set_id) {
-                    sai_paper_core::search_log::set_run_id(conn, id, sci::parent_run_id())?;
-                    if let Some(fields) = &fields {
-                        sai_paper_core::search_sets::set_sci_fields(conn, id, fields)
-                            .context("検索セットに検索の目的を書けませんでした")?;
-                    }
-                }
-                (set_id, Some(log_id))
-            } else if save_as.is_some() {
-                bail!("検索セットを保存するには研究プロジェクト（.sai/paper）が必要です");
-            } else {
-                (None, None)
-            };
-
-            // Node が指定されたときだけ検索の記録を残す。
-            if let Some(database) = database.as_ref() {
-                let scope = format!("external:{}", dbs_to_use.join(","));
-                sci::record_search(
-                    database.connection(),
-                    &sci::SearchLog {
-                        refs: &refs,
-                        tool: "search",
-                        query: &query,
-                        scope: &scope,
-                        widen_reason: widen.as_deref().unwrap_or(""),
-                        hits: kept.len() as i64,
-                        hit_papers: &[],
-                        set_id,
-                        log_id,
-                    },
-                )?;
-            }
-
-            // 出力
-            if json {
-                println!("{}", serde_json::to_string_pretty(&kept)?);
-            } else {
-                for paper in kept {
-                    println!("{} - {}", paper.id, paper.title);
-                    if !paper.authors.is_empty() {
-                        println!("  Authors: {}", paper.authors.join(", "));
-                    }
-                    if !paper.abstract_text.is_empty() {
-                        let preview = if paper.abstract_text.len() > 100 {
-                            format!("{}...", &paper.abstract_text[..100])
-                        } else {
-                            paper.abstract_text.clone()
-                        };
-                        println!("  Abstract: {}", preview);
-                    }
-                    println!();
-                }
-            }
+            handle_search(SearchArgs {
+                query,
+                db,
+                limit,
+                year_from,
+                year_to,
+                raw_query,
+                save_as,
+                node,
+                purpose,
+                extract,
+                widen,
+                json,
+            })
+            .await?;
+        }
+        Some(Cmd::SearchLog { log_id, json: _ }) => {
+            let (db, cfg, paths) = phone::open_context()?;
+            let value = phone::log(&db, &cfg, &paths, log_id)?;
+            println!("{}", serde_json::to_string(&value)?);
         }
         Some(Cmd::GetPdf { ids }) => {
             // 論文フォルダ（番号＋短いタイトル）に置くため、`papers.id` の解決に DB を使う。
@@ -1110,24 +1296,35 @@ async fn main() -> Result<()> {
                 out.style
             );
         }
-        Some(Cmd::Graph {
-            paper_id,
-            depth,
-            direction,
-            out,
-            library_only,
-        }) => {
-            let db = open_database()?;
-            let root = citation::normalize_paper_id(&paper_id);
-            let summary = build_graph(&db, &client, &root, depth, &direction, library_only).await?;
-            let json = serde_json::to_string_pretty(&summary)?;
-            if let Some(out) = out {
-                std::fs::write(&out, &json)?;
-                println!("graph written to {}", out.display());
-            } else {
-                println!("{json}");
+        Some(Cmd::Graph { cmd, args }) => match cmd {
+            Some(GraphCmd::Show { paper_id }) => {
+                let db = open_database()?;
+                let root = citation::normalize_paper_id(&paper_id);
+                show_graph(&db, &root)?;
             }
-        }
+            Some(GraphCmd::Build(build)) => {
+                run_graph_build(client, build).await?;
+            }
+            None => {
+                let Some(paper_id) = args.paper_id.clone() else {
+                    return Err(cli_error::CliError::input(
+                        "論文 ID を指定してください（`graph build <paper_id>`）",
+                    )
+                    .into());
+                };
+                run_graph_build(
+                    client,
+                    GraphBuildArgs {
+                        paper_id,
+                        depth: args.depth,
+                        direction: args.direction.clone(),
+                        out: args.out.clone(),
+                        library_only: args.library_only,
+                    },
+                )
+                .await?;
+            }
+        },
         Some(Cmd::GraphShow { paper_id }) => {
             let db = open_database()?;
             let root = citation::normalize_paper_id(&paper_id);
@@ -1143,19 +1340,19 @@ async fn main() -> Result<()> {
             let direction = expand::Direction::parse(&direction)?;
             expand::handle(&client, papers, direction, limit, &save_as, json).await?;
         }
-        Some(Cmd::Status) => {
+        Some(Cmd::Status { json: _ }) => {
             let db = open_database()?;
             show_status(&db)?;
         }
         Some(Cmd::Init {
-            name,
-            root,
-            assets_only,
+            name: _,
+            assets_only: _,
             domain,
+            update,
             sci,
             sci_type,
         }) => {
-            handle_init(name, root, assets_only, &domain, sci, sci_type.as_deref())?;
+            handle_init(&domain, update, sci, sci_type.as_deref())?;
         }
         Some(Cmd::Brief { write }) => {
             handle_brief(write)?;
@@ -1176,169 +1373,69 @@ async fn main() -> Result<()> {
             per_paper,
             scope,
             paper,
+            papers,
             index,
             alpha,
             fusion,
             fts_expr,
             evidence,
-            papers,
             node,
             subtree,
             each,
             widen,
             json,
         }) => {
-            // `--subtree` と `--each` には範囲の指定が要る（MCP の find も同じ検査）。
-            sci::check_find_scope(subtree, node.is_some(), each, papers.is_empty())?;
-            let db = open_database()?;
-            let config = sai_paper_core::Config::load_or_create(&Paths::discover()?)
-                .context("failed to load or create configuration")?;
-
-            // Node（`--node`）は、範囲を決める前に読む。
-            let refs = sci::parse_search_refs(db.connection(), node.as_deref())?;
-            // 論文の集合と、記録に書く範囲の文字列（C-09）。
-            let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
-                db.connection(),
-                paper,
-                &papers,
-                refs.node,
-                subtree,
-            )
-            .map_err(|err| anyhow!("{err}"))?;
-
-            // 前の検索を見る（記録は後で残す。`--json` の無い出力の 1 行目に出す）。
-            let previous = if json {
-                None
-            } else {
-                sci::previous_search_line(db.connection(), &refs, &scope_note)
-            };
-
-            // 内部検索の履歴に残す範囲のコピー（U01。`request` が `mode` / `scope` / `paper_ids` を動かすため先に写す）。
-            let log_mode = mode.clone();
-            let log_scope = scope.clone();
-            let log_papers: Vec<i64> = paper_ids.clone().unwrap_or_default();
-            // CLI・TUI・MCP で同じ core の関数を呼ぶ（段階 7）
-            let request = sai_paper_core::retrieval::FindRequest {
-                query: query.clone(),
+            handle_find(FindCliArgs {
+                query,
                 mode,
                 top_k,
                 per_paper,
                 scope,
-                paper_id: None,
-                paper_ids,
-                each,
+                paper,
+                papers,
                 index,
                 alpha,
                 fusion,
                 fts_expr,
-            };
-            // 要約付きのときだけ LLM のクライアントを作る（`model` が空ならここでエラー）。
-            let chat = if evidence {
-                Some(sai_paper_core::evidence::ChatCompletionsClient::from_config(&config)?)
-            } else {
-                None
-            };
-            let outcome = sai_paper_core::evidence::find_maybe_evidence(
-                db.connection(),
-                &config,
-                request,
                 evidence,
-                chat.as_ref()
-                    .map(|c| c as &dyn sai_paper_core::evidence::ChatClient),
-            )
-            .await
-            .context("search failed")?;
-            // 内部検索の履歴（U01。Node の有無に関わらず毎回。失敗しても検索は続ける）。
-            {
-                let plain_hits: Vec<sai_paper_core::Hit> = match &outcome {
-                    sai_paper_core::evidence::SearchOutcome::Plain(hits) => hits.clone(),
-                    sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
-                        result.hits.iter().map(|item| item.hit.clone()).collect()
-                    }
-                };
-                let passages =
-                    sai_paper_core::sections::passages_for_hits(db.connection(), &plain_hits);
-                if let Err(err) = sai_paper_core::find_log::record(
-                    db.connection(),
-                    &sai_paper_core::find_log::FindLogInput {
-                        query: &query,
-                        mode: log_mode.as_deref(),
-                        top_k,
-                        scope: log_scope.as_deref(),
-                        range_text: &scope_note,
-                        papers: &log_papers,
-                        node_id: refs.node,
-                        subtree,
-                        each,
-                        widen_reason: widen.as_deref().unwrap_or(""),
-                        origin: "cli",
-                        run_id: sci::parent_run_id(),
-                    },
-                    &plain_hits,
-                    &passages,
-                ) {
-                    eprintln!("検索履歴を残せませんでした: {err:#}");
-                }
+                node,
+                subtree,
+                each,
+                widen,
+                json,
+            })
+            .await?;
+        }
+        Some(Cmd::FindLog { log_id, json: _ }) => {
+            let (db, _cfg, _paths) = phone::open_context()?;
+            let value = phone::find_log_view(&db, log_id)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        Some(Cmd::Library { cmd }) => match cmd {
+            LibraryCmd::List { json: _ } => {
+                let value = phone::library()?;
+                println!("{}", serde_json::to_string(&value)?);
             }
-            // Node の指定があれば検索の記録に残す（R-R3 / R-R4）。
-            let (hit_count, hit_papers): (i64, Vec<i64>) = match &outcome {
-                sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
-                    (hits.len() as i64, paper_ids_of_hits(hits))
-                }
-                sai_paper_core::evidence::SearchOutcome::Evidence(result) => (
-                    result.hits.len() as i64,
-                    paper_ids_of_hits(
-                        &result
-                            .hits
-                            .iter()
-                            .map(|item| item.hit.clone())
-                            .collect::<Vec<_>>(),
-                    ),
-                ),
-            };
-            sci::record_search(
-                db.connection(),
-                &sci::SearchLog {
-                    refs: &refs,
-                    tool: "find",
-                    query: &query,
-                    scope: &scope_note,
-                    widen_reason: widen.as_deref().unwrap_or(""),
-                    hits: hit_count,
-                    hit_papers: &hit_papers,
-                    set_id: None,
-                    log_id: None,
-                },
-            )?;
-
-            // 前の検索があるときは 1 行目に出す（`--json` の形は変えない）。
-            if let Some(previous) = previous {
-                println!("{previous}");
+            LibraryCmd::Tree { json: _ } => {
+                let value = phone::tree()?;
+                println!("{}", serde_json::to_string(&value)?);
             }
-            match outcome {
-                sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(
-                                &sai_paper_core::retrieval::hits_to_json_with(
-                                    &hits,
-                                    &sai_paper_core::sections::passages_for_hits(db.connection(), &hits)
-                                )
-                            )?
-                        );
-                    } else {
-                        print_search_results(&hits);
-                    }
-                }
-                sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&result)?);
-                    } else {
-                        print_evidence_results(&result);
-                    }
-                }
-            }
+        },
+        Some(Cmd::Paper { cmd }) => handle_paper(cmd, client).await?,
+        Some(Cmd::Import { cmd }) => {
+            let value = phone_import::run_import(cmd)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        Some(Cmd::Dashboard { json: _ }) => {
+            let value = phone::dashboard()?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        Some(Cmd::Providers { json: _ }) => {
+            let value = phone::providers()?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        Some(Cmd::Schema { json }) => {
+            schema::print_schema(json)?;
         }
         Some(Cmd::Neighbors {
             paper_id,
@@ -1461,6 +1558,482 @@ async fn main() -> Result<()> {
                 "sai-paper — sai-paper-core CLI\nusage:\n  sai-paper search \"<query>\" --limit 10\n  sai-paper get-pdf <paperId>\n  sai-paper extract <paperId>\n  sai-paper graph <paperId> --depth 2 --direction both\n  sai-paper graph-show <paperId>\n  sai-paper status"
             );
         }
+    }
+    Ok(())
+}
+
+/// `search` の引数（clap の [`Cmd::Search`] の 1 対 1）。
+struct SearchArgs {
+    query: String,
+    db: Vec<String>,
+    limit: u16,
+    year_from: Option<u16>,
+    year_to: Option<u16>,
+    raw_query: Option<String>,
+    save_as: Option<String>,
+    node: Option<String>,
+    purpose: Option<String>,
+    extract: Option<String>,
+    widen: Option<String>,
+    json: bool,
+}
+
+/// `search` — 複数 DB で検索し、履歴に残す（CLI 共通の約束）。
+async fn handle_search(args: SearchArgs) -> Result<()> {
+    let SearchArgs {
+        query,
+        db,
+        limit,
+        year_from,
+        year_to,
+        raw_query,
+        save_as,
+        node,
+        purpose,
+        extract,
+        widen,
+        json,
+    } = args;
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(cli_error::CliError::input("検索語が空です").into());
+    }
+    let limit = limit.clamp(1, 100);
+
+    let (database, cfg, paths) = phone::open_context()?;
+    let (dbs_to_use, deduped, failed) =
+        run_search(&cfg, query, &db, limit, year_from, year_to, raw_query.as_deref()).await?;
+
+    let conn = database.connection();
+    // Node（`--node`）は、記録とセットに書く前に読む。
+    let refs = sci::parse_search_refs(conn, node.as_deref())?;
+    let source_dbs_str = dbs_to_use.join(",");
+    let year = phone::year_label(year_from, year_to);
+    let origin = origin_name();
+    // 検索の履歴は毎回必ず残す（Library の階層に出る）。1 回ごとに別の履歴にする。
+    let log_id = sai_paper_core::search_log::record_search(
+        conn,
+        origin,
+        query,
+        &year,
+        &limit.to_string(),
+        &source_dbs_str,
+        &deduped,
+    )?;
+    // --save-as があれば、その名前のセットにも足す（同じ名前なら 1 つのセットに足す）。
+    let set_id = match save_as.as_deref() {
+        Some(set_name) => Some(save_search_results(
+            conn,
+            set_name,
+            &source_dbs_str,
+            query,
+            raw_query.as_deref(),
+            deduped.clone(),
+        )?),
+        None => None,
+    };
+    // 履歴とセットの両方に、実行した run と、何のための検索かを書く。
+    let fields = sci::set_fields(&refs, purpose.as_deref(), extract.as_deref());
+    for id in std::iter::once(log_id).chain(set_id) {
+        sai_paper_core::search_log::set_run_id(conn, id, sci::parent_run_id())?;
+        if let Some(fields) = &fields {
+            sai_paper_core::search_sets::set_sci_fields(conn, id, fields)
+                .context("検索セットに検索の目的を書けませんでした")?;
+        }
+    }
+    // Node が指定されたときだけ木の検索記録を残す（record_search が node の有無を見る）。
+    let scope = format!("external:{source_dbs_str}");
+    sci::record_search(
+        conn,
+        &sci::SearchLog {
+            refs: &refs,
+            tool: "search",
+            query,
+            scope: &scope,
+            widen_reason: widen.as_deref().unwrap_or(""),
+            hits: deduped.len() as i64,
+            hit_papers: &[],
+            set_id,
+            log_id: Some(log_id),
+        },
+    )?;
+    // Dashboard の出来事に「discover」として残すのは、窓口から呼ばれたときだけ。
+    if origin == "phone" {
+        database.record_activity("discover", None, Some(query))?;
+    }
+
+    if json {
+        let value = phone::with_failed(phone::log(&database, &cfg, &paths, log_id)?, &failed)?;
+        println!("{}", serde_json::to_string(&value)?);
+    } else {
+        for paper in &deduped {
+            print_remote_paper(paper);
+        }
+    }
+    Ok(())
+}
+
+/// 検索結果 1 件を人向けに出す（要旨は文字単位で先頭 100 字）。
+fn print_remote_paper(paper: &RemotePaper) {
+    println!("{} - {}", paper.id, paper.title);
+    if !paper.authors.is_empty() {
+        println!("  Authors: {}", paper.authors.join(", "));
+    }
+    if !paper.abstract_text.is_empty() {
+        let preview: String = if paper.abstract_text.chars().count() > 100 {
+            let head: String = paper.abstract_text.chars().take(100).collect();
+            format!("{head}...")
+        } else {
+            paper.abstract_text.clone()
+        };
+        println!("  Abstract: {preview}");
+    }
+    println!();
+}
+
+/// `find` の引数（clap の [`Cmd::Find`] の 1 対 1）。
+struct FindCliArgs {
+    query: String,
+    mode: Option<String>,
+    top_k: Option<i64>,
+    per_paper: Option<i64>,
+    scope: Option<String>,
+    paper: Vec<i64>,
+    papers: Vec<i64>,
+    index: Option<String>,
+    alpha: Option<f64>,
+    fusion: Option<String>,
+    fts_expr: bool,
+    evidence: bool,
+    node: Option<String>,
+    subtree: bool,
+    each: Option<i64>,
+    widen: Option<String>,
+    json: bool,
+}
+
+/// `find` — Library の中を検索し、内部検索の履歴に残す。
+///
+/// `--json` は `{"log","hits"}`（`--evidence` のときは `"evidence"` を足す）。
+async fn handle_find(args: FindCliArgs) -> Result<()> {
+    let FindCliArgs {
+        query,
+        mode,
+        top_k,
+        per_paper,
+        scope,
+        paper,
+        papers,
+        index,
+        alpha,
+        fusion,
+        fts_expr,
+        evidence,
+        node,
+        subtree,
+        each,
+        widen,
+        json,
+    } = args;
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(cli_error::CliError::input("検索語が空です").into());
+    }
+    if let Some(mode) = &mode
+        && !matches!(mode.as_str(), "word" | "vector" | "hybrid")
+    {
+        return Err(cli_error::CliError::input(
+            "検索モードが正しくありません（word / vector / hybrid）",
+        )
+        .into());
+    }
+    if let Some(scope) = &scope
+        && !matches!(scope.as_str(), "papers" | "notes" | "figures" | "all")
+    {
+        return Err(cli_error::CliError::input(
+            "検索対象が正しくありません（papers / notes / figures / all）",
+        )
+        .into());
+    }
+    // `--paper`（繰り返し）と `--papers`（コンマ区切り）を 1 つの列にまとめる。
+    let mut all_papers = paper;
+    all_papers.extend(papers);
+    // `--subtree` と `--each` には範囲の指定が要る（MCP の find も同じ検査）。
+    sci::check_find_scope(subtree, node.is_some(), each, all_papers.is_empty())?;
+
+    let (db, config, _paths) = phone::open_context()?;
+    let conn = db.connection();
+    // Node（`--node`）は、範囲を決める前に読む。
+    let refs = sci::parse_search_refs(conn, node.as_deref())?;
+    let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
+        conn,
+        None,
+        &all_papers,
+        refs.node,
+        subtree,
+    )
+    .map_err(|err| anyhow!("{err}"))?;
+
+    // 前の検索を見る（`--json` の無い出力の 1 行目に出す）。
+    let previous = if json {
+        None
+    } else {
+        sci::previous_search_line(conn, &refs, &scope_note)
+    };
+
+    // 内部検索の履歴に残す範囲のコピー（request が値を動かすため先に写す）。
+    let log_mode = mode.clone();
+    let log_scope = scope.clone();
+    let log_papers: Vec<i64> = paper_ids.clone().unwrap_or_default();
+    let request = sai_paper_core::retrieval::FindRequest {
+        query: query.to_string(),
+        mode,
+        top_k,
+        per_paper,
+        scope,
+        paper_id: None,
+        paper_ids,
+        each,
+        index,
+        alpha,
+        fusion,
+        fts_expr,
+    };
+    // 要約付きのときだけ LLM のクライアントを作る（`model` が空ならここでエラー）。
+    let chat = if evidence {
+        Some(sai_paper_core::evidence::ChatCompletionsClient::from_config(&config)?)
+    } else {
+        None
+    };
+    let outcome = sai_paper_core::evidence::find_maybe_evidence(
+        conn,
+        &config,
+        request,
+        evidence,
+        chat.as_ref()
+            .map(|c| c as &dyn sai_paper_core::evidence::ChatClient),
+    )
+    .await
+    .context("search failed")?;
+    let plain_hits: Vec<sai_paper_core::Hit> = match &outcome {
+        sai_paper_core::evidence::SearchOutcome::Plain(hits) => hits.clone(),
+        sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
+            result.hits.iter().map(|item| item.hit.clone()).collect()
+        }
+    };
+    let passages = sai_paper_core::sections::passages_for_hits(conn, &plain_hits);
+    // 履歴に残す（記録に失敗したら終了コード 1）。
+    let log_id = sai_paper_core::find_log::record(
+        conn,
+        &sai_paper_core::find_log::FindLogInput {
+            query,
+            mode: log_mode.as_deref(),
+            top_k,
+            scope: log_scope.as_deref(),
+            range_text: &scope_note,
+            papers: &log_papers,
+            node_id: refs.node,
+            subtree,
+            each,
+            widen_reason: widen.as_deref().unwrap_or(""),
+            origin: origin_name(),
+            run_id: sci::parent_run_id(),
+        },
+        &plain_hits,
+        &passages,
+    )?;
+    // Node の指定があれば木の検索記録に残す（R-R3 / R-R4）。
+    let (hit_count, hit_papers): (i64, Vec<i64>) = match &outcome {
+        sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
+            (hits.len() as i64, paper_ids_of_hits(hits))
+        }
+        sai_paper_core::evidence::SearchOutcome::Evidence(result) => (
+            result.hits.len() as i64,
+            paper_ids_of_hits(
+                &result
+                    .hits
+                    .iter()
+                    .map(|item| item.hit.clone())
+                    .collect::<Vec<_>>(),
+            ),
+        ),
+    };
+    sci::record_search(
+        conn,
+        &sci::SearchLog {
+            refs: &refs,
+            tool: "find",
+            query,
+            scope: &scope_note,
+            widen_reason: widen.as_deref().unwrap_or(""),
+            hits: hit_count,
+            hit_papers: &hit_papers,
+            set_id: None,
+            log_id: None,
+        },
+    )?;
+
+    if let Some(previous) = previous {
+        println!("{previous}");
+    }
+    if json {
+        let mut value = phone::find_log_view(&db, log_id)?;
+        if let sai_paper_core::evidence::SearchOutcome::Evidence(result) = &outcome
+            && let serde_json::Value::Object(map) = &mut value
+        {
+            map.insert("evidence".to_string(), serde_json::to_value(result)?);
+        }
+        println!("{}", serde_json::to_string(&value)?);
+    } else {
+        match outcome {
+            sai_paper_core::evidence::SearchOutcome::Plain(hits) => print_search_results(&hits),
+            sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
+                print_evidence_results(&result);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `paper …` の入口。
+async fn handle_paper(cmd: PaperCmd, client: &S2Client) -> Result<()> {
+    match cmd {
+        PaperCmd::Show { paper_id, json: _ } => {
+            let value = phone::paper(paper_id)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::Note { paper_id, json: _ } => {
+            let value = phone::save_note(paper_id)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::Translate { paper_id, force, json: _ } => {
+            let value = phone::translate(paper_id, force).await?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::TranslatePdf { paper_id, json } => {
+            let value = phone::translate_pdf(paper_id).await?;
+            if json {
+                println!("{}", serde_json::to_string(&value)?);
+            } else {
+                let path = value
+                    .get("pdf_ja_path")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                println!("翻訳 PDF: {path}");
+            }
+        }
+        PaperCmd::Radio { paper_id, json: _ } => {
+            let value = phone::radio(paper_id).await?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::Figures {
+            paper_ids,
+            all,
+            force,
+        } => {
+            figures::handle_figures(paper_ids, all, force).await?;
+        }
+        PaperCmd::Citations { paper_id, json: _ } => {
+            let value = phone_cite::citations(paper_id)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::CitationsExtract { paper_id, json: _ } => {
+            let value = phone_cite::citations_extract(paper_id, client).await?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::Download {
+            log,
+            position,
+            import_id,
+            cite,
+            ref_no,
+            json: _,
+        } => {
+            let value = phone_import::download(
+                client,
+                log,
+                position,
+                import_id.as_deref(),
+                cite,
+                ref_no,
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::AfterDownload { paper_id, json: _ } => {
+            let value = phone_import::after_download(paper_id).await?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::Candidates { minutes, json: _ } => {
+            let value = phone_cite::manual_candidates(minutes)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::ImportPdf { args, json: _ } => {
+            let value = phone_cite::manual_import_command(&args)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::GetPdf { ids } => {
+            handle_get_pdf(client, ids).await?;
+        }
+        PaperCmd::Extract { paper_id } => {
+            handle_extract(client, &paper_id).await?;
+        }
+    }
+    Ok(())
+}
+
+/// `paper get-pdf` — 1 件ずつの失敗は標準エラーに出して続け、全部失敗したときだけ 1。
+async fn handle_get_pdf(client: &S2Client, ids: Vec<String>) -> Result<()> {
+    let db = open_database().ok();
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    for id in ids {
+        let key = citation::normalize_paper_id(&id);
+        match litbase::ensure_pdf(client, &key, db.as_ref()).await {
+            Ok(path) => {
+                println!("{key} -> {}", path.display());
+                ok += 1;
+            }
+            Err(e) => {
+                eprintln!("{key}: {e:#}");
+                failed += 1;
+            }
+        }
+    }
+    if ok == 0 && failed > 0 {
+        bail!("すべて失敗しました（{failed} 件）");
+    }
+    Ok(())
+}
+
+/// `paper extract` — Docling 抽出 + ref parse + S2 match。
+async fn handle_extract(client: &S2Client, paper_id: &str) -> Result<()> {
+    let db = open_database()?;
+    let key = citation::normalize_paper_id(paper_id);
+    let pdf = litbase::ensure_pdf(client, &key, Some(&db)).await?;
+    let data_dir = Paths::discover()?.data_dir();
+    println!("extracting {key} from {} ...", pdf.display());
+    let out = citation::ensure_extract(db.connection(), client, &key, &pdf, &data_dir).await?;
+    println!(
+        "{key}: {} refs, {} sentences (style: {})",
+        out.refs.len(),
+        out.sentences.len(),
+        out.style
+    );
+    Ok(())
+}
+
+/// `graph build` / 古い形 `graph <paper_id>` の本体。
+async fn run_graph_build(client: &S2Client, args: GraphBuildArgs) -> Result<()> {
+    let db = open_database()?;
+    let root = citation::normalize_paper_id(&args.paper_id);
+    let summary = build_graph(&db, client, &root, args.depth, &args.direction, args.library_only).await?;
+    let json = serde_json::to_string_pretty(&summary)?;
+    if let Some(out) = args.out {
+        std::fs::write(&out, &json)?;
+        println!("graph written to {}", out.display());
+    } else {
+        println!("{json}");
     }
     Ok(())
 }

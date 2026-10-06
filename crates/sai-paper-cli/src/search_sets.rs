@@ -2,7 +2,7 @@
 //!
 //! リモート検索結果の保存・注釈付けを行う決定論的 API。
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::Subcommand;
 use sai_paper_core::models::RemotePaper;
 use sai_paper_core::search_sets;
@@ -13,7 +13,11 @@ use std::io::Read;
 #[derive(Subcommand, Debug)]
 pub enum SearchSetCmd {
     /// セット一覧を表示
-    List,
+    List {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
     /// セットの詳細と候補を表示
     Show {
         /// セット名または ID
@@ -21,6 +25,9 @@ pub enum SearchSetCmd {
         /// decision でフィルタ（pending/keep/drop/downloaded）
         #[arg(long)]
         decision: Option<String>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
     /// 新しいセットを作成
     Create {
@@ -50,6 +57,9 @@ pub enum SearchSetCmd {
         /// 読み、そこから抜き出す項目
         #[arg(long)]
         extract: Option<String>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
     /// 候補の decision を更新
     Mark {
@@ -64,6 +74,21 @@ pub enum SearchSetCmd {
         /// 理由
         #[arg(long)]
         reason: Option<String>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// `pending` の候補をすべて drop にする
+    #[command(name = "drop-pending")]
+    DropPending {
+        /// セット名または ID
+        name_or_id: String,
+        /// 理由（既定は「まとめて drop」）
+        #[arg(long)]
+        reason: Option<String>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
     /// 複数のセットをマージして新しいセットを作成
     Merge {
@@ -72,11 +97,17 @@ pub enum SearchSetCmd {
         /// 新しいセット名
         #[arg(long)]
         as_name: String,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
     /// セットを削除
     Delete {
         /// セット名または ID
         name_or_id: String,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
     /// 保存した検索をもう一度実行し、新着だけをセットに足す（S03）
     Rerun {
@@ -90,10 +121,11 @@ pub enum SearchSetCmd {
 
 pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
     match cmd {
-        SearchSetCmd::List => handle_list(),
+        SearchSetCmd::List { json: _ } => handle_list(),
         SearchSetCmd::Show {
             name_or_id,
             decision,
+            json: _,
         } => handle_show(&name_or_id, decision.as_deref()),
         SearchSetCmd::Create {
             name,
@@ -105,6 +137,7 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
             node,
             purpose,
             extract,
+            json: _,
         } => {
             handle_create(CreateArgs {
                 name: &name,
@@ -124,9 +157,22 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
             position,
             decision,
             reason,
+            json: _,
         } => handle_mark(&name_or_id, position, &decision, reason.as_deref()),
-        SearchSetCmd::Merge { names, as_name } => handle_merge(names, &as_name),
-        SearchSetCmd::Delete { name_or_id } => handle_delete(&name_or_id),
+        SearchSetCmd::DropPending {
+            name_or_id,
+            reason,
+            json: _,
+        } => handle_drop_pending(&name_or_id, reason.as_deref()),
+        SearchSetCmd::Merge {
+            names,
+            as_name,
+            json: _,
+        } => handle_merge(names, &as_name),
+        SearchSetCmd::Delete {
+            name_or_id,
+            json: _,
+        } => handle_delete(&name_or_id),
         SearchSetCmd::Rerun { name_or_id, json } => handle_rerun(&name_or_id, json).await,
     }
 }
@@ -140,7 +186,7 @@ fn print_json(obj: &serde_json::Value) {
     println!("{}", serde_json::to_string_pretty(obj).unwrap_or_default());
 }
 
-fn resolve_set_id(conn: &rusqlite::Connection, name_or_id: &str) -> Result<i64> {
+pub(crate) fn resolve_set_id(conn: &rusqlite::Connection, name_or_id: &str) -> Result<i64> {
     // ID として解析を試みる
     if let Ok(id) = name_or_id.parse::<i64>() {
         if search_sets::get(conn, id).is_ok() {
@@ -151,31 +197,16 @@ fn resolve_set_id(conn: &rusqlite::Connection, name_or_id: &str) -> Result<i64> 
     // 名前で検索
     search_sets::get_by_name(conn, name_or_id)
         .map(|s| s.id)
-        .context("セットが見つかりません")
+        .map_err(|_| crate::cli_error::CliError::not_found("セットが見つかりません").into())
 }
 
 fn handle_list() -> Result<()> {
     let db = open_db()?;
     let conn = db.connection();
 
-    let sets = search_sets::list(conn)?;
-
-    let mut rows = Vec::new();
-    for set in sets {
-        let items = search_sets::items(conn, set.id)?;
-        let undecided = items.iter().filter(|i| i.decision == "pending").count();
-
-        rows.push(serde_json::json!({
-            "id": set.id,
-            "name": set.name,
-            "items": items.len(),
-            "undecided": undecided,
-            "created_by": set.created_by,
-            "created_at": set.created_at,
-        }));
-    }
-
-    print_json(&serde_json::json!({ "sets": rows }));
+    // 一覧は `phone set list` と同じ形（`{"sets":[…]}`）で出す。
+    let value = crate::phone::set_list(conn)?;
+    print_json(&value);
     Ok(())
 }
 
@@ -184,35 +215,14 @@ fn handle_show(name_or_id: &str, decision_filter: Option<&str>) -> Result<()> {
     let conn = db.connection();
 
     let set_id = resolve_set_id(conn, name_or_id)?;
-    let set = search_sets::get(conn, set_id)?;
-    let items = search_sets::items(conn, set_id)?;
-
-    let filtered_items: Vec<_> = items
-        .iter()
-        .filter(|item| decision_filter.is_none() || decision_filter == Some(item.decision.as_str()))
-        .map(|item| {
-            serde_json::json!({
-                "position": item.position,
-                "title": item.remote.title,
-                "authors": item.remote.authors,
-                "doi": item.remote.doi,
-                "decision": item.decision,
-                "reason": item.reason,
-            })
-        })
-        .collect();
-
-    print_json(&serde_json::json!({
-        "set": {
-            "id": set.id,
-            "name": set.name,
-            "query": set.query,
-            "source_dbs": set.source_dbs,
-            "created_by": set.created_by,
-            "created_at": set.created_at,
-        },
-        "items": filtered_items,
-    }));
+    let mut value = crate::phone::set_show(conn, set_id)?;
+    // `--decision` があれば、候補をその判定の物だけに絞る。
+    if let Some(decision) = decision_filter
+        && let Some(items) = value.get_mut("items").and_then(|v| v.as_array_mut())
+    {
+        items.retain(|item| item.get("decision").and_then(|d| d.as_str()) == Some(decision));
+    }
+    print_json(&value);
     Ok(())
 }
 
@@ -243,7 +253,7 @@ async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
     } = args;
     // query または file は必須
     if query.is_none() && file.is_none() {
-        bail!("--query または --file が必要です");
+        return Err(crate::cli_error::CliError::input("--query または --file が必要です").into());
     }
 
     let db = open_db()?;
@@ -261,7 +271,16 @@ async fn handle_create(args: CreateArgs<'_>) -> Result<()> {
             created_by: created_by.to_string(),
             note: None,
         },
-    )?;
+    )
+    .map_err(|error| {
+        // 同じ名前があるときは状態の衝突（終了コード 4）。
+        if matches!(&error, search_sets::SearchSetError::Invalid(message) if message.contains("既に存在"))
+        {
+            anyhow::Error::from(crate::cli_error::CliError::conflict(format!("{error}")))
+        } else {
+            anyhow::Error::from(error)
+        }
+    })?;
 
     // file から RemotePaper を読み込む
     if let Some(file_path) = file {
@@ -298,9 +317,20 @@ fn handle_mark(
 
     let set_id = resolve_set_id(conn, name_or_id)?;
 
-    search_sets::mark_many(conn, set_id, positions, decision, reason)?;
+    // `phone set mark` と同じ形（`{"set_id","changed"}`）で出す。
+    let value = crate::phone::mark_positions(conn, set_id, &positions, decision, reason)?;
+    print_json(&value);
+    Ok(())
+}
 
-    print_json(&serde_json::json!({ "marked": true }));
+/// `set drop-pending` — `pending` の候補をすべて drop にする（`phone` の形）。
+fn handle_drop_pending(name_or_id: &str, reason: Option<&str>) -> Result<()> {
+    let db = open_db()?;
+    let conn = db.connection();
+
+    let set_id = resolve_set_id(conn, name_or_id)?;
+    let value = crate::phone::set_drop_pending(conn, set_id, reason)?;
+    print_json(&value);
     Ok(())
 }
 

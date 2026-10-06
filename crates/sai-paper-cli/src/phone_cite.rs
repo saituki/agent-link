@@ -40,7 +40,7 @@ const SENTENCE_CHARS: usize = 300;
 pub fn citations(paper_id: i64) -> Result<Value> {
     let (db, _cfg, _paths) = open_context()?;
     let Some(paper) = db.library_paper_by_id(paper_id)? else {
-        bail!("論文が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
     };
 
     // 抜き出すときのキー（`ArXiv:…` / `DOI:…` / 40hex の正規形）。
@@ -151,7 +151,7 @@ fn non_empty(value: Option<String>) -> Option<String> {
 pub async fn citations_extract(paper_id: i64, client: &S2Client) -> Result<Value> {
     let (db, _cfg, paths) = open_context()?;
     let Some(paper) = db.library_paper_by_id(paper_id)? else {
-        bail!("論文が見つかりません");
+        return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
     };
     let Some(key) = db
         .citation_key_for_paper(paper_id)
@@ -402,7 +402,9 @@ fn manual_target(db: &Database, paths: &Paths, args: &ManualImportArgs) -> Resul
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)
-                .context("論文が見つかりません")?;
+                .ok_or_else(|| {
+                    crate::cli_error::CliError::not_found("論文が見つかりません")
+                })?;
             Ok(ManualTarget::Remote(remote))
         }
         (None, Some(import_id), None, None) => {
@@ -423,7 +425,7 @@ fn manual_target(db: &Database, paths: &Paths, args: &ManualImportArgs) -> Resul
         }
         (None, None, None, Some(paper_id)) => {
             let Some(paper) = db.library_paper_by_id(paper_id)? else {
-                bail!("論文が見つかりません");
+                return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
             };
             Ok(ManualTarget::Local {
                 paper_id,
@@ -445,7 +447,10 @@ pub fn find_ref_row(db: &Database, paper_id: i64, ref_no: Option<i64>) -> Result
     get_refs_for(db.connection(), Some(paper_id), key.as_deref())?
         .into_iter()
         .find(|row| row.ref_no == ref_no)
-        .with_context(|| format!("引用 {ref_no} が見つかりません"))
+        .ok_or_else(|| {
+            crate::cli_error::CliError::not_found(format!("引用 {ref_no} が見つかりません"))
+        })
+        .map_err(anyhow::Error::from)
 }
 
 /// `--file` の名前の検査（ファイル名 1 個だけ。パスも `..` も受け付けない）。

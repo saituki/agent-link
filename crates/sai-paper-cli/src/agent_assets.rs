@@ -13,24 +13,12 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
 /// 配るブロック（ファイル名, 中身）。
+///
+/// 研究のブロック 15 本は使われていないため消した（2026 の整理）。
+/// 残るのは議論の司会から子として呼ばれる 2 本だけ。
 const BLOCKS: &[(&str, &str)] = &[
-    ("paper-brainstorm.md", include_str!("../assets/blocks/paper-brainstorm.md")),
-    ("paper-check.md", include_str!("../assets/blocks/paper-check.md")),
-    ("paper-clarify.md", include_str!("../assets/blocks/paper-clarify.md")),
-    ("paper-critic.md", include_str!("../assets/blocks/paper-critic.md")),
-    ("paper-debate.md", include_str!("../assets/blocks/paper-debate.md")),
     ("paper-debater.md", include_str!("../assets/blocks/paper-debater.md")),
-    ("paper-discuss.md", include_str!("../assets/blocks/paper-discuss.md")),
-    ("paper-gap.md", include_str!("../assets/blocks/paper-gap.md")),
-    ("paper-library-qa.md", include_str!("../assets/blocks/paper-library-qa.md")),
-    ("paper-map.md", include_str!("../assets/blocks/paper-map.md")),
-    ("paper-next.md", include_str!("../assets/blocks/paper-next.md")),
-    ("paper-plan.md", include_str!("../assets/blocks/paper-plan.md")),
-    ("paper-read.md", include_str!("../assets/blocks/paper-read.md")),
     ("paper-reviewer.md", include_str!("../assets/blocks/paper-reviewer.md")),
-    ("paper-screen.md", include_str!("../assets/blocks/paper-screen.md")),
-    ("paper-search.md", include_str!("../assets/blocks/paper-search.md")),
-    ("paper-template-maker.md", include_str!("../assets/blocks/paper-template-maker.md")),
 ];
 
 /// 配るテンプレート（ファイル名, 中身）。
@@ -41,7 +29,6 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("paper-search-strategy.md", include_str!("../assets/template/paper-search-strategy.md")),
     ("rag-deep-search.md", include_str!("../assets/template/rag-deep-search.md")),
     ("rag-simple.md", include_str!("../assets/template/rag-simple.md")),
-    ("research-core.md", include_str!("../assets/template/research-core.md")),
     ("search-external.md", include_str!("../assets/template/search-external.md")),
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
@@ -253,6 +240,96 @@ fn write_if_missing(path: &Path, content: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// 配った結果（部品の配り方の「作成・そのまま・更新」）。
+#[derive(Debug)]
+enum WriteOutcome {
+    /// 無かったので書いた。
+    Created,
+    /// 既に新しい版と同じだった（何もしない）。
+    Unchanged,
+    /// 古い版を退避して新しい版を書いた（退避先のパス）。
+    Updated(PathBuf),
+}
+
+/// 更新のときに作る退避先（`<名前>.bak`、既にあれば `<名前>.bak.<YYYYmmdd-HHMMSS>`）。
+fn backup_path(path: &Path) -> PathBuf {
+    let with_suffix = |suffix: &str| {
+        let mut name = path.file_name().map_or_else(std::ffi::OsString::new, |n| n.to_os_string());
+        name.push(suffix);
+        path.with_file_name(name)
+    };
+    let plain = with_suffix(".bak");
+    if !plain.exists() {
+        return plain;
+    }
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    with_suffix(&format!(".bak.{stamp}"))
+}
+
+/// frontmatter を「区切りの間」と「閉じ `---` から後」に分ける。
+fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
+    let rest = text.strip_prefix("---\n")?;
+    let end = rest.find("\n---")?;
+    Some((&rest[..end], &rest[end + 1..]))
+}
+
+/// 新しい版の block の frontmatter の `model:`・`provider:`・`thinking:` を、
+/// 元のファイルにあった値で置き換える（元に無い行は新しい版のまま）。
+fn merge_block_frontmatter(old: &str, new: &str) -> String {
+    const KEYS: [&str; 3] = ["model", "provider", "thinking"];
+    let Some((new_fm, after)) = split_frontmatter(new) else {
+        return new.to_string();
+    };
+    let old_fm = split_frontmatter(old).map_or("", |(fm, _)| fm);
+    let mut lines: Vec<String> = new_fm.lines().map(str::to_string).collect();
+    for key in KEYS {
+        let prefix = format!("{key}:");
+        let Some(old_line) = old_fm.lines().find(|line| line.starts_with(&prefix)) else {
+            continue;
+        };
+        match lines.iter().position(|line| line.starts_with(&prefix)) {
+            Some(index) => lines[index] = old_line.to_string(),
+            None => lines.push(old_line.to_string()),
+        }
+    }
+    format!("---\n{}\n{after}", lines.join("\n"))
+}
+
+/// 部品を 1 つ配る。`update` のときは古い物を退避して新しい版に置き換える。
+///
+/// `merge_block_model` が `true` のとき（block）は、新しい版の frontmatter の
+/// `model:`・`provider:`・`thinking:` を元のファイルの値で置き換えてから比べる。
+fn write_asset(
+    path: &Path,
+    content: &str,
+    update: bool,
+    merge_block_model: bool,
+) -> Result<WriteOutcome> {
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, content)?;
+        return Ok(WriteOutcome::Created);
+    }
+    if !update {
+        return Ok(WriteOutcome::Unchanged);
+    }
+    let old = std::fs::read_to_string(path).unwrap_or_default();
+    let fresh = if merge_block_model {
+        merge_block_frontmatter(&old, content)
+    } else {
+        content.to_string()
+    };
+    if old == fresh {
+        return Ok(WriteOutcome::Unchanged);
+    }
+    let backup = backup_path(path);
+    std::fs::rename(path, &backup)?;
+    std::fs::write(path, &fresh)?;
+    Ok(WriteOutcome::Updated(backup))
+}
+
 /// 実行の権限を付ける（実行先の adapter は分配器が直接起動するため）。Unix 以外では何もしない。
 fn make_executable(path: &Path) -> Result<()> {
     #[cfg(unix)]
@@ -268,27 +345,42 @@ fn make_executable(path: &Path) -> Result<()> {
 /// 研究プロジェクト（`root`）に部品を配る。何をしたかの一覧を返す（表示用）。
 ///
 /// `sai_paper_bin` は `.mcp.json` に書く `sai-paper` の実行ファイル。
+/// `update` が `true` のときは、古いブロック・テンプレートを退避して新しい版に置き換える
+/// （部品の配り方）。`domain.md`・`project-brief.md`・設定ファイルは `update` でも上書きしない。
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
-pub fn install(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
+pub fn install(root: &Path, sai_paper_bin: &Path, update: bool) -> Result<Vec<String>> {
     let mut done = Vec::new();
     let sai = root.join(".sai");
 
-    let mut written = 0;
+    let mut created = 0usize;
+    let mut updated: Vec<PathBuf> = Vec::new();
     for (name, content) in BLOCKS {
-        written += usize::from(write_if_missing(&sai.join("blocks").join(name), content)?);
+        match write_asset(&sai.join("blocks").join(name), content, update, true)? {
+            WriteOutcome::Created => created += 1,
+            WriteOutcome::Unchanged => {}
+            WriteOutcome::Updated(backup) => updated.push(backup),
+        }
     }
     for (name, content) in TEMPLATES {
-        written += usize::from(write_if_missing(&sai.join("template").join(name), content)?);
+        match write_asset(&sai.join("template").join(name), content, update, false)? {
+            WriteOutcome::Created => created += 1,
+            WriteOutcome::Unchanged => {}
+            WriteOutcome::Updated(backup) => updated.push(backup),
+        }
     }
     // `project-brief.md` は毎回 `sai-moon-paper brief --write` が上書きするが、
     // sai-link はテンプレートが無いと止まるので、無ければここでプレースホルダを置く。
-    written += usize::from(write_if_missing(
+    // 利用者の物なので `--update` でも上書きしない。
+    created += usize::from(write_if_missing(
         &sai.join("template").join("project-brief.md"),
         BRIEF_PLACEHOLDER,
     )?);
-    done.push(format!("ブロックとテンプレートを {written} 件置きました（既にあるものはそのまま）"));
+    done.push(format!("ブロックとテンプレートを {created} 件置きました（既にあるものはそのまま）"));
+    for backup in &updated {
+        done.push(format!("更新しました（古い物: {}）", backup.display()));
+    }
 
     // 実行直前の準備コマンド: 無ければ足す（あれば利用者の設定をそのまま残す）
     let settings_path = sai.join("settings.json");
@@ -327,7 +419,7 @@ pub fn install(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
             json!({
                 "command": sai_paper_bin.to_string_lossy(),
                 "args": ["mcp"],
-                "env": {"SAI_PAPER_ROOT": root.to_string_lossy()},
+                "env": {"SAI_PROJECT_ROOT": root.to_string_lossy()},
             }),
         );
         write_json(&mcp_path, &mcp)?;
@@ -345,18 +437,27 @@ pub fn install(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき、または知らない分野のとき。
-pub fn install_domain(root: &Path, domain: &str) -> Result<Vec<String>> {
+pub fn install_domain(root: &Path, domain: &str, update: bool) -> Result<Vec<String>> {
     let template = root.join(".sai/template");
-    let mut written = 0;
+    let mut created = 0usize;
+    let mut updated: Vec<PathBuf> = Vec::new();
     for (_, name, content) in DOMAIN_SAMPLES {
-        written += usize::from(write_if_missing(&template.join(name), content)?);
+        match write_asset(&template.join(name), content, update, false)? {
+            WriteOutcome::Created => created += 1,
+            WriteOutcome::Unchanged => {}
+            WriteOutcome::Updated(backup) => updated.push(backup),
+        }
     }
     let content = domain_sample(domain).with_context(|| format!("知らない分野です: {domain}"))?;
 
     let mut done = Vec::new();
     done.push(format!(
-        "分野の観点の見本を {written} 件置きました（既にあるものはそのまま）"
+        "分野の観点の見本を {created} 件置きました（既にあるものはそのまま）"
     ));
+    for backup in &updated {
+        done.push(format!("更新しました（古い物: {}）", backup.display()));
+    }
+    // `domain.md` は利用者が選んだ物なので `--update` でも上書きしない。
     if write_if_missing(&template.join("domain.md"), content)? {
         done.push(format!("分野の観点: {domain}（.sai/template/domain.md）"));
     } else {
@@ -371,11 +472,11 @@ pub fn install_domain(root: &Path, domain: &str) -> Result<Vec<String>> {
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
-pub fn install_here(root: &Path) -> Result<Vec<String>> {
+pub fn install_here(root: &Path, update: bool) -> Result<Vec<String>> {
     let bin = std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
-    install(root, &bin)
+    install(root, &bin, update)
 }
 
 /// sci の部品を研究プロジェクト（`root`）に配る。何をしたかの一覧を返す（表示用）。
@@ -392,13 +493,13 @@ pub fn install_here(root: &Path) -> Result<Vec<String>> {
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
 pub fn install_sci(root: &Path, sai_paper_bin: &Path) -> Result<Vec<String>> {
-    let mut done = install(root, sai_paper_bin)?;
+    let mut done = install(root, sai_paper_bin, false)?;
     let sai = root.join(".sai");
 
     // 分野の観点: sci ブロックはすべて `domain` を使うので、無ければ普通の分野を配る
     // （`init --domain` で別の分野を選んだプロジェクトは既に domain.md がある）。
     if !sai.join("template/domain.md").exists() {
-        done.extend(install_domain(root, "general")?);
+        done.extend(install_domain(root, "general", false)?);
     }
     done.extend(install_sci_parts(root, sai_paper_bin)?);
     Ok(done)
@@ -530,18 +631,18 @@ mod tests {
         let root = std::env::temp_dir().join(format!("sai-paper-assets-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".sai/blocks")).unwrap();
-        std::fs::write(root.join(".sai/blocks/paper-search.md"), "利用者が直した").unwrap();
+        std::fs::write(root.join(".sai/blocks/paper-debater.md"), "利用者が直した").unwrap();
         std::fs::write(
             root.join(".mcp.json"),
             r#"{"mcpServers": {"other": {"command": "x"}}}"#,
         )
         .unwrap();
         for _ in 0..2 {
-            install(&root, Path::new("/bin/sai-paper")).unwrap();
+            install(&root, Path::new("/bin/sai-paper"), false).unwrap();
         }
 
         assert_eq!(
-            std::fs::read_to_string(root.join(".sai/blocks/paper-search.md")).unwrap(),
+            std::fs::read_to_string(root.join(".sai/blocks/paper-debater.md")).unwrap(),
             "利用者が直した"
         );
         for (name, _) in BLOCKS {
@@ -579,7 +680,7 @@ mod tests {
         )
         .unwrap();
 
-        install(&root, Path::new("/bin/sai-paper")).unwrap();
+        install(&root, Path::new("/bin/sai-paper"), false).unwrap();
 
         let settings = read_json(&root.join(".sai/settings.json")).unwrap();
         assert_eq!(settings["pre_run"], json!(["my-command", "--flag"]));
@@ -613,7 +714,7 @@ mod tests {
             );
         }
 
-        let done = install_domain(&root, "medical").unwrap();
+        let done = install_domain(&root, "medical", false).unwrap();
         let domain_md = std::fs::read_to_string(root.join(".sai/template/domain.md")).unwrap();
         assert_eq!(domain_md, domain_sample("medical").unwrap());
         assert!(done.iter().any(|line| line.contains("分野の観点: medical")));
@@ -622,7 +723,7 @@ mod tests {
         }
 
         // 既にある domain.md は上書きせず、変え方を案内する
-        let done = install_domain(&root, "signal-ml").unwrap();
+        let done = install_domain(&root, "signal-ml", false).unwrap();
         assert_eq!(
             std::fs::read_to_string(root.join(".sai/template/domain.md")).unwrap(),
             domain_md
@@ -633,58 +734,8 @@ mod tests {
         );
 
         // 知らない分野はエラー
-        assert!(install_domain(&root, "nope").is_err());
+        assert!(install_domain(&root, "nope", false).is_err());
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    /// 研究用のブロックはすべて、`templates:` に状況まとめ（`project-brief`）と
-    /// 分野の観点（`domain`）を含む。ただし `paper-template-maker` だけは分野に依存しない。
-    #[test]
-    fn research_blocks_declare_brief_and_domain() {
-        for (name, content) in BLOCKS {
-            if DEBATE_PARTICIPANTS.contains(name) {
-                continue;
-            }
-            let frontmatter = content
-                .strip_prefix("---\n")
-                .and_then(|rest| rest.split("\n---\n").next())
-                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
-            assert!(
-                frontmatter.contains("  - project-brief\n"),
-                "{name} の templates に project-brief が無い"
-            );
-            if *name == "paper-template-maker.md" {
-                continue;
-            }
-            assert!(
-                frontmatter.contains("  - domain\n"),
-                "{name} の templates に domain が無い"
-            );
-        }
-    }
-
-    /// 研究用のブロックは、状況まとめと共通の決まりを先頭で受け取り、
-    /// review の見出し（廃止した review.md 用）を持たない。
-    #[test]
-    fn research_blocks_declare_brief_without_review_headings() {
-        for (name, content) in BLOCKS {
-            if DEBATE_PARTICIPANTS.contains(name) {
-                continue;
-            }
-            assert!(
-                content.contains("templates:\n  - project-brief\n  - research-core\n"),
-                "{name} の templates の先頭が project-brief, research-core ではない"
-            );
-            assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
-            let frontmatter = content
-                .strip_prefix("---\n")
-                .and_then(|rest| rest.split("\n---\n").next())
-                .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
-            assert!(
-                !frontmatter.contains("litbase"),
-                "{name} の frontmatter に廃止した litbase が残っている"
-            );
-        }
     }
 
     /// 議論の参加者（`paper-debater` / `paper-reviewer`）は、司会から子として

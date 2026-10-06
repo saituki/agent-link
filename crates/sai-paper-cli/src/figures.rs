@@ -102,5 +102,9 @@ pub async fn handle_figures(paper_ids: Vec<i64>, all: bool, force: bool) -> Resu
     }
 
     println!("\n完了: 成功 {ok} 件 / 失敗 {failed} 件");
+    // 全部失敗したときだけ終了コード 1 にする（1 件ずつの失敗は続ける）。
+    if ok == 0 && failed > 0 {
+        bail!("すべて失敗しました（{failed} 件）");
+    }
     Ok(())
 }
