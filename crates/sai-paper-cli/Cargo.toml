@@ -12,8 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 sai-paper-core = { path = "../sai-paper-core" }
-# 一時: U15 で外す（sai-paper は sai-sci に依存しない約束）
-sai-sci-core.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
@@ -22,10 +20,6 @@ reqwest.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-# 配るブロックが本物の parser で読めることの検査用
-sai-link-engine = { path = "../sai-link-engine" }
 
 [lints]
 workspace = true

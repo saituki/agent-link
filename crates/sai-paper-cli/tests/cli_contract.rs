@@ -249,6 +249,33 @@ fn schema_json_lists_visible_commands() {
     }
 }
 
+/// `set create --purpose/--extract` はセットの覚え書きとして残る（Node は書かない）。
+#[test]
+fn set_create_keeps_purpose_and_extract() {
+    let temp = Temp::new("set-purpose");
+    let project = init_project(&temp);
+    let home = temp.home();
+    let create = run(
+        &project,
+        &home,
+        Some(&project),
+        &[
+            "set", "create", "demo", "--query", "q", "--purpose", "確かめる", "--extract", "効果",
+        ],
+    );
+    assert!(
+        create.status.success(),
+        "set create が失敗: {}",
+        String::from_utf8_lossy(&create.stderr)
+    );
+    let shown = run(&project, &home, Some(&project), &["set", "show", "demo"]);
+    assert!(shown.status.success(), "set show が失敗: {}", String::from_utf8_lossy(&shown.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("JSON として読める");
+    assert_eq!(value["set"]["purpose"], "確かめる");
+    assert_eq!(value["set"]["extract"], "効果");
+    assert!(value["set"]["node"].is_null(), "Node を書いている");
+}
+
 /// `init`（sai-link の初期化なし）は `.sai/paper/papr.db` を作り、`.sai/blocks/` は作らない。
 #[test]
 fn init_without_sai_link_creates_only_paper_dir() {
@@ -262,6 +289,7 @@ fn init_without_sai_link_creates_only_paper_dir() {
 }
 
 /// `init`（`.sai/settings.json` あり）は template を置き、もう一度実行しても 0。
+/// 研究の部品（block・pre_run・分野の観点・`project-brief.md`）は作らない。
 #[test]
 fn init_with_settings_places_templates_and_is_idempotent() {
     let temp = Temp::new("init-settings");
@@ -272,42 +300,41 @@ fn init_with_settings_places_templates_and_is_idempotent() {
     let first = run(&project, &temp.home(), Some(&project), &["init"]);
     assert!(first.status.success(), "1 回目: {}", String::from_utf8_lossy(&first.stderr));
     assert!(project.join(".sai/template/rag-simple.md").is_file(), "template が無い");
-    assert!(project.join(".sai/blocks/paper-debater.md").is_file(), "block が無い");
+    assert!(!project.join(".sai/blocks").exists(), "block を作っている");
+    assert!(
+        !project.join(".sai/template/project-brief.md").exists(),
+        "project-brief.md を作っている"
+    );
+    assert!(!project.join(".sai/paper/mind.md").exists(), "mind.md を作っている");
+    let settings = std::fs::read_to_string(project.join(".sai/settings.json")).unwrap();
+    assert!(!settings.contains("pre_run"), "pre_run を書いている");
 
     let second = run(&project, &temp.home(), Some(&project), &["init"]);
     assert_eq!(second.status.code(), Some(0), "2 回目: {}", String::from_utf8_lossy(&second.stderr));
 }
 
-/// `init --update` は template を入れ替えて `.bak` を作り、block の `model:` は残す。
+/// `init --update` は template を入れ替えて `.bak` を作る。
 #[test]
-fn init_update_replaces_template_and_keeps_block_model() {
+fn init_update_replaces_template_and_makes_a_backup() {
     let temp = Temp::new("init-update");
     let project = temp.project();
     std::fs::create_dir_all(project.join(".sai")).unwrap();
     std::fs::write(project.join(".sai/settings.json"), "{}\n").unwrap();
     assert!(run(&project, &temp.home(), Some(&project), &["init"]).status.success());
 
-    // 利用者が template を書き換え、block の model を変えたことにする。
+    // 利用者が template を書き換えたことにする。
     let template = project.join(".sai/template/rag-simple.md");
     let shipped_template = include_str!("../assets/template/rag-simple.md");
     std::fs::write(&template, "利用者が直した\n").unwrap();
-    let block = project.join(".sai/blocks/paper-debater.md");
-    let shipped_block = include_str!("../assets/blocks/paper-debater.md");
-    let customized = shipped_block.replace("model: inherit", "model: opus");
-    std::fs::write(&block, &customized).unwrap();
 
     let out = run(&project, &temp.home(), Some(&project), &["init", "--update"]);
     assert!(out.status.success(), "init --update が失敗: {}", String::from_utf8_lossy(&out.stderr));
 
     // template は新しい版になり、古い物は `.bak` に退避される。
     assert_eq!(std::fs::read_to_string(&template).unwrap(), shipped_template);
-    assert!(
-        std::fs::read_to_string(project.join(".sai/template/rag-simple.md.bak")).unwrap()
-            == "利用者が直した\n",
+    assert_eq!(
+        std::fs::read_to_string(project.join(".sai/template/rag-simple.md.bak")).unwrap(),
+        "利用者が直した\n",
         "`.bak` が無い"
     );
-
-    // block の model: は利用者の値のまま（新しい版の model: inherit で上書きされない）。
-    let block_text = std::fs::read_to_string(&block).unwrap();
-    assert!(block_text.contains("model: opus"), "model が残っていない: {block_text}");
 }

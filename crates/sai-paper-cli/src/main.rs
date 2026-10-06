@@ -4,8 +4,7 @@
 //! sai-paper-core を直接呼び出し、Node サブプロセスなしで動作する。
 //! DB は papr.db（引用テーブル 0016 含む）を共有する。
 
-use anyhow::{Context, Result, anyhow, bail};
-use chrono::{Duration, Local, NaiveDate};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sai_paper_core::citation;
 use sai_paper_core::{Config, Database, Paths, RemotePaper, S2Client};
@@ -14,27 +13,20 @@ use std::path::PathBuf;
 
 mod activity;
 mod agent_assets;
-mod attention;
 mod cli_error;
 mod content;
-mod dsr;
 mod expand;
 mod figures;
-mod handoff;
 mod index;
 mod litbase;
 mod mcp;
 mod phone;
 mod phone_cite;
 mod phone_import;
-mod phone_sci;
-mod progress;
 mod relayout;
-mod report;
 mod schema;
-mod sci;
+mod sci_bridge;
 mod search_sets;
-mod understanding;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -71,17 +63,17 @@ enum Cmd {
         /// Save results as a named search set.
         #[arg(long)]
         save_as: Option<String>,
-        /// 検索した研究方針の Node の ID（`Q12`・`O5` など）。記録と検索セットに残る
-        #[arg(long)]
+        /// （古い別名。`--node` があると `sai-sci search` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         node: Option<String>,
-        /// 何のための検索か
-        #[arg(long)]
+        /// （古い別名。`sai-sci search` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         purpose: Option<String>,
-        /// 読み、そこから抜き出す項目
-        #[arg(long)]
+        /// （古い別名。`sai-sci search` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         extract: Option<String>,
-        /// 範囲を広げた理由
-        #[arg(long)]
+        /// （古い別名。`sai-sci search` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         widen: Option<String>,
         /// JSON 出力（`{"log","items","failed"}`）
         #[arg(long)]
@@ -133,11 +125,11 @@ enum Cmd {
         /// 上位の結果に LLM の要約と関連度を付ける（費用がかかる。必要なときだけ）
         #[arg(long)]
         evidence: bool,
-        /// 研究方針の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
-        #[arg(long)]
+        /// （古い別名。`--node` があると `sai-sci find` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         node: Option<String>,
-        /// `--node` の子孫の Node も含める
-        #[arg(long)]
+        /// （古い別名。`sai-sci find` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         subtree: bool,
         /// 範囲の論文ごとに上位 m 件を返す（`--papers` か `--node` と一緒に使う）
         #[arg(long)]
@@ -269,34 +261,25 @@ enum Cmd {
         /// （古い・使わない）足りない部品だけを配る（今は付けない時と同じ）
         #[arg(long, hide = true)]
         assets_only: bool,
-        /// DSR が使う分野の観点
-        #[arg(long, default_value = "general", value_parser = ["medical", "signal-ml", "general"])]
+        /// （古い・使わない）分野の観点。`sai-sci init --domain` が配る
+        #[arg(long, hide = true, default_value = "general", value_parser = ["medical", "signal-ml", "general"])]
         domain: String,
         /// 部品を新しい版へ更新する（古い物は退避する）
         #[arg(long)]
         update: bool,
-        /// 研究方針の木（sai-sci）を使う（`--type` と一緒に使う）
-        #[arg(long)]
+        /// （古い別名）研究方針の木を作る（`sai-sci init` を呼ぶ。ガイド 4 で消す）
+        #[arg(long, hide = true)]
         sci: bool,
-        /// RESEARCH_TYPE（`--sci` と一緒に使う）
-        #[arg(long = "type", value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
+        /// （古い別名）RESEARCH_TYPE（`--sci` と一緒に使う。ガイド 4 で消す）
+        #[arg(long = "type", hide = true, value_parser = ["problem", "phenomenon", "method", "data", "improve"])]
         sci_type: Option<String>,
     },
-    /// エージェントに渡すプロジェクトの状況のまとめを作る
+    /// （古い別名）`sai-sci brief` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
     Brief {
-        /// `.sai/template/project-brief.md` に書く（既定は標準出力）
-        #[arg(long)]
-        write: bool,
-    },
-    /// 論文をエージェントに引き渡す (task.md 発行)
-    #[command(args_conflicts_with_subcommands = true)]
-    Handoff {
-        /// サブコマンド（無ければ今までどおりカードを作る）
-        #[command(subcommand)]
-        cmd: Option<handoff::HandoffCmd>,
-        /// カードを作る引数（サブコマンドなしで使う）
-        #[command(flatten)]
-        args: Box<handoff::HandoffCreateArgs>,
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// 論文本文 / 引用箇所 / report の内容を出力する（sai-link の入力展開用）
     Content {
@@ -304,50 +287,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: content::ContentCmd,
     },
-    /// DSR（研究用ブロック）の report を確かめる（LLM は使わない）
-    Dsr {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: dsr::DsrCmd,
-    },
     /// 「開いた」「エージェントが読んだ」の記録（N01）
     Activity {
         /// サブコマンド
         #[command(subcommand)]
         cmd: activity::ActivityCmd,
-    },
-    /// トピックごとの「理解の状態」の記録（N04）
-    Understanding {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: understanding::UnderstandingCmd,
-    },
-    /// プロジェクトの進み具合と「読むべき論文」を出す（N05）
-    Progress {
-        /// JSON で出力する
-        #[arg(long)]
-        json: bool,
-    },
-    /// 日ごとの研究日誌を出す（S01。記録を並べるだけで LLM は使わない）
-    Journal {
-        /// 今日を含む日数（既定 7）
-        #[arg(long, default_value_t = 7)]
-        days: i64,
-        /// この日だけを出す（YYYY-MM-DD）。指定すると `--days` は無視される
-        #[arg(long)]
-        date: Option<String>,
-        /// JSON で出力する
-        #[arg(long)]
-        json: bool,
-    },
-    /// 要対応の一覧と「対応済み」の記録（S02。`attention resolve <key>`）
-    Attention {
-        /// サブコマンド（無ければ一覧を出す）
-        #[command(subcommand)]
-        cmd: Option<attention::AttentionCmd>,
-        /// JSON で出力する
-        #[arg(long)]
-        json: bool,
     },
     /// 設定（`.sai/paper/settings.json`）を確かめる
     Config {
@@ -355,17 +299,54 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
-    /// agent の report の登録・参照
-    Report {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: report::ReportCmd,
+    /// （古い別名）`sai-sci dsr` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
+    Dsr {
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
-    /// 研究方針の木（sai-sci）
+    /// （古い別名）`sai-sci understanding` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
+    Understanding {
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// （古い別名）`sai-sci progress` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
+    Progress {
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// （古い別名）`sai-sci journal` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
+    Journal {
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// （古い別名）`sai-sci attention` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
+    Attention {
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// （古い別名）`sai-sci report` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
+    Report {
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// （古い別名）`sai-sci` を呼ぶ。ガイド 4 で消す
+    #[command(hide = true)]
     Sci {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: sci::SciCmd,
+        /// そのまま `sai-sci` に渡す引数
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// 命令の一覧を JSON で出す
     Schema {
@@ -678,37 +659,6 @@ pub(crate) fn open_database() -> Result<Database> {
     Database::open(&paths.database_file).context("failed to open papr.db")
 }
 
-/// `sai-moon-paper journal` — 日ごとの研究日誌を出す（S01）。
-///
-/// `--date` があればその 1 日、無ければ今日を含む `--days` 日。`--json` なら
-/// [`sai_sci_core::journal::JournalDay`] の配列、人向けは
-/// [`sai_sci_core::journal::render_markdown`] の結果を出す。
-fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
-    let db = open_database()?;
-    let roots = sai_paper_core::paths::paper_roots()
-        .context("プロジェクトルート（.sai/paper）が見つかりません")?;
-    let today = Local::now().date_naive();
-    let (from, to) = match date {
-        Some(value) => {
-            let day = NaiveDate::parse_from_str(value, "%Y-%m-%d")
-                .with_context(|| format!("--date は YYYY-MM-DD の形で指定してください: {value}"))?;
-            (day, day)
-        }
-        None => {
-            let days = days.max(1);
-            (today - Duration::days(days - 1), today)
-        }
-    };
-    let journal = sai_sci_core::journal::collect(db.connection(), &roots, from, to)?;
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&journal)?);
-    } else {
-        print!("{}", sai_sci_core::journal::render_markdown(&journal));
-    }
-    Ok(())
-}
-
 /// 複数 DB で検索し、重複を除いた結果と、実際に使った DB 一覧、失敗した DB を返す。
 ///
 /// 検索そのものは [`sai_paper_core::api::run_search`]（core）にある。
@@ -783,8 +733,6 @@ async fn enrich_retraction(force: bool) -> Result<()> {
         }
     }
 
-    sai_sci_core::reports::refresh_retracted_issues(db.connection())
-        .context("撤回を引用した report の更新に失敗")?;
     if retracted.is_empty() {
         println!("撤回: 0 本");
     } else {
@@ -794,45 +742,6 @@ async fn enrich_retraction(force: bool) -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         println!("撤回: {} 本（{list}）", retracted.len());
-    }
-    Ok(())
-}
-
-/// エージェントに渡すプロジェクトの状況のまとめ（brief）を作る。
-///
-/// `--write` で `<root>/.sai/template/project-brief.md` に書き、書いたパスを標準エラーに出す。
-/// `papr.db` が無い・開けないときは数字の行だけ「（papr.db を開けません）」にし、
-/// 他は出す（brief の失敗でエージェントの起動を止めないため）。設定ファイルが
-/// 無いときも既定値で続ける。
-fn handle_brief(write: bool) -> Result<()> {
-    let paths = Paths::discover()?;
-    let roots =
-        sai_paper_core::paths::paper_roots().context("研究プロジェクトのルートを解決できません")?;
-    let config = Config::load(&paths.config_file).unwrap_or_default();
-    let db = if paths.database_file.exists() {
-        Database::open(&paths.database_file).ok()
-    } else {
-        None
-    };
-    // `--write` のときは、最初に成果物のフォルダを走査して report を登録する。
-    // 失敗しても brief は作る（標準エラーに 1 行）。
-    if write
-        && let Some(db) = db.as_ref()
-        && let Err(error) = sai_sci_core::reports::scan(db.connection(), &roots.root)
-    {
-        eprintln!("report scan: {error}");
-    }
-    let text = sai_sci_core::brief::build_brief(
-        &roots,
-        db.as_ref().map(Database::connection),
-        &config.brief,
-        &config.rag.default_index,
-    );
-    if write {
-        let path = sai_sci_core::brief::write_brief(&roots, &text)?;
-        eprintln!("{}", path.display());
-    } else {
-        print!("{text}");
     }
     Ok(())
 }
@@ -961,38 +870,6 @@ fn paper_paths(paper_dir: &std::path::Path) -> Paths {
     }
 }
 
-/// mind.md / state.md のひな形を配り、状況まとめ（`project-brief.md`）を 1 回作る。
-///
-/// 失敗しても init は成功扱いにし、警告だけ出す（sai-link はプレースホルダの
-/// `project-brief.md` でも動くため）。`conn` は `papr.db`（無ければ `None`）。
-fn ensure_project_files_and_brief(
-    paths: &Paths,
-    root: &std::path::Path,
-    paper_dir: &std::path::Path,
-    conn: Option<&rusqlite::Connection>,
-) {
-    match sai_sci_core::project_files::ensure(paper_dir) {
-        Ok(written) => {
-            for path in written {
-                println!("✅ {} を作りました", path.display());
-            }
-        }
-        Err(e) => eprintln!("⚠ mind.md / state.md を作れませんでした: {e}"),
-    }
-
-    let roots = sai_paper_core::paths::PaperRoots {
-        root: root.to_path_buf(),
-        data_dir: paper_dir.to_path_buf(),
-    };
-    let config = Config::load(&paths.config_file).unwrap_or_default();
-    let text =
-        sai_sci_core::brief::build_brief(&roots, conn, &config.brief, &config.rag.default_index);
-    match sai_sci_core::brief::write_brief(&roots, &text) {
-        Ok(path) => println!("✅ 状況まとめを作りました: {}", path.display()),
-        Err(e) => eprintln!("⚠ 状況まとめを作れませんでした: {e}"),
-    }
-}
-
 /// `--sci` と `--type` の組み合わせを確かめる（どちらか片方だけならエラー）。
 ///
 /// # Errors
@@ -1007,44 +884,26 @@ fn check_sci_args(sci: bool, sci_type: Option<&str>) -> Result<()> {
     }
 }
 
-/// `init --sci` の木の部分（型とガイドの書き出し・骨組み・state.md と tree.md の書き出し）。
-///
-/// 部品の配り（[`agent_assets::install_sci_here`]）は、mind.md のひな形を
-/// 土壌のものにするため、これより前に [`handle_init`] が呼ぶ。
-///
-/// # Errors
-/// 研究プロジェクトを開けないとき、木を作れないとき、書き出しに失敗したとき。
-fn init_sci_tree(root: &std::path::Path, type_id: &str) -> Result<()> {
-    let outcome =
-        sci::init_tree_and_export(root, type_id).context("研究方針の木を作れませんでした")?;
-    if outcome.already {
-        // 既にある木を作り直さない（状態の衝突、終了コード 4）。
-        return Err(crate::cli_error::CliError::conflict(format!(
-            "研究方針の木は既にあります（型: {}）",
-            outcome.type_name
-        ))
-        .into());
-    }
-    let text = outcome.text();
-    print!("✅ {text}");
-    if !text.ends_with('\n') {
-        println!();
-    }
-    Ok(())
-}
-
 /// 研究プロジェクトを初期化する（`.sai/paper/` と `papr.db`）。
 ///
 /// root は `SAI_PROJECT_ROOT`（空でない値）→ cwd。`.sai/paper/` と `papr.db` を作り、
-/// `sai-moon-link init` は呼ばない。sai-link が初期化済み（`.sai/settings.json` がある）
-/// のときだけ、block・template・設定・MCP を配る。初期化済みでも失敗にしない。
+/// `sai-link init` は呼ばない。sai-link が初期化済み（`.sai/settings.json` がある）
+/// のときだけ、template・設定・MCP を配る。初期化済みでも失敗にしない。
 ///
-/// `domain` は DSR が使う分野の観点（`medical` / `signal-ml` / `general`）。
-/// `update` が `true` のときは、古い block・template・分野の見本を退避して新しい版に置き換える。
+/// `update` が `true` のときは、古い template を退避して新しい版に置き換える。
 ///
-/// `sci_type` が `Some` のときは研究方針の木も作る（sai-link の初期化が要る）。
-fn handle_init(domain: &str, update: bool, sci_flag: bool, sci_type: Option<&str>) -> Result<()> {
+/// `--sci --type K` は `sai-sci init --type K` の別名（ガイド 4 で消す）。
+fn handle_init(update: bool, sci_flag: bool, sci_type: Option<&str>) -> Result<()> {
     check_sci_args(sci_flag, sci_type)?;
+    // 研究方針の木は sai-sci が作る（sai-paper は研究を知らない）。
+    if let Some(type_id) = sci_type {
+        let args = vec![
+            "init".to_string(),
+            "--type".to_string(),
+            type_id.to_string(),
+        ];
+        sci_bridge::exec(&args, 1);
+    }
     // root は `SAI_PROJECT_ROOT`（空でない値）→ cwd。上へたどらない。
     let root = match std::env::var("SAI_PROJECT_ROOT") {
         Ok(value) if !value.is_empty() => PathBuf::from(value),
@@ -1056,47 +915,21 @@ fn handle_init(domain: &str, update: bool, sci_flag: bool, sci_type: Option<&str
     let link_initialized = sai_dir.join("settings.json").is_file();
 
     // `.sai/paper/` の置き場と DB・settings.json を作る（あれば何もしない）。
-    // `sai-moon-link init` は呼ばない（sai-paper は単独で使える）。
+    // `sai-link init` は呼ばない（sai-paper は単独で使える）。
     for dir in ["papers", "extracts", "bibtex", "plugins"] {
         std::fs::create_dir_all(paper_dir.join(dir))?;
     }
     let paths = paper_paths(&paper_dir);
-    let database = Database::open(&paths.database_file).context("papr.db の作成に失敗")?;
+    Database::open(&paths.database_file).context("papr.db の作成に失敗")?;
     sai_paper_core::Config::load_or_create(&paths).context("settings.json の作成に失敗")?;
 
-    // sai-link の部品（block・template・設定・MCP）は、初期化済みのときだけ配る。
+    // sai-link の部品（template・設定・MCP）は、初期化済みのときだけ配る。
     if link_initialized {
         for line in agent_assets::install_here(&root, update)
             .context("エージェントの部品を配れませんでした")?
         {
             println!("✅ {line}");
         }
-        for line in agent_assets::install_domain(&root, domain, update)
-            .context("分野の観点を配れませんでした")?
-        {
-            println!("✅ {line}");
-        }
-        if sci_type.is_some() {
-            for line in agent_assets::install_sci_parts_here(&root)
-                .context("sci の部品を配れませんでした")?
-            {
-                println!("✅ {line}");
-            }
-        }
-    }
-
-    // mind.md / state.md のひな形と、最初の状況まとめを作る。
-    ensure_project_files_and_brief(&paths, &root, &paper_dir, Some(database.connection()));
-
-    // 研究方針の木は sai-link の block を使うので、初期化済みでなければ断る。
-    if let Some(type_id) = sci_type {
-        if !link_initialized {
-            return Err(cli_error::CliError::input(
-                "研究方針の木を使うには sai-link の初期化が要ります（`sai-moon-link init` のあとで `sai-moon-paper init --sci --type …` を実行してください）",
-            )
-            .into());
-        }
-        init_sci_tree(&root, type_id)?;
     }
 
     println!(
@@ -1105,18 +938,10 @@ fn handle_init(domain: &str, update: bool, sci_flag: bool, sci_type: Option<&str
     );
     if !link_initialized {
         println!(
-            "   sai-link と使うときは、`sai-moon-link init` のあとで `sai-moon-paper init` をもう一度実行してください"
+            "   sai-link と使うときは、`sai-link init` のあとで `sai-moon-paper init` をもう一度実行してください"
         );
     }
     Ok(())
-}
-
-/// 検索結果から論文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
-fn paper_ids_of_hits(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
-    let mut ids: Vec<i64> = hits.iter().filter_map(|hit| hit.paper_id).collect();
-    ids.sort_unstable();
-    ids.dedup();
-    ids
 }
 
 /// `sai-moon-paper search --save-as <名前>` の保存（U06）。
@@ -1248,6 +1073,28 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             widen,
             json,
         }) => {
+            // `--node`・`--purpose`・`--extract`・`--widen` は sai-sci の別名（ガイド 4 で消す）。
+            if node.is_some() || purpose.is_some() || extract.is_some() || widen.is_some() {
+                let mut args = vec!["search".to_string(), query.clone()];
+                push_flag(&mut args, "--node", node.as_deref());
+                push_flag(&mut args, "--purpose", purpose.as_deref());
+                push_flag(&mut args, "--extract", extract.as_deref());
+                push_flag(&mut args, "--widen", widen.as_deref());
+                for database in &db {
+                    args.push("--db".to_string());
+                    args.push(database.clone());
+                }
+                args.push("--limit".to_string());
+                args.push(limit.to_string());
+                push_flag(&mut args, "--year-from", year_from.map(|y| y.to_string()).as_deref());
+                push_flag(&mut args, "--year-to", year_to.map(|y| y.to_string()).as_deref());
+                push_flag(&mut args, "--raw-query", raw_query.as_deref());
+                push_flag(&mut args, "--save-as", save_as.as_deref());
+                if json {
+                    args.push("--json".to_string());
+                }
+                sci_bridge::exec(&args, 1);
+            }
             handle_search(SearchArgs {
                 query,
                 db,
@@ -1256,10 +1103,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 year_to,
                 raw_query,
                 save_as,
-                node,
-                purpose,
-                extract,
-                widen,
                 json,
             })
             .await?;
@@ -1347,21 +1190,18 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         Some(Cmd::Init {
             name: _,
             assets_only: _,
-            domain,
+            domain: _,
             update,
             sci,
             sci_type,
         }) => {
-            handle_init(&domain, update, sci, sci_type.as_deref())?;
+            handle_init(update, sci, sci_type.as_deref())?;
         }
-        Some(Cmd::Brief { write }) => {
-            handle_brief(write)?;
+        Some(Cmd::Brief { args }) => {
+            sci_bridge::exec(&alias_args("brief", &args), 1);
         }
         Some(Cmd::Set { cmd }) => {
             search_sets::handle_search_set(cmd).await?;
-        }
-        Some(Cmd::Handoff { cmd, args }) => {
-            handoff::handle_handoff(cmd, *args).await?;
         }
         Some(Cmd::Index { cmd }) => {
             index::handle_index(cmd).await?;
@@ -1385,6 +1225,47 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             widen,
             json,
         }) => {
+            // `--node`・`--subtree` は sai-sci の別名（ガイド 4 で消す）。
+            if node.is_some() || subtree {
+                let mut args = vec!["find".to_string(), query.clone()];
+                push_flag(&mut args, "--mode", mode.as_deref());
+                push_i64_flag(&mut args, "--top-k", top_k);
+                push_i64_flag(&mut args, "--per-paper", per_paper);
+                push_flag(&mut args, "--scope", scope.as_deref());
+                for one in &paper {
+                    args.push("--paper".to_string());
+                    args.push(one.to_string());
+                }
+                if !papers.is_empty() {
+                    args.push("--papers".to_string());
+                    args.push(
+                        papers
+                            .iter()
+                            .map(i64::to_string)
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                }
+                push_flag(&mut args, "--index", index.as_deref());
+                push_f64_flag(&mut args, "--alpha", alpha);
+                push_flag(&mut args, "--fusion", fusion.as_deref());
+                if fts_expr {
+                    args.push("--fts-expr".to_string());
+                }
+                if evidence {
+                    args.push("--evidence".to_string());
+                }
+                push_flag(&mut args, "--node", node.as_deref());
+                if subtree {
+                    args.push("--subtree".to_string());
+                }
+                push_i64_flag(&mut args, "--each", each);
+                push_flag(&mut args, "--widen", widen.as_deref());
+                if json {
+                    args.push("--json".to_string());
+                }
+                sci_bridge::exec(&args, 1);
+            }
             handle_find(FindCliArgs {
                 query,
                 mode,
@@ -1398,8 +1279,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 fusion,
                 fts_expr,
                 evidence,
-                node,
-                subtree,
                 each,
                 widen,
                 json,
@@ -1505,8 +1384,11 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         }) => {
             figures::handle_figures(paper_ids, all, force).await?;
         }
-        Some(Cmd::Report { cmd }) => {
-            report::handle_report(cmd).await?;
+        Some(Cmd::Report { args }) => {
+            // `report prepare` だけは、sai-sci が見つからないとき 2 で終わる
+            // （sai-link の `write_check` が 1 を「断った」と読むため）。
+            let missing_code = if args.first().map(String::as_str) == Some("prepare") { 2 } else { 1 };
+            sci_bridge::exec(&alias_args("report", &args), missing_code);
         }
         Some(Cmd::Enrich { retraction, force }) => {
             if !retraction {
@@ -1517,26 +1399,39 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         Some(Cmd::Content { cmd }) => {
             content::handle_content(cmd).await?;
         }
-        Some(Cmd::Dsr { cmd }) => {
-            dsr::handle(cmd)?;
+        Some(Cmd::Dsr { args }) => {
+            sci_bridge::exec(&alias_args("dsr", &args), 1);
         }
         Some(Cmd::Activity { cmd }) => {
             activity::handle(cmd)?;
         }
-        Some(Cmd::Understanding { cmd }) => {
-            understanding::handle(cmd)?;
+        Some(Cmd::Understanding { args }) => {
+            sci_bridge::exec(&alias_args("understanding", &args), 1);
         }
-        Some(Cmd::Progress { json }) => {
-            progress::handle(json)?;
+        Some(Cmd::Progress { args }) => {
+            sci_bridge::exec(&alias_args("progress", &args), 1);
         }
-        Some(Cmd::Journal { days, date, json }) => {
-            handle_journal(days, date.as_deref(), json)?;
+        Some(Cmd::Journal { args }) => {
+            sci_bridge::exec(&alias_args("journal", &args), 1);
         }
-        Some(Cmd::Attention { cmd, json }) => {
-            attention::handle(cmd, json)?;
+        Some(Cmd::Attention { args }) => {
+            // 下位の命令（`resolve`）が無いときは一覧（`attention list`）にする。
+            let mut full = vec!["attention".to_string()];
+            match args.first() {
+                Some(first) if !first.starts_with('-') => full.extend(args.iter().cloned()),
+                _ => {
+                    full.push("list".to_string());
+                    full.extend(args.iter().cloned());
+                }
+            }
+            sci_bridge::exec(&full, 1);
         }
-        Some(Cmd::Sci { cmd }) => {
-            sci::run(cmd)?;
+        Some(Cmd::Sci { args }) => {
+            // `sci init --json` だけは `tree` を取り出して出す。ほかはそのまま渡す。
+            if args.first().map(String::as_str) == Some("init") && args.iter().any(|a| a == "--json") {
+                sci_bridge::run_init_tree(&args);
+            }
+            sci_bridge::exec(&args, 1);
         }
         Some(Cmd::Phone { cmd }) => {
             phone::handle(cmd, &client).await?;
@@ -1562,7 +1457,38 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
     Ok(())
 }
 
-/// `search` の引数（clap の [`Cmd::Search`] の 1 対 1）。
+/// 古い別名の引数を、先頭の命令名付きで `sai-sci` に渡す形にする。
+fn alias_args(name: &str, args: &[String]) -> Vec<String> {
+    let mut out = vec![name.to_string()];
+    out.extend(args.iter().cloned());
+    out
+}
+
+/// 値のある任意の引数を足す。
+fn push_flag(out: &mut Vec<String>, name: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        out.push(name.to_string());
+        out.push(value.to_string());
+    }
+}
+
+/// 整数の任意の引数を足す。
+fn push_i64_flag(out: &mut Vec<String>, name: &str, value: Option<i64>) {
+    if let Some(value) = value {
+        out.push(name.to_string());
+        out.push(value.to_string());
+    }
+}
+
+/// 小数の任意の引数を足す。
+fn push_f64_flag(out: &mut Vec<String>, name: &str, value: Option<f64>) {
+    if let Some(value) = value {
+        out.push(name.to_string());
+        out.push(value.to_string());
+    }
+}
+
+/// `search` の引数（clap の [`Cmd::Search`] の 1 対 1。研究の引数は別名が先に取る）。
 struct SearchArgs {
     query: String,
     db: Vec<String>,
@@ -1571,10 +1497,6 @@ struct SearchArgs {
     year_to: Option<u16>,
     raw_query: Option<String>,
     save_as: Option<String>,
-    node: Option<String>,
-    purpose: Option<String>,
-    extract: Option<String>,
-    widen: Option<String>,
     json: bool,
 }
 
@@ -1588,10 +1510,6 @@ async fn handle_search(args: SearchArgs) -> Result<()> {
         year_to,
         raw_query,
         save_as,
-        node,
-        purpose,
-        extract,
-        widen,
         json,
     } = args;
     let query = query.trim();
@@ -1605,8 +1523,6 @@ async fn handle_search(args: SearchArgs) -> Result<()> {
         run_search(&cfg, query, &db, limit, year_from, year_to, raw_query.as_deref()).await?;
 
     let conn = database.connection();
-    // Node（`--node`）は、記録とセットに書く前に読む。
-    let refs = sci::parse_search_refs(conn, node.as_deref())?;
     let source_dbs_str = dbs_to_use.join(",");
     let year = phone::year_label(year_from, year_to);
     let origin = origin_name();
@@ -1632,31 +1548,10 @@ async fn handle_search(args: SearchArgs) -> Result<()> {
         )?),
         None => None,
     };
-    // 履歴とセットの両方に、実行した run と、何のための検索かを書く。
-    let fields = sci::set_fields(&refs, purpose.as_deref(), extract.as_deref());
+    // 履歴とセットの両方に、実行した run を書く（エージェントの検索を人と見分ける）。
     for id in std::iter::once(log_id).chain(set_id) {
-        sai_paper_core::search_log::set_run_id(conn, id, sci::parent_run_id())?;
-        if let Some(fields) = &fields {
-            sai_paper_core::search_sets::set_sci_fields(conn, id, fields)
-                .context("検索セットに検索の目的を書けませんでした")?;
-        }
+        sai_paper_core::search_log::set_run_id(conn, id, sci_bridge::parent_run_id())?;
     }
-    // Node が指定されたときだけ木の検索記録を残す（record_search が node の有無を見る）。
-    let scope = format!("external:{source_dbs_str}");
-    sci::record_search(
-        conn,
-        &sci::SearchLog {
-            refs: &refs,
-            tool: "search",
-            query,
-            scope: &scope,
-            widen_reason: widen.as_deref().unwrap_or(""),
-            hits: deduped.len() as i64,
-            hit_papers: &[],
-            set_id,
-            log_id: Some(log_id),
-        },
-    )?;
     // Dashboard の出来事に「discover」として残すのは、窓口から呼ばれたときだけ。
     if origin == "phone" {
         database.record_activity("discover", None, Some(query))?;
@@ -1705,8 +1600,6 @@ struct FindCliArgs {
     fusion: Option<String>,
     fts_expr: bool,
     evidence: bool,
-    node: Option<String>,
-    subtree: bool,
     each: Option<i64>,
     widen: Option<String>,
     json: bool,
@@ -1729,8 +1622,6 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
         fusion,
         fts_expr,
         evidence,
-        node,
-        subtree,
         each,
         widen,
         json,
@@ -1758,28 +1649,15 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
     // `--paper`（繰り返し）と `--papers`（コンマ区切り）を 1 つの列にまとめる。
     let mut all_papers = paper;
     all_papers.extend(papers);
-    // `--subtree` と `--each` には範囲の指定が要る（MCP の find も同じ検査）。
-    sci::check_find_scope(subtree, node.is_some(), each, all_papers.is_empty())?;
+    // `--each` には範囲の指定が要る（Node の指定は別名が先に取る）。
+    if each.is_some() && all_papers.is_empty() {
+        return Err(cli_error::CliError::input("--each は --papers と一緒に使います").into());
+    }
 
     let (db, config, _paths) = phone::open_context()?;
     let conn = db.connection();
-    // Node（`--node`）は、範囲を決める前に読む。
-    let refs = sci::parse_search_refs(conn, node.as_deref())?;
-    let (paper_ids, scope_note) = sai_sci_core::rt::scope::resolve_scope(
-        conn,
-        None,
-        &all_papers,
-        refs.node,
-        subtree,
-    )
-    .map_err(|err| anyhow!("{err}"))?;
-
-    // 前の検索を見る（`--json` の無い出力の 1 行目に出す）。
-    let previous = if json {
-        None
-    } else {
-        sci::previous_search_line(conn, &refs, &scope_note)
-    };
+    let (paper_ids, scope_note) =
+        sai_paper_core::retrieval::resolve_paper_scope(conn, None, &all_papers)?;
 
     // 内部検索の履歴に残す範囲のコピー（request が値を動かすため先に写す）。
     let log_mode = mode.clone();
@@ -1832,50 +1710,17 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
             scope: log_scope.as_deref(),
             range_text: &scope_note,
             papers: &log_papers,
-            node_id: refs.node,
-            subtree,
+            node_id: None,
+            subtree: false,
             each,
             widen_reason: widen.as_deref().unwrap_or(""),
             origin: origin_name(),
-            run_id: sci::parent_run_id(),
+            run_id: sci_bridge::parent_run_id(),
         },
         &plain_hits,
         &passages,
     )?;
-    // Node の指定があれば木の検索記録に残す（R-R3 / R-R4）。
-    let (hit_count, hit_papers): (i64, Vec<i64>) = match &outcome {
-        sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
-            (hits.len() as i64, paper_ids_of_hits(hits))
-        }
-        sai_paper_core::evidence::SearchOutcome::Evidence(result) => (
-            result.hits.len() as i64,
-            paper_ids_of_hits(
-                &result
-                    .hits
-                    .iter()
-                    .map(|item| item.hit.clone())
-                    .collect::<Vec<_>>(),
-            ),
-        ),
-    };
-    sci::record_search(
-        conn,
-        &sci::SearchLog {
-            refs: &refs,
-            tool: "find",
-            query,
-            scope: &scope_note,
-            widen_reason: widen.as_deref().unwrap_or(""),
-            hits: hit_count,
-            hit_papers: &hit_papers,
-            set_id: None,
-            log_id: None,
-        },
-    )?;
 
-    if let Some(previous) = previous {
-        println!("{previous}");
-    }
     if json {
         let mut value = phone::find_log_view(&db, log_id)?;
         if let sai_paper_core::evidence::SearchOutcome::Evidence(result) = &outcome

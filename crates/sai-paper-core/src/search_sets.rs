@@ -226,6 +226,21 @@ pub fn set_sci_fields(conn: &Connection, set_id: i64, fields: &SciSetFields) -> 
     Ok(())
 }
 
+/// 研究方針の木の Node の番号から、外に出す形の文字（例 `O5`）を作る。
+///
+/// `sai-sci-core::rt::fmt_id` と同じ形（`<種類><番号>`）を、`papr.db` の `rt_nodes` を
+/// SQL で読んで作る。sai-paper は sai-sci に依存しないため、ここに置いてある。
+/// 消えた Node（`removed_at` がある）も、`get_node` と同じく返す。
+/// 表が無い・行が無いときは `None`。
+pub fn rt_label(conn: &Connection, node_id: i64) -> Option<String> {
+    let kind: String = conn
+        .query_row("SELECT kind FROM rt_nodes WHERE id = ?1", [node_id], |row| {
+            row.get(0)
+        })
+        .ok()?;
+    Some(format!("{kind}{node_id}"))
+}
+
 /// セットの全候補を取得する。
 ///
 /// # Errors

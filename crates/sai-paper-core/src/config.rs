@@ -13,7 +13,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ConfigError {
     /// 研究プロジェクト（`.sai/`）が見つからなかった（CLI 共通の約束で終了コード 2）。
-    #[error("プロジェクトが見つかりません（`sai-moon-link init` か `sai-moon-paper init` を実行してください）")]
+    #[error("プロジェクトが見つかりません（`sai-link init` か `sai-moon-paper init` を実行してください）")]
     ProjectNotFound,
     /// プロジェクトはあるが、論文の置き場（`.sai/paper/`）が無かった（終了コード 2）。
     #[error("論文の置き場がありません（`sai-moon-paper init` を実行してください）")]

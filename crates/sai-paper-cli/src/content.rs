@@ -9,7 +9,6 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 use rusqlite::Connection;
 use sai_paper_core::{Paths, citation, figures, sections};
-use sai_sci_core::reports;
 use std::path::Path;
 
 use crate::open_database;
@@ -245,7 +244,14 @@ pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
         ContentCmd::Build { paper_ids, all, force, summarize } => build(paper_ids, all, force, summarize).await,
         ContentCmd::Paper { paper_id, json } => print_paper(paper_id, json),
         ContentCmd::Chunk { chunk_id, json } => print_chunk(chunk_id, json),
-        ContentCmd::Report { report_id, json } => print_report(&report_id, json),
+        ContentCmd::Report { report_id, json } => {
+            // report は sai-sci が持つ（ガイド 4 で消す一時の別名）。
+            let mut args = vec!["report".to_string(), "content".to_string(), report_id];
+            if json {
+                args.push("--json".to_string());
+            }
+            crate::sci_bridge::exec(&args, 1);
+        }
     }
 }
 
@@ -340,33 +346,6 @@ fn print_chunk(chunk_id: i64, json: bool) -> Result<()> {
         "extract"
     };
     crate::activity::record_agent_read("cli", target, paper_id, None);
-    Ok(())
-}
-
-/// report の md 全文を出力する。
-fn print_report(report_id: &str, json: bool) -> Result<()> {
-    let db = open_database()?;
-    let conn = db.connection();
-    let report = reports::get_report(conn, report_id)
-        .context("report の取得に失敗")?
-        .with_context(|| format!("report が見つかりません: {report_id}"))?;
-    let text = reports::read_report_markdown(conn, report_id)
-        .with_context(|| format!("report 本文の読み出しに失敗: {report_id}"))?;
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "id": report.id,
-                "title": report.title,
-                "text": text,
-            })
-        );
-    } else {
-        print!("{text}");
-    }
-    // エージェントが report を読んだ記録（失敗しても本文の出力は止めない）。
-    let report_path = reports::resolve_md_path(&report);
-    crate::activity::record_agent_read("cli", "report", None, report_path.as_deref());
     Ok(())
 }
 

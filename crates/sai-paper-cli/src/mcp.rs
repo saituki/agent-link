@@ -13,6 +13,17 @@ use serde_json::{Value, json};
 /// 応答する MCP のプロトコル版（相手が別の版を言えばそれに合わせる）。
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
+/// `sci_propose` の入力の型（`sai-sci-core` の `propose_schema()` の写し）。
+///
+/// sai-paper は sai-sci に依存しないため、形をここに写してある。
+/// この道具はガイド 4 で MCP ごと消す。
+const SCI_PROPOSE_SCHEMA: &str = include_str!("../assets/sci_propose_schema.json");
+
+/// `sci_propose` の入力の型を JSON として読む（読めなければ空の形）。
+fn propose_schema() -> Value {
+    serde_json::from_str(SCI_PROPOSE_SCHEMA).unwrap_or_else(|_| json!({"type": "object"}))
+}
+
 /// 道具の一覧（`tools/list` の応答）。
 pub fn tools() -> Value {
     let index = json!({"type": "string", "description": "索引の名前（省略時は settings.json の rag.default_index）"});
@@ -98,7 +109,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_context",
-            "description": "今の実行の文脈（研究方針の木から範囲を切り出したもの・出せる PROPOSAL の op の説明）を返す",
+            "description": "今の実行の文脈（研究方針の木から範囲を切り出したもの・出せる PROPOSAL の op の説明）を返す（古い別名。ガイド 4 で MCP ごと消す）",
             "inputSchema": {"type": "object", "properties": {
                 "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
                 "scope": {"type": "string", "enum": ["node", "path", "subtree", "siblings", "summary", "blind"]},
@@ -106,23 +117,20 @@ pub fn tools() -> Value {
         },
         {
             "name": "sci_status",
-            "description": "研究方針の木の全体（Q・O・F・E、Objectivity・Logicality、進み具合、SEED、Next Action、DEBT）。brief を true にすると進み具合・Next Action・DEBT の数・注意だけになる",
+            "description": "研究方針の木の全体（Q・O・F・E、Objectivity・Logicality、進み具合、SEED、Next Action、DEBT）。brief を true にすると進み具合・Next Action・DEBT の数・注意だけになる（古い別名。ガイド 4 で MCP ごと消す）",
             "inputSchema": {"type": "object", "properties": {
                 "brief": {"type": "boolean", "description": "true のとき進み具合・Next Action・DEBT の数・注意だけ返す（短い文脈で現在地を読む）"},
             }},
         },
         {
             "name": "sci_node",
-            "description": "Node 1 つの中身（親までの道・子・ガイド・Logicality の記録・決定の記録・Action の履歴・仕分け待ち・Next Action・検索の記録）",
+            "description": "Node 1 つの中身（親までの道・子・ガイド・Logicality の記録・決定の記録・Action の履歴・仕分け待ち・Next Action・検索の記録）（古い別名。ガイド 4 で MCP ごと消す）",
             "inputSchema": {"type": "object", "properties": {"node": {"type": "string", "description": "Q12・O5・F3・E2 の形"}}, "required": ["node"]},
         },
         {
             "name": "sci_propose",
-            "description": "研究方針の木への変更を PROPOSAL として出す。O・F・E・Logicality はすぐ入り、Q を足す・写す・✕ は利用者が仕分けてから入る。★ などは出せない。1 件でも違反があれば何も入らない",
-            "inputSchema": {"type": "object", "properties": {
-                "proposals": {"type": "array", "items": sai_sci_core::rt::ops::propose_schema()["properties"]["proposals"]["items"].clone(), "description": "1 件ずつの PROPOSAL。op ごとに必要な項目と型が決まっている（oneOf）"},
-                "run_id": {"type": "integer", "description": "省略時は環境変数 SAI_PARENT_RUN_ID"},
-            }, "required": ["proposals"]},
+            "description": "研究方針の木への変更を PROPOSAL として出す。O・F・E・Logicality はすぐ入り、Q を足す・写す・✕ は利用者が仕分けてから入る。★ などは出せない。1 件でも違反があれば何も入らない（古い別名。ガイド 4 で MCP ごと消す）",
+            "inputSchema": propose_schema(),
         },
     ])
 }
@@ -150,36 +158,77 @@ fn open() -> Result<(Database, Config)> {
     Ok((db, config))
 }
 
-/// 検索結果から論文の番号を取り出す（重複なし・昇順。検索の記録に残す）。
-fn paper_ids_of(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
-    let mut ids: Vec<i64> = hits.iter().filter_map(|hit| hit.paper_id).collect();
-    ids.sort_unstable();
-    ids.dedup();
-    ids
-}
-
 /// 道具を 1 回呼ぶ。戻り値は CLI の `--json` と同じ JSON。
 pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
     match name {
         "find" => {
             // 引数の検査は DB を開く前に行う（DB が開けないときも同じエラーの文になる）。
             let query = str_arg(args, "query").ok_or_else(|| anyhow!("query が必要です"))?;
+            // 研究方針の Node があれば sai-sci が範囲を決めて記録する（古い別名。ガイド 4 で消す）。
+            if let Some(node) = str_arg(args, "node") {
+                let mut child = vec!["find".to_string(), query, "--node".to_string(), node];
+                if args.get("subtree").and_then(Value::as_bool).unwrap_or(false) {
+                    child.push("--subtree".to_string());
+                }
+                if let Some(each) = int_arg(args, "each") {
+                    child.push("--each".to_string());
+                    child.push(each.to_string());
+                }
+                if let Some(widen) = str_arg(args, "widen") {
+                    child.push("--widen".to_string());
+                    child.push(widen);
+                }
+                if let Some(mode) = str_arg(args, "mode") {
+                    child.push("--mode".to_string());
+                    child.push(mode);
+                }
+                if let Some(top_k) = int_arg(args, "top_k") {
+                    child.push("--top-k".to_string());
+                    child.push(top_k.to_string());
+                }
+                if let Some(per_paper) = int_arg(args, "per_paper") {
+                    child.push("--per-paper".to_string());
+                    child.push(per_paper.to_string());
+                }
+                if let Some(scope) = str_arg(args, "scope") {
+                    child.push("--scope".to_string());
+                    child.push(scope);
+                }
+                if let Some(index) = str_arg(args, "index") {
+                    child.push("--index".to_string());
+                    child.push(index);
+                }
+                if let Some(paper_id) = int_arg(args, "paper_id") {
+                    child.push("--paper".to_string());
+                    child.push(paper_id.to_string());
+                }
+                let papers = int_list_arg(args, "papers");
+                if !papers.is_empty() {
+                    child.push("--papers".to_string());
+                    child.push(papers.iter().map(i64::to_string).collect::<Vec<_>>().join(","));
+                }
+                if args.get("evidence").and_then(Value::as_bool).unwrap_or(false) {
+                    child.push("--evidence".to_string());
+                }
+                child.push("--json".to_string());
+                let value = crate::sci_bridge::capture_json(&child, None)
+                    .map_err(|message| anyhow!("{message}"))?;
+                // 道具の形は今までどおりヒットの配列（`{"log","hits"}` の `hits`）。
+                return Ok(value.get("hits").cloned().unwrap_or(value));
+            }
             let (db, config) = open()?;
             let conn = db.connection();
-            // 節点と問い（記録に残す）。節点だけなら検索の範囲も狭める。
-            let refs = crate::sci::parse_search_refs(conn, str_arg(args, "node").as_deref())?;
             let papers = int_list_arg(args, "papers");
-            let subtree = args.get("subtree").and_then(Value::as_bool).unwrap_or(false);
-            // `--subtree` と `--each` には範囲の指定が要る（CLI の find と同じ検査）。
-            crate::sci::check_find_scope(subtree, refs.node.is_some(), int_arg(args, "each"), papers.is_empty())?;
-            let (paper_ids, scope_note) = sai_sci_core::rt::scope::resolve_scope(
+            let each = int_arg(args, "each");
+            // `--each` には範囲の指定が要る（CLI の find と同じ検査）。
+            if each.is_some() && papers.is_empty() {
+                return Err(anyhow!("each は papers と一緒に使ってください"));
+            }
+            let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
                 conn,
                 int_arg(args, "paper_id"),
                 &papers,
-                refs.node,
-                subtree,
-            )
-            .map_err(|err| anyhow!("{err}"))?;
+            )?;
             // 内部検索の履歴に残す範囲のコピー（U01。`request` が動くため先に写す）。
             let log_mode = str_arg(args, "mode");
             let log_scope = str_arg(args, "scope");
@@ -235,12 +284,12 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                         scope: log_scope.as_deref(),
                         range_text: &scope_note,
                         papers: &log_papers,
-                        node_id: refs.node,
-                        subtree,
+                        node_id: None,
+                        subtree: false,
                         each: log_each,
                         widen_reason: &log_widen,
                         origin: "mcp",
-                        run_id: crate::sci::parent_run_id(),
+                        run_id: crate::sci_bridge::parent_run_id(),
                     },
                     &plain_hits,
                     &passages,
@@ -248,30 +297,6 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
                     eprintln!("検索履歴を残せませんでした: {err:#}");
                 }
             }
-            // 節点か問いがあれば検索の記録に残す（CLI の find と同じ処理）。
-            let (count, hit_papers) = match &outcome {
-                sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
-                    (hits.len() as i64, paper_ids_of(hits))
-                }
-                sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
-                    let hits: Vec<_> = result.hits.iter().map(|item| item.hit.clone()).collect();
-                    (hits.len() as i64, paper_ids_of(&hits))
-                }
-            };
-            crate::sci::record_search(
-                conn,
-                &crate::sci::SearchLog {
-                    refs: &refs,
-                    tool: "find",
-                    query: &query,
-                    scope: &scope_note,
-                    widen_reason: str_arg(args, "widen").as_deref().unwrap_or(""),
-                    hits: count,
-                    hit_papers: &hit_papers,
-                    set_id: None,
-                    log_id: None,
-                },
-            )?;
             match outcome {
                 sai_paper_core::evidence::SearchOutcome::Plain(hits) => {
                     Ok(sai_paper_core::retrieval::hits_to_json_with(
@@ -361,57 +386,46 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value> {
             }
         }
         "sci_context" => {
-            let env = crate::sci::open_env()?;
-            let run = int_arg(args, "run_id").or_else(crate::sci::parent_run_id);
+            // `sai-sci context` を子として呼ぶ（古い別名。ガイド 4 で MCP ごと消す）。
+            let run = int_arg(args, "run_id").or_else(crate::sci_bridge::parent_run_id);
             let Some(run_id) = run else {
                 return Err(anyhow!("run_id が必要です"));
             };
-            let text = sai_sci_core::rt::context::build(
-                env.conn(),
-                &env.roots,
-                &env.defs,
-                env.config.sci.context_max_chars,
-                run_id,
-                str_arg(args, "scope").as_deref(),
-            )
-            .context("入力の SCOPE を組み立てられませんでした")?;
+            let mut child = vec!["context".to_string(), "--run".to_string(), run_id.to_string()];
+            if let Some(scope) = str_arg(args, "scope") {
+                child.push("--scope".to_string());
+                child.push(scope);
+            }
+            let text = crate::sci_bridge::capture(&child, None)
+                .map_err(|message| anyhow!("{message}"))?;
             Ok(json!({ "text": text }))
         }
         "sci_status" => {
-            let env = crate::sci::open_env()?;
-            let status = sai_sci_core::rt::compute::status(env.conn(), &env.roots, &env.defs)
-                .context("現況を集められませんでした")?;
-            // brief でも全体でも、値は status からそのまま写す（計算し直さない）。
+            let mut child = vec!["status".to_string()];
             if args.get("brief").and_then(Value::as_bool).unwrap_or(false) {
-                return Ok(crate::sci::brief_status(&status));
+                child.push("--brief".to_string());
             }
-            Ok(serde_json::to_value(status)?)
+            child.push("--json".to_string());
+            crate::sci_bridge::capture_json(&child, None).map_err(|message| anyhow!("{message}"))
         }
         "sci_node" => {
             let node = str_arg(args, "node").ok_or_else(|| anyhow!("node が必要です"))?;
-            let env = crate::sci::open_env()?;
-            let detail =
-                sai_sci_core::rt::compute::node_detail(env.conn(), &env.roots, &env.defs, node.trim())
-                    .map_err(|err| anyhow!("{err}"))?;
-            Ok(serde_json::to_value(detail)?)
+            let child = vec!["node".to_string(), node, "--json".to_string()];
+            crate::sci_bridge::capture_json(&child, None).map_err(|message| anyhow!("{message}"))
         }
         "sci_propose" => {
             let proposals = args
                 .get("proposals")
                 .and_then(Value::as_array)
                 .ok_or_else(|| anyhow!("proposals が必要です"))?;
-            let env = crate::sci::open_env()?;
-            let actor = crate::sci::actor_of(
-                int_arg(args, "run_id"),
-                std::env::var("SAI_BLOCK_NAME").ok(),
-            );
-            let results =
-                sai_sci_core::rt::ops::propose(env.conn(), &env.roots, &env.defs, &actor, &json!({
-                    "proposals": proposals.clone(),
-                }))
-                .map_err(|err| anyhow!("{err}"))?;
-            env.export()?;
-            Ok(json!({ "results": results }))
+            let mut child = vec!["propose".to_string()];
+            if let Some(run_id) = int_arg(args, "run_id") {
+                child.push("--run".to_string());
+                child.push(run_id.to_string());
+            }
+            let input = json!({ "proposals": proposals.clone() }).to_string();
+            crate::sci_bridge::capture_json(&child, Some(&input))
+                .map_err(|message| anyhow!("{message}"))
         }
         other => Err(anyhow!("知らない道具です: {other}")),
     }
