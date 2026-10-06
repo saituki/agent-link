@@ -152,9 +152,12 @@ struct CardCreateInput {
     /// タスク本文の直下に挿入する本文
     #[serde(default)]
     task_text: String,
-    /// 起動者（`human` / `professor`。空 = 人が起こす）
+    /// 起動者（`human` / `agent`。空 = 人が起こす。旧カードの値も `agent` として読む）
     #[serde(default)]
     executer: String,
+    /// 一覧に出す 1 行の説明（1 行目だけ・200 字まで。空 = 書かない）
+    #[serde(default)]
+    description: String,
     /// task_text 先頭に貼る文書トークン（`phone card inputs` の candidates.token。空可）
     /// TUI Step4 と同じく `waggle:<tok>:path:…` 参照行として task_text 先頭に貼られる
     #[serde(default)]
@@ -766,7 +769,7 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                     "label": it.name,
                     "lane": it.lane,
                     "status": it.status,
-                    // 起動者（professor が起こすカードは `professor`・既定は `human`）。
+                    // 起動者（エージェントが起こすカードは `agent`・既定は `human`）。
                     "executer": card_entries::executer_for_run(run_id),
                 });
                 // 実行予約した todo だけ `scheduled_at`（`YYYY-MM-DD HH:MM`）を足す（ホームの「予約」用）
@@ -1043,6 +1046,7 @@ fn card_docs(limit: usize) -> PhoneResult<Value> {
 /// `phone card wait <run_id> [--job …]`: todo のカードの `after_job:` を書き換える。
 ///
 /// 常駐が約 60 秒ごとにジョブの状態を見回り、終わっていたら `phone card run` と同じ流れで実行する。
+/// `.sai/settings.json` に `job_status` が無いときは、書く前に終了コード 2 で断る（U12）。
 fn card_wait(run_id: i64, job: Option<&str>) -> PhoneResult<Value> {
     let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
         .join(sai_link_engine::run_dir::TODO_OWNER)
@@ -1055,6 +1059,12 @@ fn card_wait(run_id: i64, job: Option<&str>) -> PhoneResult<Value> {
     if let Some(j) = job {
         if !sai_link_engine::kanban::valid_job_id(j) {
             return Err(PhoneError::usage("job_id は英数字・`_`・`-` で 64 字までです"));
+        }
+        // 常駐が状態を読めないとカードが起きないため、書く前に設定を確かめる（U12）
+        if sai_link_engine::pre_run::job_status_template().is_none() {
+            return Err(PhoneError::parse(
+                "ジョブの状態を確かめる命令（.sai/settings.json の job_status）がありません。研究のプロジェクトでは `sai-sci init` が書きます",
+            ));
         }
     }
     let text = std::fs::read_to_string(&task)
@@ -1103,15 +1113,30 @@ fn card_schedule(run_id: i64, at: Option<&str>) -> PhoneResult<Value> {
 /// `doc_tokens` 指定時は TUI Step4 と同じく task_text 先頭に参照行を貼る
 /// （全経路共通の候補形式。実行時に本文展開される）。
 fn card_create() -> PhoneResult<Value> {
-    open_store()?;
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
         .map_err(|e| PhoneError::usage(format!("標準入力の読み込みに失敗: {}", e)))?;
     let parsed: CardCreateInput = serde_json::from_str(&input)
         .map_err(|e| PhoneError::usage(format!("JSON の解析に失敗: {}", e)))?;
+    card_create_from(parsed)
+}
+
+/// 解析済みの入力からカードを作る（`card create` の本体・試験用）。
+fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
+    open_store()?;
     // `meta` はカードを作る前に検査する（標準のキー・キーの形）
     let meta = validate_card_meta(&parsed.meta)?;
+    // 説明は 1 行目だけを 200 字までにする（空 = 書かない）
+    let description: String = parsed
+        .description
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(200)
+        .collect();
 
     // TUI Step4 と同じ貼り付け（doc_tokens → task_text 先頭の参照行＋本文）
     let doc_refs: Vec<String> = parsed
@@ -1148,14 +1173,13 @@ fn card_create() -> PhoneResult<Value> {
     // TUI と同じ検査（runner / thinking は一覧の値・block は存在するもの）
     card_wizard::validate_card_spec(&spec).map_err(PhoneError::usage)?;
 
-    // 起動者（空は人が起こす）。知らない値はここでは弾く。
-    let executer = match parsed.executer.trim() {
-        "" | "human" => "human".to_string(),
-        "professor" => "professor".to_string(),
-        other => {
-            return Err(PhoneError::usage(format!(
-                "知らない起動者です: {}（human / professor）",
-                other
+    // 起動者（空は人が起こす）。旧カードの値は `agent` に寄せる。知らない値は終了コード 2。
+    let executer = match sai_link_engine::kanban::parse_executer(&parsed.executer) {
+        Some(v) => v.to_string(),
+        None => {
+            return Err(PhoneError::parse(format!(
+                "知らない起動者です: {}（human / agent）",
+                parsed.executer.trim()
             )))
         }
     };
@@ -1174,6 +1198,8 @@ fn card_create() -> PhoneResult<Value> {
     for (key, value) in &meta {
         card.frontmatter.set_meta(key.clone(), value.clone());
     }
+    // 一覧に出す説明（1 行目だけ）を frontmatter に書く
+    card.frontmatter.description = description;
     std::fs::write(&path, render_card_with_meta(&card, &meta))
         .map_err(|e| PhoneError::internal(format!("作成した task.md を書けません: {}", e)))?;
 
@@ -2196,7 +2222,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            sai_link_engine::kanban::PROFESSOR_EXECUTER_MESSAGE
+            sai_link_engine::kanban::AGENT_EXECUTER_MESSAGE
         );
         // カード自体は todo の対象として残っている（常駐停止の終了コード 1 で止まる）。
         let err = card_run(782).unwrap_err();
@@ -2217,7 +2243,7 @@ mod tests {
         .unwrap_err();
         assert_ne!(
             err.to_string(),
-            sai_link_engine::kanban::PROFESSOR_EXECUTER_MESSAGE,
+            sai_link_engine::kanban::AGENT_EXECUTER_MESSAGE,
             "人が起こすカードは止めない: {err}"
         );
 
@@ -2278,6 +2304,20 @@ mod tests {
         assert_eq!(err.code, EXIT_USAGE);
         assert!(card_wait(7, Some(&"a".repeat(65))).is_err());
 
+        // U12: `job_status` が無いと、書く前に終了コード 2 で断る
+        let err = card_wait(7, Some("j261002-101500-ab12")).unwrap_err();
+        assert_eq!(err.code, EXIT_PARSE);
+        assert!(err.msg.contains("job_status"), "msg={}", err.msg);
+
+        // `.sai/settings.json` に `job_status` を書けば通る
+        let settings_dir = root.join(".sai");
+        std::fs::create_dir_all(&settings_dir).unwrap();
+        std::fs::write(
+            settings_dir.join("settings.json"),
+            r#"{"job_status": ["sh", "-c", "echo x"]}"#,
+        )
+        .unwrap();
+
         let out = card_wait(7, Some("j261002-101500-ab12")).unwrap();
         assert_eq!(out["after_job"], "j261002-101500-ab12");
         assert_eq!(todo_after_job(7).as_deref(), Some("j261002-101500-ab12"));
@@ -2288,6 +2328,45 @@ mod tests {
         assert!(out["after_job"].is_null());
         assert_eq!(todo_after_job(7), None);
         assert!(!std::fs::read_to_string(&task).unwrap().contains("after_job:"));
+    }
+
+    /// U12: `card create` は `description` を frontmatter に書き、旧カードの値は `agent` にする。
+    /// 知らない値は終了コード 2。
+    #[test]
+    fn card_create_writes_description_and_agent_executer() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let _guard = RootGuard::set(root);
+        // DB を作る（予約 run の発行に要る）
+        let db = root.join(".sai/sai-engine/sai-engine.db");
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        let store = SaiStore::open(&db).unwrap();
+        drop(store);
+
+        // 旧カードの値 `professor` は `agent` と書かれる
+        let parsed = super::CardCreateInput {
+            task_text: "本文".to_string(),
+            executer: "professor".to_string(),
+            description: "一覧に出す説明\n2 行目は書かない".to_string(),
+            ..Default::default()
+        };
+        let out = super::card_create_from(parsed).unwrap();
+        assert_eq!(out["executer"], "agent");
+        let path = std::path::PathBuf::from(out["path"].as_str().unwrap());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("executer: agent"), "{text}");
+        assert!(text.contains("description: 一覧に出す説明"), "{text}");
+        assert!(!text.contains("2 行目は書かない"), "{text}");
+
+        // 知らない値は終了コード 2
+        let bad = super::CardCreateInput {
+            executer: "robot".to_string(),
+            ..Default::default()
+        };
+        let err = super::card_create_from(bad).unwrap_err();
+        assert_eq!(err.code, EXIT_PARSE);
+        assert!(err.msg.contains("human / agent"), "msg={}", err.msg);
     }
 
     /// `phone user start` / `phone user finish` の対象選択と終了コード。

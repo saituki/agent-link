@@ -1468,7 +1468,7 @@ pub fn prepare_execution_record(
 /// `reserved_run_id` が `Some` のときは、次の 2 通りを区別する。
 ///
 /// - 親なし（メイン実行・人が起こすカード）: 予約行を確定させて使い回す。
-/// - 親あり（`task_create` の `card` 指定・professor が起こすカード・U2）:
+/// - 親あり（`task_create` の `card` 指定・エージェントが起こすカード・U2）:
 ///   予約行を子として確定させ、`parent_run_id` と `batch_id` を書き込む。
 ///   run_id は予約のまま変わらず、親から子への線も今の子と同じように作る。
 ///

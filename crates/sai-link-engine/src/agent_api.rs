@@ -589,11 +589,10 @@ struct TaskCardSource {
 fn load_task_card(card_run_id: i64) -> Result<TaskCardSource, String> {
     // `run_subtask` と同じ場所を読む（todo のカード → `.sai/outputs/todo/<run_id>/task.md`）
     let card = crate::orchestrator::read_todo_card(card_run_id)?;
-    if !card.frontmatter.is_professor_executer() {
+    if !card.frontmatter.is_agent_executer() {
         return Err(format!(
-            "カード {} は人が起こすカードです（executer: {}）。professor が起こすには executer: professor のカードを作ってください",
-            card_run_id,
-            card.frontmatter.executer()
+            "カード {} は人が起こすカードです（executer: human）。エージェントが子の run として起こすには、executer: agent のカードを作ってください",
+            card_run_id
         ));
     }
     // 同じカードを 2 度の子にはしない（予約行は 1 度しか確定できない）
@@ -2599,7 +2598,7 @@ mod tests {
         drop(guard);
     }
 
-    /// U2: `executer: human` のカードは professor が起こせない。
+    /// U2: `executer: human` のカードはエージェントが起こせない。
     #[test]
     fn task_create_with_card_rejects_human_executer() {
         let guard = EnvGuard::new();
@@ -2610,7 +2609,27 @@ mod tests {
         let tasks = json!([{ "client_id": "R1", "subject": "件名", "card": 120 }]);
         let err = task_create(&tasks, None, None, None).unwrap_err();
         assert!(err.contains("人が起こすカードです"), "err={}", err);
-        assert!(err.contains("executer: professor"), "err={}", err);
+        assert!(err.contains("executer: agent"), "err={}", err);
+
+        drop(guard);
+    }
+
+    /// U12: `executer: agent` のカードも、旧カードの値と同じに起こせる。
+    #[test]
+    fn task_create_with_card_accepts_agent_executer() {
+        let guard = EnvGuard::new();
+        let store = crate::common::open_db().unwrap();
+        let parent_run_id = create_test_parent_run(&store, "card-agent-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "card-block");
+        write_todo_card(&guard.project_root, 122, "card-block", "agent", "agent の説明", "本文");
+
+        let tasks = json!([{ "client_id": "R1", "card": 122 }]);
+        let result = task_create(&tasks, None, None, None).unwrap();
+        assert_eq!(result["status"], "approved");
+        let notif = read_task_created_notification();
+        assert_eq!(notif.tasks[0].card_run_id, Some(122));
+        assert_eq!(notif.tasks[0].subject, "agent の説明");
 
         drop(guard);
     }
