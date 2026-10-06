@@ -70,19 +70,21 @@ function testHash() {
   );
   assert.strictEqual(lv.modeHash("p", "dashboard"), "#/project/p");
   assert.strictEqual(lv.modeHash("p", "list"), "#/project/p/list");
-  // 共有契約 C-F7：4 つの切り替えの住所
+  // 共有契約 C-F7：切り替えの住所（U10 でコマンド・会話検索を足した）
   assert.strictEqual(lv.modeHash("p", "workflow"), "#/project/p/workflow");
   assert.strictEqual(lv.modeHash("p", "defs"), "#/project/p/defs");
+  assert.strictEqual(lv.modeHash("p", "commands"), "#/project/p/commands");
+  assert.strictEqual(lv.modeHash("p", "sessions"), "#/project/p/sessions");
   // 不明・未指定は Dashboard
   assert.strictEqual(lv.modeHash("p", "oreason"), "#/project/p");
   assert.strictEqual(lv.modeHash("p", null), "#/project/p");
   assert.deepStrictEqual(
     lv.LV_MODES.map((m) => m[0]),
-    ["dashboard", "workflow", "list", "defs"]
+    ["dashboard", "workflow", "list", "defs", "commands", "sessions"]
   );
   assert.deepStrictEqual(
     lv.LV_MODES.map((m) => m[1]),
-    ["Dashboard", "Workflow", "List", "Settings"]
+    ["Dashboard", "Workflow", "List", "Settings", "コマンド", "会話検索"]
   );
 
   // 読み取る

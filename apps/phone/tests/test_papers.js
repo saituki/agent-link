@@ -22,6 +22,7 @@ const {
   papersAllFailed,
   papersAttentionHash,
   papersDebtCount,
+  paperCardText,
 } = require(path.join(
   __dirname,
   "..",
@@ -289,6 +290,19 @@ function testDebtCount() {
   assert.strictEqual(activityHash({ kind: "action", paper_id: null }, "sai-paper"), null);
 }
 
+function testPaperCardText() {
+  // 題名・年・DOI はある物だけ書く（計画 U10 の例）
+  assert.strictEqual(
+    paperCardText({ title: "Attention Is All You Need", year: 2017, doi: "10.1000/xyz" }, 12),
+    "対象の論文: #12「Attention Is All You Need」（2017・DOI 10.1000/xyz）"
+  );
+  assert.strictEqual(paperCardText({ title: "A" }, 3), "対象の論文: #3「A」");
+  assert.strictEqual(paperCardText({ doi: "10.1" }, 4), "対象の論文: #4「(無題)」（DOI 10.1）");
+  assert.strictEqual(paperCardText({}, 5), "対象の論文: #5「(無題)」");
+  // 実行ファイルの名前は書かない（名前は最後のガイドで変わるため）
+  assert.ok(!paperCardText({ title: "A" }, 1).includes("sai-moon"));
+}
+
 function main() {
   testDebtCount();
   testActivityHash();
@@ -301,6 +315,7 @@ function main() {
   testAllFailed();
   testDbLabel();
   testAttentionHash();
+  testPaperCardText();
   console.log("test_papers: すべて通りました");
 }
 
