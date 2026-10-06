@@ -1,0 +1,7 @@
+#!/bin/sh
+# sai-web: Web の窓口の CLI（apps/web/.venv の Python で動かす）
+#
+# PATH にリンクを置いて呼ばれても動くよう、リンクをたどってから場所を求める。
+self=$(readlink -f "$0" 2>/dev/null || echo "$0")
+app=$(cd "$(dirname "$self")/.." && pwd -P)
+PYTHONPATH="$app/src${PYTHONPATH:+:$PYTHONPATH}" exec "$app/.venv/bin/python" -m sai_web.webcli "$@"

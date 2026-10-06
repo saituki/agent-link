@@ -1,0 +1,2964 @@
+/* sai-web の見た目．Gemini アプリ風の白基調．色は CSS 変数（design token）で定義し，
+   iPhone のダークモード設定（prefers-color-scheme）に追従する．
+   JS 側（workflow.js・scigraph.js など）も hex を直書きせず var(--token) を参照する．
+   コントラストは apps/web/tests/test_contrast.js が WCAG の相対輝度で検査する．
+     ・文字の役（--text・--text-soft・--accent・--ok・--warn・--danger）は --bg と --bg-soft の上で 4.5:1
+     ・線・枠・図形の役は 3:1
+   測る相手の地色は --bg・--bg-soft・カードの地色（--st-card）の 3 つ． */
+
+:root {
+  /* --- 地色と文字 --- */
+  --bg: #ffffff;
+  --bg-soft: #f5f6f8;
+  --text: #333333;
+  /* 見出しでない文字（説明・日付・補助） */
+  --text-soft: #656b73;
+
+  /* --- 線と枠 ---
+     どちらを使うかの目安：
+       --line         … 飾りの細い区切り（表の罫、入力欄・チップの縁）。3:1 は求めない。
+       --line-strong  … 意味を持つ枠（選択中の札、フォーカスした欄、状態の境目）。3:1 以上。 */
+  --line: #e5e7eb;
+  --line-strong: #7d838c;
+  /* 選択中の枠（Workflow・研究方針の図の札） */
+  --sel: #a16207;
+  /* フォーカスしたときの輪 */
+  --focus: #1d4ed8;
+
+  /* --- 状態（文字としても使える 4.5:1） --- */
+  --ok: #15803d;
+  --warn: #b45309;
+  --danger: #c81e1e;
+  --run: #1d4ed8;
+  /* --accent・--ok・--warn・--danger の上に置く文字の色 */
+  --on-accent: #ffffff;
+
+  /* --- 帯（質問待ちの行・接続切れの帯など） --- */
+  --warn-bg: #fff7e6;
+  --warn-on-bg: #8a6d00;
+
+  /* --- 囲みの地色（付箋の本文ブロック） --- */
+  --note-bg: #fff6c9;
+  --note-on-bg: #4a4326;
+  --note-line: #a8871f;
+
+  /* --- 札のタグ（Workflow。TUI の block_node.rs と同じ並び） --- */
+  --tag-brst: #0e7490;
+  --tag-plan: #2563eb;
+  --tag-code: #15803d;
+  --tag-comp: #a21caf;
+  --tag-rfrs: #c81e1e;
+  --tag-other: #656b73;
+
+  /* --- 線（Workflow の辺） --- */
+  --edge-delegation: #0e7490;
+  --edge-task-output: #15803d;
+  --edge-waggle: #a21caf;
+  --edge-commit: #7e22ce;
+  --edge-phase: #0f766e;
+  --edge-other: #656b73;
+
+  /* --- グラフ（系列は赤と緑だけの組にしない） --- */
+  --series-1: #1d4ed8;
+  --series-2: #a16207;
+  --series-3: #a21caf;
+  --series-4: #0f766e;
+  --series-5: #b91c1c;
+  --series-6: #4b5563;
+  --chart-grid: #e8eaee;  /* 目立たない格子 */
+  --chart-axis: #656b73;  /* 目盛りの文字 */
+
+  /* --- 研究方針の木（U19） ---
+     状態（決定・仮決定・未決定・対象外・候補・却下・休眠・支持・反証）と
+     線（親子・依存・由来・同型）。赤と緑だけの組にしない。対比は test_contrast.js が測る。 */
+  --sci-decided: #15803d;
+  --sci-tentative: #a16207;
+  --sci-open: #1d4ed8;
+  --sci-excluded: #5f6670;
+  --sci-candidate: #0e7490;
+  --sci-rejected: #b91c1c;
+  --sci-dormant: #6d28d9;
+  --sci-support: #15803d;
+  --sci-refute: #b91c1c;
+  --sci-edge-parent: #5f6670;
+  --sci-edge-depends: #1d4ed8;
+  --sci-edge-derived: #6d28d9;
+  --sci-edge-analogous: #0e7490;
+
+  /* --- 吹き出しと入力欄 --- */
+  --bubble-user: #e8f0fe;
+  --bubble-agent: #edeef1;
+  --bubble-tool: #f5f6f8;
+  --accent: #2563eb;
+  --accent-mcp: #1d7a45;
+  --input-bg: #f1f3f5;
+
+  /* --- U4: 共通部品（ui.js）で使う大きさ・色（共有契約 C-F3） --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  /* 広い画面（900px 以上）で左の縦のタブ幅。U4 §1 */
+  --rail-w: 84px;
+}
+
+/* 暗い画面は反転ではなく、彩度を落とした明るい色にする（ui-ux-rules の color-dark-mode） */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --bg-soft: #2c2c2e;
+    --text: #f2f2f7;
+    --text-soft: #a1a1a6;
+    --line: #38383a;
+    --line-strong: #7c7c81;
+    --sel: #f5c243;
+    --focus: #8ab0f8;
+    --ok: #4ade80;
+    --warn: #fcd34d;
+    --danger: #f28b82;
+    --run: #7aa2f7;
+    --on-accent: #1c1c1e;
+    --warn-bg: #3a2f10;
+    --warn-on-bg: #f2c94c;
+    --note-bg: #4a4326;
+    --note-on-bg: #f5efd6;
+    --note-line: #b09a5c;
+    --tag-brst: #38bdf8;
+    --tag-plan: #60a5fa;
+    --tag-code: #4ade80;
+    --tag-comp: #e879f9;
+    --tag-rfrs: #f87171;
+    --tag-other: #a1a1a6;
+    --edge-delegation: #38bdf8;
+    --edge-task-output: #4ade80;
+    --edge-waggle: #e879f9;
+    --edge-commit: #c084fc;
+    --edge-phase: #5eead4;
+    --edge-other: #a1a1a6;
+    --series-1: #6ea8fe;
+    --series-2: #e3b341;
+    --series-3: #c084fc;
+    --series-4: #5eead4;
+    --series-5: #fca5a5;
+    --series-6: #9ca3af;
+    --chart-grid: #333336;
+    --chart-axis: #a1a1a6;
+    --sci-decided: #4ade80;
+    --sci-tentative: #fbbf24;
+    --sci-open: #60a5fa;
+    --sci-excluded: #9ca3af;
+    --sci-candidate: #38bdf8;
+    --sci-rejected: #f87171;
+    --sci-dormant: #a78bfa;
+    --sci-support: #4ade80;
+    --sci-refute: #f87171;
+    --sci-edge-parent: #9ca3af;
+    --sci-edge-depends: #60a5fa;
+    --sci-edge-derived: #a78bfa;
+    --sci-edge-analogous: #38bdf8;
+    --bubble-user: #19315e;
+    --bubble-agent: #2c2c2e;
+    --bubble-tool: #2c2c2e;
+    --accent: #7aa2f7;
+    --accent-mcp: #4cc38a;
+    --input-bg: #2c2c2e;
+  }
+}
+
+/* 動きを減らす設定（ui-ux-rules の reduced-motion）。JS のアニメーションは各 U で直す。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 画面の幅が広いとき（900px 以上）。ui.js の saiIsWide() と同じ境目。 */
+body.sai-wide { --wide: 1; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Hiragino Sans", sans-serif;
+  /* 横スクロールは絶対に発生させない。
+     hidden だと body がスクロールの箱になって sticky（見出し・入力欄）が
+     効かなくなるため、スクロールの箱を作らない clip にする。 */
+  overflow-x: clip;
+}
+
+.view {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* 下の重ね部（タブバー等）に内容を隠されないための余白（05 §5） */
+  padding-bottom: var(--bottom-stack-h, 0px);
+}
+/* hidden 属性を確実に効かせる（.view の display:flex が hidden を
+   上回るため，Chrome では全画面が積み上がって見えた・04 の確認で発覚） */
+.view[hidden] { display: none; }
+
+/* 上部の帯 */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.appbar h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.appbar button {
+  border: none;
+  background: none;
+  font-size: 22px;
+  color: var(--text);
+  padding: 4px 8px;
+}
+
+/* 実行画面の見出し（1行目 #run_id block_name，2行目に description・03 §1-7） */
+.run-heading { flex: 1; min-width: 0; }
+.appbar .run-heading h1 { flex: none; font-size: 16px; margin: 0; }
+.run-desc {
+  font-size: 12px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 検索欄 */
+.search-row { padding: 8px 16px; }
+.search-row input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  font-size: 16px;
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+/* 一覧のグループ */
+.groups { padding: 0 16px 32px; }
+
+.group-title {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+/* --- 日付一覧（iPhone のカレンダー風・02 §3.2） --- */
+
+.day-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 4px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+
+/* 行の左の点：実行中＝アクセント色，質問待ち＝目立つ色 */
+.day-row .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: transparent;
+}
+.day-row .dot.running { background: var(--accent); }
+.day-row .dot.question { background: var(--warn); }
+
+.day-row .day-body { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.day-row .day-date { font-size: 16px; font-weight: 600; }
+.day-row .day-stats { font-size: 13px; color: var(--text-soft); }
+
+/* 日ごとのプロジェクト見出し */
+.project-title {
+  margin: 18px 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* --- 実行の1行（日ごと・検索結果で共通） --- */
+
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 4px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+}
+
+.run-row.indent { padding-left: 20px; }
+
+/* 質問待ちの実行は行を強調する（放置すると作業が止まるため） */
+.run-row.question { background: var(--warn-bg); }
+
+.run-row .rtime {
+  font-size: 13px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.run-row .rdate {
+  font-size: 13px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.run-row .rid { font-size: 13px; color: var(--text-soft); flex: none; }
+.run-row .rblock { font-size: 13px; color: var(--text-soft); flex: none; max-width: 6em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-row .rdesc { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-row .rrunner { font-size: 12px; color: var(--text-soft); flex: none; }
+.run-row .rstatus { font-size: 13px; flex: none; white-space: nowrap; }
+.run-row .rstatus.st-running { color: var(--accent); }
+.run-row .rstatus.st-failed { color: var(--danger); }
+.run-row .rparent { font-size: 12px; color: var(--text-soft); flex: none; }
+
+/* 会話 */
+.chat-list {
+  flex: 1;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  /* 行と行の隙間はごく小さくする。別の人の発言どうしの空きは
+     下の .kind-user / .kind-agent の margin で作る */
+  gap: 2px;
+}
+
+/* 自分の指示：右寄せの吹き出し */
+.bubble-user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--bubble-user);
+  border-radius: 16px;
+  padding: 10px 14px;
+  font-size: 16px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* エージェントの返事：枠なしの左寄せ（長文が読みやすいため） */
+.bubble-agent { font-size: 16px; line-height: 1.7; word-break: break-word; }
+.bubble-agent h1, .bubble-agent h2, .bubble-agent h3 {
+  font-size: 16px;
+  margin: 10px 0 4px;
+}
+.bubble-agent ul { margin: 4px 0; padding-left: 1.4em; }
+.bubble-agent li { margin: 2px 0; }
+/* コード枠だけ横スクロールさせる（画面全体はさせない） */
+.bubble-agent pre {
+  background: var(--bg-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 14px;
+}
+.bubble-agent code { font-family: ui-monospace, monospace; }
+
+/* --- 全項目の折りたたみ（03 §4） ---
+   見出し（発言者＋時刻）を全項目に出し，タップで開閉する．
+   開閉の状態は app.js が id で覚える（openIds） */
+.fold-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.fold-who { font-size: 13px; font-weight: 600; }
+.fold-time {
+  /* 時刻は Slack のように灰色で小さく */
+  font-size: 12px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+/* 閉じている時に見せる1行目 */
+.fold-preview {
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.fold-body { display: none; cursor: pointer; }
+.fold-item.open .fold-body { display: block; }
+.fold-item.open .fold-preview { display: none; }
+
+/* tool の中身（入力と結果） */
+.fold-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  margin-top: 6px;
+  font-size: 13px;
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+/* tool の見出しは淡い文字，MCP の道具だけは緑，失敗は ⚠ と赤で分かるように */
+.fold-item.kind-tool .fold-head { color: var(--text-soft); }
+.fold-item.kind-tool.mcp .fold-head { color: var(--accent-mcp); }
+.fold-item.kind-tool .fold-who { color: inherit; font-weight: 500; }
+.fold-item.kind-tool.failed .fold-head { color: var(--danger); }
+
+/* --- 吹き出しの色分け（チャットの見た目・U01 §2） ---
+   相手は「左の丸いアイコン + 薄い角丸の吹き出し」、自分は「右の吹き出し」。
+   箱（背景）は中の .fold-body / .fold-preview に付ける。見出し（.fold-head）は
+   箱の外に出て、名前は最初の 1 行だけ・時刻は自分の発言なら下に出る。
+   色は CSS 変数だけを使うので、暗い表示でも読める。 */
+.fold-item.kind-user,
+.fold-item.kind-agent {
+  max-width: 100%;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+}
+
+/* 相手（エージェント）：左寄せ。アイコンの入る 40px を空けてから吹き出しを置く。
+   左寄せの整え方（アイコンの余白）は会話画面（.chat-list）の中だけで使う。
+   Radio の質問チャット（#radio-chat・同じ .fold-item を使う）は今まで通り。 */
+.chat-list .fold-item.kind-agent {
+  align-self: flex-start;
+  position: relative;
+  width: 100%;
+  padding-left: 40px;
+  margin-top: 10px;
+}
+/* アイコン（エージェント名の頭文字 1 字。renderItem が data-avatar に置く） */
+.chat-list .fold-item.kind-agent.has-avatar::before {
+  content: attr(data-avatar);
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 28px;
+  text-align: center;
+  overflow: hidden;
+}
+.fold-item.kind-agent .fold-body,
+.fold-item.kind-agent .fold-preview {
+  background: var(--bg-soft);
+  border-radius: 16px;
+  padding: 10px 14px;
+  max-width: 85%;
+  width: fit-content;
+}
+/* 続けて 5 分以内に書かれたものは、アイコンも名前も繰り返さない（Slack と同じ） */
+.chat-list .fold-item.kind-agent.grouped { margin-top: 0; }
+.chat-list .fold-item.kind-agent.grouped::before { display: none; }
+.chat-list .fold-item.kind-agent.grouped .fold-head { display: none; }
+
+/* 自分：右寄せ。時刻は吹き出しの下に小さく出す（名前は出さない）。 */
+.fold-item.kind-user {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 85%;
+  margin-top: 10px;
+}
+.fold-item.kind-user .fold-body,
+.fold-item.kind-user .fold-preview {
+  background: var(--bubble-user);
+  border-radius: 16px;
+  padding: 10px 14px;
+  max-width: none;
+  width: 100%;
+  text-align: left;
+}
+.fold-item.kind-user .fold-who { display: none; }
+.fold-item.kind-user .fold-head { order: 2; padding: 2px 2px 0; }
+
+/* 道具の実行と通知は、相手の発言の吹き出しの左に揃えて，字を小さくする。 */
+.chat-list .fold-item.kind-tool,
+.chat-list .event-card { margin-left: 40px; max-width: calc(100% - 40px); }
+.chat-list .fold-item.kind-tool { font-size: 14px; }
+.chat-list .event-card { font-size: 14px; }
+
+/* 閉じている時の1行目も吹き出しの中の文字として読めるように（灰色はやめる） */
+.fold-item.kind-user .fold-preview,
+.fold-item.kind-agent .fold-preview {
+  color: var(--text);
+  font-size: 15px;
+}
+
+/* 日付の区切り（中央に小さな丸い札を置く） */
+.date-sep {
+  align-self: center;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 3px 12px;
+  margin: 14px 0 4px;
+}
+
+/* --- event カード（03 §4）：吹き出しではなく左に色の帯がある薄い箱 --- */
+.event-card {
+  background: var(--bg-soft);
+  border-left: 4px solid var(--text-soft);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.event-card.ev-ok { border-left-color: var(--ok); }           /* 緑 */
+.event-card.ev-error { border-left-color: var(--danger); }    /* 赤 */
+.event-card.ev-info { border-left-color: var(--text-soft); }  /* 灰 */
+.event-card .fold-head { flex-wrap: wrap; }
+.event-card .fold-who { font-size: 14px; }
+.ev-summary {
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ev-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.ev-fields .ev-k { color: var(--text-soft); white-space: nowrap; }
+.ev-fields .ev-v { word-break: break-all; }
+.ev-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-soft);
+  font-size: 13px;
+  margin-top: 6px;
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+
+/* 質問カード（会話の末尾に出る選択肢ボタン）．
+   折りたたまず常に開いた状態で目立たせる（03 §1-8，中身の修正は 05） */
+.question-card {
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  padding: 12px;
+  background: var(--bubble-user);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.question-card .q-header { font-size: 13px; color: var(--text-soft); }
+.question-card .q-body { font-size: 16px; line-height: 1.6; }
+.question-card .q-option {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-soft);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 16px;
+  text-align: left;
+}
+.question-card .q-option:disabled { opacity: 0.5; }
+.question-card .q-option.selected { border-color: var(--accent); background: var(--bubble-user); }
+.question-card .q-desc { font-size: 13px; color: var(--text-soft); margin-top: 2px; }
+.question-card .q-hint { font-size: 12px; color: var(--text-soft); }
+.question-card .q-block { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.question-card .q-block:last-of-type { border-bottom: none; padding-bottom: 0; }
+.question-card .q-free {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.question-card .q-submit {
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.question-card .q-submit:disabled { opacity: 0.4; }
+
+/* 接続切れの帯（読みかけの会話は消さない．エラー画面に切り替えない） */
+.offline-bar {
+  background: var(--warn-bg);
+  color: var(--warn-on-bg);
+  font-size: 13px;
+  text-align: center;
+  padding: 4px 8px;
+}
+
+/* 送信待ちの印 */
+.pending-mark { font-size: 12px; color: var(--text-soft); }
+
+/* 新着ボタン（上にいる時だけ右下に出る） */
+.new-arrival {
+  position: fixed;
+  right: 16px;
+  /* タブバー・再生バーの上に出す（05 §5） */
+  bottom: calc(96px + var(--bottom-stack-h, 0px));
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 15px;
+  padding: 10px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 下部の入力欄（常に画面下に固定）。入力の入れ物は角丸の 20px。
+   🎤 と ➤ はその左右に置く（U01 §2）。 */
+.inputbar {
+  position: sticky;
+  /* 再生バーが出ているときはその上に入力欄を置く（05 §5） */
+  bottom: var(--bottom-stack-h, 0px);
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+/* 安全領域（env(safe-area-inset-bottom)）は一番下にある部品だけが持つ（05 §5）。
+   タブバーも再生バーも見えないときだけ，入力欄が下端の余白を持つ（今のままの見た目） */
+body.tabbar-hidden:not(.mini-visible) .inputbar {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+.inputbar textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.4;
+  padding: 10px 16px;
+  max-height: calc(1.4em * 5 + 20px);
+}
+
+.inputbar button {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  font-size: 22px;
+  padding: 0;
+  color: var(--text);
+}
+.inputbar button:hover { background: var(--bg-soft); }
+
+/* 録音中はマイクの色を変える */
+#mic-button.recording { color: var(--danger); }
+
+/* --- 統計画面（実装計画 04） ---
+   Apple のヘルス / スクリーンタイムに寄せた，角丸カード＋大きな数字．
+   グラフの4色はライト・ダークどちらでも見分けられる中間の明るさに絞る（04 §2）。 */
+
+/* グラフの色（04 §2：色数を絞る）。系列の色は --series-* を借りる（対比は test_contrast.js が測る）。 */
+:root {
+  --st-in: var(--series-1);   /* 入力 */
+  --st-out: var(--series-2);  /* 出力 */
+  --st-cr: var(--series-3);   /* キャッシュ読み */
+  --st-cw: var(--series-4);   /* キャッシュ書き */
+  --st-bar: var(--series-5);  /* 棒グラフ */
+  --st-card: #f5f6f8;  /* カードの地色（--bg-soft と同じ） */
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --st-card: #2c2c2e;
+  }
+}
+
+.stats-body {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 見出し（プロジェクト・runner・モデル・時刻・状態・04 §1-1） */
+.st-head { display: flex; flex-direction: column; gap: 4px; padding: 2px 2px 0; }
+.st-head-line { font-size: 13px; color: var(--text-soft); }
+.st-status { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.st-status.st-running { color: var(--accent); }
+.st-status.st-failed { color: var(--danger); }
+
+/* 角丸カード */
+#stats-cards { display: flex; flex-direction: column; gap: 14px; }
+.st-card {
+  background: var(--st-card);
+  border-radius: 18px;
+  padding: 16px;
+}
+.st-card-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+/* 大きな数字3つ（iPhone の幅で3等分・04 §1-2） */
+.st-bigs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.st-big {
+  background: var(--st-card);
+  border-radius: 18px;
+  padding: 14px 6px;
+  text-align: center;
+}
+.st-big-value {
+  /* iPhone 幅（3等分 約110px）で2行にならない大きさ */
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.3;
+  word-break: break-all;
+}
+.st-big-label { font-size: 11px; color: var(--text-soft); margin-top: 4px; }
+.st-big-note { font-size: 10px; color: var(--text-soft); margin-top: 2px; }
+
+/* ドーナツ型の円グラフ（SVG 手描き・04 §1-2 の3番） */
+.st-donut-wrap { position: relative; width: 170px; margin: 0 auto; }
+.st-donut { display: block; width: 100%; height: auto; }
+.st-seg {
+  fill: none;
+  stroke-width: 14;
+  transition: stroke-dasharray 0.7s ease;
+}
+.st-seg.st-in { stroke: var(--st-in); }
+.st-seg.st-out { stroke: var(--st-out); }
+.st-seg.st-cr { stroke: var(--st-cr); }
+.st-seg.st-cw { stroke: var(--st-cw); }
+.st-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.st-donut-total { font-size: 20px; font-weight: 700; }
+.st-donut-cap { font-size: 11px; color: var(--text-soft); }
+
+/* 凡例（色・名前・数（正確な値）・割合） */
+.st-legend { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+.st-leg { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.st-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.st-dot.st-in { background: var(--st-in); }
+.st-dot.st-out { background: var(--st-out); }
+.st-dot.st-cr { background: var(--st-cr); }
+.st-dot.st-cw { background: var(--st-cw); }
+.st-leg-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-leg-num { font-variant-numeric: tabular-nums; font-size: 12px; }
+.st-leg-pct { color: var(--text-soft); font-size: 12px; width: 4em; text-align: right; }
+
+/* 横棒グラフ: ツール別使用回数（SVG 手描き・04 §1-2 の4番） */
+.st-hint {
+  font-size: 12px;
+  color: var(--text-soft);
+  margin: 0 0 10px;
+  line-height: 1.6;
+}
+.st-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.st-bar-row:last-child { margin-bottom: 0; }
+.st-bar-name {
+  font-size: 13px;
+  width: 9em;
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-bar-svg { flex: 1; height: 14px; display: block; }
+.st-bar-rect {
+  fill: var(--st-bar);
+  transform-box: fill-box;
+  transform-origin: left center;
+  transition: transform 0.6s ease;
+}
+.st-bar-num {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  min-width: 3em;
+  text-align: right;
+}
+
+/* 小さな補足行（ターン数・ツール総回数・コスト内訳・04 §1-2 の5番） */
+.st-foot { display: flex; flex-direction: column; gap: 8px; }
+.st-foot-line { font-size: 13px; color: var(--text-soft); line-height: 1.5; }
+.st-foot-line b { color: var(--text); font-weight: 600; }
+.st-foot-note { font-size: 12px; color: var(--text-soft); }
+
+/* 未集計・データ無しの表示（04 §1-3 / §1-4） */
+.st-note {
+  font-size: 14px;
+  color: var(--text-soft);
+  text-align: center;
+  line-height: 1.7;
+  padding: 28px 12px;
+  margin: 0;
+  background: var(--st-card);
+  border-radius: 18px;
+}
+#stats-cards > .st-note:only-child { background: transparent; }
+
+/* --- 質問・承認カードの追加スタイル（05）---
+   既存の .question-card 系はそのまま足して使う（03 との衝突を避けるため
+   既存の定義は変更しない）。 */
+
+/* 回答済み・PC で回答済みは中央寄せの小さな帯（あなたの吹き出しと混同しないように・CP3） */
+.question-card.settled {
+  align-self: center;
+  max-width: 100%;
+  border: none;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px 12px;
+  border-radius: 999px;
+  text-align: center;
+}
+
+.question-card.settled.q-elsewhere {
+  color: var(--text-soft);
+}
+
+/* 回答済みの質問・承認カード: 質問時と同じ選択肢を残し，選んだものを強調する。
+   選択肢は button ではなく div（押せない）。選ばなかったものは薄くする。 */
+.question-card.q-done {
+  border-left: 3px solid var(--ok);
+}
+
+.q-settled-title {
+  font-weight: bold;
+  color: var(--ok);
+  font-size: 13px;
+}
+
+.question-card .q-option.static {
+  cursor: default;
+  opacity: 0.6;
+  overflow-wrap: anywhere;
+}
+
+.question-card .q-option.static.selected {
+  opacity: 1;
+}
+
+/* 承認カード（05 §1 の3番）は内容が短いので区切り線を強めに */
+.question-card.approval-card {
+  border: 1px solid var(--accent);
+}
+
+.question-card.approval-card .q-header {
+  color: var(--accent);
+  font-weight: bold;
+}
+
+/* 複数選択のボタンは選択中が ☑ で分かる（app.js が文字も切り替える） */
+.question-card .q-option.multi.selected {
+  border-color: var(--accent);
+  background: var(--bubble-user);
+}
+
+/* 拒否の理由欄（拒否を選んだときだけ app.js が出す） */
+.question-card .q-reason {
+  margin-top: 4px;
+}
+
+/* --- 下部の重ね部：再生バー＋タブバー（05 §4・§5） --- */
+.bottom-stack {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.bottom-stack[hidden] { display: none; }
+
+/* タブバー：3 等分の横並び，各ボタンは縦に アイコン → 文字（05 §5） */
+.tabbar {
+  display: flex;
+  min-height: 49px;
+  /* 下端の余白は一番下にある部品だけが持つ（05 §5） */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tabbar button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: none;
+  background: none;
+  color: var(--text-soft);
+  font-size: 11px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+/* 今いるタブだけアクセント色（05 §5） */
+.tabbar button.active { color: var(--accent); }
+.tabbar svg { width: 24px; height: 24px; display: block; }
+
+/* 小さな再生バー（見た目と中身は 09）。hidden のときは場所を取らない */
+.mini-player[hidden] { display: none; }
+/* タブバーを隠している間は再生バーが一番下になる（05 §5・09） */
+body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
+
+/* --- Project タブ（実装計画 06） ---
+   新しいクラスはすべて .proj- / .dash- で始める（06 §4.3）。色は CSS 変数だけ。 */
+
+/* 常駐のランプ（稼働中は緑・停止は輪郭のだけの円・06 §4.1） */
+.proj-lamp {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--text-soft);
+  background: transparent;
+}
+.proj-lamp.on {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+/* --- プロジェクト一覧（#/projects・06 §4.1） --- */
+.proj-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 13px 14px;
+  border: none;
+  border-radius: 16px;
+  background: var(--bg-soft);
+  color: var(--text);
+  text-align: left;
+  font-size: 16px;
+}
+.proj-row:disabled { opacity: 0.5; }
+.proj-line1 { display: flex; align-items: center; gap: 8px; }
+.proj-name {
+  flex: 1;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.proj-time {
+  font-size: 13px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.proj-chev { color: var(--text-soft); flex: none; }
+.proj-line2 { font-size: 13px; color: var(--text-soft); }
+
+/* --- Dashboard（#/project/<name>・06 §4.2） --- */
+.dash-body {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dash-cards { display: flex; flex-direction: column; gap: 12px; }
+
+/* カード（余白の多い角丸の箱・06 §4.2） */
+.dash-card {
+  background: var(--bg-soft);
+  border-radius: 16px;
+  padding: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.dash-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dash-card-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.dash-card-head .dash-card-title { margin: 0; }
+.dash-empty {
+  margin: 0;
+  padding: 6px 0 2px;
+  font-size: 14px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+/* カード位置に出す1行（成功の知らせ・失敗の detail） */
+.dash-msg {
+  background: var(--bubble-user);
+  border-radius: 12px;
+  padding: 9px 13px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.dash-msg[hidden] { display: none; }
+
+/* 1. 常駐の状態カード */
+.dash-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dash-status-text { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.dash-btn {
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 15px;
+  padding: 8px 18px;
+}
+.dash-btn.stop { background: var(--danger); }
+.dash-btn:disabled { opacity: 0.4; }
+
+/* 2. 期間の切り替え（iOS のセグメントの見た目） */
+.dash-seg {
+  display: flex;
+  background: var(--input-bg);
+  border-radius: 10px;
+  padding: 2px;
+}
+.dash-seg button {
+  flex: 1;
+  border: none;
+  background: none;
+  color: var(--text-soft);
+  font-size: 14px;
+  padding: 7px 0;
+  border-radius: 8px;
+}
+.dash-seg button.active {
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.dash-seg.small { width: 128px; flex: none; }
+.dash-seg.small button { font-size: 12px; padding: 4px 0; }
+
+/* 3. 数字のまとめ（2×2） */
+.dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 10px; }
+.dash-big {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+  word-break: break-all;
+}
+.dash-big-label { font-size: 13px; color: var(--text-soft); margin-top: 3px; }
+.dash-sub {
+  margin-top: 14px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+/* 4. 日ごとのグラフ（SVG 手描き）
+   目盛りの文字は 12px 以上で --chart-axis、格子線は --chart-grid（目立たせない）。
+   文字の大きさと色は style.css:7-8 の表と test_contrast.js が検査する。 */
+/* グラフは viewBox の 320 単位をそのまま広げると、目盛りの文字も一緒に
+   大きくなりすぎる（1280px のカードでは 3 倍以上になる）。上限を設けて
+   12px の文字が 1.5 倍くらいまでの画面に収まるようにする。 */
+.dash-chart { display: block; width: 100%; max-width: 440px; height: auto; margin: 0 auto; }
+.dash-bar { fill: var(--accent); cursor: pointer; }
+.dash-bar:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* 0 の日は「その日に記録が無い」印。--line だと見えないので --line-strong にする */
+.dash-bar.zero { fill: var(--line-strong); }
+/* 格子線（--chart-grid）。棒より目立たせないため細くする */
+.dash-gridline { stroke: var(--chart-grid); stroke-width: 1; }
+/* 棒の底の線（0 の目盛り）。図の枠として 1 本だけ引く */
+.dash-base { stroke: var(--line-strong); stroke-width: 1; }
+.dash-axis { fill: var(--chart-axis); font-size: 12px; }
+.dash-yaxis { font-variant-numeric: tabular-nums; }
+.dash-chart-note {
+  min-height: 18px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 5. モデル別のドーナツと凡例 */
+.dash-donut-wrap { position: relative; width: 160px; margin: 0 auto; }
+.dash-donut { display: block; width: 100%; height: auto; }
+.dash-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.dash-donut-total { font-size: 20px; font-weight: 700; }
+.dash-donut-cap { font-size: 11px; color: var(--text-soft); }
+.dash-legend { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+.dash-leg { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.dash-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.dash-leg-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-leg-pct { color: var(--text-soft); font-size: 12px; width: 3em; text-align: right; }
+.dash-leg-num { font-size: 12px; min-width: 4em; text-align: right; }
+
+/* 6. ブロック別の横棒 */
+.dash-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.dash-bar-row:first-of-type { margin-top: 0; }
+.dash-bar-name {
+  font-size: 13px;
+  width: 7em;
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.dash-bar-fill { height: 100%; background: var(--accent); border-radius: 5px; }
+.dash-bar-num {
+  font-size: 12px;
+  color: var(--text-soft);
+  min-width: 7em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 7. 直近の実行 */
+.dash-recent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+.dash-recent:last-child { border-bottom: none; padding-bottom: 0; }
+.dash-recent:disabled { opacity: 0.5; cursor: default; }
+.dash-r-id, .dash-r-block, .dash-r-time { font-size: 13px; color: var(--text-soft); flex: none; }
+.dash-r-time { font-variant-numeric: tabular-nums; }
+.dash-r-status { flex: none; font-size: 13px; }
+.dash-r-status.s-running { color: var(--accent); }
+.dash-r-status.s-failed, .dash-r-status.s-cancelled { color: var(--danger); }
+.dash-r-desc { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 8. todo カード */
+.dash-hint { font-size: 12px; color: var(--text-soft); margin-bottom: 4px; }
+.dash-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dash-todo-row:first-of-type { padding-top: 2px; }
+.dash-todo-row:last-child { border-bottom: none; padding-bottom: 0; }
+.dash-todo-main { flex: 1; min-width: 0; }
+.dash-todo-desc {
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-todo-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.dash-tag {
+  background: var(--input-bg);
+  border-radius: 6px;
+  padding: 1px 7px;
+  color: var(--text-soft);
+}
+.dash-run-btn {
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 14px;
+  padding: 7px 15px;
+  flex: none;
+}
+.dash-run-btn:disabled { opacity: 0.4; }
+
+
+/* --- Papers タブ（実装計画 07） ---
+   新しいクラスはすべて .papers- / .paper- / .lib- で始める（07 §4.6）。
+   角丸カードは 06 の .dash-card，切り替えは .dash-seg をそのまま使い回す。
+   色は CSS 変数だけを使い，ダークモードに自動で追従させる（00 §9）。 */
+
+/* 見出しの下の切り替え（Discover / Library / Radio・07 §4.1） */
+.papers-seg-row { padding: 10px 16px 0; }
+
+/* Library の道具行（絞り込み欄＋一覧 | 階層・07 §4.3） */
+.lib-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 4px;
+}
+.lib-tools input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  font-size: 16px;
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+/* 空・読み込み中の1行（dash-empty と同じ役割） */
+.lib-empty {
+  margin: 0;
+  padding: 10px 0 2px;
+  font-size: 14px;
+  color: var(--text-soft);
+  text-align: center;
+}
+.lib-empty.note-none { text-align: left; }
+
+/* --- 一覧の行（.paper-row） --- */
+.paper-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 12px 4px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.paper-row .paper-title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  /* 2 行まで・それ以上は省略（07 §4.3） */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.paper-row .paper-meta {
+  font-size: 13px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.paper-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.paper-tag {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-soft);
+}
+/* 階層の中の行（題名 1 行・年・07 §4.3） */
+.paper-row.small { padding: 8px 4px 8px 14px; }
+.paper-row.small .paper-title {
+  font-size: 15px;
+  font-weight: 600;
+  -webkit-line-clamp: 1;
+}
+.paper-row.small .paper-meta { font-size: 12px; }
+
+/* --- 階層のまとまりの見出し（▼ 2026/09/21 検索の言葉 (2)・07 §4.3） ---
+   中身は「開閉のボタン」（.lib-g-main）と右端の小さなリンク（.lib-g-log・08 §4.5）に分ける。 */
+.lib-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+}
+.lib-g-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+}
+/* 押しても開閉しない右端のリンク（08 §4.5） */
+.lib-g-log {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+}
+.lib-group-head .lib-g-arrow { color: var(--text-soft); flex: none; font-size: 11px; }
+.lib-group-head .lib-g-date {
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.lib-group-head .lib-g-query {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lib-group-head .lib-g-count { color: var(--text-soft); font-size: 13px; flex: none; }
+
+/* --- 論文情報（#/paper/<id>・07 §4.4） --- */
+.paper-body {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.paper-head { display: flex; flex-direction: column; gap: 5px; }
+.paper-head .paper-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.paper-authors { font-size: 14px; color: var(--text-soft); line-height: 1.5; }
+.paper-metaline { font-size: 13px; color: var(--text-soft); }
+.paper-doi {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ボタンの行（角丸の小さなボタン・07 §4.4-2） */
+.paper-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.paper-btn {
+  border: none;
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 14px;
+}
+.paper-btn:disabled { opacity: 0.5; }
+
+/* カード（06 の .dash-card をそのまま使う） */
+.paper-card .paper-abstract {
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.paper-card .paper-msg {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+.paper-card .paper-note {
+  font-size: 15px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+.paper-note h1, .paper-note h2, .paper-note h3 { font-size: 16px; margin: 10px 0 4px; }
+.paper-note ul { margin: 4px 0; padding-left: 1.4em; }
+.paper-note li { margin: 2px 0; }
+.paper-note pre {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.paper-note code { font-family: ui-monospace, monospace; }
+
+/* 引用文献（07 §4.4-6） */
+.ref-row { border-bottom: 1px solid var(--line); }
+.ref-row:last-of-type { border-bottom: none; }
+.ref-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.ref-lines { flex: 1; min-width: 0; }
+.ref-line1 { font-size: 15px; line-height: 1.45; word-break: break-word; }
+.ref-sub { margin-top: 2px; font-size: 12px; color: var(--text-soft); }
+.ref-chev { color: var(--text-soft); font-size: 18px; line-height: 1.2; flex: none; }
+.ref-detail { padding: 0 0 10px; font-size: 13px; color: var(--text-soft); }
+.ref-more {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  padding: 10px 0 2px;
+  text-align: left;
+}
+
+/* --- 本文（#/paper/<id>/text・07 §4.5）：スマホで読みやすい文字 --- */
+.paper-text {
+  flex: 1;
+  padding: 14px 20px calc(20px + var(--bottom-stack-h, 0px));
+  font-size: 17px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+.paper-text h1, .paper-text h2, .paper-text h3 {
+  font-size: 19px;
+  margin: 18px 0 8px;
+  line-height: 1.4;
+}
+.paper-text ul { margin: 6px 0; padding-left: 1.4em; }
+.paper-text li { margin: 3px 0; }
+.paper-text pre {
+  background: var(--bg-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.paper-text code { font-family: ui-monospace, monospace; font-size: 0.9em; }
+
+/* --- Discover と過去の検索結果（計画 08 §4）
+   新しいクラスも .papers- / .paper- / .lib- で始める（07 §4.6と同じ）。
+   色は CSS 変数だけを使い，ダークモードに自動で追従させる（00 §9）。 */
+
+/* 条件の行（閉じているときは検索先を小さく表示・08 §4.1） */
+.papers-cond-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 16px 6px;
+}
+.papers-cond-toggle {
+  flex: none;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+}
+.papers-cond-summary {
+  font-size: 12px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 条件の中身（検索先・年・件数・08 §4.1） */
+.papers-cond {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 16px 10px;
+}
+.papers-cond-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.papers-dbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.papers-db {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.papers-db.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+/* Papers 上部のプロジェクト名（📁 名前 ▾・18 §1.1） */
+.appbar .papers-proj {
+  flex: none;
+  max-width: 46%;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.appbar .papers-proj[hidden] { display: none; }
+/* 切り替えの一覧（下から出るシート・18 §1.1） */
+.papers-sheet-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.35);
+}
+.papers-sheet {
+  width: 100%;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  background: var(--bg);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+}
+.papers-sheet-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.papers-sheet-note {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.papers-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+}
+.papers-sheet-item:active { background: var(--bg-soft); }
+.papers-sheet-item.active { color: var(--accent); font-weight: 600; }
+.papers-sheet-check { width: 1em; color: var(--accent); }
+.papers-years { display: flex; align-items: center; gap: 8px; }
+.papers-years input {
+  width: 104px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 15px;
+}
+.papers-year-sep { color: var(--text-soft); font-size: 14px; }
+
+/* 結果と最近の検索の見出し（08 §4.1） */
+.papers-heading {
+  margin: 14px 4px 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+/* 検索中（回るしるし＋文・08 §4.1） */
+.papers-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 18px 0 6px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.papers-spin {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: papers-spin 0.8s linear infinite;
+}
+@keyframes papers-spin { to { transform: rotate(360deg); } }
+
+/* 結果の 1 行: 1 行目に題名と右端の札 / 2 行目に著者・年など（08 §4.3） */
+.paper-line1 {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+.paper-line1 .paper-title { flex: 1; min-width: 0; }
+.paper-line1 .paper-tag { flex: none; margin-left: auto; }
+/* 最近の検索の行の右端の件数（08 §4.1） */
+.paper-count {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 過去の検索結果の見出しの下の小さな行（08 §4.2） */
+.paper-sub {
+  padding: 10px 4px 2px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+/* 未ダウンロード論文の案内カード（08 §4.4） */
+.paper-guide {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+/* --- Radio（実装計画 09） ---
+   新しいクラスはすべて .radio- / .mini- で始める（09 §4.10）。
+   見た目は移植元（sai-radio の static/style.css）を参考にしつつ，
+   色は CSS 変数だけで揃えてダークモードに追従させる（00 §9）。 */
+
+/* 小さな再生バー（高さ 56px・bg-soft・タブバーの上・09 §4.6）。
+   上の細い線は .bottom-stack の border-top が持つ（重ね部の一番上に並ぶため）。 */
+.mini-player {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 0 6px;
+  background: var(--bg-soft);
+}
+/* 題名は1行で省略（09 §4.6） */
+.mini-title {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-btn {
+  flex: none;
+  min-width: 44px;
+  padding: 8px 6px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 16px;
+}
+.mini-toggle { color: var(--accent); }
+
+/* --- 再生画面（#/radio/<id>・09 §4.5） --- */
+.radio-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+/* 読み込めなかったときの1行（404 は「音声が見つかりません」） */
+.radio-player-msg {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--danger);
+  text-align: center;
+}
+.radio-player-msg[hidden] { display: none; }
+
+.radio-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* つまみと時刻の行（09 §4.5） */
+.radio-seek-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.radio-seek {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.radio-times {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* ⏪15 ・ 再生の丸 ・ 15⏩ の行（09 §4.5） */
+.radio-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+.radio-round {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  padding: 10px 14px;
+}
+/* 再生ボタンは直径 56px の丸（--accent・09 §4.5） */
+.radio-play {
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 22px;
+  padding: 0 0 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.radio-play:active { filter: brightness(0.85); }
+
+/* 速度とダウンロードの行（09 §4.5） */
+.radio-sub-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.radio-sub-row .paper-btn {
+  flex: 1;
+  min-width: 130px;
+}
+/* ダウンロードの進み具合・再試行・読み込み中の表示（09 §4.5） */
+.radio-status {
+  min-height: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+/* 文字起こし（押すとその場所へ，今の場所に色・09 §4.5） */
+.radio-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.radio-section {
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.radio-section.active {
+  border-color: var(--accent);
+  background: var(--input-bg);
+}
+
+/* 見出し右の「論文情報 ›」は小さいリンク（09 §4.5） */
+.appbar .radio-paper-link {
+  flex: none;
+  font-size: 13px;
+  color: var(--accent);
+}
+.appbar .radio-paper-link[hidden] { display: none; }
+
+/* --- Radio 一覧（#/papers/radio・09 §4.4） --- */
+/* 道具行（絞り込み欄＋並び順）。.groups の中にあるので左右の余白は持たない */
+.radio-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+.radio-tools input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  font-size: 16px;
+  background: var(--bg-soft);
+  color: var(--text);
+}
+/* 「新着順 / お気に入り優先」は文字が長いので幅を広げて余白を足す（06 の 128px 固定は変えない） */
+.radio-tools .dash-seg.small { width: auto; flex: none; }
+.radio-tools .dash-seg.small button { padding: 4px 9px; }
+
+/* 続きを聴くカード（09 §4.4） */
+.radio-resume-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.radio-resume-pos {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.radio-resume-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 15px;
+}
+
+/* 一覧の行（題名＋長さ・日付・保存済み，右端に ★・09 §4.4）。
+   区切り線は行の外側（.radio-row）に付け，星にもかかるようにする。 */
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.radio-row:last-child { border-bottom: none; }
+.radio-row .radio-main {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border-bottom: none;
+  padding-right: 4px;
+}
+.radio-fav {
+  flex: none;
+  padding: 8px 6px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-soft);
+}
+/* --- 質問チャットと音声化の依頼（#/radio/<id> の「質問」・計画 10） ---
+   新しいクラスは 09 と同じく .radio- で始める（09 §4.10）。 */
+
+/* 操作カードはスクロールしても appbar の直下に残す（10 §4.1）。
+   --appbar-h は radio.js が appbar の高さを測って入れる。
+   z-index は appbar（5）より小さくし，見出しの下に潜り込まないようにする。 */
+.radio-controls {
+  position: sticky;
+  top: var(--appbar-h, 54px);
+  z-index: 4;
+  padding: 12px;
+  gap: 8px;
+}
+
+/* hidden 属性を確実に効かせる（display:flex が hidden を上回るため・10 §4.1） */
+#radio-sections[hidden],
+.radio-chat[hidden],
+#radio-inputbar[hidden],
+#radio-ask-status[hidden] { display: none; }
+
+/* 質問と回答の吹き出し（Agent の .fold-item をそのまま使う・10 §4.2） */
+.radio-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* 質問の下の1行（「03:12 手法 について」・10 §4.2） */
+.radio-q-pos {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+/* 質問への失敗（赤字・10 §4.3） */
+.radio-ask-error { color: var(--danger); }
+
+/* 入力欄の上の1行（「接続中…」「考え中…」・10 §4.4） */
+.radio-ask-status {
+  min-height: 18px;
+  padding: 6px 16px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+/* 声の質問で録音中はマイクを赤く（Agent の #mic-button.recording と同じ見た目・10 §4.4） */
+#radio-mic.recording { color: var(--danger); }
+
+/* 論文情報の音声の置き場（10 §4.5） */
+.radio-slot-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.radio-slot-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.radio-slot-error {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+/* md の整形表示の規則は markdown.css に移した（U4）。
+   ここに残すのは md 以外の場所でも使う素の要素の規則だけ。 */
+hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+a { color: var(--accent); }
+/* 文中の `コード`（枠の中の code は markdown.css で無効にしている） */
+code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.92em;
+  background: var(--bg-soft);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* --- Project の List 画面（計画 14） --- */
+
+/* --- Project の 4 画面（Dashboard / Workflow / List / 設定）の共通の見出し ---
+   Workflow の形（‹ プロジェクト名 切り替え）を正として 4 画面で使い回す（U01 §3）。 */
+.proj-bar { gap: 6px; }
+.proj-bar .proj-back { flex: none; font-size: 20px; }
+.proj-bar .proj-title {
+  flex: none; max-width: 34vw; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 16px;
+}
+.proj-bar .list-mode { flex: 1; min-width: 0; }
+/* 狭い画面（iPhone）では名前を詰めて切り替え帯を潰さない */
+@media (max-width: 899px) {
+  .proj-bar .proj-title { max-width: 5.5em; }
+  .proj-bar .list-mode .dash-seg button { font-size: 12px; padding: 6px 0; }
+}
+
+.list-mode { flex: 1; min-width: 0; }
+.list-mode .dash-seg button { padding: 6px 0; font-size: 13px; }
+
+/* List 画面の見出しは ☰ が先頭（狭い画面だけ）。‹ とプロジェクト名のあとは共通。 */
+.list-bar #list-menu { flex: none; font-size: 18px; }
+
+/* run の見出しと 7 つの表示の帯（14 §1.3） */
+.lv-head { padding: 10px 16px 4px; border-bottom: 1px solid var(--line); }
+.lv-head[hidden] { display: none; }
+.lv-run-row { display: flex; align-items: baseline; gap: 8px; }
+.lv-run-label { font-size: 15px; font-weight: 600; }
+.lv-run-state { font-size: 12px; color: var(--text-soft); }
+.lv-lane-running { color: var(--ok); }
+.lv-lane-review { color: var(--warn); }
+.lv-lane-done { color: var(--accent); }
+.lv-lane-todo { color: var(--text-soft); }
+
+/* 帯は横にスクロールできる（画面全体は横に動かない・14 §1.3） */
+.lv-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 6px; scrollbar-width: none; }
+.lv-tabs::-webkit-scrollbar { display: none; }
+.lv-tab {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  border-radius: 999px;
+  font-size: 13px;
+  padding: 5px 13px;
+}
+.lv-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.lv-tab:disabled { opacity: 0.35; }
+
+/* todo run の ▶ 実行と 1 行の知らせ（14 §1.3） */
+.lv-actions { padding-top: 2px; }
+.lv-actions:empty { display: none; }
+.lv-run-btn {
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 15px;
+  padding: 8px 18px;
+}
+.lv-run-btn:disabled { opacity: 0.4; }
+.lv-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lv-run-btn.ghost { background: var(--bg-soft); color: var(--text); }
+.lv-msg { font-size: 13px; color: var(--text-soft); padding-top: 6px; }
+.lv-msg.err { color: var(--danger); }
+.lv-msg[hidden] { display: none; }
+
+/* 中身（Log / Stats / History / md / waggle・14 §1.3） */
+.lv-body { flex: 1; padding: 12px 16px 32px; }
+.lv-card {
+  background: var(--bg-soft);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.lv-card-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.lv-kv { display: flex; gap: 10px; padding: 5px 0; font-size: 13px; border-top: 1px solid var(--line); }
+.lv-kv:first-of-type { border-top: none; }
+.lv-kv-label { flex: none; width: 84px; color: var(--text-soft); }
+.lv-kv-value { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.lv-sub { font-size: 12px; color: var(--text-soft); margin: 0 0 12px; }
+
+/* Stats のグラフ（SVG 手描き）と一覧（14 §1.3・表は横にはみ出す分だけスクロール） */
+.lv-chart-seg { margin-bottom: 10px; }
+/* .dash-chart と同じ考えで上限を設ける（目盛りの文字が膨らまないように） */
+.lv-chart { display: block; width: 100%; max-width: 440px; height: auto; margin: 0 auto; }
+/* 格子線（目立たせない）と、棒の底に当たる 0 の線 */
+.lv-grid { stroke: var(--chart-grid); stroke-width: 1; }
+.lv-base { stroke: var(--line-strong); stroke-width: 1; }
+/* 目盛りの文字（縦の値と横の番号。12px 以上・--chart-axis） */
+.lv-tick { fill: var(--chart-axis); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lv-legend { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--text-soft); }
+.lv-leg { display: flex; align-items: center; gap: 6px; }
+.lv-leg .lv-leg-name { flex: 1; color: var(--text); }
+.lv-leg .lv-leg-pct { min-width: 40px; text-align: right; }
+.lv-leg .lv-leg-num { min-width: 56px; text-align: right; }
+.lv-dot-swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.lv-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.lv-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.lv-table th, .lv-table td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+.lv-table th { color: var(--text-soft); font-weight: 600; }
+.lv-table th:first-child, .lv-table td:first-child { text-align: left; }
+
+/* History の見出しとタイムライン（14 §1.3） */
+.lv-hist-head { margin-bottom: 10px; }
+.lv-hist-title { font-size: 14px; font-weight: 600; }
+.lv-hist-head .lv-sub { margin: 2px 0 0; }
+.lv-tl { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.lv-tl:first-child { border-top: none; }
+.lv-tl-time { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.lv-tl-type { flex: none; color: var(--on-accent); border-radius: 6px; padding: 1px 6px; font-size: 10px; background: var(--text-soft); }
+.lv-tl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-tl-tokens { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+
+/* waggle（成果物の一覧と本文・14 §1.3） */
+.lv-md-back {
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 13px;
+  padding: 5px 13px;
+  margin-bottom: 10px;
+}
+.lv-waggle-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.lv-waggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: none;
+  padding: 10px 2px;
+  color: var(--text);
+}
+.lv-waggle-line { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
+.lv-waggle-line:first-child { border-top: none; }
+.lv-waggle-line .lv-waggle-row { border-top: none; flex: 1; min-width: 0; }
+.lv-waggle-add {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: none;
+  color: var(--accent);
+  font-size: 18px;
+  margin-left: 8px;
+}
+.lv-waggle-row:first-child { border-top: none; }
+.lv-waggle-label { font-size: 14px; font-weight: 600; }
+.lv-waggle-desc { font-size: 12px; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-waggle-text { font-size: 15px; }
+
+/* 引き出し式ツリー（☰ で左から・暗い部分タップで閉じる・14 §1.2） */
+.lv-drawer-wrap { position: fixed; inset: 0; z-index: 50; display: flex; }
+.lv-drawer-wrap[hidden] { display: none; }
+.lv-drawer-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); }
+.lv-drawer {
+  position: relative;
+  width: min(74vw, 300px);
+  max-width: 100%;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  box-shadow: 2px 0 14px rgba(0, 0, 0, 0.18);
+  overflow-y: auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 0 24px;
+}
+.lv-drawer-note { margin: 0; padding: 12px 16px; font-size: 13px; color: var(--text-soft); }
+/* --- サイドバーの見出しの行（実行・＋・↻・U01 §4） ---
+   VS Code のサイドバーのように、ツリーの行より前に 1 本だけ出す。
+   ツリーが空・読み込み中・読み込み失敗のときも残す（↻ で読み直せるように）。 */
+.lv-side-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-soft);
+  font-size: 12px;
+}
+.lv-side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.lv-side-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-soft);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+.lv-side-btn:hover { background: var(--bg-soft); color: var(--text); }
+.lv-fold,
+.lv-run-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.lv-fold-arrow { flex: none; width: 14px; color: var(--text-soft); }
+.lv-fold-label { font-weight: 600; }
+.lv-run-item { padding-right: 14px; }
+.lv-run-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-run-item.active { color: var(--accent); background: var(--bubble-user); font-weight: 600; }
+.lv-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-soft); }
+.lv-dot.lv-running { background: var(--ok); }
+.lv-dot.lv-review { background: var(--warn); }
+.lv-dot.lv-done { background: var(--accent); }
+.lv-dot.lv-todo { background: var(--text-soft); }
+
+/* ================= task.md 作成フォーム（計画 15 §1.5） =================
+   List 右上の ＋ で下から出る一枚。手順は 10 画面（番号の飛び方は TUI と同じ）。 */
+.cf-wrap { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; }
+.cf-wrap[hidden] { display: none; }
+.cf-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+.cf-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 88vh;
+  background: var(--bg);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+}
+.cf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.cf-head-text { display: flex; flex-direction: column; min-width: 0; }
+.cf-step { font-size: 12px; font-weight: 700; color: var(--accent); }
+.cf-title { font-size: 16px; font-weight: 600; }
+.cf-head-actions { display: flex; align-items: center; gap: 6px; }
+.cf-text-btn { border: none; background: none; color: var(--text-soft); font-size: 13px; padding: 6px; }
+#cf-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+}
+.cf-warn { font-size: 12px; padding-top: 6px; color: var(--text-soft); }
+.cf-msg { font-size: 13px; padding-top: 6px; color: var(--danger); }
+.cf-body { flex: 1 1 auto; min-height: 140px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 0; }
+.cf-note { font-size: 12px; color: var(--text-soft); padding: 6px 0; margin: 0; }
+.cf-choices { display: flex; flex-direction: column; gap: 6px; }
+.cf-choice {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px 12px;
+}
+.cf-choice.active { border-color: var(--accent); background: var(--bubble-user); color: var(--accent); font-weight: 600; }
+.cf-field-head { display: flex; align-items: center; gap: 8px; padding: 4px 0 2px; }
+.cf-field-label { font-size: 15px; font-weight: 600; }
+.cf-required { font-size: 11px; border-radius: 999px; background: var(--danger); color: var(--on-accent); padding: 2px 8px; }
+.cf-run-label { font-size: 12px; color: var(--text-soft); padding-top: 8px; }
+.cf-input-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.cf-input-label { flex: 0 0 110px; font-size: 13px; color: var(--text-soft); }
+.cf-input-row input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px;
+}
+.cf-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 150px;
+  border: none;
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px;
+  resize: vertical;
+}
+/* 🎤 は Agent タブのマイクと同じ見た目（録音中は赤） */
+.cf-mic {
+  display: block;
+  margin-top: 8px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg-soft);
+  font-size: 18px;
+}
+#cf-mic.recording { color: var(--danger); }
+.cf-foot { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cf-btn {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px;
+}
+.cf-btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.cf-btn:disabled { opacity: 0.4; }
+
+/* --- Papers の Dashboard（数字カードと出来事の一覧） --- */
+.pd-grid { grid-template-columns: 1fr 1fr 1fr; }
+.pd-grid .dash-big { font-size: 24px; }
+.pd-act {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+.pd-act:last-child { border-bottom: none; }
+.pd-act:disabled { color: var(--text); opacity: 1; cursor: default; }
+.pd-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-time { flex: none; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+/* 種類の札（Mac の sai-paper-tui の RECENT ACTIVITY と同じ分け方で色分け） */
+.pd-kind {
+  flex: none;
+  min-width: 78px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--on-accent);
+  background: var(--tag-other);
+}
+.ak-discover { background: var(--series-1); }
+.ak-download { background: var(--series-2); }
+.ak-import { background: var(--tag-brst); }
+.ak-translate { background: var(--series-3); }
+.ak-notes { background: var(--series-6); }
+.ak-radio { background: var(--danger); }
+.ak-radio-play { background: var(--series-4); }
+.ak-radio-question { background: var(--edge-commit); }
+
+/* --- md のその場編集（論文のノート・List の task / review） --- */
+.md-edit {
+  display: block;
+  width: 100%;
+  min-height: 45vh;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
+/* --- 論文情報の図（Mac の PAPER 画面の FIGURES と同じ並び） --- */
+.paper-fig { margin: 0 0 18px; }
+.paper-fig:last-child { margin-bottom: 0; }
+.paper-fig-head { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+.paper-fig img {
+  display: block;
+  max-width: 100%;
+  border-radius: 8px;
+  background: #fff; /* 透過 PNG をダークモードでも読めるように */
+  cursor: zoom-in;
+}
+.paper-fig-caption { margin-top: 6px; font-size: 13px; line-height: 1.6; color: var(--text-soft); }
+.paper-fig-mention { margin-top: 4px; font-size: 13px; line-height: 1.6; color: var(--accent); }
+
+/* List の task / review の「編集」「保存」「やめる」の行 */
+.lv-edit-row { display: flex; gap: 8px; justify-content: flex-end; margin: 0 0 10px; }
+.lv-edit-row:last-child { margin: 10px 0 0; }
+
+/* --- Usage タブ（実装計画 42 §3.5） ---
+   カード・切り替え・グラフは 06 の .dash-* をそのまま使い回す。
+   ここは Usage だけの細かい見た目（メーター・1 行の文言・Logs の行）。 */
+.usage-line { margin-top: 6px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.usage-line.muted { font-size: 13px; color: var(--text-soft); }
+.usage-danger { color: var(--danger); }
+.usage-meter-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.usage-meter-row .dash-bar-track { flex: 1; height: 12px; }
+.usage-meter-pct {
+  min-width: 3.5em;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.usage-log {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.usage-log:last-child { border-bottom: none; padding-bottom: 0; }
+.usage-log-time { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.usage-log-model {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.usage-log-num { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.usage-log-cost {
+  flex: none;
+  min-width: 4.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dash-seg.small.usage-seg3 { width: 168px; }
+.usage-model-row { flex-wrap: wrap; row-gap: 4px; }
+.usage-model-row .dash-bar-name { width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#usage-updated { padding: 8px 16px 0; margin-bottom: 0; }
+
+/* --- 質問カードの読み上げ・音声回答（U01） --- */
+.va-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.question-card .va-speak,
+.question-card .va-listen {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text);
+  padding: 5px 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.question-card .va-speak:active,
+.question-card .va-listen:active { background: var(--bubble-user); }
+.question-card .va-listen[hidden] { display: none; }
+/* 聞き取り中は赤の枠（#mic-button.recording と同じ想法） */
+.question-card .va-speak.recording,
+.question-card .va-listen.recording { border-color: var(--danger); color: var(--danger); }
+.va-status { flex: 1 1 auto; min-width: 0; color: var(--text-soft); font-size: 12px; word-break: break-word; }
+
+/* Connection の 1 件（見出しの行 + 下に waggle / 説明） */
+.lv-conn { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.lv-conn:first-of-type { border-top: none; }
+.lv-conn-sub { margin-top: 2px; font-size: 12px; color: var(--text-soft); white-space: pre-wrap; word-break: break-all; }
+
+/* Connection の行からその run の List へ飛ぶボタン */
+.lv-kv-link {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: underline;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   U4: 共通部品（ui.js）の見た目と広い画面の土台（共有契約 C-F3）
+   既存の画面のクラス名は変えず、ここに足すのは新しい物だけ。
+   ========================================================================== */
+
+/* --- ボタン（押せる物の高さは 44px 以上・:focus-visible に輪郭） --- */
+.sai-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.sai-btn:hover { background: var(--bg-soft); }
+.sai-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.sai-btn.primary:hover { filter: brightness(1.08); }
+.sai-btn.danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
+.sai-btn.danger:hover { filter: brightness(1.08); }
+.sai-btn.ghost { background: transparent; border-color: transparent; color: var(--accent); }
+.sai-btn.ghost:hover { background: var(--bg-soft); }
+.sai-btn.small { min-height: 32px; padding: 0 var(--sp-3); font-size: 13px; }
+.sai-btn:disabled { opacity: 0.5; cursor: default; }
+
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- 札（カード） --- */
+.sai-card {
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+}
+.sai-card + .sai-card { margin-top: var(--sp-3); }
+
+/* --- 小さな札（色つきの囲み） --- */
+.sai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.6;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  border: 1px solid var(--line);
+}
+.sai-chip.ok { color: var(--ok); border-color: var(--ok); }
+.sai-chip.warn { color: var(--warn); border-color: var(--warn); }
+.sai-chip.danger { color: var(--danger); border-color: var(--danger); }
+.sai-chip.muted { color: var(--text-soft); }
+
+/* --- 画面の区切り見出し --- */
+.sai-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-5) 0 var(--sp-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+/* --- 押せる 1 行（右に ›） --- */
+.sai-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.sai-row:hover { background: var(--bg-soft); }
+.sai-row::after { content: "›"; margin-left: auto; color: var(--text-soft); font-size: 18px; }
+.sai-row-body { flex: 1; min-width: 0; }
+.sai-row-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sai-row-sub { display: block; font-size: 12px; color: var(--text-soft); }
+
+/* --- 画面上部の道具の行 --- */
+.sai-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+/* --- 左の一覧 + 右の中身（900px 以上は横に並べる） --- */
+.sai-split { display: flex; flex-direction: column; min-height: 0; }
+.sai-split-list { display: block; }
+.sai-split-main { display: none; }
+.sai-split.sai-split--main .sai-split-list { display: none; }
+.sai-split.sai-split--main .sai-split-main { display: block; }
+
+@media (min-width: 900px) {
+  .sai-split { flex-direction: row; align-items: flex-start; }
+  .sai-split-list {
+    display: block;
+    flex: 0 0 300px;
+    max-width: 300px;
+    border-right: 1px solid var(--line);
+    min-height: 100dvh;
+  }
+  .sai-split-main { display: block; flex: 1; min-width: 0; }
+  .sai-split.sai-split--main .sai-split-list { display: block; }
+}
+
+/* --- 空の画面の案内 --- */
+.sai-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--text-soft);
+}
+.sai-empty-icon { font-size: 32px; }
+.sai-empty-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.sai-empty-body { margin: 0; font-size: 14px; line-height: 1.6; max-width: 34em; }
+.sai-empty .sai-btn { margin-top: var(--sp-2); }
+
+/* --- 用語の札 --- */
+.sai-term {
+  display: inline-block;
+  border-bottom: 1px dotted var(--text-soft);
+  color: var(--text-soft);
+  font-size: 0.92em;
+  cursor: pointer;
+}
+.sai-term:hover { color: var(--accent); }
+
+/* --- 重ね板（saiConfirm / saiPrompt / saiSheet・ui.js が 1 枚だけ作る） --- */
+.sai-overlay { position: fixed; inset: 0; z-index: 100; }
+.sai-overlay[hidden] { display: none; }
+.sai-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+.sai-panel {
+  position: absolute;
+  left: var(--sp-4);
+  right: var(--sp-4);
+  bottom: calc(var(--sp-4) + var(--bottom-stack-h, 0px));
+  max-height: 85dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+.sai-panel-title { margin: 0; font-size: 17px; }
+.sai-panel-body { margin: 0; font-size: 14px; line-height: 1.7; color: var(--text-soft); }
+.sai-panel-row { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
+.sai-panel-danger .sai-panel-title { color: var(--danger); }
+.sai-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 16px;
+}
+.sai-sheet-head { display: flex; align-items: center; gap: var(--sp-2); }
+.sai-sheet-title { margin: 0; flex: 1; font-size: 17px; }
+.sai-sheet-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: var(--text-soft);
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+/* 広い画面では重ね板を右の欄にする */
+@media (min-width: 900px) {
+  .sai-panel {
+    left: auto;
+    top: 0;
+    bottom: 0;
+    width: 420px;
+    max-width: 92vw;
+    max-height: none;
+    border-radius: 0;
+    border-left: 1px solid var(--line);
+  }
+}
+
+/* --- 知らせ（3 秒・タブバーの上） --- */
+.sai-toasts {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--bottom-stack-h, 0px) + var(--sp-4));
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  pointer-events: none;
+}
+.sai-toast {
+  max-width: 90vw;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+.sai-toast.ok { background: var(--ok); color: var(--on-accent); }
+.sai-toast.error { background: var(--danger); color: var(--on-accent); }
+
+/* --- 広い画面の土台（900px 以上） ---
+   タブを下ではなく左の縦の帯にし、中身をその右に出す。
+   下に余白を残さないため --bottom-stack-h は 0 にする（app.js の updateBottomStack）。 */
+@media (min-width: 900px) {
+  .view { padding-bottom: 0; }
+  .appbar { padding-right: var(--sp-6); }
+
+  .bottom-stack {
+    left: 0;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    width: var(--rail-w);
+    border-top: none;
+    border-right: 1px solid var(--line);
+  }
+  .tabbar {
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    padding-bottom: 0;
+    overflow-y: auto;
+  }
+  .tabbar button {
+    flex: none;
+    min-height: 60px;
+    padding: var(--sp-2) 2px;
+    font-size: 10px;
+    border-radius: var(--radius-sm);
+  }
+  .tabbar button.active { background: var(--bg-soft); }
+  .tabbar svg { width: 22px; height: 22px; }
+
+  /* 中身はタブの帯の右から始める */
+  .view { margin-left: var(--rail-w); }
+
+  /* 小さな再生バーは右下に浮かせる */
+  .mini-player {
+    position: fixed;
+    right: var(--sp-4);
+    bottom: var(--sp-4);
+    width: min(360px, calc(100vw - var(--rail-w) - var(--sp-6)));
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+    z-index: 20;
+  }
+  .new-arrival { bottom: calc(var(--sp-4) + 68px); }
+  .inputbar { bottom: 0; }
+  .sai-toasts { bottom: var(--sp-4); }
+  .sai-panel { bottom: 0; }
+
+  /* 読物（メッセージ・md）は中央に寄せる */
+  #view-run .chat-list,
+  #view-run .inputbar,
+  #view-stats { max-width: 900px; margin-left: auto; margin-right: auto; width: 100%; }
+}
+
+/* 使用量のカード（U4 §4：広い画面では 2〜3 列に並べる） */
+.usage-cards { display: flex; flex-direction: column; gap: 12px; }
+@media (min-width: 900px) {
+  .usage-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sp-3);
+    align-items: start;
+    max-width: 1200px;
+  }
+}
+@media (min-width: 1280px) {
+  .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* 広い画面の「その日の実行」の左にある日付一覧（U4 §4）。
+   いま見ている日は背景で示し、1 行の高さを 44px にする。 */
+.day-row.current { background: var(--bg-soft); }
+.day-row.current .day-date { color: var(--accent); }
+#day-side .day-row { min-height: 44px; }
+#day-side .sai-section-title { margin: var(--sp-2) 0 0; padding: 0 var(--sp-3); }
+/* 狭い画面では左の欄は隠す（saiSplitShow で main だけを出す） */
+@media (max-width: 899px) {
+  #day-side { display: none; }
+}
+
+
+/* --- Dashboard の文書検索（dashsearch.js・.dash-card の中） --- */
+.dsr-top { display: flex; gap: 8px; }
+.dsr-input {
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+}
+.dsr-q { flex: 1 1 auto; }
+.dsr-go { flex: 0 0 auto; min-height: 44px; }
+.dsr-filters { margin-top: 10px; }
+.dsr-filters > summary { cursor: pointer; padding: 8px 0; color: var(--text-soft); font-size: 14px; }
+.dsr-field { display: block; margin: 8px 0; }
+.dsr-label { display: block; margin-bottom: 4px; font-size: 13px; color: var(--text-soft); }
+.dsr-field > .dsr-input { width: 100%; box-sizing: border-box; }
+.dsr-pair { display: flex; align-items: center; gap: 6px; }
+.dsr-pair .dsr-input { flex: 1 1 0; }
+.dsr-sep { color: var(--text-soft); }
+.dsr-cats { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.dsr-cat { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 15px; }
+.dsr-out { margin-top: 10px; }
+.dsr-error { color: var(--danger); }
+.dsr-row {
+  display: block;
+  width: 100%;
+  padding: 10px 0;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.dsr-row:last-of-type { border-bottom: none; }
+.dsr-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; }
+.dsr-row-id { font-weight: 600; }
+.dsr-tag { padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--bg); color: var(--text-soft); }
+.dsr-row-file { color: var(--text-soft); overflow-wrap: anywhere; }
+.dsr-row-date { margin-left: auto; color: var(--text-soft); font-size: 13px; }
+.dsr-row-snippet { display: block; margin-top: 4px; font-size: 14px; line-height: 1.5; color: var(--text-soft); overflow-wrap: anywhere; }
+
+/* md の中の waggle 参照（押すとその文書へ） */
+.md-doc a.md-waggle { overflow-wrap: anywhere; }
+
+/* --- Web の「コマンド」画面（U10） --- */
+/* Project 上部の切り替えは 6 つになった。狭い画面では横に送れるようにする。 */
+.proj-bar .list-mode .dash-seg { overflow-x: auto; }
+.proj-bar .list-mode .dash-seg button {
+  flex: 0 0 auto; padding: 6px 8px; white-space: nowrap; font-size: 12px;
+}
+
+.cmd-body { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.cmd-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cmd-cli-seg { width: auto; }
+.cmd-cli-seg button { padding: 6px 14px; }
+.cmd-filter {
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.cmd-list { display: flex; flex-direction: column; }
+.cmd-group { font-size: 12px; color: var(--text-soft); margin: 10px 0 4px; }
+.cmd-item {
+  text-align: left; background: none; border: none; border-bottom: 1px solid var(--line);
+  color: var(--text); font: inherit; padding: 8px 4px; cursor: pointer;
+}
+.cmd-item.active { color: var(--accent); font-weight: 600; }
+.cmd-main { min-width: 0; }
+.cmd-title { font-size: 16px; margin: 0 0 4px; }
+.cmd-about { color: var(--text-soft); font-size: 13px; margin: 0 0 10px; }
+.cmd-fields { display: flex; flex-direction: column; gap: 10px; }
+.cmd-field { display: flex; flex-direction: column; gap: 4px; }
+.cmd-label { font-size: 13px; font-weight: 600; }
+.cmd-input {
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.cmd-help { font-size: 12px; color: var(--text-soft); margin: 0; }
+.cmd-run-row { margin: 12px 0; }
+.cmd-result {
+  background: var(--bg-soft); border-radius: 8px; padding: 10px;
+  overflow: auto; max-height: 50vh; font-size: 13px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cmd-result:empty { display: none; }
+
+@media (min-width: 900px) {
+  .cmd-body { flex-direction: row; align-items: flex-start; gap: 24px; }
+  .cmd-side { width: 300px; flex: none; max-height: calc(100vh - 120px); overflow: auto; }
+  .cmd-main { flex: 1; }
+}
+
+/* --- 会話の検索の画面（U10） --- */
+.sess-body { padding: 12px 16px 24px; }
+.sess-form { display: flex; flex-direction: column; gap: 12px; }
+.sess-field { display: flex; flex-direction: column; gap: 4px; }
+.sess-label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.sess-input {
+  padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.sess-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sess-check-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.sess-check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.sess-run-row { display: flex; justify-content: flex-end; }
+.sess-results { margin-top: 16px; }
+.sess-count { color: var(--text-soft); font-size: 13px; margin: 0 0 8px; }
+.sess-run { border-top: 1px solid var(--line); padding: 10px 0; }
+.sess-run-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.sess-run-head a { font-weight: 600; color: var(--accent); text-decoration: none; }
+.sess-run-count { font-size: 12px; color: var(--text-soft); }
+.sess-hit { display: flex; gap: 8px; font-size: 12px; color: var(--text-soft); }
+.sess-hit-type { font-weight: 600; }
+.sess-hit-text { font-size: 14px; margin: 2px 0 8px; overflow-wrap: anywhere; }
+
+@media (min-width: 900px) {
+  .sess-grid { grid-template-columns: repeat(3, 1fr); }
+}
