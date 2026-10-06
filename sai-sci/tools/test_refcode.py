@@ -152,7 +152,7 @@ chunks = [
 ]
 if "--json" not in sys.argv:
     sys.exit("json だけ")
-print(json.dumps(chunks))
+print(json.dumps({"log": {"id": 1}, "hits": chunks}))
 """
 
 

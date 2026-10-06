@@ -286,11 +286,14 @@ def find_chunks(papers: list[int]) -> list[dict]:
         data = json.loads(out)
     except json.JSONDecodeError as e:
         raise RefcodeError(f"`find` の出力が JSON ではありません: {out.strip()[:120]!r}") from e
-    if not isinstance(data, list):
-        raise RefcodeError("`find` の出力が配列ではありません")
+    if not isinstance(data, dict) or "hits" not in data:
+        raise RefcodeError("`find` の出力に hits がありません")
+    chunks = data["hits"]
+    if not isinstance(chunks, list):
+        raise RefcodeError("`find` の hits が配列ではありません")
     if papers:
-        data = [c for c in data if c.get("paper_id") in papers]
-    return data
+        chunks = [c for c in chunks if c.get("paper_id") in papers]
+    return chunks
 
 
 def cmd_links(args) -> int:
