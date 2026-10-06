@@ -18,17 +18,17 @@
 
 // --- 定数 ---
 
-// op の表示名（C-OP の 13 個。表に無い op はそのまま出す）
+// op の表示名（C-OP の 13 個。表に無い op はそのまま出す。C4 の共有契約）
 const SE_OPS = {
-  add_q: "Q を足す", add_o: "O を足す", add_f: "F を足す", add_e: "E を足す",
-  record_logic: "Logicality を記録", add_seed: "SEED を作る", copy: "O を写す", remove: "✕ 消す",
+  add_q: "Add Q", add_o: "Add O", add_f: "Add F", add_e: "Add E",
+  record_logic: "Logicality を記録", add_seed: "Sprout を作る", copy: "Copy O", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_kind: "Answer / Issue を変える",
-  edit: "文を直す", set_target: "Objectivity の目安を変える",
+  edit: "Edit", set_target: "Objectivity の目安を変える",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
   add_q: "Q を足しました", add_o: "O を足しました", add_f: "F を足しました", add_e: "E を足しました",
-  record_logic: "Logicality を記録しました", add_seed: "SEED を作りました", copy: "O を写しました",
+  record_logic: "Logicality を記録しました", add_seed: "Sprout を作りました", copy: "O を写しました",
   remove: "消しました", star: "★ を付けました", unstar: "★ を外しました",
   set_kind: "Answer / Issue を変えました", edit: "文を直しました", set_target: "目安を変えました",
 };
@@ -60,7 +60,7 @@ const SE_BLOCKS = [
   ["sci-debate", "議論: 賛否を出し合う"],
   ["sci-review", "見直す: 木を点検する"],
   ["sci-compare", "比べる: O を比べる"],
-  ["sci-seed", "SEED をつくる: 道から種を作る"],
+  ["sci-seed", "Sprout をつくる: Q から O を降りる道で Sprout を作る"],
   ["sci-digest", "まとめる: 今の状態をまとめる"],
   ["sci-coach", "理解の確認: 問いかけて確かめる"],
   ["sci-typify", "型に当てる: 型を当てはめる"],
@@ -551,6 +551,146 @@ function seFieldChecks(key, label, options, init, hint) {
   };
 }
 
+/** 文の先頭 n 字（40 字・30 字の表示用。… は付けない）。 */
+function seChainHead(text, n) {
+  return Array.from(seTrim(text)).slice(0, n).join("");
+}
+
+/** Q の選択肢の表示（`Q3 <文の先頭 40 字>`）。 */
+function seChainQLabel(n) {
+  return `${String(n.id)} ${seChainHead(n.text || n.title || "", 40)}`.trim();
+}
+
+/** O の選択肢の表示（`${Q の ID} › ${O の ID} ${文の先頭 30 字}（Answer|Issue）`。Q の ID は O の親）。 */
+function seChainOLabel(list, o) {
+  const byId = new Map((Array.isArray(list) ? list : []).filter((n) => n && n.id != null).map((n) => [String(n.id), n]));
+  const parent = byId.get(String(o.id));
+  const q = parent && parent.parent != null ? String(parent.parent) : "";
+  const kind = /issue/i.test(o.answer_kind || "") ? "Issue" : "Answer";
+  return `${q ? `${q} › ` : ""}${String(o.id)} ${seChainHead(o.text || "", 30)}（${kind}）`.trim();
+}
+
+/** O が Issue か。 */
+function seChainIsIssue(list, oId) {
+  const n = (Array.isArray(list) ? list : []).find((x) => x && String(x.id) === String(oId));
+  return !!n && /issue/i.test(n.answer_kind || "");
+}
+
+/** 鎖の段の計画（{rows: [{options: [[value, text]]}]}）。
+ * rows[0] は開始の Q、rows[1] はその直の子の O、rows[2] からは直前の O の下の O。
+ * 直前の段を選んでいない・候補が無いときは、その段を出さない。 */
+function seChainPlan(list, picks) {
+  const nodes = Array.isArray(list) ? list : [];
+  const sel = Array.isArray(picks) ? picks : [];
+  const qCands = nodes.filter((n) => n && seRefOk(n.id, "Q") && seSproutStartOs(nodes, n.id).length);
+  const rows = [{ options: qCands.map((n) => [String(n.id), seChainQLabel(n)]) }];
+  const q = sel[0] ? String(sel[0]) : "";
+  if (!q) return { rows };
+  rows.push({ options: seSproutStartOs(nodes, q).map((o) => [o.id, seChainOLabel(nodes, o)]) });
+  let prev = sel[1] ? String(sel[1]) : "";
+  while (prev && rows.length < 52) {
+    const next = seSproutNext(nodes, prev);
+    if (!next.length) break;
+    rows.push({ options: next.map((o) => [o.id, seChainOLabel(nodes, o)]) });
+    const nxt = sel[rows.length - 1];
+    prev = nxt ? String(nxt) : "";
+  }
+  return { rows };
+}
+
+/** 選んだ道（picks[1] からの O の ID。空で止める）。 */
+function seChainPath(list, picks) {
+  const sel = Array.isArray(picks) ? picks : [];
+  const out = [];
+  for (let i = 1; i < sel.length; i += 1) {
+    const v = sel[i] ? String(sel[i]) : "";
+    if (!v) break;
+    out.push(v);
+  }
+  return out;
+}
+
+/** Sprout の鎖を 1 本選ぶ欄（{key, el, read}。read() は選んだ O の ID の配列）。
+ * 1 段目は開始の Q、2 段目はその直の子の O、3 段目からは直前の O の下の O（seSproutNext）。
+ * どの段を変えても、その下の段を作り直す。node では使わない純粋な部分は seChainPlan が受け持つ。 */
+function seFieldChain(key, label, nodes, init) {
+  const el = seLine("sci-edit-field sci-edit-chain");
+  el.appendChild(seEl("label", "sci-edit-label", label));
+  const box = seEl("div", "sci-edit-chain-box");
+  const pathLine = seEl("p", "sci-edit-note", "");
+  const warn = seEl("p", "sci-edit-error", "Issue の O を 1 つ以上含めてください");
+  el.appendChild(box);
+  el.appendChild(pathLine);
+  el.appendChild(warn);
+  const list = Array.isArray(nodes) ? nodes : [];
+
+  // 開始の Q の候補（直の子に O を持つ Q）。表示は `Q3 <文の先頭 40 字>`。
+  const qCands = list.filter((n) => n && seRefOk(n.id, "Q") && seSproutStartOs(list, n.id).length);
+  // 初めの値（init は {q, o} か {nodeId} か Node の ID の文字。nodeId が Q ならその Q、O なら親の Q とその O）。
+  const rawInit = typeof init === "string" ? init : (init && (init.nodeId || init.q) != null ? String(init.nodeId || init.q) : "");
+  const rawO = init && typeof init === "object" && init.o != null ? String(init.o) : "";
+  let startQ = "";
+  if (seRefOk(rawInit, "Q") && qCands.some((n) => String(n.id) === rawInit)) startQ = rawInit;
+  else if (seRefOk(rawInit, "O")) {
+    const parent = list.find((n) => n && String(n.id) === rawInit);
+    const q = parent && parent.parent != null ? String(parent.parent) : "";
+    if (q && qCands.some((n) => String(n.id) === q)) startQ = q;
+  } else if (seRefOk(rawO, "O")) {
+    const parent = list.find((n) => n && String(n.id) === rawO);
+    const q = parent && parent.parent != null ? String(parent.parent) : "";
+    if (q && qCands.some((n) => String(n.id) === q)) startQ = q;
+  }
+  if (!startQ && qCands.length) startQ = String(qCands[0].id);
+  const startO = seRefOk(rawInit, "O") ? rawInit : (seRefOk(rawO, "O") ? rawO : "");
+
+  // 段ごとの選択: [qId, oId, oId, ...]（1 段目は Q、2 段目から O）。
+  const picks = [startQ, startO];
+  const stageLabel = (i) => (i === 0 ? "開始の Q" : i === 1 ? "開始の Q の O" : `段 ${i + 1} の O`);
+
+  const refresh = () => {
+    const plan = seChainPlan(list, picks);
+    // 下の段が消えたときは、その下の選択も空にする。
+    for (let i = 0; i < plan.rows.length; i += 1) {
+      const row = plan.rows[i];
+      if (row.options.length && picks[i] && !row.options.some((x) => x[0] === picks[i])) picks[i] = "";
+    }
+    while (picks.length > plan.rows.length) picks.pop();
+    box.innerHTML = "";
+    plan.rows.forEach((row, i) => {
+      const line = seLine("sci-edit-chain-row");
+      line.style.paddingLeft = `${i * 8}px`;
+      const sel = document.createElement("select");
+      sel.className = "sai-input sci-edit-select";
+      sel.setAttribute("aria-label", stageLabel(i));
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = i === 1 ? "選ぶ" : "ここで止める";
+      sel.appendChild(none);
+      for (const [value, text] of row.options) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = text;
+        sel.appendChild(o);
+      }
+      sel.value = picks[i] || "";
+      if (sel.value !== (picks[i] || "")) picks[i] = "";
+      sel.addEventListener("change", () => {
+        picks[i] = sel.value;
+        // その下の段を作り直す。
+        for (let j = i + 1; j < picks.length; j += 1) picks[j] = "";
+        refresh();
+      });
+      line.appendChild(sel);
+      box.appendChild(line);
+    });
+    const path = seChainPath(list, picks);
+    pathLine.textContent = path.length > 1 ? path.join(" → ") : path.length === 1 ? path[0] : "";
+    warn.hidden = path.some((o) => seChainIsIssue(list, o));
+  };
+  refresh();
+  return { key, el, read: () => seChainPath(list, picks) };
+}
+
 /** 1 行ずつ何個も足す欄（出典・仮置き）。 */
 function seFieldLines(key, label, init, max, hint, placeholder) {
   const el = seLine("sci-edit-field");
@@ -682,6 +822,37 @@ function seLeafQs(nodes) {
   return qs.filter((q) => !qs.some((c) => c.parent === q.id || parentOf.get(c.parent) === q.id));
 }
 
+/** O から上へ Q をたどって最初に会う O の ID（無ければ null）。巡回しても止まらないように見る ID を覚える。 */
+function seNearestO(nodes, oId) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const byId = new Map(list.filter((n) => n && n.id != null).map((n) => [String(n.id), n]));
+  const seen = new Set([String(oId)]);
+  let cur = byId.get(String(oId));
+  cur = cur ? byId.get(cur.parent == null ? "" : String(cur.parent)) : null;
+  while (cur && !seen.has(String(cur.id))) {
+    seen.add(String(cur.id));
+    if (seRefOk(cur.id, "O")) return String(cur.id);
+    cur = byId.get(cur.parent == null ? "" : String(cur.parent));
+  }
+  return null;
+}
+
+/** Q の直の子の O（[{id, text, answer_kind}]、並びは nodes の順）。 */
+function seSproutStartOs(nodes, qId) {
+  const want = qId == null ? "" : String(qId);
+  return (Array.isArray(nodes) ? nodes : [])
+    .filter((n) => n && seRefOk(n.id, "O") && String(n.parent) === want)
+    .map((n) => ({ id: String(n.id), text: n.text || n.title || "", answer_kind: n.answer_kind || "" }));
+}
+
+/** 鎖の次に選べる O（seNearestO(nodes, o) === prevO の O。並びは nodes の順）。 */
+function seSproutNext(nodes, prevO) {
+  const want = prevO == null ? "" : String(prevO);
+  return (Array.isArray(nodes) ? nodes : [])
+    .filter((n) => n && seRefOk(n.id, "O") && seNearestO(nodes, n.id) === want)
+    .map((n) => ({ id: String(n.id), text: n.text || n.title || "", answer_kind: n.answer_kind || "" }));
+}
+
 /** detail.subtree の F（[{id, text, paper}]）。 */
 function seSubtreeFs(detail) {
   const list = detail && Array.isArray(detail.subtree) ? detail.subtree : [];
@@ -764,16 +935,14 @@ function seFieldsFor(kind, nodeId, detail) {
       };
     case "add_seed": {
       const st = typeof stStatus === "function" ? stStatus() : null;
-      const up = id ? seAncestors(nodes, id) : null;
-      const stars = nodes.filter((n) => n && seRefOk(n.id, "O") && n.star);
-      const init = stars.filter((n) => !up || up.has(n.id)).map((n) => n.id);
+      // nodeId が Q か O なら、鎖の初めの値に使う（C5）。n.star は使わない。
       return {
-        title: "SEED を作る",
+        title: "Sprout を作る",
         values: {},
         fields: [
           seFieldText("title", "題", "", "必須・120 字まで"),
           seFieldArea("sentence", "文", (st && st.seed_draft && st.seed_draft.text) || "", 4, "必須・600 字まで"),
-          seFieldChecks("path", "道（★ の O）", stars.map(seNodeOption), init, "1 つ以上"),
+          seFieldChain("path", "道", nodes, { nodeId: id }),
           reason(),
         ],
       };
@@ -1216,6 +1385,7 @@ if (typeof module !== "undefined" && module.exports) {
     seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
     seCardValues, seBuildCard, seProposalNodeKey, seProposalRunKey, seGroupProposals,
     seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
+    seNearestO, seSproutStartOs, seSproutNext, seChainPlan, seChainPath,
     SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ASSUME_RE, SE_ID_RE,
   };
 }

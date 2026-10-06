@@ -203,6 +203,19 @@
   gap: 6px;
 }
 
+/* Sprout の鎖（select を縦に並べ、段ごとに 8px 字下げする。幅 390px でもはみ出さない） */
+.sci-edit-chain-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sci-edit-chain-box .sci-edit-select {
+  width: 100%;
+  min-width: 0;
+}
+
 .sci-edit-pick {
   min-height: 44px;
   padding: 6px 14px;
