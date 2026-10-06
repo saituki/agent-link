@@ -4,7 +4,7 @@
 //!   分野の観点の見本）・`.sai/tools/`・`.sai/exec/`・`.sai/paper/mind.md` を書き出す。
 //!   既にあるファイルは上書きしない（部品の配り方。`--update` のときだけ退避して置き換える）。
 //! - `.sai/settings.json` に sai-sci の 4 つのキーを書く（共有契約「sai-sci が書く設定」）。
-//! - 論文側の部品（論文の block・template）は `sai-moon-paper init` が配る。ここでは配らない。
+//! - 論文側の部品（論文の block・template）は `sai-paper init` が配る。ここでは配らない。
 
 use std::path::{Path, PathBuf};
 
@@ -100,7 +100,6 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
 const SCI_TOOLS: &[(&str, &str)] = &[
     ("exp_summary.py", include_str!("../../../sai-sci/tools/exp_summary.py")),
     ("exp_exec.py", include_str!("../../../sai-sci/tools/exp_exec.py")),
-    ("phone_api.py", include_str!("../../../sai-sci/tools/phone_api.py")),
     ("refcode.py", include_str!("../../../sai-sci/tools/refcode.py")),
     ("modeldb.py", include_str!("../../../sai-sci/tools/modeldb.py")),
     ("data_result.py", include_str!("../../../sai-sci/tools/data_result.py")),
@@ -165,17 +164,17 @@ const DOMAIN_SAMPLES: &[(&str, &str, &str)] = &[
     (
         "medical",
         "domain-medical.md",
-        include_str!("../../sai-paper-cli/assets/template/domain-medical.md"),
+        include_str!("../../../sai-sci/template/domain-medical.md"),
     ),
     (
         "signal-ml",
         "domain-signal-ml.md",
-        include_str!("../../sai-paper-cli/assets/template/domain-signal-ml.md"),
+        include_str!("../../../sai-sci/template/domain-signal-ml.md"),
     ),
     (
         "general",
         "domain-general.md",
-        include_str!("../../sai-paper-cli/assets/template/domain-general.md"),
+        include_str!("../../../sai-sci/template/domain-general.md"),
     ),
 ];
 
@@ -609,7 +608,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("sai-paper-sci-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".sai")).unwrap();
-        let bin = Path::new("/opt/bin/sai-moon-paper");
+        let bin = Path::new("/opt/bin/sai-sci");
 
         let done = install_sci_init(&root, bin, "general", false, false).unwrap();
 
@@ -634,14 +633,13 @@ mod tests {
         }
         assert!(root.join(".sai/template/domain.md").is_file());
 
-        // U8: professor と operator のブロックと研究向けの共通 template 3 本、Web と同じ操作の道具。
+        // U8: professor と operator のブロックと研究向けの共通 template 3 本。
         for name in ["professor.md", "operator.md"] {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name} が配られていない");
         }
         for name in ["sai-agent.md", "sci-task.md", "sci-cli.md"] {
             assert!(root.join(".sai/template").join(name).is_file(), "{name} が配られていない");
         }
-        assert!(root.join(".sai/tools/phone_api.py").is_file(), "phone_api.py が配られていない");
 
         // 実験ループの台帳は `.sai/tools/` に置く。ブロックはこの名前で呼ぶ
         for (name, content) in SCI_TOOLS {
@@ -682,12 +680,12 @@ mod tests {
         let settings = read_json(&root.join(".sai/settings.json")).unwrap();
         assert_eq!(
             settings["context"],
-            json!(["/opt/bin/sai-moon-paper", "context", "--run", "{run_id}"]),
+            json!(["/opt/bin/sai-sci", "context", "--run", "{run_id}"]),
             "context が実行ファイルの絶対パスと context --run の設定ではない"
         );
         assert_eq!(
             settings["write_check"],
-            json!(["/opt/bin/sai-moon-paper", "report", "prepare", "--run", "{run_id}", "--block", "{block}", "--filename", "{filename}"]),
+            json!(["/opt/bin/sai-sci", "report", "prepare", "--run", "{run_id}", "--block", "{block}", "--filename", "{filename}"]),
         );
         // job_status は固定（sai-link が組み立てる）。
         assert_eq!(
@@ -702,7 +700,7 @@ mod tests {
         let again = read_json(&root.join(".sai/settings.json")).unwrap();
         assert_eq!(again["write_check"], json!(["mine"]));
         // 今からある pre_run は、そのまま残す
-        assert_eq!(settings["pre_run"], json!(["/opt/bin/sai-moon-paper", "brief", "--write"]));
+        assert_eq!(settings["pre_run"], json!(["/opt/bin/sai-sci", "brief", "--write"]));
 
         // 土壌のひな形
         assert_eq!(
@@ -737,7 +735,7 @@ mod tests {
             r#"{"pre_run": ["my-command"], "context": ["my-range-maker"]}"#,
         )
         .unwrap();
-        let bin = Path::new("/opt/bin/sai-moon-paper");
+        let bin = Path::new("/opt/bin/sai-sci");
 
         install_sci_init(&root, bin, "general", false, false).unwrap();
         // 2 回目は、既に置いた sci のブロックを動かさない。
@@ -818,7 +816,7 @@ mod tests {
     /// U8 で足した `professor` と `operator` も同じ検査に含める。
     #[test]
     fn blocks_use_only_shipped_templates() {
-        // 論文側の template は `sai-moon-paper init` が配る（sai-sci は配らない）。
+        // 論文側の template は `sai-paper init` が配る（sai-sci は配らない）。
         let mut shipped: Vec<&str> = [
             "literature-hard-rules.md",
             "paper-screening.md",
@@ -1100,11 +1098,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
             for needle in [
                 "\"card\": 120",
-                "--executer professor",
+                "--executer agent",
                 "--origin-run \"$SAI_PARENT_RUN_ID\"",
-                "sai-moon-paper sci status --brief",
-                "sci triage",
-                "phone_api.py",
+                "sai-sci status --brief",
+                "sai-sci triage",
+                "sai-web",
                 "question <qid>",
                 "answer <qid>",
                 "課金",
@@ -1173,21 +1171,21 @@ mod tests {
             .map(|(_, content)| *content)
             .expect("operator.md が SCI_BLOCKS に無い");
         for needle in [
-            "phone_api.py",
-            "sai-moon-link phone tree",
-            "phone md --kind",
-            "sai-moon-link search -w",
-            "task_capture",
-            "task_manage",
+            "sai-web",
+            "sai-link run tree",
+            "sai-link run md --kind",
+            "sai-link session search -w",
+            "sai-link task capture",
+            "sai-link task",
             "exp_exec.py",
             "operator-notes.md",
-            "`task_report` を呼ばずに止まる",
+            "`sai-link task report` を呼ばずに止まる",
             "Web の答えが子に届かない",
             "子が閉じられていない",
             "`failed`",
             "`timeout`",
             "常駐が動いていない",
-            "終了コード 2",
+            "終了コード 1",
         ] {
             assert!(content.contains(needle), "operator.md に {needle} が無い");
         }
@@ -1206,11 +1204,6 @@ mod tests {
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
             assert!(content.chars().all(|c| !is_foreign_script(c)), "{name} に他の言語の文字がある");
         }
-        // 道具 phone_api.py も配る（professor と operator が Web と同じ操作をするため）。
-        assert!(
-            SCI_TOOLS.iter().any(|(name, _)| *name == "phone_api.py"),
-            "phone_api.py が SCI_TOOLS に無い"
-        );
     }
 
     /// 韓国語・ロシア語・中国簡体字のような、他言語の文字が混ざっていないかを見る。

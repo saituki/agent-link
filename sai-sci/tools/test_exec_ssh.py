@@ -81,14 +81,14 @@ class Env:
         cfg = (target / "target.toml").read_text()
         cfg = cfg.replace("enable = false", "enable = true").replace('host = ""', 'host = "fakehost"')
         cfg = cfg.replace("max_jobs = 1", f"max_jobs = {max_jobs}")
-        cfg = cfg.replace('remote_root = ".sai-moon-exec"', 'remote_root = ".exp-test"')
+        cfg = cfg.replace('remote_root = ".sai-exec"', 'remote_root = ".exp-test"')
         (target / "target.toml").write_text(cfg)
         (self.work / "hello.txt").write_text("こんにちは\n")
         (self.work / ".venv").mkdir()
         (self.work / ".venv" / "big.bin").write_text("送らない")
         self.env = dict(
             os.environ,
-            SAI_SAI_HOME=str(self.home),
+            SAI_HOME=str(self.home),
             SAI_PROJECT_ROOT=str(self.project),
             FAKE_REMOTE_HOME=str(self.remote),
             PATH=f"{self.bin}:{os.environ['PATH']}",

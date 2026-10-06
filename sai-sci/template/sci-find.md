@@ -8,10 +8,10 @@
 - 検索の前に `## SEARCH_HISTORY` を読み、同じ検索を繰り返しません。
 
 ```bash
-sai-moon-paper find "<英語の検索語>" --node Q12 --mode word --json
-sai-moon-paper find "<英語の検索語>" --node O5 --subtree --each 3 --json
-sai-moon-paper find "<英語の検索語>" --widen "Node の論文で 0 件だったため" --node Q12 --json
-sai-moon-paper search "<英語の検索語>" --db s2 --save-as <名前> --node Q12 --purpose "<目的>" --extract "<抜き出すもの>" --json
+sai-sci find "<英語の検索語>" --node Q12 --mode word --json
+sai-sci find "<英語の検索語>" --node O5 --subtree --each 3 --json
+sai-sci find "<英語の検索語>" --widen "Node の論文で 0 件だったため" --node Q12 --json
+sai-sci search "<英語の検索語>" --db s2 --save-as <名前> --node Q12 --purpose "<目的>" --extract "<抜き出すもの>" --json
 ```
 
 ## 広げる順

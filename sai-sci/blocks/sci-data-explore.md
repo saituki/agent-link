@@ -93,7 +93,7 @@ enable: true
 
 ### 6. データ表を保存する
 
-`data-core` §4 の書式で `data-card-<study>.md` を `sai_write` で保存する（C2）。
+`data-core` §4 の書式で `data-card-<study>.md` を `sai-link doc write` で保存する（C2）。
 
 - description は `データ表 <study>: <データを 1 文で>`。
 - 本文の先頭に、§4 の JSON を ```json のコードブロックで **1 つだけ**置く。
@@ -128,13 +128,13 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 `## 出力の形` の見出しで書く。**「## 次の一手」には、数据表のトークン・5. の E の ID と、下の命令をそのまま書ける形で書く。**
 
 ```bash
-sai-moon-paper sci card --node <5. の E の ID> --block sci-data-test \
+sai-sci card --node <5. の E の ID> --block sci-data-test \
   --purpose "<study> の解析: <主な仮説の候補を 1 文で>" --input <データ表のトークン> --json
 ```
 
 **このカードを作らない。** 書くだけである。カードを起こすのは professor か利用者である。
 
-完了は `sci-core` の「完了のしかた」に従う（`SAI_IS_SUBTASK` が `1` なら `task_report`、`0` なら質問ツールで確かめて `sai_finalize`）。`task_report` には**データ表のトークン**と**出した E の ID**を書く。
+完了は `sci-core` の「完了のしかた」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**データ表のトークン**と**出した E の ID**を書く。
 
 ## 出力の形
 

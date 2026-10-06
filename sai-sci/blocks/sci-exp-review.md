@@ -27,7 +27,7 @@ enable: true
 
 あなたは **review** である（`exp-core` §1）。1 回の実行のジョブが終わったので、daemon があなたを起こした。台帳で結果を読み、規則（`exp-core` §6）で判定し、次の 1 回の実行を起こすか、止めて完了報告書を書く。
 
-あなたは親を持たない run である。最後に `sai_finalize` を呼ぶ。
+あなたは親を持たない run である。最後に `sai-link run finalize` を呼ぶ。
 
 しないこと:
 
@@ -57,7 +57,7 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 
 ### 4. 判定する
 
-`exp-core` §6 の R0〜R8（R1a を含む）を上から当てはめ、最初に当てはまったものを採る。判定書（`review-<study>-ID<branch>.md`）を `sai_write` で保存する。description は `判定書 <study> ID<branch>: <decision> <rule> — <理由 1 文>`。
+`exp-core` §6 の R0〜R8（R1a を含む）を上から当てはめ、最初に当てはまったものを採る。判定書（`review-<study>-ID<branch>.md`）を `sai-link doc write` で保存する。description は `判定書 <study> ID<branch>: <decision> <rule> — <理由 1 文>`。
 
 起こす本数は `total_branches + 起こす本数 <= max_branches` に収め、1 回に起こす数は `max_children` 以下にする。
 
@@ -66,14 +66,14 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 `next` の 1 行ごとに、依頼書（`branch-order-<study>-<NN>.md`、`exp-core` §7）を保存し、`sci-exp-branch` のカードを作って起こす。依頼書の `parent_branch`・`model` は `next` の値。
 
 ```bash
-sai-moon-paper sci card --node <次の 1 回の実行の E の ID> --block sci-exp-branch \
+sai-sci card --node <次の 1 回の実行の E の ID> --block sci-exp-branch \
   --purpose "<study> <action> <model>（親 ID<parent_branch>）" \
   --input <実験仕様書のトークン> --input <依頼書のトークン> --input <判定書のトークン> \
   --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
-sai-moon-link phone card run <返った run_id>
+sai-link card run <返った run_id>
 ```
 
-`sai-moon-link phone tree` で running を確かめる。
+`sai-link run tree` で running を確かめる。
 
 - **tune**: GRID は台帳の `param_edges` を見て決める（端の外側へ広げる。端が無ければ最良の近くを細かく）。
 - **debug**: `fix` には `logs` と run の `exp.error` から、直す点を具体的に書く（ファイル・行・誤りの文）。R1a（`exp-core` §6）で debug にしたときは、`fix` に**外れた目標の名前・台帳の `target.repro` の値・モデル定義書の `repro[].range`** を書く（`target.repro_pass` が `null` なら「`repro_pass` が記録されていない」と書く）。モデル定義書の「## 食い違い」に該当行があれば、それも引く。
@@ -88,20 +88,20 @@ sai-moon-link phone card run <返った run_id>
 - 仕様書の `return_to` があれば、professor を起こし直す（`exp-core` §11）。`return_to` が `null` なら起こさない。
 
 ```bash
-sai-moon-link phone md --kind task <return_to.run_id>   # frontmatter の runner・model・thinking を読む
-sai-moon-link phone card create <<'EOF'
+sai-link run md --kind task <return_to.run_id>   # frontmatter の runner・model・thinking を読む
+sai-link card create <<'EOF'
 {"runner": "<runner>", "block": "<return_to.block>", "model": "<model>", "thinking": "<thinking>",
  "executer": "human",
  "task_text": "あなたは <block> の続きである。前の run <return_to.run_id> が起こした実験 <study> が終わった。\n研究日誌 .sai/paper/<block>-log.md を読んでから、下の完了報告書を評価して次の一手を決めよ。\n\nwaggle:<完了報告書のトークン>"}
 EOF
-sai-moon-link phone card run <返った run_id>
+sai-link card run <返った run_id>
 ```
 
-`model`・`thinking` が空なら、その欄を書かない。`phone tree` で running を確かめる。
+`model`・`thinking` が空なら、その欄を書かない。`sai-link run tree` で running を確かめる。
 
 ### 7. 木に記録する
 
-木は `sci_propose` で出す（`sci-core`）。
+木は `sai-sci propose` で出す（`sci-core`）。
 
 1. 結果を F として、その 1 回の実行の E の下に `add_f` で出す。文に MLflow の run 名と値を書く。`cites` は論文を引くときだけ付ける（MLflow の出典は `cites` に入れない）。`report` に判定書のトークンを入れる（数字を含む F の出典になる）。
 
@@ -125,7 +125,7 @@ sai-moon-link phone card run <返った run_id>
 
 ### 8. 終える
 
-`sai_finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（または完了報告書のトークンと起こし直した professor の run_id）を書く。
+`sai-link run finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（または完了報告書のトークンと起こし直した professor の run_id）を書く。
 
 ## 完了の基準
 

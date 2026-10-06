@@ -56,7 +56,7 @@ EXP='uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/
 - (c) 他の人のジョブやプロセスの停止（**自分が投入した job_id だけ**を扱う）
 - (d) 実行先の設定（`target.toml`・adapter）の変更
 
-確認の方法: 質問ツールで尋ねる（Claude Code は `AskUserQuestion`、pi は `ask_user_phone`）。返答の本文だけで尋ねて止まらない。
+確認の方法: 質問ツールで尋ねる（Claude Code は `AskUserQuestion`、pi は `ask_user`）。返答の本文だけで尋ねて止まらない。
 
 sai-link は cc を権限確認なしで起動する。そのため、この確認はエージェントである自分の指示として守る。
 

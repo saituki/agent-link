@@ -18,7 +18,7 @@ hold_sec = 780
 key = "~/.ssh/dok_key"
 experiment = "dok"
 # 秘密（SAKURA_API_ACCESS_TOKEN など）を書いたファイル。空なら環境変数（settings.json の env）から読む。
-# 例: ~/.sai-moon/dok.env（権限 600。Git に入れない）
+# 例: ~/.sai/dok.env（権限 600。Git に入れない）
 env_file = ""
 # コマンドの前にコンテナの中で実行する準備（1 行ずつ）
 setup = ["pip install -q uv"]

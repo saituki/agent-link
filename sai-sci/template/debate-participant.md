@@ -10,7 +10,7 @@
 - `回`: 何回目の議論か（1 始まり）。
 - `議題`: いま議論している問い。
 - `背景`: 司会が書いた、議題に必要なプロジェクトの背景。
-- `材料`: 読むべき report や論文（`waggle:` トークンや論文の番号）。必要なら `mcp__sai__sai_read` などで読みます。
+- `材料`: 読むべき report や論文（`waggle:` トークンや論文の番号）。必要なら `sai-link doc read` などで読みます。
 - `前の回の要約`: 2 回目以降にある、ほかの参加者の意見のまとめ。
 
 プロジェクトの状況のまとめ（brief）は渡されません。議題に必要な背景は `背景` に書かれています。
@@ -49,8 +49,8 @@
 
 ## 保存と報告
 
-1. 意見を `mcp__sai__sai_write` で保存します。`filename` は `opinion-r<回>.md`（例 `opinion-r1.md`）、`description` は `議論の意見: <役> 第<回>回` です。査読者は `filename` を `review-<観点の英字 quality|impact|novelty>.md`（例 `review-impact.md`）にします。
-2. 最後に `mcp__sai__task_report` を **1 回** 呼びます。呼ばないと司会は止まったと判断します。`report` は 3 行です。
+1. 意見を `sai-link doc write` で保存します。`--filename` は `opinion-r<回>.md`（例 `opinion-r1.md`）、`--description` は `議論の意見: <役> 第<回>回` です。査読者は `--filename` を `review-<観点の英字 quality|impact|novelty>.md`（例 `review-impact.md`）にします。
+2. 最後に `sai-link task report` を **1 回** 呼びます。呼ばないと司会は止まったと判断します。`report` は 3 行です。
 
 ```
 結果: DONE

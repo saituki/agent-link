@@ -34,7 +34,7 @@ Action `choose`。子の Q を持たない Q の O を、軸で比べた表と�
 軸は mind.md の `## VALUE_AXES` と、ガイドの Extract。比べる根拠は `add_f` で O に付ける。
 
 ### 手順
-1. **比べる O を決める。** 対象の Q の O を `sai-moon-paper sci status --json` で読む。2 つ未満なら、そのことを書いて止まる。
+1. **比べる O を決める。** 対象の Q の O を `sai-sci status --json` で読む。2 つ未満なら、そのことを書いて止まる。
 2. **軸を決める。** mind.md の `## VALUE_AXES` と、ガイドの Extract から軸を選ぶ。
 3. **根拠を集める。** 軸ごと・O ごとに、F を読む。足りなければ `sci-lookup`・`sci-extract` を呼んで確かめ、新しい根拠は `add_f` で O に付ける。
 4. **比較表を作る。** O を列、軸を行にし、値と根拠の F の ID を入れる。値が分からない所は「不明」と書く。

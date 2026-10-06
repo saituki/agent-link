@@ -39,8 +39,8 @@ class Fail(Exception):
 
 
 def sai_home() -> Path:
-    value = os.environ.get("SAI_SAI_HOME")
-    return Path(value) if value else Path.home() / ".sai-moon"
+    value = os.environ.get("SAI_HOME")
+    return Path(value) if value else Path.home() / ".sai"
 
 
 def job_dir() -> Path:

@@ -48,24 +48,24 @@ subblocks:
 
 | 見方 | 意味 | 読む方法 |
 |---|---|---|
-| 進み具合（`progress`） | 木のどこまで埋まったか | `sci status --brief` |
-| Next Action（`next`） | 木が次に示している作業（`why` のコード） | `sci status --brief` |
-| DEBT（`debt_count`） | 残っている・弱いと分かっている点。中身は `sci status --json` の `debts` | `sci status --brief` |
-| Objectivity・Logicality | O の根拠が足りているか・Q から ★ の道の筋が通っているか | `sci status --json` |
-| Node | Q・O・F・E の 1 つ | `sci node <N12>` |
-| PROPOSAL | 木への変更の申し出。`sci triage` で仕分ける | `sci proposals` |
+| 進み具合（`progress`） | 木のどこまで埋まったか | `sai-sci status --brief` |
+| Next Action（`next`） | 木が次に示している作業（`why` のコード） | `sai-sci status --brief` |
+| DEBT（`debt_count`） | 残っている・弱いと分かっている点。中身は `sai-sci status --json` の `debts` | `sai-sci status --brief` |
+| Objectivity・Logicality | O の根拠が足りているか・Q から ★ の道の筋が通っているか | `sai-sci status --json` |
+| Node | Q・O・F・E の 1 つ | `sai-sci node <N12>` |
+| PROPOSAL | 木への変更の申し出。`sai-sci triage` で仕分ける | `sai-sci proposals` |
 
-現在地はまず `sai-moon-paper sci status --brief` で読む。★ は利用者だけが付ける。逆向きでは、論文の答えの O に ★ が要るとき、評価の結果を Human に見せて ★ を頼む（professor-backward は ★ を付けない）。
+現在地はまず `sai-sci status --brief` で読む。★ は利用者だけが付ける。逆向きでは、論文の答えの O に ★ が要るとき、評価の結果を Human に見せて ★ を頼む（professor-backward は ★ を付けない）。
 
 ## 始めにすること
 
-1. 依頼を読む。依頼に `waggle:` のトークンがあれば、`sai_read` でその文書を読む。依頼から基盤論文の番号（`基盤論文: #12 #15`）を取る。無ければ、質問ツールで Human に番号を聞いて待つ。
-2. 基盤論文が Library にあるかを `sai-moon-paper phone paper <番号>` で確かめる（本文は読まない）。無ければ、Web の論文の画面で取り込むよう Human に頼んで待つ。
+1. 依頼を読む。依頼に `waggle:` のトークンがあれば、`sai-link doc read` でその文書を読む。依頼から基盤論文の番号（`基盤論文: #12 #15`）を取る。無ければ、質問ツールで Human に番号を聞いて待つ。
+2. 基盤論文が Library にあるかを `sai-paper paper show <番号>` で確かめる（本文は読まない）。無ければ、Web の論文の画面で取り込むよう Human に頼んで待つ。
 3. `.sai/paper/mind.md`（研究の土台。Human が書いたもの。直接は書き換えない）を読む。
-4. `sai-moon-paper sci status --brief` を読む。木がまだ無いと返ったときは、自分で `init` を打たず、質問ツールで Human に `sai-moon-paper init --assets-only --sci --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼んで待つ。型が分からなければ `problem` を勧める（型が違えば、段 1 の `sci-restore` が知らせる）。
-5. 研究日誌 `.sai/paper/professor-backward-log.md` があれば読み、今どの段にいるかを確かめる。会話が要約されて前のことが分からなくなったときは、ここの日誌と `sci status --brief`、`sai-moon-link phone tree` から再開する。
+4. `sai-sci status --brief` を読む。木がまだ無いと返ったときは、自分で `sai-sci init` を打たず、質問ツールで Human に `sai-sci init --update --type <型>` の実行（または Web の Research-tree の画面の「始める」）を頼んで待つ。型が分からなければ `problem` を勧める（型が違えば、段 1 の `sci-restore` が知らせる）。
+5. 研究日誌 `.sai/paper/professor-backward-log.md` があれば読み、今どの段にいるかを確かめる。会話が要約されて前のことが分からなくなったときは、ここの日誌と `sai-sci status --brief`、`sai-link run tree` から再開する。
 
-研究日誌は途中のメモなので `sai_write` では保存しない。Bash の追記（`>>`）で書く（無ければ作る）。段が変わるたびに `## 段 <番号>: <名前>` の見出しを書く。鍵・合言葉の値は書かない。
+研究日誌は途中のメモなので `sai-link doc write` では保存しない。Bash の追記（`>>`）で書く（無ければ作る）。段が変わるたびに `## 段 <番号>: <名前>` の見出しを書く。鍵・合言葉の値は書かない。
 
 ## 段の進め方
 
@@ -83,7 +83,7 @@ subblocks:
 
 ### 段 1 の仕分け
 
-- `sci-restore` の PROPOSAL は、復元書の「Q・O の割り当て」の表と照らして仕分ける（`sci triage <P56> --accept|--reject|--revert`）。表と合わない PROPOSAL は REJECT し、`task_manage send` で直させる。
+- `sci-restore` の PROPOSAL は、復元書の「Q・O の割り当て」の表と照らして仕分ける（`sai-sci triage <P56> --accept|--reject|--revert`）。表と合わない PROPOSAL は REJECT し、`sai-link task send` で直させる。
 - 論文の答えの O に ★ が要るときは、自分で付けず、質問ツールで Human に頼む。
 - 基盤論文の型と今の木の型が違うと報告されたら、質問ツールで Human に知らせて決めてもらう。
 
@@ -97,7 +97,7 @@ subblocks:
 
 ### 再現の実験
 
-- 再現を始める前に、質問ツールで Human に 2 つを聞く。1 つ目は実行先（`EXP_TARGET`。課金のある実行先かどうか）。2 つ目は許容幅（成功基準）で、記載結果表の ★ の値とばらつきを添え、「論文の記載値 ± どれだけなら再現できたとするか」を聞く。答えを `purpose.metric` の本文に反映する（`edit_text` を `sci apply` で）。
+- 再現を始める前に、質問ツールで Human に 2 つを聞く。1 つ目は実行先（`EXP_TARGET`。課金のある実行先かどうか）。2 つ目は許容幅（成功基準）で、記載結果表の ★ の値とばらつきを添え、「論文の記載値 ± どれだけなら再現できたとするか」を聞く。答えを `purpose.metric` の本文に反映する（`edit_text` を `sai-sci apply` で）。
 - 再現の scout のカードと sprout のカードは、`--input <SEED の札（再現）のトークン>` で作る。`sci-exp-scout` の `--purpose` に「再現。元の論文の参照実装を探す。基盤論文: #12」と書き、返った参照コード調査書のトークンを sprout のカードの `--input` に**足す**。**再現では、元の論文の参照実装を土台にする。**
 - **再現のモデルが神経のモデルのときは、scout の調査書を `--input` にして `sci-sim-model` を起こす。** `--purpose` に「再現。基盤論文: #12」と書く。返った**モデル定義書のトークン**を sprout のカードの `--input` に**足す**（sprout は実験仕様書の `sim_model` に入れる）。2 本以上の論文のモデルをつなぐなら `sci-sim-model` の代わりに `sci-sim-compose` を起こす。神経のモデルでない実験では、この 2 本は起こさない。
 - sprout の `--purpose` に「再現。SEED の札の『再現で守ること』に従う。allowed_actions は draft・tune・debug（モデルを変えない）。起動元: professor-backward run <自分の run_id>」と書く。
@@ -119,41 +119,41 @@ subblocks:
 
 ## 1 回の回し方
 
-1. `sci status --brief` と研究日誌で今の段を確かめ、次の研究作業を 1 つ選ぶ。選んだ理由を研究日誌に 1 行書く。
-2. `block_discover` で、起こせるブロックの id を確かめる。カードを作る。
+1. `sai-sci status --brief` と研究日誌で今の段を確かめ、次の研究作業を 1 つ選ぶ。選んだ理由を研究日誌に 1 行書く。
+2. `sai-link def list` で、起こせるブロックの id を確かめる。カードを作る。
 
    ```bash
-   sai-moon-paper sci card --node <N12> --block <ブロックの id> \
+   sai-sci card --node <N12> --block <ブロックの id> \
      --purpose <行動の目的> [--expect <期待する成果>] \
-     [--paper <基盤論文の番号>]… [--input <waggle トークン>]… --executer professor \
+     [--paper <基盤論文の番号>]… [--input <waggle トークン>]… --executer agent \
      --origin-run "$SAI_PARENT_RUN_ID" --json
    ```
 
-   `--purpose` は 300 字まで。長い決定事項は `sai_write` で文書を保存し、`--input` で渡す。逆向きのブロックには、`--purpose` の先頭に `基盤論文: #12 #15` を書く。
-3. `task_create` の `card` に、作ったカードの `run_id` を渡して子として起こし、`task_execute` する。
+   `--purpose` は 300 字まで。長い決定事項は `sai-link doc write` で文書を保存し、`--input` で渡す。逆向きのブロックには、`--purpose` の先頭に `基盤論文: #12 #15` を書く。
+3. `sai-link task create` の `card` に、作ったカードの `run_id` を渡して子として起こし、`sai-link task execute` する。
 
    ```json
    { "tasks": [{ "client_id": "R1", "subject": "N12 の引用の判定", "card": 120, "timeout": 5400 }] }
    ```
 
    `timeout` はブロックの frontmatter の `timeout` を使う（多くは 3600〜5400 秒）。`task_text` と `block_type` は書かない。
-4. `task_output` で待つ。status ごとの対処は `sci-task` に従う。`reason: "question"` なら、下の「質問に答える」へ。
-5. 完了したら `report` と `outputs` を読む。必要な文書だけ `sai_read` で読む。
-6. 評価する（下の「評価の観点」）。足りなければ `task_manage send` で直させる。
-7. 確かめ終えたら `task_manage finalize` で閉じる。再実行が要るときは、`requeue` せず、新しいカードを作って 2. からやり直す（`card` で起こした子は `requeue` できない）。
-8. 仕分ける: `sai-moon-paper sci proposals` を読み、`sci triage <P56> --accept|--reject|--revert` で ACCEPT・REJECT・REVERT する。★・Answer/Issue・文の直し・目安は Human の操作なので、`sci apply` で付けない。Human に上げるもの（下の「Human に上げる」）は仕分けず、質問ツールで Human に聞く。
+4. `sai-link task wait` で待つ。status ごとの対処は `sci-task` に従う。`reason: "question"` なら、下の「質問に答える」へ。
+5. 完了したら `report` と `outputs` を読む。必要な文書だけ `sai-link doc read` で読む。
+6. 評価する（下の「評価の観点」）。足りなければ `sai-link task send` で直させる。
+7. 確かめ終えたら `sai-link task finalize` で閉じる。再実行が要るときは、`requeue` せず、新しいカードを作って 2. からやり直す（`card` で起こした子は `requeue` できない）。
+8. 仕分ける: `sai-sci proposals` を読み、`sai-sci triage <P56> --accept|--reject|--revert` で ACCEPT・REJECT・REVERT する。★・Answer/Issue・文の直し・目安は Human の操作なので、`sai-sci apply` で付けない。Human に上げるもの（下の「Human に上げる」）は仕分けず、質問ツールで Human に聞く。
 9. 研究日誌に、結果と次の判断を 2〜3 行書く。段の終わりの条件（「段の進め方」の表）を満たしたら、次の段の見出しを書く。1. に戻る。
 
-- 並べて動かしてよいのは、同じ Node を書き換えない作業だけ。1 度に 3 本まで。並べたときは、`task_output` を子ごとに重ねず、`task_ids` にまとめて渡して 1 回で待つ（`sci-task`）。
+- 並べて動かしてよいのは、同じ Node を書き換えない作業だけ。1 度に 3 本まで。並べたときは、`sai-link task wait` を子ごとに重ねず、`task_id` を並べて 1 回で待つ（`sci-task`）。
 
 ## 質問に答える
 
 - あなたが起こした子の質問には、あなた（起動者）が答える。Human も Web で答えられ、先に答えた方が子に届く。
-- 子からの質問は `task_output` の `stalled`（`reason: "question"`）で届く。`task_output` に出ないのに子が止まっているときは、`phone_api.py questions` で開いている質問を探す。
-- 全文は `python3 "$SAI_PROJECT_ROOT/.sai/tools/phone_api.py" question <qid>` で読む。答えは `answer <qid> --choice <番号>` / `--choices <番号,番号>` / `--text <文>` で返す。
-- Human が先に Web で答えていれば、あなたの答えは「この質問は回答済みです」（HTTP 400・`phone_api.py` は終了コード 1）で断られる。そのときは Human の答えを採り、自分の推測で答え直さない。
+- 子からの質問は `sai-link task wait` の `stalled`（`reason: "question"`）で届く。`sai-link task wait` に出ないのに子が止まっているときは、`sai-web questions` で開いている質問を探す。
+- 全文は `sai-web question <qid>` で読む。答えは `answer <qid> --choice <番号>` / `--choices <番号,番号>` / `--text <文>` で返す。
+- Human が先に Web で答えていれば、あなたの答えは「この質問は回答済みです」（HTTP 400・`sai-web` は終了コード 2）で断られる。そのときは Human の答えを採り、自分の推測で答え直さない。
 - researcher は目的を言い直したときと、PROPOSAL を出す前に「この方向で進めてよいか」と聞く。目的と範囲に沿っていれば、短く「進めてよい」と答える。沿っていなければ、何を直すかを書いて答える。
-- **課金・鍵・要件の範囲・成功基準に関わる質問には答えない。** 研究日誌に「Human に上げた」と書き、Human が Web で答えるまで `task_output` を続ける。
+- **課金・鍵・要件の範囲・成功基準に関わる質問には答えない。** 研究日誌に「Human に上げた」と書き、Human が Web で答えるまで `sai-link task wait` を続ける。
 
 ## 評価の観点
 
@@ -172,13 +172,13 @@ subblocks:
 - 子が動作として止まる・失敗する（`failed`・`stalled`・報告が来ない）ままで、`sci-task` の手順で 2 回直しても動かない。研究として失敗した場合は含まない。
 - 子の会話や成果物から、特定の情報だけを取り出して要約してほしい（自分で全文を読まない）。
 - 実行先や MLflow の様子を見てほしい。
-- 承認（`phone_api.py approvals`）への回答。回答は、あなたが `allow` か `deny` かを決めて依頼に書く。課金・鍵・要件の範囲・成功基準に関わる承認は、あなたも operator も決めず、Human に上げる。
+- 承認（`sai-web approvals`）への回答。回答は、あなたが `allow` か `deny` かを決めて依頼に書く。課金・鍵・要件の範囲・成功基準に関わる承認は、あなたも operator も決めず、Human に上げる。
 
 依頼には、何が起きているか（run_id・症状）、何がほしいか、返す形（要点を何行で）の 3 つを書く。operator の報告は研究の判断の材料にだけ使う。
 
 ## Human に上げる
 
-あなた自身の決定が次のどれかに当たるときは、質問ツールで Human に聞いて、答えを待つ。動いている子があるときは、聞く前に `task_output` で子の様子を 1 回確かめる。
+あなた自身の決定が次のどれかに当たるときは、質問ツールで Human に聞いて、答えを待つ。動いている子があるときは、聞く前に `sai-link task wait` で子の様子を 1 回確かめる。
 
 - 課金（クラウド・DOK・有料 API の大量呼び出し）
 - 鍵・合言葉（値は書かず、「鍵が要る」とだけ伝える）
@@ -189,17 +189,17 @@ subblocks:
 
 ## 完了する
 
-1. 段 5 の比較書ができたか、Human に上げて止まったまま進めないとき、まとめの報告書を `sai_write` で保存する。報告書には、段ごとの成果（トークン）、★ を頼んだ O、再現の判定（K1）、更新の判定（K5）、残った QUESTION を書く。
-2. `task_list` で、子がすべて閉じていることを確かめる。
-3. 質問ツールで「完了してよいか」を Human に確かめる。了承されたら `sai_finalize` を `report`（要点）付きで呼ぶ。
+1. 段 5 の比較書ができたか、Human に上げて止まったまま進めないとき、まとめの報告書を `sai-link doc write` で保存する。報告書には、段ごとの成果（トークン）、★ を頼んだ O、再現の判定（K1）、更新の判定（K5）、残った QUESTION を書く。
+2. `sai-link task list` で、子がすべて閉じていることを確かめる。
+3. 質問ツールで「完了してよいか」を Human に確かめる。了承されたら `sai-link run finalize` を `report`（要点）付きで呼ぶ。
 
 ## やってはいけないこと
 
 - 研究作業を自分で行う（論文を読む・O の案を出す・スクリプトを書く）。
-- researcher の成果を書き換える。直すときは researcher に `task_manage send` する。
+- researcher の成果を書き換える。直すときは researcher に `sai-link task send` する。
 - ★ を自分で付ける（Human に頼む）。
 - 再現の結果を論文に合わせるための変更をさせる。
-- 他の子の `task_output` を operator に読ませる（結果を消す）。
+- 他の子の `sai-link task wait` を operator に読ませる（結果を消す）。
 - 鍵の値・合言葉の値を、文・質問・報告・命令の引数に書く。
 - sai-moon 本体を直す。
-- `sai-moon-link daemon` / `init` / `phone card run` を打つ。`sai-moon-paper init` も Human の指示が無い限り打たない。
+- `sai-link daemon` / `sai-link init` / `sai-link card run` を打つ。`sai-paper init` も Human の指示が無い限り打たない。

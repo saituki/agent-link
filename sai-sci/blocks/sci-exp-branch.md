@@ -28,7 +28,7 @@ enable: true
 - 依頼書に従って、スクリプト（モデル + パラメータの探索範囲 + 学習 + テスト）を **1 本**書く。
 - 実行先に投げ、**始まったことを確かめる**。
 - 作業報告書（`exp-core` §9）を保存し、ジョブ待ちの review のカードを作る。
-- 最後に `sai_finalize` を呼ぶ。
+- 最後に `sai-link run finalize` を呼ぶ。
 
 しないこと:
 
@@ -52,10 +52,10 @@ parent_branch: 125
 model: cnn-small
 ```
 
-- 実験仕様書から `sci_node`・`project`・`metric`・`direction`・`epochs`・`trial_timeout_s`・`device`・`workdir` を得る。
+- 実験仕様書から `node`・`project`・`metric`・`direction`・`epochs`・`trial_timeout_s`・`device`・`workdir` を得る。
 - 判定書が付いていれば、その `next` の自分の行（`fix`・`idea`・`grid`）も読む。
-- 埋め込みが無いときは `sai_read` でトークンを読む。
-- 仕様書の `sim_model` が `null` でなければ、依頼書の「モデル定義書」の行のトークンを `sai_read` で読んでおく（式・値・再現の目標・baseline はここから写す）。
+- 埋め込みが無いときは `sai-link doc read` でトークンを読む。
+- 仕様書の `sim_model` が `null` でなければ、依頼書の「モデル定義書」の行のトークンを `sai-link doc read` で読んでおく（式・値・再現の目標・baseline はここから写す）。
 
 ### 2. スクリプトを書く
 
@@ -127,7 +127,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 
 ### 6. 作業報告書を保存する
 
-`exp-core` §9 の形で `sai_write` する。
+`exp-core` §9 の形で `sai-link doc write` する。
 
 - ファイル名 `exp-run-<study>-ID<run_id>.md`。
 - description `作業報告書 <study> ID<run_id>: <action> <model> — job <job_id> <state>`。
@@ -136,18 +136,19 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 ### 7. review のカードを作る
 
 ```bash
-sai-moon-paper sci card --node <sci_node> --block sci-exp-review \
+sai-sci card --node <Node の ID> --block sci-exp-review \
   --purpose "<study> ID<run_id> の結果の判定" \
   --input <実験仕様書のトークン> --input <作業報告書のトークン> \
   --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
-sai-moon-link phone card wait <返った run_id> --job <job_id>
+sai-link card wait <返った run_id> --job <job_id>
 ```
 
-`phone card wait` の戻り値に `after_job` が入っていることを確かめる。
+`sai-link card wait` の戻り値に `after_job` が入っていることを確かめる。
+`sai-sci init` が `.sai/settings.json` に `job_status` を書く。無いと `sai-link card wait` は終了コード 2。
 
 ### 8. 終える
 
-`sai_finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review のカードの run_id を書く。
+`sai-link run finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review のカードの run_id を書く。
 
 ## 完了の基準
 

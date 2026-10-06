@@ -8,7 +8,7 @@
 木の正を 1 か所（`papr.db`）に置き、絵と文章（`state.md`・`tree.md`）はその正からの書き出しにします。
 
 - 木は、論文の置き場があるプロジェクトごとに 1 つあります。
-- Web（`apps/phone`）・TUI・CLI・MCP・pi の拡張が、同じ木を読み書きします。
+- Web（`apps/web`）・CLI・pi の拡張が、同じ木を読み書きします。
 - エージェントは木に PROPOSAL を出します。自動で入る物と、利用者が仕分け（TRIAGE）する物があります。
 
 ## 1. sai-sci とは
@@ -78,11 +78,11 @@ Q ごとに、2 つの目で進み具合を見る。
 sai-sci/
 ├── types/      # 研究の型 5 本（problem・phenomenon・method・data・improve）
 ├── guides/     # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
-├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sci-task・sci-cli の 13 本
+├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sci-task・sci-cli と debate-participant の 14 本
 ├── mind.md     # 研究の土台（mind.md）のひな形
-├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・Web と同じ操作の phone_api.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py・データ分析の検査と記録 data_result.py と写し（K-Dense の EDA `eda/` と生体信号の CLI `biosignal/`）と、そのテスト（`sci init` が <root>/.sai/tools/ へ配る）
-├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sci init` が <root>/.sai/exec/ へ配る
-└── blocks/     # 31 本のブロック（役 4 本 + sci 27 本）
+├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py・データ分析の検査と記録 data_result.py と写し（K-Dense の EDA `eda/` と生体信号の CLI `biosignal/`）と、そのテスト（`sai-sci init` が <root>/.sai/tools/ へ配る）
+├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sai-sci init` が <root>/.sai/exec/ へ配る
+└── blocks/     # 33 本のブロック（役 4 本 + sci 27 本 + 議論の 2 本）
 ```
 
 ### 3.1 研究の型（5 本）
@@ -92,7 +92,7 @@ sai-sci/
 置き場の順（先に見つかった物を使う）:
 
 1. バイナリに埋め込んだ版
-2. `<sai_home>/sci/types/`（利用者全体の置き場。`sci type-save` で書く）
+2. `<sai_home>/sci/types/`（利用者全体の置き場。`sai-sci type-save` で書く）
 3. `<root>/.sai/sci/types/`（プロジェクトの写し）
 
 | id | 名前 | どれを選ぶか |
@@ -103,7 +103,7 @@ sai-sci/
 | `data` | DATA_DRIVEN（データ駆動） | 手元のデータが先にあり、「何が言えるか」を問う |
 | `improve` | IMPROVE_DRIVEN（改良駆動） | すでに動いている手法をよくする |
 
-一覧は `sai-moon-paper sci types`。型の本文に、最初から与えられていることが多い物と、序盤の進め方が書いてある。よく分からないときは `problem` から始める。
+一覧は `sai-sci types`。型の本文に、最初から与えられていることが多い物と、序盤の進め方が書いてある。よく分からないときは `problem` から始める。
 
 ### 3.2 ガイド（25 ファイル）
 
@@ -145,9 +145,9 @@ sai-sci/
 | `novelty.diff` | NOVELTY_DIFF | `novelty` |
 | `phenomenon` | PHENOMENON | ― |
 
-### 3.3 31 本のブロック
+### 3.3 33 本のブロック
 
-`blocks/` の 31 本。`sai-moon-paper` は、これらを `init --assets-only` や `sci init` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 33 本。`sai-sci init` が、これらを `sai-sci init --type <型>` や `sai-sci init --update` でプロジェクトの `.sai/blocks/` に配る。
 
 - 役 4 本（`professor`・`professor-backward`・`operator`・`kaizen`）は、木の外から木を見る役（3.3.1 節）。
 - sci の 27 本は、木の中で動く researcher。Action の種類で分ける。
@@ -183,12 +183,12 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも木も直さない | `sai-agent` / `sci-task` / `sci-cli` | しない |
 | `sci-*` | 研究作業そのもの（読む・比べる・O を出す・考える・書く・探す・実験する） | `sci-core`（+ `sci-find`・`sci-match`・`exp-core`） | しない。カードに書かれた作業だけ |
 
-- カードの `executer` は起動者（`human` / `professor`）。`--executer professor` のカードは人間が Web から起こせず、professor が `task_create` の `card` で自分の子として起こす。
-- 子からの質問は親の `task_output` に `stalled`（`reason: "question"`）で届き、`phone_api.py question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
-- 完了は、子は `task_report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai_finalize` に `report`。
-- 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中）。
+- カードの `executer` は起動者（`human` / `professor`）。`--executer agent` のカードは人間が Web から起こせず、professor が `sai-link task create` の `card` で自分の子として起こす。
+- 子からの質問は親の `sai-link task wait` に `stalled`（`reason: "question"`）で届き、`sai-web question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
+- 完了は、子は `sai-link task report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai-link run finalize` に `report`。
+- 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai/operator-notes.md`（`SAI_HOME` があればその中）。
 
-### 3.4 template（13 本）と mind.md
+### 3.4 template（14 本）と mind.md
 
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。SCOPE の読み方、PROPOSAL の書き方、使える op、根拠の扱い、迎合しない姿勢。
 - **`template/sci-find.md`** — F を探すブロックの共通の決まり。
@@ -200,10 +200,9 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - **`template/sim-core.md`** — 神経シミュレーションの共通の決まり。モデル定義書の書式、式・定数を `refcode.py eqs` / `params` で抜く順序、単位と数値計算の決まり、再現の目標の決め方、改良と組み合わせの決まり。`sci-sim-model` と `sci-sim-compose` が読む。
 - **`template/data-core.md`** — データ分析の共通の決まり。データの安全（元のデータを壊さない）・データ表・EDA・前処理・時系列の EDA・MLflow への記録・作業フォルダ・再現性。`sci-data-explore` と `sci-data-test` の 2 本が読む。
 - **`template/stat-core.md`** — 統計解析の決まり。解析計画の写法・検定の選び方・前提の確かめ・多重比較・効果量と検出力・回帰・時系列・機械学習・ベイズ・図・`results.json`・報告。`sci-data-test` が読む。
-- **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり。文書だけでの引き継ぎ・waggle トークン・`sai_write` / `sai_read`・書き方の原則・完了のしかた。
+- **`template/sai-agent.md`** — 研究プロジェクトのエージェントに共通で渡す決まり。文書だけでの引き継ぎ・waggle トークン・`sai-link doc write` / `sai-link doc read`・書き方の原則・完了のしかた。
 - **`template/sci-task.md`** — 子タスクの扱い（professor が使う）。
 - **`template/sci-cli.md`** — 研究プロジェクトでの命令（professor と operator が使う）。
-- **`tools/phone_api.py`** — Web の窓口（sai-phone）の HTTP API を呼ぶ道具。質問・承認・root の run への送信・MLflow の読み取り。
 - **`tools/refcode.py`** — 参照コードの道具。Library からリンクを引く（`links`）・GitHub を検索する（`gh-search`）・リポジトリを浅く取る（`fetch`）・コードから数値の定数を抜く（`params`）・`train.py` の数値に出典の注記があるか確かめる（`check`）。
 - **`tools/modeldb.py`** — ModelDB のカタログ。カタログを手元の jsonl に写す（`sync`）・カタログだけを読む（`search`・`show`・`status`）。カタログは `<sai_home>/refcode/modeldb/catalog.jsonl` に置く。
 - **`tools/data_result.py`** — データ分析の検査と記録。データ表・前処理の結果・検定の結果を `results.json` として読み書きし、報告書の骨を作る。
@@ -220,33 +219,33 @@ professor / professor-backward（root の run。researcher を直接起こす）
 Web の論文タブ →「研究方針」の「始める」で型を選ぶか、次を打つ。
 
 ```bash
-sai-moon-paper init --sci --type <型>
+sai-sci init --type <型>
 ```
 
-`init` を終えたあとに `sci init --type <型>` と同じことをします。`mind.md` が無ければ、`sai-sci/mind.md` のひな形を書きます。
+`init` を終えたあとに `sai-sci init --type <型>` と同じことをします。`mind.md` が無ければ、`sai-sci/mind.md` のひな形を書きます。
 
 ### 4.2 今のプロジェクト
 
 ```bash
-sai-moon-paper sci init --type <型>
+sai-sci init --type <型>
 ```
 
-型の一覧は `sai-moon-paper sci types`。
+型の一覧は `sai-sci types`。
 
-古い形の木（旧い版の `sci_*` の表だけがある木）のプロジェクトでは、画面と `sci status` が「作り直し」を促します。作り直しは新しい `sci init` です。古い表は消さず、新しい木はそれを読みません。
+古い形の木（旧い版の `sci_*` の表だけがある木）のプロジェクトでは、画面と `sai-sci status` が「作り直し」を促します。作り直しは新しい `sai-sci init` です。古い表は消さず、新しい木はそれを読みません。
 
 ### 4.3 入る物
 
 | 入るもの | 置き場 |
 |---|---|
-| 31 本のブロック | `<root>/.sai/blocks/` |
-| template 13 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
-| 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`phone_api.py`・`refcode.py`・`modeldb.py`・`data_result.py`・写しの `eda/`・`biosignal/`（無いときだけ書く） | `<root>/.sai/tools/` |
+| 33 本のブロック | `<root>/.sai/blocks/` |
+| template 14 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`refcode.py`・`modeldb.py`・`data_result.py`・写しの `eda/`・`biosignal/`（無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example` など（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（無いときだけ書く） | `<root>/.sai/paper/mind.md` |
 | 型とガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
-| 取得した参照コードと ModelDB のカタログ | `<sai_home>/refcode/`（`SAI_SAI_HOME` が無ければ `~/.sai-moon`） |
+| 取得した参照コードと ModelDB のカタログ | `<sai_home>/refcode/`（`SAI_HOME` が無ければ `~/.sai`） |
 | 木 | `papr.db` の `sci_*` の表 |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/` |
 
@@ -307,25 +306,25 @@ DEBT は、終わった Action が完了基準を満たしていないときの�
 
 ### 5.5 読む札
 
-`sci card --runner user --papers <番号> --depth <abstract|figures|full>` は読む札を作ります。`apps/phone` の読む札の画面で始めて、F を書き、終えます。F が 1 つも無いまま終えても止まりません（DEBT の「反映していない論文」が残ります）。
+`sai-sci card --runner user --papers <番号> --depth <abstract|figures|full>` は読む札を作ります。`apps/web` の読む札の画面で始めて、F を書き、終えます。F が 1 つも無いまま終えても止まりません（DEBT の「反映していない論文」が残ります）。
 
 ### 5.6 木の直し方
 
-木と `tree.md` は、Web か `sai-moon-paper sci` でだけ直します。`state.md` を手で直さないでください（次の書き出しで消えます）。
+木と `tree.md` は、Web か `sai-sci` でだけ直します。`state.md` を手で直さないでください（次の書き出しで消えます）。
 
 ### 5.7 実験（E）
 
 `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review` の 3 本で実験を回します。3 本は互いの終わりを待ちません。sprout は最初の branch を起こして終わり、branch はジョブ待ちの review のカードを作って終わり、review はジョブが終わると daemon に起こされます。
 
 ```
-sci card --block sci-exp-sprout            SEED の札ができた Node
+sai-sci card --block sci-exp-sprout            SEED の札ができた Node
         │
         ▼
  sprout ── 実験仕様書を作り、最初の branch を 1〜2 本起こして終わる
-        │  （sci card --block sci-exp-branch → phone card run）
+        │  （sai-sci card --block sci-exp-branch → sai-link card run）
         ▼
  branch ── スクリプト 1 本を書いて実行先に投げる。始まりを確かめたら、
-        │  ジョブ待ちの review のカードを作って終わる（phone card wait --job）
+        │  ジョブ待ちの review のカードを作って終わる（sai-link card wait --job）
         ▼  …ジョブが終わると daemon が起こす
  review ── 台帳で判定する。tune・debug → 同じ experiment の次の branch、
         │  model・ablation → 新しい experiment の次の branch、stop → 完了報告書
@@ -334,18 +333,18 @@ sci card --block sci-exp-sprout            SEED の札ができた Node
 
 - **MLflow の形**: experiment は `<project>/ID<sprout>/<model>`、run は `ID<branch>-p<NN>`。epoch ごとに `train_loss`・`val_loss` を記録する。
 - **止め方**: 判定が `stop` のときだけ。`max_branches` が branch の総数の上限になる。
-- **最初の sprout の起動**は、`sci card` に SEED の札のトークンを渡して作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
+- **最初の sprout の起動**は、`sai-sci card` に SEED の札のトークンを渡して作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
 
 ```bash
-sai-moon-paper sci card --node <N> --block sci-exp-sprout \
+sai-sci card --node <N> --block sci-exp-sprout \
   --purpose "<study> の計画" \
   --input <SEED の札のトークン> --json
-sai-moon-link phone card run <返ってきた run_id>
+sai-link card run <返ってきた run_id>
 ```
 
 - 詳しい決まりは `template/exp-core.md`。
 
-**実行先**（スクリプトを動かす PC）は環境変数 `EXP_TARGET` で選ぶ。空なら `local`（この PC）。実行先は `<root>/.sai/exec/<名前>/` のフォルダで、Mac 本体・LAN の PC・クラウドなどを利用者が個別に足せる（フォルダを置くだけ。増減で Rust や画面を直さない）。エージェントは分配器 `exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼び、実行先の中身を知らない。LAN の Linux の PC やクラウドの VM は、`ssh/` を PC の名前で写して host を書けば足せる（`cp -r .sai/exec/ssh .sai/exec/lab-linux`）。さくらの高火力 DOK は `dok/`（`README.md`・`SETUP.md` を先に読む。課金される）。Windows など別の種類は `_example/` を写して adapter を書く。記録は実行先から中央の MLflow に直接入る。台帳コマンド `exp_summary.py` と分配器は `sai-moon-paper sci init` が `<root>/.sai/tools/` に置く。
+**実行先**（スクリプトを動かす PC）は環境変数 `EXP_TARGET` で選ぶ。空なら `local`（この PC）。実行先は `<root>/.sai/exec/<名前>/` のフォルダで、Mac 本体・LAN の PC・クラウドなどを利用者が個別に足せる（フォルダを置くだけ。増減で Rust や画面を直さない）。エージェントは分配器 `exp_exec.py`（`run` / `status` / `logs` / `cancel` / `check` / `list`）だけを呼び、実行先の中身を知らない。LAN の Linux の PC やクラウドの VM は、`ssh/` を PC の名前で写して host を書けば足せる（`cp -r .sai/exec/ssh .sai/exec/lab-linux`）。さくらの高火力 DOK は `dok/`（`README.md`・`SETUP.md` を先に読む。課金される）。Windows など別の種類は `_example/` を写して adapter を書く。記録は実行先から中央の MLflow に直接入る。台帳コマンド `exp_summary.py` と分配器は `sai-sci init` が `<root>/.sai/tools/` に置く。
 
 ### 5.8 逆向き（既存の論文から始める）
 
@@ -359,7 +358,7 @@ sai-moon-link phone card run <返ってきた run_id>
 | 4. 更新 | 基盤論文より新しい論文を探して O を直し、新しい SEED を作って動かす | 前向きのブロック |
 | 5. 比較 | 論文の記載値・再現・更新を比べる | `sci-result-compare` |
 
-- **始め方**: 基盤論文を Library に入れ（Web の論文の画面）、木を作ってから（`sai-moon-paper init --assets-only --sci --type <型>`）、`professor-backward` のカードを人が起こします。依頼文に `基盤論文: #12 #15` の形で番号を書きます。
+- **始め方**: 基盤論文を Library に入れ（Web の論文の画面）、木を作ってから（`sai-sci init --update --type <型>`）、`professor-backward` のカードを人が起こします。依頼文に `基盤論文: #12 #15` の形で番号を書きます。
 - **主張と根拠を分けます。** 基盤論文の文は「主張」として F にし、O は Issue の側に置きます。引用文献で支えられ、審査で良になった O だけを professor-backward が ★ の候補にします（★ を付けるのは利用者です）。
 - **再現は論文に合わせにいきません。** 論文に無い設定だけを仮置きとして置き、論文に書いてある値と手法は変えません。判定が `new_script`（別の手法を試す）になったら、再現はそこで止めて比較の材料にします。
 - **Human に聞くこと**: 再現の許容幅、実行先（課金の有無）、同じ型の論文が 2 本以上あるときにどれを再現するか、段を飛ばすか。
@@ -370,7 +369,7 @@ sai-moon-link phone card run <返ってきた run_id>
 実験（5.7 節）がスクリプトを回すのに対し、データ分析は**手元にあるデータ**（データ表・CSV・画像・時系列・生体信号）を読みます。2 本のブロックで道筋を分けます。
 
 ```
-sci card --node <N> --block sci-data-explore
+sai-sci card --node <N> --block sci-data-explore
         │
         ▼
  explore ── データを受け取り、データ表・EDA・前処理（欠損・重複・外れ値・分布）を
@@ -388,13 +387,13 @@ sci card --node <N> --block sci-data-explore
 - **最初の explore のカードの作り方**: データの path と、調べたいことを `--purpose` に書きます。
 
 ```bash
-sai-moon-paper sci card --node <N> --block sci-data-explore \
+sai-sci card --node <N> --block sci-data-explore \
   --purpose "<データのパスと調べたいこと>" --json
-sai-moon-link phone card run <返ってきた run_id>
+sai-link card run <返ってきた run_id>
 ```
 
 - **test のカードは explore の報告書から作ります。** `sci-data-explore` 自身は test を起こしません。報告書（run フォルダの `finalize-report.md`）の `## 次の一手` に書かれた命令をそのまま使います。professor はその報告書を評価してから起こします（5.7 節の sprout → branch と同じ考え方）。
-- **置き場**: 作業は `analysis/<study>/` に置きます。`<study>` は `<sci_node>-ID<explore の run_id>` の形です（5.7 節と同じ名前）。元のデータは書き換えません（前処理の出力は `analysis/<study>/` の中にだけ作ります）。
+- **置き場**: 作業は `analysis/<study>/` に置きます。`<study>` は `<Node の ID>-ID<explore の run_id>` の形です（5.7 節と同じ名前）。元のデータは書き換えません（前処理の出力は `analysis/<study>/` の中にだけ作ります）。
 - **MLflow の名前**: experiment は `<project>/ID<explore の run_id>/data`、run は explore が `ID<run_id>-eda`、test が `ID<run_id>-test`。タグは `sai.project`・`sai.run_id`・`exp.study`・`sci.node`・`exp.kind`。
 - **解析はこの PC で動かします。** 30 分を超えるもの・データの量が大きいものはデータ分析ではなく実験の鎖（5.7 節）へ回します。
 - 詳しい決まりは `template/data-core.md`（データの安全・データ表・EDA・前処理・MLflow・木・再現性）と `template/stat-core.md`（解析計画・検定の選び方・前提・多重比較・効果量と検出力・回帰・時系列・機械学習・ベイズ・図・`results.json`・報告）。
@@ -404,44 +403,33 @@ sai-moon-link phone card run <返ってきた run_id>
 
 ## 6. 命令の一覧
 
-### 6.1 `sai-moon-paper sci …`
+### 6.1 `sai-sci …`
 
 | 命令 | 何をするか |
 |---|---|
-| `sci init --type <型> [--json]` | 研究プロジェクトの部品を配り、一番上の Q を作る |
-| `sci types [--json]` | 使える研究の型を一覧する |
-| `sci type-save` | 研究の型を `<sai_home>/sci/types/` に保存する（標準入力に型の Markdown。JSON で返す） |
-| `sci status [--json] [--brief]` | 現況（進み具合・SEED の下書き・木・Next Action・DEBT）。`--brief` は数だけを JSON で出す |
-| `sci node <Q12\|O5\|F3\|E2> [--json]` | Node 1 つの詳細 |
-| `sci context --run <run_id> [--scope <SCOPE>]` | 今の実行の SCOPE（`# context`）を標準出力へ出す |
-| `sci propose [--run <run_id>] [--block <id>]` | PROPOSAL を出す（標準入力に `{"proposals":[…]}`） |
-| `sci apply` | 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON） |
-| `sci proposals [--json]` | 仕分け待ちの PROPOSAL の一覧 |
-| `sci triage <P56> (--accept [--edit <JSON>] \| --reject \| --revert) [--note <文>]` | PROPOSAL を仕分ける |
-| `sci card --node <Q12> --purpose <文> [--block <id>] [--expect <文>] [--scope <範囲>] [--assume <Q9=値>]… [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner pi\|cc\|user] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--executer human\|professor] [--json]` | Node に向けた Action（CARD）を作る。`--runner user` は読む札 |
-| `sci read <run_id> [--json]` | 読む札の中身 |
-| `sci export` | 木を `state.md` と `tree.md` に書き出す |
+| `sai-sci init --type <型> [--json]` | 研究プロジェクトの部品を配り、一番上の Q を作る |
+| `sai-sci types [--json]` | 使える研究の型を一覧する |
+| `sai-sci type-save` | 研究の型を `<sai_home>/sci/types/` に保存する（標準入力に型の Markdown。JSON で返す） |
+| `sai-sci status [--json] [--brief]` | 現況（進み具合・SEED の下書き・木・Next Action・DEBT）。`--brief` は数だけを JSON で出す |
+| `sai-sci node <Q12\|O5\|F3\|E2> [--json]` | Node 1 つの詳細 |
+| `sai-sci context --run <run_id> [--scope <SCOPE>]` | 今の実行の SCOPE（`# context`）を標準出力へ出す |
+| `sai-sci propose [--run <run_id>] [--block <id>]` | PROPOSAL を出す（標準入力に `{"proposals":[…]}`） |
+| `sai-sci apply` | 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON） |
+| `sai-sci proposals [--json]` | 仕分け待ちの PROPOSAL の一覧 |
+| `sai-sci triage <P56> (--accept [--edit <JSON>] \| --reject \| --revert) [--note <文>]` | PROPOSAL を仕分ける |
+| `sai-sci card --node <Q12> --purpose <文> [--block <id>] [--expect <文>] [--scope <範囲>] [--assume <Q9=値>]… [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner pi\|cc\|user] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--executer human\|agent] [--json]` | Node に向けた Action（CARD）を作る。`--runner user` は読む札 |
+| `sai-sci read <run_id> [--json]` | 読む札の中身 |
+| `sai-sci export` | 木を `state.md` と `tree.md` に書き出す |
 
-書き込む命令は、終わる前に `export` を実行します。Web の窓口は `sai-moon-paper phone sci {status,init,node,apply,proposals,triage,card,read,types}` を呼びます。検索セットは `sai-moon-paper set {list,show,create,mark,merge,delete,rerun}`（窓口は `phone set {list,show,mark,drop-pending}`）。
+書き込む命令は、終わる前に `export` を実行します。Web の窓口は `sai-sci {status,init,node,apply,proposals,triage,card,read,types}` を呼びます。検索セットは `sai-paper set {list,show,create,mark,merge,delete,rerun}`。
 
-論文の節と塊を読む命令（`sai-moon-paper content …`）:
+論文の節と塊を読む命令（`sai-paper content …`）:
 
 | 命令 | 何をするか |
 |---|---|
-| `content outline <番号> [--json]` | 論文の節の一覧（節の ID `#37.5`・文の数・要約）。MCP の `paper_outline` と同じ |
-| `content read <ID>… [--max-chars N] [--json]` | 節・塊を読む（`37`・`37.5`・`37.5.2`・`37.5.2-4`）。MCP の `paper_read` と同じ |
+| `content outline <番号> [--json]` | 論文の節の一覧（節の ID `#37.5`・文の数・要約） |
+| `content read <ID>… [--max-chars N] [--json]` | 節・塊を読む（`37`・`37.5`・`37.5.2`・`37.5.2-4`） |
 | `content build [<番号>…] [--all] [--force] [--summarize]` | 節と塊の表を作る（作り直す・要約を付ける） |
-
-### 6.2 MCP の道具（`sai-moon-paper mcp`）
-
-| 道具 | 何をするか |
-|---|---|
-| `sci_context` | 今の実行の SCOPE を返す |
-| `sci_status` | 研究方針の木の全体（SEED の下書き・Next Action・DEBT） |
-| `sci_node` | Node 1 つの詳細 |
-| `sci_propose` | PROPOSAL を出す |
-| `paper_outline` | 論文の節の一覧（節の ID・文の数・要約） |
-| `paper_read` | 節・塊の本文を読む（出典は塊の ID `[#37.5.2]`） |
 
 ---
 
@@ -451,26 +439,26 @@ sai-moon-link phone card run <返ってきた run_id>
 |---|---|
 | 木（Q・O・F・E・PROPOSAL・SEED・検索の記録） | `papr.db`（`sci_` で始まる表） |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/state.md` と `<root>/.sai/paper/tree.md` |
-| 研究の型（利用者全体） | `<sai_home>/sci/types/`（`SAI_SAI_HOME` があればその中） |
+| 研究の型（利用者全体） | `<sai_home>/sci/types/`（`SAI_HOME` があればその中） |
 | 研究の型とガイドの写し（プロジェクト） | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
 | professor の研究日誌 | `<root>/.sai/paper/professor-log.md` |
 | professor-backward の研究日誌 | `<root>/.sai/paper/professor-backward-log.md` |
-| operator の学び | `~/.sai-moon/operator-notes.md`（`SAI_SAI_HOME` があればその中。無ければ作らない） |
+| operator の学び | `~/.sai/operator-notes.md`（`SAI_HOME` があればその中。無ければ作らない） |
 
-- **`state.md` を手で直さない。** 次の書き出しで消えます。直すのは Web か `sai-moon-paper sci` だけです。
+- **`state.md` を手で直さない。** 次の書き出しで消えます。直すのは Web か `sai-sci` だけです。
 - **写しは埋め込みより先に読まれます。** 型は「埋め込み → `<sai_home>/sci/types/` → `<root>/.sai/sci/types/`」の順に探し、後ろの物が先の物を上書きします。
 
 ---
 
 ## 8. md を直すとき（開発者向け）
 
-- **型・ガイド・ブロックは `sai-moon-paper` に埋め込まれています**（`include_str!`）。`sai-sci/` の md を直したら `cargo build --release` で作り直さないと反映されません（`apps/phone` が叩くのは release の実行ファイル）。
+- **型・ガイド・ブロックは `sai-sci` に埋め込まれています**（`include_str!`）。`sai-sci/` の md を直したら `cargo build --release` で作り直さないと反映されません（`apps/web` が叩くのは release の実行ファイル）。
 - **形の決まり**: 型は `id`・`name`・`root` の frontmatter と `## Q`・`## SEED` の節、ガイドは `key`・`name`・`target` の frontmatter と `## Q`・`## Child Q`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
 - **確かめ**:
   ```bash
   cd ~/workdir/Sai/sai-moon
   env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
-    perl -e 'alarm 1800; exec @ARGV' cargo test -p sai-paper-core
+    perl -e 'alarm 1800; exec @ARGV' cargo test -p sai-sci-cli
   ```
 - 利用者が直した `.sai/sci/` の写しを優先して読むので、配布の版を上げたいときは 8.2 節の手順を使います。
 
@@ -510,20 +498,20 @@ sai-moon-link phone card run <返ってきた run_id>
 3. 新しい写しを配る。
 
    ```bash
-   sai-moon-paper init --assets-only --sci --type <型>
+   sai-sci init --update --type <型>
    ```
 
 4. 控えた手の直しを新しい写しに移し、古い写し（`*.old`）を消す。
 
-- 古い形の木（旧 `sci_*` の表）は消えません。新しい木は `sci init` で作り直します（4.2 節）。
-- 利用者全体の置き場（`~/.sai-moon/` の `blocks/`・`template/`・`sci/types/`）に同じ名前の物があるときも、同じように移してから配ります。
+- 古い形の木（旧 `sci_*` の表）は消えません。新しい木は `sai-sci init` で作り直します（4.2 節）。
+- 利用者全体の置き場（`~/.sai/` の `blocks/`・`template/`・`sci/types/`）に同じ名前の物があるときも、同じように移してから配ります。
 - この手順は文書に書くだけで、開発の作業では実行しません。
 
 ---
 
 ## 9. Canvas から移った人へ
 
-- **Canvas の画面と `sai-moon-paper canvas` はありません。** 代わりに `#/papers/tree`（研究方針）と `sai-moon-paper sci` を使います。
+- **Canvas の画面と `sai-paper canvas` はありません。** 代わりに `#/papers/tree`（研究方針）と `sai-sci` を使います。
 - **今までの `.sai/paper/canvas/*.canvas` は消していません。** JSON Canvas 1.0 の形なので、他の道具（Obsidian など）で開けます。
 - **`paper-map` は report だけを出すようになりました。** Canvas を作る手順は外れています。
 - **古い paper-map の写し**（`<root>/.sai/blocks/paper-map.md`）には、無い命令が書いてあることがあります。8.2 節の手順で新しい写しにしてください。

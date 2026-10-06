@@ -42,16 +42,16 @@ runner が user のときは、利用者が読みます。そのとき完了の�
 ### 手順
 1. **型と深さを確かめる。** `sci_mode` と `sci_depth` を読みます。指定が無ければ「purpose_first・FULL で読みます」と伝えてから始めます。
 2. **読む論文を 1 本決める。** 依頼文に論文の番号があればそれを使います。無ければ対象の Node に結ばれた論文から 1 本を選びます。決まらないときは手を付けずに案を見せます。
-3. **本文を読む。** `sai-moon-paper content outline <番号> --json` で節の一覧を見て、要る節だけを `content read <ID>` で読みます。`ABSTRACT` では Abstract と結論の節だけを読みます。節の表が無ければ `content build <番号>` で作ります。図が要る深さ（FIGURES・FULL）では `sai-moon-paper figures` の出力で、論の順番と図の関係を確かめます。
+3. **本文を読む。** `sai-paper content outline <番号> --json` で節の一覧を見て、要る節だけを `content read <ID>` で読みます。`ABSTRACT` では Abstract と結論の節だけを読みます。節の表が無ければ `content build <番号>` で作ります。図が要る深さ（FIGURES・FULL）では `sai-paper paper figures` の出力で、論の順番と図の関係を確かめます。
 4. **型の順番を守る。**
    - purpose_first: 「対象の Node と Q → 論文の該当箇所 → 分かったこと」の順に書く。
-   - blind_first: 問い・方法・結果・限界の要約を先に書き終える。書き終えてから MCP の `sci_context`（pi では `sai-moon-paper sci context --run "$SAI_PARENT_RUN_ID" --scope path`）で木を取り寄せ、要約と木を照らす。
+   - blind_first: 問い・方法・結果・限界の要約を先に書き終える。書き終えてから `sai-sci context --run "$SAI_PARENT_RUN_ID" --scope path` で木を取り寄せ、要約と木を照らす。
 5. **F を証拠付きで書く。** 対象の O ごとに `add_f` を出します。1〜3 文にまとめ、`cites` に塊の ID（`#37.5.2`）か `#37 §3.2` の形で CITE を付けます。数字を含む文には必ず CITE を付けます。F は O か E に付け、Q に直接付けません。
 6. **新しい答えの候補を O にする。** 論文に、木にまだ無い答えの候補があれば `add_o` を出します。
 7. **note.md を書く。** 論文だけの要約と、木に照らして分かったことを書き、標準入力で保存します。
 
    ```bash
-   sai-moon-paper phone note <論文の番号> < note.md
+   sai-paper paper note <論文の番号> < note.md
    ```
 
 8. 木に合わなかった内容は、OUT_OF_SCOPE に理由を書きます。

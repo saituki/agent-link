@@ -2,7 +2,7 @@
 
 `sci-data-explore` と `sci-data-test` が共通で読む決まり。データを安全に扱い、データ表を作り、EDA と前処理をし、MLflow と木に記録し、再現できる形で残すための決まりである。
 この文書の §2 の名前・§4 のデータ表・§8 の記録・§9 の木の置き方は**共有契約**であり、ブロックも道具（`data_result.py`）も書き換えない。
-文書の渡し方（waggle トークン・`sai_write`）と report の書き方は `sci-core` にある。同じことを繰り返して書かない。
+文書の渡し方（waggle トークン・`sai-link doc write`）と report の書き方は `sci-core` にある。同じことを繰り返して書かない。
 
 ## 1. 役割と流れ
 
@@ -27,7 +27,7 @@
 
 ## 2. 名前・置き場・文書
 
-- **study** は `<sci_node>-ID<explore の run_id>`（例 `O6-ID130`）。`sci_node` は explore のカードの Node（Issue の O か E）。
+- **study** は `<Node の ID>-ID<explore の run_id>`（例 `O6-ID130`）。`node` は explore のカードの Node（Issue の O か E）。
 - 作業フォルダ（workdir）は `analysis/<study>/`（プロジェクトルートからの相対）。
 
 ```
@@ -72,7 +72,7 @@ analysis/<study>/
 `sci-data-explore` が書く文書の形である。**この節の書式から変えない。**
 
 ```json
-{"study": "O6-ID130", "sci_node": "O6", "explore_run_id": 130, "project": "west",
+{"study": "O6-ID130", "node": "O6", "explore_run_id": 130, "project": "west",
  "raw": [{"path": "data/raw/hrv.csv", "sha256": "…", "format": "csv", "rows": 1200, "columns": 14}],
  "derived": [{"path": "analysis/O6-ID130/data/hrv_clean.csv", "sha256": "…", "rows": 1180, "columns": 12,
               "from": "data/raw/hrv.csv"}],
@@ -88,7 +88,7 @@ analysis/<study>/
 
 | 欄 | 中身 |
 |---|---|
-| `study` / `sci_node` / `explore_run_id` | §2 の study と、explore の Node と run_id |
+| `study` / `node` / `explore_run_id` | §2 の study と、explore の Node と run_id |
 | `project` | `$SAI_PROJECT_ROOT` の末尾のフォルダ名 |
 | `raw` | 生データの一覧。`path` はプロジェクトルートからの相対、`sha256` は中身の SHA-256（16 進 64 字）、`format` は形式、`rows` と `columns` は行数と列数 |
 | `derived` | 前処理した写しの一覧。`from` には元のファイルの `path` を書く |
@@ -350,7 +350,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 ```bash
 uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PROJECT_ROOT/.sai/tools/data_result.py" \
   log --experiment "<project>/ID<自分の run_id>/data" --run-name "ID<自分の run_id>-eda" \
-  --project <project> --run-id <自分の run_id> --study <study> --node <sci_node> --kind eda \
+  --project <project> --run-id <自分の run_id> --study <study> --node <Node の ID> --kind eda \
   --artifact "analysis/<study>/ID<自分の run_id>/eda" --artifact "analysis/<study>/prep.py"
 ```
 
@@ -396,4 +396,4 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 - 前処理で結果をよくする変換を入れようとしている（§6）
 
 - 解析が 30 分を超えそうなとき: 自分で動かさず、report で既存の実験の鎖（`sci-exp-sprout`）を勧める。
-- 道具（`.sai/tools/…`）が無いとき: report に `BLOCKED` と書き、`sai-moon-paper init --assets-only --sci` で配り直すよう起動者に伝えて終わる。
+- 道具（`.sai/tools/…`）が無いとき: report に `BLOCKED` と書き、`sai-sci init --update` で配り直すよう起動者に伝えて終わる。

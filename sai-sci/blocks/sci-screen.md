@@ -34,8 +34,8 @@ enable: true
 1. 依頼文か対象の Node にある検索セットを読みます。
 
    ```bash
-   sai-moon-paper set list
-   sai-moon-paper set show "<セット名か ID>" --json
+   sai-paper set list
+   sai-paper set show "<セット名か ID>" --json
    ```
 
 2. 論文ごとに、抄録と基本情報（題・著者・年・ジャーナル・査読かどうか）を見ます。依頼文に条件（年・研究デザイン・対象・言語）があれば、条件に照らします。
@@ -43,8 +43,8 @@ enable: true
 4. 判定を検索セットに記録します。
 
    ```bash
-   sai-moon-paper set mark "<セット名か ID>" --position 1,3 --decision keep --reason "<採る理由>"
-   sai-moon-paper set mark "<セット名か ID>" --position 5,7 --decision drop --reason "<外す理由>"
+   sai-paper set mark "<セット名か ID>" --position 1,3 --decision keep --reason "<採る理由>"
+   sai-paper set mark "<セット名か ID>" --position 5,7 --decision drop --reason "<外す理由>"
    ```
 
 5. keep の論文で、読むべきものを選びます。読む計画を表にします（順番・論文・読む理由・対象の O）。

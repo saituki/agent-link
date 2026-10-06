@@ -1,7 +1,7 @@
 """分配器 `exp_exec.py` と同梱の実行先（local・_example）のテスト。
 
-一時フォルダの中だけで動かす（`SAI_SAI_HOME` と `SAI_PROJECT_ROOT` を差し替える）。
-実際の ~/.sai-moon やプロジェクトは触らない。
+一時フォルダの中だけで動かす（`SAI_HOME` と `SAI_PROJECT_ROOT` を差し替える）。
+実際の ~/.sai やプロジェクトは触らない。
 
     cd sai-sci/tools && python3 -m unittest test_exp_exec -v      # Python 3.11 以上
 """
@@ -36,7 +36,7 @@ class Env:
         shutil.copytree(EXEC, self.project / ".sai" / "exec", dirs_exist_ok=True)
 
     def run(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
-        env = dict(os.environ, SAI_SAI_HOME=str(self.home), SAI_PROJECT_ROOT=str(self.project))
+        env = dict(os.environ, SAI_HOME=str(self.home), SAI_PROJECT_ROOT=str(self.project))
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             capture_output=True, text=True, cwd=cwd or self.work, env=env, timeout=60,

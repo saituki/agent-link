@@ -40,7 +40,7 @@ enable: true
 3. 検索語ごとに検索セットを作ります。`--node`・`--purpose`・`--extract` は必ず付けます。
 
    ```bash
-   sai-moon-paper search "<検索語>" --db s2 --db pubmed --limit 30 --save-as "<Node の ID>-<短い英字>" \
+   sai-sci search "<検索語>" --db s2 --db pubmed --limit 30 --save-as "<Node の ID>-<短い英字>" \
      --node O5 --purpose "<この検索の目的>" --extract "<抜き出す項目>" --json
    ```
 
@@ -64,7 +64,7 @@ enable: true
 - `--node`・`--purpose`・`--extract` を 3 つとも付けているか。
 - 複数の DB を組み合わせていて、1 つの DB に偏っていないか。
 - 集めた論文が対象の Node に合っているか。明らかに別の話題の論文は、外さずに理由を書いているか。
-- メタデータを捏造せず、`sai-moon-paper search` の返り値からだけ書いているか。
+- メタデータを捏造せず、`sai-sci search` の返り値からだけ書いているか。
 - 探したが見つからなかったものを、そう書いているか。
 
 ## 完了の基準
