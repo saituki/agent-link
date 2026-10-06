@@ -437,6 +437,104 @@ def phone_search(
     return _phone_json(args, root=project["root"], timeout=60.0)
 
 
+# --- 会話の検索（`sai-link session search`・共有契約「会話の検索の口」・U10） ---
+
+# Round / round / run の番号は N または N-M
+_SESSION_RANGE_RE = re.compile(r"^\d+(-\d+)?$")
+# ブロック名の部分一致（`.sai/blocks/<名前>.md` の形）
+_SESSION_BLOCK_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+# 実行日 YYYY/MM/DD または YYYY/MM/DD-YYYY/MM/DD
+_SESSION_DATE_RE = re.compile(r"^\d{4}/\d{2}/\d{2}(-\d{4}/\d{2}/\d{2})?$")
+_SESSION_STATUSES = ("todo", "pending", "running", "completed", "failed", "cancelled")
+_SESSION_TYPES = ("user", "agent", "thinking", "tool_call", "tool_name", "tool_result", "tool")
+# 検索語の全体の長さ（カンマ区切りを含む）
+_SESSION_WORD_MAX = 200
+# 画面に返す件数の上限（これを超えたら truncated）
+_SESSION_LIMIT = 200
+
+
+def _session_subset(label: str, value: str | None, allowed: tuple) -> str | None:
+    """候補の並び（カンマ区切り）を確かめて，正規の順にそろえて返す。"""
+    text = (value or "").strip()
+    if not text:
+        return None
+    picked = [x.strip() for x in text.split(",") if x.strip()]
+    if not picked or any(x not in allowed for x in picked):
+        raise HTTPException(status_code=400, detail=f"{label}の指定が正しくありません")
+    return ",".join(x for x in allowed if x in picked)
+
+
+def phone_session_search(
+    name: str,
+    word: str | None = None,
+    global_round: str | None = None,
+    round: str | None = None,
+    run_id: str | None = None,
+    block: str | None = None,
+    on_date: str | None = None,
+    status: str | None = None,
+    sess_type: str | None = None,
+) -> dict:
+    """`sai-link session search`（エージェントの会話の履歴の検索・U10）。
+
+    外から来る値は CLI を呼ぶ前に全部確かめる（通らなければ 400）。
+    返り値は `{"items": 先頭 200 件, "truncated": 201 件目があるか}`。
+    """
+
+    def norm(value: str | None) -> str | None:
+        text = (value or "").strip()
+        return text or None
+
+    word = norm(word)
+    global_round = norm(global_round)
+    round = norm(round)
+    run_id = norm(run_id)
+    block = norm(block)
+    on_date = norm(on_date)
+    status = norm(status)
+    sess_type = norm(sess_type)
+    if not any((word, global_round, round, run_id, block, on_date, status, sess_type)):
+        raise HTTPException(status_code=400, detail="検索の条件を 1 つ以上入れてください")
+
+    if word is not None:
+        if "\n" in word or "\r" in word:
+            raise HTTPException(status_code=400, detail="検索語に改行は入れられません")
+        if len(word) > _SESSION_WORD_MAX:
+            raise HTTPException(status_code=400, detail=f"検索語は {_SESSION_WORD_MAX} 字までです")
+    for label, value in (("Round", global_round), ("round", round), ("run の番号", run_id)):
+        if value is not None and not _SESSION_RANGE_RE.match(value):
+            raise HTTPException(status_code=400, detail=f"{label}は N または N-M の形にしてください")
+    if block is not None and not _SESSION_BLOCK_RE.match(block):
+        raise HTTPException(status_code=400, detail="block の指定が正しくありません")
+    if on_date is not None and not _SESSION_DATE_RE.match(on_date):
+        raise HTTPException(status_code=400, detail="日付は YYYY/MM/DD または YYYY/MM/DD-YYYY/MM/DD の形にしてください")
+    status = _session_subset("状態", status, _SESSION_STATUSES)
+    sess_type = _session_subset("種類", sess_type, _SESSION_TYPES)
+
+    args = ["session", "search"]
+    for flag, value in (
+        ("-R", global_round),
+        ("-r", round),
+        ("--id", run_id),
+        ("--block", block),
+        ("--date", on_date),
+        ("--status", status),
+        ("--type", sess_type),
+        ("-w", word),
+    ):
+        if value is not None:
+            args += [flag, value]
+    args.append("--json")
+    project = _phone_project(name)
+    data = _phone_json(args, root=project["root"], timeout=60.0)
+    if isinstance(data, dict):
+        items = data.get("items") or []
+    else:
+        items = data if isinstance(data, list) else []
+    truncated = len(items) > _SESSION_LIMIT
+    return {"items": items[:_SESSION_LIMIT], "truncated": truncated}
+
+
 def phone_card_options(name: str) -> dict:
     """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。"""
     project = _phone_project(name)

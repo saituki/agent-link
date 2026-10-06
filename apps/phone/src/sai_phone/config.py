@@ -55,6 +55,9 @@ class Settings:
     # sai-paper CLI（Papers タブが呼ぶ・00 §8）。
     # 既定は PATH 上の sai-moon-paper。PATH に無いときは環境変数 SAI_PAPER_BIN に絶対パスを書く。
     sai_paper_bin: str = os.getenv("SAI_PAPER_BIN", "sai-moon-paper")
+    # sai-sci CLI（研究の命令・「コマンド」画面が呼ぶ）。まだ無い環境では
+    # schema が取れないので一覧から外す（U10）。
+    sai_sci_bin: str = os.getenv("SAI_SCI_BIN", "sai-sci")
     # sai-paper のルートは設定で持たない（プロジェクトごとに変わるため，
     # 論文の置き場があるプロジェクトの一覧から引く・計画 17 §3.2）
     # sai-radio の場所（Radio の中継先・00 §8）
