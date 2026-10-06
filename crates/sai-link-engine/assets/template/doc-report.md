@@ -1,8 +1,8 @@
-# 作業報告書と task_report の書式（doc-report）
+# 作業報告書と task report の書式（doc-report）
 
 ## 作業報告書
 
-親がくわしく知りたいときに読む報告である。親はまず `task_report` の短い報告を読み、必要なときだけこれを読む。
+親がくわしく知りたいときに読む報告である。親はまず `sai-link task report` の短い報告を読み、必要なときだけこれを読む。
 
 - ファイル名: `report-<ID>.md`（追加指示のあとは `report-<ID>-r2.md`）
 - description: `作業報告書 <ID>: <結果>、<要約>`
@@ -35,7 +35,7 @@ waggle:<受け取った計画書のトークン>
 <統合で気をつけること、他の作業への影響、共有契約を変える必要があると思う点、残った課題>
 ```
 
-## task_report
+## `sai-link task report`
 
 `report` は 10 行以内で、次の形にする。
 

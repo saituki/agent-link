@@ -34,7 +34,7 @@ subblocks:
 ### 1. 計画を読む
 
 1. 依頼（下の `<task_text>`）に埋め込まれた実装ガイドを読む。
-2. ガイドの一覧にある実装計画書を、`sai_read` ですべて読む。
+2. ガイドの一覧にある実装計画書を、`sai-link doc read <トークン>` ですべて読む。
 3. 次の点を確かめる。問題があれば、実装を始める前にユーザーに質問する。
    - 同じファイルを書く作業が、並列になっていないか。
    - 依存関係に循環がないか。
@@ -58,24 +58,24 @@ subblocks:
 
 ### 4. 完了を報告する
 
-- `doc-completion` の書式で完了報告書を書き、`sai_write` で保存する。
+- `doc-completion` の書式で完了報告書を書き、`sai-link doc write` で保存する。
 - ユーザーに結果と完了報告書のトークンを伝える。
 
 ### 5. handoff（次を起動して完了する）
 
-依頼の `## handoff` に従い、次の実行を起動してから自分を完了にする。このブロックでは、`sai-cli` の「使わないコマンド」にある `sai-moon-link phone card run` を、ここに書いた用途に限って使ってよい。`sai_finalize` も、ここではユーザーの指示を待たずに呼ぶ。
+依頼の `## handoff` に従い、次の実行を起動してから自分を完了にする。このブロックでは、`sai-cli` の「使わないコマンド」にある `sai-link card run` を、ここに書いた用途に限って使ってよい。`sai-link run finalize` も、ここではユーザーの指示を待たずに実行する。
 
 - 全体の完了条件を満たしていないとき・ユーザーに質問して答えを待っているときは、handoff に進まない。
 
 **次の kantoku がいるとき**（依頼に次の kantoku の run_id が書いてある）:
 
-1. `sai-moon-link phone card run <次の run_id>` で起動する。
-2. `sai-moon-link phone tree` を数秒おきに（上限 1 分）見て、その run_id が running に出たことを確かめる。
-3. 確かめたら `sai_finalize` を呼ぶ。
+1. `sai-link card run <次の run_id>` で起動する。
+2. `sai-link run tree` を数秒おきに（上限 1 分）見て、その run_id が running に出たことを確かめる。
+3. 確かめたら `sai-link run finalize` を実行する。
 
 **自分が最後の kantoku のとき**（依頼に review に渡す文書が書いてある）:
 
-1. 自分の round を調べる。`sai-moon-link phone md --kind task $SAI_PARENT_RUN_ID` の frontmatter の `global_round:` と `round:` を読む（`round` が空なら 0 とみなす）。
+1. 自分の round を調べる。`sai-link run md $SAI_PARENT_RUN_ID --kind task` の frontmatter の `global_round:` と `round:` を読む（`round` が空なら 0 とみなす）。
 2. `sai-cli` の手順で review のカードを作る。
    - `block`: `review`
    - `global_round`: 自分と同じ値（空なら空）
@@ -83,8 +83,8 @@ subblocks:
    - `runner`・`model`・`provider`・`thinking`: 書かない（既定値になる）
    - `task_text`: 下のひな形
 3. 作ったカードの `path` を編集し、`description:` に `review: <要件定義書の件名>`、`origin_run_id:` に自分の run_id を書く。
-4. `sai-moon-link phone card run <review の run_id>` で起動し、上と同じく running に出たことを確かめる。
-5. 確かめたら `sai_finalize` を呼ぶ。
+4. `sai-link card run <review の run_id>` で起動し、上と同じく running に出たことを確かめる。
+5. 確かめたら `sai-link run finalize` を実行する。
 
 review の task_text:
 
@@ -94,13 +94,13 @@ review の task_text:
 waggle:<要件定義書のトークン>
 
 ## 実装の記録
-- 実装ガイド: <ガイドのトークン>, …（`sai_read` で読むこと）
-- 完了報告書: <自分の完了報告書のトークン>（`sai_read` で読むこと）
-- kantoku の run_id: <これまでの kantoku の run_id>, <自分の run_id>（ほかの完了報告書は `sai-moon-link phone waggle <run_id>` で探す）
+- 実装ガイド: <ガイドのトークン>, …（`sai-link doc read <トークン>` で読むこと）
+- 完了報告書: <自分の完了報告書のトークン>（`sai-link doc read <トークン>` で読むこと）
+- kantoku の run_id: <これまでの kantoku の run_id>, <自分の run_id>（ほかの完了報告書は `sai-link doc list --run <run_id> --all` で探す）
 - 作業ブランチ: <ブランチ名>
 ```
 
-起動が失敗したとき（常駐が止まっている・running に出ない）は、`sai_finalize` を呼ばない。エラーの文と、ユーザーが自分で実行するためのコマンドをユーザーに伝えて待つ。
+起動が失敗したとき（常駐が止まっている・running に出ない）は、`sai-link run finalize` を実行しない。エラーの文と、ユーザーが自分で実行するためのコマンドをユーザーに伝えて待つ。
 
 ## 禁止事項
 
@@ -109,7 +109,7 @@ waggle:<要件定義書のトークン>
 - `stalled` が届いた worker の画面を見ずに、待ち続けること。
 - 同じファイルを書く作業を並列に実行すること。
 - ゴール・共有契約・範囲の変更を、ユーザーに確認せずに決めること。
-- 次の実行の起動を確かめずに `sai_finalize` を呼ぶこと。
+- 次の実行の起動を確かめずに `sai-link run finalize` を実行すること。
 
 ## 依頼
 

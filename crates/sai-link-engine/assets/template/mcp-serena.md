@@ -41,4 +41,4 @@ MCP サーバ `serena` は、言語サーバーを使ってコードを「記号
 ## メモ（memory）
 
 - `list_memories` / `read_memory` で、前の実行が残したこのプロジェクトのメモを読める。名前を見て、関係するものだけ読む。
-- メモを書く・消す（`write_memory` / `edit_memory` / `delete_memory`）のは、依頼で指示されたときだけにする。引き継ぎは文書（`sai_write`）で行う。
+- メモを書く・消す（`write_memory` / `edit_memory` / `delete_memory`）のは、依頼で指示されたときだけにする。引き継ぎは文書（`sai-link doc write`）で行う。

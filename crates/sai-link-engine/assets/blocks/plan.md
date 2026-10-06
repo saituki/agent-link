@@ -24,7 +24,7 @@ subblocks:
 
 ### 1. 依頼を理解する
 
-- 依頼文に埋め込まれた文書（過去の完了報告書・要件・前の計画）を読む。関係しそうな文書は `sai_read {}` の一覧で探す。
+- 依頼文に埋め込まれた文書（過去の完了報告書・要件・前の計画）を読む。関係しそうな文書は `sai-link doc list` の一覧で探す。
 - ユーザーが「何を」「なぜ」求めているかを、自分の言葉で言い直せるようにする。ユーザーが言った症状と、その原因は分けて考える。
 
 ### 2. 事実を確かめる
@@ -51,16 +51,16 @@ subblocks:
 
 **要件定義書 → 実装計画書 → 実装ガイドの順**に作る。ガイドには計画書のトークンが必要だからである。
 
-1. ユーザーと決めた要件（何を・なぜ・完了したときにユーザーが確かめられること・範囲外）を要件定義書にまとめ、`requirements.md` として `sai_write` で保存する。description は `要件定義書: <件名>`。最後に review がこの文書で実装を評価する。
-2. 各実装計画書を `doc-unit` の書式で書き、`sai_write` で保存する。戻り値のトークンを控える。
-3. 控えたトークンを使って、実装ガイドを `doc-guide` の書式で書き、`sai_write` で保存する。複数のときは `guide-1.md`・`guide-2.md` … とし、各ガイドの「参照文書」に要件定義書のトークンを書く。
+1. ユーザーと決めた要件（何を・なぜ・完了したときにユーザーが確かめられること・範囲外）を要件定義書にまとめ、`requirements.md` として `sai-link doc write` で保存する。description は `要件定義書: <件名>`。最後に review がこの文書で実装を評価する。
+2. 各実装計画書を `doc-unit` の書式で書き、`sai-link doc write` で保存する。戻り値のトークンを控える。
+3. 控えたトークンを使って、実装ガイドを `doc-guide` の書式で書き、`sai-link doc write` で保存する。複数のときは `guide-1.md`・`guide-2.md` … とし、各ガイドの「参照文書」に要件定義書のトークンを書く。
 4. ユーザーに、要件定義書・ガイドのトークンと計画書の一覧（ID・件名・トークン）を示す。
 
 ### 6. handoff（kantoku のカードを作る）
 
 文書を保存し終えたら、`sai-cli` の手順で **実装ガイドの数だけ** kantoku のカードを todo に作る。**カードは作るだけで実行しない。** 最初の kantoku の実行はユーザーが行う。kantoku は 1 人目 → 2 人目 → … の順に、前の kantoku が次を起動する鎖になる。
 
-1. 自分の round を調べる。`sai-moon-link phone md --kind task $SAI_PARENT_RUN_ID` の frontmatter の `global_round:` と `round:` を読む（`round` が空なら 0 とみなす）。
+1. 自分の round を調べる。`sai-link run md $SAI_PARENT_RUN_ID --kind task` の frontmatter の `global_round:` と `round:` を読む（`round` が空なら 0 とみなす）。
 2. **最後の kantoku から逆順に** カードを作る。次の kantoku の run_id を前の kantoku の task_text に書くためである。ガイドが N 個のとき、i 人目のカードは次の値にする。
    - `block`: `kantoku`
    - `global_round`: 自分と同じ値（空なら空）
@@ -76,8 +76,8 @@ subblocks:
    waggle:<ガイド i のトークン>
 
    ## handoff
-   - 完了報告書を保存したら、次の kantoku（run <i+1 人目の run_id>）を `sai-moon-link phone card run <run_id>` で起動する。
-   - 起動を確かめたら（`sai-moon-link phone tree` で running に出る）、`sai_finalize` を呼ぶ。
+   - 完了報告書を保存したら、次の kantoku（run <i+1 人目の run_id>）を `sai-link card run <run_id>` で起動する。
+   - 起動を確かめたら（`sai-link run tree` で running に出る）、`sai-link run finalize` を実行する。
    ```
 
    N 人目（最後）の task_text（ガイドが 1 つなら 1 人目がこれになり、「これまでの kantoku の run_id」の行は「なし」と書く）:
@@ -88,10 +88,10 @@ subblocks:
    waggle:<ガイド N のトークン>
 
    ## handoff
-   - あなたは最後の kantoku である。完了報告書を保存したら、review のカードを作り、`sai-moon-link phone card run <run_id>` で起動する。
+   - あなたは最後の kantoku である。完了報告書を保存したら、review のカードを作り、`sai-link card run <run_id>` で起動する。
    - review に渡す文書: 要件定義書 <要件定義書のトークン>、実装ガイド <ガイド 1 のトークン>, …, <ガイド N のトークン>
    - これまでの kantoku の run_id: <1 人目の run_id>, …, <N-1 人目の run_id>
-   - review の起動を確かめたら（`sai-moon-link phone tree` で running に出る）、`sai_finalize` を呼ぶ。
+   - review の起動を確かめたら（`sai-link run tree` で running に出る）、`sai-link run finalize` を実行する。
    ```
 
 3. 作った各カードの `path` を編集し、frontmatter の 2 行を埋める。
@@ -101,7 +101,7 @@ subblocks:
 
 ## 保存のしかた
 
-- `sai_write` は、ユーザーが内容を確かめて保存を指示したときだけ呼ぶ。それまでは内容をチャットで示す。
+- `sai-link doc write` は、ユーザーが内容を確かめて保存を指示したときだけ実行する。それまでは内容をチャットで示す。
 - 修正を求められたら、`-r2` 付きのファイル名で保存し直す。計画書を改訂したら、そのトークンを参照しているガイドも改訂する。
 
 ## 禁止事項

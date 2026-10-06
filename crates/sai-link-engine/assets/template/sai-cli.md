@@ -1,19 +1,18 @@
-# sai-moon-link CLI の使い方（sai-cli）
+# sai-link CLI の使い方（sai-cli）
 
-`sai-moon-link` コマンドは、シェル（Bash）から sai-link の記録を調べたり、次のカード（task.md）を作ったりするときに使う。
-`sai-link`（名前に `moon` が無いほう）は旧版で、別の記録を読み書きする。使わない。
-文書の保存と読み込みは CLI ではなく `sai_write` / `sai_read` で行う。
+`sai-link` コマンドは、シェル（Bash）から sai-link の記録を調べたり、次のカード（task.md）を作ったりするときに使う。
+文書の保存と読み込みは `sai-link doc write` / `sai-link doc read` で行う。
 自分の run_id は環境変数 `SAI_PARENT_RUN_ID` に入っている。
 
 ## 過去の実行を調べる
 
 | やりたいこと | コマンド |
 |---|---|
-| 実行の一覧（todo / running / review / done ごと） | `sai-moon-link phone tree` |
-| 1 つの実行の詳細（ブロック・状態・時間・コミット） | `sai-moon-link block show <run_id>` |
-| その実行の依頼文・振り返り・会話 | `sai-moon-link phone md --kind task <run_id>`（`review` / `message` も可） |
-| その実行が保存した文書 | `sai-moon-link phone waggle <run_id>`（本文は `sai_read` で読む） |
-| 過去の会話を言葉で探す | `sai-moon-link search -w <語,語>`（`--block <名>`・`-R <グローバルラウンド>`・`--json` で絞り込み） |
+| 実行の一覧（todo / running / review / done ごと） | `sai-link run tree` |
+| 1 つの実行の詳細（ブロック・状態・時間・コミット） | `sai-link run show <run_id>` |
+| その実行の依頼文・振り返り・会話 | `sai-link run md <run_id> --kind task`（`review` / `message` も可） |
+| その実行が保存した文書 | `sai-link doc list --run <run_id> --all`（本文は `sai-link doc read <トークン>` で読む） |
+| 過去の会話を言葉で探す | `sai-link session search -w <語,語>`（`--block <名>`・`-R <グローバルラウンド>`・`--json` で絞り込み） |
 
 結果はほとんどが JSON で返る。長いときは必要な部分だけ取り出して読む。
 
@@ -24,13 +23,13 @@
 1. 使えるブロック・runner・model・thinking の値を確かめる。
 
 ```bash
-sai-moon-link phone card options
+sai-link card options
 ```
 
 2. 標準入力に JSON を渡してカードを作る。戻り値の `run_id` と `path` を控える。
 
 ```bash
-sai-moon-link phone card create <<'EOF'
+sai-link card create <<'EOF'
 {
   "runner": "pi",
   "block": "kantoku",
@@ -56,4 +55,4 @@ EOF
 
 次のコマンドは、実行の開始・削除・設定の変更になる。ユーザーの指示が無い限り使わない。
 
-`sai-moon-link phone card run` / `sai-moon-link phone finalize` / `sai-moon-link phone advance` / `sai-moon-link block run` / `sai-moon-link block rm` / `sai-moon-link daemon` / `sai-moon-link init` / `sai-moon-link migrate-outputs` / `sai-moon-link task manage` / `sai-moon-link phone md --write`
+`sai-link card run` / `sai-link run finalize` / `sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link run md --write`

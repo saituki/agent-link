@@ -51,8 +51,8 @@ enable: true
 
 ### 6. 報告する
 
-1. 修正報告書 `bugfix-<ID>.md` を書き、`sai_write` で保存する。description は `修正報告書 <ID>: <結果>、<何を直したか 1 文>` にする。
-2. 最後に `task_report` を呼ぶ。`要約` に根本原因を 1 文で書く。
+1. 修正報告書 `bugfix-<ID>.md` を書き、`sai-link doc write` で保存する。description は `修正報告書 <ID>: <結果>、<何を直したか 1 文>` にする。
+2. 最後に `sai-link task report` を実行する。`要約` に根本原因を 1 文で書く。
 
 ```markdown
 # 修正報告書 <ID>: <件名>

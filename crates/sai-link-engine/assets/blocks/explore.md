@@ -39,8 +39,8 @@ enable: true
 ### 4. 答える
 
 - 問いごとに、答え・根拠の `path:line`・確かめ方を書く。事実・推測・未確定を分ける（`sai-base` の書き方）。
-- 答えが 20 行を超えるときは、`explore-<ID>.md` に書いて `sai_write` で保存する。description は `調査報告 <ID>: <答えを 1 文で>` にする。
-- 最後に `task_report` を呼ぶ。`要約` に問いへの答えの核を書く。親はまずこれだけを読む。
+- 答えが 20 行を超えるときは、`explore-<ID>.md` に書いて `sai-link doc write` で保存する。description は `調査報告 <ID>: <答えを 1 文で>` にする。
+- 最後に `sai-link task report` を実行する。`要約` に問いへの答えの核を書く。親はまずこれだけを読む。
 
 ```markdown
 # 調査報告 <ID>: <件名>

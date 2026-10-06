@@ -29,7 +29,7 @@ subblocks:
 ### 1. 読む
 
 1. 依頼に埋め込まれた要件定義書を読む。
-2. 依頼に書かれた実装ガイドと完了報告書を `sai_read` で読む。ほかの kantoku の完了報告書は `sai-moon-link phone waggle <run_id>` で探して読む。
+2. 依頼に書かれた実装ガイドと完了報告書を `sai-link doc read <トークン>` で読む。ほかの kantoku の完了報告書は `sai-link doc list --run <run_id> --all` で探して読む。
 3. 作業ブランチの変更を見る（`git log`・`git diff <元のブランチ>...<作業ブランチ>`）。
 
 ### 2. 要件ごとに確かめる
@@ -54,8 +54,8 @@ subblocks:
 
 ### 4. 保存して伝える
 
-1. レビュー報告書を `review-report.md` として `sai_write` で保存する。description は `レビュー報告書: <件名>（満たす n / 一部 n / 満たさない n）`。
-2. チュートリアルを `tutorial.md` として `sai_write` で保存する。description は `チュートリアル: <件名> を手で確かめる手順`。
+1. レビュー報告書を `review-report.md` として `sai-link doc write` で保存する。description は `レビュー報告書: <件名>（満たす n / 一部 n / 満たさない n）`。
+2. チュートリアルを `tutorial.md` として `sai-link doc write` で保存する。description は `チュートリアル: <件名> を手で確かめる手順`。
 3. ユーザーに、評価の要点と 2 つのトークンを伝える。
 
 レビュー報告書の書式:
@@ -85,7 +85,7 @@ subblocks:
 
 ### 5. handoff
 
-review は鎖の最後である。次のカードは作らない。`sai_finalize` はユーザーが指示したときだけ呼ぶ。
+review は鎖の最後である。次のカードは作らない。`sai-link run finalize` はユーザーが指示したときだけ実行する。
 
 ## 禁止事項
 
