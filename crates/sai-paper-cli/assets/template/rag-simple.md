@@ -7,7 +7,7 @@ Library 内の論文・ノート・ドキュメントを 1 回の hybrid 検索�
 ## ステップ 1: インデックス状態の確認
 
 ```bash
-sai-moon-paper index status --json
+sai-paper index status --json
 ```
 
 チャンク化と埋め込みが完了しているか確認する。
@@ -23,7 +23,7 @@ sai-moon-paper index status --json
 ## ステップ 3: hybrid 検索の実行
 
 ```bash
-sai-moon-paper find "<クエリ>" \
+sai-paper find "<クエリ>" \
   --mode hybrid \
   --top-k 10 \
   --scope all \

@@ -1,18 +1,17 @@
 # Library の検索（search-internal）
 
-sai-moon-paper の Library の中（取り込み済みの論文・ノート・ドキュメント）を検索する手順です。
+sai-paper の Library の中（取り込み済みの論文・ノート・ドキュメント）を検索する手順です。
 外部の論文 DB を検索するときは `search-external` を使います。
 
 ## ステップ 1: 索引の状態を確かめる
 
 ```bash
-sai-moon-paper index status
+sai-paper index status
 ```
 
 `indexes.<名前>.chunks` と `chunks_with_embeddings` を見て、Library の断片と埋め込みができているか確かめます。
 
-- 索引がまだ無い・件数が 0 のときは、**自分で作りません**。ユーザーに `sai-moon-paper index build` を頼んでください（索引と埋め込みはユーザーが手動で作るときだけ作る、という決まりです）。
-- pi からも cc からも MCP の `index_status` で同じ内容を読めます。
+- 索引がまだ無い・件数が 0 のときは、**自分で作りません**。ユーザーに `sai-paper index build` を頼んでください（索引と埋め込みはユーザーが手動で作るときだけ作る、という決まりです）。
 
 ## ステップ 2: 問いを英語の検索語に分ける
 
@@ -28,7 +27,7 @@ sai-moon-paper index status
 ## ステップ 3: それぞれ検索する
 
 ```bash
-sai-moon-paper find "<英語の検索語>" \
+sai-paper find "<英語の検索語>" \
   --mode hybrid \
   --top-k 10 \
   --scope all \
@@ -41,9 +40,7 @@ sai-moon-paper find "<英語の検索語>" \
 - `--scope all`: 論文（papers）・ノート（notes）の両方を対象にします。論文だけなら `--scope papers`、ノートだけなら `--scope notes`。
 - `--json`: JSON で返します。
 
-pi からも cc からも MCP の `find` で同じ検索ができます。
-
-広い問いで結果が多すぎるときは `--evidence`（MCP は `evidence: true`）を使ってよい。費用がかかるので 1 回の作業で 3 回まで。
+広い問いで結果が多すぎるときは `--evidence` を使ってよい。費用がかかるので 1 回の作業で 3 回まで。
 
 ## ステップ 4: 結果をまとめる
 
@@ -68,10 +65,8 @@ pi からも cc からも MCP の `find` で同じ検索ができます。
 上位の論文について、その論文の中の近い断片や関連論文を探します。
 
 ```bash
-sai-moon-paper neighbors <論文ID> --json
+sai-paper neighbors <論文ID> --json
 ```
-
-cc からは MCP の `neighbors` でも同じです。
 
 ## ステップ 6: それでも足りなければ GAP を残す
 

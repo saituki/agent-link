@@ -68,7 +68,7 @@ glioblastoma ferroptosis immunotherapy
 ## ステップ 4: CLI での実行
 
 ```bash
-sai-moon-paper search "自然文の質問" \
+sai-paper search "自然文の質問" \
   --db pubmed \
   --db biorxiv \
   --db s2 \

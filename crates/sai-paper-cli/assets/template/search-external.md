@@ -37,7 +37,7 @@ DB ごとの書き方:
 ## ステップ 3: 検索して検索セットに保存する
 
 ```bash
-sai-moon-paper search "<自然文の質問>" \
+sai-paper search "<自然文の質問>" \
   --db <DB1> --db <DB2> \
   --limit 100 \
   --year-from <開始年> \
@@ -57,14 +57,12 @@ sai-moon-paper search "<自然文の質問>" \
 
 保存したセットの確認:
 ```bash
-sai-moon-paper set show <セット名>
+sai-paper set show <セット名>
 ```
-
-cc からは MCP の `search_sets` でもセットを読めます。
 
 ## ステップ 4: 重複を除く
 
-`sai-moon-paper search` は結果を自動で重複除去します。優先する順は DOI → arXiv ID → Semantic Scholar paperId → 正規化タイトルです。
+`sai-paper search` は結果を自動で重複除去します。優先する順は DOI → arXiv ID → Semantic Scholar paperId → 正規化タイトルです。
 複数回に分けて検索したときも、同じセット名で `--save-as` すると 1 つのセットにまとまります。
 
 ## ステップ 5: 引用の網を 1 段だけ広げる
@@ -72,18 +70,18 @@ cc からは MCP の `search_sets` でもセットを読めます。
 集まった候補のうち、関係が最も深い 2〜3 本について、引用関係を 1 段だけたどり、Library に無いものを検索セットに入れます。
 
 ```bash
-sai-moon-paper expand <論文ID>... --save-as <セット名>
+sai-paper expand <論文ID>... --save-as <セット名>
 ```
 
 引数の意味:
-- `<論文ID>`: `sai-moon-paper search` が返す `papers.id`（`#37` の番号）。2〜3 本まで指定します。
+- `<論文ID>`: `sai-paper search` が返す `papers.id`（`#37` の番号）。2〜3 本まで指定します。
 - `--save-as`: 候補を入れる検索セット名。無ければ作り、あれば足します。最初の検索と同じセット名か、`-expand` を付けた別のセット名にします。
 - `--direction`: たどる向き（`both` / `refs` / `cited`。既定 `both`）。
 - `--limit`: 1 本・1 向きあたりに取る最大件数（既定 20）。
 
 `--save-as` で入れた候補は `decision = 'pending'` です。`paper-screen` がこれを絞り込みます。
 
-`--depth` を指定する必要はありません（このコマンドは常に 1 段だけたどります）。グラフの中身を自分で見たいときだけ `sai-moon-paper graph-show <論文ID>` を使います。
+`--depth` を指定する必要はありません（このコマンドは常に 1 段だけたどります）。グラフの中身を自分で見たいときだけ `sai-paper graph show <論文ID>` を使います。
 
 ## ステップ 6: 絞り込みは paper-screen に任せる
 
@@ -93,5 +91,5 @@ PDF のダウンロードと Library への取り込みは、ユーザーが sai
 
 ## 文献完全性
 
-- 報告するメタデータ（タイトル・著者・年・DOI など）は `sai-moon-paper search` の返り値だけを使います。捏造しないでください。
+- 報告するメタデータ（タイトル・著者・年・DOI など）は `sai-paper search` の返り値だけを使います。捏造しないでください。
 - 取得できなかった項目は明示します（例 `DOI [利用不可]`）。
