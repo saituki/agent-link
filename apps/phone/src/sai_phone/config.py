@@ -52,10 +52,9 @@ class Settings:
     )
     # sai-link CLI（Project タブ・Papers タブが呼ぶ・00 §8）
     sai_link_bin: str = os.getenv("SAI_LINK_BIN", "sai-moon-link")
-    # sai-paper CLI（Papers タブが呼ぶ・PATH に無いため絶対パス・00 §8）
-    sai_paper_bin: str = os.getenv(
-        "SAI_PAPER_BIN", "/Users/touta/workdir/Sai/sai-moon/target/release/sai-moon-paper"
-    )
+    # sai-paper CLI（Papers タブが呼ぶ・00 §8）。
+    # 既定は PATH 上の sai-moon-paper。PATH に無いときは環境変数 SAI_PAPER_BIN に絶対パスを書く。
+    sai_paper_bin: str = os.getenv("SAI_PAPER_BIN", "sai-moon-paper")
     # sai-paper のルートは設定で持たない（プロジェクトごとに変わるため，
     # 論文の置き場があるプロジェクトの一覧から引く・計画 17 §3.2）
     # sai-radio の場所（Radio の中継先・00 §8）

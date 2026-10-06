@@ -4,7 +4,7 @@ sai-radio への通信（radio.forward）は呼ばず，`build_target(path, quer
 
 実行:
     cd <作業用コピー>
-    PYTHONPATH=src /Users/touta/workdir/Sai/sai-phone/.venv/bin/python tests/test_radio_proxy.py
+    PYTHONPATH=src .venv/bin/python tests/test_radio_proxy.py
 """
 
 from __future__ import annotations
