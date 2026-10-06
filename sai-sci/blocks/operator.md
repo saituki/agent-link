@@ -6,7 +6,7 @@ model: inherit
 thinking: high
 templates:
   - sai-agent
-  - sai-cli
+  - sci-cli
 worktree: none
 enable: true
 ---
