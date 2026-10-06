@@ -113,7 +113,6 @@ pub mod project;
 pub mod reflection_status;
 pub mod run_dir;
 pub mod runner;
-pub mod sai_paper_client;
 pub mod sai_write_notify;
 pub mod search;
 pub mod session;
@@ -121,7 +120,6 @@ pub mod task_cwd;
 pub mod task_manager;
 pub mod usage;
 pub mod usage_metrics;
-pub mod user_write;
 pub mod waggle_integration;
 
 pub use block_config::*;

@@ -317,16 +317,6 @@ def phone_tree(name: str) -> dict:
     return _phone_json(["tree"], root=project["root"])
 
 
-def phone_rtree(name: str) -> dict:
-    """`sai-link phone rtree`（3 層の実行の図・U03 §変更内容 3）。
-
-    実行の記録が要るため、root と DB が両方無いプロジェクトは 404（`_phone_project`）。
-    返すのは C-02 の JSON（`{"nodes": [...], "edges": [...]}`）で、そのまま中継する。
-    """
-    project = _phone_project(name)
-    return _phone_json(["rtree"], root=project["root"], timeout=30.0)
-
-
 def phone_run_view(name: str, run_id: int, view: str) -> dict:
     """`sai-link phone run <id> --view <view>`（Log / Stats / History・計画 12 §3.2）。"""
     _check_run_id(run_id)

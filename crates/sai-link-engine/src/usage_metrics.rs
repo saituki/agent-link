@@ -1,10 +1,9 @@
 //! セッション jsonl の usage 集計ロジック（トークン / コスト）。
 //!
-//! 実装計画 01 §2.1 により、当初 `sai-link-widgets/src/cache_stats.rs` にあった
+//! 実装計画 01 §2.1 により、当初 `sai-link-view/src/cache_stats.rs` にあった
 //! **集計ロジックと型だけ** を engine へ移設したものである。
-//! 描画（ratatui）部分は widgets 側に残しており、widgets は
-//! `pub use sai_link_engine::usage_metrics::*;` で再公開して既存の呼び出し
-//! （TUI / sai-control）を壊さない。
+//! 描画部分は TUI の削除に合わせて外し、sai-link-view は
+//! `pub use sai_link_engine::usage_metrics::*;` で再公開する。
 //!
 //! **計算式は移設前と完全に同一**（TUI の Stats 画面と数字を一致させるため）。
 //!

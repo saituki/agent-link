@@ -35,7 +35,7 @@
 //! ```
 //!
 //! 旧 `sessions/` `reflection/` `waggle-cache` `todo/` `review/` `message/` は
-//! 作成しない（outputs 統一後は run フォルダが正本・`migrate-outputs` で移行）。
+//! 作成しない（outputs 統一後は run フォルダが正本）。
 //!
 //! ## 使用例
 //!

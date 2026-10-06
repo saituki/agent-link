@@ -126,25 +126,6 @@ pub enum Cmd {
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
     },
-    /// TUI を起動する（別バイナリ sai-link-tui を実行）
-    Tui,
-    /// 旧 `.sai/` 構成（todo/review/message/sessions/reflection）を
-    /// `outputs/<owner>/<run_id>/` へ一度だけ移行する（R7）。
-    ///
-    /// 冪等（2回目は no-op）。`reflection/` は削除する。
-    /// `--root` で他プロジェクトを指定可能（A7）。デーモン稼働中は停止→移行→再起動を
-    /// 自動で行う（A8・`--yes` で確認スキップ、`--no-daemon-restart` で再起動抑止）。
-    MigrateOutputs {
-        /// 移行対象プロジェクトルート（省略時は現プロジェクト）
-        #[arg(long, value_name = "PATH")]
-        root: Option<std::path::PathBuf>,
-        /// 確認プロンプトをスキップする（デーモン停止・実行中タスクありの強制停止を含む）
-        #[arg(long, short = 'y', default_value_t = false)]
-        yes: bool,
-        /// 移行後のデーモン再起動を行わない（停止したままにする）
-        #[arg(long, default_value_t = false)]
-        no_daemon_restart: bool,
-    },
     /// waggle トークン操作（内部用）
     #[command(hide = true)]
     Waggle {
@@ -397,20 +378,6 @@ pub enum TaskCmd {
         /// タスク ID
         #[arg(value_name = "タスクID")]
         task_id: i64,
-    },
-
-    /// バッチ内の全タスクを承認する
-    Approve {
-        /// バッチ ID
-        #[arg(value_name = "バッチID")]
-        batch_id: String,
-    },
-
-    /// バッチ内の全タスクを拒否する
-    Reject {
-        /// バッチ ID
-        #[arg(value_name = "バッチID")]
-        batch_id: String,
     },
 
     /// タスクの pane 出力をキャプチャする（task_capture 用・P4）
@@ -669,15 +636,6 @@ pub enum PhoneCmd {
     /// 座標の縮め方（横 1 マス = 何 px）は sai-phone 側の取り決めであり、
     /// sai-link は文字マスのまま返す。DB が開けない場合は終了コード 4。
     Workflow,
-
-    /// research-tree の実行の図（root / seed / branch の 3 層 DAG）を JSON で返す
-    ///
-    /// - `nodes`: `layer` の有るブロックの run だけ（1 run = 1 node）
-    /// - `edges`: `task_delegation`（`delegation`）/ `waggle_token` / `task_output` の線
-    ///
-    /// `phone workflow` とは別の図で、座標は付けない（Web 側で描く）。
-    /// DB が開けない場合は終了コード 4。実行が 0 件でも空の配列で成功する。
-    Rtree,
 
     /// 定義ファイル（block / template / settings）の一覧・読み書き・削除
     ///
@@ -2020,43 +1978,6 @@ pub fn handle_task_show(task_id: i64) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     println!("{}", "═".repeat(55));
-    Ok(())
-}
-
-/// バッチを承認する。
-pub fn handle_task_approve(batch_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let store = open_db()?;
-    let store = Arc::new(store);
-    let manager = TaskManager::new(Arc::clone(&store));
-
-    let approved = manager
-        .approve_batch(batch_id)
-        .map_err(|e| format!("バッチ承認エラー: {}", e))?;
-
-    if approved.is_empty() {
-        println!("⚠ バッチ '{}' に承認待ちのタスクはありません。", batch_id);
-    } else {
-        println!(
-            "✅ バッチ '{}' の {} 件のタスクを承認しました: {:?}",
-            batch_id,
-            approved.len(),
-            approved
-        );
-    }
-    Ok(())
-}
-
-/// バッチを拒否する。
-pub fn handle_task_reject(batch_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let store = open_db()?;
-    let store = Arc::new(store);
-    let manager = TaskManager::new(Arc::clone(&store));
-
-    manager
-        .reject_batch(batch_id)
-        .map_err(|e| format!("バッチ拒否エラー: {}", e))?;
-
-    println!("🗑 バッチ '{}' のタスクを削除しました。", batch_id);
     Ok(())
 }
 

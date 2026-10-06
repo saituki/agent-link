@@ -34,7 +34,6 @@
 
 mod cli;
 mod kanban_run;
-mod migrate;
 mod phone;
 mod phone_def;
 mod search;
@@ -153,8 +152,6 @@ fn main() {
                 json,
             } => cli::handle_task_list(parent_run_id, status.as_deref(), json),
             TaskCmd::Show { task_id } => cli::handle_task_show(task_id),
-            TaskCmd::Approve { batch_id } => cli::handle_task_approve(&batch_id),
-            TaskCmd::Reject { batch_id } => cli::handle_task_reject(&batch_id),
             TaskCmd::Capture { task_id, lines } => cli::handle_task_capture(task_id, lines),
             TaskCmd::Manage {
                 action,
@@ -199,44 +196,6 @@ fn main() {
                 usage::run_usage_backfill(usage::BackfillArgs { dry_run })
             }
         },
-        Cmd::MigrateOutputs { root, yes, no_daemon_restart } => {
-            let args = migrate::MigrateArgs { root, yes, no_daemon_restart };
-            match migrate::run_migrate_outputs_with(&args) {
-                Ok(report) => {
-                    println!("outputs 移行が完了しました:");
-                    println!("  カード: {} 件（予約発行 {} 件）", report.cards, report.reserved);
-                    println!("  message: {} 件 / session: {} 件", report.messages, report.sessions);
-                    println!("  reflection 削除: {} 件 / スキップ: {} 件", report.reflections_removed, report.skipped);
-                    Ok(())
-                }
-                Err(e) => Err(e),
-            }
-        }
-        Cmd::Tui => {
-            // sai-moon-link-tui バイナリを探して実行
-            let tui_bin = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join("sai-moon-link-tui")))
-                .unwrap_or_else(|| std::path::PathBuf::from("sai-moon-link-tui"));
-
-            if tui_bin.exists() {
-                let status = std::process::Command::new(&tui_bin)
-                    .status()
-                    .unwrap_or_else(|_| std::process::ExitStatus::default());
-                if !status.success() {
-                    eprintln!("sai-moon-link-tui がエラー終了しました");
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!(
-                    "sai-moon-link-tui バイナリが見つかりません: {}",
-                    tui_bin.display()
-                );
-                eprintln!("ヒント: cargo build --bin sai-moon-link-tui でビルドしてください");
-                std::process::exit(1);
-            }
-            Ok(())
-        }
         Cmd::Waggle { cmd } => match cmd {
             WaggleCmd::Resolve { token } => cli::handle_waggle_resolve(&token),
         },

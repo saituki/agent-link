@@ -14,8 +14,8 @@ path = "src/main.rs"
 [dependencies]
 # sai-engine（ライブラリとして使用）
 sai-link-engine = { path = "../sai-link-engine" }
-# phone サブコマンド（実装計画 12）: TUI と組み立て処理を共有するため
-sai-link-widgets = { path = "../sai-link-widgets" }
+# phone サブコマンド（実装計画 12）: Web（`phone` 命令）と組み立て処理を共有するため
+sai-link-view = { path = "../sai-link-view" }
 
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

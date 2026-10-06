@@ -3,8 +3,8 @@
    Radio の質問、どこに埋め込んでも同じ見た目になるよう .md-… のクラスだけで整える。
    （U4 で style.css からここへ移した。md の見た目は 1 か所にする。）
 
-   色は TUI（sai-link-widgets/src/theme.rs・sai-link-tui の base16-ocean.dark）に
-   合わせている。コードの枠は明るい画面でも暗い地（rgb(28,28,38)）にする。 */
+   色は旧 TUI のテーマ（base16-ocean.dark）に合わせている。コードの枠は明るい
+   画面でも暗い地（rgb(28,28,38)）にする。 */
 
 /* --- 1 文書の入れ物（renderMarkdown が一番外側に付ける） --- */
 .md-doc {
