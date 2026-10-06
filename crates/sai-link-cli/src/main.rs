@@ -49,7 +49,7 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.cmd {
-        Cmd::Init { name } => cli::handle_init(name),
+        Cmd::Init { name, update } => cli::handle_init(name, update),
         Cmd::Block { cmd } => match cmd {
             BlockCmd::Run {
                 definition_file,

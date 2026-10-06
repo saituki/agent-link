@@ -125,6 +125,10 @@ pub enum Cmd {
         /// プロジェクト名（省略時はカレントディレクトリ名）
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
+        /// 配った block・template をこの版の中身に置き換える
+        /// （変わる物は .bak に退避。block の model・provider・thinking は残す）
+        #[arg(long)]
+        update: bool,
     },
     /// waggle トークン操作（内部用）
     #[command(hide = true)]
@@ -2190,14 +2194,15 @@ fn format_task_status(status: &str) -> &str {
 ///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
 ///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に読む札を作れるように）
 /// 2. 登録簿（`~/.sai-moon/registry.json`）にプロジェクトを登録する
-pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use sai_link_engine::assets::AssetOutcome;
     use sai_link_engine::init::init_project;
 
     // プロジェクトルート（SAI_PROJECT_ROOT またはカレントディレクトリ）
     let project_root = sai_link_engine::project::project_root();
 
     // 1. `.sai/` と cc 設定の作成（何度実行してもよい。足りないものだけ作る）
-    let report = init_project(&project_root)?;
+    let report = init_project(&project_root, update)?;
     // DB が無いと、デーモンを一度も起動していないプロジェクトで読む札の予約が失敗する
     open_db()?;
 
@@ -2210,6 +2215,22 @@ pub fn handle_init(name: Option<String>) -> Result<(), Box<dyn std::error::Error
     }
     for path in &report.created {
         println!("   作成: {}", path.display());
+    }
+    // 基盤の block・template は、作成・更新だけ 1 行ずつ出し、変わらない物は件数だけ出す
+    let mut unchanged = 0usize;
+    for (path, outcome) in &report.assets {
+        match outcome {
+            AssetOutcome::Created => println!("   配布: {}（作成）", path.display()),
+            AssetOutcome::Updated { backup } => println!(
+                "   配布: {}（更新・退避 {}）",
+                path.display(),
+                backup.display()
+            ),
+            AssetOutcome::Unchanged | AssetOutcome::Kept => unchanged += 1,
+        }
+    }
+    if unchanged > 0 {
+        println!("   配布: そのまま {unchanged} 件");
     }
     println!(
         "   次: .mcp.json・.claude/・.pi/ を git commit してください（worktree の cc と pi が読むため）"

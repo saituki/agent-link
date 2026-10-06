@@ -98,6 +98,7 @@ pub mod validation;
 
 pub mod agent_api;
 pub mod agent_pool;
+pub mod assets;
 pub mod cc_command;
 pub mod common;
 pub mod daemon;
