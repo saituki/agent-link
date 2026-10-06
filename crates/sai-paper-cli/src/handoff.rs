@@ -5,7 +5,8 @@
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
-use sai_paper_core::{Database, HandoffRequest, Paths, create_handoff_with, list_todo_cards};
+use sai_paper_core::{Database, Paths};
+use sai_sci_core::{HandoffRequest, create_handoff_with, list_todo_cards};
 
 /// カードを作る引数（サブコマンドなしでも `create` でも使う）。
 #[derive(Args, Debug, Clone)]

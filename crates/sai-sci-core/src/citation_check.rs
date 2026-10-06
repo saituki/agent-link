@@ -16,10 +16,10 @@ use chrono::{DateTime, Datelike, Utc};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::api::arxiv::ArxivClient;
-use crate::api::crossref::CrossrefClient;
-use crate::api::pubmed::PubmedClient;
-use crate::models::RemotePaper;
+use sai_paper_core::api::arxiv::ArxivClient;
+use sai_paper_core::api::crossref::CrossrefClient;
+use sai_paper_core::api::pubmed::PubmedClient;
+use sai_paper_core::models::RemotePaper;
 use crate::reports::{self, CitationTarget, Issue, ReportError};
 
 /// 1 件の問い合わせの制限時間。
@@ -144,29 +144,29 @@ fn is_offline(error: &reqwest::Error) -> bool {
     error.is_timeout() || error.is_connect()
 }
 
-fn crossref_failure(error: &crate::api::crossref::CrossrefError) -> ResolveOutcome {
+fn crossref_failure(error: &sai_paper_core::api::crossref::CrossrefError) -> ResolveOutcome {
     match error {
-        crate::api::crossref::CrossrefError::NotFound => ResolveOutcome::NotFound,
-        crate::api::crossref::CrossrefError::Request(inner) if is_offline(inner) => {
+        sai_paper_core::api::crossref::CrossrefError::NotFound => ResolveOutcome::NotFound,
+        sai_paper_core::api::crossref::CrossrefError::Request(inner) if is_offline(inner) => {
             ResolveOutcome::Offline
         }
         other => ResolveOutcome::Error(other.to_string()),
     }
 }
 
-fn arxiv_failure(error: &crate::api::arxiv::ArxivError) -> ResolveOutcome {
+fn arxiv_failure(error: &sai_paper_core::api::arxiv::ArxivError) -> ResolveOutcome {
     match error {
-        crate::api::arxiv::ArxivError::Request(inner) if is_offline(inner) => {
+        sai_paper_core::api::arxiv::ArxivError::Request(inner) if is_offline(inner) => {
             ResolveOutcome::Offline
         }
         other => ResolveOutcome::Error(other.to_string()),
     }
 }
 
-fn pubmed_failure(error: &crate::api::pubmed::PubmedError) -> ResolveOutcome {
+fn pubmed_failure(error: &sai_paper_core::api::pubmed::PubmedError) -> ResolveOutcome {
     match error {
-        crate::api::pubmed::PubmedError::NotFound => ResolveOutcome::NotFound,
-        crate::api::pubmed::PubmedError::Request(inner) if is_offline(inner) => {
+        sai_paper_core::api::pubmed::PubmedError::NotFound => ResolveOutcome::NotFound,
+        sai_paper_core::api::pubmed::PubmedError::Request(inner) if is_offline(inner) => {
             ResolveOutcome::Offline
         }
         other => ResolveOutcome::Error(other.to_string()),
@@ -612,11 +612,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE papers (id INTEGER PRIMARY KEY, title TEXT);")
             .unwrap();
-        conn.execute_batch(include_str!("../migrations/0028_reports.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0028_reports.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../migrations/0039_report_scan.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0039_report_scan.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../migrations/0040_citation_checks.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0040_citation_checks.sql"))
             .unwrap();
         conn
     }

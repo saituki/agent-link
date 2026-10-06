@@ -308,7 +308,7 @@ pub fn resolve_md_path(report: &Report) -> Option<PathBuf> {
     }
     let run_id = report.run_id.as_deref()?;
     let filename = stored.file_name()?;
-    let root = crate::paths::project_root()?;
+    let root = sai_paper_core::paths::project_root()?;
     let outputs = root.join(".sai").join("outputs");
     let entries = std::fs::read_dir(&outputs).ok()?;
     for entry in entries.flatten() {
@@ -631,7 +631,7 @@ fn missing_passage_issues(
             pas_list.push(Some(end));
         }
         for pas in pas_list {
-            if crate::sections::passage_exists(conn, *number, sec, pas)
+            if sai_paper_core::sections::passage_exists(conn, *number, sec, pas)
                 .ok()
                 .flatten()
                 == Some(false)
@@ -1278,9 +1278,9 @@ mod tests {
                  is_retracted INTEGER, retraction_checked_at TEXT);",
         )
         .unwrap();
-        conn.execute_batch(include_str!("../migrations/0028_reports.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0028_reports.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../migrations/0039_report_scan.sql"))
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0039_report_scan.sql"))
             .unwrap();
         conn
     }
@@ -1594,7 +1594,7 @@ mod tests {
         let conn = setup();
         conn.execute("INSERT INTO papers (id, title) VALUES (37, 'A')", []).unwrap();
         conn.execute("INSERT INTO papers (id, title) VALUES (40, 'B')", []).unwrap();
-        conn.execute_batch(include_str!("../migrations/0047_paper_sections.sql")).unwrap();
+        conn.execute_batch(include_str!("../../sai-paper-core/migrations/0047_paper_sections.sql")).unwrap();
         conn.execute_batch(
             "INSERT INTO paper_section_builds VALUES (37, 'p', 'x', 't', NULL);
              INSERT INTO paper_sections VALUES (37, 5, 'R', NULL, 1, 'body', 2, 2, 10, '', NULL);
@@ -1819,7 +1819,7 @@ mod tests {
             root.join(".sai/outputs/running/30/answer.md"),
             "---\nkind: 回答\nblock: sci-compare\n---\n\n本文\n",
         );
-        let database = crate::database::Database::in_memory()?;
+        let database = sai_paper_core::database::Database::in_memory()?;
         let conn = database.connection();
 
         assert_eq!(scan(conn, &root)?.added, 1);

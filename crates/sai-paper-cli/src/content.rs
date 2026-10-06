@@ -8,7 +8,8 @@
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use rusqlite::Connection;
-use sai_paper_core::{Paths, citation, figures, reports, sections};
+use sai_paper_core::{Paths, citation, figures, sections};
+use sai_sci_core::reports;
 use std::path::Path;
 
 use crate::open_database;

@@ -12,8 +12,8 @@ use serde_json::{Map, Value, json};
 use super::defs::{self, Defs};
 use super::store::{self, NewNode, NodeRow};
 use super::{Kind, Result, RtError, fmt_id, fmt_ref, parse_id, parse_ref};
-use crate::paths::PaperRoots;
-use crate::textcheck;
+use sai_paper_core::paths::PaperRoots;
+use sai_paper_core::textcheck;
 
 const MAX_PROPOSALS: usize = 20;
 
@@ -591,7 +591,7 @@ fn check_cites(conn: &Connection, cites: &[String]) -> Result<Vec<i64>> {
             return invalid(format!("論文 {} が Library にありません", cite.paper));
         }
         if let Some(sec) = cite.section {
-            let found = crate::sections::passage_exists(conn, cite.paper, sec, cite.passage)
+            let found = sai_paper_core::sections::passage_exists(conn, cite.paper, sec, cite.passage)
                 .map_err(|e| RtError::Invalid(format!("塊の確認に失敗しました: {e}")))?;
             if found == Some(false) {
                 return invalid(format!("塊 {value} は論文 {} にありません", cite.paper));
@@ -867,7 +867,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
     use std::path::PathBuf;
 
     struct Env {

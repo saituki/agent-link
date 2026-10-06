@@ -681,8 +681,8 @@ pub(crate) fn open_database() -> Result<Database> {
 /// `sai-moon-paper journal` — 日ごとの研究日誌を出す（S01）。
 ///
 /// `--date` があればその 1 日、無ければ今日を含む `--days` 日。`--json` なら
-/// [`sai_paper_core::journal::JournalDay`] の配列、人向けは
-/// [`sai_paper_core::journal::render_markdown`] の結果を出す。
+/// [`sai_sci_core::journal::JournalDay`] の配列、人向けは
+/// [`sai_sci_core::journal::render_markdown`] の結果を出す。
 fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
     let db = open_database()?;
     let roots = sai_paper_core::paths::paper_roots()
@@ -699,12 +699,12 @@ fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
             (today - Duration::days(days - 1), today)
         }
     };
-    let journal = sai_paper_core::journal::collect(db.connection(), &roots, from, to)?;
+    let journal = sai_sci_core::journal::collect(db.connection(), &roots, from, to)?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&journal)?);
     } else {
-        print!("{}", sai_paper_core::journal::render_markdown(&journal));
+        print!("{}", sai_sci_core::journal::render_markdown(&journal));
     }
     Ok(())
 }
@@ -783,7 +783,7 @@ async fn enrich_retraction(force: bool) -> Result<()> {
         }
     }
 
-    sai_paper_core::reports::refresh_retracted_issues(db.connection())
+    sai_sci_core::reports::refresh_retracted_issues(db.connection())
         .context("撤回を引用した report の更新に失敗")?;
     if retracted.is_empty() {
         println!("撤回: 0 本");
@@ -818,18 +818,18 @@ fn handle_brief(write: bool) -> Result<()> {
     // 失敗しても brief は作る（標準エラーに 1 行）。
     if write
         && let Some(db) = db.as_ref()
-        && let Err(error) = sai_paper_core::reports::scan(db.connection(), &roots.root)
+        && let Err(error) = sai_sci_core::reports::scan(db.connection(), &roots.root)
     {
         eprintln!("report scan: {error}");
     }
-    let text = sai_paper_core::brief::build_brief(
+    let text = sai_sci_core::brief::build_brief(
         &roots,
         db.as_ref().map(Database::connection),
         &config.brief,
         &config.rag.default_index,
     );
     if write {
-        let path = sai_paper_core::brief::write_brief(&roots, &text)?;
+        let path = sai_sci_core::brief::write_brief(&roots, &text)?;
         eprintln!("{}", path.display());
     } else {
         print!("{text}");
@@ -971,7 +971,7 @@ fn ensure_project_files_and_brief(
     paper_dir: &std::path::Path,
     conn: Option<&rusqlite::Connection>,
 ) {
-    match sai_paper_core::project_files::ensure(paper_dir) {
+    match sai_sci_core::project_files::ensure(paper_dir) {
         Ok(written) => {
             for path in written {
                 println!("✅ {} を作りました", path.display());
@@ -986,8 +986,8 @@ fn ensure_project_files_and_brief(
     };
     let config = Config::load(&paths.config_file).unwrap_or_default();
     let text =
-        sai_paper_core::brief::build_brief(&roots, conn, &config.brief, &config.rag.default_index);
-    match sai_paper_core::brief::write_brief(&roots, &text) {
+        sai_sci_core::brief::build_brief(&roots, conn, &config.brief, &config.rag.default_index);
+    match sai_sci_core::brief::write_brief(&roots, &text) {
         Ok(path) => println!("✅ 状況まとめを作りました: {}", path.display()),
         Err(e) => eprintln!("⚠ 状況まとめを作れませんでした: {e}"),
     }
@@ -1765,7 +1765,7 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
     let conn = db.connection();
     // Node（`--node`）は、範囲を決める前に読む。
     let refs = sci::parse_search_refs(conn, node.as_deref())?;
-    let (paper_ids, scope_note) = sai_paper_core::retrieval::resolve_paper_scope(
+    let (paper_ids, scope_note) = sai_sci_core::rt::scope::resolve_scope(
         conn,
         None,
         &all_papers,

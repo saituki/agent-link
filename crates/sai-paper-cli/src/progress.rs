@@ -1,13 +1,13 @@
 //! `sai-moon-paper progress` — プロジェクトの進み具合と「読むべき論文」（N05）。
 //!
 //! LLM を使わず、DB とファイル（`state.md`・引き継ぎ・note）から
-//! [`sai_paper_core::progress::collect`] でまとめる。人向けの要約と、
+//! [`sai_sci_core::progress::collect`] でまとめる。人向けの要約と、
 //! 推薦・DSR が読む `--json`（`Progress` と `read_next` 5 本）を出す。
 
 use anyhow::{Context, Result};
-use sai_paper_core::progress as progress_core;
-use sai_paper_core::progress::{Progress, ReadNext};
-use sai_paper_core::understanding;
+use sai_sci_core::progress as progress_core;
+use sai_sci_core::progress::{Progress, ReadNext};
+use sai_sci_core::understanding;
 use sai_paper_core::{Config, Paths};
 
 use crate::open_database;

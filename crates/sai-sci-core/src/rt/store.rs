@@ -647,7 +647,7 @@ pub fn is_legacy_only(conn: &Connection) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
 
     fn db() -> Database {
         Database::in_memory().expect("メモリ DB")

@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use sai_paper_core::dsr_check::{self, CheckResult};
+use sai_sci_core::dsr_check::{self, CheckResult};
 use sai_paper_core::paths::paper_roots;
 use std::path::{Path, PathBuf};
 

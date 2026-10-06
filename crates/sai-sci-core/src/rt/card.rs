@@ -11,9 +11,9 @@ use serde_json::{Value, json};
 
 use super::defs::Defs;
 use super::{Kind, Result, RtError, action, compute, fmt_id, parse_id, store};
-use crate::database::Database;
+use sai_paper_core::database::Database;
 use crate::handoff::{HandoffError, HandoffRequest, create_handoff_with_extra};
-use crate::paths::{PaperRoots, paper_file_names, paper_folder};
+use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
 
 const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
 const EXECUTERS: [&str; 2] = ["human", "professor"];
@@ -100,7 +100,7 @@ fn one_line(value: &str) -> String {
 }
 
 fn foreign(label: &str, text: &str) -> Result<()> {
-    match crate::textcheck::foreign_message(text) {
+    match sai_paper_core::textcheck::foreign_message(text) {
         Some(message) => invalid(format!("{label}に{message}")),
         None => Ok(()),
     }

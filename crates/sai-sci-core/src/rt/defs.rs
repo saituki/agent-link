@@ -348,7 +348,7 @@ fn overlay(map: &mut BTreeMap<String, String>, base: &Path, warnings: &mut Vec<S
 /// 埋め込み → 利用者全体 → プロジェクトの順に重ねて読む。
 #[must_use]
 pub fn load(root: &Path) -> Defs {
-    load_with_home(root, crate::paths::sai_home().as_deref())
+    load_with_home(root, sai_paper_core::paths::sai_home().as_deref())
 }
 
 fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
@@ -523,7 +523,7 @@ pub fn write_local_copies(root: &Path) -> Result<usize> {
 
 /// 型を利用者全体の置き場 `<sai_home>/sci/types/<id>.md` に保存する。
 pub fn save_user_type(text: &str) -> Result<PathBuf> {
-    let Some(home) = crate::paths::sai_home() else {
+    let Some(home) = sai_paper_core::paths::sai_home() else {
         return invalid("利用者全体の置き場が分かりません");
     };
     save_user_type_in(&home, text)
@@ -543,7 +543,7 @@ fn save_user_type_in(home: &Path, text: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn temp_dir() -> PathBuf {

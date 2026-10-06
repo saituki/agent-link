@@ -8,7 +8,7 @@
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use sai_paper_core::understanding::{self, UnderstandingEntry};
+use sai_sci_core::understanding::{self, UnderstandingEntry};
 
 use crate::open_database;
 

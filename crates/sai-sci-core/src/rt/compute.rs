@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use super::defs::{Defs, GuideDef};
 use super::store::{self, LogRow, LogicRow, NodeRow, ProposalRow, SeedRow};
 use super::{Kind, Result, RtError, action, fmt_id, fmt_ref, ops, parse_id};
-use crate::paths::PaperRoots;
+use sai_paper_core::paths::PaperRoots;
 use crate::runs::read_frontmatter;
 
 /// `sci_scope` に書ける範囲の名前。
@@ -700,7 +700,7 @@ impl Tree {
 /// mind.md の `## 見出し` ごとの本文（コメントと空行を除く。空の節は出さない）。
 #[must_use]
 pub fn mind_sections(data_dir: &Path) -> Vec<(String, String)> {
-    let Ok(text) = fs::read_to_string(crate::paths::mind_path(data_dir)) else {
+    let Ok(text) = fs::read_to_string(sai_paper_core::paths::mind_path(data_dir)) else {
         return Vec::new();
     };
     let mut sections: Vec<(String, Vec<String>)> = Vec::new();
@@ -902,7 +902,7 @@ fn split_csv(value: &str) -> Vec<String> {
 pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
     const KEYS: [&str; 6] = ["sci_ops", "sci_scope", "sci_action", "sci_support", "sci_done_agent", "sci_done_user"];
     let mut dirs = vec![roots.root.join(".sai").join("blocks")];
-    dirs.extend(crate::paths::sai_home_path("blocks"));
+    dirs.extend(sai_paper_core::paths::sai_home_path("blocks"));
     // 同じ id は先に見つけた `<root>` 側だけ。
     let mut blocks: std::collections::BTreeMap<String, Vec<(String, String)>> = Default::default();
     for dir in dirs {
@@ -1227,7 +1227,7 @@ fn creator_json(node: &NodeRow, runs: &[action::SciRun]) -> CreatorJson {
 
 /// cites 1 つから論文・節・塊を引く。表が無い・無ければ空や null にする。
 fn source_json(conn: &Connection, cite: &str) -> SourceJson {
-    let parsed = crate::textcheck::parse_cite(cite);
+    let parsed = sai_paper_core::textcheck::parse_cite(cite);
     let paper = parsed.as_ref().map(|c| c.paper);
     let sec = parsed.as_ref().and_then(|c| c.section);
     let title = paper
@@ -1378,7 +1378,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
+    use sai_paper_core::database::Database;
     use std::path::PathBuf;
 
     struct Env {
@@ -1591,7 +1591,7 @@ mod tests {
         let b = o(&e, q0, "診断");
         store::set_starred(e.db.connection(), a, true).unwrap();
         store::set_starred(e.db.connection(), b, true).unwrap();
-        fs::write(crate::paths::mind_path(&e.roots.data_dir), "前書き\n## メモ\n<!-- 消える -->\n本文です\n").unwrap();
+        fs::write(sai_paper_core::paths::mind_path(&e.roots.data_dir), "前書き\n## メモ\n<!-- 消える -->\n本文です\n").unwrap();
         let t = Tree::load(e.db.connection(), &e.roots, &defs).unwrap();
         let d = t.seed_draft(&e.roots.data_dir).unwrap();
         assert_eq!(d.text, "予後予測・診断を{NOPE}で。本文です");
