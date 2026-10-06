@@ -6,7 +6,7 @@
 //! - 失敗時は stderr に理由 1 行を出力し、終了コード ≠ 0 で終了する
 //!   （md が無い場合は終了コード 3 + stderr「まだありません」）
 //!
-//! 組み立て処理は TUI と共有（`sai_link_widgets::{left_tree, card_entries,
+//! 組み立て処理は TUI と共有（`sai_link_view::{left_tree, card_entries,
 //! card_wizard, phone_view}`）ため、TUI の表示結果と二重実装しない。
 
 use std::collections::BTreeMap;
@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 
 use sai_link_engine::db::store::exec_usage_totals;
 use sai_link_engine::db::SaiStore;
-use sai_link_widgets::{
+use sai_link_view::{
     block_history, block_log, cache_stats, card_entries, card_wizard, left_tree, phone_view, user_run,
 };
 
@@ -230,7 +230,6 @@ fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
             limit,
         })),
         PhoneCmd::Workflow => val(workflow()),
-        PhoneCmd::Rtree => rtree(),
         PhoneCmd::Def { cmd } => val(crate::phone_def::run(cmd)),
         PhoneCmd::User { cmd } => val(match cmd {
             PhoneUserCmd::Start { run_id } => user_start(run_id),
@@ -262,17 +261,17 @@ fn open_store() -> PhoneResult<SaiStore> {
 fn workflow() -> PhoneResult<Value> {
     let store = open_store()?;
     let prep = card_entries::prepare_view(&store);
-    let src = sai_link_widgets::workflow::load_workflow(&store, &prep);
-    let (dag, layout_graph) = sai_link_widgets::workflow::build_block_graph(
+    let src = sai_link_view::workflow::load_workflow(&store, &prep);
+    let (dag, layout_graph) = sai_link_view::workflow::build_block_graph(
         &src.blocks,
         &src.connections,
         &src.finalized_runs,
     );
     // Web の文字マスは 10×20px と大きく、同じ間隔では札どうしが詰まって見える。
     // ここだけが TUI の既定より広く取る（TUI の座標は変わらない）。
-    let layout = sai_link_widgets::workflow::calculate_layout_with(
+    let layout = sai_link_view::workflow::calculate_layout_with(
         &layout_graph,
-        &sai_link_widgets::workflow::LayoutOptions {
+        &sai_link_view::workflow::LayoutOptions {
             vertical_gap: 4,
             horizontal_gap: 8,
             separator_lines: 4,
@@ -350,24 +349,6 @@ fn workflow() -> PhoneResult<Value> {
     }))
 }
 
-/// `phone rtree`: research-tree の実行の図（seed / root / sprout / branch の 3 層 DAG）を JSON で返す。
-///
-/// - `nodes`: ブロックの `layer` が書いてあるブロックの run だけ（1 run = 1 node）
-/// - `edges`: `task_delegation`（`delegation`）/ `waggle_token` / `task_output` の線。
-///   両端が node に入っているものだけ
-///
-/// 位置は付けない（Web 側で描く）。項目の順序も共有契約なので、シリアライズ済みの
-/// テキスト（`PhoneOut::Text`）で返す。DB が開けないときは終了コード 4。
-/// 実行が 0 件でも空の配列で成功する。
-fn rtree() -> PhoneResult<PhoneOut> {
-    let store = open_store()?;
-    let prep = card_entries::prepare_view(&store);
-    let dag = sai_link_widgets::research_dag::load_research_dag(&store, &prep);
-    let text = serde_json::to_string_pretty(&dag)
-        .map_err(|e| PhoneError::internal(format!("JSON として出力できません: {}", e)))?;
-    Ok(PhoneOut::Text(text))
-}
-
 /// review の記入状況（`ReflectionStatus`）を JSON 用の名前にする。
 fn reflection_name(s: sai_link_engine::reflection_status::ReflectionStatus) -> &'static str {
     use sai_link_engine::reflection_status::ReflectionStatus as R;
@@ -380,8 +361,8 @@ fn reflection_name(s: sai_link_engine::reflection_status::ReflectionStatus) -> &
 }
 
 /// 接続の種別（`EdgeKind`）を JSON 用の名前にする。
-fn edge_kind_name(k: sai_link_widgets::workflow::EdgeKind) -> &'static str {
-    use sai_link_widgets::workflow::EdgeKind as K;
+fn edge_kind_name(k: sai_link_view::workflow::EdgeKind) -> &'static str {
+    use sai_link_view::workflow::EdgeKind as K;
     match k {
         K::Other => "other",
         K::PhaseChain => "phase_chain",
@@ -1360,7 +1341,7 @@ fn rm(run_id: i64) -> PhoneResult<Value> {
 ///   （`resolve_target_card` と同じ確かめ。送信済み・DB 紐付け済みは弾く）
 /// - 実行主体は利用者なので常駐（デーモン）は確かめない（`phone card run` とは
 ///   道筋が違う）
-/// - 中身は [`sai_link_widgets::user_run::start_user_run`]（TUI の Enter と同じ関数）
+/// - 中身は [`sai_link_view::user_run::start_user_run`]（TUI の Enter と同じ関数）
 /// - 成功: stdout に `{"run_id": N, "status": "running"}` / 終了コード 0
 /// - カード無し: 終了コード 3、`runner: user` で無い・開始失敗: 終了コード 1
 fn user_start(run_id: i64) -> PhoneResult<Value> {
@@ -1394,7 +1375,7 @@ fn user_start(run_id: i64) -> PhoneResult<Value> {
 ///
 /// - 対象: 実行があり、`runner` が `user` で `status` が `running`
 ///   （`phone finalize` と同じように常駐は確かめない）
-/// - 中身は [`sai_link_widgets::user_run::finish_user_run`]（TUI の `e` と同じ関数）
+/// - 中身は [`sai_link_view::user_run::finish_user_run`]（TUI の `e` と同じ関数）
 /// - 成功: stdout に `{"run_id": N, "status": "review"}` / 終了コード 0
 /// - 実行無し: 終了コード 3、実行中の利用者の札でない・移動失敗: 終了コード 1
 fn user_finish(run_id: i64) -> PhoneResult<Value> {
@@ -1995,7 +1976,7 @@ mod tests {
     ///
     /// DB は空（実行 0 件）なので `nodes` / `edges` / `separators` は空配列の
     /// ままで、成否ではなく「形」とキー集合を確かめる。
-    /// 実際の DAG の中身は `sai_link_widgets::workflow::tests`（固定値）が保証する。
+    /// 実際の DAG の中身は `sai_link_view::workflow::tests`（固定値）が保証する。
     #[test]
     fn workflow_output_has_contract_shape() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2020,7 +2001,7 @@ mod tests {
     ///
     /// DAG に載る条件は `workflow_moved = true` の実行だけなので、
     /// DB に実行を 1 件作っても載らない場合は鍵の照合を飛ばす
-    /// （DAG の中身そのものは `sai_link_widgets::workflow::tests` の固定値が保証する）。
+    /// （DAG の中身そのものは `sai_link_view::workflow::tests` の固定値が保証する）。
     #[test]
     fn workflow_node_fields_match_contract() {
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2046,56 +2027,6 @@ mod tests {
         }
         for key in ["from", "to", "kind", "side"] {
             assert!(out["edges"][0].get(key).is_some(), "edges[].{key} が無い");
-        }
-    }
-
-    /// `phone rtree` の出力が共有契約（C-02）の形になること。
-    ///
-    /// DB に層の付きブロックの run を 1 件作って、ノードのキー名と順序を確かめる。
-    #[test]
-    fn rtree_output_has_contract_shape() {
-        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let (_tmp, _guard, store) = temp_project_store();
-
-        // 層の付きブロックとその run（Kanban 側 = workflow_moved は false）
-        let mut block = test_block("sci-exp-sprout", "anthropic/claude-sonnet-4-5");
-        block.layer = Some("seed".to_string());
-        let block_id = store.insert_block(&block).unwrap();
-        let run_id = store.create_execution(block_id, None).unwrap();
-
-        let text = match rtree().expect("phone rtree") {
-            PhoneOut::Text(t) => t,
-            PhoneOut::Value(v) => panic!("順序を保つため文字で返すはず: {}", v),
-        };
-
-        // トップレベルの順序も C-02
-        assert_eq!(top_level_keys(&text, 1), vec!["nodes", "edges"]);
-
-        let out: Value = serde_json::from_str(&text).unwrap();
-        assert!(out["nodes"].is_array() && out["edges"].is_array());
-        assert_eq!(out["nodes"].as_array().unwrap().len(), 1, "{text}");
-
-        // ノードのキー名と順序（値は null でもキーは必要）
-        assert_eq!(
-            top_level_keys(&text, 3),
-            vec![
-                "run_id", "block", "name", "layer", "status", "created_at",
-                "finished_at", "parent_run_id", "description", "sci_node",
-                "global_round", "round",
-            ]
-        );
-        let node = &out["nodes"][0];
-        assert_eq!(node["run_id"].as_i64(), Some(run_id));
-        assert_eq!(node["block"].as_str(), Some("sci-exp-sprout"));
-        assert_eq!(node["layer"].as_str(), Some("seed"));
-        assert!(
-            node["description"].as_str().is_some(),
-            "description は空文字で出す: {}",
-            node
-        );
-        for key in ["finished_at", "parent_run_id", "sci_node", "global_round", "round"] {
-            assert!(node.get(key).is_some(), "nodes[].{key} が無い: {}", node);
-            assert!(node[key].is_null(), "nodes[].{key} は null で出す: {}", node[key]);
         }
     }
 

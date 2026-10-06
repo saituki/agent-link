@@ -41,7 +41,7 @@ pub fn sai_path(rel: &str) -> PathBuf {
 /// 1. 環境変数 `SAI_PROJECT_ROOT` → `<root>/.sai/sai-engine/sai-engine.db`
 /// 2. （無ければ）後方互換の相対パス候補から最初に存在するもの
 ///
-/// 旧 sai-link-tui `paths::resolve_db_path` と同じ解像順（TUI / CLI / widgets で
+/// 旧 sai-link-tui `paths::resolve_db_path` と同じ解像順（CLI と Web が
 /// 同じ DB を開くための共通入口）。
 pub fn resolve_db_path() -> PathBuf {
     // ① SAI_PROJECT_ROOT を第一優先（複数プロジェクト・worktree 対応）

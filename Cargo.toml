@@ -1,33 +1,27 @@
 # sai-moon — Cargo workspace
 #
 # 旧 sai-link（`~/workdir/Sai/sai-link`）と 旧 sai-paper（`~/workdir/Sai/sai-paper`）の
-# 8 クレートを 1 つのワークスペースに集約したもの。旧リポジトリは読み取り専用で、ここはコピー元。
+# クレートを 1 つのワークスペースに集約したもの。旧リポジトリは読み取り専用で、ここはコピー元。
 #
-# - crates/sai-link-engine  : lib sai_link_engine — 実行エンジン（パース・デーモン・オーケストレーター）
+# - crates/sai-link-engine : lib sai_link_engine — 実行エンジン（パース・デーモン・オーケストレーター）
 # - crates/sai-link-cli    : bin sai-moon-link — CLI
-# - crates/sai-link-tui    : bin sai-moon-link-tui — TUI 本体
-# - crates/sai-link-widgets: lib sai_link_widgets — ダッシュボード widget 群（L3）
+# - crates/sai-link-view   : lib sai_link_view — Web と CLI が使う組み立て処理（描画は無い）
 # - crates/sai-paper-core  : lib sai_paper_core — 検索/取得/解析/保存
 # - crates/sai-paper-cli   : bin sai-moon-paper — スクリプト用 CLI
-# - crates/sai-paper-tui   : bin sai-moon-paper-tui — メイン TUI
-# - crates/sai-paper-cite  : bin sai-moon-paper-cite — 引用リスト TUI
 # - waggle/                : 独立 [workspace] を持つ vendor クレート群（exclude・名前維持）
 # - pi-litbase/            : pi 拡張（TypeScript、Cargo 外）
 #
 # バイナリ名は PATH 上で旧 sai-link / sai-paper と衝突しないよう `sai-moon-*` にリネーム済み。
-# ライブラリ crate 名（sai_link_engine / sai_link_widgets / sai_paper_core）は変更しない。
+# ライブラリ crate 名（sai_link_engine / sai_link_view / sai_paper_core）は変更しない。
 
 [workspace]
 resolver = "2"
 members = [
     "crates/sai-link-engine",
     "crates/sai-link-cli",
-    "crates/sai-link-tui",
-    "crates/sai-link-widgets",
+    "crates/sai-link-view",
     "crates/sai-paper-core",
     "crates/sai-paper-cli",
-    "crates/sai-paper-tui",
-    "crates/sai-paper-cite",
 ]
 # waggle は独自 [workspace] を持つため除外（Cargo の構造制約）
 exclude = ["waggle", "pi-litbase"]
@@ -39,30 +33,19 @@ rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 authors = ["Sai Contributors"]
 
-# sai-paper 側 4 クレートが `X.workspace = true` で参照する依存。
-# sai-link 側のクレートはバージョン直書きなので、この表的影响を受けない。
+# sai-paper 側のクレートが `X.workspace = true` で参照する依存。
 [workspace.dependencies]
-sai-link-engine = { path = "crates/sai-link-engine" }
-sai-link-widgets = { path = "crates/sai-link-widgets" }
-sai-paper-core = { path = "crates/sai-paper-core" }
 anyhow = "1.0"
 async-trait = "0.1"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
-clap_complete = "4.5"
-crossterm = { version = "0.28", features = ["event-stream"] }
 directories = "6.0"
 regex = "1"
 dunce = "1.0"
-flate2 = "1.1"
 iana-time-zone = "0.1"
 notify = "8.0"
-num-traits = "0.2"
 quick-xml = { version = "0.38", features = ["serialize", "overlapped-lists"] }
-ratatui = "0.29"
-ratatui-image = { version = "8.1.1", features = ["crossterm", "image-defaults"] }
-image = "0.25.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "stream", "blocking", "json"] }
 rusqlite = { version = "0.32", default-features = false, features = ["chrono", "bundled"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -76,10 +59,9 @@ thiserror = "2.0"
 url = "2.5"
 walkdir = "2.5"
 biblatex = "0.12"
-arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 dotenvy = "0.15"
 
-# sai-paper 側 4 クレートの `[lints] workspace = true` 用（sai-link 側は参照しない）。
+# sai-paper 側クレートの `[lints] workspace = true` 用（sai-link 側は参照しない）。
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

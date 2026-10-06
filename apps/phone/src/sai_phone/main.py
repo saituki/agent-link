@@ -607,12 +607,6 @@ def api_project_search(
     return control.phone_search(name, q, category, since, until, block, from_id, to_id, limit)
 
 
-@app.get("/api/projects/{name}/rtree")
-def api_project_rtree(name: str, _: None = Depends(require_token)) -> dict:
-    """3 層の実行の図（`phone rtree`・U03 §変更内容 3）。"""
-    return control.phone_rtree(name)
-
-
 @app.get("/api/projects/{name}/runs/{run_id:int}/view/{view}")
 def api_project_run_view(
     name: str, run_id: int, view: str, _: None = Depends(require_token)

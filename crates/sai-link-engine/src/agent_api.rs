@@ -148,7 +148,7 @@ fn write_notification(kind: &str, mut payload: Value) -> Result<PathBuf, String>
 pub struct BlockDefListJson {
     /// 機械可読 ID（`task_create` の `block_type` に使用）
     pub id: String,
-    /// 表示名（sai-link-tui 等の表示用。emoji 可）
+    /// 表示名（画面での表示用。emoji 可）
     pub name: String,
     pub description: Option<String>,
 }

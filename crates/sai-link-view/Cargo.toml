@@ -1,0 +1,24 @@
+[package]
+name = "sai-link-view"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "sai-link の Web と CLI が使う、実行・カード・Workflow の組み立て処理（描画は持たない）"
+authors = ["Sai Contributors"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "sai_link_view"
+path = "src/lib.rs"
+
+[dependencies]
+# DB アクセス（ビルダ関数用）は sai-link-engine に委譲する
+sai-link-engine = { path = "../sai-link-engine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 実行グラフ（DAG）のデータ構造とレイアウト計算（workflow/ モジュール）
+petgraph = "0.6"
+
+[dev-dependencies]
+# テストの一時フォルダ名に使う時刻取得（user_run のテストのみ）
+chrono = "0.4"

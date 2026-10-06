@@ -1,11 +1,10 @@
-"""MLflow の読み取り中継と `/api/projects/{name}/rtree` の小さなテスト（assert だけ・U03）。
+"""MLflow の読み取り中継の小さなテスト（assert だけ・U03）。
 
 確かめること:
 - 検査関数は正しい値を通し、違う値を 400 と日本語の理由で断る（AC1）
 - `project` を付けた runs/search は送る filter に `tags."sai.project"` を足す（AC2）
 - 偽の MLflow（`http.server`）に対して本文がそのまま返り、
   400 は 400 と本文がそのまま、止まった住所は 503、成果物は 5MB を超えたら 413（AC3）
-- rtree は `phone rtree` の JSON をそのまま返す
 
 本物の MLflow（5001 番）と本物の CLI は呼ばない。偽のものを立てるだけ。
 
@@ -470,71 +469,25 @@ def test_artifact_size_and_type() -> None:
         server.server_close()
 
 
-# --- rtree ----------------------------------------------------------
+# --- MLflow の中継の住所 -----------------------------------------------
 
 
-def test_rtree() -> None:
-    """`/api/projects/{name}/rtree` は `phone rtree` の JSON をそのまま返す。"""
-    rtree_json = {
-        "nodes": [
-            {
-                "run_id": 120,
-                "block": "sci-exp-seed",
-                "name": "sci-exp-seed",
-                "layer": "seed",
-                "status": "completed",
-                "created_at": "2026-09-29 10:00:00",
-                "finished_at": None,
-                "parent_run_id": None,
-                "description": "種のInner",
-                "sci_node": "N12",
-                "global_round": 5,
-                "round": 1,
-            }
-        ],
-        "edges": [{"from": 120, "to": 121, "kind": "delegation"}],
-    }
-    calls: list[dict] = []
+def test_mlflow_routes_registered() -> None:
+    """MLflow の中継の住所が登録されている。"""
+    from sai_phone import main as phone_main
 
-    def fake_run_cli(args, *, app, cwd=None, env=None, timeout=20.0, input_text=None):
-        calls.append({"args": list(args), "cwd": cwd, "env": env, "timeout": timeout})
-        return _FakeProc(0, json.dumps(rtree_json), "")
-
-    original_cli = control.run_cli
-    original_find = control.find_project
-    control.run_cli = fake_run_cli  # type: ignore
-    control.find_project = lambda name: {  # type: ignore
-        "name": name,
-        "root": "/tmp/demo-root",
-        "root_exists": True,
-        "db_exists": True,
-    }
-    try:
-        got = control.phone_rtree("demo")
-        assert got == rtree_json, got
-        # `sai-moon-link phone rtree` を cwd = root で呼ぶ
-        assert calls[-1]["args"] == ["sai-moon-link", "phone", "rtree"], calls[-1]
-        assert calls[-1]["cwd"] == "/tmp/demo-root", calls[-1]
-        assert calls[-1]["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root", calls[-1]
-        # 住所が登録されている
-        from sai_phone import main as phone_main
-
-        routes = {r.path for r in phone_main.app.routes if hasattr(r, "path")}
-        assert "/api/projects/{name}/rtree" in routes, "rtree の住所が無い"
-        for path in (
-            "/api/mlflow/experiments",
-            "/api/mlflow/experiments/{experiment_id}",
-            "/api/mlflow/runs/search",
-            "/api/mlflow/runs/{run_id}",
-            "/api/mlflow/metrics/history",
-            "/api/mlflow/metrics/bulk",
-            "/api/mlflow/artifacts",
-            "/api/mlflow/artifact",
-        ):
-            assert path in routes, f"住所が無い: {path}"
-    finally:
-        control.run_cli = original_cli  # type: ignore
-        control.find_project = original_find  # type: ignore
+    routes = {r.path for r in phone_main.app.routes if hasattr(r, "path")}
+    for path in (
+        "/api/mlflow/experiments",
+        "/api/mlflow/experiments/{experiment_id}",
+        "/api/mlflow/runs/search",
+        "/api/mlflow/runs/{run_id}",
+        "/api/mlflow/metrics/history",
+        "/api/mlflow/metrics/bulk",
+        "/api/mlflow/artifacts",
+        "/api/mlflow/artifact",
+    ):
+        assert path in routes, f"住所が無い: {path}"
 
 
 class _FakeProc:
@@ -559,7 +512,7 @@ def main() -> None:
     test_fake_mlflow_400()
     test_stopped_mlflow_503()
     test_artifact_size_and_type()
-    test_rtree()
+    test_mlflow_routes_registered()
     print("test_mlflow_api: すべて通りました")
 
 
