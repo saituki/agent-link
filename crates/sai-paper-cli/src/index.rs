@@ -1,4 +1,4 @@
-//! `sai-moon-paper index` — チャンク化と RAG インデックス管理。
+//! `sai-paper index` — チャンク化と RAG インデックス管理。
 //!
 //! 索引（分け方・大きさ・埋め込みモデルの組）は `settings.json` の `rag.indexes` に名前付きで並べる。
 //! `--index` を省くと `rag.default_index` を使う。索引づくり・埋め込みはこのコマンドを
@@ -72,7 +72,7 @@ fn handle_rebuild(index: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// `index status` の JSON（MCP の `index_status` も同じ形）。
+/// `index status` の JSON。
 pub fn status_json(db: &Database, config: &sai_paper_core::Config) -> Result<serde_json::Value> {
     let conn = db.connection();
     let status_info = status(conn)?;

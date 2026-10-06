@@ -2,7 +2,7 @@
 //! エージェントの報告の登録と検査を 1 つの実行ファイルにまとめる。
 //!
 //! 失敗の形は CLI 共通の約束に従う（終了コード 2・3・4。失敗は標準エラーの最後の行に
-//! 日本語 1 行。`--json` の命令でも標準出力には出さない）。論文の検索は `sai-moon-paper`
+//! 日本語 1 行。`--json` の命令でも標準出力には出さない）。論文の検索は `sai-paper`
 //! の CLI を子として呼び、sai-sci は範囲の決定と記録だけを行う。
 
 use anyhow::{Context, Result};
@@ -155,12 +155,12 @@ enum Cmd {
     },
     /// state.md と tree.md を書き出す
     Export,
-    /// 内部を検索し、研究方針の Node に結び付けて記録する（論文の検索は sai-moon-paper が行う）
+    /// 内部を検索し、研究方針の Node に結び付けて記録する（論文の検索は sai-paper が行う）
     Find {
         #[command(flatten)]
         args: find_search::FindArgs,
     },
-    /// 論文を検索し、研究方針の Node に結び付けて記録する（検索は sai-moon-paper が行う）
+    /// 論文を検索し、研究方針の Node に結び付けて記録する（検索は sai-paper が行う）
     Search {
         #[command(flatten)]
         args: find_search::SearchArgs,
@@ -286,7 +286,7 @@ fn origin_name() -> &'static str {
 fn require_paper_dir() -> Result<()> {
     let Some(root) = sai_paper_core::paths::project_root() else {
         return Err(cli_error::CliError::input(
-            "プロジェクトが見つかりません（`sai-moon-link init` を実行してください）",
+            "プロジェクトが見つかりません（`sai-link init` を実行してください）",
         )
         .into());
     };
@@ -470,13 +470,13 @@ fn handle_card(args: &sci::SciCardArgs, from_json: bool, json: bool) -> Result<(
 /// `sai-sci init` — 基盤・論文・研究の部品をこの順で配る。
 ///
 /// 1. `--type` を確かめる（知らない型 → 2、木が既にある → 4）。
-/// 2. `sai-moon-link init` を呼ぶ。
+/// 2. `sai-link init` を呼ぶ。
 /// 3. 研究の部品と設定を配る（[`agent_assets::install_sci_init`]）。
-/// 4. `sai-moon-paper init` を呼ぶ（`--domain` は渡さない）。
+/// 4. `sai-paper init` を呼ぶ（`--domain` は渡さない）。
 /// 5. `state.md` などと `project-brief.md` を作る（失敗は警告だけ）。
 /// 6. `--type` があれば木を作る。
 ///
-/// 3 を 4 より前に行う理由: 古い `sai-moon-paper init` が、無い部品を自分の版で
+/// 3 を 4 より前に行う理由: 古い `sai-paper init` が、無い部品を自分の版で
 /// 書くのを避ける（先に sai-sci の物を置けば「ある」と見てそのままにする）。
 fn handle_init(
     type_id: Option<&str>,

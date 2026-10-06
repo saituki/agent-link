@@ -1,4 +1,4 @@
-//! `sai-moon-paper progress` — プロジェクトの進み具合と「読むべき論文」（N05）。
+//! `sai-sci progress` — プロジェクトの進み具合と「読むべき論文」（N05）。
 //!
 //! LLM を使わず、DB とファイル（`state.md`・引き継ぎ・note）から
 //! [`sai_sci_core::progress::collect`] でまとめる。人向けの要約と、
@@ -18,7 +18,7 @@ const READ_NEXT_LIMIT: usize = 5;
 /// 「未解決」「ユーザーへの質問」として出す最大件数。
 const LINES_LIMIT: usize = 5;
 
-/// `sai-moon-paper progress` を実行する。
+/// `sai-sci progress` を実行する。
 pub fn handle(json: bool) -> Result<()> {
     let db = open_database()?;
     let roots = sai_paper_core::paths::paper_roots()

@@ -1,4 +1,4 @@
-//! Library 階層表示の共通処理（TUI と `sai-moon-paper phone` CLI の共有）。
+//! Library 階層表示の共通処理（TUI と CLI の共有）。
 //!
 //! TUI にあった「PDF 実在判定」「検索ヒット ↔ Library 論文の対応付け」
 //! 「Library 対象フォルダの決定」「階層（query / Import）のまとめ方」を

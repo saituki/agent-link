@@ -1,4 +1,4 @@
-//! `sai-moon-paper figures` — 図表（Figure / Table）抽出コマンド。
+//! `sai-paper paper figures` — 図表（Figure / Table）抽出コマンド。
 //!
 //! docling を画像出力モードで実行し、`<paper_dir>/figures/` に PNG を保存して
 //! `paper_figures` テーブルに登録する。既に抽出済みの論文は `--force` 指定時のみ

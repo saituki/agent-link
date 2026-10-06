@@ -1,4 +1,4 @@
-//! `sai-moon-paper set` — 検索セット管理サブコマンド。
+//! `sai-paper set` — 検索セット管理サブコマンド。
 //!
 //! リモート検索結果の保存・注釈付けを行う決定論的 API。
 
@@ -199,7 +199,7 @@ fn handle_list() -> Result<()> {
     let db = open_db()?;
     let conn = db.connection();
 
-    // 一覧は `phone set list` と同じ形（`{"sets":[…]}`）で出す。
+    // 一覧は `sai-paper set list` と同じ形（`{"sets":[…]}`）で出す。
     let value = crate::phone::set_list(conn)?;
     print_json(&value);
     Ok(())
@@ -318,7 +318,7 @@ fn handle_mark(
 
     let set_id = resolve_set_id(conn, name_or_id)?;
 
-    // `phone set mark` と同じ形（`{"set_id","changed"}`）で出す。
+    // `sai-paper set mark` と同じ形（`{"set_id","changed"}`）で出す。
     let value = crate::phone::mark_positions(conn, set_id, &positions, decision, reason)?;
     print_json(&value);
     Ok(())

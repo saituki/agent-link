@@ -1,6 +1,6 @@
 //! sai-link の実行フォルダ（`run list --json` の `dir`）を読む。
 //!
-//! 実行フォルダの一覧は sai-moon-link の CLI（`run list --json --limit 0`）から取り、
+//! 実行フォルダの一覧は sai-link の CLI（`run list --json --limit 0`）から取り、
 //! ここではその `dir` だけを使う。`run_id` は変わらないので、同じ番号が 2 か所に
 //! あるときは新しい方を採用する。
 //!
@@ -27,7 +27,7 @@ pub struct RunDir {
 
 /// `<root>` の run を新しい順で返す。
 ///
-/// `sai-moon-link run list --json` の `dir` がある物だけを [`RunDir`] にする。
+/// `sai-link run list --json` の `dir` がある物だけを [`RunDir`] にする。
 /// 同じ `run_id` が 2 つあれば `run_id` の大きい方を先にする（新しい実行が先）。
 ///
 /// sai-link の一覧を読めないときは空を返し、標準エラーに理由を 1 回だけ出す
@@ -64,7 +64,7 @@ pub fn list_run_dirs(root: &Path) -> Vec<RunDir> {
 /// その実行のブロック ID を返す。
 ///
 /// ① 実行フォルダの `task.md` の frontmatter の `block:`
-/// ② 無ければ `sai-moon-link run list --json` の同じ `run_id` の `block`
+/// ② 無ければ `sai-link run list --json` の同じ `run_id` の `block`
 /// ③ どちらも無ければ `None`
 ///
 /// 子タスクの実行フォルダには `task.md` が無いことがあるため ② が要る。
@@ -85,7 +85,7 @@ pub fn run_block_id(root: &Path, run: &RunDir) -> Option<String> {
 /// その実行のタグ（仮説の名前など）を返す。
 ///
 /// ① 実行フォルダの `task.md` の frontmatter の `tag:`
-/// ② 無ければ `sai-moon-link run list --json` の同じ `run_id` の `tag`
+/// ② 無ければ `sai-link run list --json` の同じ `run_id` の `tag`
 /// ③ どちらも無い・空なら `None`
 ///
 /// 子タスクの実行フォルダには `task.md` が無いことがあるため ② が要る。

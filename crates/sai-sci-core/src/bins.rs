@@ -1,7 +1,7 @@
-//! 子の実行ファイル（sai-moon-link・sai-moon-paper）の見つけ方と呼び方。
+//! 子の実行ファイル（sai-link・sai-paper）の見つけ方と呼び方。
 //!
 //! 共有契約「実行ファイルの見つけ方と呼び方」。sai-sci（U13）と、U16 の sci-core が使う。
-//! ガイド 4 で実行ファイルを改名するときは、[`LINK_BIN_NAME`]・[`PAPER_BIN_NAME`] の
+//! 実行ファイルを改名するときは、[`LINK_BIN_NAME`]・[`PAPER_BIN_NAME`] の
 //! 2 つの定数だけを替える。
 
 use std::fmt;
@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// sai-link の実行ファイル名（PATH と、自分の隣を探すときの名前）。
-pub const LINK_BIN_NAME: &str = "sai-moon-link";
+pub const LINK_BIN_NAME: &str = "sai-link";
 /// sai-paper の実行ファイル名。
-pub const PAPER_BIN_NAME: &str = "sai-moon-paper";
+pub const PAPER_BIN_NAME: &str = "sai-paper";
 
 /// 子の実行ファイルの見つけ方の順序（共有契約）:
 /// 1. 環境変数（空でない値）
@@ -181,7 +181,7 @@ mod tests {
     fn resolve_prefers_env_then_name() {
         // 空の値は無視して名前だけを返す。
         // 環境変数を触ると並列の試験と取り合うので、ここでは関数の分岐だけを見る。
-        assert_eq!(LINK_BIN_NAME, "sai-moon-link");
-        assert_eq!(PAPER_BIN_NAME, "sai-moon-paper");
+        assert_eq!(LINK_BIN_NAME, "sai-link");
+        assert_eq!(PAPER_BIN_NAME, "sai-paper");
     }
 }

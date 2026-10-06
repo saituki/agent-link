@@ -1,4 +1,4 @@
-//! `sai-sci find` / `sai-sci search` — 論文の検索を `sai-moon-paper` の CLI に任せ、
+//! `sai-sci find` / `sai-sci search` — 論文の検索を `sai-paper` の CLI に任せ、
 //! 研究方針の Node の範囲の決定と、研究の記録（`rt_searches`・検索セット）だけを行う。
 //!
 //! 論文の検索そのもの（複数の DB への問い合わせ・セットへの保存）は paper-cli にあり、

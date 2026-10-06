@@ -1,7 +1,5 @@
-//! `sai-moon-paper phone import` / `phone download` / `phone after-download`
+//! `sai-paper import` / `sai-paper paper download` / `sai-paper paper after-download`
 //! — sai-phone（Web）の Import・Download 画面用（U2）。
-//!
-//! `phone attention-resolve` は `sai-sci attention resolve` に移り、`phone.rs` が別名で呼ぶ。
 //!
 //! sai-phone は sai-paper の DB を直接開かず、このコマンドの JSON だけを読む。
 //! 共通ルール（`crates/sai-paper-cli/src/phone.rs` と同じ）:
@@ -36,7 +34,7 @@ use tokio::sync::mpsc;
 /// `phone import add` で受け付ける .bib の最大バイト（1MB）。
 const MAX_BIB_BYTES: usize = 1024 * 1024;
 
-/// `sai-moon-paper phone import` のサブコマンド。
+/// `sai-paper import` のサブコマンド。
 #[derive(Subcommand, Debug)]
 pub enum PhoneImportCmd {
     /// BibTeX フォルダの .bib 一覧と、取り込める論文の一覧を出す
@@ -65,7 +63,7 @@ pub enum PhoneImportCmd {
     },
 }
 
-/// `sai-moon-paper phone import` を実行して JSON 1 行を返す。
+/// `sai-paper import` を実行して JSON 1 行を返す。
 pub fn run_import(cmd: PhoneImportCmd) -> Result<Value> {
     match cmd {
         PhoneImportCmd::List { json: _ } => import_list(),
@@ -208,7 +206,7 @@ pub async fn download(
     let candidates = pdf_candidates(client, &paper).await?;
     if candidates.is_empty() {
         bail!(
-            "PDF の場所が見つかりません。Web の「PDF を手動で取り込む」か `sai-moon-paper phone manual-import` で取り込んでください"
+            "PDF の場所が見つかりません。Web の「PDF を手動で取り込む」か `sai-paper paper import-pdf` で取り込んでください"
         );
     }
 

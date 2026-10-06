@@ -1,17 +1,17 @@
-//! `sai-moon-paper init` が研究プロジェクトに配る論文の部品。
+//! `sai-paper init` が研究プロジェクトに配る論文の部品。
 //!
 //! - `.sai/template/*.md` を書き出す。既にあるファイルは上書きしない
 //!   （利用者が直したものを消さない）。
-//! - cc（Claude Code）用に、プロジェクトの `.mcp.json` に `sai-paper` の MCP サーバーを足す。
-//!   既にある項目は消さない。
+//!
+//! cc（Claude Code）の MCP の設定（`.mcp.json`）は sai-link の `init` が作り直す物で、
+//! sai-paper は触らない。
 //!
 //! 研究の部品（研究方針の木のブロック・共通の決まり・分野の観点・実行先・道具）は
 //! `sai-sci` が配る。sai-paper は sai-sci を知らない（要件定義書 A8）。
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-use serde_json::{Value, json};
+use anyhow::Result;
 
 /// 配るテンプレート（ファイル名, 中身）。
 const TEMPLATES: &[(&str, &str)] = &[
@@ -23,24 +23,6 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("search-external.md", include_str!("../assets/template/search-external.md")),
     ("search-internal.md", include_str!("../assets/template/search-internal.md")),
 ];
-
-/// JSON ファイルを読む（無ければ空のオブジェクト）。
-fn read_json(path: &Path) -> Result<Value> {
-    match std::fs::read_to_string(path) {
-        Ok(text) if !text.trim().is_empty() => {
-            serde_json::from_str(&text).with_context(|| format!("{} を読めません", path.display()))
-        }
-        _ => Ok(json!({})),
-    }
-}
-
-/// JSON ファイルを書く。
-fn write_json(path: &Path, value: &Value) -> Result<()> {
-    let mut text = serde_json::to_string_pretty(value)?;
-    text.push('\n');
-    std::fs::write(path, text)?;
-    Ok(())
-}
 
 /// 配った結果（部品の配り方の「作成・そのまま・更新」）。
 #[derive(Debug)]
@@ -92,12 +74,12 @@ fn write_asset(path: &Path, content: &str, update: bool) -> Result<WriteOutcome>
 
 /// 研究プロジェクト（`root`）に部品を配る。何をしたかの一覧を返す（表示用）。
 ///
-/// `sai_paper_bin` は `.mcp.json` に書く `sai-paper` の実行ファイル。
 /// `update` が `true` のときは、古いテンプレートを退避して新しい版に置き換える。
+/// `.mcp.json` には触らない。
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
-pub fn install(root: &Path, sai_paper_bin: &Path, update: bool) -> Result<Vec<String>> {
+pub fn install(root: &Path, update: bool) -> Result<Vec<String>> {
     let mut done = Vec::new();
     let sai = root.join(".sai");
 
@@ -114,52 +96,26 @@ pub fn install(root: &Path, sai_paper_bin: &Path, update: bool) -> Result<Vec<St
     for backup in &updated {
         done.push(format!("更新しました（古い物: {}）", backup.display()));
     }
-
-    // cc 用: .mcp.json に sai-paper の MCP サーバーを足す（既にあれば触らない）
-    let mcp_path = root.join(".mcp.json");
-    let mut mcp = read_json(&mcp_path)?;
-    let servers = mcp
-        .as_object_mut()
-        .context(".mcp.json がオブジェクトではありません")?
-        .entry("mcpServers")
-        .or_insert_with(|| json!({}));
-    if let Some(servers) = servers.as_object_mut()
-        && !servers.contains_key("sai-paper")
-    {
-        servers.insert(
-            "sai-paper".to_string(),
-            json!({
-                "command": sai_paper_bin.to_string_lossy(),
-                "args": ["mcp"],
-                "env": {"SAI_PROJECT_ROOT": root.to_string_lossy()},
-            }),
-        );
-        write_json(&mcp_path, &mcp)?;
-        done.push(".mcp.json に sai-paper の MCP サーバーを足しました".to_string());
-    }
     Ok(done)
 }
 
-/// この PC の拡張を探して配る（`sai-moon-paper init` から呼ぶ）。
+/// この PC の実行ファイルから配る（`sai-paper init` から呼ぶ）。
 ///
 /// # Errors
 /// ファイルの読み書きに失敗したとき。
 pub fn install_here(root: &Path, update: bool) -> Result<Vec<String>> {
-    let bin = std::env::current_exe()
-        .and_then(std::fs::canonicalize)
-        .unwrap_or_else(|_| PathBuf::from("sai-moon-paper"));
-    install(root, &bin, update)
+    install(root, update)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 部品を配ると、テンプレートと `.mcp.json` ができる。
-    /// 既にあるファイルは残り、2 回目も重複しない。研究の部品（block・pre_run・
-    /// 分野の観点・`project-brief.md`）は作らない。
+    /// 部品を配ると、テンプレートができる。既にあるファイルは残り、2 回目も重複しない。
+    /// `.mcp.json` には触らない。研究の部品（block・pre_run・分野の観点・
+    /// `project-brief.md`）は作らない。
     #[test]
-    fn install_writes_templates_and_mcp_without_research_parts() {
+    fn install_writes_templates_without_mcp_or_research_parts() {
         let root = std::env::temp_dir().join(format!("sai-paper-assets-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".sai/template")).unwrap();
@@ -170,7 +126,7 @@ mod tests {
         )
         .unwrap();
         for _ in 0..2 {
-            install(&root, Path::new("/bin/sai-paper"), false).unwrap();
+            install(&root, false).unwrap();
         }
 
         assert_eq!(
@@ -193,9 +149,11 @@ mod tests {
         // `.sai/settings.json` には何も書かない（pre_run を作らない）。
         assert!(!root.join(".sai/settings.json").exists(), "settings.json を作っている");
 
-        let mcp = read_json(&root.join(".mcp.json")).unwrap();
-        assert_eq!(mcp["mcpServers"]["other"]["command"], "x");
-        assert_eq!(mcp["mcpServers"]["sai-paper"]["args"][0], "mcp");
+        // `.mcp.json` には触らない（sai-link の init が作り直す物）。
+        assert_eq!(
+            std::fs::read_to_string(root.join(".mcp.json")).unwrap(),
+            r#"{"mcpServers": {"other": {"command": "x"}}}"#
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -207,7 +165,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".sai/template")).unwrap();
         std::fs::write(root.join(".sai/template/rag-simple.md"), "利用者が直した\n").unwrap();
 
-        install(&root, Path::new("/bin/sai-paper"), true).unwrap();
+        install(&root, true).unwrap();
 
         let shipped = include_str!("../assets/template/rag-simple.md");
         assert_eq!(

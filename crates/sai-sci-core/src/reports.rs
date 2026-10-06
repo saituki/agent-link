@@ -299,7 +299,7 @@ pub fn list_reports(conn: &Connection, paper_id: Option<i64>) -> Result<Vec<Repo
 /// report の md の実パスを解決する。
 ///
 /// 登録時のパスが無い場合（run が `running` → `done` → `R<n>` と進んで移動した場合）、
-/// `sai-moon-link run list --json` の同じ `run_id` の `dir` の下の
+/// `sai-link run list --json` の同じ `run_id` の `dir` の下の
 /// 同じファイル名を探す。
 #[must_use]
 pub fn resolve_md_path(report: &Report) -> Option<PathBuf> {
@@ -636,7 +636,7 @@ fn missing_passage_issues(
                     level: "warning".into(),
                     kind: "missing_passage".into(),
                     detail: format!(
-                        "#{number}{locator} は論文 #{number} の節・塊にありません（sai-moon-paper content outline {number} で確かめてください）"
+                        "#{number}{locator} は論文 #{number} の節・塊にありません（sai-paper content outline {number} で確かめてください）"
                     ),
                     line: Some(citation.line as i64),
                 });

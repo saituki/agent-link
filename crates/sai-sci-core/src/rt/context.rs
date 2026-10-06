@@ -17,7 +17,7 @@ use sai_paper_core::paths::PaperRoots;
 
 const NO_TREE: &str = "\
 ## CURRENT_ACTION
-研究方針の木がまだありません。利用者に `sai-moon-paper sci init --type <型>`（または Web の Research-tree の画面の「始める」）を頼んでください。";
+研究方針の木がまだありません。利用者に `sai-sci init --type <型>`（または Web の Research-tree の画面の「始める」）を頼んでください。";
 
 /// run の task.md から `# context` の Markdown を作る。`scope_override` があれば task.md の `sci_scope` より優先する。
 ///
@@ -129,7 +129,7 @@ pub fn allowed_ops_text(roots: &PaperRoots, block: &str) -> String {
         }
     }
     lines.push(
-        "出し方: sai-moon-paper sci propose（標準入力に {\"proposals\": [...]}。MCP は sci_propose）。1 件でも違反があれば何も入りません。"
+        "出し方: sai-sci propose（標準入力に {\"proposals\": [...]}）。1 件でも違反があれば何も入りません。"
             .to_string(),
     );
     lines.join("\n")

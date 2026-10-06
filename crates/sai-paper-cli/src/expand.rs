@@ -1,4 +1,4 @@
-//! `sai-moon-paper expand` — 引用の網を 1 段だけ広げ、Library に無い候補を検索セットに入れる。
+//! `sai-paper expand` — 引用の網を 1 段だけ広げ、Library に無い候補を検索セットに入れる。
 //!
 //! S2 から引用（references）と被引用（citations）を 1 段だけ取り、`papers` テーブルの
 //! DOI・arXiv ID・S2 paperId と照らして、Library に無いものだけを検索セットに
@@ -30,7 +30,7 @@ pub enum Direction {
 impl Direction {
     /// `--direction` の文字列を解釈する（`both` / `refs` / `cited`）。
     ///
-    /// 既存の `sai-moon-paper graph` の書き方（`references` / `citations` / `out` / `in`）も
+    /// 既存の `sai-paper graph` の書き方（`references` / `citations` / `out` / `in`）も
     /// 受け付ける。
     ///
     /// # Errors
@@ -366,7 +366,7 @@ impl PaperOutcome {
     }
 }
 
-/// `sai-moon-paper expand` の本体。
+/// `sai-paper expand` の本体。
 ///
 /// # Errors
 ///

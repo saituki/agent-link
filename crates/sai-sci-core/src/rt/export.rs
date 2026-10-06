@@ -78,7 +78,7 @@ pub fn render_state_md(status: &Status) -> String {
         or_none(next),
         Local::now().format("%Y-%m-%d"),
     );
-    out.push_str("<!-- このファイルは研究方針の木から書き出しています。直すときは Web か sai-moon-paper sci を使います。 -->\n\n");
+    out.push_str("<!-- このファイルは研究方針の木から書き出しています。直すときは Web か sai-sci を使います。 -->\n\n");
 
     out.push_str("## SEED\n");
     let draft = status.seed_draft.as_ref().map(|d| d.text.clone()).unwrap_or_default();

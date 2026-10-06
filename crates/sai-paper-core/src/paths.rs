@@ -85,7 +85,7 @@ pub struct PaperRoots {
 
 /// 研究プロジェクトのデータルートを解決する。
 ///
-/// データは `<root>/.sai/paper/` だけを使う（`sai-moon-paper init` が作成する）。
+/// データは `<root>/.sai/paper/` だけを使う（`sai-paper init` が作成する）。
 /// 見つからない場合も同じ場所を返す（作成は書き込む側の仕事）。
 #[must_use]
 pub fn paper_roots() -> Option<PaperRoots> {
@@ -99,9 +99,9 @@ pub fn paper_roots() -> Option<PaperRoots> {
 
 /// プロジェクトルートの `.env` を読み込む（既存の環境変数は上書きしない）。
 ///
-/// そのあと全プロジェクト共通の API キー置き場 `~/.sai-moon/paper.env` も読む。
+/// そのあと全プロジェクト共通の API キー置き場 `~/.sai/paper.env` も読む。
 /// `dotenvy` は既に設定済みの値を上書きしないため、プロジェクトの `.env` が
-/// `~/.sai-moon/paper.env` より優先される（dotenvy 済みの環境変数も両方に対して優先）。
+/// `~/.sai/paper.env` より優先される（dotenvy 済みの環境変数も両方に対して優先）。
 ///
 /// ルート解決に失敗した場合は `dotenvy::dotenv()` による cwd からの通常探索に
 /// フォールバックする。読み込み失敗は呼び出し側に影響しない。
@@ -267,11 +267,10 @@ fn keychain_value(service: &str, account: Option<&str>) -> Option<String> {
 /// 利用者全体の置き場（sai のグローバルデータ置き場）を返す。
 ///
 /// 解決順:
-/// 1. 環境変数 `SAI_SAI_HOME`（テスト・隔離環境・複数-home で上書きする）
-/// 2. `~/.sai-moon`
+/// 1. 環境変数 `SAI_HOME`（テスト・隔離環境・複数-home で上書きする）
+/// 2. `~/.sai`
 ///
 /// `HOME` も設定されていない場合は `None`（呼び出し側は読み書きを飛ばす）。
-/// デフォルトは旧 `~/.sai` ではなく `~/.sai-moon`。
 ///
 /// プロジェクトごとの `<root>/.sai/`（`papr.db`・blocks・settings 等）は
 /// `paper_roots()` / `project_root()` を使う。ここでは扱わない。
@@ -281,14 +280,14 @@ fn keychain_value(service: &str, account: Option<&str>) -> Option<String> {
 #[must_use]
 pub fn sai_home() -> Option<PathBuf> {
     resolve_sai_home(
-        std::env::var_os("SAI_SAI_HOME").as_deref(),
+        std::env::var_os("SAI_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
 }
 
 /// 利用者全体の置き場配下の相対パスを返す（[`sai_home`] が無ければ `None`）。
 ///
-/// 例: `sai_home_path("blocks")` → `~/.sai-moon/blocks`
+/// 例: `sai_home_path("blocks")` → `~/.sai/blocks`
 #[must_use]
 pub fn sai_home_path(rel: &str) -> Option<PathBuf> {
     sai_home().map(|h| h.join(rel))
@@ -304,7 +303,7 @@ fn resolve_sai_home(sai_home_env: Option<&OsStr>, home_env: Option<&OsStr>) -> O
     }
     home_env
         .filter(|h| !h.is_empty())
-        .map(|h| PathBuf::from(h).join(".sai-moon"))
+        .map(|h| PathBuf::from(h).join(".sai"))
 }
 
 /// 存在しないパスでも使える canonicalize。
@@ -554,7 +553,7 @@ pub fn note_count(data_dir: &Path) -> usize {
 /// - 最大 40 文字（文字単位）で切り、切った後の末尾のハイフンも消す
 /// - 英数字が 1 つも残らない場合は空文字（呼び出し側で番号だけにする）
 ///
-/// `sai-moon-paper relayout`（段階 2d）がフォルダ名の変更予定を計算するときも
+/// `sai-paper relayout`（段階 2d）がフォルダ名の変更予定を計算するときも
 /// これを使う（新しい名前だけを求めるため）。
 #[must_use]
 pub fn short_title_slug(title: &str) -> String {
@@ -699,24 +698,24 @@ mod keychain_tests {
 mod tests {
     use super::*;
 
-    /// `SAI_SAI_HOME` があればそれ、無ければ `~/.sai-moon` を返す。
+    /// `SAI_HOME` があればそれ、無ければ `~/.sai` を返す。
     #[test]
-    fn sai_home_prefers_env_then_sai_moon_dir() {
-        // ① SAI_SAI_HOME があればそれが優先される
+    fn sai_home_prefers_env_then_dot_sai_dir() {
+        // ① SAI_HOME があればそれが優先される
         assert_eq!(
             resolve_sai_home(Some(OsStr::new("/tmp/sai-home-test")), Some(OsStr::new("/home/u"))),
             Some(PathBuf::from("/tmp/sai-home-test")),
-            "SAI_SAI_HOME があればそれを使う"
+            "SAI_HOME があればそれを使う"
         );
-        // ② 無ければ ~/.sai-moon（~/.sai ではない）
+        // ② 無ければ ~/.sai
         assert_eq!(
             resolve_sai_home(None, Some(OsStr::new("/home/u"))),
-            Some(PathBuf::from("/home/u/.sai-moon"))
+            Some(PathBuf::from("/home/u/.sai"))
         );
-        // ③ 空文字の SAI_SAI_HOME は無視して ~/.sai-moon に落ちる
+        // ③ 空文字の SAI_HOME は無視して ~/.sai に落ちる
         assert_eq!(
             resolve_sai_home(Some(OsStr::new("")), Some(OsStr::new("/home/u"))),
-            Some(PathBuf::from("/home/u/.sai-moon"))
+            Some(PathBuf::from("/home/u/.sai"))
         );
         // ④ HOME も無ければ None
         assert_eq!(resolve_sai_home(None, None), None);

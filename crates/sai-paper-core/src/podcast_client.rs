@@ -36,7 +36,7 @@ pub type Result<T> = std::result::Result<T, PodcastClientError>;
 
 /// sai-radio に送る論文 ID（`<root のフォルダ名>-<論文番号>`、計画 16 §3.3）。
 ///
-/// TUI の `r` キーと CLI の `phone radio` / `phone paper` が同じ名前になるよう、
+/// TUI の `r` キーと CLI の `sai-paper paper radio` が同じ名前になるよう、
 /// 音声の名前はこの関数だけで決める。sai-paper はフォルダ名だけを知っていればよく、
 /// 「フォルダ名 → プロジェクト」の引き当ては sai-phone 側で行う。
 /// ルートが取れない場合は番号だけを返す（従来どおり・プロジェクト不明扱い）。
@@ -223,7 +223,7 @@ fn from_extract_request<'a>(
     }
 }
 
-/// Library の論文 1 本を音声化する（TUI の `r` キーと CLI の `phone radio` の共通処理）。
+/// Library の論文 1 本を音声化する（TUI の `r` キーと CLI の `sai-paper paper radio` の共通処理）。
 ///
 /// `paper_podcasts` の状態（generating → ready / failed）もここで書く。
 /// 戻り値の `Err` は利用者向けの日本語メッセージ、`Ok` は sai-radio に送った

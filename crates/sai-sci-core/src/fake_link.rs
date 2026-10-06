@@ -1,6 +1,6 @@
 //! 試験用の偽 sai-link。
 //!
-//! sci-core の単体試験では本物の `sai-moon-link` を使わない。
+//! sci-core の単体試験では本物の `sai-link` を使わない。
 //! [`crate::bins::link_bin`] が（`cfg(test)` のとき）このモジュールの sh を返す。
 //!
 //! 偽 sai-link は次を行う。

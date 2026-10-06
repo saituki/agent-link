@@ -1,6 +1,6 @@
 //! `sai-sci` の CLI の約束と、`init`・`find`・`search` の試験。
 //!
-//! 子の実行ファイル（sai-moon-link・sai-moon-paper）は偽の sh を `SAI_LINK_BIN`・
+//! 子の実行ファイル（sai-link・sai-paper）は偽の sh を `SAI_LINK_BIN`・
 //! `SAI_PAPER_BIN` で渡す。環境変数は子のプロセスにだけ渡し、同じ試験の中で戻す。
 
 use std::path::{Path, PathBuf};
@@ -60,7 +60,7 @@ fn write_script(path: &Path, body: &str) {
     }
 }
 
-/// 偽の `sai-moon-link`。
+/// 偽の `sai-link`。
 ///
 /// - 呼ばれた引数を `ARGS_LOG` に足す。
 /// - `run list --json` は空の run の一覧を出す。
@@ -92,7 +92,7 @@ fn fake_link(dir: &Path) -> PathBuf {
     path
 }
 
-/// 偽の `sai-moon-paper`（呼ばれた引数を `ARGS_LOG` に足し、決まった JSON を出す）。
+/// 偽の `sai-paper`（呼ばれた引数を `ARGS_LOG` に足し、決まった JSON を出す）。
 fn fake_paper(dir: &Path) -> PathBuf {
     let path = dir.join("fake-paper.sh");
     write_script(
@@ -240,7 +240,7 @@ fn init_installs_parts_and_settings() {
     let init = |update: bool, extra: &[&str]| {
         let mut cmd = command(&root);
         cmd.env("HOME", &home)
-            .env("SAI_SAI_HOME", &home)
+            .env("SAI_HOME", &home)
             .env("SAI_PROJECT_ROOT", &root)
             .env("SAI_LINK_BIN", &link)
             .env("SAI_PAPER_BIN", &paper)
@@ -321,7 +321,7 @@ fn init_with_type_builds_tree_and_conflicts() {
     let init = || {
         let mut cmd = command(&root);
         cmd.env("HOME", &home)
-            .env("SAI_SAI_HOME", &home)
+            .env("SAI_HOME", &home)
             .env("SAI_PROJECT_ROOT", &root)
             .env("SAI_LINK_BIN", &link)
             .env("SAI_PAPER_BIN", &paper)
@@ -477,7 +477,7 @@ fn json_outputs_have_expected_shape() {
     let run_args = |args: &[&str]| {
         let mut cmd = command(&root);
         cmd.env("HOME", &home)
-            .env("SAI_SAI_HOME", &home)
+            .env("SAI_HOME", &home)
             .env("SAI_PROJECT_ROOT", &root)
             .env("SAI_LINK_BIN", &link)
             .env("SAI_PAPER_BIN", &paper)

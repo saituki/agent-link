@@ -1,6 +1,6 @@
 //! 文字種と引用の検査、報告書の frontmatter の付与。
 //!
-//! `sai-moon-paper report prepare` が使う純関数をここに置く（`reports.rs` は本文を書き換えない決まり）。
+//! `sai-sci report prepare` が使う純関数をここに置く（`reports.rs` は本文を書き換えない決まり）。
 
 use regex::Regex;
 use std::sync::LazyLock;
