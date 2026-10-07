@@ -110,9 +110,9 @@ OP_EXAMPLES = {
         "report": "R-0012",
         "run": 130,
     },
-    "add_e": {"parent": "O2", "text": "実験", "body": "b", "mlflow": "run/abc"},
+    "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc"},
     "record_logic": {"q": "Q1", "value": "contradiction", "note": "n", "findings": ["F1", "F2"]},
-    "add_seed": {"title": "題", "sentence": "文", "path": ["O1", "O2"]},
+    "add_sprout": {"title": "題", "body": "計画", "paths": ["O1", "O2"]},
     "copy": {"node": "O2", "to": "Q3"},
     "remove": {"node": "F4"},
     "star": {"o": "O2"},
@@ -127,7 +127,8 @@ def test_ids() -> None:
     """ID と run_id の検査。"""
     assert sci.check_node("Q12") == "Q12" and sci.check_node(" O5 ") == "O5"
     assert sci.check_node("F31") == "F31" and sci.check_node("E2") == "E2"
-    for bad in ("12", "Q0", "X1", "N1", "L1", "P1", "q1", "Q", "", "Q1000000000", None, 12):
+    assert sci.check_node("S1") == "S1"
+    for bad in ("12", "Q0", "X1", "N1", "L1", "P1", "q1", "Q", "SEED", "", "Q1000000000", None, 12):
         expect_400(lambda value=bad: sci.check_node(value), "ID の形が正しくありません")
     assert sci.check_proposal("P55") == "P55"
     for bad in ("Q1", "P0", "55", None):
@@ -154,6 +155,10 @@ def test_op_ok() -> None:
             assert got[key] == value, (name, key, got)
     assert sci.validate_op({"op": "star", "o": " O2 "}) == {"op": "star", "o": "O2"}
     assert sci.validate_op({"op": "add_q", "parent": "O1", "text": "x"})["parent"] == "O1"
+    assert sci.validate_op({"op": "add_q", "parent": "SEED", "text": "x"})["parent"] == "SEED"
+    assert sci.validate_op({"op": "add_e", "parent": "E1", "text": "x"})["parent"] == "E1"
+    assert sci.validate_op({"op": "add_e", "parent": "S2", "text": "x"})["parent"] == "S2"
+    assert sci.validate_op({"op": "remove", "node": "S1"})["node"] == "S1"
     # 任意の項目は無くてよい
     assert sci.validate_op({"op": "add_o", "q": "Q1", "text": "候補"}) == {
         "op": "add_o", "q": "Q1", "text": "候補",
@@ -176,8 +181,10 @@ def test_op_ng() -> None:
     bad({"op": "star", "o": "Q1"}, "ID の形が正しくありません")
     bad({"op": "star", "o": "12"}, "ID の形が正しくありません")
     bad({"op": "add_q", "parent": "F1", "text": "x"})
+    bad({"op": "add_q", "parent": "E1", "text": "x"})
     bad({"op": "add_f", "parent": "Q1", "text": "x"})
     bad({"op": "add_e", "parent": "Q1", "text": "x"})
+    bad({"op": "add_e", "parent": "O2", "text": "x"})
     bad({"op": "copy", "node": "Q1", "to": "Q2"})
     bad({"op": "copy", "node": "O1", "to": "O2"})
     bad({"op": "add_q", "parent": "Q1", "text": "あ" * 301})
@@ -193,10 +200,13 @@ def test_op_ng() -> None:
     bad({"op": "record_logic", "q": "Q1", "value": "maybe"})
     bad({"op": "record_logic", "q": "Q1", "value": "ok", "findings": ["O1"]})
     bad({"op": "record_logic", "q": "Q1", "value": "ok", "note": "あ" * 1001})
-    bad({"op": "add_seed", "title": "題", "sentence": "文", "path": []})
-    bad({"op": "add_seed", "title": "題", "sentence": "文", "path": ["Q1"]})
-    bad({"op": "add_seed", "title": "題", "sentence": "文"}, "path がありません")
-    bad({"op": "add_seed", "title": "題", "sentence": "あ" * 601, "path": ["O1"]})
+    bad({"op": "add_sprout", "title": "題", "paths": []}, "paths の指定が正しくありません")
+    bad({"op": "add_sprout", "title": "題", "paths": ["Q1"]}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "title": "題", "paths": ["O1", "O1"]}, "paths に同じ O が 2 回入っています")
+    bad({"op": "add_sprout", "title": "題", "paths": [f"O{i}" for i in range(1, 22)]})
+    bad({"op": "add_sprout", "title": "題"}, "paths がありません")
+    bad({"op": "add_sprout", "title": "あ" * 121, "paths": ["O1"]})
+    bad({"op": "add_sprout", "title": "題", "body": "あ" * 2001, "paths": ["O1"]})
     bad({"op": "set_kind", "o": "O1", "kind": "x"})
     bad({"op": "edit", "node": "O1"}, "text か body のどちらかが要ります")
     bad({"op": "edit", "node": "O1", "text": "あ" * 1201})
@@ -240,6 +250,9 @@ def test_card() -> None:
     assert sci.validate_card(ok_user)["runner"] == "user"
     assert sci.validate_card({**ok_user, "mode": "blind_first"})["mode"] == "blind_first"
     assert "mode" not in sci.validate_card(ok_user)
+    # SEED はカードの対象にできる（実行は pi）
+    seed_card = {"node": "SEED", "block": "sci-review", "purpose": "木全体を見直す", "runner": "pi"}
+    assert sci.validate_card(seed_card)["node"] == "SEED"
 
     def bad(extra: dict, detail: str = "") -> None:
         expect_400(lambda: sci.validate_card({**ok_user, **extra}), detail)
@@ -253,6 +266,7 @@ def test_card() -> None:
     bad({"expect": "あ" * 301})
     bad({"node": "N1"}, "ID の形が正しくありません")
     bad({"node": "12"}, "ID の形が正しくありません")
+    bad({"node": "SEED"}, "読む札の対象は Q か O にしてください")
     bad({"depth": "deep"}, "depth が正しくありません")
     bad({"mode": "quick"}, "mode が正しくありません")
     bad({"runner": "human"}, "runner が正しくありません")
