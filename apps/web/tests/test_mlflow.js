@@ -31,7 +31,6 @@ const {
   mlfDurationMs,
   mlfValueText,
   mlfArtifactKind,
-  mlfProjectChoices,
   mlfCompareRows,
   mlfCompareSectionTitle,
   mlfCompareHeadName,
@@ -420,14 +419,6 @@ function testArtifactKind() {
   assert.strictEqual(mlfArtifactKind("README"), "unknown");
 }
 
-function testProjectChoices() {
-  // 先頭は「すべてのプロジェクト」
-  const list = mlfProjectChoices({ projects: [{ name: "west" }, { name: "east" }] });
-  assert.deepStrictEqual(list.map((x) => x.name), ["", "west", "east"]);
-  assert.strictEqual(list[0].label, "すべてのプロジェクト");
-  // 絞り込みの鍵の順番は往復の安定のために決めてある
-}
-
 function testQueryKeysAreFixed() {
   // 絞り込みの鍵の順番は往復の安定のために決めてある
   assert.deepStrictEqual(MLF_QUERY_KEYS, ["sai_run", "sprout", "study", "status"]);
@@ -586,7 +577,6 @@ const tests = [
   testDurationText,
   testValueText,
   testArtifactKind,
-  testProjectChoices,
   testQueryKeysAreFixed,
   testCompareRowsDiffOnly,
   testCompareRowsAllSame,

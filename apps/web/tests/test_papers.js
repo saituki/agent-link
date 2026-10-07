@@ -20,8 +20,9 @@ const {
   papersDbLabel,
   papersFailedLines,
   papersAllFailed,
-  papersAttentionHash,
   paperCardText,
+  chunkGroups,
+  libFindKindOf,
   PAPERS_SEG,
   RESEARCH_SEG,
 } = require(path.join(
@@ -273,27 +274,36 @@ function testDbLabel() {
   assert.strictEqual(papersDbLabel(null), "Source");
 }
 
-function testAttentionHash() {
-  // `sci_decision` のキーはコアが `sci_decision:<Q の ID>` の形で作る
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:Q12" }), "#/research/tree/Q12");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }), "#/research/tree");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:N12:0" }), "");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:12" }), "");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "" }), "");
-  assert.strictEqual(papersAttentionHash({ kind: "question", key: "N12" }), "");
-  assert.strictEqual(papersAttentionHash({}), "");
-  assert.strictEqual(papersAttentionHash(null), "");
-}
-
 function testActivityHash() {
   assert.strictEqual(activityHash({ kind: "action", paper_id: null }, "sai-paper"), null);
 }
 
+function testChunkGroups() {
+  // 章（section）ごとにまとめ、受け取った順を保つ
+  const g = chunkGroups([
+    { id: "#57.1.1", section: "#57.1", heading: "1 Intro", text: "a" },
+    { id: "#57.1.2", section: "#57.1", heading: "1 Intro", text: "b" },
+    { id: "#57.3.1", section: "#57.3", heading: "3 Method", text: "c" },
+  ]);
+  assert.deepStrictEqual(g.map((x) => [x.section, x.heading, x.items.length]), [
+    ["#57.1", "1 Intro", 2], ["#57.3", "3 Method", 1],
+  ]);
+  assert.deepStrictEqual(chunkGroups(null), []);
+  assert.deepStrictEqual(chunkGroups([null]), []);
+}
+
+function testLibFindKind() {
+  assert.strictEqual(libFindKindOf("internal"), "internal");
+  assert.strictEqual(libFindKindOf("paper"), "paper");
+  assert.strictEqual(libFindKindOf("x"), "external");
+  assert.strictEqual(libFindKindOf(null), "external");
+}
+
 function testSegments() {
   // Papers の小さなタブ（U14）
-  assert.deepStrictEqual(PAPERS_SEG.map((x) => x[0]), ["dashboard", "library", "import", "radio", "sets"]);
+  assert.deepStrictEqual(PAPERS_SEG.map((x) => x[0]), ["dashboard", "library", "import", "radio"]);
   assert.deepStrictEqual(PAPERS_SEG.map((x) => x[2]), [
-    "#/papers/dashboard", "#/papers/library", "#/papers/import", "#/papers/radio", "#/papers/sets",
+    "#/papers/dashboard", "#/papers/library", "#/papers/import", "#/papers/radio",
   ]);
   // Research の小さなタブ（U14）
   assert.deepStrictEqual(RESEARCH_SEG, [
@@ -317,6 +327,8 @@ function testPaperCardText() {
 
 function main() {
   testActivityHash();
+  testChunkGroups();
+  testLibFindKind();
   testSegments();
   testAuthorShort();
   testFilterPapers();
@@ -326,7 +338,6 @@ function main() {
   testFailedLines();
   testAllFailed();
   testDbLabel();
-  testAttentionHash();
   testPaperCardText();
   console.log("test_papers: すべて通りました");
 }
