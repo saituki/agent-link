@@ -10,7 +10,7 @@
 // 操作は sciedit.js（seOpenAction・seOpenCard・seQuick・seOpLabel・seProposalRow）、図は
 // scigraph.js（sgRenderGraph・sgMarkSelected・sgCenterOn）の関数を typeof で確かめてから呼ぶ。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_scitree.js）。
-// 画面の名詞（Q・O・F・E・Answer・Issue・Sprout・Objectivity・Logicality など）は英語のまま出す。
+// 画面の名詞（Q・O・F・E・Answer・Issue・SEED・SPROUT・Objectivity・Logicality など）は英語のまま出す。
 
 // --- 定数 ---
 
@@ -532,7 +532,7 @@ function stRender() {
   stRenderGraph();
 }
 
-/** 「古い形の木」「Sprout」「進み具合」「Next Action」「注意」の帯。 */
+/** 「古い形の木」「進み具合」「Next Action」「注意」の帯。 */
 function stRenderTop() {
   const box = document.getElementById("sci-top");
   if (!box) return;

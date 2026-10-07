@@ -3,8 +3,8 @@
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
-//   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。Sprout を選ぶと他を薄くする
-//   sgSproutKeep(status, id)                           … Sprout に含まれる ID の Set（Sprout でなければ null）
+//   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。SPROUT を選ぶと他を薄くする
+//   sgSproutKeep(status, id)                           … SPROUT に含まれる ID の Set（SPROUT でなければ null）
 //   sgCenterOn(id)                                     … その札を画面の中央に出す
 //
 // key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と O と E の出し入れ・畳んだ札を覚えて、
@@ -689,7 +689,7 @@ function sgUpdateToggles() {
   }
 }
 
-/** 選んでいる札に枠の色を付ける（id が無い・null なら外す）。Sprout を選ぶと、含まれない札と線を薄くする。 */
+/** 選んでいる札に枠の色を付ける（id が無い・null なら外す）。SPROUT を選ぶと、含まれない札と線を薄くする。 */
 function sgMarkSelected(id) {
   sgSelectedKey = id == null ? null : String(id);
   if (!sgWorld || typeof sgWorld.querySelectorAll !== "function") return;
@@ -743,7 +743,7 @@ function sgCardEl(c) {
     b.appendChild(mark);
   }
   const head = sgEl("span", "sci-graph-card-head");
-  head.appendChild(sgEl("span", "sci-graph-card-id", c.kind === "S" ? "Sprout" : c.id));
+  head.appendChild(sgEl("span", "sci-graph-card-id", c.kind === "S" ? "SPROUT" : c.id));
   b.appendChild(head);
   // SEED は見出しの SEED をそのまま出す（題は無い）
   if (c.kind !== "SEED") b.appendChild(sgEl("span", "sci-graph-card-title", c.text || "（文のない札）"));
