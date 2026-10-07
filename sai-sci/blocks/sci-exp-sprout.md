@@ -81,7 +81,7 @@ SPROUT は PATH（終点の O）を 1 つ以上集める。PATH は SEED から�
 
 `exp-core` §3 の欄を埋める。`study` は **`<S の ID>-ID<自分の run_id>`**（例 `S3-ID429`）。`node` は S の ID。自分の run_id は環境変数 `SAI_PARENT_RUN_ID`。
 
-1. **指標名・向き・成功基準を研究方針の木から取る。**
+1. **指標名・向き・成功基準を research-tree から取る。**
 
    ```bash
    sai-sci status --json              # nodes[] から key == "purpose.metric" の Node を探す
@@ -117,7 +117,7 @@ SPROUT は PATH（終点の O）を 1 つ以上集める。PATH は SEED から�
 ```
 
 - 返った **E の ID**（`E2` の形）を控える。
-- その ID を `--node` にして、`exp-core` §7 の命令でカードを作って起こす。
+- その ID を `--node` にして、`exp-core` §7 の命令で CARD を作って起こす。
 
 ```bash
 sai-sci card --node <E の ID> --block sci-exp-branch \

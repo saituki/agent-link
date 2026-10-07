@@ -30,7 +30,7 @@ subblocks:
 
 読み方の型は 2 つあります。task.md の `sci_mode`（依頼文の「読み方」）で読み分けます。
 
-- **purpose_first**（既定）: 対象の Node とガイドの Extract を先に読み、Q ごとに論文を照らし合わせる。
+- **purpose_first**（既定）: 対象の Node と GUIDE の Extract を先に読み、Q ごとに論文を照らし合わせる。
 - **blind_first**: Node を見ずに（行動・論文・ALLOWED_OPS だけで）読み、論文だけの要約を先に書く。書き終えてから木を取り寄せて照らす。どの Node にも合わないと分かったとき、その事実が収穫になる。
 
 深さは `sci_depth`（`ABSTRACT` / `FIGURES` / `FULL`）に従います。指定が無ければ FULL です。

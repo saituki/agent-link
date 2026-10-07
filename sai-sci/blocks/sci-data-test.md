@@ -43,7 +43,7 @@ enable: true
 
 ### 1. 受け取った文書を読む
 
-- 依頼文のデータ表（カードの `--input` に渡されたトークン）を `sai-link doc read` で読む。
+- 依頼文のデータ表（CARD の `--input` に渡されたトークン）を `sai-link doc read` で読む。
 - データ表の先頭にある JSON（C3）から **study・project・explore の run_id・`node`** を取る。作業フォルダは `analysis/<study>/`（C1）。
 - 依頼文の NODE は、explore が作った E である。違うときは、質問ツールで起動者に確認して止まる。
 - **データ表が無ければ、質問ツールで起動者に聞いて止まる。** 推測でデータ表を作らない。
@@ -72,7 +72,7 @@ cd "$SAI_PROJECT_ROOT" && perl -e 'alarm 1800; exec @ARGV' uv run --python ">=3.
 
 - 動かし方は上の全文を使う。**`python` を前に付けない**（PEP 723 の欄が読まれなくなる）。
 - 失敗したら直して動かし直す（**3 回まで**）。4 回目も失敗したら、report に `BLOCKED` と理由（標準エラーの要点）を書いて終える。
-- **30 分を超えたら、既存の実験の鎖を勧める**：report の「## 次の一手」に `sci-exp-scout` から始める既存の流れを書き、`data-test` の解析を大きい計算にしない方針を述べて終える（`data-core` §11）。結果の途中までを書かない。
+- **30 分を超えたら、既存の実験の流れ（scout → sprout → branch → review）を勧める**：report の「## Next Action」に `sci-exp-scout` から始める既存の流れを書き、`data-test` の解析を大きい計算にしない方針を述べて終える（`data-core` §11）。結果の途中までを書かない。
 
 ### 5. 検査する
 
@@ -145,9 +145,9 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 
 ### 10. report を保存して終える
 
-`## 出力の形` の見出しで書く。「## 次の一手」には**解析計画書・解析結果書のトークンと、MLflow の run 名**を書く。
+`## 出力の形` の見出しで書く。「## Next Action」には**解析計画書・解析結果書のトークンと、MLflow の run 名**を書く。
 
-O を Answer に変えてよいと思えば、「## 次の一手」に O の ID と理由を書き、「## PROPOSAL」にその op を出しておく。**O を Answer に変えるのは利用者である。** 自分が変えない。
+O を Answer に変えてよいと思えば、「## Next Action」に O の ID と理由を書き、「## PROPOSAL」にその op を出しておく。**O を Answer に変えるのは利用者である。** 自分が変えない。
 
 終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**出した PROPOSAL の ID**、**残った `check` の違反**を書く。
 
@@ -161,7 +161,7 @@ report は次の見出しで、この順のまま書きます。
 ## 計画からの変更
 ## 検査の結果
 ## 限界
-## 次の一手
+## Next Action
 ## PROPOSAL
 ## OUT_OF_SCOPE
 ```
@@ -171,7 +171,7 @@ report は次の見出しで、この順のまま書きます。
 - **計画からの変更** — `deviation` にしたものを、なぜ変えたかとともに 1 行ずつ書きます。**計画そのものを変えたときは、ここに「計画を書き換えた」と明記します。**
 - **検査の結果** — `check` の終了コード（0 / 1 / 2）と、**残った違反を 1 行ずつ**書きます。違反が残ったときは、結論の言い方を弱める理由を書きます。
 - **限界** — 検出力・標本の大きさ・測定の解像度・一般化の範囲で、**この結果から言えないこと**を 1 行ずつ書きます。
-- **次の一手** — 解析計画書と解析結果書のトークン、MLflow の run 名（`ID<自分の run_id>-test`）を書きます。
+- **Next Action** — 解析計画書と解析結果書のトークン、MLflow の run 名（`ID<自分の run_id>-test`）を書きます。
 
 ## やってはいけないこと
 
