@@ -35,6 +35,12 @@ async function apiFetch(path, options = {}) {
   if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
   let res = await fetch(path, { ...options, headers });
   if (res.status === 401) {
+    // 多人数モードには合言葉が無い。今の住所を覚えてログイン画面へ移す（U07）。
+    // 単独モードは今までどおり合言葉を聞く。
+    if (window.SaiAuth && window.SaiAuth.mode === "multi") {
+      if (typeof acRememberThenLogin === "function") acRememberThenLogin();
+      return res;
+    }
     const input = prompt("合言葉を入力してください");
     if (input) {
       apiToken = input;
@@ -42,6 +48,15 @@ async function apiFetch(path, options = {}) {
       headers["Authorization"] = `Bearer ${input}`;
       res = await fetch(path, { ...options, headers });
     }
+  }
+  // 初回のパスワード変更前は変更画面へ移す（U07。detail はサーバの返しそのまま）。
+  if (res.status === 403) {
+    try {
+      const text = await res.clone().text();
+      if (text.includes("パスワードを変えてください") && location.hash !== "#/password") {
+        location.hash = "#/password";
+      }
+    } catch { /* 読めなければそのまま返す */ }
   }
   return res;
 }
@@ -1866,4 +1881,7 @@ window.addEventListener("pageshow", (e) => {
 });
 
 setupMic();
-route();
+// ログインの状態を先に読んでから画面を開く（多人数モードの判定に使う・U07）。
+// account.js が無いとき（単独モードの古い配布）でも今までどおり開けるようにする。
+if (typeof acLoadMe === "function") acLoadMe().finally(() => route());
+else route();

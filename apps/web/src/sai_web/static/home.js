@@ -575,6 +575,13 @@ function hmRender() {
 
   const bar = hmEl("header", "appbar");
   bar.appendChild(hmEl("h1", null, "Home"));
+  // 多人数モードのときだけアカウント画面への入口を出す（U07）
+  if (window.SaiAuth && window.SaiAuth.mode === "multi") {
+    const account = hmEl("button", "ac-appbar-link", "アカウント");
+    account.type = "button";
+    account.addEventListener("click", () => { location.hash = "#/account"; });
+    bar.appendChild(account);
+  }
   root.appendChild(bar);
 
   if (hmError) {

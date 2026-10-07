@@ -2988,3 +2988,78 @@ code {
 .nc-error { color: var(--danger); font-size: 13px; }
 .nc-loading { color: var(--text-soft); font-size: 14px; padding: 8px 0; }
 .nc-start { align-self: flex-start; }
+
+/* --- ログイン・パスワード変更・アカウント・管理の画面（U07） --- */
+/* 画面の幅に応じて中央に寄せる。iPhone では 1 列，PC では少し広げる。 */
+.ac-body { max-width: 760px; margin: 0 auto; padding: 16px; }
+.ac-narrow { max-width: 420px; margin: 0 auto; }
+.ac-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ac-card-head .ac-title { flex: 1; }
+.ac-title { margin: 0; font-size: 16px; }
+.ac-form { display: flex; flex-direction: column; gap: 12px; }
+.ac-field { display: flex; flex-direction: column; gap: 4px; }
+.ac-label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.ac-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 16px;
+}
+.ac-error { margin: 0; min-height: 1em; color: var(--danger); font-size: 13px; }
+.ac-note { margin: 0 0 8px; color: var(--text-soft); font-size: 13px; line-height: 1.6; }
+.ac-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ac-row {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.ac-row:last-of-type { border-bottom: none; }
+.ac-row-label { flex: 0 0 8em; color: var(--text-soft); }
+.ac-row-value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ac-loading,
+.ac-empty { margin: 0; padding: 8px 0; color: var(--text-soft); font-size: 14px; }
+.ac-token-list,
+.ac-user-list { display: flex; flex-direction: column; }
+.ac-token-row,
+.ac-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.ac-token-info,
+.ac-user-info { flex: 1; min-width: 0; }
+.ac-token-label,
+.ac-user-name { font-weight: 600; overflow-wrap: anywhere; }
+.ac-token-date,
+.ac-user-email { font-size: 12px; color: var(--text-soft); overflow-wrap: anywhere; }
+.ac-user-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ac-user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ac-token-once { display: flex; flex-direction: column; gap: 8px; }
+.ac-token-warn { margin: 0; color: var(--danger); font-size: 13px; line-height: 1.6; }
+.ac-token-value {
+  display: block;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.ac-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+/* Home の帯の「アカウント」は文字のボタン（記号のボタンより小さく） */
+.appbar .ac-appbar-link { font-size: 14px; }
+
+@media (min-width: 900px) {
+  .ac-user-row { align-items: flex-start; }
+  .ac-user-actions { max-width: 360px; justify-content: flex-end; }
+}
