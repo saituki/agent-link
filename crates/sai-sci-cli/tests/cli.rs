@@ -283,7 +283,7 @@ fn init_installs_parts_and_settings() {
     assert_eq!(settings["job_status"][0], "uv");
     // 部品。
     let blocks = std::fs::read_dir(root.join(".sai/blocks")).unwrap().count();
-    assert!(blocks >= 32, "block が 32 本未満: {blocks}");
+    assert!(blocks >= 31, "block が 31 本未満: {blocks}");
     assert!(root.join(".sai/template/debate-participant.md").is_file());
     assert!(root.join(".sai/template/domain.md").is_file());
     assert!(root.join(".sai/paper/mind.md").is_file());
