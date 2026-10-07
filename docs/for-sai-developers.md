@@ -183,6 +183,17 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 - `run advance <run_id>` → `{"run_id", "from", "to"}`。review / done 以外は **終了コード 2**「review / done の run だけ移動できます」。無ければ 3。
 - `run rm <run_id> --yes` → `{"run_id", "executions": 消した数}`。実行中は 1、無ければ 3。
 
+#### `run send <run_id>` / `run interrupt <run_id>`
+
+| 命令 | 返り値 | 終了コード |
+|---|---|---|
+| `run send <run_id> [--text <文>] [--json]` | `{"run_id", "pane_id", "status": "sent"}` | 空の文 2・実行や送り先が無い 3・終了している/質問待ち 4 |
+| `run interrupt <run_id> [--json]` | `{"run_id", "status": "interrupted" \| "still_working", "agent_status"}` | 無い 3・終了している 4 |
+
+- `--text` を省くと標準入力の全文を送る（Chats の「続きを送る」が使う）。
+- 送り先は headless の擬似 pane（`hl-` で始まる id）。`draft.txt`・`inbox/`・`interrupt` のファイルで監督スレッドへ渡す。
+- `state.json` が `stopped`（終了している）、または `blocked`（質問待ち）のときは 4。
+
 #### `doc list --run <id> --json` / `doc read <token> --json` / `doc search …`
 
 | 命令 | 返り値 | Web が読む項目 |
@@ -617,6 +628,27 @@ Web は起動時に **`$SAI_HOME/web/token` に合言葉（`SAI_WEB_TOKEN`）を
 - 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（Web は両方を受け付けるが、画面や記録に残るため）。
 - HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う。
 - **合言葉の値そのものを、ログ・画面・エージェントの作業記録（session ファイル・run フォルダの成果物）に出さない。**
+
+### 4.7 フック・拡張と Web の約束
+
+cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と pi の質問拡張（`apps/web/src/sai_web/extensions/ask_user.ts`）は、Web の窓口を次で呼ぶ。
+
+- **Web の場所**: 環境変数 `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`。
+- **合言葉**: 環境変数 `SAI_WEB_INTERNAL_TOKEN` があれば、すべての要求に `Authorization: Bearer <値>` を付ける。無ければ付けない（単独モードは今のまま 127.0.0.1 からの要求として受ける）。
+- **使う住所**:
+
+| 住所 | 何に使う |
+|---|---|
+| `POST /api/register` | セッションと pane の対応づけ（`cc_register.py`・`ask_user.ts` の `session_start`） |
+| `POST /api/questions` | 質問の登録。応答は `{"ok": true, "id": "<qid>"}` |
+| `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと） |
+| `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（`ask_user.ts`） |
+
+- `POST /api/approvals` は使わない（承認は headless では来ないので、仕組みごと消した）。
+- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "deny"` と `permissionDecisionReason` に答えを入れてモデルへ返す。cc の hooks の `timeout` は 86400 秒。
+- pi の質問拡張は、画面が無い（`ctx.mode === "headless"` か `SAI_AGENT_TRANSPORT=headless`）ときは端末の選択画面を出さず、登録した質問の答えをポーリングで待つ。
+- **headless の cc では質問できない（要確認の結果）**: `claude -p` のツール一覧に `AskUserQuestion` が出ない。2026-10 に cc 2.1.292 の実物で確かめたところ、モデルは `ToolSearch` で `select:AskUserQuestion` を探し、「AskUserQuestion ツールが利用可能なツール一覧に見つかりませんでした」と返した。フックと設定は残してあるので、cc 側が対応すればそのまま動く。pi の `ask_user` は実物で動くことを確認済み。
+- headless では cc の statusLine は呼ばれない。cc の費用は engine が stream-json の `result` 行から `<SAI_HOME>/cc-cost/<session_id>.json` に書く。5 時間枠（`cc-rate-limits.json`）は使わない。
 
 ---
 
