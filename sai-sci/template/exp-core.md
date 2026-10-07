@@ -16,7 +16,7 @@
 | `sci-sim-model` / `sci-sim-compose` | modeler | 神経のモデルの式・値・再現の目標を、参照コードと論文から出典つきで抜き、モデル定義書を保存する（書式は `sim-core`）。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
 | `sci-exp-sprout` | sprout | research-tree から PATH を選んで SPROUT（実験の計画）を作る。実験仕様書を作り、SPROUT の下に最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
 | `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review の CARD を作って終わる | 終わりまで待たない・判定しない |
-| `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
+| `sci-exp-review` | review | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
 - research-tree への置き方（PROPOSAL。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
   - sprout: SEED から下る PATH（終点の O。Issue の O を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
@@ -48,7 +48,7 @@
 
 - ファイル名 `exp-spec-<study>.md`、description `実験仕様書 <study>: <研究の 1 文>`。
 - **sprout だけが作る。** 途中で書き換えない。
-- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-sci status --json` の `purpose.metric`。
+- 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-sci status --json` の `nodes[].guide`（`purpose.metric` の Q）。
 
 ```json
 {"study": "S3-ID120", "node": "S3", "sprout_run_id": 120, "project": "west",
@@ -373,7 +373,7 @@ action: tune
 parent_branch: 125
 model: cnn-static
 
-## スクリプトに書く中身
+### スクリプトに書く中身
 - 元のスクリプト: experiments/O6-ID120/ID125/train.py（tune と debug のとき。写して直す）
 - 土台のコード: <reference_code の path>（式と値はここと仕様書の出典表から写す）
 - モデル定義書: <sim_model のトークン>（式・値・再現の目標・baseline はここから写す。無ければこの行を書かない）

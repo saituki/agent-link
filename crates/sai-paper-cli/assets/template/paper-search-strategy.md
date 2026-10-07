@@ -76,16 +76,14 @@ sai-paper search "自然文の質問" \
   --year-from 2020 \
   --year-to 2025 \
   --raw-query '(glioma[tiab] OR glioblastoma[mh]) AND ferroptosis[tiab]' \
-  --save-as <セット名> \
   --json
 ```
 
 オプション説明:
 - `--db`: 複数指定可。省略時は config の `[discover] providers`
-- `--limit`: 返す件数（デフォルト 20）
+- `--limit`: 返す件数（デフォルト 10）
 - `--year-from/to`: 年号フィルタ
 - `--raw-query`: DB 固有構文をそのまま渡す（PubMed Boolean）
-- `--save-as`: 検索結果を検索セットとして保存。同じ名前なら 1 つのセットにまとめられ、重複した候補は足されません。検索のたびに別の名前を作る必要はなく、同じ名前で何度 `--save-as` しても構いません（一時的なセットを作って `set delete` で消さない）。
 - `--json`: JSON で結果を返す
 
 ## ステップ 5: 結果の確認と重複除外
@@ -106,4 +104,3 @@ CLI は自動で以下の順で dedupe:
 
 - PubMed の結果は最大 10000 件
 - bioRxiv の日付検索は API が日付範囲による絞り込みのみ対応
-- arXiv は 3 req/sec で polite に使用

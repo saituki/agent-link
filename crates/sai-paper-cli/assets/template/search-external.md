@@ -34,7 +34,7 @@ DB ごとの書き方:
 - **bioRxiv / medRxiv**: キーワードを AND でつなぐ（例 `glioma ferroptosis cell death`）。
 - **Semantic Scholar / arXiv**: 自然言語のクエリ。同義語を複数試す。
 
-## ステップ 3: 検索して検索セットに保存する
+## ステップ 3: 検索する（結果は search_history に自動で残る）
 
 ```bash
 sai-paper search "<自然文の質問>" \
@@ -43,7 +43,6 @@ sai-paper search "<自然文の質問>" \
   --year-from <開始年> \
   --year-to <終了年> \
   --raw-query '<DB 固有のクエリ>' \
-  --save-as <セット名> \
   --json
 ```
 
@@ -52,42 +51,36 @@ sai-paper search "<自然文の質問>" \
 - `--limit`: 返す件数（既定 10）。
 - `--year-from` / `--year-to`: 年号の範囲（指定するときだけ）。
 - `--raw-query`: DB 固有のクエリをそのまま渡します（PubMed の Boolean など）。
-- `--save-as`: 結果を検索セットとして保存します。**必ず付けてください**（あとで絞り込むときに使います）。
 - `--json`: JSON で返します。
 
-保存したセットの確認:
-```bash
-sai-paper set show <セット名>
-```
+検索の結果は search_history に 1 回として残ります。あとで見るときは `sai-paper search-history <log_id>` を使います。
 
 ## ステップ 4: 重複を除く
 
 `sai-paper search` は結果を自動で重複除去します。優先する順は DOI → arXiv ID → Semantic Scholar paperId → 正規化タイトルです。
-複数回に分けて検索したときも、同じセット名で `--save-as` すると 1 つのセットにまとまります。
 
 ## ステップ 5: 引用の網を 1 段だけ広げる
 
-集まった候補のうち、関係が最も深い 2〜3 本について、引用関係を 1 段だけたどり、Library に無いものを検索セットに入れます。
+集まった候補のうち、関係が最も深い 2〜3 本について、引用関係を 1 段だけたどり、Library に無いものを候補として集めます。
 
 ```bash
-sai-paper expand <論文ID>... --save-as <セット名>
+sai-paper expand <論文ID>... --json
 ```
 
 引数の意味:
-- `<論文ID>`: `sai-paper search` が返す `papers.id`（`#37` の番号）。2〜3 本まで指定します。
-- `--save-as`: 候補を入れる検索セット名。無ければ作り、あれば足します。最初の検索と同じセット名か、`-expand` を付けた別のセット名にします。
+- `<論文ID>`: Library に取り込み済みの論文の `papers.id`（`sai-paper library` で確かめる）。2〜3 本まで指定します。
 - `--direction`: たどる向き（`both` / `refs` / `cited`。既定 `both`）。
 - `--limit`: 1 本・1 向きあたりに取る最大件数（既定 20）。
 
-`--save-as` で入れた候補は `decision = 'pending'` です。`paper-screen` がこれを絞り込みます。
+expand の結果も search_history に 1 回として残ります。
 
 `--depth` を指定する必要はありません（このコマンドは常に 1 段だけたどります）。グラフの中身を自分で見たいときだけ `sai-paper graph show <論文ID>` を使います。
 
-## ステップ 6: 絞り込みは paper-screen に任せる
+## ステップ 6: 取り込みは利用者が行う
 
-このテンプレートの役目は候補を集めるところまでです。抄録を読んだ keep / drop の判定は `paper-screen` ブロックに任せてください。
+このテンプレートの役目は候補を集めるところまでです。
 
-PDF のダウンロードと Library への取り込みは、ユーザーが sai-paper の TUI で行います。エージェントは検索セットに入れるところまでにしてください。
+PDF のダウンロードと Library への取り込みは、ユーザーが sai-paper の TUI で行います。エージェントは検索して、取り込みを勧める候補を報告するところまでにしてください。
 
 ## 文献完全性
 
