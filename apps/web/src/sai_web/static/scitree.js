@@ -1,7 +1,7 @@
 "use strict";
 // 研究方針の画面（Q・O・F・E の木）。住所は #/research/tree と #/research/tree/<ID>。
 //
-// 上の帯に Sprout・進み具合・Next Action（先頭 3 件）・DEBT・注意、左に木の一覧、真ん中に
+// 上の帯に Sprout・進み具合・Next Action（先頭 3 件）・注意、左に木の一覧、真ん中に
 // 方針の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ決定の記録）を出す。
 // 狭い画面（幅 390px）の板は下から出る（saiSheet）。
 //
@@ -9,7 +9,7 @@
 // 操作は sciedit.js（seOpenAction・seOpenCard・seQuick・seOpLabel・seProposalRow）、図は
 // scigraph.js（sgRenderGraph・sgMarkSelected・sgCenterOn）の関数を typeof で確かめてから呼ぶ。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_scitree.js）。
-// 画面の名詞（Q・O・F・E・Answer・Issue・Sprout・Objectivity・Logicality・DEBT など）は英語のまま出す。
+// 画面の名詞（Q・O・F・E・Answer・Issue・Sprout・Objectivity・Logicality など）は英語のまま出す。
 
 // --- 定数 ---
 
@@ -73,7 +73,7 @@ function stParseHash(hash) {
  * iPhone の通知・ブックマーク・`sessionStorage` の「最後に開いた住所」に古い住所が
  * 残っていても開けるようにするためである。`?` の後ろと ID はそのまま写す。
  *   #/papers/tree[/<ID>]  → #/research/tree[/<ID>]
- *   #/papers/triage       → #/research/triage
+ *   #/papers/triage       → #/research/tree
  *   #/papers/read/<run>   → #/research/read/<run>
  *   #/mlflow…             → #/research/experiments…
  *   #/papers/canvas・#/canvas/… → #/research/tree
@@ -83,7 +83,7 @@ function stLegacyHash(hash) {
   if (h === "#/papers/tree" || h.startsWith("#/papers/tree/")) {
     return "#/research/tree" + h.slice("#/papers/tree".length);
   }
-  if (h === "#/papers/triage") return "#/research/triage";
+  if (h === "#/papers/triage") return "#/research/tree";
   if (h.startsWith("#/papers/read/")) {
     return "#/research/read" + h.slice("#/papers/read".length);
   }
@@ -109,6 +109,7 @@ function stRows(status) {
     obj: n.objectivity || null,
     logic: n.logicality || null,
     counts: n.counts || null,
+    pending: Number(n.pending) || 0,
     node: n,
   }));
 }
@@ -146,21 +147,7 @@ function stNextLines(status, n = 3) {
     node: x.node || null,
     card: x.card || null,
     kind: x.kind,
-    fix: x.fix || null,
   }));
-}
-
-/** DEBT の fix の移り先の住所。カードのフォームを開くもの（card）と住所の無いものは null。 */
-function stFixHash(fix, projectName) {
-  if (!fix) return null;
-  switch (fix.kind) {
-    case "triage": return "#/research/triage";
-    case "set": return `#/papers/sets/${fix.set_id}`;
-    case "node": return `#/research/tree/${fix.node}`;
-    case "run": return `#/run/${encodeURIComponent(projectName)}/${fix.run_id}`;
-    case "paper": return typeof paperHash === "function" ? paperHash(projectName, fix.paper_id, false) : null;
-    default: return null;
-  }
 }
 
 /** 決定の記録を新しい順に（at が同じなら元の順）。 */
@@ -567,7 +554,7 @@ function stRender() {
   stRenderGraph();
 }
 
-/** 「古い形の木」「Sprout」「進み具合」「Next Action」「DEBT・PROPOSAL・注意」の帯。 */
+/** 「古い形の木」「Sprout」「進み具合」「Next Action」「注意」の帯。 */
 function stRenderTop() {
   const box = document.getElementById("sci-top");
   if (!box) return;
@@ -656,16 +643,12 @@ function stProgressBand(s) {
   return line;
 }
 
-/** 解く釦。kind が card なら Create CARD、user なら Q を選ぶ、debt なら fix に従う。 */
+/** 解く釦。kind が card なら Create CARD、user なら Q を選ぶ。それ以外は出さない。 */
 function stActionBtn(x) {
-  const project = selectedPaperProject();
   const card = (node, preset) => stBtn("Create CARD", () => { stCall("seOpenCard", node, preset); });
   if (x.kind === "card") return card(x.node, x.card);
   if (x.kind === "user") return stBtn("選ぶ", () => { void stSelect(x.node); });
-  const fix = x.fix;
-  if (fix && fix.kind === "card") return card(fix.card && fix.card.node, fix.card);
-  const hash = stFixHash(fix, project);
-  return hash ? stBtn("開く", () => stGo(hash)) : null;
+  return null;
 }
 
 /** Next Action の先頭 3 件（.sci-next-row）。 */
@@ -690,18 +673,9 @@ function stNextBand(s) {
   return band;
 }
 
-/** DEBT・PROPOSAL・注意の札（.sci-chips）。 */
+/** 注意の札（.sci-chips）。 */
 function stChipBand(s) {
   const row = stEl("div", "sci-chips");
-  const n = s.debt_count != null ? s.debt_count : (s.debts || []).length;
-  const debt = stEl("button", `sci-chip sci-debt ${n ? "warn" : "dim"}`, `DEBT ${n}`);
-  debt.type = "button";
-  debt.addEventListener("click", () => stDebtSheet(s));
-  row.appendChild(debt);
-  const pend = stEl("button", "sci-chip sci-proposal", `PROPOSAL ${s.pending_proposals || 0}`);
-  pend.type = "button";
-  pend.addEventListener("click", () => stGo("#/research/triage"));
-  row.appendChild(pend);
   const w = s.warnings || [];
   if (w.length) {
     const b = stEl("button", "sci-chip warn", `⚠ 注意 ${w.length}`);
@@ -714,22 +688,6 @@ function stChipBand(s) {
     row.appendChild(b);
   }
   return row;
-}
-
-/** DEBT の一覧を saiSheet で出す。 */
-function stDebtSheet(s) {
-  if (typeof saiSheet !== "function") return;
-  const body = stEl("div", "sci-sheet-body");
-  const debts = s.debts || [];
-  if (!debts.length) body.appendChild(stEl("p", "sci-note", "DEBT はありません"));
-  for (const d of debts) {
-    const row = stEl("div", "sci-line sci-debt-row");
-    row.appendChild(stEl("span", "sci-line-main", `⚠ run ${d.run_id} ${d.block || ""}: ${d.message || ""}`));
-    const b = stActionBtn({ kind: "debt", fix: d.fix });
-    if (b) row.appendChild(b);
-    body.appendChild(row);
-  }
-  saiSheet({ title: "DEBT", body });
 }
 
 /** 研究の型を選んで木を始める。 */
@@ -821,6 +779,11 @@ function stRowEl(r, opts) {
       k.addEventListener("click", () => { void stToggleKind(r); });
       row.appendChild(k);
     }
+  }
+  if (r.pending > 0) {
+    const mark = stEl("span", "sci-row-pending", `P${r.pending}`);
+    mark.title = `PENDING の PROPOSAL が ${r.pending} 件`;
+    row.appendChild(mark);
   }
   return row;
 }
@@ -1064,7 +1027,6 @@ function stDecisionsEl(rows) {
     const main = stEl("span", "sci-line-main", `${d.node || ""} ${d.node_text || d.text || ""}`.trim());
     line.appendChild(main);
     line.appendChild(stEl("span", "sci-chip", String(d.action || "")));
-    if (d.reason) line.appendChild(stEl("p", "sci-line-sub", d.reason));
     box.appendChild(line);
   }
   return box;
@@ -1101,7 +1063,7 @@ function stBuildSeedBoard() {
   return box;
 }
 
-/** Node の板。Q・O・E は「見出し（Edit/Delete を含む）→ Parent → OP → [Q だけ: Objectivity・Logicality・ガイド] → Child → Next Action → History → 仕分け待ち」。F は「見出し（Edit/Delete を含む）→ Parent → OP → 出典 → History」だけ。 */
+/** Node の板。Q・O・E は「見出し（Edit/Delete を含む）→ Parent → OP → [Q だけ: Objectivity・Logicality・ガイド] → Child → Next Action → History → PENDING」。F は「見出し（Edit/Delete を含む）→ Parent → OP → 出典 → History」だけ。 */
 function stBuildBoard(d) {
   const node = d.node || {};
   const box = stEl("div", "sci-card");
@@ -1125,7 +1087,8 @@ function stBuildBoard(d) {
   else next.appendChild(stEl("p", "sci-note", "なし"));
   box.appendChild(next);
   box.appendChild(stBoardHistory(d));
-  box.appendChild(stBoardPending(d.pending));
+  const pend = stBoardPending(d.pending);
+  if (pend) box.appendChild(pend);
   return box;
 }
 
@@ -1366,11 +1329,12 @@ function stBoardSources(d) {
   return sec;
 }
 
-/** 仕分け待ち。 */
+/** PENDING（TRIAGE を待っている PROPOSAL）。0 件なら節を出さない。 */
 function stBoardPending(pending) {
-  const sec = stSec("仕分け待ち");
-  if (!(pending || []).length) sec.appendChild(stEl("p", "sci-note", "なし"));
-  for (const p of pending || []) {
+  const list = Array.isArray(pending) ? pending : [];
+  if (!list.length) return null;
+  const sec = stSec(`PENDING ${list.length}`);
+  for (const p of list) {
     sec.appendChild(typeof seProposalRow === "function" ? seProposalRow(p) : stEl("p", "sci-line-sub", p.title || p.id || ""));
   }
   return sec;
@@ -1442,7 +1406,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
-    stFixHash, stDecisionRows, stOpsFor,
+    stDecisionRows, stOpsFor,
     stVisibleRows, stActionMeta, stClampSplit, stFmtAt, stHistoryText, stSeedRows,
     ST_TYPES, ST_LOGIC, ST_KIND_LABEL, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_SEED_DEPTH,
   };

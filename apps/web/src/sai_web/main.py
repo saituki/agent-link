@@ -1227,17 +1227,11 @@ def api_sci_apply(
     return sci.apply(papers.resolve_project(name), payload)
 
 
-@app.get("/api/projects/{name}/papers/sci/proposals")
-def api_sci_proposals(name: str, _: None = Depends(require_token)) -> dict:
-    """仕分け待ちの一覧（`phone sci proposals`）。"""
-    return sci.proposals(papers.resolve_project(name))
-
-
 @app.post("/api/projects/{name}/papers/sci/proposals/{pid}")
 def api_sci_triage(
     name: str, pid: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """仕分ける（body は `{"action","note","edit"}`）。"""
+    """仕分ける（body は `{"action","edit"}`）。"""
     return sci.triage(papers.resolve_project(name), pid, payload)
 
 

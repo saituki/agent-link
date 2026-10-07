@@ -1,18 +1,17 @@
 "use strict";
-// 仕分け箱（#/research/triage）と、Research-tree の操作の入力欄・カードのフォーム（実装計画 U19）。
+// Research-tree の操作の入力欄・カードのフォーム・PROPOSAL の仕分け（実装計画 U19）。
 //
 // 板の釦は scitree.js から次の形で呼ばれる（この関数が無ければその釦は出さない）。
 //   seOpenAction(op, nodeId, detail)   op は C-OP の 13 個。detail は node の JSON
 //   seQuick(op, payload)               ★・Answer/Issue・目安は入力欄を出さずに送る
 //   seOpenCard(nodeId, preset)         preset は C-CARD。値の入ったフォームを開く
 //   seProposalRow(proposal, onDone)    → HTMLElement（採用・却下・取り消しの釦つき）
-//   seOpenTriage()                     #/research/triage を開く
 //
-// 中の処理は `POST …/sci/apply` / `…/sci/cards` / `…/sci/proposals` だけを使う。
+// 中の処理は `POST …/sci/apply` / `…/sci/cards` / `…/sci/proposals/{pid}` だけを使う。
 // この画面はファイルのパスを受け取らない。送る前に画面でも必須の項目と字数と出典を確かめる。
 // 通らなければ送らず、小窓の中に理由を日本語で出す。最後の検査はサーバとコアが行う。
 //
-// DOM を使わない純関数（seBuildOp / seBuildCard / seCardValues / seGroupProposals など）は
+// DOM を使わない純関数（seBuildOp / seBuildCard / seCardValues / seProposalSummary など）は
 // 末尾で node に渡す（tests/test_sciedit.js）。
 // 一番外側の名前は se で始める（tests/test_globals.js）。
 
@@ -78,14 +77,7 @@ const SE_ID_RE = /^[QOFE][1-9][0-9]{0,8}$/;
 // 仮置きの形（`Q9=値`）
 const SE_ASSUME_RE = /^[QOFE][1-9][0-9]{0,8}=.+$/;
 // 文字数の上限
-const SE_MAX = { qtext: 300, otext: 120, ftext: 1200, etext: 120, body: 2000, reason: 500, note: 1000, mlflow: 200, title: 120, sentence: 600, purpose: 300, expect: 300 };
-
-// --- 画面の状態 ---
-
-let seTriageBy = "node";  // 仕分け箱のまとめ方（"node" か "run"）
-let seBulkErrors = [];    // まとめて採用・却下で失敗した件（理由を出す）
-// 仕分け箱の表示の切り替えを覚える場所（localStorage）
-const SE_BY_KEY = "sai_web_sci_triage_by";
+const SE_MAX = { qtext: 300, otext: 120, ftext: 1200, etext: 120, body: 2000, note: 1000, mlflow: 200, title: 120, sentence: 600, purpose: 300, expect: 300 };
 
 // ============================================================================
 // DOM を使わない純関数（tests/test_sciedit.js）
@@ -137,7 +129,7 @@ function seList(value) {
 /**
  * 小窓の値（values）から op の JSON を作る。
  *   → { ok: true, op: {...}, json: {...}, error: null } または { ok: false, op: null, json: null, error: "理由" }
- * 通らないものは日本語で理由を返す（画面では送らない）。reason は空でなければ付ける。
+ * 通らないものは日本語で理由を返す（画面では送らない）。
  */
 function seBuildOp(kind, values) {
   const v = values || {};
@@ -153,31 +145,26 @@ function seBuildOp(kind, values) {
     if (n > max) return `${label}は ${max} 字までです`;
     return "";
   };
-  const withReason = (op) => {
-    const reason = seTrim(v.reason);
-    if (reason) op.reason = reason;
-    return op;
-  };
   const first = (...msgs) => msgs.find(Boolean) || "";
 
   switch (name) {
     case "add_q": {
-      const msg = first(id("parent", "QO", "親（Q か O）"), len("text", "文", 1, SE_MAX.qtext), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(id("parent", "QO", "親（Q か O）"), len("text", "文", 1, SE_MAX.qtext));
       if (msg) return bad(msg);
-      return good(withReason({ op: name, parent: seTrim(v.parent), text: seTrim(v.text) }));
+      return good({ op: name, parent: seTrim(v.parent), text: seTrim(v.text) });
     }
     case "add_o": {
       const kindV = seTrim(v.kind);
-      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.otext), len("body", "本文", 0, SE_MAX.body), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.otext), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       if (kindV && !SE_KINDS.some((x) => x[0] === kindV)) return bad("種類は Answer か Issue です");
       const op = { op: name, q: seTrim(v.q), text: seTrim(v.text) };
       if (seTrim(v.body)) op.body = seTrim(v.body);
       if (kindV) op.kind = kindV;
-      return good(withReason(op));
+      return good(op);
     }
     case "add_f": {
-      const msg = first(id("parent", "OE", "親（O か E）"), len("text", "文", 1, SE_MAX.ftext), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(id("parent", "OE", "親（O か E）"), len("text", "文", 1, SE_MAX.ftext));
       if (msg) return bad(msg);
       const text = seTrim(v.text);
       if (seCountSentences(text) > 3) return bad("文は 1〜3 文にしてください");
@@ -193,19 +180,19 @@ function seBuildOp(kind, values) {
         op.paper = Number(paper);
       }
       if (seTrim(v.report)) op.report = seTrim(v.report);
-      return good(withReason(op));
+      return good(op);
     }
     case "add_e": {
-      const msg = first(id("parent", "OE", "親（O か E）"), len("text", "文", 1, SE_MAX.etext), len("body", "本文", 0, SE_MAX.body), len("mlflow", "MLflow の名前", 0, SE_MAX.mlflow), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(id("parent", "OE", "親（O か E）"), len("text", "文", 1, SE_MAX.etext), len("body", "本文", 0, SE_MAX.body), len("mlflow", "MLflow の名前", 0, SE_MAX.mlflow));
       if (msg) return bad(msg);
       const op = { op: name, parent: seTrim(v.parent), text: seTrim(v.text) };
       if (seTrim(v.body)) op.body = seTrim(v.body);
       if (seTrim(v.mlflow)) op.mlflow = seTrim(v.mlflow);
-      return good(withReason(op));
+      return good(op);
     }
     case "record_logic": {
       const value = seTrim(v.value);
-      const msg = first(id("q", "Q", "Q"), len("note", "指摘の文", 0, SE_MAX.note), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(id("q", "Q", "Q"), len("note", "指摘の文", 0, SE_MAX.note));
       if (msg) return bad(msg);
       if (value !== "ok" && value !== "contradiction") return bad("値は OK か CONTRADICTION です");
       const findings = seList(v.findings);
@@ -217,44 +204,44 @@ function seBuildOp(kind, values) {
       const op = { op: name, q: seTrim(v.q), value };
       if (seTrim(v.note)) op.note = seTrim(v.note);
       if (findings.length) op.findings = findings;
-      return good(withReason(op));
+      return good(op);
     }
     case "add_seed": {
-      const msg = first(len("title", "題", 1, SE_MAX.title), len("sentence", "文", 1, SE_MAX.sentence), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(len("title", "題", 1, SE_MAX.title), len("sentence", "文", 1, SE_MAX.sentence));
       if (msg) return bad(msg);
       const path = seList(v.path);
       if (!path.length) return bad("道の O を 1 つ以上選んでください");
       for (const o of path) if (!seRefOk(o, "O")) return bad(`O の形が正しくありません: ${o}`);
-      return good(withReason({ op: name, title: seTrim(v.title), sentence: seTrim(v.sentence), path }));
+      return good({ op: name, title: seTrim(v.title), sentence: seTrim(v.sentence), path });
     }
     case "copy": {
-      const msg = first(id("node", "O", "写す O"), id("to", "Q", "写す先の Q"), len("reason", "理由", 0, SE_MAX.reason));
-      return msg ? bad(msg) : good(withReason({ op: name, node: seTrim(v.node), to: seTrim(v.to) }));
+      const msg = first(id("node", "O", "写す O"), id("to", "Q", "写す先の Q"));
+      return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), to: seTrim(v.to) });
     }
     case "remove": {
-      const msg = first(id("node", "QOFE", "消す Node"), len("reason", "理由", 1, SE_MAX.reason));
-      return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), reason: seTrim(v.reason) });
+      const msg = id("node", "QOFE", "消す Node");
+      return msg ? bad(msg) : good({ op: name, node: seTrim(v.node) });
     }
     case "star":
     case "unstar": {
-      const msg = first(id("o", "O", "O"), len("reason", "理由", 0, SE_MAX.reason));
-      return msg ? bad(msg) : good(withReason({ op: name, o: seTrim(v.o) }));
+      const msg = id("o", "O", "O");
+      return msg ? bad(msg) : good({ op: name, o: seTrim(v.o) });
     }
     case "set_kind": {
-      const msg = first(id("o", "O", "O"), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = id("o", "O", "O");
       if (msg) return bad(msg);
       const kindV = seTrim(v.kind);
       if (!SE_KINDS.some((x) => x[0] === kindV)) return bad("種類は Answer か Issue です");
-      return good(withReason({ op: name, o: seTrim(v.o), kind: kindV }));
+      return good({ op: name, o: seTrim(v.o), kind: kindV });
     }
     case "edit": {
-      const msg = first(id("node", "QOFE", "直す Node"), len("text", "文", 0, SE_MAX.ftext), len("body", "本文", 0, SE_MAX.body), len("reason", "理由", 0, SE_MAX.reason));
+      const msg = first(id("node", "QOFE", "直す Node"), len("text", "文", 0, SE_MAX.ftext), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       if (!seTrim(v.text) && !seTrim(v.body)) return bad("文か本文のどちらかを入力してください");
       const op = { op: name, node: seTrim(v.node) };
       if (seTrim(v.text)) op.text = seTrim(v.text);
       if (seTrim(v.body)) op.body = seTrim(v.body);
-      return good(withReason(op));
+      return good(op);
     }
     case "set_target": {
       const msg = id("q", "Q", "Q");
@@ -333,43 +320,6 @@ function seBuildCard(values) {
   return { ok: true, card, error: null };
 }
 
-/** 提案の Node（まとめの鍵）。payload の parent・q・node・o の順で最初にある ID。無ければ空文字。 */
-function seProposalNodeKey(p) {
-  if (!p) return "";
-  const payload = p.payload || {};
-  for (const k of ["parent", "q", "node", "o"]) {
-    if (seRefOk(payload[k])) return seTrim(payload[k]);
-  }
-  return seRefOk(p.node) ? seTrim(p.node) : "";
-}
-
-/** 提案の run の番号。無ければ空文字。 */
-function seProposalRunKey(p) {
-  const num = Number(p && p.run_id);
-  return Number.isInteger(num) && num > 0 ? String(num) : "";
-}
-
-/**
- * 仕分け箱のまとめ方（"node" か "run"）。
- *   → [{ key, label, items: [...] }]。出会った順に並べる。
- */
-function seGroupProposals(list, by) {
-  const items = (Array.isArray(list) ? list : []).filter((p) => p && typeof p === "object");
-  const map = new Map();
-  for (const p of items) {
-    const key = by === "run" ? seProposalRunKey(p) : seProposalNodeKey(p);
-    if (!map.has(key)) {
-      const title = seTrim(p.node_title);
-      const label = by === "run"
-        ? (key ? `run ${key}` : "run 不明")
-        : (key ? `${key}${title ? ` ${title}` : ""}` : "Node なし");
-      map.set(key, { key, label, items: [] });
-    }
-    map.get(key).items.push(p);
-  }
-  return [...map.values()];
-}
-
 /** 提案の中身の要約（payload の text・title・node・parent から 90 字）。 */
 function seProposalSummary(p) {
   const payload = (p && p.payload) || {};
@@ -438,12 +388,6 @@ function seNote(text) {
 }
 
 /** 節点の題を status から引く。 */
-function seTitleOf(status, id) {
-  const list = status && Array.isArray(status.nodes) ? status.nodes : [];
-  const n = list.find((x) => x && x.id === id);
-  return n ? n.title || "" : "";
-}
-
 // ============================================================================
 // 入力欄の部品（1 種類ごとに 1 つの関数）
 // ============================================================================
@@ -872,7 +816,6 @@ function seFieldsFor(kind, nodeId, detail) {
   const node = d.node || {};
   const id = seTrim(nodeId) || seTrim(node.id);
   const nodes = seStatusNodes();
-  const reason = () => seFieldArea("reason", "理由", "", 2, "任意・500 字まで");
 
   switch (kind) {
     case "add_q": {
@@ -890,7 +833,7 @@ function seFieldsFor(kind, nodeId, detail) {
         };
         fields.push(guide);
       }
-      fields.push(text, reason());
+      fields.push(text);
       return { title: `Q を足す（${id}）`, values: { parent: id }, fields };
     }
     case "add_o":
@@ -901,7 +844,6 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldText("text", "文", "", "必須・120 字まで"),
           seFieldArea("body", "本文", "", 4, "任意・2000 字まで"),
           seFieldSelect("kind", "種類", SE_KINDS, "answer", null, false),
-          reason(),
         ],
       };
     case "add_f":
@@ -912,7 +854,6 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldArea("text", "文", "", 3, "必須・1〜3 文・1200 字まで"),
           seFieldLines("cites", "出典", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは必須）", "#37 §3.2"),
           seFieldText("paper", "論文番号", "", "任意（37 のような数字）"),
-          reason(),
         ],
       };
     case "add_e":
@@ -923,7 +864,6 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldText("text", "文", "", "必須・120 字まで"),
           seFieldArea("body", "本文", "", 4, "任意・2000 字まで"),
           seFieldText("mlflow", "MLflow の名前", "", "任意・200 字まで"),
-          reason(),
         ],
       };
     case "record_logic":
@@ -946,7 +886,6 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldText("title", "題", "", "必須・120 字まで"),
           seFieldArea("sentence", "文", (st && st.seed_draft && st.seed_draft.text) || "", 4, "必須・600 字まで"),
           seFieldChain("path", "道", nodes, { nodeId: id }),
-          reason(),
         ],
       };
     }
@@ -954,13 +893,13 @@ function seFieldsFor(kind, nodeId, detail) {
       return {
         title: `O を写す（${id}）`,
         values: { node: id },
-        fields: [seFieldSelect("to", "写す先の Q", seLeafQs(nodes).map(seNodeOption), "", "子の Q を持たない Q", false), reason()],
+        fields: [seFieldSelect("to", "写す先の Q", seLeafQs(nodes).map(seNodeOption), "", "子の Q を持たない Q", false)],
       };
     case "remove":
       return {
         title: `消す（${id}）`,
         values: { node: id },
-        fields: [seFieldArea("reason", "理由", "", 3, "必須・500 字まで")],
+        fields: [],
       };
     case "edit":
       return {
@@ -969,7 +908,6 @@ function seFieldsFor(kind, nodeId, detail) {
         fields: [
           seFieldArea("text", "文", node.text || "", 3, "文か本文のどちらかは必須"),
           seFieldArea("body", "本文", node.body || "", 5, "2000 字まで"),
-          reason(),
         ],
       };
     default:
@@ -990,7 +928,7 @@ async function seQuick(op, payload) {
 }
 
 /**
- * op の小窓を出す。SE_QUICK の op は seQuick に回す。remove は理由と確認を必ず出す。
+ * op の小窓を出す。SE_QUICK の op は seQuick に回す。remove は確認を必ず出す。
  * 送る前に画面でも必須の項目と字数と出典を確かめる。通らなければ送らない。
  */
 function seOpenAction(op, nodeId, detail) {
@@ -1132,7 +1070,7 @@ async function seOpenCard(nodeId, preset) {
 }
 
 // ============================================================================
-// 仕分け（seProposalRow・仕分け箱）
+// PROPOSAL の仕分け（seProposalRow）
 // ============================================================================
 
 /** 仕分け待ちの 1 行（採用・直して採用・却下／applied なら取り消しだけ）。 */
@@ -1147,7 +1085,6 @@ function seProposalRow(proposal, onDone) {
   if (where) head.appendChild(seEl("span", "sci-edit-where", where));
   row.appendChild(head);
   row.appendChild(seEl("p", "sci-edit-proposal-text", seProposalSummary(p)));
-  if (p.reason) row.appendChild(seNote(p.reason));
   if (p.created_at) row.appendChild(seNote(p.created_at));
   const btns = seLine("sci-edit-proposal-btns");
   const done = () => { if (typeof onDone === "function") onDone(); };
@@ -1184,19 +1121,16 @@ function seProposalRow(proposal, onDone) {
   btns.appendChild(seBtn("直して採用", () => seOpenProposalEdit(p, done)));
   btns.appendChild(seBtn("却下", async (ev) => {
     const b = ev.currentTarget;
-    let note = "";
-    if (typeof saiPrompt === "function") {
-      const v = await saiPrompt({
-        title: "却下するメモ",
-        body: "後で読み返したいときはメモを書いてください（任意）。",
-        ok: "却下",
-      });
-      if (v === null) return;
-      note = seTrim(v);
-    }
+    const ok = await saiConfirm({
+      title: "却下しますか",
+      body: `${p.id || "この PROPOSAL"} を却下します。`,
+      ok: "却下",
+      danger: true,
+    });
+    if (!ok) return;
     b.disabled = true;
     try {
-      await seTriageOne(p.id, { action: "reject", note });
+      await seTriageOne(p.id, { action: "reject" });
       saiToast("却下しました", "ok");
       done();
     } catch (e) {
@@ -1237,157 +1171,11 @@ function seOpenProposalEdit(p, onDone) {
   }, "primary"));
 }
 
-/** 仕分け箱の表示の切り替え（節点ごと / run ごと）を読み戻す。 */
-function seLoadBy() {
-  try {
-    const v = localStorage.getItem(SE_BY_KEY);
-    if (v === "node" || v === "run") return v;
-  } catch { /* 保存できなくても動く */ }
-  return "node";
-}
-
-function seSaveBy(by) {
-  try { localStorage.setItem(SE_BY_KEY, by); } catch { /* 保存できなくても動く */ }
-}
-
-/** 仕分け箱の画面を開く。 */
-async function seOpenTriage() {
-  if (typeof document === "undefined") return;
-  const box = document.getElementById("se-triage-body");
-  if (!box) return;
-  if (typeof ensurePaperProjects === "function") await ensurePaperProjects();
-  if (typeof selectedPaperProject !== "function" || !selectedPaperProject()) {
-    box.innerHTML = "";
-    const msg = typeof NO_PROJECT_MSG === "string" ? NO_PROJECT_MSG : "論文の置き場があるプロジェクトがありません";
-    box.appendChild(saiEmpty({ icon: "📁", title: "論文の置き場がありません", body: msg }));
-    return;
-  }
-  await seTriageReload();
-}
-
-/** 仕分け箱を読み直して描き直す。 */
-async function seTriageReload() {
-  const box = document.getElementById("se-triage-body");
-  if (!box) return;
-  box.innerHTML = "";
-  let res = null;
-  try {
-    res = await paperApi(stApi("/proposals"));
-  } catch (e) {
-    box.appendChild(saiEmpty({
-      icon: "⚠️",
-      title: "PROPOSAL を読めませんでした",
-      body: (e && e.message) || "もう一度読み込んでください。",
-    }));
-    return;
-  }
-  const all = seProposalList(res);
-  const pending = all.filter((p) => p && p.status !== "accepted" && p.status !== "rejected" && p.status !== "reverted");
-  seTriageBy = seLoadBy();
-  const st = typeof stStatus === "function" ? stStatus() : null;
-  // まとめ替え（節点の題を足す）
-  const groups = seGroupProposals(pending, seTriageBy).map((g) => {
-    const title = seTriageBy === "node" ? seTitleOf(st, g.key) : "";
-    return { key: g.key, label: title ? `${g.key} ${title}` : g.label, items: g.items };
-  });
-
-  if (seBulkErrors.length) {
-    const failed = seEl("div", "sci-edit-bulk-errors");
-    failed.appendChild(seEl("h2", "sci-edit-sub", "まとめて TRIAGE できなかった件"));
-    for (const f of seBulkErrors) failed.appendChild(seEl("p", "sci-edit-error", `${f.id} ${f.why}`));
-    box.appendChild(failed);
-  }
-
-  const seg = seEl("div", "dash-seg small sci-edit-by");
-  for (const [key, label] of [["node", "NODE ごと"], ["run", "run ごと"]]) {
-    const b = seEl("button", seTriageBy === key ? "active" : "", label);
-    b.type = "button";
-    b.addEventListener("click", () => {
-      seTriageBy = key;
-      seSaveBy(key);
-      void seTriageReload();
-    });
-    seg.appendChild(b);
-  }
-  box.appendChild(seg);
-
-  if (!pending.length) {
-    box.appendChild(saiEmpty({ icon: "✅", title: "TRIAGE 待ちの PROPOSAL はありません" }));
-    return;
-  }
-  for (const g of groups) {
-    const sec = seEl("section", "sci-edit-group");
-    const head = seLine("sci-edit-group-head");
-    const label = seLine("sci-edit-group-label");
-    label.appendChild(seEl("h2", "sci-edit-group-title", g.label));
-    label.appendChild(seChip(`${g.items.length} 件`, "warn"));
-    head.appendChild(label);
-    const bulk = seLine("sci-edit-group-btns");
-    bulk.appendChild(seBtn("まとめて採用", () => { void seBulk(g, "accept"); }));
-    bulk.appendChild(seBtn("まとめて却下", () => { void seBulk(g, "reject"); }, "ghost"));
-    head.appendChild(bulk);
-    sec.appendChild(head);
-    for (const p of g.items) sec.appendChild(seProposalRow(p, () => { void seTriageReload(); }));
-    box.appendChild(sec);
-  }
-}
-
-/** まとめて採用・却下（1 件ずつ順に送る。失敗した件は残して理由を出す）。 */
-async function seBulk(group, action) {
-  const word = action === "accept" ? "採用" : "却下";
-  const ok = await saiConfirm({
-    title: `まとめて${word}しますか`,
-    body: `${group.label} の ${group.items.length} 件を 1 件ずつ${word}します。1 件の失敗で他は止まりません。`,
-    ok: word,
-    danger: action !== "accept",
-  });
-  if (!ok) return;
-  const failures = [];
-  for (const p of group.items) {
-    try {
-      await seTriageOne(p.id, { action });
-    } catch (e) {
-      failures.push({ id: p.id || "", why: (e && e.message) || "失敗しました" });
-    }
-  }
-  seBulkErrors = failures;
-  if (failures.length) saiToast(`${failures.length} 件は${word}できませんでした`, "error");
-  else saiToast(`${group.items.length} 件を${word}しました`, "ok");
-  await seTriageReload();
-}
-
-// ============================================================================
-// 画面の登録（window.SaiRoutes）
-// ============================================================================
-
-if (typeof window !== "undefined" && typeof document !== "undefined") {
-  // 仕分け箱（#/research/triage）
-  (window.SaiRoutes = window.SaiRoutes || []).push({
-    match(hash) {
-      return /^#\/research\/triage$/.test(String(hash || "")) ? {} : null;
-    },
-    view: "view-sci-triage",
-    tab: "research",
-    hideTabbar: false,
-    interval: 0, // 定期更新はしない（↻ で読み直す）
-    async open() {
-      await seOpenTriage();
-    },
-    async poll() {},
-  });
-
-  const back = document.getElementById("se-triage-back");
-  if (back) back.addEventListener("click", () => { location.hash = "#/research/tree"; });
-  const reload = document.getElementById("se-triage-reload");
-  if (reload) reload.addEventListener("click", () => { void seTriageReload(); });
-}
-
 // --- node からの読み込み（tests/test_sciedit.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
-    seCardValues, seBuildCard, seProposalNodeKey, seProposalRunKey, seGroupProposals,
-    seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
+    seCardValues, seBuildCard, seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
     seNearestO, seSproutStartOs, seSproutNext, seChainPlan, seChainPath,
     SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ASSUME_RE, SE_ID_RE,
   };

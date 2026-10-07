@@ -1,4 +1,4 @@
-/* sai-web の仕分け箱（#/research/triage）と読む札（#/research/read/<run_id>）の画面 —
+/* sai-web の研究方針の入力欄と読む札（#/research/read/<run_id>）の画面 —
    実装計画 U20。scitree.css の後に読む（index.html）。
    使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
    --ok / --warn / --danger と --sci-*（style.css にある）。

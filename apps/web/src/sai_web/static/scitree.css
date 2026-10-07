@@ -235,24 +235,15 @@
   cursor: pointer;
 }
 
-.sci-debts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.sci-debt {
-  cursor: default;
-}
-
-button.sci-debt {
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.sci-debt.muted {
-  opacity: 0.5;
+.sci-row-pending {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--warn-on-bg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
 }
 
 .sci-gate-list { display: flex; flex-direction: column; gap: 10px; }

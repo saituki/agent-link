@@ -5,7 +5,7 @@
 - 検査に通らない値では CLI が 1 回も呼ばれず、400 と日本語の理由が返る
 - 知らない項目と `path` のようなファイルのパスが CLI に渡らない
 - 読む札の終わりは、始まっていない札でも 1 回の操作で review まで進む
-- 15 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
+- 14 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
 
 実行:
     cd <作業用コピー>
@@ -100,7 +100,7 @@ def swap(order: list, replies: list | None = None):
 
 # C-OP の 13 op の通る例
 OP_EXAMPLES = {
-    "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1", "reason": "足す"},
+    "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
     "add_o": {"q": "Q1", "text": "候補", "body": "説明", "kind": "issue"},
     "add_f": {
         "parent": "O2",
@@ -114,7 +114,7 @@ OP_EXAMPLES = {
     "record_logic": {"q": "Q1", "value": "contradiction", "note": "n", "findings": ["F1", "F2"]},
     "add_seed": {"title": "題", "sentence": "文", "path": ["O1", "O2"]},
     "copy": {"node": "O2", "to": "Q3"},
-    "remove": {"node": "F4", "reason": "誤り"},
+    "remove": {"node": "F4"},
     "star": {"o": "O2"},
     "unstar": {"o": "O2"},
     "set_kind": {"o": "O2", "kind": "answer"},
@@ -197,9 +197,6 @@ def test_op_ng() -> None:
     bad({"op": "add_seed", "title": "題", "sentence": "文", "path": ["Q1"]})
     bad({"op": "add_seed", "title": "題", "sentence": "文"}, "path がありません")
     bad({"op": "add_seed", "title": "題", "sentence": "あ" * 601, "path": ["O1"]})
-    bad({"op": "remove", "node": "O1"}, "reason がありません")
-    bad({"op": "remove", "node": "O1", "reason": "あ" * 501})
-    bad({"op": "star", "o": "O1", "reason": "あ" * 501})
     bad({"op": "set_kind", "o": "O1", "kind": "x"})
     bad({"op": "edit", "node": "O1"}, "text か body のどちらかが要ります")
     bad({"op": "edit", "node": "O1", "text": "あ" * 1201})
@@ -212,7 +209,7 @@ def test_unknown_fields_dropped() -> None:
     """知らない項目と `path` のようなファイルのパスは落ちている。"""
     got = sci.validate_op(
         {"op": "add_q", "parent": "Q1", "text": "なぜ？", "path": "/etc/passwd",
-         "proposal": "P55", "actor": "run:130"}
+         "proposal": "P55", "actor": "run:130", "reason": "足す"}
     )
     assert got == {"op": "add_q", "parent": "Q1", "text": "なぜ？"}, got
     card = sci.validate_card(
@@ -266,15 +263,15 @@ def test_card() -> None:
 
 def test_triage() -> None:
     """仕分けの検査。"""
-    assert sci.validate_triage({"action": "accept"}) == ("accept", "", None)
-    assert sci.validate_triage({"action": "reject", "note": " 違う "}) == ("reject", "違う", None)
-    action, note, edit = sci.validate_triage(
+    assert sci.validate_triage({"action": "accept"}) == ("accept", None)
+    assert sci.validate_triage({"action": "reject", "note": " 違う "}) == ("reject", None)
+    action, edit = sci.validate_triage(
         {"action": "accept", "note": "直して採用",
          "edit": {"op": "add_q", "parent": "Q1", "text": "なぜ？"}}
     )
-    assert (action, note) == ("accept", "直して採用")
+    assert action == "accept"
     assert edit == {"op": "add_q", "parent": "Q1", "text": "なぜ？"}
-    for bad in ({}, {"action": "keep"}, {"action": "accept", "note": "あ" * 1001},
+    for bad in ({}, {"action": "keep"},
                 {"action": "accept", "edit": {"op": "unknown_op"}}):
         expect_400(lambda value=bad: sci.validate_triage(value))
 
@@ -318,12 +315,9 @@ def test_calls(order: list) -> None:
         }
         assert paper.last["timeout"] == 30.0
 
-        sci.proposals(project)
-        assert paper.last["args"][1:] == ["proposals", "--json"]
-
-        sci.triage(project, "P55", {"action": "reject", "note": "--help"})
+        sci.triage(project, "P55", {"action": "reject"})
         assert paper.last["args"][1:] == [
-            "triage", "P55", "--reject", "--note=--help",
+            "triage", "P55", "--reject",
         ], paper.last["args"]
         assert paper.last["input_text"] is None
         sci.triage(project, "P56", {"action": "accept", "edit": {"op": "star", "o": "O1"}})
@@ -394,7 +388,7 @@ def test_read_finish() -> None:
     root = str(project["root"])
     card = {
         "run_id": 130, "owner": "todo",
-        "findings": [{"id": "F1"}, {"id": "F2"}], "debts": ["メモが無い"],
+        "findings": [{"id": "F1"}, {"id": "F2"}],
     }
 
     order: list = []
@@ -403,7 +397,7 @@ def test_read_finish() -> None:
         got = sci.read_finish(project, 130)
     finally:
         restore()
-    assert got == {"run_id": 130, "status": "review", "findings": 2, "debts": ["メモが無い"]}, got
+    assert got == {"run_id": 130, "status": "review", "findings": 2}, got
     assert [f"{k}: {a}" for k, a in order] == [
         "sci: read 130 --json", "link: card start 130", "link: card finish 130",
     ], order
@@ -411,12 +405,12 @@ def test_read_finish() -> None:
 
     # 始まっている札は start を呼ばない。F が 0 でも終わる
     order = []
-    _, link, restore = swap(order, [{"owner": "running", "findings": [], "debts": []}])
+    _, link, restore = swap(order, [{"owner": "running", "findings": []}])
     try:
         got = sci.read_finish(project, 130)
     finally:
         restore()
-    assert got == {"run_id": 130, "status": "review", "findings": 0, "debts": []}, got
+    assert got == {"run_id": 130, "status": "review", "findings": 0}, got
     assert [f"{k}: {a}" for k, a in order] == [
         "sci: read 130 --json", "link: card finish 130",
     ], order
@@ -489,7 +483,7 @@ def test_user_cli_args() -> None:
 
 
 def test_routes() -> None:
-    """15 本の住所があり、合言葉（require_token）で守られている。"""
+    """14 本の住所があり、合言葉（require_token）で守られている。"""
     from sai_web.main import app, require_token
 
     paths = [(route.path, sorted(getattr(route, "methods", None) or [])) for route in app.routes]
@@ -500,7 +494,6 @@ def test_routes() -> None:
         (f"{base}/sci/init", ["POST"]),
         (f"{base}/sci/nodes/{{node_id}}", ["GET"]),
         (f"{base}/sci/apply", ["POST"]),
-        (f"{base}/sci/proposals", ["GET"]),
         (f"{base}/sci/proposals/{{pid}}", ["POST"]),
         (f"{base}/sci/cards", ["POST"]),
         (f"{base}/sci/reads/{{run_id}}", ["GET"]),
@@ -511,7 +504,7 @@ def test_routes() -> None:
         (f"{base}/sets/{{set_id}}/mark", ["POST"]),
         (f"{base}/sets/{{set_id}}/drop-pending", ["POST"]),
     ]
-    assert len(wanted) == 15
+    assert len(wanted) == 14
     for path, method in wanted:
         assert (path, method) in paths, f"住所が無い: {method} {path}"
     assert not any(p.endswith("/sci/graph") for p, _ in paths), "/sci/graph は消した"
