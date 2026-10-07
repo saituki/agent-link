@@ -34,7 +34,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from sai_web import cli, control, notify, rbrowser
+from sai_web import cli, control, notify
 from sai_web.config import settings
 
 logger = logging.getLogger("sai_web")
@@ -1502,29 +1502,6 @@ async def _manual_import_job(
         logger.exception(f"手動取り込みで失敗: {e}")
         if job.get("status") not in ("done", "failed"):
             fail("原因不明のエラー")
-
-
-async def request_browser_import(project: dict, payload) -> dict:
-    """リモートブラウザが保存した PDF を取り込む（`POST …/papers/browser/import`）。
-
-    body は「取り込み対象のどれか 1 つ」＋ `{"file_name": "x.pdf"}`。ファイルはダウンロード先の
-    名前だけで引く（パスは受け取らない）。取り込んだ後もファイルは消さない（失敗したら
-    もう一度押せるように。7 日で消える）。
-    """
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="送る値が正しくありません")
-    target = dict(payload)
-    file_name = target.pop("file_name", None)
-    if file_name is None:
-        raise HTTPException(status_code=400, detail="PDF を選んでください")
-    _manual_target(target)
-    path = rbrowser.download_path(file_name)
-    if path.stat().st_size > UPLOAD_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")
-    body = await run_in_threadpool(path.read_bytes)
-    if not body.startswith(PDF_MAGIC):
-        raise HTTPException(status_code=400, detail="PDF ではありません")
-    return await request_manual_import(project, target, body=body)
 
 
 # PDF の日本語訳の待ち時間

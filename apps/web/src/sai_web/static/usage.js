@@ -33,36 +33,6 @@ function usageMoney(n) {
   return v < 0 ? `-$${Math.abs(v).toFixed(2)}` : `$${v.toFixed(2)}`;
 }
 
-/** 「12分前の値」（cc の値がいつ届いたか・42 §3.1）． */
-function usageSavedAgo(savedAt) {
-  const t = Number(savedAt);
-  if (!Number.isFinite(t) || t <= 0) return "";
-  const diff = Math.max(0, Math.floor(Date.now() / 1000 - t));
-  if (diff < 60) return "たった今の値";
-  const min = Math.floor(diff / 60);
-  if (min < 60) return `${min}分前の値`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h}時間前の値`;
-  return `${Math.floor(h / 24)}日前の値`;
-}
-
-/** 「あと 3時間12分で回復（14:30）」（過ぎていたら回復済み・42 §3.1）． */
-function usageResetText(resetsAt) {
-  const t = Number(resetsAt);
-  if (!Number.isFinite(t) || t <= 0) return "";
-  const now = Math.floor(Date.now() / 1000);
-  if (t <= now) return "回復済み（次に cc が動くと更新）";
-  const left = t - now;
-  const h = Math.floor(left / 3600);
-  const m = Math.floor((left % 3600) / 60);
-  const at = new Date(t * 1000).toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const span = h > 0 ? `${h}時間${m}分` : `${m}分`;
-  return `あと ${span}で回復（${at}）`;
-}
-
 /** 「◯分前に取得」（一覧と詳細の上に出す・42 §3.1）． */
 function usageFetchedAgo(savedAt) {
   const t = Number(savedAt);
@@ -133,37 +103,6 @@ function usageCard(title, onOpen) {
 }
 
 // --- カード一覧（#/usage） ---
-
-/** Claude Code（Team）の 5 時間枠（42 §3.1）． */
-function usageCcCard(cc) {
-  const card = el("div", "dash-card");
-  card.appendChild(el("h2", "dash-card-title", "Claude Code（Team）"));
-  if (!cc) {
-    card.appendChild(el("p", "dash-empty", "cc が一度動くと表示されます"));
-    return card;
-  }
-  const pct = Math.max(0, Math.min(100, Number(cc.used_percentage) || 0));
-  const row = el("div", "usage-meter-row");
-  row.appendChild(el("span", "dash-bar-name", "5時間枠"));
-  const track = el("div", "dash-bar-track");
-  // 読み上げでも「どれだけ使ったか」が分かるように progressbar として伝える
-  track.setAttribute("role", "progressbar");
-  track.setAttribute("aria-label", "5時間枠の使用率");
-  track.setAttribute("aria-valuemin", "0");
-  track.setAttribute("aria-valuemax", "100");
-  track.setAttribute("aria-valuenow", String(Math.round(pct)));
-  const fill = el("div", "dash-bar-fill");
-  fill.style.width = `${pct}%`;
-  track.appendChild(fill);
-  row.appendChild(track);
-  row.appendChild(el("span", "usage-meter-pct", `${pct}%`));
-  card.appendChild(row);
-  const reset = usageResetText(cc.resets_at);
-  if (reset) card.appendChild(el("div", "usage-line", reset));
-  const saved = usageSavedAgo(cc.saved_at);
-  if (saved) card.appendChild(el("div", "usage-line muted", saved));
-  return card;
-}
 
 /** OpenRouter の 1 アカウント（42 §3.1）． */
 function usageOpenrouterCard(account) {
@@ -272,7 +211,6 @@ function usageRender() {
   }
   // 広い画面では 2〜3 列に並べる（style.css の .usage-cards）
   const cards = el("div", "dash-cards usage-cards");
-  cards.appendChild(usageCcCard(usageData.cc || null));
   for (const account of usageData.openrouter || []) {
     cards.appendChild(usageOpenrouterCard(account));
   }

@@ -2599,18 +2599,7 @@ function renderRemote(target) {
         });
       }));
     }
-    // 学内ネットワークの Mac のブラウザで開く（rbrowser.js が無くても壊れない）
-    if (item.doi && typeof rbOpenHash === "function") {
-      actions.appendChild(paperBtn("Mac のブラウザで開く", () => {
-        rbOpenHash(remoteView.name, item.doi, { log_id: remoteView.logId, position: remoteView.position });
-      }));
-    }
     guide.appendChild(actions);
-    if (item.doi && typeof rbOpenHash === "function") {
-      guide.appendChild(
-        el("p", "paper-msg", "学内ネットワークの Mac のブラウザで論文のページを開きます。PDF を保存して Import すると Library に入ります")
-      );
-    }
     guide.appendChild(
       el("p", "paper-msg", "PDF を取りに行って Library に保存します。数分かかることがあります。")
     );
@@ -2790,13 +2779,6 @@ function renderPaper(target) {
           title: p.title || "Papers",
           siteUrl: p.doi ? doiUrl(p.doi) : "",
         });
-      })
-    );
-  }
-  if (!files.pdf && p.doi && typeof rbOpenHash === "function") {
-    actions.appendChild(
-      paperBtn("Mac のブラウザで開く", () => {
-        rbOpenHash(paperProject, p.doi, { paper_id: paperIdNum });
       })
     );
   }

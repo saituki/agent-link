@@ -35,7 +35,6 @@ from sai_web import (
     papers,
     questions,
     radio,
-    rbrowser,
     runs,
     sci,
     sessions,
@@ -122,11 +121,6 @@ def _startup() -> None:
         return
     # 状態の監視ループを起動する（通知用．失敗してもサーバーは止めない）
     asyncio.get_event_loop().create_task(watch_loop())
-
-
-@app.on_event("shutdown")
-async def _shutdown() -> None:
-    await rbrowser.close()
 
 
 def _server_version() -> str:
@@ -939,58 +933,6 @@ async def api_papers_manual_upload(
     papers._manual_target(target)
     body = await papers.read_pdf_upload(request, target)
     return await papers.request_manual_import(project, target, body=body)
-
-
-# --- リモートブラウザ（Mac の Chrome を遠隔操作・U01）。`{paper_id:int}` より前に登録する ---
-
-
-@app.post("/api/projects/{name}/papers/browser/open")
-async def api_papers_browser_open(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """DOI のページを Mac の Chrome で開く（body は `{"doi": "10.…"}`）。"""
-    papers.resolve_project(name)
-    return await rbrowser.open_page(payload.get("doi"))
-
-
-@app.get("/api/projects/{name}/papers/browser/state")
-async def api_papers_browser_state(name: str, _: None = Depends(require_token)) -> dict:
-    papers.resolve_project(name)
-    return await rbrowser.state()
-
-
-@app.get("/api/projects/{name}/papers/browser/screen")
-async def api_papers_browser_screen(name: str, _: None = Depends(require_token)) -> Response:
-    papers.resolve_project(name)
-    return Response(
-        content=await rbrowser.screenshot(),
-        media_type="image/jpeg",
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.post("/api/projects/{name}/papers/browser/input")
-async def api_papers_browser_input(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    papers.resolve_project(name)
-    await rbrowser.send_input(payload)
-    return {"ok": True}
-
-
-@app.post("/api/projects/{name}/papers/browser/import", status_code=202)
-async def api_papers_browser_import(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """保存した PDF を取り込む（body は取り込み対象のどれか 1 つ＋ `file_name`）。"""
-    return await papers.request_browser_import(papers.resolve_project(name), payload)
-
-
-@app.delete("/api/projects/{name}/papers/browser")
-async def api_papers_browser_close(name: str, _: None = Depends(require_token)) -> dict:
-    papers.resolve_project(name)
-    await rbrowser.close()
-    return {"open": False}
 
 
 @app.get("/api/projects/{name}/papers/project")

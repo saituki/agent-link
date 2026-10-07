@@ -1,8 +1,7 @@
 """Usage タブ（LLM の料金・制限）のデータ集め（実装計画 42 §3.3）．
 
-集めるものは 3 つ:
+集めるものは 2 つ:
 
-- Claude Code（Team）の 5 時間枠 … ``~/.sai/web/cc-rate-limits.json``（`sai-link cc-statusline` が書く）
 - OpenRouter の残高・使用料・無料モデル回数 … 公開 API（キーは .env の環境変数）
 - DeepSeek の残高 … 公開 API。使用料は pi の記録（``~/.pi/agent/sessions``）から集計する
 
@@ -19,7 +18,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from sai_web import registry
 from sai_web.config import settings
 
 # 外部 API のタイムアウト（秒・42 §3.3）
@@ -30,11 +28,6 @@ CACHE_TTL = 60
 ACTIVITY_DAYS = 30
 # 1 ページの件数（42 §3.3 の logs）
 LOGS_PAGE = 50
-
-
-def cc_limits_path() -> Path:
-    """cc の 5 時間枠を書くファイル（`sai-link cc-statusline` が書く・置き場は `SAI_HOME` に従う）．"""
-    return registry.sai_home() / "web" / "cc-rate-limits.json"
 
 
 # pi の provider とキーの対応を調べるファイル（42 §3.2）
@@ -94,25 +87,6 @@ def _error_text(exc: Exception) -> str:
     if isinstance(exc, urllib.error.URLError):
         return "取得できませんでした（接続できません）"
     return "取得できませんでした"
-
-
-def cc_limits() -> dict | None:
-    """cc の 5 時間枠（``{used_percentage, resets_at, saved_at}``）．無ければ None．"""
-    try:
-        obj = json.loads(cc_limits_path().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(obj, dict):
-        return None
-    five_hour = (obj.get("rate_limits") or {}).get("five_hour") or {}
-    used = five_hour.get("used_percentage")
-    if used is None:
-        return None
-    return {
-        "used_percentage": used,
-        "resets_at": five_hour.get("resets_at"),
-        "saved_at": obj.get("saved_at"),
-    }
 
 
 def openrouter_card(name: str, env_var: str) -> dict:
@@ -431,7 +405,6 @@ def summary(refresh: bool = False) -> dict:
     deepseek = deepseek_balance()
     deepseek["usage"] = usage_totals(filter_rows(pi_calls(), "deepseek", "deepseek"))
     body = {
-        "cc": cc_limits(),
         "openrouter": [
             openrouter_card(a["name"], a["env"]) for a in openrouter_accounts()
         ],

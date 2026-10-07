@@ -53,8 +53,8 @@
 // （index.html の ?v= も 46。ASSETS は変えない・defs.js は入っていた）
 // research-tree の専門語を英語の大文字に統一した（U22）で v47 に
 // （index.html の ?v= も 47。ASSETS は変えない・足したファイルは無い）
-// リモートブラウザの画面（rbrowser.js / rbrowser.css を追加）と日本語 PDF ボタンで v48 に
-// （index.html の ?v= も 48。ASSETS に 2 ファイルを足した）
+// リモートブラウザの画面（当時の 2 ファイル）と日本語 PDF ボタンで v48 に
+// （index.html の ?v= も 48。ASSETS に 2 ファイルを足した。この 2 ファイルは U05 で削除した）
 // research-tree の操作の釦と op の表示名を英語に（scitree.js・sciedit.js）で v49 に（index.html の ?v= も 49。ASSETS は変えない）
 // 操作の小窓（sciedit.js）の項目名・説明・エラーも英語に、で v50 に（index.html の ?v= も 50）
 // 板の各節（scitree.js）の見出し・釦・空の文も英語に、で v51 に（index.html の ?v= も 51）
@@ -94,8 +94,10 @@
 // SPROUT 作成の名称を英語（Add PATH・Delete PATH・Create SPROUT）にそろえて v92 に（index.html の ?v= も 92。ASSETS は変えない）
 // U04 の Chats の生成中の文・中断・新しいチャット（newchat.js を追加し、app.js・home.js・index.html・style.css を更新）で v93 に
 // （index.html の ?v= も 93。ASSETS に newchat.js を足した）
-const CACHE = "sai-web-v93";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
+// U05（Mac 専用の機能を削る）でリモートブラウザを消し、v94 に
+// （index.html の ?v= も 94。ASSETS からリモートブラウザの 2 ファイルを外した）
+const CACHE = "sai-web-v94";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
 const RADIO_CACHE = "sai-web-radio-audio";
