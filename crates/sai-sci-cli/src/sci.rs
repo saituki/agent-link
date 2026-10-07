@@ -42,12 +42,6 @@ pub(crate) struct SciCardArgs {
     /// 期待する成果
     #[arg(long)]
     pub expect: Option<String>,
-    /// 範囲（node / path / subtree / siblings / summary / blind）
-    #[arg(long)]
-    pub scope: Option<String>,
-    /// 仮置き（`Q9=SST-2 を使う（仮）`。繰り返し可）
-    #[arg(long)]
-    pub assume: Vec<String>,
     /// sci-read の型（purpose_first / blind_first）
     #[arg(long)]
     pub mode: Option<String>,
@@ -89,8 +83,6 @@ impl SciCardArgs {
             block: self.block.clone().unwrap_or_default(),
             purpose: purpose.to_string(),
             expect: self.expect.clone().unwrap_or_default(),
-            scope: self.scope.clone().unwrap_or_default(),
-            assume: self.assume.clone(),
             mode: self.mode.clone().unwrap_or_default(),
             papers: self.papers.clone(),
             runner: self.runner.clone(),
@@ -344,7 +336,9 @@ pub(crate) fn node_detail(node: &str, json: bool) -> Result<Out> {
 }
 
 /// `sci context --run <id>` — 実行のための入力（sai-link が本文へ埋め込む）。
-pub(crate) fn context(run: i64, scope: Option<&str>) -> Result<Out> {
+///
+/// `reveal` が真（`--tree`）なら blind でも木を出す。
+pub(crate) fn context(run: i64, reveal: bool) -> Result<Out> {
     let env = open_env()?;
     let text = context::build(
         env.conn(),
@@ -352,7 +346,7 @@ pub(crate) fn context(run: i64, scope: Option<&str>) -> Result<Out> {
         &env.defs,
         env.config.sci.context_max_chars,
         run,
-        scope,
+        reveal,
     )
     .map_err(rt_err)?;
     Ok(Out::Text(text))

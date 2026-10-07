@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::defs::Defs;
-use super::{Kind, Result, RtError, action, compute, fmt_id, parse_id, store};
+use super::{Kind, Result, RtError, action, fmt_id, parse_id, store};
 use sai_paper_core::database::Database;
 use crate::handoff::{HandoffError, HandoffRequest, create_handoff_with_extra};
 use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
@@ -21,7 +21,6 @@ const EXECUTERS: [&str; 2] = ["human", "agent"];
 const MODES: [&str; 2] = ["purpose_first", "blind_first"];
 const DEPTHS: [&str; 3] = ["abstract", "figures", "full"];
 const READ_BLOCK: &str = "sci-read";
-const MAX_ASSUME: usize = 5;
 const MAX_PAPERS: usize = 20;
 const MAX_PURPOSE: usize = 300;
 const Q_HEADING: &str = "## 読むときの Q";
@@ -38,12 +37,6 @@ pub struct CardSpec {
     pub purpose: String,
     #[serde(default)]
     pub expect: String,
-    /// 空ならブロック定義の `sci_scope`、それも無ければ `path`。
-    #[serde(default)]
-    pub scope: String,
-    /// `Q9=SST-2 を使う（仮）` の形。5 つまで。
-    #[serde(default)]
-    pub assume: Vec<String>,
     /// 空 / purpose_first / blind_first。
     #[serde(default)]
     pub mode: String,
@@ -103,15 +96,6 @@ fn foreign(label: &str, text: &str) -> Result<()> {
     match sai_paper_core::textcheck::foreign_message(text) {
         Some(message) => invalid(format!("{label}に{message}")),
         None => Ok(()),
-    }
-}
-
-/// `^[QOFE][1-9][0-9]{0,8}=.+$`。
-fn check_assume(item: &str) -> Result<String> {
-    let item = one_line(item);
-    match item.split_once('=') {
-        Some((id, value)) if parse_id(id).is_ok() && !value.trim().is_empty() => Ok(item),
-        _ => invalid(format!("仮置きの形が正しくありません（例: Q9=SST-2 を使う（仮））: {item}")),
     }
 }
 
@@ -205,14 +189,6 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     }
     let expect = spec.expect.trim().to_string();
 
-    let scope = match spec.scope.trim() {
-        "" => action::block_frontmatter(roots, block)
-            .and_then(|fm| fm.into_iter().find(|(k, _)| k == "sci_scope").map(|(_, v)| v.trim().to_string()))
-            .filter(|v| compute::SCOPES.contains(&v.as_str()))
-            .unwrap_or_else(|| "path".to_string()),
-        given if compute::SCOPES.contains(&given) => given.to_string(),
-        other => return invalid(format!("知らない範囲です: {other}")),
-    };
     let mode = spec.mode.trim();
     if !mode.is_empty() && !MODES.contains(&mode) {
         return invalid(format!("知らない読み方です: {mode}（purpose_first / blind_first）"));
@@ -223,11 +199,6 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         d if DEPTHS.contains(&d) => d,
         other => return invalid(format!("知らない深さです: {other}（abstract / figures / full）")),
     };
-
-    if spec.assume.len() > MAX_ASSUME {
-        return invalid(format!("仮置きは {MAX_ASSUME} 個までです"));
-    }
-    let assume = spec.assume.iter().map(|a| check_assume(a)).collect::<Result<Vec<_>>>()?;
 
     if spec.papers.len() > MAX_PAPERS {
         return invalid(format!("対象論文は {MAX_PAPERS} 本までです"));
@@ -248,9 +219,6 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
 
     foreign("目的", &purpose)?;
     foreign("期待する成果", &expect)?;
-    for item in &assume {
-        foreign("仮置き", item)?;
-    }
     let inputs = spec.inputs.iter().map(|t| check_token(t)).collect::<Result<Vec<_>>>()?;
 
     // 依頼文。
@@ -290,8 +258,6 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         ("sci_node", fmt_id(kind, node.id)),
         ("sci_purpose", purpose.clone()),
         ("sci_expect", expect),
-        ("sci_scope", scope),
-        ("sci_assume", assume.join("; ")),
         ("sci_mode", mode.to_string()),
         ("sci_papers", papers_text),
         ("sci_depth", depth.to_string()),
@@ -444,8 +410,7 @@ mod tests {
     fn spec() -> CardSpec {
         CardSpec {
             node: "Q1".into(), block: "sci-ideate".into(), purpose: "答えの候補を出す".into(), expect: "O を 2 つ".into(),
-            scope: "path".into(), assume: vec!["Q9=SST-2 を使う（仮）".into()], mode: "purpose_first".into(),
-            papers: vec![37], runner: "pi".into(), origin_run: Some(120), ..CardSpec::default()
+            mode: "purpose_first".into(), papers: vec![37], runner: "pi".into(), origin_run: Some(120), ..CardSpec::default()
         }
     }
 
@@ -463,14 +428,15 @@ mod tests {
         let before = node_rows(&e);
         let r = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
-        for key in ["sci_node: Q1", "sci_scope: path", "sci_assume: Q9=SST-2 を使う（仮）", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: O を 2 つ"] {
+        for key in ["sci_node: Q1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: O を 2 つ"] {
             assert!(text.contains(key), "{key}\n{text}");
         }
+        // 古い範囲と仮置きのキーは task.md に書かない（名前は文字列を分けて組み立てる）。
+        assert!(!text.contains(&format!("sci_{}", "scope")) && !text.contains(&format!("sci_{}", "assume")));
         assert!(!text.contains("sci_question") && !text.contains("sci_role") && !text.contains("sci_depth"));
         let k = task_keys(&text);
         assert_eq!(k.node, Some((Kind::Q, 1)));
         assert_eq!(k.papers, vec![37]);
-        assert_eq!(k.assume.len(), 1);
         assert_eq!(node_rows(&e), before);
     }
 
@@ -484,9 +450,6 @@ mod tests {
         s.block = "sci-nothing".into();
         assert!(err(&e, &s).contains("ブロック定義がありません"));
         let mut s = spec();
-        s.scope = "all".into();
-        assert!(err(&e, &s).contains("範囲"));
-        let mut s = spec();
         s.runner = "user".into();
         s.papers = vec![37, 37];
         assert!(err(&e, &s).contains("ちょうど 1 本"));
@@ -497,9 +460,6 @@ mod tests {
         let mut s = spec();
         s.purpose = "한글".into();
         assert!(err(&e, &s).contains("ハングル"));
-        let mut s = spec();
-        s.assume = vec!["N9=x".into()];
-        assert!(err(&e, &s).contains("仮置き"));
     }
 
     #[test]

@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 /// → データ分析（data-explore・data-test）。
 ///
 /// sci ブロックは同じ共通の決まり（`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
-/// frontmatter に分類（`sci_type`: node / manage / support）と使う op（`sci_ops`）・範囲（`sci_scope`）を持つ。
+/// frontmatter に分類（`sci_type`: node / manage / support）と使う op（`sci_ops`）を持つ。
 ///
 /// ただし実験ループの `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
 /// （受け取るのは実験ループの共通の決まり `exp-core` だけ）。
@@ -966,7 +966,6 @@ mod tests {
                 *name == "sci-typify.md" || frontmatter.contains("\nsci_ops: "),
                 "{name} に sci_ops が無い"
             );
-            assert!(frontmatter.contains("\nsci_scope: "), "{name} に sci_scope が無い");
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
         assert_eq!(checked, 26, "共通の決まりを確かめたのは 26 本でない");

@@ -1,14 +1,15 @@
 //! エージェントに渡す `# context` の Markdown（新しい木 Q・O・F・E 版）。
 //!
 //! 木の一部（範囲）だけを渡す。ファイルは作らず、文字列を返す（`# context` の見出しは呼び出し側が付ける）。
+//! 範囲はブロックの `sci_type`（node / manage / support）で決める。
 //! 長さは `max_chars` で制限し、はみ出したら level 0〜5 の順に 1 段ずつ削る。
-//! 節の見出しの名前（`## CURRENT_ACTION` など）は sci-core が指すので変えない。
+//! 節の見出しの名前（`## TREE` など）は sci-core が指すので変えない。
 
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension};
 
-use super::compute::{SCOPES, Tree};
+use super::compute::Tree;
 use super::defs::Defs;
 use super::ops::{self, Field, Risk, Ty};
 use super::store::{self, NodeRow};
@@ -16,21 +17,21 @@ use super::{Kind, Result, RtError, RtKeys, action, fmt_id, task_keys};
 use sai_paper_core::paths::PaperRoots;
 
 const NO_TREE: &str = "\
-## CURRENT_ACTION
-研究方針の木がまだありません。利用者に `sai-sci init --type <型>`（または Web の Research-tree の画面の「始める」）を頼んでください。";
+## TREE
+research-tree がまだありません。利用者に `sai-sci init --type <型>`（または Web の research-tree の画面の「始める」）を頼んでください。";
 
-/// run の task.md から `# context` の Markdown を作る。`scope_override` があれば task.md の `sci_scope` より優先する。
+/// run の task.md から `# context` の Markdown を作る。`reveal` が真なら blind（`sci_mode: blind_first`）でも木を出す。
 ///
 /// # Errors
 ///
-/// run が見つからない、対象の Node が無い、知らない範囲、DB のエラー。
+/// run が見つからない、対象の Node が無い、DB のエラー。
 pub fn build(
     conn: &Connection,
     roots: &PaperRoots,
     defs: &Defs,
     max_chars: usize,
     run_id: i64,
-    scope_override: Option<&str>,
+    reveal: bool,
 ) -> Result<String> {
     let not_found = || RtError::NotFound(format!("実行 {run_id} が見つかりません"));
     let run = crate::runs::list_run_dirs(&roots.root)
@@ -47,9 +48,8 @@ pub fn build(
     if !store::is_initialized(conn)? {
         return Ok(NO_TREE.to_string());
     }
-    let scope = resolve_scope(roots, &block, &keys.scope, scope_override)?;
     let tree = Tree::load(conn, roots, defs)?;
-    let parts = Parts::collect(conn, roots, defs, &tree, run_id, &block, &keys, &scope)?;
+    let parts = Parts::collect(conn, roots, defs, &tree, &block, &keys, reveal)?;
 
     for level in 0..=5u8 {
         let out = parts.render(level);
@@ -61,30 +61,6 @@ pub fn build(
     let kept: String = out.chars().take(max_chars).collect();
     let omitted = out.chars().count() - max_chars;
     Ok(format!("{kept}\n…（{omitted} 字を省きました）"))
-}
-
-/// 範囲を決める。`scope_override` → task.md の `sci_scope` → ブロック定義の `sci_scope` → `path`。
-fn resolve_scope(
-    roots: &PaperRoots,
-    block: &str,
-    keys_scope: &str,
-    scope_override: Option<&str>,
-) -> Result<String> {
-    let pick = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_string());
-    let scope = scope_override
-        .and_then(pick)
-        .or_else(|| pick(keys_scope))
-        .or_else(|| {
-            action::block_frontmatter(roots, block)?
-                .into_iter()
-                .find(|(key, _)| key == "sci_scope")
-                .and_then(|(_, value)| pick(&value))
-        })
-        .unwrap_or_else(|| "path".to_string());
-    if !SCOPES.contains(&scope.as_str()) {
-        return Err(RtError::Invalid(format!("知らない SCOPE です: {scope}")));
-    }
-    Ok(scope)
 }
 
 // ---- ALLOWED_OPS ---------------------------------------------------------------------
@@ -134,22 +110,23 @@ pub fn allowed_ops_text(roots: &PaperRoots, block: &str) -> String {
 
 // ---- 節の材料 -------------------------------------------------------------------------
 
-/// Node の 1 行（`full` は全文、`first` は 1 行目だけ）。
+/// 空白を 1 つにまとめて 1 行にする。
+fn flat_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Node の 1 行（`full` は全文、`first` は 1 行目だけ）。対象の行だけ `body` を持つ。
 struct Line {
     kind: Kind,
     full: String,
     first: String,
+    indent: usize,
+    /// 対象の本文（1 行にした物）。無ければ `None`。
+    body: Option<String>,
 }
 
 struct Parts {
-    action: Vec<String>,
-    progress: Vec<String>,
-    target_head: String,
-    target_body: String,
-    target_kids: Vec<Line>,
-    upstream: Option<Vec<Line>>,
     tree: Option<Vec<Line>>,
-    assume: Vec<String>,
     /// (Q の文, Objectivity の目安, Child Q, Extract, Pitfall)
     guide: Option<GuideText>,
     searches: Vec<String>,
@@ -171,7 +148,6 @@ struct GuideText {
 fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     let pad = " ".repeat(indent * 2);
     let id = fmt_id(n.kind, n.id);
-    let flat = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
     let make = |text: String| {
         let tail = match n.kind {
             Kind::Q => {
@@ -199,8 +175,10 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     };
     Line {
         kind: n.kind,
-        full: make(flat(&n.text)),
+        full: make(flat_text(&n.text)),
         first: make(n.text.lines().next().unwrap_or("").trim().to_string()),
+        indent,
+        body: None,
     }
 }
 
@@ -211,12 +189,17 @@ impl Parts {
         roots: &PaperRoots,
         defs: &Defs,
         tree: &Tree,
-        run_id: i64,
         block: &str,
         keys: &RtKeys,
-        scope: &str,
+        reveal: bool,
     ) -> Result<Parts> {
-        let blind = scope == "blind";
+        // 読み方（`sci_mode: blind_first`）は木を見ずに読む型。`--tree` で木を出す。
+        let blind = keys.mode == "blind_first" && !reveal;
+        // ブロックの分類（node / manage / support）。無い・知らない値は一番狭い `node`。
+        let sci_type = action::block_sci_type(roots, block)
+            .filter(|t| action::SCI_TYPES.contains(&t.as_str()))
+            .unwrap_or_else(|| "node".to_string());
+
         let top = tree.nodes().iter().find(|n| n.parent_id.is_none() && n.kind == Kind::Q);
         let target = match keys.node {
             Some((kind, id)) => tree
@@ -231,17 +214,16 @@ impl Parts {
                 kids.entry(p).or_default().push(n.id);
             }
         }
-        let kids_of = |id: i64| kids.get(&id).cloned().unwrap_or_default();
         let subtree = |id: i64| {
             let mut out = vec![id];
             let mut i = 0;
             while i < out.len() {
-                out.extend(kids_of(out[i]));
+                out.extend(kids.get(&out[i]).cloned().unwrap_or_default());
                 i += 1;
             }
             out
         };
-        // 一番上から対象の親まで。
+        // 一番上から対象の親まで（manage で祖先を出すのに使う）。
         let mut chain: Vec<i64> = Vec::new();
         let mut cur = target.parent_id;
         while let Some(id) = cur {
@@ -250,88 +232,39 @@ impl Parts {
         }
         chain.reverse();
 
-        let target_text = format!("{} {}", fmt_id(target.kind, target.id), target.text);
-
-        // CURRENT_ACTION
-        let mut action = vec!["## CURRENT_ACTION".to_string(), format!("- run: {run_id}")];
-        for (label, value) in [
-            ("ブロック", block),
-            ("目的", &keys.purpose),
-            ("期待する成果", &keys.expect),
-            ("読み方", &keys.mode),
-            ("範囲", scope),
-        ] {
-            if !value.is_empty() {
-                action.push(format!("- {label}: {value}"));
-            }
-        }
-        action.push(format!("- 対象: {target_text}"));
-
-        // PROGRESS
-        let progress_info = tree.progress();
-        let type_name = store::meta_get(conn, "type")?
-            .map(|id| defs.type_def(&id).map_or(id.clone(), |t| t.name.clone()))
-            .unwrap_or_default();
-        let mut progress = vec!["## PROGRESS".to_string()];
-        if !type_name.is_empty() {
-            progress.push(format!("- 研究の型: {type_name}"));
-        }
-        progress.push(format!("- 進み具合: {}/{}", progress_info.answered, progress_info.total));
-        if let Some(draft) = tree.seed_draft(&roots.data_dir) {
-            progress.push(format!("- SEED の下書き: {}", draft.text.split_whitespace().collect::<Vec<_>>().join(" ")));
-        }
-        progress.push(format!("- 仕分け待ち: {} 件", store::list_proposals(conn, Some("pending"))?.len()));
-
-        // 範囲の Node。
+        // TREE に入れる Node。node は対象と子孫、manage は祖先も、support は無し。
         let mut in_scope: Vec<i64> = Vec::new();
-        let path_set = |in_scope: &mut Vec<i64>| {
-            for id in &chain {
-                in_scope.push(*id);
-                if tree.node(*id).is_some_and(|n| n.kind == Kind::Q) {
-                    in_scope.extend(kids_of(*id).into_iter().filter(|k| tree.node(*k).is_some_and(|n| n.kind == Kind::O)));
+        if !blind {
+            match sci_type.as_str() {
+                "manage" => {
+                    in_scope.extend(chain.iter().copied());
+                    in_scope.extend(subtree(target.id));
                 }
+                "support" => {}
+                _ => in_scope.extend(subtree(target.id)),
             }
-            in_scope.extend(subtree(target.id));
-        };
-        match scope {
-            "node" => {
-                in_scope.push(target.id);
-                in_scope.extend(kids_of(target.id));
-            }
-            "path" => path_set(&mut in_scope),
-            "subtree" => in_scope.extend(subtree(target.id)),
-            "siblings" => {
-                path_set(&mut in_scope);
-                for sib in target.parent_id.map(kids_of).unwrap_or_default() {
-                    in_scope.push(sib);
-                    in_scope.extend(kids_of(sib));
-                }
-            }
-            "summary" => in_scope.extend(
-                tree.nodes()
-                    .iter()
-                    .filter(|n| (n.kind == Kind::Q && tree.on_path(n.id)) || (n.kind == Kind::O && n.starred))
-                    .map(|n| n.id),
-            ),
-            _ => {}
         }
-        let set: HashSet<i64> = in_scope.iter().copied().collect();
-        let base = tree.nodes().iter().filter(|n| set.contains(&n.id)).map(|n| tree.depth(n.id)).min().unwrap_or(0);
-        let tree_lines: Vec<Line> = tree
+        let set: HashSet<i64> = in_scope.into_iter().collect();
+        let base = tree
             .nodes()
             .iter()
             .filter(|n| set.contains(&n.id))
-            .map(|n| node_line(tree, n, tree.depth(n.id) - base))
-            .collect();
-
-        let target_kids: Vec<Line> =
-            kids_of(target.id).iter().filter_map(|id| tree.node(*id)).map(|n| node_line(tree, n, 0)).collect();
-        let upstream: Vec<Line> = chain
-            .iter()
-            .filter_map(|id| tree.node(*id))
-            .enumerate()
-            .map(|(i, n)| node_line(tree, n, i))
-            .collect();
+            .map(|n| tree.depth(n.id))
+            .min()
+            .unwrap_or(0);
+        let mut tree_lines: Vec<Line> = Vec::new();
+        for n in tree.nodes().iter().filter(|n| set.contains(&n.id)) {
+            let mut line = node_line(tree, n, tree.depth(n.id) - base);
+            if n.id == target.id {
+                line.full.push_str(" ← TARGET");
+                line.first.push_str(" ← TARGET");
+                let body = flat_text(&target.body);
+                if !body.is_empty() {
+                    line.body = Some(body);
+                }
+            }
+            tree_lines.push(line);
+        }
 
         // GUIDE: 対象か一番近い祖先の Q。
         let guide_q = std::iter::once(target.id)
@@ -350,7 +283,7 @@ impl Parts {
                 pitfalls: g.pitfalls.clone(),
             });
 
-        // SEARCH_HISTORY（blind では出さない）。
+        // SEARCH_HISTORY（blind では出さない）。support は対象だけ。
         let mut searches = Vec::new();
         if !blind {
             let mut ids = set.clone();
@@ -405,14 +338,7 @@ impl Parts {
         }
 
         Ok(Parts {
-            action,
-            progress,
-            target_head: target_text,
-            target_body: target.body.clone(),
-            target_kids,
-            upstream: (!blind).then_some(upstream),
-            tree: (!blind).then_some(tree_lines),
-            assume: keys.assume.iter().map(|((k, id), t)| format!("- {}: {t}", fmt_id(*k, *id))).collect(),
+            tree: (!blind && sci_type != "support").then_some(tree_lines),
             guide: if blind { None } else { guide },
             searches,
             ops: allowed_ops_text(roots, block),
@@ -423,42 +349,26 @@ impl Parts {
     }
 
     fn render(&self, level: u8) -> String {
-        let mut blocks: Vec<String> = vec![self.action.join("\n"), self.progress.join("\n")];
+        let mut blocks: Vec<String> = Vec::new();
 
-        let mut lines = vec!["## TARGET_NODE".to_string(), format!("- {}", self.target_head)];
-        let body = self.target_body.trim();
-        if !body.is_empty() {
-            let shown: String = if level >= 3 { body.chars().take(300).collect() } else { body.to_string() };
-            lines.push(shown);
-        }
-        lines.extend(self.target_kids.iter().map(|l| l.full.clone()));
-        blocks.push(lines.join("\n"));
-
-        if let Some(up) = &self.upstream {
-            let mut lines = vec!["## UPSTREAM_PATH".to_string()];
-            if up.is_empty() {
-                lines.push("（なし。一番上です）".to_string());
-            }
-            lines.extend(up.iter().map(|l| l.full.clone()));
-            blocks.push(lines.join("\n"));
-        }
         if let Some(tree) = &self.tree {
             let mut lines = vec!["## TREE".to_string()];
             let mut hidden = 0;
             for l in tree {
                 if l.kind == Kind::F && level >= 4 {
                     hidden += 1;
-                } else {
-                    lines.push(if l.kind == Kind::F && level >= 2 { l.first.clone() } else { l.full.clone() });
+                    continue;
+                }
+                lines.push(if l.kind == Kind::F && level >= 2 { l.first.clone() } else { l.full.clone() });
+                if let Some(body) = &l.body {
+                    let shown: String = if level >= 3 { body.chars().take(300).collect() } else { body.clone() };
+                    lines.push(format!("{}> {shown}", " ".repeat((l.indent + 1) * 2)));
                 }
             }
             if hidden > 0 {
                 lines.push(format!("（F は {hidden} 件あります。省きました）"));
             }
             blocks.push(lines.join("\n"));
-        }
-        if !self.assume.is_empty() {
-            blocks.push(format!("## ASSUMPTION\n{}", self.assume.join("\n")));
         }
         if let Some(g) = &self.guide {
             let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- Q: {}", g.question)];
@@ -530,14 +440,19 @@ mod tests {
         .unwrap()
     }
 
+    /// ブロック b1 の `sci_type` を決める。
+    fn block(e: &Env, sci_type: &str) {
+        fs::write(e.dir.join(".sai/blocks/b1.md"), format!("---\nsci_ops: add_o\nsci_type: {sci_type}\n---\n")).unwrap();
+    }
+
     fn task(e: &Env, run: i64, front: &str) {
         let p = e.dir.join(format!(".sai/outputs/review/{run}"));
         fs::create_dir_all(&p).unwrap();
         fs::write(p.join("task.md"), format!("---\nrunner: pi\nblock: b1\n{front}---\n\n本文\n")).unwrap();
     }
 
-    fn build_with(e: &Env, max: usize, scope: Option<&str>) -> Result<String> {
-        build(e.db.connection(), &e.roots, &e.defs, max, 1, scope)
+    fn build_with(e: &Env, max: usize, reveal: bool) -> Result<String> {
+        build(e.db.connection(), &e.roots, &e.defs, max, 1, reveal)
     }
 
     /// `## TREE` の節にある ID の集まり。
@@ -553,60 +468,101 @@ mod tests {
         ids
     }
 
+    fn sorted(mut v: Vec<String>) -> Vec<String> {
+        v.sort();
+        v
+    }
+
     #[test]
     fn sections_come_in_order() {
         let e = env("order");
-        task(&e, 1, "sci_node: Q2\nsci_purpose: 背景を決める\nsci_scope: path\n");
-        let text = build_with(&e, 100_000, None).unwrap();
-        let heads = ["CURRENT_ACTION", "PROGRESS", "TARGET_NODE", "UPSTREAM_PATH", "TREE", "GUIDE", "ALLOWED_OPS"];
-        let at: Vec<usize> = heads.iter().map(|h| text.find(&format!("## {h}")).unwrap_or_else(|| panic!("{h}"))).collect();
-        assert!(at.windows(2).all(|w| w[0] < w[1]), "{text}");
-        assert!(text.contains("- 対象: Q2 "));
+        block(&e, "node");
+        task(&e, 1, "sci_node: Q2\nsci_purpose: 背景を決める\nsci_mode: purpose_first\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        // 出る節は TREE・GUIDE・ALLOWED_OPS だけ（消した節が混ざらない。順もこの順）。
+        let heads: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("## ")).collect();
+        assert_eq!(heads, vec!["TREE", "GUIDE", "ALLOWED_OPS"], "{text}");
         assert!(text.contains("[Objectivity"));
         let _ = fs::remove_dir_all(&e.dir);
     }
 
     #[test]
-    fn scopes_pick_nodes() {
+    fn sci_type_picks_tree_range() {
         let e = env("scopes");
         let o1 = add(&e, Kind::O, 2, "案 A", Some("answer"));
-        let f1 = add(&e, Kind::F, o1, "根拠", None);
-        store::set_starred(e.db.connection(), o1, true).unwrap();
-        // Q3 の下にも O（path では出ない）。
         let o2 = add(&e, Kind::O, 3, "案 B", Some("answer"));
+        let f1 = add(&e, Kind::F, o2, "根拠", None);
         task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
-        let ids = |scope: &str| tree_ids(&build_with(&e, 100_000, Some(scope)).unwrap());
-        let sorted = |mut v: Vec<String>| {
-            v.sort();
-            v
-        };
-        let f = format!("F{f1}");
-        let (oa, ob) = (format!("O{o1}"), format!("O{o2}"));
-        assert_eq!(ids("node"), sorted(vec!["Q3".into(), ob.clone()]));
-        assert_eq!(ids("subtree"), sorted(vec!["Q3".into(), ob.clone()]));
-        // path: 祖先 Q1・Q2 と、通った Q の O（O1）と、対象とその子孫。F は O の下なので出ない。
-        assert_eq!(ids("path"), sorted(vec!["Q1".into(), "Q2".into(), oa.clone(), "Q3".into(), ob.clone()]));
-        // siblings: path に兄弟 Q4 とその子が足される。
-        let sib = ids("siblings");
-        assert!(sib.contains(&"Q4".to_string()) && sib.contains(&"Q3".to_string()), "{sib:?}");
-        // summary: ★ の道の Q と ★ の O だけ。
-        let sum = ids("summary");
-        assert!(sum.contains(&oa) && !sum.contains(&ob) && !sum.contains(&f), "{sum:?}");
-        let blind = build_with(&e, 100_000, Some("blind")).unwrap();
-        for h in ["## TREE", "## UPSTREAM_PATH", "## GUIDE"] {
-            assert!(!blind.contains(h), "{h}");
+
+        // node: 対象と子孫だけ。祖先 Q1・Q2 は出ない。
+        block(&e, "node");
+        let node_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
+        assert_eq!(node_ids, sorted(vec!["Q3".into(), format!("O{o2}"), format!("F{f1}")]), "{node_ids:?}");
+
+        // manage: 祖先 Q1・Q2 も出る。祖先の兄弟の O1 は出ない。
+        block(&e, "manage");
+        let manage_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
+        for id in ["Q1", "Q2", "Q3"] {
+            assert!(manage_ids.contains(&id.to_string()), "{manage_ids:?}");
         }
-        assert!(blind.contains("## TARGET_NODE") && blind.contains("## ALLOWED_OPS"));
+        assert!(!manage_ids.contains(&format!("O{o1}")), "{manage_ids:?}");
+
+        // support: TREE を出さない。GUIDE と ALLOWED_OPS は出る。
+        block(&e, "support");
+        let support = build_with(&e, 100_000, false).unwrap();
+        assert!(!support.contains("## TREE"), "{support}");
+        assert!(support.contains("## ALLOWED_OPS"), "{support}");
+
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn target_marker_and_body() {
+        let e = env("target");
+        block(&e, "node");
+        e.db.connection().execute("UPDATE rt_nodes SET body = ?1 WHERE id = 3", ["現場の課題\n2 行目"]).unwrap();
+        task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        let target_line = text.lines().find(|l| l.contains("← TARGET")).unwrap_or("");
+        assert!(target_line.starts_with("- Q3 "), "{target_line}");
+        assert!(text.contains("> 現場の課題 2 行目"), "{text}");
+        // 本文が無ければ `>` の行を出さない。
+        e.db.connection().execute("UPDATE rt_nodes SET body = '' WHERE id = 3", []).unwrap();
+        let none = build_with(&e, 100_000, false).unwrap();
+        assert!(!none.contains("> "), "{none}");
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn blind_hides_tree_and_shows_papers() {
+        let e = env("blind");
+        block(&e, "node");
+        e.db.connection()
+            .execute("INSERT INTO papers (id, title, published_at) VALUES (37, '論文 37', '2021-05-01')", [])
+            .unwrap();
+        task(&e, 1, "sci_node: Q2\nsci_purpose: p\nsci_mode: blind_first\nsci_papers: 37\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        for h in ["## TREE", "## GUIDE", "## SEARCH_HISTORY"] {
+            assert!(!text.contains(h), "{h}\n{text}");
+        }
+        assert!(text.contains("## TARGET_PAPERS"), "{text}");
+        assert!(text.contains("- #37 論文 37"), "{text}");
+
+        // `--tree` で木を出し、TARGET_PAPERS は出さない。
+        let revealed = build_with(&e, 100_000, true).unwrap();
+        assert!(revealed.contains("## TREE"), "{revealed}");
+        assert!(!revealed.contains("## TARGET_PAPERS"), "{revealed}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 
     #[test]
     fn small_limit_cuts_by_level() {
         let e = env("levels");
+        block(&e, "node");
         let o1 = add(&e, Kind::O, 3, "案 A", Some("answer"));
         add(&e, Kind::F, o1, "根拠 1 行目\n2 行目", None);
         task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
-        let len = |max| build_with(&e, max, None).unwrap();
+        let len = |max| build_with(&e, max, false).unwrap();
         let full = len(100_000);
         assert!(full.contains("- Pitfall:") && full.contains("- Extract:"));
         let l0 = full.chars().count();
@@ -614,7 +570,7 @@ mod tests {
         assert!(!cut1.contains("- Pitfall:"));
         for max in [l0 - 1, 800, 400, 100] {
             let t = len(max);
-            assert!(t.contains("## CURRENT_ACTION"), "{max}");
+            assert!(t.contains("## ALLOWED_OPS") || t.contains("字を省きました"), "{max}");
         }
         let small = len(800);
         assert!(small.contains("## ALLOWED_OPS") || small.contains("字を省きました"));
@@ -640,16 +596,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_scope_and_node() {
+    fn unknown_node_is_not_found() {
         let e = env("errors");
-        task(&e, 1, "sci_node: Q2\nsci_purpose: p\n");
-        match build_with(&e, 1000, Some("wide")) {
-            Err(RtError::Invalid(m)) => assert_eq!(m, "知らない SCOPE です: wide"),
-            other => panic!("{other:?}"),
-        }
         task(&e, 2, "sci_node: Q999\nsci_purpose: p\n");
         crate::link::forget(&e.dir);
-        let r = build(e.db.connection(), &e.roots, &e.defs, 1000, 2, None);
+        let r = build(e.db.connection(), &e.roots, &e.defs, 1000, 2, false);
         assert!(matches!(r, Err(RtError::NotFound(m)) if m == "Q999 はありません"));
         let _ = fs::remove_dir_all(&e.dir);
     }

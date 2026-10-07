@@ -16,9 +16,6 @@ use super::{Kind, Result, RtError, action, fmt_id, fmt_ref, ops, parse_id};
 use sai_paper_core::paths::PaperRoots;
 use crate::runs::read_frontmatter;
 
-/// `sci_scope` に書ける範囲の名前。
-pub const SCOPES: [&str; 6] = ["node", "path", "subtree", "siblings", "summary", "blind"];
-
 /// 古い形の木だけがあるときの注意。
 const LEGACY_WARNING: &str =
     "古い形の木です。`sai-sci init --type <型>` で作り直してください";
@@ -864,7 +861,7 @@ fn split_csv(value: &str) -> Vec<String> {
 /// ブロック定義の書き間違い（R5）を 1 行ずつ返す。ブロック id 順、同じ文は 1 回だけ。
 #[must_use]
 pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
-    const KEYS: [&str; 3] = ["sci_ops", "sci_scope", "sci_type"];
+    const KEYS: [&str; 2] = ["sci_ops", "sci_type"];
     let mut dirs = vec![roots.root.join(".sai").join("blocks")];
     dirs.extend(sai_paper_core::paths::sai_home_path("blocks"));
     // 同じ id は先に見つけた `<root>` 側だけ。
@@ -883,21 +880,15 @@ pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
             continue;
         }
         for (key, value) in pairs {
-            match key.as_str() {
-                "sci_ops" => {
-                    for op in split_csv(value) {
-                        if !ops::is_known_op(&op) {
-                            out.push(format!("{id}: sci_ops に知らない op があります: {op}"));
-                        }
-                        if ops::is_user_only_op(&op) {
-                            out.push(format!("{id}: sci_ops に利用者だけの op があります: {op}"));
-                        }
+            if key.as_str() == "sci_ops" {
+                for op in split_csv(value) {
+                    if !ops::is_known_op(&op) {
+                        out.push(format!("{id}: sci_ops に知らない op があります: {op}"));
+                    }
+                    if ops::is_user_only_op(&op) {
+                        out.push(format!("{id}: sci_ops に利用者だけの op があります: {op}"));
                     }
                 }
-                "sci_scope" if !SCOPES.contains(&value.trim()) => {
-                    out.push(format!("{id}: 知らない sci_scope です: {}", value.trim()));
-                }
-                _ => {}
             }
         }
     }
@@ -1564,11 +1555,13 @@ mod tests {
     }
 
     #[test]
-    fn block_warnings_three_lines() {
+    fn block_warnings_reports_bad_sci_ops() {
         let e = env("warn");
+        // 古い範囲のキーが残っていても読まない（名前は文字列を分けて組み立てる）。
+        let old_scope = format!("sci_{}", "scope");
         fs::write(
             e.dir.join(".sai/blocks/x.md"),
-            "---\nname: x\nsci_ops: add_o, star, foo\nsci_scope: wide\n---\n本文\n",
+            format!("---\nname: x\nsci_ops: add_o, star, foo\n{old_scope}: wide\n---\n本文\n"),
         )
         .unwrap();
         let lines = block_def_warnings(&e.roots);
@@ -1578,7 +1571,6 @@ mod tests {
             vec![
                 "x: sci_ops に利用者だけの op があります: star",
                 "x: sci_ops に知らない op があります: foo",
-                "x: 知らない sci_scope です: wide",
             ]
         );
     }

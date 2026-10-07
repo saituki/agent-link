@@ -89,9 +89,9 @@ enum Cmd {
         /// 実行 ID
         #[arg(long)]
         run: i64,
-        /// 範囲（node / path / subtree / siblings / summary / blind）
+        /// blind（sci_mode: blind_first）でも木を出す
         #[arg(long)]
-        scope: Option<String>,
+        tree: bool,
     },
     /// 提案を出す（標準入力に `{"proposals":[…]}`）
     Propose {
@@ -397,7 +397,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Types { json }) => print_out(sci::types(json)?),
         Some(Cmd::TypeSave) => print_out(sci::type_save()?),
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),
-        Some(Cmd::Context { run, scope }) => print_out(sci::context(run, scope.as_deref())?),
+        Some(Cmd::Context { run, tree }) => print_out(sci::context(run, tree)?),
         Some(Cmd::Propose { run, block }) => print_out(sci::propose(run, block)?),
         Some(Cmd::Apply) => print_out(sci::apply()?),
         Some(Cmd::Proposals { json }) => print_out(sci::proposals(json)?),

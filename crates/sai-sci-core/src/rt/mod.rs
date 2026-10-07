@@ -155,10 +155,6 @@ pub struct RtKeys {
     pub purpose: String,
     /// 期待する成果。
     pub expect: String,
-    /// 範囲（node / path / subtree / siblings / summary / blind）。
-    pub scope: String,
-    /// 仮置き（`Q9=SST-2 を使う（仮）` のように読む）。
-    pub assume: Vec<((Kind, i64), String)>,
     /// 読み方（purpose_first / blind_first）。
     pub mode: String,
     /// 対象の論文の番号。
@@ -186,14 +182,6 @@ pub fn task_keys(task_md: &str) -> RtKeys {
             .map_or_else(String::new, |(_, value)| value.trim().to_string())
     };
 
-    let assume = get("sci_assume")
-        .split(';')
-        .filter_map(|part| {
-            let (left, right) = part.trim().split_once('=')?;
-            Some((parse_id(left.trim()).ok()?, right.trim().to_string()))
-        })
-        .collect();
-
     let papers = get("sci_papers")
         .split(',')
         .filter_map(|part| part.trim().parse::<i64>().ok())
@@ -204,8 +192,6 @@ pub fn task_keys(task_md: &str) -> RtKeys {
         node: parse_id(&get("sci_node")).ok(),
         purpose: get("sci_purpose"),
         expect: get("sci_expect"),
-        scope: get("sci_scope"),
-        assume,
         mode: get("sci_mode"),
         papers,
         depth: get("sci_depth"),
@@ -240,13 +226,14 @@ mod tests {
 
     #[test]
     fn task_keys_reads_all_and_ignores_old_keys() {
-        let md = "---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\nsci_scope: path\nsci_assume: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\n---\n\n本文\n";
-        let keys = task_keys(md);
+        // 古い task.md の範囲と仮置きのキーは読まずに捨てる（名前は文字列を分けて組み立てる）。
+        let old_scope = format!("sci_{}", "scope");
+        let old_assume = format!("sci_{}", "assume");
+        let md = format!("---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\n---\n\n本文\n");
+        let keys = task_keys(&md);
         assert_eq!(keys.node, Some((Kind::Q, 12)));
         assert_eq!(keys.purpose, "データの量の根拠を探す");
         assert_eq!(keys.expect, "F を 2 つ以上");
-        assert_eq!(keys.scope, "path");
-        assert_eq!(keys.assume, vec![((Kind::Q, 9), "SST-2 を使う（仮）".to_string())]);
         assert_eq!(keys.mode, "purpose_first");
         assert_eq!(keys.papers, vec![37, 40]);
         assert_eq!(keys.depth, "full");

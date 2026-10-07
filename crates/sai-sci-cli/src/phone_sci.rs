@@ -17,8 +17,6 @@ pub(crate) fn card_spec(input: &str) -> Result<card::CardSpec> {
         block: text_of(&value, "block"),
         purpose: text_of(&value, "purpose"),
         expect: text_of(&value, "expect"),
-        scope: text_of(&value, "scope"),
-        assume: strings_of(&value, "assume")?,
         mode: text_of(&value, "mode"),
         papers: numbers_of(&value, "papers")?,
         runner: default_runner(&text_of(&value, "runner")),
@@ -29,23 +27,6 @@ pub(crate) fn card_spec(input: &str) -> Result<card::CardSpec> {
         // Web の画面から作るカードは人が起こすもの（agent が起こすカードは CLI だけ）。
         executer: String::new(),
     })
-}
-
-/// 文字列の配列の項目を読む（無ければ空）。
-fn strings_of(value: &Value, key: &str) -> Result<Vec<String>> {
-    let Some(items) = value.get(key) else {
-        return Ok(Vec::new());
-    };
-    if items.is_null() {
-        return Ok(Vec::new());
-    }
-    let invalid = || anyhow!("{key} は文字列の配列です");
-    items
-        .as_array()
-        .ok_or_else(invalid)?
-        .iter()
-        .map(|item| item.as_str().map(str::to_string).ok_or_else(invalid))
-        .collect()
 }
 
 /// 文字列の項目を読む（無ければ空文字）。
@@ -105,8 +86,6 @@ mod tests {
             "block": "sci-ideate",
             "purpose": "「データの量は？」の答えの候補（O）を出す",
             "expect": "O を 2 つ以上",
-            "scope": "path",
-            "assume": ["Q9=SST-2 を使う（仮）"],
             "mode": "purpose_first",
             "papers": [37, 40],
             "runner": "",
@@ -117,8 +96,6 @@ mod tests {
         assert_eq!(spec.node, "Q12");
         assert_eq!(spec.block, "sci-ideate");
         assert_eq!(spec.expect, "O を 2 つ以上");
-        assert_eq!(spec.scope, "path");
-        assert_eq!(spec.assume, vec!["Q9=SST-2 を使う（仮）".to_string()]);
         assert_eq!(spec.mode, "purpose_first");
         assert_eq!(spec.papers, vec![37, 40]);
         // 実行者が空なら `pi`（読む札は `user` を書く）。
@@ -134,7 +111,6 @@ mod tests {
     fn card_spec_from_phone_json_minimal() {
         let spec = card_spec(r#"{"node":"Q12","purpose":"候補を足す"}"#).unwrap();
         assert_eq!(spec.node, "Q12");
-        assert!(spec.assume.is_empty());
         assert!(spec.papers.is_empty());
         assert_eq!(spec.runner, "pi");
     }
@@ -143,8 +119,6 @@ mod tests {
     fn card_spec_from_phone_json_rejects_bad_shape() {
         // 論文が数でない。
         assert!(card_spec(r#"{"node":"Q12","papers":["37"]}"#).is_err());
-        // 仮置きが文字列でない。
-        assert!(card_spec(r#"{"node":"Q12","assume":[9]}"#).is_err());
         // JSON として読めない。
         assert!(card_spec("{oops").is_err());
     }
