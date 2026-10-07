@@ -18,10 +18,6 @@
 | `GET …/papers/sci/reads/{run_id}` | — | `sai-sci read <run_id> --json` |
 | `POST …/papers/sci/reads/{run_id}/start` | — | `sai-link phone user start <run_id>` |
 | `POST …/papers/sci/reads/{run_id}/finish` | — | `sai-link phone user finish <run_id>` |
-| `GET …/papers/sets` | — | `sai-paper set list` |
-| `GET …/papers/sets/{set_id}` | — | `sai-paper set show <id>` |
-| `POST …/papers/sets/{set_id}/mark` | `{"positions","decision","reason"?}` | `set mark <id> --position … --decision …` |
-| `POST …/papers/sets/{set_id}/drop-pending` | `{"reason"?}` | `set drop-pending <id>` |
 
 - どの住所も合言葉（`main.require_token`）で守る。
 - `{name}` は論文の置き場があるプロジェクトの名前（`papers.resolve_project`）。
@@ -77,12 +73,9 @@ CITES_MAX = 10
 FINDINGS_MAX = 20
 PATH_MAX = 20
 CARD_PAPERS_MAX = 20
-SET_POSITIONS_MAX = 500
-SET_POSITION_MAX = 999_999
 # 文字数の上限
 BODY_MAX = 2000
 TRIAGE_EDIT_MAX = 20_000
-SET_REASON_MAX = 200
 
 # --- C-OP の op ごとの項目 ---
 # 値は「検査のしかた」。知らない項目は落とすので、1 つ 1 つ書く。
@@ -549,65 +542,3 @@ def read_finish(project: dict, run_id) -> dict:
         "status": "review",
         "findings": len(findings) if isinstance(findings, list) else 0,
     }
-
-
-# --- 検索セット ---
-
-
-def check_set_id(value) -> int:
-    """セット ID を 1〜999999999 の整数にして返す（数字の文字列も受ける）。違反は 400。"""
-    try:
-        return check_run_id(value)
-    except HTTPException:
-        raise _bad("set_id は 1〜999999999 の整数にしてください") from None
-
-
-def _check_set_reason(payload) -> str | None:
-    if payload is None:
-        return None
-    if not isinstance(payload, dict):
-        raise _bad("送る JSON が正しくありません")
-    return _opt_text(payload, "reason", SET_REASON_MAX)
-
-
-def set_list(project: dict) -> dict:
-    """検索セットの一覧（`sai-paper set list`）。"""
-    return _paper_cli(project, ["set", "list"], SCI_READ_TIMEOUT)
-
-
-def set_show(project: dict, set_id) -> dict:
-    """検索セット 1 つと候補（`set show <id>`）。"""
-    return _paper_cli(project, ["set", "show", str(check_set_id(set_id))], SCI_READ_TIMEOUT)
-
-
-def set_mark(project: dict, set_id, payload) -> dict:
-    """候補に keep / drop を付ける（`set mark <id> --position … --decision …`）。"""
-    sid = check_set_id(set_id)
-    if not isinstance(payload, dict):
-        raise _bad("送る JSON が正しくありません")
-    positions = payload.get("positions")
-    if not isinstance(positions, list) or not (1 <= len(positions) <= SET_POSITIONS_MAX):
-        raise _bad("positions の指定が正しくありません")
-    for item in positions:
-        if isinstance(item, bool) or not isinstance(item, int) or not (0 <= item <= SET_POSITION_MAX):
-            raise _bad("positions の指定が正しくありません")
-    decision = _enum(payload.get("decision"), ("keep", "drop"), "decision")
-    reason = _check_set_reason(payload)
-    args = [
-        "set", "mark", str(sid),
-        f"--position={','.join(str(n) for n in positions)}",
-        "--decision", decision,
-    ]
-    if reason:
-        args.append(f"--reason={reason}")
-    return _paper_cli(project, args, SCI_WRITE_TIMEOUT)
-
-
-def set_drop_pending(project: dict, set_id, payload=None) -> dict:
-    """未判定の候補をまとめて drop にする（`set drop-pending <id>`）。"""
-    sid = check_set_id(set_id)
-    reason = _check_set_reason(payload)
-    args = ["set", "drop-pending", str(sid)]
-    if reason:
-        args.append(f"--reason={reason}")
-    return _paper_cli(project, args, SCI_WRITE_TIMEOUT)

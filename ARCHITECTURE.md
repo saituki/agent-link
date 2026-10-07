@@ -15,7 +15,7 @@
 | 部品 | クレート・フォルダ | 実行ファイル | 持つもの |
 |---|---|---|---|
 | **sai-link**（基盤） | `crates/sai-link-engine`・`crates/sai-link-view`・`crates/sai-link-cli` | `sai-link` | 実行の DB（`sai-engine.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
-| **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・検索セット（CLI の `set …`）・論文のチャンク・音声化の依頼 |
+| **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・論文のチャンク・音声化の依頼 |
 | **sai-sci**（研究の仕組み） | `crates/sai-sci-core`・`crates/sai-sci-cli`・`sai-sci/`（md の部品） | `sai-sci` | research-tree（`papr.db` の `rt_*` 表）・研究の記録・エージェントの報告・研究用の block と template（LabAgent） |
 | **sai-web**（Web の窓口） | `apps/web` | `apps/web/bin/sai-web` | 画面（FastAPI + 素の JavaScript）。質問・承認・通知・使用量・MLflow と Radio の中継 |
 | （周辺） | `apps/radio` | — | 解説音声の生成と配信（HTTP API・8201 番） |
@@ -178,7 +178,7 @@
 | `cli.py` | 3 つの CLI を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
 | `control.py` | sai-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
 | `papers.py` | sai-paper の呼び出し（Library・検索・論文のチャンク・Import・Download・音声化の依頼）と、sai-sci の現況（`GET …/papers/project`・`…/project/memo`）・要対応の解消（`…/attention/resolve`）。Papers の Dashboard が現況と要対応を出す |
-| `sci.py` | sai-sci の呼び出し（research-tree・PROPOSAL の TRIAGE・READ_CARD）。research-tree の書き込み（★・Add・Edit・SPROUT）は `POST …/papers/sci/apply` が `sai-sci apply --json`（標準入力に op の JSON）を呼ぶ。検索セット（sai-paper の `set …`）の API も残るが、画面は無い |
+| `sci.py` | sai-sci の呼び出し（research-tree・PROPOSAL の TRIAGE・READ_CARD）。research-tree の書き込み（★・Add・Edit・SPROUT）は `POST …/papers/sci/apply` が `sai-sci apply --json`（標準入力に op の JSON）を呼ぶ。 |
 | `commands.py` | 「コマンド」画面。3 つの CLI の `schema --json` を読んで命令の一覧を作り、入力欄から命令を実行する |
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
 | `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
@@ -254,7 +254,6 @@
 
 古い住所は、`scitree.js` の `stLegacyHash` が `location.replace` で Research の住所へ送る。`#/papers/tree[/<ID>]` → `#/research/tree[/<ID>]`、`#/papers/triage`・`#/papers/canvas`・`#/canvas/…` → `#/research/tree`、`#/papers/read/<run_id>` → `#/research/read/<run_id>`、`#/mlflow…` → `#/research/experiments…`。
 
-検索セットの住所 `#/papers/sets` には画面が無い（`sciset.js` は消した）。API（`…/papers/sets`）と CLI（`sai-paper set …`）は残る。
 
 ### 4.6 処理の流れの型
 

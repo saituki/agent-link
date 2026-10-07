@@ -16,7 +16,7 @@ iPhone からはパスを受け取らず，プロジェクト名から root を�
 - `library list` / `library tree` / `paper show <id>`（読み取り・02）
 - `paper translate <id>`（要旨の日本語訳・03）
 - `content paper <id> --json`（本文・既存）
-- `providers` / `search --json` / `search-log <id>`（Discover・02・03・計画 08）
+- `providers` / `search --json` / `search-history <id>`（Discover・02・03・計画 08）
 """
 
 from __future__ import annotations
@@ -289,9 +289,9 @@ def providers(project: dict) -> dict:
     return _paper_cli(project, ["providers"])
 
 
-def search_log(project: dict, log_id: int) -> dict:
-    """過去の検索結果（`search-log <log_id>`・08 §3）。"""
-    return _paper_cli(project, ["search-log", str(log_id)])
+def search_history(project: dict, log_id: int) -> dict:
+    """過去の検索結果（`search-history <log_id>`・08 §3）。"""
+    return _paper_cli(project, ["search-history", str(log_id)])
 
 
 def validate_search(req: SearchRequest, available: list[str]) -> str:
@@ -498,9 +498,9 @@ def find(project: dict, req: FindRequest) -> dict:
     return _paper_cli(project, build_find_args(req), timeout=120.0)
 
 
-def find_log(project: dict, log_id: int) -> dict:
-    """過去の内部検索の結果（`find-log <log_id>`・U02）。"""
-    return _paper_cli(project, ["find-log", str(log_id)])
+def find_history(project: dict, log_id: int) -> dict:
+    """過去の内部検索の結果（`find-history <log_id>`・U02）。"""
+    return _paper_cli(project, ["find-history", str(log_id)])
 
 
 # --- 音声化の依頼（計画 10 §3・プロジェクト付きは 17 §3.3・§3.4） ---

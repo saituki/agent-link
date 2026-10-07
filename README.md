@@ -7,7 +7,7 @@
 | 部品 | 何 | 実行ファイル |
 |---|---|---|
 | **sai-link** | 基盤。coding agent の実行・カード（実行の予約）・常駐・文書（waggle トークン） | `sai-link` |
-| **sai-paper** | 研究の基盤。論文の検索・取得・翻訳・音声化・Library・検索セット（CLI の `sai-paper set`。エージェントの選別に使う） | `sai-paper` |
+| **sai-paper** | 研究の基盤。論文の検索・取得・翻訳・音声化・Library | `sai-paper` |
 | **sai-sci** | 研究の仕組み。research-tree・研究の記録・エージェントの報告。sai-link と sai-paper の CLI を使うアプリ | `sai-sci` |
 | **sai-web** | Web の窓口（FastAPI + 素の JavaScript）。上の 3 つの CLI と Radio の HTTP API だけを使う | `apps/web/bin/sai-web` |
 
@@ -153,10 +153,9 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8201 --a
 上の切り替えは Dashboard / Library / Import / Radio の 4 つです。
 
 - **Dashboard**: 数字のカード・State・Mind・Recent activity が出ます。
-- **Library**: 上の切り替えで `外部 DB`（外部の論文 DB を検索する。履歴は `sai-paper set` と同じ表に残る）・`内部 DB`（取り込み済みの論文を検索する）・`Paper`（全論文を番号 `#1` の昇順に並べる）を選びます。`Paper` の行を押すと論文詳細が開き、要旨・ノート・図・引用文献・チャンク一覧（本文を `#論文.章.段落` ごとに並べたもの）を読めます。
+- **Library**: 上の切り替えで `外部 DB`（外部の論文 DB を検索する。履歴は `search_history` に残る）・`内部 DB`（取り込み済みの論文を検索する）・`Paper`（全論文を番号 `#1` の昇順に並べる）を選びます。`Paper` の行を押すと論文詳細が開き、要旨・ノート・図・引用文献・チャンク一覧（本文を `#論文.章.段落` ごとに並べたもの）を読めます。
 - **Import**: BibTeX から論文を取り込みます。
 - **Radio**: 論文の解説音声を作って聞きます。
-- 検索セット専用の画面はありません。`sai-paper set …`（CLI）と API `GET /api/projects/<名前>/papers/sets` は残り、`sci-screen` ブロックのエージェントが keep / drop を付けます。
 
 ### Research
 
