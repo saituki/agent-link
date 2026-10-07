@@ -1,7 +1,7 @@
 ---
 name: 🌿 exp-branch
 id: sci-exp-branch
-description: "スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える"
+description: "スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review の CARD を作って終える"
 sci_type: support
 model: inherit
 thinking: medium
@@ -26,7 +26,7 @@ enable: true
 
 - 依頼書に従って、スクリプト（モデル + パラメータの探索範囲 + 学習 + テスト）を **1 本**書く。
 - 実行先に投げ、**始まったことを確かめる**。
-- 作業報告書（`exp-core` §9）を保存し、ジョブ待ちの review のカードを作る。
+- 作業報告書（`exp-core` §9）を保存し、ジョブ待ちの review の CARD を作る。
 - 最後に `sai-link run finalize` を呼ぶ。
 
 しないこと:
@@ -92,14 +92,14 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 ```
 
 - 終了コード 1 なら、`errors` の行に出典を付けて直す。
-- 出典表にも参照コードにも無い値しか直せないときは、投げない。作業報告書に `BLOCKED`（出典の無い値の一覧）と書き、review のカードは作らずに終える。起動者には質問ツールで知らせる（`exp-core` §8 の `check` が失敗したときと同じ扱い）。
+- 出典表にも参照コードにも無い値しか直せないときは、投げない。作業報告書に `BLOCKED`（出典の無い値の一覧）と書き、review の CARD は作らずに終える。起動者には質問ツールで知らせる（`exp-core` §8 の `check` が失敗したときと同じ扱い）。
 - `guesses`（目安）の数は、作業報告書に書く。
 
 ### 4. 投げる
 
 `exp-core` §8 の規則で決める。実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。使い方は `exp-run` にある。
 
-1. 先に `check`。失敗したら `BLOCKED` 相当として、報告書に書いて終える（別の実行先を選ばない）。
+1. 先に `check`。失敗したら `BLOCKED` 相当として、作業報告書に書いて終える（別の実行先を選ばない）。
 
    ```bash
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" check "${EXP_TARGET:-local}"
@@ -122,7 +122,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" started <job_id> --timeout 600 --json
 ```
 
-返りは `{"job_id", "state", "started", "device", "line", "waited_s", "log_tail"}`。結果ごとの動きは `exp-core` §8 の表のとおり。`failed` ならスクリプトの誤りを `log_tail` から直し、投げ直す（**2 回まで**）。2 回で直らなければ、そのまま報告書に書いて review に渡す。
+返りは `{"job_id", "state", "started", "device", "line", "waited_s", "log_tail"}`。結果ごとの動きは `exp-core` §8 の表のとおり。`failed` ならスクリプトの誤りを `log_tail` から直し、投げ直す（**2 回まで**）。2 回で直らなければ、そのまま作業報告書に書いて review に渡す。
 
 ### 6. 作業報告書を保存する
 
@@ -132,7 +132,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 - description `作業報告書 <study> ID<run_id>: <action> <model> — job <job_id> <state>`。
 - job_id・`started` の結果・投げ直した回数を書く。
 
-### 7. review のカードを作る
+### 7. review の CARD を作る
 
 ```bash
 sai-sci card --node <Node の ID> --block sci-exp-review \
@@ -147,7 +147,7 @@ sai-link card wait <返った run_id> --job <job_id>
 
 ### 8. 終える
 
-`sai-link run finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review のカードの run_id を書く。
+`sai-link run finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review の CARD の run_id を書く。
 
 ## やってはいけないこと
 

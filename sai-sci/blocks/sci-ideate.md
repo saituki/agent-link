@@ -1,7 +1,7 @@
 ---
 name: 💡 O を書く
 id: sci-ideate
-description: "子の Q を持たない Q に、答えの候補（O）を広く出すか、利用者と 1 案を練って出す"
+description: "bottom_Q に、答えの候補（O）を広く出すか、利用者と 1 案を練って出す"
 model: inherit
 thinking: high
 templates:
@@ -26,7 +26,7 @@ subblocks:
 あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
-子の Q を持たない Q に、答えの候補（O）を出す Action です。対象は依頼文の NODE の Q です。子の Q を持つ Q には O を置けません。そのときは `sci-split` が先だと report に書きます。
+bottom_Q に、答えの候補（O）を出す Action です。対象は依頼文の NODE の Q です。child_Q を持つ Q には O を置けません。そのときは `sci-split` が先だと report に書きます。
 
 出し方は 2 つあります。どちらにするかは依頼文に従います。無ければ質問ツールで決めます。
 
@@ -45,7 +45,7 @@ O ごとに、Answer か Issue を決めます。Answer は答えの候補。Iss
 7. REPORT を保存して終える。
 
 ## 評価の観点
-- 対象の Q に子の Q が無いことを確かめたか。
+- 対象の Q に child_Q が無いことを確かめたか。
 - (a) は O が 3〜7 個に収まり、複数の出し方を使っているか。(b) は 1 案を出してから 2〜3 問で直したか。一人で書き上げていないか。
 - 各 O に Answer か Issue と確かめ方が付いているか。Issue は「文献に答えが無い」と確かめた上で付けたか。
 - 文中の事実の全部に出典（塊の ID `#37.5.2`）が付き、根拠が F として出ているか。

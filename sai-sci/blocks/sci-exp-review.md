@@ -1,7 +1,7 @@
 ---
 name: 🔍 exp-review
 id: sci-exp-review
-description: "ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて完了報告書を書く"
+description: "ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて REPORT を書く"
 model: inherit
 thinking: high
 templates:
@@ -23,7 +23,7 @@ enable: true
 
 ## 役割
 
-あなたは **review** である（`exp-core` §1）。1 回の実行のジョブが終わったので、daemon があなたを起こした。台帳で結果を読み、規則（`exp-core` §6）で判定し、次の 1 回の実行を起こすか、止めて完了報告書を書く。
+あなたは **review** である（`exp-core` §1）。1 回の実行のジョブが終わったので、daemon があなたを起こした。台帳で結果を読み、規則（`exp-core` §6）で判定し、次の 1 回の実行を起こすか、止めて REPORT を書く。
 
 あなたは親を持たない run である。最後に `sai-link run finalize` を呼ぶ。
 
@@ -61,7 +61,7 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 
 ### 5. continue のとき（先に 7. の 2. で E を作る）
 
-`next` の 1 行ごとに、依頼書（`branch-order-<study>-<NN>.md`、`exp-core` §7）を保存し、`sci-exp-branch` のカードを作って起こす。依頼書の `parent_branch`・`model` は `next` の値。
+`next` の 1 行ごとに、依頼書（`branch-order-<study>-<NN>.md`、`exp-core` §7）を保存し、`sci-exp-branch` の CARD を作って起こす。依頼書の `parent_branch`・`model` は `next` の値。
 
 ```bash
 sai-sci card --node <次の 1 回の実行の E の ID> --block sci-exp-branch \
@@ -79,10 +79,10 @@ sai-link card run <返った run_id>
 
 ### 6. stop のとき
 
-完了報告書（`exp-final-<study>.md`、`exp-core` §10）を保存する。description は `完了報告書 <study>: <stop_reason> — 最良 <metric> <value>`。
+REPORT（`exp-final-<study>.md`、`exp-core` §10）を保存する。description は `REPORT <study>: <stop_reason> — 最良 <metric> <value>`。
 
 - `no_records`（R4）なら、先に質問ツールで起動者（人）に MLflow への接続を確かめるよう聞き、答えを判定書に書く。
-- `repro_failed` で止めたときは、完了報告書に**「土台が論文の再現の目標に届かなかった」**と書き、**改良の結論を書かない**（最良の値から改良が効いたとは書かない）。
+- `repro_failed` で止めたときは、REPORT に**「土台が論文の再現の目標に届かなかった」**と書き、**改良の結論を書かない**（最良の値から改良が効いたとは書かない）。
 - 仕様書の `return_to` があれば、professor を起こし直す（`exp-core` §11）。`return_to` が `null` なら起こさない。
 
 ```bash
@@ -90,7 +90,7 @@ sai-link run md --kind task <return_to.run_id>   # frontmatter の runner・mode
 sai-link card create <<'EOF'
 {"runner": "<runner>", "block": "<return_to.block>", "model": "<model>", "thinking": "<thinking>",
  "executer": "human",
- "task_text": "あなたは <block> の続きである。前の run <return_to.run_id> が起こした実験 <study> が終わった。\n研究日誌 .sai/paper/<block>-log.md を読んでから、下の完了報告書を評価して次の一手を決めよ。\n\nwaggle:<完了報告書のトークン>"}
+ "task_text": "あなたは <block> の続きである。前の run <return_to.run_id> が起こした実験 <study> が終わった。\n研究日誌 .sai/paper/<block>-log.md を読んでから、下の REPORT を評価して Next Action を決めよ。\n\nwaggle:<REPORT のトークン>"}
 EOF
 sai-link card run <返った run_id>
 ```
@@ -107,7 +107,7 @@ sai-link card run <返った run_id>
    {"op": "add_f", "parent": "<1 回の実行の E の ID>", "text": "ID125-p02 で test_acc=0.871（基準 0.80 を超えた）", "report": "<判定書のトークン>"}
    ```
 
-2. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. のカードは、この E の ID を `--node` に使う。**カードを作る前に出す。**
+2. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。**
 
    ```json
    {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>", "mlflow": "ID126-p01"}
@@ -123,7 +123,7 @@ sai-link card run <返った run_id>
 
 ### 8. 終える
 
-`sai-link run finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（または完了報告書のトークンと起こし直した professor の run_id）を書く。
+`sai-link run finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（または REPORT のトークンと起こし直した professor の run_id）を書く。
 
 ## やってはいけないこと
 

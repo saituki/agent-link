@@ -29,7 +29,7 @@ enable: true
 - データを受け取り、始める前の項目を確かめ、**データ表**・**EDA**・必要なら**前処理の写し**を作る（`data-core` §5・§6）。
 - MLflow に EDA を記録する（`data-core` §8）。
 - 木に E（データ解析）と F（要点）を出す（`data-core` §9）。
-- report の「## 次の一手」に、`sci-data-test` のカードの命令をそのまま書ける形で残す。
+- report の「## Next Action」に、`sci-data-test` の CARD の命令をそのまま書ける形で残す。
 
 しないこと:
 
@@ -38,7 +38,7 @@ enable: true
 - 生データを書き換えること。外れ値を自動で消すこと。
 - `prep.py` で、データ全体で学習する変換をすること。
 - 行の値や個人を特定できる値を出すこと。
-- **`sci-data-test` のカードを起こすこと。** 命令を書くだけである。
+- **`sci-data-test` の CARD を起こすこと。** 命令を書くだけである。
 - 30 分を超える計算を動かすこと。
 
 ## 手順
@@ -47,7 +47,7 @@ enable: true
 
 - 最初のメッセージの `# context`（`## TREE`）と `# task_text`（依頼文の NODE・目的・データのパス）を読む。
 - データのパスが依頼文に無ければ、木の `data` の Q に付いた F（`# context` の `## TREE` にある）を見る。**それでも無ければ、質問ツールで起動者にデータを聞いて止まる。** 推測でデータを作らない（`data-core` §11）。
-- study を決める（C1）。`<カードの Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
+- study を決める（C1）。`<CARD の Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
 - project は次で取る。
 
   ```bash
@@ -81,10 +81,10 @@ enable: true
 
 ### 5. 木に E を出す
 
-`data-core` §9 の explore の `add_e` で、**親の Node はカードの Node（SPROUT か E）**にして出す（C9）。
+`data-core` §9 の explore の `add_e` で、**親の Node は CARD の Node（SPROUT か E）**にして出す（C9）。
 
 ```json
-{"op": "add_e", "parent": "<カードの Node>", "text": "データ解析 <study>", "mlflow": "<project>/ID<自分の run_id>/data"}
+{"op": "add_e", "parent": "<CARD の Node>", "text": "データ解析 <study>", "mlflow": "<project>/ID<自分の run_id>/data"}
 ```
 
 返った **E の ID** を控える。8. の F の親になる。
@@ -96,7 +96,7 @@ enable: true
 - description は `データ表 <study>: <データを 1 文で>`。
 - 本文の先頭に、§4 の JSON を ```json のコードブロックで **1 つだけ**置く。
 
-トークンを控える。8. の F と report の「## 次の一手」で使う。
+トークンを控える。8. の F と report の「## Next Action」で使う。
 
 ### 7. MLflow に記録する
 
@@ -105,11 +105,11 @@ enable: true
 ```bash
 uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PROJECT_ROOT/.sai/tools/data_result.py" \
   log --experiment "<project>/ID<自分の run_id>/data" --run-name "ID<自分の run_id>-eda" \
-  --project "<project>" --run-id <自分の run_id> --study "<study>" --node <カードの Node> --kind eda \
+  --project "<project>" --run-id <自分の run_id> --study "<study>" --node <CARD の Node> --kind eda \
   --artifact analysis/<study>/ID<自分の run_id>/eda --json
 ```
 
-**記録に失敗しても、報告書は書く。** 失敗した理由（URI が無い・接続が切れるなど）を report の「## データの要点」の末尾に書いて、この手順だけを飛ばして次へ進む。
+**記録に失敗しても、REPORT は書く。** 失敗した理由（URI が無い・接続が切れるなど）を report の「## データの要点」の末尾に書いて、この手順だけを飛ばして次へ進む。
 
 ### 8. 木に F を出す
 
@@ -123,14 +123,14 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 
 ### 9. report を保存して終える
 
-`## 出力の形` の見出しで書く。**「## 次の一手」には、データ表のトークン・5. の E の ID と、下の命令をそのまま書ける形で書く。**
+`## 出力の形` の見出しで書く。**「## Next Action」には、データ表のトークン・5. の E の ID と、下の命令をそのまま書ける形で書く。**
 
 ```bash
 sai-sci card --node <5. の E の ID> --block sci-data-test \
   --purpose "<study> の解析: <主な仮説の候補を 1 文で>" --input <データ表のトークン> --json
 ```
 
-**このカードを作らない。** 書くだけである。カードを起こすのは professor か利用者である。
+**この CARD を作らない。** 書くだけである。CARD を起こすのは professor か利用者である。
 
 終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**データ表のトークン**と**出した E の ID**を書く。
 
@@ -143,7 +143,7 @@ report は次の見出しで、この順のまま書きます。
 ## EDA で見つけたこと
 ## 前処理
 ## 解析の候補
-## 次の一手
+## Next Action
 ## PROPOSAL
 ## OUT_OF_SCOPE
 ```
@@ -152,7 +152,7 @@ report は次の見出しで、この順のまま書きます。
 - **EDA で見つけたこと** — 分布・欠損・外れ値・相関・グループ構造を、**見たものだけ**を 1 行ずつ書きます。「〜だったから〜」のような説明は書きません。
 - **前処理** — やった場合だけ、どの列に何をしたかを 1 行ずつ書きます。やらなかった場合は「なし」と書きます。2 回動かして sha256 が同じだったことも書きます。
 - **解析の候補** — **ここで書く仮説は候補であって結果ではない。** 候補となる仮説と、確かめるための検定の種類の候補を 1 行ずつ書きます。p 値・効果量・結論は書きません。
-- **次の一手** — データ表のトークン、5. の E の ID、そして `sci-data-test` のカード命令をそのまま書きます。
+- **Next Action** — データ表のトークン、5. の E の ID、そして `sci-data-test` の CARD 命令をそのまま書きます。
 
 ## やってはいけないこと
 
@@ -161,7 +161,7 @@ report は次の見出しで、この順のまま書きます。
 - **生データを書き換えること。** 外れ値を自動で消すこと。
 - **データ全体で学習する変換を `prep.py` ですること。**
 - **行の値や個人を特定できる値を出すこと。**
-- **`sci-data-test` のカードを起こすこと。**
+- **`sci-data-test` の CARD を起こすこと。**
 - **30 分を超える計算を動かすこと。**
 - 解析計画書を書くこと。解析を走らせること。
 - `MLFLOW_TRACKING_URI` などの記録先の設定を書き換えること。

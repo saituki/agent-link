@@ -59,7 +59,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/model
 uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refcode.py" gh-search "<語>" --json
 ```
 
-ModelDB のカタログが無いときは終了コード 1 で返る。`sync` は走らせず、質問ツールで起動者に聞く（`exp-ref` §7）。GitHub の検索上限に当たったら待たずに次へ進み、そのことを報告書に書く。
+ModelDB のカタログが無いときは終了コード 1 で返る。`sync` は走らせず、質問ツールで起動者に聞く（`exp-ref` §7）。GitHub の検索上限に当たったら待たずに次へ進み、そのことを参照コード調査書に書く。
 
 ### 4. 候補を 3 本まで取って読む
 
