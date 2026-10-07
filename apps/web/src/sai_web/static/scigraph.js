@@ -1,5 +1,5 @@
 "use strict";
-// 研究方針の木の図（実装計画 U20）。一番上の Q から下へ伸びる Q・O・F・E の木 1 つ。
+// research-tree の図（実装計画 U20）。一番上の Q から下へ伸びる Q・O・F・E の木 1 つ。
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
@@ -11,7 +11,7 @@
 // もう一度開いたときに同じ状態で出す（画面の中の Map と localStorage の sai-sg-view:<key>）。
 // onSelect には {kind: "node", id} / {kind: "seed", id} を渡す（札の data-sg-id と同じ ID）。
 // 段は、下から ROOT（top_Q とその下の Q・O・F）→ SEED の札 → SPROUT（kind S）→ BRANCH（E）の順。
-// 線は SEED → top_Q（seed）・SEED → SPROUT（sprout）・親子（tree）の 3 つ。
+// 線は SEED → top_Q（seed）・SEED → SPROUT（sprout）・Parent / Child（tree）の 3 つ。
 //
 // 中の処理は Rust のコアが返した JSON だけを使う（apps/web は他の DB を開かない）。
 // 札の大きさは固定。見える範囲（tx, ty, z）だけを動かし、札の位置は動かさない。
@@ -27,7 +27,7 @@ const SG_CARD_W = 200;
 const SG_CARD_H = 72;
 const SG_TREE_STEP = 120; // 段と段の縦の間隔（札の上端どうし）
 const SG_TREE_GAP = 24;   // 同じ段の札と札の間
-// この数を超える節点では、F を隠した状態で始める（見やすさのため）
+// この数を超える Node では、F を隠した状態で始める（見やすさのため）
 const SG_MANY_NODES = 60;
 // ドラッグとクリックの境（これ以上動いたらドラッグ、未満ならクリック）
 const SG_DRAG_SLOP = 4;
@@ -41,7 +41,7 @@ const SG_MEMO_WAIT = 120;
 // 線の種類。sgEdgeStyle がこの表を返す。
 // [種類, 表示名, 破線, 矢印つきの実線か, 色の CSS 変数]
 const SG_EDGE_KINDS = [
-  ["tree", "親子", "", false, "--sci-edge-parent"],
+  ["tree", "Parent / Child", "", false, "--sci-edge-parent"],
   ["seed", "SEED → top_Q", "2 4", false, "--sci-edge-depends"],
   ["sprout", "SEED → SPROUT", "2 4", false, "--sci-edge-analogous"],
 ];
@@ -501,7 +501,7 @@ function sgRenderGraph(container, input, onSelect) {
   sgDown = null;
   sgPinch = null;
 
-  // 節点が多いときは、F を隠した状態で始める
+  // Node が多いときは、F を隠した状態で始める
   const nodes = sgStatus && Array.isArray(sgStatus.nodes) ? sgStatus.nodes : [];
 
   // 覚えていた表示（位置・倍率・F と O と E・畳み）。key が無いときは全体をそのまま出す
@@ -746,7 +746,7 @@ function sgCardEl(c) {
   head.appendChild(sgEl("span", "sci-graph-card-id", c.kind === "S" ? "SPROUT" : c.id));
   b.appendChild(head);
   // SEED は見出しの SEED をそのまま出す（題は無い）
-  if (c.kind !== "SEED") b.appendChild(sgEl("span", "sci-graph-card-title", c.text || "（文のない札）"));
+  if (c.kind !== "SEED") b.appendChild(sgEl("span", "sci-graph-card-title", c.text || "（文のない CARD）"));
   if (c.sub) b.appendChild(sgEl("span", "sci-graph-card-foot", c.sub));
   return b;
 }
@@ -934,7 +934,7 @@ function sgZoomAtPx(px, py, factor) {
   sgApplyView();
 }
 
-/** 押している指から節点 id を取り出す（無ければ null）。 */
+/** 押している指から Node id を取り出す（無ければ null）。 */
 function sgHitNode(target) {
   if (!target || typeof target.closest !== "function") return null;
   const box = target.closest("[data-sg-id]");

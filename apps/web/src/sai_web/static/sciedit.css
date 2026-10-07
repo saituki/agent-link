@@ -1,10 +1,10 @@
-/* sai-web の研究方針の入力欄と読む札（#/research/read/<run_id>）の画面 —
+/* sai-web の research-tree の入力欄と READ_CARD（#/research/read/<run_id>）の画面 —
    実装計画 U20。scitree.css の後に読む（index.html）。
    使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
    --ok / --warn / --danger と --sci-*（style.css にある）。
    クラスは .sci-edit- と .sci-read- で始める。st- や --st- は使わない（C-14）。 */
 
-/* --- 仕分け箱（画面全体） --- */
+/* --- TRIAGE 箱（画面全体） --- */
 
 .sci-edit-triage {
   display: flex;
@@ -31,7 +31,7 @@
   background: var(--bg);
 }
 
-/* --- 仕分け箱のまとめ（節点ごと / run ごと） --- */
+/* --- TRIAGE 箱のまとめ（Node ごと / run ごと） --- */
 
 .sci-edit-group {
   border: 1px solid var(--line);
@@ -65,7 +65,7 @@
   margin-left: auto;
 }
 
-/* --- 仕分け箱の 1 行 --- */
+/* --- TRIAGE 箱の 1 行 --- */
 
 .sci-edit-proposal {
   display: flex;
@@ -203,7 +203,7 @@
   gap: 6px;
 }
 
-/* Sprout の鎖（select を縦に並べ、段ごとに 8px 字下げする。幅 390px でもはみ出さない） */
+/* SPROUT の鎖（select を縦に並べ、段ごとに 8px 字下げする。幅 390px でもはみ出さない） */
 .sci-edit-chain-box {
   display: flex;
   flex-direction: column;
@@ -277,7 +277,7 @@
   gap: 8px;
 }
 
-/* --- 読む札 --- */
+/* --- READ_CARD --- */
 
 .sci-read-body {
   padding: 10px 12px 24px;
@@ -434,7 +434,7 @@
     width: 100%;
   }
 
-  /* 仕分け箱のまとまりは 1 列に積む（札は幅いっぱいに伸ばさない） */
+  /* TRIAGE 箱のまとまりは 1 列に積む（札は幅いっぱいに伸ばさない） */
   .sci-edit-group-head {
     flex-direction: column;
     align-items: stretch;

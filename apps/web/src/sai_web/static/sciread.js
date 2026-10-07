@@ -1,7 +1,7 @@
 "use strict";
-// 読む札（#/research/read/<run_id>）の画面（U21）。
+// READ_CARD（#/research/read/<run_id>）の画面（U21）。
 //
-// 読む札は人が読む札（runner = user）。利用者は論文を読み、O（または E）に F を付け、
+// READ_CARD は人が READ_CARD（runner = user）。利用者は論文を読み、O（または E）に F を付け、
 // note.md を書いて終える。読み終わりの判定はコアが行い、終える操作は止めない。
 //
 // 中の処理は `GET …/sci/reads/<run_id>`・`…/start`・`…/finish`・`GET …/sci/nodes/<ID>`・
@@ -26,9 +26,9 @@ const SR_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)
 
 // --- 画面の状態 ---
 
-let srCard = null;     // 最後に読んだ読む札の JSON
+let srCard = null;     // 最後に読んだ READ_CARD の JSON
 let srDetail = null;   // 対象 Node の詳細（Q のとき O の候補に使う）
-let srRunId = null;    // 今開いている読む札の run の番号
+let srRunId = null;    // 今開いている READ_CARD の run の番号
 
 // ============================================================================
 // DOM を使わない純関数（tests/test_sciread.js）
@@ -166,7 +166,7 @@ function srSec(title, termKey) {
 }
 
 // ============================================================================
-// 読む札の画面
+// READ_CARD の画面
 // ============================================================================
 
 /** 画面を開く（app.js の route から呼ばれる）。 */
@@ -178,12 +178,12 @@ async function srOpen(params) {
   srDetail = null;
   const body = document.getElementById("sr-body");
   const title = document.getElementById("sr-title");
-  if (title) title.textContent = "読む札";
+  if (title) title.textContent = "READ_CARD";
   if (typeof ensurePaperProjects === "function") await ensurePaperProjects();
   if (!body) return;
   if (!srRunId) {
     body.innerHTML = "";
-    body.appendChild(saiEmpty({ icon: "❓", title: "読む札の番号が分かりません", body: "住所が「#/research/read/130」の形ではありません。" }));
+    body.appendChild(saiEmpty({ icon: "❓", title: "READ_CARD の番号が分かりません", body: "住所が「#/research/read/130」の形ではありません。" }));
     return;
   }
   if (typeof selectedPaperProject !== "function" || !selectedPaperProject()) {
@@ -195,7 +195,7 @@ async function srOpen(params) {
   await srReload();
 }
 
-/** 読む札を読み直して描き直す。 */
+/** READ_CARD を読み直して描き直す。 */
 async function srReload() {
   const body = document.getElementById("sr-body");
   if (!body || !srRunId) return;
@@ -206,7 +206,7 @@ async function srReload() {
   } catch (e) {
     body.appendChild(saiEmpty({
       icon: "⚠️",
-      title: "読む札を読めませんでした",
+      title: "READ_CARD を読めませんでした",
       body: (e && e.message) || "もう一度読み込んでください。",
     }));
     return;
@@ -222,12 +222,12 @@ async function srReload() {
   srRender(card || {});
 }
 
-/** 読む札を描く（見出し → 始める → Q と抜き出すもの → F を足す → F → note.md → 終える）。 */
+/** READ_CARD を描く（見出し → 始める → Q と抜き出すもの → F を足す → F → note.md → 終える）。 */
 function srRender(card) {
   const body = document.getElementById("sr-body");
   if (!body) return;
   const title = document.getElementById("sr-title");
-  if (title) title.textContent = `読む札 #${card.run_id || srRunId}`;
+  if (title) title.textContent = `READ_CARD #${card.run_id || srRunId}`;
   const box = srEl("div", "sci-read-card");
   box.appendChild(srHead(card));
   if (card.owner === "todo") box.appendChild(srStartRow(card));
@@ -241,7 +241,7 @@ function srRender(card) {
 
 /** 見出し（論文の題・年・owner・対象 Node・深さ・目的）。 */
 function srHead(card) {
-  const sec = srSec("この読む札");
+  const sec = srSec("この READ_CARD");
   const node = card.node || {};
   const paper = card.paper || {};
   const head = srLine("sci-read-head");
@@ -269,7 +269,7 @@ function srHead(card) {
   if (meta.childNodes.length) sec.appendChild(meta);
 
   if (card.purpose) sec.appendChild(srEl("p", "sci-read-purpose", card.purpose));
-  sec.appendChild(srBtn("研究方針の木へ戻る", () => { location.hash = srBackHash(card); }, "ghost"));
+  sec.appendChild(srBtn("research-tree へ戻る", () => { location.hash = srBackHash(card); }, "ghost"));
   return sec;
 }
 
@@ -303,7 +303,7 @@ function srQuestions(card) {
   const qs = Array.isArray(card.questions) ? card.questions.filter(Boolean) : [];
   const ex = Array.isArray(card.extract) ? card.extract.filter(Boolean) : [];
   if (!qs.length && !ex.length) {
-    sec.appendChild(srNote("この札には問いも抜き出すものもありません。"));
+    sec.appendChild(srNote("この CARD には問いも抜き出すものもありません。"));
     return sec;
   }
   for (const q of qs) sec.appendChild(srEl("p", "sci-read-answer-q", String(q)));
@@ -320,7 +320,7 @@ function srAddForm(card) {
   const sec = srSec("F を足す");
   const parents = srParents(card, srDetail);
   if (!parents.length) {
-    sec.appendChild(srNote("F を付ける O または E がありません。研究方針の木で O を足してから戻ってください。"));
+    sec.appendChild(srNote("F を付ける O または E がありません。research-tree で O を足してから戻ってください。"));
     return sec;
   }
   const field = (label, input) => {
@@ -378,9 +378,9 @@ function srAddForm(card) {
   return sec;
 }
 
-/** この札で入れた F。 */
+/** この CARD で入れた F。 */
 function srFindings(card) {
-  const sec = srSec("この札で入れた F");
+  const sec = srSec("この CARD で入れた F");
   const list = Array.isArray(card.findings) ? card.findings.filter(Boolean) : [];
   if (!list.length) {
     sec.appendChild(srNote("まだ F を入れていません。"));
@@ -445,7 +445,7 @@ function srFinishRow(card) {
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   (window.SaiRoutes = window.SaiRoutes || []).push({
-    // 読む札（#/research/read/130）
+    // READ_CARD（#/research/read/130）
     match(hash) {
       return srParseHash(hash);
     },

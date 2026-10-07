@@ -1,7 +1,7 @@
 /* 根の図と候補の表の見た目（実装計画 U21）。
    scitree.css の後に読む（index.html）。style.css と scitree.css は触らない。
    使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong / --accent と、
-   研究方針の木用の --sci-*（状態と線の色。style.css にある）。
+   research-tree 用の --sci-*（状態と線の色。style.css にある）。
    クラスは .sci-graph- で始める（st- / --st- は統計の画面と重なるので使わない）。 */
 
 /* --- 図を囲む所（#sci-list の中にも、狭い画面の下から出る板の中にも置く） --- */
@@ -260,7 +260,7 @@
   outline-offset: 1px;
 }
 
-/* Sprout に含まれない札と線（Sprout の札を選んだときだけ薄く出す） */
+/* SPROUT に含まれない CARD と線（SPROUT の CARD を選んだときだけ薄く出す） */
 .sci-graph-faded { opacity: 0.25; }
 
 /* 畳んだ札（子孫を隠している。sub に `▸ +N` が出る） */

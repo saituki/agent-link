@@ -1,5 +1,5 @@
 "use strict";
-// 読む札の画面（sciread.js）の純関数のテスト（U21）。
+// READ_CARD の画面（sciread.js）の純関数のテスト（U21）。
 // 実行:
 //     node apps/web/tests/test_sciread.js
 //

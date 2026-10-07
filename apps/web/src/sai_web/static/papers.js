@@ -29,9 +29,9 @@ const PAPERS_SEG = [
   ["radio", "Radio", "#/papers/radio"],
   ["sets", "検索セット", "#/papers/sets"],
 ];
-// Research の上部の切り替え（U14）。研究方針の木と実験。
+// Research の上部の切り替え（U14）。research-tree と実験。
 const RESEARCH_SEG = [
-  ["tree", "Research tree", "#/research/tree"],
+  ["tree", "research-tree", "#/research/tree"],
   ["experiments", "Experiments", "#/research/experiments"],
 ];
 // 検索結果の一覧で「未ダウンロードも表示」の選択を覚える（localStorage・"0" が OFF・既定は ON）
@@ -82,7 +82,7 @@ const ATTENTION_CHIPS = {
   recommend_card: ["Recommend", "ok"],
   report_issue: ["Source", "danger"],
   new_set_items: ["New", "muted"],
-  // U19: 研究方針の木から出る要対応
+  // U19: research-tree から出る要対応
   sci_decision: ["NO_STAR", "warn"],
   sci_triage: ["PROPOSAL", "warn"],
 };
@@ -669,7 +669,7 @@ async function openProjectSheet() {
 
 /** 切り替えたら今の画面を中身ごと作り直す（chip は Papers の 4 画面にある・18 §1.1）。 */
 function reopenCurrentScreen() {
-  // U19: 研究方針の木（節点つきでも同じ画面を作り直す）
+  // U19: research-tree（Node つきでも同じ画面を作り直す）
   if (/^#\/papers\/tree(?:\/N[1-9][0-9]{0,8})?$/.test(location.hash) && typeof stOpen === "function") void stOpen(stParseHash(location.hash));
   else if (location.hash === "#/papers/dashboard") void openPapersDashboard();
   else if (location.hash === "#/papers/radio") void openRadioList(); // radio.js
@@ -846,16 +846,16 @@ function attentionCard() {
   return card;
 }
 
-/** 要対応の行き先（研究方針の木の住所）。開けないときは空文字。
+/** 要対応の行き先（research-tree の住所）。開けないときは空文字。
  *
  * `sci_decision` のキーはコアが `sci_decision:Q<番号>` の形で作る
- * （crates/sai-paper-core/src/attention.rs）。形が合えば研究方針の画面を開く。
+ * （crates/sai-paper-core/src/attention.rs）。形が合えば research-tree の画面を開く。
  */
 function papersAttentionHash(item) {
   const it = item || {};
   if (it.kind === "sci_triage") return "#/research/tree";
   if (it.kind !== "sci_decision") return "";
-  // キーは `sci_decision:<Q の ID>`。その Q を選んだ研究方針の画面を開く
+  // キーは `sci_decision:<Q の ID>`。その Q を選んだ research-tree の画面を開く
   const m = /^sci_decision:([QOFE][1-9][0-9]{0,8})$/.exec(String(it.key || ""));
   return m ? `#/research/tree/${m[1]}` : "";
 }
@@ -871,7 +871,7 @@ function attentionRow(item) {
   main.className = "pd-att-main";
   main.appendChild(el("span", `sai-chip ${kind[1]}`, kind[0]));
   main.appendChild(el("span", "pd-att-title", it.title || "(untitled item)"));
-  // U19: 研究方針の木から出る要対応は、節点つきで研究方針（または仕分け）へ移る
+  // U19: research-tree から出る要対応は、Node つきで research-tree（または TRIAGE）へ移る
   const sciHash = papersAttentionHash(it);
   if (sciHash) {
     main.addEventListener("click", () => { location.hash = sciHash; });
@@ -1209,7 +1209,7 @@ function searchMetaLine(log) {
   if (log.node && log.node.id) {
     line.appendChild(document.createTextNode(" · "));
     const a = el("a", "paper-doi", log.node.id);
-    a.href = `#/research/tree/${log.node.id}`; // 研究方針の木の Node（検索の記録の持ち主）
+    a.href = `#/research/tree/${log.node.id}`; // research-tree の Node（検索の記録の持ち主）
     line.appendChild(a);
   }
   return line;
@@ -1525,7 +1525,7 @@ function parseLibraryHash(hash) {
   };
 }
 
-/** 左の階層を出したまま検索結果を右に開く住所（研究方針の木の「検索の記録」から使う）。 */
+/** 左の階層を出したまま検索結果を右に開く住所（research-tree の「検索の記録」から使う）。 */
 function libraryLogHash(id) {
   return `#/papers/library/log/${encodeURIComponent(id)}`;
 }
@@ -2315,7 +2315,7 @@ function lfindRenderNodeUI() {
   if (eachWrap) eachWrap.hidden = !showEach;
 }
 
-/** U03: 研究方針の Node の一覧を読む（木が無ければ欄を隠す）。 */
+/** U03: research-tree の Node の一覧を読む（木が無ければ欄を隠す）。 */
 async function lfindLoadNodes() {
   const name = selectedProject;
   if (!name || lfindLoadingNode) return;
@@ -2331,7 +2331,7 @@ async function lfindLoadNodes() {
   } catch {
     if (selectedProject !== name) return;
     libFindNodes = [];
-    libFindNodesMsg = "研究方針がまだありません";
+    libFindNodesMsg = "research-tree がまだありません";
   } finally {
     lfindLoadingNode = false;
     lfindRenderNodeUI();

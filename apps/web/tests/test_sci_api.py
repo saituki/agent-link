@@ -1,10 +1,10 @@
-"""研究方針の木（Q・O・F・E）と検索セットの API のテスト。
+"""research-tree（Q・O・F・E）と検索セットの API のテスト。
 
 確かめること:
 - 中継が表どおりに CLI を呼ぶ（引数・標準入力・cwd・`SAI_PROJECT_ROOT`・待ち時間）
 - 検査に通らない値では CLI が 1 回も呼ばれず、400 と日本語の理由が返る
 - 知らない項目と `path` のようなファイルのパスが CLI に渡らない
-- 読む札の終わりは、始まっていない札でも 1 回の操作で review まで進む
+- READ_CARD の終わりは、始まっていない札でも 1 回の操作で review まで進む
 - 14 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
 
 実行:
@@ -266,7 +266,7 @@ def test_card() -> None:
     bad({"expect": "あ" * 301})
     bad({"node": "N1"}, "ID の形が正しくありません")
     bad({"node": "12"}, "ID の形が正しくありません")
-    bad({"node": "SEED"}, "読む札の対象は Q か O にしてください")
+    bad({"node": "SEED"}, "READ_CARD の対象は Q か O にしてください")
     bad({"depth": "deep"}, "depth が正しくありません")
     bad({"mode": "quick"}, "mode が正しくありません")
     bad({"runner": "human"}, "runner が正しくありません")
@@ -276,7 +276,7 @@ def test_card() -> None:
 
 
 def test_triage() -> None:
-    """仕分けの検査。"""
+    """TRIAGE の検査。"""
     assert sci.validate_triage({"action": "accept"}) == ("accept", None)
     assert sci.validate_triage({"action": "reject", "note": " 違う "}) == ("reject", None)
     action, edit = sci.validate_triage(
@@ -397,7 +397,7 @@ def test_calls(order: list) -> None:
 
 
 def test_read_finish() -> None:
-    """読む札の終わりは、todo からでも 1 回で review まで進む。F が 0 でも止めない。"""
+    """READ_CARD の終わりは、todo からでも 1 回で review まで進む。F が 0 でも止めない。"""
     project = papers.resolve_project("sai-paper")
     root = str(project["root"])
     card = {
@@ -462,7 +462,7 @@ def test_failure_codes() -> None:
 
 
 def test_user_cli_args() -> None:
-    """読む札の 2 つの関数は `sai-link phone user …` を呼ぶ。
+    """READ_CARD の 2 つの関数は `sai-link phone user …` を呼ぶ。
 
     `control._phone_json` の本物の作り（引数の先頭に `phone` を付ける・`missing` の
     扱い）は、偽の `run_cli` を通して確かめる。

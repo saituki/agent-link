@@ -51,7 +51,7 @@ GRAPHICAL([
 ]);
 // グラフの系列
 GRAPHICAL(["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"]);
-// 研究方針の木の状態と線（U19）
+// research-tree の状態と線（U19）
 GRAPHICAL([
   "--sci-decided", "--sci-tentative", "--sci-open", "--sci-excluded", "--sci-candidate",
   "--sci-rejected", "--sci-dormant", "--sci-support", "--sci-refute",
@@ -154,7 +154,7 @@ const REQUIRED = [
   // グラフ（U04）
   "--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6",
   "--chart-axis", "--chart-grid", "--st-card",
-  // 研究方針の木（U19）
+  // research-tree（U19）
   "--sci-decided", "--sci-tentative", "--sci-open", "--sci-excluded", "--sci-candidate",
   "--sci-rejected", "--sci-dormant", "--sci-support", "--sci-refute",
   "--sci-edge-parent", "--sci-edge-depends", "--sci-edge-derived", "--sci-edge-analogous",

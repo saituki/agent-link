@@ -1,9 +1,9 @@
 "use strict";
-// 操作の入力欄・カードのフォーム・仕分け箱（sciedit.js）の純関数のテスト（実装計画 U19）。
+// 操作の入力欄・カードのフォーム・TRIAGE 箱（sciedit.js）の純関数のテスト（実装計画 U19）。
 // 実行:
 //     node apps/web/tests/test_sciedit.js
 //
-// DOM が要る描画・小窓・仕分け箱の操作はブラウザで確かめる（kantoku が統合のあとで行う）。
+// DOM が要る描画・小窓・TRIAGE 箱の操作はブラウザで確かめる（kantoku が統合のあとで行う）。
 
 const assert = require("assert");
 const path = require("path");
@@ -212,13 +212,13 @@ function test_card() {
   bad({ papers: Array.from({ length: 21 }, (_, i) => i + 1) });
   bad({ papers: ["abc"] });
 
-  // 読む札: 論文はちょうど 1 本・対象は Q か O
+  // READ_CARD: 論文はちょうど 1 本・対象は Q か O
   const read = { node: "O2", block: "sci-read", purpose: "読む", runner: "user", papers: [37], depth: "figures" };
   assert.deepStrictEqual(seBuildCard(read).card, { node: "O2", block: "sci-read", purpose: "読む", runner: "user", papers: [37], depth: "figures" });
   bad(Object.assign({}, read, { papers: [37, 38] }));
   bad(Object.assign({}, read, { papers: [] }));
   assert.match(bad(Object.assign({}, read, { node: "F4" })), /Q か O/);
-  // 読む札は SEED を選べない
+  // READ_CARD は SEED を選べない
   assert.match(bad(Object.assign({}, read, { node: "SEED" })), /Q か O/);
   // SEED（research-tree の全体）もカードの対象にできる
   assert.strictEqual(seCardValues(null, "SEED").node, "SEED");
@@ -228,7 +228,7 @@ function test_card() {
   );
 }
 
-// --- 仕分け ---
+// --- TRIAGE ---
 function test_proposal_text() {
   const p = { id: "P59", op: "add_o", payload: { q: "Q12", text: "前頭葉", body: "…" } };
   assert.strictEqual(seProposalSummary(p), "前頭葉");
@@ -240,7 +240,7 @@ function test_proposal_text() {
   assert.ok(seProposalSummary({}).includes("中身がありません"));
 }
 
-// --- bottom_Q（子を持たない Q。node の bottom_q を見る） ---
+// --- bottom_Q（child_Q を持たない Q。node の bottom_q を見る） ---
 function test_bottom_qs() {
   const nodes = [
     { id: "Q1", parent: null, bottom_q: false },

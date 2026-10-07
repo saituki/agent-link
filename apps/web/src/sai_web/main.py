@@ -1186,20 +1186,20 @@ def api_paper_pdf(
     )
 
 
-# --- 研究方針の木（sai-sci・U18 C-13） ---
+# --- research-tree（sai-sci・U18 C-13） ---
 # 検査は sci.py が CLI を呼ぶ前に行う（外から来る値で CLI を呼ぶため・U18 決定）。
-# 読む札の「始め」「終え」だけは sai-link の `phone user …`（C-12）を sci.py 越しに呼ぶ。
+# READ_CARD の「始め」「終え」だけは sai-link の `phone user …`（C-12）を sci.py 越しに呼ぶ。
 
 
 @app.get("/api/projects/{name}/papers/sci/status")
 def api_sci_status(name: str, _: None = Depends(require_token)) -> dict:
-    """研究方針の木全体（`phone sci status`）。"""
+    """research-tree 全体（`phone sci status`）。"""
     return sci.status(papers.resolve_project(name))
 
 
 @app.get("/api/projects/{name}/papers/sci/types")
 def api_sci_types(name: str, _: None = Depends(require_token)) -> dict:
-    """使える研究の型（`phone sci types`）。"""
+    """使える RESEARCH_TYPE（`phone sci types`）。"""
     return sci.types(papers.resolve_project(name))
 
 
@@ -1231,7 +1231,7 @@ def api_sci_apply(
 def api_sci_triage(
     name: str, pid: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """仕分ける（body は `{"action","edit"}`）。"""
+    """TRIAGE する（body は `{"action","edit"}`）。"""
     return sci.triage(papers.resolve_project(name), pid, payload)
 
 
@@ -1239,7 +1239,7 @@ def api_sci_triage(
 def api_sci_card(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """読む札を作る（body はカードの JSON）。"""
+    """READ_CARD を作る（body はカードの JSON）。"""
     return sci.create_card(papers.resolve_project(name), payload)
 
 
@@ -1247,7 +1247,7 @@ def api_sci_card(
 def api_sci_read(
     name: str, run_id: str, _: None = Depends(require_token)
 ) -> dict:
-    """読む札の中身（`phone sci read <run_id>`）。"""
+    """READ_CARD の中身（`phone sci read <run_id>`）。"""
     return sci.read(papers.resolve_project(name), run_id)
 
 
@@ -1255,7 +1255,7 @@ def api_sci_read(
 def api_sci_read_start(
     name: str, run_id: str, _: None = Depends(require_token)
 ) -> dict:
-    """読む札を始める（`sai-link phone user start`）。"""
+    """READ_CARD を始める（`sai-link phone user start`）。"""
     return sci.read_start(papers.resolve_project(name), run_id)
 
 
@@ -1263,7 +1263,7 @@ def api_sci_read_start(
 def api_sci_read_finish(
     name: str, run_id: str, _: None = Depends(require_token)
 ) -> dict:
-    """読む札を終えて review へ移す（F が 0 でも止めない）。"""
+    """READ_CARD を終えて review へ移す（F が 0 でも止めない）。"""
     return sci.read_finish(papers.resolve_project(name), run_id)
 
 
