@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,10 @@ logger = logging.getLogger("sai_web")
 # 実行の DB と常駐の PID ファイル（sai-link の `project::sai_path` と同じ場所）
 _DB_REL = Path(".sai") / "sai-engine" / "sai-engine.db"
 _PID_REL = Path(".sai") / "sai-engine" / "daemon.pid"
+# 常駐が約 5 秒ごとに書き換える状態ファイル（多人数モードの生死判定に使う）
+_STATUS_REL = Path(".sai") / "sai-engine" / "daemon.status"
+# 多人数モードで「生きている」と見なす更新からの秒数（daemon の書き込み間隔に余裕を持たせる）
+_STATUS_FRESH_SEC = 30.0
 
 # 登録簿のファイル名（`$SAI_HOME/registry.json`）
 _REGISTRY_NAME = "registry.json"
@@ -171,13 +176,28 @@ def process_alive(pid: int) -> bool:
     return True
 
 
+def daemon_status_path(root: str) -> Path:
+    """常駐の状態ファイルのパス（多人数モードの生死判定に使う）。"""
+    return Path(root) / _STATUS_REL
+
+
 def daemon_alive(root: str) -> bool:
-    """`<root>/.sai/sai-engine/daemon.pid` の PID が生きているか。
+    """常駐が生きているか。
+
+    - 単独モード: `<root>/.sai/sai-engine/daemon.pid` の PID が生きているか。
+    - 多人数モード: コンテナの中の PID はホストから見えないので、常駐が約 5 秒ごとに
+      書く `<root>/.sai/sai-engine/daemon.status` の更新時刻が 30 秒以内かで見る。
 
     sai-link の `daemon::is_running()` は PID に加えてプロセス名まで確かめるが，
     ここでは軽量の生死判定だけを行う。sai-link とずれる場合は報告に残すこと
     （実装計画 C の追加指示）。
     """
+    if multi_user():
+        try:
+            mtime = daemon_status_path(root).stat().st_mtime
+        except OSError:
+            return False
+        return (time.time() - mtime) <= _STATUS_FRESH_SEC
     try:
         text = daemon_pid_path(root).read_text(encoding="utf-8").strip()
     except (OSError, ValueError):
