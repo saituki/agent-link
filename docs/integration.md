@@ -2,7 +2,6 @@
 
 **正はコード**（`apps/web/src/sai_web/` と `crates/`・`apps/radio` の実装）。この文書とコードが食い違ったら、コードに合わせて直す。
 `crates/`・`apps/radio` 側を直すときの注意は [`for-sai-developers.md`](./for-sai-developers.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
-旧構成から切り替える人は [`switch-over.md`](./switch-over.md) を読む。
 
 この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **110 本**（着手時点）。
 

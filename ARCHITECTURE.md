@@ -165,9 +165,6 @@
 - **プロジェクトの中の `<root>/.sai/`** は別。`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`（sai-paper の置き場）がここにある。
 - `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
 
-### 3.4 切り替え
-
-旧構成（`~/.sai-moon` など）からの移し方と切り替えの順番は [`docs/switch-over.md`](./docs/switch-over.md) にある。
 
 ---
 
@@ -341,8 +338,7 @@ sai-moon/
 │   └── mind.md               # mind.md（研究の土台）のひな形
 ├── docs/                     # 開発者向けの文書
 │   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
-│   ├── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
-│   └── switch-over.md        # 旧構成から切り替える手順書
+│   └── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
 ├── .sai/                     # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── CONCEPT.md                # 概念と用語の定義
 ├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示

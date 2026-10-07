@@ -22,11 +22,10 @@
 | `README.md` | 起動手順・ポート表・環境変数表 |
 | `docs/integration.md` | `apps/web` の API と画面の住所の一覧 |
 | `docs/for-sai-developers.md` | CLI と `apps/radio` が守る約束（`apps/web` が読む JSON の項目） |
-| `docs/switch-over.md` | 利用者が 1 回だけ行う切り替えの手順書 |
 | `sai-sci/README.md` | research-tree の使い方 |
 | `apps/radio/README.md`・`apps/radio/ARCHITECTURE.md` | Radio だけ触るとき |
 
-`sai-link` などは PATH に無い。PATH の足し方は `docs/switch-over.md`（段 3）を見ること。
+`sai-link` などは PATH に無い。`README.md` の「入れ方」の PATH の足し方を見ること。
 
 ## 作業の約束
 
@@ -92,5 +91,5 @@ CI（`.github/workflows/ci.yml`）は同じ命令を 4 つのジョブ（Rust・
 - さくらの DOK（`sai-sci/exec/dok`）の `run` / `ssh-run`（課金される）。確認は偽の `dok.py` を使うテストで行う。
 - `sai-link init`・`sai-sci init`（`--update` を含む）など、プロジェクトを書き換える命令を本物のプロジェクトで実行すること。確かめるときは一時フォルダをプロジェクトにし、`SAI_HOME` にも別の一時フォルダを入れ、最後に消す。
 - 本物の `.sai/blocks/*.md`・`~/.sai/`・`papr.db` の中身を、確かめのために変えること。書き込みの確認は確認用の物（例: block `guide-check`）か一時フォルダで行い、最後に消す。
-- 利用者の環境（`~/.sai*`・`~/Library/LaunchAgents/`・シェルの設定・`~/.local/bin`）を変える操作。手順書（`docs/switch-over.md`）に書くだけにする。
+- 利用者の環境（`~/.sai*`・`~/Library/LaunchAgents/`・シェルの設定・`~/.local/bin`）を変える操作。文書に書くだけにする。
 - 旧 4 リポジトリ（`~/workdir/Sai/sai-link`・`sai-paper`・`sai-phone`・`sai-radio`）を直すこと。読み取り専用で、sai-moon のコピー元。着手前から未 commit の変更があるので、触る前に `git -C ~/workdir/Sai/<名前> status --short` を控え、終わりに同じであることを確かめる。

@@ -22,7 +22,6 @@
 - 人は **CLI と Web** を使い、エージェントは **CLI** を使います（エージェントに MCP の道具は渡しません。Bash で CLI を呼びます）。
 - 画面は Web だけです。CLI でできることは Web でもでき、Web でできることは CLI（`sai-web`）でもできます。
 - sai-link と sai-paper は、それぞれ**単独で**使えます。sai-sci は両方の上に載る研究用のアプリです。
-- 切り替えの前の利用者は [`docs/switch-over.md`](./docs/switch-over.md) を読んでください。
 
 仕組みの詳しい説明は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、概念と用語は [`CONCEPT.md`](./CONCEPT.md) にあります。
 
@@ -70,7 +69,7 @@ launchctl load ~/Library/LaunchAgents/<コピーした plist のファイル名>
 launchctl unload ~/Library/LaunchAgents/<コピーした plist のファイル名>
 ```
 
-ひな形の `PATH` に `target/release` と `apps/web/bin` が入っていないと、Web が CLI を見つけられず 503 になります。plist の直し方と切り替えの順番は [`docs/switch-over.md`](./docs/switch-over.md) にあります。
+ひな形の `PATH` に `target/release` と `apps/web/bin` が入っていないと、Web が CLI を見つけられず 503 になります。plist の `PATH` を直して入れ直してください。
 
 launchd を使わずに、シェルから直接起動することもできます。
 
@@ -316,7 +315,6 @@ research-tree（Q・O・F・E）・professor・LabAgent（研究用の block と
 - [`CONCEPT.md`](./CONCEPT.md) — 概念と用語（sai の部品・run・card・doc・research-tree・画面の名前ほか）。
 - [`docs/integration.md`](./docs/integration.md) — Web の API と画面の住所の一覧、各 API が呼ぶ CLI の命令、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — 3 つの CLI の約束と、Web が読む JSON の項目（CLI を直す人が守ること）。
-- [`docs/switch-over.md`](./docs/switch-over.md) — 旧構成から切り替える手順書。
 - [`sai-sci/README.md`](./sai-sci/README.md) — research-tree・研究の型・ガイド・ブロック・実験・Web の画面の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio の詳細。
 - [`apps/mlflow-server/README.md`](./apps/mlflow-server/README.md) — MLflow サーバの起動と運用。
