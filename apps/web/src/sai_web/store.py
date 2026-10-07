@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     created_at REAL NOT NULL,
     last_used_at REAL
 );
+CREATE TABLE IF NOT EXISTS project_tokens (
+    token_sha256 TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    project TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
 """
 
 
@@ -485,3 +491,29 @@ def delete_api_token(token_id: str, user_name: str) -> bool:
             (user_name, token_id),
         )
         return cur.rowcount > 0
+
+
+# --- プロジェクトの内部の合言葉（U09・U10 が使う） ---
+# 値そのものは保存しない（`auth.sha256_hex` の SHA-256 だけ）。
+# 同じプロジェクトを作り直すと古い行は消す（コンテナごとに 1 つだけ有効）。
+
+
+def save_project_token(token_sha256: str, owner: str, project: str) -> None:
+    """プロジェクトの合言葉を保存する（同じ project の古い行は消す）。"""
+    with _connect() as conn:
+        conn.execute("DELETE FROM project_tokens WHERE project = ?", (project,))
+        conn.execute(
+            "INSERT INTO project_tokens "
+            "(token_sha256, owner, project, created_at) VALUES (?, ?, ?, ?)",
+            (token_sha256, owner, project, time.time()),
+        )
+
+
+def find_project_token(token_sha256: str) -> dict | None:
+    """プロジェクトの合言葉を引く（無ければ None）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM project_tokens WHERE token_sha256 = ?", (token_sha256,)
+        ).fetchone()
+    return dict(row) if row else None

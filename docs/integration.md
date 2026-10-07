@@ -104,9 +104,18 @@ iPhone / PC のブラウザ
 
 | メソッド・パス | 中身 | 呼ぶ CLI |
 |---|---|---|
-| `GET /api/projects` | プロジェクト一覧（`{"projects": [...]}`）。`running` と `last_executed_at` は 5 秒だけ覚える | `sai-link project summary`。あわせて 60 秒に 1 回 `sai-link run export`（書き出しの更新） |
+| `GET /api/projects` | プロジェクト一覧（`{"projects": [...]}`）。`running` と `last_executed_at` は 5 秒だけ覚える。多人数モードでは各行に `container_state`（`running` / `exited` / `missing`）が付く | `sai-link project summary`。あわせて 60 秒に 1 回 `sai-link run export`（書き出しの更新） |
+| `POST /api/projects` `{"name":"<短い名前>"}` | プロジェクトを作る（多人数モードだけ）。`{"name":"<user>-<名前>","container":"sai-<user>-<名前>"}`。名前の誤り 400「名前は英小文字・数字・ハイフンで 30 文字までにしてください」・同じ名前 409「同じ名前のプロジェクトがあります」 | コンテナの中で `sai-link init --name <名前>`・`sai-paper init`・`sai-link daemon start` |
 | `GET /api/projects/{name}/dashboard?period=week\|month\|all` | Dashboard（既定 week） | `sai-link project dashboard --period <期間>` |
 | `POST /api/projects/{name}/daemon` `{"action":"start"\|"stop"}` | 常駐の起動・停止 | `sai-link daemon start\|stop`（文字出力） |
+| `GET /api/projects/{name}/container` | 自分のプロジェクトのコンテナの状態 `{"container","state"}`（多人数モードだけ）。他人の物は 404 | `docker inspect -f '{{.State.Status}}'` |
+| `POST /api/projects/{name}/container/{start\|stop}` | 自分のプロジェクトのコンテナを起動・停止（多人数モードだけ）。未知の action は 400 | `docker start` / `docker stop -t 20`。`start` でコンテナが無いときは作り直す |
+
+- コンテナの操作は `docker` の CLI を `subprocess` で呼ぶ（`apps/web/src/sai_web/containers.py`。実行ファイルは `SAI_DOCKER_BIN`、既定 `docker`）。Python の docker の SDK は使わない（依存を増やさない）。
+- プロジェクトを作るときは、`<U>/<user>/projects/<user>-<名前>/`（root）と `<U>/<user>/homes/<user>-<名前>/`（HOME）を作り、`<U>/<user>/secrets.env`（0600）を用意し、`SAI_WEB_SKEL_DIR` と `<user_dir>/home/.pi/agent/models.json` を（無いファイルだけ）写してから、コンテナを `docker run` で作り、init 3 本を `docker exec` で呼ぶ。途中で失敗したらコンテナとフォルダを消して 502 を返す。
+- コンテナの形は共有契約 C7・C8（`run_args`）。`SAI_CONTAINER_MEMORY`（既定 `8g`）・`SAI_CONTAINER_CPUS`（既定 `2`）・`SAI_IMAGE`（既定 `sai-tree:latest`）・`SAI_WEB_URL_FOR_CONTAINERS`（既定 `http://host.docker.internal:8200`）で変えられる。
+- docker のデーモンにつながらない・実行ファイルが無いときは 503「docker が動いていません」、その他の失敗は 502（標準エラーの最後の行）。
+- 多人数モードの常駐の生死（`registry.daemon_alive`）は、コンテナの中の PID がホストから見えないため、常駐が約 5 秒ごとに書く `<root>/.sai/sai-engine/daemon.status` の更新時刻が 30 秒以内かで見る（単独モードは今までどおり `daemon.pid`）。
 
 ### 4.2 ホーム
 
@@ -313,6 +322,13 @@ iPhone / PC のブラウザ
 | `GET /api/admin/users` | `{"users":[{"name","email","is_admin","disabled","must_change_password","created_at"}]}`（管理者だけ） |
 | `POST /api/admin/users` | body `{"name","email","password","is_admin"}` → 作成（同名・同メール 409）。C4 のフォルダを作る |
 | `PATCH /api/admin/users/{name}` | body `{"email"?,"is_admin"?,"disabled"?,"password"?}`。`password` を入れたら `must_change_password=1` にし、その人のセッションを消す。自分自身の `is_admin=false`・`disabled=true` は 400 |
+| `GET /api/me/keys` | `{"keys":[{"name","set","last4"}]}`（値は返さない）。名前は `CLAUDE_CODE_OAUTH_TOKEN`・`OPENROUTER_API_KEY`・`SEMANTICSCHOLAR_API_KEY`・`OPENALEX_API_KEY`・`NCBI_API_KEY` の 5 つ |
+| `PUT /api/me/keys` | body `{"<名前>": "<値>"}`（空文字は消す）→ `{"ok":true,"recreated":[…],"pending":[…]}`。値は印字できる ASCII で空白と改行を含まず 400 文字まで。知らない名前・改行入りの値は 400 |
+| `GET /api/admin/containers` | `{"containers":[{"container","owner","project","state","status"}]}`（管理者だけ） |
+| `POST /api/admin/containers/{container}/{start\|stop}` | コンテナを起動・停止（管理者だけ）。名前は `^sai-[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9-]{0,29}$`、誤りは 400 |
+
+- 鍵と Claude の長命トークンは `<U>/<user>/secrets.env`（0600）に `KEY=値` の行で保存し、コンテナには `--env-file` で渡す。値を変えると、その人の実行中でないコンテナを `docker rm -f` → `docker run` で作り直す（実行中のプロジェクトは `pending` に入れ、作業を壊さない）。
+- プロジェクトの内部の合言葉（`SAI_WEB_INTERNAL_TOKEN`）はコンテナを作るときに `secrets.token_urlsafe(32)` で作り、SHA-256 だけを DB（`project_tokens`）に置く（同じプロジェクトの古い行は消す）。値は `sai_` で始まらない（個人のトークンと区別する）。
 
 - 多人数モードでは `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)` にする（`/docs`・`/openapi.json` を出さない）。起動時に合言葉のファイル（`<sai_home>/web/token`）は書かない。
 - パスワードは `hashlib.scrypt`（`auth.hash_password`・`verify_password`）で保存し、Cookie とトークンは SHA-256 だけを DB（`web_sessions`・`api_tokens`）に置く。値そのものは保存しない。

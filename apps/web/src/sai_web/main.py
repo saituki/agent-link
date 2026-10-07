@@ -29,6 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from sai_web import (
     auth,
     commands,
+    containers,
     control,
     home,
     mlflow_proxy,
@@ -419,6 +420,30 @@ def api_me_tokens_delete(token_id: str, _: None = Depends(require_token)) -> dic
     return {"ok": True}
 
 
+# --- API キーと Claude のトークン（U09・共有契約 C9） ---
+# 値は保存も返却もしない（返すのは設定済みかと末尾 4 文字だけ）。
+# 保存すると、実行中でない自分のコンテナが新しい値で作り直される。
+
+
+@app.get("/api/me/keys")
+def api_me_keys(_: None = Depends(require_token)) -> dict:
+    """自分の鍵の状態（値は返さない）。"""
+    _require_multi()
+    return {"keys": containers.describe_keys(_current_name())}
+
+
+@app.put("/api/me/keys")
+def api_me_keys_write(
+    payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """鍵を保存する（空文字の値は消す）。変えたらコンテナを作り直す。"""
+    _require_multi()
+    user = _current_name()
+    containers.write_keys(user, payload)
+    result = containers.recreate_for_user(user)
+    return {"ok": True, "recreated": result["recreated"], "pending": result["pending"]}
+
+
 # --- 管理者（U06） ---
 
 
@@ -529,6 +554,33 @@ def api_admin_patch(
         # パスワードを変えた・無効にしたときは、その人のセッションを消す
         store.delete_sessions_of(user_name)
     return {"ok": True}
+
+
+# --- 管理者: 全員のコンテナ（U09・共有契約 C9） ---
+
+
+@app.get("/api/admin/containers")
+def api_admin_containers(
+    _: None = Depends(require_token), __: None = Depends(auth.require_admin)
+) -> dict:
+    """全員のプロジェクトのコンテナの一覧（管理者だけ）。"""
+    return {"containers": containers.list_all()}
+
+
+@app.post("/api/admin/containers/{container}/{action}")
+def api_admin_container_action(
+    container: str,
+    action: str,
+    _: None = Depends(require_token),
+    __: None = Depends(auth.require_admin),
+) -> dict:
+    """コンテナを起動・停止する（管理者だけ）。"""
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=400, detail="action は start / stop を指定してください")
+    name = containers.check_container_name(container)
+    if action == "start":
+        return containers.start_container(name)
+    return containers.stop_container(name)
 
 
 # --- PWA（静的ファイル）の配信 ---
@@ -854,10 +906,38 @@ class DaemonRequest(BaseModel):
     action: str
 
 
+class CreateProjectRequest(BaseModel):
+    """新しいプロジェクトの短い名前（共有契約 C4・C9）。"""
+
+    name: str
+
+
+# 固定の住所（/api/projects）は変数の住所より先に登録する（ARCHITECTURE §5 の 3）。
+@app.post("/api/projects")
+def api_create_project(
+    req: CreateProjectRequest, _: None = Depends(require_token)
+) -> dict:
+    """研究プロジェクトを作る（多人数モードだけ）。"""
+    _require_multi()
+    return containers.create_project(_current_name(), req.name)
+
+
 @app.get("/api/projects")
 def api_projects(_: None = Depends(require_token)) -> dict:
     """登録簿のプロジェクト一覧（最後に動いた順）．"""
-    return {"projects": control.list_projects()}
+    projects = control.list_projects()
+    if registry.multi_user():
+        # 多人数モードではコンテナの状態を足す（共有契約 C9）。
+        # docker が止まっていても一覧は出せるよう、失敗は missing にする。
+        for project in projects:
+            try:
+                project["container_state"] = containers.state(str(project.get("name") or ""))
+            except HTTPException as exc:
+                logger.warning(
+                    "コンテナの状態を取れません: %s: %s", project.get("name"), exc.detail
+                )
+                project["container_state"] = "missing"
+    return {"projects": projects}
 
 
 @app.get("/api/projects/{name}/dashboard")
@@ -874,6 +954,28 @@ def api_project_daemon(
 ) -> dict:
     """常駐の起動・停止．"""
     return control.daemon(name, req.action)
+
+
+@app.get("/api/projects/{name}/container")
+def api_project_container(name: str, _: None = Depends(require_token)) -> dict:
+    """自分のプロジェクトのコンテナの状態（多人数モードだけ）。"""
+    _require_multi()
+    control.find_project(name)
+    return {"container": containers.container_name(name), "state": containers.state(name)}
+
+
+@app.post("/api/projects/{name}/container/{action}")
+def api_project_container_action(
+    name: str, action: str, _: None = Depends(require_token)
+) -> dict:
+    """自分のプロジェクトのコンテナを起動・停止する（多人数モードだけ）。"""
+    _require_multi()
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=400, detail="action は start / stop を指定してください")
+    control.find_project(name)
+    if action == "start":
+        return containers.start(name)
+    return containers.stop(name)
 
 
 # --- List 画面（計画 14 §3.3・`sai-link phone …` 経由） ---
