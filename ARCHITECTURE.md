@@ -1,7 +1,7 @@
 # sai アーキテクチャ（開発者向け）
 
 **対象読者:** sai を直す人と、sai-link・sai-paper・sai-sci（Rust）か `apps/radio` に Web 向けの機能を足す人。
-使い方は [`README.md`](./README.md)、API と住所の一覧は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON の項目は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md)、言葉の意味は [`docs/glossary.md`](./docs/glossary.md) を正とする。
+使い方は [`README.md`](./README.md)、API と住所の一覧は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON の項目は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md)、概念と用語の意味は [`CONCEPT.md`](./CONCEPT.md) を正とする。
 ここには、全体の考え方・層の分け方・守る約束・置き場を書く。**正はコード**である。この文書とコードが食い違ったら、コードに合わせて直す。
 
 ---
@@ -15,7 +15,7 @@
 | 部品 | クレート・フォルダ | 実行ファイル | 持つもの |
 |---|---|---|---|
 | **sai-link**（基盤） | `crates/sai-link-engine`・`crates/sai-link-view`・`crates/sai-link-cli` | `sai-link` | 実行の DB（`sai-engine.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
-| **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・検索セット・音声化の依頼 |
+| **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・検索セット（CLI の `set …`）・論文のチャンク・音声化の依頼 |
 | **sai-sci**（研究の仕組み） | `crates/sai-sci-core`・`crates/sai-sci-cli`・`sai-sci/`（md の部品） | `sai-sci` | research-tree（`papr.db` の `rt_*` 表）・研究の記録・エージェントの報告・研究用の block と template（LabAgent） |
 | **sai-web**（Web の窓口） | `apps/web` | `apps/web/bin/sai-web` | 画面（FastAPI + 素の JavaScript）。質問・承認・通知・使用量・MLflow と Radio の中継 |
 | （周辺） | `apps/radio` | — | 解説音声の生成と配信（HTTP API・8201 番） |
@@ -60,9 +60,16 @@
 - **コア**（sai-link・sai-paper・sai-sci）は DB と処理を持つ。
 - **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API）が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
-- **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`、入口は `sai-sci` の CLI と Web の Research タブ。
-  research-tree は Q（問い）・O（答えの候補）・F（知見）・E（実験）の Node でできている。research-tree に向けた 1 回の実行が Action（task.md のカード）で、
-  professor が研究を回し、`sci-*` の block が研究作業を行う。詳しくは [`sai-sci/README.md`](./sai-sci/README.md)。
+- **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`（`src/rt/`）、入口は `sai-sci` の CLI と Web の Research タブ。
+  research-tree は **4 layer（SEED・ROOT・SPROUT・BRANCH）** の木で、Node の種類は Q・O・F・E・S の 5 つ。
+  SEED は DB の行を持たず、`sai-sci status` の `seed`（RESEARCH_TYPE と `mind.md`）から作る。ROOT は top_Q から下へ分かれる Q・O・F、
+  SPROUT（S）は PATH（終点の O）を集めて実験の計画を立てる Node、BRANCH は SPROUT の下の E（実験の実行）。
+  research-tree に向けた 1 回の実行が Action（task.md のカード）で、professor が研究を回し、`sci-*` の block が研究作業を行う。
+  言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`sai-sci/README.md`](./sai-sci/README.md)。
+- **status の History**: `sai-sci status --json` の `history[]` は、全 Node の History（`Add *` を除く・古い順。`StatusHistory`・`crates/sai-sci-core/src/rt/compute.rs`）。Web の research-tree 画面の History がこれを読む。
+- **論文のチャンク**: 論文の本文を段落ごとに分けた物で、ID は `#論文.章.段落`（例 `#57.3.2`。`crates/sai-paper-core/src/sections.rs`）。
+  `sai-paper content chunks <paper_id> --json` が字数の上限なしで全段落を返し、Web は `GET /api/projects/{name}/papers/{paper_id}/chunks`（`papers.py` の `chunks()`・`main.py` の `api_paper_chunks`）で中継する。
+  RAG の索引の `chunks` 表とは別物（あちらは作り直すと ID が変わる）。
 - **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
   pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は sai-link が自動で作る
   `# context`（`context: true` のとき）と `# task_text`（依頼文）の節だけ。作り方は `docs/for-sai-developers.md` の「起動時の文の分け方」。
@@ -99,7 +106,7 @@
 
 1. **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗。
 2. **失敗**: 標準出力には何も書かない。標準エラーの最後の行に、日本語で理由を 1 行書く。clap の誤りは最後の行が `引数の誤り: <clap の文の 1 行目>`。
-3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。
+3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。Web が付けるフラグは CLI が必ず受け付ける（例: Web の research-tree の書き込みは `sai-sci apply --json`。`--json` を受け付けず落ちた不具合の修正が 2026-10-07 の `76c0859`）。
 4. **進み具合**: 時間のかかる命令は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい。
 5. **プロジェクトの決め方**: `SAI_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.sai/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`SAI_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない。
 6. **記録の出どころ**: `SAI_ORIGIN`（無ければ `cli`。Web が呼ぶときは `phone`）。
@@ -173,8 +180,8 @@
 | `main.py` | FastAPI の住所の登録・合言葉（`require_token`）・Mac 自身からだけ受ける内部 API（`require_local`） |
 | `cli.py` | 3 つの CLI を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
 | `control.py` | sai-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
-| `papers.py` | sai-paper の呼び出し（Library・検索・Import・Download・音声化の依頼）と、sai-sci の要対応・プロジェクトの現況 |
-| `sci.py` | sai-sci の呼び出し（research-tree・PROPOSAL の TRIAGE・READ_CARD）と検索セット（sai-paper の `set …`） |
+| `papers.py` | sai-paper の呼び出し（Library・検索・論文のチャンク・Import・Download・音声化の依頼）と、sai-sci の現況（`GET …/papers/project`・`…/project/memo`）・要対応の解消（`…/attention/resolve`）。Papers の Dashboard が現況と要対応を出す |
+| `sci.py` | sai-sci の呼び出し（research-tree・PROPOSAL の TRIAGE・READ_CARD）。research-tree の書き込み（★・Add・Edit・SPROUT）は `POST …/papers/sci/apply` が `sai-sci apply --json`（標準入力に op の JSON）を呼ぶ。検索セット（sai-paper の `set …`）の API も残るが、画面は無い |
 | `commands.py` | 「コマンド」画面。3 つの CLI の `schema --json` を読んで命令の一覧を作り、入力欄から命令を実行する |
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
 | `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
@@ -223,7 +230,8 @@
 - **共通部品**（`ui.js`）: `saiApi`（通信と日本語のエラー）・`saiToast`・`saiConfirm`・`saiPrompt`・`saiSheet`（下から出る板）・`saiEmpty`（空の画面の案内）・`saiTerm`（用語の札。用語は `SAI_TERMS`）・`saiIsWide` / `saiSplitShow`（広い画面の 2 列）。新しい画面はこれを使い、同じ物を作り直さない。
 - **md の表示**（`markdown.js`）: `renderMarkdown(text, {toolbar: true})`。コードの色分けは `mdHighlight`。
 - **名前の重なり**: 画面ファイルは `<script>` で順に読むので、一番外側の名前が重なると後の物で上書きされる。画面ごとの頭（`sai` 共通・`hm` ホーム・`wf` Workflow・`df` 設定・`pim` Import など）を付け、`apps/web/tests/test_globals.js` で検査する。
-- **版**: `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。画面ファイルを足したら `ASSETS` にも足す。
+- **版**: `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。`apps/web/tests/test_migrate.js` が版の数字を固定しているので、これも一緒に上げる。画面ファイルを足したら `ASSETS` にも足し、消したら `ASSETS` からも外す。
+- **再起動**: 静的ファイルは Web の再起動が要らない。`apps/web/src/sai_web/*.py` を直したら Web の再起動が要る。
 
 | ファイル | 画面 |
 |---|---|
@@ -231,9 +239,9 @@
 | `home.js` | Home |
 | `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
 | `commands.js` / `sessionsearch.js` / `dashsearch.js` | 「コマンド」画面・セッション検索・Dashboard の文書検索 |
-| `papers.js` / `paperimport.js` / `cite.js` / `rbrowser.js` | Papers（Dashboard・Library・Import・検索・引用・遠隔ブラウザ） |
-| `radio.js` / `pcm-worklet.js` / `voiceask.js` | Radio・声の質問・質問の読み上げと音声回答 |
-| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `sciset.js` | Research の画面（一覧と板・操作と TRIAGE・READ_CARD・research-tree・検索セットの選別） |
+| `papers.js` / `paperimport.js` / `cite.js` / `rbrowser.js` | Papers（Dashboard・Library・Import・Radio の 4 つ。Library は `外部 DB` / `内部 DB` / `Paper` の切り替えと、論文詳細のチャンク一覧。引用・遠隔ブラウザ） |
+| `radio.js` / `pcm-worklet.js` / `voiceask.js` | Papers の Radio・声の質問・質問の読み上げと音声回答 |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | Research の research-tree 画面（上の帯の Next Action と History・SPROUT 作成パネル・DAG（`scigraph.js`）・Node の一覧・右の板（SB）・操作と TRIAGE（`sciedit.js`）・READ_CARD（`sciread.js`）） |
 | `mlflow.js` / `mlfchart.js` | Research の Experiments（MLflow の記録） |
 | `canvaslayout.js` | 配置・全体表示・拡大の純関数（research-tree の図と Workflow が使う） |
 | `usage.js` | Usage |
@@ -243,17 +251,22 @@
 
 | 住所 | 画面 |
 |---|---|
-| `#/research/tree` / `#/research/tree/<ID>` | research-tree（Q・O・F・E。`<ID>` は `Q12` の形） |
+| `#/research/tree` / `#/research/tree/<ID>` | research-tree（`<ID>` は `SEED` か、Q・O・F・E・S の Node。`Q12`・`O3`・`F4`・`E5`・`S6` の形。`stParseHash`） |
 | `#/research/read/<run_id>` | READ_CARD（1 本の論文を読んで F を書く） |
 | `#/research/experiments` ほか（`/e/<ID\|all>`・`/run/<ID>`・`/compare/<ID>,…`） | 実験（MLflow の記録） |
 
-古い住所 `#/papers/tree`・`#/papers/read/<run_id>`・`#/mlflow…`・`#/papers/canvas`・`#/canvas/…` は、`scitree.js` の登録が `location.replace` で Research の住所（`#/research/tree` など）へ送る。
+古い住所は、`scitree.js` の `stLegacyHash` が `location.replace` で Research の住所へ送る。`#/papers/tree[/<ID>]` → `#/research/tree[/<ID>]`、`#/papers/triage`・`#/papers/canvas`・`#/canvas/…` → `#/research/tree`、`#/papers/read/<run_id>` → `#/research/read/<run_id>`、`#/mlflow…` → `#/research/experiments…`。
+
+検索セットの住所 `#/papers/sets` には画面が無い（`sciset.js` は消した）。API（`…/papers/sets`）と CLI（`sai-paper set …`）は残る。
 
 ### 4.6 処理の流れの型
 
 - **すぐ返る操作**（一覧・中身・保存）: 画面 → `saiApi` → sai-web の住所 → 値の検査 → CLI（`--json`）→ 画面。
 - **時間がかかる操作**（Download・音声化・引用の抜き出し・PDF の翻訳）: sai-web が 202 を返し、背景で CLI を走らせる。画面は仕事の一覧の住所を見張り、終わったらプッシュ通知を出す。
-  Download は 2 段で、`sai-paper paper download`（PDF を取って登録。ここで「保存しました」を通知）→ `sai-paper paper after-download`（図の抽出・PDF の翻訳。標準エラーの `sai-progress` を読んで進み具合を出す）。
+  Download は 2 段で、`sai-paper paper download`（PDF を取って登録。ここで「保存しました」を通知）→ `sai-paper paper after-download`（標準エラーの `sai-progress` を読んで進み具合を出す）。
+  `after-download` の中身は `pipeline::after_download`（`crates/sai-paper-core/src/pipeline.rs`）が、図の抽出 → 節の表（チャンクの ID の元）→ PDF の翻訳の順に行う。
+  図の抽出のキーは s2・arXiv・DOI のどれか。どれも無い論文は `paper:<papers.id>` を使う（`figures::figure_key_for_paper`）。
+  `extract.md` からは docling の画像の行を除き（`citation::docling::strip_figure_images`）、図は別ファイル（`figures/fig-NNN.png`）で出す。
 - **エージェントからの質問**: cc のフックと pi の拡張が `POST /api/questions`（Mac 自身からだけ）に登録する → 画面に出て通知 → PC と iPhone の先に答えた方を採用する。
 
 ---
@@ -266,7 +279,7 @@
 3. **Web の専用の画面が要るときだけ足す。** `apps/web` の `control.py`・`papers.py`・`sci.py` に関数を書き、値の検査を CLI を呼ぶ前に置く。`main.py` に登録する（固定の住所は `{paper_id:int}` のような変数の住所より先に登録する）。
    テストは偽の CLI（`FakeCli` など）で、検査で CLI が呼ばれないことまで確かめる。
 4. **画面を足す。** 新しい JS に `window.SaiRoutes` で登録し、`index.html` に枠と読み込みを足し、`sw.js` の版と `ASSETS` を上げる。`ui.js` の部品を使い、390px と 1280px の両方で確かめる。
-5. **文書を直す。** `README.md`（使い方）・この文書（仕組みが変わったとき）・`docs/integration.md`（API と住所）・`docs/for-sai-developers.md`（Web が読む JSON の項目）・`docs/glossary.md`（言葉が増えたとき）。
+5. **文書を直す。** `README.md`（使い方）・この文書（仕組みが変わったとき）・`docs/integration.md`（API と住所）・`docs/for-sai-developers.md`（Web が読む JSON の項目）・`CONCEPT.md`（概念と用語が増えたとき）。
    Web が読む項目を変えたら、`docs/for-sai-developers.md` と `apps/web` を**一緒に**直す。
 
 ---
@@ -301,7 +314,7 @@ sai-moon/
 │   ├── sai-link-cli/         # bin  sai-link
 │   ├── sai-paper-core/       # lib  検索/取得/解析/保存
 │   ├── sai-paper-cli/        # bin  sai-paper
-│   ├── sai-sci-core/         # lib  research-tree・研究の記録・報告の検査
+│   ├── sai-sci-core/         # lib  research-tree（4 layer）・研究の記録・報告の検査
 │   └── sai-sci-cli/          # bin  sai-sci
 ├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
 ├── apps/
@@ -329,10 +342,10 @@ sai-moon/
 ├── docs/                     # 開発者向けの文書
 │   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
 │   ├── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
-│   ├── glossary.md           # 用語集
 │   ├── switch-over.md        # 旧構成から切り替える手順書
 │   └── archive/              # 過去の記録
 ├── .sai/                     # このプロジェクト自身の中のデータ（.gitignore 済み）
+├── CONCEPT.md                # 概念と用語の定義
 ├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示
 ├── CLAUDE.md                 # @AGENTS.md の 1 行
 ├── README.md                 # 概要・入れ方・最初の一歩
@@ -359,6 +372,9 @@ sai-moon/
 - 2026-10: 名前と境界を整理した。アプリの名前を `sai` にし、sai-link・sai-paper・sai-sci・sai-web の 4 つに分けた。
   TUI・MCP・`phone` 命令をやめ、3 つの CLI に共通の約束（終了コード・`--json`・`schema`）を置いた。Web は `apps/web`、置き場は `SAI_HOME`（`~/.sai`）、実行ファイルは `sai-link`・`sai-paper`・`sai-sci`・`sai-web` になった。
   Web に Research タブ（research-tree と実験）と「コマンド」画面を足した。旧構成からの切り替えは [`docs/switch-over.md`](./docs/switch-over.md)。
+- 2026-10-07: research-tree を 4 layer（SEED・ROOT・SPROUT・BRANCH）にし、SPROUT を Node（S）にした（`ad4efd4`・`299e2c5`）。専門用語を英単語にそろえた（`0bdd527`・`a8d9c6a`）。
+  Web の Papers を Dashboard・Library・Import・Radio に、Research を Next Action と History の帯・DAG・SB・SPROUT 作成パネルの形に整理し、検索セットの画面（`sciset.js`）を消した（`cbc7e2b`・`00700e5`・`cce133c`。API と CLI は残る）。
+  論文のチャンクの API・`extract.md` の画像行の除去・図の抽出キーの代わり（`83e5b57`）、`sai-sci apply --json`（`76c0859`）を足した。概念と用語は `CONCEPT.md` にまとめた。
 
 ## 10. 次に回すもの
 
