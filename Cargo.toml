@@ -4,15 +4,15 @@
 # クレートを 1 つのワークスペースに集約したもの。旧リポジトリは読み取り専用で、ここはコピー元。
 #
 # - crates/sai-link-engine : lib sai_link_engine — 実行エンジン（パース・デーモン・オーケストレーター）
-# - crates/sai-link-cli    : bin sai-moon-link — CLI
+# - crates/sai-link-cli    : bin sai-link — 実行エンジンの CLI
 # - crates/sai-link-view   : lib sai_link_view — Web と CLI が使う組み立て処理（描画は無い）
 # - crates/sai-paper-core  : lib sai_paper_core — 検索/取得/解析/保存
 # - crates/sai-sci-core    : lib sai_sci_core — 研究方針の木・研究の記録・報告の検査
 # - crates/sai-sci-cli     : bin sai-sci — 研究の CLI（研究方針の木・検索の記録・報告）
-# - crates/sai-paper-cli   : bin sai-moon-paper — スクリプト用 CLI
+# - crates/sai-paper-cli   : bin sai-paper — 論文の CLI
 # - waggle/                : 独立 [workspace] を持つ vendor クレート群（exclude・名前維持）
 #
-# バイナリ名は PATH 上で旧 sai-link / sai-paper と衝突しないよう `sai-moon-*` にリネーム済み。
+# 実行ファイル名は `sai-link`・`sai-paper`・`sai-sci`（旧 `sai-moon-*` は使わない）。
 # ライブラリ crate 名（sai_link_engine / sai_link_view / sai_paper_core）は変更しない。
 
 [workspace]

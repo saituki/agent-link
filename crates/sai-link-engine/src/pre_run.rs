@@ -3,7 +3,7 @@
 //! `.sai/settings.json` の `pre_run` に設定したコマンドを、エージェントを
 //! 起動する**直前**に 1 回だけ実行します。
 //!
-//! 研究プロジェクトでは `sai-moon-paper brief --write` を設定し、プロジェクトの
+//! 研究プロジェクトでは `sai-paper brief --write` を設定し、プロジェクトの
 //! 状況のまとめ（`.sai/template/project-brief.md`）を毎回作り直すために使います。
 //! 作り直されたファイルは、既存のテンプレート差し込み（
 //! [`crate::parser::apply_templates`]）でそのままエージェントの最初の指示に入ります。

@@ -108,7 +108,7 @@ cd ~/workdir/Sai/sai-moon
 env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 35 本）
+# Web（JS 36 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
 # Web（Python 27 本）

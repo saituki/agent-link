@@ -2213,8 +2213,8 @@ mod tests {
         assert_eq!(err.code, EXIT_USAGE);
         assert_eq!(err.msg, DAEMON_STOPPED);
 
-        // (4-2) `executer: professor` のカードも対象にはなる（見つからない扱いにしない）。
-        // 実行要求の入口（`kanban_run::run_card_request`）が professor を断る。
+        // (4-2) `executer: professor`（旧カードの値）は `agent` として読まれ、対象にはなる（見つからない扱いにしない）。
+        // 人が起こす入口（`kanban_run::run_card_request`）は agent のカードを断る。
         write_task(root, 782, "782");
         let text = std::fs::read_to_string(root.join(".sai/outputs/todo/782/task.md")).unwrap();
         let text = text.replace("run_id: 782", "run_id: 782\nexecuter: professor");

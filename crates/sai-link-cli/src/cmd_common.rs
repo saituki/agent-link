@@ -1,7 +1,7 @@
 //! 新しい命令の木（`card`・`run`・`doc`・`task`・`def`・`project`・`session`・
 //! `workflow`・`schema`）で共通に使う、終了コードと失敗の扱い。
 //!
-//! CLI 共通の約束（sai-link・sai-moon-paper・sai-sci で同じ）:
+//! CLI 共通の約束（sai-link・sai-paper・sai-sci で同じ）:
 //!
 //! | コード | 意味 |
 //! |---|---|

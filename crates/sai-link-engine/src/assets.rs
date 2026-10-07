@@ -4,7 +4,7 @@
 //! template 12 本である。中身は実行ファイルに `include_str!` で埋め込み、`init` が
 //! `<root>/.sai/blocks/`・`<root>/.sai/template/` へ配る。
 //!
-//! 配り方は 3 つの道具（`sai-link init`・`sai-moon-paper init`・`sai-sci init`）で
+//! 配り方は 3 つの道具（`sai-link init`・`sai-paper init`・`sai-sci init`）で
 //! そろえる共通の取り決めに従う（`init.rs` の [`install_assets`] を参照）。
 //!
 //! - block は `model:` を `inherit`、`provider:` を書かない（この PC 専用の値を配らない）。

@@ -22,7 +22,7 @@ __pycache__/
 .worktrees/
 .serena/
 
-# sai-moon-link init が作る設定（プロジェクトごとに作り直す）
+# sai-link init が作る設定（プロジェクトごとに作り直す）
 .mcp.json
 .claude/settings.json
 .claude/commands/
