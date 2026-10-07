@@ -106,7 +106,7 @@
 
 1. **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗。
 2. **失敗**: 標準出力には何も書かない。標準エラーの最後の行に、日本語で理由を 1 行書く。clap の誤りは最後の行が `引数の誤り: <clap の文の 1 行目>`。
-3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。Web が付けるフラグは CLI が必ず受け付ける（例: Web の research-tree の書き込みは `sai-sci apply --json`。`--json` を受け付けず落ちた不具合の修正が 2026-10-07 の `76c0859`）。
+3. **成功**: `--json` があれば標準出力に JSON を 1 つだけ書く。Web が付けるフラグは CLI が必ず受け付ける（例: Web の research-tree の書き込みは `sai-sci apply --json`）。
 4. **進み具合**: 時間のかかる命令は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい。
 5. **プロジェクトの決め方**: `SAI_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.sai/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`SAI_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない。
 6. **記録の出どころ**: `SAI_ORIGIN`（無ければ `cli`。Web が呼ぶときは `phone`）。
@@ -342,8 +342,7 @@ sai-moon/
 ├── docs/                     # 開発者向けの文書
 │   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
 │   ├── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
-│   ├── switch-over.md        # 旧構成から切り替える手順書
-│   └── archive/              # 過去の記録
+│   └── switch-over.md        # 旧構成から切り替える手順書
 ├── .sai/                     # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── CONCEPT.md                # 概念と用語の定義
 ├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示
@@ -365,19 +364,3 @@ sai-moon/
 | **global の cc フック・pi 拡張** | `~/.claude/settings.json` と `~/.pi/agent/extensions/` には**入れない**。`sai-link init` がプロジェクトの `.claude/settings.json`・`.pi/settings.json` に書く |
 | **単一ディスパッチャ CLI** | 「1 つの `sai` コマンドですべてをまとめる」案は不採用。`sai-link`・`sai-paper`・`sai-sci`・`sai-web` の 4 本に分けたまま。必要になれば後からまとめる入口を足せる |
 | **Rust のプリセット領域** | 旧 sai-paper からそのまま写した物は、sai 用の見直しをしていない |
-
-## 9. 経緯
-
-- 2026-09-27: 旧 4 リポジトリ（`sai-link`・`sai-paper`・`sai-phone`・`sai-radio`）を 1 つにまとめた（バイナリ名は `sai-moon-*`、置き場は `~/.sai-moon`、Web は `apps/phone`）。
-- 2026-10: 名前と境界を整理した。アプリの名前を `sai` にし、sai-link・sai-paper・sai-sci・sai-web の 4 つに分けた。
-  TUI・MCP・`phone` 命令をやめ、3 つの CLI に共通の約束（終了コード・`--json`・`schema`）を置いた。Web は `apps/web`、置き場は `SAI_HOME`（`~/.sai`）、実行ファイルは `sai-link`・`sai-paper`・`sai-sci`・`sai-web` になった。
-  Web に Research タブ（research-tree と実験）と「コマンド」画面を足した。旧構成からの切り替えは [`docs/switch-over.md`](./docs/switch-over.md)。
-- 2026-10-07: research-tree を 4 layer（SEED・ROOT・SPROUT・BRANCH）にし、SPROUT を Node（S）にした（`ad4efd4`・`299e2c5`）。専門用語を英単語にそろえた（`0bdd527`・`a8d9c6a`）。
-  Web の Papers を Dashboard・Library・Import・Radio に、Research を Next Action と History の帯・DAG・SB・SPROUT 作成パネルの形に整理し、検索セットの画面（`sciset.js`）を消した（`cbc7e2b`・`00700e5`・`cce133c`。API と CLI は残る）。
-  論文のチャンクの API・`extract.md` の画像行の除去・図の抽出キーの代わり（`83e5b57`）、`sai-sci apply --json`（`76c0859`）を足した。概念と用語は `CONCEPT.md` にまとめた。
-
-## 10. 次に回すもの
-
-- sai-link: 会話の再開・Model の画面。
-- sai-paper: Tags・Authors・DOI / arXiv ID での取り込み・論文を block に渡すカード。
-- 統合: iPhone からの Tailscale 公開の手順の実機確認。
