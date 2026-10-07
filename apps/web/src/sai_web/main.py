@@ -29,6 +29,7 @@ from starlette.concurrency import run_in_threadpool
 
 from sai_web import (
     auth,
+    bundles,
     commands,
     containers,
     control,
@@ -1417,65 +1418,49 @@ def api_papers_import_remove(
     return papers.import_remove(papers.resolve_project(name), file_name)
 
 
-@app.post("/api/projects/{name}/papers/download", status_code=202)
-async def api_papers_download(
+@app.post("/api/projects/{name}/papers/keep")
+def api_papers_keep(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """論文の PDF を取る（背景で `phone download` → `phone after-download` を走らせる）。
+    """PDF 無しで Library に入れる（`sai-paper paper keep`・U13 §2）。
 
-    body は `{"log_id": 3, "position": 2, "title": "…"}` か `{"import_id": "DOI:…", "title": "…"}`。
+    body は `{"log_id": 3, "position": 2, "title": "…"}`・`{"import_id": "DOI:…"}`・
+    `{"cite_paper_id": 12, "ref_no": 3}` のどれか 1 つ。すぐ終わるので 200 で結果を返す。
     """
-    return await papers.request_download(papers.resolve_project(name), payload)
+    return papers.keep(papers.resolve_project(name), payload)
+
+
+@app.post("/api/projects/{name}/papers/bundle", status_code=202)
+async def api_papers_bundle(
+    name: str, request: Request, _: None = Depends(require_token)
+) -> dict:
+    """sai-prep の「前処理の束」（zip）を受け取る（U13 §1・C14）。
+
+    本文は zip そのもの（`Content-Type: application/zip`）。Web が検査・展開してから
+    背景で `sai-paper paper import-bundle --dir <フォルダ> --json` を走らせる。
+    種類が違えば 415・大きすぎれば 413・中身が違えば 400。
+    """
+    project = papers.resolve_project(name)
+    body = await bundles.read_bundle_upload(request)
+    return await bundles.request_bundle(project, body)
+
+
+@app.get("/api/projects/{name}/papers/pending")
+def api_papers_pending(name: str, _: None = Depends(require_token)) -> dict:
+    """PDF 待ちの論文の一覧（`sai-paper library pending --json`・C13・C14）。"""
+    return bundles.pending(papers.resolve_project(name))
+
+
+@app.get("/api/projects/{name}/papers/jobs/{key}")
+def api_papers_job(name: str, key: str, _: None = Depends(require_token)) -> dict:
+    """仕事 1 件（sai-prep が進み具合を見る・U13 §1・C14）。無ければ 404。"""
+    return bundles.job_view(papers.resolve_project(name), key)
 
 
 @app.get("/api/projects/{name}/papers/downloads")
 def api_papers_downloads(name: str, _: None = Depends(require_token)) -> dict:
-    """走っている／終わった論文のダウンロード（新しい順）。"""
+    """走っている／終わった仕事（新しい順・U13 §1）。"""
     return papers.list_downloads(papers.resolve_project(name))
-
-
-# --- 手動で取り込んだ PDF の取り込み（U05 §3） ---
-# 固定の住所（manual/candidates・manual/import・manual/upload）は
-# `/api/projects/{name}/papers/{paper_id:int}` より先に登録する（登録順に照合するため・00 §6）。
-# アップロードは本文そのもの（application/pdf）で受ける。FastAPI の UploadFile は
-# python-multipart を要するため使わない（依存を増やさない大原則）。
-
-
-@app.get("/api/projects/{name}/papers/manual/candidates")
-def api_papers_manual_candidates(name: str, _: None = Depends(require_token)) -> dict:
-    """ダウンロードフォルダの最近の PDF 一覧（`phone manual-candidates --minutes 30`）。"""
-    return papers.manual_candidates(papers.resolve_project(name))
-
-
-@app.post("/api/projects/{name}/papers/manual/import", status_code=202)
-async def api_papers_manual_import(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """ダウンロードフォルダの PDF を取り込む（202・background で `phone manual-import`）。
-
-    body は「対象のどれか 1 つ」＋ `{"file_name": "paper.pdf"}`。
-    """
-    body = dict(payload or {})
-    file_name = body.pop("file_name", None)
-    return await papers.request_manual_import(papers.resolve_project(name), body, file_name)
-
-
-@app.post("/api/projects/{name}/papers/manual/upload", status_code=202)
-async def api_papers_manual_upload(
-    name: str, request: Request, _: None = Depends(require_token)
-) -> dict:
-    """この端末から送った PDF を取り込む（202・本文は PDF そのもの）。
-
-    対象はクエリで渡す（例 `?log_id=3&position=2` / `?paper_id=12` / `?cite_paper_id=12&ref_no=3`）。
-    Content-Type が違えば 415・大きすぎる／Content-Length が無ければ 413・
-    先頭が `%PDF-` でなければ 400（検査は CLI を呼ぶ前に papers 側で行う）。
-    """
-    project = papers.resolve_project(name)
-    target = {k: v for k, v in request.query_params.items()}
-    # 対象は本文を読む前に確かめる（外から来る値は先に検査するため・00 §2）
-    papers._manual_target(target)
-    body = await papers.read_pdf_upload(request, target)
-    return await papers.request_manual_import(project, target, body=body)
 
 
 @app.get("/api/projects/{name}/papers/project")
@@ -1498,6 +1483,37 @@ def api_papers_attention_resolve(
 ) -> dict:
     """要対応の 1 件を「対応済み」にする（body は `{"key": "…"}`・`phone attention-resolve`）。"""
     return papers.attention_resolve(papers.resolve_project(name), payload.get("key"))
+
+
+# --- sai-prep の入れ物（wheel）の配布（U13 §4・C14） ---
+# リポジトリに外部の remote が無いので、Web にログインしていればそこから落とせる。
+# `SAI_PREP_DIST` があればそちらを見る（確認用）。
+
+
+def _prep_dist_dir() -> Path:
+    """sai-prep の入れ物の置き場（既定はリポジトリの `apps/prep/dist`）。"""
+    override = (os.getenv("SAI_PREP_DIST") or "").strip()
+    if override:
+        return Path(override)
+    # このファイルは <repo>/apps/web/src/sai_web/main.py。リポジトリの根は 4 つ上。
+    return Path(__file__).resolve().parents[4] / "apps" / "prep" / "dist"
+
+
+@app.get("/api/prep/download")
+def api_prep_download(_: None = Depends(require_token)) -> FileResponse:
+    """sai-prep の入れ物（一番新しい `sai_prep-*.whl`）を配る（U13 §4・C14）。"""
+    dist = _prep_dist_dir()
+    wheels = (
+        sorted(dist.glob("sai_prep-*.whl"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if dist.is_dir()
+        else []
+    )
+    if not wheels:
+        raise HTTPException(
+            status_code=404,
+            detail="sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）",
+        )
+    return FileResponse(wheels[0], filename=wheels[0].name)
 
 
 @app.get("/api/projects/{name}/papers/{paper_id:int}")

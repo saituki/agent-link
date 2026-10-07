@@ -1308,7 +1308,7 @@ async function paperApi(path, options) {
   return body;
 }
 
-// --- Download の表示（paperimport.js のを見張り・U6） ---
+// --- 仕事の表示（paperimport.js のを見張り・U6・U13） ---
 
 /** Download の状態を入れる箱を作る（key で見つかるように覚えておく）。 */
 function jobBox(key) {
@@ -1335,7 +1335,7 @@ function papersRenderJobBoxes() {
   }
 }
 
-/** Library の画面の上に「ダウンロード中 N 件」の細い帯を出す（Download が走るときだけ）。 */
+/** Library の画面の上に「取り込み中 N 件」の細い帯を出す（仕事が走るときだけ）。 */
 function papersRenderDownloadBand() {
   const view = document.getElementById("view-papers-library");
   if (!view) return;
@@ -1359,7 +1359,7 @@ function papersRenderDownloadBand() {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "sai-btn small";
-  btn.textContent = `ダウンロード中 ${jobs.length} 件（進み具合を開く）`;
+  btn.textContent = `取り込み中 ${jobs.length} 件（進み具合を開く）`;
   btn.addEventListener("click", () => { location.hash = "#/papers/import"; });
   downloadBand.appendChild(btn);
 }
@@ -2561,16 +2561,10 @@ function renderRemote(target) {
   );
   body.appendChild(absCard);
 
-  // 3. Download（Library なら開くボタン・無ければ「⬇ ダウンロード」・U6）
+  // 3. Library に入れる（Library なら開くボタン・無ければ「＋ Library に入れる」・U13 §3）
   const guide = document.createElement("section");
   guide.className = "dash-card";
   const local = item.local_paper_id != null && item.local_paper_id !== "";
-  const key = typeof pimLogKey === "function"
-    ? pimLogKey(remoteView.logId, remoteView.position)
-    : `log:${remoteView.logId}:${remoteView.position}`;
-  const job = typeof pimJobFor === "function"
-    ? pimJobFor(typeof pimJobsList === "function" ? pimJobsList() : [], key)
-    : null;
   if (local) {
     guide.appendChild(
       paperBtn("Library の論文情報を開く", () => {
@@ -2578,42 +2572,17 @@ function renderRemote(target) {
       })
     );
     guide.appendChild(el("p", "paper-msg", "この論文は Library に入っています。"));
-  } else if (job && (job.status === "downloading" || job.status === "processing")) {
-    // 取りに行っている最中は「もう一度」を出さない
-    guide.appendChild(el("p", "paper-msg", "PDF を取りに行っています。終わったら通知でお知らせします。"));
-    guide.appendChild(jobBox(key));
   } else {
     const actions = el("div", "paper-actions");
-    const dl = paperBtn("⬇ Download", () => {
-      void pimStartLogDownload(remoteView.name, remoteView.logId, remoteView.position, item.title || "Papers");
-    }, "primary");
-    actions.appendChild(dl);
-    // 取りに行けないときは自分で保存した PDF を入れられるようにする（U05 §5）
-    if (typeof pimOpenManual === "function") {
-      actions.appendChild(paperBtn("手動で取り込む", () => {
-        void pimOpenManual({
-          name: remoteView.name,
-          target: { log_id: remoteView.logId, position: remoteView.position },
-          title: item.title || "Papers",
-          siteUrl: item.doi ? doiUrl(item.doi) : "",
-        });
-      }));
-    }
+    actions.appendChild(
+      paperBtn("＋ Library に入れる", () => {
+        void pimStartLogKeep(remoteView.name, remoteView.logId, remoteView.position, item.title || "Papers");
+      }, "primary")
+    );
     guide.appendChild(actions);
     guide.appendChild(
-      el("p", "paper-msg", "PDF を取りに行って Library に保存します。数分かかることがあります。")
+      el("p", "paper-msg", "PDF 無しで Library に入れます。PDF は sai-prep から送ると、図・節・翻訳が入ります。")
     );
-    // 前の失敗があれば理由と「論文のサイトを開く」を出す
-    if (job && job.status === "failed") {
-      guide.appendChild(jobBox(key));
-      if (typeof pimJobErrorNotFound === "function" && pimJobErrorNotFound(job.error) && item.doi) {
-        const a = el("a", "paper-doi", "論文のサイトを開く");
-        a.href = doiUrl(item.doi);
-        a.target = "_blank";
-        a.rel = "noopener";
-        guide.appendChild(a);
-      }
-    }
   }
   body.appendChild(guide);
 }
@@ -2704,6 +2673,14 @@ function doiUrl(doi) {
   return /^https?:\/\//i.test(s) ? s : `https://doi.org/${s}`;
 }
 
+/** sai-prep の入れ物（wheel）の住所（合言葉は ?token= で付ける・U13 §4）。 */
+function prepDownloadUrl() {
+  const q = (typeof apiToken !== "undefined" && apiToken)
+    ? `?token=${encodeURIComponent(apiToken)}`
+    : "";
+  return `/api/prep/download${q}`;
+}
+
 /**
  * 論文からカードを作るときの task_text に入れる 1 行（U10）。
  * 題名・年・DOI はある物だけ書く。実行ファイルの名前は書かない
@@ -2769,19 +2746,6 @@ function renderPaper(target) {
       paperBtn("Text", () => { location.hash = paperHash(paperProject, paperIdNum, true); })
     );
   }
-  // PDF が無い論文は、保存した PDF を手で取り込めるようにする（U05 §5）
-  if (!files.pdf && typeof pimOpenManual === "function") {
-    actions.appendChild(
-      paperBtn("PDF を手動で取り込む", () => {
-        void pimOpenManual({
-          name: paperProject,
-          target: { paper_id: paperIdNum },
-          title: p.title || "Papers",
-          siteUrl: p.doi ? doiUrl(p.doi) : "",
-        });
-      })
-    );
-  }
   // この論文を書いたカードを作る（作成フォームを開き task_text に論文の行を入れる・U10）
   if (typeof cfOpen === "function" && paperProject) {
     actions.appendChild(
@@ -2806,7 +2770,27 @@ function renderPaper(target) {
   hints.push("🎙 音声を作る: 数分かかります。できたら通知でお知らせします");
   hints.push("カードを作る: この論文の行を入れた task.md の作成フォームを開きます");
   hints.push("ノート: この論文の覚え書きです。書くとここに残ります");
+  if (!files.pdf) hints.push("PDF 待ち: sai-prep から送ると PDF・図・翻訳が入ります");
   for (const text of hints) body.appendChild(el("p", "paper-hint", text));
+
+  // PDF が無い論文は「PDF 待ち」と sai-prep の入れ方を出す（U13 §3）
+  if (!files.pdf) {
+    const wait = document.createElement("section");
+    wait.className = "dash-card paper-card";
+    wait.appendChild(el("h3", "dash-card-title", "PDF 待ち"));
+    wait.appendChild(
+      el("p", "paper-msg", "PDF 待ち — 各自の Mac の sai-prep から送ってください。")
+    );
+    const a = el("a", "paper-doi", "sai-prep の入れ物を落とす");
+    a.href = prepDownloadUrl();
+    a.target = "_blank";
+    a.rel = "noopener";
+    wait.appendChild(a);
+    wait.appendChild(
+      el("p", "paper-hint", "入れ方: 落としたファイルを `uv tool install <落としたファイル>` で入れます。")
+    );
+    body.appendChild(wait);
+  }
 
   // 3. 音声の置き場（09・10 が中身を入れる・07 §4.4-3）
   const slot = document.createElement("div");

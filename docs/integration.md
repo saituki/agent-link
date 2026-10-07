@@ -24,8 +24,9 @@ iPhone / PC のブラウザ
 
 音声化の依頼:    sai-web ──(背景で数分)──▶ `sai-paper paper radio <id>`
                                           └─(HTTP)──▶ apps/radio POST /api/papers/from-extract
-論文の Download: sai-web ──(背景)──▶ `sai-paper paper download …`（PDF を取って登録）
-                                          └─(通知)──▶「保存しました」→ 続けて `paper after-download <id>`
+Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無しで登録・すぐ返る）
+前処理の束の取込: sai-prep ──(zip を POST)──▶ sai-web（検査・展開）──(背景)──▶ `sai-paper paper import-bundle --dir <フォルダ>`
+                                          └─(通知)──▶「保存しました」
 ```
 
 | タブ / 画面 | 使う物 |
@@ -39,7 +40,8 @@ iPhone / PC のブラウザ
 | Papers → Dashboard | `sai-paper dashboard`（中で `apps/radio` の `/api/logs?limit=` を読み、そのプロジェクトの音声の分だけ混ぜる） |
 | Papers → Library・論文情報 | `sai-paper library list\|tree` / `paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|radio` / `content paper` / `search` / `search-log` / `find` / `find-log` / `providers` |
 | Papers → Import（BibTeX） | `sai-paper import list\|add\|remove` |
-| Papers → Download・手動取り込み | `sai-paper paper download` → `paper after-download` / `paper candidates` / `paper import-pdf` |
+| Papers → Library に入れる | `sai-paper paper keep (--log <id> --position <p> \| --import-id <id> \| --cite <id> --ref <n>)` |
+| Papers → 前処理の束（sai-prep） | `sai-paper paper import-bundle --dir <フォルダ>` / `sai-paper library pending` |
 | Papers → Radio | `apps/radio` の `/api/papers` `/api/papers/{id}` `/audio` `/listen` `/favorite` `/logs` `/ask` `/live-session` `/question-log` |
 | （画面は無い。API のみ）検索セット | `sai-paper set list\|show\|mark\|drop-pending` |
 | Research → research-tree・TRIAGE・READ_CARD | `sai-sci status\|types\|init\|node\|apply\|proposals\|triage\|card\|read`、READ_CARD の開始と終了は `sai-link card start\|finish` |
@@ -219,11 +221,11 @@ iPhone / PC のブラウザ
 | `GET /api/projects/{name}/papers/import` | .bib の一覧と中の論文 | `sai-paper import list` |
 | `POST /api/projects/{name}/papers/import` | .bib の保存（body `{"name": "refs.bib" \| "", "text": "@article{…}"}`・本文は標準入力。名前が空なら `phone-<YYYYMMDD-HHMMSS>.bib`） | `sai-paper import add --name <名前>`（標準入力） |
 | `DELETE /api/projects/{name}/papers/import/{file_name}` | .bib の削除 | `sai-paper import remove --name <名前>` |
-| `POST /api/projects/{name}/papers/download` | 論文の PDF を取る（202・背景）。body は「`{"log_id": 3, "position": 2, "title": "…"}`」「`{"import_id": "DOI:…", "title": "…"}`」「`{"cite_paper_id": 12, "ref_no": 3, "title": "…"}`（引用の 1 件）」のどれか 1 つ | `sai-paper paper download (--log <id> --position <p> \| --import-id <id> \| --cite <id> --ref <n>)` → `paper after-download <id>` |
-| `GET /api/projects/{name}/papers/downloads` | 走っている／終わった仕事（`{"jobs": [{key, kind, title, status, paper_id, error, started_at, finished_at, steps, step, percent, messages}]}`・新しい順）。`kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` の 5 つ。`percent` が `null` の仕事は「% の分からない仕事」（画面は動く帯で出す） | （sai-web のメモリ） |
-| `GET /api/projects/{name}/papers/manual/candidates` | ダウンロードフォルダの最近の PDF 一覧 | `sai-paper paper candidates --minutes 30` |
-| `POST /api/projects/{name}/papers/manual/import` | 手動で取り込む（202・背景）。body は「対象のどれか 1 つ」＋ `{"file_name": "paper.pdf"}`。ファイル名は 1〜255 字・`.pdf` で終わる物だけ（パスは受けない） | `sai-paper paper import-pdf <対象> --file <名前> --minutes 30` → `paper after-download` |
-| `POST /api/projects/{name}/papers/manual/upload` | この端末から送った PDF の取り込み（202）。対象はクエリで渡す（`?log_id=3&position=2` / `?import_id=…` / `?cite_paper_id=12&ref_no=3` / `?paper_id=12`）。本文は PDF そのもの（`application/pdf`）。`Content-Type` が違えば 415・`Content-Length` が無いか 100MB を超えれば 413・先頭が `%PDF-` でなければ 400 | `sai-paper paper import-pdf <対象> --stdin` → `paper after-download` |
+| `POST /api/projects/{name}/papers/keep` | PDF 無しで Library に入れる（200）。body は「`{"log_id": 3, "position": 2, "title": "…"}`」「`{"import_id": "DOI:…", "title": "…"}`」「`{"cite_paper_id": 12, "ref_no": 3, "title": "…"}`」のどれか 1 つ。返す JSON: `{"paper_id", "title", "status": "added"\|"exists"}` | `sai-paper paper keep (--log <id> --position <p> \| --import-id <id> \| --cite <id> --ref <n>) --json` |
+| `POST /api/projects/{name}/papers/bundle` | sai-prep の「前処理の束」（zip）を受け取る（202・背景）。本文は zip そのもの（`Content-Type: application/zip`・300MB まで）。Web が検査・展開してから `import-bundle` を走らせる。種類が違えば 415・大きすぎ／Content-Length 無しは 413・中身が違えば 400（CLI を呼ばない）。返す JSON: `{"key": "bundle:<uuid>", "status": "processing"}` | `sai-paper paper import-bundle --dir <展開したフォルダ> --json` |
+| `GET /api/projects/{name}/papers/pending` | PDF 待ちの論文の一覧（sai-prep が使う） | `sai-paper library pending --json` |
+| `GET /api/projects/{name}/papers/jobs/{key}` | 仕事 1 件（sai-prep が進み具合を見る）。無ければ 404。返す JSON: `{"key", "status", "title", "paper_id"?, "figures"?, "translated"?, "error"?}` | （sai-web のメモリ） |
+| `GET /api/projects/{name}/papers/downloads` | 走っている／終わった仕事（`{"jobs": [{key, kind, title, status, paper_id, error, started_at, finished_at, steps, step, percent, messages}]}`・新しい順）。`kind` は `bundle` / `cite-extract` / `radio` / `translate` の 4 つ。`percent` が `null` の仕事は「% の分からない仕事」（画面は動く帯で出す） | （sai-web のメモリ） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/citations` | 引用一覧（読み取りだけ・抜き出す前の論文にも空の形で返る） | `sai-paper paper citations <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/citations/extract` | 引用を PDF から抜き出す（202・背景。docling を使うので数十秒〜数分）。進捗は `cite:<paper_id>` の仕事 | `sai-paper paper citations-extract <id>` |
 | `GET /api/projects/{name}/papers/project` | 現況・考え・状況のまとめ・要対応 | `sai-sci project show --json` |
@@ -233,12 +235,18 @@ iPhone / PC のブラウザ
 | `GET /api/projects/{name}/papers/sets/{set_id}` | 検索セット 1 つと候補 | `sai-paper set show <id>` |
 | `POST /api/projects/{name}/papers/sets/{set_id}/mark` | 候補に keep / drop を付ける（body `{"positions": [0, 2], "decision": "keep\|drop", "reason": "…"}`。取り込み済みは変えない） | `sai-paper set mark <id> --position=0,2 --decision keep [--reason=…]` |
 | `POST /api/projects/{name}/papers/sets/{set_id}/drop-pending` | 未判定（pending）の候補をまとめて drop にする（body `{"reason": "…"}`・任意） | `sai-paper set drop-pending <id> [--reason=…]` |
+| `GET /api/prep/download` | sai-prep の入れ物（一番新しい `sai-prep-*.whl`）を配る。無ければ 404「sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）」 | （ファイルを返すだけ・`SAI_PREP_DIST` があればそこを見る） |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
-- `import` / `downloads` / `manual/*` / `project` / `attention` / `find` / `find-logs` / `library` / `tree` / `providers` / `search` / `logs/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
-- 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
-- アップロードは `UploadFile` を使わず**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
-- 仕事の状態は sai-web のメモリだけに持つ。`downloading` = PDF を取って登録中、`processing` = 登録済みで後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
+- `import` / `downloads` / `keep` / `bundle` / `pending` / `jobs/{key}` / `project` / `attention` / `find` / `find-logs` / `library` / `tree` / `providers` / `search` / `logs/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・keep は対象 3 つのうち 1 つ）→ 400。同じ論文が進行中は 409。
+- 前処理の束（zip）の検査は Web が行う（Rust に zip の依存が無い）。項目の数 ≤ 5000・展開後の合計 ≤ 1GB・絶対パス / `..` / `\` / NUL の名前無し・シンボリックリンク無し・`manifest.json` の形（下の C12）・`paper.pdf` の先頭が `%PDF-`。違えば CLI を 1 度も呼ばず 400。展開先は `<root>/.sai/paper/inbox/<uuid>/`（ホストとコンテナで同じパスに見える・C4）。
+- 仕事の状態は sai-web のメモリだけに持つ。`processing` = 取り込み中（束）／後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
+
+**C12 前処理の束（zip）の形**（sai-prep が作り、Web が検査して展開する）:
+- zip の中身: `manifest.json`・`paper.pdf`・`docling/paper.md`・`docling/paper.json`・`docling/paper_artifacts/…`・（翻訳したときだけ）`translated/paper-mono.pdf`・`translated/paper-dual.pdf`。
+- `manifest.json`: `{"format":"sai-prep-bundle","version":1,"target":{"paper_id":<int>}|{"bibtex":"<1 件>"},"pdf":"paper.pdf","pdf_sha256":"<hex>","docling":{"md":"docling/paper.md","json":"docling/paper.json","dir":"docling"},"translation":{"mono":"…","dual":"…","service":"…"}|null,"tools":{"sai_prep","docling","pdf2zh"},"created_at":"RFC3339"}`。
+- `import-bundle` の戻り: `{"paper_id","title","figures","sections","refs","translated"}`。
 
 ### 4.6 研究（`sai-sci` 経由・Research タブ）
 

@@ -27,12 +27,9 @@ const PIM_BIB_NAME_RE = /^[A-Za-z0-9._-]{1,80}\.bib$/;
 const PIM_MD_LONG_LINES = 40;
 // たたんだときに見せる行数
 const PIM_MD_PEEK_LINES = 8;
-// 送る PDF の大きさの上限（100MB・サーバの papers.py と同じ）
-const PIM_UPLOAD_MAX = 100 * 1024 * 1024;
 // 仕事の種類 → 画面に出す表示名（U05 §6。知らない種類は空文字）
 const PIM_JOB_KINDS = {
-  download: "Download",
-  manual: "Manual import",
+  bundle: "Preprocess bundle",
   "cite-extract": "Citations",
   radio: "Audio",
   translate: "Abstract translation",
@@ -64,7 +61,6 @@ let pimListBox = null;     // 論文の一覧を入れる箱（絞り込みの�
 let pimJobs = [];          // GET …/papers/downloads の jobs（新しい順）
 let pimJobsName = "";      // pimJobs はどのプロジェクトの分か
 let pimJobsBusy = false;   // 状態を読み込み中（重ねて読まない）
-let pimRetry = new Map();  // 仕事のキー → 「もう一度」で送り直す値
 const pimJobNodes = new Map(); // 仕事のキー → その表示を入れる箱
 const pimJobDois = new Map(); // 仕事のキー → その論文の DOI（サイトを開くリンクを出すため）
 
@@ -177,10 +173,13 @@ function pimActiveJobs(jobs) {
   return list.filter((j) => j && (j.status === "downloading" || j.status === "processing"));
 }
 
-/** 状態の 1 行の文。 */
-function pimJobLabel(status) {
-  if (status === "downloading") return "ダウンロード中…";
-  if (status === "processing") return "保存しました。図の取り出しと翻訳をしています";
+/** 状態の 1 行の文（仕事の種類で「後処理」の文を変える）。 */
+function pimJobLabel(status, kind) {
+  if (status === "downloading") return "取り込み中…";
+  if (status === "processing") {
+    if (kind === "bundle") return "前処理の束を取り込んでいます";
+    return "保存しました。図の取り出しと翻訳をしています";
+  }
   if (status === "done") return "保存しました";
   if (status === "failed") return "保存できませんでした";
   return "";
@@ -210,88 +209,21 @@ function pimJobKindLabel(kind) {
   return PIM_JOB_KINDS[kind] || "";
 }
 
-// --- 手動で取り込むときの対象（U05 §5） ---
-// 対象は 4 通り。キーの形はサーバの `_manual_target` と必ずそろえる。
-//   {log_id, position} / {import_id} / {cite_paper_id, ref_no} / {paper_id}
+// --- Library に入れる（U13 §2） ---
 
-/** 対象からアップロードのクエリ（`?a=1&b=2`）を作る。対象が無ければ空文字。 */
-function pimManualQuery(target, title) {
-  const t = target || {};
-  const parts = [];
-  const add = (key, value) => {
-    if (value == null || value === "") return;
-    parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-  };
-  if (t.log_id != null) {
-    add("log_id", t.log_id);
-    add("position", t.position);
-  } else if (t.import_id != null) {
-    add("import_id", t.import_id);
-  } else if (t.cite_paper_id != null) {
-    add("cite_paper_id", t.cite_paper_id);
-    add("ref_no", t.ref_no);
-  } else if (t.paper_id != null) {
-    add("paper_id", t.paper_id);
-  } else {
-    return "";
-  }
-  // 題名は画面に出すためだけなので、無ければ付けない（サーバは「論文」にする）
-  if (title) add("title", title);
-  return parts.length > 0 ? `?${parts.join("&")}` : "";
+/** keep の結果（`added` / `exists`）→ 画面に知らせる文。 */
+function pimKeepMessage(status) {
+  if (status === "exists") return "もう Library にあります";
+  return "Library に入れました（PDF は sai-prep から送ってください）";
 }
 
-/** 対象から仕事のキー（`manual:log:3:2`・サーバと同じ形）を作る。 */
-function pimManualKey(target) {
-  const q = pimManualQuery(target);
-  if (!q) return "";
-  const params = new URLSearchParams(q.slice(1));
-  let key = "";
-  if (params.has("log_id")) key = `log:${params.get("log_id")}:${params.get("position")}`;
-  else if (params.has("import_id")) key = `import:${params.get("import_id")}`;
-  else if (params.has("cite_paper_id")) {
-    key = `cite:${params.get("cite_paper_id")}:${params.get("ref_no")}`;
-  } else if (params.has("paper_id")) key = `paper:${params.get("paper_id")}`;
-  if (!key) return "";
-  return `manual:${key}`;
-}
-
-/**
- * 仕事のキーから取り込み先（対象）を読み戻す（無ければ null）。
- * ダウンロードが失敗したとき「手動で取り込む」を出すのに使う（U05 §5）。
- */
-function pimTargetFromKey(key) {
-  // 手動取り込みの鍵は `manual:` が付くので外す（中身のキーの形に戻す）
-  const text = String(key || "").replace(/^manual:/, "");
-  const log = /^log:(\d+):(\d+)$/.exec(text);
-  if (log) return { log_id: Number(log[1]), position: Number(log[2]) };
-  const cite = /^cite:(\d+):(\d+)$/.exec(text);
-  if (cite) return { cite_paper_id: Number(cite[1]), ref_no: Number(cite[2]) };
-  const imp = /^import:(.+)$/.exec(text);
-  if (imp) return { import_id: imp[1] };
-  const paper = /^paper:(\d+)$/.exec(text);
-  if (paper) return { paper_id: Number(paper[1]) };
-  return null;
-}
-
-/**
- * 送る前の検査（`{ok, error}` を返す・U05 §5）。
- * 大きさ 100MB までと、種類（application/pdf か名前が .pdf で終わること）を見る。
- */
-function pimCheckUpload(file) {
-  if (!file) return { ok: false, error: "ファイルを選んでください" };
-  const size = Number(file.size);
-  if (!Number.isFinite(size) || size <= 0) {
-    return { ok: false, error: "ファイルが空です" };
-  }
-  if (size > PIM_UPLOAD_MAX) {
-    return { ok: false, error: "100MB までの PDF を選んでください" };
-  }
-  const type = String(file.type || "").toLowerCase();
-  const name = String(file.name || "");
-  if (type !== "application/pdf" && !name.toLowerCase().endsWith(".pdf")) {
-    return { ok: false, error: "PDF を選んでください" };
-  }
-  return { ok: true, error: "" };
+/** keep の対象から仕事のキー（`log:3:2` など）を作る（サーバと同じ形）。 */
+function pimKeepKey(payload) {
+  const p = payload || {};
+  if (p.log_id != null) return `log:${p.log_id}:${p.position}`;
+  if (p.import_id != null) return `import:${p.import_id}`;
+  if (p.cite_paper_id != null) return `cite:${p.cite_paper_id}:${p.ref_no}`;
+  return "";
 }
 
 // --- 進み具合（段・%・経過時間・ログ・U3 §5） ---
@@ -705,19 +637,21 @@ function pimOpenEntrySheet(entry) {
   const go = document.createElement("button");
   go.type = "button";
   go.className = "sai-btn primary";
-  go.textContent = "⬇ Download";
+  go.textContent = "＋ Library に入れる";
   go.addEventListener("click", () => {
     sheet.close();
-    void pimStartDownload(
+    void pimStartKeep(
       pimProjectName(),
       { import_id: e.id, title: e.title || "Papers" },
       pimImportKey(e.id)
     );
   });
   body.appendChild(go);
-  body.appendChild(pimEl("p", "pim-note", "数分かかることがあります。終わったら通知でお知らせします"));
+  body.appendChild(
+    pimEl("p", "pim-note", "PDF はありません。sai-prep から送ると図・節・翻訳が入ります")
+  );
 
-  const sheet = saiSheet({ title: "論文のダウンロード", body });
+  const sheet = saiSheet({ title: "Library に入れる", body });
   return sheet;
 }
 
@@ -803,40 +737,28 @@ function pimJobsList() {
   return pimJobs;
 }
 
-/** Download を依頼する（202 ならその仕事の箱を作り、409 は知らせて止める）。 */
-async function pimStartDownload(projectName, payload, key) {
+/** Library に入れる（`POST …/papers/keep`・すぐ終わる・U13 §2）。 */
+async function pimStartKeep(projectName, payload, key) {
   await pimEnsureUi();
   const project = projectName || pimProjectName();
   if (!project) return null;
   try {
-    const res = await saiApi(`${pimApiBase(project)}/download`, { method: "POST", body: payload });
-    const jobKey = (res && res.key) || key;
-    // 失敗したときに「もう一度」で同じ値を送れるように覚えておく
-    pimRetry.set(jobKey, payload);
-    pimUpsertJob({
-      key: jobKey,
-      title: (payload && payload.title) || "Papers",
-      status: "downloading",
-      paper_id: null,
-      error: null,
-    });
-    pimSetPolling(true);
-    pimUpdateJobNodes();
-    if (typeof papersRenderDownloadBand === "function") papersRenderDownloadBand();
-    return jobKey;
+    const res = await saiApi(`${pimApiBase(project)}/keep`, { method: "POST", body: payload });
+    const status = res && res.status;
+    saiToast(pimKeepMessage(status), "ok");
+    // 一覧を「Library にあります」に更新する
+    if (typeof loadLibrary === "function" && location.hash === "#/papers/library") void loadLibrary();
+    if (location.hash === "#/papers/import") pimRender();
+    return (res && res.paper_id) || key || null;
   } catch (e) {
-    const status = e && e.status;
-    if (status === 409) saiToast((e && e.message) || "この論文はダウンロード中です", "error");
-    else saiToast((e && e.message) || "ダウンロードの依頼はできませんでした", "error");
+    saiToast((e && e.message) || "Library に入れられませんでした", "error");
     return null;
   }
 }
 
-/** 仕事の配列へ 1 件を入れる（同じキーは上書き）。 */
-function pimUpsertJob(job) {
-  if (!job || !job.key) return;
-  const rest = pimJobs.filter((j) => j && j.key !== job.key);
-  pimJobs = [job, ...rest];
+/** 古い名前（cite.js が呼ぶ）。中身は Library に入れるに変わった（U13 §2）。 */
+function pimStartDownload(projectName, payload, key) {
+  return pimStartKeep(projectName, payload, key);
 }
 
 /** 仕事の表示を入れる箱を作る（キーが変わっても描き直せるように覚えておく）。 */
@@ -870,7 +792,7 @@ function pimJobBlock(job, doi) {
     const spin = pimEl("span", "papers-spin");
     line.appendChild(spin);
   }
-  line.appendChild(pimEl("span", "pim-job-text", pimJobLabel(job.status)));
+  line.appendChild(pimEl("span", "pim-job-text", pimJobLabel(job.status, job.kind)));
   wrap.appendChild(line);
 
   // 登録できたら論文情報を開ける（processing / done）
@@ -891,35 +813,6 @@ function pimJobBlock(job, doi) {
     wrap.appendChild(pimEl("p", "pim-job-error", text));
   }
   if (job.status === "failed") {
-    const again = document.createElement("button");
-    again.type = "button";
-    again.className = "sai-btn small";
-    again.textContent = "もう一度";
-    again.addEventListener("click", () => {
-      const payload = pimRetry.get(job.key);
-      if (!payload) return;
-      pimRetry.delete(job.key);
-      pimUpsertJob({ key: job.key, title: job.title, status: "downloading", paper_id: null, error: null });
-      pimUpdateJobNodes();
-      void pimStartDownload(pimProjectName() || pimJobsName, payload, job.key);
-    });
-    wrap.appendChild(again);
-    // 取り込めなかったものは、ブラウザや保存した PDF から手で入れられる（U05 §5）
-    const target = pimTargetFromKey(job.key);
-    if (target) {
-      const manual = document.createElement("button");
-      manual.type = "button";
-      manual.className = "sai-btn small";
-      manual.textContent = "手動で取り込む";
-      manual.addEventListener("click", () => {
-        void pimOpenManual({
-          name: pimProjectName() || pimJobsName,
-          target,
-          title: job.title || "Papers",
-        });
-      });
-      wrap.appendChild(manual);
-    }
     // 論文のサイトを開く（PDF の場所が見つからないとき）
     const linkDoi = doi || job.doi;
     if (pimJobErrorNotFound(job.error) && linkDoi) {
@@ -933,9 +826,9 @@ function pimJobBlock(job, doi) {
   return wrap;
 }
 
-/** 検索結果の 1 論文から Download を依頼する（renderRemote から使う）。 */
-function pimStartLogDownload(projectName, logId, position, title) {
-  return pimStartDownload(
+/** 検索結果の 1 論文から Library に入れる（renderRemote から使う）。 */
+function pimStartLogKeep(projectName, logId, position, title) {
+  return pimStartKeep(
     projectName,
     { log_id: logId, position, title },
     pimLogKey(logId, position)
@@ -982,252 +875,6 @@ async function pimRefreshJobs(name) {
     pimJobsBusy = false;
   }
 }
-
-// --- 手動で取り込む一枚（U05 §5） ---
-// 2 つの選び方を 1 枚にまとめる:
-//   1. Mac のダウンロードフォルダにある最近の PDF（名前をcli 側に検証させる）
-//   2. この端末（iPhone でも PC でも）から PDF の本文をそのまま送る
-
-/**
- * 手動取り込みの一枚を開く。
- *   {name, target, title, siteUrl}
- *   - `target` は {log_id, position} / {import_id} / {cite_paper_id, ref_no} / {paper_id}
- *   - `siteUrl` は論文のサイト（無ければ「論文のサイトを開く」は出さない）
- */
-async function pimOpenManual(opts) {
-  await pimEnsureUi();
-  const o = opts || {};
-  const name = o.name || pimProjectName();
-  const target = o.target || {};
-  const query = pimManualQuery(target, o.title || "");
-  if (!name || !query) {
-    saiToast("取り込む対象が分かりません", "error");
-    return null;
-  }
-  const body = document.createElement("div");
-  body.className = "pim-manual";
-  const sheet = saiSheet({ title: "PDF を手動で取り込む", body });
-
-  // 一枚の中の状態（描き直すたびに読む）
-  const state = {
-    candidates: null,     // GET manual/candidates の応答（null = 読めていない）
-    candidatesError: "",  // 候補を読めなかったときの理由
-    chosen: "",           // ダウンロードフォルダから選んだ PDF の名前
-    file: null,           // この端末から選ぶたファイル
-    fileError: "",        // 選んだファイルが通らなかったときの理由
-    busy: false,          // 取り込みの依頼を送っているあいだ
-    error: "",            // 依頼の失敗（赤字。一枚は閉じない）
-  };
-
-  const draw = () => {
-    body.innerHTML = "";
-    if (o.title) body.appendChild(pimEl("h3", "pim-sheet-title", o.title));
-
-    // 1. 論文のサイトで PDF を保存する
-    const step1 = pimEl("div", "pim-manual-step");
-    step1.appendChild(pimEl("p", "pim-manual-step-label", "1. 論文のサイトで PDF を保存します"));
-    if (o.siteUrl) {
-      const link = document.createElement("a");
-      link.href = o.siteUrl;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.className = "sai-btn";
-      link.textContent = "論文のサイトを開く";
-      step1.appendChild(link);
-    } else {
-      step1.appendChild(pimEl("p", "pim-note", "論文のサイトの URL が分かりませんでした"));
-    }
-    body.appendChild(step1);
-
-    // 2. 保存した PDF を選ぶ（下の 2 つのうちのどちらか一方）
-    const step2 = pimEl("div", "pim-manual-step");
-    step2.appendChild(pimEl("p", "pim-manual-step-label", "2. 保存した PDF を選びます"));
-    body.appendChild(step2);
-    body.appendChild(pimCandidatesBox(state, draw, load));
-    body.appendChild(pimUploadBox(state, draw, submit));
-
-    if (state.error) body.appendChild(pimEl("p", "pim-error", state.error));
-    if (state.busy) {
-      body.appendChild(pimEl("p", "pim-note", "取り込みを始めています…"));
-    } else if (!state.chosen && !state.file) {
-      body.appendChild(pimEl("p", "pim-note", "候補から選ぶか、ファイルを選んでください"));
-    }
-  };
-
-  // 候補を一度だけ読む
-  async function load() {
-    state.candidatesError = "";
-    try {
-      const res = await saiApi(`${pimApiBase(name)}/manual/candidates`);
-      state.candidates = res && typeof res === "object" ? res : {};
-    } catch (e) {
-      state.candidates = null;
-      state.candidatesError = (e && e.message) || "候補を読めませんでした";
-    }
-    draw();
-  }
-
-  /** 取り込みの依頼を送る（ファイル名か本文のどちらか一方）。 */
-  async function submit() {
-    if (state.busy) return;
-    state.busy = true;
-    state.error = "";
-    draw();
-    try {
-      if (state.file) {
-        // 本文をそのまま送る（UploadFile には python-multipart が要るので使わない）
-        const url = `${pimApiBase(name)}/manual/upload${query}`;
-        const res = await apiFetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/pdf" },
-          body: state.file,
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.detail || "PDF を送れませんでした");
-        if (window.SaiShell && typeof window.SaiShell.ok === "function") window.SaiShell.ok();
-      } else {
-        await saiApi(`${pimApiBase(name)}/manual/import`, {
-          method: "POST",
-          body: { ...(target || {}), title: o.title || "Papers", file_name: state.chosen },
-        });
-      }
-      sheet.close();
-      saiToast("取り込みを始めました", "ok");
-      await pimRefreshJobs(name);
-      pimSetPolling(true);
-    } catch (e) {
-      state.busy = false;
-      state.error = (e && e.message) || "取り込みの依頼はできませんでした";
-      if (window.SaiShell && typeof window.SaiShell.fail === "function" &&
-          /つなが/.test(String(state.error))) {
-        window.SaiShell.fail();
-      }
-    }
-    draw();
-  }
-
-  await draw();
-  await load();
-  return sheet;
-}
-
-/** ダウンロードフォルダの候補（読み直しの ↻ ボタンつき）。 */
-function pimCandidatesBox(state, draw, load) {
-  const box = pimEl("section", "pim-manual-box");
-  const head = pimEl("div", "pim-manual-head");
-  const res = state.candidates || {};
-  const minutes = Number(res.minutes) || 30;
-  head.appendChild(
-    pimEl("p", "pim-manual-head-title", `Mac のダウンロードフォルダ（直近 ${minutes} 分）`)
-  );
-  const reload = document.createElement("button");
-  reload.type = "button";
-  reload.className = "sai-btn small";
-  reload.textContent = "↻";
-  reload.setAttribute("aria-label", "候補を読み直す");
-  reload.addEventListener("click", () => { void load(); });
-  head.appendChild(reload);
-  box.appendChild(head);
-
-  if (state.candidates === null) {
-    box.appendChild(pimEl("p", "pim-note", state.candidatesError || "候補を読み込み中…"));
-    return box;
-  }
-  const items = Array.isArray(res.items) ? res.items : [];
-  if (items.length === 0) {
-    box.appendChild(
-      pimEl(
-        "p",
-        "pim-note",
-        `〜${res.dir || "~/Downloads"} に直近 ${minutes} 分の PDF がありません。保存してから ↻ を押してください`
-      )
-    );
-    return box;
-  }
-  const list = pimEl("div", "pim-manual-list");
-  for (const item of items) {
-    const name = String((item || {}).name || "");
-    if (!name) continue;
-    const row = pimEl("label", "pim-manual-row");
-    const radio = document.createElement("input");
-    radio.type = "radio";
-    radio.name = "pim-manual-candidate";
-    radio.checked = state.chosen === name;
-    radio.addEventListener("change", () => {
-      state.chosen = name;
-      state.file = null; // 候補とファイルは片方だけ選べる
-      state.fileError = "";
-      draw();
-    });
-    row.appendChild(radio);
-    row.appendChild(pimEl("span", "pim-manual-name", name));
-    row.appendChild(pimEl("span", "pim-manual-size", pimFileSize(item.size)));
-    row.appendChild(pimEl("span", "pim-manual-time", pimAgoLabel(item.modified_at)));
-    list.appendChild(row);
-  }
-  box.appendChild(list);
-  return box;
-}
-
-/** この端末から PDF を送る欄（input type=file・accept は application/pdf）。 */
-function pimUploadBox(state, draw, submit) {
-  const box = pimEl("section", "pim-manual-box");
-  box.appendChild(pimEl("p", "pim-manual-head-title", "または、この端末から PDF を送る"));
-  const line = pimEl("div", "pim-manual-line");
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "application/pdf,.pdf";
-  input.className = "pim-manual-file";
-  input.addEventListener("change", () => {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    const check = pimCheckUpload(file);
-    if (!check.ok) {
-      state.file = null;
-      state.fileError = check.error;
-    } else {
-      state.file = file;
-      state.fileError = "";
-      state.chosen = ""; // 候補とファイルは片方だけ選べる
-    }
-    draw();
-  });
-  line.appendChild(input);
-  const go = document.createElement("button");
-  go.type = "button";
-  go.className = "sai-btn primary";
-  go.textContent = state.busy ? "取り込み中…" : "取り込む";
-  go.disabled = state.busy || (!state.chosen && !state.file);
-  go.addEventListener("click", () => { void submit(); });
-  line.appendChild(go);
-  box.appendChild(line);
-  if (state.fileError) box.appendChild(pimEl("p", "pim-error", state.fileError));
-  box.appendChild(pimEl("p", "pim-note", "100MB までの PDF なら iPhone からも送れます"));
-  return box;
-}
-
-/** 大きさ（`1.2MB` などに丸める）。読めなければ空文字。 */
-function pimFileSize(bytes) {
-  const n = Number(bytes);
-  if (!Number.isFinite(n) || n <= 0) return "";
-  if (n < 1024) return `${n}B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
-  return `${(n / 1024 / 1024).toFixed(1)}MB`;
-}
-
-/** 更新時刻から「3分前」などに（読めなければ空文字）。 */
-function pimAgoLabel(iso) {
-  const at = Date.parse(String(iso || ""));
-  if (!Number.isFinite(at)) return "";
-  const sec = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (sec < 90) return `${sec}秒前`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}分前`;
-  const hour = Math.round(min / 60);
-  if (hour < 24) return `${hour}時間前`;
-  return `${Math.round(hour / 24)}日前`;
-}
-
 // --- 進み具合の一枚（どのページからでも開く・U3 §5） ---
 
 /**
@@ -1281,7 +928,6 @@ if (typeof module !== "undefined" && module.exports) {
     PIM_MD_LONG_LINES,
     PIM_MD_PEEK_LINES,
     PIM_ATTENTION_KINDS,
-    PIM_UPLOAD_MAX,
     PIM_JOB_KINDS,
     pimValidName,
     pimFileNameFor,
@@ -1298,12 +944,8 @@ if (typeof module !== "undefined" && module.exports) {
     pimJobErrorNotFound,
     pimAttentionKindLabel,
     pimJobKindLabel,
-    pimManualQuery,
-    pimManualKey,
-    pimTargetFromKey,
-    pimCheckUpload,
-    pimFileSize,
-    pimAgoLabel,
+    pimKeepMessage,
+    pimKeepKey,
     pimJobTarget,
     pimLongText,
     // ブラウザの画面からも使う（papers.js の帯・Download の表示）
