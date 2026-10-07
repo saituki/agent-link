@@ -499,7 +499,7 @@ fn show(kind: DefKind, scope: Scope, name: &str) -> PhoneResult<Value> {
                 if id != name {
                     w.push(format!(
                         "frontmatter の id '{}' が名前 '{}' と一致しません。\
-                         CLI・block_discover は id で解決するため、名前を '{}.md' に揃えてください。",
+                         `sai-link def list` は id で解決するため、名前を '{}.md' に揃えてください。",
                         id, name, id
                     ));
                 }

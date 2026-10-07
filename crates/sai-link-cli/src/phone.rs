@@ -1391,7 +1391,7 @@ fn finalize(run_id: i64) -> PhoneResult<Value> {
 
     // 3. メインブロックか（子ブロックは task_report で完了する）
     if exec.parent_run_id.is_some() {
-        return Err(PhoneError::usage("子ブロックは task_report で完了します"));
+        return Err(PhoneError::usage("子ブロックは `sai-link task report` で完了します"));
     }
 
     // 4. 常駐確認（実行時と同じ判定。止まっていれば完了処理ができない）
@@ -2516,7 +2516,7 @@ mod tests {
         // (3) 実行中の子ブロック → 終了コード 1（task_report で完了する）
         let err = finalize(subtask).unwrap_err();
         assert_eq!(err.code, EXIT_USAGE);
-        assert_eq!(err.msg, "子ブロックは task_report で完了します");
+        assert_eq!(err.msg, "子ブロックは `sai-link task report` で完了します");
 
         // (4) 実行中のメインブロック → 常駐停止で終了コード 1
         let err = finalize(running).unwrap_err();

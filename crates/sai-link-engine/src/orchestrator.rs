@@ -3233,7 +3233,7 @@ fn long_run_alert_ms() -> u64 {
 /// `long_running` 通知の本文。
 fn long_running_message(elapsed: Duration, pane_id: &str) -> String {
     format!(
-        "サブブロックが {} 分以上 working のままです（pane={}）。task_capture で画面を確かめてください。進んでいれば task_output で待ち続けてかまいません。1 つの命令が終わらずに止まっているなら task_manage interrupt で止め、task_manage send で原因を調べさせてください。",
+        "サブブロックが {} 分以上 working のままです（pane={}）。sai-link task capture <ID> で画面を確かめてください。進んでいれば `sai-link task wait <ID>` で待ち続けてかまいません。1 つの命令が終わらずに止まっているなら sai-link task interrupt <ID> で止め、sai-link task send <ID> --message <文> で原因を調べさせてください。",
         elapsed.as_secs() / 60,
         pane_id
     )
@@ -3245,7 +3245,7 @@ fn long_running_message(elapsed: Duration, pane_id: &str) -> String {
 /// 繰り返し親へ送る（続けるか止めるかは親が決める）。
 fn timeout_alert_message(timeout_ms: u64, elapsed: Duration, pane_id: &str) -> String {
     format!(
-        "サブブロックが timeout（{} 秒）を超えても完了していません（経過 {} 分、pane={}）。task_capture で画面を確かめてください。時間がかかる理由がもっともなら、そのまま task_output で待ってください（同じ間隔でまた知らせます）。止めるなら task_manage interrupt、終了させるなら task_manage delete を使ってください。",
+        "サブブロックが timeout（{} 秒）を超えても完了していません（経過 {} 分、pane={}）。sai-link task capture <ID> で画面を確かめてください。時間がかかる理由がもっともなら、そのまま `sai-link task wait <ID>` で待ってください（同じ間隔でまた知らせます）。止めるなら sai-link task interrupt <ID>、終了させるなら sai-link task delete <ID> を使ってください。",
         timeout_ms / 1000,
         elapsed.as_secs() / 60,
         pane_id
@@ -3418,7 +3418,7 @@ fn execute_completion_with_doc_write(
                 }
                 Ok(CompletionEvent::FinalizeRequested { run_id }) => {
                     eprintln!(
-                        "[sai-engine] ファイナライズ要求検出 (run_id={}): メインは /pi-sai-finalize、サブは task_report による完了要求です",
+                        "[sai-engine] ファイナライズ要求検出 (run_id={}): メインは /pi-sai-finalize、サブは `sai-link task report` による完了要求です",
                         run_id
                     );
                     // P6-2: メイン（/pi-sai-finalize）もサブ（task_report）もこの分岐で完了する。
@@ -3496,7 +3496,7 @@ fn execute_completion_with_doc_write(
                                         StallReason::Idle => (
                                             "idle",
                                             format!(
-                                                "サブブロックが {} 秒以上 idle のまま停止しています（pane={}）。task_capture で画面を確かめ、task_manage send で指示を送って再開させてください（blocked / error なら先に task_manage interrupt）。",
+                                                "サブブロックが {} 秒以上 idle のまま停止しています（pane={}）。sai-link task capture <ID> で画面を確かめ、sai-link task send <ID> --message <文> で指示を送って再開させてください（blocked / error なら先に sai-link task interrupt <ID>）。",
                                                 idle_timeout_ms / 1000,
                                                 pane_id
                                             ),
@@ -3504,14 +3504,14 @@ fn execute_completion_with_doc_write(
                                         StallReason::Blocked => (
                                             "blocked",
                                             format!(
-                                                "サブブロックが blocked 状態で停止しています（pane={}）。task_capture で画面を確かめ、task_manage send で指示を送って再開させてください（blocked / error なら先に task_manage interrupt）。",
+                                                "サブブロックが blocked 状態で停止しています（pane={}）。sai-link task capture <ID> で画面を確かめ、sai-link task send <ID> --message <文> で指示を送って再開させてください（blocked / error なら先に sai-link task interrupt <ID>）。",
                                                 pane_id
                                             ),
                                         ),
                                         StallReason::Error => (
                                             "error",
                                             format!(
-                                                "サブブロックが error 状態で停止しています（pane={}）。task_capture で画面を確かめ、task_manage send で指示を送って再開させてください（blocked / error なら先に task_manage interrupt）。",
+                                                "サブブロックが error 状態で停止しています（pane={}）。sai-link task capture <ID> で画面を確かめ、sai-link task send <ID> --message <文> で指示を送って再開させてください（blocked / error なら先に sai-link task interrupt <ID>）。",
                                                 pane_id
                                             ),
                                         ),

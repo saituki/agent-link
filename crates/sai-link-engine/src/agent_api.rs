@@ -846,7 +846,7 @@ pub fn task_create(
                 "field": "<block_type>",
                 "kind": "missing",
                 "message": format!(
-                    "指定された block_type「{}」のブロック定義を取得できませんでした。block_discover で正しい id を確認してください（表示名ではなく id を指定）。",
+                    "指定された block_type「{}」のブロック定義を取得できませんでした。`sai-link def list` で正しい id を確認してください（表示名ではなく id を指定）。",
                     block_type
                 ),
             }));
@@ -913,7 +913,7 @@ pub fn task_create(
         "supersedes_batch_id": supersedes_batch_id,
         "status": "approved",
         "tasks": result_tasks,
-        "hint": "task_execute に batch_id を渡すと一括実行されます。server_id は task_list で確認してください。",
+        "hint": "`sai-link task execute --batch <batch_id>` で一括実行されます。タスク ID は `sai-link task list` で確認してください。",
     }))
 }
 
@@ -1010,7 +1010,7 @@ pub fn task_execute(
         "batch_id": batch_id,
         "status": "queued",
         "run_batch_created": true,
-        "message": "実行キューへ送信しました（非同期）。進捗は task_status / task_output で確認してください。",
+        "message": "実行キューへ送信しました（非同期）。進捗は `sai-link task show <ID>` か `sai-link task wait <ID>` で確認してください。",
     }))
 }
 
@@ -1128,7 +1128,7 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
                 "round": value.get("round").and_then(|v| v.as_i64()).unwrap_or(1),
                 "report": task_report_text(task_id),
                 "outputs": outputs,
-                "hint": "子は完了しています。report と outputs を読み、成果物を確かめてから task_manage finalize で閉じてください。足りなければ task_manage send で直させてください。閉じないと pane と running のフォルダが残ります。",
+                "hint": "子は完了しています。report と outputs を読み、成果物を確かめてから sai-link task finalize <ID> で閉じてください。足りなければ sai-link task send <ID> --message <文> で直させてください。閉じないと pane と running のフォルダが残ります。",
             }))
         }
         "task_stalled" => {
@@ -1143,9 +1143,9 @@ fn build_task_output_result(task_id: i64, value: &Value) -> Result<Value, String
             let hint = if reason == "question" {
                 "子が質問して、答えを待っています。質問は Web のホームにも出ています。question_id の質問を読み、答え方はあなたのブロックの説明に従ってください。先に Human が Web で答えた場合は、その答えが子に届きます。"
             } else if reason == "long_running" || reason == "timeout" {
-                "子はまだ working です。task_capture で画面を確かめ、進んでいれば task_output で待ち続けてください。止まっているなら task_manage interrupt で止め、send で原因を調べさせてください。同じ理由のアラートは、working が続く限り繰り返し届きます。"
+                "子はまだ working です。sai-link task capture <ID> で画面を確かめ、進んでいれば `sai-link task wait <ID>` で待ち続けてください。止まっているなら `sai-link task interrupt <ID>` で止め、`sai-link task send <ID> --message <文>` で原因を調べさせてください。同じ理由のアラートは、working が続く限り繰り返し届きます。"
             } else {
-                "サブブロックが止まっています。task_capture で画面を確かめ、task_manage send で指示を送ってください。作業中（working）や blocked なら先に task_manage interrupt で止めてください。"
+                "サブブロックが止まっています。sai-link task capture <ID> で画面を確かめ、sai-link task send <ID> --message <文> で指示を送ってください。作業中（working）や blocked なら先に sai-link task interrupt <ID> で止めてください。"
             };
             let mut out = json!({
                 "task_id": task_id,
@@ -1233,7 +1233,7 @@ pub fn task_output_ids(
             }
         }
         return Ok(in_progress_result(task_ids, with_pending, &format!(
-            "タスクはまだ完了していません。1 回の待ちは最大 {} 秒。timeout_ms を指定するか、あとで task_output を呼んでください。",
+            "タスクはまだ完了していません。1 回の待ちは最大 {} 秒。timeout_ms を指定するか、あとで `sai-link task wait <ID>` を実行してください。",
             max_wait_seconds()
         )));
     }
@@ -1494,13 +1494,13 @@ fn send_route(
         "in_progress" => match agent_status {
             Some("idle") | Some("done") => Ok(SendRoute::DirectToPane),
             Some("working") => Err(format!(
-                "タスク {} は作業中（working）です。止めて指示を変えるなら先に task_manage interrupt を呼んでください。終わるのを待つなら task_output を使ってください。",
+                "タスク {} は作業中（working）です。止めて指示を変えるなら先に sai-link task interrupt <ID> を呼んでください。終わるのを待つなら `sai-link task wait <ID>` を使ってください。",
                 task_id
             )),
             other => {
                 let label = other.unwrap_or("状態不明");
                 Err(format!(
-                    "タスク {} は {} で止まっています。task_capture で画面を確かめ、task_manage interrupt で入力待ちに戻してから send してください。",
+                    "タスク {} は {} で止まっています。sai-link task capture <ID> で画面を確かめ、sai-link task interrupt <ID> で入力待ちに戻してから send してください。",
                     task_id, label
                 ))
             }
@@ -1590,7 +1590,7 @@ pub fn task_manage(
                     "task_id": task_id,
                     "status": "still_working",
                     "agent_status": agent_status,
-                    "message": "esc を送りましたが、まだ working です。task_capture で確かめ、もう一度 interrupt するか、delete で終了させてください。",
+                    "message": "esc を送りましたが、まだ working です。sai-link task capture <ID> で確かめ、もう一度 interrupt するか、delete で終了させてください。",
                 }));
             }
             Ok(json!({
@@ -1599,7 +1599,7 @@ pub fn task_manage(
                 "status": "interrupted",
                 "agent_status": agent_status,
                 "message": format!(
-                    "タスク {} に esc を送りました（agent_status={}）。task_capture で画面を確かめ、send で次の指示を送ってください。",
+                    "タスク {} に esc を送りました（agent_status={}）。sai-link task capture <ID> で画面を確かめ、send で次の指示を送ってください。",
                     task_id, agent_status
                 ),
             }))
@@ -1656,7 +1656,7 @@ pub fn task_manage(
                         "task_id": task_id,
                         "status": "sent",
                         "message": format!(
-                            "作業中のタスク {} の pane に追加指示を送りました。完了は task_report（task_output）で受け取ってください。",
+                            "作業中のタスク {} の pane に追加指示を送りました。完了は子の `sai-link task report` を `sai-link task wait <ID>` で受け取ってください。",
                             task_id
                         ),
                     }))
@@ -1754,7 +1754,7 @@ pub fn task_status(
     Ok(json!({
         "count": tasks.len(),
         "tasks": tasks,
-        "hint": "調査は task_capture <ID>、操作は task_manage <interrupt|send|delete|finalize|requeue> <ID> を使用してください。",
+        "hint": "調査は sai-link task capture <ID>、操作は sai-link task <interrupt|send|delete|finalize|requeue> <ID> を使用してください。",
     }))
 }
 
@@ -1961,7 +1961,7 @@ fn sai_read_list_inner(run_id: Option<i64>, include_running: bool) -> Result<Val
     Ok(json!({
         "count": items.len(),
         "items": items,
-        "hint": "本文は sai_read { token }。子タスクへは task_text に waggle:<token> と書けば本文が埋め込まれる",
+        "hint": "本文は `sai-link doc read <token>`。子タスクへは task_text に waggle:<token> と書けば本文が埋め込まれる",
     }))
 }
 
@@ -2882,13 +2882,13 @@ mod tests {
         // in_progress + working → エラー（自動で esc はしない）
         let err = send_route(12, "in_progress", Some("working")).unwrap_err();
         assert!(err.contains("作業中（working）"), "{}", err);
-        assert!(err.contains("task_manage interrupt"), "{}", err);
+        assert!(err.contains("sai-link task interrupt <ID>"), "{}", err);
 
         // in_progress + blocked / error / 未知の値 / None → エラー
         for st in [Some("blocked"), Some("error"), Some("weird"), None] {
             let err = send_route(12, "in_progress", st).unwrap_err();
             assert!(err.contains("で止まっています"), "{}", err);
-            assert!(err.contains("task_manage interrupt"), "{}", err);
+            assert!(err.contains("sai-link task interrupt <ID>"), "{}", err);
         }
         // None のときは「状態不明」と出る
         assert!(
@@ -3115,7 +3115,7 @@ mod tests {
         assert!(result.get("session_stats").is_none());
         // B7: 完了には閉じる案内（hint）が付く（status / report / outputs の形は変えない）
         let hint = result["hint"].as_str().expect("hint が返る");
-        assert!(hint.contains("task_manage finalize"), "{}", hint);
+        assert!(hint.contains("sai-link task finalize <ID>"), "{}", hint);
 
         drop(guard);
     }
@@ -3362,7 +3362,7 @@ mod tests {
         let msg = out["message"].as_str().unwrap();
         assert!(msg.contains("質問 q1:"), "{}", msg);
         assert!(!msg.contains('\n'), "{}", msg);
-        // 質問用の案内（task_capture で止めない）
+        // 質問用の案内（sai-link task capture <ID> で止めない）
         let hint = out["hint"].as_str().unwrap();
         assert!(hint.contains("質問"), "{}", hint);
 

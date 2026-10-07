@@ -81,7 +81,7 @@ fn parse_block_file_with_template_dir(
         if stem != id {
             let msg = format!(
                 "ブロック '{}': frontmatter の id '{}' がファイル名 '{}' と一致しません。\
-                 CLI・block_discover は id で解決するため、ファイル名を '{}.md' に揃えてください。",
+                 `sai-link def list` は id で解決するため、ファイル名を '{}.md' に揃えてください。",
                 parsed.config.display_name(),
                 id,
                 path.as_ref().display(),
