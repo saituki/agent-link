@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sai-prep</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --line: #d8dde5;
+    --text: #1c2430;
+    --muted: #64707d;
+    --accent: #2f6fed;
+    --ok: #1a8f4a;
+    --ng: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  header {
+    padding: 16px 20px;
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .ver { color: var(--muted); font-size: 12px; }
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 16px;
+    display: grid;
+    gap: 16px;
+  }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  section h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
+  input[type="text"], input[type="password"], input[type="number"], select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    background: #fff;
+    color: var(--text);
+  }
+  button {
+    padding: 8px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .row > .grow { flex: 1 1 240px; }
+  .status { font-size: 13px; margin-top: 6px; }
+  .status.ok { color: var(--ok); }
+  .status.ng { color: var(--ng); }
+  .muted { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .drop {
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    transition: background .15s, border-color .15s;
+  }
+  .drop.over { background: #eaf1ff; border-color: var(--accent); color: var(--accent); }
+  .drop.small { padding: 6px 10px; }
+  .jobs { display: grid; gap: 10px; }
+  .job { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .job .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .job .title { font-weight: 600; }
+  .bar { height: 6px; background: #e9edf3; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; }
+  .job.done .bar > i { background: var(--ok); }
+  .job.failed .bar > i { background: var(--ng); }
+  .job .err { color: var(--ng); font-size: 13px; margin-top: 4px; }
+  .hidden { display: none; }
+  .checkline { display: flex; align-items: center; gap: 8px; }
+  .checkline input { width: auto; }
+  .checkline label { margin: 0; color: var(--text); font-size: 14px; }
+  @media (max-width: 600px) {
+    main { padding: 10px; gap: 10px; }
+    section { padding: 12px; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+    td { border: none; padding: 2px 0; }
+    td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>sai-prep</h1>
+  <span class="ver">v__SAI_PREP_VERSION__ — 論文 PDF の前処理</span>
+</header>
+<main>
+  <section>
+    <h2>設定</h2>
+    <label for="server">サーバの住所</label>
+    <input id="server" type="text" placeholder="https://sai.example.ts.net" autocomplete="off">
+    <label for="token">個人のトークン</label>
+    <input id="token" type="password" placeholder="sai_…" autocomplete="off">
+    <div class="row" style="margin-top:10px">
+      <button id="save" class="primary">保存</button>
+      <button id="check">確かめる</button>
+    </div>
+    <div id="checkStatus" class="status"></div>
+  </section>
+
+  <section>
+    <h2>プロジェクト</h2>
+    <div class="row">
+      <div class="grow">
+        <label for="project">プロジェクト</label>
+        <select id="project"><option value="">（未選択）</option></select>
+      </div>
+      <button id="reloadProjects">更新</button>
+    </div>
+    <div id="projectStatus" class="status muted"></div>
+  </section>
+
+  <section>
+    <h2>PDF 待ち</h2>
+    <div id="pendingStatus" class="status muted">プロジェクトを選ぶと一覧が出ます。</div>
+    <table id="pendingTable" class="hidden">
+      <thead>
+        <tr><th>題名</th><th>年</th><th>DOI / arXiv</th><th>PDF</th></tr>
+      </thead>
+      <tbody id="pendingBody"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>BibTeX と PDF</h2>
+    <p class="muted">Library に無い論文を取り込みます。BibTeX は 1 件だけにしてください（S2 検索は行いません）。</p>
+    <div class="row">
+      <div class="grow">
+        <label>BibTeX（.bib）</label>
+        <input id="bibFile" type="file" accept=".bib,text/plain">
+      </div>
+      <div class="grow">
+        <label>PDF</label>
+        <input id="bibPdf" type="file" accept="application/pdf">
+      </div>
+    </div>
+    <div id="bibDrop" class="drop" style="margin-top:10px">ここに .bib と PDF を一緒に drop（または上の欄から選ぶ）</div>
+    <div class="row" style="margin-top:10px">
+      <button id="bibSubmit" class="primary">取り込む</button>
+      <div class="checkline">
+        <input id="translate" type="checkbox">
+        <label for="translate">翻訳する（英→日。mlx-lm の translateGemma）</label>
+      </div>
+    </div>
+    <div id="bibStatus" class="status"></div>
+  </section>
+
+  <section>
+    <h2>処理の列</h2>
+    <div id="jobs" class="jobs"></div>
+    <div id="jobsEmpty" class="muted">まだ仕事はありません。</div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var NONCE = "__SAI_PREP_NONCE__";
+
+  function spEl(id) { return document.getElementById(id); }
+
+  function spApi(path, options) {
+    options = options || {};
+    var headers = options.headers || {};
+    headers["X-Sai-Prep-Nonce"] = NONCE;
+    options.headers = headers;
+    options.cache = "no-store";
+    return fetch(path, options).then(function (res) {
+      return res.text().then(function (text) {
+        var data = {};
+        if (text) { try { data = JSON.parse(text); } catch (e) { data = {}; } }
+        if (!res.ok) {
+          throw new Error(data.error || ("エラー " + res.status));
+        }
+        return data;
+      });
+    });
+  }
+
+  function spStatus(el, message, kind) {
+    el.textContent = message || "";
+    el.className = "status" + (kind ? " " + kind : "");
+  }
+
+  var state = { config: {}, projects: [], jobs: {} };
+
+  // -- 設定 ------------------------------------------------------------
+  function spLoadConfig() {
+    return spApi("/local/config").then(function (config) {
+      state.config = config;
+      spEl("server").value = config.server_url || "";
+      spEl("token").value = config.token || "";
+      spEl("translate").checked = config.translate !== false;
+    });
+  }
+
+  function spSaveConfig(extra) {
+    var body = {
+      server_url: spEl("server").value,
+      token: spEl("token").value,
+      project: spEl("project").value,
+      translate: spEl("translate").checked
+    };
+    if (extra) { Object.keys(extra).forEach(function (k) { body[k] = extra[k]; }); }
+    return spApi("/local/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (config) {
+      state.config = config;
+      return config;
+    });
+  }
+
+  spEl("save").addEventListener("click", function () {
+    spStatus(spEl("checkStatus"), "保存しています…");
+    spSaveConfig().then(function () {
+      spStatus(spEl("checkStatus"), "保存しました。", "ok");
+    }).catch(function (e) {
+      spStatus(spEl("checkStatus"), e.message, "ng");
+    });
+  });
+
+  spEl("check").addEventListener("click", function () {
+    spStatus(spEl("checkStatus"), "確かめています…");
+    spApi("/local/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ server_url: spEl("server").value, token: spEl("token").value })
+    }).then(function (me) {
+      spStatus(spEl("checkStatus"), "つながりました: " + (me.name || me.email || "?"), "ok");
+    }).catch(function (e) {
+      spStatus(spEl("checkStatus"), e.message, "ng");
+    });
+  });
+
+  spEl("translate").addEventListener("change", function () {
+    spSaveConfig().catch(function () {});
+  });
+
+  // -- プロジェクト ----------------------------------------------------
+  function spLoadProjects() {
+    spStatus(spEl("projectStatus"), "読み込んでいます…");
+    return spApi("/local/projects").then(function (data) {
+      var list = data.projects || [];
+      state.projects = list;
+      var select = spEl("project");
+      select.innerHTML = '<option value="">（未選択）</option>';
+      list.forEach(function (p) {
+        var name = p.name || p;
+        var option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        if (name === state.config.project) { option.selected = true; }
+        select.appendChild(option);
+      });
+      spStatus(spEl("projectStatus"), list.length + " 件", "ok");
+      if (select.value) { spLoadPending(select.value); }
+      else { spClearPending(); }
+    }).catch(function (e) {
+      spStatus(spEl("projectStatus"), e.message, "ng");
+    });
+  }
+
+  spEl("reloadProjects").addEventListener("click", function () {
+    spSaveConfig().then(spLoadProjects);
+  });
+
+  spEl("project").addEventListener("change", function () {
+    var name = spEl("project").value;
+    spSaveConfig({ project: name }).then(function () {
+      if (name) { spLoadPending(name); } else { spClearPending(); }
+    });
+  });
+
+  // -- PDF 待ち --------------------------------------------------------
+  function spClearPending() {
+    spEl("pendingBody").innerHTML = "";
+    spEl("pendingTable").classList.add("hidden");
+    spStatus(spEl("pendingStatus"), "プロジェクトを選ぶと一覧が出ます。");
+  }
+
+  function spLoadPending(project) {
+    spStatus(spEl("pendingStatus"), "読み込んでいます…");
+    return spApi("/local/pending?project=" + encodeURIComponent(project)).then(function (data) {
+      var papers = data.papers || [];
+      var body = spEl("pendingBody");
+      body.innerHTML = "";
+      if (!papers.length) {
+        spStatus(spEl("pendingStatus"), "PDF 待ちの論文はありません。", "ok");
+        spEl("pendingTable").classList.add("hidden");
+        return;
+      }
+      spStatus(spEl("pendingStatus"), papers.length + " 件", "ok");
+      spEl("pendingTable").classList.remove("hidden");
+      papers.forEach(function (paper) {
+        body.appendChild(spPendingRow(paper));
+      });
+    }).catch(function (e) {
+      spStatus(spEl("pendingStatus"), e.message, "ng");
+    });
+  }
+
+  function spPendingRow(paper) {
+    var tr = document.createElement("tr");
+
+    var tdTitle = document.createElement("td");
+    tdTitle.setAttribute("data-label", "題名");
+    tdTitle.textContent = paper.title || "(題名なし)";
+    tr.appendChild(tdTitle);
+
+    var tdYear = document.createElement("td");
+    tdYear.setAttribute("data-label", "年");
+    tdYear.textContent = paper.year || "";
+    tr.appendChild(tdYear);
+
+    var tdId = document.createElement("td");
+    tdId.setAttribute("data-label", "DOI / arXiv");
+    tdId.textContent = paper.doi || paper.arxiv_id || "";
+    tr.appendChild(tdId);
+
+    var tdDrop = document.createElement("td");
+    tdDrop.setAttribute("data-label", "PDF");
+    var drop = document.createElement("div");
+    drop.className = "drop small";
+    drop.textContent = "PDF を drop";
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/pdf";
+    input.style.marginTop = "4px";
+    input.addEventListener("change", function () {
+      if (input.files && input.files[0]) { spSubmitPaper(paper, input.files[0], drop); }
+    });
+    spWireDrop(drop, function (file) { spSubmitPaper(paper, file, drop); });
+    tdDrop.appendChild(drop);
+    tdDrop.appendChild(input);
+    tr.appendChild(tdDrop);
+    return tr;
+  }
+
+  function spSubmitPaper(paper, file, drop) {
+    if (!file) { return; }
+    var project = spEl("project").value;
+    if (!project) { spStatus(spEl("pendingStatus"), "プロジェクトを選んでください。", "ng"); return; }
+    drop.textContent = "送信中… " + file.name;
+    spApi("/local/jobs?project=" + encodeURIComponent(project) + "&paper_id=" + encodeURIComponent(paper.id) +
+          "&filename=" + encodeURIComponent(file.name), {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: file
+    }).then(function () {
+      drop.textContent = "受け付けました（処理の列を見てください）";
+      spLoadJobs();
+    }).catch(function (e) {
+      drop.textContent = "失敗: " + e.message;
+    });
+  }
+
+  // -- BibTeX と PDF ---------------------------------------------------
+  var bib = { text: "", pdf: null };
+
+  function spWireDrop(el, onFile) {
+    ["dragenter", "dragover"].forEach(function (name) {
+      el.addEventListener(name, function (e) { e.preventDefault(); el.classList.add("over"); });
+    });
+    ["dragleave", "drop"].forEach(function (name) {
+      el.addEventListener(name, function (e) { e.preventDefault(); el.classList.remove("over"); });
+    });
+    el.addEventListener("drop", function (e) {
+      if (e.dataTransfer && e.dataTransfer.files.length) {
+        onFile(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  function spCountBibtex(text) {
+    var matches = text.match(/@\s*[A-Za-z]+\s*[{(]/g);
+    return matches ? matches.length : 0;
+  }
+
+  function spSetBib(file) {
+    if (!file) { return; }
+    file.text().then(function (text) {
+      var count = spCountBibtex(text);
+      if (count > 1) {
+        spStatus(spEl("bibStatus"), "BibTeX は 1 件だけにしてください（" + count + " 件あります）。", "ng");
+        bib.text = "";
+        return;
+      }
+      bib.text = text;
+      spEl("bibFile").value = "";
+      spStatus(spEl("bibStatus"), "BibTeX を読みました: " + file.name, "ok");
+    });
+  }
+
+  spEl("bibFile").addEventListener("change", function () {
+    if (spEl("bibFile").files[0]) { spSetBib(spEl("bibFile").files[0]); }
+  });
+  spEl("bibPdf").addEventListener("change", function () {
+    if (spEl("bibPdf").files[0]) {
+      bib.pdf = spEl("bibPdf").files[0];
+      spStatus(spEl("bibStatus"), "PDF を選びました: " + bib.pdf.name, "ok");
+    }
+  });
+  spWireDrop(spEl("bibDrop"), function (file) {
+    if (file.name.toLowerCase().endsWith(".pdf")) {
+      bib.pdf = file;
+      spStatus(spEl("bibStatus"), "PDF を読みました: " + file.name, "ok");
+    } else {
+      spSetBib(file);
+    }
+  });
+
+  function spToBase64(text) {
+    var bytes = new TextEncoder().encode(text);
+    var binary = "";
+    for (var i = 0; i < bytes.length; i++) { binary += String.fromCharCode(bytes[i]); }
+    return btoa(binary);
+  }
+
+  spEl("bibSubmit").addEventListener("click", function () {
+    var project = spEl("project").value;
+    if (!project) { spStatus(spEl("bibStatus"), "プロジェクトを選んでください。", "ng"); return; }
+    if (!bib.text.trim()) { spStatus(spEl("bibStatus"), "BibTeX を選んでください。", "ng"); return; }
+    if (!bib.pdf) { spStatus(spEl("bibStatus"), "PDF を選んでください。", "ng"); return; }
+    spStatus(spEl("bibStatus"), "送信しています…");
+    spApi("/local/jobs?project=" + encodeURIComponent(project) + "&filename=" + encodeURIComponent(bib.pdf.name), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/pdf",
+        "X-Sai-Bibtex": spToBase64(bib.text)
+      },
+      body: bib.pdf
+    }).then(function () {
+      spStatus(spEl("bibStatus"), "受け付けました（処理の列を見てください）。", "ok");
+      bib.text = "";
+      bib.pdf = null;
+      spEl("bibFile").value = "";
+      spEl("bibPdf").value = "";
+      spLoadJobs();
+    }).catch(function (e) {
+      spStatus(spEl("bibStatus"), e.message, "ng");
+    });
+  });
+
+  // -- 処理の列 --------------------------------------------------------
+  function spRenderJobs(jobs) {
+    var box = spEl("jobs");
+    box.innerHTML = "";
+    spEl("jobsEmpty").classList.toggle("hidden", jobs.length > 0);
+    jobs.forEach(function (job) {
+      var div = document.createElement("div");
+      div.className = "job " + (job.status || "");
+      var label = job.kind === "bibtex" ? "BibTeX: " + job.filename : "PDF 待ち: " + (job.target && job.target.paper_id);
+      var top = document.createElement("div");
+      top.className = "top";
+      var title = document.createElement("span");
+      title.className = "title";
+      title.textContent = label;
+      var stage = document.createElement("span");
+      stage.textContent = job.stage || job.status;
+      top.appendChild(title);
+      top.appendChild(stage);
+      div.appendChild(top);
+      var bar = document.createElement("div");
+      bar.className = "bar";
+      var fill = document.createElement("i");
+      fill.style.width = (job.progress || 0) + "%";
+      bar.appendChild(fill);
+      div.appendChild(bar);
+      if (job.message) {
+        var msg = document.createElement("div");
+        msg.className = "muted";
+        msg.textContent = job.message;
+        div.appendChild(msg);
+      }
+      if (job.error) {
+        var err = document.createElement("div");
+        err.className = "err";
+        err.textContent = job.error;
+        div.appendChild(err);
+      }
+      box.appendChild(div);
+    });
+  }
+
+  function spLoadJobs() {
+    return spApi("/local/jobs").then(function (data) {
+      spRenderJobs(data.jobs || []);
+    }).catch(function () {});
+  }
+
+  // -- 起動 ------------------------------------------------------------
+  spLoadConfig().then(function () {
+    spLoadProjects();
+    spLoadJobs();
+    setInterval(spLoadJobs, 2000);
+  });
+})();
+</script>
+</body>
+</html>
