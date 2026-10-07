@@ -2,7 +2,7 @@
 
 対象: **`crates/`（sai-link・sai-paper・sai-sci）か `apps/radio` のどれかを直す人**。
 目的: 直した結果として **sai-web（Web の窓口・8200 番）を壊さないこと**。
-全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`glossary.md`](./glossary.md)。
+全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 この文書の JSON の項目は、Web のコード（`apps/web/src/sai_web/` と `static/`）が実際に読む物と、2026-10 に `target/release/` の CLI を一時フォルダのプロジェクトで実行して確かめた物。**正はコード**。
 
 ---
@@ -399,12 +399,13 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に research-tree を表示してしまう |
 | 直下 | `legacy` | 真偽値 | 古い形の research-tree だけがあるときの「作り直し」の案内 | 古い research-tree に気づけない |
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
-| 直下 | `progress` | `{"answered","total"}` | 進み具合の表示 | 進みが出ない |
+| 直下 | `progress` | `{"answered","total"}` | （画面では出さない） | ― |
 | 直下 | `nodes[]` | 配列（深さ優先） | research-tree そのもの。research-tree の図もここから描く（図だけを返す命令は無い） | research-tree が描かれない |
 | 直下 | `seed` | `{"type","mind":[{"heading","body"}]}` | SEED（RESEARCH_TYPE と mind.md） | SEED が出ない |
 | 直下 | `next[]` | NextAction の配列 | 「Next Action」の行と CARD 作成の種 | 出ない |
 | 直下 | `pending_proposals` | 数値 | PENDING の PROPOSAL の数 | 0 に見える |
-| 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
+| 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at"}` | 決定の記録（新しい順 30 件。画面は `history[]` を使う） | ― |
+| 直下 | `history[]` | `{"node","node_text","action","at","by","run_id","block","global_round","round"}` | 全 Node の History（`Add *` を除き古い順）。Research 画面の「History」 | History が出ない |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
 | ― | 始めていないとき | | `type`・`seed` は `null`、配列は空、数は 0 | ― |

@@ -21,13 +21,12 @@
 
 // --- 定数 ---
 
-// Papers の上部の切り替え（07 §4.1・U14 で 5 つにした）。押すと該当の # へ移る。
+// Papers の上部の切り替え（07 §4.1・U14 で 5 つにし、検索セットを消して 4 つ）。押すと該当の # へ移る。
 const PAPERS_SEG = [
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["library", "Library", "#/papers/library"],
   ["import", "Import", "#/papers/import"],
   ["radio", "Radio", "#/papers/radio"],
-  ["sets", "検索セット", "#/papers/sets"],
 ];
 // Research の上部の切り替え（U14）。research-tree と実験。
 const RESEARCH_SEG = [
@@ -74,18 +73,6 @@ const NO_PROJECT_MSG =
   "論文の置き場があるプロジェクトがありません（Mac で sai-paper init を実行してください）";
 // 広い画面（900px 以上）で Library と Discover の一覧の横に置く「中身」の欄の id
 const PAPER_SIDE_IDS = { library: "library-side" };
-// 要対応の種類 → [札の文, 札の色]（paperimport.js の PIM_ATTENTION_KINDS と同じ種類）
-const ATTENTION_CHIPS = {
-  empty_review: ["review", "muted"],
-  question: ["Question", "warn"],
-  state_update: ["State", "warn"],
-  recommend_card: ["Recommend", "ok"],
-  report_issue: ["Source", "danger"],
-  new_set_items: ["New", "muted"],
-  // U19: research-tree から出る要対応
-  sci_decision: ["NO_STAR", "warn"],
-  sci_triage: ["PROPOSAL", "warn"],
-};
 // 広い画面の「中身」に出しているもの（"" は何も出していない）
 let sideKind = "";       // "paper" | "remote" | "log" | "find" | ""
 let sidePaperId = null;  // 論文の id（sideKind = "paper"）
@@ -158,10 +145,15 @@ function saveDiscoverDbs(list) {
   } catch { /* 保存できなくても動く */ }
 }
 
-/** U03: 覚えていた検索の切り替え（"internal" のときだけ内部・それ以外は外部）。 */
+/** 切り替えの値を正す（"internal"・"paper" のときだけそれ・それ以外は外部）。 */
+function libFindKindOf(kind) {
+  return kind === "internal" || kind === "paper" ? kind : "external";
+}
+
+/** U03: 覚えていた検索の切り替え（"internal"＝内部・"paper"＝Paper 一覧・それ以外は外部）。 */
 function loadLibFindKind() {
   try {
-    return localStorage.getItem(LIB_FIND_KIND_KEY) === "internal" ? "internal" : "external";
+    return libFindKindOf(localStorage.getItem(LIB_FIND_KIND_KEY));
   } catch {
     return "external";
   }
@@ -169,7 +161,7 @@ function loadLibFindKind() {
 
 function saveLibFindKind(kind) {
   try {
-    localStorage.setItem(LIB_FIND_KIND_KEY, kind === "internal" ? "internal" : "external");
+    localStorage.setItem(LIB_FIND_KIND_KEY, libFindKindOf(kind));
   } catch { /* 保存できなくても動く */ }
 }
 
@@ -459,6 +451,7 @@ let abstractMsg = "";   // 訳の作成に失敗したときの detail
 let translating = false;// 訳の作成中
 let refsAll = false;    // 引用文献を全部出しているか
 let refsOpen = new Set(); // 引用文献を開いた行（index）・その場で開く用
+let paperChunks = null;   // チャンクの一覧 {key, state, items, error, open}（null＝開いていない）
 let noteEditing = false;  // ノートを書き換えているか
 let noteDraft = "";       // 書きかけのノート（描き直しても消さない）
 let noteSaving = false;   // 保存中
@@ -478,7 +471,6 @@ let memoDraft = "";        // 考え（mind.md）に足す 1 行のメモ
 let memoSaving = false;    // メモを足している途中
 let memoMsg = "";          // メモに失敗したときの理由
 let memoFocused = false;   // メモの入力欄に focus がある（描き直し後も戻す）
-const attentionBusy = new Set(); // 「対応済みにする」を押している途中
 
 // --- 画面の状態（Discover / 過去の検索結果・08 §4） ---
 let discoverProviders = null;   // {default, available}（null＝まだ読んでいない）
@@ -521,7 +513,6 @@ function resetProjectScreens() {
   projectError = "";
   memoDraft = "";
   memoMsg = "";
-  attentionBusy.clear();
   sideKind = "";
   sidePaperId = null;
   sideRemote = null;
@@ -613,7 +604,7 @@ async function projectForAddress(nameParam) {
 /** 上部のプロジェクト名（📁 … ▾）を今の選択に合わせる（18 §1.1）。 */
 function updateProjectChips() {
   // import-project は Import 画面（paperimport.js）が作るので、ここでも名前を揃える
-  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "import-project", "sci-project"]) {
+  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "import-project", "sci-project", "mlf-project"]) {
     const chip = document.getElementById(id);
     if (!chip) continue;
     chip.hidden = paperProjects === null; // 読んでから出す（18 §1.1）
@@ -669,8 +660,9 @@ async function openProjectSheet() {
 
 /** 切り替えたら今の画面を中身ごと作り直す（chip は Papers の 4 画面にある・18 §1.1）。 */
 function reopenCurrentScreen() {
-  // U19: research-tree（Node つきでも同じ画面を作り直す）
-  if (/^#\/papers\/tree(?:\/N[1-9][0-9]{0,8})?$/.test(location.hash) && typeof stOpen === "function") void stOpen(stParseHash(location.hash));
+  // research-tree（Node つきでも同じ画面を作り直す）
+  if (typeof stParseHash === "function" && stParseHash(location.hash) && typeof stOpen === "function") void stOpen(stParseHash(location.hash));
+  else if (location.hash.startsWith("#/research/experiments") && typeof mlfOpenPage === "function") void mlfOpenPage(mlfParseHash(location.hash)); // mlflow.js
   else if (location.hash === "#/papers/dashboard") void openPapersDashboard();
   else if (location.hash === "#/papers/radio") void openRadioList(); // radio.js
   else if (location.hash === "#/papers/import" && typeof pimOpenImport === "function") void pimOpenImport(); // paperimport.js（U6）
@@ -805,17 +797,15 @@ async function loadDashboardProject(name, force) {
   renderPapersDashboard();
 }
 
-/** Project の 3 枚のカードと状況のまとめ（読み込み中は「読み込み中…」）。 */
+/** Project の State・Mind のカード（読み込み中は「読み込み中…」）。 */
 function projectCards() {
   const wrap = el("div", "pd-project");
   if (projectData === null) {
     wrap.appendChild(el("p", "lib-empty", projectError || "Loading…"));
     return wrap;
   }
-  wrap.appendChild(attentionCard());
   wrap.appendChild(stateCard());
   wrap.appendChild(mindCard());
-  wrap.appendChild(briefCard());
   return wrap;
 }
 
@@ -830,102 +820,6 @@ function projectCard(title, term, termLabel) {
   }
   card.appendChild(head);
   return card;
-}
-
-/** 要対応（まだ人が見ていないもの）。「対応済みにする」で消せる。 */
-function attentionCard() {
-  const items = Array.isArray(projectData.attention) ? projectData.attention : [];
-  const card = projectCard(`Attention (${items.length})`, "attention", "Attention");
-  if (items.length === 0) {
-    card.appendChild(el("p", "lib-empty", "Nothing needs attention"));
-    return card;
-  }
-  const list = el("div", "pd-att-list");
-  for (const item of items) list.appendChild(attentionRow(item));
-  card.appendChild(list);
-  return card;
-}
-
-/** 要対応の行き先（research-tree の住所）。開けないときは空文字。
- *
- * `sci_decision` のキーはコアが `sci_decision:Q<番号>` の形で作る
- * （crates/sai-paper-core/src/attention.rs）。形が合えば research-tree の画面を開く。
- */
-function papersAttentionHash(item) {
-  const it = item || {};
-  if (it.kind === "sci_triage") return "#/research/tree";
-  if (it.kind !== "sci_decision") return "";
-  // キーは `sci_decision:<Q の ID>`。その Q を選んだ research-tree の画面を開く
-  const m = /^sci_decision:([QOFE][1-9][0-9]{0,8})$/.exec(String(it.key || ""));
-  return m ? `#/research/tree/${m[1]}` : "";
-}
-
-/** 要対応の 1 行（種類の札・題・対応済みにする・実行があれば開く）。 */
-function attentionRow(item) {
-  const it = item || {};
-  const kind = ATTENTION_CHIPS[it.kind] || ["Attention", "muted"];
-  const row = el("div", "pd-att");
-
-  const main = document.createElement("button");
-  main.type = "button";
-  main.className = "pd-att-main";
-  main.appendChild(el("span", `sai-chip ${kind[1]}`, kind[0]));
-  main.appendChild(el("span", "pd-att-title", it.title || "(untitled item)"));
-  // U19: research-tree から出る要対応は、Node つきで research-tree（または TRIAGE）へ移る
-  const sciHash = papersAttentionHash(it);
-  if (sciHash) {
-    main.addEventListener("click", () => { location.hash = sciHash; });
-  } else if (it.run_id != null) {
-    // 論文のプロジェクトは sai-link のプロジェクトでもある（その実行の review を開く）
-    main.addEventListener("click", () => {
-      location.hash =
-        `#/project/${encodeURIComponent(selectedProject)}/list/${encodeURIComponent(it.run_id)}/review`;
-    });
-  } else {
-    main.disabled = true;
-  }
-  row.appendChild(main);
-
-  const done = document.createElement("button");
-  done.type = "button";
-  done.className = "sai-btn small";
-  done.textContent = "Mark resolved";
-  done.disabled = attentionBusy.has(it.key);
-  done.addEventListener("click", () => { void resolveAttention(it); });
-  row.appendChild(done);
-  return row;
-}
-
-/** 要対応を 1 件、対応済みにする。 */
-async function resolveAttention(item) {
-  const name = selectedProject;
-  if (!name || !item || !item.key || attentionBusy.has(item.key)) return;
-  const ok = await paperConfirm({
-    title: "Mark as resolved?",
-    body: `Mark ${item.title || "this item"} as resolved.`,
-    ok: "Mark resolved",
-  });
-  if (!ok) return;
-  attentionBusy.add(item.key);
-  renderPapersDashboard();
-  try {
-    await paperApi(`${papersApiBase(name)}/attention/resolve`, {
-      method: "POST",
-      body: { key: item.key },
-    });
-    if (projectData && Array.isArray(projectData.attention)) {
-      projectData.attention = projectData.attention.filter((a) => a && a.key !== item.key);
-    }
-    if (typeof saiToast === "function") saiToast("Marked as resolved", "ok");
-    void loadDashboardProject(name, true); // 現況・考え・要対応を読み直す
-  } catch (e) {
-    if (typeof saiToast === "function") {
-      saiToast((e && e.message) || "Could not mark as resolved", "error");
-    }
-  } finally {
-    attentionBusy.delete(item.key);
-    renderPapersDashboard();
-  }
 }
 
 /** 現況（state.md）。読むだけ（sai-paper の決まりでスマホからは書き換えない）。 */
@@ -1004,22 +898,6 @@ async function addMemo() {
   }
 }
 
-/** 状況のまとめ（エージェントに渡す文）。たたんで出す。 */
-function briefCard() {
-  const brief = String(projectData.brief || "");
-  const det = document.createElement("details");
-  det.className = "pd-brief";
-  det.appendChild(el("summary", null, "Status summary (text for the agent)"));
-  if (!brief.trim()) {
-    det.appendChild(el("p", "lib-empty", "No status summary yet"));
-  } else {
-    const box = el("div", "pd-md");
-    box.innerHTML = renderMarkdown(brief, { toolbar: true });
-    det.appendChild(box);
-  }
-  return det;
-}
-
 /** md を表示する（長いものははじめはたたんで「全部見る」）。 */
 function projectMd(text, emptyText) {
   const src = String(text == null ? "" : text);
@@ -1063,22 +941,11 @@ function activityRow(item) {
 
 // --- 共通: 上部の切り替え（Discover / Library / Radio・07 §4.1） ---
 
-/**
- * 論文タブの「進み具合」ボタンを今の数で描き直す
- * （paperimport.js が状態を読み直したあとに呼ばれる）。
- */
-function papersRenderProgressButton() {
-  if (typeof pimProgressButton !== "function") return;
-  const old = document.querySelector(".papers-seg-bar .pim-progress-tab");
-  if (!old || !old.parentNode) return;
-  old.parentNode.replaceChild(pimProgressButton(), old);
-}
-
 function fillSegment(containerId, active, segs) {
   const box = document.getElementById(containerId);
   if (!box) return;
   box.innerHTML = "";
-  // 切り替え帯と右端の「進み具合」を行に並べる（帯の外側）
+  // 切り替え帯を行に入れる（帯の外側）
   const row = document.createElement("div");
   row.className = "papers-seg-bar";
   const seg = document.createElement("div");
@@ -1092,10 +959,6 @@ function fillSegment(containerId, active, segs) {
     seg.appendChild(b);
   }
   row.appendChild(seg);
-  // 走っている Download があれば数をつける（paperimport.js が作る。Papers の帯だけ）
-  if (items === PAPERS_SEG && typeof pimProgressButton === "function") {
-    row.appendChild(pimProgressButton());
-  }
   box.appendChild(row);
 }
 
@@ -1688,11 +1551,14 @@ function renderLibrary() {
   if (side) paperSideRender(side);
 }
 
-/** 一覧の行（階層の中は small で小さく・題名 1 行＋年）。 */
-function paperRow(p, small) {
+/** 一覧の行（階層の中は small で小さく・題名 1 行＋年）。withId のときは題名の前に `#番号` を付ける。 */
+function paperRow(p, small, withId) {
   const btn = document.createElement("button");
   btn.className = small ? "paper-row small" : "paper-row";
-  btn.appendChild(el("div", "paper-title", p.title || "(無題)"));
+  const title = el("div", "paper-title");
+  if (withId) title.appendChild(el("span", "paper-no", `#${p.id}`));
+  title.appendChild(document.createTextNode(withId ? ` ${p.title || "(無題)"}` : p.title || "(無題)"));
+  btn.appendChild(title);
 
   if (small) {
     btn.appendChild(el("div", "paper-meta", String(p.year || "")));
@@ -1749,7 +1615,29 @@ function findGroupRows() {
   }));
 }
 
+/** Paper 一覧: Library の論文を番号（papers.id）の昇順に並べる。`#1 題名 年` */
+function renderPaperList(box) {
+  const words = queryWords(libFilter);
+  const rows = [...(libPapers || [])]
+    .sort((a, b) => Number(a.id) - Number(b.id))
+    .filter((p) => includesAll(`#${p.id} ${p.title || ""} ${p.authors || ""}`, words));
+  if (rows.length === 0) {
+    const none = (libPapers || []).length === 0;
+    box.appendChild(
+      papersEmpty(
+        "📚",
+        none ? "まだ論文がありません" : "一致する論文がありません",
+        none ? "上の欄で論文を検索するか、BibTeX を読み込んでください。" : "上の絞り込みの欄の言葉を短くすると出てきます。",
+        none ? [{ label: "BibTeX を読み込む", onClick: () => { location.hash = "#/papers/import"; } }] : null
+      )
+    );
+    return;
+  }
+  for (const p of rows) box.appendChild(paperRow(p, true, true));
+}
+
 function renderTree(box) {
+  if (libFindKind === "paper") { renderPaperList(box); return; }
   const words = queryWords(libFilter);
   const folds = loadFolds(selectedProject);
   const byId = new Map((libPapers || []).map((p) => [p.id, p]));
@@ -1881,8 +1769,17 @@ function syncCondUI() {
   if (searchInput) {
     searchInput.placeholder = libFindKind === "internal" ? "🔍 Library 内を検索" : "🔍 論文を検索";
   }
+  // Paper 一覧では検索欄の行と条件の開閉を隠す（.lib-tools は display:flex なので hidden では消えない）
+  const isPaper = libFindKind === "paper";
+  const searchRow = searchInput && searchInput.closest(".lib-tools");
+  if (searchRow) searchRow.style.display = isPaper ? "none" : "";
+  const condToggle = document.getElementById("discover-cond-toggle");
+  const condRow = condToggle && condToggle.closest(".papers-cond-row");
+  if (condRow) condRow.style.display = isPaper ? "none" : "";
+  const filterInput = document.getElementById("library-filter");
+  if (filterInput) filterInput.placeholder = isPaper ? "番号・題名・著者で絞り込み" : "題名・著者で絞り込み";
   const panel = document.getElementById("discover-cond");
-  if (panel) panel.hidden = libFindKind === "internal" ? true : !discoverCondOpen;
+  if (panel) panel.hidden = libFindKind === "external" ? !discoverCondOpen : true;
   const findPanel = document.getElementById("find-cond");
   if (findPanel) findPanel.hidden = libFindKind === "internal" ? !discoverCondOpen : true;
   const toggle = document.getElementById("discover-cond-toggle");
@@ -2748,6 +2645,7 @@ async function openPaper(params) {
   translating = false;
   refsAll = false;
   refsOpen = new Set();
+  paperChunks = null;
   noteEditing = false;
   noteDraft = "";
   noteSaving = false;
@@ -2945,6 +2843,7 @@ function renderPaper(target) {
   const figs = figuresCard();
   if (figs) body.appendChild(figs);
   body.appendChild(refsCard());
+  body.appendChild(chunksCard());
 }
 
 function paperBtn(label, onClick, cls) {
@@ -3207,6 +3106,103 @@ function refsCard() {
     card.appendChild(more);
   }
   return card;
+}
+
+// 8. チャンク（論文の本文を `#論文.章.段落` ごとに並べる。重いので開いたときに読む）
+
+/** チャンクを章（section）ごとにまとめる。並びは受け取った順のまま。 */
+function chunkGroups(chunks) {
+  const groups = [];
+  const index = new Map();
+  for (const c of Array.isArray(chunks) ? chunks : []) {
+    if (!c) continue;
+    const key = String(c.section || "");
+    let g = index.get(key);
+    if (!g) {
+      g = { section: key, heading: String(c.heading || ""), items: [] };
+      index.set(key, g);
+      groups.push(g);
+    }
+    g.items.push(c);
+  }
+  return groups;
+}
+
+/** チャンクを今の論文について読む（別の論文・プロジェクトの結果は捨てる）。 */
+async function loadPaperChunks() {
+  const name = paperProject;
+  const id = paperIdNum;
+  if (!name || id == null) return;
+  const key = `${name}:${id}`;
+  const st = { key, state: "loading", items: [], error: "", open: true };
+  paperChunks = st;
+  renderPaper();
+  try {
+    const body = await paperApi(`${papersApiBase(name)}/${encodeURIComponent(id)}/chunks`);
+    st.items = Array.isArray(body && body.chunks) ? body.chunks : [];
+    st.state = "ok";
+  } catch (e) {
+    st.state = e && e.status === 404 ? "missing" : "error";
+    st.error = (e && e.message) || "読み込めませんでした";
+  }
+  if (paperChunks === st) renderPaper();
+}
+
+/** ID を clipboard へ写す小さな釦。 */
+function chunkIdButton(id) {
+  const b = el("button", "paper-chunk-id", id);
+  b.type = "button";
+  b.title = "ID を写す";
+  b.addEventListener("click", () => {
+    const done = () => { if (typeof saiToast === "function") saiToast(`${id} を写しました`, "ok"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(id).then(done, () => {});
+  });
+  return b;
+}
+
+/** チャンクの一覧の中身（読み込み前後の状態に合わせる）。 */
+function chunksBody(st) {
+  const box = el("div", "paper-chunks-body");
+  if (st.state === "loading") {
+    box.appendChild(el("p", "lib-empty", "読み込み中…"));
+  } else if (st.state === "missing") {
+    box.appendChild(el("p", "lib-empty", "本文がまだ取り出されていません"));
+  } else if (st.state === "error") {
+    box.appendChild(el("p", "lib-empty", st.error));
+  } else if (st.items.length === 0) {
+    box.appendChild(el("p", "lib-empty", "チャンクがありません"));
+  } else {
+    for (const g of chunkGroups(st.items)) {
+      box.appendChild(el("h4", "paper-chunk-sec", `${g.section} ${g.heading}`.trim()));
+      for (const c of g.items) {
+        const row = el("div", "paper-chunk");
+        row.id = `chunk-${String(c.id || "").replace(/^#/, "")}`;
+        row.appendChild(chunkIdButton(String(c.id || "")));
+        row.appendChild(el("div", "paper-chunk-text", String(c.text || "")));
+        box.appendChild(row);
+      }
+    }
+  }
+  return box;
+}
+
+function chunksCard() {
+  const key = `${paperProject}:${paperIdNum}`;
+  const st = paperChunks && paperChunks.key === key ? paperChunks : null;
+  const det = document.createElement("details");
+  det.className = "dash-card paper-card paper-chunks";
+  const count = st && st.state === "ok" ? `（${st.items.length}）` : "";
+  det.appendChild(el("summary", "dash-card-title", `チャンク${count}`));
+  if (st) {
+    det.open = st.open;
+    det.appendChild(chunksBody(st));
+  }
+  // 閉じた状態で始め、初めて開いたときに読む（本文が長く重いため）
+  det.addEventListener("toggle", () => {
+    if (paperChunks && paperChunks.key === key) paperChunks.open = det.open;
+    else if (det.open) void loadPaperChunks();
+  });
+  return det;
 }
 
 function refRow(r, i) {
@@ -3510,6 +3506,7 @@ if (typeof window !== "undefined") {
   // 検索ボタンと検索欄の Enter
   const go = document.getElementById("discover-go");
   if (go) go.addEventListener("click", () => {
+    if (libFindKind === "paper") return;
     if (libFindKind === "internal") void lfindRun();
     else void runDiscoverSearch();
   });
@@ -3518,6 +3515,7 @@ if (typeof window !== "undefined") {
     dInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
+        if (libFindKind === "paper") return;
         if (libFindKind === "internal") void lfindRun();
         else void runDiscoverSearch();
       }
@@ -3579,12 +3577,12 @@ if (typeof window !== "undefined") {
       });
     });
   }
-  // U03: 外部 DB／内部 DB の切り替え
+  // U03: 外部 DB／内部 DB／Paper 一覧の切り替え
   const kindBox = document.getElementById("library-kind");
   if (kindBox) {
     kindBox.querySelectorAll("button").forEach((b) => {
       b.addEventListener("click", () => {
-        const next = b.dataset.kind === "internal" ? "internal" : "external";
+        const next = libFindKindOf(b.dataset.kind);
         if (next === libFindKind) return;
         libFindKind = next;
         saveLibFindKind(next);
@@ -3684,9 +3682,11 @@ if (typeof module !== "undefined" && module.exports) {
     migrateDiscoverLast,
     activityHash,
     papersDbLabel,
+    chunkGroups,
+    chunksBody,
+    libFindKindOf,
     papersFailedLines,
     papersAllFailed,
-    papersAttentionHash,
     paperCardText,
     PAPERS_SEG,
     RESEARCH_SEG,

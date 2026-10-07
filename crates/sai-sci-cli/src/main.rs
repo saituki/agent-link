@@ -103,7 +103,11 @@ enum Cmd {
         block: Option<String>,
     },
     /// 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON）
-    Apply,
+    Apply {
+        /// JSON で出力する（出力は常に JSON。Web が付けるので受け付ける）
+        #[arg(long)]
+        json: bool,
+    },
     /// PENDING の PROPOSAL を一覧する
     Proposals {
         /// JSON で出力する
@@ -399,7 +403,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),
         Some(Cmd::Context { run, tree }) => print_out(sci::context(run, tree)?),
         Some(Cmd::Propose { run, block }) => print_out(sci::propose(run, block)?),
-        Some(Cmd::Apply) => print_out(sci::apply()?),
+        Some(Cmd::Apply { json: _ }) => print_out(sci::apply()?),
         Some(Cmd::Proposals { json }) => print_out(sci::proposals(json)?),
         Some(Cmd::Triage {
             proposal,

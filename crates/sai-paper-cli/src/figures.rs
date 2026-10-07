@@ -73,11 +73,7 @@ pub async fn handle_figures(paper_ids: Vec<i64>, all: bool, force: bool) -> Resu
             failed += 1;
             continue;
         };
-        let Some(key) = figures::extract_key_for_paper(db.connection(), id)? else {
-            eprintln!("[{id}] skip: s2_paper_id / arxiv_id / doi が未登録です");
-            failed += 1;
-            continue;
-        };
+        let key = figures::figure_key_for_paper(db.connection(), id)?;
         print!("[{id}] {title} ... ");
         match figures::extract_figures(
             db.connection(),

@@ -7,8 +7,8 @@
 | 部品 | 何 | 実行ファイル |
 |---|---|---|
 | **sai-link** | 基盤。coding agent の実行・カード（実行の予約）・常駐・文書（waggle トークン） | `sai-link` |
-| **sai-paper** | 研究の基盤。論文の検索・取得・翻訳・音声化・Library・検索セット | `sai-paper` |
-| **sai-sci** | 研究の仕組み。研究方針の木・研究の記録・エージェントの報告。sai-link と sai-paper の CLI を使うアプリ | `sai-sci` |
+| **sai-paper** | 研究の基盤。論文の検索・取得・翻訳・音声化・Library・検索セット（CLI の `sai-paper set`。エージェントの選別に使う） | `sai-paper` |
+| **sai-sci** | 研究の仕組み。research-tree・研究の記録・エージェントの報告。sai-link と sai-paper の CLI を使うアプリ | `sai-sci` |
 | **sai-web** | Web の窓口（FastAPI + 素の JavaScript）。上の 3 つの CLI と Radio の HTTP API だけを使う | `apps/web/bin/sai-web` |
 
 ```
@@ -22,9 +22,8 @@
 - 人は **CLI と Web** を使い、エージェントは **CLI** を使います（エージェントに MCP の道具は渡しません。Bash で CLI を呼びます）。
 - 画面は Web だけです。CLI でできることは Web でもでき、Web でできることは CLI（`sai-web`）でもできます。
 - sai-link と sai-paper は、それぞれ**単独で**使えます。sai-sci は両方の上に載る研究用のアプリです。
-- 切り替えの前の利用者は [`docs/switch-over.md`](./docs/switch-over.md) を読んでください。
 
-仕組みの詳しい説明は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、言葉の意味は [`docs/glossary.md`](./docs/glossary.md) にあります。
+仕組みの詳しい説明は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、概念と用語は [`CONCEPT.md`](./CONCEPT.md) にあります。
 
 ## 必要な物
 
@@ -70,7 +69,15 @@ launchctl load ~/Library/LaunchAgents/<コピーした plist のファイル名>
 launchctl unload ~/Library/LaunchAgents/<コピーした plist のファイル名>
 ```
 
-ひな形の `PATH` に `target/release` と `apps/web/bin` が入っていないと、Web が CLI を見つけられず 503 になります。plist の直し方と切り替えの順番は [`docs/switch-over.md`](./docs/switch-over.md) にあります。
+ひな形の `PATH` に `target/release` と `apps/web/bin` が入っていないと、Web が CLI を見つけられず 503 になります。plist の `PATH` を直して入れ直してください。
+
+launchd を使わずに、シェルから直接起動することもできます。
+
+```bash
+cd apps/web && nohup .venv/bin/python -m uvicorn sai_web.main:app --host 127.0.0.1 --port 8200 --app-dir src
+```
+
+**コードを直したあと**: Python のコードは Web の再起動が要ります。静的ファイル（`apps/web/src/sai_web/static/`）は再起動が要らず、`sw.js` の `CACHE` と `index.html` の `?v=` を上げると反映されます。`cargo build --release` で `sai-link`・`sai-paper`・`sai-sci` が入れ替わり、Web は次の呼び出しから新しい版を使います。
 
 ## 最初の一歩
 
@@ -133,13 +140,34 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8201 --a
 | **Home** | 答えを待っている質問・承認、確認を待っている run、動いている実行、論文の要対応を 1 画面で見る |
 | **Projects** | プロジェクトの Dashboard・Workflow・List・設定（block・template・settings）・コマンド・セッション検索 |
 | **Chats** | coding agent の会話を読み、文字や声で指示を送る。質問と承認に答える |
-| **Papers** | Dashboard・Library・Import（BibTeX）・Radio（解説音声）・検索セット |
-| **Research** | 研究方針の木（`#/research/tree`）・仕分け（`#/research/triage`）・読む札（`#/research/read/<run_id>`）・実験（`#/research/experiments`） |
+| **Papers** | Dashboard・Library・Import（BibTeX）・Radio（解説音声）。詳しくは下の「Papers」 |
+| **Research** | research-tree（`#/research/tree`・`#/research/tree/<ID>`）・READ_CARD（`#/research/read/<run_id>`）・Experiments（`#/research/experiments`）。詳しくは下の「Research」 |
 | **Usage** | LLM の料金と制限（Claude Code・OpenRouter・DeepSeek） |
 
 - 質問と cc のコマンド承認は、**PC と iPhone の両方に同時に出て、先に答えた方が採用されます**。
 - iPhone（幅 390px）と PC（幅 1280px）の両方で使えます。900px 以上は 2 列になります。
 - 画面と API の全部の住所は [`docs/integration.md`](./docs/integration.md) にあります。
+
+### Papers
+
+上の切り替えは Dashboard / Library / Import / Radio の 4 つです。
+
+- **Dashboard**: 数字のカード・State・Mind・Recent activity が出ます。
+- **Library**: 上の切り替えで `外部 DB`（外部の論文 DB を検索する。履歴は `sai-paper set` と同じ表に残る）・`内部 DB`（取り込み済みの論文を検索する）・`Paper`（全論文を番号 `#1` の昇順に並べる）を選びます。`Paper` の行を押すと論文詳細が開き、要旨・ノート・図・引用文献・チャンク一覧（本文を `#論文.章.段落` ごとに並べたもの）を読めます。
+- **Import**: BibTeX から論文を取り込みます。
+- **Radio**: 論文の解説音声を作って聞きます。
+- 検索セット専用の画面はありません。`sai-paper set …`（CLI）と API `GET /api/projects/<名前>/papers/sets` は残り、`sci-screen` ブロックのエージェントが keep / drop を付けます。
+
+### Research
+
+research-tree の画面（`#/research/tree`）は、次の並びです。
+
+- **上の帯**: **Next Action**（`[NO_CHILD_Q] Q24 sci-split「…」` の形で次にやることを出す。**Create CARD** を押すとカードを作る）と、折りたたみの **History**（全 Node の履歴を古い順に出す）。
+- **中央**: **DAG**（4 layer の図）。左に Node の一覧、右に選んだ Node の **SB**（サイドバー。Node を選ぶまで出ない）。
+- **Create SPROUT**（SEED の SB と上の帯の釦）を押すと、History と DAG の間に作成パネルが開きます。作成中も DAG・一覧・SB を操作でき、O の SB の **Add PATH** / **Delete PATH** で PATH の O を選びます。
+- TRIAGE（エージェントの PROPOSAL を採るか決める操作）は、Node の SB の PENDING の欄で行います。TRIAGE 専用の住所はありません（古い `#/papers/triage` は research-tree へ送られます）。
+- **READ_CARD**（`#/research/read/<run_id>`）: 人が論文を読み、O または E に F を付けて、`note.md` を書いて終える画面です。
+- **Experiments**（`#/research/experiments`）: MLflow の実験を見ます。右上の project 選択は research-tree と共有です。
 
 ## 設定（環境変数）
 
@@ -257,7 +285,7 @@ pi が人に質問するとき、Web に質問を送る拡張です（`apps/web/
 
 ### 研究（sai-sci）・実験の記録・実行先
 
-研究方針の木（Q・O・F・E）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`sai-sci/README.md`](./sai-sci/README.md) にまとめてあります。手を動かして覚えるなら [`sai-sci/TUTORIAL.md`](./sai-sci/TUTORIAL.md) から始めてください。
+research-tree（Q・O・F・E）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`docs/sai-sci.md`](./docs/sai-sci.md) にまとめてあります。手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md) から始めてください。
 
 - 始め方は `sai-sci init --type <型>` の 1 行です（`sai-link`・`sai-paper` の初期化と、研究の部品の配布を含みます）。
 - agent に渡す環境変数（MLflow の接続情報など）は `.sai/settings.json` か `$SAI_HOME/settings.json` の `env` に書きます。書き方は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) の「`.sai/settings.json` の `env`」にあります。
@@ -284,10 +312,9 @@ pi が人に質問するとき、Web に質問を送る拡張です（`apps/web/
 
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — 全体の考え方・境界・依存の向き・CLI の約束・置き場・ファイル構成（開発者向け）。
 - [`AGENTS.md`](./AGENTS.md) — このリポジトリで作業するエージェントへの指示とテストの命令。
-- [`docs/glossary.md`](./docs/glossary.md) — 用語集（sai・sai-link・sai-paper・sai-sci・sai-web・run・card・doc・画面の名前ほか）。
+- [`CONCEPT.md`](./CONCEPT.md) — 概念と用語（sai の部品・run・card・doc・research-tree・画面の名前ほか）。
 - [`docs/integration.md`](./docs/integration.md) — Web の API と画面の住所の一覧、各 API が呼ぶ CLI の命令、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — 3 つの CLI の約束と、Web が読む JSON の項目（CLI を直す人が守ること）。
-- [`docs/switch-over.md`](./docs/switch-over.md) — 旧構成から切り替える手順書。
-- [`sai-sci/README.md`](./sai-sci/README.md) — 研究方針の木・研究の型・ガイド・ブロック・実験・Web の画面の説明書。
+- [`docs/sai-sci.md`](./docs/sai-sci.md) — research-tree・研究の型・ガイド・ブロック・実験・Web の画面の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio の詳細。
 - [`apps/mlflow-server/README.md`](./apps/mlflow-server/README.md) — MLflow サーバの起動と運用。

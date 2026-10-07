@@ -20,14 +20,14 @@
 // op の表示名（C-OP の 13 個。表に無い op はそのまま出す。C4 の共有契約）
 const SE_OPS = {
   add_q: "Add Q", add_o: "Add O", add_f: "Add F", add_e: "Add E",
-  record_logic: "Logicality を記録", add_sprout: "SPROUT を作る", copy: "Copy O", remove: "Delete",
+  record_logic: "Logicality を記録", add_sprout: "Create SPROUT", copy: "Copy O", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_kind: "Answer / Issue を変える",
   edit: "Edit", set_target: "Objectivity の目安を変える",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
   add_q: "Q を足しました", add_o: "O を足しました", add_f: "F を足しました", add_e: "E を足しました",
-  record_logic: "Logicality を記録しました", add_sprout: "SPROUT を作りました", copy: "O を写しました",
+  record_logic: "Logicality を記録しました", add_sprout: "Created SPROUT", copy: "O を写しました",
   remove: "消しました", star: "★ を付けました", unstar: "★ を外しました",
   set_kind: "Answer / Issue を変えました", edit: "文を直しました", set_target: "目安を変えました",
 };
@@ -205,7 +205,7 @@ function seBuildOp(kind, values) {
       const msg = first(len("title", "題", 1, SE_MAX.title), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       const paths = seList(v.paths);
-      if (!paths.length) return bad("PATH の O を 1 つ以上選んでください");
+      if (!paths.length) return bad("Add PATH で O を 1 つ以上選んでください（DAG か一覧で O を選び、右の板の Add PATH を押します）");
       if (paths.length > 20) return bad("PATH は 20 個までです");
       for (const o of paths) if (!seRefOk(o, "O")) return bad(`O の形が正しくありません: ${o}`);
       if (new Set(paths).size !== paths.length) return bad("同じ O を 2 回選んでいます");
@@ -623,25 +623,6 @@ function seBottomQs(nodes) {
   return (Array.isArray(nodes) ? nodes : []).filter((n) => n && seRefOk(n.id, "Q") && n.bottom_q);
 }
 
-/** O から上へたどった一番上の Q（top_Q）の ID（無ければ null）。巡回しても止まらないように見た ID を覚える。 */
-function seTopQOf(nodes, nodeId) {
-  const byId = new Map((Array.isArray(nodes) ? nodes : []).filter((n) => n && n.id != null).map((n) => [String(n.id), n]));
-  let cur = byId.get(String(nodeId));
-  let top = null;
-  const seen = new Set();
-  while (cur && !seen.has(String(cur.id))) {
-    seen.add(String(cur.id));
-    if (seRefOk(cur.id, "Q")) top = String(cur.id);
-    cur = cur.parent == null ? null : byId.get(String(cur.parent));
-  }
-  return top;
-}
-
-/** 短く切った文（表示用）。 */
-function seShort(text, n) {
-  return Array.from(seTrim(text)).slice(0, n).join("");
-}
-
 /** detail.subtree の F（[{id, text, paper}]）。 */
 function seSubtreeFs(detail) {
   const list = detail && Array.isArray(detail.subtree) ? detail.subtree : [];
@@ -719,27 +700,6 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldChecks("findings", "F", seSubtreeFs(d).map((f) => [f.id, `${f.id} ${(f.text || "").slice(0, 40)}`]), [], "CONTRADICTION のときは 2 つ以上"),
         ],
       };
-    case "add_sprout": {
-      // 生きている O を top_Q ごとにまとめる（Issue の O を先に）。値は O の ID。
-      const os = nodes
-        .filter((n) => n && seRefOk(n.id, "O"))
-        .map((o) => ({ o, top: seTopQOf(nodes, o.id), issue: /issue/i.test(o.answer_kind || "") }))
-        .sort((a, b) => {
-          if (a.top !== b.top) return String(a.top || "").localeCompare(String(b.top || ""));
-          if (a.issue !== b.issue) return a.issue ? -1 : 1;
-          return String(a.o.id).localeCompare(String(b.o.id));
-        });
-      const options = os.map(({ o, issue }) => [String(o.id), `${o.id} ${issue ? "Issue" : "Answer"} ${seShort(o.text || o.title || "", 40)}`.trim()]);
-      return {
-        title: "SPROUT を作る",
-        values: { nodes },
-        fields: [
-          seFieldText("title", "題", "", "必須・120 字まで"),
-          seFieldArea("body", "本文", "", 4, "任意・実験の計画の要点・2000 字まで"),
-          seFieldChecks("paths", "PATH（終点の O）", options, [], "1 つ以上・Issue の O を必ず含める"),
-        ],
-      };
-    }
     case "copy":
       return {
         title: `O を写す（${id}）`,
@@ -785,6 +745,12 @@ async function seQuick(op, payload) {
 function seOpenAction(op, nodeId, detail) {
   if (typeof document === "undefined" || typeof saiSheet !== "function") return;
   const name = seTrim(op);
+  // SPROUT は小窓ではなく、上の帯の作成パネルで作る（作成中も図と板を操作できる）
+  if (name === "add_sprout") {
+    if (typeof stStartSprout === "function") stStartSprout();
+    else saiToast("SPROUT の作成画面がまだありません", "error");
+    return;
+  }
   if (SE_QUICK.includes(name)) {
     const id = seTrim(nodeId);
     void seQuick(name, { o: id, q: id });

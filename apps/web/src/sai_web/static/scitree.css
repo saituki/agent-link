@@ -168,16 +168,21 @@
   .sci-body:not(.has-board) .sci-split-handle[data-split="board"] { display: none; }
   /* ページ全体がスクロールしても、一覧・図・板が画面の高さに収まって付いてくる */
   .sci-body .sci-list,
-  .sci-body .sci-graph-box,
   .sci-body .sci-board {
     position: sticky;
     top: 60px;
     align-self: flex-start;
     max-height: calc(100vh - 70px);
   }
+  /* 図は下へ 2 倍に伸ばしたので、付いてこず、高さの上限も付けない（縦スクロールの二重を避ける） */
+  .sci-body .sci-graph-box {
+    position: static;
+    max-height: none;
+    align-self: stretch;
+  }
 }
 
-/* --- 上の帯（進み具合・Next Action・注意） --- */
+/* --- 上の帯（Next Action・History・注意） --- */
 
 .sci-band {
   background: var(--bg-soft);
@@ -443,16 +448,20 @@
 .sci-chip.warn { border-color: var(--accent); color: var(--accent); }
 .sci-chip.dim { opacity: 0.5; }
 
-.sci-progress { align-items: center; flex-wrap: nowrap; }
-.sci-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
-.sci-bar-fill { height: 100%; background: var(--accent); }
+.sci-next-row { align-items: center; padding: 1px 0; line-height: 1.4; }
+.sci-next { display: flex; flex-direction: column; gap: 0; }
+.sci-next-row .sci-line-main { font-size: 14px; line-height: 1.4; }
+.sci-next-row .sai-btn.small { min-height: 28px; padding-block: 2px; }
 
-.sci-next-row { align-items: center; padding: 4px 0; }
-.sci-next { display: flex; flex-direction: column; gap: 4px; }
+/* 全 Node の History（折りたたみ）。開いたら箱の中で縦スクロール */
+.sci-historyband > summary { cursor: pointer; padding: 8px 0; }
+.sci-history-list { max-height: 320px; overflow-y: auto; margin-top: 4px; }
 
 /* 一覧の行: 押す部分・★・Answer/Issue・✕。押せる物は 44px 以上 */
 .sci-row { display: flex; flex-direction: row; align-items: center; gap: 4px; border-radius: 8px; padding-top: 0; padding-bottom: 0; padding-right: 4px; cursor: default; }
 .sci-row.selected { background: var(--bg-soft); }
+/* SPROUT 作成中の PATH に入れた O（選んでいる行と見分けるため、色を足して左に線を引く） */
+.sci-row-picked { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); box-shadow: inset 3px 0 0 var(--sci-decided, var(--accent)); }
 /* 一覧の行は Q/O/F/E で ID と題の色を変える（絞り込みボタンと同じ色） */
 .sci-row-Q .sci-row-head { color: var(--accent); }
 .sci-row-O .sci-row-head { color: var(--sci-decided); }
@@ -608,4 +617,47 @@ button.sci-action-meta {
   line-height: 1.6;
   color: var(--text-soft);
 }
-.sci-decision { align-items: baseline; }
+
+/* --- SPROUT 作成パネル（History と図の間。作成中も図と板を操作できる） --- */
+
+.sci-sprout { padding: 10px 12px 0; }
+.sci-sprout[hidden] { display: none; }
+.sci-sprout-band { display: flex; flex-direction: column; gap: 8px; }
+.sci-sprout-band textarea.sai-input { min-height: 88px; padding-top: 8px; padding-bottom: 8px; resize: vertical; font-family: inherit; }
+.sci-sprout-paths { display: flex; flex-direction: column; gap: 4px; }
+.sci-sprout-path { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.sci-sprout-path-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sci-sprout-path-x {
+  flex: none;
+  width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.sci-sprout-error { margin: 0; color: var(--danger, var(--accent)); font-size: 14px; }
+.sci-sprout-error:empty { display: none; }
+.sci-sprout-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sci-sprout-actions .sai-btn { min-height: 44px; }
+
+/* 狭い画面では、板の釦と帯の釦も触れる大きさ（44px）にする */
+@media (max-width: 899px) {
+  .sci-ops .sai-btn.small, .sci-chips .sai-btn.small { min-height: 44px; }
+}

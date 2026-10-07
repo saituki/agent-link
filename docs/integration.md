@@ -1,8 +1,7 @@
 # sai-web の API と画面の住所
 
 **正はコード**（`apps/web/src/sai_web/` と `crates/`・`apps/radio` の実装）。この文書とコードが食い違ったら、コードに合わせて直す。
-`crates/`・`apps/radio` 側を直すときの注意は [`for-sai-developers.md`](./for-sai-developers.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`glossary.md`](./glossary.md)。
-旧構成から切り替える人は [`switch-over.md`](./switch-over.md) を読む。
+`crates/`・`apps/radio` 側を直すときの注意は [`for-sai-developers.md`](./for-sai-developers.md)、全体の考え方は [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 
 この文書の API の数は、`main.py` の `@app.get`・`post`・`put`・`delete`・`api_route` を数えた **110 本**（着手時点）。
 
@@ -42,8 +41,8 @@ iPhone / PC のブラウザ
 | Papers → Import（BibTeX） | `sai-paper import list\|add\|remove` |
 | Papers → Download・手動取り込み | `sai-paper paper download` → `paper after-download` / `paper candidates` / `paper import-pdf` |
 | Papers → Radio | `apps/radio` の `/api/papers` `/api/papers/{id}` `/audio` `/listen` `/favorite` `/logs` `/ask` `/live-session` `/question-log` |
-| Papers → 検索セット | `sai-paper set list\|show\|mark\|drop-pending` |
-| Research → Research tree・TRIAGE・READ_CARD | `sai-sci status\|types\|init\|node\|apply\|proposals\|triage\|card\|read`、READ_CARD の開始と終了は `sai-link card start\|finish` |
+| （画面は無い。API のみ）検索セット | `sai-paper set list\|show\|mark\|drop-pending` |
+| Research → research-tree・TRIAGE・READ_CARD | `sai-sci status\|types\|init\|node\|apply\|proposals\|triage\|card\|read`、READ_CARD の開始と終了は `sai-link card start\|finish` |
 | Research → Experiments | `apps/mlflow-server` の MLflow（`/api/mlflow/*`・読み取りだけ） |
 | Home（質問・承認・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
 | Home の全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `sai-link project dashboard --period` を並べて足し合わせる（`GET /api/home/overview`） |
@@ -192,6 +191,7 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/papers/browser/import` | 保存した PDF の取り込み（202・body は `manual/import` と同じ対象のどれか 1 つ＋ `file_name`・404 / 409 / 413） | `sai-paper paper import-pdf …` → `paper after-download` |
 | `DELETE /api/projects/{name}/papers/browser` | Chrome を終える（`{"open": false}`） | （Chrome を直接操作） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/text` | 本文（Markdown） | `sai-paper content paper <id> --json` |
+| `GET /api/projects/{name}/papers/{paper_id:int}/chunks` | 論文の全チャンク（`#論文.章.段落` の段落）。字数の上限なし・章番号、段落番号の昇順。論文が無い・本文がまだ取り出されていないときは 404。返す JSON: `{"paper_id": 57, "title": "題名", "chunks": [{"id": "#57.3.2", "section": "#57.3", "heading": "3 Method", "text": "本文", "n_sentences": 4}]}` | `sai-paper content chunks <id> --json` |
 | `GET /api/projects/{name}/papers/{paper_id:int}/pdf?lang=ja` | PDF（`lang=ja` で日本語訳・パスがそのプロジェクトの root 外なら 404） | `sai-paper paper show <id>` の `files` のパスを読む |
 | `GET /api/projects/{name}/papers/dashboard` | Dashboard（数字カードと出来事） | `sai-paper dashboard` |
 | `PUT /api/projects/{name}/papers/{paper_id:int}/note` | ノートの保存（body `{"text"}`・100KB まで） | `sai-paper paper note <id>`（標準入力） |
@@ -330,7 +330,6 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `#/papers/library` | Library | Papers | 表示 |
 | `#/papers/import` | Import（BibTeX の読み込みと一覧） | Papers | 表示 |
 | `#/papers/radio` | Radio 一覧 | Papers | 表示 |
-| `#/papers/sets` / `#/papers/sets/<id>` | 検索セットの一覧・1 つの選別（keep / drop・まとめて drop） | Papers | 表示 |
 | `#/papers/discover` | 旧 Discover（Library へ移すだけ） | Papers | 表示 |
 | `#/paper/<name>/<id>` | 論文情報 | Papers | 表示 |
 | `#/paper/<name>/<id>/text` | 本文 | Papers | 表示 |
@@ -350,8 +349,8 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 - **古い住所は Research へ送る**（`scitree.js` の登録が `location.replace` で送り直す）:
   `#/papers/tree[/<ID>]` → `#/research/tree[/<ID>]`、`#/papers/read/<run_id>` → `#/research/read/<run_id>`、`#/mlflow…` → `#/research/experiments…`、`#/papers/canvas`・`#/canvas/…` → `#/research/tree`。
 - 古い名前の無い住所 `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>` は、今選んでいるプロジェクトの同じ画面として開く。
-- Papers の上部の切り替えは Dashboard・Library・Import・Radio・検索セット。Research の上部の切り替えは Research tree・Experiments。
-- 研究方針の画面は、左に一覧（Q・O・F・E の Node）、真ん中に research-tree の図、PC 幅（900px 以上）は右の板（約 420px・✕ で閉じる）、iPhone 幅は下から sheet。板には PENDING の節があり、その Node への PENDING の PROPOSAL を TRIAGE する。
+- Papers の上部の切り替えは Dashboard・Library・Import・Radio。Research の上部の切り替えは research-tree・Experiments。検索セットの画面は無い（API と `sai-paper set` だけ残してある）。
+- research-tree の画面は、左に一覧（Q・O・F・E の Node）、真ん中に research-tree の図、PC 幅（900px 以上）は右の板（約 420px・✕ で閉じる）、iPhone 幅は下から sheet。板には PENDING の節があり、その Node への PENDING の PROPOSAL を TRIAGE する。
 - 住所に名前がある画面を開いたら、Papers タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `localStorage` に覚える。Experiments の「選んでいるプロジェクト」は別に覚える（「すべてのプロジェクト」は `*`。`POST /api/mlflow/runs/search` には `project` を送らない）。
 - List のサイドバーの一番上の「実行［＋］［↻］」の行で、**＋** は task.md 作成フォーム、**↻** はツリーの読み直し。書きかけは `localStorage`（プロジェクトごと）。
 - Projects の 4 画面（Dashboard / Workflow / List / 設定）の見出しは同じ形（`‹`・プロジェクト名・`Dashboard|Workflow|List|設定`）。`‹` は 4 画面ともプロジェクト一覧（`#/projects`）へ戻る。

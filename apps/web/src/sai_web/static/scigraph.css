@@ -49,8 +49,8 @@
 .sci-graph-stage {
   position: relative;
   width: 100%;
-  height: min(62vh, 520px);
-  min-height: 260px;
+  height: min(124vh, 1040px);
+  min-height: 520px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -259,6 +259,13 @@
   outline: 3px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* SPROUT 作成中の PATH に入れた O（選んでいる札の実線の枠を優先する） */
+.sci-graph-card.is-picked {
+  outline: 3px dashed var(--sci-decided, var(--accent));
+  outline-offset: 1px;
+}
+.sci-graph-card.is-selected.is-picked { outline-style: solid; outline-color: var(--accent); }
 
 /* SPROUT に含まれない CARD と線（SPROUT の CARD を選んだときだけ薄く出す） */
 .sci-graph-faded { opacity: 0.25; }
