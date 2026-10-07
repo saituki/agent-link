@@ -122,12 +122,16 @@ interface ExtensionAPI {
 // sai-web サーバーの場所．家の中だけの接続（Tailscale 前提）．
 // 置き場は環境変数 `SAI_WEB_URL` で差し替えられる（U17 の共有契約）。
 const SAI_WEB_URL = (typeof process !== "undefined" && process.env.SAI_WEB_URL) || "http://127.0.0.1:8200";
+// 内部用の合言葉．あればすべての要求に Authorization: Bearer を付ける（共有契約 C3）．
+const SAI_WEB_INTERNAL_TOKEN = (typeof process !== "undefined" && process.env.SAI_WEB_INTERNAL_TOKEN) || "";
 // iPhone の回答を待つ間隔（ミリ秒）と上限回数（10分）
 const POLL_INTERVAL_MS = 1000;
 // 上限回数はサーバーの期限（`apps/web/src/sai_web/questions.py` の
 // `_PI_EXPIRE_SEC` = 600 秒）とそろえる。ここが短いと、サーバーは答えを
 // 受け付けたまま拡張は打ち切るという状態になり，答えが pi に届かない（B6）。
 const POLL_MAX_COUNT = 600;
+// headless（画面が無い）ときの上限回数．24 時間（cc の hooks の timeout 86400 秒とそろえる）．
+const POLL_MAX_COUNT_HEADLESS = 86400;
 
 const CUSTOM_LABEL = "Type something.";
 
@@ -153,13 +157,20 @@ function answeredText(answers: Record<string, string>): string {
 // sai-web サーバーとのやり取り（失敗しても端末だけで完結できるようにする）
 // ---------------------------------------------------------------------------
 
+/** `SAI_WEB_INTERNAL_TOKEN` があれば Authorization を足したヘッダを返す（共有契約 C3）． */
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (SAI_WEB_INTERNAL_TOKEN) headers["Authorization"] = `Bearer ${SAI_WEB_INTERNAL_TOKEN}`;
+  return headers;
+}
+
 async function registerToServer(payload: Record<string, unknown>): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(`${SAI_WEB_URL}/api/questions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -182,7 +193,7 @@ async function tellResolved(questionId: string): Promise<void> {
     // サーバーはそれを特別扱いせず端末に打ち込んでいた（不具合）。
     await fetch(`${SAI_WEB_URL}/api/questions/${questionId}/resolved`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({}),
       signal: controller.signal,
     });
@@ -270,7 +281,10 @@ async function answeredOnServer(questionId: string, url: string = SAI_WEB_URL): 
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`${url}/api/questions/${questionId}`, { signal: controller.signal });
+    const res = await fetch(`${url}/api/questions/${questionId}`, {
+      headers: authHeaders(),
+      signal: controller.signal,
+    });
     clearTimeout(timer);
     if (!res.ok) return null;
     const data = await res.json();
@@ -282,26 +296,19 @@ async function answeredOnServer(questionId: string, url: string = SAI_WEB_URL): 
 }
 
 // ---------------------------------------------------------------------------
-// herdr への「質問待ち」の合図（05 §3.1）
-//
-// pi の質問中は herdr の一覧・プッシュ通知で「質問待ち（blocked）」が分かる
-// ようにする。herdr-agent-state.ts は pi.events.emit("herdr:blocked") を
-// 聞いているだけ（カウント方式なので1回 emit し，どの場合も必ず解除する）。
+// 質問の答えを待つ
 // ---------------------------------------------------------------------------
 
-function setBlocked(pi: ExtensionAPI | undefined, active: boolean, label = "質問"): void {
-  try {
-    pi?.events?.emit("herdr:blocked", active ? { active: true, label } : { active: false });
-  } catch {
-    // 合図に失敗しても質問自体は続けさせる
-  }
-}
-
-async function pollAnswer(questionId: string): Promise<Record<string, string> | null> {
-  for (let i = 0; i < POLL_MAX_COUNT; i++) {
+async function pollAnswer(
+  questionId: string,
+  maxCount: number = POLL_MAX_COUNT,
+): Promise<Record<string, string> | null> {
+  for (let i = 0; i < maxCount; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     try {
-      const res = await fetch(`${SAI_WEB_URL}/api/questions/${questionId}`);
+      const res = await fetch(`${SAI_WEB_URL}/api/questions/${questionId}`, {
+        headers: authHeaders(),
+      });
       if (!res.ok) continue;
       const data = (await res.json()) as ServerQuestionPayload;
       // 答えに変換する処理は `answeredOnServer` と共有する（変換が二重にならないように）
@@ -344,16 +351,11 @@ async function handleAskUserPhone(
   _signal?: AbortSignal,
   _onUpdate?: (update: { content: Array<{ type: string; text?: string }> }) => void,
   ctx?: ToolContext,
-  pi?: ExtensionAPI,
 ): Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean; details?: Record<string, unknown> }> {
   const questions = normalizeQuestions(params);
   if (questions.length === 0) {
     return errorResult("質問がありません", { answers: null });
   }
-  if (!ctx?.hasUI || !ctx?.ui || ctx.mode === "headless") {
-    return errorResult("UI is unavailable in this mode.", { answers: null });
-  }
-  const ui = ctx.ui;
 
   // 質問ID：サーバー登録後に差し替える（登録前から一意にしておく）
   const localId = `local-${Date.now()}`;
@@ -361,8 +363,8 @@ async function handleAskUserPhone(
   // セッション ID は API から取る（00 §3.7 の対応づけのため）。
   // 取れない時だけファイルパスにフォールバックするが，その場合
   // 実行と質問が対応づけられないためログに出す。
-  const sessionId = ctx.sessionManager?.getSessionId?.() ?? "";
-  const sessionFile = ctx.sessionManager?.getSessionFile?.() ?? "";
+  const sessionId = ctx?.sessionManager?.getSessionId?.() ?? "";
+  const sessionFile = ctx?.sessionManager?.getSessionFile?.() ?? "";
   if (!sessionId && sessionFile) {
     console.warn(
       "[ask_user] getSessionId() を取得できないためファイルパスで登録します（実行と質問の対応づけはできません）:",
@@ -370,11 +372,11 @@ async function handleAskUserPhone(
     );
   }
 
-  // 質問中は herdr で「質問待ち」と分かるようにする（05 §3.1）。
-  // 答えた・取り消した・エラーのどの場合でも必ず解除する。
-  setBlocked(pi, true);
-  try {
-    // sai-web に登録する（失敗しても端末だけで続ける）
+  // headless（画面が無い）: 端末の選択画面を出さず，Web の答えだけを待つ（共有契約 C1・C3）。
+  const headless =
+    ctx?.mode === "headless" ||
+    (typeof process !== "undefined" && process.env.SAI_AGENT_TRANSPORT === "headless");
+  if (!ctx?.hasUI || !ctx?.ui || headless) {
     const serverId = await registerToServer({
       agent: "pi",
       session_id: sessionId || sessionFile,
@@ -382,77 +384,90 @@ async function handleAskUserPhone(
       tool_use_id: localId,
       questions,
     });
+    if (!serverId) {
+      return errorResult("UI is unavailable in this mode.", { answers: null });
+    }
+    const answers = await pollAnswer(serverId, POLL_MAX_COUNT_HEADLESS);
+    if (answers) return result(answeredText(answers), { answers });
+    return result("User cancelled.", { answers: null });
+  }
+  const ui = ctx.ui;
 
-    // 子の run なら，質問を親（カードの起動者）に知らせる（共有契約 C6）。
-    // 待たない。通知に失敗しても質問は Web に出ている。
-    const env: PhoneEnv | undefined = typeof process !== "undefined" ? process.env : undefined;
-    if (serverId) notifyParent(serverId, questions, env);
+  // sai-web に登録する（失敗しても端末だけで続ける）
+  const serverId = await registerToServer({
+    agent: "pi",
+    session_id: sessionId || sessionFile,
+    pane_id: paneId,
+    tool_use_id: localId,
+    questions,
+  });
 
-    // この段階では1問ずつ順に聞く．複数問・複数選択の同時操作は
-    // 端末画面の仕様に依存し壊れやすいため，順番に1問ずつ出す割り切り．
-    // iPhone 側は全問まとめて1回で答えてくるため，届いた時点で全問揃っていれば
-    // 端末側の残りの質問は出さずに打ち切る．
-    const answers: Record<string, string> = {};
-    for (const q of questions) {
-      if (questions.every((qq) => Object.prototype.hasOwnProperty.call(answers, qq.question))) {
-        break;
-      }
-      const controller = new AbortController();
-      const labels = q.options.map((o) =>
-        o.description && o.description !== o.label ? `${o.label} — ${o.description}` : o.label
-      );
-      const selectable = [...labels, CUSTOM_LABEL];
-      const title = q.header ? `${q.header}: ${q.question}` : q.question;
+  // 子の run なら，質問を親（カードの起動者）に知らせる（共有契約 C6）。
+  // 待たない。通知に失敗しても質問は Web に出ている。
+  const env: PhoneEnv | undefined = typeof process !== "undefined" ? process.env : undefined;
+  if (serverId) notifyParent(serverId, questions, env);
 
-      // iPhone の回答を並行して待つ（サーバー登録できた場合のみ）
-      let phoneAnswer: Promise<Record<string, string> | null> | null = null;
-      if (serverId) {
-        phoneAnswer = pollAnswer(serverId).then((a) => {
-          if (a) controller.abort();
-          return a;
-        });
-      }
+  // この段階では1問ずつ順に聞く．複数問・複数選択の同時操作は
+  // 端末画面の仕様に依存し壊れやすいため，順番に1問ずつ出す割り切り．
+  // iPhone 側は全問まとめて1回で答えてくるため，届いた時点で全問揃っていれば
+  // 端末側の残りの質問は出さずに打ち切る．
+  const answers: Record<string, string> = {};
+  for (const q of questions) {
+    if (questions.every((qq) => Object.prototype.hasOwnProperty.call(answers, qq.question))) {
+      break;
+    }
+    const controller = new AbortController();
+    const labels = q.options.map((o) =>
+      o.description && o.description !== o.label ? `${o.label} — ${o.description}` : o.label
+    );
+    const selectable = [...labels, CUSTOM_LABEL];
+    const title = q.header ? `${q.header}: ${q.question}` : q.question;
 
-      const selected = await ui.select(title, selectable, { signal: controller.signal });
-
-      if (selected) {
-        // 端末で選ばれても、サーバーに保存済みの答えがあればそちらを採る（B6）。
-        // herdr で送った down・enter が端末の選択になり、Web の答えが
-        // 捨てられていた取りこぼしを塞ぐ。
-        const fromWeb = serverId ? await answeredOnServer(serverId) : null;
-        if (fromWeb && Object.keys(fromWeb).length) {
-          for (const [k, v] of Object.entries(fromWeb)) answers[k] = v;
-          continue;
-        }
-        // 端末で選ばれた → サーバーに伝えて iPhone のカードを「PC で回答済み」に
-        if (serverId) void tellResolved(serverId);
-        if (selected === CUSTOM_LABEL) {
-          const custom = await ui.input("Your answer");
-          if (!custom) return result("User cancelled.", { answers: null });
-          answers[q.question] = custom;
-        } else {
-          const index = labels.indexOf(selected);
-          answers[q.question] = q.options[index]?.label ?? selected;
-        }
-      } else if (controller.signal.aborted) {
-        // 外から閉じた ＝ iPhone で答えられた
-        const a = serverId ? await phoneAnswer : null;
-        if (a) {
-          for (const [k, v] of Object.entries(a)) answers[k] = v;
-        } else {
-          return result("User cancelled.", { answers: null });
-        }
-      } else {
-        // 利用者が Esc で取り消した
-        return result("User cancelled.", { answers: null });
-      }
+    // iPhone の回答を並行して待つ（サーバー登録できた場合のみ）
+    let phoneAnswer: Promise<Record<string, string> | null> | null = null;
+    if (serverId) {
+      phoneAnswer = pollAnswer(serverId).then((a) => {
+        if (a) controller.abort();
+        return a;
+      });
     }
 
-    return result(answeredText(answers), { answers });
-  } finally {
-    // 答えた・取り消した・エラーのどの場合でも「質問待ち」を解除する（05 §3.1）
-    setBlocked(pi, false);
+    const selected = await ui.select(title, selectable, { signal: controller.signal });
+
+    if (selected) {
+      // 端末で選ばれても、サーバーに保存済みの答えがあればそちらを採る（B6）。
+      // herdr で送った down・enter が端末の選択になり、Web の答えが
+      // 捨てられていた取りこぼしを塞ぐ。
+      const fromWeb = serverId ? await answeredOnServer(serverId) : null;
+      if (fromWeb && Object.keys(fromWeb).length) {
+        for (const [k, v] of Object.entries(fromWeb)) answers[k] = v;
+        continue;
+      }
+      // 端末で選ばれた → サーバーに伝えて iPhone のカードを「PC で回答済み」に
+      if (serverId) void tellResolved(serverId);
+      if (selected === CUSTOM_LABEL) {
+        const custom = await ui.input("Your answer");
+        if (!custom) return result("User cancelled.", { answers: null });
+        answers[q.question] = custom;
+      } else {
+        const index = labels.indexOf(selected);
+        answers[q.question] = q.options[index]?.label ?? selected;
+      }
+    } else if (controller.signal.aborted) {
+      // 外から閉じた ＝ iPhone で答えられた
+      const a = serverId ? await phoneAnswer : null;
+      if (a) {
+        for (const [k, v] of Object.entries(a)) answers[k] = v;
+      } else {
+        return result("User cancelled.", { answers: null });
+      }
+    } else {
+      // 利用者が Esc で取り消した
+      return result("User cancelled.", { answers: null });
+    }
   }
+
+  return result(answeredText(answers), { answers });
 }
 
 // ---------------------------------------------------------------------------
@@ -510,7 +525,7 @@ const askUserPhoneTool: ToolInput = {
 
 export default function (pi: ExtensionAPI): void {
   pi.registerTool({ ...askUserPhoneTool, execute: (id, params, signal, onUpdate, ctx) =>
-    handleAskUserPhone(id, params, signal, onUpdate, ctx, pi) });
+    handleAskUserPhone(id, params, signal, onUpdate, ctx) });
   // セッション開始時に登録する（01 の対応づけ用．失敗しても動く）
   pi.on("session_start", (_event, ctx) => {
     try {
@@ -520,7 +535,7 @@ export default function (pi: ExtensionAPI): void {
       if (!sid || !pane) return;
       void fetch(`${SAI_WEB_URL}/api/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           agent: "pi",
           session_id: sid,

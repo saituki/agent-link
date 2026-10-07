@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""cc の起動時フックから呼ばれるセッション登録スクリプト．
+"""cc の SessionStart フックから呼ばれるセッション登録スクリプト．
 
 SessionStart で呼ばれ，どのセッションがどの pane で動いているかを
-サーバーに登録する（01 の対応づけ用）．cc_question.py と同じく軽く保ち，
+Web の窓口に登録する（01 の対応づけ用）．cc_question.py と同じく軽く保ち，
 標準出力に何も書かず，失敗しても終了コード 0 で終える．
+
+- Web の場所: `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`
+- 合言葉: `SAI_WEB_INTERNAL_TOKEN` があれば `Authorization: Bearer <値>` を付ける
 """
 
 from __future__ import annotations
@@ -14,6 +17,24 @@ import sys
 import urllib.request
 
 
+def server_base() -> str:
+    """Web の場所（既定は 127.0.0.1:8200）．"""
+    url = os.environ.get("SAI_WEB_URL")
+    if url:
+        return url.rstrip("/")
+    port = os.environ.get("SAI_WEB_PORT") or "8200"
+    return f"http://127.0.0.1:{port}"
+
+
+def auth_headers() -> dict:
+    """`SAI_WEB_INTERNAL_TOKEN` があれば Authorization を足したヘッダを返す．"""
+    headers = {"Content-Type": "application/json"}
+    token = os.environ.get("SAI_WEB_INTERNAL_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def main() -> int:
     try:
         raw = sys.stdin.read()
@@ -21,6 +42,8 @@ def main() -> int:
     except Exception:
         return 0
     try:
+        if not isinstance(data, dict):
+            return 0
         payload = {
             "agent": "claude",
             "session_id": data.get("session_id") or "",
@@ -32,9 +55,9 @@ def main() -> int:
             return 0
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
-            "http://127.0.0.1:8200/api/register",
+            f"{server_base()}/api/register",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=auth_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=2) as res:

@@ -1,4 +1,4 @@
-"""質問・承認の状態遷移と，承認フックの振る舞いの小さなテスト（assertだけ）・05 §6．
+"""質問・承認の状態遷移の小さなテスト（assertだけ）・05 §6．
 
 実行:
     python3 tests/test_questions.py
@@ -23,8 +23,6 @@ from sai_web import approvals, herdr, questions, store  # noqa: E402
 
 # 本物の herdr を呼ばない（一覧が空＝herdr 不明なので「ペインが消えた」扱いにならない）
 herdr.list_panes = lambda: []  # type: ignore
-
-HOOK_PATH = Path(__file__).resolve().parent.parent / "hooks" / "cc_permission.py"
 
 
 def fresh_db(tmp: str) -> None:
@@ -370,77 +368,6 @@ def test_approval_resolved_elsewhere_and_mismatch() -> None:
         assert store.get_approval(a2["id"])["state"] == "open"
 
 
-def _run_hook(stdin_text: str, port: str) -> tuple[int, str]:
-    """フックを実行し（終了コード, 標準出力）を返す．"""
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "SAI_WEB_PORT": port,
-    }
-    proc = subprocess.run(
-        [sys.executable, str(HOOK_PATH)],
-        input=stdin_text,
-        capture_output=True,
-        text=True,
-        timeout=15,
-        env=env,
-    )
-    return proc.returncode, proc.stdout + proc.stderr
-
-
-def test_approval_hook_is_silent() -> None:
-    """承認フックは何も出力せず 0 で終わる（サーバー起動中・停止中の両方）・05 §6．"""
-    payload = json.dumps(
-        {
-            "session_id": "sess-1",
-            "hook_event_name": "PermissionRequest",
-            "tool_name": "Bash",
-            "tool_input": {"command": "rm -rf build/"},
-        }
-    )
-    received: list[bytes] = []
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:  # noqa: N802
-            length = int(self.headers.get("Content-Length") or 0)
-            received.append(self.rfile.read(length))
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"ok": true}')
-
-        def log_message(self, *args) -> None:  # 騒がしいログは出さない
-            return
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    port = str(server.server_address[1])
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        # 1) サーバー起動中: 出力なし・0 で終わり，登録が届く
-        code, out = _run_hook(payload, port)
-        assert code == 0, code
-        assert out == "", repr(out)
-        # 少し待つ（POST の完了をフックは待ちに来ないため）
-        time.sleep(0.3)
-        assert len(received) == 1
-        body = json.loads(received[0])
-        assert body["tool_name"] == "Bash"
-        assert body["pane_id"] == ""  # HERDR_PANE_ID が無い環境では空
-    finally:
-        server.shutdown()
-        server.server_close()
-
-    # 2) サーバー停止中: それでも出力なし・0（cc を止めない・05 §3.3）
-    code, out = _run_hook(payload, port)
-    assert code == 0, code
-    assert out == "", repr(out)
-
-    # 3) JSON が壊れているときも出力なし・0
-    code, out = _run_hook("this is not json", port)
-    assert code == 0, code
-    assert out == "", repr(out)
-
-
 def test_gone_pane_expires_cards() -> None:
     """ペインが消えたら（agent 終了）質問・承認は expired になり画面から消える．"""
     with tempfile.TemporaryDirectory() as tmp:
@@ -526,7 +453,6 @@ def main() -> None:
     test_pi_question_expires_after_10_minutes()
     test_approval_state_transitions()
     test_approval_resolved_elsewhere_and_mismatch()
-    test_approval_hook_is_silent()
     test_gone_pane_expires_cards()
     test_wrapped_question_text_is_found_on_screen()
     print("test_questions: すべて通りました")

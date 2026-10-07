@@ -57,7 +57,7 @@ function extractFunction(name) {
   const bodyStart = src.indexOf("{", end);
   assert.ok(bodyStart > 0, `${name} の本体が見つかりません`);
   let head = src.slice(start, end + 1);
-  head = head.replace(/([(,]\s*)([A-Za-z_$][\w$]*)\s*:\s*[A-Za-z_$][\w$<>|.[\] ]*?(?=\s*[,)=])/g, "$1$2");
+  head = head.replace(/([(,]\s*)([A-Za-z_$][\w$]*)\s*:\s*[A-Za-z_$][\w$<>|.,\[\] ]*?(?=\s*[,)=])/g, "$1$2");
   let body = "";
   depth = 0;
   for (let j = bodyStart; j < src.length; j += 1) {
@@ -79,8 +79,10 @@ function extractFunction(name) {
 const api = new Function(
   [
     extractConst("SAI_WEB_URL"),
+    extractConst("SAI_WEB_INTERNAL_TOKEN"),
     extractConst("POLL_MAX_COUNT"),
     extractConst("POLL_INTERVAL_MS"),
+    extractFunction("authHeaders"),
     extractFunction("shouldNotifyParent"),
     extractFunction("parentNotifyArgs"),
     extractFunction("answersFromState"),

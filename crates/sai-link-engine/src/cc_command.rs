@@ -13,7 +13,7 @@
 //!
 //! ## 設定はファイルで持つ
 //!
-//! 道具の制限・外部 MCP（serena など）・Skill の抑止・statusLine は、`sai-link init` が
+//! 道具の制限・外部 MCP（serena など）・Skill の抑止・質問のフックは、`sai-link init` が
 //! プロジェクト直下に作る `.claude/settings.json` と `.mcp.json` で制御する
 //! （[`cc_settings_json`] / [`mcp_config_json`]）。sai-link を通さずに起動した cc にも
 //! 同じ設定が効く。起動コマンドに残すのは `-p`（非対話）・`--output-format stream-json`・
@@ -357,8 +357,8 @@ pub fn sai_link_exe() -> String {
 /// - `permissions.deny`: [`CC_DENIED_TOOLS`]（道具の制限・別エージェント起動の禁止）
 /// - `permissions.allow`: sai-link の CLI（`Bash(sai-link *)` など）を無確認で使う
 /// - `.mcp.json` のサーバを承認なしで使う / claude.ai 連携と同梱 Skill を読まない
-/// - `statusLine`: cc 自身のセッション金額を `sai-link cc-statusline` で受け取る（01 §2.5）。
-///   sai-link は `std::env::current_exe()` の絶対パスで呼ぶ（cc の PATH に頼らない）。
+/// - `hooks`: 質問（`cc_question.py`）とセッション登録（`cc_register.py`）を Web へ知らせる。
+///   headless では statusLine は呼ばれないので書かない（費用は engine が `result` 行から書く）。
 pub fn cc_settings_json() -> serde_json::Value {
     let exe = sai_link_exe();
     serde_json::json!({
@@ -374,10 +374,6 @@ pub fn cc_settings_json() -> serde_json::Value {
         "enableAllProjectMcpServers": true,
         "disableClaudeAiConnectors": true,
         "disableBundledSkills": true,
-        "statusLine": {
-            "type": "command",
-            "command": format!("{} cc-statusline", shell_escape_single_quotes(&exe)),
-        },
         "hooks": cc_hooks_json(&exe, web_hooks_dir().as_deref()),
     })
 }
@@ -385,8 +381,11 @@ pub fn cc_settings_json() -> serde_json::Value {
 /// `.claude/settings.json` の `hooks`。
 ///
 /// - `UserPromptSubmit`: `/sai-finalize` を LLM に送らず、その場で完了処理を行う（[`handle_prompt_hook`]）
-/// - `PreToolUse`（AskUserQuestion）/ `SessionStart` / `PermissionRequest`: `apps/web` のフック。
-///   質問・セッション・承認を Web の窓口へ知らせる（`web_dir` が無ければ書かない）。
+/// - `PreToolUse`（AskUserQuestion）/ `SessionStart`: `apps/web` のフック。
+///   質問・セッションを Web の窓口へ知らせる（`web_dir` が無ければ書かない）。
+///   AskUserQuestion のフックは headless では答えを待つ（最長 24 時間）ので、
+///   cc の既定の待ち時間で切られないように `timeout` を付ける。
+///   承認（PermissionRequest）は headless では来ないので書かない。
 ///   利用者全体の `~/.claude/settings.json` ではなく、init したプロジェクトにだけ入れる。
 fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
     let command = |text: String| serde_json::json!([{ "type": "command", "command": text }]);
@@ -399,23 +398,24 @@ fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
         let script = |name: &str| shell_escape_single_quotes(&dir.join(name).to_string_lossy());
         hooks["PreToolUse"] = serde_json::json!([{
             "matcher": "AskUserQuestion",
-            "hooks": command(script("cc_question.py")),
+            "hooks": [{
+                "type": "command",
+                "command": script("cc_question.py"),
+                // 24 時間。headless ではフックが Web の答えを待つ（共有契約 C3）。
+                "timeout": 86400,
+            }],
         }]);
         hooks["SessionStart"] = serde_json::json!([{
             "hooks": command(script("cc_register.py")),
-        }]);
-        hooks["PermissionRequest"] = serde_json::json!([{
-            "matcher": "",
-            "hooks": command(script("cc_permission.py")),
         }]);
     }
     hooks
 }
 
-/// `apps/web` の cc フック（`cc_question.py` など 3 本）の置き場。
+/// `apps/web` の cc フック（`cc_question.py` など 2 本）の置き場。
 ///
 /// 環境変数 `SAI_WEB_HOOKS_DIR` があればそれ、無ければこのクレートをビルドした
-/// リポジトリの `apps/web/hooks`。3 本が揃っていなければ `None`（壊れたフックを書かない）。
+/// リポジトリの `apps/web/hooks`。2 本が揃っていなければ `None`（壊れたフックを書かない）。
 pub fn web_hooks_dir() -> Option<PathBuf> {
     let dir = std::env::var_os("SAI_WEB_HOOKS_DIR")
         .map(PathBuf::from)
@@ -425,12 +425,12 @@ pub fn web_hooks_dir() -> Option<PathBuf> {
     hooks_dir_in(&dir)
 }
 
-/// `base` に cc のフック 3 本が揃っていれば、その絶対パスを返す。
+/// `base` に cc のフック 2 本が揃っていれば、その絶対パスを返す。
 ///
-/// 環境変数に依存しない純関数。試験では一時フォルダに 3 本を置いて確かめる。
+/// 環境変数に依存しない純関数。試験では一時フォルダに 2 本を置いて確かめる。
 fn hooks_dir_in(base: &Path) -> Option<PathBuf> {
     let dir = base.canonicalize().ok()?;
-    ["cc_question.py", "cc_register.py", "cc_permission.py"]
+    ["cc_question.py", "cc_register.py"]
         .iter()
         .all(|name| dir.join(name).is_file())
         .then_some(dir)
@@ -722,18 +722,18 @@ mod tests {
         assert!(!cmd.command.contains("--effort"));
     }
 
-    /// フックは UserPromptSubmit に加え、`apps/web` の 3 本（質問・登録・承認）を入れる。
+    /// フックは UserPromptSubmit に加え、`apps/web` の 2 本（質問・登録）を入れる。
     /// 置き場の判定は環境変数に依らない純関数（`hooks_dir_in`）で確かめる。
     #[test]
     fn cc_hooks_include_web_hooks_only_when_dir_exists() {
-        // 3 本が揃っていなければ None
+        // 2 本が揃っていなければ None
         let tmp = tempfile::tempdir().unwrap();
         assert!(hooks_dir_in(&tmp.path().join("none")).is_none());
         let hooks = tmp.path().join("hooks");
         std::fs::create_dir_all(&hooks).unwrap();
         std::fs::write(hooks.join("cc_question.py"), "").unwrap();
-        assert!(hooks_dir_in(&hooks).is_none(), "3 本揃っていない");
-        for name in ["cc_question.py", "cc_register.py", "cc_permission.py"] {
+        assert!(hooks_dir_in(&hooks).is_none(), "2 本揃っていない");
+        for name in ["cc_question.py", "cc_register.py"] {
             std::fs::write(hooks.join(name), "").unwrap();
         }
         assert_eq!(hooks_dir_in(&hooks), Some(hooks.canonicalize().unwrap()));
@@ -745,12 +745,11 @@ mod tests {
             with["PreToolUse"][0]["hooks"][0]["command"],
             "'/opt/sai moon/hooks/cc_question.py'"
         );
+        // headless ではフックが Web の答えを待つので、cc の既定の待ち時間で切られないようにする
+        assert_eq!(with["PreToolUse"][0]["hooks"][0]["timeout"], 86400);
         assert_eq!(with["SessionStart"][0]["hooks"][0]["command"], "'/opt/sai moon/hooks/cc_register.py'");
-        assert_eq!(with["PermissionRequest"][0]["matcher"], "");
-        assert_eq!(
-            with["PermissionRequest"][0]["hooks"][0]["command"],
-            "'/opt/sai moon/hooks/cc_permission.py'"
-        );
+        // 承認（PermissionRequest）は headless では来ないので書かない
+        assert!(with.get("PermissionRequest").is_none());
         assert_eq!(
             with["UserPromptSubmit"][0]["hooks"][0]["command"],
             "'/bin/sai-link' cc-prompt-hook"
@@ -803,8 +802,8 @@ mod tests {
         assert_eq!(v["disableClaudeAiConnectors"], true);
         // 同梱の skill は読ませない（プロジェクトの `.claude/skills/` に配ったものだけ使う）
         assert_eq!(v["disableBundledSkills"], true);
-        assert_eq!(v["statusLine"]["type"], "command");
-        assert!(v["statusLine"]["command"].as_str().unwrap().ends_with("cc-statusline"));
+        // statusLine は headless では呼ばれないので書かない（費用は engine が result 行から書く）
+        assert!(v.get("statusLine").is_none());
     }
 
     /// SAI_PROJECT_ROOT を一時的に設定し、スコープ終了（パニック含む）で元へ戻す。
