@@ -114,10 +114,10 @@ function acField(labelText, input) {
   return wrap;
 }
 
-/** 日時の表示（読めない値はそのまま出す）。 */
+/** 日時の表示（数値は UNIX 秒。読めない値はそのまま出す）。 */
 function acDate(v) {
   if (!v) return "";
-  const d = new Date(v);
+  const d = new Date(typeof v === "number" ? v * 1000 : v);
   if (isNaN(d)) return String(v);
   return d.toLocaleString("ja-JP", {
     year: "numeric",
