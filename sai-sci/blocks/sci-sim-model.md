@@ -9,6 +9,7 @@ templates:
   - domain
   - exp-ref
   - sim-core
+  - sci-find
 context: true
 sci_type: support
 sci_ops: add_f

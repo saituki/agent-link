@@ -17,7 +17,6 @@ subblocks:
   - sci-ideate
   - sci-analogy
   - sci-search
-  - sci-screen
   - sci-read
   - sci-lookup
   - sci-extract
@@ -66,7 +65,7 @@ subblocks:
 |---|---|---|
 | `NO_CHILD_Q` | Q の下に child_Q が無い | `sci-split` |
 | `NO_OPTION` | Q に O の案が無い | `sci-ideate`（`sci-analogy`） |
-| `FEW_FINDINGS` | O の根拠（F）が少ない | `sci-search` → `sci-screen` → `sci-read` |
+| `FEW_FINDINGS` | O の根拠（F）が少ない | `sci-search` → `sci-read` |
 | `UNCHECKED` | Logicality をまだ確かめていない | `sci-debate`・`sci-review` |
 | `CONTRADICTION` | Logicality が矛盾と出ている | `sci-debate`・`sci-ideate` |
 | `NO_STAR` | ★ の O が無い。★ は利用者だけが付ける | Human に頼む |

@@ -21,7 +21,6 @@ subblocks:
   - sci-compare
   - sci-ideate
   - sci-search
-  - sci-screen
   - sci-extract
   - sci-lookup
   - sci-analogy
@@ -73,7 +72,7 @@ subblocks:
 | 2. 評価（引用） | `sci-cite-check` を、主張を Node ごとに分けて 1〜3 本ずつ | 復元書 | 対応表の主張がすべて判定された（未確認を含む） |
 | 2. 評価（木） | `sci-review` を 1 本（`bw-core` の V1〜V10） | 復元書・引用の判定表の全部 | 審査書がある。「要補強」「誤り」の Next Action を片付けるか、Human が「このまま進めてよい」と答えた |
 | 3. 再現 | `sci-exp-scout` → `sci-sim-model`（神経のモデルのとき）→ `sci-exp-sprout`（Node は `SEED`） | 復元書 | 再現の SPROUT があり、review の判定が `stop`（REPORT）。または下の「再現の実験」で止めた |
-| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-exp-scout` → `sci-sim-model` / `sci-sim-compose`（神経のモデルのとき）→ `sci-exp-sprout` | 前の段の報告 | 更新の SPROUT の実験で、review の判定が `stop`（REPORT） |
+| 4. 更新 | `sci-search` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-exp-scout` → `sci-sim-model` / `sci-sim-compose`（神経のモデルのとき）→ `sci-exp-sprout` | 前の段の報告 | 更新の SPROUT の実験で、review の判定が `stop`（REPORT） |
 | 5. 比較 | `sci-result-compare` を 1 本 | 復元書・引用の判定表・審査書・再現と更新の REPORT と実験仕様書 | 比較書がある |
 
 - 段は順に進める。段を飛ばすのは Human が指示したときだけ（例: 「再現はしない」「更新はしない」）。更新をしないときは、段 5 で再現だけを比べる。
