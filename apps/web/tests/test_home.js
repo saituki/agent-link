@@ -18,6 +18,8 @@ const SAMPLE = {
   approvals: [
     { id: "a-1", tool_name: "Bash", summary: "git push origin main", created_at: "2026-09-26 09:00:00", project: "sai-web", run_id: 55 },
   ],
+  // U03 で /api/home から approvals は消えた。古い応答に approvals が残っていても
+  // 無視して落ちないことを確かめるために、見本には残しておく。
   projects: [
     {
       name: "sai-web",
@@ -115,17 +117,15 @@ function testEmptySectionsOmitted() {
   assert.deepStrictEqual(keys(noTodo), []);
 }
 
-// 質問・承認の 1 行（プロジェクト名 #run_id・題・何分前）と行き先
+// 質問の 1 行（プロジェクト名 #run_id・題・何分前）と行き先。承認は出さない。
 function testWaitRows() {
   const sec = H.hmSections(SAMPLE).find((s) => s.key === "wait");
-  assert.strictEqual(sec.count, 2);
-  const [q, a] = sec.items;
+  assert.strictEqual(sec.count, 1, "承認は待ちに出さない");
+  const [q] = sec.items;
   assert.strictEqual(q.where, "sai-web #55");
   assert.strictEqual(q.title, "どちらにしますか？");
   assert.ok(q.ago, "何分前が付く");
   assert.strictEqual(q.hash, "#/run/sai-web/55");
-  assert.strictEqual(a.title, "Bash: git push origin main", "承認は道具名と中身");
-  assert.strictEqual(a.hash, "#/run/sai-web/55");
 
   // project / run_id が分からないときは会話の一覧（#/）へ
   assert.strictEqual(H.hmWaitHash({ project: null, run_id: 1 }), "#/");
@@ -133,8 +133,8 @@ function testWaitRows() {
   assert.strictEqual(H.hmWaitWhere({ project: "p", run_id: null }), "p");
   assert.strictEqual(H.hmWaitWhere({ project: null }), "");
   // 名の無い質問にも何か文言を出す
-  assert.strictEqual(H.hmWaitTitle({}, "question"), "（題のない質問）");
-  assert.strictEqual(H.hmWaitTitle({ tool_name: "Bash" }, "approval"), "Bash");
+  assert.strictEqual(H.hmWaitTitle({}), "（題のない質問）");
+  assert.strictEqual(H.hmWaitTitle({ title: "T" }), "T");
   // プロジェクト名に読点や斜線があっても正しく URL になる
   assert.strictEqual(H.hmWaitHash({ project: "a/b, c", run_id: 1 }), `#/run/${encodeURIComponent("a/b, c")}/1`);
 }
@@ -349,13 +349,17 @@ function testRecentItems() {
   assert.strictEqual(H.HM_RECENT_ALL, 20, "すべて表示しても 20 件まで");
 }
 
-// 質問・承認の行（待ちのカードで 0 件でも出すので、行だけ外に出す）
+// 質問の行（待ちのカードで 0 件でも出すので、行だけ外に出す）。承認は出さない。
 function testWaitItems() {
   const items = H.hmWaitItems(SAMPLE);
-  assert.strictEqual(items.length, 2, items);
+  assert.strictEqual(items.length, 1, items);
   assert.strictEqual(items[0].kind, "question");
-  assert.strictEqual(items[1].kind, "approval");
   assert.deepStrictEqual(H.hmWaitItems({ questions: [], approvals: [] }), []);
+  // 古い応答に approvals が残っていても無視する（U03 で消えた）
+  assert.deepStrictEqual(
+    H.hmWaitItems({ questions: [], approvals: [{ id: "a", tool_name: "Bash" }] }),
+    []
+  );
   assert.deepStrictEqual(H.hmWaitItems(null), []);
 }
 

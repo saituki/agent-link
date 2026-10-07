@@ -745,7 +745,7 @@ function lvRenderActions() {
     const adv = advanceAction(lvTree, lvRunId);
     if (adv) add(adv.label, () => lvAdvance(adv));
   }
-  // 動いている run は消せない（pane が生きているため）
+  // 動いている run は消せない（実行中のため）
   if (!["running", "pending"].includes(String(lvRun.status || lvRun.lane || ""))) {
     add("🗑 Delete", lvDelete, "ghost");
   }

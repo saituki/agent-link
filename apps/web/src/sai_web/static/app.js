@@ -107,7 +107,11 @@ function baseInterval() {
   if (current.name === "ext") return current.def.interval || 0;
   // 更新間隔は一覧5秒・実行2秒（02 §3.1）．統計画面は10秒（04 §3）
   if (current.name === "run" && current.stats) return 10000;
-  return current.name === "run" ? 2000 : 5000;
+  if (current.name === "run") {
+    // 生成中（live が working）は 1 秒ごとに読む（U04 §2）
+    return currentRun && currentRun.live === "working" ? 1000 : 2000;
+  }
+  return 5000;
 }
 
 function rearm() {
@@ -329,7 +333,7 @@ const RUN_LAMP = {
   running: "🟡", completed: "✅", failed: "⚠", cancelled: "⚠",
 };
 
-// 実行中のときだけ herdr の状態を優先して lamp を選ぶ
+// 実行中のときだけ live の状態を優先して lamp を選ぶ
 function runLamp(run) {
   if (run.status === "running" && run.live) return STATUS_LAMP[run.live] || "🟡";
   return RUN_LAMP[run.status] || "⚪";
@@ -600,6 +604,9 @@ let chatRowEls = [];      // 会話の行の要素（時刻順・日付区切り
 let chatRowTimes = [];    // その行の時刻（ISO 文字列・chatRowEls と同じ並び）
 let stickToBottom = true; // 下端にいるか（自動追従の要否）
 let firstLoadDone = false;
+let chatPartialText = ""; // 今出している「生成中」の文（空 = 出していない）
+let chatErrorText = "";   // 今出している error の文（空 = 出していない）
+let runStarting = false;  // 新しいチャットの実行がまだ書き出されていない（起動待ち）
 
 function runApiBase() {
   return `/api/runs/${encodeURIComponent(currentRun.project_name)}/${encodeURIComponent(currentRun.run_id)}`;
@@ -646,23 +653,85 @@ async function openRun(r) {
   chatLastAgentAt = 0;   // 別の実行に移ったら「続けて書かれた」の判定は切り直す
   stickToBottom = true;
   firstLoadDone = false;
+  chatPartialText = "";
+  chatErrorText = "";
+  runStarting = false;
   document.getElementById("chat-list").innerHTML = "";
   document.getElementById("run-title").textContent = "読み込み中…";
   document.getElementById("run-desc").textContent = "";
   document.getElementById("run-lamp").textContent = "";
-  // ■ 終了は実行中のときだけ出すので，前の実行の残りを持ち越さない
+  // ■ 終了と ⏸ 中断は実行中のときだけ出すので，前の実行の残りを持ち越さない
   document.getElementById("finalize-button").hidden = true;
+  document.getElementById("interrupt-button").hidden = true;
   await loadRunMeta();
-  await loadChatMore();
+  if (!runStarting) await loadChatMore();
   firstLoadDone = true;
+}
+
+// 新しいチャット（newchat.js）から来た実行かどうかの見分け。
+// sessionStorage に run_id と時刻を覚えておき，60 秒までは書き出しを待つ（U04 §5）。
+const NEWCHAT_RUN_KEY = "sai_web_newchat_run";
+const NEWCHAT_WAIT_MS = 60000;
+
+function newChatWaiting(runId) {
+  try {
+    const raw = sessionStorage.getItem(NEWCHAT_RUN_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || String(data.run_id) !== String(runId)) return false;
+    return Date.now() - Number(data.at || 0) <= NEWCHAT_WAIT_MS;
+  } catch {
+    return false;
+  }
+}
+
+function clearNewChatWaiting(runId) {
+  try {
+    const raw = sessionStorage.getItem(NEWCHAT_RUN_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data && String(data.run_id) === String(runId)) sessionStorage.removeItem(NEWCHAT_RUN_KEY);
+  } catch { /* 消せなくてもよい */ }
+}
+
+// 入力欄の出し入れ（U04 §4）: live が null（終わった）のときだけ使えなくする。
+// 起動待ちのあいだも使えなくする。status が completed でも live があれば送れる（C6）。
+function updateComposer() {
+  const live = currentRun ? currentRun.live : null;
+  const waiting = runStarting;
+  const finished = !waiting && live == null;
+  const ta = document.getElementById("chat-input");
+  const send = document.getElementById("send-button");
+  const mic = document.getElementById("mic-button");
+  if (ta) {
+    ta.disabled = waiting || finished;
+    ta.placeholder = waiting ? "起動を待っています…" : finished ? "この会話は終了しています" : "メッセージを入力";
+  }
+  if (send) send.disabled = waiting || finished;
+  if (mic) mic.disabled = waiting || finished;
 }
 
 async function loadRunMeta() {
   if (current.name !== "run") return;
   try {
     const res = await apiFetch(`/api/runs/${encodeURIComponent(current.project)}/${encodeURIComponent(current.id)}`);
+    if (res.status === 404 && newChatWaiting(current.id)) {
+      // 新しいチャットから来た実行がまだ書き出されていない（約 5 秒の遅れ）
+      runStarting = true;
+      document.getElementById("run-title").textContent = "起動を待っています…";
+      document.getElementById("run-desc").textContent = "";
+      document.getElementById("run-lamp").textContent = "";
+      document.getElementById("finalize-button").hidden = true;
+      document.getElementById("interrupt-button").hidden = true;
+      updateComposer();
+      intervalMs = 2000;
+      rearm();
+      return null;
+    }
     if (!res.ok) throw new Error("bad");
     const data = await res.json();
+    const prevLive = currentRun ? currentRun.live : undefined;
+    runStarting = false;
     currentRun = data;
     setOffline(false);
     // 見出し1行目は #run_id block_name，2行目に description（03 §1-7）
@@ -676,8 +745,18 @@ async function loadRunMeta() {
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id
     );
+    // ⏸ 中断は生成中（live が working）のときだけ出す（U04 §3）
+    document.getElementById("interrupt-button").hidden = data.live !== "working";
+    updateComposer();
+    // live が変わったら更新の間隔を取り直す（生成中は 1 秒ごと・U04 §2）
+    if (prevLive !== data.live) { intervalMs = baseInterval(); rearm(); }
+    // 起動待ちはここまで（見分けの印を消す）
+    clearNewChatWaiting(data.run_id);
     return data;
   } catch {
+    if (document.getElementById("run-title").textContent === "起動を待っています…") {
+      document.getElementById("run-title").textContent = "読み込めませんでした";
+    }
     setOffline(true);
     return null;
   }
@@ -696,6 +775,8 @@ async function loadChatMore() {
     appendItems(data.items || []);
     await loadQuestions();
     await flushPendingSends();
+    applyPartial(data.partial);
+    applyError(data.error);
     setOffline(false);
     onOk();
   } catch {
@@ -709,17 +790,18 @@ async function loadChatMore() {
 // 表示中の画面だけ更新する（実行画面は Meta → 会話 の順で2秒ごと）
 async function pollRun() {
   await loadRunMeta();
+  // 起動待ちのあいだは会話を読みに行かない（まだ書き出されていない・U04 §5）
+  if (runStarting) return;
   await loadChatMore();
 }
 
-// --- 質問カード・承認カード ---
-// 未解決の質問（cc / pi 共通の見た目）と cc のコマンド承認を会話の末尾に
+// --- 質問カード ---
+// 未解決の質問（cc / pi 共通の見た目）を会話の末尾に
 // 常に開いた状態で出す（05 §1）。
 // - open: 選ぶ → 送信 の2段階。全問に答えられるまで送信ボタンは押せない。
 // - answered: 「回答済み: …」の1行に変わる。
 // - resolved_elsewhere: 「PC で回答済み」の1行に変わる（先にPCで答えた）。
 let openQuestions = [];
-let openApprovals = [];
 let answering = false;
 // 前回描いたカードの内容（同じなら描き直さない）。
 // 描き直すと入力中の自由入力欄・拒否理由欄が毎2秒消えるため。
@@ -730,7 +812,6 @@ async function loadQuestions() {
   if (!sid) {
     // 質問と対応づけられない実行はカードを出さない（前の実行の残りも消す）
     openQuestions = [];
-    openApprovals = [];
     if (cardsSignature !== "[]") {
       cardsSignature = "[]";
       renderQuestions();
@@ -741,11 +822,7 @@ async function loadQuestions() {
     const res = await apiFetch(`/api/questions?session_id=${encodeURIComponent(sid)}`);
     if (res.ok) openQuestions = (await res.json()).questions || [];
   } catch { /* 取れなければ前回のまま */ }
-  try {
-    const res = await apiFetch(`/api/approvals?session_id=${encodeURIComponent(sid)}`);
-    if (res.ok) openApprovals = (await res.json()).approvals || [];
-  } catch { /* 取れなければ前回のまま */ }
-  const sig = JSON.stringify([openQuestions, openApprovals]);
+  const sig = JSON.stringify(openQuestions);
   if (sig === cardsSignature) return; // 中身が変わっていないので描き直さない
   cardsSignature = sig;
   renderQuestions();
@@ -755,13 +832,12 @@ function renderQuestions() {
   // 古いカードを消して作り直す（解決済み・回答済みの表示に切り替わるため）
   document.querySelectorAll(".question-card").forEach((el) => el.remove());
   const box = document.getElementById("chat-list");
-  for (const a of openApprovals) box.appendChild(approvalCard(a));
   for (const q of openQuestions) box.appendChild(questionCard(q));
   // 決まった位置へ置き直す（settled は質問された時刻の位置へ，未回答は一番下へ・CP3）
   placeOverlays();
   // 次回の比較用に今の内容を覚える（送信直後の描き直しでも同じように効く）
-  cardsSignature = JSON.stringify([openQuestions, openApprovals]);
-  if ((openQuestions.length + openApprovals.length) > 0 && stickToBottom) {
+  cardsSignature = JSON.stringify(openQuestions);
+  if (openQuestions.length > 0 && stickToBottom) {
     window.scrollTo(0, document.body.scrollHeight);
   }
 }
@@ -988,116 +1064,6 @@ function questionCard(q) {
   return card;
 }
 
-// 承認カードの 1 行。例: 「Bash: rm -rf build/」（05 §1 の3番）
-function approvalLine(a) {
-  const input = a.tool_input || {};
-  const inner = input.command || input.file_path || input.path || input.description || "";
-  return `${a.tool_name || ""}${inner ? `: ${String(inner).split("\n")[0]}` : ""}`;
-}
-
-// 承認の選択肢。「今後も許可」は承認画面に「Yes, and always allow …」があるときだけ出す
-function approvalOptions(a) {
-  const options = [{ key: "allow", label: "Allow", desc: "この1回だけ許可する" }];
-  if ((a.permission_suggestions || []).length) {
-    options.push({ key: "always", label: "Always allow", desc: "似た操作を次からも許可する" });
-  }
-  options.push({ key: "deny", label: "Deny", desc: "実行しない（理由を書ける）" });
-  return options;
-}
-
-// 回答済みの承認カード．未回答時と同じ選択肢をすべて残し，選んだ決定を強調する
-function approvalDoneCard(a) {
-  const el = doneFrame(a, "approval-card");
-  const title = document.createElement("div");
-  title.className = "q-settled-title";
-  title.textContent = "回答済み";
-  const head = document.createElement("div");
-  head.className = "q-header";
-  head.textContent = "承認を求めています";
-  const body = document.createElement("div");
-  body.className = "q-body";
-  body.textContent = approvalLine(a);
-  el.append(title, head, body);
-  const decision = (a.answer && a.answer.decision) || "";
-  const reason = (a.answer && a.answer.reason) || "";
-  for (const opt of approvalOptions(a)) {
-    const on = opt.key === decision;
-    const row = doneOption(`${on ? "✓ " : ""}${opt.label}`, opt.desc, on, false);
-    if (on && opt.key === "deny" && reason) {
-      const why = document.createElement("div");
-      why.className = "q-desc";
-      why.textContent = `理由: ${reason}`;
-      row.appendChild(why);
-    }
-    el.appendChild(row);
-  }
-  return el;
-}
-
-// 承認カード（05 §1 の3番）: 「許可 / 今後も許可 / 拒否」の1問の質問として扱う。
-// 「今後も許可」は permission_suggestions（承認画面にその選択肢があるときだけ）。
-// 拒否のときだけ理由欄を出す。質問カードと同じ 選ぶ → 送信 の2段階。
-function approvalCard(a) {
-  if (a.state === "answered") return approvalDoneCard(a);
-  if (a.state === "resolved_elsewhere") {
-    return settledCard(a, "q-elsewhere", "PC で回答済み");
-  }
-
-  const card = document.createElement("div");
-  card.className = "question-card approval-card";
-  card.dataset.qid = a.id;
-
-  const title = document.createElement("div");
-  title.className = "q-header";
-  title.textContent = "承認を求めています";
-  const body = document.createElement("div");
-  body.className = "q-body";
-  body.textContent = approvalLine(a);
-  card.append(title, body);
-
-  // choice: null は未選択
-  let choice = null;
-  const submitBtn = document.createElement("button");
-  submitBtn.className = "q-submit";
-  submitBtn.textContent = "Send";
-  submitBtn.disabled = true;
-
-  const reasonInput = document.createElement("input");
-  reasonInput.type = "text";
-  reasonInput.className = "q-free q-reason";
-  reasonInput.placeholder = "拒否の理由（任意）";
-  reasonInput.hidden = true;
-
-  const options = approvalOptions(a);
-
-  const buttons = [];
-  for (const opt of options) {
-    const btn = document.createElement("button");
-    btn.className = "q-option";
-    const label = document.createElement("div");
-    label.className = "q-label";
-    label.textContent = opt.label;
-    const desc = document.createElement("div");
-    desc.className = "q-desc";
-    desc.textContent = opt.desc;
-    btn.append(label, desc);
-    btn.addEventListener("click", () => {
-      choice = opt.key;
-      buttons.forEach((b) => b.classList.toggle("selected", b === btn));
-      reasonInput.hidden = opt.key !== "deny";
-      if (opt.key !== "deny") reasonInput.value = "";
-      submitBtn.disabled = false;
-    });
-    buttons.push(btn);
-    card.appendChild(btn);
-  }
-  card.appendChild(reasonInput);
-
-  submitBtn.addEventListener("click", () => submitApproval(a, choice, reasonInput.value, card, submitBtn));
-  card.appendChild(submitBtn);
-  return card;
-}
-
 async function submitAnswers(q, state, card, submitBtn) {
   if (answering) return;
   answering = true;
@@ -1121,32 +1087,6 @@ async function submitAnswers(q, state, card, submitBtn) {
       x.id === q.id
         ? { ...x, state: "answered", answer: { answers: state } }
         : x
-    );
-    renderQuestions();
-  } finally {
-    answering = false;
-  }
-}
-
-async function submitApproval(a, decision, reason, card, submitBtn) {
-  if (answering || !decision) return;
-  answering = true;
-  card.querySelectorAll("button, input").forEach((el) => { el.disabled = true; });
-  try {
-    const res = await apiFetch(`/api/approvals/${encodeURIComponent(a.id)}/answer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, reason: reason || "" }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert(err.detail || "送れませんでした");
-      card.querySelectorAll("button, input").forEach((el) => { el.disabled = false; });
-      submitBtn.disabled = false;
-      return;
-    }
-    openApprovals = openApprovals.map((x) =>
-      x.id === a.id ? { ...x, state: "answered", answer: { decision, reason: reason || "" } } : x
     );
     renderQuestions();
   } finally {
@@ -1179,6 +1119,78 @@ function appendItems(items) {
   placeOverlays();
   updateNewArrival();
   // 下端にいる時だけ自動で追従する
+  if (stickToBottom) window.scrollTo(0, document.body.scrollHeight);
+}
+
+// --- 生成中の文と error（U04 §1） ---
+
+// 生成中の文を 1 つだけ吹き出しとして出す（扱いは chatPartialPlan が決める）。
+// 確定した行やカードより後ろ（末尾）に置き直す。
+function applyPartial(partial) {
+  const next = typeof partial === "string" ? partial : "";
+  const plan = chatPartialPlan(chatPartialText, next);
+  if (plan === "none") return;
+  const box = document.getElementById("chat-list");
+  if (!box) return;
+  let el = document.getElementById("chat-partial");
+  if (plan === "hide") {
+    chatPartialText = "";
+    if (el) el.remove();
+    return;
+  }
+  chatPartialText = next;
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "chat-partial";
+    el.className = "fold-item kind-agent partial";
+    const head = document.createElement("div");
+    head.className = "fold-head";
+    const who = document.createElement("span");
+    who.className = "fold-who";
+    who.textContent = agentName();
+    // 点滅する印（生成中を示す・U04 §1）
+    const dot = document.createElement("span");
+    dot.className = "partial-dot";
+    dot.setAttribute("role", "img");
+    dot.setAttribute("aria-label", "生成中");
+    head.append(who, dot);
+    const body = document.createElement("div");
+    body.className = "fold-body bubble-agent";
+    el.append(head, body);
+  }
+  const body = el.querySelector(".fold-body");
+  if (body) body.innerHTML = renderMarkdown(next);
+  box.appendChild(el);
+  if (stickToBottom) window.scrollTo(0, document.body.scrollHeight);
+}
+
+// error の文を 1 回だけ赤い帯で出す（同じ文は 2 回出さない・U04 §1）。
+function applyError(error) {
+  const next = typeof error === "string" ? error.trim() : "";
+  const box = document.getElementById("chat-list");
+  if (!box) return;
+  let el = document.getElementById("chat-error");
+  if (!next) {
+    chatErrorText = "";
+    if (el) el.remove();
+    return;
+  }
+  if (next === chatErrorText) {
+    if (el) box.appendChild(el); // 新しい行より後ろに置き直す
+    return;
+  }
+  chatErrorText = next;
+  if (el) el.remove();
+  el = renderEvent({
+    id: "chat-error",
+    kind: "event",
+    status: "error",
+    title: "エラー",
+    summary: next,
+    time: new Date().toISOString(),
+  });
+  el.id = "chat-error";
+  box.appendChild(el);
   if (stickToBottom) window.scrollTo(0, document.body.scrollHeight);
 }
 
@@ -1216,7 +1228,7 @@ function rebuildDateSeps() {
   }
 }
 
-// --- 質問カード・承認カード・送信待ちの置き場（確認点 CP3 の直し） ---
+// --- 質問カード・送信待ちの置き場（確認点 CP3 の直し） ---
 // 会話の行に対する位置を毎回ここで決める。描き直さず move するだけなので，
 // 入力中のカード（選択・自由入力の途中）の中身は消えない。
 // - 回答済み・PC で回答済み（settled）: 質問された時刻より後の最初の行の直前（無ければ末尾）
@@ -1491,6 +1503,24 @@ document.getElementById("finalize-button").addEventListener("click", async () =>
   await loadRunMeta();
 });
 
+// ⏸ 中断（U04 §3）。headless の実行に止まれと伝える。
+document.getElementById("interrupt-button").addEventListener("click", async () => {
+  if (!currentRun) return;
+  const res = await apiFetch(`${runApiBase()}/interrupt`, { method: "POST" });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(out.detail || "中断できませんでした");
+    return;
+  }
+  if (out.status === "interrupted") saiToast("中断しました");
+  else if (out.status === "still_working") {
+    saiToast("まだ止まっていません。もう一度押すか、■ で終了してください");
+  } else {
+    saiToast(out.status || "中断しました");
+  }
+  await loadRunMeta();
+});
+
 // --- 版の確認と入れ替え（ⓘボタン） ---
 // 画面の版は index.html が付けた app.js の ?v=（無ければ古い index.html から読んだ画面）。
 const APP_SCRIPT_SRC = (document.currentScript && document.currentScript.src) || "";
@@ -1676,7 +1706,9 @@ document.getElementById("send-button").addEventListener("click", async () => {
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.detail || "送信できなかった");
+      // 質問待ちなどで断られたときはサーバーの説明をそのまま出す（C6）
+      if (res.status === 409) saiToast(err.detail || "今は送れません");
+      else alert(err.detail || "送信できなかった");
       return;
     }
     // 記録ファイルに現れるまで数秒かかるため，先に仮表示する
