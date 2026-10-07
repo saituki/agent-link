@@ -770,11 +770,16 @@ fn status_text(status: &compute::Status) -> String {
         "進み具合: {}/{}\n",
         status.progress.answered, status.progress.total
     ));
-    match &status.seed_draft {
-        Some(draft) if !draft.text.is_empty() => {
-            text.push_str(&format!("種の下書き: {}\n", draft.text));
-        }
-        _ => text.push_str("種の下書きはまだありません\n"),
+    let sprouts: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
+    if sprouts.is_empty() {
+        text.push_str("SPROUT はまだありません\n");
+    } else {
+        let list = sprouts
+            .iter()
+            .map(|n| format!("{} {}", n.id, one_line(&n.text)))
+            .collect::<Vec<_>>()
+            .join("、");
+        text.push_str(&format!("SPROUT: {list}\n"));
     }
     text.push_str(&format!("仕分け待ちの提案 {} 件\n", status.pending_proposals));
     for node in &status.nodes {

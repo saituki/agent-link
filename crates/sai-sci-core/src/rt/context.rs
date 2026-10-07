@@ -123,6 +123,8 @@ struct Line {
     indent: usize,
     /// 対象の本文（1 行にした物）。無ければ `None`。
     body: Option<String>,
+    /// 対象が SPROUT のときの PATH の行（`  PATH: Q2 > … > O15 Issue …`）。
+    paths: Vec<String>,
 }
 
 struct Parts {
@@ -145,6 +147,35 @@ struct GuideText {
     pitfalls: Vec<String>,
 }
 
+/// SPROUT の PATH（終点の O）ごとに、一番上の Q から終点の O までの 1 行を作る。
+fn path_lines(tree: &Tree, n: &NodeRow) -> Vec<String> {
+    n.paths
+        .iter()
+        .map(|o| {
+            let mut chain: Vec<&NodeRow> = Vec::new();
+            let mut cur = Some(*o);
+            while let Some(id) = cur {
+                let Some(node) = tree.node(id) else { break };
+                chain.push(node);
+                cur = node.parent_id;
+            }
+            chain.reverse();
+            let parts: Vec<String> = chain
+                .iter()
+                .map(|node| {
+                    if node.kind == Kind::O {
+                        let ak = if node.answer_kind.as_deref() == Some("issue") { "Issue" } else { "Answer" };
+                        format!("{} {ak} {}", fmt_id(node.kind, node.id), flat_text(&node.text))
+                    } else {
+                        format!("{} {}", fmt_id(node.kind, node.id), flat_text(&node.text))
+                    }
+                })
+                .collect();
+            format!("  PATH: {}", parts.join(" > "))
+        })
+        .collect()
+}
+
 fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     let pad = " ".repeat(indent * 2);
     let id = fmt_id(n.kind, n.id);
@@ -161,6 +192,10 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
             Kind::O => format!(" [F {}]", tree.f_count_under(n.id)),
             Kind::F if !n.cites.is_empty() => format!(" [{}]", n.cites.join(", ")),
             Kind::E => n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]")),
+            Kind::S => {
+                let paths: Vec<String> = n.paths.iter().map(|id| fmt_id(Kind::O, *id)).collect();
+                format!(" [paths: {}]", paths.join(", "))
+            }
             Kind::F => String::new(),
         };
         let head = match n.kind {
@@ -179,6 +214,7 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
         first: make(n.text.lines().next().unwrap_or("").trim().to_string()),
         indent,
         body: None,
+        paths: Vec::new(),
     }
 }
 
@@ -258,6 +294,9 @@ impl Parts {
             if n.id == target.id {
                 line.full.push_str(" ← TARGET");
                 line.first.push_str(" ← TARGET");
+                if n.kind == Kind::S {
+                    line.paths = path_lines(tree, n);
+                }
                 let body = flat_text(&target.body);
                 if !body.is_empty() {
                     line.body = Some(body);
@@ -360,6 +399,9 @@ impl Parts {
                     continue;
                 }
                 lines.push(if l.kind == Kind::F && level >= 2 { l.first.clone() } else { l.full.clone() });
+                for path in &l.paths {
+                    lines.push(path.clone());
+                }
                 if let Some(body) = &l.body {
                     let shown: String = if level >= 3 { body.chars().take(300).collect() } else { body.clone() };
                     lines.push(format!("{}> {shown}", " ".repeat((l.indent + 1) * 2)));
@@ -434,7 +476,8 @@ mod tests {
             e.db.connection(),
             &store::NewNode {
                 kind, parent_id: Some(parent), guide_key: None, text, body: "", answer_kind: answer, cites: &[],
-                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None, created_by: "user",
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+                paths: &[], created_by: "user",
             },
         )
         .unwrap()
@@ -513,6 +556,44 @@ mod tests {
         assert!(!support.contains("## TREE"), "{support}");
         assert!(support.contains("## ALLOWED_OPS"), "{support}");
 
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn sprout_target_shows_paths() {
+        let e = env("sprout");
+        block(&e, "node");
+        // Q3 の下に Issue の O を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
+        let o = add(&e, Kind::O, 3, "課題", Some("issue"));
+        let s = store::insert_node(
+            e.db.connection(),
+            &store::NewNode {
+                kind: Kind::S,
+                parent_id: None,
+                guide_key: None,
+                text: "種",
+                body: "",
+                answer_kind: None,
+                cites: &[],
+                paper_id: None,
+                run_id: None,
+                report_id: None,
+                mlflow_ref: None,
+                proposal_id: None,
+                paths: &[o],
+                created_by: "user",
+            },
+        )
+        .unwrap();
+        let ex = add(&e, Kind::E, s, "実験", None);
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        // S の行に paths が出る。
+        assert!(text.contains(&format!("- {} 種 [paths: O{o}]", fmt_id(Kind::S, s))), "{text}");
+        // S の行の直後に、top の Q から終点の O までの PATH が出る。
+        assert!(text.contains("  PATH: ") && text.contains("Issue 課題"), "{text}");
+        // 下の E も出る。
+        assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 

@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-/// sai-sci のブロック 31 本。並びは Action の種類ごと:
+/// sai-sci のブロック 32 本。並びは Action の種類ごと:
 /// 役 4 本（professor・professor-backward・operator・kaizen）→ Q を分ける（start・split・restore・typify）
 /// → O を書く（ideate・analogy）→ F を探す（search・screen・read・lookup・extract・cite-check）
-/// → Logicality（debate・review）→ ★ の手伝い（compare・seed）→ その他（digest・coach）
+/// → Logicality（debate・review）→ ★ の手伝い（compare）→ その他（digest・coach）
 /// → 実験（exp-scout・sim-model・sim-compose・exp-sprout・exp-branch・exp-review・result-compare）
 /// → データ分析（data-explore・data-test）。
 ///
@@ -47,7 +47,6 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("sci-debate.md", include_str!("../../../sai-sci/blocks/sci-debate.md")),
     ("sci-review.md", include_str!("../../../sai-sci/blocks/sci-review.md")),
     ("sci-compare.md", include_str!("../../../sai-sci/blocks/sci-compare.md")),
-    ("sci-seed.md", include_str!("../../../sai-sci/blocks/sci-seed.md")),
     ("sci-digest.md", include_str!("../../../sai-sci/blocks/sci-digest.md")),
     ("sci-coach.md", include_str!("../../../sai-sci/blocks/sci-coach.md")),
     ("sci-exp-scout.md", include_str!("../../../sai-sci/blocks/sci-exp-scout.md")),
@@ -612,15 +611,15 @@ mod tests {
 
         let done = install_sci_init(&root, bin, "general", false, false).unwrap();
 
-        // sci のブロック 33 本と、分野の観点を配る。
+        // sci のブロック 32 本と、分野の観点を配る。
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 33, "SCI_BLOCKS が 33 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 32, "SCI_BLOCKS が 32 本でない");
         assert_eq!(SCI_TEMPLATES.len(), 14, "SCI_TEMPLATES が 14 本でない");
-        assert_eq!(sci_blocks, 27, "配った sci のブロックが 27 本でない");
+        assert_eq!(sci_blocks, 26, "配った sci のブロックが 26 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
         }
@@ -764,7 +763,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// sci ブロック 27 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
+    /// sci ブロック 26 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
     /// 役 4 本（professor・professor-backward・operator・kaizen）は持たない。sci ブロックは `layer` を持たない。
     /// 完了の判定に使っていた旧キーはどのブロックにも無い。
     #[test]
@@ -792,7 +791,6 @@ mod tests {
             "sci-typify.md",
             "sci-result-compare.md",
             "sci-exp-sprout.md",
-            "sci-seed.md",
         ];
         let support = [
             "sci-analogy.md",
@@ -900,7 +898,7 @@ mod tests {
     /// `professor` と `operator` は木の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 33);
+        assert_eq!(SCI_BLOCKS.len(), 32);
         for id in [
             "sci-analogy.md",
             "sci-cite-check.md",
@@ -922,7 +920,6 @@ mod tests {
             "sci-review.md",
             "sci-screen.md",
             "sci-search.md",
-            "sci-seed.md",
             "sci-sim-compose.md",
             "sci-sim-model.md",
             "sci-split.md",
@@ -968,7 +965,7 @@ mod tests {
             );
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
-        assert_eq!(checked, 26, "共通の決まりを確かめたのは 26 本でない");
+        assert_eq!(checked, 25, "共通の決まりを確かめたのは 25 本でない");
     }
 
     /// frontmatter から、リスト項目（`templates:` など）に並ぶ値をまとめて読む。
@@ -1100,13 +1097,13 @@ mod tests {
                     for child in [
                         "sci-start", "sci-split", "sci-ideate", "sci-analogy", "sci-search", "sci-screen",
                         "sci-read", "sci-lookup", "sci-extract", "sci-debate", "sci-review", "sci-compare",
-                        "sci-seed", "sci-digest", "sci-coach", "sci-typify", "sci-exp-scout",
+                        "sci-digest", "sci-coach", "sci-typify", "sci-exp-scout",
                         "sci-sim-model", "sci-sim-compose", "sci-exp-sprout",
                         "sci-data-explore", "sci-data-test",
                     ] {
                         assert!(children.contains(&child), "professor の subblocks に {child} が無い");
                     }
-                    assert_eq!(children.len(), 23, "professor の子が 23 本でない");
+                    assert_eq!(children.len(), 22, "professor の子が 22 本でない");
                 }
                 for child in children {
                     let file = SCI_BLOCKS
@@ -1191,7 +1188,6 @@ mod tests {
             "sci-review",
             "sci-exp-sprout",
             "sci-search",
-            "sci-seed",
             "sci-result-compare",
         ] {
             assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");

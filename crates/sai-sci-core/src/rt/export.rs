@@ -80,11 +80,11 @@ pub fn render_state_md(status: &Status) -> String {
     );
     out.push_str("<!-- このファイルは研究方針の木から書き出しています。直すときは Web か sai-sci を使います。 -->\n\n");
 
-    out.push_str("## SEED\n");
+    out.push_str("## SPROUT\n");
     let draft = status.seed_draft.as_ref().map(|d| d.text.clone()).unwrap_or_default();
     out.push_str(&format!("- 下書き: {}\n", or_none(draft)));
-    for seed in &status.seeds {
-        out.push_str(&format!("- {} {}: {}\n", seed.id, seed.title, seed.sentence));
+    for n in status.nodes.iter().filter(|n| n.kind == "S") {
+        out.push_str(&format!("- {} {}（paths: {}）\n", n.id, n.text, n.paths.join(", ")));
     }
 
     out.push_str(&format!(
@@ -138,6 +138,10 @@ fn node_line(n: &NodeJson) -> String {
             line.push_str(&n.text);
             line.push_str(&format!(" [{}]", n.cites.join(", ")));
         }
+        "S" => {
+            line.push_str(&n.text);
+            line.push_str(&format!("（paths: {}）", n.paths.join(", ")));
+        }
         _ => {
             line.push_str(&n.text);
             line.push_str(&format!(" [mlflow: {}]", n.mlflow.as_deref().unwrap_or("")));
@@ -160,12 +164,13 @@ pub fn render_tree_md(status: &Status) -> String {
         out.push_str(&node_line(n));
         out.push('\n');
     }
-    out.push_str("\n## SEED\n");
-    if status.seeds.is_empty() {
+    out.push_str("\n## SPROUT\n");
+    let sprouts: Vec<&NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
+    if sprouts.is_empty() {
         out.push_str("- なし\n");
     }
-    for s in &status.seeds {
-        out.push_str(&format!("- {} {}: {}（{}）\n", s.id, s.title, s.sentence, s.path.join(", ")));
+    for n in sprouts {
+        out.push_str(&format!("- {} {}（paths: {}）\n", n.id, n.text, n.paths.join(", ")));
     }
     out.push_str("\n## DECISIONS\n");
     if status.decisions.is_empty() {
@@ -232,7 +237,8 @@ mod tests {
     fn add(db: &Database, kind: Kind, parent: Option<i64>, text: &str, answer: Option<&str>, cites: &[String]) -> i64 {
         let n = store::NewNode {
             kind, parent_id: parent, guide_key: None, text, body: "", answer_kind: answer, cites,
-            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None, created_by: "user",
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+            paths: &[], created_by: "user",
         };
         store::insert_node(db.connection(), &n).unwrap()
     }

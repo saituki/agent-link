@@ -122,6 +122,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         52,
         include_str!("../migrations/0052_drop_reasons.sql"),
     ),
+    (
+        53,
+        include_str!("../migrations/0053_sprout_branch.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -555,6 +559,11 @@ impl Database {
                     // notes 表を消す前に、中身を note.md へ移す（失わない）
                     self.move_notes_table_to_files()?;
                 }
+                if version == 53 {
+                    // rt_nodes を外部キー付きで作り直すため、外部キーの検査を一時的に外す。
+                    // PRAGMA はトランザクションの中では効かないので、ここ（外）で切り替える。
+                    self.connection.execute_batch("PRAGMA foreign_keys = OFF;")?;
+                }
                 let transaction = self.connection.transaction()?;
                 transaction.execute_batch(sql)?;
                 transaction.execute(
@@ -562,6 +571,9 @@ impl Database {
                     [version],
                 )?;
                 transaction.commit()?;
+                if version == 53 {
+                    self.connection.execute_batch("PRAGMA foreign_keys = ON;")?;
+                }
             }
         }
         Ok(())
@@ -3265,6 +3277,95 @@ mod tests {
                 conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))?;
             assert_eq!(count, 1, "{table} の行は残る");
         }
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// 0053 で SPROUT（kind S）ができ、旧 rt_seeds が S に移り、親が O の E が S の下へ移る。
+    #[test]
+    fn migration_53_makes_sprouts_and_moves_branches() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-sprout-branch-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0052 までの DB。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 53) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            // Q1 → O2(Issue)・O3(Issue)。E4 は O2 の下、E5 は E4 の下、E6 は O3 の下。
+            // seed は O2 を paths に持つ。O3 はどの seed にも入っていない。
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (id, kind, parent_id, text, answer_kind) VALUES
+                    (1, 'Q', NULL, '大目的', NULL),
+                    (2, 'O', 1, '課題 A', 'issue'),
+                    (3, 'O', 1, '課題 B', 'issue'),
+                    (4, 'E', 2, '実験 A', NULL),
+                    (5, 'E', 4, '実行 A1', NULL),
+                    (6, 'E', 3, '実験 B', NULL);
+                 INSERT INTO rt_seeds (id, title, sentence, path, created_by)
+                    VALUES (1, '種', '文', '[2]', 'user');
+                 INSERT INTO rt_proposals (id, op, payload, risk, status, result_ref)
+                    VALUES (1, 'add_seed', '{}', 'auto', 'applied', 'S1');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+
+        // rt_seeds は無い。
+        let old: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rt_seeds'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(old, 0, "rt_seeds は消える");
+
+        // seed の S（id 7 = max 6 + seed 1）と、O3 のための S（id 8）。
+        let sprouts: Vec<(i64, String)> = {
+            let mut stmt =
+                conn.prepare("SELECT id, paths FROM rt_nodes WHERE kind = 'S' ORDER BY id")?;
+            let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        assert_eq!(sprouts, vec![(7, "[2]".to_string()), (8, "[3]".to_string())]);
+
+        // E4 は S7 の下、E5 は E4 の下のまま、E6 は S8 の下。
+        let parent = |id: i64| -> Option<i64> {
+            conn.query_row("SELECT parent_id FROM rt_nodes WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(parent(4), Some(7));
+        assert_eq!(parent(5), Some(4));
+        assert_eq!(parent(6), Some(8));
+
+        // 提案は add_sprout になり、S の参照も新しい id になる。
+        let (op, result): (String, String) = conn.query_row(
+            "SELECT op, result_ref FROM rt_proposals WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(op, "add_sprout");
+        assert_eq!(result, "S7");
+
+        // 外部キーの壊れは無い。
+        let broken: i64 =
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0))?;
+        assert_eq!(broken, 0, "外部キーが壊れている");
+
         fs::remove_dir_all(&dir).ok();
         Ok(())
     }

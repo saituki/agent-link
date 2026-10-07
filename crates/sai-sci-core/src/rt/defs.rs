@@ -433,6 +433,7 @@ fn add_q(
             report_id: None,
             mlflow_ref: None,
             proposal_id: None,
+            paths: &[],
             created_by,
         },
     )?;
@@ -468,6 +469,7 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str
             report_id: None,
             mlflow_ref: None,
             proposal_id: None,
+            paths: &[],
             created_by,
         },
     )?;
@@ -635,6 +637,7 @@ mod tests {
                 report_id: None,
                 mlflow_ref: None,
                 proposal_id: None,
+                paths: &[],
                 created_by: "test",
             },
         )

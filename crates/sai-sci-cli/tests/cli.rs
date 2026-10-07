@@ -193,6 +193,7 @@ fn add_f_with_paper(data_dir: &Path, q: i64) {
             report_id: None,
             mlflow_ref: None,
             proposal_id: None,
+            paths: &[],
             created_by: "user",
         },
     )
@@ -267,7 +268,7 @@ fn init_installs_parts_and_settings() {
     assert_eq!(settings["job_status"][0], "uv");
     // 部品。
     let blocks = std::fs::read_dir(root.join(".sai/blocks")).unwrap().count();
-    assert!(blocks >= 33, "block が 33 本未満: {blocks}");
+    assert!(blocks >= 32, "block が 32 本未満: {blocks}");
     assert!(root.join(".sai/template/debate-participant.md").is_file());
     assert!(root.join(".sai/template/domain.md").is_file());
     assert!(root.join(".sai/paper/mind.md").is_file());

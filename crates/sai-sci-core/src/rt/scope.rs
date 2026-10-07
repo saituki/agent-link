@@ -106,6 +106,7 @@ mod tests {
                     report_id: None,
                     mlflow_ref: None,
                     proposal_id: None,
+                    paths: &[],
                     created_by: "user",
                 },
             )

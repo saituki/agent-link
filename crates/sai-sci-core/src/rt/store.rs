@@ -13,13 +13,12 @@ use super::{Kind, Result, RtError, fmt_id, now_text};
 
 const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, answer_kind, starred, \
      target, cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, \
-     proposal_id, created_by, created_at, updated_at";
+     proposal_id, paths, created_by, created_at, updated_at";
 const LOGIC_COLUMNS: &str =
     "id, q_id, value, note, findings, f_count, run_id, proposal_id, created_by, created_at";
 const LOG_COLUMNS: &str = "id, node_id, action, detail, actor, proposal_id, created_at";
 const PROPOSAL_COLUMNS: &str = "id, run_id, block, op, node_id, payload, risk, status, \
      result_ref, decided_by, decided_at, created_at";
-const SEED_COLUMNS: &str = "id, title, sentence, path, run_id, removed_at, created_by, created_at";
 const SEARCH_COLUMNS: &str = "id, run_id, node_id, tool, query, scope, hits, \
      hit_papers, set_id, created_at, log_id";
 
@@ -63,6 +62,8 @@ pub struct NodeRow {
     pub ord: i64,
     pub removed_at: Option<String>,
     pub proposal_id: Option<i64>,
+    /// SPROUT（kind S）の PATH（終点の O の id）。S 以外は空。
+    pub paths: Vec<i64>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -83,6 +84,8 @@ pub struct NewNode<'a> {
     pub report_id: Option<&'a str>,
     pub mlflow_ref: Option<&'a str>,
     pub proposal_id: Option<i64>,
+    /// SPROUT（kind S）の PATH。S 以外は空の並び。
+    pub paths: &'a [i64],
     pub created_by: &'a str,
 }
 
@@ -113,9 +116,10 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeRow> {
         ord: row.get(14)?,
         removed_at: row.get(15)?,
         proposal_id: row.get(16)?,
-        created_by: row.get(17)?,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
+        paths: parse_vec(&row.get::<_, String>(17)?),
+        created_by: row.get(18)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
     })
 }
 
@@ -135,8 +139,8 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
     )?;
     conn.execute(
         "INSERT INTO rt_nodes (kind, parent_id, guide_key, text, body, answer_kind, cites, \
-         paper_id, run_id, report_id, mlflow_ref, ord, proposal_id, created_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         paper_id, run_id, report_id, mlflow_ref, ord, proposal_id, paths, created_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             node.kind.as_str(),
             node.parent_id,
@@ -151,6 +155,7 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
             node.mlflow_ref,
             ord,
             node.proposal_id,
+            write_vec(node.paths)?,
             node.created_by,
         ],
     )?;
@@ -474,56 +479,6 @@ pub fn finish_proposal(
     Ok(())
 }
 
-// ---- Seed -----------------------------------------------------------------------------
-
-/// `rt_seeds` の 1 行。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct SeedRow {
-    pub id: i64,
-    pub title: String,
-    pub sentence: String,
-    pub path: Vec<i64>,
-    pub run_id: Option<i64>,
-    pub removed_at: Option<String>,
-    pub created_by: String,
-    pub created_at: String,
-}
-
-/// 種を足す。
-pub fn insert_seed(
-    conn: &Connection,
-    title: &str,
-    sentence: &str,
-    path: &[i64],
-    run_id: Option<i64>,
-    created_by: &str,
-) -> Result<i64> {
-    conn.execute(
-        "INSERT INTO rt_seeds (title, sentence, path, run_id, created_by) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![title, sentence, write_vec(path)?, run_id, created_by],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// 生きている種（古い順）。
-pub fn list_seeds(conn: &Connection) -> Result<Vec<SeedRow>> {
-    let sql = format!("SELECT {SEED_COLUMNS} FROM rt_seeds WHERE removed_at IS NULL ORDER BY id");
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |row| {
-        Ok(SeedRow {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            sentence: row.get(2)?,
-            path: parse_vec(&row.get::<_, String>(3)?),
-            run_id: row.get(4)?,
-            removed_at: row.get(5)?,
-            created_by: row.get(6)?,
-            created_at: row.get(7)?,
-        })
-    })?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
 // ---- Search ---------------------------------------------------------------------------
 
 /// `rt_searches` の 1 行。
@@ -653,6 +608,7 @@ mod tests {
             report_id: None,
             mlflow_ref: None,
             proposal_id: None,
+            paths: &[],
             created_by: "user",
         }
     }
@@ -662,7 +618,7 @@ mod tests {
         let database = db();
         let conn = database.connection();
         for table in [
-            "rt_meta", "rt_nodes", "rt_logic", "rt_log", "rt_proposals", "rt_seeds", "rt_searches",
+            "rt_meta", "rt_nodes", "rt_logic", "rt_log", "rt_proposals", "rt_searches",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -763,8 +719,6 @@ mod tests {
         assert_eq!(got.status, "applied");
         assert_eq!(got.payload["a"], 1);
         assert_eq!(list_proposals(conn, Some("pending")).unwrap().len(), 0);
-        insert_seed(conn, "題", "文", &[q], None, "user").unwrap();
-        assert_eq!(list_seeds(conn).unwrap()[0].path, vec![q]);
         let row = SearchRow {
             id: 0, run_id: None, node_id: Some(q), tool: "t".into(), query: "q".into(),
             scope: String::new(), hits: 1, hit_papers: vec![7],

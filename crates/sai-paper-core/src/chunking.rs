@@ -2713,13 +2713,15 @@ Methods text.
         let conn = test_db().unwrap();
         create_rt_nodes(&conn);
         // Q1 の下に、★ の O2（本文あり）・★ の無い O5（本文あり）・F3・F4（O2 の根拠）。
+        // S6（SPROUT）は本文を持つが、木の塊にはしない。
         conn.execute(
             "INSERT INTO rt_nodes (id, kind, parent_id, text, body, starred, cites) VALUES
                (1, 'Q', NULL, '尺度', '', 0, '[]'),
                (2, 'O', 1, '手法', 'CET の前に正規化をする', 1, '[]'),
                (3, 'F', 2, '正規化が効くと残差が小さくなる', '', 0, '[\"#3 §2.1\"]'),
                (4, 'F', 2, 'Batch を 32 にすると速い', '', 0, '[]'),
-               (5, 'O', 1, '別案', '本文はあるが ★ が無い', 0, '[]')",
+               (5, 'O', 1, '別案', '本文はあるが ★ が無い', 0, '[]'),
+               (6, 'S', NULL, 'SPROUT', '本文を持つが塊にしない', 0, '[]')",
             [],
         )
         .unwrap();

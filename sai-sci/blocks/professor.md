@@ -24,7 +24,6 @@ subblocks:
   - sci-debate
   - sci-review
   - sci-compare
-  - sci-seed
   - sci-digest
   - sci-coach
   - sci-typify

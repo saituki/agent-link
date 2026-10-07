@@ -381,7 +381,8 @@ mod tests {
         let c = db.connection();
         let mut n = store::NewNode {
             kind: Kind::Q, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", answer_kind: None,
-            cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None, created_by: "user",
+            cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+            paths: &[], created_by: "user",
         };
         store::insert_node(c, &n).unwrap();
         n.kind = Kind::O;

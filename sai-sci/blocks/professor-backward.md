@@ -17,7 +17,6 @@ subblocks:
   - sci-cite-check
   - sci-review
   - sci-result-compare
-  - sci-seed
   - sci-read
   - sci-compare
   - sci-ideate

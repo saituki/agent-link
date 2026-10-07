@@ -1,8 +1,8 @@
-//! 研究方針の木（Research-tree）の新しい形。Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）の 4 種だけ。
+//! 研究方針の木（Research-tree）の新しい形。Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）・S（SPROUT）の 5 種。
 //!
 //! 正は `papr.db` の `rt_*` の表。古い `sci_*` の表は読まないが消さない。
 //! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
-//! 提案は `P3`、種は `S2`。
+//! 提案は `P3`、SPROUT は `S2`。
 
 // 行の型の項目名は表の列名そのままなので、項目ごとの説明は付けない。
 #![allow(missing_docs)]
@@ -40,17 +40,18 @@ pub enum RtError {
 /// 研究方針の木の操作の結果型。
 pub type Result<T> = std::result::Result<T, RtError>;
 
-/// Node の 4 種。
+/// Node の 5 種。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum Kind {
     Q,
     O,
     F,
     E,
+    S,
 }
 
 impl Kind {
-    /// "Q" / "O" / "F" / "E"。
+    /// "Q" / "O" / "F" / "E" / "S"。
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -58,6 +59,7 @@ impl Kind {
             Kind::O => "O",
             Kind::F => "F",
             Kind::E => "E",
+            Kind::S => "S",
         }
     }
 
@@ -70,6 +72,7 @@ impl Kind {
             "O" => Some(Kind::O),
             "F" => Some(Kind::F),
             "E" => Some(Kind::E),
+            "S" => Some(Kind::S),
             _ => None,
         }
     }
@@ -80,12 +83,13 @@ impl Kind {
             'O' => Some(Kind::O),
             'F' => Some(Kind::F),
             'E' => Some(Kind::E),
+            'S' => Some(Kind::S),
             _ => None,
         }
     }
 }
 
-/// "Q12" → (Kind::Q, 12)。形は `^[QOFE][1-9][0-9]{0,8}$`。違えば Invalid。
+/// "Q12" → (Kind::Q, 12)。形は `^[QOFES][1-9][0-9]{0,8}$`。違えば Invalid。
 pub fn parse_id(text: &str) -> Result<(Kind, i64)> {
     let invalid = || RtError::Invalid(format!("ID の形が正しくありません: {text}"));
     let mut chars = text.chars();
@@ -208,6 +212,7 @@ mod tests {
         assert_eq!(parse_id("O1").unwrap(), (Kind::O, 1));
         assert_eq!(parse_id("F999999999").unwrap(), (Kind::F, 999_999_999));
         assert_eq!(parse_id("E3").unwrap(), (Kind::E, 3));
+        assert_eq!(parse_id("S31").unwrap(), (Kind::S, 31));
         for text in ["Q0", "Q01", "N12", "12", "Q", "", "Q1000000000", "Q1a"] {
             assert!(matches!(parse_id(text), Err(RtError::Invalid(_))), "{text}");
         }

@@ -106,8 +106,8 @@ struct SciLine {
     decisions: Vec<(String, String)>,
     /// 採用した提案の数。
     accepted: usize,
-    /// 種の数。
-    seeds: usize,
+    /// SPROUT の数。
+    sprouts: usize,
 }
 
 /// エージェントの実行 1 件（日の並びを run_id の昇順に決めるため分けて持つ）。
@@ -210,7 +210,7 @@ impl DayAccum {
         }
 
         if let Some(sci) = &self.sci
-            && (!sci.decisions.is_empty() || sci.accepted > 0 || sci.seeds > 0)
+            && (!sci.decisions.is_empty() || sci.accepted > 0 || sci.sprouts > 0)
         {
             lines.push(sci.line());
         }
@@ -536,7 +536,7 @@ fn gather_understanding(
 ///
 /// - 決定の記録（`rt_log` の `action` が `star`・`set_kind`・`remove`）
 /// - 採用した提案（`rt_proposals` の `status = accepted` で、その日 `decided_at` があるもの）
-/// - 種（`rt_seeds` の生きたもので、`created_at` がその日のもの）
+/// - SPROUT（`rt_nodes` の生きた `kind = 'S'` で、`created_at` がその日のもの）
 ///
 /// 表が無い（新しい木を始める前の DB）ときは何もしない。
 fn gather_sci(
@@ -613,9 +613,9 @@ fn gather_sci(
         }
     }
 
-    // 種。
+    // SPROUT。
     {
-        let mut stmt = conn.prepare("SELECT created_at FROM rt_seeds WHERE removed_at IS NULL")?;
+        let mut stmt = conn.prepare("SELECT created_at FROM rt_nodes WHERE kind = 'S' AND removed_at IS NULL")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         for row in rows {
             let created_at = row?;
@@ -624,7 +624,7 @@ fn gather_sci(
                     .or_default()
                     .sci
                     .get_or_insert_with(SciLine::default)
-                    .seeds += 1;
+                    .sprouts += 1;
             }
         }
     }
@@ -635,7 +635,7 @@ fn gather_sci(
 fn rt_tables_exist(conn: &Connection) -> rusqlite::Result<bool> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master
-         WHERE type = 'table' AND name IN ('rt_log', 'rt_proposals', 'rt_seeds')",
+         WHERE type = 'table' AND name IN ('rt_log', 'rt_proposals', 'rt_nodes')",
         [],
         |row| row.get(0),
     )?;
@@ -671,8 +671,8 @@ impl SciLine {
         if self.accepted > 0 {
             parts.push(format!("採用 {} 件", self.accepted));
         }
-        if self.seeds > 0 {
-            parts.push(format!("種 {} 件", self.seeds));
+        if self.sprouts > 0 {
+            parts.push(format!("SPROUT {} 件", self.sprouts));
         }
         format!("研究方針: {}", parts.join("・"))
     }
@@ -1374,6 +1374,7 @@ mod tests {
                         report_id: None,
                         mlflow_ref: None,
                         proposal_id: None,
+                        paths: &[],
                         created_by: "user",
                     },
                 )
@@ -1386,7 +1387,7 @@ mod tests {
             store::insert_log(conn, *node, "star", "", "user", None).unwrap();
         }
         store::insert_log(conn, ids[0], "edit", "", "user", None).unwrap();
-        // 採用した提案 2 件と種 1 個。
+        // 採用した提案 2 件と SPROUT 1 個。
         for _ in 0..2 {
             store::insert_proposal(
                 conn,
@@ -1405,7 +1406,26 @@ mod tests {
             rusqlite::params![crate::rt::now_text()],
         )
         .unwrap();
-        store::insert_seed(conn, "最初の種", "「頭皮脳波で小目的を行う」", &[], None, "user").unwrap();
+        store::insert_node(
+            conn,
+            &crate::rt::store::NewNode {
+                kind: crate::rt::Kind::S,
+                parent_id: None,
+                guide_key: None,
+                text: "最初の SPROUT",
+                body: "「頭皮脳波で小目的を行う」",
+                answer_kind: None,
+                cites: &[],
+                paper_id: None,
+                run_id: None,
+                report_id: None,
+                mlflow_ref: None,
+                proposal_id: None,
+                paths: &[],
+                created_by: "user",
+            },
+        )
+        .unwrap();
 
         // 記録は UTC なので JST では日付が変わることがある。2 日ぶん見て 1 行だけ出す。
         let today = Local::now().date_naive();
@@ -1432,7 +1452,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            "研究方針: 決定 2 件（Q1 小目的・O2 手法）・採用 2 件・種 1 件"
+            "研究方針: 決定 2 件（Q1 小目的・O2 手法）・採用 2 件・SPROUT 1 件"
         );
 
         // 決定が 4 つ以上なら「など」を付ける。0 件のものは書かない。
@@ -1444,7 +1464,7 @@ mod tests {
                 ("N4".to_string(), "対象".to_string()),
             ],
             accepted: 0,
-            seeds: 0,
+            sprouts: 0,
         };
         assert_eq!(many.line(), "研究方針: 決定 4 件（N1 小目的・N2 手法・N3 差分など）");
         assert_eq!(SciLine::default().line(), "研究方針: ");
