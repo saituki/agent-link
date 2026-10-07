@@ -1004,6 +1004,13 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 .proj-chev { color: var(--text-soft); flex: none; }
 .proj-line2 { font-size: 13px; color: var(--text-soft); }
 
+/* 多人数モードの一覧（U11）: 行の外に起動 / 停止のボタンを置く */
+.proj-item { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.proj-item .proj-row { margin-top: 0; }
+.proj-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.proj-create-note { font-size: 13px; color: var(--text-soft); }
+.proj-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px; }
+
 /* --- Dashboard（#/project/<name>・06 §4.2） --- */
 .dash-body {
   flex: 1;
@@ -3042,6 +3049,13 @@ code {
 .ac-user-email { font-size: 12px; color: var(--text-soft); overflow-wrap: anywhere; }
 .ac-user-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ac-user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* iPhone（390px）では利用者の名前と操作ボタンを縦に積む。
+   横並びのままだと名前の欄が 1 文字分まで潰れて読めなくなる（U11 で気づいた）。 */
+@media (max-width: 560px) {
+  .ac-user-row { flex-wrap: wrap; }
+  .ac-user-info { flex: 1 1 100%; }
+  .ac-user-actions { flex: 1 1 100%; }
+}
 .ac-token-once { display: flex; flex-direction: column; gap: 8px; }
 .ac-token-warn { margin: 0; color: var(--danger); font-size: 13px; line-height: 1.6; }
 .ac-token-value {
@@ -3058,6 +3072,41 @@ code {
 .ac-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
 /* Home の帯の「アカウント」は文字のボタン（記号のボタンより小さく） */
 .appbar .ac-appbar-link { font-size: 14px; }
+
+/* --- API キーと Claude のトークン（U11） --- */
+.ac-key-list { display: flex; flex-direction: column; }
+.ac-key-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.ac-key-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.ac-key-label { font-weight: 600; overflow-wrap: anywhere; }
+.ac-key-status { font-size: 12px; color: var(--text-soft); }
+.ac-key-status.on { color: var(--ok); }
+.ac-key-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ac-claude-note { margin: 0 0 8px; }
+.ac-claude-note .ac-note { margin: 0 0 6px; }
+.ac-warn { color: var(--warn); }
+
+/* --- 管理: プロジェクトとコンテナ（U11） --- */
+/* 390px でも崩れないよう、表は横にスクロールできるようにし、
+   セルの中身は折り返す（長い Docker の状態で列が広がりすぎないように）。 */
+.ac-table-wrap { overflow-x: auto; }
+.ac-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.ac-table th,
+.ac-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  /* 390px では列が狭くなるので、長い名前や Docker の状態を折り返して収める */
+  overflow-wrap: anywhere;
+}
+.ac-table th { color: var(--text-soft); font-weight: 600; }
+.ac-table td:last-child,
+.ac-table th:last-child { text-align: right; }
 
 @media (min-width: 900px) {
   .ac-user-row { align-items: flex-start; }

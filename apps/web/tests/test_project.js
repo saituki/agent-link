@@ -6,7 +6,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const { relativeTime, donutSlices, todoFolderRuns, projectRowFacts } = require(path.join(
+const { relativeTime, donutSlices, todoFolderRuns, projectRowFacts, prjValidShortName } = require(path.join(
   __dirname,
   "..",
   "src",
@@ -118,11 +118,30 @@ function testProjectRowFacts() {
   assert.strictEqual(projectRowFacts(null).line2, "常駐 止まっています");
 }
 
+function testValidShortName() {
+  // 共有契約 C4: ^[a-z0-9][a-z0-9-]{0,29}$（U11）
+  assert.strictEqual(prjValidShortName("x"), true, "1 文字はよい");
+  assert.strictEqual(prjValidShortName("a-b"), true, "途中のハイフンはよい");
+  assert.strictEqual(prjValidShortName("a" + "1".repeat(29)), true, "30 文字はよい");
+  assert.strictEqual(prjValidShortName("a" + "1".repeat(30)), false, "31 文字は長い");
+  assert.strictEqual(prjValidShortName("-abc"), false, "先頭のハイフンはだめ");
+  assert.strictEqual(prjValidShortName("Abc"), false, "大文字はだめ");
+  assert.strictEqual(prjValidShortName("aBc"), false, "大文字を含まない");
+  assert.strictEqual(prjValidShortName("a_b"), false, "アンダースコアはだめ");
+  assert.strictEqual(prjValidShortName("a b"), false, "空白はだめ");
+  assert.strictEqual(prjValidShortName(""), false, "空はだめ");
+  assert.strictEqual(prjValidShortName("1a"), true, "数字で始まってもよい");
+  assert.strictEqual(prjValidShortName(null), false);
+  assert.strictEqual(prjValidShortName(undefined), false);
+  assert.strictEqual(prjValidShortName(12), false);
+}
+
 function main() {
   testRelativeTime();
   testDonutSlices();
   testTodoFolderRuns();
   testProjectRowFacts();
+  testValidShortName();
   console.log("test_project: すべて通りました");
 }
 

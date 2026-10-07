@@ -432,8 +432,160 @@ function acTokenCreate(list) {
   label.focus();
 }
 
+// --- アカウント: API キーと Claude のトークン（U11・共有契約 C9） ---
+
+/** 多人数モードか（U07 の `window.SaiAuth.mode`）。単独モードではこの区画を出さない。 */
+function acMultiUser() {
+  return !!(
+    typeof window !== "undefined" &&
+    window.SaiAuth &&
+    window.SaiAuth.mode === "multi"
+  );
+}
+
+// 扱う名前と画面の見出し（順番はサーバの KEY_NAMES と同じ・共有契約 C9）。
+const AC_KEY_LABELS = [
+  ["CLAUDE_CODE_OAUTH_TOKEN", "Claude（`claude setup-token` のトークン）"],
+  ["OPENROUTER_API_KEY", "OpenRouter"],
+  ["SEMANTICSCHOLAR_API_KEY", "Semantic Scholar"],
+  ["OPENALEX_API_KEY", "OpenAlex"],
+  ["NCBI_API_KEY", "NCBI（PubMed）"],
+];
+
+/** 「API キーと Claude のトークン」の区画（多人数モードだけ）。 */
+async function acSectionKeys(root) {
+  if (!acMultiUser()) return;
+  const card = saiEl("div", "sai-card ac-card");
+  card.appendChild(saiEl("h2", "ac-title", "API キーと Claude のトークン"));
+  card.appendChild(
+    saiEl(
+      "p",
+      "ac-note",
+      "値はこのサーバにだけ保存され、あなたのプロジェクトのコンテナにだけ渡ります。保存し直すと、実行中でないコンテナが新しい値で作り直されます。"
+    )
+  );
+  const list = saiEl("div", "ac-key-list");
+  card.appendChild(list);
+  root.appendChild(card);
+  await acKeysLoad(list);
+}
+
+/** 鍵の状態を読む（GET /api/me/keys）。 */
+async function acKeysLoad(list) {
+  list.innerHTML = "";
+  list.appendChild(saiEl("p", "ac-loading", "読み込み中…"));
+  let keys;
+  try {
+    const data = await saiApi("/api/me/keys");
+    keys = (data && data.keys) || [];
+  } catch (e) {
+    list.innerHTML = "";
+    saiToast(e && e.message ? e.message : "鍵を読み込めませんでした", "error");
+    return;
+  }
+  const byName = new Map(keys.map((k) => [k && k.name, k]));
+  list.innerHTML = "";
+  for (const [name, label] of AC_KEY_LABELS) {
+    const k = byName.get(name) || { name, set: false, last4: "" };
+    list.appendChild(acKeyRow(name, label, k, () => acKeysLoad(list)));
+    // Claude の行の下に説明と注意を出す
+    if (name === "CLAUDE_CODE_OAUTH_TOKEN") list.appendChild(acClaudeNote());
+  }
+}
+
+/** 鍵 1 行（見出し・設定済みか・入力欄・保存・消す）。 */
+function acKeyRow(name, label, k, reload) {
+  const row = saiEl("div", "ac-key-row");
+  const head = saiEl("div", "ac-key-head");
+  head.appendChild(saiEl("span", "ac-key-label", label));
+  head.appendChild(
+    saiEl(
+      "span",
+      "ac-key-status" + (k.set ? " on" : ""),
+      k.set ? `設定済み（…${k.last4}）` : "未設定"
+    )
+  );
+  row.appendChild(head);
+
+  const input = acInput("password", name, "off");
+  input.placeholder = k.set ? "新しい値に変える" : "値を貼る";
+  const actions = saiEl("div", "ac-key-actions");
+  const save = saiEl("button", "sai-btn small", "保存");
+  save.type = "button";
+  save.addEventListener("click", () => void acKeySave(name, input, reload));
+  const del = saiEl("button", "sai-btn small ghost", "消す");
+  del.type = "button";
+  del.disabled = !k.set;
+  del.addEventListener("click", () => void acKeyDelete(name, input, reload));
+  actions.append(save, del);
+  row.append(input, actions);
+  return row;
+}
+
+/** 鍵を保存する（PUT /api/me/keys・変えた 1 つだけ送る）。 */
+async function acKeyWrite(changes, input, reload) {
+  try {
+    const data = await saiApi("/api/me/keys", { method: "PUT", body: changes });
+    input.value = "";
+    saiToast("保存しました", "ok");
+    acKeyReport(data);
+    await reload();
+  } catch (e) {
+    saiToast(e && e.message ? e.message : "保存できませんでした", "error");
+  }
+}
+
+/** 「保存」: 入力欄の値をその名前で保存する。 */
+async function acKeySave(name, input, reload) {
+  const value = input.value;
+  if (!value) {
+    saiToast("値を入れてください", "error");
+    return;
+  }
+  await acKeyWrite({ [name]: value }, input, reload);
+}
+
+/** 「消す」: 空文字を送ってその名前を消す。 */
+async function acKeyDelete(name, input, reload) {
+  await acKeyWrite({ [name]: "" }, input, reload);
+}
+
+/** 保存の結果（作り直した / あとで反映される）をトーストで知らせる。 */
+function acKeyReport(data) {
+  const d = data || {};
+  for (const project of d.recreated || []) {
+    saiToast(`${project} を新しい値で起動し直しました`, "ok");
+  }
+  for (const project of d.pending || []) {
+    saiToast(
+      `${project} は実行中のため、終わってから起動し直すと反映されます`,
+      "info"
+    );
+  }
+}
+
+/** Claude の行の下に出す説明と注意（Anthropic の規約について）。 */
+function acClaudeNote() {
+  const box = saiEl("div", "ac-claude-note");
+  box.appendChild(
+    saiEl(
+      "p",
+      "ac-note",
+      "自分の Mac の端末で `claude setup-token` を実行し、研究室の Team プランに大学のメールアドレスでログインして発行したトークンを貼ってください。トークンはあなたのプロジェクトのコンテナにだけ渡り、他の人とは共有されません。"
+    )
+  );
+  box.appendChild(
+    saiEl(
+      "p",
+      "ac-note ac-warn",
+      "注意: Anthropic の規約は、アプリが Claude の資格情報を保存・仲介することを禁じています。この機能はその点で灰色です。使うかどうかはあなたの判断で決めてください。トークンは他の人に渡さないでください。"
+    )
+  );
+  return box;
+}
+
 /** #/account の区画（順に呼ぶ。U11 が足す）。 */
-const acSections = [acSectionAccount, acSectionTokens];
+const acSections = [acSectionAccount, acSectionTokens, acSectionKeys];
 
 function acAccountOpen() {
   const root = document.getElementById("account-root");
@@ -660,8 +812,111 @@ function acRandomPassword() {
   return out;
 }
 
+// --- 管理: プロジェクトとコンテナ（U11・共有契約 C9） ---
+
+/** 「プロジェクトとコンテナ」の区画（多人数モードだけ・管理者だけが見る画面）。 */
+async function acSectionContainers(root) {
+  if (!acMultiUser()) return;
+  const card = saiEl("div", "sai-card ac-card");
+  card.appendChild(saiEl("h2", "ac-title", "プロジェクトとコンテナ"));
+  card.appendChild(
+    saiEl(
+      "p",
+      "ac-note",
+      "全員のプロジェクトのコンテナです。起動と停止だけができ、中身（会話・論文）は見られません。"
+    )
+  );
+  const list = saiEl("div", "ac-container-list");
+  card.appendChild(list);
+  root.appendChild(card);
+  await acContainersLoad(list);
+}
+
+/** 全員のコンテナの一覧を読む（GET /api/admin/containers）。 */
+async function acContainersLoad(list) {
+  list.innerHTML = "";
+  list.appendChild(saiEl("p", "ac-loading", "読み込み中…"));
+  let rows;
+  try {
+    const data = await saiApi("/api/admin/containers");
+    rows = (data && data.containers) || [];
+  } catch (e) {
+    list.innerHTML = "";
+    saiToast(e && e.message ? e.message : "コンテナを読み込めませんでした", "error");
+    return;
+  }
+  list.innerHTML = "";
+  if (rows.length === 0) {
+    list.appendChild(saiEl("p", "ac-empty", "コンテナはありません。"));
+    return;
+  }
+  const wrap = saiEl("div", "ac-table-wrap");
+  const table = document.createElement("table");
+  table.className = "ac-table";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  for (const label of ["持ち主", "プロジェクト", "状態", "Docker の状態", ""]) {
+    hr.appendChild(saiEl("th", null, label));
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const c of rows) tbody.appendChild(acContainerRow(c, () => acContainersLoad(list)));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  list.appendChild(wrap);
+}
+
+/** コンテナ 1 行（持ち主・プロジェクト・状態・Docker の状態・起動 / 停止）。 */
+function acContainerRow(c, reload) {
+  const tr = document.createElement("tr");
+  tr.appendChild(saiEl("td", null, c.owner || ""));
+  tr.appendChild(saiEl("td", null, c.project || ""));
+  tr.appendChild(saiEl("td", null, acContainerStateLabel(c.state)));
+  tr.appendChild(saiEl("td", null, c.status || ""));
+  const td = document.createElement("td");
+  const running = c.state === "running";
+  const btn = saiEl("button", "sai-btn small", running ? "停止" : "起動");
+  btn.type = "button";
+  btn.addEventListener("click", () => void acContainerToggle(c, running, reload));
+  td.appendChild(btn);
+  tr.appendChild(td);
+  return tr;
+}
+
+/** Docker の状態の文を日本語にする。 */
+function acContainerStateLabel(state) {
+  return (
+    { running: "動いている", exited: "止まっている", missing: "無い" }[state] ||
+    String(state || "")
+  );
+}
+
+/** コンテナを起動・停止する（停止の前に確認する）。 */
+async function acContainerToggle(c, running, reload) {
+  if (running) {
+    const ok = await saiConfirm({
+      title: `${c.container} を止めますか？`,
+      body: "止めると、動いているエージェントも止まります。",
+      ok: "停止",
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  try {
+    await saiApi(
+      `/api/admin/containers/${encodeURIComponent(c.container)}/${running ? "stop" : "start"}`,
+      { method: "POST" }
+    );
+    saiToast(running ? "コンテナを止めました" : "コンテナを起動しました", "ok");
+  } catch (e) {
+    saiToast(e && e.message ? e.message : "操作できませんでした", "error");
+  }
+  await reload();
+}
+
 /** #/admin の区画（順に呼ぶ。U11 が足す）。 */
-const acAdminSections = [acSectionUsers];
+const acAdminSections = [acSectionUsers, acSectionContainers];
 
 function acAdminOpen() {
   const root = document.getElementById("admin-root");
