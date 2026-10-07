@@ -60,17 +60,17 @@ const fn = swSrc.match(/^function swIsOldCache\(name, current\) \{[\s\S]*?^\}/m)
 assert.ok(fn, "sw.js に swIsOldCache が見つかりません");
 // eslint-disable-next-line no-new-func
 const swIsOldCache = new Function(`${fn[0]}; return swIsOldCache;`)();
-assert.strictEqual(swIsOldCache("sai-web-v85", "sai-web-v87"), true, "古い画面の倉庫");
-assert.strictEqual(swIsOldCache("sai-web-v87", "sai-web-v87"), false, "今の画面の倉庫");
-assert.strictEqual(swIsOldCache("sai-phone-v84", "sai-web-v87"), true, "旧名の画面の倉庫");
-assert.strictEqual(swIsOldCache("sai-phone-radio-audio", "sai-web-v87"), true, "旧名の音声の倉庫");
-assert.strictEqual(swIsOldCache("sai-web-radio-audio", "sai-web-v87"), false, "音声の倉庫は消さない");
-assert.strictEqual(swIsOldCache("sai-web-open", "sai-web-v87"), false, "通知の飛び先は消さない");
+assert.strictEqual(swIsOldCache("sai-web-v85", "sai-web-v88"), true, "古い画面の倉庫");
+assert.strictEqual(swIsOldCache("sai-web-v88", "sai-web-v88"), false, "今の画面の倉庫");
+assert.strictEqual(swIsOldCache("sai-phone-v84", "sai-web-v88"), true, "旧名の画面の倉庫");
+assert.strictEqual(swIsOldCache("sai-phone-radio-audio", "sai-web-v88"), true, "旧名の音声の倉庫");
+assert.strictEqual(swIsOldCache("sai-web-radio-audio", "sai-web-v88"), false, "音声の倉庫は消さない");
+assert.strictEqual(swIsOldCache("sai-web-open", "sai-web-v88"), false, "通知の飛び先は消さない");
 
 // --- 5) 画面の版がそろっている（CACHE と ?v=）
-assert.match(swSrc, /const CACHE = "sai-web-v87";/, "CACHE が sai-web-v87 ではありません");
+assert.match(swSrc, /const CACHE = "sai-web-v88";/, "CACHE が sai-web-v88 ではありません");
 const html = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
-assert.ok(html.includes("?v=87"), "index.html の ?v= が 87 ではありません");
+assert.ok(html.includes("?v=88"), "index.html の ?v= が 88 ではありません");
 assert.ok(!html.includes("?v=85"), "index.html に古い ?v=85 が残っています");
 
 console.log("test_migrate: すべて通りました");

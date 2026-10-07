@@ -200,31 +200,6 @@
   color: var(--text);
 }
 
-.sci-seed {
-  margin: 8px 0 0;
-  font-size: 15px;
-  line-height: 1.9;
-  color: var(--text);
-}
-
-.sci-seed-tentative {
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 4px;
-}
-
-.sci-seed-blank {
-  display: inline;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-bottom: 2px dashed var(--warn);
-  background: transparent;
-  color: var(--warn);
-  font: inherit;
-  cursor: pointer;
-}
-
 .sci-gate {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
@@ -442,17 +417,13 @@
 
 .run-mlf-link:hover { color: var(--accent); }
 
-/* --- 研究方針（Q・O・F・E の木） --- */
+/* --- 研究方針（Q・O・F・E・S の木） --- */
 
-.sci-seed { margin: 4px 0; font-size: 14px; line-height: 1.7; }
-.sci-seed-blank {
-  border: 1px dashed var(--line-strong);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-soft);
-  font: inherit;
-  padding: 0 4px;
-}
+/* --- SEED の板（U33）。RESEARCH_TYPE と mind.md の節 --- */
+.sci-seed-type { margin: 0 0 6px; font-size: 13px; color: var(--text); }
+.sci-mind-head { margin: 10px 0 2px; font-size: 13px; font-weight: 700; color: var(--text); }
+.sci-path-line { margin: 2px 0; font-size: 13px; line-height: 1.6; color: var(--text); }
+
 .sci-legacy { padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; }
 .sci-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sci-chip {
