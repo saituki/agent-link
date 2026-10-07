@@ -2,7 +2,7 @@
 
 対象: **`crates/`（sai-link・sai-paper・sai-sci）か `apps/radio` のどれかを直す人**。
 目的: 直した結果として **sai-web（Web の窓口・8200 番）を壊さないこと**。
-全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`glossary.md`](./glossary.md)。
+全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
 この文書の JSON の項目は、Web のコード（`apps/web/src/sai_web/` と `static/`）が実際に読む物と、2026-10 に `target/release/` の CLI を一時フォルダのプロジェクトで実行して確かめた物。**正はコード**。
 
 ---
