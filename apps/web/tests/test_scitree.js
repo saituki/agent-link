@@ -15,6 +15,7 @@ const {
   stOpsFor, ST_NODE_OPS, ST_LOGIC,
   stVisibleRows, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   stFmtAt, stHistoryText,
+  stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
 } = require(path.join(dir, "scitree.js"));
 
 const tests = [];
@@ -273,6 +274,41 @@ test(function testListIsFullWidthOnNarrow() {
   // 板を出していないときは板の境界線も隠す
   assert.ok(/@media \(min-width: 900px\)[\s\S]*?\.sci-body:not\(\.has-board\) \.sci-split-handle\[data-split="board"\] \{ display: none; \}/.test(css),
     "板が無いときの境界線を隠す宣言が無い");
+});
+
+test(function testSproutToggle() {
+  assert.deepStrictEqual(stSproutToggle([], "O1"), ["O1"]);
+  assert.deepStrictEqual(stSproutToggle(["O1"], "O2"), ["O1", "O2"]);
+  assert.deepStrictEqual(stSproutToggle(["O1", "O2"], "O1"), ["O2"]); // もう一度で外れる
+  // O 以外は足さない
+  for (const id of ["Q1", "F2", "E3", "S4", "O0", "O", "", null]) assert.deepStrictEqual(stSproutToggle(["O1"], id), ["O1"], String(id));
+  // 元の配列は変えない
+  const base = ["O1"];
+  stSproutToggle(base, "O2");
+  assert.deepStrictEqual(base, ["O1"]);
+  // 21 個目は足さない。20 個のときの「外す」は効く
+  const full = Array.from({ length: ST_SPROUT_PATH_MAX }, (_, i) => `O${i + 1}`);
+  assert.strictEqual(ST_SPROUT_PATH_MAX, 20);
+  assert.deepStrictEqual(stSproutToggle(full, "O99"), full);
+  assert.strictEqual(stSproutToggle(full, "O5").length, 19);
+  assert.deepStrictEqual(stSproutToggle(null, "O1"), ["O1"]);
+});
+
+test(function testSproutRowsAndSummary() {
+  const status = { nodes: [
+    { id: "O1", kind: "O", text: "答え", answer_kind: "answer" },
+    { id: "O2", kind: "O", text: "課題", answer_kind: "issue" },
+  ] };
+  assert.deepStrictEqual(stSproutRows(["O2", "O1", "O9"], status), [
+    { id: "O2", issue: true, text: "課題" },
+    { id: "O1", issue: false, text: "答え" },
+    { id: "O9", issue: false, text: "" }, // status に無い ID は文なしで残す
+  ]);
+  assert.deepStrictEqual(stSproutRows([], status), []);
+  assert.deepStrictEqual(stSproutRows(["O1"], null), [{ id: "O1", issue: false, text: "" }]);
+  assert.strictEqual(stSproutSummary([], status), "Issue の O がまだありません");
+  assert.strictEqual(stSproutSummary(["O1"], status), "Issue の O がまだありません");
+  assert.strictEqual(stSproutSummary(["O1", "O2"], status), "PATH 2 個（Issue の O 1 個）");
 });
 
 let failed = 0;
