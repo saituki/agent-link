@@ -121,7 +121,7 @@ const RESEARCH_TEMPLATES: [&str; 2] = ["project-brief", "sci-core"];
 /// 研究用のブロックかどうかを返す。
 ///
 /// ブロック定義（`<root>/.sai/blocks/<id>.md`、無ければ `~/.sai-moon/blocks/<id>.md`）の
-/// frontmatter の `templates:` に `project-brief`（論文の作業）か `sci-core`（研究方針の作業）を
+/// frontmatter の `templates:` に `project-brief`（論文の作業）か `sci-core`（research-tree の作業）を
 /// 含めば `true`。定義が無ければ `false`。
 ///
 /// sci のブロックは `project-brief` を入れない（要件 R-D3）ので、`sci-core` も研究用と見る。

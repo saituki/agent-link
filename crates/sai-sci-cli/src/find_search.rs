@@ -1,5 +1,5 @@
 //! `sai-sci find` / `sai-sci search` — 論文の検索を `sai-paper` の CLI に任せ、
-//! 研究方針の Node の範囲の決定と、研究の記録（`rt_searches`・検索セット）だけを行う。
+//! research-tree の Node の範囲の決定と、研究の記録（`rt_searches`・検索セット）だけを行う。
 //!
 //! 論文の検索そのもの（複数の DB への問い合わせ・セットへの保存）は paper-cli にあり、
 //! ライブラリには無い。そこで 2 つの検索の呼び方をそろえ、sai-sci は子として呼ぶ。
@@ -51,7 +51,7 @@ pub struct FindArgs {
     /// 上位の結果に LLM の要約と関連度を付ける
     #[arg(long)]
     pub evidence: bool,
-    /// 研究方針の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
+    /// research-tree の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
     #[arg(long)]
     pub node: Option<String>,
     /// `--node` の子孫の Node も含める
@@ -88,7 +88,7 @@ pub struct SearchArgs {
     /// 結果を名前付きの検索セットに保存する
     #[arg(long)]
     pub save_as: Option<String>,
-    /// 検索した研究方針の Node の ID（`Q12`・`O5` など）
+    /// 検索した research-tree の Node の ID（`Q12`・`O5` など）
     #[arg(long)]
     pub node: Option<String>,
     /// 何のための検索か

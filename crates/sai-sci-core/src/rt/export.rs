@@ -1,6 +1,6 @@
-//! 新しい木から `state.md` と `tree.md` を書き出す。
+//! 新しい research-tree から `state.md` と `tree.md` を書き出す。
 //!
-//! 文は [`compute::status`] の結果だけから作る。木の文は検査済み（PROPOSAL の検査）なので、そのまま写す。
+//! 文は [`compute::status`] の結果だけから作る。research-tree の文は検査済み（PROPOSAL の検査）なので、そのまま写す。
 //! 消した Node は `status` に入らないので、ここでも出ない。
 
 use std::fs;
@@ -14,7 +14,7 @@ use super::defs::Defs;
 use super::{Result, store};
 use sai_paper_core::paths::PaperRoots;
 
-/// 新しい木を始めたプロジェクトなら `state.md` と `tree.md` を書く。始めていなければ何もしない。戻り値は「書いたか」。
+/// 新しい research-tree を始めたプロジェクトなら `state.md` と `tree.md` を書く。始めていなければ何もしない。戻り値は「書いたか」。
 ///
 /// # Errors
 ///
@@ -57,12 +57,12 @@ pub fn render_state_md(status: &Status) -> String {
     });
 
     let mut out = format!(
-        "- 段階: 進み具合 {progress}\n- 今の作業: {}\n- 次の一手: {}\n- 更新日: {}\n\n",
+        "- 段階: 進み具合 {progress}\n- 今の作業: {}\n- Next Action: {}\n- 更新日: {}\n\n",
         or_none(current),
         or_none(next),
         Local::now().format("%Y-%m-%d"),
     );
-    out.push_str("<!-- このファイルは研究方針の木から書き出しています。直すときは Web か sai-sci を使います。 -->\n\n");
+    out.push_str("<!-- このファイルは research-tree から書き出しています。直すときは Web か sai-sci を使います。 -->\n\n");
 
     // SEED（RESEARCH_TYPE と mind.md の見出しの一覧）。
     out.push_str("## SEED\n");
@@ -143,9 +143,9 @@ fn node_line(n: &NodeJson) -> String {
 /// `tree.md` の本文を作る。
 #[must_use]
 pub fn render_tree_md(status: &Status) -> String {
-    let name = status.type_info.as_ref().map_or("型は未設定", |t| t.name.as_str());
+    let name = status.type_info.as_ref().map_or("RESEARCH_TYPE は未設定", |t| t.name.as_str());
     let mut out = format!(
-        "# 研究方針の木（{name}）\n\n進み具合 {}/{} / 書き出した時刻 {}\n\n",
+        "# research-tree（{name}）\n\n進み具合 {}/{} / 書き出した時刻 {}\n\n",
         status.progress.answered,
         status.progress.total,
         Local::now().format("%Y-%m-%d %H:%M"),
@@ -250,7 +250,7 @@ mod tests {
         let status = compute::status(c, &roots, &Defs::default()).unwrap();
         let tree = render_tree_md(&status);
         let lines: Vec<&str> = tree.lines().collect();
-        assert!(lines[0].starts_with("# 研究方針の木（"));
+        assert!(lines[0].starts_with("# research-tree（"));
         assert!(lines[4].starts_with("- Q1 大目的は？ [Objectivity "), "{tree}");
         assert!(lines[4].ends_with("[Logicality unchecked]"), "{tree}");
         assert!(tree.contains("\n  - O2 ★ Answer 予後予測 [F 0]\n"), "{tree}");

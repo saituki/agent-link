@@ -1,6 +1,6 @@
 [package]
 name = "sai-sci-cli"
-description = "sai-sci CLI — 研究方針の木・研究の記録・エージェントの報告（実行ファイル sai-sci）"
+description = "sai-sci CLI — research-tree・研究の記録・エージェントの報告（実行ファイル sai-sci）"
 version.workspace = true
 edition = "2024"
 license.workspace = true

@@ -138,7 +138,7 @@ fn without_project_returns_two() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// 約束: 木のあるプロジェクトで `node Q999 --json` は 3。
+/// 約束: research-tree のあるプロジェクトで `node Q999 --json` は 3。
 #[test]
 fn unknown_node_returns_three() {
     let root = temp_dir("node3");
@@ -159,7 +159,7 @@ fn unknown_node_returns_three() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// 一時の研究プロジェクトに、新しい木（Q1）と DB を作る。
+/// 一時の研究プロジェクトに、新しい research-tree（Q1）と DB を作る。
 fn project_with_tree(root: &Path) -> (PathBuf, i64) {
     let data_dir = root.join(".sai").join("paper");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -272,7 +272,7 @@ fn init_installs_parts_and_settings() {
     assert!(root.join(".sai/template/debate-participant.md").is_file());
     assert!(root.join(".sai/template/domain.md").is_file());
     assert!(root.join(".sai/paper/mind.md").is_file());
-    assert!(root.join(".sai/paper/tree.md").exists() == false, "木はまだ無い");
+    assert!(root.join(".sai/paper/tree.md").exists() == false, "research-tree はまだ無い");
 
     // 呼ぶ順は link → paper。
     let log = std::fs::read_to_string(&args_log).unwrap();
@@ -309,7 +309,7 @@ fn init_installs_parts_and_settings() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// `init --type problem` で木ができ、もう一度 `--type` を付けると 4。
+/// `init --type problem` で research-tree ができ、もう一度 `--type` を付けると 4。
 #[test]
 fn init_with_type_builds_tree_and_conflicts() {
     let root = temp_dir("init-type-root");

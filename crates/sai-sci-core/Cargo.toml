@@ -1,6 +1,6 @@
 [package]
 name = "sai-sci-core"
-description = "sai-sci-core — 研究方針の木・研究の記録・エージェントの報告の検査"
+description = "sai-sci-core — research-tree・研究の記録・エージェントの報告の検査"
 version.workspace = true
 # 移したコードは let チェーン（edition 2024）を使うため、paper-core と同じ 2024 にする。
 edition = "2024"

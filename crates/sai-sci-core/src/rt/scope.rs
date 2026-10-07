@@ -1,7 +1,7 @@
 //! `--paper` `--papers` `--node` `--subtree` から、検索の論文の集合と、
 //! 検索の記録（`rt_searches.scope`）に書く範囲の文字列を決める。
 //!
-//! Node の扱いは研究方針の木の物なのでここに置く。論文の番号の集まりだけの部分は
+//! Node の扱いは research-tree の物なのでここに置く。論文の番号の集まりだけの部分は
 //! `sai_paper_core::retrieval::resolve_paper_scope` にある。
 
 use rusqlite::Connection;
@@ -130,7 +130,7 @@ mod tests {
         let db = scope_db();
         let conn = db.connection();
 
-        // 木の中の位置を調べる（Q → O → 子の Q → 子の O）。
+        // research-tree の中の位置を調べる（Q → O → child_Q → 子の O）。
         let q: i64 = conn
             .query_row(
                 "SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id IS NULL",
@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(ids, Some(vec![1, 3, 4]));
         assert_eq!(scope, format!("subtree:O{node}"));
 
-        // 節点が無ければ `papers:1,2`。
+        // Node が無ければ `papers:1,2`。
         let (ids, scope) = resolve_scope(conn, None, &[2, 1, 2], None, false).unwrap();
         assert_eq!(ids, Some(vec![1, 2]));
         assert_eq!(scope, "papers:1,2");

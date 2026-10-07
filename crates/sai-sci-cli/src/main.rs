@@ -1,4 +1,4 @@
-//! `sai-sci` — 研究の CLI。研究方針の木（Research-tree）・研究の記録・
+//! `sai-sci` — 研究の CLI。research-tree・研究の記録・
 //! エージェントの報告の登録と検査を 1 つの実行ファイルにまとめる。
 //!
 //! 失敗の形は CLI 共通の約束に従う（終了コード 2・3・4。失敗は標準エラーの最後の行に
@@ -31,7 +31,7 @@ mod understanding;
 #[command(
     name = "sai-sci",
     version,
-    about = "sai-sci — 研究方針の木・研究の記録・エージェントの報告"
+    about = "sai-sci — research-tree・研究の記録・エージェントの報告"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -40,9 +40,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// 研究プロジェクトを初期化する（sai-link・sai-paper の初期化と研究の部品を配る）
+    /// 研究プロジェクトを初期化する（sai-link・sai-paper の初期化と研究の assets を配る）
     Init {
-        /// 研究方針の木の型（problem / phenomenon / method / data / improve）
+        /// RESEARCH_TYPE（problem / phenomenon / method / data / improve）
         #[arg(long = "type", value_name = "型")]
         type_id: Option<String>,
         /// 分野の観点（medical / signal-ml / general）
@@ -51,29 +51,29 @@ enum Cmd {
         /// sai-link の初期化で使うプロジェクト名
         #[arg(long)]
         name: Option<String>,
-        /// 部品を新しい版へ更新する（古い物は退避する）
+        /// assets を新しい版へ更新する（古い物は退避する）
         #[arg(long)]
         update: bool,
         /// JSON で出力する
         #[arg(long)]
         json: bool,
     },
-    /// 現況（進み具合・種の下書き・木・次の一手）を出す
+    /// 現況（進み具合・SEED・research-tree・Next Action）を出す
     Status {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
-        /// 進み具合・種の下書き・次の一手・仕分け待ちの数だけを出す（いつも JSON）
+        /// 進み具合・SEED・Next Action・PENDING の数だけを出す（いつも JSON）
         #[arg(long)]
         brief: bool,
     },
-    /// 使える研究の型を一覧する
+    /// 使える RESEARCH_TYPE を一覧する
     Types {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
     },
-    /// 研究の型を利用者全体の置き場に保存する（標準入力に型の Markdown）
+    /// RESEARCH_TYPE を利用者全体の置き場に保存する（標準入力に RESEARCH_TYPE の Markdown）
     #[command(name = "type-save")]
     TypeSave,
     /// Node 1 つの詳細を出す
@@ -89,11 +89,11 @@ enum Cmd {
         /// 実行 ID
         #[arg(long)]
         run: i64,
-        /// blind（sci_mode: blind_first）でも木を出す
+        /// blind（sci_mode: blind_first）でも research-tree を出す
         #[arg(long)]
         tree: bool,
     },
-    /// 提案を出す（標準入力に `{"proposals":[…]}`）
+    /// PROPOSAL を出す（標準入力に `{"proposals":[…]}`）
     Propose {
         /// 実行 ID（無ければ環境変数 SAI_PARENT_RUN_ID）
         #[arg(long)]
@@ -104,35 +104,35 @@ enum Cmd {
     },
     /// 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON）
     Apply,
-    /// 仕分け待ちの提案を一覧する
+    /// PENDING の PROPOSAL を一覧する
     Proposals {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
     },
-    /// 提案を仕分ける（採用・却下・取り消しの 1 つ）
+    /// PROPOSAL を TRIAGE する（accept・reject・revert の 1 つ）
     #[command(group(
         clap::ArgGroup::new("triage").required(true).multiple(false).args(["accept", "reject", "revert"]),
     ))]
     Triage {
-        /// 提案の ID（`P56`）
+        /// PROPOSAL の ID（`P56`）
         proposal: String,
-        /// 採用する
+        /// accept する
         #[arg(long)]
         accept: bool,
-        /// 却下する
+        /// reject する
         #[arg(long)]
         reject: bool,
-        /// 自動で反映したものを取り消す
+        /// revert する（AUTO_OP で入ったものを取り消す）
         #[arg(long)]
         revert: bool,
-        /// 採用するとき、中身の上書き（JSON 文字列）
+        /// accept するとき、中身の上書き（JSON 文字列）
         #[arg(long, requires = "accept")]
         edit: Option<String>,
     },
-    /// Node のための実行（カード）を作る（標準入力の C-CARD は --from-json のときだけ読む）
+    /// Node のための実行（CARD）を作る（標準入力の C-CARD は --from-json のときだけ読む）
     Card {
-        /// カード命令の引数
+        /// CARD 命令の引数
         #[command(flatten)]
         args: sci::SciCardArgs,
         /// Web から受け取る C-CARD の JSON を標準入力から読む
@@ -142,7 +142,7 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// 読む札（runner が user のカード）の中身を出す
+    /// READ_CARD（runner が user の CARD）の中身を出す
     Read {
         /// 実行 ID
         run_id: i64,
@@ -152,12 +152,12 @@ enum Cmd {
     },
     /// state.md と tree.md を書き出す
     Export,
-    /// 内部を検索し、研究方針の Node に結び付けて記録する（論文の検索は sai-paper が行う）
+    /// 内部を検索し、research-tree の Node に結び付けて記録する（論文の検索は sai-paper が行う）
     Find {
         #[command(flatten)]
         args: find_search::FindArgs,
     },
-    /// 論文を検索し、研究方針の Node に結び付けて記録する（検索は sai-paper が行う）
+    /// 論文を検索し、research-tree の Node に結び付けて記録する（検索は sai-paper が行う）
     Search {
         #[command(flatten)]
         args: find_search::SearchArgs,
@@ -455,7 +455,7 @@ fn print_out(out: sci::Out) -> Result<()> {
     Ok(())
 }
 
-/// `sai-sci card` — Node のための実行（カード）を作る。
+/// `sai-sci card` — Node のための実行（CARD）を作る。
 fn handle_card(args: &sci::SciCardArgs, from_json: bool, json: bool) -> Result<()> {
     let spec = if from_json {
         phone_sci::card_spec(&sci::read_stdin_text()?)?
@@ -468,7 +468,7 @@ fn handle_card(args: &sci::SciCardArgs, from_json: bool, json: bool) -> Result<(
         println!("{}", serde_json::to_string(&value)?);
     } else {
         println!(
-            "run {} のカードを作りました: {}",
+            "run {} の CARD を作りました: {}",
             value["run_id"],
             value["path"].as_str().unwrap_or("")
         );
@@ -478,12 +478,12 @@ fn handle_card(args: &sci::SciCardArgs, from_json: bool, json: bool) -> Result<(
 
 /// `sai-sci init` — 基盤・論文・研究の部品をこの順で配る。
 ///
-/// 1. `--type` を確かめる（知らない型 → 2、木が既にある → 4）。
+/// 1. `--type` を確かめる（知らない RESEARCH_TYPE → 2、research-tree が既にある → 4）。
 /// 2. `sai-link init` を呼ぶ。
 /// 3. 研究の部品と設定を配る（[`agent_assets::install_sci_init`]）。
 /// 4. `sai-paper init` を呼ぶ（`--domain` は渡さない）。
 /// 5. `state.md` などと `project-brief.md` を作る（失敗は警告だけ）。
-/// 6. `--type` があれば木を作る。
+/// 6. `--type` があれば research-tree を作る。
 ///
 /// 3 を 4 より前に行う理由: 古い `sai-paper init` が、無い部品を自分の版で
 /// 書くのを避ける（先に sai-sci の物を置けば「ある」と見てそのままにする）。
@@ -497,7 +497,7 @@ fn handle_init(
     let root = init_root()?;
     let sai = root.join(".sai");
 
-    // 1. 検査（型と、既にある木）。
+    // 1. 検査（RESEARCH_TYPE と、既にある research-tree）。
     if let Some(type_id) = type_id {
         let defs = defs::load(&root);
         sci::type_name(&defs, type_id)
@@ -512,7 +512,7 @@ fn handle_init(
                     .and_then(|status| status.type_info)
                     .map_or_else(|| type_id.to_string(), |found| found.name);
                 return Err(cli_error::CliError::conflict(format!(
-                    "既に始めています（型: {existing}）"
+                    "既に始めています（RESEARCH_TYPE: {existing}）"
                 ))
                 .into());
             }
@@ -562,12 +562,12 @@ fn handle_init(
     // 5. state.md などと状況まとめ（失敗は警告だけ）。
     messages.extend(ensure_project_files_and_brief(&root));
 
-    // 6. 研究方針の木。
+    // 6. research-tree。
     let tree = if let Some(type_id) = type_id {
         let outcome = sci::init_tree_and_export(&root, type_id)?;
         if outcome.already {
             return Err(cli_error::CliError::conflict(format!(
-                "既に始めています（型: {}）",
+                "既に始めています（RESEARCH_TYPE: {}）",
                 outcome.type_name
             ))
             .into());

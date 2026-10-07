@@ -1,7 +1,7 @@
 //! 研究プロジェクトの「考え」と「現況」のファイル。
 //!
 //! - `mind.md`: ユーザーが自分の考え（大きな問い・仮説・制約など）を書く。
-//! - `state.md`: プロジェクトの現況（目標・段階・今の作業・次の一手・更新日）。
+//! - `state.md`: プロジェクトの現況（目標・段階・今の作業・Next Action・更新日）。
 //!
 //! どちらもユーザーが書くもので、エージェントは直接書き換えない。ひな形は
 //! ファイルが無いときだけ [`ensure`] が作り、既にあるファイルには触らない。
@@ -15,7 +15,7 @@ pub const MIND_TEMPLATE: &str = r#"# mind
 ## 大きな問い
 
 ## 今の仮説
-<!-- 仮説ごとに名前を付け、sai-link のカードの tag にも同じ名前を付けると、エージェントの記録と対応させやすい -->
+<!-- 仮説ごとに名前を付け、sai-link の CARD の tag にも同じ名前を付けると、エージェントの記録と対応させやすい -->
 
 ## 前提・制約（使えるデータ・計算資源・期間など）
 
@@ -35,7 +35,7 @@ pub const STATE_TEMPLATE: &str = r#"# 現況
 - 目標:
 - 段階: 探索
 - 今の作業:
-- 次の一手:
+- Next Action:
 - 更新日:
 "#;
 
@@ -50,7 +50,7 @@ pub struct ProjectState {
     pub stage: Option<String>,
     /// 今の作業（`- 今の作業:`）。
     pub current_task: Option<String>,
-    /// 次の一手（`- 次の一手:`）。
+    /// Next Action（`- Next Action:`）。
     pub next_action: Option<String>,
     /// 更新日（`- 更新日:`）。
     pub updated: Option<String>,
@@ -225,7 +225,7 @@ pub fn parse_state(text: &str) -> ProjectState {
             "目標" => fill(&mut state.goal, &mut seen[0], value),
             "段階" => fill(&mut state.stage, &mut seen[1], value),
             "今の作業" => fill(&mut state.current_task, &mut seen[2], value),
-            "次の一手" => fill(&mut state.next_action, &mut seen[3], value),
+            "Next Action" => fill(&mut state.next_action, &mut seen[3], value),
             "更新日" => fill(&mut state.updated, &mut seen[4], value),
             _ => {}
         }
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn parse_state_basic() {
-        let text = "- 目標: 発作予測\n- 段階:\n余計な行\n- 次の一手：データを比べる";
+        let text = "- 目標: 発作予測\n- 段階:\n余計な行\n- Next Action：データを比べる";
         let state = parse_state(text);
 
         assert_eq!(state.goal.as_deref(), Some("発作予測"));
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn parse_state_full_width_and_spaces() {
-        let text = "# 現況\n\n- 目標：　研究の問いを 1 文にする　\n- 段階： 絞り込み\n- 今の作業: 論文を 5 本読む\n- 次の一手: データを比べる\n- 更新日: 2026-09-25\n";
+        let text = "# 現況\n\n- 目標：　研究の問いを 1 文にする　\n- 段階： 絞り込み\n- 今の作業: 論文を 5 本読む\n- Next Action: データを比べる\n- 更新日: 2026-09-25\n";
         let state = parse_state(text);
 
         assert_eq!(state.goal.as_deref(), Some("研究の問いを 1 文にする"));

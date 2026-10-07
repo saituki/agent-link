@@ -20,7 +20,7 @@ impl CliError {
         Self { code: 2, message: m.into() }
     }
 
-    /// 見つからない（終了コード 3）。run・カード・トークン・論文・定義など。
+    /// 見つからない（終了コード 3）。run・CARD・トークン・論文・定義など。
     pub fn not_found(m: impl Into<String>) -> Self {
         Self { code: 3, message: m.into() }
     }

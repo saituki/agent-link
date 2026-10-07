@@ -1,7 +1,7 @@
 //! task.md 発行：論文をエージェントに引き渡す。
 //!
 //! sai-paper から選択した論文を sai-link のカンバンボードに task.md 作成して
-//! 引き渡す。カードは `sai-link card create`（標準入力に JSON）で作り、
+//! 引き渡す。CARD は `sai-link card create`（標準入力に JSON）で作り、
 //! run_id はその出力から得る。sai-link の DB は直に開かない。
 
 use sai_paper_core::database::Database;
@@ -56,7 +56,7 @@ pub struct BlockInfo {
     pub path: PathBuf,
 }
 
-/// todo に残っているカード 1 枚（[`list_todo_cards`] の返り値）。
+/// todo に残っている CARD 1 枚（[`list_todo_cards`] の返り値）。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TodoCard {
     /// frontmatter の run_id
@@ -131,15 +131,15 @@ pub fn list_blocks(roots: &PaperRoots) -> Result<Vec<BlockInfo>> {
     Ok(result)
 }
 
-/// `lane` が `todo` の run の `task.md` のカードを一覧する。
+/// `lane` が `todo` の run の `task.md` の CARD を一覧する。
 ///
 /// run の一覧は `sai-link run list --json` から取り、`dir` の下の
-/// `task.md` を読む。`tag` を指定すると frontmatter の `tag` が一致するカードだけを返す。
+/// `task.md` を読む。`tag` を指定すると frontmatter の `tag` が一致する CARD だけを返す。
 /// 返り値は `run_id` の昇順。sai-link の一覧を読めないときは空を返す。
 ///
 /// # Errors
 ///
-/// カードの読み込みに失敗したとき。
+/// CARD の読み込みに失敗したとき。
 pub fn list_todo_cards(roots: &PaperRoots, tag: Option<&str>) -> Result<Vec<TodoCard>> {
     let Ok(runs) = link::runs(&roots.root) else {
         return Ok(Vec::new());
@@ -157,7 +157,7 @@ pub fn list_todo_cards(roots: &PaperRoots, tag: Option<&str>) -> Result<Vec<Todo
         let Ok(content) = fs::read_to_string(&task_path) else {
             continue;
         };
-        // frontmatter が無い / 壊れているカードは飛ばす。
+        // frontmatter が無い / 壊れている CARD は飛ばす。
         let Ok((frontmatter, _)) = split_frontmatter(&content) else {
             continue;
         };
@@ -244,7 +244,7 @@ fn get_fm_value(frontmatter: &str, key: &str) -> Option<String> {
     None
 }
 
-/// カード発行の依頼（[`create_handoff_with`] の引数）。
+/// CARD 発行の依頼（[`create_handoff_with`] の引数）。
 pub struct HandoffRequest<'a> {
     /// 実行するブロックの id
     pub block_id: &'a str,
@@ -252,7 +252,7 @@ pub struct HandoffRequest<'a> {
     pub paper_ids: &'a [i64],
     /// 依頼の本文
     pub description: &'a str,
-    /// カードのタグ（任意）
+    /// CARD のタグ（任意）
     pub tag: Option<&'a str>,
     /// 実行エージェント（`pi` / `cc`）
     pub runner: &'a str,
@@ -280,12 +280,12 @@ pub fn create_handoff_with(
 /// 処理:
 /// 1. ブロックの存在を確認
 /// 2. 論文情報を集める
-/// 3. `sai-link card create` でカードを作る（本文と `extra` を渡す）
+/// 3. `sai-link card create` で CARD を作る（本文と `extra` を渡す）
 /// 4. { run_id, path } を返す
 ///
 /// `extra` は `(キー, 値)` の並び。値の改行は空白に置き換え、空の値は書かない。
 /// `executer` は `card create` の起動者に、それ以外は `meta` に入れる。
-/// 並びは呼び出し側が決める（sai-sci のカードは `sci_node` から `sci_depth` までをこの順に足す）。
+/// 並びは呼び出し側が決める（sai-sci の CARD は `sci_node` から `sci_depth` までをこの順に足す）。
 ///
 /// # Errors
 ///
@@ -297,7 +297,7 @@ pub fn create_handoff_with_extra(
     extra: &[(&str, String)],
 ) -> Result<HandoffResult> {
     let block_id = request.block_id;
-    // `origin_run` はカードには書かない（結び付けは呼び出し側が別に記録する）。
+    // `origin_run` は CARD には書かない（結び付けは呼び出し側が別に記録する）。
     let _ = request.origin_run;
 
     // 1. ブロック情報を検索
@@ -358,7 +358,7 @@ pub fn create_handoff_with_extra(
         }
     }
 
-    // 6. `sai-link card create` でカードを作る。
+    // 6. `sai-link card create` で CARD を作る。
     let card = link::CardCreate {
         runner: request.runner.to_string(),
         block: block_id.to_string(),
@@ -626,7 +626,7 @@ mod tests {
         }
     }
 
-    /// カードの項目を `sai-link card create` に渡し、task.md もできること。
+    /// CARD の項目を `sai-link card create` に渡し、task.md もできること。
     #[test]
     fn test_create_handoff_passes_card_fields() {
         let root = temp_root("no-papers");

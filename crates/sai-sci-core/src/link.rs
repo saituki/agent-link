@@ -1,8 +1,8 @@
-//! sai-link を CLI だけで使う（run の一覧とカードの作成）。
+//! sai-link を CLI だけで使う（run の一覧と CARD の作成）。
 //!
 //! sci-core は sai-link の DB と実行フォルダの並び
 //! （`.sai/outputs/`）を直に開かない。run の一覧は
-//! `sai-link run list --json --limit 0`、カードの作成は
+//! `sai-link run list --json --limit 0`、CARD の作成は
 //! `sai-link card create`（標準入力に JSON）で行う。
 //!
 //! 子の実行ファイルの見つけ方と呼び方は [`crate::bins`] に任せる。
@@ -55,7 +55,7 @@ fn cache() -> &'static Mutex<HashMap<PathBuf, Vec<LinkRun>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// 覚えた run の一覧を捨てる。カードを作った後に呼ぶ。
+/// 覚えた run の一覧を捨てる。CARD を作った後に呼ぶ。
 pub fn forget(root: &Path) {
     if let Ok(mut map) = cache().lock() {
         map.remove(root);
@@ -167,7 +167,7 @@ pub struct CardCreate {
     pub meta: BTreeMap<String, String>,
 }
 
-/// `sai-link card create` でカードを作る。
+/// `sai-link card create` で CARD を作る。
 ///
 /// 標準入力に [`CardCreate`] の JSON を渡す（`thinking`・`model`・`provider`・
 /// `doc_tokens` は渡さない）。返り値は `(run_id, task.md のパス)`。

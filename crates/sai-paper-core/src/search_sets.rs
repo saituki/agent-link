@@ -188,7 +188,7 @@ pub fn add_items(conn: &Connection, set_id: i64, papers: Vec<RemotePaper>) -> Re
 /// 検索セットに「何のための検索か」を書く欄（R-R6）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SciSetFields {
-    /// 結ぶ節点の番号。
+    /// 結ぶ Node の番号。
     pub node: Option<i64>,
     /// 結ぶ問いの番号。
     pub question: Option<i64>,
@@ -226,7 +226,7 @@ pub fn set_sci_fields(conn: &Connection, set_id: i64, fields: &SciSetFields) -> 
     Ok(())
 }
 
-/// 研究方針の木の Node の番号から、外に出す形の文字（例 `O5`）を作る。
+/// research-tree の Node の番号から、外に出す形の文字（例 `O5`）を作る。
 ///
 /// `sai-sci-core::rt::fmt_id` と同じ形（`<種類><番号>`）を、`papr.db` の `rt_nodes` を
 /// SQL で読んで作る。sai-paper は sai-sci に依存しないため、ここに置いてある。

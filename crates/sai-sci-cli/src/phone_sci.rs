@@ -24,7 +24,7 @@ pub(crate) fn card_spec(input: &str) -> Result<card::CardSpec> {
         origin_run: number_of(&value, "origin_run")?,
         // Web からは文書を受け取らない（`--input` は CLI の引数だけ）。
         inputs: Vec::new(),
-        // Web の画面から作るカードは人が起こすもの（agent が起こすカードは CLI だけ）。
+        // Web の画面から作る CARD は人が起こすもの（agent が起こす CARD は CLI だけ）。
         executer: String::new(),
     })
 }
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(spec.expect, "O を 2 つ以上");
         assert_eq!(spec.mode, "purpose_first");
         assert_eq!(spec.papers, vec![37, 40]);
-        // 実行者が空なら `pi`（読む札は `user` を書く）。
+        // 実行者が空なら `pi`（READ_CARD は `user` を書く）。
         assert_eq!(spec.runner, "pi");
         assert_eq!(spec.depth, "full");
         assert_eq!(spec.origin_run, Some(120));

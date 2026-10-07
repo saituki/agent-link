@@ -1,6 +1,6 @@
-//! 新しい木（Q・O・F・E）を変える操作（op）。C-OP の表が正。
+//! 新しい research-tree（Q・O・F・E）を変える操作（op）。C-OP の表が正。
 //!
-//! 入口は 3 つ。agent の [`propose`]、利用者の [`apply_user`]、利用者の仕分け [`triage`]。
+//! 入口は 3 つ。agent の [`propose`]、利用者の [`apply_user`]、利用者の TRIAGE [`triage`]。
 //! 表（[`OP_SPECS`]）→ 形の検査 → 中身の検査 → 書く、を [`execute`] 1 本で行う。
 //! 検査が全部済んでから書くので、途中で弾かれた op は何も残さない。
 //! [`propose`] は 1 つのトランザクションで動き、1 件でも弾かれれば全体を戻す。
@@ -22,11 +22,11 @@ const MAX_PROPOSALS: usize = 20;
 /// 入り方。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Risk {
-    /// agent が出したらすぐ入る。
+    /// agent が出したら AUTO_OP で入る。
     Auto,
-    /// agent が出したら利用者が仕分けてから入る。
+    /// agent が出したら利用者が TRIAGE してから入る（TRIAGE_OP）。
     Human,
-    /// 利用者だけ。PROPOSAL では出せない。
+    /// USER_OP。PROPOSAL では出せない。
     UserOnly,
 }
 
@@ -78,7 +78,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_q",
         risk: Risk::Human,
-        about: "SEED か Q（または O）の下に子の Q を足す。SEED の下なら top_Q になる。仕分けのあとで入る",
+        about: "SEED か Q（または O）の下に child_Q を足す。SEED の下なら top_Q になる。TRIAGE のあとで入る",
         fields: &[req("parent", Ty::SeedOrId), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80))],
     },
     OpSpec {
@@ -95,7 +95,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_f",
         risk: Risk::Auto,
-        about: "O か E の下に F（根拠）を足す。数字を含む文には出典（cites）か報告書のトークン（report）が要る",
+        about: "O か E の下に F（根拠）を足す。数字を含む文には出典（cites）か REPORT のトークン（report）が要る",
         fields: &[
             req("parent", Ty::Id),
             req("text", Ty::Text(1, 1200)),
@@ -139,13 +139,13 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "copy",
         risk: Risk::Human,
-        about: "O とその下の F を別の Q の下へ写す（E は写さない）。仕分けのあとで入る",
+        about: "O とその下の F を別の Q の下へ写す（E は写さない）。TRIAGE のあとで入る",
         fields: &[req("node", Ty::Id), req("to", Ty::Id)],
     },
     OpSpec {
         op: "remove",
         risk: Risk::Human,
-        about: "Node を下の Node ごと消す（top_Q も消せる）。仕分けのあとで入る",
+        about: "Node を下の Node ごと消す（top_Q も消せる）。TRIAGE のあとで入る",
         fields: &[req("node", Ty::Id)],
     },
     OpSpec { op: "star", risk: Risk::UserOnly, about: "O に ★ を付ける", fields: &[req("o", Ty::Id)] },
@@ -165,7 +165,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "set_target",
         risk: Risk::UserOnly,
-        about: "Q の目安（0〜99。null でガイドの値に戻す）を変える",
+        about: "Q の Objectivity の target（0〜99。null で GUIDE の値に戻す）を変える",
         fields: &[req("q", Ty::Id), req("target", Ty::NullInt)],
     },
 ];
@@ -330,7 +330,7 @@ pub fn propose(
             return Err(at(RtError::Invalid(format!("知らない op です: {op}"))));
         };
         if spec.risk == Risk::UserOnly {
-            return Err(at(RtError::Invalid("利用者だけが行う操作です".into())));
+            return Err(at(RtError::Invalid("USER_OP です（利用者だけが行います）".into())));
         }
         if !allowed.iter().any(|a| a == op) {
             return Err(at(RtError::Invalid(format!("このブロックでは {op} を出せません"))));
@@ -366,7 +366,7 @@ pub fn propose(
 pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &Value) -> Result<ApplyResult> {
     let op = input.get("op").and_then(Value::as_str).unwrap_or("").to_string();
     let tx = conn.unchecked_transaction()?;
-    // 読む札（runner=user の run）の画面から足す F は、その run の F として残す
+    // READ_CARD（runner=user の run）の画面から足す F は、その run の F として残す
     // （`run` は op の項目ではないので、検査に渡す前に外す）
     let run_id = input.get("run").and_then(Value::as_i64).filter(|r| *r > 0);
     let mut input = input.clone();
@@ -379,7 +379,7 @@ pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &V
     Ok(ApplyResult { op, result: Some(result) })
 }
 
-/// 仕分け。Accept は `edit` を重ねて検査し直してから書く。
+/// TRIAGE。Accept は `edit` を重ねて検査し直してから書く。
 pub fn triage(
     conn: &Connection,
     _roots: &PaperRoots,
@@ -394,7 +394,7 @@ pub fn triage(
     let (status, result) = match action {
         TriageAction::Accept | TriageAction::Reject => {
             if p.status != "pending" {
-                return invalid(format!("{name} は仕分け待ちではありません（{}）", p.status));
+                return invalid(format!("{name} は PENDING ではありません（{}）", p.status));
             }
             if action == TriageAction::Reject {
                 ("rejected", None)
@@ -417,7 +417,7 @@ pub fn triage(
         }
         TriageAction::Revert => {
             if p.status != "applied" {
-                return invalid(format!("{name} はすぐ入った提案ではないので取り消せません（{}）", p.status));
+                return invalid(format!("{name} は AUTO_OP で入った PROPOSAL ではないので取り消せません（{}）", p.status));
             }
             revert(&tx, &p.op, p.result_ref.as_deref())?;
             ("reverted", p.result_ref.clone())
@@ -428,7 +428,7 @@ pub fn triage(
     Ok(TriageResult { proposal: name, status: status.into(), result })
 }
 
-/// すぐ入った op の取り消し。確かめの記録（`record_logic`）は消さない。
+/// AUTO_OP で入った op の取り消し。確かめの記録（`record_logic`）は消さない。
 fn revert(conn: &Connection, op: &str, result: Option<&str>) -> Result<()> {
     let Some(result) = result else { return Ok(()) };
     match op {
@@ -445,7 +445,7 @@ fn revert(conn: &Connection, op: &str, result: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// 書かずに検査だけする（仕分け待ちの op 用）。書いて戻す。
+/// 書かずに検査だけする（PENDING の op 用）。書いて戻す。
 fn dry_run(cx: &Cx<'_>, op: &Value) -> Result<()> {
     cx.conn.execute_batch("SAVEPOINT rt_dry")?;
     let r = execute(cx, op);
@@ -643,7 +643,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             let parent = text(op, "parent");
             let guide = op.get("guide").and_then(Value::as_str);
             if let Some(key) = guide.filter(|k| cx.defs.guide(k).is_none()) {
-                return invalid(format!("知らないガイドです: {key}"));
+                return invalid(format!("知らない GUIDE です: {key}"));
             }
             // `parent: SEED` は top_Q を作る（親は NULL）。
             let parent_id = if parent == super::SEED_ID {
@@ -651,7 +651,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             } else {
                 let found = node(cx, parent, &[Kind::Q, Kind::O])?;
                 if found.kind == Kind::Q && !alive_children(cx, found.id, Kind::O)?.is_empty() {
-                    return invalid(format!("{} には O があるので、子の Q を足せません", fmt_id(found.kind, found.id)));
+                    return invalid(format!("{} には O があるので、child_Q を足せません", fmt_id(found.kind, found.id)));
                 }
                 Some(found.id)
             };
@@ -663,7 +663,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             let q = node(cx, text(op, "q"), &[Kind::Q])?;
             let qid = fmt_id(Kind::Q, q.id);
             if !alive_children(cx, q.id, Kind::Q)?.is_empty() {
-                return invalid(format!("{qid} には子の Q があるので、O を足せません"));
+                return invalid(format!("{qid} には child_Q があるので、O を足せません"));
             }
             let t = text(op, "text");
             if alive_children(cx, q.id, Kind::O)?.iter().any(|o| o.text == t) {
@@ -684,10 +684,10 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
                 return invalid("text は 3 文までです");
             }
             let cites = strings(op, "cites");
-            // 数字を含む F は、論文の出典（cites）か、自分の報告書のトークン（report）を根拠にする。
+            // 数字を含む F は、論文の出典（cites）か、自分の REPORT のトークン（report）を根拠にする。
             let report = op.get("report").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
             if cites.is_empty() && report.is_none() && t.chars().any(char::is_numeric) {
-                return invalid("数字を含む F には出典（cites）か報告書のトークン（report）を付けてください");
+                return invalid("数字を含む F には出典（cites）か REPORT のトークン（report）を付けてください");
             }
             let papers = check_cites(conn, &cites)?;
             let paper = op.get("paper").and_then(Value::as_i64);
@@ -775,7 +775,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             let src = node(cx, text(op, "node"), &[Kind::O])?;
             let to = node(cx, text(op, "to"), &[Kind::Q])?;
             if !alive_children(cx, to.id, Kind::Q)?.is_empty() {
-                return invalid(format!("{} には子の Q があるので、O を写せません", text(op, "to")));
+                return invalid(format!("{} には child_Q があるので、O を写せません", text(op, "to")));
             }
             let mut n = new_node(cx, Kind::O, Some(to.id), &src.text);
             n.body = &src.body;
@@ -913,7 +913,7 @@ mod tests {
         fn count(&self, table: &str) -> i64 {
             self.conn().query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap()
         }
-        /// ガイドの key から top_Q などの Node の id を引く。
+        /// GUIDE の key から top_Q などの Node の id を引く。
         fn by_key(&self, key: &str) -> i64 {
             store::list_nodes(self.conn(), false)
                 .unwrap()
@@ -934,7 +934,7 @@ mod tests {
     #[test]
     fn add_q_to_seed_makes_top_q() {
         let e = env();
-        // `parent: SEED` で top_Q（親なし）を作る。add_q は仕分け待ちなので、仕分けして入れる。
+        // `parent: SEED` で top_Q（親なし）を作る。add_q は PENDING なので、TRIAGE して入れる。
         let r = e.one(json!({"op": "add_q", "parent": "SEED", "text": "新しい top_Q"})).unwrap();
         assert_eq!(r.status, "pending");
         let p = parse_ref(&r.proposal, 'P').unwrap();
@@ -962,10 +962,10 @@ mod tests {
         assert_eq!(store::get_node(e.conn(), o).unwrap().created_by, "run:7");
         let qid = fmt_id(Kind::Q, e.sub);
         assert!(err(e.one(json!({"op": "add_o", "q": qid, "text": "予後予測"}))).contains("同じ文"));
-        // O のある Q に子の Q は足せず、子の Q のある Q に O は足せない。
+        // O のある Q に child_Q は足せず、child_Q のある Q に O は足せない。
         assert!(err(e.one(json!({"op": "add_q", "parent": qid, "text": "子"}))).contains("O があるので"));
         let bg = e.by_key("background");
-        assert!(err(e.one(json!({"op": "add_o", "q": fmt_id(Kind::Q, bg), "text": "x"}))).contains("子の Q があるので"));
+        assert!(err(e.one(json!({"op": "add_o", "q": fmt_id(Kind::Q, bg), "text": "x"}))).contains("child_Q があるので"));
     }
 
     #[test]
@@ -977,7 +977,7 @@ mod tests {
         assert!(err(f("한 国", json!([]))).contains("text: ハングル"));
         assert!(err(f("一。二。三。四。", json!([]))).contains("3 文"));
         assert!(f("数字なし", json!([])).is_ok());
-        // 報告書のトークンがあれば、数字を含んでいても通る。空白だけの report は出典にならない。
+        // REPORT のトークンがあれば、数字を含んでいても通る。空白だけの report は出典にならない。
         let fr = |t: &str, report: &str| e.one(json!({"op": "add_f", "parent": o, "text": t, "report": report}));
         assert!(fr("H1 の効果量は g=0.47", "AbCdEf12").is_ok());
         assert!(fr("精度は 85 %", "  ").is_err());
@@ -1045,14 +1045,14 @@ mod tests {
     #[test]
     fn add_sprout_needs_issue_and_o() {
         let e = env();
-        // Q(sub) → O(A, answer) → Q → O(B)。SPROUT は鎖を見ない（終点の O を並べるだけ）。
+        // Q(sub) → O(A, answer) → Q → O(B)。SPROUT は PATH を見ない（終点の O を並べるだけ）。
         let a = e.o("A");
         let (_, aid) = parse_id(&a).unwrap();
         let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap().id;
         let b = e.one(json!({"op": "add_o", "q": fmt_id(Kind::Q, child_q), "text": "B"})).unwrap().result.unwrap();
         // Answer だけの paths は断られ、Issue を含むよう求められる。
         assert!(err(e.one(json!({"op": "add_sprout", "title": "種", "paths": [a]}))).contains("Issue"));
-        // 別の枝の O を Issue にしても、2 つ並べれば通る（鎖の検査は無い）。
+        // 別の枝の O を Issue にしても、2 つ並べれば通る（PATH の検査は無い）。
         e.user(json!({"op": "set_kind", "o": b, "kind": "issue"})).unwrap();
         let other = e.o("C");
         assert!(err(e.one(json!({"op": "add_sprout", "title": "種", "paths": [a, other]}))).contains("Issue"));
@@ -1095,7 +1095,7 @@ mod tests {
         assert_eq!(e.count("rt_nodes"), before + 1);
         let (_, id) = parse_id(&t.result.unwrap()).unwrap();
         assert_eq!(store::get_node(e.conn(), id).unwrap().text, "直した問い");
-        assert!(err(triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None)).contains("仕分け待ちではありません"));
+        assert!(err(triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None)).contains("PENDING ではありません"));
         // reject
         let r = e.one(json!({"op": "remove", "node": f})).unwrap();
         let p = parse_ref(&r.proposal, 'P').unwrap();
@@ -1133,7 +1133,7 @@ mod tests {
     fn star_is_user_only() {
         let e = env();
         let o = e.o("A");
-        assert!(err(e.one(json!({"op": "star", "o": o}))).contains("利用者だけ"));
+        assert!(err(e.one(json!({"op": "star", "o": o}))).contains("USER_OP"));
         // sci_ops に書いてあっても弾く。
         let blocks = e.roots.root.join(".sai/blocks");
         std::fs::create_dir_all(&blocks).unwrap();
@@ -1193,7 +1193,7 @@ mod tests {
         assert!(err(e.one(json!({"op": "add_o", "q": q, "text": "x", "kind": "foo"}))).contains("answer / issue"));
         assert!(err(e.one(json!({"op": "nope"}))).contains("知らない op"));
         assert!(err(e.one(json!({"op": "add_o", "q": "O1", "text": "x"}))).contains("Q の ID"));
-        assert!(err(e.one(json!({"op": "add_q", "parent": q, "text": "x", "guide": "zz"}))).contains("知らないガイド"));
+        assert!(err(e.one(json!({"op": "add_q", "parent": q, "text": "x", "guide": "zz"}))).contains("知らない GUIDE"));
     }
 
     #[test]
@@ -1203,7 +1203,7 @@ mod tests {
         // 理由（reason）を付けた op は、知らない項目として弾かれる。
         assert!(err(e.one(json!({"op": "add_o", "q": q, "text": "x", "reason": "x"}))).contains("reason"));
         assert!(err(e.one(json!({"op": "copy", "node": q, "to": q, "reason": "x"}))).contains("reason"));
-        // reason を付けなければ remove は通る（仕分け待ちまで）。
+        // reason を付けなければ remove は通る（PENDING まで）。
         let o = e.o("A");
         let r = e.one(json!({"op": "remove", "node": o})).unwrap();
         assert_eq!(r.status, "pending");

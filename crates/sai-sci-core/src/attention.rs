@@ -7,11 +7,11 @@
 //! 2. `Question` — 引き継ぎの「ユーザーへの質問」（最近 5 件の引き継ぎから）
 //! 3. `StateUpdate` — 引き継ぎに「現況の更新案」があるのに `state.md` がその後に
 //!    直されていない
-//! 4. `RecommendCard` — todo に残っている推薦のカード（タグ `推薦`）
+//! 4. `RecommendCard` — todo に残っている推薦の CARD（タグ `推薦`）
 //! 5. `ReportIssue` — 出典の要確認（report の問題のうち `error` のもの）
 //! 6. `NewSetItems` — 検索セットをもう一度実行して新着があった（S03）
-//! 7. `SciDecision` — ★ の無い Q がある（研究方針の木があるときだけ）
-//! 8. `SciTriage` — 仕分けていない提案がある（研究方針の木があるときだけ）
+//! 7. `SciDecision` — ★ の無い Q がある（research-tree があるときだけ）
+//! 8. `SciTriage` — TRIAGE していない PROPOSAL がある（research-tree があるときだけ）
 //!
 //! LLM は使わない。ファイル（`.sai/outputs/`・`.sai/paper/state.md`）と
 //! `papr.db` を読むだけである。
@@ -19,7 +19,7 @@
 //! 「対応済み」にした記録は `activity_log` の `resolved` に残す。`detail` の JSON は
 //! `{"key": "<[`AttentionItem::key`]>", "text": "<その時の本文の先頭 200 字>"}`。
 //! 質問と現況の更新案は、答えたかどうかを記録から判断できないので `x` で消す。
-//! review・カード・出典は元が片付けば自然に消える（`resolved` でも消せる）。
+//! review・CARD・出典は元が片付けば自然に消える（`resolved` でも消せる）。
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -48,15 +48,15 @@ pub enum AttentionKind {
     Question,
     /// 引き継ぎの「現況の更新案」が `state.md` に反映されていない。
     StateUpdate,
-    /// todo に残っている推薦のカード。
+    /// todo に残っている推薦の CARD。
     RecommendCard,
     /// report の出典の要確認（`error`）。
     ReportIssue,
     /// 検索セットをもう一度実行して新着があった（S03）。
     NewSetItems,
-    /// 研究方針の木の、★ の無い Q（Next Action の `NO_STAR`）。
+    /// research-tree の、★ の無い Q（Next Action の `NO_STAR`）。
     SciDecision,
-    /// 研究方針の木の仕分け待ちの提案。
+    /// research-tree の PENDING の PROPOSAL。
     SciTriage,
 }
 
@@ -121,7 +121,7 @@ pub enum AttentionError {
     /// 引き継ぎの読み出しに失敗した。
     #[error("progress error: {0}")]
     Progress(#[from] progress::ProgressError),
-    /// todo カードの読み出しに失敗した。
+    /// todo CARD の読み出しに失敗した。
     #[error("handoff error: {0}")]
     Handoff(#[from] handoff::HandoffError),
     /// report の問題の読み出しに失敗した。
@@ -130,7 +130,7 @@ pub enum AttentionError {
     /// `resolved` の `detail` の JSON の読み書きに失敗した。
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
-    /// 研究方針の木の読み出しに失敗した。
+    /// research-tree の読み出しに失敗した。
     #[error("rt error: {0}")]
     Rt(#[from] crate::rt::RtError),
 }
@@ -143,7 +143,7 @@ const HANDOFF_SCAN: usize = 20;
 
 /// 要対応を集める。並びは 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8（種類の中は新しい順）。
 ///
-/// 研究方針の木があるときは 3（現況の更新案）を集めない。`state.md` は木から書き出すので、
+/// research-tree があるときは 3（現況の更新案）を集めない。`state.md` は research-tree から書き出すので、
 /// 人が直す余地が無いから。代わりに 7 と 8 を足す。
 ///
 /// # Errors
@@ -155,7 +155,7 @@ pub fn collect(
 ) -> Result<Vec<AttentionItem>, AttentionError> {
     let resolved = resolved_keys(conn)?;
     let mut items = Vec::new();
-    // 研究方針の木があるときだけ 7 と 8 を出し、3 は出さない。
+    // research-tree があるときだけ 7 と 8 を出し、3 は出さない。
     let tree = sci_tree(conn, roots)?;
 
     for item in empty_reviews(&roots.root) {
@@ -204,7 +204,7 @@ pub fn collect(
     Ok(items)
 }
 
-/// 研究方針の木があれば `status` を返す。始めていなければ `None`。
+/// research-tree があれば `status` を返す。始めていなければ `None`。
 fn sci_tree(
     conn: &Connection,
     roots: &PaperRoots,
@@ -329,7 +329,7 @@ fn state_update(root: &Path, data_dir: &Path) -> Option<AttentionItem> {
         })
 }
 
-/// 4. todo に残っている推薦のカード（`run_id` の新しい順）。
+/// 4. todo に残っている推薦の CARD（`run_id` の新しい順）。
 fn recommend_cards(roots: &PaperRoots) -> Result<Vec<AttentionItem>, AttentionError> {
     let mut cards = handoff::list_todo_cards(roots, Some("推薦"))?;
     cards.sort_by_key(|card| std::cmp::Reverse(card.run_id));
@@ -344,7 +344,7 @@ fn recommend_cards(roots: &PaperRoots) -> Result<Vec<AttentionItem>, AttentionEr
             AttentionItem {
                 key: format!("card:{}", card.run_id),
                 kind: AttentionKind::RecommendCard,
-                title: format!("推薦のカード: {description}（run {}）", card.run_id),
+                title: format!("推薦の CARD: {description}（run {}）", card.run_id),
                 run_id: Some(card.run_id),
                 open_path: Some(card.path),
                 report_id: None,
@@ -489,7 +489,7 @@ fn star_items(roots: &PaperRoots, status: &crate::rt::compute::Status) -> Vec<At
         .collect()
 }
 
-/// 8. 仕分け待ちの提案（1 件にまとめる）。
+/// 8. PENDING の PROPOSAL（1 件にまとめる）。
 fn sci_triage(
     conn: &Connection,
     status: &crate::rt::compute::Status,
@@ -505,7 +505,7 @@ fn sci_triage(
     Ok(vec![AttentionItem {
         key: format!("sci_triage:{latest}"),
         kind: AttentionKind::SciTriage,
-        title: format!("PROPOSAL {} 件が仕分け待ちです", status.pending_proposals),
+        title: format!("PROPOSAL {} 件が PENDING です", status.pending_proposals),
         run_id: None,
         open_path: None,
         report_id: None,
@@ -622,7 +622,7 @@ mod tests {
         );
     }
 
-    /// todo のカードを 1 枚作る。
+    /// todo の CARD を 1 枚作る。
     fn write_card(root: &Path, run_id: i64, tag: &str, description: &str) {
         write(
             root.join(".sai/outputs/todo")
@@ -764,15 +764,15 @@ mod tests {
         );
     }
 
-    // ---- 4. 推薦のカード ----
+    // ---- 4. 推薦の CARD ----
 
     #[test]
     fn recommend_cards_are_collected_newest_first() {
         let root = temp_root("card");
         write_card(&root, 71, "推薦", "候補を 3 本に絞る");
         write_card(&root, 72, "推薦", "評価の分け方を決める");
-        // 別タグのカードは拾わない。
-        write_card(&root, 73, "次の一手", "別のカード");
+        // 別タグの CARD は拾わない。
+        write_card(&root, 73, "Next Action", "別の CARD");
 
         let db = db();
         let items = collect(db.connection(), &roots_of(&root)).unwrap();
@@ -901,7 +901,7 @@ mod tests {
     #[test]
     fn resolved_keys_hide_matching_items() {
         let root = temp_root("resolved");
-        write_card(&root, 81, "推薦", "消すカード");
+        write_card(&root, 81, "推薦", "消す CARD");
 
         let db = db();
         let roots = roots_of(&root);
@@ -926,7 +926,7 @@ mod tests {
         assert_eq!(AttentionKind::SciTriage.label(), "TRIAGE");
     }
 
-    // ---- 7 と 8: 研究方針の木 ----
+    // ---- 7 と 8: research-tree ----
 
     #[test]
     fn sci_items_appear_and_state_update_is_skipped() {
@@ -938,7 +938,7 @@ mod tests {
         let db = db();
         let conn = db.connection();
 
-        // 引き継ぎの「現況の更新案」（木がある間は出さない）。
+        // 引き継ぎの「現況の更新案」（research-tree がある間は出さない）。
         write(
             root.join(".sai/outputs/review/50/task.md"),
             "---\nrun_id: 50\nblock: sci-compare\n---\n\nタスク\n",
@@ -948,7 +948,7 @@ mod tests {
             "---\nrun_id: 50\n---\n\n## ユーザーへの質問\n- どれにする\n\n## 現況の更新案\n- 目標: 新しくする\n",
         );
 
-        // 木を作る: 葉の Q に O を 1 つ、F を 2 つ、Logicality ok。★ だけが無い。
+        // research-tree を作る: bottom_Q に O を 1 つ、F を 2 つ、Logicality ok。★ だけが無い。
         store::meta_set(conn, "initialized_at", "2026-10-02 00:00:00").unwrap();
         let add = |kind, parent, text: &str, answer| {
             store::insert_node(
@@ -1001,10 +1001,10 @@ mod tests {
             .iter()
             .find(|item| item.kind == AttentionKind::SciTriage)
             .expect("TRIAGE が出る");
-        assert_eq!(triage.title, "PROPOSAL 1 件が仕分け待ちです");
+        assert_eq!(triage.title, "PROPOSAL 1 件が PENDING です");
         assert_eq!(triage.key, "sci_triage:1");
         assert!(triage.open_path.is_none());
-        // 木がある間は「現況の更新案」を出さない。
+        // research-tree がある間は「現況の更新案」を出さない。
         assert!(
             !items
                 .iter()
@@ -1036,7 +1036,7 @@ mod tests {
 
         let db = db();
         let items = collect(db.connection(), &roots).unwrap();
-        // 木が無いときは今までと同じ（3 は出て、7 と 8 は出ない）。
+        // research-tree が無いときは今までと同じ（3 は出て、7 と 8 は出ない）。
         assert!(
             items
                 .iter()

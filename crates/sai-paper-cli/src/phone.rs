@@ -522,7 +522,7 @@ pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Re
     }))
 }
 
-/// 検索の実行者と、結び付いた研究方針の Node（`log.actor` / `log.node`）。
+/// 検索の実行者と、結び付いた research-tree の Node（`log.actor` / `log.node`）。
 ///
 /// 検索の記録は `search_sets` の 1 行（`origin` が窓口）。agent の検索は `rt_searches` に
 /// run_id と Node が残る（`set_id` が検索のログ ID）。読めないものは空にする（エラーにしない）。

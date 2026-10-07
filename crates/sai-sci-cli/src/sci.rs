@@ -1,6 +1,6 @@
-//! `sai-sci` の研究方針の木（Research-tree）の命令。
+//! `sai-sci` の research-tree の命令。
 //!
-//! 木の計算と書き込みは `sai_sci_core::rt` が担う。ここは外から来る値の検査・
+//! research-tree の計算と書き込みは `sai_sci_core::rt` が担う。ここは外から来る値の検査・
 //! core の関数の呼び出し・出力の形だけを持つ。失敗は CLI 共通の約束に従う
 //! （`main` が [`crate::cli_error::CliError`] と [`rt::RtError`] から終了コードを決める）。
 //!
@@ -48,10 +48,10 @@ pub(crate) struct SciCardArgs {
     /// 対象論文の番号（カンマ区切り）
     #[arg(long, value_delimiter = ',')]
     pub papers: Vec<i64>,
-    /// 実行者（pi / cc / user。`user` なら読む札）
+    /// 実行者（pi / cc / user。`user` なら READ_CARD）
     #[arg(long, default_value = "pi")]
     pub runner: String,
-    /// 読む札の深さ（abstract / figures / full）
+    /// READ_CARD の深さ（abstract / figures / full）
     #[arg(long)]
     pub depth: Option<String>,
     /// 推薦した実行の run_id
@@ -96,13 +96,13 @@ impl SciCardArgs {
 
 // ---- 共通の準備 -------------------------------------------------------------
 
-/// sci の命令に必要なもの（DB・置き場・型とガイドの設定）。
+/// sci の命令に必要なもの（DB・置き場・RESEARCH_TYPE と GUIDE の設定）。
 pub(crate) struct SciEnv {
     /// papr.db（run の task.md を作る [`card::create_card`] が必要）。
     pub db: Database,
     /// 研究プロジェクトの置き場。
     pub roots: PaperRoots,
-    /// 型とガイド。
+    /// RESEARCH_TYPE と GUIDE。
     pub defs: defs::Defs,
     /// settings.json。
     pub config: Config,
@@ -114,7 +114,7 @@ impl SciEnv {
         self.db.connection()
     }
 
-    /// 木を変えたら state.md と tree.md を書き直す。
+    /// research-tree を変えたら state.md と tree.md を書き直す。
     pub fn export(&self) -> Result<()> {
         export::export(self.conn(), &self.roots, &self.defs)
             .context("state.md と tree.md を書き出せませんでした")?;
@@ -122,7 +122,7 @@ impl SciEnv {
     }
 }
 
-/// 置き場・DB・設定・型とガイドを開く（`sci.rs` と [`crate::phone_sci`] で使い回す）。
+/// 置き場・DB・設定・RESEARCH_TYPE と GUIDE を開く（`sci.rs` と [`crate::phone_sci`] で使い回す）。
 pub(crate) fn open_env() -> Result<SciEnv> {
     let roots = paths::paper_roots().context("研究プロジェクト（.sai/paper）が見つかりません")?;
     let db = open_database()?;
@@ -172,9 +172,9 @@ fn rt_err(err: rt::RtError) -> anyhow::Error {
 
 /// `sci init` の返り値（表示と JSON に書く内容）。
 pub(crate) struct InitOutcome {
-    /// 型の表示名（課題駆動など）。
+    /// RESEARCH_TYPE の表示名（課題駆動など）。
     pub type_name: String,
-    /// 型そのもの（problem など）。
+    /// RESEARCH_TYPE そのもの（problem など）。
     pub type_id: String,
     /// 作った Q の数（一番上を含む）。
     pub created: usize,
@@ -184,7 +184,7 @@ pub(crate) struct InitOutcome {
     pub backup: Option<PathBuf>,
     /// 配った部品の一覧（表示用）。
     pub assets: Vec<String>,
-    /// 新しい木が既にあったか。
+    /// 新しい research-tree が既にあったか。
     pub already: bool,
 }
 
@@ -192,7 +192,7 @@ impl InitOutcome {
     /// 人が読む文（警告と、残した state.md の行も足す）。
     pub fn text(&self) -> String {
         let mut text = format!(
-            "研究方針の木を作りました（型: {}・Q {}）\n",
+            "research-tree を作りました（RESEARCH_TYPE: {}・Q {}）\n",
             self.type_name, self.created
         );
         for warning in &self.warnings {
@@ -220,20 +220,20 @@ impl InitOutcome {
     }
 }
 
-/// 木を作って state.md と tree.md を書き出す（`sci init` の本体）。
+/// research-tree を作って state.md と tree.md を書き出す（`sci init` の本体）。
 ///
-/// 新しい木が既にあるときは `already` が真の返り値を返し、エラーにしない。
+/// 新しい research-tree が既にあるときは `already` が真の返り値を返し、エラーにしない。
 /// そこから先をどうするかは呼び出し側が決める（`sai-sci init` はエラーにする）。
-/// 古い木だけがあるときは新しく作る
+/// 古い research-tree だけがあるときは新しく作る
 /// （古い表は触らない）。
 ///
 /// # Errors
-/// 研究プロジェクトを開けないとき、木を作れないとき、書き出しに失敗したとき。
+/// 研究プロジェクトを開けないとき、research-tree を作れないとき、書き出しに失敗したとき。
 pub(crate) fn init_tree_and_export(root: &Path, type_id: &str) -> Result<InitOutcome> {
     let env = open_env_at(root)?;
     let type_name = type_name(&env.defs, type_id)?;
     if store::is_initialized(env.conn()).map_err(rt_err)? {
-        // 作ってある木の型の名前を出す（無ければ頼まれた型）。
+        // 作ってある research-tree の RESEARCH_TYPE の名前を出す（無ければ頼まれた型）。
         let existing = compute::status(env.conn(), &env.roots, &env.defs)
             .ok()
             .and_then(|status| status.type_info)
@@ -250,7 +250,7 @@ pub(crate) fn init_tree_and_export(root: &Path, type_id: &str) -> Result<InitOut
     }
 
     defs::write_local_copies(&env.roots.root)
-        .context(".sai/sci/ に型とガイドを置けませんでした")?;
+        .context(".sai/sci/ に RESEARCH_TYPE と GUIDE を置けませんでした")?;
     let backup = export::backup_state_once(&env.roots.data_dir)
         .context("今の state.md を残せませんでした")?;
     let report = defs::init_tree(env.conn(), &env.defs, type_id, "user")
@@ -268,17 +268,17 @@ pub(crate) fn init_tree_and_export(root: &Path, type_id: &str) -> Result<InitOut
     })
 }
 
-/// 部品（ブロック・テンプレート・`context`・土壌のひな形）を配ってから木を作る。
+/// 部品（ブロック・テンプレート・`context`・土壌のひな形）を配ってから research-tree を作る。
 ///
 /// `sai-sci init` はここを呼ぶ。
 ///
 /// # Errors
-/// 部品を配れないとき、木を作れないとき、書き出しに失敗したとき。
+/// 部品を配れないとき、research-tree を作れないとき、書き出しに失敗したとき。
 pub(crate) fn init_with_assets(root: &Path, type_id: &str) -> Result<InitOutcome> {
-    // 部品を配る前に型を確かめる（知らない型で `.sai/` や `state.pre-sci.md` を残さない）。
-    type_name(&defs::load(root), type_id).context("型を確かめられませんでした")?;
+    // 部品を配る前に RESEARCH_TYPE を確かめる（知らない RESEARCH_TYPE で `.sai/` や `state.pre-sci.md` を残さない）。
+    type_name(&defs::load(root), type_id).context("RESEARCH_TYPE を確かめられませんでした")?;
     let assets =
-        crate::agent_assets::install_sci_here(root).context("sci の部品を配れませんでした")?;
+        crate::agent_assets::install_sci_here(root).context("sci の assets を配れませんでした")?;
     let mut outcome = init_tree_and_export(root, type_id)?;
     outcome.assets = assets;
     Ok(outcome)
@@ -301,7 +301,7 @@ pub(crate) fn status(json: bool, brief: bool) -> Result<Out> {
 
 /// `sci status --brief`（`{"brief": true}`）が返す JSON。
 ///
-/// 短い文脈で現在地を読めるように、進み具合・次の一手・仕分け待ちの数だけを出す。
+/// 短い文脈で現在地を読めるように、進み具合・Next Action・PENDING の数だけを出す。
 /// 値は [`compute::status`] の結果からそのまま写すだけで、計算し直さない
 /// （Web と CLI で同じ値になる）。
 pub fn brief_status(status: &compute::Status) -> Value {
@@ -336,7 +336,7 @@ pub(crate) fn node_detail(node: &str, json: bool) -> Result<Out> {
 
 /// `sci context --run <id>` — 実行のための入力（sai-link が本文へ埋め込む）。
 ///
-/// `reveal` が真（`--tree`）なら blind でも木を出す。
+/// `reveal` が真（`--tree`）なら blind でも research-tree を出す。
 pub(crate) fn context(run: i64, reveal: bool) -> Result<Out> {
     let env = open_env()?;
     let text = context::build(
@@ -351,7 +351,7 @@ pub(crate) fn context(run: i64, reveal: bool) -> Result<Out> {
     Ok(Out::Text(text))
 }
 
-/// `sci propose` — 提案する（いつも JSON）。
+/// `sci propose` — propose する（いつも JSON）。
 pub(crate) fn propose(run: Option<i64>, block: Option<String>) -> Result<Out> {
     let env = open_env()?;
     let input = read_stdin_json()?;
@@ -371,7 +371,7 @@ pub(crate) fn apply() -> Result<Out> {
     Ok(Out::Json(serde_json::to_value(result)?))
 }
 
-/// 仕分け待ちの提案を JSON の 1 行にする（`proposals` の `proposals` の要素）。
+/// PENDING の PROPOSAL を JSON の 1 行にする（`proposals` の `proposals` の要素）。
 pub(crate) fn proposal_json(row: &store::ProposalRow) -> Value {
     json!({
         "id": rt::fmt_ref('P', row.id),
@@ -383,7 +383,7 @@ pub(crate) fn proposal_json(row: &store::ProposalRow) -> Value {
     })
 }
 
-/// `sci proposals` — 仕分け待ちの一覧。
+/// `sci proposals` — PENDING の一覧。
 pub(crate) fn proposals(json: bool) -> Result<Out> {
     let env = open_env()?;
     let rows = store::list_proposals(env.conn(), Some("pending")).map_err(rt_err)?;
@@ -392,7 +392,7 @@ pub(crate) fn proposals(json: bool) -> Result<Out> {
         return Ok(Out::Json(json!({ "proposals": list })));
     }
     if rows.is_empty() {
-        return Ok(Out::Text("仕分け待ちの提案はありません\n".to_string()));
+        return Ok(Out::Text("PENDING の PROPOSAL はありません\n".to_string()));
     }
     let mut text = String::new();
     for row in &rows {
@@ -407,7 +407,7 @@ pub(crate) fn proposals(json: bool) -> Result<Out> {
     Ok(Out::Text(text))
 }
 
-/// `sci triage <P>` — 仕分け。
+/// `sci triage <P>` — TRIAGE。
 pub(crate) fn triage(
     proposal: &str,
     accept: bool,
@@ -437,7 +437,7 @@ pub(crate) fn triage(
     Ok(Out::Json(run_triage(id, action, edit.as_ref())?))
 }
 
-/// 仕分けを実行して state.md と tree.md を書き直す（`sci triage` と `phone sci triage` で共用）。
+/// TRIAGE を実行して state.md と tree.md を書き直す（`sci triage` と `phone sci triage` で共用）。
 pub(crate) fn run_triage(
     id: i64,
     action: ops::TriageAction,
@@ -450,7 +450,7 @@ pub(crate) fn run_triage(
     Ok(serde_json::to_value(result)?)
 }
 
-/// カードを作って state.md と tree.md を書き直し、`{"run_id","path","executer"}` を返す
+/// CARD を作って state.md と tree.md を書き直し、`{"run_id","path","executer"}` を返す
 /// （`sci card` と `phone sci card` で共用）。
 pub(crate) fn make_card(spec: &card::CardSpec) -> Result<Value> {
     let env = open_env()?;
@@ -470,20 +470,20 @@ pub(crate) fn make_card(spec: &card::CardSpec) -> Result<Value> {
     }))
 }
 
-/// `sci card` — Node のための実行（カード）を作る。
+/// `sci card` — Node のための実行（CARD）を作る。
 pub(crate) fn card(spec: &card::CardSpec, json: bool) -> Result<Out> {
     let value = make_card(spec)?;
     if json {
         return Ok(Out::Json(value));
     }
     Ok(Out::Text(format!(
-        "run {} のカードを作りました: {}\n",
+        "run {} の CARD を作りました: {}\n",
         value["run_id"],
         value["path"].as_str().unwrap_or("")
     )))
 }
 
-/// `sci read <run_id>` — 読む札の中身。
+/// `sci read <run_id>` — READ_CARD の中身。
 pub(crate) fn read(run_id: i64, json: bool) -> Result<Out> {
     let env = open_env()?;
     let card =
@@ -500,11 +500,11 @@ pub(crate) fn export() -> Result<Out> {
     if export::export(env.conn(), &env.roots, &env.defs).context("書き出せませんでした")? {
         Ok(Out::Text("書き出しました: state.md, tree.md\n".to_string()))
     } else {
-        Ok(Out::Text("研究方針の木がありません\n".to_string()))
+        Ok(Out::Text("research-tree がありません\n".to_string()))
     }
 }
 
-/// 型の一覧の JSON（`{"types":[{"id","name"}]}`。`sci types` と `phone sci types` で共用）。
+/// RESEARCH_TYPE の一覧の JSON（`{"types":[{"id","name"}]}`。`sci types` と `phone sci types` で共用）。
 pub(crate) fn types_json(defs: &defs::Defs) -> Value {
     let list: Vec<Value> = defs
         .types
@@ -514,7 +514,7 @@ pub(crate) fn types_json(defs: &defs::Defs) -> Value {
     json!({ "types": list })
 }
 
-/// `sci types` — 使える型の一覧。
+/// `sci types` — 使える RESEARCH_TYPE の一覧。
 pub(crate) fn types(json: bool) -> Result<Out> {
     let roots = paths::paper_roots().context("研究プロジェクト（.sai/paper）が見つかりません")?;
     let defs = defs::load(&roots.root);
@@ -528,14 +528,14 @@ pub(crate) fn types(json: bool) -> Result<Out> {
     Ok(Out::Text(text))
 }
 
-/// `sci type-save` — 標準入力の型の Markdown を保存する（いつも JSON）。
+/// `sci type-save` — 標準入力の RESEARCH_TYPE の Markdown を保存する（いつも JSON）。
 pub(crate) fn type_save() -> Result<Out> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
         .map_err(|err| anyhow!("標準入力を読めません: {err}"))?;
     if text.trim().is_empty() {
-        return Err(crate::cli_error::CliError::input("標準入力に型の Markdown がありません").into());
+        return Err(crate::cli_error::CliError::input("標準入力に RESEARCH_TYPE の Markdown がありません").into());
     }
     let path = defs::save_user_type(&text).map_err(rt_err)?;
     Ok(Out::Json(json!({ "path": path.to_string_lossy() })))
@@ -574,7 +574,7 @@ pub(crate) fn parent_run_id() -> Option<i64> {
         .and_then(|text| text.trim().parse::<i64>().ok())
 }
 
-/// 提案の実行者を作る（`--run` / `--block`、無ければ環境変数）。
+/// PROPOSAL の実行者を作る（`--run` / `--block`、無ければ環境変数）。
 pub(crate) fn actor_of(run: Option<i64>, block: Option<String>) -> ops::Actor {
     let block = block
         .or_else(|| std::env::var("SAI_BLOCK_NAME").ok())
@@ -598,7 +598,7 @@ pub(crate) struct SearchRefs {
 /// `find` / `search` の引数検査。
 ///
 /// `--node` は `Q12`・`O5` のような形だけを受け付ける。指定が無ければ何も調べない
-/// （木が無いプロジェクトでも `find` / `search` を今までどおり使えるようにするため）。
+/// （research-tree が無いプロジェクトでも `find` / `search` を今までどおり使えるようにするため）。
 pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result<SearchRefs> {
     let Some(text) = node else {
         return Ok(SearchRefs::default());
@@ -606,7 +606,7 @@ pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result
     let text = text.trim();
     if !store::is_initialized(conn).map_err(rt_err)? {
         return Err(crate::cli_error::CliError::input(
-            "研究方針の木がありません（sai-sci init）",
+            "research-tree がありません（sai-sci init）",
         )
         .into());
     }
@@ -751,10 +751,10 @@ pub(crate) fn set_fields(
 
 // ---- 人が読む文 -------------------------------------------------------------
 
-/// `sci status` の文（型・進み具合・種の下書き・木・次の一手）。
+/// `sci status` の文（RESEARCH_TYPE・進み具合・SEED・research-tree・Next Action）。
 fn status_text(status: &compute::Status) -> String {
     if !status.initialized {
-        let mut text = "研究方針の木がまだありません。`sai-sci init --type <型>` で始めてください。\n"
+        let mut text = "research-tree がまだありません。`sai-sci init --type <型>` で始めてください。\n"
             .to_string();
         for warning in &status.warnings {
             text.push_str(&format!("⚠ {warning}\n"));
@@ -763,7 +763,7 @@ fn status_text(status: &compute::Status) -> String {
     }
     let mut text = String::new();
     if let Some(found) = &status.type_info {
-        text.push_str(&format!("型: {}\n", found.name));
+        text.push_str(&format!("RESEARCH_TYPE: {}\n", found.name));
         text.push_str(&format!("SEED: {}\n", found.name));
     }
     text.push_str(&format!(
@@ -781,12 +781,12 @@ fn status_text(status: &compute::Status) -> String {
             .join("、");
         text.push_str(&format!("SPROUT: {list}\n"));
     }
-    text.push_str(&format!("仕分け待ちの提案 {} 件\n", status.pending_proposals));
+    text.push_str(&format!("PENDING の PROPOSAL {} 件\n", status.pending_proposals));
     for node in &status.nodes {
         text.push_str(&node_line(node));
     }
     if !status.next.is_empty() {
-        text.push_str("次の一手:\n");
+        text.push_str("Next Action:\n");
         for (index, next) in status.next.iter().enumerate() {
             text.push_str(&format!("{}. {}\n", index + 1, next_text(next)));
         }
@@ -797,7 +797,7 @@ fn status_text(status: &compute::Status) -> String {
     text
 }
 
-/// 次の一手 1 件の文（Node・ブロック・目的・理由）。
+/// Next Action 1 件の文（Node・ブロック・目的・理由）。
 fn next_text(next: &compute::NextAction) -> String {
     let mut head = String::new();
     for part in [&next.node, &next.block].into_iter().flatten() {
@@ -828,7 +828,7 @@ fn node_line(node: &compute::NodeJson) -> String {
     line
 }
 
-/// `sci node <ID>` の文（題・道筋・子・ガイド・確かめ・決定の記録・提案・検索）。
+/// `sci node <ID>` の文（題・PATH・children・GUIDE・確かめ・DECISIONS・PROPOSAL・検索）。
 fn node_text(detail: &compute::NodeDetail) -> String {
     let node = &detail.node;
     let mut text = format!("{} {}\n", node.id, one_line(&node.text));
@@ -842,16 +842,16 @@ fn node_text(detail: &compute::NodeDetail) -> String {
             .map(|item| item.id.clone())
             .collect::<Vec<_>>()
             .join(" > ");
-        text.push_str(&format!("\n道筋: {path}\n"));
+        text.push_str(&format!("\nPATH: {path}\n"));
     }
     if let Some(guide) = &detail.guide {
         text.push_str(&format!(
-            "\nガイド {}: {}（Objectivity の目安 {}）\n",
+            "\nGUIDE {}: {}（Objectivity の target {}）\n",
             guide.name, guide.explain, guide.target
         ));
     }
     if !detail.children.is_empty() {
-        text.push_str("\n子:\n");
+        text.push_str("\nchildren:\n");
         for child in &detail.children {
             text.push_str(&format!("  {}", node_line(child).trim_start_matches("- ")));
         }
@@ -873,7 +873,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.decisions.is_empty() {
-        text.push_str("\n決定の記録:\n");
+        text.push_str("\nDECISIONS:\n");
         for decision in &detail.decisions {
             let mut line = format!("  {} {} {}", decision.at, decision.action, decision.actor);
             if !decision.detail.is_empty() {
@@ -884,7 +884,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.pending.is_empty() {
-        text.push_str("\n仕分け待ち:\n");
+        text.push_str("\nPENDING:\n");
         for pending in &detail.pending {
             text.push_str(&format!("  {} {}\n", pending.id, pending.op));
         }
@@ -899,7 +899,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
         }
     }
     if !detail.next.is_empty() {
-        text.push_str("\n次の一手:\n");
+        text.push_str("\nNext Action:\n");
         for (index, next) in detail.next.iter().enumerate() {
             text.push_str(&format!("  {}. {}\n", index + 1, next_text(next)));
         }
@@ -954,16 +954,16 @@ fn read_text(card: &card::ReadCard) -> String {
     text
 }
 
-/// 研究の型の表示名。
+/// RESEARCH_TYPE の表示名。
 pub(crate) fn type_name(defs: &defs::Defs, type_id: &str) -> Result<String> {
     defs.type_def(type_id)
         .map(|def| def.name.clone())
         .ok_or_else(|| {
             let known: Vec<&str> = defs.types.iter().map(|def| def.id.as_str()).collect();
             anyhow!(
-                "知らない研究の型です: {type_id}（{}）",
+                "知らない RESEARCH_TYPE です: {type_id}（{}）",
                 if known.is_empty() {
-                    "型が読み込まれていません".to_string()
+                    "RESEARCH_TYPE が読み込まれていません".to_string()
                 } else {
                     known.join(" / ")
                 }
@@ -985,7 +985,7 @@ fn one_line(text: &str) -> String {
 mod tests {
     use super::*;
 
-    /// 一時フォルダに研究プロジェクトの置き場と、新しい木を作った DB を用意する。
+    /// 一時フォルダに研究プロジェクトの置き場と、新しい research-tree を作った DB を用意する。
     fn project_with_tree(name: &str) -> (PathBuf, SciEnv) {
         let root = std::env::temp_dir().join(format!("sai-paper-sci-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1015,14 +1015,14 @@ mod tests {
         }
     }
 
-    /// 新しい木の status は、文にも `--brief` の JSON にも同じ値が出る。
+    /// 新しい research-tree の status は、文にも `--brief` の JSON にも同じ値が出る。
     #[test]
     fn status_text_and_brief_follow_the_tree() {
         let (root, env) = project_with_tree("status");
         let status = compute::status(env.conn(), &env.roots, &env.defs).unwrap();
 
         let text = status_text(&status);
-        assert!(text.contains("型: "), "{text}");
+        assert!(text.contains("RESEARCH_TYPE: "), "{text}");
         assert!(text.contains("SEED: "), "{text}");
         assert!(text.contains("進み具合: 0/"), "{text}");
         assert!(text.contains("- Q1 "), "{text}");
@@ -1036,10 +1036,10 @@ mod tests {
         for key in ["next", "pending_proposals", "running", "warnings"] {
             assert!(brief.get(key).is_some(), "{key}: {brief}");
         }
-        // 木そのものは入れない。
+        // research-tree そのものは入れない。
         assert!(brief.get("nodes").is_none(), "{brief}");
 
-        // 木が無いときは始め方を案内する。
+        // research-tree が無いときは始め方を案内する。
         let empty = status_text(&compute::Status { initialized: false, ..status });
         assert!(empty.contains("まだありません"), "{empty}");
         let _ = std::fs::remove_dir_all(root);
@@ -1101,12 +1101,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// 木が始まっていないプロジェクトで `--node` を指定すると、始め方を案内する。
+    /// research-tree が始まっていないプロジェクトで `--node` を指定すると、始め方を案内する。
     #[test]
     fn search_refs_need_a_started_tree() {
         let db = Database::in_memory().unwrap();
         let err = parse_search_refs(db.connection(), Some("Q1")).unwrap_err();
-        assert!(format!("{err:#}").contains("研究方針の木がありません"), "{err:#}");
+        assert!(format!("{err:#}").contains("research-tree がありません"), "{err:#}");
     }
 
     #[test]
@@ -1118,7 +1118,7 @@ mod tests {
         assert_eq!(ok["op"], "star");
     }
 
-    /// 知らない型で始めても、部品も `state.pre-sci.md` も作らない。
+    /// 知らない RESEARCH_TYPE で始めても、部品も `state.pre-sci.md` も作らない。
     #[test]
     fn init_with_assets_checks_type_before_writing() {
         let root = std::env::temp_dir().join(format!("sai-paper-sci-init-{}", std::process::id()));
@@ -1126,13 +1126,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
 
         let err = init_with_assets(&root, "todo").err().unwrap();
-        assert!(format!("{err:#}").contains("知らない研究の型です"), "{err:#}");
-        assert!(!root.join(".sai").exists(), "型を確かめる前にファイルを置いた");
-        assert!(!root.join(".mcp.json").exists(), "型を確かめる前にファイルを置いた");
+        assert!(format!("{err:#}").contains("知らない RESEARCH_TYPE です"), "{err:#}");
+        assert!(!root.join(".sai").exists(), "RESEARCH_TYPE を確かめる前にファイルを置いた");
+        assert!(!root.join(".mcp.json").exists(), "RESEARCH_TYPE を確かめる前にファイルを置いた");
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 2 回目の init は `already` になり、木は増えない。
+    /// 2 回目の init は `already` になり、research-tree は増えない。
     #[test]
     fn init_tree_twice_reports_already() {
         let root = std::env::temp_dir().join(format!("sai-paper-sci-twice-{}", std::process::id()));

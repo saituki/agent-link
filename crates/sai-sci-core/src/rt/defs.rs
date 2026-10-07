@@ -1,4 +1,4 @@
-//! 研究の型とガイドの読み込み、型から Q の木を作る処理（C-DEF）。
+//! RESEARCH_TYPE と GUIDE の読み込み、RESEARCH_TYPE から Q の research-tree を作る処理（C-DEF）。
 //!
 //! 元の版はリポジトリの `sai-sci/types/` と `sai-sci/guides/` で、ここに埋め込む。
 //! 読む順は 埋め込み → 利用者全体 `<sai_home>/sci/` → プロジェクト `<root>/.sai/sci/`（あとが強い）。
@@ -13,7 +13,7 @@ use rusqlite::Connection;
 use super::store::{self, NewNode};
 use super::{now_text, Kind, Result, RtError};
 
-/// 型の `## Q` の 1 行。
+/// RESEARCH_TYPE の `## Q` の 1 行。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeQ {
     pub key: String,
@@ -22,7 +22,7 @@ pub struct TypeQ {
     pub children: Vec<TypeQ>,
 }
 
-/// 研究の型。
+/// RESEARCH_TYPE。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDef {
     pub id: String,
@@ -31,7 +31,7 @@ pub struct TypeDef {
     pub tree: Vec<TypeQ>,
 }
 
-/// Q ごとのガイド。
+/// Q ごとの GUIDE。
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuideDef {
     pub key: String,
@@ -44,7 +44,7 @@ pub struct GuideDef {
     pub target: i64,
 }
 
-/// 読み込んだ型とガイド。
+/// 読み込んだ RESEARCH_TYPE と GUIDE。
 #[derive(Debug, Clone, Default)]
 pub struct Defs {
     pub types: Vec<TypeDef>,
@@ -63,7 +63,7 @@ impl Defs {
         self.guides.iter().find(|g| g.key == key)
     }
 
-    /// 型 `type_id` の中で、`guide_key` の Q の下にある `+` の子（O ごとに作る Q）。
+    /// RESEARCH_TYPE `type_id` の中で、`guide_key` の Q の下にある `+` の子（O ごとに作る Q）。
     #[must_use]
     pub fn per_option_children(&self, type_id: &str, guide_key: &str) -> Vec<&TypeQ> {
         fn find<'a>(qs: &'a [TypeQ], key: &str) -> Option<&'a TypeQ> {
@@ -75,7 +75,7 @@ impl Defs {
             .unwrap_or_default()
     }
 
-    /// Q の文。ガイドの question が空でなければそれ、無ければ `<name>は？`、ガイドが無ければ key。
+    /// Q の文。GUIDE の question が空でなければそれ、無ければ `<name>は？`、GUIDE が無ければ key。
     #[must_use]
     pub fn question_text(&self, key: &str) -> String {
         match self.guide(key) {
@@ -86,11 +86,11 @@ impl Defs {
     }
 }
 
-/// 型の並び。これ以外は id 順で後ろに置く。
+/// RESEARCH_TYPE の並び。これ以外は id 順で後ろに置く。
 pub const TYPE_ORDER: [&str; 5] = ["problem", "phenomenon", "method", "data", "improve"];
 
 /// 埋め込みの一覧を `include_str!` の繰り返しなく書くための補助。
-/// 相対パスは `sai-sci/` からの道筋（`types/<id>.md`・`guides/<key>.md`）。
+/// 相対パスは `sai-sci/` を起点にする（`types/<id>.md`・`guides/<key>.md`）。
 macro_rules! embedded_files {
     ($($relative:literal),* $(,)?) => {
         &[$(($relative, include_str!(concat!("../../../../sai-sci/", $relative)))),*]
@@ -98,13 +98,13 @@ macro_rules! embedded_files {
 }
 
 const EMBEDDED: &[(&str, &str)] = embedded_files![
-    // 型（5 本）
+    // RESEARCH_TYPE（5 本）
     "types/problem.md",
     "types/phenomenon.md",
     "types/method.md",
     "types/data.md",
     "types/improve.md",
-    // ガイド（25 本）
+    // GUIDE（25 本）
     "guides/background.md",
     "guides/background.goal.md",
     "guides/background.problem.md",
@@ -234,17 +234,17 @@ fn invalid<T>(message: impl Into<String>) -> Result<T> {
     Err(RtError::Invalid(message.into()))
 }
 
-/// 型の md を読む。
+/// RESEARCH_TYPE の md を読む。
 pub fn parse_type(text: &str) -> Result<TypeDef> {
     let doc = read_doc(text);
     let need = |name: &str| -> Result<String> {
         doc.front(name)
             .map(str::to_string)
-            .ok_or_else(|| RtError::Invalid(format!("型の frontmatter に {name} がありません")))
+            .ok_or_else(|| RtError::Invalid(format!("RESEARCH_TYPE の frontmatter に {name} がありません")))
     };
     let (id, name) = (need("id")?, need("name")?);
     if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
-        return invalid(format!("型の id に使えない文字があります: {id}"));
+        return invalid(format!("RESEARCH_TYPE の id に使えない文字があります: {id}"));
     }
     let lines = doc.section("Q").unwrap_or_default();
     let mut tree: Vec<TypeQ> = Vec::new();
@@ -254,7 +254,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         if line.trim().is_empty() {
             continue;
         }
-        let bad = || RtError::Invalid(format!("型の ## Q の {} 行目が読めません", index + 1));
+        let bad = || RtError::Invalid(format!("RESEARCH_TYPE の ## Q の {} 行目が読めません", index + 1));
         let indent = line.len() - line.trim_start_matches(' ').len();
         let rest = &line[indent..];
         let (per_option, key) = if let Some(k) = rest.strip_prefix("- ") {
@@ -272,10 +272,10 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
             return Err(bad());
         }
         if depth == 0 && per_option {
-            return invalid("型の ## Q の一番浅い行に + は使えません");
+            return invalid("RESEARCH_TYPE の ## Q の一番浅い行に + は使えません");
         }
         if !seen.insert(key.to_string()) {
-            return invalid(format!("型の ## Q に同じ key が 2 回あります: {key}"));
+            return invalid(format!("RESEARCH_TYPE の ## Q に同じ key が 2 回あります: {key}"));
         }
         let mut level = &mut tree;
         for _ in 0..depth {
@@ -285,18 +285,18 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         prev_depth = Some(depth);
     }
     if tree.is_empty() {
-        return invalid("型の ## Q が空です");
+        return invalid("RESEARCH_TYPE の ## Q が空です");
     }
     Ok(TypeDef { id, name, explain: doc.explain.clone(), tree })
 }
 
-/// ガイドの md を読む。
+/// GUIDE の md を読む。
 pub fn parse_guide(text: &str) -> Result<GuideDef> {
     let doc = read_doc(text);
     let need = |name: &str| -> Result<String> {
         doc.front(name)
             .map(str::to_string)
-            .ok_or_else(|| RtError::Invalid(format!("ガイドの frontmatter に {name} がありません")))
+            .ok_or_else(|| RtError::Invalid(format!("GUIDE の frontmatter に {name} がありません")))
     };
     let (key, name) = (need("key")?, need("name")?);
     let target = match doc.front("target") {
@@ -305,7 +305,7 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
             .parse::<i64>()
             .ok()
             .filter(|n| (0..=99).contains(n))
-            .ok_or_else(|| RtError::Invalid(format!("ガイド {key} の target は 0〜99 の整数です: {v}")))?,
+            .ok_or_else(|| RtError::Invalid(format!("GUIDE {key} の target は 0〜99 の整数です: {v}")))?,
     };
     Ok(GuideDef {
         key,
@@ -388,7 +388,7 @@ fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
         keys(&t.tree, &mut ks);
         for k in ks {
             if defs.guide(k).is_none() {
-                missing.push(format!("型 {} の Q {k} のガイドがありません", t.id));
+                missing.push(format!("RESEARCH_TYPE {} の Q {k} の GUIDE がありません", t.id));
             }
         }
     }
@@ -396,7 +396,7 @@ fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
     defs
 }
 
-// ---- 木を作る ------------------------------------------------------------------------
+// ---- research-tree を作る ------------------------------------------------------------------------
 
 /// [`init_tree`] の結果。`created` は作った Q の数。
 #[derive(Debug, Clone)]
@@ -442,13 +442,13 @@ fn add_q(
     Ok(())
 }
 
-/// 型の `## Q` の 1 段目を top_Q（`parent_id` は NULL）として作り、その下の `-` の Q も作る（`+` の Q は作らない）。
+/// RESEARCH_TYPE の `## Q` の 1 段目を top_Q（`parent_id` は NULL）として作り、その下の `-` の Q も作る（`+` の Q は作らない）。
 pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str) -> Result<InitReport> {
     if store::is_initialized(conn)? {
-        return invalid("研究方針の木は既にあります");
+        return invalid("research-tree は既にあります");
     }
     let Some(type_def) = defs.type_def(type_id) else {
-        return invalid(format!("知らない研究の型です: {type_id}"));
+        return invalid(format!("知らない RESEARCH_TYPE です: {type_id}"));
     };
     let tx = conn.unchecked_transaction()?;
     let mut ids = Vec::new();
@@ -461,7 +461,7 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str
     Ok(InitReport { created: ids.len(), warnings: defs.warnings.clone() })
 }
 
-/// O の下に、型の `+` の Q（と、その下の `-` の Q）を作る。作った Q の id を返す。
+/// O の下に、RESEARCH_TYPE の `+` の Q（と、その下の `-` の Q）を作る。作った Q の id を返す。
 /// 呼ぶ側のトランザクションの中で使う前提で、自分では始めない。
 pub fn create_qs_for_option(
     conn: &Connection,
@@ -481,7 +481,7 @@ pub fn create_qs_for_option(
     Ok(ids)
 }
 
-// ---- 写しと利用者の型 ----------------------------------------------------------------
+// ---- 写しと利用者の RESEARCH_TYPE ----------------------------------------------------------------
 
 /// 埋め込みのうち `<root>/.sai/sci/types|guides/` に無いものだけを書く。書いた数を返す。
 pub fn write_local_copies(root: &Path) -> Result<usize> {
@@ -501,7 +501,7 @@ pub fn write_local_copies(root: &Path) -> Result<usize> {
     Ok(written)
 }
 
-/// 型を利用者全体の置き場 `<sai_home>/sci/types/<id>.md` に保存する。
+/// RESEARCH_TYPE を利用者全体の置き場 `<sai_home>/sci/types/<id>.md` に保存する。
 pub fn save_user_type(text: &str) -> Result<PathBuf> {
     let Some(home) = sai_paper_core::paths::sai_home() else {
         return invalid("利用者全体の置き場が分かりません");
@@ -513,7 +513,7 @@ fn save_user_type_in(home: &Path, text: &str) -> Result<PathBuf> {
     let type_def = parse_type(text)?;
     let path = home.join("sci").join("types").join(format!("{}.md", type_def.id));
     if path.exists() {
-        return invalid(format!("型 {} は既にあります", type_def.id));
+        return invalid(format!("RESEARCH_TYPE {} は既にあります", type_def.id));
     }
     fs::create_dir_all(path.parent().expect("パスには親がある"))?;
     fs::write(&path, text)?;
@@ -570,7 +570,7 @@ mod tests {
         let db = Database::in_memory().unwrap();
         let conn = db.connection();
         let report = init_tree(conn, &defs, "problem", "test").unwrap();
-        // 型の `## Q` の 1 段目がそのまま top_Q（親なし）になる。
+        // RESEARCH_TYPE の `## Q` の 1 段目がそのまま top_Q（親なし）になる。
         let by_key = |k: &str| {
             store::list_nodes(conn, false).unwrap().into_iter().find(|n| n.guide_key.as_deref() == Some(k))
         };
@@ -586,7 +586,7 @@ mod tests {
         assert_eq!(texts(conn, by_key("purpose").unwrap().id), ["purpose.subgoal"]);
         assert!(texts(conn, by_key("purpose.subgoal").unwrap().id).is_empty());
         assert!(by_key("data").is_none() && by_key("existing").is_none());
-        // root は作らず、型の 1 段目 3 つとその下の 4 つで 7。
+        // root は作らず、RESEARCH_TYPE の 1 段目 3 つとその下の 4 つで 7。
         assert_eq!(report.created, 7);
         assert_eq!(store::meta_get(conn, "type").unwrap().as_deref(), Some("problem"));
         assert!(matches!(init_tree(conn, &defs, "problem", "test"), Err(RtError::Invalid(_))));

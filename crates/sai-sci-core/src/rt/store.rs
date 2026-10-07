@@ -1,4 +1,4 @@
-//! 研究方針の木（`rt_*` の表）の読み書き。行の型と基本の操作だけを持つ。
+//! research-tree（`rt_*` の表）の読み書き。行の型と基本の操作だけを持つ。
 //!
 //! 毎回計算するもの（Objectivity・Logicality の判定・進み具合）は置かない。
 //! 親子の決まりの検査も置かない。DB の CHECK 制約で守れるものだけ表が守る。
@@ -411,7 +411,7 @@ fn proposal_from_row(row: &Row<'_>) -> rusqlite::Result<ProposalRow> {
     })
 }
 
-/// 提案を足す。
+/// PROPOSAL を足す。
 #[allow(clippy::too_many_arguments)]
 pub fn insert_proposal(
     conn: &Connection,
@@ -431,7 +431,7 @@ pub fn insert_proposal(
     Ok(conn.last_insert_rowid())
 }
 
-/// 提案を 1 つ読む。無ければ NotFound。
+/// PROPOSAL を 1 つ読む。無ければ NotFound。
 pub fn get_proposal(conn: &Connection, id: i64) -> Result<ProposalRow> {
     let sql = format!("SELECT {PROPOSAL_COLUMNS} FROM rt_proposals WHERE id = ?1");
     conn.query_row(&sql, params![id], proposal_from_row)
@@ -439,7 +439,7 @@ pub fn get_proposal(conn: &Connection, id: i64) -> Result<ProposalRow> {
         .ok_or_else(|| RtError::NotFound(format!("P{id} はありません")))
 }
 
-/// 提案の一覧（古い順）。`status` を渡すとその状態だけ。
+/// PROPOSAL の一覧（古い順）。`status` を渡すとその状態だけ。
 pub fn list_proposals(conn: &Connection, status: Option<&str>) -> Result<Vec<ProposalRow>> {
     let sql = format!(
         "SELECT {PROPOSAL_COLUMNS} FROM rt_proposals WHERE (?1 IS NULL OR status = ?1) ORDER BY id"
@@ -449,7 +449,7 @@ pub fn list_proposals(conn: &Connection, status: Option<&str>) -> Result<Vec<Pro
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// 提案の結末を書く。
+/// PROPOSAL の結末を書く。
 pub fn finish_proposal(
     conn: &Connection,
     id: i64,
@@ -550,12 +550,12 @@ pub fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// 新しい木があるか（`rt_meta` に `initialized_at` がある）。
+/// 新しい research-tree があるか（`rt_meta` に `initialized_at` がある）。
 pub fn is_initialized(conn: &Connection) -> Result<bool> {
     Ok(meta_get(conn, "initialized_at")?.is_some())
 }
 
-/// 古い木だけがあるか（新しい木が無く、`sci_meta` に `initialized_at` がある）。`sci_meta` が無い DB でも false。
+/// 古い research-tree だけがあるか（新しい research-tree が無く、`sci_meta` に `initialized_at` がある）。`sci_meta` が無い DB でも false。
 pub fn is_legacy_only(conn: &Connection) -> Result<bool> {
     if is_initialized(conn)? {
         return Ok(false);

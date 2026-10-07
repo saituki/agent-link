@@ -21,10 +21,10 @@ use serde_json::{Value, json};
 /// sci ブロックは同じ共通の決まり（`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
 /// frontmatter に分類（`sci_type`: node / manage / support）と使う op（`sci_ops`）を持つ。
 ///
-/// ただし実験ループの `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
+/// ただし実験ループの `sci-exp-branch` は例外で、判定をしないので research-tree の範囲も共通の決まりも要らない
 /// （受け取るのは実験ループの共通の決まり `exp-core` だけ）。
 ///
-/// `professor`・`professor-backward`・`operator`・`kaizen` は木の中で動かず、木の外から木を見る役。
+/// `professor`・`professor-backward`・`operator`・`kaizen` は research-tree の中で動かず、research-tree の外から research-tree を見る役。
 /// 共通決まり（`sci-core`）も範囲（`context: true`）も持たず、研究プロジェクト向けの
 /// 共通の決まり（`sai-agent` / `sci-task` / `sci-cli`）を受ける。
 const SCI_BLOCKS: &[(&str, &str)] = &[
@@ -65,7 +65,7 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
 
 /// sai-sci の共通の決まり。
 ///
-/// - 木の共通の決まり（`sci-core.md`）・F を探す決まり（`sci-find.md`）・照合の決まり（`sci-match.md`）と実験ループの 4 本（`exp-core.md`・`exp-run.md`・`exp-ref.md`・`sim-core.md`）
+/// - research-tree の共通の決まり（`sci-core.md`）・F を探す決まり（`sci-find.md`）・照合の決まり（`sci-match.md`）と実験ループの 4 本（`exp-core.md`・`exp-run.md`・`exp-ref.md`・`sim-core.md`）
 /// - データ分析の 2 本（`data-core.md`・`stat-core.md`）。`sci-data-explore` と `sci-data-test` が読む。
 /// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sci-task.md`・`sci-cli.md`。U8）。
 ///   前の 3 本は researcher が使う。後の 3 本は `professor` などの役が使う
@@ -152,8 +152,8 @@ const SCI_EXEC: &[(&str, &str, bool)] = &[
 
 /// sai-sci の土壌（`.sai/paper/mind.md`）のひな形。
 ///
-/// 研究方針の木が無いプロジェクトの `mind.md` は、今の `project_files::MIND_TEMPLATE` の
-/// 代わりにこれを書く（決まったこと・仮説は木へ移すので、「土壌」の形が合う）。
+/// research-tree が無いプロジェクトの `mind.md` は、今の `project_files::MIND_TEMPLATE` の
+/// 代わりにこれを書く（決まったこと・仮説は research-tree へ移すので、「土壌」の形が合う）。
 const SCI_MIND: &str = include_str!("../../../sai-sci/mind.md");
 
 /// 分野の観点の見本（分野の値, ファイル名, 中身）。
@@ -416,7 +416,7 @@ pub fn install_sci_init(
             make_executable(&path)?;
         }
     }
-    done.push(format!("✅ 研究の部品を {created} 件置きました（既にあるものはそのまま）"));
+    done.push(format!("✅ 研究の assets を {created} 件置きました（既にあるものはそのまま）"));
     for backup in &updated {
         done.push(format!("✅ 更新しました（古い物: {}）", backup.display()));
     }
@@ -529,14 +529,14 @@ pub fn install_sci_here(root: &Path) -> Result<Vec<String>> {
 mod tests {
     use super::*;
 
-    /// 木の範囲も共通の決まり（sci-core）も受け取らない 1 本（実験の実行役）。
+    /// research-tree の範囲も共通の決まり（sci-core）も受け取らない 1 本（実験の実行役）。
     const EXP_WITHOUT_SCI_CORE: &str = "sci-exp-branch.md";
 
-    /// 木の中で動かず、外から木を見る 4 本（professor・professor-backward・operator・kaizen）と、
+    /// research-tree の中で動かず、外から research-tree を見る 4 本（professor・professor-backward・operator・kaizen）と、
     /// U13 で sai-sci へ移した議論の 2 本（paper-debater・paper-reviewer）。
     ///
-    /// この 4 本は `sci-core` も `context: true` も持たない。節点の範囲を作ってから動く
-    /// のではなく、木そのものを見る窓口だから。共通の決まりは研究向けの 3 本
+    /// この 4 本は `sci-core` も `context: true` も持たない。Node の範囲を作ってから動く
+    /// のではなく、research-tree そのものを見る窓口だから。共通の決まりは研究向けの 3 本
     /// （`sai-agent` / `sci-task` / `sci-cli`）を受ける。議論の 2 本は司会から子として
     /// 呼ばれ、依頼文の背景だけを読む。
     const SCI_BLOCKS_WITHOUT_SCI_CORE: &[&str] = &[
@@ -707,8 +707,8 @@ mod tests {
             SCI_MIND
         );
         assert!(
-            done.iter().any(|line| line.contains("研究の部品を")),
-            "部品を置いた行が無い: {done:?}"
+            done.iter().any(|line| line.contains("研究の assets を")),
+            "assets を置いた行が無い: {done:?}"
         );
         assert!(
             done.iter().any(|line| line.contains("mind.md（土壌のひな形）を作りました")),
@@ -894,8 +894,8 @@ mod tests {
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
-    /// `sci-exp-branch` は判定をしないので木の範囲も共通の決まりも要らない。
-    /// `professor` と `operator` は木の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
+    /// `sci-exp-branch` は判定をしないので research-tree の範囲も共通の決まりも要らない。
+    /// `professor` と `operator` は research-tree の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
         assert_eq!(SCI_BLOCKS.len(), 32);
@@ -958,7 +958,7 @@ mod tests {
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
-            // `sci-typify` は木を書き換えず、型として保存するだけなので sci_ops を持たない。
+            // `sci-typify` は research-tree を書き換えず、RESEARCH_TYPE として保存するだけなので sci_ops を持たない。
             assert!(
                 *name == "sci-typify.md" || frontmatter.contains("\nsci_ops: "),
                 "{name} に sci_ops が無い"
@@ -979,7 +979,7 @@ mod tests {
             .collect()
     }
 
-    /// `professor` と `operator` は、木の中で動かず、外から木を見る役。
+    /// `professor` と `operator` は、research-tree の中で動かず、外から research-tree を見る役。
     ///
     /// 共通の決まり（sci-core）も範囲（context: true）も持たず、研究向けの 3 本を受ける。
     /// どちらも `id` がファイル名と一致し、呼ぶ子（professor だけ）も配るブロックの中に無い。
@@ -1002,7 +1002,6 @@ mod tests {
                 true,
                 &[
                     "## 役割",
-                    "## 研究方針の木の読み方",
                     "## 始めにすること",
                     "## 1 回の回し方",
                     "## 質問に答える",
@@ -1020,7 +1019,6 @@ mod tests {
                 true,
                 &[
                     "## 役割",
-                    "## 研究方針の木の読み方",
                     "## 始めにすること",
                     "## 段の進め方",
                     "## 1 回の回し方",
@@ -1078,6 +1076,13 @@ mod tests {
             for heading in headings {
                 assert!(content.contains(heading), "{name} に {heading} が無い");
             }
+            // 「…の読み方」の節がある（前の語は block 側の呼び名に従う。U43 が改名する）。
+            if name == "professor.md" || name == "professor-backward.md" {
+                assert!(
+                    content.lines().any(|l| l.starts_with("## ") && l.ends_with("の読み方")),
+                    "{name} に「…の読み方」の節が無い"
+                );
+            }
 
             // 使う共通の決まりは研究向けの 3 本（配る物の中）。
             let templates = frontmatter_list(frontmatter, "templates:");
@@ -1116,7 +1121,7 @@ mod tests {
         }
     }
 
-    /// `professor` の本文に、実際に使う道具（C4 のカード・C11 の現在地・C8 の質問の答え方）と、
+    /// `professor` の本文に、実際に使う道具（C4 の CARD・C11 の現在地・C8 の質問の答え方）と、
     /// Human に上げる 4 つ（課金・鍵・要件の範囲・成功基準）が書いてある。
     #[test]
     fn professor_body_names_cards_status_questions_and_human_asks() {

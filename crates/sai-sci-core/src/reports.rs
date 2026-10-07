@@ -1809,7 +1809,7 @@ mod tests {
         Ok(())
     }
 
-    /// 報告書と Node の結び付きは run の task.md の `sci_node` で表すので、登録で `sci_links` は書かない。
+    /// REPORT と Node の結び付きは run の task.md の `sci_node` で表すので、登録で `sci_links` は書かない。
     #[test]
     fn scan_does_not_link_report_to_sci_node() -> Result<(), Box<dyn std::error::Error>> {
         let root = temp_root("sci-link-none");

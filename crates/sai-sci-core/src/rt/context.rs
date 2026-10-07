@@ -1,6 +1,6 @@
-//! エージェントに渡す `# context` の Markdown（新しい木 Q・O・F・E 版）。
+//! エージェントに渡す `# context` の Markdown（新しい research-tree Q・O・F・E 版）。
 //!
-//! 木の一部（範囲）だけを渡す。ファイルは作らず、文字列を返す（`# context` の見出しは呼び出し側が付ける）。
+//! research-tree の一部（範囲）だけを渡す。ファイルは作らず、文字列を返す（`# context` の見出しは呼び出し側が付ける）。
 //! 範囲はブロックの `sci_type`（node / manage / support）で決める。
 //! 長さは `max_chars` で制限し、はみ出したら level 0〜5 の順に 1 段ずつ削る。
 //! 節の見出しの名前（`## TREE` など）は sci-core が指すので変えない。
@@ -20,7 +20,7 @@ const NO_TREE: &str = "\
 ## TREE
 research-tree がまだありません。利用者に `sai-sci init --type <型>`（または Web の research-tree の画面の「始める」）を頼んでください。";
 
-/// run の task.md から `# context` の Markdown を作る。`reveal` が真なら blind（`sci_mode: blind_first`）でも木を出す。
+/// run の task.md から `# context` の Markdown を作る。`reveal` が真なら blind（`sci_mode: blind_first`）でも research-tree を出す。
 ///
 /// # Errors
 ///
@@ -89,9 +89,9 @@ pub fn allowed_ops_text(roots: &PaperRoots, block: &str) -> String {
             continue;
         };
         let how = match spec.risk {
-            Risk::Auto => "すぐ入る",
-            Risk::Human => "利用者が仕分けてから入る",
-            Risk::UserOnly => continue, // 利用者だけの op は PROPOSAL では出せない。
+            Risk::Auto => "AUTO_OP",
+            Risk::Human => "TRIAGE_OP",
+            Risk::UserOnly => continue, // USER_OP は PROPOSAL では出せない。
         };
         lines.push(format!("- {}（{how}）: {}。", spec.op, spec.about));
         for (label, required) in [("必須", true), ("任意", false)] {
@@ -130,7 +130,7 @@ struct Line {
 
 struct Parts {
     tree: Option<Vec<Line>>,
-    /// (Q の文, Objectivity の目安, Child Q, Extract, Pitfall)
+    /// (Q の文, Objectivity の target, Child Q, Extract, Pitfall)
     guide: Option<GuideText>,
     searches: Vec<String>,
     ops: String,
@@ -230,7 +230,7 @@ impl Parts {
         keys: &RtKeys,
         reveal: bool,
     ) -> Result<Parts> {
-        // 読み方（`sci_mode: blind_first`）は木を見ずに読む型。`--tree` で木を出す。
+        // 読み方（`sci_mode: blind_first`）は research-tree を見ずに読む型。`--tree` で research-tree を出す。
         let blind = keys.mode == "blind_first" && !reveal;
         // ブロックの分類（node / manage / support）。無い・知らない値は一番狭い `node`。
         let sci_type = action::block_sci_type(roots, block)
@@ -436,7 +436,7 @@ impl Parts {
         }
         if let Some(g) = &self.guide {
             let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- Q: {}", g.question)];
-            lines.push(format!("- Objectivity の目安: {}", g.target));
+            lines.push(format!("- Objectivity の target: {}", g.target));
             if level < 5 && !g.child.is_empty() {
                 lines.push(format!("- Child Q: {}", g.child.join(" / ")));
             }
@@ -480,7 +480,7 @@ mod tests {
         defs: Defs,
     }
 
-    /// problem の型の木を作る。Q1 が background、Q2 が background.goal、Q3 が background.problem。
+    /// RESEARCH_TYPE problem の research-tree を作る。Q1 が background、Q2 が background.goal、Q3 が background.problem。
     /// top_Q は Q1（background）・Q4（target）・Q6（purpose）。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-context-{tag}-{}", std::process::id()));
@@ -696,7 +696,7 @@ mod tests {
         assert!(text.contains("## TARGET_PAPERS"), "{text}");
         assert!(text.contains("- #37 論文 37"), "{text}");
 
-        // `--tree` で木を出し、TARGET_PAPERS は出さない。
+        // `--tree` で research-tree を出し、TARGET_PAPERS は出さない。
         let revealed = build_with(&e, 100_000, true).unwrap();
         assert!(revealed.contains("## TREE"), "{revealed}");
         assert!(!revealed.contains("## TARGET_PAPERS"), "{revealed}");
@@ -730,14 +730,14 @@ mod tests {
         let e = env("ops");
         fs::write(e.dir.join(".sai/blocks/b1.md"), "---\nsci_ops: add_o, add_q\n---\n").unwrap();
         let t = allowed_ops_text(&e.roots, "b1");
-        assert!(t.contains("- add_o（すぐ入る）"), "{t}");
-        assert!(t.contains("- add_q（利用者が仕分けてから入る）"), "{t}");
+        assert!(t.contains("- add_o（AUTO_OP）"), "{t}");
+        assert!(t.contains("- add_q（TRIAGE_OP）"), "{t}");
         assert!(t.contains("必須: q（Q の ID）, text（1〜120 字）"), "{t}");
         assert!(t.contains("任意: body（0〜2000 字）, kind（answer / issue）"), "{t}");
         assert!(!t.contains("- add_f"));
         let none = allowed_ops_text(&e.roots, "nothing");
         for op in ["add_o", "add_f", "add_e"] {
-            assert!(none.contains(&format!("- {op}（すぐ入る）")), "{op}");
+            assert!(none.contains(&format!("- {op}（AUTO_OP）")), "{op}");
         }
         assert!(!none.contains("add_q（"));
         let _ = fs::remove_dir_all(&e.dir);

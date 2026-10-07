@@ -1,8 +1,8 @@
-//! 研究方針の木（Research-tree）の新しい形。Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）・S（SPROUT）の 5 種。
+//! research-tree の新しい形。Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）・S（SPROUT）の 5 種。
 //!
 //! 正は `papr.db` の `rt_*` の表。古い `sci_*` の表は読まないが消さない。
 //! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
-//! 提案は `P3`、SPROUT は `S2`。
+//! PROPOSAL は `P3`、SPROUT は `S2`。
 //!
 //! SEED は DB の行を持たない Node で、ID は [`SEED_ID`]。SEED の直下の Q（`parent_id` が NULL）を top_Q と呼ぶ。
 
@@ -19,7 +19,7 @@ pub mod ops;
 pub mod scope;
 pub mod store;
 
-/// 研究方針の木の操作のエラー。`Invalid` と `NotFound` の文は利用者にそのまま見せる日本語。
+/// research-tree の操作のエラー。`Invalid` と `NotFound` の文は利用者にそのまま見せる日本語。
 #[derive(Debug, thiserror::Error)]
 pub enum RtError {
     /// 入力が通らない。
@@ -39,7 +39,7 @@ pub enum RtError {
     Json(#[from] serde_json::Error),
 }
 
-/// 研究方針の木の操作の結果型。
+/// research-tree の操作の結果型。
 pub type Result<T> = std::result::Result<T, RtError>;
 
 /// DB の行を持たない Node（SEED）の ID。中身は RESEARCH_TYPE と mind.md。
@@ -175,7 +175,7 @@ pub struct RtKeys {
 }
 
 impl RtKeys {
-    /// sci のカードか（`sci_node` か `sci_purpose` のどちらかがある）。
+    /// sci の CARD か（`sci_node` か `sci_purpose` のどちらかがある）。
     #[must_use]
     pub fn is_sci(&self) -> bool {
         self.node.is_some() || self.seed || !self.purpose.is_empty()

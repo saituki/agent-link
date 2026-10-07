@@ -1,6 +1,6 @@
-//! 新しい木のカード（task.md の発行）と、runner=user の読む札の中身。
+//! 新しい research-tree の CARD（task.md の発行）と、runner=user の READ_CARD の中身。
 //!
-//! 読む札は特別な釦ではなく、`runner: user` のカードの 1 つ。論文は 1 本で、
+//! READ_CARD は特別な釦ではなく、`runner: user` の CARD の 1 つ。論文は 1 本で、
 //! F を付ける先の O（か Q）を `node` に持つ。LINK は作らない。run と Node の結び付きは
 //! task.md の `sci_node` だけで表す（[`super::action::sci_runs`] が読む）。DB には何も書かない。
 
@@ -26,7 +26,7 @@ const MAX_PURPOSE: usize = 300;
 const Q_HEADING: &str = "## 読むときの Q";
 const EXTRACT_HEADING: &str = "## 抜き出すもの";
 
-/// カードの値（C-CARD）。
+/// CARD の値（C-CARD）。
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 pub struct CardSpec {
     /// Q・O・F・E の ID（必須）。
@@ -59,14 +59,14 @@ pub struct CardSpec {
     pub executer: String,
 }
 
-/// カードを作った結果。
+/// CARD を作った結果。
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct CardResult {
     pub run_id: i64,
     pub path: PathBuf,
 }
 
-/// 読む札の中身。
+/// READ_CARD の中身。
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ReadCard {
     pub run_id: i64,
@@ -115,18 +115,18 @@ fn handoff_error(error: HandoffError) -> RtError {
         HandoffError::BlockNotFound(id) => RtError::Invalid(format!("ブロック定義がありません: {id}")),
         // sai-link の 3（見つからない）はそのまま伝える。
         HandoffError::Link(error) => {
-            let message = format!("カードを作れませんでした: {error}");
+            let message = format!("CARD を作れませんでした: {error}");
             if error.code == 3 {
                 RtError::NotFound(message)
             } else {
                 RtError::Invalid(message)
             }
         }
-        other => RtError::Invalid(format!("カードを作れませんでした: {other}")),
+        other => RtError::Invalid(format!("CARD を作れませんでした: {other}")),
     }
 }
 
-/// 読むときの Q の対象になる Q（O なら親の Q）。
+/// 読むときの Q の対象になる Q（O なら parent_Q）。
 fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::NodeRow>> {
     Ok(match node.kind {
         Kind::Q => Some(node.clone()),
@@ -138,7 +138,7 @@ fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::No
     })
 }
 
-/// 検査してカードの task.md を作る。DB（`rt_*`）には何も書かない。
+/// 検査して CARD の task.md を作る。DB（`rt_*`）には何も書かない。
 ///
 /// # Errors
 /// 検査に通らない値は `Invalid`。ブロック定義や論文が無いときも `Invalid`。
@@ -163,13 +163,13 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         return invalid(format!("知らない実行者です: {runner}（pi / cc / user）"));
     }
     let executer = if spec.executer.trim().is_empty() { "human" } else { spec.executer.trim() };
-    // 旧 `professor` は `agent` と読む（ガイド 4 まで古い値を出す block があるため）。
+    // 旧 `professor` は `agent` と読む（GUIDE 4 まで古い値を出す block があるため）。
     let executer = if executer == "professor" { "agent" } else { executer };
     if !EXECUTERS.contains(&executer) {
         return invalid(format!("知らない起動者です: {executer}（human / agent）"));
     }
     if executer == "agent" && runner != "pi" {
-        return invalid("agent が起こすカードは runner が pi だけです（子の run は pi で動くため）");
+        return invalid("agent が起こす CARD は runner が pi だけです（子の run は pi で動くため）");
     }
     let is_read = runner == "user";
 
@@ -186,7 +186,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
 
     let purpose = one_line(&spec.purpose);
     if purpose.is_empty() {
-        return invalid("目的を書いてください（カードは目的が要ります）");
+        return invalid("目的を書いてください（CARD は目的が要ります）");
     }
     if purpose.chars().count() > MAX_PURPOSE {
         return invalid(format!("目的は {MAX_PURPOSE} 字以内にしてください（今は {} 字）", purpose.chars().count()));
@@ -212,10 +212,10 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     }
     if is_read {
         if spec.papers.len() != 1 {
-            return invalid("読む札には論文をちょうど 1 本指定してください");
+            return invalid("READ_CARD には論文をちょうど 1 本指定してください");
         }
         if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::O | Kind::Q)) {
-            return invalid("読む札の Node は O か Q にしてください（F を付ける先が要ります）");
+            return invalid("READ_CARD の Node は O か Q にしてください（F を付ける先が要ります）");
         }
     }
     for id in &spec.papers {
@@ -243,7 +243,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         body.push_str(&format!("- 期待する成果: {expect}\n"));
     }
     if is_read {
-        let read_node = node.as_ref().expect("読む札は Node が必須");
+        let read_node = node.as_ref().expect("READ_CARD は Node が必須");
         let q = target_q(conn, read_node)?;
         let guide = q.as_ref().and_then(|q| q.guide_key.as_deref()).and_then(|key| defs.guide(key));
         body.push_str(&format!("\n{Q_HEADING}\n"));
@@ -312,17 +312,17 @@ fn section_lines(text: &str, heading: &str) -> Vec<String> {
         .collect()
 }
 
-/// 読む札（runner=user のカード）の中身を返す。
+/// READ_CARD（runner=user の CARD）の中身を返す。
 ///
 /// # Errors
-/// run が無ければ `NotFound`。読む札でなければ `Invalid`。
+/// run が無ければ `NotFound`。READ_CARD でなければ `Invalid`。
 pub fn read_card(conn: &Connection, roots: &PaperRoots, defs: &Defs, run_id: i64) -> Result<ReadCard> {
     let _ = defs;
     let run = action::sci_runs(roots)
         .into_iter()
         .find(|r| r.run_id == run_id)
         .ok_or_else(|| RtError::NotFound(format!("実行 {run_id} が見つかりません")))?;
-    let not_read = || RtError::Invalid("読む札ではありません".to_string());
+    let not_read = || RtError::Invalid("READ_CARD ではありません".to_string());
     if run.runner != "user" {
         return Err(not_read());
     }
@@ -381,7 +381,7 @@ mod tests {
         }
     }
 
-    /// Q1（ガイド付き）・O2・F3（run 99 で付いた）・論文 37 のある一時環境。
+    /// Q1（GUIDE 付き）・O2・F3（run 99 で付いた）・論文 37 のある一時環境。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-card-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn seed_card_writes_sci_node_seed() {
         let e = env("seed");
-        // SEED は DB の行を持たないが、カードは作れる。
+        // SEED は DB の行を持たないが、CARD は作れる。
         let mut s = spec();
         s.node = "SEED".into();
         let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
@@ -474,7 +474,7 @@ mod tests {
         assert!(text.contains("- NODE: SEED "), "{text}");
         let k = task_keys(&text);
         assert!(k.seed && k.node.is_none());
-        // 読む札（runner=user）の Node に SEED は使えない。
+        // READ_CARD（runner=user）の Node に SEED は使えない。
         let mut s = spec();
         s.node = "SEED".into();
         s.runner = "user".into();
@@ -514,7 +514,7 @@ mod tests {
         let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
         assert!(text.contains("## 読むときの Q") && text.contains("- 件数") && text.contains("sci_depth: full"));
-        // 読む札の run に F を付け替えて、note も置く。
+        // READ_CARD の run に F を付け替えて、note も置く。
         e.db.connection().execute("UPDATE rt_nodes SET run_id = ?1 WHERE id = 3", [r.run_id]).unwrap();
         let card = read_card(e.db.connection(), &e.roots, &e.defs, r.run_id).unwrap();
         assert_eq!(card.questions, vec!["データの量は？", "規模は？"]);
@@ -522,9 +522,9 @@ mod tests {
         assert_eq!(card.findings.len(), 1);
         assert_eq!(card.paper["year"], "2021");
         assert!(!card.note);
-        // 読む札でないカードは弾く。
+        // READ_CARD でない CARD は弾く。
         let r2 = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
-        assert!(read_card(e.db.connection(), &e.roots, &e.defs, r2.run_id).unwrap_err().to_string().contains("読む札ではありません"));
+        assert!(read_card(e.db.connection(), &e.roots, &e.defs, r2.run_id).unwrap_err().to_string().contains("READ_CARD ではありません"));
     }
 
     /// 起動者（U13）: 空は human、旧 `professor` は `agent` と読んで frontmatter に書き、
@@ -557,7 +557,7 @@ mod tests {
         s.executer = "robot".into();
         assert!(err(&e, &s).contains("知らない起動者"));
 
-        // `agent` が起こすカードは runner が pi のときだけ。
+        // `agent` が起こす CARD は runner が pi のときだけ。
         let mut s = spec();
         s.executer = "agent".into();
         s.runner = "cc".into();

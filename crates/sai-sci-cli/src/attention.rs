@@ -1,7 +1,7 @@
 //! `sai-sci attention` — 要対応の一覧と「対応済み」の記録（S02）。
 //!
 //! - `attention list [--json]`: 要対応（書いていない review・質問・現況の更新案・
-//!   推薦のカード・出典の要確認）を出す。LLM は使わない。
+//!   推薦の CARD・出典の要確認）を出す。LLM は使わない。
 //! - `attention resolve <key> [--json]`: 1 件を「対応済み」にする
 //!   （`activity_log` に `kind = 'resolved'` を残す）。
 
@@ -85,7 +85,7 @@ fn kind_heading(kind: AttentionKind) -> &'static str {
         AttentionKind::EmptyReview => "書いていない review",
         AttentionKind::Question => "ユーザーへの質問",
         AttentionKind::StateUpdate => "現況の更新案",
-        AttentionKind::RecommendCard => "推薦のカード",
+        AttentionKind::RecommendCard => "推薦の CARD",
         AttentionKind::ReportIssue => "出典の要確認",
         AttentionKind::NewSetItems => "検索セットの新着",
         AttentionKind::SciDecision => "AWAITING_DECISION の ITEM",

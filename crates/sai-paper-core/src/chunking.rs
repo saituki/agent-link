@@ -122,7 +122,7 @@ pub enum Scope {
     Notes,
     /// 図表（paper_figures）のみ
     Figures,
-    /// 研究方針の木（sai-sci）のみ
+    /// research-tree（sai-sci）のみ
     Tree,
     /// すべて（木の中身は含まない）
     All,
@@ -156,7 +156,7 @@ pub enum SourceKind {
     Note,
     /// リサーチドキュメント
     Document,
-    /// 研究方針の木（sai-sci）の中身
+    /// research-tree（sai-sci）の中身
     Tree,
 }
 

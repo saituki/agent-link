@@ -1,4 +1,4 @@
-//! 木の計算（Objectivity・Logicality・★ の道・進み具合・SEED の下書き・Next Action・注意）と、
+//! research-tree の計算（Objectivity・Logicality・STAR_PATH・進み具合・SEED の下書き・Next Action・注意）と、
 //! `status` / `node` の JSON（C-JSON）。CLI・Web・TUI はこの結果を写すだけにする。
 
 use std::collections::{HashMap, HashSet};
@@ -16,9 +16,9 @@ use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, fmt_ref, ops, parse_
 use sai_paper_core::paths::PaperRoots;
 use crate::runs::read_frontmatter;
 
-/// 古い形の木だけがあるときの注意。
+/// 古い形の research-tree だけがあるときの注意。
 const LEGACY_WARNING: &str =
-    "古い形の木です。`sai-sci init --type <型>` で作り直してください";
+    "古い形の research-tree です。`sai-sci init --type <型>` で作り直してください";
 
 /// mind.md の見出しの別名（新しい名前, 旧い名前）。
 const MIND_ALIASES: [(&str, &str); 7] = [
@@ -37,7 +37,7 @@ fn canonical_mind_heading(name: &str) -> &str {
 
 // ---- JSON の型 ----------------------------------------------------------------------
 
-/// Objectivity（目安の数に届いたか）。
+/// Objectivity（target の数に届いたか）。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Objectivity {
     pub count: i64,
@@ -116,7 +116,7 @@ pub struct NextAction {
     targets: Vec<i64>,
 }
 
-/// 決定の記録 1 件。
+/// DECISIONS 1 件。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Decision {
     pub node: String,
@@ -136,7 +136,7 @@ pub struct RunningJson {
     pub owner: String,
 }
 
-/// 型の id と名前。
+/// RESEARCH_TYPE の id と名前。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TypeJson {
     pub id: String,
@@ -317,9 +317,9 @@ pub struct NodeDetail {
     pub history: Vec<HistoryJson>,
 }
 
-// ---- 木 -------------------------------------------------------------------------------
+// ---- research-tree -------------------------------------------------------------------------------
 
-/// 木を 1 回読んで、計算を使い回す。
+/// research-tree を 1 回読んで、計算を使い回す。
 pub struct Tree {
     defs: Defs,
     type_id: Option<String>,
@@ -335,7 +335,7 @@ pub struct Tree {
     logicality: HashMap<i64, Logicality>,
     log: Vec<LogRow>,
     pending: Vec<ProposalRow>,
-    /// 消した Node も含む id → (kind, 文)。決定の記録の表示に使う。
+    /// 消した Node も含む id → (kind, 文)。DECISIONS の表示に使う。
     labels: HashMap<i64, (Kind, String)>,
 }
 
@@ -344,7 +344,7 @@ fn f_ids(ids: &[i64]) -> Vec<String> {
 }
 
 impl Tree {
-    /// 木を読む。
+    /// research-tree を読む。
     pub fn load(conn: &Connection, _roots: &PaperRoots, defs: &Defs) -> Result<Tree> {
         let all = store::list_nodes(conn, true)?;
         let labels: HashMap<i64, (Kind, String)> =
@@ -425,7 +425,7 @@ impl Tree {
             labels,
         };
 
-        // Objectivity（子の Q の判定を使うので逆順）。
+        // Objectivity（child_Q の判定を使うので逆順）。
         let order: Vec<i64> =
             tree.nodes.iter().rev().filter(|n| n.kind == Kind::Q).map(|n| n.id).collect();
         for id in order {
@@ -491,7 +491,7 @@ impl Tree {
         }
     }
 
-    /// 生きた Node（木の順）。
+    /// 生きた Node（research-tree の順）。
     #[must_use]
     pub fn nodes(&self) -> &[NodeRow] {
         &self.nodes
@@ -509,14 +509,14 @@ impl Tree {
         self.depths.get(&id).copied().unwrap_or(0)
     }
 
-    /// 生きた子の Q を持たない Q（bottom_Q）か。
+    /// 生きた bottom_Q か。
     #[must_use]
     pub fn is_bottom_q(&self, id: i64) -> bool {
         self.node(id).is_some_and(|n| n.kind == Kind::Q)
             && !self.kid_nodes(id).any(|k| k.kind == Kind::Q)
     }
 
-    /// ★ の道の上か。
+    /// STAR_PATH の上か。
     #[must_use]
     pub fn on_path(&self, id: i64) -> bool {
         self.path.contains(&id)
@@ -729,7 +729,7 @@ fn card_action(
 }
 
 impl Tree {
-    /// 道の上の葉の Q 1 つに出す Next Action（順 2〜6 の最初に当てはまる 1 つ）。
+    /// 道の上の bottom_Q 1 つに出す Next Action（順 2〜6 の最初に当てはまる 1 つ）。
     fn q_action(&self, q: &NodeRow) -> Option<(u8, NextAction)> {
         if !self.is_bottom_q(q.id) {
             return None;
@@ -742,7 +742,7 @@ impl Tree {
             .and_then(|k| self.defs.guide(k))
             .is_some_and(|g: &GuideDef| !g.child_candidates.is_empty());
         if candidates && options.is_empty() {
-            return Some((2, card_action(me, None, "sci-split", format!("「{}」を子の Q に分ける", q.text), "子の Q の案を 2 つ以上".into(), "NO_CHILD_Q", q.id)));
+            return Some((2, card_action(me, None, "sci-split", format!("「{}」を child_Q に分ける", q.text), "child_Q の案を 2 つ以上".into(), "NO_CHILD_Q", q.id)));
         }
         if options.is_empty() {
             return Some((3, card_action(me, None, "sci-ideate", format!("「{}」の答えの候補（O）を出す", q.text), "O を 2 つ以上".into(), "NO_OPTION", q.id)));
@@ -776,7 +776,7 @@ impl Tree {
     }
 }
 
-/// Next Action（順の番号 → 木の順）を `limit` 件まで。
+/// Next Action（順の番号 → research-tree の順）を `limit` 件まで。
 #[must_use]
 pub fn next_actions(tree: &Tree, limit: usize) -> Vec<NextAction> {
     let mut ranked: Vec<(u8, usize, NextAction)> = Vec::new();
@@ -962,7 +962,7 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
             Some(t) => out.type_info = Some(TypeJson { id: id.clone(), name: t.name.clone() }),
             None => {
                 out.type_info = Some(TypeJson { id: id.clone(), name: id.clone() });
-                out.warnings.push(format!("知らない研究の型です: {id}"));
+                out.warnings.push(format!("知らない RESEARCH_TYPE です: {id}"));
             }
         }
     }
@@ -1159,7 +1159,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
     }
     path.reverse();
 
-    // 自分を含む子孫（木の順）。
+    // 自分を含む子孫（research-tree の順）。
     let mut family = vec![num];
     let mut i = 0;
     while i < family.len() {
@@ -1319,16 +1319,16 @@ mod tests {
         assert!(row(q0).on_path && !row(q0).bottom_q);
         assert!(row(qd).on_path && row(qd).bottom_q);
         assert!(!row(qx).on_path);
-        // Q データ: O 2 つ + 各 F 1 つ → count は F の数 2、目安は 2。
+        // Q データ: O 2 つ + 各 F 1 つ → count は F の数 2、target は 2。
         assert_eq!(row(qd).objectivity, Some(Objectivity { count: 2, target: 2, met: true }));
         // Q 課題: O の F 1 + E の F 1 → 2。
         assert_eq!(row(qi).objectivity, Some(Objectivity { count: 2, target: 2, met: true }));
-        // Q1 は子の Q が 0 にならない: 「★ の下の Q」は子ではない（O の下）ので葉で、O は 2 つ・F は 0。
+        // Q1 は child_Q が 0 にならない: 「★ の下の Q」は子ではない（O の下）ので葉で、O は 2 つ・F は 0。
         assert!(row(q1).bottom_q);
         assert_eq!(row(q1).objectivity, Some(Objectivity { count: 0, target: 2, met: false }));
-        // Q0 は子の Q が Q1 だけ。
+        // Q0 は child_Q が Q1 だけ。
         assert_eq!(row(q0).objectivity, Some(Objectivity { count: 0, target: 1, met: false }));
-        // 道の上の葉の Q は Q1・Q データ・Q 課題。
+        // 道の上の bottom_Q は Q1・Q データ・Q 課題。
         assert_eq!(s.progress, Progress { answered: 1, total: 3 });
     }
 
@@ -1384,10 +1384,10 @@ mod tests {
         let conn = e.db.connection();
         let defs = defs_with_guide();
         let t = |e: &Env| Tree::load(e.db.connection(), &e.roots, &defs).unwrap();
-        let q0 = q(&e, None, "葉の Q", Some("SPLIT"));
+        let q0 = q(&e, None, "bottom_Q", Some("SPLIT"));
         let a = whys(&next_actions(&t(&e), 10)).into_iter().map(|(w, b)| (w.to_string(), b.map(String::from))).collect::<Vec<_>>();
         assert_eq!(a, vec![("NO_CHILD_Q".to_string(), Some("sci-split".to_string()))]);
-        // ガイドが無ければ NO_OPTION。
+        // GUIDE が無ければ NO_OPTION。
         let e2 = env("next2");
         let r = q(&e2, None, "Q", None);
         let t2 = Tree::load(e2.db.connection(), &e2.roots, &Defs::default()).unwrap();
@@ -1436,7 +1436,7 @@ mod tests {
         store::set_starred(conn, a, true).unwrap();
         f(&e, a);
         f(&e, a);
-        // 子の Q が無い唯一の Q で Logicality 未確認 → debate が先に出る。review は一番上の Q が葉なら debate と並ぶ。
+        // child_Q が無い唯一の Q で Logicality 未確認 → debate が先に出る。review は一番上の Q が葉なら debate と並ぶ。
         let t = tree(&e);
         let acts = next_actions(&t, 10);
         assert!(acts.iter().any(|x| x.block.as_deref() == Some("sci-review") && x.why == "UNCHECKED"));
@@ -1466,7 +1466,7 @@ mod tests {
     #[test]
     fn status_seed_type_and_mind() {
         let e = env("seed");
-        // problem 型として top_Q を 3 つ置き、mind.md に見出しを 2 つ置く。
+        // RESEARCH_TYPE problem として top_Q を 3 つ置き、mind.md に見出しを 2 つ置く。
         let defs = crate::rt::defs::load(&e.roots.root);
         store::meta_set(e.db.connection(), "type", "problem").unwrap();
         for key in ["background", "target", "purpose"] {
@@ -1487,7 +1487,7 @@ mod tests {
         );
         assert_eq!(seed.mind[0].body, "IESS の Hyps 脳波");
         assert_eq!(seed.mind[1].body, "症例は 20 例");
-        // top_Q は 3 つで、一番上の Q（型の root）は無い。
+        // top_Q は 3 つで、一番上の Q（RESEARCH_TYPE の root）は無い。
         let tops: Vec<&str> = s
             .nodes
             .iter()
