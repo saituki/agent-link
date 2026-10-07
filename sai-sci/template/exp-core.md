@@ -6,7 +6,7 @@
 
 ## 1. 役割
 
-実験の鎖は **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout が PATH を選んで SPROUT（実験の計画）を作り、その SPROUT の下の E を branch が写してスクリプトに `# src:` を付ける。
+実験の流れは **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout が PATH を選んで SPROUT（実験の計画）を作り、その SPROUT の下の E を branch が写してスクリプトに `# src:` を付ける。
 
 **神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）のときは scout の後に `sci-sim-model`（2 本以上をつなぐなら `sci-sim-compose`）が**モデル定義書**を作り、sprout がそのトークンを実験仕様書の `sim_model` に入れる。branch はそこから式・値・再現の目標を写し、**すべての試行で土台が再現の目標を満たすかを MLflow に記録する**（`§4` の「再現の確かめ」）。review は、目標を外れた土台を成功と数えず debug に戻す（`§6` の R1a）。
 
@@ -14,11 +14,11 @@
 |---|---|---|---|
 | `sci-exp-scout` | scout | 実験の前に参照実装（Library・ModelDB・GitHub）を探し、参照コード調査書を保存する。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
 | `sci-sim-model` / `sci-sim-compose` | modeler | 神経のモデルの式・値・再現の目標を、参照コードと論文から出典つきで抜き、モデル定義書を保存する（書式は `sim-core`）。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
-| `sci-exp-sprout` | sprout | 研究方針の木から PATH を選んで SPROUT（実験の計画）を作る。実験仕様書を作り、SPROUT の下に最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
-| `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review のカードを作って終わる | 終わりまで待たない・判定しない |
+| `sci-exp-sprout` | sprout | research-tree から PATH を選んで SPROUT（実験の計画）を作る。実験仕様書を作り、SPROUT の下に最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
+| `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review の CARD を作って終わる | 終わりまで待たない・判定しない |
 | `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
-- 木への置き方（PROPOSAL。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
+- research-tree への置き方（PROPOSAL。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
   - sprout: SEED から下る PATH（終点の O。Issue の O を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
   - 1 回の実行の E（BRANCH）は、SPROUT（S）か、前の E の下に `add_e` で作る。
   - review: 結果を F として、branch の E の下に `add_f` で入れる。出典は MLflow の run 名と値（例 `ID125-p02 test_acc=0.871`）。続けるなら次の branch の E を足す。
@@ -80,7 +80,7 @@
 | `device` | `cuda`（GPU が無ければ止める）/ `auto`（cuda → mps → cpu）/ `cpu`。既定 `auto`。実行先が GPU の PC なら `cuda` |
 | `artifact_location` | 成果物の置き場（空なら環境変数 `EXP_ARTIFACT_LOCATION`、それも無ければ `s3://mlflow-local/`）。大きなモデルで別の置き場（さくらのオブジェクトストレージなど）を使うときに書く |
 | `workdir` | スクリプトを置くフォルダ。既定 `experiments/<study>` |
-| `return_to` | sprout を起こしたのが professor なら `{"block": "<そのブロック>", "run_id": <その run_id>}`。人が起こしたなら `null`。鎖が終わったときに起こし直す相手（§11） |
+| `return_to` | sprout を起こしたのが professor なら `{"block": "<そのブロック>", "run_id": <その run_id>}`。人が起こしたなら `null`。実験の流れが終わったときに起こし直す相手（§11） |
 | `reference_code` | 参照実装の一覧。`sci-exp-scout` の参照コード調査書からそのまま写す（`{"id", "url", "sha", "path", "license", "role", "paper"}`）。`role` は `土台` か `参考`。参照実装なしで進むと起動者が決めたときだけ `[]` にして、理由を本文に書く |
 | `sim_model` | モデル定義書のトークン（`sci-sim-model` / `sci-sim-compose` の出力）。神経のモデルでない実験は `null`。`null` でなければ、branch は式・値・再現の目標をそこから写し、`§4` の再現の確かめを記録する |
 
@@ -382,8 +382,8 @@ model: cnn-static
 - 期待する効果: test_acc を 0.87 以上にする
 ```
 
-- `parent_branch` は無ければ `-`。draft のときは「元のスクリプト」の代わりに「モデルの案」と、データの置き場・読み込み方（研究方針の木の F と仕様書から）を書く。
-- カードの作り方（sprout と review で共通）:
+- `parent_branch` は無ければ `-`。draft のときは「元のスクリプト」の代わりに「モデルの案」と、データの置き場・読み込み方（research-tree の F と仕様書から）を書く。
+- CARD の作り方（sprout と review で共通）:
 
 ```bash
 sai-sci card --node <Node の ID> --block sci-exp-branch \
@@ -419,13 +419,13 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 
 | `started` の結果 | branch がすること |
 |---|---|
-| `started: true` | 始まった。review のカードを作って終わる |
-| `started: false` で `state` が `queued` / `running` | 実行先の待ち行列にいる（または最初の epoch が長い）。そのまま review のカードを作って終わる |
-| `started: false` で `state` が `failed` | `log_tail` を読む。スクリプトの誤り（import・構文・パス・定数）なら直して投げ直す（**2 回まで**）。3 回目も失敗したら、そのまま review のカードを作って終わる（review が debug を起こす） |
-| `started: false` で `state` が `lost` / `cancelled` | review のカードを作って終わる |
+| `started: true` | 始まった。review の CARD を作って終わる |
+| `started: false` で `state` が `queued` / `running` | 実行先の待ち行列にいる（または最初の epoch が長い）。そのまま review の CARD を作って終わる |
+| `started: false` で `state` が `failed` | `log_tail` を読む。スクリプトの誤り（import・構文・パス・定数）なら直して投げ直す（**2 回まで**）。3 回目も失敗したら、そのまま review の CARD を作って終わる（review が debug を起こす） |
+| `started: false` で `state` が `lost` / `cancelled` | review の CARD を作って終わる |
 
 - **ジョブの終わりまで待たない。`sleep` で待ち合わせない。**
-- review のカード:
+- review の CARD:
 
 ```bash
 sai-sci card --node <Node の ID> --block sci-exp-review \
@@ -438,7 +438,7 @@ sai-link card wait <返った run_id> --job <job_id>
 - `sai-sci init` が `.sai/settings.json` に `job_status` を書く。無いと `sai-link card wait` は終了コード 2。
 
 - 記録は実行先から**中央の MLflow に直接**入る（回収の手順は無い）。branch は自分で台帳を取り直さない。
-- 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず作業報告書に `BLOCKED` と書き、review のカードは作らずに終える（起動者に質問ツールで知らせる）。
+- 実行先が使えないとき（`check` が失敗、`run` が断られる）は、直そうとせず作業報告書に `BLOCKED` と書き、review の CARD は作らずに終える（起動者に質問ツールで知らせる）。
 
 ## 9. 作業報告書（branch）
 
@@ -450,10 +450,10 @@ sai-link card wait <返った run_id> --job <job_id>
 - ファイル名 `exp-final-<study>.md`、description `完了報告書 <study>: <stop_reason> — 最良 <metric> <value>`。
 - 本文: 最良（experiment・branch・run 名・値・パラメータ）／experiment ごとの表（model・branch の数・run の数・失敗・最良）／branch ごとの表（branch・親・action・model・最良・作業報告書のトークン・判定書のトークン）／research-tree に出した PROPOSAL／止めた理由（`stop_reason` と rule）。値は台帳から写す（自分で計算しない）。
 
-## 11. 止める条件と、鎖の終わり
+## 11. 止める条件と、実験の流れの終わり
 
 - 止めるのは判定が `stop` のときだけ（R0・R1・R3・R4・R7 の一部）。
 - 止めた review は、完了報告書を保存したあと、仕様書の `return_to` を見る:
-  - `return_to` があれば、`sai-link run md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-link card create` で同じブロックのカードを作って `sai-link card run` で起こす（JSON の形は `sci-exp-review` に書く）。`sai-link run tree` で running を確かめる。
+  - `return_to` があれば、`sai-link run md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-link card create` で同じブロックの CARD を作って `sai-link card run` で起こす（JSON の形は `sci-exp-review` に書く）。`sai-link run tree` で running を確かめる。
   - `return_to` が `null` なら起こさない。
 - どちらの場合も最後に `sai-link run finalize` を呼ぶ（review は daemon が起こした root の run）。

@@ -1,33 +1,33 @@
 # データ分析の共通の決まり（data-core）
 
-`sci-data-explore` と `sci-data-test` が共通で読む決まり。データを安全に扱い、データ表を作り、EDA と前処理をし、MLflow と木に記録し、再現できる形で残すための決まりである。
-この文書の §2 の名前・§4 のデータ表・§8 の記録・§9 の木の置き方は**共有契約**であり、ブロックも道具（`data_result.py`）も書き換えない。
+`sci-data-explore` と `sci-data-test` が共通で読む決まり。データを安全に扱い、データ表を作り、EDA と前処理をし、MLflow と research-tree に記録し、再現できる形で残すための決まりである。
+この文書の §2 の名前・§4 のデータ表・§8 の記録・§9 の research-tree の置き方は**共有契約**であり、ブロックも道具（`data_result.py`）も書き換えない。
 文書の渡し方（waggle トークン・`sai-link doc write`）と report の書き方は `sci-core` にある。同じことを繰り返して書かない。
 
 ## 1. 役割と流れ
 
 | ブロック | 役 | すること | しないこと |
 |---|---|---|---|
-| `sci-data-explore` | explorer | データ表・EDA・前処理（`prep.py`）を作り、MLflow に記録し、木に置き、report で test を勧めて終わる | 検定・効果量・仮説の採否をしない・解析計画書を書かない・test のカードを起こさない |
-| `sci-data-test` | tester | 解析計画書を保存してから、解析・検定・`check`・記録・解析結果書・木への置き方をする | 生データの前処理をやり直さない・データ表を書き直さない・計画の前に解析を動かさない |
+| `sci-data-explore` | explorer | データ表・EDA・前処理（`prep.py`）を作り、MLflow に記録し、research-tree に置き、report で test を勧めて終わる | 検定・効果量・仮説の採否をしない・解析計画書を書かない・test の CARD を起こさない |
+| `sci-data-test` | tester | 解析計画書を保存してから、解析・検定・`check`・記録・解析結果書・research-tree への置き方をする | 生データの前処理をやり直さない・データ表を書き直さない・計画の前に解析を動かさない |
 
 - **explore は確かめた主張をしない。** 「差がある」「効く」「効かない」とは書かない。検定・効果量・多重比較・仮説の採否は `stat-core` の仕事である。データを見てから確かめることを変えないために、2 本のブロックを分ける。
 - **test はデータ表と前処理の結果を使う。** 前処理が足りないときは `analysis/<study>/prep.py` を直して再実行し、変えた点をデータ表の `prep_steps` に足してよい。それ以外は前処理をやり直さない。
 
 ```
-カードの Node（SPROUT か E）
+CARD の Node（SPROUT か E）
   └─ sci-data-explore … データ表・EDA・前処理 → report で test を勧めて終わる
-        （起動者＝professor か利用者が、データ表のトークンを渡して test のカードを起こす）
+        （起動者＝professor か利用者が、データ表のトークンを渡して test の CARD を起こす）
         └─ sci-data-test … 解析計画書を保存 → 解析 → check → 記録 → 解析結果書 → F
 ```
 
-- 既存の実験の鎖（`sci-exp-*`）との違い: 鎖は機械学習の指標の最適化である。データ分析は仮説の確かめである。目的が違えば鎖の段を増やさない。
-- 重い計算（30 分を超える学習・大きなモデルの探索）は鎖に回す。データ表の waggle トークンを `sci-exp-sprout` の `--input` に渡せる。
+- 既存の実験の流れ（`sci-exp-*`）との違い: 実験の流れは機械学習の指標の最適化である。データ分析は仮説の確かめである。目的が違えば実験の流れの段を増やさない。
+- 重い計算（30 分を超える学習・大きなモデルの探索）は実験の流れに回す。データ表の waggle トークンを `sci-exp-sprout` の `--input` に渡せる。
 - **1 つの run は 1 つの仕事をして終わる。** explore は test を起こさない。test を起こすのは起動者（professor か利用者）である。
 
 ## 2. 名前・置き場・文書
 
-- **study** は `<Node の ID>-ID<explore の run_id>`（例 `S3-ID130`）。`node` は explore のカードの Node（SPROUT か E）。
+- **study** は `<Node の ID>-ID<explore の run_id>`（例 `S3-ID130`）。`node` は explore の CARD の Node（SPROUT か E）。
 - 作業フォルダ（workdir）は `analysis/<study>/`（プロジェクトルートからの相対）。
 
 ```
@@ -358,17 +358,17 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 - 接続先が無いとき（終了コード 2）は直そうとせず、report に「MLflow に記録できなかった」と書き、起動者に質問ツールで知らせる。
 - test の記録の命令は `stat-core` §11 に書く。ここでは繰り返さない。
 
-## 9. 木への置き方
+## 9. research-tree への置き方
 
 | ブロック | op | 親 | 例 |
 |---|---|---|---|
-| explore | `add_e` | カードの Node（SPROUT か E） | `{"op":"add_e","parent":"S3","text":"データ解析 S3-ID130","mlflow":"west/ID130/data"}` |
+| explore | `add_e` | CARD の Node（SPROUT か E） | `{"op":"add_e","parent":"S3","text":"データ解析 S3-ID130","mlflow":"west/ID130/data"}` |
 | explore | `add_f` | 上で作った E | `{"op":"add_f","parent":"E12","text":"60 人 1180 行。RMSSD の欠損は 2%。","report":"<データ表のトークン>"}` |
 | test | `add_e` | explore が作った E | `{"op":"add_e","parent":"E12","text":"H1 RMSSD の群差（Welch の t）","mlflow":"ID131-test"}` |
 | test | `add_f` | 上で作った E | `{"op":"add_f","parent":"E13","text":"H1: RMSSD は刺激群で高い（g=0.47, 95%CI 0.06–0.87, p_holm=0.046）。","report":"<解析結果書のトークン>"}` |
 
 - 出せる op は `# context` の `## ALLOWED_OPS` を見る。
-- 数字を含む F には、`cites`（論文）か `report`（報告書の waggle トークン）のどちらかが要る。データ分析の F は `report` を使う。
+- 数字を含む F には、`cites`（論文）か `report`（REPORT の waggle トークン）のどちらかが要る。データ分析の F は `report` を使う。
 - F の文は 3 文まで。探索的な結果（`kind: exploratory`・計画外）は、文の頭に「（探索）」と書く。
 
 ## 10. 再現性
@@ -395,5 +395,5 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 - 研究の問いとデータが合わない
 - 前処理で結果をよくする変換を入れようとしている（§6）
 
-- 解析が 30 分を超えそうなとき: 自分で動かさず、report で既存の実験の鎖（`sci-exp-sprout`）を勧める。
+- 解析が 30 分を超えそうなとき: 自分で動かさず、report で既存の実験の流れ（`sci-exp-sprout`）を勧める。
 - 道具（`.sai/tools/…`）が無いとき: report に `BLOCKED` と書き、`sai-sci init --update` で配り直すよう起動者に伝えて終わる。
