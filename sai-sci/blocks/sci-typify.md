@@ -9,7 +9,6 @@ templates:
   - sci-core
   - literature-hard-rules
 context: true
-sci_scope: summary
 timeout: 3600
 worktree: none
 enable: true

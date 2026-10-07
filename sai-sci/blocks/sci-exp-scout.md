@@ -11,7 +11,6 @@ templates:
 context: true
 sci_type: support
 sci_ops: add_f
-sci_scope: node
 timeout: 3600
 worktree: none
 enable: true
@@ -42,8 +41,8 @@ enable: true
 
 ### 1. 依頼文と対象を読む
 
-- 依頼文と、最初のメッセージの `# context` の TARGET_NODE と UPSTREAM_PATH を読む。TARGET_NODE が対象の Issue の O である。
-- 実験で使うモデルの候補（論文の番号・モデル名）を挙げる。UPSTREAM_PATH の F が引いている論文の番号も見ておく。
+- 依頼文と、最初のメッセージの `# context` を読む。依頼文の NODE が対象の Issue の O である。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。
+- 実験で使うモデルの候補（論文の番号・モデル名）を挙げる。祖先の道の F が引いている論文の番号も見ておく。
 
 ### 2. Library を先に探す
 
@@ -51,7 +50,7 @@ enable: true
 uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refcode.py" links --json
 ```
 
-UPSTREAM_PATH の F が引いている論文のリンクを先に見る。`exp-ref` §2 の順を飛ばして GitHub から探し始めない。
+祖先の道の F が引いている論文のリンクを先に見る。`exp-ref` §2 の順を飛ばして GitHub から探し始めない。
 
 ### 3. 足りなければ ModelDB と GitHub で探す
 
@@ -86,7 +85,7 @@ ModelDB のカタログが無いときは終了コード 1 で返る。`sync` �
 
 ```json
 {"proposals": [
-  {"op": "add_f", "node": "<TARGET_NODE>", "text": "#9 のモデルの参照実装は miscco/NM_TC（C++）である。", "cites": ["#9.13.1"]}
+  {"op": "add_f", "node": "<NODE>", "text": "#9 のモデルの参照実装は miscco/NM_TC（C++）である。", "cites": ["#9.13.1"]}
 ]}
 ```
 
@@ -100,8 +99,8 @@ ModelDB のカタログが無いときは終了コード 1 で返る。`sync` �
 
 ## 参照コード調査書
 
-- ファイル名 `ref-scout-<TARGET_NODE>-ID<自分の run_id>.md`。
-- description `参照コード調査書 <TARGET_NODE>: <土台にするリポジトリ>@<sha 12 桁> と一言>`。
+- ファイル名 `ref-scout-<NODE>-ID<自分の run_id>.md`。
+- description `参照コード調査書 <NODE>: <土台にするリポジトリ>@<sha 12 桁> と一言>`。
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。
 
 ```json

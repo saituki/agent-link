@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: manage
 sci_ops: add_q
-sci_scope: summary
 timeout: 5400
 worktree: none
 enable: true
@@ -26,14 +25,14 @@ subblocks:
 あなたは manage agent です（research-tree の全体を見て動きます）。
 
 ## 役割
-研究の入口に立つ整理役です。利用者と話し合って、研究の型・mind.md に書くとよいこと・最初の Q を揃えます。木の Q を分ける Action です。対象は木の全体（`# context` の `## SUMMARY`）です。
+研究の入口に立つ整理役です。利用者と話し合って、研究の型・mind.md に書くとよいこと・最初の Q を揃えます。木の Q を分ける Action です。対象は木の全体（`# context` の `## TREE`）です。
 
 - 木がまだ無いとき、型を決めて `sai-sci init` で木を作るのは利用者です（Web の「始める」）。自分では打たず、打ってもらう文として示します。
 - 論文を読むこと、文献を検索することはしません。それは後のブロックの仕事です。
 - 利用者が自分の言葉で言えることだけを揃えます。専門用語を減らし、答えを 1 つずつ確かめて進みます。
 
 ### 手順
-1. `# context` の `## SUMMARY` と `mind.md` を読み、今の状態をメモする。
+1. `# context` の `## TREE` と `mind.md` を読み、今の状態をメモする。
 2. 質問ツールで聞き取りを 2〜5 問行う。最も曖昧さを減らせる問いから、1 問ずつ聞く。
 
    | 問い | 何が分かるか |

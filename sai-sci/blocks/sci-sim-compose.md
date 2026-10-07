@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: support
 sci_ops: add_f
-sci_scope: node
 timeout: 3600
 worktree: none
 enable: true
@@ -43,7 +42,7 @@ enable: true
 
 ### 1. 依頼文と対象を読む
 
-- 依頼文と、最初のメッセージの `# context` の TARGET_NODE と UPSTREAM_PATH を読む。TARGET_NODE が対象の Issue の O である。
+- 依頼文と、最初のメッセージの `# context` を読む。依頼文の NODE が対象の Issue の O である。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。
 - 依頼文から、**つなぐ部品**（論文の番号と、その論文の使う部分）と、**新しいモデルで問いたいこと**を読む。
 
 ### 2. 部品ごとのモデル定義書を読む
@@ -86,8 +85,8 @@ enable: true
 
 ## モデル定義書
 
-- ファイル名 `sim-model-<TARGET_NODE>-ID<自分の run_id>.md`。
-- description `モデル定義書 <TARGET_NODE>: <name>（組み合わせ）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
+- ファイル名 `sim-model-<NODE>-ID<自分の run_id>.md`。
+- description `モデル定義書 <NODE>: <name>（組み合わせ）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
 - **書式は `sim-core` §2 のとおりである。** 本文の先頭に `{"sim_model": {...}}` の JSON を ```json のコードブロックで 1 つだけ置き、そのあと §2 の順に 9 つの節（`## 状態変数`・`## 式`・`## パラメータの出典表`・`## 再現の目標`・`## 改良点`・`## つなぎ方`・`## 食い違い`・`## GAP`・`## PROPOSAL`）を書く。書くことが無い節は「なし」と書く。
 - `kind` は `組み合わせ` だけを書いてよい。部品ごとのモデル定義書を使ったときは、その部品の `components` に `doc` でトークンを入れる。
 

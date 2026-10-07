@@ -26,8 +26,8 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 
 `sci-sim-model` と `sci-sim-compose` が書く文書の形である。**この節の書式から変えない。**
 
-- ファイル名 `sim-model-<TARGET_NODE>-ID<自分の run_id>.md`。
-- description `モデル定義書 <TARGET_NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
+- ファイル名 `sim-model-<NODE>-ID<自分の run_id>.md`。
+- description `モデル定義書 <NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。
 
 ```json
@@ -107,7 +107,7 @@ scout（参照実装を探す） → sim-model / sim-compose（モデル定義�
 2. **論文の本文の塊**。検索の決まりは `sci-find` のとおりである。
 
    ```bash
-   sai-sci find "<英語の語>" --node <TARGET_NODE> --json
+   sai-sci find "<英語の語>" --node <NODE> --json
    ```
 
    - **式の塊が `formula-not-decoded`（数式として読めない状態）のときは、そこから式を推測しない。** その節を `## GAP` に書いて質問にする。

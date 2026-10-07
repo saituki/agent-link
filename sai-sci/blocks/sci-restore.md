@@ -13,7 +13,6 @@ templates:
 context: true
 sci_type: manage
 sci_ops: add_q, add_o, add_f, add_e
-sci_scope: summary
 timeout: 5400
 worktree: none
 enable: true
@@ -36,7 +35,7 @@ subblocks:
 
 ### 手順
 1. 依頼文の `基盤論文: #12 …` を読む。無ければ質問ツールで起動者に番号を確かめて止まる。各論文の本文が `sai-paper content outline` で読めるかを確かめる（読めないときは `bw-core` §3）。
-2. 2 本以上なら関係を 1 つに決める（`bw-core` §3）。論文の研究の型を判断し、今の木の型（`## SUMMARY`）と違えば、`sai-sci types` で近い型を示し、型の変更は利用者に頼んで止まる。
+2. 2 本以上なら関係を 1 つに決める（`bw-core` §3）。論文の研究の型を判断し、今の木の型（`## TREE`）と違えば、`sai-sci types` で近い型を示し、型の変更は利用者に頼んで止まる。
 3. 序論と関連研究を読み、`bw-core` §4 に沿って「論文の記述（場所つき）→ Q」の割り当ての表を作る。手法・データ・評価指標も同じ表にする。
 4. 主張と引用の対応表を作る（`bw-core` §5・§6）。`sai-paper paper citations <基盤論文の番号>` の `sentences` を使い、引用文ごとに主張を 1 文にする。
 5. 表を見せ、質問ツールで「この割り当てで PROPOSAL を出してよいか」を起動者に聞いて止まる。

@@ -11,7 +11,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_e, add_f
-sci_scope: path
 timeout: 3600
 worktree: none
 enable: true
@@ -46,8 +45,8 @@ enable: true
 
 ### 1. 依頼を読む
 
-- 最初のメッセージの `# context`（対象の Node・`UPSTREAM_PATH`）と `# task_text`（目的・データのパス）を読む。
-- データのパスが依頼文に無ければ、木の `data` の Q に付いた F（`# context` の `## TREE` と `## TARGET_NODE` にある）を見る。**それでも無ければ、質問ツールで起動者にデータを聞いて止まる。** 推測でデータを作らない（`data-core` §11）。
+- 最初のメッセージの `# context`（`## TREE`）と `# task_text`（依頼文の NODE・目的・データのパス）を読む。
+- データのパスが依頼文に無ければ、木の `data` の Q に付いた F（`# context` の `## TREE` にある）を見る。**それでも無ければ、質問ツールで起動者にデータを聞いて止まる。** 推測でデータを作らない（`data-core` §11）。
 - study を決める（C1）。`<対象の Node>-ID<自分の run_id>` の形（例 `O6-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
 - project は次で取る。
 

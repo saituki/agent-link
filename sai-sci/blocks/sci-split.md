@@ -11,7 +11,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_q
-sci_scope: path
 timeout: 5400
 worktree: none
 enable: true
@@ -24,7 +23,7 @@ subblocks:
 あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
-`# context` の `## TARGET_NODE` の Q を、子の Q に分ける Action です。対象は Q です。
+依頼文の NODE の Q を、子の Q に分ける Action です。対象は Q です。
 
 - 子の Q を持った Q には、O を置けなくなります。すでに O がある Q は分けません。分けたいときは、その理由を report に書いて利用者に返します。
 - 抽象から具体へ分けます。1 つの Q には 1 つの決めることだけを書きます。
@@ -32,7 +31,7 @@ subblocks:
 - 論文を読み込みません。根拠を調べたいときは、`sci-lookup` を子として呼びます。
 
 ### 手順
-1. `# context` の `## TARGET_NODE`・`## UPSTREAM_PATH`・`## GUIDE` を読む。対象の Q に O がすでにあるなら、ここで止まって report に書く。
+1. 依頼文の NODE・`## TREE`（`← TARGET` の行）・`## GUIDE` を読む。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。対象の Q に O がすでにあるなら、ここで止まって report に書く。
 2. 対象の Q が決めることを 1 文で言い直す。複数の決めることが混ざっているところを見つける。
 3. `## GUIDE` の Child Q を、候補として並べる。対象の Q に合うものだけ残す。足りない分は、抽象から具体の順で自分の案を足す。
 4. 子の Q を 2〜5 個に絞る。各子に「文・ガイド（key。無ければ無し）・なぜ要るか」を付ける。

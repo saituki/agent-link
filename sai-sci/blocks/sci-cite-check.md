@@ -14,7 +14,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_f
-sci_scope: path
 timeout: 5400
 worktree: none
 enable: true
