@@ -17,7 +17,8 @@
 | **sai-link**（基盤） | `crates/sai-link-engine`・`crates/sai-link-view`・`crates/sai-link-cli` | `sai-link` | 実行の DB（`sai-engine.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
 | **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・検索セット（CLI の `set …`）・論文のチャンク・音声化の依頼 |
 | **sai-sci**（研究の仕組み） | `crates/sai-sci-core`・`crates/sai-sci-cli`・`sai-sci/`（md の部品） | `sai-sci` | research-tree（`papr.db` の `rt_*` 表）・研究の記録・エージェントの報告・研究用の block と template（LabAgent） |
-| **sai-web**（Web の窓口） | `apps/web` | `apps/web/bin/sai-web` | 画面（FastAPI + 素の JavaScript）。質問・承認・通知・使用量・MLflow と Radio の中継 |
+| **sai-web**（Web の窓口） | `apps/web` | `apps/web/bin/sai-web` | 画面（FastAPI + 素の JavaScript）。質問・通知・使用量・MLflow と Radio の中継。多人数モードではログイン・利用者・プロジェクトのコンテナ（`auth.py`・`containers.py`） |
+| （周辺） | `apps/prep` | `sai-prep` | 各自の Mac の前処理アプリ。PDF を docling と翻訳で処理し、前処理の束をサーバへ送る（標準ライブラリだけ） |
 | （周辺） | `apps/radio` | — | 解説音声の生成と配信（HTTP API・8201 番） |
 | （周辺） | `apps/mlflow-server` | — | 実験の記録（MLflow）の compose。Docker で動かす |
 
@@ -37,20 +38,39 @@
 - **CLI でできることは Web でもでき、Web でできることは CLI でもできる。**
 - CLI → Web: 3 つの CLI は `schema --json` で命令の一覧を出す。Web の「コマンド」画面（`#/project/<名前>/commands`）は、これを読んで `web: true` の命令を入力欄つきで出す。
   CLI に命令を足せば、Web の画面を足さなくても「コマンド」画面から使える。
-- Web → CLI: Web の HTTP API は、すべて `sai-web api <METHOD> <path>` から呼べる。Web にしか無い機能（質問・承認・送信・使用量・MLflow）にも専用の命令がある（`sai-web questions`・`answer`・`approvals`・`approve`・`send`・`usage`・`mlflow …`）。
+- Web → CLI: Web の HTTP API は、すべて `sai-web api <METHOD> <path>` から呼べる。Web にしか無い機能（質問・送信・使用量・MLflow）にも専用の命令がある（`sai-web questions`・`answer`・`send`・`usage`・`mlflow …`）。
 - Web の専用の画面は、**一覧・図・編集のように専用の見た目が要るときだけ**足す。
 
 ### 1.4 層の図
 
+多人数モード（Linux サーバ。研究室の人が Web から使う）:
+
 ```
-┌────────────────────────── 入口 ──────────────────────────┐
-│ 人: ブラウザ（iPhone / PC）          人・エージェント: CLI  │
-│      │ HTTPS（Tailscale serve :4443）       │               │
-│      ▼                                     │               │
-│ sai-web  127.0.0.1:8200 FastAPI            │               │
-│      │ 3 つの CLI（--json）と HTTP API だけを使う          │
-└──────┼─────────────────────────────────────┼───────────────┘
-       ▼                                     ▼
+┌──────────────── 入口 ────────────────┐   ┌── 各自の Mac ──┐
+│ 人: ブラウザ（iPhone / PC）           │   │ sai-prep        │
+│      │ HTTPS（Tailscale serve）       │   │ （PDF の前処理）│
+│      ▼                               │   └──────┬─────────┘
+│ sai-web  :8200（FastAPI・ログイン）   │◀─────────┘ 前処理の束（HTTP）
+│      │ 中継（docker exec）            │
+└──────┼───────────────────────────────┘
+       ▼
+┌── プロジェクトのコンテナ（1 プロジェクト 1 つ・rootless Docker）──┐
+│ sai-link（daemon・headless のエージェント）・sai-paper・sai-sci    │
+│ 人・エージェントの CLI は、この中で動く                              │
+└────────────────────────────────────────────────────────────────┘
+```
+
+開発（Mac・単独モード）:
+
+```
+┌──────────────────── 入口 ────────────────────┐
+│ 人: ブラウザ（iPhone / PC）       人・エージェント: CLI │
+│      │ HTTPS（Tailscale serve）             │         │
+│      ▼                                      │         │
+│ sai-web  127.0.0.1:8200 FastAPI             │         │
+│      │ 3 つの CLI（--json）と HTTP API だけを使う       │
+└──────┼──────────────────────────────────────┼─────────┘
+       ▼                                      ▼
  sai-link ◀─────CLI──────── sai-sci ────ライブラリ────▶ sai-paper
  sai-engine.db                (research-tree)                 papr.db
  .sai/outputs                                            ▲
@@ -58,7 +78,7 @@
 ```
 
 - **コア**（sai-link・sai-paper・sai-sci）は DB と処理を持つ。
-- **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API）が、コアと Web の境目である。Web はここだけを使う。
+- **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API・前処理の束の形（C12））が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`（`src/rt/`）、入口は `sai-sci` の CLI と Web の Research タブ。
   research-tree は **4 layer（SEED・ROOT・SPROUT・BRANCH）** の木で、Node の種類は Q・O・F・E・S の 5 つ。
@@ -115,16 +135,16 @@
 ### 2.4 そのほかの原則
 
 1. **sai-web は窓口だけ。** 処理とデータの保管はコアがする。
-   - sai-web 自身が持つのは、質問・承認・pane の対応表・通知の購読だけ（`$SAI_HOME/web/sai_web.db`・`store.py`）。
+   - sai-web 自身が持つのは、質問と通知の購読だけ（`$SAI_HOME/web/sai_web.db`・`store.py`）。
    - Download と音声化の進み具合は sai-web のメモリにだけ持つ（再起動で消えてよい。結果はコアに残る）。
 2. **足りない機能はコアに足す。** Web に要る処理がコアに無ければ、コアのクレートへ足して CLI の命令に出す。`apps/web` で計算し直さない。
 3. **外から来る値は、CLI を呼ぶ前に sai-web が検査する。** 名前の形・大きさ・種類の一覧を sai-web が先に確かめる。通らない値では CLI を 1 度も呼ばない（400）。ファイルのパスは iPhone から受け取らない。置き場はコアが名前から決める。
 4. **依存を増やさない。** サーバは FastAPI と標準ライブラリ、画面は素の JavaScript（フレームワーク・ビルド無し）。グラフと Workflow の線は SVG を手で描く。md の色分けも自前の簡易版で行う。
-5. **合言葉（`SAI_WEB_TOKEN`）で入口を守る。** 127.0.0.1 でだけ待ち受け、外へは Tailscale serve で tailnet の中にだけ出す。
+5. **入口を守る。** 単独モードは合言葉（`SAI_WEB_TOKEN`）、多人数モードは大学のメールアドレスとパスワードのログイン（Cookie）と個人のトークン（sai-prep と CLI が使う）。開発は 127.0.0.1 でだけ待ち受ける。サーバは `0.0.0.0` で待ち受け、防火壁で tailnet とコンテナだけに通す（`docs/server.md` の 8）。外へは Tailscale serve で tailnet の中にだけ出す。コンテナの中の CLI が Web を呼ぶ内部の合言葉（`SAI_WEB_INTERNAL_TOKEN`）は、内部用の住所だけで使える。
 6. **エラーは日本語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。
 7. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `SAI_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
 8. **言葉で迷わせない。** 表示は日本語にする（`data-tab` や住所などの識別子は英語のまま）。sai 独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
-9. **答えは先着。** 質問と承認は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
+9. **答えは先着。** 質問は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
 
 ---
 
@@ -154,16 +174,27 @@
 | `paper.env` | 全プロジェクト共通の API キー（プロジェクトの `.env` より優先順位が低い） |
 | `sci/types/<型>.md` | 利用者が保存した RESEARCH_TYPE（`sai-sci type-save`） |
 | `web/runs/<project_name>/<run_id>.json` | sai-link が書き出す実行の記録。会話の画面が読む |
-| `web/cc-rate-limits.json` | Claude Code の制限。書くのは `sai-link cc-statusline`、読むのは Web の使用量 |
 | `web/token` | Web の合言葉（0600）。エージェントの道具が読む |
-| `web/sai_web.db` | 質問・承認・pane の対応表・通知の購読 |
+| `web/sai_web.db` | 質問・通知の購読 |
 | `web/vapid.json` | プッシュ通知の鍵 |
-| `web/sai-web.log` | Web のログ（launchd で動かしたとき） |
+| `web/sai-web.log` | Web のログ |
 
 ### 3.3 `SAI_HOME` に入らないもの
 
 - **プロジェクトの中の `<root>/.sai/`** は別。`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`（sai-paper の置き場）がここにある。
 - `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
+
+### 3.4 多人数モードの置き場（共有契約 C4）
+
+`SAI_WEB_USERS_ROOT`（絶対パス。例 `/srv/sai/users`）が空でないと多人数モードになる（`registry.py` の `users_root()`）。`<U>` がその置き場。
+
+| 置き場 | 中身 |
+|---|---|
+| `<U>/<user>/home/` | その人のひな形の HOME（`.sai/`・`.pi/agent/models.json` など。コンテナには見せない） |
+| `<U>/<user>/projects/<user>-<project>/` | プロジェクトの root（登録簿の名前もフォルダ名と同じ `<user>-<project>`） |
+| `<U>/<user>/homes/<user>-<project>/` | プロジェクトのコンテナの HOME（`.claude`・`.pi`・`.sai`） |
+| `<U>/<user>/secrets.env` | その人の API キーと Claude の長命トークン（0600）。コンテナには `--env-file` で渡し、ファイルそのものは見せない |
+
 
 
 ---
@@ -174,7 +205,7 @@
 
 | ファイル | 受け持ち |
 |---|---|
-| `main.py` | FastAPI の住所の登録・合言葉（`require_token`）・Mac 自身からだけ受ける内部 API（`require_local`） |
+| `main.py` | FastAPI の住所の登録・合言葉（`require_token`）・内部の合言葉で使える住所の制限（`_INTERNAL_POST_EXACT`） |
 | `cli.py` | 3 つの CLI を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
 | `control.py` | sai-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
 | `papers.py` | sai-paper の呼び出し（Library・検索・論文のチャンク・Import・Download・音声化の依頼）と、sai-sci の現況（`GET …/papers/project`・`…/project/memo`）・要対応の解消（`…/attention/resolve`）。Papers の Dashboard が現況と要対応を出す |
@@ -183,15 +214,17 @@
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
 | `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
 | `runs.py` / `sessions.py` | sai-link の書き出し（`web/runs/`）と会話の記録（.jsonl）の読み取り |
-| `questions.py` / `approvals.py` / `store.py` | 質問と cc のコマンド承認の保管と回答（先着） |
-| `herdr.py` / `watch.py` / `notify.py` | herdr の呼び出し・2 秒ごとの状態の監視・プッシュ通知 |
+| `questions.py` / `store.py` | 質問の保管と回答（先着）・通知の購読 |
+| `watch.py` / `notify.py` | 2 秒ごとの状態の監視（headless の state.json を読む）・プッシュ通知 |
+| `auth.py` | 多人数モードのログイン・Cookie・パスワード・管理者の判定（単独モードでは使わない） |
+| `containers.py` | 多人数モードのプロジェクトのコンテナ（`docker` の起動・停止・作り直し・内部の合言葉・置き場の作成） |
+| `bundles.py` | 前処理の束の受け口（展開と検査・`import-bundle` の背景実行・PDF 待ちの一覧） |
 | `radio.py` | `apps/radio`（127.0.0.1:8201）への中継 |
 | `mlflow_proxy.py` | MLflow（127.0.0.1:5001）への読み取りだけの中継 |
-| `rbrowser.py` | 遠隔ブラウザ（Mac の Chrome）の操作 |
 | `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek・pi の記録） |
-| `webcli.py` | `sai-web` の命令（`serve`・`projects`・`home`・`questions`・`answer`・`approvals`・`approve`・`send`・`usage`・`mlflow …`・`api`） |
+| `webcli.py` | `sai-web` の命令（`serve`・`projects`・`home`・`questions`・`answer`・`send`・`user`・`usage`・`mlflow …`・`api`） |
 | `extensions/ask_user.ts` | pi に Web 連携付きの質問ツールを足す拡張（既定の接続先は `SAI_WEB_URL`） |
-| `hooks/`（`apps/web/hooks/`） | cc のフック（質問・承認・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
+| `hooks/`（`apps/web/hooks/`） | cc のフック（質問・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
 
 ### 4.2 CLI を呼ぶ約束
 
@@ -236,7 +269,9 @@
 | `home.js` | Home |
 | `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
 | `commands.js` / `sessionsearch.js` / `dashsearch.js` | 「コマンド」画面・セッション検索・Dashboard の文書検索 |
-| `papers.js` / `paperimport.js` / `cite.js` / `rbrowser.js` | Papers（Dashboard・Library・Import・Radio の 4 つ。Library は `外部 DB` / `内部 DB` / `Paper` の切り替えと、論文詳細のチャンク一覧。引用・遠隔ブラウザ） |
+| `papers.js` / `paperimport.js` / `cite.js` | Papers（Dashboard・Library・Import・Radio の 4 つ。Library は `外部 DB` / `内部 DB` / `Paper` の切り替えと、論文詳細のチャンク一覧。引用・「＋ Library に入れる」・PDF 待ち） |
+| `account.js` | 多人数モードの画面（`#/login`・`#/password`・`#/account`・`#/admin`） |
+| `newchat.js` | Chats の新しいチャット（生成中の文・中断） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Papers の Radio・声の質問・質問の読み上げと音声回答 |
 | `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | Research の research-tree 画面（上の帯の Next Action と History・SPROUT 作成パネル・DAG（`scigraph.js`）・Node の一覧・右の板（SB）・操作と TRIAGE（`sciedit.js`）・READ_CARD（`sciread.js`）） |
 | `mlflow.js` / `mlfchart.js` | Research の Experiments（MLflow の記録） |
@@ -259,12 +294,13 @@
 ### 4.6 処理の流れの型
 
 - **すぐ返る操作**（一覧・中身・保存）: 画面 → `saiApi` → sai-web の住所 → 値の検査 → CLI（`--json`）→ 画面。
+- **前処理の束**（sai-prep → サーバ）: 各自の Mac の sai-prep が束を送る → sai-web が展開と検査をして `sai-paper paper import-bundle --dir` を背景で走らせる（600 秒の上限）→ 論文の PDF と図・節・引用が Library に入る。サーバは PDF を落とさず、docling も pdf2zh も動かさない。
 - **時間がかかる操作**（Download・音声化・引用の抜き出し・PDF の翻訳）: sai-web が 202 を返し、背景で CLI を走らせる。画面は仕事の一覧の住所を見張り、終わったらプッシュ通知を出す。
   Download は 2 段で、`sai-paper paper download`（PDF を取って登録。ここで「保存しました」を通知）→ `sai-paper paper after-download`（標準エラーの `sai-progress` を読んで進み具合を出す）。
   `after-download` の中身は `pipeline::after_download`（`crates/sai-paper-core/src/pipeline.rs`）が、図の抽出 → 節の表（チャンクの ID の元）→ PDF の翻訳の順に行う。
   図の抽出のキーは s2・arXiv・DOI のどれか。どれも無い論文は `paper:<papers.id>` を使う（`figures::figure_key_for_paper`）。
   `extract.md` からは docling の画像の行を除き（`citation::docling::strip_figure_images`）、図は別ファイル（`figures/fig-NNN.png`）で出す。
-- **エージェントからの質問**: cc のフックと pi の拡張が `POST /api/questions`（Mac 自身からだけ）に登録する → 画面に出て通知 → PC と iPhone の先に答えた方を採用する。
+- **エージェントからの質問**: cc のフックと pi の拡張が `POST /api/questions`（単独モードは Mac 自身から、多人数モードは内部の合言葉を持つコンテナから）に登録する → 画面に出て通知 → PC と iPhone の先に答えた方を採用する。
 
 ---
 
@@ -290,21 +326,23 @@
 | Rust の結合テスト | `crates/*/tests/*.rs`（`cargo test --workspace`） |
 | Web の画面テスト | `apps/web/tests/test_*.js`（`node`） |
 | Web のサーバテスト | `apps/web/tests/test_*.py`（素の `python`・`PYTHONPATH=apps/web/src`） |
+| コンテナの中継のテスト | `apps/web/server/test_sai_in_container.sh`（偽の `docker`） |
+| sai-prep のテスト | `apps/prep/tests/test_*.py`（`unittest`・標準ライブラリだけ） |
 | Radio のテスト | `apps/radio/tests/test_*.py` |
 | 実験ループの道具 | `sai-sci/tools/test_*.py`（`unittest`） |
 
 - JS のテストは DOM を使わない関数を確かめる（画面の関数は DOM を使わない部分に分けて書く）。
-- 画面の確認は **8200 / 8201 / 8202 番**で行う。**旧構成の 8100 番と 8000 番は、確認のために再起動しない。**
+- 画面の確認は **8299 番など別の番号**で行う。**Mac で動いている Web（8200 番）は、確認のために止めたり再起動したりしない。**
 - サーバ・ブラウザ・ネットワークを使う確認の命令には時間の上限を付ける（例 `perl -e 'alarm 180; exec @ARGV' <命令>`）。背景で起動したサーバは最後に止める。
 - 書き込みを確かめるときは、一時フォルダを作り、`SAI_HOME` と `SAI_PROJECT_ROOT` をその中に向けて行い、最後に消す。本物の `.sai/`・`$SAI_HOME`・`papr.db` を確かめのために変えない。
-- `sai-link daemon start`・`launchctl load`・MLflow の `docker compose up / down / restart` は確認のために実行しない。
+- `sai-link daemon start`・MLflow の `docker compose up / down / restart`・`apps/web/server/deploy.sh` の本物の実行は、確認のために実行しない（文法は `sh -n` で確かめる）。
 
 ---
 
 ## 7. ファイル構成
 
 ```
-sai-moon/
+sai-tree/
 ├── crates/                   # Rust のワークスペース（7 クレート）
 │   ├── sai-link-engine/      # lib  実行エンジン（DB・常駐・パース・オーケストレーター）
 │   ├── sai-link-view/        # lib  Web と CLI が使う組み立て処理（描画は持たない）
@@ -320,9 +358,12 @@ sai-moon/
 │   │   ├── src/sai_web/      # サーバ（§4.1）
 │   │   │   ├── static/       # 画面（§4.4）
 │   │   │   └── extensions/   # pi の拡張（ask_user.ts）
-│   │   ├── hooks/            # cc のフック
-│   │   ├── launchd/          # launchd のひな形
+│   │   ├── hooks/            # cc のフック（cc_question.py・cc_register.py）
+│   │   ├── server/           # 多人数モードの配備: Dockerfile・sai-web.service・deploy.sh・sai-in-container（CLI の中継）
 │   │   └── tests/            # test_*.js（node）と test_*.py（素の python）
+│   ├── prep/                 # sai-prep（各自の Mac の前処理アプリ。標準ライブラリだけ）
+│   │   ├── src/sai_prep/
+│   │   └── tests/            # test_*.py（unittest）
 │   ├── radio/                # Radio の裏方サーバー（8201・TTS プロキシは 8202）
 │   │   ├── src/sai_radio/
 │   │   ├── config/           # podcast-creator 用の設定 JSON
@@ -337,8 +378,10 @@ sai-moon/
 │   ├── exec/                 # 実行先の見本（local・ssh・dok・_example）
 │   └── mind.md               # mind.md（研究の土台）のひな形
 ├── docs/                     # 開発者向けの文書
+│   ├── server.md             # サーバ（Linux・多人数モード）の入れ方・配備・バックアップ
 │   ├── integration.md        # Web の API と画面の住所・各 API が呼ぶ CLI の命令
-│   └── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
+│   ├── for-sai-developers.md # CLI の約束と Web が読む JSON の項目
+│   └── plan/                 # 実装計画書（ガイド・U01〜U15・調査）。読むだけ
 ├── .sai/                     # このプロジェクト自身の中のデータ（.gitignore 済み）
 ├── CONCEPT.md                # 概念と用語の定義
 ├── AGENTS.md                 # このリポジトリで作業するエージェントへの指示
@@ -360,3 +403,26 @@ sai-moon/
 | **global の cc フック・pi 拡張** | `~/.claude/settings.json` と `~/.pi/agent/extensions/` には**入れない**。`sai-link init` がプロジェクトの `.claude/settings.json`・`.pi/settings.json` に書く |
 | **単一ディスパッチャ CLI** | 「1 つの `sai` コマンドですべてをまとめる」案は不採用。`sai-link`・`sai-paper`・`sai-sci`・`sai-web` の 4 本に分けたまま。必要になれば後からまとめる入口を足せる |
 | **Rust のプリセット領域** | 旧 sai-paper からそのまま写した物は、sai 用の見直しをしていない |
+| **herdr**（端末の窓の管理） | やめた。headless の実行（擬似 pane）に替えた。engine の `herdr.rs` は擬似 pane の型などの名残 |
+| **launchd**（Mac の常駐） | 多人数モードでは使わない。サーバは systemd のシステムサービス（`sai-web.service`）と、コンテナの中の daemon で動く |
+| **cc のコマンド承認（PermissionRequest）と `approvals`** | やめた。headless では承認が来ないので、仕組みごと消した。質問（`AskUserQuestion`）は残る |
+| **遠隔ブラウザ（Mac の Chrome の操作）と `SAI_WEB_CHROME`・`SAI_WEB_BROWSER_HEADED`** | やめた（Papers の遠隔ブラウザ）。PDF は各自の Mac の sai-prep が扱う |
+| **cc の statusLine と `cc-statusline`・`cc-rate-limits.json`（5 時間枠）** | やめた。費用は engine が `cc-cost/` に書く |
+| **サーバでの PDF のダウンロードと docling・pdf2zh の実行** | しない。PDF の前処理は各自の Mac の sai-prep が行い、束をサーバへ送る |
+| **Mac の Keychain** | 使わない。API キーと Claude のトークンは `secrets.env`（0600）に置く |
+
+範囲外（要件定義書の一覧。今回はしない）:
+
+- プロジェクトを複数のメンバーで共有すること。
+- Web からプロジェクトを消すこと（管理者が手で行う。`docs/server.md` の 13）。
+- Claude Code の 5 時間枠の表示。
+- daemon が止まったときの headless の実行の引き継ぎ（再起動すると、動いていた headless の実行は失敗の扱いになる）。
+- 一般公開（Tailscale Funnel など）。
+- sai-prep の Windows・Intel Mac 版。
+
+---
+
+## 9. 経緯
+
+- sai-moon（Mac 1 台で使う版。herdr と launchd が前提）を複製して、sai-tree（研究室の Linux 多人数サーバ）を作った（要件定義書 `docs/plan/requirements.md`）。sai-moon は読み取り専用で、直さない。
+- 作業は U01〜U15 の計画書（`docs/plan/unit-U*.md`）の順に進めた。U01〜U05 が headless・herdr と承認の削除、U06〜U11 が多人数モードの認証・コンテナ・画面、U12〜U14 が前処理の束と sai-prep、U15 が配備と文書。

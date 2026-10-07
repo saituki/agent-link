@@ -57,8 +57,8 @@ which sai-sci sai-paper sai-link
 ターミナルの窓を**新しく 1 つ**開きます（`⌘ + N`）。この窓は Web の画面を動かし続けるための窓なので、作業中は閉じないでください。
 
 ```bash
-cd ~/workdir/Sai/sai-moon
-PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
+cd ~/workdir/Sai/sai-tree
+PATH=$HOME/workdir/Sai/sai-tree/target/release:$PATH \
   apps/web/.venv/bin/uvicorn sai_web.main:app \
   --host 127.0.0.1 --port 8200 --app-dir apps/web/src
 ```

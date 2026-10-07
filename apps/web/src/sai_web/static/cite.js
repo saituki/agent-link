@@ -371,7 +371,7 @@ function ctFillDetail(body, ref) {
     });
     actions.appendChild(open);
   } else if (r.can_download) {
-    const dl = ctUiEl("button", "sai-btn primary", "⬇ Download");
+    const dl = ctUiEl("button", "sai-btn primary", "＋ Library に入れる");
     dl.type = "button";
     dl.addEventListener("click", () => {
       if (typeof pimStartDownload !== "function") return;
