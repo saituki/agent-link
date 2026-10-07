@@ -101,7 +101,19 @@ def openrouter_accounts() -> list[dict]:
 
 
 def _key_for(env_var: str) -> str | None:
-    """環境変数からキーを読む（空文字は未設定として扱う）．"""
+    """キーを読む（空文字は未設定として扱う）．
+
+    多人数モードでは今の利用者の `secrets.env`（`containers.read_keys`）から読む。
+    単独モードは今までどおり環境変数から読む。
+    """
+    if registry.multi_user():
+        from sai_web import containers
+
+        user = registry.current_user.get()
+        if not isinstance(user, dict) or not user.get("name"):
+            return None
+        value = (containers.read_keys(str(user["name"])).get(env_var) or "").strip()
+        return value or None
     value = (os.getenv(env_var) or "").strip()
     return value or None
 

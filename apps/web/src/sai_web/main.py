@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
@@ -102,8 +103,9 @@ async def _multi_user_auth(request: Request, call_next):
 
     user: dict | None = None
     via_api_token = False
+    via_internal_token = False
 
-    # 1. 個人のトークン（`sai_…`）
+    # 1. 個人のトークン（`sai_…`）か、プロジェクトの内部の合言葉（`sai_` で始まらない）
     authz = request.headers.get("authorization") or ""
     if authz.lower().startswith("bearer "):
         value = authz[len("bearer "):].strip()
@@ -114,8 +116,20 @@ async def _multi_user_auth(request: Request, call_next):
                 if candidate is not None and not candidate.get("disabled"):
                     user = candidate
                     via_api_token = True
+        elif value:
+            # 内部の合言葉（共有契約 C5）。見つかれば持ち主として入れる。
+            # 見つからなければ何もしない（内部の住所は 403 になる）。
+            row = store.find_project_token(auth.sha256_hex(value))
+            if row is not None:
+                user = {
+                    "name": str(row.get("owner") or ""),
+                    "email": "",
+                    "is_admin": False,
+                }
+                request.state.internal_project = str(row.get("project") or "")
+                via_internal_token = True
 
-    # 2. Cookie
+    # 2. Cookie（内部の合言葉が無いときだけ見る）
     if user is None:
         cookie = request.cookies.get(auth.SESSION_COOKIE)
         if cookie:
@@ -134,11 +148,22 @@ async def _multi_user_auth(request: Request, call_next):
             }
         )
         request.state.via_api_token = via_api_token
+        request.state.via_internal_token = via_internal_token
 
-    # 3. CSRF: 変更系で Cookie で入った要求だけ見る（個人のトークンは見ない）
+    path = request.url.path
+
+    # 内部の合言葉は内部の 4 本でだけ使える（コンテナのエージェントが、
+    # 持ち主の Web の API を勝手に使えないように）。
+    if via_internal_token and not _is_internal_address(request.method, path):
+        return JSONResponse(
+            {"detail": "内部専用の合言葉では使えません"}, status_code=403
+        )
+
+    # 3. CSRF: 変更系で Cookie で入った要求だけ見る（個人のトークン・内部の合言葉は見ない）
     if (
         user is not None
         and not via_api_token
+        and not via_internal_token
         and request.method in ("POST", "PUT", "PATCH", "DELETE")
     ):
         origin = request.headers.get("origin")
@@ -153,7 +178,6 @@ async def _multi_user_auth(request: Request, call_next):
                 )
 
     # 4. 初回のパスワード変更前は /api/auth/ 以外の /api/ を止める
-    path = request.url.path
     if (
         user is not None
         and user.get("must_change_password")
@@ -167,8 +191,40 @@ async def _multi_user_auth(request: Request, call_next):
     return await call_next(request)
 
 
-def require_local(request: Request) -> None:
-    """フック・拡張からの内部登録は Mac 自身からのみ受ける．"""
+# 内部の合言葉で使える住所（内部専用の 4 本だけ）。住所の登録と合わせる。
+_INTERNAL_POST_EXACT = {"/api/register", "/api/questions"}
+_INTERNAL_RESOLVED_RE = re.compile(r"^/api/questions/[^/]+/resolved$")
+_INTERNAL_QUESTION_RE = re.compile(r"^/api/questions/[^/]+$")
+
+
+def _is_internal_address(method: str, path: str) -> bool:
+    """内部の合言葉で使える住所か（内部専用の 4 本だけ）。
+
+    `GET /api/questions/pending` と `GET /api/questions` は含めない
+    （一覧は利用者の画面用で、内部の合言葉では使えない）。
+    """
+    if method == "POST":
+        if path in _INTERNAL_POST_EXACT:
+            return True
+        return bool(_INTERNAL_RESOLVED_RE.match(path))
+    if method == "GET":
+        if path == "/api/questions/pending":
+            return False
+        return bool(_INTERNAL_QUESTION_RE.match(path))
+    return False
+
+
+def require_internal(request: Request) -> None:
+    """フック・拡張からの内部の要求の守り（共有契約 C5）。
+
+    - 単独モード: Mac 自身（127.0.0.1 / ::1）からのみ。
+    - 多人数モード: プロジェクトの合言葉（ミドルウェアが入れた
+      `request.state.internal_project`）が要る。
+    """
+    if registry.multi_user():
+        if not getattr(request.state, "internal_project", ""):
+            raise HTTPException(status_code=403, detail="内部専用です")
+        return
     client = request.client.host if request.client else ""
     if client not in ("127.0.0.1", "::1"):
         raise HTTPException(status_code=403, detail="内部専用です")
@@ -694,8 +750,8 @@ class RegisterRequest(BaseModel):
 
 @app.post("/api/register")
 def api_register(req: RegisterRequest, request: Request) -> dict:
-    # 内部登録は Mac 自身からのみ．トークンは付けなくてよい（フックを軽くするため）．
-    require_local(request)
+    # 内部登録は内部専用（単独モードは Mac 自身、多人数モードは合言葉）．
+    require_internal(request)
     if req.agent not in ("claude", "pi"):
         raise HTTPException(status_code=400, detail="agent は claude か pi を指定してください")
     store.save_registration(
@@ -716,8 +772,8 @@ class QuestionRegisterRequest(BaseModel):
 
 @app.post("/api/questions")
 def api_register_question(req: QuestionRegisterRequest, request: Request) -> dict:
-    # 内部登録は Mac 自身からのみ
-    require_local(request)
+    # 内部登録は内部専用（単独モードは Mac 自身、多人数モードは合言葉）
+    require_internal(request)
     if req.agent not in ("claude", "pi"):
         raise HTTPException(status_code=400, detail="agent は claude か pi を指定してください")
     q = questions.register_question(
@@ -743,8 +799,8 @@ class QuestionResolvedRequest(BaseModel):
 def api_question_resolved(
     qid: str, req: QuestionResolvedRequest, request: Request
 ) -> dict:
-    # 内部専用（Mac 自身からのみ）。トークンは要らない（拡張を軽くするため）
-    require_local(request)
+    # 内部専用（単独モードは Mac 自身、多人数モードは合言葉）。
+    require_internal(request)
     if not questions.resolve_on_terminal(qid):
         # 既に回答済み・解決済みでもエラーにはしない（二重通知対策）
         return {"ok": True, "changed": False}
@@ -777,8 +833,9 @@ def api_push_subscribe(sub: PushSubscription, _: None = Depends(require_token)) 
 
 
 @app.get("/api/questions/{qid}")
-def api_get_question(qid: str) -> dict:
-    # 拡張機能からのポーリング用．トークン不要の内部専用（Mac 自身からのみ）．
+def api_get_question(qid: str, _: None = Depends(require_internal)) -> dict:
+    # 拡張機能からのポーリング用．内部専用（単独モードは Mac 自身、
+    # 多人数モードはプロジェクトの合言葉が要る）。
     # iPhone 側は /api/questions?session_id=… を使う．
     q = store.get_question(qid)
     if q is None:
