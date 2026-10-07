@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from sai_web.config import settings
+from sai_web import registry
 
 # 外部 API のタイムアウト（秒・42 §3.3）
 HTTP_TIMEOUT = 10
@@ -30,14 +30,50 @@ ACTIVITY_DAYS = 30
 LOGS_PAGE = 50
 
 
-# pi の provider とキーの対応を調べるファイル（42 §3.2）
-PI_MODELS_PATH = Path.home() / ".pi" / "agent" / "models.json"
-PI_AUTH_PATH = Path.home() / ".pi" / "agent" / "auth.json"
+# pi の provider とキーの対応を調べるファイル（42 §3.2）。
+# 多人数モードでは、その人のひな形の HOME の下を見る（単独モードは今までどおり）。
 
-# 集計の覚え（毎回 pi の全ファイルを読まないため）
-_pi_cache: dict = {"at": 0.0, "rows": None}
-# summary の覚え（外部 API を毎回呼ばないため）
-_summary_cache: dict = {"at": 0.0, "body": None}
+def pi_agent_dir() -> Path:
+    """pi の設定の置き場。多人数: `user_home()/.pi/agent`。単独: `~/.pi/agent`。"""
+    if registry.multi_user() and registry.current_user.get() is not None:
+        return registry.user_home() / ".pi" / "agent"
+    return Path.home() / ".pi" / "agent"
+
+
+def pi_models_path() -> Path:
+    return pi_agent_dir() / "models.json"
+
+
+def pi_auth_path() -> Path:
+    return pi_agent_dir() / "auth.json"
+
+
+def pi_session_dirs() -> list[Path]:
+    """pi の記録（`.jsonl`）を読むフォルダ。
+
+    - `PI_SESSIONS_DIR` があればそれ 1 つ（今までの差し替え方を保つ）。
+    - 多人数モード: 今の利用者のプロジェクトごとの
+      `<project_home>/.pi/agent/sessions` を全部。
+    - 単独モード: `~/.pi/agent/sessions` 1 つ。
+    """
+    env = (os.getenv("PI_SESSIONS_DIR") or "").strip()
+    if env:
+        return [Path(env)]
+    if registry.multi_user():
+        out: list[Path] = []
+        for project in registry.load_registry():
+            name = str(project.get("name") or "")
+            if not name:
+                continue
+            out.append(registry.project_home(name) / ".pi" / "agent" / "sessions")
+        return out
+    return [Path.home() / ".pi" / "agent" / "sessions"]
+
+
+# 集計の覚え（利用者の名前 → {"at", "rows"}）。毎回 pi の全ファイルを読まないため
+_pi_cache: dict[str, dict] = {}
+# summary の覚え（利用者の名前 → {"at", "body"}）。外部 API を毎回呼ばないため
+_summary_cache: dict[str, dict] = {}
 
 
 # --- OpenRouter のアカウント設定（42 §3.2） ---
@@ -165,61 +201,63 @@ def read_pi_calls(
 ) -> list[dict]:
     """pi の記録を読み，assistant の行を 1 回分の使用に直す（新しい順は問わない）．
 
-    ``base_dir`` はテスト用（既定は ``settings.pi_sessions_dir``）．直近 ``days`` 日だけ残す．
+    ``base_dir`` はテスト用（既定は `pi_session_dirs()` の全部）．直近 ``days`` 日だけ残す．
     """
-    root = Path(base_dir) if base_dir is not None else settings.pi_sessions_dir
+    roots = [Path(base_dir)] if base_dir is not None else pi_session_dirs()
     now_ms = time.time() * 1000 if now_ms is None else now_ms
     cutoff_ms = now_ms - days * 86400 * 1000
     rows: list[dict] = []
-    for path in sorted(root.glob("*/*.jsonl")):
-        try:
-            fh = path.open("r", encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        with fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if obj.get("type") != "message":
-                    continue
-                msg = obj.get("message")
-                if not isinstance(msg, dict) or msg.get("role") != "assistant":
-                    continue
-                usage = msg.get("usage") or {}
-                ts = msg.get("timestamp") or obj.get("timestamp")
-                if not isinstance(ts, (int, float)) or ts < cutoff_ms:
-                    continue
-                cost = (usage.get("cost") or {}).get("total") or 0
-                rows.append(
-                    {
-                        "timestamp": int(ts),
-                        "provider": msg.get("provider") or "",
-                        "model": msg.get("model") or "",
-                        "input": int(usage.get("input") or 0),
-                        "output": int(usage.get("output") or 0),
-                        "cache_read": int(usage.get("cacheRead") or 0),
-                        "cache_write": int(usage.get("cacheWrite") or 0),
-                        "total": int(usage.get("totalTokens") or 0),
-                        "cost": float(cost),
-                    }
-                )
+    for root in roots:
+        for path in sorted(root.glob("*/*.jsonl")):
+            try:
+                fh = path.open("r", encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            with fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if obj.get("type") != "message":
+                        continue
+                    msg = obj.get("message")
+                    if not isinstance(msg, dict) or msg.get("role") != "assistant":
+                        continue
+                    usage = msg.get("usage") or {}
+                    ts = msg.get("timestamp") or obj.get("timestamp")
+                    if not isinstance(ts, (int, float)) or ts < cutoff_ms:
+                        continue
+                    cost = (usage.get("cost") or {}).get("total") or 0
+                    rows.append(
+                        {
+                            "timestamp": int(ts),
+                            "provider": msg.get("provider") or "",
+                            "model": msg.get("model") or "",
+                            "input": int(usage.get("input") or 0),
+                            "output": int(usage.get("output") or 0),
+                            "cache_read": int(usage.get("cacheRead") or 0),
+                            "cache_write": int(usage.get("cacheWrite") or 0),
+                            "total": int(usage.get("totalTokens") or 0),
+                            "cost": float(cost),
+                        }
+                    )
     rows.sort(key=lambda r: r["timestamp"])
     return rows
 
 
 def pi_calls(force: bool = False) -> list[dict]:
-    """pi の記録（60 秒だけ覚えておく・42 §3.3）．"""
+    """pi の記録（60 秒だけ覚えておく・42 §3.3）．多人数モードでは利用者ごとに覚える。"""
     now = time.time()
-    if not force and _pi_cache["rows"] is not None and now - _pi_cache["at"] < CACHE_TTL:
-        return _pi_cache["rows"]
+    key = registry.user_key()
+    hit = _pi_cache.get(key)
+    if not force and hit is not None and hit["rows"] is not None and now - hit["at"] < CACHE_TTL:
+        return hit["rows"]
     rows = read_pi_calls()
-    _pi_cache["at"] = now
-    _pi_cache["rows"] = rows
+    _pi_cache[key] = {"at": now, "rows": rows}
     return rows
 
 
@@ -238,7 +276,7 @@ def provider_env_map() -> dict[str, str]:
     out: dict[str, str] = {}
     # 個別の provider（openrouter-deepinfra など）は models.json
     try:
-        models = json.loads(PI_MODELS_PATH.read_text(encoding="utf-8"))
+        models = json.loads(pi_models_path().read_text(encoding="utf-8"))
         for name, provider in (models.get("providers") or {}).items():
             if isinstance(provider, dict) and provider.get("apiKey"):
                 out.setdefault(name, _env_name(provider["apiKey"]))
@@ -246,7 +284,7 @@ def provider_env_map() -> dict[str, str]:
         pass
     # pi 組み込みの provider（openrouter / deepseek / google）は auth.json
     try:
-        auth = json.loads(PI_AUTH_PATH.read_text(encoding="utf-8"))
+        auth = json.loads(pi_auth_path().read_text(encoding="utf-8"))
         for name, info in (auth or {}).items():
             if isinstance(info, dict) and info.get("key"):
                 out[name] = _env_name(info["key"])
@@ -400,8 +438,10 @@ def summary(refresh: bool = False) -> dict:
     外部 API の結果も 60 秒覚える（↻ の ``?refresh=1`` のときは取り直す）．
     """
     now = time.time()
-    if not refresh and _summary_cache["body"] is not None and now - _summary_cache["at"] < CACHE_TTL:
-        return _summary_cache["body"]
+    key = registry.user_key()
+    hit = _summary_cache.get(key)
+    if not refresh and hit is not None and hit["body"] is not None and now - hit["at"] < CACHE_TTL:
+        return hit["body"]
     deepseek = deepseek_balance()
     deepseek["usage"] = usage_totals(filter_rows(pi_calls(), "deepseek", "deepseek"))
     body = {
@@ -412,8 +452,7 @@ def summary(refresh: bool = False) -> dict:
         "unknown": unknown_providers(),
         "saved_at": int(now),
     }
-    _summary_cache["at"] = now
-    _summary_cache["body"] = body
+    _summary_cache[key] = {"at": now, "body": body}
     return body
 
 

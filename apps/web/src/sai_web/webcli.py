@@ -42,7 +42,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from sai_web import registry
+from sai_web import auth, registry, store
 
 # 1 回の呼び出しで待つ時間の上限（秒）
 TIMEOUT_SEC = 30
@@ -92,6 +92,12 @@ class UsageError(CliError):
     """引数の誤り（終了コード 2）。"""
 
     code = 2
+
+
+class ConflictError(CliError):
+    """同じ名前・同じメールがある（終了コード 4）。"""
+
+    code = 4
 
 
 class RawText:
@@ -370,6 +376,68 @@ def cmd_send(args: argparse.Namespace) -> object:
 
 
 # ---------------------------------------------------------------------------
+# 利用者（アカウント）の管理（U06）
+# ---------------------------------------------------------------------------
+
+
+def _read_new_password() -> str:
+    """新しいパスワードを標準入力の 1 行目から読む（空なら `getpass` で聞く）。"""
+    line = sys.stdin.readline()
+    if line.strip():
+        return line.strip()
+    import getpass
+
+    return getpass.getpass("パスワード: ")
+
+
+def cmd_user(args: argparse.Namespace) -> object:
+    """利用者の一覧と作成（Web が止まっていても使える。Web 自身の DB を直接書く）。
+
+    `add`: 名前・メール・パスワードを検査し、`store.create_user` で作る。
+           名前とメールが重複していれば終了コード 4。
+    `list`: 名前・メール・管理者・無効を出す。
+    """
+    store.init_db()
+    if args.what == "list":
+        return {
+            "users": [
+                {
+                    "name": u.get("name") or "",
+                    "email": u.get("email") or "",
+                    "is_admin": bool(u.get("is_admin")),
+                    "disabled": bool(u.get("disabled")),
+                    "must_change_password": bool(u.get("must_change_password")),
+                }
+                for u in store.list_users()
+            ]
+        }
+    if args.what != "add":
+        raise UsageError(f"user の命令が違います: {args.what}")
+    try:
+        name = auth.check_name(args.name)
+        email = auth.check_email(args.email)
+        password = _read_new_password()
+        auth.check_password(password)
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    if store.get_user(name) is not None or store.get_user_by_email(email) is not None:
+        raise ConflictError("同じ名前かメールアドレスが既にあります")
+    auth.create_user_dirs(name)
+    user = store.create_user(
+        name,
+        email,
+        auth.hash_password(password),
+        is_admin=bool(args.admin),
+        must_change_password=True,
+    )
+    return {
+        "name": user.get("name") or name,
+        "email": user.get("email") or email,
+        "is_admin": bool(user.get("is_admin")),
+    }
+
+
+# ---------------------------------------------------------------------------
 # MLflow（読み取りだけ）
 # ---------------------------------------------------------------------------
 
@@ -551,6 +619,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("text")
     _add_json(p)
     p.set_defaults(func=cmd_send)
+
+    p = sub.add_parser("user", help="利用者（アカウント）の管理（多人数モード）")
+    _add_json(p)
+    us = p.add_subparsers(dest="what", required=True)
+
+    q = us.add_parser("add", help="利用者を作る（パスワードは標準入力の 1 行目）")
+    q.add_argument("name", help="短い名前（英小文字で始まる 2〜16 文字）")
+    q.add_argument("--email", required=True, help="大学のメールアドレス（ログインの ID）")
+    q.add_argument("--admin", action="store_true", help="管理者にする")
+    _add_json(q)
+    q.set_defaults(func=cmd_user)
+
+    q = us.add_parser("list", help="利用者の一覧")
+    _add_json(q)
+    q.set_defaults(func=cmd_user)
 
     p = sub.add_parser("usage", help="使用量（cc のコスト・上限）")
     _add_json(p)

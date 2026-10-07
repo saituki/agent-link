@@ -37,14 +37,16 @@ from sai_web.config import settings
 logger = logging.getLogger("sai_web")
 
 # 同じプロジェクトの書き出しは 60 秒に 1 回まで（06 §3.3）
+# 多人数モードでは利用者ごとに分ける（キーは (利用者の名前, プロジェクト名)）
 _EXPORT_INTERVAL = 60.0
-_last_export: dict[str, float] = {}
+_last_export: dict[tuple[str, str], float] = {}
 
 _PERIODS = ("week", "month", "all")
 
 # 同じプロジェクトの最小集計は 5 秒に 1 回まで（一覧のたびに呼ぶと重い・実装計画 C C1）
 _SUMMARY_TTL = 5.0
-_summary_cache: dict[str, tuple[float, dict]] = {}
+# キーは (利用者の名前, プロジェクト名)
+_summary_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 
 # --- List 画面（計画 14 §3.3）で受け取る値の検査 ---
 # `sai-link phone run --view` が返す 3 種（計画 12 §3.2）
@@ -79,11 +81,12 @@ def _project_summary(name: str, root: str) -> dict:
     """
     empty = {"running": 0, "last_executed_at": None}
     now = time.monotonic()
-    hit = _summary_cache.get(name)
+    key = (registry.user_key(), name)
+    hit = _summary_cache.get(key)
     if hit is not None and now - hit[0] < _SUMMARY_TTL:
         return hit[1]
     # 失敗しても呼びすぎないよう，先に時刻を記録する
-    _summary_cache[name] = (now, empty)
+    _summary_cache[key] = (now, empty)
     if not root:
         return empty
     try:
@@ -95,7 +98,7 @@ def _project_summary(name: str, root: str) -> dict:
     if not isinstance(running, int) or isinstance(running, bool) or running < 0:
         running = 0
     value = {"running": running, "last_executed_at": data.get("last_executed_at") or None}
-    _summary_cache[name] = (now, value)
+    _summary_cache[key] = (now, value)
     return value
 
 
@@ -158,11 +161,12 @@ def export_runs(project: dict) -> None:
     if not root:
         return
     now = time.monotonic()
-    last = _last_export.get(name)
+    export_key = (registry.user_key(), name)
+    last = _last_export.get(export_key)
     if last is not None and now - last < _EXPORT_INTERVAL:
         return
     # 失敗しても呼びすぎないよう，先に時刻を記録する
-    _last_export[name] = now
+    _last_export[export_key] = now
     try:
         run_cli(
             [settings.sai_link_bin, "run", "export"],

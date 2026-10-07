@@ -540,7 +540,7 @@ def main() -> None:
         base = Path(tmp)  # type: ignore[assignment]
         orig_list = control.list_projects
         control.list_projects = lambda: make_registry(base)
-        papers._projects_cache = None
+        papers._projects_cache.clear()
         try:
             test_ids()
             test_op_ok()
@@ -554,7 +554,7 @@ def main() -> None:
             test_user_cli_args()
         finally:
             control.list_projects = orig_list
-            papers._projects_cache = None
+            papers._projects_cache.clear()
     test_routes()
     print("test_sci_api: すべて通りました")
 

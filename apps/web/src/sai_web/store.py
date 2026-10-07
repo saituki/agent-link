@@ -54,6 +54,28 @@ CREATE TABLE IF NOT EXISTS approvals (
     state TEXT NOT NULL DEFAULT 'open',
     answer_json TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS users (
+    name TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    must_change_password INTEGER NOT NULL DEFAULT 1,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS web_sessions (
+    token_sha256 TEXT PRIMARY KEY,
+    user_name TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_tokens (
+    token_sha256 TEXT PRIMARY KEY,
+    user_name TEXT NOT NULL,
+    label TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    last_used_at REAL
+);
 """
 
 
@@ -262,3 +284,204 @@ def delete_subscription(endpoint: str) -> None:
     """届かなくなった登録を消す．"""
     with _connect() as conn:
         conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", (endpoint,))
+
+
+# --- アカウント・ログイン・個人のトークン（U06） ---
+# 値そのもの（パスワード・Cookie・トークン）は保存しない。
+# パスワードは `auth.hash_password` の scrypt 文字列、Cookie とトークンは
+# `auth.sha256_hex` の SHA-256 だけを置く。
+
+
+def _row_to_user(row: sqlite3.Row | None) -> dict | None:
+    """users の 1 行を画面に渡す形にする（0/1 は真偽にする）。"""
+    if row is None:
+        return None
+    d = dict(row)
+    d["is_admin"] = bool(d.get("is_admin"))
+    d["must_change_password"] = bool(d.get("must_change_password"))
+    d["disabled"] = bool(d.get("disabled"))
+    return d
+
+
+def create_user(
+    name: str,
+    email: str,
+    password_hash: str,
+    is_admin: bool = False,
+    must_change_password: bool = True,
+    disabled: bool = False,
+) -> dict:
+    """利用者を作る（email は小文字にして保存する）。"""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO users "
+            "(name, email, password_hash, is_admin, must_change_password, disabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                name,
+                email.lower(),
+                password_hash,
+                1 if is_admin else 0,
+                1 if must_change_password else 0,
+                1 if disabled else 0,
+                time.time(),
+            ),
+        )
+    return get_user(name) or {}
+
+
+def get_user(name: str) -> dict | None:
+    """名前で利用者を引く。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
+    return _row_to_user(row)
+
+
+def get_user_by_email(email: str) -> dict | None:
+    """メールアドレスで利用者を引く（小文字にして照合）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email.lower(),)
+        ).fetchone()
+    return _row_to_user(row)
+
+
+def list_users() -> list[dict]:
+    """利用者の一覧（名前の順）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM users ORDER BY name").fetchall()
+    return [u for u in (_row_to_user(r) for r in rows) if u is not None]
+
+
+def update_user(
+    name: str,
+    *,
+    email: str | None = None,
+    is_admin: bool | None = None,
+    disabled: bool | None = None,
+    password_hash: str | None = None,
+    must_change_password: bool | None = None,
+) -> bool:
+    """渡された項目だけを書き換える。書き換えられたら真。"""
+    sets: list[str] = []
+    values: list = []
+    if email is not None:
+        sets.append("email = ?")
+        values.append(email.lower())
+    if is_admin is not None:
+        sets.append("is_admin = ?")
+        values.append(1 if is_admin else 0)
+    if disabled is not None:
+        sets.append("disabled = ?")
+        values.append(1 if disabled else 0)
+    if password_hash is not None:
+        sets.append("password_hash = ?")
+        values.append(password_hash)
+    if must_change_password is not None:
+        sets.append("must_change_password = ?")
+        values.append(1 if must_change_password else 0)
+    if not sets:
+        return False
+    values.append(name)
+    with _connect() as conn:
+        cur = conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE name = ?", values)
+        return cur.rowcount > 0
+
+
+def create_session(token_sha256: str, user_name: str, expires_at: float) -> None:
+    """ログインのセッションを保存する（Cookie の値そのものは置かない）。"""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO web_sessions "
+            "(token_sha256, user_name, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_sha256, user_name, time.time(), expires_at),
+        )
+
+
+def get_session_user(token_sha256: str) -> dict | None:
+    """セッションの利用者を引く。期限切れは消して None を返す。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM web_sessions WHERE token_sha256 = ?", (token_sha256,)
+        ).fetchone()
+        if row is None:
+            return None
+        if float(row["expires_at"]) < time.time():
+            conn.execute(
+                "DELETE FROM web_sessions WHERE token_sha256 = ?", (token_sha256,)
+            )
+            return None
+    return get_user(str(row["user_name"]))
+
+
+def delete_session(token_sha256: str) -> None:
+    """セッションを 1 つ消す（ログアウト）。"""
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM web_sessions WHERE token_sha256 = ?", (token_sha256,)
+        )
+
+
+def delete_sessions_of(user_name: str) -> None:
+    """その人のセッションを全部消す（パスワード変更・無効化）。"""
+    with _connect() as conn:
+        conn.execute("DELETE FROM web_sessions WHERE user_name = ?", (user_name,))
+
+
+def create_api_token(token_sha256: str, user_name: str, label: str) -> None:
+    """個人のトークンを保存する（値そのものは置かない）。"""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO api_tokens "
+            "(token_sha256, user_name, label, created_at, last_used_at) "
+            "VALUES (?, ?, ?, ?, NULL)",
+            (token_sha256, user_name, label, time.time()),
+        )
+
+
+def find_api_token(token_sha256: str) -> dict | None:
+    """個人のトークンを引く（見つけたら `last_used_at` を今にする）。"""
+    now = time.time()
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM api_tokens WHERE token_sha256 = ?", (token_sha256,)
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE api_tokens SET last_used_at = ? WHERE token_sha256 = ?",
+            (now, token_sha256),
+        )
+    d = dict(row)
+    d["last_used_at"] = now
+    return d
+
+
+def list_api_tokens(user_name: str) -> list[dict]:
+    """その人の個人のトークンの一覧（新しい順）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM api_tokens WHERE user_name = ? ORDER BY created_at DESC",
+            (user_name,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_api_token(token_id: str, user_name: str) -> bool:
+    """自分の個人のトークンを消す。`token_id` は SHA-256 の先頭 12 文字（画面の id）。
+
+    他人のトークンは消せない（`user_name` で絞る）。消せたら真。
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM api_tokens "
+            "WHERE user_name = ? AND substr(token_sha256, 1, 12) = ?",
+            (user_name, token_id),
+        )
+        return cur.rowcount > 0

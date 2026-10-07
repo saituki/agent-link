@@ -20,13 +20,14 @@ import os
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from sai_web import (
+    auth,
     commands,
     control,
     home,
@@ -35,6 +36,7 @@ from sai_web import (
     papers,
     questions,
     radio,
+    registry,
     runs,
     sci,
     sessions,
@@ -48,7 +50,12 @@ import asyncio
 
 logger = logging.getLogger("sai_web")
 
-app = FastAPI(title="sai-web")
+# 多人数モードでは API の説明（/docs・/openapi.json）を出さない（共有契約 C5）。
+# 単独モードは今までどおり出す（開発とテスト用）。
+if registry.multi_user():
+    app = FastAPI(title="sai-web", docs_url=None, redoc_url=None, openapi_url=None)
+else:
+    app = FastAPI(title="sai-web")
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -57,16 +64,106 @@ def require_token(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     token: str | None = Query(default=None),
 ) -> None:
-    """簡易トークン認証．SAI_WEB_TOKEN が未設定なら認証なし（開発用）．
+    """入口の守り。
+
+    - 多人数モードでは、ミドルウェアが入れた今の利用者（`registry.current_user`）が
+      いれば通す。合言葉（Bearer の合言葉・`?token=`）は受けない。
+    - 単独モードは今までどおり `SAI_WEB_TOKEN` と照合する（未設定なら認証なし）。
 
     なぜクエリ（?token=）も受け付けるか: iPhone 側でヘッダを付けられない
     場面（直接URLを開く等）でも開けるようにするため．
     """
+    if registry.multi_user():
+        if registry.current_user.get() is None:
+            raise HTTPException(status_code=401, detail="ログインしてください")
+        return
     if not settings.api_token:
         return
     if (creds is not None and creds.credentials == settings.api_token) or token == settings.api_token:
         return
     raise HTTPException(status_code=401, detail="認証エラー")
+
+
+@app.middleware("http")
+async def _multi_user_auth(request: Request, call_next):
+    """多人数モードの入口（共有契約 C5）。
+
+    1. `Authorization: Bearer sai_…` があれば個人のトークンとして利用者を引く。
+    2. 無ければ Cookie `sai_session` から利用者を引く。
+    3. 変更系で Cookie で入った要求は `Origin` と `Host` を照合する（CSRF 対策）。
+    4. 初回のパスワード変更前は `/api/auth/` 以外の `/api/` を止める。
+
+    依存関数ではなくミドルウェアにするのは、同期の住所の関数が別のスレッドで
+    動いても `ContextVar` が届くようにするため（`call_next` の前に set する）。
+    """
+    if not registry.multi_user():
+        return await call_next(request)
+
+    user: dict | None = None
+    via_api_token = False
+
+    # 1. 個人のトークン（`sai_…`）
+    authz = request.headers.get("authorization") or ""
+    if authz.lower().startswith("bearer "):
+        value = authz[len("bearer "):].strip()
+        if value.startswith(auth.API_TOKEN_PREFIX):
+            row = store.find_api_token(auth.sha256_hex(value))
+            if row is not None:
+                candidate = store.get_user(str(row.get("user_name") or ""))
+                if candidate is not None and not candidate.get("disabled"):
+                    user = candidate
+                    via_api_token = True
+
+    # 2. Cookie
+    if user is None:
+        cookie = request.cookies.get(auth.SESSION_COOKIE)
+        if cookie:
+            candidate = store.get_session_user(auth.sha256_hex(cookie))
+            if candidate is not None and not candidate.get("disabled"):
+                user = candidate
+
+    if user is None:
+        registry.current_user.set(None)
+    else:
+        registry.current_user.set(
+            {
+                "name": user.get("name") or "",
+                "email": user.get("email") or "",
+                "is_admin": bool(user.get("is_admin")),
+            }
+        )
+        request.state.via_api_token = via_api_token
+
+    # 3. CSRF: 変更系で Cookie で入った要求だけ見る（個人のトークンは見ない）
+    if (
+        user is not None
+        and not via_api_token
+        and request.method in ("POST", "PUT", "PATCH", "DELETE")
+    ):
+        origin = request.headers.get("origin")
+        if origin:
+            from urllib.parse import urlparse
+
+            origin_host = urlparse(origin).netloc
+            host = request.headers.get("host") or ""
+            if origin_host and origin_host != host:
+                return JSONResponse(
+                    {"detail": "別のサイトからの要求は受けません"}, status_code=403
+                )
+
+    # 4. 初回のパスワード変更前は /api/auth/ 以外の /api/ を止める
+    path = request.url.path
+    if (
+        user is not None
+        and user.get("must_change_password")
+        and path.startswith("/api/")
+        and not path.startswith("/api/auth/")
+    ):
+        return JSONResponse(
+            {"detail": "パスワードを変えてください"}, status_code=403
+        )
+
+    return await call_next(request)
 
 
 def require_local(request: Request) -> None:
@@ -109,11 +206,16 @@ def write_token_file() -> None:
 def _startup() -> None:
     store.init_db()
     notify.ensure_keys()
-    if not settings.api_token:
+    if registry.multi_user():
+        # 多人数モードでは合言葉を使わない（ログインは Cookie・sai-prep は個人のトークン）。
+        # 合言葉のファイルは書かない。
+        pass
+    elif not settings.api_token:
         # トークン無しは開発用．外に公開する前に必ず設定すること．
         logger.warning("SAI_WEB_TOKEN 未設定：認証なしで動作中")
-    # 合言葉をファイルで渡す（`phone_api.py` が読む）
-    write_token_file()
+    # 合言葉をファイルで渡す（`phone_api.py` が読む）。多人数モードでは書かない。
+    if not registry.multi_user():
+        write_token_file()
     # 確かめ用のサーバは見張りを止められる（SAI_WEB_NO_WATCH=1）。
     # 見張りは headless の `state.json` を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
     if os.getenv("SAI_WEB_NO_WATCH") == "1":
@@ -148,6 +250,285 @@ _SERVER_STARTED = time.strftime("%m/%d %H:%M")
 @app.get("/api/health")
 def api_health() -> dict:
     return {"ok": True, "server": _SERVER_VERSION, "started_at": _SERVER_STARTED}
+
+
+# --- アカウントとログイン（U06・共有契約 C5'） ---
+# ここは require_token を付けない（未ログインでも呼べる必要があるため）。
+# 多人数モードでないときは 404 を返す。
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def api_auth_login(req: LoginRequest, response: Response) -> dict:
+    """メールアドレスとパスワードでログインする（Cookie を配る）。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+    email = req.email.strip().lower()
+    user = store.get_user_by_email(email)
+    if (
+        user is None
+        or user.get("disabled")
+        or not auth.verify_password(req.password, str(user.get("password_hash") or ""))
+    ):
+        # どちらが違うかは言わない
+        raise HTTPException(
+            status_code=401, detail="メールアドレスかパスワードが違います"
+        )
+    token = auth.new_session_token()
+    store.create_session(
+        auth.sha256_hex(token),
+        str(user["name"]),
+        time.time() + auth.SESSION_DAYS * 86400,
+    )
+    auth.set_session_cookie(response, token)
+    return auth.user_public(user)
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(request: Request, response: Response) -> dict:
+    """ログアウトする（セッションを消して Cookie を消す）。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+    cookie = request.cookies.get(auth.SESSION_COOKIE)
+    if cookie:
+        store.delete_session(auth.sha256_hex(cookie))
+    auth.clear_session_cookie(response)
+    return {"ok": True}
+
+
+class PasswordRequest(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/api/auth/password")
+def api_auth_password(req: PasswordRequest, response: Response) -> dict:
+    """今のパスワードを確かめて変える。他のセッションは消す。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+    current = registry.current_user.get()
+    if not isinstance(current, dict) or not current.get("name"):
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    name = str(current["name"])
+    row = store.get_user(name)
+    if row is None or not auth.verify_password(
+        req.current, str(row.get("password_hash") or "")
+    ):
+        raise HTTPException(status_code=400, detail="今のパスワードが違います")
+    try:
+        auth.check_password(req.new)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    store.update_user(
+        name,
+        password_hash=auth.hash_password(req.new),
+        must_change_password=False,
+    )
+    # 他のセッションを消し、この端末には新しいセッションを配る
+    store.delete_sessions_of(name)
+    token = auth.new_session_token()
+    store.create_session(
+        auth.sha256_hex(token), name, time.time() + auth.SESSION_DAYS * 86400
+    )
+    auth.set_session_cookie(response, token)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def api_auth_me() -> dict:
+    """今のモードと利用者（単独モードは `{"mode":"single"}`）。"""
+    if not registry.multi_user():
+        return {"mode": "single"}
+    current = registry.current_user.get()
+    if not isinstance(current, dict) or not current.get("name"):
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    row = store.get_user(str(current["name"]))
+    if row is None:
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    return {
+        "mode": "multi",
+        "name": row.get("name") or "",
+        "email": row.get("email") or "",
+        "is_admin": bool(row.get("is_admin")),
+        "must_change_password": bool(row.get("must_change_password")),
+    }
+
+
+# --- 個人のトークン（sai-prep が使う・U06） ---
+# 値は作った 1 回だけ返す。DB には SHA-256 だけを置く。
+
+
+def _require_multi() -> None:
+    """多人数モードでなければ 404。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+
+
+def _current_name() -> str:
+    """今の利用者の名前。いなければ 401。"""
+    current = registry.current_user.get()
+    if not isinstance(current, dict) or not current.get("name"):
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    return str(current["name"])
+
+
+@app.get("/api/me/tokens")
+def api_me_tokens(_: None = Depends(require_token)) -> dict:
+    """自分の個人のトークンの一覧（値は返さない）。"""
+    _require_multi()
+    tokens = [
+        {
+            "id": str(r.get("token_sha256") or "")[:12],
+            "label": r.get("label") or "",
+            "created_at": r.get("created_at"),
+            "last_used_at": r.get("last_used_at"),
+        }
+        for r in store.list_api_tokens(_current_name())
+    ]
+    return {"tokens": tokens}
+
+
+class TokenRequest(BaseModel):
+    label: str
+
+
+@app.post("/api/me/tokens")
+def api_me_tokens_create(req: TokenRequest, _: None = Depends(require_token)) -> dict:
+    """個人のトークンを作る（値はこの 1 回だけ返す）。"""
+    _require_multi()
+    name = _current_name()
+    label = (req.label or "").strip()
+    if not (1 <= len(label) <= 60):
+        raise HTTPException(status_code=400, detail="ラベルは 1〜60 文字にしてください")
+    token = auth.new_api_token()
+    digest = auth.sha256_hex(token)
+    store.create_api_token(digest, name, label)
+    return {"id": digest[:12], "label": label, "token": token}
+
+
+@app.delete("/api/me/tokens/{token_id}")
+def api_me_tokens_delete(token_id: str, _: None = Depends(require_token)) -> dict:
+    """自分の個人のトークンを消す（他人の物は消せない）。"""
+    _require_multi()
+    if not store.delete_api_token(token_id, _current_name()):
+        raise HTTPException(status_code=404, detail="トークンが見つかりません")
+    return {"ok": True}
+
+
+# --- 管理者（U06） ---
+
+
+def _admin_user_view(user: dict) -> dict:
+    """管理画面に返す 1 人分。"""
+    return {
+        "name": user.get("name") or "",
+        "email": user.get("email") or "",
+        "is_admin": bool(user.get("is_admin")),
+        "disabled": bool(user.get("disabled")),
+        "must_change_password": bool(user.get("must_change_password")),
+        "created_at": user.get("created_at"),
+    }
+
+
+@app.get("/api/admin/users")
+def api_admin_users(
+    _: None = Depends(require_token), __: None = Depends(auth.require_admin)
+) -> dict:
+    """利用者の一覧（管理者だけ）。"""
+    return {"users": [_admin_user_view(u) for u in store.list_users()]}
+
+
+class CreateUserRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    is_admin: bool = False
+
+
+@app.post("/api/admin/users")
+def api_admin_create(
+    req: CreateUserRequest,
+    _: None = Depends(require_token),
+    __: None = Depends(auth.require_admin),
+) -> dict:
+    """利用者を作る（同じ名前・同じメールは 409）。"""
+    try:
+        name = auth.check_name(req.name)
+        email = auth.check_email(req.email)
+        auth.check_password(req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if store.get_user(name) is not None or store.get_user_by_email(email) is not None:
+        raise HTTPException(
+            status_code=409, detail="同じ名前かメールアドレスが既にあります"
+        )
+    auth.create_user_dirs(name)
+    user = store.create_user(
+        name,
+        email,
+        auth.hash_password(req.password),
+        is_admin=req.is_admin,
+        must_change_password=True,
+    )
+    return _admin_user_view(user)
+
+
+class PatchUserRequest(BaseModel):
+    email: str | None = None
+    is_admin: bool | None = None
+    disabled: bool | None = None
+    password: str | None = None
+
+
+@app.patch("/api/admin/users/{user_name}")
+def api_admin_patch(
+    user_name: str,
+    req: PatchUserRequest,
+    _: None = Depends(require_token),
+    __: None = Depends(auth.require_admin),
+) -> dict:
+    """利用者を変える（自分自身の管理者外し・無効化は 400）。"""
+    target = store.get_user(user_name)
+    if target is None:
+        raise HTTPException(status_code=404, detail="利用者が見つかりません")
+    me = registry.current_user.get()
+    me_name = me.get("name") if isinstance(me, dict) else ""
+    fields: dict = {}
+    if req.email is not None:
+        try:
+            email = auth.check_email(req.email)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        other = store.get_user_by_email(email)
+        if other is not None and other.get("name") != user_name:
+            raise HTTPException(
+                status_code=409, detail="同じメールアドレスが既にあります"
+            )
+        fields["email"] = email
+    if req.is_admin is not None:
+        if user_name == me_name and not req.is_admin:
+            raise HTTPException(status_code=400, detail="自分自身の管理者を外せません")
+        fields["is_admin"] = req.is_admin
+    if req.disabled is not None:
+        if user_name == me_name and req.disabled:
+            raise HTTPException(status_code=400, detail="自分自身を無効にできません")
+        fields["disabled"] = req.disabled
+    if req.password is not None:
+        try:
+            auth.check_password(req.password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        fields["password_hash"] = auth.hash_password(req.password)
+        fields["must_change_password"] = True
+    store.update_user(user_name, **fields)
+    if "password_hash" in fields or fields.get("disabled") is True:
+        # パスワードを変えた・無効にしたときは、その人のセッションを消す
+        store.delete_sessions_of(user_name)
+    return {"ok": True}
 
 
 # --- PWA（静的ファイル）の配信 ---
@@ -230,6 +611,9 @@ def api_run_items(
     partial = st["partial"] if st else ""
     error = st["error"] if st else ""
     transcript = run.get("transcript_path")
+    # 多人数モードでは、今の利用者の置き場の外を指す会話の記録は読まない
+    if transcript and registry.multi_user() and not registry.within_user(transcript):
+        raise HTTPException(status_code=404, detail="会話の記録が見つかりません")
     path = Path(transcript) if transcript else None
     if path is None or not path.exists():
         # 記録の場所がまだ書き出されていない・まだ書かれていない（起動直後など）。

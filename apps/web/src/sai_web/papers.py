@@ -34,7 +34,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from sai_web import cli, control, notify
+from sai_web import cli, control, notify, registry
 from sai_web.config import settings
 
 logger = logging.getLogger("sai_web")
@@ -49,8 +49,8 @@ _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _PAPER_DB_REL = Path(".sai") / "paper" / "papr.db"
 # 一覧を覚えておく秒数（プロジェクト一覧を呼びすぎないため・17 §3.2）
 _PROJECTS_TTL = 30.0
-# 覚えておいた一覧（(時刻, 一覧)）。中身は root の絶対パスも含む内部用
-_projects_cache: tuple[float, list[dict]] | None = None
+# 覚えておいた一覧（利用者の名前 → (時刻, 一覧)）。中身は root の絶対パスも含む内部用
+_projects_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
 def list_paper_projects(refresh: bool = False) -> list[dict]:
@@ -64,12 +64,10 @@ def list_paper_projects(refresh: bool = False) -> list[dict]:
     """
     global _projects_cache
     now = time.monotonic()
-    if (
-        not refresh
-        and _projects_cache is not None
-        and now - _projects_cache[0] < _PROJECTS_TTL
-    ):
-        return _projects_cache[1]
+    key = registry.user_key()
+    hit = _projects_cache.get(key)
+    if not refresh and hit is not None and now - hit[0] < _PROJECTS_TTL:
+        return hit[1]
     out: list[dict] = []
     for project in control.list_projects():
         name = project.get("name") or ""
@@ -91,7 +89,7 @@ def list_paper_projects(refresh: bool = False) -> list[dict]:
                 "last_executed_at": project.get("last_executed_at"),
             }
         )
-    _projects_cache = (now, out)
+    _projects_cache[key] = (now, out)
     return out
 
 
