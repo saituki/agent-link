@@ -159,7 +159,7 @@ iPhone（横幅の狭い画面）では A〜D が縦に並び、Node を押す�
 
 | 場所 | 何が出るか | いつ変わるか |
 |---|---|---|
-| A SEED | 研究の初期の入力（RESEARCH_TYPE と `mind.md`）。決まっていない所は［？…］（橙色の点線）で出る。押すと SEED の欄が開き、「SPROUT を作る」釦で PATH（O）を選んで SPROUT を作る | `mind.md` を直すと変わる |
+| A SEED | 研究の初期の入力（RESEARCH_TYPE と `mind.md`）。決まっていない所は［？…］（橙色の点線）で出る。押すと SEED の欄が開き、「Create SPROUT」釦で作成パネルを開き、「Add PATH」で PATH（O）を選んで SPROUT を作る | `mind.md` を直すと変わる |
 | 進み具合 | 答えが出た Q の数 / 全部 | ★ を付ける・Q を足すと変わる |
 | B Next Action | 今やるとよい Action の先頭 3 件。「Create CARD」で CARD のフォームが開く | 何かを変えるたび |
 | C PROPOSAL・注意 | PROPOSAL の数。押すと Node を選んだ右の板の PENDING の節が出る。⚠ は research-tree の決まりに合わない所 | Action が終わる・PROPOSAL が来ると変わる |
@@ -344,11 +344,11 @@ Q の答えの理路が通っているかを確かめて、記録します。
 
 STAR_PATH がそろったら、実験の計画（SPROUT）を作ります。
 
-1. 研究方針の画面で SEED の欄を押します。
-2. **SPROUT を作る** を押します。
-3. 解きたい Issue の O と、前提にする Answer の O を選びます（複数選べます）。Issue の O を 1 つ以上含めてください。
-4. 選んだ PATH（終点の O）が `Q2 › Q12 › O15 Issue` の形で出るので、「この組み合わせでよいか」を確かめます。
-5. 作ると、SPROUT（`S<n>`）ができ、`sci-exp-sprout` の CARD の入口になります。実験の 1 回の実行（BRANCH の E）は、SPROUT の下に付きます。
+1. 研究方針の画面で SEED の欄を押します（上の帯の **Create SPROUT** 釦でも始められます）。
+2. **Create SPROUT** を押すと、History と DAG の間に作成パネルが出ます。題（必須）と本文（任意）を書きます。
+3. 作成パネルを出したまま、DAG の札や左の一覧で **O** を選びます。右の板で内容を確かめ、加えるなら **Add PATH** を押します（外すときは **Delete PATH**）。解きたい Issue の O と、前提にする Answer の O を選びます（複数選べます）。Issue の O を 1 つ以上含めてください。PATH の終点になれるのは O だけです。
+4. 選んだ PATH（終点の O）がパネルに `O15 Issue …` の形で並ぶので、「この組み合わせでよいか」を確かめます。DAG では、加えた O の札に破線の枠が付きます。
+5. **Create SPROUT** を押すと、SPROUT（`S<n>`）ができ、`sci-exp-sprout` の CARD の入口になります。実験の 1 回の実行（BRANCH の E）は、SPROUT の下に付きます。
 
 ---
 

@@ -20,14 +20,14 @@
 // op の表示名（C-OP の 13 個。表に無い op はそのまま出す。C4 の共有契約）
 const SE_OPS = {
   add_q: "Add Q", add_o: "Add O", add_f: "Add F", add_e: "Add E",
-  record_logic: "Logicality を記録", add_sprout: "SPROUT を作る", copy: "Copy O", remove: "Delete",
+  record_logic: "Logicality を記録", add_sprout: "Create SPROUT", copy: "Copy O", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_kind: "Answer / Issue を変える",
   edit: "Edit", set_target: "Objectivity の目安を変える",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
   add_q: "Q を足しました", add_o: "O を足しました", add_f: "F を足しました", add_e: "E を足しました",
-  record_logic: "Logicality を記録しました", add_sprout: "SPROUT を作りました", copy: "O を写しました",
+  record_logic: "Logicality を記録しました", add_sprout: "Created SPROUT", copy: "O を写しました",
   remove: "消しました", star: "★ を付けました", unstar: "★ を外しました",
   set_kind: "Answer / Issue を変えました", edit: "文を直しました", set_target: "目安を変えました",
 };
@@ -205,7 +205,7 @@ function seBuildOp(kind, values) {
       const msg = first(len("title", "題", 1, SE_MAX.title), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       const paths = seList(v.paths);
-      if (!paths.length) return bad("PATH の O を 1 つ以上選んでください");
+      if (!paths.length) return bad("Add PATH で O を 1 つ以上選んでください（DAG か一覧で O を選び、右の板の Add PATH を押します）");
       if (paths.length > 20) return bad("PATH は 20 個までです");
       for (const o of paths) if (!seRefOk(o, "O")) return bad(`O の形が正しくありません: ${o}`);
       if (new Set(paths).size !== paths.length) return bad("同じ O を 2 回選んでいます");

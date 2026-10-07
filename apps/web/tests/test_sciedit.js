@@ -43,7 +43,7 @@ function test_helpers() {
   assert.strictEqual(seOpLabel("copy"), "Copy O");
   assert.strictEqual(seOpLabel("edit"), "Edit");
   assert.strictEqual(seOpLabel("remove"), "Delete");
-  assert.strictEqual(seOpLabel("add_sprout"), "SPROUT を作る");
+  assert.strictEqual(seOpLabel("add_sprout"), "Create SPROUT");
   assert.strictEqual(seOpLabel("mystery_op"), "mystery_op");
   assert.ok(seRefOk("Q12", "Q"));
   assert.ok(seRefOk("E3", "QOFE"));

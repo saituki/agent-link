@@ -648,7 +648,7 @@ function stChipBand(s) {
     });
     row.appendChild(b);
   }
-  const mk = stBtn(stSprout ? "SPROUT を作成中" : "SPROUT を作る", () => { stStartSprout(); });
+  const mk = stBtn(stSprout ? "Creating SPROUT" : "Create SPROUT", () => { stStartSprout(); });
   mk.disabled = !!stSprout;
   row.appendChild(mk);
   const t = stEl("button", `sci-list-toggle${stListOpen ? " active" : ""}`, "一覧");
@@ -748,8 +748,8 @@ function stRenderSprout() {
   box.hidden = false;
   const d = stSprout;
   const band = stEl("section", "sci-band sci-sprout-band");
-  band.appendChild(stEl("span", "sci-band-title", "SPROUT を作る"));
-  band.appendChild(stEl("p", "sci-note", "DAG か一覧で O を選び、右の板の「PATH に加える」を押します"));
+  band.appendChild(stEl("span", "sci-band-title", "Create SPROUT"));
+  band.appendChild(stEl("p", "sci-note", "DAG か一覧で O を選び、右の板の「Add PATH」を押します（PATH の終点になれるのは O だけです）"));
 
   const title = stEl("input", "sai-input");
   title.type = "text";
@@ -781,7 +781,7 @@ function stRenderSprout() {
     line.appendChild(main);
     const x = stEl("button", "sci-sprout-path-x", "✕");
     x.type = "button";
-    x.setAttribute("aria-label", `${r.id} を PATH から外す`);
+    x.setAttribute("aria-label", `Delete PATH: ${r.id}`);
     x.addEventListener("click", () => { d.paths = d.paths.filter((p) => p !== r.id); d.error = ""; stSproutRefresh(); });
     line.appendChild(x);
     list.appendChild(line);
@@ -793,7 +793,7 @@ function stRenderSprout() {
   band.appendChild(err);
 
   const actions = stEl("div", "sci-sprout-actions");
-  const ok = stBtn("作る", () => { void stSproutSend(); }, "primary");
+  const ok = stBtn("Create SPROUT", () => { void stSproutSend(); }, "primary");
   const no = stBtn("やめる", () => { void stSproutCancel(); }, "ghost");
   ok.disabled = no.disabled = stSproutBusy;
   actions.appendChild(ok);
@@ -1166,7 +1166,7 @@ function stBuildSeedPanel() {
   const ops = stSec("OP");
   const row = stEl("div", "sci-ops");
   row.appendChild(stBtn("top_Q を足す", () => { stCall("seOpenAction", "add_q", "SEED"); }));
-  row.appendChild(stBtn("SPROUT を作る", () => { stStartSprout(); }));
+  row.appendChild(stBtn("Create SPROUT", () => { stStartSprout(); }));
   row.appendChild(stBtn("Create CARD", () => { stCall("seOpenCard", "SEED"); }));
   ops.appendChild(row);
   box.appendChild(ops);
@@ -1336,7 +1336,7 @@ function stBoardOps(d) {
   const ops = stEl("div", "sci-ops");
   if (stSprout !== null && node.kind === "O") {
     const on = stSprout.paths.includes(node.id);
-    ops.appendChild(stBtn(on ? "PATH から外す" : "PATH に加える", () => { stSproutPick(node.id); }, on ? "" : "primary"));
+    ops.appendChild(stBtn(on ? "Delete PATH" : "Add PATH", () => { stSproutPick(node.id); }, on ? "" : "primary"));
   }
   for (const op of stOpsFor(node, d.children)) {
     ops.appendChild(stBtn(stOpLabel(op), () => { stCall("seOpenAction", op, node.id, d); }));
