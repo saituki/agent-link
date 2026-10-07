@@ -1383,9 +1383,9 @@ mod tests {
 
         // 決定の記録 2 件（追記だけなので時刻は今のままにする）。ほかの action は数えない。
         for node in &ids {
-            store::insert_log(conn, *node, "star", "", "小さな方法がよい", "user", None).unwrap();
+            store::insert_log(conn, *node, "star", "", "user", None).unwrap();
         }
-        store::insert_log(conn, ids[0], "edit", "", "", "user", None).unwrap();
+        store::insert_log(conn, ids[0], "edit", "", "user", None).unwrap();
         // 採用した提案 2 件と種 1 個。
         for _ in 0..2 {
             store::insert_proposal(
@@ -1395,7 +1395,6 @@ mod tests {
                 "add_finding",
                 None,
                 &serde_json::json!({}),
-                "比べる",
                 "auto",
                 "pending",
             )

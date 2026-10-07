@@ -70,7 +70,6 @@ const fn req(name: &'static str, ty: Ty) -> Field {
 const fn opt(name: &'static str, ty: Ty) -> Field {
     Field { name, ty, required: false }
 }
-const REASON: Field = opt("reason", Ty::Text(0, 500));
 const KINDS: Ty = Ty::Enum(&["answer", "issue"]);
 
 static OP_SPECS: &[OpSpec] = &[
@@ -78,7 +77,7 @@ static OP_SPECS: &[OpSpec] = &[
         op: "add_q",
         risk: Risk::Human,
         about: "Q（または O）の下に子の Q を足す。仕分けのあとで入る",
-        fields: &[req("parent", Ty::Id), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80)), REASON],
+        fields: &[req("parent", Ty::Id), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80))],
     },
     OpSpec {
         op: "add_o",
@@ -89,7 +88,6 @@ static OP_SPECS: &[OpSpec] = &[
             req("text", Ty::Text(1, 120)),
             opt("body", Ty::Text(0, 2000)),
             opt("kind", KINDS),
-            REASON,
         ],
     },
     OpSpec {
@@ -102,7 +100,6 @@ static OP_SPECS: &[OpSpec] = &[
             opt("cites", Ty::List(0, 10)),
             opt("paper", Ty::Int),
             opt("report", Ty::Text(1, 100)),
-            REASON,
         ],
     },
     OpSpec {
@@ -114,7 +111,6 @@ static OP_SPECS: &[OpSpec] = &[
             req("text", Ty::Text(1, 120)),
             opt("body", Ty::Text(0, 2000)),
             opt("mlflow", Ty::Text(0, 200)),
-            REASON,
         ],
     },
     OpSpec {
@@ -126,7 +122,6 @@ static OP_SPECS: &[OpSpec] = &[
             req("value", Ty::Enum(&["ok", "contradiction"])),
             opt("note", Ty::Text(0, 1000)),
             opt("findings", Ty::List(0, 50)),
-            REASON,
         ],
     },
     OpSpec {
@@ -137,34 +132,33 @@ static OP_SPECS: &[OpSpec] = &[
             req("title", Ty::Text(1, 120)),
             req("sentence", Ty::Text(1, 600)),
             req("path", Ty::List(1, 50)),
-            REASON,
         ],
     },
     OpSpec {
         op: "copy",
         risk: Risk::Human,
         about: "O とその下の F を別の Q の下へ写す（E は写さない）。仕分けのあとで入る",
-        fields: &[req("node", Ty::Id), req("to", Ty::Id), REASON],
+        fields: &[req("node", Ty::Id), req("to", Ty::Id)],
     },
     OpSpec {
         op: "remove",
         risk: Risk::Human,
         about: "Node を下の Node ごと消す（一番上の Q は消せない）。仕分けのあとで入る",
-        fields: &[req("node", Ty::Id), req("reason", Ty::Text(1, 500))],
+        fields: &[req("node", Ty::Id)],
     },
-    OpSpec { op: "star", risk: Risk::UserOnly, about: "O に ★ を付ける", fields: &[req("o", Ty::Id), REASON] },
-    OpSpec { op: "unstar", risk: Risk::UserOnly, about: "O の ★ を外す", fields: &[req("o", Ty::Id), REASON] },
+    OpSpec { op: "star", risk: Risk::UserOnly, about: "O に ★ を付ける", fields: &[req("o", Ty::Id)] },
+    OpSpec { op: "unstar", risk: Risk::UserOnly, about: "O の ★ を外す", fields: &[req("o", Ty::Id)] },
     OpSpec {
         op: "set_kind",
         risk: Risk::UserOnly,
         about: "O を Answer / Issue に切り替える",
-        fields: &[req("o", Ty::Id), req("kind", KINDS), REASON],
+        fields: &[req("o", Ty::Id), req("kind", KINDS)],
     },
     OpSpec {
         op: "edit",
         risk: Risk::UserOnly,
         about: "Node の文・本文を書き換える",
-        fields: &[req("node", Ty::Id), opt("text", Ty::Text(1, 1200)), opt("body", Ty::Text(0, 2000)), REASON],
+        fields: &[req("node", Ty::Id), opt("text", Ty::Text(1, 1200)), opt("body", Ty::Text(0, 2000))],
     },
     OpSpec {
         op: "set_target",
@@ -343,13 +337,12 @@ pub fn propose(
             .find_map(|k| item.get(*k).and_then(Value::as_str))
             .and_then(|t| parse_id(t).ok())
             .map(|(_, id)| id);
-        let reason = item.get("reason").and_then(Value::as_str).unwrap_or("");
         let risk = if spec.risk == Risk::Auto { "auto" } else { "human" };
-        let pid = store::insert_proposal(&tx, actor.run_id, actor.block.as_deref(), op, node_id, item, reason, risk, "pending")?;
+        let pid = store::insert_proposal(&tx, actor.run_id, actor.block.as_deref(), op, node_id, item, risk, "pending")?;
         let cx = Cx { conn: &tx, defs, by: run_by(actor.run_id), run_id: actor.run_id, proposal_id: Some(pid) };
         let (status, result) = if spec.risk == Risk::Auto {
             let result = execute(&cx, item).map_err(at)?;
-            store::finish_proposal(&tx, pid, "applied", Some(&result), None, "")?;
+            store::finish_proposal(&tx, pid, "applied", Some(&result), None)?;
             ("applied", Some(result))
         } else {
             dry_run(&cx, item).map_err(at)?;
@@ -391,7 +384,6 @@ pub fn triage(
     proposal: i64,
     action: TriageAction,
     edit: Option<&Value>,
-    note: &str,
 ) -> Result<TriageResult> {
     let p = store::get_proposal(conn, proposal)?;
     let tx = conn.unchecked_transaction()?;
@@ -428,7 +420,7 @@ pub fn triage(
             ("reverted", p.result_ref.clone())
         }
     };
-    store::finish_proposal(&tx, proposal, status, result.as_deref(), Some("user"), note)?;
+    store::finish_proposal(&tx, proposal, status, result.as_deref(), Some("user"))?;
     tx.commit()?;
     Ok(TriageResult { proposal: name, status: status.into(), result })
 }
@@ -439,7 +431,7 @@ fn revert(conn: &Connection, op: &str, result: Option<&str>) -> Result<()> {
     match op {
         "add_o" | "add_f" | "add_e" => {
             let (_, id) = parse_id(result)?;
-            store::remove_subtree(conn, id, "取り消し")?;
+            store::remove_subtree(conn, id)?;
         }
         "add_seed" => {
             let id = parse_ref(result, 'S')?;
@@ -620,8 +612,8 @@ fn new_node<'a>(cx: &'a Cx<'_>, kind: Kind, parent: i64, text: &'a str) -> NewNo
     }
 }
 
-fn log(cx: &Cx<'_>, node_id: i64, action: &str, detail: &str, reason: &str) -> Result<()> {
-    store::insert_log(cx.conn, node_id, action, detail, reason, &cx.by, cx.proposal_id)?;
+fn log(cx: &Cx<'_>, node_id: i64, action: &str, detail: &str) -> Result<()> {
+    store::insert_log(cx.conn, node_id, action, detail, &cx.by, cx.proposal_id)?;
     Ok(())
 }
 
@@ -644,7 +636,6 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
     let name = text(op, "op");
     let Some(spec) = op_spec(name) else { return invalid(format!("知らない op です: {name}")) };
     check_shape(spec, op)?;
-    let reason = text(op, "reason");
     let conn = cx.conn;
     match name {
         "add_q" => {
@@ -792,7 +783,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
                 fn_.report_id = f.report_id.as_deref();
                 store::insert_node(conn, &fn_)?;
             }
-            log(cx, copied, "copy", &format!("{} から", text(op, "node")), reason)?;
+            log(cx, copied, "copy", &format!("{} から", text(op, "node")))?;
             Ok(fmt_id(Kind::O, copied))
         }
         "remove" => {
@@ -800,8 +791,8 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             if n.parent_id.is_none() {
                 return invalid("一番上の Q は消せません");
             }
-            store::remove_subtree(conn, n.id, reason)?;
-            log(cx, n.id, "remove", "", reason)?;
+            store::remove_subtree(conn, n.id)?;
+            log(cx, n.id, "remove", "")?;
             Ok(text(op, "node").to_string())
         }
         "star" | "unstar" => {
@@ -809,7 +800,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             let o = node(cx, text(op, "o"), &[Kind::O])?;
             if o.starred != on {
                 store::set_starred(conn, o.id, on)?;
-                log(cx, o.id, name, "", reason)?;
+                log(cx, o.id, name, "")?;
             }
             Ok(text(op, "o").to_string())
         }
@@ -817,7 +808,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             let o = node(cx, text(op, "o"), &[Kind::O])?;
             let kind = text(op, "kind");
             store::set_answer_kind(conn, o.id, kind)?;
-            log(cx, o.id, "set_kind", kind, reason)?;
+            log(cx, o.id, "set_kind", kind)?;
             Ok(text(op, "o").to_string())
         }
         "edit" => {
@@ -848,14 +839,14 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
                 (true, false) => "text",
                 _ => "body",
             };
-            log(cx, n.id, "edit", detail, reason)?;
+            log(cx, n.id, "edit", detail)?;
             Ok(text(op, "node").to_string())
         }
         "set_target" => {
             let q = node(cx, text(op, "q"), &[Kind::Q])?;
             let target = op.get("target").and_then(Value::as_i64);
             store::set_target(conn, q.id, target)?;
-            log(cx, q.id, "set_target", &target.map_or_else(|| "null".into(), |t| t.to_string()), "")?;
+            log(cx, q.id, "set_target", &target.map_or_else(|| "null".into(), |t| t.to_string()))?;
             Ok(text(op, "q").to_string())
         }
         _ => invalid(format!("知らない op です: {name}")),
@@ -1052,27 +1043,27 @@ mod tests {
         assert_eq!(e.count("rt_nodes"), e.count("rt_nodes")); // dry-run が残らないことは下で確かめる
         let before = e.count("rt_nodes");
         let p = parse_ref(&q.proposal, 'P').unwrap();
-        assert!(err(triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, Some(&json!({"op": "remove"})), "")).contains("op は変えられません"));
-        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, Some(&json!({"text": "直した問い"})), "ok").unwrap();
+        assert!(err(triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, Some(&json!({"op": "remove"})))).contains("op は変えられません"));
+        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, Some(&json!({"text": "直した問い"}))).unwrap();
         assert_eq!(t.status, "accepted");
         assert_eq!(e.count("rt_nodes"), before + 1);
         let (_, id) = parse_id(&t.result.unwrap()).unwrap();
         assert_eq!(store::get_node(e.conn(), id).unwrap().text, "直した問い");
-        assert!(err(triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None, "")).contains("仕分け待ちではありません"));
+        assert!(err(triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None)).contains("仕分け待ちではありません"));
         // reject
-        let r = e.one(json!({"op": "remove", "node": f, "reason": "いらない"})).unwrap();
+        let r = e.one(json!({"op": "remove", "node": f})).unwrap();
         let p = parse_ref(&r.proposal, 'P').unwrap();
-        triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None, "残す").unwrap();
+        triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None).unwrap();
         assert_eq!(store::get_proposal(e.conn(), p).unwrap().status, "rejected");
         // copy・remove
         let to = e.user(json!({"op": "add_q", "parent": fmt_id(Kind::Q, root.id), "text": "写し先"})).unwrap().result.unwrap();
         let c = e.one(json!({"op": "copy", "node": o, "to": to})).unwrap();
         let p = parse_ref(&c.proposal, 'P').unwrap();
-        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, None, "").unwrap();
+        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, None).unwrap();
         let (_, copied) = parse_id(&t.result.unwrap()).unwrap();
         assert_eq!(store::children(e.conn(), copied).unwrap().len(), 1);
-        assert!(err(e.user(json!({"op": "remove", "node": fmt_id(Kind::Q, root.id), "reason": "x"}))).contains("一番上"));
-        e.user(json!({"op": "remove", "node": o, "reason": "整理"})).unwrap();
+        assert!(err(e.user(json!({"op": "remove", "node": fmt_id(Kind::Q, root.id)}))).contains("一番上"));
+        e.user(json!({"op": "remove", "node": o})).unwrap();
         assert!(err(e.user(json!({"op": "star", "o": o}))).contains("はありません"));
     }
 
@@ -1134,14 +1125,14 @@ mod tests {
         let o = e.o("A");
         let r = e.one(json!({"op": "add_f", "parent": o, "text": "根拠"})).unwrap();
         let p = parse_ref(&r.proposal, 'P').unwrap();
-        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Revert, None, "").unwrap();
+        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Revert, None).unwrap();
         assert_eq!(t.status, "reverted");
         let (_, f) = parse_id(&r.result.unwrap()).unwrap();
         assert!(store::get_node(e.conn(), f).unwrap().removed_at.is_some());
         assert_eq!(store::get_proposal(e.conn(), p).unwrap().status, "reverted");
         // logic は記録を残したまま reverted になる。
         let l = e.one(json!({"op": "record_logic", "q": fmt_id(Kind::Q, e.sub), "value": "ok"})).unwrap();
-        triage(e.conn(), &e.roots, &e.defs, parse_ref(&l.proposal, 'P').unwrap(), TriageAction::Revert, None, "").unwrap();
+        triage(e.conn(), &e.roots, &e.defs, parse_ref(&l.proposal, 'P').unwrap(), TriageAction::Revert, None).unwrap();
         assert_eq!(store::list_logic(e.conn(), None).unwrap().len(), 1);
     }
 
@@ -1155,6 +1146,19 @@ mod tests {
         assert!(err(e.one(json!({"op": "nope"}))).contains("知らない op"));
         assert!(err(e.one(json!({"op": "add_o", "q": "O1", "text": "x"}))).contains("Q の ID"));
         assert!(err(e.one(json!({"op": "add_q", "parent": q, "text": "x", "guide": "zz"}))).contains("知らないガイド"));
+    }
+
+    #[test]
+    fn reason_is_not_a_field() {
+        let e = env();
+        let q = fmt_id(Kind::Q, e.sub);
+        // 理由（reason）を付けた op は、知らない項目として弾かれる。
+        assert!(err(e.one(json!({"op": "add_o", "q": q, "text": "x", "reason": "x"}))).contains("reason"));
+        assert!(err(e.one(json!({"op": "copy", "node": q, "to": q, "reason": "x"}))).contains("reason"));
+        // reason を付けなければ remove は通る（仕分け待ちまで）。
+        let o = e.o("A");
+        let r = e.one(json!({"op": "remove", "node": o})).unwrap();
+        assert_eq!(r.status, "pending");
     }
 
     #[test]

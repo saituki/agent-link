@@ -138,7 +138,6 @@ pub struct Decision {
     pub node_text: String,
     pub action: String,
     pub detail: String,
-    pub reason: String,
     pub actor: String,
     pub at: String,
 }
@@ -246,7 +245,6 @@ pub struct PendingJson {
     pub id: String,
     pub op: String,
     pub payload: Value,
-    pub reason: String,
     pub run: Option<i64>,
     pub created_at: String,
 }
@@ -688,7 +686,6 @@ impl Tree {
             node_text,
             action: row.action.clone(),
             detail: row.detail.clone(),
-            reason: row.reason.clone(),
             actor: row.actor.clone(),
             at: row.created_at.clone(),
         }
@@ -1357,7 +1354,6 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
                 id: fmt_ref('P', p.id),
                 op: p.op.clone(),
                 payload: p.payload.clone(),
-                reason: p.reason.clone(),
                 run: p.run_id,
                 created_at: p.created_at.clone(),
             })
@@ -1479,7 +1475,7 @@ mod tests {
         f(&e, o1);
         assert_eq!(tree(&e).logicality(q0).unwrap().value, "unchecked");
         // reverted の記録は数えない。
-        let p = store::insert_proposal(conn, None, None, "record_logic", Some(q0), &json!({}), "", "auto", "reverted").unwrap();
+        let p = store::insert_proposal(conn, None, None, "record_logic", Some(q0), &json!({}), "auto", "reverted").unwrap();
         store::insert_logic(conn, q0, "contradiction", "", &[], 2, None, Some(p), "user").unwrap();
         assert_eq!(tree(&e).logicality(q0).unwrap().value, "unchecked");
         store::insert_logic(conn, q0, "contradiction", "", &[], 2, None, None, "user").unwrap();
@@ -1747,7 +1743,7 @@ mod tests {
         let o1 = o(&e, q0, "O");
         let f1 = f(&e, o1);
         // `rt_log` に `edit` を 1 行入れる（created_at は DB の UTC の形）。
-        store::insert_log(conn, f1, "edit", "text", "直した", "user", None).unwrap();
+        store::insert_log(conn, f1, "edit", "text", "user", None).unwrap();
         let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
         assert_eq!(d.history[0].action, "init");
         assert!(d.history[0].at.ends_with("+00:00"));

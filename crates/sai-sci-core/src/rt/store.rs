@@ -12,15 +12,15 @@ use serde::{Deserialize, Serialize};
 use super::{Kind, Result, RtError, fmt_id, now_text};
 
 const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, answer_kind, starred, \
-     target, cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, removed_reason, \
+     target, cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, \
      proposal_id, created_by, created_at, updated_at";
 const LOGIC_COLUMNS: &str =
     "id, q_id, value, note, findings, f_count, run_id, proposal_id, created_by, created_at";
-const LOG_COLUMNS: &str = "id, node_id, action, detail, reason, actor, proposal_id, created_at";
-const PROPOSAL_COLUMNS: &str = "id, run_id, block, op, node_id, payload, reason, risk, status, \
-     result_ref, decided_by, decided_at, decide_note, created_at";
+const LOG_COLUMNS: &str = "id, node_id, action, detail, actor, proposal_id, created_at";
+const PROPOSAL_COLUMNS: &str = "id, run_id, block, op, node_id, payload, risk, status, \
+     result_ref, decided_by, decided_at, created_at";
 const SEED_COLUMNS: &str = "id, title, sentence, path, run_id, removed_at, created_by, created_at";
-const SEARCH_COLUMNS: &str = "id, run_id, node_id, tool, query, scope, widen_reason, hits, \
+const SEARCH_COLUMNS: &str = "id, run_id, node_id, tool, query, scope, hits, \
      hit_papers, set_id, created_at, log_id";
 
 /// 文字列の JSON 配列を読む。読めないときは空。
@@ -62,7 +62,6 @@ pub struct NodeRow {
     pub mlflow_ref: Option<String>,
     pub ord: i64,
     pub removed_at: Option<String>,
-    pub removed_reason: Option<String>,
     pub proposal_id: Option<i64>,
     pub created_by: String,
     pub created_at: String,
@@ -113,11 +112,10 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeRow> {
         mlflow_ref: row.get(13)?,
         ord: row.get(14)?,
         removed_at: row.get(15)?,
-        removed_reason: row.get(16)?,
-        proposal_id: row.get(17)?,
-        created_by: row.get(18)?,
-        created_at: row.get(19)?,
-        updated_at: row.get(20)?,
+        proposal_id: row.get(16)?,
+        created_by: row.get(17)?,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
 
@@ -259,14 +257,14 @@ pub fn subtree_ids(conn: &Connection, id: i64) -> Result<Vec<i64>> {
 }
 
 /// 自分と子孫に `removed_at` を入れ、消した id を返す。
-pub fn remove_subtree(conn: &Connection, id: i64, reason: &str) -> Result<Vec<i64>> {
+pub fn remove_subtree(conn: &Connection, id: i64) -> Result<Vec<i64>> {
     get_node(conn, id)?;
     let ids = subtree_ids(conn, id)?;
     let now = now_text();
     for removed in &ids {
         conn.execute(
-            "UPDATE rt_nodes SET removed_at = ?2, removed_reason = ?3, updated_at = ?2 WHERE id = ?1",
-            params![removed, now, reason],
+            "UPDATE rt_nodes SET removed_at = ?2, updated_at = ?2 WHERE id = ?1",
+            params![removed, now],
         )?;
     }
     Ok(ids)
@@ -342,7 +340,6 @@ pub struct LogRow {
     pub node_id: i64,
     pub action: String,
     pub detail: String,
-    pub reason: String,
     pub actor: String,
     pub proposal_id: Option<i64>,
     pub created_at: String,
@@ -354,14 +351,13 @@ pub fn insert_log(
     node_id: i64,
     action: &str,
     detail: &str,
-    reason: &str,
     actor: &str,
     proposal_id: Option<i64>,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO rt_log (node_id, action, detail, reason, actor, proposal_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![node_id, action, detail, reason, actor, proposal_id],
+        "INSERT INTO rt_log (node_id, action, detail, actor, proposal_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![node_id, action, detail, actor, proposal_id],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -377,10 +373,9 @@ pub fn list_log(conn: &Connection, limit: Option<usize>) -> Result<Vec<LogRow>> 
             node_id: row.get(1)?,
             action: row.get(2)?,
             detail: row.get(3)?,
-            reason: row.get(4)?,
-            actor: row.get(5)?,
-            proposal_id: row.get(6)?,
-            created_at: row.get(7)?,
+            actor: row.get(4)?,
+            proposal_id: row.get(5)?,
+            created_at: row.get(6)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -397,13 +392,11 @@ pub struct ProposalRow {
     pub op: String,
     pub node_id: Option<i64>,
     pub payload: serde_json::Value,
-    pub reason: String,
     pub risk: String,
     pub status: String,
     pub result_ref: Option<String>,
     pub decided_by: Option<String>,
     pub decided_at: Option<String>,
-    pub decide_note: String,
     pub created_at: String,
 }
 
@@ -415,14 +408,12 @@ fn proposal_from_row(row: &Row<'_>) -> rusqlite::Result<ProposalRow> {
         op: row.get(3)?,
         node_id: row.get(4)?,
         payload: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or(serde_json::Value::Null),
-        reason: row.get(6)?,
-        risk: row.get(7)?,
-        status: row.get(8)?,
-        result_ref: row.get(9)?,
-        decided_by: row.get(10)?,
-        decided_at: row.get(11)?,
-        decide_note: row.get(12)?,
-        created_at: row.get(13)?,
+        risk: row.get(6)?,
+        status: row.get(7)?,
+        result_ref: row.get(8)?,
+        decided_by: row.get(9)?,
+        decided_at: row.get(10)?,
+        created_at: row.get(11)?,
     })
 }
 
@@ -435,14 +426,13 @@ pub fn insert_proposal(
     op: &str,
     node_id: Option<i64>,
     payload: &serde_json::Value,
-    reason: &str,
     risk: &str,
     status: &str,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO rt_proposals (run_id, block, op, node_id, payload, reason, risk, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![run_id, block, op, node_id, serde_json::to_string(payload)?, reason, risk, status],
+        "INSERT INTO rt_proposals (run_id, block, op, node_id, payload, risk, status) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![run_id, block, op, node_id, serde_json::to_string(payload)?, risk, status],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -472,12 +462,11 @@ pub fn finish_proposal(
     status: &str,
     result_ref: Option<&str>,
     decided_by: Option<&str>,
-    note: &str,
 ) -> Result<()> {
     let changed = conn.execute(
-        "UPDATE rt_proposals SET status = ?2, result_ref = ?3, decided_by = ?4, decided_at = ?5, \
-         decide_note = ?6 WHERE id = ?1",
-        params![id, status, result_ref, decided_by, now_text(), note],
+        "UPDATE rt_proposals SET status = ?2, result_ref = ?3, decided_by = ?4, decided_at = ?5 \
+         WHERE id = ?1",
+        params![id, status, result_ref, decided_by, now_text()],
     )?;
     if changed == 0 {
         return Err(RtError::NotFound(format!("P{id} はありません")));
@@ -546,7 +535,6 @@ pub struct SearchRow {
     pub tool: String,
     pub query: String,
     pub scope: String,
-    pub widen_reason: String,
     pub hits: i64,
     pub hit_papers: Vec<i64>,
     pub set_id: Option<i64>,
@@ -558,15 +546,14 @@ pub struct SearchRow {
 /// 検索の記録を足す。`id` と `created_at` は無視して振る。
 pub fn insert_search(conn: &Connection, row: &SearchRow) -> Result<i64> {
     conn.execute(
-        "INSERT INTO rt_searches (run_id, node_id, tool, query, scope, widen_reason, hits, \
-         hit_papers, set_id, log_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO rt_searches (run_id, node_id, tool, query, scope, hits, \
+         hit_papers, set_id, log_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             row.run_id,
             row.node_id,
             row.tool,
             row.query,
             row.scope,
-            row.widen_reason,
             row.hits,
             write_vec(&row.hit_papers)?,
             row.set_id,
@@ -590,12 +577,11 @@ pub fn list_searches(conn: &Connection, node_id: Option<i64>) -> Result<Vec<Sear
             tool: row.get(3)?,
             query: row.get(4)?,
             scope: row.get(5)?,
-            widen_reason: row.get(6)?,
-            hits: row.get(7)?,
-            hit_papers: parse_vec(&row.get::<_, String>(8)?),
-            set_id: row.get(9)?,
-            created_at: row.get(10)?,
-            log_id: row.get(11)?,
+            hits: row.get(6)?,
+            hit_papers: parse_vec(&row.get::<_, String>(7)?),
+            set_id: row.get(8)?,
+            created_at: row.get(9)?,
+            log_id: row.get(10)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -720,7 +706,7 @@ mod tests {
 
         assert_eq!(get_node(conn, o2).unwrap().ord, 2);
         assert_eq!(subtree_ids(conn, q).unwrap(), vec![q, o1, f, o2]);
-        assert_eq!(remove_subtree(conn, o1, "不要").unwrap(), vec![o1, f]);
+        assert_eq!(remove_subtree(conn, o1).unwrap(), vec![o1, f]);
 
         assert!(get_node(conn, o1).unwrap().removed_at.is_some());
         assert!(get_node(conn, f).unwrap().removed_at.is_some());
@@ -739,8 +725,8 @@ mod tests {
         let database = db();
         let conn = database.connection();
         let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
-        let id = insert_log(conn, q, "edit", "", "", "user", None).unwrap();
-        assert!(conn.execute("UPDATE rt_log SET reason = 'x' WHERE id = ?1", params![id]).is_err());
+        let id = insert_log(conn, q, "edit", "", "user", None).unwrap();
+        assert!(conn.execute("UPDATE rt_log SET detail = 'x' WHERE id = ?1", params![id]).is_err());
         assert!(conn.execute("DELETE FROM rt_log WHERE id = ?1", params![id]).is_err());
         assert_eq!(list_log(conn, Some(5)).unwrap().len(), 1);
     }
@@ -769,10 +755,10 @@ mod tests {
         insert_logic(conn, q, "ok", "", &[1, 2], 2, None, None, "user").unwrap();
         assert_eq!(list_logic(conn, Some(q)).unwrap()[0].findings, vec![1, 2]);
         let p = insert_proposal(
-            conn, None, None, "add", Some(q), &serde_json::json!({"a": 1}), "", "auto", "pending",
+            conn, None, None, "add", Some(q), &serde_json::json!({"a": 1}), "auto", "pending",
         )
         .unwrap();
-        finish_proposal(conn, p, "applied", Some("O2"), None, "").unwrap();
+        finish_proposal(conn, p, "applied", Some("O2"), None).unwrap();
         let got = get_proposal(conn, p).unwrap();
         assert_eq!(got.status, "applied");
         assert_eq!(got.payload["a"], 1);
@@ -781,7 +767,7 @@ mod tests {
         assert_eq!(list_seeds(conn).unwrap()[0].path, vec![q]);
         let row = SearchRow {
             id: 0, run_id: None, node_id: Some(q), tool: "t".into(), query: "q".into(),
-            scope: String::new(), widen_reason: String::new(), hits: 1, hit_papers: vec![7],
+            scope: String::new(), hits: 1, hit_papers: vec![7],
             set_id: None, created_at: String::new(), log_id: None,
         };
         insert_search(conn, &row).unwrap();

@@ -129,9 +129,6 @@ enum Cmd {
         /// 採用するとき、中身の上書き（JSON 文字列）
         #[arg(long, requires = "accept")]
         edit: Option<String>,
-        /// 仕分けのメモ
-        #[arg(long)]
-        note: Option<String>,
     },
     /// Node のための実行（カード）を作る（標準入力の C-CARD は --from-json のときだけ読む）
     Card {
@@ -410,14 +407,12 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
             reject,
             revert,
             edit,
-            note,
         }) => print_out(sci::triage(
             &proposal,
             accept,
             reject,
             revert,
             edit.as_deref(),
-            note.as_deref(),
         )?),
         Some(Cmd::Card {
             args,

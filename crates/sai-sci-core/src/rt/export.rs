@@ -180,7 +180,7 @@ pub fn render_tree_md(status: &Status) -> String {
     }
     for d in status.decisions.iter().take(30) {
         let at = d.at.get(..16).unwrap_or(&d.at);
-        out.push_str(&format!("- {at} {} {}（{}）: {}\n", d.node, d.action, d.actor, d.reason));
+        out.push_str(&format!("- {at} {} {}（{}）\n", d.node, d.action, d.actor));
     }
     out
 }
@@ -255,7 +255,7 @@ mod tests {
         let o3 = add(&db, Kind::O, Some(q2), "術前 MRI", Some("answer"), &[]);
         let f4 = add(&db, Kind::F, Some(o3), "120 例ある", None, &["#12 §2".to_string()]);
         let gone = add(&db, Kind::F, Some(o3), "消す根拠", None, &[]);
-        store::remove_subtree(c, gone, "テスト").unwrap();
+        store::remove_subtree(c, gone).unwrap();
         let _ = f4;
 
         let status = compute::status(c, &roots, &Defs::default()).unwrap();

@@ -90,9 +90,6 @@ fn resolve_scope(
 // ---- ALLOWED_OPS ---------------------------------------------------------------------
 
 fn field_text(f: &Field) -> String {
-    if f.name == "reason" {
-        return f.name.to_string();
-    }
     let note = match f.ty {
         Ty::Id if f.name == "q" => "Q の ID".to_string(),
         Ty::Id => "Node の ID".to_string(),
@@ -633,7 +630,7 @@ mod tests {
         assert!(t.contains("- add_o（すぐ入る）"), "{t}");
         assert!(t.contains("- add_q（利用者が仕分けてから入る）"), "{t}");
         assert!(t.contains("必須: q（Q の ID）, text（1〜120 字）"), "{t}");
-        assert!(t.contains("任意: body（0〜2000 字）, kind（answer / issue）, reason"), "{t}");
+        assert!(t.contains("任意: body（0〜2000 字）, kind（answer / issue）"), "{t}");
         assert!(!t.contains("- add_f"));
         let none = allowed_ops_text(&e.roots, "nothing");
         for op in ["add_o", "add_f", "add_e"] {

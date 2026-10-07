@@ -387,7 +387,6 @@ pub(crate) fn proposal_json(row: &store::ProposalRow) -> Value {
         "run": row.run_id,
         "block": row.block,
         "payload": row.payload,
-        "reason": row.reason,
         "created_at": row.created_at,
     })
 }
@@ -406,12 +405,11 @@ pub(crate) fn proposals(json: bool) -> Result<Out> {
     let mut text = String::new();
     for row in &rows {
         text.push_str(&format!(
-            "{} {} run {}: {}\n",
+            "{} {} run {}\n",
             rt::fmt_ref('P', row.id),
             row.op,
             row.run_id
                 .map_or_else(|| "?".to_string(), |id| id.to_string()),
-            one_line(&row.reason)
         ));
     }
     Ok(Out::Text(text))
@@ -424,7 +422,6 @@ pub(crate) fn triage(
     reject: bool,
     revert: bool,
     edit: Option<&str>,
-    note: Option<&str>,
 ) -> Result<Out> {
     let id = rt::parse_ref(proposal.trim(), 'P').map_err(rt_err)?;
     let edit = match edit {
@@ -445,7 +442,7 @@ pub(crate) fn triage(
         // clap のグループで 1 つが必ず選ばれる。ここは直接呼んだときの保険。
         bail!("--accept・--reject・--revert の 1 つを指定します");
     };
-    Ok(Out::Json(run_triage(id, action, edit.as_ref(), note.unwrap_or(""))?))
+    Ok(Out::Json(run_triage(id, action, edit.as_ref())?))
 }
 
 /// 仕分けを実行して state.md と tree.md を書き直す（`sci triage` と `phone sci triage` で共用）。
@@ -453,11 +450,10 @@ pub(crate) fn run_triage(
     id: i64,
     action: ops::TriageAction,
     edit: Option<&Value>,
-    note: &str,
 ) -> Result<Value> {
     let env = open_env()?;
     let result =
-        ops::triage(env.conn(), &env.roots, &env.defs, id, action, edit, note).map_err(rt_err)?;
+        ops::triage(env.conn(), &env.roots, &env.defs, id, action, edit).map_err(rt_err)?;
     env.export()?;
     Ok(serde_json::to_value(result)?)
 }
@@ -643,8 +639,6 @@ pub(crate) struct SearchLog<'a> {
     pub query: &'a str,
     /// 検索の範囲（`node:Q12` など）。
     pub scope: &'a str,
-    /// 範囲を広げた理由（`--widen`）。
-    pub widen_reason: &'a str,
     /// 当たった件数。
     pub hits: i64,
     /// 当たった論文の番号。
@@ -672,7 +666,6 @@ pub(crate) fn record_search(conn: &Connection, log: &SearchLog<'_>) -> Result<()
             tool: log.tool.to_string(),
             query: log.query.to_string(),
             scope: log.scope.to_string(),
-            widen_reason: log.widen_reason.to_string(),
             hits: log.hits,
             hit_papers: log.hit_papers.to_vec(),
             set_id: log.set_id,
@@ -891,9 +884,6 @@ fn node_text(detail: &compute::NodeDetail) -> String {
             if !decision.detail.is_empty() {
                 line.push_str(&format!(" {}", one_line(&decision.detail)));
             }
-            if !decision.reason.is_empty() {
-                line.push_str(&format!(": {}", one_line(&decision.reason)));
-            }
             text.push_str(&line);
             text.push('\n');
         }
@@ -901,12 +891,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
     if !detail.pending.is_empty() {
         text.push_str("\n仕分け待ち:\n");
         for pending in &detail.pending {
-            text.push_str(&format!(
-                "  {} {}: {}\n",
-                pending.id,
-                pending.op,
-                one_line(&pending.reason)
-            ));
+            text.push_str(&format!("  {} {}\n", pending.id, pending.op));
         }
     }
     if !detail.searches.is_empty() {
@@ -1090,7 +1075,6 @@ mod tests {
                 tool: "find",
                 query: "発作",
                 scope: "node:Q1",
-                widen_reason: "",
                 hits: 2,
                 hit_papers: &[7, 9],
                 set_id: None,
@@ -1108,7 +1092,6 @@ mod tests {
                 tool: "find",
                 query: "x",
                 scope: "library",
-                widen_reason: "",
                 hits: 0,
                 hit_papers: &[],
                 set_id: None,

@@ -116,7 +116,7 @@ mod tests {
         add(Kind::F, Some(node), "根拠 1", Some(1), &[]);
         add(Kind::F, Some(node), "根拠 3", None, &["#3 §2.1".to_string()]);
         let removed = add(Kind::F, Some(node), "外した根拠", Some(5), &[]);
-        store::remove_subtree(conn, removed, "違う").unwrap();
+        store::remove_subtree(conn, removed).unwrap();
         let child_q = add(Kind::Q, Some(node), "下の問い", None, &[]);
         let child_o = add(Kind::O, Some(child_q), "下の答え", None, &[]);
         add(Kind::F, Some(child_o), "根拠 4", Some(4), &[]);

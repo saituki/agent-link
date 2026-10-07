@@ -60,9 +60,6 @@ pub struct FindArgs {
     /// 範囲の論文ごとに上位 m 件を返す（`--papers` か `--node` と一緒に使う）
     #[arg(long)]
     pub each: Option<i64>,
-    /// 範囲を広げた理由
-    #[arg(long)]
-    pub widen: Option<String>,
     /// JSON 出力（`{"log","hits"}`）
     #[arg(long)]
     pub json: bool,
@@ -100,9 +97,6 @@ pub struct SearchArgs {
     /// 読み、そこから抜き出す項目
     #[arg(long)]
     pub extract: Option<String>,
-    /// 範囲を広げた理由
-    #[arg(long)]
-    pub widen: Option<String>,
     /// JSON 出力（`{"log","items","failed"}`）
     #[arg(long)]
     pub json: bool,
@@ -158,7 +152,6 @@ pub fn find(args: &FindArgs) -> Result<()> {
                 tool: "find",
                 query,
                 scope: &scope_note,
-                widen_reason: args.widen.as_deref().unwrap_or(""),
                 hits: 0,
                 hit_papers: &[],
                 set_id: None,
@@ -197,7 +190,6 @@ pub fn find(args: &FindArgs) -> Result<()> {
         child_args.push("--evidence".to_string());
     }
     push_i64(&mut child_args, "--each", args.each);
-    push_str(&mut child_args, "--widen", args.widen.as_deref());
     child_args.push("--json".to_string());
 
     let out = crate::run_child(
@@ -228,7 +220,6 @@ pub fn find(args: &FindArgs) -> Result<()> {
             tool: "find",
             query,
             scope: &scope_note,
-            widen_reason: args.widen.as_deref().unwrap_or(""),
             hits: hits.len() as i64,
             hit_papers: &hit_papers,
             set_id: None,
@@ -331,7 +322,6 @@ pub fn search(args: &SearchArgs) -> Result<()> {
                 tool: "search",
                 query,
                 scope: &scope,
-                widen_reason: args.widen.as_deref().unwrap_or(""),
                 hits: items.len() as i64,
                 hit_papers: &[],
                 set_id,

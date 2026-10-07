@@ -983,7 +983,6 @@ mod tests {
             "add_finding",
             None,
             &serde_json::json!({}),
-            "比較したい",
             "auto",
             "pending",
         )

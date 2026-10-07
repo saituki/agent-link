@@ -118,6 +118,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (49, include_str!("../migrations/0049_search_actor.sql")),
     (50, include_str!("../migrations/0050_rt_search_log.sql")),
     (51, include_str!("../migrations/0051_find_log.sql")),
+    (
+        52,
+        include_str!("../migrations/0052_drop_reasons.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -3198,6 +3202,69 @@ mod tests {
         );
         assert!(rejected.is_err(), "知らない種類は CHECK で断られる");
 
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// migration 0052 で research-tree の「理由」の 6 列が消え、行は残る。
+    #[test]
+    fn migration_52_drops_reason_columns_and_keeps_rows() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-drop-reasons-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0051 までの DB（「理由」の列がある）
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 52) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (kind, text) VALUES ('Q', '問い');
+                 INSERT INTO rt_log (node_id, action, detail, reason) VALUES (1, 'edit', '', '理由');
+                 INSERT INTO rt_proposals (op, payload, reason, risk, status)
+                    VALUES ('edit', '{}', '提案の理由', 'auto', 'pending');
+                 INSERT INTO rt_searches (tool, query, widen_reason) VALUES ('find', 'q', '広げた理由');
+                 INSERT INTO find_logs (searched_at, log_date, query, widen_reason, origin)
+                    VALUES ('2026-10-07T00:00:00Z', '2026/10/07', 'q', '広げた理由', 'cli');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+
+        let columns = |table: &str| -> Result<Vec<String>, Box<dyn std::error::Error>> {
+            let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        };
+        for (table, gone) in [
+            ("rt_log", "reason"),
+            ("rt_proposals", "reason"),
+            ("rt_proposals", "decide_note"),
+            ("rt_nodes", "removed_reason"),
+            ("rt_searches", "widen_reason"),
+            ("find_logs", "widen_reason"),
+        ] {
+            assert!(!columns(table)?.iter().any(|name| name == gone), "{table}.{gone} は消える");
+        }
+
+        // 行は残る。
+        for table in ["rt_nodes", "rt_log", "rt_proposals", "rt_searches", "find_logs"] {
+            let count: i64 =
+                conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))?;
+            assert_eq!(count, 1, "{table} の行は残る");
+        }
         fs::remove_dir_all(&dir).ok();
         Ok(())
     }

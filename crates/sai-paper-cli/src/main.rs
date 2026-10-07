@@ -114,9 +114,6 @@ enum Cmd {
         /// 範囲の論文ごとに上位 m 件を返す（`--papers` と一緒に使う）
         #[arg(long)]
         each: Option<i64>,
-        /// 範囲を広げた理由
-        #[arg(long)]
-        widen: Option<String>,
         /// JSON 出力（`{"log","hits"}`）
         #[arg(long)]
         json: bool,
@@ -1015,7 +1012,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             fts_expr,
             evidence,
             each,
-            widen,
             json,
         }) => {
             handle_find(FindCliArgs {
@@ -1032,7 +1028,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 fts_expr,
                 evidence,
                 each,
-                widen,
                 json,
             })
             .await?;
@@ -1269,7 +1264,6 @@ struct FindCliArgs {
     fts_expr: bool,
     evidence: bool,
     each: Option<i64>,
-    widen: Option<String>,
     json: bool,
 }
 
@@ -1291,7 +1285,6 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
         fts_expr,
         evidence,
         each,
-        widen,
         json,
     } = args;
     let query = query.trim();
@@ -1381,7 +1374,6 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
             node_id: None,
             subtree: false,
             each,
-            widen_reason: widen.as_deref().unwrap_or(""),
             origin: origin_name(),
             run_id: parent_run_id(),
         },

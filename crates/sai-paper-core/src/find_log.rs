@@ -41,8 +41,6 @@ pub struct FindLogInput<'a> {
     pub subtree: bool,
     /// 範囲の論文ごとの件数（`--each`）。
     pub each: Option<i64>,
-    /// 範囲を広げた理由（`--widen`）。
-    pub widen_reason: &'a str,
     /// `phone` / `cli` / `mcp`。
     pub origin: &'a str,
     /// sai-link の実行 ID（`SAI_PARENT_RUN_ID`）。
@@ -76,8 +74,6 @@ pub struct FindLogRow {
     pub subtree: bool,
     /// 範囲の論文ごとの件数。
     pub each: Option<i64>,
-    /// 範囲を広げた理由。
-    pub widen_reason: String,
     /// `phone` / `cli` / `mcp`。
     pub origin: String,
     /// sai-link の実行 ID。
@@ -186,8 +182,8 @@ fn record_inner(
     conn.execute(
         "INSERT INTO find_logs
             (searched_at, log_date, query, mode, top_k, scope, range_text, papers_json,
-             node_id, subtree, each_m, widen_reason, origin, run_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             node_id, subtree, each_m, origin, run_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             searched_at,
             log_date,
@@ -200,7 +196,6 @@ fn record_inner(
             input.node_id,
             i64::from(input.subtree),
             input.each,
-            input.widen_reason,
             input.origin,
             input.run_id,
         ],
@@ -229,7 +224,7 @@ fn record_inner(
 pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
     let mut stmt = conn.prepare(
         "SELECT id, searched_at, log_date, query, mode, top_k, scope, range_text, papers_json,
-                node_id, subtree, each_m, widen_reason, origin, run_id
+                node_id, subtree, each_m, origin, run_id
          FROM find_logs ORDER BY searched_at DESC, id DESC",
     )?;
     let rows = stmt
@@ -248,8 +243,7 @@ pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
                 row.get::<_, i64>(10)?,
                 row.get::<_, Option<i64>>(11)?,
                 row.get::<_, String>(12)?,
-                row.get::<_, String>(13)?,
-                row.get::<_, Option<i64>>(14)?,
+                row.get::<_, Option<i64>>(13)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -268,7 +262,6 @@ pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
                 node_id,
                 subtree,
                 each,
-                widen_reason,
                 origin,
                 run_id,
             )| {
@@ -285,7 +278,6 @@ pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
                     node_id,
                     subtree: subtree != 0,
                     each,
-                    widen_reason,
                     origin,
                     run_id,
                 })
@@ -411,7 +403,6 @@ mod tests {
             node_id: None,
             subtree: false,
             each: None,
-            widen_reason: "",
             origin,
             run_id,
         }
