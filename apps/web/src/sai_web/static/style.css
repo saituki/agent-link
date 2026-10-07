@@ -854,7 +854,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 }
 #stats-cards > .st-note:only-child { background: transparent; }
 
-/* --- 質問・承認カードの追加スタイル（05）---
+/* --- 質問カードの追加スタイル（05）---
    既存の .question-card 系はそのまま足して使う（03 との衝突を避けるため
    既存の定義は変更しない）。 */
 
@@ -876,7 +876,7 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   color: var(--text-soft);
 }
 
-/* 回答済みの質問・承認カード: 質問時と同じ選択肢を残し，選んだものを強調する。
+/* 回答済みの質問カード: 質問時と同じ選択肢を残し，選んだものを強調する。
    選択肢は button ではなく div（押せない）。選ばなかったものは薄くする。 */
 .question-card.q-done {
   border-left: 3px solid var(--ok);
@@ -896,16 +896,6 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 
 .question-card .q-option.static.selected {
   opacity: 1;
-}
-
-/* 承認カード（05 §1 の3番）は内容が短いので区切り線を強めに */
-.question-card.approval-card {
-  border: 1px solid var(--accent);
-}
-
-.question-card.approval-card .q-header {
-  color: var(--accent);
-  font-weight: bold;
 }
 
 /* 複数選択のボタンは選択中が ☑ で分かる（app.js が文字も切り替える） */
@@ -2962,3 +2952,39 @@ code {
 @media (min-width: 900px) {
   .sess-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* --- 生成中の文（U04 §1） ---
+   エージェントの吹き出しと同じ見た目で、点滅する印を付ける。
+   折りたたみ（.fold-body は既定で隠す）は使わず、常に中身を出す。 */
+.fold-item.partial .fold-body { display: block; }
+.fold-item.partial .partial-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: sai-partial-blink 1s ease-in-out infinite;
+}
+@keyframes sai-partial-blink {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+/* --- 新しいチャットのシート（U04 §5） --- */
+.nc-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+.nc-field { display: flex; flex-direction: column; gap: 4px; }
+.nc-label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.nc-select,
+.nc-text {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.nc-text { resize: vertical; min-height: 84px; }
+.nc-error { color: var(--danger); font-size: 13px; }
+.nc-loading { color: var(--text-soft); font-size: 14px; padding: 8px 0; }
+.nc-start { align-self: flex-start; }

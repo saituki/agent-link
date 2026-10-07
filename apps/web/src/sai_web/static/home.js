@@ -3,7 +3,7 @@
 //
 // 端末（ターミナル）に慣れていない人が最初に開く画面。ここに
 //   1. 全プロジェクトの合計（今週 / 今月 / 全期間・実行数・成功率・token・料金・日ごとの棒）
-//   2. 質問がある会話（質問と承認）
+//   2. 質問がある会話
 //   3. todo
 //   3'. 予約した todo（実行予約があるときだけ・時刻の早い順）
 //   4. 最近のアクティビティ
@@ -12,7 +12,7 @@
 //   7. 論文の要対応
 // を並べ、下に読めなかったプロジェクトを出す。1〜4 は 0 件でもカードを出す。
 //
-// データは GET /api/home（質問・承認・プロジェクト・論文）と
+// データは GET /api/home（質問・プロジェクト・論文）と
 // GET /api/home/overview（全プロジェクトの合計）の 2 本（U02 §1・U3 C-A3）。
 // 合計のほうだけ期間を変えられるので、別の住所にしてある。
 // 15 秒ごとに読み直す。DOM を使わない関数（hmSections など）は
@@ -85,48 +85,34 @@ function hmAgo(value, nowMs) {
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
 
-/** 質問・承認の 1 行の題（U4 §3-1）。 */
-function hmWaitTitle(item, kind) {
-  if (kind === "approval") {
-    const tool = item.tool_name || "承認";
-    const sum = item.summary || "";
-    return sum ? `${tool}: ${sum}` : tool;
-  }
+/** 質問の 1 行の題（U4 §3-1）。 */
+function hmWaitTitle(item) {
   return item.title || "（題のない質問）";
 }
 
-/** 質問・承認の 1 行の左（プロジェクト名と #run_id）。 */
+/** 質問の 1 行の左（プロジェクト名と #run_id）。 */
 function hmWaitWhere(item) {
   if (!item.project) return "";
   return item.run_id == null ? item.project : `${item.project} #${item.run_id}`;
 }
 
-/** 質問・承認を押した先の住所（プロジェクトと run が分かれば会話の画面へ）。 */
+/** 質問を押した先の住所（プロジェクトと run が分かれば会話の画面へ）。 */
 function hmWaitHash(item) {
   if (!item.project || item.run_id == null) return "#/";
   return `#/run/${encodeURIComponent(item.project)}/${encodeURIComponent(item.run_id)}`;
 }
 
-/** 質問・承認の行（新しい順・質問が先で承認が後）。 */
+/** 質問の行（新しい順）。 */
 function hmWaitItems(data) {
   const d = data || {};
   const out = [];
   for (const q of Array.isArray(d.questions) ? d.questions : []) {
     out.push({
       kind: "question",
-      title: hmWaitTitle(q, "question"),
+      title: hmWaitTitle(q),
       where: hmWaitWhere(q),
       ago: hmAgo(q.created_at),
       hash: hmWaitHash(q),
-    });
-  }
-  for (const a of Array.isArray(d.approvals) ? d.approvals : []) {
-    out.push({
-      kind: "approval",
-      title: hmWaitTitle(a, "approval"),
-      where: hmWaitWhere(a),
-      ago: hmAgo(a.created_at),
-      hash: hmWaitHash(a),
     });
   }
   return out;
@@ -277,7 +263,7 @@ function hmSections(data) {
   const d = data || {};
   const out = [];
 
-  // 1) 質問がある会話（質問と承認を 1 枚のカードにまとめる・画面は 0 件でも出す）
+  // 1) 質問がある会話（1 枚のカードにまとめる・画面は 0 件でも出す）
   const wait = hmWaitItems(d);
   if (wait.length > 0) {
     out.push({ key: "wait", title: "Questions", count: wait.length, items: wait });
@@ -394,10 +380,9 @@ function hmCard(title, term) {
   return card;
 }
 
-/** 待ち（質問・承認）の 1 行。 */
+/** 待ち（質問）の 1 行。 */
 function hmWaitRow(item) {
-  const sub = item.kind === "approval" ? "承認をしてほしいです" : "";
-  return hmRow(item.where || "（プロジェクト不明）", `${item.title}${sub ? ` — ${sub}` : ""}`, item.ago, () => {
+  return hmRow(item.where || "（プロジェクト不明）", item.title, item.ago, () => {
     location.hash = item.hash;
   });
 }

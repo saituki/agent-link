@@ -6,7 +6,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const { timeMs, firstIndexAfter } = require(path.join(
+const { timeMs, firstIndexAfter, chatPartialPlan } = require(path.join(
   __dirname,
   "..",
   "src",
@@ -65,9 +65,31 @@ function testFirstIndexAfter() {
   assert.strictEqual(firstIndexAfter(mixed, sec("2026-09-23T04:00:00Z")), 2);
 }
 
+function testChatPartialPlan() {
+  // 空 → 空: 何もしない
+  assert.strictEqual(chatPartialPlan("", ""), "none");
+  assert.strictEqual(chatPartialPlan(null, null), "none");
+  assert.strictEqual(chatPartialPlan(undefined, ""), "none");
+  // 空 → 文: 吹き出しを出す
+  assert.strictEqual(chatPartialPlan("", "考え中"), "show");
+  assert.strictEqual(chatPartialPlan(null, "考え中"), "show");
+  // 文 → 同じ文: 描き直さない
+  assert.strictEqual(chatPartialPlan("考え中", "考え中"), "none");
+  // 文 → 別の文: 中身を置き換える
+  assert.strictEqual(chatPartialPlan("考え", "考え中です"), "update");
+  // 文 → 空: 吹き出しを消す
+  assert.strictEqual(chatPartialPlan("考え中", ""), "hide");
+  assert.strictEqual(chatPartialPlan("考え中", null), "hide");
+  // 空白だけの文は空とみなす（見えない吹き出しを出さない）
+  assert.strictEqual(chatPartialPlan("", "   \n"), "none");
+  assert.strictEqual(chatPartialPlan("考え中", "  "), "hide");
+  assert.strictEqual(chatPartialPlan("  ", "考え中"), "show");
+}
+
 function main() {
   testTimeMs();
   testFirstIndexAfter();
+  testChatPartialPlan();
   console.log("test_chatorder: すべて通りました");
 }
 
