@@ -17,7 +17,6 @@ subblocks:
   - sci-cite-check
   - sci-review
   - sci-result-compare
-  - sci-seed
   - sci-read
   - sci-compare
   - sci-ideate
@@ -51,7 +50,7 @@ subblocks:
 | 進み具合（`progress`） | 木のどこまで埋まったか | `sai-sci status --brief` |
 | Next Action（`next`） | 木が次に示している作業（`why` のコード） | `sai-sci status --brief` |
 | Objectivity・Logicality | O の根拠が足りているか・Q から ★ の道の筋が通っているか | `sai-sci status --json` |
-| Node | Q・O・F・E の 1 つ | `sai-sci node <N12>` |
+| Node | Q・O・F・E・S（SPROUT）の 1 つ | `sai-sci node <N12>` |
 | PROPOSAL | 木への変更の申し出。`sai-sci triage` で仕分ける | `sai-sci proposals` |
 
 現在地はまず `sai-sci status --brief` で読む。★ は利用者だけが付ける。逆向きでは、論文の答えの O に ★ が要るとき、評価の結果を Human に見せて ★ を頼む（professor-backward は ★ を付けない）。
@@ -70,11 +69,11 @@ subblocks:
 
 | 段 | 起こすもの | 渡すもの（`--input`） | 終わりの条件 |
 |---|---|---|---|
-| 1. 抽出 | `sci-restore` を 1 本（Node は `background` など一番上の Q） | なし（`--purpose` に基盤論文の番号） | 復元書と SEED の札（再現）がある。PROPOSAL を仕分け終え、論文の答えの O の ★ を Human に頼み終えた |
+| 1. 抽出 | `sci-restore` を 1 本（Node は `background` など top_Q） | なし（`--purpose` に基盤論文の番号） | 復元書がある。PROPOSAL を仕分け終え、論文の答えの O の ★ を Human に頼み終えた |
 | 2. 評価（引用） | `sci-cite-check` を、主張を Node ごとに分けて 1〜3 本ずつ | 復元書 | 対応表の主張がすべて判定された（未確認を含む） |
 | 2. 評価（木） | `sci-review` を 1 本（`bw-core` の V1〜V10） | 復元書・引用の判定表の全部 | 審査書がある。「要補強」「誤り」の次の一手を片付けるか、Human が「このまま進めてよい」と答えた |
-| 3. 再現 | `sci-exp-scout` → `sci-sim-model`（神経のモデルのとき）→ `sci-exp-sprout`（Node は `purpose.metric`） | SEED の札（再現） | review の判定が `stop`（完了報告書）。または下の「再現の実験」で止めた |
-| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-seed` → `sci-exp-scout` → `sci-sim-model` / `sci-sim-compose`（神経のモデルのとき）→ `sci-exp-sprout` | 前の段の報告 | SEED の札（更新）の実験で、review の判定が `stop`（完了報告書） |
+| 3. 再現 | `sci-exp-scout` → `sci-sim-model`（神経のモデルのとき）→ `sci-exp-sprout`（Node は `SEED`） | 復元書 | 再現の SPROUT があり、review の判定が `stop`（完了報告書）。または下の「再現の実験」で止めた |
+| 4. 更新 | `sci-search` → `sci-screen` → `sci-read` → `sci-ideate` / `sci-compare` → `sci-exp-scout` → `sci-sim-model` / `sci-sim-compose`（神経のモデルのとき）→ `sci-exp-sprout` | 前の段の報告 | 更新の SPROUT の実験で、review の判定が `stop`（完了報告書） |
 | 5. 比較 | `sci-result-compare` を 1 本 | 復元書・引用の判定表・審査書・再現と更新の完了報告書と実験仕様書 | 比較書がある |
 
 - 段は順に進める。段を飛ばすのは Human が指示したときだけ（例: 「再現はしない」「更新はしない」）。更新をしないときは、段 5 で再現だけを比べる。
@@ -97,9 +96,9 @@ subblocks:
 ### 再現の実験
 
 - 再現を始める前に、質問ツールで Human に 2 つを聞く。1 つ目は実行先（`EXP_TARGET`。課金のある実行先かどうか）。2 つ目は許容幅（成功基準）で、記載結果表の ★ の値とばらつきを添え、「論文の記載値 ± どれだけなら再現できたとするか」を聞く。答えを `purpose.metric` の本文に反映する（`edit_text` を `sai-sci apply` で）。
-- 再現の scout のカードと sprout のカードは、`--input <SEED の札（再現）のトークン>` で作る。`sci-exp-scout` の `--purpose` に「再現。元の論文の参照実装を探す。基盤論文: #12」と書き、返った参照コード調査書のトークンを sprout のカードの `--input` に**足す**。**再現では、元の論文の参照実装を土台にする。**
+- 再現の scout のカードと sprout のカードは、`--input <復元書のトークン>` で作る。`sci-exp-scout` の `--purpose` に「再現。元の論文の参照実装を探す。基盤論文: #12」と書き、返った参照コード調査書のトークンを sprout のカードの `--input` に**足す**。**再現では、元の論文の参照実装を土台にする。**
 - **再現のモデルが神経のモデルのときは、scout の調査書を `--input` にして `sci-sim-model` を起こす。** `--purpose` に「再現。基盤論文: #12」と書く。返った**モデル定義書のトークン**を sprout のカードの `--input` に**足す**（sprout は実験仕様書の `sim_model` に入れる）。2 本以上の論文のモデルをつなぐなら `sci-sim-model` の代わりに `sci-sim-compose` を起こす。神経のモデルでない実験では、この 2 本は起こさない。
-- sprout の `--purpose` に「再現。SEED の札の『再現で守ること』に従う。allowed_actions は draft・tune・debug（モデルを変えない）。起動元: professor-backward run <自分の run_id>」と書く。
+- sprout の `--purpose` に「再現。復元書の『再現で守ること』に従う。allowed_actions は draft・tune・debug（モデルを変えない）。起動元: professor-backward run <自分の run_id>」と書く。
 - sprout の報告を受けたら研究日誌に書き、`professor` と同じく、実験の間は終えてよい（実験の鎖の最後の review が起こし直す）。
 - 起こし直されたら、完了報告書の `stop_reason` で決める。
   - `success`: 段 3 を終える。
@@ -113,7 +112,7 @@ subblocks:
 
 - 最新の論文の検索（`sci-search`）の `--purpose` には「基盤論文（<年>）より後の研究で、<課題・手法> を扱うもの」と書き、`--year-from` に基盤論文の年を使うよう伝える。
 - 新しい F で Q・O が変わるときは、前向きと同じく PROPOSAL と仕分けで直す。論文の手法の O は残し、更新の手法を新しい O として並べる（`sci-ideate`・`sci-compare`）。
-- 更新の SEED は `sci-seed` で作る。進み具合が揃っていなければ注意つきで作れるので、その注意を読み、足りない所を埋める作業を先に起こすか決める。
+- 更新の SPROUT は `sci-exp-sprout` で作る。PATH の前提が揃っていなければ、注意を読み、足りない所を埋める作業を先に起こすか決める。
 - 更新の実験は、再現の実験と同じデータ・分割・指標で比べられるよう、`--purpose` に「再現の実験仕様書（トークン）と同じデータ・分割・指標で行う」と書く。
 
 ## 1 回の回し方
@@ -159,7 +158,7 @@ subblocks:
 - 逆向きのブロックの報告が `bw-core` の形（主張の F は `neutral`・判定の語・CRITERIA（V1〜V10）と COMPARISON_CRITERIA の全部）に従っているか。
 - 基盤論文の主張の O に、評価の前に ★ を付けさせていないか（★ は Human だけが付ける）。
 - 成功基準（`purpose.metric`）が、指標の計算のしかたで意味を失っていないか。**再現の前に確かめる。** 審査書で成功基準が「誤り」と判定されたら、再現の前に Human に上げる。
-- 失敗が「実装の誤り」か「方法の限界」か「論文に無い設定」かを区別する。同じ手順が 2 回続けて失敗したら、まず実装を疑い、seed に debug を頼む（1 回だけ）。debug のあとも同じ失敗なら、Human に上げる。
+- 失敗が「実装の誤り」か「方法の限界」か「論文に無い設定」かを区別する。同じ手順が 2 回続けて失敗したら、まず実装を疑い、`sci-exp-review` に debug の branch を起こさせる（1 回だけ）。debug のあとも同じ失敗なら、Human に上げる。
 - 再現の結果を論文に合わせるための変更（論文の値を変える tune・手法の差し替え）をさせていないか。
 - researcher の出典が `#番号` の形で付いているか、反証を探したか。
 - 言葉の崩れ（意味の無い英字・他の言語の語）があれば、直させてから採る。

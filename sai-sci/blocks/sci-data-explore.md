@@ -47,7 +47,7 @@ enable: true
 
 - 最初のメッセージの `# context`（`## TREE`）と `# task_text`（依頼文の NODE・目的・データのパス）を読む。
 - データのパスが依頼文に無ければ、木の `data` の Q に付いた F（`# context` の `## TREE` にある）を見る。**それでも無ければ、質問ツールで起動者にデータを聞いて止まる。** 推測でデータを作らない（`data-core` §11）。
-- study を決める（C1）。`<対象の Node>-ID<自分の run_id>` の形（例 `O6-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
+- study を決める（C1）。`<カードの Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
 - project は次で取る。
 
   ```bash
@@ -81,7 +81,7 @@ enable: true
 
 ### 5. 木に E を出す
 
-`data-core` §9 の explore の `add_e` で、**親の Node はカードの Node（Issue の O か E）**にして出す（C9）。
+`data-core` §9 の explore の `add_e` で、**親の Node はカードの Node（SPROUT か E）**にして出す（C9）。
 
 ```json
 {"op": "add_e", "parent": "<カードの Node>", "text": "データ解析 <study>", "mlflow": "<project>/ID<自分の run_id>/data"}
