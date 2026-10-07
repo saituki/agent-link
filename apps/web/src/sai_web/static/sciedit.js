@@ -48,7 +48,6 @@ const SE_BLOCKS = [
   ["sci-restore", "戻す: 消した Node を探して戻す案を出す"],
   ["sci-ideate", "O を増やす: Q の答えの候補を出す"],
   ["sci-search", "外を探す: 論文を探して集める"],
-  ["sci-screen", "選別: 集めた論文を絞る"],
   ["sci-read", "1 本を読む: 論文から F を抜き出す"],
   ["sci-cite-check", "出典を確かめる: F の出典を照らす"],
   ["sci-debate", "議論: 賛否を出し合う"],

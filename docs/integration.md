@@ -17,7 +17,7 @@ iPhone / PC のブラウザ
    ├─ Chats   : $SAI_HOME/web/runs/<project>/<run_id>.json を読む   ← `sai-link run export` が書き出す
    ├─ Projects: 登録簿 $SAI_HOME/registry.json を直接読む ／ `sai-link …` を呼ぶ
    ├─ Papers  : `sai-paper …`（cwd = そのプロジェクトの root・`SAI_PROJECT_ROOT` も同じ）
-   ├─ Research: `sai-sci …`（同上）・検索セットは `sai-paper set …`
+   ├─ Research: `sai-sci …`（同上）
    ├─ コマンド : 3 つの CLI の `schema --json` を読み、`web: true` の命令を実行する
    ├─ Radio   : /api/radio/* を 127.0.0.1:8201 の apps/radio の /api/* へ中継
    └─ MLflow  : /api/mlflow/* を 127.0.0.1:5001 の MLflow へ読み取りだけで中継
@@ -37,11 +37,10 @@ iPhone / PC のブラウザ
 | Projects → コマンド | `GET /api/projects/{name}/commands`（3 つの CLI の `schema --json`）と `POST …/commands/run` |
 | Projects → セッション検索 | `sai-link session search` |
 | Papers → Dashboard | `sai-paper dashboard`（中で `apps/radio` の `/api/logs?limit=` を読み、そのプロジェクトの音声の分だけ混ぜる） |
-| Papers → Library・論文情報 | `sai-paper library list\|tree` / `paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|radio` / `content paper` / `search` / `search-log` / `find` / `find-log` / `providers` |
+| Papers → Library・論文情報 | `sai-paper library list\|tree` / `paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|radio` / `content paper` / `search` / `search-history` / `find` / `find-history` / `providers` |
 | Papers → Import（BibTeX） | `sai-paper import list\|add\|remove` |
 | Papers → Download・手動取り込み | `sai-paper paper download` → `paper after-download` / `paper candidates` / `paper import-pdf` |
 | Papers → Radio | `apps/radio` の `/api/papers` `/api/papers/{id}` `/audio` `/listen` `/favorite` `/logs` `/ask` `/live-session` `/question-log` |
-| （画面は無い。API のみ）検索セット | `sai-paper set list\|show\|mark\|drop-pending` |
 | Research → research-tree・TRIAGE・READ_CARD | `sai-sci status\|types\|init\|node\|apply\|proposals\|triage\|card\|read`、READ_CARD の開始と終了は `sai-link card start\|finish` |
 | Research → Experiments | `apps/mlflow-server` の MLflow（`/api/mlflow/*`・読み取りだけ） |
 | Home（質問・承認・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
@@ -178,9 +177,9 @@ iPhone / PC のブラウザ
 | `GET /api/projects/{name}/papers/tree` | Library 階層（`find_groups`（内部検索の履歴の組）も返る） | `sai-paper library tree` |
 | `GET /api/projects/{name}/papers/providers` | 検索先の一覧と既定 | `sai-paper providers` |
 | `POST /api/projects/{name}/papers/search` | 検索（履歴にも残る） | `sai-paper search --json --limit … [--db …] [--year-from …] [--year-to …] -- <語>` |
-| `GET /api/projects/{name}/papers/logs/{log_id}` | 過去の検索結果 | `sai-paper search-log <log_id>` |
-| `POST /api/projects/{name}/papers/find` | 内部検索（Library 内の検索・履歴にも残る）。`node` を付けると範囲の決定と記録を sai-sci が行う | `sai-paper find --json … -- <語>`（`node` があれば `sai-sci find --json --node <ID> …`） |
-| `GET /api/projects/{name}/papers/find-logs/{log_id}` | 過去の内部検索の結果 | `sai-paper find-log <log_id>` |
+| `GET /api/projects/{name}/papers/search-history/{log_id}` | 過去の検索結果 | `sai-paper search-history <log_id>` |
+| `POST /api/projects/{name}/papers/find` | 内部検索（Library 内の検索・履歴にも残る）。`node` を付けると範囲の決定を sai-sci が行う（記録は `SAI_TARGET_NODE` があるときだけ） | `sai-paper find --json … -- <語>`（`node` があれば `sai-sci find --json --node <ID> …`） |
+| `GET /api/projects/{name}/papers/find-history/{log_id}` | 過去の内部検索の結果 | `sai-paper find-history <log_id>` |
 | `GET /api/projects/{name}/papers/{paper_id:int}` | 論文情報 | `sai-paper paper show <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate` | 要旨の日本語訳 | `sai-paper paper translate <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate-pdf` | PDF の日本語訳を始める（202 `{"key": "pdf:<id>", "status": "processing"}`・翻訳中は 409。仕事は `downloads` に `kind="translate"`・`percent=null` で出る） | `sai-paper paper translate-pdf <id> --json` |
@@ -210,13 +209,9 @@ iPhone / PC のブラウザ
 | `GET /api/projects/{name}/papers/project` | 現況・考え・状況のまとめ・要対応 | `sai-sci project show --json` |
 | `POST /api/projects/{name}/papers/project/memo` | mind.md のメモを 1 行足す（body `{"text": "…"}`） | `sai-sci project memo --json -- <文>` |
 | `POST /api/projects/{name}/papers/attention/resolve` | 要対応の 1 件を対応済みにする（body `{"key": "…"}`） | `sai-sci attention resolve <key> --json` |
-| `GET /api/projects/{name}/papers/sets` | 検索セットの一覧（判定ごとの件数つき） | `sai-paper set list` |
-| `GET /api/projects/{name}/papers/sets/{set_id}` | 検索セット 1 つと候補 | `sai-paper set show <id>` |
-| `POST /api/projects/{name}/papers/sets/{set_id}/mark` | 候補に keep / drop を付ける（body `{"positions": [0, 2], "decision": "keep\|drop", "reason": "…"}`。取り込み済みは変えない） | `sai-paper set mark <id> --position=0,2 --decision keep [--reason=…]` |
-| `POST /api/projects/{name}/papers/sets/{set_id}/drop-pending` | 未判定（pending）の候補をまとめて drop にする（body `{"reason": "…"}`・任意） | `sai-paper set drop-pending <id> [--reason=…]` |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
-- `import` / `downloads` / `manual/*` / `browser/*` / `project` / `attention` / `find` / `find-logs` / `library` / `tree` / `providers` / `search` / `logs/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- `import` / `downloads` / `manual/*` / `browser/*` / `project` / `attention` / `find` / `find-history` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - 遠隔ブラウザの Chrome は全体で 1 つ・最後の操作から 10 分で終了・専用プロファイル `$SAI_HOME/web/browser-profile/`・ダウンロード先 `$SAI_HOME/web/browser-downloads/`（7 日で消える）。DOI だけを受け、任意の URL は受けない。環境変数は `SAI_WEB_CHROME` と `SAI_WEB_BROWSER_HEADED`。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
 - アップロードは `UploadFile` を使わず**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
@@ -238,7 +233,7 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | READ_CARD を終えて review へ移す（始まっていなければ先に始める。F が 0 でも止めない。戻りは `{"run_id","status":"review","findings":n}`） | `sai-sci read <run_id> --json` → `sai-link card finish <run_id>` |
 
 - API の住所は `papers/sci/…` のまま。画面の住所だけが Research（§6）に移った。
-- `papers/sci` の 10 本と `papers/sets` の 4 本は `sci.py` が検査してから CLI を呼ぶ。Node の ID は `^[QOFES][1-9][0-9]{0,8}$`、PROPOSAL の ID は `^P[1-9][0-9]{0,8}$`、run_id と set_id は 1〜999999999 の整数、型は 5 つだけ、op は 13 種（項目と字数は C-OP の表）、`action` は 3 つ。検索セットの `positions` は 1〜500 個の 0 以上の整数（候補の位置は 0 始まり）、`decision` は keep か drop、`reason` は 200 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
+- `papers/sci` の 10 本は `sci.py` が検査してから CLI を呼ぶ。Node の ID は `^[QOFES][1-9][0-9]{0,8}$`、PROPOSAL の ID は `^P[1-9][0-9]{0,8}$`、run_id は 1〜999999999 の整数、型は 5 つだけ、op は 13 種（項目と字数は C-OP の表）、`action` は 3 つ。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
 
 ### 4.7 Radio 中継
 
@@ -349,7 +344,7 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 - **古い住所は Research へ送る**（`scitree.js` の登録が `location.replace` で送り直す）:
   `#/papers/tree[/<ID>]` → `#/research/tree[/<ID>]`、`#/papers/read/<run_id>` → `#/research/read/<run_id>`、`#/mlflow…` → `#/research/experiments…`、`#/papers/canvas`・`#/canvas/…` → `#/research/tree`。
 - 古い名前の無い住所 `#/paper/<id>` / `#/paper/<id>/text` / `#/papers/log/<log_id>` / `#/papers/log/<log_id>/<position>` は、今選んでいるプロジェクトの同じ画面として開く。
-- Papers の上部の切り替えは Dashboard・Library・Import・Radio。Research の上部の切り替えは research-tree・Experiments。検索セットの画面は無い（API と `sai-paper set` だけ残してある）。
+- Papers の上部の切り替えは Dashboard・Library・Import・Radio。Research の上部の切り替えは research-tree・Experiments。
 - research-tree の画面は、左に一覧（Q・O・F・E の Node）、真ん中に research-tree の図、PC 幅（900px 以上）は右の板（約 420px・✕ で閉じる）、iPhone 幅は下から sheet。板には PENDING の節があり、その Node への PENDING の PROPOSAL を TRIAGE する。
 - 住所に名前がある画面を開いたら、Papers タブの「選んでいるプロジェクト」もその名前に切り替わる。選んだプロジェクトは `localStorage` に覚える。Experiments の「選んでいるプロジェクト」は別に覚える（「すべてのプロジェクト」は `*`。`POST /api/mlflow/runs/search` には `project` を送らない）。
 - List のサイドバーの一番上の「実行［＋］［↻］」の行で、**＋** は task.md 作成フォーム、**↻** はツリーの読み直し。書きかけは `localStorage`（プロジェクトごと）。

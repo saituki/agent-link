@@ -31,7 +31,7 @@ sai は、4 つの部品（sai-link・sai-paper・sai-sci・sai-web）と 2 つ�
 |---|---|---|
 | **sai** | アプリ全体の名前。 | リポジトリ全体（`ARCHITECTURE.md` §1.1） |
 | **sai-link** | 基盤。coding agent の実行・カード・常駐・文書を扱う。他の部品を知らない。 | `crates/sai-link-engine`・`sai-link-view`・`sai-link-cli`。実行ファイルは `sai-link` |
-| **sai-paper** | 研究の基盤（論文）。検索・取得・翻訳・音声化の依頼・Library・検索セットを扱う。sai-link と sai-sci を呼ばない。 | `crates/sai-paper-core`・`sai-paper-cli`。実行ファイルは `sai-paper` |
+| **sai-paper** | 研究の基盤（論文）。検索・取得・翻訳・音声化の依頼・Library を扱う。sai-link と sai-sci を呼ばない。 | `crates/sai-paper-core`・`sai-paper-cli`。実行ファイルは `sai-paper` |
 | **sai-sci** | 研究の仕組み。sai-paper をライブラリで、sai-link を CLI で使うアプリ。単独では動かない。 | `crates/sai-sci-core`・`sai-sci-cli`、md の部品は `sai-sci/`（実行ファイルに埋め込む）。実行ファイルは `sai-sci` |
 | **sai-web** | Web の窓口。画面と、質問・承認・通知・使用量・中継だけを持ち、他の DB を開かない。 | `apps/web`、CLI は `apps/web/bin/sai-web`、待ち受けは 127.0.0.1:8200 |
 | **apps/radio** | 論文の解説音声を作って配る裏方サーバー。画面を持たない。 | `apps/radio/src/sai_radio/`、8201 番（TTS プロキシは 8202） |
@@ -160,14 +160,17 @@ done            …… .sai/outputs/done/<run_id>/      確認済み（Workflow 
 | **外部 DB の検索** | Semantic Scholar・arXiv・PubMed・bioRxiv・OpenAlex など外の DB を検索する。結果は検索履歴に残る。 | `sai-paper search <語> --db …`、`sai-paper providers` |
 | **内部 DB の検索** | Library の中（論文の本文・ノート・図）を検索する。結果は内部検索の履歴に残る。 | `sai-paper find <語>` |
 | **検索モード** | 内部 DB の検索の方式。`word`（FTS5）・`vector`（埋め込み）・`hybrid`（両方を融合。`--alpha`・`--fusion`）。 | `sai-paper find --mode` |
-| **検索の範囲（scope）** | 内部 DB の検索で絞る論文の集合。Library 全体・`--papers`（番号の組）・`--node`・`--subtree`。`--node` は research-tree の Node（`Q12` など）で、**`sai-sci find` だけにある**。範囲の論文は、その Node（と直の子。`--subtree` なら子孫すべて）の F の `paper_id` と `cites` の論文番号を集めたもの。**その論文の全文（全チャンク）が範囲**で、`#x.y.z` の 1 塊だけではない。Node の下に論文が 0 本のときは Library 全体にせず 0 件で記録する。 | `crates/sai-sci-core/src/rt/scope.rs` の `resolve_scope`、`crates/sai-sci-cli/src/find_search.rs` |
-| **検索履歴** | 検索の記録。外部 DB の検索の履歴は**検索セットと同じ表**（`search_sets` / `search_set_items`）の 1 行になる。内部 DB の検索の履歴は別の表（`find_logs` / `find_log_hits`）に残る。 | `search_log.rs`（外部）・`find_log.rs`（内部）、`sai-paper search-log\|find-log` |
-| **検索セット** | 検索結果の候補を並べ、`pending`（未選別）・`keep`・`drop`・`downloaded` で選別する入れ物。名前付きで作れ、Library の外部 DB の組（`kind` が `query`）として並ぶ。**Web の検索セットの画面は削除した**（API は残る）。 | `sai-paper set list\|show\|create\|mark\|drop-pending\|merge\|delete\|rerun`、`search_sets.rs`、`sci-screen` ブロック |
-| **選別（decision）** | 検索セットの候補 1 件の状態。`pending`・`keep`・`drop`・`downloaded`。Download か Import をすると `downloaded` になり、`paper_id` が入る。 | `search_set_items.decision` |
+| **検索の範囲（scope）** | 内部 DB の検索で絞る論文の集合。Library 全体・`--papers`（番号の組）・`--node`・`--subtree`。`--node` は範囲を絞るだけ（記録を Node に結ぶのは `SAI_TARGET_NODE`）。`--node` は research-tree の Node（`Q12` など）で、**`sai-sci find` だけにある**。範囲の論文は、その Node（と直の子。`--subtree` なら子孫すべて）の F の `paper_id` と `cites` の論文番号を集めたもの。**その論文の全文（全チャンク）が範囲**で、`#x.y.z` の 1 塊だけではない。Node の下に論文が 0 本のときは Library 全体にせず 0 件で記録する。 | `crates/sai-sci-core/src/rt/scope.rs` の `resolve_scope`、`crates/sai-sci-cli/src/find_search.rs` |
+| **find** | Library（内部 DB）の検索。履歴は `find_history`。 | `sai-paper find`・`sai-sci find` |
+| **search** | 外部の論文 DB の検索。履歴は `search_history`。 | `sai-paper search`・`sai-sci search` |
+| **search_history / find_history** | 検索 1 回ごとの記録（検索語・条件・結果・`executer`・`run_id`・実行日時）。外部 DB の検索は `search_history`・`search_history_items`、内部 DB の検索は `find_history`・`find_history_hits` に残る。 | `search_history.rs`・`find_history.rs`、`sai-paper search-history\|find-history` |
+| **`executer`（検索の履歴）** | 検索を実行したのが `human` か `agent` か。カードの `executer`（起動者）と同じ値。`SAI_ORIGIN=phone`（Web）は `human`、それ以外で `SAI_PARENT_RUN_ID` が数なら `agent`、他は `human`。 | `search_history.executer`・`find_history.executer` |
+| **`SAI_TARGET_NODE` / `target_node`** | Node を対象に動く Agent と、その子 task に sai-link が入れる環境変数（子の task.md には `target_node`）。決め方は task.md の `sci_node`（`SEED` 以外）→ `target_node` → 親の run の順。`sai-sci find`・`search` の記録がその Node に結ぶ。 | `crates/sai-link-engine/src/target_node.rs` |
+| **廃止した物** | 「検索セット」と選別（`pending`・`keep`・`drop`）は廃止した。検索結果は履歴に残るだけで、選別の段は無い。 | ― |
 | **外部 DB** | Library の見方のひとつ。外部 DB の検索の履歴（`query`）と、検索に結び付かない Import の論文を、日付ごとの階層で並べる。ここから外部 DB の検索もする。 | `index.html` の `data-kind="external"` |
-| **内部 DB** | Library の見方のひとつ。Library の中を検索し、その履歴（`find_logs`）を日付ごとに並べる。 | `data-kind="internal"`、`papers.js`（`#/papers/library/find/<番号>`） |
+| **内部 DB** | Library の見方のひとつ。Library の中を検索し、その履歴（`find_history`）を日付ごとに並べる。 | `data-kind="internal"`、`papers.js`（`#/papers/library/find/<番号>`） |
 | **Paper** | Library の見方のひとつ。取り込んだ全論文を番号順に並べる。 | `data-kind="paper"` |
-| **`rt_searches`** | research-tree の検索の記録。どの Node のために、どのツール（`find`・`search`）で、どの範囲を検索し、何件当たったかを残し、検索の履歴（`set_id`・`log_id`）と結ぶ。 | `papr.db`、`sai-sci find\|search` |
+| **`rt_searches`** | research-tree の検索の記録。どの Node のために、どのツール（`find`・`search`）で、どの範囲を検索し、何件当たったかを残し、検索の履歴（`log_id`）と結ぶ。 | `papr.db`、`sai-sci find\|search` |
 
 ### 3.5 引用・ノート・そのほか
 
@@ -465,10 +468,12 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **外部 DB** — Library の見方のひとつ — §3.4
 - **外部 DB の検索** — Semantic Scholar など外の DB を検索する — §3.4
 - **画面の版** — `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる版 — §5
-- **検索セット** — 検索結果の候補を `pending`・`keep`・`drop`・`downloaded` で選別する入れ物 — §3.4
 - **検索の範囲（scope）** — 内部 DB の検索で絞る論文の集合 — §3.4
 - **検索モード** — 内部 DB の検索の方式 — §3.4
-- **検索履歴** — 検索の記録 — §3.4
+- **find / search** — 内部 DB の検索 / 外部 DB の検索 — §3.4
+- **search_history / find_history** — 検索 1 回ごとの記録 — §3.4
+- **executer（検索の履歴）** — 検索を実行した `human` か `agent` — §3.4
+- **SAI_TARGET_NODE** — Node を対象に動く Agent に入る環境変数 — §3.4
 - **子タスク** — 親の run が作る子の run — §2
 - **コマンド** — Projects の画面のひとつ（画面の表示は `コマンド`） — §5
 - **作成パネル** — SPROUT 作成中だけ出るパネル — §5
@@ -480,7 +485,6 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **図の抽出キー** — 図を探す名前 — §3.1
 - **節（section）** — 見出しで分けた本文のまとまり — §3.3
 - **先着の答え** — 質問と承認は先に答えた方を採用する決まり — §5
-- **選別（decision）** — 検索セットの候補 1 件の状態 — §3.4
 - **チャンク（画面）** — 画面と `content chunks` で、塊のことをこう呼ぶ — §3.3
 - **チャンク化の戦略** — RAG の断片の切り方 — §3.3
 - **登録簿（registry）** — 全プロジェクトの一覧 — §1
