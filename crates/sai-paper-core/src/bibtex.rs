@@ -143,6 +143,18 @@ pub fn parse_bibtex_file(path: &Path) -> Result<Vec<RemotePaper>, BibtexError> {
     })
 }
 
+/// BibTeX の文字列（1 件以上）を [`RemotePaper`] 一覧へ変換する（公開版）。
+///
+/// 前処理の束（sai-prep）の取り込みで、`manifest.json` の `target.bibtex`
+/// （BibTeX 1 件の文字列）から対象の論文を組み立てるのに使う。
+///
+/// # Errors
+///
+/// `biblatex` の解析に失敗したときは [`BibtexError::ParseSource`] を返す。
+pub fn parse_bibtex_str(source: &str) -> Result<Vec<RemotePaper>, BibtexError> {
+    papers_from_source(source).map_err(|error| BibtexError::ParseSource { error })
+}
+
 /// BibTeX の文字列を解析して [`RemotePaper`] 一覧へ変換する（`biblatex` のエラーは文字列で返す）。
 fn papers_from_source(source: &str) -> Result<Vec<RemotePaper>, String> {
     let bibliography = Bibliography::parse(source).map_err(|error| error.to_string())?;

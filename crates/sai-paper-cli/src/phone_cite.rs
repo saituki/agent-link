@@ -393,47 +393,67 @@ pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
 
 /// 取り込み先を作る。検索履歴・BibTeX・引用・既存の論文の 4 通り。
 fn manual_target(db: &Database, paths: &Paths, args: &ManualImportArgs) -> Result<ManualTarget> {
-    match (args.log, args.import_id.as_deref(), args.cite, args.paper_id) {
-        (Some(log_id), None, None, None) => {
-            let position = args
-                .position
-                .context("phone manual-import には --log と --position の両方が必要です")?;
+    if let Some(paper_id) = args.paper_id {
+        let Some(paper) = db.library_paper_by_id(paper_id)? else {
+            return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
+        };
+        return Ok(ManualTarget::Local {
+            paper_id,
+            title: paper.title,
+        });
+    }
+    let remote = resolve_remote_target(
+        db,
+        paths,
+        args.log,
+        args.position,
+        args.import_id.as_deref(),
+        args.cite,
+        args.ref_no,
+    )?;
+    Ok(ManualTarget::Remote(remote))
+}
+
+/// `paper keep` / `paper import-pdf` の対象（Library の外の論文）を 1 つ決める。
+///
+/// `--log <id> --position <n>`・`--import-id <RemotePaper.id>`・
+/// `--cite <paper_id> --ref <n>` のどれか 1 つから [`RemotePaper`] を作る。
+pub fn resolve_remote_target(
+    db: &Database,
+    paths: &Paths,
+    log: Option<i64>,
+    position: Option<i64>,
+    import_id: Option<&str>,
+    cite: Option<i64>,
+    ref_no: Option<i64>,
+) -> Result<RemotePaper> {
+    match (log, import_id, cite) {
+        (Some(log_id), None, None) => {
+            let position = position.context("--log には --position の両方が必要です")?;
             let remote = search_log::items(db.connection(), log_id)?
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)
-                .ok_or_else(|| {
-                    crate::cli_error::CliError::not_found("論文が見つかりません")
-                })?;
-            Ok(ManualTarget::Remote(remote))
+                .ok_or_else(|| crate::cli_error::CliError::not_found("論文が見つかりません"))?;
+            Ok(remote)
         }
-        (None, Some(import_id), None, None) => {
+        (None, Some(import_id), None) => {
             let bibtex_dir = paths.data_dir().join("bibtex");
             let remote = sai_paper_core::bibtex::load_bibtex_dir_detailed(&bibtex_dir)?
                 .papers
                 .into_iter()
                 .find(|paper| paper.id == import_id)
                 .context("論文が見つかりません")?;
-            Ok(ManualTarget::Remote(remote))
+            Ok(remote)
         }
-        (None, None, Some(paper_id), None) => {
-            let row = find_ref_row(db, paper_id, args.ref_no)?;
-            let remote = citation::library::ref_remote_paper(&row).ok_or_else(|| {
+        (None, None, Some(paper_id)) => {
+            let row = find_ref_row(db, paper_id, ref_no)?;
+            citation::library::ref_remote_paper(&row).ok_or_else(|| {
                 anyhow::anyhow!("この引用は S2 の ID も DOI も無いので取り込めません")
-            })?;
-            Ok(ManualTarget::Remote(remote))
-        }
-        (None, None, None, Some(paper_id)) => {
-            let Some(paper) = db.library_paper_by_id(paper_id)? else {
-                return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
-            };
-            Ok(ManualTarget::Local {
-                paper_id,
-                title: paper.title,
             })
         }
         _ => bail!(
-            "対象は --log と --position、--import-id、--cite と --ref、--paper-id のどれか 1 つです"
+            "対象は --log と --position、--import-id、--cite と --ref のどれか 1 つです"
         ),
     }
 }

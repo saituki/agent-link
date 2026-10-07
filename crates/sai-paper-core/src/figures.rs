@@ -575,6 +575,37 @@ async fn run_figure_pipeline(
     .map_err(|e| FigureError::Docling(e.to_string()))?;
 
     let figures = output.figures;
+    store_figures(
+        conn,
+        key,
+        papers_id,
+        &output.markdown,
+        &figures,
+        paper_dir,
+        data_dir,
+    )
+}
+
+/// docling の結果（markdown と図一覧）から図を保存する。
+///
+/// `figures/fig-NNN.png` を書き、`paper_figures` を全置換する。図が 0 件なら
+/// `paper_figures` を空にして 0 を返す。docling を呼ばない前処理の束の取り込み
+/// （`bundle::import_bundle`）でも使う。
+///
+/// `markdown` は言及文（`mention`）を探すのに使う。
+///
+/// # Errors
+///
+/// 画像のコピー（I/O）と SQLite 操作の失敗。
+pub fn store_figures(
+    conn: &Connection,
+    key: &str,
+    papers_id: Option<i64>,
+    markdown: &str,
+    figures: &[crate::citation::docling::DoclingFigure],
+    paper_dir: &Path,
+    data_dir: &Path,
+) -> Result<usize, FigureError> {
     if figures.is_empty() {
         replace_figures(conn, key, papers_id, &[])?;
         return Ok(0);
@@ -601,7 +632,7 @@ async fn run_figure_pipeline(
         let mention = figure
             .label
             .as_deref()
-            .and_then(|label| sentences::find_mention(&output.markdown, label));
+            .and_then(|label| sentences::find_mention(markdown, label));
         rows.push(FigureRow {
             paper_id: key.to_string(),
             papers_id,

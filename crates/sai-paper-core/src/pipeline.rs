@@ -153,6 +153,55 @@ pub async fn translate_pdf(
     .await
 }
 
+/// 前処理の束（sai-prep）で受け取った翻訳 PDF を `paper_translations` に記録する。
+///
+/// 翻訳そのもの（pdf2zh）は走らせない。`translate_pdf` の完了時の INSERT
+/// （`status='ready'`）と同じ形で 1 回だけ書く。`pdf_path`・`pdf_mtime` は
+/// サーバ側の元 PDF から計算し直す（Mac の値のままだと、次の自動処理が
+/// キャッシュを外して pdf2zh を呼ぼうとするため）。
+///
+/// # Errors
+///
+/// DB を開けない・論文や PDF が見つからない・書き込みに失敗したときの文。
+pub fn register_translation(
+    db_file: &Path,
+    paper_id: i64,
+    translated_pdf: &Path,
+    service: &str,
+) -> Result<(), String> {
+    let db = Database::open(db_file).map_err(|e| format!("DB open error {e}"))?;
+    let (_, pdf) = paper_pdf(&db, paper_id)?;
+    let key = crate::citation::normalize_paper_id(
+        &db.citation_key_for_paper(paper_id)
+            .unwrap_or_else(|| pdf.to_string_lossy().into_owned()),
+    );
+    let mtime = std::fs::metadata(&pdf)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+    let stored_pdf = db.store_path(&pdf);
+    let stored_ja = db.store_path(translated_pdf);
+    let now = chrono::Utc::now().to_rfc3339();
+    db.connection()
+        .execute(
+            "DELETE FROM paper_translations WHERE papers_id = ?1 AND paper_id <> ?2",
+            rusqlite::params![paper_id, key],
+        )
+        .map_err(|e| e.to_string())?;
+    db.connection()
+        .execute(
+            "INSERT INTO paper_translations (paper_id, status, pdf_path, pdf_mtime, service, papers_id, pdf_ja_path, translated_at)
+             VALUES (?1, 'ready', ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(paper_id) DO UPDATE SET status='ready', pdf_path=?2, pdf_mtime=?3, service=?4, pdf_ja_path=?6,
+                translated_at=?7, error=NULL, papers_id=COALESCE(excluded.papers_id, paper_translations.papers_id)",
+            rusqlite::params![key, stored_pdf, mtime, service, paper_id, stored_ja, now],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// DL 後の自動処理で、まだ済んでいないもの（図の抽出, PDF 翻訳）。
 ///
 /// 図は抽出済み（ready / empty）なら、翻訳は翻訳 PDF があれば飛ばす。
