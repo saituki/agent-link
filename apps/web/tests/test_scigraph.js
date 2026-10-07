@@ -17,6 +17,7 @@ const {
   sgEdgePath,
   sgObjBar,
   sgCenterView,
+  sgPendingMark,
   SG_CARD_W,
   SG_CARD_H,
   SG_TREE_STEP,
@@ -40,7 +41,7 @@ function sampleStatus() {
       node("O2", "O", "Q1", 2, { answer_kind: "issue", on_path: false }),
       node("Q2", "Q", "O1", 3),
       node("Q3", "Q", "O1", 3),
-      node("O3", "O", "Q2", 4, { answer_kind: "issue", starred: true, counts: { q: 0, o: 0, f: 2, e: 0 } }),
+      node("O3", "O", "Q2", 4, { answer_kind: "issue", starred: true, pending: 2, counts: { q: 0, o: 0, f: 2, e: 0 } }),
       node("F1", "F", "O3", 5),
       node("E1", "E", "O3", 5, { mlflow: "run-a" }),
       node("F2", "F", "O3", 5),
@@ -148,6 +149,17 @@ function testDimAndContent() {
   assert.strictEqual(byId(l, "E1").sub, "run-a");
 }
 
+function testPending() {
+  const l = sgTreeLayout({ status: sampleStatus() }, {});
+  // status.nodes[].pending が札の pending になる
+  assert.strictEqual(byId(l, "O3").pending, 2);
+  assert.strictEqual(byId(l, "Q0").pending, 0);
+  // 0 件なら印は出さない
+  assert.strictEqual(sgPendingMark(0), "");
+  assert.strictEqual(sgPendingMark(null), "");
+  assert.strictEqual(sgPendingMark(2), "P2");
+}
+
 function testEmpty() {
   const l = sgTreeLayout({ status: { nodes: [], seeds: [] } }, {});
   assert.deepStrictEqual(l.cards, []);
@@ -244,6 +256,7 @@ const tests = [
   ["hideE", testHideE],
   ["hideF", testHideF],
   ["dim と札の中身", testDimAndContent],
+  ["pending の印", testPending],
   ["空の入力", testEmpty],
   ["線の種類", testEdgeStyle],
   ["線の形", testEdgePath],

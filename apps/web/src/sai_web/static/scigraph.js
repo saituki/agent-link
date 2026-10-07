@@ -290,8 +290,14 @@ function sgNodeCard(n, x, row, hiddenF, collapsedCount, canCollapse) {
     id: String(n.id), kind: n.kind, x, y: row * SG_TREE_STEP, w: SG_CARD_W, h: SG_CARD_H,
     text, sub, starred: !!n.starred, answerKind: n.answer_kind || null,
     onPath: n.on_path !== false, dim: n.on_path === false,
-    collapsed, canCollapse: !!canCollapse,
+    collapsed, canCollapse: !!canCollapse, pending: Number(n.pending) || 0,
   };
+}
+
+/** PENDING の印の文字（0 件なら空文字）。 */
+function sgPendingMark(pending) {
+  const n = Number(pending) || 0;
+  return n > 0 ? `P${n}` : "";
 }
 
 /** Sprout の札の ID。status.seeds[].id が S で始まる文字ならそのまま、そうでなければ S を付ける。 */
@@ -640,6 +646,11 @@ function sgCardEl(c) {
   if (c.starred) b.classList.add("sci-graph-starred");
   if (c.dim) b.classList.add("sci-graph-dim");
   if (c.collapsed) b.classList.add("sci-graph-collapsed");
+  if (c.pending > 0) {
+    const mark = sgEl("span", "sci-graph-pending", sgPendingMark(c.pending));
+    mark.title = `PENDING の PROPOSAL が ${c.pending} 件`;
+    b.appendChild(mark);
+  }
   const head = sgEl("span", "sci-graph-card-head");
   head.appendChild(sgEl("span", "sci-graph-card-id", c.kind === "S" ? "Sprout" : c.id));
   b.appendChild(head);
@@ -1019,6 +1030,7 @@ if (typeof module !== "undefined" && module.exports) {
     sgEdgeStyle,
     sgEdgePath,
     sgObjBar,
+    sgPendingMark,
     SG_CARD_W,
     SG_CARD_H,
     SG_TREE_STEP,

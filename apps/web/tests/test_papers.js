@@ -276,7 +276,7 @@ function testDbLabel() {
 function testAttentionHash() {
   // `sci_decision` のキーはコアが `sci_decision:<Q の ID>` の形で作る
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:Q12" }), "#/research/tree/Q12");
-  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }), "#/research/triage");
+  assert.strictEqual(papersAttentionHash({ kind: "sci_triage", key: "sci_triage:P55" }), "#/research/tree");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:N12:0" }), "");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "sci_decision:12" }), "");
   assert.strictEqual(papersAttentionHash({ kind: "sci_decision", key: "" }), "");

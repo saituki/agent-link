@@ -12,7 +12,7 @@ const path = require("path");
 const dir = path.join(__dirname, "..", "src", "sai_web", "static");
 const {
   stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
-  stFixHash, stDecisionRows, stOpsFor, ST_NODE_OPS, ST_LOGIC,
+  stDecisionRows, stOpsFor, ST_NODE_OPS, ST_LOGIC,
   stVisibleRows, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   stFmtAt, stHistoryText, stSeedRows, ST_SEED_DEPTH,
 } = require(path.join(dir, "scitree.js"));
@@ -32,7 +32,7 @@ test(function testLegacyHash() {
   // 古い住所 6 種 → 新しい住所（? の後ろと ID はそのまま写す）
   assert.strictEqual(stLegacyHash("#/papers/tree"), "#/research/tree");
   assert.strictEqual(stLegacyHash("#/papers/tree/Q1"), "#/research/tree/Q1");
-  assert.strictEqual(stLegacyHash("#/papers/triage"), "#/research/triage");
+  assert.strictEqual(stLegacyHash("#/papers/triage"), "#/research/tree");
   assert.strictEqual(stLegacyHash("#/papers/read/12"), "#/research/read/12");
   assert.strictEqual(stLegacyHash("#/mlflow/e/all?sai_run=5"), "#/research/experiments/e/all?sai_run=5");
   assert.strictEqual(stLegacyHash("#/mlflow"), "#/research/experiments");
@@ -48,12 +48,14 @@ test(function testRows() {
   assert.deepStrictEqual(stRows(null), []);
   assert.deepStrictEqual(stRows({ nodes: [] }), []);
   const rows = stRows({ nodes: [
-    { id: "Q1", kind: "Q", depth: 0, text: "a", on_path: true, objectivity: { count: 1, target: 2, met: false } },
+    { id: "Q1", kind: "Q", depth: 0, text: "a", on_path: true, pending: 2, objectivity: { count: 1, target: 2, met: false } },
     { id: "O2", kind: "O", depth: 1, text: "b", starred: true, answer_kind: "issue", on_path: false },
   ] });
   assert.deepStrictEqual(rows.map((r) => [r.id, r.depth, r.onPath, r.starred, r.answerKind]),
     [["Q1", 0, true, false, null], ["O2", 1, false, true, "issue"]]);
   assert.strictEqual(rows[0].obj.target, 2);
+  assert.strictEqual(rows[0].pending, 2);
+  assert.strictEqual(rows[1].pending, 0);
 });
 
 test(function testObjBar() {
@@ -79,32 +81,16 @@ test(function testProgress() {
 
 test(function testNextLines() {
   const card = { node: "Q1" };
-  const fix = { kind: "triage" };
   const next = [
     { kind: "card", node: "Q1", purpose: "調べる", why: "NO_EVIDENCE", card },
     { kind: "user", node: "Q2", purpose: "決める", why: "UNANSWERED", card: null },
-    { kind: "debt", node: "Q3", purpose: "直す", why: "DEBT", fix },
     { kind: "card", node: "Q4", purpose: "余り", why: "X" },
   ];
   const lines = stNextLines({ next });
   assert.strictEqual(lines.length, 3);
-  assert.deepStrictEqual(lines[0], { label: "調べる", why: "NO_EVIDENCE", node: "Q1", card, kind: "card", fix: null });
-  assert.strictEqual(lines[2].fix, fix);
-  assert.strictEqual(stNextLines({ next }, 4).length, 4);
+  assert.deepStrictEqual(lines[0], { label: "調べる", why: "NO_EVIDENCE", node: "Q1", card, kind: "card" });
+  assert.strictEqual(stNextLines({ next }, 2).length, 2);
   assert.deepStrictEqual(stNextLines(null), []);
-});
-
-test(function testFixHash() {
-  global.paperHash = (p, id) => `#/paper/${p}/${id}`;
-  assert.strictEqual(stFixHash({ kind: "triage" }, "p"), "#/research/triage");
-  assert.strictEqual(stFixHash({ kind: "set", set_id: 7 }, "p"), "#/papers/sets/7");
-  assert.strictEqual(stFixHash({ kind: "node", node: "Q3" }, "p"), "#/research/tree/Q3");
-  assert.strictEqual(stFixHash({ kind: "run", run_id: 9 }, "p"), "#/run/p/9");
-  assert.strictEqual(stFixHash({ kind: "paper", paper_id: 4 }, "p"), "#/paper/p/4");
-  assert.strictEqual(stFixHash({ kind: "card", card: {} }, "p"), null);
-  assert.strictEqual(stFixHash(null, "p"), null);
-  delete global.paperHash;
-  assert.strictEqual(stFixHash({ kind: "paper", paper_id: 4 }, "p"), null);
 });
 
 test(function testDecisionRows() {

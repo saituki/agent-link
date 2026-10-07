@@ -34,7 +34,6 @@ function sampleCard(kind = "O", id = "O12") {
     extract: ["データ名", "N"],
     findings: [],
     note: false,
-    debts: [],
   };
 }
 

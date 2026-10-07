@@ -2,7 +2,7 @@
 // 検索セットの画面（#/papers/sets・#/papers/sets/<set_id>）（U21）。
 //
 // 検索で集めた論文を Web で見て選別する（keep / drop・未選別をまとめて drop）。
-// 検索の Action の完了基準は「未選別が 0」（DEBT の set_screened）。
+// 検索の Action の完了基準は「未選別が 0」（set_screened）。
 //
 // 中の処理は `GET …/papers/sets`・`GET …/papers/sets/<id>`・`POST …/mark`・`POST …/drop-pending` だけ。
 // DOM を使わない純関数（ssParseHash / ssCountsLabel / ssFilter / ssMarkBody）は末尾で node に渡す

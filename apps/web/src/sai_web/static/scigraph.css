@@ -131,6 +131,20 @@
   overflow-wrap: anywhere; /* AWAITING_DECISION など長い英語名で札からはみ出さない */
 }
 
+/* PENDING の印（P2 のように数を持つ。札の右上） */
+.sci-graph-pending {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--warn-on-bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
 .sci-graph-empty {
   position: absolute;
   top: 12px;

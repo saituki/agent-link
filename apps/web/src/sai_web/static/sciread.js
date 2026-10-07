@@ -2,7 +2,7 @@
 // 読む札（#/research/read/<run_id>）の画面（U21）。
 //
 // 読む札は人が読む札（runner = user）。利用者は論文を読み、O（または E）に F を付け、
-// note.md を書いて終える。読み終わりの判定は DEBT（f_added・note）が行い、終える操作は止めない。
+// note.md を書いて終える。読み終わりの判定はコアが行い、終える操作は止めない。
 //
 // 中の処理は `GET …/sci/reads/<run_id>`・`…/start`・`…/finish`・`GET …/sci/nodes/<ID>`・
 // `POST …/sci/apply`（add_f）だけを使う。ファイルのパスは受け取らない。
@@ -99,7 +99,7 @@ function srBuildAnswer(card, values) {
   const cite = place ? `#${paper} ${place}` : `#${paper}`;
   if (!SR_CITE_RE.test(cite)) return bad("出典の形が正しくありません");
   const json = { op: "add_f", parent, text, cites: [cite], paper };
-  // この札（run）で入れた F として残す（「この札で入れた F」と DEBT の f_added に数える）
+  // この札（run）で入れた F として残す（「この札で入れた F」に数える）
   const run = Number(card && card.run_id);
   if (Number.isInteger(run) && run > 0) json.run = run;
   return { ok: true, json, error: null };
@@ -222,7 +222,7 @@ async function srReload() {
   srRender(card || {});
 }
 
-/** 読む札を描く（見出し → 始める → Q と抜き出すもの → F を足す → F → note.md → DEBT → 終える）。 */
+/** 読む札を描く（見出し → 始める → Q と抜き出すもの → F を足す → F → note.md → 終える）。 */
 function srRender(card) {
   const body = document.getElementById("sr-body");
   if (!body) return;
@@ -235,7 +235,6 @@ function srRender(card) {
   box.appendChild(srAddForm(card));
   box.appendChild(srFindings(card));
   box.appendChild(srNoteSec(card));
-  box.appendChild(srDebts(card));
   box.appendChild(srFinishRow(card));
   body.appendChild(box);
 }
@@ -416,25 +415,10 @@ function srNoteSec(card) {
   return sec;
 }
 
-/** 足りないもの（DEBT）。 */
-function srDebts(card) {
-  const sec = srSec("足りないもの");
-  const list = Array.isArray(card.debts) ? card.debts.filter(Boolean) : [];
-  if (!list.length) {
-    sec.appendChild(srNote("足りないものはありません。"));
-    return sec;
-  }
-  for (const d of list) {
-    const text = typeof d === "string" ? d : (d.message || d.text || d.kind || JSON.stringify(d));
-    sec.appendChild(srNote(`⚠ ${text}`));
-  }
-  return sec;
-}
-
-/** 「終える」。F が 0 でも押せる（足りないものは DEBT として残る）。 */
+/** 「終える」。F が 0 でも押せる。 */
 function srFinishRow(card) {
   const sec = srSec("終える");
-  sec.appendChild(srNote("終えると実行は review へ移ります。足りないものは DEBT として残ります。"));
+  sec.appendChild(srNote("終えると実行は review へ移ります。"));
   const row = srLine("sci-read-finish");
   const b = srBtn("終える", async () => {
     b.disabled = true;

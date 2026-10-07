@@ -846,14 +846,14 @@ function attentionCard() {
   return card;
 }
 
-/** 要対応の行き先（研究方針の木・仕分けの画面の住所）。開けないときは空文字。
+/** 要対応の行き先（研究方針の木の住所）。開けないときは空文字。
  *
  * `sci_decision` のキーはコアが `sci_decision:Q<番号>` の形で作る
  * （crates/sai-paper-core/src/attention.rs）。形が合えば研究方針の画面を開く。
  */
 function papersAttentionHash(item) {
   const it = item || {};
-  if (it.kind === "sci_triage") return "#/research/triage";
+  if (it.kind === "sci_triage") return "#/research/tree";
   if (it.kind !== "sci_decision") return "";
   // キーは `sci_decision:<Q の ID>`。その Q を選んだ研究方針の画面を開く
   const m = /^sci_decision:([QOFE][1-9][0-9]{0,8})$/.exec(String(it.key || ""));
@@ -1053,9 +1053,7 @@ function activityRow(item) {
   const row = document.createElement("button");
   row.className = "pd-act";
   row.appendChild(el("span", `pd-kind ${cls}`, label));
-  const debt = item && item.kind === "action" && item.debt;
-  row.appendChild(el("span", "pd-label", (debt ? "⚠ " : "") + ((item && item.label) || "")));
-  if (debt && Array.isArray(item.debt_messages)) row.title = item.debt_messages.join("\n");
+  row.appendChild(el("span", "pd-label", (item && item.label) || ""));
   row.appendChild(el("span", "pd-time", activityTime(item && item.occurred_at)));
   const hash = activityHash(item, selectedProject);
   if (hash) row.addEventListener("click", () => { location.hash = hash; });

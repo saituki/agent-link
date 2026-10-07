@@ -13,8 +13,7 @@
 | `POST …/papers/sci/init` | `{"type": "problem"}` | `sai-sci init --type <型> --json` |
 | `GET …/papers/sci/nodes/{node_id}` | — | `sai-sci node <ID> --json` |
 | `POST …/papers/sci/apply` | C-OP の op の JSON | `sai-sci apply --json`（標準入力） |
-| `GET …/papers/sci/proposals` | — | `sai-sci proposals --json` |
-| `POST …/papers/sci/proposals/{pid}` | `{"action","note","edit"}` | `sai-sci triage <P> --accept/--reject/--revert [--edit=…]` |
+| `POST …/papers/sci/proposals/{pid}` | `{"action","edit"}` | `sai-sci triage <P> --accept/--reject/--revert [--edit=…]` |
 | `POST …/papers/sci/cards` | C-CARD の JSON | `sai-sci card --from-json --json`（標準入力） |
 | `GET …/papers/sci/reads/{run_id}` | — | `sai-sci read <run_id> --json` |
 | `POST …/papers/sci/reads/{run_id}/start` | — | `sai-link phone user start <run_id>` |
@@ -42,7 +41,7 @@ from sai_web import cli, control
 from sai_web.config import settings
 
 # --- 待ち時間 ---
-# 読み取り（status / types / node / proposals / read / set）
+# 読み取り（status / types / node / read / set）
 SCI_READ_TIMEOUT = 20.0
 # 書き込む（apply / triage / card / set mark）
 SCI_WRITE_TIMEOUT = 30.0
@@ -85,9 +84,7 @@ CARD_PAPERS_MAX = 20
 SET_POSITIONS_MAX = 500
 SET_POSITION_MAX = 999_999
 # 文字数の上限
-REASON_MAX = 500
 BODY_MAX = 2000
-TRIAGE_NOTE_MAX = 1000
 TRIAGE_EDIT_MAX = 20_000
 SET_REASON_MAX = 200
 
@@ -100,7 +97,6 @@ SET_REASON_MAX = 200
 #   body         任意の本文（0〜2000 字。空のまま送れる）
 #   enum:<名前>  必須の値   oenum:<名前>  任意の値
 #   他は _check_one を見る
-# `reason` は全部の op に付く共通の項目（`remove` だけ必須）。
 _OP_FIELDS: dict[str, dict[str, str]] = {
     "add_q": {"parent": "ref:QO", "text": "text:300", "guide": "oguide"},
     "add_o": {"q": "ref:Q", "text": "text:120", "body": "body", "kind": "oenum:answer"},
@@ -325,13 +321,6 @@ def validate_op(payload) -> dict:
         value = _check_one(key, kind, raw)
         if value is not None:
             out[key] = value
-    # `reason`: `remove` は必須 1〜500、ほかは 0〜500
-    if name == "remove":
-        out["reason"] = _req_text(payload, "reason", REASON_MAX)
-    else:
-        reason = _opt_text(payload, "reason", REASON_MAX)
-        if reason is not None:
-            out["reason"] = reason
     if name == "edit" and "text" not in out and "body" not in out:
         raise _bad("text か body のどちらかが要ります")
     return out
@@ -403,18 +392,16 @@ def validate_card(payload) -> dict:
 # --- 仕分けの検査（C-13） ---
 
 
-def validate_triage(payload) -> tuple[str, str, dict | None]:
-    """仕分けの JSON を検査して `(action, note, edit)` を返す（違反は 400）。
+def validate_triage(payload) -> tuple[str, dict | None]:
+    """仕分けの JSON を検査して `(action, edit)` を返す（違反は 400）。
 
     - `action` は accept / reject / revert の 3 つ
-    - `note` は 1000 字まで
     - `edit` があれば C-07 の op として検査する（無いなら None）。
       JSON にした文字が 20,000 字を超えるものは 400。
     """
     if not isinstance(payload, dict):
         raise _bad("送る JSON が正しくありません")
     action = _enum(payload.get("action"), ("accept", "reject", "revert"), "action")
-    note = _opt_text(payload, "note", TRIAGE_NOTE_MAX) or ""
     raw_edit = payload.get("edit")
     edit = None
     if raw_edit is not None:
@@ -422,7 +409,7 @@ def validate_triage(payload) -> tuple[str, str, dict | None]:
         text = json.dumps(edit, ensure_ascii=False)
         if len(text) > TRIAGE_EDIT_MAX:
             raise _bad(f"edit は {TRIAGE_EDIT_MAX} 字までです")
-    return action, note, edit
+    return action, edit
 
 
 # --- 中継 ---
@@ -500,23 +487,16 @@ def apply(project: dict, payload) -> dict:
     )
 
 
-def proposals(project: dict) -> dict:
-    """仕分け待ちの一覧（`sai-sci proposals --json`）。"""
-    return _sci_cli(project, ["proposals", "--json"], SCI_READ_TIMEOUT)
-
-
 def triage(project: dict, pid, payload) -> dict:
     """仕分ける（`sai-sci triage <P> --accept/--reject/--revert …`）。
 
     `edit` は `--edit=<JSON の文字>` で渡す（値が `-` で始まっても引数の名と
-    取り違えないよう `=` でつなぐ）。`note` も同じく `--note=<文>`。
+    取り違えないよう `=` でつなぐ）。
     """
     proposal = check_proposal(pid)
-    action, note, edit = validate_triage(payload)
+    action, edit = validate_triage(payload)
     flag = {"accept": "--accept", "reject": "--reject", "revert": "--revert"}[action]
     args = ["triage", proposal, flag]
-    if note:
-        args += [f"--note={note}"]
     if edit is not None:
         args += [f"--edit={json.dumps(edit, ensure_ascii=False)}"]
     return _sci_cli(project, args, SCI_WRITE_TIMEOUT)
@@ -549,7 +529,7 @@ def read_finish(project: dict, run_id) -> dict:
     """読む札を終えて review へ移す。
 
     `read` で owner を見て、`todo` なら先に始める（利用者が「始める」を押し忘れても 1 回で済ませる）。
-    F が 0 でも止めない（足りないものは DEBT として残る）。
+    F が 0 でも止めない。
     """
     rid = check_run_id(run_id)
     info = read(project, rid)
@@ -559,12 +539,10 @@ def read_finish(project: dict, run_id) -> dict:
         read_start(project, rid)
     control.phone_user_finish(str(project["root"]), rid)
     findings = info.get("findings")
-    debts = info.get("debts")
     return {
         "run_id": rid,
         "status": "review",
         "findings": len(findings) if isinstance(findings, list) else 0,
-        "debts": debts if isinstance(debts, list) else [],
     }
 
 
