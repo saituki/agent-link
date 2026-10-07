@@ -1,0 +1,44 @@
+# sai-tree の研究プロジェクト用イメージ（共有契約 C7）。
+#
+# 中に入る物: sai-link・sai-paper・sai-sci（Linux 版）・Claude Code・pi・Python・
+# cc のフック・pi の質問の拡張。docling と pdf2zh は入れない（サーバでは動かさない）。
+#
+# ビルドはリポジトリの直下を文脈にする（その機械の上で作る。arm64 と amd64 の違いを避ける）:
+#   docker build -f apps/web/server/Dockerfile -t sai-tree:latest .
+#
+# sai-link は cc のフックと pi の拡張の場所を、ビルドしたときのソースの場所
+# （`CARGO_MANIFEST_DIR` = /opt/sai-tree/crates/sai-link-engine）から決める
+# （crates/sai-link-engine/src/cc_command.rs の web_hooks_dir・pi_question_extension）。
+# ビルドと実行で同じ /opt/sai-tree を使い、この 2 つが解決できるようにする。
+
+# ---- 1. Rust の実行ファイルを作る ----
+FROM rust:1-bookworm AS build
+WORKDIR /opt/sai-tree
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY waggle ./waggle
+COPY sai-sci ./sai-sci
+RUN cargo build --release -p sai-link-cli -p sai-paper-cli -p sai-sci-cli
+
+# ---- 2. 実行する環境 ----
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-venv git ca-certificates curl ripgrep jq tini procps \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent
+COPY --from=build /opt/sai-tree/target/release/sai-link /opt/sai-tree/target/release/sai-paper /opt/sai-tree/target/release/sai-sci /usr/local/bin/
+# cc のフックと pi の質問の拡張を、ビルドしたときと同じ場所（/opt/sai-tree）に置く。
+# sai-link は `CARGO_MANIFEST_DIR`（= /opt/sai-tree/crates/sai-link-engine）から
+# `../../apps/web/...` をたどって場所を決める（cc_command.rs の web_hooks_dir・
+# pi_question_extension）。`canonicalize()` が通るよう、その crate のフォルダを実在させる。
+RUN mkdir -p /opt/sai-tree/crates/sai-link-engine
+COPY apps/web/hooks /opt/sai-tree/apps/web/hooks
+COPY apps/web/src/sai_web/extensions /opt/sai-tree/apps/web/src/sai_web/extensions
+# sai-sci の研究の部品（tools・exec・blocks・template）は実行ファイルに埋め込まれている
+# （crates/sai-sci-cli/src/agent_assets.rs の include_str!）。元のフォルダは参照用に置く。
+COPY sai-sci /opt/sai-tree/sai-sci
+ENV SAI_CLAUDE_BIN=claude SAI_PI_BIN=pi
+ENTRYPOINT ["/usr/bin/tini", "--"]
+# プロジェクトの準備（.sai）ができていれば常駐を起こし、あとは眠ってコンテナを生かしておく。
+CMD ["sh", "-c", "[ -d .sai ] && sai-link daemon start; exec sleep infinity"]
