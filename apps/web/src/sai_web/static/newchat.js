@@ -291,6 +291,9 @@ async function ncOpen() {
             runner: state.runner, block: state.block, provider: "", model: state.model,
             thinking: state.thinking, task_text: state.task_text,
           };
+      // start は round・global_round が空だと断るので、新しいチャットは 1 回目として始める
+      payload.round = payload.round || "1";
+      payload.global_round = payload.global_round || "1";
       const card = await saiApi(`/api/projects/${encodeURIComponent(state.project)}/card`, {
         method: "POST",
         body: payload,
