@@ -23,7 +23,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
 | `apps/web/` | Web の窓口（FastAPI + 素の JavaScript）。`apps/web/src/sai_web/` にサーバと画面、`bin/sai-web` に CLI、`hooks/` に cc のフック、`launchd/` に plist のひな形 | 編集可能 |
 | `apps/radio/` | 解説音声の裏方サーバー（FastAPI）。`apps/radio/src/sai_radio/` に本体、`tests/` に 3 本のテスト。`README.md` と `ARCHITECTURE.md` はこのフォルダにある | 編集可能 |
 | `apps/mlflow-server/` | 実験の記録を溜める MLflow サーバの compose（postgres・minio・mlflow・caddy）と `templates/mlflow-agent.md`。Docker で動かす。`.env` は無い（鍵が入るので追跡しない。`.env.example` が見本） | 編集可能（`docker-compose.yml` の `name: mlflow-server` は消さない。消すと volume が別になり記録を失う） |
-| `sai-sci/` | 研究方針の木（Research-tree）の型・項目ガイド・sci-core・mind.md のひな形・31 本のブロック（professor・professor-backward・operator・kaizen と 27 本の `sci-*`）・研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`）・逆向きの共通の決まり（`bw-core`）・`tools/`（実験ループの台帳と、実行先への分配器、参照コードの道具 `refcode.py`・ModelDB のカタログ `modeldb.py`、データ分析の検査と記録 `data_result.py`・K-Dense の EDA と生体信号の CLI の写し（`eda/`・`biosignal/`））・`exec/`（実行先の見本）。`sai-sci` の実行ファイルに埋め込まれる | 編集可能（直したら release を作り直す） |
+| `sai-sci/` | research-tree の型・項目ガイド・sci-core・mind.md のひな形・31 本のブロック（professor・professor-backward・operator・kaizen と 27 本の `sci-*`）・研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`）・逆向きの共通の決まり（`bw-core`）・`tools/`（実験ループの台帳と、実行先への分配器、参照コードの道具 `refcode.py`・ModelDB のカタログ `modeldb.py`、データ分析の検査と記録 `data_result.py`・K-Dense の EDA と生体信号の CLI の写し（`eda/`・`biosignal/`））・`exec/`（実行先の見本）。`sai-sci` の実行ファイルに埋め込まれる | 編集可能（直したら release を作り直す） |
 | `docs/` | 開発者向けの文書（`integration.md`・`for-sai-developers.md`）と、利用者が 1 回だけ行う切り替えの手順書（`switch-over.md`） | 編集可能 |
 | `.github/workflows/` | CI（`ci.yml`）。Rust・Web・Radio・sai-sci の道具のテストを回す。下の「テストと確認」と同じ命令にそろえる | 編集可能 |
 | `.sai/` | このプロジェクト自身の中のデータ（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`.gitignore` 済み | 書き込み注意 |
@@ -60,7 +60,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
 | `docs/integration.md` | `apps/web` の API と画面の住所の一覧・統合の注意点 |
 | `docs/for-sai-developers.md` | `crates/` 側・`apps/radio` 側が守る約束（`apps/web` が読む JSON の項目） |
 | `docs/switch-over.md` | 利用者が 1 回だけ行う切り替えの手順書（実行ファイル・置き場・launchd・各プロジェクトの `init --update`） |
-| `sai-sci/README.md` | 研究方針の木の使い方と置き場 |
+| `sai-sci/README.md` | research-tree の使い方と置き場 |
 | `apps/radio/README.md`・`apps/radio/ARCHITECTURE.md` | Radio だけ触るときはこれ（ポートは 8201 / 8202 に直してある） |
 
 ## 作業の約束

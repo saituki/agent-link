@@ -356,7 +356,7 @@ done
 - 本体のリポジトリの `.mcp.json` に MCP の `sai` が残らず、`.claude/settings.json` のフックが新しい実行ファイル（`sai-link`）と `apps/web/hooks` を指す。
 - **論文だけのプロジェクト**で `.sai/settings.json` の `pre_run` が古い `sai-moon-paper` のまま残ることがある
   （`sai-paper init --update` は `pre_run` を書かない）。出たら次のどちらかにする:
-  - 研究の現況を毎回エージェントに渡したい: `(cd "$root" && SAI_PROJECT_ROOT="$root" sai-sci init --update)`。研究の部品がそのプロジェクトに入る。
+  - 研究の現況を毎回エージェントに渡したい: `(cd "$root" && SAI_PROJECT_ROOT="$root" sai-sci init --update)`。研究の配る物がそのプロジェクトに入る。
   - 要らない: `.sai/settings.json` の `pre_run` の項目をエディタで消す。
 
 ---
