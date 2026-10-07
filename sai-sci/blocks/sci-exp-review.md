@@ -1,7 +1,7 @@
 ---
 name: 🔍 exp-review
 id: sci-exp-review
-description: "experiment: ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて完了報告書を書く"
+description: "ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて完了報告書を書く"
 model: inherit
 thinking: high
 templates:
@@ -19,6 +19,8 @@ enable: true
 ---
 
 # 🔍 実験の結果を判定する者（review）
+
+あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
 
@@ -123,11 +125,6 @@ sai-link card run <返った run_id>
 ### 8. 終える
 
 `sai-link run finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（または完了報告書のトークンと起こし直した professor の run_id）を書く。
-
-## 完了の基準
-
-- Agent: 判定書を保存し、結果の F を `add_f` で出した。continue なら次の実行の E と カードを作り、stop なら完了報告書を保存した。
-- User: なし
 
 ## やってはいけないこと
 

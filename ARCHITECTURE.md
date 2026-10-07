@@ -244,11 +244,10 @@
 | 住所 | 画面 |
 |---|---|
 | `#/research/tree` / `#/research/tree/<ID>` | 研究方針の木（Q・O・F・E。`<ID>` は `Q12` の形） |
-| `#/research/triage` | 仕分け（提案の採用・却下・取り消し） |
 | `#/research/read/<run_id>` | 読む札（1 本の論文を読んで F を書く） |
 | `#/research/experiments` ほか（`/e/<ID\|all>`・`/run/<ID>`・`/compare/<ID>,…`） | 実験（MLflow の記録） |
 
-古い住所 `#/papers/tree`・`#/papers/triage`・`#/papers/read/<run_id>`・`#/mlflow…`・`#/papers/canvas`・`#/canvas/…` は、`scitree.js` の登録が `location.replace` で Research の住所へ送る。
+古い住所 `#/papers/tree`・`#/papers/read/<run_id>`・`#/mlflow…`・`#/papers/canvas`・`#/canvas/…` は、`scitree.js` の登録が `location.replace` で Research の住所（`#/research/tree` など）へ送る。
 
 ### 4.6 処理の流れの型
 

@@ -1,7 +1,7 @@
 ---
 name: 🗣 議論
 id: sci-debate
-description: "check_logic: 対象の Q の F どうしに矛盾が無いかを、複数の役で議論して確かめる"
+description: "対象の Q の F どうしに矛盾が無いかを、複数の役で議論して確かめる"
 model: inherit
 thinking: high
 templates:
@@ -23,6 +23,8 @@ subblocks:
 
 # 🗣 議論
 
+あなたは node agent です（対象の Node を指定されて動きます）。
+
 ## 役割
 Action `check_logic`。「今回の SCOPE」の Q の下にある F どうしに矛盾が無いかを、`paper-debater` と `paper-reviewer` に議論させて確かめ、結論を Q の Logicality（`OK` / `CONTRADICTION`）として残す。対象の Node は Q。議論の運びは `paper-debate`（`crates/sai-paper-cli/assets/blocks/paper-debate.md`）の司会の流れを使う。
 
@@ -39,8 +41,8 @@ Action `check_logic`。「今回の SCOPE」の Q の下にある F どうしに
 6. **結果を待つ。** `sai-link task wait`（`timeout_ms` は 300000 以下）を 1 人ずつ呼び、意見の文書を `sai-link doc read` で読む。`stalled` は `sai-link task capture` を見て利用者に知らせ、勝手にやり直さない。`failed` は利用者に知らせて続けるかを聞く。
 7. **回ごとにまとめを見せる。** 合意・対立・未解決を各 3 点までにして見せ、「続ける / 論点を指定して続ける / やめる」を聞く。「前の回の要約」は他の参加者の意見だけにする。
 8. **Logicality を残す。** F どうしの矛盾の有無を文で確かめ、`record_logic` を出す。
-   - 矛盾が無い: `{"op":"record_logic","q":"Q12","value":"ok","reason":"…"}`
-   - 矛盾がある: `{"op":"record_logic","q":"Q12","value":"contradiction","note":"F3 は A と述べ、F9 は A でないと述べる","findings":["F3","F9"],"reason":"…"}`。`contradiction` には `note` と 2 つ以上の F が要る。
+   - 矛盾が無い: `{"op":"record_logic","q":"Q12","value":"ok"}`
+   - 矛盾がある: `{"op":"record_logic","q":"Q12","value":"contradiction","note":"F3 は A と述べ、F9 は A でないと述べる","findings":["F3","F9"]}`。`contradiction` には `note` と 2 つ以上の F が要る。
    議論で出た新しい根拠は `add_f`（出典付き）で出す。
 9. **議論録を保存し、子を確定する。** 「出力の形」の議論録を `sai-link doc write` で保存した**後**に、`sai-link task` の `finalize` で子の仕事を確定する。
 
@@ -51,10 +53,6 @@ Action `check_logic`。「今回の SCOPE」の Q の下にある F どうしに
 - `contradiction` の `record_logic` に `note` と 2 つ以上の F があるか。
 - 不利な根拠を F の文に残しているか。都合の悪い方向を伏せていないか。
 - 子の仕事を保存の前に確定していないか。
-
-## 完了の基準
-- Agent: 対象の Q に `record_logic` が出ていて、議論録が保存されている。不利な根拠を探した結果（見つかった・見つからなかった）が書かれている。
-- User: なし
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。

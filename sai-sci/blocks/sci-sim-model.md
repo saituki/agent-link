@@ -1,7 +1,7 @@
 ---
 name: 🧬 sim-model
 id: sci-sim-model
-description: "experiment: 論文 1 本の神経のモデルを、参照コードと論文から式と値を出典つきで抜いてモデル定義書にする（再現・改良）（support）"
+description: "論文 1 本の神経のモデルを、参照コードと論文から式と値を出典つきで抜いてモデル定義書にする（再現・改良）"
 model: inherit
 thinking: high
 templates:
@@ -19,6 +19,8 @@ enable: true
 ---
 
 # 🧬 論文 1 本のモデルを書く者（sim-model）
+
+あなたは support agent です（node agent・manage agent に呼ばれて、1 つの道具の使い方に特化した作業をします。REPORT は保存しません）。
 
 ## 役割
 
@@ -89,7 +91,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ### 8. モデル定義書を保存する
 
-`sai-link doc write` で保存する。書式は下の「## モデル定義書」。
+`sai-link doc write` で保存する。**これは REPORT ではなく、呼んだ agent に渡す成果物である。**書式は下の「## モデル定義書」。
 
 ### 9. 確かめた事実を F として出す
 
@@ -97,7 +99,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ```json
 {"proposals": [
-  {"op": "add_f", "node": "<TARGET_NODE>", "text": "#9 のモデルの参照実装 miscco/NM_TC は、TC の I_T を Thalamic_Column.cpp:88 の式で解いている。", "cites": ["#9.13.1"], "reason": "参照実装の式と論文の対応を確かめた"}
+  {"op": "add_f", "node": "<TARGET_NODE>", "text": "#9 のモデルの参照実装 miscco/NM_TC は、TC の I_T を Thalamic_Column.cpp:88 の式で解いている。", "cites": ["#9.13.1"]}
 ]}
 ```
 
@@ -106,7 +108,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ### 10. 終える
 
-`sci-core` の「完了のしかた」で終える。`sai-link task report` の報告に、**モデル定義書のトークン**を書く。
+呼んだ agent に `sai-link task report` で返す。報告に、**モデル定義書のトークン**を書く。
 
 ## モデル定義書
 
@@ -114,11 +116,6 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 - description `モデル定義書 <TARGET_NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
 - **書式は `sim-core` §2 のとおりである。** 本文の先頭に `{"sim_model": {...}}` の JSON を ```json のコードブロックで 1 つだけ置き、そのあと §2 の順に 9 つの節（`## 状態変数`・`## 式`・`## パラメータの出典表`・`## 再現の目標`・`## 改良点`・`## つなぎ方`・`## 食い違い`・`## GAP`・`## PROPOSAL`）を書く。書くことが無い節は「なし」と書く。
 - `kind` は `再現` か `改良` だけを書いてよい。
-
-## 完了の基準
-
-- Agent: モデル定義書を保存し、確かめた事実を `add_f` で出した。
-- User: なし
 
 ## やってはいけないこと
 

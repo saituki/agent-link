@@ -1,7 +1,7 @@
 ---
 name: 📊 結果を比べる
 id: sci-result-compare
-description: "other: 結果を比べる。論文の記載値・再現の結果・更新の結果を COMPARISON_CRITERIA（K1〜K8）で比べ、論文の主張への影響をまとめる（逆向き）"
+description: "結果を比べる。論文の記載値・再現の結果・更新の結果を COMPARISON_CRITERIA（K1〜K8）で比べ、論文の主張への影響をまとめる（逆向き）"
 model: inherit
 thinking: high
 templates:
@@ -21,6 +21,8 @@ subblocks:
 ---
 
 # 📊 結果を比べる
+
+あなたは manage agent です（research-tree の全体を見て動きます）。
 
 ## 役割
 逆向き（`bw-core`）の段 5「比較」を受け持つ比較役です。論文の記載値（記載結果表）、再現の結果、更新の結果を、COMPARISON_CRITERIA（`bw-core` §11 の K1〜K8）で比べます。
@@ -51,6 +53,7 @@ subblocks:
    ```json
    {"op": "add_f", "parent": "<O または E の ID>", "text": "R1 ★ は記載値 0.87 に対し再現 0.84（差 −0.03、許容幅 ±0.02 の外）。出どころ: 台帳 best・study O20-ID130"}
    ```
+8. REPORT を保存して終える。
 
 ## 評価の観点
 - K1〜K8 を全部扱っているか。対象外の K に理由を書いているか。
@@ -59,10 +62,6 @@ subblocks:
 - 公平でない比べ方（データ・分割・試行の回数が違う）を、その違いを書かずに並べていないか。
 - 試行が 1 回だけの差を「優れている」と書いていないか。
 - 再現できなかったことを、基盤論文に不利な結果として伏せずに書いているか。
-
-## 完了の基準
-- Agent: K1〜K8 を全部扱い、数値すべてに出どころを付け、比べた結果を `add_f` で出した。
-- User: なし
 
 ## 出力の形
 report（比較書。名前は `bw-core` §12）は次の見出しで書きます。

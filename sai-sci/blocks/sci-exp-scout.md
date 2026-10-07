@@ -1,7 +1,7 @@
 ---
 name: 🔭 exp-scout
 id: sci-exp-scout
-description: "experiment: 実験の前に参照実装（Library・ModelDB・GitHub）を探して取り、パラメータの出典表の下書きを作って返す（support）"
+description: "実験の前に参照実装（Library・ModelDB・GitHub）を探して取り、パラメータの出典表の下書きを作って返す"
 model: inherit
 thinking: high
 templates:
@@ -18,6 +18,8 @@ enable: true
 ---
 
 # 🔭 参照コードを探す者（scout）
+
+あなたは support agent です（node agent・manage agent に呼ばれて、1 つの道具の使い方に特化した作業をします。REPORT は保存しません）。
 
 ## 役割
 
@@ -84,7 +86,7 @@ ModelDB のカタログが無いときは終了コード 1 で返る。`sync` �
 
 ```json
 {"proposals": [
-  {"op": "add_f", "node": "<TARGET_NODE>", "text": "#9 のモデルの参照実装は miscco/NM_TC（C++）である。", "cites": ["#9.13.1"], "reason": "参照実装の在処を確かめた"}
+  {"op": "add_f", "node": "<TARGET_NODE>", "text": "#9 のモデルの参照実装は miscco/NM_TC（C++）である。", "cites": ["#9.13.1"]}
 ]}
 ```
 
@@ -93,7 +95,8 @@ ModelDB のカタログが無いときは終了コード 1 で返る。`sync` �
 
 ### 8. 調査書を保存して終える
 
-`sci-core` の「完了のしかた」に従う。
+- 参照コード調査書を `sai-link doc write` で保存する。**これは REPORT ではなく、呼んだ agent に渡す成果物である。**
+- 呼んだ agent に `sai-link task report` で返す。報告に参照コード調査書のトークンを書く。
 
 ## 参照コード調査書
 
@@ -120,11 +123,6 @@ ModelDB のカタログが無いときは終了コード 1 で返る。`sync` �
 - 「パラメータの出典表（下書き）」の列は `exp-ref` §6 のもの（名前・値・単位・出典・意味）に、備考を加える。
 - 「食い違い」「GAP」は、無ければ「なし」と書く。
 - 「PROPOSAL」は `sci-core` の op の表に従う。
-
-## 完了の基準
-
-- Agent: 参照コード調査書を保存し、確かめた事実を `add_f` で出した。
-- User: なし
 
 ## やってはいけないこと
 

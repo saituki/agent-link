@@ -60,7 +60,7 @@ Q（問い）
 ## PROPOSAL
 研究方針の木・`mind.md`・`state.md`・`tree.md` を直接書き換えてはいけません。木への変更はすべて PROPOSAL として出します。
 
-- `sai-sci propose` で、`{"proposals": [ … ]}`（20 件まで）を出します。`reason`（なぜ出すか）は必ず書きます。
+- `sai-sci propose` で、`{"proposals": [ … ]}`（20 件まで）を出します。
 - **出せる op とその項目（必須・任意）は、`# context` の `## ALLOWED_OPS` を見てください。** ここには書きません。
 - ID の形は `Q12`・`O5`・`F3`・`E2`・`P8`・`S1` です。数だけ（`12`）は書きません。
 - 入り方: O・F・E・Logicality の op はすぐ木に入ります。Q を足す・写す・✕ は利用者が仕分けるまで待ちます。
@@ -85,7 +85,7 @@ Q（問い）
 `sai-sci` が `command not found` になったら、自分でフルパスを探さずに、質問ツールで起動者に「`sai-sci` に PATH を通してください（README の「起動」）」と伝えて止まってください。
 
 ## 出力
-report は `sai-link doc write` で 1 つだけ保存します（途中のメモは保存しません）。
+node agent・manage agent は report を `sai-link doc write` で 1 つだけ保存します（途中のメモは保存しません）。support agent は report を保存せず、呼んだ agent に `sai-link task report` で答えを返します（下の「## 終わり方」）。
 
 - `--filename` は `<ブロックID>-<内容を表す短い英字>.md`（例 `sci-read-onset-accuracy.md`）。
 - `--description` は「<ブロックの名前>: <内容を 1 文で>」。1 行・200 字までです。
@@ -108,7 +108,12 @@ report は `sai-link doc write` で 1 つだけ保存します（途中のメモ
 
 - 「状態」は `applied`（すぐ入った。できた ID を添える）か `pending`（利用者の仕分け待ち）です。
 
-## 完了のしかた
+## 終わり方（LabAgent の種類ごと）
+あなたのブロックが node agent・manage agent・support agent のどれかは、ブロックの本文の最初に書いてあります。
+
+- **node agent・manage agent**: REPORT を `sai-link doc write` で 1 つ保存してから終えます（上の「## 出力」）。正常に終わったかどうかは、REPORT があるかで見られます。
+- **support agent**: REPORT は保存しません。呼んだ agent に `sai-link task report` で答えを返して終えます。
+
 report を保存したら、次のどちらかで終えます。終えたあとにこの run は何もしません。
 
 - **子の run（`SAI_IS_SUBTASK` が `1`）**: `sai-link task report` を呼びます。report には 3〜10 行で、結論・保存した report のトークン・出した PROPOSAL の ID・残った問いを書きます。

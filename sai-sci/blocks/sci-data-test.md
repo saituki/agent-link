@@ -1,7 +1,7 @@
 ---
 name: 📐 data-test
 id: sci-data-test
-description: "experiment: 解析計画書を先に保存して固定し、検定・効果量・図・報告を行い、MLflow と木の F に記録する"
+description: "解析計画書を先に保存して固定し、検定・効果量・図・報告を行い、MLflow と木の F に記録する"
 model: inherit
 thinking: high
 templates:
@@ -19,6 +19,8 @@ enable: true
 ---
 
 # 📐 計画どおりに解析して報告する者（data-test）
+
+あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
 
@@ -148,7 +150,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 
 O を Answer に変えてよいと思えば、「## 次の一手」に O の ID と理由を書き、「## PROPOSAL」にその op を出しておく。**O を Answer に変えるのは利用者である。** 自分が変えない。
 
-完了は `sci-core` の「完了のしかた」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**出した PROPOSAL の ID**、**残った `check` の違反**を書く。
+終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**出した PROPOSAL の ID**、**残った `check` の違反**を書く。
 
 ## 出力の形
 
@@ -171,11 +173,6 @@ report は次の見出しで、この順のまま書きます。
 - **検査の結果** — `check` の終了コード（0 / 1 / 2）と、**残った違反を 1 行ずつ**書きます。違反が残ったときは、結論の言い方を弱める理由を書きます。
 - **限界** — 検出力・標本の大きさ・測定の解像度・一般化の範囲で、**この結果から言えないこと**を 1 行ずつ書きます。
 - **次の一手** — 解析計画書と解析結果書のトークン、MLflow の run 名（`ID<自分の run_id>-test`）を書きます。
-
-## 完了の基準
-
-- Agent: 解析計画書を解析の前に保存し、`check` を通し（または残った違反を書き）、解析結果書を保存し、結果の F を `add_f` で出した。
-- User: なし
 
 ## やってはいけないこと
 

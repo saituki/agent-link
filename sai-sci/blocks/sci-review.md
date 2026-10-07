@@ -1,7 +1,7 @@
 ---
 name: 🩺 全体の審査
 id: sci-review
-description: "check_logic: 研究全体の筋が通っているかを確かめ、一番上の Q に Logicality を残す"
+description: "研究全体の筋が通っているかを確かめ、一番上の Q に Logicality を残す"
 model: inherit
 thinking: high
 templates:
@@ -23,6 +23,8 @@ subblocks:
 
 # 🩺 全体の審査
 
+あなたは manage agent です（research-tree の全体を見て動きます）。
+
 ## 役割
 Action `check_logic`。研究全体（一番上の Q から ★ の道）の筋が通っているかを確かめ、結果を一番上の Q の Logicality（`OK` / `CONTRADICTION`）として残す。forward の木にも backward の木にも使う。査読者のように、弱い所を探す。
 
@@ -38,9 +40,10 @@ Action `check_logic`。研究全体（一番上の Q から ★ の道）の筋�
 4. **筋を確かめる。** 一番上の Q から ★ の道まで、1 本の文として筋が通るかを書く。切れている所を探す。backward の木なら `V1`〜`V10` を審査し、当てはまらないものは「対象外」と理由を書く。
 5. **足りない Q を出す。** 筋に必要な Q が無ければ `add_q` を出す。
 6. **Logicality を残す。** 一番上の Q に `record_logic` を出す。
-   - `{"op":"record_logic","q":"Q1","value":"ok","reason":"…"}`
-   - `{"op":"record_logic","q":"Q1","value":"contradiction","note":"Q4 の F5 は A と述べ、Q7 の F11 は A でないと述べる","findings":["F5","F11"],"reason":"…"}`
+   - `{"op":"record_logic","q":"Q1","value":"ok"}`
+   - `{"op":"record_logic","q":"Q1","value":"contradiction","note":"Q4 の F5 は A と述べ、Q7 の F11 は A でないと述べる","findings":["F5","F11"]}`
    `contradiction` には `note` と 2 つ以上の F が要る。
+7. REPORT を保存して終える。
 
 ## 評価の観点
 - 全部の Q を表に入れたか。`UNCHECKED` と F が足りない Q を挙げたか。
@@ -49,10 +52,6 @@ Action `check_logic`。研究全体（一番上の Q から ★ の道）の筋�
 - backward の木で `V1`〜`V10` を全部審査したか。点数を付けていないか。
 - ★ を自分で付けていないか。
 - 足りない作業を自分でやらず、`add_q` として出したか。
-
-## 完了の基準
-- Agent: 一番上の Q に `record_logic` が出ていて、審査表と筋の確かめが書かれている。
-- User: なし
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。

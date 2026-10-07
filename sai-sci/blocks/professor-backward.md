@@ -50,7 +50,6 @@ subblocks:
 |---|---|---|
 | 進み具合（`progress`） | 木のどこまで埋まったか | `sai-sci status --brief` |
 | Next Action（`next`） | 木が次に示している作業（`why` のコード） | `sai-sci status --brief` |
-| DEBT（`debt_count`） | 残っている・弱いと分かっている点。中身は `sai-sci status --json` の `debts` | `sai-sci status --brief` |
 | Objectivity・Logicality | O の根拠が足りているか・Q から ★ の道の筋が通っているか | `sai-sci status --json` |
 | Node | Q・O・F・E の 1 つ | `sai-sci node <N12>` |
 | PROPOSAL | 木への変更の申し出。`sai-sci triage` で仕分ける | `sai-sci proposals` |
@@ -114,7 +113,7 @@ subblocks:
 
 - 最新の論文の検索（`sci-search`）の `--purpose` には「基盤論文（<年>）より後の研究で、<課題・手法> を扱うもの」と書き、`--year-from` に基盤論文の年を使うよう伝える。
 - 新しい F で Q・O が変わるときは、前向きと同じく PROPOSAL と仕分けで直す。論文の手法の O は残し、更新の手法を新しい O として並べる（`sci-ideate`・`sci-compare`）。
-- 更新の SEED は `sci-seed` で作る。進み具合が揃っていなければ注意つきで作れるので、その注意（DEBT）を読み、足りない所を埋める作業を先に起こすか決める。
+- 更新の SEED は `sci-seed` で作る。進み具合が揃っていなければ注意つきで作れるので、その注意を読み、足りない所を埋める作業を先に起こすか決める。
 - 更新の実験は、再現の実験と同じデータ・分割・指標で比べられるよう、`--purpose` に「再現の実験仕様書（トークン）と同じデータ・分割・指標で行う」と書く。
 
 ## 1 回の回し方

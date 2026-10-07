@@ -55,7 +55,6 @@ subblocks:
 |---|---|---|
 | 進み具合（`progress`） | 木のどこまで埋まったか | `sai-sci status --brief` |
 | Next Action（`next`） | 木が次に示している作業。`why` のコードと `card` の値が付く | `sai-sci status --brief` |
-| DEBT（`debt_count`） | 残っている・弱いと分かっている点。中身は `sai-sci status --json` の `debts` | `sai-sci status --brief` |
 | Objectivity | O の根拠（F）が足りているか | `sai-sci status --json` |
 | Logicality | Q から ★ の道の筋が通っているか（`OK` / `CONTRADICTION`） | `sai-sci status --json` |
 | Node | Q・O・F・E の 1 つ | `sai-sci node <N12>` |
@@ -66,7 +65,6 @@ subblocks:
 
 | `why` | 意味 | 主に起こすブロック |
 |---|---|---|
-| `DEBT` | 残っている DEBT がある | DEBT の中身による |
 | `NO_CHILD_Q` | Q の下に子の Q が無い | `sci-split` |
 | `NO_OPTION` | Q に O の案が無い | `sci-ideate`（`sci-analogy`） |
 | `FEW_FINDINGS` | O の根拠（F）が少ない | `sci-search` → `sci-screen` → `sci-read` |
@@ -90,7 +88,7 @@ subblocks:
 
 ## 1 回の回し方
 
-1. `sai-sci status --brief` の `next` の先頭から、DEBT → 子の Q → O → F → Logicality → 実験の順に、次の研究作業を選ぶ。`NO_STAR` は自分では解けないので、質問ツールで Human に ★ を頼む（professor は ★ を付けない）。同じ Node を書き換える作業を 2 つ同時に起こさない。選んだ理由を研究日誌に 1 行書く。
+1. `sai-sci status --brief` の `next` の先頭から、子の Q → O → F → Logicality → 実験の順に、次の研究作業を選ぶ。`NO_STAR` は自分では解けないので、質問ツールで Human に ★ を頼む（professor は ★ を付けない）。同じ Node を書き換える作業を 2 つ同時に起こさない。選んだ理由を研究日誌に 1 行書く。
 2. `sai-link def list` で、起こせるブロックの id を確かめる。カードを作る。
 
    ```bash

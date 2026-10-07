@@ -1,7 +1,7 @@
 ---
 name: 📋 抜き出す
 id: sci-extract
-description: "F を探す: ガイドの Extract の項目を論文ごとに抜き出して表にし、呼んだ agent に返す（support）"
+description: "ガイドの Extract の項目を論文ごとに抜き出して表にし、呼んだ agent に返す"
 model: inherit
 thinking: high
 templates:
@@ -20,6 +20,8 @@ enable: true
 ---
 
 # 📋 抜き出す
+
+あなたは support agent です（node agent・manage agent に呼ばれて、1 つの道具の使い方に特化した作業をします。REPORT は保存しません）。
 
 ## 役割
 呼んだ agent に答えを返す部品です。`sci-core`・`sci-find`・`sci-match` に従い、ガイドの Extract（`# context` の `## GUIDE`）の項目を、指定された論文ごとに 1 行ずつ抜き出して表にします。すべての値に CITE を付けます。
@@ -49,7 +51,7 @@ enable: true
 
 ```json
 {"proposals": [
-  {"op": "add_f", "node": "O5", "text": "…, …。", "cites": ["#37.4.2", "#37 Table 2"], "reason": "抜き出し表の値の根拠"}
+  {"op": "add_f", "node": "O5", "text": "…, …。", "cites": ["#37.4.2", "#37 Table 2"]}
 ]}
 ```
 
@@ -60,12 +62,8 @@ enable: true
 - 論文に無い値を「記載なし」と書いているか。合計や割合を推測で足していないか。
 - 単位の違う値を同じ列に並べて比べていないか。
 
-## 完了の基準
-- Agent: 呼んだ agent に抜き出し表を返した。
-- User: なし
-
 ## 出力の形
-report は次の見出しで、この順のまま書きます。表は Markdown の表で書き、各セルに CITE を付けます。
+呼んだ agent に `sai-link task report` で返します。本文は次の見出しで、この順のまま書きます。表は Markdown の表で書き、各セルに CITE を付けます。
 
 ```markdown
 ## 抜き出す項目

@@ -1,7 +1,7 @@
 ---
 name: 📋 面談の準備
 id: sci-digest
-description: "other: 期間の木の変化をまとめ、面談で聞きたいことを Q の案にする"
+description: "期間の木の変化をまとめ、面談で聞きたいことを Q の案にする"
 model: inherit
 thinking: high
 templates:
@@ -18,6 +18,8 @@ enable: true
 
 # 📋 面談の準備
 
+あなたは manage agent です（research-tree の全体を見て動きます）。
+
 ## 役割
 Action `other`。期間の木の変化をまとめ、面談で聞きたいことを Q の案（`add_q`、仕分け待ち）にする。期間は依頼文で指定される。無ければ前回の面談から。
 
@@ -26,15 +28,12 @@ Action `other`。期間の木の変化をまとめ、面談で聞きたいこと
 2. **変化を集める。** `sai-sci status --json` の `decisions` と Recent Activity の Action を、期間内のものだけ読む。
 3. **まとめる。** 決まったこと（★ が付いた・Answer が決まった）、分かったこと（新しい F・Logicality）、迷っていること（`CONTRADICTION`・F が足りない Q・Issue）に分ける。1 件 1 行で、Q・O・F の ID を付ける。
 4. **面談で聞きたいことを書く。** 迷っていることから、利用者の判断が要るものを選び、`add_q` で出す。
+5. REPORT を保存して終える。
 
 ## 評価の観点
 - 期間内の変化だけか。ID が付いているか。
 - 迷っていることを、決まったことに混ぜていないか。
 - 聞きたいことが疑問の形で、`add_q` になっているか。
-
-## 完了の基準
-- Agent: 4 つのまとめと、面談で聞きたいことが書かれている。
-- User: なし
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。

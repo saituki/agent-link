@@ -1,7 +1,7 @@
 ---
 name: 🧭 data-explore
 id: sci-data-explore
-description: "experiment: データを受け取り、データ表・EDA・前処理を作る。検定はせず、sci-data-test を勧めて終える"
+description: "データを受け取り、データ表・EDA・前処理を作る。検定はせず、sci-data-test を勧めて終える"
 model: inherit
 thinking: high
 templates:
@@ -18,6 +18,8 @@ enable: true
 ---
 
 # 🧭 データを調べて整える者（data-explore）
+
+あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
 
@@ -122,7 +124,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 
 ### 9. report を保存して終える
 
-`## 出力の形` の見出しで書く。**「## 次の一手」には、数据表のトークン・5. の E の ID と、下の命令をそのまま書ける形で書く。**
+`## 出力の形` の見出しで書く。**「## 次の一手」には、データ表のトークン・5. の E の ID と、下の命令をそのまま書ける形で書く。**
 
 ```bash
 sai-sci card --node <5. の E の ID> --block sci-data-test \
@@ -131,7 +133,7 @@ sai-sci card --node <5. の E の ID> --block sci-data-test \
 
 **このカードを作らない。** 書くだけである。カードを起こすのは professor か利用者である。
 
-完了は `sci-core` の「完了のしかた」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**データ表のトークン**と**出した E の ID**を書く。
+終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**データ表のトークン**と**出した E の ID**を書く。
 
 ## 出力の形
 
@@ -152,11 +154,6 @@ report は次の見出しで、この順のまま書きます。
 - **前処理** — やった場合だけ、どの列に何をしたかを 1 行ずつ書きます。やらなかった場合は「なし」と書きます。2 回動かして sha256 が同じだったことも書きます。
 - **解析の候補** — **ここで書く仮説は候補であって結果ではない。** 候補となる仮説と、確かめるための検定の種類の候補を 1 行ずつ書きます。p 値・効果量・結論は書きません。
 - **次の一手** — データ表のトークン、5. の E の ID、そして `sci-data-test` のカード命令をそのまま書きます。
-
-## 完了の基準
-
-- Agent: データ表を保存し、E を `add_e` で出し、report に test のカードの命令を書いた。
-- User: なし
 
 ## やってはいけないこと
 

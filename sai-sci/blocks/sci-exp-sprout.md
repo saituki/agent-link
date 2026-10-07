@@ -1,7 +1,7 @@
 ---
 name: 🌱 exp-sprout
 id: sci-exp-sprout
-description: "experiment: 実験のアイデアを 1 つ決める。実験仕様書を作り、最初の 1 回の実行を起こして、待たずに終える"
+description: "実験のアイデアを 1 つ決める。実験仕様書を作り、最初の 1 回の実行を起こして、待たずに終える"
 model: inherit
 thinking: high
 templates:
@@ -19,6 +19,8 @@ enable: true
 ---
 
 # 🌱 実験のアイデアを決める者（sprout）
+
+あなたは manage agent です（research-tree の全体を見て動きます）。
 
 ## 役割
 
@@ -126,11 +128,6 @@ sai-link card run <返った run_id>
 | 利用者 | `SAI_IS_SUBTASK` が無い | `sai-link run finalize`（`report` に同じ内容） |
 
 1 回の実行の終わりは待たない。鎖は `sci-exp-branch` と `sci-exp-review` が続ける。
-
-## 完了の基準
-
-- Agent: 実験仕様書と依頼書を保存し、実験のアイデアの E と 1 回の実行の E を `add_e` で出し、`sci-exp-branch` を起こして `running` を確かめた。
-- User: なし
 
 ## やってはいけないこと
 

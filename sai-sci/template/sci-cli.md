@@ -27,15 +27,14 @@
 | Node 1 つの詳細 | `sai-sci node <Q12> [--json]` |
 | 実行のための入力（`# context`） | `sai-sci context --run <run_id>` |
 | 仕分け待ちの PROPOSAL | `sai-sci proposals [--json]` |
-| 仕分け（採用・却下・取り消し） | `sai-sci triage <P56> (--accept \| --reject \| --revert) [--note 文]` |
+| 仕分け（採用・却下・取り消し） | `sai-sci triage <P56> (--accept \| --reject \| --revert)` |
 | 読む札（`--runner user` のカード）の中身 | `sai-sci read <run_id>` |
 
 `sai-sci status --brief` は最初に読む。いつも JSON で、次の項目を返す。全体（`sai-sci status`）は大きいので、要るときだけ読む。
 
 - `progress`: 進み具合。
 - `next`: Next Action の一覧。各項目は `kind`・`node`・`block`・`purpose`・`expect` と、なぜそれを勧めるかを示す `why`（コード）。
-- `debt_count`: DEBT の数。
-- `pending_proposals`: 仕分け待ちの PROPOSAL の数。
+- `pending_proposals`: PENDING の PROPOSAL の数。
 - `running`: 動いている実行。
 - `warnings`: 注意。
 

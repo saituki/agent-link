@@ -1,7 +1,7 @@
 ---
 name: 📖 1 本を読む
 id: sci-read
-description: "F を探す: 論文を 1 本読み、対象の O に F を付け、note.md を書く（新しい答えの候補があれば O も足す）"
+description: "論文を 1 本読み、対象の O に F を付け、note.md を書く（新しい答えの候補があれば O も足す）"
 model: inherit
 thinking: high
 templates:
@@ -24,6 +24,8 @@ subblocks:
 
 # 📖 1 本を読む
 
+あなたは node agent です（対象の Node を指定されて動きます）。
+
 ## 役割
 論文を 1 本読み、対象の O（対象が Q なら、その Q の O のどれか）に F を付ける Action です。論文に新しい答えの候補があれば O を足します。読むだけで終わらせず、成果は PROPOSAL で出します。木・mind.md を直接書き換えません。
 
@@ -34,7 +36,7 @@ subblocks:
 
 深さは `sci_depth`（`ABSTRACT` / `FIGURES` / `FULL`）に従います。指定が無ければ FULL です。
 
-runner が user のときは、利用者が読みます。そのとき完了の基準は利用者の側になり、道具が判定します。
+runner が user のときは、利用者が読みます。読み終えたかどうかは道具が判定します。
 
 ### 手順
 1. **型と深さを確かめる。** `sci_mode` と `sci_depth` を読みます。指定が無ければ「purpose_first・FULL で読みます」と伝えてから始めます。
@@ -52,13 +54,14 @@ runner が user のときは、利用者が読みます。そのとき完了の�
    ```
 
 8. 木に合わなかった内容は、OUT_OF_SCOPE に理由を書きます。
+9. REPORT を保存して終える。
 
 ### PROPOSAL のしかた
 `sci-core` の op の表に従います。
 
 ```json
 {"proposals": [
-  {"op": "add_f", "node": "O5", "text": "…, …。", "cites": ["#37.5.2"], "reason": "O5 の実現性の根拠"}
+  {"op": "add_f", "node": "O5", "text": "…, …。", "cites": ["#37.5.2"]}
 ]}
 ```
 
@@ -69,11 +72,6 @@ runner が user のときは、利用者が読みます。そのとき完了の�
 - 主張と根拠の対応が示されているか。
 - 図を見たときは、図の内容と著者の解釈を分けているか。
 - 木に照らした結果が、どの O への返答か分かるか。照合できないまま「関係あり」で済ませていないか。
-- PROPOSAL に理由が付いているか。
-
-## 完了の基準
-- Agent: F を 1 つ以上 O に付けた。かつ note.md がある。
-- User: runner が user のとき、同じ基準が利用者の側になる（道具が判定する）。それ以外はなし。
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。

@@ -1,7 +1,7 @@
 ---
 name: 🌰 種づくり
 id: sci-seed
-description: "other: Q から子の Q へ降りる O の 1 本の鎖を 1 文にした SEED の札を作る"
+description: "Q から子の Q へ降りる O の 1 本の鎖を 1 文にした SEED の札を作る"
 model: inherit
 thinking: high
 templates:
@@ -21,6 +21,8 @@ subblocks:
 
 # 🌰 種づくり
 
+あなたは manage agent です（research-tree の全体を見て動きます）。
+
 ## 役割
 Action `other`。Q から子の Q へ降りる O の 1 本の鎖を 1 文にした SEED の札を作る。対象の Node は鎖の O。札は研究の型の雛形に、鎖の O の題を差し込んで作る。`sai-sci status --json` の `seed_draft` が雛形。
 
@@ -36,6 +38,7 @@ Action `other`。Q から子の Q へ降りる O の 1 本の鎖を 1 文にし�
 5. 返ってきた参照を `doc` に入れて `add_seed` を出す。`path` は鎖の O の ID の配列で、後の O は前の O の下の子の Q の O（例 `"path":["O3","O8"]` なら O8 は O3 の下の子の Q の O）とし、Issue の O を 1 つ以上含める。
 
    `{"op":"add_seed","title":"…","sentence":"…","path":["O3","O8"],"doc":"waggle:…"}`
+6. REPORT を保存して終える。
 
 ## 評価の観点
 - `path` の O が Q から子の Q へ降りる 1 本の鎖で、Issue の O を 1 つ以上含むか。
@@ -43,10 +46,6 @@ Action `other`。Q から子の Q へ降りる O の 1 本の鎖を 1 文にし�
 - `filled: false` の差し込みを、補わずに注意に書いたか。
 - 文が 1 文（`sentence` は 600 字以内）で、研究の骨格が分かるか。
 - 札を保存し、`doc` に参照を入れたか。
-
-## 完了の基準
-- Agent: 札が保存され、`add_seed` が出ている。注意（進み具合・未記入の差し込み）が書かれている。
-- User: なし
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。

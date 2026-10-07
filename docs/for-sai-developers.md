@@ -373,8 +373,6 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `node` | 文字列 \| null | 札が付いた Node の ID（`Q12` など） |
 | `block` | 文字列 | 札の block 名（`sci-ideate` など） |
 | `owner` | 文字列 | `todo` 以外の状態（`running`・`review` など） |
-| `debt` | 真偽値 | 残っている負債があるか（⚠ を出す） |
-| `debt_messages` | 文字列の配列 | 負債の文（`debt` が偽なら空） |
 
 #### `import list|add|remove`
 
@@ -406,9 +404,8 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `seeds[]` | `{"id","title","sentence","path","run","created_at","nodes"}` | 種の一覧（`path` は Node の ID の配列） | ― |
 | 直下 | `seed_draft` | `{"text","parts"}` \| null | 種の下書き（`parts[]` は `key`・`text`・`filled`） | 下書きが出ない |
 | 直下 | `next[]` | NextAction の配列 | 「次の一手」の行とカード作成の種 | 出ない |
-| 直下 | `debts[]` / `debt_count` | Debt の配列 / 数値 | 負債の行・件数 | 負債が見えない |
 | 直下 | `pending_proposals` | 数値 | 仕分け待ちの提案の数 | 0 に見える |
-| 直下 | `decisions[]` | `{"node","node_text","action","detail","reason","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
+| 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
 | ― | 始めていないとき | | `type`・`seed_draft` は `null`、配列は空、数は 0 | ― |
@@ -431,9 +428,9 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | `cites[]` / `paper` | 文字列の配列 / 数値 \| null | F の引用と論文 | ― |
 | `run` / `mlflow` | 数値 \| null / 文字列 \| null | E の実行と実験の記録 | ― |
 | `created_by` / `created_at` | 文字列 | 作った人（`user` / `run:<N>`）と時刻 | ― |
+| `pending` | 数値 | この Node に付いた PENDING の PROPOSAL の数（0 なら印を出さない） | ― |
 
-**NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）・`fix`（負債を直す操作 \| null）。
-**Debt**（`status.debts[]` の 1 件）: `run_id`（数値）・`block`・`node`（文字列 \| null）・`side`（`agent` / `user`）・`criterion`・`message`（そのまま見せる文）・`fix`（JSON。`fix.kind = "set"` は検索セットの画面を開く）。
+**NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）。
 
 #### `node <ID> --json` → Node 1 つ
 
@@ -445,17 +442,17 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls","target"}` \| null | Q の説明と目安 |
 | 直下 | `logic[]` | `{"value","note","findings","f_count","run","created_at"}` | Logicality の確かめの履歴 |
 | 直下 | `decisions[]` | status の `decisions[]` と同じ | この Node の決定の記録 |
-| 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at","debt","debt_messages"}` | この Node のための実行の行（子孫の run も入る。Web の側で `node` で絞る） |
+| 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at"}` | この Node のための実行の行（子孫の run も入る。Web の側で `node` で絞る） |
 | 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run（`by` が `user` のときは `run_id` が null） |
 | 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
-| 直下 | `pending[]` | `{"id","op","payload","reason","run","created_at"}` | 仕分け待ちの提案の行 |
+| 直下 | `pending[]` | `{"id","op","payload","run","created_at"}` | 仕分け待ちの提案の行 |
 | 直下 | `next[]` | NextAction の配列 | この Node の次の一手 |
 | 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
 
 #### `read <run_id> --json` → 読む札
 
-`run_id` / `owner`（まだ `todo` なら「始める」を出す）・`node`（`{"id","kind","text"}`）・`purpose` / `depth`・`paper`（`{"id","title","year"}`）・`questions[]` / `extract[]`・`findings[]`（`{"id","parent","text","cites"}`）・`note` / `debts[]`。行き先は `#/research/read/<run_id>`。
+`run_id` / `owner`（まだ `todo` なら「始める」を出す）・`node`（`{"id","kind","text"}`）・`purpose` / `depth`・`paper`（`{"id","title","year"}`）・`questions[]` / `extract[]`・`findings[]`（`{"id","parent","text","cites"}`）・`note`。行き先は `#/research/read/<run_id>`。
 
 #### `card --from-json --json`（標準入力 = C-CARD）→ `{"run_id","path","executer"}`
 
@@ -482,8 +479,8 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `types --json` → `{"types":[{"id","name","root"}]}`（`root` は一番上の Q の文）。
 - `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配った部品の文字列の配列。新しい木が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
 - `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
-- `proposals --json` → `{"proposals":[{"id","op","run","block","payload","reason","created_at"}]}`（`id` は `P56`）。
-- `triage <P> --accept|--reject|--revert [--note=…] [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
+- `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。
+- `triage <P> --accept|--reject|--revert [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
 - `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形（`rt_searches` にも 1 行残す）。
 - `project show --json` → `{"mind","state","brief","attention"}`。`project memo --json -- <文>`（改行なしの 1〜2000 字）→ mind.md の「## メモ」に 1 行足す。
 - `attention list --json` → 配列（要対応の `key`・文）。`attention resolve <key> --json` → 対応済みにする。

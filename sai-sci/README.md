@@ -34,7 +34,6 @@
 | TRIAGE | 仕分け | PROPOSAL を採用（accept）・却下（reject）・取り消し（revert）すること |
 | Action | 行動 | 木の Node に向けて 1 回動く実行。`task.md` を持つカード（CARD）として作る |
 | Next Action | 次の一手 | 今やるとよい Action の候補。画面の上の帯と板に出る。「Create CARD」を押すとカードを作る |
-| DEBT | 負債 | Action の完了基準を満たしていない残り物。画面の上の帯に数が出る（5.4 節） |
 | CARD | カード | Action の依頼文。実行者（runner）が `pi`・`cc`・`user` のどれか |
 | 読む札 | 読む札 | runner が `user` の CARD。利用者が 1 本の論文を読んで F を付ける |
 | SCOPE | 範囲 | 実行に切り出す木の範囲。`node`・`path`・`subtree`・`siblings`・`summary`・`blind` |
@@ -64,11 +63,10 @@ Q ごとに、2 つの目で進み具合を見る。
 - **Objectivity** — F が目安（target）の本数そろっているか。数字を含む F には出典（論文の `cites` か、エージェントの報告書のトークン `report`）が要る。
 - **Logicality** — Q の答えの筋が通っているかを確かめた結果。矛盾（`CONTRADICTION`）が見つかれば、指摘の文と F を 2 つ以上添えて記録する。
 
-### 2.3 Action = task.md、Next Action、DEBT
+### 2.3 Action = task.md、Next Action
 
 - **Action** は task.md を持つ 1 回の実行（CARD）。木の Node 1 つに向け、目的を 1 行で書く。
 - **Next Action** は、Action の候補を画面の上の帯が 3 件まで並べる。押すと「Create CARD」でカードのフォームが開く。
-- **DEBT** は、終わった Action が完了基準を満たしていないときの残り物。エージェントが片付ける物と利用者が片付ける物に分かれる（5.4 節）。
 
 ---
 
@@ -265,7 +263,7 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 1. **Q を分ける** — Next Action の「Create CARD」から `sci-start`・`sci-split` を動かす。または板の「Q を足す」で自分で足す。
 2. **O を書く** — Q の板の「O を足す」、または `sci-ideate` のカード。Answer か Issue かは O ごとに変えられる（「Answer / Issue を変える」）。
-3. **F を付ける** — 検索セットの選別（`#/papers/sets`）で論文を絞り、読む札（`#/papers/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は自動で木に入る。取り消したいときは仕分け（`#/papers/triage`）の revert で戻す。
+3. **F を付ける** — 検索セットの選別（`#/papers/sets`）で論文を絞り、読む札（`#/papers/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は自動で木に入る。取り消したいときは Node を選んだ右の板の PENDING の節で revert で戻す。
 4. **★ を付ける** — O の板の「★ を付ける」。★ を付けられるのは利用者だけ。比べるときは `sci-compare` が手伝う。
 5. **答えが無ければ Issue** — O を Issue にし、E（実験）を足す。実験の回し方は 5.5 節。
 
@@ -273,12 +271,12 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 論文タブの最初の画面が「研究方針」（`#/papers/tree`）。
 
-- 上の帯: SEED・進み具合（答えが出た Q の数 / 全部）・Next Action（先頭 3 件）・DEBT・PROPOSAL・注意。
+- 上の帯: SEED・進み具合（答えが出た Q の数 / 全部）・Next Action（先頭 3 件）・PROPOSAL・注意。
 - 左: Q・O・F・E の一覧。
 - 真ん中: 方針の図（下に伸びる木 1 つ）。Node を押すと `#/papers/tree/Q12` のように住所が変わり、詳細が「板」に出る。
-- 板: 見出し（Q は Objectivity と Logicality の札付き）・親までの道・操作の釦・Next Action・F・決定の記録など。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
-- 仕分け: `#/papers/triage`。
-- 検索セット: `#/papers/sets`（一覧）と `#/papers/sets/<set_id>`（候補を keep / drop で選別）。DEBT の「選別していない検索」から開く。
+- 板: 見出し（Q は Objectivity と Logicality の札付き）・親までの道・PENDING の節（TRIAGE を行う）・操作の釦・Next Action・F・決定の記録など。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
+- 仕分け（TRIAGE）: Node を選んだ右の板の PENDING の節で行う。
+- 検索セット: `#/papers/sets`（一覧）と `#/papers/sets/<set_id>`（候補を keep / drop で選別）。
 - 読む札: `#/papers/read/<run_id>`。
 
 ### 5.3 sai-link がブロックを動かすとき
@@ -289,24 +287,39 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 **決まり:** `.sai/settings.json` の `context` に別の命令を指定するときは、その出力も `##` から始めてください。
 
-### 5.4 エージェントは PROPOSAL だけを出す・DEBT
+### 5.4 エージェントは PROPOSAL だけを出す
 
 op（操作）は危険度で 3 つに分かれます。
 
 - **自動で入る物**（`add_o`・`add_f`・`add_e`・`record_logic`・`add_seed`）は、出した PROPOSAL がすぐ木に入り、自動で反映された印が付く。
-- **利用者が仕分ける物**（`add_q`・`copy`・`remove`）は、仕分け箱で accept するまで木に入らない。
+- **利用者が仕分ける物**（`add_q`・`copy`・`remove`）は、TRIAGE（accept）するまで木に入らない。TRIAGE は Node を選んだ右の板の PENDING の節で行う。
 - **利用者だけの物**（`star`・`unstar`・`set_kind`・`edit`・`set_target`）は、エージェントは出せない。
 - どちらも、利用者は 1 押しで取り消せる（revert）。
 
-DEBT は、終わった Action が完了基準を満たしていないときの「残り物」です。各ブロックは完了基準（例: `o_added`＝O が入った・`f_added`＝F が入った・`logic_recorded`＝Logicality を記録した・`set_screened`＝検索セットを選別した・`triaged`＝PROPOSAL を仕分けた・`starred`＝★ を付けた・`seed_created`＝SEED を作った）を持ちます。
+#### LabAgent の 3 分類
 
-- 満たしていない基準が DEBT になり、エージェントが片付ける物（`agent`）と利用者が片付ける物（`user`）に分かれます。
-- 画面の上の帯の DEBT 札から一覧が開き、各 DEBT の「片付ける」釦が、カードのフォーム・仕分け（`#/papers/triage`）・検索セット（`#/papers/sets/<set_id>`）・論文・Node・run のどれかへ飛ばします。
-- Next Action にも DEBT の片付けが並びます。
+木で動くエージェント（LabAgent）は、ブロックの frontmatter の `sci_type` で 3 つに分かれます。それぞれ TREE（`# context` に切り出す木の範囲）と終わり方が違います。
+
+| sci_type | 動き方 | TREE の範囲 | 終わり方 |
+|---|---|---|---|
+| node | 対象の Node を指定されて動く | 対象＋子孫 | REPORT を `sai-link doc write` で 1 つ保存する |
+| manage | research-tree の全体を見て動く | 祖先＋対象＋子孫 | REPORT を `sai-link doc write` で 1 つ保存する |
+| support | node agent・manage agent に呼ばれ、1 つの道具の使い方に特化した作業をする | TREE なし | REPORT を保存しない。呼んだ agent に `sai-link task report` で返す |
+
+ブロックごとの分類:
+
+| sci_type | ブロック |
+|---|---|
+| node | sci-split・sci-ideate・sci-search・sci-screen・sci-read・sci-compare・sci-debate・sci-coach・sci-cite-check・sci-data-explore・sci-data-test・sci-exp-review |
+| manage | sci-start・sci-review・sci-digest・sci-restore・sci-typify・sci-result-compare・sci-exp-sprout・sci-seed |
+| support | sci-analogy・sci-extract・sci-lookup・sci-exp-scout・sci-sim-model・sci-sim-compose・sci-exp-branch・paper-debater・paper-reviewer |
+| なし | professor・professor-backward・kaizen・operator |
+
+正常に終わったかどうかは、REPORT があるかで見られます（support agent は REPORT を持ちません）。
 
 ### 5.5 読む札
 
-`sai-sci card --runner user --papers <番号> --depth <abstract|figures|full>` は読む札を作ります。`apps/web` の読む札の画面で始めて、F を書き、終えます。F が 1 つも無いまま終えても止まりません（DEBT の「反映していない論文」が残ります）。
+`sai-sci card --runner user --papers <番号> --depth <abstract|figures|full>` は読む札を作ります。`apps/web` の読む札の画面で始めて、F を書き、終えます。F が 1 つも無いまま終えても止まりません。
 
 ### 5.6 木の直し方
 
@@ -410,13 +423,13 @@ sai-link card run <返ってきた run_id>
 | `sai-sci init --type <型> [--json]` | 研究プロジェクトの部品を配り、一番上の Q を作る |
 | `sai-sci types [--json]` | 使える研究の型を一覧する |
 | `sai-sci type-save` | 研究の型を `<sai_home>/sci/types/` に保存する（標準入力に型の Markdown。JSON で返す） |
-| `sai-sci status [--json] [--brief]` | 現況（進み具合・SEED の下書き・木・Next Action・DEBT）。`--brief` は数だけを JSON で出す |
+| `sai-sci status [--json] [--brief]` | 現況（進み具合・SEED の下書き・木・Next Action）。`--brief` は数だけを JSON で出す |
 | `sai-sci node <Q12\|O5\|F3\|E2> [--json]` | Node 1 つの詳細 |
 | `sai-sci context --run <run_id> [--scope <SCOPE>]` | 今の実行の SCOPE（`# context`）を標準出力へ出す |
 | `sai-sci propose [--run <run_id>] [--block <id>]` | PROPOSAL を出す（標準入力に `{"proposals":[…]}`） |
 | `sai-sci apply` | 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON） |
 | `sai-sci proposals [--json]` | 仕分け待ちの PROPOSAL の一覧 |
-| `sai-sci triage <P56> (--accept [--edit <JSON>] \| --reject \| --revert) [--note <文>]` | PROPOSAL を仕分ける |
+| `sai-sci triage <P56> (--accept [--edit <JSON>] \| --reject \| --revert)` | PROPOSAL を仕分ける |
 | `sai-sci card --node <Q12> --purpose <文> [--block <id>] [--expect <文>] [--scope <範囲>] [--assume <Q9=値>]… [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner pi\|cc\|user] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--executer human\|agent] [--json]` | Node に向けた Action（CARD）を作る。`--runner user` は読む札 |
 | `sai-sci read <run_id> [--json]` | 読む札の中身 |
 | `sai-sci export` | 木を `state.md` と `tree.md` に書き出す |
@@ -474,7 +487,6 @@ sai-link card run <返ってきた run_id>
 | sprout / branch（旧 4 層の下の 2 層） | E の親子 |
 | GATE・BLANK・MARK・TENTATIVE | Objectivity と Logicality |
 | LINK | F の出典と、Action の記録 |
-| DEBT 4 種（PENDING_PROPOSALS・UNREFLECTED_PAPERS・UNSCREENED_SETS・EMPTY_REVIEWS） | Action の完了基準の DEBT |
 | READ_CARD | 読む札 |
 | TOMBSTONE | なし（論文を外す記録は持たない） |
 | ROOT_GRAPH / RUN_GRAPH | 方針の図（下に伸びる木 1 つ）。実行の図は研究方針の画面から無くした |

@@ -1,7 +1,7 @@
 ---
 name: 🌿 exp-branch
 id: sci-exp-branch
-description: "experiment: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える"
+description: "スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える"
 sci_type: support
 model: inherit
 thinking: medium
@@ -15,6 +15,8 @@ enable: true
 ---
 
 # 🌿 実験の 1 回の実行を動かす者（branch）
+
+あなたは support agent です（node agent・manage agent に呼ばれて、1 つの道具の使い方に特化した作業をします。REPORT は保存しません）。
 
 ## 役割
 
@@ -124,7 +126,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 
 ### 6. 作業報告書を保存する
 
-`exp-core` §9 の形で `sai-link doc write` する。
+`exp-core` §9 の形で `sai-link doc write` する。**これは REPORT ではなく、review に渡す成果物である。**
 
 - ファイル名 `exp-run-<study>-ID<run_id>.md`。
 - description `作業報告書 <study> ID<run_id>: <action> <model> — job <job_id> <state>`。
@@ -146,11 +148,6 @@ sai-link card wait <返った run_id> --job <job_id>
 ### 8. 終える
 
 `sai-link run finalize` を呼ぶ。`report` に、作業報告書のトークン・job_id・`started` の結果・review のカードの run_id を書く。
-
-## 完了の基準
-
-- Agent: スクリプトを投げて `started` を確かめ、作業報告書を保存し、ジョブ待ちの review のカードを作った。
-- User: なし
 
 ## やってはいけないこと
 

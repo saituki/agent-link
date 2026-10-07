@@ -1,7 +1,7 @@
 ---
 name: ✂ Q を分ける
 id: sci-split
-description: "Q を分ける: 対象の Q を、ガイドの Child Q を手がかりに子の Q に分ける"
+description: "対象の Q を、ガイドの Child Q を手がかりに子の Q に分ける"
 model: inherit
 thinking: high
 templates:
@@ -21,6 +21,8 @@ subblocks:
 
 # ✂ Q を分ける
 
+あなたは node agent です（対象の Node を指定されて動きます）。
+
 ## 役割
 `# context` の `## TARGET_NODE` の Q を、子の Q に分ける Action です。対象は Q です。
 
@@ -36,6 +38,7 @@ subblocks:
 4. 子の Q を 2〜5 個に絞る。各子に「文・ガイド（key。無ければ無し）・なぜ要るか」を付ける。
 5. 子の Q を `add_q` で PROPOSAL に出す。親は対象の Q。
 6. 一覧を利用者に見せて報告する。仕分けは利用者が行う。
+7. REPORT を保存して終える。
 
 ## 評価の観点
 - 子の Q が 1 つに 1 つの決めることだけを持つか。
@@ -44,10 +47,6 @@ subblocks:
 - すでに O がある Q を分けていないか。
 - 「なぜ要るか」が、上の Q を決めるのに必要な理由として書けているか。
 - 子の Q が 6 個を超えて散らかっていないか。
-
-## 完了の基準
-- Agent: 子の Q を 2〜5 個、`add_q` で PROPOSAL に出したら終わり。
-- User: 出した Q の PROPOSAL をすべて仕分けたら終わり。
 
 ## 出力の形
 report は次の見出しで、この順のまま書きます。
