@@ -94,6 +94,7 @@ pub mod error;
 pub mod herdr;
 pub mod parser;
 pub mod pi_command;
+pub mod target_node;
 pub mod validation;
 
 pub mod agent_api;

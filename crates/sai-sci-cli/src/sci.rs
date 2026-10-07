@@ -621,6 +621,32 @@ pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result
     Ok(SearchRefs { node: Some(id) })
 }
 
+/// 環境変数 `SAI_TARGET_NODE` の Node（検索の記録の結び先）。
+///
+/// 無い・空なら `None`。形が違う・Node が無い・消えている・research-tree が無いときは、
+/// 検索そのものを止めず、標準エラーに 1 行出して `None` にする。
+pub(crate) fn target_node_from_env(conn: &Connection) -> Option<i64> {
+    let raw = std::env::var("SAI_TARGET_NODE").ok()?;
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let found = store::is_initialized(conn)
+        .ok()
+        .filter(|ready| *ready)
+        .and_then(|_| rt::parse_id(text).ok())
+        .and_then(|(kind, id)| {
+            store::get_node_of(conn, kind, id)
+                .ok()
+                .filter(|row| row.removed_at.is_none())
+                .map(|_| id)
+        });
+    if found.is_none() {
+        eprintln!("SAI_TARGET_NODE の {text} はありません。検索を Node に結びません");
+    }
+    found
+}
+
 /// 検索の記録に残す内容（`find` / `search` で同じものを使う）。
 pub(crate) struct SearchLog<'a> {
     /// 検索が結び付いた Node。

@@ -76,6 +76,7 @@ fn test_config() -> PipelineConfig {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
+        target_node: None,
         runner: sai_link_engine::runner::RunnerKind::Pi,
     }
 }
@@ -209,6 +210,7 @@ fn test_pipeline_config_from_parsed_block() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
+        target_node: None,
         runner: sai_link_engine::runner::RunnerKind::Pi,
     };
 
@@ -264,6 +266,7 @@ fn test_pipeline_config_all_fields_set() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
+        target_node: None,
         runner: sai_link_engine::runner::RunnerKind::Pi,
     };
 

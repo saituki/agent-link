@@ -156,12 +156,12 @@ enum Cmd {
     },
     /// state.md と tree.md を書き出す
     Export,
-    /// 内部を検索し、research-tree の Node に結び付けて記録する（論文の検索は sai-paper が行う）
+    /// 内部を検索する。環境変数 `SAI_TARGET_NODE` があれば、その Node に記録を結ぶ（論文の検索は sai-paper が行う）
     Find {
         #[command(flatten)]
         args: find_search::FindArgs,
     },
-    /// 論文を検索し、research-tree の Node に結び付けて記録する（検索は sai-paper が行う）
+    /// 論文を検索する。環境変数 `SAI_TARGET_NODE` があれば、その Node に記録を結ぶ（検索は sai-paper が行う）
     Search {
         #[command(flatten)]
         args: find_search::SearchArgs,
