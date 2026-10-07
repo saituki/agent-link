@@ -307,10 +307,15 @@ pub fn resolve_md_path(report: &Report) -> Option<PathBuf> {
     if stored.is_file() {
         return Some(stored.to_path_buf());
     }
-    let run_id: i64 = report.run_id.as_deref()?.trim().parse().ok()?;
-    let filename = stored.file_name()?;
     let root = sai_paper_core::paths::project_root()?;
-    let runs = crate::link::runs(&root).ok()?;
+    resolve_md_path_in(report, &root)
+}
+
+/// [`resolve_md_path`] の run 一覧から探す部分（project の root を引数で取る）。
+fn resolve_md_path_in(report: &Report, root: &Path) -> Option<PathBuf> {
+    let run_id: i64 = report.run_id.as_deref()?.trim().parse().ok()?;
+    let filename = Path::new(&report.md_path).file_name()?;
+    let runs = crate::link::runs(root).ok()?;
     let run = runs.into_iter().find(|run| run.run_id == run_id)?;
     let candidate = run.dir?.join(filename);
     candidate.is_file().then_some(candidate)
@@ -1367,8 +1372,11 @@ mod tests {
             run_id: Some("0042".into()),
             ..Default::default()
         };
-        // 実在しないので None（project_root が無い環境でも panic しない）
-        assert!(resolve_md_path(&report).is_none());
+        // 実在しないので None。root は一時フォルダにする
+        // （本物の root だと偽の sai-link が `.fake-link/` を書いてしまう）
+        let root = temp_root("md-fallback");
+        assert!(resolve_md_path_in(&report, &root).is_none());
+        let _ = std::fs::remove_dir_all(&root);
         Ok(())
     }
 
