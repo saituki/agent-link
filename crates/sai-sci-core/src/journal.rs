@@ -13,7 +13,7 @@
 //! - `activity_log.occurred_at` / `reading_history.opened_at` /
 //!   `understanding.created_at` は `2026-09-24 00:58:38`（SQLite の
 //!   `CURRENT_TIMESTAMP` = UTC）。
-//! - `search_sets.searched_at` は `2026-09-23T21:49:41+09:00`（時差つき）。
+//! - `search_history.searched_at` は `2026-09-23T21:49:41+09:00`（時差つき）。
 //! - sai-link の実行の開始時刻などは `2026-09-25 06:01:02`
 //!   （`datetime('now')` = UTC）。
 //!
@@ -65,8 +65,6 @@ pub struct JournalDay {
 struct DayAccum {
     /// 検索クエリ（重複を残す。表示のときに束ねる）。
     searches: Vec<String>,
-    /// その日の再検索（rerun）で見つかった新着の数（クエリ → 件数、S03）。
-    searches_new: HashMap<String, usize>,
     /// `DL` した論文の番号。
     downloads: Vec<i64>,
     /// 番号が分からない `DL` の件数。
@@ -126,11 +124,7 @@ impl DayAccum {
         if !searches.is_empty() {
             let queries = searches
                 .iter()
-                .map(|query| match self.searches_new.get(query) {
-                    // S03: その日の rerun で新着があれば件数を添える。
-                    Some(new) => format!("\"{query}\"（新着 {new} 本）"),
-                    None => format!("\"{query}\""),
-                })
+                .map(|query| format!("\"{query}\""))
                 .collect::<Vec<_>>()
                 .join("、");
             lines.push(format!("検索 {} 回: {queries}", searches.len()));
@@ -248,7 +242,6 @@ fn collect_at(
     let report_ids = report_ids_by_path(conn, roots);
 
     gather_searches(conn, &mut days, from, to, offset)?;
-    gather_reruns(conn, &mut days, from, to, offset)?;
     gather_activity(conn, &mut days, from, to, offset, &report_ids)?;
     gather_reading(conn, &mut days, from, to, offset)?;
     gather_understanding(conn, &mut days, from, to, offset)?;
@@ -322,7 +315,7 @@ fn date_in_range(
     (date >= from && date <= to).then_some(date)
 }
 
-/// `search_sets` から検索の記録を集める。
+/// `search_history` から検索の記録を集める。
 fn gather_searches(
     conn: &Connection,
     days: &mut BTreeMap<NaiveDate, DayAccum>,
@@ -330,7 +323,7 @@ fn gather_searches(
     to: NaiveDate,
     offset: FixedOffset,
 ) -> std::result::Result<(), JournalError> {
-    let mut stmt = conn.prepare("SELECT COALESCE(searched_at, created_at), query FROM search_sets")?;
+    let mut stmt = conn.prepare("SELECT COALESCE(searched_at, created_at), query FROM search_history")?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
@@ -342,77 +335,6 @@ fn gather_searches(
         }
         if let Some(date) = date_in_range(&time, offset, from, to) {
             days.entry(date).or_default().searches.push(query.to_string());
-        }
-    }
-    Ok(())
-}
-
-/// `activity_log` の rerun（S03）から、その日の検索セットの新着を集める。
-///
-/// 同じ日に同じクエリの rerun が複数あれば、いちばん大きい新着の数を採る。
-fn gather_reruns(
-    conn: &Connection,
-    days: &mut BTreeMap<NaiveDate, DayAccum>,
-    from: NaiveDate,
-    to: NaiveDate,
-    offset: FixedOffset,
-) -> std::result::Result<(), JournalError> {
-    // set_id → クエリ（search_sets は rerun で `searched_at` を今に更新するので、
-    // ここでは元のクエリだけを引く）。
-    let mut queries: HashMap<i64, String> = HashMap::new();
-    {
-        let mut stmt = conn.prepare("SELECT id, query FROM search_sets")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
-        for row in rows {
-            let (id, query) = row?;
-            queries.insert(id, query);
-        }
-    }
-
-    let mut stmt = conn.prepare(
-        "SELECT detail, occurred_at FROM activity_log
-         WHERE kind = 'discover' AND detail LIKE '%\"rerun\"%'",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, Option<String>>(0)?,
-            row.get::<_, String>(1)?,
-        ))
-    })?;
-    for row in rows {
-        let (detail, occurred_at) = row?;
-        let Some(detail) = detail else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&detail) else {
-            continue;
-        };
-        if value.get("rerun").and_then(serde_json::Value::as_bool) != Some(true) {
-            continue;
-        }
-        let Some(set_id) = value.get("set_id").and_then(serde_json::Value::as_i64) else {
-            continue;
-        };
-        let Some(query) = queries.get(&set_id).filter(|query| !query.trim().is_empty()) else {
-            continue;
-        };
-        let new = value
-            .get("new")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0) as usize;
-        if new == 0 {
-            continue;
-        }
-        if let Some(date) = date_in_range(&occurred_at, offset, from, to) {
-            let entry = days
-                .entry(date)
-                .or_default()
-                .searches_new
-                .entry(query.clone())
-                .or_insert(0);
-            *entry = (*entry).max(new);
         }
     }
     Ok(())
@@ -1184,7 +1106,7 @@ mod tests {
         add_paper(conn, 37, "x");
         add_paper(conn, 40, "y");
         conn.execute(
-            "INSERT INTO search_sets (name, source_dbs, query, searched_at)
+            "INSERT INTO search_history (name, source_dbs, query, searched_at)
              VALUES ('s1', 's2', 'EEG preprocessing', '2026-09-25T09:00:00+09:00')",
             [],
         )?;
@@ -1223,42 +1145,6 @@ mod tests {
         );
         assert!(
             lines.iter().any(|line| line == "理解の確認: 前処理の違い = あいまい"),
-            "{lines:?}"
-        );
-
-        fs::remove_dir_all(&root).ok();
-        Ok(())
-    }
-
-    /// S03: その日に rerun の記録があれば、検索の行に新着の数を添える。
-    #[test]
-    fn rerun_new_count_is_added_to_search_line() -> Result<(), Box<dyn std::error::Error>> {
-        let root = temp_root("rerun");
-        let db = Database::in_memory()?;
-        let conn = db.connection();
-        conn.execute(
-            "INSERT INTO search_sets (id, name, source_dbs, query, searched_at)
-             VALUES (3, 'eeg', 's2', 'EEG preprocessing', '2026-09-25T09:00:00+09:00')",
-            [],
-        )?;
-        conn.execute(
-            "INSERT INTO activity_log (kind, detail, occurred_at)
-             VALUES ('discover', '{\"set_id\":3,\"rerun\":true,\"new\":5}', '2026-09-25 01:00:00')",
-            [],
-        )?;
-
-        let days = collect_at(
-            conn,
-            &roots_of(&root),
-            date(2026, 9, 25),
-            date(2026, 9, 25),
-            jst(),
-        )?;
-        let lines = &days[0].lines;
-        assert!(
-            lines
-                .iter()
-                .any(|line| line == "検索 1 回: \"EEG preprocessing\"（新着 5 本）"),
             "{lines:?}"
         );
 

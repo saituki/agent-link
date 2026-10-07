@@ -85,9 +85,6 @@ pub struct SearchArgs {
     /// DB ごとの生のクエリ
     #[arg(long)]
     pub raw_query: Option<String>,
-    /// 結果を名前付きの検索セットに保存する
-    #[arg(long)]
-    pub save_as: Option<String>,
     /// 検索した research-tree の Node の ID（`Q12`・`O5` など）
     #[arg(long)]
     pub node: Option<String>,
@@ -267,7 +264,6 @@ pub fn search(args: &SearchArgs) -> Result<()> {
     push_u16(&mut child_args, "--year-from", args.year_from);
     push_u16(&mut child_args, "--year-to", args.year_to);
     push_str(&mut child_args, "--raw-query", args.raw_query.as_deref());
-    push_str(&mut child_args, "--save-as", args.save_as.as_deref());
     child_args.push("--json".to_string());
 
     let out = crate::run_child(
@@ -296,22 +292,11 @@ pub fn search(args: &SearchArgs) -> Result<()> {
         .cloned()
         .unwrap_or_default();
 
-    // 何のための検索かを、履歴の行と、保存したセットの両方に書く。
+    // 何のための検索かを、履歴の行に書く。
     if let Some(fields) = sci::set_fields(&refs, args.purpose.as_deref(), args.extract.as_deref()) {
-        sai_paper_core::search_sets::set_sci_fields(conn, log_id, &fields)
+        sai_paper_core::search_history::set_sci_fields(conn, log_id, &fields)
             .context("検索に目的を書けませんでした")?;
-        if let Some(name) = &args.save_as
-            && let Ok(set) = sai_paper_core::search_sets::get_by_name(conn, name)
-        {
-            sai_paper_core::search_sets::set_sci_fields(conn, set.id, &fields)
-                .context("検索セットに目的を書けませんでした")?;
-        }
     }
-    let set_id = args
-        .save_as
-        .as_deref()
-        .and_then(|name| sai_paper_core::search_sets::get_by_name(conn, name).ok())
-        .map(|set| set.id);
 
     if refs.node.is_some() {
         let scope = format!("external:{source_dbs}");
@@ -324,7 +309,7 @@ pub fn search(args: &SearchArgs) -> Result<()> {
                 scope: &scope,
                 hits: items.len() as i64,
                 hit_papers: &[],
-                set_id,
+                set_id: None,
                 log_id: Some(log_id),
             },
         )?;

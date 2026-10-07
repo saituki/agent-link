@@ -62,7 +62,6 @@ fn list(json: bool) -> Result<()> {
         AttentionKind::StateUpdate,
         AttentionKind::RecommendCard,
         AttentionKind::ReportIssue,
-        AttentionKind::NewSetItems,
         AttentionKind::SciDecision,
         AttentionKind::SciTriage,
     ];
@@ -87,7 +86,6 @@ fn kind_heading(kind: AttentionKind) -> &'static str {
         AttentionKind::StateUpdate => "現況の更新案",
         AttentionKind::RecommendCard => "推薦の CARD",
         AttentionKind::ReportIssue => "出典の要確認",
-        AttentionKind::NewSetItems => "検索セットの新着",
         AttentionKind::SciDecision => "AWAITING_DECISION の ITEM",
         AttentionKind::SciTriage => "TRIAGE 待ちの PROPOSAL",
     }

@@ -13,7 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use rusqlite::Connection;
 use sai_paper_core::paths::{self, PaperRoots};
 use sai_sci_core::rt::{self, card, compute, context, defs, export, ops, store};
-use sai_paper_core::search_sets;
+use sai_paper_core::search_history;
 use sai_paper_core::{Config, Database, Paths};
 use serde_json::{Value, json};
 
@@ -637,7 +637,7 @@ pub(crate) struct SearchLog<'a> {
     pub hit_papers: &'a [i64],
     /// 作った検索セットの番号。
     pub set_id: Option<i64>,
-    /// その 1 回の検索の履歴（`search_sets` の行）の番号。
+    /// その 1 回の検索の履歴（`search_history` の行）の番号。
     pub log_id: Option<i64>,
 }
 
@@ -732,16 +732,16 @@ pub(crate) fn hit_paper_ids(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
     ids
 }
 
-/// 検索セットに何のための検索かを書く Fields を作る（1 つも無ければ `None`）。
+/// 検索履歴に何のための検索かを書く Fields を作る（1 つも無ければ `None`）。
 pub(crate) fn set_fields(
     refs: &SearchRefs,
     purpose: Option<&str>,
     extract: Option<&str>,
-) -> Option<search_sets::SciSetFields> {
+) -> Option<search_history::SciSetFields> {
     if refs.node.is_none() && purpose.is_none() && extract.is_none() {
         return None;
     }
-    Some(search_sets::SciSetFields {
+    Some(search_history::SciSetFields {
         node: refs.node,
         question: None,
         purpose: purpose.map(str::to_string),
