@@ -3,7 +3,7 @@
 ## 目的
 1. Mac で開発・テストした sai-tree を、Linux のサーバへ 1 本の命令（`deploy.sh`）で反映できるようにする。
 2. CI（`.github/workflows/ci.yml`）を、本番と同じ Linux で回すジョブと、sai-prep のテストを含む形にする。
-3. sai-tree の文書（`README.md`・`ARCHITECTURE.md`・`AGENTS.md`・`docs/`）を、headless・多人数モード・コンテナ・sai-prep の仕組みに合わせて書き直す。sai-moon から引き継いだ Mac 専用の文書（`docs/switch-over.md` など）を消す。
+3. sai-tree の文書（`README.md`・`ARCHITECTURE.md`・`AGENTS.md`・`docs/`）を、headless・多人数モード・コンテナ・sai-prep の仕組みに合わせて書き直す。sai-moon から引き継いだ Mac 専用の記述を消す。
 
 ## 背景
 - sai-tree は sai-moon を複製した Linux の多人数サーバ版である。ガイド 1〜5 の U01〜U14 で、herdr の削除・headless・Chats・アカウント・コンテナ・前処理の束・sai-prep ができている。
@@ -48,8 +48,8 @@
   - §8 に範囲外（要件定義書の一覧）を足す。§9 の経緯に「sai-moon から複製して sai-tree を作った」を 1 行足す。
 - `docs/integration.md`: API の表が U03・U05〜U13 で足した・消した住所と一致しているか確かめ、直す。新しい画面の住所（`#/login`・`#/password`・`#/account`・`#/admin`）を足す。
 - `docs/for-sai-developers.md`: herdr・承認・statusLine の記述を消し、C1（`state.json`）・C2（`run send` / `run interrupt`）・C3（フックと内部の合言葉）・C12（束）・C13 を足す（U02・U03 が足した物と重複しないように）。
-- `docs/glossary.md`: 「多人数モード」「単独モード」「headless」「擬似 pane」「内部の合言葉」「個人のトークン」「前処理の束」「sai-prep」「PDF 待ち」を足し、herdr・承認の語を消すか「sai-tree では使わない」と書く。
-- `docs/switch-over.md`（Mac の切り替えの手順書）・`docs/memo.md`・`docs/kaizen-plan-test-moon-260930.md`・日付の付いたメモ（`docs/2026*.md`）のうち sai-moon の Mac の運用だけの物を消す（消す前に中身を見て、sai-tree に要る記述があれば `docs/server.md` に移す。消した物を作業報告書に書く）。
+- `CONCEPT.md`（概念と用語・画面に出す専門用語の一覧。旧 `docs/glossary.md` を統合した物）: 「多人数モード」「単独モード」「headless」「擬似 pane」「内部の合言葉」「個人のトークン」「前処理の束」「sai-prep」「PDF 待ち」を足し、herdr・承認の語を消すか「sai-tree では使わない」と書く。
+- `docs/sai-sci.md`・`docs/sai-sci-tutorial.md`（research-tree の使い方と練習）の中の Mac・herdr・launchd を前提にした手順を、sai-tree の形（Web とコンテナ）に直す。`docs/` に sai-moon の Mac の運用だけの文書が残っていれば消す（消す前に中身を見て、sai-tree に要る記述があれば `docs/server.md` に移す。消した物を作業報告書に書く）。
 - `sai-sci/blocks/professor.md:155`・`professor-backward.md:173`・`operator.md:37`・`kaizen.md:68-69`・`sai-sci/template/sci-cli.md:67` の `sai-web approvals` / `approve` と `~/.sai/cc-cost` の案内を、sai-tree の形（承認は無い。費用は `sai-link usage` と Web の Usage）に直す。
 
 ## 共有契約（他の作業と共有する取り決め。worker は変えない）

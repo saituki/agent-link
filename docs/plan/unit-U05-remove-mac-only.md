@@ -29,7 +29,7 @@ Linux サーバでは動かない・意味の無い Mac 専用の機能を sai-t
 5. `docs/integration.md:216-220`・`:389-390` の遠隔ブラウザの記述を消す。
 
 ### 2. launchd を消す
-- `apps/web/launchd/` を消す。`apps/web/src/sai_web/config.py:44` のコメント（launchd の話）を直す。文書（README・ARCHITECTURE・AGENTS・`docs/switch-over.md`）は U15 が書き直すので、この作業では触らない。
+- `apps/web/launchd/` を消す。`apps/web/src/sai_web/config.py:44` のコメント（launchd の話）を直す。文書（README・ARCHITECTURE・AGENTS・`CONCEPT.md`）は U15 が書き直すので、この作業では触らない。
 
 ### 3. キーチェーンを消す
 - `paths.rs` の上の範囲を消す。`load_project_dotenv` は `dotenvy::from_path(base)` だけを呼ぶ形にする。使われなくなる import（`dotenvy::from_read_override` など）を整理する。`paper.env` の普通の `KEY=value` は今のまま読む。
@@ -47,7 +47,7 @@ Linux サーバでは動かない・意味の無い Mac 専用の機能を sai-t
 
 ## ファイルの所有権
 - 書いてよい: `apps/web/src/sai_web/rbrowser.py`（消す）・`main.py`（遠隔ブラウザの部分だけ）・`papers.py`（遠隔ブラウザの部分だけ）・`usage.py`・`config.py`（コメントだけ）・`static/rbrowser.js`・`rbrowser.css`（消す）・`static/papers.js`（2 か所だけ）・`static/usage.js`・`static/index.html`・`static/sw.js`・`apps/web/tests/test_rbrowser.*`（消す）・`test_papers_translate.py`（新規）・`test_usage.py`・`apps/web/launchd/`（消す）・`crates/sai-paper-core/src/paths.rs`・`crates/sai-paper-cli/src/main.rs`（1 行だけ）・`docs/integration.md`
-- 触らない: README・ARCHITECTURE・AGENTS・`docs/switch-over.md`（U15 が書く）
+- 触らない: README・ARCHITECTURE・AGENTS・`CONCEPT.md`（U15 が書く）
 
 ## 完了条件
 - [ ] AC1: `grep -rn "rbrowser\|rbOpenHash" apps/web` が 0 件。`apps/web/launchd/` が無い。`grep -n "security\|keychain" crates/sai-paper-core/src/paths.rs` が 0 件。`grep -rn "cc_limits\|cc-rate-limits\|usageCcCard" apps/web` が 0 件。
