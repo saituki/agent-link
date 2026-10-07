@@ -1,4 +1,4 @@
-"""研究の `sai-sci …` と、検索セットの `sai-paper set …` を中継する。
+"""研究の `sai-sci …` を中継する。
 
 中の処理は Rust のコア、窓口は apps/web だけ（AGENTS.md の「設計」）。
 ここでは中の処理をせず、DB（`papr.db` など）を開くこともしない。
@@ -419,19 +419,6 @@ def _sci_cli(project: dict, args: list[str], timeout: float, input_text: str | N
     return cli.run_json(
         [settings.sai_sci_bin, *args],
         app="sai-sci",
-        cwd=root,
-        env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
-        timeout=timeout,
-        input_text=input_text,
-    )
-
-
-def _paper_cli(project: dict, args: list[str], timeout: float, input_text: str | None = None):
-    """sai-paper の CLI を呼ぶ（検索セットだけが使う）。"""
-    root = str(project["root"])
-    return cli.run_json(
-        [settings.sai_paper_bin, *args],
-        app="sai-paper",
         cwd=root,
         env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         timeout=timeout,

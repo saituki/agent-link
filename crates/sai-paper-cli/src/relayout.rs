@@ -1933,7 +1933,7 @@ fn merge_papers(transaction: &Connection, db: &Database, merge: &MergePlan) -> R
         params![small, big],
     )?;
 
-    // 索引（チャンク）と検索セット
+    // 索引（チャンク）と検索履歴の候補
     transaction.execute(
         "UPDATE chunks SET paper_id = ?1 WHERE paper_id = ?2",
         params![small, big],

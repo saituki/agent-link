@@ -451,7 +451,7 @@ fn actor_json(executer: &str, run_id: Option<i64>) -> Value {
 
 /// 内部検索の履歴 1 件を、使い回しの JSON（C-2）にする。
 ///
-/// `phone find`（検索直後）と `phone find-log`（過去の履歴）で共用。
+/// `phone find`（検索直後）と `find-history`（過去の履歴）で共用。
 pub(crate) fn find_history_json(
     conn: &rusqlite::Connection,
     row: &find_history::FindLogRow,
@@ -740,7 +740,7 @@ mod tests {
         assert_eq!((actor["kind"].as_str(), actor["run_id"].as_i64()), (Some("agent"), Some(9)));
     }
 
-    /// 内部検索の履歴: `find-log` は人と agent を見分け、`find_groups` は新しい順に並ぶ。
+    /// 内部検索の履歴: `find-history` は人と agent を見分け、`find_groups` は新しい順に並ぶ。
     #[test]
     fn find_history_view_distinguishes_human_and_agent() {
         use super::find_history_view;

@@ -161,7 +161,7 @@ pub fn append_items(
 /// DB エラーの場合。
 pub fn list(conn: &Connection) -> Result<Vec<SearchLog>, SearchHistoryError> {
     let mut stmt = conn.prepare(
-        // 検索語が空（CLI・エージェントが作った検索セットは名前だけ）のときは、
+        // 検索語が空（廃止した名前付きのセットの行は名前だけ）のときは、
         // 名前のまま出す（Library 階層表示・QUERY 画面・phone が同じ値を共有する）。
         "SELECT id, COALESCE(searched_at, created_at), COALESCE(log_date, ''),
                 COALESCE(NULLIF(query, ''), name), year,

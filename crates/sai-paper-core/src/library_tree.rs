@@ -405,7 +405,7 @@ mod tests {
         Ok(())
     }
 
-    /// 検索語が空で名前だけある記録（名前だけの旧検索セット由来の行）は、
+    /// 検索語が空で名前だけある記録（廃止した名前付きのセットの行）は、
     /// 階層表示の `query` に名前が出る（sai-phone の `(検索)` を出さない）。
     #[test]
     fn build_groups_falls_back_to_name_when_query_is_empty()

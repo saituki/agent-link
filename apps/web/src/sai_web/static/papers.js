@@ -21,7 +21,7 @@
 
 // --- 定数 ---
 
-// Papers の上部の切り替え（07 §4.1・U14 で 5 つにし、検索セットを消して 4 つ）。押すと該当の # へ移る。
+// Papers の上部の切り替え（07 §4.1・U14 で 4 つ）。押すと該当の # へ移る。
 const PAPERS_SEG = [
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["library", "Library", "#/papers/library"],

@@ -11,7 +11,7 @@
 //! `sai_paper_core::bibtex::load_bibtex_dir_detailed`）なので、Web で足した .bib は
 //! TUI にもそのまま出る。PDF の登録は TUI と同じ
 //! `sai_paper_core::downloads::register_downloaded_pdf` を使う（Download が 2 か所に
-//! 増えないように）。検索セットへの紐付け・プラグイン通知・図抽出のパイプラインなど
+//! 増えないように）。検索履歴の候補への紐付け・プラグイン通知・図抽出のパイプラインなど
 //! 画面固有の処理は行わない（`phone after-download` が別コマンドで担当する）。
 
 use std::io::Read as _;

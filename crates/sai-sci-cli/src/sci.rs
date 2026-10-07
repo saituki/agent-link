@@ -661,7 +661,7 @@ pub(crate) struct SearchLog<'a> {
     pub hits: i64,
     /// 当たった論文の番号。
     pub hit_papers: &'a [i64],
-    /// 作った検索セットの番号。
+    /// 使わない（常に `None`。廃止した検索セットの番号の列 `rt_searches.set_id`）。
     pub set_id: Option<i64>,
     /// その 1 回の検索の履歴（`search_history` の行）の番号。
     pub log_id: Option<i64>,
