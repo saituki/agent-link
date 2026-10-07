@@ -53,7 +53,9 @@ const FIXED_FM_KEYS: [&str; 13] = [
 /// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
 /// - `after_job`: ジョブが終わったら常駐が実行する todo のカード
 /// - `executer`: カードの起動者（`human` / `agent`）。既定は `human`
-const META_FM_KEYS: [&str; 4] = ["source_doc", "scheduled_at", "after_job", "executer"];
+/// - `target_node`: 子 task が親から受け継いだ research-tree の Node（sai-link が書く）
+const META_FM_KEYS: [&str; 5] =
+    ["source_doc", "scheduled_at", "after_job", "executer", "target_node"];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
 const LEGACY_FM_KEYS: [&str; 2] = ["origin_run_id", "origin_block"];
