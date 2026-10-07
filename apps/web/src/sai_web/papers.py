@@ -205,6 +205,18 @@ def text(project: dict, paper_id: int) -> dict:
     return {"id": data.get("id", paper_id), "text": data.get("text") or ""}
 
 
+def chunks(project: dict, paper_id: int) -> dict:
+    """論文の全チャンク（`content chunks <id> --json`）。"""
+    data = _paper_cli(project, ["content", "chunks", str(paper_id), "--json"], timeout=60.0)
+    if not isinstance(data, dict) or not isinstance(data.get("chunks"), list):
+        raise HTTPException(status_code=502, detail="sai-paper の応答を読めませんでした")
+    return {
+        "paper_id": data.get("paper_id", paper_id),
+        "title": data.get("title") or "",
+        "chunks": data["chunks"],
+    }
+
+
 def dashboard(project: dict) -> dict:
     """Dashboard（`dashboard`・数字カードと Radio の出来事を混ぜた出来事の一覧）。"""
     return _paper_cli(project, ["dashboard"])

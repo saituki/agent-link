@@ -445,7 +445,9 @@ fn build(conn: &Connection, data_dir: &Path, paper_id: i64, force: bool) -> Resu
     if !force && built_sha(conn, paper_id)?.as_deref() == Some(sha.as_str()) {
         return Ok(BuildState::Fresh);
     }
-    let sections = build_from_markdown(&String::from_utf8_lossy(&bytes));
+    let sections = build_from_markdown(&crate::citation::docling::strip_figure_images(
+        &String::from_utf8_lossy(&bytes),
+    ));
 
     let tx = conn.unchecked_transaction()?;
     for table in ["paper_passages", "paper_sections", "paper_section_builds"] {

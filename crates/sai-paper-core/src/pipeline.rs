@@ -43,10 +43,8 @@ pub async fn extract_figures(db_file: &Path, paper_id: i64) -> Result<usize, Str
     crate::jobs::run(db_file, "figures", Some(paper_id), || async {
         let db = Database::open(db_file).map_err(|e| format!("DB open error {e}"))?;
         let (_, pdf) = paper_pdf(&db, paper_id)?;
-        let key = db
-            .citation_key_for_paper(paper_id)
-            .map(|raw| crate::citation::normalize_paper_id(&raw))
-            .ok_or_else(|| "抽出キーが決まりません（DOI / arXiv ID が無い）".to_string())?;
+        let key = crate::figures::figure_key_for_paper(db.connection(), paper_id)
+            .map_err(|e| e.to_string())?;
         let paper_dir = pdf.parent().map(Path::to_path_buf).unwrap_or_default();
         crate::figures::extract_figures(
             db.connection(),
@@ -163,15 +161,15 @@ pub fn pending_after_download(db: &Database, paper_id: i64) -> (bool, bool) {
     let Ok((_, pdf)) = paper_pdf(db, paper_id) else {
         return (false, false);
     };
-    let key = db
-        .citation_key_for_paper(paper_id)
-        .map(|raw| crate::citation::normalize_paper_id(&raw));
-    let figures_done = crate::figures::get_figure_extract_for(db.connection(), Some(paper_id), key.as_deref())
+    let Ok(key) = crate::figures::figure_key_for_paper(db.connection(), paper_id) else {
+        return (false, false);
+    };
+    let figures_done = crate::figures::get_figure_extract_for(db.connection(), Some(paper_id), Some(&key))
         .ok()
         .flatten()
         .is_some_and(|extract| matches!(extract.status.as_str(), "ready" | "empty"));
     let translated = crate::paths::translated_pdf_path(&pdf.to_string_lossy()).is_some();
-    (!figures_done && key.is_some(), !translated)
+    (!figures_done, !translated)
 }
 
 /// 節の表を作る（設定があれば要約も）。失敗は通知だけにして、あとの処理を止めない。

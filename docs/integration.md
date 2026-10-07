@@ -192,6 +192,7 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/papers/browser/import` | 保存した PDF の取り込み（202・body は `manual/import` と同じ対象のどれか 1 つ＋ `file_name`・404 / 409 / 413） | `sai-paper paper import-pdf …` → `paper after-download` |
 | `DELETE /api/projects/{name}/papers/browser` | Chrome を終える（`{"open": false}`） | （Chrome を直接操作） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/text` | 本文（Markdown） | `sai-paper content paper <id> --json` |
+| `GET /api/projects/{name}/papers/{paper_id:int}/chunks` | 論文の全チャンク（`#論文.章.段落` の段落）。字数の上限なし・章番号、段落番号の昇順。論文が無い・本文がまだ取り出されていないときは 404。返す JSON: `{"paper_id": 57, "title": "題名", "chunks": [{"id": "#57.3.2", "section": "#57.3", "heading": "3 Method", "text": "本文", "n_sentences": 4}]}` | `sai-paper content chunks <id> --json` |
 | `GET /api/projects/{name}/papers/{paper_id:int}/pdf?lang=ja` | PDF（`lang=ja` で日本語訳・パスがそのプロジェクトの root 外なら 404） | `sai-paper paper show <id>` の `files` のパスを読む |
 | `GET /api/projects/{name}/papers/dashboard` | Dashboard（数字カードと出来事） | `sai-paper dashboard` |
 | `PUT /api/projects/{name}/papers/{paper_id:int}/note` | ノートの保存（body `{"text"}`・100KB まで） | `sai-paper paper note <id>`（標準入力） |

@@ -745,7 +745,8 @@ fn chunk_paragraph(
             continue;
         }
 
-        let markdown_content = std::fs::read_to_string(&md_path)?;
+        let markdown_content =
+            crate::citation::docling::strip_figure_images(&std::fs::read_to_string(&md_path)?);
         let paragraphs = split_markdown_paragraphs(&markdown_content);
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -852,7 +853,8 @@ fn chunk_section(
             continue;
         }
 
-        let markdown_content = std::fs::read_to_string(&md_path)?;
+        let markdown_content =
+            crate::citation::docling::strip_figure_images(&std::fs::read_to_string(&md_path)?);
 
         // 埋め込みの先頭に付ける分だけ、塊の上限を狭める（最大 60 トークン）。
         let groups = split_markdown_sections(&markdown_content, max_tokens, |section| {

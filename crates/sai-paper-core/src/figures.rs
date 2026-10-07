@@ -357,6 +357,18 @@ pub fn extract_key_for_paper(
         .filter(|k| !k.trim().is_empty()))
 }
 
+/// 図の抽出に使うキー。`extract_key_for_paper` が無ければ `paper:<papers.id>`。
+/// 論文の識別子（s2・arXiv・DOI）が無くても図を抽出できるようにする。
+///
+/// extract.md を探すキーには使わない（`paper:<id>` を混ぜると探索が壊れる）。
+///
+/// # Errors
+///
+/// SQLite エラー。
+pub fn figure_key_for_paper(conn: &Connection, papers_id: i64) -> Result<String, FigureError> {
+    Ok(extract_key_for_paper(conn, papers_id)?.unwrap_or_else(|| format!("paper:{papers_id}")))
+}
+
 /// PAPER 画面が必要とする図の表示状態を返す。
 ///
 /// 「未抽出」と「抽出済みだが 0 件」を区別する。
@@ -696,6 +708,16 @@ mod tests {
             extract_key_for_paper(&conn, 1).unwrap().as_deref(),
             Some("ff312b6027d012403760c288fd6531145006cb9f")
         );
+    }
+
+    #[test]
+    fn figure_key_falls_back_to_papers_id() {
+        let conn = setup();
+        conn.execute("INSERT INTO papers (id, title) VALUES (7, 'No ids')", []).unwrap();
+        assert_eq!(extract_key_for_paper(&conn, 7).unwrap(), None);
+        assert_eq!(figure_key_for_paper(&conn, 7).unwrap(), "paper:7");
+        conn.execute("UPDATE papers SET arxiv_id = '2401.00001' WHERE id = 7", []).unwrap();
+        assert_eq!(figure_key_for_paper(&conn, 7).unwrap(), "ArXiv:2401.00001");
     }
 
     #[test]
