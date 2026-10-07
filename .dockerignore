@@ -1,0 +1,25 @@
+# `sai-tree` のイメージをビルドするとき、文脈（リポジトリの直下）から外す物。
+# イメージの中身（実行ファイル・フック・拡張）には要らない。
+
+# Rust のビルド生成物（イメージの中で作り直す）
+target
+**/target
+
+# このプロジェクト自身のデータ・作業中のフォルダ
+.sai
+.worktrees
+
+# Python の仮想環境
+apps/web/.venv
+apps/radio/.venv
+
+# Radio が持つデータ（イメージには要らない）
+apps/radio/src/data
+
+# sai-prep（サーバでは動かさない）
+apps/prep
+
+# 版の管理・Node の部品
+.git
+node_modules
+**/node_modules
