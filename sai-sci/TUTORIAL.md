@@ -126,7 +126,7 @@ RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）�
 Dashboard / Library / Import / Radio
 ```
 
-research-tree は **研究** タブにあります。**研究方針** を押すと、research-tree の画面（`#/research/tree`）になります。
+research-tree は **研究** タブにあります。先頭の **research-tree** を押すと、research-tree の画面（`#/research/tree`）になります。もう 1 つのタブは **Experiments**（実験の記録）です。
 
 > research-tree がまだ無いプロジェクトでは「research-tree がまだありません」と出ます。**始める** を押して RESEARCH_TYPE を選ぶと、`sai-sci init` と同じことが行われます。古い形の research-tree だけがあるプロジェクトでは「古い形の research-tree です」と出ます。その場合は新しい research-tree を作り直します（`sai-sci/README.md` の 4.2 節）。
 
@@ -138,10 +138,9 @@ PC（横幅の広い画面）では次のように並びます。
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│ 研究方針 | Dashboard | Discover | Library | Radio          │ ← 論文タブの中のタブ
+│ research-tree | Experiments                                 │ ← 研究タブの中のタブ
 ├───────────────────────────────────────────────────────────┤
 │ SEED   ［？target］の［？data.type］で…                      │ ← A SEED
-│ 進み具合 2 / 25                                              │
 │ Next Action  ① … [Create CARD]  ② …  ③ …                    │ ← B Next Action
 │ PROPOSAL 0 | ⚠ 注意 0                                       │ ← C PROPOSAL・注意
 ├───────────────────────────────────────────────────────────┤
@@ -160,7 +159,6 @@ iPhone（横幅の狭い画面）では A〜D が縦に並び、Node を押す�
 | 場所 | 何が出るか | いつ変わるか |
 |---|---|---|
 | A SEED | 研究の初期の入力（RESEARCH_TYPE と `mind.md`）。決まっていない所は［？…］（橙色の点線）で出る。押すと SEED の欄が開き、「Create SPROUT」釦で作成パネルを開き、「Add PATH」で PATH（O）を選んで SPROUT を作る | `mind.md` を直すと変わる |
-| 進み具合 | 答えが出た Q の数 / 全部 | ★ を付ける・Q を足すと変わる |
 | B Next Action | 今やるとよい Action の先頭 3 件。「Create CARD」で CARD のフォームが開く | 何かを変えるたび |
 | C PROPOSAL・注意 | PROPOSAL の数。押すと Node を選んだ右の板の PENDING の節が出る。⚠ は research-tree の決まりに合わない所 | Action が終わる・PROPOSAL が来ると変わる |
 | D 左の一覧 | Q・O・F・E の Node。O には ★ と Answer / Issue の札が付く | 何かを変えるたび |
@@ -220,7 +218,7 @@ SEED の下に並ぶ top_Q を child_Q に分けます。
 1. Q の板の **Q を足す** を押します（親は Q か O）。
 2. 文（必須・300 字まで）を書いて送ります。画面に「Q を足しました」と出ます。
 
-**画面のどこが変わるか**: 一覧に child_Q が増え、進み具合の全部の数が変わります。エージェントが出した Q の案は PROPOSAL の PENDING に入ります（⑫）。
+**画面のどこが変わるか**: 一覧に child_Q が増えます。エージェントが出した Q の案は PROPOSAL の PENDING に入ります（⑫）。
 
 ---
 
@@ -240,13 +238,13 @@ Q への答えの案（O）を足します。
 
 ## 6. 論文を集める（検索と選別）
 
-### 6.1 Discover で検索して Library に入れる
+### 6.1 Library で検索して取り込む
 
-1. **論文** タブ → **Discover** を押します。
-2. 検索の欄に `seizure prediction EEG deep learning` と入れて **検索** を押します。
+1. **論文** タブ → **Library** を押します。
+2. 上の検索の欄に `seizure prediction EEG deep learning` と入れて **検索** を押します。
    - 「条件 ▸」を押すと、検索先・年・件数を変えられます。
 3. 結果の一覧から、読めそうな論文を 1 つ押し、**⬇ ダウンロード** を押します。1 分ほどかかります。
-4. **Library** を押すと、入った論文が並んでいます。
+4. 入った論文は Library の一覧に並びます。
 
 **論文の番号の調べ方**: Library で論文を押すと、住所が `…/#/paper/sci-practice/1` のようになります。**最後の数字（この例では 1）がその論文の番号**です。以下では、この論文を「#1」と呼びます。
 
@@ -295,7 +293,7 @@ Answer の O のうち、研究の道として採る物に ★ を付けます�
 
 比べるときは、Q の Next Action の「O を比べる」から `sci-compare` の CARD を作ると手伝ってくれます。`mind.md` の `VALUE_AXES` に書いた軸が、比べるときの軸になります。
 
-**画面のどこが変わるか**: 上の SEED の文に、★ の O が入ります。進み具合も増えます。
+**画面のどこが変わるか**: 上の SEED の文に、★ の O が入ります。
 
 ---
 
@@ -344,7 +342,7 @@ Q の答えの理路が通っているかを確かめて、記録します。
 
 STAR_PATH がそろったら、実験の計画（SPROUT）を作ります。
 
-1. 研究方針の画面で SEED の欄を押します（上の帯の **Create SPROUT** 釦でも始められます）。
+1. research-tree の画面で SEED の欄を押します（上の帯の **Create SPROUT** 釦でも始められます）。
 2. **Create SPROUT** を押すと、History と DAG の間に作成パネルが出ます。題（必須）と本文（任意）を書きます。
 3. 作成パネルを出したまま、DAG の札や左の一覧で **O** を選びます。右の板で内容を確かめ、加えるなら **Add PATH** を押します（外すときは **Delete PATH**）。解きたい Issue の O と、前提にする Answer の O を選びます（複数選べます）。Issue の O を 1 つ以上含めてください。PATH の終点になれるのは O だけです。
 4. 選んだ PATH（終点の O）がパネルに `O15 Issue …` の形で並ぶので、「この組み合わせでよいか」を確かめます。DAG では、加えた O の札に破線の枠が付きます。
@@ -390,7 +388,7 @@ STAR_PATH がそろったら、実験の計画（SPROUT）を作ります。
 
 | 欄 | 中身 |
 |---|---|
-| 要対応 | あなたの判断が要る物。押すと研究方針のその場所が開く |
+| 要対応 | あなたの判断が要る物。押すと research-tree のその場所が開く |
 | 現況 | research-tree から書き出した `state.md` |
 | 考え | `mind.md`（あなたが書く研究の土台。ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES など） |
 | メモ | 1 行のメモを足せる |
@@ -423,7 +421,7 @@ research-tree を変える命令は、1 行の JSON を `sai-sci apply` に渡�
 echo '{"op":"add_o","q":"Q2","text":"発作の予知","kind":"answer"}' | sai-sci apply
 ```
 
-`{"op":"add_o","result":"O1"}` のような JSON が出たら成功です。ブラウザの研究方針の画面で再読み込みすると、Q2 の下に O が増えています。
+`{"op":"add_o","result":"O1"}` のような JSON が出たら成功です。ブラウザの research-tree の画面で再読み込みすると、Q2 の下に O が増えています。
 
 ### エージェントの PROPOSAL をまねる
 
@@ -492,11 +490,11 @@ rm -rf ~/research/sci-practice
 
 ## 確かめの一覧（全部に印が付けば完了）
 
-- [ ] 練習用プロジェクトを作り、Web の研究方針の画面が開いた（②）
+- [ ] 練習用プロジェクトを作り、Web の research-tree の画面が開いた（②）
 - [ ] 上の帯（SEED・Next Action・PROPOSAL）・一覧・research-tree・板の場所が分かった（③）
 - [ ] Q を足した（④）
 - [ ] O を 2 つ足した（⑤）
-- [ ] Discover で論文を 1 本入れ、番号を調べた。Library の **Paper** で番号を確かめた（⑥）
+- [ ] Library の検索で論文を 1 本入れ、番号を調べた。Library の **Paper** で番号を確かめた（⑥）
 - [ ] READ_CARD を作り、F を足し、終えた。Objectivity の本数が増えた（⑦）
 - [ ] 数字だけで出典の無い F が断られた（⑦）
 - [ ] O に ★ を付け、SEED の文に入った（⑧）

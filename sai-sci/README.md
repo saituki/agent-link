@@ -13,7 +13,7 @@ research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state
 
 ## 1. sai-sci とは
 
-- **research-tree の正は `papr.db`** です。Q・O・F・E・PROPOSAL・SEED などは `sci_` で始まる表の中にあります。
+- **research-tree の正は `papr.db`** です。Q・O・F・E・PROPOSAL・SEED などは `rt_` で始まる表の中にあります。
 - **`state.md` と `tree.md` は書き出し**です。手で直しても次の書き出しで消えます。
 - **research-tree の骨組みは RESEARCH_TYPE が決めます。** RESEARCH_TYPE（5 本）は、SEED の下に並ぶ top_Q から下へ伸びる Q の階層の雛形です。
 - **エージェントは PROPOSAL を出すだけです。** research-tree に直接書き込む処理は入れません。
@@ -96,11 +96,11 @@ Q ごとに、2 つの目で進み具合を見る。
 sai-sci/
 ├── types/      # RESEARCH_TYPE 5 本（problem・phenomenon・method・data・improve）
 ├── guides/     # ガイド 25 ファイル（Q の文・Child Q・Extract・Pitfall・目安）
-├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sci-task・sci-cli と debate-participant の 14 本
+├── template/   # sci-core・sci-find・sci-match・bw-core・exp-core・exp-run・exp-ref・sim-core・data-core・stat-core・sai-agent・sci-task・sci-cli・debate-participant と、分野の観点 domain-general・domain-medical・domain-signal-ml の 17 本
 ├── mind.md     # 研究の土台（mind.md）のひな形
 ├── tools/      # 実験ループの道具: 台帳 exp_summary.py・実行先への分配器 exp_exec.py・参照コードを探す/取る/読む/出典を確かめる道具 refcode.py・ModelDB のカタログ modeldb.py・データ分析の検査と記録 data_result.py と写し（K-Dense の EDA `eda/` と生体信号の CLI `biosignal/`）と、そのテスト（`sai-sci init` が <root>/.sai/tools/ へ配る）
 ├── exec/       # 実行先の見本: local（この PC・有効）・ssh（Linux の PC・無効の見本）・dok（さくらの高火力 DOK・課金あり・無効の見本）・_example（雛形）。`sai-sci init` が <root>/.sai/exec/ へ配る
-└── blocks/     # 33 本のブロック（役 4 本 + sci 27 本 + 議論の 2 本）
+└── blocks/     # 32 本のブロック（役 4 本 + sci 26 本 + 議論の 2 本）
 ```
 
 ### 3.1 RESEARCH_TYPE（5 本）
@@ -163,12 +163,12 @@ sai-sci/
 | `novelty.diff` | NOVELTY_DIFF | `novelty` |
 | `phenomenon` | PHENOMENON | ― |
 
-### 3.3 33 本のブロック
+### 3.3 32 本のブロック
 
-`blocks/` の 33 本。`sai-sci init` が、これらを `sai-sci init --type <型>` や `sai-sci init --update` でプロジェクトの `.sai/blocks/` に配る。
+`blocks/` の 32 本。`sai-sci init` が、これらを `sai-sci init --type <型>` や `sai-sci init --update` でプロジェクトの `.sai/blocks/` に配る。
 
 - 役 4 本（`professor`・`professor-backward`・`operator`・`kaizen`）は、research-tree の外から research-tree を見る役（3.3.1 節）。
-- sci の 27 本は、research-tree の中で動く researcher。Action の種類で分ける。
+- sci の 26 本は、research-tree の中で動く researcher。Action の種類で分ける。
 
 | Action | ブロック | support |
 |---|---|---|
@@ -189,7 +189,7 @@ sai-sci/
 
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
-  |-- researcher（sci の 27 本。research-tree の Node に向けて働く）
+  |-- researcher（sci の 26 本。research-tree の Node に向けて働く）
   `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
 ```
 
@@ -201,12 +201,12 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも research-tree も直さない | `sai-agent` / `sci-task` / `sci-cli` | しない |
 | `sci-*` | 研究作業そのもの（読む・比べる・O を出す・考える・書く・探す・実験する） | `sci-core`（+ `sci-find`・`sci-match`・`exp-core`） | しない。CARD に書かれた作業だけ |
 
-- CARD の `executer` は起動者（`human` / `professor`）。`--executer agent` の CARD は人間が Web から起こせず、professor が `sai-link task create` の `card` で自分の子として起こす。
+- CARD の `executer` は起動者（`human` / `agent`。古い値 `professor` は `agent` として読む）。`--executer agent` の CARD は人間が Web から起こせず、professor が `sai-link task create` の `card` で自分の子として起こす。
 - 子からの質問は親の `sai-link task wait` に `stalled`（`reason: "question"`）で届き、`sai-web question` / `answer` で答える。Web で人間が先に答えた場合は 400 で断られる。
 - 完了は、子は `sai-link task report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai-link run finalize` に `report`。
 - 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai/operator-notes.md`（`SAI_HOME` があればその中）。
 
-### 3.4 template（14 本）と mind.md
+### 3.4 template（17 本）と mind.md
 
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。context の読み方、PROPOSAL の書き方、使える op、根拠の扱い、迎合しない姿勢。
 - **`template/sci-find.md`** — F を探すブロックの共通の決まり。
@@ -234,7 +234,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 
 ### 4.1 新しいプロジェクト
 
-Web の論文タブ →「研究方針」の「始める」で型を選ぶか、次を打つ。
+Web の Research タブの research-tree で「始める」を押して型を選ぶか、次を打つ。
 
 ```bash
 sai-sci init --type <型>
@@ -256,15 +256,15 @@ sai-sci init --type <型>
 
 | 入るもの | 置き場 |
 |---|---|
-| 33 本のブロック | `<root>/.sai/blocks/` |
-| template 14 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
+| 32 本のブロック | `<root>/.sai/blocks/` |
+| template 17 本（と各ブロックが使う `search-internal` などのテンプレ、`domain`） | `<root>/.sai/template/` |
 | 台帳 `exp_summary.py` と分配器 `exp_exec.py`・`refcode.py`・`modeldb.py`・`data_result.py`・写しの `eda/`・`biosignal/`（無いときだけ書く） | `<root>/.sai/tools/` |
 | 実行先の見本 `local`・`_example` など（無いときだけ書く） | `<root>/.sai/exec/` |
 | `.sai/settings.json` の `context`（実行直前に範囲を作る命令。無いときだけ書く） | `<root>/.sai/settings.json` |
 | `mind.md`（無いときだけ書く） | `<root>/.sai/paper/mind.md` |
 | 型とガイドの写し | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
 | 取得した参照コードと ModelDB のカタログ | `<sai_home>/refcode/`（`SAI_HOME` が無ければ `~/.sai`） |
-| research-tree | `papr.db` の `sci_*` の表 |
+| research-tree | `papr.db` の `rt_*` の表 |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/` |
 
 **手で足す設定はありません。** `init` だけで sci の設定が終わります。
@@ -279,25 +279,26 @@ sai-sci init --type <型>
 Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける ─▶ （答えが無ければ Issue）─▶ E
 ```
 
-画面（`#/papers/tree`）での操作:
+画面（`#/research/tree`）での操作:
 
 1. **Q を分ける** — Next Action の「Create CARD」から `sci-start`・`sci-split` を動かす。または板の「Q を足す」で自分で足す。
 2. **O を書く** — Q の板の「O を足す」、または `sci-ideate` の CARD。Answer か Issue かは O ごとに変えられる（「Answer / Issue を変える」）。
-3. **F を付ける** — 検索セットの選別（`#/papers/sets`）で論文を絞り、READ_CARD（`#/papers/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は自動で research-tree に入る。取り消したいときは Node を選んだ右の板の PENDING の節で revert で戻す。
+3. **F を付ける** — Library で論文を探し（検索セットの keep / drop はエージェントの `sci-screen` が `sai-paper set` で行う。Web に検索セットの画面は無い）、READ_CARD（`#/research/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は自動で research-tree に入る。取り消したいときは Node を選んだ右の板の PENDING の節で revert で戻す。
 4. **★ を付ける** — O の板の「★ を付ける」。★ を付けられるのは利用者だけ。比べるときは `sci-compare` が手伝う。
 5. **答えが無ければ Issue** — O を Issue にし、E（実験）を足す。実験の回し方は 5.5 節。
 
-### 5.2 Web の「研究方針」の画面
+### 5.2 Web の research-tree の画面
 
-論文タブの最初の画面が「研究方針」（`#/papers/tree`）。
+Research タブの最初の画面が research-tree（`#/research/tree`）。
 
-- 上の帯: 進み具合（答えが出た Q の数 / 全部）・Next Action（先頭 3 件）・PROPOSAL・注意。
+- 上の帯: **Next Action**（先頭 3 件。`[NO_CHILD_Q] Q24 sci-split「…」` の形で、右に Create CARD）・折りたたみの **History**（全 Node の履歴を古い順に。`sai-sci status` の `history[]`）・注意。
 - 左: Q・O・F・E・S（SPROUT）の一覧。
-- 真ん中: research-tree の図（下に ROOT（top_Q）、次に SEED の欄、上に SPROUT、さらに上に BRANCH（E））。SEED の欄を押すと RESEARCH_TYPE と `mind.md` の節が出る。Node を押すと `#/papers/tree/Q12` のように住所が変わり、詳細が「板」に出る。
-- 板: 見出し（Q は Objectivity と Logicality の札付き）・親までの道・PENDING の節（TRIAGE を行う）・操作の釦・Next Action・F・決定の記録など。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
-- TRIAGE: Node を選んだ右の板の PENDING の節で行う。
-- 検索セット: `#/papers/sets`（一覧）と `#/papers/sets/<set_id>`（候補を keep / drop で選別）。
-- READ_CARD: `#/papers/read/<run_id>`。
+- 真ん中: **DAG**（research-tree の図。下に ROOT（top_Q）、次に SEED の欄、上に SPROUT、さらに上に BRANCH（E））。SEED の欄を押すと RESEARCH_TYPE と `mind.md` の節が出る。Node を押すと `#/research/tree/Q12` のように住所が変わり、詳細が右の **SB**（サイドバー）に出る。SPROUT を押すと、その SPROUT に関係しない札と線が薄くなる。
+- SB: 見出し（Q は Objectivity と Logicality の札付き）・親までの道・PENDING の節（TRIAGE を行う）・操作の釦・Next Action・F・History など。何も選んでいないときは出ない。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
+- **Create SPROUT**: SEED の SB か上の帯の釦を押すと、History と DAG の間に作成パネルが出る。作成中も DAG・一覧・SB を操作でき、O の SB の **Add PATH** / **Delete PATH** で PATH（終点の O）を選ぶ。PATH は 1〜20 個で、Issue の O を 1 つ以上含める。
+- TRIAGE: Node を選んだ右の SB の PENDING の節で行う。
+- READ_CARD: `#/research/read/<run_id>`。
+- 検索セット: Web に画面は無い。keep / drop の選別は `sci-screen` ブロックが `sai-paper set` で行う。
 
 ### 5.3 sai-link がブロックを動かすとき
 
@@ -471,7 +472,7 @@ sai-link card run <返ってきた run_id>
 
 | 物 | 置き場 |
 |---|---|
-| research-tree（Q・O・F・E・PROPOSAL・SEED・検索の記録） | `papr.db`（`sci_` で始まる表） |
+| research-tree（Q・O・F・E・PROPOSAL・SEED・検索の記録） | `papr.db`（`rt_` で始まる表） |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/state.md` と `<root>/.sai/paper/tree.md` |
 | RESEARCH_TYPE（利用者全体） | `<sai_home>/sci/types/`（`SAI_HOME` があればその中） |
 | RESEARCH_TYPE とガイドの写し（プロジェクト） | `<root>/.sai/sci/types/` と `<root>/.sai/sci/guides/` |
@@ -510,7 +511,7 @@ sai-link card run <返ってきた run_id>
 | LINK | F の出典と、Action の記録 |
 | READ_CARD | READ_CARD（そのまま） |
 | TOMBSTONE | なし（論文を外す記録は持たない） |
-| ROOT_GRAPH / RUN_GRAPH | research-tree（下に伸びる図 1 つ）。実行の図は研究方針の画面から無くした |
+| ROOT_GRAPH / RUN_GRAPH | research-tree（下に伸びる図 1 つ）。実行の図は research-tree の画面から無くした |
 | SOIL（mind） | mind.md（研究の土台）。見出し（`## ORIGIN` など）は変わらない |
 
 型・ガイドの節の見出しは、新しい md に新しい見出し（`## Q`・`## Child Q`・`## Extract`・`## Pitfall`）だけを書きます。
@@ -544,7 +545,7 @@ sai-link card run <返ってきた run_id>
 
 ## 9. Canvas から移った人へ
 
-- **Canvas の画面と `sai-paper canvas` はありません。** 代わりに `#/papers/tree`（研究方針）と `sai-sci` を使います。
+- **Canvas の画面と `sai-paper canvas` はありません。** 代わりに `#/research/tree`（research-tree）と `sai-sci` を使います。
 - **今までの `.sai/paper/canvas/*.canvas` は消していません。** JSON Canvas 1.0 の形なので、他の道具（Obsidian など）で開けます。
 - **`paper-map` は report だけを出すようになりました。** Canvas を作る手順は外れています。
 - **古い paper-map の写し**（`<root>/.sai/blocks/paper-map.md`）には、無い命令が書いてあることがあります。8.2 節の手順で新しい写しにしてください。
