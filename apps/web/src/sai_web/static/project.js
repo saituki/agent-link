@@ -202,6 +202,8 @@ function renderProjects(list) {
     return;
   }
   box.innerHTML = "";
+  // 多人数モードでは一覧の上に「新しいプロジェクト」を出す（U11・共有契約 C9）
+  if (prjMultiUser()) box.appendChild(prjCreateBar());
   if (list.length === 0) {
     // まだ 1 つも無いときは、案内だけ出す
     const box2 = document.createElement("div");
@@ -235,6 +237,11 @@ function projectRowFacts(p) {
 
 function projectRow(p) {
   const facts = projectRowFacts(p);
+  // 多人数モードでは行の外に起動 / 停止のボタンを置くため、1 枚を包む
+  // （button の中に button は置けない・U11）
+  const item = document.createElement("div");
+  item.className = "proj-item";
+
   const btn = document.createElement("button");
   btn.className = "proj-row";
   // root か db が無い行は薄くして押せない（06 §4.1）
@@ -254,7 +261,10 @@ function projectRow(p) {
   const chev = document.createElement("span");
   chev.className = "proj-chev";
   chev.textContent = "›";
-  line1.append(lamp, name, time, chev);
+  line1.append(lamp, name);
+  // 多人数モードではコンテナの状態の札を出す（U11・共有契約 C9）
+  if (prjMultiUser()) line1.appendChild(prjContainerChip(p.container_state));
+  line1.append(time, chev);
 
   const line2 = document.createElement("div");
   line2.className = "proj-line2";
@@ -271,7 +281,10 @@ function projectRow(p) {
   } else {
     btn.disabled = true;
   }
-  return btn;
+  item.appendChild(btn);
+  // 多人数モードでは起動 / 停止のボタンを出す（U11・共有契約 C9）
+  if (prjMultiUser()) item.appendChild(prjContainerActions(p));
+  return item;
 }
 
 async function loadProjects() {
@@ -289,6 +302,112 @@ async function loadProjects() {
   }
   renderProjects(data.projects || []);
   window.SaiShell.ok();
+}
+
+// --- 多人数モードのプロジェクト操作（U11・共有契約 C9） ---
+
+/** 多人数モードか（U07 の `window.SaiAuth.mode`）。単独モードでは今までの画面のまま。 */
+function prjMultiUser() {
+  return !!(
+    typeof window !== "undefined" &&
+    window.SaiAuth &&
+    window.SaiAuth.mode === "multi"
+  );
+}
+
+/** プロジェクトの短い名前（共有契約 C4）: 英小文字か数字で始まり、
+ *  英小文字・数字・ハイフンで 30 文字まで。DOM を使わないのでテストできる。 */
+function prjValidShortName(v) {
+  return typeof v === "string" && /^[a-z0-9][a-z0-9-]{0,29}$/.test(v);
+}
+
+/** コンテナの状態（`container_state`）の札の見た目。 */
+const PRJ_CONTAINER_STATES = {
+  running: ["ok", "動いている"],
+  exited: ["muted", "止まっている"],
+  missing: ["muted", "無い"],
+};
+
+/** コンテナの状態の札（動いている / 止まっている / 無い）。 */
+function prjContainerChip(state) {
+  const pair = PRJ_CONTAINER_STATES[state] || PRJ_CONTAINER_STATES.missing;
+  return saiEl("span", `sai-chip ${pair[0]}`, pair[1]);
+}
+
+/** 一覧の上に出す「新しいプロジェクト」の帯。 */
+function prjCreateBar() {
+  const bar = saiEl("div", "proj-create");
+  const btn = saiEl("button", "sai-btn primary", "新しいプロジェクト");
+  btn.type = "button";
+  const note = saiEl("span", "proj-create-note", "");
+  note.hidden = true;
+  btn.addEventListener("click", () => void prjCreateProject(btn, note));
+  bar.append(btn, note);
+  return bar;
+}
+
+/** 短い名前を聞いてプロジェクトを作る（POST /api/projects）。 */
+async function prjCreateProject(btn, note) {
+  const answer = await saiPrompt({
+    title: "新しいプロジェクト",
+    body: "短い名前（英小文字・数字・ハイフンで 30 文字まで）",
+    placeholder: "my-project",
+    ok: "作る",
+  });
+  if (answer == null) return;
+  const short = String(answer).trim();
+  if (!prjValidShortName(short)) {
+    saiToast("名前は英小文字・数字・ハイフンで 30 文字までにしてください", "error");
+    return;
+  }
+  btn.disabled = true;
+  note.textContent = "作成中…（1 分ほどかかります）";
+  note.hidden = false;
+  try {
+    await saiApi("/api/projects", { method: "POST", body: { name: short } });
+    saiToast("プロジェクトを作りました", "ok");
+  } catch (e) {
+    saiToast(e && e.message ? e.message : "作れませんでした", "error");
+  } finally {
+    btn.disabled = false;
+    note.hidden = true;
+    note.textContent = "";
+  }
+  await loadProjects();
+}
+
+/** 行の下に出す起動 / 停止のボタン。 */
+function prjContainerActions(p) {
+  const box = saiEl("div", "proj-actions");
+  const running = p.container_state === "running";
+  const btn = saiEl("button", "sai-btn small", running ? "停止" : "起動");
+  btn.type = "button";
+  btn.addEventListener("click", () => void prjContainerToggle(p, running));
+  box.appendChild(btn);
+  return box;
+}
+
+/** コンテナを起動・停止する（停止の前に確認する）。 */
+async function prjContainerToggle(p, running) {
+  if (running) {
+    const ok = await saiConfirm({
+      title: `${p.name} のコンテナを止めますか？`,
+      body: "止めると、動いているエージェントも止まります。",
+      ok: "停止",
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  try {
+    await saiApi(
+      `/api/projects/${encodeURIComponent(p.name)}/container/${running ? "stop" : "start"}`,
+      { method: "POST" }
+    );
+    saiToast(running ? "コンテナを止めました" : "コンテナを起動しました", "ok");
+  } catch (e) {
+    saiToast(e && e.message ? e.message : "操作できませんでした", "error");
+  }
+  await loadProjects();
 }
 
 // --- Dashboard（#/project/<name>・06 §4.2） ---
@@ -877,5 +996,5 @@ if (typeof window !== "undefined") {
 
 // --- node からの読み込み（tests/test_project.js・06 §5） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { relativeTime, donutSlices, shortDuration, axisLabels, chartNoteText, todoFolderRuns, projectRowFacts };
+  module.exports = { relativeTime, donutSlices, shortDuration, axisLabels, chartNoteText, todoFolderRuns, projectRowFacts, prjValidShortName };
 }
