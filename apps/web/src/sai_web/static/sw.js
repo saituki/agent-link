@@ -87,7 +87,9 @@
 // U41 の research-tree の画面の専門用語を英単語にそろえ、用語集 SAI_TERMS を作り直す
 // （ui.js・scitree.js・scigraph.js・sciedit.js・sciread.js・papers.js・index.html・sci.py・main.py ほか）で v89 に
 // （index.html の ?v= も 89。ASSETS は変えない）
-const CACHE = "sai-web-v89";
+// Papers・Research・Experiments の画面の整理（検索セットと進み具合の削除・Paper 一覧・チャンク欄・History・DAG 2 倍ほか）で v90 に
+// （index.html の ?v= も 90。ASSETS は sciset.js / sciset.css を外した）
+const CACHE = "sai-web-v90";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
