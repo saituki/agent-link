@@ -1,7 +1,6 @@
 ---
 id: data
 name: DATA_DRIVEN
-root: この研究は、手元のどのデータで、何を明らかにするか
 ---
 # DATA_DRIVEN
 
@@ -36,6 +35,3 @@ root: この研究は、手元のどのデータで、何を明らかにする�
     + novelty
       - novelty.closest
       - novelty.diff
-
-## SEED
-手元の{data.type}で{purpose.subgoal}を行う。既存の{existing}は{issue.limit}が弱い。

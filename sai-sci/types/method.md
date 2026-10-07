@@ -1,7 +1,6 @@
 ---
 id: method
 name: METHOD_DRIVEN
-root: この研究は、手元のどの手法を、何に使うか
 ---
 # METHOD_DRIVEN
 
@@ -33,6 +32,3 @@ root: この研究は、手元のどの手法を、何に使うか
     + novelty
       - novelty.closest
       - novelty.diff
-
-## SEED
-{method}を{target}の{purpose.subgoal}に使う。{existing}に劣っても、{mind:VALUE_AXES}で価値がある。

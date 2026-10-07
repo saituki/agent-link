@@ -1,7 +1,6 @@
 ---
 id: problem
 name: PROBLEM_DRIVEN
-root: この研究は、どの現場の、どんな課題を解くか
 ---
 # PROBLEM_DRIVEN
 
@@ -36,6 +35,3 @@ root: この研究は、どの現場の、どんな課題を解くか
     + novelty
       - novelty.closest
       - novelty.diff
-
-## SEED
-{target}の{data.type}で{purpose.subgoal}を行う。既存の{existing}は{issue.limit}が弱い。{method.analog}の{method}で解く。新しさは{novelty.diff}。

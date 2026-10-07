@@ -8,7 +8,7 @@ use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
 use rusqlite::Connection;
 use serde::Serialize;
 
-use super::{Result, RtKeys, fmt_id, task_keys};
+use super::{Result, RtKeys, SEED_ID, fmt_id, task_keys};
 use crate::runs::{list_run_dirs, read_frontmatter, run_block_id};
 use sai_paper_core::paths::PaperRoots;
 
@@ -156,7 +156,8 @@ pub fn activity(_conn: &Connection, roots: &PaperRoots) -> Result<Vec<ActionItem
         .into_iter()
         .filter(|r| r.owner != "todo")
         .map(|r| {
-            let node = r.keys.node.map(|(k, i)| fmt_id(k, i));
+            // SEED を対象にした run は `SEED` として出す。
+            let node = if r.keys.seed { Some(SEED_ID.to_string()) } else { r.keys.node.map(|(k, i)| fmt_id(k, i)) };
             let label = match &node {
                 Some(n) => format!("{}（{n}）: {}", r.block, r.keys.purpose),
                 None => format!("{}: {}", r.block, r.keys.purpose),
@@ -235,6 +236,25 @@ mod tests {
         assert!(a.iter().any(|a| a.run_id == 10 && a.label == "b（Q1）: 目的"));
         assert!(a.iter().any(|a| a.run_id == 11));
         assert!(a.iter().all(|a| a.run_id != 12));
+    }
+
+    /// `sci_node: SEED` の run は `SEED` を対象として出す。
+    #[test]
+    fn activity_shows_seed_target() {
+        let e = env("seed");
+        block(&e, "b", "sci_type: manage\n");
+        let p = e.dir.join(".sai/outputs/done/20");
+        fs::create_dir_all(&p).unwrap();
+        fs::write(
+            p.join("task.md"),
+            "---\nrunner: pi\nblock: b\nexecution_date: 2026/10/02 09:16:54\nsci_node: SEED\nsci_purpose: 全体を見る\n---\n本文\n",
+        )
+        .unwrap();
+        crate::link::forget(&e.dir);
+        let a = activity(e.db.connection(), &e.roots).unwrap();
+        let row = a.iter().find(|a| a.run_id == 20).expect("run 20 がある");
+        assert_eq!(row.node.as_deref(), Some("SEED"));
+        assert_eq!(row.label, "b（SEED）: 全体を見る");
     }
 
     #[test]

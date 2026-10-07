@@ -13,7 +13,7 @@ use super::compute::Tree;
 use super::defs::Defs;
 use super::ops::{self, Field, Risk, Ty};
 use super::store::{self, NodeRow};
-use super::{Kind, Result, RtError, RtKeys, action, fmt_id, task_keys};
+use super::{Kind, Result, RtError, RtKeys, SEED_ID, action, fmt_id, task_keys};
 use sai_paper_core::paths::PaperRoots;
 
 const NO_TREE: &str = "\
@@ -69,6 +69,7 @@ fn field_text(f: &Field) -> String {
     let note = match f.ty {
         Ty::Id if f.name == "q" => "Q の ID".to_string(),
         Ty::Id => "Node の ID".to_string(),
+        Ty::SeedOrId => "Node の ID か SEED".to_string(),
         Ty::Text(min, max) => format!("{min}〜{max} 字"),
         Ty::Int => "整数".to_string(),
         Ty::NullInt => "0〜99 か null".to_string(),
@@ -236,13 +237,15 @@ impl Parts {
             .filter(|t| action::SCI_TYPES.contains(&t.as_str()))
             .unwrap_or_else(|| "node".to_string());
 
-        let top = tree.nodes().iter().find(|n| n.parent_id.is_none() && n.kind == Kind::Q);
-        let target = match keys.node {
-            Some((kind, id)) => tree
-                .node(id)
-                .filter(|n| n.kind == kind)
-                .ok_or_else(|| RtError::NotFound(format!("{} はありません", fmt_id(kind, id))))?,
-            None => top.ok_or_else(|| RtError::NotFound("一番上の Q がありません".into()))?,
+        // 対象。`sci_node: SEED`、または `sci_node` が無いときは SEED（DB の行を持たない Node）。
+        let target_seed = keys.node.is_none();
+        let target: Option<&NodeRow> = match keys.node {
+            Some((kind, id)) => Some(
+                tree.node(id)
+                    .filter(|n| n.kind == kind)
+                    .ok_or_else(|| RtError::NotFound(format!("{} はありません", fmt_id(kind, id))))?,
+            ),
+            None => None,
         };
         let mut kids: HashMap<i64, Vec<i64>> = HashMap::new();
         for n in tree.nodes() {
@@ -259,25 +262,26 @@ impl Parts {
             }
             out
         };
-        // 一番上から対象の親まで（manage で祖先を出すのに使う）。
+        // top_Q から対象の親まで（manage で祖先を出すのに使う）。
         let mut chain: Vec<i64> = Vec::new();
-        let mut cur = target.parent_id;
+        let mut cur = target.and_then(|t| t.parent_id);
         while let Some(id) = cur {
             chain.push(id);
             cur = tree.node(id).and_then(|n| n.parent_id);
         }
         chain.reverse();
 
-        // TREE に入れる Node。node は対象と子孫、manage は祖先も、support は無し。
+        // TREE に入れる Node。SEED は全体、node は対象と子孫、manage は祖先も、support は無し。
         let mut in_scope: Vec<i64> = Vec::new();
         if !blind {
-            match sci_type.as_str() {
-                "manage" => {
+            match (target, sci_type.as_str()) {
+                (_, "support") => {}
+                (None, _) => in_scope.extend(tree.nodes().iter().map(|n| n.id)),
+                (Some(t), "manage") => {
                     in_scope.extend(chain.iter().copied());
-                    in_scope.extend(subtree(target.id));
+                    in_scope.extend(subtree(t.id));
                 }
-                "support" => {}
-                _ => in_scope.extend(subtree(target.id)),
+                (Some(t), _) => in_scope.extend(subtree(t.id)),
             }
         }
         let set: HashSet<i64> = in_scope.into_iter().collect();
@@ -288,16 +292,30 @@ impl Parts {
             .map(|n| tree.depth(n.id))
             .min()
             .unwrap_or(0);
+        // SEED を出すときは、top_Q を SEED の 1 段下に並べる。
+        let offset = usize::from(target_seed);
         let mut tree_lines: Vec<Line> = Vec::new();
+        if target_seed {
+            let text = format!("{} {}", SEED_ID, tree.type_name().unwrap_or_default());
+            let full = format!("- {text} ← TARGET");
+            tree_lines.push(Line {
+                kind: Kind::Q,
+                full: full.clone(),
+                first: full,
+                indent: 0,
+                body: None,
+                paths: Vec::new(),
+            });
+        }
         for n in tree.nodes().iter().filter(|n| set.contains(&n.id)) {
-            let mut line = node_line(tree, n, tree.depth(n.id) - base);
-            if n.id == target.id {
+            let mut line = node_line(tree, n, tree.depth(n.id) - base + offset);
+            if Some(n.id) == target.map(|t| t.id) {
                 line.full.push_str(" ← TARGET");
                 line.first.push_str(" ← TARGET");
                 if n.kind == Kind::S {
                     line.paths = path_lines(tree, n);
                 }
-                let body = flat_text(&target.body);
+                let body = flat_text(&n.body);
                 if !body.is_empty() {
                     line.body = Some(body);
                 }
@@ -305,28 +323,32 @@ impl Parts {
             tree_lines.push(line);
         }
 
-        // GUIDE: 対象か一番近い祖先の Q。
-        let guide_q = std::iter::once(target.id)
-            .chain(chain.iter().rev().copied())
-            .filter_map(|id| tree.node(id))
-            .find(|n| n.kind == Kind::Q);
-        let guide = guide_q
-            .and_then(|q| q.guide_key.as_deref())
-            .and_then(|key| defs.guide(key))
-            .map(|g| GuideText {
-                title: format!("{}（{}）", g.name, g.key),
-                question: defs.question_text(&g.key),
-                target: g.target,
-                child: g.child_candidates.clone(),
-                extract: g.extract.clone(),
-                pitfalls: g.pitfalls.clone(),
-            });
+        // GUIDE: 対象か一番近い祖先の Q。SEED のときは出さない。
+        let guide = target.and_then(|t| {
+            let guide_q = std::iter::once(t.id)
+                .chain(chain.iter().rev().copied())
+                .filter_map(|id| tree.node(id))
+                .find(|n| n.kind == Kind::Q);
+            guide_q
+                .and_then(|q| q.guide_key.as_deref())
+                .and_then(|key| defs.guide(key))
+                .map(|g| GuideText {
+                    title: format!("{}（{}）", g.name, g.key),
+                    question: defs.question_text(&g.key),
+                    target: g.target,
+                    child: g.child_candidates.clone(),
+                    extract: g.extract.clone(),
+                    pitfalls: g.pitfalls.clone(),
+                })
+        });
 
         // SEARCH_HISTORY（blind では出さない）。support は対象だけ。
         let mut searches = Vec::new();
         if !blind {
             let mut ids = set.clone();
-            ids.insert(target.id);
+            if let Some(t) = target {
+                ids.insert(t.id);
+            }
             for s in store::list_searches(conn, None)?.into_iter().filter(|s| s.node_id.is_some_and(|n| ids.contains(&n))) {
                 let set_text = s.set_id.map_or_else(String::new, |id| format!("（セット {id}）"));
                 searches.push(format!("- {} {}「{}」{} 件{set_text}", s.created_at, s.tool, s.query, s.hits));
@@ -458,7 +480,8 @@ mod tests {
         defs: Defs,
     }
 
-    /// problem の型の木を作る。Q1 が一番上、Q2 が background、Q3 が background.goal。
+    /// problem の型の木を作る。Q1 が background、Q2 が background.goal、Q3 が background.problem。
+    /// top_Q は Q1（background）・Q4（target）・Q6（purpose）。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-context-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -542,13 +565,14 @@ mod tests {
         let node_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
         assert_eq!(node_ids, sorted(vec!["Q3".into(), format!("O{o2}"), format!("F{f1}")]), "{node_ids:?}");
 
-        // manage: 祖先 Q1・Q2 も出る。祖先の兄弟の O1 は出ない。
+        // manage: 祖先 Q1 も出る。祖先でない兄弟 Q2 と、その O1 は出ない。
         block(&e, "manage");
         let manage_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
-        for id in ["Q1", "Q2", "Q3"] {
+        for id in ["Q1", "Q3"] {
             assert!(manage_ids.contains(&id.to_string()), "{manage_ids:?}");
         }
         assert!(!manage_ids.contains(&format!("O{o1}")), "{manage_ids:?}");
+        assert!(!manage_ids.contains(&"Q2".to_string()), "{manage_ids:?}");
 
         // support: TREE を出さない。GUIDE と ALLOWED_OPS は出る。
         block(&e, "support");
@@ -597,6 +621,49 @@ mod tests {
         let _ = fs::remove_dir_all(&e.dir);
     }
 
+    /// 対象が SEED（`sci_node: SEED` か `sci_node` 無し）のとき、TREE に SEED の行・すべての top_Q・S が入り、GUIDE は出ない。
+    #[test]
+    fn seed_target_shows_whole_tree() {
+        let e = env("seed");
+        block(&e, "manage");
+        // Q3（background.problem）の下に Issue の O を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
+        let o = add(&e, Kind::O, 3, "課題", Some("issue"));
+        let s = store::insert_node(
+            e.db.connection(),
+            &store::NewNode {
+                kind: Kind::S,
+                parent_id: None,
+                guide_key: None,
+                text: "種",
+                body: "",
+                answer_kind: None,
+                cites: &[],
+                paper_id: None,
+                run_id: None,
+                report_id: None,
+                mlflow_ref: None,
+                proposal_id: None,
+                paths: &[o],
+                created_by: "user",
+            },
+        )
+        .unwrap();
+        let ex = add(&e, Kind::E, s, "実験", None);
+        // `sci_node: SEED` を明示しても、無し（既定）でも同じ全体が出る。
+        for front in ["sci_node: SEED\nsci_purpose: p\n", "sci_purpose: p\n"] {
+            task(&e, 1, front);
+            let text = build_with(&e, 100_000, false).unwrap();
+            assert!(text.contains("- SEED PROBLEM_DRIVEN ← TARGET"), "{text}");
+            assert!(text.contains("\n  - Q1 "), "{text}");
+            assert!(text.contains("\n  - Q4 "), "{text}");
+            assert!(text.contains("\n  - Q6 "), "{text}");
+            assert!(text.contains(&format!("- {} 種 [paths: O{o}]", fmt_id(Kind::S, s))), "{text}");
+            assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
+            assert!(!text.contains("## GUIDE"), "{text}");
+        }
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
     #[test]
     fn target_marker_and_body() {
         let e = env("target");
@@ -605,7 +672,7 @@ mod tests {
         task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
         let text = build_with(&e, 100_000, false).unwrap();
         let target_line = text.lines().find(|l| l.contains("← TARGET")).unwrap_or("");
-        assert!(target_line.starts_with("- Q3 "), "{target_line}");
+        assert!(target_line.trim_start().starts_with("- Q3 "), "{target_line}");
         assert!(text.contains("> 現場の課題 2 行目"), "{text}");
         // 本文が無ければ `>` の行を出さない。
         e.db.connection().execute("UPDATE rt_nodes SET body = '' WHERE id = 3", []).unwrap();

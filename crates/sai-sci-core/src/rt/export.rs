@@ -36,25 +36,10 @@ fn or_none(text: String) -> String {
     if text.is_empty() { "なし".to_string() } else { text }
 }
 
-/// `state.md` の本文を作る（頭の 5 行は [`crate::project_files::parse_state`] が読む形）。
+/// `state.md` の本文を作る（頭の 4 行は [`crate::project_files::parse_state`] が読む形）。
 #[must_use]
 pub fn render_state_md(status: &Status) -> String {
     let progress = format!("{}/{}", status.progress.answered, status.progress.total);
-
-    // 一番上の Q の ★ の O の題。無ければ Q の文。
-    let goal = status
-        .nodes
-        .iter()
-        .find(|n| n.kind == "Q" && n.parent.is_none())
-        .map(|q| {
-            status
-                .nodes
-                .iter()
-                .find(|n| n.kind == "O" && n.starred && n.parent.as_deref() == Some(q.id.as_str()))
-                .map_or(&q.text, |o| &o.text)
-                .clone()
-        })
-        .unwrap_or_default();
 
     let current = status
         .running
@@ -72,17 +57,22 @@ pub fn render_state_md(status: &Status) -> String {
     });
 
     let mut out = format!(
-        "- 目標: {}\n- 段階: 進み具合 {progress}\n- 今の作業: {}\n- 次の一手: {}\n- 更新日: {}\n\n",
-        or_none(goal),
+        "- 段階: 進み具合 {progress}\n- 今の作業: {}\n- 次の一手: {}\n- 更新日: {}\n\n",
         or_none(current),
         or_none(next),
         Local::now().format("%Y-%m-%d"),
     );
     out.push_str("<!-- このファイルは研究方針の木から書き出しています。直すときは Web か sai-sci を使います。 -->\n\n");
 
-    out.push_str("## SPROUT\n");
-    let draft = status.seed_draft.as_ref().map(|d| d.text.clone()).unwrap_or_default();
-    out.push_str(&format!("- 下書き: {}\n", or_none(draft)));
+    // SEED（RESEARCH_TYPE と mind.md の見出しの一覧）。
+    out.push_str("## SEED\n");
+    let type_name = status.seed.type_info.as_ref().map_or("なし", |t| t.name.as_str());
+    out.push_str(&format!("- RESEARCH_TYPE: {type_name}\n"));
+    for m in &status.seed.mind {
+        out.push_str(&format!("- {}\n", m.heading));
+    }
+
+    out.push_str("\n## SPROUT\n");
     for n in status.nodes.iter().filter(|n| n.kind == "S") {
         out.push_str(&format!("- {} {}（paths: {}）\n", n.id, n.text, n.paths.join(", ")));
     }
@@ -112,7 +102,7 @@ fn node_line(n: &NodeJson) -> String {
             line.push_str(&n.text);
             if let Some(o) = &n.objectivity {
                 line.push_str(&format!(" [Objectivity {}/{}", o.count, o.target));
-                if n.leaf && o.met {
+                if n.bottom_q && o.met {
                     line.push_str(" met");
                 }
                 line.push(']');
@@ -270,7 +260,9 @@ mod tests {
 
         let state = render_state_md(&status);
         let parsed = crate::project_files::parse_state(&state);
-        assert_eq!(parsed.goal.as_deref(), Some("予後予測"));
+        // 目標の行は無くなり、代わりに SEED の節が出る。
+        assert_eq!(parsed.goal, None);
+        assert!(state.contains("## SEED") && state.contains("- RESEARCH_TYPE: なし"), "{state}");
         assert!(parsed.stage.is_some() && parsed.current_task.is_some());
         assert!(parsed.next_action.is_some() && parsed.updated.is_some());
 

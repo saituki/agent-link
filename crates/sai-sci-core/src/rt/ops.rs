@@ -35,6 +35,8 @@ pub enum Risk {
 pub enum Ty {
     /// Node の ID（`Q12`）。
     Id,
+    /// Node の ID か `SEED`（DB の行を持たない起点）。
+    SeedOrId,
     /// 文（字数の範囲。文字種も検査する）。
     Text(usize, usize),
     /// 整数。
@@ -76,8 +78,8 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_q",
         risk: Risk::Human,
-        about: "Q（または O）の下に子の Q を足す。仕分けのあとで入る",
-        fields: &[req("parent", Ty::Id), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80))],
+        about: "SEED か Q（または O）の下に子の Q を足す。SEED の下なら top_Q になる。仕分けのあとで入る",
+        fields: &[req("parent", Ty::SeedOrId), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80))],
     },
     OpSpec {
         op: "add_o",
@@ -143,7 +145,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "remove",
         risk: Risk::Human,
-        about: "Node を下の Node ごと消す（一番上の Q は消せない）。仕分けのあとで入る",
+        about: "Node を下の Node ごと消す（top_Q も消せる）。仕分けのあとで入る",
         fields: &[req("node", Ty::Id)],
     },
     OpSpec { op: "star", risk: Risk::UserOnly, about: "O に ★ を付ける", fields: &[req("o", Ty::Id)] },
@@ -191,6 +193,7 @@ pub fn is_user_only_op(op: &str) -> bool {
 fn field_schema(f: &Field) -> Value {
     match f.ty {
         Ty::Id => json!({"type": "string", "pattern": "^[QOFES][1-9][0-9]{0,8}$"}),
+        Ty::SeedOrId => json!({"type": "string", "pattern": "^(SEED|[QOFES][1-9][0-9]{0,8})$"}),
         Ty::Text(min, max) => json!({"type": "string", "minLength": min, "maxLength": max}),
         Ty::Int => json!({"type": "integer"}),
         Ty::NullInt => json!({"type": ["integer", "null"], "minimum": 0, "maximum": 99}),
@@ -474,7 +477,7 @@ fn check_shape(spec: &OpSpec, op: &Value) -> Result<()> {
         };
         let bad = || RtError::Invalid(format!("{} の型が正しくありません", f.name));
         match f.ty {
-            Ty::Id => {
+            Ty::Id | Ty::SeedOrId => {
                 v.as_str().ok_or_else(bad)?;
             }
             Ty::Text(min, max) => {
@@ -591,10 +594,10 @@ fn check_cites(conn: &Connection, cites: &[String]) -> Result<Vec<i64>> {
     Ok(papers)
 }
 
-fn new_node<'a>(cx: &'a Cx<'_>, kind: Kind, parent: i64, text: &'a str) -> NewNode<'a> {
+fn new_node<'a>(cx: &'a Cx<'_>, kind: Kind, parent: Option<i64>, text: &'a str) -> NewNode<'a> {
     NewNode {
         kind,
-        parent_id: Some(parent),
+        parent_id: parent,
         guide_key: None,
         text,
         body: "",
@@ -637,16 +640,22 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
     let conn = cx.conn;
     match name {
         "add_q" => {
-            let parent = node(cx, text(op, "parent"), &[Kind::Q, Kind::O])?;
-            let pid = fmt_id(parent.kind, parent.id);
-            if parent.kind == Kind::Q && !alive_children(cx, parent.id, Kind::O)?.is_empty() {
-                return invalid(format!("{pid} には O があるので、子の Q を足せません"));
-            }
+            let parent = text(op, "parent");
             let guide = op.get("guide").and_then(Value::as_str);
             if let Some(key) = guide.filter(|k| cx.defs.guide(k).is_none()) {
                 return invalid(format!("知らないガイドです: {key}"));
             }
-            let mut n = new_node(cx, Kind::Q, parent.id, text(op, "text"));
+            // `parent: SEED` は top_Q を作る（親は NULL）。
+            let parent_id = if parent == super::SEED_ID {
+                None
+            } else {
+                let found = node(cx, parent, &[Kind::Q, Kind::O])?;
+                if found.kind == Kind::Q && !alive_children(cx, found.id, Kind::O)?.is_empty() {
+                    return invalid(format!("{} には O があるので、子の Q を足せません", fmt_id(found.kind, found.id)));
+                }
+                Some(found.id)
+            };
+            let mut n = new_node(cx, Kind::Q, parent_id, text(op, "text"));
             n.guide_key = guide;
             Ok(fmt_id(Kind::Q, store::insert_node(conn, &n)?))
         }
@@ -661,7 +670,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
                 return invalid(format!("{qid} に同じ文の O があります"));
             }
             let kind = op.get("kind").and_then(Value::as_str).unwrap_or("answer");
-            let mut n = new_node(cx, Kind::O, q.id, t);
+            let mut n = new_node(cx, Kind::O, Some(q.id), t);
             n.body = text(op, "body");
             n.answer_kind = Some(kind);
             let id = store::insert_node(conn, &n)?;
@@ -685,7 +694,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             if let Some(p) = paper.filter(|p| !paper_exists(conn, *p).unwrap_or(false)) {
                 return invalid(format!("論文 {p} が Library にありません"));
             }
-            let mut n = new_node(cx, Kind::F, parent.id, t);
+            let mut n = new_node(cx, Kind::F, Some(parent.id), t);
             n.cites = &cites;
             n.paper_id = paper.or_else(|| papers.first().copied());
             n.report_id = op.get("report").and_then(Value::as_str);
@@ -698,7 +707,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
                 return invalid("E は SPROUT（S）か E の下にだけ作れます");
             }
             let parent = node(cx, ptext, &[Kind::S, Kind::E])?;
-            let mut n = new_node(cx, Kind::E, parent.id, text(op, "text"));
+            let mut n = new_node(cx, Kind::E, Some(parent.id), text(op, "text"));
             n.body = text(op, "body");
             n.mlflow_ref = op.get("mlflow").and_then(Value::as_str).filter(|s| !s.is_empty());
             Ok(fmt_id(Kind::E, store::insert_node(conn, &n)?))
@@ -768,12 +777,12 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
             if !alive_children(cx, to.id, Kind::Q)?.is_empty() {
                 return invalid(format!("{} には子の Q があるので、O を写せません", text(op, "to")));
             }
-            let mut n = new_node(cx, Kind::O, to.id, &src.text);
+            let mut n = new_node(cx, Kind::O, Some(to.id), &src.text);
             n.body = &src.body;
             n.answer_kind = src.answer_kind.as_deref();
             let copied = store::insert_node(conn, &n)?;
             for f in alive_children(cx, src.id, Kind::F)? {
-                let mut fn_ = new_node(cx, Kind::F, copied, &f.text);
+                let mut fn_ = new_node(cx, Kind::F, Some(copied), &f.text);
                 fn_.cites = &f.cites;
                 fn_.paper_id = f.paper_id;
                 fn_.report_id = f.report_id.as_deref();
@@ -784,9 +793,6 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<String> {
         }
         "remove" => {
             let n = node(cx, text(op, "node"), &[Kind::Q, Kind::O, Kind::F, Kind::E, Kind::S])?;
-            if n.kind == Kind::Q && n.parent_id.is_none() {
-                return invalid("一番上の Q は消せません");
-            }
             store::remove_subtree(conn, n.id)?;
             log(cx, n.id, "remove", "")?;
             Ok(text(op, "node").to_string())
@@ -907,6 +913,15 @@ mod tests {
         fn count(&self, table: &str) -> i64 {
             self.conn().query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap()
         }
+        /// ガイドの key から top_Q などの Node の id を引く。
+        fn by_key(&self, key: &str) -> i64 {
+            store::list_nodes(self.conn(), false)
+                .unwrap()
+                .into_iter()
+                .find(|n| n.guide_key.as_deref() == Some(key))
+                .unwrap()
+                .id
+        }
     }
 
     fn err(r: Result<impl std::fmt::Debug>) -> String {
@@ -914,6 +929,26 @@ mod tests {
             Err(RtError::Invalid(m)) => m,
             other => panic!("Invalid のはずが {other:?}"),
         }
+    }
+
+    #[test]
+    fn add_q_to_seed_makes_top_q() {
+        let e = env();
+        // `parent: SEED` で top_Q（親なし）を作る。add_q は仕分け待ちなので、仕分けして入れる。
+        let r = e.one(json!({"op": "add_q", "parent": "SEED", "text": "新しい top_Q"})).unwrap();
+        assert_eq!(r.status, "pending");
+        let p = parse_ref(&r.proposal, 'P').unwrap();
+        let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, None).unwrap();
+        let (_, id) = parse_id(&t.result.unwrap()).unwrap();
+        let node = store::get_node(e.conn(), id).unwrap();
+        assert_eq!(node.kind, Kind::Q);
+        assert!(node.parent_id.is_none(), "SEED の下は top_Q（親なし）になる");
+        // 利用者としてはそのまま作れる。
+        let u = e.user(json!({"op": "add_q", "parent": "SEED", "text": "もう一つ"})).unwrap().result.unwrap();
+        let (_, uid) = parse_id(&u).unwrap();
+        assert!(store::get_node(e.conn(), uid).unwrap().parent_id.is_none());
+        // 知らない ID は今までどおり弾く。
+        assert!(err(e.one(json!({"op": "add_q", "parent": "NOPE", "text": "x"}))).contains("ID"));
     }
 
     #[test]
@@ -929,8 +964,8 @@ mod tests {
         assert!(err(e.one(json!({"op": "add_o", "q": qid, "text": "予後予測"}))).contains("同じ文"));
         // O のある Q に子の Q は足せず、子の Q のある Q に O は足せない。
         assert!(err(e.one(json!({"op": "add_q", "parent": qid, "text": "子"}))).contains("O があるので"));
-        let root = store::root(e.conn()).unwrap().unwrap();
-        assert!(err(e.one(json!({"op": "add_o", "q": fmt_id(Kind::Q, root.id), "text": "x"}))).contains("子の Q があるので"));
+        let bg = e.by_key("background");
+        assert!(err(e.one(json!({"op": "add_o", "q": fmt_id(Kind::Q, bg), "text": "x"}))).contains("子の Q があるので"));
     }
 
     #[test]
@@ -1001,10 +1036,10 @@ mod tests {
         let q = fmt_id(Kind::Q, e.sub);
         assert!(err(e.one(json!({"op": "record_logic", "q": q, "value": "contradiction", "note": "n", "findings": [f1]}))).contains("2 つ以上"));
         assert!(err(e.one(json!({"op": "record_logic", "q": q, "value": "contradiction", "findings": [f1, f2]}))).contains("note"));
-        let root = fmt_id(Kind::Q, store::root(e.conn()).unwrap().unwrap().id);
+        let top = fmt_id(Kind::Q, e.by_key("background"));
         e.one(json!({"op": "record_logic", "q": q, "value": "contradiction", "note": "食い違う", "findings": [f1, f2]})).unwrap();
         assert_eq!(store::list_logic(e.conn(), Some(e.sub)).unwrap()[0].f_count, 2);
-        e.one(json!({"op": "record_logic", "q": root, "value": "ok"})).unwrap();
+        e.one(json!({"op": "record_logic", "q": top, "value": "ok"})).unwrap();
     }
 
     #[test]
@@ -1047,8 +1082,8 @@ mod tests {
         let e = env();
         let o = e.o("A");
         let f = e.one(json!({"op": "add_f", "parent": o, "text": "根拠"})).unwrap().result.unwrap();
-        let root = store::root(e.conn()).unwrap().unwrap();
-        let q = e.one(json!({"op": "add_q", "parent": fmt_id(Kind::Q, root.id), "text": "新しい問い"})).unwrap();
+        let root = e.by_key("background");
+        let q = e.one(json!({"op": "add_q", "parent": fmt_id(Kind::Q, root), "text": "新しい問い"})).unwrap();
         assert_eq!(q.status, "pending");
         assert!(q.result.is_none());
         assert_eq!(e.count("rt_nodes"), e.count("rt_nodes")); // dry-run が残らないことは下で確かめる
@@ -1067,13 +1102,15 @@ mod tests {
         triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Reject, None).unwrap();
         assert_eq!(store::get_proposal(e.conn(), p).unwrap().status, "rejected");
         // copy・remove
-        let to = e.user(json!({"op": "add_q", "parent": fmt_id(Kind::Q, root.id), "text": "写し先"})).unwrap().result.unwrap();
+        let to = e.user(json!({"op": "add_q", "parent": fmt_id(Kind::Q, root), "text": "写し先"})).unwrap().result.unwrap();
         let c = e.one(json!({"op": "copy", "node": o, "to": to})).unwrap();
         let p = parse_ref(&c.proposal, 'P').unwrap();
         let t = triage(e.conn(), &e.roots, &e.defs, p, TriageAction::Accept, None).unwrap();
         let (_, copied) = parse_id(&t.result.unwrap()).unwrap();
         assert_eq!(store::children(e.conn(), copied).unwrap().len(), 1);
-        assert!(err(e.user(json!({"op": "remove", "node": fmt_id(Kind::Q, root.id)}))).contains("一番上"));
+        // top_Q も消せる（新しい規則）。
+        e.user(json!({"op": "remove", "node": fmt_id(Kind::Q, root)})).unwrap();
+        assert!(store::get_node(e.conn(), root).unwrap().removed_at.is_some());
         e.user(json!({"op": "remove", "node": o})).unwrap();
         assert!(err(e.user(json!({"op": "star", "o": o}))).contains("はありません"));
     }

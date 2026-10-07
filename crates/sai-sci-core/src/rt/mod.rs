@@ -3,6 +3,8 @@
 //! 正は `papr.db` の `rt_*` の表。古い `sci_*` の表は読まないが消さない。
 //! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
 //! 提案は `P3`、SPROUT は `S2`。
+//!
+//! SEED は DB の行を持たない Node で、ID は [`SEED_ID`]。SEED の直下の Q（`parent_id` が NULL）を top_Q と呼ぶ。
 
 // 行の型の項目名は表の列名そのままなので、項目ごとの説明は付けない。
 #![allow(missing_docs)]
@@ -39,6 +41,9 @@ pub enum RtError {
 
 /// 研究方針の木の操作の結果型。
 pub type Result<T> = std::result::Result<T, RtError>;
+
+/// DB の行を持たない Node（SEED）の ID。中身は RESEARCH_TYPE と mind.md。
+pub const SEED_ID: &str = "SEED";
 
 /// Node の 5 種。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
@@ -153,8 +158,10 @@ pub fn now_text() -> String {
 /// task.md の sci キー（C-KEYS）。無いキーは空。
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct RtKeys {
-    /// 対象の Node。
+    /// 対象の Node。SEED のときは `None`。
     pub node: Option<(Kind, i64)>,
+    /// 対象が SEED か（`sci_node: SEED`）。
+    pub seed: bool,
     /// 行動の目的。
     pub purpose: String,
     /// 期待する成果。
@@ -171,7 +178,7 @@ impl RtKeys {
     /// sci のカードか（`sci_node` か `sci_purpose` のどちらかがある）。
     #[must_use]
     pub fn is_sci(&self) -> bool {
-        self.node.is_some() || !self.purpose.is_empty()
+        self.node.is_some() || self.seed || !self.purpose.is_empty()
     }
 }
 
@@ -192,8 +199,14 @@ pub fn task_keys(task_md: &str) -> RtKeys {
         .filter(|id| *id > 0)
         .collect();
 
+    // `sci_node: SEED` は DB の行を持たない Node。ID は `SEED_ID`。
+    let node_text = get("sci_node");
+    let seed = node_text == SEED_ID;
+    let node = if seed { None } else { parse_id(&node_text).ok() };
+
     RtKeys {
-        node: parse_id(&get("sci_node")).ok(),
+        node,
+        seed,
         purpose: get("sci_purpose"),
         expect: get("sci_expect"),
         mode: get("sci_mode"),
@@ -237,6 +250,7 @@ mod tests {
         let md = format!("---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\n---\n\n本文\n");
         let keys = task_keys(&md);
         assert_eq!(keys.node, Some((Kind::Q, 12)));
+        assert!(!keys.seed);
         assert_eq!(keys.purpose, "データの量の根拠を探す");
         assert_eq!(keys.expect, "F を 2 つ以上");
         assert_eq!(keys.mode, "purpose_first");
@@ -244,5 +258,9 @@ mod tests {
         assert_eq!(keys.depth, "full");
         assert!(keys.is_sci());
         assert_eq!(task_keys("---\nrunner: pi\n---\n"), RtKeys::default());
+        // `sci_node: SEED` は seed になり、node は空。
+        let seed = task_keys("---\nsci_node: SEED\nsci_purpose: 全体を見る\n---\n");
+        assert!(seed.seed && seed.node.is_none());
+        assert!(seed.is_sci());
     }
 }

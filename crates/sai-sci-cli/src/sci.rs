@@ -301,14 +301,13 @@ pub(crate) fn status(json: bool, brief: bool) -> Result<Out> {
 
 /// `sci status --brief`（`{"brief": true}`）が返す JSON。
 ///
-/// 短い文脈で現在地を読めるように、進み具合・種の下書き・次の一手・仕分け待ちの数だけを出す。
+/// 短い文脈で現在地を読めるように、進み具合・次の一手・仕分け待ちの数だけを出す。
 /// 値は [`compute::status`] の結果からそのまま写すだけで、計算し直さない
 /// （Web と CLI で同じ値になる）。
 pub fn brief_status(status: &compute::Status) -> Value {
     json!({
         "type": status.type_info.as_ref().map(|found| found.id.clone()),
         "progress": status.progress,
-        "seed_draft": status.seed_draft.as_ref().map(|draft| draft.text.clone()),
         "next": status.next.iter().map(|next| json!({
             "kind": next.kind,
             "node": next.node,
@@ -505,12 +504,12 @@ pub(crate) fn export() -> Result<Out> {
     }
 }
 
-/// 型の一覧の JSON（`{"types":[{"id","name","root"}]}`。`sci types` と `phone sci types` で共用）。
+/// 型の一覧の JSON（`{"types":[{"id","name"}]}`。`sci types` と `phone sci types` で共用）。
 pub(crate) fn types_json(defs: &defs::Defs) -> Value {
     let list: Vec<Value> = defs
         .types
         .iter()
-        .map(|def| json!({ "id": def.id, "name": def.name, "root": def.root }))
+        .map(|def| json!({ "id": def.id, "name": def.name }))
         .collect();
     json!({ "types": list })
 }
@@ -524,7 +523,7 @@ pub(crate) fn types(json: bool) -> Result<Out> {
     }
     let mut text = String::new();
     for def in &defs.types {
-        text.push_str(&format!("{} {}（{}）\n", def.id, def.name, one_line(&def.root)));
+        text.push_str(&format!("{} {}\n", def.id, def.name));
     }
     Ok(Out::Text(text))
 }
@@ -765,6 +764,7 @@ fn status_text(status: &compute::Status) -> String {
     let mut text = String::new();
     if let Some(found) = &status.type_info {
         text.push_str(&format!("型: {}\n", found.name));
+        text.push_str(&format!("SEED: {}\n", found.name));
     }
     text.push_str(&format!(
         "進み具合: {}/{}\n",
@@ -816,7 +816,7 @@ fn node_line(node: &compute::NodeJson) -> String {
     line.push_str(&one_line(&node.text));
     if let Some(found) = &node.objectivity {
         line.push_str(&format!(" [Objectivity {}/{}", found.count, found.target));
-        if node.leaf && found.met {
+        if node.bottom_q && found.met {
             line.push_str(" met");
         }
         line.push(']');
@@ -1023,6 +1023,7 @@ mod tests {
 
         let text = status_text(&status);
         assert!(text.contains("型: "), "{text}");
+        assert!(text.contains("SEED: "), "{text}");
         assert!(text.contains("進み具合: 0/"), "{text}");
         assert!(text.contains("- Q1 "), "{text}");
         assert!(text.contains("[Objectivity "), "{text}");
@@ -1031,7 +1032,8 @@ mod tests {
         assert_eq!(brief["type"], "problem");
         assert_eq!(brief["progress"]["answered"], 0);
         assert!(brief["progress"]["total"].as_i64().unwrap() > 0, "{brief}");
-        for key in ["seed_draft", "next", "pending_proposals", "running", "warnings"] {
+        assert!(brief.get("seed_draft").is_none(), "{brief}");
+        for key in ["next", "pending_proposals", "running", "warnings"] {
             assert!(brief.get(key).is_some(), "{key}: {brief}");
         }
         // 木そのものは入れない。

@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::defs::Defs;
-use super::{Kind, Result, RtError, action, fmt_id, parse_id, store};
+use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, parse_id, store};
 use sai_paper_core::database::Database;
 use crate::handoff::{HandoffError, HandoffRequest, create_handoff_with_extra};
 use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
@@ -145,10 +145,17 @@ fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::No
 pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSpec) -> Result<CardResult> {
     let conn = db.connection();
 
-    let (kind, node_id) = parse_id(spec.node.trim())?;
-    let node = match store::get_node_of(conn, kind, node_id) {
-        Ok(node) if node.removed_at.is_none() => node,
-        _ => return invalid(format!("対象の Node がありません: {}", spec.node.trim())),
+    // SEED は DB の行を持たない Node（ID は `SEED_ID`）。
+    let requested = spec.node.trim();
+    let seed = requested == SEED_ID;
+    let node = if seed {
+        None
+    } else {
+        let (kind, node_id) = parse_id(requested)?;
+        match store::get_node_of(conn, kind, node_id) {
+            Ok(node) if node.removed_at.is_none() => Some(node),
+            _ => return invalid(format!("対象の Node がありません: {requested}")),
+        }
     };
 
     let runner = if spec.runner.trim().is_empty() { "pi" } else { spec.runner.trim() };
@@ -207,7 +214,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         if spec.papers.len() != 1 {
             return invalid("読む札には論文をちょうど 1 本指定してください");
         }
-        if !matches!(kind, Kind::O | Kind::Q) {
+        if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::O | Kind::Q)) {
             return invalid("読む札の Node は O か Q にしてください（F を付ける先が要ります）");
         }
     }
@@ -221,13 +228,23 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     foreign("期待する成果", &expect)?;
     let inputs = spec.inputs.iter().map(|t| check_token(t)).collect::<Result<Vec<_>>>()?;
 
-    // 依頼文。
-    let mut body = format!("{purpose}\n\n- NODE: {} {}\n", fmt_id(kind, node.id), node.text);
+    // 依頼文。SEED の行は `- NODE: SEED <RESEARCH_TYPE の名前>`。
+    let node_label = match &node {
+        Some(n) => format!("{} {}", fmt_id(n.kind, n.id), n.text),
+        None => {
+            let name = store::meta_get(conn, "type")?
+                .and_then(|id| defs.type_def(&id).map(|t| t.name.clone()))
+                .unwrap_or_default();
+            format!("{SEED_ID} {name}")
+        }
+    };
+    let mut body = format!("{purpose}\n\n- NODE: {node_label}\n");
     if !expect.is_empty() {
         body.push_str(&format!("- 期待する成果: {expect}\n"));
     }
     if is_read {
-        let q = target_q(conn, &node)?;
+        let read_node = node.as_ref().expect("読む札は Node が必須");
+        let q = target_q(conn, read_node)?;
         let guide = q.as_ref().and_then(|q| q.guide_key.as_deref()).and_then(|key| defs.guide(key));
         body.push_str(&format!("\n{Q_HEADING}\n"));
         if let Some(q) = &q {
@@ -253,9 +270,13 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     let description = body.trim_end().to_string();
 
     let papers_text = spec.papers.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+    let sci_node = match &node {
+        Some(n) => fmt_id(n.kind, n.id),
+        None => SEED_ID.to_string(),
+    };
     let extra: Vec<(&str, String)> = vec![
         ("executer", executer.to_string()),
-        ("sci_node", fmt_id(kind, node.id)),
+        ("sci_node", sci_node),
         ("sci_purpose", purpose.clone()),
         ("sci_expect", expect),
         ("sci_mode", mode.to_string()),
@@ -439,6 +460,25 @@ mod tests {
         assert_eq!(k.node, Some((Kind::Q, 1)));
         assert_eq!(k.papers, vec![37]);
         assert_eq!(node_rows(&e), before);
+    }
+
+    #[test]
+    fn seed_card_writes_sci_node_seed() {
+        let e = env("seed");
+        // SEED は DB の行を持たないが、カードは作れる。
+        let mut s = spec();
+        s.node = "SEED".into();
+        let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
+        let text = fs::read_to_string(&r.path).unwrap();
+        assert!(text.contains("sci_node: SEED"), "{text}");
+        assert!(text.contains("- NODE: SEED "), "{text}");
+        let k = task_keys(&text);
+        assert!(k.seed && k.node.is_none());
+        // 読む札（runner=user）の Node に SEED は使えない。
+        let mut s = spec();
+        s.node = "SEED".into();
+        s.runner = "user".into();
+        assert!(err(&e, &s).contains("O か Q"));
     }
 
     #[test]

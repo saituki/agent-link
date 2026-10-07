@@ -1,7 +1,6 @@
 ---
 id: phenomenon
 name: PHENOMENON_DRIVEN
-root: この研究は、どの現象が、なぜ起きるのかを明らかにするか
 ---
 # PHENOMENON_DRIVEN
 
@@ -32,6 +31,3 @@ root: この研究は、どの現象が、なぜ起きるのかを明らかに�
 - novelty
   - novelty.closest
   - novelty.diff
-
-## SEED
-{target}の{phenomenon}の原因を、{data.type}と{method}で調べる。{issue.limit}は{method.adapt}で補う。

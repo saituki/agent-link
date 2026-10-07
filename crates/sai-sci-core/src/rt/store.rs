@@ -200,17 +200,6 @@ pub fn children(conn: &Connection, parent_id: i64) -> Result<Vec<NodeRow>> {
     )
 }
 
-/// 根（`parent_id` が NULL の生きた Q。最小の id）。
-pub fn root(conn: &Connection) -> Result<Option<NodeRow>> {
-    Ok(query_nodes(
-        conn,
-        "WHERE parent_id IS NULL AND kind = 'Q' AND removed_at IS NULL ORDER BY id LIMIT 1",
-        [],
-    )?
-    .into_iter()
-    .next())
-}
-
 /// 文と本文を直す（`None` は変えない）。
 pub fn update_text(conn: &Connection, id: i64, text: Option<&str>, body: Option<&str>) -> Result<()> {
     let changed = conn.execute(
@@ -672,7 +661,6 @@ mod tests {
         let live: Vec<i64> = list_nodes(conn, false).unwrap().iter().map(|n| n.id).collect();
         assert_eq!(live, vec![q, o2]);
         assert_eq!(list_nodes(conn, true).unwrap().len(), 4);
-        assert_eq!(root(conn).unwrap().unwrap().id, q);
         assert!(matches!(get_node_of(conn, Kind::Q, o2), Err(RtError::NotFound(_))));
     }
 

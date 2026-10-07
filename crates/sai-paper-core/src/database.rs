@@ -126,6 +126,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         53,
         include_str!("../migrations/0053_sprout_branch.sql"),
     ),
+    (
+        54,
+        include_str!("../migrations/0054_top_q.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -3362,6 +3366,74 @@ mod tests {
         assert_eq!(result, "S7");
 
         // 外部キーの壊れは無い。
+        let broken: i64 =
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0))?;
+        assert_eq!(broken, 0, "外部キーが壊れている");
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// 0054 で、生きた O を持たず Q の子を持つ一番上の Q が消え、その子の Q が top_Q になる。
+    /// 生きた O を持つ一番上の Q はそのまま残る。
+    #[test]
+    fn migration_54_promotes_top_q_children() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-top-q-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0053 までの DB。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 54) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            // Q1（子の Q が 3 つ・O なし）と Q5（O6 を持つ）。
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (id, kind, parent_id, text, answer_kind, ord) VALUES
+                    (1, 'Q', NULL, '大目的', NULL, 1),
+                    (2, 'Q', 1, '背景', NULL, 1),
+                    (3, 'Q', 1, '目的', NULL, 2),
+                    (4, 'Q', 1, '手段', NULL, 3),
+                    (5, 'Q', NULL, '別の問い', NULL, 2),
+                    (6, 'O', 5, '答え', 'answer', 1);",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+
+        let parent = |id: i64| -> Option<i64> {
+            conn.query_row("SELECT parent_id FROM rt_nodes WHERE id = ?1", [id], |row| row.get(0))
+                .unwrap()
+        };
+        let removed = |id: i64| -> bool {
+            conn.query_row("SELECT removed_at IS NOT NULL FROM rt_nodes WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        // Q1 の子の Q が top_Q になり、Q1 は消えた Node になる。
+        for id in [2, 3, 4] {
+            assert_eq!(parent(id), None, "Q{id} は top_Q になる");
+            assert!(!removed(id), "Q{id} は生きたまま");
+        }
+        assert!(removed(1), "Q1 は消えた Node になる");
+        // O を持つ Q5 は子の O6 ごとそのまま。
+        assert_eq!(parent(5), None);
+        assert!(!removed(5), "O を持つ top_Q は残る");
+        assert_eq!(parent(6), Some(5));
+
         let broken: i64 =
             conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0))?;
         assert_eq!(broken, 0, "外部キーが壊れている");

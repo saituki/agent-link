@@ -27,10 +27,8 @@ pub struct TypeQ {
 pub struct TypeDef {
     pub id: String,
     pub name: String,
-    pub root: String,
     pub explain: String,
     pub tree: Vec<TypeQ>,
-    pub seed: String,
 }
 
 /// Q ごとのガイド。
@@ -244,7 +242,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
             .map(str::to_string)
             .ok_or_else(|| RtError::Invalid(format!("型の frontmatter に {name} がありません")))
     };
-    let (id, name, root) = (need("id")?, need("name")?, need("root")?);
+    let (id, name) = (need("id")?, need("name")?);
     if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
         return invalid(format!("型の id に使えない文字があります: {id}"));
     }
@@ -289,7 +287,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
     if tree.is_empty() {
         return invalid("型の ## Q が空です");
     }
-    Ok(TypeDef { id, name, root, explain: doc.explain.clone(), tree, seed: doc.joined("SEED") })
+    Ok(TypeDef { id, name, explain: doc.explain.clone(), tree })
 }
 
 /// ガイドの md を読む。
@@ -400,10 +398,9 @@ fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
 
 // ---- 木を作る ------------------------------------------------------------------------
 
-/// [`init_tree`] の結果。`created` は root を含む作った Q の数。
+/// [`init_tree`] の結果。`created` は作った Q の数。
 #[derive(Debug, Clone)]
 pub struct InitReport {
-    pub root: i64,
     pub created: usize,
     pub warnings: Vec<String>,
 }
@@ -411,7 +408,7 @@ pub struct InitReport {
 fn add_q(
     conn: &Connection,
     defs: &Defs,
-    parent: i64,
+    parent: Option<i64>,
     q: &TypeQ,
     created_by: &str,
     run_id: Option<i64>,
@@ -422,7 +419,7 @@ fn add_q(
         conn,
         &NewNode {
             kind: Kind::Q,
-            parent_id: Some(parent),
+            parent_id: parent,
             guide_key: Some(&q.key),
             text: &text,
             body: "",
@@ -440,12 +437,12 @@ fn add_q(
     ids.push(id);
     // `+` の子はその Q に O が足されたときに作る。
     for child in q.children.iter().filter(|c| !c.per_option) {
-        add_q(conn, defs, id, child, created_by, run_id, ids)?;
+        add_q(conn, defs, Some(id), child, created_by, run_id, ids)?;
     }
     Ok(())
 }
 
-/// 型から一番上の Q と `-` の Q を作る（`+` の Q は作らない）。
+/// 型の `## Q` の 1 段目を top_Q（`parent_id` は NULL）として作り、その下の `-` の Q も作る（`+` の Q は作らない）。
 pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str) -> Result<InitReport> {
     if store::is_initialized(conn)? {
         return invalid("研究方針の木は既にあります");
@@ -454,33 +451,14 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str
         return invalid(format!("知らない研究の型です: {type_id}"));
     };
     let tx = conn.unchecked_transaction()?;
-    let root = store::insert_node(
-        &tx,
-        &NewNode {
-            kind: Kind::Q,
-            parent_id: None,
-            guide_key: None,
-            text: &type_def.root,
-            body: "",
-            answer_kind: None,
-            cites: &[],
-            paper_id: None,
-            run_id: None,
-            report_id: None,
-            mlflow_ref: None,
-            proposal_id: None,
-            paths: &[],
-            created_by,
-        },
-    )?;
-    let mut ids = vec![root];
+    let mut ids = Vec::new();
     for q in &type_def.tree {
-        add_q(&tx, defs, root, q, created_by, None, &mut ids)?;
+        add_q(&tx, defs, None, q, created_by, None, &mut ids)?;
     }
     store::meta_set(&tx, "type", type_id)?;
     store::meta_set(&tx, "initialized_at", &now_text())?;
     tx.commit()?;
-    Ok(InitReport { root, created: ids.len(), warnings: defs.warnings.clone() })
+    Ok(InitReport { created: ids.len(), warnings: defs.warnings.clone() })
 }
 
 /// O の下に、型の `+` の Q（と、その下の `-` の Q）を作る。作った Q の id を返す。
@@ -498,7 +476,7 @@ pub fn create_qs_for_option(
     let Some(type_id) = store::meta_get(conn, "type")? else { return Ok(Vec::new()) };
     let mut ids = Vec::new();
     for q in defs.per_option_children(&type_id, &guide_key) {
-        add_q(conn, defs, o_id, q, created_by, run_id, &mut ids)?;
+        add_q(conn, defs, Some(o_id), q, created_by, run_id, &mut ids)?;
     }
     Ok(ids)
 }
@@ -569,7 +547,7 @@ mod tests {
     }
 
     fn type_md(q: &str) -> String {
-        format!("---\nid: t1\nname: T\nroot: 根\n---\n# T\n\n## Q\n{q}\n")
+        format!("---\nid: t1\nname: T\n---\n# T\n\n## Q\n{q}\n")
     }
 
     #[test]
@@ -592,19 +570,24 @@ mod tests {
         let db = Database::in_memory().unwrap();
         let conn = db.connection();
         let report = init_tree(conn, &defs, "problem", "test").unwrap();
-        let top = store::get_node(conn, report.root).unwrap();
-        assert_eq!(top.text, "この研究は、どの現場の、どんな課題を解くか");
-        assert_eq!(top.guide_key, None);
-        assert_eq!(texts(conn, report.root), ["background", "target", "purpose"]);
+        // 型の `## Q` の 1 段目がそのまま top_Q（親なし）になる。
         let by_key = |k: &str| {
             store::list_nodes(conn, false).unwrap().into_iter().find(|n| n.guide_key.as_deref() == Some(k))
         };
+        let tops: Vec<String> = store::list_nodes(conn, false)
+            .unwrap()
+            .into_iter()
+            .filter(|n| n.kind == Kind::Q && n.parent_id.is_none())
+            .map(|n| n.guide_key.clone().unwrap_or_default())
+            .collect();
+        assert_eq!(tops, ["background", "target", "purpose"]);
         assert_eq!(texts(conn, by_key("background").unwrap().id), ["background.goal", "background.problem"]);
         assert_eq!(texts(conn, by_key("target").unwrap().id), ["target.subgroup"]);
         assert_eq!(texts(conn, by_key("purpose").unwrap().id), ["purpose.subgoal"]);
         assert!(texts(conn, by_key("purpose.subgoal").unwrap().id).is_empty());
         assert!(by_key("data").is_none() && by_key("existing").is_none());
-        assert_eq!(report.created, 8);
+        // root は作らず、型の 1 段目 3 つとその下の 4 つで 7。
+        assert_eq!(report.created, 7);
         assert_eq!(store::meta_get(conn, "type").unwrap().as_deref(), Some("problem"));
         assert!(matches!(init_tree(conn, &defs, "problem", "test"), Err(RtError::Invalid(_))));
         let _ = fs::remove_dir_all(&root);
@@ -669,7 +652,7 @@ mod tests {
     fn user_type_is_saved_and_loaded() {
         let root = temp_dir();
         let home = temp_dir();
-        let md = "---\nid: mine\nname: MINE\nroot: 根\n---\n\n## Q\n- background\n";
+        let md = "---\nid: mine\nname: MINE\n---\n\n## Q\n- background\n";
         let path = save_user_type_in(&home, md).unwrap();
         assert!(path.ends_with("sci/types/mine.md"));
         assert!(matches!(save_user_type_in(&home, md), Err(RtError::Invalid(_))));
@@ -686,9 +669,17 @@ mod tests {
         for q in ["- a\n   - b", "+ a", "- a\n    - b", "- a\n- a", "a", ""] {
             assert!(matches!(parse_type(&type_md(q)), Err(RtError::Invalid(_))), "{q:?}");
         }
-        for md in ["---\nname: T\nroot: r\n---\n## Q\n- a\n", "---\nid: t\nroot: r\n---\n## Q\n- a\n", "---\nid: t\nname: T\n---\n## Q\n- a\n"] {
+        for md in [
+            // id がない。
+            "---\nname: T\nroot: r\n---\n## Q\n- a\n",
+            // name がない。
+            "---\nid: t\nroot: r\n---\n## Q\n- a\n",
+            // root が無くても通る（古い md の root: は読み捨てる）。
+        ] {
             assert!(matches!(parse_type(md), Err(RtError::Invalid(_))));
         }
+        assert!(parse_type("---\nid: t\nname: T\n---\n## Q\n- a\n").is_ok());
+        assert!(parse_type("---\nid: t\nname: T\nroot: 古い根\n---\n## Q\n- a\n## SEED\n文\n").is_ok());
         assert!(matches!(parse_guide("---\nname: N\n---\n"), Err(RtError::Invalid(_))));
         assert!(matches!(parse_guide("---\nkey: k\nname: N\ntarget: 100\n---\n"), Err(RtError::Invalid(_))));
         assert_eq!(parse_guide("---\nkey: k\nname: N\n---\n").unwrap().target, 2);

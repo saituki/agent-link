@@ -1,7 +1,6 @@
 ---
 id: improve
 name: IMPROVE_DRIVEN
-root: この研究は、どの既存手法の、何を良くするか
 ---
 # IMPROVE_DRIVEN
 
@@ -32,6 +31,3 @@ root: この研究は、どの既存手法の、何を良くするか
     + novelty
       - novelty.closest
       - novelty.diff
-
-## SEED
-{existing}の{issue.limit}を、{issue.root}に着目して{method}で直す。
