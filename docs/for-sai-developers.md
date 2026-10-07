@@ -14,7 +14,7 @@
 | **3 つの CLI のどれか** | [§1](#1-3-つの-cli-の約束) | 終了コード・失敗の出し方・`--json`・`schema --json` |
 | **sai-link**（`crates/sai-link-*`） | [§2.2](#22-sai-link-が出す-json) | 命令の名前と、Web が読む JSON の項目名。`run export` の書き出しの形 |
 | **sai-paper**（`crates/sai-paper-*`） | [§2.3](#23-sai-paper-が出す-json) | 命令の名前と JSON の項目名。`target/release/sai-paper` に作り直す手順 |
-| **sai-sci**（`crates/sai-sci-*`） | [§2.4](#24-sai-sci-が出す-json) | 研究方針の木の JSON の項目名。`card --from-json` の入力 |
+| **sai-sci**（`crates/sai-sci-*`） | [§2.4](#24-sai-sci-が出す-json) | research-tree の JSON の項目名。`card --from-json` の入力 |
 | **sai-sci が sai-link を呼ぶところ** | [§3](#3-sai-sci-が読む-sai-link-の出力) | `run list --json`・`card create` の入出力 |
 | **apps/radio** | [§5](#5-appsradio) | `/api/papers` 以下のパスと JSON、論文 ID は**英数字**、Range（206）応答 |
 | **項目を変える** | [§6](#6-項目を変えるときの決まり) | Web が読む項目を変えたら、この文書と Web を一緒に直す |
@@ -199,7 +199,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 | `card docs [--limit N]` | `{"items": [{token, label, description, status, ref}]}` | 同左（task_text に貼る候補） |
 | `card create`（**標準入力に JSON**・作成後は todo に配置） | `{"run_id", "path", "executer"}` | `run_id`（次の画面の行き先） |
 | `card run <run_id>` | JSON | 未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: agent` のカードは **終了コード 1**・stderr「このカードはエージェントが子の run として起こします（executer: agent）。人が起こすときは、カードの executer を human に直してください」 |
-| `card start <run_id>` / `card finish <run_id>` | `{"run_id", "status": "running" \| "review"}` | `runner: user` の札を running にする / review へ移す。未実行カードが無ければ 3、`runner: user` で無ければ 2「runner: user のカードではありません」（`finish` は実行中の利用者の札で無ければ 2「実行中の利用者の札ではありません」） |
+| `card start <run_id>` / `card finish <run_id>` | `{"run_id", "status": "running" \| "review"}` | `runner: user` の READ_CARD を running にする / review へ移す。未実行カードが無ければ 3、`runner: user` で無ければ 2「runner: user のカードではありません」（`finish` は実行中の利用者の札で無ければ 2「実行中の利用者の札ではありません」） |
 | `card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]` | `{"run_id", "scheduled_at"}` | `--at` を省くと予定を消す。常駐が 5 秒ごとに見回って実行する |
 | `card wait <run_id> [--job <job_id>]` | `{"run_id", "after_job"}` | `--job` を省くと解除。形は `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`。詳しくは [§4.2](#42-カードの-frontmatter) |
 
@@ -365,13 +365,13 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 
 #### `dashboard` → `{"cards", "activity"}`
 
-数字カード（`cards`: `papers`・`notes`・`tags`・`db_bytes`・`pdf_bytes`）と、Radio の出来事を混ぜた `activity[]`。研究方針の札（card）の実行は `kind: "action"` の行として入る（`todo` のものは除く）。`kind`・`label`・`occurred_at` は他の行と同じで、`action` の行は次を足して持つ:
+数字カード（`cards`: `papers`・`notes`・`tags`・`db_bytes`・`pdf_bytes`）と、Radio の出来事を混ぜた `activity[]`。research-tree の CARD の実行は `kind: "action"` の行として入る（`todo` のものは除く）。`kind`・`label`・`occurred_at` は他の行と同じで、`action` の行は次を足して持つ:
 
 | 項目 | 型 | 使途 |
 |---|---|---|
-| `run_id` | 数値 | 札の run（`#/research/read/<run_id>` などの行き先） |
-| `node` | 文字列 \| null | 札が付いた Node の ID（`Q12` など） |
-| `block` | 文字列 | 札の block 名（`sci-ideate` など） |
+| `run_id` | 数値 | CARD の run（`#/research/read/<run_id>` などの行き先） |
+| `node` | 文字列 \| null | CARD が付いた Node の ID（`Q12` など） |
+| `block` | 文字列 | CARD の block 名（`sci-ideate` など） |
 | `owner` | 文字列 | `todo` 以外の状態（`running`・`review` など） |
 
 #### `import list|add|remove`
@@ -389,21 +389,21 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 
 ### 2.4 sai-sci が出す JSON
 
-Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答えの候補）・F（知見）・E（実験の BRANCH）・S（SPROUT）と、ID `SEED`（DB の行なし）。ID は `Q12`・`O5`・`F3`・`E2`・`S2`、提案は `P3`。
+Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答えの候補）・F（知見）・E（実験の BRANCH）・S（SPROUT）と、ID `SEED`（DB の行なし）。ID は `Q12`・`O5`・`F3`・`E2`・`S2`、PROPOSAL は `P3`。
 `status` と `node` の JSON は `sai-sci-core` の `Status` / `NodeDetail` を `serde_json::to_value` したもので、CLI は項目を足したり名前を変えたりしない。書き込む命令（`init`・`apply`・`triage`・`card`）は、終わる前に `state.md` と `tree.md` を書き出す。Web は書き込みのあと画面を読み直す。
 
-#### `status --json` → 木全体
+#### `status --json` → research-tree 全体
 
 | 階層 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|---|
-| 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に木を表示してしまう |
-| 直下 | `legacy` | 真偽値 | 古い形の木だけがあるときの「作り直し」の案内 | 古い木に気づけない |
+| 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に research-tree を表示してしまう |
+| 直下 | `legacy` | 真偽値 | 古い形の research-tree だけがあるときの「作り直し」の案内 | 古い research-tree に気づけない |
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
 | 直下 | `progress` | `{"answered","total"}` | 進み具合の表示 | 進みが出ない |
-| 直下 | `nodes[]` | 配列（深さ優先） | 木そのもの。方針の図もここから描く（図だけを返す命令は無い） | 木が描かれない |
+| 直下 | `nodes[]` | 配列（深さ優先） | research-tree そのもの。research-tree の図もここから描く（図だけを返す命令は無い） | research-tree が描かれない |
 | 直下 | `seed` | `{"type","mind":[{"heading","body"}]}` | SEED（RESEARCH_TYPE と mind.md） | SEED が出ない |
-| 直下 | `next[]` | NextAction の配列 | 「次の一手」の行とカード作成の種 | 出ない |
-| 直下 | `pending_proposals` | 数値 | 仕分け待ちの提案の数 | 0 に見える |
+| 直下 | `next[]` | NextAction の配列 | 「Next Action」の行と CARD 作成の種 | 出ない |
+| 直下 | `pending_proposals` | 数値 | PENDING の PROPOSAL の数 | 0 に見える |
 | 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
@@ -419,9 +419,9 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | `guide` | 文字列 \| null（Q だけ） | Q のガイドの key | ガイドの説明が出ない |
 | `answer_kind` | 文字列 \| null（O だけ） | O の種類の印 | ― |
 | `starred` | 真偽値（O だけ） | ★ の印 | ★ が出ない |
-| `on_path` | 真偽値 | ★ の道の上にある印（太く描く） | 道が分からない |
+| `on_path` | 真偽値 | STAR_PATH の上にある印（太く描く） | 道が分からない |
 | `paths[]` | 文字列の配列（S だけ） | SPROUT が選んだ PATH（終点の O の ID） | ― |
-| `bottom_q` | 真偽値 | 子の Q が無い Q の印 | ― |
+| `bottom_q` | 真偽値 | bottom_Q の印 | ― |
 | `objectivity` | `{"count","target","met"}` \| null（Q だけ） | 目安の数に届いたか | 出ない |
 | `logicality` | `{"value","note","findings","checked_at"}` \| null（Q だけ。`value` は `ok` / `contradiction` / `unchecked`） | F どうしに矛盾が無いかの印 | 出ない |
 | `counts` | `{"q","o","f","e"}` | 直の子の数 | 数が空 |
@@ -445,12 +445,12 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at"}` | この Node のための実行の行（子孫の run も入る。Web の側で `node` で絞る） |
 | 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run（`by` が `user` のときは `run_id` が null） |
 | 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
-| 直下 | `pending[]` | `{"id","op","payload","run","created_at"}` | 仕分け待ちの提案の行 |
-| 直下 | `next[]` | NextAction の配列 | この Node の次の一手 |
+| 直下 | `pending[]` | `{"id","op","payload","run","created_at"}` | PENDING の PROPOSAL の行 |
+| 直下 | `next[]` | NextAction の配列 | この Node の Next Action |
 | 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
 
-#### `read <run_id> --json` → 読む札
+#### `read <run_id> --json` → READ_CARD
 
 `run_id` / `owner`（まだ `todo` なら「始める」を出す）・`node`（`{"id","kind","text"}`）・`purpose` / `depth`・`paper`（`{"id","title","year"}`）・`questions[]` / `extract[]`・`findings[]`（`{"id","parent","text","cites"}`）・`note`。行き先は `#/research/read/<run_id>`。
 
@@ -464,7 +464,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 | `block` | 文字列（`^sci-[a-z-]{2,30}$`） | 動かす block。**必須**（runner が `user` で空なら `sci-read`） |
 | `purpose` | 文字列（1〜300 字） | 依頼文。**必須** |
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
-| `mode` | `purpose_first` / `blind_first` | 読む札の型 |
+| `mode` | `purpose_first` / `blind_first` | READ_CARD の型 |
 | `papers` | 整数の配列（20 個まで。`user` はちょうど 1 本） | 対象論文 |
 | `runner` | `pi` / `cc` / `user`（既定 `pi`） | 実行主体 |
 | `depth` | `abstract` / `figures` / `full`（`user` のときだけ） | 読む深さ |
@@ -475,7 +475,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 #### そのほかの命令
 
 - `types --json` → `{"types":[{"id","name"}]}`。
-- `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配った部品の文字列の配列。新しい木が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
+- `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配る物の文字列の配列。新しい research-tree が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
 - `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
 - `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。
 - `triage <P> --accept|--reject|--revert [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。

@@ -1,7 +1,7 @@
 # 用語集
 
 sai の文書とコードで使う言葉の意味をまとめる。画面の文字は日本語にし、`data-tab`・住所・API の名前などの識別子は英語のまま使う。
-研究方針の木の名詞（Q・O・F・E・SEED・ROOT・SPROUT・BRANCH・PROPOSAL・TRIAGE・Action・Next Action・DEBT・CARD など）は [`../sai-sci/README.md`](../sai-sci/README.md) の「1. sai-sci とは」の表にある。
+research-tree の用語（Q・O・F・E・SEED・ROOT・SPROUT・BRANCH・PROPOSAL・TRIAGE・Action・Next Action・CARD など）は [`../sai-sci/README.md`](../sai-sci/README.md) の「用語（専門用語は英単語のまま使います）」の表にある。
 
 ## 1. アプリと部品
 
@@ -16,7 +16,7 @@ sai の文書とコードで使う言葉の意味をまとめる。画面の文�
 | **apps/mlflow-server** | 実験の記録（MLflow）を溜めるサーバの compose（postgres・minio・mlflow・caddy）。Docker で動かす |
 | **waggle** | 文書に waggle トークンを付けて受け渡す仕組み。`waggle/` に vendor したクレート群がある |
 | **LabAgent** | sai-sci が配る研究用の block・template |
-| **research-tree（研究方針の木）** | Q / O / F / E の Node でできた木。データは `papr.db` の `rt_*` 表、画面は Research タブ |
+| **research-tree** | Q / O / F / E の Node でできた木。データは `papr.db` の `rt_*` 表、画面は Research タブ |
 | **Experiments（実験）** | MLflow の記録。サーバは `apps/mlflow-server`、画面は Research タブの Experiments |
 
 ## 2. 実行と文書
@@ -29,7 +29,7 @@ sai の文書とコードで使う言葉の意味をまとめる。画面の文�
 | **waggle トークン** | 文書を指す短い名前（例 `AXANSMpo`）。文書を渡すときはトークンを使い、ファイルのパスは渡さない。`task_text` などに `waggle:<トークン>` と書くと、実行時にその位置へ文書の本文が埋め込まれる（1 段だけ）。参照は `waggle:<トークン>:path:.sai/outputs/*/<run_id>/<ファイル名>` の形で書く（正はトークン） |
 | **block** | エージェントの役の定義（`.sai/blocks/<id>.md`）。runner・model・template などを frontmatter に書く |
 | **template** | block の本文に差し込む共通の決まり（`.sai/template/<名前>.md`） |
-| **runner** | カードを動かす実行者。`pi`・`cc`・`gl`・`user`（`user` は利用者の札） |
+| **runner** | カードを動かす実行者。`pi`・`cc`・`gl`・`user`（`user` は利用者の CARD） |
 | **`executer`** | カードを**起こす人**。`human`（人が起こす。既定）か `agent`（professor など、エージェントが自分の子として起こす）。`runner` とは別の項目 |
 | **常駐（daemon）** | プロジェクトごとの背景のプロセス。予約したカードの実行・ジョブ待ちのカードの実行・状態の見張りをする。`sai-link daemon start\|stop\|status` |
 | **`job_status`** | `.sai/settings.json` の項目。実験などのジョブの状態を確かめる命令（文字の配列。`{job}` がジョブの ID に置き換わる）。`sai-sci init` が書き、sai-link の常駐と `card wait` が読む。出力の `state` が `done`・`failed`・`cancelled`・`lost` になったらジョブは終わり |
@@ -57,7 +57,7 @@ sai の文書とコードで使う言葉の意味をまとめる。画面の文�
 | **Projects** | プロジェクトの一覧と、Dashboard・Workflow・List・設定 |
 | **Chats** | coding agent の会話を読み、指示を送り、質問と承認に答える |
 | **Papers** | Dashboard・Library・Import・Radio・検索セット |
-| **Research** | 研究方針の木・仕分け・読む札・Experiments |
+| **Research** | research-tree・TRIAGE・READ_CARD・Experiments |
 | **Usage** | LLM の料金と制限 |
 | **Dashboard** | 期間ごとの実行数・成功率・トークン量・時間の数字とグラフ（Projects と Papers にそれぞれある） |
 | **List** | Projects の画面のひとつ。run のツリーから 1 つ選び、Log・Stats・History・task・review・message・waggle で見る |
@@ -68,5 +68,5 @@ sai の文書とコードで使う言葉の意味をまとめる。画面の文�
 | **Import** | Papers の画面のひとつ。BibTeX の読み込み |
 | **検索セット** | 検索の結果を候補として並べ、keep / drop で選別する入れ物。`sai-paper set …` |
 | **Radio** | 論文の解説音声を聴く画面。声や文字で質問もできる |
-| **読む札** | runner が `user` のカード。利用者が 1 本の論文を読んで F を付ける（`#/research/read/<run_id>`） |
-| **仕分け（triage）** | エージェントが出した提案を採用・却下・取り消しする画面（`#/research/triage`） |
+| **READ_CARD** | runner が `user` の CARD。利用者が 1 本の論文を読んで F を付ける（`#/research/read/<run_id>`） |
+| **TRIAGE** | エージェントが出した PROPOSAL を採用・却下・取り消しする画面（`#/research/triage`） |

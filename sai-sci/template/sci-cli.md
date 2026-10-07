@@ -1,6 +1,6 @@
 # 研究プロジェクトでの命令（sci-cli）
 
-`sai-link`・`sai-paper`・`sai-sci`・`sai-web` は、シェル（Bash）から記録を調べたり、次のカードを作ったりするときに使う。
+`sai-link`・`sai-paper`・`sai-sci`・`sai-web` は、シェル（Bash）から記録を調べたり、次の CARD を作ったりするときに使う。
 文書の保存と読み込みは `sai-link doc write` / `sai-link doc read` で行う。
 自分の run_id は環境変数 `SAI_PARENT_RUN_ID` に入っている。
 時間のかかる命令・ネットワークを使う命令には、実行前に `perl -e 'alarm <秒>; exec @ARGV' <命令>` と並べて上限を付ける。
@@ -18,7 +18,7 @@
 
 結果はほとんどが JSON で返る。長いときは必要な部分だけ取り出して読む。
 
-## 研究方針の木（sai-sci）
+## research-tree（sai-sci）
 
 | やりたいこと | コマンド |
 |---|---|
@@ -26,9 +26,9 @@
 | 現況の全体 | `sai-sci status [--json]` |
 | Node 1 つの詳細 | `sai-sci node <Q12> [--json]` |
 | 実行のための入力（`# context`） | `sai-sci context --run <run_id> [--tree]` |
-| 仕分け待ちの PROPOSAL | `sai-sci proposals [--json]` |
-| 仕分け（採用・却下・取り消し） | `sai-sci triage <P56> (--accept \| --reject \| --revert)` |
-| 読む札（`--runner user` のカード）の中身 | `sai-sci read <run_id>` |
+| PENDING の PROPOSAL | `sai-sci proposals [--json]` |
+| TRIAGE（採用・却下・取り消し） | `sai-sci triage <P56> (--accept \| --reject \| --revert)` |
+| READ_CARD（`--runner user` の CARD）の中身 | `sai-sci read <run_id>` |
 
 `sai-sci status --brief` は最初に読む。いつも JSON で、次の項目を返す。全体（`sai-sci status`）は大きいので、要るときだけ読む。
 
@@ -38,7 +38,7 @@
 - `running`: 動いている実行。
 - `warnings`: 注意。
 
-### Node のための実行（カード）を作る
+### Node のための実行（CARD）を作る
 
 ```bash
 sai-sci card --node <Q12> --block <sci-read> \
@@ -49,11 +49,11 @@ sai-sci card --node <Q12> --block <sci-read> \
 ```
 
 - `--node`（対象の Node。Q・O・F・E）・`--block`・`--purpose` は必ず書く。
-- `--runner user` は、利用者が自分で読む札になる。`--depth` はその読む深さ。
+- `--runner user` は、利用者が自分で READ_CARD になる。`--depth` はその読む深さ。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai-link doc write` で保存してから渡す。
-- `--executer agent` を付けると、Human が Web からこのカードを起こしても動かず、役（professor など）が子として起こす。付けない（既定の `human`）と、人が起こすカードになる。
+- `--executer agent` を付けると、Human が Web からこの CARD を起こしても動かず、役（professor など）が子として起こす。付けない（既定の `human`）と、人が起こす CARD になる。
 - `--origin-run` は自分がその Node を選んだ実行の run_id。省略すると `SAI_PARENT_RUN_ID`。
-- `--json` を付けると戻り値が JSON になり、カードの `run_id` が分かる。
+- `--json` を付けると戻り値が JSON になり、CARD の `run_id` が分かる。
 
 ## Web と同じ操作（sai-web）
 
@@ -86,12 +86,12 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `exp_exec.py check <target>` は実行先の接続と前提を確かめる、`status <job_id>` は投げたジョブの状態を返す（`--json` で JSON）。
 
-## 人が起こすカード（task.md）を作る
+## 人が起こす CARD（task.md）を作る
 
-これは `executer: human` のカード（Human が Web の ▶ で起こすもの）の作り方である。研究方針の木の Node のためのカードは、上の `sai-sci card --executer agent` で作り、役（professor など）が `sai-link task create` の `card` で起こす。この節ではない。
+これは `executer: human` の CARD（Human が Web の ▶ で起こすもの）の作り方である。research-tree の Node のための CARD は、上の `sai-sci card --executer agent` で作り、役（professor など）が `sai-link task create` の `card` で起こす。この節ではない。
 
 `sai-link card options` で使えるブロック・runner・model・thinking を確かめ、標準入力に JSON を渡して `sai-link card create` する。
-戻りの `path` を編集して `description:` と `origin_run_id:` を埋める。**実行は Human が行う。あなたはカードを作るだけで、実行しない。**
+戻りの `path` を編集して `description:` と `origin_run_id:` を埋める。**実行は Human が行う。あなたは CARD を作るだけで、実行しない。**
 
 ## 使わないコマンド
 
@@ -99,7 +99,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `sai-link card run` / `sai-link run finalize` / `sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link task send\|interrupt\|delete\|finalize\|requeue` / `sai-link run md --write`
 
-`sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や木を書き換えるので、Human の指示が無い限り打たない。ただし professor（逆向きの `professor-backward` を含む）だけは、木の仕分けのために `sai-sci triage` と、利用者が行う操作の `sai-sci apply`（標準入力に 1 件の JSON）を使ってよい。**★（Answer）は利用者だけが付ける。professor も付けない。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。operator は、木を書き換える `sai-sci` の命令を打たない（読む命令だけ）。
+`sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や research-tree を書き換えるので、Human の指示が無い限り打たない。ただし professor（逆向きの `professor-backward` を含む）だけは、research-tree の TRIAGE のために `sai-sci triage` と、利用者が行う操作の `sai-sci apply`（標準入力に 1 件の JSON）を使ってよい。**★（Answer）は利用者だけが付ける。professor も付けない。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。operator は、research-tree を書き換える `sai-sci` の命令を打たない（読む命令だけ）。
 
 ## researcher に渡さないもの
 

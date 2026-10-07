@@ -1,6 +1,6 @@
 # 統計解析の決まり（stat-core）
 
-`sci-data-test` が読む統計解析の決まりである。**`data-core` と必ず一緒に読むこと。** データ表・前処理・EDA・MLflow の記録・木への置き方は `data-core` にある。データ表の書式は `data-core` §4、生体信号の EDA は `data-core` §7、実験の鎖への委任は `data-core` §11 から引く。同じことをここで繰り返さない。
+`sci-data-test` が読む統計解析の決まりである。**`data-core` と必ず一緒に読むこと。** データ表・前処理・EDA・MLflow の記録・research-tree への置き方は `data-core` にある。データ表の書式は `data-core` §4、生体信号の EDA は `data-core` §7、実験の流れへの委任は `data-core` §11 から引く。同じことをここで繰り返さない。
 
 この文書の **§1 の解析計画・§11 の `results.json` と検査・§12 の書式は共有契約**であり、`sci-data-test` ブロックも道具 `data_result.py` もこれを書き換えない。
 
@@ -8,7 +8,7 @@
 
 - 解析を動かす**前に**、解析計画 `plan.json` を `analysis/<study>/ID<自分の run_id>/plan.json` に書き、**同じ JSON を本文の先頭に置いた解析計画書**を `sai-link doc write` で保存する。ファイル名 `ana-plan-<study>-ID<run_id>.md`、description `解析計画書 <study> ID<run_id>: <主な仮説を 1 文で>`。返ってきた **waggle トークンを控える。**
 - **順序は守る（計画 → 保存 → 解析）。** 結果を先に見てから計画を書くと、計画は結果の言い換えになる。
-- 仮説の出どころは 3 つだけである。カードの Node の O、SEED、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
+- 仮説の出どころは 3 つだけである。CARD の Node の O、SEED、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
 - `kind: confirmatory` は事前に決めた主な仮説だけ（**多くても 3〜5 個**）。それ以外は `exploratory`。
 
 各仮説で決めること（`plan.json` の 1 つ 1 つの `hypotheses` の要素に対応）。
@@ -248,7 +248,7 @@
   - 加法性を確かめる（`base_values + values.sum(...)` が説明対象の出力と一致するか）。合わなければ、入力の形・前処理・版・出力空間・行の並びを先に確かめる。
   - **SHAP の重要度を因果・公平さ・仕組みの証拠にしない。** モデルがどのように振る舞ったかの説明である。
   - 複数出力のモデルでは、表の図の前に出力（`output_index`）を 1 つ選ぶ。
-- **学習に 30 分を超えるなら、自分で動かさず、既存の実験の鎖（`sci-exp-sprout`）を勧める**（`data-core` §11）。
+- **学習に 30 分を超えるなら、自分で動かさず、既存の実験の流れ（`sci-exp-sprout`）を勧める**（`data-core` §11）。
 
 出典: K-Dense `scikit-learn`（Pipeline と評価）・`shap`（SHAP の決まり）
 
@@ -401,7 +401,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 - 機械学習の例: 「人の ID で GroupKFold（5 分割）した交差検証で、ROC AUC は 0.71（fold の標準偏差 0.05）だった。多数派の予測（0.50）を上回った。」
 - 順位の検定のときは U・W・H の統計量と、順位の効果量（順位二列相関など）を書く。中央値・四分位範囲も書く。
 
-### 木への置き方
+### research-tree への置き方
 
 - 数字を含む F には `cites`（論文）か `report`（**解析結果書の waggle トークン**）のどちらかが要る。データ分析の F は `report` を使う。
 - `add_e`（explore が作った E の下）→ `add_f`（その E の下）の順。F の文は 3 文まで。

@@ -16,7 +16,7 @@
 |---|---|---|---|
 | **sai-link**（基盤） | `crates/sai-link-engine`・`crates/sai-link-view`・`crates/sai-link-cli` | `sai-link` | 実行の DB（`sai-engine.db`）・常駐（daemon）・ブロック定義の解析と検査・カード・文書（waggle トークン）・Workflow の配置の計算・実行の書き出し |
 | **sai-paper**（研究の基盤） | `crates/sai-paper-core`・`crates/sai-paper-cli` | `sai-paper` | 論文の DB（`papr.db`）・検索と取得・BibTeX・Download の後の登録・翻訳・図の抽出・Library の階層・検索セット・音声化の依頼 |
-| **sai-sci**（研究の仕組み） | `crates/sai-sci-core`・`crates/sai-sci-cli`・`sai-sci/`（md の部品） | `sai-sci` | 研究方針の木（`papr.db` の `rt_*` 表）・研究の記録・エージェントの報告・研究用の block と template（LabAgent） |
+| **sai-sci**（研究の仕組み） | `crates/sai-sci-core`・`crates/sai-sci-cli`・`sai-sci/`（md の部品） | `sai-sci` | research-tree（`papr.db` の `rt_*` 表）・研究の記録・エージェントの報告・研究用の block と template（LabAgent） |
 | **sai-web**（Web の窓口） | `apps/web` | `apps/web/bin/sai-web` | 画面（FastAPI + 素の JavaScript）。質問・承認・通知・使用量・MLflow と Radio の中継 |
 | （周辺） | `apps/radio` | — | 解説音声の生成と配信（HTTP API・8201 番） |
 | （周辺） | `apps/mlflow-server` | — | 実験の記録（MLflow）の compose。Docker で動かす |
@@ -52,7 +52,7 @@
 └──────┼─────────────────────────────────────┼───────────────┘
        ▼                                     ▼
  sai-link ◀─────CLI──────── sai-sci ────ライブラリ────▶ sai-paper
- sai-engine.db                (研究の木)                 papr.db
+ sai-engine.db                (research-tree)                 papr.db
  .sai/outputs                                            ▲
                                   apps/radio (:8201) ◀── HTTP
 ```
@@ -60,8 +60,8 @@
 - **コア**（sai-link・sai-paper・sai-sci）は DB と処理を持つ。
 - **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API）が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
-- **研究方針の木（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`、入口は `sai-sci` の CLI と Web の Research タブ。
-  木は Q（問い）・O（答えの候補）・F（知見）・E（実験）の Node でできている。木に向けた 1 回の実行が Action（task.md のカード）で、
+- **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`、入口は `sai-sci` の CLI と Web の Research タブ。
+  research-tree は Q（問い）・O（答えの候補）・F（知見）・E（実験）の Node でできている。research-tree に向けた 1 回の実行が Action（task.md のカード）で、
   professor が研究を回し、`sci-*` の block が研究作業を行う。詳しくは [`sai-sci/README.md`](./sai-sci/README.md)。
 - **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
   pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は sai-link が自動で作る
@@ -116,7 +116,7 @@
 5. **合言葉（`SAI_WEB_TOKEN`）で入口を守る。** 127.0.0.1 でだけ待ち受け、外へは Tailscale serve で tailnet の中にだけ出す。
 6. **エラーは日本語でそのまま画面に出す。** 何が起きたか、次に何をすればよいかが分かる文にする。
 7. **iPhone と PC の両方を前提にする。** 幅 900px（`ui.js` の `SAI_WIDE_PX`）を境に、狭い画面は下のタブの 1 列、広い画面は左の縦のタブと 2 列にする。
-8. **言葉で迷わせない。** 表示は日本語にする（`data-tab` や住所などの識別子は英語のまま）。sai 独自の言葉は `saiTerm` の札で説明する。空の画面には次の一手を出す（`saiEmpty`）。
+8. **言葉で迷わせない。** 表示は日本語にする（`data-tab` や住所などの識別子は英語のまま）。sai 独自の言葉は `saiTerm` の札で説明する。空の画面には Next Action を出す（`saiEmpty`）。
 9. **答えは先着。** 質問と承認は PC と iPhone の両方に同時に出し、先に答えた方を採用する。
 
 ---
@@ -145,7 +145,7 @@
 | `template/` | 全プロジェクト共通の template |
 | `settings.json` | 全プロジェクト共通の settings（プロジェクトの `.sai/settings.json` を**キー単位で上書き**する） |
 | `paper.env` | 全プロジェクト共通の API キー（プロジェクトの `.env` より優先順位が低い） |
-| `sci/types/<型>.md` | 利用者が保存した研究の型（`sai-sci type-save`） |
+| `sci/types/<型>.md` | 利用者が保存した RESEARCH_TYPE（`sai-sci type-save`） |
 | `web/runs/<project_name>/<run_id>.json` | sai-link が書き出す実行の記録。会話の画面が読む |
 | `web/cc-rate-limits.json` | Claude Code の制限。書くのは `sai-link cc-statusline`、読むのは Web の使用量 |
 | `web/token` | Web の合言葉（0600）。エージェントの道具が読む |
@@ -174,7 +174,7 @@
 | `cli.py` | 3 つの CLI を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
 | `control.py` | sai-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
 | `papers.py` | sai-paper の呼び出し（Library・検索・Import・Download・音声化の依頼）と、sai-sci の要対応・プロジェクトの現況 |
-| `sci.py` | sai-sci の呼び出し（研究方針の木・提案の仕分け・読む札）と検索セット（sai-paper の `set …`） |
+| `sci.py` | sai-sci の呼び出し（research-tree・PROPOSAL の TRIAGE・READ_CARD）と検索セット（sai-paper の `set …`） |
 | `commands.py` | 「コマンド」画面。3 つの CLI の `schema --json` を読んで命令の一覧を作り、入力欄から命令を実行する |
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
 | `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
@@ -233,9 +233,9 @@
 | `commands.js` / `sessionsearch.js` / `dashsearch.js` | 「コマンド」画面・セッション検索・Dashboard の文書検索 |
 | `papers.js` / `paperimport.js` / `cite.js` / `rbrowser.js` | Papers（Dashboard・Library・Import・検索・引用・遠隔ブラウザ） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Radio・声の質問・質問の読み上げと音声回答 |
-| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `sciset.js` | Research の木（一覧と板・操作と仕分け・読む札・方針の図・検索セットの選別） |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` / `sciset.js` | Research の画面（一覧と板・操作と TRIAGE・READ_CARD・research-tree・検索セットの選別） |
 | `mlflow.js` / `mlfchart.js` | Research の Experiments（MLflow の記録） |
-| `canvaslayout.js` | 配置・全体表示・拡大の純関数（方針の図と Workflow が使う） |
+| `canvaslayout.js` | 配置・全体表示・拡大の純関数（research-tree の図と Workflow が使う） |
 | `usage.js` | Usage |
 | `chatorder.js` | 会話の中に行やカードを置く位置（DOM を使わない関数） |
 
@@ -243,8 +243,8 @@
 
 | 住所 | 画面 |
 |---|---|
-| `#/research/tree` / `#/research/tree/<ID>` | 研究方針の木（Q・O・F・E。`<ID>` は `Q12` の形） |
-| `#/research/read/<run_id>` | 読む札（1 本の論文を読んで F を書く） |
+| `#/research/tree` / `#/research/tree/<ID>` | research-tree（Q・O・F・E。`<ID>` は `Q12` の形） |
+| `#/research/read/<run_id>` | READ_CARD（1 本の論文を読んで F を書く） |
 | `#/research/experiments` ほか（`/e/<ID\|all>`・`/run/<ID>`・`/compare/<ID>,…`） | 実験（MLflow の記録） |
 
 古い住所 `#/papers/tree`・`#/papers/read/<run_id>`・`#/mlflow…`・`#/papers/canvas`・`#/canvas/…` は、`scitree.js` の登録が `location.replace` で Research の住所（`#/research/tree` など）へ送る。
@@ -301,7 +301,7 @@ sai-moon/
 │   ├── sai-link-cli/         # bin  sai-link
 │   ├── sai-paper-core/       # lib  検索/取得/解析/保存
 │   ├── sai-paper-cli/        # bin  sai-paper
-│   ├── sai-sci-core/         # lib  研究方針の木・研究の記録・報告の検査
+│   ├── sai-sci-core/         # lib  research-tree・研究の記録・報告の検査
 │   └── sai-sci-cli/          # bin  sai-sci
 ├── waggle/                   # 独立 [workspace] の vendor クレート群（exclude 済み）
 ├── apps/
@@ -319,7 +319,7 @@ sai-moon/
 │   │   └── tests/
 │   └── mlflow-server/        # MLflow の compose（postgres・minio・mlflow・caddy。Docker で動かす）
 ├── sai-sci/                  # 研究の仕組みの md の部品（`sai-sci` に埋め込まれる。直したら release を作り直す）
-│   ├── types/                # 研究の型（Q の階層の雛形）
+│   ├── types/                # RESEARCH_TYPE（Q の階層の雛形）
 │   ├── guides/               # ガイド（Q の文・Child Q・Extract・Pitfall・目安）
 │   ├── template/             # 研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli` ほか）
 │   ├── blocks/               # block（professor・professor-backward・operator・kaizen と `sci-*`）
@@ -358,7 +358,7 @@ sai-moon/
 - 2026-09-27: 旧 4 リポジトリ（`sai-link`・`sai-paper`・`sai-phone`・`sai-radio`）を 1 つにまとめた（バイナリ名は `sai-moon-*`、置き場は `~/.sai-moon`、Web は `apps/phone`）。
 - 2026-10: 名前と境界を整理した。アプリの名前を `sai` にし、sai-link・sai-paper・sai-sci・sai-web の 4 つに分けた。
   TUI・MCP・`phone` 命令をやめ、3 つの CLI に共通の約束（終了コード・`--json`・`schema`）を置いた。Web は `apps/web`、置き場は `SAI_HOME`（`~/.sai`）、実行ファイルは `sai-link`・`sai-paper`・`sai-sci`・`sai-web` になった。
-  Web に Research タブ（研究方針の木と実験）と「コマンド」画面を足した。旧構成からの切り替えは [`docs/switch-over.md`](./docs/switch-over.md)。
+  Web に Research タブ（research-tree と実験）と「コマンド」画面を足した。旧構成からの切り替えは [`docs/switch-over.md`](./docs/switch-over.md)。
 
 ## 10. 次に回すもの
 

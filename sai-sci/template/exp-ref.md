@@ -33,7 +33,7 @@
    uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refcode.py" gh-search "<語>" --json
    ```
 
-   返りは `[{"full_name", "url", "description", "stars", "language", "pushed_at", "license"}]`。検索の上限（10 回/分）に当たったら**待たずに次へ進み**、そのことを報告書に書く。
+   返りは `[{"full_name", "url", "description", "stars", "language", "pushed_at", "license"}]`。検索の上限（10 回/分）に当たったら**待たずに次へ進み**、そのことを REPORT に書く。
 
 ## 3. 取る
 
@@ -68,7 +68,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 |---|---|---|
 | ref | `<owner>/<repo>@<sha 7〜40 桁の 16 進>:<path>:<line か line-line>`、または `modeldb/<id>@<sha か v<数字>>:<path>:<line>` | `miscco/NM_TC@1c8f5f09d3a9:Thalamic_Column.h:122` |
 | chunk | Library の塊の ID `#<論文>.<n>[.<n>]` | `#9.13.1` |
-| f | 研究方針の木の F の ID | `F42` |
+| f | research-tree の F の ID | `F42` |
 | spec | 実験の決まりで決めた値。`仕様書` と書く | `仕様書` |
 | guess | 根拠の無い仮の値。`目安` と書く | `目安` |
 
@@ -79,7 +79,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 QMAX = 0.4  # src: miscco/NM_TC@1c8f5f09d3a9:Thalamic_Column.h:122
 # chunk の例（Library の塊）
 VTH = -50.0  # src: #9.13.1
-# f の例（研究方針の木の F）
+# f の例（research-tree の F）
 N_UNITS = 80  # src: F42
 # spec の例（実験の決まりで決めた値）
 EPOCHS = 25  # src: 仕様書
@@ -115,7 +115,7 @@ ALPHA = 0.7
 - 載せるのは、**モデルの名前付き定数のすべて**と、**掃引の軸の幅**である。
 - 出典が `目安` の行で、成功基準や結論に効く値（掃引の幅・成熟の曲線の長さなど）は、次のどちらかにする。どちらにしたかを備考に書く。
   1. `GRID` に入れて感度を測る。
-  2. Issue の O として木に出す（`sai-sci propose` の `add_o` で `kind: issue`）。実験の前提を確かめずに決めない。
+  2. Issue の O として research-tree に出す（`sai-sci propose` の `add_o` で `kind: issue`）。実験の前提を確かめずに決めない。
 - 出典が「記憶」の行は書かない（§7）。
 
 ## 7. 止める条件
@@ -123,14 +123,14 @@ ALPHA = 0.7
 次のどれかに当たったら、値を推測で埋めない。
 
 - **出典が「記憶」の値**と、**出典の無い値**は使わない。使う必要があるときは、GAP として質問ツールで起動者に聞く。
-- **`refcode.py check <train.py>` が終了コード 1 のとき**は投げない。`errors` の行に出典を付けて直す。出典表にも参照コードにも無い値しか直せないときは、作業報告書に `BLOCKED`（出典の無い値の一覧）と書き、review のカードは作らずに終える。起動者には質問ツールで知らせる（`exp-core` §8 の `check` が失敗したときと同じ扱い）。`guesses`（目安）の数は作業報告書に書く。
+- **`refcode.py check <train.py>` が終了コード 1 のとき**は投げない。`errors` の行に出典を付けて直す。出典表にも参照コードにも無い値しか直せないときは、作業報告書に `BLOCKED`（出典の無い値の一覧）と書き、review の CARD は作らずに終える。起動者には質問ツールで知らせる（`exp-core` §8 の `check` が失敗したときと同じ扱い）。`guesses`（目安）の数は作業報告書に書く。
 - **式が読めず、参照実装も補足の資料も無いとき**は、記憶で埋めずに止める。起動者に質問ツールで知らせ、`BLOCKED` で報告する。
 - **ModelDB のカタログが無いとき**は `sync` を走らせず、起動者に聞く。
 
 ## 8. ライセンス
 
 - `fetch` の返りの `license` を、出典表の近くに書く。
-- `license` が `null` のリポジトリは、**コードを写さない。** 数値と式を出典付きで使い、コードは自分で書く。使うときはその旨を報告書に書く。
+- `license` が `null` のリポジトリは、**コードを写さない。** 数値と式を出典付きで使い、コードは自分で書く。使うときはその旨を REPORT に書く。
 
 ## 9. 呼び方
 
