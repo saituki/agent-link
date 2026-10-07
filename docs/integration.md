@@ -46,7 +46,7 @@ iPhone / PC のブラウザ
 | Research → Experiments | `apps/mlflow-server` の MLflow（`/api/mlflow/*`・読み取りだけ） |
 | Home（質問・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
 | Home の全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `sai-link project dashboard --period` を並べて足し合わせる（`GET /api/home/overview`） |
-| Usage | `usage.py`（`$SAI_HOME/web/cc-rate-limits.json`・OpenRouter・DeepSeek・pi の記録）。CLI は呼ばない |
+| Usage | `usage.py`（OpenRouter・DeepSeek・pi の記録）。CLI は呼ばない |
 
 ---
 
@@ -72,7 +72,6 @@ iPhone / PC のブラウザ
 | 共通の block・template・settings | `$SAI_HOME/blocks/`・`template/`・`settings.json` |
 | 論文の共通の API キー | `$SAI_HOME/paper.env` |
 | 合言葉・質問の保管・通知の鍵・ログ | `$SAI_HOME/web/token`・`sai_web.db`・`vapid.json`・`sai-web.log` |
-| Claude Code の制限 | `$SAI_HOME/web/cc-rate-limits.json`（書くのは `sai-link cc-statusline`） |
 | **プロジェクト内の `.sai/`** | `<root>/.sai/`（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`）。`SAI_HOME` とは別 |
 
 - `SAI_HOME` は空でない値があればそれ、無ければ `~/.sai`。3 か所（sai-link・sai-paper・`registry.sai_home()`）で同じ規則を使う。
@@ -184,12 +183,6 @@ iPhone / PC のブラウザ
 | `GET /api/projects/{name}/papers/{paper_id:int}` | 論文情報 | `sai-paper paper show <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate` | 要旨の日本語訳 | `sai-paper paper translate <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate-pdf` | PDF の日本語訳を始める（202 `{"key": "pdf:<id>", "status": "processing"}`・翻訳中は 409。仕事は `downloads` に `kind="translate"`・`percent=null` で出る） | `sai-paper paper translate-pdf <id> --json` |
-| `POST /api/projects/{name}/papers/browser/open` | Mac の Chrome で DOI のページを開く（body `{"doi": "10.…"}`・不正は 400・Chrome が無ければ 503） | （Chrome を直接操作。CLI なし） |
-| `GET /api/projects/{name}/papers/browser/state` | `{open, url, title, width: 600, height: 1000, downloads: [{name, size, done, modified_at}]}` | 同上 |
-| `GET /api/projects/{name}/papers/browser/screen` | 画面の JPEG（600×1000・閉じていれば 409） | 同上 |
-| `POST /api/projects/{name}/papers/browser/input` | 操作（`{"type": "tap", "x": 0〜1, "y": 0〜1}` / `{"type": "scroll", "dy": -3000〜3000}` / `{"type": "text", "text": 1〜200 字の 1 行}` / `{"type": "key", "key": "Enter"\|"Backspace"\|"Tab"\|"Escape"}` / `{"type": "back"}` / `{"type": "reload"}`）→ `{"ok": true}`。形の違反は 400・閉じていれば 409 | 同上 |
-| `POST /api/projects/{name}/papers/browser/import` | 保存した PDF の取り込み（202・body は `manual/import` と同じ対象のどれか 1 つ＋ `file_name`・404 / 409 / 413） | `sai-paper paper import-pdf …` → `paper after-download` |
-| `DELETE /api/projects/{name}/papers/browser` | Chrome を終える（`{"open": false}`） | （Chrome を直接操作） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/text` | 本文（Markdown） | `sai-paper content paper <id> --json` |
 | `GET /api/projects/{name}/papers/{paper_id:int}/chunks` | 論文の全チャンク（`#論文.章.段落` の段落）。字数の上限なし・章番号、段落番号の昇順。論文が無い・本文がまだ取り出されていないときは 404。返す JSON: `{"paper_id": 57, "title": "題名", "chunks": [{"id": "#57.3.2", "section": "#57.3", "heading": "3 Method", "text": "本文", "n_sentences": 4}]}` | `sai-paper content chunks <id> --json` |
 | `GET /api/projects/{name}/papers/{paper_id:int}/pdf?lang=ja` | PDF（`lang=ja` で日本語訳・パスがそのプロジェクトの root 外なら 404） | `sai-paper paper show <id>` の `files` のパスを読む |
@@ -216,8 +209,7 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/papers/sets/{set_id}/drop-pending` | 未判定（pending）の候補をまとめて drop にする（body `{"reason": "…"}`・任意） | `sai-paper set drop-pending <id> [--reason=…]` |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
-- `import` / `downloads` / `manual/*` / `browser/*` / `project` / `attention` / `find` / `find-logs` / `library` / `tree` / `providers` / `search` / `logs/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
-- 遠隔ブラウザの Chrome は全体で 1 つ・最後の操作から 10 分で終了・専用プロファイル `$SAI_HOME/web/browser-profile/`・ダウンロード先 `$SAI_HOME/web/browser-downloads/`（7 日で消える）。DOI だけを受け、任意の URL は受けない。環境変数は `SAI_WEB_CHROME` と `SAI_WEB_BROWSER_HEADED`。
+- `import` / `downloads` / `manual/*` / `project` / `attention` / `find` / `find-logs` / `library` / `tree` / `providers` / `search` / `logs/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・Download は対象 3 つのうち 1 つ・手動取り込みも対象 4 つのうち 1 つ）→ 400。同じ論文が進行中は 409「この論文はダウンロード中です」。
 - アップロードは `UploadFile` を使わず**本文そのもの**（`application/pdf`）を受ける（`UploadFile` には `python-multipart` が要り、依存を増やさない大原則に反するため）。
 - 仕事の状態は sai-web のメモリだけに持つ。`downloading` = PDF を取って登録中、`processing` = 登録済みで後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
@@ -283,7 +275,7 @@ iPhone / PC のブラウザ
 | `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問 |
 | `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
-| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（Claude Code・OpenRouter・DeepSeek・pi の記録） |
+| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（OpenRouter・DeepSeek・pi の記録） |
 | `GET /manifest.json` | PWA の設定 |
 
 > **登録順の決まり**: FastAPI は登録した順に照合する。`/api/projects/{name}/papers/library` ほかの固定の住所は、**`/api/projects/{name}/papers/{paper_id:int}` より前**に登録しないと ID として誤認される（`main.py` のコメント参照）。静的ファイルの `app.mount("/")` は最後に置く。
@@ -385,8 +377,6 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `SAI_WEB_TOKEN` | （空＝認証なし・開発用） | 合言葉 |
 | `SAI_WEB_URL` | `http://127.0.0.1:8200` | `sai-web` の命令とエージェントの道具がつなぐ先 |
 | `SAI_WEB_RUNS_DIR` | `$SAI_HOME/web/runs` | Chats が読む、書き出しフォルダ |
-| `SAI_WEB_CHROME` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | 遠隔ブラウザが起動する Chrome |
-| `SAI_WEB_BROWSER_HEADED` | （空＝headless） | `1` で画面ありの Chrome |
 | `SAI_WEB_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」 |
 | `SAI_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める |
 | `SAI_WEB_HOOKS_DIR` | `apps/web/hooks` | `sai-link init` が cc のフックを書くときに探す置き場 |
@@ -396,7 +386,7 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` | 各既定 | 会話の記録置き場 |
 | `SAI_HOME` | `~/.sai` | 利用者全体の置き場（Rust 側も同じ） |
 
-Rust 側にも同じ `SAI_HOME`・`SAI_PROJECT_ROOT`・`SAI_ORIGIN` が効く。launchd のひな形（`apps/web/launchd/`）は `PATH`（`target/release` と `apps/web/bin` を含む）と `PYTHONPATH`（`apps/web/src`）を渡す。**PATH が無いと CLI が見つからず 503 になる。**
+Rust 側にも同じ `SAI_HOME`・`SAI_PROJECT_ROOT`・`SAI_ORIGIN` が効く。**PATH が無いと CLI が見つからず 503 になる。**
 
 ---
 
@@ -404,7 +394,7 @@ Rust 側にも同じ `SAI_HOME`・`SAI_PROJECT_ROOT`・`SAI_ORIGIN` が効く。
 
 | 注意点 | 内容 |
 |---|---|
-| **CLI は PATH に要る** | `sai-link`・`sai-paper`・`sai-sci` は `target/release/` にできる。PATH に足すか、`SAI_LINK_BIN` などに絶対パスを書く。忘れると Projects が全部 503。launchd は plist の `PATH` が効く |
+| **CLI は PATH に要る** | `sai-link`・`sai-paper`・`sai-sci` は `target/release/` にできる。PATH に足すか、`SAI_LINK_BIN` などに絶対パスを書く。忘れると Projects が全部 503 |
 | **release ビルド** | Web が呼ぶのは release の実行ファイル。`crates/` を直したら `cargo build --release` で作り直さないと古いまま |
 | **置き場は `SAI_HOME`** | 登録簿・書き出し・共通定義・`paper.env` はここ。`SAI_HOME` を一時フォルダに差し替えれば、テストを隔離できる |
 | **`SAI_PROJECT_ROOT`** | sai-link は `SAI_PROJECT_ROOT` を最優先で DB 解決に使う。Web は呼び出しのたびに必ずプロジェクトの root を渡す（`control._phone_env`・`papers._paper_cli`）。これを消すと、起動元の環境によっては**全プロジェクトが同じ DB を開いてしまう** |
