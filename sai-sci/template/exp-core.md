@@ -6,7 +6,7 @@
 
 ## 1. 役割
 
-実験の鎖は **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout がそれを仕様書に書き込み、branch がそれを写してスクリプトに `# src:` を付ける。
+実験の鎖は **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、sprout が PATH を選んで SPROUT（実験の計画）を作り、その SPROUT の下の E を branch が写してスクリプトに `# src:` を付ける。
 
 **神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）のときは scout の後に `sci-sim-model`（2 本以上をつなぐなら `sci-sim-compose`）が**モデル定義書**を作り、sprout がそのトークンを実験仕様書の `sim_model` に入れる。branch はそこから式・値・再現の目標を写し、**すべての試行で土台が再現の目標を満たすかを MLflow に記録する**（`§4` の「再現の確かめ」）。review は、目標を外れた土台を成功と数えず debug に戻す（`§6` の R1a）。
 
@@ -14,12 +14,13 @@
 |---|---|---|---|
 | `sci-exp-scout` | scout | 実験の前に参照実装（Library・ModelDB・GitHub）を探し、参照コード調査書を保存する。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
 | `sci-sim-model` / `sci-sim-compose` | modeler | 神経のモデルの式・値・再現の目標を、参照コードと論文から出典つきで抜き、モデル定義書を保存する（書式は `sim-core`）。待たずに終わる | 実験仕様書を書かない・スクリプトを書かない・実行しない |
-| `sci-exp-sprout` | sprout | 実験のアイデア 1 つを、研究方針の木の Issue の O から決める。実験仕様書を作り、最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
+| `sci-exp-sprout` | sprout | 研究方針の木から PATH を選んで SPROUT（実験の計画）を作る。実験仕様書を作り、SPROUT の下に最初の branch を 1〜`max_children` 本起こす。待たずに終わる | スクリプトを書かない・実行しない |
 | `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review のカードを作って終わる | 終わりまで待たない・判定しない |
 | `sci-exp-review` | branch | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
 - 木への置き方（PROPOSAL。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
-  - sprout: Issue の O の下に E（実験のアイデア）を `add_e` で作る。最初の branch のために、その E の下にもう 1 つ E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
+  - sprout: SEED から下る PATH（終点の O。Issue の O を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
+  - 1 回の実行の E（BRANCH）は、SPROUT（S）か、前の E の下に `add_e` で作る。
   - review: 結果を F として、branch の E の下に `add_f` で入れる。出典は MLflow の run 名と値（例 `ID125-p02 test_acc=0.871`）。続けるなら次の branch の E を足す。
   - 課題が解けたら、利用者がその O を Answer に変える。agent は変えられない。`link` の op は無い。
 - 判定の材料（最良・改善の有無・格子の端・漏洩の疑い・debug の深さ）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しいモデルの案、直す点）だけを書く。
@@ -50,12 +51,12 @@
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。値の出どころは最初のメッセージの「# context」と `sai-sci status --json` の `purpose.metric`。
 
 ```json
-{"study": "O6-ID120", "node": "O6", "sprout_run_id": 120, "project": "west",
+{"study": "S3-ID120", "node": "S3", "sprout_run_id": 120, "project": "west",
  "metric": "test_acc", "direction": "maximize", "success": 0.85, "min_delta": 0.0001,
  "max_branches": 8, "max_children": 2, "max_debug": 3, "max_fail": 3,
  "allowed_actions": ["draft", "tune", "debug", "model", "ablation"],
  "epochs": 25, "trial_timeout_s": 5400, "device": "auto",
- "artifact_location": "", "workdir": "experiments/O6-ID120",
+ "artifact_location": "", "workdir": "experiments/S3-ID120",
  "reference_code": [{"id": "miscco/NM_TC", "sha": "1c8f5f09d3a9", "path": "…", "role": "土台"}],
  "sim_model": null,
  "return_to": {"block": "professor-backward", "run_id": 5}}
@@ -63,8 +64,8 @@
 
 | 欄 | 中身 |
 |---|---|
-| `study` | `<Node の ID>-ID<sprout の run_id>`。sprout の run_id は環境変数 `SAI_PARENT_RUN_ID` |
-| `node` | 実験の対象の Node（Issue の O か E の ID。例 `O6`・`E3`） |
+| `study` | `<S の ID>-ID<sprout の run_id>`。sprout の run_id は環境変数 `SAI_PARENT_RUN_ID` |
+| `node` | 実験の対象の Node（SPROUT の ID。例 `S3`） |
 | `sprout_run_id` | sprout の run_id |
 | `project` | `SAI_PROJECT_ROOT` の末尾のフォルダ名 |
 | `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。指標の Q（`sai-sci status --json` と `sai-sci node` で探す）から読む。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
@@ -100,8 +101,8 @@
 | `sai.project` | プロジェクトのフォルダ名 | `west` |
 | `sai.run_id` | branch の run_id（環境変数 `EXP_BRANCH_RUN_ID`。**無ければスクリプトは止まる**） | `125` |
 | `sai.sprout_run_id` | sprout の run_id | `120` |
-| `sci.node` | 実験の対象の Node（`node` と同じ値） | `O6` |
-| `exp.study` | study | `O6-ID120` |
+| `sci.node` | 実験の対象の Node（`node` と同じ値） | `S3` |
+| `exp.study` | study | `S3-ID120` |
 | `exp.model` | model | `cnn-static` |
 | `exp.action` | `draft` / `tune` / `debug` / `model` / `ablation` | `tune` |
 | `exp.parent_branch` | 親の branch の run_id（無ければ空文字） | `121` |

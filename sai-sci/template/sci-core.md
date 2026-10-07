@@ -5,7 +5,7 @@
 ## context の読み方
 最初のメッセージの「# context」は、起動の直前に research-tree から切り出して作り直したものです。「# task_text」（依頼文。目的・NODE・期待する成果）と重ねて読んでください。
 
-- `## TREE`: research-tree のうち、この回で見る部分。node agent は対象とその下、manage agent は top から対象までの祖先と対象とその下。support agent には出ません。対象の行の末尾に `← TARGET` があり、次の行の `>` が対象の本文です。
+- `## TREE`: research-tree のうち、この回で見る部分。node agent は対象とその下、manage agent は SEED から対象までの祖先と対象とその下（対象が `SEED` なら research-tree の全体）。support agent には出ません。対象の行の末尾に `← TARGET` があり、次の行の `>` が対象の本文です。
 - `## GUIDE`: 対象（か一番近い祖先）の Q の GUIDE（Extract・Child Q など）。
 - `## SEARCH_HISTORY`: TREE の Node の検索の記録。同じ検索を繰り返さないために読む。
 - `## ALLOWED_OPS`: このブロックが出せる OP と、その項目。
@@ -13,20 +13,28 @@
 - `## TARGET_PAPERS`: blind_first のときだけ、木の代わりに出る対象の論文。
 
 ## 研究方針の木
-木は Q・O・F・E でできています。
+木は 4 つの layer（SEED・ROOT・SPROUT・BRANCH）でできています。
 
 ```
-Q（問い）
- └ O（答えの候補）── ★ を付けた O が Answer（その Q の答え）
-     ├ F（根拠・知見）
-     └ O に Issue（未解決の課題）があれば、その下に Q を足せる
- E（実験）── Issue の O か E の下。E の下に F（結果）か次の E
+E（BRANCH）── SPROUT か E の下。E の下に F（結果）か次の E
+ │
+S（SPROUT）── PATH（終点の O）を 1 つ以上。Issue の O を 1 つ以上
+ │
+SEED ──────── RESEARCH_TYPE と mind.md。Node ID は SEED
+ │
+Q（top_Q）── SEED の直下
+ └ O（答えの候補）── ★ を付けた O が Answer
+     ├ F（根拠）
+     └ O の下に child_Q を足せる
 ```
 
+- SEED は研究の初期の入力です（RESEARCH_TYPE と `mind.md`）。Node ID は `SEED` で、DB の行はありません。
+- ROOT は SEED から下へ分かれる Q・O・F の総称です。SEED の直下の Q を top_Q といい、いくつでも並べられます。
 - Q は問いです。答えは O（候補）で、Q に直接答える親の Q はありません。
+- SPROUT（ID `S<n>`、kind `S`）は SEED から上へ分かれる node です。PATH（終点の O）を 1 つ以上集め、新しい実験の計画を立てます。Issue の O を 1 つ以上含みます。Answer で終わる PATH は実験の前提条件、Issue で終わる PATH は実験で試す部分です。
+- BRANCH（E）は SPROUT から上へ分かれる実験の実行です。SPROUT（S）か E の下に作ります。
 - ★（Answer）は利用者だけが付けます。Issue（未解決）への切り替えも利用者だけです。
 - F は事実や知見で、O か E に付きます。
-- E は実験です。Issue の O か E の下に作ります。
 - Objectivity（客観性: 出典の根拠があるか）と Logicality（論理性: 筋が通っているか）は、O の評価の軸です。
 
 ## 起動者と質問

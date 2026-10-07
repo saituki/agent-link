@@ -15,7 +15,7 @@
 - **test はデータ表と前処理の結果を使う。** 前処理が足りないときは `analysis/<study>/prep.py` を直して再実行し、変えた点をデータ表の `prep_steps` に足してよい。それ以外は前処理をやり直さない。
 
 ```
-カードの Node（Issue の O か E）
+カードの Node（SPROUT か E）
   └─ sci-data-explore … データ表・EDA・前処理 → report で test を勧めて終わる
         （起動者＝professor か利用者が、データ表のトークンを渡して test のカードを起こす）
         └─ sci-data-test … 解析計画書を保存 → 解析 → check → 記録 → 解析結果書 → F
@@ -27,7 +27,7 @@
 
 ## 2. 名前・置き場・文書
 
-- **study** は `<Node の ID>-ID<explore の run_id>`（例 `O6-ID130`）。`node` は explore のカードの Node（Issue の O か E）。
+- **study** は `<Node の ID>-ID<explore の run_id>`（例 `S3-ID130`）。`node` は explore のカードの Node（SPROUT か E）。
 - 作業フォルダ（workdir）は `analysis/<study>/`（プロジェクトルートからの相対）。
 
 ```
@@ -72,9 +72,9 @@ analysis/<study>/
 `sci-data-explore` が書く文書の形である。**この節の書式から変えない。**
 
 ```json
-{"study": "O6-ID130", "node": "O6", "explore_run_id": 130, "project": "west",
+{"study": "S3-ID130", "node": "S3", "explore_run_id": 130, "project": "west",
  "raw": [{"path": "data/raw/hrv.csv", "sha256": "…", "format": "csv", "rows": 1200, "columns": 14}],
- "derived": [{"path": "analysis/O6-ID130/data/hrv_clean.csv", "sha256": "…", "rows": 1180, "columns": 12,
+ "derived": [{"path": "analysis/S3-ID130/data/hrv_clean.csv", "sha256": "…", "rows": 1180, "columns": 12,
               "from": "data/raw/hrv.csv"}],
  "unit": "subject × session", "n_units": 60,
  "variables": [{"name": "rmssd", "role": "outcome", "type": "float", "unit": "ms", "missing": 0.02}],
@@ -362,7 +362,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 
 | ブロック | op | 親 | 例 |
 |---|---|---|---|
-| explore | `add_e` | カードの Node（Issue の O か E） | `{"op":"add_e","parent":"O6","text":"データ解析 O6-ID130","mlflow":"west/ID130/data"}` |
+| explore | `add_e` | カードの Node（SPROUT か E） | `{"op":"add_e","parent":"S3","text":"データ解析 S3-ID130","mlflow":"west/ID130/data"}` |
 | explore | `add_f` | 上で作った E | `{"op":"add_f","parent":"E12","text":"60 人 1180 行。RMSSD の欠損は 2%。","report":"<データ表のトークン>"}` |
 | test | `add_e` | explore が作った E | `{"op":"add_e","parent":"E12","text":"H1 RMSSD の群差（Welch の t）","mlflow":"ID131-test"}` |
 | test | `add_f` | 上で作った E | `{"op":"add_f","parent":"E13","text":"H1: RMSSD は刺激群で高い（g=0.47, 95%CI 0.06–0.87, p_holm=0.046）。","report":"<解析結果書のトークン>"}` |

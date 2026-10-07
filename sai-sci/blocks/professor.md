@@ -48,7 +48,7 @@ subblocks:
 
 ## 研究方針の木の読み方
 
-`sai-sci` の木は Q（課題）・O（目的・答えの案）・F（根拠）・E（実験）でできている。次の物で現在地を読む。
+`sai-sci` の木は 4 つの layer（SEED・ROOT・SPROUT・BRANCH）でできている。SEED は研究の初期の入力（RESEARCH_TYPE と `mind.md`）で、その下に top_Q が並ぶ（ROOT）。上へ SPROUT（`S<n>`）と BRANCH（E）が伸びる。次の物で現在地を読む。
 
 | 見方 | 意味 | 読む方法 |
 |---|---|---|
@@ -56,7 +56,7 @@ subblocks:
 | Next Action（`next`） | 木が次に示している作業。`why` のコードと `card` の値が付く | `sai-sci status --brief` |
 | Objectivity | O の根拠（F）が足りているか | `sai-sci status --json` |
 | Logicality | Q から ★ の道の筋が通っているか（`OK` / `CONTRADICTION`） | `sai-sci status --json` |
-| Node | Q・O・F・E の 1 つ | `sai-sci node <N12>` |
+| Node | Q・O・F・E・S（SPROUT）の 1 つ | `sai-sci node <N12>` |
 | CARD | Node のための実行（子として起こすもの） | `sai-sci card …` |
 | PROPOSAL（`pending_proposals`） | 木への変更の申し出。`sai-sci triage` で仕分ける | `sai-sci proposals` |
 
@@ -70,7 +70,7 @@ subblocks:
 | `UNCHECKED` | Logicality をまだ確かめていない | `sci-debate`・`sci-review` |
 | `CONTRADICTION` | Logicality が矛盾と出ている | `sci-debate`・`sci-ideate` |
 | `NO_STAR` | ★ の O が無い。★ は利用者だけが付ける | Human に頼む |
-| `NO_EXPERIMENT` | ★ の O に実験が無い | `sci-seed` → `sci-exp-sprout`（手元のデータで仮説を確かめる Issue なら `sci-data-explore` → `sci-data-test`） |
+| `NO_EXPERIMENT` | ★ の O に実験が無い | `sci-exp-sprout`（CARD の対象は `SEED`）（手元のデータで仮説を確かめる Issue なら `sci-data-explore` → `sci-data-test`） |
 
 `sci-data-explore` の report の `## 次の一手` に `sci-data-test` のカードを作る命令が書いてある。explore の report を評価してから、その命令で test のカードを作って起こす（explore 自身は test を起こさない）。
 
@@ -133,12 +133,12 @@ subblocks:
 
 ## 実験（sprout と branch）
 
-- **実験を起こす前に、`sci-exp-scout` を子として起こす。** カードの `--node` に対象の Issue の O を、`--purpose` に実験の案を書く。`--input` には scout に見てほしい文書（SEED の札など）を書く。
+- **実験を起こす前に、`sci-exp-scout` を子として起こす。** カードの `--node` に対象の Issue の O を、`--purpose` に実験の案を書く。`--input` には scout に見てほしい文書（`mind.md` や対象の Issue の O の文など）を書く。
 - scout は参照コード調査書を保存してすぐ報告を返す。返った**調査書のトークン**を、sprout のカードの `--input` に足す。
 - **実験のモデルが神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）なら、scout の後にモデル定義書を作る。論文 1 本の再現・改良は `sci-sim-model`、2 本以上をつなぐなら `sci-sim-compose` を子として起こす。`--input` には参照コード調査書のトークンを書く（compose は部品ごとのモデル定義書のトークンも書く）。**モデルの式・値・再現の目標は、モデル定義書に出典つきで入る。**
 - 返った**モデル定義書のトークン**を、sprout のカードの `--input` に足す。sprout は実験仕様書の `sim_model` に入れる（`exp-core` §3）。神経のモデルでない実験では、この 2 本は起こさない（`sim_model` は `null`）。
 - 完了報告書の `stop_reason` が `repro_failed` なら、**土台が論文どおりに動いていない。** 改良の結論には使わない。モデル定義書の「## 食い違い」「## GAP」を読み、`sci-sim-model` を起こし直すか Human に上げるかを決める。
-- 実験は `sci-exp-sprout` のカードを `--executer agent` で作り、`sai-link task create` の `card` で自分の子として起こす。依頼文の目的（`--purpose`）の最後に `起動元: professor run <自分の run_id>` と書く（sprout が実験仕様書の `return_to` に入れる）。
+- 実験は `sci-exp-sprout` のカードを **`--node SEED`** で `--executer agent` で作り、`sai-link task create` の `card` で自分の子として起こす。依頼文の目的（`--purpose`）の最後に `起動元: professor run <自分の run_id>` と書く（sprout が実験仕様書の `return_to` に入れる）。
 - **子の確かめ（2 つ目の確かめ）を省略させてよいのは、実験仕様書の「パラメータの出典表」に「記憶」の行が無く、出典の無い値も無いときだけである。** 目安（`exp-ref` §5 の `guess`）の行が成功基準や結論に効くなら、省略させない。さもなくば、確かめを省略した実験になり、後から値を直すことになる。
 - sprout は最初の branch を起こしてすぐ報告を返す。報告の実験仕様書のトークンと branch の run_id を研究日誌に書き、sprout を `finalize` する。
 - **実験の終わりを待たない。** 実験が走っている間にほかの研究作業（文献など）が無ければ、研究日誌に「実験 <study> の終わりを待つ」と書いて `sai-link run finalize` で終える。実験の鎖の最後の review が、完了報告書のトークン付きで professor のカードを作って起こし直す。
