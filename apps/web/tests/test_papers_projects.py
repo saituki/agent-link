@@ -87,7 +87,7 @@ def make_registry(base: Path) -> list[dict]:
 
 def test_list(calls: Calls) -> None:
     """置き場があり，名前の規則にも合うプロジェクトだけ，入力（最後に動いた順）のまま出る。"""
-    papers._projects_cache = None
+    papers._projects_cache.clear()
     calls.count = 0
     projects = papers.list_paper_projects()
     assert [p["name"] for p in projects] == ["sai-paper", "second"], projects
@@ -110,7 +110,7 @@ def test_list(calls: Calls) -> None:
 
 def test_cache(calls: Calls) -> None:
     """30 秒のあいだは 1 度だけ引き，切れると引き直す（17 §3.2）。"""
-    papers._projects_cache = None
+    papers._projects_cache.clear()
     calls.count = 0
     papers.resolve_project("sai-paper")
     papers.resolve_project("second")
@@ -118,9 +118,12 @@ def test_cache(calls: Calls) -> None:
     assert calls.count == 1, f"プロジェクト一覧を {calls.count} 回呼んだ（1 回のはず）"
 
     # 30 秒を過ぎた想定で …
-    old = papers._projects_cache
-    assert old is not None
-    papers._projects_cache = (time.monotonic() - 31.0, old[1])
+    assert papers._projects_cache, "一覧を覚えていない"
+    for k in list(papers._projects_cache):
+        papers._projects_cache[k] = (
+            time.monotonic() - 31.0,
+            papers._projects_cache[k][1],
+        )
     papers.resolve_project("sai-paper")
     assert calls.count == 2, calls.count
 
@@ -131,7 +134,7 @@ def test_cache(calls: Calls) -> None:
 
 def test_resolve(calls: Calls) -> None:
     """名前で引く。一覧に無い物（規則外・置き場なし・未知）はどれも 404（17 §3.2）。"""
-    papers._projects_cache = None
+    papers._projects_cache.clear()
     for bad in ("unknown", "bad name!", "no-db", "gone", ""):
         expect_404(lambda name=bad: papers.resolve_project(name))
     project = papers.resolve_project("sai-paper")
@@ -313,7 +316,7 @@ def main() -> None:
             asyncio.run(radio_checks())
         finally:
             control.list_projects = original_list
-            papers._projects_cache = None
+            papers._projects_cache.clear()
     test_routes()
     print("test_papers_projects: すべて通りました")
 

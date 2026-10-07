@@ -23,7 +23,7 @@ import time
 
 from fastapi import HTTPException
 
-from sai_web import control, papers, runs, store
+from sai_web import control, papers, registry, runs, store
 
 logger = logging.getLogger("sai_web")
 
@@ -54,10 +54,11 @@ _SUMMARY_KEYS = (
     "cost_usd",
 )
 
-# 覚えておいた結果（(時刻, 結果)）。テストから消すため global で持つ。
-_cache: tuple[float, dict] | None = None
-# 合計の覚え置き（期間ごとの (時刻, 結果)）。`forget()` で消す。
-_overview_cache: dict[str, tuple[float, dict]] = {}
+# 覚えておいた結果（利用者の名前 → (時刻, 結果)）。テストから消すため global で持つ。
+# 多人数モードでは利用者ごとに分ける（他人の結果を返さないため）。
+_cache: dict[str, tuple[float, dict]] = {}
+# 合計の覚え置き（（利用者, 期間）ごとの (時刻, 結果)）。`forget()` で消す。
+_overview_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 
 
 def _now() -> float:
@@ -251,20 +252,21 @@ def build_home() -> dict:
     """ホームの集計（`GET /api/home`・U3 §変更内容 3）。
 
     10 秒だけ覚える（開くたび・更新するたびに全プロジェクトの CLI を呼ばないため）。
+    多人数モードでは利用者ごとに覚える。
     """
-    global _cache
     now = _now()
-    if _cache is not None and now - _cache[0] < _HOME_TTL:
-        return _cache[1]
+    key = registry.user_key()
+    hit = _cache.get(key)
+    if hit is not None and now - hit[0] < _HOME_TTL:
+        return hit[1]
     value = _build()
-    _cache = (now, value)
+    _cache[key] = (now, value)
     return value
 
 
 def forget() -> None:
     """覚え置きを消す（テストと、強制的に読み直すときに使う）。"""
-    global _cache
-    _cache = None
+    _cache.clear()
     _overview_cache.clear()
 
 
@@ -409,9 +411,10 @@ def build_overview(period: str = "week") -> dict:
             status_code=400, detail="period は week / month / all のいずれかにしてください"
         )
     now = _now()
-    hit = _overview_cache.get(period)
+    key = (registry.user_key(), period)
+    hit = _overview_cache.get(key)
     if hit is not None and now - hit[0] < _HOME_TTL:
         return hit[1]
     value = _build_overview(period)
-    _overview_cache[period] = (now, value)
+    _overview_cache[key] = (now, value)
     return value

@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sai_web.config import settings
+from sai_web import registry
 
 logger = logging.getLogger("sai_web")
 
@@ -117,44 +118,74 @@ def _read_run(path: Path) -> dict | None:
     return raw
 
 
-def load_runs(runs_dir: Path | None = None) -> list[dict]:
-    """runs_dir 直下の <project_name>/*.json を読む．
+def runs_dirs() -> list[Path]:
+    """実行の書き出しを読むフォルダ（共有契約 C4）。
 
+    - `SAI_WEB_RUNS_DIR` があればそれ 1 つ（今までのテストの差し替え方を保つ）。
+    - 多人数モード: 今の利用者のプロジェクトごとの
+      `<project_home>/.sai/web/runs` を全部。
+    - 単独モード: `$SAI_HOME/web/runs` 1 つ（今までどおり）。
+    """
+    env = (os.getenv("SAI_WEB_RUNS_DIR") or "").strip()
+    if env:
+        return [Path(env)]
+    if registry.multi_user():
+        out: list[Path] = []
+        for project in registry.load_registry():
+            name = str(project.get("name") or "")
+            if not name:
+                continue
+            out.append(registry.project_home(name) / ".sai" / "web" / "runs")
+        return out
+    return [registry.sai_home() / "web" / "runs"]
+
+
+def load_runs(runs_dir: Path | None = None) -> list[dict]:
+    """実行の書き出し（`<project_name>/*.json`）を読む。
+
+    - `runs_dir` を渡したときはそこ 1 つだけを読む（テスト用）。
+      渡さないときは `runs_dirs()` のフォルダを全部読む。
     - `.` で始まるフォルダ・ファイルは無視（01 の一時ファイル対策）。
     - mtime が変わったファイルだけ読み直す。
+    - 多人数モードでは、`project_root` が今の利用者のプロジェクト一覧に
+      無い実行を捨てる（他人のプロジェクトの書き出しを混ぜないため）。
     """
     global _file_cache
-    base = Path(runs_dir) if runs_dir is not None else settings.runs_dir
+    bases = [Path(runs_dir)] if runs_dir is not None else runs_dirs()
     found: dict[str, tuple[int, dict | None]] = {}
-    try:
-        project_dirs = [p for p in base.iterdir() if not p.name.startswith(".")]
-    except OSError:
-        # 置き場所が無くてもサーバーは動かす（01 がまだ書き出していない場合）
-        _file_cache = {}
-        return []
-    for proj_dir in project_dirs:
-        if not proj_dir.is_dir():
-            continue
+    for base in bases:
         try:
-            children = list(proj_dir.iterdir())
+            project_dirs = [p for p in base.iterdir() if not p.name.startswith(".")]
         except OSError:
+            # 置き場所が無くてもサーバーは動かす（01 がまだ書き出していない場合）
             continue
-        for path in children:
-            if path.name.startswith(".") or path.suffix != ".json":
+        for proj_dir in project_dirs:
+            if not proj_dir.is_dir():
                 continue
-            key = str(path)
             try:
-                mtime = path.stat().st_mtime_ns
+                children = list(proj_dir.iterdir())
             except OSError:
                 continue
-            old = _file_cache.get(key)
-            if old is not None and old[0] == mtime:
-                found[key] = old  # 変わっていないので読み直さない
-            else:
-                # 新規・更新時だけ読む（壊れていたらログもこの時だけ出る）
-                found[key] = (mtime, _read_run(path))
+            for path in children:
+                if path.name.startswith(".") or path.suffix != ".json":
+                    continue
+                key = str(path)
+                try:
+                    mtime = path.stat().st_mtime_ns
+                except OSError:
+                    continue
+                old = _file_cache.get(key)
+                if old is not None and old[0] == mtime:
+                    found[key] = old  # 変わっていないので読み直さない
+                else:
+                    # 新規・更新時だけ読む（壊れていたらログもこの時だけ出る）
+                    found[key] = (mtime, _read_run(path))
     _file_cache = found
-    return [run for _, run in found.values() if run is not None]
+    runs = [run for _, run in found.values() if run is not None]
+    if runs_dir is None and registry.multi_user():
+        allowed = {str(p.get("root") or "") for p in registry.load_registry()}
+        runs = [r for r in runs if str(r.get("project_root") or "") in allowed]
+    return runs
 
 
 # --- 実行と質問の対応づけ（00 §3.7） ---
@@ -278,6 +309,9 @@ def headless_state(run: dict) -> dict | None:
         return None
     root = run.get("project_root")
     if not isinstance(root, str) or not root:
+        return None
+    # 多人数モードでは、今の利用者の置き場の外を指す実行は状態を読まない
+    if registry.multi_user() and not registry.within_user(root):
         return None
     path = Path(root) / ".sai" / "sai-engine" / "headless" / pane_id / "state.json"
     try:

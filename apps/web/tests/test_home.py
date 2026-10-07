@@ -413,7 +413,8 @@ def test_cache(fake: Fake) -> None:
     assert second is first, "覚え置いてある間は集めない"
     assert len(fake.tree_calls) == tree_calls, fake.tree_calls
     # 10 秒経ったら集め直す
-    home._cache = (home._cache[0] - 11.0, home._cache[1])
+    for k in list(home._cache):
+        home._cache[k] = (home._cache[k][0] - 11.0, home._cache[k][1])
     third = home.build_home()
     assert third is not first, "10 秒経ったら集め直す"
     assert len(fake.tree_calls) == tree_calls + 2, fake.tree_calls

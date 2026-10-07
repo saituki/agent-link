@@ -76,6 +76,23 @@ iPhone / PC のブラウザ
 
 - `SAI_HOME` は空でない値があればそれ、無ければ `~/.sai`。3 か所（sai-link・sai-paper・`registry.sai_home()`）で同じ規則を使う。
 
+### 3.1 多人数モードの置き場（共有契約 C4）
+
+環境変数 `SAI_WEB_USERS_ROOT`（空でない絶対パス。例 `/srv/sai/users`）を付けて `sai-web` を起こすと**多人数モード**になる。無ければ今までの**単独モード**（合言葉。開発とテスト用）で何も変わらない。
+
+以下 `<U>` は `SAI_WEB_USERS_ROOT`、`<user>` は管理者が決める短い名前（`^[a-z][a-z0-9]{1,15}$`・ハイフンは許さない）。
+
+| 置き場 | 場所 | 中身 |
+|---|---|---|
+| その人のひな形の HOME | `<U>/<user>/home/` | `.sai/`（Web が引くその人の `SAI_HOME`）・`.pi/agent/models.json` など。コンテナには見せない |
+| プロジェクトの root | `<U>/<user>/projects/<user>-<project>/` | 登録簿の名前もフォルダ名と同じ `<user>-<project>` |
+| プロジェクトのコンテナの HOME | `<U>/<user>/homes/<user>-<project>/` | `.claude`・`.claude.json`・`.pi`・`.sai`。コンテナの中の `SAI_HOME` はこの中の `.sai`。実行の書き出しは `<この HOME>/.sai/web/runs/<user>-<project>/` |
+| その人の鍵 | `<U>/<user>/secrets.env` | API キーと Claude の長命トークン（0600）。コンテナには `--env-file` で渡し、ファイルそのものは見せない |
+
+- 多人数モードでは、今の利用者（ログインした人）ごとに `registry.sai_home()`・`registry.user_home()`・`registry.project_home()` が変わり、プロジェクトの一覧・実行の書き出し・pi の記録・Usage が分かれる（共有契約 C5）。
+- 今の利用者がいないとき（未ログイン）の `registry.sai_home()` はサーバ自身の `SAI_HOME`。Web 自身の DB・通知の鍵はここに置く。
+- 多人数モードの登録簿はフォルダを数える（`<U>/<user>/projects/` の直下の `<user>-` で始まり `.sai/` を持つフォルダ）。`registry.json` は読まない。
+
 ---
 
 ## 4. API 一覧
@@ -280,6 +297,26 @@ iPhone / PC のブラウザ
 
 > **登録順の決まり**: FastAPI は登録した順に照合する。`/api/projects/{name}/papers/library` ほかの固定の住所は、**`/api/projects/{name}/papers/{paper_id:int}` より前**に登録しないと ID として誤認される（`main.py` のコメント参照）。静的ファイルの `app.mount("/")` は最後に置く。
 
+### 4.10 アカウントとログイン（U06・多人数モード）
+
+多人数モード（`SAI_WEB_USERS_ROOT` あり）では、ログインした人だけが `/api/…` を使える。守りはミドルウェア（`main.py` の `_multi_user_auth`）で、Cookie `sai_session` か個人のトークン `Authorization: Bearer sai_…` から今の利用者を `registry.current_user` に入れる。合言葉（`SAI_WEB_TOKEN`・`?token=`）は多人数モードでは受けない。未ログインは 401「ログインしてください」、初回のパスワード変更前は `/api/auth/` 以外の `/api/` が 403「パスワードを変えてください」。変更系（POST・PUT・PATCH・DELETE）で Cookie で入った要求は `Origin` と `Host` を照合し、違えば 403「別のサイトからの要求は受けません」。
+
+| メソッド・パス | 中身 |
+|---|---|
+| `GET /api/auth/me` | 単独モード `{"mode":"single"}`／多人数 `{"mode":"multi","name","email","is_admin","must_change_password"}`／未ログイン 401 |
+| `POST /api/auth/login` | body `{"email","password"}` → 200 `{"name","email","is_admin","must_change_password"}` と Cookie。違えば 401「メールアドレスかパスワードが違います」 |
+| `POST /api/auth/logout` | `{"ok":true}`。Cookie を消す |
+| `POST /api/auth/password` | body `{"current","new"}` → `{"ok":true}`。`must_change_password` を 0 にし、他のセッションを消す。今のパスワードが違えば 400 |
+| `GET /api/me/tokens` | `{"tokens":[{"id","label","created_at","last_used_at"}]}`（値は返さない） |
+| `POST /api/me/tokens` | body `{"label"}` → `{"id","label","token":"sai_…"}`（値はこの 1 回だけ）。label は 1〜60 文字 |
+| `DELETE /api/me/tokens/{id}` | 自分のトークンだけ消せる。無ければ 404 |
+| `GET /api/admin/users` | `{"users":[{"name","email","is_admin","disabled","must_change_password","created_at"}]}`（管理者だけ） |
+| `POST /api/admin/users` | body `{"name","email","password","is_admin"}` → 作成（同名・同メール 409）。C4 のフォルダを作る |
+| `PATCH /api/admin/users/{name}` | body `{"email"?,"is_admin"?,"disabled"?,"password"?}`。`password` を入れたら `must_change_password=1` にし、その人のセッションを消す。自分自身の `is_admin=false`・`disabled=true` は 400 |
+
+- 多人数モードでは `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)` にする（`/docs`・`/openapi.json` を出さない）。起動時に合言葉のファイル（`<sai_home>/web/token`）は書かない。
+- パスワードは `hashlib.scrypt`（`auth.hash_password`・`verify_password`）で保存し、Cookie とトークンは SHA-256 だけを DB（`web_sessions`・`api_tokens`）に置く。値そのものは保存しない。
+
 ---
 
 ## 5. `sai-web` の命令（CLI から Web を使う）
@@ -295,6 +332,8 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `sai-web usage` | 使用量 |
 | `sai-web mlflow experiments\|runs <experiment_id>\|run <id>\|metric <id> <key>` | MLflow の読み取り（中継 API 経由） |
 | `sai-web api <METHOD> <path> [--data <JSON>\|--data -]` | 上の API 一覧のどれでも呼ぶ |
+| `sai-web user add <名前> --email <メール> [--admin]` | 利用者を作る（多人数モード。パスワードは標準入力の 1 行目、空なら `getpass` で聞く。同じ名前・メールは終了コード 4） |
+| `sai-web user list --json` | 利用者の一覧（名前・メール・管理者・無効・初回変更待ち） |
 
 終了コードは 3 つの CLI と同じ（0 成功・2 入力の誤り・3 見つからない・4 状態の衝突・1 その他）。HTTP の状態からの直し方は ARCHITECTURE.md の §4.3。
 
@@ -374,9 +413,11 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | 変数 | 既定値 | 用途 |
 |---|---|---|
 | `SAI_WEB_PORT` | `8200` | 待ち受けポート |
-| `SAI_WEB_TOKEN` | （空＝認証なし・開発用） | 合言葉 |
+| `SAI_WEB_TOKEN` | （空＝認証なし・開発用） | 合言葉（単独モードだけ） |
+| `SAI_WEB_USERS_ROOT` | （空＝単独モード） | 多人数モードの置き場（絶対パス。C4） |
+| `SAI_WEB_COOKIE_SECURE` | `1` | `0` で Cookie の `Secure` を外す（手元の http の確認用） |
 | `SAI_WEB_URL` | `http://127.0.0.1:8200` | `sai-web` の命令とエージェントの道具がつなぐ先 |
-| `SAI_WEB_RUNS_DIR` | `$SAI_HOME/web/runs` | Chats が読む、書き出しフォルダ |
+| `SAI_WEB_RUNS_DIR` | `$SAI_HOME/web/runs` | Chats が読む、書き出しフォルダ（多人数モードでは利用者のプロジェクトごとの `<project_home>/.sai/web/runs` を全部読む） |
 | `SAI_WEB_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」 |
 | `SAI_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める |
 | `SAI_WEB_HOOKS_DIR` | `apps/web/hooks` | `sai-link init` が cc のフックを書くときに探す置き場 |
