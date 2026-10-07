@@ -588,7 +588,10 @@ pub fn build_run_doc(
 pub const PANE_ID_FILE: &str = "herdr_pane_id";
 
 /// run セッション dir に控えた pane_id（DB に未記録の実行中用・無ければ None）。
-fn pane_id_from_session_dir(exec: &ExecutionHistory) -> Option<String> {
+///
+/// `sai-link run send` / `run interrupt` が実行中の run の送り先を探すのにも使う
+/// （共有契約 C2）。
+pub(crate) fn pane_id_from_session_dir(exec: &ExecutionHistory) -> Option<String> {
     let dir = crate::session::resolve_session_dir(exec.session_dir.as_deref(), exec.id?)?;
     let id = std::fs::read_to_string(dir.join(PANE_ID_FILE)).ok()?;
     let id = id.trim();
@@ -600,19 +603,9 @@ pub fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-/// 現在の UNIX 秒（小数）。
-///
-/// `~/.claude/statusline-command.sh` の `jq '{rate_limits, saved_at: now}'` と同じ形にするため。
-fn unix_now_f64() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
 /// JSON を一時ファイル → rename で書く（読み手が書きかけを読まないようにするため）。
 ///
-/// `statusline-command.sh` と同じ形。親ディレクトリが無ければ作る。
+/// 親ディレクトリが無ければ作る。
 /// `tmp` と `dst` は同じディレクトリに置くこと（rename が原子的なのは同一 FS のため）。
 fn write_json_atomic(tmp: &Path, dst: &Path, body: &serde_json::Value) -> std::io::Result<()> {
     if let Some(parent) = dst.parent() {
@@ -866,96 +859,12 @@ pub fn export_one(store: &SaiStore, run_id: i64) -> std::io::Result<Option<bool>
 }
 
 // ============================================================================
-// cc statusLine（00 §3.8 / 01 §2.5）
+// cc の費用（cc-cost）
 // ============================================================================
 
 /// `~/.sai/cc-cost` の出力先（置き場を解決できなければ None）。
 pub fn cc_cost_dir() -> Option<PathBuf> {
     crate::project::sai_home().map(|h| h.join("cc-cost"))
-}
-
-/// `<SAI_HOME>/web` の出力先（置き場を解決できなければ None）。
-///
-/// sai-web の Usage タブ（`usage.py` の `cc_limits`）がここから
-/// `cc-rate-limits.json` を読む。
-pub fn cc_rate_limits_dir() -> Option<PathBuf> {
-    crate::project::sai_home().map(|h| h.join("web"))
-}
-
-/// `<SAI_HOME>/web/cc-rate-limits.json` の出力先（置き場を解決できなければ None）。
-pub fn cc_rate_limits_path() -> Option<PathBuf> {
-    cc_rate_limits_dir().map(|d| d.join("cc-rate-limits.json"))
-}
-
-/// cc の statusLine 標準入力 1 件を処理する（`sai-link cc-statusline` の本体）。
-///
-/// - 標準入力 JSON から `session_id` と `cost.total_cost_usd` を取り出し、
-///   `~/.sai/cc-cost/<session_id>.json` に `{session_id, total_cost_usd, updated_at}`
-///   を書く（一時ファイル → rename）。
-/// - 戻り値は cc の画面下に出す 1 行（例 `sai #58 $1.27`）。
-/// - 読めない・JSON が壊れている・書けない場合は **空行**（cc の画面を壊さない）。
-pub fn handle_cc_statusline(input: &str) -> String {
-    let Some(dir) = cc_cost_dir() else {
-        return String::new();
-    };
-    handle_cc_statusline_in(input, &dir, cc_rate_limits_path().as_deref())
-}
-
-/// [`handle_cc_statusline`] の出力先指定版（テスト用）。
-///
-/// `rate_limits_path` は `cc-rate-limits.json` の出力先（`None` なら書かない）。
-pub fn handle_cc_statusline_in(
-    input: &str,
-    dir: &Path,
-    rate_limits_path: Option<&Path>,
-) -> String {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
-        return String::new();
-    };
-    let Some(session_id) = value.get("session_id").and_then(|v| v.as_str()) else {
-        return String::new();
-    };
-    if !is_safe_id(session_id) {
-        return String::new();
-    }
-    // 5 時間枠（rate_limits）を sai-phone へ保存する（U04）。
-    // sai-link は cc の statusLine を差し替えるため、既定の statusline-command.sh が
-    // 書いていた `~/.sai/phone/cc-rate-limits.json` が更新されなくなる。
-    // cost の有無に関係なく、rate_limits があれば書く。失敗しても画面表示は変えない。
-    if let Some(rate_limits) = value.get("rate_limits") {
-        if let Some(path) = rate_limits_path {
-            let body = serde_json::json!({
-                "rate_limits": rate_limits,
-                "saved_at": unix_now_f64(),
-            });
-            let tmp = path.with_file_name(".cc-rate-limits.json.tmp");
-            if let Err(e) = write_json_atomic(&tmp, path, &body) {
-                eprintln!("[sai-engine] cc-rate-limits の書込みに失敗: {}", e);
-            }
-        }
-    }
-    // コストが取れない場合は書かない（概算フォールバックを妨げないため）
-    let Some(total) = value
-        .get("cost")
-        .and_then(|c| c.get("total_cost_usd"))
-        .and_then(|v| v.as_f64())
-        .filter(|v| v.is_finite() && *v >= 0.0)
-    else {
-        return String::new();
-    };
-
-    // 一時ファイル → rename（読み手が書きかけを読まないため）
-    if let Err(e) = write_cc_cost(dir, session_id, total) {
-        eprintln!("[sai-engine] cc-cost の書込みに失敗: {}", e);
-        return String::new();
-    }
-
-    // 画面表示: SAI_PARENT_RUN_ID（sai-link が cc に渡す実行 ID）があれば run_id 付き
-    let amount = format!("${:.2}", total);
-    match std::env::var("SAI_PARENT_RUN_ID") {
-        Ok(id) if !id.trim().is_empty() => format!("sai #{} {}", id.trim(), amount),
-        _ => format!("sai {}", amount),
-    }
 }
 
 /// cc の費用を `<dir>/<session_id>.json` に書く（一時ファイル → rename）。
@@ -1152,120 +1061,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// statusLine 標準入力 JSON から金額を取り出しファイルを書けること（00 §3.8）。
-    #[test]
-    fn cc_statusline_writes_cost_file() {
-        let dir = std::env::temp_dir().join(format!(
-            "sai_cc_cost_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let session_id = "11111111-2222-4333-8444-555555555555";
-        let input = format!(
-            r#"{{"session_id":"{}","transcript_path":"/tmp/x.jsonl","cost":{{"total_cost_usd":1.274}}}}"#,
-            session_id
-        );
-        let line = handle_cc_statusline_in(&input, &dir, None);
-        assert!(line.contains("1.27"), "画面表示に金額が入る: {}", line);
-        assert!(!dir.join(format!(".{}.json.tmp", session_id)).exists());
-
-        let text = std::fs::read_to_string(dir.join(format!("{}.json", session_id))).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["session_id"], session_id);
-        assert!((v["total_cost_usd"].as_f64().unwrap() - 1.274).abs() < 1e-9);
-        assert!(v["updated_at"].as_str().unwrap().ends_with('Z'));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// statusLine 入力が壊れている・コストが無いときは空行を返しファイルを書かない。
-    #[test]
-    fn cc_statusline_swallows_bad_input() {
-        let dir = std::env::temp_dir().join(format!(
-            "sai_cc_cost_bad_{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        // 壊れた JSON
-        assert_eq!(handle_cc_statusline_in("not json", &dir, None), "");
-        // session_id なし
-        assert_eq!(
-            handle_cc_statusline_in(r#"{"cost":{"total_cost_usd":1.0}}"#, &dir, None),
-            ""
-        );
-        // cost なし（概算フォールバックを妨げないため書かない）
-        let sid = "11111111-2222-4333-8444-555555555555";
-        assert_eq!(
-            handle_cc_statusline_in(&format!(r#"{{"session_id":"{}"}}"#, sid), &dir, None),
-            ""
-        );
-        assert!(!dir.join(format!("{}.json", sid)).exists());
-        // パストラバーセッション ID
-        assert_eq!(
-            handle_cc_statusline_in(
-                r#"{"session_id":"../../etc/passwd","cost":{"total_cost_usd":1.0}}"#,
-                &dir,
-                None
-            ),
-            ""
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// statusLine 入力に `rate_limits` があれば `~/.sai/phone/cc-rate-limits.json`
-    /// が書かれること（U04）。cost が無くても書く。
-    #[test]
-    fn cc_statusline_writes_rate_limits_without_cost() {
-        let dir = std::env::temp_dir().join(format!(
-            "sai_cc_rl_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let rl_path = dir.join("phone").join("cc-rate-limits.json");
-        let sid = "11111111-2222-4333-8444-555555555555";
-
-        // cost なし・rate_limits あり → rate-limits だけ書く（画面表示は空行）
-        let line = handle_cc_statusline_in(
-            &format!(
-                r#"{{"session_id":"{}","rate_limits":{{"five_hour":{{"used_percent":12.5}}}}}}"#,
-                sid
-            ),
-            &dir,
-            Some(&rl_path),
-        );
-        assert_eq!(line, "", "cost が無いので画面表示は空行: {}", line);
-        let v: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&rl_path).unwrap()).unwrap();
-        assert_eq!(v["rate_limits"]["five_hour"]["used_percent"], 12.5);
-        assert!(
-            v["saved_at"].as_f64().is_some(),
-            "saved_at は UNIX 秒の小数: {}",
-            v["saved_at"]
-        );
-        // 一時ファイルは残さない
-        assert!(!rl_path.with_file_name(".cc-rate-limits.json.tmp").exists());
-        // cost ファイルは書かれていない
-        assert!(!dir.join(format!("{}.json", sid)).exists());
-
-        // rate_limits 無し → rate-limits ファイルは書かない（古い値を残す）
-        let before = std::fs::read_to_string(&rl_path).unwrap();
-        handle_cc_statusline_in(
-            &format!(r#"{{"session_id":"{}","cost":{{"total_cost_usd":1.0}}}}"#, sid),
-            &dir,
-            Some(&rl_path),
-        );
-        assert_eq!(std::fs::read_to_string(&rl_path).unwrap(), before);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// 実行 1 行分のドキュメントが DB の値から正しく構築されること。
     #[test]
     fn build_run_doc_from_db_row() {
@@ -1375,11 +1170,6 @@ mod tests {
         std::env::set_var("SAI_HOME", &home);
         assert_eq!(export_root(), Some(home.join("web").join("runs")));
         assert_eq!(export_dir("demo"), Some(home.join("web/runs/demo")));
-        assert_eq!(cc_rate_limits_dir(), Some(home.join("web")));
-        assert_eq!(
-            cc_rate_limits_path(),
-            Some(home.join("web/cc-rate-limits.json"))
-        );
         match prev {
             Some(v) => std::env::set_var("SAI_HOME", v),
             None => std::env::remove_var("SAI_HOME"),

@@ -138,13 +138,6 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: WaggleCmd,
     },
-    /// cc の statusLine コマンド（内部用・00 §3.8 / 01 §2.5）。
-    ///
-    /// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-    /// `~/.sai/cc-cost/<session_id>.json` に書く。cc の画面下へ短い 1 行を出す。
-    /// どの入力でも終了コード 0（cc の画面を壊さないため）。
-    #[command(hide = true)]
-    CcStatusline,
     /// cc の UserPromptSubmit hook（内部用）。
     ///
     /// 標準入力の JSON の `prompt` が `/sai-finalize` なら、LLM に送らずに完了処理を行い、
@@ -454,6 +447,27 @@ pub enum RunCmd {
 
     /// 実行を次の状態へ進める（review → done → Workflow）
     Advance {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行中の run に続きの文を送る（チャットの続き）
+    ///
+    /// `--text` を省くと標準入力の全文を送る。
+    Send {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// 送る文（省略時は標準入力の全文）
+        #[arg(long, value_name = "文")]
+        text: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行中の run を中断する（人間の esc と同じ）
+    Interrupt {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
         #[arg(long, default_value_t = false)]
@@ -1982,24 +1996,6 @@ pub fn handle_phone_export(
             println!("phone 書き出し: {}", summary.brief());
         }
     }
-    Ok(())
-}
-
-/// `sai-link cc-statusline`（cc の statusLine 用・00 §3.8-1 / 01 §2.5）。
-///
-/// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-/// `~/.sai/cc-cost/<session_id>.json` に書く。標準出力に短い 1 行を出す。
-/// 入力が読めない・壊れている場合も空行 + 終了コード 0（cc の画面を壊さない）。
-pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Read;
-
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
-        println!();
-        return Ok(());
-    }
-    let line = sai_link_engine::phone_export::handle_cc_statusline(&input);
-    println!("{}", line);
     Ok(())
 }
 
