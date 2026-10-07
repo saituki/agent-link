@@ -14,7 +14,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_f, add_o
-sci_scope: path
 timeout: 5400
 worktree: none
 enable: true
@@ -29,7 +28,7 @@ subblocks:
 ## 役割
 論文を 1 本読み、対象の O（対象が Q なら、その Q の O のどれか）に F を付ける Action です。論文に新しい答えの候補があれば O を足します。読むだけで終わらせず、成果は PROPOSAL で出します。木・mind.md を直接書き換えません。
 
-読み方の型は 2 つあります。依頼文の `sci_mode`（最初のメッセージの「# context」の「## CURRENT_ACTION」の「型」）で読み分けます。
+読み方の型は 2 つあります。task.md の `sci_mode`（依頼文の「読み方」）で読み分けます。
 
 - **purpose_first**（既定）: 対象の Node とガイドの Extract を先に読み、Q ごとに論文を照らし合わせる。
 - **blind_first**: Node を見ずに（行動・論文・ALLOWED_OPS だけで）読み、論文だけの要約を先に書く。書き終えてから木を取り寄せて照らす。どの Node にも合わないと分かったとき、その事実が収穫になる。
@@ -44,7 +43,7 @@ runner が user のときは、利用者が読みます。読み終えたかど�
 3. **本文を読む。** `sai-paper content outline <番号> --json` で節の一覧を見て、要る節だけを `content read <ID>` で読みます。`ABSTRACT` では Abstract と結論の節だけを読みます。節の表が無ければ `content build <番号>` で作ります。図が要る深さ（FIGURES・FULL）では `sai-paper paper figures` の出力で、論の順番と図の関係を確かめます。
 4. **型の順番を守る。**
    - purpose_first: 「対象の Node と Q → 論文の該当箇所 → 分かったこと」の順に書く。
-   - blind_first: 問い・方法・結果・限界の要約を先に書き終える。書き終えてから `sai-sci context --run "$SAI_PARENT_RUN_ID" --scope path` で木を取り寄せ、要約と木を照らす。
+   - blind_first: 問い・方法・結果・限界の要約を先に書き終える。書き終えてから `sai-sci context --run "$SAI_PARENT_RUN_ID" --tree` で木を取り寄せ、要約と木を照らす。
 5. **F を証拠付きで書く。** 対象の O ごとに `add_f` を出します。1〜3 文にまとめ、`cites` に塊の ID（`#37.5.2`）か `#37 §3.2` の形で CITE を付けます。数字を含む文には必ず CITE を付けます。F は O か E に付け、Q に直接付けません。
 6. **新しい答えの候補を O にする。** 論文に、木にまだ無い答えの候補があれば `add_o` を出します。
 7. **note.md を書く。** 論文だけの要約と、木に照らして分かったことを書き、標準入力で保存します。

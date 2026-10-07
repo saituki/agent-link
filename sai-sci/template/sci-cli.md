@@ -25,7 +25,7 @@
 | 現況の要点 | `sai-sci status --brief` |
 | 現況の全体 | `sai-sci status [--json]` |
 | Node 1 つの詳細 | `sai-sci node <Q12> [--json]` |
-| 実行のための入力（`# context`） | `sai-sci context --run <run_id>` |
+| 実行のための入力（`# context`） | `sai-sci context --run <run_id> [--tree]` |
 | 仕分け待ちの PROPOSAL | `sai-sci proposals [--json]` |
 | 仕分け（採用・却下・取り消し） | `sai-sci triage <P56> (--accept \| --reject \| --revert)` |
 | 読む札（`--runner user` のカード）の中身 | `sai-sci read <run_id>` |
@@ -42,14 +42,13 @@
 
 ```bash
 sai-sci card --node <Q12> --block <sci-read> \
-  --purpose <行動の目的> [--expect <期待する成果>] [--scope <範囲>] \
-  [--assume <ID=文>]… [--papers <番号,番号>] [--runner pi|cc|user] [--depth abstract|figures|full] \
+  --purpose <行動の目的> [--expect <期待する成果>] \
+  [--papers <番号,番号>] [--runner pi|cc|user] [--depth abstract|figures|full] \
   [--input <waggle トークン>]… --executer agent \
   --origin-run "$SAI_PARENT_RUN_ID" --json
 ```
 
 - `--node`（対象の Node。Q・O・F・E）・`--block`・`--purpose` は必ず書く。
-- `--assume` は仮置き（`Q9=SST-2 を使う（仮）`）。繰り返し可。
 - `--runner user` は、利用者が自分で読む札になる。`--depth` はその読む深さ。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai-link doc write` で保存してから渡す。
 - `--executer agent` を付けると、Human が Web からこのカードを起こしても動かず、役（professor など）が子として起こす。付けない（既定の `human`）と、人が起こすカードになる。

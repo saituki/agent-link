@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: support
 sci_ops: add_f
-sci_scope: node
 timeout: 3600
 worktree: none
 enable: true
@@ -43,7 +42,7 @@ enable: true
 
 ### 1. 依頼文と対象を読む
 
-- 依頼文と、最初のメッセージの `# context` の TARGET_NODE と UPSTREAM_PATH を読む。TARGET_NODE が対象の Issue の O である。
+- 依頼文と、最初のメッセージの `# context` を読む。依頼文の NODE が対象の Issue の O である。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。
 - 依頼文から **kind**（`再現` か `改良`）と **土台の論文の番号**（例 `#9`）を取る。決まらなければ、質問ツールで起動者に聞く（推測で埋めない）。
 
 ### 2. 参照コード調査書を読む
@@ -68,7 +67,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 - 検索の決まりは `sci-find` のとおりである。
 
   ```bash
-  sai-sci find "<英語の語>" --node <TARGET_NODE> --json
+  sai-sci find "<英語の語>" --node <NODE> --json
   ```
 
 - 論文にも参照コードにも無い式・値・再現の目標は、**`## GAP` に質問の形で書く。**
@@ -99,7 +98,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ```json
 {"proposals": [
-  {"op": "add_f", "node": "<TARGET_NODE>", "text": "#9 のモデルの参照実装 miscco/NM_TC は、TC の I_T を Thalamic_Column.cpp:88 の式で解いている。", "cites": ["#9.13.1"]}
+  {"op": "add_f", "node": "<NODE>", "text": "#9 のモデルの参照実装 miscco/NM_TC は、TC の I_T を Thalamic_Column.cpp:88 の式で解いている。", "cites": ["#9.13.1"]}
 ]}
 ```
 
@@ -112,8 +111,8 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ## モデル定義書
 
-- ファイル名 `sim-model-<TARGET_NODE>-ID<自分の run_id>.md`。
-- description `モデル定義書 <TARGET_NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
+- ファイル名 `sim-model-<NODE>-ID<自分の run_id>.md`。
+- description `モデル定義書 <NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
 - **書式は `sim-core` §2 のとおりである。** 本文の先頭に `{"sim_model": {...}}` の JSON を ```json のコードブロックで 1 つだけ置き、そのあと §2 の順に 9 つの節（`## 状態変数`・`## 式`・`## パラメータの出典表`・`## 再現の目標`・`## 改良点`・`## つなぎ方`・`## 食い違い`・`## GAP`・`## PROPOSAL`）を書く。書くことが無い節は「なし」と書く。
 - `kind` は `再現` か `改良` だけを書いてよい。
 

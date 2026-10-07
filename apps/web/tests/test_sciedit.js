@@ -157,9 +157,10 @@ function test_card() {
     expect: "O を 2 つ以上", scope: "path", assume: ["Q9=SST-2 を使う（仮）"], mode: "purpose_first",
     papers: [37], runner: "pi", depth: "full", origin_run: 120,
   };
+  // 範囲と仮置きは U22 で消した。preset に入っていても返さない・送らない。
   assert.deepStrictEqual(seCardValues(preset), {
     node: "Q12", block: "sci-ideate", purpose: preset.purpose, expect: "O を 2 つ以上", runner: "pi",
-    scope: "path", mode: "purpose_first", assume: ["Q9=SST-2 を使う（仮）"], papers: [37], depth: "full",
+    mode: "purpose_first", papers: [37], depth: "full",
   });
   // 無ければ空（nodeId だけ入る）
   const empty = seCardValues(null, "Q3");
@@ -174,8 +175,12 @@ function test_card() {
   assert.strictEqual(built.ok, true);
   assert.deepStrictEqual(built.card, {
     node: "Q12", block: "sci-ideate", purpose: preset.purpose, runner: "pi", papers: [37],
-    expect: "O を 2 つ以上", scope: "path", assume: ["Q9=SST-2 を使う（仮）"],
+    expect: "O を 2 つ以上",
   });
+  // 範囲と仮置きを直接渡しても、送るカードには入らない。
+  const stray = seBuildCard(Object.assign(seCardValues(preset), { scope: "blind", assume: ["Q1=あ"] }));
+  assert.strictEqual(stray.ok, true);
+  assert.ok(!("scope" in stray.card) && !("assume" in stray.card), JSON.stringify(stray.card));
   // 打ち込んだ番号（# 付き・重なり）
   assert.deepStrictEqual(seBuildCard(Object.assign(seCardValues(preset), { papers: [37, "#37", "40"] })).card.papers, [37, 40]);
 
@@ -184,8 +189,6 @@ function test_card() {
   bad({ purpose: "あ".repeat(301) });
   bad({ expect: "あ".repeat(301) });
   bad({ block: "sci-draft" });
-  bad({ assume: ["N12=x"] });
-  bad({ assume: ["Q1=a", "Q2=a", "Q3=a", "Q4=a", "Q5=a", "Q6=a"] });
   bad({ papers: Array.from({ length: 21 }, (_, i) => i + 1) });
   bad({ papers: ["abc"] });
 

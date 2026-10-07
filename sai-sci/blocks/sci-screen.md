@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_f
-sci_scope: node
 timeout: 3600
 worktree: none
 enable: true

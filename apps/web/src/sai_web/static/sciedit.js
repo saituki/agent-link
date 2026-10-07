@@ -33,11 +33,6 @@ const SE_DONE = {
 };
 // 入力欄を出さずに送る op
 const SE_QUICK = ["star", "unstar", "set_kind", "set_target"];
-// 範囲
-const SE_SCOPES = [
-  ["node", "node"], ["path", "path"], ["subtree", "subtree"],
-  ["siblings", "siblings"], ["summary", "summary"], ["blind", "blind"],
-];
 // 読む深さ
 const SE_DEPTHS = [["abstract", "abstract"], ["figures", "figures"], ["full", "full"]];
 // 実行するもの（user は読む札）
@@ -74,8 +69,6 @@ const SE_BLOCKS = [
 const SE_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)?( .{1,80})?$/;
 // ID の形（Q・O・F・E）
 const SE_ID_RE = /^[QOFE][1-9][0-9]{0,8}$/;
-// 仮置きの形（`Q9=値`）
-const SE_ASSUME_RE = /^[QOFE][1-9][0-9]{0,8}=.+$/;
 // 文字数の上限
 const SE_MAX = { qtext: 300, otext: 120, ftext: 1200, etext: 120, body: 2000, note: 1000, mlflow: 200, title: 120, sentence: 600, purpose: 300, expect: 300 };
 
@@ -271,9 +264,7 @@ function seCardValues(preset, nodeId) {
     purpose: seTrim(p.purpose),
     expect: seTrim(p.expect),
     runner,
-    scope: SE_SCOPES.some((s) => s[0] === p.scope) ? p.scope : "",
     mode: SE_MODES.some((m) => m[0] === p.mode) ? p.mode : "purpose_first",
-    assume: seList(p.assume),
     papers: (Array.isArray(p.papers) ? p.papers : []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
     depth: SE_DEPTHS.some((d) => d[0] === p.depth) ? p.depth : "full",
   };
@@ -296,9 +287,6 @@ function seBuildCard(values) {
   const expect = seTrim(v.expect);
   if (expect.length > SE_MAX.expect) return bad("期待する成果は 300 字までです");
   const runner = SE_RUNNERS.some((r) => r[0] === v.runner) ? v.runner : "pi";
-  const assume = seList(v.assume);
-  if (assume.length > 5) return bad("仮置きは 5 個までです");
-  for (const a of assume) if (!SE_ASSUME_RE.test(a)) return bad(`仮置き「${a}」の形が正しくありません（Q9=値）`);
   const papers = [];
   for (const raw of Array.isArray(v.papers) ? v.papers : []) {
     const s = seTrim(raw).replace(/^#/, "");
@@ -314,9 +302,7 @@ function seBuildCard(values) {
     card.depth = SE_DEPTHS.some((d) => d[0] === v.depth) ? v.depth : "full";
   }
   if (expect) card.expect = expect;
-  if (seTrim(v.scope)) card.scope = seTrim(v.scope);
   if (v.block === "sci-read" && seTrim(v.mode)) card.mode = seTrim(v.mode);
-  if (assume.length) card.assume = assume;
   return { ok: true, card, error: null };
 }
 
@@ -1007,9 +993,7 @@ async function seOpenCard(nodeId, preset) {
     block, purpose,
     seFieldArea("expect", "期待する成果", init.expect, 2, "300 字まで（任意）"),
     runner,
-    seFieldSelect("scope", "範囲", SE_SCOPES, init.scope, "空のときはブロックの既定", true),
     mode,
-    seFieldLines("assume", "仮置き", init.assume, 5, "1 行 1 つ。`Q9=SST-2 を使う` の形（5 個まで）", "Q9=値"),
   );
   if (uniq.length) {
     fields.push(seFieldChecks("papers", "論文", uniq.map((p) => [p, `#${p}`]), init.papers.map(String), "この Node の下の F の論文から選ぶ"));
@@ -1034,7 +1018,7 @@ async function seOpenCard(nodeId, preset) {
     const built = seBuildCard({
       node: seTrim(nodeId) || v.node || init.node,
       block: v.block, purpose: v.purpose, expect: v.expect, runner: v.runner,
-      scope: v.scope, mode: v.mode, assume: v.assume, depth: v.depth,
+      mode: v.mode, depth: v.depth,
       papers: [...(Array.isArray(v.papers) ? v.papers : []), ...(Array.isArray(v.papers_typed) ? v.papers_typed : [])],
     });
     if (!built.ok) { form.say(built.error); return; }
@@ -1177,6 +1161,6 @@ if (typeof module !== "undefined" && module.exports) {
     seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
     seCardValues, seBuildCard, seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
     seNearestO, seSproutStartOs, seSproutNext, seChainPlan, seChainPath,
-    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ASSUME_RE, SE_ID_RE,
+    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE,
   };
 }

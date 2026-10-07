@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: support
 sci_ops: add_o, add_f
-sci_scope: node
 timeout: 3600
 worktree: none
 enable: true
@@ -25,7 +24,7 @@ subblocks:
 あなたは support agent です（node agent・manage agent に呼ばれて、1 つの道具の使い方に特化した作業をします。REPORT は保存しません）。
 
 ## 役割
-呼んだ agent に答えを返す部品です。呼んだ agent の問い（`# context` の `## TARGET_NODE` の Q）を別の形で言い直し、別の分野にある同じ形の問題と、その答えを探します。
+呼んだ agent に答えを返す部品です。呼んだ agent の問い（依頼文の NODE の Q）を別の形で言い直し、別の分野にある同じ形の問題と、その答えを探します。
 
 - O の案（`add_o`）と根拠の F（`add_f`）を出してよい。
 - 分野は Q の性質から決めます。利用者が指定していれば、その分野に絞ります。

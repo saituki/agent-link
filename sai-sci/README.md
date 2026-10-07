@@ -36,7 +36,6 @@
 | Next Action | 次の一手 | 今やるとよい Action の候補。画面の上の帯と板に出る。「Create CARD」を押すとカードを作る |
 | CARD | カード | Action の依頼文。実行者（runner）が `pi`・`cc`・`user` のどれか |
 | 読む札 | 読む札 | runner が `user` の CARD。利用者が 1 本の論文を読んで F を付ける |
-| SCOPE | 範囲 | 実行に切り出す木の範囲。`node`・`path`・`subtree`・`siblings`・`summary`・`blind` |
 
 ---
 
@@ -188,7 +187,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 
 ### 3.4 template（14 本）と mind.md
 
-- **`template/sci-core.md`** — エージェントに共通で渡す決まり。SCOPE の読み方、PROPOSAL の書き方、使える op、根拠の扱い、迎合しない姿勢。
+- **`template/sci-core.md`** — エージェントに共通で渡す決まり。context の読み方、PROPOSAL の書き方、使える op、根拠の扱い、迎合しない姿勢。
 - **`template/sci-find.md`** — F を探すブロックの共通の決まり。
 - **`template/sci-match.md`** — 論文と Q・O を照らし合わせるときの共通の決まり。
 - **`template/bw-core.md`** — 逆向きの運用の共通の決まり（5.6 節）。
@@ -283,7 +282,7 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 `sci-*` のブロックは `context: true` です。sai-link は実行の直前に `.sai/settings.json` の `context` の命令を実行し、標準出力を、最初のメッセージの `# context` の節に入れます。依頼文は同じメッセージの `# task_text` の節に入ります。
 
-この範囲は「対象の Node・そこまでの親の道・この回で問い直さないと決めた仮置き」です。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。
+TREE の範囲はブロックの sci_type で決まります。`node` は対象の Node とその子孫、`manage` は一番上の Q から対象までの祖先と対象とその子孫、`support` には出しません。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。
 
 **決まり:** `.sai/settings.json` の `context` に別の命令を指定するときは、その出力も `##` から始めてください。
 
@@ -425,12 +424,12 @@ sai-link card run <返ってきた run_id>
 | `sai-sci type-save` | 研究の型を `<sai_home>/sci/types/` に保存する（標準入力に型の Markdown。JSON で返す） |
 | `sai-sci status [--json] [--brief]` | 現況（進み具合・SEED の下書き・木・Next Action）。`--brief` は数だけを JSON で出す |
 | `sai-sci node <Q12\|O5\|F3\|E2> [--json]` | Node 1 つの詳細 |
-| `sai-sci context --run <run_id> [--scope <SCOPE>]` | 今の実行の SCOPE（`# context`）を標準出力へ出す |
+| `sai-sci context --run <run_id> [--tree]` | 今の実行の `# context` を標準出力へ出す |
 | `sai-sci propose [--run <run_id>] [--block <id>]` | PROPOSAL を出す（標準入力に `{"proposals":[…]}`） |
 | `sai-sci apply` | 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON） |
 | `sai-sci proposals [--json]` | 仕分け待ちの PROPOSAL の一覧 |
 | `sai-sci triage <P56> (--accept [--edit <JSON>] \| --reject \| --revert)` | PROPOSAL を仕分ける |
-| `sai-sci card --node <Q12> --purpose <文> [--block <id>] [--expect <文>] [--scope <範囲>] [--assume <Q9=値>]… [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner pi\|cc\|user] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--executer human\|agent] [--json]` | Node に向けた Action（CARD）を作る。`--runner user` は読む札 |
+| `sai-sci card --node <Q12> --purpose <文> [--block <id>] [--expect <文>] [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner pi\|cc\|user] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--executer human\|agent] [--json]` | Node に向けた Action（CARD）を作る。`--runner user` は読む札 |
 | `sai-sci read <run_id> [--json]` | 読む札の中身 |
 | `sai-sci export` | 木を `state.md` と `tree.md` に書き出す |
 

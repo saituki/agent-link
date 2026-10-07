@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_e, add_f
-sci_scope: path
 timeout: 5400
 worktree: none
 enable: true
@@ -46,7 +45,7 @@ enable: true
 
 - 依頼文のデータ表（カードの `--input` に渡されたトークン）を `sai-link doc read` で読む。
 - データ表の先頭にある JSON（C3）から **study・project・explore の run_id・`node`** を取る。作業フォルダは `analysis/<study>/`（C1）。
-- `# context` の対象の Node は、explore が作った E である。違うときは、質問ツールで起動者に確認して止まる。
+- 依頼文の NODE は、explore が作った E である。違うときは、質問ツールで起動者に確認して止まる。
 - **データ表が無ければ、質問ツールで起動者に聞いて止まる。** 推測でデータ表を作らない。
 
 ### 2. 解析計画書を保存する

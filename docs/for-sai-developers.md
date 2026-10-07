@@ -464,8 +464,6 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 | `block` | 文字列（`^sci-[a-z-]{2,30}$`） | 動かす block。**必須**（runner が `user` で空なら `sci-read`） |
 | `purpose` | 文字列（1〜300 字） | 依頼文。**必須** |
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
-| `scope` | `node` / `path` / `subtree` / `siblings` / `summary` / `blind` | 渡す範囲 |
-| `assume` | 文字列の配列（5 個まで） | 仮置き |
 | `mode` | `purpose_first` / `blind_first` | 読む札の型 |
 | `papers` | 整数の配列（20 個まで。`user` はちょうど 1 本） | 対象論文 |
 | `runner` | `pi` / `cc` / `user`（既定 `pi`） | 実行主体 |

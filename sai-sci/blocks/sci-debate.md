@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: record_logic, add_f
-sci_scope: path
 timeout: 5400
 worktree: none
 enable: true
@@ -26,11 +25,11 @@ subblocks:
 あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
-Action `check_logic`。「今回の SCOPE」の Q の下にある F どうしに矛盾が無いかを、`paper-debater` と `paper-reviewer` に議論させて確かめ、結論を Q の Logicality（`OK` / `CONTRADICTION`）として残す。対象の Node は Q。議論の運びは `paper-debate`（`crates/sai-paper-cli/assets/blocks/paper-debate.md`）の司会の流れを使う。
+Action `check_logic`。TREE の範囲の Q の下にある F どうしに矛盾が無いかを、`paper-debater` と `paper-reviewer` に議論させて確かめ、結論を Q の Logicality（`OK` / `CONTRADICTION`）として残す。対象の Node は Q。議論の運びは `paper-debate`（`crates/sai-paper-cli/assets/blocks/paper-debate.md`）の司会の流れを使う。
 
 このブロックは**迎合しない**。今の方針（★ の O）に不利な根拠が出ても、消さずに F の文で書いて残す。
 
-**参加者に渡す背景は、対象の Q・Q までの道（上の Q と ★ の O）・前提だけにする。** SCOPE の外の話は渡さない。出たら司会が切る。
+**参加者に渡す背景は、対象の Q・Q までの道（上の Q と ★ の O）・前提だけにする。** TREE の外の話は渡さない。出たら司会が切る。
 
 ### 手順
 1. **対象を確かめる。** 依頼文の `議題`・`型`（無ければ `対話`）・`往復`（既定 2、最大 3）を読む。対象の Q が決まっていなければ利用者に確認する。`sai-sci status --json` で Q の下の F と、今の Logicality を読む。

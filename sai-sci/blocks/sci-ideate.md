@@ -13,7 +13,6 @@ templates:
 context: true
 sci_type: node
 sci_ops: add_o, add_f
-sci_scope: path
 timeout: 5400
 worktree: none
 enable: true
@@ -27,7 +26,7 @@ subblocks:
 あなたは node agent です（対象の Node を指定されて動きます）。
 
 ## 役割
-子の Q を持たない Q に、答えの候補（O）を出す Action です。対象は `# context` の `## TARGET_NODE` の Q です。子の Q を持つ Q には O を置けません。そのときは `sci-split` が先だと report に書きます。
+子の Q を持たない Q に、答えの候補（O）を出す Action です。対象は依頼文の NODE の Q です。子の Q を持つ Q には O を置けません。そのときは `sci-split` が先だと report に書きます。
 
 出し方は 2 つあります。どちらにするかは依頼文に従います。無ければ質問ツールで決めます。
 
@@ -37,7 +36,7 @@ subblocks:
 O ごとに、Answer か Issue を決めます。Answer は答えの候補。Issue は、文献に答えが無い、つまり研究課題です。根拠があれば F を O に付けます。
 
 ### 手順
-1. `# context` の `## TARGET_NODE`・`## UPSTREAM_PATH`・`## GUIDE` と、すでにある O を読む。重複する O は出さない。
+1. 依頼文の NODE・`## TREE`（`← TARGET` の行）・`## GUIDE` と、すでにある O を読む。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。重複する O は出さない。
 2. 出し方（a か b）を決める。
 3. (a) のとき: 出し方（文献・他分野の同型・前提の逆転・制約の付け外し・組み合わせ）を決めて利用者に見せる。同型を探すなら、`sai-link def list` で `sci-analogy` を確かめ、`sai-link task create`（`worktree` は `"none"`）で作って `sai-link task execute` で送り、`sai-link task wait`（`timeout_ms` は 300000 以下）で待って `sai-link doc read` で読む。`sai-link task` の `finalize` は文書を読んだあとに 1 回だけ呼ぶ。
 4. (b) のとき: 根拠を先に集め、1 案を書く。質問ツールで直したい点を 2〜3 問だけ聞き、答えを反映して書き直す。変えた点と理由を 1 つずつ残す。利用者が決めた文を O にする。

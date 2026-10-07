@@ -12,7 +12,6 @@ templates:
 context: true
 sci_type: manage
 sci_ops: add_e, add_f
-sci_scope: path
 timeout: 3600
 worktree: none
 enable: true
@@ -45,8 +44,8 @@ enable: true
 ### 1. 受け取った文書を読む
 
 - SEED の札（`sci-seed` の出力。再現なら「## 再現の決まり」付き）と、依頼文の目的を読む。
-- 最初のメッセージの `# context` の TARGET_NODE と UPSTREAM_PATH を読む。TARGET_NODE（task.md の Node の欄）が実験の対象の Issue の O である。
-- TARGET_NODE が Issue の O でなければ、先へ進まない。質問ツール（`AskUserQuestion` か `ask_user` のうち使えるほう）で起動者に、どの Issue の O の下に置くかを聞く。
+- 最初のメッセージの `# context` の `## TREE` と依頼文の NODE を読む。依頼文の NODE（task.md の Node の欄）が実験の対象の Issue の O である。
+- その NODE が Issue の O でなければ、先へ進まない。質問ツール（`AskUserQuestion` か `ask_user` のうち使えるほう）で起動者に、どの Issue の O の下に置くかを聞く。
 - データの置き場・取り寄せ方は F と SEED の札から探す。無ければ質問ツールで起動者に聞く。**推測で書かない。**
 - 依頼文に「参照コード調査書」（`sci-exp-scout` の出力）のトークンがあれば、`sai-link doc read` で読む。
   - 無ければ、質問ツールで起動者に、`sci-exp-scout` を先に走らせるか、参照実装なしで進めるかを聞く。答えを待つあいだ、先へ進まない。
@@ -58,7 +57,7 @@ enable: true
 
 `exp-core` §3 の欄を埋める。
 
-1. **`study` を決める。** `<Node の ID>-ID<自分の run_id>` にする（例 `O12-ID120`）。自分の run_id は環境変数 `SAI_PARENT_RUN_ID`。`<Node の ID>` は `# context` の対象の Issue の O。無ければ `sai-sci status --json` で、`running` に自分の run が載っている Node を探す。
+1. **`study` を決める。** `<Node の ID>-ID<自分の run_id>` にする（例 `O12-ID120`）。自分の run_id は環境変数 `SAI_PARENT_RUN_ID`。`<Node の ID>` は依頼文の NODE（Issue の O）。無ければ `sai-sci status --json` で、`running` に自分の run が載っている Node を探す。
 2. **指標名・向き・成功基準を研究方針の木から取る。**
 
    ```bash
@@ -90,7 +89,7 @@ enable: true
 
 `sai-sci propose` で出す（`sci-core`）。1 回の実行を起こす**前**に、次の順で出す。
 
-1. 実験のアイデアの E。親は TARGET_NODE（Issue の O）。`text` は実験の題、`body` は実験仕様書の要点、`mlflow` は MLflow の experiment の名前。
+1. 実験のアイデアの E。親は依頼文の NODE（Issue の O）。`text` は実験の題、`body` は実験仕様書の要点、`mlflow` は MLflow の experiment の名前。
 
    ```json
    {"op": "add_e", "parent": "<Node の ID>", "text": "<実験の題>", "body": "<実験仕様書の要点>", "mlflow": "<experiment の名前>"}

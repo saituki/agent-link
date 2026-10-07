@@ -13,7 +13,6 @@ templates:
 context: true
 sci_type: manage
 sci_ops: record_logic, add_f, add_q
-sci_scope: summary
 timeout: 5400
 worktree: none
 enable: true
