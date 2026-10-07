@@ -1,8 +1,8 @@
 "use strict";
-// 研究方針の画面（Q・O・F・E・S の木）。住所は #/research/tree と #/research/tree/<ID>。
+// research-tree の画面（Q・O・F・E・S の木）。住所は #/research/tree と #/research/tree/<ID>。
 //
 // 上の帯に進み具合・Next Action（先頭 3 件）・注意、左に木の一覧、真ん中に
-// 方針の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ決定の記録）を出す。
+// research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ決定の記録）を出す。
 // SEED（ID `SEED`）は DB の行を持たず、status.seed から板を作る。
 // 狭い画面（幅 390px）の板は下から出る（saiSheet）。
 //
@@ -14,7 +14,7 @@
 
 // --- 定数 ---
 
-// 研究の型（/sci/types が返せば、その説明で置き換える）
+// RESEARCH_TYPE（/sci/types が返せば、その説明で置き換える）
 const ST_TYPES = [
   ["problem", "PROBLEM_DRIVEN", "最初に課題（困っていること）を決めて、何をなぜやるのかから始める研究です。"],
   ["phenomenon", "PHENOMENON_DRIVEN", "先に現象を捉え、「なぜ起きるのか」を問う研究です。"],
@@ -542,14 +542,14 @@ function stRenderTop() {
   if (!s.initialized) {
     box.appendChild(stEmpty({
       icon: "🌱",
-      title: "研究方針の木がまだありません",
-      body: "研究の型を選んで始めます。",
+      title: "research-tree がまだありません",
+      body: "RESEARCH_TYPE を選んで始めます。",
       action: { label: "始める", onClick: () => { void stStartTree(); } },
     }));
     return;
   }
   if (s.legacy) {
-    box.appendChild(stEl("p", "sci-note sci-legacy", "古い形の木です。新しい木（Q・O・F・E）には読み替えていません。"));
+    box.appendChild(stEl("p", "sci-note sci-legacy", "古い形の tree です。新しい tree（Q・O・F・E）には読み替えていません。"));
   }
   box.appendChild(stProgressBand(s));
   box.appendChild(stNextBand(s));
@@ -621,7 +621,7 @@ function stChipBand(s) {
   return row;
 }
 
-/** 研究の型を選んで木を始める。 */
+/** RESEARCH_TYPE を選んで木を始める。 */
 async function stStartTree() {
   if (typeof saiSheet !== "function") return;
   const types = (stTypesData && Array.isArray(stTypesData.types) && stTypesData.types) || null;
@@ -637,12 +637,12 @@ async function stStartTree() {
     b.addEventListener("click", () => { saiOverlayShut(); void stInitTree(id, name); });
     body.appendChild(b);
   }
-  saiSheet({ title: "研究の型を選ぶ", body });
+  saiSheet({ title: "RESEARCH_TYPE を選ぶ", body });
 }
 
 async function stInitTree(typeId, typeName) {
   if (typeof saiConfirm === "function") {
-    const ok = await saiConfirm({ title: "始めますか？", body: `${typeName} で研究方針の木を始めます。`, ok: "始める" });
+    const ok = await saiConfirm({ title: "始めますか？", body: `${typeName} で research-tree を始めます。`, ok: "始める" });
     if (!ok) return;
   }
   try {
@@ -838,7 +838,7 @@ function stRenderGraph() {
   box.innerHTML = "";
   if (!stData || !stData.initialized) return;
   if (typeof sgRenderGraph !== "function") {
-    box.appendChild(stEl("p", "sci-note", "方針の図はまだ使えません"));
+    box.appendChild(stEl("p", "sci-note", "research-tree の図はまだ使えません"));
     return;
   }
   sgRenderGraph(box, { status: stData, key: selectedPaperProject() }, (sel) => {
@@ -1212,7 +1212,7 @@ function stBoardLogic(node) {
 
 /** ガイド（question・Child Q・Extract・Pitfall）。 */
 function stBoardGuide(g) {
-  const sec = stSec("ガイド");
+  const sec = stSec("GUIDE");
   if (!g) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
   const items = [["question", g.question], ["Child Q", g.child_q], ["Extract", g.extract], ["Pitfall", g.pitfall]];
   for (const [k, v] of items) {
@@ -1337,7 +1337,7 @@ function stClearAll() {
 
 function stRenderError(e) {
   const list = stClearAll();
-  if (list) list.appendChild(stEmpty({ icon: "⚠️", title: "研究方針を読めませんでした", body: (e && e.message) || "読み直してください" }));
+  if (list) list.appendChild(stEmpty({ icon: "⚠️", title: "research-tree を読めませんでした", body: (e && e.message) || "読み直してください" }));
 }
 
 function stRenderNoProject() {

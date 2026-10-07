@@ -156,68 +156,84 @@ const SAI_TERMS = {
   },
   mind: {
     label: "Mind (mind.md)",
-    text: "これまでの経緯と、次にやりたいことをエージェントが継続的に書いているメモ（mind.md）です。",
+    text: "研究の土台（SEED に入る初期構想・制約）を利用者が書くメモ（mind.md）。エージェントは直接書き換えません。",
   },
-  // --- 研究方針の木（U19・共有契約 C-14） ---
+  // --- research-tree（U19・共有契約 C-14。U41 で今の用語に作り直した） ---
+  sci_research_tree: {
+    label: "research-tree",
+    text: "SEED・ROOT・SPROUT・BRANCH の 4 layer からなる木と、それを描いた図の総称です。",
+  },
   sci_seed: {
-    label: "SEED_SENTENCE（種の文）",
-    text: "研究の型ごとの 1 文のひな形です。決まった ITEM の値が入り、まだ決まっていない所は［？］で出ます。",
+    label: "SEED",
+    text: "研究の初期の入力です。RESEARCH_TYPE と mind.md からなります。Node の ID は SEED です。",
   },
-  sci_gate: {
-    label: "GATE（関門）",
-    text: "研究の型ごとに決めた通過条件の並びです。最初に通っていない GATE が、今いる所です。",
+  sci_root: {
+    label: "ROOT",
+    text: "SEED から下へ分かれる Q・O・F の総称です。木の下向きの部分を指します。",
   },
-  sci_blank: {
-    label: "BLANK の種類（空欄の種類）",
-    text: "まだ決まっていない ITEM が、なぜ空いているかの分類です（UNTOUCHED・IN_PROGRESS・INSUFFICIENT・AWAITING_DECISION・CONFLICT）。",
+  sci_sprout: {
+    label: "SPROUT",
+    text: "SEED から上へ分かれる Node です。ID は S で始まり、PATH を集めて実験の計画を立てます。",
   },
-  sci_debt: {
-    label: "DEBT（負債）",
-    text: "先に片付けたいものです（PENDING_PROPOSALS・UNREFLECTED_PAPERS・UNSCREENED_SETS・EMPTY_REVIEWS）。",
+  sci_branch: {
+    label: "BRANCH",
+    text: "SPROUT から上へ分かれる E です。実験の実行を表します。",
   },
-  sci_finding: {
-    label: "FINDING（知見）",
-    text: "論文などから分かった 1〜3 文の事実と、その出典です。SUPPORT・REFUTE などの POLARITY（向き）を持ちます。",
+  sci_path: {
+    label: "PATH",
+    text: "SEED から top_Q を通って O に至る道です。終点の O で表します。",
   },
-  sci_assume: {
-    label: "ASSUMPTION（仮置き）",
-    text: "その議論では問い直さない前提として置く値です。",
+  sci_node: {
+    label: "Node",
+    text: "research-tree の 1 つの要素です。Q・O・F・E・S のどれかになります。",
   },
-  sci_scope: {
-    label: "SCOPE（範囲）",
-    text: "エージェントに渡す、研究方針の木から切り出した部分です。",
+  sci_top_q: {
+    label: "top_Q",
+    text: "SEED の直下にある Q です。tree のいちばん上に並びます。",
   },
-  sci_triage: {
-    label: "TRIAGE（仕分け）",
-    text: "エージェントの PROPOSAL を採用するか却下するかを決めることです（ACCEPT・REJECT・REVERT）。",
+  sci_bottom_q: {
+    label: "bottom_Q",
+    text: "child_Q を持たない Q です。tree のいちばん下の Q です。",
   },
-  sci_tombstone: {
-    label: "TOMBSTONE（墓標）",
-    text: "外した論文の記録です。もう一度検索に出ないように残します。",
-  },
-  sci_type: {
-    label: "RESEARCH_TYPE（研究の型）",
-    text: "研究の始まり方の分類です（PROBLEM_DRIVEN・PHENOMENON_DRIVEN・METHOD_DRIVEN・DATA_DRIVEN・IMPROVE_DRIVEN）。ITEM_ORDER と GATE が変わります。",
-  },
-  sci_item: {
-    label: "ITEM（項目）",
-    text: "研究方針の木で「決める穴」です。状態は OPEN・TENTATIVE・DECIDED・EXCLUDED のどれかです。",
-  },
-  sci_option: {
-    label: "OPTION（候補）",
-    text: "ITEM の下に置く答えの案です。状態は CANDIDATE・SELECTED・REJECTED・DORMANT のどれかです。",
-  },
-  sci_mark: {
-    label: "MARK（印）",
-    text: "ITEM に付く注意の印です（WEAK_EVIDENCE・RECHECK）。",
+  sci_star: {
+    label: "STAR（★）",
+    text: "利用者が Answer の O に付ける印です。STAR_PATH は top_Q から STAR の O を通ってたどれる道です。",
   },
   sci_proposal: {
-    label: "PROPOSAL（提案）",
-    text: "エージェントが木に出す変更の案です。AUTO_OP は自動で入り、REVIEW_OP は利用者が TRIAGE で仕分けます。",
+    label: "PROPOSAL",
+    text: "agent が出す research-tree の変更の案です。ID は P で始まります。",
+  },
+  sci_triage: {
+    label: "TRIAGE",
+    text: "PROPOSAL を accept・reject・revert のどれかで決めることです。",
+  },
+  sci_pending: {
+    label: "PENDING",
+    text: "TRIAGE を待っている PROPOSAL のことです。",
   },
   sci_card: {
-    label: "CARD・READ_CARD（カード・読む札）",
-    text: "研究方針の木から作るエージェントへの依頼です。READ_CARD は利用者自身が論文を読んで FINDING を足す CARD です。",
+    label: "CARD / READ_CARD",
+    text: "agent への依頼が CARD です。利用者が論文を読んで F を足す CARD は READ_CARD です。",
+  },
+  sci_guide: {
+    label: "GUIDE",
+    text: "Q の項目を書くときの手引きです。抽出の観点や落とし穴を書きます。",
+  },
+  sci_objectivity: {
+    label: "Objectivity",
+    text: "O の評価の 2 軸の 1 つです。出典の根拠がどれだけあるかを見ます。",
+  },
+  sci_logicality: {
+    label: "Logicality",
+    text: "O の評価の 2 軸の 1 つです。話の筋が通っているかを見ます。",
+  },
+  sci_research_type: {
+    label: "RESEARCH_TYPE",
+    text: "研究の始まり方の分類です（PROBLEM_DRIVEN・PHENOMENON_DRIVEN など）。",
+  },
+  sci_lab_agent: {
+    label: "LabAgent",
+    text: "sci_type を持つ sai-sci のブロックで動く agent です。node agent・manage agent・support agent の 3 つに分かれます。",
   },
 };
 

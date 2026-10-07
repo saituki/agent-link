@@ -20,7 +20,7 @@
        --line-strong  … 意味を持つ枠（選択中の札、フォーカスした欄、状態の境目）。3:1 以上。 */
   --line: #e5e7eb;
   --line-strong: #7d838c;
-  /* 選択中の枠（Workflow・研究方針の図の札） */
+  /* 選択中の枠（Workflow・research-tree の図の札） */
   --sel: #a16207;
   /* フォーカスしたときの輪 */
   --focus: #1d4ed8;
@@ -68,9 +68,9 @@
   --chart-grid: #e8eaee;  /* 目立たない格子 */
   --chart-axis: #656b73;  /* 目盛りの文字 */
 
-  /* --- 研究方針の木（U19） ---
+  /* --- research-tree（U19） ---
      状態（決定・仮決定・未決定・対象外・候補・却下・休眠・支持・反証）と
-     線（親子・依存・由来・同型）。赤と緑だけの組にしない。対比は test_contrast.js が測る。 */
+     線（Parent / Child・依存・由来・同型）。赤と緑だけの組にしない。対比は test_contrast.js が測る。 */
   --sci-decided: #15803d;
   --sci-tentative: #a16207;
   --sci-open: #1d4ed8;

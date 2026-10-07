@@ -326,7 +326,7 @@ function hmSections(data) {
     const items = Array.isArray(p.items) ? p.items : [];
     if (n <= 0 && items.length === 0) continue;
     const head = items.slice(0, HM_PAPERS_MAX);
-    // U19: 先頭 3 件に研究方針の木（sci_）から出ていれば「いま決めること」へ行けるようにする
+    // U19: 先頭 3 件に research-tree（sci_）から出ていれば「いま決めること」へ行けるようにする
     const sciFirst = head.slice(0, 3).some((i) => i && typeof i.kind === "string" && i.kind.startsWith("sci_"));
     papers.push({
       kind: "papers",

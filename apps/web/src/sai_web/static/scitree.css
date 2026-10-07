@@ -1,7 +1,7 @@
-/* sai-web の研究方針の木（Research-tree）の画面 — 実装計画 U19。
+/* sai-web の research-tree（research-tree）の画面 — 実装計画 U19。
    style.css の次に読む（index.html）。style.css は U01 が書くので触らない。
    使う変数は --bg / --bg-soft / --text / --text-soft / --line / --line-strong /
-   --accent と、研究方針の木用の --sci-*（状態と線の色。style.css にある）。
+   --accent と、research-tree 用の --sci-*（状態と線の色。style.css にある）。
    クラスは .sci- で始める。st- や --st- は統計の画面（style.css）と重なるので使わない。 */
 
 /* --- 画面全体（上に帯・下に一覧と板） --- */
@@ -177,7 +177,7 @@
   }
 }
 
-/* --- 上の帯（種の文・関門・負債） --- */
+/* --- 上の帯（進み具合・Next Action・注意） --- */
 
 .sci-band {
   background: var(--bg-soft);
@@ -225,7 +225,7 @@
 
 .sci-gate-row { display: flex; gap: 8px; align-items: flex-start; }
 
-/* --- 研究の型を選ぶ --- */
+/* --- RESEARCH_TYPE を選ぶ --- */
 
 .sci-types { display: flex; flex-direction: column; gap: 8px; }
 
@@ -417,7 +417,7 @@
 
 .run-mlf-link:hover { color: var(--accent); }
 
-/* --- 研究方針（Q・O・F・E・S の木） --- */
+/* --- research-tree（Q・O・F・E・S の木） --- */
 
 /* --- SEED の板（U33）。RESEARCH_TYPE と mind.md の節 --- */
 .sci-seed-type { margin: 0 0 6px; font-size: 13px; color: var(--text); }

@@ -1,5 +1,5 @@
 "use strict";
-// 研究方針の木の図（scigraph.js）の純関数のテスト（計画 U33）。
+// research-tree の図（scigraph.js）の純関数のテスト（計画 U33）。
 // 実行:
 //     node apps/web/tests/test_scigraph.js
 //
@@ -86,14 +86,14 @@ function testLayers() {
 
 function testEdgeKinds() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
-  // SEED → top_Q は seed、SEED → S は sprout、親子は tree
+  // SEED → top_Q は seed、SEED → S は sprout、Parent / Child は tree
   assert.ok(hasEdge(l, "SEED", "Q0", "seed"), JSON.stringify(l.edges));
   assert.ok(hasEdge(l, "SEED", "S1", "sprout"), JSON.stringify(l.edges));
   assert.ok(hasEdge(l, "SEED", "S2", "sprout"), JSON.stringify(l.edges));
   assert.ok(hasEdge(l, "Q0", "Q1", "tree"));
   assert.ok(hasEdge(l, "S1", "E1", "tree"));
   assert.ok(hasEdge(l, "E1", "E2", "tree"));
-  // S を ROOT の親子としてつながない
+  // S を ROOT の Parent / Child としてつながない
   assert.ok(!hasEdge(l, "Q0", "S1", "tree"));
   // 線の種類は 3 つ
   assert.deepStrictEqual(l.edges.map((e) => e.kind).filter((k) => !["tree", "seed", "sprout"].includes(k)), []);

@@ -23,14 +23,15 @@ function testWideAt() {
 }
 
 // C-F5 の用語が全部あって、1 つ 1 つ名前と説明がある
-// U19 が研究方針の木の用語 10 個を足した（共有契約 C-14）。
+// U19 が research-tree の用語を足し、U41 が今の用語 19 個に作り直した（共有契約 C-14）。
 const C_F5 = [
   "run", "todo", "running", "review", "done", "workflow", "kanban", "block",
   "template", "settings", "runner", "round", "global_round", "waggle", "daemon",
   "card", "task_text", "phase", "bibtex", "attention", "state", "mind",
-  "sci_seed", "sci_gate", "sci_blank", "sci_debt", "sci_finding", "sci_assume",
-  "sci_scope", "sci_triage", "sci_tombstone", "sci_type",
-  "sci_item", "sci_option", "sci_mark", "sci_proposal", "sci_card",
+  "sci_research_tree", "sci_seed", "sci_root", "sci_sprout", "sci_branch",
+  "sci_path", "sci_node", "sci_top_q", "sci_bottom_q", "sci_star",
+  "sci_proposal", "sci_triage", "sci_pending", "sci_card", "sci_guide",
+  "sci_objectivity", "sci_logicality", "sci_research_type", "sci_lab_agent",
 ];
 
 function testTerms() {
@@ -60,7 +61,7 @@ function testTermTextsAreSentences() {
   for (const { key, text } of U.saiTermList()) {
     assert.ok(/[。？！]/.test(text), `${key} の説明が文になっていること: ${text}`);
     // 日本語（かな・漢字）と、実際に使う英単語・記号と空白だけ
-    // （？ は文の句点として上の検査にも使っている。研究方針の「［？］」の記号にも使う、〜 は範囲の記号として許す）
+    // （？ は文の句点として上の検査にも使っている。research-tree の「［？］」の記号にも使う、〜 は範囲の記号として許す）
     const stripped = text.replace(/[一-鿿぀-ゟ゠-ヿA-Za-z0-9\s.,:;!?/()（）「」【】［］→·…#@'"=\-_*`+%$&^~|<>{}\[\]。、？！〜～]/g, "");
     assert.strictEqual(stripped, "", `${key} の説明に読みでない文字があること: ${text}`);
     assert.ok(text.length <= 140, `${key} の説明が長すぎないこと`);

@@ -196,13 +196,13 @@ function testPapers() {
   assert.strictEqual(sec.items[0].hash, "#/papers/dashboard");
   assert.strictEqual(sec.items[0].project, "p", "プロジェクト名を覚えておく");
   assert.strictEqual(sec.term, "attention");
-  // 先頭 3 件に研究方針の要対応（sci_）があれば研究方針の木へ行く（U14）
+  // 先頭 3 件に research-tree の要対応（sci_）があれば research-tree へ行く（U14）
   const sci = H.hmSections({
     papers: [
       {
         name: "p",
         attention: 1,
-        items: [{ key: "k0", kind: "sci_triage", title: "仕分け" }],
+        items: [{ key: "k0", kind: "sci_triage", title: "TRIAGE" }],
       },
     ],
   }).find((s) => s.key === "papers");

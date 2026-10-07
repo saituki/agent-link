@@ -1,5 +1,5 @@
 "use strict";
-// Research-tree の操作の入力欄・カードのフォーム・PROPOSAL の仕分け（実装計画 U19）。
+// research-tree の操作の入力欄・カードのフォーム・PROPOSAL の TRIAGE（実装計画 U19）。
 //
 // 板の釦は scitree.js から次の形で呼ばれる（この関数が無ければその釦は出さない）。
 //   seOpenAction(op, nodeId, detail)   op は C-OP の 13 個。detail は node の JSON
@@ -35,16 +35,16 @@ const SE_DONE = {
 const SE_QUICK = ["star", "unstar", "set_kind", "set_target"];
 // 読む深さ
 const SE_DEPTHS = [["abstract", "abstract"], ["figures", "figures"], ["full", "full"]];
-// 実行するもの（user は読む札）
-const SE_RUNNERS = [["pi", "pi"], ["cc", "cc"], ["user", "自分で読む（読む札）"]];
-// 読む札の型
+// 実行するもの（user は READ_CARD）
+const SE_RUNNERS = [["pi", "pi"], ["cc", "cc"], ["user", "自分で読む（READ_CARD）"]];
+// READ_CARD の型
 const SE_MODES = [["purpose_first", "purpose_first"], ["blind_first", "blind_first"]];
 // O の種類
 const SE_KINDS = [["answer", "Answer"], ["issue", "Issue"]];
 // カードで選べる 21 本のブロック（Next Action に出るもの）
 const SE_BLOCKS = [
   ["sci-start", "研究の入口: 最初の Q を立てる"],
-  ["sci-split", "Q を分ける: 子の Q の案を出す"],
+  ["sci-split", "Q を分ける: child_Q の案を出す"],
   ["sci-restore", "戻す: 消した Node を探して戻す案を出す"],
   ["sci-ideate", "O を増やす: Q の答えの候補を出す"],
   ["sci-search", "外を探す: 論文を探して集める"],
@@ -52,15 +52,15 @@ const SE_BLOCKS = [
   ["sci-read", "1 本を読む: 論文から F を抜き出す"],
   ["sci-cite-check", "出典を確かめる: F の出典を照らす"],
   ["sci-debate", "議論: 賛否を出し合う"],
-  ["sci-review", "見直す: 木を点検する"],
+  ["sci-review", "REVIEW: tree を点検する"],
   ["sci-compare", "比べる: O を比べる"],
-  ["sci-seed", "Sprout をつくる: Q から O を降りる道で Sprout を作る"],
+  ["sci-seed", "SPROUT をつくる: Q から O を降りる道で SPROUT を作る"],
   ["sci-digest", "まとめる: 今の状態をまとめる"],
   ["sci-coach", "理解の確認: 問いかけて確かめる"],
   ["sci-typify", "型に当てる: 型を当てはめる"],
-  ["sci-exp-sprout", "実験の芽: 実験の案を出す"],
-  ["sci-exp-branch", "実験を分ける: 実験を枝分かれさせる"],
-  ["sci-exp-review", "実験を見直す: 結果を点検する"],
+  ["sci-exp-sprout", "SPROUT: 実験の案を出す"],
+  ["sci-exp-branch", "実験を分ける: BRANCH する"],
+  ["sci-exp-review", "REVIEW: 実験の結果を点検する"],
   ["sci-result-compare", "結果を比べる: 実験の結果を比べる"],
   ["sci-data-explore", "データを調べる: データ表・EDA・前処理"],
   ["sci-data-test", "データで確かめる: 計画どおりに検定して報告"],
@@ -131,7 +131,7 @@ function seBuildOp(kind, values) {
   const good = (op) => ({ ok: true, op, json: op, error: null });
   // 必須の ID を確かめる。prefix は許す頭の文字
   const id = (key, prefix, label) => (seRefOk(v[key], prefix) ? "" : `${label}を選んでください`);
-  // add_q の親は SEED（ID を持たない特別な節点）か Q・O の ID
+  // add_q の親は SEED（ID を持たない特別な Node）か Q・O の ID
   const qParentOk = (value) => seTrim(value) === "SEED" || seRefOk(value, "QO");
   // 字数を確かめる。min が 1 なら必須
   const len = (key, label, min, max) => {
@@ -310,8 +310,8 @@ function seBuildCard(values) {
   if (papers.length > 20) return bad("論文は 20 本までです");
   const card = { node, block: v.block, purpose, runner, papers };
   if (runner === "user") {
-    if (!/^[QO]/.test(node)) return bad("読む札の対象は Q か O にしてください");
-    if (papers.length !== 1) return bad("読む札の論文はちょうど 1 本にしてください");
+    if (!/^[QO]/.test(node)) return bad("READ_CARD の対象は Q か O にしてください");
+    if (papers.length !== 1) return bad("READ_CARD の論文はちょうど 1 本にしてください");
     card.depth = SE_DEPTHS.some((d) => d[0] === v.depth) ? v.depth : "full";
   }
   if (expect) card.expect = expect;
@@ -319,7 +319,7 @@ function seBuildCard(values) {
   return { ok: true, card, error: null };
 }
 
-/** 提案の中身の要約（payload の text・title・node・parent から 90 字）。 */
+/** PROPOSAL の中身の要約（payload の text・title・node・parent から 90 字）。 */
 function seProposalSummary(p) {
   const payload = (p && p.payload) || {};
   const parts = [];
@@ -337,7 +337,7 @@ function seProposalEditKeys(p) {
   return ["text", "body", "title", "sentence"].filter((k) => typeof payload[k] === "string" && payload[k] !== "");
 }
 
-/** 仕分けの一覧を取り出す（`{"proposals": […]}` でも、並びの配列でも、`pending` でも）。 */
+/** TRIAGE の一覧を取り出す（`{"proposals": […]}` でも、並びの配列でも、`pending` でも）。 */
 function seProposalList(res) {
   if (Array.isArray(res)) return res;
   if (res && Array.isArray(res.proposals)) return res.proposals;
@@ -386,7 +386,7 @@ function seNote(text) {
   return seEl("p", "sci-edit-note", text || "");
 }
 
-/** 節点の題を status から引く。 */
+/** Node の題を status から引く。 */
 // ============================================================================
 // 入力欄の部品（1 種類ごとに 1 つの関数）
 // ============================================================================
@@ -590,7 +590,7 @@ async function seApply(op, form) {
   return null;
 }
 
-/** 仕分ける（1 件）。 */
+/** TRIAGE する（1 件）。 */
 function seTriageOne(pid, body) {
   return paperApi(stApi(`/proposals/${encodeURIComponent(pid)}`), { method: "POST", body });
 }
@@ -618,7 +618,7 @@ function seAncestors(nodes, nodeId) {
   return out;
 }
 
-/** 子を持たない Q（bottom_Q。node の `bottom_q` を見る）。 */
+/** bottom_Q（bottom_Q。node の `bottom_q` を見る）。 */
 function seBottomQs(nodes) {
   return (Array.isArray(nodes) ? nodes : []).filter((n) => n && seRefOk(n.id, "Q") && n.bottom_q);
 }
@@ -744,7 +744,7 @@ function seFieldsFor(kind, nodeId, detail) {
       return {
         title: `O を写す（${id}）`,
         values: { node: id },
-        fields: [seFieldSelect("to", "写す先の Q", seBottomQs(nodes).map(seNodeOption), "", "子を持たない Q", false)],
+        fields: [seFieldSelect("to", "写す先の Q", seBottomQs(nodes).map(seNodeOption), "", "bottom_Q", false)],
       };
     case "remove":
       return {
@@ -827,7 +827,7 @@ function seOpenAction(op, nodeId, detail) {
 
 /**
  * カードを作る小窓。preset（C-CARD）があれば各欄の初めの値にする。
- * runner に user を選ぶと読む札になる（論文は 1 本・ブロックの既定は sci-read）。
+ * runner に user を選ぶと READ_CARD になる（論文は 1 本・ブロックの既定は sci-read）。
  */
 async function seOpenCard(nodeId, preset) {
   if (typeof document === "undefined" || typeof saiSheet !== "function") return;
@@ -850,15 +850,15 @@ async function seOpenCard(nodeId, preset) {
   const fields = [];
   if (!wantId) {
     const picks = [["SEED", "SEED（research-tree の全体）"], ...seStatusNodes().filter((n) => n && seRefOk(n.id)).map(seNodeOption)];
-    fields.push(seFieldSelect("node", "Node", picks, init.node, "カードを向ける Node", false));
+    fields.push(seFieldSelect("node", "Node", picks, init.node, "CARD を向ける Node", false));
   }
   const block = seFieldSelect("block", "ブロック", SE_BLOCKS, init.block, "必須", false);
   const purpose = seFieldArea("purpose", "目的", init.purpose, 3, "必須・300 字まで。何を達成するか");
   const mode = seFieldSelect("mode", "型", SE_MODES, init.mode, "1 本を読むときだけ使う", false);
   mode.show = (v) => v.block === "sci-read";
-  const depth = seFieldSelect("depth", "深さ", SE_DEPTHS, init.depth, "読む札のときだけ使う", false);
+  const depth = seFieldSelect("depth", "深さ", SE_DEPTHS, init.depth, "READ_CARD のときだけ使う", false);
   depth.show = (v) => v.runner === "user";
-  const runner = seFieldSelect("runner", "実行するもの", SE_RUNNERS, init.runner, "user は自分で読む札", false);
+  const runner = seFieldSelect("runner", "実行するもの", SE_RUNNERS, init.runner, "user は自分で読む（READ_CARD）", false);
   fields.push(
     block, purpose,
     seFieldArea("expect", "期待する成果", init.expect, 2, "300 字まで（任意）"),
@@ -868,7 +868,7 @@ async function seOpenCard(nodeId, preset) {
   if (uniq.length) {
     fields.push(seFieldChecks("papers", "論文", uniq.map((p) => [p, `#${p}`]), init.papers.map(String), "この Node の下の F の論文から選ぶ"));
   }
-  fields.push(seFieldLines("papers_typed", "論文の番号", typed, 20, "番号を打って足せます（20 本まで。読む札は 1 本）", "37"), depth);
+  fields.push(seFieldLines("papers_typed", "論文の番号", typed, 20, "番号を打って足せます（20 本まで。READ_CARD は 1 本）", "37"), depth);
 
   const form = seForm(fields);
   // runner を user にしたとき、ブロックが空なら sci-read にする
@@ -880,7 +880,7 @@ async function seOpenCard(nodeId, preset) {
   };
   form.refresh();
 
-  const host = saiSheet({ title: "カードを作る", body: form.el });
+  const host = saiSheet({ title: "CARD を作る", body: form.el });
   form.host = host;
   form.actions.appendChild(seBtn("やめる", () => host.close(), "ghost"));
   form.actions.appendChild(seBtn("作る", async () => {
@@ -898,18 +898,18 @@ async function seOpenCard(nodeId, preset) {
     try {
       res = await paperApi(stApi("/cards"), { method: "POST", body: json });
     } catch (e) {
-      form.say((e && e.message) || "カードを作れませんでした");
+      form.say((e && e.message) || "CARD を作れませんでした");
       return;
     }
     const runId = seCardRunId(res);
-    saiToast(runId ? `run ${runId} のカードを作りました` : "カードを作りました", "ok");
+    saiToast(runId ? `run ${runId} の CARD を作りました` : "CARD を作りました", "ok");
     form.el.innerHTML = "";
     const done = seEl("div", "sci-edit-done");
-    done.appendChild(seEl("p", "sci-edit-done-text", runId ? `run ${runId} のカードを作りました（${json.block}）` : "カードを作りました"));
+    done.appendChild(seEl("p", "sci-edit-done-text", runId ? `run ${runId} の CARD を作りました（${json.block}）` : "CARD を作りました"));
     const row = seLine("sci-edit-done-row");
     if (runId) {
       const toRead = json.runner === "user";
-      row.appendChild(seBtn(toRead ? "読む札を開く" : `run ${runId} を開く`, () => {
+      row.appendChild(seBtn(toRead ? "READ_CARD を開く" : `run ${runId} を開く`, () => {
         host.close();
         location.hash = toRead
           ? `#/research/read/${encodeURIComponent(runId)}`
@@ -924,10 +924,10 @@ async function seOpenCard(nodeId, preset) {
 }
 
 // ============================================================================
-// PROPOSAL の仕分け（seProposalRow）
+// PROPOSAL の TRIAGE（seProposalRow）
 // ============================================================================
 
-/** 仕分け待ちの 1 行（採用・直して採用・却下／applied なら取り消しだけ）。 */
+/** PENDING の 1 行（採用・直して採用・却下／applied なら取り消しだけ）。 */
 function seProposalRow(proposal, onDone) {
   const p = proposal || {};
   const row = seEl("div", "sci-edit-proposal");

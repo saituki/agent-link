@@ -34,7 +34,7 @@
 // （index.html の ?v= も 28）
 // U5 の引用一覧の画面（cite.js 追加と index.html / sw.js / papers.js / paperimport.js の更新）で v30 に
 // （index.html の ?v= も 30。ASSETS にも /cite.js を足した）
-// U19 の研究方針の木（scitree.js とその CSS。U20・U21 用の空のファイル sciedit.js / sciread.js /
+// U19 の research-tree（scitree.js とその CSS。U20・U21 用の空のファイル sciedit.js / sciread.js /
 // scigraph.js と sciedit.css / scigraph.css も先に登録）で v32 に
 // （index.html の ?v= も 32。ASSETS にも 7 つを足した）
 // コードレビュー R1 の指摘 1〜6 の直し（papers.js・scitree.js・scitree.css）で v34 に
@@ -59,16 +59,16 @@
 // 操作の小窓（sciedit.js）の項目名・説明・エラーも英語に、で v50 に（index.html の ?v= も 50）
 // 板の各節（scitree.js）の見出し・釦・空の文も英語に、で v51 に（index.html の ?v= も 51）
 // Dashboard・Papers の切り替え・目次の釦（papers.js・markdown.js・ui.js ほか）も英語に、で v52 に（index.html の ?v= も 52）
-// Radio の出来事名・取り込みの要対応・研究方針の始まりの文も英語に、で v53 に（index.html の ?v= も 53）
+// Radio の出来事名・取り込みの要対応・research-tree の始まりの文も英語に、で v53 に（index.html の ?v= も 53）
 // 板の見出しで ITEM の状態と ITEM_TYPE を全部並べ、今の値以外を薄く出す（scitree.js・scitree.css）で v54 に（index.html の ?v= も 54）
 // 板の BLANK・MARK・QUESTION・OPTION・FINDING・LINK も同じ方針で、で v55 に（index.html の ?v= も 55）
-// 研究方針の画面を「一覧 + 図 + 詳細の板」にし、根の図・実験の画面（scigraph.js・mlflow.js）もまとめて配る、で v56 に（index.html の ?v= も 56）
+// research-tree の画面を「一覧 + 図 + 詳細の板」にし、根の図・実験の画面（scigraph.js・mlflow.js）もまとめて配る、で v56 に（index.html の ?v= も 56）
 // Dashboard の Action の行・要対応の住所・sciset.js / sciset.css を配る、で v57 に（index.html の ?v= も 57）
 // データ分析の 2 本（sci-data-explore・sci-data-test）をカードの選択肢に足して v58 に（index.html の ?v= も 58。ASSETS は変えない）
-// 研究方針の画面の境界線のドラッグ・一覧の畳みと絞り込み・板の出典と作成者（scitree.js・scitree.css・index.html）で v59 に（index.html の ?v= も 59。ASSETS は変えない）
+// research-tree の画面の境界線のドラッグ・一覧の畳みと絞り込み・板の出典と作成者（scitree.js・scitree.css・index.html）で v59 に（index.html の ?v= も 59。ASSETS は変えない）
 // U03 の Library 内の検索（papers.js / papers.css / index.html）で v79 に
 // （index.html の ?v= も 79。ASSETS は変えない。78 は検索の実行者と Node の履歴）
-// 研究方針の板・図・Sprout の作り直し（scitree.js・scigraph.js・sciedit.js と CSS）で v80 に
+// research-tree の板・図・SPROUT の作り直し（scitree.js・scigraph.js・sciedit.js と CSS）で v80 に
 // （index.html の ?v= も 80。ASSETS は変えない）
 // U10 の「コマンド」画面と会話の検索（commands.js・sessionsearch.js を追加し、
 // cardform.js・papers.js・linkview.js・style.css を更新）で v82 に
@@ -79,12 +79,15 @@
 // （index.html の ?v= も 84。ASSETS は変えない。ファイルは足していない）
 // U17 の apps/phone → apps/web の改名（パッケージの名前，保存の名前，
 // 会話表示の CLI 呼び出し）で v85 に（index.html の ?v= も 85。ASSETS は変えない）
-// U13 の reason と仕分け箱を消し、PENDING を右の板と図・一覧の印に出し（sciedit.js・
+// U13 の reason と TRIAGE 箱を消し、PENDING を右の板と図・一覧の印に出し（sciedit.js・
 // scitree.js・scigraph.js・sciread.js・papers.js と CSS・sci.py・main.py）で v86 に
 // （index.html の ?v= も 86。ASSETS は変えない。ファイルは足していない）
 // U33 の図を 4 layer（SEED・ROOT・SPROUT・BRANCH）にし、SEED と SPROUT の右の板を作る
 // （scitree.js・scigraph.js と CSS）で v88 に（index.html の ?v= も 88。ASSETS は変えない）
-const CACHE = "sai-web-v88";
+// U41 の research-tree の画面の専門用語を英単語にそろえ、用語集 SAI_TERMS を作り直す
+// （ui.js・scitree.js・scigraph.js・sciedit.js・sciread.js・papers.js・index.html・sci.py・main.py ほか）で v89 に
+// （index.html の ?v= も 89。ASSETS は変えない）
+const CACHE = "sai-web-v89";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/sciset.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/sciset.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）

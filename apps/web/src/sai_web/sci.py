@@ -49,12 +49,12 @@ SCI_WRITE_TIMEOUT = 30.0
 SCI_INIT_TIMEOUT = 60.0
 
 # --- ID と値 ---
-# Node は Q・O・F・E・S、提案は P（数だけ「12」は受け付けない）
+# Node は Q・O・F・E・S、PROPOSAL は P（数だけ「12」は受け付けない）
 _NODE_RE = re.compile(r"^[QOFES][1-9][0-9]{0,8}$")
 _PROPOSAL_RE = re.compile(r"^P[1-9][0-9]{0,8}$")
-# 研究の型
+# RESEARCH_TYPE
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
-# 読む深さ・読む札の実行者と読み方
+# 読む深さ・READ_CARD の実行者と読み方
 DEPTHS = ("abstract", "figures", "full")
 RUNNERS = ("pi", "cc", "user")
 CARD_MODES = ("purpose_first", "blind_first")
@@ -143,7 +143,7 @@ def check_node(value) -> str:
 
 
 def check_proposal(value) -> str:
-    """提案の ID（`P55`）を検査して返す。違反は 400。"""
+    """PROPOSAL の ID（`P55`）を検査して返す。違反は 400。"""
     if not isinstance(value, str) or not _PROPOSAL_RE.match(value.strip()):
         raise _bad("ID の形が正しくありません")
     return value.strip()
@@ -158,7 +158,7 @@ def _check_ref(value, kinds: str) -> str:
 
 
 def _check_card_node(value) -> str:
-    """カードの `node`。`SEED`（ID を持たない特別な節点）か、Node の ID（Q・O・F・E・S）。
+    """カードの `node`。`SEED`（ID を持たない特別な Node）か、Node の ID（Q・O・F・E・S）。
 
     `check_node` は `SEED` を受けないので、カードだけ別にする。
     """
@@ -183,7 +183,7 @@ def check_run_id(value) -> int:
 
 
 def check_type(value) -> str:
-    """研究の型を検査して返す（C-01 の 5 つ）。違反は 400。"""
+    """RESEARCH_TYPE を検査して返す（C-01 の 5 つ）。違反は 400。"""
     if not isinstance(value, str) or value.strip() not in SCI_TYPES:
         raise _bad("type が正しくありません")
     return value.strip()
@@ -286,7 +286,7 @@ def _check_one(key: str, kind: str, value):
     if name == "ofindings":
         return _check_id_list(value, "F", FINDINGS_MAX, key)
     if name == "qparent":
-        # add_q の親は SEED（ID を持たない特別な節点）か Q・O の ID
+        # add_q の親は SEED（ID を持たない特別な Node）か Q・O の ID
         text = _trim(value)
         if text == "SEED":
             return text
@@ -345,7 +345,7 @@ def validate_op(payload) -> dict:
 
 
 def validate_card(payload) -> dict:
-    """読む札の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
+    """READ_CARD の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
     - `node`（Q・O・F・E・S と `SEED`）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
     - `expect` 300 字、`depth`・`mode`・`runner` は表の値、`origin_run` は run_id
@@ -390,15 +390,15 @@ def validate_card(payload) -> dict:
         if len(papers_list) != 1:
             raise _bad("READ_CARD は論文を 1 つだけ指定してください")
         if out["node"] == "SEED" or out["node"][0] not in ("Q", "O"):
-            raise _bad("読む札の対象は Q か O にしてください")
+            raise _bad("READ_CARD の対象は Q か O にしてください")
     return out
 
 
-# --- 仕分けの検査（C-13） ---
+# --- TRIAGE の検査（C-13） ---
 
 
 def validate_triage(payload) -> tuple[str, dict | None]:
-    """仕分けの JSON を検査して `(action, edit)` を返す（違反は 400）。
+    """TRIAGE の JSON を検査して `(action, edit)` を返す（違反は 400）。
 
     - `action` は accept / reject / revert の 3 つ
     - `edit` があれば C-07 の op として検査する（無いなら None）。
@@ -447,12 +447,12 @@ def _paper_cli(project: dict, args: list[str], timeout: float, input_text: str |
 
 
 def status(project: dict) -> dict:
-    """研究方針の木全体（`sai-sci status --json`）。"""
+    """research-tree 全体（`sai-sci status --json`）。"""
     return _sci_cli(project, ["status", "--json"], SCI_READ_TIMEOUT)
 
 
 def types(project: dict) -> dict:
-    """使える研究の型の一覧（`sai-sci types --json`）。"""
+    """使える RESEARCH_TYPE の一覧（`sai-sci types --json`）。"""
     return _sci_cli(project, ["types", "--json"], SCI_READ_TIMEOUT)
 
 
@@ -471,7 +471,7 @@ def init(project: dict, payload) -> dict:
     tree = data.get("tree") if isinstance(data, dict) else None
     if not tree:
         raise HTTPException(
-            status_code=502, detail="研究方針の木を作れませんでした"
+            status_code=502, detail="research-tree を作れませんでした"
         )
     return tree
 
@@ -493,7 +493,7 @@ def apply(project: dict, payload) -> dict:
 
 
 def triage(project: dict, pid, payload) -> dict:
-    """仕分ける（`sai-sci triage <P> --accept/--reject/--revert …`）。
+    """TRIAGE する（`sai-sci triage <P> --accept/--reject/--revert …`）。
 
     `edit` は `--edit=<JSON の文字>` で渡す（値が `-` で始まっても引数の名と
     取り違えないよう `=` でつなぐ）。
@@ -508,7 +508,7 @@ def triage(project: dict, pid, payload) -> dict:
 
 
 def create_card(project: dict, payload) -> dict:
-    """読む札を作る（`sai-sci card --from-json --json`・本文は標準入力）。"""
+    """READ_CARD を作る（`sai-sci card --from-json --json`・本文は標準入力）。"""
     data = validate_card(payload)
     return _sci_cli(
         project,
@@ -519,19 +519,19 @@ def create_card(project: dict, payload) -> dict:
 
 
 def read(project: dict, run_id) -> dict:
-    """読む札の中身（`sai-sci read <run_id> --json`）。"""
+    """READ_CARD の中身（`sai-sci read <run_id> --json`）。"""
     return _sci_cli(
         project, ["read", str(check_run_id(run_id)), "--json"], SCI_READ_TIMEOUT
     )
 
 
 def read_start(project: dict, run_id) -> dict:
-    """読む札を始める（`sai-link phone user start <run_id>`・C-12）。"""
+    """READ_CARD を始める（`sai-link phone user start <run_id>`・C-12）。"""
     return control.phone_user_start(str(project["root"]), check_run_id(run_id))
 
 
 def read_finish(project: dict, run_id) -> dict:
-    """読む札を終えて review へ移す。
+    """READ_CARD を終えて review へ移す。
 
     `read` で owner を見て、`todo` なら先に始める（利用者が「始める」を押し忘れても 1 回で済ませる）。
     F が 0 でも止めない。

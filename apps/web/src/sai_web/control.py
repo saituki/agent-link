@@ -665,14 +665,14 @@ def phone_card_start(name: str, run_id: int) -> dict:
     )
 
 
-# --- 読む札（利用者の札）を Web から始める・終える（C-12・U18） ---
-# 読む札は研究方針の木が作る `runner: user` のカード（sai-paper `phone sci card`）。
+# --- READ_CARD（利用者の札）を Web から始める・終える（C-12・U18） ---
+# READ_CARD は research-tree が作る `runner: user` の CARD（sai-paper `phone sci card`）。
 # この 2 つの関数は root を直接取るので、別のプロジェクト（論文の置き場とは別の root）を
 # 指せる。検査は `_phone_json` の決まりに従う（終了コード 3 は 404、他は 502）。
 
 
 def phone_user_start(root: str, run_id: int) -> dict:
-    """読む札を始める（`sai-link card start <run_id>`・C-12）。"""
+    """READ_CARD を始める（`sai-link card start <run_id>`・C-12）。"""
     _check_run_id(run_id)
     return _phone_json(
         ["card", "start", str(run_id)],
@@ -681,7 +681,7 @@ def phone_user_start(root: str, run_id: int) -> dict:
 
 
 def phone_user_finish(root: str, run_id: int) -> dict:
-    """読む札を終える（`sai-link card finish <run_id>`・C-12）。"""
+    """READ_CARD を終える（`sai-link card finish <run_id>`・C-12）。"""
     _check_run_id(run_id)
     return _phone_json(
         ["card", "finish", str(run_id)],

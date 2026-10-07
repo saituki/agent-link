@@ -1,5 +1,5 @@
 "use strict";
-// 研究方針の画面（scitree.js）の純関数のテスト（計画 U18「変更内容 7」）。
+// research-tree の画面（scitree.js）の純関数のテスト（計画 U18「変更内容 7」）。
 // 実行:
 //     node apps/web/tests/test_scitree.js
 //

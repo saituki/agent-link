@@ -297,7 +297,7 @@ function testSegments() {
   ]);
   // Research の小さなタブ（U14）
   assert.deepStrictEqual(RESEARCH_SEG, [
-    ["tree", "Research tree", "#/research/tree"],
+    ["tree", "research-tree", "#/research/tree"],
     ["experiments", "Experiments", "#/research/experiments"],
   ]);
 }
