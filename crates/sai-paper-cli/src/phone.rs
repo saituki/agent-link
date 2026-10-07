@@ -368,9 +368,10 @@ pub(crate) fn paper(paper_id: i64) -> Result<Value> {
         .query_row(
             "SELECT s2_paper_id FROM papers WHERE id = ?1",
             [paper_id],
-            |row| row.get(0),
+            |row| row.get::<_, Option<String>>(0),
         )
-        .optional()?;
+        .optional()?
+        .flatten();
 
     // files: 実在するファイルだけ絶対パス（無ければ null）。
     let pdf_path = paper
