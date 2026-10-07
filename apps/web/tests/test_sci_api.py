@@ -231,7 +231,11 @@ def test_card() -> None:
         "origin_run": 120,
     }
     got = sci.validate_card(full)
-    assert got == {**full, "purpose": "答えの候補を出す"}, got
+    # U22: 範囲と仮置きは受けない（知らない項目として落とす）。
+    expected = {**full, "purpose": "答えの候補を出す"}
+    expected.pop("scope")
+    expected.pop("assume")
+    assert got == expected, got
     ok_user = {"node": "O1", "block": "sci-read", "purpose": "目的", "papers": [37], "runner": "user"}
     assert sci.validate_card(ok_user)["runner"] == "user"
     assert sci.validate_card({**ok_user, "mode": "blind_first"})["mode"] == "blind_first"
@@ -249,14 +253,10 @@ def test_card() -> None:
     bad({"expect": "あ" * 301})
     bad({"node": "N1"}, "ID の形が正しくありません")
     bad({"node": "12"}, "ID の形が正しくありません")
-    bad({"scope": "everything"}, "scope が正しくありません")
     bad({"depth": "deep"}, "depth が正しくありません")
     bad({"mode": "quick"}, "mode が正しくありません")
     bad({"runner": "human"}, "runner が正しくありません")
     bad({"origin_run": 0})
-    bad({"assume": [f"Q{i}=あ" for i in range(1, 7)]}, "assume の指定が正しくありません")
-    bad({"assume": ["N1=あ"]}, "assume の指定が正しくありません")
-    bad({"assume": ["Q1="]}, "assume の指定が正しくありません")
     bad({"papers": list(range(1, 22)), "runner": "pi"}, "papers の指定が正しくありません")
     bad({"papers": [0]}, "run_id は 1〜999999999 の整数にしてください")
 

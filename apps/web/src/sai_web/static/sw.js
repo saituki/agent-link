@@ -82,7 +82,7 @@
 // U13 の reason と仕分け箱を消し、PENDING を右の板と図・一覧の印に出し（sciedit.js・
 // scitree.js・scigraph.js・sciread.js・papers.js と CSS・sci.py・main.py）で v86 に
 // （index.html の ?v= も 86。ASSETS は変えない。ファイルは足していない）
-const CACHE = "sai-web-v86";
+const CACHE = "sai-web-v87";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/sciset.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/sciset.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）

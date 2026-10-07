@@ -54,8 +54,7 @@ _NODE_RE = re.compile(r"^[QOFE][1-9][0-9]{0,8}$")
 _PROPOSAL_RE = re.compile(r"^P[1-9][0-9]{0,8}$")
 # 研究の型
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
-# 範囲・読む深さ・読む札の実行者と読み方
-SCOPES = ("node", "path", "subtree", "siblings", "summary", "blind")
+# 読む深さ・読む札の実行者と読み方
 DEPTHS = ("abstract", "figures", "full")
 RUNNERS = ("pi", "cc", "user")
 CARD_MODES = ("purpose_first", "blind_first")
@@ -69,8 +68,6 @@ _CITE_RE = re.compile(
 # ガイドのキー・報告書の ID
 _GUIDE_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _REPORT_RE = re.compile(r"^R-[0-9]{4,8}$")
-# 仮定の 1 つ
-_ASSUME_RE = re.compile(r"^[QOFE][1-9][0-9]{0,8}=.{1,120}$")
 # カード定義のブロック
 _CARD_BLOCK_RE = re.compile(r"^sci-[a-z-]{2,30}$")
 
@@ -79,7 +76,6 @@ RUN_ID_MAX = 999_999_999
 CITES_MAX = 10
 FINDINGS_MAX = 20
 PATH_MAX = 20
-ASSUME_MAX = 5
 CARD_PAPERS_MAX = 20
 SET_POSITIONS_MAX = 500
 SET_POSITION_MAX = 999_999
@@ -333,8 +329,7 @@ def validate_card(payload) -> dict:
     """読む札の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
     - `node`（Q・O・F・E）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
-    - `expect` 300 字、`scope`・`depth`・`mode`・`runner` は表の値、`origin_run` は run_id
-    - `assume` は 5 個まで・各 `^[QOFE][1-9][0-9]{0,8}=.{1,120}$`
+    - `expect` 300 字、`depth`・`mode`・`runner` は表の値、`origin_run` は run_id
     - `papers` は 20 個まで・各 1〜999999999
     - `runner` が `user` なら `papers` はちょうど 1 つ
     - `question`・`role`・`executer` は受けない。ファイルのパスも受けない（知らない項目は落とす）
@@ -358,23 +353,11 @@ def validate_card(payload) -> dict:
     expect = _opt_text(payload, "expect", 300)
     if expect is not None:
         out["expect"] = expect
-    for key, allowed in (("scope", SCOPES), ("depth", DEPTHS), ("mode", CARD_MODES)):
+    for key, allowed in (("depth", DEPTHS), ("mode", CARD_MODES)):
         if payload.get(key) is not None:
             out[key] = _enum(payload[key], allowed, key)
     if payload.get("origin_run") is not None:
         out["origin_run"] = check_run_id(payload["origin_run"])
-
-    raw_assume = payload.get("assume")
-    if raw_assume is not None:
-        if not isinstance(raw_assume, list) or len(raw_assume) > ASSUME_MAX:
-            raise _bad("assume の指定が正しくありません")
-        assume: list[str] = []
-        for item in raw_assume:
-            text = _trim(item)
-            if not _ASSUME_RE.match(text):
-                raise _bad("assume の指定が正しくありません")
-            assume.append(text)
-        out["assume"] = assume
 
     papers_value = payload.get("papers")
     papers_list: list[int] = []
