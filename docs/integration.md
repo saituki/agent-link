@@ -296,9 +296,9 @@ iPhone / PC のブラウザ
 | `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`sai-link run send <run_id> --json`・本文は標準入力）。終了・質問待ちは 409、無ければ 404 |
 | `POST /api/runs/{project}/{run_id}/interrupt` | 実行中の run を中断する（`sai-link run interrupt <run_id> --json`）。無い実行は CLI を呼ばず 404 |
 | `POST /api/runs/{project}/{run_id}/finalize` | メッセージ画面の ■ 終了（その run が無ければ 404、実行中でない・子ブロック・常駐停止は 502）。呼ぶ CLI は `sai-link run finalize <run_id>` |
-| `POST /api/register` `/api/questions` | 登録（**内部専用・Mac 自身のみ**。cc のフックと pi の拡張が呼ぶ） |
+| `POST /api/register` `/api/questions` | 登録（**内部専用**。単独モードは Mac 自身、多人数モードは `Authorization: Bearer <SAI_WEB_INTERNAL_TOKEN>`。cc のフックと pi の拡張が呼ぶ） |
 | `POST /api/questions/{qid}/resolved` | 質問が端末側で答えられたことの通知（**内部専用**） |
-| `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問 |
+| `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問（`{qid}` は**内部専用**。多人数モードでは持ち主の物だけ） |
 | `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
 | `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（OpenRouter・DeepSeek・pi の記録） |
@@ -329,6 +329,9 @@ iPhone / PC のブラウザ
 
 - 鍵と Claude の長命トークンは `<U>/<user>/secrets.env`（0600）に `KEY=値` の行で保存し、コンテナには `--env-file` で渡す。値を変えると、その人の実行中でないコンテナを `docker rm -f` → `docker run` で作り直す（実行中のプロジェクトは `pending` に入れ、作業を壊さない）。
 - プロジェクトの内部の合言葉（`SAI_WEB_INTERNAL_TOKEN`）はコンテナを作るときに `secrets.token_urlsafe(32)` で作り、SHA-256 だけを DB（`project_tokens`）に置く（同じプロジェクトの古い行は消す）。値は `sai_` で始まらない（個人のトークンと区別する）。
+- 内部の合言葉を `Authorization: Bearer` で送ると、ミドルウェアが `project_tokens` を引いて持ち主を `registry.current_user` に入れ、`request.state.internal_project` にプロジェクト名を入れる（Cookie より先に見る）。内部の合言葉で使えるのは**内部の 4 本**（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`）だけで、それ以外の住所は 403「内部専用の合言葉では使えません」。
+- 質問・登録・通知の購読は `owner` を持ち、多人数モードでは今の利用者の物だけを読む（`GET /api/questions/{qid}` は持ち主でなければ 404）。保存する関数は `registry.current_user` の名前を `owner` に入れる。見張り（`watch.py`）は利用者ごとに `registry.current_user` を入れてから見回る。単独モードは今までどおり（`owner` は空文字で、絞り込みをしない）。古い DB（`owner` の列が無い）は `init_db` が `ALTER TABLE` で列を足す。
+- Usage の OpenRouter・DeepSeek の鍵は、多人数モードでは今の利用者の `secrets.env`（`containers.read_keys`）から読む（無ければ「キーが未設定です」）。単独モードは今までどおり環境変数から読む。
 
 - 多人数モードでは `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)` にする（`/docs`・`/openapi.json` を出さない）。起動時に合言葉のファイル（`<sai_home>/web/token`）は書かない。
 - パスワードは `hashlib.scrypt`（`auth.hash_password`・`verify_password`）で保存し、Cookie とトークンは SHA-256 だけを DB（`web_sessions`・`api_tokens`）に置く。値そのものは保存しない。

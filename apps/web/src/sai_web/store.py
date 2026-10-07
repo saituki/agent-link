@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS registrations (
     transcript_path TEXT NOT NULL,
     cwd TEXT NOT NULL,
     pane_id TEXT NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    owner TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS questions (
     id TEXT PRIMARY KEY,
@@ -34,12 +35,14 @@ CREATE TABLE IF NOT EXISTS questions (
     questions_json TEXT NOT NULL,
     created_at REAL NOT NULL,
     state TEXT NOT NULL DEFAULT 'open',
-    answer_json TEXT NOT NULL DEFAULT ''
+    answer_json TEXT NOT NULL DEFAULT '',
+    owner TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
     endpoint TEXT PRIMARY KEY,
     subscription_json TEXT NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    owner TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
@@ -90,9 +93,47 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _current_owner() -> str:
+    """保存する行の持ち主。多人数モードで今の利用者がいればその名前、いなければ空文字。"""
+    from sai_web import registry
+
+    if not registry.multi_user():
+        return ""
+    user = registry.current_user.get()
+    if isinstance(user, dict):
+        return str(user.get("name") or "")
+    return ""
+
+
+def _owner_filter() -> str | None:
+    """読むときに絞る持ち主。単独モードは None（絞らない）。
+
+    多人数モードでは今の利用者の名前（未ログインなら空文字＝持ち主の無い行だけ）。
+    絞り込みを store の中で行うのは、読む場所（Home・Chats・質問・通知）が多いため。
+    """
+    from sai_web import registry
+
+    if not registry.multi_user():
+        return None
+    user = registry.current_user.get()
+    if isinstance(user, dict):
+        return str(user.get("name") or "")
+    return ""
+
+
+def _ensure_owner_column(conn: sqlite3.Connection, table: str) -> None:
+    """古い DB に `owner` の列が無ければ足す（既存の行は空文字・DB を壊さない）。"""
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if "owner" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        # 既存の DB（`owner` の列が無い）をそのまま使えるようにする
+        for table in ("registrations", "questions", "subscriptions"):
+            _ensure_owner_column(conn, table)
 
 
 def save_registration(
@@ -102,25 +143,38 @@ def save_registration(
     with _connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO registrations "
-            "(session_id, agent, transcript_path, cwd, pane_id, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, agent, transcript_path, cwd, pane_id, time.time()),
+            "(session_id, agent, transcript_path, cwd, pane_id, updated_at, owner) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, agent, transcript_path, cwd, pane_id, time.time(), _current_owner()),
         )
 
 
 def get_registration(session_id: str) -> dict | None:
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT * FROM registrations WHERE session_id = ?", (session_id,)
-        ).fetchone()
+        if owner is None:
+            row = conn.execute(
+                "SELECT * FROM registrations WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM registrations WHERE session_id = ? AND owner = ?",
+                (session_id, owner),
+            ).fetchone()
     return dict(row) if row else None
 
 
 def list_registrations() -> list[dict]:
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM registrations").fetchall()
+        if owner is None:
+            rows = conn.execute("SELECT * FROM registrations").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM registrations WHERE owner = ?", (owner,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -156,8 +210,8 @@ def save_question(
         qid = uuid.uuid4().hex[:12]
         conn.execute(
             "INSERT INTO questions "
-            "(id, agent, session_id, pane_id, tool_use_id, questions_json, created_at, state, answer_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '')",
+            "(id, agent, session_id, pane_id, tool_use_id, questions_json, created_at, state, answer_json, owner) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '', ?)",
             (
                 qid,
                 agent,
@@ -166,6 +220,7 @@ def save_question(
                 tool_use_id,
                 json.dumps(questions, ensure_ascii=False),
                 time.time(),
+                _current_owner(),
             ),
         )
         row = conn.execute("SELECT * FROM questions WHERE id = ?", (qid,)).fetchone()
@@ -173,36 +228,58 @@ def save_question(
 
 
 def get_question(qid: str) -> dict | None:
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM questions WHERE id = ?", (qid,)).fetchone()
+        if owner is None:
+            row = conn.execute("SELECT * FROM questions WHERE id = ?", (qid,)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM questions WHERE id = ? AND owner = ?", (qid, owner)
+            ).fetchone()
     return _row_to_question(row) if row else None
 
 
 def list_open_questions(session_id: str | None = None) -> list[dict]:
-    """未解決の質問を新しい順に返す．session_id があれば絞る．"""
+    """未解決の質問を新しい順に返す．session_id があれば絞る．
+
+    多人数モードでは今の利用者の質問だけを返す（`_owner_filter`）。
+    """
+    owner = _owner_filter()
+    clauses = ["state = 'open'"]
+    values: list = []
+    if session_id:
+        clauses.append("session_id = ?")
+        values.append(session_id)
+    if owner is not None:
+        clauses.append("owner = ?")
+        values.append(owner)
+    sql = (
+        "SELECT * FROM questions WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at DESC"
+    )
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        if session_id:
-            rows = conn.execute(
-                "SELECT * FROM questions WHERE state = 'open' AND session_id = ? "
-                "ORDER BY created_at DESC",
-                (session_id,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM questions WHERE state = 'open' ORDER BY created_at DESC"
-            ).fetchall()
+        rows = conn.execute(sql, values).fetchall()
     return [_row_to_question(r) for r in rows]
 
 
 def mark_answered(qid: str, answer: dict) -> None:
     """回答済みにする．"""
+    owner = _owner_filter()
     with _connect() as conn:
-        conn.execute(
-            "UPDATE questions SET state = 'answered', answer_json = ? WHERE id = ?",
-            (json.dumps(answer, ensure_ascii=False), qid),
-        )
+        if owner is None:
+            conn.execute(
+                "UPDATE questions SET state = 'answered', answer_json = ? WHERE id = ?",
+                (json.dumps(answer, ensure_ascii=False), qid),
+            )
+        else:
+            conn.execute(
+                "UPDATE questions SET state = 'answered', answer_json = ? "
+                "WHERE id = ? AND owner = ?",
+                (json.dumps(answer, ensure_ascii=False), qid, owner),
+            )
 
 
 def list_questions_for_session(session_id: str) -> list[dict]:
@@ -212,15 +289,25 @@ def list_questions_for_session(session_id: str) -> list[dict]:
     - answered: iPhone で回答済み（「回答済み: …」の1行）
     - resolved_elsewhere: PC で先に回答済み（「PC で回答済み」の1行）
     expired は表示しない（待っていた時間が過ぎた）。
+    多人数モードでは今の利用者の質問だけを返す。
     """
+    owner = _owner_filter()
+    clauses = [
+        "session_id = ?",
+        "state IN ('open', 'answered', 'resolved_elsewhere')",
+    ]
+    values: list = [session_id]
+    if owner is not None:
+        clauses.append("owner = ?")
+        values.append(owner)
+    sql = (
+        "SELECT * FROM questions WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at DESC"
+    )
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE session_id = ? "
-            "AND state IN ('open', 'answered', 'resolved_elsewhere') "
-            "ORDER BY created_at DESC",
-            (session_id,),
-        ).fetchall()
+        rows = conn.execute(sql, values).fetchall()
     return [_row_to_question(r) for r in rows]
 
 
@@ -230,12 +317,20 @@ def mark_resolved_elsewhere_qid(qid: str) -> bool:
     open のときだけ書き換える（既に回答済みを上書きしない）。
     戻り値は書き換えできたか。
     """
+    owner = _owner_filter()
     with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'resolved_elsewhere' "
-            "WHERE id = ? AND state = 'open'",
-            (qid,),
-        )
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE id = ? AND state = 'open'",
+                (qid,),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE id = ? AND state = 'open' AND owner = ?",
+                (qid, owner),
+            )
         return cur.rowcount > 0
 
 
@@ -243,26 +338,42 @@ def expire_stale_questions(agent: str, older_than_sec: float, now: float | None 
     """指定エージェントの open な質問のうち，古すぎるものを expired にする．
 
     pi の拡張は最大5分しか取りに来ない（05 §3.1）ため，10分経ったら切る。
-    件数を返す。
+    件数を返す。多人数モードでは今の利用者の質問だけを切る。
     """
     base = time.time() if now is None else now
+    owner = _owner_filter()
     with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'expired' "
-            "WHERE agent = ? AND state = 'open' AND created_at < ?",
-            (agent, base - older_than_sec),
-        )
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'expired' "
+                "WHERE agent = ? AND state = 'open' AND created_at < ?",
+                (agent, base - older_than_sec),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'expired' "
+                "WHERE agent = ? AND state = 'open' AND created_at < ? AND owner = ?",
+                (agent, base - older_than_sec, owner),
+            )
         return cur.rowcount
 
 
 def mark_resolved_elsewhere(session_id: str) -> int:
     """そのセッションの未解決質問を「端末側で解決済み」にする．件数を返す．"""
+    owner = _owner_filter()
     with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'resolved_elsewhere' "
-            "WHERE session_id = ? AND state = 'open'",
-            (session_id,),
-        )
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE session_id = ? AND state = 'open'",
+                (session_id,),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE session_id = ? AND state = 'open' AND owner = ?",
+                (session_id, owner),
+            )
         return cur.rowcount
 
 
@@ -274,22 +385,41 @@ def save_subscription(endpoint: str, subscription: dict) -> None:
     with _connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO subscriptions "
-            "(endpoint, subscription_json, created_at) VALUES (?, ?, ?)",
-            (endpoint, _json.dumps(subscription, ensure_ascii=False), _time.time()),
+            "(endpoint, subscription_json, created_at, owner) VALUES (?, ?, ?, ?)",
+            (
+                endpoint,
+                _json.dumps(subscription, ensure_ascii=False),
+                _time.time(),
+                _current_owner(),
+            ),
         )
 
 
 def list_subscriptions() -> list[dict]:
+    """通知の購読。多人数モードでは今の利用者の購読だけを返す。"""
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM subscriptions").fetchall()
+        if owner is None:
+            rows = conn.execute("SELECT * FROM subscriptions").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM subscriptions WHERE owner = ?", (owner,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
 def delete_subscription(endpoint: str) -> None:
     """届かなくなった登録を消す．"""
+    owner = _owner_filter()
     with _connect() as conn:
-        conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", (endpoint,))
+        if owner is None:
+            conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", (endpoint,))
+        else:
+            conn.execute(
+                "DELETE FROM subscriptions WHERE endpoint = ? AND owner = ?",
+                (endpoint, owner),
+            )
 
 
 # --- アカウント・ログイン・個人のトークン（U06） ---
