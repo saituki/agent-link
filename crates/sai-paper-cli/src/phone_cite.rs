@@ -21,8 +21,7 @@ use sai_paper_core::citation;
 use sai_paper_core::citation::db::{RefRow, SentenceRow, get_refs_for, get_sentences_for};
 use sai_paper_core::manual_import::{ManualTarget, import_pdf};
 use sai_paper_core::models::{LibraryMatchEntry, RemotePaper};
-use sai_paper_core::{Database, Paths, S2Client, manual_import, search_log,
-    search_sets};
+use sai_paper_core::{Database, Paths, S2Client, manual_import, search_history};
 use serde_json::{Value, json};
 
 use crate::phone::{library_papers, open_context};
@@ -398,7 +397,7 @@ fn manual_target(db: &Database, paths: &Paths, args: &ManualImportArgs) -> Resul
             let position = args
                 .position
                 .context("phone manual-import には --log と --position の両方が必要です")?;
-            let remote = search_log::items(db.connection(), log_id)?
+            let remote = search_history::items(db.connection(), log_id)?
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)
@@ -494,7 +493,7 @@ fn write_upload(path: &Path) -> Result<()> {
 fn link_to_search_log(conn: &Connection, log_id: i64, remote: &RemotePaper, paper_id: i64) {
     let key = sai_paper_core::api::dedupe_key(remote);
     let position_in_log = || {
-        search_log::items(conn, log_id)
+        search_history::items(conn, log_id)
             .ok()
             .and_then(|items| {
                 items
@@ -507,7 +506,7 @@ fn link_to_search_log(conn: &Connection, log_id: i64, remote: &RemotePaper, pape
         Some(position) => position,
         None => {
             // 記録の候補に無いので、いまの検索の 1 件として足してから紐付ける。
-            if search_log::append_items(conn, log_id, std::slice::from_ref(remote)).is_err() {
+            if search_history::append_items(conn, log_id, std::slice::from_ref(remote)).is_err() {
                 return;
             }
             match position_in_log() {
@@ -516,7 +515,7 @@ fn link_to_search_log(conn: &Connection, log_id: i64, remote: &RemotePaper, pape
             }
         }
     };
-    if let Err(error) = search_sets::link_paper(conn, log_id, position, paper_id) {
+    if let Err(error) = search_history::link_paper(conn, log_id, position, paper_id) {
         eprintln!("検索の記録への紐付けに失敗: {error}");
     }
 }

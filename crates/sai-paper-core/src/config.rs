@@ -601,7 +601,6 @@ impl Default for SciConfig {
 /// 「読むべき論文」（READ NEXT）の点数の重み（`progress.read_next`）。
 ///
 /// 点数 = 引き継ぎに出た回数 × `handoff_mention`
-/// ＋（検索セットで `keep` なのに読書時間が 0 なら `kept_but_unread`）
 /// ＋（note が無ければ `no_note`）
 /// ＋（最後に開いてから `stale_days` 日以上なら `stale`）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -609,7 +608,7 @@ impl Default for SciConfig {
 pub struct ReadNextWeights {
     /// 引き継ぎの「使った論文」に出た 1 回あたりの点数。
     pub handoff_mention: i64,
-    /// 検索セットで `keep` なのに読んでいない（読書時間 0）ときの点数。
+    /// 使わない（選別の廃止）。設定ファイルの互換のために残す。
     pub kept_but_unread: i64,
     /// note が無いときの点数。
     pub no_note: i64,

@@ -1,6 +1,6 @@
 //! 内部検索（`find`）の履歴。
 //!
-//! 外部の検索（`search_sets`）とは別の表（`find_logs` / `find_log_hits`）に残す。
+//! 外部の検索（`search_history`）とは別の表（`find_history` / `find_history_hits`）に残す。
 //! Node を付けない検索も含め、人も agent も毎回記録する（断片ごと保存）。
 
 use crate::retrieval::Hit;
@@ -41,9 +41,11 @@ pub struct FindLogInput<'a> {
     pub subtree: bool,
     /// 範囲の論文ごとの件数（`--each`）。
     pub each: Option<i64>,
-    /// `phone` / `cli` / `mcp`。
+    /// `phone` / `cli` / `mcp`（経路）。
     pub origin: &'a str,
-    /// sai-link の実行 ID（`SAI_PARENT_RUN_ID`）。
+    /// 実行者（`human` / `agent`）。
+    pub executer: &'a str,
+    /// sai-link の実行 ID（`SAI_PARENT_RUN_ID`。agent のときだけ入れる）。
     pub run_id: Option<i64>,
 }
 
@@ -74,8 +76,10 @@ pub struct FindLogRow {
     pub subtree: bool,
     /// 範囲の論文ごとの件数。
     pub each: Option<i64>,
-    /// `phone` / `cli` / `mcp`。
+    /// `phone` / `cli` / `mcp`（経路）。
     pub origin: String,
+    /// 実行者（`human` / `agent`）。
+    pub executer: String,
     /// sai-link の実行 ID。
     pub run_id: Option<i64>,
 }
@@ -108,12 +112,10 @@ pub struct FindActor {
 }
 
 impl FindActor {
-    /// 履歴の 1 行から実行者を決める。
-    ///
-    /// `origin = 'mcp'` か `run_id` があれば agent。
+    /// 履歴の 1 行の `executer` 列から実行者を作る。
     #[must_use]
-    pub fn of(origin: &str, run_id: Option<i64>) -> Self {
-        if is_agent(origin, run_id) {
+    pub fn from_executer(executer: &str, run_id: Option<i64>) -> Self {
+        if executer == "agent" {
             Self {
                 kind: "agent".to_string(),
                 run_id,
@@ -127,13 +129,7 @@ impl FindActor {
     }
 }
 
-/// agent の検索か（`origin = 'mcp'` か `run_id` がある）。
-#[must_use]
-pub fn is_agent(origin: &str, run_id: Option<i64>) -> bool {
-    origin == "mcp" || run_id.is_some()
-}
-
-/// 検索を 1 回記録する。`find_logs` に 1 行、ヒットを位置順で `find_log_hits` に入れて log_id を返す。
+/// 検索を 1 回記録する。`find_history` に 1 行、ヒットを位置順で `find_history_hits` に入れて log_id を返す。
 ///
 /// ヒット 0 件でも 1 行は残す。1 つのトランザクションで書く。
 ///
@@ -180,10 +176,10 @@ fn record_inner(
     log_date: &str,
 ) -> Result<i64, FindLogError> {
     conn.execute(
-        "INSERT INTO find_logs
+        "INSERT INTO find_history
             (searched_at, log_date, query, mode, top_k, scope, range_text, papers_json,
-             node_id, subtree, each_m, origin, run_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             node_id, subtree, each_m, origin, run_id, executer)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             searched_at,
             log_date,
@@ -198,12 +194,13 @@ fn record_inner(
             input.each,
             input.origin,
             input.run_id,
+            input.executer,
         ],
     )?;
     let log_id = conn.last_insert_rowid();
     for (position, (hit, item)) in hits.iter().zip(items.iter()).enumerate() {
         conn.execute(
-            "INSERT INTO find_log_hits (log_id, position, paper_id, hit_json)
+            "INSERT INTO find_history_hits (log_id, position, paper_id, hit_json)
              VALUES (?1, ?2, ?3, ?4)",
             params![
                 log_id,
@@ -224,8 +221,8 @@ fn record_inner(
 pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
     let mut stmt = conn.prepare(
         "SELECT id, searched_at, log_date, query, mode, top_k, scope, range_text, papers_json,
-                node_id, subtree, each_m, origin, run_id
-         FROM find_logs ORDER BY searched_at DESC, id DESC",
+                node_id, subtree, each_m, origin, run_id, executer
+         FROM find_history ORDER BY searched_at DESC, id DESC",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -244,6 +241,7 @@ pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
                 row.get::<_, Option<i64>>(11)?,
                 row.get::<_, String>(12)?,
                 row.get::<_, Option<i64>>(13)?,
+                row.get::<_, String>(14)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -264,6 +262,7 @@ pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
                 each,
                 origin,
                 run_id,
+                executer,
             )| {
                 Ok(FindLogRow {
                     id,
@@ -279,6 +278,7 @@ pub fn list(conn: &Connection) -> Result<Vec<FindLogRow>, FindLogError> {
                     subtree: subtree != 0,
                     each,
                     origin,
+                    executer,
                     run_id,
                 })
             },
@@ -305,7 +305,7 @@ pub fn hits(
     log_id: i64,
 ) -> Result<Vec<(i64, Option<i64>, serde_json::Value)>, FindLogError> {
     let mut stmt = conn.prepare(
-        "SELECT position, paper_id, hit_json FROM find_log_hits
+        "SELECT position, paper_id, hit_json FROM find_history_hits
          WHERE log_id = ?1 ORDER BY position",
     )?;
     let rows = stmt
@@ -357,7 +357,7 @@ pub fn groups(
             query: log.query.clone(),
             hit_count: rows.len(),
             paper_ids,
-            actor: FindActor::of(&log.origin, log.run_id),
+            actor: FindActor::from_executer(&log.executer, log.run_id),
         });
     }
     Ok(out)
@@ -390,6 +390,7 @@ mod tests {
     fn input<'a>(
         query: &'a str,
         origin: &'a str,
+        executer: &'a str,
         run_id: Option<i64>,
         papers: &'a [i64],
     ) -> FindLogInput<'a> {
@@ -404,6 +405,7 @@ mod tests {
             subtree: false,
             each: None,
             origin,
+            executer,
             run_id,
         }
     }
@@ -415,7 +417,7 @@ mod tests {
         let papers = [3, 7];
         let log_id = record(
             conn,
-            &input("epilepsy EEG", "cli", None, &papers),
+            &input("epilepsy EEG", "cli", "human", None, &papers),
             &[hit(1, Some(3)), hit(2, Some(7))],
             &HashMap::new(),
         )?;
@@ -437,20 +439,24 @@ mod tests {
         assert!(rows[0].2.get("cite").is_some());
 
         // ヒット 0 件でも 1 行は残る。
-        let empty = record(conn, &input("空", "cli", None, &[]), &[], &HashMap::new())?;
+        let empty = record(conn, &input("空", "cli", "human", None, &[]), &[], &HashMap::new())?;
         assert_eq!(hits(conn, empty)?.len(), 0);
         assert_eq!(list(conn)?.len(), 2);
         Ok(())
     }
 
     #[test]
-    fn detects_agents_by_origin_or_run_id() {
-        assert!(is_agent("mcp", None));
-        assert!(is_agent("cli", Some(5)));
-        assert!(!is_agent("cli", None));
-        assert!(!is_agent("phone", None));
-        assert_eq!(FindActor::of("mcp", None).kind, "agent");
-        assert_eq!(FindActor::of("cli", None).kind, "human");
+    fn actor_follows_executer_column() -> Result<(), Box<dyn std::error::Error>> {
+        let db = crate::Database::in_memory()?;
+        let conn = db.connection();
+        let agent = record(conn, &input("a", "cli", "agent", Some(5), &[]), &[], &HashMap::new())?;
+        let human = record(conn, &input("h", "cli", "human", None, &[]), &[], &HashMap::new())?;
+        assert_eq!(get(conn, agent)?.expect("row").executer, "agent");
+        assert_eq!(get(conn, human)?.expect("row").executer, "human");
+        let actor = FindActor::from_executer("agent", Some(5));
+        assert_eq!((actor.kind.as_str(), actor.run_id), ("agent", Some(5)));
+        assert_eq!(FindActor::from_executer("human", Some(5)).run_id, None);
+        Ok(())
     }
 
     #[test]
@@ -459,7 +465,7 @@ mod tests {
         let conn = db.connection();
         record(
             conn,
-            &input("q", "phone", None, &[]),
+            &input("q", "phone", "human", None, &[]),
             // Library に無い 9、論文に結び付かないもの、重複した 3
             &[hit(1, Some(9)), hit(2, None), hit(3, Some(3)), hit(4, Some(3))],
             &HashMap::new(),

@@ -1849,7 +1849,7 @@ struct MergeSourceRow {
 ///
 /// 論文を参照する表は `PRAGMA foreign_key_list` と migration を見て拾う:
 /// `paper_authors` / `paper_tags` / `reading_history` / `activity_log` /
-/// `chunks` / `search_set_items` / 6 表の `papers_id` /
+/// `chunks` / `search_history_items` / 6 表の `papers_id` /
 /// `paper_podcasts`（外部キー未宣言） / `report_sources`（kind='paper' の文字参照）。
 /// `collections`・`collection_papers`・`bookmarks`・`reading_queue` は 0018 で廃止済み。
 fn merge_papers(transaction: &Connection, db: &Database, merge: &MergePlan) -> Result<()> {
@@ -1939,7 +1939,7 @@ fn merge_papers(transaction: &Connection, db: &Database, merge: &MergePlan) -> R
         params![small, big],
     )?;
     transaction.execute(
-        "UPDATE search_set_items SET paper_id = ?1 WHERE paper_id = ?2",
+        "UPDATE search_history_items SET paper_id = ?1 WHERE paper_id = ?2",
         params![small, big],
     )?;
 

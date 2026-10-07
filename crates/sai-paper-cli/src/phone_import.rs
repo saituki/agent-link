@@ -23,7 +23,7 @@ use clap::Subcommand;
 use sai_paper_core::bibtex::{self, list_bib_files, load_bibtex_dir_detailed};
 use sai_paper_core::downloads::{DownloadEvent, DownloadManager, download_destination};
 use sai_paper_core::{
-    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_log,
+    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_history,
     translation,
 };
 use crate::open_database;
@@ -326,7 +326,7 @@ fn find_target_paper(
         (Some(log_id), None) => {
             let position =
                 position.context("phone download には --log と --position の両方が必要です")?;
-            search_log::items(db.connection(), log_id)?
+            search_history::items(db.connection(), log_id)?
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)

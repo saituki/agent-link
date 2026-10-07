@@ -422,7 +422,7 @@ fn find_records_and_sets_node() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// `search` は子を呼び、検索セットに研究の欄を書き、`log.node` を Node にする。
+/// `search` は子を呼び、検索履歴に研究の欄を書き、`log.node` を Node にする。
 #[test]
 fn search_records_and_sets_node() {
     let root = temp_dir("search-root");
@@ -434,9 +434,11 @@ fn search_records_and_sets_node() {
     let (data_dir, _q) = project_with_tree(&root);
     // 子が返す log.id の行を先に作る（本物の子は自分で作る）。
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
-    let log_id = sai_paper_core::search_log::record_search(
+    let log_id = sai_paper_core::search_history::record(
         db.connection(),
         "cli",
+        "human",
+        None,
         "発作",
         "",
         "10",
@@ -464,7 +466,7 @@ fn search_records_and_sets_node() {
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
     let purpose: Option<String> = db
         .connection()
-        .query_row("SELECT purpose FROM search_sets WHERE id = ?1", [log_id], |r| r.get(0))
+        .query_row("SELECT purpose FROM search_history WHERE id = ?1", [log_id], |r| r.get(0))
         .unwrap();
     assert_eq!(purpose.as_deref(), Some("候補"));
     let searches: i64 = db
