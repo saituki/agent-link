@@ -1,28 +1,29 @@
-"""質問・承認の状態遷移の小さなテスト（assertだけ）・05 §6．
+"""質問の状態遷移の小さなテスト（assertだけ）・05 §6・U03．
+
+headless では pane の画面が無いので，回答は記録するだけになった（共有契約 C6）。
+確かめること:
+- pi の質問は答えるまで open のまま（画面を読まない）
+- cc の質問に答えると，キーを送らずに answered になり答えが保存される（AC4）
+- 未回答の問が残っている間は記録しない
+- pi は 10 分・cc は 24 時間で期限切れになる
+- 拡張からの「PC で答えた」の通知は resolved_elsewhere にする
 
 実行:
-    python3 tests/test_questions.py
+    PYTHONPATH=src .venv/bin/python tests/test_questions.py
     （または PYTHONPATH=src python3 -m pytest tests/test_questions.py）
 """
 
 from __future__ import annotations
 
-import json
-import subprocess
 import sys
 import tempfile
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import approvals, herdr, questions, store  # noqa: E402
-
-# 本物の herdr を呼ばない（一覧が空＝herdr 不明なので「ペインが消えた」扱いにならない）
-herdr.list_panes = lambda: []  # type: ignore
+from sai_web import questions, store  # noqa: E402
 
 
 def fresh_db(tmp: str) -> None:
@@ -57,17 +58,15 @@ def state_of(qid: str) -> str:
 
 
 def test_pi_question_stays_open_when_pane_not_blocked() -> None:
-    """pi の質問はペインが blocked でなくても open のまま（05 §6 の必須項目）．"""
+    """pi の質問は答えるまで open のまま（画面を読まない・05 §6）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi")["id"]
-        # ペインは idle（blocked にならない＝pi の実際の状態）
-        herdr.get_agent = lambda pane_id: {"agent_status": "idle"}  # type: ignore
+        # 画面を見ないので，何度 refresh しても open のまま
         questions.refresh_question_state("sess-1", "pane-1", "pi")
         assert state_of(qid) == "open"
 
-        # pi への回答はキーを打ち込まず，保存するだけ（herdr が死んでいても成功）
-        herdr.get_agent = lambda pane_id: None  # type: ignore
+        # pi への回答はキーを打ち込まず，保存するだけ
         ok, _reason = questions.answer_question(qid, [{"choice_index": 1}])
         assert ok is True
         assert state_of(qid) == "answered"
@@ -75,144 +74,24 @@ def test_pi_question_stays_open_when_pane_not_blocked() -> None:
         assert q["answer"]["answers"] == [{"choice_index": 1}]
 
 
-def test_claude_question_resolved_elsewhere() -> None:
-    """cc の質問はペインが blocked でなくなったら「PC で回答済み」になる．
-
-    1 回の読み違いで決めつけないため，2 回続けて見えないときだけ
-    「PC で回答済み」になる（計画書 B U08）．
-    """
+def test_cc_question_answer_records_without_keys() -> None:
+    """cc の質問もキーを送らず，記録するだけ（AC4・共有契約 C6）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("claude")["id"]
-        herdr.get_agent = lambda pane_id: {"agent_status": "idle"}  # type: ignore
-        herdr.read_pane = lambda pane_id, lines=60: "普通の画面です"  # type: ignore
-        # 1 回だけでは決めつけない（再描画の隙を取り違えない）
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "open"
-        # 2 回続けて質問が見えなかったら「PC で回答済み」
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "resolved_elsewhere"
-        # 画面には「PC で回答済み」として残る（消さない・05 §1 の2番）
-        rows = store.list_questions_for_session("sess-1")
-        assert [r["state"] for r in rows] == ["resolved_elsewhere"]
-
-        # 拡張からの「PC で答えた」も同じ状態にする（05 §3.1）
-        fresh_db(tmp)
-        qid = make_question("pi")["id"]
-        assert questions.resolve_on_terminal(qid) is True
-        assert state_of(qid) == "resolved_elsewhere"
-        # 2回目は変更しない（回答済みを上書きしないため）
-        assert questions.resolve_on_terminal(qid) is False
-
-
-# 質問画面のフッター（実機で確認した文言）
-QUESTION_SCREEN = """
-   1. A1
-   2. A2
-   3. A3
-   4. A4
-   5. Type something.
-   6. Chat about this
-
- Enter to select · Tab/Arrow keys to navigate · Esc to cancel
-"""
-
-# 2 問以上でのレビュー画面（実機で確認した文言）
-REVIEW_SCREEN = """
- Review your answers
-
- ← 1. 質問1は？ A1
-   2. 質問2は？ B2
-
-   1. Submit answers
-   2. Edit answers
-
- Enter to select
-"""
-
-
-def test_one_miss_does_not_resolve_but_two_do() -> None:
-    """1 回の読み違いでは「回答済み」にせず，2 回続くと「回答済み」にする．"""
-    with tempfile.TemporaryDirectory() as tmp:
-        fresh_db(tmp)
-        qid = make_question("claude", n=2)["id"]
-        herdr.get_agent = lambda pane_id: {"agent_status": "blocked"}  # type: ignore
-        screen = {"text": QUESTION_SCREEN}
-        herdr.read_pane = lambda pane_id, lines=60: screen["text"]  # type: ignore
-
-        # 質問が出ている間は open のまま
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "open"
-
-        # 1 回だけ読めなかった（再描画の隙に相当する読み違い）→ open のまま
-        screen["text"] = ""
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "open"
-
-        # もう一度見えたら数え直しは消える（2 回続かなければ解決にしない）
-        screen["text"] = QUESTION_SCREEN
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        screen["text"] = ""
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "open"
-
-        # 2 回続けて見えなかったら「PC で回答済み」
-        questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "resolved_elsewhere"
-
-
-def test_review_screen_is_not_resolved_elsewhere() -> None:
-    """レビュー画面（回答処理の途中）は「PC で回答済み」にしない．"""
-    with tempfile.TemporaryDirectory() as tmp:
-        fresh_db(tmp)
-        qid = make_question("claude", n=2)["id"]
-        herdr.get_agent = lambda pane_id: {"agent_status": "blocked"}  # type: ignore
-        screen = {"text": REVIEW_SCREEN}
-        herdr.read_pane = lambda pane_id, lines=60: screen["text"]  # type: ignore
-        for _ in range(5):
-            questions.refresh_question_state("sess-1", "pane-1", "claude")
-        assert state_of(qid) == "open"
-
-
-def test_concurrent_answers_run_only_once() -> None:
-    """同じ質問への同時の回答は 1 つだけ処理し，もう 1 つは「送信中です」．"""
-    with tempfile.TemporaryDirectory() as tmp:
-        fresh_db(tmp)
-        qid = make_question("claude", n=2)["id"]
-        herdr.get_agent = lambda pane_id: {"agent_status": "blocked"}  # type: ignore
-        herdr.read_pane = lambda pane_id, lines=60: QUESTION_SCREEN  # type: ignore
-        started = threading.Event()
-        results: list[tuple[bool, str]] = []
-        real_send = questions._send_answers_cc  # noqa: SLF001
-
-        def slow_send(pane_id, qs, answers, qid=""):  # type: ignore[no-untyped-def]
-            # キーを打つ代わりに「送信中」を真似する（ロックの検証だけが必要）
-            started.set()
-            time.sleep(1.0)
-            return (True, "")
-
-        questions._send_answers_cc = slow_send  # type: ignore[assignment]
-        try:
-            def worker() -> None:
-                results.append(
-                    questions.answer_question(qid, [{"choice_index": 0}, {"choice_index": 1}])
-                )
-
-            threads = [threading.Thread(target=worker) for _ in range(2)]
-            for t in threads:
-                t.start()
-            assert started.wait(5), "1 つ目の送信が始まらなかった"
-            for t in threads:
-                t.join(30)
-        finally:
-            questions._send_answers_cc = real_send  # type: ignore[assignment]
-        # 1 つだけ「送信中です」で弾かれ、1 つだけ実際に送る
-        assert sorted(r[1] for r in results) == ["", "送信中です"]
+        ok, reason = questions.answer_question(qid, [{"choice_index": 0}])
+        assert ok is True, reason
         assert state_of(qid) == "answered"
+        q = store.get_question(qid)
+        assert q["answer"]["answers"] == [{"choice_index": 0}]
+        # 回答済みに再度答えることはできない
+        ok, reason = questions.answer_question(qid, [{"choice_index": 1}])
+        assert ok is False
+        assert "回答済み" in reason
 
 
 def test_answer_requires_all_questions() -> None:
-    """未回答の問が残っている間は送らない（05 §1 の2番の保険）．"""
+    """未回答の問が残っている間は記録しない（05 §1 の2番の保険）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi", n=2)["id"]
@@ -241,220 +120,47 @@ def test_pi_question_expires_after_10_minutes() -> None:
         assert questions.expire_stale_questions() == 0
 
 
-APPROVAL_SCREEN_4 = """
- Bash command
-   rm -v /tmp/x/victim.txt
-   Delete the confirmed target file
-
- Do you want to proceed?
- ❯ 1. Yes
-   2. Yes, and always allow access to
-      /tmp/x from this project
-   3. Yes, and switch to auto mode · auto mode handles
-      these prompts for you
-   4. No
-
- Esc to cancel · Tab to amend
-"""
-
-APPROVAL_SCREEN_3 = """
- Bash command
-   cat /tmp/x/victim.txt
-
- Do you want to proceed?
- ❯ 1. Yes
-   2. Yes, and switch to auto mode
-   3. No
-
- Esc to cancel
-"""
-
-
-def make_approval(suggestions: list | None = None) -> dict:
-    return store.save_approval(
-        session_id="sess-1",
-        pane_id="pane-1",
-        tool_use_id="appr-1",
-        tool_name="Bash",
-        tool_input={"command": "rm -v /tmp/x/victim.txt"},
-        permission_suggestions=suggestions if suggestions is not None else [
-            {"type": "addRules", "rules": [{"toolName": "Read", "ruleContent": "/tmp/x/**"}]}
-        ],
-        match_text="rm -v /tmp/x/victim.txt",
-    )
-
-
-def test_approval_state_transitions() -> None:
-    """承認の状態: open → answered / resolved_elsewhere（05 §6）．"""
+def test_cc_question_expires_after_24_hours() -> None:
+    """cc の open な質問は 24 時間で expired（フックの待ち時間に合わせる・U02）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
-        sent: list[str] = []
-        typed: list[str] = []
-        # 画面は「キーを送ると閉じる」ものを再現（実機と同じ動き）
-        screen = {"text": APPROVAL_SCREEN_4}
-        herdr.get_agent = lambda pane_id: {"agent_status": "blocked"}  # type: ignore
-        herdr.read_pane = lambda pane_id, lines=60: screen["text"]  # type: ignore
-        def fake_keys(pane_id, *keys):
-            sent.append(keys[0])
-            screen["text"] = ""  # 決定すると画面が閉じる（観察済み）
-            return True
-        def fake_text(pane_id, text):
-            typed.append(text)
-            return True
-        herdr.send_keys = fake_keys  # type: ignore
-        herdr.send_text = fake_text  # type: ignore
-
-        a = make_approval()
-        aid = a["id"]
-        assert a["state"] == "open"
-
-        # 許可 → 番号キー 1 で確定（実機で観察したキー・05 §4）
-        ok, reason = approvals.answer(aid, "allow")
-        assert ok is True, reason
-        assert sent == ["1"]
-        assert store.get_approval(aid)["state"] == "answered"
-
-        # 回答済みに再度答えることはできない
-        ok, _ = approvals.answer(aid, "deny", "理由")
-        assert ok is False
-
-        # 拒否は「No」の番号を画面から数える（選択肢の数が違う画面でも動く）
-        # かつ拒否理由は通常の入力欄へ alt+enter で送る（観察済み・05 §4）
-        fresh_db(tmp)
-        sent.clear()
-        typed.clear()
-        screen["text"] = APPROVAL_SCREEN_3
-        a2 = make_approval()
-        ok, reason = approvals.answer(a2["id"], "deny", "やめておけ")
-        assert ok is True, reason
-        assert sent == ["3", "alt+enter"]
-        assert typed == ["やめておけ"]
-        assert store.get_approval(a2["id"])["state"] == "answered"
-
-        # 「今後も許可」は permission_suggestions があるときだけ（05 §1 の3番）
-        fresh_db(tmp)
-        sent.clear()
-        screen["text"] = APPROVAL_SCREEN_4
-        a3 = make_approval(suggestions=[])
-        ok, _ = approvals.answer(a3["id"], "always")
-        assert ok is False
-        assert store.get_approval(a3["id"])["state"] == "open"
-        ok, reason = approvals.answer(a3["id"], "allow")
-        assert ok is True, reason
-        assert sent == ["1"]
+        qid = make_question("claude")["id"]
+        # 登録時刻を 23 時間前に遅らせてもまだ expired にならない
+        with store._connect() as conn:  # noqa: SLF001
+            conn.execute(
+                "UPDATE questions SET created_at = ? WHERE id = ?",
+                (time.time() - 23 * 60 * 60, qid),
+            )
+        assert questions.expire_stale_questions() == 0
+        assert state_of(qid) == "open"
+        # 25 時間前なら expired
+        with store._connect() as conn:  # noqa: SLF001
+            conn.execute(
+                "UPDATE questions SET created_at = ? WHERE id = ?",
+                (time.time() - 25 * 60 * 60, qid),
+            )
+        assert questions.expire_stale_questions() == 1
+        assert state_of(qid) == "expired"
 
 
-def test_approval_resolved_elsewhere_and_mismatch() -> None:
-    """PC で先に答えた場合は resolved_elsewhere，違う画面には答えない（05 §3.3）．"""
-    with tempfile.TemporaryDirectory() as tmp:
-        fresh_db(tmp)
-        a = make_approval()
-
-        # ペインが blocked でなくなった → PC で回答済み
-        herdr.get_agent = lambda pane_id: {"agent_status": "idle"}  # type: ignore
-        approvals.refresh("sess-1", "pane-1")
-        assert store.get_approval(a["id"])["state"] == "resolved_elsewhere"
-
-        # 別の承認画面（内容が違う）の前では送らない
-        fresh_db(tmp)
-        a2 = make_approval()
-        sent: list[str] = []
-        herdr.get_agent = lambda pane_id: {"agent_status": "blocked"}  # type: ignore
-        herdr.read_pane = lambda pane_id, lines=60: "別の画面です"  # type: ignore
-        herdr.send_keys = lambda pane_id, *keys: (sent.append(keys[0]) or True)  # type: ignore
-        ok, reason = approvals.answer(a2["id"], "allow")
-        assert ok is False
-        assert sent == []
-        assert store.get_approval(a2["id"])["state"] == "open"
-
-
-def test_gone_pane_expires_cards() -> None:
-    """ペインが消えたら（agent 終了）質問・承認は expired になり画面から消える．"""
+def test_resolve_on_terminal() -> None:
+    """拡張からの「PC で答えた」は resolved_elsewhere にする（05 §3.1）．"""
     with tempfile.TemporaryDirectory() as tmp:
         fresh_db(tmp)
         qid = make_question("pi")["id"]
-        a = make_approval()
-        herdr.list_panes = lambda: [{"pane_id": "other"}]  # type: ignore
-        try:
-            questions.refresh_question_state("sess-1", "pane-1", "pi")
-            approvals.refresh("sess-1", "pane-1")
-        finally:
-            herdr.list_panes = lambda: []  # type: ignore
-        assert state_of(qid) == "expired"
-        assert store.get_approval(a["id"])["state"] == "expired"
-        assert store.list_questions_for_session("sess-1") == []
-        assert store.list_approvals_for_session("sess-1") == []
-
-
-def test_poll_does_not_resolve_while_sending() -> None:
-    """送信中（レビュー画面のあと画面が閉じた瞬間）は「PC で回答済み」にしない．"""
-    with tempfile.TemporaryDirectory() as tmp:
-        fresh_db(tmp)
-        qid = make_question("claude", n=2)["id"]
-        herdr.get_agent = lambda pane_id: {"agent_status": "blocked"}  # type: ignore
-        screen = {"text": REVIEW_SCREEN}
-        herdr.read_pane = lambda pane_id, lines=60: screen["text"]  # type: ignore
-        started = threading.Event()
-        real_send = questions._send_answers_cc  # noqa: SLF001
-
-        def slow_send(pane_id, qs, answers, qid=""):  # type: ignore[no-untyped-def]
-            started.set()
-            # 送信の途中で画面が閉じる（レビューが消えた状態）
-            screen["text"] = "ふつうの画面"
-            time.sleep(1.0)
-            return (True, "")
-
-        questions._send_answers_cc = slow_send  # type: ignore[assignment]
-        results: list[tuple[bool, str]] = []
-        try:
-            th = threading.Thread(
-                target=lambda: results.append(
-                    questions.answer_question(
-                        qid, [{"choice_index": 0}, {"choice_index": 1}]
-                    )
-                )
-            )
-            th.start()
-            assert started.wait(5), "送信が始まらなかった"
-            # 送信中に何度問い合わせても open のまま
-            for _ in range(4):
-                questions.refresh_question_state("sess-1", "pane-1", "claude")
-            assert state_of(qid) == "open"
-            th.join(30)
-        finally:
-            questions._send_answers_cc = real_send  # type: ignore[assignment]
-        assert results == [(True, "")]
-        assert state_of(qid) == "answered"
-
-
-def test_wrapped_question_text_is_found_on_screen() -> None:
-    """折り返した質問文（行頭に枠の縦線 `│`）も「次の質問が出た」と判定できる．"""
-    qtext = "sai-moon-mlflow の最初の版に入れる機能はどれですか？（実験一覧・入れ子の run 表・run 詳細・sai の run と node への往復リンクは必ず入れます）"
-    screen = (
-        "←  ☒ 既存の木  ☒ 往復の役  ☒ 置き場  ☐ 範囲  ✔ Submit  →\n\n"
-        "│ sai-moon-mlflow の最初の版に入れる機能はどれですか？（実験一覧・入れ子の run 表・run 詳細・sai の run と node\n"
-        "│ への往復リンクは必ず入れます）\n\n"
-        "❯ 1. [ ] 指標の履歴グラフ\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n"
-    )
-    qs = [{"question": "a"}, {"question": "b"}, {"question": "c"}, {"question": qtext}]
-    assert questions._expected_after(screen, qs, 3)
-    # 別の質問文なら一致しない
-    assert not questions._expected_after(screen, [{"question": "全然ちがう質問"}] * 4, 3)
+        assert questions.resolve_on_terminal(qid) is True
+        assert state_of(qid) == "resolved_elsewhere"
+        # 2回目は変更しない（回答済みを上書きしないため）
+        assert questions.resolve_on_terminal(qid) is False
 
 
 def main() -> None:
     test_pi_question_stays_open_when_pane_not_blocked()
-    test_claude_question_resolved_elsewhere()
-    test_one_miss_does_not_resolve_but_two_do()
-    test_review_screen_is_not_resolved_elsewhere()
-    test_concurrent_answers_run_only_once()
-    test_poll_does_not_resolve_while_sending()
+    test_cc_question_answer_records_without_keys()
     test_answer_requires_all_questions()
     test_pi_question_expires_after_10_minutes()
-    test_approval_state_transitions()
-    test_approval_resolved_elsewhere_and_mismatch()
-    test_gone_pane_expires_cards()
-    test_wrapped_question_text_is_found_on_screen()
+    test_cc_question_expires_after_24_hours()
+    test_resolve_on_terminal()
     print("test_questions: すべて通りました")
 
 

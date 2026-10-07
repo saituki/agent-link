@@ -105,12 +105,6 @@ class Handler(BaseHTTPRequestHandler):
                         {"id": "q5", "agent": "pi", "title": "あと少しですか",
                          "created_at": 5.0, "project": "研究C", "run_id": 5},
                     ],
-                    "approvals": [
-                        {"id": "a1", "tool_name": "Bash", "summary": "ls",
-                         "created_at": 3.0, "project": "研究A", "run_id": 11},
-                        {"id": "a2", "tool_name": "Bash", "summary": "pwd",
-                         "created_at": 4.0, "project": "研究B", "run_id": 22},
-                    ],
                 },
             )
         elif self.path == "/api/questions/q1":
@@ -143,8 +137,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._record("POST")
         if self.path == "/api/questions/q1/answer":
-            self._send(200, {"ok": True})
-        elif self.path.startswith("/api/approvals/") and self.path.endswith("/answer"):
             self._send(200, {"ok": True})
         elif self.path.endswith("/send"):
             self._send(200, {"ok": True})
@@ -216,7 +208,7 @@ class WebCliTest(unittest.TestCase):
     def test_help_lists_commands(self) -> None:
         text = webcli.build_parser().format_help()
         for name in ("serve", "projects", "home", "questions", "question",
-                     "answer", "approvals", "approve", "send", "usage",
+                     "answer", "send", "usage",
                      "mlflow", "api"):
             self.assertIn(name, text, f"--help に {name} が出ていません")
 

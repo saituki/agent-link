@@ -44,8 +44,6 @@ def make_run(
         "started_at": started_at,
         "finished_at": None,
         "duration_ms": None,
-        "herdr_pane_label": f"sai-sai2-{run_id}",
-        "herdr_pane_id": None,
         "agent_session_id": None,
         "transcript_path": None,
         "task_md_path": None,
@@ -177,40 +175,6 @@ def test_load_runs_filters() -> None:
         assert runs.load_runs(base) == []
 
 
-def test_pane_only_for_running_run() -> None:
-    """終わった実行・pane_id 不一致では，同じ名前の別プロジェクトのペインに当てない．"""
-    panes = [{"pane_id": "w1:p1", "label": "sai-main-7"}]
-    running = {"status": "running", "herdr_pane_label": "sai-main-7"}
-    assert runs.pane_for_run(running, [], panes) == panes[0]
-    assert runs.pane_for_run({**running, "status": "completed"}, [], panes) is None
-    assert runs.pane_for_run({**running, "herdr_pane_id": "w9:p9"}, [], panes) is None
-
-
-def test_pane_id_with_wrong_label() -> None:
-    """ID が同じでもラベルの違うペインには送らない（計画書 A の U06）．
-
-    herdr のペイン ID は番号で，ペインが消えると再利用される。
-    番号が同じでラベルが違う＝別のプロジェクトの agent。
-    """
-    panes = [{"pane_id": "w1:p8", "label": "sai-main-84"}]
-    run = {
-        "status": "running",
-        "herdr_pane_id": "w1:p8",
-        "herdr_pane_label": "sai-main-11",
-    }
-    assert runs.pane_for_run(run, [], panes) is None
-    # agent list の要素は label が無いが，panes 側のラベルで判断する
-    agents = [{"pane_id": "w1:p8", "agent": "claude"}]
-    assert runs.pane_for_run(run, agents, panes) is None
-    # ラベルが一致すれば見つかる（panes の要素が返る）
-    ok = {**run, "herdr_pane_label": "sai-main-84"}
-    assert runs.pane_for_run(ok, [], panes) == panes[0]
-    # ペインにラベルが無ければ今までどおり ID の一致だけで決める
-    unlabelled = [{"pane_id": "w1:p8"}]
-    assert runs.pane_for_run(run, [], unlabelled) == unlabelled[0]
-    assert runs.pane_for_run(ok, agents, unlabelled) == agents[0]
-
-
 def test_cursor_resets_on_file_change() -> None:
     """記録ファイルが変わったら，前のファイルの読み位置を使わず最初から読む．"""
     from sai_web import sessions
@@ -227,8 +191,6 @@ def main() -> None:
     test_done_counts_and_cost()
     test_subtask_under_parent()
     test_load_runs_filters()
-    test_pane_only_for_running_run()
-    test_pane_id_with_wrong_label()
     test_cursor_resets_on_file_change()
     print("test_runs: すべて通りました")
 

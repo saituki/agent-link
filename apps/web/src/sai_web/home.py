@@ -2,7 +2,6 @@
 
 1 本の住所で次をまとめて返す（共有契約 C-A3）:
 - 答えを待っている質問（`store.list_open_questions`）
-- 確認を待っている承認（`store.list_open_approvals`）
 - 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の一覧）
 - 論文の要対応（`sai-paper attention --json`）
 
@@ -19,7 +18,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import logging
 import time
 
@@ -121,35 +119,6 @@ def _home_questions() -> list[dict]:
                 "id": row.get("id") or "",
                 "agent": row.get("agent") or "",
                 "title": _text(text) if text else "質問",
-                "created_at": row.get("created_at"),
-                "project": project_name,
-                "run_id": run_id,
-            }
-        )
-    return out
-
-
-def _home_approvals() -> list[dict]:
-    """確認を待っている承認（新しい順・`store.list_open_approvals`）。"""
-    session_map = _session_map()
-    out: list[dict] = []
-    for row in store.list_open_approvals():
-        if not isinstance(row, dict):
-            continue
-        tool_input = row.get("tool_input")
-        tool_input = tool_input if isinstance(tool_input, dict) else {}
-        summary = tool_input.get("command") or tool_input.get("file_path")
-        if not summary:
-            try:
-                summary = json.dumps(tool_input, ensure_ascii=False)
-            except (TypeError, ValueError):
-                summary = ""
-        project_name, run_id = _run_of_session(session_map, row.get("session_id"))
-        out.append(
-            {
-                "id": row.get("id") or "",
-                "tool_name": row.get("tool_name") or "",
-                "summary": _text(summary) if summary else "",
                 "created_at": row.get("created_at"),
                 "project": project_name,
                 "run_id": run_id,
@@ -272,7 +241,6 @@ def _build() -> dict:
 
     return {
         "questions": _home_questions(),
-        "approvals": _home_approvals(),
         "projects": projects_out,
         "papers": papers_out,
         "errors": errors,

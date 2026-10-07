@@ -704,6 +704,36 @@ def phone_finalize(name: str, run_id: int) -> dict:
     )
 
 
+def run_send(name: str, run_id: int, text: str) -> dict:
+    """`sai-link run send <run_id> --json`（本文は標準入力・共有契約 C2）。
+
+    - 成功: `{'run_id', 'pane_id', 'status': 'sent'}` をそのまま返す。
+    - 空の文（終了コード 2）: 400。無い実行（3）: 404。
+    - 終了している・質問待ち（4）: 409。
+    """
+    _check_run_id(run_id)
+    project = _phone_project(name)
+    return _phone_json(
+        ["run", "send", str(run_id)],
+        root=project["root"],
+        stdin_text=text,
+    )
+
+
+def run_interrupt(name: str, run_id: int) -> dict:
+    """`sai-link run interrupt <run_id> --json`（共有契約 C2）。
+
+    - 成功: `{'run_id', 'status', 'agent_status'}` をそのまま返す。
+    - 無い実行（3）: 404。終了している（4）: 409。
+    """
+    _check_run_id(run_id)
+    project = _phone_project(name)
+    return _phone_json(
+        ["run", "interrupt", str(run_id)],
+        root=project["root"],
+    )
+
+
 def phone_advance(name: str, run_id: int) -> dict:
     """`sai-link run advance <run_id>`（review → done → Workflow の移動・計画書 A の U10）。
 

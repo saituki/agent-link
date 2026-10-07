@@ -44,7 +44,7 @@ iPhone / PC のブラウザ
 | （画面は無い。API のみ）検索セット | `sai-paper set list\|show\|mark\|drop-pending` |
 | Research → research-tree・TRIAGE・READ_CARD | `sai-sci status\|types\|init\|node\|apply\|proposals\|triage\|card\|read`、READ_CARD の開始と終了は `sai-link card start\|finish` |
 | Research → Experiments | `apps/mlflow-server` の MLflow（`/api/mlflow/*`・読み取りだけ） |
-| Home（質問・承認・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
+| Home（質問・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
 | Home の全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `sai-link project dashboard --period` を並べて足し合わせる（`GET /api/home/overview`） |
 | Usage | `usage.py`（`$SAI_HOME/web/cc-rate-limits.json`・OpenRouter・DeepSeek・pi の記録）。CLI は呼ばない |
 
@@ -71,7 +71,7 @@ iPhone / PC のブラウザ
 | 書き出し（Chats が読む） | `$SAI_HOME/web/runs/` |
 | 共通の block・template・settings | `$SAI_HOME/blocks/`・`template/`・`settings.json` |
 | 論文の共通の API キー | `$SAI_HOME/paper.env` |
-| 合言葉・質問と承認の保管・通知の鍵・ログ | `$SAI_HOME/web/token`・`sai_web.db`・`vapid.json`・`sai-web.log` |
+| 合言葉・質問の保管・通知の鍵・ログ | `$SAI_HOME/web/token`・`sai_web.db`・`vapid.json`・`sai-web.log` |
 | Claude Code の制限 | `$SAI_HOME/web/cc-rate-limits.json`（書くのは `sai-link cc-statusline`） |
 | **プロジェクト内の `.sai/`** | `<root>/.sai/`（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`）。`SAI_HOME` とは別 |
 
@@ -96,10 +96,10 @@ iPhone / PC のブラウザ
 
 | メソッド・パス | 中身 | 呼ぶ CLI |
 |---|---|---|
-| `GET /api/home` | 質問・承認・プロジェクト（review の run と todo の行）・論文の要対応・`errors` | `sai-link run tree`・`sai-sci attention list --json` |
+| `GET /api/home` | 質問・プロジェクト（review の run と todo の行）・論文の要対応・`errors` | `sai-link run tree`・`sai-sci attention list --json` |
 | `GET /api/home/overview?period=week\|month\|all` | 全プロジェクトをまたいだ合計（`period` 省略時は `week`・それ以外は 400） | `sai-link project dashboard --period <期間>` |
 
-- 質問・承認は `store.list_open_questions` / `store.list_open_approvals` から作る。`project` / `run_id` は `runs.load_runs` の中で `run_session_ids` に `session_id` を含む実行を探して付ける（無ければ `null`）。
+- 質問は `store.list_open_questions` から作る。`project` / `run_id` は `runs.load_runs` の中で `run_session_ids` に `session_id` を含む実行を探して付ける（無ければ `null`）。
 - プロジェクトの `review` / `todo` は `run tree` の `review` / `todo` フォルダを数える。論文の要対応は `attention list --json` の件数と先頭 3 件。
 - `todo` は件数、`todo_runs` は同じフォルダの行（`[{run_id, label}]`・ツリーの順）。todo の行には `card`（`creation_date`・`block`・`runner`・`model`・`description`）が付き、実行予約した行には `scheduled_at`（`YYYY-MM-DD HH:MM`）が付く。`review` はホームには出さない（API には残す）。
 - 各プロジェクトは `ThreadPoolExecutor(max_workers=4)` で並べる。1 つが失敗しても全体は止めず `errors` に「<名前>: <理由>」を足す。結果は 10 秒だけ覚える（`home.forget()` で消す）。
@@ -268,19 +268,20 @@ iPhone / PC のブラウザ
 - `POST /api/mlflow/runs/search` の本文は `{"experiment_ids": ["1"], "filter": "", "order_by": ["attributes.start_time DESC"], "max_results": 100, "page_token": "", "project": "sai-moon"}`。`project` があると**サーバが** `tags."sai.project" = "<登録簿の root のフォルダ名>"` を `filter` の前に `AND` で足す。登録簿に無い名前は 404。
 - MLflow がエラーを返したら**本文と状態コードをそのまま**返す。つながらないときは 503「Mac の MLflow が応答しません」。成果物の `Content-Type` は拡張子から決める。5MB を超えたら 413「大きすぎるので表示しません（5MB まで）」。
 
-### 4.9 会話・質問・承認・通知・使用量
+### 4.9 会話・質問・通知・使用量
 
 | メソッド・パス | 中身 |
 |---|---|
 | `GET /api/health` | 生存確認 |
 | `GET /api/days` / `GET /api/days/{date}` | 会話の日付一覧・その日の実行 |
-| `GET /api/runs/{project}/{run_id}` / `…/items` | 実行 1 件・会話の中身 |
-| `POST /api/runs/{project}/{run_id}/send` | 実行中の root の run に文を送る（herdr の pane へ） |
+| `GET /api/runs/{project}/{run_id}` / `…/items` | 実行 1 件・会話の中身。`…/items` は `{items, next_cursor, live, partial, error}` を返す（`live` は `working` / `idle` / `blocked` / `null`、`partial` は生成中の文・`error` は直前のターンの失敗の理由。headless の実行は `state.json`（共有契約 C1）から読む・C6） |
+| `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`sai-link run send <run_id> --json`・本文は標準入力）。終了・質問待ちは 409、無ければ 404 |
+| `POST /api/runs/{project}/{run_id}/interrupt` | 実行中の run を中断する（`sai-link run interrupt <run_id> --json`）。無い実行は CLI を呼ばず 404 |
 | `POST /api/runs/{project}/{run_id}/finalize` | メッセージ画面の ■ 終了（その run が無ければ 404、実行中でない・子ブロック・常駐停止は 502）。呼ぶ CLI は `sai-link run finalize <run_id>` |
-| `POST /api/register` `/api/questions` `/api/approvals` | 登録（**内部専用・Mac 自身のみ**。cc のフックと pi の拡張が呼ぶ） |
+| `POST /api/register` `/api/questions` | 登録（**内部専用・Mac 自身のみ**。cc のフックと pi の拡張が呼ぶ） |
 | `POST /api/questions/{qid}/resolved` | 質問が端末側で答えられたことの通知（**内部専用**） |
-| `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` / `GET /api/approvals` | 答え待ちの質問・承認 |
-| `POST /api/questions/{qid}/answer` / `POST /api/approvals/{aid}/answer` | 答える（先着。先に答えた方があれば 400 でその答えを採る） |
+| `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問 |
+| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
 | `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（Claude Code・OpenRouter・DeepSeek・pi の記録） |
 | `GET /manifest.json` | PWA の設定 |
@@ -298,8 +299,7 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `sai-web serve [--host <H>] [--port <P>]` | Web のサーバを起動する（既定 `127.0.0.1`・`SAI_WEB_PORT`） |
 | `sai-web projects` / `home` | プロジェクトの一覧・ホームの集計 |
 | `sai-web questions [--run <id>] [--project <名前>]` / `question <qid>` / `answer <qid> (--choice … \| --choices … \| --text …)` | 質問の一覧・全文・答え |
-| `sai-web approvals [--run <id>]` / `approve <aid> <allow\|always\|deny> [--reason <文>]` | 承認の一覧・答え |
-| `sai-web send <project> <run_id> <文>` | 実行中の root の run に文を送る |
+| `sai-web send <project> <run_id> <文>` | 実行中の run に文を送る |
 | `sai-web usage` | 使用量 |
 | `sai-web mlflow experiments\|runs <experiment_id>\|run <id>\|metric <id> <key>` | MLflow の読み取り（中継 API 経由） |
 | `sai-web api <METHOD> <path> [--data <JSON>\|--data -]` | 上の API 一覧のどれでも呼ぶ |
@@ -389,12 +389,11 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `SAI_WEB_BROWSER_HEADED` | （空＝headless） | `1` で画面ありの Chrome |
 | `SAI_WEB_OPENROUTER_ACCOUNTS` | `main=OPENROUTER_API_KEY` | 使用量の OpenRouter の「名前=キーの入った環境変数名」 |
 | `SAI_WEB_NO_WATCH` | （空） | `1` で状態の見張りを止める |
-| `SAI_WEB_HOOK_LOG` | （空） | cc の承認フックが受けた JSON を書き出すファイル |
 | `SAI_WEB_HOOKS_DIR` | `apps/web/hooks` | `sai-link init` が cc のフックを書くときに探す置き場 |
 | `SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` | `sai-link` / `sai-paper` / `sai-sci` | Web が呼ぶ CLI。PATH に無ければ絶対パス |
 | `SAI_RADIO_URL` / `SAI_RADIO_TOKEN` | `http://127.0.0.1:8201` / （空） | Radio の中継先と合言葉 |
 | `SAI_MLFLOW_URL` / `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD` | `http://127.0.0.1:5001` / （空） / （空） | MLflow の中継先と Basic 認証 |
-| `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` / `HERDR_BIN` | 各既定 | 会話の記録置き場・herdr |
+| `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` | 各既定 | 会話の記録置き場 |
 | `SAI_HOME` | `~/.sai` | 利用者全体の置き場（Rust 側も同じ） |
 
 Rust 側にも同じ `SAI_HOME`・`SAI_PROJECT_ROOT`・`SAI_ORIGIN` が効く。launchd のひな形（`apps/web/launchd/`）は `PATH`（`target/release` と `apps/web/bin` を含む）と `PYTHONPATH`（`apps/web/src`）を渡す。**PATH が無いと CLI が見つからず 503 になる。**
