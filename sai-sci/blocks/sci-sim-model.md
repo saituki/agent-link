@@ -10,12 +10,9 @@ templates:
   - exp-ref
   - sim-core
 context: true
+sci_type: support
 sci_ops: add_f
 sci_scope: node
-sci_action: experiment
-sci_support: true
-sci_done_agent: report
-sci_done_user:
 timeout: 3600
 worktree: none
 enable: true

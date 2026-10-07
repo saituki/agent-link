@@ -280,7 +280,6 @@ impl Parts {
         if let Some(draft) = tree.seed_draft(&roots.data_dir) {
             progress.push(format!("- SEED の下書き: {}", draft.text.split_whitespace().collect::<Vec<_>>().join(" ")));
         }
-        progress.push(format!("- DEBT: {} 件", action::debts(conn, roots)?.len()));
         progress.push(format!("- 仕分け待ち: {} 件", store::list_proposals(conn, Some("pending"))?.len()));
 
         // 範囲の Node。

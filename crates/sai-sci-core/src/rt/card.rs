@@ -89,7 +89,6 @@ pub struct ReadCard {
     /// `{"id","parent","text","cites"}`
     pub findings: Vec<Value>,
     pub note: bool,
-    pub debts: Vec<String>,
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T> {
@@ -361,11 +360,6 @@ pub fn read_card(conn: &Connection, roots: &PaperRoots, defs: &Defs, run_id: i64
         })
         .collect();
     let note = paper_folder(&roots.data_dir, paper_id, &title).join(paper_file_names::NOTE).is_file();
-    let debts = action::debts(conn, roots)?
-        .into_iter()
-        .filter(|d| d.run_id == run_id)
-        .map(|d| d.message)
-        .collect();
 
     Ok(ReadCard {
         run_id,
@@ -378,7 +372,6 @@ pub fn read_card(conn: &Connection, roots: &PaperRoots, defs: &Defs, run_id: i64
         extract: section_lines(&text, EXTRACT_HEADING),
         findings,
         note,
-        debts,
     })
 }
 

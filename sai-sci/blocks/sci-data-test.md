@@ -10,12 +10,9 @@ templates:
   - data-core
   - stat-core
 context: true
+sci_type: node
 sci_ops: add_e, add_f
 sci_scope: path
-sci_action: experiment
-sci_support: false
-sci_done_agent: report, f_added
-sci_done_user:
 timeout: 5400
 worktree: none
 enable: true

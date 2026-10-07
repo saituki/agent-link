@@ -112,6 +112,8 @@ pub struct NodeJson {
     pub mlflow: Option<String>,
     pub created_by: String,
     pub created_at: String,
+    /// この Node に付いた PENDING の PROPOSAL の数。
+    pub pending: usize,
 }
 
 /// Next Action 1 件。
@@ -125,7 +127,6 @@ pub struct NextAction {
     pub expect: String,
     pub why: String,
     pub card: Option<Value>,
-    pub fix: Option<Value>,
     /// node_detail で「この Node が対象」を選ぶための Node（JSON には出さない）。
     #[serde(skip)]
     targets: Vec<i64>,
@@ -183,8 +184,6 @@ pub struct Status {
     pub seeds: Vec<SeedJson>,
     pub seed_draft: Option<SeedDraft>,
     pub next: Vec<NextAction>,
-    pub debts: Vec<action::Debt>,
-    pub debt_count: usize,
     pub pending_proposals: usize,
     pub decisions: Vec<Decision>,
     pub running: Vec<RunningJson>,
@@ -235,8 +234,6 @@ pub struct ActionJson {
     pub global_round: Option<i64>,
     pub purpose: String,
     pub occurred_at: String,
-    pub debt: bool,
-    pub debt_messages: Vec<String>,
 }
 
 /// `node_detail.pending` の 1 要素。
@@ -670,6 +667,7 @@ impl Tree {
             mlflow: n.mlflow_ref.clone(),
             created_by: n.created_by.clone(),
             created_at: n.created_at.clone(),
+            pending: self.pending.iter().filter(|p| p.node_id == Some(id)).count(),
         }
     }
 
@@ -750,30 +748,6 @@ fn strip_comments(lines: &[String]) -> String {
 
 // ---- Next Action ----------------------------------------------------------------------
 
-fn debt_action(debt: &action::Debt) -> NextAction {
-    let fix = debt.fix.clone();
-    let card = (fix.get("kind").and_then(Value::as_str) == Some("card"))
-        .then(|| fix.get("card").cloned())
-        .flatten();
-    let block = card
-        .as_ref()
-        .and_then(|c| c.get("block").and_then(Value::as_str))
-        .map_or_else(|| debt.block.clone(), str::to_string);
-    let targets = debt.node.as_deref().and_then(|t| parse_id(t).ok()).map(|(_, id)| id).into_iter().collect();
-    NextAction {
-        kind: "debt".into(),
-        node: debt.node.clone(),
-        option: None,
-        block: Some(block),
-        purpose: debt.message.clone(),
-        expect: String::new(),
-        why: "DEBT".into(),
-        card,
-        fix: Some(fix),
-        targets,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn card_action(
     node: (Kind, i64),
@@ -796,7 +770,6 @@ fn card_action(
         purpose,
         expect,
         why: why.into(),
-        fix: None,
         targets: [Some(q), option].into_iter().flatten().collect(),
     }
 }
@@ -842,7 +815,6 @@ impl Tree {
                 expect: "★ を 1 つ以上".into(),
                 why: "NO_STAR".into(),
                 card: None,
-                fix: None,
                 targets: vec![q.id],
             }));
         }
@@ -850,9 +822,9 @@ impl Tree {
     }
 }
 
-/// Next Action（DEBT → 順の番号 → 木の順）を `limit` 件まで。
+/// Next Action（順の番号 → 木の順）を `limit` 件まで。
 #[must_use]
-pub fn next_actions(tree: &Tree, debts: &[action::Debt], limit: usize) -> Vec<NextAction> {
+pub fn next_actions(tree: &Tree, limit: usize) -> Vec<NextAction> {
     let mut ranked: Vec<(u8, usize, NextAction)> = Vec::new();
     for (pos, n) in tree.nodes.iter().enumerate() {
         if n.kind != Kind::Q || !tree.on_path(n.id) {
@@ -880,12 +852,7 @@ pub fn next_actions(tree: &Tree, debts: &[action::Debt], limit: usize) -> Vec<Ne
         }
     }
     ranked.sort_by_key(|(rank, pos, _)| (*rank, *pos));
-    debts
-        .iter()
-        .map(debt_action)
-        .chain(ranked.into_iter().map(|(_, _, a)| a))
-        .take(limit)
-        .collect()
+    ranked.into_iter().map(|(_, _, a)| a).take(limit).collect()
 }
 
 // ---- ブロック定義の注意 -----------------------------------------------------------------
@@ -897,7 +864,7 @@ fn split_csv(value: &str) -> Vec<String> {
 /// ブロック定義の書き間違い（R5）を 1 行ずつ返す。ブロック id 順、同じ文は 1 回だけ。
 #[must_use]
 pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
-    const KEYS: [&str; 6] = ["sci_ops", "sci_scope", "sci_action", "sci_support", "sci_done_agent", "sci_done_user"];
+    const KEYS: [&str; 3] = ["sci_ops", "sci_scope", "sci_type"];
     let mut dirs = vec![roots.root.join(".sai").join("blocks")];
     dirs.extend(sai_paper_core::paths::sai_home_path("blocks"));
     // 同じ id は先に見つけた `<root>` 側だけ。
@@ -1069,8 +1036,6 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
         seeds: Vec::new(),
         seed_draft: None,
         next: Vec::new(),
-        debts: Vec::new(),
-        debt_count: 0,
         pending_proposals: 0,
         decisions: Vec::new(),
         running: Vec::new(),
@@ -1089,14 +1054,11 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
             }
         }
     }
-    let debts = action::debts(conn, roots)?;
     out.progress = tree.progress();
     out.nodes = tree.nodes.iter().map(|n| tree.row(n.id)).collect();
     out.seeds = tree.seeds.iter().map(|s| seed_json(&tree, s)).collect();
     out.seed_draft = tree.seed_draft(&roots.data_dir);
-    out.next = next_actions(&tree, &debts, 10);
-    out.debt_count = debts.len();
-    out.debts = debts;
+    out.next = next_actions(&tree, 10);
     out.pending_proposals = tree.pending.len();
     out.decisions = tree.log.iter().take(30).map(|r| tree.decision(r)).collect();
     out.running = running_runs(roots);
@@ -1290,25 +1252,18 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
     let subtree_ids: Vec<i64> = tree.nodes.iter().map(|n| n.id).filter(|n| *n != num && family.contains(n)).collect();
     let family_set: HashSet<i64> = family.iter().copied().collect();
 
-    let debts = action::debts(conn, roots)?;
     let runs = action::sci_runs(roots);
     let actions: Vec<ActionJson> = runs
         .iter()
         .filter(|r| r.keys.node.is_some_and(|(_, n)| family_set.contains(&n)))
-        .map(|r| {
-            let messages: Vec<String> =
-                debts.iter().filter(|d| d.run_id == r.run_id).map(|d| d.message.clone()).collect();
-            ActionJson {
-                run_id: r.run_id,
-                block: r.block.clone(),
-                owner: r.owner.clone(),
-                node: r.keys.node.map(|(k, n)| fmt_id(k, n)),
-                global_round: r.global_round,
-                purpose: r.keys.purpose.clone(),
-                occurred_at: r.occurred_at.clone(),
-                debt: !messages.is_empty(),
-                debt_messages: messages,
-            }
+        .map(|r| ActionJson {
+            run_id: r.run_id,
+            block: r.block.clone(),
+            owner: r.owner.clone(),
+            node: r.keys.node.map(|(k, n)| fmt_id(k, n)),
+            global_round: r.global_round,
+            purpose: r.keys.purpose.clone(),
+            occurred_at: r.occurred_at.clone(),
         })
         .collect();
     let creator = creator_json(node, &runs);
@@ -1358,7 +1313,7 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
                 created_at: p.created_at.clone(),
             })
             .collect(),
-        next: next_actions(&tree, &debts, usize::MAX).into_iter().filter(|a| a.targets.contains(&num)).take(3).collect(),
+        next: next_actions(&tree, usize::MAX).into_iter().filter(|a| a.targets.contains(&num)).take(3).collect(),
         searches: store::list_searches(conn, Some(num))?
             .into_iter()
             .map(|s| {
@@ -1512,18 +1467,18 @@ mod tests {
         let defs = defs_with_guide();
         let t = |e: &Env| Tree::load(e.db.connection(), &e.roots, &defs).unwrap();
         let q0 = q(&e, None, "葉の Q", Some("SPLIT"));
-        let a = whys(&next_actions(&t(&e), &[], 10)).into_iter().map(|(w, b)| (w.to_string(), b.map(String::from))).collect::<Vec<_>>();
+        let a = whys(&next_actions(&t(&e), 10)).into_iter().map(|(w, b)| (w.to_string(), b.map(String::from))).collect::<Vec<_>>();
         assert_eq!(a, vec![("NO_CHILD_Q".to_string(), Some("sci-split".to_string()))]);
         // ガイドが無ければ NO_OPTION。
         let e2 = env("next2");
         let r = q(&e2, None, "Q", None);
         let t2 = Tree::load(e2.db.connection(), &e2.roots, &Defs::default()).unwrap();
-        let acts = next_actions(&t2, &[], 10);
+        let acts = next_actions(&t2, 10);
         assert_eq!((acts[0].why.as_str(), acts[0].block.as_deref()), ("NO_OPTION", Some("sci-ideate")));
         let _ = r;
         // O が 1 つで F が無い → FEW_FINDINGS（option 付き）。
         let o1 = o(&e, q0, "O1");
-        let acts = next_actions(&t(&e), &[], 10);
+        let acts = next_actions(&t(&e), 10);
         assert_eq!(acts[0].why, "FEW_FINDINGS");
         assert_eq!(acts[0].block.as_deref(), Some("sci-search"));
         assert_eq!(acts[0].option, Some(fmt_id(Kind::O, o1)));
@@ -1531,27 +1486,27 @@ mod tests {
         // F が 2 つで Objectivity は満たす → UNCHECKED。
         f(&e, o1);
         f(&e, o1);
-        let acts = next_actions(&t(&e), &[], 10);
+        let acts = next_actions(&t(&e), 10);
         assert_eq!((acts[0].why.as_str(), acts[0].block.as_deref()), ("UNCHECKED", Some("sci-debate")));
         // 確かめて ok → NO_STAR（card は null）。
         store::insert_logic(conn, q0, "contradiction", "", &[], 2, None, None, "user").unwrap();
-        assert_eq!(next_actions(&t(&e), &[], 10)[0].why, "CONTRADICTION");
+        assert_eq!(next_actions(&t(&e), 10)[0].why, "CONTRADICTION");
         store::insert_logic(conn, q0, "ok", "", &[], 2, None, None, "user").unwrap();
-        let acts = next_actions(&t(&e), &[], 10);
+        let acts = next_actions(&t(&e), 10);
         assert_eq!(acts[0].why, "NO_STAR");
         assert_eq!(acts[0].kind, "user");
         assert!(acts[0].card.is_none());
         // ★ を付け、Issue の O を足す → NO_EXPERIMENT。review は全部済んでいて Logicality ok なので出ない。
         store::set_starred(conn, o1, true).unwrap();
-        assert!(next_actions(&t(&e), &[], 10).is_empty());
+        assert!(next_actions(&t(&e), 10).is_empty());
         let issue = add(&e, Kind::O, Some(q0), "課題", None, Some("issue"));
-        let acts = next_actions(&t(&e), &[], 10);
+        let acts = next_actions(&t(&e), 10);
         assert_eq!((acts[0].why.as_str(), acts[0].block.as_deref()), ("NO_EXPERIMENT", Some("sci-exp-sprout")));
         assert_eq!(acts[0].card.as_ref().unwrap()["node"], json!(fmt_id(Kind::O, issue)));
     }
 
     #[test]
-    fn review_and_debt_first_and_limits() {
+    fn review_first_and_limits() {
         let e = env("review");
         let conn = e.db.connection();
         let q0 = q(&e, None, "Q", None);
@@ -1560,17 +1515,30 @@ mod tests {
         f(&e, a);
         f(&e, a);
         // 子の Q が無い唯一の Q で Logicality 未確認 → debate が先に出る。review は一番上の Q が葉なら debate と並ぶ。
-        let debt = action::Debt {
-            run_id: 7, block: "sci-read".into(), node: Some(fmt_id(Kind::O, a)), side: "user".into(),
-            criterion: "note".into(), message: "note がありません".into(), fix: json!({"kind": "paper", "paper_id": 37}),
-        };
         let t = tree(&e);
-        let acts = next_actions(&t, &[debt.clone()], 10);
-        assert_eq!(acts[0].kind, "debt");
-        assert_eq!(acts[0].why, "DEBT");
-        assert!(acts[0].card.is_none());
+        let acts = next_actions(&t, 10);
         assert!(acts.iter().any(|x| x.block.as_deref() == Some("sci-review") && x.why == "UNCHECKED"));
-        assert_eq!(next_actions(&t, &[debt.clone(), debt.clone(), debt], 2).len(), 2);
+        assert_eq!(next_actions(&t, 2).len(), 2);
+    }
+
+    /// `nodes[]` の `pending` は、その Node に付いた PENDING の PROPOSAL の数。
+    #[test]
+    fn nodes_json_counts_pending_proposals() {
+        let e = env("pending");
+        let conn = e.db.connection();
+        let q0 = q(&e, None, "Q0", None);
+        let q1 = q(&e, Some(q0), "Q1", None);
+        let o1 = o(&e, q0, "O");
+        // Q1 宛ての PENDING が 2 件、Q0 宛てが 1 件。applied は数えない。
+        store::insert_proposal(conn, None, None, "add_q", Some(q1), &json!({}), "auto", "pending").unwrap();
+        store::insert_proposal(conn, None, None, "add_q", Some(q1), &json!({}), "auto", "pending").unwrap();
+        store::insert_proposal(conn, None, None, "add_o", Some(q0), &json!({}), "auto", "pending").unwrap();
+        store::insert_proposal(conn, None, None, "add_o", Some(o1), &json!({}), "auto", "applied").unwrap();
+        let s = status(conn, &e.roots, &Defs::default()).unwrap();
+        assert_eq!(s.pending_proposals, 3);
+        let row = |id: i64| s.nodes.iter().find(|n| n.id == fmt_id(Kind::Q, id)).unwrap();
+        assert_eq!(row(q1).pending, 2);
+        assert_eq!(row(q0).pending, 1);
     }
 
     #[test]
@@ -1641,7 +1609,7 @@ mod tests {
         };
         assert_eq!(
             keys(&serde_json::to_value(&s).unwrap()),
-            want(&["initialized", "legacy", "type", "progress", "nodes", "seeds", "seed_draft", "next", "debts", "debt_count", "pending_proposals", "decisions", "running", "warnings"])
+            want(&["initialized", "legacy", "type", "progress", "nodes", "seeds", "seed_draft", "next", "pending_proposals", "decisions", "running", "warnings"])
         );
 
         let e = env("keys");
@@ -1650,9 +1618,9 @@ mod tests {
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(
             keys(&v["nodes"][0]),
-            want(&["id", "kind", "parent", "depth", "ord", "text", "body", "guide", "answer_kind", "starred", "on_path", "leaf", "objectivity", "logicality", "counts", "cites", "paper", "run", "mlflow", "created_by", "created_at"])
+            want(&["id", "kind", "parent", "depth", "ord", "text", "body", "guide", "answer_kind", "starred", "on_path", "leaf", "objectivity", "logicality", "counts", "cites", "paper", "run", "mlflow", "created_by", "created_at", "pending"])
         );
-        assert_eq!(keys(&v["next"][0]), want(&["kind", "node", "option", "block", "purpose", "expect", "why", "card", "fix"]));
+        assert_eq!(keys(&v["next"][0]), want(&["kind", "node", "option", "block", "purpose", "expect", "why", "card"]));
         let d = node_detail(e.db.connection(), &e.roots, &Defs::default(), "Q2").unwrap();
         let dv = serde_json::to_value(&d).unwrap();
         assert_eq!(

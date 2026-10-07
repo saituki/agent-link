@@ -9,12 +9,9 @@ templates:
   - literature-hard-rules
   - domain
 context: true
+sci_type: manage
 sci_ops: add_seed
 sci_scope: summary
-sci_action: other
-sci_support: false
-sci_done_agent: report, review, seed_created
-sci_done_user:
 timeout: 5400
 worktree: none
 enable: true

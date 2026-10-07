@@ -12,12 +12,9 @@ templates:
   - literature-hard-rules
   - domain
 context: true
+sci_type: node
 sci_ops: add_f
 sci_scope: path
-sci_action: find_f
-sci_support: false
-sci_done_agent: report, review, f_added
-sci_done_user:
 timeout: 5400
 worktree: none
 enable: true

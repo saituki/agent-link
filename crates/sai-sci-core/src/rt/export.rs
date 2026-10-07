@@ -88,8 +88,8 @@ pub fn render_state_md(status: &Status) -> String {
     }
 
     out.push_str(&format!(
-        "\n## PROGRESS\n- 進み具合: {progress}\n- DEBT: {} 件 / PROPOSAL の仕分け待ち: {} 件\n",
-        status.debt_count, status.pending_proposals
+        "\n## PROGRESS\n- 進み具合: {progress}\n- PENDING: {} 件\n",
+        status.pending_proposals
     ));
 
     out.push_str("\n## NEXT_ACTION\n");
@@ -101,13 +101,6 @@ pub fn render_state_md(status: &Status) -> String {
         out.push_str(&format!("{}. [{}] {}（{target}）\n", i + 1, a.why, a.purpose));
     }
 
-    out.push_str("\n## DEBT\n");
-    if status.debts.is_empty() {
-        out.push_str("- なし\n");
-    }
-    for d in status.debts.iter().take(10) {
-        out.push_str(&format!("- run {} {}: {}\n", d.run_id, d.block, d.message));
-    }
     out
 }
 

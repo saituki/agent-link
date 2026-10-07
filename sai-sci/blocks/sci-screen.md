@@ -10,12 +10,9 @@ templates:
   - paper-screening
   - literature-hard-rules
 context: true
+sci_type: node
 sci_ops: add_f
 sci_scope: node
-sci_action: find_f
-sci_support: false
-sci_done_agent: report, review, set_screened
-sci_done_user:
 timeout: 3600
 worktree: none
 enable: true

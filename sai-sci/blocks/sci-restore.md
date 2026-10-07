@@ -11,12 +11,9 @@ templates:
   - literature-hard-rules
   - domain
 context: true
+sci_type: manage
 sci_ops: add_q, add_o, add_f, add_e
 sci_scope: summary
-sci_action: split
-sci_support: false
-sci_done_agent: report, review, q_proposed, o_added, f_added
-sci_done_user: triaged
 timeout: 5400
 worktree: none
 enable: true

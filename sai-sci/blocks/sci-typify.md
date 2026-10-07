@@ -2,6 +2,7 @@
 name: 🧬 型を抜き出す
 id: sci-typify
 description: "その他: 今の木から Q の階層を抜き出し、研究の型として保存する"
+sci_type: manage
 model: inherit
 thinking: high
 templates:
@@ -9,10 +10,6 @@ templates:
   - literature-hard-rules
 context: true
 sci_scope: summary
-sci_action: other
-sci_support: false
-sci_done_agent: report, review
-sci_done_user:
 timeout: 3600
 worktree: none
 enable: true

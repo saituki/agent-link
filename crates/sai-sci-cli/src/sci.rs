@@ -309,7 +309,7 @@ pub(crate) fn status(json: bool, brief: bool) -> Result<Out> {
 
 /// `sci status --brief`（`{"brief": true}`）が返す JSON。
 ///
-/// 短い文脈で現在地を読めるように、進み具合・種の下書き・次の一手・負債の数だけを出す。
+/// 短い文脈で現在地を読めるように、進み具合・種の下書き・次の一手・仕分け待ちの数だけを出す。
 /// 値は [`compute::status`] の結果からそのまま写すだけで、計算し直さない
 /// （Web と CLI で同じ値になる）。
 pub fn brief_status(status: &compute::Status) -> Value {
@@ -326,7 +326,6 @@ pub fn brief_status(status: &compute::Status) -> Value {
             "expect": next.expect,
             "why": next.why,
         })).collect::<Vec<Value>>(),
-        "debt_count": status.debt_count,
         "pending_proposals": status.pending_proposals,
         "running": &status.running,
         "warnings": &status.warnings,
@@ -759,7 +758,7 @@ pub(crate) fn set_fields(
 
 // ---- 人が読む文 -------------------------------------------------------------
 
-/// `sci status` の文（型・進み具合・種の下書き・負債・木・次の一手）。
+/// `sci status` の文（型・進み具合・種の下書き・木・次の一手）。
 fn status_text(status: &compute::Status) -> String {
     if !status.initialized {
         let mut text = "研究方針の木がまだありません。`sai-sci init --type <型>` で始めてください。\n"
@@ -783,10 +782,7 @@ fn status_text(status: &compute::Status) -> String {
         }
         _ => text.push_str("種の下書きはまだありません\n"),
     }
-    text.push_str(&format!(
-        "負債 {} 件・仕分け待ちの提案 {} 件\n",
-        status.debt_count, status.pending_proposals
-    ));
+    text.push_str(&format!("仕分け待ちの提案 {} 件\n", status.pending_proposals));
     for node in &status.nodes {
         text.push_str(&node_line(node));
     }
@@ -956,9 +952,6 @@ fn read_text(card: &card::ReadCard) -> String {
             ));
         }
     }
-    for debt in &card.debts {
-        text.push_str(&format!("⚠ {debt}\n"));
-    }
     text
 }
 
@@ -1039,7 +1032,7 @@ mod tests {
         assert_eq!(brief["type"], "problem");
         assert_eq!(brief["progress"]["answered"], 0);
         assert!(brief["progress"]["total"].as_i64().unwrap() > 0, "{brief}");
-        for key in ["seed_draft", "next", "debt_count", "pending_proposals", "running", "warnings"] {
+        for key in ["seed_draft", "next", "pending_proposals", "running", "warnings"] {
             assert!(brief.get(key).is_some(), "{key}: {brief}");
         }
         // 木そのものは入れない。

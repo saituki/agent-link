@@ -10,12 +10,9 @@ templates:
   - literature-hard-rules
   - domain
 context: true
+sci_type: node
 sci_ops: record_logic, add_f
 sci_scope: path
-sci_action: check_logic
-sci_support: false
-sci_done_agent: report, review, logic_recorded
-sci_done_user:
 timeout: 5400
 worktree: none
 enable: true

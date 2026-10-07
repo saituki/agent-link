@@ -10,12 +10,9 @@ templates:
   - exp-core
   - exp-ref
 context: true
+sci_type: manage
 sci_ops: add_e, add_f
 sci_scope: path
-sci_action: experiment
-sci_support: false
-sci_done_agent: report, review, e_added
-sci_done_user:
 timeout: 3600
 worktree: none
 enable: true

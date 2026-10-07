@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 /// → データ分析（data-explore・data-test）。
 ///
 /// sci ブロックは同じ共通の決まり（`sci-core`）を先頭で受け、起動直前に範囲（`context: true`）を作ってから動く。
-/// frontmatter に Action の種類（`sci_action`）・support か（`sci_support`）・完了基準（`sci_done_agent`）を持つ。
+/// frontmatter に分類（`sci_type`: node / manage / support）と使う op（`sci_ops`）・範囲（`sci_scope`）を持つ。
 ///
 /// ただし実験ループの `sci-exp-branch` は例外で、判定をしないので木の範囲も共通の決まりも要らない
 /// （受け取るのは実験ループの共通の決まり `exp-core` だけ）。
@@ -764,50 +764,87 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// sci ブロック 25 本はすべて、Action の種類（`sci_action`）・`sci_support`・完了の担い手
-    /// （`sci_done_agent`）を持ち、`layer` は持たない。support は 6 本だけ。
+    /// sci ブロック 27 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
+    /// 役 4 本（professor・professor-backward・operator・kaizen）は持たない。sci ブロックは `layer` を持たない。
+    /// 完了の判定に使っていた旧キーはどのブロックにも無い。
     #[test]
-    fn sci_blocks_declare_action_and_criteria() {
-        let mut support = Vec::new();
-        let mut count = 0;
-        for (name, content) in SCI_BLOCKS {
-            if !name.starts_with("sci-") {
-                continue;
+    fn sci_blocks_declare_sci_type() {
+        // 共有契約の表（sci_type → ブロック）。
+        let node = [
+            "sci-split.md",
+            "sci-ideate.md",
+            "sci-search.md",
+            "sci-screen.md",
+            "sci-read.md",
+            "sci-compare.md",
+            "sci-debate.md",
+            "sci-coach.md",
+            "sci-cite-check.md",
+            "sci-data-explore.md",
+            "sci-data-test.md",
+            "sci-exp-review.md",
+        ];
+        let manage = [
+            "sci-start.md",
+            "sci-review.md",
+            "sci-digest.md",
+            "sci-restore.md",
+            "sci-typify.md",
+            "sci-result-compare.md",
+            "sci-exp-sprout.md",
+            "sci-seed.md",
+        ];
+        let support = [
+            "sci-analogy.md",
+            "sci-extract.md",
+            "sci-lookup.md",
+            "sci-exp-scout.md",
+            "sci-sim-model.md",
+            "sci-sim-compose.md",
+            "sci-exp-branch.md",
+            "paper-debater.md",
+            "paper-reviewer.md",
+        ];
+        let without = ["professor.md", "professor-backward.md", "kaizen.md", "operator.md"];
+
+        let mut want: Vec<String> = Vec::new();
+        for (list, value) in [(&node[..], "node"), (&manage[..], "manage"), (&support[..], "support")] {
+            for name in list {
+                want.push(format!("{name}: {value}"));
             }
-            count += 1;
+        }
+        want.sort();
+
+        let mut got: Vec<String> = Vec::new();
+        for (name, content) in SCI_BLOCKS {
             let frontmatter = content
                 .strip_prefix("---\n")
                 .and_then(|rest| rest.split("\n---\n").next())
                 .unwrap_or_else(|| panic!("{name} に frontmatter が無い"));
-            let action = frontmatter
-                .lines()
-                .find_map(|line| line.strip_prefix("sci_action: "))
-                .unwrap_or_else(|| panic!("{name} に sci_action が無い"));
-            assert!(
-                ["split", "write_o", "find_f", "check_logic", "choose", "experiment", "other"]
-                    .contains(&action.trim()),
-                "{name} の sci_action「{action}」が決まりに無い"
-            );
-            assert!(frontmatter.contains("\nsci_done_agent:"), "{name} に sci_done_agent が無い");
-            assert!(!frontmatter.contains("\nlayer:"), "{name} に layer が残っている");
-            match frontmatter.lines().find_map(|line| line.strip_prefix("sci_support: ")) {
-                Some("true") => support.push(*name),
-                Some("false") => {}
-                other => panic!("{name} の sci_support が true/false でない: {other:?}"),
+            if without.contains(name) {
+                assert!(!frontmatter.contains("\nsci_type:"), "{name} に sci_type がある");
+            } else {
+                let value = frontmatter
+                    .lines()
+                    .find_map(|line| line.strip_prefix("sci_type: "))
+                    .unwrap_or_else(|| panic!("{name} に sci_type が無い"));
+                got.push(format!("{name}: {value}"));
+            }
+            // 消した旧キーの名前。この名前そのものをコードに残さないよう、組み立てて作る。
+            let removed: Vec<String> = ["action", "support"]
+                .iter()
+                .map(|s| format!("sci_{s}"))
+                .chain(["agent", "user"].iter().map(|s| format!("sci_{}_{s}", "done")))
+                .collect();
+            for key in &removed {
+                assert!(!frontmatter.contains(&format!("\n{key}:")), "{name} に {key} が残っている");
+            }
+            if name.starts_with("sci-") {
+                assert!(!frontmatter.contains("\nlayer:"), "{name} に layer が残っている");
             }
         }
-        assert_eq!(count, 27);
-        assert_eq!(
-            support,
-            [
-                "sci-analogy.md",
-                "sci-lookup.md",
-                "sci-extract.md",
-                "sci-exp-scout.md",
-                "sci-sim-model.md",
-                "sci-sim-compose.md"
-            ]
-        );
+        got.sort();
+        assert_eq!(got, want);
     }
 
     /// 2 本の実験ブロックが使うテンプレートは、全部 配る物（テンプレート + 分野の観点）にある。

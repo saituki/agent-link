@@ -2,16 +2,13 @@
 name: 🌿 exp-branch
 id: sci-exp-branch
 description: "experiment: スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review のカードを作って終える"
+sci_type: support
 model: inherit
 thinking: medium
 templates:
   - exp-core
   - exp-run
   - exp-ref
-sci_action: experiment
-sci_support: false
-sci_done_agent: report
-sci_done_user:
 timeout: 7200
 worktree: none
 enable: true

@@ -8,12 +8,9 @@ templates:
   - sci-core
   - literature-hard-rules
 context: true
+sci_type: manage
 sci_ops: add_q
 sci_scope: summary
-sci_action: other
-sci_support: false
-sci_done_agent: report, review
-sci_done_user:
 timeout: 5400
 worktree: none
 enable: true
