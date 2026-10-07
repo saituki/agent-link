@@ -13,7 +13,7 @@ const {
   seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
   seCardValues, seBuildCard,
   seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
-  seNearestO, seSproutStartOs, seSproutNext, seChainPlan, seChainPath,
+  seBottomQs,
   SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS,
 } = require(src);
 
@@ -43,7 +43,7 @@ function test_helpers() {
   assert.strictEqual(seOpLabel("copy"), "Copy O");
   assert.strictEqual(seOpLabel("edit"), "Edit");
   assert.strictEqual(seOpLabel("remove"), "Delete");
-  assert.strictEqual(seOpLabel("add_seed"), "Sprout を作る");
+  assert.strictEqual(seOpLabel("add_sprout"), "SPROUT を作る");
   assert.strictEqual(seOpLabel("mystery_op"), "mystery_op");
   assert.ok(seRefOk("Q12", "Q"));
   assert.ok(seRefOk("E3", "QOFE"));
@@ -65,19 +65,33 @@ function test_cite() {
 // --- 13 op の通る例 ---
 function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("add_q", { parent: "Q1", text: "データの量は？" })), { op: "add_q", parent: "Q1", text: "データの量は？" });
+  assert.deepStrictEqual(ok(seBuildOp("add_q", { parent: "SEED", text: "最初の問い" })), { op: "add_q", parent: "SEED", text: "最初の問い" });
   assert.deepStrictEqual(ok(seBuildOp("add_q", { parent: "O2", text: "x", reason: "r" })), { op: "add_q", parent: "O2", text: "x" });
   assert.deepStrictEqual(ok(seBuildOp("add_o", { q: "Q1", text: "SST-2", kind: "issue", body: "b" })), { op: "add_o", q: "Q1", text: "SST-2", body: "b", kind: "issue" });
   assert.deepStrictEqual(ok(seBuildOp("add_f", { parent: "O2", text: "精度は 0.9。", cites: ["#37 §3.2", " "], paper: "37" })), { op: "add_f", parent: "O2", text: "精度は 0.9。", cites: ["#37 §3.2"], paper: 37 });
   assert.deepStrictEqual(ok(seBuildOp("add_f", { parent: "E1", text: "出典なしの文" })), { op: "add_f", parent: "E1", text: "出典なしの文" });
-  assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "O2", text: "実験", mlflow: "run-a" })), { op: "add_e", parent: "O2", text: "実験", mlflow: "run-a" });
+  assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "E1", text: "実験", mlflow: "run-a" })), { op: "add_e", parent: "E1", text: "実験", mlflow: "run-a" });
+  assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験" })), { op: "add_e", parent: "S2", text: "実験" });
   assert.deepStrictEqual(ok(seBuildOp("record_logic", { q: "Q1", value: "ok" })), { op: "record_logic", q: "Q1", value: "ok" });
   assert.deepStrictEqual(
     ok(seBuildOp("record_logic", { q: "Q1", value: "contradiction", note: "食い違う", findings: ["F1", "F2"] })),
     { op: "record_logic", q: "Q1", value: "contradiction", note: "食い違う", findings: ["F1", "F2"] },
   );
-  assert.deepStrictEqual(ok(seBuildOp("add_seed", { title: "題", sentence: "文", path: ["O1", "O2"] })), { op: "add_seed", title: "題", sentence: "文", path: ["O1", "O2"] });
+  assert.deepStrictEqual(ok(seBuildOp("add_sprout", { title: "題", paths: ["O1", "O2"] })), { op: "add_sprout", title: "題", paths: ["O1", "O2"] });
+  assert.deepStrictEqual(ok(seBuildOp("add_sprout", { title: "題", body: "計画", paths: ["O2"] })), { op: "add_sprout", title: "題", paths: ["O2"], body: "計画" });
+  const sproutNodes = [
+    { id: "Q1", parent: null, kind: "Q" },
+    { id: "O1", parent: "Q1", kind: "O", answer_kind: "answer" },
+    { id: "O2", parent: "Q1", kind: "O", answer_kind: "issue" },
+  ];
+  assert.deepStrictEqual(
+    ok(seBuildOp("add_sprout", { title: "題", paths: ["O1", "O2"], nodes: sproutNodes })),
+    { op: "add_sprout", title: "題", paths: ["O1", "O2"] },
+  );
   assert.deepStrictEqual(ok(seBuildOp("copy", { node: "O2", to: "Q5" })), { op: "copy", node: "O2", to: "Q5" });
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "F3", reason: "誤り" })), { op: "remove", node: "F3" });
+  assert.deepStrictEqual(ok(seBuildOp("remove", { node: "S1" })), { op: "remove", node: "S1" });
+  assert.deepStrictEqual(ok(seBuildOp("edit", { node: "S2", text: "直した" })), { op: "edit", node: "S2", text: "直した" });
   assert.deepStrictEqual(ok(seBuildOp("star", { o: "O2" })), { op: "star", o: "O2" });
   assert.deepStrictEqual(ok(seBuildOp("unstar", { o: "O2" })), { op: "unstar", o: "O2" });
   assert.deepStrictEqual(ok(seBuildOp("set_kind", { o: "O2", kind: "issue" })), { op: "set_kind", o: "O2", kind: "issue" });
@@ -91,25 +105,30 @@ function test_ops_ok() {
 // --- NG の例 ---
 function test_ops_ng() {
   // 必須・形
-  ng(seBuildOp("add_q", { parent: "F1", text: "x" })); // 親は Q か O
+  ng(seBuildOp("add_q", { parent: "F1", text: "x" })); // 親は SEED か Q か O
+  ng(seBuildOp("add_q", { parent: "E1", text: "x" }));
   ng(seBuildOp("add_q", { parent: "Q1", text: "" }));
   ng(seBuildOp("add_o", { q: "O1", text: "x" }));
   ng(seBuildOp("add_o", { q: "Q1", text: "x", kind: "other" }));
   ng(seBuildOp("add_f", { parent: "Q1", text: "x" })); // 親は O か E
   ng(seBuildOp("add_e", { parent: "Q1", text: "x" }));
+  ng(seBuildOp("add_e", { parent: "O2", text: "x" }));
   ng(seBuildOp("copy", { node: "O2", to: "O3" }));
   ng(seBuildOp("star", {}));
   ng(seBuildOp("set_kind", { o: "O2", kind: "" }));
-  ng(seBuildOp("add_seed", { title: "題", sentence: "文", path: [] }));
-  ng(seBuildOp("add_seed", { title: "題", sentence: "文", path: ["Q1"] }));
+  ng(seBuildOp("add_sprout", { title: "題", paths: [] }));
+  ng(seBuildOp("add_sprout", { title: "題", paths: ["Q1"] }));
+  ng(seBuildOp("add_sprout", { title: "題", paths: ["O1", "O1"] }));
+  ng(seBuildOp("add_sprout", { title: "題", paths: Array.from({ length: 21 }, (_, i) => `O${i + 1}`) }));
+  ng(seBuildOp("add_sprout", { title: "題", paths: ["O1"], nodes: [{ id: "O1", answer_kind: "answer" }] })); // Issue なし
   ng(seBuildOp("edit", { node: "Q1" })); // text も body も無い
   // 字数
   ng(seBuildOp("add_q", { parent: "Q1", text: "あ".repeat(301) }));
   assert.ok(ok(seBuildOp("add_q", { parent: "Q1", text: "あ".repeat(300) })));
   ng(seBuildOp("add_o", { q: "Q1", text: "あ".repeat(121) }));
   ng(seBuildOp("add_e", { parent: "O1", text: "あ".repeat(121) }));
-  ng(seBuildOp("add_seed", { title: "あ".repeat(121), sentence: "文", path: ["O1"] }));
-  ng(seBuildOp("add_seed", { title: "題", sentence: "あ".repeat(601), path: ["O1"] }));
+  ng(seBuildOp("add_sprout", { title: "あ".repeat(121), paths: ["O1"] }));
+  ng(seBuildOp("add_sprout", { title: "題", body: "あ".repeat(2001), paths: ["O1"] }));
   // C-CITE
   ng(seBuildOp("add_f", { parent: "O2", text: "文", cites: ["37"] }));
   ng(seBuildOp("add_f", { parent: "O2", text: "文", cites: Array(11).fill("#37") }));
@@ -147,6 +166,7 @@ function test_tables() {
   assert.strictEqual(new Set(ids).size, 21);
   for (const id of ids) assert.match(id, /^sci-[a-z-]{2,30}$/);
   assert.ok(ids.includes("sci-read") && ids.includes("sci-split"));
+  assert.ok(keys.includes("add_sprout"));
   for (const gone of ["sci-draft", "sci-probe", "sci-outline", "sci-tree-review"]) assert.ok(!ids.includes(gone), gone);
 }
 
@@ -198,6 +218,14 @@ function test_card() {
   bad(Object.assign({}, read, { papers: [37, 38] }));
   bad(Object.assign({}, read, { papers: [] }));
   assert.match(bad(Object.assign({}, read, { node: "F4" })), /Q か O/);
+  // 読む札は SEED を選べない
+  assert.match(bad(Object.assign({}, read, { node: "SEED" })), /Q か O/);
+  // SEED（research-tree の全体）もカードの対象にできる
+  assert.strictEqual(seCardValues(null, "SEED").node, "SEED");
+  assert.deepStrictEqual(
+    seBuildCard({ node: "SEED", block: "sci-review", purpose: "木全体を見直す", runner: "pi" }).card,
+    { node: "SEED", block: "sci-review", purpose: "木全体を見直す", runner: "pi", papers: [] },
+  );
 }
 
 // --- 仕分け ---
@@ -212,57 +240,16 @@ function test_proposal_text() {
   assert.ok(seProposalSummary({}).includes("中身がありません"));
 }
 
-// --- Sprout の鎖（Q1 → O2 → Q3 → O4(Issue)、Q3 → Q5 → O6、Q1 → O7） ---
-function sproutNodes() {
-  const n = (id, parent, extra) => Object.assign({ id, parent, text: `${id} の文` }, extra || {});
-  return [
-    n("Q1", null),
-    n("O2", "Q1", { answer_kind: "answer" }),
-    n("Q3", "O2"),
-    n("O4", "Q3", { answer_kind: "issue" }),
-    n("Q5", "Q3"),
-    n("O6", "Q5", { answer_kind: "answer" }),
-    n("O7", "Q1", { answer_kind: "answer" }),
+// --- bottom_Q（子を持たない Q。node の bottom_q を見る） ---
+function test_bottom_qs() {
+  const nodes = [
+    { id: "Q1", parent: null, bottom_q: false },
+    { id: "Q2", parent: "O1", bottom_q: true },
+    { id: "O1", parent: "Q1", bottom_q: true },
+    { id: "Q3", parent: "Q2", bottom_q: false },
   ];
-}
-
-function test_sprout_chain() {
-  const nodes = sproutNodes();
-  // seNearestO: O から上へ Q をたどって最初に会う O
-  assert.strictEqual(seNearestO(nodes, "O4"), "O2");
-  assert.strictEqual(seNearestO(nodes, "O6"), "O2");
-  assert.strictEqual(seNearestO(nodes, "O2"), null);
-  assert.strictEqual(seNearestO(nodes, "O7"), null);
-  assert.strictEqual(seNearestO(nodes, "Q1"), null);
-  // seSproutStartOs: Q の直の子の O
-  assert.deepStrictEqual(seSproutStartOs(nodes, "Q1").map((o) => o.id), ["O2", "O7"]);
-  assert.deepStrictEqual(seSproutStartOs(nodes, "Q3").map((o) => o.id), ["O4"]);
-  assert.deepStrictEqual(seSproutStartOs(nodes, "Q9"), []);
-  // seSproutNext: 直前の O の下の O
-  assert.deepStrictEqual(seSproutNext(nodes, "O2").map((o) => o.id), ["O4", "O6"]);
-  assert.deepStrictEqual(seSproutNext(nodes, "O4"), []);
-  assert.deepStrictEqual(seSproutNext(nodes, "O7"), []);
-}
-
-function test_chain_plan() {
-  const nodes = sproutNodes();
-  // 開始の Q を選んでいないときは 1 段だけ
-  assert.strictEqual(seChainPlan(nodes, ["", ""]).rows.length, 1);
-  // Q1 → 2 段目（O2・O7）
-  const r1 = seChainPlan(nodes, ["Q1", ""]);
-  assert.strictEqual(r1.rows.length, 2);
-  assert.deepStrictEqual(r1.rows[1].options.map((x) => x[0]), ["O2", "O7"]);
-  // Q1 → O2 → 3 段目（O4・O6）
-  const r2 = seChainPlan(nodes, ["Q1", "O2", ""]);
-  assert.strictEqual(r2.rows.length, 3);
-  assert.deepStrictEqual(r2.rows[2].options.map((x) => x[0]), ["O4", "O6"]);
-  // Q1 → O2 → O4 → 候補が無いので 3 段で止まる
-  const r3 = seChainPlan(nodes, ["Q1", "O2", "O4"]);
-  assert.strictEqual(r3.rows.length, 3);
-  // seChainPath: 空で止める
-  assert.deepStrictEqual(seChainPath(nodes, ["Q1", "O2", "O4"]), ["O2", "O4"]);
-  assert.deepStrictEqual(seChainPath(nodes, ["Q1", "O2", ""]), ["O2"]);
-  assert.deepStrictEqual(seChainPath(nodes, ["Q1", ""]), []);
+  assert.deepStrictEqual(seBottomQs(nodes).map((n) => n.id), ["Q2"]);
+  assert.deepStrictEqual(seBottomQs([]), []);
 }
 
 function test_response_shapes() {
@@ -285,8 +272,7 @@ function main() {
   test_unknown();
   test_tables();
   test_card();
-  test_sprout_chain();
-  test_chain_plan();
+  test_bottom_qs();
   test_proposal_text();
   test_response_shapes();
   console.log("test_sciedit: すべて通りました");

@@ -49,8 +49,8 @@ SCI_WRITE_TIMEOUT = 30.0
 SCI_INIT_TIMEOUT = 60.0
 
 # --- ID と値 ---
-# Node は Q・O・F・E、提案は P（数だけ「12」は受け付けない）
-_NODE_RE = re.compile(r"^[QOFE][1-9][0-9]{0,8}$")
+# Node は Q・O・F・E・S、提案は P（数だけ「12」は受け付けない）
+_NODE_RE = re.compile(r"^[QOFES][1-9][0-9]{0,8}$")
 _PROPOSAL_RE = re.compile(r"^P[1-9][0-9]{0,8}$")
 # 研究の型
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
@@ -94,7 +94,7 @@ SET_REASON_MAX = 200
 #   enum:<名前>  必須の値   oenum:<名前>  任意の値
 #   他は _check_one を見る
 _OP_FIELDS: dict[str, dict[str, str]] = {
-    "add_q": {"parent": "ref:QO", "text": "text:300", "guide": "oguide"},
+    "add_q": {"parent": "qparent", "text": "text:300", "guide": "oguide"},
     "add_o": {"q": "ref:Q", "text": "text:120", "body": "body", "kind": "oenum:answer"},
     "add_f": {
         "parent": "ref:OE",
@@ -104,20 +104,20 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
         "report": "oreport",
         "run": "orun",
     },
-    "add_e": {"parent": "ref:OE", "text": "text:120", "body": "body", "mlflow": "otext:200"},
+    "add_e": {"parent": "ref:SE", "text": "text:120", "body": "body", "mlflow": "otext:200"},
     "record_logic": {
         "q": "ref:Q",
         "value": "enum:logic",
         "note": "otext:1000",
         "findings": "ofindings",
     },
-    "add_seed": {"title": "text:120", "sentence": "text:600", "path": "seedpath"},
+    "add_sprout": {"title": "text:120", "body": "body", "paths": "sproutpaths"},
     "copy": {"node": "ref:O", "to": "ref:Q"},
-    "remove": {"node": "ref:QOFE"},
+    "remove": {"node": "ref:QOFES"},
     "star": {"o": "ref:O"},
     "unstar": {"o": "ref:O"},
     "set_kind": {"o": "ref:O", "kind": "enum:answer"},
-    "edit": {"node": "ref:QOFE", "text": "otext:1200", "body": "body"},
+    "edit": {"node": "ref:QOFES", "text": "otext:1200", "body": "body"},
     "set_target": {"q": "ref:Q", "target": "target"},
 }
 _ENUMS = {"answer": ANSWER_KINDS, "logic": LOGIC_VALUES}
@@ -136,7 +136,7 @@ def _trim(value) -> str:
 
 
 def check_node(value) -> str:
-    """Node の ID（`Q12`・`O5`・`F31`・`E2`）を検査して返す。違反は 400。数だけは受けない。"""
+    """Node の ID（`Q12`・`O5`・`F31`・`E2`・`S1`）を検査して返す。違反は 400。数だけは受けない。"""
     if not isinstance(value, str) or not _NODE_RE.match(value.strip()):
         raise _bad("ID の形が正しくありません")
     return value.strip()
@@ -155,6 +155,16 @@ def _check_ref(value, kinds: str) -> str:
     if node[0] not in kinds:
         raise _bad("ID の形が正しくありません")
     return node
+
+
+def _check_card_node(value) -> str:
+    """カードの `node`。`SEED`（ID を持たない特別な節点）か、Node の ID（Q・O・F・E・S）。
+
+    `check_node` は `SEED` を受けないので、カードだけ別にする。
+    """
+    if isinstance(value, str) and value.strip() == "SEED":
+        return "SEED"
+    return check_node(value)
 
 
 def check_run_id(value) -> int:
@@ -275,8 +285,17 @@ def _check_one(key: str, kind: str, value):
         return text
     if name == "ofindings":
         return _check_id_list(value, "F", FINDINGS_MAX, key)
-    if name == "seedpath":
-        return _check_id_list(value, "O", PATH_MAX, key, minimum=1)
+    if name == "qparent":
+        # add_q の親は SEED（ID を持たない特別な節点）か Q・O の ID
+        text = _trim(value)
+        if text == "SEED":
+            return text
+        return _check_ref(text, "QO")
+    if name == "sproutpaths":
+        out = _check_id_list(value, "O", PATH_MAX, key, minimum=1)
+        if len(set(out)) != len(out):
+            raise _bad("paths に同じ O が 2 回入っています")
+        return out
     if name == "target":
         return _check_target(value)
     raise _bad("指定が正しくありません")
@@ -287,7 +306,7 @@ def validate_op(payload) -> dict:
 
     - `op` は C-OP の 13 種類（Web からもすべて送れる）。
     - op ごとに表の項目だけを残す。知らない項目と `path` のようなファイルのパスは落ちるので、
-      CLI には渡らない（`add_seed` の `path` だけは O の ID の配列で、検査して渡す）。
+      CLI には渡らない（`add_sprout` の `paths` だけは O の ID の配列で、検査して渡す）。
     - 文字列は前後の空白を落とす。必須の項目が無ければ 400「<項目> がありません」。
     """
     if not isinstance(payload, dict):
@@ -303,7 +322,7 @@ def validate_op(payload) -> dict:
     out: dict = {"op": name}
     for key, kind in fields.items():
         raw = payload.get(key)
-        # `ref:`・`enum:`・`text:`・`seedpath`・`target` は必須、ほかは任意
+        # `ref:`・`enum:`・`text:`・`qparent`・`sproutpaths`・`target` は必須、ほかは任意
         optional = kind.split(":")[0] in (
             "oenum", "otext", "body", "oguide", "ocites", "opaper", "orun", "oreport", "ofindings"
         )
@@ -328,10 +347,10 @@ def validate_op(payload) -> dict:
 def validate_card(payload) -> dict:
     """読む札の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `node`（Q・O・F・E）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
+    - `node`（Q・O・F・E・S と `SEED`）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
     - `expect` 300 字、`depth`・`mode`・`runner` は表の値、`origin_run` は run_id
     - `papers` は 20 個まで・各 1〜999999999
-    - `runner` が `user` なら `papers` はちょうど 1 つ
+    - `runner` が `user` なら `papers` はちょうど 1 つで、`node` は Q か O（`SEED` は選べない）
     - `question`・`role`・`executer` は受けない。ファイルのパスも受けない（知らない項目は落とす）
     """
     if not isinstance(payload, dict):
@@ -345,7 +364,7 @@ def validate_card(payload) -> dict:
         raise _bad("purpose は 1 行にしてください")
 
     out: dict = {
-        "node": check_node(payload.get("node")),
+        "node": _check_card_node(payload.get("node")),
         "block": block,
         "purpose": purpose,
         "runner": _enum(payload.get("runner", "pi"), RUNNERS, "runner"),
@@ -367,8 +386,11 @@ def validate_card(payload) -> dict:
         papers_list = [check_run_id(item) for item in papers_value]
     out["papers"] = papers_list
 
-    if out["runner"] == "user" and len(papers_list) != 1:
-        raise _bad("READ_CARD は論文を 1 つだけ指定してください")
+    if out["runner"] == "user":
+        if len(papers_list) != 1:
+            raise _bad("READ_CARD は論文を 1 つだけ指定してください")
+        if out["node"] == "SEED" or out["node"][0] not in ("Q", "O"):
+            raise _bad("読む札の対象は Q か O にしてください")
     return out
 
 
