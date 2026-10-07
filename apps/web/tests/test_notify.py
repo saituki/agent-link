@@ -1,9 +1,11 @@
-"""プッシュ通知の送り方の小さなテスト。
+"""プッシュ通知の送り方の小さなテスト（U03）。
 
 確かめること:
 - 鍵は Vapid として渡し，送り主の連絡先（sub）は @localhost ではない
 - 無効な登録（404 / 410）だけ消し，一時的な失敗（403・500 など）では消さない
-- 通知の見出しはプロジェクト名（無ければ sai-web・計画書 A の U05）
+- 通知の見出しはプロジェクト名（無ければ sai・計画書 A の U05）
+- headless の `state.json`（共有契約 C1）が 3 分以上 working のあと idle になると，
+  通知が 1 回だけ出る（AC5）
 
 実行:
     PYTHONPATH=src .venv/bin/python tests/test_notify.py
@@ -18,7 +20,7 @@ from pathlib import Path
 import pywebpush
 from py_vapid import Vapid
 
-from sai_web import approvals, notify, runs, store, watch
+from sai_web import notify, runs, store, watch
 
 
 class FakeResponse:
@@ -67,56 +69,97 @@ def main() -> None:
         finally:
             pywebpush.webpush, store.list_subscriptions, store.delete_subscription = original
     test_heading_is_project_name()
+    test_long_work_notifies_once()
     print("test_notify: すべて通りました")
 
 
 def test_heading_is_project_name() -> None:
     """通知の見出しはプロジェクト名（無ければ sai・計画書 A の U05・U17）。"""
-    assert watch.notify_heading({"project_name": "sai-web"}) == "sai-web"
-    assert watch.notify_heading({"project_name": "sai-base"}) == "sai-base"
+    assert notify.notify_heading({"project_name": "sai-web"}) == "sai-web"
+    assert notify.notify_heading({"project_name": "sai-base"}) == "sai-base"
     # project_name が無いときは sai（U17 でアプリの名前を sai にした）
-    assert watch.notify_heading({}) == "sai"
-    assert watch.notify_heading({"project_name": ""}) == "sai"
+    assert notify.notify_heading({}) == "sai"
+    assert notify.notify_heading({"project_name": ""}) == "sai"
 
     sent: list[tuple] = []
     original = notify.broadcast
     notify.broadcast = lambda title, body, url: sent.append((title, body, url)) or 0
+    pane_id = "hl-0123456789ab"
+    run = {
+        "project_name": "sai-base",
+        "run_id": 7,
+        "description": "U01",
+        "herdr_pane_id": pane_id,
+    }
     try:
-        # 質問（working → blocked）
-        watch._working_since.pop("p1", None)
-        watch.notify_status_change(
-            {"project_name": "sai-base", "run_id": 7, "description": "U01"},
-            {"pane_id": "p1", "agent_status": "blocked"},
-            "working",
-            0.0,
-        )
-        assert sent == [("sai-base", "U01 #7 が質問しています", "/#/run/sai-base/7")], sent
-
         # 長い作業が終わった（working が続いた後の idle）
-        watch._working_since["p1"] = 0.0
-        watch.notify_status_change(
-            {"project_name": "sai-base", "run_id": 7, "description": "U01"},
-            {"pane_id": "p1", "agent_status": "idle"},
-            "working",
-            watch._LONG_WORK_SEC,
-        )
+        watch._working_since[pane_id] = 0.0
+        watch.notify_status_change(run, "idle", "working", watch._LONG_WORK_SEC)
         assert sent[-1] == ("sai-base", "U01 #7 の作業が終わりました", "/#/run/sai-base/7")
-        watch._working_since.pop("p1", None)
-
-        # 承認（approvals も同じ見出しを使う）
-        original_load = runs.load_runs
-        original_ids = runs.run_session_ids
-        runs.load_runs = lambda: [
-            {"project_name": "sai-base", "run_id": 7, "agent_session_id": "s1"}
-        ]
-        runs.run_session_ids = lambda run: {"s1"}
-        try:
-            approvals._notify_if_run("s1", "Bash")
-        finally:
-            runs.load_runs, runs.run_session_ids = original_load, original_ids
-        assert sent[-1] == ("sai-base", "承認を求めています: Bash", "/#/run/sai-base/7"), sent
+        # 3 分未満では通知しない
+        watch._working_since[pane_id] = 0.0
+        watch.notify_status_change(run, "idle", "working", 10.0)
+        assert len(sent) == 1, sent
+        watch._working_since.pop(pane_id, None)
     finally:
         notify.broadcast = original
+
+
+def test_long_work_notifies_once() -> None:
+    """偽の `state.json` が 3 分以上 working のあと idle になると通知が 1 回出る（AC5）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pane_id = "hl-0123456789ab"
+        headless = root / ".sai" / "sai-engine" / "headless" / pane_id
+        headless.mkdir(parents=True)
+        state_path = headless / "state.json"
+        run = {
+            "project_name": "sai-base",
+            "run_id": 7,
+            "description": "U01",
+            "herdr_pane_id": pane_id,
+            "project_root": str(root),
+        }
+
+        def write_state(state: str) -> None:
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "pane_id": pane_id,
+                        "runner": "cc",
+                        "state": state,
+                        "turn": 1,
+                        "partial": "",
+                        "error": "",
+                        "updated_at": "2026-10-07T00:00:00+09:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        sent: list[tuple] = []
+        original_load = runs.load_runs
+        original_broadcast = notify.broadcast
+        runs.load_runs = lambda: [run]  # type: ignore[assignment]
+        notify.broadcast = lambda title, body, url: sent.append((title, body, url)) or 0
+        watch._prev_state.clear()
+        watch._working_since.clear()
+        try:
+            write_state("working")
+            watch.watch_once(now=0.0)
+            assert sent == [], sent
+            # 3 分後に idle になる → 通知が 1 回だけ
+            write_state("idle")
+            watch.watch_once(now=watch._LONG_WORK_SEC)
+            assert sent == [("sai-base", "U01 #7 の作業が終わりました", "/#/run/sai-base/7")], sent
+            # もう一度 idle のまま見回っても増えない
+            watch.watch_once(now=watch._LONG_WORK_SEC + watch._POLL_SEC)
+            assert len(sent) == 1, sent
+        finally:
+            runs.load_runs = original_load  # type: ignore[assignment]
+            notify.broadcast = original_broadcast
+            watch._prev_state.clear()
+            watch._working_since.clear()
 
 
 main()

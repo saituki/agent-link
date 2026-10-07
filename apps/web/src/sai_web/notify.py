@@ -14,6 +14,7 @@ import base64
 import json
 import logging
 from pathlib import Path
+from urllib.parse import quote
 
 from sai_web.config import DATA_DIR
 
@@ -103,6 +104,26 @@ def send_to(subscription: dict, title: str, body: str, url: str) -> str:
     except Exception as e:  # 鍵が壊れている等．失敗しても監視は止めない
         logger.warning(f"通知の送信に失敗: {e}")
         return "error"
+
+
+def notify_heading(run: dict) -> str:
+    """通知の見出し（＝プロジェクト名）．無いときだけ sai（計画書 A の U05・U17）．
+
+    watch.py と questions.py の両方から使うのでここに置く．
+    """
+    return str(run.get("project_name") or "").strip() or "sai"
+
+
+def run_title(run: dict) -> str:
+    """通知に出す見出し（説明があればそれ，なければブロック名）．"""
+    text = run.get("description") or run.get("block_name") or "実行"
+    return f"{text} #{run.get('run_id', '')}"
+
+
+def run_url(run: dict) -> str:
+    """通知タップで開く実行画面の住所（02 §3.1）．"""
+    project = quote(str(run.get("project_name") or ""), safe="")
+    return f"/#/run/{project}/{run.get('run_id', '')}"
 
 
 def broadcast(title: str, body: str, url: str) -> int:

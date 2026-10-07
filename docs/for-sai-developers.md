@@ -127,7 +127,22 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | `model` | 文字列 \| null | 統計画面 | ― |
 | `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
 | `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない |
-| `herdr_pane_id` / `herdr_pane_label` | 文字列 \| null | 実行中の pane への文字送り | 「この実行は終了しています」と出る |
+| `herdr_pane_id` | 文字列 \| null | headless の擬似 pane の id（`hl-` で始まる・C1） | 一覧の `live` と `headless` が付かない |
+
+`herdr_pane_label` は Web では読まない（headless では pane を名前で探さないため・U03）。
+
+#### headless の `state.json`（Web が読む・共有契約 C1）
+
+headless の実行の状態は engine が `<project_root>/.sai/sai-engine/headless/<id>/state.json` に書く。
+Web が読んでよいのはこのファイルだけ（`runs.py` の `headless_state`）。`<id>` は `hl-` + 12 桁の 16 進で，実行の書き出しの `herdr_pane_id` に入る。
+
+| 項目 | 型 | 何に使う | 無い・型が違うとき |
+|---|---|---|---|
+| `state` | 文字列（`working` / `idle` / `stopped`） | 会話の `live` ランプ・通知 | `working` / `idle` / `stopped` 以外は読まない |
+| `partial` | 文字列 | 生成中の文の逐次表示（末尾 20000 文字まで） | 空文字 |
+| `error` | 文字列 | 直前のターンの失敗の理由 | 空文字 |
+| `turn` | 数値 | （Web では未使用） | ― |
+| `pane_id` / `runner` / `updated_at` | 文字列 | （Web では未使用） | ― |
 
 #### `project summary` → オブジェクト
 

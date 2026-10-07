@@ -1,6 +1,6 @@
 """sai-web: Web の窓口（`apps/web`）の CLI。
 
-Web にしか無い機能（質問・承認・送信・使用量・MLflow）と、Web のすべての
+Web にしか無い機能（質問・送信・使用量・MLflow）と、Web のすべての
 HTTP API を、コマンド 1 本から使えるようにする。中身の処理は `apps/web` と
 Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/tools/phone_api.py`
 と同じ動き。ただし失敗の扱いは「sai-web の約束」に合わせる）。
@@ -11,8 +11,6 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/
     apps/web/bin/sai-web questions [--run <run_id>] [--project <名前>]
     apps/web/bin/sai-web question <qid>
     apps/web/bin/sai-web answer <qid> (--choice <番号> | --choices <番号,番号> | --text <文>) …
-    apps/web/bin/sai-web approvals [--run <run_id>]
-    apps/web/bin/sai-web approve <aid> <allow|always|deny> [--reason <文>]
     apps/web/bin/sai-web send <project> <run_id> <文>
     apps/web/bin/sai-web usage
     apps/web/bin/sai-web mlflow experiments
@@ -48,8 +46,6 @@ from sai_web import registry
 
 # 1 回の呼び出しで待つ時間の上限（秒）
 TIMEOUT_SEC = 30
-# 承認の答え（サーバが受け取る値）
-DECISIONS = ("allow", "always", "deny")
 # `api` で受ける HTTP の方法（大文字小文字は問わない）
 METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")
 
@@ -224,12 +220,12 @@ def request_json(method: str, path: str, payload: object | None = None) -> objec
 
 
 # ---------------------------------------------------------------------------
-# 質問・承認
+# 質問
 # ---------------------------------------------------------------------------
 
 
 def home() -> dict:
-    """ホームの集計（答えを待っている質問と、承認待ちの一覧）。"""
+    """ホームの集計（答えを待っている質問と、プロジェクトの一覧）。"""
     data = request_json("GET", "/api/home")
     return data if isinstance(data, dict) else {}
 
@@ -360,23 +356,6 @@ def cmd_answer(args: argparse.Namespace) -> object:
         )
     return request_json(
         "POST", f"/api/questions/{urllib.parse.quote(args.qid)}/answer", {"answers": items}
-    )
-
-
-def cmd_approvals(args: argparse.Namespace) -> object:
-    """承認待ちの一覧。"""
-    data = home()
-    return pick_run(data.get("approvals"), args.run, None)
-
-
-def cmd_approve(args: argparse.Namespace) -> object:
-    """承認に答える。"""
-    if args.decision not in DECISIONS:
-        raise UsageError(f"決定は {' / '.join(DECISIONS)} のどれかです: {args.decision}")
-    return request_json(
-        "POST",
-        f"/api/approvals/{urllib.parse.quote(args.aid)}/answer",
-        {"decision": args.decision, "reason": args.reason or ""},
     )
 
 
@@ -565,18 +544,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json(p)
     p.set_defaults(func=cmd_answer)
-
-    p = sub.add_parser("approvals", help="承認待ちの一覧")
-    p.add_argument("--run", help="この run の承認だけ（run_id）")
-    _add_json(p)
-    p.set_defaults(func=cmd_approvals)
-
-    p = sub.add_parser("approve", help="承認に答える")
-    p.add_argument("aid")
-    p.add_argument("decision", help="allow / always / deny")
-    p.add_argument("--reason", help="理由（書かなくてもよい）")
-    _add_json(p)
-    p.set_defaults(func=cmd_approve)
 
     p = sub.add_parser("send", help="実行中の root の run に文を送る")
     p.add_argument("project")

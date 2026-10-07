@@ -205,31 +205,6 @@ QUESTIONS = [
     {"id": "q-2", "agent": "pi", "session_id": "unknown", "created_at": 90.0, "questions": []},
 ]
 
-APPROVALS = [
-    {
-        "id": "a-1",
-        "session_id": "sess-20",
-        "tool_name": "Bash",
-        "tool_input": {"command": "git push origin main"},
-        "created_at": 120.0,
-    },
-    # command が無ければ file_path、それも無ければ tool_input の JSON
-    {
-        "id": "a-2",
-        "session_id": "sess-20",
-        "tool_name": "edit_file",
-        "tool_input": {"file_path": "/tmp/a.py"},
-        "created_at": 110.0,
-    },
-    {
-        "id": "a-3",
-        "session_id": "nobody",
-        "tool_name": "read_file",
-        "tool_input": {"path": "/tmp/b"},
-        "created_at": 100.0,
-    },
-]
-
 
 class Fake:
     """`control` / `papers` / `runs` / `store` の呼び出し記録と、差し替える対象。"""
@@ -294,7 +269,6 @@ def setup(fake: Fake) -> None:
     home.runs.load_runs = load_runs
     home.runs.run_session_ids = run_session_ids
     home.store.list_open_questions = lambda: [dict(q) for q in QUESTIONS]
-    home.store.list_open_approvals = lambda: [dict(a) for a in APPROVALS]
     home.forget()
 
 
@@ -302,10 +276,10 @@ def setup(fake: Fake) -> None:
 
 
 def test_shape(fake: Fake) -> None:
-    """全体の形（質問・承認・プロジェクト・論文・errors の 5 つ）。"""
+    """全体の形（質問・プロジェクト・論文・errors の 4 つ）。"""
     setup(fake)
     out = home.build_home()
-    assert set(out) == {"questions", "approvals", "projects", "papers", "errors"}, set(out)
+    assert set(out) == {"questions", "projects", "papers", "errors"}, set(out)
     assert out["errors"] == [], out["errors"]
 
 
@@ -329,38 +303,14 @@ def test_questions(fake: Fake) -> None:
     assert second["run_id"] is None, second
 
 
-def test_approvals(fake: Fake) -> None:
-    """承認の要約（command → file_path → tool_input の JSON）と対応づけ。"""
-    setup(fake)
-    out = home.build_home()
-    aps = out["approvals"]
-    assert len(aps) == 3, aps
-    assert aps[0]["id"] == "a-1", aps[0]
-    assert aps[0]["tool_name"] == "Bash", aps[0]
-    assert aps[0]["summary"] == "git push origin main", aps[0]
-    assert aps[0]["project"] == "sai-link", aps[0]
-    assert aps[0]["run_id"] == 20, aps[0]
-    assert aps[1]["summary"] == "/tmp/a.py", aps[1]
-    assert json.loads(aps[2]["summary"]) == {"path": "/tmp/b"}, aps[2]
-    assert aps[2]["project"] is None and aps[2]["run_id"] is None, aps[2]
-
-
 def test_title_truncated(fake: Fake) -> None:
-    """題と要約は 200 文字で切る。"""
+    """題は 200 文字で切る。"""
     setup(fake)
     long_q = {"id": "q-x", "agent": "cc", "session_id": "sess-55", "questions": [{"question": "あ" * 500}]}
-    long_a = {
-        "id": "a-x",
-        "session_id": "sess-55",
-        "tool_name": "Bash",
-        "tool_input": {"command": "い" * 500},
-    }
     home.store.list_open_questions = lambda: [long_q]
-    home.store.list_open_approvals = lambda: [long_a]
     home.forget()
     out = home.build_home()
     assert len(out["questions"][0]["title"]) == 200, len(out["questions"][0]["title"])
-    assert len(out["approvals"][0]["summary"]) == 200, len(out["approvals"][0]["summary"])
 
 
 def test_projects(fake: Fake) -> None:
@@ -618,7 +568,6 @@ def main() -> None:
     fake = Fake()
     test_shape(fake)
     test_questions(fake)
-    test_approvals(fake)
     test_title_truncated(fake)
     test_projects(fake)
     test_folder_runs_passes_card()

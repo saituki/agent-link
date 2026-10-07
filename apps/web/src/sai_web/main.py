@@ -27,10 +27,8 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from sai_web import (
-    approvals,
     commands,
     control,
-    herdr,
     home,
     mlflow_proxy,
     notify,
@@ -118,7 +116,7 @@ def _startup() -> None:
     # 合言葉をファイルで渡す（`phone_api.py` が読む）
     write_token_file()
     # 確かめ用のサーバは見張りを止められる（SAI_WEB_NO_WATCH=1）。
-    # 見張りは herdr を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
+    # 見張りは headless の `state.json` を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
     if os.getenv("SAI_WEB_NO_WATCH") == "1":
         logger.warning("見張りを止めて起動しました（SAI_WEB_NO_WATCH=1）")
         return
@@ -203,7 +201,7 @@ def api_days(q: str | None = None, _: None = Depends(require_token)) -> dict:
 def api_day(date: str, _: None = Depends(require_token)) -> dict:
     """その日の実行一覧（プロジェクトごと，サブタスクは親の直下）．"""
     run_list, qids = _runs_view()
-    return runs.build_day(run_list, date, qids, herdr.list_agents(), herdr.list_panes())
+    return runs.build_day(run_list, date, qids)
 
 
 @app.get("/api/runs/{project_name}/{run_id}")
@@ -211,7 +209,7 @@ def api_run(project_name: str, run_id: int, _: None = Depends(require_token)) ->
     """1実行分（stats も含む．04 の統計画面が使う）．"""
     run = _find_run(project_name, run_id)
     _, qids = _runs_view()
-    return runs.run_to_api(run, qids, herdr.list_agents(), herdr.list_panes())
+    return runs.run_to_api(run, qids)
 
 
 @app.get("/api/runs/{project_name}/{run_id}/items")
@@ -224,23 +222,34 @@ def api_run_items(
     """会話の項目（旧 GET /api/sessions/{id} と同じ {items, next_cursor} 形）．
 
     読むファイルは Run の transcript_path（00 §3.7）。
+    headless の実行では，生成中の文を `state.json`（共有契約 C1）から足す。
+    返す形は `{items, next_cursor, live, partial, error}`（共有契約 C6）。
     """
     run = _find_run(project_name, run_id)
     agent = {"cc": "claude", "pi": "pi"}.get(run.get("runner") or "")
-    transcript = run.get("transcript_path")
     if agent is None:
         # 未対応の runner
         raise HTTPException(status_code=404, detail="会話の記録が見つかりません")
-    if not transcript:
-        # 記録の場所がまだ書き出されていない（起動直後など）。
-        # 404 にすると画面が「オフライン」になり質問カードも読まなくなるので空で返す
-        return {"items": [], "next_cursor": ""}
-    path = Path(transcript)
-    if not path.exists():
-        # 置き場所は分かっているがまだ書かれていない（起動直後など）
-        return {"items": [], "next_cursor": ""}
+    _, qids = _runs_view()
+    live = runs.live_status(run, qids)
+    st = runs.headless_state(run)
+    partial = st["partial"] if st else ""
+    error = st["error"] if st else ""
+    transcript = run.get("transcript_path")
+    path = Path(transcript) if transcript else None
+    if path is None or not path.exists():
+        # 記録の場所がまだ書き出されていない・まだ書かれていない（起動直後など）。
+        # 404 にすると画面が「オフライン」になり質問カードも読まなくなるので空で返す。
+        # 生成中の文（partial）はこのときも返す（逐次表示をすぐ始められるように）。
+        return {"items": [], "next_cursor": "", "live": live, "partial": partial, "error": error}
     items, next_cursor = sessions.read_conversation(agent, path, after=after)
-    return {"items": items, "next_cursor": next_cursor}
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "live": live,
+        "partial": partial,
+        "error": error,
+    }
 
 
 class RegisterRequest(BaseModel):
@@ -366,81 +375,6 @@ def api_session_questions(
     return {"questions": store.list_questions_for_session(session_id)}
 
 
-# --- cc のコマンド承認（05 §3.3） ---
-
-
-class ApprovalRegisterRequest(BaseModel):
-    """PermissionRequest フックからの承認登録．
-
-    フックは stdin の JSON を丸ごと送ってくるが，保存するのはこの項目だけ
-    （cwd / transcript_path / permission_mode 等は落とす）．
-    """
-
-    session_id: str
-    tool_name: str
-    tool_input: dict = {}
-    permission_suggestions: list = []
-    pane_id: str = ""
-    tool_use_id: str | None = None
-
-
-@app.post("/api/approvals")
-def api_register_approval(req: ApprovalRegisterRequest, request: Request) -> dict:
-    # 内部登録は Mac 自身からのみ（00・05 §3.3）
-    require_local(request)
-    # 質問（AskUserQuestion）は別のカード（質問カード）で出すため承認にはしない
-    if req.tool_name == "AskUserQuestion":
-        return {"ok": True, "skipped": True}
-    if not req.session_id or not req.tool_name:
-        raise HTTPException(status_code=400, detail="session_id と tool_name が必要です")
-    pane_id = req.pane_id
-    if not pane_id:
-        # HERDR_PANE_ID が無いときの保険（セッション登録から拾う）
-        reg = store.get_registration(req.session_id)
-        pane_id = (reg or {}).get("pane_id") or ""
-    a = approvals.register(
-        session_id=req.session_id,
-        pane_id=pane_id,
-        tool_use_id=req.tool_use_id or "",
-        tool_name=req.tool_name,
-        tool_input=req.tool_input,
-        permission_suggestions=req.permission_suggestions,
-    )
-    if store.get_registration(req.session_id) is None:
-        # SessionStart フックの登録が無いときだけ作る（既存の登録は消さない）
-        store.save_registration("claude", req.session_id, "", "", pane_id)
-    return {"ok": True, "id": a["id"]}
-
-
-@app.get("/api/approvals")
-def api_session_approvals(
-    session_id: str, _: None = Depends(require_token)
-) -> dict:
-    reg = store.get_registration(session_id)
-    pane_id = (reg or {}).get("pane_id") or None
-    # PC で先に答えた分は「PC で回答済み」に（質問と同じ判定）
-    if pane_id:
-        approvals.refresh(session_id, pane_id)
-    return {"approvals": store.list_approvals_for_session(session_id)}
-
-
-class ApprovalAnswerRequest(BaseModel):
-    """承認への回答．decision は allow（許可） / always（今後も許可） / deny（拒否）．"""
-
-    decision: str
-    reason: str = ""
-
-
-@app.post("/api/approvals/{aid}/answer")
-def api_answer_approval(
-    aid: str, req: ApprovalAnswerRequest, _: None = Depends(require_token)
-) -> dict:
-    ok, reason = approvals.answer(aid, req.decision, req.reason)
-    if not ok:
-        raise HTTPException(status_code=400, detail=reason)
-    return {"ok": True}
-
-
 class AnswerItem(BaseModel):
     """1問分の回答．選択肢の番号か自由文のどちらか．
 
@@ -493,43 +427,29 @@ def api_send_text(
     req: SendRequest,
     _: None = Depends(require_token),
 ) -> dict:
-    """テキスト送信（旧 /api/sessions/{id}/send と同じ動き）．
+    """テキスト送信（`sai-link run send <run_id> --json`・共有契約 C2）．
 
-    送り先ペインは 00 §3.7 で探す（herdr_pane_id → ペイン名）。
+    本文は標準入力で渡す。失敗の読み替えは `cli.run_json` に任せる
+    （CLI の 4 → 409・3 → 404）。
     """
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="文章が空です")
-    run = _find_run(project_name, run_id)
-    pane = runs.pane_for_run(run, herdr.list_agents(), herdr.list_panes())
-    if pane is None or not pane.get("pane_id"):
-        raise HTTPException(status_code=400, detail="この実行は終了しています")
-    if pane.get("agent_status") == "blocked":
-        raise HTTPException(
-            status_code=400,
-            detail="質問への回答は選択肢ボタンから送ってください",
-        )
-    # 送り先：要る時に追えるように 1 行だけ残す（pane の取り違えの切入点・計画書 A の U06）
-    logger.info(
-        "send: project=%s run=%s pane_id=%s label=%s",
-        project_name,
-        run_id,
-        pane.get("pane_id"),
-        pane.get("label"),
-    )
-    # pane には herdr の agent 一覧の要素が入る（agent に "claude" / "pi"）．
-    # slash コマンドは claude のときだけ確定キーが変わる（herdr._submit_keys）．
-    ok, reason = herdr.prompt_agent(pane.get("pane_id"), text, pane.get("agent"))
-    if not ok:
-        if reason == "blocked":
-            raise HTTPException(
-                status_code=400,
-                detail="質問への回答は選択肢ボタンから送ってください",
-            )
-        if "繋がり" in reason:
-            raise HTTPException(status_code=503, detail=reason)
-        raise HTTPException(status_code=400, detail=reason or "送信できなかった")
-    return {"ok": True}
+    return control.run_send(project_name, run_id, text)
+
+
+@app.post("/api/runs/{project_name}/{run_id}/interrupt")
+def api_interrupt(
+    project_name: str,
+    run_id: int,
+    _: None = Depends(require_token),
+) -> dict:
+    """実行中の run を中断する（`sai-link run interrupt <run_id> --json`・C2）．
+
+    無い実行では CLI を呼ばずに 404 を返す。
+    """
+    _find_run(project_name, run_id)  # 無い run は 404（CLI を呼ばない）
+    return control.run_interrupt(project_name, run_id)
 
 
 @app.post("/api/runs/{project_name}/{run_id}/finalize")
