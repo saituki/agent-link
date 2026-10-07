@@ -5,7 +5,7 @@
 //!
 //! ## pi との違い
 //!
-//! - 起動バイナリは `cc`（ユーザーが Claude Code の shim を用意する前提）
+//! - 起動バイナリは `claude`（`SAI_CLAUDE_BIN` があればそれを優先する）
 //! - セッションは `--session-id <uuid>` で明示指定する（pi の `--session-dir` に相当）
 //! - provider は Claude Code に存在しないため無視する
 //! - `thinking` は Claude Code の `--effort <level>` として渡す
@@ -16,9 +16,10 @@
 //! 道具の制限・外部 MCP（serena など）・Skill の抑止・statusLine は、`sai-link init` が
 //! プロジェクト直下に作る `.claude/settings.json` と `.mcp.json` で制御する
 //! （[`cc_settings_json`] / [`mcp_config_json`]）。sai-link を通さずに起動した cc にも
-//! 同じ設定が効く。起動コマンドに残すのは `--session-id`（復元時は `--resume`）・
-//! `--model`・`--effort`・権限モードだけ。権限モード（bypassPermissions）は
-//! cc がプロジェクト設定からの指定を受け付けないため、コマンドで渡す。
+//! 同じ設定が効く。起動コマンドに残すのは `-p`（非対話）・`--output-format stream-json`・
+//! `--session-id`（復元時は `--resume`）・`--model`・`--effort`・権限モードだけ。
+//! 権限モードは root で `--dangerously-skip-permissions` を拒否されるため、
+//! `--permission-mode acceptEdits` と `--allowedTools`（[`CC_ALLOWED_TOOLS`]）で渡す。
 //!
 //! 構築されたコマンドは `orchestrator` が `SAI_*` 環境変数を前置し、
 //! `HerdrClient::run_in_pane()` で実行します。
@@ -168,6 +169,14 @@ impl CcCommandBuilder {
     pub fn build(&mut self) -> Result<CcCommand, std::io::Error> {
         let mut args: Vec<String> = Vec::new();
 
+        // 非対話（headless）で stream-json を出す。
+        // 標準入力から依頼文を読み、結果を JSON Lines で標準出力へ流す。
+        args.push("-p".to_string());
+        args.push("--output-format".to_string());
+        args.push("stream-json".to_string());
+        args.push("--verbose".to_string());
+        args.push("--include-partial-messages".to_string());
+
         // --session-id <uuid>（新規）/ --resume <uuid>（復元）
         let flag = if self.resume { "--resume" } else { "--session-id" };
         push_pair(&mut args, flag, &self.session_id);
@@ -183,15 +192,6 @@ impl CcCommandBuilder {
         if let Some(effort) = self.thinking.as_deref().and_then(normalize_effort)
         {
             push_pair(&mut args, "--effort", &effort);
-        }
-
-        // 権限モード: 無人実行のため既定で全許可（SAI_CC_SKIP_PERMISSIONS=0 で acceptEdits）。
-        // cc はプロジェクト設定からの bypassPermissions を無視するため、ここだけはコマンドで渡す。
-        if cc_skip_permissions() {
-            args.push("--dangerously-skip-permissions".to_string());
-        } else {
-            args.push("--permission-mode".to_string());
-            args.push("acceptEdits".to_string());
         }
 
         // sai-link 側の設定を明示的に渡す（cwd がプロジェクトルートの外のとき）。
@@ -214,7 +214,18 @@ impl CcCommandBuilder {
             push_pair(&mut args, "--append-system-prompt-file", path);
         }
 
-        let command = format!("cc {}", args.join(" "));
+        // 権限: root では `--dangerously-skip-permissions` を拒否されるため、
+        // `--permission-mode acceptEdits` と許可する道具の一覧で起動する。
+        // `--allowedTools` は可変長なので、後ろに別のフラグが来ないよう最後に置く。
+        args.push("--permission-mode".to_string());
+        args.push("acceptEdits".to_string());
+        args.push("--allowedTools".to_string());
+        for tool in CC_ALLOWED_TOOLS {
+            args.push(shell_escape_single_quotes(tool));
+        }
+
+        let bin = claude_bin();
+        let command = format!("{} {}", bin, args.join(" "));
         Ok(CcCommand { command, args })
     }
 }
@@ -225,15 +236,37 @@ fn push_pair(args: &mut Vec<String>, flag: &str, value: &str) {
     args.push(shell_escape_single_quotes(value));
 }
 
-/// Claude Code で全許可実行するか（既定 true）。
+/// Claude Code の実行ファイル（`SAI_CLAUDE_BIN` があればそれ、無ければ `claude`）。
 ///
-/// `SAI_CC_SKIP_PERMISSIONS=0` を設定すると `--permission-mode acceptEdits` に落ちる。
-pub fn cc_skip_permissions() -> bool {
-    std::env::var("SAI_CC_SKIP_PERMISSIONS")
+/// Linux の `cc` は C コンパイラなので、shim を置かずに環境変数で差し替える。
+pub fn claude_bin() -> String {
+    std::env::var("SAI_CLAUDE_BIN")
         .ok()
-        .map(|v| v.trim() != "0" && !v.trim().eq_ignore_ascii_case("false"))
-        .unwrap_or(true)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "claude".to_string())
 }
+
+/// Claude Code で無確認で使ってよい道具の一覧。
+///
+/// `mcp__*` は外部 MCP（`.mcp.json` のサーバ）の道具をまとめて許可する。
+pub const CC_ALLOWED_TOOLS: [&str; 15] = [
+    "Bash",
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "Read",
+    "Glob",
+    "Grep",
+    "LS",
+    "WebFetch",
+    "WebSearch",
+    "NotebookEdit",
+    "Task",
+    "TodoWrite",
+    "AskUserQuestion",
+    "mcp__*",
+];
 
 /// pi 形式のモデル名を Claude Code が解釈できる名前に正規化する。
 ///
@@ -621,33 +654,49 @@ mod tests {
         }
     }
 
-    /// 起動コマンドは --session-id / --model / --effort / 権限モードだけになること。
+    /// 起動コマンドは stream-json の非対話・--session-id / --model / --effort / 権限モードになること。
     #[test]
     fn build_is_minimal() {
-        std::env::remove_var("SAI_CC_SKIP_PERMISSIONS");
         let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
             .with_config(mock_config())
             .build()
             .unwrap();
-        assert_eq!(
-            cmd.command,
-            "cc --session-id '11111111-2222-4333-8444-555555555555' --model 'claude-sonnet-4-5' --effort 'high' --dangerously-skip-permissions"
+        assert!(
+            cmd.command.starts_with(
+                "claude -p --output-format stream-json --verbose --include-partial-messages"
+            ),
+            "非対話の stream-json で始まる: {}",
+            cmd.command
         );
+        for part in [
+            "--session-id '11111111-2222-4333-8444-555555555555'",
+            "--model 'claude-sonnet-4-5'",
+            "--effort 'high'",
+            "--permission-mode acceptEdits",
+        ] {
+            assert!(cmd.command.contains(part), "{} が入る: {}", part, cmd.command);
+        }
+        // 許可する道具の一覧（`mcp__*` も含む）が最後に並ぶ
+        assert!(cmd.command.contains("--allowedTools 'Bash'"));
+        assert!(cmd.command.contains("'mcp__*'"));
+        assert!(!cmd.command.contains("--dangerously-skip-permissions"));
     }
 
     /// 復元（`p`）は --session-id の代わりに --resume になり、他は起動時と同じこと。
     #[test]
     fn resume_uses_same_flags() {
-        std::env::remove_var("SAI_CC_SKIP_PERMISSIONS");
         let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
             .with_config(mock_config())
             .resume()
             .build()
             .unwrap();
-        assert_eq!(
-            cmd.command,
-            "cc --resume '11111111-2222-4333-8444-555555555555' --model 'claude-sonnet-4-5' --effort 'high' --dangerously-skip-permissions"
-        );
+        assert!(cmd
+            .command
+            .contains("--resume '11111111-2222-4333-8444-555555555555'"));
+        assert!(cmd.command.contains("--model 'claude-sonnet-4-5'"));
+        assert!(cmd.command.contains("--effort 'high'"));
+        assert!(cmd.command.contains("--permission-mode acceptEdits"));
+        assert!(!cmd.command.contains("--dangerously-skip-permissions"));
     }
 
     /// block.md の `thinking` が cc の `--effort` に変換されること。
@@ -844,7 +893,6 @@ mod tests {
     /// `--settings` で渡されること。
     #[test]
     fn build_passes_external_config_when_cwd_is_outside_project() {
-        std::env::remove_var("SAI_CC_SKIP_PERMISSIONS");
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
         std::fs::write(dir.path().join(".mcp.json"), mcp_config_json().to_string()).unwrap();
@@ -897,13 +945,13 @@ mod tests {
     }
 
     #[test]
-    fn permission_default_is_skip() {
-        // 環境変数に依存するため、既定（未設定）時の文字列のみ確認
-        std::env::remove_var("SAI_CC_SKIP_PERMISSIONS");
+    fn permission_default_is_accept_edits() {
         let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
             .build()
             .unwrap();
-        assert!(cmd.command.contains("--dangerously-skip-permissions"));
+        assert!(cmd.command.contains("--permission-mode acceptEdits"));
+        assert!(!cmd.command.contains("--dangerously-skip-permissions"));
+        assert!(cmd.command.contains("--allowedTools"));
     }
 
     /// hook が反応するのは `/sai-finalize` だけであること（完了処理は環境変数と

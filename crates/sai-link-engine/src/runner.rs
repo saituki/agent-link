@@ -55,11 +55,12 @@ impl RunnerKind {
 
     /// 起動する CLI のコマンド名。
     ///
-    /// `Cc` はユーザーが用意する `cc`（Claude Code の shim）を起動する。
+    /// `Cc` は `claude`（`SAI_CLAUDE_BIN` があればそれを使う。
+    /// Linux の `cc` は C コンパイラなので shim を置かない）。
     pub fn bin(self) -> &'static str {
         match self {
             RunnerKind::Pi => "pi",
-            RunnerKind::Cc => "cc",
+            RunnerKind::Cc => "claude",
             RunnerKind::Gl => "gl",
         }
     }

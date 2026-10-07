@@ -945,14 +945,7 @@ pub fn handle_cc_statusline_in(
     };
 
     // 一時ファイル → rename（読み手が書きかけを読まないため）
-    let tmp = dir.join(format!(".{}.json.tmp", session_id));
-    let dst = dir.join(format!("{}.json", session_id));
-    let body = serde_json::json!({
-        "session_id": session_id,
-        "total_cost_usd": total,
-        "updated_at": now_iso(),
-    });
-    if let Err(e) = write_json_atomic(&tmp, &dst, &body) {
+    if let Err(e) = write_cc_cost(dir, session_id, total) {
         eprintln!("[sai-engine] cc-cost の書込みに失敗: {}", e);
         return String::new();
     }
@@ -963,6 +956,22 @@ pub fn handle_cc_statusline_in(
         Ok(id) if !id.trim().is_empty() => format!("sai #{} {}", id.trim(), amount),
         _ => format!("sai {}", amount),
     }
+}
+
+/// cc の費用を `<dir>/<session_id>.json` に書く（一時ファイル → rename）。
+///
+/// 形は `{"session_id", "total_cost_usd", "updated_at"}`。
+/// headless では statusLine が呼ばれないため、engine が stream-json の `result` 行から
+/// この関数で書く（読む側は [`read_cc_cost`] のまま変えない）。
+pub fn write_cc_cost(dir: &Path, session_id: &str, total: f64) -> std::io::Result<()> {
+    let tmp = dir.join(format!(".{}.json.tmp", session_id));
+    let dst = dir.join(format!("{}.json", session_id));
+    let body = serde_json::json!({
+        "session_id": session_id,
+        "total_cost_usd": total,
+        "updated_at": now_iso(),
+    });
+    write_json_atomic(&tmp, &dst, &body)
 }
 
 // ============================================================================

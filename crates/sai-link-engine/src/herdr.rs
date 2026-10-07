@@ -34,9 +34,7 @@
 //! }
 //! ```
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::process::{Command, ExitStatus, Output};
 
 // ============================================================================
 // 型定義 (Step 1)
@@ -422,21 +420,9 @@ pub enum HerdrError {
 /// }
 /// ```
 pub struct HerdrClient {
-    /// herdr バイナリのパス（デフォルト: "herdr"）
+    /// 呼び出し互換のために残すパス（擬似 pane だけを受けるので実際には読まない）。
+    #[allow(dead_code)]
     binary_path: String,
-}
-
-/// herdr CLI 呼び出しの最大待機時間（ミリ秒）。
-///
-/// ペイン削除直後などに herdr CLI がハングするケースがあるため、
-/// デーモンの実行パイプラインを保護するために設ける（§4.2 ケース3）。
-/// 環境変数 `SAI_HERDR_TIMEOUT_MS` で上書きできる（2.10 の修正）。
-fn herdr_timeout_ms() -> u64 {
-    std::env::var("SAI_HERDR_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(30_000)
 }
 
 /// タブ（メインブロック）ごとの pane 上限のデフォルト（U2・R5）。
@@ -468,30 +454,38 @@ pub fn layout_for_wip(n: usize, wip: usize) -> (usize, usize) {
     (cols, rows)
 }
 
+/// herdr が使えないときに返すエラー（sai-tree は headless だけ）。
+fn disabled_error() -> HerdrError {
+    HerdrError::ApiError {
+        message: "herdr は使えません（sai-tree は headless だけです）".to_string(),
+    }
+}
+
+/// ラベル操作用の合成 `PaneInfo`（herdr を呼ばない）。
+fn synthetic_pane(pane_id: &str, label: Option<&str>) -> PaneInfo {
+    PaneInfo {
+        pane_id: pane_id.to_string(),
+        workspace_id: "headless".to_string(),
+        tab_id: "headless".to_string(),
+        focused: false,
+        cwd: None,
+        agent: None,
+        agent_status: "idle".to_string(),
+        label: label.map(|s| s.to_string()),
+        revision: 0,
+    }
+}
+
+// ponytail: 名前は herdr のままの擬似 pane の窓口
 impl HerdrClient {
     /// 新しい `HerdrClient` を作成します。
-    ///
-    /// デフォルトのバイナリパスは `"herdr"` で、`PATH` 環境変数から検索されます。
     pub fn new() -> Self {
         Self {
             binary_path: "herdr".to_string(),
         }
     }
 
-    /// 任意のバイナリパスを指定して `HerdrClient` を作成します。
-    ///
-    /// テストでモックスクリプトを使用する場合などに利用します。
-    ///
-    /// # 引数
-    ///
-    /// * `path` — herdr 互換バイナリのパス（例: `"tests/fixtures/mock_herdr.sh"`）
-    ///
-    /// # 例
-    ///
-    /// ```
-    /// use sai_link_engine::herdr::HerdrClient;
-    /// let client = HerdrClient::with_binary("/path/to/mock_herdr.sh");
-    /// ```
+    /// 任意のバイナリパスを指定して `HerdrClient` を作成します（互換のため残す）。
     pub fn with_binary(path: impl Into<String>) -> Self {
         Self {
             binary_path: path.into(),
@@ -500,640 +494,142 @@ impl HerdrClient {
 
     /// herdr CLI が利用可能かどうかを確認します。
     ///
-    /// `herdr --version` を実行し、プロセスが成功すれば `true` を返します。
-    /// herdr がインストールされていない場合や実行権限がない場合は `false` を返します。
-    ///
-    /// # 戻り値
-    ///
-    /// herdr が利用可能な場合は `true`、それ以外は `false`
+    /// sai-tree は headless だけなので常に `false`。
     pub fn is_herdr_available(&self) -> bool {
-        Command::new(&self.binary_path)
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        false
     }
 
     // ====================================================================
-    // 内部ヘルパー
+    // メイン API（擬似 pane だけを受ける）
     // ====================================================================
 
-    /// herdr コマンドを実行し、プロセスの出力を返す内部ヘルパー。
+    /// 新しい pane を作る（herdr の分割は使わない）。
     ///
-    /// I/O エラー（バイナリが見つからない等）が発生した場合は
-    /// `HerdrError::IoError` を返します。
-    /// コマンド自体の exit code のチェックは呼び出し元が行います。
-    ///
-    /// **タイムアウト付き**（`HERDR_COMMAND_TIMEOUT_MS`）:
-    /// ペイン削除直後などに herdr CLI がハングするケースがあるため、
-    /// 指定時間内に完了しない場合はプロセスを kill して `HerdrError::HerdrTimeout` を返す。
-    fn run_command(&self, args: &[&str]) -> Result<Output, HerdrError> {
-        let command_str = format!("{} {}", self.binary_path, args.join(" "));
-
-        let mut child = Command::new(&self.binary_path)
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(HerdrError::IoError)?;
-
-        let timeout_ms = herdr_timeout_ms();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
-
-        loop {
-            match child.try_wait()? {
-                Some(status) => {
-                    // プロセス終了後、パイプから出力を読み取る
-                    let mut stdout = Vec::new();
-                    let mut stderr = Vec::new();
-                    if let Some(mut so) = child.stdout.take() {
-                        let _ = std::io::Read::read_to_end(&mut so, &mut stdout);
-                    }
-                    if let Some(mut se) = child.stderr.take() {
-                        let _ = std::io::Read::read_to_end(&mut se, &mut stderr);
-                    }
-                    return Ok(Output {
-                        status,
-                        stdout,
-                        stderr,
-                    });
-                }
-                None => {
-                    // タイムアウトチェック
-                    if std::time::Instant::now() >= deadline {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(HerdrError::HerdrTimeout {
-                            timeout_ms,
-                            command: command_str,
-                        });
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-            }
-        }
-    }
-
-    /// herdr コマンドを実行し、成功時は標準出力の文字列を返す内部ヘルパー。
-    ///
-    /// コマンドが非ゼロの終了コードを返した場合:
-    /// - exit code 127 → `HerdrError::HerdrNotFound`
-    /// - その他 → `HerdrError::HerdrCliError`
-    fn run_and_get_stdout(&self, args: &[&str]) -> Result<String, HerdrError> {
-        let output = self.run_command(args)?;
-        if !output.status.success() {
-            return Err(make_cli_error(output.status, &output.stderr));
-        }
-        let stdout = String::from_utf8(output.stdout)?;
-        Ok(stdout.trim().to_string())
-    }
-
-    /// herdr コマンドを実行し、JSON レスポンスをデシリアライズする内部ヘルパー。
-    ///
-    /// 1. `run_and_get_stdout` でコマンドを実行
-    /// 2. 空出力の場合は `HerdrError::EmptyOutput`
-    /// 3. まず `HerdrErrorEnvelope` としてパースし、`error` フィールドがあれば `ApiError`
-    /// 4. 正常系として型 `T` にデシリアライズ
-    fn herdr_json<T: DeserializeOwned>(&self, args: &[&str]) -> Result<T, HerdrError> {
-        let command_str = format!("{} {}", self.binary_path, args.join(" "));
-        let raw = self.run_and_get_stdout(args)?;
-
-        if raw.is_empty() {
-            return Err(HerdrError::EmptyOutput {
-                command: command_str,
-            });
-        }
-
-        // エラーレスポンス（{"error": {"message": "..."}}）を確認
-        if let Ok(error_envelope) = serde_json::from_str::<HerdrErrorEnvelope>(&raw) {
-            if let Some(error_body) = error_envelope.error {
-                let message = error_body
-                    .message
-                    .unwrap_or_else(|| "不明なエラー".to_string());
-                return Err(HerdrError::ApiError { message });
-            }
-        }
-
-        // 正常系としてデシリアライズ
-        let result: T = serde_json::from_str(&raw)?;
-        Ok(result)
-    }
-
-    /// JSON パース不要のコマンド（run, send-text, send-keys）用の簡易実行ヘルパー。
-    ///
-    /// コマンドの成否のみを確認し、成功時は `Ok(())` を返します。
-    fn run_simple_command(&self, args: &[&str]) -> Result<(), HerdrError> {
-        let output = self.run_command(args)?;
-        if !output.status.success() {
-            return Err(make_cli_error(output.status, &output.stderr));
-        }
-        Ok(())
-    }
-
-    /// フォーカスされたペインを取得する内部ヘルパー。
-    ///
-    /// `list_panes()` の結果から `focused: true` のペインを検索します。
-    /// フォーカスされたペインが存在しない場合は `HerdrError::NoFocusedPane` を返します。
-    fn get_focused_pane(&self) -> Result<PaneInfo, HerdrError> {
-        let panes = self.list_panes()?;
-        panes
-            .into_iter()
-            .find(|p| p.focused)
-            .ok_or(HerdrError::NoFocusedPane)
-    }
-
-    // ====================================================================
-    // メイン API (Step 3)
-    // ====================================================================
-
-    /// 現在フォーカスされているペインを指定した方向に分割します。
-    ///
-    /// 新しいペインにはフォーカスを移動しません（`--no-focus` オプション）。
-    ///
-    /// # 引数
-    ///
-    /// * `direction` — 分割方向（`SplitDirection::Right` または `SplitDirection::Down`）
-    /// * `cwd` — 新しいペインの作業ディレクトリ（`None` の場合はカレントディレクトリを継承）
-    ///
-    /// # 戻り値
-    ///
-    /// 新しく作成されたペインの情報（`PaneInfo`）
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::NoFocusedPane` — フォーカスされたペインが見つからない場合
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
-    /// - `HerdrError::ApiError` — herdr API がエラーレスポンスを返した場合
+    /// 呼び出し側は `crate::headless::new_pane` を使う。ここは互換のため
+    /// エラーを返す（§3 で呼ばれなくなる）。
     pub fn split_pane(
         &self,
-        direction: SplitDirection,
-        cwd: Option<&str>,
+        _direction: SplitDirection,
+        _cwd: Option<&str>,
     ) -> Result<PaneInfo, HerdrError> {
-        let source = self.get_focused_pane()?.pane_id;
-
-        let direction_str = direction.to_string();
-        let mut args: Vec<&str> = vec![
-            "pane",
-            "split",
-            &source,
-            "--direction",
-            &direction_str,
-            "--no-focus",
-        ];
-
-        if let Some(dir) = cwd {
-            args.push("--cwd");
-            args.push(dir);
-        }
-
-        let envelope: PaneSplitEnvelope = self.herdr_json(&args)?;
-        Ok(envelope.result.pane)
+        Err(disabled_error())
     }
 
-    /// 指定されたペインでコマンドを実行します。
-    ///
-    /// コマンド文字列はそのまま herdr に渡されます。
-    /// `std::process::Command` はシェルを経由しないため、
-    /// シェルエスケープは不要です。
+    /// 擬似 pane に起動コマンドを入れる。
     pub fn run_in_pane(&self, pane_id: &str, command: &str) -> Result<(), HerdrError> {
-        self.run_simple_command(&["pane", "run", pane_id, command])
+        if crate::headless::is_headless_pane(pane_id) {
+            return crate::headless::run(pane_id, command);
+        }
+        Err(disabled_error())
     }
 
-    /// 指定されたペインにテキストを送信します。
-    ///
-    /// テキストはそのまま herdr に渡されます。
+    /// 擬似 pane にテキストを送る（`draft.txt` に上書き）。
     pub fn send_text(&self, pane_id: &str, text: &str) -> Result<(), HerdrError> {
-        self.run_simple_command(&["pane", "send-text", pane_id, text])
+        if crate::headless::is_headless_pane(pane_id) {
+            return crate::headless::send_text(pane_id, text);
+        }
+        Err(disabled_error())
     }
 
-    /// 指定されたペインにキーイベントを送信します。
-    ///
-    /// keys 引数はシェルエスケープされません。
-    /// `Enter`, `Ctrl+c`, `Alt+Enter` 等のキー名を直接渡します。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 対象ペインの ID
-    /// * `keys` — 送信するキー（例: `"Enter"`, `"Ctrl+c"`, `"Alt+Enter"`）
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
+    /// 擬似 pane にキーを送る（`esc` は中断、確定キーは `inbox/` へ）。
     pub fn send_keys(&self, pane_id: &str, keys: &str) -> Result<(), HerdrError> {
-        self.run_simple_command(&["pane", "send-keys", pane_id, keys])
+        if crate::headless::is_headless_pane(pane_id) {
+            return crate::headless::send_keys(pane_id, keys);
+        }
+        Err(disabled_error())
     }
 
-    /// 指定されたペインの最新情報を取得します。
-    ///
-    /// ペインの状態が変化したかどうかを確認するために使用します。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 対象ペインの ID
-    ///
-    /// # 戻り値
-    ///
-    /// ペインの最新状態を表す `PaneInfo`
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
-    /// - `HerdrError::ApiError` — 指定されたペインが存在しない場合等
+    /// 擬似 pane の状態を読む（`state.json`）。
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneInfo, HerdrError> {
-        let envelope: PaneGetEnvelope = self.herdr_json(&["pane", "get", pane_id])?;
-        Ok(envelope.result.pane)
+        if crate::headless::is_headless_pane(pane_id) {
+            return crate::headless::status(pane_id);
+        }
+        Err(disabled_error())
     }
 
-    /// 全ペインの一覧を取得します。
-    ///
-    /// # 戻り値
-    ///
-    /// 現在のワークスペース内の全ペインの `Vec<PaneInfo>`
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
+    /// 全ペインの一覧を取得する（herdr では使わない）。
     pub fn list_panes(&self) -> Result<Vec<PaneInfo>, HerdrError> {
-        let envelope: PaneListEnvelope = self.herdr_json(&["pane", "list"])?;
-        Ok(envelope.result.panes)
+        Err(disabled_error())
     }
 
-    /// 新しいタブを作成します（U2・R4）。
-    ///
-    /// `herdr tab create --no-focus` を実行します。
-    /// タブ作成と同時に最初の（ルート）ペインが生成されるため、
-    /// バッチ実行の pane 総数を事前カウントしてからタブ 1 枚を用意し、
-    /// そのタブ内で `split_pane_in_tab` により均等分割します。
-    ///
-    /// # 引数
-    ///
-    /// * `workspace_id` — タブを作成する workspace の ID（U11・R23）。
-    ///   `Some` の場合は `--workspace <id>` で明示指定します。メインブロックが作業していた
-    ///   プロジェクト（space）へタブを作成するために使用します。`None` の場合は
-    ///   herdr の現在 workspace を使用する従来動作にフォールバックします。
-    ///
-    /// # 戻り値
-    ///
-    /// タブ情報と、タブ作成と同時に生成される最初の（ルート）ペインの情報。
-    /// ルートペインは空のシェルで、sai サブタスクの dynamic pane 配置では
-    /// 列計算から除外するために保持する（U2・R4 案X）。
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
+    /// 新しいタブを作成する（herdr では使わない）。
     pub fn create_tab(
         &self,
-        workspace_id: Option<&str>,
-        cwd: Option<&str>,
+        _workspace_id: Option<&str>,
+        _cwd: Option<&str>,
     ) -> Result<(TabInfo, PaneInfo), HerdrError> {
-        let mut args: Vec<&str> = vec!["tab", "create", "--no-focus"];
-        // U11・R23: メインブロックの workspace を明示指定（別 space にタブが作られないようにする）
-        if let Some(ws) = workspace_id {
-            args.push("--workspace");
-            args.push(ws);
-        }
-        // タブ作成時に自動生成されるルートペインの作業ディレクトリを明示する。
-        // 指定が無いとプロジェクトと無関係な場所が cwd になり、
-        // そこで起動した子エージェントが別の AGENTS.md を読んでしまう。
-        if let Some(dir) = cwd {
-            args.push("--cwd");
-            args.push(dir);
-        }
-        let envelope: TabCreateEnvelope = self.herdr_json(&args)?;
-        let root_pane = envelope.result.root_pane;
-        Ok((envelope.result.tab, root_pane))
+        Err(disabled_error())
     }
 
-    /// ワークスペース（space）一覧を取得します。
+    /// ワークスペース一覧を取得する（herdr では使わない）。
     pub fn workspace_list(&self) -> Result<Vec<WorkspaceInfo>, HerdrError> {
-        let envelope: WorkspaceListEnvelope = self.herdr_json(&["workspace", "list"])?;
-        Ok(envelope.result.workspaces)
+        Err(disabled_error())
     }
 
-    /// 指定ワークスペース内のペイン一覧を取得します。
-    pub fn list_panes_in(&self, workspace_id: &str) -> Result<Vec<PaneInfo>, HerdrError> {
-        let envelope: PaneListEnvelope =
-            self.herdr_json(&["pane", "list", "--workspace", workspace_id])?;
-        Ok(envelope.result.panes)
+    /// 指定ワークスペース内のペイン一覧を取得する（herdr では使わない）。
+    pub fn list_panes_in(&self, _workspace_id: &str) -> Result<Vec<PaneInfo>, HerdrError> {
+        Err(disabled_error())
     }
 
-    /// プロジェクトフォルダで作業しているペインを持つワークスペースを探す。
-    ///
-    /// 親実行の pane が特定できなかった場合の最終フォールバック用。
-    /// プロジェクトルート配下（`.worktrees/<branch>` を含む）で開いているペインを
-    /// 持つ space を候補とし、
-    ///
-    /// 1. 候補が 1 つだけ → それを返す
-    /// 2. 複数 → ラベルがプロジェクトフォルダ名に一致するものを返す
-    /// 3. それ以外 → `None`（呼び出し元は従来どおり「現在の space」へフォールバック）
-    pub fn find_workspace_for_project(&self, project_root: &std::path::Path) -> Option<String> {
-        let root = project_root.to_string_lossy().to_string();
-        let project_name = project_root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let workspaces = self.workspace_list().ok()?;
-        let mut matched: Vec<WorkspaceInfo> = Vec::new();
-        for ws in workspaces {
-            let panes = match self.list_panes_in(&ws.workspace_id) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            let hit = panes.iter().any(|p| match p.cwd.as_deref() {
-                Some(cwd) => cwd == root || cwd.starts_with(&format!("{}/", root)),
-                None => false,
-            });
-            if hit {
-                matched.push(ws);
-            }
-        }
-        match matched.len() {
-            1 => Some(matched.remove(0).workspace_id),
-            n if n > 1 => matched
-                .into_iter()
-                .find(|w| !project_name.is_empty() && w.label == project_name)
-                .map(|w| w.workspace_id),
-            _ => None,
-        }
+    /// プロジェクトで作業しているワークスペースを探す（herdr では使わない）。
+    pub fn find_workspace_for_project(&self, _project_root: &std::path::Path) -> Option<String> {
+        None
     }
 
-    /// 指定タブ内でペインを分割します（U2・R4）。
-    ///
-    /// `split_pane()` の `get_focused_pane()` 依存（逐次縮小の原因）を排除し、
-    /// タブに属する既存ペインを分割基準として `--no-focus` で新規ペインを作成します。
-    /// 分割先ペインの `tab_id` は元ペインと同じタブに属します。
-    ///
-    /// # 引数
-    ///
-    /// * `tab_id` — 分割対象が属するタブの ID
-    /// * `direction` — 分割方向（`SplitDirection::Right` または `SplitDirection::Down`）
-    /// * `cwd` — 新しいペインの作業ディレクトリ（`None` の場合はカレントディレクトリを継承）
-    ///
-    /// # 戻り値
-    ///
-    /// 新しく作成されたペインの情報（`PaneInfo`）
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::ApiError` — 指定タブ内にペインが見つからない場合
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
+    /// 指定タブ内でペインを分割する（herdr では使わない）。
     pub fn split_pane_in_tab(
         &self,
-        tab_id: &str,
-        direction: SplitDirection,
-        cwd: Option<&str>,
+        _tab_id: &str,
+        _direction: SplitDirection,
+        _cwd: Option<&str>,
     ) -> Result<PaneInfo, HerdrError> {
-        // タブ内で分割基準となるペインを選択する。
-        // タブに属する最初のペインを基準とし、フォーカス依存を排除する。
-        let panes = self.list_panes()?;
-        let source = panes
-            .into_iter()
-            .find(|p| p.tab_id == tab_id)
-            .map(|p| p.pane_id)
-            .ok_or_else(|| HerdrError::ApiError {
-                message: format!("タブ {} 内に分割基準となるペインが見つかりません", tab_id),
-            })?;
-
-        let direction_str = direction.to_string();
-        let mut args: Vec<&str> = vec![
-            "pane",
-            "split",
-            &source,
-            "--direction",
-            &direction_str,
-            "--no-focus",
-        ];
-
-        if let Some(dir) = cwd {
-            args.push("--cwd");
-            args.push(dir);
-        }
-
-        let envelope: PaneSplitEnvelope = self.herdr_json(&args)?;
-        Ok(envelope.result.pane)
+        Err(disabled_error())
     }
 
-    /// 指定されたペインを基準に分割します（U2・R4 動的配置用）。
-    ///
-    /// `split_pane_in_tab` と異なり、フォーカスや「タブ内最初のペイン」に依存せず、
-    /// 渡された `pane_id` を分割基準として明示します。
-    /// レイアウト計算（列構造）で決定した基底ペインを指定して
-    /// Right / Down 分割を行う際に使用します。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 分割基準とするペインの ID
-    /// * `direction` — 分割方向（`SplitDirection::Right` / `SplitDirection::Down`）
-    /// * `cwd` — 新しいペインの作業ディレクトリ（`None` の場合はカレントディレクトリを継承）
-    ///
-    /// # 戻り値
-    ///
-    /// 新しく作成されたペインの情報（`PaneInfo`）
+    /// 指定されたペインを基準に分割する（herdr では使わない）。
     pub fn split_pane_from(
         &self,
-        pane_id: &str,
-        direction: SplitDirection,
-        cwd: Option<&str>,
+        _pane_id: &str,
+        _direction: SplitDirection,
+        _cwd: Option<&str>,
     ) -> Result<PaneInfo, HerdrError> {
-        let direction_str = direction.to_string();
-        let mut args: Vec<&str> = vec![
-            "pane",
-            "split",
-            pane_id,
-            "--direction",
-            &direction_str,
-            "--no-focus",
-        ];
-
-        if let Some(dir) = cwd {
-            args.push("--cwd");
-            args.push(dir);
-        }
-
-        let envelope: PaneSplitEnvelope = self.herdr_json(&args)?;
-        Ok(envelope.result.pane)
+        Err(disabled_error())
     }
 
-    /// セッションスナップショットから、指定タブのペイン配置を取得します（U2・R4）。
-    ///
-    /// `herdr api snapshot` を実行し、`tab_id` に一致するタブの
-    /// ペイン矩形座標（`LayoutPane`）一覧を返します。
-    /// これにより「現在開かれている pane の列構造」を把握し、
-    /// 次の pane の配置（基底 + 分割方向）を動的に決定できます。
-    ///
-    /// # 引数
-    ///
-    /// * `tab_id` — 対象タブの ID
-    ///
-    /// # 戻り値
-    ///
-    /// 指定タブ内のペイン配置一覧。タブが存在しない場合や
-    /// レイアウト取得に失敗した場合は `HerdrError` を返します。
-    pub fn snapshot_layout(&self, tab_id: &str) -> Result<Vec<LayoutPane>, HerdrError> {
-        let envelope: SessionSnapshotEnvelope = self.herdr_json(&["api", "snapshot"])?;
-        let layout = envelope
-            .result
-            .snapshot
-            .layouts
-            .into_iter()
-            .find(|l| l.tab_id == tab_id)
-            .ok_or_else(|| HerdrError::ApiError {
-                message: format!(
-                    "スナップショットにタブ {} のレイアウトが見つかりません",
-                    tab_id
-                ),
-            })?;
-        Ok(layout.panes)
+    /// セッションスナップショットからレイアウトを取得する（herdr では使わない）。
+    pub fn snapshot_layout(&self, _tab_id: &str) -> Result<Vec<LayoutPane>, HerdrError> {
+        Err(disabled_error())
     }
 
-    /// 指定されたタブを閉じます（ベストエフォート・U2・R4）。
-    ///
-    /// `herdr tab close <tab_id>` を実行します。
-    /// タブ内の全ペインが閉じられ、最終的にタブごと破棄されます。
-    /// タブが既に存在しない場合など、エラーは無視され `Ok(())` を返します。
-    ///
-    /// # 引数
-    ///
-    /// * `tab_id` — 閉じるタブの ID
-    ///
-    /// # 戻り値
-    ///
-    /// 常に `Ok(())`（エラーは無視される）
-    pub fn close_tab(&self, tab_id: &str) -> Result<(), HerdrError> {
-        let result = self.run_simple_command(&["tab", "close", tab_id]);
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => Ok(()), // エラーを無視
-        }
+    /// 指定されたタブを閉じる（herdr では使わない）。
+    pub fn close_tab(&self, _tab_id: &str) -> Result<(), HerdrError> {
+        Err(disabled_error())
     }
 
-    /// 指定されたペインを閉じます（ベストエフォート）。
-    ///
-    /// `herdr pane close <pane_id>` を実行します。
-    /// ペインが既に存在しない場合など、エラーは無視され `Ok(())` を返します。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 閉じるペインの ID
-    ///
-    /// # 戻り値
-    ///
-    /// 常に `Ok(())`（エラーは無視される）
-    ///
-    /// # 例
-    ///
-    /// ```no_run
-    /// use sai_link_engine::herdr::HerdrClient;
-    ///
-    /// let client = HerdrClient::new();
-    /// // エラーは無視される
-    /// let _ = client.close_pane("pane_test_001");
-    /// ```
+    /// 擬似 pane を閉じる（`stop` の印を作る）。
     pub fn close_pane(&self, pane_id: &str) -> Result<(), HerdrError> {
-        // TypeScript 版と同様、ベストエフォートでエラーは無視
-        let result = self.run_simple_command(&["pane", "close", pane_id]);
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => Ok(()), // エラーを無視
+        if crate::headless::is_headless_pane(pane_id) {
+            return crate::headless::close(pane_id);
         }
+        Err(disabled_error())
     }
 
-    /// ペインの最近の出力を読み取る（タスク調査用・P4）。
-    ///
-    /// `herdr pane read <pane_id> --source recent-unwrapped --lines N --format text` を
-    /// 実行し、ペインの最近の出力テキストを返す。
-    /// サブブロックの失敗原因調査（task_capture）に使用する。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 読み取るペインの ID
-    /// * `lines` — 読み取る行数（デフォルト 50）
-    ///
-    /// # 戻り値
-    ///
-    /// ペインの出力テキスト（trim 済み）
+    /// 擬似 pane の最近の出力を読む（`stream.jsonl` の末尾）。
     pub fn read_pane_output(&self, pane_id: &str, lines: u32) -> Result<String, HerdrError> {
-        let lines_str = lines.to_string();
-        let output = self.run_command(&[
-            "pane",
-            "read",
-            pane_id,
-            "--source",
-            "recent-unwrapped",
-            "--lines",
-            &lines_str,
-            "--format",
-            "text",
-        ])?;
-        if !output.status.success() {
-            return Err(make_cli_error(output.status, &output.stderr));
+        if crate::headless::is_headless_pane(pane_id) {
+            return crate::headless::read_output(pane_id, lines);
         }
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Err(disabled_error())
     }
 
-    /// 指定されたペインにラベルを設定します。
-    ///
-    /// `herdr pane rename <pane_id> <label>` を実行します。
-    /// ラベルは herdr のサイドバーに表示され、ユーザーがペインを
-    /// 視覚的に識別するために使用されます。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 対象ペインの ID
-    /// * `label` — 設定するラベル（例: `"sai-my-block-42"`）
-    ///
-    /// # 戻り値
-    ///
-    /// 更新されたペイン情報（`label` フィールドを含む）
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
-    ///
-    /// # 例
-    ///
-    /// ```no_run
-    /// use sai_link_engine::herdr::HerdrClient;
-    ///
-    /// let client = HerdrClient::new();
-    /// let info = client.rename_pane("wA:pC", "sai-test-block-3")
-    ///     .expect("ラベル設定に失敗");
-    /// assert_eq!(info.label.as_deref(), Some("sai-test-block-3"));
-    /// ```
+    /// ペインにラベルを設定する（herdr を呼ばず、合成した `PaneInfo` を返す）。
     pub fn rename_pane(&self, pane_id: &str, label: &str) -> Result<PaneInfo, HerdrError> {
-        let envelope: PaneGetEnvelope = self.herdr_json(&["pane", "rename", pane_id, label])?;
-        Ok(envelope.result.pane)
+        Ok(synthetic_pane(pane_id, Some(label)))
     }
 
-    /// 指定されたペインのラベルをクリアします。
-    ///
-    /// `herdr pane rename <pane_id> --clear` を実行します。
-    ///
-    /// # 引数
-    ///
-    /// * `pane_id` — 対象ペインの ID
-    ///
-    /// # 戻り値
-    ///
-    /// 更新されたペイン情報（`label` が `None` になっている）
-    ///
-    /// # エラー
-    ///
-    /// - `HerdrError::HerdrNotFound` — herdr バイナリが見つからない場合
-    /// - `HerdrError::HerdrCliError` — herdr CLI がエラーを返した場合
+    /// ペインのラベルをクリアする（herdr を呼ばず、合成した `PaneInfo` を返す）。
     pub fn clear_pane_label(&self, pane_id: &str) -> Result<PaneInfo, HerdrError> {
-        let envelope: PaneGetEnvelope = self.herdr_json(&["pane", "rename", pane_id, "--clear"])?;
-        Ok(envelope.result.pane)
+        Ok(synthetic_pane(pane_id, None))
     }
 }
 
@@ -1199,22 +695,3 @@ pub fn shell_escape_single_quotes(value: &str) -> String {
 // ============================================================================
 // 内部ユーティリティ
 // ============================================================================
-
-/// プロセスの終了ステータスと stderr から `HerdrError::HerdrCliError` または
-/// `HerdrError::HerdrNotFound` を生成します。
-///
-/// exit code 127（command not found）の場合は `HerdrNotFound` を返します。
-fn make_cli_error(status: ExitStatus, stderr: &[u8]) -> HerdrError {
-    let stderr_str = String::from_utf8_lossy(stderr).to_string();
-    match status.code() {
-        Some(127) => HerdrError::HerdrNotFound,
-        Some(code) => HerdrError::HerdrCliError {
-            exit_code: Some(code),
-            stderr: stderr_str,
-        },
-        None => HerdrError::HerdrCliError {
-            exit_code: None,
-            stderr: stderr_str,
-        },
-    }
-}

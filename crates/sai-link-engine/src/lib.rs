@@ -91,6 +91,7 @@
 
 pub mod block_config;
 pub mod error;
+pub mod headless;
 pub mod herdr;
 pub mod parser;
 pub mod pi_command;
