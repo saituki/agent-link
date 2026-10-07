@@ -6,7 +6,7 @@
 //! cc（Claude Code）の MCP の設定（`.mcp.json`）は sai-link の `init` が作り直す物で、
 //! sai-paper は触らない。
 //!
-//! 研究の部品（研究方針の木のブロック・共通の決まり・分野の観点・実行先・道具）は
+//! 研究の部品（research-tree のブロック・共通の決まり・分野の観点・実行先・道具）は
 //! `sai-sci` が配る。sai-paper は sai-sci を知らない（要件定義書 A8）。
 
 use std::path::{Path, PathBuf};

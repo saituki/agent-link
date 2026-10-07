@@ -647,7 +647,7 @@ pub fn mind_path(data_dir: &Path) -> PathBuf {
 
 /// プロジェクトの現況（`<data_dir>/state.md`）を返す。
 ///
-/// 目標・段階・今の作業・次の一手・更新日をユーザーが書く場所。
+/// 目標・段階・今の作業・Next Action・更新日をユーザーが書く場所。
 #[must_use]
 pub fn state_path(data_dir: &Path) -> PathBuf {
     data_dir.join("state.md")

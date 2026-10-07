@@ -46,7 +46,7 @@ subblocks:
 - sai-moon の故障の調査と対処をしない（operator の仕事）。
 - 課金・鍵・要件の範囲・成功基準（`purpose.metric`）に関わる決定はしない。Human に上げる（下の「Human に上げる」）。
 
-## 研究方針の木の読み方
+## research-tree の読み方
 
 `sai-sci` の木は 4 つの layer（SEED・ROOT・SPROUT・BRANCH）でできている。SEED は研究の初期の入力（RESEARCH_TYPE と `mind.md`）で、その下に top_Q が並ぶ（ROOT）。上へ SPROUT（`S<n>`）と BRANCH（E）が伸びる。次の物で現在地を読む。
 

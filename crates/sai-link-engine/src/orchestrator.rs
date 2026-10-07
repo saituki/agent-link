@@ -2764,7 +2764,7 @@ fn todo_card_relative_path(card_run_id: i64) -> String {
 
 /// todo のカードを読み、`run_id` がカードの指定と一致することを確認する。
 ///
-/// `sci card` が run_id を研究方針の木に結び付けているため、run_id が違うカードを指されれば止める。
+/// `sci card` が run_id を research-tree に結び付けているため、run_id が違うカードを指されれば止める。
 pub fn read_todo_card(card_run_id: i64) -> Result<crate::kanban::KanbanCard, String> {
     let path = todo_card_path(card_run_id);
     let text = std::fs::read_to_string(&path)
@@ -5955,7 +5955,7 @@ mod tests {
         let child_config = card_child_config("reserved-dir-child");
         let reserved = store.create_reserved_run(None).unwrap();
 
-        // 予約 run のカードを作る（todo/<run_id>/task.md・研究方針の木の範囲つき）
+        // 予約 run のカードを作る（todo/<run_id>/task.md・research-tree の範囲つき）
         let card_path = todo_card_path(reserved);
         std::fs::create_dir_all(card_path.parent().unwrap()).unwrap();
         let card_text = format!(
@@ -6005,7 +6005,7 @@ mod tests {
         );
         assert!(
             moved_text.contains("sci_node: N12"),
-            "研究方針の木の範囲（sci_node）が残る:\n{}",
+            "research-tree の範囲（sci_node）が残る:\n{}",
             moved_text
         );
         assert!(

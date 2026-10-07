@@ -585,7 +585,7 @@ pub struct Task {
     /// 起こす todo カードの run_id（`task_create` の `card` 引数）
     ///
     /// `Some` のときはこの予約 run をそのまま子として使い、run_id を新たに採番しない
-    /// （todo のカードが研究方針の木と結び付いているため）。`None` はカード無し。
+    /// （todo のカードが research-tree と結び付いているため）。`None` はカード無し。
     #[serde(default)]
     pub card_run_id: Option<i64>,
     /// 子の実行主体（`pi` / `cc`。`task_create` の runner 引数。`None` は `pi`）

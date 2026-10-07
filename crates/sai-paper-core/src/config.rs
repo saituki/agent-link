@@ -682,7 +682,7 @@ pub struct Config {
     pub brief: BriefConfig,
     /// プロジェクトの進み具合（progress）。
     pub progress: ProgressConfig,
-    /// sai-sci（研究方針の木）。
+    /// sai-sci（research-tree）。
     pub sci: SciConfig,
 }
 

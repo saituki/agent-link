@@ -796,7 +796,7 @@ async fn run_search(
 /// `--paper` `--papers` を、検索の論文の集合と、
 /// 検索の記録（`rt_searches.scope`）に書く範囲の文字列にする。
 ///
-/// どれも無ければ `(None, "library")`。`--node` の分（研究方針の木の Node）は
+/// どれも無ければ `(None, "library")`。`--node` の分（research-tree の Node）は
 /// `sai_sci_core::rt::scope::resolve_scope` にある。
 ///
 /// # Errors

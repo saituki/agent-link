@@ -148,7 +148,7 @@ const FIRST_MESSAGE_FALLBACK: &str = "system prompt の指示に従って始め�
 ///
 /// let (fixed, first) = split_fixed_and_variable(body, &values, Some("run=1 block=b"));
 /// assert!(fixed.contains("依頼は、最初のメッセージの「# task_text」の節にあります。"));
-/// assert!(fixed.contains("範囲（研究方針の木から切り出した文脈）は"));
+/// assert!(fixed.contains("範囲（research-tree から切り出した文脈）は"));
 /// assert!(!fixed.contains("ログインを実装せよ"));
 /// assert_eq!(
 ///     first,
@@ -203,7 +203,7 @@ pub fn split_fixed_and_variable(
         // 古い記法の本文には置き換え済みの案内があるため、足さない。
         if !context_body.is_empty() && !body.contains("{{context}}") {
             notes.push(
-                "範囲（研究方針の木から切り出した文脈）は、最初のメッセージの「# context」の節にあります。",
+                "範囲（research-tree から切り出した文脈）は、最初のメッセージの「# context」の節にあります。",
             );
         }
         if !task_text.is_empty() && !body.contains("{{input.task_text}}") {
@@ -886,7 +886,7 @@ mod tests {
 
         assert_eq!(first, "# context\n\nrun=1 block=b\n\n# task_text\n\nログインを実装せよ");
         // 固定部分の先頭に案内が 2 文（この順に 1 行で）付く
-        let notes = "範囲（研究方針の木から切り出した文脈）は、最初のメッセージの「# context」の節にあります。 \
+        let notes = "範囲（research-tree から切り出した文脈）は、最初のメッセージの「# context」の節にあります。 \
                      依頼は、最初のメッセージの「# task_text」の節にあります。";
         assert_eq!(fixed, format!("{notes}\n\n{body}"));
     }

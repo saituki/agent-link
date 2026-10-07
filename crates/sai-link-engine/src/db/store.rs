@@ -1124,7 +1124,7 @@ impl SaiStore {
     /// 予約行をサブタスク（子）の実行開始用に確定させる（U2）。
     ///
     /// [`Self::claim_reserved_run`] と違い、親の `run_id` と `batch_id` を同時に書き込む。
-    /// 予約行の id は todo のカードの run_id のまま変わらない（研究方針の木との結び付きを保つ）。
+    /// 予約行の id は todo のカードの run_id のまま変わらない（research-tree との結び付きを保つ）。
     pub fn claim_reserved_run_for_subtask(
         &self,
         run_id: i64,

@@ -904,7 +904,7 @@ pub enum PhoneCmd {
         cmd: PhoneDefCmd,
     },
 
-    /// 利用者の札（`runner: user`）を始める・終える（sai-phone の読む札用・U17）
+    /// 利用者の札（`runner: user`）を始める・終える（sai-phone の READ_CARD 用・U17）
     ///
     /// 成功は stdout に JSON（`run_id` / `status`）・終了コード 0。
     /// 常駐（デーモン）は要らない。
@@ -2055,7 +2055,7 @@ pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Erro
 ///
 /// 1. `PROJECTROOT/.sai/` と必要なフォルダ・`settings.json` を作成する（既存は触らない）。
 ///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
-///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に読む札を作れるように）
+///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に READ_CARD を作れるように）
 /// 2. 登録簿（`~/.sai/registry.json`）にプロジェクトを登録する
 pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std::error::Error>> {
     use sai_link_engine::assets::AssetOutcome;
@@ -2066,7 +2066,7 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
 
     // 1. `.sai/` と cc 設定の作成（何度実行してもよい。足りないものだけ作る）
     let report = init_project(&project_root, update)?;
-    // DB が無いと、デーモンを一度も起動していないプロジェクトで読む札の予約が失敗する
+    // DB が無いと、デーモンを一度も起動していないプロジェクトで READ_CARD の予約が失敗する
     open_db()?;
 
     println!(

@@ -265,7 +265,7 @@ fn test_cli_run_rm_missing_reflection_no_error() {
 // ============================================================================
 
 
-/// `init` は実行の記録の DB を作り、登録簿に載せること（デーモンを起動する前でも読む札を予約できるように）
+/// `init` は実行の記録の DB を作り、登録簿に載せること（デーモンを起動する前でも READ_CARD を予約できるように）
 #[test]
 fn test_init_creates_engine_db_and_registers() {
     let dir = create_temp_dir();

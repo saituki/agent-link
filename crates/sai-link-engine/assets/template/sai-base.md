@@ -11,7 +11,7 @@ sai の機能は、シェル（Bash）から CLI で呼ぶ。
 |---|---|
 | `sai-link` | 文書（doc）・カード（card）・run・子タスク（task）・定義（def） |
 | `sai-paper` | 論文（Library・検索・本文） |
-| `sai-sci` | 研究方針の木と研究の記録 |
+| `sai-sci` | research-tree と研究の記録 |
 | `sai-web` | Web の窓口（質問・承認・使用量） |
 
 - 命令は名前だけで呼ぶ。前に環境変数を付けない。プロジェクトと自分の run は、CLI が環境変数 `SAI_PROJECT_ROOT`・`SAI_PARENT_RUN_ID` から読む。
