@@ -12,7 +12,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
 - 日本語で説明すること．
 - 日本語でコメントアウトを書くこと．
 - コメントと画面の文字は自然な日本語で書く。中国語・韓国語の語や、意味をなさない英字の断片を混ぜない。
-- 画面に出す言葉は日本語にする（`data-tab`・住所・API の名前などの識別子は英語のまま）。
+- 画面の案内文・説明・エラーは日本語にする。専門用語は英単語にそろえる（Next Action・History・PATH・SPROUT・Create SPROUT・Add PATH・Delete PATH・TRIAGE・Create CARD・Library・Import など）。`data-tab`・住所・API の名前などの識別子も英語のまま。専門用語の一覧は [`CONCEPT.md`](./CONCEPT.md)。
 
 ## フォルダ
 
@@ -23,7 +23,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
 | `apps/web/` | Web の窓口（FastAPI + 素の JavaScript）。`apps/web/src/sai_web/` にサーバと画面、`bin/sai-web` に CLI、`hooks/` に cc のフック、`launchd/` に plist のひな形 | 編集可能 |
 | `apps/radio/` | 解説音声の裏方サーバー（FastAPI）。`apps/radio/src/sai_radio/` に本体、`tests/` に 3 本のテスト。`README.md` と `ARCHITECTURE.md` はこのフォルダにある | 編集可能 |
 | `apps/mlflow-server/` | 実験の記録を溜める MLflow サーバの compose（postgres・minio・mlflow・caddy）と `templates/mlflow-agent.md`。Docker で動かす。`.env` は無い（鍵が入るので追跡しない。`.env.example` が見本） | 編集可能（`docker-compose.yml` の `name: mlflow-server` は消さない。消すと volume が別になり記録を失う） |
-| `sai-sci/` | research-tree の型・項目ガイド・sci-core・mind.md のひな形・31 本のブロック（professor・professor-backward・operator・kaizen と 27 本の `sci-*`）・研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`）・逆向きの共通の決まり（`bw-core`）・`tools/`（実験ループの台帳と、実行先への分配器、参照コードの道具 `refcode.py`・ModelDB のカタログ `modeldb.py`、データ分析の検査と記録 `data_result.py`・K-Dense の EDA と生体信号の CLI の写し（`eda/`・`biosignal/`））・`exec/`（実行先の見本）。`sai-sci` の実行ファイルに埋め込まれる | 編集可能（直したら release を作り直す） |
+| `sai-sci/` | research-tree の型・項目ガイド・sci-core・mind.md のひな形・32 本のブロック（professor・professor-backward・operator・kaizen・paper-debater・paper-reviewer と 26 本の `sci-*`）・研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli`）・逆向きの共通の決まり（`bw-core`）・`tools/`（実験ループの台帳と、実行先への分配器、参照コードの道具 `refcode.py`・ModelDB のカタログ `modeldb.py`、データ分析の検査と記録 `data_result.py`・K-Dense の EDA と生体信号の CLI の写し（`eda/`・`biosignal/`））・`exec/`（実行先の見本）。`sai-sci` の実行ファイルに埋め込まれる | 編集可能（直したら release を作り直す） |
 | `docs/` | 開発者向けの文書（`integration.md`・`for-sai-developers.md`）と、利用者が 1 回だけ行う切り替えの手順書（`switch-over.md`） | 編集可能 |
 | `.github/workflows/` | CI（`ci.yml`）。Rust・Web・Radio・sai-sci の道具のテストを回す。下の「テストと確認」と同じ命令にそろえる | 編集可能 |
 | `.sai/` | このプロジェクト自身の中のデータ（`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）。`.gitignore` 済み | 書き込み注意 |
@@ -56,6 +56,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
 | 文書 | 中身 |
 |---|---|
 | `ARCHITECTURE.md` | 全体の考え方・層の分け方・大原則・置き場・機能を足す手順 |
+| `CONCEPT.md` | 概念と用語（部品・run・card・doc・research-tree・画面の名前ほか）。画面に出す専門用語の一覧 |
 | `README.md` | 3 プロセスの起動手順・ポート表・環境変数表 |
 | `docs/integration.md` | `apps/web` の API と画面の住所の一覧・統合の注意点 |
 | `docs/for-sai-developers.md` | `crates/` 側・`apps/radio` 側が守る約束（`apps/web` が読む JSON の項目） |
@@ -72,6 +73,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
   - 終了コード: `0` 成功、`2` 入力の誤り、`3` 見つからない、`4` 状態の衝突、`1` それ以外の失敗。
   - 失敗のとき標準出力は空にし、理由は標準エラーに書く。
   - 機械が読む出力は `--json`。命令の一覧は `schema --json`（Web の「コマンド」画面が読む）。
+  - Web が付けるフラグは CLI が受け付ける（例: `sai-sci apply --json`。`docs/for-sai-developers.md` の約束）。
 - **依存の向きを守る。**
   - `sai-link` は `sai-paper` と `sai-sci` を知らない。
   - `sai-paper` は `sai-link` のデータを読まず、`sai-link` と `sai-sci` を呼ばない。
@@ -97,7 +99,7 @@ Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web �
 - 新しい画面は `window.SaiRoutes` に登録する。`app.js` に画面ごとの分岐を足さない。
 - `ui.js` の部品（`saiApi`・`saiToast`・`saiConfirm`・`saiSheet`・`saiEmpty`・`saiTerm` など）と、`markdown.js` の `renderMarkdown` を使う。同じ物を作り直さない。
 - 一番外側の関数・変数には画面ごとの頭（`sai`・`hm`・`wf`・`df`・`pim` など）を付ける。`apps/web/tests/test_globals.js` で重なりを検査している。
-- 画面ファイルを変えて配るときは、`sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。ファイルを足したら `ASSETS` にも足す。
+- 画面ファイルを変えて配るときは、`sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。`apps/web/tests/test_migrate.js` が版の数字（`sai-web-v<数>`・`?v=<数>`）を固定しているので、それも合わせる。ファイルを足したら `ASSETS` にも足す。
 
 ### テストと確認
 
@@ -108,10 +110,10 @@ cd ~/workdir/Sai/sai-moon
 env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 36 本）
+# Web（JS 35 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 27 本）
+# Web（Python 28 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 
 # Radio（3 本）
