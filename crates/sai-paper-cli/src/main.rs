@@ -288,6 +288,12 @@ enum LibraryCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Library のうち PDF の無い論文の一覧（PDF 待ち、新しい順。JSON）
+    Pending {
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
     /// Library の階層表示（検索ログごと → 日付ごとの Import、JSON）
     Tree {
         /// JSON 出力（いつも JSON。付けても同じ）
@@ -371,6 +377,30 @@ enum PaperCmd {
         #[arg(long)]
         json: bool,
     },
+    /// 検索結果・BibTeX・引用から、PDF 無しで Library に論文を入れる（JSON）
+    #[command(group(
+        clap::ArgGroup::new("target").required(true).multiple(false).args(["log", "import_id", "cite"]),
+    ))]
+    Keep {
+        /// 検索履歴 ID（`--position` とセットで指定）
+        #[arg(long, requires = "position")]
+        log: Option<i64>,
+        /// 検索履歴の中での位置（0 始まり。`--log` とセットで指定）
+        #[arg(long, requires = "log")]
+        position: Option<i64>,
+        /// BibTeX からの `RemotePaper.id`（例: `ArXiv:1706.03762`）
+        #[arg(long = "import-id")]
+        import_id: Option<String>,
+        /// 引用を持つ論文 ID（`--ref` とセットで指定）
+        #[arg(long)]
+        cite: Option<i64>,
+        /// 引用の番号（`--cite` とセットで指定）
+        #[arg(long = "ref", requires = "cite")]
+        ref_no: Option<i64>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
     /// 論文の PDF を取得して Library に登録する（JSON）
     #[command(group(
         clap::ArgGroup::new("target").required(true).multiple(false).args(["log", "import_id", "cite"]),
@@ -419,6 +449,16 @@ enum PaperCmd {
         #[command(flatten)]
         args: Box<crate::phone_cite::ManualImportArgs>,
         /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 前処理の束（sai-prep が作った zip を展開したフォルダ）を取り込む（JSON）
+    #[command(name = "import-bundle")]
+    ImportBundle {
+        /// 展開したフォルダの絶対パス
+        #[arg(long)]
+        dir: PathBuf,
+        /// JSON 出力（`{"paper_id","title","figures","sections","refs","translated"}`）
         #[arg(long)]
         json: bool,
     },
@@ -1042,6 +1082,10 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 let value = phone::library()?;
                 println!("{}", serde_json::to_string(&value)?);
             }
+            LibraryCmd::Pending { json: _ } => {
+                let value = phone::library_pending()?;
+                println!("{}", serde_json::to_string(&value)?);
+            }
             LibraryCmd::Tree { json: _ } => {
                 let value = phone::tree()?;
                 println!("{}", serde_json::to_string(&value)?);
@@ -1454,16 +1498,11 @@ async fn handle_paper(cmd: PaperCmd, client: &S2Client) -> Result<()> {
             ref_no,
             json: _,
         } => {
-            let value = phone_import::download(
-                client,
-                log,
-                position,
-                import_id.as_deref(),
-                cite,
-                ref_no,
+            let _ = (log, position, import_id, cite, ref_no);
+            return Err(crate::cli_error::CliError::conflict(
+                "サーバでは PDF を落としません。sai-prep から送ってください",
             )
-            .await?;
-            println!("{}", serde_json::to_string(&value)?);
+            .into());
         }
         PaperCmd::AfterDownload { paper_id, json: _ } => {
             let value = phone_import::after_download(paper_id).await?;
@@ -1477,11 +1516,51 @@ async fn handle_paper(cmd: PaperCmd, client: &S2Client) -> Result<()> {
             let value = phone_cite::manual_import_command(&args)?;
             println!("{}", serde_json::to_string(&value)?);
         }
+        PaperCmd::ImportBundle { dir, json: _ } => {
+            let (mut db, _cfg, paths) = phone::open_context()?;
+            let data_dir = paths.data_dir();
+            let value = match sai_paper_core::bundle::import_bundle(&mut db, &data_dir, &dir) {
+                Ok(value) => value,
+                Err(error) => {
+                    return Err(crate::cli_error::CliError {
+                        code: error.code(),
+                        message: error.to_string(),
+                    }
+                    .into());
+                }
+            };
+            println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::Keep {
+            log,
+            position,
+            import_id,
+            cite,
+            ref_no,
+            json: _,
+        } => {
+            let value = phone_import::keep(
+                log,
+                position,
+                import_id.as_deref(),
+                cite,
+                ref_no,
+            )?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
         PaperCmd::GetPdf { ids } => {
-            handle_get_pdf(client, ids).await?;
+            let _ = ids;
+            return Err(crate::cli_error::CliError::conflict(
+                "サーバでは PDF を落としません。sai-prep から送ってください",
+            )
+            .into());
         }
         PaperCmd::Extract { paper_id } => {
-            handle_extract(client, &paper_id).await?;
+            let _ = paper_id;
+            return Err(crate::cli_error::CliError::conflict(
+                "サーバでは PDF を落としません。sai-prep から送ってください",
+            )
+            .into());
         }
     }
     Ok(())

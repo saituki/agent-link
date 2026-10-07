@@ -157,7 +157,7 @@ async fn run_docling_inner(
     cmd.arg("--output").arg(&out_dir);
 
     let output = cmd.output().await.map_err(|e| {
-        ExtractError::Docling(format!("failed to execute docling: {e}（インストール済みか確認してください。DOCLING_BIN 環境変数で明示指定も可能です）"))
+        ExtractError::Docling(format!("サーバでは docling を動かしません。各自の PC の sai-prep で前処理して送ってください（failed to execute docling: {e}）"))
     })?;
 
     if !output.status.success() {
@@ -258,6 +258,21 @@ fn text_by_ref(texts: &[serde_json::Value], reference: &str) -> Option<String> {
         .get("text")
         .and_then(|v| v.as_str())
         .map(str::to_string)
+}
+
+/// docling が出力した JSON と画像フォルダから図一覧を取り出す（公開版）。
+///
+/// `json_path` は docling の JSON、`out_dir` は docling の出力フォルダ
+/// （画像の相対 URI を解決する基準）。前処理の束（sai-prep）の取り込みで使う。
+///
+/// # Errors
+///
+/// JSON を読めない・解析できないときは [`ExtractError::Docling`] を返す。
+pub fn read_docling_figures(
+    json_path: &Path,
+    out_dir: &Path,
+) -> Result<Vec<DoclingFigure>, ExtractError> {
+    parse_figures_from_json(json_path, out_dir)
 }
 
 /// docling JSON から図一覧を取り出す。

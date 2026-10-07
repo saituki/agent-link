@@ -284,6 +284,64 @@ pub(crate) fn library() -> Result<Value> {
     Ok(json!({ "papers": items }))
 }
 
+/// `library pending`: PDF の無い Library の論文の一覧（sai-prep が「PDF 待ち」として出す）。
+///
+/// `papers` 表を新しい順に読み、`pdf_path` の指す実ファイルが無い物だけを返す
+/// （`library_tree::paper_pdf_exists` と同じ判定）。`library list` と違い、
+/// PDF がまだ無い論文も出すので `doi`・`arxiv_id`・`s2_paper_id` をそのまま含める。
+pub(crate) fn library_pending() -> Result<Value> {
+    let (db, _cfg, paths) = open_context()?;
+    let data_dir = paths.data_dir();
+    let mut stmt = db.connection().prepare(
+        "SELECT p.id, p.title, p.doi, p.arxiv_id, p.s2_paper_id, p.published_at, p.created_at, p.pdf_path,
+                COALESCE((SELECT GROUP_CONCAT(name, ', ')
+                          FROM (SELECT a.name
+                                FROM paper_authors pa JOIN authors a ON a.id = pa.author_id
+                                WHERE pa.paper_id = p.id
+                                ORDER BY pa.position)), '')
+         FROM papers p
+         ORDER BY p.created_at DESC, p.id DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, String>(8)?,
+        ))
+    })?;
+    let mut papers = Vec::new();
+    for row in rows {
+        let (id, title, doi, arxiv_id, s2_paper_id, published_at, created_at, pdf_path, authors) =
+            row?;
+        // PDF が実在する物は「PDF 待ち」ではない。
+        let has_pdf = pdf_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .is_some_and(|stored| paths::resolve_stored_path(&data_dir, stored).is_file());
+        if has_pdf {
+            continue;
+        }
+        papers.push(json!({
+            "id": id,
+            "title": title,
+            "year": published_year(published_at.as_deref()),
+            "authors": authors,
+            "doi": doi,
+            "arxiv_id": arxiv_id,
+            "s2_paper_id": s2_paper_id,
+            "created_at": created_at,
+        }));
+    }
+    Ok(json!({ "papers": papers }))
+}
+
 /// `phone tree`: 階層グループ一覧（TUI の階層表示と同じまとめ方）。
 pub(crate) fn tree() -> Result<Value> {
     let (db, cfg, paths) = open_context()?;

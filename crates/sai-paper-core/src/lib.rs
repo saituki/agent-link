@@ -4,6 +4,7 @@ pub mod abstracts;
 pub mod activity;
 pub mod api;
 pub mod bibtex;
+pub mod bundle;
 pub mod chunking;
 pub mod citation;
 pub mod config;
@@ -30,6 +31,7 @@ pub mod textcheck;
 pub mod translation;
 
 pub use abstracts::{clean_crossref_abstract, flatten_abstract_ja, sanitize_abstract};
+pub use bundle::{BundleError, BundleResult, import_bundle};
 pub use api::arxiv::{ArxivClient, ArxivRetryPolicy, RankedCandidatePageRequest};
 pub use api::biorxiv::BiorxivClient;
 pub use api::openalex::OpenAlexClient;
