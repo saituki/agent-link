@@ -16,6 +16,7 @@
 | **sai-paper**（`crates/sai-paper-*`） | [§2.3](#23-sai-paper-が出す-json) | 命令の名前と JSON の項目名。`target/release/sai-paper` に作り直す手順 |
 | **sai-sci**（`crates/sai-sci-*`） | [§2.4](#24-sai-sci-が出す-json) | research-tree の JSON の項目名。`card --from-json` の入力 |
 | **sai-sci が sai-link を呼ぶところ** | [§3](#3-sai-sci-が読む-sai-link-の出力) | `run list --json`・`card create` の入出力 |
+| **前処理の束（sai-prep・Library の PDF 待ち）** | [§2.6](#26-前処理の束c12-と-library-の追加pdf-待ちc13) | 束の形（C12）と `import-bundle`・`keep`・`library pending` の JSON（C13） |
 | **apps/radio** | [§5](#5-appsradio) | `/api/papers` 以下のパスと JSON、論文 ID は**英数字**、Range（206）応答 |
 | **項目を変える** | [§6](#6-項目を変えるときの決まり) | Web が読む項目を変えたら、この文書と Web を一緒に直す |
 
@@ -127,7 +128,7 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | `model` | 文字列 \| null | 統計画面 | ― |
 | `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
 | `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない |
-| `herdr_pane_id` | 文字列 \| null | headless の擬似 pane の id（`hl-` で始まる・C1） | 一覧の `live` と `headless` が付かない |
+| `herdr_pane_id` | 文字列 \| null | headless の擬似 pane の id（`hl-` で始まる・C1）。キー名は herdr の時代の名残で、中身は擬似 pane の id | 一覧の `live` と `headless` が付かない |
 
 `herdr_pane_label` は Web では読まない（headless では pane を名前で探さないため・U03）。
 
@@ -516,6 +517,23 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 ---
 
+### 2.6 前処理の束（C12）と Library の追加・PDF 待ち（C13）
+
+sai-prep が作った束（C12）は、Web が zip を展開して検査し、展開したフォルダを CLI に渡す（Rust の依存に zip は無い）。CLI の入り口は次の 3 つ。
+
+| 命令 | 出力の JSON | 失敗 |
+|---|---|---|
+| `sai-paper paper import-bundle --dir <展開したフォルダの絶対パス> --json` | `{"paper_id","title","figures","sections","refs","translated"}` | 誤り 2・対象なし 3・PDF あり 4 |
+| `sai-paper paper keep (--log <id> --position <n> \| --import-id <id> \| --cite <paper_id> --ref <n>) --json` | `{"paper_id","title","status":"added" \| "exists"}` | ― |
+| `sai-paper library pending --json` | `{"papers":[{"id","title","year","authors","doi","arxiv_id","s2_paper_id","created_at"}]}` | ― |
+
+- 束の中身（zip の直下からの相対パス）: `manifest.json`・`paper.pdf`・`docling/paper.md`・`docling/paper.json`・`docling/paper_artifacts/…`・（翻訳したときだけ）`translated/paper-mono.pdf`・`translated/paper-dual.pdf`。
+- `manifest.json` の形: `{"format": "sai-prep-bundle", "version": 1, "target": {"paper_id": 12} か {"bibtex": "<BibTeX 1 件>"}, "pdf": "paper.pdf", "pdf_sha256": "<64 桁の 16 進>", "docling": {"md", "json", "dir"}, "translation": {"mono", "dual", "service"} か null, "tools": {"sai_prep", "docling", "pdf2zh"}, "created_at"}`。
+- 展開の検査（Web・`bundles.py`）: 項目 5000 以下・展開後 1GB 以下（束そのものは 300MB 以下）・絶対パス・`..`・`\`・NUL・シンボリックリンクは拒む。`pdf_sha256` が PDF と一致すること。
+- `paper download`・`paper get-pdf` は終了コード 4（サーバは PDF を落とさない）。`import-bundle` は Web から 600 秒の上限で呼ばれる（`BUNDLE_TIMEOUT`）。
+
+---
+
 ## 3. sai-sci が読む sai-link の出力
 
 sai-sci は sai-link の DB と実行フォルダの並び（`.sai/outputs/`）を**直に開かない**。次の 2 つの命令だけを CLI で呼ぶ（呼び出しは `crates/sai-sci-core/src/link.rs`。実行ファイルは `SAI_LINK_BIN` → 自分の隣 → PATH）。
@@ -605,7 +623,7 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 | | 中身 | 置き場 | 渡し方 |
 |---|---|---|---|
 | 固定部分（system prompt） | template と block.md の本文 | run フォルダ直下の `system-prompt.md` | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
-| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | herdr のテキスト送信（1 通） |
+| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | headless の transport で 1 通送る |
 
 - 節の順は `# context` → `# task_text` → 本文に `{{input.<id>}}` として現れた順。節の間は空行 1 行。固定部分の**先頭**に案内文（`依頼は、最初のメッセージの「# task_text」の節にあります。` など）を足す。
 - 古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要は無い。
@@ -659,11 +677,10 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と
 | `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと） |
 | `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（`ask_user.ts`） |
 
-- `POST /api/approvals` は使わない（承認は headless では来ないので、仕組みごと消した）。
 - cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "deny"` と `permissionDecisionReason` に答えを入れてモデルへ返す。cc の hooks の `timeout` は 86400 秒。
 - pi の質問拡張は、画面が無い（`ctx.mode === "headless"` か `SAI_AGENT_TRANSPORT=headless`）ときは端末の選択画面を出さず、登録した質問の答えをポーリングで待つ。
 - **headless の cc では質問できない（要確認の結果）**: `claude -p` のツール一覧に `AskUserQuestion` が出ない。2026-10 に cc 2.1.292 の実物で確かめたところ、モデルは `ToolSearch` で `select:AskUserQuestion` を探し、「AskUserQuestion ツールが利用可能なツール一覧に見つかりませんでした」と返した。フックと設定は残してあるので、cc 側が対応すればそのまま動く。pi の `ask_user` は実物で動くことを確認済み。
-- headless では cc の statusLine は呼ばれない。cc の費用は engine が stream-json の `result` 行から `<SAI_HOME>/cc-cost/<session_id>.json` に書く。5 時間枠（`cc-rate-limits.json`）は使わない。
+- cc の費用は engine が stream-json の `result` 行から `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
 
 ---
 
@@ -744,7 +761,7 @@ Web は **HTTP の中継しかしない**（`apps/radio` のコードや DB は�
 一時フォルダにプロジェクトを作り、`SAI_HOME` と `SAI_PROJECT_ROOT` をその中へ向けて行う。本物の `.sai/`・`$SAI_HOME`・`papr.db` を確かめのために変えない。
 
 ```bash
-cd ~/workdir/Sai/sai-moon
+cd ~/workdir/Sai/sai-tree
 perl -e 'alarm 1800; exec @ARGV' cargo build --release      # 必ず release。Web は release を呼ぶ
 
 T=$(mktemp -d); export SAI_HOME=$T/home SAI_PROJECT_ROOT=$T/proj; mkdir -p $SAI_HOME $SAI_PROJECT_ROOT
@@ -790,8 +807,8 @@ rm -rf $T; unset SAI_HOME SAI_PROJECT_ROOT
 
 | 画面の文言（`detail` の中身） | 状態 | 原因と直し方 |
 |---|---|---|
-| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` と PATH（launchd は plist の `PATH`）を確認。**バイナリ名を変えても同じ文が出る** |
-| `Mac の apps/radio が応答しません` | 503 | `apps/radio`（8201）が止まっている／`SAI_RADIO_URL` 間違い |
+| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` と PATH を確認（コンテナの中では中継 `/opt/sai/bin/…`）。**バイナリ名を変えても同じ文が出る** |
+| `Mac の sai-radio が応答しません` | 503 | `apps/radio`（8201）が止まっている／`SAI_RADIO_URL` 間違い（文言は今の Web のまま） |
 | `…の応答を読めませんでした` | 502 | 終了コード 0 なのに JSON でない（**標準出力への余計な表示**を疑う） |
 | CLI の標準エラーの最後の行（例 `論文が見つかりません`） | 404 / 400 / 409 / 502 | 終了コードが 3 / 2 / 4 / 1。文言は CLI のまま |
 | `period は week / month / all のいずれかにしてください` `action は start / stop を指定してください` `検索先が分かりません: …` `run_id は 1 以上の整数にしてください` `block の指定が正しくありません` など | 400 | **Web 自身の検査**。CLI を呼ぶ前に弾いている。相手側を疑わない |
@@ -810,7 +827,7 @@ rm -rf $T; unset SAI_HOME SAI_PROJECT_ROOT
 
 | どこを見る | 中身 |
 |---|---|
-| **Web**: `$SAI_HOME/web/sai-web.log`（launchd 起動時）／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
+| **Web**: `$SAI_HOME/web/sai-web.log`／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
 | **apps/radio** | 起動しているターミナル。音声化の失敗は Web のログの `sai-paper` の標準エラーと、`apps/radio` 自身の例外・LLM のエラー |
 | **3 つの CLI** | 単発の CLI なので、Web のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
 | 音声化の状態 | sai-paper の DB の `paper_podcasts`（`generating` / `ready` / `failed` + `error`）。論文情報画面にも「前回は失敗しました: …」が出る |

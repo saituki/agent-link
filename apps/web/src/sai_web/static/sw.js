@@ -102,7 +102,8 @@
 // style.css を直して v97 に（index.html の ?v= も 97。ASSETS は変えない）
 // U13（前処理の束の受け口・「Library に入れる」・PDF 待ちの表示）で paperimport.js・
 // papers.js を直して v98 に（index.html の ?v= も 98。ASSETS は変えない）
-const CACHE = "sai-web-v98";
+// U15（cite.js の釦を「＋ Library に入れる」に。中身は keep に回る）で v99 に（index.html の ?v= も 99。ASSETS は変えない）
+const CACHE = "sai-web-v99";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）

@@ -141,7 +141,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
               "tokens_input": 1, "tokens_output": 2, "tokens_cache": 3, "tokens_total": 1234567,
               "cost_usd": 3.21},
   "daily": [{"date": "2026-09-21", "executions": 3, "tokens": 120000}],
-  "recent": [{"project": "sai-moon", "run_id": 42, "parent_run_id": 1, "block": "worker",
+  "recent": [{"project": "sai-tree", "run_id": 42, "parent_run_id": 1, "block": "worker",
               "status": "completed", "started_at": "2026-09-27 10:28:21",
               "description": "…", "linkable": true}],
   "errors": []
@@ -235,7 +235,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/projects/{name}/papers/sets/{set_id}` | 検索セット 1 つと候補 | `sai-paper set show <id>` |
 | `POST /api/projects/{name}/papers/sets/{set_id}/mark` | 候補に keep / drop を付ける（body `{"positions": [0, 2], "decision": "keep\|drop", "reason": "…"}`。取り込み済みは変えない） | `sai-paper set mark <id> --position=0,2 --decision keep [--reason=…]` |
 | `POST /api/projects/{name}/papers/sets/{set_id}/drop-pending` | 未判定（pending）の候補をまとめて drop にする（body `{"reason": "…"}`・任意） | `sai-paper set drop-pending <id> [--reason=…]` |
-| `GET /api/prep/download` | sai-prep の入れ物（一番新しい `sai-prep-*.whl`）を配る。無ければ 404「sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）」 | （ファイルを返すだけ・`SAI_PREP_DIST` があればそこを見る） |
+| `GET /api/prep/download` | sai-prep の入れ物（一番新しい `sai_prep-*.whl`）を配る。無ければ 404「sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）」 | （ファイルを返すだけ・`SAI_PREP_DIST` があればそこを見る） |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
 - `import` / `downloads` / `keep` / `bundle` / `pending` / `jobs/{key}` / `project` / `attention` / `find` / `find-logs` / `library` / `tree` / `providers` / `search` / `logs/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
@@ -291,7 +291,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 - 中継先は `SAI_MLFLOW_URL`（既定 `http://127.0.0.1:5001`）。名前は `SAI_MLFLOW_USER`・`SAI_MLFLOW_PASSWORD`（空なら Basic 認証を付けない）。
 - **読み取りだけ**。書き込む住所は無い。
 - 外から来る値は MLflow を呼ぶ**前**に検査する（実験 ID は数字の 1〜19 桁・run ID は 16 進の 32 桁・指標の名前は 250 字まで・成果物の場所は 500 字までで `..` の区切りと先頭の `/` は不可）→ 400。まとめて取る個数は `runs/search` が 100、`metrics/history` が 25000、`metrics/bulk` が 2500 まで。
-- `POST /api/mlflow/runs/search` の本文は `{"experiment_ids": ["1"], "filter": "", "order_by": ["attributes.start_time DESC"], "max_results": 100, "page_token": "", "project": "sai-moon"}`。`project` があると**サーバが** `tags."sai.project" = "<登録簿の root のフォルダ名>"` を `filter` の前に `AND` で足す。登録簿に無い名前は 404。
+- `POST /api/mlflow/runs/search` の本文は `{"experiment_ids": ["1"], "filter": "", "order_by": ["attributes.start_time DESC"], "max_results": 100, "page_token": "", "project": "sai-tree"}`。`project` があると**サーバが** `tags."sai.project" = "<登録簿の root のフォルダ名>"` を `filter` の前に `AND` で足す。登録簿に無い名前は 404。
 - MLflow がエラーを返したら**本文と状態コードをそのまま**返す。つながらないときは 503「Mac の MLflow が応答しません」。成果物の `Content-Type` は拡張子から決める。5MB を超えたら 413「大きすぎるので表示しません（5MB まで）」。
 
 ### 4.9 会話・質問・通知・使用量
@@ -403,6 +403,10 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `#/research/experiments/run/<run_id>` | run の詳細（設定・指標・タグ・成果物） | Research | 表示 |
 | `#/research/experiments/compare/<run_id>,<run_id>,…` | run の比較（2〜20 件） | Research | 表示 |
 | `#/usage` | 使用量（`#/usage/<provider>/<account>` で内訳） | Usage | 表示 |
+| `#/login` | ログイン（多人数モードだけ。大学のメールアドレスとパスワード） | なし | 隠す |
+| `#/password` | パスワードの変更（初回ログインのときと、「パスワードを変える」から。多人数モードだけ） | なし | 隠す |
+| `#/account` | アカウント（自分の情報と sai-prep のトークン。多人数モードだけ） | なし | 隠す |
+| `#/admin` | 管理（利用者の一覧と作成・変更。管理者だけ。多人数モードだけ） | なし | 隠す |
 
 - **古い住所は Research へ送る**（`scitree.js` の登録が `location.replace` で送り直す）:
   `#/papers/tree[/<ID>]` → `#/research/tree[/<ID>]`、`#/papers/read/<run_id>` → `#/research/read/<run_id>`、`#/mlflow…` → `#/research/experiments…`、`#/papers/canvas`・`#/canvas/…` → `#/research/tree`。

@@ -57,15 +57,13 @@ sai-sci card --node <Q12> --block <sci-read> \
 
 ## Web と同じ操作（sai-web）
 
-`sai-web` は、Web（`apps/web`）の画面と同じ HTTP API を使うので、どちらで答えても同じ質問・承認になる。
+`sai-web` は、Web（`apps/web`）の画面と同じ HTTP API を使うので、どちらで答えても同じ質問になる。
 接続先は環境変数 `SAI_WEB_URL`（既定 `http://127.0.0.1:8200`）。合言葉は環境変数 `SAI_WEB_TOKEN`、無ければ `<SAI_HOME>/web/token` を使う。合言葉はヘッダで渡すので、**値を出力に書かない**。
 
 ```bash
 sai-web questions [--run <run_id>] [--project <名前>]
 sai-web question <qid>
 sai-web answer <qid> (--choice <番号> | --choices <番号,番号> | --text <文>) …
-sai-web approvals [--run <run_id>]
-sai-web approve <aid> <allow|always|deny> [--reason 文]
 sai-web send <project> <run_id> <文>
 sai-web mlflow experiments
 sai-web mlflow runs <experiment_id> [--filter <式>] [--max <n>]

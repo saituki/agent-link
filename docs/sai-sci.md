@@ -190,14 +190,14 @@ sai-sci/
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
   |-- researcher（sci の 26 本。research-tree の Node に向けて働く）
-  `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
+  `-- operator（professor の子。sai-tree の操作・監視・情報の抽出だけ）
 ```
 
 | id | 役 | 共通の決まり | 研究の判断 |
 |---|---|---|---|
 | `professor` | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して TRIAGE をする | `sai-agent` / `sci-task` / `sci-cli` | する。root の run になる。研究作業は自分でしない |
 | `professor-backward` | 既存の論文から始める逆向きの舵取り（5.6 節） | 上の 3 本と `bw-core` | する。root の run になる |
-| `operator` | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sci-cli` | しない。professor の子 |
+| `operator` | sai-tree の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sci-cli` | しない。professor の子 |
 | `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも research-tree も直さない | `sai-agent` / `sci-task` / `sci-cli` | しない |
 | `sci-*` | 研究作業そのもの（読む・比べる・O を出す・考える・書く・探す・実験する） | `sci-core`（+ `sci-find`・`sci-match`・`exp-core`） | しない。CARD に書かれた作業だけ |
 
@@ -491,7 +491,7 @@ sai-link card run <返ってきた run_id>
 - **形の決まり**: 型は `id`・`name` の frontmatter と `## Q` の節、ガイドは `key`・`name`・`target` の frontmatter と `## Q`・`## Child Q`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
 - **確かめ**:
   ```bash
-  cd ~/workdir/Sai/sai-moon
+  cd ~/workdir/Sai/sai-tree
   env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
     perl -e 'alarm 1800; exec @ARGV' cargo test -p sai-sci-cli
   ```

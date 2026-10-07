@@ -6,7 +6,8 @@ rootless Docker の上に 1 プロジェクト 1 コンテナを置く。Web は
 
 - 実行するのは利用者（サーバの管理者）である。ここに書いた命令をそのまま打てばよい。
 - コンテナの形は共有契約 C7、置き場は共有契約 C4（`docs/plan/unit-U08-container-image.md`）。
-- 値の読み替え: `<repo>` はリポジトリの絶対パス（例 `/srv/sai/sai-tree`）、`<sai-uid>` は `id -u sai` の値（例 `1001`）、`<user>` は研究プロジェクトの利用者の短い名前、`<project>` はプロジェクトの短い名前。
+- 値の読み替え: `<repo>` はリポジトリの絶対パス（例 `/srv/sai/sai-tree`。更新を `deploy.sh` で行うなら `/srv/sai/app`）、`<sai-uid>` は `id -u sai` の値（例 `1001`）、`<user>` は研究プロジェクトの利用者の短い名前、`<project>` はプロジェクトの短い名前。
+- 更新（Mac から反映する手順）は 15、バックアップは 16 にある。
 
 ## 1. 用意（Ubuntu・利用者 `sai`）
 
@@ -253,10 +254,89 @@ sudo rm -rf /srv/sai/users/<user>/projects/<user>-<project>
 sudo rm -rf /srv/sai/users/<user>/homes/<user>-<project>
 ```
 
-**バックアップする場所**: `/srv/sai/users` と、Web の置き場 `~sai/.sai/web/`。
+**バックアップする場所**: `/srv/sai/users` と、Web の置き場 `~sai/.sai/web/`（手順は 16）。
 
 ## 14. 規約の注意（Claude のトークン）
 
 Claude の長命トークン（`claude setup-token`）を Web に預けて使う機能は、Anthropic の規約
 （開発者が資格情報を保存・仲介しない）に照らして灰色であり、使う人の責任で使うこと（要件定義書の決定）。
 トークンは各自が自分のアカウントで発行し、他人と共有しない。
+
+## 15. 更新のしかた（Mac から `deploy.sh` で反映する）
+
+サーバの上に bare リポジトリを 1 つ置き、Mac からそこへ push して、サーバで `deploy.sh` を走らせる。
+外部の git の remote（GitHub など）は使わない。
+
+**初回だけ**。順番は次のとおり。
+
+1. サーバで（root）: 置き場を作り、`sai` に渡す。
+
+   ```bash
+   sudo mkdir -p /srv/sai && sudo chown sai: /srv/sai
+   ```
+
+2. サーバで（`sai`）: bare リポジトリを作る。
+
+   ```bash
+   sudo -iu sai git init --bare /srv/sai/repo.git
+   ```
+
+3. Mac で（Tailscale の ssh）: remote を足して、最初の push をする。`sai` が ssh でログインできるように、`/home/sai/.ssh/authorized_keys` に Mac の公開鍵を入れておく。
+
+   ```bash
+   cd ~/workdir/Sai/sai-tree
+   git remote add server ssh://sai@<マシン名>/srv/sai/repo.git
+   git push server main
+   ```
+
+4. サーバで（`sai`）: 作業用のリポジトリを clone する（push の後でないと空になる）。
+
+   ```bash
+   sudo -iu sai git clone /srv/sai/repo.git /srv/sai/app
+   ```
+
+`/srv/sai/app` が配備の作業用のリポジトリである（`deploy.sh` が使う）。`<repo>` を `/srv/sai/app` にすれば、4 以降の手順と `sai-web.service` の `WorkingDirectory` が同じ場所を見る。
+
+**`deploy.sh` が `sudo` で許す行**（root で。`systemctl restart sai-web` の 1 つだけを `sai` に許す）:
+
+```bash
+sudo visudo -f /etc/sudoers.d/sai-web
+```
+
+開いたファイルに次の 1 行を書く。
+
+```
+sai ALL=(root) NOPASSWD: /usr/bin/systemctl restart sai-web
+```
+
+**毎回**（Mac で）:
+
+1. テストを全部通す（AGENTS.md の「テストと確認」。Linux の CI でも回る）。
+2. `git push server main`
+3. `ssh sai@<マシン名> /srv/sai/app/apps/web/server/deploy.sh`
+
+`deploy.sh` は次の 5 段を順に行い、段ごとに何をしているかを表示する（`set -e`。失敗したら止まる）。
+
+1. `git pull --ff-only`（`/srv/sai/app`）
+2. `docker build -f apps/web/server/Dockerfile -t sai-tree:latest .`（上限 60 分）
+3. `(cd apps/web && uv sync)`
+4. `(cd apps/prep && uv build)`（sai-prep の入れ物を `apps/prep/dist/` に作る。`GET /api/prep/download` が配る）
+5. `sudo systemctl restart sai-web`
+
+**コンテナは配備で作り直さない。** 実行中のエージェントがいるコンテナには触らない（止めると、動いていた headless の実行が失敗の扱いになる）。
+古いイメージのコンテナを新しいイメージで作り直すには、そのコンテナが止まっていることを確かめてから、13 の「イメージを作り直したとき」の手順で `docker rm -f` する。次に Projects の「起動」を押すと、新しいイメージでコンテナが作られる。
+
+
+## 16. バックアップ（配備の前に）
+
+配備の前に、利用者の置き場と Web の置き場を `sai` の home に取る。
+
+```bash
+mkdir -p ~/backups
+tar -C /srv/sai -czf ~/backups/users-$(date +%Y%m%d-%H%M%S).tar.gz users
+tar -C ~ -czf ~/backups/web-$(date +%Y%m%d-%H%M%S).tar.gz .sai/web
+```
+
+- `users` は各プロジェクトの `.sai`・HOME・記録（Chats・論文の Library）を含む。
+- 取った物は別の機械にも置く（同じ機械の中だけに置かない）。
+- 取り出すときは `tar -C /srv/sai -xzf <file>`（サービスを止めてから行う）。
