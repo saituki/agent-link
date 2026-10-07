@@ -389,7 +389,7 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 
 ### 2.4 sai-sci が出す JSON
 
-Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答えの候補）・F（知見）・E（実験）の 4 種。ID は `Q12`・`O5`・`F3`・`E2`、提案は `P3`、種は `S2`。
+Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答えの候補）・F（知見）・E（実験の BRANCH）・S（SPROUT）と、ID `SEED`（DB の行なし）。ID は `Q12`・`O5`・`F3`・`E2`・`S2`、提案は `P3`。
 `status` と `node` の JSON は `sai-sci-core` の `Status` / `NodeDetail` を `serde_json::to_value` したもので、CLI は項目を足したり名前を変えたりしない。書き込む命令（`init`・`apply`・`triage`・`card`）は、終わる前に `state.md` と `tree.md` を書き出す。Web は書き込みのあと画面を読み直す。
 
 #### `status --json` → 木全体
@@ -401,27 +401,27 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
 | 直下 | `progress` | `{"answered","total"}` | 進み具合の表示 | 進みが出ない |
 | 直下 | `nodes[]` | 配列（深さ優先） | 木そのもの。方針の図もここから描く（図だけを返す命令は無い） | 木が描かれない |
-| 直下 | `seeds[]` | `{"id","title","sentence","path","run","created_at","nodes"}` | 種の一覧（`path` は Node の ID の配列） | ― |
-| 直下 | `seed_draft` | `{"text","parts"}` \| null | 種の下書き（`parts[]` は `key`・`text`・`filled`） | 下書きが出ない |
+| 直下 | `seed` | `{"type","mind":[{"heading","body"}]}` | SEED（RESEARCH_TYPE と mind.md） | SEED が出ない |
 | 直下 | `next[]` | NextAction の配列 | 「次の一手」の行とカード作成の種 | 出ない |
 | 直下 | `pending_proposals` | 数値 | 仕分け待ちの提案の数 | 0 に見える |
 | 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at"}` | 決定の記録（新しい順 30 件） | 履歴が出ない |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
-| ― | 始めていないとき | | `type`・`seed_draft` は `null`、配列は空、数は 0 | ― |
+| ― | 始めていないとき | | `type`・`seed` は `null`、配列は空、数は 0 | ― |
 
 **NodeRow**（`status.nodes[]` と `node.node` / `children[]` / `subtree[]` の 1 件）
 
 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|
-| `id` / `kind` | 文字列（`Q12`）/ `"Q"` `"O"` `"F"` `"E"` | 行の種類の出し分け、行き先 `#/research/tree/<id>` | Node が選べない |
-| `parent` / `depth` / `ord` | 文字列 \| null / 数値 / 数値 | 並びと字下げ（一番上の Q が深さ 0） | 並びが壊れる |
+| `id` / `kind` | 文字列（`Q12`）/ `"Q"` `"O"` `"F"` `"E"` `"S"` | 行の種類の出し分け、行き先 `#/research/tree/<id>` | Node が選べない |
+| `parent` / `depth` / `ord` | 文字列 \| null / 数値 / 数値 | 並びと字下げ（top_Q と S は `parent` が `null`、深さ 0） | 並びが壊れる |
 | `text` / `body` | 文字列 | 行のラベル / 本文 | ― |
 | `guide` | 文字列 \| null（Q だけ） | Q のガイドの key | ガイドの説明が出ない |
 | `answer_kind` | 文字列 \| null（O だけ） | O の種類の印 | ― |
 | `starred` | 真偽値（O だけ） | ★ の印 | ★ が出ない |
 | `on_path` | 真偽値 | ★ の道の上にある印（太く描く） | 道が分からない |
-| `leaf` | 真偽値 | 子の Q が無い Q の印 | ― |
+| `paths[]` | 文字列の配列（S だけ） | SPROUT が選んだ PATH（終点の O の ID） | ― |
+| `bottom_q` | 真偽値 | 子の Q が無い Q の印 | ― |
 | `objectivity` | `{"count","target","met"}` \| null（Q だけ） | 目安の数に届いたか | 出ない |
 | `logicality` | `{"value","note","findings","checked_at"}` \| null（Q だけ。`value` は `ok` / `contradiction` / `unchecked`） | F どうしに矛盾が無いかの印 | 出ない |
 | `counts` | `{"q","o","f","e"}` | 直の子の数 | 数が空 |
@@ -437,7 +437,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 階層 | 項目 | 型 | 使うところ |
 |---|---|---|---|
 | 直下 | `node` | NodeRow | 板の見出しと本文 |
-| 直下 | `path[]` | `{"id","kind","text"}`（一番上の Q から順） | パンくず |
+| 直下 | `path[]` | `{"id","kind","text"}`（SEED から順） | パンくず |
 | 直下 | `children[]` / `subtree[]` | NodeRow の配列 | 直の子 / 子孫すべて |
 | 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls","target"}` \| null | Q の説明と目安 |
 | 直下 | `logic[]` | `{"value","note","findings","f_count","run","created_at"}` | Logicality の確かめの履歴 |
@@ -460,7 +460,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 | 項目 | 型 | 内容 |
 |---|---|---|
-| `node` | 文字列（`Q12` の形。Q・O・F・E） | どの Node のためのカードか。**必須** |
+| `node` | 文字列（`Q12` の形。Q・O・F・E・S、または `SEED`） | どの Node のためのカードか。**必須** |
 | `block` | 文字列（`^sci-[a-z-]{2,30}$`） | 動かす block。**必須**（runner が `user` で空なら `sci-read`） |
 | `purpose` | 文字列（1〜300 字） | 依頼文。**必須** |
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
@@ -474,7 +474,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 #### そのほかの命令
 
-- `types --json` → `{"types":[{"id","name","root"}]}`（`root` は一番上の Q の文）。
+- `types --json` → `{"types":[{"id","name"}]}`。
 - `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配った部品の文字列の配列。新しい木が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
 - `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
 - `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。

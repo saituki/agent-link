@@ -15,7 +15,7 @@
 
 - **木の正は `papr.db`** です。Q・O・F・E・PROPOSAL・SEED などは `sci_` で始まる表の中にあります。
 - **`state.md` と `tree.md` は書き出し**です。手で直しても次の書き出しで消えます。
-- **木の骨組みは研究の型が決めます。** 研究の型（5 本）は、一番上の Q から下へ伸びる Q の階層の雛形です。
+- **木の骨組みは研究の型が決めます。** 研究の型（5 本）は、SEED の下に並ぶ top_Q から下へ伸びる Q の階層の雛形です。
 - **エージェントは PROPOSAL を出すだけです。** 木に直接書き込む処理は入れません。
 
 用語（名詞は英語のまま使います）:
@@ -26,10 +26,16 @@
 | O | 答えの候補 | Q への答えの案。Answer か Issue のどちらか。★ を付けた O が「道」になる |
 | Answer / Issue | 答え / 課題 | O の種類。Answer は Q に答える案。Issue は「答えが無い・足りない」ことを指し、実験（E）で確かめる |
 | F | 知見 | 論文などから分かった 1〜3 文の事実と出典（`#37 §3.2` の形） |
-| E | 実験 | Issue を確かめる実験。親は O か E。親子で実験の枝を表す |
+| E | 実験 | Issue を確かめる実験（BRANCH）。親は SPROUT（S）か E。親子で実験の枝を表す |
 | Objectivity | 客観性 | Q ごとに「F が何本そろえば十分か」の目安（target）と、今の本数。画面では `■■□ 2/3` の形で出る |
 | Logicality | 論理性 | Q の答えの筋が通っているかの確かめの結果。`OK`・`CONTRADICTION`・`UNCHECKED` |
-| SEED | 種 | 研究を 1 文で言う文。Q から子の Q へ降りる O の 1 本の鎖（Issue の O を 1 つ以上）から作る。Web の画面では Sprout と出す |
+| SEED | 種 | 研究の初期の入力（RESEARCH_TYPE と `mind.md` の初期構想・制約）。Node ID は `SEED` で、DB の行は無い |
+| ROOT | 根 | SEED から下へ分かれる Q・O・F の総称 |
+| SPROUT | 芽 | SEED から上へ分かれる node（ID `S<n>`、kind `S`）。PATH（終点の O）を 1 つ以上集め、新しい実験の計画を立てる。Issue の O を 1 つ以上含む |
+| BRANCH | 枝 | SPROUT から上へ分かれる E（実験の実行）。親は SPROUT（S）か E |
+| PATH | 道 | SEED から下る道。終点の O で表す。Answer で終わる PATH は実験の前提条件、Issue で終わる PATH は試す部分 |
+| top_Q | 最上位の Q | SEED の直下の Q。いくつでも並べられる |
+| bottom_Q | 最下位の Q | Q の階層で最も下の Q |
 | PROPOSAL | 提案 | エージェントが出した「木をこう変えたい」という申し出 |
 | TRIAGE | 仕分け | PROPOSAL を採用（accept）・却下（reject）・取り消し（revert）すること |
 | Action | 行動 | 木の Node に向けて 1 回動く実行。`task.md` を持つカード（CARD）として作る |
@@ -41,18 +47,23 @@
 
 ## 2. 3 つの考え
 
-### 2.1 Q・O・F・E の木
+### 2.1 4 layer の木（SEED・ROOT・SPROUT・BRANCH）
 
 研究の穴を Q で表し、答えの候補を O、根拠を F、確かめの実験を E で表す。
-一番上の Q は研究の型が決める。Q は子の Q に分け、O は Answer か Issue に分ける。
-Answer の O の中から利用者が ★ を付けた物が「道」になる（★ の道は `on_path` の印）。SEED（研究の 1 文）は、Q から子の Q へ降りる O の 1 本の鎖（Issue の O を 1 つ以上）から作る。
+SEED は研究の初期の入力（RESEARCH_TYPE と `mind.md`）で、その下に top_Q が並ぶ（ROOT）。SEED の下の Q は子の Q に分け、O は Answer か Issue に分ける。
+Answer の O の中から利用者が ★ を付けた物が「道」になる（★ の道は `on_path` の印）。SPROUT は、SEED から下る PATH（終点の O）を 1 つ以上集めた node で、Issue の O を 1 つ以上含む。BRANCH（E）は SPROUT か E の下に付く。
 
 ```
-Q（研究の型の一番上）
-├─ Q（子）
-│   ├─ O（Answer）★ ── F・F
-│   └─ O（Issue）── E ── E（実験の枝）
-└─ Q（子）…
+E（BRANCH）── SPROUT か E の下。E の下に F（結果）か次の E
+ │
+S（SPROUT）── PATH（終点の O）を 1 つ以上。Issue の O を 1 つ以上
+ │
+SEED ──────── RESEARCH_TYPE と mind.md。Node ID は SEED
+ │
+Q（top_Q）── SEED の直下
+ └ O（答えの候補）── ★ を付けた O が Answer（道）
+     ├ F（根拠）
+     └ O の下に child_Q を足せる
 ```
 
 ### 2.2 評価は Objectivity と Logicality
@@ -84,7 +95,7 @@ sai-sci/
 
 ### 3.1 研究の型（5 本）
 
-`types/` の 5 本。型は Q の階層の雛形である。`## Q` の節に階層（`-` が親子、`+` が並び）、`## SEED` の節に SEED の文のひな形を持つ。frontmatter の `root` は一番上の Q の文。
+`types/` の 5 本。型は SEED の下の Q の階層の雛形である。本文の説明と `## Q` の節に階層（`-` が親子、`+` が並び）を持つ。frontmatter は `id`・`name`。
 
 置き場の順（先に見つかった物を使う）:
 
@@ -158,7 +169,7 @@ sai-sci/
 | ★ を選ぶ | なし（利用者だけ）。手伝いに `sci-compare` | ― |
 | 実験 | `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`・`sci-result-compare`（逆向き） | `sci-exp-scout`（参照実装を探す）・`sci-sim-model`（論文 1 本のモデル定義書）・`sci-sim-compose`（つなぎのモデル定義書） |
 | データ分析 | `sci-data-explore`・`sci-data-test` | ― |
-| その他 | `sci-seed`・`sci-digest`・`sci-coach`・`sci-typify` | ― |
+| その他 | `sci-digest`・`sci-coach`・`sci-typify` | ― |
 
 - 「support」は、ほかのブロックが呼ぶ手伝い役。単独の Action としては動かさない。
 - `sci-exp-branch` だけは、木の範囲も共通の決まり（`sci-core`）も受け取らない（実験ループ。5.5 節）。
@@ -205,7 +216,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 - **`tools/data_result.py`** — データ分析の検査と記録。データ表・前処理の結果・検定の結果を `results.json` として読み書きし、報告書の骨を作る。
 - **`tools/eda/`** — データ表・画像・時系列・構造化データの EDA の CLI（K-Dense からの写し。MIT。`LICENSE` と `README.md` つき）。
 - **`tools/biosignal/`** — 心電（HRV）・皮膚電反応・合成信号生成・解析の epochs の計画の CLI（K-Dense からの写し。MIT）。
-- **`mind.md`**（`sai-sci/mind.md`）— 研究の土台のひな形。`ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES・INTERESTS・NOTES` の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** `GIVEN` は研究の型で最初から与えられている物（一番上の Q の近くに置く物）、`VALUE_AXES` は O を比べるときの軸（`sci-compare`）になる。
+- **`mind.md`**（`sai-sci/mind.md`）— 研究の土台のひな形。`ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES・INTERESTS・NOTES` の 7 節。**利用者が書くファイルで、エージェントは直接書き換えません。** `GIVEN` は研究の型で最初から与えられている物（SEED に入る物）、`VALUE_AXES` は O を比べるときの軸（`sci-compare`）になる。
 
 ---
 
@@ -270,9 +281,9 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 論文タブの最初の画面が「研究方針」（`#/papers/tree`）。
 
-- 上の帯: SEED・進み具合（答えが出た Q の数 / 全部）・Next Action（先頭 3 件）・PROPOSAL・注意。
-- 左: Q・O・F・E の一覧。
-- 真ん中: 方針の図（下に伸びる木 1 つ）。Node を押すと `#/papers/tree/Q12` のように住所が変わり、詳細が「板」に出る。
+- 上の帯: 進み具合（答えが出た Q の数 / 全部）・Next Action（先頭 3 件）・PROPOSAL・注意。
+- 左: Q・O・F・E・S（SPROUT）の一覧。
+- 真ん中: 方針の図（下に ROOT（top_Q）、次に SEED の欄、上に SPROUT、さらに上に BRANCH（E））。SEED の欄を押すと RESEARCH_TYPE と `mind.md` の節が出る。Node を押すと `#/papers/tree/Q12` のように住所が変わり、詳細が「板」に出る。
 - 板: 見出し（Q は Objectivity と Logicality の札付き）・親までの道・PENDING の節（TRIAGE を行う）・操作の釦・Next Action・F・決定の記録など。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
 - 仕分け（TRIAGE）: Node を選んだ右の板の PENDING の節で行う。
 - 検索セット: `#/papers/sets`（一覧）と `#/papers/sets/<set_id>`（候補を keep / drop で選別）。
@@ -282,7 +293,7 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 `sci-*` のブロックは `context: true` です。sai-link は実行の直前に `.sai/settings.json` の `context` の命令を実行し、標準出力を、最初のメッセージの `# context` の節に入れます。依頼文は同じメッセージの `# task_text` の節に入ります。
 
-TREE の範囲はブロックの sci_type で決まります。`node` は対象の Node とその子孫、`manage` は一番上の Q から対象までの祖先と対象とその子孫、`support` には出しません。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。
+TREE の範囲はブロックの sci_type で決まります。`node` は対象の Node とその子孫、`manage` は SEED から対象までの祖先と対象とその子孫（対象が `SEED` なら research-tree の全体）、`support` には出しません。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。
 
 **決まり:** `.sai/settings.json` の `context` に別の命令を指定するときは、その出力も `##` から始めてください。
 
@@ -290,7 +301,7 @@ TREE の範囲はブロックの sci_type で決まります。`node` は対象�
 
 op（操作）は危険度で 3 つに分かれます。
 
-- **自動で入る物**（`add_o`・`add_f`・`add_e`・`record_logic`・`add_seed`）は、出した PROPOSAL がすぐ木に入り、自動で反映された印が付く。
+- **自動で入る物**（`add_o`・`add_f`・`add_e`・`add_sprout`・`record_logic`）は、出した PROPOSAL がすぐ木に入り、自動で反映された印が付く。
 - **利用者が仕分ける物**（`add_q`・`copy`・`remove`）は、TRIAGE（accept）するまで木に入らない。TRIAGE は Node を選んだ右の板の PENDING の節で行う。
 - **利用者だけの物**（`star`・`unstar`・`set_kind`・`edit`・`set_target`）は、エージェントは出せない。
 - どちらも、利用者は 1 押しで取り消せる（revert）。
@@ -302,7 +313,7 @@ op（操作）は危険度で 3 つに分かれます。
 | sci_type | 動き方 | TREE の範囲 | 終わり方 |
 |---|---|---|---|
 | node | 対象の Node を指定されて動く | 対象＋子孫 | REPORT を `sai-link doc write` で 1 つ保存する |
-| manage | research-tree の全体を見て動く | 祖先＋対象＋子孫 | REPORT を `sai-link doc write` で 1 つ保存する |
+| manage | research-tree の全体を見て動く | 祖先＋対象＋子孫（対象が `SEED` なら全体） | REPORT を `sai-link doc write` で 1 つ保存する |
 | support | node agent・manage agent に呼ばれ、1 つの道具の使い方に特化した作業をする | TREE なし | REPORT を保存しない。呼んだ agent に `sai-link task report` で返す |
 
 ブロックごとの分類:
@@ -310,7 +321,7 @@ op（操作）は危険度で 3 つに分かれます。
 | sci_type | ブロック |
 |---|---|
 | node | sci-split・sci-ideate・sci-search・sci-screen・sci-read・sci-compare・sci-debate・sci-coach・sci-cite-check・sci-data-explore・sci-data-test・sci-exp-review |
-| manage | sci-start・sci-review・sci-digest・sci-restore・sci-typify・sci-result-compare・sci-exp-sprout・sci-seed |
+| manage | sci-start・sci-review・sci-digest・sci-restore・sci-typify・sci-result-compare・sci-exp-sprout |
 | support | sci-analogy・sci-extract・sci-lookup・sci-exp-scout・sci-sim-model・sci-sim-compose・sci-exp-branch・paper-debater・paper-reviewer |
 | なし | professor・professor-backward・kaizen・operator |
 
@@ -329,10 +340,11 @@ op（操作）は危険度で 3 つに分かれます。
 `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review` の 3 本で実験を回します。3 本は互いの終わりを待ちません。sprout は最初の branch を起こして終わり、branch はジョブ待ちの review のカードを作って終わり、review はジョブが終わると daemon に起こされます。
 
 ```
-sai-sci card --block sci-exp-sprout            SEED の札ができた Node
+sai-sci card --node SEED --block sci-exp-sprout   SPROUT を作る（対象は SEED）
         │
         ▼
- sprout ── 実験仕様書を作り、最初の branch を 1〜2 本起こして終わる
+ sprout ── PATH を選んで SPROUT を作り、実験仕様書と最初の branch を
+        │  1〜2 本起こして終わる
         │  （sai-sci card --block sci-exp-branch → sai-link card run）
         ▼
  branch ── スクリプト 1 本を書いて実行先に投げる。始まりを確かめたら、
@@ -345,12 +357,12 @@ sai-sci card --block sci-exp-sprout            SEED の札ができた Node
 
 - **MLflow の形**: experiment は `<project>/ID<sprout>/<model>`、run は `ID<branch>-p<NN>`。epoch ごとに `train_loss`・`val_loss` を記録する。
 - **止め方**: 判定が `stop` のときだけ。`max_branches` が branch の総数の上限になる。
-- **最初の sprout の起動**は、`sai-sci card` に SEED の札のトークンを渡して作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
+- **最初の sprout の起動**は、`sai-sci card --node SEED` で作る。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可。`mind.md` や参照コード調査書、逆向きなら復元書）。
 
 ```bash
-sai-sci card --node <N> --block sci-exp-sprout \
-  --purpose "<study> の計画" \
-  --input <SEED の札のトークン> --json
+sai-sci card --node SEED --block sci-exp-sprout \
+  --purpose "<解きたい Issue の O を含む SPROUT を作る>" \
+  --input <参照コード調査書や復元書のトークン> --json
 sai-link card run <返ってきた run_id>
 ```
 
@@ -364,10 +376,10 @@ sai-link card run <返ってきた run_id>
 
 | 段 | すること | ブロック |
 |---|---|---|
-| 1. 抽出 | 序論を上の Q に、手法と実験の設定を下の Q に割り当てる。結果の数値を記載結果表に、主張と引用の組を対応表にする。論文の手法を動かす SEED の札（再現）を書く | `sci-restore` |
+| 1. 抽出 | 序論を上の Q に、手法と実験の設定を下の Q に割り当てる。結果の数値を記載結果表に、主張と引用の組を対応表にする | `sci-restore` |
 | 2. 評価 | 主張ごとに引用文献を取り寄せて、根拠になっているかを判定する。そのうえで、復元した木を審査する | `sci-cite-check` → `sci-review` |
-| 3. 再現 | SEED の札（再現）で論文の手法を動かす | `sci-exp-sprout` |
-| 4. 更新 | 基盤論文より新しい論文を探して O を直し、新しい SEED を作って動かす | 前向きのブロック |
+| 3. 再現 | PATH を選んで再現の SPROUT を作り、論文の手法を動かす | `sci-exp-sprout` |
+| 4. 更新 | 基盤論文より新しい論文を探して O を直し、更新の SPROUT を作って動かす | 前向きのブロック |
 | 5. 比較 | 論文の記載値・再現・更新を比べる | `sci-result-compare` |
 
 - **始め方**: 基盤論文を Library に入れ（Web の論文の画面）、木を作ってから（`sai-sci init --update --type <型>`）、`professor-backward` のカードを人が起こします。依頼文に `基盤論文: #12 #15` の形で番号を書きます。
@@ -419,11 +431,11 @@ sai-link card run <返ってきた run_id>
 
 | 命令 | 何をするか |
 |---|---|
-| `sai-sci init --type <型> [--json]` | 研究プロジェクトの部品を配り、一番上の Q を作る |
+| `sai-sci init --type <型> [--json]` | 研究プロジェクトの部品を配り、SEED の下に top_Q を作る |
 | `sai-sci types [--json]` | 使える研究の型を一覧する |
 | `sai-sci type-save` | 研究の型を `<sai_home>/sci/types/` に保存する（標準入力に型の Markdown。JSON で返す） |
-| `sai-sci status [--json] [--brief]` | 現況（進み具合・SEED の下書き・木・Next Action）。`--brief` は数だけを JSON で出す |
-| `sai-sci node <Q12\|O5\|F3\|E2> [--json]` | Node 1 つの詳細 |
+| `sai-sci status [--json] [--brief]` | 現況（進み具合・SEED・木・Next Action）。`--brief` は数だけを JSON で出す |
+| `sai-sci node <Q12\|O5\|F3\|E2\|S2> [--json]` | Node 1 つの詳細 |
 | `sai-sci context --run <run_id> [--tree]` | 今の実行の `# context` を標準出力へ出す |
 | `sai-sci propose [--run <run_id>] [--block <id>]` | PROPOSAL を出す（標準入力に `{"proposals":[…]}`） |
 | `sai-sci apply` | 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON） |
@@ -465,7 +477,7 @@ sai-link card run <返ってきた run_id>
 ## 8. md を直すとき（開発者向け）
 
 - **型・ガイド・ブロックは `sai-sci` に埋め込まれています**（`include_str!`）。`sai-sci/` の md を直したら `cargo build --release` で作り直さないと反映されません（`apps/web` が叩くのは release の実行ファイル）。
-- **形の決まり**: 型は `id`・`name`・`root` の frontmatter と `## Q`・`## SEED` の節、ガイドは `key`・`name`・`target` の frontmatter と `## Q`・`## Child Q`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
+- **形の決まり**: 型は `id`・`name` の frontmatter と `## Q` の節、ガイドは `key`・`name`・`target` の frontmatter と `## Q`・`## Child Q`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
 - **確かめ**:
   ```bash
   cd ~/workdir/Sai/sai-moon

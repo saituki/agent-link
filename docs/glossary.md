@@ -1,7 +1,7 @@
 # 用語集
 
 sai の文書とコードで使う言葉の意味をまとめる。画面の文字は日本語にし、`data-tab`・住所・API の名前などの識別子は英語のまま使う。
-研究方針の木の名詞（Q・O・F・E・SEED・Sprout・PROPOSAL・TRIAGE・Action・Next Action・DEBT・CARD など）は [`../sai-sci/README.md`](../sai-sci/README.md) の「1. sai-sci とは」の表にある。
+研究方針の木の名詞（Q・O・F・E・SEED・ROOT・SPROUT・BRANCH・PROPOSAL・TRIAGE・Action・Next Action・DEBT・CARD など）は [`../sai-sci/README.md`](../sai-sci/README.md) の「1. sai-sci とは」の表にある。
 
 ## 1. アプリと部品
 

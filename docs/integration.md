@@ -229,7 +229,7 @@ iPhone / PC のブラウザ
 | `GET /api/projects/{name}/papers/sci/status` | 研究方針の木全体 | `sai-sci status --json` |
 | `GET /api/projects/{name}/papers/sci/types` | 使える研究の型 | `sai-sci types --json` |
 | `POST /api/projects/{name}/papers/sci/init` | 研究方針の木を始める（body `{"type": "problem"}`・型は 5 つだけ） | `sai-sci init --type <型> --json` |
-| `GET /api/projects/{name}/papers/sci/nodes/{node_id}` | Node 1 つの中身（`{node_id}` は `Q12`・`O5`・`F3`・`E2` の形） | `sai-sci node <ID> --json` |
+| `GET /api/projects/{name}/papers/sci/nodes/{node_id}` | Node 1 つの中身（`{node_id}` は `Q12`・`O5`・`F3`・`E2`・`S2` の形） | `sai-sci node <ID> --json` |
 | `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 13 種の op の JSON。読む札の画面が足す `add_f` だけは任意の `run` を付け、その run の F として残す） | `sai-sci apply --json`（標準入力） |
 | `POST /api/projects/{name}/papers/sci/proposals/{pid}` | 提案を仕分ける（body `{"action": "accept\|reject\|revert", "edit": {…}}`） | `sai-sci triage <P> --accept\|--reject\|--revert [--edit=<JSON>]` |
 | `POST /api/projects/{name}/papers/sci/cards` | Node のための札（カード）を作る（body は C-CARD の JSON） | `sai-sci card --from-json --json`（標準入力） |
@@ -238,7 +238,7 @@ iPhone / PC のブラウザ
 | `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | 読む札を終えて review へ移す（始まっていなければ先に始める。F が 0 でも止めない。戻りは `{"run_id","status":"review","findings":n}`） | `sai-sci read <run_id> --json` → `sai-link card finish <run_id>` |
 
 - API の住所は `papers/sci/…` のまま。画面の住所だけが Research（§6）に移った。
-- `papers/sci` の 10 本と `papers/sets` の 4 本は `sci.py` が検査してから CLI を呼ぶ。Node の ID は `^[QOFE][1-9][0-9]{0,8}$`、提案の ID は `^P[1-9][0-9]{0,8}$`、run_id と set_id は 1〜999999999 の整数、型は 5 つだけ、op は 13 種（項目と字数は C-OP の表）、`action` は 3 つ。検索セットの `positions` は 1〜500 個の 0 以上の整数（候補の位置は 0 始まり）、`decision` は keep か drop、`reason` は 200 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
+- `papers/sci` の 10 本と `papers/sets` の 4 本は `sci.py` が検査してから CLI を呼ぶ。Node の ID は `^[QOFES][1-9][0-9]{0,8}$`、提案の ID は `^P[1-9][0-9]{0,8}$`、run_id と set_id は 1〜999999999 の整数、型は 5 つだけ、op は 13 種（項目と字数は C-OP の表）、`action` は 3 つ。検索セットの `positions` は 1〜500 個の 0 以上の整数（候補の位置は 0 始まり）、`decision` は keep か drop、`reason` は 200 字まで。通らない値は 400 で、CLI を 1 度も呼ばない。**ファイルのパスは受け取らない。**
 
 ### 4.7 Radio 中継
 
