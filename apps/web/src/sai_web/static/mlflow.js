@@ -26,10 +26,6 @@ const MLF_COMPARE_MIN = 2;
 const MLF_COMPARE_MAX = 20;
 // 1 回に取る行の数（MLflow の 1 回の返答の上限と同じ）
 const MLF_PAGE_SIZE = 100;
-// 選ぶプロジェクトの覚え場所（C-07）
-const MLF_PROJECT_KEY = "sai_web_mlf_project";
-// 「すべてのプロジェクト」はこの値として覚える（null は「まだ選んでいない」）
-const MLF_PROJECT_ALL = "*";
 // 画面の「広いか」の境目（900px 以上）
 const MLF_WIDE_PX = 900;
 // 指標の一括取得で送れる run の数の上限（MLflow の 1 回の返答の上限）
@@ -453,16 +449,6 @@ function mlfArtifactKind(path) {
   return "unknown";
 }
 
-/** プロジェクトの選択肢（先頭は「すべてのプロジェクト」）。 */
-function mlfProjectChoices(projects) {
-  const list = [{ name: "", label: "すべてのプロジェクト", note: "" }];
-  for (const one of (projects && projects.projects) || []) {
-    if (!one || !one.name) continue;
-    list.push({ name: one.name, label: one.name, note: one.description || "" });
-  }
-  return list;
-}
-
 /** run の中の指標の名前のならんだ列（重複無し・名前順）。 */
 function mlfMetricKeys(run) {
   const out = [];
@@ -561,10 +547,8 @@ function mlfCompareHeadName(run) {
 
 let mlfMounted = false;        // 枠（見出しと 2 つの欄）を一度作ったか
 let mlfState = null;           // 今開いている画面（mlfParseHash の返り値）
-let mlfProjects = null;        // GET /api/projects の返り値
-let mlfProjectError = "";      // プロジェクト一覧を読めなかったときの理由
-let mlfProject = null;         // 選んでいるプロジェクト名（"" は「すべて」・null は未選択）
 let mlfExperiments = null;     // 実験の一覧
+let mlfExperimentsFor = null;  // 実験の一覧を読んだときのプロジェクト名（変わったら読み直す）
 let mlfExperimentsError = "";  // 実験一覧の読み込みの失敗
 let mlfTable = null;           // run の表の状態
 let mlfDetail = null;          // run の詳細
@@ -579,10 +563,13 @@ function mlfBuild() {
   if (!root || mlfMounted) return;
   root.innerHTML = "";
 
-  const chip = saiEl("button", "mlf-chip");
+  // research-tree と同じ札・同じ選択の板（papers.js の openProjectSheet）。表示は updateProjectChips が入れる
+  const chip = saiEl("button", "papers-proj");
   chip.type = "button";
   chip.id = "mlf-project";
-  chip.addEventListener("click", () => void mlfOpenProjectSheet());
+  chip.hidden = true;
+  chip.setAttribute("aria-label", "プロジェクトを切り替える");
+  chip.addEventListener("click", () => { if (typeof openProjectSheet === "function") openProjectSheet(); });
   const bar = saiEl("header", "appbar");
   const back = saiEl("button", "", "‹");
   back.type = "button";
@@ -633,92 +620,9 @@ function mlfSyncBar(title) {
 // プロジェクトの選び方
 // ============================================================================
 
-/** 覚えている選択を読む（無ければ null）。 */
-function mlfLoadProject() {
-  try {
-    const raw = localStorage.getItem(MLF_PROJECT_KEY);
-    if (raw == null) return null;
-    return raw === MLF_PROJECT_ALL ? "" : raw;
-  } catch {
-    return null; // 保存できない環境でも動く
-  }
-}
-
-/** 選択を覚える。 */
-function mlfSaveProject(name) {
-  mlfProject = name;
-  try {
-    localStorage.setItem(MLF_PROJECT_KEY, name === "" ? MLF_PROJECT_ALL : name);
-  } catch { /* 覚えられなくても動く */ }
-}
-
-/** サーバーへ送るプロジェクト名（すべてなら null＝送らない）。 */
+/** サーバーへ送るプロジェクト名（research-tree と共有。無ければ null＝送らない）。 */
 function mlfProjectName() {
-  if (mlfProject == null) return null;
-  return mlfProject === "" ? null : mlfProject;
-}
-
-/** 上の札の文言。 */
-function mlfProjectLabel() {
-  if (mlfProject == null) return "プロジェクトを選ぶ";
-  return mlfProject === "" ? "すべてのプロジェクト" : mlfProject;
-}
-
-/** 上の札を描き直す。 */
-function mlfRenderProjectChip() {
-  const chip = document.getElementById("mlf-project");
-  if (!chip) return;
-  chip.textContent = `📁 ${mlfProjectLabel()} ▾`;
-  chip.hidden = mlfProjects == null; // 読んでから出す
-}
-
-/** プロジェクト一覧を読む。force が true のときは読み直す。 */
-async function mlfEnsureProjects(force) {
-  if (mlfProjects != null && !force) return;
-  if (force || mlfProjects == null) {
-    try {
-      const data = await saiApi("/api/projects");
-      mlfProjects = data && Array.isArray(data.projects) ? data : { projects: [] };
-      mlfProjectError = "";
-    } catch (e) {
-      mlfProjectError = (e && e.message) || "プロジェクト一覧を読めませんでした";
-      mlfProjects = { projects: [] };
-    }
-  }
-  const saved = mlfLoadProject();
-  if (saved != null) {
-    mlfSaveProject(saved);
-  } else {
-    // 既定は一覧の最初（1 つも無ければ「すべて」）
-    const first = (mlfProjects.projects || []).find((one) => one && one.name);
-    mlfSaveProject(first ? first.name : "");
-  }
-  mlfRenderProjectChip();
-}
-
-/** プロジェクトを選ぶ板を出す。 */
-async function mlfOpenProjectSheet() {
-  await mlfEnsureProjects(true);
-  const body = saiEl("div", "mlf-sheet");
-  for (const one of mlfProjectChoices(mlfProjects)) {
-    const btn = saiEl("button", `mlf-sheet-item${one.name === mlfProject ? " active" : ""}`);
-    btn.type = "button";
-    btn.append(saiEl("span", "mlf-sheet-check", one.name === mlfProject ? "✓" : ""));
-    const col = saiEl("span", "mlf-sheet-text");
-    col.appendChild(saiEl("span", "mlf-sheet-name", one.label));
-    if (one.note) col.appendChild(saiEl("span", "mlf-sheet-note", String(one.note)));
-    btn.appendChild(col);
-    btn.addEventListener("click", () => {
-      mlfSaveProject(one.name);
-      mlfExperiments = null; // プロジェクトが変わると実験の一覧も変わる
-      mlfRenderProjectChip();
-      sheet.close();
-      void mlfOpenPage(mlfState);
-    });
-    body.appendChild(btn);
-  }
-  if (mlfProjectError) body.appendChild(saiEl("p", "mlf-note", mlfProjectError));
-  const sheet = saiSheet({ title: "プロジェクトを選ぶ", body });
+  return (typeof selectedPaperProject === "function" && selectedPaperProject()) || null;
 }
 
 // ============================================================================
@@ -729,6 +633,7 @@ async function mlfOpenProjectSheet() {
 async function mlfLoadExperiments() {
   try {
     const project = mlfProjectName();
+    mlfExperimentsFor = project;
     const data = await saiApi(project ? `/api/mlflow/experiments?project=${encodeURIComponent(project)}` : "/api/mlflow/experiments");
     mlfExperiments = data && Array.isArray(data.experiments) ? data.experiments : [];
     mlfExperimentsError = "";
@@ -1384,7 +1289,7 @@ function mlfRenderRun() {
   if (saiRunId) {
     // プロジェクトの作りは run に付けた `sai.project` を優先する（無ければいま選んでいるもの）
     const own = mlfTag(run, MLF_TAGS.saiProject);
-    const project = own || mlfProjectName() || ((mlfProjects && mlfProjects.projects[0]) || {}).name || "";
+    const project = own || mlfProjectName() || "";
     addLink(`branch ID${saiRunId} を開く`, `#/run/${encodeURIComponent(project)}/${encodeURIComponent(saiRunId)}`);
   }
   const sproutId = mlfSproutId(run);
@@ -2033,8 +1938,10 @@ async function mlfOpenPage(params) {
   const p = params || mlfParseHash(location.hash) || { page: "experiments" };
   mlfState = p;
   mlfBuild();
-  await mlfEnsureProjects(false);
-  mlfRenderProjectChip();
+  if (typeof ensurePaperProjects === "function") await ensurePaperProjects();
+  if (typeof updateProjectChips === "function") updateProjectChips();
+  // プロジェクトが変わると実験の一覧も変わる
+  if (mlfExperimentsFor !== mlfProjectName()) mlfExperiments = null;
   if (p.page === "experiments") {
     mlfTable = null;
     mlfDetail = null;
@@ -2138,7 +2045,6 @@ if (typeof module !== "undefined" && module.exports) {
     mlfValueText,
     mlfArtifactKind,
     mlfExt,
-    mlfProjectChoices,
     // U07（指標の時系列と run の比較）
     mlfMetricKeys,
     mlfMetricKeysOf,

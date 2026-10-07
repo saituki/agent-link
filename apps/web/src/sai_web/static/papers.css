@@ -149,35 +149,9 @@
 .pim-job-text { font-size: 13px; line-height: 1.6; }
 .pim-job-error { margin: 0; font-size: 12px; line-height: 1.6; color: var(--danger); }
 
-/* --- Dashboard の Project（要対応・現況・考え・状況のまとめ） --- */
+/* --- Dashboard の Project（現況・考え） --- */
 .pd-project { display: flex; flex-direction: column; gap: var(--sp-3); }
 .pd-card { display: flex; flex-direction: column; gap: var(--sp-2); }
-.pd-att-list { display: flex; flex-direction: column; }
-.pd-att {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) 0;
-  border-bottom: 1px solid var(--line);
-}
-.pd-att:last-child { border-bottom: none; }
-.pd-att-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: var(--sp-2);
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
-  text-align: left;
-  cursor: pointer;
-}
-.pd-att-main:disabled { cursor: default; }
-.pd-att-title { min-width: 0; word-break: break-word; }
 .pd-memo-line { display: flex; align-items: center; gap: var(--sp-2); }
 .pd-memo { flex: 1; min-width: 0; }
 .pd-md { font-size: 14px; line-height: 1.7; word-break: break-word; }
@@ -193,8 +167,6 @@
   color: var(--text-soft);
   white-space: pre-wrap;
 }
-.pd-brief summary { cursor: pointer; font-size: 13px; color: var(--text-soft); }
-.pd-brief[open] summary { margin-bottom: var(--sp-2); }
 
 /* 論文情報のボタンの下に置く「何が起きるか」の 1 行 */
 .paper-hint { margin: 2px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-soft); }
@@ -238,7 +210,6 @@
   .paper-side { max-width: 900px; }
   /* Project のカードと本文は 2 列に並べる */
   .pd-project { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .pd-project > .pd-brief { grid-column: 1 / -1; }
 }
 .pim-job-link { font-size: 12px; }
 
@@ -273,7 +244,7 @@
 }
 .papers-failed-line { margin: 0; font-size: 14px; line-height: 1.7; }
 
-/* --- 論文タブの切り替え帯の行（帯 + 右端の「進み具合」） ---
+/* --- 論文タブの切り替え帯の行（帯 1 つ）---
    外側の .papers-seg-row は index.html の枠。ここはその中の 1 行。 */
 .papers-seg-bar {
   display: flex;
@@ -282,13 +253,6 @@
   flex-wrap: wrap;
 }
 .papers-seg-bar > .dash-seg { flex: 1 1 0%; min-width: 0; }
-.pim-progress-tab { flex: none; white-space: nowrap; }
-.pim-progress-tab.busy { color: var(--accent); font-weight: 700; }
-/* 狭い画面では「進み具合」を 1 行目に戻して、切り替え帯を横いっぱいに使う */
-@media (max-width: 899px) {
-  .papers-seg-bar > .dash-seg { flex: 1 1 100%; }
-  .pim-progress-tab { margin-left: auto; }
-}
 
 /* --- 進み具合の一枚（paperimport.js） --- */
 .pim-progress {
@@ -526,7 +490,8 @@
 .papers-cond[hidden], #discover-status[hidden] { display: none; }
 
 /* U03: Library 内の検索（内部 DB）。外／内の切り替えは dash-seg をそのまま使う */
-#library-kind { margin-bottom: 8px; }
+#library-kind { margin-bottom: 8px; width: 200px; }
+#library-kind button { white-space: nowrap; }
 #find-papers-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .find-chip {
   display: inline-flex;
@@ -567,4 +532,42 @@
   }
   .papers-split-handle:hover,
   .papers-split-handle.dragging { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+}
+
+/* --- Library の Paper 一覧（題名の前の番号） --- */
+.paper-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-soft); font-weight: 400; }
+
+/* --- 論文情報のチャンク（`#論文.章.段落` ごとの本文） --- */
+.paper-chunks > summary { cursor: pointer; }
+.paper-chunks[open] > summary { margin-bottom: var(--sp-2); }
+.paper-chunks-body { display: flex; flex-direction: column; gap: var(--sp-2); }
+.paper-chunk-sec {
+  margin: var(--sp-2) 0 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.paper-chunk { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.paper-chunk-id {
+  align-self: flex-start;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.paper-chunk-text {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

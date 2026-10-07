@@ -19,7 +19,6 @@
   <link rel="stylesheet" href="/papers.css?v=89" />
   <link rel="stylesheet" href="/scitree.css?v=89" />
   <link rel="stylesheet" href="/sciedit.css?v=89" />
-  <link rel="stylesheet" href="/sciset.css?v=89" />
   <link rel="stylesheet" href="/scigraph.css?v=89" />
   <!-- 実験（MLflow）の記録（U06）。他の画面の CSS の後に読む -->
   <link rel="stylesheet" href="/mlflow.css?v=89" />
@@ -207,10 +206,11 @@
     <!-- Dashboard / Library / Radio の切り替え（中身は papers.js・07 §4.1） -->
     <div class="papers-seg-row" id="library-seg"></div>
     <div class="offline-bar" hidden>接続できていません</div>
-    <!-- 検索欄（Enter でも検索する・08 §4.1）。U03: 上の切り替えで外部 DB／内部 DB を選ぶ -->
+    <!-- 検索欄（Enter でも検索する・08 §4.1）。U03: 上の切り替えで外部 DB／内部 DB／Paper 一覧を選ぶ -->
     <div class="dash-seg small" id="library-kind">
       <button data-kind="external">外部 DB</button>
       <button data-kind="internal">内部 DB</button>
+      <button data-kind="paper">Paper</button>
     </div>
     <div class="lib-tools">
       <input type="search" id="discover-input" placeholder="🔍 論文を検索" enterkeyhint="search" />
@@ -285,7 +285,7 @@
         <label id="find-subtree-wrap"><input type="checkbox" id="find-subtree" /> 子孫の Node も含める</label>
         <label id="find-each-wrap">論文ごとに上位 <input type="number" id="find-each" min="1" max="20" inputmode="numeric" /> 件</label>
       </div>
-      <p class="paper-meta">Node を選ぶと、検索範囲がその Node の F の論文に絞られます。F が 1 本も無い Node では 0 件になります。</p>
+      <p class="paper-meta">Node を選ぶと、検索範囲がその Node（と直の子。「子孫の Node も含める」を入れると子孫すべて）にある F の論文に絞られます。範囲になるのは、その論文の全文（全チャンク）です。F が引用している箇所（<code>#x.y.z</code>）だけではありません。F が 1 本も無い Node では 0 件になります。</p>
     </div>
     <!-- 道具行: 左の階層の絞り込み欄 -->
     <div class="lib-tools">
@@ -332,9 +332,6 @@
     <div class="offline-bar" hidden>接続できていません</div>
     <main class="sci-read-body" id="sr-body"></main>
   </section>
-
-  <!-- 検索セットの一覧と選別（#/papers/sets・sciset.js。中身は sciset.js が作る） -->
-  <section id="view-sci-set" class="view" hidden></section>
 
   <!-- Papers の Radio（続きを聴く・一覧。選んでいるプロジェクトの音声だけ・09 §4.4） -->
   <section id="view-papers-radio" class="view" hidden>
@@ -648,7 +645,6 @@
   <!-- TRIAGE と READ_CARD（U20・sciedit.js / sciread.js）。scitree.js の se… / sr… を呼ぶのでその後 -->
   <script src="/sciedit.js?v=89"></script>
   <script src="/sciread.js?v=89"></script>
-  <script src="/sciset.js?v=89"></script>
   <!-- 根の図と候補の表（U21・scigraph.js）。canvaslayout.js の cvlLayoutBoard を使うのでその後 -->
   <script src="/scigraph.js?v=89"></script>
   <!-- ホーム画面（U4・home.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
