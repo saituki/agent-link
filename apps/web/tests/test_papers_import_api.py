@@ -1,16 +1,12 @@
-"""Papers の Import・Download・Project の API の小さなテスト（assert だけ）。
+"""Papers の Import・Library に入れる・Project の API の小さなテスト（assert だけ）。
 
 確かめること:
 - Import: `phone import list / add / remove` の引数と本文は標準入力、名前の規則と 1MB の検査
   （検査に通らない値は 400 で、CLI を 1 回も呼ばない）
-- Download の背景の仕事（`asyncio.create_subprocess_exec` を偽物にする・test_radio_job.py が手本）:
-    - 成功 → `processing` → `after-download` → `done` と通知 1 回
-    - `exists` → `done` で通知なし
-    - 失敗 → `failed` と通知
-    - 時間切れ → `failed`
-    - 同じキーの 2 回目は 409
+- Library に入れる（U13 §2）: keep の依頼の検査（`_download_payload`）と、`sai-progress` の読み取り
 - Project: `sai-sci project show` / `project memo`（改行・NUL は 400）/ `attention resolve` / `attention list`
-- 新しい住所が登録済みで、固定の住所が `/papers/{paper_id:int}` に取られない
+- 新しい住所（keep・bundle・pending・jobs）が登録済みで、固定の住所が
+  `/papers/{paper_id:int}` に取られず、消した住所（download・manual/*）が無い
 
 実行:
     cd <作業用コピー>
@@ -236,11 +232,11 @@ def test_import_remove(cli: FakeRunJson) -> None:
     assert cli.calls == [], cli.calls
 
 
-# --- Download ---
+# --- Library に入れる（U13 §2。かつての Download と同じ検査） ---
 
 
 def test_download_payload_validation() -> None:
-    """依頼の形（log / import のどちらか一方）と題名を確かめる。"""
+    """keep の依頼の形（log / import / cite のどれか 1 つ）と題名を確かめる。"""
     key, args, title = papers._download_payload({"log_id": 3, "position": 2})
     assert key == "log:3:2", key
     assert args == ["--log", "3", "--position", "2"], args
@@ -285,311 +281,6 @@ def test_download_payload_validation() -> None:
         expect(400, lambda bad=bad: papers._download_payload(bad))
 
 
-def test_download_success(fake: FakeNotify) -> None:
-    """成功: `processing` → `after-download` → `done` と通知 1 回。"""
-    fake.calls.clear()
-    create, seen = fake_exec(
-        {
-            "paper download --log 3 --position 2": FakeProc(
-                json.dumps({"status": "downloaded", "paper_id": 41}).encode()
-            ),
-            "paper after-download 41": FakeProc(
-                json.dumps({"paper_id": 41, "messages": []}).encode()
-            ),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        res = await papers.request_download(
-            PROJECT, {"log_id": 3, "position": 2, "title": "題名"}
-        )
-        assert res == {"key": "log:3:2", "status": "downloading"}, res
-        # 202 の直後は downloading にして `processing` を通る
-        job = papers._download_jobs[("sai-paper", "log:3:2")]
-        assert job["status"] == "downloading", job
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:3:2")]
-        assert job["status"] == "done", job
-        assert job["paper_id"] == 41, job
-        assert job["error"] is None, job
-        assert job["finished_at"], job
-        # 一覧には内部のフィールドを出さない
-        listed = papers.list_downloads(PROJECT)["jobs"]
-        assert len(listed) == 1, listed
-        assert set(listed[0]) == {
-            "key",
-            "kind",
-            "title",
-            "status",
-            "paper_id",
-            "error",
-            "started_at",
-            "finished_at",
-            "steps",
-            "step",
-            "percent",
-            "messages",
-        }, listed[0]
-        assert listed[0]["key"] == "log:3:2", listed[0]
-        assert listed[0]["kind"] == "download", listed[0]
-        # 別プロジェクトからは出ない
-        assert papers.list_downloads(PROJECT2)["jobs"] == []
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert fake.calls == [("📄 論文を保存しました", "題名", "/#/paper/sai-paper/41")], fake.calls
-    assert seen[0][1:] == ["paper", "download", "--log", "3", "--position", "2"], seen
-    assert seen[1][1:] == ["paper", "after-download", "41"], seen
-
-
-def test_download_exists(fake: FakeNotify) -> None:
-    """`exists`（既に Library に有る）→ `done` で通知なし。"""
-    fake.calls.clear()
-    create, seen = fake_exec(
-        {
-            "paper download --import-id DOI:1": FakeProc(
-                json.dumps({"status": "exists", "paper_id": 37}).encode()
-            )
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"import_id": "DOI:1", "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "import:DOI:1")]
-        assert job["status"] == "done", job
-        assert job["paper_id"] == 37, job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert fake.calls == [], f"exists で通知してはいけない: {fake.calls}"
-    assert len(seen) == 1, seen  # after-download は走らせない
-
-
-def test_download_failed(fake: FakeNotify) -> None:
-    """失敗 → `failed` と通知（理由は CLI の `error`）。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {
-            "paper download --log 1 --position 1": FakeProc(
-                json.dumps({"error": "PDF を取れませんでした"}).encode(), 1
-            )
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 1, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:1:1")]
-        assert job["status"] == "failed", job
-        assert job["error"] == "PDF を取れませんでした", job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert fake.calls == [
-        ("論文を保存できませんでした", "題名: PDF を取れませんでした", "/#/papers/library")
-    ], fake.calls
-
-
-def test_download_unreadable(fake: FakeNotify) -> None:
-    """読めない失敗 → 「原因不明のエラー」で `failed`。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {"paper download --log 2 --position 1": FakeProc(b"not json", 1)}
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 2, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:2:1")]
-        assert job["status"] == "failed", job
-        assert job["error"] == "原因不明のエラー", job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert len(fake.calls) == 1 and fake.calls[0][1].endswith("原因不明のエラー"), fake.calls
-
-
-def test_download_not_found_bin(fake: FakeNotify) -> None:
-    """sai-paper が無い（起動できない）→ `failed` と通知。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {"paper download --log 4 --position 1": FileNotFoundError("sai-paper")}
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 4, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:4:1")]
-        assert job["status"] == "failed", job
-        assert "sai-paper が見つかりません" in job["error"], job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert len(fake.calls) == 1, fake.calls
-
-
-def test_download_timeout(fake: FakeNotify) -> None:
-    """時間切れ → kill して `failed`。"""
-    fake.calls.clear()
-    proc = FakeProc(b"", 0, hang=True)
-    create, _seen = fake_exec({"paper download --log 5 --position 1": proc})
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-    # 待ちは一瞬に縮める（テストが待たないように）
-    original_timeout = papers.DOWNLOAD_TIMEOUT
-    papers.DOWNLOAD_TIMEOUT = 0.05
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 5, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0.02)
-        job = papers._download_jobs[("sai-paper", "log:5:1")]
-        assert job["status"] == "failed", job
-        assert "時間内" in job["error"], job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers.DOWNLOAD_TIMEOUT = original_timeout
-        papers._download_jobs.clear()
-    assert proc.killed, "時間切れなら kill する"
-    assert len(fake.calls) == 1, fake.calls
-
-
-def test_download_after_failed(fake: FakeNotify) -> None:
-    """後処理の失敗でも論文は入っているので `done`（`error` に理由だけ入れる）。"""
-    fake.calls.clear()
-    create, seen = fake_exec(
-        {
-            "paper download --log 6 --position 1": FakeProc(
-                json.dumps({"status": "downloaded", "paper_id": 42}).encode()
-            ),
-            "paper after-download 42": FakeProc(json.dumps({"error": "PDF が紐付いていません"}).encode(), 1),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 6, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:6:1")]
-        assert job["status"] == "done", job
-        assert job["error"] == "PDF が紐付いていません", job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert len(fake.calls) == 1, fake.calls  # 「保存しました」の通知だけ
-    assert seen[1][1:] == ["paper", "after-download", "42"], seen
-
-
-def test_download_stderr_reason(fake: FakeNotify) -> None:
-    """背景の失敗の理由は標準エラーの最後の行（`sai-progress` を除く）から取る（U09）。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {
-            "paper download --log 13 --position 1": FakeProc(
-                b"", 1, stderr="sai-progress step=1\n本当の理由\n".encode()
-            ),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 13, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:13:1")]
-        assert job["status"] == "failed", job
-        assert job["error"] == "本当の理由", job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    # 理由は通知の文にも入る
-    assert fake.calls and "本当の理由" in fake.calls[-1][1], fake.calls
-
-
-def test_after_download_stderr_reason(fake: FakeNotify) -> None:
-    """後処理（標準エラーを 1 行ずつ読む）でも最後の行を理由にする（U09）。"""
-    fake.calls.clear()
-    create, seen = fake_exec(
-        {
-            "paper download --log 14 --position 1": FakeProc(
-                json.dumps({"status": "downloaded", "paper_id": 43}).encode()
-            ),
-            "paper after-download 43": FakeProc(
-                b"{}", 1, stderr="sai-progress step=1\nsai-progress msg=途中\n後処理の理由\n".encode()
-            ),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 14, "position": 1, "title": "題名"})
-        for _ in range(20):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:14:1")]
-        assert job["status"] == "done", job
-        assert job["error"] == "後処理の理由", job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert seen[1][1:] == ["paper", "after-download", "43"], seen
-
-
 def test_apply_progress_line() -> None:
     """`sai-progress` の行は段と % とログに、それ以外の行は False（AC4）。"""
     job = {
@@ -628,182 +319,6 @@ def test_apply_progress_line_keeps_50() -> None:
     assert len(job["messages"]) == 50, len(job["messages"])
     assert job["messages"][0] == "10", job["messages"][0]
     assert job["messages"][-1] == "59", job["messages"][-1]
-
-
-def test_download_progress_lines(fake: FakeNotify) -> None:
-    """`after-download` の標準エラーから段・%・ログが入る（AC3・AC4）。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {
-            "paper download --log 8 --position 1": FakeProc(
-                json.dumps({"status": "downloaded", "paper_id": 55}).encode()
-            ),
-            "paper after-download 55": FakeProc(
-                json.dumps({"paper_id": 55, "messages": ["done"]}).encode(),
-                stderr=(
-                    "sai-progress step=1\n"
-                    "sai-progress msg=図を 3 件抽出しました\n"
-                    "sai-progress step=2\n"
-                    "sai-progress msg=PDF翻訳完了: /x/y.md\n"
-                ).encode(),
-            ),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 8, "position": 1, "title": "題名"})
-        for _ in range(30):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:8:1")]
-        assert job["status"] == "done", job
-        assert job["step"] == 3, job  # 終わったら 3
-        assert job["percent"] == 100, job
-        assert job["messages"] == [
-            "図を 3 件抽出しました",
-            "PDF翻訳完了: /x/y.md",
-        ], job["messages"]
-        listed = papers.list_downloads(PROJECT)["jobs"]
-        assert listed[0]["steps"] == ["PDF取得", "図抽出", "翻訳"], listed[0]
-        assert listed[0]["percent"] == 100, listed[0]
-        assert listed[0]["messages"] == job["messages"], listed[0]
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-
-
-def test_download_after_keeps_step_on_failure(fake: FakeNotify) -> None:
-    """後処理の失敗は `done` だが 100% にする。途中までは % を残す。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {
-            "paper download --log 10 --position 1": FakeProc(
-                json.dumps({"status": "downloaded", "paper_id": 56}).encode()
-            ),
-            "paper after-download 56": FakeProc(
-                json.dumps({"error": "翻訳に失敗しました"}).encode(),
-                1,
-                stderr=b"sai-progress step=2\n",
-            ),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 10, "position": 1, "title": "題名"})
-        for _ in range(30):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:10:1")]
-        assert job["status"] == "done", job
-        assert job["error"] == "翻訳に失敗しました", job
-        assert job["percent"] == 100, job  # 終わったので 100%
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-
-
-def test_download_failure_keeps_percent(fake: FakeNotify) -> None:
-    """`failed`（PDF が取れない）なら 0% のまま残す。"""
-    fake.calls.clear()
-    create, _seen = fake_exec(
-        {
-            "paper download --log 11 --position 1": FakeProc(
-                json.dumps({"error": "PDF を取れませんでした"}).encode(), 1
-            )
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 11, "position": 1, "title": "題名"})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "log:11:1")]
-        assert job["status"] == "failed", job
-        assert job["percent"] == 0, job
-        assert job["step"] == 0, job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-
-
-def test_download_after_timeout(fake: FakeNotify) -> None:
-    """`after-download` が時間切れ → kill して `done`（論文は入っているため）。"""
-    fake.calls.clear()
-    proc = FakeProc(b"", 0, hang=True)
-    create, _seen = fake_exec(
-        {
-            "paper download --log 12 --position 1": FakeProc(
-                json.dumps({"status": "downloaded", "paper_id": 57}).encode()
-            ),
-            "paper after-download 57": proc,
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-    original_timeout = papers.AFTER_DOWNLOAD_TIMEOUT
-    papers.AFTER_DOWNLOAD_TIMEOUT = 0.05
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 12, "position": 1, "title": "題名"})
-        for _ in range(20):
-            await asyncio.sleep(0.02)
-        job = papers._download_jobs[("sai-paper", "log:12:1")]
-        assert job["status"] == "done", job
-        assert "時間内" in job["error"], job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers.AFTER_DOWNLOAD_TIMEOUT = original_timeout
-        papers._download_jobs.clear()
-    assert proc.killed, "時間切れなら kill する"
-
-
-def test_download_conflict() -> None:
-    """同じキーの 2 回目は 409（進行中の間は受け付けない）。"""
-    create, _seen = fake_exec({"paper download --log 7 --position 1": FakeProc(b"{}", 0, hang=True)})
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper", sai_sci_bin="sai-sci")
-    original_timeout = papers.DOWNLOAD_TIMEOUT
-    papers.DOWNLOAD_TIMEOUT = 30.0
-
-    async def main() -> None:
-        await papers.request_download(PROJECT, {"log_id": 7, "position": 1, "title": "題名"})
-        await asyncio.sleep(0)
-        e = await expect_async(
-            409, papers.request_download(PROJECT, {"log_id": 7, "position": 1})
-        )
-        assert "ダウンロード中" in str(e.detail), e.detail
-        # 別プロジェクトの同じ番号は別扱い
-        await papers.request_download(PROJECT2, {"log_id": 7, "position": 1, "title": "他"})
-        # 検査に通らない依頼は 409 ではなく 400
-        await expect_async(400, papers.request_download(PROJECT, {}))
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers.DOWNLOAD_TIMEOUT = original_timeout
-        papers._download_jobs.clear()
 
 
 def test_download_expired() -> None:
@@ -902,11 +417,12 @@ def test_routes() -> None:
         ("GET", "/api/projects/{name}/papers/import"),
         ("POST", "/api/projects/{name}/papers/import"),
         ("DELETE", "/api/projects/{name}/papers/import/{file_name}"),
-        ("POST", "/api/projects/{name}/papers/download"),
+        ("POST", "/api/projects/{name}/papers/keep"),
+        ("POST", "/api/projects/{name}/papers/bundle"),
+        ("GET", "/api/projects/{name}/papers/pending"),
+        ("GET", "/api/projects/{name}/papers/jobs/{key}"),
         ("GET", "/api/projects/{name}/papers/downloads"),
-        ("GET", "/api/projects/{name}/papers/manual/candidates"),
-        ("POST", "/api/projects/{name}/papers/manual/import"),
-        ("POST", "/api/projects/{name}/papers/manual/upload"),
+        ("GET", "/api/prep/download"),
         ("GET", "/api/projects/{name}/papers/{paper_id:int}/citations"),
         ("POST", "/api/projects/{name}/papers/{paper_id:int}/citations/extract"),
         ("GET", "/api/projects/{name}/papers/project"),
@@ -918,9 +434,10 @@ def test_routes() -> None:
     paths = [p for _m, p in got]
     int_path = "/api/projects/{name}/papers/{paper_id:int}"
     for fixed in (
-        "/api/projects/{name}/papers/manual/candidates",
-        "/api/projects/{name}/papers/manual/import",
-        "/api/projects/{name}/papers/manual/upload",
+        "/api/projects/{name}/papers/keep",
+        "/api/projects/{name}/papers/bundle",
+        "/api/projects/{name}/papers/pending",
+        "/api/projects/{name}/papers/jobs/{key}",
         "/api/projects/{name}/papers/downloads",
     ):
         assert paths.index(fixed) < paths.index(int_path), (
@@ -935,6 +452,14 @@ def test_routes() -> None:
         assert paths.index(fixed) < paths.index(int_path), (
             f"{fixed} は {int_path} より先に登録する"
         )
+    # 消した住所は残っていない（U13 §2）
+    for gone in (
+        ("/api/projects/{name}/papers/download", "POST"),
+        ("/api/projects/{name}/papers/manual/candidates", "GET"),
+        ("/api/projects/{name}/papers/manual/import", "POST"),
+        ("/api/projects/{name}/papers/manual/upload", "POST"),
+    ):
+        assert gone not in got, f"消した住所が残っている: {gone}"
 
 
 def main() -> None:
@@ -948,22 +473,8 @@ def main() -> None:
     test_import_add(cli)
     test_import_remove(cli)
     test_download_payload_validation()
-    test_download_success(fake)
-    test_download_exists(fake)
-    test_download_failed(fake)
-    test_download_unreadable(fake)
-    test_download_not_found_bin(fake)
-    test_download_timeout(fake)
-    test_download_after_failed(fake)
-    test_download_stderr_reason(fake)
-    test_after_download_stderr_reason(fake)
     test_apply_progress_line()
     test_apply_progress_line_keeps_50()
-    test_download_progress_lines(fake)
-    test_download_after_keeps_step_on_failure(fake)
-    test_download_failure_keeps_percent(fake)
-    test_download_after_timeout(fake)
-    test_download_conflict()
     test_download_expired()
     test_project_view(cli)
     test_mind_append(cli)

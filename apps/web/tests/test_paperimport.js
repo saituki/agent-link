@@ -25,13 +25,9 @@ const {
   pimLongText,
   pimProgressView,
   pimElapsedLabel,
-  PIM_UPLOAD_MAX,
   pimJobKindLabel,
-  pimManualQuery,
-  pimManualKey,
-  pimTargetFromKey,
-  pimCheckUpload,
-  pimFileSize,
+  pimKeepMessage,
+  pimKeepKey,
   pimJobTarget,
 } = require(path.join(__dirname, "..", "src", "sai_web", "static", "paperimport.js"));
 
@@ -142,8 +138,9 @@ function testActiveJobs() {
 }
 
 function testJobLabelAndTone() {
-  assert.strictEqual(pimJobLabel("downloading"), "ダウンロード中…");
+  assert.strictEqual(pimJobLabel("downloading"), "取り込み中…");
   assert.strictEqual(pimJobLabel("processing"), "保存しました。図の取り出しと翻訳をしています");
+  assert.strictEqual(pimJobLabel("processing", "bundle"), "前処理の束を取り込んでいます");
   assert.strictEqual(pimJobLabel("done"), "保存しました");
   assert.strictEqual(pimJobLabel("failed"), "保存できませんでした");
   assert.strictEqual(pimJobLabel(null), "");
@@ -255,98 +252,31 @@ function testElapsedLabel() {
   assert.strictEqual(pimElapsedLabel(start, base - 5000), "0:00");
 }
 
-// --- 手動で取り込むときの対象（U05 §5） ---
+// --- Library に入れる（U13 §2） ---
 
-function testManualQuery() {
-  assert.strictEqual(pimManualQuery({ log_id: 3, position: 2 }), "?log_id=3&position=2");
-  assert.strictEqual(pimManualQuery({ import_id: "DOI:10.1/x" }), "?import_id=DOI%3A10.1%2Fx");
-  assert.strictEqual(pimManualQuery({ cite_paper_id: 12, ref_no: 3 }), "?cite_paper_id=12&ref_no=3");
-  assert.strictEqual(pimManualQuery({ paper_id: 12 }), "?paper_id=12");
-  // 題名は任意（あれば付ける）
-  assert.strictEqual(pimManualQuery({ paper_id: 12 }, "題名"), "?paper_id=12&title=%E9%A1%8C%E5%90%8D");
-  // 対象が無ければ空文字（URL を作らない）
-  assert.strictEqual(pimManualQuery({}), "");
-  assert.strictEqual(pimManualQuery(null), "");
-  // 対象が 2 つあっても 1 つだけ送る（log を優先）
+function testKeep() {
+  // 結果 → 知らせる文
   assert.strictEqual(
-    pimManualQuery({ log_id: 1, position: 1, cite_paper_id: 2, ref_no: 3 }),
-    "?log_id=1&position=1"
+    pimKeepMessage("added"),
+    "Library に入れました（PDF は sai-prep から送ってください）"
   );
-}
-
-function testManualKey() {
-  // サーバの manual:<対象のキー> と同じ形
-  assert.strictEqual(pimManualKey({ log_id: 3, position: 2 }), "manual:log:3:2");
-  assert.strictEqual(pimManualKey({ import_id: "DOI:1" }), "manual:import:DOI:1");
-  assert.strictEqual(pimManualKey({ cite_paper_id: 12, ref_no: 3 }), "manual:cite:12:3");
-  assert.strictEqual(pimManualKey({ paper_id: 12 }), "manual:paper:12");
-  assert.strictEqual(pimManualKey({}), "");
-}
-
-function testTargetFromKey() {
-  // ダウンロードのキーから「手動で取り込む」の対象を読み戻す
-  assert.deepStrictEqual(pimTargetFromKey("log:3:2"), { log_id: 3, position: 2 });
-  assert.deepStrictEqual(pimTargetFromKey("import:DOI:1"), { import_id: "DOI:1" });
-  assert.deepStrictEqual(pimTargetFromKey("cite:12:3"), { cite_paper_id: 12, ref_no: 3 });
-  assert.deepStrictEqual(pimTargetFromKey("paper:12"), { paper_id: 12 });
-  assert.strictEqual(pimTargetFromKey("radio:9"), null);
-  assert.strictEqual(pimTargetFromKey("cite-extract:1"), null);
-  assert.strictEqual(pimTargetFromKey(""), null);
-  // 往復：キー → 対象 → キーが戻る
-  for (const target of [
-    { log_id: 3, position: 2 },
-    { import_id: "DOI:1" },
-    { cite_paper_id: 12, ref_no: 3 },
-    { paper_id: 12 },
-  ]) {
-    assert.deepStrictEqual(
-      pimTargetFromKey(pimManualKey(target)),
-      target,
-      JSON.stringify(target)
-    );
-  }
-}
-
-function testCheckUpload() {
-  assert.deepStrictEqual(
-    pimCheckUpload({ size: 1024, type: "application/pdf", name: "a.pdf" }),
-    { ok: true, error: "" }
-  );
-  // 種類が無くても名前が .pdf なら通す
-  assert.strictEqual(pimCheckUpload({ size: 10, type: "", name: "a.PDF" }).ok, true);
-  // 空
-  assert.strictEqual(pimCheckUpload(null).ok, false);
-  assert.strictEqual(pimCheckUpload({ size: 0, type: "application/pdf", name: "a.pdf" }).ok, false);
-  // 100MB まで（上限そのものまでは通す）
+  assert.strictEqual(pimKeepMessage("exists"), "もう Library にあります");
   assert.strictEqual(
-    pimCheckUpload({ size: PIM_UPLOAD_MAX, type: "application/pdf", name: "a.pdf" }).ok,
-    true
+    pimKeepMessage(null),
+    "Library に入れました（PDF は sai-prep から送ってください）"
   );
-  const over = pimCheckUpload({ size: PIM_UPLOAD_MAX + 1, type: "application/pdf", name: "a.pdf" });
-  assert.strictEqual(over.ok, false);
-  assert.ok(over.error.includes("100MB"), over.error);
-  // PDF 以外
-  const notPdf = pimCheckUpload({ size: 10, type: "text/plain", name: "a.txt" });
-  assert.strictEqual(notPdf.ok, false);
-  assert.ok(notPdf.error.includes("PDF"), notPdf.error);
-  // 上限は 100MB（サーバの papers.py の UPLOAD_MAX_BYTES と同じ）
-  assert.strictEqual(PIM_UPLOAD_MAX, 100 * 1024 * 1024);
-}
-
-function testFileSize() {
-  assert.strictEqual(pimFileSize(512), "512B");
-  assert.strictEqual(pimFileSize(2048), "2.0KB");
-  assert.strictEqual(pimFileSize(5 * 1024 * 1024), "5.0MB");
-  assert.strictEqual(pimFileSize(0), "");
-  assert.strictEqual(pimFileSize(null), "");
-  assert.strictEqual(pimFileSize("x"), "");
+  // 対象 → 仕事のキー（サーバの `_download_payload` と同じ形）
+  assert.strictEqual(pimKeepKey({ log_id: 3, position: 2 }), "log:3:2");
+  assert.strictEqual(pimKeepKey({ import_id: "DOI:1" }), "import:DOI:1");
+  assert.strictEqual(pimKeepKey({ cite_paper_id: 12, ref_no: 3 }), "cite:12:3");
+  assert.strictEqual(pimKeepKey({}), "");
+  assert.strictEqual(pimKeepKey(null), "");
 }
 
 // --- 進み具合の一枚（種類と行き先・U05 §6） ---
 
 function testJobKindLabel() {
-  assert.strictEqual(pimJobKindLabel("download"), "Download");
-  assert.strictEqual(pimJobKindLabel("manual"), "Manual import");
+  assert.strictEqual(pimJobKindLabel("bundle"), "Preprocess bundle");
   assert.strictEqual(pimJobKindLabel("cite-extract"), "Citations");
   assert.strictEqual(pimJobKindLabel("radio"), "Audio");
   assert.strictEqual(pimJobKindLabel("translate"), "Abstract translation");
@@ -444,11 +374,7 @@ function main() {
   testLongText();
   testProgressView();
   testElapsedLabel();
-  testManualQuery();
-  testManualKey();
-  testTargetFromKey();
-  testCheckUpload();
-  testFileSize();
+  testKeep();
   testJobKindLabel();
   testProgressViewUnknown();
   testJobTarget();
