@@ -1,8 +1,8 @@
 "use strict";
 // research-tree の画面（Q・O・F・E・S の木）。住所は #/research/tree と #/research/tree/<ID>。
 //
-// 上の帯に進み具合・Next Action（先頭 3 件）・注意、左に木の一覧、真ん中に
-// research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ決定の記録）を出す。
+// 上の帯に Next Action（先頭 3 件）・History（全 Node・折りたたみ）・注意、左に木の一覧、真ん中に
+// research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ出さない）を出す。
 // SEED（ID `SEED`）は DB の行を持たず、status.seed から板を作る。
 // 狭い画面（幅 390px）の板は下から出る（saiSheet）。
 //
@@ -52,6 +52,7 @@ let stSeedSel = false;  // SEED が選ばれているか（SEED は DB の行を
 let stSheet = null;     // 狭い画面の板（saiSheet が返した物）
 let stSheetBody = null; // 板の中の入れ物
 let stSheetFor = null;  // 板が出している物の鍵
+let stHistoryOpen = false; // 上の帯の History を開いているか（描き直しても保つ）
 let stListOpen = false; // 狭い画面で一覧を出しているか（出している間は図を隠す）
 let stFolded = new Set();   // 左の一覧で畳んでいる Node の ID
 let stSplit = { list: 320, board: 420 }; // 境界線で変えた幅（px）
@@ -133,14 +134,6 @@ function stLogicLabel(l) {
   return ST_LOGIC[v] || ST_LOGIC.unchecked;
 }
 
-/** 進み具合（answered / total）。 */
-function stProgress(status) {
-  const p = (status && status.progress) || {};
-  const answered = Number(p.answered) || 0;
-  const total = Number(p.total) || 0;
-  return { answered, total, ratio: total > 0 ? answered / total : 0 };
-}
-
 /** Next Action の先頭 n 件。 */
 function stNextLines(status, n = 3) {
   const list = status && Array.isArray(status.next) ? status.next : [];
@@ -148,18 +141,24 @@ function stNextLines(status, n = 3) {
     label: x.purpose || "",
     why: x.why || "",
     node: x.node || null,
+    block: x.block || "",
     card: x.card || null,
     kind: x.kind,
   }));
 }
 
-/** 決定の記録を新しい順に（at が同じなら元の順）。 */
-function stDecisionRows(decisions) {
-  const list = Array.isArray(decisions) ? decisions : [];
-  return list
-    .map((d, i) => ({ d, i }))
-    .sort((a, b) => String(b.d.at || "").localeCompare(String(a.d.at || "")) || a.i - b.i)
-    .map((x) => x.d);
+/**
+ * Next Action の 1 行の文。`[<why>] <node> <block>「<node の文>」`。
+ * node が status.nodes に無い（SEED など）ときは今までの label（purpose）を使う。
+ * why が空なら `[...]` は付けない。
+ */
+function stNextText(x, status) {
+  const o = x || {};
+  const nodes = status && Array.isArray(status.nodes) ? status.nodes : [];
+  const n = o.node ? nodes.find((r) => r.id === o.node) : null;
+  const head = o.why ? `[${o.why}] ` : "";
+  if (!n) return `${head}${o.label || ""}`;
+  return `${head}${[o.node, o.block].filter((t) => t).join(" ")}「${n.text || ""}」`;
 }
 
 /** 板に出す操作の並び（出さないものを除く）。 */
@@ -532,7 +531,7 @@ function stRender() {
   stRenderGraph();
 }
 
-/** 「古い形の木」「進み具合」「Next Action」「注意」の帯。 */
+/** 「古い形の木」「Next Action」「History」「注意」の帯。 */
 function stRenderTop() {
   const box = document.getElementById("sci-top");
   if (!box) return;
@@ -551,22 +550,9 @@ function stRenderTop() {
   if (s.legacy) {
     box.appendChild(stEl("p", "sci-note sci-legacy", "古い形の tree です。新しい tree（Q・O・F・E）には読み替えていません。"));
   }
-  box.appendChild(stProgressBand(s));
   box.appendChild(stNextBand(s));
+  box.appendChild(stHistoryBand(s));
   box.appendChild(stChipBand(s));
-}
-
-/** 進み具合のバー（.sci-progress）。 */
-function stProgressBand(s) {
-  const p = stProgress(s);
-  const line = stEl("div", "sci-line sci-progress");
-  const bar = stEl("div", "sci-bar");
-  const fill = stEl("div", "sci-bar-fill");
-  fill.style.width = `${Math.round(p.ratio * 100)}%`;
-  bar.appendChild(fill);
-  line.appendChild(bar);
-  line.appendChild(stEl("span", "sci-id", `${p.answered}/${p.total}`));
-  return line;
 }
 
 /** 解く釦。kind が card なら Create CARD、user なら Q を選ぶ。それ以外は出さない。 */
@@ -578,11 +564,11 @@ function stActionBtn(x) {
 }
 
 /** Next Action の先頭 3 件（.sci-next-row）。 */
-function stNextRows(list) {
+function stNextRows(list, status) {
   const wrap = stEl("div", "sci-next");
   for (const x of list) {
     const row = stEl("div", "sci-line sci-next-row");
-    row.appendChild(stEl("span", "sci-line-main", `[${x.why}] ${x.label}`));
+    row.appendChild(stEl("span", "sci-line-main", stNextText(x, status)));
     const b = stActionBtn(x);
     if (b) row.appendChild(b);
     wrap.appendChild(row);
@@ -595,8 +581,23 @@ function stNextBand(s) {
   const band = stEl("div", "sci-band sci-nextband");
   band.appendChild(stEl("span", "sci-band-title", "Next Action"));
   if (!list.length) band.appendChild(stEl("p", "sci-note", "今すぐやることはありません"));
-  else band.appendChild(stNextRows(list));
+  else band.appendChild(stNextRows(list, s));
   return band;
+}
+
+/** 全 Node の History（折りたたみ・古い順）。status.history を 1 行ずつ出す。 */
+function stHistoryBand(s) {
+  const det = document.createElement("details");
+  det.className = "sci-band sci-historyband";
+  det.open = stHistoryOpen;
+  det.addEventListener("toggle", () => { stHistoryOpen = det.open; });
+  const list = Array.isArray(s.history) ? s.history : [];
+  det.appendChild(stEl("summary", "sci-band-title", `History（${list.length}）`));
+  const box = stEl("div", "sci-history-list");
+  if (!list.length) box.appendChild(stEl("p", "sci-note", "なし"));
+  for (const h of list) box.appendChild(stHistoryRowEl(h, h && h.node ? `${h.node} ` : ""));
+  det.appendChild(box);
+  return det;
 }
 
 /** 注意の札と、狭い画面の一覧の出し入れ（.sci-chips）。 */
@@ -856,14 +857,14 @@ function stMarkGraph() {
 // ============================================================================
 
 function stBoardKey() {
-  return stNodeId || (stSeedSel ? "SEED" : "decisions");
+  return stNodeId || (stSeedSel ? "SEED" : null);
 }
 
-/** 板の中身を作る。 */
+/** 板の中身を作る（何も選んでいなければ null）。 */
 function stSelBoard() {
   if (stNodeId && stNode) return { title: `${stNode.node.id}`, el: stBuildBoard(stNode) };
   if (stSeedSel) return { title: "SEED", el: stBuildSeedPanel() };
-  return { title: "決定の記録", el: stDecisionsEl(stDecisionRows(stData && stData.decisions)) };
+  return null;
 }
 
 function stRenderBoard() {
@@ -876,6 +877,13 @@ function stRenderBoard() {
   }
   const board = stSelBoard();
   const key = stBoardKey();
+  // 何も選んでいなければ板は出さない（図がその分広がる）
+  if (!board) {
+    stCloseSheet();
+    if (box) { box.innerHTML = ""; box.hidden = true; }
+    if (body) body.classList.remove("has-board");
+    return;
+  }
   if (box && saiIsWide()) {
     stCloseSheet();
     box.innerHTML = "";
@@ -883,21 +891,17 @@ function stRenderBoard() {
     if (body) body.classList.add("has-board");
     const head = stEl("div", "sci-line sci-board-head");
     head.appendChild(stEl("h2", "sci-board-title", board.title));
-    if (stNodeId || stSeedSel) {
-      const x = stEl("button", "sci-board-close", "✕");
-      x.type = "button";
-      x.setAttribute("aria-label", "閉じる");
-      x.addEventListener("click", () => { void stClearSelection(); });
-      head.appendChild(x);
-    }
+    const x = stEl("button", "sci-board-close", "✕");
+    x.type = "button";
+    x.setAttribute("aria-label", "閉じる");
+    x.addEventListener("click", () => { void stClearSelection(); });
+    head.appendChild(x);
     box.appendChild(head);
     box.appendChild(board.el);
     return;
   }
   if (box) { box.innerHTML = ""; box.hidden = true; }
   if (body) body.classList.remove("has-board");
-  // 狭い画面は、選んだときだけ下から出す
-  if (!stNodeId && !stSeedSel) { stCloseSheet(); return; }
   if (typeof saiSheet !== "function") return;
   if (stSheet && stSheetFor === key && stSheetBody) {
     stSheetBody.innerHTML = "";
@@ -946,21 +950,6 @@ function stMd(text) {
   if (typeof renderMarkdown === "function") d.innerHTML = renderMarkdown(text || "");
   else d.textContent = text || "";
   return d;
-}
-
-/** 決定の記録（.sci-decisions）。 */
-function stDecisionsEl(rows) {
-  const box = stEl("div", "sci-decisions");
-  if (!rows.length) box.appendChild(stEl("p", "sci-note", "まだ決定の記録はありません"));
-  for (const d of rows) {
-    const line = stEl("div", "sci-line sci-decision");
-    line.appendChild(stEl("span", "sci-id", String(d.at || "")));
-    const main = stEl("span", "sci-line-main", `${d.node || ""} ${d.node_text || d.text || ""}`.trim());
-    line.appendChild(main);
-    line.appendChild(stEl("span", "sci-chip", String(d.action || "")));
-    box.appendChild(line);
-  }
-  return box;
 }
 
 /**
@@ -1059,7 +1048,7 @@ function stBuildBoard(d) {
   }
   const next = stSec("Next Action");
   const nl = stNextLines({ next: d.next }, 3);
-  if (nl.length) next.appendChild(stNextRows(nl));
+  if (nl.length) next.appendChild(stNextRows(nl, stData));
   else next.appendChild(stEl("p", "sci-note", "なし"));
   box.appendChild(next);
   box.appendChild(stBoardHistory(d));
@@ -1239,19 +1228,21 @@ function stBoardHistory(d) {
   const sec = stSec("History");
   const list = d && Array.isArray(d.history) ? d.history : [];
   if (!list.length) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
-  const project = typeof selectedPaperProject === "function" ? selectedPaperProject() : null;
-  for (const h of list) {
-    const text = stHistoryText(h);
-    if (h && h.run_id != null && h.run_id !== "") {
-      const b = stEl("button", "sci-history-row", text);
-      b.type = "button";
-      b.addEventListener("click", () => stGo(stRunListHash(project, h.run_id)));
-      sec.appendChild(b);
-    } else {
-      sec.appendChild(stEl("div", "sci-history-row", text));
-    }
-  }
+  for (const h of list) sec.appendChild(stHistoryRowEl(h, ""));
   return sec;
+}
+
+/** History の 1 行。run_id がある行は押すとその run へ。prefix は文の先頭に付ける（Node の ID など）。 */
+function stHistoryRowEl(h, prefix) {
+  const text = `${prefix || ""}${stHistoryText(h)}`;
+  if (h && h.run_id != null && h.run_id !== "") {
+    const project = typeof selectedPaperProject === "function" ? selectedPaperProject() : null;
+    const b = stEl("button", "sci-history-row", text);
+    b.type = "button";
+    b.addEventListener("click", () => stGo(stRunListHash(project, h.run_id)));
+    return b;
+  }
+  return stEl("div", "sci-history-row", text);
 }
 
 /** 出典の cite（`#57.3.2` など）の先頭の数を Library の論文の番号として読む（読めなければ null）。 */
@@ -1383,8 +1374,8 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 // --- node からの読み込み（tests/test_scitree.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stProgress, stNextLines,
-    stDecisionRows, stOpsFor,
+    stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stNextLines, stNextText,
+    stOpsFor,
     stVisibleRows, stActionMeta, stClampSplit, stFmtAt, stHistoryText,
     ST_TYPES, ST_LOGIC, ST_KIND_LABEL, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   };
