@@ -528,7 +528,7 @@ fn write(kind: DefKind, scope: Scope, name: &str, create: bool) -> PhoneResult<V
     let path = def_path(kind, scope, name)?;
     let exists = path.exists();
     if create && exists {
-        return Err(PhoneError::usage("同じ名前の定義があります"));
+        return Err(PhoneError::conflict("同じ名前の定義があります"));
     }
     if !create && !exists && kind != DefKind::Settings {
         return Err(PhoneError::not_found("定義が見つかりません"));
@@ -547,7 +547,7 @@ fn write_text(
     let path = def_path(kind, scope, name)?;
     let exists = path.exists();
     if create && exists {
-        return Err(PhoneError::usage("同じ名前の定義があります"));
+        return Err(PhoneError::conflict("同じ名前の定義があります"));
     }
     if !create && !exists && kind != DefKind::Settings {
         return Err(PhoneError::not_found("定義が見つかりません"));
@@ -913,7 +913,7 @@ id: x\n---\nhello\n";
         assert_eq!(_s.get(".sai/blocks/x.md"), GOOD_BLOCK);
         // 一度ighbours  existent なので 2 回目は --create で 1
         let err = write_text(DefKind::Block, Scope::Project, "x", true, GOOD_BLOCK).unwrap_err();
-        assert_eq!(err.code, crate::cli::EXIT_USAGE);
+        assert_eq!(err.code, crate::phone::EXIT_PHONE_CONFLICT);
         assert_eq!(err.msg, "同じ名前の定義があります");
 
         // show の中身が保存と一致（id と名前が揃っていれば警告なし）

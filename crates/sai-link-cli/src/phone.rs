@@ -32,6 +32,9 @@ use crate::cli::{
 // エラー（終了コード付き）
 // ============================================================================
 
+/// `PhoneError::conflict` の印。`EXIT_DB`（4）は処理系エラーに使われているので別の値にする。
+pub(crate) const EXIT_PHONE_CONFLICT: i32 = 5;
+
 /// phone サブコマンドのエラー（stderr 1 行 + 終了コード）。
 #[derive(Debug)]
 pub(crate) struct PhoneError {
@@ -63,6 +66,15 @@ impl PhoneError {
     pub(crate) fn parse(msg: impl Into<String>) -> Self {
         Self {
             code: EXIT_PARSE,
+            msg: msg.into(),
+        }
+    }
+
+    /// 状態の衝突（同じ名前の定義が既にある、など）。
+    /// CLI 共通の終了コード 4 に読み替えるための印（`cmd_common` の `From`）。
+    pub(crate) fn conflict(msg: impl Into<String>) -> Self {
+        Self {
+            code: EXIT_PHONE_CONFLICT,
             msg: msg.into(),
         }
     }

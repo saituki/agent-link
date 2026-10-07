@@ -530,7 +530,7 @@ fn resolve_api_key() -> Option<String> {
 }
 
 pub(crate) fn open_database() -> Result<Database> {
-    let paths = Paths::discover().context("failed to resolve paths")?;
+    let paths = Paths::discover()?;
     Database::open(&paths.database_file).context("failed to open papr.db")
 }
 
@@ -866,16 +866,30 @@ fn origin_name() -> &'static str {
 }
 
 /// clap の使い方の誤りの終了コード。`--help`・`--version` は 0。
+/// 誤りのときは clap の複数行の文を出さず、日本語の 1 行だけを標準エラーに書く。
 fn clap_exit_code(err: clap::Error) -> i32 {
     use clap::error::ErrorKind;
     let kind = err.kind();
-    let _ = err.print();
     if matches!(kind, ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
+        let _ = err.print();
         return 0;
     }
+    // 命令が足りないときは使い方を出す（従来どおり）
+    if kind == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
+        let _ = err.print();
+    }
     let text = err.to_string();
-    let first = text.lines().next().unwrap_or("").trim();
-    let stripped = first.strip_prefix("error: ").unwrap_or(first);
+    // clap の文の最初の段落（空行まで）を 1 行にまとめる
+    let first = text
+        .trim_start()
+        .split("\n\n")
+        .next()
+        .unwrap_or("")
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let stripped = first.strip_prefix("error: ").unwrap_or(&first);
     eprintln!("引数の誤り: {stripped}");
     2
 }

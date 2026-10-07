@@ -84,7 +84,10 @@ fn test_cli_invalid_subcommand() {
         "不正なサブコマンドはエラー終了すること"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("error"), "エラーメッセージが表示されること");
+    assert!(
+        stderr.starts_with("引数の誤り: "),
+        "日本語の 1 行が表示されること: {stderr:?}"
+    );
 }
 
 
@@ -427,6 +430,8 @@ fn test_cli_run_show_parse_error() {
         last.starts_with("引数の誤り: "),
         "最後の行が「引数の誤り: 」で始まる: {stderr:?}"
     );
+    // clap の英語の複数行は出さず、日本語の 1 行だけにする
+    assert_eq!(stderr.lines().count(), 1, "stderr は 1 行: {stderr:?}");
 }
 
 /// `.sai/` の無いフォルダで `run list` は終了コード 2。

@@ -361,6 +361,12 @@ class WebCliTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
 
+    def test_api_rejects_space_in_path(self) -> None:
+        code, out, err = run_cli("api", "GET", "/api/a b")
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertNotIn("Traceback", err)
+
     def test_api_rejects_bad_method(self) -> None:
         code, out, _err = run_cli("api", "FOO", "/api/home")
         self.assertEqual(code, 2)

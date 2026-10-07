@@ -173,7 +173,7 @@ pub async fn handle_search_set(cmd: SearchSetCmd) -> Result<()> {
 }
 
 fn open_db() -> Result<Database> {
-    let paths = Paths::discover().context("failed to resolve paths")?;
+    let paths = Paths::discover()?;
     Database::open(&paths.database_file).context("failed to open papr.db")
 }
 
@@ -352,7 +352,7 @@ fn handle_merge(names: Vec<String>, as_name: &str) -> Result<()> {
 
 /// 保存した検索をもう一度実行し、新着だけをセットに足す（S03）。
 async fn handle_rerun(name_or_id: &str, json: bool) -> Result<()> {
-    let paths = Paths::discover().context("failed to resolve paths")?;
+    let paths = Paths::discover()?;
     let cfg = sai_paper_core::Config::load_or_create(&paths)?;
     let db = open_db()?;
 

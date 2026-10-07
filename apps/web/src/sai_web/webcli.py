@@ -460,6 +460,9 @@ def cmd_api(args: argparse.Namespace) -> object:
     # 合言葉を付けて別の宛先へ送らないため、`/` で始まる path だけを受ける
     if not path.startswith("/") or "://" in path:
         raise UsageError(f"path は / で始まる形で書いてください: {path}")
+    # 空白・制御文字は URL に入れられない（http.client が InvalidURL で落ちる）
+    if any(c.isspace() or not c.isprintable() for c in path):
+        raise UsageError(f"path に空白・制御文字は使えません: {path!r}")
     payload = read_data(args.data)
     status, body, ctype = request_raw(method, path, payload)
     text = body.decode("utf-8", errors="replace")

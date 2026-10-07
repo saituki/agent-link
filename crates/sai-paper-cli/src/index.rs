@@ -43,7 +43,7 @@ pub enum IndexCmd {
 
 /// DB・設定・選んだ索引を開く。
 fn open(index: Option<&str>) -> Result<(Database, sai_paper_core::Config, Paths, RagIndex)> {
-    let paths = Paths::discover().context("failed to resolve paths")?;
+    let paths = Paths::discover()?;
     let db = Database::open(&paths.database_file).context("failed to open papr.db")?;
     let config = sai_paper_core::Config::load_or_create(&paths)
         .context("failed to load or create configuration")?;

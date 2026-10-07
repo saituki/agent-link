@@ -3,7 +3,7 @@
 確かめること:
 - Workflow: `phone workflow` を cwd = プロジェクトの root・`SAI_PROJECT_ROOT` = 同じ root で呼ぶ
 - 定義の一覧・読み出し・保存・削除の引数（`--kind` / `--scope` / `--name` / `--create`）と本文は標準入力
-- `_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 1+「同じ名前の定義があります」/ その他）
+- `_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
 - 検査に通らない値（kind / scope / 名前 / 256KB 超 / settings の削除）は 400 で、CLI を 1 回も呼ばない
 - 実行の記録（DB）が無いプロジェクトでも定義を編集できる（root が無いときだけ 404）
 - 新しい住所が登録済みで、`/papers/…` の固定の住所が `{paper_id:int}` に取られない
@@ -284,8 +284,8 @@ def test_def_delete(cli: FakeCli) -> None:
 def test_def_exit_codes(cli: FakeCli) -> None:
     """`_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4 / その他）。
 
-    U06 の `def write --create` は，同じ名前があるとき終了コード 4 ではなく 2 に
-    「同じ名前の定義があります」を出す。control はこれを暫定で 409 に見せる。
+    `def write --create` は，同じ名前があるとき終了コード 4 で
+    「同じ名前の定義があります」を出す（409 になる）。
     """
     # 0 以外では JSON を読まず、終了コードを先に分ける
     cli.returncode = 3
@@ -301,16 +301,7 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     assert "frontmatter が読めません" in str(e.detail), e.detail
     assert e.status_code == 400, e.status_code
 
-    # 2 かつ「同じ名前の定義があります」→ 409（U06 の暫定の読み替え）
-    cli.returncode = 2
-    cli.stderr = "同じ名前の定義があります"
-    e = expect(
-        409,
-        lambda: control.phone_def_write("demo", "block", "project", "x", "t", True),
-    )
-    assert str(e.detail) == "同じ名前の定義があります", e.detail
-
-    # 4 は 409（U06 が直ったあとの本来の形）
+    # 4 は 409（同じ名前の定義がある）
     cli.returncode = 4
     cli.stderr = "同じ名前の定義があります"
     e = expect(

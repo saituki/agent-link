@@ -117,8 +117,8 @@ fn run_new(result: Result<(), cmd_common::CmdError>) -> Result<(), Box<dyn std::
 /// clap のパース誤りを CLI 共通の約束の形で扱う。
 ///
 /// - `--help`・`--version` などの表示は、今のとおり出して終了コード 0。
-/// - それ以外は clap の文を標準エラーに出したあと、最後の行に
-///   `引数の誤り: <clap の文の 1 行目から先頭の "error: " を除いた物>` を書いて終了コード 2。
+/// - それ以外は clap の複数行の文を出さず、標準エラーに
+///   `引数の誤り: <clap の文の 1 行目から先頭の "error: " を除いた物>` の 1 行だけを書いて終了コード 2。
 fn handle_clap_error(e: clap::Error) -> ! {
     match e.kind() {
         ErrorKind::DisplayHelp
@@ -129,14 +129,17 @@ fn handle_clap_error(e: clap::Error) -> ! {
         }
         _ => {
             let message = e.to_string();
-            // clap の文（「error: …」）を標準エラーへ
-            let _ = e.print();
+            // clap の文の最初の段落（空行まで）を 1 行にまとめる
             let first = message
-                .lines()
-                .find(|l| !l.trim().is_empty())
+                .trim_start()
+                .split("\n\n")
+                .next()
                 .unwrap_or("")
-                .trim();
-            let first = first.strip_prefix("error: ").unwrap_or(first);
+                .lines()
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let first = first.strip_prefix("error: ").unwrap_or(&first);
             eprintln!("引数の誤り: {}", first);
             std::process::exit(cmd_common::EXIT_INPUT);
         }

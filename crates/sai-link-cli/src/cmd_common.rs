@@ -73,12 +73,14 @@ impl From<crate::phone::PhoneError> for CmdError {
     /// `phone` の終了コードを CLI 共通の約束の値に読み替える。
     ///
     /// usage(1)=入力の誤り(2)・parse(2)=入力の誤り(2)・not_found(3)=見つからない(3)、
-    /// internal(4)=その他(1)。
+    /// conflict(5)=状態の衝突(4)・internal(4)=その他(1)。
     fn from(e: crate::phone::PhoneError) -> Self {
         let code = if e.code == engine_common::EXIT_PARSE || e.code == engine_common::EXIT_USAGE {
             EXIT_INPUT
         } else if e.code == engine_common::EXIT_NOT_FOUND {
             EXIT_MISSING
+        } else if e.code == crate::phone::EXIT_PHONE_CONFLICT {
+            EXIT_CONFLICT
         } else {
             EXIT_OTHER
         };

@@ -774,8 +774,6 @@ _DEF_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _DEF_SETTINGS_NAME = "settings"
 # 定義の本文の上限（256KB・UTF-8 のバイト数で数える）
 _DEF_TEXT_MAX = 256 * 1024
-# `write --create` で既に同じ名前があるときの stderr（終了コード 1・409 にする）
-_DEF_DUPLICATE = "同じ名前の定義があります"
 
 
 def _phone_def_project(name: str) -> dict:
@@ -797,23 +795,15 @@ def _phone_def_json(args: list[str], *, root: str, stdin_text: str | None = None
     - 2: 400（検査に通らない中身の誤り）・3: 404・4: 409・1 とそのほか: 502。
     - `stdin_text` は本文を標準入力へ渡す（`write`）。
     """
-    try:
-        return run_json(
-            [settings.sai_link_bin, "def", *args],
-            app="sai-link",
-            cwd=root,
-            env=_phone_env(root),
-            timeout=20.0,
-            input_text=stdin_text,
-            runner=run_cli,
-        )
-    except HTTPException as e:
-        # ponytail: U06 の def write --create は終了コード 4 ではなく 2 で
-        # 「同じ名前の定義があります」を返す（マージ済みの実装で確かめた）。
-        # 同じ名前を 409 に見せるための暫定の読み替え。4 になったら消す。
-        if e.status_code == 400 and e.detail == _DEF_DUPLICATE:
-            raise HTTPException(status_code=409, detail=_DEF_DUPLICATE) from None
-        raise
+    return run_json(
+        [settings.sai_link_bin, "def", *args],
+        app="sai-link",
+        cwd=root,
+        env=_phone_env(root),
+        timeout=20.0,
+        input_text=stdin_text,
+        runner=run_cli,
+    )
 
 
 def _validate_def(kind, scope, def_name) -> None:
