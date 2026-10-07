@@ -6,7 +6,7 @@ MCP サーバ `serena` は、言語サーバーを使ってコードを「記号
 ## 使える範囲
 
 - 記号で扱えるのは、このプロジェクトで言語サーバーが動いている言語だけである。sai-moon では今 **Rust（`crates/`）だけ**（プロジェクト直下の `.serena/project.yml` の `language_servers`）。
-- `apps/phone`・`apps/radio` の Python と JavaScript、Markdown・JSON・CSS は、serena では記号として読めない。`grep` と `Read`（または `sed -n`）で読む。
+- `apps/web`・`apps/radio` の Python と JavaScript、Markdown・JSON・CSS は、serena では記号として読めない。`grep` と `Read`（または `sed -n`）で読む。
 - 最初の 1 回だけ、道具が遅い（言語サーバーの起動待ち）。止まったと思わずに待つ。
 
 ## 読む順番

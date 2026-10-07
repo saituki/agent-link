@@ -26,14 +26,14 @@ enable: true
 ### 2. 当たりを付ける
 
 - まず名前で探す: `grep -rn '<名前>' crates apps --include='*.rs'` のように、フォルダと種類を絞る。
-- 入口から追う: CLI なら `crates/sai-link-cli/src/cli.rs`・`crates/sai-paper-cli/src/`、Web なら `apps/phone/src/sai_phone/main.py` の住所と `static/*.js` の `window.SaiRoutes`。
+- 入口から追う: CLI なら `crates/sai-link-cli/src/cli.rs`・`crates/sai-paper-cli/src/`、Web なら `apps/web/src/sai_web/main.py` の住所と `static/*.js` の `window.SaiRoutes`。
 - 置き場と約束は `ARCHITECTURE.md`・`docs/integration.md`・`docs/for-sai-developers.md` にある。必要な節だけ読む。
 
 ### 3. 読む
 
 - Rust は `mcp-serena` の手順で、見取り図 → 記号の本文 → 呼び出し元の順に読む。
 - Python・JavaScript・設定ファイルは、`grep -n` で行を決めてから、その前後だけ `sed -n '<開始>,<終了>p'` で読む。大きいファイル（`papers.js`・`app.js`・`style.css` など 1000 行を超えるもの）を丸ごと読まない。
-- 画面（`apps/phone`）の問いは、コードを読む前に `mcp-chrome-devtools` の手順で実物を見る。エラー・通信・CSS の行番号から、読むファイルと行を決める。
+- 画面（`apps/web`）の問いは、コードを読む前に `mcp-chrome-devtools` の手順で実物を見る。エラー・通信・CSS の行番号から、読むファイルと行を決める。
 - 経路は最後まで追う。「たぶんここで呼ばれる」で止めない。
 
 ### 4. 答える
