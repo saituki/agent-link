@@ -8,6 +8,7 @@
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use rusqlite::Connection;
+use sai_paper_core::sections::{PassageRef, SectionsError};
 use sai_paper_core::{Paths, citation, figures, sections};
 use std::path::Path;
 
@@ -18,6 +19,14 @@ use crate::open_database;
 pub enum ContentCmd {
     /// 論文本文（extract.md）の全文
     Paper {
+        /// 論文 ID（papers.id）
+        paper_id: i64,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// 論文の全チャンク（段落）を字数の上限なしで返す（#論文.章.段落）
+    Chunks {
         /// 論文 ID（papers.id）
         paper_id: i64,
         /// JSON で出力する
@@ -91,6 +100,40 @@ pub fn read_json(
         .collect::<Result<Vec<_>, _>>()?;
     let max_chars = max_chars.unwrap_or(DEFAULT_MAX_CHARS).clamp(1, MAX_MAX_CHARS);
     Ok(serde_json::to_value(sections::read(conn, data_dir, &parsed, max_chars)?)?)
+}
+
+/// 論文の全チャンクを JSON で返す（字数の上限なし）。論文・本文が無ければ終了コード 3。
+pub fn chunks_json(conn: &Connection, data_dir: &Path, paper_id: i64) -> Result<serde_json::Value> {
+    let title: Option<String> = conn
+        .query_row("SELECT title FROM papers WHERE id = ?1", [paper_id], |row| row.get(0))
+        .ok()
+        .flatten();
+    let title = title.ok_or_else(|| {
+        crate::cli_error::CliError::not_found(format!("論文が見つかりません: id={paper_id}"))
+    })?;
+    let result = sections::read(conn, data_dir, &[PassageRef::Paper { paper_id }], usize::MAX)
+        .map_err(|e| match e {
+            SectionsError::NoExtract(_) | SectionsError::NotFound(_) => anyhow::Error::new(
+                crate::cli_error::CliError::not_found(format!(
+                    "論文 {paper_id} の本文がまだ取り出されていません"
+                )),
+            ),
+            other => other.into(),
+        })?;
+    let chunks: Vec<serde_json::Value> = result
+        .passages
+        .into_iter()
+        .map(|p| {
+            serde_json::json!({
+                "id": p.id,
+                "section": p.section,
+                "heading": p.heading,
+                "text": p.text,
+                "n_sentences": p.n_sentences,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "paper_id": paper_id, "title": title, "chunks": chunks }))
 }
 
 /// 人が読む outline の表。`level` が 2 以上の節は 2 字ずつ字下げし、lead は 40 字で切る。
@@ -233,6 +276,17 @@ pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
             }
             Ok(())
         }
+        ContentCmd::Chunks { paper_id, json } => {
+            // Web の閲覧は「エージェントが読んだ記録」に入れない。
+            let (db, data_dir) = open_for_read()?;
+            let value = chunks_json(db.connection(), &data_dir, paper_id)?;
+            if json {
+                println!("{value}");
+            } else {
+                print!("{}", read_text(&serde_json::json!({ "passages": value["chunks"] })));
+            }
+            Ok(())
+        }
         ContentCmd::Build { paper_ids, all, force, summarize } => build(paper_ids, all, force, summarize).await,
         ContentCmd::Paper { paper_id, json } => print_paper(paper_id, json),
         ContentCmd::Chunk { chunk_id, json } => print_chunk(chunk_id, json),
@@ -264,8 +318,10 @@ fn print_paper(paper_id: i64, json: bool) -> Result<()> {
                 "論文 {paper_id} の extract.md が見つかりません（抽出未実行？）"
             ))
         })?;
-    let text = std::fs::read_to_string(&md_path)
-        .with_context(|| format!("extract.md の読み込みに失敗: {}", md_path.display()))?;
+    let text = citation::docling::strip_figure_images(
+        &std::fs::read_to_string(&md_path)
+            .with_context(|| format!("extract.md の読み込みに失敗: {}", md_path.display()))?,
+    );
 
     if json {
         println!(
@@ -392,5 +448,31 @@ mod tests {
         assert!(whole["next"].is_string());
         assert!(read_text(&whole).contains("### #"));
         assert!(read_json(conn, &dir, &["abc".to_string()], None).is_err());
+    }
+
+    /// chunks は上限なしで全段落を返し、画像行は本文に入らない。論文・本文が無ければ終了コード 3。
+    #[test]
+    fn chunks_json_returns_all_and_not_found() {
+        let (db, dir, id) = setup("chunks");
+        let conn = db.connection();
+        std::fs::write(
+            dir.join("extract.md"),
+            "## Test paper\n\nFront matter line with several words in it.\n\n![Image](/tmp/x.png)\n\n## 1 Intro\n\nBody text of the intro section goes here.\n",
+        )
+        .unwrap();
+        let v = chunks_json(conn, &dir, id).unwrap();
+        assert_eq!(v["paper_id"], id);
+        assert_eq!(v["title"], "Test paper");
+        let chunks = v["chunks"].as_array().unwrap();
+        assert!(!chunks.is_empty());
+        for key in ["id", "section", "heading", "text", "n_sentences"] {
+            assert!(chunks[0].get(key).is_some(), "{key} が無い");
+        }
+        assert!(chunks.iter().all(|c| !c["text"].as_str().unwrap().contains("![Image]")));
+        assert!(chunks[0]["id"].as_str().unwrap().starts_with(&format!("#{id}.")));
+        let code = |e: anyhow::Error| e.downcast_ref::<crate::cli_error::CliError>().map(|c| c.code);
+        assert_eq!(code(chunks_json(conn, &dir, 9999).unwrap_err()), Some(3));
+        let none = db.insert_paper("No body", None).unwrap();
+        assert_eq!(code(chunks_json(conn, &dir, none).unwrap_err()), Some(3));
     }
 }

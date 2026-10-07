@@ -169,7 +169,8 @@ async fn run_docling_inner(
         )));
     }
 
-    let markdown = read_produced_markdown(&pdf_path, &out_dir)?;
+    // 画像行は一時フォルダを指し、後で壊れたリンクになるので保存前に除く（図は別に保存する）。
+    let markdown = strip_figure_images(&read_produced_markdown(&pdf_path, &out_dir)?);
 
     // 正規化済みファイル名で保存（後続の再利用・TUI の md プレビュー用）
     std::fs::write(&save_md_path, &markdown)?;
@@ -189,6 +190,19 @@ async fn run_docling_inner(
         style: "Generic".to_string(),
         figures,
     })
+}
+
+/// 画像だけの行（`![Image](…)`・`<!-- image -->`）を行ごと除く。他の行は変えない。
+///
+/// 文中に画像がある行は触らない。
+#[must_use]
+pub fn strip_figure_images(md: &str) -> String {
+    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^\s*(?:!\[[^\]]*\]\([^)]*\)|<!--\s*image\s*-->)\s*$").expect("画像行の正規表現")
+    });
+    md.split_inclusive('\n')
+        .filter(|line| !RE.is_match(line.trim_end_matches(['\n', '\r'])))
+        .collect()
 }
 
 /// docling が出力した Markdown を読み取る。
@@ -392,6 +406,20 @@ pub fn sanitize_filename_component(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strip_figure_images_drops_only_image_lines() {
+        assert_eq!(
+            strip_figure_images("A\n\n![Image](/x/.docling-figures-tmp/a.png)\n\nB\n"),
+            "A\n\n\nB\n"
+        );
+        assert_eq!(strip_figure_images("  <!-- image -->  \nB"), "B");
+        // 文中の画像・最終行の改行なし・CRLF
+        let inline = "see ![x](y.png) here\n";
+        assert_eq!(strip_figure_images(inline), inline);
+        assert_eq!(strip_figure_images("A\r\n![i](p)\r\nB"), "A\r\nB");
+        assert_eq!(strip_figure_images("plain\n"), "plain\n");
+    }
 
     #[test]
     fn split_figure_label_figure_and_table() {

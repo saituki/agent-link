@@ -1171,6 +1171,14 @@ def api_paper_text(
     return papers.text(papers.resolve_project(name), paper_id)
 
 
+@app.get("/api/projects/{name}/papers/{paper_id:int}/chunks")
+def api_paper_chunks(
+    name: str, paper_id: int, _: None = Depends(require_token)
+) -> dict:
+    """論文のチャンク一覧（`#論文.章.段落`）。本文が無ければ 404。"""
+    return papers.chunks(papers.resolve_project(name), paper_id)
+
+
 @app.get("/api/projects/{name}/papers/{paper_id:int}/pdf")
 def api_paper_pdf(
     name: str, paper_id: int, lang: str | None = None, _: None = Depends(require_token)
