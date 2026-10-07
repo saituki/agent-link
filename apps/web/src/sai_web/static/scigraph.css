@@ -49,8 +49,8 @@
 .sci-graph-stage {
   position: relative;
   width: 100%;
-  height: min(62vh, 520px);
-  min-height: 260px;
+  height: min(124vh, 1040px);
+  min-height: 520px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;

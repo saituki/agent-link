@@ -168,16 +168,21 @@
   .sci-body:not(.has-board) .sci-split-handle[data-split="board"] { display: none; }
   /* ページ全体がスクロールしても、一覧・図・板が画面の高さに収まって付いてくる */
   .sci-body .sci-list,
-  .sci-body .sci-graph-box,
   .sci-body .sci-board {
     position: sticky;
     top: 60px;
     align-self: flex-start;
     max-height: calc(100vh - 70px);
   }
+  /* 図は下へ 2 倍に伸ばしたので、付いてこず、高さの上限も付けない（縦スクロールの二重を避ける） */
+  .sci-body .sci-graph-box {
+    position: static;
+    max-height: none;
+    align-self: stretch;
+  }
 }
 
-/* --- 上の帯（進み具合・Next Action・注意） --- */
+/* --- 上の帯（Next Action・History・注意） --- */
 
 .sci-band {
   background: var(--bg-soft);
@@ -443,12 +448,14 @@
 .sci-chip.warn { border-color: var(--accent); color: var(--accent); }
 .sci-chip.dim { opacity: 0.5; }
 
-.sci-progress { align-items: center; flex-wrap: nowrap; }
-.sci-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
-.sci-bar-fill { height: 100%; background: var(--accent); }
+.sci-next-row { align-items: center; padding: 1px 0; line-height: 1.4; }
+.sci-next { display: flex; flex-direction: column; gap: 0; }
+.sci-next-row .sci-line-main { font-size: 14px; line-height: 1.4; }
+.sci-next-row .sai-btn.small { min-height: 28px; padding-block: 2px; }
 
-.sci-next-row { align-items: center; padding: 4px 0; }
-.sci-next { display: flex; flex-direction: column; gap: 4px; }
+/* 全 Node の History（折りたたみ）。開いたら箱の中で縦スクロール */
+.sci-historyband > summary { cursor: pointer; padding: 8px 0; }
+.sci-history-list { max-height: 320px; overflow-y: auto; margin-top: 4px; }
 
 /* 一覧の行: 押す部分・★・Answer/Issue・✕。押せる物は 44px 以上 */
 .sci-row { display: flex; flex-direction: row; align-items: center; gap: 4px; border-radius: 8px; padding-top: 0; padding-bottom: 0; padding-right: 4px; cursor: default; }
@@ -608,4 +615,3 @@ button.sci-action-meta {
   line-height: 1.6;
   color: var(--text-soft);
 }
-.sci-decision { align-items: baseline; }

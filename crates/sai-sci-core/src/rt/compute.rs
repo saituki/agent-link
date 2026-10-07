@@ -171,8 +171,21 @@ pub struct Status {
     pub next: Vec<NextAction>,
     pub pending_proposals: usize,
     pub decisions: Vec<Decision>,
+    /// 全 Node の History（`Add *` を除き、`at` の昇順）。
+    pub history: Vec<StatusHistory>,
     pub running: Vec<RunningJson>,
     pub warnings: Vec<String>,
+}
+
+/// `status.history` の 1 行。`node_detail.history` の 1 行に、Node の ID と文を付けたもの。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StatusHistory {
+    /// `Q3` など。
+    pub node: String,
+    /// その Node の文。
+    pub node_text: String,
+    #[serde(flatten)]
+    pub entry: HistoryJson,
 }
 
 /// `node_detail.path` の 1 要素。
@@ -950,6 +963,7 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
         next: Vec::new(),
         pending_proposals: 0,
         decisions: Vec::new(),
+        history: Vec::new(),
         running: Vec::new(),
         warnings,
     };
@@ -978,6 +992,17 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
     out.next = next_actions(&tree, 10);
     out.pending_proposals = tree.pending.len();
     out.decisions = tree.log.iter().take(30).map(|r| tree.decision(r)).collect();
+    // 全 Node の History。`Add *` は子の `init` と同じ出来事なので捨てる。at の安定ソートで古い順にする。
+    let runs = action::sci_runs(roots);
+    for n in &tree.nodes {
+        for entry in history_json(n, n.id, &tree, &runs) {
+            if entry.action.starts_with("Add ") {
+                continue;
+            }
+            out.history.push(StatusHistory { node: fmt_id(n.kind, n.id), node_text: n.text.clone(), entry });
+        }
+    }
+    out.history.sort_by(|a, b| a.entry.at.cmp(&b.entry.at));
     out.running = running_runs(roots);
     Ok(out)
 }
@@ -1544,7 +1569,7 @@ mod tests {
         };
         assert_eq!(
             keys(&serde_json::to_value(&s).unwrap()),
-            want(&["initialized", "legacy", "type", "progress", "nodes", "seed", "next", "pending_proposals", "decisions", "running", "warnings"])
+            want(&["initialized", "legacy", "type", "progress", "nodes", "seed", "next", "pending_proposals", "decisions", "history", "running", "warnings"])
         );
 
         let e = env("keys");
@@ -1657,6 +1682,40 @@ mod tests {
         assert!(d.history.iter().any(|h| h.action == "Add F"));
         let ats: Vec<&str> = d.history.iter().skip(1).map(|h| h.at.as_str()).collect();
         assert!(ats.windows(2).all(|w| w[0] <= w[1]), "{ats:?}");
+    }
+
+    #[test]
+    fn status_history_all_nodes_oldest_first() {
+        let e = env("status-history");
+        let conn = e.db.connection();
+        let q0 = q(&e, None, "Q", None);
+        let o1 = o(&e, q0, "O");
+        store::insert_log(conn, o1, "edit", "text", "user", None).unwrap();
+        let s = status(conn, &e.roots, &Defs::default()).unwrap();
+        assert!(s.history.iter().all(|h| !h.entry.action.starts_with("Add ")));
+        for (id, kind) in [(q0, Kind::Q), (o1, Kind::O)] {
+            let n = fmt_id(kind, id);
+            assert_eq!(s.history.iter().filter(|h| h.node == n && h.entry.action == "init").count(), 1, "{n}");
+        }
+        assert!(s.history.iter().any(|h| h.node == fmt_id(Kind::O, o1) && h.entry.action == "edit"));
+        assert_eq!(s.history.iter().find(|h| h.node == fmt_id(Kind::Q, q0)).unwrap().node_text, "Q");
+        let ats: Vec<&str> = s.history.iter().map(|h| h.entry.at.as_str()).collect();
+        assert!(ats.windows(2).all(|w| w[0] <= w[1]), "{ats:?}");
+        // JSON では node・node_text と HistoryJson の項目が同じ階層に並ぶ。
+        let v = serde_json::to_value(&s.history[0]).unwrap();
+        assert!(v["node"].is_string() && v["action"].is_string() && v.get("entry").is_none());
+    }
+
+    #[test]
+    fn status_history_empty_when_uninitialized() {
+        let dir = std::env::temp_dir().join(format!("sai-rt-compute-hist-uninit-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let data_dir = dir.join(".sai/paper");
+        fs::create_dir_all(&data_dir).unwrap();
+        let db = Database::open(&data_dir.join("papr.db")).unwrap();
+        let roots = PaperRoots { root: dir, data_dir };
+        let s = status(db.connection(), &roots, &Defs::default()).unwrap();
+        assert!(!s.initialized && s.history.is_empty());
     }
 
     #[test]
