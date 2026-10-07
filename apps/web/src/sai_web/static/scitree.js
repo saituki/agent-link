@@ -102,7 +102,6 @@ function stLegacyHash(hash) {
   return null;
 }
 
-/** status.nodes を並びのまま一覧の行にする。 */
 /** PATH の O を足す／外す。O 以外・重複・21 個目は足さない。 */
 function stSproutToggle(paths, id) {
   const list = Array.isArray(paths) ? paths.slice() : [];
@@ -131,6 +130,7 @@ function stSproutSummary(paths, status) {
   return `PATH ${rows.length} 個（Issue の O ${issues} 個）`;
 }
 
+/** status.nodes を並びのまま一覧の行にする。 */
 function stRows(status) {
   const nodes = status && Array.isArray(status.nodes) ? status.nodes : [];
   return nodes.map((n) => ({

@@ -227,6 +227,20 @@ fn schema_has_shape_and_web_flags() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Web は `apply --json` で呼ぶ（`for-sai-developers.md` の約束）。`--json` を引数の誤りにしない。
+#[test]
+fn apply_accepts_json_flag() {
+    let dir = temp_dir("apply-json");
+    let out = run({
+        let mut cmd = command(&dir);
+        cmd.env("HOME", &dir).args(["apply", "--json"]);
+        cmd
+    });
+    assert!(!out.stderr.contains("unexpected argument"), "stderr={}", out.stderr);
+    assert!(out.stdout.is_empty(), "失敗のとき標準出力は空: {}", out.stdout);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `init` は link → paper の順に呼び、4 つの設定と部品を配る。
 /// 2 回目は変えず、利用者の `pre_run` は残し、`--update` で退避して書き換える。
 #[test]
