@@ -4,6 +4,7 @@
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
 //   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。SPROUT を選ぶと他を薄くする
+//   sgMarkPicked(ids)                                  … SPROUT 作成中の PATH に入れた O の札に破線の印（ID の配列か Set）
 //   sgSproutKeep(status, id)                           … SPROUT に含まれる ID の Set（SPROUT でなければ null）
 //   sgCenterOn(id)                                     … その札を画面の中央に出す
 //
@@ -51,6 +52,7 @@ const SG_EDGE_KINDS = [
 let sgStatus = null;   // 最後に描いた status の JSON
 let sgSelMap = new Map(); // 札の id → onSelect に渡す sel
 let sgSelectedKey = null; // 選んでいる札の id
+let sgPicked = new Set(); // SPROUT の PATH に入れた O の id（再描画のあとも印を戻す）
 let sgOnSelect = null; // 札を押したときに呼ぶ関数
 let sgRoot = null;     // 図を囲む要素
 let sgFBtn = null;     // F の出し入れの釦（文と色を sgDraw で更新する）
@@ -697,6 +699,7 @@ function sgMarkSelected(id) {
   for (const el of sgWorld.querySelectorAll("[data-sg-id]")) {
     const cardId = el.getAttribute("data-sg-id");
     el.classList.toggle("is-selected", cardId === sgSelectedKey);
+    el.classList.toggle("is-picked", sgPicked.has(cardId));
     el.classList.toggle("sci-graph-faded", !!keep && !keep.has(cardId));
   }
   for (const el of sgWorld.querySelectorAll(".sci-graph-edge[data-from]")) {
@@ -704,6 +707,12 @@ function sgMarkSelected(id) {
     const to = el.getAttribute("data-to");
     el.classList.toggle("sci-graph-faded", !!keep && !(keep.has(from) && keep.has(to)));
   }
+}
+
+/** SPROUT 作成中の PATH に入れた O の札に印を付ける（空なら外す）。 */
+function sgMarkPicked(ids) {
+  sgPicked = new Set(Array.from(ids || [], String));
+  sgMarkSelected(sgSelectedKey);
 }
 
 /** 線の SVG に viewBox を付ける（描きたい範囲いっぱい）。 */
@@ -1115,6 +1124,7 @@ if (typeof module !== "undefined" && module.exports) {
     sgTreeLayout,
     sgSelectionOf,
     sgMarkSelected,
+    sgMarkPicked,
     sgSproutKeep,
     sgCenterOn,
     sgCenterView,
