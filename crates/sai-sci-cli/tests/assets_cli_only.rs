@@ -1,4 +1,4 @@
-//! sai-sci の block・template・README・TUTORIAL・道具・実行先に、MCP の道具名や古い命令名が
+//! sai-sci の block・template・docs/sai-sci*.md・道具・実行先に、MCP の道具名や古い命令名が
 //! 残っていないことを確かめる（U21）。
 //!
 //! 正規表現のために新しい依存を足さないため、禁止語を `contains` で確かめる。
@@ -84,8 +84,8 @@ fn sai_sci_assets_have_no_mcp_tool_or_old_command_names() {
     let mut files = Vec::new();
     collect(&root.join("blocks"), Some("md"), &mut files);
     collect(&root.join("template"), Some("md"), &mut files);
-    for name in ["README.md", "TUTORIAL.md"] {
-        let path = root.join(name);
+    for name in ["sai-sci.md", "sai-sci-tutorial.md"] {
+        let path = root.join("../docs").join(name);
         assert!(path.is_file(), "{name} がありません");
         files.push(path);
     }

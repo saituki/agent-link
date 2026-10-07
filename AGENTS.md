@@ -22,7 +22,7 @@
 | `README.md` | 起動手順・ポート表・環境変数表 |
 | `docs/integration.md` | `apps/web` の API と画面の住所の一覧 |
 | `docs/for-sai-developers.md` | CLI と `apps/radio` が守る約束（`apps/web` が読む JSON の項目） |
-| `sai-sci/README.md` | research-tree の使い方 |
+| `docs/sai-sci.md`・`docs/sai-sci-tutorial.md` | research-tree の使い方・手を動かす練習 |
 | `apps/radio/README.md`・`apps/radio/ARCHITECTURE.md` | Radio だけ触るとき |
 
 `sai-link` などは PATH に無い。`README.md` の「入れ方」の PATH の足し方を見ること。

@@ -285,7 +285,7 @@ pi が人に質問するとき、Web に質問を送る拡張です（`apps/web/
 
 ### 研究（sai-sci）・実験の記録・実行先
 
-research-tree（Q・O・F・E）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`sai-sci/README.md`](./sai-sci/README.md) にまとめてあります。手を動かして覚えるなら [`sai-sci/TUTORIAL.md`](./sai-sci/TUTORIAL.md) から始めてください。
+research-tree（Q・O・F・E）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`docs/sai-sci.md`](./docs/sai-sci.md) にまとめてあります。手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md) から始めてください。
 
 - 始め方は `sai-sci init --type <型>` の 1 行です（`sai-link`・`sai-paper` の初期化と、研究の部品の配布を含みます）。
 - agent に渡す環境変数（MLflow の接続情報など）は `.sai/settings.json` か `$SAI_HOME/settings.json` の `env` に書きます。書き方は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) の「`.sai/settings.json` の `env`」にあります。
@@ -315,6 +315,6 @@ research-tree（Q・O・F・E）・professor・LabAgent（研究用の block と
 - [`CONCEPT.md`](./CONCEPT.md) — 概念と用語（sai の部品・run・card・doc・research-tree・画面の名前ほか）。
 - [`docs/integration.md`](./docs/integration.md) — Web の API と画面の住所の一覧、各 API が呼ぶ CLI の命令、統合の注意点。
 - [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) — 3 つの CLI の約束と、Web が読む JSON の項目（CLI を直す人が守ること）。
-- [`sai-sci/README.md`](./sai-sci/README.md) — research-tree・研究の型・ガイド・ブロック・実験・Web の画面の説明書。
+- [`docs/sai-sci.md`](./docs/sai-sci.md) — research-tree・研究の型・ガイド・ブロック・実験・Web の画面の説明書。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio の詳細。
 - [`apps/mlflow-server/README.md`](./apps/mlflow-server/README.md) — MLflow サーバの起動と運用。

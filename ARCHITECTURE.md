@@ -65,7 +65,7 @@
   SEED は DB の行を持たず、`sai-sci status` の `seed`（RESEARCH_TYPE と `mind.md`）から作る。ROOT は top_Q から下へ分かれる Q・O・F、
   SPROUT（S）は PATH（終点の O）を集めて実験の計画を立てる Node、BRANCH は SPROUT の下の E（実験の実行）。
   research-tree に向けた 1 回の実行が Action（task.md のカード）で、professor が研究を回し、`sci-*` の block が研究作業を行う。
-  言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`sai-sci/README.md`](./sai-sci/README.md)。
+  言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)。
 - **status の History**: `sai-sci status --json` の `history[]` は、全 Node の History（`Add *` を除く・古い順。`StatusHistory`・`crates/sai-sci-core/src/rt/compute.rs`）。Web の research-tree 画面の History がこれを読む。
 - **論文のチャンク**: 論文の本文を段落ごとに分けた物で、ID は `#論文.章.段落`（例 `#57.3.2`。`crates/sai-paper-core/src/sections.rs`）。
   `sai-paper content chunks <paper_id> --json` が字数の上限なしで全段落を返し、Web は `GET /api/projects/{name}/papers/{paper_id}/chunks`（`papers.py` の `chunks()`・`main.py` の `api_paper_chunks`）で中継する。

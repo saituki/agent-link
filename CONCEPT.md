@@ -5,7 +5,7 @@
 - **読み方**: 各節は短い説明と、「用語・意味・どこにあるか」の表でできている。「どこにあるか」は、画面の住所・CLI の命令・コードの場所（ファイル名と関数名・型名。行番号は書かない）のどれか。
 - **言葉の方針**: 専門用語は英単語のまま使う（Next Action・History・PATH・SPROUT・TRIAGE・Library・Import・Dashboard など）。案内文と説明は日本語で書く。`data-tab`・住所・API の名前などの識別子も英語のまま。
 - **正はコード**: この文書とコードが食い違ったら、コードに合わせて直す。確かめきれていない文には（要確認）を付ける。
-- **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、層の分け方と守る約束は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、API と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md)、research-tree の使い方は [`sai-sci/README.md`](./sai-sci/README.md)、手を動かして覚えるなら [`sai-sci/TUTORIAL.md`](./sai-sci/TUTORIAL.md)。
+- **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、層の分け方と守る約束は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、API と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md)、research-tree の使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)、手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md)。
 
 ---
 
@@ -199,7 +199,7 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 
 | 用語 | 意味 | どこにあるか |
 |---|---|---|
-| **4 layer** | research-tree の 4 つの層。SEED・ROOT・SPROUT・BRANCH。 | `sai-sci/README.md` §2.1、`scigraph.js` |
+| **4 layer** | research-tree の 4 つの層。SEED・ROOT・SPROUT・BRANCH。 | `docs/sai-sci.md` §2.1、`scigraph.js` |
 | **SEED** | 研究の初期の入力。RESEARCH_TYPE と `mind.md`。Node の ID は `SEED`。 | `rt/mod.rs` の `SEED_ID`、`#/research/tree/SEED` |
 | **ROOT** | SEED から下へ分かれる Q・O・F の総称。 | DAG の下の部分 |
 | **SPROUT** | SEED から上へ分かれる Node（ID は `S<n>`）。PATH を集めて実験の計画を立てる。 | `rt_nodes`（kind `S`）、`rt/ops.rs` の `add_sprout` |
@@ -260,7 +260,7 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 | **`sci-*` ブロック** | 研究作業そのもの（読む・比べる・O を出す・F を探す・実験する・データを分析する）を行う block。 | `sai-sci/blocks/`。`sai-sci init` が `<root>/.sai/blocks/` に配る |
 | **`sci_type`** | LabAgent の 3 分類。node agent（対象の Node＋子孫を見る）・manage agent（祖先＋対象＋子孫。対象が `SEED` なら全体）・support agent（他の block に呼ばれる。research-tree を見ない）。 | block の frontmatter `sci_type` |
 | **`context`（`# context`）** | 実行の直前に、research-tree の範囲を切り出して最初の文の `# context` の節に入れる物。 | `sai-sci context --run <run_id>`、`rt/context.rs` |
-| **`mlflow`（E の記録）** | E が持つ MLflow の記録への参照。Experiments の画面が読む。experiment と run の名前は `sai-sci/README.md` §5.7。 | op `add_e` の項目 `mlflow` |
+| **`mlflow`（E の記録）** | E が持つ MLflow の記録への参照。Experiments の画面が読む。experiment と run の名前は `docs/sai-sci.md` §5.7。 | op `add_e` の項目 `mlflow` |
 | **書き出し（`state.md`・`tree.md`）** | research-tree を文章と図にした書き出し。手で直しても次の書き出しで消える。 | `<root>/.sai/paper/`、`sai-sci export`、`rt/export.rs` |
 | **`mind.md`** | 研究の土台。利用者が書く。`ORIGIN`・`RESEARCH_TYPE`・`GIVEN`・`CONSTRAINTS`・`VALUE_AXES`・`INTERESTS`・`NOTES` の節を持ち、エージェントは直接書き換えない。 | `<root>/.sai/paper/mind.md`、ひな形は `sai-sci/mind.md` |
 | **`rt_*` の表** | research-tree の DB の表。`rt_meta`・`rt_nodes`・`rt_logic`・`rt_log`・`rt_proposals`・`rt_seeds`・`rt_searches`。古い `sci_*` の表は読まず、消さない。 | `papr.db`、`crates/sai-paper-core/migrations/0048_research_tree.sql` ほか |

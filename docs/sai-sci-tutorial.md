@@ -21,7 +21,7 @@
 ## 0. 先に覚えておく言葉
 
 画面によく出る言葉です。今は全部を覚えなくて構いません。分からなくなったらここに戻ってください。
-用語は [`README.md`](README.md) の用語表を見てください。
+用語は [`sai-sci.md`](sai-sci.md) の用語表を見てください。
 
 ### 命令（コマンド）の打ち方
 
@@ -128,7 +128,7 @@ Dashboard / Library / Import / Radio
 
 research-tree は **研究** タブにあります。先頭の **research-tree** を押すと、research-tree の画面（`#/research/tree`）になります。もう 1 つのタブは **Experiments**（実験の記録）です。
 
-> research-tree がまだ無いプロジェクトでは「research-tree がまだありません」と出ます。**始める** を押して RESEARCH_TYPE を選ぶと、`sai-sci init` と同じことが行われます。古い形の research-tree だけがあるプロジェクトでは「古い形の research-tree です」と出ます。その場合は新しい research-tree を作り直します（`sai-sci/README.md` の 4.2 節）。
+> research-tree がまだ無いプロジェクトでは「research-tree がまだありません」と出ます。**始める** を押して RESEARCH_TYPE を選ぶと、`sai-sci init` と同じことが行われます。古い形の research-tree だけがあるプロジェクトでは「古い形の research-tree です」と出ます。その場合は新しい research-tree を作り直します（`docs/sai-sci.md` の 4.2 節）。
 
 ---
 
@@ -314,7 +314,7 @@ Q の答えの理路が通っているかを確かめて、記録します。
 
 1. O の板の **Answer / Issue を変える** で Issue にします。
 2. **E を足す** で実験を足します（文は 120 字まで。MLflow の名前は任意）。親は Issue の O か、ほかの E です。
-3. 実験をエージェントに回してもらうときは、`sci-exp-sprout`（CARD の対象は `SEED`）で SPROUT を作ります（`sai-sci/README.md` の 5.7 節）。**実行先によっては課金されます。練習では実験を回さず、足すだけにしてください。**
+3. 実験をエージェントに回してもらうときは、`sci-exp-sprout`（CARD の対象は `SEED`）で SPROUT を作ります（`docs/sai-sci.md` の 5.7 節）。**実行先によっては課金されます。練習では実験を回さず、足すだけにしてください。**
 
 ### 10.1 エージェントに頼む（Action）
 
@@ -478,7 +478,7 @@ rm -rf ~/research/sci-practice
 | Web にプロジェクトが出ない | 📁 を押して選び直す。無ければ `~/research/sci-practice` で `sai-sci init --type problem` をもう一度打つ（何度打っても壊れない） |
 | 画面が古いまま | ブラウザで再読み込み（`⌘ + R`） |
 | 「research-tree がまだありません」 | **始める** を押して型を選ぶ |
-| 「古い形の research-tree です」 | 新しい research-tree を作り直す（`sai-sci/README.md` の 4.2 節） |
+| 「古い形の research-tree です」 | 新しい research-tree を作り直す（`docs/sai-sci.md` の 4.2 節） |
 | READ_CARD で「F を付ける O または E がありません」 | ⑤で O を足してから戻る |
 | F を送ると断られる | 数字を書いたなら出典（`#1 abstract` の形）を入れる |
 | CONTRADICTION を記録できない | 指摘の文と、F を 2 つ以上入れる |

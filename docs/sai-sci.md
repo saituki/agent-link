@@ -2,7 +2,7 @@
 
 **読み手**: 利用者と、`sai-sci/` の md を直す開発者。
 
-初めて使う人は、手を動かしながら全部の機能を回る [`TUTORIAL.md`](TUTORIAL.md) から始めてください。
+初めて使う人は、手を動かしながら全部の機能を回る [`sai-sci-tutorial.md`](sai-sci-tutorial.md) から始めてください。
 
 `sai-sci` は、**研究の方向づけの段階（実験の前にある「何をやるか」を決める段階）を、Q・O・F・E の research-tree で扱う仕組み**です。
 research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state.md`・`tree.md`）はその正からの書き出しにします。
