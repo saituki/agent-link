@@ -97,6 +97,7 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
         "cites": "ocites",
         "paper": "opaper",
         "report": "oreport",
+        "run": "orun",
     },
     "add_e": {"parent": "ref:SE", "text": "text:120", "body": "body", "mlflow": "otext:200"},
     "add_sprout": {"title": "text:120", "body": "body", "paths": "sproutpaths"},
@@ -252,7 +253,7 @@ def _check_one(key: str, kind: str, value):
         return text
     if name == "ocites":
         return _check_cites(value)
-    if name == "opaper":
+    if name in ("opaper", "orun"):
         return check_run_id(value)
     if name == "oreport":
         text = _trim(value)
@@ -292,7 +293,7 @@ def validate_op(payload) -> dict:
     for key, kind in fields.items():
         raw = payload.get(key)
         # `ref:`・`enum:`・`text:`・`ztext:`・`qparent`・`sproutpaths` は必須、ほかは任意
-        optional = kind.split(":")[0] in ("otext", "body", "oguide", "ocites", "opaper", "oreport")
+        optional = kind.split(":")[0] in ("otext", "body", "oguide", "ocites", "opaper", "orun", "oreport")
         if raw is None:
             if optional:
                 continue
