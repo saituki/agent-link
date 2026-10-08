@@ -117,6 +117,7 @@ pub mod run_dir;
 pub mod runner;
 pub mod doc_write_notify;
 pub mod search;
+pub mod seen_ids;
 pub mod session;
 pub mod task_cwd;
 pub mod task_manager;
