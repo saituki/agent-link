@@ -379,7 +379,7 @@ FIND_EACH_MIN = 1
 FIND_EACH_MAX = 20
 # research-tree の Node の形（sci.py と同じ値。sci を import せず持つのは
 # 循環 import を避けるため・U02 計画書の前提）
-_FIND_NODE_RE = re.compile(r"^[QOFE][1-9][0-9]{0,8}$")
+_FIND_NODE_RE = re.compile(r"^[QAFES][1-9][0-9]{0,8}$")
 
 
 class FindRequest(BaseModel):
@@ -393,7 +393,7 @@ class FindRequest(BaseModel):
     top_k: int | None = None  # 1〜100（省略で既定）
     scope: str | None = None  # papers / notes / figures / all（省略で既定）
     papers: list[int] | None = None  # Library の論文番号（20 個まで）
-    node: str | None = None  # research-tree の Node（Q12・O5・F3・E2）
+    node: str | None = None  # research-tree の Node（Q12・A5・F3・E2）
     subtree: bool = False  # node の子孫も含める
     each: int | None = None  # 範囲の論文ごとに上位 m 件（1〜20）
 
