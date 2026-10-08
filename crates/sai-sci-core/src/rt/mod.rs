@@ -1,8 +1,8 @@
-//! research-tree の新しい形。Node は Q（問い）・O（答えの候補）・F（根拠）・E（実験）・S（SPROUT）の 5 種。
+//! research-tree の新しい形。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）の 5 種。
 //!
 //! 正は `papr.db` の `rt_*` の表。古い `sci_*` の表は読まないが消さない。
 //! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
-//! PROPOSAL は `P3`、SPROUT は `S2`。
+//! SPROUT は `S2`。
 //!
 //! SEED は DB の行を持たない Node で、ID は [`SEED_ID`]。SEED の直下の Q（`parent_id` が NULL）を top_Q と呼ぶ。
 
@@ -49,19 +49,19 @@ pub const SEED_ID: &str = "SEED";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum Kind {
     Q,
-    O,
+    A,
     F,
     E,
     S,
 }
 
 impl Kind {
-    /// "Q" / "O" / "F" / "E" / "S"。
+    /// "Q" / "A" / "F" / "E" / "S"。
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Q => "Q",
-            Kind::O => "O",
+            Kind::A => "A",
             Kind::F => "F",
             Kind::E => "E",
             Kind::S => "S",
@@ -74,7 +74,7 @@ impl Kind {
     pub fn from_str(s: &str) -> Option<Kind> {
         match s {
             "Q" => Some(Kind::Q),
-            "O" => Some(Kind::O),
+            "A" => Some(Kind::A),
             "F" => Some(Kind::F),
             "E" => Some(Kind::E),
             "S" => Some(Kind::S),
@@ -85,7 +85,7 @@ impl Kind {
     fn from_char(c: char) -> Option<Kind> {
         match c {
             'Q' => Some(Kind::Q),
-            'O' => Some(Kind::O),
+            'A' => Some(Kind::A),
             'F' => Some(Kind::F),
             'E' => Some(Kind::E),
             'S' => Some(Kind::S),
@@ -94,7 +94,7 @@ impl Kind {
     }
 }
 
-/// "Q12" → (Kind::Q, 12)。形は `^[QOFES][1-9][0-9]{0,8}$`。違えば Invalid。
+/// "Q12" → (Kind::Q, 12)。形は `^[QAFES][1-9][0-9]{0,8}$`。違えば Invalid。
 pub fn parse_id(text: &str) -> Result<(Kind, i64)> {
     let invalid = || RtError::Invalid(format!("ID の形が正しくありません: {text}"));
     let mut chars = text.chars();
@@ -129,7 +129,7 @@ pub fn fmt_id(kind: Kind, id: i64) -> String {
     format!("{}{id}", kind.as_str())
 }
 
-/// "P3" / "S2" と 'P' → 3。形は `^<prefix>[1-9][0-9]{0,8}$`。
+/// "S2" と 'S' → 2。形は `^<prefix>[1-9][0-9]{0,8}$`。
 pub fn parse_ref(text: &str, prefix: char) -> Result<i64> {
     let invalid = || RtError::Invalid(format!("ID の形が正しくありません: {text}"));
     let digits = text.strip_prefix(prefix).ok_or_else(invalid)?;
@@ -143,7 +143,7 @@ pub fn parse_ref(text: &str, prefix: char) -> Result<i64> {
     digits.parse().map_err(|_| invalid())
 }
 
-/// ('P', 3) → "P3"。
+/// ('S', 2) → "S2"。
 #[must_use]
 pub fn fmt_ref(prefix: char, id: i64) -> String {
     format!("{prefix}{id}")
@@ -222,23 +222,23 @@ mod tests {
     #[test]
     fn parse_id_accepts_and_rejects() {
         assert_eq!(parse_id("Q12").unwrap(), (Kind::Q, 12));
-        assert_eq!(parse_id("O1").unwrap(), (Kind::O, 1));
+        assert_eq!(parse_id("A15").unwrap(), (Kind::A, 15));
         assert_eq!(parse_id("F999999999").unwrap(), (Kind::F, 999_999_999));
         assert_eq!(parse_id("E3").unwrap(), (Kind::E, 3));
         assert_eq!(parse_id("S31").unwrap(), (Kind::S, 31));
-        for text in ["Q0", "Q01", "N12", "12", "Q", "", "Q1000000000", "Q1a"] {
+        for text in ["Q0", "Q01", "N12", "12", "Q", "", "Q1000000000", "Q1a", "O1"] {
             assert!(matches!(parse_id(text), Err(RtError::Invalid(_))), "{text}");
         }
-        assert!(matches!(parse_id_of("O5", Kind::Q), Err(RtError::Invalid(_))));
+        assert!(matches!(parse_id_of("A5", Kind::Q), Err(RtError::Invalid(_))));
         assert_eq!(parse_id_of("Q5", Kind::Q).unwrap(), 5);
-        assert_eq!(fmt_id(Kind::O, 13), "O13");
+        assert_eq!(fmt_id(Kind::A, 13), "A13");
     }
 
     #[test]
     fn parse_ref_checks_prefix() {
-        assert_eq!(parse_ref("P3", 'P').unwrap(), 3);
-        assert!(parse_ref("S3", 'P').is_err());
-        assert!(parse_ref("P03", 'P').is_err());
+        assert_eq!(parse_ref("S3", 'S').unwrap(), 3);
+        assert!(parse_ref("Q3", 'S').is_err());
+        assert!(parse_ref("S03", 'S').is_err());
         assert_eq!(fmt_ref('S', 2), "S2");
     }
 

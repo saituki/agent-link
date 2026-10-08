@@ -17,7 +17,7 @@ use super::{now_text, Kind, Result, RtError};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeQ {
     pub key: String,
-    /// `+` の行（O が足されるたびに作る Q）。
+    /// `+` の行（A が足されるたびに作る Q）。
     pub per_option: bool,
     pub children: Vec<TypeQ>,
 }
@@ -41,7 +41,6 @@ pub struct GuideDef {
     pub child_candidates: Vec<String>,
     pub extract: Vec<String>,
     pub pitfalls: Vec<String>,
-    pub target: i64,
 }
 
 /// 読み込んだ RESEARCH_TYPE と GUIDE。
@@ -63,7 +62,7 @@ impl Defs {
         self.guides.iter().find(|g| g.key == key)
     }
 
-    /// RESEARCH_TYPE `type_id` の中で、`guide_key` の Q の下にある `+` の子（O ごとに作る Q）。
+    /// RESEARCH_TYPE `type_id` の中で、`guide_key` の Q の下にある `+` の子（A ごとに作る Q）。
     #[must_use]
     pub fn per_option_children(&self, type_id: &str, guide_key: &str) -> Vec<&TypeQ> {
         fn find<'a>(qs: &'a [TypeQ], key: &str) -> Option<&'a TypeQ> {
@@ -299,14 +298,6 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
             .ok_or_else(|| RtError::Invalid(format!("GUIDE の frontmatter に {name} がありません")))
     };
     let (key, name) = (need("key")?, need("name")?);
-    let target = match doc.front("target") {
-        None => 2,
-        Some(v) => v
-            .parse::<i64>()
-            .ok()
-            .filter(|n| (0..=99).contains(n))
-            .ok_or_else(|| RtError::Invalid(format!("GUIDE {key} の target は 0〜99 の整数です: {v}")))?,
-    };
     Ok(GuideDef {
         key,
         name,
@@ -315,7 +306,6 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
         child_candidates: doc.bullets("Child Q"),
         extract: doc.bullets("Extract"),
         pitfalls: doc.bullets("Pitfall"),
-        target,
     })
 }
 
@@ -423,19 +413,18 @@ fn add_q(
             guide_key: Some(&q.key),
             text: &text,
             body: "",
-            answer_kind: None,
+            stance: None,
             cites: &[],
             paper_id: None,
             run_id,
             report_id: None,
             mlflow_ref: None,
-            proposal_id: None,
             paths: &[],
             created_by,
         },
     )?;
     ids.push(id);
-    // `+` の子はその Q に O が足されたときに作る。
+    // `+` の子はその Q に A が足されたときに作る。
     for child in q.children.iter().filter(|c| !c.per_option) {
         add_q(conn, defs, Some(id), child, created_by, run_id, ids)?;
     }
@@ -461,22 +450,22 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str
     Ok(InitReport { created: ids.len(), warnings: defs.warnings.clone() })
 }
 
-/// O の下に、RESEARCH_TYPE の `+` の Q（と、その下の `-` の Q）を作る。作った Q の id を返す。
+/// A の下に、RESEARCH_TYPE の `+` の Q（と、その下の `-` の Q）を作る。作った Q の id を返す。
 /// 呼ぶ側のトランザクションの中で使う前提で、自分では始めない。
-pub fn create_qs_for_option(
+pub fn create_qs_for_answer(
     conn: &Connection,
     defs: &Defs,
-    o_id: i64,
+    a_id: i64,
     created_by: &str,
     run_id: Option<i64>,
 ) -> Result<Vec<i64>> {
-    let o = store::get_node(conn, o_id)?;
-    let Some(parent_id) = o.parent_id else { return Ok(Vec::new()) };
+    let a = store::get_node(conn, a_id)?;
+    let Some(parent_id) = a.parent_id else { return Ok(Vec::new()) };
     let Some(guide_key) = store::get_node(conn, parent_id)?.guide_key else { return Ok(Vec::new()) };
     let Some(type_id) = store::meta_get(conn, "type")? else { return Ok(Vec::new()) };
     let mut ids = Vec::new();
     for q in defs.per_option_children(&type_id, &guide_key) {
-        add_q(conn, defs, Some(o_id), q, created_by, run_id, &mut ids)?;
+        add_q(conn, defs, Some(a_id), q, created_by, run_id, &mut ids)?;
     }
     Ok(ids)
 }
@@ -594,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn create_qs_for_option_makes_per_option_qs() {
+    fn create_qs_for_answer_makes_per_answer_qs() {
         let root = temp_dir();
         let defs = load_with_home(&root, None);
         let db = Database::in_memory().unwrap();
@@ -608,24 +597,23 @@ mod tests {
         let o = store::insert_node(
             conn,
             &NewNode {
-                kind: Kind::O,
+                kind: Kind::A,
                 parent_id: Some(sub.id),
                 guide_key: None,
                 text: "予後予測",
                 body: "",
-                answer_kind: Some("answer"),
+                stance: None,
                 cites: &[],
                 paper_id: None,
                 run_id: None,
                 report_id: None,
                 mlflow_ref: None,
-                proposal_id: None,
                 paths: &[],
                 created_by: "test",
             },
         )
         .unwrap();
-        let ids = create_qs_for_option(conn, &defs, o, "test", None).unwrap();
+        let ids = create_qs_for_answer(conn, &defs, o, "test", None).unwrap();
         assert_eq!(ids.len(), 17);
         assert_eq!(
             texts(conn, o),
@@ -681,8 +669,8 @@ mod tests {
         assert!(parse_type("---\nid: t\nname: T\n---\n## Q\n- a\n").is_ok());
         assert!(parse_type("---\nid: t\nname: T\nroot: 古い根\n---\n## Q\n- a\n## SEED\n文\n").is_ok());
         assert!(matches!(parse_guide("---\nname: N\n---\n"), Err(RtError::Invalid(_))));
-        assert!(matches!(parse_guide("---\nkey: k\nname: N\ntarget: 100\n---\n"), Err(RtError::Invalid(_))));
-        assert_eq!(parse_guide("---\nkey: k\nname: N\n---\n").unwrap().target, 2);
+        // target は読まない（書いてあっても無視する）。
+        assert!(parse_guide("---\nkey: k\nname: N\ntarget: 100\n---\n").is_ok());
     }
 
     #[test]

@@ -1,7 +1,6 @@
 ---
 key: data.access
 name: DATA_ACCESS
-target: 2
 ---
 # DATA_ACCESS
 

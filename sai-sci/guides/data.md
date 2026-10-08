@@ -1,7 +1,6 @@
 ---
 key: data
 name: DATA
-target: 2
 ---
 # DATA
 

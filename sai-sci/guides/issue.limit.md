@@ -1,7 +1,6 @@
 ---
 key: issue.limit
 name: ISSUE_LIMIT
-target: 3
 ---
 # ISSUE_LIMIT
 

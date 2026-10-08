@@ -52,7 +52,7 @@ pub struct FindArgs {
     /// 上位の結果に LLM の要約と関連度を付ける
     #[arg(long)]
     pub evidence: bool,
-    /// 検索の範囲を、この research-tree の Node（`Q12`・`O5` など）の下の F の論文に絞る。
+    /// 検索の範囲を、この research-tree の Node（`Q12`・`A5` など）の下の F の論文に絞る。
     /// 記録の結び付けには使わない（結び付けは環境変数 `SAI_TARGET_NODE`）
     #[arg(long)]
     pub node: Option<String>,

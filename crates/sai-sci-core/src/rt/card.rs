@@ -1,7 +1,7 @@
 //! 新しい research-tree の CARD（task.md の発行）と、runner=user の READ_CARD の中身。
 //!
 //! READ_CARD は特別な釦ではなく、`runner: user` の CARD の 1 つ。論文は 1 本で、
-//! F を付ける先の O（か Q）を `node` に持つ。LINK は作らない。run と Node の結び付きは
+//! F を付ける先の A（か Q）を `node` に持つ。LINK は作らない。run と Node の結び付きは
 //! task.md の `sci_node` だけで表す（[`super::action::sci_runs`] が読む）。DB には何も書かない。
 
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ const EXTRACT_HEADING: &str = "## 抜き出すもの";
 /// CARD の値（C-CARD）。
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 pub struct CardSpec {
-    /// Q・O・F・E の ID（必須）。
+    /// Q・A・F・E の ID（必須）。
     pub node: String,
     /// 必須。runner が user で空なら `sci-read`。
     pub block: String,
@@ -126,11 +126,11 @@ fn handoff_error(error: HandoffError) -> RtError {
     }
 }
 
-/// 読むときの Q の対象になる Q（O なら parent_Q）。
+/// 読むときの Q の対象になる Q（A なら parent_Q）。
 fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::NodeRow>> {
     Ok(match node.kind {
         Kind::Q => Some(node.clone()),
-        Kind::O => match node.parent_id {
+        Kind::A => match node.parent_id {
             Some(parent) => Some(store::get_node(conn, parent)?),
             None => None,
         },
@@ -214,8 +214,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         if spec.papers.len() != 1 {
             return invalid("READ_CARD には論文をちょうど 1 本指定してください");
         }
-        if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::O | Kind::Q)) {
-            return invalid("READ_CARD の Node は O か Q にしてください（F を付ける先が要ります）");
+        if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::A | Kind::Q)) {
+            return invalid("READ_CARD の Node は A か Q にしてください（F を付ける先が要ります）");
         }
     }
     for id in &spec.papers {
@@ -343,7 +343,7 @@ pub fn read_card(conn: &Connection, roots: &PaperRoots, defs: &Defs, run_id: i64
         .into_iter()
         .filter(|n| n.kind == Kind::F && n.run_id == Some(run_id))
         .map(|n| {
-            json!({"id": fmt_id(n.kind, n.id), "parent": n.parent_id.map(|p| fmt_id(Kind::O, p)), "text": n.text, "cites": n.cites})
+            json!({"id": fmt_id(n.kind, n.id), "parent": n.parent_id.map(|p| fmt_id(Kind::A, p)), "text": n.text, "cites": n.cites})
         })
         .collect();
     let note = paper_folder(&roots.data_dir, paper_id, &title).join(paper_file_names::NOTE).is_file();
@@ -381,7 +381,7 @@ mod tests {
         }
     }
 
-    /// Q1（GUIDE 付き）・O2・F3（run 99 で付いた）・論文 37 のある一時環境。
+    /// Q1（GUIDE 付き）・A2・F3（run 99 で付いた）・論文 37 のある一時環境。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-card-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -401,20 +401,19 @@ mod tests {
             .unwrap();
         let c = db.connection();
         let mut n = store::NewNode {
-            kind: Kind::Q, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", answer_kind: None,
-            cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+            kind: Kind::Q, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", stance: None,
+            cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
             paths: &[], created_by: "user",
         };
         store::insert_node(c, &n).unwrap();
-        n.kind = Kind::O;
+        n.kind = Kind::A;
         n.guide_key = None;
         n.parent_id = Some(1);
-        n.answer_kind = Some("answer");
         n.text = "1 万件";
         store::insert_node(c, &n).unwrap();
         n.kind = Kind::F;
         n.parent_id = Some(2);
-        n.answer_kind = None;
+        n.stance = Some("support");
         n.text = "論文は 1 万件と述べる";
         n.run_id = Some(99);
         store::insert_node(c, &n).unwrap();
@@ -422,7 +421,7 @@ mod tests {
             guides: vec![GuideDef {
                 key: "data".into(), name: "データ".into(), explain: String::new(), question: String::new(),
                 child_candidates: vec!["規模は？".into()], extract: vec!["件数".into(), "出所".into()],
-                pitfalls: vec![], target: 0,
+                pitfalls: vec![],
             }],
             ..Defs::default()
         };
@@ -431,7 +430,7 @@ mod tests {
 
     fn spec() -> CardSpec {
         CardSpec {
-            node: "Q1".into(), block: "sci-ideate".into(), purpose: "答えの候補を出す".into(), expect: "O を 2 つ".into(),
+            node: "Q1".into(), block: "sci-ideate".into(), purpose: "答えの候補を出す".into(), expect: "A を 2 つ".into(),
             mode: "purpose_first".into(), papers: vec![37], runner: "pi".into(), origin_run: Some(120), ..CardSpec::default()
         }
     }
@@ -450,7 +449,7 @@ mod tests {
         let before = node_rows(&e);
         let r = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
-        for key in ["sci_node: Q1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: O を 2 つ"] {
+        for key in ["sci_node: Q1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: A を 2 つ"] {
             assert!(text.contains(key), "{key}\n{text}");
         }
         // 古い範囲と仮置きのキーは task.md に書かない（名前は文字列を分けて組み立てる）。
@@ -478,7 +477,7 @@ mod tests {
         let mut s = spec();
         s.node = "SEED".into();
         s.runner = "user".into();
-        assert!(err(&e, &s).contains("O か Q"));
+        assert!(err(&e, &s).contains("A か Q"));
     }
 
     #[test]
@@ -497,7 +496,7 @@ mod tests {
         let mut s = spec();
         s.runner = "user".into();
         s.node = "F3".into();
-        assert!(err(&e, &s).contains("O か Q"));
+        assert!(err(&e, &s).contains("A か Q"));
         let mut s = spec();
         s.purpose = "한글".into();
         assert!(err(&e, &s).contains("ハングル"));
@@ -507,7 +506,7 @@ mod tests {
     fn read_card_roundtrip() {
         let e = env("read");
         let mut s = spec();
-        s.node = "O2".into();
+        s.node = "A2".into();
         s.runner = "user".into();
         s.block = String::new();
         s.mode = String::new();

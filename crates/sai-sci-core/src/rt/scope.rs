@@ -85,7 +85,7 @@ mod tests {
     use super::*;
     use sai_paper_core::Database;
 
-    /// Q の下に O を置き、O の F（論文 1 は paper_id・論文 3 は cites）と、
+    /// Q の下に A を置き、A の F（論文 1 は paper_id・論文 3 は cites）と、
     /// 孫の F（論文 4）と、✕ した F（論文 5）を作る。
     fn scope_db() -> Database {
         let db = Database::in_memory().unwrap();
@@ -99,13 +99,12 @@ mod tests {
                     guide_key: None,
                     text,
                     body: "",
-                    answer_kind: (kind == Kind::O).then_some("answer"),
+                    stance: (kind == Kind::F).then_some("support"),
                     cites,
                     paper_id: paper,
                     run_id: None,
                     report_id: None,
                     mlflow_ref: None,
-                    proposal_id: None,
                     paths: &[],
                     created_by: "user",
                 },
@@ -113,13 +112,13 @@ mod tests {
             .unwrap()
         };
         let q = add(Kind::Q, None, "問い", None, &[]);
-        let node = add(Kind::O, Some(q), "手法", None, &[]);
+        let node = add(Kind::A, Some(q), "手法", None, &[]);
         add(Kind::F, Some(node), "根拠 1", Some(1), &[]);
         add(Kind::F, Some(node), "根拠 3", None, &["#3 §2.1".to_string()]);
         let removed = add(Kind::F, Some(node), "外した根拠", Some(5), &[]);
         store::remove_subtree(conn, removed).unwrap();
         let child_q = add(Kind::Q, Some(node), "下の問い", None, &[]);
-        let child_o = add(Kind::O, Some(child_q), "下の答え", None, &[]);
+        let child_o = add(Kind::A, Some(child_q), "下の答え", None, &[]);
         add(Kind::F, Some(child_o), "根拠 4", Some(4), &[]);
         db
     }
@@ -130,7 +129,7 @@ mod tests {
         let db = scope_db();
         let conn = db.connection();
 
-        // research-tree の中の位置を調べる（Q → O → child_Q → 子の O）。
+        // research-tree の中の位置を調べる（Q → A → child_Q → 子の A）。
         let q: i64 = conn
             .query_row(
                 "SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id IS NULL",
@@ -140,7 +139,7 @@ mod tests {
             .unwrap();
         let node: i64 = conn
             .query_row(
-                "SELECT id FROM rt_nodes WHERE kind = 'O' AND parent_id = ?1",
+                "SELECT id FROM rt_nodes WHERE kind = 'A' AND parent_id = ?1",
                 [q],
                 |r| r.get(0),
             )
@@ -153,15 +152,15 @@ mod tests {
             )
             .unwrap();
 
-        // O の直の F（1, 3）に `--paper 2` を足した集合。
+        // A の直の F（1, 3）に `--paper 2` を足した集合。
         let (ids, scope) = resolve_scope(conn, Some(2), &[], Some(node), false).unwrap();
         assert_eq!(ids, Some(vec![1, 2, 3]));
-        assert_eq!(scope, format!("node:O{node}"));
+        assert_eq!(scope, format!("node:A{node}"));
 
-        // 子孫もなら `subtree:O…` で、孫の F の論文 4 も入る。
+        // 子孫もなら `subtree:A…` で、孫の F の論文 4 も入る。
         let (ids, scope) = resolve_scope(conn, None, &[], Some(node), true).unwrap();
         assert_eq!(ids, Some(vec![1, 3, 4]));
-        assert_eq!(scope, format!("subtree:O{node}"));
+        assert_eq!(scope, format!("subtree:A{node}"));
 
         // Node が無ければ `papers:1,2`。
         let (ids, scope) = resolve_scope(conn, None, &[2, 1, 2], None, false).unwrap();

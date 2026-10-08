@@ -1459,7 +1459,7 @@ fn chunk_figures(conn: &Connection, index: &crate::config::RagIndex) -> Result<B
 ///
 /// 入れるものは 2 つ:
 /// - 生きた F 1 つにつき 1 塊（`source_ref = "F<id>"`、`section = "<親の ID> <親の文>"`）
-/// - ★ の付いた生きた O で、本文（`body`）が空でないもの 1 つにつき 1 塊（`source_ref = "O<id>"`）
+/// - 生きた A で、本文（`body`）が空でないもの 1 つにつき 1 塊（`source_ref = "A<id>"`）
 ///
 /// `paper_id` は NULL（論文の中の根拠ではないため）。長すぎるときは分けずに先頭だけを入れる。
 /// 同じ `source_ref` で同じ `text` の塊が既にこの索引にあれば残す（埋め込みも残る）。
@@ -1472,13 +1472,12 @@ fn chunk_tree(conn: &Connection, index: &crate::config::RagIndex) -> Result<Buil
         parent_id: Option<i64>,
         text: String,
         body: String,
-        starred: bool,
         cites: String,
         alive: bool,
     }
     let rows: Vec<Row> = {
         let mut stmt = conn.prepare(
-            "SELECT id, kind, parent_id, text, body, starred, cites, removed_at IS NULL
+            "SELECT id, kind, parent_id, text, body, cites, removed_at IS NULL
                FROM rt_nodes ORDER BY id",
         )?;
         let mapped = stmt.query_map([], |row| {
@@ -1488,9 +1487,8 @@ fn chunk_tree(conn: &Connection, index: &crate::config::RagIndex) -> Result<Buil
                 parent_id: row.get(2)?,
                 text: row.get(3)?,
                 body: row.get(4)?,
-                starred: row.get::<_, i64>(5)? != 0,
-                cites: row.get(6)?,
-                alive: row.get(7)?,
+                cites: row.get(5)?,
+                alive: row.get(6)?,
             })
         })?;
         mapped.collect::<rusqlite::Result<Vec<_>>>()?
@@ -1520,11 +1518,11 @@ fn chunk_tree(conn: &Connection, index: &crate::config::RagIndex) -> Result<Buil
                 let section = format!("{parent_id} {parent_text}");
                 wanted.push((format!("F{}", row.id), body, Some(section)));
             }
-            // ★ の付いた O は、本文が空でないものだけを入れる。
-            "O" if row.starred && !row.body.trim().is_empty() => {
-                let section = format!("O{} {}", row.id, row.text);
+            // A は、本文が空でないものだけを入れる（★ は目印なので見ない）。
+            "A" if !row.body.trim().is_empty() => {
+                let section = format!("A{} {}", row.id, row.text);
                 wanted.push((
-                    format!("O{}", row.id),
+                    format!("A{}", row.id),
                     format!("{}: {}", row.text, row.body),
                     Some(section),
                 ));
@@ -2802,15 +2800,15 @@ Methods text.
     fn tree_chunks_keep_unchanged_and_replace_changed() {
         let conn = test_db().unwrap();
         create_rt_nodes(&conn);
-        // Q1 の下に、★ の O2（本文あり）・★ の無い O5（本文あり）・F3・F4（O2 の根拠）。
+        // Q1 の下に、本文ありの A2・本文の無い A5・F3・F4（A2 の根拠）。
         // S6（SPROUT）は本文を持つが、木の塊にはしない。
         conn.execute(
             "INSERT INTO rt_nodes (id, kind, parent_id, text, body, starred, cites) VALUES
                (1, 'Q', NULL, '尺度', '', 0, '[]'),
-               (2, 'O', 1, '手法', 'CET の前に正規化をする', 1, '[]'),
+               (2, 'A', 1, '手法', 'CET の前に正規化をする', 0, '[]'),
                (3, 'F', 2, '正規化が効くと残差が小さくなる', '', 0, '[\"#3 §2.1\"]'),
                (4, 'F', 2, 'Batch を 32 にすると速い', '', 0, '[]'),
-               (5, 'O', 1, '別案', '本文はあるが ★ が無い', 0, '[]'),
+               (5, 'A', 1, '別案', '', 0, '[]'),
                (6, 'S', NULL, 'SPROUT', '本文を持つが塊にしない', 0, '[]')",
             [],
         )
@@ -2819,7 +2817,7 @@ Methods text.
         let index = crate::config::RagConfig::default().index(None).unwrap();
         let dir = std::env::temp_dir().join("sai-rag-scope-tree");
         let first = build(&conn, Scope::Tree, &index, &dir).unwrap();
-        // F 2 つ + ★ の O 1 つ（本文あり）。
+        // F 2 つ + 本文ありの A 1 つ。
         assert_eq!(first.chunks_created, 3);
         assert_eq!(first.sources_skipped, 0);
 
@@ -2838,17 +2836,17 @@ Methods text.
         };
         let before = tree_rows(&conn);
         assert_eq!(before.len(), 3);
-        // O の塊は文と本文を並べる。論文の無い塊（paper_id が NULL）。
+        // A の塊は文と本文を並べる。論文の無い塊（paper_id が NULL）。
         let node_chunk: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM chunks WHERE source_ref = 'O2' AND paper_id IS NULL",
+                "SELECT COUNT(*) FROM chunks WHERE source_ref = 'A2' AND paper_id IS NULL",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(node_chunk, 1);
 
-        // F4 を ✕ し、O2 の本文を直す。
+        // F4 を ✕ し、A2 の本文を直す。
         conn.execute("UPDATE rt_nodes SET removed_at = 'now' WHERE id = 4", [])
             .unwrap();
         conn.execute(
@@ -2868,10 +2866,10 @@ Methods text.
         let refs: Vec<&String> = after.iter().map(|(r, _)| r).collect();
         assert!(!refs.iter().any(|r| *r == "F4"), "{after:?}");
         assert_eq!(after.len(), 2);
-        // O の塊は直した本文に変わっている。
+        // A の塊は直した本文に変わっている。
         let node_text = after
             .iter()
-            .find(|(r, _)| r == "O2")
+            .find(|(r, _)| r == "A2")
             .map(|(_, t)| t.clone())
             .unwrap();
         assert_eq!(node_text, "手法: CET と尺度を同時に使う");
@@ -2896,7 +2894,7 @@ Methods text.
         conn.execute(
             "INSERT INTO rt_nodes (id, kind, parent_id, text, body, starred) VALUES
                (1, 'Q', NULL, '問い', '', 0),
-               (2, 'O', 1, '長い項目', ?1, 1)",
+               (2, 'A', 1, '長い項目', ?1, 1)",
             [&long],
         )
         .unwrap();
@@ -2911,13 +2909,13 @@ Methods text.
         // 入れるのは先頭だけ（上限どおり）。
         let stored: String = conn
             .query_row(
-                "SELECT text FROM chunks WHERE source_kind = 'tree' AND source_ref = 'O2'",
+                "SELECT text FROM chunks WHERE source_kind = 'tree' AND source_ref = 'A2'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert!(stored.chars().count() < long.chars().count(), "切り詰められていない");
-        // O の塊は「文: 本文」なので、本文の先頭から切られている。
+        // A の塊は「文: 本文」なので、本文の先頭から切られている。
         let prefix = "長い項目: ";
         assert!(stored.starts_with(prefix), "{stored}");
         assert!(

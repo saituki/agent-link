@@ -1,7 +1,6 @@
 ---
 key: target.subgroup
 name: TARGET_SUBGROUP
-target: 2
 ---
 # TARGET_SUBGROUP
 

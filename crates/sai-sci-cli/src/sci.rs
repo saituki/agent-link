@@ -9,7 +9,7 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use rusqlite::Connection;
 use sai_paper_core::paths::{self, PaperRoots};
 use sai_sci_core::rt::{self, card, compute, context, defs, export, ops, store};
@@ -301,13 +301,13 @@ pub(crate) fn status(json: bool, brief: bool) -> Result<Out> {
 
 /// `sci status --brief`（`{"brief": true}`）が返す JSON。
 ///
-/// 短い文脈で現在地を読めるように、進み具合・Next Action・PENDING の数だけを出す。
+/// 短い文脈で現在地を読めるように、Node の数・Next Action だけを出す。
 /// 値は [`compute::status`] の結果からそのまま写すだけで、計算し直さない
 /// （Web と CLI で同じ値になる）。
 pub fn brief_status(status: &compute::Status) -> Value {
     json!({
         "type": status.type_info.as_ref().map(|found| found.id.clone()),
-        "progress": status.progress,
+        "counts": status.counts,
         "next": status.next.iter().map(|next| json!({
             "kind": next.kind,
             "node": next.node,
@@ -317,7 +317,6 @@ pub fn brief_status(status: &compute::Status) -> Value {
             "expect": next.expect,
             "why": next.why,
         })).collect::<Vec<Value>>(),
-        "pending_proposals": status.pending_proposals,
         "running": &status.running,
         "warnings": &status.warnings,
     })
@@ -351,15 +350,14 @@ pub(crate) fn context(run: i64, reveal: bool) -> Result<Out> {
     Ok(Out::Text(text))
 }
 
-/// `sci propose` — propose する（いつも JSON）。
-pub(crate) fn propose(run: Option<i64>, block: Option<String>) -> Result<Out> {
+/// `sci op` — agent の op を 1 つのトランザクションで行う（いつも JSON）。
+pub(crate) fn op(run: Option<i64>, block: Option<String>) -> Result<Out> {
     let env = open_env()?;
     let input = read_stdin_json()?;
     let actor = actor_of(run, block);
-    let results =
-        ops::propose(env.conn(), &env.roots, &env.defs, &actor, &input).map_err(rt_err)?;
+    let batch = ops::op(env.conn(), &env.roots, &env.defs, &actor, &input).map_err(rt_err)?;
     env.export()?;
-    Ok(Out::Json(json!({ "results": results })))
+    Ok(Out::Json(serde_json::to_value(batch)?))
 }
 
 /// `sci apply` — 利用者の操作を 1 つ反映する（いつも JSON）。
@@ -369,85 +367,6 @@ pub(crate) fn apply() -> Result<Out> {
     let result = ops::apply_user(env.conn(), &env.roots, &env.defs, &input).map_err(rt_err)?;
     env.export()?;
     Ok(Out::Json(serde_json::to_value(result)?))
-}
-
-/// PENDING の PROPOSAL を JSON の 1 行にする（`proposals` の `proposals` の要素）。
-pub(crate) fn proposal_json(row: &store::ProposalRow) -> Value {
-    json!({
-        "id": rt::fmt_ref('P', row.id),
-        "op": row.op,
-        "run": row.run_id,
-        "block": row.block,
-        "payload": row.payload,
-        "created_at": row.created_at,
-    })
-}
-
-/// `sci proposals` — PENDING の一覧。
-pub(crate) fn proposals(json: bool) -> Result<Out> {
-    let env = open_env()?;
-    let rows = store::list_proposals(env.conn(), Some("pending")).map_err(rt_err)?;
-    if json {
-        let list: Vec<Value> = rows.iter().map(proposal_json).collect();
-        return Ok(Out::Json(json!({ "proposals": list })));
-    }
-    if rows.is_empty() {
-        return Ok(Out::Text("PENDING の PROPOSAL はありません\n".to_string()));
-    }
-    let mut text = String::new();
-    for row in &rows {
-        text.push_str(&format!(
-            "{} {} run {}\n",
-            rt::fmt_ref('P', row.id),
-            row.op,
-            row.run_id
-                .map_or_else(|| "?".to_string(), |id| id.to_string()),
-        ));
-    }
-    Ok(Out::Text(text))
-}
-
-/// `sci triage <P>` — TRIAGE。
-pub(crate) fn triage(
-    proposal: &str,
-    accept: bool,
-    reject: bool,
-    revert: bool,
-    edit: Option<&str>,
-) -> Result<Out> {
-    let id = rt::parse_ref(proposal.trim(), 'P').map_err(rt_err)?;
-    let edit = match edit {
-        Some(text) => Some(
-            serde_json::from_str::<Value>(text).map_err(|err| {
-                crate::cli_error::CliError::input(format!("--edit の JSON を読めません: {err}"))
-            })?,
-        ),
-        None => None,
-    };
-    let action = if accept {
-        ops::TriageAction::Accept
-    } else if reject {
-        ops::TriageAction::Reject
-    } else if revert {
-        ops::TriageAction::Revert
-    } else {
-        // clap のグループで 1 つが必ず選ばれる。ここは直接呼んだときの保険。
-        bail!("--accept・--reject・--revert の 1 つを指定します");
-    };
-    Ok(Out::Json(run_triage(id, action, edit.as_ref())?))
-}
-
-/// TRIAGE を実行して state.md と tree.md を書き直す（`sci triage` と `phone sci triage` で共用）。
-pub(crate) fn run_triage(
-    id: i64,
-    action: ops::TriageAction,
-    edit: Option<&Value>,
-) -> Result<Value> {
-    let env = open_env()?;
-    let result =
-        ops::triage(env.conn(), &env.roots, &env.defs, id, action, edit).map_err(rt_err)?;
-    env.export()?;
-    Ok(serde_json::to_value(result)?)
 }
 
 /// CARD を作って state.md と tree.md を書き直し、`{"run_id","path","executer"}` を返す
@@ -597,7 +516,7 @@ pub(crate) struct SearchRefs {
 
 /// `find` / `search` の引数検査。
 ///
-/// `--node` は `Q12`・`O5` のような形だけを受け付ける。指定が無ければ何も調べない
+/// `--node` は `Q12`・`A5` のような形だけを受け付ける。指定が無ければ何も調べない
 /// （research-tree が無いプロジェクトでも `find` / `search` を今までどおり使えるようにするため）。
 pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result<SearchRefs> {
     let Some(text) = node else {
@@ -792,10 +711,7 @@ fn status_text(status: &compute::Status) -> String {
         text.push_str(&format!("RESEARCH_TYPE: {}\n", found.name));
         text.push_str(&format!("SEED: {}\n", found.name));
     }
-    text.push_str(&format!(
-        "進み具合: {}/{}\n",
-        status.progress.answered, status.progress.total
-    ));
+    text.push_str(&format!("木: {}\n", counts_text(&status.counts)));
     let sprouts: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
     if sprouts.is_empty() {
         text.push_str("SPROUT はまだありません\n");
@@ -807,7 +723,6 @@ fn status_text(status: &compute::Status) -> String {
             .join("、");
         text.push_str(&format!("SPROUT: {list}\n"));
     }
-    text.push_str(&format!("PENDING の PROPOSAL {} 件\n", status.pending_proposals));
     for node in &status.nodes {
         text.push_str(&node_line(node));
     }
@@ -823,6 +738,21 @@ fn status_text(status: &compute::Status) -> String {
     text
 }
 
+/// 生きた Node の数の 1 行（`status` の文）。
+fn counts_text(c: &compute::StatusCounts) -> String {
+    format!(
+        "Q {} / A {} / F {}（支持 {}・反対 {}・課題 {}）/ E {} / S {}",
+        c.q,
+        c.a,
+        c.f_support + c.f_deny + c.f_issue,
+        c.f_support,
+        c.f_deny,
+        c.f_issue,
+        c.e,
+        c.s,
+    )
+}
+
 /// Next Action 1 件の文（Node・ブロック・目的・理由）。
 fn next_text(next: &compute::NextAction) -> String {
     let mut head = String::new();
@@ -833,28 +763,21 @@ fn next_text(next: &compute::NextAction) -> String {
     format!("{head}{}（{}）", next.purpose, next.why)
 }
 
-/// Node 1 つの 1 行（深さ分だけ字下げする。Q には Objectivity と Logicality を付ける）。
+/// Node 1 つの 1 行（深さ分だけ字下げする。F には立場を付ける）。
 fn node_line(node: &compute::NodeJson) -> String {
     let mut line = format!("{}- {} ", "  ".repeat(node.depth), node.id);
     if node.starred {
         line.push_str("★ ");
     }
+    if let Some(stance) = &node.stance {
+        line.push_str(&format!("[{stance}] "));
+    }
     line.push_str(&one_line(&node.text));
-    if let Some(found) = &node.objectivity {
-        line.push_str(&format!(" [Objectivity {}/{}", found.count, found.target));
-        if node.bottom_q && found.met {
-            line.push_str(" met");
-        }
-        line.push(']');
-    }
-    if let Some(found) = &node.logicality {
-        line.push_str(&format!(" [Logicality {}]", found.value));
-    }
     line.push('\n');
     line
 }
 
-/// `sci node <ID>` の文（題・PATH・children・GUIDE・確かめ・DECISIONS・PROPOSAL・検索）。
+/// `sci node <ID>` の文（題・PATH・children・GUIDE・DECISIONS・検索）。
 fn node_text(detail: &compute::NodeDetail) -> String {
     let node = &detail.node;
     let mut text = format!("{} {}\n", node.id, one_line(&node.text));
@@ -872,30 +795,14 @@ fn node_text(detail: &compute::NodeDetail) -> String {
     }
     if let Some(guide) = &detail.guide {
         text.push_str(&format!(
-            "\nGUIDE {}: {}（Objectivity の target {}）\n",
-            guide.name, guide.explain, guide.target
+            "\nGUIDE {}: {}\n",
+            guide.name, guide.explain,
         ));
     }
     if !detail.children.is_empty() {
         text.push_str("\nchildren:\n");
         for child in &detail.children {
             text.push_str(&format!("  {}", node_line(child).trim_start_matches("- ")));
-        }
-    }
-    if !detail.logic.is_empty() {
-        text.push_str("\nLogicality の確かめ:\n");
-        for logic in &detail.logic {
-            text.push_str(&format!(
-                "  {} {}（F {} 件）{}\n",
-                logic.created_at,
-                logic.value,
-                logic.f_count,
-                if logic.note.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", one_line(&logic.note))
-                }
-            ));
         }
     }
     if !detail.decisions.is_empty() {
@@ -905,14 +812,11 @@ fn node_text(detail: &compute::NodeDetail) -> String {
             if !decision.detail.is_empty() {
                 line.push_str(&format!(" {}", one_line(&decision.detail)));
             }
+            if let Some(by) = &decision.approved_by {
+                line.push_str(&format!(" 承認: {by}"));
+            }
             text.push_str(&line);
             text.push('\n');
-        }
-    }
-    if !detail.pending.is_empty() {
-        text.push_str("\nPENDING:\n");
-        for pending in &detail.pending {
-            text.push_str(&format!("  {} {}\n", pending.id, pending.op));
         }
     }
     if !detail.searches.is_empty() {
@@ -1050,16 +954,15 @@ mod tests {
         let text = status_text(&status);
         assert!(text.contains("RESEARCH_TYPE: "), "{text}");
         assert!(text.contains("SEED: "), "{text}");
-        assert!(text.contains("進み具合: 0/"), "{text}");
+        assert!(text.contains("木: Q "), "{text}");
         assert!(text.contains("- Q1 "), "{text}");
-        assert!(text.contains("[Objectivity "), "{text}");
+        assert!(!text.contains("Objectivity"), "{text}");
 
         let brief = brief_status(&status);
         assert_eq!(brief["type"], "problem");
-        assert_eq!(brief["progress"]["answered"], 0);
-        assert!(brief["progress"]["total"].as_i64().unwrap() > 0, "{brief}");
+        assert!(brief["counts"]["q"].as_i64().unwrap() > 0, "{brief}");
         assert!(brief.get("seed_draft").is_none(), "{brief}");
-        for key in ["next", "pending_proposals", "running", "warnings"] {
+        for key in ["counts", "next", "running", "warnings"] {
             assert!(brief.get(key).is_some(), "{key}: {brief}");
         }
         // research-tree そのものは入れない。
@@ -1104,7 +1007,7 @@ mod tests {
         .unwrap();
         let line = previous_search_line(conn, &refs, "node:Q1").unwrap();
         assert!(line.contains("「発作」2 件（論文 #7, #9）"), "{line}");
-        assert!(previous_search_line(conn, &refs, "node:O1").is_none());
+        assert!(previous_search_line(conn, &refs, "node:A1").is_none());
         record_search(
             conn,
             &SearchLog {

@@ -102,8 +102,6 @@ struct DayAccum {
 struct SciLine {
     /// DECISIONS（決定・仮決定）の `(Node ID, 項目の題)`（古い順）。
     decisions: Vec<(String, String)>,
-    /// 採用した PROPOSAL の数。
-    accepted: usize,
     /// SPROUT の数。
     sprouts: usize,
 }
@@ -204,7 +202,7 @@ impl DayAccum {
         }
 
         if let Some(sci) = &self.sci
-            && (!sci.decisions.is_empty() || sci.accepted > 0 || sci.sprouts > 0)
+            && (!sci.decisions.is_empty() || sci.sprouts > 0)
         {
             lines.push(sci.line());
         }
@@ -456,8 +454,7 @@ fn gather_understanding(
 ///
 /// 決めるのは 3 つ。
 ///
-/// - DECISIONS（`rt_log` の `action` が `star`・`set_kind`・`remove`）
-/// - 採用した PROPOSAL（`rt_proposals` の `status = accepted` で、その日 `decided_at` があるもの）
+/// - DECISIONS（`rt_log` の `action` が `star`・`remove`）
 /// - SPROUT（`rt_nodes` の生きた `kind = 'S'` で、`created_at` がその日のもの）
 ///
 /// 表が無い（新しい research-tree を始める前の DB）ときは何もしない。
@@ -493,7 +490,7 @@ fn gather_sci(
     {
         let mut stmt = conn.prepare(
             "SELECT node_id, created_at FROM rt_log
-             WHERE action IN ('star', 'set_kind', 'remove')
+             WHERE action IN ('star', 'remove')
              ORDER BY created_at ASC, id ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -512,25 +509,6 @@ fn gather_sci(
                     .get_or_insert_with(SciLine::default)
                     .decisions
                     .push((id, title));
-            }
-        }
-    }
-
-    // 採用した PROPOSAL。
-    {
-        let mut stmt = conn.prepare(
-            "SELECT decided_at FROM rt_proposals
-             WHERE status = 'accepted' AND decided_at IS NOT NULL",
-        )?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-        for row in rows {
-            let decided_at = row?;
-            if let Some(date) = date_in_range(&decided_at, offset, from, to) {
-                days.entry(date)
-                    .or_default()
-                    .sci
-                    .get_or_insert_with(SciLine::default)
-                    .accepted += 1;
             }
         }
     }
@@ -557,11 +535,11 @@ fn gather_sci(
 fn rt_tables_exist(conn: &Connection) -> rusqlite::Result<bool> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master
-         WHERE type = 'table' AND name IN ('rt_log', 'rt_proposals', 'rt_nodes')",
+         WHERE type = 'table' AND name IN ('rt_log', 'rt_nodes')",
         [],
         |row| row.get(0),
     )?;
-    Ok(count == 3)
+    Ok(count == 2)
 }
 
 impl SciLine {
@@ -589,9 +567,6 @@ impl SciLine {
                 names
             };
             parts.push(format!("決定 {} 件（{names}）", self.decisions.len()));
-        }
-        if self.accepted > 0 {
-            parts.push(format!("採用 {} 件", self.accepted));
         }
         if self.sprouts > 0 {
             parts.push(format!("SPROUT {} 件", self.sprouts));
@@ -1241,9 +1216,9 @@ mod tests {
         use crate::rt::store::{self, NewNode};
         use crate::rt::Kind;
 
-        // Node を 2 つ作る（Q1・O2）。
+        // Node を 2 つ作る（Q1・A2）。
         let mut ids = Vec::new();
-        for (kind, text) in [(Kind::Q, "小目的"), (Kind::O, "手法")] {
+        for (kind, text) in [(Kind::Q, "小目的"), (Kind::A, "手法")] {
             ids.push(
                 store::insert_node(
                     conn,
@@ -1253,13 +1228,12 @@ mod tests {
                         guide_key: None,
                         text,
                         body: "",
-                        answer_kind: (kind == Kind::O).then_some("answer"),
+                        stance: None,
                         cites: &[],
                         paper_id: None,
                         run_id: None,
                         report_id: None,
                         mlflow_ref: None,
-                        proposal_id: None,
                         paths: &[],
                         created_by: "user",
                     },
@@ -1273,25 +1247,7 @@ mod tests {
             store::insert_log(conn, *node, "star", "", "user", None).unwrap();
         }
         store::insert_log(conn, ids[0], "edit", "", "user", None).unwrap();
-        // 採用した PROPOSAL 2 件と SPROUT 1 個。
-        for _ in 0..2 {
-            store::insert_proposal(
-                conn,
-                Some(120),
-                Some("sci-compare"),
-                "add_finding",
-                None,
-                &serde_json::json!({}),
-                "auto",
-                "pending",
-            )
-            .unwrap();
-        }
-        conn.execute(
-            "UPDATE rt_proposals SET status = 'accepted', decided_by = 'user', decided_at = ?1",
-            rusqlite::params![crate::rt::now_text()],
-        )
-        .unwrap();
+        // SPROUT 1 個。
         store::insert_node(
             conn,
             &crate::rt::store::NewNode {
@@ -1300,13 +1256,12 @@ mod tests {
                 guide_key: None,
                 text: "最初の SPROUT",
                 body: "「頭皮脳波で小目的を行う」",
-                answer_kind: None,
+                stance: None,
                 cites: &[],
                 paper_id: None,
                 run_id: None,
                 report_id: None,
                 mlflow_ref: None,
-                proposal_id: None,
                 paths: &[],
                 created_by: "user",
             },
@@ -1338,7 +1293,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            "research-tree: 決定 2 件（Q1 小目的・O2 手法）・採用 2 件・SPROUT 1 件"
+            "research-tree: 決定 2 件（Q1 小目的・A2 手法）・SPROUT 1 件"
         );
 
         // 決定が 4 つ以上なら「など」を付ける。0 件のものは書かない。
@@ -1349,7 +1304,6 @@ mod tests {
                 ("N3".to_string(), "差分".to_string()),
                 ("N4".to_string(), "対象".to_string()),
             ],
-            accepted: 0,
             sprouts: 0,
         };
         assert_eq!(many.line(), "research-tree: 決定 4 件（N1 小目的・N2 手法・N3 差分など）");

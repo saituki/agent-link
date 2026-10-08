@@ -1,7 +1,6 @@
 ---
 key: method
 name: METHOD
-target: 2
 ---
 # METHOD
 

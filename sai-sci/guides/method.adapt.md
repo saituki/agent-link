@@ -1,7 +1,6 @@
 ---
 key: method.adapt
 name: METHOD_ADAPT
-target: 2
 ---
 # METHOD_ADAPT
 
