@@ -1664,14 +1664,6 @@ def api_sci_apply(
     return sci.apply(papers.resolve_project(name), payload)
 
 
-@app.post("/api/projects/{name}/papers/sci/proposals/{pid}")
-def api_sci_triage(
-    name: str, pid: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """TRIAGE する（body は `{"action","edit"}`）。"""
-    return sci.triage(papers.resolve_project(name), pid, payload)
-
-
 @app.post("/api/projects/{name}/papers/sci/cards")
 def api_sci_card(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
