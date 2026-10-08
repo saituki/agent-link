@@ -21,17 +21,13 @@
 
 // --- 定数 ---
 
-// Papers の上部の切り替え（07 §4.1・U14 で 4 つ）。押すと該当の # へ移る。
-const PAPERS_SEG = [
+// Research の上部の切り替え（U14・U06 で Papers を統合して 5 つ）。押すと該当の # へ移る。
+const RESEARCH_SEG = [
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["library", "Library", "#/papers/library"],
-  ["import", "Import", "#/papers/import"],
-  ["radio", "Radio", "#/papers/radio"],
-];
-// Research の上部の切り替え（U14）。research-tree と実験。
-const RESEARCH_SEG = [
-  ["tree", "research-tree", "#/research/tree"],
+  ["tree", "Tree", "#/research/tree"],
   ["experiments", "Experiments", "#/research/experiments"],
+  ["radio", "Radio", "#/papers/radio"],
 ];
 // 検索結果の一覧で「未ダウンロードも表示」の選択を覚える（localStorage・"0" が OFF・既定は ON）
 const LIB_REMOTE_KEY = "sai_web_library_remote";
@@ -67,6 +63,8 @@ const ACTIVITY_KINDS = {
   radio_question: ["Radio question", "ak-radio-question"],
   // U22: Action（run）の行。色は ak-other のまま
   action: ["Action", "ak-other"],
+  // U06: research-tree の History（Recent Activity に混ぜる）
+  tree: ["Tree", "ak-tree"],
 };
 // 論文の置き場があるプロジェクトが1つもないときの案内文（18 §1.1）
 const NO_PROJECT_MSG =
@@ -467,10 +465,12 @@ let dashboardError = "";   // 読めなかったときの detail
 
 let projectData = null;    // GET …/papers/project の応答（null＝まだ読んでいない）
 let projectError = "";     // 読めなかったときの detail
-let memoDraft = "";        // 考え（mind.md）に足す 1 行のメモ
-let memoSaving = false;    // メモを足している途中
-let memoMsg = "";          // メモに失敗したときの理由
-let memoFocused = false;   // メモの入力欄に focus がある（描き直し後も戻す）
+let mindEditing = false;   // Mind を編集しているか（Edit を押した後）
+let mindDraft = "";        // 編集中の Mind の全文（描き直しても残す）
+let mindSaving = false;    // Mind を保存している途中
+let mindMsg = "";          // 保存に失敗したときの理由
+let sciStatus = null;      // GET …/papers/sci/status の応答（Next Action・History の元。null＝まだ読んでいない）
+let sciError = "";         // 読めなかったときの detail
 
 // --- 画面の状態（Discover / 過去の検索結果・08 §4） ---
 let discoverProviders = null;   // {default, available}（null＝まだ読んでいない）
@@ -511,8 +511,11 @@ function resetProjectScreens() {
   dashboardError = "";
   projectData = null;
   projectError = "";
-  memoDraft = "";
-  memoMsg = "";
+  mindEditing = false;
+  mindDraft = "";
+  mindMsg = "";
+  sciStatus = null;
+  sciError = "";
   sideKind = "";
   sidePaperId = null;
   sideRemote = null;
@@ -603,8 +606,7 @@ async function projectForAddress(nameParam) {
 
 /** 上部のプロジェクト名（📁 … ▾）を今の選択に合わせる（18 §1.1）。 */
 function updateProjectChips() {
-  // import-project は Import 画面（paperimport.js）が作るので、ここでも名前を揃える
-  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "import-project", "sci-project", "mlf-project"]) {
+  for (const id of ["dashboard-project", "library-project", "discover-project", "radio-project", "sci-project", "mlf-project"]) {
     const chip = document.getElementById(id);
     if (!chip) continue;
     chip.hidden = paperProjects === null; // 読んでから出す（18 §1.1）
@@ -665,7 +667,6 @@ function reopenCurrentScreen() {
   else if (location.hash.startsWith("#/research/experiments") && typeof mlfOpenPage === "function") void mlfOpenPage(mlfParseHash(location.hash)); // mlflow.js
   else if (location.hash === "#/papers/dashboard") void openPapersDashboard();
   else if (location.hash === "#/papers/radio") void openRadioList(); // radio.js
-  else if (location.hash === "#/papers/import" && typeof pimOpenImport === "function") void pimOpenImport(); // paperimport.js（U6）
   else void openLibrary();
 }
 
@@ -690,14 +691,50 @@ function bytesLabel(n) {
 
 /**
  * 出来事の行を押したときの飛び先（DOM を使わない・tests/test_papers.js）。
- * Radio の再生・質問は再生画面，論文のある出来事は論文情報，それ以外は null（押せない）。
+ * Radio の再生・質問は再生画面，論文のある出来事は論文情報，research-tree の History は
+ * run の一覧（run が無ければ Node の画面），それ以外は null（押せない）。
  */
 function activityHash(item, projectName) {
   if (!item) return null;
   const radioKinds = item.kind === "radio_play" || item.kind === "radio_question";
   if (radioKinds && item.radio_id) return `#/radio/${encodeURIComponent(item.radio_id)}`;
   if (item.paper_id != null && projectName) return paperHash(projectName, item.paper_id, false);
+  if (item.kind === "tree") {
+    if (item.run_id != null && item.run_id !== "" && projectName && typeof stRunListHash === "function") {
+      return stRunListHash(projectName, item.run_id);
+    }
+    if (item.node) return `#/research/tree/${encodeURIComponent(item.node)}`;
+  }
   return null;
+}
+
+/**
+ * Recent Activity の並び（DOM を使わない・tests/test_papers.js）。
+ * 論文の動き（activity）と research-tree の History（history）を 1 つにして、新しい順に並べる。
+ * History の 1 件は kind "tree" の行にする。文は textOf（History の 1 件 → 文）で作り、
+ * 日付は時刻の欄に出すので文には入れない。
+ */
+function pdMergeActivity(activity, history, textOf) {
+  const papers = Array.isArray(activity) ? activity : [];
+  const tree = (Array.isArray(history) ? history : []).map((h) => {
+    const o = h || {};
+    return {
+      kind: "tree",
+      label: `${o.node ? `${o.node} ` : ""}${textOf(o)}`,
+      occurred_at: o.at,
+      run_id: o.run_id,
+      node: o.node,
+    };
+  });
+  const when = (x) => {
+    const t = Date.parse(x && x.occurred_at);
+    return Number.isNaN(t) ? -Infinity : t;
+  };
+  return [...papers, ...tree].sort((x, y) => {
+    const a = when(x);
+    const b = when(y);
+    return a === b ? 0 : a > b ? -1 : 1;
+  });
 }
 
 async function openPapersDashboard() {
@@ -706,6 +743,10 @@ async function openPapersDashboard() {
   await ensurePaperProjects();
   if (location.hash !== "#/papers/dashboard") return;
   const name = selectedProject;
+  // Mind の書きかけは別のプロジェクトへ保存しないよう、画面を開くたびに捨てる
+  mindEditing = false;
+  mindDraft = "";
+  mindMsg = "";
   if (!name) {
     dashboardData = null;
     dashboardError = "";
@@ -713,8 +754,9 @@ async function openPapersDashboard() {
     return;
   }
   if (dashboardData === null) renderPapersDashboard(); // 「読み込み中…」を先に出す
-  // Project（要対応・現況・考え）は別々に読む。数字カードと並べて出す
-  void loadDashboardProject(name);
+  // Project（State・Mind）と research-tree（Next Action・History）は別々に読む。開くたびに読み直す
+  void loadDashboardProject(name, true);
+  void loadDashboardSci(name);
   try {
     const res = await apiFetch(`${papersApiBase(name)}/dashboard`);
     const body = await res.json().catch(() => ({}));
@@ -731,6 +773,10 @@ async function openPapersDashboard() {
   renderPapersDashboard();
 }
 
+/**
+ * Dashboard の中身（上から 数字のカード → State・Mind → Next Action → Recent Activity）。
+ * 数字のカード以外は折りたためる（<details open>）。
+ */
 function renderPapersDashboard() {
   const box = document.getElementById("papers-dashboard-body");
   if (!box) return;
@@ -739,15 +785,19 @@ function renderPapersDashboard() {
     box.appendChild(el("p", "lib-empty", paperProjectsError || NO_PROJECT_MSG));
     return;
   }
-  // 0. Project（要対応・現況・考え・状況のまとめ）。読み込みに失敗しても下の数字と出来事は出す
+  // 1. 数字カード（Mac の Dashboard の 5 つ・折りたたまない）
+  if (dashboardData) box.appendChild(numberCard(dashboardData.cards || {}));
+  else if (!dashboardError) box.appendChild(el("p", "lib-empty", "読み込み中…"));
+  // 2. State・Mind（Project）。読みそこなっても下は出す
   if (projectData !== null || projectError) box.appendChild(projectCards());
-  if (!dashboardData) {
-    box.appendChild(el("p", "lib-empty", dashboardError || "読み込み中…"));
-    pdFocusMemo();
-    return;
-  }
-  // 1. 数字カード（Mac の Dashboard の 5 つ）
-  const c = dashboardData.cards || {};
+  // 3. Next Action（research-tree の先頭 3 件）
+  box.appendChild(nextActionCard());
+  // 4. Recent Activity（論文の動きと research-tree の History）
+  box.appendChild(recentActivityCard());
+}
+
+/** 数字のカード（Papers・Tags・Notes・PDF・DB）。 */
+function numberCard(c) {
   const card = el("section", "dash-card");
   const grid = el("div", "dash-grid pd-grid");
   for (const [value, label] of [
@@ -763,20 +813,26 @@ function renderPapersDashboard() {
     grid.appendChild(cell);
   }
   card.appendChild(grid);
-  box.appendChild(card);
-
-  // 2. 出来事（新しい順・種類ごとに色分け）
-  const list = el("section", "dash-card");
-  list.appendChild(el("h3", "dash-card-title", "Recent activity"));
-  const items = Array.isArray(dashboardData.activity) ? dashboardData.activity : [];
-  if (items.length === 0) list.appendChild(el("p", "lib-empty", "No activity yet"));
-  for (const item of items) list.appendChild(activityRow(item));
-  if (dashboardError) list.appendChild(el("p", "paper-msg", dashboardError));
-  box.appendChild(list);
-  pdFocusMemo(); // メモの入力欄便携入力中なら描き直し後も focus を戻す
+  return card;
 }
 
-// --- Project（要対応・現況・考え・状況のまとめ・U6・sai-paper の phone project） ---
+/** 折りたためるカード（<details open>・見出しは summary・中身は返した要素に足す）。 */
+function foldCard(title, term, termLabel) {
+  const card = document.createElement("details");
+  card.className = "dash-card pd-fold";
+  card.open = true;
+  const head = document.createElement("summary");
+  head.className = "dash-card-head";
+  head.appendChild(el("span", "dash-card-title", title));
+  if (term) {
+    const badge = paperTerm(term, termLabel);
+    if (badge) head.appendChild(badge);
+  }
+  card.appendChild(head);
+  return card;
+}
+
+// --- Project（State・Mind・U6・sai-paper の phone project） ---
 
 /** Project を読む（GET …/papers/project）。読みそこなっても数字カードと出来事は出す。 */
 async function loadDashboardProject(name, force) {
@@ -797,7 +853,25 @@ async function loadDashboardProject(name, force) {
   renderPapersDashboard();
 }
 
-/** Project の State・Mind のカード（読み込み中は「読み込み中…」）。 */
+/** research-tree の状態を読む（GET …/papers/sci/status・Next Action と History）。読めなくても他は出す。 */
+async function loadDashboardSci(name) {
+  if (!name) return;
+  try {
+    const res = await apiFetch(`${papersApiBase(name)}/sci/status`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+    if (selectedProject !== name || location.hash !== "#/papers/dashboard") return;
+    sciStatus = body && typeof body === "object" ? body : {};
+    sciError = "";
+  } catch (e) {
+    if (selectedProject !== name || location.hash !== "#/papers/dashboard") return;
+    sciStatus = null;
+    sciError = (e && e.message) || "読み込めませんでした";
+  }
+  renderPapersDashboard();
+}
+
+/** State と Mind（読み込み中は「読み込み中…」）。 */
 function projectCards() {
   const wrap = el("div", "pd-project");
   if (projectData === null) {
@@ -809,96 +883,114 @@ function projectCards() {
   return wrap;
 }
 
-/** カード 1 枚の入れ物（見出しの横には用語の札を置ける）。 */
-function projectCard(title, term, termLabel) {
-  const card = el("section", "dash-card pd-card");
-  const head = el("div", "dash-card-head");
-  head.appendChild(el("h3", "dash-card-title", title));
-  if (term) {
-    const badge = paperTerm(term, termLabel);
-    if (badge) head.appendChild(badge);
-  }
-  card.appendChild(head);
-  return card;
-}
-
 /** 現況（state.md）。読むだけ（sai-paper の決まりでスマホからは書き換えない）。 */
 function stateCard() {
-  const card = projectCard("State", "state", "State");
+  const card = foldCard("State", "state", "State");
   card.appendChild(projectMd(projectData.state, "No state yet. It is written as the agent advances the research"));
   return card;
 }
 
-/** 考え（mind.md）。下に 1 行のメモを足せる。 */
+/** 考え（mind.md）。Edit で全文を書き換えて保存できる。 */
 function mindCard() {
-  const card = projectCard("Mind", "mind", "Mind");
-  card.appendChild(projectMd(projectData.mind, "No mind yet. Add a memo below and it appears here"));
-
-  const line = el("div", "pd-memo-line");
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "sai-input pd-memo";
-  input.placeholder = "考えを 1 行足す";
-  input.value = memoDraft;
-  input.maxLength = 2000;
-  input.addEventListener("input", () => { memoDraft = input.value; });
-  input.addEventListener("focus", () => { memoFocused = true; });
-  input.addEventListener("blur", () => { memoFocused = false; });
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
+  const card = foldCard("Mind", "mind", "Mind");
+  if (!mindEditing) {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "sai-btn small pd-mind-edit";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", (e) => {
+      // 見出しの中のボタンなので、押したときに折りたたみが変わらないようにする
       e.preventDefault();
-      void addMemo();
-    }
-  });
-  const mic = document.createElement("button");
-  mic.type = "button";
-  mic.className = "sai-btn small";
-  mic.textContent = "🎤";
-  mic.setAttribute("aria-label", "音声で入力");
-  if (typeof window.attachVoiceInput !== "function") mic.hidden = true;
-  else window.attachVoiceInput(mic, input);
-  const add = document.createElement("button");
-  add.type = "button";
-  add.className = "sai-btn primary small";
-  add.textContent = memoSaving ? "足しています…" : "足す";
-  add.disabled = memoSaving;
-  add.addEventListener("click", () => { void addMemo(); });
-  line.appendChild(input);
-  line.appendChild(mic);
-  line.appendChild(add);
-  card.appendChild(line);
-  card.appendChild(el("p", "pim-note", "Enter でも足せます。1 行だけ（上書きはしません）"));
-  if (memoMsg) card.appendChild(el("p", "pim-error", memoMsg));
+      startMindEdit();
+    });
+    card.querySelector("summary").appendChild(edit);
+    card.appendChild(projectMd(projectData.mind, "No mind yet. Press Edit to write one"));
+  } else {
+    card.appendChild(mindEditor());
+  }
   return card;
 }
 
-/** 考えに 1 行のメモを足す。 */
-async function addMemo() {
+/** Mind の編集（今の全文を入れて、編集の欄を出す）。 */
+function startMindEdit() {
+  mindDraft = projectData.mind == null ? "" : String(projectData.mind);
+  mindMsg = "";
+  mindEditing = true;
+  renderPapersDashboard();
+}
+
+/** Mind の編集欄（全文・保存・やめる）。 */
+function mindEditor() {
+  const wrap = el("div", "pd-mind-edit-box");
+  const text = document.createElement("textarea");
+  text.className = "sai-input pd-mind-text";
+  text.rows = 12;
+  text.value = mindDraft;
+  text.addEventListener("input", () => { mindDraft = text.value; });
+  const row = el("div", "pd-mind-row");
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "sai-btn primary small";
+  save.textContent = mindSaving ? "保存しています…" : "保存";
+  save.disabled = mindSaving;
+  save.addEventListener("click", () => { void saveMind(); });
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "sai-btn small";
+  cancel.textContent = "やめる";
+  cancel.disabled = mindSaving;
+  cancel.addEventListener("click", () => { void cancelMindEdit(); });
+  row.appendChild(save);
+  row.appendChild(cancel);
+  wrap.appendChild(text);
+  wrap.appendChild(row);
+  if (mindMsg) wrap.appendChild(el("p", "pim-error", mindMsg));
+  return wrap;
+}
+
+/** Mind を保存する（PUT …/project/mind・本文は {"text"}）。成功したら読み直して表示に戻す。 */
+async function saveMind() {
   const name = selectedProject;
-  const text = String(memoDraft || "").trim();
-  if (!name || memoSaving) return;
-  if (!text) {
-    memoMsg = "メモの文字を入れてください";
-    renderPapersDashboard();
-    return;
-  }
-  memoSaving = true;
-  memoMsg = "";
+  if (!name || mindSaving) return;
+  mindSaving = true;
+  mindMsg = "";
   renderPapersDashboard();
   try {
-    await paperApi(`${papersApiBase(name)}/project/memo`, { method: "POST", body: { text } });
-    memoDraft = "";
-    if (typeof saiToast === "function") saiToast("考えに足しました", "ok");
-    void loadDashboardProject(name, true);
+    await paperApi(`${papersApiBase(name)}/project/mind`, { method: "PUT", body: { text: mindDraft } });
+    mindEditing = false;
+    mindDraft = "";
+    if (typeof saiToast === "function") saiToast("Mind を保存しました", "ok");
+    mindSaving = false;
+    await loadDashboardProject(name, true);
   } catch (e) {
-    memoMsg = (e && e.message) || "足せませんでした";
+    mindMsg = (e && e.message) || "保存できませんでした";
+    if (typeof saiToast === "function") saiToast(mindMsg, "error");
   } finally {
-    memoSaving = false;
-    renderPapersDashboard();
+    mindSaving = false;
+    if (location.hash === "#/papers/dashboard") renderPapersDashboard();
   }
 }
 
-/** md を表示する（長いものははじめはたたんで「全部見る」）。 */
+/** Mind の編集をやめる（書きかけが残っていれば確かめてから捨てる）。 */
+async function cancelMindEdit() {
+  const saved = projectData.mind == null ? "" : String(projectData.mind);
+  if (mindDraft !== saved) {
+    const ok = await paperConfirm({
+      title: "書きかけの Mind を捨てますか",
+      body: "保存していない書き換えは消えます。",
+      ok: "捨てる",
+      cancel: "続ける",
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  mindEditing = false;
+  mindDraft = "";
+  mindMsg = "";
+  renderPapersDashboard();
+}
+
+/** 考え（md）を表示する（長いものははじめはたたんで「全部見る」）。 */
 function projectMd(text, emptyText) {
   const src = String(text == null ? "" : text);
   if (!src.trim()) return el("p", "lib-empty", emptyText);
@@ -916,14 +1008,52 @@ function projectMd(text, emptyText) {
   return wrap;
 }
 
-/** 描き直したあともメモの入力欄に focus を戻す（入力中の文字を消さないため）。 */
-function pdFocusMemo() {
-  if (!memoFocused) return;
-  const input = document.querySelector("#papers-dashboard-body .pd-memo");
-  if (!input) return;
-  input.focus();
-  const at = input.value.length;
-  try { input.setSelectionRange(at, at); } catch { /* 数値の欄だけなら無視 */ }
+// --- Next Action（research-tree の先頭 3 件） ---
+
+/** Next Action。Node の「選ぶ」は Tree の画面の Node へ移る（選ぶ操作は Tree の中にある）。 */
+function nextActionCard() {
+  const card = foldCard("Next Action");
+  if (sciStatus === null) {
+    card.appendChild(el("p", "lib-empty", sciError || "読み込み中…"));
+    return card;
+  }
+  if (!sciStatus.initialized) {
+    card.appendChild(el("p", "lib-empty", "research-tree がまだありません"));
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "sai-btn small";
+    go.textContent = "Tree を開く";
+    go.addEventListener("click", () => { location.hash = "#/research/tree"; });
+    card.appendChild(go);
+    return card;
+  }
+  const list = typeof stNextLines === "function" ? stNextLines(sciStatus, 3) : [];
+  if (!list.length) {
+    card.appendChild(el("p", "lib-empty", "今すぐやることはありません"));
+  } else if (typeof stNextRows === "function") {
+    card.appendChild(stNextRows(list, sciStatus, (x) => {
+      if (x.node) location.hash = `#/research/tree/${encodeURIComponent(x.node)}`;
+    }));
+  }
+  return card;
+}
+
+// --- Recent Activity（論文の動き＋research-tree の History・新しい順） ---
+
+/** Recent Activity。History は stHistoryText（scitree.js）で文にする。 */
+function recentActivityCard() {
+  const card = foldCard("Recent Activity");
+  if (!dashboardData && !dashboardError) {
+    card.appendChild(el("p", "lib-empty", "読み込み中…"));
+    return card;
+  }
+  const history = sciStatus && sciStatus.initialized ? sciStatus.history : [];
+  const textOf = typeof stHistoryText === "function" ? (h) => stHistoryText({ ...h, at: null }) : () => "";
+  const items = pdMergeActivity(dashboardData ? dashboardData.activity : [], history, textOf);
+  if (items.length === 0) card.appendChild(el("p", "lib-empty", "No activity yet"));
+  for (const item of items) card.appendChild(activityRow(item));
+  if (dashboardError) card.appendChild(el("p", "paper-msg", dashboardError));
+  return card;
 }
 
 function activityRow(item) {
@@ -950,7 +1080,7 @@ function fillSegment(containerId, active, segs) {
   row.className = "papers-seg-bar";
   const seg = document.createElement("div");
   seg.className = "dash-seg papers-seg"; // 06 の期間切り替えと同じ見た目
-  const items = Array.isArray(segs) ? segs : PAPERS_SEG;
+  const items = Array.isArray(segs) ? segs : RESEARCH_SEG;
   for (const [key, label, hash] of items) {
     const b = document.createElement("button");
     b.textContent = label;
@@ -1355,13 +1485,7 @@ function papersRenderDownloadBand() {
     return;
   }
   downloadBand.hidden = false;
-  downloadBand.textContent = "";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "sai-btn small";
-  btn.textContent = `取り込み中 ${jobs.length} 件（進み具合を開く）`;
-  btn.addEventListener("click", () => { location.hash = "#/papers/import"; });
-  downloadBand.appendChild(btn);
+  downloadBand.textContent = `取り込み中 ${jobs.length} 件（進み具合は各論文の情報で見られます）`;
 }
 
 /** 3 秒ごとの更新で Download の進み具合も見る（paperimport.js があれば）。 */
@@ -1407,7 +1531,6 @@ async function openLibrary(opts) {
   // 論文情報の戻る先として今の住所を覚える（07 §4.2）
   savePapersList("#/papers/library");
   fillSegment("library-seg", "library");
-  papersImportButton(); // 道具行の「＋ BibTeX を読み込む」
   const input = document.getElementById("library-filter");
   if (input) input.value = libFilter;
   const dInput = document.getElementById("discover-input");
@@ -1467,25 +1590,10 @@ async function openLibrary(opts) {
   }
   // まだ何も無いときは「読み込み中…」を先に出す（07 §4.2）
   if (libPapers === null) renderLibrary();
-  // 走っている Download があれば上の帯を出す（Import を開いたときの一度きりの読み出し）
+  // 走っている Download があれば上の帯を出す（Library を開いたときの一度きりの読み出し）
   if (typeof pimRefreshJobs === "function") void pimRefreshJobs(selectedProject);
   void loadProviders(); // 検索欄の条件（検索先）
   await loadLibrary();
-}
-
-/** Library の道具行に「＋ BibTeX を読み込む」を足す（1 回だけ）。 */
-function papersImportButton() {
-  if (document.getElementById("library-import")) return;
-  const filter = document.getElementById("library-filter");
-  const tools = filter && filter.parentNode;
-  if (!tools) return;
-  const btn = document.createElement("button");
-  btn.id = "library-import";
-  btn.type = "button";
-  btn.className = "sai-btn small papers-import-btn";
-  btn.textContent = "＋ BibTeX を読み込む";
-  btn.addEventListener("click", () => { location.hash = "#/papers/import"; });
-  tools.appendChild(btn);
 }
 
 async function loadLibrary() {
@@ -1627,8 +1735,8 @@ function renderPaperList(box) {
       papersEmpty(
         "📚",
         none ? "まだ論文がありません" : "一致する論文がありません",
-        none ? "上の欄で論文を検索するか、BibTeX を読み込んでください。" : "上の絞り込みの欄の言葉を短くすると出てきます。",
-        none ? [{ label: "BibTeX を読み込む", onClick: () => { location.hash = "#/papers/import"; } }] : null
+        none ? "論文は各自の Mac の sai-prep から送ります。" : "上の絞り込みの欄の言葉を短くすると出てきます。",
+        null
       )
     );
     return;
@@ -1734,13 +1842,11 @@ function renderTree(box) {
             ? "まだ内部検索の履歴がありません"
             : "一致する論文がありません",
         libPapers.length === 0
-          ? "上の欄で論文を検索するか、BibTeX を読み込んでください。"
+          ? "論文は各自の Mac の sai-prep から送ります。"
           : internalEmpty
             ? "上の欄で Library 内を検索してください。"
             : "上の絞り込みの欄の言葉を短くすると出てきます。",
-        libPapers.length === 0
-          ? [{ label: "BibTeX を読み込む", onClick: () => { location.hash = "#/papers/import"; } }]
-          : null
+        null
       )
     );
   }
@@ -3430,8 +3536,6 @@ if (typeof window !== "undefined") {
     paperRoute
   );
 
-  // Library の道具行に「＋ BibTeX を読み込む」を足す（1 回だけ）
-  papersImportButton();
 
   // 再読み込みボタン（↻）（一覧のプロジェクトも取り直す・18 §1.1）
   const reload = document.getElementById("papers-reload");
@@ -3654,7 +3758,7 @@ if (typeof module !== "undefined" && module.exports) {
     papersFailedLines,
     papersAllFailed,
     paperCardText,
-    PAPERS_SEG,
     RESEARCH_SEG,
+    pdMergeActivity,
   };
 }
