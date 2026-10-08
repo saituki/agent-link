@@ -18,7 +18,13 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY waggle ./waggle
 COPY sai-sci ./sai-sci
-RUN cargo build --release -p sai-link-cli -p sai-paper-cli -p sai-sci-cli
+# 依存のダウンロードとビルド生成物は BuildKit のキャッシュに残す（2 回目から差分だけ）。
+# キャッシュの中の target はイメージに入らないので、実行ファイルは同じ RUN の中で取り出す。
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/opt/sai-tree/target \
+    cargo build --release -p sai-link-cli -p sai-paper-cli -p sai-sci-cli \
+    && mkdir -p /out \
+    && cp target/release/sai-link target/release/sai-paper target/release/sai-sci /out/
 
 # ---- 2. 実行する環境 ----
 FROM node:22-bookworm-slim
@@ -27,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent
-COPY --from=build /opt/sai-tree/target/release/sai-link /opt/sai-tree/target/release/sai-paper /opt/sai-tree/target/release/sai-sci /usr/local/bin/
+COPY --from=build /out/sai-link /out/sai-paper /out/sai-sci /usr/local/bin/
 # cc のフックと pi の質問の拡張を、ビルドしたときと同じ場所（/opt/sai-tree）に置く。
 # sai-link は `CARGO_MANIFEST_DIR`（= /opt/sai-tree/crates/sai-link-engine）から
 # `../../apps/web/...` をたどって場所を決める（cc_command.rs の web_hooks_dir・

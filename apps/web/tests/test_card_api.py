@@ -167,6 +167,24 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     control.phone_card_options("demo")
     assert cli.last["args"] == ["sai-link", "card", "options"], cli.last["args"]
 
+    # 研究専用: 開発用 block は選択肢から外し、main・web-research・sci-* は残す
+    cli.stdout = json.dumps(
+        {
+            "runners": ["cc"],
+            "blocks": [
+                {"id": "main", "label": "main"},
+                {"id": "sub", "label": "sub"},
+                {"id": "plan", "label": "plan"},
+                {"id": "kantoku", "label": "kantoku"},
+                {"id": "web-research", "label": "web-research"},
+                {"id": "sci-read", "label": "sci-read"},
+                {"id": "professor", "label": "professor"},
+            ],
+        }
+    )
+    ids = [b["id"] for b in control.phone_card_options("demo")["blocks"]]
+    assert ids == ["main", "web-research", "sci-read", "professor"], ids
+
 
 def test_start_success(cli: FakeCli) -> None:
     """▶ 実行は `card run <run_id>` を root で呼び，応答をそのまま返す。"""

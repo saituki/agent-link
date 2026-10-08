@@ -143,6 +143,19 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(done.status, "failed")
         self.assertIn("PDF", done.error or "")
 
+    def test_retry_runs_a_failed_job_again_with_the_same_pdf(self):
+        with mock.patch("sai_prep.pipeline.find_tool", return_value=None):
+            job = self.pipeline.submit_paper("alpha", 12, PDF_BYTES, "paper.pdf")
+            failed = self.pipeline.wait(job.id, timeout=30)
+        self.assertEqual(failed.status, "failed")
+        again = self.pipeline.retry(job.id)
+        self.assertIsNotNone(again)
+        self.assertNotEqual(again.id, job.id)
+        self.assertIsNone(self.pipeline.get(job.id))  # 古い失敗の行は捨てる
+        done = self.pipeline.wait(again.id, timeout=90)
+        self.assertEqual(done.status, "done", done.error)
+        self.assertIsNone(self.pipeline.retry(again.id))  # 失敗していない仕事はやり直せない
+
     def test_polls_until_job_is_done(self):
         self.server._job_polls_before_done = 2
         done = self._run_paper()

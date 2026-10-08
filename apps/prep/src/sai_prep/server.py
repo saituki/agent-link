@@ -164,6 +164,15 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._post_job(query)
             return
+        if path.startswith("/local/jobs/") and path.endswith("/retry"):
+            if not self._require_nonce():
+                return
+            job = self.prep.pipeline.retry(path[len("/local/jobs/"):-len("/retry")])
+            if job is None:
+                self._error(404, "やり直せる失敗の仕事がありません。")
+                return
+            self._send_json(202, job.to_public())
+            return
         self._error(404, "その住所はありません。")
 
     # -- 画面 --------------------------------------------------------------

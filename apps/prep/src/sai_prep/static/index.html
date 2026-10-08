@@ -101,6 +101,9 @@
   .job.done .bar > i { background: var(--ok); }
   .job.failed .bar > i { background: var(--ng); }
   .job .err { color: var(--ng); font-size: 13px; margin-top: 4px; }
+  .jobslot { margin-top: 6px; }
+  .jobslot .job { padding: 6px 8px; }
+  .job button { margin-top: 6px; }
   .hidden { display: none; }
   .checkline { display: flex; align-items: center; gap: 8px; }
   .checkline input { width: auto; }
@@ -180,13 +183,9 @@
       </div>
     </div>
     <div id="bibStatus" class="status"></div>
+    <div id="bibJobs" class="jobs"></div>
   </section>
 
-  <section>
-    <h2>処理の列</h2>
-    <div id="jobs" class="jobs"></div>
-    <div id="jobsEmpty" class="muted">まだ仕事はありません。</div>
-  </section>
 </main>
 
 <script>
@@ -338,6 +337,19 @@
     });
   }
 
+  // DOI は doi.org（出版社のページ）、arXiv は PDF そのものへ。外から来る値なので形を検査する。
+  function spIdUrl(paper) {
+    var arxiv = String(paper.arxiv_id || "").replace(/^arxiv:/i, "").trim();
+    if (/^([a-z-]+(\.[A-Za-z]{2})?\/\d{7}|\d{4}\.\d{4,5})(v\d+)?$/.test(arxiv)) {
+      return "https://arxiv.org/pdf/" + arxiv;
+    }
+    var doi = String(paper.doi || "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:)/i, "").trim();
+    if (/^10\.\d{4,9}\/\S+$/.test(doi)) {
+      return "https://doi.org/" + encodeURI(doi);
+    }
+    return "";
+  }
+
   function spPendingRow(paper) {
     var tr = document.createElement("tr");
 
@@ -353,7 +365,17 @@
 
     var tdId = document.createElement("td");
     tdId.setAttribute("data-label", "DOI / arXiv");
-    tdId.textContent = paper.doi || paper.arxiv_id || "";
+    var idUrl = spIdUrl(paper);
+    if (idUrl) {
+      var idLink = document.createElement("a");
+      idLink.href = idUrl;
+      idLink.target = "_blank";
+      idLink.rel = "noopener noreferrer";
+      idLink.textContent = paper.doi || paper.arxiv_id;
+      tdId.appendChild(idLink);
+    } else {
+      tdId.textContent = paper.doi || paper.arxiv_id || "";
+    }
     tr.appendChild(tdId);
 
     var tdDrop = document.createElement("td");
@@ -371,6 +393,10 @@
     spWireDrop(drop, function (file) { spSubmitPaper(paper, file, drop); });
     tdDrop.appendChild(drop);
     tdDrop.appendChild(input);
+    var slot = document.createElement("div");
+    slot.className = "jobslot";
+    slot.setAttribute("data-paper-id", String(paper.id));
+    tdDrop.appendChild(slot);
     tr.appendChild(tdDrop);
     return tr;
   }
@@ -386,7 +412,7 @@
       headers: { "Content-Type": "application/pdf" },
       body: file
     }).then(function () {
-      drop.textContent = "受け付けました（処理の列を見てください）";
+      drop.textContent = "受け付けました";
       spLoadJobs();
     }).catch(function (e) {
       drop.textContent = "失敗: " + e.message;
@@ -469,7 +495,7 @@
       },
       body: bib.pdf
     }).then(function () {
-      spStatus(spEl("bibStatus"), "受け付けました（処理の列を見てください）。", "ok");
+      spStatus(spEl("bibStatus"), "受け付けました。", "ok");
       bib.text = "";
       bib.pdf = null;
       spEl("bibFile").value = "";
@@ -480,46 +506,87 @@
     });
   });
 
-  // -- 処理の列 --------------------------------------------------------
-  function spRenderJobs(jobs) {
-    var box = spEl("jobs");
-    box.innerHTML = "";
-    spEl("jobsEmpty").classList.toggle("hidden", jobs.length > 0);
-    jobs.forEach(function (job) {
-      var div = document.createElement("div");
-      div.className = "job " + (job.status || "");
-      var label = job.kind === "bibtex" ? "BibTeX: " + job.filename : "PDF 待ち: " + (job.target && job.target.paper_id);
-      var top = document.createElement("div");
-      top.className = "top";
-      var title = document.createElement("span");
-      title.className = "title";
-      title.textContent = label;
-      var stage = document.createElement("span");
-      stage.textContent = job.stage || job.status;
-      top.appendChild(title);
-      top.appendChild(stage);
-      div.appendChild(top);
-      var bar = document.createElement("div");
-      bar.className = "bar";
-      var fill = document.createElement("i");
-      fill.style.width = (job.progress || 0) + "%";
-      bar.appendChild(fill);
-      div.appendChild(bar);
-      if (job.message) {
-        var msg = document.createElement("div");
-        msg.className = "muted";
-        msg.textContent = job.message;
-        div.appendChild(msg);
-      }
-      if (job.error) {
-        var err = document.createElement("div");
-        err.className = "err";
-        err.textContent = job.error;
-        div.appendChild(err);
-      }
-      box.appendChild(div);
-    });
+  // -- 進み具合（PDF 待ちの行の下と、BibTeX の節の下に出す） ----------------
+  function spJobView(job) {
+    var div = document.createElement("div");
+    div.className = "job " + (job.status || "");
+    var top = document.createElement("div");
+    top.className = "top";
+    var title = document.createElement("span");
+    title.className = "title";
+    title.textContent = job.kind === "bibtex" ? job.filename : (job.stage || job.status);
+    var stage = document.createElement("span");
+    stage.textContent = job.kind === "bibtex" ? (job.stage || job.status) : (job.progress || 0) + "%";
+    top.appendChild(title);
+    top.appendChild(stage);
+    div.appendChild(top);
+    var bar = document.createElement("div");
+    bar.className = "bar";
+    var fill = document.createElement("i");
+    fill.style.width = (job.progress || 0) + "%";
+    bar.appendChild(fill);
+    div.appendChild(bar);
+    if (job.message) {
+      var msg = document.createElement("div");
+      msg.className = "muted";
+      msg.textContent = job.message;
+      div.appendChild(msg);
+    }
+    if (job.error) {
+      var err = document.createElement("div");
+      err.className = "err";
+      err.textContent = job.error;
+      div.appendChild(err);
+      var retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "もう一度";
+      retry.addEventListener("click", function () {
+        retry.disabled = true;
+        spApi("/local/jobs/" + encodeURIComponent(job.id) + "/retry", { method: "POST" })
+          .then(spLoadJobs)
+          .catch(function (e) { err.textContent = job.error + "（やり直せません: " + e.message + "）"; });
+      });
+      div.appendChild(retry);
+    }
+    return div;
   }
+
+  // 表示が変わったときだけ描き直す（2 秒ごとの更新でボタンが消えないように）。
+  function spFill(slot, jobs) {
+    var sig = JSON.stringify(jobs.map(function (j) { return [j.id, j.status, j.stage, j.progress, j.message, j.error]; }));
+    if (slot.getAttribute("data-sig") === sig) { return; }
+    slot.setAttribute("data-sig", sig);
+    slot.innerHTML = "";
+    jobs.forEach(function (j) { slot.appendChild(spJobView(j)); });
+  }
+
+  function spRenderJobs(jobs) {
+    var project = spEl("project").value;
+    var latest = {};
+    var bibJobs = [];
+    var finished = false;
+    jobs.forEach(function (job) {
+      if (spJobStatus[job.id] && spJobStatus[job.id] !== "done" && job.status === "done") { finished = true; }
+      spJobStatus[job.id] = job.status;
+      if (job.project !== project) { return; }
+      if (job.kind === "bibtex") { bibJobs.push(job); return; }
+      var id = String(job.target && job.target.paper_id);
+      if (!latest[id] || latest[id].created_at < job.created_at) { latest[id] = job; }
+    });
+    spFill(spEl("bibJobs"), bibJobs);
+    Array.prototype.forEach.call(document.querySelectorAll(".jobslot"), function (slot) {
+      var job = latest[slot.getAttribute("data-paper-id")];
+      spFill(slot, job ? [job] : []);
+    });
+    // 取り込みが終わった論文は PDF 待ちから消えるので、一覧を読み直す。
+    if (finished && project) {
+      spLoadPending(project).then(function () {
+        spStatus(spEl("pendingStatus"), "取り込みが完了しました。", "ok");
+      });
+    }
+  }
+
+  var spJobStatus = {};
 
   function spLoadJobs() {
     return spApi("/local/jobs").then(function (data) {

@@ -178,6 +178,15 @@ class Pipeline:
         self._queue.put(job.id)
         return job
 
+    def retry(self, job_id: str) -> Job | None:
+        """失敗した仕事を、同じ PDF でもう一度列に積む（古い失敗の行は捨てる）。"""
+        with self._lock:
+            old = self._jobs.get(job_id)
+            if old is None or old.status != "failed":
+                return None
+            del self._jobs[job_id]
+        return self._submit(old.project, old.kind, old.target, old.pdf, old.filename)
+
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)

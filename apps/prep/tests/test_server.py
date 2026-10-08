@@ -44,6 +44,9 @@ class StubPipeline:
     def list_jobs(self):
         return []
 
+    def retry(self, job_id):
+        return FakeJob("paper", {"paper_id": 12}) if job_id == "failed1" else None
+
 
 class ServerTest(unittest.TestCase):
     def setUp(self):
@@ -144,6 +147,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(data["target"], {"paper_id": 12})
         self.assertEqual(self.pipeline.submitted[0][0], "paper")
         self.assertEqual(self.pipeline.submitted[0][2], 12)
+
+    def test_retry_failed_job(self):
+        status, data = self.request("POST", "/local/jobs/failed1/retry")
+        self.assertEqual(status, 202)
+        self.assertEqual(json.loads(data)["target"], {"paper_id": 12})
+        status, _ = self.request("POST", "/local/jobs/nothing/retry")
+        self.assertEqual(status, 404)
 
     def test_post_bibtex_job(self):
         bibtex = "@article{x, title={T}}"

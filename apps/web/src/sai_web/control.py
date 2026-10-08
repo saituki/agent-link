@@ -539,10 +539,24 @@ def phone_session_search(
     return {"items": items[:_SESSION_LIMIT], "truncated": truncated}
 
 
+# sai-tree は研究専用。アプリ開発用の block は選択肢から隠す（ファイルは残す。
+# sai-sci の子タスクが `sub` などを `block_type` で呼ぶことがあるため）。
+# 汎用の `main`・`web-research` と、sai-sci の block は出す。
+DEV_BLOCKS = frozenset(
+    {"sub", "plan", "plan-kantoku", "kantoku", "worker", "bugfix", "review", "explore"}
+)
+
+
 def phone_card_options(name: str) -> dict:
-    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。"""
+    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block は除く。"""
     project = _phone_project(name)
-    return _phone_json(["card", "options"], root=project["root"])
+    data = _phone_json(["card", "options"], root=project["root"])
+    blocks = data.get("blocks") if isinstance(data, dict) else None
+    if isinstance(blocks, list):
+        data["blocks"] = [
+            b for b in blocks if not (isinstance(b, dict) and b.get("id") in DEV_BLOCKS)
+        ]
+    return data
 
 
 def _validate_card_payload(payload: dict) -> dict:
