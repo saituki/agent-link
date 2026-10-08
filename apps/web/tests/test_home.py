@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from pathlib import Path
 
 from fastapi import HTTPException
 
-from sai_web import home
+from sai_web import control, home, registry
 from sai_web.main import api_home_overview, app
 
 # --- 偽の値（登録簿・tree・runs・store） ---
@@ -565,8 +568,83 @@ def test_overview_cache(fake: Fake) -> None:
     assert len(fake.dashboard_calls) == 6, fake.dashboard_calls
 
 
+def test_multi_user_home_no_404() -> None:
+    """多人数モードで利用者のプロジェクトが 2 つあっても、ホームの集計が 404 にならない。
+
+    本物の `control.list_projects` / `find_project` / `phone_tree` / `dashboard` を通す。
+    CLI を呼ぶ所（`_project_summary`・`_phone_json`・`export_runs`）と質問・実行・論文だけ差し替える。
+    直す前は、集計の並列の中で今の利用者が無くなり、登録簿が単独モードの物になって 404 になる。
+    """
+    saved_env = os.environ.get("SAI_WEB_USERS_ROOT")
+    saved = {
+        "project_summary": control._project_summary,  # noqa: SLF001
+        "phone_json": control._phone_json,  # noqa: SLF001
+        "export_runs": control.export_runs,
+        "list_paper_projects": home.papers.list_paper_projects,
+        "list_open_questions": home.store.list_open_questions,
+        "session_map": home._session_map,  # noqa: SLF001
+    }
+    users = Path(tempfile.mkdtemp(prefix="sai-web-home-users-"))
+    # alice の置き場に、名前が `alice-` で始まり `.sai/` を持つフォルダを 2 つ作る
+    for name in ("alice-alpha", "alice-beta"):
+        db = users / "alice" / "projects" / name / ".sai" / "sai-engine" / "sai-engine.db"
+        db.parent.mkdir(parents=True)
+        db.write_bytes(b"")
+
+    def project_summary(name: str, root: str) -> dict:
+        return {"running": 0, "last_executed_at": None}
+
+    def phone_json(args, *, root, timeout=20.0, stdin_text=None):
+        if args[0] == "run":
+            return {"items": []}
+        name = Path(root).name
+        return {
+            "name": name,
+            "period": "week",
+            "since": "2026-10-03",
+            "until": "2026-10-09",
+            "daemon_alive": False,
+            "summary": {"executions": 1, "completed": 1},
+            "daily": [],
+            "recent": [],
+        }
+
+    os.environ["SAI_WEB_USERS_ROOT"] = str(users)
+    control._project_summary = project_summary  # noqa: SLF001
+    control._phone_json = phone_json  # noqa: SLF001
+    control.export_runs = lambda project: None
+    home.papers.list_paper_projects = lambda: []
+    home.store.list_open_questions = lambda: []
+    home._session_map = lambda: []  # noqa: SLF001
+    home.forget()
+    token = registry.current_user.set({"name": "alice", "email": "", "is_admin": False})
+    try:
+        out = home.build_home()
+        assert out["errors"] == [], out["errors"]
+        assert sorted(p["name"] for p in out["projects"]) == ["alice-alpha", "alice-beta"], out
+
+        home.forget()
+        over = home.build_overview("week")
+        assert over["errors"] == [], over["errors"]
+        assert over["projects"] == 2, over
+    finally:
+        registry.current_user.reset(token)
+        home.forget()
+        control._project_summary = saved["project_summary"]  # noqa: SLF001
+        control._phone_json = saved["phone_json"]  # noqa: SLF001
+        control.export_runs = saved["export_runs"]
+        home.papers.list_paper_projects = saved["list_paper_projects"]
+        home.store.list_open_questions = saved["list_open_questions"]
+        home._session_map = saved["session_map"]  # noqa: SLF001
+        if saved_env is None:
+            os.environ.pop("SAI_WEB_USERS_ROOT", None)
+        else:
+            os.environ["SAI_WEB_USERS_ROOT"] = saved_env
+
+
 def main() -> None:
     fake = Fake()
+    test_multi_user_home_no_404()
     test_shape(fake)
     test_questions(fake)
     test_title_truncated(fake)

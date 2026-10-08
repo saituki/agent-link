@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import logging
 import time
 
@@ -219,11 +220,13 @@ def _build() -> dict:
     ] + [("paper", str(row.get("name") or ""), row) for row in paper_rows]
     if jobs:
         with concurrent.futures.ThreadPoolExecutor(max_workers=_HOME_WORKERS) as pool:
+            # 今の利用者（ContextVar）はプールのスレッドに届かないので、submit のたびに写す
             futures = {
-                pool.submit(_home_project if kind == "project" else _home_paper, row): (
-                    kind,
-                    name,
-                )
+                pool.submit(
+                    contextvars.copy_context().run,
+                    _home_project if kind == "project" else _home_paper,
+                    row,
+                ): (kind, name)
                 for kind, name, row in jobs
             }
             for future in concurrent.futures.as_completed(futures):
@@ -349,7 +352,11 @@ def _build_overview(period: str) -> dict:
     if names:
         # プロジェクトごとに CLI を待つので並べる（1 つが失敗しても全体は止めない）
         with concurrent.futures.ThreadPoolExecutor(max_workers=_HOME_WORKERS) as pool:
-            futures = {pool.submit(_overview_project, name, period): name for name in names}
+            # 今の利用者（ContextVar）はプールのスレッドに届かないので、submit のたびに写す
+            futures = {
+                pool.submit(contextvars.copy_context().run, _overview_project, name, period): name
+                for name in names
+            }
             for future in concurrent.futures.as_completed(futures):
                 name = futures[future]
                 try:

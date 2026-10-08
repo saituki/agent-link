@@ -98,7 +98,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 ## 4. API 一覧
 
-すべて合言葉（`require_token`）で守る（内部用の 4 本を除く）。エラーは `{"detail": "<日本語>"}`。
+すべて合言葉（`require_token`）で守る（内部用の 6 本を除く）。エラーは `{"detail": "<日本語>"}`。
 「呼ぶ CLI」の列は、cwd = プロジェクトの root、`SAI_PROJECT_ROOT` = 同じ root、`SAI_ORIGIN=phone` で呼ぶ命令。終了コードから HTTP の状態への読み替えは [§7](#7-cli-の失敗の読み替え) の 1 か所。
 
 ### 4.1 プロジェクト（一覧・Dashboard・常駐）
@@ -303,7 +303,8 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `POST /api/register` `/api/questions` | 登録（**内部専用**。単独モードは Mac 自身、多人数モードは `Authorization: Bearer <SAI_WEB_INTERNAL_TOKEN>`。cc のフックと pi の拡張が呼ぶ） |
 | `POST /api/questions/{qid}/resolved` | 質問が端末側で答えられたことの通知（**内部専用**） |
 | `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問（`{qid}` は**内部専用**。多人数モードでは持ち主の物だけ）。`{qid}` の JSON は `answered_by`（答えた人。端末で答えたときは `terminal`）を持つ |
-| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る） |
+| `GET /api/questions/mine` | **内部専用**。自分のプロジェクトの答え待ちだけを `{"questions": [{"id","agent","title","created_at","project","run_id"}, …]}` で返す（`/api/questions/pending` と同じ形を、プロジェクトで絞ったもの）。多人数モードでは合言葉のプロジェクトの分だけ。コンテナの agent の `sai-web questions` が使う |
+| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る）。**内部の合言葉**（コンテナの agent の `sai-web answer`）でも使えるが、その質問が合言葉のプロジェクトの物でなければ 403「このプロジェクトの質問ではありません」（分からないときも 403）。内部の合言葉で答えた記録は `answered_by` が `agent` になる。本文は今と同じ（`{"answers": [{choice_index \| choice_indices \| text}, …]}`） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
 | `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（OpenRouter・DeepSeek・pi の記録） |
 | `GET /manifest.json` | PWA の設定 |
@@ -333,7 +334,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 - 鍵と Claude の長命トークンは `<U>/<user>/secrets.env`（0600）に `KEY=値` の行で保存し、コンテナには `--env-file` で渡す。値を変えると、その人の実行中でないコンテナを `docker rm -f` → `docker run` で作り直す（実行中のプロジェクトは `pending` に入れ、作業を壊さない）。
 - プロジェクトの内部の合言葉（`SAI_WEB_INTERNAL_TOKEN`）はコンテナを作るときに `secrets.token_urlsafe(32)` で作り、SHA-256 だけを DB（`project_tokens`）に置く（同じプロジェクトの古い行は消す）。値は `sai_` で始まらない（個人のトークンと区別する）。
-- 内部の合言葉を `Authorization: Bearer` で送ると、ミドルウェアが `project_tokens` を引いて持ち主を `registry.current_user` に入れ、`request.state.internal_project` にプロジェクト名を入れる（Cookie より先に見る）。内部の合言葉で使えるのは**内部の 4 本**（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`）だけで、それ以外の住所は 403「内部専用の合言葉では使えません」。
+- 内部の合言葉を `Authorization: Bearer` で送ると、ミドルウェアが `project_tokens` を引いて持ち主を `registry.current_user` に入れ、`request.state.internal_project` にプロジェクト名を入れる（Cookie より先に見る）。内部の合言葉で使えるのは**内部の 6 本**（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`・`GET /api/questions/mine`・`POST /api/questions/{qid}/answer`）だけで、それ以外の住所は 403「内部専用の合言葉では使えません」。`/api/home`・`/api/questions/pending` は持ち主の全プロジェクトを返すので、内部の合言葉には開けない。`/api/questions/{qid}/answer` と `/api/questions/mine` は、合言葉のプロジェクトの質問に限る。
 - 質問・登録・通知の購読は `owner` を持ち、多人数モードでは今の利用者の物だけを読む（`GET /api/questions/{qid}` は持ち主でなければ 404）。保存する関数は `registry.current_user` の名前を `owner` に入れる。見張り（`watch.py`）は利用者ごとに `registry.current_user` を入れてから見回る。単独モードは今までどおり（`owner` は空文字で、絞り込みをしない）。古い DB（`owner` の列が無い）は `init_db` が `ALTER TABLE` で列を足す。
 - Usage の OpenRouter・DeepSeek の鍵は、多人数モードでは今の利用者の `secrets.env`（`containers.read_keys`）から読む（無ければ「キーが未設定です」）。単独モードは今までどおり環境変数から読む。
 
@@ -344,7 +345,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 ## 5. `sai-web` の命令（CLI から Web を使う）
 
-Web のすべての HTTP API を、コマンド 1 本から使える（接続先 `SAI_WEB_URL`・合言葉 `SAI_WEB_TOKEN`、無ければ `$SAI_HOME/web/token`。合言葉は `Authorization: Bearer` で送り、値は出力に出さない）。
+Web のすべての HTTP API を、コマンド 1 本から使える（接続先 `SAI_WEB_URL`・合言葉 `SAI_WEB_TOKEN`、無ければコンテナの中の `SAI_WEB_INTERNAL_TOKEN`、それも無ければ `$SAI_HOME/web/token`。コンテナの中では `questions` は自分のプロジェクトの分だけ）。合言葉は `Authorization: Bearer` で送り、値は出力に出さない）。
 
 | 命令 | 何 |
 |---|---|

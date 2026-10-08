@@ -10,6 +10,9 @@
 - 通知は持ち主の購読にだけ送られる
 - Usage の OpenRouter は多人数モードで `secrets.env` のキーを使う
 - `owner` の列が無い古い DB を開いても動く（`init_db` が列を足す）
+- 内部の合言葉の agent は、自分のプロジェクトの答え待ちだけを `GET /api/questions/mine` で読める
+- 内部の合言葉で、別のプロジェクトの質問に答えると 403（質問は open のまま）
+- 内部の合言葉で答えた記録は `answered_by` が `agent` になる
 
 実行:
     cd ~/workdir/Sai/sai-tree
@@ -37,13 +40,14 @@ os.environ.pop("SAI_WEB_RUNS_DIR", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import auth, containers, notify, registry, store, usage  # noqa: E402
+from sai_web import auth, containers, home, notify, registry, store, usage  # noqa: E402
 from sai_web.main import app  # noqa: E402
 
 HOST = "testserver"
 USERS = Path(os.environ["SAI_WEB_USERS_ROOT"])
 
 ALICE_TOKEN = "alice-internal-token-123"
+ALICE_TOKEN_BETA = "alice-internal-token-789"
 BOB_TOKEN = "bob-internal-token-456"
 
 
@@ -248,6 +252,75 @@ def test_internal_question_owner() -> None:
     )
 
 
+def test_agent_questions() -> None:
+    """内部の合言葉の agent は、自分のプロジェクトの答え待ちだけを読み、答えられる。
+
+    質問の実行（session_id）のプロジェクトは `home._session_map` の偽物で決める。
+    """
+    alpha = {"authorization": f"Bearer {ALICE_TOKEN}"}
+    beta = {"authorization": f"Bearer {ALICE_TOKEN_BETA}"}
+    fake_map = [
+        ("alice-alpha", {"agent-alpha-sess"}, 1),
+        ("alice-beta", {"agent-beta-sess"}, 2),
+    ]
+    original_map = home._session_map  # noqa: SLF001
+    home._session_map = lambda: fake_map  # noqa: SLF001
+    try:
+        # --- alice のプロジェクト alpha と beta に、それぞれ質問を登録 ---
+        status, body = call(
+            "POST", "/api/questions",
+            json_body=question_body("agent-alpha-sess", "tu-agent-alpha"), headers=alpha,
+        )
+        assert status == 200, (status, body)
+        qid_alpha = body["id"]
+        status, body = call(
+            "POST", "/api/questions",
+            json_body=question_body("agent-beta-sess", "tu-agent-beta"), headers=beta,
+        )
+        assert status == 200, (status, body)
+        qid_beta = body["id"]
+
+        # --- 一覧は自分のプロジェクトの分だけ（`{qid}` の住所に吸われない）---
+        status, body = call("GET", "/api/questions/mine", headers=alpha)
+        assert status == 200 and "questions" in body, (status, body)
+        ids = [q["id"] for q in body["questions"]]
+        assert qid_alpha in ids and qid_beta not in ids, body
+        row = next(q for q in body["questions"] if q["id"] == qid_alpha)
+        assert row["project"] == "alice-alpha" and row["run_id"] == 1, row
+        status, body = call("GET", "/api/questions/mine", headers=beta)
+        assert status == 200 and [q["id"] for q in body["questions"]] == [qid_beta], body
+
+        # --- alpha の合言葉で beta の質問に答える → 403・質問は open のまま ---
+        answer = {"answers": [{"choice_index": 0}]}
+        status, body = call("POST", f"/api/questions/{qid_beta}/answer", json_body=answer, headers=alpha)
+        assert status == 403 and body["detail"] == "このプロジェクトの質問ではありません", (status, body)
+        assert owner_state(qid_beta) == ("open", None), owner_state(qid_beta)
+
+        # --- alpha の合言葉で alpha の質問に答える → 200・answered_by は agent ---
+        status, body = call("POST", f"/api/questions/{qid_alpha}/answer", json_body=answer, headers=alpha)
+        assert status == 200 and body == {"ok": True}, (status, body)
+        assert owner_state(qid_alpha) == ("answered", "agent"), owner_state(qid_alpha)
+
+        # --- 答えた後は一覧に出ない ---
+        status, body = call("GET", "/api/questions/mine", headers=alpha)
+        assert status == 200 and qid_alpha not in [q["id"] for q in body["questions"]], body
+
+        # --- 内部の合言葉では、一覧と home は今までどおり使えない ---
+        status, body = call("GET", "/api/home", headers=alpha)
+        assert status == 403 and body["detail"] == "内部専用の合言葉では使えません", (status, body)
+    finally:
+        home._session_map = original_map  # noqa: SLF001
+
+
+def owner_state(qid: str) -> tuple[str, str | None]:
+    """DB を直接見て質問の状態と回答者を返す（store の絞り込みを通さない）。"""
+    with store._connect() as conn:  # noqa: SLF001
+        row = conn.execute(
+            "SELECT state, answered_by FROM questions WHERE id = ?", (qid,)
+        ).fetchone()
+    return (row[0], row[1] or None) if row else ("missing", None)
+
+
 def test_notify_owner() -> None:
     """AC3: 通知は持ち主の購読にだけ送られる。"""
     sent: list[str] = []
@@ -369,9 +442,11 @@ def main() -> None:
     add_user("alice", "alice@uni.edu", "alicepass1")
     add_user("bob", "bob@uni.edu", "bobpass123")
     save_project_token(ALICE_TOKEN, "alice", "alice-alpha")
+    save_project_token(ALICE_TOKEN_BETA, "alice", "alice-beta")
     save_project_token(BOB_TOKEN, "bob", "bob-beta")
 
     test_internal_question_owner()
+    test_agent_questions()
     test_notify_owner()
     test_usage_key_from_secrets()
     test_old_db_without_owner()

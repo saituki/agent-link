@@ -22,7 +22,9 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/
 
 接続先と合言葉（この作業の間は今の名前を使う。最後のガイドで `SAI_WEB_*` に変える）:
     - 接続先: `SAI_WEB_URL`（既定 `http://127.0.0.1:8200`）
-    - 合言葉: `SAI_WEB_TOKEN`、無ければ `<sai_home>/web/token`
+    - 合言葉: `SAI_WEB_TOKEN`、無ければ `SAI_WEB_INTERNAL_TOKEN`（コンテナの中）、
+      無ければ `<sai_home>/web/token`
+    - コンテナの中で `SAI_WEB_INTERNAL_TOKEN` を使うと、`questions` は自分のプロジェクトの分だけ返す
     - 待ち受けの番号: `SAI_WEB_PORT`（既定 8200）
     - 合言葉は `Authorization: Bearer` のヘッダで送る。URL には付けない。
       **合言葉の値は出力・エラー・ログのどこにも出さない。**
@@ -42,7 +44,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from sai_web import auth, registry, store
+# `auth`・`store` は fastapi や設定の読み込みが要るので、使う命令の中で読む。
+# こうするとコンテナの python3（fastapi 無し）でも questions・answer などが動く。
+from sai_web import registry
 
 # 1 回の呼び出しで待つ時間の上限（秒）
 TIMEOUT_SEC = 30
@@ -63,10 +67,11 @@ def base_url() -> str:
 def api_token() -> str | None:
     """合言葉（無ければ None）。
 
-    環境変数を先に、次に `apps/web` が起動時に書いたファイルを見る。
+    環境変数を先に（`SAI_WEB_TOKEN`・次に `SAI_WEB_INTERNAL_TOKEN`）、
+    次に `apps/web` が起動時に書いたファイルを見る。
     **返り値をそのまま画面やログに出さないこと。**
     """
-    token = os.getenv("SAI_WEB_TOKEN")
+    token = os.getenv("SAI_WEB_TOKEN") or os.getenv("SAI_WEB_INTERNAL_TOKEN")
     if token:
         return token
     path = registry.sai_home() / "web" / "token"
@@ -267,9 +272,17 @@ def cmd_usage(_args: argparse.Namespace) -> object:
 
 
 def cmd_questions(args: argparse.Namespace) -> object:
-    """答えを待っている質問の一覧。"""
-    data = home()
-    return pick_run(data.get("questions"), args.run, args.project)
+    """答えを待っている質問の一覧。
+
+    コンテナの中（`SAI_WEB_TOKEN` が無く `SAI_WEB_INTERNAL_TOKEN` がある）では、
+    自分のプロジェクトの分だけを `/api/questions/mine` で読む。
+    """
+    if not os.getenv("SAI_WEB_TOKEN") and os.getenv("SAI_WEB_INTERNAL_TOKEN"):
+        data = request_json("GET", "/api/questions/mine")
+        items = data.get("questions") if isinstance(data, dict) else None
+    else:
+        items = home().get("questions")
+    return pick_run(items, args.run, args.project)
 
 
 def cmd_question(args: argparse.Namespace) -> object:
@@ -397,6 +410,8 @@ def cmd_user(args: argparse.Namespace) -> object:
            名前とメールが重複していれば終了コード 4。
     `list`: 名前・メール・管理者・無効を出す。
     """
+    from sai_web import auth, store
+
     store.init_db()
     if args.what == "list":
         return {

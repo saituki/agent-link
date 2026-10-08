@@ -112,12 +112,15 @@ def resolve_on_terminal(qid: str) -> bool:
     return store.mark_resolved_elsewhere_qid(qid)
 
 
-def answer_question(qid: str, answers: list[dict]) -> tuple[bool, str]:
+def answer_question(
+    qid: str, answers: list[dict], answered_by: str | None = None
+) -> tuple[bool, str]:
     """質問に答える．(成功かどうか, 理由) を返す．
 
     answers は質問と同じ並びの配列（各要素は {choice_index} か
     {choice_indices}（複数選択）か {text}）．
     iPhone は全問まとめて1回で送ってくる．
+    answered_by は答えた人の記録（None なら今の利用者・単独は user）．
 
     同じ質問へ同時に 2 つ処理しないよう，質問 ID ごとのロックを取る
     （2 件目には「送信中です」と返す・計画書 B U08）．
@@ -127,12 +130,14 @@ def answer_question(qid: str, answers: list[dict]) -> tuple[bool, str]:
         logger.warning("回答の送信中被り: qid=%s", qid)
         return (False, "送信中です")
     try:
-        return _answer_question_locked(qid, answers)
+        return _answer_question_locked(qid, answers, answered_by)
     finally:
         lock.release()
 
 
-def _answer_question_locked(qid: str, answers: list[dict]) -> tuple[bool, str]:
+def _answer_question_locked(
+    qid: str, answers: list[dict], answered_by: str | None = None
+) -> tuple[bool, str]:
     """ロックを取った後の本体（answer_question から呼ばれる）．"""
     q = store.get_question(qid)
     if q is None:
@@ -155,5 +160,6 @@ def _answer_question_locked(qid: str, answers: list[dict]) -> tuple[bool, str]:
 
     # headless ではキーを送れない．記録するだけ（cc のフックと pi の拡張が取りに来る）
     # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う（C8）
-    store.mark_answered(qid, {"answers": answers}, store._current_owner() or "user")
+    who = answered_by if answered_by is not None else (store._current_owner() or "user")
+    store.mark_answered(qid, {"answers": answers}, who)
     return (True, "")

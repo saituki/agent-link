@@ -40,7 +40,12 @@ COPY --from=build /out/sai-link /out/sai-paper /out/sai-sci /usr/local/bin/
 # pi_question_extension）。`canonicalize()` が通るよう、その crate のフォルダを実在させる。
 RUN mkdir -p /opt/sai-tree/crates/sai-link-engine
 COPY apps/web/hooks /opt/sai-tree/apps/web/hooks
-COPY apps/web/src/sai_web/extensions /opt/sai-tree/apps/web/src/sai_web/extensions
+# sai_web の全体を置く（sai-web の CLI が `sai_web.webcli` を読むため）。pi の拡張は extensions の中。
+COPY apps/web/src/sai_web /opt/sai-tree/apps/web/src/sai_web
+# コンテナの agent が質問を読んで答えるための sai-web（内部の合言葉で `/api/questions/mine` などを呼ぶ）。
+# fastapi を入れない python3 で動くよう、標準ライブラリだけの webcli を PYTHONPATH で読む。
+RUN printf '#!/bin/sh\nPYTHONPATH=/opt/sai-tree/apps/web/src exec python3 -m sai_web.webcli "$@"\n' > /usr/local/bin/sai-web \
+    && chmod 755 /usr/local/bin/sai-web
 # sai-sci の研究の部品（tools・exec・blocks・template）は実行ファイルに埋め込まれている
 # （crates/sai-sci-cli/src/agent_assets.rs の include_str!）。元のフォルダは参照用に置く。
 COPY sai-sci /opt/sai-tree/sai-sci

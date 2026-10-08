@@ -22,6 +22,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -109,6 +110,17 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif self.path == "/api/questions/q1":
             self._send(200, {"id": "q1", "state": "open", "questions": QUESTIONS})
+        elif self.path == "/api/questions/mine":
+            # コンテナの合言葉で呼ばれたときの一覧（自分のプロジェクトの分だけ）
+            self._send(
+                200,
+                {
+                    "questions": [
+                        {"id": "m1", "agent": "pi", "title": "自分の質問",
+                         "created_at": 3.0, "project": "研究A", "run_id": 11},
+                    ],
+                },
+            )
         elif self.path == "/api/projects":
             self._send(200, [{"name": "研究A", "root": "/tmp/a", "kind": "link"}])
         elif self.path == "/api/usage":
@@ -152,10 +164,11 @@ def run_cli(*args: str, env: dict | None = None) -> tuple[int, str, str]:
     環境変数は呼ぶ前に差し替え、終わったら元に戻す（`webcli` は呼ぶたびに
     環境変数を読む）。`env` の値が `None` の項目は外す。
     """
-    keys = ("SAI_WEB_URL", "SAI_WEB_TOKEN", "SAI_HOME", "SAI_WEB_PORT")
+    keys = ("SAI_WEB_URL", "SAI_WEB_TOKEN", "SAI_WEB_INTERNAL_TOKEN", "SAI_HOME", "SAI_WEB_PORT")
     saved = {key: os.environ.get(key) for key in keys}
     os.environ["SAI_WEB_URL"] = BASE["url"]
     os.environ.pop("SAI_WEB_TOKEN", None)
+    os.environ.pop("SAI_WEB_INTERNAL_TOKEN", None)
     os.environ["SAI_HOME"] = BASE["home"]
     for key, value in (env or {}).items():
         if value is None:
@@ -284,6 +297,51 @@ class WebCliTest(unittest.TestCase):
         self.assertEqual(out, "", "失敗のとき標準出力に書いてはいけません")
         self.assertIn("ヘッダで送れない", err)
         self.assertNotIn("日本語の合言葉", out + err, "合言葉が出力に漏れています")
+
+    # --- コンテナの中: 内部の合言葉で、自分のプロジェクトの質問だけ読む
+    def test_internal_token_lists_own_questions(self) -> None:
+        code, out, err = run_cli(
+            "questions", env={"SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"}
+        )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(RECEIVED[-1]["path"], "/api/questions/mine")
+        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer int-token-xyz")
+        self.assertEqual([row["id"] for row in json.loads(out)], ["m1"])
+        self.assertNotIn("int-token-xyz", out + err, "合言葉が出力に漏れています")
+
+    def test_app_token_wins_over_internal_token(self) -> None:
+        code, _out, err = run_cli(
+            "questions",
+            env={"SAI_WEB_TOKEN": "env-token", "SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"},
+        )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(RECEIVED[-1]["path"], "/api/home")
+        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer env-token")
+
+    def test_internal_token_is_used_for_answer(self) -> None:
+        code, _out, err = run_cli(
+            "answer", "q1", "--choice", "0", "--choices", "1,2",
+            env={"SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"},
+        )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(RECEIVED[-1]["path"], "/api/questions/q1/answer")
+        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer int-token-xyz")
+
+    # --- fastapi を読めない python3 でも動く（コンテナの中）
+    def test_import_without_fastapi(self) -> None:
+        src = str(Path(__file__).resolve().parent.parent / "src")
+        code = (
+            "import sys; sys.modules['fastapi'] = None; "
+            "from sai_web import webcli; "
+            "args = webcli.build_parser().parse_args(['questions']); "
+            "print(args.command)"
+        )
+        env = dict(os.environ, PYTHONPATH=src)
+        done = subprocess.run(
+            [sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "questions")
 
     # --- answer: 問いの数と答えの数が合わなければ送らない
     def test_answer_count_mismatch_does_not_send(self) -> None:
