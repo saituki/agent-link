@@ -684,6 +684,12 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     let (system_prompt, first_message) =
         split_fixed_and_variable(&config.block_body, &resolved_values, context_text.as_deref());
 
+    // ── 台帳（C10）: 最初の文の番号を見た番号として残す ──
+    // system prompt は書かない（template・block の例の番号が混ざるため）。失敗しても止めない。
+    if let Some(run_id) = config.run_id {
+        crate::seen_ids::record_for(&crate::project::project_root(), run_id, &first_message);
+    }
+
     // ── pi起動前の Git コミットハッシュを取得（再現性用） ──
     let git_commit_before = get_git_commit_hash();
 
@@ -4756,6 +4762,38 @@ mod tests {
         assert!(!prepared.system_prompt.contains("MyApp"));
         assert!(prepared.expanded_prompt.contains("MyApp"));
         assert!(!prepared.expanded_prompt.contains("{{input.name}}"));
+
+        crate::session::cleanup_session_dir(&prepared.session_dir);
+    }
+
+    /// C10: run 開始時の台帳には最初の文の番号だけが入る。
+    /// system prompt（block の例の `#37.5.2`）は入らない。
+    #[test]
+    fn test_prepare_pipeline_records_first_message_in_ledger() {
+        let _env_lock = finalize_env_lock();
+        let root = finalize_test_temp_dir("seen-ids-ledger");
+        std::fs::create_dir_all(root.join(".sai")).unwrap();
+        let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
+        let _home_guard = EnvVarGuard::set("SAI_HOME", root.as_os_str());
+        // run フォルダを用意する（system prompt が固定部分として分かれる形）
+        crate::run_dir::ensure_run_dir(crate::run_dir::TODO_OWNER, 322).unwrap();
+
+        let mut config = minimal_config();
+        config.run_id = Some(322);
+        config.block_body = "# 例\n#37.5.2 のように引用する\n{{input.task_text}}".to_string();
+        let mut inputs = HashMap::new();
+        inputs.insert("task_text".to_string(), "依頼文 #12.3.4 を読め".to_string());
+        config.user_inputs = inputs;
+
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert!(prepared.system_prompt.contains("#37.5.2"));
+
+        let ledger = crate::seen_ids::read_all(&root, 322);
+        assert!(ledger.contains("#12.3.4"), "依頼文の番号が入る: {ledger:?}");
+        assert!(
+            !ledger.contains("#37.5.2"),
+            "system prompt の番号は入らない: {ledger:?}"
+        );
 
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
