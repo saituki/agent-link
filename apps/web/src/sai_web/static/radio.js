@@ -590,7 +590,7 @@ async function markDownloaded() {
 
 async function openRadioList() {
   saveRadioBackHash(); // 論文情報の戻る先にする（07 §4.2 と同じ・09 §4.2）
-  fillSegment("radio-seg", "radio"); // 上部の Dashboard / Discover / Library / Radio（07 §4.1）
+  fillSegment("radio-seg", "radio"); // 上部の Research の 5 つ（Dashboard・Library・Tree・Experiments・Radio）
   await ensurePaperProjects(); // どのプロジェクトの音声を出すか決める
   if (location.hash !== "#/papers/radio") return; // 既に別の画面へ移っている
   updateMiniPlayer(); // 移動直後に表示を切り替える（通信を待たないため）

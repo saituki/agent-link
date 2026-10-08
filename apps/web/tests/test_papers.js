@@ -17,13 +17,13 @@ const {
   migrateTreeFolds,
   migrateDiscoverLast,
   activityHash,
+  pdMergeActivity,
   papersDbLabel,
   papersFailedLines,
   papersAllFailed,
   paperCardText,
   chunkGroups,
   libFindKindOf,
-  PAPERS_SEG,
   RESEARCH_SEG,
 } = require(path.join(
   __dirname,
@@ -32,6 +32,15 @@ const {
   "sai_web",
   "static",
   "papers.js"
+));
+// research-tree の History の文（日付を入れない形で使う・U06）
+const { stHistoryText } = require(path.join(
+  __dirname,
+  "..",
+  "src",
+  "sai_web",
+  "static",
+  "scitree.js"
 ));
 
 function testAuthorShort() {
@@ -217,6 +226,35 @@ function testActivityHash() {
   assert.strictEqual(activityHash({ kind: "discover", paper_id: null }, "sai-paper"), null);
   assert.strictEqual(activityHash({ kind: "notes", paper_id: 7 }, null), null);
   assert.strictEqual(activityHash(null, "sai-paper"), null);
+  // research-tree の History（U06）: run があれば run の一覧，無ければ Node の画面
+  assert.strictEqual(activityHash({ kind: "tree", run_id: 7, node: "Q1" }, "sai-paper"), "#/research/tree/Q1");
+  assert.strictEqual(activityHash({ kind: "tree", run_id: null, node: null }, "sai-paper"), null);
+  global.stRunListHash = (project, runId) => `#/run/${project}/${runId}/list`;
+  assert.strictEqual(activityHash({ kind: "tree", run_id: 7, node: "Q1" }, "sai-paper"), "#/run/sai-paper/7/list");
+  delete global.stRunListHash;
+}
+
+function testMergeActivity() {
+  // 論文の動きと History を新しい順に 1 つにする。History は kind "tree"
+  const activity = [
+    { kind: "download", label: "A", occurred_at: "2026-10-01T10:00:00Z", paper_id: 1 },
+    { kind: "notes", label: "B", occurred_at: "2026-10-03T10:00:00Z", paper_id: 2 },
+  ];
+  const history = [
+    { action: "Run", run_id: 7, block: "sci-read", global_round: 2, round: 1, at: "2026-10-02T10:00:00Z", node: "Q1" },
+    { action: "init", at: "2026-09-30T10:00:00Z", by: "user" },
+  ];
+  // 文は実際の stHistoryText で作る（日付は入れない・caller が at を null にする）
+  const merged = pdMergeActivity(activity, history, (h) => stHistoryText({ ...h, at: null }));
+  assert.deepStrictEqual(merged.map((x) => x.kind), ["notes", "tree", "download", "tree"]);
+  assert.strictEqual(merged[1].label, "Q1 Run 7 sci-read R2.1");
+  assert.strictEqual(merged[1].run_id, 7);
+  assert.strictEqual(merged[1].occurred_at, "2026-10-02T10:00:00Z");
+  assert.ok(!/\d{4}-\d{2}-\d{2}/.test(merged[1].label), "文に日付を入れない");
+  // 壊れた値でも動く（時刻の無い行は後ろへ）
+  const textOf = () => "x";
+  assert.deepStrictEqual(pdMergeActivity(null, null, textOf), []);
+  assert.deepStrictEqual(pdMergeActivity([{ kind: "a" }, { kind: "b", occurred_at: "2026-10-01T00:00:00Z" }], [], textOf).map((x) => x.kind), ["b", "a"]);
 }
 
 function testFailedLines() {
@@ -300,15 +338,13 @@ function testLibFindKind() {
 }
 
 function testSegments() {
-  // Papers の小さなタブ（U14）
-  assert.deepStrictEqual(PAPERS_SEG.map((x) => x[0]), ["dashboard", "library", "import", "radio"]);
-  assert.deepStrictEqual(PAPERS_SEG.map((x) => x[2]), [
-    "#/papers/dashboard", "#/papers/library", "#/papers/import", "#/papers/radio",
-  ]);
-  // Research の小さなタブ（U14）
+  // Research の切り替え（U06 で Papers を統合して 5 つ・住所は変えない）
   assert.deepStrictEqual(RESEARCH_SEG, [
-    ["tree", "research-tree", "#/research/tree"],
+    ["dashboard", "Dashboard", "#/papers/dashboard"],
+    ["library", "Library", "#/papers/library"],
+    ["tree", "Tree", "#/research/tree"],
     ["experiments", "Experiments", "#/research/experiments"],
+    ["radio", "Radio", "#/papers/radio"],
   ]);
 }
 
@@ -327,6 +363,7 @@ function testPaperCardText() {
 
 function main() {
   testActivityHash();
+  testMergeActivity();
   testChunkGroups();
   testLibFindKind();
   testSegments();

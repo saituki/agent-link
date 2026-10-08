@@ -186,12 +186,12 @@
   <!-- Papers タブの Dashboard（#/papers/dashboard・数字カードと出来事の一覧） -->
   <section id="view-papers-dashboard" class="view" hidden>
     <header class="appbar">
-      <h1>Papers</h1>
+      <h1>Research</h1>
       <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
       <button id="dashboard-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
       <button id="papers-dashboard-reload" aria-label="Reload">↻</button>
     </header>
-    <!-- Dashboard / Discover / Library / Radio の切り替え（中身は papers.js） -->
+    <!-- Research の切り替え（Dashboard・Library・Tree・Experiments・Radio。中身は papers.js の fillSegment） -->
     <div class="papers-seg-row" id="dashboard-seg"></div>
     <div class="offline-bar" hidden>接続できていません</div>
     <main id="papers-dashboard-body" class="groups"></main>
@@ -200,12 +200,12 @@
   <!-- Papers タブの Library（#/papers/library・07 §4.2） -->
   <section id="view-papers-library" class="view" hidden>
     <header class="appbar">
-      <h1>Papers</h1>
+      <h1>Research</h1>
       <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
       <button id="library-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
       <button id="papers-reload" aria-label="Reload">↻</button>
     </header>
-    <!-- Dashboard / Library / Radio の切り替え（中身は papers.js・07 §4.1） -->
+    <!-- Research の切り替え（中身は papers.js の fillSegment・U06 で 5 つ） -->
     <div class="papers-seg-row" id="library-seg"></div>
     <div class="offline-bar" hidden>接続できていません</div>
     <!-- 検索欄（Enter でも検索する・08 §4.1）。U03: 上の切り替えで外部 DB／内部 DB／Paper 一覧を選ぶ -->
@@ -307,7 +307,7 @@
       <button id="sci-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
       <button id="sci-reload" aria-label="Reload">↻</button>
     </header>
-    <!-- 研究タブの切り替え（先頭が research-tree。中身は papers.js の fillSegment） -->
+    <!-- Research の切り替え（中身は papers.js の fillSegment・U06 で 5 つ） -->
     <div class="papers-seg-row" id="sci-seg"></div>
     <div class="offline-bar" hidden>接続できていません</div>
     <!-- 進み具合・Next Action・注意（U19） -->
@@ -339,7 +339,7 @@
   <!-- Papers の Radio（続きを聴く・一覧。選んでいるプロジェクトの音声だけ・09 §4.4） -->
   <section id="view-papers-radio" class="view" hidden>
     <header class="appbar">
-      <h1>Papers</h1>
+      <h1>Research</h1>
       <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
       <button id="radio-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
     </header>
@@ -501,8 +501,6 @@
   <!-- 設定（#/project/<name>/defs…・中身は defs.js・U5） -->
   <section id="view-defs" class="view" hidden><div id="defs-root"></div></section>
 
-  <!-- Papers の Import（#/papers/import・中身は paperimport.js・U6） -->
-  <section id="view-papers-import" class="view" hidden><div id="import-root"></div></section>
 
   <!-- 引用一覧（#/paper/<name>/<id>/cites。中身は cite.js・U05） -->
   <section id="view-paper-cites" class="view" hidden><div id="cites-root"></div></section>
@@ -641,7 +639,7 @@
   <script src="/workflow.js?v=100"></script>
   <!-- 設定画面（U5・defs.js）。U4 では空のファイルを作っただけ -->
   <script src="/defs.js?v=100"></script>
-  <!-- Papers の Import（U6・paperimport.js）。U4 では空のファイルを作っただけ -->
+  <!-- Download の見張り（U6・U06 で Import の画面は無し。paperimport.js） -->
   <script src="/paperimport.js?v=100"></script>
   <!-- 引用一覧の画面（U5・cite.js）。paperimport.js の後・app.js の前に読み込む
        （papers.js と paperimport.js の関数を使うため） -->
