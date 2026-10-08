@@ -10,9 +10,11 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
+import io
 import json
 import secrets
 import urllib.parse
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
@@ -264,17 +266,29 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _post_job(self, query: dict[str, list[str]]) -> None:
         content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
-        if content_type != "application/pdf":
-            self._error(415, "PDF を送ってください（Content-Type: application/pdf）。")
+        if content_type not in ("application/pdf", "application/zip"):
+            self._error(
+                415,
+                "PDF か zip を送ってください（Content-Type: application/pdf か application/zip）。",
+            )
             return
         project = (query.get("project", [""])[0] or "").strip()
         if not project:
             self._error(400, "project を指定してください。")
             return
-        pdf_bytes = self._read_body()
-        if not pdf_bytes.startswith(b"%PDF-"):
-            self._error(400, "PDF ではないファイルです（先頭が %PDF- ではありません）。")
-            return
+        body = self._read_body()
+        translations = None
+        if content_type == "application/zip":
+            try:
+                pdf_bytes, translations = _unpack_zip(body)
+            except ValueError as error:
+                self._error(400, str(error))
+                return
+        else:
+            pdf_bytes = body
+            if not pdf_bytes.startswith(b"%PDF-"):
+                self._error(400, "PDF ではないファイルです（先頭が %PDF- ではありません）。")
+                return
         paper_id_raw = query.get("paper_id", [""])[0].strip()
         bibtex_raw = self.headers.get("X-Sai-Bibtex", "").strip()
         if paper_id_raw:
@@ -284,7 +298,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._error(400, "paper_id は整数で指定してください。")
                 return
             filename = (query.get("filename", [""])[0] or "paper.pdf").strip()
-            job = self.prep.pipeline.submit_paper(project, paper_id, pdf_bytes, filename)
+            job = self.prep.pipeline.submit_paper(
+                project, paper_id, pdf_bytes, filename, translations=translations
+            )
         elif bibtex_raw:
             try:
                 bibtex = base64.b64decode(bibtex_raw, validate=True).decode("utf-8")
@@ -298,11 +314,43 @@ class _Handler(BaseHTTPRequestHandler):
                 self._error(400, "BibTeX が大きすぎます（64KB まで）。")
                 return
             filename = (query.get("filename", [""])[0] or "paper.pdf").strip()
-            job = self.prep.pipeline.submit_bibtex(project, bibtex, pdf_bytes, filename)
+            job = self.prep.pipeline.submit_bibtex(
+                project, bibtex, pdf_bytes, filename, translations=translations
+            )
         else:
             self._error(400, "paper_id か BibTeX のどちらかが必要です。")
             return
         self._send_json(202, job.to_public())
+
+
+def _unpack_zip(body: bytes) -> tuple[bytes, dict]:
+    """agent が送る zip（C-U01）を読む。`paper.pdf` と、あれば翻訳の 2 つを返す。
+
+    翻訳は `{"mono": …, "dual": …}`、無ければ `{}`。誤りは理由を入れた ValueError。
+    """
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(body))
+    except zipfile.BadZipFile as error:
+        raise ValueError("zip として読めません。") from error
+    with archive:
+        names = set(archive.namelist())
+        if "paper.pdf" not in names:
+            raise ValueError("zip に paper.pdf がありません。")
+        pdf_bytes = archive.read("paper.pdf")
+        has_mono = "translated/paper-mono.pdf" in names
+        has_dual = "translated/paper-dual.pdf" in names
+        if has_mono != has_dual:
+            raise ValueError("翻訳は mono と dual の両方を入れてください（片方だけはだめです）。")
+        translations = {}
+        if has_mono:
+            translations = {
+                "mono": archive.read("translated/paper-mono.pdf"),
+                "dual": archive.read("translated/paper-dual.pdf"),
+            }
+    for data in [pdf_bytes, *translations.values()]:
+        if not data.startswith(b"%PDF-"):
+            raise ValueError("zip の中の PDF ではないファイルがあります（先頭が %PDF- ではありません）。")
+    return pdf_bytes, translations
 
 
 def create_server(

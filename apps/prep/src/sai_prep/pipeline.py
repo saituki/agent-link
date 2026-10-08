@@ -61,6 +61,9 @@ class Job:
     error: str | None = None
     # PDF の本文。画面には出さない（大きいため）。
     pdf: bytes = field(default=b"", repr=False, compare=False)
+    # 渡された翻訳。None は config.translate に従う。{} は翻訳しない。
+    # {"mono": …, "dual": …} は pdf2zh を動かさずに使う。
+    translations: dict | None = field(default=None, repr=False, compare=False)
 
     def to_public(self) -> dict:
         return {
@@ -154,17 +157,39 @@ class Pipeline:
 
     # -- 仕事の受け付け ----------------------------------------------------
 
-    def submit_paper(self, project: str, paper_id: int, pdf_bytes: bytes, filename: str) -> Job:
+    def submit_paper(
+        self,
+        project: str,
+        paper_id: int,
+        pdf_bytes: bytes,
+        filename: str,
+        translations: dict | None = None,
+    ) -> Job:
         """「PDF 待ち」の行に drop された PDF の仕事。"""
         target = {"paper_id": int(paper_id)}
-        return self._submit(project, "paper", target, pdf_bytes, filename)
+        return self._submit(project, "paper", target, pdf_bytes, filename, translations)
 
-    def submit_bibtex(self, project: str, bibtex: str, pdf_bytes: bytes, filename: str) -> Job:
+    def submit_bibtex(
+        self,
+        project: str,
+        bibtex: str,
+        pdf_bytes: bytes,
+        filename: str,
+        translations: dict | None = None,
+    ) -> Job:
         """BibTeX と PDF を一緒に drop した仕事。"""
         target = {"bibtex": bibtex}
-        return self._submit(project, "bibtex", target, pdf_bytes, filename)
+        return self._submit(project, "bibtex", target, pdf_bytes, filename, translations)
 
-    def _submit(self, project: str, kind: str, target: dict, pdf_bytes: bytes, filename: str) -> Job:
+    def _submit(
+        self,
+        project: str,
+        kind: str,
+        target: dict,
+        pdf_bytes: bytes,
+        filename: str,
+        translations: dict | None = None,
+    ) -> Job:
         job = Job(
             id=uuid.uuid4().hex,
             project=project,
@@ -172,6 +197,7 @@ class Pipeline:
             target=target,
             filename=filename or "paper.pdf",
             pdf=pdf_bytes,
+            translations=translations,
         )
         with self._lock:
             self._jobs[job.id] = job
@@ -185,7 +211,9 @@ class Pipeline:
             if old is None or old.status != "failed":
                 return None
             del self._jobs[job_id]
-        return self._submit(old.project, old.kind, old.target, old.pdf, old.filename)
+        return self._submit(
+            old.project, old.kind, old.target, old.pdf, old.filename, old.translations
+        )
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
@@ -263,20 +291,29 @@ class Pipeline:
             normalize_docling_output(workdir)
             self._check_files(workdir / "docling" / "paper.md", workdir / "docling" / "paper.json", stage="docling")
 
-            translated = bool(config.translate)
-            pdf2zh_version = ""
-            if translated:
-                self._set(job, "翻訳中", 45, "翻訳のモデルを準備中")
-                pdf2zh_bin = self._require_tool("pdf2zh")
-                pdf2zh_version = tool_version(pdf2zh_bin)
-                port = self._ensure_mlx(config)
-                self._set(job, "翻訳中", 55)
-                self._run_pdf2zh(pdf2zh_bin, workdir, config.mlx_model, port)
-                self._check_files(
-                    workdir / "translated" / "paper-mono.pdf",
-                    workdir / "translated" / "paper-dual.pdf",
-                    stage="翻訳",
-                )
+            # service が None なら build_bundle が mlx:<モデル> を書く。
+            translated, pdf2zh_version, service = False, "", None
+            if job.translations is None:
+                translated = bool(config.translate)
+                if translated:
+                    self._set(job, "翻訳中", 45, "翻訳のモデルを準備中")
+                    pdf2zh_bin = self._require_tool("pdf2zh")
+                    pdf2zh_version = tool_version(pdf2zh_bin)
+                    port = self._ensure_mlx(config)
+                    self._set(job, "翻訳中", 55)
+                    self._run_pdf2zh(pdf2zh_bin, workdir, config.mlx_model, port)
+                    self._check_files(
+                        workdir / "translated" / "paper-mono.pdf",
+                        workdir / "translated" / "paper-dual.pdf",
+                        stage="翻訳",
+                    )
+            elif job.translations:
+                # agent が送った翻訳。pdf2zh は動かさない。
+                self._set(job, "翻訳を置く", 55)
+                (workdir / "translated").mkdir(parents=True, exist_ok=True)
+                (workdir / "translated" / "paper-mono.pdf").write_bytes(job.translations["mono"])
+                (workdir / "translated" / "paper-dual.pdf").write_bytes(job.translations["dual"])
+                translated, service = True, "provided"
 
             self._set(job, "束を作成中", 75)
             bundle_path = build_bundle(
@@ -288,6 +325,7 @@ class Pipeline:
                 pdf2zh_version=pdf2zh_version,
                 translated=translated,
                 mlx_model=config.mlx_model,
+                service=service,
             )
 
             self._set(job, "送信中", 85)
@@ -494,6 +532,7 @@ def build_bundle(
     pdf2zh_version: str,
     translated: bool,
     mlx_model: str,
+    service: str | None = None,
 ) -> Path:
     """C12 の形の zip を作り、そのパスを返す。
 
@@ -524,7 +563,7 @@ def build_bundle(
         manifest["translation"] = {
             "mono": "translated/paper-mono.pdf",
             "dual": "translated/paper-dual.pdf",
-            "service": f"mlx:{mlx_model}",
+            "service": service if service is not None else f"mlx:{mlx_model}",
         }
     (workdir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
