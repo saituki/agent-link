@@ -454,6 +454,8 @@ let noteEditing = false;  // ノートを書き換えているか
 let noteDraft = "";       // 書きかけのノート（描き直しても消さない）
 let noteSaving = false;   // 保存中
 let noteMsg = "";         // 保存に失敗したときの detail
+let indexPending = new Set(); // Index を作っている論文の番号（押した後から、仕事が終わるまで・U07）
+let indexWatchTimer = null;   // Index の仕事を見張る 3 秒ごとの読み直し（印が無くなったら止める）
 let paperTarget = null;   // 論文情報をどこへ描くか（null は論文情報の画面・U6 の広い画面用）
 
 // --- 画面の状態（Dashboard） ---
@@ -1459,6 +1461,7 @@ function fillJobBox(box, key) {
 
 /** 画面の中に置いた Download の箱をすべて描き直す（paperimport.js から呼ばれる）。 */
 function papersRenderJobBoxes() {
+  paperIndexSettle(); // Index の仕事が終わったか（論文の詳細のボタンを戻す・U07）
   for (const item of jobBoxes) {
     if (!item.box.isConnected) continue;
     fillJobBox(item.box, item.key);
@@ -2731,9 +2734,11 @@ async function openPaper(params) {
   }
   if (!paperProject) return;
   await loadPaper(paperIdNum);
+  // Index を作っている論文なら、その進み具合を読む（終わっていれば Index のボタンを元に戻す）
+  if (indexPending.has(String(paperIdNum))) paperIndexWatch();
 }
 
-async function loadPaper(id, target) {
+async function loadPaper(id, target, quiet) {
   const hash = location.hash;
   const name = paperProject;
   if (!name) return;
@@ -2752,6 +2757,7 @@ async function loadPaper(id, target) {
     return;
   }
   if (location.hash !== hash) return;
+  const changed = JSON.stringify(data) !== JSON.stringify(paperData);
   paperData = data;
   paperError = "";
   if (!abstractLang) {
@@ -2763,14 +2769,16 @@ async function loadPaper(id, target) {
   paperRoute.interval = generating ? 10 : 0;
   // 間隔の決め直しは SaiShell.ok() がやる（baseInterval が def.interval を読む）
   window.SaiShell.ok();
+  // 定期更新で中身が変わっていなければ描き直さない（開いた・閉じた折りたたみを保つ）
+  if (quiet && !changed) return;
   renderPaper(target);
 }
 
-/** 定期更新（音声作成中のときだけ呼ばれる・07 §4.2）。 */
+/** 定期更新（音声作成中・Index 作成中のあいだに呼ばれる・07 §4.2）。 */
 async function pollPaper() {
   // ノートを書いている間は描き直さない（入力中の欄が作り直されてしまうため）
   if (paperIdNum == null || noteEditing) return;
-  await loadPaper(paperIdNum);
+  await loadPaper(paperIdNum, undefined, true);
 }
 
 function doiUrl(doi) {
@@ -2838,7 +2846,7 @@ function renderPaper(target) {
   }
   body.appendChild(head);
 
-  // 2. ボタンの行（角丸の小さなボタン）
+  // 2. ボタンの行（角丸の小さなボタン）。音声の置き場と Index もこの列に並ぶ（U07 §1）
   const actions = document.createElement("div");
   actions.className = "paper-actions";
   if (files.pdf) {
@@ -2852,6 +2860,16 @@ function renderPaper(target) {
       paperBtn("Text", () => { location.hash = paperHash(paperProject, paperIdNum, true); })
     );
   }
+  // 音声の置き場（radio.js が中身のボタンを入れる・#paper-audio-slot は display: contents で列の 1 つになる・10 §4.5）
+  const audioSlot = document.createElement("span");
+  audioSlot.id = "paper-audio-slot";
+  actions.appendChild(audioSlot);
+  // Index（この論文 1 本の埋め込みを作る・U04）。本文が無いときは作れない
+  const indexing = indexPending.has(String(paperIdNum));
+  const indexBtn = paperBtn(indexing ? "Index 作成中…" : "Index", () => { void onIndex(); });
+  indexBtn.disabled = indexing || !files.extract;
+  if (!files.extract) indexBtn.title = "本文が無いので作れません";
+  actions.appendChild(indexBtn);
   // この論文を書いたカードを作る（作成フォームを開き task_text に論文の行を入れる・U10）
   if (typeof cfOpen === "function" && paperProject) {
     actions.appendChild(
@@ -2866,7 +2884,11 @@ function renderPaper(target) {
       paperBtn(files.pdf_ja ? "日本語 PDF を作り直す" : "日本語 PDF を作る", () => { void onTranslatePdf(); })
     );
   }
-  if (actions.childElementCount) body.appendChild(actions);
+  body.appendChild(actions);
+  // 音声の注記（radio.js が入れる・ボタンの列の下に 1 行）
+  const audioNotes = document.createElement("div");
+  audioNotes.id = "paper-audio-notes";
+  body.appendChild(audioNotes);
   // ボタンの下に「何が起きるか」を 1 行ずつ出す（U6・端末に慣れていない人向け）
   const hints = [];
   if (files.pdf) hints.push("📄 PDF: 新しいタブで、取った PDF がそのまま見えます");
@@ -2874,6 +2896,7 @@ function renderPaper(target) {
   if (files.extract) hints.push("本文: 取り出した本文だけを、1 ページで読みます");
   if (files.pdf) hints.push("🈂 日本語 PDF を作る: PDF 全体を日本語に訳します。数分かかります。");
   hints.push("🎙 音声を作る: 数分かかります。できたら通知でお知らせします");
+  hints.push("🔎 Index: この論文の本文を chunk に分け、検索用の埋め込みを作ります");
   hints.push("カードを作る: この論文の行を入れた task.md の作成フォームを開きます");
   hints.push("ノート: この論文の覚え書きです。書くとここに残ります");
   if (!files.pdf) hints.push("PDF 待ち: sai-prep から送ると PDF・図・翻訳が入ります");
@@ -2898,14 +2921,11 @@ function renderPaper(target) {
     body.appendChild(wait);
   }
 
-  // 3. 音声の置き場（09・10 が中身を入れる・07 §4.4-3）
-  const slot = document.createElement("div");
-  slot.id = "paper-audio-slot";
-  body.appendChild(slot);
+  // 3. 音声の置き場に中身を入れる（09・10 が入れる・07 §4.4-3）
   for (const fn of window.SaiPaperHooks || []) {
     if (typeof fn !== "function") continue;
     try {
-      fn(paperData, slot);
+      fn(paperData, audioSlot);
     } catch { /* 壊れたフックで画面を止めない */ }
   }
 
@@ -2944,7 +2964,7 @@ function abstractCard() {
 
   const head = document.createElement("div");
   head.className = "dash-card-head";
-  head.appendChild(el("h3", "dash-card-title", "要旨"));
+  head.appendChild(el("h3", "dash-card-title", "Abstract"));
   const seg = document.createElement("div");
   seg.className = "dash-seg small";
   for (const [value, label] of [["ja", "日本語"], ["en", "English"]]) {
@@ -3008,6 +3028,66 @@ async function onTranslatePdf() {
   saiToast("PDF の翻訳を始めました。数分かかります。終わったら通知でお知らせします", "ok");
 }
 
+/** Index を始める（この論文 1 本・202 なら仕事は index:<id> として進み具合に出る・U04・U07）。 */
+async function onIndex() {
+  if (paperIdNum == null || !paperProject) return;
+  const id = String(paperIdNum);
+  const hash = location.hash;
+  let res;
+  try {
+    res = await apiFetch(`${papersApiBase(paperProject)}/${paperIdNum}/index`, { method: "POST" });
+  } catch {
+    saiToast("接続できていません", "error");
+    return;
+  }
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 409) {
+    // もう作っている（同じ論文を続けて押した）。作成中の印だけ出す
+    indexPending.add(id);
+    if (location.hash === hash) renderPaper();
+    saiToast("この論文の Index は作成中です");
+    return;
+  }
+  if (!res.ok) {
+    saiToast(body.detail || "Index を始められませんでした", "error");
+    return;
+  }
+  indexPending.add(id);
+  if (location.hash === hash) renderPaper();
+  saiToast("Index を作っています。できたら通知します", "ok");
+  paperIndexWatch();
+}
+
+/** Index の仕事を 3 秒ごとに読み直す（印が無くなったら止める・読み直しは Download の見張りを使う）。 */
+function paperIndexWatch() {
+  if (typeof pimRefreshJobs !== "function") return;
+  if (!indexWatchTimer) {
+    indexWatchTimer = setInterval(() => {
+      if (!indexPending.size) {
+        clearInterval(indexWatchTimer);
+        indexWatchTimer = null;
+        return;
+      }
+      void pimRefreshJobs(paperProject);
+    }, 3000);
+  }
+  void pimRefreshJobs(paperProject);
+}
+
+/** Index の仕事が終わったら（done・failed）印を外し、押した論文なら詳細を読み直す（U07）。 */
+function paperIndexSettle() {
+  if (!indexPending.size) return;
+  if (typeof pimJobsName === "undefined" || pimJobsName !== paperProject) return;
+  for (const id of [...indexPending]) {
+    const active = pimJobFor(pimActiveJobs(pimJobsList()), `index:${id}`);
+    if (active) continue; // まだ作っている
+    indexPending.delete(id);
+    if (String(paperIdNum) === id && location.hash === paperHash(paperProject, paperIdNum, false)) {
+      void loadPaper(paperIdNum);
+    }
+  }
+}
+
 async function onTranslate() {
   if (translating || paperIdNum == null || !paperProject) return;
   translating = true;
@@ -3040,13 +3120,14 @@ async function onTranslate() {
 
 // 5. ノートカード（読む・その場で書き換えて保存する）
 function noteCard() {
-  const card = document.createElement("section");
-  card.className = "dash-card paper-card";
-  const head = el("div", "dash-card-head");
-  head.appendChild(el("h3", "dash-card-title", "Notes"));
+  // 折りたためる（既定で開く）。見出しの中の Edit は、押しても開閉が起きないようにする
+  const card = el("details", "dash-card pd-fold paper-card");
+  card.open = true;
+  const head = el("summary", "dash-card-title", "Notes");
   const note = paperData && paperData.note;
   if (!noteEditing) {
-    head.appendChild(paperBtn(note ? "Edit" : "書く", () => {
+    head.appendChild(paperBtn(note ? "Edit" : "書く", (ev) => {
+      ev.preventDefault();
       noteEditing = true;
       noteDraft = note || "";
       noteMsg = "";
@@ -3122,11 +3203,11 @@ function figuresCard() {
   const figs = (paperData && paperData.figures) || {};
   if (figs.state === "empty") return null;
   const items = Array.isArray(figs.items) ? figs.items : [];
-  const card = document.createElement("section");
-  card.className = "dash-card paper-card";
-  card.appendChild(el("h3", "dash-card-title", items.length ? `図（${items.length}）` : "図"));
+  const card = el("details", "dash-card pd-fold paper-card");
+  card.open = true;
+  card.appendChild(el("summary", "dash-card-title", items.length ? `Figure (${items.length})` : "Figure"));
   if (items.length === 0) {
-    card.appendChild(el("p", "lib-empty", "図はまだ取り出されていません（Mac の sai-paper で取り出せます）"));
+    card.appendChild(el("p", "lib-empty", "Figure はまだ取り出されていません（sai-prep で PDF を送ると入ります）"));
     return card;
   }
   for (const f of items) {
@@ -3149,14 +3230,14 @@ function figuresCard() {
 // 6. 引用文献カード（最初の 10 件＋「すべて表示」・07 §4.4-6・U05 §4）
 function refsCard() {
   const refs = (paperData && paperData.refs) || [];
-  const card = document.createElement("section");
-  card.className = "dash-card paper-card";
-  const head = el("div", "dash-card-head");
-  head.appendChild(el("h3", "dash-card-title", `引用文献（${refs.length}）`));
+  const card = el("details", "dash-card pd-fold paper-card");
+  card.open = true;
+  const head = el("summary", "dash-card-title", `Reference (${refs.length})`);
   // 引用一覧の画面（#/paper/<name>/<id>/cites）への入口（U05 §4）。
   // ここに出ているのはBibTeX で入った引用だけなので、全部は引用一覧の画面（cite.js）にある。
   if (paperProject && paperIdNum != null && typeof ctHash === "function") {
-    head.appendChild(paperBtn("引用一覧を開く ›", () => {
+    head.appendChild(paperBtn("引用一覧を開く ›", (ev) => {
+      ev.preventDefault(); // 見出しの中の釦。押しても開閉は起きない
       location.hash = ctHash(paperProject, paperIdNum);
     }));
   }
@@ -3262,9 +3343,9 @@ function chunksCard() {
   const key = `${paperProject}:${paperIdNum}`;
   const st = paperChunks && paperChunks.key === key ? paperChunks : null;
   const det = document.createElement("details");
-  det.className = "dash-card paper-card paper-chunks";
-  const count = st && st.state === "ok" ? `（${st.items.length}）` : "";
-  det.appendChild(el("summary", "dash-card-title", `チャンク${count}`));
+  det.className = "dash-card pd-fold paper-card paper-chunks";
+  const count = st && st.state === "ok" ? ` (${st.items.length})` : "";
+  det.appendChild(el("summary", "dash-card-title", `Chunk${count}`));
   if (st) {
     det.open = st.open;
     det.appendChild(chunksBody(st));
