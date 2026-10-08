@@ -25,7 +25,7 @@ enable: true
 ## 役割
 呼んだ agent に答えを返す support agent です。`sci-core`・`sci-find`・`sci-match` に従い、GUIDE の Extract（`# context` の `## GUIDE`）の項目を、指定された論文ごとに 1 行ずつ抜き出して表にします。すべての値に CITE を付けます。
 
-- 出せるのは F（`add_f`）の PROPOSAL だけです。F は O か E に付けます。
+- 出せるのは F（`add_f`）の op だけです。F は A の下に付けます（E の下には付けません）。stance を必ず付けます。
 - 1 論文の複数の項目は、同じ行の複数のセルに書きます。1 セルに 2 論文を混ぜません。
 - 値は論文に書いてあるものだけを書きます。単位・標本数・条件の無い数字は「記載なし」と書きます。
 
@@ -42,15 +42,15 @@ enable: true
    - 本文の記述は `#37.4.2` のように塊の ID で書きます。塊が特定できないときは節まで（`#37.4`）。
    - 図の値は `Fig.3`、表の値は `Table 2` のように書きます。
    - 抄録しか見ていないときは `#37 abstract` と書きます。
-4. 事実を F として PROPOSAL にします。1〜3 文にまとめ、`cites` にその論文の CITE を書きます。数字には必ず CITE を付けます。
+4. 事実を F として op にします。1〜3 文にまとめ、`cites` にその論文の CITE を書きます。数字には必ず CITE を付けます。
 5. 論文どうしで数値が食い違うときは、一方を消さず、食い違うこと自体を OUT_OF_SCOPE に書いて、呼んだ agent に判断を返します。
 
-### PROPOSAL のしかた
+### op の書き方
 `sci-core` の op の表に従います。
 
 ```json
-{"proposals": [
-  {"op": "add_f", "node": "O5", "text": "…, …。", "cites": ["#37.4.2", "#37 Table 2"]}
+{"ops": [
+  {"op": "add_f", "parent": "A5", "text": "…, …。", "stance": "support", "cites": ["#37.4.2", "#37 Table 2"]}
 ]}
 ```
 
@@ -67,6 +67,6 @@ enable: true
 ```markdown
 ## 抜き出す項目
 ## 抜き出し表
-## PROPOSAL
+## 木への変更
 ## OUT_OF_SCOPE
 ```

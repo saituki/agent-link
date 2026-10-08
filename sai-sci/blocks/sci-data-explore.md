@@ -10,7 +10,7 @@ templates:
   - data-core
 context: true
 sci_type: node
-sci_ops: add_e, add_f
+sci_ops: add_e, set_mlflow
 timeout: 3600
 worktree: none
 enable: true
@@ -28,7 +28,7 @@ enable: true
 
 - データを受け取り、始める前の項目を確かめ、**データ表**・**EDA**・必要なら**前処理の写し**を作る（`data-core` §5・§6）。
 - MLflow に EDA を記録する（`data-core` §8）。
-- 木に E（データ解析）と F（要点）を出す（`data-core` §9）。
+- 木に E（データ解析）を出す（`data-core` §9）。F は足さない。
 - report の「## Next Action」に、`sci-data-test` の CARD の命令をそのまま書ける形で残す。
 
 しないこと:
@@ -87,7 +87,7 @@ enable: true
 {"op": "add_e", "parent": "<CARD の Node>", "text": "データ解析 <study>", "mlflow": "<project>/ID<自分の run_id>/data"}
 ```
 
-返った **E の ID** を控える。8. の F の親になる。
+返った **E の ID** を控える。test の親になる。
 
 ### 6. データ表を保存する
 
@@ -96,7 +96,7 @@ enable: true
 - description は `データ表 <study>: <データを 1 文で>`。
 - 本文の先頭に、§4 の JSON を ```json のコードブロックで **1 つだけ**置く。
 
-トークンを控える。8. の F と report の「## Next Action」で使う。
+トークンを控える。report の「## Next Action」で使う。
 
 ### 7. MLflow に記録する
 
@@ -111,15 +111,9 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 
 **記録に失敗しても、REPORT は書く。** 失敗した理由（URI が無い・接続が切れるなど）を report の「## データの要点」の末尾に書いて、この手順だけを飛ばして次へ進む。
 
-### 8. 木に F を出す
+### 8. 要点を report に書く
 
-要点（件数・欠損・漏洩の疑い・注意）を **1〜3 個の F** にする。F は 5. の E の下に `add_f` で出す（C9）。F の文は 3 文まで。
-
-```json
-{"op": "add_f", "parent": "<5. の E の ID>", "text": "60 人 1180 行。RMSSD の欠損は 2%。", "report": "<データ表のトークン>"}
-```
-
-**数字を含む F には `report`（データ表のトークン）を必ず付ける。** 論文を引くときだけ `cites` を足す。両方を混ぜない。
+木に F は足しません（`add_f` は出さない）。要点（件数・欠損・漏洩の疑い・注意）は report の「## データの要点」に 1〜3 個の箇条書きで書きます。数字を書くときは、データ表のトークン（`report`）を並べて書きます。
 
 ### 9. report を保存して終える
 
@@ -144,7 +138,7 @@ report は次の見出しで、この順のまま書きます。
 ## 前処理
 ## 解析の候補
 ## Next Action
-## PROPOSAL
+## 木への変更
 ## OUT_OF_SCOPE
 ```
 
