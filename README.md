@@ -175,11 +175,11 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8201 --a
 
 research-tree の画面（`#/research/tree`）は、次の並びです。
 
-- **上の帯**: **Next Action**（`[NO_CHILD_Q] Q24 sci-split「…」` の形で次にやることを出す。**Create CARD** を押すとカードを作る）と、折りたたみの **History**（全 Node の履歴を古い順に出す）。
+- **上の帯**: **Next Action**（`[NO_CHILD] Q24 lab-grow「…」` の形で次にやることを出す。**Create CARD** を押すとカードを作る）と、折りたたみの **History**（全 Node の履歴を古い順に出す）。
 - **中央**: **DAG**（4 layer の図）。左に Node の一覧、右に選んだ Node の **SB**（サイドバー。Node を選ぶまで出ない）。
-- **Create SPROUT**（SEED の SB と上の帯の釦）を押すと、History と DAG の間に作成パネルが開きます。作成中も DAG・一覧・SB を操作でき、O の SB の **Add PATH** / **Delete PATH** で PATH の O を選びます。
-- TRIAGE（エージェントの PROPOSAL を採るか決める操作）は、Node の SB の PENDING の欄で行います。TRIAGE 専用の住所はありません（古い `#/papers/triage` は research-tree へ送られます）。
-- **READ_CARD**（`#/research/read/<run_id>`）: 人が論文を読み、O または E に F を付けて、`note.md` を書いて終える画面です。
+- **Create SPROUT**（SEED の SB と上の帯の釦）を押すと、History と DAG の間に作成パネルが開きます。作成中も DAG・一覧・SB を操作でき、A の SB の **Add PATH** / **Delete PATH** で PATH の A を選びます。
+- 許可が要る操作（エージェントの研究木の変更）は、質問ツールの「許可する」で行います。PENDING と TRIAGE は無くなりました（古い `#/papers/triage` は research-tree へ送られます）。詳しくは [`docs/sai-sci.md`](./docs/sai-sci.md) の 5.10 節。
+- **READ_CARD**（`#/research/read/<run_id>`）: 人が論文を読み、A に F を付けて、`note.md` を書いて終える画面です。
 - **Experiments**（`#/research/experiments`）: MLflow の実験を見ます。右上の project 選択は research-tree と共有です。
 
 ## 設定（環境変数）
@@ -326,7 +326,7 @@ pi が人に質問するとき、Web に質問を送る拡張です（`apps/web/
 
 ### 研究（sai-sci）・実験の記録・実行先
 
-research-tree（Q・O・F・E）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`docs/sai-sci.md`](./docs/sai-sci.md) にまとめてあります。手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md) から始めてください。
+research-tree（Q・A・F・E・S）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`docs/sai-sci.md`](./docs/sai-sci.md) にまとめてあります。手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md) から始めてください。
 
 - 始め方は `sai-sci init --type <型>` の 1 行です（`sai-link`・`sai-paper` の初期化と、研究の部品の配布を含みます）。
 - agent に渡す環境変数（MLflow の接続情報など）は `.sai/settings.json` か `$SAI_HOME/settings.json` の `env` に書きます。書き方は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) の「`.sai/settings.json` の `env`」にあります。
