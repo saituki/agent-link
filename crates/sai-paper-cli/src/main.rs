@@ -931,7 +931,9 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         Some(Cmd::SearchHistory { log_id, json: _ }) => {
             let (db, cfg, paths) = phone::open_context()?;
             let value = phone::log(&db, &cfg, &paths, log_id)?;
-            println!("{}", serde_json::to_string(&value)?);
+            let text = serde_json::to_string(&value)?;
+            sai_paper_core::seen_ids::record(&text);
+            println!("{text}");
         }
         Some(Cmd::Graph { cmd, args }) => match cmd {
             Some(GraphCmd::Show { paper_id }) => {
@@ -1018,7 +1020,9 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         Some(Cmd::FindHistory { log_id, json: _ }) => {
             let (db, _cfg, _paths) = phone::open_context()?;
             let value = phone::find_history_view(&db, log_id)?;
-            println!("{}", serde_json::to_string(&value)?);
+            let text = serde_json::to_string(&value)?;
+            sai_paper_core::seen_ids::record(&text);
+            println!("{text}");
         }
         Some(Cmd::Library { cmd }) => match cmd {
             LibraryCmd::List { json: _ } => {
@@ -1067,20 +1071,19 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 index.as_deref(),
             )
             .context("neighbors search failed")?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&sai_paper_core::retrieval::hits_to_json_with(
-                        &hits,
-                        &sai_paper_core::sections::passages_for_hits(db.connection(), &hits)
-                    ))?
-                );
+            let text = if json {
+                serde_json::to_string_pretty(&sai_paper_core::retrieval::hits_to_json_with(
+                    &hits,
+                    &sai_paper_core::sections::passages_for_hits(db.connection(), &hits)
+                ))?
+                + "\n"
             } else {
-                for hit in hits {
-                    println!("chunk_id={}, score={:.4}", hit.chunk_id, hit.score);
-                    println!("  {}", hit.text);
-                }
-            }
+                hits.iter()
+                    .map(|hit| format!("chunk_id={}, score={:.4}\n  {}\n", hit.chunk_id, hit.score, hit.text))
+                    .collect()
+            };
+            sai_paper_core::seen_ids::record(&text);
+            print!("{text}");
         }
         Some(Cmd::Relayout { apply, json }) => {
             relayout::handle_relayout(apply, json).await?;
@@ -1382,14 +1385,18 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
         {
             map.insert("evidence".to_string(), serde_json::to_value(result)?);
         }
-        println!("{}", serde_json::to_string(&value)?);
+        let text = serde_json::to_string(&value)?;
+        sai_paper_core::seen_ids::record(&text);
+        println!("{text}");
     } else {
-        match outcome {
-            sai_paper_core::evidence::SearchOutcome::Plain(hits) => print_search_results(&hits),
+        let text = match outcome {
+            sai_paper_core::evidence::SearchOutcome::Plain(hits) => search_results_text(&hits),
             sai_paper_core::evidence::SearchOutcome::Evidence(result) => {
-                print_evidence_results(&result);
+                evidence_results_text(&result)
             }
-        }
+        };
+        sai_paper_core::seen_ids::record(&text);
+        print!("{text}");
     }
     Ok(())
 }
@@ -1719,26 +1726,28 @@ async fn build_graph(
     }))
 }
 
-/// 検索結果をターミナル向けに整形して出力する。
-fn print_search_results(hits: &[sai_paper_core::Hit]) {
-    for (idx, hit) in hits.iter().enumerate() {
-        print_search_result(hit, idx + 1);
-    }
+/// 検索結果をターミナル向けに整形した文字列（各行の改行を含む）。
+fn search_results_text(hits: &[sai_paper_core::Hit]) -> String {
+    hits.iter()
+        .enumerate()
+        .map(|(idx, hit)| search_result_text(hit, idx + 1))
+        .collect()
 }
 
-/// 検索結果 1 件を表示する（`print_search_results` と `print_evidence_results` で共用）。
-fn print_search_result(hit: &sai_paper_core::Hit, index: usize) {
-    println!("\n--- Result {} ---", index);
-    println!("Score: {:.4}", hit.score);
-    println!("Source: {}", hit.source_kind);
+/// 検索結果 1 件の表示（`search_results_text` と `evidence_results_text` で共用）。
+fn search_result_text(hit: &sai_paper_core::Hit, index: usize) -> String {
+    let mut out = format!(
+        "\n--- Result {} ---\nScore: {:.4}\nSource: {}\n",
+        index, hit.score, hit.source_kind
+    );
     if let Some(cite) = sai_paper_core::retrieval::cite_for(hit) {
-        println!("Cite: {cite}");
+        out.push_str(&format!("Cite: {cite}\n"));
     }
     if let Some(section) = &hit.section {
-        println!("Section: {section}");
+        out.push_str(&format!("Section: {section}\n"));
     }
     if let Some(title) = &hit.title {
-        println!("Title: {}", title);
+        out.push_str(&format!("Title: {}\n", title));
     }
     // テキストスニペット（最初の 100 文字、改行で切る）
     let snippet = hit
@@ -1749,33 +1758,36 @@ fn print_search_result(hit: &sai_paper_core::Hit, index: usize) {
         .chars()
         .take(100)
         .collect::<String>();
-    println!("Text: {}", snippet);
+    out.push_str(&format!("Text: {}\n", snippet));
     if hit.text.lines().count() > 1 || hit.text.len() > 100 {
-        println!("  ...");
+        out.push_str("  ...\n");
     }
+    out
 }
 
-/// 要約付きの検索の結果を表示する。各結果に関連度と要約を足し、最後にトークン数を出す。
-fn print_evidence_results(result: &sai_paper_core::evidence::EvidenceResult) {
+/// 要約付きの検索の結果の表示。各結果に関連度と要約を足し、最後にトークン数を出す。
+fn evidence_results_text(result: &sai_paper_core::evidence::EvidenceResult) -> String {
+    let mut out = String::new();
     for (idx, item) in result.hits.iter().enumerate() {
-        print_search_result(&item.hit, idx + 1);
+        out.push_str(&search_result_text(&item.hit, idx + 1));
         if let Some(relevance) = item.relevance {
-            println!("関連度 {relevance}/10");
+            out.push_str(&format!("関連度 {relevance}/10\n"));
         } else {
-            println!("関連度 不明");
+            out.push_str("関連度 不明\n");
         }
         if let Some(summary) = &item.summary {
-            println!("要約: {summary}");
+            out.push_str(&format!("要約: {summary}\n"));
         }
     }
     let total = result.hits.len() + result.dropped;
-    println!(
-        "\n要約付き: {total} 件中 {} 件を外しました。トークン 入力 {}・出力 {}（失敗 {}）",
+    out.push_str(&format!(
+        "\n要約付き: {total} 件中 {} 件を外しました。トークン 入力 {}・出力 {}（失敗 {}）\n",
         result.dropped,
         with_commas(result.prompt_tokens),
         with_commas(result.completion_tokens),
         result.failed,
-    );
+    ));
+    out
 }
 
 /// 3 桁ごとに区切った数（例: `12340` -> `12,340`）。
