@@ -4,7 +4,7 @@
 - Import: `phone import list / add / remove` の引数と本文は標準入力、名前の規則と 1MB の検査
   （検査に通らない値は 400 で、CLI を 1 回も呼ばない）
 - Library に入れる（U13 §2）: keep の依頼の検査（`_download_payload`）と、`sai-progress` の読み取り
-- Project: `sai-sci project show` / `project memo`（改行・NUL は 400）/ `attention resolve` / `attention list`
+- Project: `sai-sci project show` / `project mind`（U04 で `project memo` の住所は消えた・確かめは test_papers_mind_index.py）/ `attention resolve` / `attention list`
 - 新しい住所（keep・bundle・pending・jobs）が登録済みで、固定の住所が
   `/papers/{paper_id:int}` に取られず、消した住所（download・manual/*）が無い
 
@@ -358,20 +358,6 @@ def test_project_view(cli: FakeRunJson) -> None:
     assert cli.last["timeout"] == 30.0, cli.last["timeout"]
 
 
-def test_mind_append(cli: FakeRunJson) -> None:
-    """メモは 1 行・2000 文字まで・NUL を含まない（`sai-sci project memo`）。"""
-    cli.calls.clear()
-    cli.value = {"ok": True, "line": "- 09/26 12:00 メモ"}
-    out = papers.mind_append(PROJECT, "メモ")
-    assert out == {"ok": True, "line": "- 09/26 12:00 メモ"}, out
-    assert cli.last["args"] == ["sai-sci", "project", "memo", "--json", "--", "メモ"], cli.last["args"]
-    assert cli.last["input_text"] is None, cli.last["input_text"]
-    cli.calls.clear()
-    for bad in ("", "x" * 2001, "a\nb", "a\rb", "a\0b", None, 12):
-        expect(400, lambda bad=bad: papers.mind_append(PROJECT, bad))
-    assert cli.calls == [], cli.calls
-
-
 def test_attention_resolve(cli: FakeRunJson) -> None:
     """要対応の 1 件を「対応済み」にする（key は 1〜300 文字の 1 行・U14）。"""
     cli.calls.clear()
@@ -426,7 +412,7 @@ def test_routes() -> None:
         ("GET", "/api/projects/{name}/papers/{paper_id:int}/citations"),
         ("POST", "/api/projects/{name}/papers/{paper_id:int}/citations/extract"),
         ("GET", "/api/projects/{name}/papers/project"),
-        ("POST", "/api/projects/{name}/papers/project/memo"),
+        ("PUT", "/api/projects/{name}/papers/project/mind"),
         ("POST", "/api/projects/{name}/papers/attention/resolve"),
     ]
     for item in want:
@@ -454,10 +440,11 @@ def test_routes() -> None:
         )
     # 消した住所は残っていない（U13 §2）
     for gone in (
-        ("/api/projects/{name}/papers/download", "POST"),
-        ("/api/projects/{name}/papers/manual/candidates", "GET"),
-        ("/api/projects/{name}/papers/manual/import", "POST"),
-        ("/api/projects/{name}/papers/manual/upload", "POST"),
+        ("POST", "/api/projects/{name}/papers/download"),
+        ("GET", "/api/projects/{name}/papers/manual/candidates"),
+        ("POST", "/api/projects/{name}/papers/manual/import"),
+        ("POST", "/api/projects/{name}/papers/manual/upload"),
+        ("POST", "/api/projects/{name}/papers/project/memo"),
     ):
         assert gone not in got, f"消した住所が残っている: {gone}"
 
@@ -477,7 +464,6 @@ def main() -> None:
     test_apply_progress_line_keeps_50()
     test_download_expired()
     test_project_view(cli)
-    test_mind_append(cli)
     test_attention_resolve(cli)
     test_attention_list(cli)
     test_routes()

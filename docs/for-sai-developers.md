@@ -504,7 +504,8 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。
 - `triage <P> --accept|--reject|--revert [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
 - `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形。`--node` は範囲だけ。`SAI_TARGET_NODE` があれば `rt_searches` にも 1 行残す。`search` は `SAI_TARGET_NODE` があれば記録を結ぶ（`--node` は無い）。
-- `project show --json` → `{"mind","state","brief","attention"}`。`project memo --json -- <文>`（改行なしの 1〜2000 字）→ mind.md の「## メモ」に 1 行足す。
+- `project show --json` → `{"mind","state","brief","attention"}`。`project mind --json`（本文は標準入力・1〜200000 字）→ `{"ok": true, "bytes": <n>}`。mind.md の全文を置き換える。
+- `index paper <id> --json` → `{"paper_id","index","chunks_created","embedded_count","chunks","chunks_with_embeddings"}`。論文 1 本の chunk と埋め込みを作る（`chunks` は 0 のとき本文が無い）。無い論文は終了コード 3。
 - `attention list --json` → 配列（要対応の `key`・文）。`attention resolve <key> --json` → 対応済みにする。
 
 ### 2.5 `apps/radio` を呼ぶ側

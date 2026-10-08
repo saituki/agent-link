@@ -245,6 +245,12 @@ enum ProjectCmd {
         #[arg(long)]
         json: bool,
     },
+    /// mind.md の全文を標準入力の内容で置き換える
+    Mind {
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -745,6 +751,7 @@ fn handle_project(cmd: ProjectCmd) -> Result<()> {
     match cmd {
         ProjectCmd::Show { json } => project_show(json),
         ProjectCmd::Memo { text, json } => project_memo(&text, json),
+        ProjectCmd::Mind { json } => project_mind(json),
     }
 }
 
@@ -794,6 +801,26 @@ fn project_memo(text: &str, json: bool) -> Result<()> {
         println!("{}", json!({ "ok": true, "line": line }));
     } else {
         println!("{line}");
+    }
+    Ok(())
+}
+
+/// `project mind` — 標準入力の全文で mind.md を置き換える。空・NUL は終了コード 2。
+fn project_mind(json: bool) -> Result<()> {
+    let text = std::io::read_to_string(std::io::stdin()).context("標準入力を読めません")?;
+    if text.trim().is_empty() {
+        return Err(cli_error::CliError::input("mind.md を空にはできません").into());
+    }
+    if text.contains('\0') {
+        return Err(cli_error::CliError::input("mind.md に NUL は書けません").into());
+    }
+    let roots = sai_paper_core::paths::paper_roots()
+        .context("プロジェクトルート（.sai/paper）が見つかりません")?;
+    let bytes = sai_sci_core::project_files::write_mind(&roots.data_dir, &text)?;
+    if json {
+        println!("{}", json!({ "ok": true, "bytes": bytes }));
+    } else {
+        println!("mind.md を保存しました（{bytes} バイト）");
     }
     Ok(())
 }

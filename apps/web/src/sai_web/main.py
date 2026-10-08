@@ -1469,12 +1469,12 @@ def api_papers_project(name: str, _: None = Depends(require_token)) -> dict:
     return papers.project_view(papers.resolve_project(name))
 
 
-@app.post("/api/projects/{name}/papers/project/memo")
-def api_papers_project_memo(
+@app.put("/api/projects/{name}/papers/project/mind")
+def api_papers_project_mind(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """mind.md のメモを 1 行足す（body は `{"text": "…"}`・`phone mind-append`）。"""
-    return papers.mind_append(papers.resolve_project(name), payload.get("text"))
+    """mind.md の全文を保存する（body は `{"text": "…"}`・`sai-sci project mind`・U04）。"""
+    return papers.mind_save(papers.resolve_project(name), payload.get("text"))
 
 
 @app.post("/api/projects/{name}/papers/attention/resolve")
@@ -1557,6 +1557,14 @@ async def api_paper_translate_pdf(
 ) -> dict:
     """PDF の日本語訳を始める（202・背景で `phone translate-pdf`）。"""
     return await papers.request_translate_pdf(papers.resolve_project(name), paper_id)
+
+
+@app.post("/api/projects/{name}/papers/{paper_id:int}/index", status_code=202)
+async def api_paper_index(
+    name: str, paper_id: int, _: None = Depends(require_token)
+) -> dict:
+    """論文 1 本の Index を始める（202・背景で `sai-paper index paper`・U04）。"""
+    return await papers.request_index(papers.resolve_project(name), paper_id)
 
 
 @app.get("/api/projects/{name}/papers/{paper_id:int}/citations")
