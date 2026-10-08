@@ -120,7 +120,7 @@ JSON に続く節は、この順で書く（書くことが無い節は「なし
 | `## 変数` | 上の `variables` と同じ内容を表で書く |
 | `## EDA の要点` | 欠損・分布・外れ値・漏洩の疑い。道具の出力から写す |
 | `## 前処理` | 手順と、行数の増減 |
-| `## 解析の候補` | Node の O・SEED から考えた仮説の候補。**候補であって検定の結果ではない** |
+| `## 解析の候補` | Node の A・SEED から考えた仮説の候補。**候補であって検定の結果ではない** |
 | `## 注意` | 分からないこと・疑いのあること（`cautions` と同じ） |
 
 ## 5. EDA の手順
@@ -363,13 +363,11 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 | ブロック | op | 親 | 例 |
 |---|---|---|---|
 | explore | `add_e` | CARD の Node（SPROUT か E） | `{"op":"add_e","parent":"S3","text":"データ解析 S3-ID130","mlflow":"west/ID130/data"}` |
-| explore | `add_f` | 上で作った E | `{"op":"add_f","parent":"E12","text":"60 人 1180 行。RMSSD の欠損は 2%。","report":"<データ表のトークン>"}` |
 | test | `add_e` | explore が作った E | `{"op":"add_e","parent":"E12","text":"H1 RMSSD の群差（Welch の t）","mlflow":"ID131-test"}` |
-| test | `add_f` | 上で作った E | `{"op":"add_f","parent":"E13","text":"H1: RMSSD は刺激群で高い（g=0.47, 95%CI 0.06–0.87, p_holm=0.046）。","report":"<解析結果書のトークン>"}` |
 
 - 出せる op は `# context` の `## ALLOWED_OPS` を見る。
-- 数字を含む F には、`cites`（論文）か `report`（REPORT の waggle トークン）のどちらかが要る。データ分析の F は `report` を使う。
-- F の文は 3 文まで。探索的な結果（`kind: exploratory`・計画外）は、文の頭に「（探索）」と書く。
+- 木には F を足しません（`add_f` は出さない）。解析の結論は REPORT（データ表・解析結果書）と MLflow に書きます。
+- 探索的な結果（計画外）は、REPORT の文の頭に「（探索）」と書きます。
 
 ## 10. 再現性
 

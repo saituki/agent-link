@@ -9,7 +9,7 @@
 
 ```bash
 sai-sci find "<英語の検索語>" --node Q12 --mode word --json
-sai-sci find "<英語の検索語>" --node O5 --subtree --each 3 --json
+sai-sci find "<英語の検索語>" --node A5 --subtree --each 3 --json
 sai-sci search "<英語の検索語>" --db s2 --purpose "<目的>" --extract "<抜き出すもの>" --json
 ```
 

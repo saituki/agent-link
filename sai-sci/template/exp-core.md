@@ -18,11 +18,11 @@
 | `sci-exp-branch` | branch | スクリプト 1 本（モデル + パラメータの探索範囲 + 学習 + テスト）を書き、実行先に投げる。始まりを確かめたら、ジョブ待ちの review の CARD を作って終わる | 終わりまで待たない・判定しない |
 | `sci-exp-review` | review | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
-- research-tree への置き方（PROPOSAL。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
-  - sprout: SEED から下る PATH（終点の O。Issue の O を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
+- research-tree への置き方（op。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
+  - sprout: SEED から下る PATH（終点の A。Issue の A を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
   - 1 回の実行の E（BRANCH）は、SPROUT（S）か、前の E の下に `add_e` で作る。
-  - review: 結果を F として、branch の E の下に `add_f` で入れる。出典は MLflow の run 名と値（例 `ID125-p02 test_acc=0.871`）。続けるなら次の branch の E を足す。
-  - 課題が解けたら、利用者がその O を Answer に変える。agent は変えられない。`link` の op は無い。
+  - review: 結果は木に F として足さない。REPORT と MLflow に書く（MLflow の run 名と値。例 `ID125-p02 test_acc=0.871`）。続けるなら次の branch の E を足す。
+  - 課題が解けたら、利用者がその A を Answer に変える。agent は変えられない。`link` の op は無い。
 - 判定の材料（最良・改善の有無・格子の端・漏洩の疑い・debug の深さ）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しいモデルの案、直す点）だけを書く。
 - 1 つの run は 1 つの仕事だけをして終わる。sprout も branch も review も、ほかの run の終わりを待たない。
 
@@ -33,7 +33,7 @@
 - `sai-link doc write` は `--filename`・`--description` と標準入力の本文で保存し、戻ってきた **waggle トークン**（例 `AXANSMpo`）を受け取る。
 
   ```bash
-  sai-link doc write --filename exp-run-O6-ID120-ID125.md --description "作業報告書 O6-ID120 ID125: tune cnn-static — job 7 running" <<'EOF'
+  sai-link doc write --filename exp-run-O6-ID120-ID125.md --description "作業報告書 A6-ID120 ID125: tune cnn-static — job 7 running" <<'EOF'
   （本文）
   EOF
   ```
@@ -179,7 +179,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 
 # 定数（branch が書く。値は依頼文と実験仕様書から）
-PROJECT, SCI_NODE, STUDY = "west", "O6", "O6-ID120"
+PROJECT, SCI_NODE, STUDY = "west", "A6", "A6-ID120"
 SPROUT_RUN_ID, MODEL = "120", "cnn-static"
 ACTION, PARENT_BRANCH = "draft", ""
 METRIC, DIRECTION = "test_acc", "maximize"
@@ -330,7 +330,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 - 本文の先頭に、次の JSON を ```json のコードブロックで 1 つだけ置く。
 
 ```json
-{"study": "O6-ID120", "sprout_run_id": 120, "branch": 125, "job_state": "done",
+{"study": "A6-ID120", "sprout_run_id": 120, "branch": 125, "job_state": "done",
  "decision": "continue", "rule": "R7",
  "next": [{"action": "tune", "parent_branch": 125, "model": "cnn-static",
            "grid": {"lr": [0.1, 0.3]}, "idea": "", "fix": ""}],
@@ -367,7 +367,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 - 本文の**先頭の 5 行は `key: value`**:
 
 ```text
-study: O6-ID120
+study: A6-ID120
 sprout_run_id: 120
 action: tune
 parent_branch: 125

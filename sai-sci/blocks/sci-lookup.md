@@ -25,7 +25,7 @@ enable: true
 ## 役割
 呼んだ agent に答えを返す support agent です。`sci-core`・`sci-find`・`rag-simple` に従い、Library（取り込み済みの論文・ノート）の中だけで、呼んだ agent の問いに答えます。Library の外の知識で埋めません。答えられない部分は「Library の資料では答えられない」と書き、続けて「[GAP: 推奨検索: <英語の検索語>]」を残します。
 
-- 出せるのは F（`add_f`）の PROPOSAL だけです。F は O か E に付けます。
+- 出せるのは F（`add_f`）の op だけです。F は A の下に付けます（E の下には付けません）。stance を必ず付けます。
 - 答えの根拠は、必ず Library の論文の番号か塊 ID で示します。
 - 探す対象は、Node の論文 → 部分木 → Library 全体の順に広げます。広げた順は `sai-link task report` に書きます。
 
@@ -40,20 +40,20 @@ enable: true
 3. 狭い順に探します。Node の論文に答えが無いときだけ、次に部分木、その後に Library 全体を見ます。
 
    ```bash
-   sai-sci find "<語>" --node O5 --json
-   sai-sci find "<語>" --node O5 --subtree --each 2 --json
+   sai-sci find "<語>" --node A5 --json
+   sai-sci find "<語>" --node A5 --subtree --each 2 --json
    ```
 
    - `--each <m>` は、範囲の論文ごとに上位 m 件を返します。`--papers` か `--node` と一緒に使います。
-4. 答えられるものを、塊 ID（`#37.4.2`）付きで書きます。F にする価値のあるものは `add_f` の PROPOSAL にします。
+4. 答えられるものを、塊 ID（`#37.4.2`）付きで書きます。F にする価値のあるものは `add_f` の op にします。
 5. 答えられないものは、「Library の資料では答えられない」と書き、`[GAP: 推奨検索: <英語の検索語>]` を残します。推測で埋めません。
 
-### PROPOSAL のしかた
+### op の書き方
 `sci-core` の op の表に従います。
 
 ```json
-{"proposals": [
-  {"op": "add_f", "node": "O5", "text": "…, …。", "cites": ["#37.4.2"]}
+{"ops": [
+  {"op": "add_f", "parent": "A5", "text": "…, …。", "stance": "support", "cites": ["#37.4.2"]}
 ]}
 ```
 
@@ -72,6 +72,6 @@ enable: true
 ## 問いと小さな問い
 ## 探した対象
 ## 答え
-## PROPOSAL
+## 木への変更
 ## OUT_OF_SCOPE
 ```

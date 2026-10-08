@@ -8,7 +8,7 @@
 
 - 解析を動かす**前に**、解析計画 `plan.json` を `analysis/<study>/ID<自分の run_id>/plan.json` に書き、**同じ JSON を本文の先頭に置いた解析計画書**を `sai-link doc write` で保存する。ファイル名 `ana-plan-<study>-ID<run_id>.md`、description `解析計画書 <study> ID<run_id>: <主な仮説を 1 文で>`。返ってきた **waggle トークンを控える。**
 - **順序は守る（計画 → 保存 → 解析）。** 結果を先に見てから計画を書くと、計画は結果の言い換えになる。
-- 仮説の出どころは 3 つだけである。CARD の Node の O、SEED、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
+- 仮説の出どころは 3 つだけである。CARD の Node の A、SEED、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
 - `kind: confirmatory` は事前に決めた主な仮説だけ（**多くても 3〜5 個**）。それ以外は `exploratory`。
 
 各仮説で決めること（`plan.json` の 1 つ 1 つの `hypotheses` の要素に対応）。
@@ -29,7 +29,7 @@
 - `plan.json` の全文:
 
 ```json
-{"study": "O6-ID130", "run_id": 131, "data_card": "AbCdEf12",
+{"study": "A6-ID130", "run_id": 131, "data_card": "AbCdEf12",
  "created_at": "2026-10-04T12:00:00+09:00", "alpha": 0.05, "seed": 20261004,
  "hypotheses": [
    {"id": "H1", "kind": "confirmatory", "question": "刺激群は対照群より RMSSD が高い",
@@ -304,7 +304,7 @@
 ### results.json の全文
 
 ```json
-{"study": "O6-ID130", "run_id": 131, "plan_sha256": "<plan.json のバイト列の sha256>",
+{"study": "A6-ID130", "run_id": 131, "plan_sha256": "<plan.json のバイト列の sha256>",
  "software": {"python": "3.12.6", "packages": {"scipy": "1.14.1", "pingouin": "0.5.5"}},
  "seed": 20261004,
  "results": [
@@ -404,12 +404,11 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 ### research-tree への置き方
 
 - 数字を含む F には `cites`（論文）か `report`（**解析結果書の waggle トークン**）のどちらかが要る。データ分析の F は `report` を使う。
-- `add_e`（explore が作った E の下）→ `add_f`（その E の下）の順。F の文は 3 文まで。
-- 探索的な結果（`kind: exploratory`・計画外）は**文の頭に「（探索）」**と書く。
+- 木には E だけを足す（`add_e`）。F は足さない。結論は解析結果書（REPORT）と MLflow に書く。
+- 探索的な結果（計画外）は**文の頭に「（探索）」**と書く。
 
 ```text
 {"op":"add_e","parent":"E12","text":"H1 RMSSD の群差（Welch の t）","mlflow":"ID131-test"}
-{"op":"add_f","parent":"E13","text":"H1: RMSSD は刺激群で高い（g=0.47, 95%CI 0.06–0.87, p_holm=0.046）。","report":"<解析結果書のトークン>"}
 ```
 
 - report は最後に 1 つだけ保存する。**数字があれば解析結果書のトークンを書く。** 探索的なら冒頭に「（探索）」を付ける。書き方は `sci-core` の「## 出力」。

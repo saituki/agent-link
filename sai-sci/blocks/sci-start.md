@@ -16,7 +16,7 @@ timeout: 5400
 worktree: none
 enable: true
 subblocks:
-  - sci-search
+  - lab-search
   - sci-lookup
 ---
 
@@ -45,7 +45,7 @@ subblocks:
 3. `sai-sci types` で使える型を見て、RESEARCH_TYPE の案を 1 つ選ぶ。合う型が無いときは、近い型と足りない Q を書く。決められないときは案を 2 つまで挙げて選んでもらう。
 4. mind.md に書くとよいことを、mind.md の見出しの名前（`## ORIGIN`・`## GIVEN` など）ごとに案として書く。mind.md は直接書き換えない。
 5. 最初の Q の案を `add_q` で出す。置く場所は `parent: "SEED"`（top_Q として並ぶ）。1 つの Q には 1 つの決めることだけを書く。出す数は 5 件までにする。
-6. 案の一覧を利用者に見せて止まる。利用者が「これでいい」と答えてから、選ばれたものだけを PROPOSAL として出す。
+6. 案の一覧を利用者に見せて止まる。利用者が「これでいい」と答えてから、選ばれたものだけを `sai-sci op` で木に出す。
 7. REPORT を保存して終える。
 
 ## 評価の観点
@@ -64,6 +64,6 @@ report は次の見出しで、この順のまま書きます。
 ## RESEARCH_TYPE の案
 ## mind.md の案
 ## Q の案
-## PROPOSAL
+## 木への変更
 ## OUT_OF_SCOPE
 ```

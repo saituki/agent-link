@@ -548,6 +548,18 @@ mod tests {
         "paper-reviewer.md",
     ];
 
+    /// U08 が消す 7 本（旧 block。新しい 7 本に替わる）。消えるまで `SCI_BLOCKS` に残るので、
+    /// 廃止した語の検査（`install_sci_writes_blocks_templates_context_and_mind`）から外す。
+    const RETIRED_BLOCKS: &[&str] = &[
+        "sci-read.md",
+        "sci-search.md",
+        "sci-ideate.md",
+        "sci-split.md",
+        "sci-review.md",
+        "sci-debate.md",
+        "sci-compare.md",
+    ];
+
     /// 分野の観点の見本を 3 つ配り、選んだ分野の中身を `domain.md` に写す。
     /// 既にある `domain.md` は上書きしない。
     #[test]
@@ -645,8 +657,27 @@ mod tests {
             assert!(path.is_file(), "{name} が配られていない");
             assert_eq!(std::fs::read_to_string(&path).unwrap(), *content, "{name} の中身が違う");
         }
-        for (name, content) in SCI_BLOCKS.iter().chain(SCI_TEMPLATES.iter()) {
-            for old in ["EXP_SUMMARY_PY", "EXP_SSH_HOST", "sai-ssh"] {
+        // 消える 7 本は U08 が消すまで SCI_BLOCKS に残るので、この検査から一時的に外す。
+        // U08 が消したら、この一覧と下の `RETIRED_BLOCKS` を一緒に外す。
+        for (name, content) in SCI_BLOCKS
+            .iter()
+            .filter(|(name, _)| !RETIRED_BLOCKS.contains(name))
+            .chain(SCI_TEMPLATES.iter())
+        {
+            for old in [
+                "EXP_SUMMARY_PY",
+                "EXP_SSH_HOST",
+                "sai-ssh",
+                "sai-sci propose",
+                "sai-sci triage",
+                "sai-sci proposals",
+                "add_o",
+                "record_logic",
+                "Objectivity",
+                "Logicality",
+                "TRIAGE",
+                "PENDING",
+            ] {
                 assert!(!content.contains(old), "{name} に廃止した {old} が残っている");
             }
         }
@@ -955,8 +986,9 @@ mod tests {
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
             // `sci-typify` は research-tree を書き換えず、RESEARCH_TYPE として保存するだけなので sci_ops を持たない。
+            // `sci-digest` も木に op を出さず（Q の案は報告に書く）、sci_ops を持たない。
             assert!(
-                *name == "sci-typify.md" || frontmatter.contains("\nsci_ops: "),
+                *name == "sci-typify.md" || *name == "sci-digest.md" || frontmatter.contains("\nsci_ops: "),
                 "{name} に sci_ops が無い"
             );
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
@@ -1135,7 +1167,7 @@ mod tests {
                 "--executer agent",
                 "--origin-run \"$SAI_PARENT_RUN_ID\"",
                 "sai-sci status --brief",
-                "sai-sci triage",
+                "sai-sci op",
                 "sai-web",
                 "question <qid>",
                 "answer <qid>",

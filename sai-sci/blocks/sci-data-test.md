@@ -11,7 +11,7 @@ templates:
   - stat-core
 context: true
 sci_type: node
-sci_ops: add_e, add_f
+sci_ops: add_e, set_mlflow
 timeout: 5400
 worktree: none
 enable: true
@@ -30,7 +30,7 @@ enable: true
 - **解析の前に**仮説・検定・補正・効果量・前提を決めて**解析計画書**を保存する（`stat-core` §1）。
 - その計画どおりに解析を走らせ、結果と図を出す（`stat-core` §6〜§10）。
 - `check` で計画を破っていないことを確かめる（`stat-core` §11）。
-- MLflow に記録し、解析結果書を保存し、木に結果の F を出す。
+- MLflow に記録し、解析結果書を保存する。木には E までを出し、結果の F は足さない。
 
 しないこと:
 
@@ -119,7 +119,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 {"op": "add_e", "parent": "<explore の E の ID>", "text": "H1 RMSSD の群差（Welch の t）", "mlflow": "ID<自分の run_id>-test"}
 ```
 
-返った **E の ID** を控える。9. の F の親になる。
+返った **E の ID** を控える。木の記録は E までで、F は足さない。
 
 ### 8. 解析結果書を保存する
 
@@ -129,27 +129,19 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 - **6. の `table` の出力をそのまま貼る。**
 - 残った `check` の違反と、`deviation` を必ず書く。
 
-トークンを控える。9. の F で使う。
+トークンを控える。report に並べる。
 
-### 9. 木に F を出す
+### 9. 木には F を足さない
 
-- **確証的な仮説（`kind: confirmatory`）ごとに 1 つの F** を出す。親は 7. の E。F の文は **3 文以内**に縮める（`stat-core` §12 の 1 つの結果の書き方に合わせる）。
-
-  ```json
-  {"op": "add_f", "parent": "<7. の E の ID>", "text": "H1: RMSSD は刺激群で高い（g=0.47, 95%CI 0.06–0.87, p_holm=0.046）。", "report": "<解析結果書のトークン>"}
-  ```
-
-- **数字を含む F には `report`（解析結果書のトークン）を必ず付ける。**
-- 探索的な結果（`kind: exploratory`・計画外）は、文の頭に **「（探索）」** と書いて出す。**出すのは 3 つまで。**
-- 有意でなかった結果は、報告から外さない（`stat-core` §13）。
+結論は解析結果書（REPORT）に書きます。確証的な仮説（`kind: confirmatory`）の結論も、探索的な結果（計画外。文の頭に **「（探索）」**）も、REPORT に書きます。有意でなかった結果は、報告から外しません（`stat-core` §13）。
 
 ### 10. report を保存して終える
 
 `## 出力の形` の見出しで書く。「## Next Action」には**解析計画書・解析結果書のトークンと、MLflow の run 名**を書く。
 
-O を Answer に変えてよいと思えば、「## Next Action」に O の ID と理由を書き、「## PROPOSAL」にその op を出しておく。**O を Answer に変えるのは利用者である。** 自分が変えない。
+A を Answer に変えてよいと思えば、「## Next Action」に A の ID と理由を書きます。**A を Answer に変えるのは利用者である。** 自分が変えない。
 
-終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**出した PROPOSAL の ID**、**残った `check` の違反**を書く。
+終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**木に出した ID（E の ID）**、**残った `check` の違反**を書く。
 
 ## 出力の形
 
@@ -162,7 +154,7 @@ report は次の見出しで、この順のまま書きます。
 ## 検査の結果
 ## 限界
 ## Next Action
-## PROPOSAL
+## 木への変更
 ## OUT_OF_SCOPE
 ```
 
@@ -184,4 +176,4 @@ report は次の見出しで、この順のまま書きます。
 - **生データや前処理の写しを書き換えること。** 前処理のやり直しをしない。
 - **`MLFLOW_TRACKING_URI` などの記録先の設定を書き換えること。**
 - **30 分を超える計算を動かすこと。**
-- O の Answer を自分で変えること。
+- A の Answer を自分で変えること。
