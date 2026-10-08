@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の画面（scitree.js）の純関数のテスト（計画 U18「変更内容 7」）。
+// research-tree の画面（scitree.js）の純関数のテスト（計画 U18「変更内容 7」・U06 で Q・A・F・E・S に合わせた）。
 // 実行:
 //     node apps/web/tests/test_scitree.js
 //
@@ -11,10 +11,10 @@ const path = require("path");
 
 const dir = path.join(__dirname, "..", "src", "sai_web", "static");
 const {
-  stParseHash, stLegacyHash, stRows, stObjBar, stLogicLabel, stNextLines, stNextText,
-  stOpsFor, ST_NODE_OPS, ST_LOGIC,
-  stVisibleRows, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
-  stFmtAt, stHistoryText,
+  stParseHash, stLegacyHash, stRows, stNextLines, stNextText,
+  stOpsFor, ST_NODE_OPS, ST_STANCE, ST_EXPERIMENTS_HASH,
+  stVisibleRows, stRowHit, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
+  stFmtAt, stHistoryText, stRangeText, stApprovalText, stStanceLabel,
   stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
 } = require(path.join(dir, "scitree.js"));
 
@@ -25,8 +25,9 @@ test(function testParseHash() {
   assert.deepStrictEqual(stParseHash("#/research/tree"), {});
   // SEED も S1 も受ける（SEED は札の特別な ID）
   assert.deepStrictEqual(stParseHash("#/research/tree/SEED"), { id: "SEED" });
-  for (const id of ["Q12", "O5", "F3", "E2", "S1"]) assert.deepStrictEqual(stParseHash(`#/research/tree/${id}`), { id });
-  for (const h of ["#/research/tree/N12", "#/research/tree/Q0", "#/research/tree/S0", "#/research/tree/Q12/x", "#/research/other", "", null]) {
+  for (const id of ["Q12", "A5", "F3", "E2", "S1"]) assert.deepStrictEqual(stParseHash(`#/research/tree/${id}`), { id });
+  // O は無くなった ID なので受けない
+  for (const h of ["#/research/tree/O5", "#/research/tree/N12", "#/research/tree/Q0", "#/research/tree/S0", "#/research/tree/Q12/x", "#/research/other", "", null]) {
     assert.strictEqual(stParseHash(h), null, String(h));
   }
 });
@@ -51,44 +52,35 @@ test(function testRows() {
   assert.deepStrictEqual(stRows(null), []);
   assert.deepStrictEqual(stRows({ nodes: [] }), []);
   const rows = stRows({ nodes: [
-    { id: "Q1", kind: "Q", depth: 0, text: "a", on_path: true, pending: 2, bottom_q: true, objectivity: { count: 1, target: 2, met: false } },
-    { id: "O2", kind: "O", depth: 1, text: "b", starred: true, answer_kind: "issue", on_path: false },
+    { id: "Q1", kind: "Q", depth: 0, text: "a", starred: false },
+    { id: "A2", kind: "A", depth: 1, text: "b", starred: true },
+    { id: "F3", kind: "F", depth: 2, text: "c", stance: "deny" },
   ] });
-  assert.deepStrictEqual(rows.map((r) => [r.id, r.depth, r.onPath, r.starred, r.answerKind]),
-    [["Q1", 0, true, false, null], ["O2", 1, false, true, "issue"]]);
-  assert.strictEqual(rows[0].obj.target, 2);
-  assert.strictEqual(rows[0].pending, 2);
-  assert.strictEqual(rows[1].pending, 0);
-  // leaf は bottom_q に改名した
-  assert.strictEqual(rows[0].bottom, true);
-  assert.strictEqual(rows[1].bottom, false);
+  assert.deepStrictEqual(rows.map((r) => [r.id, r.depth, r.starred, r.stance]),
+    [["Q1", 0, false, null], ["A2", 1, true, null], ["F3", 2, false, "deny"]]);
+  // 一覧の行に保留・目安・論理・配置の項目は持たせない
+  assert.ok(!("pending" in rows[0]) && !("obj" in rows[0]) && !("logic" in rows[0]) && !("onPath" in rows[0]));
 });
 
-test(function testObjBar() {
-  assert.strictEqual(stObjBar({ count: 2, target: 3 }), "■■□ 2/3");
-  assert.strictEqual(stObjBar({ count: 0, target: 2 }), "□□ 0/2");
-  assert.strictEqual(stObjBar({ count: 12, target: 10 }), "■■■■■■■■■■ 12/10");
-  assert.strictEqual(stObjBar(null), "");
-  assert.strictEqual(stObjBar({ count: 10, target: 20 }), "■■■■■□□□□□ 10/20");
-});
-
-test(function testLogicLabel() {
-  assert.deepStrictEqual(stLogicLabel({ value: "ok" }), ["OK", "ok"]);
-  assert.deepStrictEqual(stLogicLabel({ value: "contradiction" }), ["CONTRADICTION", "warn"]);
-  assert.deepStrictEqual(stLogicLabel(null), ["UNCHECKED", "dim"]);
-  assert.deepStrictEqual(Object.keys(ST_LOGIC), ["ok", "contradiction", "unchecked"]);
+test(function testStance() {
+  // 送る値は API の STANCES（support・deny・issue）。印は表示だけ
+  assert.deepStrictEqual(ST_STANCE, [["support", "S", "支持"], ["deny", "D", "反対"], ["issue", "I", "問い"]]);
+  assert.deepStrictEqual(stStanceLabel("support"), ["S", "支持"]);
+  assert.deepStrictEqual(stStanceLabel("issue"), ["I", "問い"]);
+  // 略号や旧い値は送る値として通さない
+  for (const v of [null, undefined, "", "S", "s", "X", "constructor"]) assert.strictEqual(stStanceLabel(v), null, String(v));
 });
 
 test(function testNextLines() {
   const card = { node: "Q1" };
   const next = [
-    { kind: "card", node: "Q1", purpose: "調べる", why: "NO_EVIDENCE", card },
-    { kind: "user", node: "Q2", purpose: "決める", why: "UNANSWERED", card: null },
+    { kind: "card", node: "Q1", purpose: "調べる", why: "NO_FINDING", card },
+    { kind: "user", node: "Q2", purpose: "決める", why: "UNVERIFIED", card: null },
     { kind: "card", node: "Q4", purpose: "余り", why: "X" },
   ];
   const lines = stNextLines({ next });
   assert.strictEqual(lines.length, 3);
-  assert.deepStrictEqual(lines[0], { label: "調べる", why: "NO_EVIDENCE", node: "Q1", block: "", card, kind: "card" });
+  assert.deepStrictEqual(lines[0], { label: "調べる", why: "NO_FINDING", node: "Q1", block: "", card, kind: "card" });
   assert.strictEqual(stNextLines({ next }, 2).length, 2);
   assert.deepStrictEqual(stNextLines(null), []);
 });
@@ -97,43 +89,46 @@ test(function testNextText() {
   const status = { nodes: [{ id: "Q3", kind: "Q", text: "この研究が目指している大きな目的は何か。" }] };
   // Q あり: node と block と文
   assert.strictEqual(
-    stNextText({ why: "NO_CHILD_Q", node: "Q3", block: "sci-split", label: "「…」を child_Q に分ける" }, status),
-    "[NO_CHILD_Q] Q3 sci-split「この研究が目指している大きな目的は何か。」",
+    stNextText({ why: "NO_CHILD", node: "Q3", block: "lab-grow", label: "「…」の子を作る" }, status),
+    "[NO_CHILD] Q3 lab-grow「この研究が目指している大きな目的は何か。」",
   );
   // block が空なら node だけ
   assert.strictEqual(stNextText({ why: "X", node: "Q3", block: "" }, status), "[X] Q3「この研究が目指している大きな目的は何か。」");
   // Node が見つからない（SEED など）: 今までの label
-  assert.strictEqual(stNextText({ why: "NO_TOP_Q", node: "SEED", block: "sci-seed", label: "top_Q を作る" }, status), "[NO_TOP_Q] top_Q を作る");
+  assert.strictEqual(stNextText({ why: "X", node: "SEED", block: "sci-seed", label: "top_Q を作る" }, status), "[X] top_Q を作る");
   assert.strictEqual(stNextText({ why: "X", node: "Q9", label: "ラベル" }, null), "[X] ラベル");
   // why が空: [...] を付けない
-  assert.strictEqual(stNextText({ why: "", node: "Q3", block: "sci-split" }, status), "Q3 sci-split「この研究が目指している大きな目的は何か。」");
+  assert.strictEqual(stNextText({ why: "", node: "Q3", block: "sci-verify" }, status), "Q3 sci-verify「この研究が目指している大きな目的は何か。」");
 });
 
 test(function testNodeOps() {
-  assert.deepStrictEqual(Object.keys(ST_NODE_OPS), ["Q", "O", "F", "E", "S"]);
+  assert.deepStrictEqual(Object.keys(ST_NODE_OPS), ["Q", "A", "F", "E", "S"]);
   assert.deepStrictEqual(ST_NODE_OPS, {
-    Q: ["add_q", "add_o"],
-    O: ["add_q", "add_f", "copy"],
+    Q: ["add_q", "add_a", "insert_q", "move_a"],
+    A: ["add_q", "add_f", "copy"],
     F: [],
-    E: ["add_f", "add_e"],
+    E: ["add_e", "set_mlflow"],
     S: ["add_e", "edit", "remove"],
   });
-  // F は何も出さない
-  assert.deepStrictEqual(stOpsFor({ kind: "F", parent: "O1" }, []), []);
-  // Q で子に O があれば add_q を出さない
-  assert.ok(stOpsFor({ kind: "Q", parent: null }, []).includes("add_q"));
-  assert.ok(!stOpsFor({ kind: "Q", parent: null }, [{ kind: "O" }]).includes("add_q"));
-  // 子に Q があれば add_o を出さない
-  assert.ok(stOpsFor({ kind: "Q", parent: null }, []).includes("add_o"));
-  assert.ok(!stOpsFor({ kind: "Q", parent: null }, [{ kind: "Q" }]).includes("add_o"));
-  // add_e は S（SPROUT）と E だけ。O からは消した
-  assert.ok(!stOpsFor({ kind: "O", answer_kind: "answer" }, []).includes("add_e"));
-  assert.ok(!stOpsFor({ kind: "O", answer_kind: "issue" }, []).includes("add_e"));
+  // F は何も出さない（stance は板の別の節）
+  assert.deepStrictEqual(stOpsFor({ kind: "F", parent: "A1" }, []), []);
+  // Q に子が無ければ add_q と add_a。insert_q と move_a は出さない
+  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, []), ["add_q", "add_a"]);
+  // Q で子に A があれば add_q を出さず、insert_q と move_a を出す
+  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "A" }]), ["add_a", "insert_q", "move_a"]);
+  // Q で子に Q があれば add_a を出さない
+  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "Q" }]), ["add_q"]);
+  // add_e は S（SPROUT）と E だけ
+  assert.ok(!stOpsFor({ kind: "A" }, []).includes("add_e"));
   assert.ok(stOpsFor({ kind: "S" }, []).includes("add_e"));
   assert.ok(stOpsFor({ kind: "E" }, []).includes("add_e"));
   assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_q"));
-  // O の add_q は常に出す
-  assert.deepStrictEqual(stOpsFor({ kind: "O", answer_kind: "answer" }, []), ["add_q", "add_f", "copy"]);
+  // E には MLflow の変更
+  assert.ok(stOpsFor({ kind: "E" }, []).includes("set_mlflow"));
+  // E の下に F は置かない（結果は mlflow で結ぶ）
+  assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_f"));
+  // A の add_q は常に出す
+  assert.deepStrictEqual(stOpsFor({ kind: "A" }, []), ["add_q", "add_f", "copy"]);
   // S は BRANCH と Edit / Delete
   assert.deepStrictEqual(stOpsFor({ kind: "S" }, []), ["add_e", "edit", "remove"]);
 });
@@ -154,37 +149,44 @@ test(function testHistoryText() {
   const date = stFmtAt(at);
   assert.strictEqual(stHistoryText({ action: "init", by: "user", at }), `init ${date} human`);
   assert.strictEqual(
-    stHistoryText({ action: "Add F", by: "run:210", at, run_id: 210, block: "sci-read" }),
-    `Add F ${date} run 210 sci-read`,
+    stHistoryText({ action: "Add F", by: "run:210", at, run_id: 210, block: "lab-read" }),
+    `Add F ${date} run 210 lab-read`,
   );
   assert.strictEqual(
-    stHistoryText({ action: "Run", at, run_id: 215, block: "sci-read", global_round: 12, round: 2 }),
-    `Run 215 sci-read R12.2 ${date}`,
+    stHistoryText({ action: "Run", at, run_id: 215, block: "lab-read", global_round: 12, round: 2 }),
+    `Run 215 lab-read R12.2 ${date}`,
   );
   assert.strictEqual(
-    stHistoryText({ action: "Run", at, run_id: 216, block: "sci-ideate", global_round: null, round: null }),
-    `Run 216 sci-ideate ${date}`,
+    stHistoryText({ action: "Run", at, run_id: 216, block: "sci-verify", global_round: null, round: null }),
+    `Run 216 sci-verify ${date}`,
   );
   assert.strictEqual(stHistoryText({ action: "edit", by: "user", at }), `edit ${date} human`);
   // block が空なら run の番号だけ
   assert.strictEqual(
-    stHistoryText({ action: "Add O", by: "run:3", at, run_id: 3, block: "" }),
-    `Add O ${date} run 3`,
+    stHistoryText({ action: "Add A", by: "run:3", at, run_id: 3, block: "" }),
+    `Add A ${date} run 3`,
   );
   // round が null なら R<global_round> だけ
   assert.strictEqual(
-    stHistoryText({ action: "Run", at, run_id: 1, block: "sci-read", global_round: 4, round: null }),
-    `Run 1 sci-read R4 ${date}`,
+    stHistoryText({ action: "Run", at, run_id: 1, block: "lab-read", global_round: 4, round: null }),
+    `Run 1 lab-read R4 ${date}`,
   );
 });
 
-// Q1 → O2 → F3 と Q1 → O4 の 4 行（並びは status.nodes と同じ順）
+test(function testApprovalText() {
+  // 許可した人は `許可: <名前>`。無ければ空
+  assert.strictEqual(stApprovalText({ approved_by: "saituki" }), "許可: saituki");
+  assert.strictEqual(stApprovalText({ approved_by: " 山田 " }), "許可: 山田");
+  for (const h of [{}, { approved_by: null }, { approved_by: "" }, null]) assert.strictEqual(stApprovalText(h), "", JSON.stringify(h));
+});
+
+// Q1 → A2 → F3 と Q1 → A4 の 4 行（並びは status.nodes と同じ順）。A2 は ★
 function treeRows() {
   return [
-    { id: "Q1", kind: "Q", depth: 0, text: "問い", node: { id: "Q1", parent: null } },
-    { id: "O2", kind: "O", depth: 1, text: "二つ目", node: { id: "O2", parent: "Q1" } },
-    { id: "F3", kind: "F", depth: 2, text: "三つ目", node: { id: "F3", parent: "O2" } },
-    { id: "O4", kind: "O", depth: 1, text: "四つ目", node: { id: "O4", parent: "Q1" } },
+    { id: "Q1", kind: "Q", depth: 0, text: "問い", starred: false, node: { id: "Q1", parent: null } },
+    { id: "A2", kind: "A", depth: 1, text: "二つ目", starred: true, node: { id: "A2", parent: "Q1" } },
+    { id: "F3", kind: "F", depth: 2, text: "三つ目", stance: "support", starred: false, node: { id: "F3", parent: "A2" } },
+    { id: "A4", kind: "A", depth: 1, text: "四つ目", starred: false, node: { id: "A4", parent: "Q1" } },
   ];
 }
 
@@ -193,47 +195,58 @@ test(function testVisibleRowsFold() {
   // 絞り込みも畳みも無ければ全部の行（ctx は全部 false）
   const all = stVisibleRows(rows, { folded: new Set(), word: "", kinds: new Set(ST_ALL_KINDS) });
   assert.deepStrictEqual(all.map((x) => [x.row.id, x.hasKids, x.ctx]), [
-    ["Q1", true, false], ["O2", true, false], ["F3", false, false], ["O4", false, false],
+    ["Q1", true, false], ["A2", true, false], ["F3", false, false], ["A4", false, false],
   ]);
-  // O2 を畳むと F3 だけが出なくなる
-  const folded = stVisibleRows(rows, { folded: new Set(["O2"]) });
-  assert.deepStrictEqual(folded.map((x) => x.row.id), ["Q1", "O2", "O4"]);
+  // A2 を畳むと F3 だけが出なくなる
+  const folded = stVisibleRows(rows, { folded: new Set(["A2"]) });
+  assert.deepStrictEqual(folded.map((x) => x.row.id), ["Q1", "A2", "A4"]);
   assert.deepStrictEqual(folded.map((x) => x.hasKids), [true, true, false]);
   // 絞り込み中は畳みを無視する
   assert.deepStrictEqual(
-    stVisibleRows(rows, { folded: new Set(["Q1", "O2"]), word: "F3" }).map((x) => x.row.id),
-    ["Q1", "O2", "F3"],
+    stVisibleRows(rows, { folded: new Set(["Q1", "A2"]), word: "F3" }).map((x) => x.row.id),
+    ["Q1", "A2", "F3"],
   );
   // 絞り込みの無いときは全部出す（word も kinds も無ければ全部）
-  assert.deepStrictEqual(stVisibleRows(rows, {}).map((x) => x.row.id), ["Q1", "O2", "F3", "O4"]);
+  assert.deepStrictEqual(stVisibleRows(rows, {}).map((x) => x.row.id), ["Q1", "A2", "F3", "A4"]);
   assert.deepStrictEqual(stVisibleRows([], {}), []);
   assert.deepStrictEqual(stVisibleRows(null, null), []);
 });
 
 test(function testVisibleRowsWord() {
   const out = stVisibleRows(treeRows(), { word: "F3" });
-  assert.deepStrictEqual(out.map((x) => [x.row.id, x.ctx]), [["Q1", true], ["O2", true], ["F3", false]]);
+  assert.deepStrictEqual(out.map((x) => [x.row.id, x.ctx]), [["Q1", true], ["A2", true], ["F3", false]]);
   // 大文字・小文字を区別しない。ancestor も出す
   const ci = stVisibleRows(treeRows(), { word: "f3" });
-  assert.deepStrictEqual(ci.map((x) => x.row.id), ["Q1", "O2", "F3"]);
+  assert.deepStrictEqual(ci.map((x) => x.row.id), ["Q1", "A2", "F3"]);
   // どこにも無い文字なら、どの行も出さない
   assert.deepStrictEqual(stVisibleRows(treeRows(), { word: "存在しない" }), []);
 });
 
+test(function testVisibleRowsStar() {
+  // `*` だけなら ★ の Node。その祖先は ctx で出す
+  assert.deepStrictEqual(stVisibleRows(treeRows(), { word: "*" }).map((x) => [x.row.id, x.ctx]), [["Q1", true], ["A2", false]]);
+  // `*` と文字の混ざりは普通の文字として扱う（★ では絞らない）
+  assert.deepStrictEqual(stVisibleRows(treeRows(), { word: "*x" }), []);
+  // 種類と合わせる
+  assert.deepStrictEqual(stVisibleRows(treeRows(), { word: "*", kinds: new Set(["F"]) }), []);
+  assert.strictEqual(stRowHit({ id: "A2", text: "x", starred: true }, "*"), true);
+  assert.strictEqual(stRowHit({ id: "A2", text: "x", starred: false }, "*"), false);
+});
+
 test(function testVisibleRowsKinds() {
-  // O だけ: F3 は出す必要が無い（O の子だが自身が種類で弾かれている）
-  const out = stVisibleRows(treeRows(), { kinds: new Set(["O"]) });
-  assert.deepStrictEqual(out.map((x) => [x.row.id, x.ctx]), [["Q1", true], ["O2", false], ["O4", false]]);
-  // 種類と文字は両方の条件（両方満たす行だけ出错）
-  const both = stVisibleRows(treeRows(), { word: "四", kinds: new Set(["O"]) });
-  assert.deepStrictEqual(both.map((x) => x.row.id), ["Q1", "O4"]);
+  // A だけ: F3 は出す必要が無い（A の子だが自身が種類で弾かれている）
+  const out = stVisibleRows(treeRows(), { kinds: new Set(["A"]) });
+  assert.deepStrictEqual(out.map((x) => [x.row.id, x.ctx]), [["Q1", true], ["A2", false], ["A4", false]]);
+  // 種類と文字は両方の条件（両方満たす行だけ出す）
+  const both = stVisibleRows(treeRows(), { word: "四", kinds: new Set(["A"]) });
+  assert.deepStrictEqual(both.map((x) => x.row.id), ["Q1", "A4"]);
   // 全部切ると何も出ない
   assert.deepStrictEqual(stVisibleRows(treeRows(), { kinds: new Set() }), []);
 });
 
 test(function testActionMeta() {
-  assert.strictEqual(stActionMeta({ run_id: 5, block: "sci-read", global_round: 2, owner: "R2", node: "O12" }), "run 5 sci-read R2 O12");
-  assert.strictEqual(stActionMeta({ run_id: 7, block: "sci-search", global_round: null, owner: "review", node: null }), "run 7 sci-search review");
+  assert.strictEqual(stActionMeta({ run_id: 5, block: "lab-read", global_round: 2, owner: "R2", node: "A12" }), "run 5 lab-read R2 A12");
+  assert.strictEqual(stActionMeta({ run_id: 7, block: "lab-search", global_round: null, owner: "review", node: null }), "run 7 lab-search review");
   // 空の部分は詰めて飛ばす
   assert.strictEqual(stActionMeta({ run_id: 3, block: "", owner: "", node: null, global_round: null }), "run 3");
   assert.strictEqual(stActionMeta(null), "");
@@ -277,38 +290,50 @@ test(function testListIsFullWidthOnNarrow() {
 });
 
 test(function testSproutToggle() {
-  assert.deepStrictEqual(stSproutToggle([], "O1"), ["O1"]);
-  assert.deepStrictEqual(stSproutToggle(["O1"], "O2"), ["O1", "O2"]);
-  assert.deepStrictEqual(stSproutToggle(["O1", "O2"], "O1"), ["O2"]); // もう一度で外れる
-  // O 以外は足さない
-  for (const id of ["Q1", "F2", "E3", "S4", "O0", "O", "", null]) assert.deepStrictEqual(stSproutToggle(["O1"], id), ["O1"], String(id));
+  assert.deepStrictEqual(stSproutToggle([], "A1"), ["A1"]);
+  assert.deepStrictEqual(stSproutToggle(["A1"], "A2"), ["A1", "A2"]);
+  assert.deepStrictEqual(stSproutToggle(["A1", "A2"], "A1"), ["A2"]); // もう一度で外れる
+  // A 以外は足さない（O は無くなった ID）
+  for (const id of ["Q1", "F2", "E3", "S4", "O1", "A0", "A", "", null]) assert.deepStrictEqual(stSproutToggle(["A1"], id), ["A1"], String(id));
   // 元の配列は変えない
-  const base = ["O1"];
-  stSproutToggle(base, "O2");
-  assert.deepStrictEqual(base, ["O1"]);
+  const base = ["A1"];
+  stSproutToggle(base, "A2");
+  assert.deepStrictEqual(base, ["A1"]);
   // 21 個目は足さない。20 個のときの「外す」は効く
-  const full = Array.from({ length: ST_SPROUT_PATH_MAX }, (_, i) => `O${i + 1}`);
+  const full = Array.from({ length: ST_SPROUT_PATH_MAX }, (_, i) => `A${i + 1}`);
   assert.strictEqual(ST_SPROUT_PATH_MAX, 20);
-  assert.deepStrictEqual(stSproutToggle(full, "O99"), full);
-  assert.strictEqual(stSproutToggle(full, "O5").length, 19);
-  assert.deepStrictEqual(stSproutToggle(null, "O1"), ["O1"]);
+  assert.deepStrictEqual(stSproutToggle(full, "A99"), full);
+  assert.strictEqual(stSproutToggle(full, "A5").length, 19);
+  assert.deepStrictEqual(stSproutToggle(null, "A1"), ["A1"]);
 });
 
 test(function testSproutRowsAndSummary() {
   const status = { nodes: [
-    { id: "O1", kind: "O", text: "答え", answer_kind: "answer" },
-    { id: "O2", kind: "O", text: "課題", answer_kind: "issue" },
+    { id: "A1", kind: "A", text: "答え" },
+    { id: "A2", kind: "A", text: "課題" },
   ] };
-  assert.deepStrictEqual(stSproutRows(["O2", "O1", "O9"], status), [
-    { id: "O2", issue: true, text: "課題" },
-    { id: "O1", issue: false, text: "答え" },
-    { id: "O9", issue: false, text: "" }, // status に無い ID は文なしで残す
+  assert.deepStrictEqual(stSproutRows(["A2", "A1", "A9"], status), [
+    { id: "A2", text: "課題" },
+    { id: "A1", text: "答え" },
+    { id: "A9", text: "" }, // status に無い ID は文なしで残す
   ]);
   assert.deepStrictEqual(stSproutRows([], status), []);
-  assert.deepStrictEqual(stSproutRows(["O1"], null), [{ id: "O1", issue: false, text: "" }]);
-  assert.strictEqual(stSproutSummary([], status), "Issue の O がまだありません");
-  assert.strictEqual(stSproutSummary(["O1"], status), "Issue の O がまだありません");
-  assert.strictEqual(stSproutSummary(["O1", "O2"], status), "PATH 2 個（Issue の O 1 個）");
+  assert.deepStrictEqual(stSproutRows(["A1"], null), [{ id: "A1", text: "" }]);
+  // Issue の数は数えない（検査は無くなった）
+  assert.strictEqual(stSproutSummary([]), "A をまだ選んでいません");
+  assert.strictEqual(stSproutSummary(["A1"]), "PATH 1 個");
+  assert.strictEqual(stSproutSummary(["A1", "A2"]), "PATH 2 個");
+});
+
+test(function testRangeText() {
+  // SPROUT の範囲の数（作成の結果と S の板で同じ文）
+  assert.strictEqual(
+    stRangeText({ q: 3, a: 4, f_support: 2, f_deny: 1, f_issue: 0 }),
+    "Q 3・A 4・F S 2 / D 1 / I 0",
+  );
+  assert.strictEqual(stRangeText({}), "Q 0・A 0・F S 0 / D 0 / I 0");
+  assert.strictEqual(stRangeText(null), "");
+  assert.strictEqual(stRangeText("x"), "");
 });
 
 let failed = 0;

@@ -84,7 +84,7 @@
 }
 /* 押しているときだけ、図の札と同じ色を薄く敷く */
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-Q { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--text); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-O { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-A { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-tentative); background: color-mix(in srgb, var(--sci-tentative) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-candidate); background: color-mix(in srgb, var(--sci-candidate) 18%, var(--bg)); color: var(--text); }
 
@@ -213,17 +213,6 @@
   font-size: 13px;
   padding: 4px 12px;
   cursor: pointer;
-}
-
-.sci-row-pending {
-  flex: 0 0 auto;
-  padding: 0 5px;
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn-on-bg);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
 }
 
 .sci-gate-list { display: flex; flex-direction: column; gap: 10px; }
@@ -464,7 +453,7 @@
 .sci-row-picked { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); box-shadow: inset 3px 0 0 var(--sci-decided, var(--accent)); }
 /* 一覧の行は Q/O/F/E で ID と題の色を変える（絞り込みボタンと同じ色） */
 .sci-row-Q .sci-row-head { color: var(--accent); }
-.sci-row-O .sci-row-head { color: var(--sci-decided); }
+.sci-row-A .sci-row-head { color: var(--sci-decided); }
 .sci-row-F .sci-row-head { color: var(--sci-tentative); }
 .sci-row-E .sci-row-head { color: var(--sci-candidate); }
 .sci-row-head .sci-id { color: inherit; }
@@ -515,30 +504,8 @@
   font-size: 1.1rem;
 }
 .sci-star.on { color: var(--text); }
-.sci-kind {
-  flex: 0 0 auto;
-  min-height: 30px;
-  padding: 0 8px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-}
-.sci-kind-issue { color: var(--text); }
-
-/* Objectivity の棒と Logicality の札。色だけに頼らず文字も出す */
-.sci-obj { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); letter-spacing: 1px; }
-.sci-obj.met { color: var(--text); font-weight: 700; }
-.sci-logic { display: inline-flex; align-items: center; justify-content: center; line-height: 1.6; font-size: 11px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 999px; }
-.sci-logic-ok { color: var(--text); }
-.sci-logic-warn { color: var(--text); border-color: var(--accent); }
-.sci-logic-dim { color: var(--text); opacity: 0.7; }
-
-.sci-target-input { width: 96px; min-height: 44px; font: inherit; padding: 0 8px; }
-
 /* 見出しの ★・Answer/Issue の釦（枠・背景なしの文字の釦） */
-.sci-head-star, .sci-head-kind {
+.sci-head-star {
   min-height: 32px;
   border: 0;
   background: transparent;
@@ -549,7 +516,21 @@
   cursor: pointer;
   opacity: 0.4;
 }
-.sci-head-star.on, .sci-head-kind.on { opacity: 1; font-weight: 700; }
+.sci-head-star.on { opacity: 1; font-weight: 700; }
+
+/* F の stance の印（S・D・I。文字で出し、色は枠と合わせる） */
+.sci-stance {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 4px; margin-right: 4px;
+  border: 1px solid currentColor; border-radius: 4px; font-size: 12px; font-weight: 700;
+  flex: 0 0 auto;
+}
+.sci-stance-S { color: var(--sci-support); }
+.sci-stance-D { color: var(--sci-refute); }
+.sci-stance-I { color: var(--sci-open); }
+
+/* MLflow の参照（押すと Experiments へ） */
+.sci-mlflow { font-size: 12px; }
 
 /* 文と本文の下の Edit / Delete の行 */
 .sci-node-edit { display: flex; flex-wrap: wrap; gap: 6px; }

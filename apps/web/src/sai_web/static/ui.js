@@ -207,10 +207,6 @@ const SAI_TERMS = {
     label: "TRIAGE",
     text: "PROPOSAL を accept・reject・revert のどれかで決めることです。",
   },
-  sci_pending: {
-    label: "PENDING",
-    text: "TRIAGE を待っている PROPOSAL のことです。",
-  },
   sci_card: {
     label: "CARD / READ_CARD",
     text: "agent への依頼が CARD です。利用者が論文を読んで F を足す CARD は READ_CARD です。",
@@ -218,14 +214,6 @@ const SAI_TERMS = {
   sci_guide: {
     label: "GUIDE",
     text: "Q の項目を書くときの手引きです。抽出の観点や落とし穴を書きます。",
-  },
-  sci_objectivity: {
-    label: "Objectivity",
-    text: "O の評価の 2 軸の 1 つです。出典の根拠がどれだけあるかを見ます。",
-  },
-  sci_logicality: {
-    label: "Logicality",
-    text: "O の評価の 2 軸の 1 つです。話の筋が通っているかを見ます。",
   },
   sci_research_type: {
     label: "RESEARCH_TYPE",
