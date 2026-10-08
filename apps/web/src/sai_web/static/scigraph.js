@@ -39,6 +39,9 @@ const SG_MEMO_PREFIX = "sai-sg-view:";
 // localStorage へ書くのをまとめるミリ秒
 const SG_MEMO_WAIT = 120;
 
+// F の stance の値（support/deny/issue）→ 札の印（S/D/I）
+const SG_STANCE_LETTER = [["support", "S"], ["deny", "D"], ["issue", "I"]];
+
 // 線の種類。sgEdgeStyle がこの表を返す。
 // [種類, 表示名, 破線, 矢印つきの実線か, 色の CSS 変数]
 const SG_EDGE_KINDS = [
@@ -88,6 +91,12 @@ function sgEdgeStyle(kind) {
   const row = SG_EDGE_KINDS.find((k) => k[0] === key);
   if (row) return { dash: row[2], arrow: row[3], colorVar: `var(${row[4]})` };
   return { dash: "", arrow: false, colorVar: "var(--sci-edge-parent)" };
+}
+
+/** F の stance（support/deny/issue）の印（S/D/I）。違う値は空文字。 */
+function sgStanceLetter(v) {
+  const hit = SG_STANCE_LETTER.find((s) => s[0] === v);
+  return hit ? hit[1] : "";
 }
 
 /** 文を n 字で切る。 */
@@ -328,8 +337,8 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse) {
   let sub = "";
   const counts = n.counts || {};
   const f = hiddenF || Number(counts.f) || 0;
-  // F の stance は文字（S・D・I）で出す（色だけに頼らない）
-  const stance = n.kind === "F" && ["S", "D", "I"].includes(n.stance) ? n.stance : "";
+  // F の stance は文字（S・D・I）で出す（色だけに頼らない）。送る値は support・deny・issue
+  const stance = n.kind === "F" ? sgStanceLetter(n.stance) : "";
   if (n.kind === "A") {
     sub = `${n.starred ? "★ " : ""}${f ? `F ${f}` : ""}`.trim();
   } else if (n.kind === "F") {

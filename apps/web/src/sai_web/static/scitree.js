@@ -22,8 +22,8 @@ const ST_TYPES = [
   ["data", "DATA_DRIVEN", "手にあるデータから問いを立てる研究です。"],
   ["improve", "IMPROVE_DRIVEN", "いまのものの弱いところから始めた研究です。"],
 ];
-// F の stance（[印, 名]）。印は一覧・図・板の札に出す（色は sci-stance-S/D/I の CSS）。
-const ST_STANCE = [["S", "支持"], ["D", "反対"], ["I", "問い"]];
+// F の stance（[送る値, 印, 名]）。値は API の STANCES（support/deny/issue）。印は一覧・図・板の札に出す（色は sci-stance-S/D/I の CSS）。
+const ST_STANCE = [["support", "S", "支持"], ["deny", "D", "反対"], ["issue", "I", "問い"]];
 // 左の一覧の絞り込みで切り替えられる種類（図の札と同じ 5 つ）
 const ST_ALL_KINDS = ["Q", "A", "F", "E", "S"];
 // 境界線をドラッグしたときの幅の範囲（px）
@@ -42,7 +42,7 @@ const ST_NODE_OPS = {
   Q: ["add_q", "add_a", "insert_q", "move_a"],
   A: ["add_q", "add_f", "copy"],
   F: [],
-  E: ["add_f", "add_e", "set_mlflow"],
+  E: ["add_e", "set_mlflow"],
   // S（SPROUT）は BRANCH を足せて、題と本文を直せる。親が無いので Edit / Delete もここに出す。
   S: ["add_e", "edit", "remove"],
 };
@@ -144,10 +144,10 @@ function stApprovalText(h) {
   return who ? `許可: ${who}` : "";
 }
 
-/** F の stance の札（[印, 名]）。S・D・I 以外は null。 */
+/** F の stance の札（[印, 名]）。support/deny/issue 以外は null。 */
 function stStanceLabel(v) {
   const hit = ST_STANCE.find((s) => s[0] === v);
-  return hit || null;
+  return hit ? [hit[1], hit[2]] : null;
 }
 
 /** status.nodes を並びのまま一覧の行にする。 */
@@ -1271,9 +1271,9 @@ function stBoardHead(d) {
 function stBoardStance(node) {
   const sec = stSec("Stance");
   const row = stEl("div", "sci-ops sci-stance-row");
-  for (const [code, name] of ST_STANCE) {
-    const on = node.stance === code;
-    const b = stBtn(`${code} ${name}`, () => { stCall("seQuick", "set_stance", { node: node.id, stance: code }); }, on ? "primary" : "");
+  for (const [value, code, name] of ST_STANCE) {
+    const on = node.stance === value;
+    const b = stBtn(`${code} ${name}`, () => { stCall("seQuick", "set_stance", { node: node.id, stance: value }); }, on ? "primary" : "");
     b.setAttribute("aria-pressed", String(on));
     row.appendChild(b);
   }

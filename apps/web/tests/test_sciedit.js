@@ -10,7 +10,7 @@ const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_web", "static", "sciedit.js");
 const {
-  seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
+  seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
   seCardValues, seBuildCard, seCardRunId,
   seChildOptions, seChildOk,
   seBottomQs,
@@ -56,6 +56,8 @@ function test_helpers() {
   assert.strictEqual(seCountSentences("これは 0.85 です"), 1);
   assert.strictEqual(seNeedsCite("精度は 0.9", []), true);
   assert.strictEqual(seNeedsCite("精度は 0.9", ["#37"]), false);
+  // 報告書（report）でも数字の文は通る
+  assert.strictEqual(seNeedsCite("精度は 0.9", [], "R-0001"), false);
 }
 
 // --- C-CITE ---
@@ -72,10 +74,10 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("add_a", { q: "Q1", text: "SST-2", body: "b" })), { op: "add_a", q: "Q1", text: "SST-2", body: "b" });
   // F は stance が要る。出典と論文番号は任意
   assert.deepStrictEqual(
-    ok(seBuildOp("add_f", { parent: "A2", stance: "S", text: "精度は 0.9。", cites: ["#37 §3.2", " "], paper: "37" })),
-    { op: "add_f", parent: "A2", stance: "S", text: "精度は 0.9。", cites: ["#37 §3.2"], paper: 37 },
+    ok(seBuildOp("add_f", { parent: "A2", stance: "support", text: "精度は 0.9。", cites: ["#37 §3.2", " "], paper: "37" })),
+    { op: "add_f", parent: "A2", stance: "support", text: "精度は 0.9。", cites: ["#37 §3.2"], paper: 37 },
   );
-  assert.deepStrictEqual(ok(seBuildOp("add_f", { parent: "E1", stance: "I", text: "出典なしの文" })), { op: "add_f", parent: "E1", stance: "I", text: "出典なしの文" });
+  assert.deepStrictEqual(ok(seBuildOp("add_f", { parent: "A1", stance: "issue", text: "出典なしの文" })), { op: "add_f", parent: "A1", stance: "issue", text: "出典なしの文" });
   assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "E1", text: "実験", mlflow: "run-a" })), { op: "add_e", parent: "E1", text: "実験", mlflow: "run-a" });
   assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験" })), { op: "add_e", parent: "S2", text: "実験" });
   // SPROUT は PATH の A だけで作る（Issue の検査は無い）
@@ -93,13 +95,16 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("unstar", { node: "F3" })), { op: "unstar", node: "F3" });
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "S1" })), { op: "star", node: "S1" });
   // stance は F だけ
-  assert.deepStrictEqual(ok(seBuildOp("set_stance", { node: "F3", stance: "D" })), { op: "set_stance", node: "F3", stance: "D" });
+  assert.deepStrictEqual(ok(seBuildOp("set_stance", { node: "F3", stance: "deny" })), { op: "set_stance", node: "F3", stance: "deny" });
   // Q の間に Q を入れる・A を別の Q へ移す
   assert.deepStrictEqual(ok(seBuildOp("insert_q", { q: "Q1", text: "間の問い" })), { op: "insert_q", q: "Q1", text: "間の問い" });
-  assert.deepStrictEqual(ok(seBuildOp("move_a", { node: "A2", to: "Q5" })), { op: "move_a", node: "A2", to: "Q5" });
+  assert.deepStrictEqual(ok(seBuildOp("move_a", { from: "Q1", to: "Q5" })), { op: "move_a", from: "Q1", to: "Q5" });
   // MLflow の参照。空にすると外す（null）
   assert.deepStrictEqual(ok(seBuildOp("set_mlflow", { node: "E1", mlflow: "run-a" })), { op: "set_mlflow", node: "E1", mlflow: "run-a" });
-  assert.deepStrictEqual(ok(seBuildOp("set_mlflow", { node: "E1", mlflow: "" })), { op: "set_mlflow", node: "E1", mlflow: null });
+  // 空文字は外す（API の ztext・空も通す）
+  assert.deepStrictEqual(ok(seBuildOp("set_mlflow", { node: "E1", mlflow: "" })), { op: "set_mlflow", node: "E1", mlflow: "" });
+  // 報告書（report）で数字の文を通す
+  assert.deepStrictEqual(ok(seBuildOp("add_f", { parent: "A2", stance: "deny", text: "精度は 0.9", report: "R-0001" })), { op: "add_f", parent: "A2", stance: "deny", text: "精度は 0.9", report: "R-0001" });
 }
 
 // --- 操作の NG の例 ---
@@ -107,14 +112,16 @@ function test_ops_ng() {
   // 必須・形
   ng(seBuildOp("add_q", { parent: "F1", text: "x" })); // 親は SEED・Q・A
   ng(seBuildOp("add_q", { parent: "E1", text: "x" }));
+  // F は A だけ（E の下に F は置かない）
+  ng(seBuildOp("add_f", { parent: "E1", stance: "issue", text: "x" }));
   ng(seBuildOp("add_q", { parent: "Q1", text: "" }));
   ng(seBuildOp("add_a", { q: "A1", text: "x" }));
-  ng(seBuildOp("add_f", { parent: "Q1", stance: "S", text: "x" })); // 親は A か E
+  ng(seBuildOp("add_f", { parent: "Q1", stance: "support", text: "x" })); // 親は A だけ（E の下に F は置かない）
   ng(seBuildOp("add_e", { parent: "Q1", text: "x" }));
   ng(seBuildOp("add_e", { parent: "A2", text: "x" }));
   ng(seBuildOp("copy", { node: "A2", to: "A3" }));
   ng(seBuildOp("star", {}));
-  ng(seBuildOp("set_stance", { node: "A2", stance: "S" })); // stance は F だけ
+  ng(seBuildOp("set_stance", { node: "A2", stance: "support" })); // stance は F だけ
   ng(seBuildOp("set_stance", { node: "F3", stance: "" }));
   ng(seBuildOp("set_stance", { node: "F3", stance: "X" }));
   ng(seBuildOp("add_sprout", { title: "題", paths: [] }));
@@ -123,10 +130,18 @@ function test_ops_ng() {
   ng(seBuildOp("add_sprout", { title: "題", paths: ["A1", "A1"] }));
   ng(seBuildOp("add_sprout", { title: "題", paths: Array.from({ length: 21 }, (_, i) => `A${i + 1}`) }));
   ng(seBuildOp("edit", { node: "Q1" })); // text も body も無い
+  ng(seBuildOp("edit", { node: "Q1", text: "x", body: "本文" })); // Q に本文は付かない
+  ng(seBuildOp("edit", { node: "A1", text: "あ".repeat(121) })); // A は 120 字まで
+  ng(seBuildOp("edit", { node: "F3", text: "あ。い。う。え。" })); // F は 3 文まで
+  ng(seBuildOp("edit", { node: "F3", text: "あ".repeat(1201) }));
+  assert.ok(ok(seBuildOp("edit", { node: "F3", text: "あ".repeat(1200) })));
+  ng(seBuildOp("edit", { node: "Q1", text: "あ".repeat(301) }));
   ng(seBuildOp("insert_q", { q: "A1", text: "x" }));
   ng(seBuildOp("insert_q", { q: "Q1", text: "" }));
-  ng(seBuildOp("move_a", { node: "Q1", to: "Q5" }));
-  ng(seBuildOp("move_a", { node: "A1" })); // 移す先が無い
+  ng(seBuildOp("move_a", { from: "Q1" })); // 移す先が無い
+  ng(seBuildOp("move_a", { to: "Q5" })); // 移す元が無い
+  ng(seBuildOp("move_a", { from: "Q1", to: "Q1" })); // 同じ Q
+  ng(seBuildOp("move_a", { node: "A1", to: "Q5" })); // 旧い項目名（node）は通さない
   ng(seBuildOp("set_mlflow", { node: "Q1", mlflow: "run" }));
   // 字数
   ng(seBuildOp("add_q", { parent: "Q1", text: "あ".repeat(301) }));
@@ -138,13 +153,13 @@ function test_ops_ng() {
   ng(seBuildOp("insert_q", { q: "Q1", text: "あ".repeat(301) }));
   ng(seBuildOp("set_mlflow", { node: "E1", mlflow: "あ".repeat(201) }));
   // C-CITE
-  ng(seBuildOp("add_f", { parent: "A2", stance: "S", text: "文", cites: ["37"] }));
-  ng(seBuildOp("add_f", { parent: "A2", stance: "S", text: "文", cites: Array(11).fill("#37") }));
+  ng(seBuildOp("add_f", { parent: "A2", stance: "support", text: "文", cites: ["37"] }));
+  ng(seBuildOp("add_f", { parent: "A2", stance: "support", text: "文", cites: Array(11).fill("#37") }));
   // 1〜3 文
-  ng(seBuildOp("add_f", { parent: "A2", stance: "S", text: "あ。い。う。え。" }));
-  assert.ok(ok(seBuildOp("add_f", { parent: "A2", stance: "S", text: "あ。い。う。" })));
+  ng(seBuildOp("add_f", { parent: "A2", stance: "support", text: "あ。い。う。え。" }));
+  assert.ok(ok(seBuildOp("add_f", { parent: "A2", stance: "support", text: "あ。い。う。" })));
   // 数字と出典
-  ng(seBuildOp("add_f", { parent: "A2", stance: "S", text: "精度は 0.9" }));
+  ng(seBuildOp("add_f", { parent: "A2", stance: "support", text: "精度は 0.9" }));
   // stance は必須（既定は無し）
   assert.match(ng(seBuildOp("add_f", { parent: "A2", text: "文" })), /stance/);
   // remove は理由を付けずに送れる
@@ -165,7 +180,7 @@ function test_tables() {
   assert.deepStrictEqual(Object.keys(SE_DONE).sort(), keys);
   for (const q of SE_QUICK) assert.ok(keys.includes(q));
   assert.deepStrictEqual([...SE_QUICK].sort(), ["set_stance", "star", "unstar"]);
-  assert.deepStrictEqual(SE_STANCES.map((x) => x[0]), ["S", "D", "I"]);
+  assert.deepStrictEqual(SE_STANCES.map((x) => x[0]), ["support", "deny", "issue"]);
   assert.ok(keys.includes("add_sprout") && keys.includes("insert_q") && keys.includes("move_a") && keys.includes("set_mlflow"));
 
   // カードのブロック（C9）: 20 本。消えた 7 本は出さない

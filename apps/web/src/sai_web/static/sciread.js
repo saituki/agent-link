@@ -14,8 +14,8 @@
 
 // 読む深さ
 const SR_DEPTHS = [["abstract", "抄録"], ["figures", "図"], ["full", "精読"]];
-// F の stance（必須。S 支持・D 反対・I 問い）
-const SR_STANCES = [["S", "S 支持"], ["D", "D 反対"], ["I", "I 問い"]];
+// F の stance（必須。値は API の STANCES。S 支持・D 反対・I 問い）
+const SR_STANCES = [["support", "S 支持"], ["deny", "D 反対"], ["issue", "I 問い"]];
 // 置き場の表示（owner が todo なら「始める」を出す）
 const SR_OWNERS = {
   todo: "まだ読んでいない",
@@ -64,12 +64,12 @@ function srCardPaper(card) {
 
 /**
  * F を付ける先の候補（Node の ID の配列）。
- * 対象が A か E ならそれ 1 つ。Q なら detail.children の A（★ を先に）。
+ * 対象が A ならそれ 1 つ（F は E の下に置かない）。Q なら detail.children の A（★ を先に）。
  */
 function srParents(card, detail) {
   const node = (card && card.node) || {};
   const id = srTrim(node.id);
-  if (node.kind === "A" || node.kind === "E") return id ? [id] : [];
+  if (node.kind === "A") return id ? [id] : [];
   if (node.kind !== "Q") return [];
   const kids = detail && Array.isArray(detail.children) ? detail.children : [];
   const os = kids.filter((k) => k && k.kind === "A" && srTrim(k.id));
@@ -91,7 +91,7 @@ function srBuildAnswer(card, values) {
   const paper = srCardPaper(card);
   if (!paper) return bad("論文が分かりません");
   const parent = srTrim(v.parent);
-  if (!/^[AE][1-9][0-9]{0,8}$/.test(parent)) return bad("F を付ける先（A か E）を選んでください");
+  if (!/^A[1-9][0-9]{0,8}$/.test(parent)) return bad("F を付ける先（A）を選んでください");
   if (!SR_STANCES.some((x) => x[0] === v.stance)) return bad("stance（S・D・I）を選んでください");
   const text = srTrim(v.text);
   if (!text) return bad("文を入力してください");
@@ -323,7 +323,7 @@ function srAddForm(card) {
   const sec = srSec("F を足す");
   const parents = srParents(card, srDetail);
   if (!parents.length) {
-    sec.appendChild(srNote("F を付ける A または E がありません。research-tree で A を足してから戻ってください。"));
+    sec.appendChild(srNote("F を付ける A がありません。research-tree で A を足してから戻ってください。"));
     return sec;
   }
   const field = (label, input) => {

@@ -74,7 +74,8 @@ function test_card_parts() {
 
 function test_parents() {
   assert.deepStrictEqual(srParents(sampleCard("A", "A12"), null), ["A12"]);
-  assert.deepStrictEqual(srParents(sampleCard("E", "E3"), null), ["E3"]);
+  // F は A だけに付く（E の下に F は置かない）
+  assert.deepStrictEqual(srParents(sampleCard("E", "E3"), null), []);
   // Q は子の A だけ。★ を先に
   const detail = { children: [
     { id: "A1", kind: "A", starred: false },
@@ -89,30 +90,32 @@ function test_parents() {
 
 function test_build_answer() {
   const card = sampleCard();
-  assert.deepStrictEqual(ok(srBuildAnswer(card, { parent: "A12", text: "改善が見られた。", stance: "S" })), {
-    op: "add_f", parent: "A12", text: "改善が見られた。", stance: "S", cites: ["#37"], paper: 37, run: 130,
+  assert.deepStrictEqual(ok(srBuildAnswer(card, { parent: "A12", text: "改善が見られた。", stance: "support" })), {
+    op: "add_f", parent: "A12", text: "改善が見られた。", stance: "support", cites: ["#37"], paper: 37, run: 130,
   });
-  assert.deepStrictEqual(ok(srBuildAnswer(card, { parent: "E3", text: "あ", place: " §3.2 ", stance: "D" })).cites, ["#37 §3.2"]);
+  assert.deepStrictEqual(ok(srBuildAnswer(card, { parent: "A3", text: "あ", place: " §3.2 ", stance: "deny" })).cites, ["#37 §3.2"]);
   // 3 文まで
-  ok(srBuildAnswer(card, { parent: "A12", text: "一。二。三。", stance: "I" }));
-  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "一。二。三。四。", stance: "S" })), /3 文/);
+  ok(srBuildAnswer(card, { parent: "A12", text: "一。二。三。", stance: "issue" }));
+  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "一。二。三。四。", stance: "support" })), /3 文/);
   // 付ける先は A か E
-  assert.match(ng(srBuildAnswer(card, { parent: "Q1", text: "あ", stance: "S" })), /A か E/);
-  assert.match(ng(srBuildAnswer(card, { text: "あ", stance: "S" })), /A か E/);
+  assert.match(ng(srBuildAnswer(card, { parent: "Q1", text: "あ", stance: "support" })), /付ける先/);
+  // E の下に F は置かない
+  assert.match(ng(srBuildAnswer(card, { parent: "E3", text: "あ", stance: "support" })), /付ける先/);
+  assert.match(ng(srBuildAnswer(card, { text: "あ", stance: "support" })), /付ける先/);
   // stance は必須（既定は無し）
   assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "あ" })), /stance/);
   assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "あ", stance: "X" })), /stance/);
   // 字数・場所・論文
-  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "  ", stance: "S" })), /文を入力/);
-  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "あ".repeat(1201), stance: "S" })), /1200/);
-  ok(srBuildAnswer(card, { parent: "A12", text: "あ".repeat(1200), stance: "S" }));
-  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "あ", place: "あ".repeat(81), stance: "S" })), /80/);
-  assert.match(ng(srBuildAnswer({ ...card, paper: {} }, { parent: "A12", text: "あ", stance: "S" })), /論文/);
+  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "  ", stance: "support" })), /文を入力/);
+  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "あ".repeat(1201), stance: "support" })), /1200/);
+  ok(srBuildAnswer(card, { parent: "A12", text: "あ".repeat(1200), stance: "support" }));
+  assert.match(ng(srBuildAnswer(card, { parent: "A12", text: "あ", place: "あ".repeat(81), stance: "support" })), /80/);
+  assert.match(ng(srBuildAnswer({ ...card, paper: {} }, { parent: "A12", text: "あ", stance: "support" })), /論文/);
 }
 
 function test_values() {
   assert.deepStrictEqual(SR_DEPTHS.map((x) => x[0]), ["abstract", "figures", "full"]);
-  assert.deepStrictEqual(SR_STANCES.map((x) => x[0]), ["S", "D", "I"]);
+  assert.deepStrictEqual(SR_STANCES.map((x) => x[0]), ["support", "deny", "issue"]);
   for (const [key, label] of Object.entries(SR_OWNERS)) assert.ok(label, key);
   assert.ok(SR_CITE_RE.test("#37"));
   assert.ok(SR_CITE_RE.test("#37.2.1-3"));

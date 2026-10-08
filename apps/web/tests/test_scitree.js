@@ -54,19 +54,21 @@ test(function testRows() {
   const rows = stRows({ nodes: [
     { id: "Q1", kind: "Q", depth: 0, text: "a", starred: false },
     { id: "A2", kind: "A", depth: 1, text: "b", starred: true },
-    { id: "F3", kind: "F", depth: 2, text: "c", stance: "D" },
+    { id: "F3", kind: "F", depth: 2, text: "c", stance: "deny" },
   ] });
   assert.deepStrictEqual(rows.map((r) => [r.id, r.depth, r.starred, r.stance]),
-    [["Q1", 0, false, null], ["A2", 1, true, null], ["F3", 2, false, "D"]]);
+    [["Q1", 0, false, null], ["A2", 1, true, null], ["F3", 2, false, "deny"]]);
   // 一覧の行に保留・目安・論理・配置の項目は持たせない
   assert.ok(!("pending" in rows[0]) && !("obj" in rows[0]) && !("logic" in rows[0]) && !("onPath" in rows[0]));
 });
 
 test(function testStance() {
-  assert.deepStrictEqual(ST_STANCE, [["S", "支持"], ["D", "反対"], ["I", "問い"]]);
-  assert.deepStrictEqual(stStanceLabel("S"), ["S", "支持"]);
-  assert.deepStrictEqual(stStanceLabel("I"), ["I", "問い"]);
-  for (const v of [null, undefined, "", "s", "X", "constructor"]) assert.strictEqual(stStanceLabel(v), null, String(v));
+  // 送る値は API の STANCES（support・deny・issue）。印は表示だけ
+  assert.deepStrictEqual(ST_STANCE, [["support", "S", "支持"], ["deny", "D", "反対"], ["issue", "I", "問い"]]);
+  assert.deepStrictEqual(stStanceLabel("support"), ["S", "支持"]);
+  assert.deepStrictEqual(stStanceLabel("issue"), ["I", "問い"]);
+  // 略号や旧い値は送る値として通さない
+  for (const v of [null, undefined, "", "S", "s", "X", "constructor"]) assert.strictEqual(stStanceLabel(v), null, String(v));
 });
 
 test(function testNextLines() {
@@ -105,7 +107,7 @@ test(function testNodeOps() {
     Q: ["add_q", "add_a", "insert_q", "move_a"],
     A: ["add_q", "add_f", "copy"],
     F: [],
-    E: ["add_f", "add_e", "set_mlflow"],
+    E: ["add_e", "set_mlflow"],
     S: ["add_e", "edit", "remove"],
   });
   // F は何も出さない（stance は板の別の節）
@@ -123,6 +125,8 @@ test(function testNodeOps() {
   assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_q"));
   // E には MLflow の変更
   assert.ok(stOpsFor({ kind: "E" }, []).includes("set_mlflow"));
+  // E の下に F は置かない（結果は mlflow で結ぶ）
+  assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_f"));
   // A の add_q は常に出す
   assert.deepStrictEqual(stOpsFor({ kind: "A" }, []), ["add_q", "add_f", "copy"]);
   // S は BRANCH と Edit / Delete
@@ -181,7 +185,7 @@ function treeRows() {
   return [
     { id: "Q1", kind: "Q", depth: 0, text: "問い", starred: false, node: { id: "Q1", parent: null } },
     { id: "A2", kind: "A", depth: 1, text: "二つ目", starred: true, node: { id: "A2", parent: "Q1" } },
-    { id: "F3", kind: "F", depth: 2, text: "三つ目", stance: "S", starred: false, node: { id: "F3", parent: "A2" } },
+    { id: "F3", kind: "F", depth: 2, text: "三つ目", stance: "support", starred: false, node: { id: "F3", parent: "A2" } },
     { id: "A4", kind: "A", depth: 1, text: "四つ目", starred: false, node: { id: "A4", parent: "Q1" } },
   ];
 }

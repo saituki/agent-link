@@ -30,8 +30,8 @@ const C_F5 = [
   "card", "task_text", "phase", "bibtex", "attention", "state", "mind",
   "sci_research_tree", "sci_seed", "sci_root", "sci_sprout", "sci_branch",
   "sci_path", "sci_node", "sci_top_q", "sci_bottom_q", "sci_star",
-  "sci_proposal", "sci_triage", "sci_pending", "sci_card", "sci_guide",
-  "sci_objectivity", "sci_logicality", "sci_research_type", "sci_lab_agent",
+  "sci_proposal", "sci_triage", "sci_card", "sci_guide",
+  "sci_research_type", "sci_lab_agent",
 ];
 
 function testTerms() {
