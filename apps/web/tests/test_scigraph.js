@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の図（scigraph.js）の純関数のテスト（計画 U33）。
+// research-tree の図（scigraph.js）の純関数のテスト（計画 U33・U06 で Q・A・F・E・S に合わせた）。
 // 実行:
 //     node apps/web/tests/test_scigraph.js
 //
@@ -14,23 +14,21 @@ const {
   sgSproutKeep,
   sgEdgeStyle,
   sgEdgePath,
-  sgObjBar,
   sgCenterView,
-  sgPendingMark,
   SG_CARD_W,
   SG_CARD_H,
   SG_TREE_STEP,
 } = require(path.join(__dirname, "..", "src", "sai_web", "static", "scigraph.js"));
 
 // --- 4 layer の図の木 ---
-// 下から ROOT（Q0 → Q1 → O1・O2 → Q2・Q3 → O3 → F1・F2）、SEED の札、
+// 下から ROOT（Q0 → Q1 → A1・A2 → Q2・Q3 → A3 → F1・F2）、SEED の札、
 // SPROUT（S1・S2）、その上の BRANCH（S1 → E1 → E2・F3、S2 → E4）。
+// A2 は、どの PATH にも入っていない答え。
 
 function node(id, kind, parent, depth, extra) {
   return Object.assign({
-    id, kind, parent, depth, text: `${id} の文`, starred: false, answer_kind: null,
-    on_path: true, objectivity: null, logicality: null,
-    counts: { q: 0, o: 0, f: 0, e: 0 }, mlflow: null, paths: [], bottom_q: false,
+    id, kind, parent, depth, text: `${id} の文`, starred: false, stance: null,
+    counts: { q: 0, a: 0, f: 0, e: 0 }, mlflow: null, paths: [], bottom_q: false,
   }, extra || {});
 }
 
@@ -38,20 +36,20 @@ function sampleStatus() {
   return {
     seed: { type: { id: "problem", name: "PROBLEM_DRIVEN" }, mind: [] },
     nodes: [
-      node("Q0", "Q", null, 0, { objectivity: { count: 2, target: 3, met: false } }),
+      node("Q0", "Q", null, 0),
       node("Q1", "Q", "Q0", 1),
-      node("O1", "O", "Q1", 2, { starred: true, answer_kind: "answer", counts: { q: 1, o: 0, f: 1, e: 0 } }),
-      node("O2", "O", "Q1", 2, { answer_kind: "issue", on_path: false }),
-      node("Q2", "Q", "O1", 3),
-      node("Q3", "Q", "O1", 3),
-      node("O3", "O", "Q2", 4, { answer_kind: "issue", starred: true, pending: 2, counts: { q: 0, o: 0, f: 2, e: 0 } }),
-      node("F1", "F", "O3", 5),
-      node("F2", "F", "O3", 5),
-      node("S1", "S", null, 1, { text: "最初の構想", paths: ["O3"] }),
+      node("A1", "A", "Q1", 2, { starred: true, counts: { q: 1, a: 0, f: 1, e: 0 } }),
+      node("A2", "A", "Q1", 2),
+      node("Q2", "Q", "A1", 3),
+      node("Q3", "Q", "A1", 3),
+      node("A3", "A", "Q2", 4, { starred: true, counts: { q: 0, a: 0, f: 2, e: 0 } }),
+      node("F1", "F", "A3", 5, { stance: "S" }),
+      node("F2", "F", "A3", 5, { stance: "D" }),
+      node("S1", "S", null, 1, { text: "最初の構想", paths: ["A3"] }),
       node("E1", "E", "S1", 2, { mlflow: "run-a" }),
       node("E2", "E", "E1", 3),
-      node("F3", "F", "E1", 3),
-      node("S2", "S", null, 1, { text: "二つ目の構想", paths: ["O1"] }),
+      node("F3", "F", "E1", 3, { stance: "I" }),
+      node("S2", "S", null, 1, { text: "二つ目の構想", paths: ["A1"] }),
       node("E4", "E", "S2", 2),
     ],
   };
@@ -109,7 +107,7 @@ function testSelection() {
 function testChildDirection() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   // ROOT は子が親より下
-  for (const [c, p] of [["Q1", "Q0"], ["O1", "Q1"], ["Q2", "O1"], ["O3", "Q2"], ["F1", "O3"], ["F2", "O3"]]) {
+  for (const [c, p] of [["Q1", "Q0"], ["A1", "Q1"], ["Q2", "A1"], ["A3", "Q2"], ["F1", "A3"], ["F2", "A3"]]) {
     assert.ok(byId(l, c).y > byId(l, p).y, `${c} > ${p}`);
   }
   // BRANCH は子が親より上
@@ -130,24 +128,24 @@ function testNoOverlap() {
 function testParentCentered() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   const kids = (id) => l.cards.filter((c) => l.edges.some((e) => e.kind === "tree" && e.from === id && e.to === c.id));
-  for (const id of ["Q1", "O1", "Q2", "S1", "E1", "S2"]) {
+  for (const id of ["Q1", "A1", "Q2", "S1", "E1", "S2"]) {
     const ks = kids(id).sort((a, b) => a.x - b.x);
     assert.strictEqual(byId(l, id).x, (ks[0].x + ks[ks.length - 1].x) / 2, id);
   }
 }
 
 function testSproutKeep() {
-  // S1 を選ぶと、S1 自身・BRANCH（E1・E2・F3）・PATH（O3 から top_Q までの Q・O）が残る
+  // S1 を選ぶと、S1 自身・BRANCH（E1・E2・F3）・PATH（A3 から top_Q までの Q・A）が残る
   const keep = sgSproutKeep(sampleStatus(), "S1");
   assert.deepStrictEqual(
     [...keep].sort(),
-    ["S1", "E1", "E2", "F3", "O3", "Q2", "O1", "Q1", "Q0"].sort(),
+    ["S1", "E1", "E2", "F3", "A3", "Q2", "A1", "Q1", "Q0"].sort(),
   );
-  // PATH の外の F1・F2・Q3・O2 と、別の SPROUT は残らない
-  for (const id of ["F1", "F2", "Q3", "O2", "S2", "E4"]) assert.ok(!keep.has(id), id);
-  // S2 は O1 までの道だけ
+  // PATH の外の F1・F2・Q3・A2 と、別の SPROUT は残らない
+  for (const id of ["F1", "F2", "Q3", "A2", "S2", "E4"]) assert.ok(!keep.has(id), id);
+  // S2 は A1 までの道だけ
   const keep2 = sgSproutKeep(sampleStatus(), "S2");
-  assert.deepStrictEqual([...keep2].sort(), ["S2", "E4", "O1", "Q1", "Q0"].sort());
+  assert.deepStrictEqual([...keep2].sort(), ["S2", "E4", "A1", "Q1", "Q0"].sort());
   // SPROUT でない ID には null
   assert.strictEqual(sgSproutKeep(sampleStatus(), "Q0"), null);
   assert.strictEqual(sgSproutKeep(sampleStatus(), "S9"), null);
@@ -166,37 +164,38 @@ function testHideE() {
 function testHideF() {
   const l = sgTreeLayout({ status: sampleStatus() }, { hideF: true });
   assert.strictEqual(byId(l, "F1"), undefined);
-  // O3 の下の F 2 つは O3 の sub に出る
-  assert.ok(byId(l, "O3").sub.includes("F 2"), byId(l, "O3").sub);
+  // A3 の下の F 2 つは A3 の sub に出る
+  assert.ok(byId(l, "A3").sub.includes("F 2"), byId(l, "A3").sub);
   // E1 の下の F3 は E1 の sub に足される
   assert.ok(byId(l, "E1").sub.includes("F 1"), byId(l, "E1").sub);
 }
 
-function testDimAndContent() {
+function testCardContent() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
-  assert.strictEqual(byId(l, "O2").dim, true);
-  assert.strictEqual(byId(l, "O1").dim, false);
-  assert.ok(byId(l, "O1").sub.includes("★"));
-  assert.ok(byId(l, "O3").sub.includes("Issue"));
-  assert.strictEqual(byId(l, "Q0").sub, "■■□ 2/3");
+  // F は stance の文字を sub に出し、stance を札に持つ
+  assert.strictEqual(byId(l, "F1").sub, "S");
+  assert.strictEqual(byId(l, "F1").stance, "S");
+  assert.strictEqual(byId(l, "F2").stance, "D");
+  assert.strictEqual(byId(l, "F3").sub, "I");
+  // A は ★ と F の数。Q は印を出さない（Objectivity・Logicality は無い）
+  assert.ok(byId(l, "A1").sub.includes("★"));
+  assert.ok(byId(l, "A3").sub.includes("F 2"), byId(l, "A3").sub);
+  assert.strictEqual(byId(l, "Q0").sub, "");
   assert.strictEqual(byId(l, "E1").sub, "run-a");
+  // PATH の外の A も淡くしない（on_path は無くなった）
+  assert.ok(!("dim" in byId(l, "A2")));
+  assert.strictEqual(byId(l, "A2").stance, "");
 }
 
-function testPending() {
+function testNoPending() {
+  // 保留の印は無くなったので、札に pending の項目は持たせない
   const l = sgTreeLayout({ status: sampleStatus() }, {});
-  // status.nodes[].pending が札の pending になる
-  assert.strictEqual(byId(l, "O3").pending, 2);
-  assert.strictEqual(byId(l, "Q0").pending, 0);
-  // 0 件なら印は出さない
-  assert.strictEqual(sgPendingMark(0), "");
-  assert.strictEqual(sgPendingMark(null), "");
-  assert.strictEqual(sgPendingMark(2), "P2");
+  for (const c of l.cards) assert.ok(!("pending" in c), c.id);
 }
 
 function testEmpty() {
   const l = sgTreeLayout({ status: { nodes: [] } }, {});
   assert.deepStrictEqual(l.cards, []);
-  assert.strictEqual(sgObjBar(null), "");
 }
 
 function testEdgeStyle() {
@@ -215,16 +214,16 @@ function testEdgePath() {
   assert.ok(/^M 200 72 /.test(d) || /^M 100 72 /.test(d), d);
 }
 
-// --- F ・ O の出し入れと畳み（U02）: Q1 → O2 → F3・F4、Q1 → O5 ---
+// --- A の出し入れと畳み（U02）: Q1 → A2 → F3・F4、Q1 → A5 ---
 
 function miniStatus() {
   return {
     nodes: [
       node("Q1", "Q", null, 0),
-      node("O2", "O", "Q1", 1, { answer_kind: "answer" }),
-      node("F3", "F", "O2", 2),
-      node("F4", "F", "O2", 2),
-      node("O5", "O", "Q1", 1, { answer_kind: "issue" }),
+      node("A2", "A", "Q1", 1),
+      node("F3", "F", "A2", 2, { stance: "S" }),
+      node("F4", "F", "A2", 2, { stance: "I" }),
+      node("A5", "A", "Q1", 1),
     ],
   };
 }
@@ -233,26 +232,26 @@ const idsOf = (l) => l.cards.map((c) => c.id);
 const treeEdges = (l) => l.edges.filter((e) => e.kind === "tree").map((e) => `${e.from}→${e.to}`);
 
 function testCollapsed() {
-  const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["O2"] });
-  assert.deepStrictEqual(idsOf(l).sort(), ["O2", "O5", "Q1", "SEED"].sort());
+  const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["A2"] });
+  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "Q1", "SEED"].sort());
   assert.strictEqual(byId(l, "F3"), undefined);
   assert.strictEqual(byId(l, "F4"), undefined);
-  assert.strictEqual(byId(l, "O2").collapsed, true);
-  assert.ok(byId(l, "O2").sub.endsWith("▸ +2"), byId(l, "O2").sub);
-  assert.strictEqual(byId(l, "O5").collapsed, false);
-  assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→O2", "Q1→O5"]);
+  assert.strictEqual(byId(l, "A2").collapsed, true);
+  assert.ok(byId(l, "A2").sub.endsWith("▸ +2"), byId(l, "A2").sub);
+  assert.strictEqual(byId(l, "A5").collapsed, false);
+  assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→A2", "Q1→A5"]);
   assert.ok(hasEdge(l, "SEED", "Q1", "seed"));
 }
 
-function testHideO() {
-  const l = sgTreeLayout({ status: miniStatus() }, { hideO: true });
+function testHideA() {
+  const l = sgTreeLayout({ status: miniStatus() }, { hideA: true });
   assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "Q1", "SEED"].sort());
-  // O を隠すとその下は O の父の Q につなぎる
+  // A を隠すとその下は A の父の Q につなぐ
   assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→F3", "Q1→F4"]);
 }
 
-function testHideFAndO() {
-  const l = sgTreeLayout({ status: miniStatus() }, { hideF: true, hideO: true });
+function testHideFAndA() {
+  const l = sgTreeLayout({ status: miniStatus() }, { hideF: true, hideA: true });
   assert.deepStrictEqual(idsOf(l), ["Q1", "SEED"]);
   assert.ok(byId(l, "Q1").sub.includes("F 2"), byId(l, "Q1").sub);
   assert.deepStrictEqual(treeEdges(l), []);
@@ -260,11 +259,11 @@ function testHideFAndO() {
 
 function testCollapsedWithoutChildren() {
   // 子孫の無い札を畳みに入れても印はつかない
-  const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["O5"] });
-  assert.strictEqual(byId(l, "O5").collapsed, false);
-  assert.strictEqual(byId(l, "O5").canCollapse, false);
-  assert.ok(!byId(l, "O5").sub.includes("▸"), byId(l, "O5").sub);
-  assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "O2", "O5", "Q1", "SEED"].sort());
+  const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["A5"] });
+  assert.strictEqual(byId(l, "A5").collapsed, false);
+  assert.strictEqual(byId(l, "A5").canCollapse, false);
+  assert.ok(!byId(l, "A5").sub.includes("▸"), byId(l, "A5").sub);
+  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "F3", "F4", "Q1", "SEED"].sort());
 
   // 子孫のある Q1 を畳むと、他は子孫と印だけ
   const l2 = sgTreeLayout({ status: miniStatus() }, { collapsed: ["Q1"] });
@@ -290,14 +289,14 @@ const tests = [
   ["sgSproutKeep", testSproutKeep],
   ["hideE", testHideE],
   ["hideF", testHideF],
-  ["dim と札の中身", testDimAndContent],
-  ["pending の印", testPending],
+  ["stance と札の中身", testCardContent],
+  ["保留の印は持たない", testNoPending],
   ["空の入力", testEmpty],
   ["線の書き方", testEdgeStyle],
   ["線の形", testEdgePath],
   ["畳んだ子孫", testCollapsed],
-  ["hideO", testHideO],
-  ["hideF と hideO", testHideFAndO],
+  ["hideA", testHideA],
+  ["hideF と hideA", testHideFAndA],
   ["子孫の無い札の畳み", testCollapsedWithoutChildren],
   ["中央に出す tx と ty", testCenterView],
 ];

@@ -1,17 +1,17 @@
 "use strict";
-// research-tree の図（実装計画 U20）。一番上の Q から下へ伸びる Q・O・F・E の木 1 つ。
+// research-tree の図（実装計画 U20）。一番上の Q から下へ伸びる Q・A・F・E・S の木 1 つ。
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
 //   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。SPROUT を選ぶと他を薄くする
-//   sgMarkPicked(ids)                                  … SPROUT 作成中の PATH に入れた O の札に破線の印（ID の配列か Set）
+//   sgMarkPicked(ids)                                  … SPROUT 作成中の PATH に入れた A の札に破線の印（ID の配列か Set）
 //   sgSproutKeep(status, id)                           … SPROUT に含まれる ID の Set（SPROUT でなければ null）
 //   sgCenterOn(id)                                     … その札を画面の中央に出す
 //
-// key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と O と E の出し入れ・畳んだ札を覚えて、
+// key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と A と E の出し入れ・畳んだ札を覚えて、
 // もう一度開いたときに同じ状態で出す（画面の中の Map と localStorage の sai-sg-view:<key>）。
 // onSelect には {kind: "node", id} / {kind: "seed", id} を渡す（札の data-sg-id と同じ ID）。
-// 段は、下から ROOT（top_Q とその下の Q・O・F）→ SEED の札 → SPROUT（kind S）→ BRANCH（E）の順。
+// 段は、下から ROOT（top_Q とその下の Q・A・F）→ SEED の札 → SPROUT（kind S）→ BRANCH（E）の順。
 // 線は SEED → top_Q（seed）・SEED → SPROUT（sprout）・Parent / Child（tree）の 3 つ。
 //
 // 中の処理は Rust のコアが返した JSON だけを使う（apps/web は他の DB を開かない）。
@@ -34,7 +34,7 @@ const SG_MANY_NODES = 60;
 const SG_DRAG_SLOP = 4;
 // 拡大・縮小の釦を 1 回押したときの拡大率の倍率
 const SG_ZOOM_STEP = 1.2;
-// 位置・倍率・F と O・畳みを覚える localStorage の鍵の前
+// 位置・倍率・F と A・畳みを覚える localStorage の鍵の前
 const SG_MEMO_PREFIX = "sai-sg-view:";
 // localStorage へ書くのをまとめるミリ秒
 const SG_MEMO_WAIT = 120;
@@ -52,17 +52,17 @@ const SG_EDGE_KINDS = [
 let sgStatus = null;   // 最後に描いた status の JSON
 let sgSelMap = new Map(); // 札の id → onSelect に渡す sel
 let sgSelectedKey = null; // 選んでいる札の id
-let sgPicked = new Set(); // SPROUT の PATH に入れた O の id（再描画のあとも印を戻す）
+let sgPicked = new Set(); // SPROUT の PATH に入れた A の id（再描画のあとも印を戻す）
 let sgOnSelect = null; // 札を押したときに呼ぶ関数
 let sgRoot = null;     // 図を囲む要素
 let sgFBtn = null;     // F の出し入れの釦（文と色を sgDraw で更新する）
-let sgOBtn = null;     // O の出し入れの釦（同じ作り）
+let sgABtn = null;     // A の出し入れの釦（同じ作り）
 let sgEBtn = null;     // E の出し入れの釦（同じ作り）
 let sgStage = null;    // 見える範囲を出す所
 let sgWorld = null;    // その中の世界（transform で動かす）
 let sgView = { tx: 0, ty: 0, z: 1 }; // 画面上の点 = 世界の点 * z + (tx, ty)
 let sgHideF = false;   // F の札を隠すか
-let sgHideO = false;   // O の札を隠すか
+let sgHideA = false;   // A の札を隠すか
 let sgHideE = false;   // E の札を隠すか
 let sgCollapsed = new Set(); // 畳んだ札の id（その子孫を見ない）
 let sgCollapsible = new Set(); // 子孫があるので畳める札の id
@@ -73,7 +73,7 @@ let sgDown = null;       // 1 本指で押したままの情報
 let sgPinch = null;      // 2 本指の情報
 let sgFitted = false;    // 全体表示を 1 回はしたか
 let sgKey = null;        // 今の図の記憶の入れ物（プロジェクト名。無いときは記憶しない）
-let sgMemo = new Map();  // key → {view, hideF, hideO, hideE, collapsed}
+let sgMemo = new Map();  // key → {view, hideF, hideA, hideE, collapsed}
 let sgMemoTimer = null;  // localStorage へ書くのをまとめる計時
 let sgMemoPending = null; // localStorage に書く、まだ書いていない最新の物
 let sgKeysBound = false; // document の keydown を 1 回だけ付けたか
@@ -88,17 +88,6 @@ function sgEdgeStyle(kind) {
   const row = SG_EDGE_KINDS.find((k) => k[0] === key);
   if (row) return { dash: row[2], arrow: row[3], colorVar: `var(${row[4]})` };
   return { dash: "", arrow: false, colorVar: "var(--sci-edge-parent)" };
-}
-
-/** Objectivity の棒（■■□ 2/3）。target が 0 以下なら count だけ。 */
-function sgObjBar(o) {
-  if (!o) return "";
-  const count = Number(o.count) || 0;
-  const target = Number(o.target) || 0;
-  if (target <= 0) return String(count);
-  const n = Math.min(target, 8);
-  const on = Math.min(n, count);
-  return `${"■".repeat(on)}${"□".repeat(n - on)} ${count}/${target}`;
 }
 
 /** 文を n 字で切る。 */
@@ -119,9 +108,9 @@ function sgIdSet(v) {
 /**
  * 木の配置。
  * @param input {status}
- * @param opts {hideF, hideO, hideE, collapsed}
+ * @param opts {hideF, hideA, hideE, collapsed}
  *   hideF … 真なら F の札を出さず、親の札の sub に `F <n>` を書く
- *   hideO … 真なら O の札を出さない
+ *   hideA … 真なら A の札を出さない
  *   hideE … 真なら E の札を出さない
  *   collapsed … 畳んだ札の id（Set でも配列でもよい）。その札の子孫を見ない
  * @returns {cards, edges, width, height}
@@ -130,14 +119,14 @@ function sgTreeLayout(input, opts) {
   const status = (input && input.status) || {};
   const o = opts || {};
   const hideF = !!o.hideF;
-  const hideO = !!o.hideO;
+  const hideA = !!o.hideA;
   const hideE = !!o.hideE;
   const collapsed = sgIdSet(o.collapsed);
   const all = (Array.isArray(status.nodes) ? status.nodes : []).filter((n) => n && n.id);
   const byId = new Map(all.map((n) => [String(n.id), n]));
 
-  // 出さない種類（隠した F・O・E。隠した E の下の F・E は一番近い見える祖先につなぐ）
-  const kindHidden = (n) => (hideF && n.kind === "F") || (hideO && n.kind === "O") || (hideE && n.kind === "E");
+  // 出さない種類（隠した F・A・E。隠した E の下の F・E は一番近い見える祖先につなぐ）
+  const kindHidden = (n) => (hideF && n.kind === "F") || (hideA && n.kind === "A") || (hideE && n.kind === "E");
 
   // 畳んだ祖先があるか（自分自身は数えない。畳んだ札の自身は見えるので）
   const underCollapsed = (n) => {
@@ -311,8 +300,7 @@ function sgTreeLayout(input, opts) {
     const typeName = status.seed && status.seed.type && status.seed.type.name ? String(status.seed.type.name) : "";
     cards.push({
       id: "SEED", kind: "SEED", x: seedX, y: 0, w: SG_CARD_W, h: SG_CARD_H,
-      text: "SEED", sub: typeName, starred: false, answerKind: null,
-      onPath: true, dim: false, collapsed: false, canCollapse: false, pending: 0,
+      text: "SEED", sub: typeName, starred: false, stance: "", collapsed: false, canCollapse: false,
     });
     pos.set("SEED", { x: seedX, y: 0 });
   }
@@ -340,15 +328,13 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse) {
   let sub = "";
   const counts = n.counts || {};
   const f = hiddenF || Number(counts.f) || 0;
-  if (n.kind === "Q") {
-    const bar = sgObjBar(n.objectivity);
-    const lg = n.logicality && n.logicality.value && n.logicality.value !== "unchecked" ? ` L:${n.logicality.value}` : "";
-    sub = `${bar}${lg}`.trim();
-  } else if (n.kind === "O") {
-    const kind = /issue/i.test(n.answer_kind || "") ? "Issue" : "Answer";
-    sub = `${n.starred ? "★ " : ""}${kind}${f ? ` F ${f}` : ""}`;
+  // F の stance は文字（S・D・I）で出す（色だけに頼らない）
+  const stance = n.kind === "F" && ["S", "D", "I"].includes(n.stance) ? n.stance : "";
+  if (n.kind === "A") {
+    sub = `${n.starred ? "★ " : ""}${f ? `F ${f}` : ""}`.trim();
   } else if (n.kind === "F") {
     text = sgClip(text, 40);
+    sub = stance;
   } else if (n.kind === "E") {
     sub = n.mlflow ? String(n.mlflow) : "";
   } else if (n.kind === "S") {
@@ -357,26 +343,19 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse) {
     text = `${n.id} ${text}`.trim();
     sub = paths > 0 ? `PATH ${paths}` : "";
   }
-  if (hiddenF && n.kind !== "O") sub = `${sub} F ${hiddenF}`.trim();
+  if (hiddenF && n.kind !== "A") sub = `${sub} F ${hiddenF}`.trim();
   const collapsed = !!(canCollapse && collapsedCount > 0);
   if (collapsed) sub = `${sub} ▸ +${collapsedCount}`.trim();
   return {
     id: String(n.id), kind: n.kind, x, y, w: SG_CARD_W, h: SG_CARD_H,
-    text, sub, starred: !!n.starred, answerKind: n.answer_kind || null,
-    onPath: n.on_path !== false, dim: n.on_path === false,
-    collapsed, canCollapse: !!canCollapse, pending: Number(n.pending) || 0,
+    text, sub, starred: !!n.starred, stance,
+    collapsed, canCollapse: !!canCollapse,
   };
-}
-
-/** PENDING の印の文字（0 件なら空文字）。 */
-function sgPendingMark(pending) {
-  const n = Number(pending) || 0;
-  return n > 0 ? `P${n}` : "";
 }
 
 /**
  * SPROUT（kind S）を選んだときに濃く残す ID の Set。SPROUT でなければ null。
- * 残すのは、その S 自身・S の下の E と F（BRANCH）・paths の終点の O から top_Q までの Q・O（PATH）。
+ * 残すのは、その S 自身・S の下の E と F（BRANCH）・paths の終点の A から top_Q までの Q・A（PATH）。
  */
 function sgSproutKeep(status, id) {
   const want = id == null ? "" : String(id);
@@ -396,7 +375,7 @@ function sgSproutKeep(status, id) {
       p = pn && pn.parent != null ? String(pn.parent) : null;
     }
   }
-  // PATH: paths の終点の O から top_Q までの祖先（Q・O）
+  // PATH: paths の終点の A から top_Q までの祖先（Q・A）
   const paths = Array.isArray(sprout.paths) ? sprout.paths : [];
   for (const pid of paths) {
     let cur = byId.get(String(pid));
@@ -506,13 +485,13 @@ function sgRenderGraph(container, input, onSelect) {
   // Node が多いときは、F を隠した状態で始める
   const nodes = sgStatus && Array.isArray(sgStatus.nodes) ? sgStatus.nodes : [];
 
-  // 覚えていた表示（位置・倍率・F と O と E・畳み）。key が無いときは全体をそのまま出す
+  // 覚えていた表示（位置・倍率・F と A と E・畳み）。key が無いときは全体をそのまま出す
   sgKey = input && input.key ? String(input.key) : null;
   const memo = sgReadMemo(sgKey);
   if (memo) {
     sgView = { tx: memo.view.tx, ty: memo.view.ty, z: memo.view.z };
     sgHideF = memo.hideF;
-    sgHideO = memo.hideO;
+    sgHideA = memo.hideA;
     sgHideE = memo.hideE;
     sgCollapsed = new Set(memo.collapsed);
     // 今の status に無い id は捨てる
@@ -523,22 +502,22 @@ function sgRenderGraph(container, input, onSelect) {
     sgView = { tx: 0, ty: 0, z: 1 };
     sgFitted = false;
     sgHideF = nodes.length > SG_MANY_NODES;
-    sgHideO = false;
+    sgHideA = false;
     sgHideE = false;
     sgCollapsed = new Set();
   }
 
   sgRoot = sgEl("div", "sci-graph");
 
-  // 1. 道具の行（F と O と E の出し入れ・拡大・縮小・全体を表示）
+  // 1. 道具の行（F と A と E の出し入れ・拡大・縮小・全体を表示）
   const tools = sgEl("div", "sci-graph-tools sai-toolbar");
   sgFBtn = sgToggleBtn("F", "sg-btn-F", () => {
     sgHideF = !sgHideF;
     sgWriteMemo();
     sgDraw(sgSelectedKey);
   });
-  sgOBtn = sgToggleBtn("O", "sg-btn-O", () => {
-    sgHideO = !sgHideO;
+  sgABtn = sgToggleBtn("A", "sg-btn-A", () => {
+    sgHideA = !sgHideA;
     sgWriteMemo();
     sgDraw(sgSelectedKey);
   });
@@ -548,7 +527,7 @@ function sgRenderGraph(container, input, onSelect) {
     sgDraw(sgSelectedKey);
   });
   tools.appendChild(sgFBtn);
-  tools.appendChild(sgOBtn);
+  tools.appendChild(sgABtn);
   tools.appendChild(sgEBtn);
   for (const [label, title, onClick] of [
     ["＋", "拡大", () => sgZoom(SG_ZOOM_STEP)],
@@ -618,7 +597,7 @@ function sgDraw(anchorId) {
     return;
   }
 
-  const layout = sgTreeLayout({ status: sgStatus }, { hideF: sgHideF, hideO: sgHideO, hideE: sgHideE, collapsed: sgCollapsed });
+  const layout = sgTreeLayout({ status: sgStatus }, { hideF: sgHideF, hideA: sgHideA, hideE: sgHideE, collapsed: sgCollapsed });
   for (const c of layout.cards) {
     sgRects.set(c.id, { x: c.x, y: c.y, width: c.w, height: c.h });
     sgSelMap.set(c.id, sgSelectionOf(c));
@@ -671,7 +650,7 @@ function sgDraw(anchorId) {
   sgApplyView();
 }
 
-/** F・O・E の釦（文は 1 文字。出しているときだけ色を付ける）。 */
+/** F・A・E の釦（文は 1 文字。出しているときだけ色を付ける）。 */
 function sgToggleBtn(label, cls, onClick) {
   const b = sgEl("button", `sci-graph-btn ${cls}`);
   b.type = "button";
@@ -680,9 +659,9 @@ function sgToggleBtn(label, cls, onClick) {
   return b;
 }
 
-/** F・O・E の釦の色と title を今の状態に合わせて更新する。 */
+/** F・A・E の釦の色と title を今の状態に合わせて更新する。 */
 function sgUpdateToggles() {
-  for (const [btn, hide, what] of [[sgFBtn, sgHideF, "F"], [sgOBtn, sgHideO, "O"], [sgEBtn, sgHideE, "E"]]) {
+  for (const [btn, hide, what] of [[sgFBtn, sgHideF, "F"], [sgABtn, sgHideA, "A"], [sgEBtn, sgHideE, "E"]]) {
     if (!btn) continue;
     btn.classList.toggle("on", !hide);
     btn.setAttribute("aria-pressed", hide ? "false" : "true");
@@ -709,7 +688,7 @@ function sgMarkSelected(id) {
   }
 }
 
-/** SPROUT 作成中の PATH に入れた O の札に印を付ける（空なら外す）。 */
+/** SPROUT 作成中の PATH に入れた A の札に印を付ける（空なら外す）。 */
 function sgMarkPicked(ids) {
   sgPicked = new Set(Array.from(ids || [], String));
   sgMarkSelected(sgSelectedKey);
@@ -744,13 +723,8 @@ function sgCardEl(c) {
   b.style.width = `${c.w}px`;
   b.style.height = `${c.h}px`;
   if (c.starred) b.classList.add("sci-graph-starred");
-  if (c.dim) b.classList.add("sci-graph-dim");
+  if (c.stance) b.classList.add(`sci-graph-stance-${c.stance}`);
   if (c.collapsed) b.classList.add("sci-graph-collapsed");
-  if (c.pending > 0) {
-    const mark = sgEl("span", "sci-graph-pending", sgPendingMark(c.pending));
-    mark.title = `PENDING の PROPOSAL が ${c.pending} 件`;
-    b.appendChild(mark);
-  }
   const head = sgEl("span", "sci-graph-card-head");
   head.appendChild(sgEl("span", "sci-graph-card-id", c.kind === "S" ? "SPROUT" : c.id));
   b.appendChild(head);
@@ -796,7 +770,7 @@ function sgReadMemo(key) {
   const out = {
     view: { tx: Number(o.view.tx) || 0, ty: Number(o.view.ty) || 0, z: Number.isFinite(z) && z > 0 ? z : 1 },
     hideF: !!o.hideF,
-    hideO: !!o.hideO,
+    hideA: !!o.hideA,
     hideE: !!o.hideE,
     collapsed: Array.isArray(o.collapsed) ? o.collapsed.filter((x) => x != null).map(String) : [],
   };
@@ -804,7 +778,7 @@ function sgReadMemo(key) {
   return out;
 }
 
-/** 今の表示（位置・倍率・F と O と E・畳み）を覚える。key が無いときは何もしない。 */
+/** 今の表示（位置・倍率・F と A と E・畳み）を覚える。key が無いときは何もしない。 */
 function sgWriteMemo() {
   if (!sgKey) return;
   // 画面の中ではすぐ次の読み出しに使う
@@ -813,7 +787,7 @@ function sgWriteMemo() {
     memo: {
       view: { tx: sgView.tx, ty: sgView.ty, z: sgView.z },
       hideF: sgHideF,
-      hideO: sgHideO,
+      hideA: sgHideA,
       hideE: sgHideE,
       collapsed: [...sgCollapsed],
     },
@@ -854,7 +828,7 @@ function sgCenterView(rect, w, h, z) {
 
 /**
  * その札を画面の中央に出す（拡大率は動かさない）。見つからなければ false。
- * 図に無い札（隠した F・O・畳んだ部分木）は、一番近い見える祖先を中央に出す。
+ * 図に無い札（隠した F・A・畳んだ部分木）は、一番近い見える祖先を中央に出す。
  */
 function sgCenterOn(id) {
   if (!sgStage || !sgStatus || id == null) return false;
@@ -1130,8 +1104,6 @@ if (typeof module !== "undefined" && module.exports) {
     sgCenterView,
     sgEdgeStyle,
     sgEdgePath,
-    sgObjBar,
-    sgPendingMark,
     SG_CARD_W,
     SG_CARD_H,
     SG_TREE_STEP,

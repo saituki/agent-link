@@ -1,7 +1,7 @@
 "use strict";
 // READ_CARD（#/research/read/<run_id>）の画面（U21）。
 //
-// READ_CARD は人が READ_CARD（runner = user）。利用者は論文を読み、O（または E）に F を付け、
+// READ_CARD は人が READ_CARD（runner = user）。利用者は論文を読み、A（または E）に F を付け、
 // note.md を書いて終える。読み終わりの判定はコアが行い、終える操作は止めない。
 //
 // 中の処理は `GET …/sci/reads/<run_id>`・`…/start`・`…/finish`・`GET …/sci/nodes/<ID>`・
@@ -14,6 +14,8 @@
 
 // 読む深さ
 const SR_DEPTHS = [["abstract", "抄録"], ["figures", "図"], ["full", "精読"]];
+// F の stance（必須。S 支持・D 反対・I 問い）
+const SR_STANCES = [["S", "S 支持"], ["D", "D 反対"], ["I", "I 問い"]];
 // 置き場の表示（owner が todo なら「始める」を出す）
 const SR_OWNERS = {
   todo: "まだ読んでいない",
@@ -27,7 +29,7 @@ const SR_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)
 // --- 画面の状態 ---
 
 let srCard = null;     // 最後に読んだ READ_CARD の JSON
-let srDetail = null;   // 対象 Node の詳細（Q のとき O の候補に使う）
+let srDetail = null;   // 対象 Node の詳細（Q のとき A の候補に使う）
 let srRunId = null;    // 今開いている READ_CARD の run の番号
 
 // ============================================================================
@@ -62,15 +64,15 @@ function srCardPaper(card) {
 
 /**
  * F を付ける先の候補（Node の ID の配列）。
- * 対象が O か E ならそれ 1 つ。Q なら detail.children の O（★ を先に）。
+ * 対象が A か E ならそれ 1 つ。Q なら detail.children の A（★ を先に）。
  */
 function srParents(card, detail) {
   const node = (card && card.node) || {};
   const id = srTrim(node.id);
-  if (node.kind === "O" || node.kind === "E") return id ? [id] : [];
+  if (node.kind === "A" || node.kind === "E") return id ? [id] : [];
   if (node.kind !== "Q") return [];
   const kids = detail && Array.isArray(detail.children) ? detail.children : [];
-  const os = kids.filter((k) => k && k.kind === "O" && srTrim(k.id));
+  const os = kids.filter((k) => k && k.kind === "A" && srTrim(k.id));
   return [...os.filter((k) => k.starred), ...os.filter((k) => !k.starred)].map((k) => srTrim(k.id));
 }
 
@@ -89,7 +91,8 @@ function srBuildAnswer(card, values) {
   const paper = srCardPaper(card);
   if (!paper) return bad("論文が分かりません");
   const parent = srTrim(v.parent);
-  if (!/^[OE][1-9][0-9]{0,8}$/.test(parent)) return bad("F を付ける先（O か E）を選んでください");
+  if (!/^[AE][1-9][0-9]{0,8}$/.test(parent)) return bad("F を付ける先（A か E）を選んでください");
+  if (!SR_STANCES.some((x) => x[0] === v.stance)) return bad("stance（S・D・I）を選んでください");
   const text = srTrim(v.text);
   if (!text) return bad("文を入力してください");
   if (text.length > 1200) return bad("文は 1200 字までです");
@@ -98,7 +101,7 @@ function srBuildAnswer(card, values) {
   if (place.length > 80) return bad("場所は 80 字までです");
   const cite = place ? `#${paper} ${place}` : `#${paper}`;
   if (!SR_CITE_RE.test(cite)) return bad("出典の形が正しくありません");
-  const json = { op: "add_f", parent, text, cites: [cite], paper };
+  const json = { op: "add_f", parent, text, cites: [cite], paper, stance: v.stance };
   // この札（run）で入れた F として残す（「この札で入れた F」に数える）
   const run = Number(card && card.run_id);
   if (Number.isInteger(run) && run > 0) json.run = run;
@@ -212,7 +215,7 @@ async function srReload() {
     return;
   }
   srCard = card || null;
-  // 対象が Q のときだけ、付ける先の O を探すために Node の詳細を読む
+  // 対象が Q のときだけ、付ける先の A を探すために Node の詳細を読む
   srDetail = null;
   if (card && card.node && card.node.kind === "Q") {
     try {
@@ -320,7 +323,7 @@ function srAddForm(card) {
   const sec = srSec("F を足す");
   const parents = srParents(card, srDetail);
   if (!parents.length) {
-    sec.appendChild(srNote("F を付ける O または E がありません。research-tree で O を足してから戻ってください。"));
+    sec.appendChild(srNote("F を付ける A または E がありません。research-tree で A を足してから戻ってください。"));
     return sec;
   }
   const field = (label, input) => {
@@ -337,6 +340,19 @@ function srAddForm(card) {
     parent.appendChild(o);
   }
   if (parents.length > 1) field("付ける先", parent);
+
+  // stance（必須。押した釦が選ばれる。既定は無しで、選ぶまで送れない）
+  let stance = "";
+  const stanceRow = srEl("div", "sci-read-stance");
+  const stanceBtns = SR_STANCES.map(([code, name]) => {
+    const b = srBtn(`${code} ${name}`, () => {
+      stance = code;
+      for (const x of stanceBtns) x.classList.toggle("primary", x === b);
+    }, "ghost");
+    stanceRow.appendChild(b);
+    return b;
+  });
+  field("stance（必須）", stanceRow);
 
   const text = document.createElement("textarea");
   text.className = "sai-input sci-read-area";
@@ -357,7 +373,7 @@ function srAddForm(card) {
 
   const send = srBtn("F を足す", async () => {
     send.disabled = true;
-    const built = srBuildAnswer(card, { parent: parent.value, text: text.value, place: place.value });
+    const built = srBuildAnswer(card, { parent: parent.value, text: text.value, place: place.value, stance });
     if (!built.ok) {
       err.textContent = built.error;
       err.hidden = false;
@@ -474,6 +490,7 @@ if (typeof module !== "undefined" && module.exports) {
     srBuildAnswer,
     srBackHash,
     SR_DEPTHS,
+    SR_STANCES,
     SR_OWNERS,
     SR_CITE_RE,
   };
