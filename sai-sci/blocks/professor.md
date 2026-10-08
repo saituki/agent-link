@@ -13,16 +13,16 @@ enable: true
 subblocks:
   - operator
   - sci-start
-  - sci-split
-  - sci-ideate
+  - lab-read
+  - lab-search
+  - lab-survey
+  - lab-grow
+  - lab-place
+  - lab-progress
+  - sci-verify
   - sci-analogy
-  - sci-search
-  - sci-read
   - sci-lookup
   - sci-extract
-  - sci-debate
-  - sci-review
-  - sci-compare
   - sci-digest
   - sci-coach
   - sci-typify
