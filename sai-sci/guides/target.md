@@ -1,7 +1,6 @@
 ---
 key: target
 name: TARGET
-target: 2
 ---
 # TARGET
 

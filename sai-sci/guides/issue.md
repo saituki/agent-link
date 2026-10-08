@@ -1,7 +1,6 @@
 ---
 key: issue
 name: ISSUE
-target: 2
 ---
 # ISSUE
 

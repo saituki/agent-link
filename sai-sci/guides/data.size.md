@@ -1,7 +1,6 @@
 ---
 key: data.size
 name: DATA_SIZE
-target: 2
 ---
 # DATA_SIZE
 

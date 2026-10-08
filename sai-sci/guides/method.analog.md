@@ -1,7 +1,6 @@
 ---
 key: method.analog
 name: METHOD_ANALOG
-target: 2
 ---
 # METHOD_ANALOG
 

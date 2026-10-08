@@ -1,9 +1,9 @@
 //! research-tree（`rt_*` の表）の読み書き。行の型と基本の操作だけを持つ。
 //!
-//! 毎回計算するもの（Objectivity・Logicality の判定・進み具合）は置かない。
-//! 親子の決まりの検査も置かない。DB の CHECK 制約で守れるものだけ表が守る。
+//! 毎回計算するもの（進み具合など）は置かない。
+//! 親子の決まりの検査も置かない。DB の CHECK 制約で守れるものだけ表が守る（親子の決まりは `ops::execute` が守る）。
 //!
-//! JSON の文字列の列（`cites` `findings` `path` `hit_papers` `payload`）は Rust では `Vec`・`Value` で持つ。
+//! JSON の文字列の列（`cites` `paths` `hit_papers`）は Rust では `Vec` で持つ。
 //! 読めない JSON は空として扱う。
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -11,14 +11,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{Kind, Result, RtError, fmt_id, now_text};
 
-const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, answer_kind, starred, \
-     target, cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, \
-     proposal_id, paths, created_by, created_at, updated_at";
-const LOGIC_COLUMNS: &str =
-    "id, q_id, value, note, findings, f_count, run_id, proposal_id, created_by, created_at";
-const LOG_COLUMNS: &str = "id, node_id, action, detail, actor, proposal_id, created_at";
-const PROPOSAL_COLUMNS: &str = "id, run_id, block, op, node_id, payload, risk, status, \
-     result_ref, decided_by, decided_at, created_at";
+const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, stance, starred, \
+     cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, paths, \
+     created_by, created_at, updated_at";
+const LOG_COLUMNS: &str =
+    "id, node_id, action, detail, actor, approved_by, qid, question, created_at";
+const APPROVAL_COLUMNS: &str = "id, run_id, qid, question, answer, answered_by, created_at, \
+     consumed_at";
 const SEARCH_COLUMNS: &str = "id, run_id, node_id, tool, query, scope, hits, \
      hit_papers, set_id, created_at, log_id";
 
@@ -51,9 +50,9 @@ pub struct NodeRow {
     pub guide_key: Option<String>,
     pub text: String,
     pub body: String,
-    pub answer_kind: Option<String>,
+    /// F の立場（support / deny / issue）。F 以外は None。
+    pub stance: Option<String>,
     pub starred: bool,
-    pub target: Option<i64>,
     pub cites: Vec<String>,
     pub paper_id: Option<i64>,
     pub run_id: Option<i64>,
@@ -61,8 +60,7 @@ pub struct NodeRow {
     pub mlflow_ref: Option<String>,
     pub ord: i64,
     pub removed_at: Option<String>,
-    pub proposal_id: Option<i64>,
-    /// SPROUT（kind S）の PATH（終点の O の id）。S 以外は空。
+    /// SPROUT（kind S）の PATH（終点の A の id）。S 以外は空。
     pub paths: Vec<i64>,
     pub created_by: String,
     pub created_at: String,
@@ -77,13 +75,12 @@ pub struct NewNode<'a> {
     pub guide_key: Option<&'a str>,
     pub text: &'a str,
     pub body: &'a str,
-    pub answer_kind: Option<&'a str>,
+    pub stance: Option<&'a str>,
     pub cites: &'a [String],
     pub paper_id: Option<i64>,
     pub run_id: Option<i64>,
     pub report_id: Option<&'a str>,
     pub mlflow_ref: Option<&'a str>,
-    pub proposal_id: Option<i64>,
     /// SPROUT（kind S）の PATH。S 以外は空の並び。
     pub paths: &'a [i64],
     pub created_by: &'a str,
@@ -105,21 +102,19 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeRow> {
         guide_key: row.get(3)?,
         text: row.get(4)?,
         body: row.get(5)?,
-        answer_kind: row.get(6)?,
+        stance: row.get(6)?,
         starred: row.get::<_, i64>(7)? != 0,
-        target: row.get(8)?,
-        cites: parse_vec(&row.get::<_, String>(9)?),
-        paper_id: row.get(10)?,
-        run_id: row.get(11)?,
-        report_id: row.get(12)?,
-        mlflow_ref: row.get(13)?,
-        ord: row.get(14)?,
-        removed_at: row.get(15)?,
-        proposal_id: row.get(16)?,
-        paths: parse_vec(&row.get::<_, String>(17)?),
-        created_by: row.get(18)?,
-        created_at: row.get(19)?,
-        updated_at: row.get(20)?,
+        cites: parse_vec(&row.get::<_, String>(8)?),
+        paper_id: row.get(9)?,
+        run_id: row.get(10)?,
+        report_id: row.get(11)?,
+        mlflow_ref: row.get(12)?,
+        ord: row.get(13)?,
+        removed_at: row.get(14)?,
+        paths: parse_vec(&row.get::<_, String>(15)?),
+        created_by: row.get(16)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 
@@ -138,23 +133,22 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
         |row| row.get(0),
     )?;
     conn.execute(
-        "INSERT INTO rt_nodes (kind, parent_id, guide_key, text, body, answer_kind, cites, \
-         paper_id, run_id, report_id, mlflow_ref, ord, proposal_id, paths, created_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        "INSERT INTO rt_nodes (kind, parent_id, guide_key, text, body, stance, cites, \
+         paper_id, run_id, report_id, mlflow_ref, ord, paths, created_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             node.kind.as_str(),
             node.parent_id,
             node.guide_key,
             node.text,
             node.body,
-            node.answer_kind,
+            node.stance,
             write_vec(node.cites)?,
             node.paper_id,
             node.run_id,
             node.report_id,
             node.mlflow_ref,
             ord,
-            node.proposal_id,
             write_vec(node.paths)?,
             node.created_by,
         ],
@@ -219,20 +213,34 @@ pub fn set_starred(conn: &Connection, id: i64, starred: bool) -> Result<()> {
     expect_changed(changed, id)
 }
 
-/// O の種類（answer / issue）を変える。
-pub fn set_answer_kind(conn: &Connection, id: i64, kind: &str) -> Result<()> {
+/// F の立場を変える。
+pub fn set_stance(conn: &Connection, id: i64, stance: &str) -> Result<()> {
     let changed = conn.execute(
-        "UPDATE rt_nodes SET answer_kind = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, kind, now_text()],
+        "UPDATE rt_nodes SET stance = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, stance, now_text()],
     )?;
     expect_changed(changed, id)
 }
 
-/// Q の target（行き先の Node）を変える。
-pub fn set_target(conn: &Connection, id: i64, target: Option<i64>) -> Result<()> {
+/// E の MLflow の結び付けを変える（`None` で外す）。
+pub fn set_mlflow(conn: &Connection, id: i64, mlflow: Option<&str>) -> Result<()> {
     let changed = conn.execute(
-        "UPDATE rt_nodes SET target = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, target, now_text()],
+        "UPDATE rt_nodes SET mlflow_ref = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, mlflow, now_text()],
+    )?;
+    expect_changed(changed, id)
+}
+
+/// 親を付け替える。`ord` は新しい親の子の最後。
+pub fn set_parent(conn: &Connection, id: i64, parent_id: i64) -> Result<()> {
+    let ord: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(ord), 0) + 1 FROM rt_nodes WHERE parent_id = ?1",
+        params![parent_id],
+        |row| row.get(0),
+    )?;
+    let changed = conn.execute(
+        "UPDATE rt_nodes SET parent_id = ?2, ord = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, parent_id, ord, now_text()],
     )?;
     expect_changed(changed, id)
 }
@@ -264,67 +272,6 @@ pub fn remove_subtree(conn: &Connection, id: i64) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-// ---- Logic（Logicality の確かめの記録） ---------------------------------------------
-
-/// `rt_logic` の 1 行。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct LogicRow {
-    pub id: i64,
-    pub q_id: i64,
-    pub value: String,
-    pub note: String,
-    pub findings: Vec<i64>,
-    pub f_count: i64,
-    pub run_id: Option<i64>,
-    pub proposal_id: Option<i64>,
-    pub created_by: String,
-    pub created_at: String,
-}
-
-/// 確かめの記録を積む。
-#[allow(clippy::too_many_arguments)]
-pub fn insert_logic(
-    conn: &Connection,
-    q_id: i64,
-    value: &str,
-    note: &str,
-    findings: &[i64],
-    f_count: i64,
-    run_id: Option<i64>,
-    proposal_id: Option<i64>,
-    created_by: &str,
-) -> Result<i64> {
-    conn.execute(
-        "INSERT INTO rt_logic (q_id, value, note, findings, f_count, run_id, proposal_id, created_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![q_id, value, note, write_vec(findings)?, f_count, run_id, proposal_id, created_by],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// 確かめの記録（新しい順）。
-pub fn list_logic(conn: &Connection, q_id: Option<i64>) -> Result<Vec<LogicRow>> {
-    let sql = format!(
-        "SELECT {LOGIC_COLUMNS} FROM rt_logic WHERE (?1 IS NULL OR q_id = ?1) ORDER BY id DESC"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params![q_id], |row| {
-        Ok(LogicRow {
-            id: row.get(0)?,
-            q_id: row.get(1)?,
-            value: row.get(2)?,
-            note: row.get(3)?,
-            findings: parse_vec(&row.get::<_, String>(4)?),
-            f_count: row.get(5)?,
-            run_id: row.get(6)?,
-            proposal_id: row.get(7)?,
-            created_by: row.get(8)?,
-            created_at: row.get(9)?,
-        })
-    })?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
 // ---- Log（追記だけの記録） -----------------------------------------------------------
 
 /// `rt_log` の 1 行。
@@ -335,23 +282,36 @@ pub struct LogRow {
     pub action: String,
     pub detail: String,
     pub actor: String,
-    pub proposal_id: Option<i64>,
+    /// 承認した人（許可が要る op だけ。それ以外は None）。
+    pub approved_by: Option<String>,
+    /// 承認の質問の ID（許可が要る op だけ）。
+    pub qid: Option<String>,
+    /// 承認の質問の文（許可が要る op だけ）。
+    pub question: Option<String>,
     pub created_at: String,
 }
 
-/// 記録を 1 行足す。
+/// 記録を 1 行足す。`approval` は許可を使った op のときだけ入れる（その行の承認の印）。
 pub fn insert_log(
     conn: &Connection,
     node_id: i64,
     action: &str,
     detail: &str,
     actor: &str,
-    proposal_id: Option<i64>,
+    approval: Option<&ApprovalRow>,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO rt_log (node_id, action, detail, actor, proposal_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![node_id, action, detail, actor, proposal_id],
+        "INSERT INTO rt_log (node_id, action, detail, actor, approved_by, qid, question) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            node_id,
+            action,
+            detail,
+            actor,
+            approval.map(|a| a.answered_by.as_str()),
+            approval.map(|a| a.qid.as_str()),
+            approval.map(|a| a.question.as_str()),
+        ],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -368,104 +328,78 @@ pub fn list_log(conn: &Connection, limit: Option<usize>) -> Result<Vec<LogRow>> 
             action: row.get(2)?,
             detail: row.get(3)?,
             actor: row.get(4)?,
-            proposal_id: row.get(5)?,
-            created_at: row.get(6)?,
+            approved_by: row.get(5)?,
+            qid: row.get(6)?,
+            question: row.get(7)?,
+            created_at: row.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-// ---- Proposal -------------------------------------------------------------------------
+// ---- Approval（質問で取った許可） -----------------------------------------------------
 
-/// `rt_proposals` の 1 行。
+/// `rt_approvals` の 1 行。
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ProposalRow {
+pub struct ApprovalRow {
     pub id: i64,
-    pub run_id: Option<i64>,
-    pub block: Option<String>,
-    pub op: String,
-    pub node_id: Option<i64>,
-    pub payload: serde_json::Value,
-    pub risk: String,
-    pub status: String,
-    pub result_ref: Option<String>,
-    pub decided_by: Option<String>,
-    pub decided_at: Option<String>,
+    pub run_id: i64,
+    pub qid: String,
+    pub question: String,
+    pub answer: String,
+    pub answered_by: String,
     pub created_at: String,
+    pub consumed_at: Option<String>,
 }
 
-fn proposal_from_row(row: &Row<'_>) -> rusqlite::Result<ProposalRow> {
-    Ok(ProposalRow {
+fn approval_from_row(row: &Row<'_>) -> rusqlite::Result<ApprovalRow> {
+    Ok(ApprovalRow {
         id: row.get(0)?,
         run_id: row.get(1)?,
-        block: row.get(2)?,
-        op: row.get(3)?,
-        node_id: row.get(4)?,
-        payload: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or(serde_json::Value::Null),
-        risk: row.get(6)?,
-        status: row.get(7)?,
-        result_ref: row.get(8)?,
-        decided_by: row.get(9)?,
-        decided_at: row.get(10)?,
-        created_at: row.get(11)?,
+        qid: row.get(2)?,
+        question: row.get(3)?,
+        answer: row.get(4)?,
+        answered_by: row.get(5)?,
+        created_at: row.get(6)?,
+        consumed_at: row.get(7)?,
     })
 }
 
-/// PROPOSAL を足す。
-#[allow(clippy::too_many_arguments)]
-pub fn insert_proposal(
+/// 質問の回答を 1 行足す。同じ `qid` が既にあれば Db エラー（UNIQUE）。
+pub fn insert_approval(
     conn: &Connection,
-    run_id: Option<i64>,
-    block: Option<&str>,
-    op: &str,
-    node_id: Option<i64>,
-    payload: &serde_json::Value,
-    risk: &str,
-    status: &str,
+    run_id: i64,
+    qid: &str,
+    question: &str,
+    answer: &str,
+    answered_by: &str,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO rt_proposals (run_id, block, op, node_id, payload, risk, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![run_id, block, op, node_id, serde_json::to_string(payload)?, risk, status],
+        "INSERT INTO rt_approvals (run_id, qid, question, answer, answered_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![run_id, qid, question, answer, answered_by],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
-/// PROPOSAL を 1 つ読む。無ければ NotFound。
-pub fn get_proposal(conn: &Connection, id: i64) -> Result<ProposalRow> {
-    let sql = format!("SELECT {PROPOSAL_COLUMNS} FROM rt_proposals WHERE id = ?1");
-    conn.query_row(&sql, params![id], proposal_from_row)
-        .optional()?
-        .ok_or_else(|| RtError::NotFound(format!("P{id} はありません")))
-}
-
-/// PROPOSAL の一覧（古い順）。`status` を渡すとその状態だけ。
-pub fn list_proposals(conn: &Connection, status: Option<&str>) -> Result<Vec<ProposalRow>> {
+/// その run の未消費の許可を 1 つ読む（最も古いもの。消費はしない）。
+/// 回答を空白で切った値が `許可する` の行だけ。
+pub fn take_approval(conn: &Connection, run_id: i64) -> Result<Option<ApprovalRow>> {
     let sql = format!(
-        "SELECT {PROPOSAL_COLUMNS} FROM rt_proposals WHERE (?1 IS NULL OR status = ?1) ORDER BY id"
+        "SELECT {APPROVAL_COLUMNS} FROM rt_approvals \
+         WHERE run_id = ?1 AND consumed_at IS NULL AND trim(answer) = '許可する' \
+         ORDER BY id LIMIT 1"
     );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params![status], proposal_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(conn.query_row(&sql, params![run_id], approval_from_row).optional()?)
 }
 
-/// PROPOSAL の結末を書く。
-pub fn finish_proposal(
-    conn: &Connection,
-    id: i64,
-    status: &str,
-    result_ref: Option<&str>,
-    decided_by: Option<&str>,
-) -> Result<()> {
+/// 許可を使い切る。`ops` は許可で出した op 名の並び。
+pub fn consume_approval(conn: &Connection, id: i64, ops: &[String]) -> Result<()> {
     let changed = conn.execute(
-        "UPDATE rt_proposals SET status = ?2, result_ref = ?3, decided_by = ?4, decided_at = ?5 \
-         WHERE id = ?1",
-        params![id, status, result_ref, decided_by, now_text()],
+        "UPDATE rt_approvals SET consumed_at = ?2, consumed_ops = ?3 WHERE id = ?1",
+        params![id, now_text(), write_vec(ops)?],
     )?;
-    if changed == 0 {
-        return Err(RtError::NotFound(format!("P{id} はありません")));
-    }
-    Ok(())
+    expect_changed(changed, id)
 }
 
 // ---- Search ---------------------------------------------------------------------------
@@ -590,13 +524,12 @@ mod tests {
             guide_key: None,
             text,
             body: "",
-            answer_kind: (kind == Kind::O).then_some("answer"),
+            stance: (kind == Kind::F).then_some("support"),
             cites: &[],
             paper_id: None,
             run_id: None,
             report_id: None,
             mlflow_ref: None,
-            proposal_id: None,
             paths: &[],
             created_by: "user",
         }
@@ -607,7 +540,7 @@ mod tests {
         let database = db();
         let conn = database.connection();
         for table in [
-            "rt_meta", "rt_nodes", "rt_logic", "rt_log", "rt_proposals", "rt_searches",
+            "rt_meta", "rt_nodes", "rt_log", "rt_approvals", "rt_searches",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -618,6 +551,17 @@ mod tests {
                 .unwrap();
             assert_eq!(found, 1, "{table}");
         }
+        // 0056 で消した表は無い。
+        for table in ["rt_logic", "rt_proposals"] {
+            let found: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 0, "{table}");
+        }
         conn.prepare("SELECT rt_node FROM search_history").expect("search_history.rt_node");
     }
 
@@ -626,18 +570,28 @@ mod tests {
         let database = db();
         let conn = database.connection();
         let q = insert_node(conn, &new_node(Kind::Q, None, "問い")).unwrap();
+        let a = insert_node(conn, &new_node(Kind::A, Some(q), "答え")).unwrap();
 
-        // F に answer_kind。
-        let mut bad = new_node(Kind::F, Some(q), "根拠");
-        bad.answer_kind = Some("answer");
+        // F で stance が NULL は弾く。
+        let mut bad = new_node(Kind::F, Some(a), "根拠");
+        bad.stance = None;
         assert!(insert_node(conn, &bad).is_err());
-        // O 以外に target。
-        let f = insert_node(conn, &new_node(Kind::F, Some(q), "根拠")).unwrap();
-        assert!(set_target(conn, f, Some(q)).is_err());
-        // 親の無い O。
-        assert!(insert_node(conn, &new_node(Kind::O, None, "候補")).is_err());
-        // Q の target は入れられる。
-        set_target(conn, q, Some(f)).unwrap();
+        // A に stance があると弾く。
+        let mut bad_a = new_node(Kind::A, Some(q), "答え 2");
+        bad_a.stance = Some("support");
+        assert!(insert_node(conn, &bad_a).is_err());
+        // 親の無い A。
+        assert!(insert_node(conn, &new_node(Kind::A, None, "候補")).is_err());
+        // 古い O は弾く。
+        assert!(conn
+            .execute("INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('O', ?1, 'x')", params![q])
+            .is_err());
+        // F は入る。
+        insert_node(conn, &new_node(Kind::F, Some(a), "根拠")).unwrap();
+        // 立場は付け替えられる。
+        let f = insert_node(conn, &new_node(Kind::F, Some(a), "根拠 2")).unwrap();
+        set_stance(conn, f, "deny").unwrap();
+        assert_eq!(get_node(conn, f).unwrap().stance.as_deref(), Some("deny"));
     }
 
     #[test]
@@ -645,23 +599,37 @@ mod tests {
         let database = db();
         let conn = database.connection();
         let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
-        let o1 = insert_node(conn, &new_node(Kind::O, Some(q), "候補 1")).unwrap();
-        let o2 = insert_node(conn, &new_node(Kind::O, Some(q), "候補 2")).unwrap();
-        let f = insert_node(conn, &new_node(Kind::F, Some(o1), "根拠")).unwrap();
+        let a1 = insert_node(conn, &new_node(Kind::A, Some(q), "候補 1")).unwrap();
+        let a2 = insert_node(conn, &new_node(Kind::A, Some(q), "候補 2")).unwrap();
+        let f = insert_node(conn, &new_node(Kind::F, Some(a1), "根拠")).unwrap();
 
-        assert_eq!(get_node(conn, o2).unwrap().ord, 2);
-        assert_eq!(subtree_ids(conn, q).unwrap(), vec![q, o1, f, o2]);
-        assert_eq!(remove_subtree(conn, o1).unwrap(), vec![o1, f]);
+        assert_eq!(get_node(conn, a2).unwrap().ord, 2);
+        assert_eq!(subtree_ids(conn, q).unwrap(), vec![q, a1, f, a2]);
+        assert_eq!(remove_subtree(conn, a1).unwrap(), vec![a1, f]);
 
-        assert!(get_node(conn, o1).unwrap().removed_at.is_some());
+        assert!(get_node(conn, a1).unwrap().removed_at.is_some());
         assert!(get_node(conn, f).unwrap().removed_at.is_some());
-        assert!(get_node(conn, o2).unwrap().removed_at.is_none());
+        assert!(get_node(conn, a2).unwrap().removed_at.is_none());
         let ids: Vec<i64> = children(conn, q).unwrap().iter().map(|n| n.id).collect();
-        assert_eq!(ids, vec![o2]);
+        assert_eq!(ids, vec![a2]);
         let live: Vec<i64> = list_nodes(conn, false).unwrap().iter().map(|n| n.id).collect();
-        assert_eq!(live, vec![q, o2]);
+        assert_eq!(live, vec![q, a2]);
         assert_eq!(list_nodes(conn, true).unwrap().len(), 4);
-        assert!(matches!(get_node_of(conn, Kind::Q, o2), Err(RtError::NotFound(_))));
+        assert!(matches!(get_node_of(conn, Kind::Q, a2), Err(RtError::NotFound(_))));
+    }
+
+    #[test]
+    fn set_parent_moves_node_to_last() {
+        let database = db();
+        let conn = database.connection();
+        let q1 = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
+        let q2 = insert_node(conn, &new_node(Kind::Q, Some(q1), "子 1")).unwrap();
+        let q3 = insert_node(conn, &new_node(Kind::Q, Some(q1), "子 2")).unwrap();
+        let other = insert_node(conn, &new_node(Kind::Q, None, "別の根")).unwrap();
+        set_parent(conn, other, q1).unwrap();
+        assert_eq!(get_node(conn, other).unwrap().ord, 3);
+        assert_eq!(get_node(conn, q2).unwrap().ord, 1);
+        assert_eq!(get_node(conn, q3).unwrap().ord, 2);
     }
 
     #[test]
@@ -673,6 +641,27 @@ mod tests {
         assert!(conn.execute("UPDATE rt_log SET detail = 'x' WHERE id = ?1", params![id]).is_err());
         assert!(conn.execute("DELETE FROM rt_log WHERE id = ?1", params![id]).is_err());
         assert_eq!(list_log(conn, Some(5)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn approvals_take_only_allowed_and_consume() {
+        let database = db();
+        let conn = database.connection();
+        // 許可しない の回答は取れない。
+        insert_approval(conn, 61, "a1", "作ってよいか", "許可しない", "saituki").unwrap();
+        assert!(take_approval(conn, 61).unwrap().is_none());
+        // 許可する は取れる（消費はしない）。
+        insert_approval(conn, 61, "a2", "作ってよいか", " 許可する ", "saituki").unwrap();
+        let first = take_approval(conn, 61).unwrap().expect("許可する");
+        assert_eq!(first.qid, "a2");
+        assert!(take_approval(conn, 61).unwrap().is_some());
+        // 別の run には効かない。
+        assert!(take_approval(conn, 62).unwrap().is_none());
+        // 消費した行は 2 回目に返らない。
+        consume_approval(conn, first.id, &["add_q".to_string()]).unwrap();
+        assert!(take_approval(conn, 61).unwrap().is_none());
+        // 同じ qid は入らない。
+        assert!(insert_approval(conn, 61, "a2", "x", "許可する", "saituki").is_err());
     }
 
     #[test]
@@ -696,17 +685,6 @@ mod tests {
         let database = db();
         let conn = database.connection();
         let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
-        insert_logic(conn, q, "ok", "", &[1, 2], 2, None, None, "user").unwrap();
-        assert_eq!(list_logic(conn, Some(q)).unwrap()[0].findings, vec![1, 2]);
-        let p = insert_proposal(
-            conn, None, None, "add", Some(q), &serde_json::json!({"a": 1}), "auto", "pending",
-        )
-        .unwrap();
-        finish_proposal(conn, p, "applied", Some("O2"), None).unwrap();
-        let got = get_proposal(conn, p).unwrap();
-        assert_eq!(got.status, "applied");
-        assert_eq!(got.payload["a"], 1);
-        assert_eq!(list_proposals(conn, Some("pending")).unwrap().len(), 0);
         let row = SearchRow {
             id: 0, run_id: None, node_id: Some(q), tool: "t".into(), query: "q".into(),
             scope: String::new(), hits: 1, hit_papers: vec![7],
@@ -714,5 +692,7 @@ mod tests {
         };
         insert_search(conn, &row).unwrap();
         assert_eq!(list_searches(conn, Some(q)).unwrap()[0].hit_papers, vec![7]);
+        meta_set(conn, "k", "v").unwrap();
+        assert_eq!(meta_get(conn, "k").unwrap().as_deref(), Some("v"));
     }
 }

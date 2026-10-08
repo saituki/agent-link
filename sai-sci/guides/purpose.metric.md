@@ -1,7 +1,6 @@
 ---
 key: purpose.metric
 name: PURPOSE_METRIC
-target: 2
 ---
 # PURPOSE_METRIC
 

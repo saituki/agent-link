@@ -187,13 +187,12 @@ fn add_f_with_paper(data_dir: &Path, q: i64) {
             guide_key: None,
             text: "根拠",
             body: "",
-            answer_kind: None,
+            stance: Some("support"),
             cites: &[],
             paper_id: Some(3),
             run_id: None,
             report_id: None,
             mlflow_ref: None,
-            proposal_id: None,
             paths: &[],
             created_by: "user",
         },
@@ -221,7 +220,7 @@ fn schema_has_shape_and_web_flags() {
             })
         })
     };
-    for path in [&["init"][..], &["schema"][..], &["context"][..], &["propose"][..], &["report", "prepare"][..]] {
+    for path in [&["init"][..], &["schema"][..], &["context"][..], &["op"][..], &["report", "prepare"][..]] {
         assert_eq!(find(path).unwrap_or_else(|| panic!("{path:?}"))["web"], false, "{path:?}");
     }
     assert_eq!(find(&["card"]).unwrap()["stdin"], "json");
@@ -572,11 +571,6 @@ fn json_outputs_have_expected_shape() {
     let types = run_args(&["types", "--json"]);
     let types: serde_json::Value = serde_json::from_str(&types.stdout).unwrap();
     assert!(types["types"].as_array().is_some_and(|a| !a.is_empty()));
-
-    // proposals --json は proposals の配列。
-    let proposals = run_args(&["proposals", "--json"]);
-    let proposals: serde_json::Value = serde_json::from_str(&proposals.stdout).unwrap();
-    assert_eq!(proposals["proposals"].as_array().map(Vec::len), Some(0));
 
     // node --json は node を持つ。
     let node = run_args(&["node", "Q1", "--json"]);

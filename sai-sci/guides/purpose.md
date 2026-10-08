@@ -1,7 +1,6 @@
 ---
 key: purpose
 name: PURPOSE
-target: 2
 ---
 # PURPOSE
 

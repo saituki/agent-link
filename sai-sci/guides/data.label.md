@@ -1,7 +1,6 @@
 ---
 key: data.label
 name: DATA_LABEL
-target: 2
 ---
 # DATA_LABEL
 

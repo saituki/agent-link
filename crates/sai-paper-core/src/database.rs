@@ -134,6 +134,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         55,
         include_str!("../migrations/0055_search_history.sql"),
     ),
+    (
+        56,
+        include_str!("../migrations/0056_rt_redesign.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -241,6 +245,17 @@ impl Database {
         database.convert_stored_paths_if_needed();
         database.backfill_papers_id_if_needed();
         Ok(database)
+    }
+
+    /// テスト用: `last` の版までの移行を済ませた DB を開く（後の版は入れない）。
+    #[cfg(test)]
+    fn open_upto(path: &Path, last: i64) -> Result<Self, DatabaseError> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let data_dir = path.parent().map(Path::to_path_buf);
+        let connection = Connection::open(path)?;
+        Self::from_connection_upto(connection, data_dir, last)
     }
 
     /// Create a migrated in-memory database, useful for tests and previews.
@@ -535,6 +550,15 @@ impl Database {
         connection: Connection,
         data_dir: Option<PathBuf>,
     ) -> Result<Self, DatabaseError> {
+        Self::from_connection_upto(connection, data_dir, i64::MAX)
+    }
+
+    /// `last` の版まで移行して開く（テストで、後の版の効き目を入れずに確かめるため）。
+    fn from_connection_upto(
+        connection: Connection,
+        data_dir: Option<PathBuf>,
+        last: i64,
+    ) -> Result<Self, DatabaseError> {
         connection.execute_batch(
             "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
         )?;
@@ -542,18 +566,22 @@ impl Database {
             connection,
             data_dir,
         };
-        database.migrate()?;
+        database.migrate_upto(last)?;
         Ok(database)
     }
 
     fn migrate(&mut self) -> Result<(), DatabaseError> {
+        self.migrate_upto(i64::MAX)
+    }
+
+    fn migrate_upto(&mut self, last: i64) -> Result<(), DatabaseError> {
         self.connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_migrations (
                 version INTEGER PRIMARY KEY,
                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );",
         )?;
-        for &(version, sql) in MIGRATIONS {
+        for &(version, sql) in MIGRATIONS.iter().filter(|(version, _)| *version <= last) {
             let applied = self
                 .connection
                 .query_row(
@@ -567,7 +595,7 @@ impl Database {
                     // notes 表を消す前に、中身を note.md へ移す（失わない）
                     self.move_notes_table_to_files()?;
                 }
-                if version == 53 {
+                if version == 53 || version == 56 {
                     // rt_nodes を外部キー付きで作り直すため、外部キーの検査を一時的に外す。
                     // PRAGMA はトランザクションの中では効かないので、ここ（外）で切り替える。
                     self.connection.execute_batch("PRAGMA foreign_keys = OFF;")?;
@@ -579,7 +607,7 @@ impl Database {
                     [version],
                 )?;
                 transaction.commit()?;
-                if version == 53 {
+                if version == 53 || version == 56 {
                     self.connection.execute_batch("PRAGMA foreign_keys = ON;")?;
                 }
             }
@@ -3249,7 +3277,7 @@ mod tests {
             )?;
         }
 
-        let database = Database::open(&db_path)?;
+        let database = Database::open_upto(&db_path, 55)?;
         let conn = database.connection();
 
         let columns = |table: &str| -> Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -3318,7 +3346,7 @@ mod tests {
             )?;
         }
 
-        let database = Database::open(&db_path)?;
+        let database = Database::open_upto(&db_path, 55)?;
         let conn = database.connection();
 
         // rt_seeds は無い。
@@ -3466,7 +3494,7 @@ mod tests {
             )?;
         }
 
-        let database = Database::open(&db_path)?;
+        let database = Database::open_upto(&db_path, 55)?;
         let conn = database.connection();
 
         let parent = |id: i64| -> Option<i64> {
@@ -3825,6 +3853,67 @@ mod tests {
         assert_eq!(found_md.as_ref(), Some(&expected_md));
 
         let _ = fs::remove_dir_all(&temp);
+        Ok(())
+    }
+
+    /// 0056 で research-tree を作り直す。古い O の行は消え、`rt_logic`・`rt_proposals` は無くなり、
+    /// `rt_approvals` が入る（既存の research-tree のデータは無い前提）。
+    #[test]
+    fn migration_56_recreates_rt_tables() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-rt-redesign-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0055 までの DB に、旧い形の research-tree（O の答え）を入れる。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 56) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch(
+                "INSERT INTO rt_meta (key, value) VALUES ('initialized_at', 'now');
+                 INSERT INTO rt_nodes (kind, text) VALUES ('Q', '問い');
+                 INSERT INTO rt_nodes (kind, parent_id, text, answer_kind) VALUES ('O', 1, '答え', 'answer');
+                 INSERT INTO rt_logic (q_id, value, note, findings, f_count, created_by)
+                    VALUES (1, 'ok', '', '[]', 0, 'user');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let count = |sql: &str| -> Result<i64, Box<dyn std::error::Error>> {
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        };
+        assert_eq!(count("SELECT COUNT(*) FROM rt_nodes")?, 0, "rt_nodes は作り直して空");
+        assert_eq!(count("SELECT COUNT(*) FROM rt_meta")?, 0, "rt_meta は空（init で作り直す）");
+        for table in ["rt_logic", "rt_proposals"] {
+            assert_eq!(
+                count(&format!(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+                ))?,
+                0,
+                "{table} は無くなる"
+            );
+        }
+        assert_eq!(
+            count("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rt_approvals'")?,
+            1,
+            "rt_approvals が入る"
+        );
+        let stance_column = count("SELECT COUNT(*) FROM pragma_table_info('rt_nodes') WHERE name = 'stance'")?;
+        assert_eq!(stance_column, 1, "stance の列が入る");
+
+        fs::remove_dir_all(&dir).ok();
         Ok(())
     }
 }

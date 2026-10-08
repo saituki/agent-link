@@ -1,7 +1,6 @@
 ---
 key: novelty
 name: NOVELTY
-target: 2
 ---
 # NOVELTY
 

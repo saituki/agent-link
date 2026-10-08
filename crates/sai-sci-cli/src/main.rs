@@ -63,7 +63,7 @@ enum Cmd {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
-        /// 進み具合・SEED・Next Action・PENDING の数だけを出す（いつも JSON）
+        /// Node の数・Next Action だけを出す（いつも JSON）
         #[arg(long)]
         brief: bool,
     },
@@ -78,7 +78,7 @@ enum Cmd {
     TypeSave,
     /// Node 1 つの詳細を出す
     Node {
-        /// Node の ID（`Q12`・`O5` など）
+        /// Node の ID（`Q12`・`A5` など）
         node: String,
         /// JSON で出力する
         #[arg(long)]
@@ -93,8 +93,8 @@ enum Cmd {
         #[arg(long)]
         tree: bool,
     },
-    /// PROPOSAL を出す（標準入力に `{"proposals":[…]}`）
-    Propose {
+    /// agent の op を出す（標準入力に `{"ops":[…]}`。全部通れば書き、1 件でも通らなければ何も書かない）
+    Op {
         /// 実行 ID（無ければ環境変数 SAI_PARENT_RUN_ID）
         #[arg(long)]
         run: Option<i64>,
@@ -107,32 +107,6 @@ enum Cmd {
         /// JSON で出力する（出力は常に JSON。Web が付けるので受け付ける）
         #[arg(long)]
         json: bool,
-    },
-    /// PENDING の PROPOSAL を一覧する
-    Proposals {
-        /// JSON で出力する
-        #[arg(long)]
-        json: bool,
-    },
-    /// PROPOSAL を TRIAGE する（accept・reject・revert の 1 つ）
-    #[command(group(
-        clap::ArgGroup::new("triage").required(true).multiple(false).args(["accept", "reject", "revert"]),
-    ))]
-    Triage {
-        /// PROPOSAL の ID（`P56`）
-        proposal: String,
-        /// accept する
-        #[arg(long)]
-        accept: bool,
-        /// reject する
-        #[arg(long)]
-        reject: bool,
-        /// revert する（AUTO_OP で入ったものを取り消す）
-        #[arg(long)]
-        revert: bool,
-        /// accept するとき、中身の上書き（JSON 文字列）
-        #[arg(long, requires = "accept")]
-        edit: Option<String>,
     },
     /// Node のための実行（CARD）を作る（標準入力の C-CARD は --from-json のときだけ読む）
     Card {
@@ -408,22 +382,8 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::TypeSave) => print_out(sci::type_save()?),
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),
         Some(Cmd::Context { run, tree }) => print_out(sci::context(run, tree)?),
-        Some(Cmd::Propose { run, block }) => print_out(sci::propose(run, block)?),
+        Some(Cmd::Op { run, block }) => print_out(sci::op(run, block)?),
         Some(Cmd::Apply { json: _ }) => print_out(sci::apply()?),
-        Some(Cmd::Proposals { json }) => print_out(sci::proposals(json)?),
-        Some(Cmd::Triage {
-            proposal,
-            accept,
-            reject,
-            revert,
-            edit,
-        }) => print_out(sci::triage(
-            &proposal,
-            accept,
-            reject,
-            revert,
-            edit.as_deref(),
-        )?),
         Some(Cmd::Card {
             args,
             from_json,

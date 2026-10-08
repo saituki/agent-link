@@ -1,7 +1,6 @@
 ---
 key: novelty.closest
 name: NOVELTY_CLOSEST
-target: 2
 ---
 # NOVELTY_CLOSEST
 

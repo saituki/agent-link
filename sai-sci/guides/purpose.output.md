@@ -1,7 +1,6 @@
 ---
 key: purpose.output
 name: PURPOSE_OUTPUT
-target: 2
 ---
 # PURPOSE_OUTPUT
 

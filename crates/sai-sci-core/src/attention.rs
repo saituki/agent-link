@@ -1,6 +1,6 @@
 //! 「要対応」の一覧（S02）。
 //!
-//! ユーザーが「今やること」だけを 1 か所で見られるように、次の 8 種類を集める。
+//! ユーザーが「今やること」だけを 1 か所で見られるように、次の 5 種類を集める。
 //!
 //! 1. `EmptyReview` — 書いていない review（研究用ブロックの実行が終わったのに
 //!    `review.md` が空）
@@ -9,8 +9,6 @@
 //!    直されていない
 //! 4. `RecommendCard` — todo に残っている推薦の CARD（タグ `推薦`）
 //! 5. `ReportIssue` — 出典の要確認（report の問題のうち `error` のもの）
-//! 6. `SciDecision` — ★ の無い Q がある（research-tree があるときだけ）
-//! 7. `SciTriage` — TRIAGE していない PROPOSAL がある（research-tree があるときだけ）
 //!
 //! LLM は使わない。ファイル（`.sai/outputs/`・`.sai/paper/state.md`）と
 //! `papr.db` を読むだけである。
@@ -53,8 +51,6 @@ pub enum AttentionKind {
     ReportIssue,
     /// research-tree の、★ の無い Q（Next Action の `NO_STAR`）。
     SciDecision,
-    /// research-tree の PENDING の PROPOSAL。
-    SciTriage,
 }
 
 impl AttentionKind {
@@ -68,7 +64,6 @@ impl AttentionKind {
             Self::RecommendCard => "推薦",
             Self::ReportIssue => "出典",
             Self::SciDecision => "AWAITING_DECISION",
-            Self::SciTriage => "TRIAGE",
         }
     }
 
@@ -82,7 +77,6 @@ impl AttentionKind {
             Self::RecommendCard => "recommend_card",
             Self::ReportIssue => "report_issue",
             Self::SciDecision => "sci_decision",
-            Self::SciTriage => "sci_triage",
         }
     }
 }
@@ -150,7 +144,7 @@ pub fn collect(
 ) -> Result<Vec<AttentionItem>, AttentionError> {
     let resolved = resolved_keys(conn)?;
     let mut items = Vec::new();
-    // research-tree があるときだけ 7 と 8 を出し、3 は出さない。
+    // research-tree があるときは「現況の更新案」（3）を出さない。
     let tree = sci_tree(conn, roots)?;
 
     for item in empty_reviews(&roots.root) {
@@ -177,18 +171,6 @@ pub fn collect(
     for item in report_issues(conn)? {
         if !resolved.contains(&item.key) {
             items.push(item);
-        }
-    }
-    if let Some(status) = tree.as_ref() {
-        for item in star_items(roots, status) {
-            if !resolved.contains(&item.key) {
-                items.push(item);
-            }
-        }
-        for item in sci_triage(conn, status)? {
-            if !resolved.contains(&item.key) {
-                items.push(item);
-            }
         }
     }
     Ok(items)
@@ -366,57 +348,6 @@ fn report_issues(conn: &Connection) -> Result<Vec<AttentionItem>, AttentionError
         });
     }
     Ok(items)
-}
-
-/// 6. ★ の無い Q（`status.next` の `why = NO_STAR` のもの 1 件ずつ）。
-///
-/// キーは `sci_decision:<Q の ID>`。★ を付ければ Next Action から消えるので、要対応も消える。
-fn star_items(roots: &PaperRoots, status: &crate::rt::compute::Status) -> Vec<AttentionItem> {
-    let tree_path = roots.data_dir.join("tree.md");
-    status
-        .next
-        .iter()
-        .filter(|action| action.why == "NO_STAR")
-        .filter_map(|action| action.node.as_deref())
-        .map(|id| {
-            let text = status
-                .nodes
-                .iter()
-                .find(|node| node.id == id)
-                .map_or("", |node| node.text.as_str());
-            AttentionItem {
-                key: format!("sci_decision:{id}"),
-                kind: AttentionKind::SciDecision,
-                title: format!("★ を選んでください: {text}"),
-                run_id: None,
-                open_path: Some(tree_path.clone()),
-                report_id: None,
-            }
-        })
-        .collect()
-}
-
-/// 7. PENDING の PROPOSAL（1 件にまとめる）。
-fn sci_triage(
-    conn: &Connection,
-    status: &crate::rt::compute::Status,
-) -> Result<Vec<AttentionItem>, AttentionError> {
-    if status.pending_proposals == 0 {
-        return Ok(Vec::new());
-    }
-    let latest = crate::rt::store::list_proposals(conn, Some("pending"))?
-        .iter()
-        .map(|proposal| proposal.id)
-        .max()
-        .unwrap_or(0);
-    Ok(vec![AttentionItem {
-        key: format!("sci_triage:{latest}"),
-        kind: AttentionKind::SciTriage,
-        title: format!("PROPOSAL {} 件が PENDING です", status.pending_proposals),
-        run_id: None,
-        open_path: None,
-        report_id: None,
-    }])
 }
 
 /// 研究用ブロックの実行だけを `(実行, ブロック ID)` の形で返す。
@@ -747,9 +678,7 @@ mod tests {
         assert_eq!(AttentionKind::ReportIssue.as_str(), "report_issue");
         assert_eq!(AttentionKind::StateUpdate.label(), "現況");
         assert_eq!(AttentionKind::SciDecision.as_str(), "sci_decision");
-        assert_eq!(AttentionKind::SciTriage.as_str(), "sci_triage");
         assert_eq!(AttentionKind::SciDecision.label(), "AWAITING_DECISION");
-        assert_eq!(AttentionKind::SciTriage.label(), "TRIAGE");
     }
 
     // ---- 7 と 8: research-tree ----
@@ -774,9 +703,9 @@ mod tests {
             "---\nrun_id: 50\n---\n\n## ユーザーへの質問\n- どれにする\n\n## 現況の更新案\n- 目標: 新しくする\n",
         );
 
-        // research-tree を作る: bottom_Q に O を 1 つ、F を 2 つ、Logicality ok。★ だけが無い。
+        // research-tree を作る（research-tree があると、★ や PENDING の要対応は出ない）。
         store::meta_set(conn, "initialized_at", "2026-10-02 00:00:00").unwrap();
-        let add = |kind, parent, text: &str, answer| {
+        let add = |kind, parent, text: &str, stance: Option<&str>| {
             store::insert_node(
                 conn,
                 &NewNode {
@@ -785,13 +714,12 @@ mod tests {
                     guide_key: None,
                     text,
                     body: "",
-                    answer_kind: answer,
+                    stance,
                     cites: &[],
                     paper_id: None,
                     run_id: None,
                     report_id: None,
                     mlflow_ref: None,
-                    proposal_id: None,
                     paths: &[],
                     created_by: "user",
                 },
@@ -799,37 +727,18 @@ mod tests {
             .unwrap()
         };
         let q = add(Kind::Q, None, "対象は？", None);
-        let o = add(Kind::O, Some(q), "新生児", Some("answer"));
-        add(Kind::F, Some(o), "根拠 1", None);
-        add(Kind::F, Some(o), "根拠 2", None);
-        store::insert_logic(conn, q, "ok", "", &[], 2, None, None, "user").unwrap();
-        store::insert_proposal(
-            conn,
-            Some(50),
-            Some("sci-compare"),
-            "add_finding",
-            None,
-            &serde_json::json!({}),
-            "auto",
-            "pending",
-        )
-        .unwrap();
+        let a = add(Kind::A, Some(q), "新生児", None);
+        add(Kind::F, Some(a), "根拠 1", Some("support"));
+        add(Kind::F, Some(a), "根拠 2", Some("support"));
 
         let items = collect(conn, &roots).unwrap();
-        let decision = items
-            .iter()
-            .find(|item| item.kind == AttentionKind::SciDecision)
-            .expect("★ の無い Q が出る");
-        assert_eq!(decision.title, "★ を選んでください: 対象は？");
-        assert_eq!(decision.key, format!("sci_decision:Q{q}"));
-        assert!(decision.run_id.is_none());
-        let triage = items
-            .iter()
-            .find(|item| item.kind == AttentionKind::SciTriage)
-            .expect("TRIAGE が出る");
-        assert_eq!(triage.title, "PROPOSAL 1 件が PENDING です");
-        assert_eq!(triage.key, "sci_triage:1");
-        assert!(triage.open_path.is_none());
+        assert!(
+            !items.iter().any(|item| matches!(
+                item.kind,
+                AttentionKind::SciDecision
+            )),
+            "{items:?}"
+        );
         // research-tree がある間は「現況の更新案」を出さない。
         assert!(
             !items
@@ -838,15 +747,6 @@ mod tests {
             "{items:?}"
         );
 
-        // ★ を付けると消える。
-        store::set_starred(conn, o, true).unwrap();
-        let after = collect(conn, &roots).unwrap();
-        assert!(
-            !after
-                .iter()
-                .any(|item| item.kind == AttentionKind::SciDecision),
-            "{after:?}"
-        );
     }
 
     #[test]
@@ -862,7 +762,7 @@ mod tests {
 
         let db = db();
         let items = collect(db.connection(), &roots).unwrap();
-        // research-tree が無いときは今までと同じ（3 は出て、7 と 8 は出ない）。
+        // research-tree が無いときは今までと同じ（「現況の更新案」は出て、research-tree の項目は出ない）。
         assert!(
             items
                 .iter()
@@ -870,10 +770,7 @@ mod tests {
             "{items:?}"
         );
         assert!(
-            !items.iter().any(|item| matches!(
-                item.kind,
-                AttentionKind::SciDecision | AttentionKind::SciTriage
-            )),
+            !items.iter().any(|item| item.kind == AttentionKind::SciDecision),
             "{items:?}"
         );
     }

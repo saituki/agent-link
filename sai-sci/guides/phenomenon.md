@@ -1,7 +1,6 @@
 ---
 key: phenomenon
 name: PHENOMENON
-target: 2
 ---
 # PHENOMENON
 
