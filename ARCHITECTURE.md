@@ -182,6 +182,11 @@
 ### 3.3 `SAI_HOME` に入らないもの
 
 - **プロジェクトの中の `<root>/.sai/`** は別。`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`（sai-paper の置き場）がここにある。
+- **台帳 `<root>/.sai/seen_ids/<run_id>`**（拡張子なし・共有契約 C10）も `<root>/.sai/` の中にある。run ごとに「agent が見た番号」を 1 行 1 つ追記する。
+  - 中身: 正規の形は `#37`・`#37.5`・`#37.5.2`。範囲 `#37.5.2-4` は `#37.5.2`・`#37.5.3`・`#37.5.4` に開いて書く（1 つの範囲は 50 個まで）。追記だけ・重複してよい。番号を文から拾う正規表現は C10 の 1 本で、`sai-link` と `sai-paper` の両方に同じ文字列を置く。
+  - 書く人: `sai-link`（run の開始時と `doc read`）・`sai-paper`（`find`・`neighbors`・`content …`・`find-history`・`search-history` の出力）・`sai-sci`（`find`・`context --run`・`read`・`progress`・`journal` の出力）。書けなくても命令は止めない（標準エラーに 1 行）。
+  - 実装は 2 か所: `crates/sai-paper-core/src/seen_ids.rs`（検査 `check` / `check_for` もここ）と `crates/sai-link-engine/src/seen_ids.rs`（書くだけ）。**直すときは 2 つの正規表現と書き方を同じにし、両方のテストの見本（同じ文で同じ結果）をそろえる。** 片方だけ直すと、run の開始時に書かれた番号を検査が通らない。
+  - 検査する所: `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用（`crates/sai-sci-cli/src/report.rs`）。
 - `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
 
 ### 3.4 多人数モードの置き場（共有契約 C4）

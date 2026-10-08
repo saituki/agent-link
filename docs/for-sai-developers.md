@@ -188,6 +188,17 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 オブジェクトをそのまま画面に出す。`run log` の `connections[]`（作られた順。`direction` `from`/`to`・`kind` `task_text`/`task_create`/`task_output`・`run_id`・`global_round`・`round`・`block_name`・`description`・`waggle_token`・`file_path`）を Summary の Connection が読む。`block_name` / `exec_id` / `created_at` / `finished_at` / `input_fields[]` / `model` なども見出しに使う。
 
+#### `run history <run_id> [--json]` と `run history <run_id> --call <CALL_ID> --json`（History・共有契約 C11）
+
+`run history <run_id> --json` は次の項目を持つ（画面は `static/linkview.js` の `lvRenderHistory`）。
+
+- `title` / `subtitle`（文字列）・`type_tokens`（`user` / `agent` / `toolCall` / `toolResult` / `thinking` の近似トークン数）。
+- `events[]`（時刻順）: `time`・`type`（上の 5 種）・`name`・`tokens` は必ず持つ。`call_id`・`command`・`preview`（結果の本文の先頭 200 字）・`is_error`・`ids`（呼び出しの入力に出た `#x.y.z`）・`result_tokens` は、その行にあるときだけ出す（無いときは JSON に出さない）。toolCall と、それに対応する toolResult は 1 行にまとめる。対になる toolCall が無い結果だけ `toolResult` の行になる。
+- `cli`（C11）: `calls[]`（`command`・`count`・`errors`。多い順）・`failures[]`（`class` と `count`）・`ids`（`seen` は台帳の異なる番号・`used` は使った異なる番号・`unused` は台帳にあって使わなかった番号）。`failures.class` は `ledger`（結果に `台帳に無い番号です` を含む）・`input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）で、`is_error` が true の行だけを数える。`cli` が無いのは古い CLI の JSON。
+- cc の History は、その run の transcript（`phone_export::resolve_transcript`）を読む。全体で一番新しい cc セッションは使わない。
+
+`--call <CALL_ID> --json` は、その呼び出しの全文 `{"call_id","name","command","input","result","is_error","truncated"}` を返す。`result` は 20000 字までで、超えたら切って `truncated: true`。`--json` を付けないと本文だけの文字を出すので、Web は必ず付ける。見つからなければ終了コード 3。Web の住所は `GET /api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}`（`call_id` は `^[A-Za-z0-9_-]{1,80}$`。通らなければ 400）。
+
 #### `run md <run_id> --kind task|message|report|system [--write]` → `{"kind", "name", "text"}`
 
 - 無ければ **終了コード 3・stderr「まだありません」**。`--write` は `task` だけ（未実行の todo カードだけ。無ければ 3「未実行のカードが見つかりません」）。本文は標準入力。
@@ -492,6 +503,12 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 | `child` | 文字列（`Q`・`A`・`F`。任意） | 足す子の型。対象が Q なら `Q` か `A`、A なら `Q` か `F`。それ以外の組は終了コード 2（CLI は `--child`） |
 
 `executer` と `input` は Web からは指定しない（CLI の `--executer` / `--input` だけ）。**ファイルのパスは受け取らない。**
+
+#### 台帳の照合（C10・`sai-sci op` の `add_f` と `report prepare`）
+
+- `op` の `add_f` の `cites`（`apply` は照合しない）と、`report prepare` が拾う引用は、run の台帳（`<root>/.sai/seen_ids/<run_id>`）と照らす。台帳に無い番号を引いていれば、その op・報告は何も書かず終了コード 2。`op` は agent が動く run の中（`SAI_PARENT_RUN_ID` がある）でだけ照らす。
+- 標準エラーに `台帳に無い番号です: #37.5.2（この run で CLI が出した番号だけを使えます）` の行が出る。`op` ではこれが最後の行（テストで確かめている）。この語は History の `ledger` の分類に使うので変えない。
+- 台帳のファイルが無いときは照合を飛ばし、標準エラーに `台帳がありません（検査を飛ばします）: <path>` を 1 行出して通す。
 
 #### そのほかの命令
 

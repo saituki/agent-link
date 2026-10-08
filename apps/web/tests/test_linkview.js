@@ -525,6 +525,59 @@ function testWaggleDirect() {
   assert.strictEqual(lv.waggleDirect(null), false);
 }
 
+function testHistoryRows() {
+  // 行の名前: 命令があれば命令名、無ければ道具の名前
+  assert.strictEqual(lv.lvCallName({ name: "Bash", command: "sai-paper content read" }), "sai-paper content read");
+  assert.strictEqual(lv.lvCallName({ name: "Read" }), "Read");
+  assert.strictEqual(lv.lvCallName(null), "");
+  // 失敗の印は is_error が true のときだけ
+  assert.strictEqual(lv.lvEventRow({ is_error: true }).failed, true);
+  assert.strictEqual(lv.lvEventRow({ is_error: false }).failed, false);
+  assert.strictEqual(lv.lvEventRow({}).failed, false);
+  // 番号のチップは 5 個まで・残りは rest（+n）
+  const many = lv.lvEventRow({ ids: ["#1", "#2", "#3", "#4", "#5", "#6", "#7"] }).ids;
+  assert.deepStrictEqual(many.shown, ["#1", "#2", "#3", "#4", "#5"]);
+  assert.strictEqual(many.rest, 2);
+  assert.deepStrictEqual(lv.lvIdChips(["#1"]), { shown: ["#1"], rest: 0 });
+  assert.deepStrictEqual(lv.lvIdChips(undefined), { shown: [], rest: 0 });
+  // 全文を開けるのは call_id が住所の形のときだけ（`|` や 81 字は開かない）
+  assert.strictEqual(lv.lvEventRow({ call_id: "toolu_01-a" }).canOpen, true);
+  assert.strictEqual(lv.lvEventRow({ call_id: "a|b" }).canOpen, false);
+  assert.strictEqual(lv.lvEventRow({ call_id: "a".repeat(81) }).canOpen, false);
+  assert.strictEqual(lv.lvEventRow({}).canOpen, false);
+  // 結果の先頭は preview のまま
+  assert.strictEqual(lv.lvEventRow({ preview: "結果の先頭" }).preview, "結果の先頭");
+}
+
+function testHistoryCli() {
+  // cli が無い（古い CLI）ときは null（カードを出さない）
+  assert.strictEqual(lv.lvCliSummary(undefined), null);
+  assert.strictEqual(lv.lvCliSummary(null), null);
+  const s = lv.lvCliSummary({
+    calls: [{ command: "sai-paper content read", count: 3, errors: 1 }],
+    failures: [{ class: "ledger", count: 1 }, { class: "input", count: 2 }],
+    ids: { seen: 40, used: 6, unused: 34 },
+  });
+  assert.deepStrictEqual(s.calls, [{ command: "sai-paper content read", count: 3, errors: 1 }]);
+  assert.deepStrictEqual(s.failures.map((f) => f.label), ["台帳に無い番号", "入力の誤り（2）"]);
+  assert.deepStrictEqual(s.failures.map((f) => f.count), [1, 2]);
+  assert.deepStrictEqual(s.ids, { seen: 40, used: 6, unused: 34 });
+  // 中身が空でも壊れない（失敗は無い・命令は無い）
+  const empty = lv.lvCliSummary({});
+  assert.deepStrictEqual(empty.calls, []);
+  assert.deepStrictEqual(empty.failures, []);
+  assert.deepStrictEqual(empty.ids, { seen: 0, used: 0, unused: 0 });
+  assert.strictEqual(lv.lvFailureLabel("ledger"), "台帳に無い番号");
+  assert.strictEqual(lv.lvFailureLabel("new_class"), "new_class");
+}
+
+function testCallPrettyInput() {
+  // 全文の入力は JSON なら整えて出し、読めなければそのまま
+  assert.strictEqual(lv.lvPrettyInput('{"a":1}'), '{\n  "a": 1\n}');
+  assert.strictEqual(lv.lvPrettyInput("not json"), "not json");
+  assert.strictEqual(lv.lvPrettyInput(null), "");
+}
+
 function main() {
   testHash();
   testModeMemory();
@@ -544,6 +597,9 @@ function main() {
   testTypeSlices();
   testWaggleDirect();
   testCanEdit();
+  testHistoryRows();
+  testHistoryCli();
+  testCallPrettyInput();
   console.log("test_linkview: すべて通りました");
 }
 

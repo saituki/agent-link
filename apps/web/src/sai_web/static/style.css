@@ -2129,12 +2129,27 @@ code {
 .lv-hist-head { margin-bottom: 10px; }
 .lv-hist-title { font-size: 14px; font-weight: 600; }
 .lv-hist-head .lv-sub { margin: 2px 0 0; }
-.lv-tl { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.lv-tl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12px; }
 .lv-tl:first-child { border-top: none; }
 .lv-tl-time { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .lv-tl-type { flex: none; color: var(--on-accent); border-radius: 6px; padding: 1px 6px; font-size: 10px; background: var(--text-soft); }
 .lv-tl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lv-tl-tokens { flex: none; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.lv-tl-fail { flex: none; color: #fff; background: var(--danger); border-radius: 6px; padding: 1px 6px; font-size: 10px; font-weight: 600; }
+.lv-tl-foot { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.lv-tl-id { max-width: 100%; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; font-size: 10px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.lv-tl-open { margin-left: auto; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.lv-tl-preview { flex-basis: 100%; min-width: 0; margin: 0; padding: 0; border: none; background: none; text-align: left; font: inherit; font-size: 11px; color: var(--text-soft); overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+button.lv-tl-preview { cursor: pointer; }
+.lv-cli-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.lv-cli-table th, .lv-cli-table td { padding: 4px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.lv-cli-table th { color: var(--text-soft); font-weight: 600; }
+.lv-cli-cmd { overflow-wrap: anywhere; }
+.lv-cli-num { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+.lv-fail { color: var(--danger); font-weight: 600; }
+.lv-cli-sub { margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.lv-call-label { margin: 10px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.lv-call-pre { margin: 0; padding: 8px; max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--bg-soft); border-radius: 6px; }
 
 /* waggle（成果物の一覧と本文・14 §1.3） */
 .lv-md-back {

@@ -57,6 +57,8 @@ _PHONE_MD_KINDS = ("task", "message", "report", "system")
 _PHONE_MD_WRITABLE = ("task",)
 # waggle トークンとブロック ID に許す文字（英数字と -_.:・長さ上限付き・計画 12 §3.3）
 _PHONE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+# History の呼び出しの番号（cc の tool_use.id・pi の toolCall.id の形。`/` は入れない）
+_PHONE_CALL_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 # --- task.md 作成フォーム（計画 15 §1.5・§3.3）で受け取る値の検査 ---
 # runner / thinking は一覧の値だけ（TUI の RUNNER_OPTIONS / THINKING_OPTIONS と同じ）
@@ -314,6 +316,20 @@ def phone_run_view(name: str, run_id: int, view: str) -> dict:
         )
     project = _phone_project(name)
     return _phone_json(["run", view, str(run_id)], root=project["root"])
+
+
+def phone_run_call(name: str, run_id: int, call_id: str) -> dict:
+    """`sai-link run history <id> --call <call_id> --json`（History の 1 呼び出しの全文・C11）。
+
+    `call_id` の形が通らなければ CLI を呼ばず 400。見つからなければ CLI の 3 から 404。
+    """
+    _check_run_id(run_id)
+    if not isinstance(call_id, str) or not _PHONE_CALL_ID_RE.fullmatch(call_id):
+        raise HTTPException(status_code=400, detail="call_id は英数字と - _ だけの 80 字までにしてください")
+    project = _phone_project(name)
+    return _phone_json(
+        ["run", "history", str(run_id), "--call", call_id, "--json"], root=project["root"]
+    )
 
 
 def phone_md(name: str, run_id: int, kind: str) -> dict:
