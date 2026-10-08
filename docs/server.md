@@ -136,6 +136,7 @@ sudo -iu sai docker run --rm sai-tree:latest sai-link schema --json | head -c 20
 sudo -iu sai docker run --rm sai-tree:latest claude --version
 sudo -iu sai docker run --rm sai-tree:latest pi --version
 sudo -iu sai docker run --rm sai-tree:latest python3 --version
+sudo -iu sai docker run --rm sai-tree:latest tmux -V
 ```
 
 ## 5. `apps/web` の仮想環境
@@ -256,6 +257,15 @@ sudo rm -rf /srv/sai/users/<user>/homes/<user>-<project>
 
 **バックアップする場所**: `/srv/sai/users` と、Web の置き場 `~sai/.sai/web/`（手順は 16）。
 
+**cc の画面を見る**（対話モードの cc は、コンテナの中の tmux で動く）:
+
+```bash
+sudo -iu sai docker exec -it sai-<user>-<project> tmux ls
+sudo -iu sai docker exec -it sai-<user>-<project> tmux attach -t <hl-…>
+```
+
+見たら `Ctrl-b d` で抜ける。`Ctrl-c` は押さない（cc が止まる）。
+
 ## 14. 規約の注意（Claude のトークン）
 
 Claude の長命トークン（`claude setup-token`）を Web に預けて使う機能は、Anthropic の規約
@@ -325,6 +335,8 @@ sai ALL=(root) NOPASSWD: /usr/bin/systemctl restart sai-web
 
 **コンテナは配備で作り直さない。** 実行中のエージェントがいるコンテナには触らない（止めると、動いていた headless の実行が失敗の扱いになる）。
 古いイメージのコンテナを新しいイメージで作り直すには、そのコンテナが止まっていることを確かめてから、13 の「イメージを作り直したとき」の手順で `docker rm -f` する。次に Projects の「起動」を押すと、新しいイメージでコンテナが作られる。
+
+cc のフックの設定（`.claude/settings.json`）は cc の起動ごとに sai-link が最新に書き直すので、配備のあとに各プロジェクトで `sai-link init` をやり直す必要は無い。
 
 
 ## 16. バックアップ（配備の前に）

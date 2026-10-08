@@ -139,7 +139,7 @@ Web が読んでよいのはこのファイルだけ（`runs.py` の `headless_s
 
 | 項目 | 型 | 何に使う | 無い・型が違うとき |
 |---|---|---|---|
-| `state` | 文字列（`working` / `idle` / `stopped`） | 会話の `live` ランプ・通知 | `working` / `idle` / `stopped` 以外は読まない |
+| `state` | 文字列（`starting`（起動中） / `working` / `idle` / `stopped`） | 会話の `live` ランプ・通知 | `starting` / `working` / `idle` / `stopped` 以外は読まない |
 | `partial` | 文字列 | 生成中の文の逐次表示（末尾 20000 文字まで） | 空文字 |
 | `error` | 文字列 | 直前のターンの失敗の理由 | 空文字 |
 | `turn` | 数値 | （Web では未使用） | ― |
@@ -674,10 +674,11 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と
 | `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと） |
 | `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（`ask_user.ts`） |
 
-- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "deny"` と `permissionDecisionReason` に答えを入れてモデルへ返す。cc の hooks の `timeout` は 86400 秒。
+- cc は、コンテナの中の tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`SAI_AGENT_TRANSPORT=tmux`・`SAI_PROJECT_ROOT=<root>`。
+- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`SAI_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
+- 承認は `sai-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `sai-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `sai-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
 - pi の質問拡張は、画面が無い（`ctx.mode === "headless"` か `SAI_AGENT_TRANSPORT=headless`）ときは端末の選択画面を出さず、登録した質問の答えをポーリングで待つ。
-- **headless の cc では質問できない（要確認の結果）**: `claude -p` のツール一覧に `AskUserQuestion` が出ない。2026-10 に cc 2.1.292 の実物で確かめたところ、モデルは `ToolSearch` で `select:AskUserQuestion` を探し、「AskUserQuestion ツールが利用可能なツール一覧に見つかりませんでした」と返した。フックと設定は残してあるので、cc 側が対応すればそのまま動く。pi の `ask_user` は実物で動くことを確認済み。
-- cc の費用は engine が stream-json の `result` 行から `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
+- cc の費用は cc の statusLine（`sai-link cc-statusline`）が `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
 
 ---
 

@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""cc の PreToolUse（AskUserQuestion）フック — headless 用の質問の中継．
+"""cc の PreToolUse（AskUserQuestion）フック — 対話モード（tmux）の cc の質問の中継．
 
-cc が AskUserQuestion を呼ぶ直前に呼ばれる．sai-tree の headless では端末の
-選択画面が無いので，Web の質問カードに登録し，利用者が答えるまで待つ．
-答えが届いたら「利用者が Web で答えました。」と答えを
-`permissionDecisionReason` に入れてツールの実行を拒否し，モデルに答えを返す
-（cc の PreToolUse の公式の出力）．答えが来ないまま打ち切ったときは
-「利用者は答えませんでした。」を返す．
+cc が AskUserQuestion を呼ぶ直前に呼ばれる．cc は tmux の対話モードで動くので，
+Web の質問カードに登録し，利用者が答えるまで待つ．答えが届いたら
+`permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま，
+`answers` は `{質問文: 答え}`）を返す．cc はこれを AskUserQuestion の結果として
+モデルに渡す．答えが来ないまま打ち切ったときは「利用者は答えませんでした。」を
+`permissionDecisionReason` に入れて拒否する．
 
+- `SAI_CC_QUESTION_MODE=deny` のときは，答えがあっても今の拒否の形（理由文に答え）で返す
+  （`updatedInput` が cc で効かなかったときに，コードを変えずに戻すため）．
 - Web の場所: `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`
 - 合言葉: `SAI_WEB_INTERNAL_TOKEN` があれば `Authorization: Bearer <値>` を付ける
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
-  （cc はそのままツールを動かし，headless では選択画面が出ないので失敗が返る）．
+  （cc はそのままツールを動かす）．
 """
 
 from __future__ import annotations
@@ -97,20 +99,23 @@ def answers_from_state(data: dict, questions: list) -> dict | None:
             continue
         q = qs[i] if isinstance(qs[i], dict) else {}
         options = q.get("options") if isinstance(q.get("options"), list) else []
+        # 鍵は cc の質問文（`updatedInput.answers` は cc の文で引く）。並びの順で対応づける
+        cc_q = questions[i] if i < len(questions) and isinstance(questions[i], dict) else q
+        key = str(cc_q.get("question", ""))
         if item.get("text"):
-            answers[str(q.get("question", ""))] = str(item["text"])
+            answers[key] = str(item["text"])
         elif isinstance(item.get("choice_indices"), list) and item["choice_indices"]:
             labels = []
             for n in item["choice_indices"]:
                 if isinstance(n, int) and 0 <= n < len(options) and isinstance(options[n], dict):
                     labels.append(str(options[n].get("label", "")))
-            answers[str(q.get("question", ""))] = ", ".join([label for label in labels if label])
+            answers[key] = ", ".join([label for label in labels if label])
         elif isinstance(item.get("choice_index"), int):
             n = item["choice_index"]
             label = ""
             if 0 <= n < len(options) and isinstance(options[n], dict):
                 label = str(options[n].get("label", ""))
-            answers[str(q.get("question", ""))] = label
+            answers[key] = label
     return answers
 
 
@@ -122,6 +127,29 @@ def reason_text(answers: dict | None) -> str:
     for question, answer in answers.items():
         lines.append(f"{question}: {answer}")
     return "\n".join(lines)
+
+
+def hook_output(questions: list, answers: dict | None) -> dict:
+    """cc に返す PreToolUse の出力を作る．
+
+    答えがあれば `allow` と `updatedInput`（質問と答え）を返す．
+    `SAI_CC_QUESTION_MODE=deny` のときと答えが無いときは `deny` と理由文を返す．
+    """
+    if answers and os.environ.get("SAI_CC_QUESTION_MODE") != "deny":
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "updatedInput": {"questions": questions, "answers": answers},
+            }
+        }
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason_text(answers),
+        }
+    }
 
 
 def main() -> int:
@@ -166,13 +194,7 @@ def main() -> int:
         if state.get("state") and state.get("state") != "open":
             break
 
-    out = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason_text(answers),
-        }
-    }
+    out = hook_output(questions, answers)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     sys.stdout.write("\n")
     return 0
