@@ -4,7 +4,7 @@
 - Import（BibTeX の読み込み）: `import list / add / remove`
 - Library に入れる（PDF 無しの登録・U13）: `paper keep`
 - Project（state.md / mind.md / 要対応。研究の命令は sai-sci が行う・U14）:
-  `project show` / `project memo` / `attention resolve` / `attention list`
+  `project show` / `project mind` / `attention resolve` / `attention list`
 
 sai-web は他アプリの DB を直接開かない（00 §2）ため，ここはすべて CLI に頼る。
 呼ぶ先は「論文の置き場があるプロジェクト」（計画 17 §3.1）で決めるもので，
@@ -136,8 +136,11 @@ def _paper_cli(project: dict, args: list[str], timeout: float = 30.0):
     )
 
 
-def _sci_cli(project: dict, args: list[str], timeout: float = 30.0):
-    """sai-sci の CLI を呼ぶ（研究の命令。cwd・env の約束は `_paper_cli` と同じ）。"""
+def _sci_cli(project: dict, args: list[str], timeout: float = 30.0, input_text: str | None = None):
+    """sai-sci の CLI を呼ぶ（研究の命令。cwd・env の約束は `_paper_cli` と同じ）。
+
+    `input_text` を渡すと標準入力に書く（`project mind` の全文・U04）。
+    """
     root = str(project["root"])
     return cli.run_json(
         [settings.sai_sci_bin, *args],
@@ -145,6 +148,7 @@ def _sci_cli(project: dict, args: list[str], timeout: float = 30.0):
         cwd=root,
         env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         timeout=timeout,
+        input_text=input_text,
     )
 
 
@@ -664,8 +668,8 @@ def pdf_path(project: dict, paper_id: int, lang: str | None) -> Path:
 _BIB_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}\.bib$")
 # .bib の中身の大きさの上限（1MB）
 BIB_TEXT_MAX = 1024 * 1024
-# メモ 1 行の長さの上限（mind-append は 1 行だけ書く）
-MEMO_MAX = 2000
+# mind.md の全文の長さの上限（文字・U04）
+MIND_MAX = 200000
 # 要対応の key の長さの上限
 ATTENTION_KEY_MAX = 300
 # 題名（通知の文に使うだけ）の長さの上限
@@ -873,7 +877,7 @@ def _finish_download(job: dict, status: str, error: str | None = None) -> None:
 def _new_job(kind: str, key: str, title: str, status: str, steps: list[str], percent) -> dict:
     """仕事の dict を作る（一覧に出す形はすべて同じにする・U05 §1）。
 
-    `kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` の 5 つ。
+    `kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` / `index` の 6 つ。
     `percent` が None の仕事は「% の分からない仕事」（画面は動く帯で出す）。
     """
     return {
@@ -1279,6 +1283,61 @@ async def _translate_pdf_job(project: dict, paper_id: int, title: str, job: dict
             fail("原因不明のエラー")
 
 
+PAPER_INDEX_TIMEOUT = 1800.0
+
+
+async def request_index(project: dict, paper_id: int) -> dict:
+    """論文 1 本の Index を始める（`POST …/papers/{id}/index`・202 ですぐ返す・U04）。
+
+    仕事キーは `index:{id}`。埋め込みは外の API を呼ぶので、背景で `sai-paper index paper` を走らせる。
+    """
+    name = project["name"]
+    key = f"index:{paper_id}"
+    job = _download_jobs.get((name, key))
+    if job is not None and job.get("status") in ("downloading", "processing"):
+        raise HTTPException(status_code=409, detail="この論文の Index は作成中です")
+    title = f"#{paper_id} の Index"
+    job = _new_job("index", key, title, "processing", [], None)
+    job["paper_id"] = paper_id
+    _download_jobs[(name, key)] = job
+    job["_task"] = asyncio.create_task(_index_job(project, paper_id, title, job))
+    return {"key": key, "status": "processing"}
+
+
+async def _index_job(project: dict, paper_id: int, title: str, job: dict) -> None:
+    """背景で `sai-paper index paper <id> --json` を走らせ、結果を通知する。"""
+    url = f"/#/paper/{project['name']}/{paper_id}"
+
+    def fail(error: str) -> None:
+        _finish_download(job, "failed", error=error)
+        notify.broadcast("Index を作れませんでした", f"{title}: {error}", url)
+
+    try:
+        code, stdout, reason = await _run_paper_command(
+            str(project["root"]), ["index", "paper", str(paper_id), "--json"], PAPER_INDEX_TIMEOUT
+        )
+        if reason:
+            fail(reason)
+        elif code != 0:
+            fail(_radio_error(stdout))
+        else:
+            data = json.loads(stdout)
+            chunks = data.get("chunks", 0)
+            embedded = data.get("chunks_with_embeddings", 0)
+            if chunks == 0:
+                # 本文（抽出したテキスト）が無いと chunk は 1 つも作れない
+                fail("本文が無いので Index を作れませんでした")
+            else:
+                _finish_download(job, "done")
+                notify.broadcast(
+                    "🔎 Index ができました", f"{title}: chunk {chunks}・埋め込み {embedded}", url
+                )
+    except Exception as e:  # サーバーは止めない
+        logger.exception(f"Index の作成で失敗: {e}")
+        if job.get("status") not in ("done", "failed"):
+            fail("原因不明のエラー")
+
+
 # --- Project（state.md / mind.md / 要対応・U3 §変更内容 2） ---
 
 
@@ -1290,24 +1349,22 @@ def project_view(project: dict) -> dict:
     return _sci_cli(project, ["project", "show", "--json"], timeout=30.0)
 
 
-def mind_append(project: dict, text) -> dict:
-    """mind.md のメモを 1 行足す（`sai-sci project memo <文> --json`・U14）。
+def mind_save(project: dict, text) -> dict:
+    """mind.md の全文を保存する（`sai-sci project mind --json`・本文は標準入力・U04）。
 
-    文は 1 行・空でない・2000 字以下・NUL を含まない（値が `-` で始まってもよいよう
-    `--` の後ろに置く）。
+    本文は文字列・空白以外を 1 文字以上含む・200000 字以下・NUL を含まない。
     """
     if (
         not isinstance(text, str)
-        or not (1 <= len(text) <= MEMO_MAX)
-        or any(c in text for c in "\r\n\0")
+        or not text.strip()
+        or len(text) > MIND_MAX
+        or "\0" in text
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"メモは改行なしで 1〜{MEMO_MAX} 文字にしてください",
+            detail=f"Mind は 1〜{MIND_MAX} 文字で書いてください",
         )
-    return _sci_cli(
-        project, ["project", "memo", "--json", "--", text], timeout=30.0
-    )
+    return _sci_cli(project, ["project", "mind", "--json"], timeout=30.0, input_text=text)
 
 
 def attention_resolve(project: dict, key) -> dict:
