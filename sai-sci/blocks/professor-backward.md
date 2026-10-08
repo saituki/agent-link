@@ -15,12 +15,11 @@ subblocks:
   - operator
   - sci-restore
   - sci-cite-check
-  - sci-review
+  - sci-verify
   - sci-result-compare
-  - sci-read
-  - sci-compare
-  - sci-ideate
-  - sci-search
+  - lab-read
+  - lab-search
+  - lab-grow
   - sci-extract
   - sci-lookup
   - sci-analogy

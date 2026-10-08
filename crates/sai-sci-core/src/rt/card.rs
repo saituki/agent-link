@@ -414,7 +414,7 @@ mod tests {
         let data_dir = dir.join(".sai/paper");
         fs::create_dir_all(&data_dir).unwrap();
         fs::create_dir_all(dir.join(".sai/blocks")).unwrap();
-        for b in ["sci-ideate", "lab-read"] {
+        for b in ["lab-grow", "lab-read"] {
             fs::write(
                 dir.join(format!(".sai/blocks/{b}.md")),
                 format!("---\nid: {b}\nname: {b}\ndescription: テスト\n---\n\n# task_text\n"),
@@ -456,7 +456,7 @@ mod tests {
 
     fn spec() -> CardSpec {
         CardSpec {
-            node: "Q1".into(), block: "sci-ideate".into(), purpose: "答えの候補を出す".into(), expect: "A を 2 つ".into(),
+            node: "Q1".into(), block: "lab-grow".into(), purpose: "答えの候補を出す".into(), expect: "A を 2 つ".into(),
             mode: "purpose_first".into(), papers: vec![37], runner: "pi".into(), origin_run: Some(120), ..CardSpec::default()
         }
     }
@@ -521,6 +521,19 @@ mod tests {
         s.node = "SEED".into();
         s.runner = "user".into();
         assert!(err(&e, &s).contains("A か Q"));
+    }
+
+    /// runner が user で block が空のとき、READ_CARD の既定の block は lab-read。
+    #[test]
+    fn read_card_without_block_uses_lab_read() {
+        let e = env("read-default");
+        let mut s = spec();
+        s.runner = "user".into();
+        s.block = String::new();
+        s.papers = vec![37];
+        let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
+        let text = fs::read_to_string(&r.path).unwrap();
+        assert!(text.contains("lab-read"), "{text}");
     }
 
     #[test]
