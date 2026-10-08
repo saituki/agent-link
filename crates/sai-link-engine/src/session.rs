@@ -1505,7 +1505,9 @@ pub struct HistoryTypeTokens {
 }
 
 /// History 画面 Timeline の 1 イベント（近似値付き）。
-#[derive(Debug, Clone, serde::Serialize)]
+///
+/// `toolCall` の行は対になる結果（`toolResult`）を同じ行に持つ（C11）。
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct HistoryEvent {
     /// イベントの ISO 8601 タイムスタンプ（不明な場合は空文字）
     pub timestamp: String,
@@ -1515,6 +1517,27 @@ pub struct HistoryEvent {
     pub name: String,
     /// 近似トークン数（エントリの文字数換算）
     pub tokens: u64,
+    /// 呼び出しの番号（cc は `tool_use.id`、pi は `toolCall.id`）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    /// Bash 系の道具の命令（`sai-paper content read` など）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// 結果の本文の先頭 200 字
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// 結果が失敗か（`is_error`）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    /// 呼び出しの入力に出る番号（`#x.y.z`）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ids: Vec<String>,
+    /// 結果の文字数による近似
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_tokens: Option<u64>,
+    /// 失敗の分類（`is_error` が true のときだけ。JSON には出さない）
+    #[serde(skip)]
+    pub failure: Option<&'static str>,
 }
 
 /// History 画面用のセッション統計（近似値）。
@@ -1539,7 +1562,7 @@ pub struct HistoryStats {
 /// | `user` | user message の text ブロック |
 /// | `agent` | assistant message の text ブロック |
 /// | `toolCall` | assistant の toolCall（ツール名 + 引数） |
-/// | `toolResult` | toolResult の text ブロック |
+/// | `toolResult` | toolResult の text ブロック（対になる toolCall の行に足す・C11） |
 /// | `thinking` | assistant の thinking ブロック |
 ///
 /// # エラー
@@ -1552,6 +1575,8 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
 
     let mut stats = HistoryStats::default();
     let t = &mut stats.type_tokens;
+    // toolCall の id → events の位置（対になる toolResult は同じ行に足す・C11）
+    let mut calls: HashMap<String, usize> = HashMap::new();
 
     for filepath in &files {
         let metadata = fs::metadata(filepath)?;
@@ -1591,6 +1616,7 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                         kind: "user".to_string(),
                         name: first_line_head(msg.get("content"), 24),
                         tokens: chars,
+                        ..Default::default()
                     });
                 }
                 "assistant" => {
@@ -1613,6 +1639,7 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                                     kind: "agent".to_string(),
                                     name: head_text(text, 24),
                                     tokens: chars,
+                                    ..Default::default()
                                 });
                             }
                             Some("thinking") => {
@@ -1630,6 +1657,7 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                                     kind: "thinking".to_string(),
                                     name: "thinking".to_string(),
                                     tokens: chars,
+                                    ..Default::default()
                                 });
                             }
                             Some("toolCall") => {
@@ -1642,12 +1670,24 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                                 if chars == 0 {
                                     continue;
                                 }
+                                let call_id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                                let input = item
+                                    .get("arguments")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
                                 t.tool_call += chars;
+                                if !call_id.is_empty() {
+                                    calls.insert(call_id.to_string(), stats.events.len());
+                                }
                                 stats.events.push(HistoryEvent {
                                     timestamp: ts.clone(),
                                     kind: "toolCall".to_string(),
                                     name: name.to_string(),
                                     tokens: chars,
+                                    call_id: (!call_id.is_empty()).then(|| call_id.to_string()),
+                                    command: cli_command(name, &input),
+                                    ids: ids_in(&input),
+                                    ..Default::default()
                                 });
                             }
                             _ => {}
@@ -1655,21 +1695,33 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                     }
                 }
                 "toolResult" => {
-                    let chars = content_text_chars(msg.get("content"));
-                    if chars == 0 {
+                    let body = cc_message_text(msg);
+                    let chars = body.chars().count() as u64;
+                    let call_id = msg.get("toolCallId").and_then(|x| x.as_str()).unwrap_or("");
+                    let is_error = msg.get("isError").and_then(|v| v.as_bool());
+                    let matched = calls.get(call_id).copied();
+                    if chars == 0 && matched.is_none() {
                         continue;
                     }
                     t.tool_result += chars;
-                    stats.events.push(HistoryEvent {
-                        timestamp: ts,
-                        kind: "toolResult".to_string(),
-                        name: msg
-                            .get("toolName")
-                            .and_then(|n| n.as_str())
-                            .unwrap_or("toolResult")
-                            .to_string(),
-                        tokens: chars,
-                    });
+                    match matched {
+                        Some(idx) => attach_result(&mut stats.events[idx], &body, is_error),
+                        None => {
+                            let mut ev = HistoryEvent {
+                                timestamp: ts,
+                                kind: "toolResult".to_string(),
+                                name: msg
+                                    .get("toolName")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("toolResult")
+                                    .to_string(),
+                                tokens: chars,
+                                ..Default::default()
+                            };
+                            attach_result(&mut ev, &body, is_error);
+                            stats.events.push(ev);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -2209,6 +2261,7 @@ pub fn extract_gemini_history_stats(path: &Path) -> Result<HistoryStats, Session
                     kind: "user".to_string(),
                     name: head_text(&text, 24),
                     tokens: chars,
+                    ..Default::default()
                 });
             }
             "assistant" => {
@@ -2218,6 +2271,7 @@ pub fn extract_gemini_history_stats(path: &Path) -> Result<HistoryStats, Session
                     kind: "agent".to_string(),
                     name: head_text(&text, 24),
                     tokens: chars,
+                    ..Default::default()
                 });
             }
             _ => {}
@@ -2276,13 +2330,16 @@ pub fn cc_session_files(limit: usize) -> Vec<PathBuf> {
 /// Claude Code の JSONL 1 ファイルから History 画面用の近似統計を抽出する。
 ///
 /// gemini / pi と同じ HistoryStats 形式を返す。
-/// - user → user
+/// - user → user（文字列の content も数える）
 /// - assistant → agent（block_history.rs の期待値に合わせる）
+/// - tool_use → toolCall、対になる tool_result は同じ行に足す（C11）
 /// token は usage フィールド（snake_case）の実値を使用する。
 pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionError> {
     let content = fs::read_to_string(path)?;
     let mut stats = HistoryStats::default();
     let t = &mut stats.type_tokens;
+    // tool_use の id → events の位置（tool_result は同じ行に足す・C11）
+    let mut calls: HashMap<String, usize> = HashMap::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -2311,53 +2368,76 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
 
         let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
 
-        // usage からトークン数を取得（snake_case）
-        let usage_input = msg
-            .get("usage")
-            .and_then(|u| u.get("input_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let usage_output = msg
-            .get("usage")
-            .and_then(|u| u.get("output_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let usage_cache_read = msg
-            .get("usage")
-            .and_then(|u| u.get("cache_read_input_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let usage_cache_write = msg
-            .get("usage")
-            .and_then(|u| u.get("cache_creation_input_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-
-        // content から text ブロックとブロック種別を抽出
-        let content_array = match msg.get("content") {
-            Some(serde_json::Value::Array(arr)) => arr,
-            _ => continue,
-        };
-
         match role {
             "user" => {
-                // user メッセージは text ブロックから文字数を数える
-                let text = extract_text_from_content(msg);
+                // 依頼文は素の文字列・text ブロックの両方で入るため、cc_message_text で読む
+                let text = cc_message_text(msg);
                 let chars = text.chars().count() as u64;
-                if chars == 0 {
-                    continue;
+                if chars > 0 {
+                    t.user += chars;
+                    stats.events.push(HistoryEvent {
+                        timestamp: ts.clone(),
+                        kind: "user".to_string(),
+                        name: head_text(&text, 24),
+                        tokens: chars,
+                        ..Default::default()
+                    });
                 }
-                t.user += chars;
-                stats.events.push(HistoryEvent {
-                    timestamp: ts,
-                    kind: "user".to_string(),
-                    name: head_text(&text, 24),
-                    tokens: chars,
-                });
+                // tool_result は tool_use_id で直前の tool_use の行に結ぶ
+                for item in msg
+                    .get("content")
+                    .and_then(|c| c.as_array())
+                    .into_iter()
+                    .flatten()
+                {
+                    if item.get("type").and_then(|k| k.as_str()) != Some("tool_result") {
+                        continue;
+                    }
+                    let body = cc_message_text(item);
+                    let body_chars = body.chars().count() as u64;
+                    let call_id = item
+                        .get("tool_use_id")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("");
+                    let is_error = item.get("is_error").and_then(|v| v.as_bool());
+                    let matched = calls.get(call_id).copied();
+                    if body_chars == 0 && matched.is_none() {
+                        continue;
+                    }
+                    t.tool_result += body_chars;
+                    match matched {
+                        Some(idx) => attach_result(&mut stats.events[idx], &body, is_error),
+                        None => {
+                            let mut ev = HistoryEvent {
+                                timestamp: ts.clone(),
+                                kind: "toolResult".to_string(),
+                                name: "toolResult".to_string(),
+                                tokens: body_chars,
+                                ..Default::default()
+                            };
+                            attach_result(&mut ev, &body, is_error);
+                            stats.events.push(ev);
+                        }
+                    }
+                }
             }
             "assistant" => {
+                let Some(content_array) = msg.get("content").and_then(|c| c.as_array()) else {
+                    continue;
+                };
+
                 // assistant: input + output + cache read/write を集計（cc では usage が完全）
-                let chars = usage_input + usage_output + usage_cache_read + usage_cache_write;
+                let usage = |key: &str| {
+                    msg.get("usage")
+                        .and_then(|u| u.get(key))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+                };
+                let usage_output = usage("output_tokens");
+                let chars = usage("input_tokens")
+                    + usage_output
+                    + usage("cache_read_input_tokens")
+                    + usage("cache_creation_input_tokens");
                 if chars == 0 {
                     continue;
                 }
@@ -2382,26 +2462,42 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
                         kind: "thinking".to_string(),
                         name: "thinking".to_string(),
                         tokens: usage_output,
+                        ..Default::default()
                     });
                 }
 
-                // tool_use がある場合は toolCall として記録
+                // tool_use は toolCall として 1 行にする（tokens は名前と入力 JSON の文字数）
                 if has_tool_use {
                     for item in content_array {
-                        if item.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
-                            let tool_name = item
-                                .get("name")
-                                .and_then(|n| n.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            t.tool_call += 1; // ツール呼び出し1回をカウント
-                            stats.events.push(HistoryEvent {
-                                timestamp: ts.clone(),
-                                kind: "toolCall".to_string(),
-                                name: tool_name,
-                                tokens: 1,
-                            });
+                        if item.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+                            continue;
                         }
+                        let tool_name = item
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let input = item
+                            .get("input")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                        let call_id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                        let chars =
+                            (tool_name.chars().count() + input.to_string().chars().count()) as u64;
+                        t.tool_call += chars;
+                        if !call_id.is_empty() {
+                            calls.insert(call_id.to_string(), stats.events.len());
+                        }
+                        stats.events.push(HistoryEvent {
+                            timestamp: ts.clone(),
+                            kind: "toolCall".to_string(),
+                            name: tool_name.clone(),
+                            tokens: chars,
+                            call_id: (!call_id.is_empty()).then(|| call_id.to_string()),
+                            command: cli_command(&tool_name, &input),
+                            ids: ids_in(&input),
+                            ..Default::default()
+                        });
                     }
                 }
 
@@ -2413,6 +2509,7 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
                         kind: "agent".to_string(),
                         name: head_text(&text, 24),
                         tokens: chars,
+                        ..Default::default()
                     });
                 }
             }
@@ -2421,6 +2518,234 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
     }
     stats.events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
     Ok(stats)
+}
+
+/// 1 呼び出しの全文（`sai-link run history <id> --call <CALL_ID>`・C11）。
+///
+/// `path_or_dir` は cc なら jsonl 1 件、pi ならセッション dir。呼び出しも結果も
+/// 見つからなければ `None`（呼び出し側は終了コード 3）。結果は 20000 字で切る。
+pub fn history_call(path_or_dir: &Path, runner: &str, call_id: &str) -> Option<HistoryCall> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    if path_or_dir.is_dir() {
+        visit_jsonl_files(path_or_dir, &mut |p| files.push(p.to_path_buf())).ok()?;
+    } else {
+        files.push(path_or_dir.to_path_buf());
+    }
+
+    let mut call: Option<(String, serde_json::Value)> = None;
+    let mut result: Option<(String, Option<bool>)> = None;
+    for file in &files {
+        let Ok(content) = fs::read_to_string(file) else {
+            continue;
+        };
+        for line in content.lines() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                continue;
+            };
+            let Some(msg) = value.get("message") else {
+                continue;
+            };
+            let items = msg.get("content").and_then(|c| c.as_array());
+            if runner == "cc" {
+                for item in items.into_iter().flatten() {
+                    let id = item.get("id").and_then(|x| x.as_str());
+                    let used = item.get("tool_use_id").and_then(|x| x.as_str());
+                    match item.get("type").and_then(|k| k.as_str()) {
+                        Some("tool_use") if id == Some(call_id) => {
+                            let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                            let input = item
+                                .get("input")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            call = Some((name.to_string(), input));
+                        }
+                        Some("tool_result") if used == Some(call_id) => {
+                            let is_error = item.get("is_error").and_then(|v| v.as_bool());
+                            result = Some((cc_message_text(item), is_error));
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                if msg.get("toolCallId").and_then(|x| x.as_str()) == Some(call_id) {
+                    let is_error = msg.get("isError").and_then(|v| v.as_bool());
+                    result = Some((cc_message_text(msg), is_error));
+                }
+                for item in items.into_iter().flatten() {
+                    if item.get("type").and_then(|k| k.as_str()) == Some("toolCall")
+                        && item.get("id").and_then(|x| x.as_str()) == Some(call_id)
+                    {
+                        let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let input = item
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                        call = Some((name.to_string(), input));
+                    }
+                }
+            }
+        }
+    }
+
+    if call.is_none() && result.is_none() {
+        return None;
+    }
+    let (name, input) = call.unwrap_or((String::new(), serde_json::Value::Null));
+    let (body, is_error) = result.unwrap_or((String::new(), None));
+    let truncated = body.chars().count() > CALL_RESULT_CHARS;
+    Some(HistoryCall {
+        call_id: call_id.to_string(),
+        command: cli_command(&name, &input),
+        name,
+        input: input.to_string(),
+        result: body.chars().take(CALL_RESULT_CHARS).collect(),
+        is_error,
+        truncated,
+    })
+}
+
+/// `history_call` の結果（C11 の JSON 形）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HistoryCall {
+    /// 呼び出しの番号
+    pub call_id: String,
+    /// 道具の名前（`Bash`・`bash` など）
+    pub name: String,
+    /// Bash 系の道具の命令（`sai-paper content read` など）
+    pub command: Option<String>,
+    /// 入力（JSON 文字列）
+    pub input: String,
+    /// 結果の本文（20000 字まで）
+    pub result: String,
+    /// 結果が失敗か
+    pub is_error: Option<bool>,
+    /// 結果が 20000 字を超えて切ったか
+    pub truncated: bool,
+}
+
+/// History 1 行の結果の本文の先頭（200 字・C11）。
+const PREVIEW_CHARS: usize = 200;
+/// `history_call` で返す結果の全文の上限（字数・C11）。
+const CALL_RESULT_CHARS: usize = 20000;
+
+/// 結果（`toolResult` の本文）を呼び出しの行に足す（preview・is_error・結果の文字数・失敗の分類）。
+fn attach_result(ev: &mut HistoryEvent, body: &str, is_error: Option<bool>) {
+    ev.preview = Some(body.chars().take(PREVIEW_CHARS).collect());
+    ev.is_error = is_error;
+    ev.result_tokens = Some(body.chars().count() as u64);
+    ev.failure = (is_error == Some(true)).then(|| failure_class(body));
+}
+
+/// 失敗の分類（C11）。`台帳に無い番号です` は `ledger`、終了コード 2・3・4 は
+/// `input`・`not_found`・`conflict`、それ以外と読めないものは `other`。
+pub fn failure_class(result: &str) -> &'static str {
+    if result.contains("台帳に無い番号です") {
+        return "ledger";
+    }
+    match exit_code_of(result) {
+        Some(2) => "input",
+        Some(3) => "not_found",
+        Some(4) => "conflict",
+        _ => "other",
+    }
+}
+
+/// 結果の文の行頭の `Exit code <n>`（大文字小文字を区別しない）から終了コードを読む。
+pub fn exit_code_of(result: &str) -> Option<i32> {
+    result.lines().find_map(|line| {
+        if !line.get(..9)?.eq_ignore_ascii_case("exit code") {
+            return None;
+        }
+        line.get(9..)?.split_whitespace().next()?.parse().ok()
+    })
+}
+
+/// Bash 系の道具の入力から命令名を作る（C11）。
+///
+/// 道具の名前が `Bash`・`bash` で、入力の `command` の中で命令の位置（先頭・区切りの後・
+/// `VAR=値` の後）にある `sai-paper`・`sai-sci`・`sai-link`（パスの最後の部分で比べる）から、
+/// 続く語のうち `[a-z][a-z0-9-]*` の形の語を 2 つまで足す。区切り（`&&`・`|`・`;`）で止める。
+/// 例: `sai-paper content read '#37.5' --json` → `sai-paper content read`。
+pub fn cli_command(tool_name: &str, input: &serde_json::Value) -> Option<String> {
+    if tool_name != "Bash" && tool_name != "bash" {
+        return None;
+    }
+    let text = input.get("command")?.as_str()?;
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut at_start = true;
+    let mut start = None;
+    for (i, w) in words.iter().enumerate() {
+        if at_start && is_assignment(w) {
+            continue;
+        }
+        if at_start && is_sai_cli(w) {
+            start = Some(i);
+            break;
+        }
+        at_start = is_separator(w);
+    }
+    let start = start?;
+    let mut parts = vec![basename(words[start]).to_string()];
+    for w in &words[start + 1..] {
+        if parts.len() == 3 || is_separator(w) {
+            break;
+        }
+        if is_sub_word(w) {
+            parts.push(w.to_string());
+        }
+    }
+    Some(parts.join(" "))
+}
+
+fn basename(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
+}
+
+fn is_sai_cli(word: &str) -> bool {
+    matches!(basename(word), "sai-paper" | "sai-sci" | "sai-link")
+}
+
+/// 命令の区切り（`&&`・`||`・`|`・`;` で終わる語）。
+fn is_separator(word: &str) -> bool {
+    matches!(word, "&&" | "||" | "|" | ";") || word.ends_with(';')
+}
+
+/// `VAR=値` の形の語（環境変数の代入）。
+fn is_assignment(word: &str) -> bool {
+    match word.split_once('=') {
+        Some((key, _)) => {
+            !key.is_empty()
+                && !key.starts_with(|c: char| c.is_ascii_digit())
+                && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }
+        None => false,
+    }
+}
+
+/// `[a-z][a-z0-9-]*` の形の語か（オプション `-x` や引数 `#37.5` は外れる）。
+fn is_sub_word(word: &str) -> bool {
+    let mut chars = word.chars();
+    matches!(chars.next(), Some('a'..='z'))
+        && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+}
+
+/// 入力 JSON の文字列値をすべて連結し、番号（C10 の規則）を拾う。
+/// JSON のエスケープを解いてから拾うので、`\n#37` の `n` を前の字と誤らない。
+fn ids_in(input: &serde_json::Value) -> Vec<String> {
+    fn collect(v: &serde_json::Value, out: &mut String) {
+        match v {
+            serde_json::Value::String(s) => {
+                out.push_str(s);
+                out.push('\n');
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|i| collect(i, out)),
+            serde_json::Value::Object(map) => map.values().for_each(|i| collect(i, out)),
+            _ => {}
+        }
+    }
+    let mut text = String::new();
+    collect(input, &mut text);
+    crate::seen_ids::extract(&text)
 }
 
 /// cc の message.content（文字列 or `[{type,text}]` ブロック配列）から text のみを
@@ -3116,15 +3441,14 @@ mod usage_tests {
         // toolResult: 「結果」= 2 文字
         assert_eq!(t.tool_result, 2);
 
-        // Timeline: user → thinking → agent → toolCall → toolResult
+        // Timeline: user → thinking → agent → toolCall（結果は同じ行に入る・C11）
         let kinds: Vec<&str> = stats.events.iter().map(|e| e.kind.as_str()).collect();
-        assert_eq!(
-            kinds,
-            vec!["user", "thinking", "agent", "toolCall", "toolResult"]
-        );
+        assert_eq!(kinds, vec!["user", "thinking", "agent", "toolCall"]);
         assert_eq!(stats.events[0].name, "こんにちは 質問");
         assert_eq!(stats.events[3].name, "grep");
-        assert_eq!(stats.events[4].name, "grep");
+        assert_eq!(stats.events[3].call_id.as_deref(), Some("t1"));
+        assert_eq!(stats.events[3].preview.as_deref(), Some("結果"));
+        assert_eq!(stats.events[3].result_tokens, Some(2));
         assert_eq!(stats.events[2].name, "回答");
     }
 
@@ -3242,6 +3566,141 @@ mod usage_tests {
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0], ("user".to_string(), "こんにちは".to_string()));
         assert_eq!(msgs[1], ("assistant".to_string(), "お返事です".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// cc の tool_use と tool_result が 1 行にまとまること（C11）。
+    #[test]
+    fn cc_history_pairs_tool_use_and_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cc-pair.jsonl");
+        // 結果は 200 字を超える。失敗の印（台帳の語）は 200 字より後ろにある
+        let result = format!(
+            "Exit code 2\n{}\n台帳に無い番号です: #37.5.2",
+            "あ".repeat(250)
+        );
+        let lines = [
+            serde_json::json!({"type": "user", "timestamp": "2026-10-08T00:00:00Z", "message": {"role": "user", "content": "依頼文 #12.3"}}),
+            serde_json::json!({"type": "assistant", "timestamp": "2026-10-08T00:00:01Z", "message": {"role": "assistant", "usage": {"input_tokens": 5, "output_tokens": 5}, "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "cd /x && SAI_X=1 /opt/bin/sai-sci op < ops.json # 見た #37.5.2"}}]}}),
+            serde_json::json!({"type": "user", "timestamp": "2026-10-08T00:00:02Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": result.clone(), "is_error": true}]}}),
+        ];
+        let body: String = lines.iter().map(|l| format!("{}\n", l)).collect();
+        std::fs::write(&path, body).unwrap();
+
+        let hist = extract_cc_history_stats(&path).unwrap();
+        // 文字列の user 行も数える（「依頼文 #12.3」= 9 字）
+        assert_eq!(hist.type_tokens.user, 9);
+        // 1 行にまとまる（対になる toolResult の行は作らない）
+        let kinds: Vec<&str> = hist.events.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["user", "toolCall"]);
+        let call = &hist.events[1];
+        assert_eq!(call.call_id.as_deref(), Some("toolu_1"));
+        assert_eq!(call.command.as_deref(), Some("sai-sci op"));
+        assert_eq!(call.is_error, Some(true));
+        assert_eq!(
+            call.preview.as_deref().map(|p| p.chars().count()),
+            Some(200)
+        );
+        assert_eq!(call.ids, vec!["#37.5.2"]);
+        // 失敗の分類は全文で読む（印は preview の外にある）
+        assert_eq!(call.failure, Some("ledger"));
+        let result_chars = result.chars().count() as u64;
+        assert_eq!(call.result_tokens, Some(result_chars));
+        assert_eq!(hist.type_tokens.tool_result, result_chars);
+        // toolCall の tokens は名前と入力 JSON の文字数（tool_call の合計と同じ）
+        assert_eq!(hist.type_tokens.tool_call, call.tokens);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// pi の toolCall と toolResult を call id で結ぶこと（C11）。対の無い結果は toolResult の行。
+    #[test]
+    fn pi_history_pairs_by_tool_call_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = concat!(
+            r#"{"type":"message","timestamp":"2026-10-08T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"p1","name":"bash","arguments":{"command":"sai-paper content read '#37.5' --json"}}]}}"#,
+            "\n",
+            r#"{"type":"message","timestamp":"2026-10-08T00:00:02.000Z","message":{"role":"toolResult","toolCallId":"p1","toolName":"bash","isError":true,"content":[{"type":"text","text":"Exit code 1\n失敗"}]}}"#,
+            "\n",
+            r#"{"type":"message","timestamp":"2026-10-08T00:00:03.000Z","message":{"role":"toolResult","toolCallId":"zz","toolName":"read","content":[{"type":"text","text":"対がない"}]}}"#,
+            "\n",
+        );
+        std::fs::write(
+            dir.path()
+                .join("session_01a04b0e-0000-0000-0000-000000000004.jsonl"),
+            body,
+        )
+        .unwrap();
+
+        let stats = extract_history_stats(dir.path()).unwrap();
+        let kinds: Vec<&str> = stats.events.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["toolCall", "toolResult"]);
+        let call = &stats.events[0];
+        assert_eq!(call.call_id.as_deref(), Some("p1"));
+        assert_eq!(call.command.as_deref(), Some("sai-paper content read"));
+        assert_eq!(call.is_error, Some(true));
+        assert_eq!(call.failure, Some("other"));
+        assert_eq!(call.preview.as_deref(), Some("Exit code 1\n失敗"));
+        assert_eq!(call.ids, vec!["#37.5"]);
+        assert_eq!(stats.events[1].name, "read");
+        assert_eq!(stats.events[1].is_error, None);
+        // tool_result = 「Exit code 1\n失敗」14 字 + 「対がない」4 字
+        assert_eq!(stats.type_tokens.tool_result, 14 + 4);
+    }
+
+    /// Bash の命令名（`sai-paper`・`sai-sci`・`sai-link` の命令の位置）を作ること（C11）。
+    #[test]
+    fn cli_command_forms() {
+        let cmd = |s: &str| cli_command("Bash", &serde_json::json!({ "command": s }));
+        assert_eq!(
+            cmd("cd /x && SAI_X=1 /opt/bin/sai-paper content read '#37.5' --json").as_deref(),
+            Some("sai-paper content read")
+        );
+        assert_eq!(cmd("sai-sci op < ops.json").as_deref(), Some("sai-sci op"));
+        assert_eq!(
+            cmd("sai-link run history 49 --json && echo sai-sci").as_deref(),
+            Some("sai-link run history")
+        );
+        assert_eq!(
+            cmd("sai-paper find 'x' | head").as_deref(),
+            Some("sai-paper find")
+        );
+        assert_eq!(cmd("grep -n sai-paper src"), None);
+        assert_eq!(
+            cli_command("Read", &serde_json::json!({ "file_path": "/x" })),
+            None
+        );
+    }
+
+    /// 失敗の分類と終了コードの読み取り（C11）。
+    #[test]
+    fn failure_class_reads_exit_code_and_ledger() {
+        assert_eq!(exit_code_of("Exit code 3\nx"), Some(3));
+        assert_eq!(exit_code_of("exit CODE 2"), Some(2));
+        assert_eq!(exit_code_of("x"), None);
+        assert_eq!(failure_class("Exit code 3\n見つからない"), "not_found");
+        assert_eq!(failure_class("Exit code 2\n引数の誤り"), "input");
+        assert_eq!(failure_class("Exit code 1\n何か"), "other");
+        assert_eq!(failure_class("台帳に無い番号です: #37"), "ledger");
+    }
+
+    /// `history_call` が結果を 20000 字で切ること・無い呼び出しは None（C11）。
+    #[test]
+    fn history_call_truncates_at_20000() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cc-call.jsonl");
+        let lines = [
+            serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "c9", "name": "Bash", "input": {"command": "sai-link run history 49 --json"}}]}}),
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c9", "content": "a".repeat(25000), "is_error": false}]}}),
+        ];
+        let body: String = lines.iter().map(|l| format!("{}\n", l)).collect();
+        std::fs::write(&path, body).unwrap();
+
+        let call = history_call(&path, "cc", "c9").unwrap();
+        assert_eq!(call.command.as_deref(), Some("sai-link run history"));
+        assert_eq!(call.result.chars().count(), 20000);
+        assert!(call.truncated);
+        assert_eq!(call.is_error, Some(false));
+        assert!(history_call(&path, "cc", "nope").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

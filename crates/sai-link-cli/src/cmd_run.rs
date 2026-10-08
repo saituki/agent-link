@@ -30,10 +30,19 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             run_id,
             view: "stats".to_string(),
         }),
-        RunCmd::History { run_id, json: _ } => print_phone(PhoneCmd::Run {
+        RunCmd::History {
+            run_id,
+            call: None,
+            json: _,
+        } => print_phone(PhoneCmd::Run {
             run_id,
             view: "history".to_string(),
         }),
+        RunCmd::History {
+            run_id,
+            call: Some(call_id),
+            json,
+        } => history_call(run_id, &call_id, json),
         RunCmd::Md {
             run_id,
             kind,
@@ -153,4 +162,17 @@ fn run_list_json(limit: i64) -> Result<(), CmdError> {
         }));
     }
     print_json(&serde_json::json!({ "runs": runs }))
+}
+
+/// `sai-link run history <id> --call <CALL_ID>`: その呼び出しの全文（C11）。
+/// `--json` が無ければ、命令（無ければ道具の名前）と結果の本文を出す。
+fn history_call(run_id: i64, call_id: &str, json: bool) -> Result<(), CmdError> {
+    let v = crate::phone::history_call(run_id, call_id)?;
+    if json {
+        return print_json(&v);
+    }
+    let head = v["command"].as_str().or(v["name"].as_str()).unwrap_or("");
+    println!("{}", head);
+    println!("{}", v["result"].as_str().unwrap_or(""));
+    Ok(())
 }

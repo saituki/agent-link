@@ -426,10 +426,13 @@ pub enum RunCmd {
         json: bool,
     },
 
-    /// run の history を JSON で返す
+    /// run の history を JSON で返す（`--call` はその呼び出しの全文）
     History {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
+        /// この呼び出し（`call_id`）の全文を返す（結果は 20000 字まで）
+        #[arg(long, value_name = "CALL_ID")]
+        call: Option<String>,
         #[arg(long, default_value_t = false)]
         json: bool,
     },
