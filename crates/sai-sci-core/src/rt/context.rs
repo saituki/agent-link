@@ -136,6 +136,8 @@ struct Parts {
     outlines: Vec<String>,
     outline_gists: Vec<Vec<String>>,
     papers: Vec<String>,
+    /// 対象の足す子の型（対象が無いときや未指定のときは空。C7）。
+    child: String,
 }
 
 struct GuideText {
@@ -181,17 +183,15 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
             Kind::E => n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]")),
             Kind::S => {
                 let paths: Vec<String> = n.paths.iter().map(|id| fmt_id(Kind::A, *id)).collect();
-                format!(" [paths: {}]", paths.join(", "))
+                let range = tree.range(n.id).map_or_else(String::new, |r| format!(" [範囲: {}]", r.line()));
+                format!(" [paths: {}]{range}", paths.join(", "))
             }
             Kind::F => String::new(),
         };
+        let star = if n.starred { " ★" } else { "" };
         let head = match n.kind {
-            Kind::A => {
-                let star = if n.starred { " ★" } else { "" };
-                format!("{id}{star} {text}")
-            }
-            Kind::F => format!("{id} [{}] {text}", n.stance.as_deref().unwrap_or("")),
-            _ => format!("{id} {text}"),
+            Kind::F => format!("{id}{star} [{}] {text}", n.stance.as_deref().unwrap_or("")),
+            _ => format!("{id}{star} {text}"),
         };
         format!("{pad}- {head}{tail}")
     };
@@ -384,6 +384,7 @@ impl Parts {
         }
 
         Ok(Parts {
+            child: target.map_or_else(String::new, |_| keys.child.clone()),
             tree: (!blind && sci_type != "support").then_some(tree_lines),
             guide: if blind { None } else { guide },
             searches,
@@ -418,6 +419,9 @@ impl Parts {
                 lines.push(format!("（F は {hidden} 件あります。省きました）"));
             }
             blocks.push(lines.join("\n"));
+        }
+        if !self.child.is_empty() {
+            blocks.push(format!("## TARGET\n- 足す子の型: {}", self.child));
         }
         if let Some(g) = &self.guide {
             let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- Q: {}", g.question)];
@@ -601,6 +605,23 @@ mod tests {
         assert!(text.contains("  PATH: ") && text.contains(&format!("{} 課題", fmt_id(Kind::A, o))), "{text}");
         // 下の E も出る。
         assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn target_shows_child_kind() {
+        let e = env("child");
+        block(&e, "node");
+        task(&e, 1, "sci_node: Q2\nsci_purpose: p\nsci_child: A\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(text.contains("## TARGET\n- 足す子の型: A"), "{text}");
+        let _ = fs::remove_dir_all(&e.dir);
+        // 足す子の型が無いときは節も行も出さない。
+        let e = env("child-none");
+        block(&e, "node");
+        task(&e, 1, "sci_node: Q2\nsci_purpose: p\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(!text.contains("## TARGET") && !text.contains("足す子の型"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 

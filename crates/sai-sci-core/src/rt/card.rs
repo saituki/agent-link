@@ -20,7 +20,7 @@ const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
 const EXECUTERS: [&str; 2] = ["human", "agent"];
 const MODES: [&str; 2] = ["purpose_first", "blind_first"];
 const DEPTHS: [&str; 3] = ["abstract", "figures", "full"];
-const READ_BLOCK: &str = "sci-read";
+const READ_BLOCK: &str = "lab-read";
 const MAX_PAPERS: usize = 20;
 const MAX_PURPOSE: usize = 300;
 const Q_HEADING: &str = "## 読むときの Q";
@@ -31,7 +31,7 @@ const EXTRACT_HEADING: &str = "## 抜き出すもの";
 pub struct CardSpec {
     /// Q・A・F・E の ID（必須）。
     pub node: String,
-    /// 必須。runner が user で空なら `sci-read`。
+    /// 必須。runner が user で空なら `lab-read`。
     pub block: String,
     /// 必須。1 行、300 字まで。
     pub purpose: String,
@@ -57,6 +57,9 @@ pub struct CardSpec {
     /// 空は human。
     #[serde(default)]
     pub executer: String,
+    /// 足す子の型（Q / A / F。空は未指定）。C7 の組だけ通す。
+    #[serde(default)]
+    pub child: String,
 }
 
 /// CARD を作った結果。
@@ -105,6 +108,24 @@ fn check_token(raw: &str) -> Result<String> {
     let ok = (4..=64).contains(&bare.chars().count())
         && bare.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if ok { Ok(bare.to_string()) } else { invalid(format!("文書のトークンの形が違います: {raw}")) }
+}
+
+/// 足す子の型を検査する（C7）。Q の下は Q か A、A の下は Q か F。空は未指定として通す。
+fn check_child(target: Option<&store::NodeRow>, child: &str) -> Result<String> {
+    let child = child.trim();
+    if child.is_empty() {
+        return Ok(String::new());
+    }
+    let allowed: &[&str] = match target.map(|n| n.kind) {
+        Some(Kind::Q) => &["Q", "A"],
+        Some(Kind::A) => &["Q", "F"],
+        _ => return invalid("足す子の型は Q か A の Node にだけ指定できます"),
+    };
+    if allowed.contains(&child) {
+        Ok(child.to_string())
+    } else {
+        invalid(format!("足す子の型が違います: {child}（この Node では {}）", allowed.join(" / ")))
+    }
 }
 
 fn handoff_error(error: HandoffError) -> RtError {
@@ -177,8 +198,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         "" if is_read => READ_BLOCK,
         other => other,
     };
-    if !block.starts_with("sci-") {
-        return invalid("sci のブロックを指定してください（sci- で始まります）");
+    if !(block.starts_with("sci-") || block.starts_with("lab-")) {
+        return invalid("sci のブロックを指定してください（sci- か lab- で始まります）");
     }
     if action::block_def_paths(roots, block).iter().all(|path| !path.is_file()) {
         return invalid(format!("ブロック定義がありません: {block}"));
@@ -226,6 +247,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
 
     foreign("目的", &purpose)?;
     foreign("期待する成果", &expect)?;
+    let child = check_child(node.as_ref(), &spec.child)?;
     let inputs = spec.inputs.iter().map(|t| check_token(t)).collect::<Result<Vec<_>>>()?;
 
     // 依頼文。SEED の行は `- NODE: SEED <RESEARCH_TYPE の名前>`。
@@ -274,7 +296,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         Some(n) => fmt_id(n.kind, n.id),
         None => SEED_ID.to_string(),
     };
-    let extra: Vec<(&str, String)> = vec![
+    let mut extra: Vec<(&str, String)> = vec![
         ("executer", executer.to_string()),
         ("sci_node", sci_node),
         ("sci_purpose", purpose.clone()),
@@ -283,6 +305,10 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         ("sci_papers", papers_text),
         ("sci_depth", depth.to_string()),
     ];
+    // 空の足す子の型は書かない（task.md に行を出さない）。
+    if !child.is_empty() {
+        extra.push(("sci_child", child));
+    }
     let handoff = create_handoff_with_extra(
         db,
         roots,
@@ -388,7 +414,7 @@ mod tests {
         let data_dir = dir.join(".sai/paper");
         fs::create_dir_all(&data_dir).unwrap();
         fs::create_dir_all(dir.join(".sai/blocks")).unwrap();
-        for b in ["sci-ideate", "sci-read"] {
+        for b in ["sci-ideate", "lab-read"] {
             fs::write(
                 dir.join(format!(".sai/blocks/{b}.md")),
                 format!("---\nid: {b}\nname: {b}\ndescription: テスト\n---\n\n# task_text\n"),
@@ -441,6 +467,23 @@ mod tests {
 
     fn node_rows(e: &Env) -> usize {
         store::list_nodes(e.db.connection(), true).unwrap().len()
+    }
+
+    #[test]
+    fn child_key_checked_and_written() {
+        let e = env("child");
+        let with = |node: &str, child: &str| CardSpec { node: node.into(), child: child.into(), ..spec() };
+        // Q の下は Q か A、A の下は Q か F。それ以外（と知らない値）は入力の誤り。
+        for bad in [with("Q1", "F"), with("A2", "A"), with("A2", "O")] {
+            assert!(matches!(create_card(&e.db, &e.roots, &e.defs, &bad), Err(RtError::Invalid(_))), "{bad:?}");
+        }
+        let q = create_card(&e.db, &e.roots, &e.defs, &with("Q1", "A")).unwrap();
+        assert!(fs::read_to_string(&q.path).unwrap().contains("sci_child: A"));
+        let a = create_card(&e.db, &e.roots, &e.defs, &with("A2", "F")).unwrap();
+        assert!(fs::read_to_string(&a.path).unwrap().contains("sci_child: F"));
+        // 未指定なら行を書かない。
+        let none = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
+        assert!(!fs::read_to_string(&none.path).unwrap().contains("sci_child"));
     }
 
     #[test]

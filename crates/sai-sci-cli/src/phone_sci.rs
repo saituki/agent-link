@@ -26,6 +26,7 @@ pub(crate) fn card_spec(input: &str) -> Result<card::CardSpec> {
         inputs: Vec::new(),
         // Web の画面から作る CARD は人が起こすもの（agent が起こす CARD は CLI だけ）。
         executer: String::new(),
+        child: text_of(&value, "child"),
     })
 }
 
