@@ -1,4 +1,4 @@
-//! エージェントに渡す `# context` の Markdown（新しい research-tree Q・O・F・E 版）。
+//! エージェントに渡す `# context` の Markdown（新しい research-tree Q・A・F・E・S 版）。
 //!
 //! research-tree の一部（範囲）だけを渡す。ファイルは作らず、文字列を返す（`# context` の見出しは呼び出し側が付ける）。
 //! 範囲はブロックの `sci_type`（node / manage / support）で決める。

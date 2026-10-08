@@ -651,7 +651,7 @@ def _build_parser() -> argparse.ArgumentParser:
     log_cmd.add_argument("--project", required=True, help="sai.project タグの値")
     log_cmd.add_argument("--run-id", required=True, type=int, help="sai.run_id タグの値")
     log_cmd.add_argument("--study", required=True, help="exp.study タグの値")
-    log_cmd.add_argument("--node", required=True, type=int, help="sci.node タグの値")
+    log_cmd.add_argument("--node", required=True, help="sci.node タグの値（Node の ID。例 S3・E12）")
     log_cmd.add_argument("--kind", required=True, choices=["eda", "test"], help="exp.kind タグの値")
     log_cmd.add_argument("--plan", default=None, help="plan.json")
     log_cmd.add_argument("--results", default=None, help="results.json")

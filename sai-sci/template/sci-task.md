@@ -46,7 +46,7 @@ sai-link task create <<'EOF'
 EOF
 ```
 
-- CARD の `block:`・依頼文・説明をそのまま使う。`task_text` と `block_type` は**書かない**。書くと断られる。
+- CARD の `block:`・依頼文・説明をそのまま使う。`task_text` は**書かない**（書くと断られる）。`block_type` は CARD の `block:` と別の名前を書くと断られるので、書かない。
 - `card` は自分の子として親子関係を結ぶので、`sai-link task wait <task_id>` で報告を待てる。`sai-link task execute --task <task_id>` で始めてよい。
 - `timeout`（秒）はそのブロックの `timeout` に合わせる。
 - `client_id` は文書・局面を表す短い名にする（`R1`・`R2`…）。

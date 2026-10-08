@@ -65,7 +65,7 @@ subblocks:
 | `NO_FINDING` | A の下に F（根拠）が無い | `lab-search` |
 | `UNVERIFIED` | 子を足したあと、`sci-verify` がまだ見ていない | `sci-verify` |
 
-`★` は目印で、Next Action は `★` を見ない。Answer を決めるのは利用者だけである。
+`★` は目印で、Next Action は `★` を見ない。
 
 ### researcher の選び方
 
@@ -118,7 +118,7 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 5. 完了したら `report` と `outputs` を読む。必要な文書だけ `sai-link doc read` で読む。
 6. 評価する（下の「評価の観点」）。足りなければ `sai-link task send` で直させる（議論をさせてよい）。
 7. 確かめ終えたら `sai-link task finalize` で閉じる。閉じないと pane と running のフォルダが残る。再実行が要るときは、`requeue` せず、新しい CARD を作って 2. からやり直す（`card` で起こした子は `requeue` できない）。
-8. 木の変更を読む: 子が返した `sai-sci op` の結果（ID）を、子の報告で確かめる。★・Answer/Issue・文の直し（`edit`）は利用者の操作なので、`sai-sci apply` で付けない。Human に上げるもの（下の「Human に上げる」）は、質問ツールで Human に聞く。
+8. 木の変更を読む: 子が返した `sai-sci op` の結果（ID）を、子の報告で確かめる。★・文の直し（`edit`）は利用者の操作なので、`sai-sci apply` で付けない。Human に上げるもの（下の「Human に上げる」）は、質問ツールで Human に聞く。
 9. 研究日誌に、結果と次の判断を 2〜3 行書く。1. に戻る。
 
 - 並べて動かしてよいのは、同じ Node を書き換えない作業だけ。1 度に 3 本まで。並べたときは、`sai-link task wait` を子ごとに重ねず、`task_id` を並べて 1 回で待つ（`sci-task`）。
@@ -142,7 +142,7 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 
 ## 実験（sprout と branch）
 
-- **実験を起こす前に、`sci-exp-scout` を子として起こす。** CARD の `--node` に対象の Issue の A を、`--purpose` に実験の案を書く。`--input` には scout に見てほしい文書（`mind.md` や対象の Issue の A の文など）を書く。
+- **実験を起こす前に、`sci-exp-scout` を子として起こす。** CARD の `--node` に対象の A を、`--purpose` に実験の案を書く。`--input` には scout に見てほしい文書（`mind.md` や対象の A の文など）を書く。
 - scout は参照コード調査書を保存してすぐ報告を返す。返った**調査書のトークン**を、sprout の CARD の `--input` に足す。
 - **実験のモデルが神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）なら、scout の後にモデル定義書を作る。論文 1 本の再現・改良は `sci-sim-model`、2 本以上をつなぐなら `sci-sim-compose` を子として起こす。`--input` には参照コード調査書のトークンを書く（compose は部品ごとのモデル定義書のトークンも書く）。**モデルの式・値・再現の目標は、モデル定義書に出典つきで入る。**
 - 返った**モデル定義書のトークン**を、sprout の CARD の `--input` に足す。sprout は実験仕様書の `sim_model` に入れる（`exp-core` §3）。神経のモデルでない実験では、この 2 本は起こさない（`sim_model` は `null`）。

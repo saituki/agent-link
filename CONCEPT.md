@@ -298,6 +298,16 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 | **History（Node ごと）** | 1 つの Node の変更の記録。先頭が `init`、残りは古い順。`Add Q`・`Add A`・`Add F`・`Add E`・`Run`・決定（`edit` など）を含む。 | `sai-sci node <ID> --json` の `history`（`node_detail.history`）。Node の板の「History」 |
 | **History（全 Node）** | 全 Node の変更の記録を、`Add *` を除いて古い順に並べた物。 | `sai-sci status --json` の `history`（`Status.history`）。上の帯の「History」（折りたたみ） |
 
+### 4.6 見た番号の台帳と CLI 呼び出しの History
+
+| 用語 | 意味 | どこにあるか |
+|---|---|---|
+| **見た番号の台帳**（`seen_ids`） | run ごとに「agent が CLI で見た論文の番号（`#37`・`#37.5`・`#37.5.2`）」を 1 行 1 つ追記するファイル。agent が見ていない番号を引用する（作り話の引用）のを止める。MLflow とは別の物。 | `<root>/.sai/seen_ids/<run_id>`。`sai-paper`・`sai-sci` が出力した番号、`sai-link` が run の最初の文と `doc read` の本文の番号を書く |
+| **台帳の照合** | `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用の番号を、見た番号の台帳と照らす。無い番号があれば何も書かず終了コード 2（`台帳に無い番号です: …`）。節・塊は完全一致、論文（`#37`）は `#37` か `#37.*` があれば通る。 | `crates/sai-paper-core/src/seen_ids.rs` の `check_for` |
+| **実験の台帳**（`exp_summary.py`） | 実験（MLflow）の記録を集計して、最良・格子の端・失敗などを出す道具。見た番号の台帳とは別の物。 | `.sai/tools/exp_summary.py`・`exp-core` §5 |
+| **CLI の呼び出し（History）** | run の transcript の toolCall と toolResult を 1 行にまとめた物。命令名（`sai-paper …` など）・結果の先頭 200 字（`preview`）・`is_error`・入力に使った番号を持つ。全文（2 万字まで）は `--call` で取る。 | `sai-link run history <run_id> --json`。Web の run の History |
+| **cli 集計** | 呼び出しの数・失敗の分類（`sai-*` の呼び出しだけ数える。`ledger`・`input`・`not_found`・`conflict`・`other`）・番号の使用/未使用（`seen`・`used`・`unused`）。`kaizen` が読んで改善計画書に書く。 | `run history` の `cli` |
+
 ---
 
 ## 5. Web の画面
@@ -369,6 +379,9 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 - **Add PATH** — 作成中に、A の板の釦で A を PATH に加える — §4.2
 - **`after-download`** — Download の後の自動処理 — §3.2
 - **承認（「許可する」）** — 許可が要る op を agent が出すための利用者の回答。1 件で 1 バッチ分 — §4.3
+- **見た番号の台帳（seen_ids）** — agent が CLI で見た論文の番号の記録。MLflow とは別 — §4.6
+- **実験の台帳（exp_summary）** — 実験の記録を集計する道具。見た番号の台帳とは別 — §4.6
+- **CLI の呼び出し（History）** — toolCall と toolResult を 1 行にした物 — §4.6
 - **apps/mlflow-server** — 実験の記録（MLflow）を溜めるサーバの compose — §1
 - **apps/radio** — 論文の解説音声を作って配る裏方サーバー — §1
 - **Free（危険度）** — agent がそのまま出せる op — §4.3

@@ -30,7 +30,7 @@ pub(crate) enum Out {
 /// `card` の引数（CLI から）。
 #[derive(clap::Args, Debug)]
 pub(crate) struct SciCardArgs {
-    /// 対象の Node（Q・O・F・E。`Q12`）
+    /// 対象の Node（Q・A・F・E・S。`Q12`）
     #[arg(long)]
     pub node: Option<String>,
     /// 実行するブロックの id

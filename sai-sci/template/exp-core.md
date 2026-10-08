@@ -19,10 +19,10 @@
 | `sci-exp-review` | review | ジョブが終わると daemon が起こす。台帳を読んで判定し、次の branch を 0〜`max_children` 本起こすか、止めて完了報告書を書く | スクリプトを書かない・実行しない・台帳の数値を自分で計算しない |
 
 - research-tree への置き方（op。出せる op は `# context` の `## ALLOWED_OPS` を見る）:
-  - sprout: SEED から下る PATH（終点の A。Issue の A を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行。`mlflow` に experiment 名と run 名）を作る。
+  - sprout: SEED から下る PATH（終点の A を 1 つ以上）を集めて `add_sprout` で SPROUT を作る。最初の branch のために、その SPROUT の下に E（1 回の実行）を `mlflow` なしで作り、CARD を作って branch の run_id が決まってから、`set_mlflow` で `ID<branch の run_id>-p01`（run 名の頭）を付ける。
   - 1 回の実行の E（BRANCH）は、SPROUT（S）か、前の E の下に `add_e` で作る。
   - review: 結果は木に F として足さない。REPORT と MLflow に書く（MLflow の run 名と値。例 `ID125-p02 test_acc=0.871`）。続けるなら次の branch の E を足す。
-  - 課題が解けたら、利用者がその A を Answer に変える。agent は変えられない。`link` の op は無い。
+  - 課題が解けたと見たら、A の ID と理由を REPORT に書く。★ を付けるのは利用者である。`link` の op は無い。
 - 判定の材料（最良・改善の有無・格子の端・漏洩の疑い・debug の深さ）は**台帳コマンド（§5）が計算する**。LLM はその結果を読み、判定の中身（次に試すパラメータの値、新しいモデルの案、直す点）だけを書く。
 - 1 つの run は 1 つの仕事だけをして終わる。sprout も branch も review も、ほかの run の終わりを待たない。
 
@@ -33,7 +33,7 @@
 - `sai-link doc write` は `--filename`・`--description` と標準入力の本文で保存し、戻ってきた **waggle トークン**（例 `AXANSMpo`）を受け取る。
 
   ```bash
-  sai-link doc write --filename exp-run-O6-ID120-ID125.md --description "作業報告書 A6-ID120 ID125: tune cnn-static — job 7 running" <<'EOF'
+  sai-link doc write --filename exp-run-A6-ID120-ID125.md --description "作業報告書 A6-ID120 ID125: tune cnn-static — job 7 running" <<'EOF'
   （本文）
   EOF
   ```
@@ -112,7 +112,7 @@
 | `exp.error` | 失敗した試行だけ。例外の 1 行目（500 字まで） | `timeout: 5400s を超えました` |
 
 - params: GRID の値と、固定の設定（`FIXED`）を全部。
-- metrics: epoch ごとに `train_loss`・`val_loss`（`step` = epoch、1 始まり。必須）。ほかの途中の指標（`val_acc` など）も同じ形で記録してよい。試行の最後に、仕様書の `metric`（例 `test_acc`）と `exec_time_s` を step 無しで 1 回。
+- metrics: epoch ごとに `train_loss`・`val_loss`（`step` = epoch、1 始まり。必須。神経のシミュレーションの再現の確かめは `EPOCHS = 1` で `train_loss` を省いてよい）。ほかの途中の指標（`val_acc` など）も同じ形で記録してよい。試行の最後に、仕様書の `metric`（例 `test_acc`）と `exec_time_s` を step 無しで 1 回。
 - 標準出力（`exp_exec.py logs` と `started` が読む。必須）: 最初に `device=<cuda:0|mps|cpu>`。試行の始まりに `[trial <NN>/<総数>] <組の JSON>`。epoch ごとに `[epoch <e>/<E>] train_loss=<x> val_loss=<y> (<経過秒>s)`。
 - 失敗した試行は run が `FAILED` で閉じ、`exp.error` が付く。1 つの組が失敗しても残りの組を続ける。
 - 1 試行の時間が `TRIAL_TIMEOUT_S` を超えたら、その試行を `exp.error = "timeout: …"` で失敗にして次の組へ進む。
@@ -129,7 +129,7 @@
 
 **土台が論文どおりに動くかの確かめは、改良や組み合わせより先である。** 1 つも記録しない試行があれば、台帳の `target.repro_pass` が `null` になり、review は debug に戻す（`§6` の R1a）。
 
-- `baseline` の計算はスクリプトの中で 1 回だけ行い、すべての試行で同じ値を記録してよい（`~/research/west/experiments/O42-ID31/ID32/train.py` の `_reference` と同じ置き方）。
+- `baseline` の計算はスクリプトの中で 1 回だけ行い、すべての試行で同じ値を記録してよい（`_reference` の関数に置く）。
 - 神経のシミュレーションは学習が無いので `EPOCHS = 1` とする。`train_loss` が無いと台帳の `has_curves` が false になるが、判定の規則は `has_curves` を使わないので、そのままでよい。`[epoch …]` の行を出すために `log_epoch(1, …)` に指標の材料（特徴量）を渡してよい。
 
 定数（`REPRO` と `BASELINE_SWITCHES`）と、次の関数を、`train()` を書くところに足す。**`train()` の返り値に `**repro_check(params)` を混ぜれば**、雛形の `main` がそのままこの 2 つを `log_metric` する。
@@ -167,7 +167,7 @@ def train(params: dict, device: str, log_epoch) -> dict:
 
 branch が定数・`FIXED`・`GRID`・`train` の中身だけを書く。MLflow と出力の行は書き換えない。**先頭の PEP 723 の欄は消さない。** 追加の道具はここに書き足す（`uv run <script>.py` はこの欄の依存を読む）。`boto3` が無いと `s3://` への成果物の書き込みができない。
 
-**モデルの数値の定数と、数値を使う関数には `# src:` を付ける**（書き方は `exp-ref` §5）。雛形の定数（`PROJECT` … `RUN_TAGS`）には要らない。
+**モデルの数値の定数と、数値を使う関数には `# src:` を付ける**（書き方は `exp-ref` §5）。雛形の定数（`PROJECT` … `RUN_TAGS`）には要らない。`FIXED`・`GRID` の行には、値の出どころ（`仕様書` か `目安`）を付ける。
 
 ```python
 # /// script
@@ -179,7 +179,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 
 # 定数（branch が書く。値は依頼文と実験仕様書から）
-PROJECT, SCI_NODE, STUDY = "west", "A6", "A6-ID120"
+PROJECT, SCI_NODE, STUDY = "west", "S3", "A6-ID120"
 SPROUT_RUN_ID, MODEL = "120", "cnn-static"
 ACTION, PARENT_BRANCH = "draft", ""
 METRIC, DIRECTION = "test_acc", "maximize"
@@ -189,8 +189,8 @@ ARTIFACT_LOCATION = os.environ.get("EXP_ARTIFACT_LOCATION") or "s3://mlflow-loca
 BRANCH_RUN_ID = os.environ["EXP_BRANCH_RUN_ID"]  # 無ければここで止まる（sai.run_id を空にしない）
 TRIAL_TIMEOUT_S = float(os.environ.get("TRIAL_TIMEOUT_S", "5400"))
 
-FIXED = {"batch_size": 50}
-GRID = {"lr": [0.01, 0.03], "dropout": [0.3, 0.5]}
+FIXED = {"batch_size": 50}  # src: 仕様書
+GRID = {"lr": [0.01, 0.03], "dropout": [0.3, 0.5]}  # src: 目安
 
 EXP_TAGS = {"sai.project": PROJECT, "sai.sprout_run_id": SPROUT_RUN_ID, "sci.node": SCI_NODE,
             "exp.study": STUDY, "exp.model": MODEL, "exp.metric": METRIC, "exp.direction": DIRECTION}
@@ -271,6 +271,8 @@ if __name__ == "__main__":
 
 ## 5. 台帳
 
+ここでいう台帳は**実験の台帳**（`exp_summary.py`。MLflow の記録を集計する）である。論文の番号を記録する「見た番号の台帳」（`.sai/seen_ids/<run_id>`。`sci-core` の引用の決まり）とは別の物である。
+
 ### 台帳コマンド `exp_summary.py`
 
 置き場所は `$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py`（`sai-sci init` が配る。`SAI_PROJECT_ROOT` は sai-link が必ず入れる）。**呼び出すときは必ずこの形を使う**（別のファイルを探したり、パスを作り変えたりしない）。ファイルが無いときは `BLOCKED` で報告して終える。
@@ -338,7 +340,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 ```
 
 - `decision` は `continue` か `stop`。`stop_reason` は `success` / `max_branches` / `not_allowed` / `cancelled` / `no_records` / `repro_failed` / `none`。
-- `next` は 0〜`max_children` 個（`continue` なら 1 個以上）。`grid` は tune のとき、`idea` は model と ablation のとき、`fix` は debug のときに入れる。起こした branch は RUN_GRAPH の線（判定書のトークン → branch）で分かるので、判定書には書かない。
+- `next` は 0〜`max_children` 個（`continue` なら 1 個以上）。`grid` は tune のとき、`idea` は model と ablation のとき、`fix` は debug のときに入れる。起こした branch は `--origin-run` で結ばれ、`sai-link run tree` で分かるので、判定書には書かない。
 
 ### 規則
 
@@ -374,7 +376,7 @@ parent_branch: 125
 model: cnn-static
 
 ### スクリプトに書く中身
-- 元のスクリプト: experiments/O6-ID120/ID125/train.py（tune と debug のとき。写して直す）
+- 元のスクリプト: experiments/A6-ID120/ID125/train.py（tune と debug のとき。写して直す）
 - 土台のコード: <reference_code の path>（式と値はここと仕様書の出典表から写す）
 - モデル定義書: <sim_model のトークン>（式・値・再現の目標・baseline はここから写す。無ければこの行を書かない）
 - GRID: {"lr": [0.1, 0.3]}
@@ -448,11 +450,11 @@ sai-link card wait <返った run_id> --job <job_id>
 ## 10. 完了報告書（止めた review）
 
 - ファイル名 `exp-final-<study>.md`、description `完了報告書 <study>: <stop_reason> — 最良 <metric> <value>`。
-- 本文: 最良（experiment・branch・run 名・値・パラメータ）／experiment ごとの表（model・branch の数・run の数・失敗・最良）／branch ごとの表（branch・親・action・model・最良・作業報告書のトークン・判定書のトークン）／research-tree に出した PROPOSAL／止めた理由（`stop_reason` と rule）。値は台帳から写す（自分で計算しない）。
+- 本文: 最良（experiment・branch・run 名・値・パラメータ）／experiment ごとの表（model・branch の数・run の数・失敗・最良）／branch ごとの表（branch・親・action・model・最良・作業報告書のトークン・判定書のトークン）／research-tree に出した op（`sai-sci op` の結果）／止めた理由（`stop_reason` と rule）。値は台帳から写す（自分で計算しない）。
 
 ## 11. 止める条件と、実験の流れの終わり
 
-- 止めるのは判定が `stop` のときだけ（R0・R1・R3・R4・R7 の一部）。
+- 止めるのは判定が `stop` のときだけ（R0・R1・R1a・R3・R4・R7 の一部）。
 - 止めた review は、完了報告書を保存したあと、仕様書の `return_to` を見る:
   - `return_to` があれば、`sai-link run md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-link card create` で同じブロックの CARD を作って `sai-link card run` で起こす（JSON の形は `sci-exp-review` に書く）。`sai-link run tree` で running を確かめる。
   - `return_to` が `null` なら起こさない。

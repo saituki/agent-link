@@ -121,7 +121,7 @@ subblocks:
    ```bash
    sai-sci card --node <N12> --block <ブロックの id> \
      --purpose <行動の目的> [--expect <期待する成果>] \
-     [--paper <基盤論文の番号>]… [--input <waggle トークン>]… --executer agent \
+     [--papers <基盤論文の番号>]… [--input <waggle トークン>]… --executer agent \
      --origin-run "$SAI_PARENT_RUN_ID" --json
    ```
 
@@ -137,7 +137,7 @@ subblocks:
 5. 完了したら `report` と `outputs` を読む。必要な文書だけ `sai-link doc read` で読む。
 6. 評価する（下の「評価の観点」）。足りなければ `sai-link task send` で直させる。
 7. 確かめ終えたら `sai-link task finalize` で閉じる。再実行が要るときは、`requeue` せず、新しい CARD を作って 2. からやり直す（`card` で起こした子は `requeue` できない）。
-8. 木の変更を読む: 子が返した `sai-sci op` の結果（ID）を、復元書と照らして読む。★・Answer/Issue・文の直し（`edit`）・星は Human の操作なので、`sai-sci apply` で付けない。Human に上げるもの（下の「Human に上げる」）は、質問ツールで Human に聞く。
+8. 木の変更を読む: 子が返した `sai-sci op` の結果（ID）を、復元書と照らして読む。★・文の直し（`edit`）・星は Human の操作なので、`sai-sci apply` で付けない。Human に上げるもの（下の「Human に上げる」）は、質問ツールで Human に聞く。
 9. 研究日誌に、結果と次の判断を 2〜3 行書く。段の終わりの条件（「段の進め方」の表）を満たしたら、次の段の見出しを書く。1. に戻る。
 
 - 並べて動かしてよいのは、同じ Node を書き換えない作業だけ。1 度に 3 本まで。並べたときは、`sai-link task wait` を子ごとに重ねず、`task_id` を並べて 1 回で待つ（`sci-task`）。

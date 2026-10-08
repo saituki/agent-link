@@ -282,7 +282,8 @@ pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSum
                 c.1 += 1;
             }
         }
-        if let (Some(true), Some(class)) = (e.is_error, e.failure) {
+        // 失敗は CLI（`sai-*`）の呼び出しだけ数える。`Edit` など他の道具の失敗は数えない。
+        if let (Some(_), Some(true), Some(class)) = (&e.command, e.is_error, e.failure) {
             *failures.entry(class).or_default() += 1;
         }
     }
@@ -369,6 +370,8 @@ mod tests {
             ),
             // 命令でない行（user・agent など）は calls に入らない
             event(None, None, None, &[]),
+            // `sai-*` 以外の道具（Edit など）の失敗は、calls にも failures にも入らない
+            event(None, Some(true), Some(failure_class("Exit code 1\n何か")), &[]),
         ];
         let ledger: BTreeSet<String> = ["#37", "#40", "#41"]
             .iter()

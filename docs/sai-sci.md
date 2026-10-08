@@ -41,6 +41,7 @@ research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state
 | OP | research-tree を変える操作 1 つ（`add_q` など）。`sai-sci op` と `sai-sci apply` で行う |
 | 危険度 | OP の 3 つの区分。`Free`・`Approval`・`UserOnly`（5.4 節） |
 | 承認 | 質問で「許可する」を選んでもらうこと。許可が要る op を 1 バッチ分通す |
+| 見た番号の台帳 | run ごとに agent が CLI で見た論文の番号 `#x.y.z` の記録。`add_f` の `cites` と報告の引用の照合に使う。MLflow・実験の台帳（`exp_summary.py`）とは別の物（5.11 節） |
 | CARD / READ_CARD | agent への依頼 / 利用者が論文を読んで F を書く CARD |
 | Next Action | 次にすべき CARD の候補 |
 | REPORT | node agent・manage agent が終わりに保存する報告書 |
@@ -217,7 +218,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | #2 | 型指定 ＋ 検索（段 1 で検索し候補を報告 → 利用者が取り込む → 段 2 は `lab-read` の CARD を作る） | `lab-search` | node | `add_a, add_f, add_q` |
 | #3 | 型未指定 ＋ 論文あり | `lab-grow` | node | `add_a, add_f, add_q, insert_q` |
 | #4 | 型未指定 ＋ 検索 | `lab-survey` | node | `add_a, add_f, add_q` |
-| #5 | 論文だけ（木を探して置き場所を決め、`lab-read` の CARD を作る） | `lab-place` | manage | `add_a, add_f, add_q` |
+| #5 | 論文だけ（木を探して置き場所を決め、`lab-read` の CARD を作る） | `lab-place` | manage | `add_a, add_q` |
 | #6 | 全体の進み具合の確認（数と穴を報告し、次の CARD を作る） | `lab-progress` | manage | なし（op を出さない） |
 | 検証 | target_node と子の関係を評価し、評価の報告・op・次の CARD を作る（固定） | `sci-verify` | node | `set_stance, add_f, remove, move_a, insert_q, add_q` |
 
@@ -229,13 +230,14 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | Action | ブロック | sci_type |
 |---|---|---|
 | 実験 | `sci-exp-sprout`（manage）・`sci-exp-branch`（support）・`sci-exp-review`（node）・`sci-result-compare`（manage・逆向き） | 上の欄 |
-| 実験の support | `sci-exp-scout`（参照実装を探す）・`sci-sim-model`（論文 1 本のモデル定義書）・`sci-sim-compose`（つなぎのモデル定義書） | support |
+| 実験の support | `sci-exp-scout`（参照実装を探す。op を出さない）・`sci-sim-model`（論文 1 本のモデル定義書）・`sci-sim-compose`（つなぎのモデル定義書） | support |
 | データ分析 | `sci-data-explore`（node）・`sci-data-test`（node） | node |
 | その他 | `sci-start`・`sci-restore`（逆向き）・`sci-typify`（manage）・`sci-digest`（manage・op を出さない）・`sci-coach`（node）・`sci-cite-check`（node・逆向き） | 上の欄 |
 | support（呼ばれる側） | `sci-analogy`・`sci-extract`・`sci-lookup`・`paper-debater`・`paper-reviewer` | support |
 
 - support agent は、ほかのブロックが呼ぶ agent。単独の Action としては動かしません。
 - `sci-exp-branch` だけは、research-tree の範囲も共通の決まり（`sci-core`）も受け取りません（実験ループ。5.7 節）。
+- 実験・データの block（`sci-exp-*`・`sci-data-*`・`sci-result-compare`）は、結論（F）を木に足しません。結果は MLflow と REPORT に残し、木には E の作成と `set_mlflow` だけを出します。`sci-exp-scout` は op を出さず、確かめた事実を参照コード調査書に書きます。
 - 逆向きのブロック（`sci-restore`・`sci-cite-check`・`sci-result-compare` と `professor-backward`）は 5.8 節のためのもの。
 - 旧 block（`sci-read`・`sci-search`・`sci-ideate`・`sci-split`・`sci-review`・`sci-debate`・`sci-compare`）は消えました。`sci-*` の旧版は使いません（8.2 節）。
 
@@ -325,9 +327,9 @@ Q を分ける ─▶ A を書く ─▶ F を集める ─▶ 検証（sci-veri
 Research タブの最初の画面が research-tree（`#/research/tree`）。
 
 - 上の帯: **Next Action**（先頭 3 件。`[NO_CHILD] Q24 lab-grow「…」` の形で、右に Create CARD）・折りたたみの **History**（全 Node の履歴を古い順に。`sai-sci status` の `history[]`）・注意。
-- 左: Q・A・F・E・S（SPROUT）の一覧。
+- 左: Q・A・F・E・S（SPROUT）の一覧。F の行には stance の印（`S` support・`D` deny・`I` issue）が出る。**Filter** の欄に `*` だけを打つと、★ を付けた Node（とその祖先）だけに絞れる（★ は目印なので、どの種類の Node にも付けられる）。
 - 真ん中: **DAG**（research-tree の図。下に ROOT（top_Q）、次に SEED の欄、上に SPROUT、さらに上に BRANCH（E））。SEED の欄を押すと RESEARCH_TYPE と `mind.md` の節が出る。Node を押すと `#/research/tree/Q12` のように住所が変わり、詳細が右の **SB**（サイドバー）に出る。
-- SB: 見出し・親までの道・操作の釦・Next Action・F・History など。何も選んでいないときは出ない。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
+- SB: 見出し・親までの道・操作の釦・Next Action・F・History など。F の stance は SB から変えられる（`set_stance`）。SPROUT の SB には範囲の数（`範囲 Q 2・A 1・F S 1 / D 1 / I 0`）、E の SB には MLflow の参照（`mlflow`）が出て、押すと Experiments の画面（`#/research/experiments`）へ移る。何も選んでいないときは出ない。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
 - **Create SPROUT**: SEED の SB か上の帯の釦を押すと、History と DAG の間に作成パネルが出る。A の SB の **Add PATH** / **Delete PATH** で PATH（終点の A）を選ぶ。PATH は 1〜20 個で、同じ A は 2 回選べない。
 - READ_CARD: `#/research/read/<run_id>`。
 
@@ -528,6 +530,16 @@ sai-link card run <返ってきた run_id>
 
 - **命令の場所**: 承認の記録の命令は、環境変数 `SAI_SCI_BIN` で場所を変えられます（無ければ `sai-sci`）。
 - **確かめ方**: 一時プロジェクトで（5.4 節の op が必要な）質問に答えたあと、`sai-sci op` の `add_q` が通ること。通らないときは、`sai-sci status --json` の `warnings` と、`rt_approvals` の行を見ます。
+
+### 5.11 見た番号の台帳（見ていない番号を引用しない）
+
+agent が読んでいない論文の番号（`#37.5.2` など）を引用する作り話を止めるための仕組みです。MLflow や実験の台帳（`exp_summary.py`）とは関係がありません。
+
+- **置き場**: `<root>/.sai/seen_ids/<run_id>`（拡張子なし。1 行に番号 1 つ。追記だけ）。自分の run の ID は環境変数 `SAI_PARENT_RUN_ID`。
+- **書く人**: `sai-paper`・`sai-sci` は標準出力に出した `#x.y.z` を書きます。`sai-link` は run の開始時に最初の文（依頼文・埋め込んだ文書・`# context`）の番号を書き、`doc read` で読んだ本文の番号も足します。
+- **照合する所**: `sai-sci op` の `add_f` の `cites`、`sai-sci report prepare` が拾う引用。台帳に無い番号があれば、何も書かず終了コード 2 と `台帳に無い番号です: #37.5.2（この run で CLI が出した番号だけを使えます）` の 1 行。節・塊（`#37.5`・`#37.5.2`）は完全一致、論文（`#37`）は `#37` か `#37.*` が台帳に 1 つでもあれば通ります。`sai-sci apply`（利用者の操作）は照合しません。
+- **台帳が無い run**: `SAI_PARENT_RUN_ID` があるのに台帳のファイルが無い run は、何も見ていない run です。空の台帳として照合するので、番号を含む `cites` は止まります。照合しないのは、`SAI_PARENT_RUN_ID` が無いとき（手で打つとき）と、台帳が読めないとき（権限など）だけです。古い版の `sai-sci`・`sai-paper` は台帳に書かず、新しい run でも止まるので、3 つの実行ファイルを同じ版に作り直します。
+- **集計と改善**: 使われた番号・使われなかった番号の数、結果のトークン数、失敗の分類は、`sai-link run history <run_id> --json` の `cli`（Web の run の History）に出ます。`kaizen` がそれを読んで改善計画書に書き、block・template の直しは別の作業で行います（kaizen 自身は block を直しません）。
 
 ---
 

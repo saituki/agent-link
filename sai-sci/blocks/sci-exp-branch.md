@@ -10,6 +10,7 @@ templates:
   - exp-core
   - exp-run
   - exp-ref
+  - sim-core
 timeout: 7200
 worktree: none
 enable: true

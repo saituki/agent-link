@@ -12,7 +12,7 @@ templates:
   - domain
 context: true
 sci_type: manage
-sci_ops: add_a, add_f, add_q
+sci_ops: add_a, add_q
 timeout: 5400
 worktree: none
 enable: true

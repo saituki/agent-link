@@ -18,7 +18,7 @@ research-tree は 4 つの layer（SEED・ROOT・SPROUT・BRANCH）でできて�
 ```
 E（BRANCH）── SPROUT か E の下。E の下に次の E（F は置かない）
  │
-S（SPROUT）── PATH（終点の A）を 1 つ以上。Issue の A を 1 つ以上
+S（SPROUT）── PATH（終点の A）を 1 つ以上（条件なし）
  │
 SEED ──────── RESEARCH_TYPE と mind.md。Node ID は SEED
  │
@@ -31,9 +31,9 @@ Q（top_Q）── SEED の直下
 - SEED は研究の初期の入力です（RESEARCH_TYPE と `mind.md`）。Node ID は `SEED` で、DB の行はありません。
 - ROOT は SEED から下へ分かれる Q・A・F の総称です。SEED の直下の Q を top_Q といい、いくつでも並べられます。
 - Q は問いです。答えは A（候補）で、Q に直接答える parent_Q はありません。
-- SPROUT（ID `S<n>`、kind `S`）は SEED から上へ分かれる node です。PATH（終点の A）を 1 つ以上集め、新しい実験の計画を立てます。Issue の A を 1 つ以上含みます。
+- SPROUT（ID `S<n>`、kind `S`）は SEED から上へ分かれる node です。PATH（終点の A）を 1 つ以上集め、新しい実験の計画を立てます。範囲は、各 path の A とその祖先（Q・A）と、その A の子の F です。A の子の Q 以下は含みません。
 - BRANCH（E）は SPROUT から上へ分かれる実験の実行です。SPROUT（S）か E の下に作ります。E の下に F は置きません。実験の結論は REPORT と MLflow に書きます。
-- ★ は目印で、意味を持ちません。Answer（答え）を決めるのは利用者だけです。Issue（未解決）かどうかも利用者が決めます。
+- ★ は目印で、どの種類の Node にも付けられます。道や進み具合を決めません。付けるのは利用者だけです。
 - F は事実や知見で、A の下に付きます。stance（`support`・`deny`・`issue`）を必ず持ちます。
 
 ## 起動者と質問
@@ -68,7 +68,7 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 - ID の形は `Q12`・`A5`・`F3`・`E2`・`S1` です。数だけ（`12`）は書きません。
 - 許可が要る op（`add_q`・`insert_q`・`move_a`・`copy`・`remove`）は、先に質問ツールで許可を取ってから出します（下の「許可を取る」）。
 - `add_f` の親は A だけです。`stance` が要ります。E の下に F を置きません。
-- ★・Answer / Issue・文の直し（`edit`）・星（`star`・`unstar`）は利用者だけの操作です。出せません。
+- ★・文の直し（`edit`）・星（`star`・`unstar`）は利用者だけの操作です。出せません。
 
 ## 許可を取る
 許可が要る op を出すときは、質問ツールで次の決まりに従って聞きます。
@@ -84,6 +84,7 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 - 出典は `literature-hard-rules` に従います。文献を推測で書かない。API の返り値に無い PMID・DOI・題名・著者・年・誌は書いてはいけません。
 - F の `cites` は次の形です: `#37`・`#37 §3.2`・`#37.5`・`#37.5.2`・`#37.5.2-4`・`#37 Fig.3`。
 - 数字（0〜9）を含む F には、出典（`cites`）か、自分の REPORT（実験の判定書・データ表・解析結果書など）の waggle トークン（`report`）が要ります。論文の値を書くときは `cites`、自分で出した結果を書くときは `report` を付けます。
+- **`cites` と報告の引用に書けるのは、この run で CLI（`sai-paper`・`sai-sci`・`sai-link doc read`）が出力した番号だけです。** 見ていない番号は、記憶や推測で書かず、先に `sai-paper` で読んでから引きます。見た番号は台帳（`.sai/seen_ids/<run_id>`。MLflow とは別の物）に残っていて、無い番号は `台帳に無い番号です: #37.5.2` で終了コード 2 になります（何も書かれません）。節・塊（`#37.5`・`#37.5.2`）は読んだとおりの番号を書きます。論文（`#37`）は、その論文のどれかの番号を見ていれば通ります。
 - `cites` の論文が Library に無いと弾かれます。Library に無い論文は、`sai-sci search` で見つけた候補を利用者に取り込んでもらってから出します（search は Library に入れません）。
 - 根拠が足りないときは「Library の資料では答えられない」と書き、`[GAP: 推奨検索: <英語の検索語>]` を残します。
 
@@ -100,7 +101,7 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 ## 出力
 node agent・manage agent は report を `sai-link doc write` で 1 つだけ保存します（途中のメモは保存しません）。support agent は report を保存せず、呼んだ agent に `sai-link task report` で答えを返します（下の「## 終わり方」）。
 
-- `--filename` は `<ブロックID>-<内容を表す短い英字>.md`（例 `sci-read-onset-accuracy.md`）。
+- `--filename` は `<ブロックID>-<内容を表す短い英字>.md`（例 `lab-read-onset-accuracy.md`）。
 - `--description` は「<ブロックの名前>: <内容を 1 文で>」。1 行・200 字までです。
 - **frontmatter は書きません。** 道具が付けます。
 - 保存のとき、道具が `sai-sci report prepare` で検査します。違反ならエラー文が返り、保存されません。直して保存し直します。

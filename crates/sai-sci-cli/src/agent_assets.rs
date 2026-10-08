@@ -1033,10 +1033,12 @@ mod tests {
             // `sci-typify` は research-tree を書き換えず、RESEARCH_TYPE として保存するだけなので sci_ops を持たない。
             // `sci-digest` も木に op を出さず（Q の案は報告に書く）、sci_ops を持たない。
             // `lab-progress` も op を出さない（木の数と穴を報告し、CARD を勧めるだけ）。
+            // `sci-exp-scout` も木を変えない（実験・データの block は F を足さない。事実は調査書に書く）。
             assert!(
                 *name == "sci-typify.md"
                     || *name == "sci-digest.md"
                     || *name == "lab-progress.md"
+                    || *name == "sci-exp-scout.md"
                     || frontmatter.contains("\nsci_ops: "),
                 "{name} に sci_ops が無い"
             );

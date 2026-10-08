@@ -104,7 +104,8 @@ pub fn record(text: &str) {
 }
 
 /// `cites`（`#37.5.2` や `#37 §3.2` の形）を台帳で照合する。通らない最初の 1 つで Err（C10 の文）。
-/// 台帳が無いときは Ok にし、標準エラーに C10 の 1 行を出す。読めない cite は照合しない。
+/// 台帳が無い run は、何も見ていない run なので空の台帳として照合する（読める cite があれば Err）。
+/// 台帳が読めないとき（権限など）は、標準エラーに 1 行出して Ok にする。読めない cite は照合しない。
 ///
 /// # Errors
 ///
@@ -113,10 +114,7 @@ pub fn check_for(root: &Path, run_id: i64, cites: &[String]) -> Result<(), Strin
     let path = ledger_path(root, run_id);
     let body = match std::fs::read_to_string(&path) {
         Ok(body) => body,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            eprintln!("台帳がありません（検査を飛ばします）: {}", path.display());
-            return Ok(());
-        }
+        Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => {
             eprintln!(
                 "台帳を読めませんでした（検査を飛ばします）: {}: {e}",
@@ -154,7 +152,7 @@ pub fn check_for(root: &Path, run_id: i64, cites: &[String]) -> Result<(), Strin
     Ok(())
 }
 
-/// `run_id_from_env()` と root があるときだけ [`check_for`]。無ければ Ok。
+/// `run_id_from_env()` と root があるときだけ [`check_for`]。run の ID が無い（手で打つ）ときは Ok。
 ///
 /// # Errors
 ///
@@ -220,9 +218,11 @@ mod tests {
     }
 
     #[test]
-    fn missing_ledger_passes() {
+    fn missing_ledger_is_empty() {
         let root = temp_root("missing");
-        assert!(check_for(&root, 9, &["#1".to_string()]).is_ok());
+        // 台帳が無い run は何も見ていない。cite があれば止まり、無ければ通る。
+        assert!(check_for(&root, 9, &["#1".to_string()]).is_err());
+        assert!(check_for(&root, 9, &[]).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 

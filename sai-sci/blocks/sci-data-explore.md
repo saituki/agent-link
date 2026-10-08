@@ -47,7 +47,7 @@ enable: true
 
 - 最初のメッセージの `# context`（`## TREE`）と `# task_text`（依頼文の NODE・目的・データのパス）を読む。
 - データのパスが依頼文に無ければ、木の `data` の Q に付いた F（`# context` の `## TREE` にある）を見る。**それでも無ければ、質問ツールで起動者にデータを聞いて止まる。** 推測でデータを作らない（`data-core` §11）。
-- study を決める（C1）。`<CARD の Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
+- study を決める。`<CARD の Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。自分の run_id は `echo "${SAI_PARENT_RUN_ID}"` で見る。
 - project は次で取る。
 
   ```bash
@@ -60,7 +60,7 @@ enable: true
 
 ### 3. EDA を動かす
 
-- `data-core` §5 の手順で道具（C7）を動かす。EDA と生体信号の道具はここにある。
+- `data-core` §5 の手順で道具を動かす。EDA と生体信号の道具はここにある。
 
   ```bash
   EDA="$SAI_PROJECT_ROOT/.sai/tools/eda"
@@ -74,14 +74,14 @@ enable: true
 ### 4. 前処理をする（要るときだけ）
 
 - 不要ならこの手順を飛ばし、「## 前処理」を「なし」と書いてよい。
-- 要るときは `analysis/<study>/prep.py` を書いて動かす（PEP 723 の欄・C1・`data-core` §6）。
+- 要るときは `analysis/<study>/prep.py` を書いて動かす（PEP 723 の欄・`data-core` §6）。
 - **2 回動かして、出力の sha256 が前回と同じことを確かめる**（`data-core` §10）。違うなら、乱数や順序の固定が効いていないので、直してからもう一度確かめる。
 - 前処理した写しは `analysis/<study>/data/` に置く（**生データは書き換えない**）。
 - 写しにも、3. の EDA の表の道具をもう一度かける。前処理の前後で列と欠損がどう変わったかを控える。
 
 ### 5. 木に E を出す
 
-`data-core` §9 の explore の `add_e` で、**親の Node は CARD の Node（SPROUT か E）**にして出す（C9）。
+`data-core` §9 の explore の `add_e` で、**親の Node は CARD の Node（SPROUT か E）**にして出す。
 
 ```json
 {"op": "add_e", "parent": "<CARD の Node>", "text": "データ解析 <study>", "mlflow": "<project>/ID<自分の run_id>/data"}
@@ -91,7 +91,7 @@ enable: true
 
 ### 6. データ表を保存する
 
-`data-core` §4 の書式で `data-card-<study>.md` を `sai-link doc write` で保存する（C2）。
+`data-core` §4 の書式で `data-card-<study>.md` を `sai-link doc write` で保存する。
 
 - description は `データ表 <study>: <データを 1 文で>`。
 - 本文の先頭に、§4 の JSON を ```json のコードブロックで **1 つだけ**置く。
@@ -100,7 +100,7 @@ enable: true
 
 ### 7. MLflow に記録する
 
-`data-core` §8 の命令で `--kind eda` の記録をする。名前は C8 のとおり（experiment は `<project>/ID<自分の run_id>/data`、run は `ID<自分の run_id>-eda`、タグは `exp.kind=eda`）。
+`data-core` §8 の命令で `--kind eda` の記録をする。名前は `data-core` §8 のとおり（experiment は `<project>/ID<自分の run_id>/data`、run は `ID<自分の run_id>-eda`、タグは `exp.kind=eda`）。
 
 ```bash
 uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PROJECT_ROOT/.sai/tools/data_result.py" \
@@ -113,7 +113,7 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 
 ### 8. 要点を report に書く
 
-木に F は足しません（`add_f` は出さない）。要点（件数・欠損・漏洩の疑い・注意）は report の「## データの要点」に 1〜3 個の箇条書きで書きます。数字を書くときは、データ表のトークン（`report`）を並べて書きます。
+木に F は足しません（`add_f` は出さない）。要点（件数・欠損・漏洩の疑い・注意）は report の「## データの要点」に 1〜3 個の箇条書きで書きます。数字を書くときは、データ表のトークンを並べて書きます。
 
 ### 9. report を保存して終える
 

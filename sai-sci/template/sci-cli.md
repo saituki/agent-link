@@ -98,7 +98,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `sai-link card run` / `sai-link run finalize` / `sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link task send\|interrupt\|delete\|finalize\|requeue` / `sai-link run md --write`
 
-`sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や research-tree を書き換えるので、Human の指示が無い限り打たない。`sai-sci op` は、`# context` の `## ALLOWED_OPS` の範囲で木を変えるときだけ使う。`sai-sci approval record` は、質問の答えを受けたフックだけが呼ぶ。**★（Answer）は利用者だけが付ける。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。professor と operator は木を変えない（読む命令だけ）。木を変える作業は、子の block が `sai-sci op` で行う。例外は `professor-backward` だけで、Human が答えた `edit` の文を `sai-sci apply` で反映してよい。
+`sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や research-tree を書き換えるので、Human の指示が無い限り打たない。`sai-sci op` は、`# context` の `## ALLOWED_OPS` の範囲で木を変えるときだけ使う。`sai-sci approval record` は、質問の答えを受けたフックだけが呼ぶ。**★ は利用者だけが付ける。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。professor と operator は木を変えない（読む命令だけ）。木を変える作業は、子の block が `sai-sci op` で行う。例外は `professor-backward` だけで、Human が答えた `edit` の文を `sai-sci apply` で反映してよい。
 
 ## researcher に渡さないもの
 

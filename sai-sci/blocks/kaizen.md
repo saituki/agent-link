@@ -25,7 +25,7 @@ subblocks:
   - **B. スクリプトと連携**: `sai-sci/tools`・`sai-sci/exec`・MLflow 連携
   - **C. CLI**: `sai-link` / `sai-paper` / `sai-sci` / `sai-web`（`crates/`・`apps/web`）
   - **D. エージェント**: operator・researcher（`sci-*`）・professor の役割と指示
-- 調べて、評価して、計画書を書く。**直さない。** 調査対象のプロジェクトも、sai-tree 本体も書き換えない。書いてよい外のファイルは、計画書の保存のあとの `operator-notes.md` だけ（「operator-notes を更新する」）。
+- 調べて、評価して、計画書を書く。**直さない。** 調査対象のプロジェクトも、sai-tree 本体も書き換えない。書いてよい外のファイルは、作業の記録 `kaizen-log.md` と、計画書の保存のあとの `operator-notes.md` だけ（「operator-notes を更新する」）。
 - 証拠のない指摘は書かない。推測は「推測」と明記する。
 
 ## 入力
@@ -90,7 +90,7 @@ subblocks:
 9. **時間とコスト**: 1 run あたりの所要と usage。上位 3 件の理由（待ち・重複・過大な入力）。
 10. **CLI の失敗**: 調べる run ごとに、対象のプロジェクトで `sai-link run history <run_id> --json` の `cli` を読む（命令の打ち方は「始めにすること」の 2 と同じ）。
     - `failures` の分類（`ledger`・`input`・`not_found`・`conflict`・`other`）と、`calls` のうち `errors` が多い命令を表にする（命令・回数・失敗・分類）。
-    - `台帳に無い番号` は、CLI が出していない番号を文書に引用した失敗である（台帳の `ids.seen` に無い番号）。どの agent がどの命令で引用したかを表にする。
+    - `台帳に無い番号` は、CLI が出していない番号を文書に引用した失敗である（見た番号の台帳の `ids.seen` に無い番号）。どの agent がどの命令で引用したかを表にする。
     - 原因の全文は、`events[]` の `call_id` を使って `sai-link run history <run_id> --call <CALL_ID> --json` の `input`（呼んだ命令）と `result`（返ったエラー）で読む。`call_id` が無い行は読めないので「全文未確認」と書く。
     - 失敗の原因を block.md・template の不備と推測するときは、「推測」と書き、どの block のどの行を直すかを改善案 A に書く。`ids.unused`（見せたのに使わなかった番号）が多いときは、引用の書き方が固い（番号を拾えていない）可能性として書く。
 
@@ -117,7 +117,7 @@ subblocks:
 1. 問題を原因の層（A〜D）ごとにまとめる。同じ原因の問題は 1 つの改善にまとめる。
 2. 改善案ごとに次を書く。
    - **変更**: どのファイルをどう変えるか（例: `sai-sci/template/sci-cli.md` に `sai-sci …` の使い方を足す）。
-   - **解く問題**: T/O/E の ID。
+   - **解く問題**: T/A/E の ID。
    - **受け入れ条件**: 直ったと言える観測（再実行で何が変わるか）。
    - **検証**: 動かす検査（`AGENTS.md` の「テストと確認」のどれか）。
    - **工数**: 小（1 ファイル）・中・大。

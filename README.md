@@ -176,9 +176,10 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8201 --a
 research-tree の画面（`#/research/tree`）は、次の並びです。
 
 - **上の帯**: **Next Action**（`[NO_CHILD] Q24 lab-grow「…」` の形で次にやることを出す。**Create CARD** を押すとカードを作る）と、折りたたみの **History**（全 Node の履歴を古い順に出す）。
-- **中央**: **DAG**（4 layer の図）。左に Node の一覧、右に選んだ Node の **SB**（サイドバー。Node を選ぶまで出ない）。
+- **中央**: **DAG**（4 layer の図）。左に Node の一覧（Filter に `*` と打つと ★ の Node だけに絞れる）、右に選んだ Node の **SB**（サイドバー。Node を選ぶまで出ない）。
 - **Create SPROUT**（SEED の SB と上の帯の釦）を押すと、History と DAG の間に作成パネルが開きます。作成中も DAG・一覧・SB を操作でき、A の SB の **Add PATH** / **Delete PATH** で PATH の A を選びます。
 - 許可が要る操作（エージェントの研究木の変更）は、質問ツールの「許可する」で行います。PENDING と TRIAGE は無くなりました（古い `#/papers/triage` は research-tree へ送られます）。詳しくは [`docs/sai-sci.md`](./docs/sai-sci.md) の 5.10 節。
+- **引用の台帳**: agent が CLI で見ていない論文の番号（`#37.5.2` など）を `add_f` の `cites` に書くと、終了コード 2 で止まります（MLflow とは別の物。`.sai/seen_ids/<run_id>`。`docs/sai-sci.md` の 5.11 節）。run の History には、CLI の呼び出しの行（命令名・結果の先頭 200 字・失敗の印・使った番号）と集計が出ます。
 - **READ_CARD**（`#/research/read/<run_id>`）: 人が論文を読み、A に F を付けて、`note.md` を書いて終える画面です。
 - **Experiments**（`#/research/experiments`）: MLflow の実験を見ます。右上の project 選択は research-tree と共有です。
 

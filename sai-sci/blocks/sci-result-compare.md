@@ -32,12 +32,12 @@ subblocks:
 
 ## 手順
 1. **材料を集める。** 依頼文の復元書（記載結果表・主張と引用の対応表）、引用の判定表、再現と更新の REPORT と実験仕様書（`waggle:` で埋め込まれているか、`sai-link doc read` で読むトークン）を読みます。許容幅は、`purpose.metric` の Node（`sai-sci node <N> --json`）の本文から読みます。
-2. **台帳を取る。** 再現と更新の study ごとに、`exp-core` §5 のとおり台帳を取ります。`--direction` は実験仕様書の値です。
+2. **台帳を取る。** 再現と更新の sprout ごとに、`exp-core` §5 のとおり台帳を取ります。`--direction` は実験仕様書の値です。
 
    ```bash
    perl -e 'alarm 600; exec @ARGV' uv run --no-project --python ">=3.10" --with mlflow \
      python "$SAI_PROJECT_ROOT/.sai/tools/exp_summary.py" \
-     --study <study> --metric <指標名> --direction <maximize|minimize> [--experiment <mlflow_experiment>]
+     --sprout <その study の sprout の run_id> --metric <指標名> --direction <maximize|minimize> [--branch <run_id>]
    ```
 
    試行ごとの値やばらつきが要るときは `sai-web mlflow runs <experiment_id> --filter "tags.\`exp.study\` = '<study>'"` で読みます。

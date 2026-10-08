@@ -59,7 +59,7 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 
 起こす本数は `total_branches + 起こす本数 <= max_branches` に収め、1 回に起こす数は `max_children` 以下にする。
 
-### 5. continue のとき（先に 7. の 2. で E を作る）
+### 5. continue のとき（先に 7. の 1. で E を作る）
 
 `next` の 1 行ごとに、依頼書（`branch-order-<study>-<NN>.md`、`exp-core` §7）を保存し、`sci-exp-branch` の CARD を作って起こす。依頼書の `parent_branch`・`model` は `next` の値。
 
@@ -101,15 +101,15 @@ sai-link card run <返った run_id>
 
 木に出すのは E だけです（`sai-sci op`・`sci-core`）。F は足しません。結果と判定は判定書（REPORT）と MLflow に書きます。
 
-1. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。**
+1. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。** `mlflow` はここでは付けない（branch の run_id が CARD を作るまで決まらない）。CARD を作って run_id が返ったら、`{"op": "set_mlflow", "node": "<E の ID>", "mlflow": "ID<返った run_id>-p01"}` を `sai-sci op` で出す。
 
    ```json
-   {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>", "mlflow": "ID126-p01"}
+   {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>"}
    ```
 
 2. stop のとき、木には何も足しません。止めた理由と最良の値（`<metric>=<value>`）は判定書に書きます。
 
-課題が解けたと判断したら、report の「Answer に変えてほしい A」に A の ID と理由を書く。A を Answer に変えるのは利用者である。
+課題が解けたと判断したら、report の「解けたと見る A」に A の ID と理由を書く。★ を付けるかは利用者が決める。
 
 ### 8. 終える
 
