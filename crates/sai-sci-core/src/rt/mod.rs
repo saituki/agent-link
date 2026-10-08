@@ -28,6 +28,9 @@ pub enum RtError {
     /// 対象が見つからない。
     #[error("{0}")]
     NotFound(String),
+    /// 状態の衝突（許可が無い・同じ質問の承認が既にある・run_id が無い）。
+    #[error("{0}")]
+    Conflict(String),
     /// SQLite の操作に失敗した。
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),

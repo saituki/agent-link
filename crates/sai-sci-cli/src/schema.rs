@@ -167,12 +167,12 @@ fn stdin_kind(path: &[String]) -> &'static str {
 /// Web の「コマンド」画面に出すか。
 ///
 /// `false` にするのは、エージェントの run の中でしか意味の無い命令（`context`・`op`・
-/// `report prepare`）と、下回りの命令（`init`・`schema`）。
+/// `report prepare`・`op`・`approval record`）と、下回りの命令（`init`・`schema`）。
 fn web_allowed(path: &[String]) -> bool {
     let words: Vec<&str> = path.iter().map(String::as_str).collect();
     !matches!(
         words.as_slice(),
-        ["init"] | ["schema"] | ["report", "prepare"] | ["context"] | ["op"]
+        ["init"] | ["schema"] | ["report", "prepare"] | ["context"] | ["op"] | ["approval", "record"]
     )
 }
 
@@ -200,8 +200,12 @@ mod tests {
         assert_eq!(init["web"], false);
         let schema = find(&["schema"]).expect("schema がある");
         assert_eq!(schema["web"], false);
+        // 提案の命令は消えた（op と approval record に置き換わった）。
+        for gone in [&["propose"][..], &["proposals"][..], &["triage"][..]] {
+            assert!(find(gone).is_none(), "{gone:?} は消えているはず");
+        }
         // エージェントの run の中だけで使う命令。
-        for path in [&["context"][..], &["op"][..], &["report", "prepare"][..]] {
+        for path in [&["context"][..], &["op"][..], &["report", "prepare"][..], &["approval", "record"][..]] {
             let cmd = find(path).unwrap_or_else(|| panic!("{path:?} がある"));
             assert_eq!(cmd["web"], false, "{path:?}");
         }

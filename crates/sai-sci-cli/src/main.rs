@@ -102,6 +102,12 @@ enum Cmd {
         #[arg(long)]
         block: Option<String>,
     },
+    /// 質問で取った回答を承認として記録する（質問フックが呼ぶ。出力は常に JSON）
+    Approval {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: ApprovalCmd,
+    },
     /// 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON）
     Apply {
         /// JSON で出力する（出力は常に JSON。Web が付けるので受け付ける）
@@ -197,6 +203,32 @@ enum Cmd {
     /// 命令の一覧を JSON で出す
     Schema {
         /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// `sai-sci approval` のサブコマンド。
+#[derive(Subcommand, Debug)]
+enum ApprovalCmd {
+    /// 質問の回答を 1 件記録する（同じ qid は 2 回書けない・終了コード 4）
+    Record {
+        /// 質問の ID
+        #[arg(long)]
+        qid: String,
+        /// 質問の文
+        #[arg(long)]
+        question: String,
+        /// 回答（空白を除いて「許可する」のときだけ op に使える）
+        #[arg(long)]
+        answer: String,
+        /// 回答した人
+        #[arg(long)]
+        answered_by: String,
+        /// 実行 ID（無ければ環境変数 SAI_PARENT_RUN_ID）
+        #[arg(long)]
+        run: Option<i64>,
+        /// JSON で出力する（出力は常に JSON。Web が付けるので受け付ける）
         #[arg(long)]
         json: bool,
     },
@@ -333,6 +365,7 @@ fn exit_code_of(err: &anyhow::Error) -> i32 {
             return match rt_error {
                 rt::RtError::Invalid(_) => 2,
                 rt::RtError::NotFound(_) => 3,
+                rt::RtError::Conflict(_) => 4,
                 _ => 1,
             };
         }
@@ -384,6 +417,9 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Context { run, tree }) => print_out(sci::context(run, tree)?),
         Some(Cmd::Op { run, block }) => print_out(sci::op(run, block)?),
         Some(Cmd::Apply { json: _ }) => print_out(sci::apply()?),
+        Some(Cmd::Approval {
+            cmd: ApprovalCmd::Record { qid, question, answer, answered_by, run, json: _ },
+        }) => print_out(sci::approval_record(&qid, &question, &answer, &answered_by, run)?),
         Some(Cmd::Card {
             args,
             from_json,
