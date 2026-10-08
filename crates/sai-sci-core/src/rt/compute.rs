@@ -1,4 +1,4 @@
-//! research-tree の計算（STAR_PATH・SEED の下書き・Next Action・注意）と、
+//! research-tree の計算（Node の数・SPROUT の範囲・SEED の下書き・Next Action・注意）と、
 //! `status` / `node` の JSON（C-JSON）。CLI・Web・TUI はこの結果を写すだけにする。
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::defs::{Defs, GuideDef};
+use super::defs::Defs;
 use super::store::{self, LogRow, NodeRow};
 use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, ops, parse_id};
 use sai_paper_core::paths::PaperRoots;
@@ -37,13 +37,6 @@ fn canonical_mind_heading(name: &str) -> &str {
 
 // ---- JSON の型 ----------------------------------------------------------------------
 
-/// 進み具合（STAR_PATH の上の bottom_Q のうち、★ の A を持つ数）。JSON には出さない。
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Progress {
-    pub answered: i64,
-    pub total: i64,
-}
-
 /// SPROUT の範囲（C5）。Q・A の数と、F の立場ごとの数。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Range {
@@ -52,6 +45,19 @@ pub struct Range {
     pub f_support: i64,
     pub f_deny: i64,
     pub f_issue: i64,
+}
+
+impl Range {
+    /// `Q 2・A 3・F 4（S 1 / D 2 / I 1）` の形（人が読む文）。
+    #[must_use]
+    pub fn line(&self) -> String {
+        format!("Q {}・A {}・{}", self.q, self.a, f_line(self.f_support, self.f_deny, self.f_issue))
+    }
+}
+
+/// F の立場ごとの数を `F 4（S 1 / D 2 / I 1）` の形にする（S は支持、D は反対、I は課題）。
+fn f_line(support: i64, deny: i64, issue: i64) -> String {
+    format!("F {}（S {support} / D {deny} / I {issue}）", support + deny + issue)
 }
 
 /// 直の子の種類ごとの数。
@@ -73,6 +79,21 @@ pub struct StatusCounts {
     pub f_issue: i64,
     pub e: i64,
     pub s: i64,
+}
+
+impl StatusCounts {
+    /// `Q 3・A 2・F 4（S 1 / D 2 / I 1）・E 0・S 1` の形（`state.md`・`tree.md`・`sci status` の文）。
+    #[must_use]
+    pub fn line(&self) -> String {
+        format!(
+            "Q {}・A {}・{}・E {}・S {}",
+            self.q,
+            self.a,
+            f_line(self.f_support, self.f_deny, self.f_issue),
+            self.e,
+            self.s
+        )
+    }
 }
 
 /// C-JSON の NodeRow。
@@ -328,10 +349,11 @@ pub struct Tree {
     index: HashMap<i64, usize>,
     kids: HashMap<i64, Vec<i64>>,
     depths: HashMap<i64, usize>,
-    path: HashSet<i64>,
     f_under: HashMap<i64, i64>,
     /// SPROUT（S）ごとの範囲。
     sprout_ranges: HashMap<i64, Range>,
+    /// 対象の Node ごとの、一番新しい `sci-verify` の run の時刻（Next Action の規則 3）。
+    verified: HashMap<i64, DateTime<Utc>>,
     log: Vec<LogRow>,
     /// 消した Node も含む id → (kind, 文)。DECISIONS の表示に使う。
     labels: HashMap<i64, (Kind, String)>,
@@ -377,7 +399,7 @@ pub fn sprout_range(conn: &Connection, paths: &[i64]) -> Result<Range> {
 
 impl Tree {
     /// research-tree を読む。
-    pub fn load(conn: &Connection, _roots: &PaperRoots, defs: &Defs) -> Result<Tree> {
+    pub fn load(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Tree> {
         let all = store::list_nodes(conn, true)?;
         let labels: HashMap<i64, (Kind, String)> =
             all.iter().map(|n| (n.id, (n.kind, n.text.clone()))).collect();
@@ -389,37 +411,18 @@ impl Tree {
 
         let mut nodes: Vec<NodeRow> = Vec::new();
         let mut depths = HashMap::new();
-        let mut path = HashSet::new();
         let mut kids: HashMap<i64, Vec<i64>> = HashMap::new();
         let roots_none: Vec<NodeRow> = by_parent.remove(&None).unwrap_or_default();
         let mut stack: Vec<(NodeRow, usize)> = Vec::new();
         // 親の無い生きた Q（top_Q）を (ord, id) の順に DFS の起点にし、そのあとに SPROUT（kind S）を並べる。
         // `roots_none` は `(parent_id, ord, id)` 順なので、Q も S もこの順のまま。
-        let mut roots: Vec<NodeRow> = Vec::new();
-        roots.extend(roots_none.iter().filter(|n| n.kind == Kind::Q).cloned());
-        roots.extend(roots_none.iter().filter(|n| n.kind == Kind::S).cloned());
-        for n in roots.into_iter().rev() {
+        let mut top: Vec<NodeRow> = Vec::new();
+        top.extend(roots_none.iter().filter(|n| n.kind == Kind::Q).cloned());
+        top.extend(roots_none.iter().filter(|n| n.kind == Kind::S).cloned());
+        for n in top.into_iter().rev() {
             stack.push((n, 0));
         }
         while let Some((n, depth)) = stack.pop() {
-            let on = match n.parent_id {
-                None => true,
-                Some(p) if path.contains(&p) => {
-                    let parent_kind = labels[&p].0;
-                    match (parent_kind, n.kind) {
-                        (Kind::Q, Kind::Q) => true,
-                        (Kind::Q, Kind::A) => n.starred,
-                        (Kind::A, _) => true,
-                        (Kind::E, Kind::F | Kind::E) => true,
-                        (Kind::S, Kind::E) => true,
-                        _ => false,
-                    }
-                }
-                Some(_) => false,
-            };
-            if on {
-                path.insert(n.id);
-            }
             depths.insert(n.id, depth);
             let children = by_parent.remove(&Some(n.id)).unwrap_or_default();
             kids.insert(n.id, children.iter().map(|c| c.id).collect());
@@ -447,6 +450,13 @@ impl Tree {
             sprout_ranges.insert(id, sprout_range(conn, &paths)?);
         }
 
+        let mut verified: HashMap<i64, DateTime<Utc>> = HashMap::new();
+        for run in action::sci_runs(roots).iter().filter(|r| r.block == "sci-verify") {
+            let (Some((_, id)), Some(at)) = (run.keys.node, utc_at(&run.occurred_at)) else { continue };
+            let slot = verified.entry(id).or_insert(at);
+            *slot = (*slot).max(at);
+        }
+
         Ok(Tree {
             defs: defs.clone(),
             type_id: store::meta_get(conn, "type")?,
@@ -454,9 +464,9 @@ impl Tree {
             index,
             kids,
             depths,
-            path,
             f_under,
             sprout_ranges,
+            verified,
             log: store::list_log(conn, None)?,
             labels,
         })
@@ -491,31 +501,16 @@ impl Tree {
             && !self.kid_nodes(id).any(|k| k.kind == Kind::Q)
     }
 
-    /// STAR_PATH の上か。
-    #[must_use]
-    pub fn on_path(&self, id: i64) -> bool {
-        self.path.contains(&id)
-    }
-
     /// 子孫の生きた F の数。
     #[must_use]
     pub fn f_count_under(&self, id: i64) -> i64 {
         self.f_under.get(&id).copied().unwrap_or(0)
     }
 
-    /// 進み具合（STAR_PATH の bottom_Q のうち、★ の A を持つ数）。
+    /// SPROUT（S）の範囲。S 以外や無いときは `None`。
     #[must_use]
-    pub fn progress(&self) -> Progress {
-        let mut p = Progress::default();
-        for n in &self.nodes {
-            if n.kind == Kind::Q && self.on_path(n.id) && self.is_bottom_q(n.id) {
-                p.total += 1;
-                if self.kid_nodes(n.id).any(|k| k.kind == Kind::A && k.starred) {
-                    p.answered += 1;
-                }
-            }
-        }
-        p
+    pub fn range(&self, id: i64) -> Option<&Range> {
+        self.sprout_ranges.get(&id)
     }
 
     /// 生きた Node の総数（`status.counts`）。
@@ -667,43 +662,57 @@ fn strip_comments(lines: &[String]) -> String {
 
 // ---- Next Action ----------------------------------------------------------------------
 
-fn card_action(node: (Kind, i64), block: &str, purpose: String, expect: String, why: &str, q: i64) -> NextAction {
-    let card_node = fmt_id(node.0, node.1);
+/// Next Action 1 件（C6）。`child` は規則 2 だけが足す子の型（`F`）。
+fn card_action(node: &NodeRow, block: &str, purpose: String, expect: &str, why: &str, child: Option<&str>) -> NextAction {
+    let card_node = fmt_id(node.kind, node.id);
+    let mut card = json!({"node": card_node, "block": block, "purpose": purpose, "expect": expect, "runner": "pi"});
+    if let Some(child) = child {
+        card["child"] = json!(child);
+    }
     NextAction {
         kind: "card".into(),
-        node: Some(card_node.clone()),
+        node: Some(card_node),
         option: None,
         block: Some(block.into()),
-        card: Some(json!({
-            "node": card_node, "block": block, "purpose": purpose, "expect": expect, "runner": "pi",
-        })),
+        card: Some(card),
         purpose,
-        expect,
+        expect: expect.into(),
         why: why.into(),
-        targets: vec![q],
+        targets: vec![node.id],
     }
 }
 
 impl Tree {
-    /// 道の上の bottom_Q 1 つに出す Next Action（順 2・3 の最初に当てはまる 1 つ）。
-    fn q_action(&self, q: &NodeRow) -> Option<(u8, NextAction)> {
-        if !self.is_bottom_q(q.id) {
-            return None;
+    /// Node 1 つに出す Next Action（C6 の 3 規則の最初に当てはまる 1 つ）。
+    fn action_of(&self, n: &NodeRow) -> Option<(u8, NextAction)> {
+        match n.kind {
+            Kind::Q if self.kid_nodes(n.id).next().is_none() => Some((
+                1,
+                card_action(n, "lab-grow", format!("「{}」の子（A か child_Q）を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
+            )),
+            Kind::A if !self.kid_nodes(n.id).any(|k| k.kind == Kind::F) => Some((
+                2,
+                card_action(n, "lab-search", format!("「{}」の F を探す", n.text), "F を 1 つ以上", "NO_FINDING", Some("F")),
+            )),
+            Kind::Q | Kind::A if self.unverified(n) => Some((
+                3,
+                card_action(n, "sci-verify", format!("「{}」と子の関係を確かめる", n.text), "評価の報告と op", "UNVERIFIED", None),
+            )),
+            _ => None,
         }
-        let me = (Kind::Q, q.id);
-        let has_a = self.kid_nodes(q.id).any(|k| k.kind == Kind::A);
-        let candidates = q
-            .guide_key
-            .as_deref()
-            .and_then(|k| self.defs.guide(k))
-            .is_some_and(|g: &GuideDef| !g.child_candidates.is_empty());
-        if candidates && !has_a {
-            return Some((2, card_action(me, "sci-split", format!("「{}」を child_Q に分ける", q.text), "child_Q の案を 2 つ以上".into(), "NO_CHILD_Q", q.id)));
+    }
+
+    /// 生きた子が 1 つ以上あり、`sci-verify` の run がその Node を対象にしたことが無い、
+    /// または一番新しい子の `created_at` が一番新しい検証の時刻より後（規則 3）。
+    fn unverified(&self, n: &NodeRow) -> bool {
+        let kids: Vec<&NodeRow> = self.kid_nodes(n.id).collect();
+        if kids.is_empty() {
+            return false;
         }
-        if !has_a {
-            return Some((3, card_action(me, "sci-ideate", format!("「{}」の答え（A）を出す", q.text), "A を 2 つ以上".into(), "NO_OPTION", q.id)));
+        match self.verified.get(&n.id) {
+            None => true,
+            Some(run) => kids.iter().filter_map(|k| utc_at(&k.created_at)).max().is_some_and(|child| child > *run),
         }
-        None
     }
 }
 
@@ -712,10 +721,7 @@ impl Tree {
 pub fn next_actions(tree: &Tree, limit: usize) -> Vec<NextAction> {
     let mut ranked: Vec<(u8, usize, NextAction)> = Vec::new();
     for (pos, n) in tree.nodes.iter().enumerate() {
-        if n.kind != Kind::Q || !tree.on_path(n.id) {
-            continue;
-        }
-        if let Some((rank, a)) = tree.q_action(n) {
+        if let Some((rank, a)) = tree.action_of(n) {
             ranked.push((rank, pos, a));
         }
     }
@@ -777,6 +783,11 @@ fn rfc3339_utc(text: &str) -> String {
         return dt.with_timezone(&Utc).to_rfc3339();
     }
     text.to_string()
+}
+
+/// 時刻の文（DB の UTC か RFC3339）を UTC の時刻にする。読めなければ `None`。
+fn utc_at(text: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(&rfc3339_utc(text)).ok().map(|at| at.with_timezone(&Utc))
 }
 
 /// `run:<N>` から N を読む（`creator_json` と同じ読み方）。
@@ -1078,6 +1089,7 @@ fn source_json(conn: &Connection, cite: &str) -> SourceJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake_link;
     use sai_paper_core::database::Database;
 
     struct Env {
@@ -1118,45 +1130,79 @@ mod tests {
         Tree::load(e.db.connection(), &e.roots, &Defs::default()).unwrap()
     }
 
-    /// Q0 → Q1 → A★ 予後予測 → (Qd データ, Qi 課題) と、★ の無い A 診断 → Qx。
-    fn figure(e: &Env) -> [i64; 7] {
-        let q0 = q(e, None, "大目的は？");
-        let q1 = q(e, Some(q0), "何を予測する？");
-        let star = a(e, q1, "予後予測");
-        store::set_starred(e.db.connection(), star, true).unwrap();
-        let other = a(e, q1, "診断");
-        let qd = q(e, Some(star), "データは？");
-        let qi = q(e, Some(star), "既存手法の課題は？");
-        let qx = q(e, Some(other), "診断のデータは？");
-        let ad = a(e, qd, "MRI");
-        f(e, ad, "support");
-        let ai = a(e, qi, "精度が低い");
-        f(e, ai, "deny");
-        [q0, q1, star, other, qd, qi, qx]
+    /// 3 規則の例: Q1 ─ A2（F なし）・Q3（子なし）。`sci-verify` の run は `verified` で足す。
+    fn next_fixture(e: &Env) -> (i64, i64, i64) {
+        let q1 = q(e, None, "根の問い");
+        let a2 = a(e, q1, "答え");
+        let q3 = q(e, None, "別の問い");
+        (q1, a2, q3)
+    }
+
+    /// `sci-verify` の run を 1 つ作る（`creation_date` は local 時刻の書き方）。一覧に出す値を返す。
+    fn verify_run(e: &Env, run: i64, node: i64, created: &str) -> serde_json::Value {
+        let dir = e.roots.root.join(format!(".sai/outputs/review/{run}"));
+        fs::create_dir_all(&dir).unwrap();
+        let text = format!(
+            "---\nrunner: pi\nblock: sci-verify\nsci_node: {}\nsci_purpose: 確かめる\ncreation_date: {created}\n---\n\n本文\n",
+            fmt_id(Kind::Q, node)
+        );
+        fs::write(dir.join("task.md"), text).unwrap();
+        fake_link::run_value(run, "review", &dir, "sci-verify", "", "completed")
     }
 
     #[test]
-    fn figure_path_and_bottom_q() {
-        let e = env("figure");
-        let [q0, _, _, _, qd, _, qx] = figure(&e);
-        let t = tree(&e);
-        assert!(t.on_path(q0) && !t.is_bottom_q(q0));
-        assert!(t.on_path(qd) && t.is_bottom_q(qd));
-        // ★ の無い A の下の Q は道の上に入らない。
-        assert!(!t.on_path(qx));
-    }
-
-    #[test]
-    fn next_actions_ideate_only_for_bottom_q_without_a() {
-        let e = env("ideate");
-        let root = q(&e, None, "根");
+    fn next_actions_three_rules() {
+        let e = env("three");
+        let (q1, a2, q3) = next_fixture(&e);
         let acts = next_actions(&tree(&e), 10);
-        assert_eq!(acts.iter().map(|x| x.why.as_str()).collect::<Vec<_>>(), ["NO_OPTION"]);
-        assert_eq!(acts[0].block.as_deref(), Some("sci-ideate"));
-        assert_eq!(acts[0].node.as_deref(), Some(fmt_id(Kind::Q, root).as_str()));
-        // A を足すと、この Q には次の行動は出ない。
-        a(&e, root, "答え");
-        assert!(next_actions(&tree(&e), 10).is_empty());
+        let got: Vec<(String, String, String)> = acts
+            .iter()
+            .map(|x| (x.why.clone(), x.node.clone().unwrap_or_default(), x.block.clone().unwrap_or_default()))
+            .collect();
+        let want = vec![
+            ("NO_CHILD".to_string(), fmt_id(Kind::Q, q3), "lab-grow".to_string()),
+            ("NO_FINDING".to_string(), fmt_id(Kind::A, a2), "lab-search".to_string()),
+            ("UNVERIFIED".to_string(), fmt_id(Kind::Q, q1), "sci-verify".to_string()),
+        ];
+        assert_eq!(got, want);
+        // 規則 2 だけが child を足す。
+        assert_eq!(acts[1].card.as_ref().unwrap()["child"], "F");
+        assert!(acts[0].card.as_ref().unwrap().get("child").is_none());
+        assert_eq!(acts[0].card.as_ref().unwrap()["runner"], "pi");
+    }
+
+    #[test]
+    fn unverified_clears_only_after_newer_verify_run() {
+        let e = env("verify");
+        let (q1, a2, _) = next_fixture(&e);
+        // 子（A2）は 10/1、検証は 9/30 → まだ確かめていない。
+        e.db.connection().execute("UPDATE rt_nodes SET created_at = '2026-10-01 00:00:00' WHERE id = ?1", params![a2]).unwrap();
+        let old = verify_run(&e, 91, q1, "2026/09/30 12:00:00");
+        fake_link::write_runs(&e.roots.root, std::slice::from_ref(&old));
+        crate::link::forget(&e.roots.root);
+        assert!(next_actions(&tree(&e), 10).iter().any(|x| x.why == "UNVERIFIED"));
+        // 検証を 10/2 に足すと、子より新しいので規則 3 は消える。
+        let new = verify_run(&e, 92, q1, "2026/10/02 12:00:00");
+        fake_link::write_runs(&e.roots.root, &[old, new]);
+        crate::link::forget(&e.roots.root);
+        assert!(!next_actions(&tree(&e), 10).iter().any(|x| x.why == "UNVERIFIED"));
+    }
+
+    #[test]
+    fn status_counts_by_stance() {
+        let e = env("counts");
+        let root = q(&e, None, "根");
+        let ans = a(&e, root, "答え");
+        f(&e, ans, "support");
+        f(&e, ans, "deny");
+        f(&e, ans, "issue");
+        add(&e, Kind::E, Some(ans), "実験", None);
+        let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
+        assert_eq!(
+            s.counts,
+            StatusCounts { q: 1, a: 1, f_support: 1, f_deny: 1, f_issue: 1, e: 1, s: 0 }
+        );
+        assert_eq!(s.counts.line(), "Q 1・A 1・F 3（S 1 / D 1 / I 1）・E 1・S 0");
     }
 
     #[test]
@@ -1175,9 +1221,11 @@ mod tests {
         }
         let nodes = v["nodes"].as_array().unwrap();
         let answer = nodes.iter().find(|n| n["kind"] == "A").unwrap();
-        for gone in ["answer_kind", "on_path", "objectivity", "logicality", "pending", "target"] {
+        for gone in ["answer_kind", "objectivity", "logicality", "pending", "target"] {
             assert!(answer.get(gone).is_none(), "{gone}");
         }
+        // 道の印（旧 `on_path`）も無い（名前は文字列を分けて組み立てる）。
+        assert!(answer.get(format!("on_{}", "path")).is_none());
         assert!(answer["stance"].is_null());
         let fact = nodes.iter().find(|n| n["kind"] == "F").unwrap();
         assert_eq!(fact["stance"], "support");

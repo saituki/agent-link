@@ -49,7 +49,7 @@ pub enum AttentionKind {
     RecommendCard,
     /// report の出典の要確認（`error`）。
     ReportIssue,
-    /// research-tree の、★ の無い Q（Next Action の `NO_STAR`）。
+    /// research-tree の判断待ち（★ は目印で計算に使わないので、今は作られない）。
     SciDecision,
 }
 

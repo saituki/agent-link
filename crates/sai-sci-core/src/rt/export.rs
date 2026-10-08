@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use rusqlite::Connection;
 
-use super::compute::{self, NodeJson, Status, StatusCounts};
+use super::compute::{self, NodeJson, Status};
 use super::defs::Defs;
 use super::{Result, store};
 use sai_paper_core::paths::PaperRoots;
@@ -36,25 +36,10 @@ fn or_none(text: String) -> String {
     if text.is_empty() { "なし".to_string() } else { text }
 }
 
-/// 生きた Node の数の 1 行（`state.md` と `tree.md` の頭）。
-fn counts_text(c: &StatusCounts) -> String {
-    format!(
-        "Q {} / A {} / F {}（支持 {}・反対 {}・課題 {}）/ E {} / S {}",
-        c.q,
-        c.a,
-        c.f_support + c.f_deny + c.f_issue,
-        c.f_support,
-        c.f_deny,
-        c.f_issue,
-        c.e,
-        c.s,
-    )
-}
-
 /// `state.md` の本文を作る（頭の 4 行は [`crate::project_files::parse_state`] が読む形）。
 #[must_use]
 pub fn render_state_md(status: &Status) -> String {
-    let counts = counts_text(&status.counts);
+    let counts = status.counts.line();
 
     let current = status
         .running
@@ -109,14 +94,14 @@ pub fn render_state_md(status: &Status) -> String {
 /// Node の 1 行（`# context` と同じ形）。字下げは深さ × 2 字。
 fn node_line(n: &NodeJson) -> String {
     let mut line = format!("{}- {} ", "  ".repeat(n.depth), n.id);
+    if n.starred {
+        line.push_str("★ ");
+    }
     match n.kind.as_str() {
         "Q" => {
             line.push_str(&n.text);
         }
         "A" => {
-            if n.starred {
-                line.push_str("★ ");
-            }
             line.push_str(&format!("{} [F {}]", n.text, n.counts.f));
         }
         "F" => {
@@ -129,6 +114,9 @@ fn node_line(n: &NodeJson) -> String {
         "S" => {
             line.push_str(&n.text);
             line.push_str(&format!("（paths: {}）", n.paths.join(", ")));
+            if let Some(range) = &n.range {
+                line.push_str(&format!(" [範囲: {}]", range.line()));
+            }
         }
         _ => {
             line.push_str(&n.text);
@@ -144,7 +132,7 @@ pub fn render_tree_md(status: &Status) -> String {
     let name = status.type_info.as_ref().map_or("RESEARCH_TYPE は未設定", |t| t.name.as_str());
     let mut out = format!(
         "# research-tree（{name}）\n\n{} / 書き出した時刻 {}\n\n",
-        counts_text(&status.counts),
+        status.counts.line(),
         Local::now().format("%Y-%m-%d %H:%M"),
     );
     for n in &status.nodes {
@@ -247,7 +235,7 @@ mod tests {
         let tree = render_tree_md(&status);
         let lines: Vec<&str> = tree.lines().collect();
         assert!(lines[0].starts_with("# research-tree（"));
-        assert!(lines[2].contains("Q 2 / A 2 / F 1（支持 1・反対 0・課題 0）"), "{tree}");
+        assert!(lines[2].contains("Q 2・A 2・F 1（S 1 / D 0 / I 0）・E 0・S 0"), "{tree}");
         assert!(tree.contains("\n- Q1 大目的は？\n"), "{tree}");
         assert!(tree.contains("\n  - A2 ★ 予後予測 [F 0]\n"), "{tree}");
         assert!(tree.contains("\n      - A4 術前 MRI [F 1]\n"), "{tree}");

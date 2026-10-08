@@ -42,7 +42,7 @@ pub(crate) struct SciCardArgs {
     /// 期待する成果
     #[arg(long)]
     pub expect: Option<String>,
-    /// sci-read の型（purpose_first / blind_first）
+    /// lab-read の型（purpose_first / blind_first）
     #[arg(long)]
     pub mode: Option<String>,
     /// 対象論文の番号（カンマ区切り）
@@ -63,6 +63,9 @@ pub(crate) struct SciCardArgs {
     /// 起動者（human / agent。旧 `professor` も `agent` と読む）
     #[arg(long)]
     pub executer: Option<String>,
+    /// 足す子の型（Q・A・F。Q の下は Q か A、A の下は Q か F）
+    #[arg(long)]
+    pub child: Option<String>,
 }
 
 impl SciCardArgs {
@@ -90,6 +93,7 @@ impl SciCardArgs {
             origin_run: self.origin_run,
             inputs: self.input.clone(),
             executer: self.executer.clone().unwrap_or_default(),
+            child: self.child.clone().unwrap_or_default(),
         })
     }
 }
@@ -714,7 +718,7 @@ pub(crate) fn set_fields(
 
 // ---- 人が読む文 -------------------------------------------------------------
 
-/// `sci status` の文（RESEARCH_TYPE・進み具合・SEED・research-tree・Next Action）。
+/// `sci status` の文（RESEARCH_TYPE・Node の数・SEED・research-tree・Next Action）。
 fn status_text(status: &compute::Status) -> String {
     if !status.initialized {
         let mut text = "research-tree がまだありません。`sai-sci init --type <型>` で始めてください。\n"
@@ -729,7 +733,7 @@ fn status_text(status: &compute::Status) -> String {
         text.push_str(&format!("RESEARCH_TYPE: {}\n", found.name));
         text.push_str(&format!("SEED: {}\n", found.name));
     }
-    text.push_str(&format!("木: {}\n", counts_text(&status.counts)));
+    text.push_str(&format!("木: {}\n", status.counts.line()));
     let sprouts: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
     if sprouts.is_empty() {
         text.push_str("SPROUT はまだありません\n");
@@ -756,21 +760,6 @@ fn status_text(status: &compute::Status) -> String {
     text
 }
 
-/// 生きた Node の数の 1 行（`status` の文）。
-fn counts_text(c: &compute::StatusCounts) -> String {
-    format!(
-        "Q {} / A {} / F {}（支持 {}・反対 {}・課題 {}）/ E {} / S {}",
-        c.q,
-        c.a,
-        c.f_support + c.f_deny + c.f_issue,
-        c.f_support,
-        c.f_deny,
-        c.f_issue,
-        c.e,
-        c.s,
-    )
-}
-
 /// Next Action 1 件の文（Node・ブロック・目的・理由）。
 fn next_text(next: &compute::NextAction) -> String {
     let mut head = String::new();
@@ -781,16 +770,29 @@ fn next_text(next: &compute::NextAction) -> String {
     format!("{head}{}（{}）", next.purpose, next.why)
 }
 
-/// Node 1 つの 1 行（深さ分だけ字下げする。F には立場を付ける）。
+/// F の立場の印（support は S、deny は D、issue は I）。
+fn stance_mark(stance: &str) -> &str {
+    match stance {
+        "support" => "S",
+        "deny" => "D",
+        "issue" => "I",
+        other => other,
+    }
+}
+
+/// Node 1 つの 1 行（深さ分だけ字下げする。★ は種類によらず付け、F には立場の印、S には範囲の数を付ける）。
 fn node_line(node: &compute::NodeJson) -> String {
     let mut line = format!("{}- {} ", "  ".repeat(node.depth), node.id);
     if node.starred {
         line.push_str("★ ");
     }
     if let Some(stance) = &node.stance {
-        line.push_str(&format!("[{stance}] "));
+        line.push_str(&format!("[{}] ", stance_mark(stance)));
     }
     line.push_str(&one_line(&node.text));
+    if let Some(range) = &node.range {
+        line.push_str(&format!(" [範囲: {}]", range.line()));
+    }
     line.push('\n');
     line
 }

@@ -175,6 +175,8 @@ pub struct RtKeys {
     pub papers: Vec<i64>,
     /// 読む深さ（abstract / figures / full）。
     pub depth: String,
+    /// 足す子の型（Q / A / F。無い・知らない値は空）。
+    pub child: String,
 }
 
 impl RtKeys {
@@ -215,6 +217,10 @@ pub fn task_keys(task_md: &str) -> RtKeys {
         mode: get("sci_mode"),
         papers,
         depth: get("sci_depth"),
+        child: match get("sci_child").as_str() {
+            kind @ ("Q" | "A" | "F") => kind.to_string(),
+            _ => String::new(),
+        },
     }
 }
 
@@ -250,7 +256,7 @@ mod tests {
         // 古い task.md の範囲と仮置きのキーは読まずに捨てる（名前は文字列を分けて組み立てる）。
         let old_scope = format!("sci_{}", "scope");
         let old_assume = format!("sci_{}", "assume");
-        let md = format!("---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\n---\n\n本文\n");
+        let md = format!("---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\nsci_child: F\n---\n\n本文\n");
         let keys = task_keys(&md);
         assert_eq!(keys.node, Some((Kind::Q, 12)));
         assert!(!keys.seed);
@@ -259,6 +265,9 @@ mod tests {
         assert_eq!(keys.mode, "purpose_first");
         assert_eq!(keys.papers, vec![37, 40]);
         assert_eq!(keys.depth, "full");
+        assert_eq!(keys.child, "F");
+        // 知らない値は空として読む（C7: Q・A・F 以外は無い扱い）。
+        assert_eq!(task_keys("---\nsci_node: Q1\nsci_child: O\n---\n").child, "");
         assert!(keys.is_sci());
         assert_eq!(task_keys("---\nrunner: pi\n---\n"), RtKeys::default());
         // `sci_node: SEED` は seed になり、node は空。
