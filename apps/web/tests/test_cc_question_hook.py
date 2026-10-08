@@ -3,7 +3,8 @@
 標準ライブラリの `http.server` で偽の Web を立て、`cc_question.py` を走らせて
 次を確かめる。
 
-- 登録 → 答え待ち → 答えが入った `permissionDecisionReason` の JSON を出す
+- 登録 → 答え待ち → 答えが入った `allow` + `updatedInput` の JSON を出す
+- `SAI_CC_QUESTION_MODE=deny` のときは答えを `permissionDecisionReason` に入れた `deny` を出す
 - `SAI_WEB_INTERNAL_TOKEN` を付けると `Authorization: Bearer` が届く
 - `SAI_WEB_URL` の値に送る
 - 答えが来ないまま `open` でなくなったら「利用者は答えませんでした。」
@@ -94,7 +95,7 @@ class FakeWeb:
         self._server.server_close()
 
 
-def run_hook(port: int, token: str | None = None) -> tuple[int, str]:
+def run_hook(port: int, token: str | None = None, extra_env: dict | None = None) -> tuple[int, str]:
     """フックを走らせて（終了コード, 標準出力）を返す。"""
     env = {
         "PATH": "/usr/bin:/bin",
@@ -103,6 +104,8 @@ def run_hook(port: int, token: str | None = None) -> tuple[int, str]:
     }
     if token is not None:
         env["SAI_WEB_INTERNAL_TOKEN"] = token
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.run(
         [sys.executable, str(HOOK_PATH)],
         input=json.dumps(PAYLOAD),
@@ -114,8 +117,8 @@ def run_hook(port: int, token: str | None = None) -> tuple[int, str]:
     return proc.returncode, proc.stdout
 
 
-def test_answered_returns_reason_and_token() -> None:
-    """登録 → 答え待ち → 答えが入った拒否の JSON。Authorization も届く。"""
+def test_answered_returns_allow_with_updated_input() -> None:
+    """登録 → 答え待ち → allow + updatedInput（質問と答え）。Authorization も届く。"""
     web = FakeWeb([OPEN_STATE, ANSWERED_STATE])
     try:
         code, out = run_hook(web.port, token="secret-token")
@@ -125,10 +128,10 @@ def test_answered_returns_reason_and_token() -> None:
     value = json.loads(out)
     hook = value["hookSpecificOutput"]
     assert hook["hookEventName"] == "PreToolUse"
-    assert hook["permissionDecision"] == "deny"
-    reason = hook["permissionDecisionReason"]
-    assert reason.startswith("利用者が Web で答えました。"), repr(reason)
-    assert "好きな色は？: 青" in reason, repr(reason)
+    assert hook["permissionDecision"] == "allow"
+    assert "permissionDecisionReason" not in hook, hook
+    assert hook["updatedInput"]["questions"] == QUESTIONS, hook
+    assert hook["updatedInput"]["answers"] == {"好きな色は？": "青"}, hook
 
     # 登録は POST /api/questions に、質問の本文つきで届く
     assert len(web.registrations) == 1
@@ -144,6 +147,22 @@ def test_answered_returns_reason_and_token() -> None:
     assert web.gets and web.gets[0][0] == "/api/questions/q-test"
     # GET にも合言葉が届く
     assert web.gets[0][1].get("Authorization") == "Bearer secret-token"
+
+
+def test_deny_mode_returns_reason_with_answer() -> None:
+    """SAI_CC_QUESTION_MODE=deny なら、答えがあっても今の deny と理由文の形。"""
+    web = FakeWeb([OPEN_STATE, ANSWERED_STATE])
+    try:
+        code, out = run_hook(web.port, token=None, extra_env={"SAI_CC_QUESTION_MODE": "deny"})
+    finally:
+        web.close()
+    assert code == 0, code
+    hook = json.loads(out)["hookSpecificOutput"]
+    assert hook["permissionDecision"] == "deny", hook
+    assert "updatedInput" not in hook, hook
+    reason = hook["permissionDecisionReason"]
+    assert reason.startswith("利用者が Web で答えました。"), repr(reason)
+    assert "好きな色は？: 青" in reason, repr(reason)
 
 
 def test_no_token_has_no_authorization() -> None:
@@ -182,7 +201,8 @@ def test_registration_failure_is_silent() -> None:
 
 
 if __name__ == "__main__":
-    test_answered_returns_reason_and_token()
+    test_answered_returns_allow_with_updated_input()
+    test_deny_mode_returns_reason_with_answer()
     test_no_token_has_no_authorization()
     test_unanswered_reports_not_answered()
     test_registration_failure_is_silent()

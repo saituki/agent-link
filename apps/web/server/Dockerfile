@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---- 2. 実行する環境 ----
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-venv git ca-certificates curl ripgrep jq tini procps \
+      python3 python3-venv git ca-certificates curl ripgrep jq tini procps tmux \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent

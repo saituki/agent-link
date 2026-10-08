@@ -63,6 +63,8 @@ cargo build --release
 export PATH="$HOME/workdir/Sai/sai-tree/target/release:$HOME/workdir/Sai/sai-tree/apps/web/bin:$PATH"
 ```
 
+cc を動かすには tmux が要ります（`brew install tmux`）。
+
 これで `sai-link`・`sai-paper`・`sai-sci`・`sai-web` が使えます。確かめ方:
 
 ```bash
