@@ -8,6 +8,8 @@
 - `SAI_WEB_INTERNAL_TOKEN` を付けると `Authorization: Bearer` が届く
 - `SAI_WEB_URL` の値に送る
 - 答えが来ないまま `open` でなくなったら「利用者は答えませんでした。」
+- 答えが取れたら，`SAI_PARENT_RUN_ID` があるときだけ `sai-sci approval record` を呼ぶ（U04・C8）
+  失敗しても allow を返す
 
 実行:
     PYTHONPATH=apps/web/src apps/web/.venv/bin/python apps/web/tests/test_cc_question_hook.py
@@ -19,6 +21,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -46,6 +49,7 @@ ANSWERED_STATE = {
     "answer": {"answers": [{"choice_index": 1}]},
 }
 RESOLVED_STATE = {"state": "resolved_elsewhere", "questions": QUESTIONS}
+ANSWERED_BY_STATE = {**ANSWERED_STATE, "answered_by": "saituki"}
 
 
 class FakeWeb:
@@ -200,10 +204,98 @@ def test_registration_failure_is_silent() -> None:
     assert out == "", repr(out)
 
 
+def make_fake_sai_sci(dir: Path, exit_code: int) -> tuple[Path, Path]:
+    """渡された引数を 1 行ずつ log に書き，exit_code で終わる偽の sai-sci を作る。"""
+    log = dir / "args.log"
+    script = dir / "sai-sci"
+    script.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$@" > "{log}"\nexit {exit_code}\n', encoding="utf-8")
+    script.chmod(0o755)
+    return script, log
+
+
+def test_answered_calls_approval_record() -> None:
+    """答えが取れたら approval record に qid・質問・答え・回答者が渡る（AC2・C8）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        script, log = make_fake_sai_sci(Path(tmp), exit_code=0)
+        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(script)},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        # allow はそのまま返る（記録は答えを返す前に終わっている）
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
+        args = log.read_text(encoding="utf-8").splitlines()
+        assert args == [
+            "approval",
+            "record",
+            "--qid",
+            "q-test",
+            "--question",
+            "好きな色は？",
+            "--answer",
+            "青",
+            "--answered-by",
+            "saituki",
+        ], args
+
+
+def test_no_run_id_skips_record() -> None:
+    """SAI_PARENT_RUN_ID が無ければ approval record を呼ばない（手動のエージェント）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        script, log = make_fake_sai_sci(Path(tmp), exit_code=0)
+        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
+        try:
+            code, out = run_hook(web.port, token=None, extra_env={"SAI_SCI_BIN": str(script)})
+        finally:
+            web.close()
+        assert code == 0, code
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
+        assert not log.exists(), "親の run が無いのに approval record を呼びました"
+
+
+def test_record_failure_is_ignored() -> None:
+    """approval record が失敗しても（終了コード 4・呼べない）allow は返す。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        script, log = make_fake_sai_sci(Path(tmp), exit_code=4)
+        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(script)},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
+        assert log.exists(), "approval record が呼ばれていません"
+
+        # 実行できない場所を指しても同じ（allow のまま）
+        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(Path(tmp) / "no-such-sai-sci")},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
+
+
 if __name__ == "__main__":
     test_answered_returns_allow_with_updated_input()
     test_deny_mode_returns_reason_with_answer()
     test_no_token_has_no_authorization()
     test_unanswered_reports_not_answered()
     test_registration_failure_is_silent()
+    test_answered_calls_approval_record()
+    test_no_run_id_skips_record()
+    test_record_failure_is_ignored()
     print("test_cc_question_hook: すべて通りました")

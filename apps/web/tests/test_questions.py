@@ -15,6 +15,8 @@ headless では pane の画面が無いので，回答は記録するだけに�
 
 from __future__ import annotations
 
+import os
+import sqlite3
 import sys
 import tempfile
 import time
@@ -154,6 +156,71 @@ def test_resolve_on_terminal() -> None:
         assert questions.resolve_on_terminal(qid) is False
 
 
+def test_answer_records_answered_by() -> None:
+    """回答者を記録する（C8）: 単独モードは user，端末で答えたのは terminal．"""
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh_db(tmp)
+        qid = make_question("claude")["id"]
+        ok, reason = questions.answer_question(qid, [{"choice_index": 0}])
+        assert ok is True, reason
+        # store.get_question の dict をそのまま返すので，GET /api/questions/{qid} にも出る
+        assert store.get_question(qid)["answered_by"] == "user"
+
+        # 端末で答えた（PC で回答済み）は terminal
+        qid_pi = make_question("pi")["id"]
+        assert questions.resolve_on_terminal(qid_pi) is True
+        assert store.get_question(qid_pi)["answered_by"] == "terminal"
+
+
+def test_answer_records_logged_in_user_in_multi_user_mode() -> None:
+    """多人数モードは今の利用者の名前を記録する（C8）。"""
+    from sai_web import registry
+
+    saved_root = os.environ.get("SAI_WEB_USERS_ROOT")
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh_db(tmp)
+        os.environ["SAI_WEB_USERS_ROOT"] = str(Path(tmp) / "users")
+        token = registry.current_user.set({"name": "saituki"})
+        try:
+            qid = make_question("claude")["id"]
+            ok, reason = questions.answer_question(qid, [{"choice_index": 0}])
+            assert ok is True, reason
+            assert store.get_question(qid)["answered_by"] == "saituki"
+        finally:
+            registry.current_user.reset(token)
+            if saved_root is None:
+                os.environ.pop("SAI_WEB_USERS_ROOT", None)
+            else:
+                os.environ["SAI_WEB_USERS_ROOT"] = saved_root
+
+
+def test_old_db_gets_answered_by_column() -> None:
+    """`answered_by` の列が無い古い DB に足され，既存の行は空文字になる（DB を壊さない）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "old.db"
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            "CREATE TABLE questions (id TEXT PRIMARY KEY, agent TEXT NOT NULL, "
+            "session_id TEXT NOT NULL, pane_id TEXT NOT NULL, tool_use_id TEXT NOT NULL, "
+            "questions_json TEXT NOT NULL, created_at REAL NOT NULL, "
+            "state TEXT NOT NULL DEFAULT 'open', answer_json TEXT NOT NULL DEFAULT '', "
+            "owner TEXT NOT NULL DEFAULT '');"
+            "INSERT INTO questions (id, agent, session_id, pane_id, tool_use_id, "
+            "questions_json, created_at, state, answer_json) "
+            "VALUES ('old1', 'claude', 's', 'p', 'tu-old', '[]', 0, 'answered', '{\"answers\": []}');"
+        )
+        conn.commit()
+        conn.close()
+        store.DB_PATH = path
+        store.init_db()
+        q = store.get_question("old1")
+        assert q is not None
+        assert q["answered_by"] == "", q
+        assert q["state"] == "answered", q
+        # 列を足したあとも，2 回目の init_db は何もせず通る
+        store.init_db()
+
+
 def main() -> None:
     test_pi_question_stays_open_when_pane_not_blocked()
     test_cc_question_answer_records_without_keys()
@@ -161,6 +228,9 @@ def main() -> None:
     test_pi_question_expires_after_10_minutes()
     test_cc_question_expires_after_24_hours()
     test_resolve_on_terminal()
+    test_answer_records_answered_by()
+    test_answer_records_logged_in_user_in_multi_user_mode()
+    test_old_db_gets_answered_by_column()
     print("test_questions: すべて通りました")
 
 
