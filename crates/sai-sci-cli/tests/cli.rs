@@ -51,6 +51,25 @@ fn run(mut cmd: Command) -> Out {
     }
 }
 
+/// 標準入力に JSON を流して実行する（`op` は標準入力を読む）。
+fn run_with_stdin(mut cmd: Command, input: &str) -> Out {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("sai-sci を起動できる");
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    Out {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+    }
+}
+
 /// sh のスクリプトを置いて実行の権限を付ける。
 fn write_script(path: &Path, body: &str) {
     std::fs::write(path, body).unwrap();
@@ -619,4 +638,112 @@ fn json_outputs_have_expected_shape() {
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&home);
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// 約束: 許可が要る op は、承認（`approval record --answer 許可する`）が 1 件あるときだけ通る。
+/// 通ったあと承認は使い切り、rt_log の行に `approved_by`・`qid`・`question` が入る。同じ `qid` の記録は 2 回目が 4。
+#[test]
+fn approval_record_then_op_add_q() {
+    let root = temp_dir("approval");
+    let home = temp_dir("approval-home");
+    let (data_dir, _) = project_with_tree(&root);
+    // 許可を使えるのは sci_ops に書いた block だけ（`--block` で渡す）。
+    let blocks = root.join(".sai").join("blocks");
+    std::fs::create_dir_all(&blocks).unwrap();
+    std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: add_q\n---\n# t\n").unwrap();
+    let body = r#"{"ops":[{"op":"add_q","parent":"SEED","text":"新しい根"}]}"#;
+    let op = || {
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).env("SAI_PARENT_RUN_ID", "5").args(["op", "--block", "t-add"]);
+        cmd
+    };
+    let record = |qid: &str, answer: &str| {
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args([
+            "approval", "record", "--run", "5", "--qid", qid, "--question", "根を足してよいか", "--answer", answer,
+            "--answered-by", "saituki",
+        ]);
+        cmd
+    };
+
+    let rec = run(record("a1b2c3d4e5f6", "許可する"));
+    assert_eq!(rec.code, 0, "stdout={} stderr={}", rec.stdout, rec.stderr);
+    let v: serde_json::Value = serde_json::from_str(&rec.stdout).expect("JSON 1 つ");
+    assert_eq!(v["approval"]["consumable"], true);
+    assert_eq!(v["approval"]["run_id"], 5);
+
+    let ok = run_with_stdin(op(), body);
+    assert_eq!(ok.code, 0, "stdout={} stderr={}", ok.stdout, ok.stderr);
+    let done: serde_json::Value = serde_json::from_str(&ok.stdout).expect("JSON 1 つ");
+    assert_eq!(done["approval"], serde_json::json!({"qid": "a1b2c3d4e5f6", "answered_by": "saituki"}));
+
+    // 承認は使い切ったので、もう一度の op は 4。
+    let again = run_with_stdin(op(), body);
+    assert_eq!(again.code, 4, "stdout={} stderr={}", again.stdout, again.stderr);
+
+    // 同じ質問の承認を 2 回記録すると 4。
+    let dup = run(record("a1b2c3d4e5f6", "許可する"));
+    assert_eq!(dup.code, 4, "stderr={}", dup.stderr);
+    assert!(dup.stdout.is_empty());
+
+    let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
+    let row: (String, String, String) = db
+        .connection()
+        .query_row(
+            "SELECT approved_by, qid, question FROM rt_log WHERE action = 'add_q' ORDER BY id DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(row, ("saituki".into(), "a1b2c3d4e5f6".into(), "根を足してよいか".into()));
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// 約束: 承認が無い op は終了コード 4（標準出力は空）。「許可しない」の回答では通らない。run_id が無いときも 4。
+#[test]
+fn op_without_approval_returns_four() {
+    let root = temp_dir("no-approval");
+    let home = temp_dir("no-approval-home");
+    let (data_dir, _) = project_with_tree(&root);
+    let blocks = root.join(".sai").join("blocks");
+    std::fs::create_dir_all(&blocks).unwrap();
+    std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: add_q\n---\n# t\n").unwrap();
+    let body = r#"{"ops":[{"op":"add_q","parent":"SEED","text":"新しい根"}]}"#;
+    let op = |run: Option<&str>| {
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args(["op", "--block", "t-add"]);
+        if let Some(run) = run {
+            cmd.env("SAI_PARENT_RUN_ID", run);
+        }
+        cmd
+    };
+
+    let none = run_with_stdin(op(Some("5")), body);
+    assert_eq!(none.code, 4, "stdout={} stderr={}", none.stdout, none.stderr);
+    assert!(none.stdout.is_empty(), "失敗の標準出力が空でない: {}", none.stdout);
+    assert!(none.stderr.lines().last().unwrap_or("").contains("許可がありません"), "stderr={}", none.stderr);
+
+    let rec = run({
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args([
+            "approval", "record", "--run", "5", "--qid", "no1", "--question", "作ってよいか", "--answer", "許可しない",
+            "--answered-by", "saituki",
+        ]);
+        cmd
+    });
+    assert_eq!(rec.code, 0, "stderr={}", rec.stderr);
+    let denied = run_with_stdin(op(Some("5")), body);
+    assert_eq!(denied.code, 4, "stderr={}", denied.stderr);
+
+    let no_run = run_with_stdin(op(None), body);
+    assert_eq!(no_run.code, 4, "stderr={}", no_run.stderr);
+    assert!(no_run.stderr.lines().last().unwrap_or("").contains("run_id"), "stderr={}", no_run.stderr);
+
+    // 失敗は何も残さない（add_q の行が無い）。
+    let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
+    let n: i64 = db.connection().query_row("SELECT COUNT(*) FROM rt_log WHERE action = 'add_q'", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
 }

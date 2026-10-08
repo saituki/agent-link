@@ -369,6 +369,24 @@ pub(crate) fn apply() -> Result<Out> {
     Ok(Out::Json(serde_json::to_value(result)?))
 }
 
+/// `sci approval record` — 質問の回答を承認として 1 件記録する（いつも JSON）。
+pub(crate) fn approval_record(
+    qid: &str,
+    question: &str,
+    answer: &str,
+    answered_by: &str,
+    run: Option<i64>,
+) -> Result<Out> {
+    let Some(run_id) = run.or_else(parent_run_id) else {
+        return Err(crate::cli_error::CliError::input("run_id がありません（--run か SAI_PARENT_RUN_ID）").into());
+    };
+    let env = open_env()?;
+    let id = ops::record_approval(env.conn(), run_id, qid, question, answer, answered_by).map_err(rt_err)?;
+    Ok(Out::Json(json!({
+        "approval": {"id": id, "run_id": run_id, "qid": qid, "consumable": answer.trim() == "許可する"}
+    })))
+}
+
 /// CARD を作って state.md と tree.md を書き直し、`{"run_id","path","executer"}` を返す
 /// （`sci card` と `phone sci card` で共用）。
 pub(crate) fn make_card(spec: &card::CardSpec) -> Result<Value> {

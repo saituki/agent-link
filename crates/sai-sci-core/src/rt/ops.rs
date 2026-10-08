@@ -9,9 +9,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
-use super::compute::{Range, sprout_range};
+// 範囲の数え方は compute.rs の 1 か所にある（U03 の読み出しと同じ関数）。ここからも同じ名前で使えるようにする。
+pub use super::compute::{Range, sprout_range};
 use super::defs::{self, Defs};
-use super::store::{self, NewNode, NodeRow};
+use super::store::{self, ApprovalRow, NewNode, NodeRow};
 use super::{Kind, Result, RtError, fmt_id, parse_id};
 use sai_paper_core::paths::PaperRoots;
 use sai_paper_core::textcheck;
@@ -27,7 +28,7 @@ const STANCES: &[&str] = &["support", "deny", "issue"];
 pub enum Risk {
     /// agent がそのまま出せる。
     Free,
-    /// agent は承認（質問で取った許可）が要る。承認の仕組みが入るまで agent の op は拒否する。
+    /// agent は承認（質問で取った許可）が要る。1 件の承認で、その `op` の呼び出しの中の許可が要る op を全部通す。
     Approval,
     /// 利用者だけが行う。
     UserOnly,
@@ -276,6 +277,8 @@ struct Cx<'a> {
     /// Node の `created_by` と `rt_log` の `actor`。
     by: String,
     run_id: Option<i64>,
+    /// この op の呼び出しで使う許可（許可が要る op があったときだけ）。
+    approval: Option<ApprovalRow>,
 }
 
 fn run_by(run_id: Option<i64>) -> String {
@@ -294,10 +297,18 @@ pub fn op(conn: &Connection, roots: &PaperRoots, defs: &Defs, actor: &Actor, inp
     if items.is_empty() || items.len() > MAX_OPS {
         return invalid(format!("ops は 1〜{MAX_OPS} 件です"));
     }
+    // 許可が要る op が 1 つでもあれば、承認を先に確かめる（無ければ入力を見る前に終了コード 4）。
+    let gated: Vec<String> = items
+        .iter()
+        .filter_map(|item| item.get("op").and_then(Value::as_str))
+        .filter(|name| needs_approval(name))
+        .map(str::to_string)
+        .collect();
+    let tx = conn.unchecked_transaction()?;
+    let approval = if gated.is_empty() { None } else { Some(take_approval_for(&tx, actor)?) };
     let block = actor.block.as_deref().unwrap_or("");
     let allowed = allowed_ops(roots, block);
-    let tx = conn.unchecked_transaction()?;
-    let cx = Cx { conn: &tx, defs, by: run_by(actor.run_id), run_id: actor.run_id };
+    let cx = Cx { conn: &tx, defs, by: run_by(actor.run_id), run_id: actor.run_id, approval };
     let mut results = Vec::new();
     for (index, item) in items.iter().enumerate() {
         let name = item.get("op").and_then(Value::as_str).unwrap_or("");
@@ -311,17 +322,45 @@ pub fn op(conn: &Connection, roots: &PaperRoots, defs: &Defs, actor: &Actor, inp
         if spec.risk == Risk::UserOnly {
             return Err(at(RtError::Invalid("USER_OP です（利用者だけが行います）".into())));
         }
-        if spec.risk == Risk::Approval {
-            return Err(at(RtError::Invalid(format!("{name} は承認が要ります（承認の仕組みは未実装）"))));
-        }
         if !allowed.iter().any(|a| a == name) {
             return Err(at(RtError::Invalid(format!("このブロックでは {name} を出せません"))));
         }
         let (result, range) = execute(&cx, item).map_err(at)?;
         results.push(OpResult { op: name.to_string(), result, range });
     }
+    // 全部通ったので、許可を使い切る（途中で弾かれたときは tx ごと戻り、許可も残る）。
+    if let Some(row) = &cx.approval {
+        store::consume_approval(&tx, row.id, &gated)?;
+    }
+    let approval = cx.approval.as_ref().map(|a| json!({"qid": a.qid, "answered_by": a.answered_by}));
     tx.commit()?;
-    Ok(BatchResult { results, approval: None })
+    Ok(BatchResult { results, approval })
+}
+
+/// agent の run の許可を 1 件取る（消費はしない）。無ければ終了コード 4。
+fn take_approval_for(conn: &Connection, actor: &Actor) -> Result<ApprovalRow> {
+    let Some(run) = actor.run_id else {
+        return Err(RtError::Conflict("run_id がありません（--run か SAI_PARENT_RUN_ID）".into()));
+    };
+    store::take_approval(conn, run)?
+        .ok_or_else(|| RtError::Conflict("許可がありません: 先に質問ツールで「許可する」を選んでもらってください".into()))
+}
+
+/// 質問の回答を許可として記録する（`sai-sci approval record`）。同じ `qid` は 2 回書けない（終了コード 4）。
+pub fn record_approval(
+    conn: &Connection,
+    run_id: i64,
+    qid: &str,
+    question: &str,
+    answer: &str,
+    answered_by: &str,
+) -> Result<i64> {
+    match store::insert_approval(conn, run_id, qid, question, answer, answered_by) {
+        Err(RtError::Db(rusqlite::Error::SqliteFailure(e, _))) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
+            Err(RtError::Conflict(format!("この質問の承認は記録済みです: {qid}")))
+        }
+        other => other,
+    }
 }
 
 /// 利用者として 1 件の op を行う（どの op も使える）。
@@ -335,7 +374,7 @@ pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &V
     if let Some(map) = input.as_object_mut() {
         map.remove("run");
     }
-    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id };
+    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id, approval: None };
     let (result, range) = execute(&cx, &input)?;
     tx.commit()?;
     Ok(OpResult { op, result, range })
@@ -503,8 +542,10 @@ fn new_node<'a>(cx: &'a Cx<'_>, kind: Kind, parent: Option<i64>, text: &'a str) 
     }
 }
 
+/// 記録を 1 行足す。許可が要る op（rt_log の action は op 名と同じ）のときだけ、許可の印を付ける。
 fn log(cx: &Cx<'_>, node_id: i64, action: &str, detail: &str) -> Result<()> {
-    store::insert_log(cx.conn, node_id, action, detail, &cx.by, None)?;
+    let approval = cx.approval.as_ref().filter(|_| needs_approval(action));
+    store::insert_log(cx.conn, node_id, action, detail, &cx.by, approval)?;
     Ok(())
 }
 
@@ -583,7 +624,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             }
             for a in &moving {
                 if is_under(conn, to.id, a.id)? {
-                    return invalid(format!("{} は {} の子孫なので、移すと輪になります", fmt_id(Kind::Q, to.id), fmt_id(Kind::A, a.id)));
+                    return invalid(format!("{} は {from_id} の A の下にあるので移せません", fmt_id(Kind::Q, to.id)));
                 }
             }
             for a in &moving {
@@ -820,6 +861,10 @@ mod tests {
         fn user(&self, op: Value) -> Result<OpResult> {
             apply_user(self.conn(), &self.roots, &self.defs, &op)
         }
+        /// run 7 の質問に回答を 1 件記録する（許可か、許可しない）。
+        fn approve(&self, qid: &str, answer: &str) {
+            store::insert_approval(self.conn(), 7, qid, "作ってよいか", answer, "saituki").unwrap();
+        }
         /// sub の下に A を足す。
         fn a(&self, text: &str) -> String {
             self.agent1(json!({"op": "add_a", "q": qid(self.sub), "text": text})).unwrap()
@@ -845,11 +890,18 @@ mod tests {
         }
     }
 
+    fn conflict(r: Result<impl std::fmt::Debug>) -> String {
+        match r {
+            Err(RtError::Conflict(m)) => m,
+            other => panic!("Conflict のはずが {other:?}"),
+        }
+    }
+
     #[test]
-    fn add_q_is_user_only_for_now() {
+    fn add_q_needs_approval_for_agent() {
         let e = env();
-        // add_q は承認が要るので、agent からは拒否する。
-        assert!(err(e.agent1(json!({"op": "add_q", "parent": "SEED", "text": "x"}))).contains("承認が要ります"));
+        // 許可が無い agent の add_q は Conflict（終了コード 4）。
+        assert!(conflict(e.agent1(json!({"op": "add_q", "parent": "SEED", "text": "x"}))).contains("許可がありません"));
         // 利用者としては SEED の下に top_Q を作れる。
         let u = e.user(json!({"op": "add_q", "parent": "SEED", "text": "もう一つ"})).unwrap().result;
         let (_, uid) = parse_id(&u).unwrap();
@@ -974,8 +1026,9 @@ mod tests {
         assert_eq!((range.a, range.f_support, range.f_deny, range.f_issue), (2, 0, 0, 0));
     }
 
+    /// 許可が要る op は、承認が無ければ入力を見る前に Conflict（終了コード 4）。
     #[test]
-    fn approval_ops_are_refused_for_agent() {
+    fn approval_ops_need_approval_for_agent() {
         let e = env();
         let q = qid(e.sub);
         for item in [
@@ -984,9 +1037,110 @@ mod tests {
             json!({"op": "copy", "node": q, "to": q}),
             json!({"op": "remove", "node": q}),
         ] {
-            assert!(err(e.agent1(item)).contains("承認が要ります"));
+            assert!(conflict(e.agent1(item)).contains("許可がありません"));
         }
         assert!(needs_approval("remove") && !needs_approval("add_a"));
+    }
+
+    #[test]
+    fn op_needs_approval_and_consumes_one() {
+        let e = env();
+        let a = e.a("消す A");
+        let batch = || vec![json!({"op": "add_q", "parent": "SEED", "text": "根"}), json!({"op": "remove", "node": a})];
+        // 許可が無い・「許可しない」だけ、は Conflict。
+        assert!(conflict(e.agent(&batch())).contains("許可がありません"));
+        e.approve("q1", "許可しない");
+        assert!(conflict(e.agent(&batch())).contains("許可がありません"));
+        // run_id が無いときも Conflict。
+        let no_run = Actor { run_id: None, block: Some("t-all".into()) };
+        assert!(conflict(op(e.conn(), &e.roots, &e.defs, &no_run, &json!({"ops": batch()}))).contains("run_id"));
+        // 「許可する」1 件で、add_q と remove を含む 1 回の op が通る。
+        e.approve("q2", " 許可する ");
+        let done = e.agent(&batch()).unwrap();
+        assert_eq!(done.approval, Some(json!({"qid": "q2", "answered_by": "saituki"})));
+        assert_eq!(done.results.len(), 2);
+        // 使い切ったので、2 回目は通らない。
+        assert!(conflict(e.agent(&batch())).contains("許可がありません"));
+        // rt_log の add_q と remove の行に承認の印が入り、add_a の行には入らない。
+        let logs = store::list_log(e.conn(), None).unwrap();
+        for action in ["add_q", "remove"] {
+            let row = logs.iter().find(|l| l.action == action).unwrap();
+            assert_eq!((row.approved_by.as_deref(), row.qid.as_deref()), (Some("saituki"), Some("q2")));
+            assert_eq!(row.question.as_deref(), Some("作ってよいか"));
+        }
+        assert!(logs.iter().filter(|l| l.action == "add_a").all(|l| l.approved_by.is_none()));
+    }
+
+    #[test]
+    fn insert_q_moves_all_answers_in_order() {
+        let e = env();
+        let a1 = e.a("一つ目");
+        let a2 = e.a("二つ目");
+        e.approve("q3", "許可する");
+        let r = e.agent(&[json!({"op": "insert_q", "q": qid(e.sub), "text": "条件を分ける"})]).unwrap();
+        let (_, nq) = parse_id(&r.results[0].result).unwrap();
+        let kids: Vec<i64> = store::children(e.conn(), nq).unwrap().iter().map(|n| n.id).collect();
+        assert_eq!(kids, vec![parse_id(&a1).unwrap().1, parse_id(&a2).unwrap().1]);
+        assert_eq!(store::children(e.conn(), e.sub).unwrap().iter().map(|n| n.id).collect::<Vec<_>>(), vec![nq]);
+    }
+
+    #[test]
+    fn move_a_rejects_cycle_and_child_q() {
+        let e = env();
+        let a = e.a("A");
+        // 許可は 1 件あれば足りる（失敗した op は許可を消費しない）。
+        e.approve("q4", "許可する");
+        let (_, aid) = parse_id(&a).unwrap();
+        let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap();
+        // A の下の Q へ、その A の親 Q から移すのは輪になる。
+        let cq = fmt_id(Kind::Q, child_q.id);
+        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": cq}))).contains("の A の下にあるので移せません"));
+        // child_Q を持つ Q へは移せない。
+        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(e.by_key("background"))}))).contains("child_Q があるので"));
+        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(e.sub)}))).contains("別の Q"));
+    }
+
+    #[test]
+    fn copy_keeps_stance_and_only_f() {
+        let e = env();
+        let a = e.a("A");
+        e.agent1(json!({"op": "add_f", "parent": a, "text": "根拠", "stance": "deny"})).unwrap();
+        let other = e.user(json!({"op": "add_q", "parent": "SEED", "text": "別の根"})).unwrap().result;
+        let c = e.user(json!({"op": "copy", "node": a, "to": other})).unwrap().result;
+        let (_, cid) = parse_id(&c).unwrap();
+        // 写したのは F だけ（A の下の Q は写さない）。stance も同じ。
+        let kids = store::children(e.conn(), cid).unwrap();
+        assert_eq!(kids.len(), 1);
+        assert_eq!((kids[0].kind, kids[0].stance.as_deref()), (Kind::F, Some("deny")));
+    }
+
+    #[test]
+    fn set_mlflow_logs_new_value() {
+        let e = env();
+        let a = e.a("A");
+        let s = e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [a]})).unwrap();
+        let ex = e.agent1(json!({"op": "add_e", "parent": s, "text": "実験", "mlflow": "exp/1"})).unwrap();
+        e.agent1(json!({"op": "set_mlflow", "node": ex, "mlflow": ""})).unwrap();
+        let (_, eid) = parse_id(&ex).unwrap();
+        assert_eq!(store::get_node(e.conn(), eid).unwrap().mlflow_ref, None);
+        let last = &store::list_log(e.conn(), Some(1)).unwrap()[0];
+        assert_eq!((last.action.as_str(), last.detail.as_str()), ("set_mlflow", ""));
+    }
+
+    /// 範囲は A の祖先の Q と A、A の子の F だけを数える（A の子の Q 以下・祖先の A の F は入れない）。
+    #[test]
+    fn sprout_range_counts_ancestors_and_own_f() {
+        let e = env();
+        // Q1 ─ A2 ─ Q3 ─ A4 ─ {F(support), F(deny)}、A2 ─ F(issue)
+        let q1 = e.user(json!({"op": "add_q", "parent": "SEED", "text": "Q1"})).unwrap().result;
+        let a2 = e.agent1(json!({"op": "add_a", "q": q1, "text": "A2"})).unwrap();
+        let q3 = e.user(json!({"op": "add_q", "parent": a2, "text": "Q3"})).unwrap().result;
+        let a4 = e.agent1(json!({"op": "add_a", "q": q3, "text": "A4"})).unwrap();
+        e.agent1(json!({"op": "add_f", "parent": a4, "text": "支持", "stance": "support"})).unwrap();
+        e.agent1(json!({"op": "add_f", "parent": a4, "text": "反対", "stance": "deny"})).unwrap();
+        e.agent1(json!({"op": "add_f", "parent": a2, "text": "懸念", "stance": "issue"})).unwrap();
+        let r = e.agent(&[json!({"op": "add_sprout", "title": "種", "paths": [a4]})]).unwrap();
+        assert_eq!(r.results[0].range, Some(Range { q: 2, a: 2, f_support: 1, f_deny: 1, f_issue: 0 }));
     }
 
     #[test]
