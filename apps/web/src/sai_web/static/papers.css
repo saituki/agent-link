@@ -547,6 +547,14 @@
 /* --- Library の Paper 一覧（題名の前の番号） --- */
 .paper-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-soft); font-weight: 400; }
 
+/* --- 論文情報のボタンの列の音声の置き場（中のボタンが列の 1 つとして並ぶ・U07 §1） --- */
+#paper-audio-slot { display: contents; }
+
+/* --- 論文情報の折りたためるカード（Notes・Figure・Reference・Chunk の見出しは summary・U07 §2） --- */
+/* 見出しの大きさは .dash-card-title のまま。押せる高さは 44px 以上・見出しの右の釦は右端へ */
+.paper-card > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; }
+.paper-card > summary > .paper-btn { margin-left: auto; }
+
 /* --- 論文情報のチャンク（`#論文.章.段落` ごとの本文） --- */
 .paper-chunks > summary { cursor: pointer; }
 .paper-chunks[open] > summary { margin-bottom: var(--sp-2); }
