@@ -104,7 +104,7 @@ pub struct TaskItem {
     /// 通知の項目名は `card`（呼び出し側の指定にそろえる）。
     #[serde(rename = "card", default)]
     pub card_run_id: Option<i64>,
-    /// 子の実行主体（`pi` / `cc`。省略時は card の runner、無ければ `pi`）
+    /// 子の実行主体（`pi` / `cc`。省略時は card の runner、無ければ `cc`）
     #[serde(default)]
     pub runner: Option<String>,
     /// 前バッチで承認済み・内容変更なし（引き継ぎ）
@@ -1341,7 +1341,7 @@ impl TaskManager {
             worktree,
             task_cwd,              // 親が指定した作業フォルダ（絶対パス）
             task.timeout,          // 親が指定した子の時間上限（秒）
-            task.runner.clone(),   // 親が指定した子の実行主体（pi / cc。None はカード → pi）
+            task.runner.clone(),   // 親が指定した子の実行主体（pi / cc。None はカード → cc）
             task.batch_id.clone(), // P3-A: タスクバッチID を実行レコードに伝播
             task.card_run_id,      // U2: todo のカードを自分の子として起こす場合の予約 run_id
             Some(tab_id),          // U2・R4: 動的配置で使用するタブ
