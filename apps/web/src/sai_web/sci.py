@@ -63,7 +63,7 @@ _CITE_RE = re.compile(
 _GUIDE_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _REPORT_RE = re.compile(r"^R-[0-9]{4,8}$")
 # カード定義のブロック
-_CARD_BLOCK_RE = re.compile(r"^sci-[a-z-]{2,30}$")
+_CARD_BLOCK_RE = re.compile(r"^(sci|lab)-[a-z-]{2,30}$")
 
 # 数の上限
 RUN_ID_MAX = 999_999_999

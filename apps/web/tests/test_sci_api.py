@@ -269,6 +269,8 @@ def test_card() -> None:
     # SEED はカードの対象にできる（実行は pi）
     seed_card = {"node": "SEED", "block": "sci-review", "purpose": "木全体を見直す", "runner": "pi"}
     assert sci.validate_card(seed_card)["node"] == "SEED"
+    # C9: LabAgent の block id（lab-*）も通る
+    assert sci.validate_card({**ok_user, "block": "lab-read"})["block"] == "lab-read"
     # C7: 足す子の型（Q・A・F）。空と null は未指定として落とす
     for child in ("Q", "A", "F"):
         assert sci.validate_card({**ok_user, "child": child})["child"] == child
