@@ -883,6 +883,46 @@ pub fn write_cc_cost(dir: &Path, session_id: &str, total: f64) -> std::io::Resul
     write_json_atomic(&tmp, &dst, &body)
 }
 
+/// cc の statusLine 標準入力 1 件を処理する（`sai-link cc-statusline` の本体）。
+///
+/// 戻り値は cc の画面下に出す 1 行（例 `sai #58 $1.27`）。読めない・費用が無い・書けないときは空行。
+pub fn handle_cc_statusline(input: &str) -> String {
+    let Some(dir) = cc_cost_dir() else {
+        return String::new();
+    };
+    handle_cc_statusline_in(input, &dir)
+}
+
+/// [`handle_cc_statusline`] の出力先指定版（テスト用）。
+pub fn handle_cc_statusline_in(input: &str, dir: &Path) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+        return String::new();
+    };
+    let Some(session_id) = value.get("session_id").and_then(|v| v.as_str()) else {
+        return String::new();
+    };
+    if !is_safe_id(session_id) {
+        return String::new();
+    }
+    // コストが取れない場合は書かない（概算フォールバックを妨げないため）
+    let Some(total) = value
+        .pointer("/cost/total_cost_usd")
+        .and_then(|v| v.as_f64())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+    else {
+        return String::new();
+    };
+    if let Err(e) = write_cc_cost(dir, session_id, total) {
+        eprintln!("[sai-engine] cc-cost の書込みに失敗: {}", e);
+        return String::new();
+    }
+    let amount = format!("${:.2}", total);
+    match std::env::var("SAI_PARENT_RUN_ID") {
+        Ok(id) if !id.trim().is_empty() => format!("sai #{} {}", id.trim(), amount),
+        _ => format!("sai {}", amount),
+    }
+}
+
 // ============================================================================
 // テスト（01 §4）
 // ============================================================================
@@ -1174,5 +1214,54 @@ mod tests {
             Some(v) => std::env::set_var("SAI_HOME", v),
             None => std::env::remove_var("SAI_HOME"),
         }
+    }
+}
+
+#[cfg(test)]
+mod cc_statusline_tests {
+    use super::*;
+
+    /// statusLine 標準入力 JSON から金額を取り出しファイルを書けること。
+    #[test]
+    fn cc_statusline_writes_cost_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "11111111-2222-4333-8444-555555555555";
+        let input = format!(
+            r#"{{"session_id":"{}","transcript_path":"/tmp/x.jsonl","cost":{{"total_cost_usd":1.274}}}}"#,
+            session_id
+        );
+        let line = handle_cc_statusline_in(&input, dir.path());
+        assert!(line.contains("$1.27"), "画面表示に金額が入る: {}", line);
+        assert!(!dir.path().join(format!(".{}.json.tmp", session_id)).exists());
+
+        let text = std::fs::read_to_string(dir.path().join(format!("{}.json", session_id))).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["session_id"], session_id);
+        assert!((v["total_cost_usd"].as_f64().unwrap() - 1.274).abs() < 1e-9);
+        assert!(v["updated_at"].as_str().unwrap().ends_with('Z'));
+    }
+
+    /// 入力が壊れている・session_id / cost が無い・ID が不正なときは空行を返し、ファイルを書かない。
+    #[test]
+    fn cc_statusline_swallows_bad_input() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(handle_cc_statusline_in("not json", dir.path()), "");
+        assert_eq!(
+            handle_cc_statusline_in(r#"{"cost":{"total_cost_usd":1.0}}"#, dir.path()),
+            ""
+        );
+        let sid = "11111111-2222-4333-8444-555555555555";
+        assert_eq!(
+            handle_cc_statusline_in(&format!(r#"{{"session_id":"{}"}}"#, sid), dir.path()),
+            ""
+        );
+        assert_eq!(
+            handle_cc_statusline_in(
+                r#"{"session_id":"../../etc/passwd","cost":{"total_cost_usd":1.0}}"#,
+                dir.path()
+            ),
+            ""
+        );
+        assert!(!dir.path().join(format!("{}.json", sid)).exists());
     }
 }

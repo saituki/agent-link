@@ -1,14 +1,14 @@
-//! AC3: 擬似 pane のターン輸送の結合テスト。
+//! AC3: 擬似 pane のターン輸送の結合テスト（pi の子プロセス経路）。
 //!
-//! 偽の cc エージェント（`SAI_CLAUDE_BIN` で差す sh スクリプト）を使い、
+//! 偽の pi エージェント（sh スクリプト）を使い、
 //! `headless::run` → `send_text` → `send_keys("Alt+Enter")` でターンが走ること、
-//! 2 回目の送信で `command.txt` が `--resume` になること、`send_keys("esc")` で
+//! 2 回目の送信で `command.txt` に `--continue` が付くこと、`send_keys("esc")` で
 //! 長く眠るエージェントが止まること、`close` で `stopped` になることを確かめる。
+//! cc は tmux 経路（`tests/tmux_turns.rs`）で確かめる。
 //!
 //! 一時フォルダをプロジェクトルートと `SAI_HOME` にするので、本物の `.sai` や
 //! `~/.sai` は書き換えない。
 
-use sai_link_engine::cc_command::CcCommandBuilder;
 use sai_link_engine::headless::{self, HeadlessState};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -51,17 +51,17 @@ fn wait_for_state(pane: &str, want: &str, timeout: Duration) -> HeadlessState {
     }
 }
 
-/// 偽の cc エージェント（stream-json を 4 行出して終わる）。
-const FAKE_CC: &str = r##"#!/bin/sh
+/// 偽の pi エージェント（pi の JSON 行を出して終わる）。
+const FAKE_PI: &str = r##"#!/bin/sh
 cat >/dev/null
-printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hel"}}}'
-printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"lo"}}}'
-printf '%s\n' '{"type":"assistant","message":{}}'
-printf '%s\n' '{"type":"result","session_id":"s1","total_cost_usd":0.01}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hel"}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"lo"}}'
+printf '%s\n' '{"type":"message_end"}'
+printf '%s\n' '{"type":"agent_end"}'
 "##;
 
-/// 長く眠る偽の cc エージェント（中断されるまで止まらない）。
-const SLEEPING_CC: &str = r##"#!/bin/sh
+/// 長く眠る偽の pi エージェント（中断されるまで止まらない）。
+const SLEEPING_PI: &str = r##"#!/bin/sh
 cat >/dev/null
 sleep 60
 "##;
@@ -73,17 +73,12 @@ fn test_headless_turn_transport() {
     // 本物のプロジェクト・置き場を触らないように隔離する。
     std::env::set_var("SAI_PROJECT_ROOT", project.path());
     std::env::set_var("SAI_HOME", sai_home.path());
+    let sessions = project.path().join("pi-sessions");
+    let session_arg = format!("--session-dir '{}' --mode json", sessions.display());
 
-    let fake = project.path().join("fake_cc.sh");
-    write_script(&fake, FAKE_CC);
-    std::env::set_var("SAI_CLAUDE_BIN", &fake);
-
-    // 起動コマンド（cc）を組み立てる。`--session-id` が入る。
-    let command = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
-        .build()
-        .unwrap()
-        .command;
-    assert!(command.contains("--session-id"), "{}", command);
+    let fake = project.path().join("fake_pi.sh");
+    write_script(&fake, FAKE_PI);
+    let command = format!("'{}' {}", fake.display(), session_arg);
 
     // ---- 1 回目のターン ----
     let pane = headless::new_pane(Some(&project.path().to_string_lossy())).unwrap();
@@ -94,7 +89,7 @@ fn test_headless_turn_transport() {
     // working になったあと idle に戻る。
     wait_for_state(&pane.pane_id, "working", Duration::from_secs(5));
     let state = wait_for_state(&pane.pane_id, "idle", Duration::from_secs(10));
-    assert_eq!(state.runner, "cc", "runner が cc になる");
+    assert_eq!(state.runner, "pi", "runner が pi になる");
     assert_eq!(state.turn, 1, "ターン番号が 1");
     assert_eq!(state.error, "", "エラーなし");
 
@@ -104,19 +99,9 @@ fn test_headless_turn_transport() {
     assert!(stream.contains("\"type\":\"sai_turn\""), "{}", stream);
     assert!(stream.contains("1 回目の依頼"), "{}", stream);
     assert!(stream.contains("\"text_delta\""), "{}", stream);
-    assert!(stream.contains("\"type\":\"result\""), "{}", stream);
+    assert!(stream.contains("\"type\":\"agent_end\""), "{}", stream);
 
-    // 1 回目の command.txt は --session-id のまま。
-    let cmd1 =
-        std::fs::read_to_string(headless::pane_dir(&pane.pane_id).join("command.txt")).unwrap();
-    assert!(cmd1.contains("--session-id"), "1 回目: {}", cmd1);
-    assert!(!cmd1.contains("--resume"), "1 回目: {}", cmd1);
-
-    // cc の result 行から cc-cost のファイルが書かれる。
-    let cost = sai_home.path().join("cc-cost").join("s1.json");
-    assert!(cost.is_file(), "cc-cost が書かれる: {}", cost.display());
-
-    // ---- 2 回目のターン: command.txt が --resume になる ----
+    // ---- 2 回目のターン: command.txt が --continue になる ----
     headless::send_text(&pane.pane_id, "2 回目の依頼").unwrap();
     headless::send_keys(&pane.pane_id, "Alt+Enter").unwrap();
     wait_for_state(&pane.pane_id, "working", Duration::from_secs(5));
@@ -124,17 +109,12 @@ fn test_headless_turn_transport() {
     assert_eq!(state.turn, 2, "ターン番号が 2");
     let cmd2 =
         std::fs::read_to_string(headless::pane_dir(&pane.pane_id).join("command.txt")).unwrap();
-    assert!(cmd2.contains("--resume"), "2 回目は --resume: {}", cmd2);
-    assert!(!cmd2.contains("--session-id"), "2 回目: {}", cmd2);
+    assert!(cmd2.ends_with("--continue"), "2 回目は --continue: {}", cmd2);
 
     // ---- 中断: 長く眠る偽のエージェントを esc で止める ----
-    let sleeper = project.path().join("sleeping_cc.sh");
-    write_script(&sleeper, SLEEPING_CC);
-    std::env::set_var("SAI_CLAUDE_BIN", &sleeper);
-    let sleep_cmd = CcCommandBuilder::new("22222222-2222-4333-8444-555555555555")
-        .build()
-        .unwrap()
-        .command;
+    let sleeper = project.path().join("sleeping_pi.sh");
+    write_script(&sleeper, SLEEPING_PI);
+    let sleep_cmd = format!("'{}' {}", sleeper.display(), session_arg);
     let pane2 = headless::new_pane(Some(&project.path().to_string_lossy())).unwrap();
     headless::run(&pane2.pane_id, &sleep_cmd).unwrap();
     headless::send_text(&pane2.pane_id, "眠る依頼").unwrap();

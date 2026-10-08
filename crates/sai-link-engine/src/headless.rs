@@ -1,8 +1,9 @@
 //! # headless 輸送路（擬似 pane）
 //!
 //! sai-tree では herdr の pane を使わず、エージェント（cc / pi）を
-//! 子プロセスとして動かす。このモジュールは、その子プロセスを
-//! **擬似 pane** として扱うための置き場と操作を提供する。
+//! 擬似 pane として扱う。pi は子プロセスとして動かす（このモジュール）。
+//! cc は tmux の対話モードで動かし、置き場に印 `tmux` がある pane の操作は
+//! [`crate::tmux`] へ回す（`run` / `send_text` / `send_keys` / `status` / `read_output` / `close`）。
 //!
 //! ## 置き場
 //!
@@ -62,7 +63,7 @@ pub struct HeadlessState {
     pub pane_id: String,
     /// 実行主体（`cc` / `pi`）
     pub runner: String,
-    /// `working` / `idle` / `stopped`
+    /// `working` / `idle` / `stopped`（cc の tmux 経路だけ `starting` = 起動中）
     pub state: String,
     /// ターン番号
     pub turn: u32,
@@ -102,6 +103,9 @@ pub fn new_pane(cwd: Option<&str>) -> Result<PaneInfo, HerdrError> {
 
 /// 起動コマンドを書き、監督スレッドを起こす。
 pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
+    if matches!(infer_runner(command), RunnerKind::Cc) {
+        return crate::tmux::run(id, command);
+    }
     let dir = pane_dir(id);
     std::fs::create_dir_all(dir.join("inbox"))?;
     std::fs::write(dir.join("command.txt"), command)?;
@@ -112,6 +116,9 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
 
 /// 入力中のテキストを `draft.txt` に上書きする。
 pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
+    if crate::tmux::is_tmux(id) {
+        return crate::tmux::send_text(id, text);
+    }
     let dir = pane_dir(id);
     if !dir.is_dir() {
         return Err(pane_gone(id));
@@ -127,6 +134,9 @@ pub fn send_text(id: &str, text: &str) -> Result<(), HerdrError> {
 ///   `inbox/<unix ミリ秒>-<連番>.txt` へ rename する。無ければ何もしない
 ///   （`submit_prompt_verified` の再送で同じ文が 2 回入らないため）。
 pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
+    if crate::tmux::is_tmux(id) {
+        return crate::tmux::send_keys(id, keys);
+    }
     let dir = pane_dir(id);
     if !dir.is_dir() {
         return Err(pane_gone(id));
@@ -159,6 +169,9 @@ pub fn send_keys(id: &str, keys: &str) -> Result<(), HerdrError> {
 /// `stopped` と、置き場が無い・`state.json` が読めないときは
 /// `Err`（pane が消えた扱い）。
 pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
+    if crate::tmux::is_tmux(id) {
+        return crate::tmux::status(id);
+    }
     let dir = pane_dir(id);
     if !dir.is_dir() {
         return Err(pane_gone(id));
@@ -173,6 +186,9 @@ pub fn status(id: &str) -> Result<PaneInfo, HerdrError> {
 
 /// `stream.jsonl` の末尾 `lines` 行を、1 行 300 文字までに切って返す。
 pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
+    if crate::tmux::is_tmux(id) {
+        return crate::tmux::read_output(id, lines);
+    }
     let path = pane_dir(id).join("stream.jsonl");
     let content = std::fs::read_to_string(&path).unwrap_or_default();
     let all: Vec<&str> = content.lines().collect();
@@ -187,6 +203,9 @@ pub fn read_output(id: &str, lines: u32) -> Result<String, HerdrError> {
 
 /// `stop` の印を作る（監督スレッドが動いているターンを止めて `stopped` にする）。
 pub fn close(id: &str) -> Result<(), HerdrError> {
+    if crate::tmux::is_tmux(id) {
+        return crate::tmux::close(id);
+    }
     let dir = pane_dir(id);
     if !dir.is_dir() {
         return Ok(());
@@ -201,39 +220,24 @@ pub fn close(id: &str) -> Result<(), HerdrError> {
 
 /// 2 回目以降のターンのコマンドを作る。
 ///
-/// - cc: ` --session-id ` を ` --resume ` に置き換える（同じ session id で続きになる）。
 /// - pi: 末尾に ` --continue` を足す（`--session-dir` の中の直近のセッションを続ける）。
+/// - cc は tmux 経路（[`crate::tmux`]）で、ここには来ない。
 pub fn resume_command(cmd: &str, runner: RunnerKind) -> String {
     match runner {
-        RunnerKind::Cc => cmd.replacen(" --session-id ", " --resume ", 1),
         RunnerKind::Pi => format!("{} --continue", cmd),
-        RunnerKind::Gl => cmd.to_string(),
+        RunnerKind::Cc | RunnerKind::Gl => cmd.to_string(),
     }
 }
 
 /// 生成中の文（`partial`）を stdout の 1 行で更新する。
 ///
-/// - cc: `type == "stream_event"` かつ `event.delta.type == "text_delta"` なら
-///   `event.delta.text` を足す。`type == "assistant"` または `type == "result"` なら空にする。
 /// - pi: `type == "message_update"` で `assistantMessageEvent.type == "text_delta"` なら
 ///   `assistantMessageEvent.delta` を足す。`type == "message_end"` または
 ///   `type == "agent_end"` なら空にする。
 pub fn update_partial(partial: &mut String, line: &serde_json::Value, runner: RunnerKind) {
     let ty = line.get("type").and_then(|v| v.as_str()).unwrap_or("");
     match runner {
-        RunnerKind::Cc => match ty {
-            "stream_event" => {
-                if let Some(delta) = line.pointer("/event/delta") {
-                    if delta.get("type").and_then(|v| v.as_str()) == Some("text_delta") {
-                        if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
-                            partial.push_str(text);
-                        }
-                    }
-                }
-            }
-            "assistant" | "result" => partial.clear(),
-            _ => {}
-        },
+        RunnerKind::Cc => {}
         RunnerKind::Pi => match ty {
             "message_update" => {
                 if let Some(ev) = line.get("assistantMessageEvent") {
@@ -248,29 +252,6 @@ pub fn update_partial(partial: &mut String, line: &serde_json::Value, runner: Ru
             _ => {}
         },
         RunnerKind::Gl => {}
-    }
-}
-
-/// cc の `result` 行から `(session_id, total_cost_usd)` を取り出す。
-pub fn cc_cost_from_result(line: &serde_json::Value) -> Option<(String, f64)> {
-    if line.get("type").and_then(|v| v.as_str()) != Some("result") {
-        return None;
-    }
-    let session_id = line.get("session_id").and_then(|v| v.as_str())?;
-    let total = line
-        .get("total_cost_usd")
-        .and_then(|v| v.as_f64())
-        .filter(|v| v.is_finite() && *v >= 0.0)?;
-    Some((session_id.to_string(), total))
-}
-
-/// cc の `result` 行を指定フォルダへ書く（テスト用）。書いたら `true`。
-pub fn handle_cc_result_in(line: &serde_json::Value, dir: &Path) -> bool {
-    match cc_cost_from_result(line) {
-        Some((session_id, total)) => {
-            crate::phone_export::write_cc_cost(dir, &session_id, total).is_ok()
-        }
-        None => false,
     }
 }
 
@@ -500,7 +481,7 @@ fn start_turn(
     })
 }
 
-/// stdout の溜まった行を `stream.jsonl` に追記し、partial と cc の費用を更新する。
+/// stdout の溜まった行を `stream.jsonl` に追記し、partial を更新する。
 fn drain_stdout(dir: &Path, rx: &mut Receiver<String>, runner: RunnerKind, partial: &mut String) {
     while let Ok(line) = rx.try_recv() {
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -512,13 +493,6 @@ fn drain_stdout(dir: &Path, rx: &mut Receiver<String>, runner: RunnerKind, parti
         }
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
             update_partial(partial, &value, runner);
-            if matches!(runner, RunnerKind::Cc) {
-                if let Some((session_id, total)) = cc_cost_from_result(&value) {
-                    if let Some(cost_dir) = crate::phone_export::cc_cost_dir() {
-                        let _ = crate::phone_export::write_cc_cost(&cost_dir, &session_id, total);
-                    }
-                }
-            }
         }
     }
 }
@@ -573,13 +547,13 @@ fn kill_process_group(child: &mut Child) {
 // ============================================================================
 
 /// `state.json` を読む。
-fn read_state(dir: &Path) -> Option<HeadlessState> {
+pub(crate) fn read_state(dir: &Path) -> Option<HeadlessState> {
     let text = std::fs::read_to_string(dir.join("state.json")).ok()?;
     serde_json::from_str(&text).ok()
 }
 
 /// `cwd.txt` を読む。
-fn read_cwd(dir: &Path) -> Option<String> {
+pub(crate) fn read_cwd(dir: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("cwd.txt"))
         .ok()
         .map(|s| s.trim().to_string())
@@ -587,7 +561,7 @@ fn read_cwd(dir: &Path) -> Option<String> {
 }
 
 /// `state.json` を一時ファイル → rename で書く。
-fn write_state(dir: &Path, state: &HeadlessState) -> std::io::Result<()> {
+pub(crate) fn write_state(dir: &Path, state: &HeadlessState) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(state)
         .map_err(|e| std::io::Error::other(format!("JSON 直列化失敗: {}", e)))?;
     let tmp = dir.join(".state.json.tmp");
@@ -623,7 +597,7 @@ fn append_json_line(dir: &Path, value: &serde_json::Value) -> std::io::Result<()
 }
 
 /// `PaneInfo` を組み立てる。
-fn pane_info(id: &str, cwd: Option<&str>, status: &str) -> PaneInfo {
+pub(crate) fn pane_info(id: &str, cwd: Option<&str>, status: &str) -> PaneInfo {
     PaneInfo {
         pane_id: id.to_string(),
         workspace_id: "headless".to_string(),
@@ -638,7 +612,7 @@ fn pane_info(id: &str, cwd: Option<&str>, status: &str) -> PaneInfo {
 }
 
 /// pane が消えたときのエラー。
-fn pane_gone(id: &str) -> HerdrError {
+pub(crate) fn pane_gone(id: &str) -> HerdrError {
     HerdrError::ApiError {
         message: format!("pane が見つかりません: {}", id),
     }
@@ -653,41 +627,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resume_command_cc_replaces_session_id() {
-        let cmd = "claude -p --session-id '11111111-2222-4333-8444-555555555555' --model 'sonnet'";
-        assert_eq!(
-            resume_command(cmd, RunnerKind::Cc),
-            "claude -p --resume '11111111-2222-4333-8444-555555555555' --model 'sonnet'"
-        );
-    }
-
-    #[test]
     fn resume_command_pi_appends_continue() {
         let cmd = "pi --session-dir '/tmp/sess' --mode json";
         assert_eq!(
             resume_command(cmd, RunnerKind::Pi),
             "pi --session-dir '/tmp/sess' --mode json --continue"
         );
-    }
-
-    #[test]
-    fn update_partial_cc_text_delta_and_reset() {
-        let mut partial = String::new();
-        let delta = serde_json::json!({
-            "type": "stream_event",
-            "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hel"}}
-        });
-        update_partial(&mut partial, &delta, RunnerKind::Cc);
-        update_partial(&mut partial, &delta, RunnerKind::Cc);
-        assert_eq!(partial, "helhel");
-        let assistant = serde_json::json!({"type": "assistant"});
-        update_partial(&mut partial, &assistant, RunnerKind::Cc);
-        assert!(partial.is_empty());
-        // result でも空になる
-        partial.push_str("x");
-        let result = serde_json::json!({"type": "result", "total_cost_usd": 0.01});
-        update_partial(&mut partial, &result, RunnerKind::Cc);
-        assert!(partial.is_empty());
     }
 
     #[test]
@@ -706,37 +651,6 @@ mod tests {
         let agent_end = serde_json::json!({"type": "agent_end"});
         update_partial(&mut partial, &agent_end, RunnerKind::Pi);
         assert!(partial.is_empty());
-    }
-
-    #[test]
-    fn cc_cost_from_result_reads_fields() {
-        let line = serde_json::json!({
-            "type": "result",
-            "session_id": "s1",
-            "total_cost_usd": 0.0123
-        });
-        assert_eq!(
-            cc_cost_from_result(&line),
-            Some(("s1".to_string(), 0.0123))
-        );
-        let assistant = serde_json::json!({"type": "assistant"});
-        assert_eq!(cc_cost_from_result(&assistant), None);
-    }
-
-    #[test]
-    fn handle_cc_result_in_writes_cost_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let line = serde_json::json!({
-            "type": "result",
-            "session_id": "s1",
-            "total_cost_usd": 0.01
-        });
-        assert!(handle_cc_result_in(&line, dir.path()));
-        let text = std::fs::read_to_string(dir.path().join("s1.json")).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["session_id"], "s1");
-        assert_eq!(value["total_cost_usd"], 0.01);
-        assert!(value["updated_at"].is_string());
     }
 
     #[test]

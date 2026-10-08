@@ -120,6 +120,7 @@ pub mod search;
 pub mod session;
 pub mod task_cwd;
 pub mod task_manager;
+pub mod tmux;
 pub mod usage;
 pub mod usage_metrics;
 pub mod waggle_integration;
