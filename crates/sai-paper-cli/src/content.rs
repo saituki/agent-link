@@ -255,22 +255,18 @@ pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
         ContentCmd::Outline { paper_id, json } => {
             let (db, data_dir) = open_for_read()?;
             let value = outline_json(db.connection(), &data_dir, paper_id)?;
-            if json {
-                println!("{value}");
-            } else {
-                print!("{}", outline_text(&value));
-            }
+            let text = if json { value.to_string() + "\n" } else { outline_text(&value) };
+            sai_paper_core::seen_ids::record(&text);
+            print!("{text}");
             crate::activity::record_agent_read("cli", "outline", Some(paper_id), None);
             Ok(())
         }
         ContentCmd::Read { refs, max_chars, json } => {
             let (db, data_dir) = open_for_read()?;
             let value = read_json(db.connection(), &data_dir, &refs, max_chars)?;
-            if json {
-                println!("{value}");
-            } else {
-                print!("{}", read_text(&value));
-            }
+            let text = if json { value.to_string() + "\n" } else { read_text(&value) };
+            sai_paper_core::seen_ids::record(&text);
+            print!("{text}");
             for id in refs.iter().filter_map(|r| paper_id_of_ref(r)).collect::<std::collections::BTreeSet<_>>() {
                 crate::activity::record_agent_read("cli", "read", Some(id), None);
             }
@@ -280,11 +276,13 @@ pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
             // Web の閲覧は「エージェントが読んだ記録」に入れない。
             let (db, data_dir) = open_for_read()?;
             let value = chunks_json(db.connection(), &data_dir, paper_id)?;
-            if json {
-                println!("{value}");
+            let text = if json {
+                value.to_string() + "\n"
             } else {
-                print!("{}", read_text(&serde_json::json!({ "passages": value["chunks"] })));
-            }
+                read_text(&serde_json::json!({ "passages": value["chunks"] }))
+            };
+            sai_paper_core::seen_ids::record(&text);
+            print!("{text}");
             Ok(())
         }
         ContentCmd::Build { paper_ids, all, force, summarize } => build(paper_ids, all, force, summarize).await,
@@ -431,6 +429,17 @@ mod tests {
             assert!(secs[0].get(key).is_some(), "{key} が無い");
         }
         assert!(outline_text(&v).contains(&format!("#{id}.")));
+    }
+
+    /// outline の JSON を台帳に記録すると、節の番号 `#<論文>.<節>` が run の台帳に並ぶ。
+    #[test]
+    fn outline_json_is_recorded_in_ledger() {
+        let (db, dir, id) = setup("ledger");
+        let v = outline_json(db.connection(), &dir, id).unwrap();
+        sai_paper_core::seen_ids::record_for(&dir, 7, &v.to_string());
+        let ledger = std::fs::read_to_string(sai_paper_core::seen_ids::ledger_path(&dir, 7)).unwrap();
+        let sec = v["sections"][0]["sec_no"].as_i64().unwrap();
+        assert!(ledger.lines().any(|l| l == format!("#{id}.{sec}")), "{ledger}");
     }
 
     /// 2 つの範囲を順に返し、上限を超えると truncated と next が入る。誤った ID は読む前に失敗する。

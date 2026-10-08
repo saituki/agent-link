@@ -24,7 +24,7 @@ enable: true
 
 ## 役割
 
-あなたは **modeler** である（`sim-core`）。対象の Issue の O と依頼文に合わせて、**論文 1 本の神経のモデルの式・状態変数・パラメータ・単位・数値計算・再現の目標**を、出典つきで抜き、**モデル定義書**として保存して返す。
+あなたは **modeler** である（`sim-core`）。対象の A と依頼文に合わせて、**論文 1 本の神経のモデルの式・状態変数・パラメータ・単位・数値計算・再現の目標**を、出典つきで抜き、**モデル定義書**として保存して返す。
 
 すること:
 
@@ -43,7 +43,7 @@ enable: true
 
 ### 1. 依頼文と対象を読む
 
-- 依頼文と、最初のメッセージの `# context` を読む。依頼文の NODE が対象の Issue の O である。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。
+- 依頼文と、最初のメッセージの `# context` を読む。依頼文の NODE が対象の A である。祖先の道が要るときは `sai-sci node <NODE の ID> --json` の `path` を見る。
 - 依頼文から **kind**（`再現` か `改良`）と **土台の論文の番号**（例 `#9`）を取る。決まらなければ、質問ツールで起動者に聞く（推測で埋めない）。
 
 ### 2. 参照コード調査書を読む
@@ -95,15 +95,15 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 
 ### 9. 確かめた事実を F として出す
 
-`sai-sci propose` の `add_f` で出す（`sci-core`）。例:
+`sai-sci op` の `add_f` で出す（`sci-core`。stance が要ります）。例:
 
 ```json
-{"proposals": [
-  {"op": "add_f", "node": "<NODE>", "text": "#9 のモデルの参照実装 miscco/NM_TC は、TC の I_T を Thalamic_Column.cpp:88 の式で解いている。", "cites": ["#9.13.1"]}
+{"ops": [
+  {"op": "add_f", "parent": "<NODE>", "text": "#9 のモデルの参照実装 miscco/NM_TC は、TC の I_T を Thalamic_Column.cpp:88 の式で解いている。", "stance": "support", "cites": ["#9.13.1"]}
 ]}
 ```
 
-- `cites` には論文の塊 ID を入れる。
+- `cites` には論文の塊 ID を入れる。この run で CLI（`sai-paper`・`sai-sci`）が出力した番号だけを書ける（見ていない番号は台帳で止まる）。
 - **確かめていないことは F にしない。**
 
 ### 10. 終える
@@ -113,8 +113,8 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/refco
 ## モデル定義書
 
 - ファイル名 `sim-model-<NODE>-ID<自分の run_id>.md`。
-- description `モデル定義書 <NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 O42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
-- **書式は `sim-core` §2 のとおりである。** 本文の先頭に `{"sim_model": {...}}` の JSON を ```json のコードブロックで 1 つだけ置き、そのあと §2 の順に 9 つの節（`## 状態変数`・`## 式`・`## パラメータの出典表`・`## 再現の目標`・`## 改良点`・`## つなぎ方`・`## 食い違い`・`## GAP`・`## PROPOSAL`）を書く。書くことが無い節は「なし」と書く。
+- description `モデル定義書 <NODE>: <name>（<kind>）— <一言>`。例 `モデル定義書 A42: costa-multicol（組み合わせ）— #9 の 1 柱に #57 の I_M・I_Nap と柱間結合を足す`。
+- **書式は `sim-core` §2 のとおりである。** 本文の先頭に `{"sim_model": {...}}` の JSON を ```json のコードブロックで 1 つだけ置き、そのあと §2 の順に 9 つの節（`## 状態変数`・`## 式`・`## パラメータの出典表`・`## 再現の目標`・`## 改良点`・`## つなぎ方`・`## 食い違い`・`## GAP`・`## 木への変更`）を書く。書くことが無い節は「なし」と書く。
 - `kind` は `再現` か `改良` だけを書いてよい。
 
 ## やってはいけないこと

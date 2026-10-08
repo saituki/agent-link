@@ -1,60 +1,55 @@
 "use strict";
-// research-tree の操作の入力欄・カードのフォーム・PROPOSAL の TRIAGE（実装計画 U19）。
+// research-tree の操作の入力欄・カードのフォーム（実装計画 U19・C 契約の U06 版）。
 //
 // 板の釦は scitree.js から次の形で呼ばれる（この関数が無ければその釦は出さない）。
-//   seOpenAction(op, nodeId, detail)   op は C-OP の 13 個。detail は node の JSON
-//   seQuick(op, payload)               ★・Answer/Issue・目安は入力欄を出さずに送る
+//   seOpenAction(op, nodeId, detail)   入力欄のある op。detail は node の JSON
+//   seQuick(op, payload)               ★・stance は入力欄を出さずに送る
 //   seOpenCard(nodeId, preset)         preset は C-CARD。値の入ったフォームを開く
-//   seProposalRow(proposal, onDone)    → HTMLElement（採用・却下・取り消しの釦つき）
 //
-// 中の処理は `POST …/sci/apply` / `…/sci/cards` / `…/sci/proposals/{pid}` だけを使う。
+// 中の処理は `POST …/sci/apply` / `…/sci/cards` だけを使う。
 // この画面はファイルのパスを受け取らない。送る前に画面でも必須の項目と字数と出典を確かめる。
 // 通らなければ送らず、小窓の中に理由を日本語で出す。最後の検査はサーバとコアが行う。
 //
-// DOM を使わない純関数（seBuildOp / seBuildCard / seCardValues / seProposalSummary など）は
+// DOM を使わない純関数（seBuildOp / seBuildCard / seCardValues / seChildOptions など）は
 // 末尾で node に渡す（tests/test_sciedit.js）。
 // 一番外側の名前は se で始める（tests/test_globals.js）。
 
 // --- 定数 ---
 
-// op の表示名（C-OP の 13 個。表に無い op はそのまま出す。C4 の共有契約）
+// op の表示名（表に無い op はそのまま出す）
 const SE_OPS = {
-  add_q: "Add Q", add_o: "Add O", add_f: "Add F", add_e: "Add E",
-  record_logic: "Logicality を記録", add_sprout: "Create SPROUT", copy: "Copy O", remove: "Delete",
-  star: "★ を付ける", unstar: "★ を外す", set_kind: "Answer / Issue を変える",
-  edit: "Edit", set_target: "Objectivity の目安を変える",
+  add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E",
+  add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
+  star: "★ を付ける", unstar: "★ を外す", set_stance: "Stance を変える",
+  edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
-  add_q: "Q を足しました", add_o: "O を足しました", add_f: "F を足しました", add_e: "E を足しました",
-  record_logic: "Logicality を記録しました", add_sprout: "Created SPROUT", copy: "O を写しました",
-  remove: "消しました", star: "★ を付けました", unstar: "★ を外しました",
-  set_kind: "Answer / Issue を変えました", edit: "文を直しました", set_target: "目安を変えました",
+  add_q: "Q を足しました", add_a: "A を足しました", add_f: "F を足しました", add_e: "E を足しました",
+  add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
+  star: "★ を付けました", unstar: "★ を外しました", set_stance: "Stance を変えました",
+  edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました",
 };
 // 入力欄を出さずに送る op
-const SE_QUICK = ["star", "unstar", "set_kind", "set_target"];
+const SE_QUICK = ["star", "unstar", "set_stance"];
 // 読む深さ
 const SE_DEPTHS = [["abstract", "abstract"], ["figures", "figures"], ["full", "full"]];
 // 実行するもの（user は READ_CARD）
 const SE_RUNNERS = [["pi", "pi"], ["cc", "cc"], ["user", "自分で読む（READ_CARD）"]];
 // READ_CARD の型
 const SE_MODES = [["purpose_first", "purpose_first"], ["blind_first", "blind_first"]];
-// O の種類
-const SE_KINDS = [["answer", "Answer"], ["issue", "Issue"]];
-// カードで選べる 21 本のブロック（Next Action に出るもの）
+// F の stance（S・D・I）
+// 値は API の STANCES（support・deny・issue）。表示は略号つき。
+const SE_STANCES = [["support", "S 支持"], ["deny", "D 反対"], ["issue", "I 問い"]];
+// カードの子の型（対象の種類ごとに出す。空は「なし」）
+const SE_CHILD_KINDS = { Q: [["Q", "Q"], ["A", "A"]], A: [["Q", "Q"], ["F", "F"]] };
+// カードで選べる 20 本のブロック（Next Action に出るもの）
 const SE_BLOCKS = [
   ["sci-start", "研究の入口: 最初の Q を立てる"],
-  ["sci-split", "Q を分ける: child_Q の案を出す"],
   ["sci-restore", "戻す: 消した Node を探して戻す案を出す"],
-  ["sci-ideate", "O を増やす: Q の答えの候補を出す"],
-  ["sci-search", "外を探す: 論文を探して集める"],
-  ["sci-read", "1 本を読む: 論文から F を抜き出す"],
   ["sci-cite-check", "出典を確かめる: F の出典を照らす"],
-  ["sci-debate", "議論: 賛否を出し合う"],
-  ["sci-review", "REVIEW: tree を点検する"],
-  ["sci-compare", "比べる: O を比べる"],
-  ["sci-seed", "SPROUT をつくる: Q から O を降りる道で SPROUT を作る"],
-  ["sci-digest", "まとめる: 今の状態をまとめる"],
+  ["sci-seed", "SPROUT をつくる: Q から A を降りる道で SPROUT を作る"],
+  ["sci-digest", "まとめる: 今の状態をまとめる（op は出さない）"],
   ["sci-coach", "理解の確認: 問いかけて確かめる"],
   ["sci-typify", "型に当てる: 型を当てはめる"],
   ["sci-exp-sprout", "SPROUT: 実験の案を出す"],
@@ -63,13 +58,20 @@ const SE_BLOCKS = [
   ["sci-result-compare", "結果を比べる: 実験の結果を比べる"],
   ["sci-data-explore", "データを調べる: データ表・EDA・前処理"],
   ["sci-data-test", "データで確かめる: 計画どおりに検定して報告"],
+  ["lab-read", "1 本を読む（論文あり）: 論文から F を抜き出す"],
+  ["lab-search", "探して読む（検索）: 論文を探し、候補から取り込む"],
+  ["lab-grow", "木を育てる（論文あり）: A・F・Q を足し、Q を間に入れる"],
+  ["lab-survey", "外を調べる（検索）: 論文を探して木の案を出す"],
+  ["lab-place", "置き場所を決める（論文だけ）: 木を探して読む CARD を作る"],
+  ["lab-progress", "進み具合の確認: 数と穴を報告し、次の CARD を作る（op は出さない）"],
+  ["sci-verify", "検証: target_node と子の関係を評価し、報告・op・次の CARD を作る"],
 ];
 // 出典の形（C-CITE。`#37`・`#37.3.2`・`#37.3.2-4 注`）
 const SE_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)?( .{1,80})?$/;
-// ID の形（Q・O・F・E）
-const SE_ID_RE = /^[QOFES][1-9][0-9]{0,8}$/;
+// ID の形（Q・A・F・E・S）
+const SE_ID_RE = /^[QAFES][1-9][0-9]{0,8}$/;
 // 文字数の上限
-const SE_MAX = { qtext: 300, otext: 120, ftext: 1200, etext: 120, body: 2000, note: 1000, mlflow: 200, title: 120, purpose: 300, expect: 300 };
+const SE_MAX = { qtext: 300, atext: 120, ftext: 1200, etext: 120, body: 2000, mlflow: 200, title: 120, purpose: 300, expect: 300 };
 
 // ============================================================================
 // DOM を使わない純関数（tests/test_sciedit.js）
@@ -106,11 +108,19 @@ function seCountSentences(text) {
   return jp + en || 1;
 }
 
-/** 数字を含み出典が無いとき true。 */
-function seNeedsCite(text, cites) {
+/** 数字を含み出典も報告書も無いとき true（C3: 数字の文は cites か report が要る）。 */
+function seNeedsCite(text, cites, report) {
   const list = (Array.isArray(cites) ? cites : []).filter((c) => seTrim(c) !== "");
-  if (list.length) return false;
+  if (list.length || seTrim(report)) return false;
   return /[0-9]/.test(seTrim(text));
+}
+
+/** 編集の字数と本文の可否（C3）。Q は 300 字・本文なし、F は 1200 字・本文なし、A・E・S は 120 字・本文あり。 */
+function seEditRules(nodeId) {
+  const k = seTrim(nodeId).charAt(0);
+  if (k === "Q") return { text: SE_MAX.qtext, body: false };
+  if (k === "F") return { text: SE_MAX.ftext, body: false };
+  return { text: SE_MAX.atext, body: true };
 }
 
 /** 文字の配列（空を落とす）。 */
@@ -130,8 +140,8 @@ function seBuildOp(kind, values) {
   const good = (op) => ({ ok: true, op, json: op, error: null });
   // 必須の ID を確かめる。prefix は許す頭の文字
   const id = (key, prefix, label) => (seRefOk(v[key], prefix) ? "" : `${label}を選んでください`);
-  // add_q の親は SEED（ID を持たない特別な Node）か Q・O の ID
-  const qParentOk = (value) => seTrim(value) === "SEED" || seRefOk(value, "QO");
+  // add_q の親は SEED（ID を持たない特別な Node）か Q・A の ID
+  const qParentOk = (value) => seTrim(value) === "SEED" || seRefOk(value, "QA");
   // 字数を確かめる。min が 1 なら必須
   const len = (key, label, min, max) => {
     const n = seTrim(v[key]).length;
@@ -143,37 +153,39 @@ function seBuildOp(kind, values) {
 
   switch (name) {
     case "add_q": {
-      const msg = first(qParentOk(v.parent) ? "" : "親（SEED・Q・O）を選んでください", len("text", "文", 1, SE_MAX.qtext));
+      const msg = first(qParentOk(v.parent) ? "" : "親（SEED・Q・A）を選んでください", len("text", "文", 1, SE_MAX.qtext));
       if (msg) return bad(msg);
       return good({ op: name, parent: seTrim(v.parent), text: seTrim(v.text) });
     }
-    case "add_o": {
-      const kindV = seTrim(v.kind);
-      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.otext), len("body", "本文", 0, SE_MAX.body));
+    case "add_a": {
+      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.atext), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
-      if (kindV && !SE_KINDS.some((x) => x[0] === kindV)) return bad("種類は Answer か Issue です");
       const op = { op: name, q: seTrim(v.q), text: seTrim(v.text) };
       if (seTrim(v.body)) op.body = seTrim(v.body);
-      if (kindV) op.kind = kindV;
       return good(op);
     }
     case "add_f": {
-      const msg = first(id("parent", "OE", "親（O か E）"), len("text", "文", 1, SE_MAX.ftext));
+      // F を付けられるのは A だけ（E の下に F は置かない。結果は E の mlflow で結ぶ）
+      const msg = first(id("parent", "A", "親（A）"), len("text", "文", 1, SE_MAX.ftext));
       if (msg) return bad(msg);
+      const stance = seTrim(v.stance);
+      if (!SE_STANCES.some((x) => x[0] === stance)) return bad("stance（S・D・I）を選んでください");
       const text = seTrim(v.text);
       if (seCountSentences(text) > 3) return bad("文は 1〜3 文にしてください");
       const cites = seList(v.cites);
       if (cites.length > 10) return bad("出典は 10 個までです");
       for (const c of cites) if (!seCiteOk(c)) return bad(`出典「${c}」の形が正しくありません（#37 §3.2）`);
-      if (seNeedsCite(text, cites)) return bad("数字を含む F には出典が要ります");
-      const op = { op: name, parent: seTrim(v.parent), text };
+      const report = seTrim(v.report);
+      if (report.length > 100) return bad("報告書は 100 字までです");
+      if (seNeedsCite(text, cites, report)) return bad("数字を含む F には出典か報告書が要ります");
+      const op = { op: name, parent: seTrim(v.parent), text, stance };
       if (cites.length) op.cites = cites;
       const paper = seTrim(v.paper);
       if (paper) {
         if (!/^[1-9][0-9]{0,8}$/.test(paper)) return bad("論文番号は数字で入れてください");
         op.paper = Number(paper);
       }
-      if (seTrim(v.report)) op.report = seTrim(v.report);
+      if (report) op.report = report;
       return good(op);
     }
     case "add_e": {
@@ -184,94 +196,101 @@ function seBuildOp(kind, values) {
       if (seTrim(v.mlflow)) op.mlflow = seTrim(v.mlflow);
       return good(op);
     }
-    case "record_logic": {
-      const value = seTrim(v.value);
-      const msg = first(id("q", "Q", "Q"), len("note", "指摘の文", 0, SE_MAX.note));
-      if (msg) return bad(msg);
-      if (value !== "ok" && value !== "contradiction") return bad("値は OK か CONTRADICTION です");
-      const findings = seList(v.findings);
-      for (const f of findings) if (!seRefOk(f, "F")) return bad(`F の形が正しくありません: ${f}`);
-      if (value === "contradiction") {
-        if (!seTrim(v.note)) return bad("CONTRADICTION には指摘の文が要ります");
-        if (findings.length < 2) return bad("CONTRADICTION には F を 2 つ以上選んでください");
-      }
-      const op = { op: name, q: seTrim(v.q), value };
-      if (seTrim(v.note)) op.note = seTrim(v.note);
-      if (findings.length) op.findings = findings;
-      return good(op);
-    }
     case "add_sprout": {
       const msg = first(len("title", "題", 1, SE_MAX.title), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       const paths = seList(v.paths);
-      if (!paths.length) return bad("Add PATH で O を 1 つ以上選んでください（DAG か一覧で O を選び、右の板の Add PATH を押します）");
+      if (!paths.length) return bad("Add PATH で A を 1 つ以上選んでください（DAG か一覧で A を選び、右の板の Add PATH を押します）");
       if (paths.length > 20) return bad("PATH は 20 個までです");
-      for (const o of paths) if (!seRefOk(o, "O")) return bad(`O の形が正しくありません: ${o}`);
-      if (new Set(paths).size !== paths.length) return bad("同じ O を 2 回選んでいます");
-      const list = Array.isArray(v.nodes) ? v.nodes : null;
-      if (list) {
-        const issues = new Set(
-          list.filter((n) => n && /issue/i.test(n.answer_kind || "")).map((n) => String(n.id)),
-        );
-        if (!paths.some((o) => issues.has(o))) return bad("Issue の O を 1 つ以上選んでください");
-      }
+      for (const a of paths) if (!seRefOk(a, "A")) return bad(`A の形が正しくありません: ${a}`);
+      if (new Set(paths).size !== paths.length) return bad("同じ A を 2 回選んでいます");
       const op = { op: name, title: seTrim(v.title), paths };
       if (seTrim(v.body)) op.body = seTrim(v.body);
       return good(op);
     }
     case "copy": {
-      const msg = first(id("node", "O", "写す O"), id("to", "Q", "写す先の Q"));
+      const msg = first(id("node", "A", "写す A"), id("to", "Q", "写す先の Q"));
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), to: seTrim(v.to) });
     }
     case "remove": {
-      const msg = id("node", "QOFES", "消す Node");
+      const msg = id("node", "QAFES", "消す Node");
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node) });
     }
     case "star":
     case "unstar": {
-      const msg = id("o", "O", "O");
-      return msg ? bad(msg) : good({ op: name, o: seTrim(v.o) });
+      const msg = id("node", "QAFES", "Node");
+      return msg ? bad(msg) : good({ op: name, node: seTrim(v.node) });
     }
-    case "set_kind": {
-      const msg = id("o", "O", "O");
+    case "set_stance": {
+      const msg = id("node", "F", "F");
       if (msg) return bad(msg);
-      const kindV = seTrim(v.kind);
-      if (!SE_KINDS.some((x) => x[0] === kindV)) return bad("種類は Answer か Issue です");
-      return good({ op: name, o: seTrim(v.o), kind: kindV });
+      const stance = seTrim(v.stance);
+      if (!SE_STANCES.some((x) => x[0] === stance)) return bad("stance は S・D・I のどれかです");
+      return good({ op: name, node: seTrim(v.node), stance });
+    }
+    case "insert_q": {
+      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.qtext));
+      return msg ? bad(msg) : good({ op: name, q: seTrim(v.q), text: seTrim(v.text) });
+    }
+    case "move_a": {
+      // from の A の子を全部 to へ移す（C3）。to は生きた child_Q を持たない Q
+      const msg = first(id("from", "Q", "移す A を持つ Q"), id("to", "Q", "移す先の Q"));
+      if (msg) return bad(msg);
+      if (seTrim(v.from) === seTrim(v.to)) return bad("同じ Q へは移せません");
+      return good({ op: name, from: seTrim(v.from), to: seTrim(v.to) });
+    }
+    case "set_mlflow": {
+      // 空文字は外す（API の ztext）
+      const msg = first(id("node", "E", "E"), len("mlflow", "MLflow の名前", 0, SE_MAX.mlflow));
+      if (msg) return bad(msg);
+      return good({ op: name, node: seTrim(v.node), mlflow: seTrim(v.mlflow) });
     }
     case "edit": {
-      const msg = first(id("node", "QOFES", "直す Node"), len("text", "文", 0, SE_MAX.ftext), len("body", "本文", 0, SE_MAX.body));
+      const rules = seEditRules(v.node);
+      const msg = first(
+        id("node", "QAFES", "直す Node"),
+        len("text", "文", 0, rules.text),
+        rules.body ? len("body", "本文", 0, SE_MAX.body) : "",
+      );
       if (msg) return bad(msg);
+      if (!rules.body && seTrim(v.body)) return bad("本文は A・E・S だけに付けられます");
       if (!seTrim(v.text) && !seTrim(v.body)) return bad("文か本文のどちらかを入力してください");
+      if (seTrim(v.node).charAt(0) === "F" && seCountSentences(v.text) > 3) return bad("文は 1〜3 文にしてください");
       const op = { op: name, node: seTrim(v.node) };
       if (seTrim(v.text)) op.text = seTrim(v.text);
       if (seTrim(v.body)) op.body = seTrim(v.body);
       return good(op);
-    }
-    case "set_target": {
-      const msg = id("q", "Q", "Q");
-      if (msg) return bad(msg);
-      const t = seTrim(v.target);
-      if (t === "") return good({ op: name, q: seTrim(v.q), target: null });
-      if (!/^[0-9]{1,2}$/.test(t)) return bad("目安は 0〜99 の整数か空です");
-      return good({ op: name, q: seTrim(v.q), target: Number(t) });
     }
     default:
       return bad("Unknown operation");
   }
 }
 
+/** 対象の種類で選べる子の型（[値, 表示]）。Q は Q か A、A は Q か F、それ以外は無い。 */
+function seChildOptions(nodeId) {
+  return SE_CHILD_KINDS[seTrim(nodeId).charAt(0)] || [];
+}
+
+/** 足す子の型が対象の Node に合うか（空は未指定なので合う）。 */
+function seChildOk(nodeId, child) {
+  const c = seTrim(child);
+  if (!c) return true;
+  return seChildOptions(nodeId).some((x) => x[0] === c);
+}
+
 /**
  * カードの初めの値（C-CARD の preset から）。無い欄は空。
- * runner が user でブロックが空なら、ブロックの既定は sci-read。
+ * runner が user でブロックが空なら、ブロックの既定は lab-read。
  */
 function seCardValues(preset, nodeId) {
   const p = preset || {};
   const runner = SE_RUNNERS.some((r) => r[0] === p.runner) ? p.runner : "pi";
   let block = SE_BLOCKS.some((b) => b[0] === p.block) ? p.block : "";
-  if (runner === "user" && !block) block = "sci-read";
+  if (runner === "user" && !block) block = "lab-read";
+  const node = seTrim(nodeId) || seTrim(p.node);
+  const child = seTrim(p.child);
   return {
-    node: seTrim(nodeId) || seTrim(p.node),
+    node,
     block,
     purpose: seTrim(p.purpose),
     expect: seTrim(p.expect),
@@ -279,6 +298,7 @@ function seCardValues(preset, nodeId) {
     mode: SE_MODES.some((m) => m[0] === p.mode) ? p.mode : "purpose_first",
     papers: (Array.isArray(p.papers) ? p.papers : []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
     depth: SE_DEPTHS.some((d) => d[0] === p.depth) ? p.depth : "full",
+    child: seChildOk(node, child) ? child : "",
   };
 }
 
@@ -307,41 +327,18 @@ function seBuildCard(values) {
     if (!papers.includes(Number(s))) papers.push(Number(s));
   }
   if (papers.length > 20) return bad("論文は 20 本までです");
+  const child = seTrim(v.child);
+  if (!seChildOk(node, child)) return bad("足す子の型は、対象が Q なら Q か A、A なら Q か F です");
   const card = { node, block: v.block, purpose, runner, papers };
   if (runner === "user") {
-    if (!/^[QO]/.test(node)) return bad("READ_CARD の対象は Q か O にしてください");
+    if (!/^[QA]/.test(node)) return bad("READ_CARD の対象は Q か A にしてください");
     if (papers.length !== 1) return bad("READ_CARD の論文はちょうど 1 本にしてください");
     card.depth = SE_DEPTHS.some((d) => d[0] === v.depth) ? v.depth : "full";
   }
   if (expect) card.expect = expect;
-  if (v.block === "sci-read" && seTrim(v.mode)) card.mode = seTrim(v.mode);
+  if (child) card.child = child;
+  if (v.block === "lab-read" && seTrim(v.mode)) card.mode = seTrim(v.mode);
   return { ok: true, card, error: null };
-}
-
-/** PROPOSAL の中身の要約（payload の text・title・node・parent から 90 字）。 */
-function seProposalSummary(p) {
-  const payload = (p && p.payload) || {};
-  const parts = [];
-  for (const k of ["text", "title", "node", "parent"]) {
-    const t = seTrim(payload[k]);
-    if (t) parts.push(t);
-  }
-  const text = parts.join("　") || "（中身がありません）";
-  return text.length > 90 ? `${text.slice(0, 90)}…` : text;
-}
-
-/** payload の文字の項目。直すときの小窓に使う。 */
-function seProposalEditKeys(p) {
-  const payload = (p && p.payload) || {};
-  return ["text", "body", "title", "sentence"].filter((k) => typeof payload[k] === "string" && payload[k] !== "");
-}
-
-/** TRIAGE の一覧を取り出す（`{"proposals": […]}` でも、並びの配列でも、`pending` でも）。 */
-function seProposalList(res) {
-  if (Array.isArray(res)) return res;
-  if (res && Array.isArray(res.proposals)) return res.proposals;
-  if (res && Array.isArray(res.pending)) return res.pending;
-  return [];
 }
 
 /** カードを作った応答から run の番号を読む。 */
@@ -522,6 +519,32 @@ function seFieldLines(key, label, init, max, hint, placeholder) {
   return { key, el, read: () => inputs.map((i) => i.value) };
 }
 
+/**
+ * 足す子の型（CARD の child）。対象の Node の種類で選べる物が変わるので、setNode で選びを作り直す。
+ * 選べる物が無ければ欄ごと隠す（読むと空になり、送る JSON に child は入らない）。
+ */
+function seFieldChild(key) {
+  const f = seFieldSelect(key, "足す子の型", [], "", "対象が Q なら Q か A、A なら Q か F", true);
+  const sel = f.el.querySelector("select");
+  f.setNode = (nodeKey, want) => {
+    const opts = seChildOptions(nodeKey);
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "なし";
+    sel.appendChild(none);
+    for (const [value, text] of opts) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = text;
+      sel.appendChild(o);
+    }
+    sel.value = opts.some((x) => x[0] === seTrim(want)) ? seTrim(want) : "";
+    f.el.hidden = !opts.length;
+  };
+  return f;
+}
+
 /** 入力欄をまとめて小窓の入れ物にする（説明の文のように DOM のままの物も置ける）。 */
 function seForm(fields) {
   const el = seEl("div", "sci-edit-form");
@@ -589,11 +612,6 @@ async function seApply(op, form) {
   return null;
 }
 
-/** TRIAGE する（1 件）。 */
-function seTriageOne(pid, body) {
-  return paperApi(stApi(`/proposals/${encodeURIComponent(pid)}`), { method: "POST", body });
-}
-
 // ============================================================================
 // Status から引く手（status.nodes は [{id, title, parent, star, ...}]）
 // ============================================================================
@@ -632,7 +650,7 @@ function seSubtreeFs(detail) {
 // 操作の入力欄（seOpenAction）
 // ============================================================================
 
-/** op ごとの入力欄（{title, values, fields}）。★・Answer/Issue・目安は seQuick で送るので無い。 */
+/** op ごとの入力欄（{title, values, fields}）。★・stance は seQuick で送るので無い。 */
 function seFieldsFor(kind, nodeId, detail) {
   const d = detail || {};
   const node = d.node || {};
@@ -659,14 +677,13 @@ function seFieldsFor(kind, nodeId, detail) {
       const fromSeed = id === "SEED";
       return { title: fromSeed ? "top_Q を足す" : `Q を足す（${id}）`, values: { parent: fromSeed ? "SEED" : id }, fields };
     }
-    case "add_o":
+    case "add_a":
       return {
-        title: `O を足す（${id}）`,
+        title: `A を足す（${id}）`,
         values: { q: id },
         fields: [
           seFieldText("text", "文", "", "必須・120 字まで"),
           seFieldArea("body", "本文", "", 4, "任意・2000 字まで"),
-          seFieldSelect("kind", "種類", SE_KINDS, "answer", null, false),
         ],
       };
     case "add_f":
@@ -674,9 +691,11 @@ function seFieldsFor(kind, nodeId, detail) {
         title: `F を足す（${id}）`,
         values: { parent: id },
         fields: [
+          seFieldPick("stance", "stance（必須）", SE_STANCES, ""),
           seFieldArea("text", "文", "", 3, "必須・1〜3 文・1200 字まで"),
-          seFieldLines("cites", "出典", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは必須）", "#37 §3.2"),
+          seFieldLines("cites", "出典", [], 10, "1 行 1 つ。`#37 §3.2` の形（数字を書くときは出典か報告書が要る）", "#37 §3.2"),
           seFieldText("paper", "論文番号", "", "任意（37 のような数字）"),
+          seFieldText("report", "報告書", "", "任意・100 字まで（数字の文は出典か報告書のどちらかが要る）"),
         ],
       };
     case "add_e":
@@ -689,19 +708,27 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldText("mlflow", "MLflow の名前", "", "任意・200 字まで"),
         ],
       };
-    case "record_logic":
+    case "insert_q":
       return {
-        title: `Logicality を記録（${id}）`,
+        title: `Q を間に入れる（${id}）`,
         values: { q: id },
-        fields: [
-          seFieldPick("value", "値", [["ok", "OK"], ["contradiction", "CONTRADICTION"]], "ok"),
-          seFieldArea("note", "指摘の文", "", 3, "CONTRADICTION のときは必須・1000 字まで"),
-          seFieldChecks("findings", "F", seSubtreeFs(d).map((f) => [f.id, `${f.id} ${(f.text || "").slice(0, 40)}`]), [], "CONTRADICTION のときは 2 つ以上"),
-        ],
+        fields: [seFieldArea("text", "文", "", 3, "必須・300 字まで。今の子の A は新しい Q の下へ入ります")],
+      };
+    case "move_a":
+      return {
+        title: `A を移す（${id}）`,
+        values: { from: id },
+        fields: [seFieldSelect("to", "移す先の Q", seBottomQs(nodes).filter((n) => n.id !== id).map(seNodeOption), "", "この Q の子の A を全部移します。移す先は bottom_Q", false)],
+      };
+    case "set_mlflow":
+      return {
+        title: `MLflow を変える（${id}）`,
+        values: { node: id },
+        fields: [seFieldText("mlflow", "MLflow の名前", node.mlflow || "", "任意・200 字まで。空にすると外す")],
       };
     case "copy":
       return {
-        title: `O を写す（${id}）`,
+        title: `A を写す（${id}）`,
         values: { node: id },
         fields: [seFieldSelect("to", "写す先の Q", seBottomQs(nodes).map(seNodeOption), "", "bottom_Q", false)],
       };
@@ -711,29 +738,21 @@ function seFieldsFor(kind, nodeId, detail) {
         values: { node: id },
         fields: [],
       };
-    case "edit":
-      return {
-        title: `文を直す（${id}）`,
-        values: { node: id },
-        fields: [
-          seFieldArea("text", "文", node.text || "", 3, "文か本文のどちらかは必須"),
-          seFieldArea("body", "本文", node.body || "", 5, "2000 字まで"),
-        ],
-      };
+    case "edit": {
+      const rules = seEditRules(id);
+      const fields = [seFieldArea("text", "文", node.text || "", 3, rules.body ? "文か本文のどちらかは必須・120 字まで" : (id.charAt(0) === "F" ? "必須・1〜3 文・1200 字まで" : "必須・300 字まで"))];
+      if (rules.body) fields.push(seFieldArea("body", "本文", node.body || "", 5, "任意・2000 字まで"));
+      return { title: `文を直す（${id}）`, values: { node: id }, fields };
+    }
     default:
       return { title: seOpLabel(kind), values: {}, fields: [] };
   }
 }
 
-/** 入力欄を出さずに送る（★・Answer/Issue・目安）。set_kind は確認だけ出す。 */
+/** 入力欄を出さずに送る（★・stance）。 */
 async function seQuick(op, payload) {
   const built = seBuildOp(op, Object.assign({}, payload));
   if (!built.ok) { saiToast(built.error, "error"); return null; }
-  if (op === "set_kind") {
-    const label = (SE_KINDS.find((k) => k[0] === built.op.kind) || [])[1] || built.op.kind;
-    const ok = await saiConfirm({ title: "Answer / Issue を変えますか", body: `${built.op.o} を ${label} にします。`, ok: "変える" });
-    if (!ok) return null;
-  }
   return seApply(built.op, null);
 }
 
@@ -751,11 +770,10 @@ function seOpenAction(op, nodeId, detail) {
     return;
   }
   if (SE_QUICK.includes(name)) {
-    const id = seTrim(nodeId);
-    void seQuick(name, { o: id, q: id });
+    void seQuick(name, { node: seTrim(nodeId) });
     return;
   }
-  // E は SPROUT（S）か E の下にしか作れない。O から開いたときは断る。
+  // E は SPROUT（S）か E の下にしか作れない。A から開いたときは断る。
   if (name === "add_e" && !/^[SE]/.test(seTrim(nodeId))) {
     saiToast("親（S か E）になる Node から開いてください", "error");
     return;
@@ -792,7 +810,7 @@ function seOpenAction(op, nodeId, detail) {
 
 /**
  * カードを作る小窓。preset（C-CARD）があれば各欄の初めの値にする。
- * runner に user を選ぶと READ_CARD になる（論文は 1 本・ブロックの既定は sci-read）。
+ * runner に user を選ぶと READ_CARD になる（論文は 1 本・ブロックの既定は lab-read）。
  */
 async function seOpenCard(nodeId, preset) {
   if (typeof document === "undefined" || typeof saiSheet !== "function") return;
@@ -813,22 +831,26 @@ async function seOpenCard(nodeId, preset) {
   const typed = init.papers.filter((n) => !known.has(String(n))).map(String);
 
   const fields = [];
+  let nodeField = null;
   if (!wantId) {
     const picks = [["SEED", "SEED（research-tree の全体）"], ...seStatusNodes().filter((n) => n && seRefOk(n.id)).map(seNodeOption)];
-    fields.push(seFieldSelect("node", "Node", picks, init.node, "CARD を向ける Node", false));
+    nodeField = seFieldSelect("node", "Node", picks, init.node, "CARD を向ける Node", false);
+    fields.push(nodeField);
   }
   const block = seFieldSelect("block", "ブロック", SE_BLOCKS, init.block, "必須", false);
   const purpose = seFieldArea("purpose", "目的", init.purpose, 3, "必須・300 字まで。何を達成するか");
-  const mode = seFieldSelect("mode", "型", SE_MODES, init.mode, "1 本を読むときだけ使う", false);
-  mode.show = (v) => v.block === "sci-read";
+  const mode = seFieldSelect("mode", "型", SE_MODES, init.mode, "lab-read のときだけ使う", false);
+  mode.show = (v) => v.block === "lab-read";
   const depth = seFieldSelect("depth", "深さ", SE_DEPTHS, init.depth, "READ_CARD のときだけ使う", false);
   depth.show = (v) => v.runner === "user";
   const runner = seFieldSelect("runner", "実行するもの", SE_RUNNERS, init.runner, "user は自分で読む（READ_CARD）", false);
+  const child = seFieldChild("child");
   fields.push(
     block, purpose,
     seFieldArea("expect", "期待する成果", init.expect, 2, "300 字まで（任意）"),
     runner,
     mode,
+    child,
   );
   if (uniq.length) {
     fields.push(seFieldChecks("papers", "論文", uniq.map((p) => [p, `#${p}`]), init.papers.map(String), "この Node の下の F の論文から選ぶ"));
@@ -836,13 +858,22 @@ async function seOpenCard(nodeId, preset) {
   fields.push(seFieldLines("papers_typed", "論文の番号", typed, 20, "番号を打って足せます（20 本まで。READ_CARD は 1 本）", "37"), depth);
 
   const form = seForm(fields);
-  // runner を user にしたとき、ブロックが空なら sci-read にする
+  // runner を user にしたとき、ブロックが空なら lab-read にする
   let lastRunner = init.runner;
   runner.refresh = () => {
     const r = runner.read();
-    if (r === "user" && lastRunner !== "user" && !block.read()) block.set("sci-read");
+    if (r === "user" && lastRunner !== "user" && !block.read()) block.set("lab-read");
     lastRunner = r;
   };
+  // 足す子の型は対象の種類で選べる物が変わる。Node を選び替えたときだけ作り直す
+  let lastNode = nodeField ? nodeField.read() : (wantId || init.node);
+  child.setNode(lastNode, init.child);
+  if (nodeField) {
+    nodeField.refresh = () => {
+      const n = nodeField.read();
+      if (n !== lastNode) { lastNode = n; child.setNode(n, ""); }
+    };
+  }
   form.refresh();
 
   const host = saiSheet({ title: "CARD を作る", body: form.el });
@@ -853,7 +884,7 @@ async function seOpenCard(nodeId, preset) {
     const built = seBuildCard({
       node: seTrim(nodeId) || v.node || init.node,
       block: v.block, purpose: v.purpose, expect: v.expect, runner: v.runner,
-      mode: v.mode, depth: v.depth,
+      mode: v.mode, depth: v.depth, child: v.child,
       papers: [...(Array.isArray(v.papers) ? v.papers : []), ...(Array.isArray(v.papers_typed) ? v.papers_typed : [])],
     });
     if (!built.ok) { form.say(built.error); return; }
@@ -888,114 +919,12 @@ async function seOpenCard(nodeId, preset) {
   }, "primary"));
 }
 
-// ============================================================================
-// PROPOSAL の TRIAGE（seProposalRow）
-// ============================================================================
-
-/** PENDING の 1 行（採用・直して採用・却下／applied なら取り消しだけ）。 */
-function seProposalRow(proposal, onDone) {
-  const p = proposal || {};
-  const row = seEl("div", "sci-edit-proposal");
-  const head = seLine("sci-edit-proposal-head");
-  head.appendChild(seEl("span", "sci-edit-op", seOpLabel(p.op)));
-  if (p.id) head.appendChild(seEl("span", "sci-id", p.id));
-  if (p.status) head.appendChild(seChip(p.status, p.status === "applied" ? "ok" : "warn"));
-  const where = [p.run_id != null ? `run ${p.run_id}` : "", seTrim(p.block)].filter(Boolean).join("　");
-  if (where) head.appendChild(seEl("span", "sci-edit-where", where));
-  row.appendChild(head);
-  row.appendChild(seEl("p", "sci-edit-proposal-text", seProposalSummary(p)));
-  if (p.created_at) row.appendChild(seNote(p.created_at));
-  const btns = seLine("sci-edit-proposal-btns");
-  const done = () => { if (typeof onDone === "function") onDone(); };
-
-  if (p.status === "applied") {
-    btns.appendChild(seBtn("取り消す", async (ev) => {
-      const b = ev.currentTarget;
-      b.disabled = true;
-      try {
-        await seTriageOne(p.id, { action: "revert" });
-        saiToast("取り消しました", "ok");
-        done();
-      } catch (e) {
-        saiToast((e && e.message) || "取り消せませんでした", "error");
-        b.disabled = false;
-      }
-    }, "ghost"));
-    row.appendChild(btns);
-    return row;
-  }
-
-  btns.appendChild(seBtn("採用", async (ev) => {
-    const b = ev.currentTarget;
-    b.disabled = true;
-    try {
-      await seTriageOne(p.id, { action: "accept" });
-      saiToast("採用しました", "ok");
-      done();
-    } catch (e) {
-      saiToast((e && e.message) || "採用できませんでした", "error");
-      b.disabled = false;
-    }
-  }, "primary"));
-  btns.appendChild(seBtn("直して採用", () => seOpenProposalEdit(p, done)));
-  btns.appendChild(seBtn("却下", async (ev) => {
-    const b = ev.currentTarget;
-    const ok = await saiConfirm({
-      title: "却下しますか",
-      body: `${p.id || "この PROPOSAL"} を却下します。`,
-      ok: "却下",
-      danger: true,
-    });
-    if (!ok) return;
-    b.disabled = true;
-    try {
-      await seTriageOne(p.id, { action: "reject" });
-      saiToast("却下しました", "ok");
-      done();
-    } catch (e) {
-      saiToast((e && e.message) || "却下できませんでした", "error");
-      b.disabled = false;
-    }
-  }, "ghost"));
-  row.appendChild(btns);
-  return row;
-}
-
-/** 「直して採用」の小窓（payload の title / text / body を直してから送る）。 */
-function seOpenProposalEdit(p, onDone) {
-  const keys = seProposalEditKeys(p);
-  if (!keys.length) { saiToast("直す文字がありません", "error"); return; }
-  const payload = p.payload || {};
-  const names = { title: "題", text: "文", body: "本文", sentence: "文" };
-  const fields = keys.map((k) => (k === "body" || k === "sentence"
-    ? seFieldArea(k, names[k], payload[k], 5, "直してから採用します")
-    : seFieldText(k, names[k], payload[k], "直してから採用します")));
-  const form = seForm(fields);
-  form.el.insertBefore(seNote(`${p.id || ""} ${seOpLabel(p.op)} を直して採用します。`), form.el.firstChild);
-  const host = saiSheet({ title: "直して採用", body: form.el });
-  form.host = host;
-  form.actions.appendChild(seBtn("やめる", () => host.close(), "ghost"));
-  form.actions.appendChild(seBtn("直して採用", async () => {
-    const v = form.read();
-    const edit = Object.assign({}, payload, { op: p.op });
-    for (const k of keys) edit[k] = v[k];
-    try {
-      await seTriageOne(p.id, { action: "accept", edit });
-      host.close();
-      saiToast("直して採用しました", "ok");
-      if (typeof onDone === "function") onDone();
-    } catch (e) {
-      form.say((e && e.message) || "採用できませんでした");
-    }
-  }, "primary"));
-}
-
 // --- node からの読み込み（tests/test_sciedit.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seBuildOp,
-    seCardValues, seBuildCard, seProposalSummary, seProposalEditKeys, seProposalList, seCardRunId,
+    seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
+    seCardValues, seBuildCard, seCardRunId, seChildOptions, seChildOk,
     seBottomQs,
-    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE,
+    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_STANCES,
   };
 }

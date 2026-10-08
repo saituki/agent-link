@@ -1,7 +1,6 @@
 ---
 key: data.type
 name: DATA_TYPE
-target: 2
 ---
 # DATA_TYPE
 

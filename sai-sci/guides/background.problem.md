@@ -1,7 +1,6 @@
 ---
 key: background.problem
 name: BACKGROUND_PROBLEM
-target: 2
 ---
 # BACKGROUND_PROBLEM
 

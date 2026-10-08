@@ -25,7 +25,7 @@ subblocks:
   - **B. スクリプトと連携**: `sai-sci/tools`・`sai-sci/exec`・MLflow 連携
   - **C. CLI**: `sai-link` / `sai-paper` / `sai-sci` / `sai-web`（`crates/`・`apps/web`）
   - **D. エージェント**: operator・researcher（`sci-*`）・professor の役割と指示
-- 調べて、評価して、計画書を書く。**直さない。** 調査対象のプロジェクトも、sai-tree 本体も書き換えない。書いてよい外のファイルは、計画書の保存のあとの `operator-notes.md` だけ（「operator-notes を更新する」）。
+- 調べて、評価して、計画書を書く。**直さない。** 調査対象のプロジェクトも、sai-tree 本体も書き換えない。書いてよい外のファイルは、作業の記録 `kaizen-log.md` と、計画書の保存のあとの `operator-notes.md` だけ（「operator-notes を更新する」）。
 - 証拠のない指摘は書かない。推測は「推測」と明記する。
 
 ## 入力
@@ -63,7 +63,7 @@ subblocks:
 | 依頼文・会話・報告・起動時の固定部分 | `sai-link run md --kind task\|message\|report\|system <run_id>` |
 | 成果物 | `sai-link doc list --run <run_id> --all`（本文は `sai-link doc read`） |
 | エラー・停止の言葉を探す | `sai-link session search -w <語> --type tool_result --status failed` など |
-| 木の現在地・PROPOSAL・外した O | `sai-sci status --json` / `sai-sci proposals --json` / `sai-sci node <N12>` |
+| 木の現在地・木の変更（op）・外した A | `sai-sci status --json` / `sai-sci node <N12>` |
 | 実験の台帳・仕様・結果 | `.sai/tools/exp_summary.py`・`experiments/`・`sai-web mlflow …` |
 | Human の待ち | `sai-web questions`（過去分は `message` から） |
 | コスト | `sai-web usage`（Web の Usage と同じ。使えるときだけ） |
@@ -81,13 +81,18 @@ subblocks:
    - 関係のない template・`task.md`・過去の会話が入っていないか（無駄な文脈）。
    - 依頼文に書かれず、子が自分で探し直した情報（足りない文脈）。
    - 出力が後で 1 度も読まれていない子（使われない成果物）。同じ調べを複数の子が重ねていないか。
-3. **research-tree の使われ方**: PROPOSAL（`propose`）が ACCEPT・REJECT・放置のどれになったか。木に載らず会話・ファイルだけで済ませた判断が無いか。木を直接書き換えた・即興のツールを作った跡が無いか。
+3. **research-tree の使われ方**: 木の変更（`sai-sci op` の結果）が入ったか・未実行で止まったか。許可が要る op は、rt_log の `approved_by` に答えた人が入っているかで確かめる。木に載らず会話・ファイルだけで済ませた判断が無いか。木を直接書き換えた・即興のツールを作った跡が無いか。
 4. **root → seed → branch の流れ**: Node の選び方、seed の世代、branch の起こし方。つながらずに途切れた線・飛ばした層・やり直しの回数。
 5. **branch の結果の評価と次の実験**: 台帳・MLflow の値と REPORT が合っているか。次の実験が前の結果から出ているか（根拠の引用があるか）。失敗の原因（実装の誤りか・方法の限界か）の切り分けが妥当か。
-6. **権限と責任の抜け**: professor / operator が、持つべき権限（`sai-sci triage`・`sai-sci apply`・`sai-link task`）を持たず止まっていないか。課題に当たる役の researcher（ブロック）が無く、手が打てなかった所が無いか。
+6. **権限と責任の抜け**: professor / operator が、持つべき権限（`sai-link task` など）を持たず止まっていないか。課題に当たる役の researcher（ブロック）が無く、手が打てなかった所が無いか。
 7. **配布物の整合**: 対象の `.sai/blocks`・`.sai/template`・`.sai/tools` が、今の `sai-sci/` の版と合っているか（`diff -rq`）。足りない・古いファイルは、実行時の不具合の原因になる。
 8. **再発と有効性**: operator-notes の既知項目と同じ症状が繰り返されていないか。対処が notes に残らず、毎回同じ回り道をしていないか。各項目の「確かめ方」を、調査対象の記録に当てて、今も起きるか（有効）・もう起きないか（解消の候補）を分ける。
 9. **時間とコスト**: 1 run あたりの所要と usage。上位 3 件の理由（待ち・重複・過大な入力）。
+10. **CLI の失敗**: 調べる run ごとに、対象のプロジェクトで `sai-link run history <run_id> --json` の `cli` を読む（命令の打ち方は「始めにすること」の 2 と同じ）。
+    - `failures` の分類（`ledger`・`input`・`not_found`・`conflict`・`other`）と、`calls` のうち `errors` が多い命令を表にする（命令・回数・失敗・分類）。
+    - `台帳に無い番号` は、CLI が出していない番号を文書に引用した失敗である（見た番号の台帳の `ids.seen` に無い番号）。どの agent がどの命令で引用したかを表にする。
+    - 原因の全文は、`events[]` の `call_id` を使って `sai-link run history <run_id> --call <CALL_ID> --json` の `input`（呼んだ命令）と `result`（返ったエラー）で読む。`call_id` が無い行は読めないので「全文未確認」と書く。
+    - 失敗の原因を block.md・template の不備と推測するときは、「推測」と書き、どの block のどの行を直すかを改善案 A に書く。`ids.unused`（見せたのに使わなかった番号）が多いときは、引用の書き方が固い（番号を拾えていない）可能性として書く。
 
 ## 問題の分類
 
@@ -96,7 +101,7 @@ subblocks:
 | 種類 | ID | 当てはまるもの |
 |---|---|---|
 | 技術 | `T1`… | CLI のエラー、子を制御できない、木を操作する命令が無く即興の道具で代用、MLflow から値を取れない、`sai-link run show` と `tree` の ID の食い違い、配布物の欠け |
-| 運用 | `O1`… | ワークフローの穴、権限の不足、課題を受ける役がいない、Human への上げ方・待ち方の不備、完了の確定（finalize）漏れ |
+| 運用 | `A1`… | ワークフローの穴、権限の不足、課題を受ける役がいない、Human への上げ方・待ち方の不備、完了の確定（finalize）漏れ |
 | 非効率 | `E1`… | 重複する処理、不要な子、不要な文脈、使われない機能・成果物、長い待ち |
 
 1 件ごとに次を書く。
@@ -112,7 +117,7 @@ subblocks:
 1. 問題を原因の層（A〜D）ごとにまとめる。同じ原因の問題は 1 つの改善にまとめる。
 2. 改善案ごとに次を書く。
    - **変更**: どのファイルをどう変えるか（例: `sai-sci/template/sci-cli.md` に `sai-sci …` の使い方を足す）。
-   - **解く問題**: T/O/E の ID。
+   - **解く問題**: T/A/E の ID。
    - **受け入れ条件**: 直ったと言える観測（再実行で何が変わるか）。
    - **検証**: 動かす検査（`AGENTS.md` の「テストと確認」のどれか）。
    - **工数**: 小（1 ファイル）・中・大。
@@ -127,8 +132,8 @@ subblocks:
 ```markdown
 ## 調査の範囲（対象・run・期間・見られなかったもの）
 ## タイムライン（run_id・ブロック・所要・状態・待ちの原因）
-## 調査の観点ごとの所見（1〜9）
-## 問題の一覧（T / O / E）
+## 調査の観点ごとの所見（1〜10）
+## 問題の一覧（T / A / E）
 ## 改善案（A ワークフロー / B スクリプトと連携 / C CLI / D エージェント）
 ## 先にやる 5 件
 ## Human の判断が要るもの
@@ -154,7 +159,7 @@ subblocks:
 ```
 
 1. **解消の判定**: 既存の項目ごとに、調査対象の記録（調査の観点 8）か `git log` で、もう起きないと言える証拠があるものだけ、`状態` を「解消」にする。証拠が弱いものは「有効」のまま、計画書の「OUT_OF_SCOPE・未調査」に書く。
-2. **新しい項目**: 計画書の T / O のうち、確からしさが「確認済み」で、operator が現場で当たる故障（対処と確かめ方を書けるもの）だけ足す。推測・sai-sci の md の改善（A）・コードの不具合（C）は足さない。同じ症状の項目が既にあれば足さず、その項目の `状態` を見直す。
+2. **新しい項目**: 計画書の T / A のうち、確からしさが「確認済み」で、operator が現場で当たる故障（対処と確かめ方を書けるもの）だけ足す。推測・sai-sci の md の改善（A）・コードの不具合（C）は足さない。同じ症状の項目が既にあれば足さず、その項目の `状態` を見直す。
 3. **消さない**: 項目の削除・書き換えは、`状態` の行だけ。原因・対処・確かめ方の文は直さない。
 4. **確かめてから書く**: 変更の一覧（どの項目を解消にするか・何を足すか・根拠）を Human に見せ、質問ツールで「この内容で更新してよいか」を聞く。了承されたら、書く前に `operator-notes.md.bak` へ複写し、新しい項目は Bash の追記（`>>`）、`状態` の変更は 1 行だけの置き換えで行う。
 5. 更新した項目の見出しと、複写の場所を、`sai-link task report` に書く。鍵・合言葉の値は書かない。
@@ -180,7 +185,7 @@ subblocks:
 
 ## やってはいけないこと
 
-- 調査対象のプロジェクトを書き換える（`sai-sci apply`・`sai-sci triage`・`sai-sci propose`・`sai-link run rm`・`sai-link init`・`sai-link daemon`・`sai-link card run`・`sai-link task …` で他の run の子を操作する）。
+- 調査対象のプロジェクトを書き換える（`sai-sci apply`・`sai-sci op`・`sai-link run rm`・`sai-link init`・`sai-link daemon`・`sai-link card run`・`sai-link task …` で他の run の子を操作する）。
 - `operator-notes.md` を、Human の了承と複写なしで書き換える。
 - sai-tree・sai-sci のコードや md を直す。直すのは計画書を受けた別の作業。
 - 研究の中身（仮説・結果の良し悪し）を評価する。評価するのは道具と手順。

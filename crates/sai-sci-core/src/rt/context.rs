@@ -1,4 +1,4 @@
-//! エージェントに渡す `# context` の Markdown（新しい research-tree Q・O・F・E 版）。
+//! エージェントに渡す `# context` の Markdown（新しい research-tree Q・A・F・E・S 版）。
 //!
 //! research-tree の一部（範囲）だけを渡す。ファイルは作らず、文字列を返す（`# context` の見出しは呼び出し側が付ける）。
 //! 範囲はブロックの `sci_type`（node / manage / support）で決める。
@@ -72,7 +72,6 @@ fn field_text(f: &Field) -> String {
         Ty::SeedOrId => "Node の ID か SEED".to_string(),
         Ty::Text(min, max) => format!("{min}〜{max} 字"),
         Ty::Int => "整数".to_string(),
-        Ty::NullInt => "0〜99 か null".to_string(),
         Ty::Enum(values) => values.join(" / "),
         Ty::List(min, max) => format!("文字列の配列、{min}〜{max} 個"),
     };
@@ -88,12 +87,12 @@ pub fn allowed_ops_text(roots: &PaperRoots, block: &str) -> String {
             lines.push(format!("- {name}（知らない op です）"));
             continue;
         };
-        let how = match spec.risk {
-            Risk::Auto => "AUTO_OP",
-            Risk::Human => "TRIAGE_OP",
-            Risk::UserOnly => continue, // USER_OP は PROPOSAL では出せない。
-        };
-        lines.push(format!("- {}（{how}）: {}。", spec.op, spec.about));
+        // 利用者だけの op は agent の一覧に出さない。
+        if spec.risk == Risk::UserOnly {
+            continue;
+        }
+        let mark = if spec.risk == Risk::Approval { "（承認が要る）" } else { "" };
+        lines.push(format!("- {}{mark}: {}。", spec.op, spec.about));
         for (label, required) in [("必須", true), ("任意", false)] {
             let items: Vec<String> =
                 spec.fields.iter().filter(|f| f.required == required).map(field_text).collect();
@@ -103,7 +102,7 @@ pub fn allowed_ops_text(roots: &PaperRoots, block: &str) -> String {
         }
     }
     lines.push(
-        "出し方: sai-sci propose（標準入力に {\"proposals\": [...]}）。1 件でも違反があれば何も入りません。"
+        "出し方: sai-sci op（標準入力に {\"ops\": [...]}）。1 件でも違反があれば何も入りません。"
             .to_string(),
     );
     lines.join("\n")
@@ -124,25 +123,26 @@ struct Line {
     indent: usize,
     /// 対象の本文（1 行にした物）。無ければ `None`。
     body: Option<String>,
-    /// 対象が SPROUT のときの PATH の行（`  PATH: Q2 > … > O15 Issue …`）。
+    /// 対象が SPROUT のときの PATH の行（`  PATH: Q2 > … > A15 …`）。
     paths: Vec<String>,
 }
 
 struct Parts {
     tree: Option<Vec<Line>>,
-    /// (Q の文, Objectivity の target, Child Q, Extract, Pitfall)
+    /// (Q の文, Child Q, Extract, Pitfall)
     guide: Option<GuideText>,
     searches: Vec<String>,
     ops: String,
     outlines: Vec<String>,
     outline_gists: Vec<Vec<String>>,
     papers: Vec<String>,
+    /// 対象の足す子の型（対象が無いときや未指定のときは空。C7）。
+    child: String,
 }
 
 struct GuideText {
     title: String,
     question: String,
-    target: i64,
     child: Vec<String>,
     extract: Vec<String>,
     pitfalls: Vec<String>,
@@ -164,12 +164,7 @@ fn path_lines(tree: &Tree, n: &NodeRow) -> Vec<String> {
             let parts: Vec<String> = chain
                 .iter()
                 .map(|node| {
-                    if node.kind == Kind::O {
-                        let ak = if node.answer_kind.as_deref() == Some("issue") { "Issue" } else { "Answer" };
-                        format!("{} {ak} {}", fmt_id(node.kind, node.id), flat_text(&node.text))
-                    } else {
-                        format!("{} {}", fmt_id(node.kind, node.id), flat_text(&node.text))
-                    }
+                    format!("{} {}", fmt_id(node.kind, node.id), flat_text(&node.text))
                 })
                 .collect();
             format!("  PATH: {}", parts.join(" > "))
@@ -182,30 +177,21 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     let id = fmt_id(n.kind, n.id);
     let make = |text: String| {
         let tail = match n.kind {
-            Kind::Q => {
-                let o = tree.objectivity(n.id);
-                let obj = o.map_or_else(String::new, |o| {
-                    format!(" [Objectivity {}/{}{}]", o.count, o.target, if o.met { " met" } else { "" })
-                });
-                let logic = tree.logicality(n.id).map_or_else(String::new, |l| format!(" [Logicality {}]", l.value));
-                format!("{obj}{logic}")
-            }
-            Kind::O => format!(" [F {}]", tree.f_count_under(n.id)),
+            Kind::Q => String::new(),
+            Kind::A => format!(" [F {}]", tree.f_count_under(n.id)),
             Kind::F if !n.cites.is_empty() => format!(" [{}]", n.cites.join(", ")),
             Kind::E => n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]")),
             Kind::S => {
-                let paths: Vec<String> = n.paths.iter().map(|id| fmt_id(Kind::O, *id)).collect();
-                format!(" [paths: {}]", paths.join(", "))
+                let paths: Vec<String> = n.paths.iter().map(|id| fmt_id(Kind::A, *id)).collect();
+                let range = tree.range(n.id).map_or_else(String::new, |r| format!(" [範囲: {}]", r.line()));
+                format!(" [paths: {}]{range}", paths.join(", "))
             }
             Kind::F => String::new(),
         };
+        let star = if n.starred { " ★" } else { "" };
         let head = match n.kind {
-            Kind::O => {
-                let star = if n.starred { " ★" } else { "" };
-                let ak = if n.answer_kind.as_deref() == Some("issue") { "Issue" } else { "Answer" };
-                format!("{id}{star} {ak} {text}")
-            }
-            _ => format!("{id} {text}"),
+            Kind::F => format!("{id}{star} [{}] {text}", n.stance.as_deref().unwrap_or("")),
+            _ => format!("{id}{star} {text}"),
         };
         format!("{pad}- {head}{tail}")
     };
@@ -335,7 +321,6 @@ impl Parts {
                 .map(|g| GuideText {
                     title: format!("{}（{}）", g.name, g.key),
                     question: defs.question_text(&g.key),
-                    target: g.target,
                     child: g.child_candidates.clone(),
                     extract: g.extract.clone(),
                     pitfalls: g.pitfalls.clone(),
@@ -399,6 +384,7 @@ impl Parts {
         }
 
         Ok(Parts {
+            child: target.map_or_else(String::new, |_| keys.child.clone()),
             tree: (!blind && sci_type != "support").then_some(tree_lines),
             guide: if blind { None } else { guide },
             searches,
@@ -434,9 +420,11 @@ impl Parts {
             }
             blocks.push(lines.join("\n"));
         }
+        if !self.child.is_empty() {
+            blocks.push(format!("## TARGET\n- 足す子の型: {}", self.child));
+        }
         if let Some(g) = &self.guide {
             let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- Q: {}", g.question)];
-            lines.push(format!("- Objectivity の target: {}", g.target));
             if level < 5 && !g.child.is_empty() {
                 lines.push(format!("- Child Q: {}", g.child.join(" / ")));
             }
@@ -494,12 +482,12 @@ mod tests {
         Env { roots: PaperRoots { root: dir.clone(), data_dir }, dir, db, defs }
     }
 
-    fn add(e: &Env, kind: Kind, parent: i64, text: &str, answer: Option<&str>) -> i64 {
+    fn add(e: &Env, kind: Kind, parent: i64, text: &str, stance: Option<&str>) -> i64 {
         store::insert_node(
             e.db.connection(),
             &store::NewNode {
-                kind, parent_id: Some(parent), guide_key: None, text, body: "", answer_kind: answer, cites: &[],
-                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+                kind, parent_id: Some(parent), guide_key: None, text, body: "", stance, cites: &[],
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
                 paths: &[], created_by: "user",
             },
         )
@@ -548,30 +536,30 @@ mod tests {
         // 出る節は TREE・GUIDE・ALLOWED_OPS だけ（消した節が混ざらない。順もこの順）。
         let heads: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("## ")).collect();
         assert_eq!(heads, vec!["TREE", "GUIDE", "ALLOWED_OPS"], "{text}");
-        assert!(text.contains("[Objectivity"));
+        assert!(!text.contains("Objectivity"));
         let _ = fs::remove_dir_all(&e.dir);
     }
 
     #[test]
     fn sci_type_picks_tree_range() {
         let e = env("scopes");
-        let o1 = add(&e, Kind::O, 2, "案 A", Some("answer"));
-        let o2 = add(&e, Kind::O, 3, "案 B", Some("answer"));
-        let f1 = add(&e, Kind::F, o2, "根拠", None);
+        let o1 = add(&e, Kind::A, 2, "案 A", None);
+        let o2 = add(&e, Kind::A, 3, "案 B", None);
+        let f1 = add(&e, Kind::F, o2, "根拠", Some("support"));
         task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
 
         // node: 対象と子孫だけ。祖先 Q1・Q2 は出ない。
         block(&e, "node");
         let node_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
-        assert_eq!(node_ids, sorted(vec!["Q3".into(), format!("O{o2}"), format!("F{f1}")]), "{node_ids:?}");
+        assert_eq!(node_ids, sorted(vec!["Q3".into(), format!("A{o2}"), format!("F{f1}")]), "{node_ids:?}");
 
-        // manage: 祖先 Q1 も出る。祖先でない兄弟 Q2 と、その O1 は出ない。
+        // manage: 祖先 Q1 も出る。祖先でない兄弟 Q2 と、その A1 は出ない。
         block(&e, "manage");
         let manage_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
         for id in ["Q1", "Q3"] {
             assert!(manage_ids.contains(&id.to_string()), "{manage_ids:?}");
         }
-        assert!(!manage_ids.contains(&format!("O{o1}")), "{manage_ids:?}");
+        assert!(!manage_ids.contains(&format!("A{o1}")), "{manage_ids:?}");
         assert!(!manage_ids.contains(&"Q2".to_string()), "{manage_ids:?}");
 
         // support: TREE を出さない。GUIDE と ALLOWED_OPS は出る。
@@ -587,8 +575,8 @@ mod tests {
     fn sprout_target_shows_paths() {
         let e = env("sprout");
         block(&e, "node");
-        // Q3 の下に Issue の O を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
-        let o = add(&e, Kind::O, 3, "課題", Some("issue"));
+        // Q3 の下に A を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
+        let o = add(&e, Kind::A, 3, "課題", None);
         let s = store::insert_node(
             e.db.connection(),
             &store::NewNode {
@@ -597,13 +585,12 @@ mod tests {
                 guide_key: None,
                 text: "種",
                 body: "",
-                answer_kind: None,
+                stance: None,
                 cites: &[],
                 paper_id: None,
                 run_id: None,
                 report_id: None,
                 mlflow_ref: None,
-                proposal_id: None,
                 paths: &[o],
                 created_by: "user",
             },
@@ -613,11 +600,28 @@ mod tests {
         task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
         let text = build_with(&e, 100_000, false).unwrap();
         // S の行に paths が出る。
-        assert!(text.contains(&format!("- {} 種 [paths: O{o}]", fmt_id(Kind::S, s))), "{text}");
+        assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
         // S の行の直後に、top の Q から終点の O までの PATH が出る。
-        assert!(text.contains("  PATH: ") && text.contains("Issue 課題"), "{text}");
+        assert!(text.contains("  PATH: ") && text.contains(&format!("{} 課題", fmt_id(Kind::A, o))), "{text}");
         // 下の E も出る。
         assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn target_shows_child_kind() {
+        let e = env("child");
+        block(&e, "node");
+        task(&e, 1, "sci_node: Q2\nsci_purpose: p\nsci_child: A\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(text.contains("## TARGET\n- 足す子の型: A"), "{text}");
+        let _ = fs::remove_dir_all(&e.dir);
+        // 足す子の型が無いときは節も行も出さない。
+        let e = env("child-none");
+        block(&e, "node");
+        task(&e, 1, "sci_node: Q2\nsci_purpose: p\n");
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(!text.contains("## TARGET") && !text.contains("足す子の型"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 
@@ -626,8 +630,8 @@ mod tests {
     fn seed_target_shows_whole_tree() {
         let e = env("seed");
         block(&e, "manage");
-        // Q3（background.problem）の下に Issue の O を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
-        let o = add(&e, Kind::O, 3, "課題", Some("issue"));
+        // Q3（background.problem）の下に A を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
+        let o = add(&e, Kind::A, 3, "課題", None);
         let s = store::insert_node(
             e.db.connection(),
             &store::NewNode {
@@ -636,13 +640,12 @@ mod tests {
                 guide_key: None,
                 text: "種",
                 body: "",
-                answer_kind: None,
+                stance: None,
                 cites: &[],
                 paper_id: None,
                 run_id: None,
                 report_id: None,
                 mlflow_ref: None,
-                proposal_id: None,
                 paths: &[o],
                 created_by: "user",
             },
@@ -657,7 +660,7 @@ mod tests {
             assert!(text.contains("\n  - Q1 "), "{text}");
             assert!(text.contains("\n  - Q4 "), "{text}");
             assert!(text.contains("\n  - Q6 "), "{text}");
-            assert!(text.contains(&format!("- {} 種 [paths: O{o}]", fmt_id(Kind::S, s))), "{text}");
+            assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
             assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
             assert!(!text.contains("## GUIDE"), "{text}");
         }
@@ -707,8 +710,8 @@ mod tests {
     fn small_limit_cuts_by_level() {
         let e = env("levels");
         block(&e, "node");
-        let o1 = add(&e, Kind::O, 3, "案 A", Some("answer"));
-        add(&e, Kind::F, o1, "根拠 1 行目\n2 行目", None);
+        let o1 = add(&e, Kind::A, 3, "案 A", None);
+        add(&e, Kind::F, o1, "根拠 1 行目\n2 行目", Some("support"));
         task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
         let len = |max| build_with(&e, max, false).unwrap();
         let full = len(100_000);
@@ -728,16 +731,16 @@ mod tests {
     #[test]
     fn allowed_ops_text_uses_sci_ops() {
         let e = env("ops");
-        fs::write(e.dir.join(".sai/blocks/b1.md"), "---\nsci_ops: add_o, add_q\n---\n").unwrap();
+        fs::write(e.dir.join(".sai/blocks/b1.md"), "---\nsci_ops: add_a, add_q\n---\n").unwrap();
         let t = allowed_ops_text(&e.roots, "b1");
-        assert!(t.contains("- add_o（AUTO_OP）"), "{t}");
-        assert!(t.contains("- add_q（TRIAGE_OP）"), "{t}");
+        assert!(t.contains("- add_a: "), "{t}");
+        assert!(t.contains("- add_q（承認が要る）: "), "{t}");
         assert!(t.contains("必須: q（Q の ID）, text（1〜120 字）"), "{t}");
-        assert!(t.contains("任意: body（0〜2000 字）, kind（answer / issue）"), "{t}");
+        assert!(t.contains("任意: body（0〜2000 字）"), "{t}");
         assert!(!t.contains("- add_f"));
         let none = allowed_ops_text(&e.roots, "nothing");
-        for op in ["add_o", "add_f", "add_e"] {
-            assert!(none.contains(&format!("- {op}（AUTO_OP）")), "{op}");
+        for op in ["add_a", "add_f", "add_e"] {
+            assert!(none.contains(&format!("- {op}: ")), "{op}");
         }
         assert!(!none.contains("add_q（"));
         let _ = fs::remove_dir_all(&e.dir);

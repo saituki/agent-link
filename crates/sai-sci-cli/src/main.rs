@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use chrono::{Duration, Local, NaiveDate};
 use clap::{Parser, Subcommand};
-use sai_paper_core::{Config, Database, Paths};
+use sai_paper_core::{Config, Database, Paths, seen_ids};
 use sai_sci_core::bins;
 use sai_sci_core::rt::{self, card, compute, defs, store};
 use serde_json::json;
@@ -63,7 +63,7 @@ enum Cmd {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
-        /// 進み具合・SEED・Next Action・PENDING の数だけを出す（いつも JSON）
+        /// Node の数・Next Action だけを出す（いつも JSON）
         #[arg(long)]
         brief: bool,
     },
@@ -78,7 +78,7 @@ enum Cmd {
     TypeSave,
     /// Node 1 つの詳細を出す
     Node {
-        /// Node の ID（`Q12`・`O5` など）
+        /// Node の ID（`Q12`・`A5` など）
         node: String,
         /// JSON で出力する
         #[arg(long)]
@@ -93,8 +93,8 @@ enum Cmd {
         #[arg(long)]
         tree: bool,
     },
-    /// PROPOSAL を出す（標準入力に `{"proposals":[…]}`）
-    Propose {
+    /// agent の op を出す（標準入力に `{"ops":[…]}`。全部通れば書き、1 件でも通らなければ何も書かない）
+    Op {
         /// 実行 ID（無ければ環境変数 SAI_PARENT_RUN_ID）
         #[arg(long)]
         run: Option<i64>,
@@ -102,37 +102,17 @@ enum Cmd {
         #[arg(long)]
         block: Option<String>,
     },
+    /// 質問で取った回答を承認として記録する（質問フックが呼ぶ。出力は常に JSON）
+    Approval {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: ApprovalCmd,
+    },
     /// 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON）
     Apply {
         /// JSON で出力する（出力は常に JSON。Web が付けるので受け付ける）
         #[arg(long)]
         json: bool,
-    },
-    /// PENDING の PROPOSAL を一覧する
-    Proposals {
-        /// JSON で出力する
-        #[arg(long)]
-        json: bool,
-    },
-    /// PROPOSAL を TRIAGE する（accept・reject・revert の 1 つ）
-    #[command(group(
-        clap::ArgGroup::new("triage").required(true).multiple(false).args(["accept", "reject", "revert"]),
-    ))]
-    Triage {
-        /// PROPOSAL の ID（`P56`）
-        proposal: String,
-        /// accept する
-        #[arg(long)]
-        accept: bool,
-        /// reject する
-        #[arg(long)]
-        reject: bool,
-        /// revert する（AUTO_OP で入ったものを取り消す）
-        #[arg(long)]
-        revert: bool,
-        /// accept するとき、中身の上書き（JSON 文字列）
-        #[arg(long, requires = "accept")]
-        edit: Option<String>,
     },
     /// Node のための実行（CARD）を作る（標準入力の C-CARD は --from-json のときだけ読む）
     Card {
@@ -223,6 +203,32 @@ enum Cmd {
     /// 命令の一覧を JSON で出す
     Schema {
         /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// `sai-sci approval` のサブコマンド。
+#[derive(Subcommand, Debug)]
+enum ApprovalCmd {
+    /// 質問の回答を 1 件記録する（同じ qid は 2 回書けない・終了コード 4）
+    Record {
+        /// 質問の ID
+        #[arg(long)]
+        qid: String,
+        /// 質問の文
+        #[arg(long)]
+        question: String,
+        /// 回答（空白を除いて「許可する」のときだけ op に使える）
+        #[arg(long)]
+        answer: String,
+        /// 回答した人
+        #[arg(long)]
+        answered_by: String,
+        /// 実行 ID（無ければ環境変数 SAI_PARENT_RUN_ID）
+        #[arg(long)]
+        run: Option<i64>,
+        /// JSON で出力する（出力は常に JSON。Web が付けるので受け付ける）
         #[arg(long)]
         json: bool,
     },
@@ -359,6 +365,7 @@ fn exit_code_of(err: &anyhow::Error) -> i32 {
             return match rt_error {
                 rt::RtError::Invalid(_) => 2,
                 rt::RtError::NotFound(_) => 3,
+                rt::RtError::Conflict(_) => 4,
                 _ => 1,
             };
         }
@@ -407,29 +414,22 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Types { json }) => print_out(sci::types(json)?),
         Some(Cmd::TypeSave) => print_out(sci::type_save()?),
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),
-        Some(Cmd::Context { run, tree }) => print_out(sci::context(run, tree)?),
-        Some(Cmd::Propose { run, block }) => print_out(sci::propose(run, block)?),
+        Some(Cmd::Context { run, tree }) => print_out_seen(sci::context(run, tree)?, |text| {
+            if let Some(root) = sai_paper_core::paths::project_root() {
+                seen_ids::record_for(&root, run, text);
+            }
+        }),
+        Some(Cmd::Op { run, block }) => print_out(sci::op(run, block)?),
         Some(Cmd::Apply { json: _ }) => print_out(sci::apply()?),
-        Some(Cmd::Proposals { json }) => print_out(sci::proposals(json)?),
-        Some(Cmd::Triage {
-            proposal,
-            accept,
-            reject,
-            revert,
-            edit,
-        }) => print_out(sci::triage(
-            &proposal,
-            accept,
-            reject,
-            revert,
-            edit.as_deref(),
-        )?),
+        Some(Cmd::Approval {
+            cmd: ApprovalCmd::Record { qid, question, answer, answered_by, run, json: _ },
+        }) => print_out(sci::approval_record(&qid, &question, &answer, &answered_by, run)?),
         Some(Cmd::Card {
             args,
             from_json,
             json,
         }) => handle_card(&args, from_json, json),
-        Some(Cmd::Read { run_id, json }) => print_out(sci::read(run_id, json)?),
+        Some(Cmd::Read { run_id, json }) => print_out_seen(sci::read(run_id, json)?, seen_ids::record),
         Some(Cmd::Export) => print_out(sci::export()?),
         Some(Cmd::Find { args }) => find_search::find(&args),
         Some(Cmd::Search { args }) => find_search::search(&args),
@@ -453,15 +453,18 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
 
 /// `sci::Out` を標準出力へ出す（`--json` は 1 行、文はそのまま）。
 fn print_out(out: sci::Out) -> Result<()> {
-    match out {
-        sci::Out::Text(text) => {
-            print!("{text}");
-            if !text.ends_with('\n') {
-                println!();
-            }
-        }
-        sci::Out::Json(value) => println!("{}", serde_json::to_string(&value)?),
-    }
+    print_out_seen(out, |_| {})
+}
+
+/// 出す文字列を `seen` に渡してから標準出力へ出す（台帳に番号を残すため）。
+fn print_out_seen(out: sci::Out, seen: impl FnOnce(&str)) -> Result<()> {
+    let text = match out {
+        sci::Out::Text(text) if text.ends_with('\n') => text,
+        sci::Out::Text(text) => format!("{text}\n"),
+        sci::Out::Json(value) => format!("{}\n", serde_json::to_string(&value)?),
+    };
+    seen(&text);
+    print!("{text}");
     Ok(())
 }
 
@@ -738,11 +741,13 @@ fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
         }
     };
     let journal = sai_sci_core::journal::collect(db.connection(), &roots, from, to)?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&journal)?);
+    let text = if json {
+        format!("{}\n", serde_json::to_string_pretty(&journal)?)
     } else {
-        print!("{}", sai_sci_core::journal::render_markdown(&journal));
-    }
+        sai_sci_core::journal::render_markdown(&journal)
+    };
+    seen_ids::record(&text);
+    print!("{text}");
     Ok(())
 }
 

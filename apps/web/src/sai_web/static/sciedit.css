@@ -4,108 +4,6 @@
    --ok / --warn / --danger と --sci-*（style.css にある）。
    クラスは .sci-edit- と .sci-read- で始める。st- や --st- は使わない（C-14）。 */
 
-/* --- TRIAGE 箱（画面全体） --- */
-
-.sci-edit-triage {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 10px 12px 24px;
-}
-
-.sci-edit-by {
-  align-self: flex-start;
-}
-
-.sci-edit-sub {
-  margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.sci-edit-bulk-errors {
-  padding: 8px 10px;
-  border: 1px solid var(--danger);
-  border-radius: 10px;
-  background: var(--bg);
-}
-
-/* --- TRIAGE 箱のまとめ（Node ごと / run ごと） --- */
-
-.sci-edit-group {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg);
-  padding: 10px;
-}
-
-.sci-edit-group-head {
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.sci-edit-group-label {
-  gap: 8px;
-  align-items: baseline;
-}
-
-.sci-edit-group-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.sci-edit-group-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-left: auto;
-}
-
-/* --- TRIAGE 箱の 1 行 --- */
-
-.sci-edit-proposal {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 0;
-  border-top: 1px solid var(--line);
-}
-
-.sci-edit-proposal-head {
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.sci-edit-op {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.sci-edit-where {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-soft);
-}
-
-.sci-edit-proposal-text {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-.sci-edit-proposal-btns {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 /* --- 小窓の中の入力欄 --- */
 
 .sci-edit-wrap,
@@ -425,6 +323,13 @@
   color: var(--text-soft);
 }
 
+/* F を足す枠の stance の釦（S・D・I を並べる） */
+.sci-read-stance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 /* --- 狭い画面（iPhone の幅 390px） --- */
 
 @media (max-width: 899px) {
@@ -434,40 +339,19 @@
     width: 100%;
   }
 
-  /* TRIAGE 箱のまとまりは 1 列に積む（札は幅いっぱいに伸ばさない） */
-  .sci-edit-group-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .sci-edit-group-label {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   /* 押す所は 44px 以上 */
   .sci-edit-actions .sai-btn,
   .sci-read-actions .sai-btn,
-  .sci-edit-proposal-btns .sai-btn,
-  .sci-edit-group-btns .sai-btn,
-  .sci-edit-by button,
   .sci-read-start .sai-btn,
   .sci-read-finish .sai-btn,
   .sci-read-form .sai-btn {
     min-height: 44px;
   }
 
-  /* まとめて採用・却下は 1 列に並べる */
-  .sci-edit-group-btns,
-  .sci-edit-proposal-btns,
   .sci-edit-actions,
   .sci-read-actions {
     flex-direction: column;
     align-items: stretch;
-    margin-left: 0;
-  }
-
-  .sci-edit-where {
     margin-left: 0;
   }
 
@@ -479,33 +363,6 @@
 /* --- 広い画面（PC の幅 1280px・900px 以上） --- */
 
 @media (min-width: 900px) {
-  .sci-edit-triage {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
-    gap: 14px;
-  }
-
-  .sci-edit-by,
-  .sci-edit-bulk-errors,
-  .sci-edit-group {
-    grid-column: 1 / -1;
-  }
-
-  .sci-edit-group {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0 18px;
-  }
-
-  .sci-edit-group-head {
-    grid-column: 1 / -1;
-  }
-
-  .sci-edit-proposal {
-    break-inside: avoid;
-  }
-
   .sci-read-card {
     max-width: 1100px;
   }

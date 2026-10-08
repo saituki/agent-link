@@ -81,9 +81,9 @@
 - **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API・前処理の束の形（C12））が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`（`src/rt/`）、入口は `sai-sci` の CLI と Web の Research タブ。
-  research-tree は **4 layer（SEED・ROOT・SPROUT・BRANCH）** の木で、Node の種類は Q・O・F・E・S の 5 つ。
-  SEED は DB の行を持たず、`sai-sci status` の `seed`（RESEARCH_TYPE と `mind.md`）から作る。ROOT は top_Q から下へ分かれる Q・O・F、
-  SPROUT（S）は PATH（終点の O）を集めて実験の計画を立てる Node、BRANCH は SPROUT の下の E（実験の実行）。
+  research-tree は **4 layer（SEED・ROOT・SPROUT・BRANCH）** の木で、Node の種類は Q・A・F・E・S の 5 つ。
+  SEED は DB の行を持たず、`sai-sci status` の `seed`（RESEARCH_TYPE と `mind.md`）から作る。ROOT は top_Q から下へ分かれる Q・A・F、
+  SPROUT（S）は PATH（終点の A）を集めて実験の計画を立てる Node、BRANCH は SPROUT の下の E（実験の実行）。
   research-tree に向けた 1 回の実行が Action（task.md のカード）で、professor が研究を回し、`sci-*` の block が研究作業を行う。
   言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)。
 - **status の History**: `sai-sci status --json` の `history[]` は、全 Node の History（`Add *` を除く・古い順。`StatusHistory`・`crates/sai-sci-core/src/rt/compute.rs`）。Web の research-tree 画面の History がこれを読む。
@@ -182,6 +182,11 @@
 ### 3.3 `SAI_HOME` に入らないもの
 
 - **プロジェクトの中の `<root>/.sai/`** は別。`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`（sai-paper の置き場）がここにある。
+- **見た番号の台帳 `<root>/.sai/seen_ids/<run_id>`**（拡張子なし・共有契約 C10）も `<root>/.sai/` の中にある。run ごとに「agent が見た番号」を 1 行 1 つ追記する。MLflow や、実験の台帳（`exp_summary.py`。実験の記録を集計する道具）とは別の物で、論文の番号 `#x.y.z` だけを持つ。
+  - 中身: 正規の形は `#37`・`#37.5`・`#37.5.2`。範囲 `#37.5.2-4` は `#37.5.2`・`#37.5.3`・`#37.5.4` に開いて書く（1 つの範囲は 50 個まで）。追記だけ・重複してよい。番号を文から拾う正規表現は C10 の 1 本で、`sai-link` と `sai-paper` の両方に同じ文字列を置く。
+  - 書く人: `sai-link`（run の開始時と `doc read`）・`sai-paper`（`find`・`neighbors`・`content …`・`find-history`・`search-history` の出力）・`sai-sci`（`find`・`context --run`・`read`・`progress`・`journal` の出力）。書けなくても命令は止めない（標準エラーに 1 行）。
+  - 実装は 2 か所: `crates/sai-paper-core/src/seen_ids.rs`（検査 `check` / `check_for` もここ）と `crates/sai-link-engine/src/seen_ids.rs`（書くだけ）。**直すときは 2 つの正規表現と書き方を同じにし、両方のテストの見本（同じ文で同じ結果）をそろえる。** 片方だけ直すと、run の開始時に書かれた番号を検査が通らない。
+  - 検査する所: `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用（`crates/sai-sci-cli/src/report.rs`）。
 - `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
 
 ### 3.4 多人数モードの置き場（共有契約 C4）
@@ -209,7 +214,7 @@
 | `cli.py` | 3 つの CLI を呼ぶ共通の受け口（§4.2）。終了コードを HTTP の状態に直す 1 か所 |
 | `control.py` | sai-link の呼び出し（プロジェクト・List・Workflow・定義の編集・カード・文書・会話の検索・常駐）。cwd と `SAI_PROJECT_ROOT` を必ずプロジェクトの root にする |
 | `papers.py` | sai-paper の呼び出し（Library・検索・論文のチャンク・Import・Download・音声化の依頼）と、sai-sci の現況（`GET …/papers/project`・`…/project/memo`）・要対応の解消（`…/attention/resolve`）。Papers の Dashboard が現況と要対応を出す |
-| `sci.py` | sai-sci の呼び出し（research-tree・PROPOSAL の TRIAGE・READ_CARD）。research-tree の書き込み（★・Add・Edit・SPROUT）は `POST …/papers/sci/apply` が `sai-sci apply --json`（標準入力に op の JSON）を呼ぶ。 |
+| `sci.py` | sai-sci の呼び出し（research-tree・READ_CARD）。agent の `sai-sci op` と承認の記録は Web から呼ばない。research-tree の書き込み（★・Add・Edit・SPROUT）は `POST …/papers/sci/apply` が `sai-sci apply --json`（標準入力に op の JSON）を呼ぶ。 |
 | `commands.py` | 「コマンド」画面。3 つの CLI の `schema --json` を読んで命令の一覧を作り、入力欄から命令を実行する |
 | `home.py` | ホームの集計（`GET /api/home`）。プロジェクトごとに並べて呼び、失敗は `errors` に入れる。10 秒覚える |
 | `registry.py` | 登録簿 `registry.json` の読み込み（プロジェクトの一覧）と `sai_home()` |
@@ -273,7 +278,7 @@
 | `account.js` | 多人数モードの画面（`#/login`・`#/password`・`#/account`・`#/admin`） |
 | `newchat.js` | Chats の新しいチャット（生成中の文・中断） |
 | `radio.js` / `pcm-worklet.js` / `voiceask.js` | Papers の Radio・声の質問・質問の読み上げと音声回答 |
-| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | Research の research-tree 画面（上の帯の Next Action と History・SPROUT 作成パネル・DAG（`scigraph.js`）・Node の一覧・右の板（SB）・操作と TRIAGE（`sciedit.js`）・READ_CARD（`sciread.js`）） |
+| `scitree.js` / `sciedit.js` / `sciread.js` / `scigraph.js` | Research の research-tree 画面（上の帯の Next Action と History・SPROUT 作成パネル・DAG（`scigraph.js`）・Node の一覧・右の板（SB）・操作（`sciedit.js`）・READ_CARD（`sciread.js`）） |
 | `mlflow.js` / `mlfchart.js` | Research の Experiments（MLflow の記録） |
 | `canvaslayout.js` | 配置・全体表示・拡大の純関数（research-tree の図と Workflow が使う） |
 | `usage.js` | Usage |
@@ -283,7 +288,7 @@
 
 | 住所 | 画面 |
 |---|---|
-| `#/research/tree` / `#/research/tree/<ID>` | research-tree（`<ID>` は `SEED` か、Q・O・F・E・S の Node。`Q12`・`O3`・`F4`・`E5`・`S6` の形。`stParseHash`） |
+| `#/research/tree` / `#/research/tree/<ID>` | research-tree（`<ID>` は `SEED` か、Q・A・F・E・S の Node。`Q12`・`A3`・`F4`・`E5`・`S6` の形。`stParseHash`） |
 | `#/research/read/<run_id>` | READ_CARD（1 本の論文を読んで F を書く） |
 | `#/research/experiments` ほか（`/e/<ID\|all>`・`/run/<ID>`・`/compare/<ID>,…`） | 実験（MLflow の記録） |
 

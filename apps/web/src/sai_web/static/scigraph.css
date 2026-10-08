@@ -13,7 +13,7 @@
   width: 100%;
 }
 
-/* --- 道具の行（F と O の出し入れ・拡大・縮小・全体を表示） --- */
+/* --- 道具の行（F と A の出し入れ・拡大・縮小・全体を表示） --- */
 
 .sci-graph-tools {
   flex-wrap: wrap;
@@ -32,7 +32,7 @@
   color: var(--text);
 }
 
-.sci-graph-btn.on.sg-btn-O {
+.sci-graph-btn.on.sg-btn-A {
   background: color-mix(in srgb, var(--sci-decided) 25%, var(--bg));
   border-color: var(--sci-decided);
   color: var(--text);
@@ -132,19 +132,6 @@
   overflow-wrap: anywhere; /* AWAITING_DECISION など長い英語名で札からはみ出さない */
 }
 
-/* PENDING の印（P2 のように数を持つ。札の右上） */
-.sci-graph-pending {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  padding: 0 4px;
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn-on-bg);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 16px;
-}
 
 .sci-graph-empty {
   position: absolute;
@@ -228,10 +215,10 @@
 .sci-graph-row-rejected,
 .sci-graph-row-dormant { opacity: 0.6; }
 
-/* --- Q・O・F・E・SEED の札（U20）。枠の色で種類を分ける --- */
+/* --- Q・A・F・E・S・SEED の札（U20）。枠の色で種類を分ける --- */
 
 .sci-graph-Q { --sg-color: var(--accent); }
-.sci-graph-O { --sg-color: var(--sci-decided); }
+.sci-graph-A { --sg-color: var(--sci-decided); }
 .sci-graph-F { --sg-color: var(--sci-tentative); }
 .sci-graph-E { --sg-color: var(--sci-candidate); }
 .sci-graph-S {
@@ -248,11 +235,13 @@
 }
 .sci-graph-SEED .sci-graph-card-head { font-weight: 700; color: var(--text); }
 
-/* ★ の O は濃い枠 */
+/* ★ の札は濃い枠 */
 .sci-graph-starred { border-width: 2px; border-left-width: 6px; }
 
-/* ★ の道から外れた札は淡く出す（消さない） */
-.sci-graph-dim { opacity: 1; }
+/* F の stance の枠（S・D・I。色は CSS 変数・文字の印は scitree.css の sci-stance） */
+.sci-graph-stance-S { box-shadow: inset 4px 0 0 var(--sci-support); }
+.sci-graph-stance-D { box-shadow: inset 4px 0 0 var(--sci-refute); }
+.sci-graph-stance-I { box-shadow: inset 4px 0 0 var(--sci-open); }
 
 /* 選んでいる札 */
 .sci-graph-card.is-selected {
@@ -260,7 +249,7 @@
   outline-offset: 1px;
 }
 
-/* SPROUT 作成中の PATH に入れた O（選んでいる札の実線の枠を優先する） */
+/* SPROUT 作成中の PATH に入れた A（選んでいる札の実線の枠を優先する） */
 .sci-graph-card.is-picked {
   outline: 3px dashed var(--sci-decided, var(--accent));
   outline-offset: 1px;

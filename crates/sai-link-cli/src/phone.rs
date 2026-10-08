@@ -846,6 +846,30 @@ fn run_view(run_id: i64, view: &str) -> PhoneResult<Value> {
     }
 }
 
+/// `run history <id> --call <call_id>`: その呼び出しの全文（C11）。
+/// run 自身の transcript から読む。呼び出しが無ければ終了コード 3。
+pub(crate) fn history_call(run_id: i64, call_id: &str) -> PhoneResult<Value> {
+    let store = open_store()?;
+    let exec = store
+        .get_execution_by_id(run_id)
+        .map_err(|_| PhoneError::not_found(format!("実行が見つかりません: ID{}", run_id)))?;
+    let found = match exec.runner.as_str() {
+        "cc" => {
+            let root = sai_link_engine::project::project_root();
+            sai_link_engine::phone_export::resolve_transcript(&exec, &root)
+                .and_then(|path| sai_link_engine::session::history_call(&path, "cc", call_id))
+        }
+        "gl" => None,
+        runner => {
+            sai_link_engine::session::resolve_session_dir(exec.session_dir.as_deref(), run_id)
+                .and_then(|dir| sai_link_engine::session::history_call(&dir, runner, call_id))
+        }
+    };
+    let call = found
+        .ok_or_else(|| PhoneError::not_found(format!("呼び出しが見つかりません: {}", call_id)))?;
+    serde_json::to_value(call).map_err(|e| PhoneError::internal(e.to_string()))
+}
+
 // ============================================================================
 // md — task / message / report / system
 // ============================================================================

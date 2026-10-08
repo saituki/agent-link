@@ -92,6 +92,10 @@ def test_validation(cli: FakeCli) -> None:
     # token: 英数字と -_.: だけ（長さ上限 128・: は入れられる形なので使わない）
     for bad in ("bad token", "a" * 129, "../x", "", "絵文字", "a/b"):
         expect(400, lambda bad=bad: control.phone_waggle("demo", 1, bad))
+    # call_id（History の全文）: 英数字と - _ だけの 80 字まで（`:` `.` `|` は通さない）
+    for bad in ("", "a" * 81, "a.b", "a:b", "a|b", "a/b", "絵文字", None, 3):
+        expect(400, lambda bad=bad: control.phone_run_call("demo", 1, bad))
+    expect(400, lambda: control.phone_run_call("demo", 0, "toolu_01"))
     assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
 
 
@@ -120,6 +124,13 @@ def test_calls(cli: FakeCli) -> None:
     control.phone_run_view("demo", 7, "history")
     assert cli.last["args"] == ["sai-link", "run", "history", "7"], cli.last["args"]
 
+    # 全文は --json を付けて呼ぶ（付けないと CLI は本文だけの文字を出す）
+    control.phone_run_call("demo", 7, "toolu_01-x_Y")
+    assert cli.last["args"] == [
+        "sai-link", "run", "history", "7", "--call", "toolu_01-x_Y", "--json",
+    ], cli.last["args"]
+    assert cli.last["cwd"] == "/tmp/demo-root", cli.last["cwd"]
+
     control.phone_md("demo", 7, "task")
     assert cli.last["args"] == ["sai-link", "run", "md", "7", "--kind", "task"]
 
@@ -147,6 +158,10 @@ def test_missing_404(cli: FakeCli) -> None:
     cli.stderr = "実行が見つかりません: ID9999"
     e = expect(404, lambda: control.phone_run_view("demo", 9999, "log"))
     assert str(e.detail) == "実行が見つかりません: ID9999", e.detail
+    # 呼び出しが無いときも 3 → 404（History の全文）
+    cli.stderr = "呼び出しが見つかりません: toolu_01"
+    e = expect(404, lambda: control.phone_run_call("demo", 7, "toolu_01"))
+    assert str(e.detail) == "呼び出しが見つかりません: toolu_01", e.detail
 
 
 def test_cli_failure_502(cli: FakeCli) -> None:
@@ -223,7 +238,7 @@ def test_project_checks(cli: FakeCli) -> None:
 
 
 def test_routes() -> None:
-    """5 つの住所が登録済みで，他の /api/projects/… と衝突しない（計画 14 §3.3）。"""
+    """住所が登録済みで，他の /api/projects/… と衝突しない（計画 14 §3.3・History の全文 C11）。"""
     from sai_web.main import app
 
     paths = [
@@ -233,6 +248,7 @@ def test_routes() -> None:
     for path in [
         "/api/projects/{name}/tree",
         "/api/projects/{name}/runs/{run_id:int}/view/{view}",
+        "/api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}",
         "/api/projects/{name}/runs/{run_id:int}/md/{kind}",
         "/api/projects/{name}/runs/{run_id:int}/waggle",
         # 住所の名前は計画の `{token}` と同じ形だが，合言葉の Query(`token`) と

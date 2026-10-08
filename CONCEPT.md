@@ -3,7 +3,7 @@
 この文書は、sai の専門的な概念と用語を 1 か所で説明する。用語の意味を調べるときは、まず §7 の索引から節を引く。
 
 - **読み方**: 各節は短い説明と、「用語・意味・どこにあるか」の表でできている。「どこにあるか」は、画面の住所・CLI の命令・コードの場所（ファイル名と関数名・型名。行番号は書かない）のどれか。
-- **言葉の方針**: 専門用語は英単語のまま使う（Next Action・History・PATH・SPROUT・TRIAGE・Library・Import・Dashboard など）。案内文と説明は日本語で書く。`data-tab`・住所・API の名前などの識別子も英語のまま。
+- **言葉の方針**: 専門用語は英単語のまま使う（Next Action・History・PATH・SPROUT・Library・Import・Dashboard など）。案内文と説明は日本語で書く。`data-tab`・住所・API の名前などの識別子も英語のまま。
 - **正はコード**: この文書とコードが食い違ったら、コードに合わせて直す。確かめきれていない文には（要確認）を付ける。
 - **ほかの文書**: 使い方と入れ方は [`README.md`](./README.md)、層の分け方と守る約束は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、このリポジトリで作業する人への指示は [`AGENTS.md`](./AGENTS.md)、API と画面の住所は [`docs/integration.md`](./docs/integration.md)、CLI の約束と Web が読む JSON は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md)、research-tree の使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)、手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md)。
 
@@ -38,7 +38,7 @@ sai は、4 つの部品（sai-link・sai-paper・sai-sci・sai-web）と 2 つ�
 | **apps/mlflow-server** | 実験の記録（MLflow）を溜めるサーバの compose（postgres・minio・mlflow・caddy）。Docker で動かす。 | `apps/mlflow-server/`、5001 番 |
 | **waggle** | 文書に短いトークンを付けて受け渡す仕組み。vendor したクレート群。 | `waggle/`（`waggle-core`・`waggle-store`・`waggle-store-sqlite`）。使う側は `crates/sai-link-engine/src/waggle_integration.rs` |
 | **LabAgent** | sai-sci が配る研究用の block と template、およびそれで動く agent。 | `sai-sci/blocks/`・`sai-sci/template/`（§4） |
-| **research-tree** | Q・O・F・E・S の Node でできた木。研究の「何をやるか」を決める段階を扱う。 | `papr.db` の `rt_*` 表、`crates/sai-sci-core/src/rt/`、画面は Research タブ（§4） |
+| **research-tree** | Q・A・F・E・S の Node でできた木。研究の「何をやるか」を決める段階を扱う。 | `papr.db` の `rt_*` 表、`crates/sai-sci-core/src/rt/`、画面は Research タブ（§4） |
 | **Experiments（実験）** | MLflow に溜まった実験の記録を見る画面。 | サーバは `apps/mlflow-server`、画面は `#/research/experiments`（`mlflow.js`） |
 | **`sai-engine.db`** | sai-link の DB。run・card・子タスクなどの記録が入る。sai-sci と sai-web は開かない。 | `<root>/.sai/sai-engine.db` |
 | **`papr.db`** | sai-paper の DB。論文・検索の記録・節と塊・research-tree の `rt_*` 表が入る。sai-link は開かない。 | `<root>/.sai/paper/papr.db`。`sai_paper_core::paths` の `PaperRoots`（`data_dir` が `<root>/.sai/paper/`） |
@@ -184,96 +184,129 @@ done            …… .sai/outputs/done/<run_id>/      確認済み（Workflow 
 
 ## 4. 研究（sai-sci の research-tree）
 
-research-tree は、研究の方向づけ（実験の前の「何をやるか」）を、問い（Q）・答えの候補（O）・根拠（F）・実験（E）の木で扱う。正は `papr.db` の `rt_*` 表で、絵と文章（`state.md`・`tree.md`）はそこからの書き出し。エージェントは変更の案（PROPOSAL）を出し、危険度に応じて自動で入るか、利用者が TRIAGE して入る。
+research-tree は、研究の方向づけ（実験の前の「何をやるか」）を、問い（Q）・答え（A）・根拠（F）・実験（E）・SPROUT（S）の木で扱う。正は `papr.db` の `rt_*` 表で、絵と文章（`state.md`・`tree.md`）はそこからの書き出し。木を変えられるのは、agent の `sai-sci op`、利用者の `sai-sci apply` と Web だけである。
 
 ### 4.1 4 layer と Node
 
 ```
-BRANCH ── E（実験の実行）。SPROUT か E の下
-  │
-SPROUT ── S。PATH（終点の O）を 1〜20 個集める。Issue の O を 1 つ以上含む
-  │
-SEED ──── 研究の初期の入力（RESEARCH_TYPE と mind.md）。DB の行を持たない。ID は SEED
-  │
-ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
+E（BRANCH）── S か E の下。結果は MLflow に結ぶ（E の下に F は置かない）
+ │
+S（SPROUT）── paths に A の ID を 1〜20 個。同じ A は 2 回書けない
+ │
+SEED ─────── 研究の初期の入力（RESEARCH_TYPE と mind.md）。DB の行を持たない。ID は SEED
+ │
+Q（top_Q）── SEED の直下（親が NULL）
+ ├ Q（child_Q）── Q の下は child_Q だけ、または A だけ
+ └ A（答え）── Q の下。A の下に F と Q を置ける
+     └ F（根拠）── A の下。stance は support・deny・issue のどれか
 ```
 
-画面の DAG（図）は、下に ROOT（top_Q とその下の Q・O・F）、次に SEED の札、上に SPROUT、さらに上に BRANCH を置く（`scigraph.js` の説明）。
+| 種類 | 意味 | ID の例 | 行 |
+|---|---|---|---|
+| `Q` | 問い。child_Q を持てる | `Q12` | `rt_nodes` |
+| `A` | 答えの候補（旧 `O`） | `A15` | `rt_nodes` |
+| `F` | 根拠。stance を持つ。出典 `cites` か REPORT のトークン `report` | `F3` | `rt_nodes` |
+| `E` | 実験。MLflow の記録（`mlflow`）を結べる | `E2` | `rt_nodes` |
+| `S` | SPROUT。PATH（A の ID）を集める | `S3` | `rt_nodes` |
+| `SEED` | 研究の初期の入力。DB の行は持たない | `SEED` | `rt/mod.rs` の `SEED_ID` |
 
-| 用語 | 意味 | どこにあるか |
+- ID の形は `^[QAFES][1-9][0-9]{0,8}$`。頭文字が種類である。`O` の種類は無くなった。
+- 親子の規則は `rt/ops.rs` の `execute` だけが守る（DB は守らない）。
+
+| 子 | 置ける親 |
+|---|---|
+| top_Q（親 NULL） | `SEED` |
+| Q | 生きた A の子を持たない Q、または A |
+| A | 生きた Q の子を持たない Q |
+| F | A だけ |
+| E | S か E |
+| S | 親なし |
+
+- Q の下は「A だけ」か「child_Q だけ」で、混ぜない。A の下は F と Q を混ぜてよい。
+- **child_Q** は Q の子の Q。**parent_Q** は親の Q。**bottom_Q** は生きた child_Q を持たない Q（JSON の項目は `bottom_q`）。
+- **★** は利用者が付ける目印である。計算には使わない（`star`・`unstar` は利用者だけ）。
+- **RESEARCH_TYPE** は SEED の下の Q の階層の雛形（5 本）。**GUIDE** は Q の項目ガイド（Q の文・Child Q・Extract・Pitfall・目安）。
+
+### 4.2 PATH と SPROUT（S）
+
+- **PATH** は SEED から top_Q を通って A に至る道。終点の A で表す（例 `Q2 › Q12 › A15`）。PATH の終点になれるのは A だけ。
+- **SPROUT**（`add_sprout`）は、`paths`（A の ID を 1〜20 個）を持つ。同じ A は 2 回書けない。
+- **範囲**（`range`）は、`paths` の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集めて数える（重ならないように数える）。出すのは Q・A の数と F の stance ごとの数。A の子の Q 以下は入れない。
+- 画面の操作: **Create SPROUT** で作成パネルを開き、A の板の **Add PATH** / **Delete PATH** で PATH を選ぶ。
+
+### 4.3 op と承認
+
+op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が正。危険度は 3 つに分かれる。
+
+- `Free`: agent がそのまま出せる。
+- `Approval`: agent は承認（利用者の「許可する」）が要る。`needs_approval(op)` で判定する。
+- `UserOnly`: 利用者（Web・`sai-sci apply`）だけ。
+
+| op | 危険度 | 内容 |
 |---|---|---|
-| **4 layer** | research-tree の 4 つの層。SEED・ROOT・SPROUT・BRANCH。 | `docs/sai-sci.md` §2.1、`scigraph.js` |
-| **SEED** | 研究の初期の入力。RESEARCH_TYPE と `mind.md`。Node の ID は `SEED`。 | `rt/mod.rs` の `SEED_ID`、`#/research/tree/SEED` |
-| **ROOT** | SEED から下へ分かれる Q・O・F の総称。 | DAG の下の部分 |
-| **SPROUT** | SEED から上へ分かれる Node（ID は `S<n>`）。PATH を集めて実験の計画を立てる。 | `rt_nodes`（kind `S`）、`rt/ops.rs` の `add_sprout` |
-| **BRANCH** | SPROUT から上へ分かれる E。実験の実行を表す。 | `rt_nodes`（kind `E`）、`add_e` |
-| **Node** | research-tree の 1 つの要素。Q・O・F・E・S の 5 種。ID は `Q12` の形（頭文字が種類）。PROPOSAL は `P3`。 | `rt/mod.rs` の `Kind`・`parse_id`・`fmt_id` |
-| **Q（問い）** | 研究の穴を表す Node。child_Q（子の問い）を持てる。 | `add_q`、GUIDE の `## Q` |
-| **O（答えの候補）** | Q の下に置く答えの候補。Answer か Issue の種類を持つ。 | `add_o` |
-| **F（根拠）** | O か E の下に置く根拠。論文の出典（`paper_id`・`cites`）か REPORT のトークン（`report`）を持つ。数字を含む文には出典が要る。 | `add_f` |
-| **E（実験）** | SPROUT か E の下に置く実験。MLflow の記録への参照（`mlflow`）を持てる。 | `add_e` |
-| **S** | SPROUT の Node の頭文字。`S<n>`。 | `rt_nodes`（kind `S`） |
-| **Answer / Issue** | O の 2 種。Answer（答え）と Issue（未解決の課題）。切り替えは `set_kind`。 | `rt_nodes.answer_kind` |
-| **STAR（★）** | 利用者だけが Answer の O に付ける印。 | op `star`・`unstar` |
-| **STAR_PATH** | top_Q から ★ の O を通ってたどれる Node の道。JSON の項目は `on_path`。 | `compute.rs` の `Tree::on_path` |
-| **top_Q** | SEED の直下の Q（`parent_id` が空）。 | `rt_nodes` |
-| **parent_Q** | 親にあたる Q。 | — |
-| **child_Q** | 子にあたる Q。O の下に足す。 | `add_q` |
-| **bottom_Q** | child_Q を持たない Q。JSON の項目は `bottom_q`。 | `compute.rs` の `Tree::is_bottom_q` |
-| **RESEARCH_TYPE** | 研究の始まり方の型。SEED の下の Q の階層の雛形（5 本）。 | `sai-sci/types/`（`problem`・`phenomenon`・`method`・`data`・`improve`）、`sai-sci types\|type-save` |
-| **GUIDE** | Q の項目ガイド。Q の文・Child Q・Extract・Pitfall・目安（`target`）を書く。 | `sai-sci/guides/`、`rt/defs.rs` |
-| **Objectivity** | Q の評価の軸 1。F が目安（`target`）の本数そろっているか。 | `compute.rs` の `Objectivity`、op `set_target` |
-| **Logicality** | Q の評価の軸 2。答えの筋が通っているか。値は `OK`・`CONTRADICTION`・`UNCHECKED`。矛盾は、指摘の文と F を 2 つ以上添えて記録する。 | `compute.rs` の `Logicality`、op `record_logic`、`rt_logic` 表 |
-| **出典（cites）** | F が持つ論文の出どころ。`#57.3.2` の形（§3.5）。 | `rt_nodes.cites`、`rt/scope.rs` |
+| `add_q` | Approval | Q を足す。親は `SEED` か ID（4.1 の表どおり） |
+| `insert_q` | Approval | Q の下に新しい Q を挟み、その Q の生きた A を全部その下へ移す |
+| `move_a` | Approval | A を別の Q へ移す（A の子孫へは移さない） |
+| `copy` | Approval | A と、その生きた F を別の Q へ写す（A の下の Q と E は写さない） |
+| `remove` | Approval | Node を下の Node ごと消す |
+| `add_a` | Free | A を足す。作ったあと GUIDE の `+` の子 Q を作る |
+| `add_f` | Free | F を足す（3 文まで）。数字を含む文は出典（`cites` か `report`）が要る |
+| `add_e` | Free | E を足す |
+| `add_sprout` | Free | SPROUT を作る（4.2） |
+| `set_stance` | Free | F の stance を変える |
+| `set_mlflow` | Free | E の MLflow の結び付けを変える |
+| `star` / `unstar` | UserOnly | ★ を付ける・外す |
+| `edit` | UserOnly | 文と本文を直す |
 
-### 4.2 PATH と SPROUT の作成
+- block の frontmatter `sci_ops` に書いた op だけを agent が出せる。`sci_ops` が無い block は、`Free` の op 全部を出せる。
+- 利用者の `sai-sci apply` は、どの op も承認なしで行える。rt_log の `actor` は `user`、`approved_by`・`qid`・`question` は NULL になる。
 
-**PATH** は、SEED から top_Q を通って O に至る道で、**終点の O で表す**（例 `Q2 › Q12 › O15 Issue`）。SPROUT は PATH を 1〜20 個集め、**Issue の O を 1 つ以上**含める。保存する `paths` は O の ID だけで、道の途中は保存しない（`add_sprout`）。
+**承認の流れ**（許可が要る op を agent が出すとき）:
 
-| 用語 | 意味 | どこにあるか |
-|---|---|---|
-| **PATH** | SEED から top_Q を通って O に至る道。終点の O で表す。PATH の終点になれるのは O だけ。 | `rt_nodes.paths`、`ops.rs` の `add_sprout`、`scitree.js` の `stSproutToggle` |
-| **Create SPROUT** | SPROUT を作る釦と、その作成パネル。パネルには題（必須）と本文（任意）と、集めた PATH（`O15 Issue …` の形）が並ぶ。 | 上の帯と SEED の板の釦、`scitree.js` の `stStartSprout`・`stSproutSend`。op `add_sprout` |
-| **Add PATH** | 作成中に、O の板の釦で O を PATH に加える。DAG では加えた O の札に破線の枠が付く。 | O の板（`scitree.js`）、`scigraph.js` の `sgMarkPicked` |
-| **Delete PATH** | 加えた O を PATH から外す。同じ釦が O が加わっている間の表示になる。パネルの各行の ✕ でも外せる。 | O の板（`scitree.js`） |
+1. 承認を取る質問は 1 回 1 問。先頭の選択肢を「許可する」、2 つ目を「許可しない」にする。質問文に、これから行う op の一覧（op 名と対象の ID・文）を書く（template の決まり）。
+2. 利用者が「許可する」を選ぶ。cc の質問フック（`cc_question.py`）か pi の拡張（`ask_user.ts`）が、`SAI_PARENT_RUN_ID` のある run で `sai-sci approval record` を呼び、`rt_approvals` に 1 行足す（回答の記録）。
+3. agent が `sai-sci op` で op を出す。許可を 1 件取り、全部通ったら書いて、その許可を消費する。rt_log の許可が要る op の行に `approved_by`・`qid`・`question` が入る。
+4. 許可が無いと終了コード 4 で、「許可がありません: 先に質問ツールで「許可する」を選んでもらってください」と出る。何も書かれない。
+- agent は `sai-sci approval record` を自分で呼ばない。
+- 1 回の `sai-sci op` は 1 件の許可で、そのバッチ全体が通る。途中で 1 件でも弾かれると、何も書かれず許可も残る。
 
-### 4.3 変更の案と操作
+### 4.4 Action・Next Action・CARD
 
-| 用語 | 意味 | どこにあるか |
-|---|---|---|
-| **PROPOSAL** | エージェントが出す research-tree の変更の案。ID は `P<n>`。 | `sai-sci propose\|proposals`、`rt_proposals` 表 |
-| **OP（C-OP）** | research-tree を変える操作 1 つ。13 種: `add_q`・`add_o`・`add_f`・`add_e`・`record_logic`・`add_sprout`・`copy`・`remove`・`star`・`unstar`・`set_kind`・`edit`・`set_target`。 | `rt/ops.rs` の `OP_SPECS` |
-| **AUTO_OP** | エージェントが出すとすぐ入る OP。`add_o`・`add_f`・`add_e`・`record_logic`・`add_sprout`。 | `ops.rs` の `Risk::Auto` |
-| **TRIAGE_OP** | エージェントが出すと、利用者が TRIAGE してから入る OP。`add_q`・`copy`・`remove`。 | `Risk::Human` |
-| **USER_OP** | 利用者だけの OP。`star`・`unstar`・`set_kind`・`edit`・`set_target`。 | `Risk::UserOnly`、`sai-sci apply --json` |
-| **PENDING** | TRIAGE を待っている PROPOSAL。 | Node の板の「PENDING」の節、`sai-sci proposals` |
-| **TRIAGE** | PROPOSAL を accept（採用。`--edit` で直して採用）・reject・revert（自動で入った物を戻す）で決めること。 | `sai-sci triage <P56> --accept\|--reject\|--revert`、`ops.rs` の `triage`。Node の板の PENDING の節で行う |
+- **Action** は、Node 1 つに向けた 1 回の実行（CARD）。task.md を持つ。目的を 1 行で書く。
+- **足す子の型**（`sci_child`・CLI は `sai-sci card --child <Q|A|F>`）は、対象の種類で決まる。Q → `Q` か `A`、A → `Q` か `F`。それ以外の組は終了コード 2。
+- **Next Action** は、次にやるとよい Action の候補。上の帯に先頭 3 件が並ぶ。`kind` は全部 `card`。規則の順位（小さいほど先）は次のとおり。
 
-### 4.4 Action と実行
+| 順 | why | 対象 | block | 目的 | CARD の追加 |
+|---|---|---|---|---|---|
+| 1 | `NO_CHILD` | 生きた子の無い Q | `lab-grow` | 「<Q の文>」の子（A か child_Q）を作る | なし |
+| 2 | `NO_FINDING` | 生きた F の子の無い A | `lab-search` | 「<A の文>」の F を探す | `child: F` |
+| 3 | `UNVERIFIED` | 生きた子が 1 つ以上ある Q・A で、`sci-verify` がその Node を対象にしたことが無い、または直の子の一番新しい `created_at` が、その Node を対象にした一番新しい `sci-verify` の run より後 | `sci-verify` | 「<文>」と子の関係を確かめる | なし |
 
-| 用語 | 意味 | どこにあるか |
-|---|---|---|
-| **Action** | research-tree の Node に向けた 1 回の実行。`task.md` を持つ card。目的を 1 行で書く。 | `sai-sci card`、`rt/card.rs`・`rt/action.rs` |
-| **Next Action** | 次にやるとよい Action の候補。上の帯に先頭 3 件が並ぶ。`why` の分類は `NO_CHILD_Q`（child_Q が無い）・`NO_OPTION`（O が無い）・`FEW_FINDINGS`（F が目安に足りない）・`UNCHECKED`（Logicality が未確認）・`CONTRADICTION`（矛盾）・`NO_STAR`（★ が無い。利用者が選ぶ）・`NO_EXPERIMENT`（Issue の O がどの SPROUT にも入っていない）。 | `rt/compute.rs` の `next_actions`・`Tree::q_action` |
-| **CARD** | エージェントへの依頼。 | `sai-sci card` |
-| **Create CARD** | Next Action や Node の板から、CARD のフォームを開く釦。 | `sciedit.js` の `seOpenCard` |
-| **READ_CARD** | `runner: user` の CARD。利用者が 1 本の論文を読んで F を書く。 | `sai-sci card --runner user --papers <番号> --depth <abstract\|figures\|full>`、`sai-sci read`、`#/research/read/<run_id>`（`sciread.js`） |
-| **REPORT** | エージェントが終わりに `sai-link doc write` で保存する報告書。node agent と manage agent は必ず 1 つ保存する。 | `sai-sci report` |
-| **professor** | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して TRIAGE をする root の役。逆向きは `professor-backward`。 | `sai-sci/blocks/professor.md` |
-| **`sci-*` ブロック** | 研究作業そのもの（読む・比べる・O を出す・F を探す・実験する・データを分析する）を行う block。 | `sai-sci/blocks/`。`sai-sci init` が `<root>/.sai/blocks/` に配る |
-| **`sci_type`** | LabAgent の 3 分類。node agent（対象の Node＋子孫を見る）・manage agent（祖先＋対象＋子孫。対象が `SEED` なら全体）・support agent（他の block に呼ばれる。research-tree を見ない）。 | block の frontmatter `sci_type` |
-| **`context`（`# context`）** | 実行の直前に、research-tree の範囲を切り出して最初の文の `# context` の節に入れる物。 | `sai-sci context --run <run_id>`、`rt/context.rs` |
-| **`mlflow`（E の記録）** | E が持つ MLflow の記録への参照。Experiments の画面が読む。experiment と run の名前は `docs/sai-sci.md` §5.7。 | op `add_e` の項目 `mlflow` |
-| **書き出し（`state.md`・`tree.md`）** | research-tree を文章と図にした書き出し。手で直しても次の書き出しで消える。 | `<root>/.sai/paper/`、`sai-sci export`、`rt/export.rs` |
-| **`mind.md`** | 研究の土台。利用者が書く。`ORIGIN`・`RESEARCH_TYPE`・`GIVEN`・`CONSTRAINTS`・`VALUE_AXES`・`INTERESTS`・`NOTES` の節を持ち、エージェントは直接書き換えない。 | `<root>/.sai/paper/mind.md`、ひな形は `sai-sci/mind.md` |
-| **`rt_*` の表** | research-tree の DB の表。`rt_meta`・`rt_nodes`・`rt_logic`・`rt_log`・`rt_proposals`・`rt_seeds`・`rt_searches`。古い `sci_*` の表は読まず、消さない。 | `papr.db`、`crates/sai-paper-core/migrations/0048_research_tree.sql` ほか |
+- **READ_CARD**（`runner: user`）の既定の block は `lab-read`。利用者が論文を読んで F を書く。
+- **REPORT** は node agent・manage agent が `sai-link doc write` で保存する報告書。support agent は持たない。
+- **LabAgent** は、ブロックの frontmatter の `sci_type`（node・manage・support）で動く agent。LabAgent の 6 本（`lab-read`・`lab-search`・`lab-grow`・`lab-survey`・`lab-place`・`lab-progress`）と、検証 agent（`sci-verify`）がある。
+- **検証 agent**（`sci-verify`）は、target_node と子の関係を評価し、評価の報告・op・次の CARD を作る。参加者に `paper-debater`・`paper-reviewer` を子として使える。
+- **mlflow**（E の記録）は、E が持つ MLflow の記録への参照。Experiments の画面が読む。
+- **書き出し**（`state.md`・`tree.md`）は research-tree の文章と図。手で直しても次の書き出しで消える。
+- **mind.md** は研究の土台（`ORIGIN`・`RESEARCH_TYPE`・`GIVEN`・`CONSTRAINTS`・`VALUE_AXES`・`INTERESTS`・`NOTES`）。利用者が書き、エージェントは直接書き換えない。
+- **`rt_*` の表**: `rt_meta`・`rt_nodes`・`rt_log`・`rt_approvals`・`rt_seeds`・`rt_searches`（`crates/sai-paper-core/migrations/0056_rt_redesign.sql`）。古い `sci_*` の表は読まず、消さない。
 
 ### 4.5 History
 
 | 用語 | 意味 | どこにあるか |
 |---|---|---|
-| **History（Node ごと）** | 1 つの Node の変更の記録。先頭が `init`、残りは古い順。`Add Q`・`Add O`・`Add F`・`Add E`・`Run`・決定（`edit` など）を含む。 | `sai-sci node <ID> --json` の `history`（`node_detail.history`）。Node の板の「History」 |
+| **History（Node ごと）** | 1 つの Node の変更の記録。先頭が `init`、残りは古い順。`Add Q`・`Add A`・`Add F`・`Add E`・`Run`・決定（`edit` など）を含む。 | `sai-sci node <ID> --json` の `history`（`node_detail.history`）。Node の板の「History」 |
 | **History（全 Node）** | 全 Node の変更の記録を、`Add *` を除いて古い順に並べた物。 | `sai-sci status --json` の `history`（`Status.history`）。上の帯の「History」（折りたたみ） |
+
+### 4.6 見た番号の台帳と CLI 呼び出しの History
+
+| 用語 | 意味 | どこにあるか |
+|---|---|---|
+| **見た番号の台帳**（`seen_ids`） | run ごとに「agent が CLI で見た論文の番号（`#37`・`#37.5`・`#37.5.2`）」を 1 行 1 つ追記するファイル。agent が見ていない番号を引用する（作り話の引用）のを止める。MLflow とは別の物。 | `<root>/.sai/seen_ids/<run_id>`。`sai-paper`・`sai-sci` が出力した番号、`sai-link` が run の最初の文と `doc read` の本文の番号を書く |
+| **台帳の照合** | `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用の番号を、見た番号の台帳と照らす。無い番号があれば何も書かず終了コード 2（`台帳に無い番号です: …`）。節・塊は完全一致、論文（`#37`）は `#37` か `#37.*` があれば通る。 | `crates/sai-paper-core/src/seen_ids.rs` の `check_for` |
+| **実験の台帳**（`exp_summary.py`） | 実験（MLflow）の記録を集計して、最良・格子の端・失敗などを出す道具。見た番号の台帳とは別の物。 | `.sai/tools/exp_summary.py`・`exp-core` §5 |
+| **CLI の呼び出し（History）** | run の transcript の toolCall と toolResult を 1 行にまとめた物。命令名（`sai-paper …` など）・結果の先頭 200 字（`preview`）・`is_error`・入力に使った番号を持つ。全文（2 万字まで）は `--call` で取る。 | `sai-link run history <run_id> --json`。Web の run の History |
+| **cli 集計** | 呼び出しの数・失敗の分類（`sai-*` の呼び出しだけ数える。`ledger`・`input`・`not_found`・`conflict`・`other`）・番号の使用/未使用（`seen`・`used`・`unused`）。`kaizen` が読んで改善計画書に書く。 | `run history` の `cli` |
 
 ---
 
@@ -343,12 +376,15 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 
 - **4 layer** — research-tree の 4 つの層 — §4.1
 - **Action** — research-tree の Node に向けた 1 回の実行 — §4.4
-- **Add PATH** — 作成中に、O の板の釦で O を PATH に加える — §4.2
+- **Add PATH** — 作成中に、A の板の釦で A を PATH に加える — §4.2
 - **`after-download`** — Download の後の自動処理 — §3.2
-- **Answer / Issue** — O の 2 種 — §4.1
+- **承認（「許可する」）** — 許可が要る op を agent が出すための利用者の回答。1 件で 1 バッチ分 — §4.3
+- **見た番号の台帳（seen_ids）** — agent が CLI で見た論文の番号の記録。MLflow とは別 — §4.6
+- **実験の台帳（exp_summary）** — 実験の記録を集計する道具。見た番号の台帳とは別 — §4.6
+- **CLI の呼び出し（History）** — toolCall と toolResult を 1 行にした物 — §4.6
 - **apps/mlflow-server** — 実験の記録（MLflow）を溜めるサーバの compose — §1
 - **apps/radio** — 論文の解説音声を作って配る裏方サーバー — §1
-- **AUTO_OP** — エージェントが出すとすぐ入る OP — §4.3
+- **Free（危険度）** — agent がそのまま出せる op — §4.3
 - **block** — エージェントの役の定義 — §2
 - **bottom_Q** — child_Q を持たない Q — §4.1
 - **BRANCH** — SPROUT から上へ分かれる E — §4.1
@@ -366,14 +402,14 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **Dashboard** — 期間ごとの実行数・成功率・トークン量・時間の数字とグラフ — §5
 - **`data-tab`** — 下のタブ（左の縦のタブ）の識別子 — §5
 - **def（定義）** — block・template・settings の総称と、それを読み書きする命令 — §2
-- **Delete PATH** — 加えた O を PATH から外す — §4.2
+- **Delete PATH** — 加えた A を PATH から外す — §4.2
 - **doc（文書）** — waggle トークンの付いた文書 — §2
 - **Download** — 論文の PDF を取って登録する — §3.2
 - **E（実験）** — SPROUT か E の下に置く実験 — §4.1
 - **`executer`** — card を起こす人（`human` か `agent`） — §2
 - **Experiments（実験）** — MLflow に溜まった実験の記録を見る画面 — §1
 - **`extract.md`** — docling が PDF から作る Markdown の本文 — §3.1
-- **F（根拠）** — O か E の下に置く根拠 — §4.1
+- **F（根拠）** — A の下に置く根拠。stance は support・deny・issue — §4.1
 - **finalize** — 完了を確定すること — §2
 - **GUIDE** — Q の項目ガイド — §4.1
 - **History（Node ごと）** — 1 つの Node の変更の記録 — §4.5
@@ -387,15 +423,15 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **LabAgent** — sai-sci が配る研究用の block と template、それで動く agent — §1
 - **Library** — 取り込んだ論文の一覧と階層 — §3.2
 - **List** — Projects の画面のひとつ — §5
-- **Logicality** — Q の評価の軸 2 — §4.1
+- **sci_child** — CARD で足す子の型（`Q`・`A`・`F`）— §4.4
 - **`mind.md`** — 研究の土台 — §4.4
 - **`mlflow`（E の記録）** — E が持つ MLflow の記録への参照 — §4.4
 - **Next Action** — 次にやるとよい Action の候補 — §4.4
 - **Next Action の帯** — research-tree の上の帯 — §5
 - **Node** — research-tree の 1 つの要素 — §4.1
 - **`note.md`** — 論文ごとの利用者のメモ — §3.1
-- **O（答えの候補）** — Q の下に置く答えの候補 — §4.1
-- **Objectivity** — Q の評価の軸 1 — §4.1
+- **A（答え）** — Q の下に置く答えの候補（旧 O）— §4.1
+- **範囲（range）** — SPROUT が数える Q・A と F の数 — §4.2
 - **OP（C-OP）** — research-tree を変える操作 1 つ — §4.3
 - **擬似 pane（headless）** — headless の run の区画 — §5
 - **Paper** — Library の見方のひとつ — §3.4
@@ -404,20 +440,20 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **`papers.id`（論文の番号）** — Library の番号 — §3.1
 - **`papr.db`** — sai-paper の DB — §1
 - **parent_Q** — 親にあたる Q — §4.1
-- **PATH** — SEED から top_Q を通って O に至る道 — §4.2
-- **PENDING** — TRIAGE を待っている PROPOSAL — §4.3
+- **PATH** — SEED から top_Q を通って A に至る道 — §4.2
+- **検証 agent（sci-verify）** — target_node と子の関係を評価する固定の block — §4.4
 - **professor** — 研究を舵取りする root の役 — §4.4
 - **Projects** — プロジェクトの一覧と、その中の画面 — §5
-- **PROPOSAL** — エージェントが出す research-tree の変更の案 — §4.3
+- **Approval（危険度）** — agent が出すと利用者の承認が要る op — §4.3
 - **Q（問い）** — 研究の穴を表す Node — §4.1
 - **Radio** — Papers の画面のひとつ — §5
 - **READ_CARD** — `runner: user` の CARD — §4.4
 - **REPORT** — エージェントが終わりに `sai-link doc write` で保存する報告書 — §4.4
 - **Research** — 研究の画面 — §5
-- **research-tree** — Q・O・F・E・S の Node でできた木 — §1
+- **research-tree** — Q・A・F・E・S の Node でできた木 — §1
 - **RESEARCH_TYPE** — 研究の始まり方の型 — §4.1
 - **review** — run の状態のひとつ — §2
-- **ROOT** — SEED から下へ分かれる Q・O・F の総称 — §4.1
+- **ROOT** — SEED から下へ分かれる Q・A・F の総称 — §4.1
 - **`rt_searches`** — research-tree の検索の記録 — §3.4
 - **`rt_*` の表** — research-tree の DB の表 — §4.4
 - **run（実行）** — エージェントが 1 回動いた記録 — §2
@@ -446,17 +482,17 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **settings** — プロジェクトの設定（`context`・`job_status` など） — §2
 - **Settings（設定）** — Projects の画面のひとつ（画面の表示は `Settings`） — §5
 - **SPROUT** — SEED から上へ分かれる Node（ID は `S<n>`） — §4.1
-- **STAR（★）** — 利用者だけが Answer の O に付ける印 — §4.1
-- **STAR_PATH** — top_Q から ★ の O を通ってたどれる Node の道 — §4.1
+- **STAR（★）** — 利用者だけが付ける目印。計算には使わない — §4.1
+- **UserOnly（危険度）** — 利用者（Web・`sai-sci apply`）だけが出せる op — §4.3
 - **`task.md`** — card と run の依頼書 — §2
 - **`# task_text`** — `task.md` の依頼文の節 — §2
 - **template** — block の本文に差し込む共通の決まり — §2
 - **`textcheck`** — 報告書の検査 — §3.5
 - **top_Q** — SEED の直下の Q（`parent_id` が空） — §4.1
-- **TRIAGE** — PROPOSAL を accept・reject・revert で決めること — §4.3
-- **TRIAGE_OP** — 利用者が TRIAGE してから入る OP — §4.3
+- **NO_CHILD・NO_FINDING・UNVERIFIED** — Next Action の why の 3 分類 — §4.4
+- **`lab-*` ブロック** — LabAgent の 6 本（`lab-read`・`lab-search`・`lab-grow`・`lab-survey`・`lab-place`・`lab-progress`）— §4.4
 - **Usage** — LLM の料金と制限 — §5
-- **USER_OP** — 利用者だけの OP — §4.3
+- **`sai-sci op`** — agent が research-tree を変える命令（標準入力は JSON・1〜20 件）— §4.3
 - **waggle** — 文書にトークンを付けて受け渡す仕組み — §1
 - **waggle トークン** — 文書を指す短い名前（例 `AXANSMpo`） — §2
 - **Workflow** — Projects の画面のひとつ — §2

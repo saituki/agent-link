@@ -33,19 +33,20 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("operator.md", include_str!("../../../sai-sci/blocks/operator.md")),
     ("kaizen.md", include_str!("../../../sai-sci/blocks/kaizen.md")),
     ("sci-start.md", include_str!("../../../sai-sci/blocks/sci-start.md")),
-    ("sci-split.md", include_str!("../../../sai-sci/blocks/sci-split.md")),
     ("sci-restore.md", include_str!("../../../sai-sci/blocks/sci-restore.md")),
     ("sci-typify.md", include_str!("../../../sai-sci/blocks/sci-typify.md")),
-    ("sci-ideate.md", include_str!("../../../sai-sci/blocks/sci-ideate.md")),
+    // LabAgent（研究の進め方の 6 場面）と検証（U08）。
+    ("lab-read.md", include_str!("../../../sai-sci/blocks/lab-read.md")),
+    ("lab-search.md", include_str!("../../../sai-sci/blocks/lab-search.md")),
+    ("lab-grow.md", include_str!("../../../sai-sci/blocks/lab-grow.md")),
+    ("lab-survey.md", include_str!("../../../sai-sci/blocks/lab-survey.md")),
+    ("lab-place.md", include_str!("../../../sai-sci/blocks/lab-place.md")),
+    ("lab-progress.md", include_str!("../../../sai-sci/blocks/lab-progress.md")),
+    ("sci-verify.md", include_str!("../../../sai-sci/blocks/sci-verify.md")),
     ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
-    ("sci-search.md", include_str!("../../../sai-sci/blocks/sci-search.md")),
-    ("sci-read.md", include_str!("../../../sai-sci/blocks/sci-read.md")),
     ("sci-lookup.md", include_str!("../../../sai-sci/blocks/sci-lookup.md")),
     ("sci-extract.md", include_str!("../../../sai-sci/blocks/sci-extract.md")),
     ("sci-cite-check.md", include_str!("../../../sai-sci/blocks/sci-cite-check.md")),
-    ("sci-debate.md", include_str!("../../../sai-sci/blocks/sci-debate.md")),
-    ("sci-review.md", include_str!("../../../sai-sci/blocks/sci-review.md")),
-    ("sci-compare.md", include_str!("../../../sai-sci/blocks/sci-compare.md")),
     ("sci-digest.md", include_str!("../../../sai-sci/blocks/sci-digest.md")),
     ("sci-coach.md", include_str!("../../../sai-sci/blocks/sci-coach.md")),
     ("sci-exp-scout.md", include_str!("../../../sai-sci/blocks/sci-exp-scout.md")),
@@ -60,6 +61,20 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     // U13 で sai-sci へ移した 2 本（議論の司会から子として呼ばれる）。
     ("paper-debater.md", include_str!("../../../sai-sci/blocks/paper-debater.md")),
     ("paper-reviewer.md", include_str!("../../../sai-sci/blocks/paper-reviewer.md")),
+];
+
+/// 消えた block（旧 7 本。新しい LabAgent と検証に替わった）。
+///
+/// `sai-sci init --update` は、プロジェクトの `.sai/blocks/` に残っていれば退避して消す
+/// （古い id のまま動くと、消えた op を打つため）。退避の置き場は `write_asset` と同じ。
+const SCI_RETIRED_BLOCKS: &[&str] = &[
+    "sci-read.md",
+    "sci-search.md",
+    "sci-ideate.md",
+    "sci-split.md",
+    "sci-review.md",
+    "sci-debate.md",
+    "sci-compare.md",
 ];
 
 /// sai-sci の共通の決まり。
@@ -387,11 +402,23 @@ pub fn install_sci_init(
     // block: `model:`・`provider:`・`thinking:` を元の値で置き換えてから比べる（部品の配り方）。
     let mut created = 0usize;
     let mut updated: Vec<PathBuf> = Vec::new();
+    let mut retired: Vec<PathBuf> = Vec::new();
     for (name, content) in SCI_BLOCKS {
         match write_asset(&sai.join("blocks").join(name), content, update, true)? {
             WriteOutcome::Created => created += 1,
             WriteOutcome::Unchanged => {}
             WriteOutcome::Updated(backup) => updated.push(backup),
+        }
+    }
+    // 消えた block: `--update` のときだけ、残っていれば退避して消す（利用者が直した中身も退避に残る）。
+    if update {
+        for name in SCI_RETIRED_BLOCKS {
+            let path = sai.join("blocks").join(name);
+            if path.is_file() {
+                let backup = backup_path(&path);
+                std::fs::rename(&path, &backup)?;
+                retired.push(backup);
+            }
         }
     }
     // template は丸ごと置き換える（部品の配り方）。
@@ -418,6 +445,9 @@ pub fn install_sci_init(
     done.push(format!("✅ 研究の assets を {created} 件置きました（既にあるものはそのまま）"));
     for backup in &updated {
         done.push(format!("✅ 更新しました（古い物: {}）", backup.display()));
+    }
+    for backup in &retired {
+        done.push(format!("✅ 廃止した block を退避しました（古い物: {}）", backup.display()));
     }
 
     // 分野の観点（見本 3 つと `domain.md`）。
@@ -614,7 +644,10 @@ mod tests {
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with("sci-"))
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                name.starts_with("sci-") || name.starts_with("lab-")
+            })
             .count();
         assert_eq!(SCI_BLOCKS.len(), 31, "SCI_BLOCKS が 31 本でない");
         assert_eq!(SCI_TEMPLATES.len(), 14, "SCI_TEMPLATES が 14 本でない");
@@ -646,7 +679,20 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&path).unwrap(), *content, "{name} の中身が違う");
         }
         for (name, content) in SCI_BLOCKS.iter().chain(SCI_TEMPLATES.iter()) {
-            for old in ["EXP_SUMMARY_PY", "EXP_SSH_HOST", "sai-ssh"] {
+            for old in [
+                "EXP_SUMMARY_PY",
+                "EXP_SSH_HOST",
+                "sai-ssh",
+                "sai-sci propose",
+                "sai-sci triage",
+                "sai-sci proposals",
+                "add_o",
+                "record_logic",
+                "Objectivity",
+                "Logicality",
+                "TRIAGE",
+                "PENDING",
+            ] {
                 assert!(!content.contains(old), "{name} に廃止した {old} が残っている");
             }
         }
@@ -762,6 +808,36 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// 消えた 7 本の block は、`--update` のときだけ退避して `.sai/blocks/` から消える。
+    /// `--update` なしでは残す（利用者が直した物を、黙って動かさない）。
+    #[test]
+    fn retired_blocks_are_moved_on_update() {
+        let root = std::env::temp_dir().join(format!("sai-paper-sci-retired-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".sai/blocks")).unwrap();
+        let bin = Path::new("/opt/bin/sai-sci");
+        std::fs::write(root.join(".sai/blocks/sci-read.md"), "古い sci-read").unwrap();
+
+        install_sci_init(&root, bin, "general", false, false).unwrap();
+        assert!(root.join(".sai/blocks/sci-read.md").is_file());
+
+        let done = install_sci_init(&root, bin, "general", false, true).unwrap();
+        assert!(!root.join(".sai/blocks/sci-read.md").exists());
+        let backup = root.join(".sai/blocks/sci-read.md.bak");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "古い sci-read");
+        assert!(
+            done.iter().any(|line| line.contains("廃止した block を退避しました") && line.contains("sci-read.md.bak")),
+            "退避の行が無い: {done:?}"
+        );
+
+        // 消えた 7 本は配る一覧に無く、配った先にも無い。
+        for name in SCI_RETIRED_BLOCKS {
+            assert!(SCI_BLOCKS.iter().all(|(block, _)| block != name), "{name} が配る一覧に残っている");
+            assert!(!root.join(".sai/blocks").join(name).exists(), "{name} が .sai/blocks に残っている");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// sci ブロック 25 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
     /// 役 4 本（professor・professor-backward・operator・kaizen）は持たない。sci ブロックは `layer` を持たない。
     /// 完了の判定に使っていた旧キーはどのブロックにも無い。
@@ -769,12 +845,11 @@ mod tests {
     fn sci_blocks_declare_sci_type() {
         // 共有契約の表（sci_type → ブロック）。
         let node = [
-            "sci-split.md",
-            "sci-ideate.md",
-            "sci-search.md",
-            "sci-read.md",
-            "sci-compare.md",
-            "sci-debate.md",
+            "lab-read.md",
+            "lab-search.md",
+            "lab-grow.md",
+            "lab-survey.md",
+            "sci-verify.md",
             "sci-coach.md",
             "sci-cite-check.md",
             "sci-data-explore.md",
@@ -783,12 +858,13 @@ mod tests {
         ];
         let manage = [
             "sci-start.md",
-            "sci-review.md",
             "sci-digest.md",
             "sci-restore.md",
             "sci-typify.md",
             "sci-result-compare.md",
             "sci-exp-sprout.md",
+            "lab-place.md",
+            "lab-progress.md",
         ];
         let support = [
             "sci-analogy.md",
@@ -887,7 +963,7 @@ mod tests {
         }
     }
 
-    /// sci のブロック 33 本のうち 26 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
+    /// sci のブロック 31 本のうち 24 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
@@ -900,27 +976,27 @@ mod tests {
             "sci-analogy.md",
             "sci-cite-check.md",
             "sci-coach.md",
-            "sci-compare.md",
             "sci-data-explore.md",
             "sci-data-test.md",
-            "sci-debate.md",
             "sci-digest.md",
             "sci-exp-review.md",
             "sci-exp-scout.md",
             "sci-exp-sprout.md",
             "sci-extract.md",
-            "sci-ideate.md",
             "sci-lookup.md",
-            "sci-read.md",
             "sci-restore.md",
             "sci-result-compare.md",
-            "sci-review.md",
-            "sci-search.md",
             "sci-sim-compose.md",
             "sci-sim-model.md",
-            "sci-split.md",
             "sci-start.md",
             "sci-typify.md",
+            "sci-verify.md",
+            "lab-read.md",
+            "lab-search.md",
+            "lab-grow.md",
+            "lab-survey.md",
+            "lab-place.md",
+            "lab-progress.md",
         ] {
             assert!(
                 SCI_BLOCKS.iter().any(|(name, _)| *name == id),
@@ -955,8 +1031,15 @@ mod tests {
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
             // `sci-typify` は research-tree を書き換えず、RESEARCH_TYPE として保存するだけなので sci_ops を持たない。
+            // `sci-digest` も木に op を出さず（Q の案は報告に書く）、sci_ops を持たない。
+            // `lab-progress` も op を出さない（木の数と穴を報告し、CARD を勧めるだけ）。
+            // `sci-exp-scout` も木を変えない（実験・データの block は F を足さない。事実は調査書に書く）。
             assert!(
-                *name == "sci-typify.md" || frontmatter.contains("\nsci_ops: "),
+                *name == "sci-typify.md"
+                    || *name == "sci-digest.md"
+                    || *name == "lab-progress.md"
+                    || *name == "sci-exp-scout.md"
+                    || frontmatter.contains("\nsci_ops: "),
                 "{name} に sci_ops が無い"
             );
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
@@ -1096,8 +1179,8 @@ mod tests {
                 assert!(children.contains(&"operator"), "professor の subblocks に operator が無い");
                 if id == "professor" {
                     for child in [
-                        "sci-start", "sci-split", "sci-ideate", "sci-analogy", "sci-search",
-                        "sci-read", "sci-lookup", "sci-extract", "sci-debate", "sci-review", "sci-compare",
+                        "sci-start", "lab-read", "lab-search", "lab-survey", "lab-grow", "lab-place",
+                        "lab-progress", "sci-verify", "sci-analogy", "sci-lookup", "sci-extract",
                         "sci-digest", "sci-coach", "sci-typify", "sci-exp-scout",
                         "sci-sim-model", "sci-sim-compose", "sci-exp-sprout",
                         "sci-data-explore", "sci-data-test",
@@ -1135,7 +1218,7 @@ mod tests {
                 "--executer agent",
                 "--origin-run \"$SAI_PARENT_RUN_ID\"",
                 "sai-sci status --brief",
-                "sai-sci triage",
+                "sai-sci op",
                 "sai-web",
                 "question <qid>",
                 "answer <qid>",
@@ -1164,7 +1247,7 @@ mod tests {
         for name in [
             "sci-restore.md",
             "sci-cite-check.md",
-            "sci-review.md",
+            "sci-verify.md",
             "sci-result-compare.md",
             "professor-backward.md",
         ] {
@@ -1186,9 +1269,11 @@ mod tests {
         for child in [
             "sci-restore",
             "sci-cite-check",
-            "sci-review",
+            "sci-verify",
             "sci-exp-sprout",
-            "sci-search",
+            "lab-search",
+            "lab-read",
+            "lab-grow",
             "sci-result-compare",
         ] {
             assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");

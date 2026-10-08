@@ -1,7 +1,6 @@
 ---
 key: background.goal
 name: BACKGROUND_GOAL
-target: 2
 ---
 # BACKGROUND_GOAL
 

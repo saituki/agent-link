@@ -11,7 +11,7 @@ templates:
   - exp-run
 context: true
 sci_type: node
-sci_ops: add_e, add_f
+sci_ops: add_e, set_mlflow
 timeout: 3600
 worktree: none
 enable: true
@@ -59,7 +59,7 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 
 起こす本数は `total_branches + 起こす本数 <= max_branches` に収め、1 回に起こす数は `max_children` 以下にする。
 
-### 5. continue のとき（先に 7. の 2. で E を作る）
+### 5. continue のとき（先に 7. の 1. で E を作る）
 
 `next` の 1 行ごとに、依頼書（`branch-order-<study>-<NN>.md`、`exp-core` §7）を保存し、`sci-exp-branch` の CARD を作って起こす。依頼書の `parent_branch`・`model` は `next` の値。
 
@@ -75,7 +75,7 @@ sai-link card run <返った run_id>
 
 - **tune**: GRID は台帳の `param_edges` を見て決める（端の外側へ広げる。端が無ければ最良の近くを細かく）。
 - **debug**: `fix` には `logs` と run の `exp.error` から、直す点を具体的に書く（ファイル・行・誤りの文）。R1a（`exp-core` §6）で debug にしたときは、`fix` に**外れた目標の名前・台帳の `target.repro` の値・モデル定義書の `repro[].range`** を書く（`target.repro_pass` が `null` なら「`repro_pass` が記録されていない」と書く）。モデル定義書の「## 食い違い」に該当行があれば、それも引く。
-- **model / ablation**: `idea` に新しいモデルの案（木の F と O から）を書く。`model` は新しい名前にする（ablation は `<元>-abl-<外した成分>`）。
+- **model / ablation**: `idea` に新しいモデルの案（木の F と A から）を書く。`model` は新しい名前にする（ablation は `<元>-abl-<外した成分>`）。
 
 ### 6. stop のとき
 
@@ -99,27 +99,17 @@ sai-link card run <返った run_id>
 
 ### 7. 木に記録する
 
-木は `sai-sci propose` で出す（`sci-core`）。
+木に出すのは E だけです（`sai-sci op`・`sci-core`）。F は足しません。結果と判定は判定書（REPORT）と MLflow に書きます。
 
-1. 結果を F として、その 1 回の実行の E の下に `add_f` で出す。文に MLflow の run 名と値を書く。`cites` は論文を引くときだけ付ける（MLflow の出典は `cites` に入れない）。`report` に判定書のトークンを入れる（数字を含む F の出典になる）。
-
-   ```json
-   {"op": "add_f", "parent": "<1 回の実行の E の ID>", "text": "ID125-p02 で test_acc=0.871（基準 0.80 を超えた）", "report": "<判定書のトークン>"}
-   ```
-
-2. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。**
+1. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。** `mlflow` はここでは付けない（branch の run_id が CARD を作るまで決まらない）。CARD を作って run_id が返ったら、`{"op": "set_mlflow", "node": "<E の ID>", "mlflow": "ID<返った run_id>-p01"}` を `sai-sci op` で出す。
 
    ```json
-   {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>", "mlflow": "ID126-p01"}
+   {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>"}
    ```
 
-3. stop のとき、止めた理由を F として、アイデアの E の下に `add_f` で出す。
+2. stop のとき、木には何も足しません。止めた理由と最良の値（`<metric>=<value>`）は判定書に書きます。
 
-   ```json
-   {"op": "add_f", "parent": "<アイデアの E の ID>", "text": "実験 <study> を止めた（<stop_reason>）。最良は <metric>=<value>", "report": "<判定書のトークン>"}
-   ```
-
-課題が解けたと判断したら、report の「Answer に変えてほしい O」に O の ID と理由を書く。O を Answer に変えるのは利用者である。
+課題が解けたと判断したら、report の「解けたと見る A」に A の ID と理由を書く。★ を付けるかは利用者が決める。
 
 ### 8. 終える
 

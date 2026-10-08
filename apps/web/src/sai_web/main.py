@@ -1079,6 +1079,14 @@ def api_project_run_view(
     return control.phone_run_view(name, run_id, view)
 
 
+@app.get("/api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}")
+def api_project_run_history_call(
+    name: str, run_id: int, call_id: str, _: None = Depends(require_token)
+) -> dict:
+    """History の 1 呼び出しの全文（`sai-link run history <id> --call <call_id>`・C11）。"""
+    return control.phone_run_call(name, run_id, call_id)
+
+
 @app.get("/api/projects/{name}/runs/{run_id:int}/md/{kind}")
 def api_project_run_md(
     name: str, run_id: int, kind: str, _: None = Depends(require_token)
@@ -1662,14 +1670,6 @@ def api_sci_apply(
 ) -> dict:
     """人の操作を反映する（body は C-OP の op の JSON）。"""
     return sci.apply(papers.resolve_project(name), payload)
-
-
-@app.post("/api/projects/{name}/papers/sci/proposals/{pid}")
-def api_sci_triage(
-    name: str, pid: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """TRIAGE する（body は `{"action","edit"}`）。"""
-    return sci.triage(papers.resolve_project(name), pid, payload)
 
 
 @app.post("/api/projects/{name}/papers/sci/cards")

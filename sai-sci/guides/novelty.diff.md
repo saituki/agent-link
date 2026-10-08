@@ -1,7 +1,6 @@
 ---
 key: novelty.diff
 name: NOVELTY_DIFF
-target: 2
 ---
 # NOVELTY_DIFF
 

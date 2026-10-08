@@ -26,6 +26,7 @@ pub(crate) fn card_spec(input: &str) -> Result<card::CardSpec> {
         inputs: Vec::new(),
         // Web の画面から作る CARD は人が起こすもの（agent が起こす CARD は CLI だけ）。
         executer: String::new(),
+        child: text_of(&value, "child"),
     })
 }
 
@@ -84,8 +85,8 @@ mod tests {
         let input = r#"{
             "node": "Q12",
             "block": "sci-ideate",
-            "purpose": "「データの量は？」の答えの候補（O）を出す",
-            "expect": "O を 2 つ以上",
+            "purpose": "「データの量は？」の答え（A）を出す",
+            "expect": "A を 2 つ以上",
             "mode": "purpose_first",
             "papers": [37, 40],
             "runner": "",
@@ -95,7 +96,7 @@ mod tests {
         let spec = card_spec(input).unwrap();
         assert_eq!(spec.node, "Q12");
         assert_eq!(spec.block, "sci-ideate");
-        assert_eq!(spec.expect, "O を 2 つ以上");
+        assert_eq!(spec.expect, "A を 2 つ以上");
         assert_eq!(spec.mode, "purpose_first");
         assert_eq!(spec.papers, vec![37, 40]);
         // 実行者が空なら `pi`（READ_CARD は `user` を書く）。

@@ -5,8 +5,11 @@
 //! 論文の検索そのもの（複数の DB への問い合わせ・セットへの保存）は paper-cli にあり、
 //! ライブラリには無い。そこで 2 つの検索の呼び方をそろえ、sai-sci は子として呼ぶ。
 
+use std::fmt::Write as _;
+
 use anyhow::{Context, Result, anyhow};
 use sai_paper_core::paths::project_root;
+use sai_paper_core::seen_ids;
 use sai_sci_core::bins;
 use sai_sci_core::rt;
 use serde_json::{Value, json};
@@ -52,7 +55,7 @@ pub struct FindArgs {
     /// 上位の結果に LLM の要約と関連度を付ける
     #[arg(long)]
     pub evidence: bool,
-    /// 検索の範囲を、この research-tree の Node（`Q12`・`O5` など）の下の F の論文に絞る。
+    /// 検索の範囲を、この research-tree の Node（`Q12`・`A5` など）の下の F の論文に絞る。
     /// 記録の結び付けには使わない（結び付けは環境変数 `SAI_TARGET_NODE`）
     #[arg(long)]
     pub node: Option<String>,
@@ -225,8 +228,9 @@ pub fn find(args: &FindArgs) -> Result<()> {
         },
     )?;
 
+    let mut text = String::new();
     if let Some(previous) = previous {
-        println!("{previous}");
+        writeln!(text, "{previous}")?;
     }
     if args.json {
         if let Some(name) = &node_name
@@ -234,12 +238,15 @@ pub fn find(args: &FindArgs) -> Result<()> {
         {
             log.insert("node".to_string(), json!({ "id": name }));
         }
-        println!("{}", serde_json::to_string(&value)?);
+        writeln!(text, "{}", serde_json::to_string(&value)?)?;
     } else {
         for hit in &hits {
-            println!("{}", hit_line(hit));
+            writeln!(text, "{}", hit_line(hit))?;
         }
     }
+    // 出した番号（`#37.5.2` など）は台帳に残す。照合は `op` の `add_f` で行う。
+    seen_ids::record(&text);
+    print!("{text}");
     Ok(())
 }
 

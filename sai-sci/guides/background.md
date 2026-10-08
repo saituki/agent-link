@@ -1,7 +1,6 @@
 ---
 key: background
 name: BACKGROUND
-target: 2
 ---
 # BACKGROUND
 

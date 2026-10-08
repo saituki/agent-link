@@ -1,7 +1,6 @@
 ---
 key: issue.root
 name: ISSUE_ROOT
-target: 2
 ---
 # ISSUE_ROOT
 

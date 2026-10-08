@@ -1,7 +1,7 @@
-//! research-tree の計算（Objectivity・Logicality・STAR_PATH・進み具合・SEED の下書き・Next Action・注意）と、
+//! research-tree の計算（Node の数・SPROUT の範囲・SEED の下書き・Next Action・注意）と、
 //! `status` / `node` の JSON（C-JSON）。CLI・Web・TUI はこの結果を写すだけにする。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -10,9 +10,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::defs::{Defs, GuideDef};
-use super::store::{self, LogRow, LogicRow, NodeRow, ProposalRow};
-use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, fmt_ref, ops, parse_id};
+use super::defs::Defs;
+use super::store::{self, LogRow, NodeRow};
+use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, ops, parse_id};
 use sai_paper_core::paths::PaperRoots;
 use crate::runs::read_frontmatter;
 
@@ -37,37 +37,63 @@ fn canonical_mind_heading(name: &str) -> &str {
 
 // ---- JSON の型 ----------------------------------------------------------------------
 
-/// Objectivity（target の数に届いたか）。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Objectivity {
-    pub count: i64,
-    pub target: i64,
-    pub met: bool,
+/// SPROUT の範囲（C5）。Q・A の数と、F の立場ごとの数。
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct Range {
+    pub q: i64,
+    pub a: i64,
+    pub f_support: i64,
+    pub f_deny: i64,
+    pub f_issue: i64,
 }
 
-/// Logicality（F どうしに矛盾が無いかの確かめ）。`value` は `ok` / `contradiction` / `unchecked`。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Logicality {
-    pub value: String,
-    pub note: String,
-    pub findings: Vec<String>,
-    pub checked_at: Option<String>,
+impl Range {
+    /// `Q 2・A 3・F 4（S 1 / D 2 / I 1）` の形（人が読む文）。
+    #[must_use]
+    pub fn line(&self) -> String {
+        format!("Q {}・A {}・{}", self.q, self.a, f_line(self.f_support, self.f_deny, self.f_issue))
+    }
 }
 
-/// 進み具合。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
-pub struct Progress {
-    pub answered: i64,
-    pub total: i64,
+/// F の立場ごとの数を `F 4（S 1 / D 2 / I 1）` の形にする（S は支持、D は反対、I は課題）。
+fn f_line(support: i64, deny: i64, issue: i64) -> String {
+    format!("F {}（S {support} / D {deny} / I {issue}）", support + deny + issue)
 }
 
 /// 直の子の種類ごとの数。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct Counts {
     pub q: i64,
-    pub o: i64,
+    pub a: i64,
     pub f: i64,
     pub e: i64,
+}
+
+/// `status.counts`。生きた Node の総数（種類と F の立場ごと）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct StatusCounts {
+    pub q: i64,
+    pub a: i64,
+    pub f_support: i64,
+    pub f_deny: i64,
+    pub f_issue: i64,
+    pub e: i64,
+    pub s: i64,
+}
+
+impl StatusCounts {
+    /// `Q 3・A 2・F 4（S 1 / D 2 / I 1）・E 0・S 1` の形（`state.md`・`tree.md`・`sci status` の文）。
+    #[must_use]
+    pub fn line(&self) -> String {
+        format!(
+            "Q {}・A {}・{}・E {}・S {}",
+            self.q,
+            self.a,
+            f_line(self.f_support, self.f_deny, self.f_issue),
+            self.e,
+            self.s
+        )
+    }
 }
 
 /// C-JSON の NodeRow。
@@ -81,23 +107,22 @@ pub struct NodeJson {
     pub text: String,
     pub body: String,
     pub guide: Option<String>,
-    pub answer_kind: Option<String>,
+    /// F の立場（F 以外は null）。
+    pub stance: Option<String>,
     pub starred: bool,
-    pub on_path: bool,
     pub bottom_q: bool,
-    /// SPROUT（kind S）の PATH（終点の O の ID）。S 以外は空。
+    /// SPROUT（kind S）の PATH（A の ID）。S 以外は空。
     pub paths: Vec<String>,
-    pub objectivity: Option<Objectivity>,
-    pub logicality: Option<Logicality>,
+    /// SPROUT の範囲（S だけ。他は null）。
+    pub range: Option<Range>,
     pub counts: Counts,
     pub cites: Vec<String>,
     pub paper: Option<i64>,
     pub run: Option<i64>,
+    /// MLflow の結び付け（E だけ）。
     pub mlflow: Option<String>,
     pub created_by: String,
     pub created_at: String,
-    /// この Node に付いた PENDING の PROPOSAL の数。
-    pub pending: usize,
 }
 
 /// Next Action 1 件。
@@ -125,6 +150,9 @@ pub struct Decision {
     pub detail: String,
     pub actor: String,
     pub at: String,
+    pub approved_by: Option<String>,
+    pub qid: Option<String>,
+    pub question: Option<String>,
 }
 
 /// 走っている run。
@@ -165,11 +193,10 @@ pub struct Status {
     pub legacy: bool,
     #[serde(rename = "type")]
     pub type_info: Option<TypeJson>,
-    pub progress: Progress,
+    pub counts: StatusCounts,
     pub nodes: Vec<NodeJson>,
     pub seed: SeedJson,
     pub next: Vec<NextAction>,
-    pub pending_proposals: usize,
     pub decisions: Vec<Decision>,
     /// 全 Node の History（`Add *` を除き、`at` の昇順）。
     pub history: Vec<StatusHistory>,
@@ -206,18 +233,6 @@ pub struct GuideJson {
     pub child_candidates: Vec<String>,
     pub extract: Vec<String>,
     pub pitfalls: Vec<String>,
-    pub target: i64,
-}
-
-/// `node_detail.logic` の 1 要素。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct LogicJson {
-    pub value: String,
-    pub note: String,
-    pub findings: Vec<String>,
-    pub f_count: i64,
-    pub run: Option<i64>,
-    pub created_at: String,
 }
 
 /// `node_detail.actions` の 1 要素。
@@ -226,22 +241,12 @@ pub struct ActionJson {
     pub run_id: i64,
     pub block: String,
     pub owner: String,
-    /// この run の対象の Node（`O12` など）。
+    /// この run の対象の Node（`A12` など）。
     pub node: Option<String>,
     /// task.md の global_round（無ければ null）。
     pub global_round: Option<i64>,
     pub purpose: String,
     pub occurred_at: String,
-}
-
-/// `node_detail.pending` の 1 要素。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct PendingJson {
-    pub id: String,
-    pub op: String,
-    pub payload: Value,
-    pub run: Option<i64>,
-    pub created_at: String,
 }
 
 /// `node_detail.searches` の 1 要素。
@@ -273,7 +278,7 @@ pub struct CreatorJson {
     pub owner: String,
     /// その run の global_round（見つからなければ null）。
     pub global_round: Option<i64>,
-    /// その run の対象の Node（F を作った run なら親の O など）。
+    /// その run の対象の Node（F を作った run なら親の A など）。
     pub node: Option<String>,
     pub purpose: String,
     /// Node の created_at。
@@ -298,7 +303,7 @@ pub struct SourceJson {
 /// `node_detail.history` の 1 行。init が先頭、残りは古い順。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HistoryJson {
-    /// `init` / `Add Q` / `Add O` / `Add F` / `Add E` / `Run` / rt_log の action（`edit` など）
+    /// `init` / `Add Q` / `Add A` / `Add F` / `Add E` / `Run` / rt_log の action（`edit` など）
     pub action: String,
     /// RFC3339（UTC）。DB の `YYYY-MM-DD HH:MM:SS` は UTC として読み替える。
     pub at: String,
@@ -309,6 +314,12 @@ pub struct HistoryJson {
     pub block: String,
     pub global_round: Option<i64>,
     pub round: Option<i64>,
+    /// 承認を使った行の承認した人（無ければ null）。
+    pub approved_by: Option<String>,
+    /// 承認の質問の ID（無ければ null）。
+    pub qid: Option<String>,
+    /// 承認の質問の文（無ければ null）。
+    pub question: Option<String>,
 }
 
 /// `node` の JSON。
@@ -319,11 +330,9 @@ pub struct NodeDetail {
     pub children: Vec<NodeJson>,
     pub subtree: Vec<NodeJson>,
     pub guide: Option<GuideJson>,
-    pub logic: Vec<LogicJson>,
     pub decisions: Vec<Decision>,
     pub actions: Vec<ActionJson>,
     pub creator: CreatorJson,
-    pub pending: Vec<PendingJson>,
     pub next: Vec<NextAction>,
     pub searches: Vec<SearchJson>,
     pub sources: Vec<SourceJson>,
@@ -340,25 +349,57 @@ pub struct Tree {
     index: HashMap<i64, usize>,
     kids: HashMap<i64, Vec<i64>>,
     depths: HashMap<i64, usize>,
-    path: HashSet<i64>,
     f_under: HashMap<i64, i64>,
-    objectivity: HashMap<i64, Objectivity>,
-    /// reverted でない確かめの記録（新しい順）。
-    logic_rows: Vec<LogicRow>,
-    logicality: HashMap<i64, Logicality>,
+    /// SPROUT（S）ごとの範囲。
+    sprout_ranges: HashMap<i64, Range>,
+    /// 対象の Node ごとの、一番新しい `sci-verify` の run の時刻（Next Action の規則 3）。
+    verified: HashMap<i64, DateTime<Utc>>,
     log: Vec<LogRow>,
-    pending: Vec<ProposalRow>,
     /// 消した Node も含む id → (kind, 文)。DECISIONS の表示に使う。
     labels: HashMap<i64, (Kind, String)>,
 }
 
-fn f_ids(ids: &[i64]) -> Vec<String> {
-    ids.iter().map(|id| fmt_id(Kind::F, *id)).collect()
+fn live_node(conn: &Connection, id: i64) -> Option<NodeRow> {
+    store::get_node(conn, id).ok().filter(|n| n.removed_at.is_none())
+}
+
+/// SPROUT の範囲。`paths` の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集め（重ならないように数える）、
+/// Q・A の数と F の立場ごとの数を出す。A の子の Q 以下は入れない。消えた A は数えない。
+pub fn sprout_range(conn: &Connection, paths: &[i64]) -> Result<Range> {
+    let mut ids: BTreeSet<i64> = BTreeSet::new();
+    for &a in paths {
+        let Some(node) = live_node(conn, a) else { continue };
+        ids.insert(a);
+        let mut at = node.parent_id;
+        while let Some(p) = at {
+            let Some(parent) = live_node(conn, p) else { break };
+            if matches!(parent.kind, Kind::Q | Kind::A) {
+                ids.insert(p);
+            }
+            at = parent.parent_id;
+        }
+        for f in store::children(conn, a)?.into_iter().filter(|k| k.kind == Kind::F) {
+            ids.insert(f.id);
+        }
+    }
+    let mut range = Range::default();
+    for id in ids {
+        let Some(n) = live_node(conn, id) else { continue };
+        match (n.kind, n.stance.as_deref()) {
+            (Kind::Q, _) => range.q += 1,
+            (Kind::A, _) => range.a += 1,
+            (Kind::F, Some("support")) => range.f_support += 1,
+            (Kind::F, Some("deny")) => range.f_deny += 1,
+            (Kind::F, _) => range.f_issue += 1,
+            _ => {}
+        }
+    }
+    Ok(range)
 }
 
 impl Tree {
     /// research-tree を読む。
-    pub fn load(conn: &Connection, _roots: &PaperRoots, defs: &Defs) -> Result<Tree> {
+    pub fn load(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Tree> {
         let all = store::list_nodes(conn, true)?;
         let labels: HashMap<i64, (Kind, String)> =
             all.iter().map(|n| (n.id, (n.kind, n.text.clone()))).collect();
@@ -370,37 +411,18 @@ impl Tree {
 
         let mut nodes: Vec<NodeRow> = Vec::new();
         let mut depths = HashMap::new();
-        let mut path = HashSet::new();
         let mut kids: HashMap<i64, Vec<i64>> = HashMap::new();
         let roots_none: Vec<NodeRow> = by_parent.remove(&None).unwrap_or_default();
         let mut stack: Vec<(NodeRow, usize)> = Vec::new();
         // 親の無い生きた Q（top_Q）を (ord, id) の順に DFS の起点にし、そのあとに SPROUT（kind S）を並べる。
         // `roots_none` は `(parent_id, ord, id)` 順なので、Q も S もこの順のまま。
-        let mut roots: Vec<NodeRow> = Vec::new();
-        roots.extend(roots_none.iter().filter(|n| n.kind == Kind::Q).cloned());
-        roots.extend(roots_none.iter().filter(|n| n.kind == Kind::S).cloned());
-        for n in roots.into_iter().rev() {
+        let mut top: Vec<NodeRow> = Vec::new();
+        top.extend(roots_none.iter().filter(|n| n.kind == Kind::Q).cloned());
+        top.extend(roots_none.iter().filter(|n| n.kind == Kind::S).cloned());
+        for n in top.into_iter().rev() {
             stack.push((n, 0));
         }
         while let Some((n, depth)) = stack.pop() {
-            let on = match n.parent_id {
-                None => true,
-                Some(p) if path.contains(&p) => {
-                    let parent_kind = labels[&p].0;
-                    match (parent_kind, n.kind) {
-                        (Kind::Q, Kind::Q) => true,
-                        (Kind::Q, Kind::O) => n.starred,
-                        (Kind::O, _) => true,
-                        (Kind::E, Kind::F | Kind::E) => true,
-                        (Kind::S, Kind::E) => true,
-                        _ => false,
-                    }
-                }
-                Some(_) => false,
-            };
-            if on {
-                path.insert(n.id);
-            }
             depths.insert(n.id, depth);
             let children = by_parent.remove(&Some(n.id)).unwrap_or_default();
             kids.insert(n.id, children.iter().map(|c| c.id).collect());
@@ -421,87 +443,37 @@ impl Tree {
             f_under.insert(n.id, total);
         }
 
-        let mut tree = Tree {
+        let sprouts: Vec<(i64, Vec<i64>)> =
+            nodes.iter().filter(|n| n.kind == Kind::S).map(|n| (n.id, n.paths.clone())).collect();
+        let mut sprout_ranges = HashMap::new();
+        for (id, paths) in sprouts {
+            sprout_ranges.insert(id, sprout_range(conn, &paths)?);
+        }
+
+        let mut verified: HashMap<i64, DateTime<Utc>> = HashMap::new();
+        for run in action::sci_runs(roots).iter().filter(|r| r.block == "sci-verify") {
+            let (Some((_, id)), Some(at)) = (run.keys.node, utc_at(&run.occurred_at)) else { continue };
+            let slot = verified.entry(id).or_insert(at);
+            *slot = (*slot).max(at);
+        }
+
+        Ok(Tree {
             defs: defs.clone(),
             type_id: store::meta_get(conn, "type")?,
             nodes,
             index,
             kids,
             depths,
-            path,
             f_under,
-            objectivity: HashMap::new(),
-            logic_rows: Vec::new(),
-            logicality: HashMap::new(),
+            sprout_ranges,
+            verified,
             log: store::list_log(conn, None)?,
-            pending: store::list_proposals(conn, Some("pending"))?,
             labels,
-        };
-
-        // Objectivity（child_Q の判定を使うので逆順）。
-        let order: Vec<i64> =
-            tree.nodes.iter().rev().filter(|n| n.kind == Kind::Q).map(|n| n.id).collect();
-        for id in order {
-            let value = tree.compute_objectivity(id);
-            tree.objectivity.insert(id, value);
-        }
-
-        // Logicality。
-        let reverted: HashSet<i64> = store::list_proposals(conn, Some("reverted"))?
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
-        tree.logic_rows = store::list_logic(conn, None)?
-            .into_iter()
-            .filter(|r| !r.proposal_id.is_some_and(|p| reverted.contains(&p)))
-            .collect();
-        for row in &tree.logic_rows {
-            if tree.index.contains_key(&row.q_id) && !tree.logicality.contains_key(&row.q_id) {
-                let fresh = tree.f_under[&row.q_id] == row.f_count;
-                tree.logicality.insert(
-                    row.q_id,
-                    Logicality {
-                        value: if fresh { row.value.clone() } else { "unchecked".into() },
-                        note: row.note.clone(),
-                        findings: f_ids(&row.findings),
-                        checked_at: Some(row.created_at.clone()),
-                    },
-                );
-            }
-        }
-        Ok(tree)
+        })
     }
 
     fn kid_nodes(&self, id: i64) -> impl Iterator<Item = &NodeRow> {
         self.kids.get(&id).into_iter().flatten().map(|k| &self.nodes[self.index[k]])
-    }
-
-    /// O（または E・S）に付いた F の数。O・E・S の下だけをたどり、Q の下には入らない。
-    fn f_direct(&self, id: i64) -> i64 {
-        self.kid_nodes(id)
-            .map(|k| match k.kind {
-                Kind::F => 1,
-                Kind::E => self.f_direct(k.id),
-                _ => 0,
-            })
-            .sum()
-    }
-
-    fn compute_objectivity(&self, id: i64) -> Objectivity {
-        let q_kids: Vec<&NodeRow> = self.kid_nodes(id).filter(|k| k.kind == Kind::Q).collect();
-        if q_kids.is_empty() {
-            let node = &self.nodes[self.index[&id]];
-            let count = self.kid_nodes(id).filter(|k| k.kind == Kind::O).map(|o| self.f_direct(o.id)).sum();
-            let target = node
-                .target
-                .or_else(|| node.guide_key.as_deref().and_then(|k| self.defs.guide(k)).map(|g| g.target))
-                .unwrap_or(2);
-            Objectivity { count, target, met: count >= target }
-        } else {
-            let count = q_kids.iter().filter(|k| self.objectivity[&k.id].met).count() as i64;
-            let target = q_kids.len() as i64;
-            Objectivity { count, target, met: count == target }
-        }
     }
 
     /// 生きた Node（research-tree の順）。
@@ -516,41 +488,17 @@ impl Tree {
         self.index.get(&id).map(|i| &self.nodes[*i])
     }
 
-    /// top_Q（親の無い Q）が 0。
+    /// 深さ（top_Q が 0）。
     #[must_use]
     pub fn depth(&self, id: i64) -> usize {
         self.depths.get(&id).copied().unwrap_or(0)
     }
 
-    /// 生きた bottom_Q か。
+    /// 生きた bottom_Q か（生きた子の Q が無い Q）。
     #[must_use]
     pub fn is_bottom_q(&self, id: i64) -> bool {
         self.node(id).is_some_and(|n| n.kind == Kind::Q)
             && !self.kid_nodes(id).any(|k| k.kind == Kind::Q)
-    }
-
-    /// STAR_PATH の上か。
-    #[must_use]
-    pub fn on_path(&self, id: i64) -> bool {
-        self.path.contains(&id)
-    }
-
-    /// Q の Objectivity。
-    #[must_use]
-    pub fn objectivity(&self, id: i64) -> Option<Objectivity> {
-        self.objectivity.get(&id).cloned()
-    }
-
-    /// Q の Logicality。
-    #[must_use]
-    pub fn logicality(&self, id: i64) -> Option<Logicality> {
-        self.node(id).filter(|n| n.kind == Kind::Q)?;
-        Some(self.logicality.get(&id).cloned().unwrap_or(Logicality {
-            value: "unchecked".into(),
-            note: String::new(),
-            findings: Vec::new(),
-            checked_at: None,
-        }))
     }
 
     /// 子孫の生きた F の数。
@@ -559,19 +507,28 @@ impl Tree {
         self.f_under.get(&id).copied().unwrap_or(0)
     }
 
-    /// 進み具合。
+    /// SPROUT（S）の範囲。S 以外や無いときは `None`。
     #[must_use]
-    pub fn progress(&self) -> Progress {
-        let mut p = Progress::default();
+    pub fn range(&self, id: i64) -> Option<&Range> {
+        self.sprout_ranges.get(&id)
+    }
+
+    /// 生きた Node の総数（`status.counts`）。
+    #[must_use]
+    pub fn counts(&self) -> StatusCounts {
+        let mut c = StatusCounts::default();
         for n in &self.nodes {
-            if n.kind == Kind::Q && self.on_path(n.id) && self.is_bottom_q(n.id) {
-                p.total += 1;
-                if self.kid_nodes(n.id).any(|k| k.kind == Kind::O && k.starred) {
-                    p.answered += 1;
-                }
+            match (n.kind, n.stance.as_deref()) {
+                (Kind::Q, _) => c.q += 1,
+                (Kind::A, _) => c.a += 1,
+                (Kind::F, Some("support")) => c.f_support += 1,
+                (Kind::F, Some("deny")) => c.f_deny += 1,
+                (Kind::F, _) => c.f_issue += 1,
+                (Kind::E, _) => c.e += 1,
+                (Kind::S, _) => c.s += 1,
             }
         }
-        p
+        c
     }
 
     /// RESEARCH_TYPE の表示名（型が分からなければ id、それも無ければ `None`）。
@@ -589,10 +546,10 @@ impl Tree {
         for k in self.kid_nodes(id) {
             match k.kind {
                 Kind::Q => counts.q += 1,
-                Kind::O => counts.o += 1,
+                Kind::A => counts.a += 1,
                 Kind::F => counts.f += 1,
                 Kind::E => counts.e += 1,
-                // SPROUT（S）は Q・O・F・E の数のどれにも入れない。
+                // SPROUT（S）は Q・A・F・E の数のどれにも入れない。
                 Kind::S => {}
             }
         }
@@ -606,17 +563,15 @@ impl Tree {
             text: n.text.clone(),
             body: n.body.clone(),
             guide: if is_q { n.guide_key.clone() } else { None },
-            answer_kind: if n.kind == Kind::O { n.answer_kind.clone() } else { None },
-            starred: n.kind == Kind::O && n.starred,
-            on_path: self.on_path(id),
+            stance: n.stance.clone(),
+            starred: n.starred,
             bottom_q: is_q && self.is_bottom_q(id),
             paths: if n.kind == Kind::S {
-                n.paths.iter().map(|o| self.label(*o).0).collect()
+                n.paths.iter().map(|a| self.label(*a).0).collect()
             } else {
                 Vec::new()
             },
-            objectivity: self.objectivity(id),
-            logicality: self.logicality(id),
+            range: self.sprout_ranges.get(&id).cloned(),
             counts,
             cites: n.cites.clone(),
             paper: n.paper_id,
@@ -624,18 +579,7 @@ impl Tree {
             mlflow: n.mlflow_ref.clone(),
             created_by: n.created_by.clone(),
             created_at: n.created_at.clone(),
-            pending: self.pending.iter().filter(|p| p.node_id == Some(id)).count(),
         }
-    }
-
-    /// 生きた SPROUT（kind S）の `paths` に入っている O の id。
-    #[must_use]
-    pub fn sprout_o_ids(&self) -> HashSet<i64> {
-        self.nodes
-            .iter()
-            .filter(|n| n.kind == Kind::S)
-            .flat_map(|n| n.paths.iter().copied())
-            .collect()
     }
 
     fn label(&self, id: i64) -> (String, String) {
@@ -653,6 +597,9 @@ impl Tree {
             detail: row.detail.clone(),
             actor: row.actor.clone(),
             at: row.created_at.clone(),
+            approved_by: row.approved_by.clone(),
+            qid: row.qid.clone(),
+            question: row.question.clone(),
         }
     }
 }
@@ -715,77 +662,57 @@ fn strip_comments(lines: &[String]) -> String {
 
 // ---- Next Action ----------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-fn card_action(
-    node: (Kind, i64),
-    option: Option<i64>,
-    block: &str,
-    purpose: String,
-    expect: String,
-    why: &str,
-    q: i64,
-) -> NextAction {
-    let card_node = fmt_id(if option.is_some() { Kind::O } else { node.0 }, option.unwrap_or(node.1));
+/// Next Action 1 件（C6）。`child` は規則 2 だけが足す子の型（`F`）。
+fn card_action(node: &NodeRow, block: &str, purpose: String, expect: &str, why: &str, child: Option<&str>) -> NextAction {
+    let card_node = fmt_id(node.kind, node.id);
+    let mut card = json!({"node": card_node, "block": block, "purpose": purpose, "expect": expect, "runner": "pi"});
+    if let Some(child) = child {
+        card["child"] = json!(child);
+    }
     NextAction {
         kind: "card".into(),
-        node: Some(card_node.clone()),
-        option: option.map(|o| fmt_id(Kind::O, o)),
+        node: Some(card_node),
+        option: None,
         block: Some(block.into()),
-        card: Some(json!({
-            "node": card_node, "block": block, "purpose": purpose, "expect": expect, "runner": "pi",
-        })),
+        card: Some(card),
         purpose,
-        expect,
+        expect: expect.into(),
         why: why.into(),
-        targets: [Some(q), option].into_iter().flatten().collect(),
+        targets: vec![node.id],
     }
 }
 
 impl Tree {
-    /// 道の上の bottom_Q 1 つに出す Next Action（順 2〜6 の最初に当てはまる 1 つ）。
-    fn q_action(&self, q: &NodeRow) -> Option<(u8, NextAction)> {
-        if !self.is_bottom_q(q.id) {
-            return None;
+    /// Node 1 つに出す Next Action（C6 の 3 規則の最初に当てはまる 1 つ）。
+    fn action_of(&self, n: &NodeRow) -> Option<(u8, NextAction)> {
+        match n.kind {
+            Kind::Q if self.kid_nodes(n.id).next().is_none() => Some((
+                1,
+                card_action(n, "lab-grow", format!("「{}」の子（A か child_Q）を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
+            )),
+            Kind::A if !self.kid_nodes(n.id).any(|k| k.kind == Kind::F) => Some((
+                2,
+                card_action(n, "lab-search", format!("「{}」の F を探す", n.text), "F を 1 つ以上", "NO_FINDING", Some("F")),
+            )),
+            Kind::Q | Kind::A if self.unverified(n) => Some((
+                3,
+                card_action(n, "sci-verify", format!("「{}」と子の関係を確かめる", n.text), "評価の報告と op", "UNVERIFIED", None),
+            )),
+            _ => None,
         }
-        let me = (Kind::Q, q.id);
-        let options: Vec<&NodeRow> = self.kid_nodes(q.id).filter(|k| k.kind == Kind::O).collect();
-        let candidates = q
-            .guide_key
-            .as_deref()
-            .and_then(|k| self.defs.guide(k))
-            .is_some_and(|g: &GuideDef| !g.child_candidates.is_empty());
-        if candidates && options.is_empty() {
-            return Some((2, card_action(me, None, "sci-split", format!("「{}」を child_Q に分ける", q.text), "child_Q の案を 2 つ以上".into(), "NO_CHILD_Q", q.id)));
+    }
+
+    /// 生きた子が 1 つ以上あり、`sci-verify` の run がその Node を対象にしたことが無い、
+    /// または一番新しい子の `created_at` が一番新しい検証の時刻より後（規則 3）。
+    fn unverified(&self, n: &NodeRow) -> bool {
+        let kids: Vec<&NodeRow> = self.kid_nodes(n.id).collect();
+        if kids.is_empty() {
+            return false;
         }
-        if options.is_empty() {
-            return Some((3, card_action(me, None, "sci-ideate", format!("「{}」の答えの候補（O）を出す", q.text), "O を 2 つ以上".into(), "NO_OPTION", q.id)));
+        match self.verified.get(&n.id) {
+            None => true,
+            Some(run) => kids.iter().filter_map(|k| utc_at(&k.created_at)).max().is_some_and(|child| child > *run),
         }
-        let obj = self.objectivity(q.id)?;
-        if !obj.met {
-            let o = options.iter().min_by_key(|o| (self.f_direct(o.id), !o.starred, o.ord))?;
-            return Some((4, card_action(me, Some(o.id), "sci-search", format!("「{}」の F を探す", o.text), format!("F を {} つ以上", obj.target - obj.count), "FEW_FINDINGS", q.id)));
-        }
-        if self.f_count_under(q.id) >= 2 {
-            let value = self.logicality(q.id)?.value;
-            if value != "ok" {
-                let why = if value == "contradiction" { "CONTRADICTION" } else { "UNCHECKED" };
-                return Some((5, card_action(me, None, "sci-debate", format!("「{}」の F どうしに矛盾が無いか確かめる", q.text), "Logicality を記録する".into(), why, q.id)));
-            }
-        }
-        if !options.iter().any(|o| o.starred) {
-            return Some((6, NextAction {
-                kind: "user".into(),
-                node: Some(fmt_id(Kind::Q, q.id)),
-                option: None,
-                block: None,
-                purpose: format!("「{}」の ★ を選ぶ（あなたが選ぶ）", q.text),
-                expect: "★ を 1 つ以上".into(),
-                why: "NO_STAR".into(),
-                card: None,
-                targets: vec![q.id],
-            }));
-        }
-        None
     }
 }
 
@@ -793,79 +720,14 @@ impl Tree {
 #[must_use]
 pub fn next_actions(tree: &Tree, limit: usize) -> Vec<NextAction> {
     let mut ranked: Vec<(u8, usize, NextAction)> = Vec::new();
-    // どの生きた SPROUT の paths にも入っていない Issue の O にだけ NO_EXPERIMENT を出す。
-    let sprouted = tree.sprout_o_ids();
     for (pos, n) in tree.nodes.iter().enumerate() {
-        if n.kind != Kind::Q || !tree.on_path(n.id) {
-            continue;
-        }
-        if let Some((rank, a)) = tree.q_action(n) {
+        if let Some((rank, a)) = tree.action_of(n) {
             ranked.push((rank, pos, a));
-        }
-        if tree.is_bottom_q(n.id) {
-            for o in tree.kid_nodes(n.id) {
-                let issue = o.kind == Kind::O && o.answer_kind.as_deref() == Some("issue");
-                if issue && !sprouted.contains(&o.id) {
-                    // SPROUT を作るのは SEED 全体の仕事なので、CARD の対象は SEED。
-                    let purpose = format!("「{}」（{}）を含む SPROUT を作る", o.text, fmt_id(Kind::O, o.id));
-                    let card = json!({
-                        "node": SEED_ID, "block": "sci-exp-sprout", "purpose": purpose,
-                        "expect": "SPROUT と最初の BRANCH", "runner": "pi",
-                    });
-                    let a = NextAction {
-                        kind: "card".into(),
-                        node: Some(SEED_ID.to_string()),
-                        option: Some(fmt_id(Kind::O, o.id)),
-                        block: Some("sci-exp-sprout".into()),
-                        purpose,
-                        expect: "SPROUT と最初の BRANCH".into(),
-                        why: "NO_EXPERIMENT".into(),
-                        card: Some(card),
-                        targets: vec![n.id, o.id],
-                    };
-                    ranked.push((7, tree.index[&o.id], a));
-                }
-            }
-        }
-    }
-    // 全体の確かめ: 進み具合が済んでいて、Logicality が ok でない top_Q が 1 つ以上あるとき。
-    let progress = tree.progress();
-    if progress.total > 0 && progress.answered == progress.total {
-        let targets: Vec<i64> = tree
-            .nodes
-            .iter()
-            .filter(|n| n.kind == Kind::Q && n.parent_id.is_none() && tree.on_path(n.id))
-            .filter(|n| tree.logicality(n.id).is_some_and(|l| l.value != "ok"))
-            .map(|n| n.id)
-            .collect();
-        if !targets.is_empty() {
-            let contradiction = targets
-                .iter()
-                .any(|id| tree.logicality(*id).is_some_and(|l| l.value == "contradiction"));
-            let why = if contradiction { "CONTRADICTION" } else { "UNCHECKED" };
-            let purpose = "research-tree の全体の F どうしに矛盾が無いか確かめる".to_string();
-            let card = json!({
-                "node": SEED_ID, "block": "sci-review", "purpose": purpose,
-                "expect": "各 top_Q に Logicality を記録する", "runner": "pi",
-            });
-            ranked.push((5, 0, NextAction {
-                kind: "card".into(),
-                node: Some(SEED_ID.to_string()),
-                option: None,
-                block: Some("sci-review".into()),
-                purpose,
-                expect: "各 top_Q に Logicality を記録する".into(),
-                why: why.into(),
-                card: Some(card),
-                targets,
-            }));
         }
     }
     ranked.sort_by_key(|(rank, pos, _)| (*rank, *pos));
     ranked.into_iter().map(|(_, _, a)| a).take(limit).collect()
 }
-
-// ---- ブロック定義の注意 -----------------------------------------------------------------
 
 fn split_csv(value: &str) -> Vec<String> {
     value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
@@ -911,8 +773,6 @@ pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
     out
 }
 
-// ---- status / node_detail -------------------------------------------------------------
-
 /// DB の時刻（`YYYY-MM-DD HH:MM:SS`、UTC）や RFC3339 の時刻を UTC の RFC3339 に直す。読めなければ元の文字のまま。
 fn rfc3339_utc(text: &str) -> String {
     let text = text.trim();
@@ -923,6 +783,11 @@ fn rfc3339_utc(text: &str) -> String {
         return dt.with_timezone(&Utc).to_rfc3339();
     }
     text.to_string()
+}
+
+/// 時刻の文（DB の UTC か RFC3339）を UTC の時刻にする。読めなければ `None`。
+fn utc_at(text: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(&rfc3339_utc(text)).ok().map(|at| at.with_timezone(&Utc))
 }
 
 /// `run:<N>` から N を読む（`creator_json` と同じ読み方）。
@@ -943,6 +808,8 @@ fn running_runs(roots: &PaperRoots) -> Vec<RunningJson> {
         .collect()
 }
 
+// ---- status / node_detail -------------------------------------------------------------
+
 /// `status` の JSON。
 pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Status> {
     let initialized = store::is_initialized(conn)?;
@@ -957,11 +824,10 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
         initialized,
         legacy,
         type_info: None,
-        progress: Progress::default(),
+        counts: StatusCounts::default(),
         nodes: Vec::new(),
         seed: SeedJson::default(),
         next: Vec::new(),
-        pending_proposals: 0,
         decisions: Vec::new(),
         history: Vec::new(),
         running: Vec::new(),
@@ -980,7 +846,7 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
             }
         }
     }
-    out.progress = tree.progress();
+    out.counts = tree.counts();
     out.nodes = tree.nodes.iter().map(|n| tree.row(n.id)).collect();
     out.seed = SeedJson {
         type_info: out.type_info.clone(),
@@ -990,7 +856,6 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
             .collect(),
     };
     out.next = next_actions(&tree, 10);
-    out.pending_proposals = tree.pending.len();
     out.decisions = tree.log.iter().take(30).map(|r| tree.decision(r)).collect();
     // 全 Node の History。`Add *` は子の `init` と同じ出来事なので捨てる。at の安定ソートで古い順にする。
     let runs = action::sci_runs(roots);
@@ -1023,13 +888,23 @@ fn history_json(node: &NodeRow, num: i64, tree: &Tree, runs: &[action::SciRun]) 
         rank: u8,
         at: String,
         pos: usize,
-        action: String,
-        by: String,
-        run_id: Option<i64>,
-        block: String,
-        global_round: Option<i64>,
-        round: Option<i64>,
+        entry: HistoryJson,
     }
+    let plain = |action: String, at: String, by: String, run_id: Option<i64>, run: Option<&action::SciRun>| {
+        let (block, global_round, round) = fill(run);
+        HistoryJson {
+            action,
+            at,
+            by,
+            run_id,
+            block,
+            global_round,
+            round,
+            approved_by: None,
+            qid: None,
+            question: None,
+        }
+    };
     let mut rows: Vec<Row> = Vec::new();
     let mut pos = 0;
     // Add: この Node の生きている直の子ごとに 1 行。
@@ -1037,134 +912,45 @@ fn history_json(node: &NodeRow, num: i64, tree: &Tree, runs: &[action::SciRun]) 
         let Some(k) = tree.node(*kid) else { continue };
         let by = k.created_by.clone();
         let run_id = run_id_of(&by);
-        let (block, global_round, round) = fill(run_of(run_id));
-        rows.push(Row {
-            rank: 0,
-            at: rfc3339_utc(&k.created_at),
-            pos,
-            action: format!("Add {}", k.kind.as_str()),
-            by,
-            run_id,
-            block,
-            global_round,
-            round,
-        });
+        let entry = plain(format!("Add {}", k.kind.as_str()), rfc3339_utc(&k.created_at), by, run_id, run_of(run_id));
+        rows.push(Row { rank: 0, at: entry.at.clone(), pos, entry });
         pos += 1;
     }
     // Run: この Node を対象にする run ごとに 1 行（子孫の run は入れない）。
     for r in runs.iter().filter(|r| r.keys.node.is_some_and(|(_, n)| n == num)) {
-        rows.push(Row {
-            rank: 1,
-            at: rfc3339_utc(&r.occurred_at),
-            pos,
+        let entry = HistoryJson {
             action: "Run".into(),
+            at: rfc3339_utc(&r.occurred_at),
             by: format!("run:{}", r.run_id),
             run_id: Some(r.run_id),
             block: r.block.clone(),
             global_round: r.global_round,
             round: r.round,
-        });
+            approved_by: None,
+            qid: None,
+            question: None,
+        };
+        rows.push(Row { rank: 1, at: entry.at.clone(), pos, entry });
         pos += 1;
     }
     // 決定: `rt_log` のうちこの Node の行ごとに 1 行。
     for row in tree.log.iter().filter(|r| r.node_id == num) {
         let run_id = run_id_of(&row.actor);
-        let (block, global_round, round) = fill(run_of(run_id));
-        rows.push(Row {
-            rank: 2,
-            at: rfc3339_utc(&row.created_at),
-            pos,
-            action: row.action.clone(),
-            by: row.actor.clone(),
-            run_id,
-            block,
-            global_round,
-            round,
-        });
+        let mut entry = plain(row.action.clone(), rfc3339_utc(&row.created_at), row.actor.clone(), run_id, run_of(run_id));
+        entry.approved_by = row.approved_by.clone();
+        entry.qid = row.qid.clone();
+        entry.question = row.question.clone();
+        rows.push(Row { rank: 2, at: entry.at.clone(), pos, entry });
         pos += 1;
     }
     rows.sort_by(|a, b| a.at.cmp(&b.at).then(a.rank.cmp(&b.rank)).then(a.pos.cmp(&b.pos)));
     // init: 必ず 1 行・先頭。
     let by = node.created_by.clone();
     let run_id = run_id_of(&by);
-    let (block, global_round, round) = fill(run_of(run_id));
-    let mut out = vec![HistoryJson {
-        action: "init".into(),
-        at: rfc3339_utc(&node.created_at),
-        by,
-        run_id,
-        block,
-        global_round,
-        round,
-    }];
-    out.extend(rows.into_iter().map(|r| HistoryJson {
-        action: r.action,
-        at: r.at,
-        by: r.by,
-        run_id: r.run_id,
-        block: r.block,
-        global_round: r.global_round,
-        round: r.round,
-    }));
+    let init = plain("init".into(), rfc3339_utc(&node.created_at), by, run_id, run_of(run_id));
+    let mut out = vec![init];
+    out.extend(rows.into_iter().map(|r| r.entry));
     out
-}
-
-/// この Node を作った人と run を並べる。
-fn creator_json(node: &NodeRow, runs: &[action::SciRun]) -> CreatorJson {
-    let by = node.created_by.clone();
-    let run_id = by.strip_prefix("run:").and_then(|s| s.trim().parse::<i64>().ok());
-    let run = run_id.and_then(|id| runs.iter().find(|r| r.run_id == id));
-    CreatorJson {
-        by,
-        run_id,
-        block: run.map(|r| r.block.clone()).unwrap_or_default(),
-        owner: run.map(|r| r.owner.clone()).unwrap_or_default(),
-        global_round: run.and_then(|r| r.global_round),
-        node: run.and_then(|r| r.keys.node.map(|(k, n)| fmt_id(k, n))),
-        purpose: run.map(|r| r.keys.purpose.clone()).unwrap_or_default(),
-        at: node.created_at.clone(),
-    }
-}
-
-/// cites 1 つから論文・節・塊を引く。表が無い・無ければ空や null にする。
-fn source_json(conn: &Connection, cite: &str) -> SourceJson {
-    let parsed = sai_paper_core::textcheck::parse_cite(cite);
-    let paper = parsed.as_ref().map(|c| c.paper);
-    let sec = parsed.as_ref().and_then(|c| c.section);
-    let title = paper
-        .and_then(|id| {
-            conn.query_row("SELECT title FROM papers WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
-                .optional()
-                .ok()
-                .flatten()
-        })
-        .unwrap_or_default();
-    let section = match (paper, sec) {
-        (Some(id), Some(sec)) => conn
-            .query_row(
-                "SELECT heading FROM paper_sections WHERE paper_id = ?1 AND sec_no = ?2",
-                params![id, sec],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()
-            .ok()
-            .flatten(),
-        _ => None,
-    };
-    let passage = match (paper, sec, parsed.as_ref().and_then(|c| c.passage)) {
-        (Some(id), Some(sec), Some(pas)) => conn
-            .query_row(
-                "SELECT text FROM paper_passages WHERE paper_id = ?1 AND sec_no = ?2 AND pas_no = ?3",
-                params![id, sec, pas],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()
-            .ok()
-            .flatten()
-            .map(|t| t.chars().take(200).collect()),
-        _ => None,
-    };
-    SourceJson { cite: cite.to_string(), paper, title, section, passage }
 }
 
 /// `node` の JSON。
@@ -1225,36 +1011,10 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
             child_candidates: g.child_candidates.clone(),
             extract: g.extract.clone(),
             pitfalls: g.pitfalls.clone(),
-            target: g.target,
         }),
-        logic: tree
-            .logic_rows
-            .iter()
-            .filter(|r| is_q && r.q_id == num)
-            .map(|r| LogicJson {
-                value: r.value.clone(),
-                note: r.note.clone(),
-                findings: f_ids(&r.findings),
-                f_count: r.f_count,
-                run: r.run_id,
-                created_at: r.created_at.clone(),
-            })
-            .collect(),
         decisions: tree.log.iter().filter(|r| family_set.contains(&r.node_id)).take(30).map(|r| tree.decision(r)).collect(),
         actions,
         creator,
-        pending: tree
-            .pending
-            .iter()
-            .filter(|p| p.node_id == Some(num))
-            .map(|p| PendingJson {
-                id: fmt_ref('P', p.id),
-                op: p.op.clone(),
-                payload: p.payload.clone(),
-                run: p.run_id,
-                created_at: p.created_at.clone(),
-            })
-            .collect(),
         next: next_actions(&tree, usize::MAX).into_iter().filter(|a| a.targets.contains(&num)).take(3).collect(),
         searches: store::list_searches(conn, Some(num))?
             .into_iter()
@@ -1268,14 +1028,71 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
     })
 }
 
+/// この Node を作った人と run を並べる。
+fn creator_json(node: &NodeRow, runs: &[action::SciRun]) -> CreatorJson {
+    let by = node.created_by.clone();
+    let run_id = by.strip_prefix("run:").and_then(|s| s.trim().parse::<i64>().ok());
+    let run = run_id.and_then(|id| runs.iter().find(|r| r.run_id == id));
+    CreatorJson {
+        by,
+        run_id,
+        block: run.map(|r| r.block.clone()).unwrap_or_default(),
+        owner: run.map(|r| r.owner.clone()).unwrap_or_default(),
+        global_round: run.and_then(|r| r.global_round),
+        node: run.and_then(|r| r.keys.node.map(|(k, n)| fmt_id(k, n))),
+        purpose: run.map(|r| r.keys.purpose.clone()).unwrap_or_default(),
+        at: node.created_at.clone(),
+    }
+}
+
+/// cites 1 つから論文・節・塊を引く。表が無い・無ければ空や null にする。
+fn source_json(conn: &Connection, cite: &str) -> SourceJson {
+    let parsed = sai_paper_core::textcheck::parse_cite(cite);
+    let paper = parsed.as_ref().map(|c| c.paper);
+    let sec = parsed.as_ref().and_then(|c| c.section);
+    let title = paper
+        .and_then(|id| {
+            conn.query_row("SELECT title FROM papers WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
+                .optional()
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_default();
+    let section = match (paper, sec) {
+        (Some(id), Some(sec)) => conn
+            .query_row(
+                "SELECT heading FROM paper_sections WHERE paper_id = ?1 AND sec_no = ?2",
+                params![id, sec],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten(),
+        _ => None,
+    };
+    let passage = match (paper, sec, parsed.as_ref().and_then(|c| c.passage)) {
+        (Some(id), Some(sec), Some(pas)) => conn
+            .query_row(
+                "SELECT text FROM paper_passages WHERE paper_id = ?1 AND sec_no = ?2 AND pas_no = ?3",
+                params![id, sec, pas],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .map(|t| t.chars().take(200).collect()),
+        _ => None,
+    };
+    SourceJson { cite: cite.to_string(), paper, title, section, passage }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake_link;
     use sai_paper_core::database::Database;
-    use std::path::PathBuf;
 
     struct Env {
-        dir: PathBuf,
         roots: PaperRoots,
         db: Database,
     }
@@ -1288,482 +1105,170 @@ mod tests {
         fs::create_dir_all(dir.join(".sai/blocks")).unwrap();
         let db = Database::open(&data_dir.join("papr.db")).unwrap();
         store::meta_set(db.connection(), "initialized_at", "2026-10-02 00:00:00").unwrap();
-        Env { roots: PaperRoots { root: dir.clone(), data_dir }, dir, db }
+        Env { roots: PaperRoots { root: dir, data_dir }, db }
     }
 
-    fn add(e: &Env, kind: Kind, parent: Option<i64>, text: &str, guide: Option<&str>, answer: Option<&str>) -> i64 {
+    fn add(e: &Env, kind: Kind, parent: Option<i64>, text: &str, stance: Option<&str>) -> i64 {
         let n = store::NewNode {
-            kind, parent_id: parent, guide_key: guide, text, body: "", answer_kind: answer, cites: &[],
-            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
-            paths: &[], created_by: "user",
+            kind, parent_id: parent, guide_key: None, text, body: "", stance, cites: &[],
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, paths: &[], created_by: "user",
         };
         store::insert_node(e.db.connection(), &n).unwrap()
     }
 
-    fn q(e: &Env, parent: Option<i64>, text: &str, guide: Option<&str>) -> i64 {
-        add(e, Kind::Q, parent, text, guide, None)
+    fn q(e: &Env, parent: Option<i64>, text: &str) -> i64 {
+        add(e, Kind::Q, parent, text, None)
     }
-    fn o(e: &Env, parent: i64, text: &str) -> i64 {
-        add(e, Kind::O, Some(parent), text, None, Some("answer"))
+    fn a(e: &Env, parent: i64, text: &str) -> i64 {
+        add(e, Kind::A, Some(parent), text, None)
     }
-    fn f(e: &Env, parent: i64) -> i64 {
-        add(e, Kind::F, Some(parent), "根拠", None, None)
+    fn f(e: &Env, parent: i64, stance: &str) -> i64 {
+        add(e, Kind::F, Some(parent), "根拠", Some(stance))
     }
 
     fn tree(e: &Env) -> Tree {
         Tree::load(e.db.connection(), &e.roots, &Defs::default()).unwrap()
     }
 
-    /// Q0 → Q1 → O★ 予後予測 → (Q2 データ, Q3 既存手法の課題) と、★ の無い O の下の Q。
-    fn figure(e: &Env) -> [i64; 8] {
-        let q0 = q(e, None, "大目的は？", None);
-        let q1 = q(e, Some(q0), "何を予測する？", None);
-        let star = o(e, q1, "予後予測");
-        store::set_starred(e.db.connection(), star, true).unwrap();
-        let other = o(e, q1, "診断");
-        let qd = q(e, Some(star), "データは？", None);
-        let qi = q(e, Some(star), "既存手法の課題は？", None);
-        let qx = q(e, Some(other), "診断のデータは？", None);
-        for _ in 0..2 {
-            let od = o(e, qd, "MRI");
-            f(e, od);
-        }
-        let oi = add(e, Kind::O, Some(qi), "精度が低い", None, Some("issue"));
-        let ex = add(e, Kind::E, Some(oi), "実験", None, None);
-        f(e, ex);
-        f(e, oi);
-        [q0, q1, star, other, qd, qi, qx, oi]
+    /// 3 規則の例: Q1 ─ A2（F なし）・Q3（子なし）。`sci-verify` の run は `verified` で足す。
+    fn next_fixture(e: &Env) -> (i64, i64, i64) {
+        let q1 = q(e, None, "根の問い");
+        let a2 = a(e, q1, "答え");
+        let q3 = q(e, None, "別の問い");
+        (q1, a2, q3)
     }
 
-    #[test]
-    fn figure_path_leaf_objectivity() {
-        let e = env("figure");
-        let [q0, q1, _, _, qd, qi, qx, _] = figure(&e);
-        let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
-        let row = |id: i64| s.nodes.iter().find(|n| n.id == fmt_id(Kind::Q, id)).unwrap();
-        assert!(row(q0).on_path && !row(q0).bottom_q);
-        assert!(row(qd).on_path && row(qd).bottom_q);
-        assert!(!row(qx).on_path);
-        // Q データ: O 2 つ + 各 F 1 つ → count は F の数 2、target は 2。
-        assert_eq!(row(qd).objectivity, Some(Objectivity { count: 2, target: 2, met: true }));
-        // Q 課題: O の F 1 + E の F 1 → 2。
-        assert_eq!(row(qi).objectivity, Some(Objectivity { count: 2, target: 2, met: true }));
-        // Q1 は child_Q が 0 にならない: 「★ の下の Q」は子ではない（O の下）ので葉で、O は 2 つ・F は 0。
-        assert!(row(q1).bottom_q);
-        assert_eq!(row(q1).objectivity, Some(Objectivity { count: 0, target: 2, met: false }));
-        // Q0 は child_Q が Q1 だけ。
-        assert_eq!(row(q0).objectivity, Some(Objectivity { count: 0, target: 1, met: false }));
-        // 道の上の bottom_Q は Q1・Q データ・Q 課題。
-        assert_eq!(s.progress, Progress { answered: 1, total: 3 });
-    }
-
-    #[test]
-    fn logicality_resets_and_ignores_reverted() {
-        let e = env("logic");
-        let q0 = q(&e, None, "Q", None);
-        let o1 = o(&e, q0, "a");
-        f(&e, o1);
-        let conn = e.db.connection();
-        assert_eq!(tree(&e).logicality(q0).unwrap().value, "unchecked");
-        assert!(tree(&e).logicality(o1).is_none());
-        store::insert_logic(conn, q0, "ok", "", &[], 1, None, None, "user").unwrap();
-        let t = tree(&e);
-        assert_eq!(t.logicality(q0).unwrap().value, "ok");
-        assert!(t.logicality(q0).unwrap().checked_at.is_some());
-        f(&e, o1);
-        assert_eq!(tree(&e).logicality(q0).unwrap().value, "unchecked");
-        // reverted の記録は数えない。
-        let p = store::insert_proposal(conn, None, None, "record_logic", Some(q0), &json!({}), "auto", "reverted").unwrap();
-        store::insert_logic(conn, q0, "contradiction", "", &[], 2, None, Some(p), "user").unwrap();
-        assert_eq!(tree(&e).logicality(q0).unwrap().value, "unchecked");
-        store::insert_logic(conn, q0, "contradiction", "", &[], 2, None, None, "user").unwrap();
-        assert_eq!(tree(&e).logicality(q0).unwrap().value, "contradiction");
-    }
-
-    #[test]
-    fn progress_counts_star() {
-        let e = env("progress");
-        let q0 = q(&e, None, "Q", None);
-        let a = o(&e, q0, "a");
-        assert_eq!(tree(&e).progress(), Progress { answered: 0, total: 1 });
-        store::set_starred(e.db.connection(), a, true).unwrap();
-        assert_eq!(tree(&e).progress(), Progress { answered: 1, total: 1 });
-    }
-
-    fn defs_with_guide() -> Defs {
-        let mut d = Defs::default();
-        d.guides.push(GuideDef {
-            key: "SPLIT".into(), name: "分ける".into(), explain: String::new(), question: String::new(),
-            child_candidates: vec!["a".into()], extract: vec![], pitfalls: vec![], target: 2,
-        });
-        d
-    }
-
-    fn whys(a: &[NextAction]) -> Vec<(&str, Option<&str>)> {
-        a.iter().map(|x| (x.why.as_str(), x.block.as_deref())).collect()
-    }
-
-    #[test]
-    fn next_actions_each_rule() {
-        let e = env("next");
-        let conn = e.db.connection();
-        let defs = defs_with_guide();
-        let t = |e: &Env| Tree::load(e.db.connection(), &e.roots, &defs).unwrap();
-        let q0 = q(&e, None, "bottom_Q", Some("SPLIT"));
-        let a = whys(&next_actions(&t(&e), 10)).into_iter().map(|(w, b)| (w.to_string(), b.map(String::from))).collect::<Vec<_>>();
-        assert_eq!(a, vec![("NO_CHILD_Q".to_string(), Some("sci-split".to_string()))]);
-        // GUIDE が無ければ NO_OPTION。
-        let e2 = env("next2");
-        let r = q(&e2, None, "Q", None);
-        let t2 = Tree::load(e2.db.connection(), &e2.roots, &Defs::default()).unwrap();
-        let acts = next_actions(&t2, 10);
-        assert_eq!((acts[0].why.as_str(), acts[0].block.as_deref()), ("NO_OPTION", Some("sci-ideate")));
-        let _ = r;
-        // O が 1 つで F が無い → FEW_FINDINGS（option 付き）。
-        let o1 = o(&e, q0, "O1");
-        let acts = next_actions(&t(&e), 10);
-        assert_eq!(acts[0].why, "FEW_FINDINGS");
-        assert_eq!(acts[0].block.as_deref(), Some("sci-search"));
-        assert_eq!(acts[0].option, Some(fmt_id(Kind::O, o1)));
-        assert_eq!(acts[0].expect, "F を 2 つ以上");
-        // F が 2 つで Objectivity は満たす → UNCHECKED。
-        f(&e, o1);
-        f(&e, o1);
-        let acts = next_actions(&t(&e), 10);
-        assert_eq!((acts[0].why.as_str(), acts[0].block.as_deref()), ("UNCHECKED", Some("sci-debate")));
-        // 確かめて ok → NO_STAR（card は null）。
-        store::insert_logic(conn, q0, "contradiction", "", &[], 2, None, None, "user").unwrap();
-        assert_eq!(next_actions(&t(&e), 10)[0].why, "CONTRADICTION");
-        store::insert_logic(conn, q0, "ok", "", &[], 2, None, None, "user").unwrap();
-        let acts = next_actions(&t(&e), 10);
-        assert_eq!(acts[0].why, "NO_STAR");
-        assert_eq!(acts[0].kind, "user");
-        assert!(acts[0].card.is_none());
-        // ★ を付け、Issue の O を足す → NO_EXPERIMENT。review は全部済んでいて Logicality ok なので出ない。
-        store::set_starred(conn, o1, true).unwrap();
-        assert!(next_actions(&t(&e), 10).is_empty());
-        let issue = add(&e, Kind::O, Some(q0), "課題", None, Some("issue"));
-        let acts = next_actions(&t(&e), 10);
-        assert_eq!((acts[0].why.as_str(), acts[0].block.as_deref()), ("NO_EXPERIMENT", Some("sci-exp-sprout")));
-        // CARD の対象は SEED（SPROUT は全体から作る）。option は Issue の O。
-        assert_eq!(acts[0].card.as_ref().unwrap()["node"], json!("SEED"));
-        assert_eq!(acts[0].node.as_deref(), Some("SEED"));
-        assert_eq!(acts[0].option, Some(fmt_id(Kind::O, issue)));
-        assert!(acts[0].purpose.contains(&fmt_id(Kind::O, issue)));
-    }
-
-    #[test]
-    fn review_first_and_limits() {
-        let e = env("review");
-        let conn = e.db.connection();
-        let q0 = q(&e, None, "Q", None);
-        let a = o(&e, q0, "a");
-        store::set_starred(conn, a, true).unwrap();
-        f(&e, a);
-        f(&e, a);
-        // child_Q が無い唯一の Q で Logicality 未確認 → debate が先に出る。review は一番上の Q が葉なら debate と並ぶ。
-        let t = tree(&e);
-        let acts = next_actions(&t, 10);
-        assert!(acts.iter().any(|x| x.block.as_deref() == Some("sci-review") && x.why == "UNCHECKED"));
-        assert_eq!(next_actions(&t, 2).len(), 2);
-    }
-
-    /// `nodes[]` の `pending` は、その Node に付いた PENDING の PROPOSAL の数。
-    #[test]
-    fn nodes_json_counts_pending_proposals() {
-        let e = env("pending");
-        let conn = e.db.connection();
-        let q0 = q(&e, None, "Q0", None);
-        let q1 = q(&e, Some(q0), "Q1", None);
-        let o1 = o(&e, q0, "O");
-        // Q1 宛ての PENDING が 2 件、Q0 宛てが 1 件。applied は数えない。
-        store::insert_proposal(conn, None, None, "add_q", Some(q1), &json!({}), "auto", "pending").unwrap();
-        store::insert_proposal(conn, None, None, "add_q", Some(q1), &json!({}), "auto", "pending").unwrap();
-        store::insert_proposal(conn, None, None, "add_o", Some(q0), &json!({}), "auto", "pending").unwrap();
-        store::insert_proposal(conn, None, None, "add_o", Some(o1), &json!({}), "auto", "applied").unwrap();
-        let s = status(conn, &e.roots, &Defs::default()).unwrap();
-        assert_eq!(s.pending_proposals, 3);
-        let row = |id: i64| s.nodes.iter().find(|n| n.id == fmt_id(Kind::Q, id)).unwrap();
-        assert_eq!(row(q1).pending, 2);
-        assert_eq!(row(q0).pending, 1);
-    }
-
-    #[test]
-    fn status_seed_type_and_mind() {
-        let e = env("seed");
-        // RESEARCH_TYPE problem として top_Q を 3 つ置き、mind.md に見出しを 2 つ置く。
-        let defs = crate::rt::defs::load(&e.roots.root);
-        store::meta_set(e.db.connection(), "type", "problem").unwrap();
-        for key in ["background", "target", "purpose"] {
-            q(&e, None, key, Some(key));
-        }
-        fs::write(
-            sai_paper_core::paths::mind_path(&e.roots.data_dir),
-            "前書き\n## ORIGIN\nIESS の Hyps 脳波\n## CONSTRAINTS\n<!-- 消える -->\n症例は 20 例\n",
-        )
-        .unwrap();
-        let s = status(e.db.connection(), &e.roots, &defs).unwrap();
-        let seed = &s.seed;
-        assert_eq!(seed.type_info.as_ref().map(|t| t.id.as_str()), Some("problem"));
-        assert_eq!(seed.type_info.as_ref().map(|t| t.name.as_str()), Some("PROBLEM_DRIVEN"));
-        assert_eq!(
-            seed.mind.iter().map(|m| m.heading.as_str()).collect::<Vec<_>>(),
-            ["ORIGIN", "CONSTRAINTS"]
+    /// `sci-verify` の run を 1 つ作る（`creation_date` は local 時刻の書き方）。一覧に出す値を返す。
+    fn verify_run(e: &Env, run: i64, node: i64, created: &str) -> serde_json::Value {
+        let dir = e.roots.root.join(format!(".sai/outputs/review/{run}"));
+        fs::create_dir_all(&dir).unwrap();
+        let text = format!(
+            "---\nrunner: pi\nblock: sci-verify\nsci_node: {}\nsci_purpose: 確かめる\ncreation_date: {created}\n---\n\n本文\n",
+            fmt_id(Kind::Q, node)
         );
-        assert_eq!(seed.mind[0].body, "IESS の Hyps 脳波");
-        assert_eq!(seed.mind[1].body, "症例は 20 例");
-        // top_Q は 3 つで、一番上の Q（RESEARCH_TYPE の root）は無い。
-        let tops: Vec<&str> = s
-            .nodes
+        fs::write(dir.join("task.md"), text).unwrap();
+        fake_link::run_value(run, "review", &dir, "sci-verify", "", "completed")
+    }
+
+    #[test]
+    fn next_actions_three_rules() {
+        let e = env("three");
+        let (q1, a2, q3) = next_fixture(&e);
+        let acts = next_actions(&tree(&e), 10);
+        let got: Vec<(String, String, String)> = acts
             .iter()
-            .filter(|n| n.kind == "Q" && n.parent.is_none())
-            .map(|n| n.guide.as_deref().unwrap_or_default())
+            .map(|x| (x.why.clone(), x.node.clone().unwrap_or_default(), x.block.clone().unwrap_or_default()))
             .collect();
-        assert_eq!(tops, ["background", "target", "purpose"]);
+        let want = vec![
+            ("NO_CHILD".to_string(), fmt_id(Kind::Q, q3), "lab-grow".to_string()),
+            ("NO_FINDING".to_string(), fmt_id(Kind::A, a2), "lab-search".to_string()),
+            ("UNVERIFIED".to_string(), fmt_id(Kind::Q, q1), "sci-verify".to_string()),
+        ];
+        assert_eq!(got, want);
+        // 規則 2 だけが child を足す。
+        assert_eq!(acts[1].card.as_ref().unwrap()["child"], "F");
+        assert!(acts[0].card.as_ref().unwrap().get("child").is_none());
+        assert_eq!(acts[0].card.as_ref().unwrap()["runner"], "pi");
     }
 
     #[test]
-    fn block_warnings_reports_bad_sci_ops() {
-        let e = env("warn");
-        // 古い範囲のキーが残っていても読まない（名前は文字列を分けて組み立てる）。
-        let old_scope = format!("sci_{}", "scope");
-        fs::write(
-            e.dir.join(".sai/blocks/x.md"),
-            format!("---\nname: x\nsci_ops: add_o, star, foo\n{old_scope}: wide\n---\n本文\n"),
-        )
-        .unwrap();
-        let lines = block_def_warnings(&e.roots);
-        let mine: Vec<&String> = lines.iter().filter(|l| l.starts_with("x:")).collect();
-        assert_eq!(
-            mine,
-            vec![
-                "x: sci_ops に利用者だけの op があります: star",
-                "x: sci_ops に知らない op があります: foo",
-            ]
-        );
+    fn unverified_clears_only_after_newer_verify_run() {
+        let e = env("verify");
+        let (q1, a2, _) = next_fixture(&e);
+        // 子（A2）は 10/1、検証は 9/30 → まだ確かめていない。
+        e.db.connection().execute("UPDATE rt_nodes SET created_at = '2026-10-01 00:00:00' WHERE id = ?1", params![a2]).unwrap();
+        let old = verify_run(&e, 91, q1, "2026/09/30 12:00:00");
+        fake_link::write_runs(&e.roots.root, std::slice::from_ref(&old));
+        crate::link::forget(&e.roots.root);
+        assert!(next_actions(&tree(&e), 10).iter().any(|x| x.why == "UNVERIFIED"));
+        // 検証を 10/2 に足すと、子より新しいので規則 3 は消える。
+        let new = verify_run(&e, 92, q1, "2026/10/02 12:00:00");
+        fake_link::write_runs(&e.roots.root, &[old, new]);
+        crate::link::forget(&e.roots.root);
+        assert!(!next_actions(&tree(&e), 10).iter().any(|x| x.why == "UNVERIFIED"));
     }
 
     #[test]
-    fn legacy_status_and_json_keys() {
-        let dir = std::env::temp_dir().join(format!("sai-rt-compute-legacy-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let data_dir = dir.join(".sai/paper");
-        fs::create_dir_all(&data_dir).unwrap();
-        let db = Database::open(&data_dir.join("papr.db")).unwrap();
-        let roots = PaperRoots { root: dir, data_dir };
-        db.connection()
-            .execute_batch("CREATE TABLE IF NOT EXISTS sci_meta (key TEXT PRIMARY KEY, value TEXT); INSERT INTO sci_meta VALUES ('initialized_at', 'x');")
-            .unwrap();
-        let s = status(db.connection(), &roots, &Defs::default()).unwrap();
-        assert!(!s.initialized && s.legacy);
-        assert_eq!(s.warnings[0], LEGACY_WARNING);
-        let keys = |v: &Value| {
-            let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
-            k.sort();
-            k
-        };
-        let want = |names: &[&str]| {
-            let mut k: Vec<String> = names.iter().map(|s| s.to_string()).collect();
-            k.sort();
-            k
-        };
+    fn status_counts_by_stance() {
+        let e = env("counts");
+        let root = q(&e, None, "根");
+        let ans = a(&e, root, "答え");
+        f(&e, ans, "support");
+        f(&e, ans, "deny");
+        f(&e, ans, "issue");
+        add(&e, Kind::E, Some(ans), "実験", None);
+        let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
         assert_eq!(
-            keys(&serde_json::to_value(&s).unwrap()),
-            want(&["initialized", "legacy", "type", "progress", "nodes", "seed", "next", "pending_proposals", "decisions", "history", "running", "warnings"])
+            s.counts,
+            StatusCounts { q: 1, a: 1, f_support: 1, f_deny: 1, f_issue: 1, e: 1, s: 0 }
         );
+        assert_eq!(s.counts.line(), "Q 1・A 1・F 3（S 1 / D 1 / I 1）・E 1・S 0");
+    }
 
-        let e = env("keys");
-        figure(&e);
+    #[test]
+    fn status_json_has_new_keys_only() {
+        let e = env("status");
+        let root = q(&e, None, "根");
+        let ans = a(&e, root, "答え");
+        f(&e, ans, "support");
         let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
         let v = serde_json::to_value(&s).unwrap();
-        assert_eq!(
-            keys(&v["nodes"][0]),
-            want(&["id", "kind", "parent", "depth", "ord", "text", "body", "guide", "answer_kind", "starred", "on_path", "bottom_q", "paths", "objectivity", "logicality", "counts", "cites", "paper", "run", "mlflow", "created_by", "created_at", "pending"])
-        );
-        assert_eq!(keys(&v["next"][0]), want(&["kind", "node", "option", "block", "purpose", "expect", "why", "card"]));
-        let d = node_detail(e.db.connection(), &e.roots, &Defs::default(), "Q2").unwrap();
-        let dv = serde_json::to_value(&d).unwrap();
-        assert_eq!(
-            keys(&dv),
-            want(&["node", "path", "children", "subtree", "guide", "logic", "decisions", "actions", "creator", "pending", "next", "searches", "sources", "history"])
-        );
-        assert!(d.next.len() <= 3);
-        assert!(matches!(
-            node_detail(e.db.connection(), &e.roots, &Defs::default(), "Q999"),
-            Err(RtError::NotFound(m)) if m == "Q999 はありません"
-        ));
-    }
-
-    #[test]
-    fn node_detail_creator_sources_and_action_node() {
-        let e = env("detail2");
-        let conn = e.db.connection();
-        conn.execute("INSERT INTO papers (id, title) VALUES (?1, ?2)", params![54i64, "GABA 系の study"]).unwrap();
-        let q0 = q(&e, None, "Q", None);
-        let o1 = o(&e, q0, "O");
-        // cites を持つ F。run:7 が作ったことにする。
-        let n = store::NewNode {
-            kind: Kind::F, parent_id: Some(o1), guide_key: None, text: "根拠", body: "", answer_kind: None,
-            cites: &["#54.11.3".to_string()], paper_id: None, run_id: Some(7), report_id: None, mlflow_ref: None, proposal_id: None,
-            paths: &[], created_by: "run:7",
-        };
-        let f1 = store::insert_node(conn, &n).unwrap();
-        // 対象が O の sci の run。global_round は 2。
-        let dir = e.dir.join(".sai/outputs/R2/7");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("task.md"),
-            &format!(
-                "---\nrunner: pi\nblock: sci-read\nglobal_round: 2\nround: 3\nexecution_date: 2026/10/02 09:16:54\nsci_node: {}\nsci_purpose: 読む\n---\n本文\n",
-                fmt_id(Kind::O, o1)
-            ),
-        )
-        .unwrap();
-
-        // F の詳細：作成者が run:7。block・owner が入る。出典は論文の題だけ分かる（節の表が無いので null）。
-        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
-        assert_eq!(d.creator.by, "run:7");
-        assert_eq!(d.creator.run_id, Some(7));
-        assert_eq!(d.creator.block, "sci-read");
-        assert_eq!(d.creator.owner, "R2");
-        assert_eq!(d.creator.global_round, Some(2));
-        assert_eq!(d.creator.node.as_deref(), Some(fmt_id(Kind::O, o1).as_str()));
-        assert_eq!(d.creator.purpose, "読む");
-        assert_eq!(d.sources.len(), 1);
-        assert_eq!(d.sources[0].cite, "#54.11.3");
-        assert_eq!(d.sources[0].paper, Some(54));
-        assert_eq!(d.sources[0].title, "GABA 系の study");
-        assert_eq!(d.sources[0].section, None);
-        assert_eq!(d.sources[0].passage, None);
-        // run の対象は親の O1 なので、F の actions には入らない。
-        assert!(d.actions.is_empty());
-
-        // O1 の詳細：init の行は user（round なし）、Run の行には task.md の round が出る。
-        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::O, o1)).unwrap();
-        assert_eq!(d.creator.by, "user");
-        assert_eq!(d.creator.run_id, None);
-        assert_eq!(d.creator.block, "");
-        assert_eq!(d.creator.global_round, None);
-        assert_eq!(d.actions.len(), 1);
-        assert_eq!(d.actions[0].node, Some(fmt_id(Kind::O, o1)));
-        assert_eq!(d.actions[0].global_round, Some(2));
-        // cites が無いので出典は空。
-        assert!(d.sources.is_empty());
-        assert_eq!(d.history[0].action, "init");
-        assert_eq!(d.history[0].round, None);
-        let run_row = d.history.iter().find(|h| h.action == "Run").unwrap();
-        assert_eq!(run_row.by, "run:7");
-        assert_eq!(run_row.round, Some(3));
-        assert_eq!(run_row.global_round, Some(2));
-        // F1 の init の行は run:7 が作ったので round が出る。
-        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
-        assert_eq!(d.history[0].action, "init");
-        assert_eq!(d.history[0].run_id, Some(7));
-        assert_eq!(d.history[0].round, Some(3));
-        assert_eq!(d.history[0].block, "sci-read");
-    }
-
-    #[test]
-    fn node_detail_history_init_first() {
-        let e = env("history");
-        let conn = e.db.connection();
-        let q0 = q(&e, None, "Q", None);
-        let o1 = o(&e, q0, "O");
-        let f1 = f(&e, o1);
-        // `rt_log` に `edit` を 1 行入れる（created_at は DB の UTC の形）。
-        store::insert_log(conn, f1, "edit", "text", "user", None).unwrap();
-        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::F, f1)).unwrap();
-        assert_eq!(d.history[0].action, "init");
-        assert!(d.history[0].at.ends_with("+00:00"));
-        assert!(d.history.iter().any(|h| h.action == "edit" && h.by == "user"));
-        // O の詳細：子の F の Add 行と、edit の行は無い（edit は F の行）。at は昇順。
-        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::O, o1)).unwrap();
-        assert_eq!(d.history[0].action, "init");
-        assert!(d.history.iter().any(|h| h.action == "Add F"));
-        let ats: Vec<&str> = d.history.iter().skip(1).map(|h| h.at.as_str()).collect();
-        assert!(ats.windows(2).all(|w| w[0] <= w[1]), "{ats:?}");
-    }
-
-    #[test]
-    fn status_history_all_nodes_oldest_first() {
-        let e = env("status-history");
-        let conn = e.db.connection();
-        let q0 = q(&e, None, "Q", None);
-        let o1 = o(&e, q0, "O");
-        store::insert_log(conn, o1, "edit", "text", "user", None).unwrap();
-        let s = status(conn, &e.roots, &Defs::default()).unwrap();
-        assert!(s.history.iter().all(|h| !h.entry.action.starts_with("Add ")));
-        for (id, kind) in [(q0, Kind::Q), (o1, Kind::O)] {
-            let n = fmt_id(kind, id);
-            assert_eq!(s.history.iter().filter(|h| h.node == n && h.entry.action == "init").count(), 1, "{n}");
+        assert_eq!(v["counts"]["q"], 1);
+        assert_eq!(v["counts"]["a"], 1);
+        assert_eq!(v["counts"]["f_support"], 1);
+        for gone in ["progress", "pending_proposals"] {
+            assert!(v.get(gone).is_none(), "{gone}");
         }
-        assert!(s.history.iter().any(|h| h.node == fmt_id(Kind::O, o1) && h.entry.action == "edit"));
-        assert_eq!(s.history.iter().find(|h| h.node == fmt_id(Kind::Q, q0)).unwrap().node_text, "Q");
-        let ats: Vec<&str> = s.history.iter().map(|h| h.entry.at.as_str()).collect();
-        assert!(ats.windows(2).all(|w| w[0] <= w[1]), "{ats:?}");
-        // JSON では node・node_text と HistoryJson の項目が同じ階層に並ぶ。
-        let v = serde_json::to_value(&s.history[0]).unwrap();
-        assert!(v["node"].is_string() && v["action"].is_string() && v.get("entry").is_none());
+        let nodes = v["nodes"].as_array().unwrap();
+        let answer = nodes.iter().find(|n| n["kind"] == "A").unwrap();
+        for gone in ["answer_kind", "objectivity", "logicality", "pending", "target"] {
+            assert!(answer.get(gone).is_none(), "{gone}");
+        }
+        // 道の印（旧 `on_path`）も無い（名前は文字列を分けて組み立てる）。
+        assert!(answer.get(format!("on_{}", "path")).is_none());
+        assert!(answer["stance"].is_null());
+        let fact = nodes.iter().find(|n| n["kind"] == "F").unwrap();
+        assert_eq!(fact["stance"], "support");
+        assert!(fact["range"].is_null());
     }
 
     #[test]
-    fn status_history_empty_when_uninitialized() {
-        let dir = std::env::temp_dir().join(format!("sai-rt-compute-hist-uninit-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let data_dir = dir.join(".sai/paper");
-        fs::create_dir_all(&data_dir).unwrap();
-        let db = Database::open(&data_dir.join("papr.db")).unwrap();
-        let roots = PaperRoots { root: dir, data_dir };
-        let s = status(db.connection(), &roots, &Defs::default()).unwrap();
-        assert!(!s.initialized && s.history.is_empty());
-    }
-
-    #[test]
-    fn sprout_node_and_paths() {
-        // Q1 → O2(Issue)。SPROUT S の paths は [O2]。E は S の下に置く。
-        let e = env("sprout");
+    fn sprout_range_counts_each_node_once() {
+        let e = env("range");
+        let root = q(&e, None, "根");
+        let a1 = a(&e, root, "一つ目");
+        let a2 = a(&e, root, "二つ目");
+        f(&e, a1, "support");
+        f(&e, a2, "deny");
+        f(&e, a2, "issue");
+        // A の子の Q 以下は数えない。
+        q(&e, Some(a1), "子の問い");
+        let s = add(&e, Kind::S, None, "種", None);
         let conn = e.db.connection();
-        let q1 = q(&e, None, "Q1", None);
-        let o2 = add(&e, Kind::O, Some(q1), "課題", None, Some("issue"));
-        let s = store::insert_node(
-            conn,
-            &store::NewNode {
-                kind: Kind::S,
-                parent_id: None,
-                guide_key: None,
-                text: "種",
-                body: "本文",
-                answer_kind: None,
-                cites: &[],
-                paper_id: None,
-                run_id: None,
-                report_id: None,
-                mlflow_ref: None,
-                proposal_id: None,
-                paths: &[o2],
-                created_by: "user",
-            },
-        )
-        .unwrap();
-        let e3 = add(&e, Kind::E, Some(s), "実験", None, None);
-        add(&e, Kind::F, Some(e3), "根拠", None, None);
+        conn.execute("UPDATE rt_nodes SET paths = '[' || ?1 || ',' || ?2 || ']' WHERE id = ?3", params![a1, a2, s]).unwrap();
+        let range = sprout_range(conn, &[a1, a2]).unwrap();
+        assert_eq!(range, Range { q: 1, a: 2, f_support: 1, f_deny: 1, f_issue: 1 });
+        let t = tree(&e);
+        assert_eq!(t.row(s).range, Some(range));
+        assert_eq!(t.row(s).paths, vec![fmt_id(Kind::A, a1), fmt_id(Kind::A, a2)]);
+    }
 
-        let st = status(conn, &e.roots, &Defs::default()).unwrap();
-        let srow = st.nodes.iter().find(|n| n.id == fmt_id(Kind::S, s)).unwrap();
-        assert_eq!(srow.kind, "S");
-        assert!(srow.parent.is_none());
-        assert_eq!(srow.paths, vec![fmt_id(Kind::O, o2)]);
-        assert!(srow.on_path);
-        // E の親は S。道の上にあり、S の下に並ぶ。
-        let erow = st.nodes.iter().find(|n| n.id == fmt_id(Kind::E, e3)).unwrap();
-        assert_eq!(erow.parent.as_deref(), Some(fmt_id(Kind::S, s).as_str()));
-        assert!(erow.on_path);
-        // O2 は SPROUT に入っているので NO_EXPERIMENT は出ない。
-        assert!(!next_actions(&tree(&e), 10).iter().any(|a| a.why == "NO_EXPERIMENT"));
-        // node_detail で S を見られる（path は S だけ、子は下の E）。
-        let d = node_detail(conn, &e.roots, &Defs::default(), &fmt_id(Kind::S, s)).unwrap();
-        assert_eq!(d.path.len(), 1);
-        assert_eq!(d.path[0].id, fmt_id(Kind::S, s));
-        assert_eq!(d.children.len(), 1);
+    #[test]
+    fn decisions_carry_approval() {
+        let e = env("approval");
+        let root = q(&e, None, "根");
+        e.db.connection()
+            .execute(
+                "INSERT INTO rt_log (node_id, action, detail, actor, approved_by, qid, question) \
+                 VALUES (?1, 'add_q', '', 'run:7', 'saituki', 'a1', '作ってよいか')",
+                params![root],
+            )
+            .unwrap();
+        let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
+        assert_eq!(s.decisions[0].approved_by.as_deref(), Some("saituki"));
+        assert_eq!(s.decisions[0].qid.as_deref(), Some("a1"));
+        let detail = node_detail(e.db.connection(), &e.roots, &Defs::default(), &fmt_id(Kind::Q, root)).unwrap();
+        assert_eq!(detail.decisions[0].question.as_deref(), Some("作ってよいか"));
+        assert_eq!(detail.history.last().unwrap().approved_by.as_deref(), Some("saituki"));
     }
 }

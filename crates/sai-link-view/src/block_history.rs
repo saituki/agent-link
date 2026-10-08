@@ -3,14 +3,21 @@
 //! 描画は持たない。`phone run --view history`（Web の中継）が使う
 //! データと JSON 表現だけを提供する。
 //!
-//! - **近似値のみ使用する**: token はセッション jsonl の文字数換算（近似）であり、
-//!   provider の実際の usage（`execution_usage`）は使わない（Project 画面のみ正確値）
+//! - **token は近似値を含む**: cc の assistant は usage の実値を使う。user・agent・thinking・
+//!   道具の結果は文字数換算の近似である。provider の実際の usage（`execution_usage`）は使わない
+//!   （Project 画面のみ正確値）
 //! - 種別: `user` / `agent` / `toolCall` / `toolResult` / `thinking`
+//! - `cli`（C11）: 道具の呼び出し（`sai-paper`・`sai-sci`・`sai-link`）と台帳の集計
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use sai_link_engine::session::{HistoryEvent, HistoryTypeTokens};
 
 /// History 画面の種別（表示順）。
 pub const HISTORY_TYPES: [&str; 5] = ["user", "agent", "toolCall", "toolResult", "thinking"];
+
+/// 失敗の分類（表示順・C11）。
+const FAILURE_CLASSES: [&str; 5] = ["ledger", "input", "not_found", "conflict", "other"];
 
 // ============================================================================
 // 状態
@@ -27,6 +34,8 @@ pub struct HistoryViewData {
     pub type_tokens: HistoryTypeTokens,
     /// Timeline イベント（時刻順）
     pub events: Vec<HistoryEvent>,
+    /// CLI の呼び出しと台帳の集計（C11）
+    pub cli: CliSummary,
 }
 
 impl HistoryViewData {
@@ -64,8 +73,15 @@ impl HistoryViewData {
                     kind: &e.kind,
                     name: &e.name,
                     tokens: e.tokens,
+                    call_id: e.call_id.as_deref(),
+                    command: e.command.as_deref(),
+                    preview: e.preview.as_deref(),
+                    is_error: e.is_error,
+                    ids: e.ids.iter().map(String::as_str).collect(),
+                    result_tokens: e.result_tokens,
                 })
                 .collect(),
+            cli: &self.cli,
         }
     }
 }
@@ -81,6 +97,8 @@ pub struct PhoneHistoryJson<'a> {
     pub type_tokens: PhoneTypeTokens,
     /// Timeline イベント（時刻順）
     pub events: Vec<PhoneEvent<'a>>,
+    /// CLI の呼び出しと台帳の集計（C11）
+    pub cli: &'a CliSummary,
 }
 
 /// `type_tokens`（項目名は仕様どおり camelCase の `toolCall` / `toolResult`）。
@@ -100,7 +118,7 @@ pub struct PhoneTypeTokens {
     pub thinking: u64,
 }
 
-/// Timeline イベント 1 件（`time` / `type` リネーム付き）。
+/// Timeline イベント 1 件（`time` / `type` リネーム付き・C11 の項目）。
 #[derive(serde::Serialize)]
 pub struct PhoneEvent<'a> {
     /// ISO 8601 タイムスタンプ
@@ -113,6 +131,67 @@ pub struct PhoneEvent<'a> {
     pub name: &'a str,
     /// 近似トークン数
     pub tokens: u64,
+    /// 呼び出しの番号
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<&'a str>,
+    /// Bash 系の道具の命令（`sai-paper content read` など）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<&'a str>,
+    /// 結果の本文の先頭 200 字
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<&'a str>,
+    /// 結果が失敗か
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    /// 呼び出しの入力に出る番号（`#x.y.z`）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ids: Vec<&'a str>,
+    /// 結果の文字数による近似
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_tokens: Option<u64>,
+}
+
+/// `cli`（C11）: CLI の呼び出しと台帳の集計。
+#[derive(Debug, Default, PartialEq, serde::Serialize)]
+pub struct CliSummary {
+    /// 命令ごとの呼び出し数（多い順・同数は命令名の順）
+    pub calls: Vec<CliCallCount>,
+    /// 失敗の分類ごとの数（`ledger`・`input`・`not_found`・`conflict`・`other` の順・0 は出さない）
+    pub failures: Vec<CliFailureCount>,
+    /// 台帳の番号と、使った番号
+    pub ids: CliIdCount,
+}
+
+/// `cli.calls` の 1 件。
+#[derive(Debug, PartialEq, serde::Serialize)]
+pub struct CliCallCount {
+    /// 命令名（`sai-paper content read` など）
+    pub command: String,
+    /// 呼び出し数
+    pub count: u64,
+    /// そのうち失敗（`is_error` が true）の数
+    pub errors: u64,
+}
+
+/// `cli.failures` の 1 件。
+#[derive(Debug, PartialEq, serde::Serialize)]
+pub struct CliFailureCount {
+    /// 失敗の分類
+    pub class: &'static str,
+    /// 件数
+    pub count: u64,
+}
+
+/// `cli.ids`: `seen` は台帳の異なる番号、`used` は呼び出しの入力に出た異なる番号、
+/// `unused` は台帳にあって `used` に無い番号の数。
+#[derive(Debug, Default, PartialEq, serde::Serialize)]
+pub struct CliIdCount {
+    /// 台帳（見せた番号）の数
+    pub seen: u64,
+    /// 使った番号の数
+    pub used: u64,
+    /// 見せたのに使わなかった番号の数
+    pub unused: u64,
 }
 
 // ============================================================================
@@ -121,8 +200,8 @@ pub struct PhoneEvent<'a> {
 
 /// 実行 1 件分の History の表示データを DB から構築する（ビルダ純関数）。
 ///
-/// **近似値のみ使用する**: token はセッション jsonl の文字数換算（近似）であり、
-/// provider の実際の usage（`execution_usage`）は使わない。
+/// token は cc の assistant の usage の実値と、文字数換算の近似を含む。provider の
+/// 実際の usage（`execution_usage`）は使わない。
 ///
 /// - `store`: 対象プロジェクトの `SaiStore`（read-only でも可）
 /// - `exec_id`: 対象実行 ID
@@ -137,11 +216,12 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Hist
         .map(|b| b.display_name)
         .unwrap_or_else(|_| format!("block#{}", exec.block_id));
     let start_time = exec.started_at.as_deref().unwrap_or("unknown");
+    let root = sai_link_engine::project::project_root();
 
     // 近似統計（種別別トークン + Timeline イベント）を jsonl 走査 1 回で取得する。
     // DB の旧パスが残っていても outputs 側へフォールバックする。
     // runner=gl は `~/.sai-gemini/sessions/` の最新セッション（空でない最初の1件）。
-    // runner=cc は `~/.claude/projects/` の最新セッション。
+    // runner=cc は この run の transcript（全体で一番新しいセッションは使わない）。
     let (type_tokens, events) = if exec.runner == "gl" {
         if let Some(st) = sai_link_engine::session::gemini_session_files(30)
             .into_iter()
@@ -156,24 +236,21 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Hist
             Default::default()
         }
     } else if exec.runner == "cc" {
-        if let Some(st) = sai_link_engine::session::cc_session_files(30)
-            .into_iter()
-            .find_map(|path| {
-                sai_link_engine::session::extract_cc_history_stats(&path)
-                    .ok()
-                    .filter(|st| !st.events.is_empty())
-            })
-        {
-            (st.type_tokens, st.events)
-        } else {
-            Default::default()
-        }
+        sai_link_engine::phone_export::resolve_transcript(&exec, &root)
+            .and_then(|path| sai_link_engine::session::extract_cc_history_stats(&path).ok())
+            .map(|s| (s.type_tokens, s.events))
+            .unwrap_or_default()
     } else {
         sai_link_engine::session::resolve_session_dir(exec.session_dir.as_deref(), exec_id)
             .and_then(|dir| sai_link_engine::session::extract_history_stats(&dir).ok())
             .map(|s| (s.type_tokens, s.events))
             .unwrap_or_default()
     };
+
+    let cli = cli_summary(
+        &events,
+        &sai_link_engine::seen_ids::read_all(&root, exec_id),
+    );
 
     Some(HistoryViewData {
         title: format!("Session #{}", exec_id),
@@ -183,5 +260,161 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Hist
         ),
         type_tokens,
         events,
+        cli,
     })
+}
+
+/// 呼び出しの行と台帳から `cli` の集計を作る（純関数・C11）。
+///
+/// `ledger` は台帳（`seen_ids::read_all`）の番号の集合。`events` の `command`・`is_error`・
+/// `failure`・`ids` から数える。
+pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSummary {
+    let mut calls: BTreeMap<&str, (u64, u64)> = BTreeMap::new();
+    let mut failures: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut used: BTreeSet<&str> = BTreeSet::new();
+
+    for e in events {
+        used.extend(e.ids.iter().map(String::as_str));
+        if let Some(command) = &e.command {
+            let c = calls.entry(command.as_str()).or_default();
+            c.0 += 1;
+            if e.is_error == Some(true) {
+                c.1 += 1;
+            }
+        }
+        // 失敗は CLI（`sai-*`）の呼び出しだけ数える。`Edit` など他の道具の失敗は数えない。
+        if let (Some(_), Some(true), Some(class)) = (&e.command, e.is_error, e.failure) {
+            *failures.entry(class).or_default() += 1;
+        }
+    }
+
+    let mut calls: Vec<CliCallCount> = calls
+        .into_iter()
+        .map(|(command, (count, errors))| CliCallCount {
+            command: command.to_string(),
+            count,
+            errors,
+        })
+        .collect();
+    calls.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.command.cmp(&b.command))
+    });
+
+    CliSummary {
+        calls,
+        failures: FAILURE_CLASSES
+            .iter()
+            .filter_map(|&class| {
+                failures
+                    .get(class)
+                    .map(|&count| CliFailureCount { class, count })
+            })
+            .collect(),
+        ids: CliIdCount {
+            seen: ledger.len() as u64,
+            used: used.len() as u64,
+            unused: ledger
+                .iter()
+                .filter(|id| !used.contains(id.as_str()))
+                .count() as u64,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sai_link_engine::session::failure_class;
+
+    fn event(
+        command: Option<&str>,
+        is_error: Option<bool>,
+        failure: Option<&'static str>,
+        ids: &[&str],
+    ) -> HistoryEvent {
+        HistoryEvent {
+            kind: "toolCall".to_string(),
+            tokens: 1,
+            command: command.map(String::from),
+            is_error,
+            failure,
+            ids: ids.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// 見本の events と台帳から `calls`・`failures`・`ids` を数えること（C11）。
+    #[test]
+    fn cli_summary_counts() {
+        let events = vec![
+            event(Some("sai-paper content read"), Some(false), None, &["#37"]),
+            event(
+                Some("sai-paper content read"),
+                Some(true),
+                Some(failure_class("台帳に無い番号です: #37.5.2")),
+                &["#37.5.2"],
+            ),
+            event(
+                Some("sai-sci op"),
+                Some(true),
+                Some(failure_class("Exit code 3\n見つからない")),
+                &[],
+            ),
+            event(
+                Some("sai-sci op"),
+                Some(true),
+                Some(failure_class("Exit code 1\n何か")),
+                &["#37"],
+            ),
+            // 命令でない行（user・agent など）は calls に入らない
+            event(None, None, None, &[]),
+            // `sai-*` 以外の道具（Edit など）の失敗は、calls にも failures にも入らない
+            event(None, Some(true), Some(failure_class("Exit code 1\n何か")), &[]),
+        ];
+        let ledger: BTreeSet<String> = ["#37", "#40", "#41"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let got = cli_summary(&events, &ledger);
+        assert_eq!(
+            got,
+            CliSummary {
+                calls: vec![
+                    CliCallCount {
+                        command: "sai-paper content read".into(),
+                        count: 2,
+                        errors: 1
+                    },
+                    CliCallCount {
+                        command: "sai-sci op".into(),
+                        count: 2,
+                        errors: 2
+                    },
+                ],
+                failures: vec![
+                    CliFailureCount {
+                        class: "ledger",
+                        count: 1
+                    },
+                    CliFailureCount {
+                        class: "not_found",
+                        count: 1
+                    },
+                    CliFailureCount {
+                        class: "other",
+                        count: 1
+                    },
+                ],
+                // 台帳は #37・#40・#41。使ったのは #37・#37.5.2。台帳にあって使わないのは #40・#41
+                ids: CliIdCount {
+                    seen: 3,
+                    used: 2,
+                    unused: 2
+                },
+            }
+        );
+    }
 }

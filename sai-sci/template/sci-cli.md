@@ -26,31 +26,32 @@
 | 現況の全体 | `sai-sci status [--json]` |
 | Node 1 つの詳細 | `sai-sci node <Q12> [--json]` |
 | 実行のための入力（`# context`） | `sai-sci context --run <run_id> [--tree]` |
-| PENDING の PROPOSAL | `sai-sci proposals [--json]` |
-| TRIAGE（採用・却下・取り消し） | `sai-sci triage <P56> (--accept \| --reject \| --revert)` |
+| 木を変える（ALLOWED_OPS の op。標準入力に JSON） | `sai-sci op [--run <run_id>] [--block <ブロックの id>]` |
+| 利用者が木を直す（agent は打たない。例外は下の段落） | `sai-sci apply`（標準入力に op 1 件の JSON） |
+| 承認の記録（フックだけが呼ぶ。agent は打たない） | `sai-sci approval record --qid … --question … --answer … --answered-by …` |
 | READ_CARD（`--runner user` の CARD）の中身 | `sai-sci read <run_id>` |
 
 `sai-sci status --brief` は最初に読む。いつも JSON で、次の項目を返す。全体（`sai-sci status`）は大きいので、要るときだけ読む。
 
 - `progress`: 進み具合。
 - `next`: Next Action の一覧。各項目は `kind`・`node`・`block`・`purpose`・`expect` と、なぜそれを勧めるかを示す `why`（コード）。
-- `pending_proposals`: PENDING の PROPOSAL の数。
 - `running`: 動いている実行。
 - `warnings`: 注意。
 
 ### Node のための実行（CARD）を作る
 
 ```bash
-sai-sci card --node <Q12> --block <sci-read> \
+sai-sci card --node <Q12> --block <lab-read> \
   --purpose <行動の目的> [--expect <期待する成果>] \
   [--papers <番号,番号>] [--runner pi|cc|user] [--depth abstract|figures|full] \
   [--input <waggle トークン>]… --executer agent \
   --origin-run "$SAI_PARENT_RUN_ID" --json
 ```
 
-- `--node`（対象の Node。Q・O・F・E）・`--block`・`--purpose` は必ず書く。
+- `--node`（対象の Node。Q・A・F・E）・`--block`・`--purpose` は必ず書く。
 - `--runner user` は、利用者が自分で READ_CARD になる。`--depth` はその読む深さ。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai-link doc write` で保存してから渡す。
+- `--child`（任意）は、CARD が足す子の型（`Q`・`A`・`F`）。Next Action の `card` が `child` を持つときは、その値をそのまま付ける（`F` を探す CARD は `--child F`）。
 - `--executer agent` を付けると、Human が Web からこの CARD を起こしても動かず、役（professor など）が子として起こす。付けない（既定の `human`）と、人が起こす CARD になる。
 - `--origin-run` は自分がその Node を選んだ実行の run_id。省略すると `SAI_PARENT_RUN_ID`。
 - `--json` を付けると戻り値が JSON になり、CARD の `run_id` が分かる。
@@ -97,7 +98,7 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 `sai-link card run` / `sai-link run finalize` / `sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link task send\|interrupt\|delete\|finalize\|requeue` / `sai-link run md --write`
 
-`sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や research-tree を書き換えるので、Human の指示が無い限り打たない。ただし professor（逆向きの `professor-backward` を含む）だけは、research-tree の TRIAGE のために `sai-sci triage` と、利用者が行う操作の `sai-sci apply`（標準入力に 1 件の JSON）を使ってよい。**★（Answer）は利用者だけが付ける。professor も付けない。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。operator は、research-tree を書き換える `sai-sci` の命令を打たない（読む命令だけ）。
+`sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や research-tree を書き換えるので、Human の指示が無い限り打たない。`sai-sci op` は、`# context` の `## ALLOWED_OPS` の範囲で木を変えるときだけ使う。`sai-sci approval record` は、質問の答えを受けたフックだけが呼ぶ。**★ は利用者だけが付ける。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。professor と operator は木を変えない（読む命令だけ）。木を変える作業は、子の block が `sai-sci op` で行う。例外は `professor-backward` だけで、Human が答えた `edit` の文を `sai-sci apply` で反映してよい。
 
 ## researcher に渡さないもの
 

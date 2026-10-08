@@ -1,7 +1,7 @@
 //! 新しい research-tree の CARD（task.md の発行）と、runner=user の READ_CARD の中身。
 //!
 //! READ_CARD は特別な釦ではなく、`runner: user` の CARD の 1 つ。論文は 1 本で、
-//! F を付ける先の O（か Q）を `node` に持つ。LINK は作らない。run と Node の結び付きは
+//! F を付ける先の A（か Q）を `node` に持つ。LINK は作らない。run と Node の結び付きは
 //! task.md の `sci_node` だけで表す（[`super::action::sci_runs`] が読む）。DB には何も書かない。
 
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
 const EXECUTERS: [&str; 2] = ["human", "agent"];
 const MODES: [&str; 2] = ["purpose_first", "blind_first"];
 const DEPTHS: [&str; 3] = ["abstract", "figures", "full"];
-const READ_BLOCK: &str = "sci-read";
+const READ_BLOCK: &str = "lab-read";
 const MAX_PAPERS: usize = 20;
 const MAX_PURPOSE: usize = 300;
 const Q_HEADING: &str = "## 読むときの Q";
@@ -29,9 +29,9 @@ const EXTRACT_HEADING: &str = "## 抜き出すもの";
 /// CARD の値（C-CARD）。
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 pub struct CardSpec {
-    /// Q・O・F・E の ID（必須）。
+    /// Q・A・F・E の ID（必須）。
     pub node: String,
-    /// 必須。runner が user で空なら `sci-read`。
+    /// 必須。runner が user で空なら `lab-read`。
     pub block: String,
     /// 必須。1 行、300 字まで。
     pub purpose: String,
@@ -57,6 +57,9 @@ pub struct CardSpec {
     /// 空は human。
     #[serde(default)]
     pub executer: String,
+    /// 足す子の型（Q / A / F。空は未指定）。C7 の組だけ通す。
+    #[serde(default)]
+    pub child: String,
 }
 
 /// CARD を作った結果。
@@ -107,6 +110,24 @@ fn check_token(raw: &str) -> Result<String> {
     if ok { Ok(bare.to_string()) } else { invalid(format!("文書のトークンの形が違います: {raw}")) }
 }
 
+/// 足す子の型を検査する（C7）。Q の下は Q か A、A の下は Q か F。空は未指定として通す。
+fn check_child(target: Option<&store::NodeRow>, child: &str) -> Result<String> {
+    let child = child.trim();
+    if child.is_empty() {
+        return Ok(String::new());
+    }
+    let allowed: &[&str] = match target.map(|n| n.kind) {
+        Some(Kind::Q) => &["Q", "A"],
+        Some(Kind::A) => &["Q", "F"],
+        _ => return invalid("足す子の型は Q か A の Node にだけ指定できます"),
+    };
+    if allowed.contains(&child) {
+        Ok(child.to_string())
+    } else {
+        invalid(format!("足す子の型が違います: {child}（この Node では {}）", allowed.join(" / ")))
+    }
+}
+
 fn handoff_error(error: HandoffError) -> RtError {
     match error {
         HandoffError::Io(e) => RtError::Io(e),
@@ -126,11 +147,11 @@ fn handoff_error(error: HandoffError) -> RtError {
     }
 }
 
-/// 読むときの Q の対象になる Q（O なら parent_Q）。
+/// 読むときの Q の対象になる Q（A なら parent_Q）。
 fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::NodeRow>> {
     Ok(match node.kind {
         Kind::Q => Some(node.clone()),
-        Kind::O => match node.parent_id {
+        Kind::A => match node.parent_id {
             Some(parent) => Some(store::get_node(conn, parent)?),
             None => None,
         },
@@ -177,8 +198,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         "" if is_read => READ_BLOCK,
         other => other,
     };
-    if !block.starts_with("sci-") {
-        return invalid("sci のブロックを指定してください（sci- で始まります）");
+    if !(block.starts_with("sci-") || block.starts_with("lab-")) {
+        return invalid("sci のブロックを指定してください（sci- か lab- で始まります）");
     }
     if action::block_def_paths(roots, block).iter().all(|path| !path.is_file()) {
         return invalid(format!("ブロック定義がありません: {block}"));
@@ -214,8 +235,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         if spec.papers.len() != 1 {
             return invalid("READ_CARD には論文をちょうど 1 本指定してください");
         }
-        if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::O | Kind::Q)) {
-            return invalid("READ_CARD の Node は O か Q にしてください（F を付ける先が要ります）");
+        if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::A | Kind::Q)) {
+            return invalid("READ_CARD の Node は A か Q にしてください（F を付ける先が要ります）");
         }
     }
     for id in &spec.papers {
@@ -226,6 +247,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
 
     foreign("目的", &purpose)?;
     foreign("期待する成果", &expect)?;
+    let child = check_child(node.as_ref(), &spec.child)?;
     let inputs = spec.inputs.iter().map(|t| check_token(t)).collect::<Result<Vec<_>>>()?;
 
     // 依頼文。SEED の行は `- NODE: SEED <RESEARCH_TYPE の名前>`。
@@ -274,7 +296,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         Some(n) => fmt_id(n.kind, n.id),
         None => SEED_ID.to_string(),
     };
-    let extra: Vec<(&str, String)> = vec![
+    let mut extra: Vec<(&str, String)> = vec![
         ("executer", executer.to_string()),
         ("sci_node", sci_node),
         ("sci_purpose", purpose.clone()),
@@ -283,6 +305,10 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         ("sci_papers", papers_text),
         ("sci_depth", depth.to_string()),
     ];
+    // 空の足す子の型は書かない（task.md に行を出さない）。
+    if !child.is_empty() {
+        extra.push(("sci_child", child));
+    }
     let handoff = create_handoff_with_extra(
         db,
         roots,
@@ -343,7 +369,7 @@ pub fn read_card(conn: &Connection, roots: &PaperRoots, defs: &Defs, run_id: i64
         .into_iter()
         .filter(|n| n.kind == Kind::F && n.run_id == Some(run_id))
         .map(|n| {
-            json!({"id": fmt_id(n.kind, n.id), "parent": n.parent_id.map(|p| fmt_id(Kind::O, p)), "text": n.text, "cites": n.cites})
+            json!({"id": fmt_id(n.kind, n.id), "parent": n.parent_id.map(|p| fmt_id(Kind::A, p)), "text": n.text, "cites": n.cites})
         })
         .collect();
     let note = paper_folder(&roots.data_dir, paper_id, &title).join(paper_file_names::NOTE).is_file();
@@ -381,14 +407,14 @@ mod tests {
         }
     }
 
-    /// Q1（GUIDE 付き）・O2・F3（run 99 で付いた）・論文 37 のある一時環境。
+    /// Q1（GUIDE 付き）・A2・F3（run 99 で付いた）・論文 37 のある一時環境。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-card-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let data_dir = dir.join(".sai/paper");
         fs::create_dir_all(&data_dir).unwrap();
         fs::create_dir_all(dir.join(".sai/blocks")).unwrap();
-        for b in ["sci-ideate", "sci-read"] {
+        for b in ["lab-grow", "lab-read"] {
             fs::write(
                 dir.join(format!(".sai/blocks/{b}.md")),
                 format!("---\nid: {b}\nname: {b}\ndescription: テスト\n---\n\n# task_text\n"),
@@ -401,20 +427,19 @@ mod tests {
             .unwrap();
         let c = db.connection();
         let mut n = store::NewNode {
-            kind: Kind::Q, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", answer_kind: None,
-            cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+            kind: Kind::Q, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", stance: None,
+            cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
             paths: &[], created_by: "user",
         };
         store::insert_node(c, &n).unwrap();
-        n.kind = Kind::O;
+        n.kind = Kind::A;
         n.guide_key = None;
         n.parent_id = Some(1);
-        n.answer_kind = Some("answer");
         n.text = "1 万件";
         store::insert_node(c, &n).unwrap();
         n.kind = Kind::F;
         n.parent_id = Some(2);
-        n.answer_kind = None;
+        n.stance = Some("support");
         n.text = "論文は 1 万件と述べる";
         n.run_id = Some(99);
         store::insert_node(c, &n).unwrap();
@@ -422,7 +447,7 @@ mod tests {
             guides: vec![GuideDef {
                 key: "data".into(), name: "データ".into(), explain: String::new(), question: String::new(),
                 child_candidates: vec!["規模は？".into()], extract: vec!["件数".into(), "出所".into()],
-                pitfalls: vec![], target: 0,
+                pitfalls: vec![],
             }],
             ..Defs::default()
         };
@@ -431,7 +456,7 @@ mod tests {
 
     fn spec() -> CardSpec {
         CardSpec {
-            node: "Q1".into(), block: "sci-ideate".into(), purpose: "答えの候補を出す".into(), expect: "O を 2 つ".into(),
+            node: "Q1".into(), block: "lab-grow".into(), purpose: "答えの候補を出す".into(), expect: "A を 2 つ".into(),
             mode: "purpose_first".into(), papers: vec![37], runner: "pi".into(), origin_run: Some(120), ..CardSpec::default()
         }
     }
@@ -445,12 +470,29 @@ mod tests {
     }
 
     #[test]
+    fn child_key_checked_and_written() {
+        let e = env("child");
+        let with = |node: &str, child: &str| CardSpec { node: node.into(), child: child.into(), ..spec() };
+        // Q の下は Q か A、A の下は Q か F。それ以外（と知らない値）は入力の誤り。
+        for bad in [with("Q1", "F"), with("A2", "A"), with("A2", "O")] {
+            assert!(matches!(create_card(&e.db, &e.roots, &e.defs, &bad), Err(RtError::Invalid(_))), "{bad:?}");
+        }
+        let q = create_card(&e.db, &e.roots, &e.defs, &with("Q1", "A")).unwrap();
+        assert!(fs::read_to_string(&q.path).unwrap().contains("sci_child: A"));
+        let a = create_card(&e.db, &e.roots, &e.defs, &with("A2", "F")).unwrap();
+        assert!(fs::read_to_string(&a.path).unwrap().contains("sci_child: F"));
+        // 未指定なら行を書かない。
+        let none = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
+        assert!(!fs::read_to_string(&none.path).unwrap().contains("sci_child"));
+    }
+
+    #[test]
     fn creates_task_md_with_keys_and_writes_no_rows() {
         let e = env("ok");
         let before = node_rows(&e);
         let r = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
-        for key in ["sci_node: Q1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: O を 2 つ"] {
+        for key in ["sci_node: Q1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: A を 2 つ"] {
             assert!(text.contains(key), "{key}\n{text}");
         }
         // 古い範囲と仮置きのキーは task.md に書かない（名前は文字列を分けて組み立てる）。
@@ -478,7 +520,20 @@ mod tests {
         let mut s = spec();
         s.node = "SEED".into();
         s.runner = "user".into();
-        assert!(err(&e, &s).contains("O か Q"));
+        assert!(err(&e, &s).contains("A か Q"));
+    }
+
+    /// runner が user で block が空のとき、READ_CARD の既定の block は lab-read。
+    #[test]
+    fn read_card_without_block_uses_lab_read() {
+        let e = env("read-default");
+        let mut s = spec();
+        s.runner = "user".into();
+        s.block = String::new();
+        s.papers = vec![37];
+        let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
+        let text = fs::read_to_string(&r.path).unwrap();
+        assert!(text.contains("lab-read"), "{text}");
     }
 
     #[test]
@@ -497,7 +552,7 @@ mod tests {
         let mut s = spec();
         s.runner = "user".into();
         s.node = "F3".into();
-        assert!(err(&e, &s).contains("O か Q"));
+        assert!(err(&e, &s).contains("A か Q"));
         let mut s = spec();
         s.purpose = "한글".into();
         assert!(err(&e, &s).contains("ハングル"));
@@ -507,7 +562,7 @@ mod tests {
     fn read_card_roundtrip() {
         let e = env("read");
         let mut s = spec();
-        s.node = "O2".into();
+        s.node = "A2".into();
         s.runner = "user".into();
         s.block = String::new();
         s.mode = String::new();

@@ -1,7 +1,6 @@
 ---
 key: purpose.subgoal
 name: PURPOSE_SUBGOAL
-target: 2
 ---
 # PURPOSE_SUBGOAL
 

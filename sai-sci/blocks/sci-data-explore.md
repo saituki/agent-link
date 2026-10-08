@@ -10,7 +10,7 @@ templates:
   - data-core
 context: true
 sci_type: node
-sci_ops: add_e, add_f
+sci_ops: add_e, set_mlflow
 timeout: 3600
 worktree: none
 enable: true
@@ -28,7 +28,7 @@ enable: true
 
 - データを受け取り、始める前の項目を確かめ、**データ表**・**EDA**・必要なら**前処理の写し**を作る（`data-core` §5・§6）。
 - MLflow に EDA を記録する（`data-core` §8）。
-- 木に E（データ解析）と F（要点）を出す（`data-core` §9）。
+- 木に E（データ解析）を出す（`data-core` §9）。F は足さない。
 - report の「## Next Action」に、`sci-data-test` の CARD の命令をそのまま書ける形で残す。
 
 しないこと:
@@ -47,7 +47,7 @@ enable: true
 
 - 最初のメッセージの `# context`（`## TREE`）と `# task_text`（依頼文の NODE・目的・データのパス）を読む。
 - データのパスが依頼文に無ければ、木の `data` の Q に付いた F（`# context` の `## TREE` にある）を見る。**それでも無ければ、質問ツールで起動者にデータを聞いて止まる。** 推測でデータを作らない（`data-core` §11）。
-- study を決める（C1）。`<CARD の Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。`$SAI_RUN_ID` が無いときは `echo "${SAI_PARENT_RUN_ID}"` で自分の run_id を見る。
+- study を決める。`<CARD の Node>-ID<自分の run_id>` の形（例 `S3-ID130`）。自分の run_id は `echo "${SAI_PARENT_RUN_ID}"` で見る。
 - project は次で取る。
 
   ```bash
@@ -60,7 +60,7 @@ enable: true
 
 ### 3. EDA を動かす
 
-- `data-core` §5 の手順で道具（C7）を動かす。EDA と生体信号の道具はここにある。
+- `data-core` §5 の手順で道具を動かす。EDA と生体信号の道具はここにある。
 
   ```bash
   EDA="$SAI_PROJECT_ROOT/.sai/tools/eda"
@@ -74,33 +74,33 @@ enable: true
 ### 4. 前処理をする（要るときだけ）
 
 - 不要ならこの手順を飛ばし、「## 前処理」を「なし」と書いてよい。
-- 要るときは `analysis/<study>/prep.py` を書いて動かす（PEP 723 の欄・C1・`data-core` §6）。
+- 要るときは `analysis/<study>/prep.py` を書いて動かす（PEP 723 の欄・`data-core` §6）。
 - **2 回動かして、出力の sha256 が前回と同じことを確かめる**（`data-core` §10）。違うなら、乱数や順序の固定が効いていないので、直してからもう一度確かめる。
 - 前処理した写しは `analysis/<study>/data/` に置く（**生データは書き換えない**）。
 - 写しにも、3. の EDA の表の道具をもう一度かける。前処理の前後で列と欠損がどう変わったかを控える。
 
 ### 5. 木に E を出す
 
-`data-core` §9 の explore の `add_e` で、**親の Node は CARD の Node（SPROUT か E）**にして出す（C9）。
+`data-core` §9 の explore の `add_e` で、**親の Node は CARD の Node（SPROUT か E）**にして出す。
 
 ```json
 {"op": "add_e", "parent": "<CARD の Node>", "text": "データ解析 <study>", "mlflow": "<project>/ID<自分の run_id>/data"}
 ```
 
-返った **E の ID** を控える。8. の F の親になる。
+返った **E の ID** を控える。test の親になる。
 
 ### 6. データ表を保存する
 
-`data-core` §4 の書式で `data-card-<study>.md` を `sai-link doc write` で保存する（C2）。
+`data-core` §4 の書式で `data-card-<study>.md` を `sai-link doc write` で保存する。
 
 - description は `データ表 <study>: <データを 1 文で>`。
 - 本文の先頭に、§4 の JSON を ```json のコードブロックで **1 つだけ**置く。
 
-トークンを控える。8. の F と report の「## Next Action」で使う。
+トークンを控える。report の「## Next Action」で使う。
 
 ### 7. MLflow に記録する
 
-`data-core` §8 の命令で `--kind eda` の記録をする。名前は C8 のとおり（experiment は `<project>/ID<自分の run_id>/data`、run は `ID<自分の run_id>-eda`、タグは `exp.kind=eda`）。
+`data-core` §8 の命令で `--kind eda` の記録をする。名前は `data-core` §8 のとおり（experiment は `<project>/ID<自分の run_id>/data`、run は `ID<自分の run_id>-eda`、タグは `exp.kind=eda`）。
 
 ```bash
 uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PROJECT_ROOT/.sai/tools/data_result.py" \
@@ -111,15 +111,9 @@ uv run --no-project --python ">=3.11" --with mlflow --with boto3 python "$SAI_PR
 
 **記録に失敗しても、REPORT は書く。** 失敗した理由（URI が無い・接続が切れるなど）を report の「## データの要点」の末尾に書いて、この手順だけを飛ばして次へ進む。
 
-### 8. 木に F を出す
+### 8. 要点を report に書く
 
-要点（件数・欠損・漏洩の疑い・注意）を **1〜3 個の F** にする。F は 5. の E の下に `add_f` で出す（C9）。F の文は 3 文まで。
-
-```json
-{"op": "add_f", "parent": "<5. の E の ID>", "text": "60 人 1180 行。RMSSD の欠損は 2%。", "report": "<データ表のトークン>"}
-```
-
-**数字を含む F には `report`（データ表のトークン）を必ず付ける。** 論文を引くときだけ `cites` を足す。両方を混ぜない。
+木に F は足しません（`add_f` は出さない）。要点（件数・欠損・漏洩の疑い・注意）は report の「## データの要点」に 1〜3 個の箇条書きで書きます。数字を書くときは、データ表のトークンを並べて書きます。
 
 ### 9. report を保存して終える
 
@@ -144,7 +138,7 @@ report は次の見出しで、この順のまま書きます。
 ## 前処理
 ## 解析の候補
 ## Next Action
-## PROPOSAL
+## 木への変更
 ## OUT_OF_SCOPE
 ```
 

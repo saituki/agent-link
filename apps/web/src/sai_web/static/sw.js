@@ -79,7 +79,7 @@
 // （index.html の ?v= も 84。ASSETS は変えない。ファイルは足していない）
 // U17 の apps/phone → apps/web の改名（パッケージの名前，保存の名前，
 // 会話表示の CLI 呼び出し）で v85 に（index.html の ?v= も 85。ASSETS は変えない）
-// U13 の reason と TRIAGE 箱を消し、PENDING を右の板と図・一覧の印に出し（sciedit.js・
+// U13 の reason と TRIAGE 箱を消し、保留の印を右の板と図・一覧に出し（sciedit.js・
 // scitree.js・scigraph.js・sciread.js・papers.js と CSS・sci.py・main.py）で v86 に
 // （index.html の ?v= も 86。ASSETS は変えない。ファイルは足していない）
 // U33 の図を 4 layer（SEED・ROOT・SPROUT・BRANCH）にし、SEED と SPROUT の右の板を作る
@@ -105,7 +105,9 @@
 // U15（cite.js の釦を「＋ Library に入れる」に。中身は keep に回る）で v99 に（index.html の ?v= も 99。ASSETS は変えない）
 // 検索履歴の住所を search-history / find-history に改め、sci-screen の選択肢を消して v100 に（index.html の ?v= も 100。ASSETS は変えない。sai-moon の feat/search-redefine を merge）
 // 論文の詳細の再編（音声を作るを PDF の列へ・Index を足す・Abstract/Notes/Figure/Reference/Chunk の見出しと折りたたみ）で v101 に（index.html の ?v= も 101。ASSETS は変えない）
-const CACHE = "sai-web-v101";
+// research-tree の画面（O を A に・F の stance・保留の印と目安の欄を消す・MLflow の参照・History の許可）で v102 に（index.html の ?v= も 102。ASSETS は変えない）
+// History の画面（CLI の呼び出しの表・失敗の印・番号のチップ・全文の小窓）で v103 に（index.html の ?v= も 103。ASSETS は変えない）
+const CACHE = "sai-web-v103";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）

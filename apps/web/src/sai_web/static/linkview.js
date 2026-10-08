@@ -1266,27 +1266,195 @@ function lvRenderHistory(data) {
   }
   body.appendChild(card);
 
+  // `cli`（C11）が無い JSON（古い CLI）ではカードを出さない
+  const cli = lvCliSummary(data.cli);
+  if (cli) body.appendChild(lvCliCard(cli));
+
   const events = Array.isArray(data.events) ? data.events : [];
   const tlCard = lvCard(`タイムライン（${events.length}）`);
   if (events.length === 0) {
     tlCard.appendChild(el("p", "st-note", "データがありません"));
   } else {
-    for (const ev of events) {
-      const row = el("div", "lv-tl");
-      row.appendChild(el("span", "lv-tl-time", lvClock(ev && ev.time)));
-      const type = String((ev && ev.type) || "");
-      const idx = Math.max(0, LV_TYPES.indexOf(type));
-      const chip = el("span", "lv-tl-type", type || "-");
-      if (LV_TYPES.includes(type)) chip.style.background = LV_TYPE_COLORS[idx];
-      row.appendChild(chip);
-      row.appendChild(el("span", "lv-tl-name", String((ev && ev.name) || "")));
-      row.appendChild(
-        el("span", "lv-tl-tokens", formatTokens(lvNum(ev && ev.tokens)))
-      );
-      tlCard.appendChild(row);
-    }
+    for (const ev of events) tlCard.appendChild(lvTimelineRow(ev));
   }
   body.appendChild(tlCard);
+}
+
+/** Timeline の 1 行（DOM）。2 段目以降（番号・本文の先頭）は行の幅いっぱいに折り返す。 */
+function lvTimelineRow(ev) {
+  const info = lvEventRow(ev);
+  const row = el("div", "lv-tl");
+  row.appendChild(el("span", "lv-tl-time", lvClock(ev && ev.time)));
+  const type = String((ev && ev.type) || "");
+  const idx = Math.max(0, LV_TYPES.indexOf(type));
+  const chip = el("span", "lv-tl-type", type || "-");
+  if (LV_TYPES.includes(type)) chip.style.background = LV_TYPE_COLORS[idx];
+  row.appendChild(chip);
+  row.appendChild(el("span", "lv-tl-name", info.name));
+  if (info.failed) row.appendChild(el("span", "lv-tl-fail", "失敗"));
+  row.appendChild(el("span", "lv-tl-tokens", formatTokens(lvNum(ev && ev.tokens))));
+
+  // 全文の釦: 番号が無いときは 1 段目に、あるときは 2 段目（番号のチップと並べる）
+  const openBtn = info.canOpen ? el("button", "lv-tl-open", "全文") : null;
+  if (openBtn) {
+    openBtn.type = "button";
+    openBtn.addEventListener("click", () => void lvOpenCall(ev));
+  }
+  if (info.ids.shown.length > 0) {
+    const foot = el("div", "lv-tl-foot");
+    for (const id of info.ids.shown) foot.appendChild(el("span", "lv-tl-id", id));
+    if (info.ids.rest > 0) foot.appendChild(el("span", "lv-tl-id", `+${info.ids.rest}`));
+    if (openBtn) foot.appendChild(openBtn);
+    row.appendChild(foot);
+  } else if (openBtn) {
+    row.appendChild(openBtn);
+  }
+  // 3 段目: 結果の先頭（2 行まで・押すと全文）
+  if (info.preview) {
+    const pv = info.canOpen ? el("button", "lv-tl-preview", info.preview) : el("div", "lv-tl-preview", info.preview);
+    if (info.canOpen) {
+      pv.type = "button";
+      pv.addEventListener("click", () => void lvOpenCall(ev));
+    }
+    row.appendChild(pv);
+  }
+  return row;
+}
+
+/** `cli`（C11）の集計のカード: 命令の表・失敗の分類・番号（見た・使った・使わなかった）。 */
+function lvCliCard(cli) {
+  const card = lvCard("CLI の呼び出し");
+  if (cli.calls.length === 0) {
+    card.appendChild(el("p", "st-note", "CLI の呼び出しはありません"));
+  } else {
+    const table = el("table", "lv-cli-table");
+    const head = el("tr");
+    for (const t of ["命令", "回数", "失敗"]) head.appendChild(el("th", "", t));
+    table.appendChild(head);
+    for (const c of cli.calls) {
+      const tr = el("tr");
+      tr.appendChild(el("td", "lv-cli-cmd", c.command));
+      tr.appendChild(el("td", "lv-cli-num", String(c.count)));
+      tr.appendChild(
+        el("td", c.errors > 0 ? "lv-cli-num lv-fail" : "lv-cli-num", c.errors > 0 ? `${c.errors} 件` : "0")
+      );
+      table.appendChild(tr);
+    }
+    card.appendChild(table);
+  }
+  card.appendChild(el("div", "lv-cli-sub", "失敗の分類"));
+  if (cli.failures.length === 0) {
+    card.appendChild(el("p", "st-note", "失敗はありません"));
+  } else {
+    const legend = el("div", "lv-legend");
+    for (const f of cli.failures) {
+      const row = el("div", "lv-leg");
+      row.append(el("span", "lv-leg-name", f.label), el("span", "lv-leg-num", `${f.count} 件`));
+      legend.appendChild(row);
+    }
+    card.appendChild(legend);
+  }
+  card.appendChild(el("div", "lv-cli-sub", "番号（台帳）"));
+  card.appendChild(
+    el(
+      "p",
+      "lv-sub",
+      `見た ${cli.ids.seen}・使った ${cli.ids.used}・使わなかった ${cli.ids.unused}`
+    )
+  );
+  return card;
+}
+
+/** 呼び出しの全文を小窓で開く。押したときだけ取る（History の JSON を小さく保つ・U14）。 */
+async function lvOpenCall(ev) {
+  const body = el("div", "lv-call");
+  body.appendChild(el("p", "st-note", "読み込み中…"));
+  saiSheet({ title: lvCallName(ev) || "呼び出し", body });
+  const base = `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}`;
+  try {
+    const d = await lvFetchJson(`${base}/history/calls/${encodeURIComponent(ev.call_id)}`);
+    body.innerHTML = "";
+    body.appendChild(el("div", "lv-call-label", "入力"));
+    body.appendChild(el("pre", "lv-call-pre", lvPrettyInput(d.input)));
+    body.appendChild(el("div", "lv-call-label", d.is_error === true ? "結果（失敗）" : "結果"));
+    body.appendChild(el("pre", "lv-call-pre", String(d.result || "")));
+    if (d.truncated === true) body.appendChild(el("p", "st-note", "（2 万字で切りました）"));
+  } catch (e) {
+    body.innerHTML = "";
+    body.appendChild(el("p", "st-note", (e && e.message) || "読み込めませんでした"));
+  }
+}
+
+// --- History の呼び出しの表示（DOM を使わない・tests/test_linkview.js） ---
+
+/** 行の名前: 命令（`command`）があれば命令名、無ければ道具の名前（`name`）。 */
+function lvCallName(ev) {
+  if (ev && ev.command) return String(ev.command);
+  return String((ev && ev.name) || "");
+}
+
+/** 呼び出しの番号が全文の住所に使えるか（`history/calls/{call_id}` と同じ形）。 */
+function lvCallIdOk(id) {
+  return typeof id === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(id);
+}
+
+/** 番号のチップ: 先頭 `max` 個（既定 5）と、残りの数（`+n`）。 */
+function lvIdChips(ids, max) {
+  const list = Array.isArray(ids) ? ids.map(String) : [];
+  const n = max == null ? 5 : max;
+  return { shown: list.slice(0, n), rest: Math.max(0, list.length - n) };
+}
+
+const LV_FAILURE_LABELS = {
+  ledger: "台帳に無い番号",
+  input: "入力の誤り（2）",
+  not_found: "見つからない（3）",
+  conflict: "状態の衝突（4）",
+  other: "その他",
+};
+
+/** 失敗の分類の名前（`cli.failures[].class`）。表に無い分類は、分類の文字をそのまま出す。 */
+function lvFailureLabel(cls) {
+  return LV_FAILURE_LABELS[cls] || String(cls || "other");
+}
+
+/** Timeline 1 行の表示に要るもの（名前・失敗の印・番号のチップ・結果の先頭・全文を開けるか）。 */
+function lvEventRow(ev) {
+  const e = ev || {};
+  return {
+    name: lvCallName(e),
+    failed: e.is_error === true,
+    ids: lvIdChips(e.ids, 5),
+    preview: typeof e.preview === "string" ? e.preview : "",
+    canOpen: lvCallIdOk(e.call_id),
+  };
+}
+
+/** `cli`（C11）の表示用。`cli` が無い JSON（古い CLI）は null（カードを出さない）。 */
+function lvCliSummary(cli) {
+  if (!cli || typeof cli !== "object") return null;
+  const calls = Array.isArray(cli.calls) ? cli.calls : [];
+  const failures = Array.isArray(cli.failures) ? cli.failures : [];
+  const ids = cli.ids || {};
+  return {
+    calls: calls.map((c) => ({
+      command: String((c && c.command) || ""),
+      count: lvNum(c && c.count),
+      errors: lvNum(c && c.errors),
+    })),
+    failures: failures.map((f) => ({ label: lvFailureLabel(f && f.class), count: lvNum(f && f.count) })),
+    ids: { seen: lvNum(ids.seen), used: lvNum(ids.used), unused: lvNum(ids.unused) },
+  };
+}
+
+/** 入力（JSON の文字列）を読みやすく整える。読めなければそのまま。 */
+function lvPrettyInput(text) {
+  const s = String(text || "");
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
 }
 
 /** ISO の時刻を「HH:MM:SS」（タイムラインと一覧で使う）。 */
@@ -1763,6 +1931,13 @@ if (typeof module !== "undefined" && module.exports) {
     statsCells,
     statsSeries,
     typeSlices,
+    lvCallName,
+    lvCallIdOk,
+    lvIdChips,
+    lvFailureLabel,
+    lvEventRow,
+    lvCliSummary,
+    lvPrettyInput,
     waggleDirect,
     lvScheduledAt,
   };

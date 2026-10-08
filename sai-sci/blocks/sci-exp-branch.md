@@ -3,12 +3,14 @@ name: 🌿 exp-branch
 id: sci-exp-branch
 description: "スクリプトを 1 本書いて実行先に投げ、始まりを確かめたら、ジョブ待ちの review の CARD を作って終える"
 sci_type: support
+sci_ops: set_mlflow
 model: inherit
 thinking: medium
 templates:
   - exp-core
   - exp-run
   - exp-ref
+  - sim-core
 timeout: 7200
 worktree: none
 enable: true
@@ -34,6 +36,7 @@ enable: true
 - **ジョブの終わりを待たない。** 終わると daemon が review（`sci-exp-review`）を起こす。判定は review の役目である。
 - 実験仕様書（`exp-core` §3）を書き換えない。仕様書の `workdir` の外のファイルも書かない。
 - 台帳の数値からパラメータの値を自分で読まない。
+- 木に F は足さない。E の MLflow の参照を後から付けるときだけ、`sai-sci op` の `set_mlflow` で書く。
 
 あなたは親を持たない run である。
 
@@ -44,7 +47,7 @@ enable: true
 依頼文の末尾に埋め込まれた依頼書（`exp-core` §7）の先頭 5 行と、実験仕様書（JSON）を読む。
 
 ```text
-study: O12-ID120
+study: A12-ID120
 sprout_run_id: 120
 action: tune
 parent_branch: 125

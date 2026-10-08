@@ -1,11 +1,12 @@
-"""research-tree（Q・O・F・E）の API のテスト。
+"""research-tree（Q・A・F・E・S）の API のテスト。
 
 確かめること:
 - 中継が表どおりに CLI を呼ぶ（引数・標準入力・cwd・`SAI_PROJECT_ROOT`・待ち時間）
 - 検査に通らない値では CLI が 1 回も呼ばれず、400 と日本語の理由が返る
 - 知らない項目と `path` のようなファイルのパスが CLI に渡らない
 - READ_CARD の終わりは、始まっていない札でも 1 回の操作で review まで進む
-- 10 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
+- 9 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
+- C3 の表にない op は 400（op の集合は test_op_ok で確かめる）。research-tree の住所は 9 本だけ
 
 実行:
     cd <作業用コピー>
@@ -98,42 +99,45 @@ def swap(order: list, replies: list | None = None):
     return paper, link, restore
 
 
-# C-OP の 13 op の通る例
+# C-OP の 14 op（C3 の表）の通る例
+C3_OPS = {
+    "add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f",
+    "add_e", "add_sprout", "set_stance", "set_mlflow", "star", "unstar", "edit",
+}
 OP_EXAMPLES = {
     "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
-    "add_o": {"q": "Q1", "text": "候補", "body": "説明", "kind": "issue"},
+    "insert_q": {"q": "Q1", "text": "間に入れる問い", "guide": "g-1"},
+    "move_a": {"from": "Q1", "to": "Q3"},
+    "copy": {"node": "A2", "to": "Q3"},
+    "remove": {"node": "F4"},
+    "add_a": {"q": "Q1", "text": "候補", "body": "説明"},
     "add_f": {
-        "parent": "O2",
+        "parent": "A2",
         "text": "速さが効いた。",
+        "stance": "support",
         "cites": ["#37.3.1 速さ", "#40", "#41.2-4"],
         "paper": 37,
         "report": "R-0012",
-        "run": 130,
     },
     "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc"},
-    "record_logic": {"q": "Q1", "value": "contradiction", "note": "n", "findings": ["F1", "F2"]},
-    "add_sprout": {"title": "題", "body": "計画", "paths": ["O1", "O2"]},
-    "copy": {"node": "O2", "to": "Q3"},
-    "remove": {"node": "F4"},
-    "star": {"o": "O2"},
-    "unstar": {"o": "O2"},
-    "set_kind": {"o": "O2", "kind": "answer"},
-    "edit": {"node": "O2", "text": "直した", "body": ""},
-    "set_target": {"q": "Q1", "target": 3},
+    "add_sprout": {"title": "題", "body": "計画", "paths": ["A1", "A2"]},
+    "set_stance": {"node": "F3", "stance": "deny"},
+    "set_mlflow": {"node": "E1", "mlflow": "run/xyz"},
+    "star": {"node": "A2"},
+    "unstar": {"node": "Q1"},
+    "edit": {"node": "A2", "text": "直した", "body": ""},
 }
 
 
 def test_ids() -> None:
-    """ID と run_id の検査。"""
-    assert sci.check_node("Q12") == "Q12" and sci.check_node(" O5 ") == "O5"
+    """ID と run_id の検査。O は無くなったので 400。"""
+    assert sci.check_node("Q12") == "Q12" and sci.check_node(" A5 ") == "A5"
     assert sci.check_node("F31") == "F31" and sci.check_node("E2") == "E2"
     assert sci.check_node("S1") == "S1"
-    for bad in ("12", "Q0", "X1", "N1", "L1", "P1", "q1", "Q", "SEED", "", "Q1000000000", None, 12):
+    for bad in ("12", "Q0", "O1", "X1", "N1", "L1", "P1", "q1", "Q", "SEED", "", "Q1000000000", None, 12):
         expect_400(lambda value=bad: sci.check_node(value), "ID の形が正しくありません")
-    assert sci.check_proposal("P55") == "P55"
-    for bad in ("Q1", "P0", "55", None):
-        expect_400(lambda value=bad: sci.check_proposal(value), "ID の形が正しくありません")
-    assert not hasattr(sci, "check_ref") and not hasattr(sci, "graph")
+    assert not hasattr(sci, "check_proposal") and not hasattr(sci, "check_ref")
+    assert not hasattr(sci, "graph")
 
     assert sci.check_run_id(130) == 130 and sci.check_run_id("130") == 130
     for bad in (0, -1, 1_000_000_000, "0", "x", None, True, 1.5):
@@ -147,25 +151,33 @@ def test_ids() -> None:
 
 
 def test_op_ok() -> None:
-    """13 op が通り、前後の空白は落ち、body は空のまま送れる。"""
-    assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) and len(sci._OP_FIELDS) == 13
+    """14 op が通り、前後の空白は落ち、body は空のまま送れる。"""
+    assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) == C3_OPS, set(sci._OP_FIELDS) ^ C3_OPS
+    assert len(sci._OP_FIELDS) == 14
     for name, fields in OP_EXAMPLES.items():
         got = sci.validate_op({"op": name, **fields})
         for key, value in fields.items():
             assert got[key] == value, (name, key, got)
-    assert sci.validate_op({"op": "star", "o": " O2 "}) == {"op": "star", "o": "O2"}
-    assert sci.validate_op({"op": "add_q", "parent": "O1", "text": "x"})["parent"] == "O1"
+    assert sci.validate_op({"op": "star", "node": " A2 "}) == {"op": "star", "node": "A2"}
+    # 種類の組（star は F も A も通る）は CLI が見る。Web は ID の形だけ
+    assert sci.validate_op({"op": "star", "node": "F31"})["node"] == "F31"
+    assert sci.validate_op({"op": "add_q", "parent": "A1", "text": "x"})["parent"] == "A1"
     assert sci.validate_op({"op": "add_q", "parent": "SEED", "text": "x"})["parent"] == "SEED"
     assert sci.validate_op({"op": "add_e", "parent": "E1", "text": "x"})["parent"] == "E1"
     assert sci.validate_op({"op": "add_e", "parent": "S2", "text": "x"})["parent"] == "S2"
     assert sci.validate_op({"op": "remove", "node": "S1"})["node"] == "S1"
     # 任意の項目は無くてよい
-    assert sci.validate_op({"op": "add_o", "q": "Q1", "text": "候補"}) == {
-        "op": "add_o", "q": "Q1", "text": "候補",
+    assert sci.validate_op({"op": "add_a", "q": "Q1", "text": "候補"}) == {
+        "op": "add_a", "q": "Q1", "text": "候補",
     }
-    # target は null で外せる
-    assert sci.validate_op({"op": "set_target", "q": "Q1", "target": None})["target"] is None
-    assert sci.validate_op({"op": "set_target", "q": "Q1", "target": 0})["target"] == 0
+    # set_mlflow の空文字は「外す」の意味で、そのまま CLI へ渡す
+    assert sci.validate_op({"op": "set_mlflow", "node": "E1", "mlflow": ""}) == {
+        "op": "set_mlflow", "node": "E1", "mlflow": "",
+    }
+    # add_f は stance が要る。cites・paper・report は任意
+    assert sci.validate_op({"op": "add_f", "parent": "A1", "text": "x", "stance": "issue"}) == {
+        "op": "add_f", "parent": "A1", "text": "x", "stance": "issue",
+    }
 
 
 def test_op_ng() -> None:
@@ -176,43 +188,47 @@ def test_op_ng() -> None:
 
     bad({}, "op がありません")
     bad({"op": "unknown_op"}, "知らない操作です")
-    bad({"op": "add_finding", "node": "O1", "text": "x"}, "知らない操作です")
-    bad({"op": "star"}, "o がありません")
-    bad({"op": "star", "o": "Q1"}, "ID の形が正しくありません")
-    bad({"op": "star", "o": "12"}, "ID の形が正しくありません")
-    bad({"op": "add_q", "parent": "F1", "text": "x"})
-    bad({"op": "add_q", "parent": "E1", "text": "x"})
-    bad({"op": "add_f", "parent": "Q1", "text": "x"})
-    bad({"op": "add_e", "parent": "Q1", "text": "x"})
-    bad({"op": "add_e", "parent": "O2", "text": "x"})
-    bad({"op": "copy", "node": "Q1", "to": "Q2"})
-    bad({"op": "copy", "node": "O1", "to": "O2"})
+    bad({"op": "add_finding", "node": "A1", "text": "x"}, "知らない操作です")
+    bad({"op": "star"}, "node がありません")
+    bad({"op": "star", "node": "O1"}, "ID の形が正しくありません")
+    bad({"op": "star", "node": "12"}, "ID の形が正しくありません")
+    bad({"op": "add_q", "parent": "O1", "text": "x"}, "ID の形が正しくありません")
     bad({"op": "add_q", "parent": "Q1", "text": "あ" * 301})
-    bad({"op": "add_o", "q": "Q1", "text": "あ" * 121})
-    bad({"op": "add_o", "q": "Q1", "text": "x", "body": "あ" * 2001})
-    bad({"op": "add_o", "q": "Q1", "text": "x", "kind": "other"})
-    bad({"op": "add_f", "parent": "O1", "text": "あ" * 1201})
-    bad({"op": "add_f", "parent": "O1", "text": "x", "cites": [f"#{i}" for i in range(1, 12)]})
+    bad({"op": "add_q", "parent": "Q1", "text": "x", "guide": "日本語"}, "guide の形が正しくありません")
+    bad({"op": "insert_q", "q": "A1", "text": "x"}, "ID の形が正しくありません")
+    bad({"op": "insert_q", "q": "Q1", "text": "あ" * 301})
+    bad({"op": "move_a", "from": "Q1"}, "to がありません")
+    bad({"op": "move_a", "from": "A1", "to": "Q2"}, "ID の形が正しくありません")
+    bad({"op": "copy", "node": "Q1", "to": "Q2"}, "ID の形が正しくありません")
+    bad({"op": "copy", "node": "A1", "to": "A2"}, "ID の形が正しくありません")
+    bad({"op": "add_a", "q": "Q1", "text": "あ" * 121})
+    bad({"op": "add_a", "q": "Q1", "text": "x", "body": "あ" * 2001})
+    bad({"op": "add_f", "parent": "A1", "text": "x"}, "stance がありません")
+    bad({"op": "add_f", "parent": "A1", "text": "x", "stance": "maybe"}, "stance が正しくありません")
+    bad({"op": "add_f", "parent": "Q1", "text": "x", "stance": "support"}, "ID の形が正しくありません")
+    bad({"op": "add_f", "parent": "A1", "text": "あ" * 1201, "stance": "support"})
+    bad({"op": "add_f", "parent": "A1", "text": "x", "stance": "support",
+         "cites": [f"#{i}" for i in range(1, 12)]})
     for cite in ("37", "#0", "#37.", "#37 " + "あ" * 81, "#37.0", "#a"):
-        bad({"op": "add_f", "parent": "O1", "text": "x", "cites": [cite]})
-    bad({"op": "add_f", "parent": "O1", "text": "x", "paper": 0})
-    bad({"op": "add_e", "parent": "O1", "text": "x", "mlflow": "あ" * 201})
-    bad({"op": "record_logic", "q": "Q1", "value": "maybe"})
-    bad({"op": "record_logic", "q": "Q1", "value": "ok", "findings": ["O1"]})
-    bad({"op": "record_logic", "q": "Q1", "value": "ok", "note": "あ" * 1001})
+        bad({"op": "add_f", "parent": "A1", "text": "x", "stance": "support", "cites": [cite]})
+    bad({"op": "add_f", "parent": "A1", "text": "x", "stance": "support", "paper": 0})
+    bad({"op": "add_e", "parent": "Q1", "text": "x"})
+    bad({"op": "add_e", "parent": "A2", "text": "x"})
+    bad({"op": "add_e", "parent": "E1", "text": "x", "mlflow": "あ" * 201})
+    bad({"op": "set_stance", "node": "A1", "stance": "support"}, "ID の形が正しくありません")
+    bad({"op": "set_stance", "node": "F1"}, "stance がありません")
+    bad({"op": "set_mlflow", "node": "Q1", "mlflow": "x"}, "ID の形が正しくありません")
+    bad({"op": "set_mlflow", "node": "E1"}, "mlflow がありません")
+    bad({"op": "set_mlflow", "node": "E1", "mlflow": "あ" * 201})
     bad({"op": "add_sprout", "title": "題", "paths": []}, "paths の指定が正しくありません")
     bad({"op": "add_sprout", "title": "題", "paths": ["Q1"]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "title": "題", "paths": ["O1", "O1"]}, "paths に同じ O が 2 回入っています")
-    bad({"op": "add_sprout", "title": "題", "paths": [f"O{i}" for i in range(1, 22)]})
+    bad({"op": "add_sprout", "title": "題", "paths": ["A1", "A1"]}, "paths に同じ A が 2 回入っています")
+    bad({"op": "add_sprout", "title": "題", "paths": [f"A{i}" for i in range(1, 22)]})
     bad({"op": "add_sprout", "title": "題"}, "paths がありません")
-    bad({"op": "add_sprout", "title": "あ" * 121, "paths": ["O1"]})
-    bad({"op": "add_sprout", "title": "題", "body": "あ" * 2001, "paths": ["O1"]})
-    bad({"op": "set_kind", "o": "O1", "kind": "x"})
-    bad({"op": "edit", "node": "O1"}, "text か body のどちらかが要ります")
-    bad({"op": "edit", "node": "O1", "text": "あ" * 1201})
-    bad({"op": "set_target", "q": "Q1"}, "target がありません")
-    for target in (100, -1, True, "3", 1.5):
-        bad({"op": "set_target", "q": "Q1", "target": target})
+    bad({"op": "add_sprout", "title": "あ" * 121, "paths": ["A1"]})
+    bad({"op": "add_sprout", "title": "題", "body": "あ" * 2001, "paths": ["A1"]})
+    bad({"op": "edit", "node": "A1"}, "text か body のどちらかが要ります")
+    bad({"op": "edit", "node": "A1", "text": "あ" * 1201})
 
 
 def test_unknown_fields_dropped() -> None:
@@ -246,13 +262,21 @@ def test_card() -> None:
     expected.pop("scope")
     expected.pop("assume")
     assert got == expected, got
-    ok_user = {"node": "O1", "block": "sci-read", "purpose": "目的", "papers": [37], "runner": "user"}
+    ok_user = {"node": "A1", "block": "sci-read", "purpose": "目的", "papers": [37], "runner": "user"}
     assert sci.validate_card(ok_user)["runner"] == "user"
     assert sci.validate_card({**ok_user, "mode": "blind_first"})["mode"] == "blind_first"
     assert "mode" not in sci.validate_card(ok_user)
     # SEED はカードの対象にできる（実行は pi）
     seed_card = {"node": "SEED", "block": "sci-review", "purpose": "木全体を見直す", "runner": "pi"}
     assert sci.validate_card(seed_card)["node"] == "SEED"
+    # C9: LabAgent の block id（lab-*）も通る
+    assert sci.validate_card({**ok_user, "block": "lab-read"})["block"] == "lab-read"
+    # C7: 足す子の型（Q・A・F）。空と null は未指定として落とす
+    for child in ("Q", "A", "F"):
+        assert sci.validate_card({**ok_user, "child": child})["child"] == child
+    assert "child" not in sci.validate_card({**ok_user, "child": ""})
+    assert "child" not in sci.validate_card({**ok_user, "child": None})
+    assert "child" not in sci.validate_card(ok_user)
 
     def bad(extra: dict, detail: str = "") -> None:
         expect_400(lambda: sci.validate_card({**ok_user, **extra}), detail)
@@ -266,28 +290,18 @@ def test_card() -> None:
     bad({"expect": "あ" * 301})
     bad({"node": "N1"}, "ID の形が正しくありません")
     bad({"node": "12"}, "ID の形が正しくありません")
-    bad({"node": "SEED"}, "READ_CARD の対象は Q か O にしてください")
+    bad({"node": "O1"}, "ID の形が正しくありません")
+    bad({"node": "F1"}, "READ_CARD の対象は Q か A にしてください")
+    bad({"node": "SEED"}, "READ_CARD の対象は Q か A にしてください")
+    bad({"child": "E"}, "child が正しくありません")
+    bad({"child": "S"}, "child が正しくありません")
+    bad({"child": "O"}, "child が正しくありません")
     bad({"depth": "deep"}, "depth が正しくありません")
     bad({"mode": "quick"}, "mode が正しくありません")
     bad({"runner": "human"}, "runner が正しくありません")
     bad({"origin_run": 0})
     bad({"papers": list(range(1, 22)), "runner": "pi"}, "papers の指定が正しくありません")
     bad({"papers": [0]}, "run_id は 1〜999999999 の整数にしてください")
-
-
-def test_triage() -> None:
-    """TRIAGE の検査。"""
-    assert sci.validate_triage({"action": "accept"}) == ("accept", None)
-    assert sci.validate_triage({"action": "reject", "note": " 違う "}) == ("reject", None)
-    action, edit = sci.validate_triage(
-        {"action": "accept", "note": "直して採用",
-         "edit": {"op": "add_q", "parent": "Q1", "text": "なぜ？"}}
-    )
-    assert action == "accept"
-    assert edit == {"op": "add_q", "parent": "Q1", "text": "なぜ？"}
-    for bad in ({}, {"action": "keep"},
-                {"action": "accept", "edit": {"op": "unknown_op"}}):
-        expect_400(lambda value=bad: sci.validate_triage(value))
 
 
 def test_calls(order: list) -> None:
@@ -318,8 +332,8 @@ def test_calls(order: list) -> None:
             assert e.status_code == 502, e.status_code
         expect_400(lambda: sci.init(project, {"type": "unknown"}))
 
-        sci.node(project, "O12")
-        assert paper.last["args"][1:] == ["node", "O12", "--json"], paper.last["args"]
+        sci.node(project, "A12")
+        assert paper.last["args"][1:] == ["node", "A12", "--json"], paper.last["args"]
         expect_400(lambda: sci.node(project, "N12"))
 
         sci.apply(project, {"op": "add_q", "parent": "Q1", "text": "なぜ？"})
@@ -329,25 +343,14 @@ def test_calls(order: list) -> None:
         }
         assert paper.last["timeout"] == 30.0
 
-        sci.triage(project, "P55", {"action": "reject"})
-        assert paper.last["args"][1:] == [
-            "triage", "P55", "--reject",
-        ], paper.last["args"]
-        assert paper.last["input_text"] is None
-        sci.triage(project, "P56", {"action": "accept", "edit": {"op": "star", "o": "O1"}})
-        assert paper.last["args"][1:] == [
-            "triage", "P56", "--accept", '--edit={"op": "star", "o": "O1"}',
-        ], paper.last["args"]
-        expect_400(lambda: sci.triage(project, "N55", {"action": "reject"}))
-        expect_400(lambda: sci.triage(project, "P55", {"action": "keep"}))
-
         sci.create_card(
             project,
             {"node": "Q1", "block": "sci-read", "purpose": "目的", "papers": [37],
-             "mode": "blind_first"},
+             "mode": "blind_first", "child": "A"},
         )
         assert paper.last["args"][1:] == ["card", "--from-json", "--json"]
-        assert json.loads(paper.last["input_text"])["mode"] == "blind_first"
+        sent = json.loads(paper.last["input_text"])
+        assert sent["mode"] == "blind_first" and sent["child"] == "A", sent
 
         sci.read(project, 130)
         assert paper.last["args"][1:] == ["read", "130", "--json"]
@@ -459,7 +462,7 @@ def test_user_cli_args() -> None:
 
 
 def test_routes() -> None:
-    """10 本の住所があり、合言葉（require_token）で守られている。"""
+    """9 本の住所があり、合言葉（require_token）で守られている。TRIAGE の住所は無い。"""
     from sai_web.main import app, require_token
 
     paths = [(route.path, sorted(getattr(route, "methods", None) or [])) for route in app.routes]
@@ -470,16 +473,17 @@ def test_routes() -> None:
         (f"{base}/sci/init", ["POST"]),
         (f"{base}/sci/nodes/{{node_id}}", ["GET"]),
         (f"{base}/sci/apply", ["POST"]),
-        (f"{base}/sci/proposals/{{pid}}", ["POST"]),
         (f"{base}/sci/cards", ["POST"]),
         (f"{base}/sci/reads/{{run_id}}", ["GET"]),
         (f"{base}/sci/reads/{{run_id}}/start", ["POST"]),
         (f"{base}/sci/reads/{{run_id}}/finish", ["POST"]),
     ]
-    assert len(wanted) == 10
+    assert len(wanted) == 9
     for path, method in wanted:
         assert (path, method) in paths, f"住所が無い: {method} {path}"
     assert not any(p.endswith("/sci/graph") for p, _ in paths), "/sci/graph は消した"
+    sci_paths = {p for p, _ in paths if "/sci/" in p}
+    assert len(sci_paths) == 9, f"research-tree の住所が 9 本でない: {sorted(sci_paths)}"
 
     wanted_paths = {p for p, _ in wanted}
     for route in app.routes:
@@ -505,7 +509,6 @@ def main() -> None:
             test_op_ng()
             test_unknown_fields_dropped()
             test_card()
-            test_triage()
             test_calls([])
             test_read_finish()
             test_failure_codes()

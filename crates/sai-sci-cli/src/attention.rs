@@ -63,7 +63,6 @@ fn list(json: bool) -> Result<()> {
         AttentionKind::RecommendCard,
         AttentionKind::ReportIssue,
         AttentionKind::SciDecision,
-        AttentionKind::SciTriage,
     ];
     for kind in order {
         let group: Vec<&AttentionItem> = items.iter().filter(|item| item.kind == kind).collect();
@@ -87,7 +86,6 @@ fn kind_heading(kind: AttentionKind) -> &'static str {
         AttentionKind::RecommendCard => "推薦の CARD",
         AttentionKind::ReportIssue => "出典の要確認",
         AttentionKind::SciDecision => "AWAITING_DECISION の ITEM",
-        AttentionKind::SciTriage => "TRIAGE 待ちの PROPOSAL",
     }
 }
 

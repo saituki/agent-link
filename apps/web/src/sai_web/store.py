@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS questions (
     created_at REAL NOT NULL,
     state TEXT NOT NULL DEFAULT 'open',
     answer_json TEXT NOT NULL DEFAULT '',
-    owner TEXT NOT NULL DEFAULT ''
+    owner TEXT NOT NULL DEFAULT '',
+    answered_by TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
     endpoint TEXT PRIMARY KEY,
@@ -128,12 +129,20 @@ def _ensure_owner_column(conn: sqlite3.Connection, table: str) -> None:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
 
 
+def _ensure_answered_by_column(conn: sqlite3.Connection) -> None:
+    """古い DB に `answered_by` の列が無ければ足す（既存の行は空文字）。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(questions)")}
+    if "answered_by" not in columns:
+        conn.execute("ALTER TABLE questions ADD COLUMN answered_by TEXT NOT NULL DEFAULT ''")
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
         # 既存の DB（`owner` の列が無い）をそのまま使えるようにする
         for table in ("registrations", "questions", "subscriptions"):
             _ensure_owner_column(conn, table)
+        _ensure_answered_by_column(conn)
 
 
 def save_registration(
@@ -265,20 +274,21 @@ def list_open_questions(session_id: str | None = None) -> list[dict]:
     return [_row_to_question(r) for r in rows]
 
 
-def mark_answered(qid: str, answer: dict) -> None:
-    """回答済みにする．"""
+def mark_answered(qid: str, answer: dict, answered_by: str) -> None:
+    """回答済みにする．回答した人の名前（端末なら `terminal`）も残す．"""
     owner = _owner_filter()
     with _connect() as conn:
         if owner is None:
             conn.execute(
-                "UPDATE questions SET state = 'answered', answer_json = ? WHERE id = ?",
-                (json.dumps(answer, ensure_ascii=False), qid),
+                "UPDATE questions SET state = 'answered', answer_json = ?, answered_by = ? "
+                "WHERE id = ?",
+                (json.dumps(answer, ensure_ascii=False), answered_by, qid),
             )
         else:
             conn.execute(
-                "UPDATE questions SET state = 'answered', answer_json = ? "
+                "UPDATE questions SET state = 'answered', answer_json = ?, answered_by = ? "
                 "WHERE id = ? AND owner = ?",
-                (json.dumps(answer, ensure_ascii=False), qid, owner),
+                (json.dumps(answer, ensure_ascii=False), answered_by, qid, owner),
             )
 
 
@@ -321,13 +331,13 @@ def mark_resolved_elsewhere_qid(qid: str) -> bool:
     with _connect() as conn:
         if owner is None:
             cur = conn.execute(
-                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "UPDATE questions SET state = 'resolved_elsewhere', answered_by = 'terminal' "
                 "WHERE id = ? AND state = 'open'",
                 (qid,),
             )
         else:
             cur = conn.execute(
-                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "UPDATE questions SET state = 'resolved_elsewhere', answered_by = 'terminal' "
                 "WHERE id = ? AND state = 'open' AND owner = ?",
                 (qid, owner),
             )

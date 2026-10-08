@@ -1,6 +1,6 @@
 //! 新しい research-tree から `state.md` と `tree.md` を書き出す。
 //!
-//! 文は [`compute::status`] の結果だけから作る。research-tree の文は検査済み（PROPOSAL の検査）なので、そのまま写す。
+//! 文は [`compute::status`] の結果だけから作る。research-tree の文は検査済み（op の検査）なので、そのまま写す。
 //! 消した Node は `status` に入らないので、ここでも出ない。
 
 use std::fs;
@@ -39,7 +39,7 @@ fn or_none(text: String) -> String {
 /// `state.md` の本文を作る（頭の 4 行は [`crate::project_files::parse_state`] が読む形）。
 #[must_use]
 pub fn render_state_md(status: &Status) -> String {
-    let progress = format!("{}/{}", status.progress.answered, status.progress.total);
+    let counts = status.counts.line();
 
     let current = status
         .running
@@ -57,7 +57,7 @@ pub fn render_state_md(status: &Status) -> String {
     });
 
     let mut out = format!(
-        "- 段階: 進み具合 {progress}\n- 今の作業: {}\n- Next Action: {}\n- 更新日: {}\n\n",
+        "- 段階: {counts}\n- 今の作業: {}\n- Next Action: {}\n- 更新日: {}\n\n",
         or_none(current),
         or_none(next),
         Local::now().format("%Y-%m-%d"),
@@ -77,10 +77,7 @@ pub fn render_state_md(status: &Status) -> String {
         out.push_str(&format!("- {} {}（paths: {}）\n", n.id, n.text, n.paths.join(", ")));
     }
 
-    out.push_str(&format!(
-        "\n## PROGRESS\n- 進み具合: {progress}\n- PENDING: {} 件\n",
-        status.pending_proposals
-    ));
+    out.push_str(&format!("\n## COUNTS\n- {counts}\n"));
 
     out.push_str("\n## NEXT_ACTION\n");
     if status.next.is_empty() {
@@ -97,40 +94,29 @@ pub fn render_state_md(status: &Status) -> String {
 /// Node の 1 行（`# context` と同じ形）。字下げは深さ × 2 字。
 fn node_line(n: &NodeJson) -> String {
     let mut line = format!("{}- {} ", "  ".repeat(n.depth), n.id);
+    if n.starred {
+        line.push_str("★ ");
+    }
     match n.kind.as_str() {
         "Q" => {
             line.push_str(&n.text);
-            if let Some(o) = &n.objectivity {
-                line.push_str(&format!(" [Objectivity {}/{}", o.count, o.target));
-                if n.bottom_q && o.met {
-                    line.push_str(" met");
-                }
-                line.push(']');
-            }
-            if let Some(l) = &n.logicality {
-                let date = l.checked_at.as_deref().map_or("", |t| t.get(..10).unwrap_or(t));
-                let sep = if date.is_empty() { "" } else { " " };
-                line.push_str(&format!(" [Logicality {}{sep}{date}]", l.value));
-            }
         }
-        "O" => {
-            if n.starred {
-                line.push_str("★ ");
-            }
-            if let Some(kind) = &n.answer_kind {
-                let mut chars = kind.chars();
-                let head = chars.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default();
-                line.push_str(&format!("{head}{} ", chars.as_str()));
-            }
+        "A" => {
             line.push_str(&format!("{} [F {}]", n.text, n.counts.f));
         }
         "F" => {
+            if let Some(stance) = &n.stance {
+                line.push_str(&format!("[{stance}] "));
+            }
             line.push_str(&n.text);
             line.push_str(&format!(" [{}]", n.cites.join(", ")));
         }
         "S" => {
             line.push_str(&n.text);
             line.push_str(&format!("（paths: {}）", n.paths.join(", ")));
+            if let Some(range) = &n.range {
+                line.push_str(&format!(" [範囲: {}]", range.line()));
+            }
         }
         _ => {
             line.push_str(&n.text);
@@ -145,9 +131,8 @@ fn node_line(n: &NodeJson) -> String {
 pub fn render_tree_md(status: &Status) -> String {
     let name = status.type_info.as_ref().map_or("RESEARCH_TYPE は未設定", |t| t.name.as_str());
     let mut out = format!(
-        "# research-tree（{name}）\n\n進み具合 {}/{} / 書き出した時刻 {}\n\n",
-        status.progress.answered,
-        status.progress.total,
+        "# research-tree（{name}）\n\n{} / 書き出した時刻 {}\n\n",
+        status.counts.line(),
         Local::now().format("%Y-%m-%d %H:%M"),
     );
     for n in &status.nodes {
@@ -224,10 +209,10 @@ mod tests {
         (PaperRoots { root: dir, data_dir }, db)
     }
 
-    fn add(db: &Database, kind: Kind, parent: Option<i64>, text: &str, answer: Option<&str>, cites: &[String]) -> i64 {
+    fn add(db: &Database, kind: Kind, parent: Option<i64>, text: &str, stance: Option<&str>, cites: &[String]) -> i64 {
         let n = store::NewNode {
-            kind, parent_id: parent, guide_key: None, text, body: "", answer_kind: answer, cites,
-            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, proposal_id: None,
+            kind, parent_id: parent, guide_key: None, text, body: "", stance, cites,
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
             paths: &[], created_by: "user",
         };
         store::insert_node(db.connection(), &n).unwrap()
@@ -238,27 +223,27 @@ mod tests {
         let (roots, db) = env("tree", true);
         let c = db.connection();
         let q0 = add(&db, Kind::Q, None, "大目的は？", None, &[]);
-        let o1 = add(&db, Kind::O, Some(q0), "予後予測", Some("answer"), &[]);
-        store::set_starred(c, o1, true).unwrap();
-        let q2 = add(&db, Kind::Q, Some(o1), "データは？", None, &[]);
-        let o3 = add(&db, Kind::O, Some(q2), "術前 MRI", Some("answer"), &[]);
-        let f4 = add(&db, Kind::F, Some(o3), "120 例ある", None, &["#12 §2".to_string()]);
-        let gone = add(&db, Kind::F, Some(o3), "消す根拠", None, &[]);
+        let a1 = add(&db, Kind::A, Some(q0), "予後予測", None, &[]);
+        store::set_starred(c, a1, true).unwrap();
+        let q2 = add(&db, Kind::Q, Some(a1), "データは？", None, &[]);
+        let a3 = add(&db, Kind::A, Some(q2), "術前 MRI", None, &[]);
+        add(&db, Kind::F, Some(a3), "120 例ある", Some("support"), &["#12 §2".to_string()]);
+        let gone = add(&db, Kind::F, Some(a3), "消す根拠", Some("deny"), &[]);
         store::remove_subtree(c, gone).unwrap();
-        let _ = f4;
 
         let status = compute::status(c, &roots, &Defs::default()).unwrap();
         let tree = render_tree_md(&status);
         let lines: Vec<&str> = tree.lines().collect();
         assert!(lines[0].starts_with("# research-tree（"));
-        assert!(lines[4].starts_with("- Q1 大目的は？ [Objectivity "), "{tree}");
-        assert!(lines[4].ends_with("[Logicality unchecked]"), "{tree}");
-        assert!(tree.contains("\n  - O2 ★ Answer 予後予測 [F 0]\n"), "{tree}");
-        assert!(tree.contains("\n      - O4 Answer 術前 MRI [F 1]\n"), "{tree}");
-        assert!(tree.contains("\n        - F5 120 例ある [#12 §2]\n"), "{tree}");
+        assert!(lines[2].contains("Q 2・A 2・F 1（S 1 / D 0 / I 0）・E 0・S 0"), "{tree}");
+        assert!(tree.contains("\n- Q1 大目的は？\n"), "{tree}");
+        assert!(tree.contains("\n  - A2 ★ 予後予測 [F 0]\n"), "{tree}");
+        assert!(tree.contains("\n      - A4 術前 MRI [F 1]\n"), "{tree}");
+        assert!(tree.contains("\n        - F5 [support] 120 例ある [#12 §2]\n"), "{tree}");
         assert!(!tree.contains("消す根拠"));
 
         let state = render_state_md(&status);
+        assert!(state.contains("## COUNTS") && !state.contains("PENDING"), "{state}");
         let parsed = crate::project_files::parse_state(&state);
         // 目標の行は無くなり、代わりに SEED の節が出る。
         assert_eq!(parsed.goal, None);
