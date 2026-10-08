@@ -1506,7 +1506,7 @@ if (typeof window !== "undefined" && window.document) {
         return hash === "#/papers/radio" ? {} : null;
       },
       view: "view-papers-radio",
-      tab: "papers",
+      tab: "research",
       hideTabbar: false,
       interval: 0, // 定期更新はしない（読むのは開いたときだけ・09 §4.2）
       async open() {
@@ -1520,7 +1520,7 @@ if (typeof window !== "undefined" && window.document) {
         return m ? { id: decodeURIComponent(m[1]) } : null;
       },
       view: "view-radio-player",
-      tab: "papers",
+      tab: "research",
       hideTabbar: true, // 10 で入力欄を置くためタブバーを隠す（09 §4.2）
       interval: 0,
       async open(params) {

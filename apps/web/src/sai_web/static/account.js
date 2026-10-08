@@ -3,7 +3,7 @@
 // 多人数モード（研究室の Linux サーバ）で使う 4 つの画面:
 //   ログイン       #/login     大学のメールアドレスとパスワード（POST /api/auth/login）
 //   パスワード変更 #/password  初回ログインのときと「パスワードを変える」から
-//   アカウント     #/account   自分の情報と sai-prep のトークン
+//   アカウント     #/account   自分の情報と sai-prep のトークン・Usage（U05）
 //   管理           #/admin     利用者の一覧と作成・変更（管理者だけ）
 //
 // 単独モード（Mac で 1 人が使うとき）は /api/auth/me が {"mode":"single"} を返すので，
@@ -277,6 +277,7 @@ function acPasswordOpen() {
 
 /** ①「アカウント」: 自分の情報・パスワード変更・ログアウト・管理への入口。 */
 function acSectionAccount(root, me) {
+  if (!acMultiUser()) return; // 単独モードにはアカウントが無い（U05）
   const card = saiEl("div", "sai-card ac-card");
   card.appendChild(saiEl("h2", "ac-title", "アカウント"));
   const rows = [
@@ -320,6 +321,7 @@ async function acLogout() {
 
 /** ②「sai-prep のトークン」: 一覧・作成・削除。 */
 function acSectionTokens(root) {
+  if (!acMultiUser()) return; // トークンは多人数モードのログインに付く（U05）
   const card = saiEl("div", "sai-card ac-card");
   const head = saiEl("div", "ac-card-head");
   head.appendChild(saiEl("h2", "ac-title", "sai-prep のトークン"));
@@ -584,14 +586,14 @@ function acClaudeNote() {
   return box;
 }
 
-/** #/account の区画（順に呼ぶ。U11 が足す）。 */
+/** #/account の区画（順に呼ぶ。U11 が足す。Usage は acAccountOpen の最後に足す）。 */
 const acSections = [acSectionAccount, acSectionTokens, acSectionKeys];
 
 function acAccountOpen() {
   const root = document.getElementById("account-root");
   if (!root) return;
   root.innerHTML = "";
-  root.appendChild(acAppbar("アカウント"));
+  root.appendChild(acAppbar("Account"));
   const me = window.SaiAuth || {};
   const body = saiEl("div", "ac-body");
   for (const fn of acSections) {
@@ -600,6 +602,12 @@ function acAccountOpen() {
     } catch { /* 1 つの区画が失敗しても他は出す */ }
   }
   root.appendChild(body);
+  // Usage の区画（U05）。usageOpen が #usage-list を探すので、body を root に付けてから描く
+  if (typeof usageMountInto === "function") {
+    try {
+      usageMountInto(body);
+    } catch { /* 使用量が出せなくても他の区画は出す */ }
+  }
 }
 
 // --- 管理画面（#/admin） ---
@@ -970,11 +978,14 @@ if (typeof window !== "undefined") {
         return hash === "#/account" ? {} : null;
       },
       view: "view-account",
-      tab: "home",
+      tab: "account",
       hideTabbar: false,
-      interval: 0,
+      interval: 60000, // Usage を 60 秒ごとに読み直す（usage.js の一覧と同じ間隔・42 §3.5）
       open() {
         acAccountOpen();
+      },
+      poll() {
+        if (typeof usageLoad === "function") return usageLoad();
       },
     },
     {
@@ -982,7 +993,7 @@ if (typeof window !== "undefined") {
         return hash === "#/admin" ? {} : null;
       },
       view: "view-admin",
-      tab: "home",
+      tab: "account",
       hideTabbar: false,
       interval: 0,
       open() {

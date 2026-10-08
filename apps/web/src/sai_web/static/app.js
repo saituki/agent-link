@@ -219,14 +219,13 @@ window.addEventListener("hashchange", route);
 
 // --- タブバー（05 §3.3） ---
 
-// 各タブの「最初の画面」（U4: 先頭にホームを足した。U06 で実験を足し，U14 で Research に替えた）
+// 各タブの「最初の画面」（U4: 先頭にホームを足した。U06 で実験を足し，U14 で Research に替えた。U05 で Papers を Research に入れ，Usage を Account に入れた）
 const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
   agent: "#/",
-  papers: "#/papers/dashboard",
-  research: "#/research/tree",
-  usage: "#/usage",
+  research: "#/papers/dashboard",
+  account: "#/account",
 };
 // ホームの住所（app.js 自身が見る。home.js も使うので外に出す）
 const HOME_URL = "#/home";

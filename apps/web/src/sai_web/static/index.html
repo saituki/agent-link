@@ -470,19 +470,6 @@
     <main id="paper-text" class="paper-text"></main>
   </section>
 
-  <!-- Usage: カード一覧（#/usage） -->
-  <section id="view-usage" class="view" hidden>
-    <header class="appbar">
-      <h1>Usage</h1>
-      <!-- ↻ で外部 API を取り直す（?refresh=1） -->
-      <button id="usage-reload" aria-label="Reload">↻</button>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <!-- 「◯分前に取得」の 1 行（42 §3.1） -->
-    <div class="dash-chart-note" id="usage-updated"></div>
-    <main id="usage-list" class="groups"></main>
-  </section>
-
   <!-- Usage: 詳細（#/usage/<provider>/<account>・Activity | Logs・42 §3.5） -->
   <section id="view-usage-detail" class="view" hidden>
     <header class="appbar">
@@ -586,16 +573,6 @@
         </svg>
         <span>Chats</span>
       </button>
-      <button data-tab="papers" aria-label="Papers">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <!-- 紙（折り目と文字の線） -->
-          <path d="M6.5 3.5h7l4.5 4.5v12.5H6.5z" />
-          <path d="M13.5 3.5V8h4.5" />
-          <path d="M9 12.5h6" />
-          <path d="M9 16h4.5" />
-        </svg>
-        <span>Papers</span>
-      </button>
       <!-- 研究（research-tree・実験。アイコンは絵文字ではなく線） -->
       <button data-tab="research" aria-label="Research">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -606,14 +583,14 @@
         </svg>
         <span>Research</span>
       </button>
-      <button data-tab="usage" aria-label="Usage">
+      <!-- アカウント（自分の情報・sai-prep のトークン・Usage）。単独モードでも出す -->
+      <button data-tab="account" aria-label="Account">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <!-- メーター（半円の目盛りと針） -->
-          <path d="M4 16.5a8 8 0 1 1 16 0" />
-          <path d="M12 16.5l4.2-5.2" />
-          <circle cx="12" cy="16.5" r="1.2" />
+          <!-- 人の形（頭と肩） -->
+          <circle cx="12" cy="8.5" r="3.5" />
+          <path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" />
         </svg>
-        <span>Usage</span>
+        <span>Account</span>
       </button>
     </nav>
   </div>

@@ -3070,9 +3070,6 @@ code {
   user-select: all;
 }
 .ac-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
-/* Home の帯の「アカウント」は文字のボタン（記号のボタンより小さく） */
-.appbar .ac-appbar-link { font-size: 14px; }
-
 /* --- API キーと Claude のトークン（U11） --- */
 .ac-key-list { display: flex; flex-direction: column; }
 .ac-key-row {
