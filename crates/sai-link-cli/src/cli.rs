@@ -144,6 +144,20 @@ pub enum Cmd {
     /// 送信を止める JSON を出す。それ以外は何も出さない（終了コードは常に 0）。
     #[command(hide = true)]
     CcPromptHook,
+    /// cc の状態フック（内部用）。標準入力は読み捨て、tmux 経路の pane の状態を `working` / `idle` にする。
+    ///
+    /// 何があっても終了コードは 0・標準出力は空（cc を止めない）。
+    #[command(hide = true)]
+    CcStateHook {
+        /// `working` または `idle`
+        state: String,
+    },
+    /// cc の PermissionRequest フック（内部用）。承認は常に allow を出す（AskUserQuestion は何も出さない）。
+    #[command(hide = true)]
+    CcPermissionHook,
+    /// cc の statusLine（内部用）。費用を `cc-cost` へ書き、画面下に 1 行出す。
+    #[command(hide = true)]
+    CcStatusline,
 }
 
 /// サブタスク操作のサブコマンド（新しい木）。
@@ -2010,6 +2024,38 @@ pub fn handle_cc_prompt_hook() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", out);
         }
     }
+    Ok(())
+}
+
+/// `sai-link cc-state-hook <working|idle>`（cc の Stop / SessionStart hook 用）。
+pub fn handle_cc_state_hook(state: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    sai_link_engine::tmux::set_state_from_hook(state);
+    Ok(())
+}
+
+/// `sai-link cc-permission-hook`（cc の PermissionRequest hook 用）。
+pub fn handle_cc_permission_hook() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    if let Some(out) = sai_link_engine::cc_command::permission_hook_output(&input) {
+        println!("{}", out);
+    }
+    Ok(())
+}
+
+/// `sai-link cc-statusline`（cc の statusLine 用）。
+pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    println!("{}", sai_link_engine::phone_export::handle_cc_statusline(&input));
     Ok(())
 }
 

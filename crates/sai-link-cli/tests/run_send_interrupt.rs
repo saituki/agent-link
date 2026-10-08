@@ -1,6 +1,6 @@
 //! AC1: `sai-link run send` / `sai-link run interrupt` の結合テスト。
 //!
-//! 一時フォルダのプロジェクト・偽の cc エージェント・擬似 pane（headless）を使う。
+//! 一時フォルダのプロジェクト・偽の pi エージェント・擬似 pane（headless）を使う。
 //! 監督スレッドはこのテストのプロセスの中で動かし、CLI（別プロセス）が
 //! `draft.txt`・`inbox/`・`interrupt` のファイルで依頼を渡す経路を確かめる。
 //!
@@ -12,7 +12,6 @@
 //! 一時フォルダをプロジェクトルートと `SAI_HOME` にするので、本物の `.sai` や
 //! `~/.sai` は書き換えない。
 
-use sai_link_engine::cc_command::CcCommandBuilder;
 use sai_link_engine::db::models::BlockMetadata;
 use sai_link_engine::db::SaiStore;
 use sai_link_engine::headless::{self, HeadlessState};
@@ -63,16 +62,16 @@ fn wait_for_state(pane: &str, want: &str, timeout: Duration) -> HeadlessState {
     }
 }
 
-/// 偽の cc エージェント（stream-json を 4 行出して終わる）。
-const FAKE_CC: &str = r##"#!/bin/sh
+/// 偽の pi エージェント（pi の JSON 行を出して終わる）。
+const FAKE_PI: &str = r##"#!/bin/sh
 cat >/dev/null
-printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hel"}}}'
-printf '%s\n' '{"type":"assistant","message":{}}'
-printf '%s\n' '{"type":"result","session_id":"s1","total_cost_usd":0.01}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hel"}}'
+printf '%s\n' '{"type":"message_end"}'
+printf '%s\n' '{"type":"agent_end"}'
 "##;
 
-/// 長く眠る偽の cc エージェント（中断されるまで止まらない）。
-const SLEEPING_CC: &str = r##"#!/bin/sh
+/// 長く眠る偽の pi エージェント（中断されるまで止まらない）。
+const SLEEPING_PI: &str = r##"#!/bin/sh
 cat >/dev/null
 sleep 60
 "##;
@@ -137,16 +136,13 @@ fn test_run_send_and_interrupt() {
     std::env::set_var("SAI_PROJECT_ROOT", &project);
     std::env::set_var("SAI_HOME", &home);
 
-    let fake = project.join("fake_cc.sh");
-    write_script(&fake, FAKE_CC);
-    std::env::set_var("SAI_CLAUDE_BIN", &fake);
+    // 擬似 pane の子プロセス（pi）。cc は tmux 経路で、tmux が無い環境では動かせないため。
+    let fake = project.join("fake_pi.sh");
+    write_script(&fake, FAKE_PI);
+    let command = format!("'{}' --session-dir '{}' --mode json", fake.display(), project.join("pi-sessions").display());
 
     // ---- 実行 1: 動いている実行に run send すると次のターンが走る ----
-    let run1 = make_execution(&project, "cc");
-    let command = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
-        .build()
-        .unwrap()
-        .command;
+    let run1 = make_execution(&project, "pi");
     let pane1 = headless::new_pane(Some(&project.to_string_lossy())).unwrap();
     headless::run(&pane1.pane_id, &command).unwrap();
     // 実行中の状態を作るため、最初のターンを自分で始める。
@@ -184,14 +180,10 @@ fn test_run_send_and_interrupt() {
     assert!(stream.contains("続きの依頼"), "2 回目の本文が入る: {}", stream);
 
     // ---- 実行 2: run interrupt で長く眠る偽のエージェントが止まる ----
-    let sleeper = project.join("sleeping_cc.sh");
-    write_script(&sleeper, SLEEPING_CC);
-    std::env::set_var("SAI_CLAUDE_BIN", &sleeper);
-    let run2 = make_execution(&project, "cc");
-    let sleep_cmd = CcCommandBuilder::new("22222222-2222-4333-8444-555555555555")
-        .build()
-        .unwrap()
-        .command;
+    let sleeper = project.join("sleeping_pi.sh");
+    write_script(&sleeper, SLEEPING_PI);
+    let run2 = make_execution(&project, "pi");
+    let sleep_cmd = format!("'{}' --session-dir '{}' --mode json", sleeper.display(), project.join("pi-sessions").display());
     let pane2 = headless::new_pane(Some(&project.to_string_lossy())).unwrap();
     headless::run(&pane2.pane_id, &sleep_cmd).unwrap();
     headless::send_text(&pane2.pane_id, "眠る依頼").unwrap();

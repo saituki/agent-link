@@ -10,19 +10,22 @@
 //! - provider は Claude Code に存在しないため無視する
 //! - `thinking` は Claude Code の `--effort <level>` として渡す
 //!   （pi では `--thinking`、cc では `--effort`。値は同一の 6 段階）
+//! - cc は対話モードの `claude` を tmux の session の中で動かす（[`crate::tmux`]）。
+//!   `-p`（非対話）は使わないので、質問（AskUserQuestion）が道具として使える
 //!
 //! ## 設定はファイルで持つ
 //!
-//! 道具の制限・外部 MCP（serena など）・Skill の抑止・質問のフックは、`sai-link init` が
+//! 道具の制限・外部 MCP（serena など）・Skill の抑止・質問と状態のフックは、`sai-link init` が
 //! プロジェクト直下に作る `.claude/settings.json` と `.mcp.json` で制御する
 //! （[`cc_settings_json`] / [`mcp_config_json`]）。sai-link を通さずに起動した cc にも
-//! 同じ設定が効く。起動コマンドに残すのは `-p`（非対話）・`--output-format stream-json`・
-//! `--session-id`（復元時は `--resume`）・`--model`・`--effort`・権限モードだけ。
+//! 同じ設定が効く。起動コマンドに残すのは `--session-id`（復元時は `--resume`）・`--model`・
+//! `--effort`・権限モードだけ。承認は PermissionRequest フックが常に allow を返すので、
+//! 利用者に承認を求めない（[`permission_hook_output`]）。
 //! 権限モードは root で `--dangerously-skip-permissions` を拒否されるため、
 //! `--permission-mode acceptEdits` と `--allowedTools`（[`CC_ALLOWED_TOOLS`]）で渡す。
 //!
 //! 構築されたコマンドは `orchestrator` が `SAI_*` 環境変数を前置し、
-//! `HerdrClient::run_in_pane()` で実行します。
+//! `HerdrClient::run_in_pane()` で実行します（cc は tmux の session の中で動く）。
 
 use std::path::{Path, PathBuf};
 
@@ -169,14 +172,7 @@ impl CcCommandBuilder {
     pub fn build(&mut self) -> Result<CcCommand, std::io::Error> {
         let mut args: Vec<String> = Vec::new();
 
-        // 非対話（headless）で stream-json を出す。
-        // 標準入力から依頼文を読み、結果を JSON Lines で標準出力へ流す。
-        args.push("-p".to_string());
-        args.push("--output-format".to_string());
-        args.push("stream-json".to_string());
-        args.push("--verbose".to_string());
-        args.push("--include-partial-messages".to_string());
-
+        // 対話モード（tmux の session の中で動く）。-p は付けない。
         // --session-id <uuid>（新規）/ --resume <uuid>（復元）
         let flag = if self.resume { "--resume" } else { "--session-id" };
         push_pair(&mut args, flag, &self.session_id);
@@ -357,8 +353,8 @@ pub fn sai_link_exe() -> String {
 /// - `permissions.deny`: [`CC_DENIED_TOOLS`]（道具の制限・別エージェント起動の禁止）
 /// - `permissions.allow`: sai-link の CLI（`Bash(sai-link *)` など）を無確認で使う
 /// - `.mcp.json` のサーバを承認なしで使う / claude.ai 連携と同梱 Skill を読まない
-/// - `hooks`: 質問（`cc_question.py`）とセッション登録（`cc_register.py`）を Web へ知らせる。
-///   headless では statusLine は呼ばれないので書かない（費用は engine が `result` 行から書く）。
+/// - `statusLine`: `sai-link cc-statusline`（費用を `cc-cost` へ書き、画面下に金額を出す）
+/// - `hooks`: 状態・承認・質問・セッション登録のフック（[`cc_hooks_json`]）
 pub fn cc_settings_json() -> serde_json::Value {
     let exe = sai_link_exe();
     serde_json::json!({
@@ -374,42 +370,74 @@ pub fn cc_settings_json() -> serde_json::Value {
         "enableAllProjectMcpServers": true,
         "disableClaudeAiConnectors": true,
         "disableBundledSkills": true,
+        "statusLine": {
+            "type": "command",
+            "command": format!("{} cc-statusline", shell_escape_single_quotes(&exe)),
+        },
         "hooks": cc_hooks_json(&exe, web_hooks_dir().as_deref()),
     })
 }
 
 /// `.claude/settings.json` の `hooks`。
 ///
-/// - `UserPromptSubmit`: `/sai-finalize` を LLM に送らず、その場で完了処理を行う（[`handle_prompt_hook`]）
+/// - `UserPromptSubmit`: `/sai-finalize` を LLM に送らず完了処理を行い（[`handle_prompt_hook`]）、
+///   それ以外の文では状態を `working` にする
+/// - `Stop` / `SessionStart`: 状態を `idle` にする（`sai-link cc-state-hook idle`）。
+///   `SessionStart` は TUI が立ち上がったことの合図にもなる（起動直後に文を送らないため）
+/// - `PermissionRequest`: 承認は常に allow（[`permission_hook_output`]）
 /// - `PreToolUse`（AskUserQuestion）/ `SessionStart`: `apps/web` のフック。
 ///   質問・セッションを Web の窓口へ知らせる（`web_dir` が無ければ書かない）。
-///   AskUserQuestion のフックは headless では答えを待つ（最長 24 時間）ので、
+///   AskUserQuestion のフックは答えを待つ（最長 24 時間）ので、
 ///   cc の既定の待ち時間で切られないように `timeout` を付ける。
-///   承認（PermissionRequest）は headless では来ないので書かない。
 ///   利用者全体の `~/.claude/settings.json` ではなく、init したプロジェクトにだけ入れる。
 fn cc_hooks_json(exe: &str, web_dir: Option<&Path>) -> serde_json::Value {
-    let command = |text: String| serde_json::json!([{ "type": "command", "command": text }]);
+    let exe = shell_escape_single_quotes(exe);
+    let hook = |text: String| serde_json::json!({ "type": "command", "command": text });
+    let state_idle = hook(format!("{} cc-state-hook idle", exe));
     let mut hooks = serde_json::json!({
-        "UserPromptSubmit": [{
-            "hooks": command(format!("{} cc-prompt-hook", shell_escape_single_quotes(exe))),
-        }]
+        "UserPromptSubmit": [{ "hooks": [hook(format!("{} cc-prompt-hook", exe))] }],
+        "Stop": [{ "hooks": [state_idle.clone()] }],
+        "PermissionRequest": [{ "hooks": [hook(format!("{} cc-permission-hook", exe))] }],
     });
+    let mut session_start = Vec::new();
     if let Some(dir) = web_dir {
         let script = |name: &str| shell_escape_single_quotes(&dir.join(name).to_string_lossy());
+        session_start.push(hook(script("cc_register.py")));
         hooks["PreToolUse"] = serde_json::json!([{
             "matcher": "AskUserQuestion",
             "hooks": [{
                 "type": "command",
                 "command": script("cc_question.py"),
-                // 24 時間。headless ではフックが Web の答えを待つ（共有契約 C3）。
+                // 24 時間。フックが Web の答えを待つ（共有契約 C3）。
                 "timeout": 86400,
             }],
         }]);
-        hooks["SessionStart"] = serde_json::json!([{
-            "hooks": command(script("cc_register.py")),
-        }]);
     }
+    session_start.push(state_idle);
+    hooks["SessionStart"] = serde_json::json!([{ "hooks": session_start }]);
     hooks
+}
+
+/// cc の PermissionRequest hook（`sai-link cc-permission-hook`）の本体。
+///
+/// `AskUserQuestion` は質問として PreToolUse のフックが扱うので、何も出さない（`None`）。
+/// それ以外（読めない入力を含む）は allow を返す（承認を利用者に求めない）。
+pub fn permission_hook_output(input: &str) -> Option<String> {
+    let tool = serde_json::from_str::<serde_json::Value>(input)
+        .ok()
+        .and_then(|v| v["tool_name"].as_str().map(str::to_string));
+    if tool.as_deref() == Some("AskUserQuestion") {
+        return None;
+    }
+    Some(
+        serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": { "behavior": "allow" },
+            }
+        })
+        .to_string(),
+    )
 }
 
 /// `apps/web` の cc フック（`cc_question.py` など 2 本）の置き場。
@@ -504,10 +532,12 @@ pub const DESIGN_SKILL_FILES: &[(&str, &str)] = &[
 ///
 /// 入力が `/sai-finalize` なら LLM に送らずに完了処理（`agent_api::finalize`）を行い、
 /// 送信を止める JSON（`decision: block`・`reason` に結果の 1 行）を返す。
-/// それ以外の入力は `None`（何も出さず、そのまま LLM に送らせる）。
+/// それ以外の入力は状態を `working` にして `None`（何も出さず、そのまま LLM に送らせる）。
 /// run ID は cc の環境変数 `SAI_PARENT_RUN_ID` から取る。
 pub fn handle_prompt_hook(input: &str) -> Option<String> {
     if !is_finalize_prompt(input) {
+        // 文が送られた = 作業が始まる（`/sai-finalize` は LLM に送らないので working にしない）
+        crate::tmux::set_state_from_hook("working");
         return None;
     }
     // `/sai-finalize <文>` の引数があれば報告として残す（無ければ保存済みの報告に触らない）
@@ -654,20 +684,16 @@ mod tests {
         }
     }
 
-    /// 起動コマンドは stream-json の非対話・--session-id / --model / --effort / 権限モードになること。
+    /// 起動コマンドは対話モード（-p・stream-json なし）・--session-id / --model / --effort / 権限モードになること。
     #[test]
-    fn build_is_minimal() {
+    fn build_is_interactive() {
         let cmd = CcCommandBuilder::new("11111111-2222-4333-8444-555555555555")
             .with_config(mock_config())
             .build()
             .unwrap();
-        assert!(
-            cmd.command.starts_with(
-                "claude -p --output-format stream-json --verbose --include-partial-messages"
-            ),
-            "非対話の stream-json で始まる: {}",
-            cmd.command
-        );
+        assert!(cmd.command.starts_with("claude --session-id "), "{}", cmd.command);
+        assert!(!cmd.command.contains(" -p "), "-p は付けない: {}", cmd.command);
+        assert!(!cmd.command.contains("--output-format"), "{}", cmd.command);
         for part in [
             "--session-id '11111111-2222-4333-8444-555555555555'",
             "--model 'claude-sonnet-4-5'",
@@ -745,20 +771,37 @@ mod tests {
             with["PreToolUse"][0]["hooks"][0]["command"],
             "'/opt/sai moon/hooks/cc_question.py'"
         );
-        // headless ではフックが Web の答えを待つので、cc の既定の待ち時間で切られないようにする
+        // フックは Web の答えを待つので、cc の既定の待ち時間で切られないようにする
         assert_eq!(with["PreToolUse"][0]["hooks"][0]["timeout"], 86400);
-        assert_eq!(with["SessionStart"][0]["hooks"][0]["command"], "'/opt/sai moon/hooks/cc_register.py'");
-        // 承認（PermissionRequest）は headless では来ないので書かない
-        assert!(with.get("PermissionRequest").is_none());
+        assert_eq!(
+            with["SessionStart"][0]["hooks"][0]["command"],
+            "'/opt/sai moon/hooks/cc_register.py'"
+        );
+        assert_eq!(
+            with["SessionStart"][0]["hooks"][1]["command"],
+            "'/bin/sai-link' cc-state-hook idle"
+        );
+        assert_eq!(
+            with["PermissionRequest"][0]["hooks"][0]["command"],
+            "'/bin/sai-link' cc-permission-hook"
+        );
         assert_eq!(
             with["UserPromptSubmit"][0]["hooks"][0]["command"],
             "'/bin/sai-link' cc-prompt-hook"
         );
-        // 置き場が無いときは UserPromptSubmit だけ
+        // 置き場が無いときは Web のフック（PreToolUse・cc_register）だけ書かない。状態のフックは残す
         let without = cc_hooks_json("/bin/sai-link", None);
         assert!(without.get("PreToolUse").is_none());
-        assert!(without.get("SessionStart").is_none());
-        assert!(without.get("PermissionRequest").is_none());
+        assert_eq!(
+            without["SessionStart"][0]["hooks"].as_array().unwrap().len(),
+            1,
+            "SessionStart は状態の idle だけ"
+        );
+        assert!(without["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("cc-state-hook idle"));
+        assert!(without.get("PermissionRequest").is_some());
         // pi の質問ツールの場所も基準のフォルダから決まる純関数（ファイルが無ければ None）
         // 基準はクレートのフォルダ（`crates/sai-link-engine`）。`../../apps/web/...` を見る。
         let base = tempfile::tempdir().unwrap();
@@ -772,7 +815,7 @@ mod tests {
         assert_eq!(pi_question_extension_in(&crate_dir), Some(ext.canonicalize().unwrap()));
     }
 
-    /// `.claude/settings.json` の内容: 子エージェント禁止・質問は残す・statusLine。
+    /// `.claude/settings.json` の内容: 子エージェント禁止・質問は残す・statusLine・状態と承認のフック。
     #[test]
     fn cc_settings_json_restricts_tools() {
         let v = cc_settings_json();
@@ -802,8 +845,40 @@ mod tests {
         assert_eq!(v["disableClaudeAiConnectors"], true);
         // 同梱の skill は読ませない（プロジェクトの `.claude/skills/` に配ったものだけ使う）
         assert_eq!(v["disableBundledSkills"], true);
-        // statusLine は headless では呼ばれないので書かない（費用は engine が result 行から書く）
-        assert!(v.get("statusLine").is_none());
+        // statusLine は費用を cc-cost へ書き、画面下に金額を出す
+        assert_eq!(v["statusLine"]["type"], "command");
+        assert!(v["statusLine"]["command"].as_str().unwrap().ends_with(" cc-statusline"));
+        // 状態（Stop・SessionStart の idle）と承認（PermissionRequest）のフック
+        assert!(v["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" cc-state-hook idle"));
+        assert!(v["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" cc-permission-hook"));
+        assert!(v["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" cc-prompt-hook"));
+    }
+
+    /// 承認は常に allow。質問（AskUserQuestion）だけは何も出さない。壊れた入力も allow。
+    #[test]
+    fn permission_hook_allows_all_but_question() {
+        let allow = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": { "behavior": "allow" }
+            }
+        })
+        .to_string();
+        assert_eq!(
+            permission_hook_output(r#"{"tool_name":"Bash"}"#).as_deref(),
+            Some(allow.as_str())
+        );
+        assert_eq!(permission_hook_output(r#"{"tool_name":"AskUserQuestion"}"#), None);
+        assert_eq!(permission_hook_output("壊れた入力").as_deref(), Some(allow.as_str()));
     }
 
     /// SAI_PROJECT_ROOT を一時的に設定し、スコープ終了（パニック含む）で元へ戻す。
