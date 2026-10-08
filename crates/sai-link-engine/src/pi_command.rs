@@ -107,16 +107,17 @@ pub struct SettingsJson {
     pub env: std::collections::BTreeMap<String, String>,
 }
 
-/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 4 つ）のときは破棄する。
+/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 5 つ）のときは破棄する。
 ///
 /// sai-link は `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` /
-/// `SAI_IS_SUBTASK` を起動コマンドの後ろ（= より強い位置）で付ける。
+/// `SAI_IS_SUBTASK` / `SAI_TARGET_NODE` を起動コマンドの後ろ（= より強い位置）で付ける。
 /// 利用者が設定に書いても二重にならないようここで弾く。
-const RESERVED_ENV_KEYS: [&str; 4] = [
+const RESERVED_ENV_KEYS: [&str; 5] = [
     "SAI_PROJECT_ROOT",
     "SAI_PARENT_RUN_ID",
     "SAI_BLOCK_NAME",
     "SAI_IS_SUBTASK",
+    "SAI_TARGET_NODE",
 ];
 
 /// `.sai/settings.json` を読み込む。
@@ -492,6 +493,12 @@ impl PiCommandBuilder {
         args.push("--session-dir".to_string());
         args.push(self.session_dir.clone());
 
+        // headless（非対話）で JSON Lines を出し、プロジェクトの `.pi/settings.json`
+        // （質問の拡張）を信頼して読ませる。
+        args.push("--mode".to_string());
+        args.push("json".to_string());
+        args.push("--approve".to_string());
+
         if let Some(ref config) = self.config {
             args.extend(agent_args_for_config(config));
         }
@@ -526,11 +533,22 @@ impl PiCommandBuilder {
             args.push(name.clone());
         }
 
-        // コマンド文字列の構築: "pi {args.join(" ")}"
-        let command = format!("pi {}", args.join(" "));
+        // コマンド文字列の構築: "<pi> {args.join(" ")}"
+        let command = format!("{} {}", pi_bin(), args.join(" "));
 
         Ok(PiCommand { command, args })
     }
+}
+
+/// pi の実行ファイル（`SAI_PI_BIN` があればそれ、無ければ `pi`）。
+///
+/// 環境変数で差し替える（テストや別置き場の pi を使うとき）。
+pub fn pi_bin() -> String {
+    std::env::var("SAI_PI_BIN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "pi".to_string())
 }
 
 /// `BlockConfig` から `--model` / `--thinking` / `--provider` / `--extension` /

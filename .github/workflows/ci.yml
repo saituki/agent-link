@@ -1,6 +1,7 @@
 # CI: Rust・Web（JS・Python）・Radio・sai-sci の道具のテストを回す。
 # 命令は AGENTS.md の「テストと確認」と同じ物にそろえる（直すときは両方直す）。
-# 利用者の環境（Mac 上の道具）に合わせて macOS で動かす。秘密の値・ネットワークに出る試験は使わない。
+# 本番（サーバ）と同じ Linux（ubuntu-latest）で動かす。秘密の値・ネットワークに出る試験は使わない。
+# Mac だけで必要な道具（herdr・Chrome・launchd）は sai-tree では使わないので、Mac で回す理由は無い。
 name: CI
 
 on:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   rust:
     name: Rust
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -24,12 +25,12 @@ jobs:
       # 環境変数が混ざっていると History テスト 1 件が落ちるので env -u で外す
       - name: cargo test
         run: |
-          env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
+          env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE \
             perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
   web:
-    name: Web（JS・Python）
-    runs-on: macos-latest
+    name: Web（JS・Python・コンテナの中継）
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -43,10 +44,24 @@ jobs:
         run: for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
       - name: Python のテスト
         run: for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
+      - name: コンテナの中継のテスト（偽の docker で確かめる）
+        run: sh apps/web/server/test_sai_in_container.sh
+
+  sai-prep:
+    name: sai-prep（Mac の PDF 前処理アプリ）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: sai-prep のテスト
+        run: (cd apps/prep && python3 -m unittest discover -s tests)
 
   radio:
     name: Radio
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +73,7 @@ jobs:
 
   sai-sci-tools:
     name: sai-sci の道具
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

@@ -111,6 +111,8 @@ pub struct PipelineConfig {
     pub pane_id: Option<String>,
     /// サブタスクとして実行中かどうか（true の場合、pi プロセスに SAI_IS_SUBTASK=1 を付与）
     pub is_subtask: bool,
+    /// 研究の対象 Node（`SAI_TARGET_NODE` に入れる。None なら付けない）
+    pub target_node: Option<String>,
     /// 実行主体（`pi` / `cc`）。既定 `Pi`。
     pub runner: RunnerKind,
 }
@@ -151,6 +153,7 @@ impl Default for PipelineConfig {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
+            target_node: None,
             runner: RunnerKind::Pi,
         }
     }
@@ -506,11 +509,6 @@ pub struct PreparedPipeline {
     pub submit_key: &'static str,
     /// エージェント側セッション ID（cc のみ。`--session-id` に渡し DB 保存する）。
     pub agent_session_id: Option<String>,
-    /// エージェント終了後に同じシェルで実行するコマンド（メインブロックの自動完了・D1）。
-    ///
-    /// `pi_command` には混ぜない。DB に保存する起動コマンドと再開（p）の組み立てを
-    /// 変えないため。DB にも保存しない。
-    pub exit_command: Option<String>,
 }
 
 // ============================================================================
@@ -810,10 +808,11 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             (cc_cmd.command, cc_cmd.args)
         }
         RunnerKind::Gl => {
-            // gl（sai-gemini-tui）は起動時のタスク書き込みなし。
-            // 空セッションを開くだけのため、プロンプト送信は行わない。
-            // `gl` ラッパー（`~/.local/bin/gl`）をそのまま起動する。
-            ("gl".to_string(), Vec::new())
+            // gl（sai-gemini-tui）は sai-tree では使わない（headless は cc / pi だけ）。
+            return Err(OrchestratorError::PiCommandError(
+                "gl は sai-tree では使えません（runner は pi か cc を指定してください）"
+                    .to_string(),
+            ));
         }
     };
 
@@ -850,6 +849,15 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         )
     } else {
         String::new()
+    };
+    // 研究の対象 Node。SAI_PROJECT_ROOT の有無によらず前置する。
+    let subtask_env = match &config.target_node {
+        Some(node) => format!(
+            "SAI_TARGET_NODE={} {}",
+            crate::herdr::shell_escape_single_quotes(node),
+            subtask_env
+        ),
+        None => subtask_env,
     };
     // デーモン稼働時（SAI_PROJECT_ROOT 設定済み）のみ付与。
     // デーモン外（テスト等）では従来どおり run_id 指定時のみ付与する。
@@ -896,33 +904,6 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         }
     }
 
-    // ── エージェント終了後の自動完了コマンド（U01・D1）──
-    // pi / cc は Ctrl+D で終わるだけなので、pane のシェルが続けて
-    // `sai-link run finalize N` を実行するようにする。
-    // - 対象はメインブロックの pi / cc だけ（サブブロックは task_report で完了する）
-    // - 直前の `SAI_PROJECT_ROOT=…` はエージェントのプロセスにしか効かないため、
-    //   このコマンドには自前で `SAI_PROJECT_ROOT` を付ける
-    let exit_command = if !config.is_subtask
-        && matches!(config.runner, RunnerKind::Pi | RunnerKind::Cc)
-    {
-        config.run_id.map(|run_id| {
-            let root = std::env::var("SAI_PROJECT_ROOT")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-                .unwrap_or_else(|| {
-                    crate::project::project_root().to_string_lossy().to_string()
-                });
-            format!(
-                "SAI_PROJECT_ROOT={} {} run finalize {}",
-                crate::herdr::shell_escape_single_quotes(&root),
-                crate::herdr::shell_escape_single_quotes(&crate::cc_command::sai_link_exe()),
-                run_id
-            )
-        })
-    } else {
-        None
-    };
-
     Ok(PreparedPipeline {
         pi_command: agent_command,
         pi_args: agent_args,
@@ -943,7 +924,6 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         runner: config.runner,
         submit_key: config.runner.submit_key(),
         agent_session_id,
-        exit_command,
     })
 }
 
@@ -2106,6 +2086,7 @@ pub fn execute_block_pipeline_full(
         base_pane_id,
         pane_id,
         is_subtask: parent_run_id.is_some(),
+        target_node: crate::target_node::resolve(&store, run_id),
         runner: resolved.runner,
     };
 
@@ -2908,7 +2889,7 @@ pub fn resolve_block_path(block_type: &str) -> std::path::PathBuf {
 /// デーモンの通知処理ループからのイベントで行います（§4.2 ケース1）。
 fn execute_pipeline_background(
     prepared: PreparedPipeline,
-    direction: SplitDirection,
+    _direction: SplitDirection,
     timeout_ms: u64,
     keep_pane: bool,
     progress: Arc<Mutex<PipelineProgress>>,
@@ -2929,17 +2910,16 @@ fn execute_pipeline_background(
         };
     }
 
-    // ---- Step 6: herdr pane 分割 ----
-    check_cancel!("pane分割前");
+    // ---- Step 6: 擬似 pane を用意 ----
+    check_cancel!("pane用意前");
     *progress.lock().unwrap() = PipelineProgress::SplittingPane;
 
     let cwd_str = prepared
         .cwd
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
-    // U2・R4・案X: 動的 pane 配置は**分割済み pane を再利用**（pane_id Some）で行う。
-    // task_manager がタブ内ロック下で分割を作成済みのため、ここでは分割せず取得する。
-    // base_pane_id（分割対象を明示）はサブではない代替経路、tab_id / 未指定は従来方式。
+    // pane_id 指定あり（task_manager が用意した擬似 pane）は状態を読むだけ。
+    // 無ければ擬似 pane を新しく作る（herdr の分割は呼ばない）。
     let pane_info = if let Some(pid) = prepared.pane_id.as_deref() {
         match herdr.get_pane_status(pid) {
             Ok(p) => p,
@@ -2949,44 +2929,21 @@ fn execute_pipeline_background(
                 return;
             }
         }
-    } else if let Some(base_pane_id) = prepared.base_pane_id.as_deref() {
-        match herdr.split_pane_from(base_pane_id, direction, cwd_str.as_deref()) {
+    } else {
+        match crate::headless::new_pane(cwd_str.as_deref()) {
             Ok(p) => p,
             Err(e) => {
-                let msg = format!("herdr 指定 pane 分割に失敗 (base={}): {}", base_pane_id, e);
+                let msg = format!("擬似 pane の作成に失敗: {}", e);
                 *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
                 return;
             }
         }
-    } else {
-        match prepared.tab_id.as_deref() {
-            Some(tab_id) => match herdr.split_pane_in_tab(tab_id, direction, cwd_str.as_deref()) {
-                Ok(p) => p,
-                Err(e) => {
-                    let msg = format!("herdr タブ内 pane 分割に失敗 (tab={}): {}", tab_id, e);
-                    *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
-                    return;
-                }
-            },
-            None => match herdr.split_pane(direction, cwd_str.as_deref()) {
-                Ok(p) => p,
-                Err(e) => {
-                    let msg = format!("herdr pane 分割に失敗: {}", e);
-                    *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
-                    return;
-                }
-            },
-        }
     };
 
-    // ---- ペインにラベルを設定（ユーザーが herdr サイドバーで識別可能にする） ----
+    // ---- ペインにラベルを設定（互換のため呼ぶだけ。herdr は使わない） ----
     if let Some(run_id) = prepared.run_id {
         let label = format!("sai-{}-{}", prepared.block_name, run_id);
-        if let Err(e) = herdr.rename_pane(&pane_info.pane_id, &label) {
-            eprintln!("[sai-engine] ペインラベル設定に失敗: {}", e);
-        } else {
-            eprintln!("[sai-engine] ペインラベルを設定: {}", label);
-        }
+        let _ = herdr.rename_pane(&pane_info.pane_id, &label);
     }
     // sai-phone 書き出し用に pane_id を run セッション dir へ控える。
     // DB の herdr_pane_id は完了時にしか入らず，ラベルはプロジェクト間で重なるため。
@@ -2996,15 +2953,8 @@ fn execute_pipeline_background(
         &pane_info.pane_id,
     );
 
-    // ---- Step 7: シェル初期化待機 (3秒、中断可能) ----
-    interruptible_sleep(3, "シェル初期化", &progress, &cancel_flag);
-    check_cancel!("シェル初期化後");
-
-    // ---- Step 8: pi 起動 ----
+    // ---- Step 8: エージェント起動 ----
     // 起動コマンドの先頭で必ず作業ディレクトリへ `cd` する。
-    // pane を先行作成している場合（task_* の動的配置）、分割元の cwd を引き継いでいるため、
-    // そのまま起動するとプロジェクトと無関係な場所で子エージェントが始まる
-    // （本体フォルダで作業してしまう・別の AGENTS.md を読む）ことになる。
     let launch_command = match cwd_str.as_deref() {
         Some(cwd) => format!(
             "cd {} && {}",
@@ -3013,23 +2963,13 @@ fn execute_pipeline_background(
         ),
         None => prepared.pi_command.clone(),
     };
-    // エージェント終了後に同じシェルで完了処理を出す（U01・D1）。
-    // `;` で繋ぐので、エージェントがどう終わっても実行される。
-    let launch_command = match prepared.exit_command.as_deref() {
-        Some(exit_command) => format!("{} ; {}", launch_command, exit_command),
-        None => launch_command,
-    };
     if let Err(e) = herdr.run_in_pane(&pane_info.pane_id, &launch_command) {
-        let msg = format!("pi 起動に失敗: {}", e);
+        let msg = format!("エージェント起動に失敗: {}", e);
         *progress.lock().unwrap() = PipelineProgress::Failed { error: msg };
         return;
     }
 
-    // ---- Step 9: pi 初期化待機 (5秒、中断可能) ----
-    interruptible_sleep(5, "pi初期化", &progress, &cancel_flag);
-    check_cancel!("pi初期化後");
-
-    // ---- Step 10: pi アイドル状態確認 (30秒タイムアウト、中断可能) ----
+    // ---- Step 10: アイドル状態確認 (30秒タイムアウト、中断可能) ----
     match wait_for_status_cancelable(
         &herdr,
         &pane_info.pane_id,
@@ -4422,6 +4362,7 @@ mod tests {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
+            target_node: None,
             runner: RunnerKind::Pi,
         }
     }
@@ -4478,6 +4419,20 @@ mod tests {
 
     /// run_id が設定されている場合、pi-sai 用の環境変数
     /// （SAI_PARENT_RUN_ID / SAI_BLOCK_NAME）がコマンド先頭に付与される。
+    #[test]
+    fn test_prepare_pipeline_target_node_prefix() {
+        let _env_lock = finalize_env_lock();
+        let _guard = EnvVarGuard::remove("SAI_PROJECT_ROOT");
+        let mut config = minimal_config();
+        config.run_id = Some(1234);
+        config.target_node = Some("O5".to_string());
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert!(prepared.pi_command.contains("SAI_TARGET_NODE='O5' "), "{}", prepared.pi_command);
+        config.target_node = None;
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert!(!prepared.pi_command.contains("SAI_TARGET_NODE"), "{}", prepared.pi_command);
+    }
+
     #[test]
     fn test_prepare_pipeline_adds_pi_sai_env_prefix() {
         // 環境変数の影響を受けないよう SAI_PROJECT_ROOT を書き換えるテストと直列化する（U4）
@@ -4652,69 +4607,21 @@ mod tests {
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
-    /// メインブロックの pi / cc には、エージェント終了後に実行する
-    /// `sai-link run finalize N` が `exit_command` に入る（U01・D1）。
-    /// `pi_command`（DB に保存する起動コマンド）には混ぜない。
+    /// gl は sai-tree では使えない（prepare_pipeline が失敗する）。
     #[test]
-    fn test_prepare_pipeline_sets_exit_command_for_main_block() {
+    fn test_prepare_pipeline_gl_is_rejected() {
         let _env_lock = finalize_env_lock();
         let _project_root_guard = EnvVarGuard::remove("SAI_PROJECT_ROOT");
-        let mut config = minimal_config();
-        config.run_id = Some(1234);
-        config.block_config.name = "sai-test-main".to_string();
-        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-
-        let exit = prepared
-            .exit_command
-            .clone()
-            .expect("メインブロックの pi には exit_command が付くべき");
-        assert!(
-            exit.contains("run finalize 1234"),
-            "exit_command に run finalize が入るべき: {}",
-            exit
-        );
-        assert!(
-            !prepared.pi_command.contains("run finalize"),
-            "pi_command に run finalize を混ぜない: {}",
-            prepared.pi_command
-        );
-        assert!(
-            exit.starts_with("SAI_PROJECT_ROOT="),
-            "exit_command にも SAI_PROJECT_ROOT が付くべき: {}",
-            exit
-        );
-
-        crate::session::cleanup_session_dir(&prepared.session_dir);
-    }
-
-    /// サブブロックと gl には exit_command を付けない（U01）。
-    /// サブブロックは今までどおり `task_report` で完了する。
-    #[test]
-    fn test_prepare_pipeline_no_exit_command_for_subtask_and_gl() {
-        let _env_lock = finalize_env_lock();
-        let _project_root_guard = EnvVarGuard::remove("SAI_PROJECT_ROOT");
-
-        let mut subtask = minimal_config();
-        subtask.run_id = Some(1234);
-        subtask.is_subtask = true;
-        let prepared = prepare_pipeline(&subtask).expect("prepare_pipeline に失敗");
-        assert!(
-            prepared.exit_command.is_none(),
-            "サブブロックには付けない: {:?}",
-            prepared.exit_command
-        );
-        crate::session::cleanup_session_dir(&prepared.session_dir);
 
         let mut gl = minimal_config();
         gl.run_id = Some(1234);
         gl.runner = RunnerKind::Gl;
-        let prepared = prepare_pipeline(&gl).expect("prepare_pipeline に失敗");
+        let err = prepare_pipeline(&gl).expect_err("gl は拒否されるべき");
         assert!(
-            prepared.exit_command.is_none(),
-            "gl には付けない: {:?}",
-            prepared.exit_command
+            err.to_string().contains("gl"),
+            "理由に gl が入る: {}",
+            err
         );
-        crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
     /// サブブロックの起動コマンドには SAI_IS_SUBTASK=1 と SAI_LINK_BIN（実行ファイルのパス）が付く。

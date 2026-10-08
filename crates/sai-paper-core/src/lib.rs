@@ -4,6 +4,7 @@ pub mod abstracts;
 pub mod activity;
 pub mod api;
 pub mod bibtex;
+pub mod bundle;
 pub mod chunking;
 pub mod citation;
 pub mod config;
@@ -12,7 +13,7 @@ pub mod downloads;
 pub mod embeddings;
 pub mod evidence;
 pub mod figures;
-pub mod find_log;
+pub mod find_history;
 pub mod jobs;
 pub mod library;
 pub mod library_tree;
@@ -23,13 +24,13 @@ pub mod pipeline;
 pub mod podcast_client;
 pub mod rag_eval;
 pub mod retrieval;
-pub mod search_log;
-pub mod search_sets;
+pub mod search_history;
 pub mod sections;
 pub mod textcheck;
 pub mod translation;
 
 pub use abstracts::{clean_crossref_abstract, flatten_abstract_ja, sanitize_abstract};
+pub use bundle::{BundleError, BundleResult, import_bundle};
 pub use api::arxiv::{ArxivClient, ArxivRetryPolicy, RankedCandidatePageRequest};
 pub use api::biorxiv::BiorxivClient;
 pub use api::openalex::OpenAlexClient;
@@ -69,4 +70,3 @@ pub use retrieval::{
     Hit, HybridSearchOptions, RetrievalError, VectorSearchOptions, WordSearchOptions,
     hybrid_search, neighbors, vector_search, word_search,
 };
-pub use search_sets::{SearchSet, SearchSetError, SearchSetItem};

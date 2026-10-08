@@ -188,6 +188,20 @@ fn write_atomic(path: &Path, content: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// `mind.md` の全文を `text` で置き換える（利用者が Web から保存する）。
+///
+/// 無ければ作る。書きかけが読まれないよう、一時ファイルから rename する。
+/// 空白だけ・NUL の検査は呼ぶ側で行う。書いたバイト数を返す。
+///
+/// # Errors
+///
+/// ファイルの読み書きに失敗したとき。
+pub fn write_mind(data_dir: &Path, text: &str) -> std::io::Result<usize> {
+    fs::create_dir_all(data_dir)?;
+    write_atomic(&sai_paper_core::paths::mind_path(data_dir), text)?;
+    Ok(text.len())
+}
+
 /// `state.md` を読み、現況の項目を取り出す。
 ///
 /// ファイルが無い・読めないときは全項目 `None` を返す（エラーにはしない）。
@@ -443,6 +457,29 @@ mod tests {
             fs::read_to_string(&mind).unwrap(),
             format!("{MIND_TEMPLATE}- 09/26 21:40 最初のメモ\n"),
         );
+    }
+
+    #[test]
+    fn write_mind_replaces_existing_text() {
+        let dir = temp_data_dir("mind-replace");
+        let mind = sai_paper_core::paths::mind_path(&dir);
+        fs::write(&mind, "# 古い\n").unwrap();
+
+        let bytes = write_mind(&dir, "# mind\n新しい\n").unwrap();
+
+        assert_eq!(bytes, "# mind\n新しい\n".len());
+        assert_eq!(fs::read_to_string(&mind).unwrap(), "# mind\n新しい\n");
+    }
+
+    #[test]
+    fn write_mind_creates_missing_file() {
+        let dir = temp_data_dir("mind-create");
+        let mind = sai_paper_core::paths::mind_path(&dir);
+        assert!(!mind.exists());
+
+        write_mind(&dir, "新しい\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&mind).unwrap(), "新しい\n");
     }
 
     #[test]

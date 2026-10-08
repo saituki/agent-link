@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sai_web.config import settings
+from sai_web import registry
 
 logger = logging.getLogger("sai_web")
 
@@ -116,44 +118,74 @@ def _read_run(path: Path) -> dict | None:
     return raw
 
 
-def load_runs(runs_dir: Path | None = None) -> list[dict]:
-    """runs_dir 直下の <project_name>/*.json を読む．
+def runs_dirs() -> list[Path]:
+    """実行の書き出しを読むフォルダ（共有契約 C4）。
 
+    - `SAI_WEB_RUNS_DIR` があればそれ 1 つ（今までのテストの差し替え方を保つ）。
+    - 多人数モード: 今の利用者のプロジェクトごとの
+      `<project_home>/.sai/web/runs` を全部。
+    - 単独モード: `$SAI_HOME/web/runs` 1 つ（今までどおり）。
+    """
+    env = (os.getenv("SAI_WEB_RUNS_DIR") or "").strip()
+    if env:
+        return [Path(env)]
+    if registry.multi_user():
+        out: list[Path] = []
+        for project in registry.load_registry():
+            name = str(project.get("name") or "")
+            if not name:
+                continue
+            out.append(registry.project_home(name) / ".sai" / "web" / "runs")
+        return out
+    return [registry.sai_home() / "web" / "runs"]
+
+
+def load_runs(runs_dir: Path | None = None) -> list[dict]:
+    """実行の書き出し（`<project_name>/*.json`）を読む。
+
+    - `runs_dir` を渡したときはそこ 1 つだけを読む（テスト用）。
+      渡さないときは `runs_dirs()` のフォルダを全部読む。
     - `.` で始まるフォルダ・ファイルは無視（01 の一時ファイル対策）。
     - mtime が変わったファイルだけ読み直す。
+    - 多人数モードでは、`project_root` が今の利用者のプロジェクト一覧に
+      無い実行を捨てる（他人のプロジェクトの書き出しを混ぜないため）。
     """
     global _file_cache
-    base = Path(runs_dir) if runs_dir is not None else settings.runs_dir
+    bases = [Path(runs_dir)] if runs_dir is not None else runs_dirs()
     found: dict[str, tuple[int, dict | None]] = {}
-    try:
-        project_dirs = [p for p in base.iterdir() if not p.name.startswith(".")]
-    except OSError:
-        # 置き場所が無くてもサーバーは動かす（01 がまだ書き出していない場合）
-        _file_cache = {}
-        return []
-    for proj_dir in project_dirs:
-        if not proj_dir.is_dir():
-            continue
+    for base in bases:
         try:
-            children = list(proj_dir.iterdir())
+            project_dirs = [p for p in base.iterdir() if not p.name.startswith(".")]
         except OSError:
+            # 置き場所が無くてもサーバーは動かす（01 がまだ書き出していない場合）
             continue
-        for path in children:
-            if path.name.startswith(".") or path.suffix != ".json":
+        for proj_dir in project_dirs:
+            if not proj_dir.is_dir():
                 continue
-            key = str(path)
             try:
-                mtime = path.stat().st_mtime_ns
+                children = list(proj_dir.iterdir())
             except OSError:
                 continue
-            old = _file_cache.get(key)
-            if old is not None and old[0] == mtime:
-                found[key] = old  # 変わっていないので読み直さない
-            else:
-                # 新規・更新時だけ読む（壊れていたらログもこの時だけ出る）
-                found[key] = (mtime, _read_run(path))
+            for path in children:
+                if path.name.startswith(".") or path.suffix != ".json":
+                    continue
+                key = str(path)
+                try:
+                    mtime = path.stat().st_mtime_ns
+                except OSError:
+                    continue
+                old = _file_cache.get(key)
+                if old is not None and old[0] == mtime:
+                    found[key] = old  # 変わっていないので読み直さない
+                else:
+                    # 新規・更新時だけ読む（壊れていたらログもこの時だけ出る）
+                    found[key] = (mtime, _read_run(path))
     _file_cache = found
-    return [run for _, run in found.values() if run is not None]
+    runs = [run for _, run in found.values() if run is not None]
+    if runs_dir is None and registry.multi_user():
+        allowed = {str(p.get("root") or "") for p in registry.load_registry()}
+        runs = [r for r in runs if str(r.get("project_root") or "") in allowed]
+    return runs
 
 
 # --- 実行と質問の対応づけ（00 §3.7） ---
@@ -238,19 +270,12 @@ def question_session_id(run: dict) -> str | None:
 def open_question_session_ids() -> set[str]:
     """未回答の質問が紐づくセッション ID の集合．
 
-    端末側で先に答えられていた分はここで解決済みにしてから集計する
-    （旧 /api/sessions と同じ判定・questions.refresh_question_state を流用）。
+    画面は読まない（headless では pane が無い）。期限切れの質問だけ先に片付ける。
     """
     from sai_web import questions, store
 
-    # 期限切れの pi 質問を先に片付ける（05 §3.1）
+    # 期限切れの質問を先に片付ける（pi は 10 分・cc は 24 時間）
     questions.expire_stale_questions()
-    for q in store.list_open_questions():
-        pane_id = q.get("pane_id") or None
-        if pane_id:
-            questions.refresh_question_state(
-                q["session_id"], pane_id, q.get("agent")
-            )
     return {q["session_id"] for q in store.list_open_questions()}
 
 
@@ -259,61 +284,77 @@ def has_question(run: dict, question_session_ids) -> bool:
     return bool(run_session_ids(run) & set(question_session_ids))
 
 
-# --- herdr のペイン対応づけ（00 §3.7） ---
+# --- headless の実行の状態（共有契約 C1） ---
+
+# 擬似 pane の id は `hl-` + 12 桁の 16 進（C1）
+_HEADLESS_ID_RE = re.compile(r"^hl-[0-9a-f]{12}$")
+# 生成中の文は末尾 20000 文字まで返す
+_PARTIAL_LIMIT = 20000
 
 
-def pane_for_run(run: dict, agents: list[dict], panes: list[dict]) -> dict | None:
-    """実行に対応づく herdr のペインを探す．見つからなければ None。
-
-    - herdr_pane_id があればそれを最優先（00 §3.7）。
-    - なければペイン名（label）が herdr_pane_label と一致するもの。
-    動作中エージェント（agents）を先に，全ペイン（panes）を後に見る。
-
-    終わった実行はペインが消えているので探さない。ペイン名はプロジェクト間で
-    重なる（sai-<ブロック名>-<実行番号>）ため，探すと別の agent に当たる。
-    herdr_pane_id が分かっているときも，名前で探し直さない（同じ理由）。
-
-    さらに herdr のペイン ID はワークスペース内の番号（w1Z:p8）で，ペインが
-    消えたあとに同じ番号が再び使われる（計画書 A の U06）。そのため
-    herdr_pane_id が一致しても，ペインにラベルが付いていて run の
-    herdr_pane_label と違うときは別のプロジェクトのものと見て送らない。
-    ラベルが付いていないときは今までどおり ID の一致だけで決める。
-    """
-    if run.get("status") != "running":
-        return None
+def is_headless(run: dict) -> bool:
+    """headless の実行か（擬似 pane の id が `hl-` で始まるか・C1）．"""
     pane_id = run.get("herdr_pane_id")
-    label = run.get("herdr_pane_label")
-    if pane_id:
-        found = [a for src in (agents, panes) for a in src if a.get("pane_id") == pane_id]
-        if not found:
-            return None
-        # ラベル付きの要素があればそれを使う（agent list には付かないので panes 側・herdr.list_panes）
-        labeled = [a for a in found if a.get("label")]
-        hit = labeled[0] if labeled else found[0]
-        if labeled and label and hit.get("label") != label:
-            return None
-        return hit
-    if label:
-        for src in (agents, panes):
-            for a in src:
-                if a.get("label") == label:
-                    return a
-    return None
+    return isinstance(pane_id, str) and pane_id.startswith("hl-")
 
 
-def live_status(run: dict, agents: list[dict], panes: list[dict]) -> str | None:
-    """実行中のときだけ herdr の状態（working / blocked / idle）を返す．
+def headless_state(run: dict) -> dict | None:
+    """headless の実行の状態を `state.json` から読む（C1）．
 
-    それ以外・ペインが見つからないときは None（02 §2.2 Run の live）。
+    返す: `{"state", "partial", "error", "turn"}`．
+    読めない・形が違う・headless でないときは None。
     """
-    from sai_web.sessions import _herdr_status_to_api
+    pane_id = run.get("herdr_pane_id")
+    if not isinstance(pane_id, str) or not _HEADLESS_ID_RE.match(pane_id):
+        return None
+    root = run.get("project_root")
+    if not isinstance(root, str) or not root:
+        return None
+    # 多人数モードでは、今の利用者の置き場の外を指す実行は状態を読まない
+    if registry.multi_user() and not registry.within_user(root):
+        return None
+    path = Path(root) / ".sai" / "sai-engine" / "headless" / pane_id / "state.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    state = raw.get("state")
+    if state not in ("working", "idle", "stopped"):
+        return None
+    partial = raw.get("partial")
+    if not isinstance(partial, str):
+        partial = ""
+    error = raw.get("error")
+    if not isinstance(error, str):
+        error = ""
+    return {
+        "state": state,
+        "partial": partial[-_PARTIAL_LIMIT:],
+        "error": error,
+        "turn": raw.get("turn"),
+    }
 
-    if run.get("status") != "running":
+
+def live_status(run: dict, question_session_ids=frozenset()) -> str | None:
+    """実行の今の状態（working / blocked / idle）を返す（C6）．
+
+    - 質問が open の実行は `blocked`。
+    - headless の `state.json` が `working` / `idle` ならその値。
+    - `stopped`・読めないときは None。
+    `run["status"]` が `running` でなくても返す（doc write の後も会話を続けられるため）。
+    """
+    if has_question(run, question_session_ids):
+        return "blocked"
+    st = headless_state(run)
+    if st is None:
         return None
-    pane = pane_for_run(run, agents, panes)
-    if pane is None:
-        return None
-    return _herdr_status_to_api(pane.get("agent_status"))
+    if st["state"] == "working":
+        return "working"
+    if st["state"] == "idle":
+        return "idle"
+    return None
 
 
 # --- 画面別の形にする ---
@@ -322,8 +363,6 @@ def live_status(run: dict, agents: list[dict], panes: list[dict]) -> str | None:
 def run_to_api(
     run: dict,
     question_session_ids=frozenset(),
-    agents: list[dict] | None = None,
-    panes: list[dict] | None = None,
 ) -> dict:
     """画面に渡す Run（02 §2.2 の形）．"""
     return {
@@ -340,7 +379,8 @@ def run_to_api(
         "finished_at": run.get("finished_at"),
         "duration_ms": run.get("duration_ms"),
         "date": run_date(run),
-        "live": live_status(run, agents or [], panes or []),
+        "headless": is_headless(run),
+        "live": live_status(run, question_session_ids),
         "has_question": has_question(run, question_session_ids),
         "question_session_id": question_session_id(run),
         "stats": run.get("stats"),
@@ -438,7 +478,6 @@ def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]
 
 def build_day(
     runs: list[dict], date: str, question_session_ids=frozenset(),
-    agents: list[dict] | None = None, panes: list[dict] | None = None,
 ) -> dict:
     """1日の実行一覧（02 §2.2 /api/days/{date}）．"""
     day_runs = [r for r in runs if run_date(r) == date]
@@ -460,7 +499,7 @@ def build_day(
                 "project_name": name,
                 "runs": [
                     {
-                        **run_to_api(r, question_session_ids, agents, panes),
+                        **run_to_api(r, question_session_ids),
                         "indent": r.get("indent", False),
                         "show_parent": r.get("show_parent", False),
                     }

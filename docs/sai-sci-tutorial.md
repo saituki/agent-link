@@ -8,7 +8,7 @@
 
 ```
 ① 準備 → ② 練習用プロジェクトを作る → ③ 画面の見取り図
-→ ④ Q を分ける → ⑤ O を書く → ⑥ 論文を集める（検索と選別）
+→ ④ Q を分ける → ⑤ O を書く → ⑥ 論文を集める（検索）
 → ⑦ READ_CARD で F を付ける → ⑧ ★ を付ける → ⑨ Logicality を確かめる
 → ⑩ Issue と実験（E）・エージェントに頼む → ⑪ SPROUT を作る → ⑫ TRIAGE
 → ⑬ Dashboard と PENDING → ⑭ 命令（CLI）→ ⑮ 片付け
@@ -57,8 +57,8 @@ which sai-sci sai-paper sai-link
 ターミナルの窓を**新しく 1 つ**開きます（`⌘ + N`）。この窓は Web の画面を動かし続けるための窓なので、作業中は閉じないでください。
 
 ```bash
-cd ~/workdir/Sai/sai-moon
-PATH=$HOME/workdir/Sai/sai-moon/target/release:$PATH \
+cd ~/workdir/Sai/sai-tree
+PATH=$HOME/workdir/Sai/sai-tree/target/release:$PATH \
   apps/web/.venv/bin/uvicorn sai_web.main:app \
   --host 127.0.0.1 --port 8200 --app-dir apps/web/src
 ```
@@ -236,7 +236,7 @@ Q への答えの案（O）を足します。
 
 ---
 
-## 6. 論文を集める（検索と選別）
+## 6. 論文を集める（検索）
 
 ### 6.1 Library で検索して取り込む
 
@@ -248,12 +248,10 @@ Q への答えの案（O）を足します。
 
 **論文の番号の調べ方**: Library で論文を押すと、住所が `…/#/paper/sci-practice/1` のようになります。**最後の数字（この例では 1）がその論文の番号**です。以下では、この論文を「#1」と呼びます。
 
-### 6.2 検索の履歴と選別
+### 6.2 検索の履歴
 
-検索は Library の **外部 DB** の履歴に残ります。候補は、最初は pending（未選別）です。
+検索は Library の **外部 DB** の履歴に残ります。選別の段はありません。
 
-- keep / drop の選別は、エージェント（`sci-screen`）が `sai-paper set mark` で行います。人が画面で付ける必要はありません。
-- 人が確かめたいときは、Mac で `sai-paper set show <ID>` を実行します。`<ID>` は `sai-paper set list` で調べます。
 - Library の **Paper** を押すと、入った論文が番号の順に並びます。
 
 ---
@@ -413,7 +411,6 @@ cd ~/research/sci-practice
 | PENDING の PROPOSAL を見る | `sai-sci proposals` |
 | READ_CARD の中身を見る | `sai-sci read 3`（READ_CARD の run 番号） |
 | 書き出しを作り直す | `sai-sci export` |
-| 検索セットを見る | `sai-paper set list` |
 
 research-tree を変える命令は、1 行の JSON を `sai-sci apply` に渡します。例として O を 1 つ足します（`Q2` は自分の research-tree にある Q の番号に直します）。
 

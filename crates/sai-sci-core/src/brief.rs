@@ -725,16 +725,9 @@ fn numbers_line(
             |row| row.get(0),
         )
         .unwrap_or(0);
-    let pending: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM search_set_items WHERE decision = 'pending'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
     let notes = note_count(data_dir);
     format!(
-        "論文 {papers} 本（PDF {pdfs}・note {notes}・未索引 {unindexed}）、保留中の候補 {pending} 本"
+        "論文 {papers} 本（PDF {pdfs}・note {notes}・未索引 {unindexed}）"
     )
 }
 
@@ -1256,14 +1249,12 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE papers(id INTEGER PRIMARY KEY, pdf_path TEXT);
-             CREATE TABLE chunks(id INTEGER PRIMARY KEY, paper_id INTEGER, index_name TEXT NOT NULL);
-             CREATE TABLE search_set_items(set_id INTEGER, position INTEGER, decision TEXT);",
+             CREATE TABLE chunks(id INTEGER PRIMARY KEY, paper_id INTEGER, index_name TEXT NOT NULL);",
         )
         .unwrap();
         conn.execute_batch(
             "INSERT INTO papers(id, pdf_path) VALUES (1, 'a.pdf'), (2, NULL), (3, 'c.pdf');
-             INSERT INTO chunks(paper_id, index_name) VALUES (1, 'default'), (3, 'other');
-             INSERT INTO search_set_items(set_id, position, decision) VALUES (1, 1, 'pending'), (1, 2, 'keep');",
+             INSERT INTO chunks(paper_id, index_name) VALUES (1, 'default'), (3, 'other');",
         )
         .unwrap();
         // note 1 件
@@ -1272,7 +1263,7 @@ mod tests {
         let text = build_brief(&roots_of(&root), Some(&conn), &config(8000), "default");
 
         assert!(
-            text.contains("論文 3 本（PDF 2・note 1・未索引 2）、保留中の候補 1 本"),
+            text.contains("論文 3 本（PDF 2・note 1・未索引 2）"),
             "{text}"
         );
     }

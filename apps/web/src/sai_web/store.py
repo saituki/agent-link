@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS registrations (
     transcript_path TEXT NOT NULL,
     cwd TEXT NOT NULL,
     pane_id TEXT NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    owner TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS questions (
     id TEXT PRIMARY KEY,
@@ -34,12 +35,14 @@ CREATE TABLE IF NOT EXISTS questions (
     questions_json TEXT NOT NULL,
     created_at REAL NOT NULL,
     state TEXT NOT NULL DEFAULT 'open',
-    answer_json TEXT NOT NULL DEFAULT ''
+    answer_json TEXT NOT NULL DEFAULT '',
+    owner TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
     endpoint TEXT PRIMARY KEY,
     subscription_json TEXT NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    owner TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
@@ -54,6 +57,34 @@ CREATE TABLE IF NOT EXISTS approvals (
     state TEXT NOT NULL DEFAULT 'open',
     answer_json TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS users (
+    name TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    must_change_password INTEGER NOT NULL DEFAULT 1,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS web_sessions (
+    token_sha256 TEXT PRIMARY KEY,
+    user_name TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_tokens (
+    token_sha256 TEXT PRIMARY KEY,
+    user_name TEXT NOT NULL,
+    label TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    last_used_at REAL
+);
+CREATE TABLE IF NOT EXISTS project_tokens (
+    token_sha256 TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    project TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
 """
 
 
@@ -62,9 +93,47 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _current_owner() -> str:
+    """保存する行の持ち主。多人数モードで今の利用者がいればその名前、いなければ空文字。"""
+    from sai_web import registry
+
+    if not registry.multi_user():
+        return ""
+    user = registry.current_user.get()
+    if isinstance(user, dict):
+        return str(user.get("name") or "")
+    return ""
+
+
+def _owner_filter() -> str | None:
+    """読むときに絞る持ち主。単独モードは None（絞らない）。
+
+    多人数モードでは今の利用者の名前（未ログインなら空文字＝持ち主の無い行だけ）。
+    絞り込みを store の中で行うのは、読む場所（Home・Chats・質問・通知）が多いため。
+    """
+    from sai_web import registry
+
+    if not registry.multi_user():
+        return None
+    user = registry.current_user.get()
+    if isinstance(user, dict):
+        return str(user.get("name") or "")
+    return ""
+
+
+def _ensure_owner_column(conn: sqlite3.Connection, table: str) -> None:
+    """古い DB に `owner` の列が無ければ足す（既存の行は空文字・DB を壊さない）。"""
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if "owner" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        # 既存の DB（`owner` の列が無い）をそのまま使えるようにする
+        for table in ("registrations", "questions", "subscriptions"):
+            _ensure_owner_column(conn, table)
 
 
 def save_registration(
@@ -74,25 +143,38 @@ def save_registration(
     with _connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO registrations "
-            "(session_id, agent, transcript_path, cwd, pane_id, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, agent, transcript_path, cwd, pane_id, time.time()),
+            "(session_id, agent, transcript_path, cwd, pane_id, updated_at, owner) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, agent, transcript_path, cwd, pane_id, time.time(), _current_owner()),
         )
 
 
 def get_registration(session_id: str) -> dict | None:
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT * FROM registrations WHERE session_id = ?", (session_id,)
-        ).fetchone()
+        if owner is None:
+            row = conn.execute(
+                "SELECT * FROM registrations WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM registrations WHERE session_id = ? AND owner = ?",
+                (session_id, owner),
+            ).fetchone()
     return dict(row) if row else None
 
 
 def list_registrations() -> list[dict]:
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM registrations").fetchall()
+        if owner is None:
+            rows = conn.execute("SELECT * FROM registrations").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM registrations WHERE owner = ?", (owner,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -128,8 +210,8 @@ def save_question(
         qid = uuid.uuid4().hex[:12]
         conn.execute(
             "INSERT INTO questions "
-            "(id, agent, session_id, pane_id, tool_use_id, questions_json, created_at, state, answer_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '')",
+            "(id, agent, session_id, pane_id, tool_use_id, questions_json, created_at, state, answer_json, owner) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '', ?)",
             (
                 qid,
                 agent,
@@ -138,6 +220,7 @@ def save_question(
                 tool_use_id,
                 json.dumps(questions, ensure_ascii=False),
                 time.time(),
+                _current_owner(),
             ),
         )
         row = conn.execute("SELECT * FROM questions WHERE id = ?", (qid,)).fetchone()
@@ -145,36 +228,58 @@ def save_question(
 
 
 def get_question(qid: str) -> dict | None:
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM questions WHERE id = ?", (qid,)).fetchone()
+        if owner is None:
+            row = conn.execute("SELECT * FROM questions WHERE id = ?", (qid,)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM questions WHERE id = ? AND owner = ?", (qid, owner)
+            ).fetchone()
     return _row_to_question(row) if row else None
 
 
 def list_open_questions(session_id: str | None = None) -> list[dict]:
-    """未解決の質問を新しい順に返す．session_id があれば絞る．"""
+    """未解決の質問を新しい順に返す．session_id があれば絞る．
+
+    多人数モードでは今の利用者の質問だけを返す（`_owner_filter`）。
+    """
+    owner = _owner_filter()
+    clauses = ["state = 'open'"]
+    values: list = []
+    if session_id:
+        clauses.append("session_id = ?")
+        values.append(session_id)
+    if owner is not None:
+        clauses.append("owner = ?")
+        values.append(owner)
+    sql = (
+        "SELECT * FROM questions WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at DESC"
+    )
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        if session_id:
-            rows = conn.execute(
-                "SELECT * FROM questions WHERE state = 'open' AND session_id = ? "
-                "ORDER BY created_at DESC",
-                (session_id,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM questions WHERE state = 'open' ORDER BY created_at DESC"
-            ).fetchall()
+        rows = conn.execute(sql, values).fetchall()
     return [_row_to_question(r) for r in rows]
 
 
 def mark_answered(qid: str, answer: dict) -> None:
     """回答済みにする．"""
+    owner = _owner_filter()
     with _connect() as conn:
-        conn.execute(
-            "UPDATE questions SET state = 'answered', answer_json = ? WHERE id = ?",
-            (json.dumps(answer, ensure_ascii=False), qid),
-        )
+        if owner is None:
+            conn.execute(
+                "UPDATE questions SET state = 'answered', answer_json = ? WHERE id = ?",
+                (json.dumps(answer, ensure_ascii=False), qid),
+            )
+        else:
+            conn.execute(
+                "UPDATE questions SET state = 'answered', answer_json = ? "
+                "WHERE id = ? AND owner = ?",
+                (json.dumps(answer, ensure_ascii=False), qid, owner),
+            )
 
 
 def list_questions_for_session(session_id: str) -> list[dict]:
@@ -184,15 +289,25 @@ def list_questions_for_session(session_id: str) -> list[dict]:
     - answered: iPhone で回答済み（「回答済み: …」の1行）
     - resolved_elsewhere: PC で先に回答済み（「PC で回答済み」の1行）
     expired は表示しない（待っていた時間が過ぎた）。
+    多人数モードでは今の利用者の質問だけを返す。
     """
+    owner = _owner_filter()
+    clauses = [
+        "session_id = ?",
+        "state IN ('open', 'answered', 'resolved_elsewhere')",
+    ]
+    values: list = [session_id]
+    if owner is not None:
+        clauses.append("owner = ?")
+        values.append(owner)
+    sql = (
+        "SELECT * FROM questions WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at DESC"
+    )
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE session_id = ? "
-            "AND state IN ('open', 'answered', 'resolved_elsewhere') "
-            "ORDER BY created_at DESC",
-            (session_id,),
-        ).fetchall()
+        rows = conn.execute(sql, values).fetchall()
     return [_row_to_question(r) for r in rows]
 
 
@@ -202,12 +317,20 @@ def mark_resolved_elsewhere_qid(qid: str) -> bool:
     open のときだけ書き換える（既に回答済みを上書きしない）。
     戻り値は書き換えできたか。
     """
+    owner = _owner_filter()
     with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'resolved_elsewhere' "
-            "WHERE id = ? AND state = 'open'",
-            (qid,),
-        )
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE id = ? AND state = 'open'",
+                (qid,),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE id = ? AND state = 'open' AND owner = ?",
+                (qid, owner),
+            )
         return cur.rowcount > 0
 
 
@@ -215,43 +338,42 @@ def expire_stale_questions(agent: str, older_than_sec: float, now: float | None 
     """指定エージェントの open な質問のうち，古すぎるものを expired にする．
 
     pi の拡張は最大5分しか取りに来ない（05 §3.1）ため，10分経ったら切る。
-    件数を返す。
+    件数を返す。多人数モードでは今の利用者の質問だけを切る。
     """
     base = time.time() if now is None else now
+    owner = _owner_filter()
     with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'expired' "
-            "WHERE agent = ? AND state = 'open' AND created_at < ?",
-            (agent, base - older_than_sec),
-        )
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'expired' "
+                "WHERE agent = ? AND state = 'open' AND created_at < ?",
+                (agent, base - older_than_sec),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'expired' "
+                "WHERE agent = ? AND state = 'open' AND created_at < ? AND owner = ?",
+                (agent, base - older_than_sec, owner),
+            )
         return cur.rowcount
 
 
 def mark_resolved_elsewhere(session_id: str) -> int:
     """そのセッションの未解決質問を「端末側で解決済み」にする．件数を返す．"""
+    owner = _owner_filter()
     with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE questions SET state = 'resolved_elsewhere' "
-            "WHERE session_id = ? AND state = 'open'",
-            (session_id,),
-        )
-        return cur.rowcount
-
-
-def expire_open_for_pane(table: str, session_id: str, pane_id: str) -> int:
-    """そのペインで出た未回答の質問／承認を expired にする（ペインが消えた時用）．
-
-    expired は画面に出さないので，カードと「質問あり」の印が消える。
-    table は "questions" か "approvals" のみ。件数を返す。
-    """
-    if table not in ("questions", "approvals"):
-        raise ValueError(table)
-    with _connect() as conn:
-        cur = conn.execute(
-            f"UPDATE {table} SET state = 'expired' "
-            "WHERE session_id = ? AND pane_id = ? AND state = 'open'",
-            (session_id, pane_id),
-        )
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE session_id = ? AND state = 'open'",
+                (session_id,),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'resolved_elsewhere' "
+                "WHERE session_id = ? AND state = 'open' AND owner = ?",
+                (session_id, owner),
+            )
         return cur.rowcount
 
 
@@ -263,129 +385,265 @@ def save_subscription(endpoint: str, subscription: dict) -> None:
     with _connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO subscriptions "
-            "(endpoint, subscription_json, created_at) VALUES (?, ?, ?)",
-            (endpoint, _json.dumps(subscription, ensure_ascii=False), _time.time()),
-        )
-
-
-# --- 承認（cc の PermissionRequest・05 §3.3） ---
-
-
-def _row_to_approval(row: sqlite3.Row) -> dict:
-    d = dict(row)
-    for src, dst in (
-        ("tool_input_json", "tool_input"),
-        ("suggestions_json", "permission_suggestions"),
-        ("answer_json", "answer"),
-    ):
-        raw = d.pop(src, "")
-        try:
-            d[dst] = json.loads(raw) if raw else (None if dst == "answer" else {})
-        except json.JSONDecodeError:
-            d[dst] = None if dst == "answer" else {}
-    if d.get("permission_suggestions") is None:
-        d["permission_suggestions"] = []
-    if d.get("tool_input") is None:
-        d["tool_input"] = {}
-    return d
-
-
-def save_approval(
-    session_id: str,
-    pane_id: str,
-    tool_use_id: str,
-    tool_name: str,
-    tool_input: dict,
-    permission_suggestions: list,
-    match_text: str,
-) -> dict:
-    """承認を保管する．tool_use_id が同じなら2回目は返すだけ（重複防止）．"""
-    with _connect() as conn:
-        conn.row_factory = sqlite3.Row
-        if tool_use_id:
-            row = conn.execute(
-                "SELECT * FROM approvals WHERE tool_use_id = ?", (tool_use_id,)
-            ).fetchone()
-            if row is not None:
-                return _row_to_approval(row)
-        aid = uuid.uuid4().hex[:12]
-        conn.execute(
-            "INSERT INTO approvals "
-            "(id, session_id, pane_id, tool_use_id, tool_name, tool_input_json, "
-            " suggestions_json, match_text, created_at, state, answer_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', '')",
+            "(endpoint, subscription_json, created_at, owner) VALUES (?, ?, ?, ?)",
             (
-                aid,
-                session_id,
-                pane_id,
-                tool_use_id,
-                tool_name,
-                json.dumps(tool_input or {}, ensure_ascii=False),
-                json.dumps(permission_suggestions or [], ensure_ascii=False),
-                match_text,
-                time.time(),
+                endpoint,
+                _json.dumps(subscription, ensure_ascii=False),
+                _time.time(),
+                _current_owner(),
             ),
         )
-        row = conn.execute("SELECT * FROM approvals WHERE id = ?", (aid,)).fetchone()
-        return _row_to_approval(row)
-
-
-def get_approval(aid: str) -> dict | None:
-    with _connect() as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM approvals WHERE id = ?", (aid,)).fetchone()
-    return _row_to_approval(row) if row else None
-
-
-def list_approvals_for_session(session_id: str) -> list[dict]:
-    """そのセッションの承認を画面に出す状態だけで新しい順に返す．"""
-    with _connect() as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM approvals WHERE session_id = ? "
-            "AND state IN ('open', 'answered', 'resolved_elsewhere') "
-            "ORDER BY created_at DESC",
-            (session_id,),
-        ).fetchall()
-    return [_row_to_approval(r) for r in rows]
-
-
-def list_open_approvals() -> list[dict]:
-    with _connect() as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM approvals WHERE state = 'open' ORDER BY created_at DESC"
-        ).fetchall()
-    return [_row_to_approval(r) for r in rows]
-
-
-def mark_approval_answered(aid: str, answer: dict) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE approvals SET state = 'answered', answer_json = ? WHERE id = ?",
-            (json.dumps(answer, ensure_ascii=False), aid),
-        )
-
-
-def mark_approval_resolved_elsewhere(session_id: str) -> int:
-    """そのセッションの未回答の承認を「PC で解決済み」にする．件数を返す．"""
-    with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE approvals SET state = 'resolved_elsewhere' "
-            "WHERE session_id = ? AND state = 'open'",
-            (session_id,),
-        )
-        return cur.rowcount
 
 
 def list_subscriptions() -> list[dict]:
+    """通知の購読。多人数モードでは今の利用者の購読だけを返す。"""
+    owner = _owner_filter()
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM subscriptions").fetchall()
+        if owner is None:
+            rows = conn.execute("SELECT * FROM subscriptions").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM subscriptions WHERE owner = ?", (owner,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
 def delete_subscription(endpoint: str) -> None:
     """届かなくなった登録を消す．"""
+    owner = _owner_filter()
     with _connect() as conn:
-        conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", (endpoint,))
+        if owner is None:
+            conn.execute("DELETE FROM subscriptions WHERE endpoint = ?", (endpoint,))
+        else:
+            conn.execute(
+                "DELETE FROM subscriptions WHERE endpoint = ? AND owner = ?",
+                (endpoint, owner),
+            )
+
+
+# --- アカウント・ログイン・個人のトークン（U06） ---
+# 値そのもの（パスワード・Cookie・トークン）は保存しない。
+# パスワードは `auth.hash_password` の scrypt 文字列、Cookie とトークンは
+# `auth.sha256_hex` の SHA-256 だけを置く。
+
+
+def _row_to_user(row: sqlite3.Row | None) -> dict | None:
+    """users の 1 行を画面に渡す形にする（0/1 は真偽にする）。"""
+    if row is None:
+        return None
+    d = dict(row)
+    d["is_admin"] = bool(d.get("is_admin"))
+    d["must_change_password"] = bool(d.get("must_change_password"))
+    d["disabled"] = bool(d.get("disabled"))
+    return d
+
+
+def create_user(
+    name: str,
+    email: str,
+    password_hash: str,
+    is_admin: bool = False,
+    must_change_password: bool = True,
+    disabled: bool = False,
+) -> dict:
+    """利用者を作る（email は小文字にして保存する）。"""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO users "
+            "(name, email, password_hash, is_admin, must_change_password, disabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                name,
+                email.lower(),
+                password_hash,
+                1 if is_admin else 0,
+                1 if must_change_password else 0,
+                1 if disabled else 0,
+                time.time(),
+            ),
+        )
+    return get_user(name) or {}
+
+
+def get_user(name: str) -> dict | None:
+    """名前で利用者を引く。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
+    return _row_to_user(row)
+
+
+def get_user_by_email(email: str) -> dict | None:
+    """メールアドレスで利用者を引く（小文字にして照合）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email.lower(),)
+        ).fetchone()
+    return _row_to_user(row)
+
+
+def list_users() -> list[dict]:
+    """利用者の一覧（名前の順）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM users ORDER BY name").fetchall()
+    return [u for u in (_row_to_user(r) for r in rows) if u is not None]
+
+
+def update_user(
+    name: str,
+    *,
+    email: str | None = None,
+    is_admin: bool | None = None,
+    disabled: bool | None = None,
+    password_hash: str | None = None,
+    must_change_password: bool | None = None,
+) -> bool:
+    """渡された項目だけを書き換える。書き換えられたら真。"""
+    sets: list[str] = []
+    values: list = []
+    if email is not None:
+        sets.append("email = ?")
+        values.append(email.lower())
+    if is_admin is not None:
+        sets.append("is_admin = ?")
+        values.append(1 if is_admin else 0)
+    if disabled is not None:
+        sets.append("disabled = ?")
+        values.append(1 if disabled else 0)
+    if password_hash is not None:
+        sets.append("password_hash = ?")
+        values.append(password_hash)
+    if must_change_password is not None:
+        sets.append("must_change_password = ?")
+        values.append(1 if must_change_password else 0)
+    if not sets:
+        return False
+    values.append(name)
+    with _connect() as conn:
+        cur = conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE name = ?", values)
+        return cur.rowcount > 0
+
+
+def create_session(token_sha256: str, user_name: str, expires_at: float) -> None:
+    """ログインのセッションを保存する（Cookie の値そのものは置かない）。"""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO web_sessions "
+            "(token_sha256, user_name, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_sha256, user_name, time.time(), expires_at),
+        )
+
+
+def get_session_user(token_sha256: str) -> dict | None:
+    """セッションの利用者を引く。期限切れは消して None を返す。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM web_sessions WHERE token_sha256 = ?", (token_sha256,)
+        ).fetchone()
+        if row is None:
+            return None
+        if float(row["expires_at"]) < time.time():
+            conn.execute(
+                "DELETE FROM web_sessions WHERE token_sha256 = ?", (token_sha256,)
+            )
+            return None
+    return get_user(str(row["user_name"]))
+
+
+def delete_session(token_sha256: str) -> None:
+    """セッションを 1 つ消す（ログアウト）。"""
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM web_sessions WHERE token_sha256 = ?", (token_sha256,)
+        )
+
+
+def delete_sessions_of(user_name: str) -> None:
+    """その人のセッションを全部消す（パスワード変更・無効化）。"""
+    with _connect() as conn:
+        conn.execute("DELETE FROM web_sessions WHERE user_name = ?", (user_name,))
+
+
+def create_api_token(token_sha256: str, user_name: str, label: str) -> None:
+    """個人のトークンを保存する（値そのものは置かない）。"""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO api_tokens "
+            "(token_sha256, user_name, label, created_at, last_used_at) "
+            "VALUES (?, ?, ?, ?, NULL)",
+            (token_sha256, user_name, label, time.time()),
+        )
+
+
+def find_api_token(token_sha256: str) -> dict | None:
+    """個人のトークンを引く（見つけたら `last_used_at` を今にする）。"""
+    now = time.time()
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM api_tokens WHERE token_sha256 = ?", (token_sha256,)
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE api_tokens SET last_used_at = ? WHERE token_sha256 = ?",
+            (now, token_sha256),
+        )
+    d = dict(row)
+    d["last_used_at"] = now
+    return d
+
+
+def list_api_tokens(user_name: str) -> list[dict]:
+    """その人の個人のトークンの一覧（新しい順）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM api_tokens WHERE user_name = ? ORDER BY created_at DESC",
+            (user_name,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_api_token(token_id: str, user_name: str) -> bool:
+    """自分の個人のトークンを消す。`token_id` は SHA-256 の先頭 12 文字（画面の id）。
+
+    他人のトークンは消せない（`user_name` で絞る）。消せたら真。
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM api_tokens "
+            "WHERE user_name = ? AND substr(token_sha256, 1, 12) = ?",
+            (user_name, token_id),
+        )
+        return cur.rowcount > 0
+
+
+# --- プロジェクトの内部の合言葉（U09・U10 が使う） ---
+# 値そのものは保存しない（`auth.sha256_hex` の SHA-256 だけ）。
+# 同じプロジェクトを作り直すと古い行は消す（コンテナごとに 1 つだけ有効）。
+
+
+def save_project_token(token_sha256: str, owner: str, project: str) -> None:
+    """プロジェクトの合言葉を保存する（同じ project の古い行は消す）。"""
+    with _connect() as conn:
+        conn.execute("DELETE FROM project_tokens WHERE project = ?", (project,))
+        conn.execute(
+            "INSERT INTO project_tokens "
+            "(token_sha256, owner, project, created_at) VALUES (?, ?, ?, ?)",
+            (token_sha256, owner, project, time.time()),
+        )
+
+
+def find_project_token(token_sha256: str) -> dict | None:
+    """プロジェクトの合言葉を引く（無ければ None）。"""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM project_tokens WHERE token_sha256 = ?", (token_sha256,)
+        ).fetchone()
+    return dict(row) if row else None

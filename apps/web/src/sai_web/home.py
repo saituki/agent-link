@@ -2,7 +2,6 @@
 
 1 本の住所で次をまとめて返す（共有契約 C-A3）:
 - 答えを待っている質問（`store.list_open_questions`）
-- 確認を待っている承認（`store.list_open_approvals`）
 - 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の一覧）
 - 論文の要対応（`sai-paper attention --json`）
 
@@ -19,13 +18,12 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import logging
 import time
 
 from fastapi import HTTPException
 
-from sai_web import control, papers, runs, store
+from sai_web import control, papers, registry, runs, store
 
 logger = logging.getLogger("sai_web")
 
@@ -56,10 +54,11 @@ _SUMMARY_KEYS = (
     "cost_usd",
 )
 
-# 覚えておいた結果（(時刻, 結果)）。テストから消すため global で持つ。
-_cache: tuple[float, dict] | None = None
-# 合計の覚え置き（期間ごとの (時刻, 結果)）。`forget()` で消す。
-_overview_cache: dict[str, tuple[float, dict]] = {}
+# 覚えておいた結果（利用者の名前 → (時刻, 結果)）。テストから消すため global で持つ。
+# 多人数モードでは利用者ごとに分ける（他人の結果を返さないため）。
+_cache: dict[str, tuple[float, dict]] = {}
+# 合計の覚え置き（（利用者, 期間）ごとの (時刻, 結果)）。`forget()` で消す。
+_overview_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 
 
 def _now() -> float:
@@ -121,35 +120,6 @@ def _home_questions() -> list[dict]:
                 "id": row.get("id") or "",
                 "agent": row.get("agent") or "",
                 "title": _text(text) if text else "質問",
-                "created_at": row.get("created_at"),
-                "project": project_name,
-                "run_id": run_id,
-            }
-        )
-    return out
-
-
-def _home_approvals() -> list[dict]:
-    """確認を待っている承認（新しい順・`store.list_open_approvals`）。"""
-    session_map = _session_map()
-    out: list[dict] = []
-    for row in store.list_open_approvals():
-        if not isinstance(row, dict):
-            continue
-        tool_input = row.get("tool_input")
-        tool_input = tool_input if isinstance(tool_input, dict) else {}
-        summary = tool_input.get("command") or tool_input.get("file_path")
-        if not summary:
-            try:
-                summary = json.dumps(tool_input, ensure_ascii=False)
-            except (TypeError, ValueError):
-                summary = ""
-        project_name, run_id = _run_of_session(session_map, row.get("session_id"))
-        out.append(
-            {
-                "id": row.get("id") or "",
-                "tool_name": row.get("tool_name") or "",
-                "summary": _text(summary) if summary else "",
                 "created_at": row.get("created_at"),
                 "project": project_name,
                 "run_id": run_id,
@@ -272,7 +242,6 @@ def _build() -> dict:
 
     return {
         "questions": _home_questions(),
-        "approvals": _home_approvals(),
         "projects": projects_out,
         "papers": papers_out,
         "errors": errors,
@@ -283,20 +252,21 @@ def build_home() -> dict:
     """ホームの集計（`GET /api/home`・U3 §変更内容 3）。
 
     10 秒だけ覚える（開くたび・更新するたびに全プロジェクトの CLI を呼ばないため）。
+    多人数モードでは利用者ごとに覚える。
     """
-    global _cache
     now = _now()
-    if _cache is not None and now - _cache[0] < _HOME_TTL:
-        return _cache[1]
+    key = registry.user_key()
+    hit = _cache.get(key)
+    if hit is not None and now - hit[0] < _HOME_TTL:
+        return hit[1]
     value = _build()
-    _cache = (now, value)
+    _cache[key] = (now, value)
     return value
 
 
 def forget() -> None:
     """覚え置きを消す（テストと、強制的に読み直すときに使う）。"""
-    global _cache
-    _cache = None
+    _cache.clear()
     _overview_cache.clear()
 
 
@@ -441,9 +411,10 @@ def build_overview(period: str = "week") -> dict:
             status_code=400, detail="period は week / month / all のいずれかにしてください"
         )
     now = _now()
-    hit = _overview_cache.get(period)
+    key = (registry.user_key(), period)
+    hit = _overview_cache.get(key)
     if hit is not None and now - hit[0] < _HOME_TTL:
         return hit[1]
     value = _build_overview(period)
-    _overview_cache[period] = (now, value)
+    _overview_cache[key] = (now, value)
     return value

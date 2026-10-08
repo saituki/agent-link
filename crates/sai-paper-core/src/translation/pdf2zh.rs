@@ -250,7 +250,7 @@ pub async fn run_pdf2zh(
         .spawn()
         .map_err(|e| {
             TranslationError::Service(format!(
-                "pdf2zh の起動に失敗しました: {e}（インストール済みか確認してください。PDF2ZH_BIN で明示指定も可能です。bin={}）",
+                "サーバでは pdf2zh を動かしません。各自の PC の sai-prep で前処理して送ってください（pdf2zh の起動に失敗しました: {e}。bin={}）",
                 bin.display()
             ))
         })?;

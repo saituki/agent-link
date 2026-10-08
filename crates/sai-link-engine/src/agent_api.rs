@@ -1470,6 +1470,99 @@ fn task_pane(task_id: i64) -> Result<(Task, ExecutionHistory, String), String> {
     Ok((task, exec, pane_id))
 }
 
+// ============================================================================
+// 3.8 run_send / run_interrupt（実行単位の送信・中断。共有契約 C2）
+// ============================================================================
+
+/// 実行の送り先（擬似 pane）を解決する。
+///
+/// `herdr_pane_id` → run セッション dir の `herdr_pane_id` の順で探す。
+/// 実行が無ければ「実行 <id> が見つかりません」（CLI は終了コード 3）、
+/// 送り先が無ければ「実行 <id> の送り先が見つかりません」（同じく 3）。
+fn run_pane(run_id: i64) -> Result<(ExecutionHistory, String), String> {
+    let store = Arc::new(
+        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?,
+    );
+    let exec = match store.get_execution_by_id(run_id) {
+        Ok(e) => e,
+        Err(crate::db::models::DbError::NotFound(_)) => {
+            return Err(format!("実行 {} が見つかりません", run_id));
+        }
+        Err(e) => return Err(format!("実行レコード取得エラー: {}", e)),
+    };
+    let pane_id = exec
+        .herdr_pane_id
+        .clone()
+        .or_else(|| crate::phone_export::pane_id_from_session_dir(&exec))
+        .ok_or_else(|| format!("実行 {} の送り先が見つかりません", run_id))?;
+    Ok((exec, pane_id))
+}
+
+/// `sai-link run send <run_id>`: 実行中の run に続きの文を送る（共有契約 C2）。
+///
+/// 擬似 pane に `send_text` → 確定キーを送り、`working` になるのを待つ。
+/// 戻り値は `{"run_id", "pane_id", "status": "sent"}`。
+/// 終了している・質問待ちのときは `Err`（CLI は終了コード 4）。
+pub fn run_send(run_id: i64, text: &str) -> Result<Value, String> {
+    let (exec, pane_id) = run_pane(run_id)?;
+    let herdr = crate::herdr::HerdrClient::new();
+    let info = herdr
+        .get_pane_status(&pane_id)
+        .map_err(|_| format!("実行 {} は既に終了しています", run_id))?;
+    if info.agent_status == "blocked" {
+        return Err(format!(
+            "実行 {} は既に質問待ちです。回答は質問カードから送ってください",
+            run_id
+        ));
+    }
+    let submit_key = crate::runner::RunnerKind::parse(&exec.runner).submit_key();
+    crate::orchestrator::submit_prompt_verified(&herdr, &pane_id, text, submit_key, None)
+        .map_err(|e| format!("pane への送信に失敗: {}", e))?;
+    Ok(json!({
+        "run_id": run_id,
+        "pane_id": pane_id,
+        "status": "sent",
+    }))
+}
+
+/// `sai-link run interrupt <run_id>`: 実行中の run を中断する（共有契約 C2）。
+///
+/// 擬似 pane に `esc` を送り、`working` でなくなるまで最大 5 秒待つ。
+/// 戻り値は `{"run_id", "status": "interrupted" | "still_working", "agent_status"}`。
+/// 終了しているときは `Err`（CLI は終了コード 4）。
+pub fn run_interrupt(run_id: i64) -> Result<Value, String> {
+    let (_exec, pane_id) = run_pane(run_id)?;
+    let herdr = crate::herdr::HerdrClient::new();
+    let info = herdr
+        .get_pane_status(&pane_id)
+        .map_err(|_| format!("実行 {} は既に終了しています", run_id))?;
+    let mut agent_status = info.agent_status;
+    herdr
+        .send_keys(&pane_id, "esc")
+        .map_err(|e| format!("esc の送信に失敗: {}", e))?;
+
+    const POLL_MS: u64 = 250;
+    const WAIT_MS: u64 = 5_000;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(WAIT_MS);
+    while agent_status == "working" && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
+        agent_status = herdr
+            .get_pane_status(&pane_id)
+            .map(|i| i.agent_status)
+            .unwrap_or_else(|_| "unknown".to_string());
+    }
+    let status = if agent_status == "working" {
+        "still_working"
+    } else {
+        "interrupted"
+    };
+    Ok(json!({
+        "run_id": run_id,
+        "status": status,
+        "agent_status": agent_status,
+    }))
+}
+
 /// `send` の行き先。
 #[derive(Debug, PartialEq, Eq)]
 enum SendRoute {

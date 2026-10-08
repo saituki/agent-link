@@ -13,7 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use rusqlite::Connection;
 use sai_paper_core::paths::{self, PaperRoots};
 use sai_sci_core::rt::{self, card, compute, context, defs, export, ops, store};
-use sai_paper_core::search_sets;
+use sai_paper_core::search_history;
 use sai_paper_core::{Config, Database, Paths};
 use serde_json::{Value, json};
 
@@ -621,6 +621,32 @@ pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result
     Ok(SearchRefs { node: Some(id) })
 }
 
+/// 環境変数 `SAI_TARGET_NODE` の Node（検索の記録の結び先）。
+///
+/// 無い・空なら `None`。形が違う・Node が無い・消えている・research-tree が無いときは、
+/// 検索そのものを止めず、標準エラーに 1 行出して `None` にする。
+pub(crate) fn target_node_from_env(conn: &Connection) -> Option<i64> {
+    let raw = std::env::var("SAI_TARGET_NODE").ok()?;
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let found = store::is_initialized(conn)
+        .ok()
+        .filter(|ready| *ready)
+        .and_then(|_| rt::parse_id(text).ok())
+        .and_then(|(kind, id)| {
+            store::get_node_of(conn, kind, id)
+                .ok()
+                .filter(|row| row.removed_at.is_none())
+                .map(|_| id)
+        });
+    if found.is_none() {
+        eprintln!("SAI_TARGET_NODE の {text} はありません。検索を Node に結びません");
+    }
+    found
+}
+
 /// 検索の記録に残す内容（`find` / `search` で同じものを使う）。
 pub(crate) struct SearchLog<'a> {
     /// 検索が結び付いた Node。
@@ -635,9 +661,9 @@ pub(crate) struct SearchLog<'a> {
     pub hits: i64,
     /// 当たった論文の番号。
     pub hit_papers: &'a [i64],
-    /// 作った検索セットの番号。
+    /// 使わない（常に `None`。廃止した検索セットの番号の列 `rt_searches.set_id`）。
     pub set_id: Option<i64>,
-    /// その 1 回の検索の履歴（`search_sets` の行）の番号。
+    /// その 1 回の検索の履歴（`search_history` の行）の番号。
     pub log_id: Option<i64>,
 }
 
@@ -732,16 +758,16 @@ pub(crate) fn hit_paper_ids(hits: &[sai_paper_core::Hit]) -> Vec<i64> {
     ids
 }
 
-/// 検索セットに何のための検索かを書く Fields を作る（1 つも無ければ `None`）。
+/// 検索履歴に何のための検索かを書く Fields を作る（1 つも無ければ `None`）。
 pub(crate) fn set_fields(
     refs: &SearchRefs,
     purpose: Option<&str>,
     extract: Option<&str>,
-) -> Option<search_sets::SciSetFields> {
+) -> Option<search_history::SciSetFields> {
     if refs.node.is_none() && purpose.is_none() && extract.is_none() {
         return None;
     }
-    Some(search_sets::SciSetFields {
+    Some(search_history::SciSetFields {
         node: refs.node,
         question: None,
         purpose: purpose.map(str::to_string),

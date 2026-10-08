@@ -1,18 +1,15 @@
-"""引用一覧（citations）と手動取り込み（manual import / アップロード）のテスト（assert だけ）。
+"""引用一覧（citations）と引用の抜き出しのテスト（assert だけ・U13 で手動取り込みは消した）。
 
 確かめること:
-- `phone citations` / `manual-candidates` の引数
+- `phone citations` の引数
 - 引用の抜き出し（`phone citations-extract`）: 段 0→1→完了、docling_error の文、
   失敗は `failed`、同じ論文の 2 回目は 409
-- 手動取り込みの対象の検査（4 通りのどちらかちょうど 1 つ・型・範囲・クエリの文字列）
-- ファイル名の検査（`../a.pdf` / `a/b.pdf` / `a.txt` / 空 / NUL / 256 字）
-- `--file` と `--stdin` の引数の組み立て、取り込んだあとの after-download 、失敗の扱い
-- アップロードの 415 / 413 / 400 の分かれ
 - 一覧に `kind` が付き、音声化と要旨の訳の仕事も出ること
+- 新しい住所（keep・bundle・pending・jobs）が登録済みで、消した住所（manual/*）が無い
 
 実行:
     cd <作業用コピー>
-    PYTHONPATH=src ~/workdir/Sai/sai-moon/apps/web/.venv/bin/python tests/test_papers_manual.py
+    PYTHONPATH=src .venv/bin/python tests/test_papers_manual.py
 """
 
 from __future__ import annotations
@@ -223,20 +220,6 @@ def test_citations(cli: FakeRunJson) -> None:
     assert cli.last["env"]["SAI_ORIGIN"] == "phone", cli.last["env"]
 
 
-def test_manual_candidates(cli: FakeRunJson) -> None:
-    """候補は `paper candidates --minutes 30`（利用者が決めた 30 分）。"""
-    cli.calls.clear()
-    cli.value = {"dir": "~/Downloads", "minutes": 30, "items": []}
-    assert papers.manual_candidates(PROJECT)["minutes"] == 30
-    assert cli.last["args"] == [
-        "sai-paper",
-        "paper",
-        "candidates",
-        "--minutes",
-        "30",
-    ], cli.last["args"]
-
-
 # --- 引用の抜き出し ---
 
 
@@ -382,363 +365,6 @@ def test_cite_extract_conflict() -> None:
         papers._download_jobs.clear()
 
 
-# --- 手動取り込みの検査 ---
-
-
-def test_manual_target_validation() -> None:
-    """対象は 4 通りのどちらかちょうど 1 つ（型と範囲も見る）。"""
-    key, args, title = papers._manual_target({"log_id": 3, "position": 2})
-    assert key == "log:3:2", key
-    assert args == ["--log", "3", "--position", "2"], args
-    assert title == "論文", title
-    key, args, _ = papers._manual_target({"import_id": "DOI:1", "title": "題名"})
-    assert key == "import:DOI:1", key
-    assert args == ["--import-id", "DOI:1"], args
-    key, args, _ = papers._manual_target({"cite_paper_id": 12, "ref_no": 3})
-    assert key == "cite:12:3", key
-    assert args == ["--cite", "12", "--ref", "3"], args
-    key, args, _ = papers._manual_target({"paper_id": 12})
-    assert key == "paper:12", key
-    assert args == ["--paper-id", "12"], args
-
-    # アップロードはクエリから引くので数字の文字列も受ける
-    key, args, _ = papers._manual_target({"log_id": "3", "position": "2"})
-    assert (key, args) == ("log:3:2", ["--log", "3", "--position", "2"]), (key, args)
-    key, _args, _ = papers._manual_target({"paper_id": "12"})
-    assert key == "paper:12", key
-
-    for bad in (
-        {},
-        {"title": "x"},
-        {"log_id": 3, "position": 2, "paper_id": 12},
-        {"log_id": 3, "position": 2, "import_id": "DOI:1"},
-        {"log_id": 3, "position": 2, "cite_paper_id": 12, "ref_no": 3},
-        {"log_id": 3},
-        {"position": 2},
-        {"log_id": 0, "position": 2},
-        {"log_id": 3, "position": -1},
-        {"log_id": True, "position": 2},
-        {"log_id": "three", "position": 2},
-        {"import_id": ""},
-        {"import_id": 12},
-        {"cite_paper_id": 12},
-        {"ref_no": 3},
-        {"cite_paper_id": 12, "ref_no": 0},
-        {"paper_id": 0},
-        {"paper_id": "abc"},
-        "not a dict",
-    ):
-        expect(400, lambda bad=bad: papers._manual_target(bad))
-
-
-def test_pdf_name_validation() -> None:
-    """ファイル名は 1〜255 字・.pdf で終わる物だけ（パスは受けない）。"""
-    assert papers._validate_pdf_name("paper.pdf") == "paper.pdf"
-    assert papers._validate_pdf_name("Paper.PDF") == "Paper.PDF"
-    assert papers._validate_pdf_name("a b（1）.pdf") == "a b（1）.pdf"
-    assert papers._validate_pdf_name("a" * 251 + ".pdf") == "a" * 251 + ".pdf"
-    for bad in (
-        "",
-        "a" * 252 + ".pdf",  # 256 字
-        "../a.pdf",
-        "a/b.pdf",
-        "a\\b.pdf",
-        "a..pdf",
-        "..",
-        "a.txt",
-        "a.pdf ",
-        "a.pdf\nb",
-        "a\0.pdf",
-        None,
-        12,
-    ):
-        e = expect(400, lambda bad=bad: papers._validate_pdf_name(bad))
-        assert "ファイル名" in str(e.detail), e.detail
-
-
-# --- 手動取り込み（--file / --stdin） ---
-
-
-def test_manual_import_file(fake: FakeNotify) -> None:
-    """ダウンロードフォルダのファイル名は `--file … --minutes 30` で渡す。"""
-    fake.calls.clear()
-    create, seen, _procs = fake_exec(
-        {
-            "paper import-pdf --log 3 --position 2 --file paper.pdf --minutes 30": FakeProc(
-                json.dumps(
-                    {
-                        "paper_id": 71,
-                        "title": "題名",
-                        "status": "imported",
-                        "pdf_path": "/root/sai-paper/.sai/paper/papers/71/paper.pdf",
-                    }
-                ).encode()
-            ),
-            "paper after-download 71": FakeProc(
-                json.dumps({"paper_id": 71, "messages": []}).encode(),
-                stderr="sai-progress step=1\nsai-progress msg=図を 2 件抽出しました\n".encode(),
-            ),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
-
-    async def main() -> None:
-        res = await papers.request_manual_import(
-            PROJECT, {"log_id": 3, "position": 2, "title": "題名"}, "paper.pdf"
-        )
-        assert res == {"key": "manual:log:3:2", "status": "downloading"}, res
-        job = papers._download_jobs[("sai-paper", "manual:log:3:2")]
-        assert job["kind"] == "manual", job
-        assert job["status"] == "downloading", job
-        for _ in range(30):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "manual:log:3:2")]
-        assert job["status"] == "done", job
-        assert job["paper_id"] == 71, job
-        assert job["percent"] == 100, job
-        assert job["messages"] == ["図を 2 件抽出しました"], job["messages"]
-        listed = papers.list_downloads(PROJECT)["jobs"]
-        assert listed[0]["kind"] == "manual", listed[0]
-        assert listed[0]["steps"] == ["PDF取得", "図抽出", "翻訳"], listed[0]
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert seen[0][1:] == [
-        "paper",
-        "import-pdf",
-        "--log",
-        "3",
-        "--position",
-        "2",
-        "--file",
-        "paper.pdf",
-        "--minutes",
-        "30",
-    ], seen
-    assert seen[1][1:] == ["paper", "after-download", "71"], seen
-    # 「保存しました」と「取り込みました」の 2 回
-    assert [c[0] for c in fake.calls] == ["📄 論文を保存しました"], fake.calls
-
-
-def test_manual_import_stdin(fake: FakeNotify) -> None:
-    """アップロードは `--stdin` で本文を標準入力に書く（ファイル名は付けない）。"""
-    fake.calls.clear()
-    body = b"%PDF-1.7\nhello"
-    create, seen, procs = fake_exec(
-        {
-            "paper import-pdf --paper-id 12 --stdin": FakeProc(
-                json.dumps(
-                    {"paper_id": 12, "title": "題名", "status": "imported", "pdf_path": "/x.pdf"}
-                ).encode(),
-                has_stdin=True,
-            ),
-            "paper after-download 12": FakeProc(json.dumps({"paper_id": 12}).encode()),
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
-
-    async def main() -> None:
-        await papers.request_manual_import(
-            PROJECT, {"paper_id": 12, "title": "題名"}, body=body
-        )
-        for _ in range(30):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "manual:paper:12")]
-        assert job["status"] == "done", job
-        assert job["paper_id"] == 12, job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert seen[0][1:] == ["paper", "import-pdf", "--paper-id", "12", "--stdin"], seen
-    assert procs[0].stdin.written == body, procs[0].stdin.written
-    assert procs[0].stdin.closed, "標準入力は閉じる"
-
-
-def test_manual_import_bad_source(fake: FakeNotify) -> None:
-    """中身は 1 つだけ。ファイル名も本文も無ければ 400（仕事を作らない）。"""
-    fake.calls.clear()
-    original = papers.asyncio.create_subprocess_exec
-    called: list = []
-
-    async def create(*args, **kwargs):  # 呼ばれてはいけない
-        called.append(args)
-        return FakeProc(b"{}", 0)
-
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
-
-    async def main() -> None:
-        await expect_async(
-            400, papers.request_manual_import(PROJECT, {"paper_id": 12})
-        )
-        await expect_async(
-            400,
-            papers.request_manual_import(PROJECT, {"paper_id": 12}, "a.pdf", b"%PDF-"),
-        )
-        await expect_async(
-            400, papers.request_manual_import(PROJECT, {"paper_id": 12}, "../a.pdf")
-        )
-        await expect_async(
-            400, papers.request_manual_import(PROJECT, {"paper_id": 12}, "a.txt")
-        )
-        await expect_async(
-            400, papers.request_manual_import(PROJECT, {"paper_id": 12}, body=b"")
-        )
-        assert papers._download_jobs == {}, papers._download_jobs
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert called == [], f"検査前に CLI が呼ばれた: {called}"
-
-
-def test_manual_import_failed(fake: FakeNotify) -> None:
-    """取り込みの失敗 → `failed` と通知（after-download は走らない）。"""
-    fake.calls.clear()
-    create, seen, _procs = fake_exec(
-        {
-            "paper import-pdf --cite 12 --ref 3 --file a.pdf --minutes 30": FakeProc(
-                json.dumps({"error": "この論文は既に Library にあります（ID 34）"}).encode(), 1
-            )
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
-
-    async def main() -> None:
-        await papers.request_manual_import(
-            PROJECT, {"cite_paper_id": 12, "ref_no": 3, "title": "題名"}, "a.pdf"
-        )
-        for _ in range(20):
-            await asyncio.sleep(0)
-        job = papers._download_jobs[("sai-paper", "manual:cite:12:3")]
-        assert job["status"] == "failed", job
-        assert job["error"] == "この論文は既に Library にあります（ID 34）", job
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers._download_jobs.clear()
-    assert len(seen) == 1, seen
-    assert fake.calls == [
-        (
-            "論文を取り込めませんでした",
-            "題名: この論文は既に Library にあります（ID 34）",
-            "/#/papers/library",
-        )
-    ], fake.calls
-
-
-def test_manual_import_conflict() -> None:
-    """同じキーの 2 回目は 409。"""
-    create, _seen, _procs = fake_exec(
-        {
-            "paper import-pdf --paper-id 20 --file a.pdf --minutes 30": FakeProc(
-                b"{}", 0, hang=True
-            )
-        }
-    )
-    original = papers.asyncio.create_subprocess_exec
-    papers.asyncio.create_subprocess_exec = create
-    papers.settings = SimpleNamespace(sai_paper_bin="sai-paper")
-    original_timeout = papers.MANUAL_TIMEOUT
-    papers.MANUAL_TIMEOUT = 30.0
-
-    async def main() -> None:
-        await papers.request_manual_import(PROJECT, {"paper_id": 20}, "a.pdf")
-        await asyncio.sleep(0)
-        e = await expect_async(
-            409, papers.request_manual_import(PROJECT, {"paper_id": 20}, "a.pdf")
-        )
-        assert "取り込み中" in str(e.detail), e.detail
-
-    try:
-        asyncio.run(main())
-    finally:
-        papers.asyncio.create_subprocess_exec = original
-        papers.MANUAL_TIMEOUT = original_timeout
-        papers._download_jobs.clear()
-
-
-# --- アップロードの検査（415 / 413 / 400） ---
-
-
-async def read_upload(body: bytes, **kwargs) -> bytes:
-    return await papers.read_pdf_upload(FakeRequest(body, **kwargs), {"paper_id": 12})
-
-
-def test_upload_limits() -> None:
-    """Content-Type が違えば 415 / 大きすぎれば 413 / 先頭が違えば 400。"""
-    good = b"%PDF-1.7\nhello"
-
-    async def ok() -> None:
-        assert await read_upload(good) == good
-        # charset が付けても application/pdf なら受ける
-        assert await read_upload(good, content_type="application/pdf; charset=binary") == good
-
-    asyncio.run(ok())
-
-    # 415（種類が違う）
-    for ctype in ("application/octet-stream", "text/plain", "application/json", ""):
-        try:
-            asyncio.run(read_upload(good, content_type=ctype))
-        except HTTPException as e:
-            assert e.status_code == 415, f"{ctype}: {e.status_code}"
-        else:
-            raise AssertionError(f"{ctype} は 415 のはず")
-
-    # 413（Content-Length が無い / 超えている / 読みながら超える）
-    try:
-        asyncio.run(read_upload(good, length="omit"))
-    except HTTPException as e:
-        assert e.status_code == 413, e.status_code
-    else:
-        raise AssertionError("Content-Length が無ければ 413 のはず")
-    try:
-        asyncio.run(read_upload(good, length=papers.UPLOAD_MAX_BYTES + 1))
-    except HTTPException as e:
-        assert e.status_code == 413, e.status_code
-    else:
-        raise AssertionError("上限を越えたら 413 のはず")
-    # 宣言は小さくても、実際に大きいなら 413
-    big = b"%PDF-" + b"x" * (papers.UPLOAD_MAX_BYTES + 10)
-    try:
-        asyncio.run(read_upload(big, length=10))
-    except HTTPException as e:
-        assert e.status_code == 413, e.status_code
-    else:
-        raise AssertionError("読みながら上限を超えたら 413 のはず")
-
-    # 400（PDF ではない）
-    for body in (b"hello", b"%PD", b"", b"\x00\x01\x02\x03\x04\x05"):
-        try:
-            asyncio.run(read_upload(body))
-        except HTTPException as e:
-            assert e.status_code == 400, f"{body!r}: {e.status_code}"
-        else:
-            raise AssertionError(f"{body!r} は 400 のはず")
-
-
-def test_upload_max_is_100mb() -> None:
-    """上限は利用者が決めた 100MB（104857600 バイト）。"""
-    assert papers.UPLOAD_MAX_BYTES == 104857600, papers.UPLOAD_MAX_BYTES
-    assert papers.MANUAL_MINUTES == 30, papers.MANUAL_MINUTES
-
-
 # --- 一覧に載る仕事（音声化・要旨の訳） ---
 
 
@@ -826,9 +452,11 @@ def test_routes() -> None:
         for method in getattr(route, "methods", []) or []:
             got.append((method, path))
     want = [
-        ("GET", "/api/projects/{name}/papers/manual/candidates"),
-        ("POST", "/api/projects/{name}/papers/manual/import"),
-        ("POST", "/api/projects/{name}/papers/manual/upload"),
+        ("POST", "/api/projects/{name}/papers/keep"),
+        ("POST", "/api/projects/{name}/papers/bundle"),
+        ("GET", "/api/projects/{name}/papers/pending"),
+        ("GET", "/api/projects/{name}/papers/jobs/{key}"),
+        ("GET", "/api/prep/download"),
         ("GET", "/api/projects/{name}/papers/{paper_id:int}/citations"),
         ("POST", "/api/projects/{name}/papers/{paper_id:int}/citations/extract"),
     ]
@@ -837,11 +465,19 @@ def test_routes() -> None:
     paths = [p for _m, p in got]
     int_path = "/api/projects/{name}/papers/{paper_id:int}"
     for fixed in (
-        "/api/projects/{name}/papers/manual/candidates",
-        "/api/projects/{name}/papers/manual/import",
-        "/api/projects/{name}/papers/manual/upload",
+        "/api/projects/{name}/papers/keep",
+        "/api/projects/{name}/papers/bundle",
+        "/api/projects/{name}/papers/pending",
+        "/api/projects/{name}/papers/jobs/{key}",
     ):
         assert paths.index(fixed) < paths.index(int_path), fixed
+    # 消した住所は残っていない（U13 §2）
+    for gone in (
+        ("/api/projects/{name}/papers/manual/candidates", "GET"),
+        ("/api/projects/{name}/papers/manual/import", "POST"),
+        ("/api/projects/{name}/papers/manual/upload", "POST"),
+    ):
+        assert gone not in got, f"消した住所が残っている: {gone}"
 
 
 def main() -> None:
@@ -851,20 +487,10 @@ def main() -> None:
     fake = FakeNotify()
     papers.notify.broadcast = fake.broadcast
     test_citations(cli)
-    test_manual_candidates(cli)
     test_cite_extract_success(fake)
     test_cite_extract_docling_error(fake)
     test_cite_extract_failed(fake)
     test_cite_extract_conflict()
-    test_manual_target_validation()
-    test_pdf_name_validation()
-    test_manual_import_file(fake)
-    test_manual_import_stdin(fake)
-    test_manual_import_bad_source(fake)
-    test_manual_import_failed(fake)
-    test_manual_import_conflict()
-    test_upload_limits()
-    test_upload_max_is_100mb()
     test_list_includes_radio(cli)
     test_list_includes_translate(cli)
     test_routes()

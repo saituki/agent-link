@@ -7,7 +7,7 @@
 //!
 //! 用途ごと: `init`・`card`・`run`・`doc`・`task`・`def`・`project`・
 //! `session`・`workflow`・`schema`・`daemon`・`usage`。
-//! 内部用（隠したまま）: `waggle resolve`・`cc-statusline`・`cc-prompt-hook`・`daemon _run`。
+//! 内部用（隠したまま）: `waggle resolve`・`cc-prompt-hook`・`cc-state-hook`・`cc-permission-hook`・`cc-statusline`・`daemon _run`。
 //!
 //! # 使用例
 //!
@@ -96,8 +96,10 @@ fn main() {
         Cmd::Waggle { cmd } => match cmd {
             WaggleCmd::Resolve { token } => cli::handle_waggle_resolve(&token),
         },
-        Cmd::CcStatusline => cli::handle_cc_statusline(),
         Cmd::CcPromptHook => cli::handle_cc_prompt_hook(),
+        Cmd::CcStateHook { state } => cli::handle_cc_state_hook(&state),
+        Cmd::CcPermissionHook => cli::handle_cc_permission_hook(),
+        Cmd::CcStatusline => cli::handle_cc_statusline(),
     };
 
     if let Err(e) = result {

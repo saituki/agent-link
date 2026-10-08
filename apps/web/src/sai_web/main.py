@@ -17,27 +17,29 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from sai_web import (
-    approvals,
+    auth,
+    bundles,
     commands,
+    containers,
     control,
-    herdr,
     home,
     mlflow_proxy,
     notify,
     papers,
     questions,
     radio,
-    rbrowser,
+    registry,
     runs,
     sci,
     sessions,
@@ -51,7 +53,12 @@ import asyncio
 
 logger = logging.getLogger("sai_web")
 
-app = FastAPI(title="sai-web")
+# 多人数モードでは API の説明（/docs・/openapi.json）を出さない（共有契約 C5）。
+# 単独モードは今までどおり出す（開発とテスト用）。
+if registry.multi_user():
+    app = FastAPI(title="sai-web", docs_url=None, redoc_url=None, openapi_url=None)
+else:
+    app = FastAPI(title="sai-web")
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -60,11 +67,19 @@ def require_token(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     token: str | None = Query(default=None),
 ) -> None:
-    """簡易トークン認証．SAI_WEB_TOKEN が未設定なら認証なし（開発用）．
+    """入口の守り。
+
+    - 多人数モードでは、ミドルウェアが入れた今の利用者（`registry.current_user`）が
+      いれば通す。合言葉（Bearer の合言葉・`?token=`）は受けない。
+    - 単独モードは今までどおり `SAI_WEB_TOKEN` と照合する（未設定なら認証なし）。
 
     なぜクエリ（?token=）も受け付けるか: iPhone 側でヘッダを付けられない
     場面（直接URLを開く等）でも開けるようにするため．
     """
+    if registry.multi_user():
+        if registry.current_user.get() is None:
+            raise HTTPException(status_code=401, detail="ログインしてください")
+        return
     if not settings.api_token:
         return
     if (creds is not None and creds.credentials == settings.api_token) or token == settings.api_token:
@@ -72,8 +87,145 @@ def require_token(
     raise HTTPException(status_code=401, detail="認証エラー")
 
 
-def require_local(request: Request) -> None:
-    """フック・拡張からの内部登録は Mac 自身からのみ受ける．"""
+@app.middleware("http")
+async def _multi_user_auth(request: Request, call_next):
+    """多人数モードの入口（共有契約 C5）。
+
+    1. `Authorization: Bearer sai_…` があれば個人のトークンとして利用者を引く。
+    2. 無ければ Cookie `sai_session` から利用者を引く。
+    3. 変更系で Cookie で入った要求は `Origin` と `Host` を照合する（CSRF 対策）。
+    4. 初回のパスワード変更前は `/api/auth/` 以外の `/api/` を止める。
+
+    依存関数ではなくミドルウェアにするのは、同期の住所の関数が別のスレッドで
+    動いても `ContextVar` が届くようにするため（`call_next` の前に set する）。
+    """
+    if not registry.multi_user():
+        return await call_next(request)
+
+    user: dict | None = None
+    via_api_token = False
+    via_internal_token = False
+
+    # 1. 個人のトークン（`sai_…`）か、プロジェクトの内部の合言葉（`sai_` で始まらない）
+    authz = request.headers.get("authorization") or ""
+    if authz.lower().startswith("bearer "):
+        value = authz[len("bearer "):].strip()
+        if value.startswith(auth.API_TOKEN_PREFIX):
+            row = store.find_api_token(auth.sha256_hex(value))
+            if row is not None:
+                candidate = store.get_user(str(row.get("user_name") or ""))
+                if candidate is not None and not candidate.get("disabled"):
+                    user = candidate
+                    via_api_token = True
+        elif value:
+            # 内部の合言葉（共有契約 C5）。見つかれば持ち主として入れる。
+            # 見つからなければ何もしない（内部の住所は 403 になる）。
+            row = store.find_project_token(auth.sha256_hex(value))
+            if row is not None:
+                user = {
+                    "name": str(row.get("owner") or ""),
+                    "email": "",
+                    "is_admin": False,
+                }
+                request.state.internal_project = str(row.get("project") or "")
+                via_internal_token = True
+
+    # 2. Cookie（内部の合言葉が無いときだけ見る）
+    if user is None:
+        cookie = request.cookies.get(auth.SESSION_COOKIE)
+        if cookie:
+            candidate = store.get_session_user(auth.sha256_hex(cookie))
+            if candidate is not None and not candidate.get("disabled"):
+                user = candidate
+
+    if user is None:
+        registry.current_user.set(None)
+    else:
+        registry.current_user.set(
+            {
+                "name": user.get("name") or "",
+                "email": user.get("email") or "",
+                "is_admin": bool(user.get("is_admin")),
+            }
+        )
+        request.state.via_api_token = via_api_token
+        request.state.via_internal_token = via_internal_token
+
+    path = request.url.path
+
+    # 内部の合言葉は内部の 4 本でだけ使える（コンテナのエージェントが、
+    # 持ち主の Web の API を勝手に使えないように）。
+    if via_internal_token and not _is_internal_address(request.method, path):
+        return JSONResponse(
+            {"detail": "内部専用の合言葉では使えません"}, status_code=403
+        )
+
+    # 3. CSRF: 変更系で Cookie で入った要求だけ見る（個人のトークン・内部の合言葉は見ない）
+    if (
+        user is not None
+        and not via_api_token
+        and not via_internal_token
+        and request.method in ("POST", "PUT", "PATCH", "DELETE")
+    ):
+        origin = request.headers.get("origin")
+        if origin:
+            from urllib.parse import urlparse
+
+            origin_host = urlparse(origin).netloc
+            host = request.headers.get("host") or ""
+            if origin_host and origin_host != host:
+                return JSONResponse(
+                    {"detail": "別のサイトからの要求は受けません"}, status_code=403
+                )
+
+    # 4. 初回のパスワード変更前は /api/auth/ 以外の /api/ を止める
+    if (
+        user is not None
+        and user.get("must_change_password")
+        and path.startswith("/api/")
+        and not path.startswith("/api/auth/")
+    ):
+        return JSONResponse(
+            {"detail": "パスワードを変えてください"}, status_code=403
+        )
+
+    return await call_next(request)
+
+
+# 内部の合言葉で使える住所（内部専用の 4 本だけ）。住所の登録と合わせる。
+_INTERNAL_POST_EXACT = {"/api/register", "/api/questions"}
+_INTERNAL_RESOLVED_RE = re.compile(r"^/api/questions/[^/]+/resolved$")
+_INTERNAL_QUESTION_RE = re.compile(r"^/api/questions/[^/]+$")
+
+
+def _is_internal_address(method: str, path: str) -> bool:
+    """内部の合言葉で使える住所か（内部専用の 4 本だけ）。
+
+    `GET /api/questions/pending` と `GET /api/questions` は含めない
+    （一覧は利用者の画面用で、内部の合言葉では使えない）。
+    """
+    if method == "POST":
+        if path in _INTERNAL_POST_EXACT:
+            return True
+        return bool(_INTERNAL_RESOLVED_RE.match(path))
+    if method == "GET":
+        if path == "/api/questions/pending":
+            return False
+        return bool(_INTERNAL_QUESTION_RE.match(path))
+    return False
+
+
+def require_internal(request: Request) -> None:
+    """フック・拡張からの内部の要求の守り（共有契約 C5）。
+
+    - 単独モード: Mac 自身（127.0.0.1 / ::1）からのみ。
+    - 多人数モード: プロジェクトの合言葉（ミドルウェアが入れた
+      `request.state.internal_project`）が要る。
+    """
+    if registry.multi_user():
+        if not getattr(request.state, "internal_project", ""):
+            raise HTTPException(status_code=403, detail="内部専用です")
+        return
     client = request.client.host if request.client else ""
     if client not in ("127.0.0.1", "::1"):
         raise HTTPException(status_code=403, detail="内部専用です")
@@ -112,23 +264,23 @@ def write_token_file() -> None:
 def _startup() -> None:
     store.init_db()
     notify.ensure_keys()
-    if not settings.api_token:
+    if registry.multi_user():
+        # 多人数モードでは合言葉を使わない（ログインは Cookie・sai-prep は個人のトークン）。
+        # 合言葉のファイルは書かない。
+        pass
+    elif not settings.api_token:
         # トークン無しは開発用．外に公開する前に必ず設定すること．
         logger.warning("SAI_WEB_TOKEN 未設定：認証なしで動作中")
-    # 合言葉をファイルで渡す（`phone_api.py` が読む）
-    write_token_file()
+    # 合言葉をファイルで渡す（`phone_api.py` が読む）。多人数モードでは書かない。
+    if not registry.multi_user():
+        write_token_file()
     # 確かめ用のサーバは見張りを止められる（SAI_WEB_NO_WATCH=1）。
-    # 見張りは herdr を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
+    # 見張りは headless の `state.json` を見て iPhone へ通知を送るので，動いているサーバと二重にならないように。
     if os.getenv("SAI_WEB_NO_WATCH") == "1":
         logger.warning("見張りを止めて起動しました（SAI_WEB_NO_WATCH=1）")
         return
     # 状態の監視ループを起動する（通知用．失敗してもサーバーは止めない）
     asyncio.get_event_loop().create_task(watch_loop())
-
-
-@app.on_event("shutdown")
-async def _shutdown() -> None:
-    await rbrowser.close()
 
 
 def _server_version() -> str:
@@ -156,6 +308,336 @@ _SERVER_STARTED = time.strftime("%m/%d %H:%M")
 @app.get("/api/health")
 def api_health() -> dict:
     return {"ok": True, "server": _SERVER_VERSION, "started_at": _SERVER_STARTED}
+
+
+# --- アカウントとログイン（U06・共有契約 C5'） ---
+# ここは require_token を付けない（未ログインでも呼べる必要があるため）。
+# 多人数モードでないときは 404 を返す。
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def api_auth_login(req: LoginRequest, response: Response) -> dict:
+    """メールアドレスとパスワードでログインする（Cookie を配る）。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+    email = req.email.strip().lower()
+    user = store.get_user_by_email(email)
+    if (
+        user is None
+        or user.get("disabled")
+        or not auth.verify_password(req.password, str(user.get("password_hash") or ""))
+    ):
+        # どちらが違うかは言わない
+        raise HTTPException(
+            status_code=401, detail="メールアドレスかパスワードが違います"
+        )
+    token = auth.new_session_token()
+    store.create_session(
+        auth.sha256_hex(token),
+        str(user["name"]),
+        time.time() + auth.SESSION_DAYS * 86400,
+    )
+    auth.set_session_cookie(response, token)
+    return auth.user_public(user)
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(request: Request, response: Response) -> dict:
+    """ログアウトする（セッションを消して Cookie を消す）。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+    cookie = request.cookies.get(auth.SESSION_COOKIE)
+    if cookie:
+        store.delete_session(auth.sha256_hex(cookie))
+    auth.clear_session_cookie(response)
+    return {"ok": True}
+
+
+class PasswordRequest(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/api/auth/password")
+def api_auth_password(req: PasswordRequest, response: Response) -> dict:
+    """今のパスワードを確かめて変える。他のセッションは消す。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+    current = registry.current_user.get()
+    if not isinstance(current, dict) or not current.get("name"):
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    name = str(current["name"])
+    row = store.get_user(name)
+    if row is None or not auth.verify_password(
+        req.current, str(row.get("password_hash") or "")
+    ):
+        raise HTTPException(status_code=400, detail="今のパスワードが違います")
+    try:
+        auth.check_password(req.new)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    store.update_user(
+        name,
+        password_hash=auth.hash_password(req.new),
+        must_change_password=False,
+    )
+    # 他のセッションを消し、この端末には新しいセッションを配る
+    store.delete_sessions_of(name)
+    token = auth.new_session_token()
+    store.create_session(
+        auth.sha256_hex(token), name, time.time() + auth.SESSION_DAYS * 86400
+    )
+    auth.set_session_cookie(response, token)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def api_auth_me() -> dict:
+    """今のモードと利用者（単独モードは `{"mode":"single"}`）。"""
+    if not registry.multi_user():
+        return {"mode": "single"}
+    current = registry.current_user.get()
+    if not isinstance(current, dict) or not current.get("name"):
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    row = store.get_user(str(current["name"]))
+    if row is None:
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    return {
+        "mode": "multi",
+        "name": row.get("name") or "",
+        "email": row.get("email") or "",
+        "is_admin": bool(row.get("is_admin")),
+        "must_change_password": bool(row.get("must_change_password")),
+    }
+
+
+# --- 個人のトークン（sai-prep が使う・U06） ---
+# 値は作った 1 回だけ返す。DB には SHA-256 だけを置く。
+
+
+def _require_multi() -> None:
+    """多人数モードでなければ 404。"""
+    if not registry.multi_user():
+        raise HTTPException(status_code=404, detail="多人数モードではありません")
+
+
+def _current_name() -> str:
+    """今の利用者の名前。いなければ 401。"""
+    current = registry.current_user.get()
+    if not isinstance(current, dict) or not current.get("name"):
+        raise HTTPException(status_code=401, detail="ログインしてください")
+    return str(current["name"])
+
+
+@app.get("/api/me/tokens")
+def api_me_tokens(_: None = Depends(require_token)) -> dict:
+    """自分の個人のトークンの一覧（値は返さない）。"""
+    _require_multi()
+    tokens = [
+        {
+            "id": str(r.get("token_sha256") or "")[:12],
+            "label": r.get("label") or "",
+            "created_at": r.get("created_at"),
+            "last_used_at": r.get("last_used_at"),
+        }
+        for r in store.list_api_tokens(_current_name())
+    ]
+    return {"tokens": tokens}
+
+
+class TokenRequest(BaseModel):
+    label: str
+
+
+@app.post("/api/me/tokens")
+def api_me_tokens_create(req: TokenRequest, _: None = Depends(require_token)) -> dict:
+    """個人のトークンを作る（値はこの 1 回だけ返す）。"""
+    _require_multi()
+    name = _current_name()
+    label = (req.label or "").strip()
+    if not (1 <= len(label) <= 60):
+        raise HTTPException(status_code=400, detail="ラベルは 1〜60 文字にしてください")
+    token = auth.new_api_token()
+    digest = auth.sha256_hex(token)
+    store.create_api_token(digest, name, label)
+    return {"id": digest[:12], "label": label, "token": token}
+
+
+@app.delete("/api/me/tokens/{token_id}")
+def api_me_tokens_delete(token_id: str, _: None = Depends(require_token)) -> dict:
+    """自分の個人のトークンを消す（他人の物は消せない）。"""
+    _require_multi()
+    if not store.delete_api_token(token_id, _current_name()):
+        raise HTTPException(status_code=404, detail="トークンが見つかりません")
+    return {"ok": True}
+
+
+# --- API キーと Claude のトークン（U09・共有契約 C9） ---
+# 値は保存も返却もしない（返すのは設定済みかと末尾 4 文字だけ）。
+# 保存すると、実行中でない自分のコンテナが新しい値で作り直される。
+
+
+@app.get("/api/me/keys")
+def api_me_keys(_: None = Depends(require_token)) -> dict:
+    """自分の鍵の状態（値は返さない）。"""
+    _require_multi()
+    return {"keys": containers.describe_keys(_current_name())}
+
+
+@app.put("/api/me/keys")
+def api_me_keys_write(
+    payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """鍵を保存する（空文字の値は消す）。変えたらコンテナを作り直す。"""
+    _require_multi()
+    user = _current_name()
+    containers.write_keys(user, payload)
+    result = containers.recreate_for_user(user)
+    return {"ok": True, "recreated": result["recreated"], "pending": result["pending"]}
+
+
+# --- 管理者（U06） ---
+
+
+def _admin_user_view(user: dict) -> dict:
+    """管理画面に返す 1 人分。"""
+    return {
+        "name": user.get("name") or "",
+        "email": user.get("email") or "",
+        "is_admin": bool(user.get("is_admin")),
+        "disabled": bool(user.get("disabled")),
+        "must_change_password": bool(user.get("must_change_password")),
+        "created_at": user.get("created_at"),
+    }
+
+
+@app.get("/api/admin/users")
+def api_admin_users(
+    _: None = Depends(require_token), __: None = Depends(auth.require_admin)
+) -> dict:
+    """利用者の一覧（管理者だけ）。"""
+    return {"users": [_admin_user_view(u) for u in store.list_users()]}
+
+
+class CreateUserRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    is_admin: bool = False
+
+
+@app.post("/api/admin/users")
+def api_admin_create(
+    req: CreateUserRequest,
+    _: None = Depends(require_token),
+    __: None = Depends(auth.require_admin),
+) -> dict:
+    """利用者を作る（同じ名前・同じメールは 409）。"""
+    try:
+        name = auth.check_name(req.name)
+        email = auth.check_email(req.email)
+        auth.check_password(req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if store.get_user(name) is not None or store.get_user_by_email(email) is not None:
+        raise HTTPException(
+            status_code=409, detail="同じ名前かメールアドレスが既にあります"
+        )
+    auth.create_user_dirs(name)
+    user = store.create_user(
+        name,
+        email,
+        auth.hash_password(req.password),
+        is_admin=req.is_admin,
+        must_change_password=True,
+    )
+    return _admin_user_view(user)
+
+
+class PatchUserRequest(BaseModel):
+    email: str | None = None
+    is_admin: bool | None = None
+    disabled: bool | None = None
+    password: str | None = None
+
+
+@app.patch("/api/admin/users/{user_name}")
+def api_admin_patch(
+    user_name: str,
+    req: PatchUserRequest,
+    _: None = Depends(require_token),
+    __: None = Depends(auth.require_admin),
+) -> dict:
+    """利用者を変える（自分自身の管理者外し・無効化は 400）。"""
+    target = store.get_user(user_name)
+    if target is None:
+        raise HTTPException(status_code=404, detail="利用者が見つかりません")
+    me = registry.current_user.get()
+    me_name = me.get("name") if isinstance(me, dict) else ""
+    fields: dict = {}
+    if req.email is not None:
+        try:
+            email = auth.check_email(req.email)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        other = store.get_user_by_email(email)
+        if other is not None and other.get("name") != user_name:
+            raise HTTPException(
+                status_code=409, detail="同じメールアドレスが既にあります"
+            )
+        fields["email"] = email
+    if req.is_admin is not None:
+        if user_name == me_name and not req.is_admin:
+            raise HTTPException(status_code=400, detail="自分自身の管理者を外せません")
+        fields["is_admin"] = req.is_admin
+    if req.disabled is not None:
+        if user_name == me_name and req.disabled:
+            raise HTTPException(status_code=400, detail="自分自身を無効にできません")
+        fields["disabled"] = req.disabled
+    if req.password is not None:
+        try:
+            auth.check_password(req.password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        fields["password_hash"] = auth.hash_password(req.password)
+        fields["must_change_password"] = True
+    store.update_user(user_name, **fields)
+    if "password_hash" in fields or fields.get("disabled") is True:
+        # パスワードを変えた・無効にしたときは、その人のセッションを消す
+        store.delete_sessions_of(user_name)
+    return {"ok": True}
+
+
+# --- 管理者: 全員のコンテナ（U09・共有契約 C9） ---
+
+
+@app.get("/api/admin/containers")
+def api_admin_containers(
+    _: None = Depends(require_token), __: None = Depends(auth.require_admin)
+) -> dict:
+    """全員のプロジェクトのコンテナの一覧（管理者だけ）。"""
+    return {"containers": containers.list_all()}
+
+
+@app.post("/api/admin/containers/{container}/{action}")
+def api_admin_container_action(
+    container: str,
+    action: str,
+    _: None = Depends(require_token),
+    __: None = Depends(auth.require_admin),
+) -> dict:
+    """コンテナを起動・停止する（管理者だけ）。"""
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=400, detail="action は start / stop を指定してください")
+    name = containers.check_container_name(container)
+    if action == "start":
+        return containers.start_container(name)
+    return containers.stop_container(name)
 
 
 # --- PWA（静的ファイル）の配信 ---
@@ -203,7 +685,7 @@ def api_days(q: str | None = None, _: None = Depends(require_token)) -> dict:
 def api_day(date: str, _: None = Depends(require_token)) -> dict:
     """その日の実行一覧（プロジェクトごと，サブタスクは親の直下）．"""
     run_list, qids = _runs_view()
-    return runs.build_day(run_list, date, qids, herdr.list_agents(), herdr.list_panes())
+    return runs.build_day(run_list, date, qids)
 
 
 @app.get("/api/runs/{project_name}/{run_id}")
@@ -211,7 +693,7 @@ def api_run(project_name: str, run_id: int, _: None = Depends(require_token)) ->
     """1実行分（stats も含む．04 の統計画面が使う）．"""
     run = _find_run(project_name, run_id)
     _, qids = _runs_view()
-    return runs.run_to_api(run, qids, herdr.list_agents(), herdr.list_panes())
+    return runs.run_to_api(run, qids)
 
 
 @app.get("/api/runs/{project_name}/{run_id}/items")
@@ -224,23 +706,37 @@ def api_run_items(
     """会話の項目（旧 GET /api/sessions/{id} と同じ {items, next_cursor} 形）．
 
     読むファイルは Run の transcript_path（00 §3.7）。
+    headless の実行では，生成中の文を `state.json`（共有契約 C1）から足す。
+    返す形は `{items, next_cursor, live, partial, error}`（共有契約 C6）。
     """
     run = _find_run(project_name, run_id)
     agent = {"cc": "claude", "pi": "pi"}.get(run.get("runner") or "")
-    transcript = run.get("transcript_path")
     if agent is None:
         # 未対応の runner
         raise HTTPException(status_code=404, detail="会話の記録が見つかりません")
-    if not transcript:
-        # 記録の場所がまだ書き出されていない（起動直後など）。
-        # 404 にすると画面が「オフライン」になり質問カードも読まなくなるので空で返す
-        return {"items": [], "next_cursor": ""}
-    path = Path(transcript)
-    if not path.exists():
-        # 置き場所は分かっているがまだ書かれていない（起動直後など）
-        return {"items": [], "next_cursor": ""}
+    _, qids = _runs_view()
+    live = runs.live_status(run, qids)
+    st = runs.headless_state(run)
+    partial = st["partial"] if st else ""
+    error = st["error"] if st else ""
+    transcript = run.get("transcript_path")
+    # 多人数モードでは、今の利用者の置き場の外を指す会話の記録は読まない
+    if transcript and registry.multi_user() and not registry.within_user(transcript):
+        raise HTTPException(status_code=404, detail="会話の記録が見つかりません")
+    path = Path(transcript) if transcript else None
+    if path is None or not path.exists():
+        # 記録の場所がまだ書き出されていない・まだ書かれていない（起動直後など）。
+        # 404 にすると画面が「オフライン」になり質問カードも読まなくなるので空で返す。
+        # 生成中の文（partial）はこのときも返す（逐次表示をすぐ始められるように）。
+        return {"items": [], "next_cursor": "", "live": live, "partial": partial, "error": error}
     items, next_cursor = sessions.read_conversation(agent, path, after=after)
-    return {"items": items, "next_cursor": next_cursor}
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "live": live,
+        "partial": partial,
+        "error": error,
+    }
 
 
 class RegisterRequest(BaseModel):
@@ -255,8 +751,8 @@ class RegisterRequest(BaseModel):
 
 @app.post("/api/register")
 def api_register(req: RegisterRequest, request: Request) -> dict:
-    # 内部登録は Mac 自身からのみ．トークンは付けなくてよい（フックを軽くするため）．
-    require_local(request)
+    # 内部登録は内部専用（単独モードは Mac 自身、多人数モードは合言葉）．
+    require_internal(request)
     if req.agent not in ("claude", "pi"):
         raise HTTPException(status_code=400, detail="agent は claude か pi を指定してください")
     store.save_registration(
@@ -277,8 +773,8 @@ class QuestionRegisterRequest(BaseModel):
 
 @app.post("/api/questions")
 def api_register_question(req: QuestionRegisterRequest, request: Request) -> dict:
-    # 内部登録は Mac 自身からのみ
-    require_local(request)
+    # 内部登録は内部専用（単独モードは Mac 自身、多人数モードは合言葉）
+    require_internal(request)
     if req.agent not in ("claude", "pi"):
         raise HTTPException(status_code=400, detail="agent は claude か pi を指定してください")
     q = questions.register_question(
@@ -304,8 +800,8 @@ class QuestionResolvedRequest(BaseModel):
 def api_question_resolved(
     qid: str, req: QuestionResolvedRequest, request: Request
 ) -> dict:
-    # 内部専用（Mac 自身からのみ）。トークンは要らない（拡張を軽くするため）
-    require_local(request)
+    # 内部専用（単独モードは Mac 自身、多人数モードは合言葉）。
+    require_internal(request)
     if not questions.resolve_on_terminal(qid):
         # 既に回答済み・解決済みでもエラーにはしない（二重通知対策）
         return {"ok": True, "changed": False}
@@ -338,8 +834,9 @@ def api_push_subscribe(sub: PushSubscription, _: None = Depends(require_token)) 
 
 
 @app.get("/api/questions/{qid}")
-def api_get_question(qid: str) -> dict:
-    # 拡張機能からのポーリング用．トークン不要の内部専用（Mac 自身からのみ）．
+def api_get_question(qid: str, _: None = Depends(require_internal)) -> dict:
+    # 拡張機能からのポーリング用．内部専用（単独モードは Mac 自身、
+    # 多人数モードはプロジェクトの合言葉が要る）。
     # iPhone 側は /api/questions?session_id=… を使う．
     q = store.get_question(qid)
     if q is None:
@@ -364,81 +861,6 @@ def api_session_questions(
     # 回答済みは「回答済み: …」の1行，PC で答えた分は「PC で回答済み」の1行に
     # 変わるため，消さずに返す．expired は返さない．
     return {"questions": store.list_questions_for_session(session_id)}
-
-
-# --- cc のコマンド承認（05 §3.3） ---
-
-
-class ApprovalRegisterRequest(BaseModel):
-    """PermissionRequest フックからの承認登録．
-
-    フックは stdin の JSON を丸ごと送ってくるが，保存するのはこの項目だけ
-    （cwd / transcript_path / permission_mode 等は落とす）．
-    """
-
-    session_id: str
-    tool_name: str
-    tool_input: dict = {}
-    permission_suggestions: list = []
-    pane_id: str = ""
-    tool_use_id: str | None = None
-
-
-@app.post("/api/approvals")
-def api_register_approval(req: ApprovalRegisterRequest, request: Request) -> dict:
-    # 内部登録は Mac 自身からのみ（00・05 §3.3）
-    require_local(request)
-    # 質問（AskUserQuestion）は別のカード（質問カード）で出すため承認にはしない
-    if req.tool_name == "AskUserQuestion":
-        return {"ok": True, "skipped": True}
-    if not req.session_id or not req.tool_name:
-        raise HTTPException(status_code=400, detail="session_id と tool_name が必要です")
-    pane_id = req.pane_id
-    if not pane_id:
-        # HERDR_PANE_ID が無いときの保険（セッション登録から拾う）
-        reg = store.get_registration(req.session_id)
-        pane_id = (reg or {}).get("pane_id") or ""
-    a = approvals.register(
-        session_id=req.session_id,
-        pane_id=pane_id,
-        tool_use_id=req.tool_use_id or "",
-        tool_name=req.tool_name,
-        tool_input=req.tool_input,
-        permission_suggestions=req.permission_suggestions,
-    )
-    if store.get_registration(req.session_id) is None:
-        # SessionStart フックの登録が無いときだけ作る（既存の登録は消さない）
-        store.save_registration("claude", req.session_id, "", "", pane_id)
-    return {"ok": True, "id": a["id"]}
-
-
-@app.get("/api/approvals")
-def api_session_approvals(
-    session_id: str, _: None = Depends(require_token)
-) -> dict:
-    reg = store.get_registration(session_id)
-    pane_id = (reg or {}).get("pane_id") or None
-    # PC で先に答えた分は「PC で回答済み」に（質問と同じ判定）
-    if pane_id:
-        approvals.refresh(session_id, pane_id)
-    return {"approvals": store.list_approvals_for_session(session_id)}
-
-
-class ApprovalAnswerRequest(BaseModel):
-    """承認への回答．decision は allow（許可） / always（今後も許可） / deny（拒否）．"""
-
-    decision: str
-    reason: str = ""
-
-
-@app.post("/api/approvals/{aid}/answer")
-def api_answer_approval(
-    aid: str, req: ApprovalAnswerRequest, _: None = Depends(require_token)
-) -> dict:
-    ok, reason = approvals.answer(aid, req.decision, req.reason)
-    if not ok:
-        raise HTTPException(status_code=400, detail=reason)
-    return {"ok": True}
 
 
 class AnswerItem(BaseModel):
@@ -493,43 +915,29 @@ def api_send_text(
     req: SendRequest,
     _: None = Depends(require_token),
 ) -> dict:
-    """テキスト送信（旧 /api/sessions/{id}/send と同じ動き）．
+    """テキスト送信（`sai-link run send <run_id> --json`・共有契約 C2）．
 
-    送り先ペインは 00 §3.7 で探す（herdr_pane_id → ペイン名）。
+    本文は標準入力で渡す。失敗の読み替えは `cli.run_json` に任せる
+    （CLI の 4 → 409・3 → 404）。
     """
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="文章が空です")
-    run = _find_run(project_name, run_id)
-    pane = runs.pane_for_run(run, herdr.list_agents(), herdr.list_panes())
-    if pane is None or not pane.get("pane_id"):
-        raise HTTPException(status_code=400, detail="この実行は終了しています")
-    if pane.get("agent_status") == "blocked":
-        raise HTTPException(
-            status_code=400,
-            detail="質問への回答は選択肢ボタンから送ってください",
-        )
-    # 送り先：要る時に追えるように 1 行だけ残す（pane の取り違えの切入点・計画書 A の U06）
-    logger.info(
-        "send: project=%s run=%s pane_id=%s label=%s",
-        project_name,
-        run_id,
-        pane.get("pane_id"),
-        pane.get("label"),
-    )
-    # pane には herdr の agent 一覧の要素が入る（agent に "claude" / "pi"）．
-    # slash コマンドは claude のときだけ確定キーが変わる（herdr._submit_keys）．
-    ok, reason = herdr.prompt_agent(pane.get("pane_id"), text, pane.get("agent"))
-    if not ok:
-        if reason == "blocked":
-            raise HTTPException(
-                status_code=400,
-                detail="質問への回答は選択肢ボタンから送ってください",
-            )
-        if "繋がり" in reason:
-            raise HTTPException(status_code=503, detail=reason)
-        raise HTTPException(status_code=400, detail=reason or "送信できなかった")
-    return {"ok": True}
+    return control.run_send(project_name, run_id, text)
+
+
+@app.post("/api/runs/{project_name}/{run_id}/interrupt")
+def api_interrupt(
+    project_name: str,
+    run_id: int,
+    _: None = Depends(require_token),
+) -> dict:
+    """実行中の run を中断する（`sai-link run interrupt <run_id> --json`・C2）．
+
+    無い実行では CLI を呼ばずに 404 を返す。
+    """
+    _find_run(project_name, run_id)  # 無い run は 404（CLI を呼ばない）
+    return control.run_interrupt(project_name, run_id)
 
 
 @app.post("/api/runs/{project_name}/{run_id}/finalize")
@@ -556,10 +964,38 @@ class DaemonRequest(BaseModel):
     action: str
 
 
+class CreateProjectRequest(BaseModel):
+    """新しいプロジェクトの短い名前（共有契約 C4・C9）。"""
+
+    name: str
+
+
+# 固定の住所（/api/projects）は変数の住所より先に登録する（ARCHITECTURE §5 の 3）。
+@app.post("/api/projects")
+def api_create_project(
+    req: CreateProjectRequest, _: None = Depends(require_token)
+) -> dict:
+    """研究プロジェクトを作る（多人数モードだけ）。"""
+    _require_multi()
+    return containers.create_project(_current_name(), req.name)
+
+
 @app.get("/api/projects")
 def api_projects(_: None = Depends(require_token)) -> dict:
     """登録簿のプロジェクト一覧（最後に動いた順）．"""
-    return {"projects": control.list_projects()}
+    projects = control.list_projects()
+    if registry.multi_user():
+        # 多人数モードではコンテナの状態を足す（共有契約 C9）。
+        # docker が止まっていても一覧は出せるよう、失敗は missing にする。
+        for project in projects:
+            try:
+                project["container_state"] = containers.state(str(project.get("name") or ""))
+            except HTTPException as exc:
+                logger.warning(
+                    "コンテナの状態を取れません: %s: %s", project.get("name"), exc.detail
+                )
+                project["container_state"] = "missing"
+    return {"projects": projects}
 
 
 @app.get("/api/projects/{name}/dashboard")
@@ -576,6 +1012,28 @@ def api_project_daemon(
 ) -> dict:
     """常駐の起動・停止．"""
     return control.daemon(name, req.action)
+
+
+@app.get("/api/projects/{name}/container")
+def api_project_container(name: str, _: None = Depends(require_token)) -> dict:
+    """自分のプロジェクトのコンテナの状態（多人数モードだけ）。"""
+    _require_multi()
+    control.find_project(name)
+    return {"container": containers.container_name(name), "state": containers.state(name)}
+
+
+@app.post("/api/projects/{name}/container/{action}")
+def api_project_container_action(
+    name: str, action: str, _: None = Depends(require_token)
+) -> dict:
+    """自分のプロジェクトのコンテナを起動・停止する（多人数モードだけ）。"""
+    _require_multi()
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=400, detail="action は start / stop を指定してください")
+    control.find_project(name)
+    if action == "start":
+        return containers.start(name)
+    return containers.stop(name)
 
 
 # --- List 画面（計画 14 §3.3・`sai-link phone …` 経由） ---
@@ -906,12 +1364,12 @@ def api_papers_search(
     return papers.search(papers.resolve_project(name), req)
 
 
-@app.get("/api/projects/{name}/papers/logs/{log_id:int}")
-def api_papers_search_log(
+@app.get("/api/projects/{name}/papers/search-history/{log_id:int}")
+def api_papers_search_history(
     name: str, log_id: int, _: None = Depends(require_token)
 ) -> dict:
-    """過去の検索結果（sai-paper `phone log <log_id>`）。"""
-    return papers.search_log(papers.resolve_project(name), log_id)
+    """過去の検索結果（sai-paper `phone search-history <log_id>`）。"""
+    return papers.search_history(papers.resolve_project(name), log_id)
 
 
 @app.post("/api/projects/{name}/papers/find")
@@ -920,12 +1378,12 @@ def api_papers_find(name: str, req: papers.FindRequest, _: None = Depends(requir
     return papers.find(papers.resolve_project(name), req)
 
 
-@app.get("/api/projects/{name}/papers/find-logs/{log_id:int}")
-def api_papers_find_log(
+@app.get("/api/projects/{name}/papers/find-history/{log_id:int}")
+def api_papers_find_history(
     name: str, log_id: int, _: None = Depends(require_token)
 ) -> dict:
-    """過去の内部検索の結果（sai-paper `phone find-log <log_id>`）。"""
-    return papers.find_log(papers.resolve_project(name), log_id)
+    """過去の内部検索の結果（sai-paper `phone find-history <log_id>`）。"""
+    return papers.find_history(papers.resolve_project(name), log_id)
 
 
 # --- Import・Download・Project（U3 §変更内容 2・共有契約 C-A2） ---
@@ -960,117 +1418,49 @@ def api_papers_import_remove(
     return papers.import_remove(papers.resolve_project(name), file_name)
 
 
-@app.post("/api/projects/{name}/papers/download", status_code=202)
-async def api_papers_download(
+@app.post("/api/projects/{name}/papers/keep")
+def api_papers_keep(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """論文の PDF を取る（背景で `phone download` → `phone after-download` を走らせる）。
+    """PDF 無しで Library に入れる（`sai-paper paper keep`・U13 §2）。
 
-    body は `{"log_id": 3, "position": 2, "title": "…"}` か `{"import_id": "DOI:…", "title": "…"}`。
+    body は `{"log_id": 3, "position": 2, "title": "…"}`・`{"import_id": "DOI:…"}`・
+    `{"cite_paper_id": 12, "ref_no": 3}` のどれか 1 つ。すぐ終わるので 200 で結果を返す。
     """
-    return await papers.request_download(papers.resolve_project(name), payload)
+    return papers.keep(papers.resolve_project(name), payload)
+
+
+@app.post("/api/projects/{name}/papers/bundle", status_code=202)
+async def api_papers_bundle(
+    name: str, request: Request, _: None = Depends(require_token)
+) -> dict:
+    """sai-prep の「前処理の束」（zip）を受け取る（U13 §1・C14）。
+
+    本文は zip そのもの（`Content-Type: application/zip`）。Web が検査・展開してから
+    背景で `sai-paper paper import-bundle --dir <フォルダ> --json` を走らせる。
+    種類が違えば 415・大きすぎれば 413・中身が違えば 400。
+    """
+    project = papers.resolve_project(name)
+    body = await bundles.read_bundle_upload(request)
+    return await bundles.request_bundle(project, body)
+
+
+@app.get("/api/projects/{name}/papers/pending")
+def api_papers_pending(name: str, _: None = Depends(require_token)) -> dict:
+    """PDF 待ちの論文の一覧（`sai-paper library pending --json`・C13・C14）。"""
+    return bundles.pending(papers.resolve_project(name))
+
+
+@app.get("/api/projects/{name}/papers/jobs/{key}")
+def api_papers_job(name: str, key: str, _: None = Depends(require_token)) -> dict:
+    """仕事 1 件（sai-prep が進み具合を見る・U13 §1・C14）。無ければ 404。"""
+    return bundles.job_view(papers.resolve_project(name), key)
 
 
 @app.get("/api/projects/{name}/papers/downloads")
 def api_papers_downloads(name: str, _: None = Depends(require_token)) -> dict:
-    """走っている／終わった論文のダウンロード（新しい順）。"""
+    """走っている／終わった仕事（新しい順・U13 §1）。"""
     return papers.list_downloads(papers.resolve_project(name))
-
-
-# --- 手動で取り込んだ PDF の取り込み（U05 §3） ---
-# 固定の住所（manual/candidates・manual/import・manual/upload）は
-# `/api/projects/{name}/papers/{paper_id:int}` より先に登録する（登録順に照合するため・00 §6）。
-# アップロードは本文そのもの（application/pdf）で受ける。FastAPI の UploadFile は
-# python-multipart を要するため使わない（依存を増やさない大原則）。
-
-
-@app.get("/api/projects/{name}/papers/manual/candidates")
-def api_papers_manual_candidates(name: str, _: None = Depends(require_token)) -> dict:
-    """ダウンロードフォルダの最近の PDF 一覧（`phone manual-candidates --minutes 30`）。"""
-    return papers.manual_candidates(papers.resolve_project(name))
-
-
-@app.post("/api/projects/{name}/papers/manual/import", status_code=202)
-async def api_papers_manual_import(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """ダウンロードフォルダの PDF を取り込む（202・background で `phone manual-import`）。
-
-    body は「対象のどれか 1 つ」＋ `{"file_name": "paper.pdf"}`。
-    """
-    body = dict(payload or {})
-    file_name = body.pop("file_name", None)
-    return await papers.request_manual_import(papers.resolve_project(name), body, file_name)
-
-
-@app.post("/api/projects/{name}/papers/manual/upload", status_code=202)
-async def api_papers_manual_upload(
-    name: str, request: Request, _: None = Depends(require_token)
-) -> dict:
-    """この端末から送った PDF を取り込む（202・本文は PDF そのもの）。
-
-    対象はクエリで渡す（例 `?log_id=3&position=2` / `?paper_id=12` / `?cite_paper_id=12&ref_no=3`）。
-    Content-Type が違えば 415・大きすぎる／Content-Length が無ければ 413・
-    先頭が `%PDF-` でなければ 400（検査は CLI を呼ぶ前に papers 側で行う）。
-    """
-    project = papers.resolve_project(name)
-    target = {k: v for k, v in request.query_params.items()}
-    # 対象は本文を読む前に確かめる（外から来る値は先に検査するため・00 §2）
-    papers._manual_target(target)
-    body = await papers.read_pdf_upload(request, target)
-    return await papers.request_manual_import(project, target, body=body)
-
-
-# --- リモートブラウザ（Mac の Chrome を遠隔操作・U01）。`{paper_id:int}` より前に登録する ---
-
-
-@app.post("/api/projects/{name}/papers/browser/open")
-async def api_papers_browser_open(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """DOI のページを Mac の Chrome で開く（body は `{"doi": "10.…"}`）。"""
-    papers.resolve_project(name)
-    return await rbrowser.open_page(payload.get("doi"))
-
-
-@app.get("/api/projects/{name}/papers/browser/state")
-async def api_papers_browser_state(name: str, _: None = Depends(require_token)) -> dict:
-    papers.resolve_project(name)
-    return await rbrowser.state()
-
-
-@app.get("/api/projects/{name}/papers/browser/screen")
-async def api_papers_browser_screen(name: str, _: None = Depends(require_token)) -> Response:
-    papers.resolve_project(name)
-    return Response(
-        content=await rbrowser.screenshot(),
-        media_type="image/jpeg",
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.post("/api/projects/{name}/papers/browser/input")
-async def api_papers_browser_input(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    papers.resolve_project(name)
-    await rbrowser.send_input(payload)
-    return {"ok": True}
-
-
-@app.post("/api/projects/{name}/papers/browser/import", status_code=202)
-async def api_papers_browser_import(
-    name: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """保存した PDF を取り込む（body は取り込み対象のどれか 1 つ＋ `file_name`）。"""
-    return await papers.request_browser_import(papers.resolve_project(name), payload)
-
-
-@app.delete("/api/projects/{name}/papers/browser")
-async def api_papers_browser_close(name: str, _: None = Depends(require_token)) -> dict:
-    papers.resolve_project(name)
-    await rbrowser.close()
-    return {"open": False}
 
 
 @app.get("/api/projects/{name}/papers/project")
@@ -1079,12 +1469,12 @@ def api_papers_project(name: str, _: None = Depends(require_token)) -> dict:
     return papers.project_view(papers.resolve_project(name))
 
 
-@app.post("/api/projects/{name}/papers/project/memo")
-def api_papers_project_memo(
+@app.put("/api/projects/{name}/papers/project/mind")
+def api_papers_project_mind(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)
 ) -> dict:
-    """mind.md のメモを 1 行足す（body は `{"text": "…"}`・`phone mind-append`）。"""
-    return papers.mind_append(papers.resolve_project(name), payload.get("text"))
+    """mind.md の全文を保存する（body は `{"text": "…"}`・`sai-sci project mind`・U04）。"""
+    return papers.mind_save(papers.resolve_project(name), payload.get("text"))
 
 
 @app.post("/api/projects/{name}/papers/attention/resolve")
@@ -1093,6 +1483,37 @@ def api_papers_attention_resolve(
 ) -> dict:
     """要対応の 1 件を「対応済み」にする（body は `{"key": "…"}`・`phone attention-resolve`）。"""
     return papers.attention_resolve(papers.resolve_project(name), payload.get("key"))
+
+
+# --- sai-prep の入れ物（wheel）の配布（U13 §4・C14） ---
+# リポジトリに外部の remote が無いので、Web にログインしていればそこから落とせる。
+# `SAI_PREP_DIST` があればそちらを見る（確認用）。
+
+
+def _prep_dist_dir() -> Path:
+    """sai-prep の入れ物の置き場（既定はリポジトリの `apps/prep/dist`）。"""
+    override = (os.getenv("SAI_PREP_DIST") or "").strip()
+    if override:
+        return Path(override)
+    # このファイルは <repo>/apps/web/src/sai_web/main.py。リポジトリの根は 4 つ上。
+    return Path(__file__).resolve().parents[4] / "apps" / "prep" / "dist"
+
+
+@app.get("/api/prep/download")
+def api_prep_download(_: None = Depends(require_token)) -> FileResponse:
+    """sai-prep の入れ物（一番新しい `sai_prep-*.whl`）を配る（U13 §4・C14）。"""
+    dist = _prep_dist_dir()
+    wheels = (
+        sorted(dist.glob("sai_prep-*.whl"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if dist.is_dir()
+        else []
+    )
+    if not wheels:
+        raise HTTPException(
+            status_code=404,
+            detail="sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）",
+        )
+    return FileResponse(wheels[0], filename=wheels[0].name)
 
 
 @app.get("/api/projects/{name}/papers/{paper_id:int}")
@@ -1136,6 +1557,14 @@ async def api_paper_translate_pdf(
 ) -> dict:
     """PDF の日本語訳を始める（202・背景で `phone translate-pdf`）。"""
     return await papers.request_translate_pdf(papers.resolve_project(name), paper_id)
+
+
+@app.post("/api/projects/{name}/papers/{paper_id:int}/index", status_code=202)
+async def api_paper_index(
+    name: str, paper_id: int, _: None = Depends(require_token)
+) -> dict:
+    """論文 1 本の Index を始める（202・背景で `sai-paper index paper`・U04）。"""
+    return await papers.request_index(papers.resolve_project(name), paper_id)
 
 
 @app.get("/api/projects/{name}/papers/{paper_id:int}/citations")
@@ -1273,37 +1702,6 @@ def api_sci_read_finish(
 ) -> dict:
     """READ_CARD を終えて review へ移す（F が 0 でも止めない）。"""
     return sci.read_finish(papers.resolve_project(name), run_id)
-
-
-# --- 検索セット（`phone set …`） ---
-
-
-@app.get("/api/projects/{name}/papers/sets")
-def api_set_list(name: str, _: None = Depends(require_token)) -> dict:
-    """検索セットの一覧（`phone set list`）。"""
-    return sci.set_list(papers.resolve_project(name))
-
-
-@app.get("/api/projects/{name}/papers/sets/{set_id}")
-def api_set_show(name: str, set_id: str, _: None = Depends(require_token)) -> dict:
-    """検索セット 1 つと候補（`phone set show`）。"""
-    return sci.set_show(papers.resolve_project(name), set_id)
-
-
-@app.post("/api/projects/{name}/papers/sets/{set_id}/mark")
-def api_set_mark(
-    name: str, set_id: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """候補に keep / drop を付ける（body は `{"positions","decision","reason"?}`）。"""
-    return sci.set_mark(papers.resolve_project(name), set_id, payload)
-
-
-@app.post("/api/projects/{name}/papers/sets/{set_id}/drop-pending")
-def api_set_drop_pending(
-    name: str, set_id: str, payload: dict = Body(default={}), _: None = Depends(require_token)
-) -> dict:
-    """未判定の候補をまとめて drop にする（body は `{"reason"?}`）。"""
-    return sci.set_drop_pending(papers.resolve_project(name), set_id, payload)
 
 
 # --- Radio 中継（計画 09 §3） ---

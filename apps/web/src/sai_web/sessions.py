@@ -5,8 +5,8 @@ runs.py が sai-link の書き出しファイルから決める．02 §2.3）。
 
 iPhone に出す形は4種類（user / agent / tool / event）にする．
 event は XML 風タグの特殊メッセージ（<task-notification> など）のカード（03 §3）。
-会話の中身は記録ファイルからのみ作る．
-herdr の画面読み取り（pane read）は使わない．
+会話の中身は記録ファイルからのみ作る。
+pane の画面読み取りは使わない．
 （隣の枠線が混ざる・右端が切れる・流れた行は残らないため）
 
 方針:
@@ -36,20 +36,6 @@ _COMMAND_TAGS = ("command-name", "command-message", "command-args")
 # 直前の項目の時刻（transcript のパス → 時刻）．
 # 行に timestamp が無い場合に「直前の項目の時刻」で補うための覚え書き（03 §2）
 _last_time_cache: dict[str, str] = {}
-
-
-def _herdr_status_to_api(status: str | None) -> str:
-    """herdr の状態を iPhone 側の表示用に直す．"""
-    if status == "working":
-        return "working"
-    if status == "blocked":
-        return "blocked"
-    if status == "idle":
-        return "idle"
-    if status == "done":
-        return "done"
-    # unknown など判別できないものは待機中として扱う
-    return "idle"
 
 
 # --- 会話の変換 ---
@@ -143,7 +129,7 @@ _CLI_SUBWORDS = {
         {"project", "daemon", "card", "run", "doc", "task", "def", "session", "usage"}
     ),
     "sai-paper": frozenset(
-        {"library", "paper", "content", "set", "import", "index", "graph", "config", "activity"}
+        {"library", "paper", "content", "import", "index", "graph", "config", "activity"}
     ),
     "sai-sci": frozenset({"attention", "project", "understanding", "dsr", "report"}),
     "sai-web": frozenset({"mlflow"}),

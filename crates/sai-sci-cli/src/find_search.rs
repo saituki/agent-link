@@ -1,5 +1,6 @@
 //! `sai-sci find` / `sai-sci search` — 論文の検索を `sai-paper` の CLI に任せ、
-//! research-tree の Node の範囲の決定と、研究の記録（`rt_searches`・検索セット）だけを行う。
+//! research-tree の Node の範囲の決定と、研究の記録（`rt_searches`）だけを行う。
+//! 記録の結び先は環境変数 `SAI_TARGET_NODE`、`find --node` は範囲を絞るだけ。
 //!
 //! 論文の検索そのもの（複数の DB への問い合わせ・セットへの保存）は paper-cli にあり、
 //! ライブラリには無い。そこで 2 つの検索の呼び方をそろえ、sai-sci は子として呼ぶ。
@@ -51,7 +52,8 @@ pub struct FindArgs {
     /// 上位の結果に LLM の要約と関連度を付ける
     #[arg(long)]
     pub evidence: bool,
-    /// research-tree の Node の ID（`Q12`・`O5` など）。その Node の下の F の論文に絞る
+    /// 検索の範囲を、この research-tree の Node（`Q12`・`O5` など）の下の F の論文に絞る。
+    /// 記録の結び付けには使わない（結び付けは環境変数 `SAI_TARGET_NODE`）
     #[arg(long)]
     pub node: Option<String>,
     /// `--node` の子孫の Node も含める
@@ -85,12 +87,6 @@ pub struct SearchArgs {
     /// DB ごとの生のクエリ
     #[arg(long)]
     pub raw_query: Option<String>,
-    /// 結果を名前付きの検索セットに保存する
-    #[arg(long)]
-    pub save_as: Option<String>,
-    /// 検索した research-tree の Node の ID（`Q12`・`O5` など）
-    #[arg(long)]
-    pub node: Option<String>,
     /// 何のための検索か
     #[arg(long)]
     pub purpose: Option<String>,
@@ -130,9 +126,10 @@ pub fn find(args: &FindArgs) -> Result<()> {
 
     let db = open_database()?;
     let conn = db.connection();
-    let refs = sci::parse_search_refs(conn, args.node.as_deref())?;
+    let scope_node = sci::parse_search_refs(conn, args.node.as_deref())?;
+    let refs = sci::SearchRefs { node: sci::target_node_from_env(conn) };
     let (paper_ids, scope_note) =
-        rt::scope::resolve_scope(conn, None, &all_papers, refs.node, args.subtree)
+        rt::scope::resolve_scope(conn, None, &all_papers, scope_node.node, args.subtree)
             .map_err(|err| anyhow!("{err}"))?;
     // 人向けの出力のときだけ、記録を残す前に前回の行を作る。
     let previous = if args.json {
@@ -140,7 +137,8 @@ pub fn find(args: &FindArgs) -> Result<()> {
     } else {
         sci::previous_search_line(conn, &refs, &scope_note)
     };
-    let node_name = args.node.as_deref().map(|text| text.trim().to_string());
+    let scope_name = args.node.as_deref().map(|text| text.trim().to_string());
+    let node_name = env_node_name(&refs);
     let ids = paper_ids.unwrap_or_default();
 
     // Node の下に論文が無いときは、論文の CLI を呼ばずに 0 件で記録する。
@@ -163,7 +161,7 @@ pub fn find(args: &FindArgs) -> Result<()> {
         } else {
             eprintln!(
                 "{} の下に論文がありません",
-                node_name.as_deref().unwrap_or(&scope_note)
+                scope_name.as_deref().unwrap_or(&scope_note)
             );
         }
         return Ok(());
@@ -253,8 +251,8 @@ pub fn search(args: &SearchArgs) -> Result<()> {
     }
     let db = open_database()?;
     let conn = db.connection();
-    let refs = sci::parse_search_refs(conn, args.node.as_deref())?;
-    let node_name = args.node.as_deref().map(|text| text.trim().to_string());
+    let refs = sci::SearchRefs { node: sci::target_node_from_env(conn) };
+    let node_name = env_node_name(&refs);
 
     let root = project_root().context("プロジェクトルートが見つかりません")?;
     let mut child_args = vec!["search".to_string(), query.to_string()];
@@ -267,7 +265,6 @@ pub fn search(args: &SearchArgs) -> Result<()> {
     push_u16(&mut child_args, "--year-from", args.year_from);
     push_u16(&mut child_args, "--year-to", args.year_to);
     push_str(&mut child_args, "--raw-query", args.raw_query.as_deref());
-    push_str(&mut child_args, "--save-as", args.save_as.as_deref());
     child_args.push("--json".to_string());
 
     let out = crate::run_child(
@@ -296,22 +293,11 @@ pub fn search(args: &SearchArgs) -> Result<()> {
         .cloned()
         .unwrap_or_default();
 
-    // 何のための検索かを、履歴の行と、保存したセットの両方に書く。
+    // 何のための検索かを、履歴の行に書く。
     if let Some(fields) = sci::set_fields(&refs, args.purpose.as_deref(), args.extract.as_deref()) {
-        sai_paper_core::search_sets::set_sci_fields(conn, log_id, &fields)
+        sai_paper_core::search_history::set_sci_fields(conn, log_id, &fields)
             .context("検索に目的を書けませんでした")?;
-        if let Some(name) = &args.save_as
-            && let Ok(set) = sai_paper_core::search_sets::get_by_name(conn, name)
-        {
-            sai_paper_core::search_sets::set_sci_fields(conn, set.id, &fields)
-                .context("検索セットに目的を書けませんでした")?;
-        }
     }
-    let set_id = args
-        .save_as
-        .as_deref()
-        .and_then(|name| sai_paper_core::search_sets::get_by_name(conn, name).ok())
-        .map(|set| set.id);
 
     if refs.node.is_some() {
         let scope = format!("external:{source_dbs}");
@@ -324,7 +310,7 @@ pub fn search(args: &SearchArgs) -> Result<()> {
                 scope: &scope,
                 hits: items.len() as i64,
                 hit_papers: &[],
-                set_id,
+                set_id: None,
                 log_id: Some(log_id),
             },
         )?;
@@ -347,6 +333,12 @@ pub fn search(args: &SearchArgs) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// 記録の Node の名前（`SAI_TARGET_NODE` の文字。結ばなかったときは `None`）。
+fn env_node_name(refs: &sci::SearchRefs) -> Option<String> {
+    refs.node?;
+    std::env::var("SAI_TARGET_NODE").ok().map(|text| text.trim().to_string())
 }
 
 /// 検索結果 1 件を人向けの 1 行にする（無い項目は飛ばす）。

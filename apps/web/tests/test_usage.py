@@ -266,28 +266,6 @@ def test_known_target() -> None:
             os.environ["SAI_WEB_OPENROUTER_ACCOUNTS"] = saved
 
 
-def test_cc_limits_reads_sai_home() -> None:
-    """cc の 5 時間枠は `SAI_HOME/web/cc-rate-limits.json` から読む（旧 ~/.sai/phone ではない）．"""
-    with tempfile.TemporaryDirectory() as tmp:
-        old = os.environ.get("SAI_HOME")
-        os.environ["SAI_HOME"] = tmp
-        try:
-            assert usage.cc_limits() is None  # ファイルが無ければ None
-            d = Path(tmp) / "web"
-            d.mkdir()
-            (d / "cc-rate-limits.json").write_text(
-                json.dumps({"rate_limits": {"five_hour": {"used_percentage": 34, "resets_at": 1}}, "saved_at": 2}),
-                encoding="utf-8",
-            )
-            got = usage.cc_limits()
-            assert got and got["used_percentage"] == 34 and got["saved_at"] == 2, got
-        finally:
-            if old is None:
-                os.environ.pop("SAI_HOME", None)
-            else:
-                os.environ["SAI_HOME"] = old
-
-
 def main() -> None:
     test_read_pi_calls()
     test_days_series()
@@ -298,7 +276,6 @@ def main() -> None:
     test_unknown_providers()
     test_openrouter_accounts()
     test_known_target()
-    test_cc_limits_reads_sai_home()
     print("test_usage: すべて通りました")
 
 

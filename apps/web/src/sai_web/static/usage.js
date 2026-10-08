@@ -1,7 +1,7 @@
-// sai-web の Usage タブ（実装計画 42 §3.5）の本体。
+// sai-web の Usage（実装計画 42 §3.5）の本体。
 //
 // 画面は 2 つ:
-//   カード一覧     #/usage
+//   カード一覧     Account（#/account）の区画。住所 #/usage は #/account へ送る（U05）
 //   詳細           #/usage/<provider>/<account>（Activity | Logs）
 // カード・切り替え・棒グラフの見た目は Project タブ（06）の .dash-* をそのまま
 // 使い回す（角丸カードは .dash-card，切り替えは .dash-seg，数字は stats.js の
@@ -31,36 +31,6 @@ function usageMoney(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "$0.00";
   return v < 0 ? `-$${Math.abs(v).toFixed(2)}` : `$${v.toFixed(2)}`;
-}
-
-/** 「12分前の値」（cc の値がいつ届いたか・42 §3.1）． */
-function usageSavedAgo(savedAt) {
-  const t = Number(savedAt);
-  if (!Number.isFinite(t) || t <= 0) return "";
-  const diff = Math.max(0, Math.floor(Date.now() / 1000 - t));
-  if (diff < 60) return "たった今の値";
-  const min = Math.floor(diff / 60);
-  if (min < 60) return `${min}分前の値`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h}時間前の値`;
-  return `${Math.floor(h / 24)}日前の値`;
-}
-
-/** 「あと 3時間12分で回復（14:30）」（過ぎていたら回復済み・42 §3.1）． */
-function usageResetText(resetsAt) {
-  const t = Number(resetsAt);
-  if (!Number.isFinite(t) || t <= 0) return "";
-  const now = Math.floor(Date.now() / 1000);
-  if (t <= now) return "回復済み（次に cc が動くと更新）";
-  const left = t - now;
-  const h = Math.floor(left / 3600);
-  const m = Math.floor((left % 3600) / 60);
-  const at = new Date(t * 1000).toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const span = h > 0 ? `${h}時間${m}分` : `${m}分`;
-  return `あと ${span}で回復（${at}）`;
 }
 
 /** 「◯分前に取得」（一覧と詳細の上に出す・42 §3.1）． */
@@ -132,38 +102,7 @@ function usageCard(title, onOpen) {
   return card;
 }
 
-// --- カード一覧（#/usage） ---
-
-/** Claude Code（Team）の 5 時間枠（42 §3.1）． */
-function usageCcCard(cc) {
-  const card = el("div", "dash-card");
-  card.appendChild(el("h2", "dash-card-title", "Claude Code（Team）"));
-  if (!cc) {
-    card.appendChild(el("p", "dash-empty", "cc が一度動くと表示されます"));
-    return card;
-  }
-  const pct = Math.max(0, Math.min(100, Number(cc.used_percentage) || 0));
-  const row = el("div", "usage-meter-row");
-  row.appendChild(el("span", "dash-bar-name", "5時間枠"));
-  const track = el("div", "dash-bar-track");
-  // 読み上げでも「どれだけ使ったか」が分かるように progressbar として伝える
-  track.setAttribute("role", "progressbar");
-  track.setAttribute("aria-label", "5時間枠の使用率");
-  track.setAttribute("aria-valuemin", "0");
-  track.setAttribute("aria-valuemax", "100");
-  track.setAttribute("aria-valuenow", String(Math.round(pct)));
-  const fill = el("div", "dash-bar-fill");
-  fill.style.width = `${pct}%`;
-  track.appendChild(fill);
-  row.appendChild(track);
-  row.appendChild(el("span", "usage-meter-pct", `${pct}%`));
-  card.appendChild(row);
-  const reset = usageResetText(cc.resets_at);
-  if (reset) card.appendChild(el("div", "usage-line", reset));
-  const saved = usageSavedAgo(cc.saved_at);
-  if (saved) card.appendChild(el("div", "usage-line muted", saved));
-  return card;
-}
+// --- カード一覧（Account の区画・U05） ---
 
 /** OpenRouter の 1 アカウント（42 §3.1）． */
 function usageOpenrouterCard(account) {
@@ -272,7 +211,6 @@ function usageRender() {
   }
   // 広い画面では 2〜3 列に並べる（style.css の .usage-cards）
   const cards = el("div", "dash-cards usage-cards");
-  cards.appendChild(usageCcCard(usageData.cc || null));
   for (const account of usageData.openrouter || []) {
     cards.appendChild(usageOpenrouterCard(account));
   }
@@ -303,6 +241,33 @@ async function usageLoad() {
   } finally {
     usageLoading = false;
   }
+}
+
+/** Usage の区画を container に描き，カード一覧を開く（acAccountOpen から呼ぶ）． */
+function usageMountInto(container) {
+  const card = el("div", "sai-card ac-card");
+  const head = el("div", "ac-card-head");
+  head.appendChild(el("h2", "ac-title", "Usage"));
+  // ↻ で外部 API を取り直す（?refresh=1）
+  const reload = el("button", "sai-btn small", "↻");
+  reload.type = "button";
+  reload.id = "usage-reload";
+  reload.setAttribute("aria-label", "Reload");
+  reload.addEventListener("click", () => {
+    usageForced = true;
+    void usageLoad();
+  });
+  head.appendChild(reload);
+  card.appendChild(head);
+  // 「◯分前に取得」の 1 行（42 §3.1）
+  const updated = el("div", "dash-chart-note");
+  updated.id = "usage-updated";
+  card.appendChild(updated);
+  const list = el("div", "groups");
+  list.id = "usage-list";
+  card.appendChild(list);
+  container.appendChild(card);
+  void usageOpen();
 }
 
 /** カード一覧を開く． */
@@ -537,19 +502,16 @@ function usageOnScroll() {
 if (typeof window !== "undefined") {
   (window.SaiRoutes = window.SaiRoutes || []).push(
     {
-      // カード一覧
+      // 一覧は Account の区画に入った（U05）。古いリンク・通知のため #/account へ送る
       match(hash) {
         return hash === "#/usage" ? {} : null;
       },
-      view: "view-usage",
-      tab: "usage",
+      view: "view-account",
+      tab: "account",
       hideTabbar: false,
-      interval: 60000, // 開いている間は 60 秒ごとに読み直す（42 §3.5）
-      async open() {
-        await usageOpen();
-      },
-      async poll() {
-        await usageLoad();
+      interval: 0,
+      open() {
+        location.replace("#/account");
       },
     },
     {
@@ -561,7 +523,7 @@ if (typeof window !== "undefined") {
           : null;
       },
       view: "view-usage-detail",
-      tab: "usage",
+      tab: "account",
       hideTabbar: false,
       interval: 60000,
       async open(params) {
@@ -575,14 +537,6 @@ if (typeof window !== "undefined") {
     }
   );
 
-  // ↻（読み直し・42 §3.1）
-  const reload = document.getElementById("usage-reload");
-  if (reload) {
-    reload.addEventListener("click", () => {
-      usageForced = true;
-      void usageLoad();
-    });
-  }
   const detailReload = document.getElementById("usage-detail-reload");
   if (detailReload) {
     detailReload.addEventListener("click", () => {
@@ -590,11 +544,11 @@ if (typeof window !== "undefined") {
       else void usageDetailLoad();
     });
   }
-  // 詳細の戻るはカード一覧へ
+  // 詳細の戻りは Account へ（カード一覧は Account の区画）
   const back = document.getElementById("usage-back");
   if (back) {
     back.addEventListener("click", () => {
-      location.hash = "#/usage";
+      location.hash = "#/account";
     });
   }
   window.addEventListener("scroll", usageOnScroll, { passive: true });

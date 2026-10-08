@@ -1,8 +1,9 @@
 // 会話の中に「行」や「カード」を置く位置を決める，DOM を使わない小さな関数（確認点 CP3 の直し）。
 //
 // - 会話の行は時刻順に並べる（app.js の appendItems が使う）
-// - 回答済みの質問・承認カードは「質問された時刻」の位置に置く
+// - 回答済みの質問カードは「質問された時刻」の位置に置く
 //   （created_at よ後の最初の会話行の直前。無ければ末尾）
+// - 生成中の文（partial）をどう出し入れするかを決める（app.js の applyPartial が使う）
 //
 // index.html で app.js より先に読み込む。node からの読み込みは tests/test_chatorder.js。
 "use strict";
@@ -10,7 +11,7 @@
 /**
  * 時刻の値をミリ秒にそろえる。
  *
- * - 数字: UNIX 秒（質問・承認カードの created_at）
+ * - 数字: UNIX 秒（質問カードの created_at）
  * - 文字列: ISO 8601（会話の行の time）
  * - それ以外・読めないもの: null
  *
@@ -52,7 +53,36 @@ function firstIndexAfter(times, t) {
   return list.length;
 }
 
+/**
+ * 生成中の文（partial）をどう扱うかを決める。
+ *
+ * app.js は毎回の読み込みで返る partial を渡し，返った合図どおりに
+ * 吹き出しを出す・中身を置き換える・消す。DOM には触らない。
+ *
+ * - 空 → 空: "none"（何もしない）
+ * - 空 → 文: "show"（吹き出しを出す）
+ * - 文 → 同じ文: "none"（描き直さない）
+ * - 文 → 別の文: "update"（中身を置き換える）
+ * - 文 → 空: "hide"（吹き出しを消す）
+ *
+ * 空白だけの文は「空」とみなす（見えない吹き出しを出さない）。
+ *
+ * @param {string|null|undefined} prevPartial 直前に出していた生成中の文
+ * @param {string|null|undefined} nextPartial 今回の読み込みで返った生成中の文
+ * @returns {"none"|"show"|"update"|"hide"}
+ */
+function chatPartialPlan(prevPartial, nextPartial) {
+  const prev = typeof prevPartial === "string" ? prevPartial : "";
+  const next = typeof nextPartial === "string" ? nextPartial : "";
+  const prevEmpty = prev.trim() === "";
+  const nextEmpty = next.trim() === "";
+  if (prevEmpty && nextEmpty) return "none";
+  if (prevEmpty) return "show";
+  if (nextEmpty) return "hide";
+  return prev === next ? "none" : "update";
+}
+
 // --- node からの読み込み（tests/test_chatorder.js） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { timeMs, firstIndexAfter };
+  module.exports = { timeMs, firstIndexAfter, chatPartialPlan };
 }

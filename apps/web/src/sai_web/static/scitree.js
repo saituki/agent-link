@@ -1,7 +1,7 @@
 "use strict";
 // research-tree の画面（Q・O・F・E・S の木）。住所は #/research/tree と #/research/tree/<ID>。
 //
-// 上の帯に Next Action（先頭 3 件）・History（全 Node・折りたたみ）・注意、左に木の一覧、真ん中に
+// 上の帯に注意の札を出し、左に木の一覧、真ん中に
 // research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ出さない）を出す。
 // SEED（ID `SEED`）は DB の行を持たず、status.seed から板を作る。
 // 狭い画面（幅 390px）の板は下から出る（saiSheet）。
@@ -56,7 +56,6 @@ let stSheetBody = null; // 板の中の入れ物
 let stSheetFor = null;  // 板が出している物の鍵
 let stSprout = null;    // SPROUT 作成中の下書き {title, body, paths, error}。null なら作成中ではない
 let stSproutBusy = false; // 送信中か（二重に送らない）
-let stHistoryOpen = false; // 上の帯の History を開いているか（描き直しても保つ）
 let stListOpen = false; // 狭い画面で一覧を出しているか（出している間は図を隠す）
 let stFolded = new Set();   // 左の一覧で畳んでいる Node の ID
 let stSplit = { list: 320, board: 420 }; // 境界線で変えた幅（px）
@@ -565,7 +564,7 @@ function stRender() {
   stRenderGraph();
 }
 
-/** 「古い形の木」「Next Action」「History」「注意」の帯。 */
+/** 「古い形の木」と注意の帯（Next Action・History は Dashboard と右の板にある・U06）。 */
 function stRenderTop() {
   const box = document.getElementById("sci-top");
   if (!box) return;
@@ -584,54 +583,31 @@ function stRenderTop() {
   if (s.legacy) {
     box.appendChild(stEl("p", "sci-note sci-legacy", "古い形の tree です。新しい tree（Q・O・F・E）には読み替えていません。"));
   }
-  box.appendChild(stNextBand(s));
-  box.appendChild(stHistoryBand(s));
   box.appendChild(stChipBand(s));
 }
 
-/** 解く釦。kind が card なら Create CARD、user なら Q を選ぶ。それ以外は出さない。 */
-function stActionBtn(x) {
+/**
+ * 解く釦。kind が card なら Create CARD、user なら Q を選ぶ。それ以外は出さない。
+ * onUser があれば「選ぶ」の押し方を変える（Dashboard は Node の画面へ移る）。
+ */
+function stActionBtn(x, onUser) {
   const card = (node, preset) => stBtn("Create CARD", () => { stCall("seOpenCard", node, preset); });
   if (x.kind === "card") return card(x.node, x.card);
-  if (x.kind === "user") return stBtn("選ぶ", () => { void stSelect(x.node); });
+  if (x.kind === "user") return stBtn("選ぶ", () => { if (onUser) onUser(x); else void stSelect(x.node); });
   return null;
 }
 
-/** Next Action の先頭 3 件（.sci-next-row）。 */
-function stNextRows(list, status) {
+/** Next Action の先頭 3 件（.sci-next-row）。onUser は stActionBtn と同じ。 */
+function stNextRows(list, status, onUser) {
   const wrap = stEl("div", "sci-next");
   for (const x of list) {
     const row = stEl("div", "sci-line sci-next-row");
     row.appendChild(stEl("span", "sci-line-main", stNextText(x, status)));
-    const b = stActionBtn(x);
+    const b = stActionBtn(x, onUser);
     if (b) row.appendChild(b);
     wrap.appendChild(row);
   }
   return wrap;
-}
-
-function stNextBand(s) {
-  const list = stNextLines(s, 3);
-  const band = stEl("div", "sci-band sci-nextband");
-  band.appendChild(stEl("span", "sci-band-title", "Next Action"));
-  if (!list.length) band.appendChild(stEl("p", "sci-note", "今すぐやることはありません"));
-  else band.appendChild(stNextRows(list, s));
-  return band;
-}
-
-/** 全 Node の History（折りたたみ・古い順）。status.history を 1 行ずつ出す。 */
-function stHistoryBand(s) {
-  const det = document.createElement("details");
-  det.className = "sci-band sci-historyband";
-  det.open = stHistoryOpen;
-  det.addEventListener("toggle", () => { stHistoryOpen = det.open; });
-  const list = Array.isArray(s.history) ? s.history : [];
-  det.appendChild(stEl("summary", "sci-band-title", `History（${list.length}）`));
-  const box = stEl("div", "sci-history-list");
-  if (!list.length) box.appendChild(stEl("p", "sci-note", "なし"));
-  for (const h of list) box.appendChild(stHistoryRowEl(h, h && h.node ? `${h.node} ` : ""));
-  det.appendChild(box);
-  return det;
 }
 
 /** 注意の札と、狭い画面の一覧の出し入れ（.sci-chips）。 */

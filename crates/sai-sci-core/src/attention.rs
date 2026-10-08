@@ -9,9 +9,8 @@
 //!    直されていない
 //! 4. `RecommendCard` — todo に残っている推薦の CARD（タグ `推薦`）
 //! 5. `ReportIssue` — 出典の要確認（report の問題のうち `error` のもの）
-//! 6. `NewSetItems` — 検索セットをもう一度実行して新着があった（S03）
-//! 7. `SciDecision` — ★ の無い Q がある（research-tree があるときだけ）
-//! 8. `SciTriage` — TRIAGE していない PROPOSAL がある（research-tree があるときだけ）
+//! 6. `SciDecision` — ★ の無い Q がある（research-tree があるときだけ）
+//! 7. `SciTriage` — TRIAGE していない PROPOSAL がある（research-tree があるときだけ）
 //!
 //! LLM は使わない。ファイル（`.sai/outputs/`・`.sai/paper/state.md`）と
 //! `papr.db` を読むだけである。
@@ -26,7 +25,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -52,8 +51,6 @@ pub enum AttentionKind {
     RecommendCard,
     /// report の出典の要確認（`error`）。
     ReportIssue,
-    /// 検索セットをもう一度実行して新着があった（S03）。
-    NewSetItems,
     /// research-tree の、★ の無い Q（Next Action の `NO_STAR`）。
     SciDecision,
     /// research-tree の PENDING の PROPOSAL。
@@ -70,7 +67,6 @@ impl AttentionKind {
             Self::StateUpdate => "現況",
             Self::RecommendCard => "推薦",
             Self::ReportIssue => "出典",
-            Self::NewSetItems => "新着",
             Self::SciDecision => "AWAITING_DECISION",
             Self::SciTriage => "TRIAGE",
         }
@@ -85,7 +81,6 @@ impl AttentionKind {
             Self::StateUpdate => "state_update",
             Self::RecommendCard => "recommend_card",
             Self::ReportIssue => "report_issue",
-            Self::NewSetItems => "new_set_items",
             Self::SciDecision => "sci_decision",
             Self::SciTriage => "sci_triage",
         }
@@ -180,11 +175,6 @@ pub fn collect(
         }
     }
     for item in report_issues(conn)? {
-        if !resolved.contains(&item.key) {
-            items.push(item);
-        }
-    }
-    for item in new_set_items(conn)? {
         if !resolved.contains(&item.key) {
             items.push(item);
         }
@@ -378,90 +368,7 @@ fn report_issues(conn: &Connection) -> Result<Vec<AttentionItem>, AttentionError
     Ok(items)
 }
 
-/// 6. 検索セットの新着（S03）。
-///
-/// 最後の `rerun` の記録が `new > 0` で、その後に新着の候補が 1 つも
-/// `pending` から動いていないセットを出す。新着の候補は `added_at` が
-/// その回の `searched_at` と一致する行（[`sai_paper_core::search_sets::apply_rerun`] が
-/// そうそろえる）。key は `set:<set_id>:<searched_at>`。
-fn new_set_items(conn: &Connection) -> Result<Vec<AttentionItem>, AttentionError> {
-    // `rerun` の記録を新しい順に読み、set_id ごとに最後の 1 件だけ残す。
-    let mut stmt = conn.prepare(
-        "SELECT detail, occurred_at FROM activity_log
-         WHERE kind = 'discover' AND detail LIKE '%\"rerun\"%'
-         ORDER BY occurred_at DESC, rowid DESC",
-    )?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    // set_id → new の数（新しい記録が先に来るので最初の値が最後の rerun）。
-    let mut latest: HashMap<i64, usize> = HashMap::new();
-    for (detail, _) in rows {
-        let Some(detail) = detail else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&detail) else {
-            continue;
-        };
-        if value.get("rerun").and_then(serde_json::Value::as_bool) != Some(true) {
-            continue;
-        }
-        let Some(set_id) = value.get("set_id").and_then(serde_json::Value::as_i64) else {
-            continue;
-        };
-        let new = value
-            .get("new")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0) as usize;
-        latest.entry(set_id).or_insert(new);
-    }
-
-    let mut found: Vec<(String, AttentionItem)> = Vec::new();
-    for (set_id, new) in latest {
-        if new == 0 {
-            continue;
-        }
-        let set = conn
-            .query_row(
-                "SELECT name, searched_at FROM search_sets WHERE id = ?1",
-                [set_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-            )
-            .optional()?;
-        let Some((name, Some(searched_at))) = set else {
-            continue;
-        };
-        // 新着候補が 1 つでも pending から動いていたら出さない。
-        let moved: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM search_set_items
-             WHERE set_id = ?1 AND added_at = ?2 AND decision <> 'pending'",
-            rusqlite::params![set_id, &searched_at],
-            |row| row.get(0),
-        )?;
-        if moved > 0 {
-            continue;
-        }
-        found.push((
-            searched_at.clone(),
-            AttentionItem {
-                key: format!("set:{set_id}:{searched_at}"),
-                kind: AttentionKind::NewSetItems,
-                title: format!("検索セット \"{name}\" に新着 {new} 本"),
-                run_id: None,
-                open_path: None,
-                report_id: None,
-            },
-        ));
-    }
-    // 新しい検索ほど先に。
-    found.sort_by(|a, b| b.0.cmp(&a.0));
-    Ok(found.into_iter().map(|(_, item)| item).collect())
-}
-
-/// 7. ★ の無い Q（`status.next` の `why = NO_STAR` のもの 1 件ずつ）。
+/// 6. ★ の無い Q（`status.next` の `why = NO_STAR` のもの 1 件ずつ）。
 ///
 /// キーは `sci_decision:<Q の ID>`。★ を付ければ Next Action から消えるので、要対応も消える。
 fn star_items(roots: &PaperRoots, status: &crate::rt::compute::Status) -> Vec<AttentionItem> {
@@ -489,7 +396,7 @@ fn star_items(roots: &PaperRoots, status: &crate::rt::compute::Status) -> Vec<At
         .collect()
 }
 
-/// 8. PENDING の PROPOSAL（1 件にまとめる）。
+/// 7. PENDING の PROPOSAL（1 件にまとめる）。
 fn sci_triage(
     conn: &Connection,
     status: &crate::rt::compute::Status,
@@ -817,85 +724,6 @@ mod tests {
         assert_eq!(items[0].run_id, Some(41));
     }
 
-    // ---- 6. 検索セットの新着（S03） ----
-
-    #[test]
-    fn new_set_items_are_collected_and_disappear_after_a_decision() {
-        let root = temp_root("new-set-items");
-        let db = db();
-        let conn = db.connection();
-        conn.execute(
-            "INSERT INTO search_sets (id, name, source_dbs, query, searched_at)
-             VALUES (5, 'eeg-recent', 's2', 'eeg', '2026-09-25T09:00:00+09:00')",
-            [],
-        )
-        .unwrap();
-        // 新着候補の `added_at` は `searched_at` とそろっている（apply_rerun と同じ）。
-        conn.execute(
-            "INSERT INTO search_set_items (set_id, position, remote_json, dedupe_key, decision, added_at)
-             VALUES (5, 0, '{}', 'doi:x', 'pending', '2026-09-25T09:00:00+09:00')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO activity_log (kind, detail, occurred_at)
-             VALUES ('discover', '{\"set_id\":5,\"rerun\":true,\"new\":1}', '2026-09-25 00:00:00')",
-            [],
-        )
-        .unwrap();
-
-        let items = collect(conn, &roots_of(&root)).unwrap();
-        let found: Vec<&AttentionItem> = items
-            .iter()
-            .filter(|item| item.kind == AttentionKind::NewSetItems)
-            .collect();
-        assert_eq!(found.len(), 1, "{items:?}");
-        assert_eq!(found[0].key, "set:5:2026-09-25T09:00:00+09:00");
-        assert_eq!(found[0].title, "検索セット \"eeg-recent\" に新着 1 本");
-
-        // 新着候補を keep にすると消える。
-        conn.execute(
-            "UPDATE search_set_items SET decision = 'keep' WHERE set_id = 5",
-            [],
-        )
-        .unwrap();
-        let after = collect(conn, &roots_of(&root)).unwrap();
-        assert!(
-            !after
-                .iter()
-                .any(|item| item.kind == AttentionKind::NewSetItems),
-            "{after:?}"
-        );
-    }
-
-    #[test]
-    fn new_set_items_skip_zero_and_use_the_last_rerun() {
-        let root = temp_root("new-set-zero");
-        let db = db();
-        let conn = db.connection();
-        conn.execute(
-            "INSERT INTO search_sets (id, name, source_dbs, query, searched_at)
-             VALUES (7, 'recent', 's2', 'q', '2026-09-25T09:00:00+09:00')",
-            [],
-        )
-        .unwrap();
-        // 古い rerun は new > 0、新しい rerun は new = 0。
-        conn.execute_batch(
-            "INSERT INTO activity_log (kind, detail, occurred_at) VALUES
-             ('discover', '{\"set_id\":7,\"rerun\":true,\"new\":4}', '2026-09-25 01:00:00'),
-             ('discover', '{\"set_id\":7,\"rerun\":true,\"new\":0}', '2026-09-25 02:00:00');",
-        )
-        .unwrap();
-
-        let items = collect(conn, &roots_of(&root)).unwrap();
-        assert!(
-            !items
-                .iter()
-                .any(|item| item.kind == AttentionKind::NewSetItems),
-            "最後の rerun が 0 なら出さない: {items:?}"
-        );
-    }
-
     // ---- 対応済み ----
 
     #[test]
@@ -917,8 +745,6 @@ mod tests {
     fn kind_names_and_labels_are_stable() {
         assert_eq!(AttentionKind::EmptyReview.as_str(), "empty_review");
         assert_eq!(AttentionKind::ReportIssue.as_str(), "report_issue");
-        assert_eq!(AttentionKind::NewSetItems.as_str(), "new_set_items");
-        assert_eq!(AttentionKind::NewSetItems.label(), "新着");
         assert_eq!(AttentionKind::StateUpdate.label(), "現況");
         assert_eq!(AttentionKind::SciDecision.as_str(), "sci_decision");
         assert_eq!(AttentionKind::SciTriage.as_str(), "sci_triage");

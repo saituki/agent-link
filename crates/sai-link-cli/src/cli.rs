@@ -138,19 +138,26 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: WaggleCmd,
     },
-    /// cc の statusLine コマンド（内部用・00 §3.8 / 01 §2.5）。
-    ///
-    /// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-    /// `~/.sai/cc-cost/<session_id>.json` に書く。cc の画面下へ短い 1 行を出す。
-    /// どの入力でも終了コード 0（cc の画面を壊さないため）。
-    #[command(hide = true)]
-    CcStatusline,
     /// cc の UserPromptSubmit hook（内部用）。
     ///
     /// 標準入力の JSON の `prompt` が `/sai-finalize` なら、LLM に送らずに完了処理を行い、
     /// 送信を止める JSON を出す。それ以外は何も出さない（終了コードは常に 0）。
     #[command(hide = true)]
     CcPromptHook,
+    /// cc の状態フック（内部用）。標準入力は読み捨て、tmux 経路の pane の状態を `working` / `idle` にする。
+    ///
+    /// 何があっても終了コードは 0・標準出力は空（cc を止めない）。
+    #[command(hide = true)]
+    CcStateHook {
+        /// `working` または `idle`
+        state: String,
+    },
+    /// cc の PermissionRequest フック（内部用）。承認は常に allow を出す（AskUserQuestion は何も出さない）。
+    #[command(hide = true)]
+    CcPermissionHook,
+    /// cc の statusLine（内部用）。費用を `cc-cost` へ書き、画面下に 1 行出す。
+    #[command(hide = true)]
+    CcStatusline,
 }
 
 /// サブタスク操作のサブコマンド（新しい木）。
@@ -454,6 +461,27 @@ pub enum RunCmd {
 
     /// 実行を次の状態へ進める（review → done → Workflow）
     Advance {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行中の run に続きの文を送る（チャットの続き）
+    ///
+    /// `--text` を省くと標準入力の全文を送る。
+    Send {
+        #[arg(value_name = "RUN_ID")]
+        run_id: i64,
+        /// 送る文（省略時は標準入力の全文）
+        #[arg(long, value_name = "文")]
+        text: Option<String>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// 実行中の run を中断する（人間の esc と同じ）
+    Interrupt {
         #[arg(value_name = "RUN_ID")]
         run_id: i64,
         #[arg(long, default_value_t = false)]
@@ -1334,6 +1362,7 @@ pub fn handle_block_preview(
         base_pane_id: None, // U2・R4 案X: 分割基準ペインなし
         pane_id: None,      // U2・R4 案X: 分割済みペインなし
         is_subtask: false,
+        target_node: None,
         runner: resolved.runner,
     };
     let prepared = orchestrator::prepare_pipeline(&pipeline_config)?;
@@ -1985,24 +2014,6 @@ pub fn handle_phone_export(
     Ok(())
 }
 
-/// `sai-link cc-statusline`（cc の statusLine 用・00 §3.8-1 / 01 §2.5）。
-///
-/// 標準入力の JSON から `session_id` と `cost.total_cost_usd` を受け取り、
-/// `~/.sai/cc-cost/<session_id>.json` に書く。標準出力に短い 1 行を出す。
-/// 入力が読めない・壊れている場合も空行 + 終了コード 0（cc の画面を壊さない）。
-pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Read;
-
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
-        println!();
-        return Ok(());
-    }
-    let line = sai_link_engine::phone_export::handle_cc_statusline(&input);
-    println!("{}", line);
-    Ok(())
-}
-
 /// `sai-link cc-prompt-hook`（cc の UserPromptSubmit hook 用）。
 pub fn handle_cc_prompt_hook() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Read;
@@ -2013,6 +2024,38 @@ pub fn handle_cc_prompt_hook() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", out);
         }
     }
+    Ok(())
+}
+
+/// `sai-link cc-state-hook <working|idle>`（cc の Stop / SessionStart hook 用）。
+pub fn handle_cc_state_hook(state: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    sai_link_engine::tmux::set_state_from_hook(state);
+    Ok(())
+}
+
+/// `sai-link cc-permission-hook`（cc の PermissionRequest hook 用）。
+pub fn handle_cc_permission_hook() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    if let Some(out) = sai_link_engine::cc_command::permission_hook_output(&input) {
+        println!("{}", out);
+    }
+    Ok(())
+}
+
+/// `sai-link cc-statusline`（cc の statusLine 用）。
+pub fn handle_cc_statusline() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    println!("{}", sai_link_engine::phone_export::handle_cc_statusline(&input));
     Ok(())
 }
 

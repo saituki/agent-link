@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,15 +38,6 @@ class Settings:
     # pi の記録置き場
     pi_sessions_dir: Path = Path(
         os.getenv("PI_SESSIONS_DIR", str(Path.home() / ".pi" / "agent" / "sessions"))
-    )
-    # herdr の実行ファイル
-    # launchd や nohup で PATH が短いと herdr が見つからず，全ペインが「消えた」扱いになり
-    # 質問に答えられない・実行が「終了」と出る。PATH に無くても ~/.local/bin を探す。
-    herdr_bin: str = (
-        os.getenv("HERDR_BIN")
-        or os.getenv("HERDR_BIN_PATH")
-        or shutil.which("herdr")
-        or str(Path.home() / ".local/bin/herdr")
     )
     # sai-link が実行ごとに書き出す JSON の置き場（00 §3.1）。
     # 手元確認では SAI_WEB_RUNS_DIR で一時フォルダに差し替えられる。

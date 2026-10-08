@@ -11,7 +11,7 @@
 //! `sai_paper_core::bibtex::load_bibtex_dir_detailed`）なので、Web で足した .bib は
 //! TUI にもそのまま出る。PDF の登録は TUI と同じ
 //! `sai_paper_core::downloads::register_downloaded_pdf` を使う（Download が 2 か所に
-//! 増えないように）。検索セットへの紐付け・プラグイン通知・図抽出のパイプラインなど
+//! 増えないように）。検索履歴の候補への紐付け・プラグイン通知・図抽出のパイプラインなど
 //! 画面固有の処理は行わない（`phone after-download` が別コマンドで担当する）。
 
 use std::io::Read as _;
@@ -20,10 +20,11 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
+use rusqlite::OptionalExtension;
 use sai_paper_core::bibtex::{self, list_bib_files, load_bibtex_dir_detailed};
 use sai_paper_core::downloads::{DownloadEvent, DownloadManager, download_destination};
 use sai_paper_core::{
-    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_log,
+    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_history,
     translation,
 };
 use crate::open_database;
@@ -326,7 +327,7 @@ fn find_target_paper(
         (Some(log_id), None) => {
             let position =
                 position.context("phone download には --log と --position の両方が必要です")?;
-            search_log::items(db.connection(), log_id)?
+            search_history::items(db.connection(), log_id)?
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)
@@ -520,6 +521,64 @@ pub async fn after_download(paper_id: i64) -> Result<Value> {
         .map(|messages| messages.clone())
         .unwrap_or_default();
     Ok(json!({ "paper_id": paper_id, "messages": messages }))
+}
+
+/// `sai-paper paper keep`: 検索結果・BibTeX・引用から、PDF 無しで Library に
+/// 論文（メタデータ）を入れる。
+///
+/// `--log <id> --position <n>`・`--import-id <RemotePaper.id>`・
+/// `--cite <paper_id> --ref <n>` のどれか 1 つで対象を決める。既に Library に
+/// あるときは作らずに `status: "exists"` を返す。
+pub fn keep(
+    log: Option<i64>,
+    position: Option<i64>,
+    import_id: Option<&str>,
+    cite: Option<i64>,
+    ref_no: Option<i64>,
+) -> Result<Value> {
+    let (mut db, _cfg, paths) = open_context()?;
+    let remote = crate::phone_cite::resolve_remote_target(
+        &db, &paths, log, position, import_id, cite, ref_no,
+    )?;
+    let existing = find_existing_paper_id(&db, &remote)?;
+    let paper_id = match existing {
+        Some(id) => id,
+        None => db
+            .ensure_remote_paper(&remote)
+            .map_err(|e| anyhow::anyhow!("{e}"))?,
+    };
+    let title = db
+        .library_paper_by_id(paper_id)
+        .ok()
+        .flatten()
+        .map(|paper| paper.title)
+        .unwrap_or(remote.title);
+    Ok(json!({
+        "paper_id": paper_id,
+        "title": title,
+        "status": if existing.is_some() { "exists" } else { "added" },
+    }))
+}
+
+/// `papers` 表から、対象の [`sai_paper_core::models::RemotePaper`] に一致する行の
+/// `papers.id` を返す（無ければ `None`）。
+///
+/// `Database::ensure_remote_paper` と同じ照合（`arxiv_id` = `RemotePaper.id`、
+/// または DOI）を使い、既に Library にあるかを先に見る。
+fn find_existing_paper_id(
+    db: &Database,
+    remote: &sai_paper_core::models::RemotePaper,
+) -> Result<Option<i64>> {
+    let id: Option<i64> = db
+        .connection()
+        .query_row(
+            "SELECT id FROM papers WHERE arxiv_id = ?1 OR (?2 IS NOT NULL AND doi = ?2)
+             ORDER BY CASE WHEN arxiv_id = ?1 THEN 0 ELSE 1 END LIMIT 1",
+            rusqlite::params![remote.id, remote.doi],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(id)
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 """sai-web: Web の窓口（`apps/web`）の CLI。
 
-Web にしか無い機能（質問・承認・送信・使用量・MLflow）と、Web のすべての
+Web にしか無い機能（質問・送信・使用量・MLflow）と、Web のすべての
 HTTP API を、コマンド 1 本から使えるようにする。中身の処理は `apps/web` と
 Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/tools/phone_api.py`
 と同じ動き。ただし失敗の扱いは「sai-web の約束」に合わせる）。
@@ -11,8 +11,6 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/
     apps/web/bin/sai-web questions [--run <run_id>] [--project <名前>]
     apps/web/bin/sai-web question <qid>
     apps/web/bin/sai-web answer <qid> (--choice <番号> | --choices <番号,番号> | --text <文>) …
-    apps/web/bin/sai-web approvals [--run <run_id>]
-    apps/web/bin/sai-web approve <aid> <allow|always|deny> [--reason <文>]
     apps/web/bin/sai-web send <project> <run_id> <文>
     apps/web/bin/sai-web usage
     apps/web/bin/sai-web mlflow experiments
@@ -44,12 +42,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from sai_web import registry
+from sai_web import auth, registry, store
 
 # 1 回の呼び出しで待つ時間の上限（秒）
 TIMEOUT_SEC = 30
-# 承認の答え（サーバが受け取る値）
-DECISIONS = ("allow", "always", "deny")
 # `api` で受ける HTTP の方法（大文字小文字は問わない）
 METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")
 
@@ -96,6 +92,12 @@ class UsageError(CliError):
     """引数の誤り（終了コード 2）。"""
 
     code = 2
+
+
+class ConflictError(CliError):
+    """同じ名前・同じメールがある（終了コード 4）。"""
+
+    code = 4
 
 
 class RawText:
@@ -224,12 +226,12 @@ def request_json(method: str, path: str, payload: object | None = None) -> objec
 
 
 # ---------------------------------------------------------------------------
-# 質問・承認
+# 質問
 # ---------------------------------------------------------------------------
 
 
 def home() -> dict:
-    """ホームの集計（答えを待っている質問と、承認待ちの一覧）。"""
+    """ホームの集計（答えを待っている質問と、プロジェクトの一覧）。"""
     data = request_json("GET", "/api/home")
     return data if isinstance(data, dict) else {}
 
@@ -363,23 +365,6 @@ def cmd_answer(args: argparse.Namespace) -> object:
     )
 
 
-def cmd_approvals(args: argparse.Namespace) -> object:
-    """承認待ちの一覧。"""
-    data = home()
-    return pick_run(data.get("approvals"), args.run, None)
-
-
-def cmd_approve(args: argparse.Namespace) -> object:
-    """承認に答える。"""
-    if args.decision not in DECISIONS:
-        raise UsageError(f"決定は {' / '.join(DECISIONS)} のどれかです: {args.decision}")
-    return request_json(
-        "POST",
-        f"/api/approvals/{urllib.parse.quote(args.aid)}/answer",
-        {"decision": args.decision, "reason": args.reason or ""},
-    )
-
-
 def cmd_send(args: argparse.Namespace) -> object:
     """実行中の root の run に文を送る。"""
     try:
@@ -388,6 +373,68 @@ def cmd_send(args: argparse.Namespace) -> object:
         raise UsageError(f"run_id は番号で書いてください: {args.run_id}") from None
     path = f"/api/runs/{urllib.parse.quote(args.project)}/{run_id}/send"
     return request_json("POST", path, {"text": args.text})
+
+
+# ---------------------------------------------------------------------------
+# 利用者（アカウント）の管理（U06）
+# ---------------------------------------------------------------------------
+
+
+def _read_new_password() -> str:
+    """新しいパスワードを標準入力の 1 行目から読む（空なら `getpass` で聞く）。"""
+    line = sys.stdin.readline()
+    if line.strip():
+        return line.strip()
+    import getpass
+
+    return getpass.getpass("パスワード: ")
+
+
+def cmd_user(args: argparse.Namespace) -> object:
+    """利用者の一覧と作成（Web が止まっていても使える。Web 自身の DB を直接書く）。
+
+    `add`: 名前・メール・パスワードを検査し、`store.create_user` で作る。
+           名前とメールが重複していれば終了コード 4。
+    `list`: 名前・メール・管理者・無効を出す。
+    """
+    store.init_db()
+    if args.what == "list":
+        return {
+            "users": [
+                {
+                    "name": u.get("name") or "",
+                    "email": u.get("email") or "",
+                    "is_admin": bool(u.get("is_admin")),
+                    "disabled": bool(u.get("disabled")),
+                    "must_change_password": bool(u.get("must_change_password")),
+                }
+                for u in store.list_users()
+            ]
+        }
+    if args.what != "add":
+        raise UsageError(f"user の命令が違います: {args.what}")
+    try:
+        name = auth.check_name(args.name)
+        email = auth.check_email(args.email)
+        password = _read_new_password()
+        auth.check_password(password)
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    if store.get_user(name) is not None or store.get_user_by_email(email) is not None:
+        raise ConflictError("同じ名前かメールアドレスが既にあります")
+    auth.create_user_dirs(name)
+    user = store.create_user(
+        name,
+        email,
+        auth.hash_password(password),
+        is_admin=bool(args.admin),
+        must_change_password=True,
+    )
+    return {
+        "name": user.get("name") or name,
+        "email": user.get("email") or email,
+        "is_admin": bool(user.get("is_admin")),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -566,24 +613,27 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p)
     p.set_defaults(func=cmd_answer)
 
-    p = sub.add_parser("approvals", help="承認待ちの一覧")
-    p.add_argument("--run", help="この run の承認だけ（run_id）")
-    _add_json(p)
-    p.set_defaults(func=cmd_approvals)
-
-    p = sub.add_parser("approve", help="承認に答える")
-    p.add_argument("aid")
-    p.add_argument("decision", help="allow / always / deny")
-    p.add_argument("--reason", help="理由（書かなくてもよい）")
-    _add_json(p)
-    p.set_defaults(func=cmd_approve)
-
     p = sub.add_parser("send", help="実行中の root の run に文を送る")
     p.add_argument("project")
     p.add_argument("run_id")
     p.add_argument("text")
     _add_json(p)
     p.set_defaults(func=cmd_send)
+
+    p = sub.add_parser("user", help="利用者（アカウント）の管理（多人数モード）")
+    _add_json(p)
+    us = p.add_subparsers(dest="what", required=True)
+
+    q = us.add_parser("add", help="利用者を作る（パスワードは標準入力の 1 行目）")
+    q.add_argument("name", help="短い名前（英小文字で始まる 2〜16 文字）")
+    q.add_argument("--email", required=True, help="大学のメールアドレス（ログインの ID）")
+    q.add_argument("--admin", action="store_true", help="管理者にする")
+    _add_json(q)
+    q.set_defaults(func=cmd_user)
+
+    q = us.add_parser("list", help="利用者の一覧")
+    _add_json(q)
+    q.set_defaults(func=cmd_user)
 
     p = sub.add_parser("usage", help="使用量（cc のコスト・上限）")
     _add_json(p)

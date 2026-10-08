@@ -26,6 +26,7 @@ impl CliError {
     }
 
     /// 状態の衝突（終了コード 4）。実行中・同じ名前がある・既に初期化済みなど。
+    #[allow(dead_code)] // 終了コード 4 の約束として残す。
     pub fn conflict(m: impl Into<String>) -> Self {
         Self { code: 4, message: m.into() }
     }

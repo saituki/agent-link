@@ -371,7 +371,7 @@ function ctFillDetail(body, ref) {
     });
     actions.appendChild(open);
   } else if (r.can_download) {
-    const dl = ctUiEl("button", "sai-btn primary", "⬇ Download");
+    const dl = ctUiEl("button", "sai-btn primary", "＋ Library に入れる");
     dl.type = "button";
     dl.addEventListener("click", () => {
       if (typeof pimStartDownload !== "function") return;
@@ -656,7 +656,7 @@ if (typeof window !== "undefined") {
       return ctParseHash(hash);
     },
     view: "view-paper-cites",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     // 0 のあいだは更新しない。抜き出しのあいだだけ 2 秒になる（ctSetPolling）
     interval: 0,

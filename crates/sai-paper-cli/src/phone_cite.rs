@@ -21,8 +21,7 @@ use sai_paper_core::citation;
 use sai_paper_core::citation::db::{RefRow, SentenceRow, get_refs_for, get_sentences_for};
 use sai_paper_core::manual_import::{ManualTarget, import_pdf};
 use sai_paper_core::models::{LibraryMatchEntry, RemotePaper};
-use sai_paper_core::{Database, Paths, S2Client, manual_import, search_log,
-    search_sets};
+use sai_paper_core::{Database, Paths, S2Client, manual_import, search_history};
 use serde_json::{Value, json};
 
 use crate::phone::{library_papers, open_context};
@@ -374,7 +373,7 @@ pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
 
     // 検索履歴から取り込んだときは、階層表示のためその記録へ紐付ける（TUI と同じ）。
     if let (Some(log_id), ManualTarget::Remote(remote)) = (args.log, &target) {
-        link_to_search_log(db.connection(), log_id, remote, imported.paper_id);
+        link_to_search_history(db.connection(), log_id, remote, imported.paper_id);
     }
 
     let title = db
@@ -393,47 +392,67 @@ pub fn manual_import_command(args: &ManualImportArgs) -> Result<Value> {
 
 /// 取り込み先を作る。検索履歴・BibTeX・引用・既存の論文の 4 通り。
 fn manual_target(db: &Database, paths: &Paths, args: &ManualImportArgs) -> Result<ManualTarget> {
-    match (args.log, args.import_id.as_deref(), args.cite, args.paper_id) {
-        (Some(log_id), None, None, None) => {
-            let position = args
-                .position
-                .context("phone manual-import には --log と --position の両方が必要です")?;
-            let remote = search_log::items(db.connection(), log_id)?
+    if let Some(paper_id) = args.paper_id {
+        let Some(paper) = db.library_paper_by_id(paper_id)? else {
+            return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
+        };
+        return Ok(ManualTarget::Local {
+            paper_id,
+            title: paper.title,
+        });
+    }
+    let remote = resolve_remote_target(
+        db,
+        paths,
+        args.log,
+        args.position,
+        args.import_id.as_deref(),
+        args.cite,
+        args.ref_no,
+    )?;
+    Ok(ManualTarget::Remote(remote))
+}
+
+/// `paper keep` / `paper import-pdf` の対象（Library の外の論文）を 1 つ決める。
+///
+/// `--log <id> --position <n>`・`--import-id <RemotePaper.id>`・
+/// `--cite <paper_id> --ref <n>` のどれか 1 つから [`RemotePaper`] を作る。
+pub fn resolve_remote_target(
+    db: &Database,
+    paths: &Paths,
+    log: Option<i64>,
+    position: Option<i64>,
+    import_id: Option<&str>,
+    cite: Option<i64>,
+    ref_no: Option<i64>,
+) -> Result<RemotePaper> {
+    match (log, import_id, cite) {
+        (Some(log_id), None, None) => {
+            let position = position.context("--log には --position の両方が必要です")?;
+            let remote = search_history::items(db.connection(), log_id)?
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)
-                .ok_or_else(|| {
-                    crate::cli_error::CliError::not_found("論文が見つかりません")
-                })?;
-            Ok(ManualTarget::Remote(remote))
+                .ok_or_else(|| crate::cli_error::CliError::not_found("論文が見つかりません"))?;
+            Ok(remote)
         }
-        (None, Some(import_id), None, None) => {
+        (None, Some(import_id), None) => {
             let bibtex_dir = paths.data_dir().join("bibtex");
             let remote = sai_paper_core::bibtex::load_bibtex_dir_detailed(&bibtex_dir)?
                 .papers
                 .into_iter()
                 .find(|paper| paper.id == import_id)
                 .context("論文が見つかりません")?;
-            Ok(ManualTarget::Remote(remote))
+            Ok(remote)
         }
-        (None, None, Some(paper_id), None) => {
-            let row = find_ref_row(db, paper_id, args.ref_no)?;
-            let remote = citation::library::ref_remote_paper(&row).ok_or_else(|| {
+        (None, None, Some(paper_id)) => {
+            let row = find_ref_row(db, paper_id, ref_no)?;
+            citation::library::ref_remote_paper(&row).ok_or_else(|| {
                 anyhow::anyhow!("この引用は S2 の ID も DOI も無いので取り込めません")
-            })?;
-            Ok(ManualTarget::Remote(remote))
-        }
-        (None, None, None, Some(paper_id)) => {
-            let Some(paper) = db.library_paper_by_id(paper_id)? else {
-                return Err(crate::cli_error::CliError::not_found("論文が見つかりません").into());
-            };
-            Ok(ManualTarget::Local {
-                paper_id,
-                title: paper.title,
             })
         }
         _ => bail!(
-            "対象は --log と --position、--import-id、--cite と --ref、--paper-id のどれか 1 つです"
+            "対象は --log と --position、--import-id、--cite と --ref のどれか 1 つです"
         ),
     }
 }
@@ -491,10 +510,10 @@ fn write_upload(path: &Path) -> Result<()> {
 /// 検索履歴へ紐付ける（TUI の `link_to_discover_log` と同じ紐付け）。
 ///
 /// 記録の中に無い論文なら 1 件足してから紐付ける。失敗しても取り込みは失敗にしない。
-fn link_to_search_log(conn: &Connection, log_id: i64, remote: &RemotePaper, paper_id: i64) {
+fn link_to_search_history(conn: &Connection, log_id: i64, remote: &RemotePaper, paper_id: i64) {
     let key = sai_paper_core::api::dedupe_key(remote);
     let position_in_log = || {
-        search_log::items(conn, log_id)
+        search_history::items(conn, log_id)
             .ok()
             .and_then(|items| {
                 items
@@ -507,7 +526,7 @@ fn link_to_search_log(conn: &Connection, log_id: i64, remote: &RemotePaper, pape
         Some(position) => position,
         None => {
             // 記録の候補に無いので、いまの検索の 1 件として足してから紐付ける。
-            if search_log::append_items(conn, log_id, std::slice::from_ref(remote)).is_err() {
+            if search_history::append_items(conn, log_id, std::slice::from_ref(remote)).is_err() {
                 return;
             }
             match position_in_log() {
@@ -516,7 +535,7 @@ fn link_to_search_log(conn: &Connection, log_id: i64, remote: &RemotePaper, pape
             }
         }
     };
-    if let Err(error) = search_sets::link_paper(conn, log_id, position, paper_id) {
+    if let Err(error) = search_history::link_paper(conn, log_id, position, paper_id) {
         eprintln!("検索の記録への紐付けに失敗: {error}");
     }
 }

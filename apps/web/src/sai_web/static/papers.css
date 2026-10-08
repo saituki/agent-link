@@ -151,9 +151,20 @@
 
 /* --- Dashboard の Project（現況・考え） --- */
 .pd-project { display: flex; flex-direction: column; gap: var(--sp-3); }
-.pd-card { display: flex; flex-direction: column; gap: var(--sp-2); }
-.pd-memo-line { display: flex; align-items: center; gap: var(--sp-2); }
-.pd-memo { flex: 1; min-width: 0; }
+/* 数字のカード以外は折りたためる（<details open>・見出しは summary） */
+.pd-fold { display: block; }
+.pd-fold > summary { list-style: none; cursor: pointer; justify-content: flex-start; }
+.pd-fold > summary::-webkit-details-marker { display: none; }
+.pd-fold > summary::before { content: "▾"; font-size: 12px; color: var(--text-soft); }
+.pd-fold:not([open]) > summary::before { content: "▸"; }
+.pd-fold > :not(summary) { margin-top: var(--sp-2); }
+.pd-mind-edit { margin-left: auto; }
+/* Mind の編集欄（全文・保存・やめる） */
+.pd-mind-edit-box { display: flex; flex-direction: column; gap: var(--sp-2); }
+.pd-mind-text { width: 100%; min-height: 240px; padding: var(--sp-2) var(--sp-3); line-height: 1.7; resize: vertical; font-family: inherit; }
+.pd-mind-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+/* Recent Activity の research-tree の行（札の色は他の ak-* と同じ作り） */
+.ak-tree { background: var(--series-5); }
 .pd-md { font-size: 14px; line-height: 1.7; word-break: break-word; }
 .pd-md-fold { display: flex; flex-direction: column; gap: var(--sp-2); }
 .pd-md-peek {
@@ -171,10 +182,9 @@
 /* 論文情報のボタンの下に置く「何が起きるか」の 1 行 */
 .paper-hint { margin: 2px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-soft); }
 
-/* --- Library の道具行（＋ BibTeX を読み込む） --- */
+/* --- Library の道具行 --- */
 #view-papers-library .lib-tools { flex-wrap: wrap; }
 #view-papers-library .lib-tools input { flex: 1 1 180px; }
-.papers-import-btn { margin-left: auto; white-space: nowrap; }
 
 /* --- Library の上の「ダウンロード中 N 件」の帯 --- */
 .papers-dl-band {
@@ -536,6 +546,14 @@
 
 /* --- Library の Paper 一覧（題名の前の番号） --- */
 .paper-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-soft); font-weight: 400; }
+
+/* --- 論文情報のボタンの列の音声の置き場（中のボタンが列の 1 つとして並ぶ・U07 §1） --- */
+#paper-audio-slot { display: contents; }
+
+/* --- 論文情報の折りたためるカード（Notes・Figure・Reference・Chunk の見出しは summary・U07 §2） --- */
+/* 見出しの大きさは .dash-card-title のまま。押せる高さは 44px 以上・見出しの右の釦は右端へ */
+.paper-card > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; }
+.paper-card > summary > .paper-btn { margin-left: auto; }
 
 /* --- 論文情報のチャンク（`#論文.章.段落` ごとの本文） --- */
 .paper-chunks > summary { cursor: pointer; }

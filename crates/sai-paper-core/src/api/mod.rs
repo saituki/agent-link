@@ -174,8 +174,7 @@ pub fn dedupe(papers: Vec<RemotePaper>) -> Vec<RemotePaper> {
 ///
 /// `db` が空なら `cfg.discover.providers` を使う。DB ごとの失敗では止めず、
 /// 失敗した DB と理由を [`Vec<(String, String)>`]（DB ID, 理由）で返す
-/// （1 つでも成功すればその結果を返す）。`sai-paper search` と
-/// 検索セットの再実行（S03）の共通処理。
+/// （1 つでも成功すればその結果を返す）。`sai-paper search` の検索の処理。
 ///
 /// # Returns
 ///

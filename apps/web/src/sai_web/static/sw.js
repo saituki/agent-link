@@ -53,8 +53,8 @@
 // （index.html の ?v= も 46。ASSETS は変えない・defs.js は入っていた）
 // research-tree の専門語を英語の大文字に統一した（U22）で v47 に
 // （index.html の ?v= も 47。ASSETS は変えない・足したファイルは無い）
-// リモートブラウザの画面（rbrowser.js / rbrowser.css を追加）と日本語 PDF ボタンで v48 に
-// （index.html の ?v= も 48。ASSETS に 2 ファイルを足した）
+// リモートブラウザの画面（当時の 2 ファイル）と日本語 PDF ボタンで v48 に
+// （index.html の ?v= も 48。ASSETS に 2 ファイルを足した。この 2 ファイルは U05 で削除した）
 // research-tree の操作の釦と op の表示名を英語に（scitree.js・sciedit.js）で v49 に（index.html の ?v= も 49。ASSETS は変えない）
 // 操作の小窓（sciedit.js）の項目名・説明・エラーも英語に、で v50 に（index.html の ?v= も 50）
 // 板の各節（scitree.js）の見出し・釦・空の文も英語に、で v51 に（index.html の ?v= も 51）
@@ -92,8 +92,21 @@
 // SPROUT 作成パネル（History と DAG の間・作成中も DAG と SB を操作できる。scitree.js・scigraph.js・sciedit.js ほか）で v91 に
 // （index.html の ?v= も 91。ASSETS は変えない）
 // SPROUT 作成の名称を英語（Add PATH・Delete PATH・Create SPROUT）にそろえて v92 に（index.html の ?v= も 92。ASSETS は変えない）
-const CACHE = "sai-web-v92";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/rbrowser.js", "/rbrowser.css", "/manifest.json"];
+// U04 の Chats の生成中の文・中断・新しいチャット（newchat.js を追加し、app.js・home.js・index.html・style.css を更新）で v93 に
+// （index.html の ?v= も 93。ASSETS に newchat.js を足した）
+// U05（Mac 専用の機能を削る）でリモートブラウザを消し、v94 に
+// （index.html の ?v= も 94。ASSETS からリモートブラウザの 2 ファイルを外した）
+// U07（ログイン・アカウント・管理の画面）で account.js を足して v95 に
+// （index.html の ?v= も 95。ASSETS に /account.js を足した）
+// U11（プロジェクトとコンテナ・API キーと Claude のトークンの画面）で project.js・account.js・
+// style.css を直して v97 に（index.html の ?v= も 97。ASSETS は変えない）
+// U13（前処理の束の受け口・「Library に入れる」・PDF 待ちの表示）で paperimport.js・
+// papers.js を直して v98 に（index.html の ?v= も 98。ASSETS は変えない）
+// U15（cite.js の釦を「＋ Library に入れる」に。中身は keep に回る）で v99 に（index.html の ?v= も 99。ASSETS は変えない）
+// 検索履歴の住所を search-history / find-history に改め、sci-screen の選択肢を消して v100 に（index.html の ?v= も 100。ASSETS は変えない。sai-moon の feat/search-redefine を merge）
+// 論文の詳細の再編（音声を作るを PDF の列へ・Index を足す・Abstract/Notes/Figure/Reference/Chunk の見出しと折りたたみ）で v101 に（index.html の ?v= も 101。ASSETS は変えない）
+const CACHE = "sai-web-v101";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
 const RADIO_CACHE = "sai-web-radio-audio";

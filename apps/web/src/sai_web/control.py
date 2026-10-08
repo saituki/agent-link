@@ -37,14 +37,16 @@ from sai_web.config import settings
 logger = logging.getLogger("sai_web")
 
 # 同じプロジェクトの書き出しは 60 秒に 1 回まで（06 §3.3）
+# 多人数モードでは利用者ごとに分ける（キーは (利用者の名前, プロジェクト名)）
 _EXPORT_INTERVAL = 60.0
-_last_export: dict[str, float] = {}
+_last_export: dict[tuple[str, str], float] = {}
 
 _PERIODS = ("week", "month", "all")
 
 # 同じプロジェクトの最小集計は 5 秒に 1 回まで（一覧のたびに呼ぶと重い・実装計画 C C1）
 _SUMMARY_TTL = 5.0
-_summary_cache: dict[str, tuple[float, dict]] = {}
+# キーは (利用者の名前, プロジェクト名)
+_summary_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 
 # --- List 画面（計画 14 §3.3）で受け取る値の検査 ---
 # `sai-link phone run --view` が返す 3 種（計画 12 §3.2）
@@ -79,11 +81,12 @@ def _project_summary(name: str, root: str) -> dict:
     """
     empty = {"running": 0, "last_executed_at": None}
     now = time.monotonic()
-    hit = _summary_cache.get(name)
+    key = (registry.user_key(), name)
+    hit = _summary_cache.get(key)
     if hit is not None and now - hit[0] < _SUMMARY_TTL:
         return hit[1]
     # 失敗しても呼びすぎないよう，先に時刻を記録する
-    _summary_cache[name] = (now, empty)
+    _summary_cache[key] = (now, empty)
     if not root:
         return empty
     try:
@@ -95,7 +98,7 @@ def _project_summary(name: str, root: str) -> dict:
     if not isinstance(running, int) or isinstance(running, bool) or running < 0:
         running = 0
     value = {"running": running, "last_executed_at": data.get("last_executed_at") or None}
-    _summary_cache[name] = (now, value)
+    _summary_cache[key] = (now, value)
     return value
 
 
@@ -158,11 +161,12 @@ def export_runs(project: dict) -> None:
     if not root:
         return
     now = time.monotonic()
-    last = _last_export.get(name)
+    export_key = (registry.user_key(), name)
+    last = _last_export.get(export_key)
     if last is not None and now - last < _EXPORT_INTERVAL:
         return
     # 失敗しても呼びすぎないよう，先に時刻を記録する
-    _last_export[name] = now
+    _last_export[export_key] = now
     try:
         run_cli(
             [settings.sai_link_bin, "run", "export"],
@@ -535,10 +539,24 @@ def phone_session_search(
     return {"items": items[:_SESSION_LIMIT], "truncated": truncated}
 
 
+# sai-tree は研究専用。アプリ開発用の block は選択肢から隠す（ファイルは残す。
+# sai-sci の子タスクが `sub` などを `block_type` で呼ぶことがあるため）。
+# 汎用の `main`・`web-research` と、sai-sci の block は出す。
+DEV_BLOCKS = frozenset(
+    {"sub", "plan", "plan-kantoku", "kantoku", "worker", "bugfix", "review", "explore"}
+)
+
+
 def phone_card_options(name: str) -> dict:
-    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。"""
+    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block は除く。"""
     project = _phone_project(name)
-    return _phone_json(["card", "options"], root=project["root"])
+    data = _phone_json(["card", "options"], root=project["root"])
+    blocks = data.get("blocks") if isinstance(data, dict) else None
+    if isinstance(blocks, list):
+        data["blocks"] = [
+            b for b in blocks if not (isinstance(b, dict) and b.get("id") in DEV_BLOCKS)
+        ]
+    return data
 
 
 def _validate_card_payload(payload: dict) -> dict:
@@ -700,6 +718,36 @@ def phone_finalize(name: str, run_id: int) -> dict:
     project = _phone_project(name)
     return _phone_json(
         ["run", "finalize", str(run_id)],
+        root=project["root"],
+    )
+
+
+def run_send(name: str, run_id: int, text: str) -> dict:
+    """`sai-link run send <run_id> --json`（本文は標準入力・共有契約 C2）。
+
+    - 成功: `{'run_id', 'pane_id', 'status': 'sent'}` をそのまま返す。
+    - 空の文（終了コード 2）: 400。無い実行（3）: 404。
+    - 終了している・質問待ち（4）: 409。
+    """
+    _check_run_id(run_id)
+    project = _phone_project(name)
+    return _phone_json(
+        ["run", "send", str(run_id)],
+        root=project["root"],
+        stdin_text=text,
+    )
+
+
+def run_interrupt(name: str, run_id: int) -> dict:
+    """`sai-link run interrupt <run_id> --json`（共有契約 C2）。
+
+    - 成功: `{'run_id', 'status', 'agent_status'}` をそのまま返す。
+    - 無い実行（3）: 404。終了している（4）: 409。
+    """
+    _check_run_id(run_id)
+    project = _phone_project(name)
+    return _phone_json(
+        ["run", "interrupt", str(run_id)],
         root=project["root"],
     )
 

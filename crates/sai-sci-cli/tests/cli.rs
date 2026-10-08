@@ -29,6 +29,7 @@ fn command(dir: &Path) -> Command {
         .env_remove("SAI_PROJECT_ROOT")
         .env_remove("SAI_PARENT_RUN_ID")
         .env_remove("SAI_BLOCK_NAME")
+        .env_remove("SAI_TARGET_NODE")
         .env_remove("SAI_ORIGIN");
     cmd
 }
@@ -282,7 +283,7 @@ fn init_installs_parts_and_settings() {
     assert_eq!(settings["job_status"][0], "uv");
     // 部品。
     let blocks = std::fs::read_dir(root.join(".sai/blocks")).unwrap().count();
-    assert!(blocks >= 32, "block が 32 本未満: {blocks}");
+    assert!(blocks >= 31, "block が 31 本未満: {blocks}");
     assert!(root.join(".sai/template/debate-participant.md").is_file());
     assert!(root.join(".sai/template/domain.md").is_file());
     assert!(root.join(".sai/paper/mind.md").is_file());
@@ -378,6 +379,7 @@ fn find_records_and_sets_node() {
             .env("ARGS_LOG", &args_log)
             .env("FAKE_FIND_LOG_ID", "7")
             .env("FAKE_SEARCH_LOG_ID", "8")
+            .env("SAI_TARGET_NODE", node)
             .args(["find", "発作", "--node", node, "--json"]);
         cmd
     };
@@ -422,7 +424,7 @@ fn find_records_and_sets_node() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// `search` は子を呼び、検索セットに研究の欄を書き、`log.node` を Node にする。
+/// `search` は子を呼び、検索履歴に研究の欄を書き、`log.node` を Node にする。
 #[test]
 fn search_records_and_sets_node() {
     let root = temp_dir("search-root");
@@ -434,9 +436,11 @@ fn search_records_and_sets_node() {
     let (data_dir, _q) = project_with_tree(&root);
     // 子が返す log.id の行を先に作る（本物の子は自分で作る）。
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
-    let log_id = sai_paper_core::search_log::record_search(
+    let log_id = sai_paper_core::search_history::record(
         db.connection(),
         "cli",
+        "human",
+        None,
         "発作",
         "",
         "10",
@@ -454,7 +458,8 @@ fn search_records_and_sets_node() {
             .env("ARGS_LOG", &args_log)
             .env("FAKE_FIND_LOG_ID", "7")
             .env("FAKE_SEARCH_LOG_ID", log_id.to_string())
-            .args(["search", "発作", "--node", "Q1", "--purpose", "候補", "--json"]);
+            .env("SAI_TARGET_NODE", "Q1")
+            .args(["search", "発作", "--purpose", "候補", "--json"]);
         cmd
     });
     assert_eq!(out.code, 0, "stdout={} stderr={}", out.stdout, out.stderr);
@@ -464,7 +469,7 @@ fn search_records_and_sets_node() {
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
     let purpose: Option<String> = db
         .connection()
-        .query_row("SELECT purpose FROM search_sets WHERE id = ?1", [log_id], |r| r.get(0))
+        .query_row("SELECT purpose FROM search_history WHERE id = ?1", [log_id], |r| r.get(0))
         .unwrap();
     assert_eq!(purpose.as_deref(), Some("候補"));
     let searches: i64 = db
@@ -473,6 +478,57 @@ fn search_records_and_sets_node() {
         .unwrap();
     assert_eq!(searches, 1);
     drop(db);
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `find --node` だけでは記録しない。存在しない `SAI_TARGET_NODE` は警告だけで検索は成功する。
+/// `search --node` は引数の誤り（終了コード 2）。
+#[test]
+fn node_flag_scopes_only_and_env_records() {
+    let root = temp_dir("scope-root");
+    let home = temp_dir("scope-home");
+    let tmp = temp_dir("scope-tmp");
+    let paper = fake_paper(&tmp);
+    let (data_dir, q) = project_with_tree(&root);
+    add_f_with_paper(&data_dir, q);
+
+    let find = |env_node: Option<&str>| {
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home)
+            .env("SAI_PROJECT_ROOT", &root)
+            .env("SAI_PAPER_BIN", &paper)
+            .env("ARGS_LOG", tmp.join("args.log"))
+            .env("FAKE_FIND_LOG_ID", "7")
+            .args(["find", "発作", "--node", "Q1", "--json"]);
+        if let Some(node) = env_node {
+            cmd.env("SAI_TARGET_NODE", node);
+        }
+        run(cmd)
+    };
+    let count = || -> i64 {
+        let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
+        db.connection()
+            .query_row("SELECT COUNT(*) FROM rt_searches", [], |r| r.get(0))
+            .unwrap()
+    };
+
+    let only_flag = find(None);
+    assert_eq!(only_flag.code, 0, "stderr={}", only_flag.stderr);
+    assert_eq!(count(), 0, "--node だけでは記録しない");
+
+    let bad_env = find(Some("Q99"));
+    assert_eq!(bad_env.code, 0, "stderr={}", bad_env.stderr);
+    assert_eq!(bad_env.stderr.lines().filter(|l| l.contains("SAI_TARGET_NODE")).count(), 1);
+    assert_eq!(count(), 0);
+
+    let mut cmd = command(&root);
+    cmd.env("HOME", &home)
+        .env("SAI_PROJECT_ROOT", &root)
+        .args(["search", "発作", "--node", "Q1"]);
+    assert_eq!(run(cmd).code, 2);
 
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&home);

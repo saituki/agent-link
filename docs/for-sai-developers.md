@@ -16,6 +16,7 @@
 | **sai-paper**（`crates/sai-paper-*`） | [§2.3](#23-sai-paper-が出す-json) | 命令の名前と JSON の項目名。`target/release/sai-paper` に作り直す手順 |
 | **sai-sci**（`crates/sai-sci-*`） | [§2.4](#24-sai-sci-が出す-json) | research-tree の JSON の項目名。`card --from-json` の入力 |
 | **sai-sci が sai-link を呼ぶところ** | [§3](#3-sai-sci-が読む-sai-link-の出力) | `run list --json`・`card create` の入出力 |
+| **前処理の束（sai-prep・Library の PDF 待ち）** | [§2.6](#26-前処理の束c12-と-library-の追加pdf-待ちc13) | 束の形（C12）と `import-bundle`・`keep`・`library pending` の JSON（C13） |
 | **apps/radio** | [§5](#5-appsradio) | `/api/papers` 以下のパスと JSON、論文 ID は**英数字**、Range（206）応答 |
 | **項目を変える** | [§6](#6-項目を変えるときの決まり) | Web が読む項目を変えたら、この文書と Web を一緒に直す |
 
@@ -98,8 +99,8 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | 部品 | Web が呼ぶ命令（呼ぶ側のモジュール） | 時間切れ |
 |---|---|---|
 | sai-link | `run export`（`control.export_runs`・60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|start\|finish\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop`（すべて `control.py`） | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
-| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-log`・`find`・`find-log`・`providers`・`dashboard`・`import list\|add\|remove`・`set list\|show\|mark\|drop-pending`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
-| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`proposals`・`triage`・`card --from-json`・`read`・`find --node`・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
+| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
+| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`proposals`・`triage`・`card --from-json`・`read`・`find --node`（範囲だけ）・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
 | 3 つの CLI | `schema --json`（`commands.py`・60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
 | apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | 質問（`…/ask`）180 秒・他 30 秒 |
 
@@ -127,7 +128,22 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | `model` | 文字列 \| null | 統計画面 | ― |
 | `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
 | `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない |
-| `herdr_pane_id` / `herdr_pane_label` | 文字列 \| null | 実行中の pane への文字送り | 「この実行は終了しています」と出る |
+| `herdr_pane_id` | 文字列 \| null | headless の擬似 pane の id（`hl-` で始まる・C1）。キー名は herdr の時代の名残で、中身は擬似 pane の id | 一覧の `live` と `headless` が付かない |
+
+`herdr_pane_label` は Web では読まない（headless では pane を名前で探さないため・U03）。
+
+#### headless の `state.json`（Web が読む・共有契約 C1）
+
+headless の実行の状態は engine が `<project_root>/.sai/sai-engine/headless/<id>/state.json` に書く。
+Web が読んでよいのはこのファイルだけ（`runs.py` の `headless_state`）。`<id>` は `hl-` + 12 桁の 16 進で，実行の書き出しの `herdr_pane_id` に入る。
+
+| 項目 | 型 | 何に使う | 無い・型が違うとき |
+|---|---|---|---|
+| `state` | 文字列（`starting`（起動中） / `working` / `idle` / `stopped`） | 会話の `live` ランプ・通知 | `starting` / `working` / `idle` / `stopped` 以外は読まない |
+| `partial` | 文字列 | 生成中の文の逐次表示（末尾 20000 文字まで） | 空文字 |
+| `error` | 文字列 | 直前のターンの失敗の理由 | 空文字 |
+| `turn` | 数値 | （Web では未使用） | ― |
+| `pane_id` / `runner` / `updated_at` | 文字列 | （Web では未使用） | ― |
 
 #### `project summary` → オブジェクト
 
@@ -182,6 +198,17 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 - `run finalize <run_id>` → `{"run_id", "status": "requested", "message"}`。その run が無ければ 3、実行中でない・子ブロック・常駐停止は 1。
 - `run advance <run_id>` → `{"run_id", "from", "to"}`。review / done 以外は **終了コード 2**「review / done の run だけ移動できます」。無ければ 3。
 - `run rm <run_id> --yes` → `{"run_id", "executions": 消した数}`。実行中は 1、無ければ 3。
+
+#### `run send <run_id>` / `run interrupt <run_id>`
+
+| 命令 | 返り値 | 終了コード |
+|---|---|---|
+| `run send <run_id> [--text <文>] [--json]` | `{"run_id", "pane_id", "status": "sent"}` | 空の文 2・実行や送り先が無い 3・終了している/質問待ち 4 |
+| `run interrupt <run_id> [--json]` | `{"run_id", "status": "interrupted" \| "still_working", "agent_status"}` | 無い 3・終了している 4 |
+
+- `--text` を省くと標準入力の全文を送る（Chats の「続きを送る」が使う）。
+- 送り先は headless の擬似 pane（`hl-` で始まる id）。`draft.txt`・`inbox/`・`interrupt` のファイルで監督スレッドへ渡す。
+- `state.json` が `stopped`（終了している）、または `blocked`（質問待ち）のときは 4。
 
 #### `doc list --run <id> --json` / `doc read <token> --json` / `doc search …`
 
@@ -279,12 +306,13 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `podcast` | `error` | 文字列 \| null | 「前回は失敗しました: …」 | ― |
 | ― | 論文が無いとき | | **終了コード 3・「論文が見つかりません」** | ― |
 
-#### `search-log <id>` / `search` → `{"log", "items"}`
+#### `search-history <id>` / `search` / `expand` → `{"log", "items"}`
 
 | 階層 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|---|
 | `log` | `id` | 数値 | 画面を移っても結果を取り直すための鍵 | 検索直後の復元ができない |
 | `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
+| `log` | `executer` | `"human"` \| `"agent"` | 検索を実行した人。`SAI_ORIGIN=phone` は `human`、それ以外で `SAI_PARENT_RUN_ID` が数なら `agent` | 出さない |
 | `log` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 「実行者」（agent は `SAI_PARENT_RUN_ID` を書いた検索） | 出さない |
 | `log` | `node` | `{"id":"O5"}` \| null | 見出しの下の Node へのリンク（`#/research/tree/O5`） | リンクを出さない |
 | `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
@@ -293,8 +321,9 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `failed[]`（**`search` だけ**） | `db` / `reason` | 文字列 | 検索の失敗の帯。`reason` の 429 は「混雑」、403 は「キーが使えない」 | 帯を出さない |
 
 - `search --json --limit N [--db <ID>]… [--year-from Y] [--year-to Y] -- <語>`。失敗した DB は標準エラーに `<db>: <理由>` の 1 行と、標準出力の `failed` へ出す。検索は履歴に残る。
-- `find --json [--mode word|vector|hybrid] [--top-k N] [--scope papers|notes|figures|all] [--paper <番号>]… [--each m] -- <語>` は内部検索（要約なし）。新しい履歴を作り、`find-log <id>` と同じ形で返す。`sai-sci find --node <ID> [--subtree]` は範囲の決定と記録を sai-sci が行う。
-- `find-log <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
+- `find --json [--mode word|vector|hybrid] [--top-k N] [--scope papers|notes|figures|all] [--paper <番号>]… [--each m] -- <語>` は内部検索（要約なし）。新しい履歴を作り、`find-history <id>` と同じ形で返す（`log.executer` も付く）。`sai-sci find --node <ID> [--subtree]` は検索の範囲を絞るだけで、記録を Node に結ぶのは環境変数 `SAI_TARGET_NODE`。`sai-sci search` に `--node` は無い。
+- `expand --json` は `search` と同じ `{"log","items"}`（`results` つき）を返す。
+- `find-history <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
 
 #### `providers` → `{"default": [...], "available": [...]}`
 
@@ -380,12 +409,6 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 - `import add --name <名前>`（標準入力 = BibTeX・1MB まで）。名前は `^[A-Za-z0-9._-]{1,80}\.bib$`。
 - `import remove --name <名前>`。
 
-#### `set list|show|mark|drop-pending`（検索セット）
-
-- `set list` → `{"sets":[{"id","name","query","source_dbs","created_at","node","purpose","counts":{"pending","keep","drop","imported","total"}}]}`（`node` は結んだ Node の ID か `null`。`imported` は取り込み済みの候補の数）。
-- `set show <id>` → `{"set":{…list の 1 件と同じ…,"extract"},"items":[{"position","title","authors","year","venue","doi","abstract","decision","reason","paper_id"}]}`（`position` は 0 始まり。`decision` は `pending` / `keep` / `drop` / `downloaded`）。
-- `set mark <id> --position=<p,p,…> --decision keep|drop [--reason=…]` → `{"set_id","changed":n}`。取り込み済み（`downloaded`）の候補は変えず、`changed` に数えない。
-- `set drop-pending <id> [--reason=…]` → `{"set_id","changed":n}`。`pending` の候補をすべて `drop` にする（理由の既定は「まとめて drop」）。
 
 ### 2.4 sai-sci が出す JSON
 
@@ -448,7 +471,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
 | 直下 | `pending[]` | `{"id","op","payload","run","created_at"}` | PENDING の PROPOSAL の行 |
 | 直下 | `next[]` | NextAction の配列 | この Node の Next Action |
-| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
+| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
 
 #### `read <run_id> --json` → READ_CARD
@@ -480,13 +503,31 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
 - `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。
 - `triage <P> --accept|--reject|--revert [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
-- `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形（`rt_searches` にも 1 行残す）。
-- `project show --json` → `{"mind","state","brief","attention"}`。`project memo --json -- <文>`（改行なしの 1〜2000 字）→ mind.md の「## メモ」に 1 行足す。
+- `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形。`--node` は範囲だけ。`SAI_TARGET_NODE` があれば `rt_searches` にも 1 行残す。`search` は `SAI_TARGET_NODE` があれば記録を結ぶ（`--node` は無い）。
+- `project show --json` → `{"mind","state","brief","attention"}`。`project mind --json`（本文は標準入力・1〜200000 字）→ `{"ok": true, "bytes": <n>}`。mind.md の全文を置き換える。
+- `index paper <id> --json` → `{"paper_id","index","chunks_created","embedded_count","chunks","chunks_with_embeddings"}`。論文 1 本の chunk と埋め込みを作る（`chunks` は 0 のとき本文が無い）。無い論文は終了コード 3。
 - `attention list --json` → 配列（要対応の `key`・文）。`attention resolve <key> --json` → 対応済みにする。
 
 ### 2.5 `apps/radio` を呼ぶ側
 
 `sai-paper paper radio` は `POST /api/papers/from-extract` を、Web は `/api/radio/*` の中継を使う。項目は [§5](#5-appsradio)。
+
+---
+
+### 2.6 前処理の束（C12）と Library の追加・PDF 待ち（C13）
+
+sai-prep が作った束（C12）は、Web が zip を展開して検査し、展開したフォルダを CLI に渡す（Rust の依存に zip は無い）。CLI の入り口は次の 3 つ。
+
+| 命令 | 出力の JSON | 失敗 |
+|---|---|---|
+| `sai-paper paper import-bundle --dir <展開したフォルダの絶対パス> --json` | `{"paper_id","title","figures","sections","refs","translated"}` | 誤り 2・対象なし 3・PDF あり 4 |
+| `sai-paper paper keep (--log <id> --position <n> \| --import-id <id> \| --cite <paper_id> --ref <n>) --json` | `{"paper_id","title","status":"added" \| "exists"}` | ― |
+| `sai-paper library pending --json` | `{"papers":[{"id","title","year","authors","doi","arxiv_id","s2_paper_id","created_at"}]}` | ― |
+
+- 束の中身（zip の直下からの相対パス）: `manifest.json`・`paper.pdf`・`docling/paper.md`・`docling/paper.json`・`docling/paper_artifacts/…`・（翻訳したときだけ）`translated/paper-mono.pdf`・`translated/paper-dual.pdf`。
+- `manifest.json` の形: `{"format": "sai-prep-bundle", "version": 1, "target": {"paper_id": 12} か {"bibtex": "<BibTeX 1 件>"}, "pdf": "paper.pdf", "pdf_sha256": "<64 桁の 16 進>", "docling": {"md", "json", "dir"}, "translation": {"mono", "dual", "service"} か null, "tools": {"sai_prep", "docling", "pdf2zh"}, "created_at"}`。
+- 展開の検査（Web・`bundles.py`）: 項目 5000 以下・展開後 1GB 以下（束そのものは 300MB 以下）・絶対パス・`..`・`\`・NUL・シンボリックリンクは拒む。`pdf_sha256` が PDF と一致すること。
+- `paper download`・`paper get-pdf` は終了コード 4（サーバは PDF を落とさない）。`import-bundle` は Web から 600 秒の上限で呼ばれる（`BUNDLE_TIMEOUT`）。
 
 ---
 
@@ -542,7 +583,8 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 #### `env` の決まり
 
 - キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
-- **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
+- **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` / `SAI_TARGET_NODE` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
+- `SAI_TARGET_NODE`: Node を対象に動く Agent に sai-link が起動時に前置する。決め方は task.md の `sci_node`（`SEED` は付けない）→ task.md の `target_node` → 親の run を同じ規則でたどる。親から受け継いだときは子の task.md に `target_node` を書く（`target_node.rs`）。
 - 通らない項目は**エラーにせず、警告を 1 行出して破棄する**。
 - 並びは `SAI_*` → `env` → エージェントの実行ファイル。値は shell のシングルクォート 1 つで囲むので、`export` や連結の文字列を書く必要はない。
 - 実装は `pi_command::agent_env_pairs()` と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。
@@ -579,7 +621,7 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 | | 中身 | 置き場 | 渡し方 |
 |---|---|---|---|
 | 固定部分（system prompt） | template と block.md の本文 | run フォルダ直下の `system-prompt.md` | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
-| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | herdr のテキスト送信（1 通） |
+| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | headless の transport で 1 通送る |
 
 - 節の順は `# context` → `# task_text` → 本文に `{{input.<id>}}` として現れた順。節の間は空行 1 行。固定部分の**先頭**に案内文（`依頼は、最初のメッセージの「# task_text」の節にあります。` など）を足す。
 - 古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要は無い。
@@ -617,6 +659,27 @@ Web は起動時に **`$SAI_HOME/web/token` に合言葉（`SAI_WEB_TOKEN`）を
 - 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（Web は両方を受け付けるが、画面や記録に残るため）。
 - HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う。
 - **合言葉の値そのものを、ログ・画面・エージェントの作業記録（session ファイル・run フォルダの成果物）に出さない。**
+
+### 4.7 フック・拡張と Web の約束
+
+cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と pi の質問拡張（`apps/web/src/sai_web/extensions/ask_user.ts`）は、Web の窓口を次で呼ぶ。
+
+- **Web の場所**: 環境変数 `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`。
+- **合言葉**: 環境変数 `SAI_WEB_INTERNAL_TOKEN` があれば、すべての要求に `Authorization: Bearer <値>` を付ける。無ければ付けない（単独モードは今のまま 127.0.0.1 からの要求として受ける）。
+- **使う住所**:
+
+| 住所 | 何に使う |
+|---|---|
+| `POST /api/register` | セッションと pane の対応づけ（`cc_register.py`・`ask_user.ts` の `session_start`） |
+| `POST /api/questions` | 質問の登録。応答は `{"ok": true, "id": "<qid>"}` |
+| `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと） |
+| `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（`ask_user.ts`） |
+
+- cc は、コンテナの中の tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`SAI_AGENT_TRANSPORT=tmux`・`SAI_PROJECT_ROOT=<root>`。
+- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`SAI_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
+- 承認は `sai-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `sai-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `sai-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
+- pi の質問拡張は、画面が無い（`ctx.mode === "headless"` か `SAI_AGENT_TRANSPORT=headless`）ときは端末の選択画面を出さず、登録した質問の答えをポーリングで待つ。
+- cc の費用は cc の statusLine（`sai-link cc-statusline`）が `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
 
 ---
 
@@ -697,7 +760,7 @@ Web は **HTTP の中継しかしない**（`apps/radio` のコードや DB は�
 一時フォルダにプロジェクトを作り、`SAI_HOME` と `SAI_PROJECT_ROOT` をその中へ向けて行う。本物の `.sai/`・`$SAI_HOME`・`papr.db` を確かめのために変えない。
 
 ```bash
-cd ~/workdir/Sai/sai-moon
+cd ~/workdir/Sai/sai-tree
 perl -e 'alarm 1800; exec @ARGV' cargo build --release      # 必ず release。Web は release を呼ぶ
 
 T=$(mktemp -d); export SAI_HOME=$T/home SAI_PROJECT_ROOT=$T/proj; mkdir -p $SAI_HOME $SAI_PROJECT_ROOT
@@ -743,8 +806,8 @@ rm -rf $T; unset SAI_HOME SAI_PROJECT_ROOT
 
 | 画面の文言（`detail` の中身） | 状態 | 原因と直し方 |
 |---|---|---|
-| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` と PATH（launchd は plist の `PATH`）を確認。**バイナリ名を変えても同じ文が出る** |
-| `Mac の apps/radio が応答しません` | 503 | `apps/radio`（8201）が止まっている／`SAI_RADIO_URL` 間違い |
+| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` と PATH を確認（コンテナの中では中継 `/opt/sai/bin/…`）。**バイナリ名を変えても同じ文が出る** |
+| `Mac の sai-radio が応答しません` | 503 | `apps/radio`（8201）が止まっている／`SAI_RADIO_URL` 間違い（文言は今の Web のまま） |
 | `…の応答を読めませんでした` | 502 | 終了コード 0 なのに JSON でない（**標準出力への余計な表示**を疑う） |
 | CLI の標準エラーの最後の行（例 `論文が見つかりません`） | 404 / 400 / 409 / 502 | 終了コードが 3 / 2 / 4 / 1。文言は CLI のまま |
 | `period は week / month / all のいずれかにしてください` `action は start / stop を指定してください` `検索先が分かりません: …` `run_id は 1 以上の整数にしてください` `block の指定が正しくありません` など | 400 | **Web 自身の検査**。CLI を呼ぶ前に弾いている。相手側を疑わない |
@@ -763,7 +826,7 @@ rm -rf $T; unset SAI_HOME SAI_PROJECT_ROOT
 
 | どこを見る | 中身 |
 |---|---|
-| **Web**: `$SAI_HOME/web/sai-web.log`（launchd 起動時）／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
+| **Web**: `$SAI_HOME/web/sai-web.log`／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
 | **apps/radio** | 起動しているターミナル。音声化の失敗は Web のログの `sai-paper` の標準エラーと、`apps/radio` 自身の例外・LLM のエラー |
 | **3 つの CLI** | 単発の CLI なので、Web のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
 | 音声化の状態 | sai-paper の DB の `paper_podcasts`（`generating` / `ready` / `failed` + `error`）。論文情報画面にも「前回は失敗しました: …」が出る |

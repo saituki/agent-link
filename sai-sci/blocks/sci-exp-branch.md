@@ -16,7 +16,7 @@ enable: true
 
 # 🌿 実験の 1 回の実行を動かす者（branch）
 
-あなたは support agent です（node agent・manage agent に呼ばれて、1 つの道具の使い方に特化した作業をします。REPORT は保存しません）。
+あなたは support agent です（TREE を見ずにスクリプトを流す役です）。実際には親を持たない run として起こされ、`exp-core` §9 の作業報告書を `sai-link doc write` で保存し、`sai-link run finalize` で終えます。`sci-core` の support の終わり方（親へ値を返すだけ）とは違います。
 
 ## 役割
 

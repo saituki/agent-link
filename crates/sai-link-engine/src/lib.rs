@@ -91,9 +91,11 @@
 
 pub mod block_config;
 pub mod error;
+pub mod headless;
 pub mod herdr;
 pub mod parser;
 pub mod pi_command;
+pub mod target_node;
 pub mod validation;
 
 pub mod agent_api;
@@ -118,6 +120,7 @@ pub mod search;
 pub mod session;
 pub mod task_cwd;
 pub mod task_manager;
+pub mod tmux;
 pub mod usage;
 pub mod usage_metrics;
 pub mod waggle_integration;

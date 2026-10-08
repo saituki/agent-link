@@ -6,7 +6,8 @@
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use sai_paper_core::chunking::{Scope, build, rebuild, status};
+use sai_paper_core::chunking::{Scope, build, build_paper, rebuild, status};
+use sai_paper_core::embeddings::embed_pending_for_paper;
 use sai_paper_core::config::RagIndex;
 use sai_paper_core::{Database, Paths};
 
@@ -38,6 +39,20 @@ pub enum IndexCmd {
         /// バッチサイズ（既定: 32）
         #[arg(long, default_value_t = 32)]
         batch: usize,
+    },
+    /// 論文 1 本の chunk を作り、その論文の未埋め込みを埋める（Web の Index）
+    Paper {
+        /// 論文の id
+        paper_id: i64,
+        /// 索引の名前（既定: rag.default_index）
+        #[arg(long)]
+        index: Option<String>,
+        /// バッチサイズ（既定: 32）
+        #[arg(long, default_value_t = 32)]
+        batch: usize,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -133,11 +148,73 @@ async fn handle_embed(index: Option<String>, batch_size: usize) -> Result<()> {
     Ok(())
 }
 
+/// 論文 1 本の Index。論文が無ければ終了コード 3。
+async fn handle_paper(
+    paper_id: i64,
+    index: Option<String>,
+    batch_size: usize,
+    json: bool,
+) -> Result<()> {
+    let (db, _, paths, index) = open(index.as_deref())?;
+    let conn = db.connection();
+    let exists: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM papers WHERE id = ?1", [paper_id], |r| r.get(0))?;
+    if !exists {
+        return Err(
+            crate::cli_error::CliError::not_found(format!("論文が見つかりません: id={paper_id}")).into(),
+        );
+    }
+    let report = build_paper(conn, paper_id, &index, &paths.data_dir())?;
+    let client = sai_paper_core::EmbedClient::for_index(&index);
+    let embedded_count =
+        embed_pending_for_paper(conn, &client, &index.name, paper_id, batch_size)
+            .await
+            .context("failed to embed chunks")?;
+    let chunks: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM chunks WHERE index_name = ?1 AND paper_id = ?2",
+        rusqlite::params![&index.name, paper_id],
+        |r| r.get(0),
+    )?;
+    let with_embeddings: i64 = conn.query_row(
+        "SELECT COUNT(DISTINCT c.id) FROM chunks c
+           JOIN chunk_embeddings ce ON ce.chunk_id = c.id
+           JOIN embedding_models em ON em.id = ce.model_id
+          WHERE c.index_name = ?1 AND c.paper_id = ?2 AND em.name = ?3",
+        rusqlite::params![&index.name, paper_id, &index.embed_model],
+        |r| r.get(0),
+    )?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "paper_id": paper_id,
+                "index": index.name,
+                "chunks_created": report.chunks_created,
+                "embedded_count": embedded_count,
+                "chunks": chunks,
+                "chunks_with_embeddings": with_embeddings,
+            })
+        );
+    } else {
+        println!(
+            "論文 {paper_id} の Index: chunk {chunks}（今回作成 {}）・埋め込み {with_embeddings}",
+            report.chunks_created
+        );
+    }
+    Ok(())
+}
+
 pub async fn handle_index(cmd: IndexCmd) -> Result<()> {
     match cmd {
         IndexCmd::Build { index, scope } => handle_build(index, &scope),
         IndexCmd::Rebuild { index } => handle_rebuild(index),
         IndexCmd::Status => handle_status(),
         IndexCmd::Embed { index, batch } => handle_embed(index, batch).await,
+        IndexCmd::Paper {
+            paper_id,
+            index,
+            batch,
+            json,
+        } => handle_paper(paper_id, index, batch, json).await,
     }
 }

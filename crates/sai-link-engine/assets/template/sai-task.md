@@ -13,7 +13,7 @@ sai-link def list --parent <自分の block> → sai-link task create → sai-li
 | 命令 | 使いどころ |
 |---|---|
 | `sai-link def list --parent <自分の block>` | 呼べる子ブロックの id を確かめる。`sai-link task create` の前に必ず実行する |
-| `sai-link task create` | 子を作る。標準入力に子の配列の JSON を渡す（今の `tasks` と同じ項目: `[ { client_id, subject, block_type, task_text, depends_on, worktree, cwd, timeout } ]`。使うときだけ `runner` も）。`cwd` は別のプロジェクトで動かすとき、`timeout`（秒）は「この時間を超えたら様子を見たい」目安があるときに付ける。実行すると子の run フォルダに task.md（description と task_text）ができ、TUI と Web で見られる。出力は `batch_id` と子の `task_id` |
+| `sai-link task create` | 子を作る。標準入力に子の配列の JSON を渡す（`[ { client_id, subject, block_type, task_text, depends_on, worktree, cwd, timeout } ]`。使うときだけ `runner` も）。`cwd` は別のプロジェクトで動かすとき、`timeout`（秒）は「この時間を超えたら様子を見たい」目安があるときに付ける。実行すると子の run フォルダに task.md（description と task_text）ができ、TUI と Web で見られる。出力は `batch_id` と子の `task_id` |
 | `sai-link task execute --batch <batch_id>` / `--task <task_id>` | 実行する（`--batch` で一括、`--task` で 1 件）。すぐ戻る |
 | `sai-link task wait <task_id>… [--timeout-ms N]` | 子を待つ。1 回の待ちは最大 90 秒（`--timeout-ms` はそれを超えても 90 秒に切り詰められる。既定も 90 秒。`--timeout-ms 0` なら即時に返る）。完了なら `report`（短い報告）と `outputs`（子が保存した文書の `waggle:<tok>: <description>` 一覧）を返す。止まった・長引いたときは完了前でも `stalled` で戻る。複数の子は `sai-link task wait <task_id> <task_id> …` で 1 回にまとめて待つ（下の「子を待つ・見張る」） |
 | `sai-link task show <task_id>` / `sai-link task list` | 状態を見る。`worktree_info` にマージ用のブランチ名と作業用コピーの場所が入っている |

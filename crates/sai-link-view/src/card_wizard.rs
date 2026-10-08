@@ -11,7 +11,7 @@ use sai_link_engine::db::SaiStore;
 /// cc のモデル選択肢（固定）。
 pub const CC_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 /// runner の選択肢。
-pub const RUNNER_OPTIONS: [&str; 4] = ["user", "pi", "cc", "gl"];
+pub const RUNNER_OPTIONS: [&str; 3] = ["user", "pi", "cc"];
 /// thinking 選択肢（`validation.rs` の新 6 値と一致）。
 pub const THINKING_OPTIONS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 

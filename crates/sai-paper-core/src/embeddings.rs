@@ -395,6 +395,32 @@ pub async fn embed_pending(
     index_name: &str,
     batch_size: usize,
 ) -> Result<i64> {
+    embed_pending_inner(conn, client, index_name, None, batch_size).await
+}
+
+/// `embed_pending` の論文 1 本版。その論文の chunk のうち未埋め込みのものだけを埋める。
+///
+/// # Errors
+///
+/// `embed_pending` と同じ。
+pub async fn embed_pending_for_paper(
+    conn: &Connection,
+    client: &dyn Embedder,
+    index_name: &str,
+    paper_id: i64,
+    batch_size: usize,
+) -> Result<i64> {
+    embed_pending_inner(conn, client, index_name, Some(paper_id), batch_size).await
+}
+
+/// `paper` が `Some` のときは、その論文の chunk だけを対象にする。
+async fn embed_pending_inner(
+    conn: &Connection,
+    client: &dyn Embedder,
+    index_name: &str,
+    paper: Option<i64>,
+    batch_size: usize,
+) -> Result<i64> {
     // 登録済みモデルを確認
     let mut stmt = conn.prepare("SELECT id, name FROM embedding_models")?;
     let registered: Vec<(i64, String)> = stmt
@@ -414,14 +440,14 @@ pub async fn embed_pending(
     // 対象はこの索引（index_name）の断片だけ（段階 7）。
     let mut stmt = conn.prepare(
         "SELECT id FROM chunks
-         WHERE index_name = ?2 AND NOT EXISTS (
+         WHERE index_name = ?2 AND (?3 IS NULL OR paper_id = ?3) AND NOT EXISTS (
             SELECT 1 FROM chunk_embeddings ce
             WHERE ce.chunk_id = chunks.id AND ce.model_id = ?1
          )",
     )?;
 
     let chunk_ids: Vec<i64> = stmt
-        .query_map(rusqlite::params![model_id, index_name], |row| row.get(0))?
+        .query_map(rusqlite::params![model_id, index_name, paper], |row| row.get(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     if chunk_ids.is_empty() {
@@ -817,6 +843,39 @@ mod tests {
         )
         .expect("schema");
         conn
+    }
+
+    /// `embed_pending_for_paper` は指定した論文の未埋め込みの chunk だけを埋める。
+    #[tokio::test]
+    async fn test_embed_pending_for_paper_only_that_paper() {
+        let conn = embed_test_db();
+        for (id, paper_id) in [(1i64, 1i64), (2, 2)] {
+            conn.execute(
+                "INSERT INTO chunks (id, source_kind, source_ref, paper_id, ord, text, strategy, created_at, index_name)
+                 VALUES (?1, 'body', 'extract', ?2, 0, 'Body text.', 'abstract', '2026-01-01T00:00:00Z', 'default')",
+                rusqlite::params![id, paper_id],
+            )
+            .expect("chunk");
+        }
+
+        let fake = FakeEmbedder {
+            model: "fake".to_string(),
+            with_meta: false,
+            seen: std::sync::Mutex::new(Vec::new()),
+        };
+        let count = embed_pending_for_paper(&conn, &fake, "default", 2, 32)
+            .await
+            .expect("embed_pending_for_paper");
+
+        assert_eq!(count, 1);
+        let embedded: Vec<i64> = conn
+            .prepare("SELECT chunk_id FROM chunk_embeddings ORDER BY chunk_id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(embedded, vec![2]);
     }
 
     /// AC2: `embed_with_meta` が true の索引では、埋め込みに渡す文字の先頭に

@@ -174,7 +174,7 @@ sai-sci/
 |---|---|---|
 | Q を分ける | `sci-start`・`sci-split`・`sci-restore`（逆向き） | ― |
 | O を書く | `sci-ideate` | `sci-analogy` |
-| F を探す | `sci-search`・`sci-screen`・`sci-read`・`sci-cite-check`（逆向き） | `sci-lookup`・`sci-extract`（`sci-search` も呼ばれれば support） |
+| F を探す | `sci-search`・`sci-read`・`sci-cite-check`（逆向き） | `sci-lookup`・`sci-extract`（`sci-search` も呼ばれれば support） |
 | Logicality を確かめる | `sci-debate`・`sci-review` | ― |
 | ★ を選ぶ | なし（利用者だけ）。手伝いに `sci-compare` | ― |
 | 実験 | `sci-exp-sprout`・`sci-exp-branch`・`sci-exp-review`・`sci-result-compare`（逆向き） | `sci-exp-scout`（参照実装を探す）・`sci-sim-model`（論文 1 本のモデル定義書）・`sci-sim-compose`（つなぎのモデル定義書） |
@@ -190,14 +190,14 @@ sai-sci/
 ```
 professor / professor-backward（root の run。researcher を直接起こす）
   |-- researcher（sci の 26 本。research-tree の Node に向けて働く）
-  `-- operator（professor の子。sai-moon の操作・監視・情報の抽出だけ）
+  `-- operator（professor の子。sai-tree の操作・監視・情報の抽出だけ）
 ```
 
 | id | 役 | 共通の決まり | 研究の判断 |
 |---|---|---|---|
 | `professor` | 研究の現在地を読み、次の研究作業を researcher に任せ、報告を評価して TRIAGE をする | `sai-agent` / `sci-task` / `sci-cli` | する。root の run になる。研究作業は自分でしない |
 | `professor-backward` | 既存の論文から始める逆向きの舵取り（5.6 節） | 上の 3 本と `bw-core` | する。root の run になる |
-| `operator` | sai-moon の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sci-cli` | しない。professor の子 |
+| `operator` | sai-tree の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sci-cli` | しない。professor の子 |
 | `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも research-tree も直さない | `sai-agent` / `sci-task` / `sci-cli` | しない |
 | `sci-*` | 研究作業そのもの（読む・比べる・O を出す・考える・書く・探す・実験する） | `sci-core`（+ `sci-find`・`sci-match`・`exp-core`） | しない。CARD に書かれた作業だけ |
 
@@ -283,7 +283,7 @@ Q を分ける ─▶ O を書く ─▶ F を付ける ─▶ ★ を付ける 
 
 1. **Q を分ける** — Next Action の「Create CARD」から `sci-start`・`sci-split` を動かす。または板の「Q を足す」で自分で足す。
 2. **O を書く** — Q の板の「O を足す」、または `sci-ideate` の CARD。Answer か Issue かは O ごとに変えられる（「Answer / Issue を変える」）。
-3. **F を付ける** — Library で論文を探し（検索セットの keep / drop はエージェントの `sci-screen` が `sai-paper set` で行う。Web に検索セットの画面は無い）、READ_CARD（`#/research/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は自動で research-tree に入る。取り消したいときは Node を選んだ右の板の PENDING の節で revert で戻す。
+3. **F を付ける** — Library で論文を探し、READ_CARD（`#/research/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は自動で research-tree に入る。取り消したいときは Node を選んだ右の板の PENDING の節で revert で戻す。
 4. **★ を付ける** — O の板の「★ を付ける」。★ を付けられるのは利用者だけ。比べるときは `sci-compare` が手伝う。
 5. **答えが無ければ Issue** — O を Issue にし、E（実験）を足す。実験の回し方は 5.5 節。
 
@@ -298,7 +298,6 @@ Research タブの最初の画面が research-tree（`#/research/tree`）。
 - **Create SPROUT**: SEED の SB か上の帯の釦を押すと、History と DAG の間に作成パネルが出る。作成中も DAG・一覧・SB を操作でき、O の SB の **Add PATH** / **Delete PATH** で PATH（終点の O）を選ぶ。PATH は 1〜20 個で、Issue の O を 1 つ以上含める。
 - TRIAGE: Node を選んだ右の SB の PENDING の節で行う。
 - READ_CARD: `#/research/read/<run_id>`。
-- 検索セット: Web に画面は無い。keep / drop の選別は `sci-screen` ブロックが `sai-paper set` で行う。
 
 ### 5.3 sai-link がブロックを動かすとき
 
@@ -331,7 +330,7 @@ research-tree で動くエージェント（LabAgent）は、ブロックの fro
 
 | sci_type | ブロック |
 |---|---|
-| node | sci-split・sci-ideate・sci-search・sci-screen・sci-read・sci-compare・sci-debate・sci-coach・sci-cite-check・sci-data-explore・sci-data-test・sci-exp-review |
+| node | sci-split・sci-ideate・sci-search・sci-read・sci-compare・sci-debate・sci-coach・sci-cite-check・sci-data-explore・sci-data-test・sci-exp-review |
 | manage | sci-start・sci-review・sci-digest・sci-restore・sci-typify・sci-result-compare・sci-exp-sprout |
 | support | sci-analogy・sci-extract・sci-lookup・sci-exp-scout・sci-sim-model・sci-sim-compose・sci-exp-branch・paper-debater・paper-reviewer |
 | なし | professor・professor-backward・kaizen・operator |
@@ -456,7 +455,7 @@ sai-link card run <返ってきた run_id>
 | `sai-sci read <run_id> [--json]` | READ_CARD の中身 |
 | `sai-sci export` | research-tree を `state.md` と `tree.md` に書き出す |
 
-書き込む命令は、終わる前に `export` を実行します。Web の窓口は `sai-sci {status,init,node,apply,proposals,triage,card,read,types}` を呼びます。検索セットは `sai-paper set {list,show,create,mark,merge,delete,rerun}`。
+書き込む命令は、終わる前に `export` を実行します。Web の窓口は `sai-sci {status,init,node,apply,proposals,triage,card,read,types}` を呼びます。
 
 論文の節と塊を読む命令（`sai-paper content …`）:
 
@@ -491,7 +490,7 @@ sai-link card run <返ってきた run_id>
 - **形の決まり**: 型は `id`・`name` の frontmatter と `## Q` の節、ガイドは `key`・`name`・`target` の frontmatter と `## Q`・`## Child Q`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
 - **確かめ**:
   ```bash
-  cd ~/workdir/Sai/sai-moon
+  cd ~/workdir/Sai/sai-tree
   env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
     perl -e 'alarm 1800; exec @ARGV' cargo test -p sai-sci-cli
   ```

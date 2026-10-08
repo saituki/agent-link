@@ -31,9 +31,9 @@ sai は、4 つの部品（sai-link・sai-paper・sai-sci・sai-web）と 2 つ�
 |---|---|---|
 | **sai** | アプリ全体の名前。 | リポジトリ全体（`ARCHITECTURE.md` §1.1） |
 | **sai-link** | 基盤。coding agent の実行・カード・常駐・文書を扱う。他の部品を知らない。 | `crates/sai-link-engine`・`sai-link-view`・`sai-link-cli`。実行ファイルは `sai-link` |
-| **sai-paper** | 研究の基盤（論文）。検索・取得・翻訳・音声化の依頼・Library・検索セットを扱う。sai-link と sai-sci を呼ばない。 | `crates/sai-paper-core`・`sai-paper-cli`。実行ファイルは `sai-paper` |
+| **sai-paper** | 研究の基盤（論文）。検索・取得・翻訳・音声化の依頼・Library を扱う。sai-link と sai-sci を呼ばない。 | `crates/sai-paper-core`・`sai-paper-cli`。実行ファイルは `sai-paper` |
 | **sai-sci** | 研究の仕組み。sai-paper をライブラリで、sai-link を CLI で使うアプリ。単独では動かない。 | `crates/sai-sci-core`・`sai-sci-cli`、md の部品は `sai-sci/`（実行ファイルに埋め込む）。実行ファイルは `sai-sci` |
-| **sai-web** | Web の窓口。画面と、質問・承認・通知・使用量・中継だけを持ち、他の DB を開かない。 | `apps/web`、CLI は `apps/web/bin/sai-web`、待ち受けは 127.0.0.1:8200 |
+| **sai-web** | Web の窓口。画面と、質問・通知・使用量・中継だけを持ち、他の DB を開かない。多人数モードではアカウントとプロジェクトのコンテナも管理する。 | `apps/web`、CLI は `apps/web/bin/sai-web`、待ち受けは 127.0.0.1:8200 |
 | **apps/radio** | 論文の解説音声を作って配る裏方サーバー。画面を持たない。 | `apps/radio/src/sai_radio/`、8201 番（TTS プロキシは 8202） |
 | **apps/mlflow-server** | 実験の記録（MLflow）を溜めるサーバの compose（postgres・minio・mlflow・caddy）。Docker で動かす。 | `apps/mlflow-server/`、5001 番 |
 | **waggle** | 文書に短いトークンを付けて受け渡す仕組み。vendor したクレート群。 | `waggle/`（`waggle-core`・`waggle-store`・`waggle-store-sqlite`）。使う側は `crates/sai-link-engine/src/waggle_integration.rs` |
@@ -85,7 +85,7 @@ done            …… .sai/outputs/done/<run_id>/      確認済み（Workflow 
 | **review** | run の状態のひとつ。完了して利用者の確認を待っている。 | `.sai/outputs/review/`、`run_dir.rs` の `REVIEW_OWNER` |
 | **Workflow** | Projects の画面のひとつ。run を札と線で描いた図と、Kanban。配置は sai-link が計算する。 | `#/project/<名前>/workflow`、`sai-link workflow`、`workflow.js` |
 | **Kanban** | card と run を 4 つのレーン（todo・running・review・done）に分けた見方。 | `kanban.rs` の `KanbanLane`・`classify_lane` |
-| **pane（herdr）** | run を動かす端末の区画。herdr（ターミナルマルチプレクサ）の pane で、runner が中で動く。Web は pane と run の対応表を持つ。 | `crates/sai-link-engine/src/herdr.rs`、`apps/web/src/sai_web/herdr.py` |
+| **擬似 pane（headless）** | headless の run の区画。id は `hl-` で始まる（`hl-` + 12 桁の 16 進）。状態は `state.json` に書かれ、Web は一覧の `live` の判定に使う。sai-tree では herdr の窓は使わない（`herdr_pane_id` のキー名だけ残る）。 | `crates/sai-link-engine/src/headless.rs`、`state.json`（C1） |
 | **子タスク** | 親の run が作る子の run。親は `task create` で依頼し、子は最後に `task report` で報告し、親が `task finalize` で確定する。 | `sai-link task create\|execute\|wait\|list\|show\|capture\|send\|interrupt\|delete\|finalize\|requeue\|report\|question` |
 | **worktree（作業用コピー）** | block の `worktree:` が決める、run の作業フォルダの分け方。`none`（分けない）・`isolation`（git の worktree とブランチ `<block 名>-<run_id>` を作る）・ブランチ名そのまま。 | `orchestrator.rs` の `resolve_worktree_branch` |
 | **finalize** | 完了を確定すること。root の run は `sai-link run finalize [RUN_ID] --report <文>`、子タスクは親が `sai-link task finalize <タスク ID>`。子タスクの run フォルダは、確定するまで `running` のまま。 | `cli.rs` の `RunCmd::Finalize`・`TaskCmd::Finalize`、`run_dir.rs` の `subtask_owner` |
@@ -160,14 +160,17 @@ done            …… .sai/outputs/done/<run_id>/      確認済み（Workflow 
 | **外部 DB の検索** | Semantic Scholar・arXiv・PubMed・bioRxiv・OpenAlex など外の DB を検索する。結果は検索履歴に残る。 | `sai-paper search <語> --db …`、`sai-paper providers` |
 | **内部 DB の検索** | Library の中（論文の本文・ノート・図）を検索する。結果は内部検索の履歴に残る。 | `sai-paper find <語>` |
 | **検索モード** | 内部 DB の検索の方式。`word`（FTS5）・`vector`（埋め込み）・`hybrid`（両方を融合。`--alpha`・`--fusion`）。 | `sai-paper find --mode` |
-| **検索の範囲（scope）** | 内部 DB の検索で絞る論文の集合。Library 全体・`--papers`（番号の組）・`--node`・`--subtree`。`--node` は research-tree の Node（`Q12` など）で、**`sai-sci find` だけにある**。範囲の論文は、その Node（と直の子。`--subtree` なら子孫すべて）の F の `paper_id` と `cites` の論文番号を集めたもの。**その論文の全文（全チャンク）が範囲**で、`#x.y.z` の 1 塊だけではない。Node の下に論文が 0 本のときは Library 全体にせず 0 件で記録する。 | `crates/sai-sci-core/src/rt/scope.rs` の `resolve_scope`、`crates/sai-sci-cli/src/find_search.rs` |
-| **検索履歴** | 検索の記録。外部 DB の検索の履歴は**検索セットと同じ表**（`search_sets` / `search_set_items`）の 1 行になる。内部 DB の検索の履歴は別の表（`find_logs` / `find_log_hits`）に残る。 | `search_log.rs`（外部）・`find_log.rs`（内部）、`sai-paper search-log\|find-log` |
-| **検索セット** | 検索結果の候補を並べ、`pending`（未選別）・`keep`・`drop`・`downloaded` で選別する入れ物。名前付きで作れ、Library の外部 DB の組（`kind` が `query`）として並ぶ。**Web の検索セットの画面は削除した**（API は残る）。 | `sai-paper set list\|show\|create\|mark\|drop-pending\|merge\|delete\|rerun`、`search_sets.rs`、`sci-screen` ブロック |
-| **選別（decision）** | 検索セットの候補 1 件の状態。`pending`・`keep`・`drop`・`downloaded`。Download か Import をすると `downloaded` になり、`paper_id` が入る。 | `search_set_items.decision` |
+| **検索の範囲（scope）** | 内部 DB の検索で絞る論文の集合。Library 全体・`--papers`（番号の組）・`--node`・`--subtree`。`--node` は範囲を絞るだけ（記録を Node に結ぶのは `SAI_TARGET_NODE`）。`--node` は research-tree の Node（`Q12` など）で、**`sai-sci find` だけにある**。範囲の論文は、その Node（と直の子。`--subtree` なら子孫すべて）の F の `paper_id` と `cites` の論文番号を集めたもの。**その論文の全文（全チャンク）が範囲**で、`#x.y.z` の 1 塊だけではない。Node の下に論文が 0 本のときは Library 全体にせず 0 件で記録する。 | `crates/sai-sci-core/src/rt/scope.rs` の `resolve_scope`、`crates/sai-sci-cli/src/find_search.rs` |
+| **find** | Library（内部 DB）の検索。履歴は `find_history`。 | `sai-paper find`・`sai-sci find` |
+| **search** | 外部の論文 DB の検索。履歴は `search_history`。 | `sai-paper search`・`sai-sci search` |
+| **search_history / find_history** | 検索 1 回ごとの記録（検索語・条件・結果・`executer`・`run_id`・実行日時）。外部 DB の検索は `search_history`・`search_history_items`、内部 DB の検索は `find_history`・`find_history_hits` に残る。 | `search_history.rs`・`find_history.rs`、`sai-paper search-history\|find-history` |
+| **`executer`（検索の履歴）** | 検索を実行したのが `human` か `agent` か。カードの `executer`（起動者）と同じ値。`SAI_ORIGIN=phone`（Web）は `human`、それ以外で `SAI_PARENT_RUN_ID` が数なら `agent`、他は `human`。 | `search_history.executer`・`find_history.executer` |
+| **`SAI_TARGET_NODE` / `target_node`** | Node を対象に動く Agent と、その子 task に sai-link が入れる環境変数（子の task.md には `target_node`）。決め方は task.md の `sci_node`（`SEED` 以外）→ `target_node` → 親の run の順。`sai-sci find`・`search` の記録がその Node に結ぶ。 | `crates/sai-link-engine/src/target_node.rs` |
+| **廃止した物** | 「検索セット」と選別（`pending`・`keep`・`drop`）は廃止した。検索結果は履歴に残るだけで、選別の段は無い。 | ― |
 | **外部 DB** | Library の見方のひとつ。外部 DB の検索の履歴（`query`）と、検索に結び付かない Import の論文を、日付ごとの階層で並べる。ここから外部 DB の検索もする。 | `index.html` の `data-kind="external"` |
-| **内部 DB** | Library の見方のひとつ。Library の中を検索し、その履歴（`find_logs`）を日付ごとに並べる。 | `data-kind="internal"`、`papers.js`（`#/papers/library/find/<番号>`） |
+| **内部 DB** | Library の見方のひとつ。Library の中を検索し、その履歴（`find_history`）を日付ごとに並べる。 | `data-kind="internal"`、`papers.js`（`#/papers/library/find/<番号>`） |
 | **Paper** | Library の見方のひとつ。取り込んだ全論文を番号順に並べる。 | `data-kind="paper"` |
-| **`rt_searches`** | research-tree の検索の記録。どの Node のために、どのツール（`find`・`search`）で、どの範囲を検索し、何件当たったかを残し、検索の履歴（`set_id`・`log_id`）と結ぶ。 | `papr.db`、`sai-sci find\|search` |
+| **`rt_searches`** | research-tree の検索の記録。どの Node のために、どのツール（`find`・`search`）で、どの範囲を検索し、何件当たったかを残し、検索の履歴（`log_id`）と結ぶ。 | `papr.db`、`sai-sci find\|search` |
 
 ### 3.5 引用・ノート・そのほか
 
@@ -280,9 +283,9 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 
 | 用語 | 意味 | どこにあるか |
 |---|---|---|
-| **Home** | 最初に出る画面。全プロジェクトの合計・Questions（質問と承認）・todo・最近のアクティビティ・動いているもの・止まっている常駐・論文の要対応を並べる。 | `#/home`、`home.js`、`GET /api/home` |
+| **Home** | 最初に出る画面。全プロジェクトの合計・Questions（質問）・todo・最近のアクティビティ・動いているもの・止まっている常駐・論文の要対応を並べる。 | `#/home`、`home.js`、`GET /api/home` |
 | **Projects** | プロジェクトの一覧と、その中の Dashboard・Workflow・List・Settings（設定）・コマンド・会話検索（セッション検索）。 | `#/projects`、`#/project/<名前>/…`（`project.js`・`linkview.js`） |
-| **Chats** | coding agent の会話を読み、指示を送り、質問と承認に答える。 | `data-tab="agent"`、`app.js` |
+| **Chats** | coding agent の会話を読み、指示を送り、質問に答える。 | `data-tab="agent"`、`app.js` |
 | **Papers** | 論文の画面。中の切り替えは Dashboard・Library・Import・Radio の 4 つ。 | `#/papers/dashboard\|library\|import\|radio`、`papers.js` の `PAPERS_SEG` |
 | **Research** | 研究の画面。中の切り替えは research-tree と Experiments の 2 つ。 | `#/research/tree`・`#/research/experiments`、`RESEARCH_SEG` |
 | **Usage** | LLM の料金と制限。 | `#/usage`、`usage.js` |
@@ -298,7 +301,14 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 | **Next Action の帯** | research-tree の上の帯。Next Action の先頭 3 件を並べ、Create CARD の釦を付ける。 | `scitree.js`（`stNextBand`） |
 | **History の帯** | research-tree の上の帯。History（全 Node）を折りたたんで出す。 | `scitree.js`（`stHistoryBand`） |
 | **作成パネル** | SPROUT 作成中だけ、History の帯と DAG の間に出るパネル。作成中も DAG・一覧・SB を操作できる。 | `scitree.js`（`stRenderSprout`） |
-| **先着の答え** | 質問と承認を PC と iPhone の両方に同時に出し、先に答えた方を採用する決まり。 | `apps/web/src/sai_web/questions.py`・`approvals.py` |
+| **先着の答え** | 質問を PC と iPhone の両方に同時に出し、先に答えた方を採用する決まり。 | `apps/web/src/sai_web/questions.py` |
+| **多人数モード** | 研究室の Linux サーバで動かす形。利用者は Web にログインして使い、プロジェクトごとに 1 つのコンテナで動く。`SAI_WEB_USERS_ROOT` が絶対パスのとき有効。 | `registry.py`（`users_root()`）、`auth.py`、`containers.py`、`docs/server.md` |
+| **単独モード** | 1 人が Mac で使う形。`SAI_WEB_USERS_ROOT` が空のとき。合言葉（`SAI_WEB_TOKEN`）は任意。 | `registry.py`（`users_root()` が `None`） |
+| **内部の合言葉** | コンテナの中の CLI・フック・拡張が Web を呼ぶための値（`SAI_WEB_INTERNAL_TOKEN`）。内部用の 3 つの住所だけで使える。利用者の画面には出さない。 | `containers.py`、`main.py`（`_INTERNAL_POST_EXACT`） |
+| **個人のトークン** | 利用者が Account 画面（`#/account`）で発行する `sai_…` の値。sai-prep と CLI が Web に入るときに使う。他人と共有しない。 | `account.js` |
+| **sai-prep** | 各自の Mac で論文の PDF を前処理し、前処理の束をサーバへ送るアプリ。標準ライブラリだけで動き、docling・pdf2zh・mlx-lm は `uv tool` の別の環境に入れる。 | `apps/prep/`、`sai-prep`、`README.md` の「sai-prep」 |
+| **前処理の束** | sai-prep が作る zip。PDF・docling の md と json・図・翻訳 PDF を入れ、`manifest.json`（`format` が `sai-prep-bundle`）で中身を説明する（共有契約 C12）。サーバは展開して `import-bundle` で Library に入れる。 | `crates/sai-paper-core`（`bundle.rs`）、`apps/web/src/sai_web/bundles.py` |
+| **PDF 待ち** | PDF の無い論文。Library に `＋ Library に入れる` で入ると、PDF が届くまでこの状態になる。 | `sai-paper library pending`、`GET /api/projects/{name}/papers/pending`、`papers.js` |
 | **`SaiRoutes`** | 画面を登録する場所。各画面の JS が「住所の照合と描画」を `window.SaiRoutes` に足す。 | `app.js` |
 | **`saiTerm`（用語の札）** | 画面の用語に付ける、押すと説明が出る札。説明は `SAI_TERMS` に書く。 | `ui.js` |
 | **画面の版** | 画面ファイルを変えて配るとき、`sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる。上げないと iPhone に古い画面が残る。 | `sw.js`・`index.html` |
@@ -344,7 +354,7 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **BRANCH** — SPROUT から上へ分かれる E — §4.1
 - **card（カード）** — まだ実行していない run — §2
 - **CARD** — エージェントへの依頼 — §4.4
-- **Chats** — coding agent の会話を読み、指示を送り、質問と承認に答える — §5
+- **Chats** — coding agent の会話を読み、指示を送り、質問に答える — §5
 - **child_Q** — 子にあたる Q — §4.1
 - **`chunks`（RAG の索引）** — `sai-paper index` が検索用に切った断片の表の行 — §3.3
 - **`content`** — 論文の本文・節・塊を標準出力へ出す命令群 — §3.3
@@ -387,7 +397,7 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **O（答えの候補）** — Q の下に置く答えの候補 — §4.1
 - **Objectivity** — Q の評価の軸 1 — §4.1
 - **OP（C-OP）** — research-tree を変える操作 1 つ — §4.3
-- **pane（herdr）** — run を動かす端末の区画 — §2
+- **擬似 pane（headless）** — headless の run の区画 — §5
 - **Paper** — Library の見方のひとつ — §3.4
 - **`paper.env`** — 全プロジェクト共通の API キー — §3.1
 - **Papers** — 論文の画面 — §5
@@ -451,6 +461,8 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **waggle トークン** — 文書を指す短い名前（例 `AXANSMpo`） — §2
 - **Workflow** — Projects の画面のひとつ — §2
 - **worktree（作業用コピー）** — block の `worktree:` が決める作業フォルダの分け方 — §2
+- **headless** — 端末の窓を使わず、エージェントを子プロセスとして動かす方式 — §5
+- **sai-prep** — 各自の Mac の PDF 前処理アプリ — §5
 
 ### 五十音
 
@@ -465,10 +477,12 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **外部 DB** — Library の見方のひとつ — §3.4
 - **外部 DB の検索** — Semantic Scholar など外の DB を検索する — §3.4
 - **画面の版** — `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる版 — §5
-- **検索セット** — 検索結果の候補を `pending`・`keep`・`drop`・`downloaded` で選別する入れ物 — §3.4
 - **検索の範囲（scope）** — 内部 DB の検索で絞る論文の集合 — §3.4
 - **検索モード** — 内部 DB の検索の方式 — §3.4
-- **検索履歴** — 検索の記録 — §3.4
+- **find / search** — 内部 DB の検索 / 外部 DB の検索 — §3.4
+- **search_history / find_history** — 検索 1 回ごとの記録 — §3.4
+- **executer（検索の履歴）** — 検索を実行した `human` か `agent` — §3.4
+- **SAI_TARGET_NODE** — Node を対象に動く Agent に入る環境変数 — §3.4
 - **子タスク** — 親の run が作る子の run — §2
 - **コマンド** — Projects の画面のひとつ（画面の表示は `コマンド`） — §5
 - **作成パネル** — SPROUT 作成中だけ出るパネル — §5
@@ -479,8 +493,7 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **図（figure）** — PDF から抜き出した図表 — §3.1
 - **図の抽出キー** — 図を探す名前 — §3.1
 - **節（section）** — 見出しで分けた本文のまとまり — §3.3
-- **先着の答え** — 質問と承認は先に答えた方を採用する決まり — §5
-- **選別（decision）** — 検索セットの候補 1 件の状態 — §3.4
+- **先着の答え** — 質問は先に答えた方を採用する決まり — §5
 - **チャンク（画面）** — 画面と `content chunks` で、塊のことをこう呼ぶ — §3.3
 - **チャンク化の戦略** — RAG の断片の切り方 — §3.3
 - **登録簿（registry）** — 全プロジェクトの一覧 — §1
@@ -490,3 +503,10 @@ ROOT ──── Q・O・F。SEED の直下の top_Q から下へ分かれる
 - **翻訳** — 要旨の日本語訳と PDF の翻訳 — §3.2
 - **論文の識別子** — 外から付いた論文の名前 — §3.1
 - **論文フォルダ** — 論文 1 本の PDF・本文・図・ノートの置き場 — §3.1
+- **PDF 待ち** — PDF の無い論文（Library に入れた直後の状態） — §5
+- **個人のトークン** — 利用者が Account で発行する `sai_…` の値 — §5
+- **前処理の束** — sai-prep が作る PDF・docling・図・翻訳の zip（C12） — §5
+- **多人数モード** — 研究室の Linux サーバで動かす形 — §5
+- **単独モード** — 1 人が Mac で使う形 — §5
+- **擬似 pane（headless）** — headless の run の区画（`hl-`） — §5
+- **内部の合言葉** — コンテナの CLI・フックが Web を呼ぶ値（`SAI_WEB_INTERNAL_TOKEN`） — §5

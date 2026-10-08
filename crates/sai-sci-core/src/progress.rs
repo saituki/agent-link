@@ -64,11 +64,6 @@ pub struct PaperProgress {
     pub agent_reads: usize,
     /// 最近の引き継ぎ（最大 [`HANDOFF_SCAN`] 件）の「使った論文」に出た回数。
     pub handoff_mentions: usize,
-    /// 検索セットでの判定（`pending` / `keep` / `drop` / `downloaded`。無ければ `None`）。
-    ///
-    /// 同じ論文に複数の判定があるときは `keep` > `downloaded` > `pending` > `drop` の
-    /// 優先順で 1 つに決める（「keep なのに未読」を拾いやすくするため）。
-    pub set_decision: Option<String>,
 }
 
 /// report 1 本の進み具合。
@@ -195,9 +190,6 @@ pub fn collect(conn: &Connection, roots: &PaperRoots) -> Result<Progress, Progre
         }
     }
 
-    // 検索セットの判定（論文ごとに 1 つへまとめる）。
-    let set_decisions = collect_set_decisions(conn)?;
-
     // 論文の基本情報と note の文字数。
     let note_chars = note_chars_by_paper(&roots.data_dir);
     let mut papers: Vec<PaperProgress> = Vec::new();
@@ -222,7 +214,6 @@ pub fn collect(conn: &Connection, roots: &PaperRoots) -> Result<Progress, Progre
                 last_opened,
                 agent_reads: agent_reads.get(&id).copied().unwrap_or(0),
                 handoff_mentions: handoff_mentions.get(&id).copied().unwrap_or(0),
-                set_decision: set_decisions.get(&id).cloned(),
             });
         }
     }
@@ -239,40 +230,6 @@ pub fn collect(conn: &Connection, roots: &PaperRoots) -> Result<Progress, Progre
         unresolved,
         understanding,
     })
-}
-
-/// 論文ごとの検索セットの判定を 1 つにまとめる。
-///
-/// 同じ論文に複数の判定があるときは `keep` > `downloaded` > `pending` > `drop` の
-/// 優先順で決める。
-fn collect_set_decisions(conn: &Connection) -> Result<HashMap<i64, String>, ProgressError> {
-    let mut stmt =
-        conn.prepare("SELECT paper_id, decision FROM search_set_items WHERE paper_id IS NOT NULL")?;
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
-    let mut decisions: HashMap<i64, String> = HashMap::new();
-    for row in rows {
-        let (paper_id, decision) = row?;
-        let entry = decisions
-            .entry(paper_id)
-            .or_insert_with(|| decision.clone());
-        if decision_priority(&decision) < decision_priority(entry) {
-            *entry = decision;
-        }
-    }
-    Ok(decisions)
-}
-
-/// 判定の優先順（小さいほど優先）。
-fn decision_priority(decision: &str) -> u8 {
-    match decision {
-        "keep" => 0,
-        "downloaded" => 1,
-        "pending" => 2,
-        "drop" => 3,
-        _ => 4,
-    }
 }
 
 /// report ごとの進み具合（開かれた回数つき）を新しい順で返す。
@@ -394,7 +351,6 @@ fn run_file_key(path: &str) -> Option<(String, String)> {
 /// 「読むべき論文」を点数で並べて上位 `limit` 本を返す。
 ///
 /// 点数 = 引き継ぎに出た回数 × `weights.handoff_mention`
-/// ＋（検索セットで `keep` なのに読書時間が 0 なら `weights.kept_but_unread`）
 /// ＋（note が無ければ `weights.no_note`）
 /// ＋（最後に開いてから `weights.stale_days` 日以上なら、または一度も開いていなければ
 /// `weights.stale`）。**PDF が無い論文は外す。**
@@ -416,13 +372,6 @@ pub fn read_next(progress: &Progress, weights: &ReadNextWeights, limit: usize) -
             score +=
                 i64::try_from(paper.handoff_mentions).unwrap_or(i64::MAX) * weights.handoff_mention;
             reasons.push(format!("引き継ぎで {} 回", paper.handoff_mentions));
-        }
-        if paper.set_decision.as_deref() == Some("keep")
-            && paper.reading_seconds == 0
-            && weights.kept_but_unread != 0
-        {
-            score += weights.kept_but_unread;
-            reasons.push("残した候補・未読".to_string());
         }
         if paper.note_chars == 0 && weights.no_note != 0 {
             score += weights.no_note;
@@ -715,24 +664,6 @@ mod tests {
                     last_opened: None,
                     agent_reads: 0,
                     handoff_mentions: 3,
-                    set_decision: None,
-                },
-                PaperProgress {
-                    id: 2,
-                    title: "kept but unread".into(),
-                    has_pdf: true,
-                    note_chars: 5,
-                    // 一度開いているので stale しない（30 日以内にした）。
-                    reading_seconds: 0,
-                    last_opened: Some(
-                        chrono::Utc::now()
-                            .naive_utc()
-                            .format("%Y-%m-%d %H:%M:%S")
-                            .to_string(),
-                    ),
-                    agent_reads: 0,
-                    handoff_mentions: 0,
-                    set_decision: Some("keep".into()),
                 },
                 PaperProgress {
                     id: 3,
@@ -743,7 +674,6 @@ mod tests {
                     last_opened: None,
                     agent_reads: 0,
                     handoff_mentions: 5,
-                    set_decision: None,
                 },
                 PaperProgress {
                     id: 4,
@@ -754,7 +684,6 @@ mod tests {
                     last_opened: None,
                     agent_reads: 0,
                     handoff_mentions: 0,
-                    set_decision: None,
                 },
             ],
             reports: Vec::new(),
@@ -766,20 +695,17 @@ mod tests {
         let ranked = read_next(&progress, &weights(), 5);
 
         // 論文 1: 3*3(handoff) + 1(no_note) + 1(stale) = 11
-        // 論文 2: 2(kept) = 2
-        // 論文 4: 1(no_note) + 1(stale) = 2（同点は id 昇順なので 2 が先）
+        // 論文 4: 1(no_note) + 1(stale) = 2
         // 論文 3 は PDF が無いので出ない。
         let ids: Vec<i64> = ranked.iter().map(|entry| entry.paper_id).collect();
-        assert_eq!(ids, vec![1, 2, 4]);
+        assert_eq!(ids, vec![1, 4]);
         assert_eq!(ranked[0].score, 11);
         assert_eq!(
             ranked[0].reason,
             "引き継ぎで 3 回・note なし・まだ開いていない"
         );
         assert_eq!(ranked[1].score, 2);
-        assert_eq!(ranked[1].reason, "残した候補・未読");
-        assert_eq!(ranked[2].score, 2);
-        assert_eq!(ranked[2].reason, "note なし・まだ開いていない");
+        assert_eq!(ranked[1].reason, "note なし・まだ開いていない");
     }
 
     /// 重みを変えると順位が変わる。
@@ -801,7 +727,6 @@ mod tests {
                     last_opened: None,
                     agent_reads: 0,
                     handoff_mentions: 3,
-                    set_decision: None,
                 },
                 PaperProgress {
                     id: 2,
@@ -812,7 +737,6 @@ mod tests {
                     last_opened: None,
                     agent_reads: 0,
                     handoff_mentions: 0,
-                    set_decision: None,
                 },
             ],
             reports: Vec::new(),
@@ -850,7 +774,6 @@ mod tests {
                 ),
                 agent_reads: 1,
                 handoff_mentions: 0,
-                set_decision: Some("drop".into()),
             }],
             reports: Vec::new(),
             open_questions: Vec::new(),

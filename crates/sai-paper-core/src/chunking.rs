@@ -208,8 +208,19 @@ struct TextChunk {
     section: Option<String>,
 }
 
+/// 論文 1 本だけを作るときの絞り込み。`only` が `None` なら全件を対象にする。
+/// 索引の作成（`build_paper`）でだけ `Some` を渡す。
+// ponytail: 全件の SELECT を読んでから Rust 側で絞る。論文数が数万になったら SQL 側で絞る。
+fn is_wanted(only: Option<i64>, paper_id: Option<i64>) -> bool {
+    only.is_none_or(|want| paper_id == Some(want))
+}
+
 /// Abstract 戦略でチャンク化する。
-fn chunk_abstract(conn: &Connection, index: &crate::config::RagIndex) -> Result<BuildReport> {
+fn chunk_abstract(
+    conn: &Connection,
+    index: &crate::config::RagIndex,
+    only: Option<i64>,
+) -> Result<BuildReport> {
     let mut chunks_created = 0i64;
     let mut sources_skipped = 0i64;
 
@@ -224,6 +235,9 @@ fn chunk_abstract(conn: &Connection, index: &crate::config::RagIndex) -> Result<
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     for (paper_id, abstract_text) in abstract_rows {
+        if !is_wanted(only, Some(paper_id)) {
+            continue;
+        }
         // 既に abstract チャンクが存在するかチェック
         let existing: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM chunks WHERE paper_id = ?1 AND source_kind = 'abstract' AND strategy = 'abstract' AND index_name = ?2",
@@ -273,6 +287,9 @@ fn chunk_abstract(conn: &Connection, index: &crate::config::RagIndex) -> Result<
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     for (paper_id, abstract_ja_text) in abstract_ja_rows {
+        if !is_wanted(only, Some(paper_id)) {
+            continue;
+        }
         let existing: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM chunks WHERE paper_id = ?1 AND source_kind = 'abstract' AND strategy = 'abstract' AND source_ref = ?2 AND index_name = ?3",
             rusqlite::params![paper_id, format!("paper_{}_ja", paper_id), &index.name],
@@ -318,7 +335,11 @@ fn chunk_abstract(conn: &Connection, index: &crate::config::RagIndex) -> Result<
 }
 
 /// Sentence 戦略でチャンク化する。
-fn chunk_sentence(conn: &Connection, index: &crate::config::RagIndex) -> Result<BuildReport> {
+fn chunk_sentence(
+    conn: &Connection,
+    index: &crate::config::RagIndex,
+    only: Option<i64>,
+) -> Result<BuildReport> {
     let mut chunks_created = 0i64;
     let mut sources_skipped = 0i64;
 
@@ -345,6 +366,9 @@ fn chunk_sentence(conn: &Connection, index: &crate::config::RagIndex) -> Result<
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     for (paper_id_str, paper_id_opt) in paper_ids {
+        if !is_wanted(only, paper_id_opt) {
+            continue;
+        }
         // 既に sentence チャンクが存在するかチェック
         let existing: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM chunks WHERE source_ref LIKE ?1 AND strategy = 'sentence' AND index_name = ?2",
@@ -701,6 +725,7 @@ fn chunk_paragraph(
     conn: &Connection,
     index: &crate::config::RagIndex,
     data_dir: &std::path::Path,
+    only: Option<i64>,
 ) -> Result<BuildReport> {
     let mut chunks_created = 0i64;
     let mut sources_skipped = 0i64;
@@ -727,6 +752,9 @@ fn chunk_paragraph(
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     for (paper_id_str, md_rel_path, paper_id_opt) in extracts {
+        if !is_wanted(only, paper_id_opt) {
+            continue;
+        }
         // 既に paragraph チャンクが存在するかチェック
         let existing: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM chunks WHERE source_ref LIKE ?1 AND strategy = 'paragraph' AND index_name = ?2",
@@ -800,6 +828,7 @@ fn chunk_section(
     conn: &Connection,
     index: &crate::config::RagIndex,
     data_dir: &std::path::Path,
+    only: Option<i64>,
 ) -> Result<BuildReport> {
     let mut chunks_created = 0i64;
     let mut sources_skipped = 0i64;
@@ -836,6 +865,9 @@ fn chunk_section(
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     for (paper_id_str, md_rel_path, paper_id_opt, title, year) in extracts {
+        if !is_wanted(only, paper_id_opt) {
+            continue;
+        }
         // 既に section チャンクが存在するかチェック
         let existing: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM chunks WHERE source_ref LIKE ?1 AND strategy = 'section' AND index_name = ?2",
@@ -901,7 +933,11 @@ fn chunk_section(
 }
 
 /// Window 戦略でチャンク化する。
-fn chunk_window(conn: &Connection, index: &crate::config::RagIndex) -> Result<BuildReport> {
+fn chunk_window(
+    conn: &Connection,
+    index: &crate::config::RagIndex,
+    only: Option<i64>,
+) -> Result<BuildReport> {
     let mut chunks_created = 0i64;
     let mut sources_skipped = 0i64;
 
@@ -930,6 +966,9 @@ fn chunk_window(conn: &Connection, index: &crate::config::RagIndex) -> Result<Bu
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     for (paper_id_str, paper_id_opt) in paper_ids {
+        if !is_wanted(only, paper_id_opt) {
+            continue;
+        }
         // 既に window チャンクが存在するかチェック
         let existing: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM chunks WHERE source_ref LIKE ?1 AND strategy = 'window' AND index_name = ?2",
@@ -1599,14 +1638,14 @@ pub fn build(
     // All スコープの場合、すべてを実行
     if scope == Scope::All {
         // abstract はどの分け方でも作る。
-        let abstract_report = chunk_abstract(conn, index)?;
+        let abstract_report = chunk_abstract(conn, index, None)?;
         total_created += abstract_report.chunks_created;
         total_skipped += abstract_report.sources_skipped;
 
         if strategy == Strategy::Section {
             // section の索引は、比べられるように section だけを使う
             // （sentence・paragraph・window は混ぜない）。
-            let section_report = chunk_section(conn, index, data_dir)?;
+            let section_report = chunk_section(conn, index, data_dir, None)?;
             total_created += section_report.chunks_created;
             total_skipped += section_report.sources_skipped;
 
@@ -1615,15 +1654,15 @@ pub fn build(
             total_skipped += notes_report.sources_skipped;
         } else {
             // すべての戦略を実行
-            let sentence_report = chunk_sentence(conn, index)?;
+            let sentence_report = chunk_sentence(conn, index, None)?;
             total_created += sentence_report.chunks_created;
             total_skipped += sentence_report.sources_skipped;
 
-            let paragraph_report = chunk_paragraph(conn, index, data_dir)?;
+            let paragraph_report = chunk_paragraph(conn, index, data_dir, None)?;
             total_created += paragraph_report.chunks_created;
             total_skipped += paragraph_report.sources_skipped;
 
-            let window_report = chunk_window(conn, index)?;
+            let window_report = chunk_window(conn, index, None)?;
             total_created += window_report.chunks_created;
             total_skipped += window_report.sources_skipped;
 
@@ -1648,27 +1687,27 @@ pub fn build(
         // 指定されたスコープと戦略の組み合わせで実行
         match (scope, strategy) {
             (Scope::Papers, Strategy::Abstract) => {
-                let report = chunk_abstract(conn, index)?;
+                let report = chunk_abstract(conn, index, None)?;
                 total_created += report.chunks_created;
                 total_skipped += report.sources_skipped;
             }
             (Scope::Papers, Strategy::Sentence) => {
-                let report = chunk_sentence(conn, index)?;
+                let report = chunk_sentence(conn, index, None)?;
                 total_created += report.chunks_created;
                 total_skipped += report.sources_skipped;
             }
             (Scope::Papers, Strategy::Paragraph) => {
-                let report = chunk_paragraph(conn, index, data_dir)?;
+                let report = chunk_paragraph(conn, index, data_dir, None)?;
                 total_created += report.chunks_created;
                 total_skipped += report.sources_skipped;
             }
             (Scope::Papers, Strategy::Section) => {
-                let report = chunk_section(conn, index, data_dir)?;
+                let report = chunk_section(conn, index, data_dir, None)?;
                 total_created += report.chunks_created;
                 total_skipped += report.sources_skipped;
             }
             (Scope::Papers, Strategy::Window) => {
-                let report = chunk_window(conn, index)?;
+                let report = chunk_window(conn, index, None)?;
                 total_created += report.chunks_created;
                 total_skipped += report.sources_skipped;
             }
@@ -1699,6 +1738,30 @@ pub fn build(
     })
 }
 
+/// 論文 1 本の本文の chunk を作る（インクリメンタル）。
+///
+/// 索引の分け方（strategy）で、`paper_id` の論文だけを対象にする。
+/// `build` の Papers スコープと同じ分け方で、ほかの論文の chunk は増えない。
+///
+/// # Errors
+///
+/// DB エラーの場合。
+pub fn build_paper(
+    conn: &Connection,
+    paper_id: i64,
+    index: &crate::config::RagIndex,
+    data_dir: &std::path::Path,
+) -> Result<BuildReport> {
+    let only = Some(paper_id);
+    Ok(match Strategy::from_str(&index.chunk_strategy)? {
+        Strategy::Abstract => chunk_abstract(conn, index, only)?,
+        Strategy::Sentence => chunk_sentence(conn, index, only)?,
+        Strategy::Paragraph => chunk_paragraph(conn, index, data_dir, only)?,
+        Strategy::Section => chunk_section(conn, index, data_dir, only)?,
+        Strategy::Window => chunk_window(conn, index, only)?,
+    })
+}
+
 /// チャンクを削除してから再構築する。
 ///
 /// 指定した索引のチャンクを削除し、その索引の分け方で再構築する。
@@ -1724,7 +1787,7 @@ pub fn rebuild(
     let mut total_skipped = 0i64;
 
     // Abstract は常に作成する（build --scope all と同じ）
-    let abstract_report = chunk_abstract(conn, index)?;
+    let abstract_report = chunk_abstract(conn, index, None)?;
     total_created += abstract_report.chunks_created;
     total_skipped += abstract_report.sources_skipped;
 
@@ -1736,7 +1799,7 @@ pub fn rebuild(
             total_skipped += notes_report.sources_skipped;
         }
         Strategy::Sentence => {
-            let report = chunk_sentence(conn, index)?;
+            let report = chunk_sentence(conn, index, None)?;
             total_created += report.chunks_created;
             total_skipped += report.sources_skipped;
 
@@ -1745,7 +1808,7 @@ pub fn rebuild(
             total_skipped += notes_report.sources_skipped;
         }
         Strategy::Paragraph => {
-            let report = chunk_paragraph(conn, index, data_dir)?;
+            let report = chunk_paragraph(conn, index, data_dir, None)?;
             total_created += report.chunks_created;
             total_skipped += report.sources_skipped;
 
@@ -1754,7 +1817,7 @@ pub fn rebuild(
             total_skipped += notes_report.sources_skipped;
         }
         Strategy::Window => {
-            let report = chunk_window(conn, index)?;
+            let report = chunk_window(conn, index, None)?;
             total_created += report.chunks_created;
             total_skipped += report.sources_skipped;
 
@@ -1763,7 +1826,7 @@ pub fn rebuild(
             total_skipped += notes_report.sources_skipped;
         }
         Strategy::Section => {
-            let report = chunk_section(conn, index, data_dir)?;
+            let report = chunk_section(conn, index, data_dir, None)?;
             total_created += report.chunks_created;
             total_skipped += report.sources_skipped;
 
@@ -2092,7 +2155,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap()).unwrap();
+        let report = chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap(), None).unwrap();
         assert_eq!(report.chunks_created, 1);
 
         let (text, start, end): (String, i64, i64) = conn
@@ -2124,7 +2187,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = chunk_sentence(&conn, &crate::config::RagConfig::default().index(None).unwrap()).unwrap();
+        let report = chunk_sentence(&conn, &crate::config::RagConfig::default().index(None).unwrap(), None).unwrap();
         assert_eq!(report.chunks_created, 2);
 
         let chunks: Vec<(String, i64, i64)> = conn
@@ -2205,7 +2268,7 @@ mod tests {
         }
 
         let config = crate::config::RagConfig::default().index(None).unwrap();
-        let report = chunk_window(&conn, &config).unwrap();
+        let report = chunk_window(&conn, &config, None).unwrap();
         // デフォルト window_size=3, overlap=1 で 5 文なら 3 チャンク
         assert!(report.chunks_created > 0);
 
@@ -2219,6 +2282,31 @@ mod tests {
         assert_eq!(count, report.chunks_created);
     }
 
+    /// build_paper は指定した論文の chunk だけを作る（ほかの論文の chunk は増えない）。
+    #[test]
+    fn test_build_paper_only_that_paper() {
+        let conn = test_db().unwrap();
+        conn.execute(
+            "INSERT INTO papers (id, title, abstract) VALUES (1, 'A', 'Abstract one'), (2, 'B', 'Abstract two')",
+            [],
+        )
+        .unwrap();
+        let mut index = crate::config::RagConfig::default().index(None).unwrap();
+        index.chunk_strategy = "abstract".to_string();
+
+        let report = build_paper(&conn, 2, &index, std::path::Path::new("/nonexistent")).unwrap();
+
+        assert_eq!(report.chunks_created, 1);
+        let paper_ids: Vec<i64> = conn
+            .prepare("SELECT DISTINCT paper_id FROM chunks ORDER BY paper_id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(paper_ids, vec![2]);
+    }
+
     #[test]
     fn test_build_idempotent() {
         let conn = test_db().unwrap();
@@ -2228,10 +2316,10 @@ mod tests {
         )
         .unwrap();
 
-        let report1 = chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap()).unwrap();
+        let report1 = chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap(), None).unwrap();
         assert_eq!(report1.chunks_created, 1);
 
-        let report2 = chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap()).unwrap();
+        let report2 = chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap(), None).unwrap();
         assert_eq!(report2.chunks_created, 0);
         assert_eq!(report2.sources_skipped, 1);
     }
@@ -2245,7 +2333,7 @@ mod tests {
         )
         .unwrap();
 
-        chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap()).unwrap();
+        chunk_abstract(&conn, &crate::config::RagConfig::default().index(None).unwrap(), None).unwrap();
 
         let count: i64 = conn
             .query_row(
@@ -2408,7 +2496,7 @@ Methods text.
         .unwrap();
 
         let config = crate::config::RagConfig::default().index(None).unwrap();
-        chunk_paragraph(&conn, &config, &data_dir).unwrap();
+        chunk_paragraph(&conn, &config, &data_dir, None).unwrap();
 
         let sections: Vec<Option<String>> = conn
             .prepare("SELECT section FROM chunks WHERE strategy = 'paragraph' ORDER BY ord")
@@ -2662,7 +2750,7 @@ Methods text.
         let config = crate::config::RagConfig::default().index(None).unwrap();
 
         // abstract を作成
-        let abstract_report = chunk_abstract(&conn, &config).unwrap();
+        let abstract_report = chunk_abstract(&conn, &config, None).unwrap();
         assert_eq!(abstract_report.chunks_created, 1);
 
         // abstract チャンクが存在することを確認

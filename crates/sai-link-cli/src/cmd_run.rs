@@ -57,6 +57,34 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             print_json(&v)
         }
         RunCmd::Advance { run_id, json: _ } => print_phone(PhoneCmd::Advance { run_id }),
+        // 実行中の run に続きの文を送る（--text が無ければ標準入力の全文）
+        RunCmd::Send {
+            run_id,
+            text,
+            json: _,
+        } => {
+            let text = match text {
+                Some(t) => t,
+                None => {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    std::io::stdin().read_to_string(&mut buf).map_err(|e| {
+                        CmdError::other(format!("標準入力の読み取りに失敗しました: {}", e))
+                    })?;
+                    buf
+                }
+            };
+            if text.trim().is_empty() {
+                return Err(CmdError::input("送る文が空です"));
+            }
+            let v = agent_result(sai_link_engine::agent_api::run_send(run_id, &text))?;
+            print_json(&v)
+        }
+        // 実行中の run を中断する（人間の esc と同じ）
+        RunCmd::Interrupt { run_id, json: _ } => {
+            let v = agent_result(sai_link_engine::agent_api::run_interrupt(run_id))?;
+            print_json(&v)
+        }
         RunCmd::Rm { run_id, yes } => {
             // 確認の入力を待たない。`--yes` が無ければ終了コード 2。
             if !yes {

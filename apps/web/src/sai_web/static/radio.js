@@ -590,7 +590,7 @@ async function markDownloaded() {
 
 async function openRadioList() {
   saveRadioBackHash(); // 論文情報の戻る先にする（07 §4.2 と同じ・09 §4.2）
-  fillSegment("radio-seg", "radio"); // 上部の Dashboard / Discover / Library / Radio（07 §4.1）
+  fillSegment("radio-seg", "radio"); // 上部の Research の 5 つ（Dashboard・Library・Tree・Experiments・Radio）
   await ensurePaperProjects(); // どのプロジェクトの音声を出すか決める
   if (location.hash !== "#/papers/radio") return; // 既に別の画面へ移っている
   updateMiniPlayer(); // 移動直後に表示を切り替える（通信を待たないため）
@@ -1427,13 +1427,14 @@ async function requestRadioAudio(projectName, id, detail, slot) {
 function renderPaperAudioSlot(detail, slot) {
   stopRadioSlotPoll(); // 再描画のたびに読み直しを作り直す
   if (!detail || !slot) return;
+  slot.innerHTML = "";
   const id = detail.paper && detail.paper.id;
   const projectName = currentPaperProject(); // 開いている論文のプロジェクト（18 §3.5）
   const files = detail.files || {};
   const podcast = detail.podcast || {};
   const status = podcast.status || null;
   const pending = radioPendingIds.has(String(id));
-  const wrap = el("div", "paper-actions");
+  // 中身はボタン（または作成中の表示）だけ。papers.js の .paper-actions の列に並ぶ（#paper-audio-slot は display: contents）
   const notes = [];
   const err = radioSlotErrors.get(String(id));
   if (err) notes.push({ cls: "radio-slot-error", text: err });
@@ -1446,12 +1447,12 @@ function renderPaperAudioSlot(detail, slot) {
       const radioId = podcast.radio_id || (proj ? `${proj.root_name}-${id}` : id);
       location.hash = `#/radio/${encodeURIComponent(radioId)}`;
     });
-    wrap.appendChild(btn);
+    slot.appendChild(btn);
   } else if (status === "generating" || pending) {
     const busy = el("span", "radio-slot-busy");
     busy.appendChild(el("span", "papers-spin")); // 回るしるし（08 のものを使い回す）
     busy.appendChild(el("span", null, "音声を作成中…（数分かかります。できたら通知します）"));
-    wrap.appendChild(busy);
+    slot.appendChild(busy);
     if (typeof Notification === "undefined" || Notification.permission !== "granted") {
       notes.push({ cls: "radio-slot-note", text: "通知を受け取るには Agent タブの 🔔 を押してください" });
     }
@@ -1459,20 +1460,23 @@ function renderPaperAudioSlot(detail, slot) {
   } else if (!files.extract) {
     const btn = el("button", "paper-btn", "🎙 音声を作る");
     btn.disabled = true; // 本文が無いので作れない（10 §4.5）
-    wrap.appendChild(btn);
+    slot.appendChild(btn);
     notes.push({ cls: "radio-slot-note", text: "本文がまだ取り出されていないため作れません" });
   } else {
     const btn = el("button", "paper-btn", "🎙 音声を作る");
     btn.addEventListener("click", () => void requestRadioAudio(projectName, id, detail, slot));
-    wrap.appendChild(btn);
+    slot.appendChild(btn);
     if (status === "failed") {
       notes.push({ cls: "radio-slot-note", text: `前回は失敗しました: ${podcast.error || "原因不明のエラー"}` });
     }
   }
 
-  slot.innerHTML = "";
-  slot.appendChild(wrap);
-  for (const note of notes) slot.appendChild(el("div", note.cls, note.text));
+  // 注記は列の下の 1 行（papers.js が置く #paper-audio-notes・無ければ出さない）
+  const notesBox = document.getElementById("paper-audio-notes");
+  if (notesBox) {
+    notesBox.innerHTML = "";
+    for (const note of notes) notesBox.appendChild(el("div", note.cls, note.text));
+  }
 }
 
 /** 操作カードを appbar の直下に残すため，appbar の高さを CSS 変数に入れる（10 §4.1）。 */
@@ -1506,7 +1510,7 @@ if (typeof window !== "undefined" && window.document) {
         return hash === "#/papers/radio" ? {} : null;
       },
       view: "view-papers-radio",
-      tab: "papers",
+      tab: "research",
       hideTabbar: false,
       interval: 0, // 定期更新はしない（読むのは開いたときだけ・09 §4.2）
       async open() {
@@ -1520,7 +1524,7 @@ if (typeof window !== "undefined" && window.document) {
         return m ? { id: decodeURIComponent(m[1]) } : null;
       },
       view: "view-radio-player",
-      tab: "papers",
+      tab: "research",
       hideTabbar: true, // 10 で入力欄を置くためタブバーを隠す（09 §4.2）
       interval: 0,
       async open(params) {

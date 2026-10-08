@@ -1,8 +1,8 @@
-//! `sai-paper expand` — 引用の網を 1 段だけ広げ、Library に無い候補を検索セットに入れる。
+//! `sai-paper expand` — 引用の網を 1 段だけ広げ、Library に無い候補を外部検索の履歴に残す。
 //!
 //! S2 から引用（references）と被引用（citations）を 1 段だけ取り、`papers` テーブルの
-//! DOI・arXiv ID・S2 paperId と照らして、Library に無いものだけを検索セットに
-//! `decision = 'pending'` で入れる。ネットを使うのはこのコマンドを実行したときだけ。
+//! DOI・arXiv ID・S2 paperId と照らして、Library に無いものだけを 1 回の外部検索
+//! （`search_history` の 1 行）として記録する。ネットを使うのはこのコマンドを実行したときだけ。
 //!
 //! 取得（S2 への問い合わせ）と照合（Library との突き合わせ）を分けてある。
 //! 照合の部分は `LibraryIndex` と `filter_new_candidates` で、ネット無しで試せる。
@@ -13,7 +13,6 @@ use rusqlite::Connection;
 use sai_paper_core::api::s2::{S2Client, S2PaperDetail};
 use sai_paper_core::figures;
 use sai_paper_core::models::RemotePaper;
-use sai_paper_core::search_sets::{self, SearchSetError};
 use std::collections::HashSet;
 
 /// 引用の網をたどる向き。
@@ -54,21 +53,12 @@ impl Direction {
     fn fetches_cited(self) -> bool {
         matches!(self, Self::Cited | Self::Both)
     }
-
-    /// 検索セットの由来に書く向きの名前。
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Refs => "references",
-            Self::Cited => "citations",
-            Self::Both => "both",
-        }
-    }
 }
 
 /// S2 から取った近傍論文 1 件（Library との照合に使う識別子を添えたもの）。
 #[derive(Debug, Clone)]
 pub struct ExpandCandidate {
-    /// 検索セットに入れる形の論文。
+    /// 履歴に残す形の論文。
     pub paper: RemotePaper,
     /// DOI（`externalIds` の `DOI`）。
     pub doi: Option<String>,
@@ -305,23 +295,6 @@ pub fn filter_new_candidates(
     (new_candidates, existing)
 }
 
-/// 候補を検索セットに入れる（`dedupe_key` が同じものは足さない）。入れた位置を返す。
-///
-/// # Errors
-///
-/// DB エラーのとき。
-pub fn add_candidates(
-    conn: &Connection,
-    set_id: i64,
-    candidates: &[ExpandCandidate],
-) -> Result<Vec<usize>> {
-    let papers = candidates
-        .iter()
-        .map(|candidate| candidate.paper.clone())
-        .collect::<Vec<_>>();
-    Ok(search_sets::add_items(conn, set_id, papers)?)
-}
-
 /// 1 本の論文についての expand の結果。
 #[derive(Debug, Default)]
 struct PaperOutcome {
@@ -336,15 +309,15 @@ struct PaperOutcome {
 
 impl PaperOutcome {
     /// 人が読む 1 行。
-    fn line(&self, set_name: &str) -> String {
+    fn line(&self) -> String {
         if self.refs == 0 && self.cited == 0 && self.added == 0 {
             if let Some(error) = &self.error {
                 return format!("#{}: {error}", self.paper_id);
             }
         }
         let mut line = format!(
-            "#{}: 引用 {}・被引用 {} → Library にある {}・新しい候補 {} を「{}」に入れました",
-            self.paper_id, self.refs, self.cited, self.already, self.added, set_name,
+            "#{}: 引用 {}・被引用 {} → Library にある {}・新しい候補 {}",
+            self.paper_id, self.refs, self.cited, self.already, self.added,
         );
         if let Some(error) = &self.error {
             line.push_str(&format!("（{error}）"));
@@ -368,68 +341,67 @@ impl PaperOutcome {
 
 /// `sai-paper expand` の本体。
 ///
+/// たどって見つけた候補は、全部まとめて 1 回の外部検索として `search_history` に残す。
+///
 /// # Errors
 ///
-/// DB を開けない、セットを作れない、`papers` を 1 つも指定していないとき。
+/// DB を開けない、`papers` を 1 つも指定していないとき。
 pub async fn handle(
     client: &S2Client,
     papers: Vec<i64>,
     direction: Direction,
     limit: usize,
-    save_as: &str,
     json: bool,
 ) -> Result<()> {
     if papers.is_empty() {
         bail!("論文の番号を 1 つ以上指定してください");
     }
 
-    let db = crate::open_database()?;
+    let (db, cfg, paths) = crate::phone::open_context()?;
     let conn = db.connection();
     let library = LibraryIndex::from_conn(conn)?;
 
-    // セットは無ければ作り、あればそのまま使う。
-    let set_id = match search_sets::get_by_name(conn, save_as) {
-        Ok(set) => set.id,
-        Err(SearchSetError::NotFound(_)) => search_sets::create(
-            conn,
-            search_sets::CreateSearchSetParams {
-                name: save_as.to_string(),
-                source_dbs: "s2".to_string(),
-                query: format!("expand ({})", direction.as_str()),
-                raw_query: None,
-                created_by: "user".to_string(),
-                note: Some("sai-paper expand で引用の網を 1 段広げた候補".to_string()),
-            },
-        )?,
-        Err(error) => return Err(error.into()),
-    };
-
     let mut outcomes = Vec::new();
-    for paper_id in papers {
-        let outcome =
-            expand_one(conn, client, &library, set_id, paper_id, direction, limit).await?;
+    let mut found: Vec<RemotePaper> = Vec::new();
+    for &paper_id in &papers {
+        let (outcome, candidates) =
+            expand_one(conn, client, &library, paper_id, direction, limit).await?;
+        found.extend(candidates);
         if json {
             outcomes.push(outcome.to_json());
         } else {
-            println!("{}", outcome.line(save_as));
+            println!("{}", outcome.line());
         }
     }
 
+    // 重複（`dedupe_key`）は `record` の中で除かれる。
+    let ids: Vec<String> = papers.iter().map(i64::to_string).collect();
+    let executer = crate::executer_name();
+    let log_id = sai_paper_core::search_history::record(
+        conn,
+        crate::origin_name(),
+        executer,
+        crate::run_id_for(executer),
+        &format!("expand: {}", ids.join(",")),
+        "",
+        &limit.to_string(),
+        "s2",
+        &found,
+    )?;
+
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "set": save_as,
-                "results": outcomes,
-            }))?
-        );
+        let mut value = crate::phone::log(&db, &cfg, &paths, log_id)?;
+        if let serde_json::Value::Object(map) = &mut value {
+            map.insert("results".to_string(), serde_json::Value::Array(outcomes));
+        }
+        println!("{}", serde_json::to_string(&value)?);
     }
     Ok(())
 }
 
-/// 1 本の論文の引用の前後を 1 段たどり、Library に無いものをセットに入れる。
+/// 1 本の論文の引用の前後を 1 段たどり、Library に無い候補を返す。
 ///
-/// S2 への問い合わせに失敗しても、そこまでに取れた結果はセットに入れ、理由を
+/// S2 への問い合わせに失敗しても、そこまでに取れた結果は返し、理由を
 /// `error` に残す（コマンド全体は止めない）。
 ///
 /// # Errors
@@ -439,11 +411,10 @@ async fn expand_one(
     conn: &Connection,
     client: &S2Client,
     library: &LibraryIndex,
-    set_id: i64,
     paper_id: i64,
     direction: Direction,
     limit: usize,
-) -> Result<PaperOutcome> {
+) -> Result<(PaperOutcome, Vec<RemotePaper>)> {
     let mut outcome = PaperOutcome {
         paper_id,
         ..PaperOutcome::default()
@@ -451,7 +422,7 @@ async fn expand_one(
 
     let Some(key) = figures::extract_key_for_paper(conn, paper_id)? else {
         outcome.error = Some("s2_paper_id / arxiv_id / doi が未登録です".to_string());
-        return Ok(outcome);
+        return Ok((outcome, Vec::new()));
     };
     outcome.key = key.clone();
 
@@ -482,12 +453,13 @@ async fn expand_one(
     let candidates = candidates_from_details(details);
     let (new_candidates, existing) = filter_new_candidates(candidates, library);
     outcome.already = existing;
-    outcome.added = add_candidates(conn, set_id, &new_candidates)?.len();
+    outcome.added = new_candidates.len();
 
     if !errors.is_empty() {
         outcome.error = Some(errors.join("、"));
     }
-    Ok(outcome)
+    let papers = new_candidates.into_iter().map(|candidate| candidate.paper).collect();
+    Ok((outcome, papers))
 }
 
 #[cfg(test)]
@@ -567,33 +539,24 @@ mod tests {
     }
 
     #[test]
-    fn ac2_same_candidate_added_only_once() {
+    fn ac2_candidates_are_recorded_once_in_search_history() {
         let db = Database::in_memory().expect("メモリ DB を作れる");
         let conn = db.connection();
 
-        let set_id = search_sets::create(
-            conn,
-            search_sets::CreateSearchSetParams {
-                name: "expand-test".to_string(),
-                source_dbs: "s2".to_string(),
-                query: "expand".to_string(),
-                raw_query: None,
-                created_by: "user".to_string(),
-                note: None,
-            },
-        )
-        .expect("セットを作れる");
-
         let candidates = candidates_from_details(sample_details());
-        let first = add_candidates(conn, set_id, &candidates).expect("1 回目は入る");
-        assert_eq!(first.len(), candidates.len());
+        // 同じ候補が 2 本の論文から見つかっても、1 回の履歴に 1 つずつだけ入る。
+        let papers: Vec<RemotePaper> = candidates
+            .iter()
+            .chain(candidates.iter())
+            .map(|candidate| candidate.paper.clone())
+            .collect();
+        let log_id = sai_paper_core::search_history::record(
+            conn, "cli", "human", None, "expand: 1,2", "", "20", "s2", &papers,
+        )
+        .expect("履歴に残せる");
 
-        let second = add_candidates(conn, set_id, &candidates).expect("2 回目もエラーにならない");
-        assert!(second.is_empty(), "同じ候補は 2 回目に入らない");
-
-        let items = search_sets::items(conn, set_id).expect("候補を読める");
+        let items = sai_paper_core::search_history::items(conn, log_id).expect("候補を読める");
         assert_eq!(items.len(), candidates.len(), "候補は 1 つずつだけ");
-        assert!(items.iter().all(|item| item.decision == "pending"));
     }
 
     #[test]

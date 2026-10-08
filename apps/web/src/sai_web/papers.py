@@ -2,9 +2,9 @@
 
 第 1 弾の Web 機能（U3）で足したもの:
 - Import（BibTeX の読み込み）: `import list / add / remove`
-- Download（PDF の取得と Library への登録）: `paper download` → `paper after-download`（背景で走らせる）
+- Library に入れる（PDF 無しの登録・U13）: `paper keep`
 - Project（state.md / mind.md / 要対応。研究の命令は sai-sci が行う・U14）:
-  `project show` / `project memo` / `attention resolve` / `attention list`
+  `project show` / `project mind` / `attention resolve` / `attention list`
 
 sai-web は他アプリの DB を直接開かない（00 §2）ため，ここはすべて CLI に頼る。
 呼ぶ先は「論文の置き場があるプロジェクト」（計画 17 §3.1）で決めるもので，
@@ -16,7 +16,7 @@ iPhone からはパスを受け取らず，プロジェクト名から root を�
 - `library list` / `library tree` / `paper show <id>`（読み取り・02）
 - `paper translate <id>`（要旨の日本語訳・03）
 - `content paper <id> --json`（本文・既存）
-- `providers` / `search --json` / `search-log <id>`（Discover・02・03・計画 08）
+- `providers` / `search --json` / `search-history <id>`（Discover・02・03・計画 08）
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from sai_web import cli, control, notify, rbrowser
+from sai_web import cli, control, notify, registry
 from sai_web.config import settings
 
 logger = logging.getLogger("sai_web")
@@ -49,8 +49,8 @@ _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _PAPER_DB_REL = Path(".sai") / "paper" / "papr.db"
 # 一覧を覚えておく秒数（プロジェクト一覧を呼びすぎないため・17 §3.2）
 _PROJECTS_TTL = 30.0
-# 覚えておいた一覧（(時刻, 一覧)）。中身は root の絶対パスも含む内部用
-_projects_cache: tuple[float, list[dict]] | None = None
+# 覚えておいた一覧（利用者の名前 → (時刻, 一覧)）。中身は root の絶対パスも含む内部用
+_projects_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
 def list_paper_projects(refresh: bool = False) -> list[dict]:
@@ -64,12 +64,10 @@ def list_paper_projects(refresh: bool = False) -> list[dict]:
     """
     global _projects_cache
     now = time.monotonic()
-    if (
-        not refresh
-        and _projects_cache is not None
-        and now - _projects_cache[0] < _PROJECTS_TTL
-    ):
-        return _projects_cache[1]
+    key = registry.user_key()
+    hit = _projects_cache.get(key)
+    if not refresh and hit is not None and now - hit[0] < _PROJECTS_TTL:
+        return hit[1]
     out: list[dict] = []
     for project in control.list_projects():
         name = project.get("name") or ""
@@ -91,7 +89,7 @@ def list_paper_projects(refresh: bool = False) -> list[dict]:
                 "last_executed_at": project.get("last_executed_at"),
             }
         )
-    _projects_cache = (now, out)
+    _projects_cache[key] = (now, out)
     return out
 
 
@@ -138,8 +136,11 @@ def _paper_cli(project: dict, args: list[str], timeout: float = 30.0):
     )
 
 
-def _sci_cli(project: dict, args: list[str], timeout: float = 30.0):
-    """sai-sci の CLI を呼ぶ（研究の命令。cwd・env の約束は `_paper_cli` と同じ）。"""
+def _sci_cli(project: dict, args: list[str], timeout: float = 30.0, input_text: str | None = None):
+    """sai-sci の CLI を呼ぶ（研究の命令。cwd・env の約束は `_paper_cli` と同じ）。
+
+    `input_text` を渡すと標準入力に書く（`project mind` の全文・U04）。
+    """
     root = str(project["root"])
     return cli.run_json(
         [settings.sai_sci_bin, *args],
@@ -147,6 +148,7 @@ def _sci_cli(project: dict, args: list[str], timeout: float = 30.0):
         cwd=root,
         env={**os.environ, "SAI_PROJECT_ROOT": root, "SAI_ORIGIN": "phone"},
         timeout=timeout,
+        input_text=input_text,
     )
 
 
@@ -289,9 +291,9 @@ def providers(project: dict) -> dict:
     return _paper_cli(project, ["providers"])
 
 
-def search_log(project: dict, log_id: int) -> dict:
-    """過去の検索結果（`search-log <log_id>`・08 §3）。"""
-    return _paper_cli(project, ["search-log", str(log_id)])
+def search_history(project: dict, log_id: int) -> dict:
+    """過去の検索結果（`search-history <log_id>`・08 §3）。"""
+    return _paper_cli(project, ["search-history", str(log_id)])
 
 
 def validate_search(req: SearchRequest, available: list[str]) -> str:
@@ -498,9 +500,9 @@ def find(project: dict, req: FindRequest) -> dict:
     return _paper_cli(project, build_find_args(req), timeout=120.0)
 
 
-def find_log(project: dict, log_id: int) -> dict:
-    """過去の内部検索の結果（`find-log <log_id>`・U02）。"""
-    return _paper_cli(project, ["find-log", str(log_id)])
+def find_history(project: dict, log_id: int) -> dict:
+    """過去の内部検索の結果（`find-history <log_id>`・U02）。"""
+    return _paper_cli(project, ["find-history", str(log_id)])
 
 
 # --- 音声化の依頼（計画 10 §3・プロジェクト付きは 17 §3.3・§3.4） ---
@@ -658,33 +660,32 @@ def pdf_path(project: dict, paper_id: int, lang: str | None) -> Path:
     return path
 
 
-# --- Import（BibTeX の読み込み）と Download・Project（U3 §変更内容 2） ---
-# 外から来る値（.bib の名前・本文・Download の依頼・メモ・key）は
+# --- Import（BibTeX の読み込み）と Library に入れる・Project（U3 §変更内容 2・U13 §2） ---
+# 外から来る値（.bib の名前・本文・keep の依頼・メモ・key）は
 # すべて CLI を呼ぶ前にここで確かめる（共有契約 C-A2）。
 
 # .bib の名前の規則（英数字・.・-・_ で .bib で終わる 80 文字まで）
 _BIB_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}\.bib$")
 # .bib の中身の大きさの上限（1MB）
 BIB_TEXT_MAX = 1024 * 1024
-# メモ 1 行の長さの上限（mind-append は 1 行だけ書く）
-MEMO_MAX = 2000
+# mind.md の全文の長さの上限（文字・U04）
+MIND_MAX = 200000
 # 要対応の key の長さの上限
 ATTENTION_KEY_MAX = 300
 # 題名（通知の文に使うだけ）の長さの上限
 DOWNLOAD_TITLE_MAX = 200
-# Download（PDF を取りに行きて登録するまで）の待ち時間
-DOWNLOAD_TIMEOUT = 300.0
-# 登録後の自動処理（図の抽出・PDF の翻訳）の待ち時間
-AFTER_DOWNLOAD_TIMEOUT = 2000.0
-# 終わった Download の仕事を一覧に残す秒数（30 分）
+# 終わった仕事を一覧に残す秒数（30 分）
 _DOWNLOAD_KEEP = 1800.0
-# Download の仕事の段（0 = PDF取得, 1 = 図抽出, 2 = 翻訳, 3 = 完了）。
+# 前処理の束の取り込みの段（0 = 展開, 1 = 取り込み, 2 = 完了）。
 # 段の名前は画面（paperimport.js）と共有する。
+BUNDLE_STEPS = ["展開", "取り込み"]
+# `sai-progress` の段を持たない仕事の既定の段（引用の抜き出しは自前の段を使う）。
 DOWNLOAD_STEPS = ["PDF取得", "図抽出", "翻訳"]
 # 仕事のログに残す行数の上限（古いものから捨てる）
 DOWNLOAD_MESSAGE_KEEP = 50
 
-# 今の Download の仕事（(プロジェクト名, 仕事のキー) → 仕事の dict）。
+# 今走っている仕事（(プロジェクト名, 仕事のキー) → 仕事の dict）。
+# 束の取り込み（bundle）・引用の抜き出し・要旨の訳・PDF の訳・音声化を入れる。
 # 状態は sai-web のメモリだけに持つ（音声化と同じ作り・再起動しても論文は sai-paper に残る）。
 _download_jobs: dict[tuple[str, str], dict] = {}
 
@@ -751,14 +752,14 @@ def import_remove(project: dict, file_name) -> dict:
     return _paper_cli(project, ["import", "remove", "--name", name])
 
 
-# --- Download（PDF を取って Library に登録する・U3 §変更内容 2） ---
+# --- Library に入れる（PDF 無しの登録・U13 §2） ---
 
 
 def _as_positive_int(value, label: str, allow_text: bool = False) -> int:
     """外から来る「1 以上の整数」を int にして返す（違反は 400）。
 
     JSON の body では数値だけ、クエリの入力では数字の文字列が届くため、
-    クエリから引く関数（`_manual_target`）は `allow_text` で数字の文字列も受ける。
+    クエリから引く関数は `allow_text` で数字の文字列も受ける。
     """
     if isinstance(value, bool):
         raise HTTPException(
@@ -793,7 +794,7 @@ def _cite_target(payload, allow_text: bool = False) -> tuple[str, list[str]] | N
     """引用の指定（`{"cite_paper_id": 12, "ref_no": 3}`）があれば `(キー, 引数)` を返す。
 
     どちらも無ければ None、片方だけ・0 以下・文字列以外なら 400。
-    `Download`（U05 §2）と手動取り込み（`_manual_target`）のどちらでも使う。
+    `keep`（U13 §2）と引用の指定（U05 §2）のどちらでも使う。
     """
     paper_id = payload.get("cite_paper_id")
     ref_no = payload.get("ref_no")
@@ -805,8 +806,9 @@ def _cite_target(payload, allow_text: bool = False) -> tuple[str, list[str]] | N
 
 
 def _download_payload(payload) -> tuple[str, list[str], str]:
-    """Download の依頼を確かめて `(仕事のキー, CLI の引数, 題名)` を返す（違反は 400）。
+    """Library に入れる対象を確かめて `(対象のキー, CLI の引数, 題名)` を返す（違反は 400）。
 
+    `sai-paper paper keep`（U13 §2）と、かつての Download が共有する検査。
     - 検索履歴の 1 件: `{"log_id": 3, "position": 2}` → キー `log:3:2`
     - BibTeX の 1 件: `{"import_id": "DOI:…"}` → キー `import:DOI:…`
     - 引用の 1 件: `{"cite_paper_id": 12, "ref_no": 3}` → キー `cite:12:3`（U05 §2）
@@ -851,7 +853,7 @@ def _download_payload(payload) -> tuple[str, list[str], str]:
 
 
 def _download_json(stdout: bytes | None) -> dict:
-    """`phone download` の応答を読む（読めなければ空の dict）。"""
+    """CLI の JSON の応答を読む（読めなければ空の dict）。"""
     try:
         data = json.loads((stdout or b"").decode("utf-8", "replace") or "")
     except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
@@ -875,7 +877,7 @@ def _finish_download(job: dict, status: str, error: str | None = None) -> None:
 def _new_job(kind: str, key: str, title: str, status: str, steps: list[str], percent) -> dict:
     """仕事の dict を作る（一覧に出す形はすべて同じにする・U05 §1）。
 
-    `kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` の 5 つ。
+    `kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` / `index` の 6 つ。
     `percent` が None の仕事は「% の分からない仕事」（画面は動く帯で出す）。
     """
     return {
@@ -925,22 +927,15 @@ def apply_progress_line(job: dict, line: str) -> bool:
     return False
 
 
-async def request_download(project: dict, payload) -> dict:
-    """Download の依頼（`POST …/papers/download`・U3 §変更内容 2）。
+def keep(project: dict, payload) -> dict:
+    """PDF 無しで Library に入れる（`POST …/papers/keep`・U13 §2）。
 
-    ブラウザにはすぐ返し（202）、実際の取得と登録は `_download_job` を背景で走らせる
-    （音声化と同じ作り・同じ論文を 2 回同時に取らない）。
+    body は検索履歴・BibTeX・引用のどれか 1 つ（`_download_payload` と同じ検査）。
+    `sai-paper paper keep … --json` はすぐ終わるので、202 にせず 200 で結果
+    （`{"paper_id", "title", "status": "added"|"exists"}`）をそのまま返す。
     """
-    key, args, title = _download_payload(payload)
-    name = project["name"]
-    job = _download_jobs.get((name, key))
-    if job is not None and job.get("status") in ("downloading", "processing"):
-        raise HTTPException(status_code=409, detail="この論文はダウンロード中です")
-    # 段の定義は DOWNLOAD_STEPS・% は段から作る（引用の抜き出しは別の段を使う）
-    job = _new_job("download", key, title, "downloading", DOWNLOAD_STEPS, 0)
-    _download_jobs[(name, key)] = job
-    job["_task"] = asyncio.create_task(_download_job(project, key, args, title, job))
-    return {"key": key, "status": "downloading"}
+    _key, args, _title = _download_payload(payload)
+    return _paper_cli(project, ["paper", "keep", *args, "--json"])
 
 
 async def _write_stdin(proc, payload: bytes) -> None:
@@ -1026,7 +1021,7 @@ async def _run_paper_command_lines(
 ) -> tuple[int, bytes, str]:
     """`_run_paper_command` と同じ作りだが、標準エラーを 1 行ずつ `on_line` に渡す。
 
-    `paper after-download` は図の抽出と PDF の翻訳で数分かかることがあるため、
+    `paper citations-extract` は本文の抜き出しで数分かかることがあるため、
     待つあいだの標準エラー（`sai-progress step=…` / `sai-progress msg=…`）を
     途中で受け取る。標準出力は終わってから読む。
     返り値と時間切れの扱いは `_run_paper_command` と同じ（失敗の理由は
@@ -1077,97 +1072,6 @@ async def _run_paper_command_lines(
     return code, stdout, ("" if code == 0 else last_line)
 
 
-async def _run_after_download(project: dict, job: dict, paper_id: int, title: str) -> None:
-    """登録できたあとの自動処理（図の抽出 → PDF の翻訳）を走らせて仕事を終える。
-
-    `Download` と手動取り込みの両方がこの先を使う（U05 §3・TUI も同じ順に走らせる）。
-    失敗しても論文は Library に入っているため `done` にして `error` に理由を入れる。
-    """
-    root = str(project["root"])
-    name = project["name"]
-    # 登録できたので、まず「保存した」と知らせる（その間が processing）
-    job["paper_id"] = paper_id
-    job["status"] = "processing"
-    # PDF は取れたので「図の抽出」の段から
-    job["step"] = 1
-    job["percent"] = 1 * 100 // len(DOWNLOAD_STEPS)
-    notify.broadcast("📄 論文を保存しました", title, f"/#/paper/{name}/{paper_id}")
-
-    def on_line(line: str) -> None:
-        """`sai-paper` の標準エラーの 1 行を受け取る（進捗以外はログに）。"""
-        if apply_progress_line(job, line):
-            return
-        text = str(line or "").strip()
-        if text:
-            logger.info(f"論文の後処理: {text[:200]}")
-
-    code, stdout, reason = await _run_paper_command_lines(
-        root,
-        ["paper", "after-download", str(paper_id)],
-        AFTER_DOWNLOAD_TIMEOUT,
-        on_line,
-    )
-    if reason:
-        _finish_download(job, "done", error=reason)
-    elif code != 0:
-        _finish_download(job, "done", error=_radio_error(stdout))
-    else:
-        _finish_download(job, "done")
-
-
-async def _download_job(
-    project: dict, key: str, args: list[str], title: str, job: dict
-) -> None:
-    """背景で論文の PDF を取得し、Library に登録する（U3 §変更内容 2）。
-
-    1. `sai-paper phone download …`（300 秒まで）。`downloaded` なら `processing` にして
-       「保存しました」と通知し、続けて `phone after-download`（図の抽出・PDF 翻訳・
-       2000 秒まで）を走らせる。終わったら `done`（後処理が失敗しても `done` にして
-       `error` に理由を入れる。論文自体は Library に入っているため）。
-    2. `exists`（既に Library に有る）なら `done` にして通知しない。
-    3. 失敗は `failed` にして通知する。
-    4. 例外は全部つかまえてログに出す（サーバーは止めない）。
-    """
-    name = project["name"]
-    root = str(project["root"])
-    fail_url = "/#/papers/library"
-
-    def fail(error: str) -> None:
-        _finish_download(job, "failed", error=error)
-        notify.broadcast("論文を保存できませんでした", f"{title}: {error}", fail_url)
-
-    try:
-        code, stdout, reason = await _run_paper_command(
-            root, ["paper", "download", *args], DOWNLOAD_TIMEOUT
-        )
-        if reason:
-            fail(reason)
-            return
-        if code != 0:
-            fail(_radio_error(stdout))
-            return
-        data = _download_json(stdout)
-        paper_id = data.get("paper_id")
-        status = data.get("status")
-        if status == "exists":
-            job["paper_id"] = paper_id if isinstance(paper_id, int) else None
-            _finish_download(job, "done")
-            return
-        if (
-            status != "downloaded"
-            or not isinstance(paper_id, int)
-            or isinstance(paper_id, bool)
-        ):
-            fail("sai-paper の応答を読めませんでした")
-            return
-        # 登録できたのでから先は Download と同じ（図の抽出 → PDF の翻訳）
-        await _run_after_download(project, job, paper_id, title)
-    except Exception as e:  # サーバーは止めない（音声化と同じ扱い）
-        logger.exception(f"論文のダウンロードで失敗: {e}")
-        if job.get("status") not in ("done", "failed"):
-            fail("原因不明のエラー")
-
-
 def _radio_jobs_for(project: dict) -> list[dict]:
     """そのプロジェクトで走っている音声化を仕事の形にして返す（U05 §1）。
 
@@ -1202,7 +1106,7 @@ def _radio_jobs_for(project: dict) -> list[dict]:
 def list_downloads(project: dict) -> dict:
     """そのプロジェクトの「仕事」一覧（新しい順・U3 §変更内容 2・U05 §1 で種類ごとに）。
 
-    Download・手動取り込み・引用の抜き出し・要旨の訳は `_download_jobs` に入れている。
+    束の取り込み（bundle）・引用の抜き出し・要旨の訳・PDF の訳は `_download_jobs` に入れている。
     音声化だけは `_radio_jobs` にあるので、`kind="radio"` として同じ並びに入れる
     （画面の「進み具合の一枚」は 1 つの `jobs` だけを見る）。
     終わった仕事も 30 分は出す（画面が後から見るため）。30 分を過ぎたものは消す。
@@ -1332,201 +1236,6 @@ async def _cite_extract_job(project: dict, paper_id: int, job: dict) -> None:
             notify.broadcast("引用を抜けませんでした", f"{title}: 原因不明のエラー", fail_url)
 
 
-# --- 手動で取り込んだ PDF の Library への取り込み（U05 §3） ---
-# 2 つの入口がある:
-#   - ダウンロードフォルダの最近（30 分）の PDF を「名前」だけ選んで取り込む
-#   - ブラウザ/iPhone から送った PDF の本文をそのまま取り込む
-# どちらも取り込んだあとは Download と同じ `phone after-download` を走らせる（TUI と同じ）。
-
-# 候補を出す時間（利用者が決めた 30 分）
-MANUAL_MINUTES = 30
-# 手動取り込み自体の待ち時間（PDF の書き込みと本文の抽出）
-MANUAL_TIMEOUT = 120.0
-# 送る PDF の大きさの上限（100MB・利用者が決めた）
-UPLOAD_MAX_BYTES = 104857600
-# PDF の先頭にある記号（これと違うものは 400）
-PDF_MAGIC = b"%PDF-"
-# ファイル名の長さの上限
-PDF_NAME_MAX = 255
-
-
-def _manual_target(payload) -> tuple[str, list[str], str]:
-    """手動取り込みの対象を確かめて `(対象のキー, CLI の引数, 題名)` を返す（違反は 400）。
-
-    対象は 4 通りのどちらかちょうど 1 つ（`_download_payload` と同じ決まり）:
-    - 検索履歴の 1 件: `{"log_id": 3, "position": 2}` → `log:3:2`
-    - BibTeX の 1 件: `{"import_id": "DOI:…"}` → `import:DOI:…`
-    - 引用の 1 件: `{"cite_paper_id": 12, "ref_no": 3}` → `cite:12:3`
-    - Library の論文 1 件: `{"paper_id": 12}` → `paper:12`
-    アップロード（`POST …/manual/upload`）ではクエリから引くため、
-    数字は文字列でも受ける（`_as_positive_int` の `allow_text`）。
-    """
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="送る値が正しくありません")
-    has_log = payload.get("log_id") is not None or payload.get("position") is not None
-    has_import = payload.get("import_id") is not None
-    has_cite = payload.get("cite_paper_id") is not None or payload.get("ref_no") is not None
-    has_paper = payload.get("paper_id") is not None
-    if sum((has_log, has_import, has_cite, has_paper)) != 1:
-        raise HTTPException(
-            status_code=400,
-            detail="log_id・import_id・引用（cite_paper_id と ref_no）・paper_id のどれか 1 つを指定してください",
-        )
-    if has_log:
-        log_id = _as_positive_int(payload.get("log_id"), "log_id", True)
-        position = _as_positive_int(payload.get("position"), "position", True)
-        key = f"log:{log_id}:{position}"
-        args = ["--log", str(log_id), "--position", str(position)]
-    elif has_import:
-        import_id = payload.get("import_id")
-        if (
-            not isinstance(import_id, str)
-            or not (1 <= len(import_id) <= ATTENTION_KEY_MAX)
-            or any(c in import_id for c in "\r\n")
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=f"import_id は 1〜{ATTENTION_KEY_MAX} 文字の 1 行にしてください",
-            )
-        key = f"import:{import_id}"
-        args = ["--import-id", import_id]
-    elif has_cite:
-        cite = _cite_target(payload, True)
-        assert cite is not None  # has_cite が真のときだけここに来る
-        key, args = cite
-    else:
-        paper_id = _as_positive_int(payload.get("paper_id"), "paper_id", True)
-        key = f"paper:{paper_id}"
-        args = ["--paper-id", str(paper_id)]
-    return key, args, _job_title(payload)
-
-
-def _validate_pdf_name(name) -> str:
-    """ダウンロードフォルダの PDF のファイル名を確かめる（違反は 400・U05 §3）。
-
-    iPhone からパスは受け取らない。区切りや親フォルダや制御文字を含まない 1〜255 字で
-    `.pdf` で終わる物だけを受ける（大小文字は問わない）。
-    """
-    ok = (
-        isinstance(name, str)
-        and 1 <= len(name) <= PDF_NAME_MAX
-        and not any(c in name for c in "/\\\0\r\n")
-        and ".." not in name
-        and name.lower().endswith(".pdf")
-    )
-    if not ok:
-        raise HTTPException(status_code=400, detail="ファイル名が正しくありません")
-    return name
-
-
-def manual_candidates(project: dict) -> dict:
-    """ダウンロードフォルダの最近の PDF 一覧（`paper candidates`）。"""
-    return _paper_cli(
-        project, ["paper", "candidates", "--minutes", str(MANUAL_MINUTES)]
-    )
-
-
-async def request_manual_import(
-    project: dict, target, file_name=None, body: bytes | None = None
-) -> dict:
-    """手動取り込みの依頼（`POST …/papers/manual/import` と `…/manual/upload`・U05 §3）。
-
-    - 中身は「ダウンロードフォルダのファイル名」か「送られた PDF の本文」の
-      どちらか一方だけ（どちらも無ければ 400）。
-    - 202 ですぐ返し、取り込みと `phone after-download` は `_manual_import_job` が走らせる。
-    """
-    key, args, title = _manual_target(target)
-    job_key = f"manual:{key}"
-    if file_name is not None and body is not None:
-        raise HTTPException(status_code=400, detail="PDF は 1 つだけ送ってください")
-    if body is not None and (not isinstance(body, (bytes, bytearray)) or not body):
-        raise HTTPException(status_code=400, detail="PDF の中身が空です")
-    source_args: list[str] = []
-    payload: bytes | None = None
-    if file_name is not None:
-        source_args = ["--file", _validate_pdf_name(file_name), "--minutes", str(MANUAL_MINUTES)]
-    elif body is not None:
-        source_args = ["--stdin"]
-        payload = bytes(body)
-    else:
-        raise HTTPException(status_code=400, detail="PDF を選んでください")
-
-    name = project["name"]
-    job = _download_jobs.get((name, job_key))
-    if job is not None and job.get("status") in ("downloading", "processing"):
-        raise HTTPException(status_code=409, detail="この論文は取り込み中です")
-    # 段は Download と同じ（0 = PDF取得）。% は段から作る
-    job = _new_job("manual", job_key, title, "downloading", DOWNLOAD_STEPS, 0)
-    _download_jobs[(name, job_key)] = job
-    job["_task"] = asyncio.create_task(
-        _manual_import_job(project, key, args + source_args, title, job, payload)
-    )
-    return {"key": job_key, "status": "downloading"}
-
-
-async def _manual_import_job(
-    project: dict, key: str, args: list[str], title: str, job: dict, payload: bytes | None
-) -> None:
-    """背景で手動取り込みを走らせ、続けて登録後の自動処理も走らせる（U05 §3）。
-
-    - `phone manual-import <対象> --file … | --stdin`（120 秒まで）。
-      `--stdin` のときは本文を標準入力に書く。
-    - 成功したら `phone after-download`（`_run_after_download`）に進む。
-    - 失敗は `failed` にして知らせる。
-    """
-    root = str(project["root"])
-    fail_url = "/#/papers/library"
-
-    def fail(error: str) -> None:
-        _finish_download(job, "failed", error=error)
-        notify.broadcast("論文を取り込めませんでした", f"{title}: {error}", fail_url)
-
-    try:
-        code, stdout, reason = await _run_paper_command(
-            root, ["paper", "import-pdf", *args], MANUAL_TIMEOUT, input_bytes=payload
-        )
-        if reason:
-            fail(reason)
-            return
-        if code != 0:
-            fail(_radio_error(stdout))
-            return
-        data = _download_json(stdout)
-        paper_id = data.get("paper_id")
-        if not isinstance(paper_id, int) or isinstance(paper_id, bool):
-            fail("sai-paper の応答を読めませんでした")
-            return
-        # 取り込めたのでからは Download と同じ（図の抽出 → PDF の翻訳）
-        await _run_after_download(project, job, paper_id, title)
-    except Exception as e:  # サーバーは止めない（Download と同じ扱い）
-        logger.exception(f"手動取り込みで失敗: {e}")
-        if job.get("status") not in ("done", "failed"):
-            fail("原因不明のエラー")
-
-
-async def request_browser_import(project: dict, payload) -> dict:
-    """リモートブラウザが保存した PDF を取り込む（`POST …/papers/browser/import`）。
-
-    body は「取り込み対象のどれか 1 つ」＋ `{"file_name": "x.pdf"}`。ファイルはダウンロード先の
-    名前だけで引く（パスは受け取らない）。取り込んだ後もファイルは消さない（失敗したら
-    もう一度押せるように。7 日で消える）。
-    """
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="送る値が正しくありません")
-    target = dict(payload)
-    file_name = target.pop("file_name", None)
-    if file_name is None:
-        raise HTTPException(status_code=400, detail="PDF を選んでください")
-    _manual_target(target)
-    path = rbrowser.download_path(file_name)
-    if path.stat().st_size > UPLOAD_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")
-    body = await run_in_threadpool(path.read_bytes)
-    if not body.startswith(PDF_MAGIC):
-        raise HTTPException(status_code=400, detail="PDF ではありません")
-    return await request_manual_import(project, target, body=body)
-
-
 # PDF の日本語訳の待ち時間
 PDF_TRANSLATE_TIMEOUT = 1800.0
 
@@ -1574,40 +1283,59 @@ async def _translate_pdf_job(project: dict, paper_id: int, title: str, job: dict
             fail("原因不明のエラー")
 
 
-async def read_pdf_upload(request, target) -> bytes:
-    """アップロードの本文（PDF そのもの）を読み返す（U05 §3）。
+PAPER_INDEX_TIMEOUT = 1800.0
 
-    読む前に決めること:
-    - `Content-Type` が `application/pdf` でなければ 415
-    - `Content-Length` が無いか上限（100MB）を超えれば 413
-    - 読みながら上限を超えたら 413（そこで止める）
-    - 先頭 5 バイトが `%PDF-` でなければ 400
 
-    対象（target）は本文を読む前に `_manual_target` を通っていること
-    （外から来る値は CLI を呼ぶ前に必ず検査するため・00 §2）。
+async def request_index(project: dict, paper_id: int) -> dict:
+    """論文 1 本の Index を始める（`POST …/papers/{id}/index`・202 ですぐ返す・U04）。
+
+    仕事キーは `index:{id}`。埋め込みは外の API を呼ぶので、背景で `sai-paper index paper` を走らせる。
     """
-    content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
-    if content_type != "application/pdf":
-        raise HTTPException(
-            status_code=415,
-            detail="本文は PDF だけを送ってください（application/pdf にしてください）",
+    name = project["name"]
+    key = f"index:{paper_id}"
+    job = _download_jobs.get((name, key))
+    if job is not None and job.get("status") in ("downloading", "processing"):
+        raise HTTPException(status_code=409, detail="この論文の Index は作成中です")
+    title = f"#{paper_id} の Index"
+    job = _new_job("index", key, title, "processing", [], None)
+    job["paper_id"] = paper_id
+    _download_jobs[(name, key)] = job
+    job["_task"] = asyncio.create_task(_index_job(project, paper_id, title, job))
+    return {"key": key, "status": "processing"}
+
+
+async def _index_job(project: dict, paper_id: int, title: str, job: dict) -> None:
+    """背景で `sai-paper index paper <id> --json` を走らせ、結果を通知する。"""
+    url = f"/#/paper/{project['name']}/{paper_id}"
+
+    def fail(error: str) -> None:
+        _finish_download(job, "failed", error=error)
+        notify.broadcast("Index を作れませんでした", f"{title}: {error}", url)
+
+    try:
+        code, stdout, reason = await _run_paper_command(
+            str(project["root"]), ["index", "paper", str(paper_id), "--json"], PAPER_INDEX_TIMEOUT
         )
-    raw_length = request.headers.get("content-length")
-    if raw_length is None or not raw_length.strip().isdigit():
-        raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")
-    if int(raw_length.strip()) > UPLOAD_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > UPLOAD_MAX_BYTES:
-            raise HTTPException(status_code=413, detail="PDF は 100MB までにしてください")
-        chunks.append(chunk)
-    body = b"".join(chunks)
-    if not body.startswith(PDF_MAGIC):
-        raise HTTPException(status_code=400, detail="PDF ではないようです")
-    return body
+        if reason:
+            fail(reason)
+        elif code != 0:
+            fail(_radio_error(stdout))
+        else:
+            data = json.loads(stdout)
+            chunks = data.get("chunks", 0)
+            embedded = data.get("chunks_with_embeddings", 0)
+            if chunks == 0:
+                # 本文（抽出したテキスト）が無いと chunk は 1 つも作れない
+                fail("本文が無いので Index を作れませんでした")
+            else:
+                _finish_download(job, "done")
+                notify.broadcast(
+                    "🔎 Index ができました", f"{title}: chunk {chunks}・埋め込み {embedded}", url
+                )
+    except Exception as e:  # サーバーは止めない
+        logger.exception(f"Index の作成で失敗: {e}")
+        if job.get("status") not in ("done", "failed"):
+            fail("原因不明のエラー")
 
 
 # --- Project（state.md / mind.md / 要対応・U3 §変更内容 2） ---
@@ -1621,24 +1349,22 @@ def project_view(project: dict) -> dict:
     return _sci_cli(project, ["project", "show", "--json"], timeout=30.0)
 
 
-def mind_append(project: dict, text) -> dict:
-    """mind.md のメモを 1 行足す（`sai-sci project memo <文> --json`・U14）。
+def mind_save(project: dict, text) -> dict:
+    """mind.md の全文を保存する（`sai-sci project mind --json`・本文は標準入力・U04）。
 
-    文は 1 行・空でない・2000 字以下・NUL を含まない（値が `-` で始まってもよいよう
-    `--` の後ろに置く）。
+    本文は文字列・空白以外を 1 文字以上含む・200000 字以下・NUL を含まない。
     """
     if (
         not isinstance(text, str)
-        or not (1 <= len(text) <= MEMO_MAX)
-        or any(c in text for c in "\r\n\0")
+        or not text.strip()
+        or len(text) > MIND_MAX
+        or "\0" in text
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"メモは改行なしで 1〜{MEMO_MAX} 文字にしてください",
+            detail=f"Mind は 1〜{MIND_MAX} 文字で書いてください",
         )
-    return _sci_cli(
-        project, ["project", "memo", "--json", "--", text], timeout=30.0
-    )
+    return _sci_cli(project, ["project", "mind", "--json"], timeout=30.0, input_text=text)
 
 
 def attention_resolve(project: dict, key) -> dict:
