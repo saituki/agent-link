@@ -26,6 +26,7 @@ pub mod rag_eval;
 pub mod retrieval;
 pub mod search_history;
 pub mod sections;
+pub mod seen_ids;
 pub mod textcheck;
 pub mod translation;
 
