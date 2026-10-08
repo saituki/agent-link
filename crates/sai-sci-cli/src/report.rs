@@ -376,10 +376,32 @@ pub async fn handle_report(cmd: ReportCmd) -> Result<()> {
 /// 実験ループの文書（出力の形・引き継ぎの検査をしない）。
 const EXP_PREFIXES: [&str; 5] = ["exp-spec", "exp-run", "review", "branch-order", "exp-final"];
 
-/// `report prepare` の本体。終了コードを返す（0 通過・1 違反・2 使い方の誤り）。
+/// 引用を台帳の照合に渡す形（`#37`・`#37.5`・`#37.5.2`）にする。範囲は始めの塊で見る。
+fn citation_cites(citations: &[sai_sci_core::reports::Citation]) -> Vec<String> {
+    use sai_sci_core::reports::CitationTarget;
+    use sai_paper_core::sections;
+    citations
+        .iter()
+        .filter_map(|citation| {
+            let CitationTarget::Paper(n) = citation.target else { return None };
+            // 場所は `§3.2`（`#37 §3.2`）か `.5.2`（`#37.5.2`）の形。どちらも `37.5.2` に直す。
+            let loc = citation.locator.as_deref().unwrap_or("").trim_start_matches('§').trim();
+            let joined = if loc.is_empty() || loc.starts_with('.') { format!("{n}{loc}") } else { format!("{n}.{loc}") };
+            let cite = match sections::parse_ref(&joined) {
+                Ok(sections::PassageRef::Section { sec_no, .. }) => format!("#{n}.{sec_no}"),
+                Ok(sections::PassageRef::Passage { sec_no, pas_no, .. }) => format!("#{n}.{sec_no}.{pas_no}"),
+                Ok(sections::PassageRef::Range { sec_no, from, .. }) => format!("#{n}.{sec_no}.{from}"),
+                _ => format!("#{n}"),
+            };
+            Some(cite)
+        })
+        .collect()
+}
+
+/// `report prepare` の本体。終了コードを返す（0 通過・1 違反・2 使い方の誤り・台帳に無い引用）。
 fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) -> i32 {
     use sai_sci_core::reports::{CitationTarget, parse_citations};
-    use sai_paper_core::{sections, textcheck};
+    use sai_paper_core::{seen_ids, sections, textcheck};
     use sai_sci_core::{dsr_check, runs};
     use std::io::Read;
 
@@ -429,6 +451,12 @@ fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) ->
         .collect();
     papers.sort_unstable();
     papers.dedup();
+    // 引用は台帳（この run の CLI が出した番号）に載っていること。通らないと終了コード 2。
+    let mut input_error = false;
+    if let Err(message) = seen_ids::check(&citation_cites(&citations)) {
+        errors.push(message);
+        input_error = true;
+    }
     match open_database() {
         Ok(db) => {
             let conn = db.connection();
@@ -491,7 +519,7 @@ fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) ->
             eprintln!("- {message}");
         }
         eprintln!("保存前の検査に通りませんでした（{count} 件）");
-        return 1;
+        return if input_error { 2 } else { 1 };
     }
 
     // frontmatter を付ける

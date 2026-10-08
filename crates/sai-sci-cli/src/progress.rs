@@ -4,11 +4,13 @@
 //! [`sai_sci_core::progress::collect`] でまとめる。人向けの要約と、
 //! 推薦・DSR が読む `--json`（`Progress` と `read_next` 5 本）を出す。
 
+use std::fmt::Write as _;
+
 use anyhow::{Context, Result};
 use sai_sci_core::progress as progress_core;
 use sai_sci_core::progress::{Progress, ReadNext};
 use sai_sci_core::understanding;
-use sai_paper_core::{Config, Paths};
+use sai_paper_core::{Config, Paths, seen_ids};
 
 use crate::open_database;
 
@@ -28,11 +30,16 @@ pub fn handle(json: bool) -> Result<()> {
 
     if json {
         let output = serde_json::json!({ "progress": progress, "read_next": read_next });
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        let text = format!("{}\n", serde_json::to_string_pretty(&output)?);
+        seen_ids::record(&text);
+        print!("{text}");
         return Ok(());
     }
 
-    print_human(&progress, &read_next);
+    let mut text = String::new();
+    render_human(&mut text, &progress, &read_next)?;
+    seen_ids::record(&text);
+    print!("{text}");
     Ok(())
 }
 
@@ -48,39 +55,41 @@ fn read_weights() -> sai_paper_core::ReadNextWeights {
         .unwrap_or_default()
 }
 
-/// 人向けの要約を出す。
-fn print_human(progress: &Progress, read_next: &[ReadNext]) {
+/// 人向けの要約を `out` に書く（1 行ずつ改行で終える）。
+fn render_human(out: &mut String, progress: &Progress, read_next: &[ReadNext]) -> std::fmt::Result {
     match progress.stage.as_deref() {
-        Some(stage) => println!("段階: {stage}"),
-        None => println!("段階: 未記入（state.md の「- 段階:」）"),
+        Some(stage) => writeln!(out, "段階: {stage}")?,
+        None => writeln!(out, "段階: 未記入（state.md の「- 段階:」）")?,
     }
 
-    println!("READ NEXT ─ 読むべき論文（上位 {READ_NEXT_LIMIT} 本）");
+    writeln!(out, "READ NEXT ─ 読むべき論文（上位 {READ_NEXT_LIMIT} 本）")?;
     if read_next.is_empty() {
-        println!("  （読むべき論文はありません）");
+        writeln!(out, "  （読むべき論文はありません）")?;
     }
     for entry in read_next {
-        println!(
+        writeln!(
+            out,
             "  #{} {}  {}",
             entry.paper_id,
             truncate(&entry.title, 60),
             entry.reason
-        );
+        )?;
     }
 
-    print_pairs("未解決", &progress.unresolved);
-    print_pairs("ユーザーへの質問", &progress.open_questions);
+    render_pairs(out, "未解決", &progress.unresolved)?;
+    render_pairs(out, "ユーザーへの質問", &progress.open_questions)?;
 
-    println!("理解の状態");
+    writeln!(out, "理解の状態")?;
     if progress.understanding.is_empty() {
-        println!("  （まだ記録がありません）");
+        writeln!(out, "  （まだ記録がありません）")?;
     }
     for entry in &progress.understanding {
-        println!(
+        writeln!(
+            out,
             "  {}  {}",
             understanding::state_label(&entry.state),
             entry.topic
-        );
+        )?;
     }
 
     let unopened = progress
@@ -88,25 +97,26 @@ fn print_human(progress: &Progress, read_next: &[ReadNext]) {
         .iter()
         .filter(|report| report.user_opens == 0)
         .count();
-    println!(
+    writeln!(
+        out,
         "開かれていない report: {unopened} 件（全 {} 件）",
         progress.reports.len()
-    );
+    )
 }
 
-/// `(run_id, 本文)` の一覧を区別して最大 [`LINES_LIMIT`] 件出す。
-fn print_pairs(label: &str, pairs: &[(i64, String)]) {
-    println!("{label}（{} 件）", pairs.len());
+/// `(run_id, 本文)` の一覧を区別して最大 [`LINES_LIMIT`] 件書く。
+fn render_pairs(out: &mut String, label: &str, pairs: &[(i64, String)]) -> std::fmt::Result {
+    writeln!(out, "{label}（{} 件）", pairs.len())?;
     if pairs.is_empty() {
-        println!("  （なし）");
-        return;
+        return writeln!(out, "  （なし）");
     }
     for (run_id, text) in pairs.iter().take(LINES_LIMIT) {
-        println!("  run {run_id}: {}", single_line(text));
+        writeln!(out, "  run {run_id}: {}", single_line(text))?;
     }
     if pairs.len() > LINES_LIMIT {
-        println!("  …（残り {} 件）", pairs.len() - LINES_LIMIT);
+        writeln!(out, "  …（残り {} 件）", pairs.len() - LINES_LIMIT)?;
     }
+    Ok(())
 }
 
 /// 引き継ぎの本文を 1 行にする（改行を空白に、長すぎれば切る）。

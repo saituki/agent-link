@@ -15,7 +15,8 @@ use super::defs::{self, Defs};
 use super::store::{self, ApprovalRow, NewNode, NodeRow};
 use super::{Kind, Result, RtError, fmt_id, parse_id};
 use sai_paper_core::paths::PaperRoots;
-use sai_paper_core::textcheck;
+use sai_paper_core::{seen_ids, textcheck};
+use std::path::PathBuf;
 
 const MAX_OPS: usize = 20;
 const ALL_KINDS: &[Kind] = &[Kind::Q, Kind::A, Kind::F, Kind::E, Kind::S];
@@ -279,6 +280,21 @@ struct Cx<'a> {
     run_id: Option<i64>,
     /// この op の呼び出しで使う許可（許可が要る op があったときだけ）。
     approval: Option<ApprovalRow>,
+    /// `add_f` の `cites` を照合する台帳（agent の op だけ `Some`。利用者の apply は `None`）。
+    ledger: Option<Ledger>,
+}
+
+/// 台帳（seen_ids）の置き場と照合する run。`op` は環境変数から作り、試験は一時フォルダを渡す。
+struct Ledger {
+    root: PathBuf,
+    run_id: i64,
+}
+
+/// `SAI_PARENT_RUN_ID` と project root が両方あるときだけ台帳を使う。
+fn ledger_from_env() -> Option<Ledger> {
+    let run_id = seen_ids::run_id_from_env()?;
+    let root = sai_paper_core::paths::project_root()?;
+    Some(Ledger { root, run_id })
 }
 
 fn run_by(run_id: Option<i64>) -> String {
@@ -291,6 +307,18 @@ fn run_by(run_id: Option<i64>) -> String {
 ///
 /// 1 件でも通らなければ何も保存せず、最初の違反を `Invalid("<n> 件目（<op>）: <理由>")` で返す。
 pub fn op(conn: &Connection, roots: &PaperRoots, defs: &Defs, actor: &Actor, input: &Value) -> Result<BatchResult> {
+    op_in(conn, roots, defs, actor, input, ledger_from_env())
+}
+
+/// [`op`] の本体。台帳を引数で受け、試験では一時フォルダの台帳を渡す。
+fn op_in(
+    conn: &Connection,
+    roots: &PaperRoots,
+    defs: &Defs,
+    actor: &Actor,
+    input: &Value,
+    ledger: Option<Ledger>,
+) -> Result<BatchResult> {
     let Some(items) = input.get("ops").and_then(Value::as_array) else {
         return invalid("ops（配列）が必要です");
     };
@@ -308,7 +336,7 @@ pub fn op(conn: &Connection, roots: &PaperRoots, defs: &Defs, actor: &Actor, inp
     let approval = if gated.is_empty() { None } else { Some(take_approval_for(&tx, actor)?) };
     let block = actor.block.as_deref().unwrap_or("");
     let allowed = allowed_ops(roots, block);
-    let cx = Cx { conn: &tx, defs, by: run_by(actor.run_id), run_id: actor.run_id, approval };
+    let cx = Cx { conn: &tx, defs, by: run_by(actor.run_id), run_id: actor.run_id, approval, ledger };
     let mut results = Vec::new();
     for (index, item) in items.iter().enumerate() {
         let name = item.get("op").and_then(Value::as_str).unwrap_or("");
@@ -374,7 +402,7 @@ pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &V
     if let Some(map) = input.as_object_mut() {
         map.remove("run");
     }
-    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id, approval: None };
+    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id, approval: None, ledger: None };
     let (result, range) = execute(&cx, &input)?;
     tx.commit()?;
     Ok(OpResult { op, result, range })
@@ -688,6 +716,10 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
                 return invalid("数字を含む F には出典（cites）か REPORT のトークン（report）を付けてください");
             }
             let papers = check_cites(conn, &cites)?;
+            // agent が見ていない番号は書かない（台帳に無い番号は終了コード 2）。
+            if let Some(ledger) = &cx.ledger {
+                seen_ids::check_for(&ledger.root, ledger.run_id, &cites).map_err(RtError::Invalid)?;
+            }
             let paper = op.get("paper").and_then(Value::as_i64);
             if let Some(p) = paper.filter(|p| !paper_exists(conn, *p).unwrap_or(false)) {
                 return invalid(format!("論文 {p} が Library にありません"));
@@ -959,6 +991,37 @@ mod tests {
         ).unwrap();
         assert!(f("精度は 85 %", json!(["#37.5.2"])).is_ok());
         assert!(err(f("精度は 85 %", json!(["#37.5.3"]))).contains("塊 #37.5.3 は論文 37 にありません"));
+    }
+
+    #[test]
+    fn op_add_f_checks_ledger() {
+        let e = env();
+        e.conn().execute("INSERT INTO papers(id, title) VALUES (37, 't')", []).unwrap();
+        let a = e.a("A");
+        // 台帳（run 9）には #37.5.2 だけがある。
+        let ledger_dir = e.roots.root.join(".sai/seen_ids");
+        std::fs::create_dir_all(&ledger_dir).unwrap();
+        std::fs::write(ledger_dir.join("9"), "#37.5.2\n").unwrap();
+        let ledger = || Some(Ledger { root: e.roots.root.clone(), run_id: 9 });
+        let actor = Actor { run_id: Some(7), block: Some("t-all".into()) };
+        let f = |cite: &str| {
+            let batch = json!({"ops": [{"op": "add_f", "parent": a, "text": "精度は 85 %", "stance": "support", "cites": [cite]}]});
+            op_in(e.conn(), &e.roots, &e.defs, &actor, &batch, ledger())
+        };
+        assert!(f("#37.5.2").is_ok());
+        assert!(f("#37").is_ok(), "論文は `#37.` で始まる行があれば通す");
+        let m = err(f("#37.5.3"));
+        assert!(m.starts_with("1 件目（add_f）"), "{m}");
+        assert!(m.contains("台帳に無い番号です"), "{m}");
+        // 台帳が無い（環境変数が無い）ときは照合しない。
+        let no_ledger = |cite: &str| {
+            let batch = json!({"ops": [{"op": "add_f", "parent": a, "text": "精度は 85 %", "stance": "support", "cites": [cite]}]});
+            op_in(e.conn(), &e.roots, &e.defs, &actor, &batch, None)
+        };
+        assert!(no_ledger("#37.5.3").is_ok());
+        // 利用者の apply は台帳を見ない。
+        let user = e.user(json!({"op": "add_f", "parent": a, "text": "精度は 85 %", "stance": "support", "cites": ["#37.5.3"]}));
+        assert!(user.is_ok(), "{user:?}");
     }
 
     #[test]

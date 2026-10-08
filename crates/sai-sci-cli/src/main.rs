@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use chrono::{Duration, Local, NaiveDate};
 use clap::{Parser, Subcommand};
-use sai_paper_core::{Config, Database, Paths};
+use sai_paper_core::{Config, Database, Paths, seen_ids};
 use sai_sci_core::bins;
 use sai_sci_core::rt::{self, card, compute, defs, store};
 use serde_json::json;
@@ -414,7 +414,11 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Types { json }) => print_out(sci::types(json)?),
         Some(Cmd::TypeSave) => print_out(sci::type_save()?),
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),
-        Some(Cmd::Context { run, tree }) => print_out(sci::context(run, tree)?),
+        Some(Cmd::Context { run, tree }) => print_out_seen(sci::context(run, tree)?, |text| {
+            if let Some(root) = sai_paper_core::paths::project_root() {
+                seen_ids::record_for(&root, run, text);
+            }
+        }),
         Some(Cmd::Op { run, block }) => print_out(sci::op(run, block)?),
         Some(Cmd::Apply { json: _ }) => print_out(sci::apply()?),
         Some(Cmd::Approval {
@@ -425,7 +429,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
             from_json,
             json,
         }) => handle_card(&args, from_json, json),
-        Some(Cmd::Read { run_id, json }) => print_out(sci::read(run_id, json)?),
+        Some(Cmd::Read { run_id, json }) => print_out_seen(sci::read(run_id, json)?, seen_ids::record),
         Some(Cmd::Export) => print_out(sci::export()?),
         Some(Cmd::Find { args }) => find_search::find(&args),
         Some(Cmd::Search { args }) => find_search::search(&args),
@@ -449,15 +453,18 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
 
 /// `sci::Out` を標準出力へ出す（`--json` は 1 行、文はそのまま）。
 fn print_out(out: sci::Out) -> Result<()> {
-    match out {
-        sci::Out::Text(text) => {
-            print!("{text}");
-            if !text.ends_with('\n') {
-                println!();
-            }
-        }
-        sci::Out::Json(value) => println!("{}", serde_json::to_string(&value)?),
-    }
+    print_out_seen(out, |_| {})
+}
+
+/// 出す文字列を `seen` に渡してから標準出力へ出す（台帳に番号を残すため）。
+fn print_out_seen(out: sci::Out, seen: impl FnOnce(&str)) -> Result<()> {
+    let text = match out {
+        sci::Out::Text(text) if text.ends_with('\n') => text,
+        sci::Out::Text(text) => format!("{text}\n"),
+        sci::Out::Json(value) => format!("{}\n", serde_json::to_string(&value)?),
+    };
+    seen(&text);
+    print!("{text}");
     Ok(())
 }
 
@@ -734,11 +741,13 @@ fn handle_journal(days: i64, date: Option<&str>, json: bool) -> Result<()> {
         }
     };
     let journal = sai_sci_core::journal::collect(db.connection(), &roots, from, to)?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&journal)?);
+    let text = if json {
+        format!("{}\n", serde_json::to_string_pretty(&journal)?)
     } else {
-        print!("{}", sai_sci_core::journal::render_markdown(&journal));
-    }
+        sai_sci_core::journal::render_markdown(&journal)
+    };
+    seen_ids::record(&text);
+    print!("{text}");
     Ok(())
 }
 
