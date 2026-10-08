@@ -656,7 +656,7 @@ if (typeof window !== "undefined") {
       return ctParseHash(hash);
     },
     view: "view-paper-cites",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     // 0 のあいだは更新しない。抜き出しのあいだだけ 2 秒になる（ctSetPolling）
     interval: 0,

@@ -3268,7 +3268,7 @@ const paperRoute = {
     return p && !p.text ? { id: p.id, name: p.name } : null;
   },
   view: "view-paper",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0,
   async open(params) {
@@ -3286,7 +3286,7 @@ const dashboardRoute = {
     return hash === "#/papers/dashboard" ? {} : null;
   },
   view: "view-papers-dashboard",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0, // 定期更新はしない（↻ で読み直す）
   async open() {
@@ -3303,7 +3303,7 @@ const libraryRoute = {
     return parseLibraryHash(hash);
   },
   view: "view-papers-library",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0, // 定期更新はしない（↻ で読み直す・07 §4.3）
   async open(params) {
@@ -3320,7 +3320,7 @@ const discoverRoute = {
     return hash === "#/papers/discover" ? {} : null;
   },
   view: "view-papers-library",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0,
   async open() {
@@ -3335,7 +3335,7 @@ const logRoute = {
     return p && p.position == null ? { id: p.id, name: p.name } : null;
   },
   view: "view-papers-log",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0,
   async open(params) {
@@ -3353,7 +3353,7 @@ const findRoute = {
     return p ? { id: p.id, name: p.name } : null;
   },
   view: "view-papers-find",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0,
   async open(params) {
@@ -3373,7 +3373,7 @@ const remoteRoute = {
       : null;
   },
   view: "view-paper-remote",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0,
   async open(params) {
@@ -3391,7 +3391,7 @@ const paperTextRoute = {
     return p && p.text ? { id: p.id, name: p.name } : null;
   },
   view: "view-paper-text",
-  tab: "papers",
+  tab: "research",
   hideTabbar: false,
   interval: 0,
   async open(params) {

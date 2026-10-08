@@ -906,7 +906,7 @@ if (typeof window !== "undefined") {
       return hash === "#/papers/import" ? {} : null;
     },
     view: "view-papers-import",
-    tab: "papers",
+    tab: "research",
     hideTabbar: false,
     // 0 のあいだは更新しない。Download が走っているあいだだけ 3 秒になる（pimSetPolling）
     interval: 0,

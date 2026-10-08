@@ -1,7 +1,7 @@
-// sai-web の Usage タブ（実装計画 42 §3.5）の本体。
+// sai-web の Usage（実装計画 42 §3.5）の本体。
 //
 // 画面は 2 つ:
-//   カード一覧     #/usage
+//   カード一覧     Account（#/account）の区画。住所 #/usage は #/account へ送る（U05）
 //   詳細           #/usage/<provider>/<account>（Activity | Logs）
 // カード・切り替え・棒グラフの見た目は Project タブ（06）の .dash-* をそのまま
 // 使い回す（角丸カードは .dash-card，切り替えは .dash-seg，数字は stats.js の
@@ -102,7 +102,7 @@ function usageCard(title, onOpen) {
   return card;
 }
 
-// --- カード一覧（#/usage） ---
+// --- カード一覧（Account の区画・U05） ---
 
 /** OpenRouter の 1 アカウント（42 §3.1）． */
 function usageOpenrouterCard(account) {
@@ -241,6 +241,33 @@ async function usageLoad() {
   } finally {
     usageLoading = false;
   }
+}
+
+/** Usage の区画を container に描き，カード一覧を開く（acAccountOpen から呼ぶ）． */
+function usageMountInto(container) {
+  const card = el("div", "sai-card ac-card");
+  const head = el("div", "ac-card-head");
+  head.appendChild(el("h2", "ac-title", "Usage"));
+  // ↻ で外部 API を取り直す（?refresh=1）
+  const reload = el("button", "sai-btn small", "↻");
+  reload.type = "button";
+  reload.id = "usage-reload";
+  reload.setAttribute("aria-label", "Reload");
+  reload.addEventListener("click", () => {
+    usageForced = true;
+    void usageLoad();
+  });
+  head.appendChild(reload);
+  card.appendChild(head);
+  // 「◯分前に取得」の 1 行（42 §3.1）
+  const updated = el("div", "dash-chart-note");
+  updated.id = "usage-updated";
+  card.appendChild(updated);
+  const list = el("div", "groups");
+  list.id = "usage-list";
+  card.appendChild(list);
+  container.appendChild(card);
+  void usageOpen();
 }
 
 /** カード一覧を開く． */
@@ -475,19 +502,16 @@ function usageOnScroll() {
 if (typeof window !== "undefined") {
   (window.SaiRoutes = window.SaiRoutes || []).push(
     {
-      // カード一覧
+      // 一覧は Account の区画に入った（U05）。古いリンク・通知のため #/account へ送る
       match(hash) {
         return hash === "#/usage" ? {} : null;
       },
-      view: "view-usage",
-      tab: "usage",
+      view: "view-account",
+      tab: "account",
       hideTabbar: false,
-      interval: 60000, // 開いている間は 60 秒ごとに読み直す（42 §3.5）
-      async open() {
-        await usageOpen();
-      },
-      async poll() {
-        await usageLoad();
+      interval: 0,
+      open() {
+        location.replace("#/account");
       },
     },
     {
@@ -499,7 +523,7 @@ if (typeof window !== "undefined") {
           : null;
       },
       view: "view-usage-detail",
-      tab: "usage",
+      tab: "account",
       hideTabbar: false,
       interval: 60000,
       async open(params) {
@@ -513,14 +537,6 @@ if (typeof window !== "undefined") {
     }
   );
 
-  // ↻（読み直し・42 §3.1）
-  const reload = document.getElementById("usage-reload");
-  if (reload) {
-    reload.addEventListener("click", () => {
-      usageForced = true;
-      void usageLoad();
-    });
-  }
   const detailReload = document.getElementById("usage-detail-reload");
   if (detailReload) {
     detailReload.addEventListener("click", () => {
@@ -528,11 +544,11 @@ if (typeof window !== "undefined") {
       else void usageDetailLoad();
     });
   }
-  // 詳細の戻るはカード一覧へ
+  // 詳細の戻りは Account へ（カード一覧は Account の区画）
   const back = document.getElementById("usage-back");
   if (back) {
     back.addEventListener("click", () => {
-      location.hash = "#/usage";
+      location.hash = "#/account";
     });
   }
   window.addEventListener("scroll", usageOnScroll, { passive: true });
