@@ -567,7 +567,7 @@ struct NormalizedTask {
     carried_over: bool,
     /// 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id をそのまま子として使う）
     card_run_id: Option<i64>,
-    /// 子の実行主体（`pi` / `cc`。`None` はカードの runner、無ければ `pi`）
+    /// 子の実行主体（`pi` / `cc`。`None` はカードの runner、無ければ `cc`）
     runner: Option<String>,
 }
 
