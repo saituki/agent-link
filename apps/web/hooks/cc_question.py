@@ -10,6 +10,8 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
 
 - `SAI_CC_QUESTION_MODE=deny` のときは，答えがあっても今の拒否の形（理由文に答え）で返す
   （`updatedInput` が cc で効かなかったときに，コードを変えずに戻すため）．
+- 答えが取れたら，`SAI_PARENT_RUN_ID` があるときだけ `sai-sci approval record` で記録する
+  （承認の材料・U04）。失敗しても答えは返す。
 - Web の場所: `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`
 - 合言葉: `SAI_WEB_INTERNAL_TOKEN` があれば `Authorization: Bearer <値>` を付ける
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -119,6 +122,40 @@ def answers_from_state(data: dict, questions: list) -> dict | None:
     return answers
 
 
+def record_approval(qid: str, questions: list, answers: dict, answered_by: str) -> None:
+    """答えを `sai-sci approval record` で記録する（共有契約 C8）。
+
+    `SAI_PARENT_RUN_ID` が無ければ何もしない。失敗は無視する（答えは allow で返す）。
+    標準出力は cc が JSON として読むので使わず，失敗の 1 行だけ標準エラーに出す。
+    """
+    if not os.environ.get("SAI_PARENT_RUN_ID"):
+        return
+    qs = [q for q in questions if isinstance(q, dict)]
+    question = "\n".join(str(q.get("question", "")) for q in qs)
+    answer = "\n".join(answers.get(str(q.get("question", "")), "") for q in qs)
+    cmd = [
+        os.environ.get("SAI_SCI_BIN") or "sai-sci",
+        "approval",
+        "record",
+        "--qid",
+        qid,
+        "--question",
+        question,
+        "--answer",
+        answer,
+        "--answered-by",
+        answered_by,
+    ]
+    try:
+        res = subprocess.run(cmd, timeout=10, capture_output=True, text=True)
+    except Exception as exc:
+        sys.stderr.write(f"approval record を呼べませんでした: {exc}\n")
+        return
+    if res.returncode != 0:
+        last = (res.stderr.strip().splitlines() or [""])[-1]
+        sys.stderr.write(f"approval record が失敗しました（終了コード {res.returncode}）: {last}\n")
+
+
 def reason_text(answers: dict | None) -> str:
     """`permissionDecisionReason` に出す文を作る．"""
     if not answers:
@@ -182,6 +219,7 @@ def main() -> int:
     qid = str(registered["id"])
 
     answers: dict | None = None
+    answered_by = "user"
     for _ in range(POLL_MAX_COUNT):
         time.sleep(POLL_INTERVAL_SEC)
         state = get_json(f"{base}/api/questions/{qid}")
@@ -189,11 +227,14 @@ def main() -> int:
             continue
         answers = answers_from_state(state, questions)
         if answers is not None:
+            answered_by = str(state.get("answered_by") or "user")
             break
         # `open` 以外で答えが無ければ打ち切る
         if state.get("state") and state.get("state") != "open":
             break
 
+    if answers:
+        record_approval(qid, questions, answers, answered_by)
     out = hook_output(questions, answers)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     sys.stdout.write("\n")

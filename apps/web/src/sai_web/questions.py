@@ -107,6 +107,7 @@ def resolve_on_terminal(qid: str) -> bool:
     """pi の拡張から「PC で答えた」の知らせが来た（05 §3.1）．
 
     その質問だけ「PC で回答済み」にする（既に回答済みなら変えない）．
+    回答者は `terminal` になる（store.mark_resolved_elsewhere_qid）．
     """
     return store.mark_resolved_elsewhere_qid(qid)
 
@@ -153,5 +154,6 @@ def _answer_question_locked(qid: str, answers: list[dict]) -> tuple[bool, str]:
             return (False, "未回答の質問があります")
 
     # headless ではキーを送れない．記録するだけ（cc のフックと pi の拡張が取りに来る）
-    store.mark_answered(qid, {"answers": answers})
+    # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う（C8）
+    store.mark_answered(qid, {"answers": answers}, store._current_owner() or "user")
     return (True, "")

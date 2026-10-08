@@ -9,12 +9,15 @@
 //   - 子の run だけ親に通知する（共有契約 C6）
 //   - サーバーが保存した答えを pi の形に変えられる
 //   - 端末で選ばれても、サーバーに答えがあればそちらを採る（B6）
+//   - 答えの承認を sai-sci approval record で記録する（U04・C8）
 // 実行:
 //     node apps/web/tests/test_askuserphone.js
 
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const SRC_PATH = path.join(
   __dirname,
@@ -76,7 +79,9 @@ function extractFunction(name) {
   return `${head} ${body}`;
 }
 
+// spawnSync は node の関数なので、引数で渡す（Function の中では require が使えない）
 const api = new Function(
+  "spawnSync",
   [
     extractConst("SAI_WEB_URL"),
     extractConst("SAI_WEB_INTERNAL_TOKEN"),
@@ -85,11 +90,14 @@ const api = new Function(
     extractFunction("authHeaders"),
     extractFunction("shouldNotifyParent"),
     extractFunction("parentNotifyArgs"),
+    extractFunction("approvalRecordArgs"),
+    extractFunction("recordApproval"),
     extractFunction("answersFromState"),
+    extractFunction("answeredByOf"),
     extractFunction("answeredOnServer"),
-    "return { shouldNotifyParent, parentNotifyArgs, answersFromState, answeredOnServer, POLL_MAX_COUNT };",
+    "return { shouldNotifyParent, parentNotifyArgs, approvalRecordArgs, recordApproval, answersFromState, answeredByOf, answeredOnServer, POLL_MAX_COUNT };",
   ].join("\n\n")
-)();
+)(spawnSync);
 
 // --- 1) ポーリングの回数はサーバーの期限（questions.py の _PI_EXPIRE_SEC = 600）とそろう
 assert.strictEqual(api.POLL_MAX_COUNT, 600, "POLL_MAX_COUNT が 600 ではありません（B6）");
@@ -165,7 +173,8 @@ async function main() {
       };
     };
     const answered = await api.answeredOnServer("q9");
-    assert.deepStrictEqual(answered, { "どれですか": "A" }, "Web の答えを採っていません（B6）");
+    assert.deepStrictEqual(answered.answers, { "どれですか": "A" }, "Web の答えを採っていません（B6）");
+    assert.strictEqual(answered.answeredBy, "user", "answered_by が無いときは user です");
     assert.strictEqual(calls.length, 1, "読みに行く回数が 1 回ではありません");
     assert.ok(calls[0].endsWith("/api/questions/q9"), `読み取った先が違います: ${calls[0]}`);
 
@@ -197,7 +206,112 @@ async function main() {
     /if \(selected\) \{[\s\S]*?const fromWeb = serverId \? await answeredOnServer\(serverId\) : null;/,
     "端末の選択の前にサーバーの答えを読んでいません（B6）"
   );
-  assert.match(src, /import \{ execFile \} from "node:child_process";/, "execFile の読み込みがありません");
+  assert.match(src, /import \{ execFile, spawnSync \} from "node:child_process";/, "execFile・spawnSync の読み込みがありません");
+
+  // --- 6) 答えの承認の記録（U04・C8）
+  // 答えた人の名前（answered_by）を読む
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      state: "answered",
+      answered_by: "saituki",
+      questions: questions.slice(0, 1),
+      answer: { answers: [{ choice_index: 1 }] },
+    }),
+  });
+  try {
+    assert.deepStrictEqual(await api.answeredOnServer("q9"), { answers: { "どれですか": "B" }, answeredBy: "saituki" });
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  // 引数の組み立て: 親の run が無ければ呼ばない・あれば SAI_SCI_BIN か sai-sci
+  const approvalQs = [
+    { question: "次の op を行ってよいですか？", header: "許可", multiSelect: false, options: [{ label: "許可する" }, { label: "許可しない" }] },
+    { question: "補足は？", header: "補足", multiSelect: false, options: [{ label: "x" }, { label: "y" }] },
+  ];
+  const approvalAnswers = { "次の op を行ってよいですか？": "許可する", "補足は？": "x" };
+  assert.strictEqual(
+    api.approvalRecordArgs("q1", approvalQs, approvalAnswers, "saituki", {}),
+    null,
+    "親の run が無いのに承認を記録しようとしています"
+  );
+  assert.deepStrictEqual(api.approvalRecordArgs("q1", approvalQs, approvalAnswers, "saituki", { SAI_PARENT_RUN_ID: "61" }), {
+    bin: "sai-sci",
+    args: [
+      "approval",
+      "record",
+      "--qid",
+      "q1",
+      "--question",
+      "次の op を行ってよいですか？\n補足は？",
+      "--answer",
+      "許可する\nx",
+      "--answered-by",
+      "saituki",
+    ],
+  });
+  assert.strictEqual(
+    api.approvalRecordArgs("q1", approvalQs, approvalAnswers, "terminal", { SAI_PARENT_RUN_ID: "61", SAI_SCI_BIN: "/opt/sai-sci" }).bin,
+    "/opt/sai-sci",
+    "SAI_SCI_BIN が使われていません"
+  );
+
+  // 実際に偽の sai-sci を呼ぶ（一時フォルダのシェルスクリプト）
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-approval-"));
+  try {
+    const log = path.join(tmp, "args.log");
+    const fake = path.join(tmp, "sai-sci");
+    const writeFake = (name, code) => {
+      const file = path.join(tmp, name);
+      fs.writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\nexit ${code}\n`);
+      fs.chmodSync(file, 0o755);
+      return file;
+    };
+    const oneQ = [approvalQs[0]];
+    const oneAnswer = { "次の op を行ってよいですか？": "許可する" };
+
+    // 親の run があるとき: 渡った引数が log に残る
+    writeFake("sai-sci", 0);
+    api.recordApproval("q1", oneQ, oneAnswer, "saituki", { SAI_PARENT_RUN_ID: "61", SAI_SCI_BIN: fake });
+    assert.deepStrictEqual(fs.readFileSync(log, "utf8").split("\n").slice(0, -1), [
+      "approval",
+      "record",
+      "--qid",
+      "q1",
+      "--question",
+      "次の op を行ってよいですか？",
+      "--answer",
+      "許可する",
+      "--answered-by",
+      "saituki",
+    ]);
+
+    // 親の run が無いときは呼ばない
+    fs.rmSync(log, { force: true });
+    api.recordApproval("q1", oneQ, oneAnswer, "saituki", { SAI_SCI_BIN: fake });
+    assert.ok(!fs.existsSync(log), "親の run が無いのに sai-sci を呼びました");
+
+    // 失敗（終了コード 4）・呼べない場所でも投げない（警告は 1 行だけ）
+    const warned = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warned.push(args.join(" "));
+    try {
+      writeFake("sai-sci", 4);
+      assert.doesNotThrow(() =>
+        api.recordApproval("q1", oneQ, oneAnswer, "saituki", { SAI_PARENT_RUN_ID: "61", SAI_SCI_BIN: fake })
+      );
+      assert.strictEqual(warned.length, 1, "失敗の警告が 1 行ではありません");
+      assert.ok(warned[0].includes("終了コード 4"), warned[0]);
+      assert.doesNotThrow(() =>
+        api.recordApproval("q1", oneQ, oneAnswer, "saituki", { SAI_PARENT_RUN_ID: "61", SAI_SCI_BIN: path.join(tmp, "no-such") })
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 
   console.log("test_askuserphone: すべて通りました");
 }

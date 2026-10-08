@@ -31,7 +31,8 @@
  */
 
 // 子の run の質問を親（起動者）に知らせるために sai-link を呼ぶ．
-import { execFile } from "node:child_process";
+// 答えの承認を記録するために sai-sci を呼ぶ（U04・同期で待つ。記録の後に返すため）。
+import { execFile, spawnSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // 型定義（外部依存なし．pi 本体の型に合わせる）
@@ -84,9 +85,19 @@ type ServerQuestionPayload = {
     text?: string;
   };
   questions?: PhoneQuestion[];
+  answered_by?: string;
 };
 
-// 親の通知コマンド（`task question`）
+// 質問 → 答え（質問文の鍵）
+type Answers = Record<string, string>;
+
+// 保存された答えと、答えた人の名前（承認の記録に使う）
+type PolledAnswer = {
+  answers: Answers;
+  answeredBy: string;
+};
+
+// 外から呼ぶコマンドの呼び方（親の通知 `task question`・承認の記録 `approval record`）
 type ParentNotifyCommand = {
   bin: string;
   args: string[];
@@ -235,6 +246,57 @@ function notifyParent(serverId: string, questions: PhoneQuestion[], env: PhoneEn
 }
 
 // ---------------------------------------------------------------------------
+// 答えを承認として記録する（共有契約 C8）
+// ---------------------------------------------------------------------------
+
+function approvalRecordArgs(
+  serverId: string,
+  questions: PhoneQuestion[],
+  answers: Answers,
+  answeredBy: string,
+  env: PhoneEnv | undefined,
+): ParentNotifyCommand | null {
+  /** `sai-sci approval record` の呼び方を組み立てる。親の run（SAI_PARENT_RUN_ID）が無ければ null。 */
+  if (!env || !env.SAI_PARENT_RUN_ID) return null;
+  const texts = questions.map((q) => q.question);
+  return {
+    bin: env.SAI_SCI_BIN || "sai-sci",
+    args: [
+      "approval",
+      "record",
+      "--qid",
+      serverId,
+      "--question",
+      texts.join("\n"),
+      "--answer",
+      texts.map((t) => answers[t] ?? "").join("\n"),
+      "--answered-by",
+      answeredBy,
+    ],
+  };
+}
+
+function recordApproval(
+  serverId: string,
+  questions: PhoneQuestion[],
+  answers: Answers,
+  answeredBy: string,
+  env: PhoneEnv | undefined,
+): void {
+  /** 答えを記録する。承認は後の `sai-sci op` より先に入っている必要があるので待つ（10 秒の上限）。失敗は無視する。 */
+  const cmd = approvalRecordArgs(serverId, questions, answers, answeredBy, env);
+  if (!cmd) return;
+  try {
+    const res = spawnSync(cmd.bin, cmd.args, { timeout: 10000 });
+    if (res.status !== 0) {
+      console.warn(`[ask_user] approval record が失敗しました（終了コード ${res.status}）`);
+    }
+  } catch {
+    // 記録できなくても質問の答えは返す（後の op が許可なしで止まって気づける）
+  }
+}
+
+// ---------------------------------------------------------------------------
 // サーバーが保存した答えを読む
 // ---------------------------------------------------------------------------
 
@@ -270,8 +332,13 @@ function answersFromState(data: ServerQuestionPayload): Record<string, string> |
   return answers;
 }
 
-async function answeredOnServer(questionId: string, url: string = SAI_WEB_URL): Promise<Record<string, string> | null> {
-  /** サーバー側に保存済みの答えを 1 回だけ読む（取れなければ `null`）。
+function answeredByOf(data: ServerQuestionPayload): string {
+  /** 答えた人の名前（サーバーの `answered_by`。無ければ user）。 */
+  return data.answered_by || "user";
+}
+
+async function answeredOnServer(questionId: string, url: string = SAI_WEB_URL): Promise<PolledAnswer | null> {
+  /** サーバー側に保存済みの答えと答えた人を 1 回だけ読む（取れなければ `null`）。
 
    * 端末（herdr）で何かが選ばれたとき、サーバーに既に答えがあっても
    * 端末の選択を採ると Web の答えが捨てられる（B6）。そこで 1 回だけ読んで
@@ -288,7 +355,8 @@ async function answeredOnServer(questionId: string, url: string = SAI_WEB_URL): 
     clearTimeout(timer);
     if (!res.ok) return null;
     const data = await res.json();
-    return answersFromState(data);
+    const answers = answersFromState(data);
+    return answers ? { answers, answeredBy: answeredByOf(data) } : null;
   } catch {
     // 通信できないときは端末の選択を採る（今までと同じ）
     return null;
@@ -302,7 +370,7 @@ async function answeredOnServer(questionId: string, url: string = SAI_WEB_URL): 
 async function pollAnswer(
   questionId: string,
   maxCount: number = POLL_MAX_COUNT,
-): Promise<Record<string, string> | null> {
+): Promise<PolledAnswer | null> {
   for (let i = 0; i < maxCount; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     try {
@@ -313,7 +381,7 @@ async function pollAnswer(
       const data = (await res.json()) as ServerQuestionPayload;
       // 答えに変換する処理は `answeredOnServer` と共有する（変換が二重にならないように）
       const answers = answersFromState(data);
-      if (answers) return answers;
+      if (answers) return { answers, answeredBy: answeredByOf(data) };
       if (data.state && data.state !== "open") return null;
     } catch {
       // 通信が切れている間は待ち続ける
@@ -356,6 +424,7 @@ async function handleAskUserPhone(
   if (questions.length === 0) {
     return errorResult("質問がありません", { answers: null });
   }
+  const env: PhoneEnv | undefined = typeof process !== "undefined" ? process.env : undefined;
 
   // 質問ID：サーバー登録後に差し替える（登録前から一意にしておく）
   const localId = `local-${Date.now()}`;
@@ -387,8 +456,11 @@ async function handleAskUserPhone(
     if (!serverId) {
       return errorResult("UI is unavailable in this mode.", { answers: null });
     }
-    const answers = await pollAnswer(serverId, POLL_MAX_COUNT_HEADLESS);
-    if (answers) return result(answeredText(answers), { answers });
+    const got = await pollAnswer(serverId, POLL_MAX_COUNT_HEADLESS);
+    if (got) {
+      recordApproval(serverId, questions, got.answers, got.answeredBy, env);
+      return result(answeredText(got.answers), { answers: got.answers });
+    }
     return result("User cancelled.", { answers: null });
   }
   const ui = ctx.ui;
@@ -404,14 +476,15 @@ async function handleAskUserPhone(
 
   // 子の run なら，質問を親（カードの起動者）に知らせる（共有契約 C6）。
   // 待たない。通知に失敗しても質問は Web に出ている。
-  const env: PhoneEnv | undefined = typeof process !== "undefined" ? process.env : undefined;
   if (serverId) notifyParent(serverId, questions, env);
 
   // この段階では1問ずつ順に聞く．複数問・複数選択の同時操作は
   // 端末画面の仕様に依存し壊れやすいため，順番に1問ずつ出す割り切り．
   // iPhone 側は全問まとめて1回で答えてくるため，届いた時点で全問揃っていれば
   // 端末側の残りの質問は出さずに打ち切る．
-  const answers: Record<string, string> = {};
+  const answers: Answers = {};
+  // 答えた人の名前（承認の記録に使う）。端末で選んだときは terminal。
+  let answeredBy = "";
   for (const q of questions) {
     if (questions.every((qq) => Object.prototype.hasOwnProperty.call(answers, qq.question))) {
       break;
@@ -424,7 +497,7 @@ async function handleAskUserPhone(
     const title = q.header ? `${q.header}: ${q.question}` : q.question;
 
     // iPhone の回答を並行して待つ（サーバー登録できた場合のみ）
-    let phoneAnswer: Promise<Record<string, string> | null> | null = null;
+    let phoneAnswer: Promise<PolledAnswer | null> | null = null;
     if (serverId) {
       phoneAnswer = pollAnswer(serverId).then((a) => {
         if (a) controller.abort();
@@ -439,11 +512,13 @@ async function handleAskUserPhone(
       // herdr で送った down・enter が端末の選択になり、Web の答えが
       // 捨てられていた取りこぼしを塞ぐ。
       const fromWeb = serverId ? await answeredOnServer(serverId) : null;
-      if (fromWeb && Object.keys(fromWeb).length) {
-        for (const [k, v] of Object.entries(fromWeb)) answers[k] = v;
+      if (fromWeb && Object.keys(fromWeb.answers).length) {
+        for (const [k, v] of Object.entries(fromWeb.answers)) answers[k] = v;
+        answeredBy = fromWeb.answeredBy;
         continue;
       }
       // 端末で選ばれた → サーバーに伝えて iPhone のカードを「PC で回答済み」に
+      answeredBy = "terminal";
       if (serverId) void tellResolved(serverId);
       if (selected === CUSTOM_LABEL) {
         const custom = await ui.input("Your answer");
@@ -457,7 +532,8 @@ async function handleAskUserPhone(
       // 外から閉じた ＝ iPhone で答えられた
       const a = serverId ? await phoneAnswer : null;
       if (a) {
-        for (const [k, v] of Object.entries(a)) answers[k] = v;
+        for (const [k, v] of Object.entries(a.answers)) answers[k] = v;
+        answeredBy = a.answeredBy;
       } else {
         return result("User cancelled.", { answers: null });
       }
@@ -467,6 +543,8 @@ async function handleAskUserPhone(
     }
   }
 
+  // 答えを承認として記録してから返す（後の `sai-sci op` が許可を見つけられるように）
+  if (serverId) recordApproval(serverId, questions, answers, answeredBy, env);
   return result(answeredText(answers), { answers });
 }
 
