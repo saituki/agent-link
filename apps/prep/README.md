@@ -60,6 +60,15 @@ sai-prep setup      # 足りない道具を入れる
 - 道具の実行ファイルは `PATH` の次に `~/.local/bin` から探します。無いときは
   「`sai-prep setup` を実行してください」と出ます。
 
+### agent からの取り込み（zip）
+
+- `POST /local/jobs?project=…&paper_id=…` に `Content-Type: application/zip` で送ると、
+  zip の仕事になります。中身は `paper.pdf`（必須）と、任意の `translated/paper-mono.pdf`・
+  `translated/paper-dual.pdf`（両方あるか両方無いか）です。
+- zip の仕事は pdf2zh を動かしません。翻訳が入っていれば束の `translation.service` は
+  `provided` になり、無ければ翻訳なしになります。
+- 合言葉は画面の HTML の `var NONCE = "…";` から読みます（`GET /` に付いています）。
+
 ## テスト
 
 ```bash

@@ -161,6 +161,46 @@ class PipelineTest(unittest.TestCase):
         done = self._run_paper()
         self.assertEqual(done.status, "done")
 
+    def test_provided_translation_skips_pdf2zh(self):
+        mono, dual = b"%PDF-1.4 mono ja", b"%PDF-1.4 dual both"
+        job = self.pipeline.submit_paper(
+            "alpha", 12, PDF_BYTES, "paper.pdf", translations={"mono": mono, "dual": dual}
+        )
+        done = self.pipeline.wait(job.id, timeout=90)
+        self.assertEqual(done.status, "done", done.error)
+        self.assertFalse(self.pdf2zh_log.exists())  # translate=True でも pdf2zh は動かさない
+        _, names, manifest = self._manifest()
+        self.assertEqual(manifest["translation"]["service"], "provided")
+        self.assertEqual(manifest["tools"]["pdf2zh"], "")
+        self.assertIn("docling/paper.md", names)  # 英語の側は docling にかける
+        with zipfile.ZipFile(io.BytesIO(self.server.bundles[0]["blob"])) as archive:
+            self.assertEqual(archive.read("translated/paper-mono.pdf"), mono)
+            self.assertEqual(archive.read("translated/paper-dual.pdf"), dual)
+
+    def test_empty_translations_means_no_translation(self):
+        job = self.pipeline.submit_paper("alpha", 12, PDF_BYTES, "paper.pdf", translations={})
+        done = self.pipeline.wait(job.id, timeout=90)
+        self.assertEqual(done.status, "done", done.error)
+        self.assertFalse(self.pdf2zh_log.exists())
+        _, names, manifest = self._manifest()
+        self.assertIsNone(manifest["translation"])
+        self.assertFalse(any(n.startswith("translated/") for n in names))
+
+    def test_retry_keeps_provided_translations(self):
+        mono, dual = b"%PDF-1.4 mono", b"%PDF-1.4 dual"
+        with mock.patch("sai_prep.pipeline.find_tool", return_value=None):
+            job = self.pipeline.submit_paper(
+                "alpha", 12, PDF_BYTES, "paper.pdf", translations={"mono": mono, "dual": dual}
+            )
+            failed = self.pipeline.wait(job.id, timeout=30)
+        self.assertEqual(failed.status, "failed")
+        again = self.pipeline.retry(job.id)
+        self.assertEqual(again.translations, {"mono": mono, "dual": dual})
+        done = self.pipeline.wait(again.id, timeout=90)
+        self.assertEqual(done.status, "done", done.error)
+        self.assertFalse(self.pdf2zh_log.exists())
+        self.assertEqual(self._manifest()[2]["translation"]["service"], "provided")
+
 
 class BundleOnlyTest(unittest.TestCase):
     def test_normalize_docling_output_flattens_nested_artifacts(self):

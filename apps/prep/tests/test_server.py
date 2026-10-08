@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import helpers  # noqa: F401  （src を sys.path に入れる）
 import base64
+import io
 import json
 import os
 import tempfile
@@ -11,6 +12,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -33,12 +35,12 @@ class StubPipeline:
     def __init__(self):
         self.submitted = []
 
-    def submit_paper(self, project, paper_id, pdf_bytes, filename):
-        self.submitted.append(("paper", project, paper_id, filename, pdf_bytes))
+    def submit_paper(self, project, paper_id, pdf_bytes, filename, translations=None):
+        self.submitted.append(("paper", project, paper_id, filename, pdf_bytes, translations))
         return FakeJob("paper", {"paper_id": paper_id})
 
-    def submit_bibtex(self, project, bibtex, pdf_bytes, filename):
-        self.submitted.append(("bibtex", project, bibtex, filename, pdf_bytes))
+    def submit_bibtex(self, project, bibtex, pdf_bytes, filename, translations=None):
+        self.submitted.append(("bibtex", project, bibtex, filename, pdf_bytes, translations))
         return FakeJob("bibtex", {"bibtex": bibtex})
 
     def list_jobs(self):
@@ -196,6 +198,91 @@ class ServerTest(unittest.TestCase):
             headers={"Content-Type": "application/pdf"},
         )
         self.assertEqual(status, 400)
+
+    def _zip(self, files):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        return buffer.getvalue()
+
+    def _post_zip(self, files, query="project=alpha&paper_id=12"):
+        return self.request(
+            "POST",
+            f"/local/jobs?{query}",
+            body=self._zip(files),
+            headers={"Content-Type": "application/zip"},
+        )
+
+    def test_post_zip_with_translation_passes_bytes_through(self):
+        status, data = self._post_zip(
+            {
+                "paper.pdf": b"%PDF-1.4 en",
+                "translated/paper-mono.pdf": b"%PDF-1.4 ja",
+                "translated/paper-dual.pdf": b"%PDF-1.4 both",
+            }
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(json.loads(data)["target"], {"paper_id": 12})
+        kind, project, paper_id, _, pdf_bytes, translations = self.pipeline.submitted[0]
+        self.assertEqual((kind, project, paper_id), ("paper", "alpha", 12))
+        self.assertEqual(pdf_bytes, b"%PDF-1.4 en")
+        self.assertEqual(translations, {"mono": b"%PDF-1.4 ja", "dual": b"%PDF-1.4 both"})
+
+    def test_post_zip_without_translation_sends_empty_translations(self):
+        status, _ = self._post_zip({"paper.pdf": b"%PDF-1.4 en", "notes.txt": b"ignored"})
+        self.assertEqual(status, 202)
+        self.assertEqual(self.pipeline.submitted[0][5], {})
+
+    def test_post_zip_bibtex_target(self):
+        bibtex = "@article{x, title={T}}"
+        encoded = base64.b64encode(bibtex.encode("utf-8")).decode("ascii")
+        status, _ = self.request(
+            "POST",
+            "/local/jobs?project=alpha&filename=paper.pdf",
+            body=self._zip({"paper.pdf": b"%PDF-1.4 en"}),
+            headers={"Content-Type": "application/zip", "X-Sai-Bibtex": encoded},
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(self.pipeline.submitted[0][0], "bibtex")
+        self.assertEqual(self.pipeline.submitted[0][5], {})
+
+    def test_post_zip_with_only_mono_is_rejected(self):
+        status, data = self._post_zip(
+            {"paper.pdf": b"%PDF-1.4 en", "translated/paper-mono.pdf": b"%PDF-1.4 ja"}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("両方", json.loads(data)["error"])
+
+    def test_post_zip_without_paper_is_rejected(self):
+        status, _ = self._post_zip({"translated/paper-mono.pdf": b"%PDF-1.4 ja"})
+        self.assertEqual(status, 400)
+
+    def test_post_zip_with_non_pdf_entry_is_rejected(self):
+        status, _ = self._post_zip({"paper.pdf": b"%PDF-1.4 en", "translated/paper-mono.pdf": b"x"})
+        self.assertEqual(status, 400)
+        status, _ = self._post_zip({"paper.pdf": b"hello"})
+        self.assertEqual(status, 400)
+
+    def test_post_zip_that_is_not_a_zip_is_rejected(self):
+        status, data = self.request(
+            "POST",
+            "/local/jobs?project=alpha&paper_id=12",
+            body=b"%PDF-1.4 fake",
+            headers={"Content-Type": "application/zip"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("zip", json.loads(data)["error"])
+
+    def test_post_zip_still_needs_nonce(self):
+        status, _ = self.request(
+            "POST",
+            "/local/jobs?project=alpha&paper_id=12",
+            body=self._zip({"paper.pdf": b"%PDF-1.4 en"}),
+            headers={"Content-Type": "application/zip"},
+            nonce=False,
+        )
+        self.assertEqual(status, 403)
 
 
 if __name__ == "__main__":
