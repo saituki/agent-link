@@ -24,7 +24,6 @@ mod phone_cite;
 mod phone_import;
 mod relayout;
 mod schema;
-mod search_sets;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -58,17 +57,14 @@ enum Cmd {
         /// Database-specific raw query (PubMed Boolean, etc.).
         #[arg(long)]
         raw_query: Option<String>,
-        /// Save results as a named search set.
-        #[arg(long)]
-        save_as: Option<String>,
         /// JSON 出力（`{"log","items","failed"}`）
         #[arg(long)]
         json: bool,
     },
-    /// 検索履歴 1 件とヒット一覧（JSON）
-    #[command(name = "search-log")]
-    SearchLog {
-        /// 検索ログ ID（search_logs.id）
+    /// 外部検索の履歴 1 件とヒット一覧（JSON）
+    #[command(name = "search-history")]
+    SearchHistory {
+        /// 検索履歴 ID（search_history.id）
         log_id: i64,
         /// JSON 出力（いつも JSON。付けても同じ）
         #[arg(long)]
@@ -119,9 +115,9 @@ enum Cmd {
         json: bool,
     },
     /// 内部検索の履歴 1 件とヒット一覧（JSON）
-    #[command(name = "find-log")]
-    FindLog {
-        /// 内部検索の履歴 ID（find_logs.id）
+    #[command(name = "find-history")]
+    FindHistory {
+        /// 内部検索の履歴 ID（find_history.id）
         log_id: i64,
         /// JSON 出力（いつも JSON。付けても同じ）
         #[arg(long)]
@@ -141,7 +137,7 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// 論文の引用の前後を 1 段たどり、Library に無いものを検索セットに入れる（ネットを使う）
+    /// 論文の引用の前後を 1 段たどり、Library に無いものを外部検索の履歴に残す（ネットを使う）
     Expand {
         /// 論文 ID（`papers.id`。複数指定可）
         papers: Vec<i64>,
@@ -151,9 +147,6 @@ enum Cmd {
         /// 向きごとに取る最大件数
         #[arg(long, default_value_t = 20)]
         limit: usize,
-        /// 入れる検索セット名（無ければ作る、あれば足す）
-        #[arg(long)]
-        save_as: String,
         /// JSON 出力
         #[arg(long)]
         json: bool,
@@ -185,12 +178,6 @@ enum Cmd {
         /// サブコマンド
         #[command(subcommand)]
         cmd: phone_import::PhoneImportCmd,
-    },
-    /// 検索セット管理
-    Set {
-        /// サブコマンド
-        #[command(subcommand)]
-        cmd: search_sets::SearchSetCmd,
     },
     /// RAG インデックス管理（チャンク化・全文索引）
     Index {
@@ -830,44 +817,6 @@ fn handle_init(update: bool) -> Result<()> {
     Ok(())
 }
 
-/// `sai-paper search --save-as <名前>` の保存（U06）。
-///
-/// セットが無ければ作り、あれば同じセットへ足す（`expand --save-as` と同じ動き）。
-/// 同じ名前で何度 `--save-as` してもセットは 1 つのままで、重複（`dedupe_key`）は
-/// `add_items` が除きます。一時的なセットを作って `set delete` で消す必要がなくなる。
-///
-/// 返すのは保存先セットの id。
-fn save_search_results(
-    conn: &rusqlite::Connection,
-    name: &str,
-    source_dbs: &str,
-    query: &str,
-    raw_query: Option<&str>,
-    papers: Vec<RemotePaper>,
-) -> Result<i64> {
-    use sai_paper_core::search_sets::{self, SearchSetError};
-
-    // セットは無ければ作り、あればそのまま使う。
-    let set_id = match search_sets::get_by_name(conn, name) {
-        Ok(set) => set.id,
-        Err(SearchSetError::NotFound(_)) => search_sets::create(
-            conn,
-            search_sets::CreateSearchSetParams {
-                name: name.to_string(),
-                source_dbs: source_dbs.to_string(),
-                query: query.to_string(),
-                raw_query: raw_query.map(|q| q.to_string()),
-                created_by: "user".to_string(),
-                note: None,
-            },
-        )?,
-        Err(error) => return Err(error.into()),
-    };
-
-    search_sets::add_items(conn, set_id, papers)?;
-    Ok(set_id)
-}
-
 #[tokio::main]
 async fn main() {
     let code = run().await;
@@ -966,7 +915,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             year_from,
             year_to,
             raw_query,
-            save_as,
             json,
         }) => {
             handle_search(SearchArgs {
@@ -976,12 +924,11 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
                 year_from,
                 year_to,
                 raw_query,
-                save_as,
                 json,
             })
             .await?;
         }
-        Some(Cmd::SearchLog { log_id, json: _ }) => {
+        Some(Cmd::SearchHistory { log_id, json: _ }) => {
             let (db, cfg, paths) = phone::open_context()?;
             let value = phone::log(&db, &cfg, &paths, log_id)?;
             println!("{}", serde_json::to_string(&value)?);
@@ -1019,11 +966,10 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             papers,
             direction,
             limit,
-            save_as,
             json,
         }) => {
             let direction = expand::Direction::parse(&direction)?;
-            expand::handle(&client, papers, direction, limit, &save_as, json).await?;
+            expand::handle(&client, papers, direction, limit, json).await?;
         }
         Some(Cmd::Status { json: _ }) => {
             let db = open_database()?;
@@ -1031,9 +977,6 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
         }
         Some(Cmd::Init { update }) => {
             handle_init(update)?;
-        }
-        Some(Cmd::Set { cmd }) => {
-            search_sets::handle_search_set(cmd).await?;
         }
         Some(Cmd::Index { cmd }) => {
             index::handle_index(cmd).await?;
@@ -1072,9 +1015,9 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             })
             .await?;
         }
-        Some(Cmd::FindLog { log_id, json: _ }) => {
+        Some(Cmd::FindHistory { log_id, json: _ }) => {
             let (db, _cfg, _paths) = phone::open_context()?;
-            let value = phone::find_log_view(&db, log_id)?;
+            let value = phone::find_history_view(&db, log_id)?;
             println!("{}", serde_json::to_string(&value)?);
         }
         Some(Cmd::Library { cmd }) => match cmd {
@@ -1195,6 +1138,26 @@ fn parent_run_id() -> Option<i64> {
         .and_then(|text| text.trim().parse::<i64>().ok())
 }
 
+/// 実行者（`human` / `agent`）。Web（`SAI_ORIGIN=phone`）は human、
+/// それ以外で `SAI_PARENT_RUN_ID` が数なら agent、他は human。
+fn executer_name() -> &'static str {
+    executer_of(origin_name(), parent_run_id())
+}
+
+/// [`executer_name`] の判定（環境変数を読まない形）。
+fn executer_of(origin: &str, run_id: Option<i64>) -> &'static str {
+    if origin != "phone" && run_id.is_some() {
+        "agent"
+    } else {
+        "human"
+    }
+}
+
+/// 履歴に書く実行 ID。human のときは書かない。
+fn run_id_for(executer: &str) -> Option<i64> {
+    if executer == "agent" { parent_run_id() } else { None }
+}
+
 /// `search` の引数（clap の [`Cmd::Search`] の 1 対 1）。
 struct SearchArgs {
     query: String,
@@ -1203,7 +1166,6 @@ struct SearchArgs {
     year_from: Option<u16>,
     year_to: Option<u16>,
     raw_query: Option<String>,
-    save_as: Option<String>,
     json: bool,
 }
 
@@ -1216,7 +1178,6 @@ async fn handle_search(args: SearchArgs) -> Result<()> {
         year_from,
         year_to,
         raw_query,
-        save_as,
         json,
     } = args;
     let query = query.trim();
@@ -1234,31 +1195,18 @@ async fn handle_search(args: SearchArgs) -> Result<()> {
     let year = phone::year_label(year_from, year_to);
     let origin = origin_name();
     // 検索の履歴は毎回必ず残す（Library の階層に出る）。1 回ごとに別の履歴にする。
-    let log_id = sai_paper_core::search_log::record_search(
+    let executer = executer_name();
+    let log_id = sai_paper_core::search_history::record(
         conn,
         origin,
+        executer,
+        run_id_for(executer),
         query,
         &year,
         &limit.to_string(),
         &source_dbs_str,
         &deduped,
     )?;
-    // --save-as があれば、その名前のセットにも足す（同じ名前なら 1 つのセットに足す）。
-    let set_id = match save_as.as_deref() {
-        Some(set_name) => Some(save_search_results(
-            conn,
-            set_name,
-            &source_dbs_str,
-            query,
-            raw_query.as_deref(),
-            deduped.clone(),
-        )?),
-        None => None,
-    };
-    // 履歴とセットの両方に、実行した run を書く（エージェントの検索を人と見分ける）。
-    for id in std::iter::once(log_id).chain(set_id) {
-        sai_paper_core::search_log::set_run_id(conn, id, parent_run_id())?;
-    }
     // Dashboard の出来事に「discover」として残すのは、窓口から呼ばれたときだけ。
     if origin == "phone" {
         database.record_activity("discover", None, Some(query))?;
@@ -1406,9 +1354,10 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
     };
     let passages = sai_paper_core::sections::passages_for_hits(conn, &plain_hits);
     // 履歴に残す（記録に失敗したら終了コード 1）。
-    let log_id = sai_paper_core::find_log::record(
+    let executer = executer_name();
+    let log_id = sai_paper_core::find_history::record(
         conn,
-        &sai_paper_core::find_log::FindLogInput {
+        &sai_paper_core::find_history::FindLogInput {
             query,
             mode: log_mode.as_deref(),
             top_k,
@@ -1419,14 +1368,15 @@ async fn handle_find(args: FindCliArgs) -> Result<()> {
             subtree: false,
             each,
             origin: origin_name(),
-            run_id: parent_run_id(),
+            executer,
+            run_id: run_id_for(executer),
         },
         &plain_hits,
         &passages,
     )?;
 
     if json {
-        let mut value = phone::find_log_view(&db, log_id)?;
+        let mut value = phone::find_history_view(&db, log_id)?;
         if let sai_paper_core::evidence::SearchOutcome::Evidence(result) = &outcome
             && let serde_json::Value::Object(map) = &mut value
         {
@@ -1935,26 +1885,6 @@ fn show_status(db: &Database) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sai_paper_core::search_sets;
-
-    /// テスト用の検索候補を作る（id と DOI で dedupe_key が決まる）。
-    fn remote_paper(id: &str, title: &str, doi: Option<&str>) -> RemotePaper {
-        use chrono::Utc;
-
-        RemotePaper {
-            id: id.to_string(),
-            title: title.to_string(),
-            authors: vec!["Tester".to_string()],
-            abstract_text: format!("abstract of {title}"),
-            published: Utc::now(),
-            updated: Utc::now(),
-            categories: vec![],
-            pdf_url: None,
-            doi: doi.map(|d| d.to_string()),
-            journal_ref: None,
-            citation_count: None,
-        }
-    }
 
     /// U19 AC2: 消した隠した命令・隠した引数は clap の誤りになる（終了コード 2）。
     #[test]
@@ -1980,6 +1910,11 @@ mod tests {
             vec!["sai-paper", "search", "EEG", "--node", "O5"],
             vec!["sai-paper", "find", "EEG", "--node", "O5"],
             vec!["sai-paper", "find", "EEG", "--subtree"],
+            vec!["sai-paper", "set", "list"],
+            vec!["sai-paper", "search", "EEG", "--save-as", "x"],
+            vec!["sai-paper", "expand", "1", "--save-as", "x"],
+            vec!["sai-paper", "search-log", "1"],
+            vec!["sai-paper", "find-log", "1"],
         ] {
             assert!(Cli::try_parse_from(&args).is_err(), "通ってしまう: {args:?}");
         }
@@ -2003,66 +1938,5 @@ mod tests {
         use clap::Parser as _;
         let cli = Cli::try_parse_from(["sai-paper", "init", "--update"]).expect("init --update は通る");
         assert!(matches!(cli.cmd, Some(Cmd::Init { update: true })));
-    }
-
-    /// U06 AC3: 同じ名前で 2 回 `--save-as` しても、セットは 1 つで候補は重複なく足される。
-    #[test]
-    fn ac3_same_save_as_name_reuses_one_set_without_duplicates() {
-        let db = Database::in_memory().expect("メモリ DB を作れる");
-        let conn = db.connection();
-
-        let first = vec![
-            remote_paper("arxiv:1", "Paper one", Some("10.1/one")),
-            remote_paper("arxiv:2", "Paper two", None),
-        ];
-
-        let set_id = save_search_results(conn, "u06-check", "arxiv", "EEG LLM", None, first)
-            .expect("1 回目は保存できる");
-
-        // 2 回目は 1 つ重複（Paper one）+ 1 つ新しい（Paper three）。
-        let second = vec![
-            remote_paper("arxiv:1", "Paper one", Some("10.1/one")),
-            remote_paper("arxiv:3", "Paper three", None),
-        ];
-        let set_id_again =
-            save_search_results(conn, "u06-check", "arxiv", "sEEG LLM", None, second)
-                .expect("2 回目はエラーにならない");
-
-        assert_eq!(set_id, set_id_again, "同じセットに入る");
-
-        let sets: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM search_sets WHERE name = 'u06-check'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("セットを数えられる");
-        assert_eq!(sets, 1, "セットは 1 つだけ");
-
-        let items = search_sets::items(conn, set_id).expect("候補を読める");
-        assert_eq!(items.len(), 3, "重複した候補は足されない");
-        let titles: Vec<&str> = items.iter().map(|i| i.remote.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            vec!["Paper one", "Paper two", "Paper three"],
-            "1 回目の候補のまま 2 回目の新しい候補が足される"
-        );
-    }
-
-    /// 別の名前なら別のセットになる（名前でまとめられることの反対の確認）。
-    #[test]
-    fn ac3_different_save_as_names_make_different_sets() {
-        let db = Database::in_memory().expect("メモリ DB を作れる");
-        let conn = db.connection();
-
-        let papers = vec![remote_paper("arxiv:1", "Paper one", None)];
-        let a = save_search_results(conn, "set-a", "arxiv", "q", None, papers.clone())
-            .expect("set-a を作れる");
-        let b = save_search_results(conn, "set-b", "arxiv", "q", None, papers)
-            .expect("set-b を作れる");
-
-        assert_ne!(a, b, "名前が違えば別々");
-        assert_eq!(search_sets::items(conn, a).expect("読む").len(), 1);
-        assert_eq!(search_sets::items(conn, b).expect("読む").len(), 1);
     }
 }

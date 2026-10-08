@@ -130,6 +130,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         54,
         include_str!("../migrations/0054_top_q.sql"),
     ),
+    (
+        55,
+        include_str!("../migrations/0055_search_history.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -1180,16 +1184,13 @@ impl Database {
             "DELETE FROM paper_podcasts WHERE paper_id = ?1",
             [paper_id],
         )?;
-        // SearchSets（検索セット）から DL した論文の行は、papers を NO ACTION で
-        // 参照している（マイグレーション 0022）。このまま papers を消すと
-        // 「FOREIGN KEY constraint failed」になるため、検索結果の行自体は残した
-        // まま paper_id を外す。decision が 'downloaded' のものは、もう DL 先の
-        // 論文が存在しないので 'keep'（＝残す候補）へ戻す。
+        // 検索履歴から取り込んだ論文の行は、papers を NO ACTION で参照している
+        // （マイグレーション 0022）。このまま papers を消すと
+        // 「FOREIGN KEY constraint failed」になるため、履歴の候補の行自体は残した
+        // まま paper_id を外す。
         transaction.execute(
-            "UPDATE search_set_items
-                SET paper_id = NULL,
-                    decision = CASE WHEN decision = 'downloaded' THEN 'keep'
-                                   ELSE decision END
+            "UPDATE search_history_items
+                SET paper_id = NULL
               WHERE paper_id = ?1",
             [paper_id],
         )?;
@@ -1986,8 +1987,8 @@ mod tests {
 
     /// 索引（chunks + chunk_embeddings）と引用・図・翻訳の行を持つ論文を
     /// `delete_paper` で削除でき、関連行が残らないことを確かめる（段階 1）。
-    /// SearchSets から DL した論文（`search_set_items`）でも削除が通ること、
-    /// `paper_id` が NULL になり `decision` が `keep` に戻ることも確かめる。
+    /// 検索履歴から取り込んだ論文（`search_history_items`）でも削除が通ること、
+    /// `paper_id` が NULL になることも確かめる。
     #[test]
     fn delete_paper_removes_index_and_key_linked_rows(
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2092,24 +2093,24 @@ mod tests {
             "INSERT INTO paper_podcasts (paper_id, status) VALUES (?1, 'ready')",
             [paper_id],
         )?;
-        // SearchSets: 検索結果の行は残したまま DL した論文を消すので、
-        // papers を NO ACTION で参照する search_set_items が削除の足枷になる。
+        // 検索履歴: 候補の行は残したまま取り込んだ論文を消すので、
+        // papers を NO ACTION で参照する search_history_items が削除の足枷になる。
         conn.execute(
-            "INSERT INTO search_sets (name, source_dbs, query) VALUES ('検索セット', 's2', 'test query')",
+            "INSERT INTO search_history (name, source_dbs, query) VALUES ('履歴', 's2', 'test query')",
             [],
         )?;
         let set_id = conn.last_insert_rowid();
         conn.execute(
-            "INSERT INTO search_set_items
-                 (set_id, position, remote_json, dedupe_key, paper_id, decision)
-             VALUES (?1, 0, '{}', 'dedupe-1', ?2, 'downloaded')",
+            "INSERT INTO search_history_items
+                 (history_id, position, remote_json, dedupe_key, paper_id)
+             VALUES (?1, 0, '{}', 'dedupe-1', ?2)",
             params![set_id, paper_id],
         )?;
         // 同じセット内に、まだ DL していない候補も混ぜておく。
         conn.execute(
-            "INSERT INTO search_set_items
-                 (set_id, position, remote_json, dedupe_key, paper_id, decision)
-             VALUES (?1, 1, '{}', 'dedupe-2', NULL, 'pending')",
+            "INSERT INTO search_history_items
+                 (history_id, position, remote_json, dedupe_key, paper_id)
+             VALUES (?1, 1, '{}', 'dedupe-2', NULL)",
             [set_id],
         )?;
 
@@ -2142,28 +2143,20 @@ mod tests {
         )?;
         assert_eq!(fts_hits, 0, "chunk_fts に削除済みチャンクが残っている");
 
-        // SearchSets: 検索セットと候補の行は残るが、削除した論文への結び付きは
-        // 外され、decision は keep に戻っている。未 DL の候補は手つかず。
-        let sets_left: i64 = count("SELECT COUNT(*) FROM search_sets")?;
-        assert_eq!(sets_left, 1, "search_sets の親行が消えている");
-        let items_left: i64 = count("SELECT COUNT(*) FROM search_set_items")?;
-        assert_eq!(items_left, 2, "search_set_items の候補行が消えている");
-        let (linked_paper, decision): (Option<i64>, String) = conn.query_row(
-            "SELECT paper_id, decision FROM search_set_items WHERE dedupe_key = 'dedupe-1'",
+        // 検索履歴と候補の行は残るが、削除した論文への結び付きは外されている。
+        let sets_left: i64 = count("SELECT COUNT(*) FROM search_history")?;
+        assert_eq!(sets_left, 1, "search_history の親行が消えている");
+        let items_left: i64 = count("SELECT COUNT(*) FROM search_history_items")?;
+        assert_eq!(items_left, 2, "search_history_items の候補行が消えている");
+        let linked_paper: Option<i64> = conn.query_row(
+            "SELECT paper_id FROM search_history_items WHERE dedupe_key = 'dedupe-1'",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
         )?;
         assert!(
             linked_paper.is_none(),
-            "削除済み論文を search_set_items がまだ参照している"
+            "削除済み論文を search_history_items がまだ参照している"
         );
-        assert_eq!(decision, "keep", "downloaded が keep に戻っていない");
-        let pending: (Option<i64>, String) = conn.query_row(
-            "SELECT paper_id, decision FROM search_set_items WHERE dedupe_key = 'dedupe-2'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-        assert_eq!(pending, (None, "pending".to_string()));
         Ok(())
     }
 
@@ -3270,13 +3263,13 @@ mod tests {
             ("rt_proposals", "decide_note"),
             ("rt_nodes", "removed_reason"),
             ("rt_searches", "widen_reason"),
-            ("find_logs", "widen_reason"),
+            ("find_history", "widen_reason"),
         ] {
             assert!(!columns(table)?.iter().any(|name| name == gone), "{table}.{gone} は消える");
         }
 
         // 行は残る。
-        for table in ["rt_nodes", "rt_log", "rt_proposals", "rt_searches", "find_logs"] {
+        for table in ["rt_nodes", "rt_log", "rt_proposals", "rt_searches", "find_history"] {
             let count: i64 =
                 conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))?;
             assert_eq!(count, 1, "{table} の行は残る");
@@ -3370,6 +3363,69 @@ mod tests {
             conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0))?;
         assert_eq!(broken, 0, "外部キーが壊れている");
 
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// 0055 で、検索セット・選別が履歴へ移る。名前付きセットと Discover の行は残り、
+    /// run_id のある行・origin が agent の行の executer が agent、他が human になる。
+    #[test]
+    fn migration_55_renames_history_and_sets_executer() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-search-history-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0054 までの DB。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 55) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch(
+                "INSERT INTO search_sets (id, name, source_dbs, query, origin, run_id)
+                    VALUES (1, 'my-set', 's2', 'q1', 'cli', NULL),
+                           (2, 'discover-log-1', 's2', 'q2', 'discover', NULL),
+                           (3, 'agent-1', 's2', 'q3', 'agent', NULL),
+                           (4, 'run-1', 's2', 'q4', 'cli', 7);
+                 INSERT INTO search_set_items (set_id, position, remote_json, dedupe_key, decision, reason)
+                    VALUES (1, 0, '{}', 'k', 'keep', '理由');
+                 INSERT INTO find_logs (searched_at, log_date, query, origin, run_id)
+                    VALUES ('2026-10-07T00:00:00Z', '2026/10/07', 'f1', 'cli', NULL),
+                           ('2026-10-07T00:00:01Z', '2026/10/07', 'f2', 'mcp', NULL),
+                           ('2026-10-07T00:00:02Z', '2026/10/07', 'f3', 'cli', 9);",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let executers = |sql: &str| -> Result<Vec<String>, Box<dyn std::error::Error>> {
+            let mut statement = conn.prepare(sql)?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        };
+        assert_eq!(
+            executers("SELECT executer FROM search_history ORDER BY id")?,
+            ["human", "human", "agent", "agent"]
+        );
+        assert_eq!(
+            executers("SELECT executer FROM find_history ORDER BY id")?,
+            ["human", "agent", "agent"]
+        );
+        let items: i64 =
+            conn.query_row("SELECT COUNT(*) FROM search_history_items WHERE history_id = 1", [], |row| row.get(0))?;
+        assert_eq!(items, 1, "候補の行は残る");
+        let columns = executers("SELECT name FROM pragma_table_info('search_history_items')")?;
+        assert!(!columns.iter().any(|name| name == "decision" || name == "reason"));
         fs::remove_dir_all(&dir).ok();
         Ok(())
     }

@@ -13,7 +13,7 @@ pub mod downloads;
 pub mod embeddings;
 pub mod evidence;
 pub mod figures;
-pub mod find_log;
+pub mod find_history;
 pub mod jobs;
 pub mod library;
 pub mod library_tree;
@@ -24,8 +24,7 @@ pub mod pipeline;
 pub mod podcast_client;
 pub mod rag_eval;
 pub mod retrieval;
-pub mod search_log;
-pub mod search_sets;
+pub mod search_history;
 pub mod sections;
 pub mod textcheck;
 pub mod translation;
@@ -71,4 +70,3 @@ pub use retrieval::{
     Hit, HybridSearchOptions, RetrievalError, VectorSearchOptions, WordSearchOptions,
     hybrid_search, neighbors, vector_search, word_search,
 };
-pub use search_sets::{SearchSet, SearchSetError, SearchSetItem};

@@ -1348,6 +1348,7 @@ pub fn handle_block_preview(
         base_pane_id: None, // U2・R4 案X: 分割基準ペインなし
         pane_id: None,      // U2・R4 案X: 分割済みペインなし
         is_subtask: false,
+        target_node: None,
         runner: resolved.runner,
     };
     let prepared = orchestrator::prepare_pipeline(&pipeline_config)?;

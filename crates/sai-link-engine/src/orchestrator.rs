@@ -111,6 +111,8 @@ pub struct PipelineConfig {
     pub pane_id: Option<String>,
     /// サブタスクとして実行中かどうか（true の場合、pi プロセスに SAI_IS_SUBTASK=1 を付与）
     pub is_subtask: bool,
+    /// 研究の対象 Node（`SAI_TARGET_NODE` に入れる。None なら付けない）
+    pub target_node: Option<String>,
     /// 実行主体（`pi` / `cc`）。既定 `Pi`。
     pub runner: RunnerKind,
 }
@@ -151,6 +153,7 @@ impl Default for PipelineConfig {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
+            target_node: None,
             runner: RunnerKind::Pi,
         }
     }
@@ -846,6 +849,15 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         )
     } else {
         String::new()
+    };
+    // 研究の対象 Node。SAI_PROJECT_ROOT の有無によらず前置する。
+    let subtask_env = match &config.target_node {
+        Some(node) => format!(
+            "SAI_TARGET_NODE={} {}",
+            crate::herdr::shell_escape_single_quotes(node),
+            subtask_env
+        ),
+        None => subtask_env,
     };
     // デーモン稼働時（SAI_PROJECT_ROOT 設定済み）のみ付与。
     // デーモン外（テスト等）では従来どおり run_id 指定時のみ付与する。
@@ -2074,6 +2086,7 @@ pub fn execute_block_pipeline_full(
         base_pane_id,
         pane_id,
         is_subtask: parent_run_id.is_some(),
+        target_node: crate::target_node::resolve(&store, run_id),
         runner: resolved.runner,
     };
 
@@ -4349,6 +4362,7 @@ mod tests {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
+            target_node: None,
             runner: RunnerKind::Pi,
         }
     }
@@ -4405,6 +4419,20 @@ mod tests {
 
     /// run_id が設定されている場合、pi-sai 用の環境変数
     /// （SAI_PARENT_RUN_ID / SAI_BLOCK_NAME）がコマンド先頭に付与される。
+    #[test]
+    fn test_prepare_pipeline_target_node_prefix() {
+        let _env_lock = finalize_env_lock();
+        let _guard = EnvVarGuard::remove("SAI_PROJECT_ROOT");
+        let mut config = minimal_config();
+        config.run_id = Some(1234);
+        config.target_node = Some("O5".to_string());
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert!(prepared.pi_command.contains("SAI_TARGET_NODE='O5' "), "{}", prepared.pi_command);
+        config.target_node = None;
+        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
+        assert!(!prepared.pi_command.contains("SAI_TARGET_NODE"), "{}", prepared.pi_command);
+    }
+
     #[test]
     fn test_prepare_pipeline_adds_pi_sai_env_prefix() {
         // 環境変数の影響を受けないよう SAI_PROJECT_ROOT を書き換えるテストと直列化する（U4）

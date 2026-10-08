@@ -41,7 +41,6 @@ const PIM_ATTENTION_KINDS = {
   state_update: ["State", "warn", "Proposed State update"],
   recommend_card: ["Recommend", "ok", "Recommendation card"],
   report_issue: ["Source", "danger", "Source needs checking"],
-  new_set_items: ["New", "muted", "New items in a search set"],
   // U19: research-tree から出る要対応
   sci_decision: ["NO_STAR", "warn", "Q has no star"],
   sci_triage: ["PROPOSAL", "warn", "PROPOSAL awaiting TRIAGE"],

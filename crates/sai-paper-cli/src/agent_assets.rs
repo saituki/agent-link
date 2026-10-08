@@ -16,7 +16,6 @@ use anyhow::Result;
 /// 配るテンプレート（ファイル名, 中身）。
 const TEMPLATES: &[(&str, &str)] = &[
     ("literature-hard-rules.md", include_str!("../assets/template/literature-hard-rules.md")),
-    ("paper-screening.md", include_str!("../assets/template/paper-screening.md")),
     ("paper-search-strategy.md", include_str!("../assets/template/paper-search-strategy.md")),
     ("rag-deep-search.md", include_str!("../assets/template/rag-deep-search.md")),
     ("rag-simple.md", include_str!("../assets/template/rag-simple.md")),

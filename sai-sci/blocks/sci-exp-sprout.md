@@ -11,7 +11,7 @@ templates:
   - exp-ref
 context: true
 sci_type: manage
-sci_ops: add_sprout, add_e, add_f
+sci_ops: add_sprout, add_e, add_f, add_o
 timeout: 3600
 worktree: none
 enable: true

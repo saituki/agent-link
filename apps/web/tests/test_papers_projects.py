@@ -268,7 +268,7 @@ def test_routes() -> None:
         ("/api/projects/{name}/papers/tree", ["GET"]),
         ("/api/projects/{name}/papers/providers", ["GET"]),
         ("/api/projects/{name}/papers/search", ["POST"]),
-        ("/api/projects/{name}/papers/logs/{log_id:int}", ["GET"]),
+        ("/api/projects/{name}/papers/search-history/{log_id:int}", ["GET"]),
         ("/api/projects/{name}/papers/{paper_id:int}", ["GET"]),
         ("/api/projects/{name}/papers/{paper_id:int}/translate", ["POST"]),
         ("/api/projects/{name}/papers/{paper_id:int}/radio", ["POST"]),
@@ -286,7 +286,7 @@ def test_routes() -> None:
         ("/api/papers/tree", ["GET"]),
         ("/api/papers/providers", ["GET"]),
         ("/api/papers/search", ["POST"]),
-        ("/api/papers/logs/{log_id:int}", ["GET"]),
+        ("/api/papers/search-history/{log_id:int}", ["GET"]),
         ("/api/papers/{paper_id:int}", ["GET"]),
         ("/api/papers/{paper_id:int}/radio", ["POST"]),
     ]:

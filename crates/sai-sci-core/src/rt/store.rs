@@ -483,7 +483,7 @@ pub struct SearchRow {
     pub hit_papers: Vec<i64>,
     pub set_id: Option<i64>,
     pub created_at: String,
-    /// その 1 回の検索の履歴（`search_sets` の行）。
+    /// その 1 回の検索の履歴（`search_history` の行）。
     pub log_id: Option<i64>,
 }
 
@@ -618,7 +618,7 @@ mod tests {
                 .unwrap();
             assert_eq!(found, 1, "{table}");
         }
-        conn.prepare("SELECT rt_node FROM search_sets").expect("search_sets.rt_node");
+        conn.prepare("SELECT rt_node FROM search_history").expect("search_history.rt_node");
     }
 
     #[test]

@@ -129,7 +129,7 @@ _CLI_SUBWORDS = {
         {"project", "daemon", "card", "run", "doc", "task", "def", "session", "usage"}
     ),
     "sai-paper": frozenset(
-        {"library", "paper", "content", "set", "import", "index", "graph", "config", "activity"}
+        {"library", "paper", "content", "import", "index", "graph", "config", "activity"}
     ),
     "sai-sci": frozenset({"attention", "project", "understanding", "dsr", "report"}),
     "sai-web": frozenset({"mlflow"}),

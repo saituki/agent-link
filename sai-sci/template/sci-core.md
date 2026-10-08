@@ -7,7 +7,7 @@
 
 - `## TREE`: research-tree のうち、この回で見る部分。node agent は対象とその下、manage agent は SEED から対象までの祖先と対象とその下（対象が `SEED` なら research-tree の全体）。support agent には出ません。対象の行の末尾に `← TARGET` があり、次の行の `>` が対象の本文です。
 - `## GUIDE`: 対象（か一番近い祖先）の Q の GUIDE（Extract・Child Q など）。
-- `## SEARCH_HISTORY`: TREE の Node の検索の記録。同じ検索を繰り返さないために読む。
+- `## SEARCH_HISTORY`: TREE の Node の検索の記録（find（Library）と search（外部）の両方）。同じ検索を繰り返さないために読む。
 - `## ALLOWED_OPS`: このブロックが出せる OP と、その項目。
 - `## PAPER_OUTLINE`: 読む論文の節の一覧（あるときだけ）。
 - `## TARGET_PAPERS`: blind_first のときだけ、research-tree の代わりに出る対象の論文。
@@ -73,7 +73,7 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 - 出典は `literature-hard-rules` に従います。文献を推測で書かない。API の返り値に無い PMID・DOI・題名・著者・年・誌は書いてはいけません。
 - F の `cites` は次の形です: `#37`・`#37 §3.2`・`#37.5`・`#37.5.2`・`#37.5.2-4`・`#37 Fig.3`。
 - 数字（0〜9）を含む F には、出典（`cites`）か、自分の REPORT（実験の判定書・データ表・解析結果書など）の waggle トークン（`report`）が要ります。論文の値を書くときは `cites`、自分で出した結果を書くときは `report` を付けます。
-- `cites` の論文が Library に無いと弾かれます。先に `sai-sci search` で Library に入れてから出します。
+- `cites` の論文が Library に無いと弾かれます。Library に無い論文は、`sai-sci search` で見つけた候補を利用者に取り込んでもらってから出します（search は Library に入れません）。
 - 根拠が足りないときは「Library の資料では答えられない」と書き、`[GAP: 推奨検索: <英語の検索語>]` を残します。
 
 ## 迎合しない

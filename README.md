@@ -8,7 +8,7 @@ sai-moon（Mac 1 台で使う版）の複製で、Linux のサーバで多人数
 | 部品 | 何 | 実行ファイル |
 |---|---|---|
 | **sai-link** | 基盤。coding agent の実行・カード（実行の予約）・文書（waggle トークン） | `sai-link` |
-| **sai-paper** | 研究の基盤。論文の検索・取得・翻訳・音声化・Library・検索セット（CLI の `sai-paper set`。エージェントの選別に使う） | `sai-paper` |
+| **sai-paper** | 研究の基盤。論文の検索・取得・翻訳・音声化・Library | `sai-paper` |
 | **sai-sci** | 研究の仕組み。research-tree・研究の記録・エージェントの報告。sai-link と sai-paper の CLI を使うアプリ | `sai-sci` |
 | **sai-web** | Web の窓口（FastAPI + 素の JavaScript）。上の 3 つの CLI と Radio の HTTP API だけを使う。多人数モードではアカウントとプロジェクトのコンテナを管理する | `apps/web/bin/sai-web` |
 | **sai-prep** | 各自の Mac の前処理アプリ。PDF を docling と翻訳で処理し、「前処理の束」をサーバへ送る | `sai-prep`（`apps/prep/`） |
@@ -163,12 +163,11 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8201 --a
 上の切り替えは Dashboard / Library / Import / Radio の 4 つです。
 
 - **Dashboard**: 数字のカード・State・Mind・Recent activity が出ます。
-- **Library**: 上の切り替えで `外部 DB`（外部の論文 DB を検索する。履歴は `sai-paper set` と同じ表に残る）・`内部 DB`（取り込み済みの論文を検索する）・`Paper`（全論文を番号 `#1` の昇順に並べる）を選びます。`Paper` の行を押すと論文詳細が開き、要旨・ノート・図・引用文献・チャンク一覧（本文を `#論文.章.段落` ごとに並べたもの）を読めます。
+- **Library**: 上の切り替えで `外部 DB`（外部の論文 DB を検索する。履歴は `search_history` に残る）・`内部 DB`（取り込み済みの論文を検索する）・`Paper`（全論文を番号 `#1` の昇順に並べる）を選びます。`Paper` の行を押すと論文詳細が開き、要旨・ノート・図・引用文献・チャンク一覧（本文を `#論文.章.段落` ごとに並べたもの）を読めます。
 - **外部 DB の論文に「＋ Library に入れる」を押すと、PDF の無い論文として Library に入ります。** その論文は Library で「PDF 待ち」と出ます。
 - **PDF 待ち**の論文の PDF は、各自の Mac の sai-prep で前処理して束にし、サーバへ送ります。届くと、PDF・翻訳 PDF・図・節・引用が Library で見られます。
 - **Import**: BibTeX から論文を取り込みます。BibTeX と PDF を一緒に drop すると、S2 検索なしで Library に入ります。
 - **Radio**: 論文の解説音声を作って聞きます。
-- 検索セット専用の画面はありません。`sai-paper set …`（CLI）と API `GET /api/projects/<名前>/papers/sets` は残り、`sci-screen` ブロックのエージェントが keep / drop を付けます。
 
 ### Research
 

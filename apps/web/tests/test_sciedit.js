@@ -162,8 +162,8 @@ function test_tables() {
   assert.deepStrictEqual(Object.keys(SE_DONE).sort(), keys);
   for (const q of SE_QUICK) assert.ok(keys.includes(q));
   const ids = SE_BLOCKS.map(([id]) => id);
-  assert.strictEqual(ids.length, 21);
-  assert.strictEqual(new Set(ids).size, 21);
+  assert.strictEqual(ids.length, 20);
+  assert.strictEqual(new Set(ids).size, 20);
   for (const id of ids) assert.match(id, /^sci-[a-z-]{2,30}$/);
   assert.ok(ids.includes("sci-read") && ids.includes("sci-split"));
   assert.ok(keys.includes("add_sprout"));

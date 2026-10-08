@@ -10,7 +10,7 @@
 |---|---|
 | 実行の一覧（todo / running / review / done ごと） | `sai-link run tree` |
 | 1 つの実行の詳細（ブロック・状態・時間・コミット） | `sai-link run show <run_id>` |
-| その実行の依頼文・振り返り・会話 | `sai-link run md <run_id> --kind task`（`review` / `message` も可） |
+| その実行の依頼文・報告・会話 | `sai-link run md <run_id> --kind task`（`message` / `report` / `system` も可） |
 | その実行が保存した文書 | `sai-link doc list --run <run_id> --all`（本文は `sai-link doc read <トークン>` で読む） |
 | 過去の会話を言葉で探す | `sai-link session search -w <語,語>`（`--block <名>`・`-R <グローバルラウンド>`・`--json` で絞り込み） |
 
@@ -43,11 +43,9 @@ EOF
 
 - 空の項目は既定値になる。`model` / `provider` を空にすると、ブロック定義の値が使われる。
 - `task_text` に `waggle:<トークン>` を書くと、実行時に本文が埋め込まれる。
-- `done_ids` に run_id を並べると、その実行の振り返り（review）がカードに付く。振り返りがまだ無い実行は指定できない。
 
 3. 戻り値の `path` のファイルを編集し、frontmatter の 2 行を埋める。
    - `description:` に、カードの説明を 1 行で書く（TUI のカードに表示される）。
-   - 自分の実行から引き継ぐときは、`origin_run_id:` に自分の run_id を書く（TUI の Workflow に線が引かれる）。
 
 4. ユーザーに、作ったカードの run_id と内容を伝える。
 

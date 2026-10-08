@@ -164,15 +164,14 @@ function testAttentionKindLabel() {
   assert.strictEqual(pimAttentionKindLabel("state_update"), "Proposed State update");
   assert.strictEqual(pimAttentionKindLabel("recommend_card"), "Recommendation card");
   assert.strictEqual(pimAttentionKindLabel("report_issue"), "Source needs checking");
-  assert.strictEqual(pimAttentionKindLabel("new_set_items"), "New items in a search set");
   // U19: research-tree から出る要対応
   assert.strictEqual(pimAttentionKindLabel("sci_decision"), "Q has no star");
   assert.strictEqual(pimAttentionKindLabel("sci_triage"), "PROPOSAL awaiting TRIAGE");
   // 知らない種類は札だけを出し、説明は 「要対応」 に落とす
   assert.strictEqual(pimAttentionKindLabel("mystery"), "Attention");
   assert.strictEqual(pimAttentionKindLabel(null), "Attention");
-  // 札の 8 種類が揃っていること（toast と札の両方で使う）
-  assert.strictEqual(Object.keys(PIM_ATTENTION_KINDS).length, 8);
+  // 札の 7 種類が揃っていること（toast と札の両方で使う）
+  assert.strictEqual(Object.keys(PIM_ATTENTION_KINDS).length, 7);
 }
 
 function testLongText() {

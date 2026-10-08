@@ -21,7 +21,7 @@ research-tree・PROPOSAL・CARD・実験ループの仕組みは前向き（forw
 | 2. 評価（引用） | 主張ごとに引用文献を取り寄せ、根拠になっているかを判定する                   | `sci-cite-check`                                                                                | 引用の判定表                       |
 | 2. 評価（research-tree）   | 復元した research-tree を CRITERIA（§10）で審査する                                       | `sci-review`                                                                               | 審査書                             |
 | 3. 再現         | PATH を選んで再現の SPROUT を作り、論文の手法を E として動かす                                        | `sci-exp-sprout`                                                                                  | 再現の SPROUT・完了報告書（再現）   |
-| 4. 更新         | 新しい論文を探して O を直し、更新の SPROUT を作って動かす                   | `sci-search`・`sci-screen`・`sci-read`・`sci-ideate`・`sci-compare`・`sci-exp-sprout` | 更新の SPROUT・完了報告書（更新） |
+| 4. 更新         | 新しい論文を探して O を直し、更新の SPROUT を作って動かす                   | `sci-search`・`sci-read`・`sci-ideate`・`sci-compare`・`sci-exp-sprout` | 更新の SPROUT・完了報告書（更新） |
 | 5. 比較         | 論文の記載・再現・更新を COMPARISON_CRITERIA（§11）で比べる                  | `sci-result-compare`                                                                            | 比較書                             |
 
 ## 3. 基盤論文

@@ -1364,12 +1364,12 @@ def api_papers_search(
     return papers.search(papers.resolve_project(name), req)
 
 
-@app.get("/api/projects/{name}/papers/logs/{log_id:int}")
-def api_papers_search_log(
+@app.get("/api/projects/{name}/papers/search-history/{log_id:int}")
+def api_papers_search_history(
     name: str, log_id: int, _: None = Depends(require_token)
 ) -> dict:
-    """過去の検索結果（sai-paper `phone log <log_id>`）。"""
-    return papers.search_log(papers.resolve_project(name), log_id)
+    """過去の検索結果（sai-paper `phone search-history <log_id>`）。"""
+    return papers.search_history(papers.resolve_project(name), log_id)
 
 
 @app.post("/api/projects/{name}/papers/find")
@@ -1378,12 +1378,12 @@ def api_papers_find(name: str, req: papers.FindRequest, _: None = Depends(requir
     return papers.find(papers.resolve_project(name), req)
 
 
-@app.get("/api/projects/{name}/papers/find-logs/{log_id:int}")
-def api_papers_find_log(
+@app.get("/api/projects/{name}/papers/find-history/{log_id:int}")
+def api_papers_find_history(
     name: str, log_id: int, _: None = Depends(require_token)
 ) -> dict:
-    """過去の内部検索の結果（sai-paper `phone find-log <log_id>`）。"""
-    return papers.find_log(papers.resolve_project(name), log_id)
+    """過去の内部検索の結果（sai-paper `phone find-history <log_id>`）。"""
+    return papers.find_history(papers.resolve_project(name), log_id)
 
 
 # --- Import・Download・Project（U3 §変更内容 2・共有契約 C-A2） ---
@@ -1694,37 +1694,6 @@ def api_sci_read_finish(
 ) -> dict:
     """READ_CARD を終えて review へ移す（F が 0 でも止めない）。"""
     return sci.read_finish(papers.resolve_project(name), run_id)
-
-
-# --- 検索セット（`phone set …`） ---
-
-
-@app.get("/api/projects/{name}/papers/sets")
-def api_set_list(name: str, _: None = Depends(require_token)) -> dict:
-    """検索セットの一覧（`phone set list`）。"""
-    return sci.set_list(papers.resolve_project(name))
-
-
-@app.get("/api/projects/{name}/papers/sets/{set_id}")
-def api_set_show(name: str, set_id: str, _: None = Depends(require_token)) -> dict:
-    """検索セット 1 つと候補（`phone set show`）。"""
-    return sci.set_show(papers.resolve_project(name), set_id)
-
-
-@app.post("/api/projects/{name}/papers/sets/{set_id}/mark")
-def api_set_mark(
-    name: str, set_id: str, payload: dict = Body(...), _: None = Depends(require_token)
-) -> dict:
-    """候補に keep / drop を付ける（body は `{"positions","decision","reason"?}`）。"""
-    return sci.set_mark(papers.resolve_project(name), set_id, payload)
-
-
-@app.post("/api/projects/{name}/papers/sets/{set_id}/drop-pending")
-def api_set_drop_pending(
-    name: str, set_id: str, payload: dict = Body(default={}), _: None = Depends(require_token)
-) -> dict:
-    """未判定の候補をまとめて drop にする（body は `{"reason"?}`）。"""
-    return sci.set_drop_pending(papers.resolve_project(name), set_id, payload)
 
 
 # --- Radio 中継（計画 09 §3） ---

@@ -1,11 +1,11 @@
-"""research-tree（Q・O・F・E）と検索セットの API のテスト。
+"""research-tree（Q・O・F・E）の API のテスト。
 
 確かめること:
 - 中継が表どおりに CLI を呼ぶ（引数・標準入力・cwd・`SAI_PROJECT_ROOT`・待ち時間）
 - 検査に通らない値では CLI が 1 回も呼ばれず、400 と日本語の理由が返る
 - 知らない項目と `path` のようなファイルのパスが CLI に渡らない
 - READ_CARD の終わりは、始まっていない札でも 1 回の操作で review まで進む
-- 14 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
+- 10 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
 
 実行:
     cd <作業用コピー>
@@ -354,44 +354,6 @@ def test_calls(order: list) -> None:
 
         sci.read_start(project, 130)
         assert link.last["args"] == ["card", "start", "130"] and link.last["root"] == root
-
-        # 検索セット
-        sci.set_list(project)
-        assert paper.last["args"][1:] == ["set", "list"] and paper.last["timeout"] == 20.0
-        sci.set_show(project, "7")
-        assert paper.last["args"][1:] == ["set", "show", "7"], paper.last["args"]
-        sci.set_mark(project, 7, {"positions": [0, 2, 5], "decision": "keep", "reason": " 要る "})
-        assert paper.last["args"][1:] == [
-            "set", "mark", "7", "--position=0,2,5", "--decision", "keep", "--reason=要る",
-        ], paper.last["args"]
-        assert paper.last["timeout"] == 30.0 and paper.last["cwd"] == root
-        sci.set_mark(project, 7, {"positions": [1], "decision": "drop"})
-        assert paper.last["args"][1:] == [
-            "set", "mark", "7", "--position=1", "--decision", "drop",
-        ], paper.last["args"]
-        sci.set_drop_pending(project, 7, {"reason": "古い"})
-        assert paper.last["args"][1:] == ["set", "drop-pending", "7", "--reason=古い"]
-        sci.set_drop_pending(project, 7, {})
-        assert paper.last["args"][1:] == ["set", "drop-pending", "7"]
-
-        count = len(paper.calls)
-        for bad in (
-            lambda: sci.set_show(project, 0),
-            lambda: sci.set_show(project, "x"),
-            lambda: sci.set_mark(project, 7, {"positions": [], "decision": "keep"}),
-            lambda: sci.set_mark(project, 7, {"positions": list(range(501)), "decision": "keep"}),
-            lambda: sci.set_mark(project, 7, {"positions": [-1], "decision": "keep"}),
-            lambda: sci.set_mark(project, 7, {"positions": [True], "decision": "keep"}),
-            lambda: sci.set_mark(project, 7, {"positions": [1], "decision": "pending"}),
-            lambda: sci.set_mark(
-                project, 7, {"positions": [1], "decision": "keep", "reason": "あ" * 201}
-            ),
-            lambda: sci.set_mark(project, 7, [1]),
-            lambda: sci.set_drop_pending(project, 7, {"reason": "あ" * 201}),
-            lambda: sci.set_drop_pending(project, 1_000_000_000, {}),
-        ):
-            expect_400(bad)
-        assert len(paper.calls) == count, "検査で落ちたときは CLI を呼ばない"
     finally:
         restore()
 
@@ -497,7 +459,7 @@ def test_user_cli_args() -> None:
 
 
 def test_routes() -> None:
-    """14 本の住所があり、合言葉（require_token）で守られている。"""
+    """10 本の住所があり、合言葉（require_token）で守られている。"""
     from sai_web.main import app, require_token
 
     paths = [(route.path, sorted(getattr(route, "methods", None) or [])) for route in app.routes]
@@ -513,12 +475,8 @@ def test_routes() -> None:
         (f"{base}/sci/reads/{{run_id}}", ["GET"]),
         (f"{base}/sci/reads/{{run_id}}/start", ["POST"]),
         (f"{base}/sci/reads/{{run_id}}/finish", ["POST"]),
-        (f"{base}/sets", ["GET"]),
-        (f"{base}/sets/{{set_id}}", ["GET"]),
-        (f"{base}/sets/{{set_id}}/mark", ["POST"]),
-        (f"{base}/sets/{{set_id}}/drop-pending", ["POST"]),
     ]
-    assert len(wanted) == 14
+    assert len(wanted) == 10
     for path, method in wanted:
         assert (path, method) in paths, f"住所が無い: {method} {path}"
     assert not any(p.endswith("/sci/graph") for p, _ in paths), "/sci/graph は消した"

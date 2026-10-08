@@ -15,8 +15,8 @@ use rusqlite::OptionalExtension;
 use sai_paper_core::citation;
 use sai_paper_core::citation::db::get_refs_for;
 use sai_paper_core::{
-    Config, Database, LibraryIndexer, LibraryPaper, Paths, figures, find_log,
-    library_tree, paths, podcast_client, search_log, search_sets, translation,
+    Config, Database, LibraryIndexer, LibraryPaper, Paths, figures, find_history,
+    library_tree, paths, podcast_client, search_history, translation,
 };
 use serde_json::{Value, json};
 
@@ -24,122 +24,6 @@ use crate::open_database;
 
 /// `api::PaperSourceResolver::resolve` が受け付ける DB ID（resolver を参照）。
 const AVAILABLE_PROVIDERS: [&str; 6] = ["s2", "pubmed", "biorxiv", "medrxiv", "openalex", "arxiv"];
-
-/// 取り込み済みの判定（保存値は `downloaded`）。
-fn is_imported(item: &search_sets::SearchSetItem) -> bool {
-    item.decision == "downloaded"
-}
-
-/// セット 1 件の JSON（`rt_node`・`purpose`・`extract` は核の関数が無いのでここで読む）。
-pub(crate) fn set_json(conn: &rusqlite::Connection, set: &search_sets::SearchSet) -> Result<Value> {
-    let (rt_node, purpose, extract): (Option<i64>, Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT rt_node, purpose, extract FROM search_sets WHERE id = ?1",
-            [set.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?;
-    // 木から消えた Node も、`rt_label` は今までどおり返す（`get_node` と同じ）。
-    let node = rt_node.and_then(|id| sai_paper_core::search_sets::rt_label(conn, id));
-    let items = search_sets::items(conn, set.id)?;
-    let count = |name: &str| items.iter().filter(|i| i.decision == name).count();
-    Ok(json!({
-        "id": set.id,
-        "name": set.name,
-        "query": set.query,
-        "source_dbs": set.source_dbs,
-        "created_at": set.created_at,
-        "node": node,
-        "purpose": purpose,
-        "extract": extract,
-        "counts": {
-            "pending": count("pending"),
-            "keep": count("keep"),
-            "drop": count("drop"),
-            "imported": items.iter().filter(|i| is_imported(i)).count(),
-            "total": items.len(),
-        },
-    }))
-}
-
-/// `phone set list`。
-pub(crate) fn set_list(conn: &rusqlite::Connection) -> Result<Value> {
-    let mut sets = Vec::new();
-    for set in search_sets::list(conn)? {
-        let mut one = set_json(conn, &set)?;
-        // 一覧には長い `extract` を出さない（`show` で見る）
-        one.as_object_mut().map(|o| o.remove("extract"));
-        sets.push(one);
-    }
-    Ok(json!({ "sets": sets }))
-}
-
-/// `phone set show <id>`。
-pub(crate) fn set_show(conn: &rusqlite::Connection, id: i64) -> Result<Value> {
-    let set = search_sets::get(conn, id)?;
-    let items: Vec<Value> = search_sets::items(conn, id)?
-        .into_iter()
-        .map(|item| {
-            json!({
-                "position": item.position,
-                "title": item.remote.title,
-                "authors": item.remote.authors,
-                "year": remote_year(&item.remote.published),
-                "venue": item.remote.journal_ref,
-                "doi": item.remote.doi,
-                "abstract": item.remote.abstract_text,
-                "decision": item.decision,
-                "reason": item.reason,
-                "paper_id": item.paper_id,
-            })
-        })
-        .collect();
-    Ok(json!({ "set": set_json(conn, &set)?, "items": items }))
-}
-
-/// 位置の列に判定を付ける。取り込み済みは変えず、数えない。
-pub(crate) fn mark_positions(
-    conn: &rusqlite::Connection,
-    id: i64,
-    positions: &[i64],
-    decision: &str,
-    reason: Option<&str>,
-) -> Result<Value> {
-    if decision != "keep" && decision != "drop" {
-        return Err(crate::cli_error::CliError::input(
-            "decision は keep か drop にしてください",
-        )
-        .into());
-    }
-    // 無いセットは先に断る
-    search_sets::get(conn, id)?;
-    let items = search_sets::items(conn, id)?;
-    let mut changed = 0;
-    for &position in positions {
-        let Some(item) = items.iter().find(|i| i.position == position) else {
-            return Err(crate::cli_error::CliError::not_found(format!(
-                "候補 set_id={id}, position={position} が見つかりません"
-            ))
-            .into());
-        };
-        if is_imported(item) {
-            continue;
-        }
-        search_sets::mark(conn, id, position, decision, reason)?;
-        changed += 1;
-    }
-    Ok(json!({ "set_id": id, "changed": changed }))
-}
-
-/// `phone set drop-pending`。
-pub(crate) fn set_drop_pending(conn: &rusqlite::Connection, id: i64, reason: Option<&str>) -> Result<Value> {
-    search_sets::get(conn, id)?;
-    let pending: Vec<i64> = search_sets::items(conn, id)?
-        .into_iter()
-        .filter(|i| i.decision == "pending")
-        .map(|i| i.position)
-        .collect();
-    mark_positions(conn, id, &pending, "drop", Some(reason.unwrap_or("まとめて drop")))
-}
 
 /// 読み取り系サブコマンド共通の準備（DB・config・パス）。
 pub(crate) fn open_context() -> Result<(Database, Config, Paths)> {
@@ -348,7 +232,7 @@ pub(crate) fn tree() -> Result<Value> {
     let papers = library_papers(&db, &cfg, &paths)?;
     let groups = library_tree::build_groups(db.connection(), &papers);
     // 内部検索の履歴（U01。新しい順。`groups` は変えない）。
-    let find_groups = find_log::groups(db.connection(), &papers)?;
+    let find_groups = find_history::groups(db.connection(), &papers)?;
     Ok(json!({
         "groups": serde_json::to_value(groups)?,
         "find_groups": serde_json::to_value(find_groups)?,
@@ -538,7 +422,7 @@ fn local_paper_id(
 /// `phone search`（03）も記録直後のログをこの関数で出力する。
 pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Result<Value> {
     let conn = db.connection();
-    let Some(log_meta) = search_log::list(conn)?
+    let Some(log_meta) = search_history::list(conn)?
         .into_iter()
         .find(|entry| entry.id == log_id)
     else {
@@ -547,7 +431,7 @@ pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Re
 
     let papers = library_papers(db, cfg, paths)?;
     let mut items = Vec::new();
-    for item in search_log::items(conn, log_id)? {
+    for item in search_history::items(conn, log_id)? {
         let remote = item.remote;
         let local_paper_id = library_tree::match_downloaded_paper(&papers, &remote)
             .map(|index| papers[index].id);
@@ -574,6 +458,7 @@ pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Re
             "query": log_meta.query,
             "year": log_meta.year,
             "source_dbs": log_meta.source_dbs,
+            "executer": log_meta.executer,
             "actor": actor,
             "node": node,
         },
@@ -583,18 +468,18 @@ pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Re
 
 /// 検索の実行者と、結び付いた research-tree の Node（`log.actor` / `log.node`）。
 ///
-/// 検索の記録は `search_sets` の 1 行（`origin` が窓口）。agent の検索は `rt_searches` に
-/// run_id と Node が残る（`set_id` が検索のログ ID）。読めないものは空にする（エラーにしない）。
-/// - `actor`: `{"kind": "human"}` か `{"kind": "agent", "run_id": 数 | null, "block": 名前 | null}`
+/// 実行者は `search_history` の行の `executer` 列から作る。Node は行の `rt_node`、
+/// 無ければ `rt_searches` に残った値。読めないものは空にする（エラーにしない）。
+/// - `actor`: `{"kind": "human"}` か `{"kind": "agent", "run_id": 数 | null, "block": null}`
 /// - `node`: `{"id": "O5"}`（Node が結び付いていなければ `null`）
 fn search_actor(conn: &rusqlite::Connection, log_id: i64) -> (Value, Value) {
-    let (origin, set_node, set_run): (Option<String>, Option<i64>, Option<i64>) = conn
+    let (executer, set_node, set_run): (String, Option<i64>, Option<i64>) = conn
         .query_row(
-            "SELECT origin, rt_node, run_id FROM search_sets WHERE id = ?1",
+            "SELECT executer, rt_node, run_id FROM search_history WHERE id = ?1",
             [log_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .unwrap_or((None, None, None));
+        .unwrap_or(("human".to_string(), None, None));
     let rt: Option<(Option<i64>, Option<i64>)> = conn
         .query_row(
             "SELECT run_id, node_id FROM rt_searches WHERE log_id = ?1 OR set_id = ?1 ORDER BY id LIMIT 1",
@@ -607,35 +492,33 @@ fn search_actor(conn: &rusqlite::Connection, log_id: i64) -> (Value, Value) {
     let run_id = set_run.or(rt.and_then(|(run, _)| run));
     let node_id = set_node.or(rt.and_then(|(_, node)| node));
 
-    let actor = if origin.as_deref() == Some("agent") || run_id.is_some() {
-        // block の名前は、sai-paper が sai-link のデータを読まないので出さない（null）。
-        json!({ "kind": "agent", "run_id": run_id, "block": Value::Null })
-    } else {
-        json!({ "kind": "human" })
-    };
+    let actor = actor_json(&executer, run_id);
     let node = node_id
-        .and_then(|id| sai_paper_core::search_sets::rt_label(conn, id))
+        .and_then(|id| sai_paper_core::search_history::rt_label(conn, id))
         .map(|label| json!({ "id": label }));
     (actor, node.unwrap_or(Value::Null))
 }
 
-/// 内部検索の履歴 1 件を、使い回しの JSON（C-2）にする。
-///
-/// `phone find`（検索直後）と `phone find-log`（過去の履歴）で共用。
-pub(crate) fn find_log_json(
-    conn: &rusqlite::Connection,
-    row: &find_log::FindLogRow,
-    rows: &[(i64, Option<i64>, Value)],
-) -> Value {
-    // 実行者: `run_id` ありか `origin = 'mcp'` なら agent（`search_actor` と同じ作り）。
-    let run_id = row.run_id;
-    let actor = if find_log::is_agent(&row.origin, run_id) {
-        // block の名前は、sai-paper が sai-link のデータを読まないので出さない（null）。
+/// `log.actor` の JSON。block の名前は、sai-paper が sai-link のデータを読まないので出さない（null）。
+fn actor_json(executer: &str, run_id: Option<i64>) -> Value {
+    if executer == "agent" {
         json!({ "kind": "agent", "run_id": run_id, "block": Value::Null })
     } else {
         json!({ "kind": "human" })
-    };
-    // `find_log` に Node がなければ、`sai-sci find` が残した `rt_searches` から読む。
+    }
+}
+
+/// 内部検索の履歴 1 件を、使い回しの JSON（C-2）にする。
+///
+/// `phone find`（検索直後）と `find-history`（過去の履歴）で共用。
+pub(crate) fn find_history_json(
+    conn: &rusqlite::Connection,
+    row: &find_history::FindLogRow,
+    rows: &[(i64, Option<i64>, Value)],
+) -> Value {
+    // 実行者: 行の `executer` 列（`search_actor` と同じ作り）。
+    let actor = actor_json(&row.executer, row.run_id);
+    // `find_history` に Node がなければ、`sai-sci find` が残した `rt_searches` から読む。
     let node_id = row.node_id.or_else(|| {
         conn.query_row(
             "SELECT node_id FROM rt_searches WHERE tool = 'find' AND log_id = ?1 ORDER BY id DESC LIMIT 1",
@@ -647,7 +530,7 @@ pub(crate) fn find_log_json(
         .flatten()
     });
     let node = node_id
-        .and_then(|id| sai_paper_core::search_sets::rt_label(conn, id))
+        .and_then(|id| sai_paper_core::search_history::rt_label(conn, id))
         .map(|label| json!({ "id": label }));
     let hits: Vec<Value> = rows
         .iter()
@@ -693,20 +576,21 @@ pub(crate) fn find_log_json(
             "node": node.unwrap_or(Value::Null),
             "subtree": row.subtree,
             "each": row.each,
+            "executer": row.executer,
             "actor": actor,
         },
         "hits": hits,
     })
 }
 
-/// `phone find-log <id>`: 内部検索の履歴 1 件とヒット一覧（U01）。
-pub(crate) fn find_log_view(db: &Database, log_id: i64) -> Result<Value> {
+/// `find-history <id>`: 内部検索の履歴 1 件とヒット一覧（U01）。
+pub(crate) fn find_history_view(db: &Database, log_id: i64) -> Result<Value> {
     let conn = db.connection();
-    let Some(row) = find_log::get(conn, log_id)? else {
+    let Some(row) = find_history::get(conn, log_id)? else {
         return Err(crate::cli_error::CliError::not_found("検索履歴が見つかりません").into());
     };
-    let rows = find_log::hits(conn, log_id)?;
-    Ok(find_log_json(conn, &row, &rows))
+    let rows = find_history::hits(conn, log_id)?;
+    Ok(find_history_json(conn, &row, &rows))
 }
 
 /// `phone providers`: 既定の DB（設定の `discover.providers`）と全 DB の一覧。
@@ -719,7 +603,7 @@ pub(crate) fn providers() -> Result<Value> {
     }))
 }
 
-/// 検索年のラベル（`search_logs.year` に保存する文字列）。
+/// 検索年のラベル（`search_history.year` に保存する文字列）。
 ///
 /// 両方指定 `2010-2020` / 下限だけ `2010-` / 上限だけ `-2020` / 指定なしは空文字。
 pub(crate) fn year_label(from: Option<u16>, to: Option<u16>) -> String {
@@ -891,15 +775,15 @@ mod tests {
     #[test]
     fn search_actor_is_human_or_agent_with_node() {
         use super::search_actor;
-        use sai_paper_core::search_log::record_search;
+        use sai_paper_core::search_history::record;
 
         let db = Database::in_memory().unwrap();
         let conn = db.connection();
-        let human = record_search(conn, "phone", "q", "", "10", "s2", &[]).unwrap();
+        let human = record(conn, "phone", "human", None, "q", "", "10", "s2", &[]).unwrap();
         assert_eq!(search_actor(conn, human).0["kind"], "human");
         assert!(search_actor(conn, human).1.is_null());
 
-        let agent = record_search(conn, "agent", "q2", "", "10", "s2", &[]).unwrap();
+        let agent = record(conn, "cli", "agent", None, "q2", "", "10", "s2", &[]).unwrap();
         conn.execute(
             "INSERT INTO rt_searches (run_id, tool, query, set_id) VALUES (7, 'search', 'q2', ?1)",
             [agent],
@@ -909,18 +793,17 @@ mod tests {
         assert_eq!(actor["kind"], "agent");
         assert_eq!(actor["run_id"], 7);
 
-        // search_sets に run_id が残っていれば、rt_searches が無くても agent。
-        let by_set = record_search(conn, "cli", "q3", "", "10", "s2", &[]).unwrap();
-        sai_paper_core::search_log::set_run_id(conn, by_set, Some(9)).unwrap();
+        // 履歴に run_id が残っていれば、rt_searches が無くても agent。
+        let by_set = record(conn, "cli", "agent", Some(9), "q3", "", "10", "s2", &[]).unwrap();
         let (actor, _) = search_actor(conn, by_set);
         assert_eq!((actor["kind"].as_str(), actor["run_id"].as_i64()), (Some("agent"), Some(9)));
     }
 
-    /// 内部検索の履歴: `find-log` は人と agent を見分け、`find_groups` は新しい順に並ぶ。
+    /// 内部検索の履歴: `find-history` は人と agent を見分け、`find_groups` は新しい順に並ぶ。
     #[test]
-    fn find_log_view_distinguishes_human_and_agent() {
-        use super::find_log_view;
-        use sai_paper_core::find_log::{self, FindLogInput};
+    fn find_history_view_distinguishes_human_and_agent() {
+        use super::find_history_view;
+        use sai_paper_core::find_history::{self, FindLogInput};
         use std::collections::HashMap;
 
         /// 記録用のヒット 1 件。
@@ -946,7 +829,7 @@ mod tests {
         let conn = db.connection();
         let empty: HashMap<i64, String> = HashMap::new();
         // 古い履歴（人）→新しい履歴（agent）の順に作る。
-        let human = find_log::record(
+        let human = find_history::record(
             conn,
             &FindLogInput {
                 query: "人の検索",
@@ -959,13 +842,14 @@ mod tests {
                 subtree: false,
                 each: None,
                 origin: "phone",
+                executer: "human",
                 run_id: None,
             },
             &[hit(1, Some(3))],
             &empty,
         )
         .unwrap();
-        let agent = find_log::record(
+        let agent = find_history::record(
             conn,
             &FindLogInput {
                 query: "agent の検索",
@@ -978,6 +862,7 @@ mod tests {
                 subtree: false,
                 each: None,
                 origin: "mcp",
+                executer: "agent",
                 run_id: Some(5),
             },
             &[hit(2, None)],
@@ -985,22 +870,24 @@ mod tests {
         )
         .unwrap();
 
-        let shown = find_log_view(&db, human).unwrap();
+        let shown = find_history_view(&db, human).unwrap();
         assert_eq!(shown["log"]["query"], "人の検索");
         assert_eq!(shown["log"]["actor"]["kind"], "human");
+        assert_eq!(shown["log"]["executer"], "human");
         assert_eq!(shown["hits"][0]["position"], 0);
         assert_eq!(shown["hits"][0]["paper_id"], 3);
         assert_eq!(shown["hits"][0]["authors"][0], "A. Smith");
         assert!(shown["log"]["node"].is_null());
 
-        let shown = find_log_view(&db, agent).unwrap();
+        let shown = find_history_view(&db, agent).unwrap();
         assert_eq!(shown["log"]["actor"]["kind"], "agent");
         assert_eq!(shown["log"]["actor"]["run_id"], 5);
+        assert_eq!(shown["log"]["executer"], "agent");
         // block の名前は sai-link のデータを読まないので null。
         assert!(shown["log"]["actor"]["block"].is_null());
-        assert!(find_log_view(&db, human + agent + 99).is_err());
+        assert!(find_history_view(&db, human + agent + 99).is_err());
 
-        // `rt_searches` に `tool='find'` の行があれば、`find_log` の node が無くても
+        // `rt_searches` に `tool='find'` の行があれば、`find_history` の node が無くても
         // `rt_label` で Node を出す（U13 の `sai-sci find` がこう書く）。
         conn.execute(
             "INSERT INTO rt_nodes (id, kind, text, created_by) VALUES (5, 'Q', '問い', 'user')",
@@ -1012,10 +899,10 @@ mod tests {
             [human],
         )
         .unwrap();
-        let with_node = find_log_view(&db, human).unwrap();
+        let with_node = find_history_view(&db, human).unwrap();
         assert_eq!(with_node["log"]["node"]["id"], "Q5");
 
-        let found = find_log::groups(conn, &[]).unwrap();
+        let found = find_history::groups(conn, &[]).unwrap();
         assert_eq!(found.len(), 2);
         // 新しい順（agent が先）。論文に結び付かないヒットは数えるが論文一覧には入れない。
         assert_eq!(found[0].log_id, agent);
@@ -1026,72 +913,48 @@ mod tests {
         assert_eq!(found[1].actor.kind, "human");
     }
 
-    /// 検索セットの 4 つの命令: 一覧・詳細・選別・まとめて drop（imported は変えない）。
+    /// 実行者の決め方: run_id が数なら agent（run_id 7）、`SAI_ORIGIN=phone` なら human。
     #[test]
-    fn set_commands_list_show_mark_and_drop_pending() {
-        use super::{mark_positions, set_drop_pending, set_list, set_show};
-        use chrono::Utc;
-        use sai_paper_core::RemotePaper;
-        use sai_paper_core::search_sets::{self, CreateSearchSetParams};
+    fn find_history_executer_follows_origin_and_run_id() {
+        use super::find_history_view;
+        use sai_paper_core::find_history::{self, FindLogInput};
+        use std::collections::HashMap;
 
         let db = Database::in_memory().unwrap();
         let conn = db.connection();
-        let id = search_sets::create(
-            conn,
-            CreateSearchSetParams {
-                name: "s".into(),
-                source_dbs: "s2".into(),
-                query: "q".into(),
-                raw_query: None,
-                created_by: "user".into(),
-                note: None,
-            },
-        )
-        .unwrap();
-        let papers: Vec<RemotePaper> = (0..4)
-            .map(|n| RemotePaper {
-                id: format!("p{n}"),
-                title: format!("題{n}"),
-                authors: vec!["A".into()],
-                abstract_text: "要旨".into(),
-                published: Utc::now(),
-                updated: Utc::now(),
-                categories: vec![],
-                pdf_url: None,
-                doi: None,
-                journal_ref: None,
-                citation_count: None,
-            })
-            .collect();
-        search_sets::add_items(conn, id, papers).unwrap();
-        // 位置 3 は取り込み済み
-        search_sets::mark(conn, id, 3, "downloaded", None).unwrap();
-
-        let list = set_list(conn).unwrap();
-        let one = &list["sets"][0];
-        assert_eq!(one["id"], id);
-        assert!(one["node"].is_null());
-        assert_eq!(one["counts"]["pending"], 3);
-        assert_eq!(one["counts"]["imported"], 1);
-        assert_eq!(one["counts"]["total"], 4);
-
-        let shown = set_show(conn, id).unwrap();
-        assert_eq!(shown["items"].as_array().unwrap().len(), 4);
-        assert_eq!(shown["items"][0]["title"], "題0");
-        assert!(shown["set"].get("extract").is_some());
-
-        // keep / drop 以外は失敗。imported は数えない
-        assert!(mark_positions(conn, id, &[0], "pending", None).is_err());
-        let got = mark_positions(conn, id, &[0, 3], "keep", Some("要る")).unwrap();
-        assert_eq!(got["changed"], 1);
-
-        let got = set_drop_pending(conn, id, None).unwrap();
-        assert_eq!(got["changed"], 2);
-        let after = set_list(conn).unwrap();
-        assert_eq!(after["sets"][0]["counts"]["pending"], 0);
-        assert_eq!(after["sets"][0]["counts"]["drop"], 2);
-        let shown = set_show(conn, id).unwrap();
-        assert_eq!(shown["items"][1]["reason"], "まとめて drop");
+        let record_with = |origin: &str, run: Option<i64>| {
+            let executer = crate::executer_of(origin, run);
+            let run_id = if executer == "agent" { run } else { None };
+            let id = find_history::record(
+                conn,
+                &FindLogInput {
+                    query: "q",
+                    mode: None,
+                    top_k: None,
+                    scope: None,
+                    range_text: "library",
+                    papers: &[],
+                    node_id: None,
+                    subtree: false,
+                    each: None,
+                    origin,
+                    executer,
+                    run_id,
+                },
+                &[],
+                &HashMap::new(),
+            )
+            .unwrap();
+            find_history_view(&db, id).unwrap()
+        };
+        let agent = record_with("cli", Some(7));
+        assert_eq!(agent["log"]["executer"], "agent");
+        assert_eq!(agent["log"]["actor"]["run_id"], 7);
+        let web = record_with("phone", Some(7));
+        assert_eq!(web["log"]["executer"], "human");
+        assert_eq!(web["log"]["actor"]["kind"], "human");
+        let plain = record_with("cli", None);
+        assert_eq!(plain["log"]["executer"], "human");
     }
 
     use super::{with_failed, year_label};
@@ -1127,38 +990,5 @@ mod tests {
         assert!(one["failed"][0]["reason"].as_str().unwrap().contains("429"));
         // 既存の項目はそのまま
         assert!(one["items"].as_array().unwrap().is_empty());
-    }
-
-    /// 検索セットの Node の表示は、`rt_label` が `rt_nodes` を読んで作る。
-    #[test]
-    fn set_json_uses_rt_label_for_the_node() {
-        use super::set_json;
-        use sai_paper_core::search_sets::{self, CreateSearchSetParams};
-
-        let db = Database::in_memory().unwrap();
-        let conn = db.connection();
-        let id = search_sets::create(
-            conn,
-            CreateSearchSetParams {
-                name: "set".into(),
-                source_dbs: "s2".into(),
-                query: "q".into(),
-                raw_query: None,
-                created_by: "user".into(),
-                note: None,
-            },
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO rt_nodes (id, kind, text, created_by) VALUES (5, 'Q', '問い', 'user')",
-            [],
-        )
-        .unwrap();
-        conn.execute("UPDATE search_sets SET rt_node = 5 WHERE id = ?1", [id])
-            .unwrap();
-        assert_eq!(search_sets::rt_label(conn, 5).as_deref(), Some("Q5"));
-        assert_eq!(set_json(conn, &search_sets::get(conn, id).unwrap()).unwrap()["node"], "Q5");
-        // 行が無ければ `None`（表が無い・行が無いときも同じ）。
-        assert_eq!(search_sets::rt_label(conn, 9999), None);
     }
 }

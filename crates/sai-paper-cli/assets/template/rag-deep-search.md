@@ -7,7 +7,7 @@ Library 内で複数の検索角度から論文・ノート・ドキュメント
 ## ステップ 1: インデックス状態の確認
 
 ```bash
-sai-paper index status --json
+sai-paper index status
 ```
 
 チャンク化と埋め込みが完了しているか確認する。

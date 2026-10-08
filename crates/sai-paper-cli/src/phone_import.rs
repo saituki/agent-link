@@ -11,7 +11,7 @@
 //! `sai_paper_core::bibtex::load_bibtex_dir_detailed`）なので、Web で足した .bib は
 //! TUI にもそのまま出る。PDF の登録は TUI と同じ
 //! `sai_paper_core::downloads::register_downloaded_pdf` を使う（Download が 2 か所に
-//! 増えないように）。検索セットへの紐付け・プラグイン通知・図抽出のパイプラインなど
+//! 増えないように）。検索履歴の候補への紐付け・プラグイン通知・図抽出のパイプラインなど
 //! 画面固有の処理は行わない（`phone after-download` が別コマンドで担当する）。
 
 use std::io::Read as _;
@@ -24,7 +24,7 @@ use rusqlite::OptionalExtension;
 use sai_paper_core::bibtex::{self, list_bib_files, load_bibtex_dir_detailed};
 use sai_paper_core::downloads::{DownloadEvent, DownloadManager, download_destination};
 use sai_paper_core::{
-    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_log,
+    Config, Database, Paths, S2Client, downloads, library_tree, pipeline, search_history,
     translation,
 };
 use crate::open_database;
@@ -327,7 +327,7 @@ fn find_target_paper(
         (Some(log_id), None) => {
             let position =
                 position.context("phone download には --log と --position の両方が必要です")?;
-            search_log::items(db.connection(), log_id)?
+            search_history::items(db.connection(), log_id)?
                 .into_iter()
                 .find(|item| item.position == position)
                 .map(|item| item.remote)

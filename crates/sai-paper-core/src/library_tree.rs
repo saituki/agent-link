@@ -165,12 +165,12 @@ pub fn build_groups(conn: &Connection, papers: &[LibraryPaper]) -> Vec<LibraryGr
         }
     }
 
-    let logs = crate::search_log::list(conn).unwrap_or_default();
+    let logs = crate::search_history::list(conn).unwrap_or_default();
     let mut groups: Vec<LibraryGroup> = Vec::new();
     let mut used_paper_ids: HashSet<i64> = HashSet::new();
 
     for log in &logs {
-        let items = crate::search_log::items(conn, log.id).unwrap_or_default();
+        let items = crate::search_history::items(conn, log.id).unwrap_or_default();
         let hit_count = items.len();
         let mut paper_ids: Vec<i64> = Vec::new();
         for item in &items {
@@ -292,9 +292,11 @@ mod tests {
             remote("2401.00001", "Something Else"),
             remote("2401.99999", "Not downloaded"),
         ];
-        let log_id = crate::search_log::record_search(
+        let log_id = crate::search_history::record(
             conn,
             "discover",
+            "human",
+            None,
             "test query",
             "2020-2026",
             "10",
@@ -380,9 +382,11 @@ mod tests {
             journal_ref: None,
             citation_count: None,
         };
-        let log_id = crate::search_log::record_search(
+        let log_id = crate::search_history::record(
             conn,
             "discover",
+            "human",
+            None,
             "linked",
             "",
             "",
@@ -390,7 +394,7 @@ mod tests {
             std::slice::from_ref(&remote),
         )?;
         // メタデータは一切一致しないので、`link_paper` だけが紐付けの根拠になる。
-        crate::search_sets::link_paper(conn, log_id, 0, id)?;
+        crate::search_history::link_paper(conn, log_id, 0, id)?;
 
         let groups = build_groups(conn, &papers);
         assert_eq!(groups.len(), 1, "Import グループが残らない");
@@ -401,7 +405,7 @@ mod tests {
         Ok(())
     }
 
-    /// 検索語が空で名前だけある記録（CLI・エージェントが作った検索セット）は、
+    /// 検索語が空で名前だけある記録（廃止した名前付きのセットの行）は、
     /// 階層表示の `query` に名前が出る（sai-phone の `(検索)` を出さない）。
     #[test]
     fn build_groups_falls_back_to_name_when_query_is_empty()
@@ -409,7 +413,7 @@ mod tests {
         let db = Database::in_memory()?;
         let conn = db.connection();
         conn.execute(
-            "INSERT INTO search_sets (name, query, source_dbs, origin, created_at)
+            "INSERT INTO search_history (name, query, source_dbs, origin, created_at)
              VALUES ('seeg-eeg-llm-2026-09', '', 'arxiv', 'cli', '2026-09-26T00:00:00+09:00')",
             [],
         )?;

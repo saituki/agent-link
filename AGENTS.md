@@ -66,7 +66,7 @@
 cd ~/workdir/Sai/sai-tree
 
 # Rust（環境変数が混ざっていると History テスト 1 件が落ちる。必ず env -u で外す）
-env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME \
+env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
 # Web（JS 36 本）

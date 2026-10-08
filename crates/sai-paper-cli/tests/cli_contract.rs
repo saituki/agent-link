@@ -197,26 +197,25 @@ fn paper_dir_missing_is_exit_2() {
     );
 }
 
-/// `set mark` の知らない判定は終了コード 2。
+/// 検索セット（`set`）と `--save-as` は無い（終了コード 2）。履歴の命令は `--help` が出る。
 #[test]
-fn set_mark_bad_decision_is_exit_2() {
-    let temp = Temp::new("set-mark");
+fn set_command_is_gone_and_history_commands_exist() {
+    let temp = Temp::new("set-gone");
     let project = init_project(&temp);
     let home = temp.home();
-    let create = run(
-        &project,
-        &home,
-        Some(&project),
-        &["set", "create", "demo", "--query", "q"],
-    );
-    assert!(create.status.success(), "set create が失敗: {}", String::from_utf8_lossy(&create.stderr));
-    let out = run(
-        &project,
-        &home,
-        Some(&project),
-        &["set", "mark", "demo", "--position", "0", "--decision", "maybe"],
-    );
-    assert_eq!(out.status.code(), Some(2), "標準エラー: {}", String::from_utf8_lossy(&out.stderr));
+    for args in [
+        &["set", "list"][..],
+        &["search", "q", "--save-as", "x"][..],
+        &["expand", "1", "--save-as", "x"][..],
+        &["search-log", "1"][..],
+    ] {
+        let out = run(&project, &home, Some(&project), args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    for name in ["search-history", "find-history"] {
+        let out = run(&project, &home, Some(&project), &[name, "--help"]);
+        assert!(out.status.success(), "{name} --help が失敗");
+    }
 }
 
 /// `schema --json` の形が読め、隠した命令が出ない。
@@ -318,33 +317,6 @@ fn init_does_not_touch_mcp_json() {
         original,
         "init が .mcp.json を書き換えている"
     );
-}
-
-/// `set create --purpose/--extract` はセットの覚え書きとして残る（Node は書かない）。
-#[test]
-fn set_create_keeps_purpose_and_extract() {
-    let temp = Temp::new("set-purpose");
-    let project = init_project(&temp);
-    let home = temp.home();
-    let create = run(
-        &project,
-        &home,
-        Some(&project),
-        &[
-            "set", "create", "demo", "--query", "q", "--purpose", "確かめる", "--extract", "効果",
-        ],
-    );
-    assert!(
-        create.status.success(),
-        "set create が失敗: {}",
-        String::from_utf8_lossy(&create.stderr)
-    );
-    let shown = run(&project, &home, Some(&project), &["set", "show", "demo"]);
-    assert!(shown.status.success(), "set show が失敗: {}", String::from_utf8_lossy(&shown.stderr));
-    let value: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("JSON として読める");
-    assert_eq!(value["set"]["purpose"], "確かめる");
-    assert_eq!(value["set"]["extract"], "効果");
-    assert!(value["set"]["node"].is_null(), "Node を書いている");
 }
 
 /// `init`（sai-link の初期化なし）は `.sai/paper/papr.db` を作り、`.sai/blocks/` は作らない。

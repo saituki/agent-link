@@ -99,8 +99,8 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | 部品 | Web が呼ぶ命令（呼ぶ側のモジュール） | 時間切れ |
 |---|---|---|
 | sai-link | `run export`（`control.export_runs`・60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|start\|finish\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop`（すべて `control.py`） | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
-| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-log`・`find`・`find-log`・`providers`・`dashboard`・`import list\|add\|remove`・`set list\|show\|mark\|drop-pending`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
-| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`proposals`・`triage`・`card --from-json`・`read`・`find --node`・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
+| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
+| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`proposals`・`triage`・`card --from-json`・`read`・`find --node`（範囲だけ）・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
 | 3 つの CLI | `schema --json`（`commands.py`・60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
 | apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | 質問（`…/ask`）180 秒・他 30 秒 |
 
@@ -306,12 +306,13 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `podcast` | `error` | 文字列 \| null | 「前回は失敗しました: …」 | ― |
 | ― | 論文が無いとき | | **終了コード 3・「論文が見つかりません」** | ― |
 
-#### `search-log <id>` / `search` → `{"log", "items"}`
+#### `search-history <id>` / `search` / `expand` → `{"log", "items"}`
 
 | 階層 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|---|
 | `log` | `id` | 数値 | 画面を移っても結果を取り直すための鍵 | 検索直後の復元ができない |
 | `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
+| `log` | `executer` | `"human"` \| `"agent"` | 検索を実行した人。`SAI_ORIGIN=phone` は `human`、それ以外で `SAI_PARENT_RUN_ID` が数なら `agent` | 出さない |
 | `log` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 「実行者」（agent は `SAI_PARENT_RUN_ID` を書いた検索） | 出さない |
 | `log` | `node` | `{"id":"O5"}` \| null | 見出しの下の Node へのリンク（`#/research/tree/O5`） | リンクを出さない |
 | `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
@@ -320,8 +321,9 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `failed[]`（**`search` だけ**） | `db` / `reason` | 文字列 | 検索の失敗の帯。`reason` の 429 は「混雑」、403 は「キーが使えない」 | 帯を出さない |
 
 - `search --json --limit N [--db <ID>]… [--year-from Y] [--year-to Y] -- <語>`。失敗した DB は標準エラーに `<db>: <理由>` の 1 行と、標準出力の `failed` へ出す。検索は履歴に残る。
-- `find --json [--mode word|vector|hybrid] [--top-k N] [--scope papers|notes|figures|all] [--paper <番号>]… [--each m] -- <語>` は内部検索（要約なし）。新しい履歴を作り、`find-log <id>` と同じ形で返す。`sai-sci find --node <ID> [--subtree]` は範囲の決定と記録を sai-sci が行う。
-- `find-log <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
+- `find --json [--mode word|vector|hybrid] [--top-k N] [--scope papers|notes|figures|all] [--paper <番号>]… [--each m] -- <語>` は内部検索（要約なし）。新しい履歴を作り、`find-history <id>` と同じ形で返す（`log.executer` も付く）。`sai-sci find --node <ID> [--subtree]` は検索の範囲を絞るだけで、記録を Node に結ぶのは環境変数 `SAI_TARGET_NODE`。`sai-sci search` に `--node` は無い。
+- `expand --json` は `search` と同じ `{"log","items"}`（`results` つき）を返す。
+- `find-history <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
 
 #### `providers` → `{"default": [...], "available": [...]}`
 
@@ -407,12 +409,6 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 - `import add --name <名前>`（標準入力 = BibTeX・1MB まで）。名前は `^[A-Za-z0-9._-]{1,80}\.bib$`。
 - `import remove --name <名前>`。
 
-#### `set list|show|mark|drop-pending`（検索セット）
-
-- `set list` → `{"sets":[{"id","name","query","source_dbs","created_at","node","purpose","counts":{"pending","keep","drop","imported","total"}}]}`（`node` は結んだ Node の ID か `null`。`imported` は取り込み済みの候補の数）。
-- `set show <id>` → `{"set":{…list の 1 件と同じ…,"extract"},"items":[{"position","title","authors","year","venue","doi","abstract","decision","reason","paper_id"}]}`（`position` は 0 始まり。`decision` は `pending` / `keep` / `drop` / `downloaded`）。
-- `set mark <id> --position=<p,p,…> --decision keep|drop [--reason=…]` → `{"set_id","changed":n}`。取り込み済み（`downloaded`）の候補は変えず、`changed` に数えない。
-- `set drop-pending <id> [--reason=…]` → `{"set_id","changed":n}`。`pending` の候補をすべて `drop` にする（理由の既定は「まとめて drop」）。
 
 ### 2.4 sai-sci が出す JSON
 
@@ -475,7 +471,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
 | 直下 | `pending[]` | `{"id","op","payload","run","created_at"}` | PENDING の PROPOSAL の行 |
 | 直下 | `next[]` | NextAction の配列 | この Node の Next Action |
-| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","set_id","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
+| 直下 | `searches[]` | `{"id","run","block","tool","query","hits","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
 
 #### `read <run_id> --json` → READ_CARD
@@ -507,7 +503,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
 - `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。
 - `triage <P> --accept|--reject|--revert [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
-- `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形（`rt_searches` にも 1 行残す）。
+- `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形。`--node` は範囲だけ。`SAI_TARGET_NODE` があれば `rt_searches` にも 1 行残す。`search` は `SAI_TARGET_NODE` があれば記録を結ぶ（`--node` は無い）。
 - `project show --json` → `{"mind","state","brief","attention"}`。`project memo --json -- <文>`（改行なしの 1〜2000 字）→ mind.md の「## メモ」に 1 行足す。
 - `attention list --json` → 配列（要対応の `key`・文）。`attention resolve <key> --json` → 対応済みにする。
 
@@ -586,7 +582,8 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 #### `env` の決まり
 
 - キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
-- **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
+- **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` / `SAI_TARGET_NODE` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
+- `SAI_TARGET_NODE`: Node を対象に動く Agent に sai-link が起動時に前置する。決め方は task.md の `sci_node`（`SEED` は付けない）→ task.md の `target_node` → 親の run を同じ規則でたどる。親から受け継いだときは子の task.md に `target_node` を書く（`target_node.rs`）。
 - 通らない項目は**エラーにせず、警告を 1 行出して破棄する**。
 - 並びは `SAI_*` → `env` → エージェントの実行ファイル。値は shell のシングルクォート 1 つで囲むので、`export` や連結の文字列を書く必要はない。
 - 実装は `pi_command::agent_env_pairs()` と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。

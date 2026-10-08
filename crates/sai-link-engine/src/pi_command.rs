@@ -107,16 +107,17 @@ pub struct SettingsJson {
     pub env: std::collections::BTreeMap<String, String>,
 }
 
-/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 4 つ）のときは破棄する。
+/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 5 つ）のときは破棄する。
 ///
 /// sai-link は `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` /
-/// `SAI_IS_SUBTASK` を起動コマンドの後ろ（= より強い位置）で付ける。
+/// `SAI_IS_SUBTASK` / `SAI_TARGET_NODE` を起動コマンドの後ろ（= より強い位置）で付ける。
 /// 利用者が設定に書いても二重にならないようここで弾く。
-const RESERVED_ENV_KEYS: [&str; 4] = [
+const RESERVED_ENV_KEYS: [&str; 5] = [
     "SAI_PROJECT_ROOT",
     "SAI_PARENT_RUN_ID",
     "SAI_BLOCK_NAME",
     "SAI_IS_SUBTASK",
+    "SAI_TARGET_NODE",
 ];
 
 /// `.sai/settings.json` を読み込む。

@@ -21,7 +21,7 @@
 
 // --- 定数 ---
 
-// Papers の上部の切り替え（07 §4.1・U14 で 5 つにし、検索セットを消して 4 つ）。押すと該当の # へ移る。
+// Papers の上部の切り替え（07 §4.1・U14 で 4 つ）。押すと該当の # へ移る。
 const PAPERS_SEG = [
   ["dashboard", "Dashboard", "#/papers/dashboard"],
   ["library", "Library", "#/papers/library"],
@@ -1885,7 +1885,7 @@ function logCacheKey(projectName, logId) {
 async function getLog(projectName, logId) {
   const key = logCacheKey(projectName, logId);
   if (logCache.has(key)) return logCache.get(key);
-  const res = await apiFetch(`${papersApiBase(projectName)}/logs/${encodeURIComponent(logId)}`);
+  const res = await apiFetch(`${papersApiBase(projectName)}/search-history/${encodeURIComponent(logId)}`);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
   if (!body || !body.log) throw new Error("sai-paper の応答を読めませんでした");
@@ -1978,7 +1978,7 @@ async function runDiscoverSearch() {
 async function getFindLog(projectName, logId) {
   const key = logCacheKey(projectName, logId);
   if (findLogCache.has(key)) return findLogCache.get(key);
-  const res = await apiFetch(`${papersApiBase(projectName)}/find-logs/${encodeURIComponent(logId)}`);
+  const res = await apiFetch(`${papersApiBase(projectName)}/find-history/${encodeURIComponent(logId)}`);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
   if (!body || !body.log) throw new Error("sai-paper の応答を読めませんでした");
