@@ -670,7 +670,9 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 
 Web は起動時に **`$SAI_HOME/web/token` に合言葉（`SAI_WEB_TOKEN`）を 0600 で書く**。合言葉が無いときはそのファイルを消す。
 
-- 読むのは `sai-web` の命令とエージェントの道具（環境変数 `SAI_WEB_TOKEN` を先に、無ければこのファイル）。
+- 読むのは `sai-web` の命令とエージェントの道具（環境変数 `SAI_WEB_TOKEN` を先に、次に `SAI_WEB_INTERNAL_TOKEN`、無ければこのファイル）。
+- コンテナの中では `SAI_WEB_TOKEN` は無く、`SAI_WEB_INTERNAL_TOKEN` だけがある。このとき `sai-web questions` は `GET /api/questions/mine` を呼び、**自分のプロジェクトの答え待ちだけ**を返す。`sai-web answer` は、自分のプロジェクトの質問にだけ答えられる（ほかは 403）。答えの記録は `agent`。
+- コンテナの `sai-web` は `/usr/local/bin/sai-web` の sh で、`PYTHONPATH=/opt/sai-tree/apps/web/src` の `sai_web.webcli` を `python3` で動かす（fastapi は要らない）。
 - 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（Web は両方を受け付けるが、画面や記録に残るため）。
 - HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う。
 - **合言葉の値そのものを、ログ・画面・エージェントの作業記録（session ファイル・run フォルダの成果物）に出さない。**

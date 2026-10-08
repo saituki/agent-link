@@ -192,25 +192,34 @@ async def _multi_user_auth(request: Request, call_next):
     return await call_next(request)
 
 
-# 内部の合言葉で使える住所（内部専用の 4 本だけ）。住所の登録と合わせる。
+# 内部の合言葉で使える住所（内部専用の 6 本だけ）。住所の登録と合わせる。
 _INTERNAL_POST_EXACT = {"/api/register", "/api/questions"}
 _INTERNAL_RESOLVED_RE = re.compile(r"^/api/questions/[^/]+/resolved$")
+_INTERNAL_ANSWER_RE = re.compile(r"^/api/questions/[^/]+/answer$")
 _INTERNAL_QUESTION_RE = re.compile(r"^/api/questions/[^/]+$")
+_INTERNAL_GET_EXACT = {"/api/questions/mine"}
 
 
 def _is_internal_address(method: str, path: str) -> bool:
-    """内部の合言葉で使える住所か（内部専用の 4 本だけ）。
+    """内部の合言葉で使える住所か（内部専用の 6 本だけ）。
 
     `GET /api/questions/pending` と `GET /api/questions` は含めない
     （一覧は利用者の画面用で、内部の合言葉では使えない）。
+    `GET /api/questions/mine` は自分のプロジェクトの答え待ちだけを返す。
+    `POST /api/questions/{qid}/answer` は自分のプロジェクトの質問にだけ答えられる
+    （違えば 403・`api_answer_question` で確かめる）。
     """
     if method == "POST":
         if path in _INTERNAL_POST_EXACT:
+            return True
+        if _INTERNAL_ANSWER_RE.match(path):
             return True
         return bool(_INTERNAL_RESOLVED_RE.match(path))
     if method == "GET":
         if path == "/api/questions/pending":
             return False
+        if path in _INTERNAL_GET_EXACT:
+            return True
         return bool(_INTERNAL_QUESTION_RE.match(path))
     return False
 
@@ -833,6 +842,17 @@ def api_push_subscribe(sub: PushSubscription, _: None = Depends(require_token)) 
     return {"ok": True, "test_sent": result == "ok"}
 
 
+@app.get("/api/questions/mine")
+def api_my_questions(request: Request, _: None = Depends(require_internal)) -> dict:
+    # コンテナの agent（sai-web questions）が、自分のプロジェクトの答え待ちを読む。
+    # 多人数モードでは合言葉のプロジェクトの分だけ（`/api/questions/{qid}` より前に登録する）。
+    rows = home._home_questions()
+    if registry.multi_user():
+        project = getattr(request.state, "internal_project", "")
+        rows = [row for row in rows if row.get("project") == project]
+    return {"questions": rows}
+
+
 @app.get("/api/questions/{qid}")
 def api_get_question(qid: str, _: None = Depends(require_internal)) -> dict:
     # 拡張機能からのポーリング用．内部専用（単独モードは Mac 自身、
@@ -887,16 +907,34 @@ class AnswerRequest(BaseModel):
     text: str | None = None
 
 
+def _question_in_project(qid: str, project: str) -> bool:
+    """質問の実行のプロジェクトが `project` か（分からなければ False）。"""
+    q = store.get_question(qid)
+    if q is None or not project:
+        return False
+    name, _run_id = home._run_of_session(home._session_map(), q.get("session_id"))
+    return name == project
+
+
 @app.post("/api/questions/{qid}/answer")
 def api_answer_question(
-    qid: str, req: AnswerRequest, _: None = Depends(require_token)
+    qid: str, req: AnswerRequest, request: Request, _: None = Depends(require_token)
 ) -> dict:
+    # 内部の合言葉（コンテナの agent）は、自分のプロジェクトの質問にだけ答えられる。
+    # 答えの記録は agent にする（画面で人が答えたのと区別できるように）。
+    by_agent = bool(getattr(request.state, "via_internal_token", False))
+    if by_agent and not _question_in_project(
+        qid, getattr(request.state, "internal_project", "")
+    ):
+        raise HTTPException(status_code=403, detail="このプロジェクトの質問ではありません")
     if req.answers is not None:
         answers = [a.model_dump() for a in req.answers]
     else:
         # 旧形式：1問分の回答を配列に包み直す
         answers = [{"choice_index": req.choice_index, "text": req.text}]
-    ok, reason = questions.answer_question(qid, answers)
+    ok, reason = questions.answer_question(
+        qid, answers, answered_by="agent" if by_agent else None
+    )
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
     return {"ok": True}
