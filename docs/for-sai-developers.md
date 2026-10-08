@@ -100,7 +100,7 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 |---|---|---|
 | sai-link | `run export`（`control.export_runs`・60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|start\|finish\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop`（すべて `control.py`） | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
 | sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
-| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`proposals`・`triage`・`card --from-json`・`read`・`find --node`（範囲だけ）・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
+| sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`card --from-json`・`read`・`find --node`（範囲だけ）・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
 | 3 つの CLI | `schema --json`（`commands.py`・60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
 | apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | 質問（`…/ask`）180 秒・他 30 秒 |
 
@@ -314,7 +314,7 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `log` | `query` / `date` / `source_dbs` | 文字列 | 見出しの下の小さい行 | ― |
 | `log` | `executer` | `"human"` \| `"agent"` | 検索を実行した人。`SAI_ORIGIN=phone` は `human`、それ以外で `SAI_PARENT_RUN_ID` が数なら `agent` | 出さない |
 | `log` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 「実行者」（agent は `SAI_PARENT_RUN_ID` を書いた検索） | 出さない |
-| `log` | `node` | `{"id":"O5"}` \| null | 見出しの下の Node へのリンク（`#/research/tree/O5`） | リンクを出さない |
+| `log` | `node` | `{"id":"A5"}` \| null | 見出しの下の Node へのリンク（`#/research/tree/A5`） | リンクを出さない |
 | `items[]` | `position` | 数値 | 行を押したときの `#/papers/log/<name>/<log_id>/<position>` | 開けない |
 | `items[]` | `title` `authors`（**配列**）`year` `journal` `doi` `abstract` `citation_count` | 各種 | 行と詳細の表示 | ― |
 | `items[]` | `local_paper_id` | 数値 \| null | 「✓ Library」の札と行き先 | 未ダウンロード論文の情報画面 |
@@ -400,7 +400,7 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 |---|---|---|
 | `run_id` | 数値 | CARD の run（`#/research/read/<run_id>` などの行き先） |
 | `node` | 文字列 \| null | CARD が付いた Node の ID（`Q12` など） |
-| `block` | 文字列 | CARD の block 名（`sci-ideate` など） |
+| `block` | 文字列 | CARD の block 名（`lab-search` など） |
 | `owner` | 文字列 | `todo` 以外の状態（`running`・`review` など） |
 
 #### `import list|add|remove`
@@ -412,8 +412,8 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 
 ### 2.4 sai-sci が出す JSON
 
-Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答えの候補）・F（知見）・E（実験の BRANCH）・S（SPROUT）と、ID `SEED`（DB の行なし）。ID は `Q12`・`O5`・`F3`・`E2`・`S2`、PROPOSAL は `P3`。
-`status` と `node` の JSON は `sai-sci-core` の `Status` / `NodeDetail` を `serde_json::to_value` したもので、CLI は項目を足したり名前を変えたりしない。書き込む命令（`init`・`apply`・`triage`・`card`）は、終わる前に `state.md` と `tree.md` を書き出す。Web は書き込みのあと画面を読み直す。
+Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）と、ID `SEED`（DB の行なし）。ID は `^[QAFES][1-9][0-9]{0,8}$`（例 `Q12`・`A5`・`F3`・`E2`・`S2`）。
+`status` と `node` の JSON は `sai-sci-core` の `Status` / `NodeDetail` を `serde_json::to_value` したもので、CLI は項目を足したり名前を変えたりしない。書き込む命令（`init`・`apply`・`op`・`card`）は、終わる前に `state.md` と `tree.md` を書き出す。Web は書き込みのあと画面を読み直す。
 
 #### `status --json` → research-tree 全体
 
@@ -422,37 +422,35 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `initialized` | 真偽値 | 始めていないときの案内 | 常に research-tree を表示してしまう |
 | 直下 | `legacy` | 真偽値 | 古い形の research-tree だけがあるときの「作り直し」の案内 | 古い research-tree に気づけない |
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
-| 直下 | `progress` | `{"answered","total"}` | （画面では出さない） | ― |
+| 直下 | `counts` | `{"q","a","f_support","f_deny","f_issue","e","s"}`（生きた Node の総数。F は stance ごと） | 「Q 3・A 2・F 4（S 1 / D 2 / I 1）・E 0・S 1」の行 | 0 に見える |
 | 直下 | `nodes[]` | 配列（深さ優先） | research-tree そのもの。research-tree の図もここから描く（図だけを返す命令は無い） | research-tree が描かれない |
 | 直下 | `seed` | `{"type","mind":[{"heading","body"}]}` | SEED（RESEARCH_TYPE と mind.md） | SEED が出ない |
 | 直下 | `next[]` | NextAction の配列 | 「Next Action」の行と CARD 作成の種 | 出ない |
-| 直下 | `pending_proposals` | 数値 | PENDING の PROPOSAL の数 | 0 に見える |
-| 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at"}` | 決定の記録（新しい順 30 件。画面は `history[]` を使う） | ― |
-| 直下 | `history[]` | `{"node","node_text","action","at","by","run_id","block","global_round","round"}` | 全 Node の History（`Add *` を除き古い順）。Research 画面の「History」 | History が出ない |
+| 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at","approved_by","qid","question"}` | 決定の記録（新しい順 30 件。画面は `history[]` を使う） | ― |
+| 直下 | `history[]` | `{"node","node_text","action","at","by","run_id","block","global_round","round","approved_by","qid","question"}` | 全 Node の History（`Add *` を除き古い順）。Research 画面の「History」 | History が出ない |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
 | ― | 始めていないとき | | `type`・`seed` は `null`、配列は空、数は 0 | ― |
+
+`status --brief`（いつも JSON）は `{"type","counts","next","running","warnings"}` だけを返す。`next[]` の各行は `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`。
 
 **NodeRow**（`status.nodes[]` と `node.node` / `children[]` / `subtree[]` の 1 件）
 
 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|
-| `id` / `kind` | 文字列（`Q12`）/ `"Q"` `"O"` `"F"` `"E"` `"S"` | 行の種類の出し分け、行き先 `#/research/tree/<id>` | Node が選べない |
+| `id` / `kind` | 文字列（`Q12`）/ `"Q"` `"A"` `"F"` `"E"` `"S"` | 行の種類の出し分け、行き先 `#/research/tree/<id>` | Node が選べない |
 | `parent` / `depth` / `ord` | 文字列 \| null / 数値 / 数値 | 並びと字下げ（top_Q と S は `parent` が `null`、深さ 0） | 並びが壊れる |
 | `text` / `body` | 文字列 | 行のラベル / 本文 | ― |
 | `guide` | 文字列 \| null（Q だけ） | Q のガイドの key | ガイドの説明が出ない |
-| `answer_kind` | 文字列 \| null（O だけ） | O の種類の印 | ― |
-| `starred` | 真偽値（O だけ） | ★ の印 | ★ が出ない |
-| `on_path` | 真偽値 | STAR_PATH の上にある印（太く描く） | 道が分からない |
-| `paths[]` | 文字列の配列（S だけ） | SPROUT が選んだ PATH（終点の O の ID） | ― |
+| `stance` | 文字列 \| null（F だけ） | F の立場（`support`・`deny`・`issue`） | ― |
+| `starred` | 真偽値 | ★ の目印（計算には使わない） | ★ が出ない |
+| `range` | `{"q","a","f_support","f_deny","f_issue"}` \| null（S だけ） | SPROUT の範囲（Q・A の数と F の stance ごとの数） | 範囲が出ない |
+| `paths[]` | 文字列の配列（S だけ） | SPROUT が選んだ PATH（A の ID） | ― |
 | `bottom_q` | 真偽値 | bottom_Q の印 | ― |
-| `objectivity` | `{"count","target","met"}` \| null（Q だけ） | 目安の数に届いたか | 出ない |
-| `logicality` | `{"value","note","findings","checked_at"}` \| null（Q だけ。`value` は `ok` / `contradiction` / `unchecked`） | F どうしに矛盾が無いかの印 | 出ない |
-| `counts` | `{"q","o","f","e"}` | 直の子の数 | 数が空 |
+| `counts` | `{"q","a","f","e"}` | 直の子の数 | 数が空 |
 | `cites[]` / `paper` | 文字列の配列 / 数値 \| null | F の引用と論文 | ― |
 | `run` / `mlflow` | 数値 \| null / 文字列 \| null | E の実行と実験の記録 | ― |
 | `created_by` / `created_at` | 文字列 | 作った人（`user` / `run:<N>`）と時刻 | ― |
-| `pending` | 数値 | この Node に付いた PENDING の PROPOSAL の数（0 なら印を出さない） | ― |
 
 **NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）。
 
@@ -463,13 +461,11 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・O（答�
 | 直下 | `node` | NodeRow | 板の見出しと本文 |
 | 直下 | `path[]` | `{"id","kind","text"}`（SEED から順） | パンくず |
 | 直下 | `children[]` / `subtree[]` | NodeRow の配列 | 直の子 / 子孫すべて |
-| 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls","target"}` \| null | Q の説明と目安 |
-| 直下 | `logic[]` | `{"value","note","findings","f_count","run","created_at"}` | Logicality の確かめの履歴 |
+| 直下 | `guide` | `{"key","name","explain","question","child_candidates","extract","pitfalls"}` \| null | Q の説明と目安 |
 | 直下 | `decisions[]` | status の `decisions[]` と同じ | この Node の決定の記録 |
 | 直下 | `actions[]` | `{"run_id","block","owner","node","global_round","purpose","occurred_at"}` | この Node のための実行の行（子孫の run も入る。Web の側で `node` で絞る） |
 | 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run（`by` が `user` のときは `run_id` が null） |
-| 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
-| 直下 | `pending[]` | `{"id","op","payload","run","created_at"}` | PENDING の PROPOSAL の行 |
+| 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round","approved_by","qid","question"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
 | 直下 | `next[]` | NextAction の配列 | この Node の Next Action |
 | 直下 | `searches[]` | `{"id","run","block","tool","query","hits","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
@@ -484,8 +480,8 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 | 項目 | 型 | 内容 |
 |---|---|---|
-| `node` | 文字列（`Q12` の形。Q・O・F・E・S、または `SEED`） | どの Node のためのカードか。**必須** |
-| `block` | 文字列（`^sci-[a-z-]{2,30}$`） | 動かす block。**必須**（runner が `user` で空なら `sci-read`） |
+| `node` | 文字列（`Q12` の形。Q・A・F・E・S、または `SEED`） | どの Node のためのカードか。**必須** |
+| `block` | 文字列（`^(lab\|sci)-[a-z-]{2,30}$`） | 動かす block（`lab-search`・`sci-verify` など）。**必須**（runner が `user` で空なら `lab-read`） |
 | `purpose` | 文字列（1〜300 字） | 依頼文。**必須** |
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
 | `mode` | `purpose_first` / `blind_first` | READ_CARD の型 |
@@ -493,6 +489,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 | `runner` | `pi` / `cc` / `user`（既定 `pi`） | 実行主体 |
 | `depth` | `abstract` / `figures` / `full`（`user` のときだけ） | 読む深さ |
 | `origin_run` | 数値 | 推薦した実行 |
+| `child` | 文字列（`Q`・`A`・`F`。任意） | 足す子の型。対象が Q なら `Q` か `A`、A なら `Q` か `F`。それ以外の組は終了コード 2（CLI は `--child`） |
 
 `executer` と `input` は Web からは指定しない（CLI の `--executer` / `--input` だけ）。**ファイルのパスは受け取らない。**
 
@@ -500,9 +497,9 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 - `types --json` → `{"types":[{"id","name"}]}`。
 - `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配る物の文字列の配列。新しい research-tree が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
-- `apply --json`（標準入力 = 13 種の op の JSON）→ `{"op","result"}`。
-- `proposals --json` → `{"proposals":[{"id","op","run","block","payload","created_at"}]}`（`id` は `P56`）。
-- `triage <P> --accept|--reject|--revert [--edit=<JSON>]` → `{"proposal","status","result"}`。値が `-` で始まっても取り違えないよう `=` でつなぐ。
+- `apply --json`（標準入力 = op 1 件の JSON）→ `{"op","result"}`。`add_sprout` だけ `range` を持つ。利用者の op は、どの op も承認なしで行える。
+- `op [--run <id>] [--block <id>]`（標準入力 = `{"ops":[…]}`・1〜20 件。agent が使う。Web からは呼ばない）→ `{"results":[{"op","result"（`range` は `add_sprout` のとき）}…],"approval":null（承認を使ったときは `{"qid","answered_by"}`）}`。1 件でも弾かれたら何も書かず、標準エラーの最後の行に `<n> 件目（<op>）: <理由>`、終了コード 2。許可が要る op を含むのに許可が無いと終了コード 4。`--run` を省くと `SAI_PARENT_RUN_ID`、`--block` を省くと `SAI_BLOCK_NAME`。
+- `approval record --qid <qid> --question <文> --answer <文> --answered-by <名前> [--run <id>] --json`（質問フックが呼ぶ。agent は呼ばない。Web からは呼ばない）→ `{"approval":{"id","run_id","qid","consumable"}}`。`consumable` は回答を空白で切った値が `許可する` のとき true。同じ `qid` が既にあれば終了コード 4。`--run` も `SAI_PARENT_RUN_ID` も無ければ終了コード 2。
 - `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形。`--node` は範囲だけ。`SAI_TARGET_NODE` があれば `rt_searches` にも 1 行残す。`search` は `SAI_TARGET_NODE` があれば記録を結ぶ（`--node` は無い）。
 - `project show --json` → `{"mind","state","brief","attention"}`。`project mind --json`（本文は標準入力・1〜200000 字）→ `{"ok": true, "bytes": <n>}`。mind.md の全文を置き換える。
 - `index paper <id> --json` → `{"paper_id","index","chunks_created","embedded_count","chunks","chunks_with_embeddings"}`。論文 1 本の chunk と埋め込みを作る（`chunks` は 0 のとき本文が無い）。無い論文は終了コード 3。
@@ -672,7 +669,7 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と
 |---|---|
 | `POST /api/register` | セッションと pane の対応づけ（`cc_register.py`・`ask_user.ts` の `session_start`） |
 | `POST /api/questions` | 質問の登録。応答は `{"ok": true, "id": "<qid>"}` |
-| `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと） |
+| `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと）。JSON の `answered_by`（答えた人。端末で答えたときは `terminal`） |
 | `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（`ask_user.ts`） |
 
 - cc は、コンテナの中の tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`SAI_AGENT_TRANSPORT=tmux`・`SAI_PROJECT_ROOT=<root>`。
@@ -748,8 +745,8 @@ Web は **HTTP の中継しかしない**（`apps/radio` のコードや DB は�
 | 終了コードの意味を変える（3 → 1 など） | **壊れる**（404 が 502 になる。「まだありません」「未実行のカードが見つかりません」も 3 を前提にしている） |
 | 書き出し `run export` の `schema_version` を 2 にする | **壊れる**（全ファイルが無視され Chats が空になる） |
 | `run_id` / `project_name` の型変更・`status` の語の変更・フォルダの形の変更 | **壊れる** |
-| 研究方針の JSON の項目の名前・値の名前（`objectivity`・`logicality`・`on_path`・`next` の `why` と `kind` など）を変える | **壊れる**（Research の画面が名前で読んでいる） |
-| `card --from-json`・`apply`・`triage --edit` の標準入力を読まない | **壊れる** |
+| 研究方針の JSON の項目の名前・値の名前（`stance`・`range`・`counts`・`next` の `why` と `kind` など）を変える | **壊れる**（Research の画面が名前で読んでいる） |
+| `card --from-json`・`apply`・`op` の標準入力を読まない | **壊れる** |
 | `search` の `--db` の ID の増減 | `providers` の `available` と**同時に**変える |
 | `SAI_PROJECT_ROOT` を見ない形にする | **壊れる**（全プロジェクトが同じ DB を開く） |
 | バイナリ名の変更 | **壊れる**（503） |

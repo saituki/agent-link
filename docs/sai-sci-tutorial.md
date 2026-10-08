@@ -1,27 +1,37 @@
 # research-tree（sai-sci）を手で確かめるチュートリアル
 
 **読み手**: プログラムに慣れていない利用者。
-**かかる時間**: 1〜2 時間（エージェントを動かす章を入れると、さらに 30 分ほど）。
-**このあとできるようになること**: research-tree の機能をひと通り自分で動かし、画面のどこに何が出るかが分かる。
+**かかる時間**: 1 時間ほど（エージェントを動かす章を入れると、さらに 30 分ほど）。
+**このあとできるようになること**: research-tree の機能をひと通り命令で動かし、出力の意味が分かる。承認（「許可する」）の流れが分かる。
 
 このチュートリアルでは練習用のプロジェクトを 1 つ作り、次の流れを最初から最後まで体験します。
 
 ```
-① 準備 → ② 練習用プロジェクトを作る → ③ 画面の見取り図
-→ ④ Q を分ける → ⑤ O を書く → ⑥ 論文を集める（検索）
-→ ⑦ READ_CARD で F を付ける → ⑧ ★ を付ける → ⑨ Logicality を確かめる
-→ ⑩ Issue と実験（E）・エージェントに頼む → ⑪ SPROUT を作る → ⑫ TRIAGE
-→ ⑬ Dashboard と PENDING → ⑭ 命令（CLI）→ ⑮ 片付け
+① 準備 → ② 練習用プロジェクトを作る → ③ 木の見方
+→ ④ Q を読む → ⑤ A を足す → ⑥ F を付ける → ⑦ ★ を付ける
+→ ⑧ SPROUT を作る → ⑨ 承認（許可する）を体験する → ⑩ 画面で確かめる
+→ ⑪ 命令の一覧 → ⑫ 片付け
 ```
 
-練習用のプロジェクトは本物の研究とは別の場所（`~/research/sci-practice`）に作ります。**練習で打つ命令は、すべてこの練習用のフォルダの中で行います。** 何を押しても本物の研究には影響しません。安心して試してください。
+練習用のプロジェクトは本物の研究とは別の場所（`~/research/sci-practice`）に作ります。**練習で打つ命令は、すべてこの練習用のフォルダの中で行います。** 何を打っても本物の研究には影響しません。
+
+> **出力の番号について**: ここに書いた出力の ID（`A8`・`F10`・`S11` など）は、練習のときに出る番号に読み替えてください。番号は作った順に付くので、手元の出力と一致しないことがあります。出力の形（キーの名前・終了コード）は同じです。
 
 ---
 
 ## 0. 先に覚えておく言葉
 
-画面によく出る言葉です。今は全部を覚えなくて構いません。分からなくなったらここに戻ってください。
-用語は [`sai-sci.md`](sai-sci.md) の用語表を見てください。
+用語は [`sai-sci.md`](sai-sci.md) の用語表を見てください。今は全部を覚えなくて構いません。
+
+| 言葉 | 意味 |
+|---|---|
+| Q | 問い。研究の穴を表す |
+| A | Q への答えの候補（旧名 O） |
+| F | 根拠。A の下に置く。`support`・`deny`・`issue` の立場を持つ |
+| SEED | 研究の初期の入力。top_Q の親 |
+| S（SPROUT） | 実験の計画。A の ID を PATH として集める |
+| ★ | 利用者が付ける目印。計算には使わない |
+| 承認 | 許可が要る操作を agent が行うための、利用者の「許可する」 |
 
 ### 命令（コマンド）の打ち方
 
@@ -52,9 +62,9 @@ which sai-sci sai-paper sai-link
 3 行とも `/Users/<あなたの名前>/.local/bin/…` のように出れば準備はできています。
 `not found` と出たら、開発者に「`~/.local/bin` に sai の実行ファイルへのリンクを置いてほしい」と頼んでください。
 
-### 1.2 Web の画面（apps/web）を起動する
+### 1.2 Web の画面（apps/web）を起動する（画面を使う章のため）
 
-ターミナルの窓を**新しく 1 つ**開きます（`⌘ + N`）。この窓は Web の画面を動かし続けるための窓なので、作業中は閉じないでください。
+ターミナルの窓を**新しく 1 つ**開きます（`⌘ + N`）。この窓は Web の画面を動かし続けるための窓なので、画面を使う間は閉じないでください。
 
 ```bash
 cd ~/workdir/Sai/sai-tree
@@ -64,17 +74,7 @@ PATH=$HOME/workdir/Sai/sai-tree/target/release:$PATH \
 ```
 
 `Uvicorn running on http://127.0.0.1:8200` と出たら起動できています。
-ブラウザ（Safari や Chrome）で **http://localhost:8200/** を開いてください。
-
-> 止めるときは、この窓で `control + C` を押します。
-
-画面の左（iPhone では下）に、次の 6 つのタブがあります。
-
-```
-ホーム / プロジェクト / 会話 / 論文 / 研究 / 使用量
-```
-
-このチュートリアルで主に使うのは **論文** タブです。エージェントを動かす章（⑩）では **プロジェクト** と **会話** も使います。
+ブラウザで **http://localhost:8200/** を開いてください。止めるときは、この窓で `control + C` を押します。
 
 ---
 
@@ -106,297 +106,246 @@ RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）�
 
 ### 2.2 何が起きたか
 
-終わると、たくさんの行が出ます。次の 3 つが起きています。
+終わると、たくさんの行が出ます。最後の方は次のようになります。
+
+```
+✅ 登録簿に登録しました: sci-practice
+✅ 研究の assets を 85 件置きました（既にあるものはそのまま）
+✅ mind.md（土壌のひな形）を作りました
+✅ 研究プロジェクトを初期化しました: …/sci-practice/.sai/paper
+✅ research-tree を作りました（RESEARCH_TYPE: PROBLEM_DRIVEN・Q 7）
+```
+
+次の 3 つが起きています。
 
 1. フォルダの中に `.sai/` という隠しフォルダができ、論文の置き場（`.sai/paper/papr.db`）と research-tree（SEED と、その下に並ぶ top_Q）が作られた。
 2. エージェント（cc と pi）がこのプロジェクトで使う設定（`.mcp.json`・`.claude/`・`.pi/`）が置かれた。
 3. プロジェクトが登録簿（`~/.sai/registry.json`）に `sci-practice` という名前で載った。**これで Web の画面にこのプロジェクトが出ます。**
 
-最後の方に `✅ 登録簿に登録しました: sci-practice` と出ていれば成功です。
-
 > 隠しフォルダは Finder では見えません。見たいときは Finder で `⌘ + shift + .`（ピリオド）を押します。
-
-### 2.3 画面で確かめる
-
-ブラウザで **論文** タブを押します。上の方の 📁 の札が `sci-practice` になっていなければ、📁 を押して `sci-practice` を選んでください。
-
-論文タブの中には、さらに次のタブがあります。
-
-```
-Dashboard / Library / Import / Radio
-```
-
-research-tree は **研究** タブにあります。先頭の **research-tree** を押すと、research-tree の画面（`#/research/tree`）になります。もう 1 つのタブは **Experiments**（実験の記録）です。
-
-> research-tree がまだ無いプロジェクトでは「research-tree がまだありません」と出ます。**始める** を押して RESEARCH_TYPE を選ぶと、`sai-sci init` と同じことが行われます。古い形の research-tree だけがあるプロジェクトでは「古い形の research-tree です」と出ます。その場合は新しい research-tree を作り直します（`docs/sai-sci.md` の 4.2 節）。
+> `.mcp.json`・`.claude/`・`.pi/` の行には「git commit してください」と出ることがあります。練習では無視して構いません。
 
 ---
 
-## 3. 画面の見取り図
+## 3. 木の見方
 
-PC（横幅の広い画面）では次のように並びます。
+### 3.1 RESEARCH_TYPE と様子
 
-```
-┌───────────────────────────────────────────────────────────┐
-│ research-tree | Experiments                                 │ ← 研究タブの中のタブ
-├───────────────────────────────────────────────────────────┤
-│ SEED   ［？target］の［？data.type］で…                      │ ← A SEED
-│ Next Action  ① … [Create CARD]  ② …  ③ …                    │ ← B Next Action
-│ PROPOSAL 0 | ⚠ 注意 0                                       │ ← C PROPOSAL・注意
-├───────────────────────────────────────────────────────────┤
-│ [一覧 | 図]                                                  │
-│ ┌────────┐ ┌─────────────────┐ ┌──────────────────────────┐ │
-│ │Q1      │ │ research-tree   │ │ Q12 Q  Objectivity ■■□ 2/3│ │
-│ │ Q2 …   │ │ (Node を押すと   │ │ Logicality UNCHECKED      │ │ ← E 板
-│ │  O3 ★  │ │  右に板が開く)   │ │ 操作 / Next Action / F …  │ │
-│ └────────┘ └─────────────────┘ └──────────────────────────┘ │
-│  D 左の一覧（Q・O・F・E の Node）                         │
-└───────────────────────────────────────────────────────────┘
+```bash
+sai-sci types
 ```
 
-iPhone（横幅の狭い画面）では A〜D が縦に並び、Node を押すと E の板が下からせり上がる小窓（sheet）で開きます。✕ で閉じます。PC では板は右に出て（約 420px）、✕ で閉じます。
+```
+problem PROBLEM_DRIVEN
+phenomenon PHENOMENON_DRIVEN
+method METHOD_DRIVEN
+data DATA_DRIVEN
+improve IMPROVE_DRIVEN
+```
 
-| 場所 | 何が出るか | いつ変わるか |
-|---|---|---|
-| A SEED | 研究の初期の入力（RESEARCH_TYPE と `mind.md`）。決まっていない所は［？…］（橙色の点線）で出る。押すと SEED の欄が開き、「Create SPROUT」釦で作成パネルを開き、「Add PATH」で PATH（O）を選んで SPROUT を作る | `mind.md` を直すと変わる |
-| B Next Action | 今やるとよい Action の先頭 3 件。「Create CARD」で CARD のフォームが開く | 何かを変えるたび |
-| C PROPOSAL・注意 | PROPOSAL の数。押すと Node を選んだ右の板の PENDING の節が出る。⚠ は research-tree の決まりに合わない所 | Action が終わる・PROPOSAL が来ると変わる |
-| D 左の一覧 | Q・O・F・E の Node。O には ★ と Answer / Issue の札が付く | 何かを変えるたび |
-| research-tree | 下に ROOT（top_Q）、次に SEED の欄、上に SPROUT、さらに上に BRANCH（E）の図。「F を出す」で F の札を出し入れできる。STAR_PATH は `on_path` の印 | 何かを変えるたび |
-| E 板 | 押した Node の中身と操作の釦 | 何かを変えるたび |
+```bash
+sai-sci status --brief
+```
 
-### 板の中身
+`--brief` は数と次にやることだけを JSON で出します。先頭だけ見ると次のとおりです（`…` は省略）。
 
-一覧で Q を押すと、右に板が出ます。住所（ブラウザの上の欄）は `…/#/research/tree/Q12` に変わります。
+```
+{"counts":{"a":0,"e":0,"f_deny":0,"f_issue":0,"f_support":0,"q":7,"s":0},"next":[{"block":"lab-grow","expect":"子を 1 つ以上","kind":"card","node":"Q2","option":null,"purpose":"「この研究が目指している大きな目的は何か。」の子（A か child_Q）を作る","why":"NO_CHILD"},…],"running":[],"type":"problem","warnings":[…]}
+```
 
-| 欄 | 中身 |
-|---|---|
-| 見出し | ID・種類・文。Q には Objectivity（`■■□ 2/3`。マスは目安まで）と Logicality の札。O には ★ と Answer / Issue の札 |
-| 親までの道 | 親をたどる札。押すとその Node へ移る |
-| 操作 | その Node でできる操作の釦と「Create CARD」（下の表） |
-| Objectivity | 目安（target）の本数。0〜99 の整数か空（空はガイドの値）。「Objectivity の目安を変える」で直す |
-| Logicality | 値・確かめた日・note・根拠の F |
-| Next Action | この Node で今やるとよいこと |
-| PENDING | この Node への PROPOSAL のうち、まだ TRIAGE していないもの |
-| Action の履歴 | この Node に向けた CARD の実行（Action）。「run を開く」 |
-| 決定の記録 | ★ を付けた・消したなどの記録。消えずに残る |
+- `counts` は生きた Node の数です。`q` は Q、`a` は A、`f_support`・`f_deny`・`f_issue` は F の立場ごと、`e` は E、`s` は SPROUT の数です。
+- `next` は Next Action です。`why` が理由（`NO_CHILD`・`NO_FINDING`・`UNVERIFIED`）で、`block` が頼む仕事の種類です。
+- `warnings` は、research-tree の決まりに合わない所です。出ていても練習には差し支えありません。
 
-板の操作の釦（Node の種類で出る物が変わる）:
+### 3.2 Node を 1 つ読む
 
-| Node | 操作 |
-|---|---|
-| Q | Q を足す・O を足す・文を直す・目安を変える・消す |
-| O | ★ を付ける / 外す・Answer / Issue を変える・F を足す・E を足す・Q を足す・写す・文を直す・消す |
-| F | 文を直す・消す |
-| E | F を足す・E を足す・文を直す・消す |
+```bash
+sai-sci node Q1
+```
 
-> 画面の文字の横にある灰色の点線付きの言葉（SEED・PROPOSAL など）を押すと、その言葉の説明が出ます。
+Q1 の文・親までの道・children（子）・Next Action が人が読む形で出ます。
 
----
+```
+Q1 この研究は、どの現場の、誰の、どんな不便さをなくしたいのか。
+…
+children:
+    - Q2 この研究が目指している大きな目的は何か。
+    - Q3 その問題があると言える根拠は何か。
+```
 
-## 4. Q を分ける
+JSON で読むときは `--json` を付けます（`sai-sci node Q1 --json`）。
 
-SEED の下に並ぶ top_Q を child_Q に分けます。
-
-1. 一覧で top_Q（例 `Q1`）を押します。
-2. 板の **Next Action** に「Q を分ける」があれば、横の **Create CARD** を押します。
-3. 小窓の欄は次のとおりです。
-
-| 欄 | 中身 |
-|---|---|
-| ブロック | 頼む仕事の種類。Q を分けるときは `sci-split`（最初の Q だけは `sci-start`） |
-| 目的 | 必須（300 字まで）。エージェントが何を達成するか |
-| 期待する成果 | 任意（300 字まで） |
-| 実行するもの | pi か cc。自分で読むときは「自分で読む（READ_CARD）」 |
-| 範囲 | エージェントに見せる research-tree の範囲。空ならブロックの既定 |
-| 仮置き | `Q9=値` の形（5 個まで）。仮に決めたことにして考えてもらう |
-
-4. **作る** を押すと「run N の CARD を作りました」と出ます。**run N を開く** でプロジェクトの画面が開きます。エージェントを動かすのは ⑩ です。
-
-エージェントを動かさずに、自分で足すこともできます。
-
-1. Q の板の **Q を足す** を押します（親は Q か O）。
-2. 文（必須・300 字まで）を書いて送ります。画面に「Q を足しました」と出ます。
-
-**画面のどこが変わるか**: 一覧に child_Q が増えます。エージェントが出した Q の案は PROPOSAL の PENDING に入ります（⑫）。
+- **child_Q を持つ Q には、A を足せません。** Q の下は「A だけ」か「child_Q だけ」で、混ぜません。Q1 は child_Q（Q2・Q3）を持つので、A は足せません。
+- A を足すときは、子の無い Q（例 `Q2`）を選びます。
 
 ---
 
-## 5. O を書く
+## 4. A を足す（利用者の操作）
 
-Q への答えの案（O）を足します。
+Q2 の下に A を足します。利用者は `sai-sci apply` で 1 件ずつ足せます。標準入力は op 1 件の JSON です。
 
-1. 一覧で `PURPOSE_SUBGOAL` の Q を押します（番号はプロジェクトによって違います。題を探してください）。
-2. 板の **O を足す** を押します。
-3. 文（必須・120 字まで）を書きます。本文は任意（2000 字まで）です。種類は **Answer**（答えの案）か **Issue**（答えが無い・足りない）を選びます。
-4. 送ると「O を足しました」と出て、一覧の Q の下に O が付きます。
-5. O をもう 1 つ足します（比べるため）。
+```bash
+echo '{"op":"add_a","q":"Q2","text":"発作の予知"}' | sai-sci apply --json
+```
 
-エージェントに頼むときは、Q の Next Action の「O を増やす」から `sci-ideate` の CARD を作ります。種類はあとから「Answer / Issue を変える」で変えられます。
+```
+{"op":"add_a","result":"A8"}
+```
 
----
+`result` が新しい Node の ID です（ここでは `A8`）。以後の手順では、この番号を使います。
 
-## 6. 論文を集める（検索）
-
-### 6.1 Library で検索して取り込む
-
-1. **論文** タブ → **Library** を押します。
-2. 上の検索の欄に `seizure prediction EEG deep learning` と入れて **検索** を押します。
-   - 「条件 ▸」を押すと、検索先・年・件数を変えられます。
-3. 結果の一覧から、読めそうな論文を 1 つ押し、**⬇ ダウンロード** を押します。1 分ほどかかります。
-4. 入った論文は Library の一覧に並びます。
-
-**論文の番号の調べ方**: Library で論文を押すと、住所が `…/#/paper/sci-practice/1` のようになります。**最後の数字（この例では 1）がその論文の番号**です。以下では、この論文を「#1」と呼びます。
-
-### 6.2 検索の履歴
-
-検索は Library の **外部 DB** の履歴に残ります。選別の段はありません。
-
-- Library の **Paper** を押すと、入った論文が番号の順に並びます。
+- `apply` は利用者の命令なので、承認は要りません。
+- 同じ文の A を同じ Q に 2 つ足すと、「Q2 に同じ文の A があります」と断られます（終了コード 2）。
 
 ---
 
-## 7. READ_CARD で F を付ける
+## 5. F を付ける（agent の操作）
 
-論文を 1 本読んで、F（知見）を書きます。
+agent は、`sai-sci op` で木を変えます。標準入力は `{"ops": [...]}` の形で、1〜20 件の op を入れられます。**全部が通ったときだけ書かれ、1 件でも弾かれると何も書かれません。**
 
-### 7.1 READ_CARD を作る
+```bash
+echo '{"ops":[{"op":"add_f","parent":"A8","text":"予知の精度は高い","stance":"support"}]}' | sai-sci op
+```
 
-1. 一覧で O（例 `O3`）を押します。
-2. 板の **Create CARD** を押し、実行するものに **自分で読む（READ_CARD）** を選びます。
-3. 論文は**ちょうど 1 本**入れます（番号を打つ。例 `1`）。深さは abstract・figures・full のどれかです。
-4. **作る** を押します。READ_CARD の対象は Q か O にします。
+```
+{"approval":null,"results":[{"op":"add_f","result":"F10"}]}
+```
 
-### 7.2 READ_CARD の画面
+- `approval` は、承認を使ったときだけ値が入ります（ここでは `null`）。
+- `stance` は F の立場です（`support`・`deny`・`issue`）。
 
-READ_CARD の画面（`#/research/read/<run_id>`）が開きます。
+### 5.1 数字を含む F には出典が要る
 
-1. **読んでいる** の状態にして読み始めます（「読み始めました」と出ます）。抄録・図・節を読みます。
-2. 「F を足す」に、分かったことを 1〜3 文で書きます（必須）。出典は `#1 abstract` や `#37 §3.2` の形で書きます。付ける先は O か E を選びます。
-3. **数字を含む F には出典が要ります。** 出典が無いと「数字を含む F には出典が要ります」と断られます。
-4. 足すと「F を足しました」と出て、「この札で入れた F」に並びます。
-5. 読み終えたら **終わり** を押します。実行は review へ移ります。F が 0 本でも止まりません。
+数字を含む F は、出典（`cites`）か REPORT のトークン（`report`）が要ります。出典が無いと断られます。
 
-**画面のどこが変わるか**: O の板の F の欄に F が付き、Q の Objectivity の本数が増えます（`■□□ 1/2` → `■■□ 2/2`）。
+```bash
+echo '{"ops":[{"op":"add_f","parent":"A8","text":"精度は 95 %","stance":"deny"}]}' | sai-sci op
+```
 
----
+```
+1 件目（add_f）: 数字を含む F には出典（cites）か REPORT のトークン（report）を付けてください
+```
 
-## 8. ★ を付ける
-
-Answer の O のうち、研究の道として採る物に ★ を付けます。**★ を付けられるのは利用者だけです**（エージェントは付けられません）。
-
-1. O の板の **★ を付ける** を押し、理由を書きます（任意・500 字まで）。
-2. 「★ を付けました」と出ます。O の見出しに ★ が付き、research-tree の「SEED の道」にその O が入ります。
-3. 外すときは **★ を外す** を押します。
-
-比べるときは、Q の Next Action の「O を比べる」から `sci-compare` の CARD を作ると手伝ってくれます。`mind.md` の `VALUE_AXES` に書いた軸が、比べるときの軸になります。
-
-**画面のどこが変わるか**: 上の SEED の文に、★ の O が入ります。
+（終了コードは 2 です。`echo $?` で確かめられます。）
 
 ---
 
-## 9. Logicality を確かめる
+## 6. ★ を付ける（利用者だけ）
 
-Q の答えの理路が通っているかを確かめて、記録します。
+★ は利用者だけが付けられる目印です。agent は ★ を付けられません（`star` は承認も要らず、agent の op にも無い）。
 
-1. Q の Next Action の「Logicality を確かめる」から Create CARD を押し、`sci-debate`（賛否を出し合う）か `sci-review` を選びます。
-2. 自分で記録するときは、Q の板の **Logicality を記録** を押します。値は `OK` か `CONTRADICTION` です。
-3. `CONTRADICTION` のときは、指摘の文（必須・1000 字まで）と、矛盾する F を 2 つ以上選びます。足りないと「CONTRADICTION には F を 2 つ以上選んでください」と断られます。
-4. 記録すると、Q の見出しの Logicality の札が `OK`（緑）か `CONTRADICTION`（橙）に変わります。まだ確かめていない Q は `UNCHECKED`（灰色）です。
+```bash
+echo '{"op":"star","node":"A8"}' | sai-sci apply --json
+```
 
----
+```
+{"op":"star","result":"A8"}
+```
 
-## 10. Issue と実験（E）
-
-★ を付けられる Answer が無いとき、その O を **Issue** にして、実験（E）で確かめます。
-
-1. O の板の **Answer / Issue を変える** で Issue にします。
-2. **E を足す** で実験を足します（文は 120 字まで。MLflow の名前は任意）。親は Issue の O か、ほかの E です。
-3. 実験をエージェントに回してもらうときは、`sci-exp-sprout`（CARD の対象は `SEED`）で SPROUT を作ります（`docs/sai-sci.md` の 5.7 節）。**実行先によっては課金されます。練習では実験を回さず、足すだけにしてください。**
-
-### 10.1 エージェントに頼む（Action）
-
-エージェント（pi または cc）に research-tree の仕事を頼みます。エージェントは research-tree を**直接は書き換えません**。PROPOSAL を出すだけです。
-
-| PROPOSAL の種類 | 扱い |
-|---|---|
-| O・F・E・Logicality の記録・SEED | **自動で research-tree に入る**（あとで取り消せる） |
-| child_Q・O の写し・消す | **PENDING**になり、あなたが採用すると入る |
-| ★・Answer / Issue の変更・文の直し・目安 | エージェントは出せない（あなただけ） |
-
-1. **プロジェクト** タブ → `sci-practice` → **Dashboard** を見ます。常駐（デーモン）が止まっていたら **起動** を押します。
-   - 常駐は、CARD を実際に動かす裏方のプログラムです。プロジェクトごとに 1 つです。
-2. **List** の `todo` の列にある、作った CARD を押し、**▶ 実行** を押します。
-3. CARD は `todo` → `running` → `review` と列を移ります。
-   - **cc を初めてこのフォルダで動かすとき**は、エージェントの窓に「このフォルダを信頼しますか」と出ます。「Yes, proceed」を選んで `return` を押してください。
-   - エージェントが途中で質問してきたら、**ホーム** の質問の札か、エージェントの窓で答えます。
-   - 様子は **会話** タブで見られます。止めたいときは **■ 終了** を押します。
-
-> 常駐を起動せずに体験だけしたいときは、⑭の「エージェントの PROPOSAL をまねる」の命令で PROPOSAL を手で出せます。
+- ★ は計算に使いません。目印として画面に出ます。
+- 外すときは `{"op":"unstar","node":"A8"}` を `apply` に渡します。
 
 ---
 
-## 11. SPROUT を作る
+## 7. SPROUT を作る
 
-STAR_PATH がそろったら、実験の計画（SPROUT）を作ります。
+SPROUT（S）は、実験の計画の入口です。PATH として A の ID を 1〜20 個集め、同じ A は 2 回選べません。
 
-1. research-tree の画面で SEED の欄を押します（上の帯の **Create SPROUT** 釦でも始められます）。
-2. **Create SPROUT** を押すと、History と DAG の間に作成パネルが出ます。題（必須）と本文（任意）を書きます。
-3. 作成パネルを出したまま、DAG の札や左の一覧で **O** を選びます。右の板で内容を確かめ、加えるなら **Add PATH** を押します（外すときは **Delete PATH**）。解きたい Issue の O と、前提にする Answer の O を選びます（複数選べます）。Issue の O を 1 つ以上含めてください。PATH の終点になれるのは O だけです。
-4. 選んだ PATH（終点の O）がパネルに `O15 Issue …` の形で並ぶので、「この組み合わせでよいか」を確かめます。DAG では、加えた O の札に破線の枠が付きます。
-5. **Create SPROUT** を押すと、SPROUT（`S<n>`）ができ、`sci-exp-sprout` の CARD の入口になります。実験の 1 回の実行（BRANCH の E）は、SPROUT の下に付きます。
+```bash
+echo '{"ops":[{"op":"add_sprout","title":"予知の SPROUT","paths":["A8"]}]}' | sai-sci op
+```
 
----
+```
+{"approval":null,"results":[{"op":"add_sprout","range":{"a":1,"f_deny":0,"f_issue":0,"f_support":1,"q":2},"result":"S11"}]}
+```
 
-## 12. TRIAGE
-
-エージェントが出した PROPOSAL のうち、TRIAGE が要る物を採用・却下します。
-
-1. 上の帯の PROPOSAL の札を押すか、Node を選んだ右の板の PENDING の節を開きます。
-2. **Node ごと** と **run ごと** を切り替えられます。
-3. PROPOSAL 1 つずつに、次の釦があります。
-
-| 釦 | すること |
-|---|---|
-| 採用 | そのまま research-tree に入れる |
-| 直して採用 | 中身（文など）を直してから入れる |
-| 却下 | 入れない |
-| 取り消し | 自動で入った物を元に戻す |
-
-4. まとまりごとに **まとめて採用** と **まとめて却下** もあります。1 件の失敗で、ほかの件は止まりません。
-5. 全部 TRIAGE すると「PENDING の PROPOSAL はありません」と出ます。
-
-**画面のどこが変わるか**: 採用した Q が一覧の親の下に並びます。PROPOSAL の数が 0 に戻ります。
+- `range` は SPROUT の範囲です。PATH の A とその祖先の Q、A の子の F を数えます（`q` は Q の数、`a` は A の数、`f_*` は F の立場ごとの数）。
+- 実験の回し方は [`sai-sci.md`](sai-sci.md) の 5.7 節です。練習では実験を回さず、SPROUT を作るまでにしてください（実行先によっては課金されます）。
 
 ---
 
-## 13. Dashboard と PENDING
+## 8. 承認（「許可する」）を体験する
 
-### 13.1 PENDING と Next Action
+agent が Q を足すときは、利用者の承認が要ります（`add_q`・`insert_q`・`move_a`・`copy`・`remove`）。承認の流れを体験します。
 
-エージェントが出した PROPOSAL のうち、TRIAGE（採用・却下・取り消し）を待っているものを **PENDING** と呼びます。PENDING は、Node を選んだ右の板の **PENDING の節**に出ます。上の帯の PROPOSAL の数からもたどれます。
+### 8.1 承認が無いと入らない
 
-- 節では、その Node への PENDING の PROPOSAL を 1 つずつ採用・直して採用・却下・取り消しできます。
-- 全部 TRIAGE すると節は空になります。
-- Next Action には、その Node で次にやるとよいことが並びます。上の帯にも先頭 3 件が出ます。
+承認が無いまま `add_q` を出すと、断られます。agent の実行（run）の番号は `--run` で渡すので、まず run を作ります。
 
-### 13.2 Dashboard
+```bash
+sai-sci card --node Q5 --child A --purpose "Q5 の子の A を作る" --block lab-grow --json
+```
 
-**論文** タブ → **Dashboard** を押します。
+```
+{"executer":"human","path":"…/sci-practice/.sai/outputs/todo/1/task.md","run_id":1}
+```
 
-| 欄 | 中身 |
-|---|---|
-| 要対応 | あなたの判断が要る物。押すと research-tree のその場所が開く |
-| 現況 | research-tree から書き出した `state.md` |
-| 考え | `mind.md`（あなたが書く研究の土台。ORIGIN・RESEARCH_TYPE・GIVEN・CONSTRAINTS・VALUE_AXES など） |
-| メモ | 1 行のメモを足せる |
+- `run_id`（ここでは `1`）は、このあとの手順で使います。
+- `--block lab-grow` は、この CARD を動かす仕事の種類です（5.2 節）。CARD を実際に動かすのは、利用者が画面（**プロジェクト** タブ → Dashboard）から **▶ 実行** を押すか、`sai-link card run <run_id>` を打ちます。練習では実行せず、承認の体験だけをします。
+
+承認が無い状態で Q を足すと、次のように断られます。
+
+```bash
+echo '{"ops":[{"op":"add_q","parent":"A8","text":"新生児と成人で違うか"}]}' | sai-sci op --run 1 --block lab-grow
+```
+
+```
+許可がありません: 先に質問ツールで「許可する」を選んでもらってください
+```
+
+（終了コードは 4 です。何も書かれていません。）
+
+### 8.2 「許可する」を記録する
+
+agent が質問ツールで「許可する」を選んでもらうと、質問フックがこの記録を自動で行います。練習では、同じ記録を手で打ちます。
+
+```bash
+sai-sci approval record --qid demo1 --question "次の op を許可しますか: add_q（A8 の下に「新生児と成人で違うか」）" --answer "許可する" --answered-by user --run 1 --json
+```
+
+```
+{"approval":{"consumable":true,"id":1,"qid":"demo1","run_id":1}}
+```
+
+- `--answered-by` は答えた人の名前です。画面で答えたときは、ログインした人の名前が入ります。
+- `consumable: true` は、回答が「許可する」だったという意味です。
+
+### 8.3 許可を使って Q を足す
+
+もう一度同じ `add_q` を出すと、今度は入ります。許可は 1 件だけ使えて、使うと消えます。
+
+```bash
+echo '{"ops":[{"op":"add_q","parent":"A8","text":"新生児と成人で違うか"}]}' | sai-sci op --run 1 --block lab-grow
+```
+
+```
+{"approval":{"answered_by":"user","qid":"demo1"},"results":[{"op":"add_q","result":"Q9"}]}
+```
+
+- `approval` に、使った許可の質問の ID と、答えた人が出ます。rt_log の記録にも同じ内容が残ります。
+- もう一度同じ命令を打つと、許可が消えているので「許可がありません」と出ます（終了コード 4）。
+
+> 利用者が `sai-sci apply` で行う操作には、承認は要りません。承認が要るのは agent の `sai-sci op` の許可が要る op だけです。
 
 ---
 
-## 14. 同じことを命令（CLI）で行う
+## 9. 画面で確かめる
 
-画面でできることは、すべて命令でもできます。エージェントもこの命令を使っています。
-**練習用のフォルダで行ってください。**
+Web の画面（1.2 節の窓を起動したまま）で、research-tree を確かめます。
+
+1. ブラウザで **研究** タブを押し、先頭の **research-tree** を押します（`#/research/tree`）。
+2. 上の帯に **Next Action**（先頭 3 件）が出ます。ここに、`sai-sci status --brief` の `next` と同じ内容が出ます。
+3. 左の一覧で Node を押すと、右に詳細が出ます。`A8` を押すと、★ と F（`F10`・`F12`）の札が見えます。
+4. 真ん中の図（DAG）で、下に Q、上に SPROUT（`S11`）が出ます。
+5. 命令で足した A・F・Q は、画面を読み直すと出ます。
+
+> 画面の表示は、命令の結果と同じ research-tree を読んでいます。画面で見えない物は、命令の出力も確かめてください。
+
+---
+
+## 10. 同じことを命令（CLI）で行う
+
+画面でできることは、すべて命令でもできます。エージェントもこの命令を使っています。**練習用のフォルダで行ってください。**
 
 ```bash
 cd ~/research/sci-practice
@@ -405,50 +354,53 @@ cd ~/research/sci-practice
 | したいこと | 命令 |
 |---|---|
 | 使える RESEARCH_TYPE を見る | `sai-sci types` |
-| research-tree の様子を見る | `sai-sci status`（数だけなら `--brief`） |
-| Node の中身を見る | `sai-sci node Q2` |
-| エージェントに見せる範囲を見る | `sai-sci context --run 2`（⑩ の CARD の番号） |
-| PENDING の PROPOSAL を見る | `sai-sci proposals` |
-| READ_CARD の中身を見る | `sai-sci read 3`（READ_CARD の run 番号） |
+| research-tree の数と次にやることを見る | `sai-sci status --brief` |
+| research-tree の全体を JSON で見る | `sai-sci status --json` |
+| Node の中身を見る | `sai-sci node A8 --json` |
+| エージェントに見せる範囲を見る | `sai-sci context --run 1` |
 | 書き出しを作り直す | `sai-sci export` |
+| 命令の一覧を見る | `sai-sci schema --json` |
 
-research-tree を変える命令は、1 行の JSON を `sai-sci apply` に渡します。例として O を 1 つ足します（`Q2` は自分の research-tree にある Q の番号に直します）。
+### 10.1 文脈を見る
 
-```bash
-echo '{"op":"add_o","q":"Q2","text":"発作の予知","kind":"answer"}' | sai-sci apply
+`sai-sci context --run 1` は、その run の agent に渡す research-tree の範囲と、使える op の一覧です。見出しは次のとおりです（一部）。
+
+```
+## TREE
+- Q5 対象を、どの範囲で分けて見るのか（分けないなら分けないと言う）。 ← TARGET
+
+## TARGET
+- 足す子の型: A
+
+## GUIDE
+…
+
+## ALLOWED_OPS
+- add_q（承認が要る）: SEED・Q・A の下に child_Q を足す。SEED の下なら top_Q になる。
+…
 ```
 
-`{"op":"add_o","result":"O1"}` のような JSON が出たら成功です。ブラウザの research-tree の画面で再読み込みすると、Q2 の下に O が増えています。
+- `## TARGET` の `足す子の型` は、CARD を作るときの `--child` の値です（Q の下は `Q` か `A`）。
+- `## ALLOWED_OPS` は、この run の block が出せる op です（`sci_ops` の中の op）。
 
-### エージェントの PROPOSAL をまねる
-
-常駐を動かさずに TRIAGE を体験したいときは、次の命令でエージェントの PROPOSAL をまねられます（`--run 2` は ⑩ で作った CARD の番号）。
-
-```bash
-echo '{"proposals":[{"op":"add_q","parent":"Q2","text":"新生児と成人で発作の見え方はどう違うか"}]}' \
-  | sai-sci propose --run 2 --block sci-split
-```
-
-- child_Q（`add_q`）は PENDING（pending）になります。`sai-sci proposals` で ID（`P1` など）を見て、`sai-sci triage P1 --accept` で採用します（却下は `--reject`）。
-- ブロックが出せない PROPOSAL は断られます。
-
-### 書き出されるファイル
+### 10.2 書き出されるファイル
 
 | ファイル | 中身 | 手で直すか |
 |---|---|---|
-| `.sai/paper/state.md` | 現況（Dashboard の「現況」） | 直さない（次の書き出しで上書きされる） |
+| `.sai/paper/state.md` | 現況（段階・今の作業・Next Action） | 直さない（次の書き出しで上書きされる） |
 | `.sai/paper/tree.md` | research-tree の全体を文章にしたもの | 直さない |
-| `.sai/paper/mind.md` | 研究の土台（Dashboard の「考え」） | **あなたが書く**。エージェントは書き換えない |
+| `.sai/paper/mind.md` | 研究の土台（あなたが書く） | **あなたが書く**。エージェントは書き換えない |
+
+書き込む命令（`apply`・`op`・`card`・`init`）は、終わる前に `state.md` と `tree.md` を書き出します。
 
 ---
 
-## 15. 片付け
+## 11. 片付け
 
 練習が終わったら片付けます。**消す前に、消すものの名前が `sci-practice` であることを必ず確かめてください。**
 
-1. 常駐を起動していたら、**プロジェクト** タブ → `sci-practice` → Dashboard の **停止** を押します。
-2. Web の画面を動かしている窓で `control + C` を押します。
-3. 登録簿から `sci-practice` を外します。次の命令は、登録簿の写し（`registry.json.bak`）を取ってから、`sci-practice` の行だけを外します。
+1. Web の画面を動かしている窓で `control + C` を押します。
+2. 登録簿から `sci-practice` を外します。次の命令は、登録簿の写し（`registry.json.bak`）を取ってから、`sci-practice` の行だけを外します。
 
 ```bash
 cp ~/.sai/registry.json ~/.sai/registry.json.bak
@@ -460,7 +412,7 @@ p.write_text(json.dumps([r for r in rows if r.get("name") != "sci-practice"], en
 print("外しました")'
 ```
 
-4. 練習用のフォルダを消します（ゴミ箱を通らずに消えます。名前を確かめてから打ってください）。
+3. 練習用のフォルダを消します（ゴミ箱を通らずに消えます。名前を確かめてから打ってください）。
 
 ```bash
 rm -rf ~/research/sci-practice
@@ -474,31 +426,26 @@ rm -rf ~/research/sci-practice
 |---|---|
 | Web にプロジェクトが出ない | 📁 を押して選び直す。無ければ `~/research/sci-practice` で `sai-sci init --type problem` をもう一度打つ（何度打っても壊れない） |
 | 画面が古いまま | ブラウザで再読み込み（`⌘ + R`） |
-| 「research-tree がまだありません」 | **始める** を押して型を選ぶ |
-| 「古い形の research-tree です」 | 新しい research-tree を作り直す（`docs/sai-sci.md` の 4.2 節） |
-| READ_CARD で「F を付ける O または E がありません」 | ⑤で O を足してから戻る |
-| F を送ると断られる | 数字を書いたなら出典（`#1 abstract` の形）を入れる |
-| CONTRADICTION を記録できない | 指摘の文と、F を 2 つ以上入れる |
-| CARD が `todo` から動かない | プロジェクトの Dashboard で常駐が「稼働中」か確かめる。止まっていれば **起動** |
-| cc が止まったまま | エージェントの窓に「このフォルダを信頼しますか」が出ていないか確かめる |
-| Project タブが 503 | Web を起動するとき、1.2 の `PATH=…` の行を付け忘れている |
+| 「Q1 には child_Q があるので、A を足せません」 | 子の無い Q（例 `Q2`）を選ぶ（3.2 節） |
+| 「数字を含む F には出典（cites）か REPORT のトークン（report）を付けてください」 | 文を直すか、出典を付ける（5.1 節） |
+| 「許可がありません: 先に質問ツールで「許可する」を選んでもらってください」（終了コード 4） | 承認を先に取る（8.2 節）。承認は 1 回の op に 1 件だけ使える |
+| 「run_id がありません（--run か SAI_PARENT_RUN_ID）」（終了コード 4） | `--run <run_id>` を付ける（8.1 節） |
+| 「この質問の承認は記録済みです」（終了コード 4） | 同じ `--qid` は 2 回書けない。新しい `--qid` で記録する |
+| 「ブロック定義がありません: lab-grow」 | 開発者に、block の入った版かを確かめてもらう |
+| 命令が「古い形の research-tree」と言う | 新しい research-tree を作り直す（[`sai-sci.md`](sai-sci.md) の 4.2 節） |
 
 ---
 
 ## 確かめの一覧（全部に印が付けば完了）
 
-- [ ] 練習用プロジェクトを作り、Web の research-tree の画面が開いた（②）
-- [ ] 上の帯（SEED・Next Action・PROPOSAL）・一覧・research-tree・板の場所が分かった（③）
-- [ ] Q を足した（④）
-- [ ] O を 2 つ足した（⑤）
-- [ ] Library の検索で論文を 1 本入れ、番号を調べた。Library の **Paper** で番号を確かめた（⑥）
-- [ ] READ_CARD を作り、F を足し、終えた。Objectivity の本数が増えた（⑦）
-- [ ] 数字だけで出典の無い F が断られた（⑦）
-- [ ] O に ★ を付け、SEED の文に入った（⑧）
-- [ ] Logicality を記録した（⑨）
-- [ ] O を Issue にして、E を足した（⑩）
-- [ ] SPROUT を作った（⑪）
-- [ ] PROPOSAL を採用・直して採用・却下で TRIAGE した（⑫）
-- [ ] PENDING の節と、Dashboard の要対応・現況・考えを見た（⑬）
-- [ ] 命令で O を足し、画面に出た（⑭）
-- [ ] 片付けた（⑮）
+- [ ] 練習用プロジェクトを作り、`status --brief` の `counts.q` が 7 と出た（2・3）
+- [ ] `sai-sci node Q1` で、Q1 の子が Q2・Q3 だと分かった（3.2）
+- [ ] `apply` で A を足し、`{"op":"add_a","result":"A…"}` が出た（4）
+- [ ] `op` で F を足し、数字の F が出典なしで断られた（5・5.1）
+- [ ] `apply` で ★ を付けた（6）
+- [ ] SPROUT を作り、`range` が出た（7）
+- [ ] 承認なしの `add_q` が「許可がありません」で断られた（8.1）
+- [ ] `approval record` で「許可する」を記録し、`add_q` が入った。同じ命令は断られた（8.2・8.3）
+- [ ] 画面の Next Action・Node の札・図で、命令の結果が見えた（9）
+- [ ] `context --run 1` と `export` を打った（10）
+- [ ] 片付けた（11）
