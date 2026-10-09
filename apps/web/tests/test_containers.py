@@ -76,7 +76,10 @@ if cmd == "inspect":
     if name in cfg.get("missing", []):
         sys.stderr.write("Error: No such object: " + name + "\\n")
         sys.exit(1)
-    sys.stdout.write(str(cfg.get("inspect_status", "running")) + "\\n")
+    if any(".Mounts" in a for a in args):
+        sys.stdout.write(str(cfg.get("mounts", "/h/.claude /w ")) + "\\n")
+    else:
+        sys.stdout.write(str(cfg.get("inspect_status", "running")) + "\\n")
 elif cmd == "ps":
     for row in cfg.get("ps", []):
         sys.stdout.write(json.dumps(row, ensure_ascii=False) + "\\n")
@@ -618,6 +621,27 @@ def test_project_container_api() -> None:
     assert docker_calls() == [], docker_calls()
 
 
+def test_start_recreates_container_without_shared_claude() -> None:
+    """止まっていて共有ログインの mount が無い古いコンテナは、起動で作り直す。mount があれば docker start。"""
+    cookie = login("alice@uni.edu", "alicepass1")
+    set_docker(ps=[], inspect_status="exited", mounts="/h /w ")
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:3] == ["rm", "-f", "sai-alice-x"] for c in calls), calls
+    assert any(c[0] == "run" for c in calls), calls
+    assert not any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+
+    set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ")
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+    assert not any(c[:2] == ["rm", "-f"] for c in calls), calls
+
+
 def test_projects_container_state() -> None:
     """`GET /api/projects` の各行に `container_state` が付く。"""
     cookie = login("alice@uni.edu", "alicepass1")
@@ -723,6 +747,7 @@ def main() -> None:
     test_api_create_project()
     test_keys_api()
     test_project_container_api()
+    test_start_recreates_container_without_shared_claude()
     test_projects_container_state()
     test_admin_containers()
     test_admin_list_parsing()

@@ -263,14 +263,30 @@ def state(name: str) -> str:
 
 
 def _start_container(container: str) -> dict:
-    """コンテナを起動する。無ければ作り直す（イメージを入れ替えたあとに使う）。"""
-    if _inspect_state(container) == "missing":
+    """コンテナを起動する。無ければ作り直す（イメージを入れ替えたあとに使う）。
+
+    止まっているコンテナに共有ログインの mount（C-MOUNT）が無ければ、消して作り直す
+    （U10 より前に作った物は、`docker start` では新しいログインを使えないため）。
+    """
+    current = _inspect_state(container)
+    if current == "exited" and not _has_shared_claude(container):
+        _docker(["rm", "-f", container], timeout=60.0)
+        current = "missing"
+    if current == "missing":
         project = container[len("sai-") :]
         user = project.split("-", 1)[0]
         create_container(user, project)
     else:
         _docker(["start", container], timeout=60.0)
     return {"container": container, "state": _inspect_state(container)}
+
+
+def _has_shared_claude(container: str) -> bool:
+    """コンテナが共有ログインの mount（`<home>/.claude`）を持つか。"""
+    proc = _docker(
+        ["inspect", "-f", "{{range .Mounts}}{{.Destination}} {{end}}", container], timeout=20.0
+    )
+    return any(dest.endswith("/.claude") for dest in (proc.stdout or "").split())
 
 
 def _stop_container(container: str) -> dict:
