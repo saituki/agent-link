@@ -156,7 +156,7 @@ apps/radio/.venv/bin/uvicorn sai_radio.main:app --host 127.0.0.1 --port 8201 --a
 | **Papers** | Dashboard・Library・Import（BibTeX）・Radio（解説音声）。詳しくは下の「Papers」 |
 | **Research** | research-tree（`#/research/tree`・`#/research/tree/<ID>`）・READ_CARD（`#/research/read/<run_id>`）・Experiments（`#/research/experiments`）。詳しくは下の「Research」 |
 | **Usage** | LLM の料金と制限（Claude Code・OpenRouter・DeepSeek） |
-| **Account**（`#/account`） | 多人数モードだけ。パスワード・個人のトークン（sai-prep と CLI が使う）・ログアウト。管理者は利用者の画面（`#/admin`）も使う |
+| **Account**（`#/account`） | 多人数モードだけ。パスワード・個人のトークン（sai-prep と CLI が使う）・Claude のログイン（利用者ごとに 1 回・全コンテナで共有）・ログアウト。管理者は利用者の画面（`#/admin`）も使う |
 
 - 質問は、PC と iPhone の両方に出て、先に答えた方が採用されます。
 - iPhone（幅 390px）と PC（幅 1280px）の両方で使えます。900px 以上は 2 列になります。

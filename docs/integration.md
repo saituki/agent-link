@@ -85,9 +85,10 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 | 置き場 | 場所 | 中身 |
 |---|---|---|
-| その人のひな形の HOME | `<U>/<user>/home/` | `.sai/`（Web が引くその人の `SAI_HOME`）など。コンテナには見せない。`.pi/agent/models.json` は古い pi の設定で、cc は使わない |
+| その人のひな形の HOME | `<U>/<user>/home/` | `.sai/`（Web が引くその人の `SAI_HOME`）など。コンテナには見せない |
+| その人の Claude のログイン（共有契約 C-MOUNT） | `<U>/<user>/claude/`（0700） | cc のログイン（`.credentials.json`・会話の記録など）。その人の全プロジェクトのコンテナの `$HOME/.claude` に bind mount する。`$HOME/.claude.json` は共有しない |
 | プロジェクトの root | `<U>/<user>/projects/<user>-<project>/` | 登録簿の名前もフォルダ名と同じ `<user>-<project>` |
-| プロジェクトのコンテナの HOME | `<U>/<user>/homes/<user>-<project>/` | `.claude`・`.claude.json`・`.sai`。コンテナの中の `SAI_HOME` はこの中の `.sai`。実行の書き出しは `<この HOME>/.sai/web/runs/<user>-<project>/` |
+| プロジェクトのコンテナの HOME | `<U>/<user>/homes/<user>-<project>/` | `.claude`（共有のログインの mount の下に隠れる。作るときに会話の記録だけ `<U>/<user>/claude/` へ写す）・`.claude.json`・`.sai`。コンテナの中の `SAI_HOME` はこの中の `.sai`。実行の書き出しは `<この HOME>/.sai/web/runs/<user>-<project>/` |
 | その人の鍵 | `<U>/<user>/secrets.env` | API キーと Claude の長命トークン（0600）。コンテナには `--env-file` で渡し、ファイルそのものは見せない |
 
 - 多人数モードでは、今の利用者（ログインした人）ごとに `registry.sai_home()`・`registry.user_home()`・`registry.project_home()` が変わり、プロジェクトの一覧・実行の書き出し・古い pi の記録・Usage が分かれる（共有契約 C5）。
@@ -113,7 +114,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `POST /api/projects/{name}/container/{start\|stop}` | 自分のプロジェクトのコンテナを起動・停止（多人数モードだけ）。未知の action は 400 | `docker start` / `docker stop -t 20`。`start` でコンテナが無いときは作り直す |
 
 - コンテナの操作は `docker` の CLI を `subprocess` で呼ぶ（`apps/web/src/sai_web/containers.py`。実行ファイルは `SAI_DOCKER_BIN`、既定 `docker`）。Python の docker の SDK は使わない（依存を増やさない）。
-- プロジェクトを作るときは、`<U>/<user>/projects/<user>-<名前>/`（root）と `<U>/<user>/homes/<user>-<名前>/`（HOME）を作り、`<U>/<user>/secrets.env`（0600）を用意し、`SAI_WEB_SKEL_DIR` と `<user_dir>/home/.pi/agent/models.json`（古い pi の設定。cc は使わない）を（無いファイルだけ）写してから、コンテナを `docker run` で作り、init 3 本を `docker exec` で呼ぶ。途中で失敗したらコンテナとフォルダを消して 502 を返す。
+- プロジェクトを作るときは、`<U>/<user>/projects/<user>-<名前>/`（root）と `<U>/<user>/homes/<user>-<名前>/`（HOME）を作り、`<U>/<user>/secrets.env`（0600）を用意し、`SAI_WEB_SKEL_DIR` の中身を（無いファイルだけ）写してから、コンテナを `docker run` で作り、init 3 本を `docker exec` で呼ぶ。途中で失敗したらコンテナとフォルダを消して 502 を返す。
 - コンテナの形は共有契約 C7・C8（`run_args`）。`SAI_CONTAINER_MEMORY`（既定 `8g`）・`SAI_CONTAINER_CPUS`（既定 `2`）・`SAI_IMAGE`（既定 `sai-tree:latest`）・`SAI_WEB_URL_FOR_CONTAINERS`（既定 `http://host.docker.internal:8200`）で変えられる。
 - docker のデーモンにつながらない・実行ファイルが無いときは 503「docker が動いていません」、その他の失敗は 502（標準エラーの最後の行）。
 - 多人数モードの常駐の生死（`registry.daemon_alive`）は、コンテナの中の PID がホストから見えないため、常駐が約 5 秒ごとに書く `<root>/.sai/sai-engine/daemon.status` の更新時刻が 30 秒以内かで見る（単独モードは今までどおり `daemon.pid`）。
@@ -329,6 +330,10 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `PATCH /api/admin/users/{name}` | body `{"email"?,"is_admin"?,"disabled"?,"password"?}`。`password` を入れたら `must_change_password=1` にし、その人のセッションを消す。自分自身の `is_admin=false`・`disabled=true` は 400 |
 | `GET /api/me/keys` | `{"keys":[{"name","set","last4"}]}`（値は返さない）。名前は `CLAUDE_CODE_OAUTH_TOKEN`・`OPENROUTER_API_KEY`・`SEMANTICSCHOLAR_API_KEY`・`OPENALEX_API_KEY`・`NCBI_API_KEY` の 5 つ |
 | `PUT /api/me/keys` | body `{"<名前>": "<値>"}`（空文字は消す）→ `{"ok":true,"recreated":[…],"pending":[…]}`。値は印字できる ASCII で空白と改行を含まず 400 文字まで。知らない名前・改行入りの値は 400 |
+| `GET /api/me/claude-login` | Claude のログインの状態（多人数モードだけ）→ `{"logged_in": bool, "auth_method": str, "token_set": bool}`。`token_set` は `CLAUDE_CODE_OAUTH_TOKEN` が設定済みか（値は返さない）。中身（メールなど）は返さない。`claude auth status` の終了コードと `authMethod` を見る |
+| `POST /api/me/claude-login/start` | ログインを始める（多人数モードだけ）→ `{"url": str}`。補助のコンテナで `claude auth login` を pty で動かし、URL が出るまで最大 30 秒待つ。URL が出なければ 502「ログインの URL を取れませんでした: <最後の行>」。進行中の登録は 1 人に 1 つで、10 分で切れる。`docker run -t` の補助のコンテナ `sai-login-<user>` を使う |
+| `POST /api/me/claude-login/code` | body `{"code": str}`（印字できる ASCII・空白なし・500 文字まで。違えば 400）。ログインを始めていなければ 409。端末へ送り `Login successful.` を最大 60 秒待つ。失敗は 502（理由の行。貼ったコードは伏せる）。成功したら `CLAUDE_CODE_OAUTH_TOKEN` を `secrets.env` から消し（環境変数の token がファイルのログインより優先されるため）、コンテナを作り直す → `{"ok": true, "recreated": […], "pending": […]}`（`pending` は実行中で作り直せなかった物。終わってから起こし直すと反映される） |
+| `DELETE /api/me/claude-login` | 進行中のログインをやめる（補助のコンテナを止める）→ `{"ok": true}` |
 | `GET /api/admin/containers` | `{"containers":[{"container","owner","project","state","status"}]}`（管理者だけ） |
 | `POST /api/admin/containers/{container}/{start\|stop}` | コンテナを起動・停止（管理者だけ）。名前は `^sai-[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9-]{0,29}$`、誤りは 400 |
 

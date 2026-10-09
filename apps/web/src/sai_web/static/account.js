@@ -488,11 +488,115 @@ async function acKeysLoad(list) {
   const byName = new Map(keys.map((k) => [k && k.name, k]));
   list.innerHTML = "";
   for (const [name, label] of AC_KEY_LABELS) {
+    // Claude の欄の先頭に、ログインの塊を置く（U10）
+    if (name === "CLAUDE_CODE_OAUTH_TOKEN") list.appendChild(acClaudeLogin(() => acKeysLoad(list)));
     const k = byName.get(name) || { name, set: false, last4: "" };
     list.appendChild(acKeyRow(name, label, k, () => acKeysLoad(list)));
     // Claude の行の下に説明と注意を出す
     if (name === "CLAUDE_CODE_OAUTH_TOKEN") list.appendChild(acClaudeNote());
   }
+}
+
+/** Claude のログインの塊（U10）: 状態・「Claude にログイン」・URL とコードの入力。 */
+function acClaudeLogin(reload) {
+  const box = saiEl("div", "ac-key-row ac-login");
+  const head = saiEl("div", "ac-key-head");
+  head.appendChild(saiEl("span", "ac-key-label", "Claude のログイン（おすすめ）"));
+  const status = saiEl("span", "ac-key-status", "確かめています…");
+  head.appendChild(status);
+  const body = saiEl("div", "ac-login-body");
+  box.append(head, body);
+  void acClaudeLoginLoad(status, body, reload);
+  return box;
+}
+
+/** 状態を読んで（GET /api/me/claude-login）、「Claude にログイン」の釦を出す。 */
+async function acClaudeLoginLoad(status, body, reload) {
+  body.innerHTML = "";
+  let info;
+  try {
+    info = await saiApi("/api/me/claude-login");
+  } catch (e) {
+    status.textContent = "確かめられません";
+    body.appendChild(saiEl("p", "ac-note", e && e.message ? e.message : "ログインの状態を確かめられませんでした"));
+    return;
+  }
+  const loggedIn = !!(info && info.logged_in);
+  const tokenSet = !!(info && info.token_set);
+  status.textContent = tokenSet ? "token を使用中" : loggedIn ? "ログイン済み" : "未ログイン";
+  status.classList.toggle("on", loggedIn || tokenSet);
+  const start = saiEl("button", "sai-btn small", loggedIn ? "ログインし直す" : "Claude にログイン");
+  start.type = "button";
+  start.addEventListener("click", () => void acClaudeLoginStart(status, body, reload));
+  body.appendChild(start);
+}
+
+/** 「Claude にログイン」: URL を出し、コードの入力欄を出す（POST /api/me/claude-login/start）。 */
+async function acClaudeLoginStart(status, body, reload) {
+  body.innerHTML = "";
+  body.appendChild(saiEl("p", "ac-note", "ログインの準備をしています…（最大 30 秒）"));
+  let data;
+  try {
+    data = await saiApi("/api/me/claude-login/start", { method: "POST" });
+  } catch (e) {
+    saiToast(e && e.message ? e.message : "ログインを始められませんでした", "error");
+    await acClaudeLoginLoad(status, body, reload);
+    return;
+  }
+  body.innerHTML = "";
+  body.appendChild(
+    saiEl("p", "ac-note", "下の URL を開き、表示されたコードを下の欄に貼って「送る」を押してください。")
+  );
+  const link = document.createElement("a");
+  link.className = "sai-btn small";
+  link.href = data.url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = "ログイン用の URL を開く";
+  body.appendChild(link);
+  body.appendChild(acClaudeLoginForm(status, body, reload));
+}
+
+/** コードの入力欄と「送る」「やめる」。 */
+function acClaudeLoginForm(status, body, reload) {
+  const form = saiEl("div", "ac-login-form");
+  const input = acInput("text", "claude_login_code", "off");
+  input.placeholder = "コードを貼る";
+  input.autocapitalize = "off";
+  input.spellcheck = false;
+  const send = saiEl("button", "sai-btn small", "送る");
+  send.type = "button";
+  send.addEventListener("click", () => void acClaudeLoginSend(input.value.trim(), status, body, reload));
+  const cancel = saiEl("button", "sai-btn small ghost", "やめる");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => void acClaudeLoginCancel(status, body, reload));
+  form.append(input, send, cancel);
+  return form;
+}
+
+/** コードを送ってログインを完了する（POST /api/me/claude-login/code）。 */
+async function acClaudeLoginSend(code, status, body, reload) {
+  if (!code) {
+    saiToast("コードを貼ってください", "error");
+    return;
+  }
+  try {
+    const data = await saiApi("/api/me/claude-login/code", { method: "POST", body: { code } });
+    saiToast("Claude にログインしました", "ok");
+    acKeyReport(data);
+    await reload();
+  } catch (e) {
+    saiToast(e && e.message ? e.message : "ログインできませんでした", "error");
+    await acClaudeLoginLoad(status, body, reload);
+  }
+}
+
+/** 進行中のログインをやめる（DELETE /api/me/claude-login）。 */
+async function acClaudeLoginCancel(status, body, reload) {
+  try {
+    await saiApi("/api/me/claude-login", { method: "DELETE" });
+  } catch { /* 止められなくても、下で状態を読み直す */ }
+  await acClaudeLoginLoad(status, body, reload);
 }
 
 /** 鍵 1 行（見出し・設定済みか・入力欄・保存・消す）。 */
@@ -573,14 +677,14 @@ function acClaudeNote() {
     saiEl(
       "p",
       "ac-note",
-      "自分の Mac の端末で `claude setup-token` を実行し、研究室の Team プランに大学のメールアドレスでログインして発行したトークンを貼ってください。トークンはあなたのプロジェクトのコンテナにだけ渡り、他の人とは共有されません。"
+      "おすすめは『Claude にログイン』。ログインは利用者ごとに 1 回で、あなたの全プロジェクトのコンテナが共有します。Mac の Claude Code のログインとは別です。"
     )
   );
   box.appendChild(
     saiEl(
       "p",
       "ac-note",
-      "`claude setup-token` の出力は、端末の幅が狭いと 2 行に折り返されます。コピーすると改行が入り、使えないトークンになります。端末の幅を広げてから実行し、`sk-ant-oat01-` で始まる 1 行を貼ってください。Mac の Claude Code のログインのトークン（約 8 時間で切れる）は使わないでください。"
+      "token（setup-token）を入れると、token が優先されます。`claude setup-token` の出力は、端末の幅が狭いと 2 行に折り返されます。端末の幅を広げてから実行し、`sk-ant-oat01-` で始まる 1 行を貼ってください。Mac の Claude Code のログインのトークン（約 8 時間で切れる）は使わないでください。"
     )
   );
   box.appendChild(
