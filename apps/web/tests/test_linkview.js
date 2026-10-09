@@ -164,37 +164,49 @@ function testViewMemory() {
   store.clear();
   // 最初は Log
   assert.strictEqual(lv.loadViewMemory(), "log");
+  lv.saveViewMemory("task");
+  assert.strictEqual(lv.loadViewMemory(), "outputs");
+  // 覚えるのは Summary か Outputs の 2 つ。古い値（stats）は Summary に直す
   lv.saveViewMemory("stats");
-  assert.strictEqual(lv.loadViewMemory(), "stats");
-  // 知らない表示を覚えさせても Log に落ちる
+  assert.strictEqual(lv.loadViewMemory(), "log");
+  // 知らない表示を覚えさせても Summary に落ちる
   lv.saveViewMemory("bogus");
   assert.strictEqual(lv.loadViewMemory(), "log");
 }
 
 function testViewTabs() {
-  // 9 つの表示（帯の並び・計画 14 §1.3。report は finalize-report.md、system は固定部分の
-  // system-prompt.md・U6、session は Agent 画面への入口・U11）
+  // 帯は Summary | Outputs の 2 つだけ（計画 14 §1.3 の改定）
   assert.deepStrictEqual(
     lv.viewTabs(false).map((t) => t.key),
-    ["log", "stats", "history", "task", "message", "report", "system", "waggle", "session"]
+    ["log", "outputs"]
   );
-  // todo run は task だけ選べる（session も出さない）
+  // todo run は Outputs（task の一覧）だけ選べる。Summary は押せない
   const todoTabs = lv.viewTabs(true);
   assert.deepStrictEqual(
     todoTabs.filter((t) => t.ok).map((t) => t.key),
-    ["task"]
+    ["outputs"]
   );
 
-  // 表示の選び方: 最後に見た表示をそのまま使う
-  assert.strictEqual(lv.pickView(false, "stats"), "stats");
+  // 光らせるタブ: Summary（log・stats・history）と Outputs（その他）
+  assert.strictEqual(lv.tabOf("log"), "log");
+  assert.strictEqual(lv.tabOf("stats"), "log");
+  assert.strictEqual(lv.tabOf("history"), "log");
+  assert.strictEqual(lv.tabOf("outputs"), "outputs");
+  assert.strictEqual(lv.tabOf("task"), "outputs");
+  assert.strictEqual(lv.tabOf("waggle"), "outputs");
+  assert.strictEqual(lv.tabOf(null), "log");
+
+  // 表示の選び方: stats と history は Summary に直す。その他は住所の値をそのまま使う
+  assert.strictEqual(lv.pickView(false, "stats"), "log");
+  assert.strictEqual(lv.pickView(false, "history"), "log");
+  assert.strictEqual(lv.pickView(false, "outputs"), "outputs");
   assert.strictEqual(lv.pickView(false, "waggle"), "waggle");
-  assert.strictEqual(lv.pickView(false, "session"), "session");
   assert.strictEqual(lv.pickView(false, "bogus"), "log");
   // todo run は task に固定（記憶は変えないので，次の run では元の表示のまま）
   assert.strictEqual(lv.pickView(true, "stats"), "task");
   assert.strictEqual(lv.pickView(true, "log"), "task");
   assert.strictEqual(lv.pickView(true, "task"), "task");
-  // todo run から session は選べない
+  // todo run から session は選べない（session は住所の入口だけ・todo では task）
   assert.strictEqual(lv.pickView(true, "session"), "task");
 }
 
@@ -517,12 +529,15 @@ function testCanEdit() {
   assert.strictEqual(lv.lvCanEdit("system", todo), false);
 }
 
-function testWaggleDirect() {
-  // 1 件だけなら一覧を通さず直接開く（計画 14 §1.3）
-  assert.strictEqual(lv.waggleDirect([{ token: "a" }]), true);
-  assert.strictEqual(lv.waggleDirect([]), false);
-  assert.strictEqual(lv.waggleDirect([{ token: "a" }, { token: "b" }]), false);
-  assert.strictEqual(lv.waggleDirect(null), false);
+function testTaskDescription() {
+  // Outputs の task の行の説明は front matter の description（本文の同じ語は見ない）
+  assert.strictEqual(
+    lv.lvTaskDescription("---\ntitle: x\ndescription: 作業報告書 U01: DONE\n---\n本文 description: no\n"),
+    "作業報告書 U01: DONE"
+  );
+  assert.strictEqual(lv.lvTaskDescription("---\nscheduled_at: 2026-10-09\n---\n本文\n"), "");
+  assert.strictEqual(lv.lvTaskDescription("本文だけ description: no"), "");
+  assert.strictEqual(lv.lvTaskDescription(null), "");
 }
 
 function testHistoryRows() {
@@ -595,7 +610,7 @@ function main() {
   testStatsCells();
   testStatsSeries();
   testTypeSlices();
-  testWaggleDirect();
+  testTaskDescription();
   testCanEdit();
   testHistoryRows();
   testHistoryCli();
