@@ -243,9 +243,9 @@ impl BlockOutput {
 // ExecutionHistory — 実行履歴
 // ---------------------------------------------------------------------------
 
-/// `runner` カラムのデフォルト（旧 DB 互換・`pi` 扱い）。
+/// `runner` カラムのデフォルト（旧 DB 互換・`cc` 扱い）。
 fn default_runner() -> String {
-    "pi".to_string()
+    "cc".to_string()
 }
 
 /// `execution_history` テーブルの 1 行に対応する構造体。
@@ -333,9 +333,9 @@ pub struct ExecutionHistory {
     /// 旧 DB（カラムなし）は `false` 扱い。
     #[serde(default)]
     pub review_done: bool,
-    /// 実行主体（`pi` / `user`）。`user` はユーザータスク（pi 実行なし）。
+    /// 実行主体（`cc` / `user`）。`user` はユーザータスク（エージェント実行なし）。
     ///
-    /// 旧 DB（カラムなし）は `pi` 扱い。
+    /// 旧 DB（カラムなし）・`pi` の記録は `cc` 扱い。
     #[serde(default = "default_runner")]
     pub runner: String,
     /// エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
@@ -388,7 +388,7 @@ impl ExecutionHistory {
             execution_mode: None,
             workflow_moved: false,
             review_done: false,
-            runner: "pi".to_string(),
+            runner: "cc".to_string(),
             agent_session_id: None,
             created_at: String::new(),
         }
@@ -588,9 +588,15 @@ pub struct Task {
     /// （todo のカードが research-tree と結び付いているため）。`None` はカード無し。
     #[serde(default)]
     pub card_run_id: Option<i64>,
-    /// 子の実行主体（`pi` / `cc`。`task_create` の runner 引数。`None` は `pi`）
+    /// 子の実行主体（`cc`。`task_create` の runner 引数。`None` は `cc`）
     #[serde(default)]
     pub runner: Option<String>,
+    /// 子の model（`task_create` の model 引数。`None` はブロック定義・settings.json に従う）
+    #[serde(default)]
+    pub model: Option<String>,
+    /// 子の thinking（`task_create` の thinking 引数。`None` はブロック定義・settings.json に従う）
+    #[serde(default)]
+    pub thinking: Option<String>,
     /// バッチ確認用グループ ID
     pub batch_id: Option<String>,
     /// クライアント側の一時 ID（task_create で割り当て。carried_over 照合・依存解決用）
@@ -652,6 +658,8 @@ impl Task {
             execution_id: None,
             card_run_id: None,
             runner: None,
+            model: None,
+            thinking: None,
             batch_id,
             client_id,
             round: 1,

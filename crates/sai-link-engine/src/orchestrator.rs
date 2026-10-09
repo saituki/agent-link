@@ -2555,6 +2555,20 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 // Public API 6: run_subtask — サブタスク実行
 // ============================================================================
 
+/// 子タスクの実行設定（`task_create` の要素から来る値）。
+///
+/// 各項目の `None` は「次の出所に従う」を表す（model / thinking はカード → ブロック定義、
+/// runner はカード → `cc`）。
+#[derive(Debug, Clone, Default)]
+pub struct SubtaskSettings {
+    /// 実行主体（`cc`。`None` はカードの runner、無ければ `cc`）
+    pub runner: Option<String>,
+    /// model（`None` はカードの model、無ければブロック定義に従う）
+    pub model: Option<String>,
+    /// thinking（`None` はカードの thinking、無ければブロック定義に従う）
+    pub thinking: Option<String>,
+}
+
 /// サブタスクを実行する簡易パイプライン。
 ///
 /// ブロック定義名と入力からエージェントを起動し、結果を返します。
@@ -2572,7 +2586,7 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 /// * `worktree` — タスクの worktree 指定（"isolation" / "none" / ブランチ名）
 /// * `task_cwd` — タスクの作業フォルダ（親が指定した絶対パス。None ならプロジェクトルート）
 /// * `task_timeout` — タスクの時間上限（秒。親が `task_create` で指定。None ならブロック定義に従う）
-/// * `task_runner` — 子の実行主体（`pi` / `cc`。親が `task_create` で指定。None ならカードの `runner:`、無ければ `cc`）
+/// * `settings` — 子の実行設定（`task_create` の runner / model / thinking。None はカード → 既定の順）
 /// * `batch_id` — タスクバッチ ID（P3-A。DAG のフェーズ合成に使用）
 /// * `card_run_id` — 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id と
 ///   `task.md`（`sci_*` を含む）をそのまま使う。`None` は従来どおり新規に run を作る）
@@ -2590,7 +2604,7 @@ pub fn run_subtask(
     worktree: Option<String>,
     task_cwd: Option<String>,
     task_timeout: Option<u32>,
-    task_runner: Option<String>,
+    settings: SubtaskSettings,
     batch_id: Option<String>,
     card_run_id: Option<i64>,
     tab_id: Option<String>,
@@ -2659,10 +2673,17 @@ pub fn run_subtask(
         .transpose()
         .map_err(|m| OrchestratorError::PiCommandError(m))?;
 
+    // model / thinking: task_create の値 > カードの task.md の値 > 無し（ブロック定義に任せる）
     let overrides = ExecutionOverrides {
-        model: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.model)),
+        model: subtask_setting(
+            settings.model,
+            card.as_ref().map(|c| c.frontmatter.model.as_str()),
+        ),
         provider: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.provider)),
-        thinking: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.thinking)),
+        thinking: subtask_setting(
+            settings.thinking,
+            card.as_ref().map(|c| c.frontmatter.thinking.as_str()),
+        ),
         // timeout はフロントマターの値を尊重する（§7.1.4 の修正点）
         // ただしタスクの timeout（task_create）があればブロック定義より優先する
         timeout: task_timeout,
@@ -2675,7 +2696,8 @@ pub fn run_subtask(
         cwd: task_cwd,
         keep_pane: false,
         // 実行主体: task_create の runner → カードの runner → cc の順
-        runner: task_runner
+        runner: settings
+            .runner
             .as_deref()
             .map(RunnerKind::parse)
             .or_else(|| {
@@ -2707,6 +2729,11 @@ pub fn run_subtask(
         card_rel,
         card_run_id,
     )
+}
+
+/// 子の model / thinking を決める。`task_create` の値 > カードの値（空は無し）> 無し（ブロック定義に任せる）。
+fn subtask_setting(task_value: Option<String>, card_value: Option<&str>) -> Option<String> {
+    task_value.or_else(|| card_value.and_then(non_empty_str))
 }
 
 /// 前後の空白を除いて空でない値だけ `Some` にする（カードの設定を読むため）。
@@ -4104,6 +4131,18 @@ mod tests {
     use super::*;
     use crate::block_config::BlockConfig;
     use std::collections::HashMap;
+
+    /// 子の model / thinking は task_create の値 > カード > 無し の順。空のカード値は無しと同じ。
+    #[test]
+    fn subtask_setting_prefers_task_then_card_then_none() {
+        assert_eq!(
+            subtask_setting(Some("haiku".into()), Some("opus")),
+            Some("haiku".into())
+        );
+        assert_eq!(subtask_setting(None, Some(" opus ")), Some("opus".into()));
+        assert_eq!(subtask_setting(None, Some("   ")), None);
+        assert_eq!(subtask_setting(None, None), None);
+    }
 
     // ---- StallDetector（U3: 停止検知） ----
 

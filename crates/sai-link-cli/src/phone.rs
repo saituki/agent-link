@@ -152,10 +152,10 @@ struct CardCreateInput {
     /// thinking（空 = スキップ）
     #[serde(default)]
     thinking: String,
-    /// グローバルラウンド（空 = 自動継承）
+    /// グローバルラウンド（空 = card run が 1 を使う）
     #[serde(default)]
     global_round: String,
-    /// ローカルラウンド（空 = 自動継承）
+    /// ローカルラウンド（空 = card run が 1 を使う）
     #[serde(default)]
     round: String,
     /// タグ（空 = スキップ）

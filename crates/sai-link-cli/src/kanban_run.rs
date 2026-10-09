@@ -143,28 +143,9 @@ pub fn run_card_request(
     let reserved_run_id: Option<i64> = card.frontmatter.run_id.trim().parse().ok();
 
     // 実行設定：task.md 優先、未記載は block.md のデフォルト。
-    // round / global_round は block.md にデフォルトが無いため task.md 必須。tag は任意。
-    let round = round
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| card.frontmatter.round.trim().to_string());
-    let round: i64 = if round.is_empty() {
-        return Err("task.md の `round:` が未記載です。`round: <番号>` を記載してください".into());
-    } else {
-        round.parse().map_err(|_| "task.md の `round:` が数値ではありません".to_string())?
-    };
-    let global_round = global_round
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| card.frontmatter.global_round.trim().to_string());
-    let global_round: i64 = if global_round.is_empty() {
-        return Err(
-            "task.md の `global_round:` が未記載です。`global_round: <番号>` を記載してください"
-                .into(),
-        );
-    } else {
-        global_round
-            .parse()
-            .map_err(|_| "task.md の `global_round:` が数値ではありません".to_string())?
-    };
+    // round / global_round は block.md にデフォルトが無い。未記載なら 1 を使う。tag は任意。
+    let round = resolve_round(round, &card.frontmatter.round, "round")?;
+    let global_round = resolve_round(global_round, &card.frontmatter.global_round, "global_round")?;
     let non_empty = |s: &str| {
         let t = s.trim();
         if t.is_empty() {
@@ -191,7 +172,7 @@ pub fn run_card_request(
     overrides.model = model;
     overrides.provider = provider;
     overrides.timeout = timeout;
-    // 実行主体（`cc` 等）。未記載は Pi（後方互換）。
+    // 実行主体（`cc` 等）。未記載・`pi` の旧カードは cc（pi は廃止）。
     overrides.runner = sai_link_engine::runner::RunnerKind::parse(&card.frontmatter.runner);
     // runner=pi の task.md には runner 記載が無い旧カードもあるため、ここでは分岐しない。
     // runner=user の場合は TUI 側でデーモン要求を送らずフォルダ移動のみ行う。
@@ -216,6 +197,20 @@ pub fn resolve_card_inputs(
     field_overrides: &HashMap<String, String>,
 ) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     sai_link_engine::kanban::resolve_card_inputs(card, field_overrides).map_err(|e| e.into())
+}
+
+/// round / global_round を決める。引数 → task.md の順に見て、どちらも空なら 1 を使う。
+///
+/// root の Card は継承元が無いため、空のまま `card run` が断ると起こせなくなる。
+fn resolve_round(arg: Option<i64>, card_value: &str, key: &str) -> Result<i64, String> {
+    let text = arg
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| card_value.trim().to_string());
+    if text.is_empty() {
+        return Ok(1);
+    }
+    text.parse()
+        .map_err(|_| format!("task.md の `{}:` が数値ではありません", key))
 }
 
 /// `serde_yaml::Value` の default 値を文字列化する。
@@ -530,5 +525,20 @@ fn prompt_number_u32(
             Ok(v) => return Ok(Some(v)),
             Err(_) => println!("⚠ 無効な数値です。整数で入力してください。"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_round;
+
+    /// round・global_round が空の Card は 1 で起こせる（断らない）。
+    #[test]
+    fn empty_round_defaults_to_one() {
+        assert_eq!(resolve_round(None, "", "round"), Ok(1));
+        assert_eq!(resolve_round(None, "  ", "global_round"), Ok(1));
+        assert_eq!(resolve_round(None, "3", "round"), Ok(3));
+        assert_eq!(resolve_round(Some(5), "", "round"), Ok(5));
+        assert!(resolve_round(None, "abc", "round").unwrap_err().contains("`round:` が数値ではありません"));
     }
 }

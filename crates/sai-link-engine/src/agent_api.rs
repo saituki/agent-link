@@ -567,8 +567,12 @@ struct NormalizedTask {
     carried_over: bool,
     /// 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id をそのまま子として使う）
     card_run_id: Option<i64>,
-    /// 子の実行主体（`pi` / `cc`。`None` はカードの runner、無ければ `cc`）
+    /// 子の実行主体（`cc` のみ。`None` はカードの runner、無ければ `cc`）
     runner: Option<String>,
+    /// 子の model（`None` はカード → ブロック定義 → settings.json の順）
+    model: Option<String>,
+    /// 子の thinking（`None` はカード → ブロック定義 → settings.json の順）
+    thinking: Option<String>,
 }
 
 /// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）から取り出した値だけを並べたもの。
@@ -767,14 +771,57 @@ pub fn task_create(
                 }
             },
         };
-        // 子の実行主体（pi / cc だけ受け付ける。task_create の時点で弾く）
+        // 子の実行主体（cc だけ受け付ける。pi は廃止のため理由を添えて task_create の時点で弾く）
         let runner = match item.get("runner") {
             None | Some(Value::Null) => None,
             Some(v) => match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
-                Some(s) if s == "pi" || s == "cc" => Some(s),
+                Some(s) if s == "cc" => Some(s),
+                Some(s) if s.is_empty() => None,
+                Some(s) if s == "pi" => {
+                    return Err(format!(
+                        "client_id '{}' の runner の pi は廃止しました。runner は省略するか cc にしてください",
+                        client_id
+                    ))
+                }
                 _ => {
                     return Err(format!(
-                        "client_id '{}' の runner は pi か cc で指定してください",
+                        "client_id '{}' の runner は cc だけです",
+                        client_id
+                    ))
+                }
+            },
+        };
+        // 子の model（省略・空はブロック定義に従う）。cc が黙って捨てる名前は入口で断る。
+        // 判定は cc_command::normalize_model と同じにする（inherit は親の既定に従う指定として通す）。
+        let model = match item.get("model") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_str().map(str::trim) {
+                Some("") => None,
+                Some(m)
+                    if m.eq_ignore_ascii_case("inherit")
+                        || crate::cc_command::normalize_model(m).is_some() =>
+                {
+                    Some(m.to_string())
+                }
+                _ => {
+                    return Err(format!(
+                        "client_id '{}' の model は opus / sonnet / haiku（または claude-…）にしてください",
+                        client_id
+                    ))
+                }
+            },
+        };
+        // 子の thinking（省略・空はブロック定義に従う）。値は新 6 値だけ通す。
+        let thinking = match item.get("thinking") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
+                Some(t) if t.is_empty() => None,
+                Some(t) if crate::validation::VALID_THINKING_LEVELS.contains(&t.as_str()) => {
+                    Some(t)
+                }
+                _ => {
+                    return Err(format!(
+                        "client_id '{}' の thinking は none / low / medium / high / xhigh / max のどれかにしてください",
                         client_id
                     ))
                 }
@@ -798,6 +845,8 @@ pub fn task_create(
             carried_over,
             card_run_id,
             runner,
+            model,
+            thinking,
         });
     }
 
@@ -886,6 +935,8 @@ pub fn task_create(
                 "cwd": resolved_cwd.get(&t.client_id),
                 "timeout": t.timeout,
                 "runner": t.runner,
+                "model": t.model,
+                "thinking": t.thinking,
                 "carried_over": t.carried_over,
                 "card": t.card_run_id,
                 "approval": { "status": "approved", "comment": null },
@@ -902,9 +953,17 @@ pub fn task_create(
     });
     write_notification("task_created", payload)?;
 
+    // 作られたタスクの task_id を client_id ごとに返す（デーモンが行を作るまで待つ）
+    let task_ids = wait_task_ids(&batch_id, &normalized);
     let result_tasks: Vec<Value> = normalized
         .iter()
-        .map(|t| json!({ "client_id": t.client_id, "status": "approved" }))
+        .map(|t| {
+            json!({
+                "client_id": t.client_id,
+                "status": "approved",
+                "task_id": task_ids.get(&t.client_id).copied(),
+            })
+        })
         .collect();
 
     Ok(json!({
@@ -913,8 +972,45 @@ pub fn task_create(
         "supersedes_batch_id": supersedes_batch_id,
         "status": "approved",
         "tasks": result_tasks,
-        "hint": "`sai-link task execute --batch <batch_id>` で一括実行されます。タスク ID は `sai-link task list` で確認してください。",
+        "hint": "`sai-link task execute --batch <batch_id>` で一括実行されます。`task_id` が null なら `sai-link task list` の `server_id` で確かめてください。",
     }))
+}
+
+/// `task_create` が書いた通知をデーモンが行にするのを待ち、client_id → task_id を集める。
+///
+/// デーモンが止まっていれば待たずに空を返す（task_id は null）。動いていても
+/// 5 秒で揃わなければ、そのときまでに出来た分を返す。
+/// 二重挿入を避けるため、ここでは行を作らない（作るのはデーモンだけ）。
+fn wait_task_ids(batch_id: &str, normalized: &[NormalizedTask]) -> HashMap<String, i64> {
+    if !crate::daemon::is_running() {
+        return HashMap::new();
+    }
+    let Ok(store) = crate::common::open_db() else {
+        return HashMap::new();
+    };
+    collect_task_ids(&store, batch_id, normalized.len(), std::time::Duration::from_secs(5))
+}
+
+/// バッチの行から client_id → task_id を集める。`expected` 件そろうか `wait` を過ぎたら返す。
+fn collect_task_ids(
+    store: &crate::db::SaiStore,
+    batch_id: &str,
+    expected: usize,
+    wait: std::time::Duration,
+) -> HashMap<String, i64> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        let found: HashMap<String, i64> = store
+            .list_tasks_by_batch(batch_id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|t| Some((t.client_id?, t.id?)))
+            .collect();
+        if found.len() >= expected || std::time::Instant::now() >= deadline {
+            return found;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 }
 
 // ============================================================================
@@ -2638,19 +2734,24 @@ mod tests {
         drop(guard);
     }
 
-    /// `runner` は pi / cc だけ通り、通知に載る。それ以外の値は task_create で弾く。
+    /// `runner` は cc だけ通り、通知に載る。pi は廃止の理由を付けて、それ以外は一般の理由で断る。
     #[test]
-    fn task_create_runner_accepts_pi_cc_and_rejects_others() {
+    fn task_create_runner_accepts_cc_and_rejects_pi_and_others() {
         let guard = EnvGuard::new();
-        let store = crate::common::open_db().unwrap();
+        let store = Arc::new(crate::common::open_db().unwrap());
         let parent_run_id = create_test_parent_run(&store, "runner-parent");
         std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
         write_test_block(&guard.project_root, "runner-block");
 
-        let bad = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
+        let pi = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
+            "block_type": "runner-block", "runner": "pi" }]);
+        let err = task_create(&pi, None, None, None).unwrap_err();
+        assert!(err.contains("runner の pi は廃止しました"), "err={}", err);
+
+        let gl = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
             "block_type": "runner-block", "runner": "gl" }]);
-        let err = task_create(&bad, None, None, None).unwrap_err();
-        assert!(err.contains("runner は pi か cc"), "err={}", err);
+        let err = task_create(&gl, None, None, None).unwrap_err();
+        assert!(err.contains("runner は cc だけです"), "err={}", err);
 
         let ok = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
             "block_type": "runner-block", "runner": "CC" }]);
@@ -2659,12 +2760,94 @@ mod tests {
         let notif = read_task_created_notification();
         assert_eq!(notif.tasks[0].runner.as_deref(), Some("cc"));
 
-        let manager = crate::task_manager::TaskManager::new(std::sync::Arc::new(store));
+        let manager = crate::task_manager::TaskManager::new(store.clone());
         let ids = manager.process_task_created(&notif).unwrap();
         let created = manager.get_task(ids[0]).unwrap();
         assert_eq!(created.runner.as_deref(), Some("cc"));
         assert_eq!(task_to_json(&created, &[])["runner"], json!("cc"));
 
+        drop(guard);
+    }
+
+    /// `model` / `thinking` は通知と行に載る。cc が黙って捨てる値と thinking の外れ値は task_create で断る。
+    #[test]
+    fn task_create_model_and_thinking_pass_and_bad_values_rejected() {
+        let guard = EnvGuard::new();
+        let store = Arc::new(crate::common::open_db().unwrap());
+        let parent_run_id = create_test_parent_run(&store, "model-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "model-block");
+        let item = |extra: Value| {
+            let mut v = json!({ "client_id": "M1", "subject": "件名", "task_text": "本文",
+                "block_type": "model-block" });
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json!([v])
+        };
+
+        let err = task_create(&item(json!({ "thinking": "off" })), None, None, None).unwrap_err();
+        assert!(err.contains("thinking は none / low"), "err={}", err);
+        let err = task_create(&item(json!({ "model": "z-ai/glm-5.3-flash" })), None, None, None)
+            .unwrap_err();
+        assert!(err.contains("model は opus / sonnet / haiku"), "err={}", err);
+
+        let result = task_create(
+            &item(json!({ "model": "haiku", "thinking": "LOW" })),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result["status"], "approved");
+        let notif = read_task_created_notification();
+        assert_eq!(notif.tasks[0].model.as_deref(), Some("haiku"));
+        assert_eq!(notif.tasks[0].thinking.as_deref(), Some("low"));
+
+        let manager = crate::task_manager::TaskManager::new(store.clone());
+        let ids = manager.process_task_created(&notif).unwrap();
+        let created = manager.get_task(ids[0]).unwrap();
+        assert_eq!(created.model.as_deref(), Some("haiku"));
+        assert_eq!(created.thinking.as_deref(), Some("low"));
+
+        drop(guard);
+    }
+
+    /// `task_create --json` の各 task に task_id が入る。デーモンが止まっていれば null（待たない）。
+    #[test]
+    fn task_create_returns_null_task_id_when_daemon_stopped() {
+        let guard = EnvGuard::new();
+        let store = crate::common::open_db().unwrap();
+        let parent_run_id = create_test_parent_run(&store, "tid-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "tid-block");
+
+        let tasks = json!([{ "client_id": "T1", "subject": "件名", "task_text": "本文",
+            "block_type": "tid-block" }]);
+        let result = task_create(&tasks, None, None, None).unwrap();
+        assert_eq!(result["tasks"][0]["client_id"], "T1");
+        assert!(result["tasks"][0]["task_id"].is_null());
+        drop(guard);
+    }
+
+    /// 行が出来ていれば、その task_id を client_id ごとに集める。揃わなければ出来た分だけ返す。
+    #[test]
+    fn collect_task_ids_maps_created_rows_and_stops_on_timeout() {
+        let guard = EnvGuard::new();
+        let store = Arc::new(crate::common::open_db().unwrap());
+        let parent_run_id = create_test_parent_run(&store, "collect-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "collect-block");
+        let tasks = json!([{ "client_id": "C1", "subject": "件名", "task_text": "本文",
+            "block_type": "collect-block" }]);
+        task_create(&tasks, None, None, None).unwrap();
+        let notif = read_task_created_notification();
+        let manager = crate::task_manager::TaskManager::new(store.clone());
+        let ids = manager.process_task_created(&notif).unwrap();
+
+        let map = collect_task_ids(&store, &notif.batch_id, 1, std::time::Duration::from_millis(100));
+        assert_eq!(map.get("C1"), Some(&ids[0]));
+        // 2 件を待っても 1 件しか無いので、待ち時間の後に出来た分だけ返す
+        let partial = collect_task_ids(&store, &notif.batch_id, 2, std::time::Duration::from_millis(100));
+        assert_eq!(partial.len(), 1);
         drop(guard);
     }
 
