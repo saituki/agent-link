@@ -16,6 +16,8 @@ const {
   tsPan,
   tsNiceTicks,
   tsDuration,
+  tsBase,
+  tsUrl,
   tsStripToken,
   tsStreamUrl,
   tsViewBody,
@@ -61,12 +63,26 @@ assert.deepStrictEqual(tsNiceTicks(0, 0, 5), []);
 assert.strictEqual(tsDuration({ srate: 500, n_samples: 1000 }), 2);
 assert.strictEqual(tsDuration(null), 0);
 
-// URL の token
-assert.deepStrictEqual(tsStripToken("?token=abc&x=1"), { token: "abc", query: "?x=1" });
-assert.deepStrictEqual(tsStripToken("?token=abc"), { token: "abc", query: "" });
-assert.deepStrictEqual(tsStripToken(""), { token: "", query: "" });
-assert.strictEqual(tsStreamUrl("a b"), "/api/stream?token=a%20b");
+// 住所の基準（C1）。node では location が無いので "/"
+assert.strictEqual(tsBase(), "/");
+assert.strictEqual(tsUrl("/api/view", "/"), "/api/view");
+assert.strictEqual(tsUrl("/api/view", "/p/saituki-x/"), "/p/saituki-x/api/view");
+assert.strictEqual(tsUrl("/ext/hello/main.js?v=1", "/p/saituki-x/"), "/p/saituki-x/ext/hello/main.js?v=1");
+assert.strictEqual(tsUrl("/api/view"), "/api/view", "基準を省くと tsBase()（node では /）");
+assert.strictEqual(tsUrl("api/view", "/p/saituki-x/"), "api/view", "/ で始まらない");
+assert.strictEqual(tsUrl("//evil.example/x", "/p/saituki-x/"), "//evil.example/x", "//");
+assert.strictEqual(tsUrl("https://x.example/y", "/p/saituki-x/"), "https://x.example/y", "http(s)");
+assert.strictEqual(tsStreamUrl("a b", "/"), "/api/stream?token=a%20b");
+assert.strictEqual(tsStreamUrl("a b", "/p/saituki-x/"), "/p/saituki-x/api/stream?token=a%20b");
 assert.strictEqual(tsStreamUrl(""), "/api/stream");
+
+// 合言葉: ?token= と #token= の両方。#token= が優先。token を消し、残りは残す（C1）
+assert.deepStrictEqual(tsStripToken("?x=1", "#token=abc"), { token: "abc", query: "?x=1", hash: "" });
+assert.deepStrictEqual(tsStripToken("?token=abc&x=1", ""), { token: "abc", query: "?x=1", hash: "" });
+assert.deepStrictEqual(tsStripToken("", "#token=abc&k=2"), { token: "abc", query: "", hash: "#k=2" });
+assert.deepStrictEqual(tsStripToken("", ""), { token: "", query: "", hash: "" });
+assert.deepStrictEqual(tsStripToken("?token=old", "#token=new"), { token: "new", query: "", hash: "" });
+assert.deepStrictEqual(tsStripToken("", "#section"), { token: "", query: "", hash: "#section" }, "token の無い断片は触らない");
 
 // 状態の写し（C6）
 const st = {
@@ -88,6 +104,25 @@ assert.ok(st.hiddenCategories.has("noise"));
 assert.deepStrictEqual(st.selection, { t0: 1, t1: 2, vars: ["ch01"] });
 assert.strictEqual(tsPatchState(st, { vars: null }), false);
 assert.strictEqual(st.vars, null, "null は「まだ決めていない」を残す");
+
+// 記録が変わったら、前の記録の選択を消す（イベントの選択は残す）。選択を一緒に送れば残す
+const sel = {
+  dataset: "demo",
+  record: "r02",
+  t0: 0,
+  t1: 10,
+  vars: null,
+  hiddenCategories: new Set(),
+  selection: { t0: 1, t1: 2, vars: [] },
+  selectedEvents: ["e-1"],
+};
+assert.strictEqual(tsPatchState(sel, { record: "r03" }), true);
+assert.strictEqual(sel.selection, null, "記録が変わり selection が無ければ消す");
+assert.deepStrictEqual(sel.selectedEvents, ["e-1"]);
+tsPatchState(sel, { record: "r04", selection: { t0: 3, t1: 4, vars: [] } });
+assert.deepStrictEqual(sel.selection, { t0: 3, t1: 4, vars: [] }, "一緒に送った selection はそのまま");
+tsPatchState(sel, { t0: 5 });
+assert.deepStrictEqual(sel.selection, { t0: 3, t1: 4, vars: [] }, "記録が変わらなければ残す");
 
 // PUT /api/view の本文（C6）: 空の項目は送らない
 const body = tsViewBody(Object.assign({}, st, { dataset: null, selectedEvents: ["e-1"] }));

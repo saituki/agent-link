@@ -58,17 +58,34 @@ function tsDuration(meta) {
   return meta && meta.srate ? meta.n_samples / meta.srate : 0;
 }
 
-// URL の ?token= を取り出し、残りの問い合わせを返す
-function tsStripToken(search) {
-  const q = new URLSearchParams(search);
-  const token = q.get("token") || "";
-  q.delete("token");
-  const rest = q.toString();
-  return { token, query: rest ? "?" + rest : "" };
+// 画面が置かれた場所（"/" か "/p/<名前>/"）。住所はここを基準にする
+function tsBase() {
+  return typeof location === "undefined" ? "/" : new URL(".", location.href).pathname;
 }
 
-function tsStreamUrl(token) {
-  return "/api/stream" + (token ? "?token=" + encodeURIComponent(token) : "");
+// "/api/…" → 基準 + "api/…"。"/" で始まらない・http(s): はそのまま
+function tsUrl(path, base) {
+  const b = base === undefined ? tsBase() : base;
+  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") ? b + path.slice(1) : path;
+}
+
+// URL の #token= か ?token= を取り出し、token を消した問い合わせと断片を返す（#token= が優先）
+function tsStripToken(search, hash) {
+  const sq = new URLSearchParams(search || "");
+  const hq = new URLSearchParams(String(hash || "").replace(/^#/, ""));
+  const token = hq.get("token") || sq.get("token") || "";
+  sq.delete("token");
+  let frag = hash || "";
+  if (hq.has("token")) {
+    hq.delete("token");
+    frag = hq.toString() ? "#" + hq.toString() : "";
+  }
+  const rest = sq.toString();
+  return { token, query: rest ? "?" + rest : "", hash: frag };
+}
+
+function tsStreamUrl(token, base) {
+  return tsUrl("/api/stream", base) + (token ? "?token=" + encodeURIComponent(token) : "");
 }
 
 // PUT /api/view に送る形（C6）。空の項目は送らない
@@ -86,7 +103,8 @@ function tsViewBody(st) {
   return b;
 }
 
-// patch（画面の状態の名前）を st に写す。dataset か record が変わったら true
+// patch（画面の状態の名前）を st に写す。dataset か record が変わったら true。
+// 記録が変わって selection が無いときは、前の記録の選択を消す（古い選択を送り続けない）
 function tsPatchState(st, patch) {
   const before = st.dataset + "\n" + st.record;
   if ("dataset" in patch) st.dataset = patch.dataset;
@@ -97,7 +115,9 @@ function tsPatchState(st, patch) {
   if ("hiddenCategories" in patch) st.hiddenCategories = new Set(patch.hiddenCategories);
   if ("selection" in patch) st.selection = patch.selection ? Object.assign({}, patch.selection) : null;
   if ("selectedEvents" in patch) st.selectedEvents = patch.selectedEvents.slice();
-  return before !== st.dataset + "\n" + st.record;
+  const changed = before !== st.dataset + "\n" + st.record;
+  if (changed && !("selection" in patch)) st.selection = null;
+  return changed;
 }
 
 function tsRecordsOf(datasets, ds) {
@@ -127,7 +147,9 @@ function tsEl(tag, cls, text) {
   return el;
 }
 
-// fetch の包み。Bearer を付け、HTTP エラーは detail を持つ Error にする
+let tsAuthToastAt = 0;
+
+// fetch の包み。Bearer を付け、HTTP エラーは detail を持つ Error にする。401 は合言葉の知らせ（30 秒に 1 回）
 function tsApi(path, opts) {
   const o = Object.assign({}, opts || {});
   const headers = Object.assign({}, o.headers || {});
@@ -138,7 +160,7 @@ function tsApi(path, opts) {
     o.body = JSON.stringify(o.body);
   }
   o.headers = headers;
-  return fetch(path, o).then(async (r) => {
+  return fetch(tsUrl(path), o).then(async (r) => {
     const text = await r.text();
     let body = null;
     try {
@@ -147,6 +169,10 @@ function tsApi(path, opts) {
       body = null;
     }
     if (!r.ok) {
+      if (r.status === 401 && Date.now() - tsAuthToastAt > 30000) {
+        tsAuthToastAt = Date.now();
+        tsToast("時系列の合言葉が無効です。sai-web から開き直してください");
+      }
       const d = body && body.detail;
       const err = new Error(typeof d === "string" ? d : "HTTP " + r.status);
       err.status = r.status;
@@ -156,9 +182,10 @@ function tsApi(path, opts) {
   });
 }
 
+// 合言葉は タブごとの sessionStorage（同じオリジンの別プロジェクトと共有しない・C1）
 function tsToken() {
   try {
-    return localStorage.getItem("ts_token") || "";
+    return sessionStorage.getItem("ts_token") || "";
   } catch {
     return "";
   }
@@ -314,14 +341,14 @@ function tsConnectStream() {
 }
 
 async function tsBoot() {
-  const tok = tsStripToken(location.search);
+  const tok = tsStripToken(location.search, location.hash);
   if (tok.token) {
     try {
-      localStorage.setItem("ts_token", tok.token);
+      sessionStorage.setItem("ts_token", tok.token);
     } catch {
       // 保存できなくても画面は開く（その回の要求だけ合言葉が要る）
     }
-    history.replaceState(null, "", location.pathname + tok.query + location.hash);
+    history.replaceState(null, "", location.pathname + tok.query + tok.hash);
   }
   tsOn("state", tsRenderHeader);
   tsBindHeader();
@@ -562,6 +589,8 @@ if (typeof module !== "undefined") {
     tsPan,
     tsNiceTicks,
     tsDuration,
+    tsBase,
+    tsUrl,
     tsStripToken,
     tsStreamUrl,
     tsViewBody,

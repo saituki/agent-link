@@ -9,6 +9,8 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_ts", "static", "exthost.js");
+// 画面では app.js の tsUrl を同じ global から使う。node では app.js から写す
+global.tsUrl = require(path.join(__dirname, "..", "src", "sai_ts", "static", "app.js")).tsUrl;
 const { tsExtPlan, tsExtUrl } = require(src);
 
 const info = (name, version, extra = {}) => ({
@@ -66,11 +68,17 @@ tsExtPlan(cur, [info("hello", "bbb")]);
 assert.deepStrictEqual(cur, { hello: "aaa" });
 
 // URL: 版と token を付ける。token が空なら付けない。entry の / は残す
-assert.strictEqual(tsExtUrl(info("hello", "aaa"), ""), "/ext/hello/main.js?v=aaa");
-assert.strictEqual(tsExtUrl(info("hello", "aaa"), "t k"), "/ext/hello/main.js?v=aaa&token=t%20k");
+assert.strictEqual(tsExtUrl(info("hello", "aaa"), "", "/"), "/ext/hello/main.js?v=aaa");
+assert.strictEqual(tsExtUrl(info("hello", "aaa"), "t k", "/"), "/ext/hello/main.js?v=aaa&token=t%20k");
 assert.strictEqual(
-  tsExtUrl(info("hello", "aaa", { entry: "js/main.js" }), ""),
+  tsExtUrl(info("hello", "aaa", { entry: "js/main.js" }), "", "/"),
   "/ext/hello/js/main.js?v=aaa",
+);
+// 基準が /p/<名前>/ のとき（ts 入口）
+assert.strictEqual(tsExtUrl(info("hello", "aaa"), "", "/p/saituki-x/"), "/p/saituki-x/ext/hello/main.js?v=aaa");
+assert.strictEqual(
+  tsExtUrl(info("hello", "aaa"), "t k", "/p/saituki-x/"),
+  "/p/saituki-x/ext/hello/main.js?v=aaa&token=t%20k",
 );
 
 if (__filename === process.argv[1]) console.log("test_exthost: ok");

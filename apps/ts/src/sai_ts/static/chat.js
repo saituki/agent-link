@@ -55,6 +55,16 @@ function tsChatDiff(oldMsgs, newMsgs) {
   return newMsgs.slice(oldMsgs.length);
 }
 
+// 会話の応答から「始まっているか」。200 でも run_id が無ければ、まだ始まっていない（サーバは run_id: null を返す）
+function tsChatStarted(res) {
+  return res.run_id !== null && res.run_id !== undefined;
+}
+
+// 始まっていないときの押すボタンの文字
+function tsChatStartLabel(started) {
+  return started === false ? "チャットを始める" : "チャットは終わっています。始め直す";
+}
+
 const tsChat = {
   ds: null,
   started: null, // null（まだ不明）| true | false（まだ始まっていない）
@@ -115,7 +125,7 @@ async function tsChatLoad() {
     if (added.length > 0) tsChat.pending = [];
     tsChat.msgs = res.messages || [];
     tsChat.status = res.status || "";
-    tsChat.started = true;
+    tsChat.started = tsChatStarted(res);
     if (tsChat.waitSince && tsChatAssistants(tsChat.msgs) > tsChat.baseline) tsChat.waitSince = 0;
   } catch (e) {
     if (e.status === 409 || e.status === 404) {
@@ -169,7 +179,7 @@ function tsChatDraw() {
 
   const finished = tsChat.started === true && tsChat.status !== "running";
   e.start.hidden = !(tsChat.started === false || finished);
-  e.start.textContent = tsChat.started === false ? "チャットを始める" : "チャットは終わっています。始め直す";
+  e.start.textContent = tsChatStartLabel(tsChat.started);
 
   if (tsChat.waitSince) e.note.textContent = "考え中…";
   else if (tsChat.started === false) e.note.textContent = "まだ始まっていません";
@@ -287,5 +297,5 @@ if (typeof window !== "undefined" && window.TS) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { tsSplitCode, tsSelectionSummary, tsChatDiff, tsChatMaxChars };
+  module.exports = { tsSplitCode, tsSelectionSummary, tsChatDiff, tsChatStarted, tsChatStartLabel, tsChatMaxChars };
 }
