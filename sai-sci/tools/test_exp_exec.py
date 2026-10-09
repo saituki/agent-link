@@ -8,12 +8,14 @@
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -37,6 +39,7 @@ class Env:
 
     def run(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
         env = dict(os.environ, SAI_HOME=str(self.home), SAI_PROJECT_ROOT=str(self.project))
+        env.pop("AWS_ACCESS_KEY_ID", None)  # 実際の鍵を試験に混ぜない
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             capture_output=True, text=True, cwd=cwd or self.work, env=env, timeout=60,
@@ -183,6 +186,47 @@ class ExecTest(unittest.TestCase):
         (other / "adapter").chmod(0o755)
         job_id = self.env.run("run", "local", "--", "true").stdout.splitlines()[0]
         self.assertTrue(job_id, "プロジェクトの local が先に使われる")
+
+    def write_local(self, mlflow: str, artifact: str | None = None) -> None:
+        lines = ['kind = "local"', "enable = true", "[env]", f'MLFLOW_TRACKING_URI = "{mlflow}"']
+        if artifact is not None:
+            lines.append(f'EXP_ARTIFACT_LOCATION = "{artifact}"')
+        (self.env.project / ".sai/exec/local/target.toml").write_text("\n".join(lines) + "\n")
+
+    def serve_health(self) -> int:
+        """/health に 200 を返す一時の MLflow もどき（一時の番号。外には繋がない）。"""
+
+        class Health(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(200 if self.path == "/health" else 404)
+                self.end_headers()
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Health)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server.server_address[1]
+
+    def test_check_local_refuses_unreachable_mlflow(self) -> None:
+        self.write_local("http://127.0.0.1:9")
+        r = self.env.run("check", "local")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("MLflow", r.stderr)
+
+    def test_check_local_refuses_s3_without_key(self) -> None:
+        port = self.serve_health()
+        self.write_local(f"http://127.0.0.1:{port}", artifact="s3://mlflow-local/")
+        r = self.env.run("check", "local")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("鍵", r.stderr)
+        # 置き場を file:// に変えれば通る（MLflow は届いている）
+        self.write_local(f"http://127.0.0.1:{port}", artifact="file:///tmp/mlruns-test")
+        r = self.env.run("check", "local")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("使えます", r.stdout)
 
 
 if __name__ == "__main__":
