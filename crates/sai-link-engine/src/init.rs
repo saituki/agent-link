@@ -481,7 +481,7 @@ mod tests {
     }
 
     /// 空のフォルダに基盤の block 10 本と template 12 本が配られ、
-    /// block の frontmatter が `model: inherit` で `provider:` を持たないこと。
+    /// block の frontmatter が `model:` を持ち（既定値は block ごと）、`provider:` を持たないこと。
     #[test]
     fn test_init_project_installs_base_assets() {
         let dir = tempfile::tempdir().unwrap();
@@ -495,8 +495,8 @@ mod tests {
             let p = root.join(".sai/blocks").join(name);
             assert!(p.is_file(), "欠落: {}", p.display());
             let text = std::fs::read_to_string(&p).unwrap();
-            assert!(text.contains("model: inherit"), "{name}: {text}");
             let fm = text.split("---\n").nth(1).unwrap();
+            assert!(fm.lines().any(|l| l.starts_with("model:")), "{name}: {text}");
             assert!(
                 !fm.lines().any(|l| l.starts_with("provider:")),
                 "{name} に provider: がある: {fm}"
