@@ -61,6 +61,10 @@ pub fn resolve_md_path(store: &SaiStore, run_id: i64, kind: MdKind) -> MdResolve
     let path = match kind {
         MdKind::Message => match sai_link_engine::orchestrator::write_message_file(store, run_id) {
             Ok(p) => p,
+            // run が無いときは「見つからない」（CLI の終了コード 3）
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return MdResolve::Missing(format!("message: run がありません (run_id {})", run_id))
+            }
             Err(e) => return MdResolve::Failed(format!("message: 保存に失敗: {}", e)),
         },
         // 報告は run フォルダの finalize-report.md にしか無い。todo のカードには無い。
