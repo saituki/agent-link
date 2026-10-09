@@ -33,7 +33,7 @@ subblocks:
 
 ### 手順
 1. **論文の要点を読む。** `sai-paper content outline <番号> --json` で節の一覧を見て、Abstract と結論の節を `sai-paper content read <ID>` で読みます。問い・主張・方法を 3 行で書きます。
-2. **木を探す。** `sai-sci status --json` の木を読み、論文の主張に当たる Q・A を探します。`sai-sci node <ID> --json` で詳しく見ます。`sci-find` の `sai-sci find` で、同じ主張の論文が Library にあるかも見ます。
+2. **木を探す。** `sai-sci status --json` の木を読み、論文の主張に当たる Q・A を探します。`sai-sci node <ID> --json` で詳しく見ます。同じ主張の論文が Library にあるかも見ます。番号が分かっているときは `sai-paper paper show <番号>`、分からないときは `sai-sci find "<題名の語>" --json`（`--node` を付けない）で探します（`sci-find` の決まり）。
 3. **置き場所を決める。** 次のどれかを選びます。
    - 主張に当たる A が既にある: その A に子 F として置きます（CARD は `--child F`）。
    - 主張に当たる Q があり、答えの候補が無い: その Q の下に新しい A を足し（`add_a`）、その A に子 F として置きます。

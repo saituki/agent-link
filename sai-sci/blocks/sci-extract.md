@@ -8,7 +8,6 @@ templates:
   - sci-core
   - sci-find
   - sci-match
-  - search-internal
   - literature-hard-rules
 context: true
 sci_type: support

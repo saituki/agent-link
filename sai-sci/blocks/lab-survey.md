@@ -8,8 +8,6 @@ templates:
   - sci-core
   - sci-find
   - sci-match
-  - search-external
-  - paper-search-strategy
   - literature-hard-rules
   - domain
 context: true
@@ -43,7 +41,7 @@ enable: true
    - 何のために探すか（目的）
    - 論文のどの項目が分かればよいか（抜き出す項目）
    - どれくらいの量があればよいか（件数の上限）
-2. `## SEARCH_HISTORY` を読み、同じ検索を繰り返しません。目的を英語の検索語に直し、3〜5 個に分けます（`sci-find` の決まりと `search-external` のステップ 2）。それぞれに同義語・上位語・除外語を添えます。
+2. `## SEARCH_HISTORY` を読み、同じ検索を繰り返しません。目的を英語の検索語に直し、3〜5 個に分けます（`sci-find` の「検索語の作り方」）。それぞれに同義語・上位語・除外語を添えます。
 3. 検索語ごとに検索します。`--purpose`・`--extract` は必ず付けます。
 
    ```bash
@@ -57,7 +55,7 @@ enable: true
 7. 利用者に、Web の検索履歴から取り込んでもらうよう報告に書いて、REPORT を保存して終えます。
 
 ### 段 2: CARD を作る
-1. 依頼文の `sci_papers`（取り込んだ論文の番号）を確かめます。`sai-sci find` で Library にあることを見ます。無い番号があれば、作らずに報告します。
+1. 依頼文の `sci_papers`（取り込んだ論文の番号）を確かめます。`sai-paper paper show <番号>` で Library にあることを見ます。無い番号があれば、作らずに報告します。
 2. `lab-grow` の CARD を作ります。型は指定しません。作るだけで、実行はしません。
 
    ```bash

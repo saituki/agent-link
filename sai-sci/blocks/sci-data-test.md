@@ -141,6 +141,8 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/data_
 
 A が解けたと思えば、「## Next Action」に A の ID と理由を書きます。**★ を付けるのは利用者である。** 自分で付けない。
 
+やり直し（r2 以降）は、同じ run の中で計画書・結果書を `-rN` の新しいファイル名で保存してから終えます。やり直しのために別の run を作りません。同じファイル名で保存し直しません（トークンが増えます）。
+
 終え方は `sci-core` の「終わり方（LabAgent の種類ごと）」に従う（`SAI_IS_SUBTASK` が `1` なら `sai-link task report`、`0` なら質問ツールで確かめて `sai-link run finalize`）。`sai-link task report` には**解析計画書・解析結果書のトークン**と**木に出した ID（E の ID）**、**残った `check` の違反**を書く。
 
 ## 出力の形
