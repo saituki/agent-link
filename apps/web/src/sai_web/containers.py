@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import logging
 import os
@@ -32,6 +33,9 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
+import urllib.request
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -101,18 +105,27 @@ def image_name() -> str:
     return (os.getenv("SAI_IMAGE") or "").strip() or _DEFAULT_IMAGE
 
 
-def _docker(args: list[str], timeout: float = 60.0) -> subprocess.CompletedProcess:
+def _docker(
+    args: list[str],
+    timeout: float = 60.0,
+    env: dict[str, str] | None = None,
+    ok_codes: tuple[int, ...] = (0,),
+) -> subprocess.CompletedProcess:
     """`docker` の CLI を呼ぶ（シェルは使わない）。
 
-    - 実行ファイルは `docker_bin()`。
-    - 終了コード 0 以外は `HTTPException(502, <標準エラーの最後の行>)`。
+    - 実行ファイルは `docker_bin()`。`env` は親の環境変数に足す（値を引数に出さないため）。
+    - `ok_codes` 以外の終了コードは `HTTPException(502, <標準エラーの最後の行>)`。
     - 見つからない・デーモンにつながらないときは
       `HTTPException(503, "docker が動いていません")`。
     """
     binary = docker_bin()
     try:
         proc = subprocess.run(
-            [binary, *args], capture_output=True, text=True, timeout=timeout
+            [binary, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={**os.environ, **env} if env else None,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="docker が動いていません")
@@ -121,7 +134,7 @@ def _docker(args: list[str], timeout: float = 60.0) -> subprocess.CompletedProce
     except OSError as exc:
         logger.warning("docker を呼べません: %s", exc)
         raise HTTPException(status_code=503, detail="docker が動いていません")
-    if proc.returncode != 0:
+    if proc.returncode not in ok_codes:
         if _looks_disconnected(proc.stderr or ""):
             raise HTTPException(status_code=503, detail="docker が動いていません")
         raise HTTPException(status_code=502, detail=_last_reason(proc) or "docker が失敗しました")
@@ -140,6 +153,7 @@ def run_args(user: str, project_root: Path, project_home: Path, token: str) -> l
     """`docker run` の引数を作る純関数（共有契約 C8）。
 
     先頭は `run`（実行ファイル `docker` は `_docker` が付ける）。
+    時系列の口（sai-ts。番号は docker が選ぶ・共有契約 C3）を最後に足す。
     """
     root = Path(project_root)
     home = Path(project_home)
@@ -194,6 +208,8 @@ def run_args(user: str, project_root: Path, project_home: Path, token: str) -> l
         f"sai.owner={user}",
         "--label",
         f"sai.project={name}",
+        "-p",
+        "127.0.0.1::8210",
         image,
     ]
 
@@ -267,9 +283,10 @@ def _start_container(container: str) -> dict:
 
     止まっているコンテナに共有ログインの mount（C-MOUNT）が無ければ、消して作り直す
     （U10 より前に作った物は、`docker start` では新しいログインを使えないため）。
+    時系列の口（C3）が無い物も作り直す。動いている物は作り直さない。
     """
     current = _inspect_state(container)
-    if current == "exited" and not _has_shared_claude(container):
+    if current == "exited" and not (_has_shared_claude(container) and _has_ts_port(container)):
         _docker(["rm", "-f", container], timeout=60.0)
         current = "missing"
     if current == "missing":
@@ -287,6 +304,14 @@ def _has_shared_claude(container: str) -> bool:
         ["inspect", "-f", "{{range .Mounts}}{{.Destination}} {{end}}", container], timeout=20.0
     )
     return any(dest.endswith("/.claude") for dest in (proc.stdout or "").split())
+
+
+def _has_ts_port(container: str) -> bool:
+    """コンテナが時系列の口（`8210/tcp`・共有契約 C3）を持つか。"""
+    proc = _docker(
+        ["inspect", "-f", "{{json .HostConfig.PortBindings}}", container], timeout=20.0
+    )
+    return '"8210/tcp"' in (proc.stdout or "")
 
 
 def _stop_container(container: str) -> dict:
@@ -635,3 +660,100 @@ def recreate_for_user(user: str) -> dict:
         create_container(user, project)
         recreated.append(project)
     return {"recreated": recreated, "pending": pending}
+
+
+# --- 時系列（sai-ts）の起動（共有契約 C3・C4） ---
+
+# コンテナの中の sai-ts の口（`run_args` の `-p 127.0.0.1::8210` と対）
+_TS_PORT = "8210"
+# 起こしてから答えるまで待つ秒数（`_TS_WAIT_SECONDS` は試験で短くする）
+_TS_WAIT_SECONDS = 15.0
+# 上流の住所と内部の合言葉（起こすたびに作り、メモリにだけ置く）
+_TS_UP: dict[str, dict[str, str]] = {}
+_TS_GUARD = threading.Lock()
+_TS_LOCKS: dict[str, threading.Lock] = {}
+# 127.0.0.1 へは環境変数の proxy を使わない
+_TS_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _ts_lock(name: str) -> threading.Lock:
+    """プロジェクトごとの lock（dict 自体は `_TS_GUARD` で守る）。"""
+    with _TS_GUARD:
+        return _TS_LOCKS.setdefault(name, threading.Lock())
+
+
+def _ts_host_port(container: str) -> str:
+    """`docker port <c> 8210/tcp` の最初の番号。口が無ければ 409。"""
+    proc = _docker(["port", container, f"{_TS_PORT}/tcp"], timeout=20.0)
+    for line in (proc.stdout or "").splitlines():
+        port = line.strip().rsplit(":", 1)[-1]
+        if port.isdigit():
+            return port
+    raise HTTPException(
+        status_code=409, detail="時系列の口がありません。コンテナを止めて起動し直してください"
+    )
+
+
+def _ts_answers(base: str, token: str) -> bool:
+    """上流が合言葉で `/api/datasets` に 200 を返すか。"""
+    req = urllib.request.Request(f"{base}/api/datasets", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with _TS_OPENER.open(req, timeout=2.0) as resp:
+            return resp.status == 200
+    except (OSError, http.client.HTTPException):
+        return False
+
+
+def ts_ensure(name: str) -> dict:
+    """プロジェクト <name>（例 "saituki-west"）の sai-ts を動かし、上流の住所と内部の合言葉を返す。
+
+    戻り値: {"base": "http://127.0.0.1:<番号>", "token": "<内部の合言葉>"}
+    失敗: HTTPException
+      409 "コンテナが動いていません（Projects から起動してください）"
+      409 "時系列の口がありません。コンテナを止めて起動し直してください"
+      502 "時系列のサーバが起動しません"（15 秒以内に答えない）
+      503 "docker が動いていません"（_docker のまま）
+    覚えた値があれば、生きているか確かめずに返す（確かめるのは ts 入口）。
+    """
+    container = check_container_name(container_name(name))
+    with _ts_lock(name):
+        if name in _TS_UP:
+            return dict(_TS_UP[name])
+        if _inspect_state(container) != "running":
+            raise HTTPException(
+                status_code=409, detail="コンテナが動いていません（Projects から起動してください）"
+            )
+        if not _has_ts_port(container):
+            raise HTTPException(
+                status_code=409, detail="時系列の口がありません。コンテナを止めて起動し直してください"
+            )
+
+        # 前の sai-ts を止める。該当が無いときの終了コード 1 は失敗にしない
+        _docker(["exec", container, "pkill", "-f", "sai_ts.cli serve"], timeout=20.0, ok_codes=(0, 1))
+        root = registry.user_dir(name.split("-", 1)[0]) / "projects" / name
+        env_root = ["-w", str(root), "-e", f"SAI_PROJECT_ROOT={root}"]
+        _docker(["exec", *env_root, container, "sai-ts", "init", "--json"], timeout=120.0)
+
+        # 合言葉は引数に書かず、環境変数で渡す（ホストの ps に出ないため）
+        token = secrets.token_urlsafe(32)
+        _docker(
+            ["exec", "-d", *env_root, "-e", "SAI_TS_TOKEN", container,
+             "sai-ts", "serve", "--host", "0.0.0.0", "--port", _TS_PORT],
+            timeout=20.0,
+            env={"SAI_TS_TOKEN": token},
+        )
+        base = f"http://127.0.0.1:{_ts_host_port(container)}"
+
+        deadline = time.monotonic() + _TS_WAIT_SECONDS
+        while not _ts_answers(base, token):
+            if time.monotonic() >= deadline:
+                raise HTTPException(status_code=502, detail="時系列のサーバが起動しません")
+            time.sleep(0.5)
+        _TS_UP[name] = {"base": base, "token": token}
+        return dict(_TS_UP[name])
+
+
+def ts_forget(name: str) -> None:
+    """覚えている上流（base・token）を捨てる。次の ts_ensure で起こし直す。"""
+    with _ts_lock(name):
+        _TS_UP.pop(name, None)
