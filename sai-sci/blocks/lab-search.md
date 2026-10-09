@@ -2,8 +2,8 @@
 name: 🔎 外部を探して足す
 id: lab-search
 description: "対象の Node に足す子の候補を外部の論文 DB で探し、取り込みを勧める候補を報告する。取り込まれたあとは lab-read の CARD を作る"
-model: inherit
-thinking: high
+model: haiku
+thinking: low
 templates:
   - sci-core
   - sci-find
@@ -64,12 +64,12 @@ enable: true
 
    ```bash
    sai-sci card --node <対象の Node> --child <sci_child> --block lab-read \
-     --purpose "<読む目的>" --papers <番号,番号> --executer agent \
+     --purpose "<読む目的>" --papers <番号,番号> \
      --origin-run "$SAI_PARENT_RUN_ID" --json
    ```
 
    `sci_child` が空のときは `--child` を付けません。
-3. 作った CARD の内容（Node・型・論文の番号）を報告に書いて、REPORT を保存して終えます。
+3. 作った CARD の内容（Node・型・論文の番号・`run_id`）を報告に書いて、REPORT を保存して終えます。
 
 ## 評価の観点
 - 検索語が対象の Node と Extract から出ていて、依頼文をそのまま英訳しただけになっていないか。
@@ -92,5 +92,5 @@ report は次の見出しで、この順のまま書きます。
 
 - **段と検索語** — 段 1 か段 2 か、検索語と対象の Node。
 - **検索の記録** — 検索ごとの `log.id`・件数・取り込みを勧める候補（題名と理由）。
-- **作った CARD** — 段 2 のときだけ。作った CARD の内容。段 1 は「なし」。
+- **作った CARD** — 段 2 のときだけ。作った CARD の内容（Node・型・論文の番号・`run_id`。起こすのは Professor か Human）。段 1 は「なし」。
 - 「木への変更」は段 1・段 2 とも「なし」です（木には op を出しません）。

@@ -2,8 +2,8 @@
 name: 🔁 同型を探す
 id: sci-analogy
 description: "問いを言い直し、別の分野の同じ形の問題とその答えを探して返す"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find

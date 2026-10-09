@@ -2,7 +2,7 @@
 name: ⚖ 検証
 id: sci-verify
 description: "対象の Node と直の子の関係（Q→A・Q→Q・A→Q・A→F）を評価し、評価の報告・op・次の CARD を作る。必要なら paper-debater・paper-reviewer を子で使う"
-model: inherit
+model: opus
 thinking: high
 templates:
   - sci-core

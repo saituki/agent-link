@@ -2,8 +2,8 @@
 name: 🎓 理解の確かめ
 id: sci-coach
 description: "利用者が対象の Node を理解しているかを、質問ツールで 1 問ずつ確かめる"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - literature-hard-rules

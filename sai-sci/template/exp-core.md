@@ -58,8 +58,7 @@
  "epochs": 25, "trial_timeout_s": 5400, "device": "auto",
  "artifact_location": "", "workdir": "experiments/S3-ID120",
  "reference_code": [{"id": "miscco/NM_TC", "sha": "1c8f5f09d3a9", "path": "…", "role": "土台"}],
- "sim_model": null,
- "return_to": {"block": "professor-backward", "run_id": 5}}
+ "sim_model": null}
 ```
 
 | 欄 | 中身 |
@@ -80,7 +79,6 @@
 | `device` | `cuda`（GPU が無ければ止める）/ `auto`（cuda → mps → cpu）/ `cpu`。既定 `auto`。実行先が GPU の PC なら `cuda` |
 | `artifact_location` | 成果物の置き場（空なら環境変数 `EXP_ARTIFACT_LOCATION`、それも無ければ `s3://mlflow-local/`）。大きなモデルで別の置き場（さくらのオブジェクトストレージなど）を使うときに書く |
 | `workdir` | スクリプトを置くフォルダ。既定 `experiments/<study>` |
-| `return_to` | sprout を起こしたのが professor なら `{"block": "<そのブロック>", "run_id": <その run_id>}`。人が起こしたなら `null`。実験の流れが終わったときに起こし直す相手（§11） |
 | `reference_code` | 参照実装の一覧。`sci-exp-scout` の参照コード調査書からそのまま写す（`{"id", "url", "sha", "path", "license", "role", "paper"}`）。`role` は `土台` か `参考`。参照実装なしで進むと起動者が決めたときだけ `[]` にして、理由を本文に書く |
 | `sim_model` | モデル定義書のトークン（`sci-sim-model` / `sci-sim-compose` の出力）。神経のモデルでない実験は `null`。`null` でなければ、branch は式・値・再現の目標をそこから写し、`§4` の再現の確かめを記録する |
 
@@ -340,7 +338,7 @@ review が使う。台帳（§5）の欄だけが材料である。
 ```
 
 - `decision` は `continue` か `stop`。`stop_reason` は `success` / `max_branches` / `not_allowed` / `cancelled` / `no_records` / `repro_failed` / `none`。
-- `next` は 0〜`max_children` 個（`continue` なら 1 個以上）。`grid` は tune のとき、`idea` は model と ablation のとき、`fix` は debug のときに入れる。起こした branch は `--origin-run` で結ばれ、`sai-link run tree` で分かるので、判定書には書かない。
+- `next` は 0〜`max_children` 個（`continue` なら 1 個以上）。`grid` は tune のとき、`idea` は model と ablation のとき、`fix` は debug のときに入れる。
 
 ### 規則
 
@@ -385,13 +383,13 @@ model: cnn-static
 ```
 
 - `parent_branch` は無ければ `-`。draft のときは「元のスクリプト」の代わりに「モデルの案」と、データの置き場・読み込み方（research-tree の F と仕様書から）を書く。
-- CARD の作り方（sprout と review で共通）:
+- branch の CARD の作り方（sprout と review で共通）。これは branch の Card である。review の Card は下の §8 の `card wait --job` で作り、`card run` しない:
 
 ```bash
 sai-sci card --node <Node の ID> --block sci-exp-branch \
   --purpose "<study> <action> <model>（親 ID<parent_branch>）" \
   --input <実験仕様書のトークン> --input <依頼書のトークン> [--input <判定書のトークン>] \
-  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+  --origin-run "$SAI_PARENT_RUN_ID" --json
 sai-link card run <返った run_id>
 ```
 
@@ -433,7 +431,7 @@ uv run --no-project --python ">=3.11" python "$SAI_PROJECT_ROOT/.sai/tools/exp_e
 sai-sci card --node <Node の ID> --block sci-exp-review \
   --purpose "<study> ID<自分の run_id> の結果の判定" \
   --input <実験仕様書のトークン> --input <自分の作業報告書のトークン> \
-  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+  --origin-run "$SAI_PARENT_RUN_ID" --json
 sai-link card wait <返った run_id> --job <job_id>
 ```
 
@@ -455,7 +453,4 @@ sai-link card wait <返った run_id> --job <job_id>
 ## 11. 止める条件と、実験の流れの終わり
 
 - 止めるのは判定が `stop` のときだけ（R0・R1・R1a・R3・R4・R7 の一部）。
-- 止めた review は、完了報告書を保存したあと、仕様書の `return_to` を見る:
-  - `return_to` があれば、`sai-link run md --kind task <return_to.run_id>` の frontmatter から `runner`・`model`・`thinking` を読み、`sai-link card create` で同じブロックの CARD を作って `sai-link card run` で起こす（JSON の形は `sci-exp-review` に書く）。`sai-link run tree` で running を確かめる。
-  - `return_to` が `null` なら起こさない。
-- どちらの場合も最後に `sai-link run finalize` を呼ぶ（review は daemon が起こした root の run）。
+- 止めた review は、REPORT（完了報告書）を保存して `sai-link run finalize` で終える（review は daemon が起こした root の run）。起こし直す相手は無い。Professor は木（E と REPORT）から結果を読む。

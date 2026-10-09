@@ -2,8 +2,8 @@
 name: 🌱 子を育てる
 id: lab-grow
 description: "Library の論文から、対象の Node に足す子の型を 1 つ選んで子を足す（Q の下は A か child_Q のどちらか一方、A の下は F か Q）"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find

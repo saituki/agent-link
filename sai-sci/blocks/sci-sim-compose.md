@@ -2,7 +2,7 @@
 name: 🧩 sim-compose
 id: sci-sim-compose
 description: "2 本以上の論文の神経のモデルを部品としてつなぎ、新しいモデルのモデル定義書を作る（組み合わせ）"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core

@@ -2,8 +2,8 @@
 name: 📖 論文から足す
 id: lab-read
 description: "論文を 1 本読み、対象の Node の下に sci_child の型の子（A・F・Q のどれか 1 種）を足す"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find

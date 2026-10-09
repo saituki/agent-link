@@ -2,7 +2,7 @@
 name: 📐 data-test
 id: sci-data-test
 description: "解析計画書を先に保存して固定し、検定・効果量・図・報告を行い、MLflow と木の F に記録する"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core

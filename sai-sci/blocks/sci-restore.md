@@ -2,7 +2,7 @@
 name: 🔙 論文から復元
 id: sci-restore
 description: "基盤論文から Q・A・F（と E）の木を復元し、主張と引用の対応表を作る（逆向き）"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core

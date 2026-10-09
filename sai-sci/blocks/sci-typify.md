@@ -3,8 +3,8 @@ name: 🧬 型を抜き出す
 id: sci-typify
 description: "今の木から Q の階層を抜き出し、RESEARCH_TYPE として保存する"
 sci_type: manage
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - literature-hard-rules

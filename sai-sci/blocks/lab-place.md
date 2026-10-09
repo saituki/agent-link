@@ -2,8 +2,8 @@
 name: 🧩 論文の置き場所を決める
 id: lab-place
 description: "論文だけを入力に、木のどこに置くかを決め、置いた場所ごとに lab-read の CARD を作る。新しい Q を足すときは許可を取る"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find
@@ -44,7 +44,7 @@ subblocks:
 
    ```bash
    sai-sci card --node <A の ID> --child F --block lab-read \
-     --purpose "<読む目的>" --papers <番号> --executer agent \
+     --purpose "<読む目的>" --papers <番号> \
      --origin-run "$SAI_PARENT_RUN_ID" --json
    ```
 
@@ -71,5 +71,5 @@ report は次の見出しで、この順のまま書きます。
 
 - **論文の要点** — 問い・主張・方法の 3 行。
 - **置き場所の案** — 置く場所ごとに、Node の ID と文、理由、CARD の子の型。
-- **作った CARD** — CARD の内容（Node・型・論文の番号）。作らなかったときは「なし」と理由。
+- **作った CARD** — CARD の内容（Node・型・論文の番号・`run_id`。起こすのは Professor か Human）。作らなかったときは「なし」と理由。
 - 末尾の「木への変更」は `sai-sci op` の結果（`結果`・`op`・`中身`）を書きます。「OUT_OF_SCOPE」は範囲の外で気づいたこと（無ければ「なし」）。

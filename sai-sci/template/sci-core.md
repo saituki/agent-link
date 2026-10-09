@@ -37,8 +37,8 @@ Q（top_Q）── SEED の直下
 - F は事実や知見で、A の下に付きます。stance（`support`・`deny`・`issue`）を必ず持ちます。
 
 ## 起動者と質問
-- あなたを起こしたのは、CARD の起動者です。`echo "${SAI_IS_SUBTASK:-0}"` が `1` なら子（professor が起こした）、`0` なら root（利用者 Human が起こした）です。
-- 確かめ・質問は、**必ず質問ツール**で聞きます（pi は `ask_user`、Claude Code は `AskUserQuestion`）。返答の本文だけで尋ねて止まってはいけません。質問は Web の画面にも出るので、利用者も見ています。先に答えた方が採られます。
+- あなたを起こしたのは、CARD の起動者です。`echo "${SAI_IS_SUBTASK:-0}"` が `1` なら子（`task create` で起こされた。報告は親へ返す）、`0` なら root（Card で起こされた。起こしたのは Human か、Human の代わりの Professor）です。
+- 確かめ・質問は、**必ず質問ツール**（`AskUserQuestion`）で聞きます。返答の本文だけで尋ねて止まってはいけません。質問は Web の画面にも出るので、利用者も見ています。先に答えた方が採られます。root の質問には、起こした Human か Professor が Web（`sai-web answer`）で答えます。
 - 質問の文・選択肢・報告に、鍵・合言葉の値を書きません。値が要るときは環境変数の名前だけを書きます。
 
 ## 最初にすること
@@ -127,9 +127,10 @@ node agent・manage agent は report を `sai-link doc write` で 1 つだけ保
 あなたのブロックが node agent・manage agent・support agent のどれかは、ブロックの本文の最初に書いてあります。
 
 - **node agent・manage agent**: REPORT を `sai-link doc write` で 1 つ保存してから終えます（上の「## 出力」）。正常に終わったかどうかは、REPORT があるかで見られます。
-- **support agent**: REPORT は保存しません。呼んだ agent に `sai-link task report` で答えを返して終えます。
+- **support agent**（子として呼ばれたとき）: REPORT は保存しません。呼んだ agent に `sai-link task report` で答えを返して終えます。
 
 report を保存したら、次のどちらかで終えます。終えたあとにこの run は何もしません。
 
 - **子の run（`SAI_IS_SUBTASK` が `1`）**: `sai-link task report` を呼びます。report には 3〜10 行で、結論・保存した report のトークン・`sai-sci op` で出した ID・残った問いを書きます。
 - **root の run（`SAI_IS_SUBTASK` が `0` あるいは無い）**: 要点を伝え、質問ツールで「完了してよいか」を起動者に確かめます。了承されたら、`sai-link run finalize` を `report`（上と同じ要点）付きで呼びます。直しを求められたら、直して保存し直してから、もう一度確かめます。
+- 例外: 実験の連鎖（`sci-exp-branch`・`sci-exp-review`）は、確かめずに `sai-link run finalize` で終えます（ブロックの本文のとおり）。
