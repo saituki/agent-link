@@ -1525,6 +1525,7 @@ impl TaskManager {
             submit_key,
             Some(task_id),
             Some(task.parent_run_id),
+            Some(exec_id),
         );
 
         match turn_result {
@@ -1537,7 +1538,7 @@ impl TaskManager {
                 if !turn.waggle_tokens.is_empty() {
                     let _ = self
                         .store
-                        .update_execution_waggle_tokens(exec_id, &turn.waggle_tokens);
+                        .merge_execution_waggle_tokens(exec_id, &turn.waggle_tokens);
                 }
                 let _ = self.store.update_execution_git_commits(
                     exec_id,

@@ -1659,6 +1659,145 @@ pub fn run_interrupt(run_id: i64) -> Result<Value, String> {
     }))
 }
 
+// ============================================================================
+// 3.8b run_wait（自分の子でない run の完了・失敗・停止を待つ）
+// ============================================================================
+
+/// 複数の run を待つ。完了・失敗・停止のどれか 1 件を返し、残りを `pending` で返す。
+///
+/// - 1 回の待ちは最大 [`TASK_OUTPUT_MAX_WAIT_MS`]（`timeout_ms` は上限に切られる。`0` は 1 回だけ調べる）。
+/// - `stalled` は pane が idle のまま [`stall_idle_ms`] を超えたときだけ返す（質問は見ない）。
+/// - 戻り値の `pending` は、この呼び出しで返さなかった残りの run。
+///   返した run は呼び出し側が次から外す（engine は覚えない）。
+/// - 存在しない run は `Err`（「見つかりません」。CLI は終了コード 3）。
+pub fn run_wait(
+    run_ids: &[i64],
+    timeout_ms: Option<u64>,
+    cancel: &AtomicBool,
+) -> Result<Value, String> {
+    if run_ids.is_empty() {
+        return Err("run wait には 1 件以上の run ID を指定してください".to_string());
+    }
+    let wait_ms = clamp_wait_ms(timeout_ms);
+    let started = std::time::Instant::now();
+    // DB と状態ファイルを読む間隔と、取り消しを見る間隔
+    let scan_interval = std::time::Duration::from_millis(500);
+    let check_interval = std::time::Duration::from_millis(50);
+    let mut next_scan = started;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(run_wait_in_progress(
+                run_ids,
+                "待ちを中止しました。もう一度呼んでください。",
+            ));
+        }
+        let now = std::time::Instant::now();
+        if now >= next_scan {
+            if let Some(hit) = run_wait_scan(run_ids)? {
+                return Ok(hit);
+            }
+            next_scan = now + scan_interval;
+        }
+        if started.elapsed().as_millis() as u64 >= wait_ms {
+            break;
+        }
+        std::thread::sleep(check_interval);
+    }
+    Ok(run_wait_in_progress(run_ids, &format!(
+        "{}ms 以内に結果の出る run がありませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+        wait_ms,
+        max_wait_seconds()
+    )))
+}
+
+/// 1 回の走査。`run_ids` の順に調べ、最初に止まった（完了・失敗・停止の）run を返す。
+fn run_wait_scan(run_ids: &[i64]) -> Result<Option<Value>, String> {
+    let store =
+        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+    let others = |run_id: i64| -> Vec<i64> {
+        run_ids.iter().copied().filter(|&id| id != run_id).collect()
+    };
+    for &run_id in run_ids {
+        let exec = match store.get_execution_by_id(run_id) {
+            Ok(e) => e,
+            Err(crate::db::models::DbError::NotFound(_)) => {
+                return Err(format!("実行 {} が見つかりません", run_id));
+            }
+            Err(e) => return Err(format!("実行レコード取得エラー: {}", e)),
+        };
+        let block = store
+            .get_block_by_id(exec.block_id)
+            .map(|b| b.name)
+            .unwrap_or_default();
+        match exec.status.as_str() {
+            "completed" => {
+                return Ok(Some(json!({
+                    "status": "completed",
+                    "run_id": run_id,
+                    "block": block,
+                    "pending": others(run_id),
+                })));
+            }
+            "failed" => {
+                let error = exec
+                    .error_message
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| "（失敗の理由は記録されていません）".to_string());
+                return Ok(Some(json!({
+                    "status": "failed",
+                    "run_id": run_id,
+                    "block": block,
+                    "error": error,
+                    "pending": others(run_id),
+                })));
+            }
+            _ => {
+                if let Some(secs) = idle_seconds(run_id) {
+                    return Ok(Some(json!({
+                        "status": "stalled",
+                        "run_id": run_id,
+                        "block": block,
+                        "reason": "idle",
+                        "message": format!(
+                            "run {} が {} 秒以上 idle です。質問への答えか指示を待っている可能性があります。sai-web questions で質問を確かめてください",
+                            run_id, secs
+                        ),
+                        "pending": others(run_id),
+                    })));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// run の pane が idle のまま止まっていれば、その秒数を返す（止まっていないときは `None`）。
+///
+/// 止まった時刻は `state.json` の `updated_at`（idle になった時に書かれる）から読む。
+/// 1 回の呼び出しをまたいで時間を覚えなくてよいように、ここでは状態ファイルだけを見る。
+fn idle_seconds(run_id: i64) -> Option<i64> {
+    let (_, pane_id) = run_pane(run_id).ok()?;
+    let info = crate::headless::status(&pane_id).ok()?;
+    if info.agent_status != "idle" {
+        return None;
+    }
+    let state = crate::headless::read_state(&crate::headless::pane_dir(&pane_id))?;
+    let since = chrono::DateTime::parse_from_rfc3339(&state.updated_at).ok()?;
+    let idle_ms = chrono::Utc::now()
+        .signed_duration_since(since.with_timezone(&chrono::Utc))
+        .num_milliseconds();
+    (idle_ms >= crate::orchestrator::stall_idle_ms() as i64).then_some(idle_ms / 1000)
+}
+
+/// 完了も停止もまだのときの戻り値（`pending` は全件）。
+fn run_wait_in_progress(run_ids: &[i64], message: &str) -> Value {
+    json!({
+        "status": "in_progress",
+        "pending": run_ids,
+        "message": message,
+    })
+}
+
 /// `send` の行き先。
 #[derive(Debug, PartialEq, Eq)]
 enum SendRoute {
@@ -2243,6 +2382,111 @@ mod tests {
         }
     }
 
+    /// run_wait の試験用に、同じブロックで run を n 件作る。
+    fn make_runs(n: usize) -> Vec<i64> {
+        let store = crate::common::open_db().unwrap();
+        let block = crate::db::models::test_helpers::create_test_block("run-wait-test-block");
+        let block_id = store.insert_block(&block).unwrap();
+        (0..n).map(|_| store.create_execution(block_id, None).unwrap()).collect()
+    }
+
+    /// run に擬似 pane を付け、状態ファイルを書く。`updated_ago_secs` 秒前に更新された状態にする。
+    fn attach_pane_state(run_id: i64, state: &str, updated_ago_secs: i64) {
+        let store = crate::common::open_db().unwrap();
+        let pane_id = format!("hl-{:012x}", run_id);
+        store.update_execution_pane(run_id, &pane_id, 0).unwrap();
+        let dir = crate::headless::pane_dir(&pane_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let updated_at =
+            (chrono::Utc::now() - chrono::Duration::seconds(updated_ago_secs)).to_rfc3339();
+        crate::headless::write_state(
+            &dir,
+            &crate::headless::HeadlessState {
+                pane_id: pane_id.clone(),
+                runner: "cc".to_string(),
+                state: state.to_string(),
+                turn: 1,
+                partial: String::new(),
+                error: String::new(),
+                updated_at,
+            },
+        )
+        .unwrap();
+    }
+
+    /// run_wait: 完了した run を返し、残りは pending に入る（試験は timeout 0 で 1 回だけ調べる）。
+    #[test]
+    fn run_wait_returns_completed_and_leaves_rest_pending() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(2);
+        crate::common::open_db()
+            .unwrap()
+            .update_execution_status(runs[0], "completed")
+            .unwrap();
+        attach_pane_state(runs[1], "working", 0);
+
+        let v = run_wait(&runs, Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "completed");
+        assert_eq!(v["run_id"], runs[0]);
+        assert_eq!(v["pending"], json!([runs[1]]));
+    }
+
+    /// run_wait: 失敗した run は error 付きで返る。
+    #[test]
+    fn run_wait_returns_failed_with_error() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(1);
+        crate::common::open_db()
+            .unwrap()
+            .update_execution_error(runs[0], "Claude の認証に失敗しました（401）", 1)
+            .unwrap();
+
+        let v = run_wait(&runs, Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "failed");
+        assert_eq!(v["run_id"], runs[0]);
+        assert!(v["error"].as_str().unwrap().contains("401"));
+        assert_eq!(v["pending"], json!([]));
+    }
+
+    /// run_wait: idle が 60 秒を超えて続いた run は stalled（reason idle）。
+    /// 更新から 60 秒たっていなければ stalled にしない。
+    #[test]
+    fn run_wait_stalls_only_after_idle_threshold() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(2);
+        attach_pane_state(runs[0], "idle", 3600);
+        attach_pane_state(runs[1], "idle", 0);
+
+        let v = run_wait(&runs[..1], Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "stalled");
+        assert_eq!(v["reason"], "idle");
+        assert_eq!(v["run_id"], runs[0]);
+
+        let v = run_wait(&runs[1..], Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "in_progress", "idle になってから 60 秒たっていない");
+    }
+
+    /// run_wait: 時間内に止まらなければ in_progress で、pending は全件。
+    #[test]
+    fn run_wait_times_out_as_in_progress() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(2);
+        attach_pane_state(runs[0], "working", 0);
+        attach_pane_state(runs[1], "working", 0);
+
+        let v = run_wait(&runs, Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "in_progress");
+        assert_eq!(v["pending"], json!(runs));
+    }
+
+    /// run_wait: 無い run_id は「見つかりません」で断る（CLI は終了コード 3）。
+    #[test]
+    fn run_wait_missing_run_is_error() {
+        let _guard = EnvGuard::new();
+        let err = run_wait(&[NO_SUCH_TASK_A], Some(0), &AtomicBool::new(false)).unwrap_err();
+        assert!(err.contains("見つかりません"), "{err}");
+    }
+
     #[test]
     fn write_notification_includes_type_and_timestamp() {
         let guard = EnvGuard::new();
@@ -2397,7 +2641,7 @@ mod tests {
         // デーモン相当の処理：同じトークンが返り、再トークン化されない
         let db_path = crate::project::sai_path(".sai/sai-engine/sai-engine.db");
         let integrator = crate::waggle_integration::WaggleIntegrator::open(&db_path).unwrap();
-        let processed = crate::doc_write_notify::poll_and_process_one(&integrator)
+        let processed = crate::doc_write_notify::poll_and_process_one(&integrator, None)
             .unwrap()
             .expect("通知が処理される");
         assert_eq!(processed.waggle_token.as_deref(), Some(token.as_str()));

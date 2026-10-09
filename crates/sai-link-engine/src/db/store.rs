@@ -1315,6 +1315,25 @@ impl SaiStore {
         self.update_execution_waggle_tokens(id, &tokens)
     }
 
+    /// `output_waggle_tokens` に新しいトークンを足す（既存と合わせた和集合。順序を保ち、重複は除く）。
+    ///
+    /// 完了時に、途中で足したトークン（P4 の追記）を消さないために使う。
+    /// `update_execution_waggle_tokens`（置き換え）とは違い、既存の値を残す。
+    pub fn merge_execution_waggle_tokens(&self, id: i64, tokens: &[String]) -> Result<(), DbError> {
+        let exec = self.get_execution_by_id(id)?;
+        let mut merged: Vec<String> = exec
+            .output_waggle_tokens
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok())
+            .unwrap_or_default();
+        for token in tokens {
+            if !merged.contains(token) {
+                merged.push(token.clone());
+            }
+        }
+        self.update_execution_waggle_tokens(id, &merged)
+    }
+
     /// 出力タイプを更新する。
     ///
     /// `output_type` は "document" | "code" | "both" のいずれか。
@@ -3188,6 +3207,26 @@ mod tests {
         assert!(completed.finished_at.is_some());
         // duration_ms が設定されている（値は環境依存のため存在確認のみ）
         assert!(completed.duration_ms.is_some());
+    }
+
+    /// merge は既存のトークンを残し、新しい分を足す（重複は除き、順序を保つ）。
+    /// update（置き換え）では既存が消えるので、完了時の取りこぼしを防ぐための確認。
+    #[test]
+    fn merge_execution_waggle_tokens_is_union() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("waggle-merge")).unwrap();
+        let run = store.create_execution(block_id, None).unwrap();
+        store.append_execution_waggle_token(run, "AAA00001").unwrap();
+
+        store
+            .merge_execution_waggle_tokens(run, &["BBB00002".to_string(), "AAA00001".to_string()])
+            .unwrap();
+
+        let tokens: Vec<String> = serde_json::from_str(
+            store.get_execution_by_id(run).unwrap().output_waggle_tokens.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tokens, vec!["AAA00001".to_string(), "BBB00002".to_string()]);
     }
 
     /// list_waggle_tokens の SQL が両分岐とも組み立てられ、

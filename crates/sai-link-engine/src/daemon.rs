@@ -434,7 +434,7 @@ impl Daemon {
             }
 
             // 2. file_written 通知の処理（① waggle トークン化 + 完了イベント送信）
-            match doc_write_notify::poll_and_process_one(&integrator) {
+            match doc_write_notify::poll_and_process_one(&integrator, None) {
                 Ok(Some(processed)) => {
                     if let Some(run_id) = processed.run_id {
                         // P4: エージェント側で発行済みのトークンを実行中でも DB に載せる。
@@ -1379,6 +1379,36 @@ pub fn write_finalize_request(run_id: i64) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// この run の `finalize_request` が書かれたか（未処理の pending/ か、処理済みの processed/ にあるか）。
+///
+/// デーモンが pending/ を処理して `FinalizeRequested` を送るまでには間がある。
+/// pane が消えたとき、その間に書かれた要求を見落とさないために両方を読む。
+// ponytail: 処理済みを毎回走査する。通知が大量に溜まったら run_id の索引を足す
+pub fn finalize_request_seen(run_id: i64) -> bool {
+    [
+        crate::common::notify_pending_dir(),
+        crate::common::notify_processed_dir(),
+    ]
+    .iter()
+    .any(|dir| dir_has_finalize_request(dir, run_id))
+}
+
+/// `dir` の JSON に、この run の `finalize_request` があるか。
+fn dir_has_finalize_request(dir: &Path, run_id: i64) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        std::fs::read_to_string(entry.path())
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .is_some_and(|v| {
+                v.get("type").and_then(|t| t.as_str()) == Some("finalize_request")
+                    && v.get("run_id").and_then(|r| r.as_i64()) == Some(run_id)
+            })
+    })
+}
+
 // ============================================================================
 // PID ファイル管理
 // ============================================================================
@@ -1777,6 +1807,41 @@ mod tests {
         let parsed: BlockRunRequest = serde_json::from_str(json).unwrap();
         // alias により timeout フィールドとして解釈される（単位の違いは移行措置として許容）
         assert_eq!(parsed.overrides.timeout, Some(900000));
+    }
+
+    /// pane が消えたときの判定に使う。要求は pending/ にあっても processed/ に移っても見つかり、
+    /// ほかの run の要求では見つからない。
+    #[test]
+    fn finalize_request_seen_in_pending_and_processed() {
+        let _env = crate::common::SAI_ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "sai-link-finalize-seen-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("SAI_PROJECT_ROOT", &dir);
+
+        assert!(!finalize_request_seen(77), "要求が無いときは見つからない");
+        write_finalize_request(77).unwrap();
+        assert!(finalize_request_seen(77), "pending/ の要求が見つかる");
+        assert!(!finalize_request_seen(78), "ほかの run の要求では見つからない");
+
+        // デーモンが処理して processed/ へ移した後も見つかる
+        let processed = crate::common::notify_processed_dir();
+        std::fs::create_dir_all(&processed).unwrap();
+        for entry in std::fs::read_dir(crate::common::notify_pending_dir()).unwrap().flatten() {
+            std::fs::rename(entry.path(), processed.join(entry.file_name())).unwrap();
+        }
+        assert!(finalize_request_seen(77), "processed/ に移った要求も見つかる");
+
+        std::env::remove_var("SAI_PROJECT_ROOT");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// P6-2: finalize_request の DB フォールバック（running_executions に無いとき）で、
