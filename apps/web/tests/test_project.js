@@ -6,7 +6,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const { relativeTime, donutSlices, todoFolderRuns, projectRowFacts, prjValidShortName } = require(path.join(
+const { relativeTime, donutSlices, todoFolderRuns, projectRowFacts, prjValidShortName, prjShowsTs } = require(path.join(
   __dirname,
   "..",
   "src",
@@ -136,12 +136,21 @@ function testValidShortName() {
   assert.strictEqual(prjValidShortName(12), false);
 }
 
+function testPrjShowsTs() {
+  // 時系列（sai-ts）のボタンは動いているコンテナの行だけ（U05 §6）
+  assert.strictEqual(prjShowsTs({ container_state: "running" }), true, "動いていれば出す");
+  assert.strictEqual(prjShowsTs({ container_state: "exited" }), false, "止まっていれば出さない");
+  assert.strictEqual(prjShowsTs({ container_state: "" }), false, "状態が無ければ出さない");
+  assert.strictEqual(prjShowsTs(null), false, "壊れた行でも止めない");
+}
+
 function main() {
   testRelativeTime();
   testDonutSlices();
   testTodoFolderRuns();
   testProjectRowFacts();
   testValidShortName();
+  testPrjShowsTs();
   console.log("test_project: すべて通りました");
 }
 

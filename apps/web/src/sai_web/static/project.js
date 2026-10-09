@@ -376,15 +376,38 @@ async function prjCreateProject(btn, note) {
   await loadProjects();
 }
 
-/** 行の下に出す起動 / 停止のボタン。 */
+/** 時系列（sai-ts）を開けるか。コンテナが動いているときだけ。 */
+function prjShowsTs(p) {
+  return !!p && p.container_state === "running";
+}
+
+/** 行の下に出す起動 / 停止のボタン（動いているときは「時系列」も出す）。 */
 function prjContainerActions(p) {
   const box = saiEl("div", "proj-actions");
   const running = p.container_state === "running";
+  if (prjShowsTs(p)) {
+    const ts = saiEl("button", "sai-btn small", "時系列");
+    ts.type = "button";
+    ts.addEventListener("click", () => void prjOpenTs(p));
+    box.appendChild(ts);
+  }
   const btn = saiEl("button", "sai-btn small", running ? "停止" : "起動");
   btn.type = "button";
   btn.addEventListener("click", () => void prjContainerToggle(p, running));
   box.appendChild(btn);
   return box;
+}
+
+/** 自分のプロジェクトの sai-ts を新しいタブで開く（入場券つきの URL・sai-ts 段階 B）。 */
+async function prjOpenTs(p) {
+  const w = window.open("about:blank", "_blank"); // 押した直後に開く（後から開くと止められる）
+  try {
+    const body = await saiApi(`/api/projects/${encodeURIComponent(p.name)}/ts/open`, { method: "POST" });
+    if (w) { w.opener = null; w.location.href = body.url; } else { location.href = body.url; }
+  } catch (e) {
+    if (w) w.close();
+    saiToast(e && e.message ? e.message : "時系列を開けませんでした", "error");
+  }
 }
 
 /** コンテナを起動・停止する（停止の前に確認する）。 */
@@ -996,5 +1019,5 @@ if (typeof window !== "undefined") {
 
 // --- node からの読み込み（tests/test_project.js・06 §5） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { relativeTime, donutSlices, shortDuration, axisLabels, chartNoteText, todoFolderRuns, projectRowFacts, prjValidShortName };
+  module.exports = { relativeTime, donutSlices, shortDuration, axisLabels, chartNoteText, todoFolderRuns, projectRowFacts, prjValidShortName, prjShowsTs };
 }

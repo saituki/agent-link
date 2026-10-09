@@ -45,6 +45,7 @@ from sai_web import (
     sci,
     sessions,
     store,
+    ts_gate,
     usage,
 )
 from sai_web.config import settings
@@ -88,6 +89,16 @@ def require_token(
     raise HTTPException(status_code=401, detail="認証エラー")
 
 
+def _session_cookie_count(request: Request) -> int:
+    """生の Cookie 見出しに `sai_session` が何個あるか（`request.cookies` は 1 つに丸めて見えないため）。"""
+    count = 0
+    for header in request.headers.getlist("cookie"):
+        for part in header.split(";"):
+            if part.split("=", 1)[0].strip() == auth.SESSION_COOKIE:
+                count += 1
+    return count
+
+
 @app.middleware("http")
 async def _multi_user_auth(request: Request, call_next):
     """多人数モードの入口（共有契約 C5）。
@@ -102,6 +113,17 @@ async def _multi_user_auth(request: Request, call_next):
     """
     if not registry.multi_user():
         return await call_next(request)
+
+    # 同じ名前の Cookie が重なっていたら拒む（ts のオリジンの JS が path を細かくした偽物を作れるため・要件定義書 §5）
+    if request.url.path.startswith("/api/") and _session_cookie_count(request) > 1:
+        response = JSONResponse(
+            {
+                "detail": "ログインの Cookie が重なっています。このサイトの Cookie を消してから、ログインし直してください"
+            },
+            status_code=400,
+        )
+        auth.clear_session_cookie(response)
+        return response
 
     user: dict | None = None
     via_api_token = False
@@ -1117,6 +1139,21 @@ def api_project_container_action(
     return containers.stop(name)
 
 
+@app.post("/api/projects/{name}/ts/open")
+def api_project_ts_open(name: str, _: None = Depends(require_token)) -> dict:
+    """自分のプロジェクトの sai-ts を開く入場券つきの URL を返す（共有契約 C6・多人数モードだけ）。
+
+    券を出す前に sai-ts を起こす。起動の失敗はそのまま返し、画面のトーストに出す。
+    """
+    _require_multi()
+    control.find_project(name)
+    if not settings.ts_url:
+        raise HTTPException(status_code=503, detail="時系列の入口が設定されていません")
+    containers.ts_ensure(name)
+    ticket = ts_gate.issue_ticket(_current_name(), name)
+    return {"url": f"{settings.ts_url}/p/{name}/__gate/enter?ticket={ticket}"}
+
+
 # --- List 画面（計画 14 §3.3・`sai-link phone …` 経由） ---
 # 外から来る値（run_id / view / kind / token）は control 側で確かめる（計画 14 §3.3）。
 # CLI の呼び出しは `def` で書く（外部 CLI を待つ間サーバー全体を止めない・06 §3.4）。固有の
@@ -1945,4 +1982,17 @@ async def _revalidate_static(request: Request, call_next):
     response = await call_next(request)
     if not request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
+@app.middleware("http")
+async def _frame_guard(request: Request, call_next):
+    """sai-web を枠（iframe）に入れさせない（要件定義書 §5）。
+
+    ts のオリジンの JS が sai-web を枠に入れて、利用者に押させる悪用を防ぐ。
+    既に付いている値は上書きしない。
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
     return response
