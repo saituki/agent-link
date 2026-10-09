@@ -2100,7 +2100,7 @@ pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Erro
 /// プロジェクトを初期化する。
 ///
 /// 1. `PROJECTROOT/.sai/` と必要なフォルダ・`settings.json` を作成する（既存は触らない）。
-///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
+///    cc の設定 `.mcp.json` / `.claude/settings.json` を作る（既存は `.bak` へ退避）
 ///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に READ_CARD を作れるように）
 /// 2. 登録簿（`~/.sai/registry.json`）にプロジェクトを登録する
 pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -2142,7 +2142,7 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
         println!("   配布: そのまま {unchanged} 件");
     }
     println!(
-        "   次: .mcp.json・.claude/・.pi/ を git commit してください（worktree の cc と pi が読むため）"
+        "   次: .mcp.json・.claude/ を git commit してください（worktree の cc が読むため）"
     );
 
     // 2. 登録簿（`~/.sai/registry.json`）への登録（apps/web がプロジェクトを名前で引くため）
