@@ -7,5 +7,7 @@ enable = true
 max_jobs = 4
 
 # 実行先ごとに違う環境変数（MLflow の場所など）。手元の MLflow は 127.0.0.1:5001
+# コンテナの中では 127.0.0.1 はコンテナ自身。Mac の Docker では host.docker.internal:5001 で Mac の MLflow に届く
+# 成果物を手元に置くなら `EXP_ARTIFACT_LOCATION = "file:///…"`
 [env]
 MLFLOW_TRACKING_URI = "http://127.0.0.1:5001"
