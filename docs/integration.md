@@ -111,6 +111,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/projects/{name}/dashboard?period=week\|month\|all` | Dashboard（既定 week） | `sai-link project dashboard --period <期間>` |
 | `POST /api/projects/{name}/daemon` `{"action":"start"\|"stop"}` | 常駐の起動・停止 | `sai-link daemon start\|stop`（文字出力） |
 | `GET /api/projects/{name}/container` | 自分のプロジェクトのコンテナの状態 `{"container","state"}`（多人数モードだけ）。他人の物は 404 | `docker inspect -f '{{.State.Status}}'` |
+| `POST /api/projects/{name}/ts/open` | 自分のプロジェクトの時系列（sai-ts）を開く入場券つきの URL `{"url": "<SAI_WEB_TS_URL>/p/<名前>/__gate/enter?ticket=<券>"}`（多人数モードだけ・他人の物は 404）。券を出す前に `containers.ts_ensure` で sai-ts を起こす（起動の失敗はそのまま返す）。`SAI_WEB_TS_URL` が空なら 503 | `docker` の CLI（`containers.ts_ensure`）。券は `ts_gate.issue_ticket`（4.11） |
 | `POST /api/projects/{name}/container/{start\|stop}` | 自分のプロジェクトのコンテナを起動・停止（多人数モードだけ）。未知の action は 400 | `docker start` / `docker stop -t 20`。`start` でコンテナが無いときは作り直す |
 
 - コンテナの操作は `docker` の CLI を `subprocess` で呼ぶ（`apps/web/src/sai_web/containers.py`。実行ファイルは `SAI_DOCKER_BIN`、既定 `docker`）。Python の docker の SDK は使わない（依存を増やさない）。
@@ -346,6 +347,24 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 - 多人数モードでは `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)` にする（`/docs`・`/openapi.json` を出さない）。起動時に合言葉のファイル（`<sai_home>/web/token`）は書かない。
 - パスワードは `hashlib.scrypt`（`auth.hash_password`・`verify_password`）で保存し、Cookie とトークンは SHA-256 だけを DB（`web_sessions`・`api_tokens`）に置く。値そのものは保存しない。
 
+### 4.11 sai-ts の入口（別のオリジン・`ts_gate.py`）
+
+時系列（sai-ts）の画面は sai-web と**別のオリジン**（同じホスト名の別ポート）で出す。sai-web の Cookie と API は届かない。実装は `apps/web/src/sai_web/ts_gate.py`（sai-web と同じプロセスで、`127.0.0.1` の別の待ち受け。`SAI_WEB_TS_PORT`）。中継先はコンテナの中の sai-ts（`-p 127.0.0.1::8210`・C3）。
+
+| 住所 | 中身 | 合言葉 |
+|---|---|---|
+| `GET /p/{project}/__gate/enter?ticket=<券>` | 券（60 秒・1 回だけ）を合言葉に替え、`303` で `/p/{project}/#token=<合言葉>` へ。券が無効・切れていれば 403 | 券 |
+| `GET /p/{project}` | `307` で `/p/{project}/` へ | なし |
+| `GET /p/{project}/<画面ファイル>`（`/p/{project}/` は `index.html`） | 画面の静的ファイル（ホストの `apps/ts/src/sai_ts/static`。パスの外は 404） | なし |
+| `… /p/{project}/api/{rest}` | コンテナの sai-ts の `/api/{rest}` へ中継 | 利用者の合言葉（`Authorization: Bearer`。Cookie と元の `Authorization` は送らない） |
+| `… /p/{project}/ext/{rest}` | コンテナの sai-ts の `/ext/{rest}` へ中継 | 同上 |
+| それ以外 | 404 | |
+
+- 合言葉は断片（`#`）に置くので、サーバに届かず、ログにも残らない。画面は `sessionStorage`（キー `ts_token`）に保存し、URL からは消す。
+- 中継は利用者の合言葉を確かめてから、コンテナの sai-ts へ内部の合言葉（`SAI_TS_TOKEN`。起動のたびに作る）を付けて送る。利用者の合言葉は上流に送らない。
+- 上流が応えない・合言葉を拒んだときは覚えを捨てて（`containers.ts_forget`）502「時系列のサーバにつながりません」。
+- 券と合言葉はメモリに SHA-256 だけを置く。sai-web を起動し直すと合言葉は無効になる（開き直す）。
+
 ---
 
 ## 5. `sai-web` の命令（CLI から Web を使う）
@@ -456,6 +475,8 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `SAI_WEB_HOOKS_DIR` | `apps/web/hooks` | `sai-link init` が cc のフックを書くときに探す置き場 |
 | `SAI_LINK_BIN` / `SAI_PAPER_BIN` / `SAI_SCI_BIN` | `sai-link` / `sai-paper` / `sai-sci` | Web が呼ぶ CLI。PATH に無ければ絶対パス |
 | `SAI_RADIO_URL` / `SAI_RADIO_TOKEN` | `http://127.0.0.1:8201` / （空） | Radio の中継先と合言葉 |
+| `SAI_WEB_TS_PORT` | （空＝ts 入口を起こさない） | sai-ts の入口が `127.0.0.1` で待つ番号（4.11）。多人数モード（`SAI_WEB_USERS_ROOT`）でだけ使える。単独モードで設定すると `sai-web serve` は終了コード 2。サーバは `8210`、Mac の確認環境（`dev.sh`）は `8298` |
+| `SAI_WEB_TS_URL` | （空＝「時系列」は 503） | 利用者のブラウザから見た ts 入口の住所（末尾の `/` なし）。サーバは `https://<機械>.<tailnet>.ts.net:8443`、`dev.sh` は `http://127.0.0.1:8298` |
 | `SAI_MLFLOW_URL` / `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD` | `http://127.0.0.1:5001` / （空） / （空） | MLflow の中継先と Basic 認証 |
 | `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` | 各既定 | 会話の記録置き場 |
 | `SAI_HOME` | `~/.sai` | 利用者全体の置き場（Rust 側も同じ） |
