@@ -1,7 +1,7 @@
 # sai-tree の研究プロジェクト用イメージ（共有契約 C7）。
 #
-# 中に入る物: sai-link・sai-paper・sai-sci（Linux 版）・Claude Code・Python・
-# cc のフック。docling と pdf2zh は入れない（サーバでは動かさない）。
+# 中に入る物: sai-link・sai-paper・sai-sci（Linux 版）・sai-ts（時系列の道具・段階 B）・
+# Claude Code・Python・cc のフック。docling と pdf2zh は入れない（サーバでは動かさない）。
 #
 # ビルドはリポジトリの直下を文脈にする（その機械の上で作る。arm64 と amd64 の違いを避ける）:
 #   docker build -f apps/web/server/Dockerfile -t sai-tree:latest .
@@ -49,6 +49,11 @@ RUN printf '#!/bin/sh\nPYTHONPATH=/opt/sai-tree/apps/web/src exec python3 -m sai
 # sai-sci の研究の部品（tools・exec・blocks・template）は実行ファイルに埋め込まれている
 # （crates/sai-sci-cli/src/agent_assets.rs の include_str!）。元のフォルダは参照用に置く。
 COPY sai-sci /opt/sai-tree/sai-sci
+# 時系列の道具 sai-ts（段階 B）。プロジェクトのコンテナの中で動き、sai-web の ts 入口が中継する。
+# 仮想環境はイメージの中で作る（.dockerignore で持ち込まない）。Python は bookworm の python3 を使う。
+COPY apps/ts /opt/sai-tree/apps/ts
+RUN cd /opt/sai-tree/apps/ts && UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev \
+    && ln -s /opt/sai-tree/apps/ts/bin/sai-ts /usr/local/bin/sai-ts
 ENV SAI_CLAUDE_BIN=claude
 ENTRYPOINT ["/usr/bin/tini", "--"]
 # プロジェクトの準備（.sai）ができていれば常駐を起こし、あとは眠ってコンテナを生かしておく。

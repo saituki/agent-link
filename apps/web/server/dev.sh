@@ -6,7 +6,7 @@
 #   apps/web/server/dev.sh web           Web を止めて起動し直す（Python を直したとき）
 #   apps/web/server/dev.sh image         イメージを作り直す（crates・hooks・sai-sci を直したとき）
 #   apps/web/server/dev.sh containers    古いイメージ・古い置き場のコンテナを作り直し、止まっていれば起こす（-f で作業中でも）
-#   apps/web/server/dev.sh assets        動いている各プロジェクトに block・template を配り直す（sai-sci init --update）
+#   apps/web/server/dev.sh assets        動いている各プロジェクトに block・template を配り直す（sai-sci init --update・ts/ があれば sai-ts init --update）
 #   apps/web/server/dev.sh prep          sai-prep を入れ直す（そのあと sai-prep を起動し直す）
 #   apps/web/server/dev.sh all           up と同じ
 #
@@ -17,6 +17,7 @@
 # 置き場は ~/sai-tree-dev（SAI_DEV_ROOT で変えられる）。中に home/（SAI_HOME）・users/・bin/
 # （CLI の中継）・web.log・web.pid を作る。既に別の置き場で動かしているときは、
 # SAI_DEV_HOME・SAI_DEV_USERS・SAI_DEV_BIN で指す。Web は 127.0.0.1:8299。
+# sai-ts（時系列）は 127.0.0.1:8298。Projects の『時系列』から開く。
 # 利用者は `SAI_HOME=… SAI_WEB_USERS_ROOT=… apps/web/bin/sai-web user add …` で作る（README）。
 set -eu
 
@@ -39,6 +40,8 @@ web_env() {
   export SAI_WEB_COOKIE_SECURE=0 SAI_WEB_NO_WATCH=1 SAI_WEB_TOKEN=
   # コンテナのフック（質問など）をこの Web へ向ける（既定の 8200 番は別の Web）
   export SAI_WEB_URL_FOR_CONTAINERS="${SAI_WEB_URL_FOR_CONTAINERS:-http://host.docker.internal:$PORT}"
+  # sai-ts の入口（段階 B）。ts 入口は 127.0.0.1:8298、画面は別のオリジンとして開く
+  export SAI_WEB_TS_PORT="${SAI_WEB_TS_PORT:-8298}" SAI_WEB_TS_URL="${SAI_WEB_TS_URL:-http://127.0.0.1:8298}"
 }
 
 prepare() {
@@ -136,7 +139,8 @@ assets_update() {
   for c in $(project_containers); do
     [ "$(docker inspect -f '{{.State.Running}}' "$c")" = "true" ] || continue
     root=$(project_root "$c")
-    if docker exec -w "$root" -e SAI_PROJECT_ROOT="$root" "$c" sai-sci init --update --json >/dev/null; then
+    if docker exec -w "$root" -e SAI_PROJECT_ROOT="$root" "$c" sai-sci init --update --json >/dev/null \
+      && docker exec -w "$root" -e SAI_PROJECT_ROOT="$root" "$c" sh -c '[ ! -d ts ] || sai-ts init --update --json' >/dev/null; then
       echo "$c: block・template を配り直した"
     else
       echo "$c: block・template を配り直せませんでした" >&2

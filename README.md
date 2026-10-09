@@ -117,6 +117,7 @@ sai-web serve            # 既定は 127.0.0.1:8200
 |---|---|---|
 | `8200` | `sai-web`（Web） | `SAI_WEB_PORT` で変更可。サーバでも同じ番号（`docs/server.md`） |
 | `8201` | `apps/radio`（解説音声の裏方サーバー） | `SAI_RADIO_URL` で変更可 |
+| `8210`・`8298` | sai-ts の入口（sai-web と同じプロセス・`127.0.0.1` だけで待つ） | サーバは `8210`（`SAI_WEB_TS_PORT`）、`dev.sh` は `8298`。Projects の「時系列」から開く（`docs/server.md` の 17） |
 | `8202` | `apps/radio` の TTS プロキシ | 使うときだけ別プロセスで起動 |
 | `5001` | MLflow（`apps/mlflow-server`・127.0.0.1 のみ） | Research タブの Experiments が読む。`SAI_MLFLOW_URL` |
 | `8443` | MLflow の Caddy（LAN 向け・Basic 認証） | LAN の別 PC から記録を書くとき |
@@ -233,6 +234,8 @@ research-tree の画面（`#/research/tree`）は、次の並びです。
 | `SAI_SCI_BIN` | `sai-sci` | Web が呼ぶ sai-sci（無ければ Research の命令が出ない） |
 | `SAI_RADIO_URL` | `http://127.0.0.1:8201` | Radio の中継先 |
 | `SAI_RADIO_TOKEN` | （空） | `apps/radio` に合言葉があるときだけ同じ値 |
+| `SAI_WEB_TS_PORT` | （空＝ts 入口を起こさない） | sai-ts の入口が `127.0.0.1` で待つ番号。多人数モード（`SAI_WEB_USERS_ROOT`）でだけ使える。サーバは `8210`、`dev.sh` は `8298` |
+| `SAI_WEB_TS_URL` | （空＝「時系列」は 503） | 利用者のブラウザから見た ts 入口の住所（末尾の `/` なし）。サーバは `https://<機械>.<tailnet>.ts.net:8443`、`dev.sh` は `http://127.0.0.1:8298` |
 | `SAI_MLFLOW_URL` | `http://127.0.0.1:5001` | MLflow の中継先（読み取りだけ） |
 | `SAI_MLFLOW_USER` / `SAI_MLFLOW_PASSWORD` | （空） | MLflow の Basic 認証。空なら付けない |
 | `CLAUDE_SESSIONS_DIR` / `PI_SESSIONS_DIR` | 各既定 | 会話の記録の置き場 |
@@ -341,7 +344,7 @@ research-tree（Q・A・F・E・S）・professor・LabAgent（研究用の block
 
 ## テスト（開発者向け）
 
-テストの命令は [`AGENTS.md`](./AGENTS.md) の「テストと確認」にあります（Rust は `cargo test --workspace`、Web の画面は `apps/web/tests/test_*.js`、サーバは `apps/web/tests/test_*.py`、コンテナの中継は `apps/web/server/test_sai_in_container.sh`、Radio は `apps/radio/tests/`、sai-prep は `apps/prep/tests/`、sai-sci の道具は `sai-sci/tools/`）。CI（`.github/workflows/ci.yml`）は Linux（ubuntu-latest）で同じ命令を回します。
+テストの命令は [`AGENTS.md`](./AGENTS.md) の「テストと確認」にあります（Rust は `cargo test --workspace`、Web の画面は `apps/web/tests/test_*.js`、サーバは `apps/web/tests/test_*.py`、コンテナの中継は `apps/web/server/test_sai_in_container.sh`、Radio は `apps/radio/tests/`、sai-ts は `apps/ts/tests/`、sai-prep は `apps/prep/tests/`、sai-sci の道具は `sai-sci/tools/`）。CI（`.github/workflows/ci.yml`）は Linux（ubuntu-latest）で同じ命令を回します。
 
 画面の確認は 8299 番など別の番号で行います。**Mac で動いている Web（8200 番）は、確認のために止めたり再起動したりしません。**
 
@@ -356,4 +359,5 @@ research-tree（Q・A・F・E・S）・professor・LabAgent（研究用の block
 - [`docs/sai-sci.md`](./docs/sai-sci.md) — research-tree・研究の型・ガイド・ブロック・実験・Web の画面の説明書。
 - [`apps/prep/README.md`](./apps/prep/README.md) — sai-prep（Mac の前処理アプリ）。
 - [`apps/radio/README.md`](./apps/radio/README.md)・[`apps/radio/ARCHITECTURE.md`](./apps/radio/ARCHITECTURE.md) — Radio の詳細。
+- [`apps/ts/README.md`](./apps/ts/README.md) — sai-ts（時系列の確認と判断の道具）。
 - [`apps/mlflow-server/README.md`](./apps/mlflow-server/README.md) — MLflow サーバの起動と運用。

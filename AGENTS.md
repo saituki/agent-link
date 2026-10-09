@@ -4,7 +4,7 @@
 プロジェクトルート: `~/workdir/Sai/sai-tree`
 目的: 研究室の多人数で使う coding agent と論文の作業の道具。Linux のサーバで動く多人数モード（sai-tree 本体）と、各自の Mac で動く論文の前処理アプリ（sai-prep）からなる。sai-moon（`~/workdir/Sai/sai-moon`）の複製で、sai-moon は読み取り専用（下の「実行しないこと」）。
 
-サーバの構成は 3 プロセス: Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web の窓口（`apps/web`）と、音声の裏方サーバー（`apps/radio`）。プロジェクトの作業は、Linux のサーバの上で 1 プロジェクト 1 コンテナに分けて動く（`docs/server.md`）。
+サーバの構成は 3 プロセス: Rust の実行エンジン（`sai-link`・`sai-paper`・`sai-sci`）と、Web の窓口（`apps/web`）と、音声の裏方サーバー（`apps/radio`）。プロジェクトの作業は、Linux のサーバの上で 1 プロジェクト 1 コンテナに分けて動く（`docs/server.md`）。時系列の道具 sai-ts（`apps/ts`）は各プロジェクトのコンテナの中で動き、sai-web が別のオリジンの入口（`127.0.0.1` の別の待ち受け・`SAI_WEB_TS_PORT`）で中継する。
 
 作業の前に `ARCHITECTURE.md` の §1（3 つの考え）と §2（大原則）を読むこと。
 
@@ -16,6 +16,7 @@
 | `apps/web/` | Web の窓口（FastAPI と素の JavaScript）。`server/` に配備（`Dockerfile`・`sai-web.service`・`deploy.sh`・`sai-in-container`） |
 | `apps/prep/` | sai-prep。各自の Mac で論文 PDF を前処理して束を送るアプリ（標準ライブラリだけ） |
 | `apps/radio/` | 音声の裏方サーバー（Radio）。`README.md`・`ARCHITECTURE.md` を読む |
+| `apps/ts/` | sai-ts。時系列を見て判断し、その判断を agent に渡す道具。`README.md` を読む |
 | `apps/mlflow-server/` | MLflow（実験の記録）の docker compose |
 | `sai-sci/` | research-tree の部品（`blocks/`・`template/`・`tools/`・`exec/`）。`sai-sci` に埋め込まれる |
 | `waggle/` | vendor クレート（原則編集しない） |
@@ -28,12 +29,13 @@
 | `ARCHITECTURE.md` | 考え方・境界・依存の向き・CLI の約束・置き場（`SAI_HOME`）・ファイル構成・機能を足す手順 |
 | `CONCEPT.md` | 概念と用語・画面に出す専門用語の一覧 |
 | `README.md` | 開発（Mac・単独モード）の起動手順・ポート表・環境変数表・sai-prep の入れ方 |
-| `docs/server.md` | サーバ（Linux・多人数モード）の入れ方・配備（`deploy.sh`）・バックアップ |
+| `docs/server.md` | サーバ（Linux・多人数モード）の入れ方・配備（`deploy.sh`）・バックアップ・時系列（sai-ts・§17） |
 | `docs/integration.md` | `apps/web` の API と画面の住所の一覧 |
 | `docs/for-sai-developers.md` | CLI と `apps/radio` が守る約束（`apps/web` が読む JSON の項目） |
 | `docs/sai-sci.md`・`docs/sai-sci-tutorial.md` | research-tree の使い方・手を動かす練習 |
 | `apps/prep/README.md` | sai-prep の使い方（Mac） |
 | `apps/radio/README.md`・`apps/radio/ARCHITECTURE.md` | Radio だけ触るとき |
+| `apps/ts/README.md` | sai-ts（時系列）だけ触るとき |
 
 `sai-link` などは PATH に無い。`README.md` の「入れ方」の PATH の足し方を見ること。
 
@@ -60,7 +62,7 @@
 
 ### テストと確認
 
-テストの命令は次の 6 つで、CI（`.github/workflows/ci.yml`）も同じ命令を回す。命令を直したら両方直す。
+テストの命令は次のとおりで、CI（`.github/workflows/ci.yml`）も同じ命令を回す。命令を直したら両方直す。
 
 ```bash
 cd ~/workdir/Sai/sai-tree
@@ -72,7 +74,7 @@ env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NOD
 # Web（JS 35 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 36 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
+# Web（Python 39 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 
 # Web（コンテナの中継。偽の docker で確かめる。実物の Docker は使わない）
@@ -80,6 +82,10 @@ sh apps/web/server/test_sai_in_container.sh
 
 # Radio（3 本）
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+
+# sai-ts（Python 13 本・JS 7 本。`apps/ts` の uv sync が要る）
+(cd apps/ts && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
+for f in apps/ts/tests/test_*.js; do node "$f" || exit 1; done
 
 # sai-prep（4 本。標準ライブラリだけ）
 (cd apps/prep && python3 -m unittest discover -s tests)
@@ -96,8 +102,10 @@ sh -n apps/web/server/deploy.sh
 |---|---|---|---|
 | Rust（`cargo test --workspace`） | - | Rust（ubuntu） | |
 | Web の JS | 35 | Web（ubuntu） | |
-| Web の Python | 36 | Web（ubuntu） | |
+| Web の Python | 39 | Web（ubuntu） | |
 | コンテナの中継 | 1（sh） | Web（ubuntu） | |
+| sai-ts の Python | 13 | sai-ts（ubuntu） | `apps/ts` の uv sync が要る |
+| sai-ts の JS | 7 | sai-ts（ubuntu） | |
 | Radio | 3 | Radio（ubuntu） | |
 | sai-prep | 4 | sai-prep（ubuntu・Python 3.12） | |
 | sai-sci の道具 | 9 | sai-sci の道具（ubuntu・Python 3.13） | `test_exp_summary` は mlflow が要る |
