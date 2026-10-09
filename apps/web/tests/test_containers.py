@@ -1,7 +1,8 @@
 """プロジェクトの作成・コンテナの操作・API キーと Claude のトークン（実装計画 U09）のテスト。
 
 確かめること（AC1〜AC4・AC6。AC5 の実物の Docker は U08 とのマージ後に kantoku が行う）:
-- `run_args` が共有契約 C8 の全文と一致し、bind が root と home の 2 つだけ
+- `run_args` が共有契約 C8 の全文と一致し、bind が root・home・Claude の共有のフォルダの 3 つ
+  （U10 で `<home>/.claude` に共有のフォルダを足した）
 - `create_project` が docker run → init 3 本の順に呼ぶ。途中の失敗で `docker rm -f` と
   フォルダの削除が走る。名前の誤りは docker を呼ばずに 400。同じ名前は 409。
   ひな形が上書きせずに写る
@@ -24,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -228,7 +230,7 @@ def add_user(name: str, email: str, password: str, is_admin: bool = False) -> No
 
 
 def test_run_args() -> None:
-    """`run_args` が C8 の全文と一致し、bind が root と home の 2 つだけ。"""
+    """`run_args` が C8 の全文と一致し、bind が root・home・Claude の共有のフォルダの 3 つ。"""
     root = USERS / "alice" / "projects" / "alice-x"
     home = USERS / "alice" / "homes" / "alice-x"
     args = containers.run_args("alice", root, home, "TOKEN123")
@@ -258,6 +260,8 @@ def test_run_args() -> None:
         f"{root}:{root}",
         "-v",
         f"{home}:{home}",
+        "-v",
+        f"{USERS / 'alice' / 'claude'}:{home / '.claude'}",
         "-w",
         str(root),
         "-e",
@@ -278,7 +282,11 @@ def test_run_args() -> None:
     ]
     assert args == expected, args
     binds = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
-    assert binds == [f"{root}:{root}", f"{home}:{home}"], binds
+    assert binds == [
+        f"{root}:{root}",
+        f"{home}:{home}",
+        f"{USERS / 'alice' / 'claude'}:{home / '.claude'}",
+    ], binds
 
     # 環境変数で変えられる（既定の上書き）
     os.environ["SAI_CONTAINER_MEMORY"] = "4g"
@@ -393,7 +401,8 @@ def test_create_project_failure_cleanup() -> None:
 
 
 def test_skeleton_not_overwritten() -> None:
-    """ひな形は home に無いファイルだけ写す（先に写した物を上書きしない）。"""
+    """ひな形は home に無いファイルだけ写す（先に写した物を上書きしない）。
+    U10: `.pi/agent/models.json` は写さない（pi を廃止したため）。"""
     skel = _TMP / "skel"
     (skel / ".pi" / "agent").mkdir(parents=True)
     (skel / "a.txt").write_text("skel-a", encoding="utf-8")
@@ -401,7 +410,6 @@ def test_skeleton_not_overwritten() -> None:
     user_home = USERS / "alice" / "home"
     (user_home / ".pi" / "agent").mkdir(parents=True, exist_ok=True)
     (user_home / ".pi" / "agent" / "models.json").write_text("user-model", encoding="utf-8")
-    (user_home / ".pi" / "agent" / "extra.json").write_text("user-extra", encoding="utf-8")
 
     os.environ["SAI_WEB_SKEL_DIR"] = str(skel)
     set_docker()
@@ -412,16 +420,46 @@ def test_skeleton_not_overwritten() -> None:
 
     home = USERS / "alice" / "homes" / "alice-skel"
     assert (home / "a.txt").read_text(encoding="utf-8") == "skel-a"
-    # skel が先。ユーザーの models.json は上書きしない
+    # skel の中身は写す（models.json も skel の物なら写る）
     assert (home / ".pi" / "agent" / "models.json").read_text(encoding="utf-8") == "skel-model"
-    # ユーザーの home から写すのは models.json だけ（extra.json は写さない）
-    assert not (home / ".pi" / "agent" / "extra.json").exists()
 
-    # skel が無ければユーザーの models.json が写る
+    # skel が無ければ、ユーザーの home の models.json は写らない（U10 で写す処理を消した）
     set_docker()
     containers.create_project("alice", "skel2")
     home2 = USERS / "alice" / "homes" / "alice-skel2"
-    assert (home2 / ".pi" / "agent" / "models.json").read_text(encoding="utf-8") == "user-model"
+    assert not (home2 / ".pi").exists(), "models.json を写してはいけない"
+
+
+def test_claude_dir_and_history_copied_once() -> None:
+    """共有のログインの置き場（0700）へ、HOME の会話の記録を一度だけ写す。
+    `.credentials.json` は写さず、元の `.claude` は消さない。2 回目は写さない。"""
+    shared = USERS / "alice" / "claude"
+    if shared.exists():
+        shutil.rmtree(shared)
+    project_home = USERS / "alice" / "homes" / "alice-hist"
+    old = project_home / ".claude"
+    (old / "projects" / "-srv-x").mkdir(parents=True)
+    (old / "projects" / "-srv-x" / "s1.jsonl").write_text("one", encoding="utf-8")
+    (old / ".credentials.json").write_text("OLD-SHORT-TOKEN", encoding="utf-8")
+    (old / "settings.json").write_text("{}", encoding="utf-8")
+
+    set_docker()
+    clear_docker_log()
+    containers.create_container("alice", "alice-hist")
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o700, oct(shared.stat().st_mode)
+    assert (shared / "projects" / "-srv-x" / "s1.jsonl").read_text(encoding="utf-8") == "one"
+    assert (shared / "settings.json").exists()
+    assert not (shared / ".credentials.json").exists(), "短命の token を共有へ写してはいけない"
+    assert (old / "projects" / "-srv-x" / "s1.jsonl").exists(), "元の会話の記録を消してはいけない"
+    assert (old / ".copied-to-shared").exists(), "写し終えの印が無い"
+    # docker run の引数に共有のフォルダの mount が入る
+    run = next(c for c in docker_calls() if c and c[0] == "run")
+    assert f"{shared}:{project_home / '.claude'}" in run, run
+
+    # 2 回目: 印があるので写さない（後から増えた物は共有へ来ない）
+    (old / "projects" / "-srv-x" / "s2.jsonl").write_text("two", encoding="utf-8")
+    containers.create_container("alice", "alice-hist")
+    assert not (shared / "projects" / "-srv-x" / "s2.jsonl").exists(), "2 回目に写してはいけない"
 
 
 def test_api_create_project() -> None:
@@ -681,6 +719,7 @@ def main() -> None:
     test_create_project_invalid_name()
     test_create_project_failure_cleanup()
     test_skeleton_not_overwritten()
+    test_claude_dir_and_history_copied_once()
     test_api_create_project()
     test_keys_api()
     test_project_container_api()

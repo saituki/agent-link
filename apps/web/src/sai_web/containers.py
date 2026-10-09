@@ -17,6 +17,8 @@
 - コンテナの形（名前・ラベル・イメージ・引数）は共有契約 C7・C8。
 - キーとトークンは `<U>/<user>/secrets.env`（0600）に置き、`--env-file` で渡す。
   値は API でも画面でも返さない（返すのは設定済みかと末尾 4 文字だけ）。
+- Claude のログイン（U10）は、利用者ごとのフォルダ `<U>/<user>/claude/` を、その人の全コンテナの
+  `$HOME/.claude` に mount して共有する（共有契約 C-MOUNT）。`$HOME/.claude.json` は共有しない。
 """
 
 from __future__ import annotations
@@ -59,6 +61,8 @@ _DEFAULT_MEMORY = "8g"
 _DEFAULT_CPUS = "2"
 _DEFAULT_WEB_URL = "http://host.docker.internal:8200"
 _DEFAULT_IMAGE = "sai-tree:latest"
+# 会話の記録を共有のフォルダへ写し終えた印（HOME の `.claude` の中に作る）
+_CLAUDE_COPIED_MARK = ".copied-to-shared"
 
 
 # --- docker の呼び出し ---
@@ -87,15 +91,25 @@ def _looks_disconnected(stderr: str) -> bool:
     return any(hint in text for hint in hints)
 
 
+def docker_bin() -> str:
+    """`docker` の実行ファイル（`SAI_DOCKER_BIN`・既定 `docker`）。"""
+    return (os.getenv("SAI_DOCKER_BIN") or "docker").strip() or "docker"
+
+
+def image_name() -> str:
+    """コンテナのイメージ（`SAI_IMAGE`・既定 `sai-tree:latest`）。"""
+    return (os.getenv("SAI_IMAGE") or "").strip() or _DEFAULT_IMAGE
+
+
 def _docker(args: list[str], timeout: float = 60.0) -> subprocess.CompletedProcess:
     """`docker` の CLI を呼ぶ（シェルは使わない）。
 
-    - 実行ファイルは `SAI_DOCKER_BIN`（既定 `docker`）。
+    - 実行ファイルは `docker_bin()`。
     - 終了コード 0 以外は `HTTPException(502, <標準エラーの最後の行>)`。
     - 見つからない・デーモンにつながらないときは
       `HTTPException(503, "docker が動いていません")`。
     """
-    binary = (os.getenv("SAI_DOCKER_BIN") or "docker").strip() or "docker"
+    binary = docker_bin()
     try:
         proc = subprocess.run(
             [binary, *args], capture_output=True, text=True, timeout=timeout
@@ -133,8 +147,9 @@ def run_args(user: str, project_root: Path, project_home: Path, token: str) -> l
     memory = (os.getenv("SAI_CONTAINER_MEMORY") or "").strip() or _DEFAULT_MEMORY
     cpus = (os.getenv("SAI_CONTAINER_CPUS") or "").strip() or _DEFAULT_CPUS
     web_url = (os.getenv("SAI_WEB_URL_FOR_CONTAINERS") or "").strip() or _DEFAULT_WEB_URL
-    image = (os.getenv("SAI_IMAGE") or "").strip() or _DEFAULT_IMAGE
+    image = image_name()
     secrets_path = registry.user_dir(user) / "secrets.env"
+    shared_claude = registry.user_dir(user) / "claude"
     return [
         "run",
         "-d",
@@ -161,6 +176,8 @@ def run_args(user: str, project_root: Path, project_home: Path, token: str) -> l
         f"{root}:{root}",
         "-v",
         f"{home}:{home}",
+        "-v",
+        f"{shared_claude}:{home / '.claude'}",
         "-w",
         str(root),
         "-e",
@@ -189,17 +206,31 @@ def _new_internal_token() -> str:
     return token
 
 
+def ensure_claude_dir(user: str) -> Path:
+    """利用者の Claude のログインの置き場 `<user_dir>/claude/`（0700）を、無ければ作る。"""
+    path = registry.user_dir(user) / "claude"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path, 0o700)
+    except OSError:
+        pass
+    return path
+
+
 def create_container(user: str, name: str) -> None:
     """プロジェクトのコンテナを `docker run` で作る（内部の合言葉も作り直す）。
 
     合言葉は `store.project_tokens` に SHA-256 だけを保存する。同じプロジェクトの
     古い行は `save_project_token` が消す。
+    共有のログインの置き場を作り、HOME に既にある会話の記録を一度だけ写してから起こす。
     """
     token = _new_internal_token()
     store.save_project_token(hashlib.sha256(token.encode("utf-8")).hexdigest(), user, name)
     base = registry.user_dir(user)
     root = base / "projects" / name
     home = base / "homes" / name
+    shared = ensure_claude_dir(user)
+    _adopt_claude_history(home, shared)
     _docker(run_args(user, root, home, token), timeout=120.0)
 
 
@@ -346,15 +377,18 @@ def _ensure_secrets_file(user_dir: Path) -> Path:
     return path
 
 
-def _copy_missing(src: Path, dst: Path) -> None:
-    """`src` の中身を `dst` へ、`dst` に無いファイルだけ写す（上書きしない）。"""
+def _copy_missing(src: Path, dst: Path, skip: frozenset[str] = frozenset()) -> None:
+    """`src` の中身を `dst` へ、`dst` に無いファイルだけ写す（上書きしない）。
+
+    `skip` は（どの階層でも）名前の一致するファイルを写さない。
+    """
     for root, _dirs, files in os.walk(src):
         rel = Path(root).relative_to(src)
         target_dir = dst / rel
         target_dir.mkdir(parents=True, exist_ok=True)
         for fname in files:
             target = target_dir / fname
-            if target.exists():
+            if fname in skip or target.exists():
                 continue
             try:
                 shutil.copy2(Path(root) / fname, target)
@@ -362,25 +396,30 @@ def _copy_missing(src: Path, dst: Path) -> None:
                 logger.warning("ひな形を写せません: %s: %s", target, exc)
 
 
-def _copy_skeleton(user: str, home: Path) -> None:
-    """ひな形を HOME に写す（`SAI_WEB_SKEL_DIR` → `<user_dir>/home/.pi/agent/models.json`）。
+def _adopt_claude_history(home: Path, shared: Path) -> None:
+    """HOME の `.claude` の会話の記録を共有のフォルダへ一度だけ写す（元は消さない）。
 
-    どちらも、HOME に既にあるファイルは上書きしない。
+    `.credentials.json` は写さない（古い短命の token で、共有のログインを上書きしないため）。
+    写し終えたら `.claude/.copied-to-shared` を作り、2 回目からは何もしない。
     """
+    src = home / ".claude"
+    mark = src / _CLAUDE_COPIED_MARK
+    if src.is_symlink() or not src.is_dir() or mark.exists() or not any(src.iterdir()):
+        return
+    _copy_missing(src, shared, skip=frozenset({".credentials.json"}))
+    try:
+        mark.touch()
+    except OSError as exc:
+        logger.warning("写し終えの印を付けられません: %s: %s", mark, exc)
+
+
+def _copy_skeleton(home: Path) -> None:
+    """ひな形を HOME に写す（`SAI_WEB_SKEL_DIR`）。HOME に既にあるファイルは上書きしない。"""
     skel = (os.getenv("SAI_WEB_SKEL_DIR") or "").strip()
     if skel:
         src = Path(skel)
         if src.is_dir():
             _copy_missing(src, home)
-    models = registry.user_dir(user) / "home" / ".pi" / "agent" / "models.json"
-    if models.is_file():
-        target = home / ".pi" / "agent" / "models.json"
-        if not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.copy2(models, target)
-            except OSError as exc:
-                logger.warning("models.json を写せません: %s", exc)
 
 
 def _remove_dirs(root: Path, home: Path) -> None:
@@ -416,7 +455,7 @@ def create_project(user: str, short: str) -> dict:
         except OSError:
             pass
     _ensure_secrets_file(base)
-    _copy_skeleton(user, home)
+    _copy_skeleton(home)
 
     container = container_name(name)
     try:
