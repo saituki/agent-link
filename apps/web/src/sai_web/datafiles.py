@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,7 +62,7 @@ async def store_raw(name: str, filename: str, request: Request) -> dict:
 
     - 名前が規則に合わなければ 400、大きさ（Content-Length）が無い・上限超えは 413
     - 無いプロジェクトは 404、同じ名前があれば 409（上書きしない）
-    - 本文は `.<filename>.part` へ流し書きし、全部届いたら `os.replace` で名前を付ける。
+    - 本文は `.<filename>.<uuid>.part` へ流し書きし、全部届いたら `os.replace` で名前を付ける。
       途中で切れたり上限を超えたりしたら `.part` を消す（残さない）。
     """
     _check_filename(filename)
@@ -71,7 +72,8 @@ async def store_raw(name: str, filename: str, request: Request) -> dict:
     target = folder / filename
     if target.exists():
         raise HTTPException(status_code=409, detail="同じ名前のファイルがあります（上書きしません）")
-    part = folder / f".{filename}.part"
+    # 要求ごとに別の .part（同じ名前を同時に送っても互いの書きかけを壊さない）
+    part = folder / f".{filename}.{uuid.uuid4().hex}.part"
     total = 0
     try:
         await run_in_threadpool(folder.mkdir, parents=True, exist_ok=True)

@@ -172,7 +172,7 @@ def test_put_and_list() -> None:
     assert status == 201, data
     assert data == {"name": "a.bin", "size": len(body), "path": "data/raw/a.bin"}, data
     assert (raw_dir() / "a.bin").read_bytes() == body
-    assert not (raw_dir() / ".a.bin.part").exists()
+    assert not list(raw_dir().glob(".a.bin.*.part"))
 
     status, data = get("alpha")
     assert status == 200, data
@@ -223,7 +223,7 @@ def test_size_limits() -> None:
         status, data = put("alpha", "over.bin", b"x" * 11)
         assert status == 413, data
         assert not (raw_dir() / "over.bin").exists()
-        assert not (raw_dir() / ".over.bin.part").exists()
+        assert not list(raw_dir().glob(".over.bin.*.part"))
 
         status, data = put("alpha", "edge.bin", b"x" * 10)
         assert status == 201, data
@@ -255,7 +255,7 @@ def test_no_leftovers_on_truncated_or_overflow() -> None:
     # Content-Length 5 だが 3 バイトしか届かない → 400
     expect(400, datafiles.store_raw("alpha", "short.bin", FakeRequest({"content-length": "5"}, [b"abc"])))
     assert not (folder / "short.bin").exists()
-    assert not (folder / ".short.bin.part").exists()
+    assert not list(folder.glob(".short.bin.*.part"))
 
     # Content-Length は 3 と偽るが、上限（10）を超えて届く → 413・.part も消す
     datafiles.DATA_MAX_BYTES = 10
@@ -267,7 +267,7 @@ def test_no_leftovers_on_truncated_or_overflow() -> None:
     finally:
         datafiles.DATA_MAX_BYTES = ORIGINAL_MAX
     assert not (folder / "long.bin").exists()
-    assert not (folder / ".long.bin.part").exists()
+    assert not list(folder.glob(".long.bin.*.part"))
 
 
 def main() -> None:
