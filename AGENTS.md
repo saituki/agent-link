@@ -69,10 +69,10 @@ cd ~/workdir/Sai/sai-tree
 env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 36 本）
+# Web（JS 35 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 35 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
+# Web（Python 36 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 
 # Web（コンテナの中継。偽の docker で確かめる。実物の Docker は使わない）
@@ -95,8 +95,8 @@ sh -n apps/web/server/deploy.sh
 | 対象 | 本数 | CI のジョブ | 備考 |
 |---|---|---|---|
 | Rust（`cargo test --workspace`） | - | Rust（ubuntu） | |
-| Web の JS | 36 | Web（ubuntu） | |
-| Web の Python | 35 | Web（ubuntu） | |
+| Web の JS | 35 | Web（ubuntu） | |
+| Web の Python | 36 | Web（ubuntu） | |
 | コンテナの中継 | 1（sh） | Web（ubuntu） | |
 | Radio | 3 | Radio（ubuntu） | |
 | sai-prep | 4 | sai-prep（ubuntu・Python 3.12） | |
@@ -120,7 +120,7 @@ Mac で確かめるときも、上の命令を上から順に実行する。
 
 ### 実行しないこと
 
-- `sai-link daemon start`・cc フックや pi 拡張の登録。文書を書くだけで済ませる。
+- `sai-link daemon start`・cc フックの登録。文書を書くだけで済ませる。
 - `apps/mlflow-server` の `docker compose up / down / restart`（本物の MLflow を止める）。`docker compose config` のような読み取りだけにする。
 - さくらの DOK（`sai-sci/exec/dok`）の `run` / `ssh-run`（課金される）。確認は偽の `dok.py` を使うテストで行う。
 - `apps/web/server/deploy.sh` の本物の実行・`sudo systemctl`・本物のサーバの `/srv/sai/` の変更。確かめは文法（`sh -n`）と、偽の命令を使う試験で行う。

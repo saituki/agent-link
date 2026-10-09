@@ -134,7 +134,6 @@ sudo -iu sai docker build -f apps/web/server/Dockerfile -t sai-tree:latest .
 ```bash
 sudo -iu sai docker run --rm sai-tree:latest sai-link schema --json | head -c 200
 sudo -iu sai docker run --rm sai-tree:latest claude --version
-sudo -iu sai docker run --rm sai-tree:latest pi --version
 sudo -iu sai docker run --rm sai-tree:latest python3 --version
 sudo -iu sai docker run --rm sai-tree:latest tmux -V
 ```
@@ -226,14 +225,12 @@ sudo -iu sai env SAI_WEB_USERS_ROOT=/srv/sai/users \
 
 ## 12. 全員に配るひな形
 
-`/srv/sai/skel/` に `.pi/agent/models.json` などを置くと、新しいプロジェクトの HOME に写る
-（U09 の `SAI_WEB_SKEL_DIR`）。
+`/srv/sai/skel/` に置いたファイルは、新しいプロジェクトの HOME に写る（`SAI_WEB_SKEL_DIR`。HOME に既にあるファイルは上書きしない）。
 
 ```bash
 sudo mkdir -p /srv/sai/skel
 sudo chown sai: /srv/sai/skel
-# 例: 全員に同じモデルの設定を配る
-sudo -iu sai mkdir -p /srv/sai/skel/.pi/agent
+# 例: 全員に同じ .env.example を配る
 sudo -iu sai cp <repo>/apps/web/.env.example /srv/sai/skel/.env.example
 ```
 
@@ -266,11 +263,28 @@ sudo -iu sai docker exec -it sai-<user>-<project> tmux attach -t <hl-…>
 
 見たら `Ctrl-b d` で抜ける。`Ctrl-c` は押さない（cc が止まる）。
 
-## 14. 規約の注意（Claude のトークン）
+## 14. Claude のログインと規約の注意
 
-Claude の長命トークン（`claude setup-token`）を Web に預けて使う機能は、Anthropic の規約
+### 利用者ごとの Claude のログイン（U10）
+
+Account 画面の「Claude にログイン」で、その人の Claude のログインを 1 つ作る。ログインは
+`<U>/<user>/claude/`（0700）に置き、その人の全プロジェクトのコンテナの `$HOME/.claude` に bind mount して共有する
+（共有契約 C-MOUNT）。cc が refresh を自動で行うので、8 時間で切れない。Mac の Claude Code のログインとは別である。
+
+- 手順: 「Claude にログイン」→ 表示された URL をブラウザで開く → 表示されたコードを画面の欄に貼って「送る」。
+  成功すると、実行中でないコンテナは作り直され、実行中の物は「Projects の画面で止めて起動し直す」まで古いまま動く。
+- `$HOME/.claude.json` は共有しない（複数の cc が同時に書いて壊れた報告があるため）。
+- コンテナを作るとき、HOME の `.claude` の会話の記録は共有のフォルダへ一度だけ写す（元は消さない。`.credentials.json` は写さない）。
+- まれに同時の refresh が衝突してログアウトしたら、Account 画面からログインし直す。止まった run は
+  「Claude の認証に失敗しました（401）」で failed になる。
+- `CLAUDE_CODE_OAUTH_TOKEN`（`claude setup-token`）を入れると、ファイルのログインより token が優先される。
+  ログインに成功すると、token は自動で消される。
+
+### 規約の注意
+
+Claude のログインや長命トークンを Web に預けて使う機能は、Anthropic の規約
 （開発者が資格情報を保存・仲介しない）に照らして灰色であり、使う人の責任で使うこと（要件定義書の決定）。
-トークンは各自が自分のアカウントで発行し、他人と共有しない。
+ログインとトークンは各自が自分のアカウントで発行し、他人と共有しない。
 
 ## 15. 更新のしかた（Mac から `deploy.sh` で反映する）
 

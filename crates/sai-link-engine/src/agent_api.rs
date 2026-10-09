@@ -392,7 +392,7 @@ fn write_with_timeout(
     let mut checked: Option<bool> = None;
     let mut warning: Option<String> = None;
     let mut saved_content = content.to_string();
-    let check_cmd = crate::pi_command::load_settings_quiet().0.write_check.unwrap_or_default();
+    let check_cmd = crate::settings::load_settings_quiet().0.write_check.unwrap_or_default();
     if !check_cmd.is_empty() {
         let block = block_name();
         let cmd: Vec<String> = check_cmd
@@ -567,8 +567,12 @@ struct NormalizedTask {
     carried_over: bool,
     /// 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id をそのまま子として使う）
     card_run_id: Option<i64>,
-    /// 子の実行主体（`pi` / `cc`。`None` はカードの runner、無ければ `cc`）
+    /// 子の実行主体（`cc` のみ。`None` はカードの runner、無ければ `cc`）
     runner: Option<String>,
+    /// 子の model（`None` はカード → ブロック定義 → settings.json の順）
+    model: Option<String>,
+    /// 子の thinking（`None` はカード → ブロック定義 → settings.json の順）
+    thinking: Option<String>,
 }
 
 /// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）から取り出した値だけを並べたもの。
@@ -767,14 +771,57 @@ pub fn task_create(
                 }
             },
         };
-        // 子の実行主体（pi / cc だけ受け付ける。task_create の時点で弾く）
+        // 子の実行主体（cc だけ受け付ける。pi は廃止のため理由を添えて task_create の時点で弾く）
         let runner = match item.get("runner") {
             None | Some(Value::Null) => None,
             Some(v) => match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
-                Some(s) if s == "pi" || s == "cc" => Some(s),
+                Some(s) if s == "cc" => Some(s),
+                Some(s) if s.is_empty() => None,
+                Some(s) if s == "pi" => {
+                    return Err(format!(
+                        "client_id '{}' の runner の pi は廃止しました。runner は省略するか cc にしてください",
+                        client_id
+                    ))
+                }
                 _ => {
                     return Err(format!(
-                        "client_id '{}' の runner は pi か cc で指定してください",
+                        "client_id '{}' の runner は cc だけです",
+                        client_id
+                    ))
+                }
+            },
+        };
+        // 子の model（省略・空はブロック定義に従う）。cc が黙って捨てる名前は入口で断る。
+        // 判定は cc_command::normalize_model と同じにする（inherit は親の既定に従う指定として通す）。
+        let model = match item.get("model") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_str().map(str::trim) {
+                Some("") => None,
+                Some(m)
+                    if m.eq_ignore_ascii_case("inherit")
+                        || crate::cc_command::normalize_model(m).is_some() =>
+                {
+                    Some(m.to_string())
+                }
+                _ => {
+                    return Err(format!(
+                        "client_id '{}' の model は opus / sonnet / haiku（または claude-…）にしてください",
+                        client_id
+                    ))
+                }
+            },
+        };
+        // 子の thinking（省略・空はブロック定義に従う）。値は新 6 値だけ通す。
+        let thinking = match item.get("thinking") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
+                Some(t) if t.is_empty() => None,
+                Some(t) if crate::validation::VALID_THINKING_LEVELS.contains(&t.as_str()) => {
+                    Some(t)
+                }
+                _ => {
+                    return Err(format!(
+                        "client_id '{}' の thinking は none / low / medium / high / xhigh / max のどれかにしてください",
                         client_id
                     ))
                 }
@@ -798,6 +845,8 @@ pub fn task_create(
             carried_over,
             card_run_id,
             runner,
+            model,
+            thinking,
         });
     }
 
@@ -886,6 +935,8 @@ pub fn task_create(
                 "cwd": resolved_cwd.get(&t.client_id),
                 "timeout": t.timeout,
                 "runner": t.runner,
+                "model": t.model,
+                "thinking": t.thinking,
                 "carried_over": t.carried_over,
                 "card": t.card_run_id,
                 "approval": { "status": "approved", "comment": null },
@@ -902,9 +953,17 @@ pub fn task_create(
     });
     write_notification("task_created", payload)?;
 
+    // 作られたタスクの task_id を client_id ごとに返す（デーモンが行を作るまで待つ）
+    let task_ids = wait_task_ids(&batch_id, &normalized);
     let result_tasks: Vec<Value> = normalized
         .iter()
-        .map(|t| json!({ "client_id": t.client_id, "status": "approved" }))
+        .map(|t| {
+            json!({
+                "client_id": t.client_id,
+                "status": "approved",
+                "task_id": task_ids.get(&t.client_id).copied(),
+            })
+        })
         .collect();
 
     Ok(json!({
@@ -913,8 +972,45 @@ pub fn task_create(
         "supersedes_batch_id": supersedes_batch_id,
         "status": "approved",
         "tasks": result_tasks,
-        "hint": "`sai-link task execute --batch <batch_id>` で一括実行されます。タスク ID は `sai-link task list` で確認してください。",
+        "hint": "`sai-link task execute --batch <batch_id>` で一括実行されます。`task_id` が null なら `sai-link task list` の `server_id` で確かめてください。",
     }))
+}
+
+/// `task_create` が書いた通知をデーモンが行にするのを待ち、client_id → task_id を集める。
+///
+/// デーモンが止まっていれば待たずに空を返す（task_id は null）。動いていても
+/// 5 秒で揃わなければ、そのときまでに出来た分を返す。
+/// 二重挿入を避けるため、ここでは行を作らない（作るのはデーモンだけ）。
+fn wait_task_ids(batch_id: &str, normalized: &[NormalizedTask]) -> HashMap<String, i64> {
+    if !crate::daemon::is_running() {
+        return HashMap::new();
+    }
+    let Ok(store) = crate::common::open_db() else {
+        return HashMap::new();
+    };
+    collect_task_ids(&store, batch_id, normalized.len(), std::time::Duration::from_secs(5))
+}
+
+/// バッチの行から client_id → task_id を集める。`expected` 件そろうか `wait` を過ぎたら返す。
+fn collect_task_ids(
+    store: &crate::db::SaiStore,
+    batch_id: &str,
+    expected: usize,
+    wait: std::time::Duration,
+) -> HashMap<String, i64> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        let found: HashMap<String, i64> = store
+            .list_tasks_by_batch(batch_id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|t| Some((t.client_id?, t.id?)))
+            .collect();
+        if found.len() >= expected || std::time::Instant::now() >= deadline {
+            return found;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 }
 
 // ============================================================================
@@ -1563,6 +1659,145 @@ pub fn run_interrupt(run_id: i64) -> Result<Value, String> {
     }))
 }
 
+// ============================================================================
+// 3.8b run_wait（自分の子でない run の完了・失敗・停止を待つ）
+// ============================================================================
+
+/// 複数の run を待つ。完了・失敗・停止のどれか 1 件を返し、残りを `pending` で返す。
+///
+/// - 1 回の待ちは最大 [`TASK_OUTPUT_MAX_WAIT_MS`]（`timeout_ms` は上限に切られる。`0` は 1 回だけ調べる）。
+/// - `stalled` は pane が idle のまま [`stall_idle_ms`] を超えたときだけ返す（質問は見ない）。
+/// - 戻り値の `pending` は、この呼び出しで返さなかった残りの run。
+///   返した run は呼び出し側が次から外す（engine は覚えない）。
+/// - 存在しない run は `Err`（「見つかりません」。CLI は終了コード 3）。
+pub fn run_wait(
+    run_ids: &[i64],
+    timeout_ms: Option<u64>,
+    cancel: &AtomicBool,
+) -> Result<Value, String> {
+    if run_ids.is_empty() {
+        return Err("run wait には 1 件以上の run ID を指定してください".to_string());
+    }
+    let wait_ms = clamp_wait_ms(timeout_ms);
+    let started = std::time::Instant::now();
+    // DB と状態ファイルを読む間隔と、取り消しを見る間隔
+    let scan_interval = std::time::Duration::from_millis(500);
+    let check_interval = std::time::Duration::from_millis(50);
+    let mut next_scan = started;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(run_wait_in_progress(
+                run_ids,
+                "待ちを中止しました。もう一度呼んでください。",
+            ));
+        }
+        let now = std::time::Instant::now();
+        if now >= next_scan {
+            if let Some(hit) = run_wait_scan(run_ids)? {
+                return Ok(hit);
+            }
+            next_scan = now + scan_interval;
+        }
+        if started.elapsed().as_millis() as u64 >= wait_ms {
+            break;
+        }
+        std::thread::sleep(check_interval);
+    }
+    Ok(run_wait_in_progress(run_ids, &format!(
+        "{}ms 以内に結果の出る run がありませんでした。1 回の待ちは最大 {} 秒。もう一度呼んでください。",
+        wait_ms,
+        max_wait_seconds()
+    )))
+}
+
+/// 1 回の走査。`run_ids` の順に調べ、最初に止まった（完了・失敗・停止の）run を返す。
+fn run_wait_scan(run_ids: &[i64]) -> Result<Option<Value>, String> {
+    let store =
+        crate::common::open_db().map_err(|e| format!("DB オープンに失敗しました: {}", e))?;
+    let others = |run_id: i64| -> Vec<i64> {
+        run_ids.iter().copied().filter(|&id| id != run_id).collect()
+    };
+    for &run_id in run_ids {
+        let exec = match store.get_execution_by_id(run_id) {
+            Ok(e) => e,
+            Err(crate::db::models::DbError::NotFound(_)) => {
+                return Err(format!("実行 {} が見つかりません", run_id));
+            }
+            Err(e) => return Err(format!("実行レコード取得エラー: {}", e)),
+        };
+        let block = store
+            .get_block_by_id(exec.block_id)
+            .map(|b| b.name)
+            .unwrap_or_default();
+        match exec.status.as_str() {
+            "completed" => {
+                return Ok(Some(json!({
+                    "status": "completed",
+                    "run_id": run_id,
+                    "block": block,
+                    "pending": others(run_id),
+                })));
+            }
+            "failed" => {
+                let error = exec
+                    .error_message
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| "（失敗の理由は記録されていません）".to_string());
+                return Ok(Some(json!({
+                    "status": "failed",
+                    "run_id": run_id,
+                    "block": block,
+                    "error": error,
+                    "pending": others(run_id),
+                })));
+            }
+            _ => {
+                if let Some(secs) = idle_seconds(run_id) {
+                    return Ok(Some(json!({
+                        "status": "stalled",
+                        "run_id": run_id,
+                        "block": block,
+                        "reason": "idle",
+                        "message": format!(
+                            "run {} が {} 秒以上 idle です。質問への答えか指示を待っている可能性があります。sai-web questions で質問を確かめてください",
+                            run_id, secs
+                        ),
+                        "pending": others(run_id),
+                    })));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// run の pane が idle のまま止まっていれば、その秒数を返す（止まっていないときは `None`）。
+///
+/// 止まった時刻は `state.json` の `updated_at`（idle になった時に書かれる）から読む。
+/// 1 回の呼び出しをまたいで時間を覚えなくてよいように、ここでは状態ファイルだけを見る。
+fn idle_seconds(run_id: i64) -> Option<i64> {
+    let (_, pane_id) = run_pane(run_id).ok()?;
+    let info = crate::headless::status(&pane_id).ok()?;
+    if info.agent_status != "idle" {
+        return None;
+    }
+    let state = crate::headless::read_state(&crate::headless::pane_dir(&pane_id))?;
+    let since = chrono::DateTime::parse_from_rfc3339(&state.updated_at).ok()?;
+    let idle_ms = chrono::Utc::now()
+        .signed_duration_since(since.with_timezone(&chrono::Utc))
+        .num_milliseconds();
+    (idle_ms >= crate::orchestrator::stall_idle_ms() as i64).then_some(idle_ms / 1000)
+}
+
+/// 完了も停止もまだのときの戻り値（`pending` は全件）。
+fn run_wait_in_progress(run_ids: &[i64], message: &str) -> Value {
+    json!({
+        "status": "in_progress",
+        "pending": run_ids,
+        "message": message,
+    })
+}
+
 /// `send` の行き先。
 #[derive(Debug, PartialEq, Eq)]
 enum SendRoute {
@@ -2147,6 +2382,111 @@ mod tests {
         }
     }
 
+    /// run_wait の試験用に、同じブロックで run を n 件作る。
+    fn make_runs(n: usize) -> Vec<i64> {
+        let store = crate::common::open_db().unwrap();
+        let block = crate::db::models::test_helpers::create_test_block("run-wait-test-block");
+        let block_id = store.insert_block(&block).unwrap();
+        (0..n).map(|_| store.create_execution(block_id, None).unwrap()).collect()
+    }
+
+    /// run に擬似 pane を付け、状態ファイルを書く。`updated_ago_secs` 秒前に更新された状態にする。
+    fn attach_pane_state(run_id: i64, state: &str, updated_ago_secs: i64) {
+        let store = crate::common::open_db().unwrap();
+        let pane_id = format!("hl-{:012x}", run_id);
+        store.update_execution_pane(run_id, &pane_id, 0).unwrap();
+        let dir = crate::headless::pane_dir(&pane_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let updated_at =
+            (chrono::Utc::now() - chrono::Duration::seconds(updated_ago_secs)).to_rfc3339();
+        crate::headless::write_state(
+            &dir,
+            &crate::headless::HeadlessState {
+                pane_id: pane_id.clone(),
+                runner: "cc".to_string(),
+                state: state.to_string(),
+                turn: 1,
+                partial: String::new(),
+                error: String::new(),
+                updated_at,
+            },
+        )
+        .unwrap();
+    }
+
+    /// run_wait: 完了した run を返し、残りは pending に入る（試験は timeout 0 で 1 回だけ調べる）。
+    #[test]
+    fn run_wait_returns_completed_and_leaves_rest_pending() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(2);
+        crate::common::open_db()
+            .unwrap()
+            .update_execution_status(runs[0], "completed")
+            .unwrap();
+        attach_pane_state(runs[1], "working", 0);
+
+        let v = run_wait(&runs, Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "completed");
+        assert_eq!(v["run_id"], runs[0]);
+        assert_eq!(v["pending"], json!([runs[1]]));
+    }
+
+    /// run_wait: 失敗した run は error 付きで返る。
+    #[test]
+    fn run_wait_returns_failed_with_error() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(1);
+        crate::common::open_db()
+            .unwrap()
+            .update_execution_error(runs[0], "Claude の認証に失敗しました（401）", 1)
+            .unwrap();
+
+        let v = run_wait(&runs, Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "failed");
+        assert_eq!(v["run_id"], runs[0]);
+        assert!(v["error"].as_str().unwrap().contains("401"));
+        assert_eq!(v["pending"], json!([]));
+    }
+
+    /// run_wait: idle が 60 秒を超えて続いた run は stalled（reason idle）。
+    /// 更新から 60 秒たっていなければ stalled にしない。
+    #[test]
+    fn run_wait_stalls_only_after_idle_threshold() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(2);
+        attach_pane_state(runs[0], "idle", 3600);
+        attach_pane_state(runs[1], "idle", 0);
+
+        let v = run_wait(&runs[..1], Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "stalled");
+        assert_eq!(v["reason"], "idle");
+        assert_eq!(v["run_id"], runs[0]);
+
+        let v = run_wait(&runs[1..], Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "in_progress", "idle になってから 60 秒たっていない");
+    }
+
+    /// run_wait: 時間内に止まらなければ in_progress で、pending は全件。
+    #[test]
+    fn run_wait_times_out_as_in_progress() {
+        let _guard = EnvGuard::new();
+        let runs = make_runs(2);
+        attach_pane_state(runs[0], "working", 0);
+        attach_pane_state(runs[1], "working", 0);
+
+        let v = run_wait(&runs, Some(0), &AtomicBool::new(false)).unwrap();
+        assert_eq!(v["status"], "in_progress");
+        assert_eq!(v["pending"], json!(runs));
+    }
+
+    /// run_wait: 無い run_id は「見つかりません」で断る（CLI は終了コード 3）。
+    #[test]
+    fn run_wait_missing_run_is_error() {
+        let _guard = EnvGuard::new();
+        let err = run_wait(&[NO_SUCH_TASK_A], Some(0), &AtomicBool::new(false)).unwrap_err();
+        assert!(err.contains("見つかりません"), "{err}");
+    }
+
     #[test]
     fn write_notification_includes_type_and_timestamp() {
         let guard = EnvGuard::new();
@@ -2301,7 +2641,7 @@ mod tests {
         // デーモン相当の処理：同じトークンが返り、再トークン化されない
         let db_path = crate::project::sai_path(".sai/sai-engine/sai-engine.db");
         let integrator = crate::waggle_integration::WaggleIntegrator::open(&db_path).unwrap();
-        let processed = crate::doc_write_notify::poll_and_process_one(&integrator)
+        let processed = crate::doc_write_notify::poll_and_process_one(&integrator, None)
             .unwrap()
             .expect("通知が処理される");
         assert_eq!(processed.waggle_token.as_deref(), Some(token.as_str()));
@@ -2638,19 +2978,24 @@ mod tests {
         drop(guard);
     }
 
-    /// `runner` は pi / cc だけ通り、通知に載る。それ以外の値は task_create で弾く。
+    /// `runner` は cc だけ通り、通知に載る。pi は廃止の理由を付けて、それ以外は一般の理由で断る。
     #[test]
-    fn task_create_runner_accepts_pi_cc_and_rejects_others() {
+    fn task_create_runner_accepts_cc_and_rejects_pi_and_others() {
         let guard = EnvGuard::new();
-        let store = crate::common::open_db().unwrap();
+        let store = Arc::new(crate::common::open_db().unwrap());
         let parent_run_id = create_test_parent_run(&store, "runner-parent");
         std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
         write_test_block(&guard.project_root, "runner-block");
 
-        let bad = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
+        let pi = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
+            "block_type": "runner-block", "runner": "pi" }]);
+        let err = task_create(&pi, None, None, None).unwrap_err();
+        assert!(err.contains("runner の pi は廃止しました"), "err={}", err);
+
+        let gl = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
             "block_type": "runner-block", "runner": "gl" }]);
-        let err = task_create(&bad, None, None, None).unwrap_err();
-        assert!(err.contains("runner は pi か cc"), "err={}", err);
+        let err = task_create(&gl, None, None, None).unwrap_err();
+        assert!(err.contains("runner は cc だけです"), "err={}", err);
 
         let ok = json!([{ "client_id": "R1", "subject": "件名", "task_text": "本文",
             "block_type": "runner-block", "runner": "CC" }]);
@@ -2659,12 +3004,94 @@ mod tests {
         let notif = read_task_created_notification();
         assert_eq!(notif.tasks[0].runner.as_deref(), Some("cc"));
 
-        let manager = crate::task_manager::TaskManager::new(std::sync::Arc::new(store));
+        let manager = crate::task_manager::TaskManager::new(store.clone());
         let ids = manager.process_task_created(&notif).unwrap();
         let created = manager.get_task(ids[0]).unwrap();
         assert_eq!(created.runner.as_deref(), Some("cc"));
         assert_eq!(task_to_json(&created, &[])["runner"], json!("cc"));
 
+        drop(guard);
+    }
+
+    /// `model` / `thinking` は通知と行に載る。cc が黙って捨てる値と thinking の外れ値は task_create で断る。
+    #[test]
+    fn task_create_model_and_thinking_pass_and_bad_values_rejected() {
+        let guard = EnvGuard::new();
+        let store = Arc::new(crate::common::open_db().unwrap());
+        let parent_run_id = create_test_parent_run(&store, "model-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "model-block");
+        let item = |extra: Value| {
+            let mut v = json!({ "client_id": "M1", "subject": "件名", "task_text": "本文",
+                "block_type": "model-block" });
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json!([v])
+        };
+
+        let err = task_create(&item(json!({ "thinking": "off" })), None, None, None).unwrap_err();
+        assert!(err.contains("thinking は none / low"), "err={}", err);
+        let err = task_create(&item(json!({ "model": "z-ai/glm-5.3-flash" })), None, None, None)
+            .unwrap_err();
+        assert!(err.contains("model は opus / sonnet / haiku"), "err={}", err);
+
+        let result = task_create(
+            &item(json!({ "model": "haiku", "thinking": "LOW" })),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result["status"], "approved");
+        let notif = read_task_created_notification();
+        assert_eq!(notif.tasks[0].model.as_deref(), Some("haiku"));
+        assert_eq!(notif.tasks[0].thinking.as_deref(), Some("low"));
+
+        let manager = crate::task_manager::TaskManager::new(store.clone());
+        let ids = manager.process_task_created(&notif).unwrap();
+        let created = manager.get_task(ids[0]).unwrap();
+        assert_eq!(created.model.as_deref(), Some("haiku"));
+        assert_eq!(created.thinking.as_deref(), Some("low"));
+
+        drop(guard);
+    }
+
+    /// `task_create --json` の各 task に task_id が入る。デーモンが止まっていれば null（待たない）。
+    #[test]
+    fn task_create_returns_null_task_id_when_daemon_stopped() {
+        let guard = EnvGuard::new();
+        let store = crate::common::open_db().unwrap();
+        let parent_run_id = create_test_parent_run(&store, "tid-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "tid-block");
+
+        let tasks = json!([{ "client_id": "T1", "subject": "件名", "task_text": "本文",
+            "block_type": "tid-block" }]);
+        let result = task_create(&tasks, None, None, None).unwrap();
+        assert_eq!(result["tasks"][0]["client_id"], "T1");
+        assert!(result["tasks"][0]["task_id"].is_null());
+        drop(guard);
+    }
+
+    /// 行が出来ていれば、その task_id を client_id ごとに集める。揃わなければ出来た分だけ返す。
+    #[test]
+    fn collect_task_ids_maps_created_rows_and_stops_on_timeout() {
+        let guard = EnvGuard::new();
+        let store = Arc::new(crate::common::open_db().unwrap());
+        let parent_run_id = create_test_parent_run(&store, "collect-parent");
+        std::env::set_var("SAI_PARENT_RUN_ID", &parent_run_id.to_string());
+        write_test_block(&guard.project_root, "collect-block");
+        let tasks = json!([{ "client_id": "C1", "subject": "件名", "task_text": "本文",
+            "block_type": "collect-block" }]);
+        task_create(&tasks, None, None, None).unwrap();
+        let notif = read_task_created_notification();
+        let manager = crate::task_manager::TaskManager::new(store.clone());
+        let ids = manager.process_task_created(&notif).unwrap();
+
+        let map = collect_task_ids(&store, &notif.batch_id, 1, std::time::Duration::from_millis(100));
+        assert_eq!(map.get("C1"), Some(&ids[0]));
+        // 2 件を待っても 1 件しか無いので、待ち時間の後に出来た分だけ返す
+        let partial = collect_task_ids(&store, &notif.batch_id, 2, std::time::Duration::from_millis(100));
+        assert_eq!(partial.len(), 1);
         drop(guard);
     }
 

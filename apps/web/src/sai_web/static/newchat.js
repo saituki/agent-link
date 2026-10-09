@@ -38,8 +38,7 @@ function ncStore(key, value) {
 /**
  * runner に合わせた model の選択肢（U04 §5 の 4）。
  *
- * - cc: `cc_models`
- * - pi: `providers` の全部のモデル（provider の手順が無いので全部並べる）
+ * - cc（runner が空なら cc 扱い）: `cc_models`
  * - user / gl: モデルは無い
  *
  * @param {object|null|undefined} options `card/options` の応答
@@ -48,11 +47,7 @@ function ncStore(key, value) {
  */
 function ncModelChoices(options, runner) {
   const o = options || {};
-  if (runner === "cc") return (o.cc_models || []).map(String);
-  if (runner === "pi" || runner === "") {
-    const all = o.providers || {};
-    return Array.from(new Set(Object.values(all).flat().map(String)));
-  }
+  if (runner === "cc" || runner === "") return (o.cc_models || []).map(String);
   return [];
 }
 

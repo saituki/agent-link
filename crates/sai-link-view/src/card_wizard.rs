@@ -10,8 +10,8 @@ use sai_link_engine::db::SaiStore;
 
 /// cc のモデル選択肢（固定）。
 pub const CC_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
-/// runner の選択肢。
-pub const RUNNER_OPTIONS: [&str; 3] = ["user", "pi", "cc"];
+/// runner の選択肢（pi は廃止）。
+pub const RUNNER_OPTIONS: [&str; 2] = ["user", "cc"];
 /// thinking 選択肢（`validation.rs` の新 6 値と一致）。
 pub const THINKING_OPTIONS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 
@@ -105,7 +105,7 @@ pub fn resolve_block_path(block_id: &str) -> Option<PathBuf> {
 pub fn apply_card_auto_fields(fm: &mut sai_link_engine::kanban::CardFrontmatter) {
     // settings.json（プロジェクト → グローバルのマージ）からデフォルトを読む。
     // 読み込み警告はここでは扱わない。
-    let (settings, _) = sai_link_engine::pi_command::load_settings_quiet();
+    let (settings, _) = sai_link_engine::settings::load_settings_quiet();
     if let Some(model) = settings.default_model {
         fm.model = model;
     }
@@ -161,7 +161,7 @@ fn reserve_run_for_card(card: &sai_link_engine::kanban::KanbanCard) -> Result<i6
 /// 各項目の空文字 = スキップ（TUI と同じく自動値を使う）。
 #[derive(Debug, Clone, Default)]
 pub struct CardSpec {
-    /// runner（空 = スキップ → 自動値 pi）
+    /// runner（空 = スキップ → 自動値 cc）
     pub runner: String,
     /// block_id（空 = スキップ）
     pub block: String,
@@ -187,6 +187,9 @@ pub struct CardSpec {
 /// - block が指定されていれば存在する定義であること
 pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
     let runner = spec.runner.trim();
+    if runner == "pi" {
+        return Err("runner の pi は廃止しました。cc を使ってください".to_string());
+    }
     if !runner.is_empty() && !RUNNER_OPTIONS.contains(&runner) {
         return Err(format!(
             "runner が不正です: {}（選択肢: {}）",
@@ -216,7 +219,7 @@ pub fn validate_card_spec(spec: &CardSpec) -> Result<(), String> {
 /// ウィザード / CLI の値でカード md を作成する。
 ///
 /// - `runner` / `block` / `provider` / `model` / `thinking` は指定値を優先する
-///   （空・スキップ時は自動値: runner=pi・model/provider/thinking=settings.json）
+///   （空・スキップ時は自動値: runner=cc・model/provider/thinking=settings.json）
 /// - `task_text` は `# task_text` 見出しの直下に置く
 pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
     let body = if spec.task_text.trim().is_empty() {
@@ -245,7 +248,7 @@ pub fn create_card(spec: &CardSpec) -> Result<PathBuf, String> {
     if !spec.thinking.trim().is_empty() {
         fm.thinking = spec.thinking.trim().to_string();
     }
-    // rounds 入力（空時は自動継承値を維持）
+    // rounds 入力（空時は既存値を維持。空のままなら card run が 1 を使う）
     if !spec.global_round.trim().is_empty() {
         fm.global_round = spec.global_round.trim().to_string();
     }
@@ -278,5 +281,21 @@ mod tests {
         assert!(validate_card_spec(&spec).is_err());
         spec.thinking = "high".to_string();
         assert!(validate_card_spec(&spec).is_ok());
+    }
+
+    /// runner の pi は廃止のため、理由を付けて断る。cc と user は通る。
+    #[test]
+    fn spec_rejects_pi_runner_and_accepts_cc_user() {
+        let mut spec = CardSpec {
+            runner: "pi".to_string(),
+            ..Default::default()
+        };
+        let err = validate_card_spec(&spec).unwrap_err();
+        assert!(err.contains("runner の pi は廃止しました"), "err={}", err);
+        spec.runner = "cc".to_string();
+        assert!(validate_card_spec(&spec).is_ok());
+        spec.runner = "user".to_string();
+        assert!(validate_card_spec(&spec).is_ok());
+        assert_eq!(RUNNER_OPTIONS, ["user", "cc"]);
     }
 }

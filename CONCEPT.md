@@ -74,12 +74,12 @@ done            …… .sai/outputs/done/<run_id>/      確認済み（Workflow 
 | **`# task_text`** | `task.md` の依頼文の節。エージェントが読んで動く。`waggle:<トークン>` と書くと、実行時にその位置へ文書の本文が埋め込まれる（1 段だけ）。 | `task.md` の本文。展開は `crates/sai-link-engine/src/placeholder.rs` |
 | **doc（文書）** | waggle トークンの付いた文書。run フォルダに保存し、他の run が読む。 | `sai-link doc write\|read\|list\|search` |
 | **waggle トークン** | 文書を指す短い名前（例 `AXANSMpo`）。文書は必ずトークンで渡し、パスは渡さない。参照は `waggle:<トークン>:path:.sai/outputs/*/<run_id>/<ファイル名>` の形（正はトークン）。 | `sai-link waggle resolve`、`waggle/` |
-| **block** | エージェントの役の定義。frontmatter に `runner`・`model`・`thinking`・`templates`・`worktree`・`enable` などを書き、本文が役の指示になる。 | `.sai/blocks/<id>.md`・`$SAI_HOME/blocks/`。既定の定義は `crates/sai-link-engine/assets/blocks/`。型は `block_config.rs` |
+| **block** | エージェントの役の定義。frontmatter に `model`・`thinking`（既定値。親の指定が優先）・`templates`・`worktree`・`enable` などを書き、本文が役の指示になる。 | `.sai/blocks/<id>.md`・`$SAI_HOME/blocks/`。既定の定義は `crates/sai-link-engine/assets/blocks/`。型は `block_config.rs` |
 | **template** | block の本文に差し込む共通の決まり。block の `templates:` に名前を並べる。 | `.sai/template/<名前>.md`・`$SAI_HOME/template/`。既定は `crates/sai-link-engine/assets/template/` |
 | **def（定義）** | block・template・settings の総称と、それを読み書きする命令。 | `sai-link def list\|show\|write\|delete\|preview`、画面は Projects の Settings（設定） |
 | **settings** | プロジェクトの設定（`context`・`job_status` など）。`$SAI_HOME/settings.json` が、プロジェクトの `.sai/settings.json` を**キー単位で上書き**する。 | `.sai/settings.json`・`$SAI_HOME/settings.json` |
-| **runner** | card を動かす実行者。エンジンが知るのは `pi`（既定）・`cc`（Claude Code）・`gl`。`runner: user` は利用者が自分で行う札で、`sai-link card start\|finish` で動かす。 | `crates/sai-link-engine/src/runner.rs` の `RunnerKind`、`sai-link card start\|finish` |
-| **`executer`** | card を**起こす人**。`human`（人が起こす。既定）か `agent`（エージェントが自分の子として起こす）。古い値 `professor` は `agent` として読む。`runner` とは別の項目。 | `kanban.rs` の `parse_executer`・`executer()` |
+| **runner** | card を動かす実行者。cc（Claude Code。既定）・`gl`（sai-gemini-tui）・`user`（利用者が自分で行う札）。pi は廃止し、古い値は cc として読む。起動は 2 つの経路（Card で待たずに起こす・`task create` で待つ）。 | `crates/sai-link-engine/src/runner.rs` の `RunnerKind`、`sai-link card start\|finish` |
+| **`executer`**（廃止） | card を**起こす人**の区別。`sai-sci card` に `--executer` は無い。作る Card は人が起こす Card で、人の代わりに Professor が起こす。古い Card の `executer` 項目は読むだけ（`agent`・`professor` は `agent` として読む）。`runner` とは別の項目。 | `kanban.rs` の `parse_executer`・`executer()` |
 | **常駐（daemon）** | プロジェクトごとの背景のプロセス。予約した card・ジョブ待ちの card の実行と、状態の見張り・完了の検出をする。 | `sai-link daemon start\|stop\|status\|reload\|recover`、`crates/sai-link-engine/src/daemon.rs` |
 | **`job_status`** | `.sai/settings.json` の項目。実験などのジョブの状態を確かめる命令（文字の配列。`{job}` がジョブの ID に置き換わる）。出力の `state` が `done`・`failed`・`cancelled`・`lost` になればジョブは終わり。 | `daemon.rs` の `job_status_command`。`sai-sci init` が書く |
 | **review** | run の状態のひとつ。完了して利用者の確認を待っている。 | `.sai/outputs/review/`、`run_dir.rs` の `REVIEW_OWNER` |
@@ -264,7 +264,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 **承認の流れ**（許可が要る op を agent が出すとき）:
 
 1. 承認を取る質問は 1 回 1 問。先頭の選択肢を「許可する」、2 つ目を「許可しない」にする。質問文に、これから行う op の一覧（op 名と対象の ID・文）を書く（template の決まり）。
-2. 利用者が「許可する」を選ぶ。cc の質問フック（`cc_question.py`）か pi の拡張（`ask_user.ts`）が、`SAI_PARENT_RUN_ID` のある run で `sai-sci approval record` を呼び、`rt_approvals` に 1 行足す（回答の記録）。
+2. 利用者が「許可する」を選ぶ。cc の質問フック（`cc_question.py`）が、`SAI_PARENT_RUN_ID` のある run で `sai-sci approval record` を呼び、`rt_approvals` に 1 行足す（回答の記録）。
 3. agent が `sai-sci op` で op を出す。許可を 1 件取り、全部通ったら書いて、その許可を消費する。rt_log の許可が要る op の行に `approved_by`・`qid`・`question` が入る。
 4. 許可が無いと終了コード 4 で、「許可がありません: 先に質問ツールで「許可する」を選んでもらってください」と出る。何も書かれない。
 - agent は `sai-sci approval record` を自分で呼ばない。

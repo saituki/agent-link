@@ -254,45 +254,8 @@ fn backup_path(path: &Path) -> PathBuf {
     with_suffix(&format!(".bak.{stamp}"))
 }
 
-/// frontmatter を「区切りの間」と「閉じ `---` から後」に分ける。
-fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
-    let rest = text.strip_prefix("---\n")?;
-    let end = rest.find("\n---")?;
-    Some((&rest[..end], &rest[end + 1..]))
-}
-
-/// 新しい版の block の frontmatter の `model:`・`provider:`・`thinking:` を、
-/// 元のファイルにあった値で置き換える（元に無い行は新しい版のまま）。
-fn merge_block_frontmatter(old: &str, new: &str) -> String {
-    const KEYS: [&str; 3] = ["model", "provider", "thinking"];
-    let Some((new_fm, after)) = split_frontmatter(new) else {
-        return new.to_string();
-    };
-    let old_fm = split_frontmatter(old).map_or("", |(fm, _)| fm);
-    let mut lines: Vec<String> = new_fm.lines().map(str::to_string).collect();
-    for key in KEYS {
-        let prefix = format!("{key}:");
-        let Some(old_line) = old_fm.lines().find(|line| line.starts_with(&prefix)) else {
-            continue;
-        };
-        match lines.iter().position(|line| line.starts_with(&prefix)) {
-            Some(index) => lines[index] = old_line.to_string(),
-            None => lines.push(old_line.to_string()),
-        }
-    }
-    format!("---\n{}\n{after}", lines.join("\n"))
-}
-
 /// 部品を 1 つ配る。`update` のときは古い物を退避して新しい版に置き換える。
-///
-/// `merge_block_model` が `true` のとき（block）は、新しい版の frontmatter の
-/// `model:`・`provider:`・`thinking:` を元のファイルの値で置き換えてから比べる。
-fn write_asset(
-    path: &Path,
-    content: &str,
-    update: bool,
-    merge_block_model: bool,
-) -> Result<WriteOutcome> {
+fn write_asset(path: &Path, content: &str, update: bool) -> Result<WriteOutcome> {
     if !path.exists() {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -304,17 +267,12 @@ fn write_asset(
         return Ok(WriteOutcome::Unchanged);
     }
     let old = std::fs::read_to_string(path).unwrap_or_default();
-    let fresh = if merge_block_model {
-        merge_block_frontmatter(&old, content)
-    } else {
-        content.to_string()
-    };
-    if old == fresh {
+    if old == content {
         return Ok(WriteOutcome::Unchanged);
     }
     let backup = backup_path(path);
     std::fs::rename(path, &backup)?;
-    std::fs::write(path, &fresh)?;
+    std::fs::write(path, content)?;
     Ok(WriteOutcome::Updated(backup))
 }
 
@@ -349,7 +307,7 @@ pub fn install_domain(
     let mut created = 0usize;
     let mut updated: Vec<PathBuf> = Vec::new();
     for (_, name, content) in DOMAIN_SAMPLES {
-        match write_asset(&template.join(name), content, update, false)? {
+        match write_asset(&template.join(name), content, update)? {
             WriteOutcome::Created => created += 1,
             WriteOutcome::Unchanged => {}
             WriteOutcome::Updated(backup) => updated.push(backup),
@@ -399,12 +357,12 @@ pub fn install_sci_init(
     let mut done = Vec::new();
     let sai = root.join(".sai");
 
-    // block: `model:`・`provider:`・`thinking:` を元の値で置き換えてから比べる（部品の配り方）。
+    // block: 源の版にそろえる（違えば元を `.bak` に退避する。frontmatter の model も源の値になる）。
     let mut created = 0usize;
     let mut updated: Vec<PathBuf> = Vec::new();
     let mut retired: Vec<PathBuf> = Vec::new();
     for (name, content) in SCI_BLOCKS {
-        match write_asset(&sai.join("blocks").join(name), content, update, true)? {
+        match write_asset(&sai.join("blocks").join(name), content, update)? {
             WriteOutcome::Created => created += 1,
             WriteOutcome::Unchanged => {}
             WriteOutcome::Updated(backup) => updated.push(backup),
@@ -423,7 +381,7 @@ pub fn install_sci_init(
     }
     // template は丸ごと置き換える（部品の配り方）。
     for (name, content) in SCI_TEMPLATES {
-        match write_asset(&sai.join("template").join(name), content, update, false)? {
+        match write_asset(&sai.join("template").join(name), content, update)? {
             WriteOutcome::Created => created += 1,
             WriteOutcome::Unchanged => {}
             WriteOutcome::Updated(backup) => updated.push(backup),
@@ -431,15 +389,29 @@ pub fn install_sci_init(
     }
     // tools: 実行の印は付けない（今のとおり）。
     for (name, content) in SCI_TOOLS {
-        created += usize::from(write_if_missing(&sai.join("tools").join(name), content)?);
+        match write_asset(&sai.join("tools").join(name), content, update)? {
+            WriteOutcome::Created => created += 1,
+            WriteOutcome::Unchanged => {}
+            WriteOutcome::Updated(backup) => updated.push(backup),
+        }
     }
-    // exec: 実行先の adapter には実行の印を付ける。
+    // exec: 実行先の adapter には実行の印を付ける。`Updated` は退避してから書き直すので、印が消えるため付け直す。
     for (name, content, executable) in SCI_EXEC {
         let path = sai.join("exec").join(name);
-        let wrote = write_if_missing(&path, content)?;
-        created += usize::from(wrote);
-        if wrote && *executable {
-            make_executable(&path)?;
+        match write_asset(&path, content, update)? {
+            WriteOutcome::Created => {
+                created += 1;
+                if *executable {
+                    make_executable(&path)?;
+                }
+            }
+            WriteOutcome::Unchanged => {}
+            WriteOutcome::Updated(backup) => {
+                if *executable {
+                    make_executable(&path)?;
+                }
+                updated.push(backup);
+            }
         }
     }
     done.push(format!("✅ 研究の assets を {created} 件置きました（既にあるものはそのまま）"));
@@ -838,6 +810,64 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// 手で `model:` を書き換えた block も、`--update` で源の値にそろう。元の物は `.bak` に残る。
+    #[test]
+    fn update_resets_block_frontmatter_to_source() {
+        let root = std::env::temp_dir().join(format!("sai-paper-sci-model-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin = Path::new("/opt/bin/sai-sci");
+        install_sci_init(&root, bin, "general", false, false).unwrap();
+
+        let block = root.join(".sai/blocks/sci-start.md");
+        let source = std::fs::read_to_string(&block).unwrap();
+        assert!(source.contains("model: sonnet"), "sci-start.md の前提が違う");
+        let edited = source.replacen("model: sonnet", "model: haiku", 1);
+        std::fs::write(&block, &edited).unwrap();
+
+        let done = install_sci_init(&root, bin, "general", false, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&block).unwrap(), source, "源の frontmatter に戻っていない");
+        let backup = root.join(".sai/blocks/sci-start.md.bak");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), edited, "手で書いた model が .bak に残っていない");
+        assert!(
+            done.iter().any(|line| line.contains("更新しました") && line.contains("sci-start.md.bak")),
+            "更新の行が無い: {done:?}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// `--update` は tools と exec を源の版にそろえる。exec の adapter は退避・書き直しの後も実行の権限を保つ。
+    #[cfg(unix)]
+    #[test]
+    fn update_refreshes_tools_and_keeps_adapter_executable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!("sai-paper-sci-tools-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin = Path::new("/opt/bin/sai-sci");
+        install_sci_init(&root, bin, "general", false, false).unwrap();
+
+        let tool = root.join(".sai/tools/exp_exec.py");
+        let adapter = root.join(".sai/exec/local/adapter");
+        std::fs::write(&tool, "# 古い版\n").unwrap();
+        std::fs::write(&adapter, "#!/bin/sh\n# 古い版\n").unwrap();
+
+        let done = install_sci_init(&root, bin, "general", false, true).unwrap();
+        let source_tool = SCI_TOOLS.iter().find(|(name, _)| *name == "exp_exec.py").unwrap().1;
+        assert_eq!(std::fs::read_to_string(&tool).unwrap(), source_tool, "exp_exec.py が源の版でない");
+        assert_eq!(std::fs::read_to_string(tool.with_file_name("exp_exec.py.bak")).unwrap(), "# 古い版\n");
+        let mode = std::fs::metadata(&adapter).unwrap().permissions().mode();
+        assert_ne!(mode & 0o100, 0, "adapter の実行の権限が無い");
+        assert_eq!(
+            std::fs::read_to_string(adapter.with_file_name("adapter.bak")).unwrap(),
+            "#!/bin/sh\n# 古い版\n"
+        );
+        assert!(
+            done.iter().any(|line| line.contains("更新しました") && line.contains("exp_exec.py.bak")),
+            "更新の行が無い: {done:?}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// sci ブロック 25 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
     /// 役 4 本（professor・professor-backward・operator・kaizen）は持たない。sci ブロックは `layer` を持たない。
     /// 完了の判定に使っていた旧キーはどのブロックにも無い。
@@ -1026,7 +1056,10 @@ mod tests {
                 frontmatter.contains("\ncontext: true\n"),
                 "{name} に context: true が無い"
             );
-            assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
+            assert!(
+                ["opus", "sonnet", "haiku"].iter().any(|m| frontmatter.contains(&format!("model: {m}\n"))),
+                "{name} の model が opus・sonnet・haiku のどれでもない"
+            );
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
@@ -1139,7 +1172,10 @@ mod tests {
             assert!(!frontmatter.contains("sci-core"), "{name} の templates に sci-core がある");
             assert!(!frontmatter.contains("\ncontext: true\n"), "{name} に context: true がある");
             assert!(!frontmatter.contains("\nsci_ops: "), "{name} に sci_ops がある");
-            assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
+            assert!(
+                ["opus", "sonnet", "haiku"].iter().any(|m| frontmatter.contains(&format!("model: {m}\n"))),
+                "{name} の model が opus・sonnet・haiku のどれでもない"
+            );
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(frontmatter.contains("\nthinking: high\n"), "{name} の thinking が high ではない");
@@ -1178,16 +1214,11 @@ mod tests {
             if subblocks {
                 assert!(children.contains(&"operator"), "professor の subblocks に operator が無い");
                 if id == "professor" {
-                    for child in [
-                        "sci-start", "lab-read", "lab-search", "lab-survey", "lab-grow", "lab-place",
-                        "lab-progress", "sci-verify", "sci-analogy", "sci-lookup", "sci-extract",
-                        "sci-digest", "sci-coach", "sci-typify", "sci-exp-scout",
-                        "sci-sim-model", "sci-sim-compose", "sci-exp-sprout",
-                        "sci-data-explore", "sci-data-test",
-                    ] {
+                    // 結果を待つ子だけ（Node の作業は Card で起こすので subblocks に入れない）
+                    for child in ["sci-exp-scout", "sci-sim-model", "sci-sim-compose"] {
                         assert!(children.contains(&child), "professor の subblocks に {child} が無い");
                     }
-                    assert_eq!(children.len(), 21, "professor の子が 21 本でない");
+                    assert_eq!(children.len(), 4, "professor の子が 4 本でない");
                 }
                 for child in children {
                     let file = SCI_BLOCKS
@@ -1214,9 +1245,9 @@ mod tests {
                 .map(|(_, content)| *content)
                 .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
             for needle in [
-                "\"card\": 120",
-                "--executer agent",
-                "--origin-run \"$SAI_PARENT_RUN_ID\"",
+                "sai-link card run <run_id>",
+                "sai-link run wait",
+                "sai-web questions",
                 "sai-sci status --brief",
                 "sai-sci op",
                 "sai-web",
@@ -1266,6 +1297,10 @@ mod tests {
             .and_then(|rest| rest.split("\n---\n").next())
             .unwrap();
         let children = frontmatter_list(frontmatter, "subblocks:");
+        for child in ["operator", "sci-exp-scout", "sci-sim-model", "sci-sim-compose"] {
+            assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");
+        }
+        // 段の作業は Card で起こすので subblocks には入れない。配るブロックに有ることだけ確かめる。
         for child in [
             "sci-restore",
             "sci-cite-check",
@@ -1276,7 +1311,8 @@ mod tests {
             "lab-grow",
             "sci-result-compare",
         ] {
-            assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");
+            let shipped = SCI_BLOCKS.iter().map(|(block, _)| *block).any(|block| block.trim_end_matches(".md") == child);
+            assert!(shipped, "professor-backward の段のブロック {child} が配られていない");
         }
     }
 

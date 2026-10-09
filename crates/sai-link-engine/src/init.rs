@@ -5,12 +5,11 @@
 //! - `PROJECTROOT/.sai/` ディレクトリと必要なサブフォルダを作成する（既存は触らない）
 //! - `settings.json` をシード作成する（`{}`。既にあれば触らない）
 //! - `models.json` は作成しない（`~/.sai/models.json` のグローバル設定にフォールバック）
-//! - Claude Code の設定 `.mcp.json` と `.claude/settings.json`、pi の設定 `.pi/settings.json` を作る。
+//! - Claude Code の設定 `.mcp.json` と `.claude/settings.json` を作る。
 //!   既にある場合は `<名前>.bak`（既にあれば `<名前>.bak.<日時>`）へ退避してから作り直す
 //! - serena の設定 `.serena/project.yml` を作る（使う言語はプロジェクトのファイルの拡張子から選ぶ）。
 //!   既にある場合は他の設定と同じく退避する。`.serena/` の中の他のファイルには触らない
-//! - design skill（`frontend-design` と `ui-ux-rules`）を `.claude/skills/` と `.pi/skills/`
-//!   の 2 か所に作る。既存は他の設定と同じく退避する
+//! - design skill（`frontend-design` と `ui-ux-rules`）を `.claude/skills/` に作る。既存は他の設定と同じく退避する
 //!
 //! ## 作成される構成
 //!
@@ -22,8 +21,6 @@
 //! ├── .claude/skills/                         # design skill（cc が読む）
 //! │   ├── frontend-design/{SKILL.md,LICENSE.txt}
 //! │   └── ui-ux-rules/{SKILL.md,LICENSE}
-//! ├── .pi/settings.json                        # pi の質問ツール（ask_user.ts）
-//! ├── .pi/skills/                             # design skill（pi が読む・中身は .claude と同じ）
 //! ├── .serena/project.yml                      # serena の言語サーバ（拡張子から選ぶ）
 //! └── .sai/
 //!     ├── blocks/                              # ブロック定義 (*.md)
@@ -157,9 +154,8 @@ pub fn sai_dir(root: &Path) -> PathBuf {
 /// プロジェクトを初期化する（何度実行してもよい）。
 ///
 /// `.sai/` 配下は無いものだけ作り、DB・outputs・blocks などの既存物には触らない。
-/// cc と pi の設定ファイル（`.mcp.json` / `.claude/settings.json` / `.pi/settings.json`）は
-/// 毎回作り直す（既存は退避する）。design skill も同じように作り直す。pi は `.mcp.json` も
-/// 読むので、MCP は cc と共通。
+/// cc の設定ファイル（`.mcp.json` / `.claude/settings.json`）は
+/// 毎回作り直す（既存は退避する）。design skill も同じように作り直す。
 ///
 /// 基盤の block・template は、無ければ書き、`update` が true なら中身が違う物を退避して
 /// 新しい版に置き換える（`<root>/.sai/blocks/`・`<root>/.sai/template/`）。
@@ -205,18 +201,11 @@ pub fn init_project(root: &Path, update: bool) -> Result<InitReport, InitError> 
         root.join(".serena/project.yml"),
         serena_project_yml(root, &detect_serena_languages(root)),
     ));
-    if let Some(ext) = crate::cc_command::pi_question_extension() {
-        std::fs::create_dir_all(root.join(".pi"))?;
-        files.push((root.join(".pi/settings.json"), json(crate::cc_command::pi_settings_json(&ext))?));
-    }
-    // design skill（cc と pi 用の 2 か所。skill は拡張の有無と関係が無いので、上の pi の
-    // 設定分岐の中に入れず、必ず書く）
-    for base in [".claude/skills", ".pi/skills"] {
-        for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
-            let path = root.join(base).join(rel);
-            std::fs::create_dir_all(path.parent().expect("skill の親フォルダ"))?;
-            files.push((path, text.to_string()));
-        }
+    // design skill（cc が読む `.claude/skills/`）
+    for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
+        let path = root.join(".claude/skills").join(rel);
+        std::fs::create_dir_all(path.parent().expect("skill の親フォルダ"))?;
+        files.push((path, text.to_string()));
     }
     for (path, text) in files {
         if path.exists() {
@@ -418,7 +407,7 @@ mod tests {
         assert!(yml.contains("ignore_all_files_in_gitignore: true"), "{}", yml);
     }
 
-    /// design skill が cc と pi の 2 か所に作られ、中身が同じであること。
+    /// design skill が `.claude/skills/` に作られ、中身が同じであること。`.pi/` は作らない。
     #[test]
     fn test_init_project_creates_design_skills() {
         let dir = tempfile::tempdir().unwrap();
@@ -426,22 +415,18 @@ mod tests {
 
         init_project(root, false).unwrap();
 
-        for base in [".claude/skills", ".pi/skills"] {
-            for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
-                let p = root.join(base).join(rel);
-                assert!(p.is_file(), "欠落: {}", p.display());
-                assert_eq!(&std::fs::read_to_string(&p).unwrap(), text);
-            }
-            // どちらの置き場も同じ名前で呼べる
-            for name in ["frontend-design", "ui-ux-rules"] {
-                let skill = std::fs::read_to_string(root.join(base).join(name).join("SKILL.md"))
-                    .unwrap();
-                assert!(skill.starts_with("---\n"), "{}", &skill[..20]);
-                assert!(skill.contains(&format!("name: {}", name)), "{}", &skill[..200]);
-                // pi は置き換えない変数を解釈しないので、書かない
-                assert!(!skill.contains("CLAUDE_"), "{}", name);
-            }
+        for (rel, text) in crate::cc_command::DESIGN_SKILL_FILES {
+            let p = root.join(".claude/skills").join(rel);
+            assert!(p.is_file(), "欠落: {}", p.display());
+            assert_eq!(&std::fs::read_to_string(&p).unwrap(), text);
         }
+        for name in ["frontend-design", "ui-ux-rules"] {
+            let skill = std::fs::read_to_string(root.join(".claude/skills").join(name).join("SKILL.md"))
+                .unwrap();
+            assert!(skill.starts_with("---\n"), "{}", &skill[..20]);
+            assert!(skill.contains(&format!("name: {}", name)), "{}", &skill[..200]);
+        }
+        assert!(!root.join(".pi").exists(), "sai-link init は .pi/ を作らない");
     }
 
     /// 再実行してもエラーにならず、`.sai/` の既存内容を壊さず、cc 設定は退避して作り直すこと。
@@ -467,17 +452,8 @@ mod tests {
         // .sai/ の既存ファイルは書き換えられていない
         assert!(std::fs::read_to_string(&settings).unwrap().contains("marker"));
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
-        // cc と pi と serena の設定と design skill のファイルは退避され、新しく作られる
-        // （`.pi/settings.json` は pi の質問の拡張が見つかったときだけ）
-        let expected_backups = 4 + usize::from(root.join(".pi/settings.json.bak").is_file()) + 8;
-        assert_eq!(second.backed_up.len(), expected_backups);
-        if root.join(".pi/settings.json").is_file() {
-            let pi: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(root.join(".pi/settings.json")).unwrap(),
-            )
-            .unwrap();
-            assert!(pi["extensions"][0].as_str().unwrap().ends_with("ask_user.ts"));
-        }
+        // cc と serena の設定と design skill のファイルは退避され、新しく作られる
+        assert_eq!(second.backed_up.len(), 4 + crate::cc_command::DESIGN_SKILL_FILES.len());
         assert!(root.join(".claude/commands/sai-finalize.md").is_file());
         assert_eq!(
             std::fs::read_to_string(root.join(".mcp.json.bak")).unwrap(),
@@ -486,7 +462,6 @@ mod tests {
         assert!(root.join(".claude/settings.json.bak").is_file());
         assert!(root.join(".serena/project.yml.bak").is_file());
         assert!(root.join(".claude/skills/frontend-design/SKILL.md.bak").is_file());
-        assert!(root.join(".pi/skills/ui-ux-rules/SKILL.md.bak").is_file());
         let mcp: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap())
                 .unwrap();
@@ -506,7 +481,7 @@ mod tests {
     }
 
     /// 空のフォルダに基盤の block 10 本と template 12 本が配られ、
-    /// block の frontmatter が `model: inherit` で `provider:` を持たないこと。
+    /// block の frontmatter が `model:` を持ち（既定値は block ごと）、`provider:` を持たないこと。
     #[test]
     fn test_init_project_installs_base_assets() {
         let dir = tempfile::tempdir().unwrap();
@@ -520,8 +495,8 @@ mod tests {
             let p = root.join(".sai/blocks").join(name);
             assert!(p.is_file(), "欠落: {}", p.display());
             let text = std::fs::read_to_string(&p).unwrap();
-            assert!(text.contains("model: inherit"), "{name}: {text}");
             let fm = text.split("---\n").nth(1).unwrap();
+            assert!(fm.lines().any(|l| l.starts_with("model:")), "{name}: {text}");
             assert!(
                 !fm.lines().any(|l| l.starts_with("provider:")),
                 "{name} に provider: がある: {fm}"

@@ -2,13 +2,12 @@
 name: 🌱 子を育てる
 id: lab-grow
 description: "Library の論文から、対象の Node に足す子の型を 1 つ選んで子を足す（Q の下は A か child_Q のどちらか一方、A の下は F か Q）"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find
   - sci-match
-  - search-internal
   - literature-hard-rules
   - domain
 context: true
@@ -54,7 +53,7 @@ Q と A の間に条件の Q が要ると分かったら、`insert_q` で間に�
    ```
 
 5. **許可を取る。** `add_q`・`insert_q` は許可が要ります。その段だけを 1 回の `op` にまとめ、先に質問ツールで許可を取ります（`sci-core` の「許可を取る」。質問の決まりはそこに従います）。`add_a`・`add_f` は許可が要りません。
-6. **根拠を書く。** F の文は事実（論文に書いてあること）と解釈（あなたの考え）を分けます。出典は `sci-core` の「根拠」に従い、数字を含む文には `cites` か `report` を付けます。
+6. **根拠を書く。** F の文は事実（論文に書いてあること）と解釈（あなたの考え）を分けます。出典は `sci-core` の「根拠」に従い、数字を含む文には `cites` か `report` を付けます。A の本文に `#番号` の出典を書いたら、同じ出典の F を 1 本足します（`sci-core` の F の決まり）。
 7. **REPORT を保存して終えます**（`sci-core` の「終わり方」）。
 
 ## 評価の観点

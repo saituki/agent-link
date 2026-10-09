@@ -107,7 +107,9 @@
 // 論文の詳細の再編（音声を作るを PDF の列へ・Index を足す・Abstract/Notes/Figure/Reference/Chunk の見出しと折りたたみ）で v101 に（index.html の ?v= も 101。ASSETS は変えない）
 // research-tree の画面（O を A に・F の stance・保留の印と目安の欄を消す・MLflow の参照・History の許可）で v102 に（index.html の ?v= も 102。ASSETS は変えない）
 // History の画面（CLI の呼び出しの表・失敗の印・番号のチップ・全文の小窓）で v103 に（index.html の ?v= も 103。ASSETS は変えない）
-const CACHE = "sai-web-v103";
+// Web から pi を消し（カード作成と研究の CARD は cc・model・thinking）で v104 に（index.html の ?v= も 104。ASSETS は変えない）
+// U10（Claude のログインを Account に足す・account.js と style.css を直す）で v105 に（index.html の ?v= も 105。ASSETS は変えない）
+const CACHE = "sai-web-v105";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）

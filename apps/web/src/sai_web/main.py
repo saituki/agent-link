@@ -30,6 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from sai_web import (
     auth,
     bundles,
+    claude_login,
     commands,
     containers,
     control,
@@ -508,6 +509,48 @@ def api_me_keys_write(
     containers.write_keys(user, payload)
     result = containers.recreate_for_user(user)
     return {"ok": True, "recreated": result["recreated"], "pending": result["pending"]}
+
+
+# --- Claude のログイン（U10・共有契約 C-LOGIN） ---
+# 値（コード・token）は返さない。ログインに成功したら token を消して、コンテナを作り直す。
+
+
+@app.get("/api/me/claude-login")
+def api_me_claude_login(_: None = Depends(require_token)) -> dict:
+    """自分の Claude のログインの状態（`token_set` は CLAUDE_CODE_OAUTH_TOKEN の有無）。"""
+    _require_multi()
+    user = _current_name()
+    info = claude_login.status(user)
+    token_set = bool(containers.read_keys(user).get("CLAUDE_CODE_OAUTH_TOKEN"))
+    return {"logged_in": info["logged_in"], "auth_method": info["auth_method"], "token_set": token_set}
+
+
+@app.post("/api/me/claude-login/start")
+def api_me_claude_login_start(_: None = Depends(require_token)) -> dict:
+    """ログインを始める。ログインの URL を返す（`{"url"}`）。"""
+    _require_multi()
+    return claude_login.start(_current_name())
+
+
+@app.post("/api/me/claude-login/code")
+def api_me_claude_login_code(
+    payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """貼られたコードでログインを完了する。token は環境変数で優先されるので消して作り直す。"""
+    _require_multi()
+    user = _current_name()
+    claude_login.submit(user, payload.get("code"))
+    containers.write_keys(user, {"CLAUDE_CODE_OAUTH_TOKEN": ""})
+    result = containers.recreate_for_user(user)
+    return {"ok": True, "recreated": result["recreated"], "pending": result["pending"]}
+
+
+@app.delete("/api/me/claude-login")
+def api_me_claude_login_cancel(_: None = Depends(require_token)) -> dict:
+    """進行中のログインをやめる。"""
+    _require_multi()
+    claude_login.cancel(_current_name())
+    return {"ok": True}
 
 
 # --- 管理者（U06） ---

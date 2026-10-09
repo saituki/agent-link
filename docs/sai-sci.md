@@ -8,7 +8,7 @@
 research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state.md`・`tree.md`）はその正からの書き出しにします。
 
 - research-tree は、論文の置き場があるプロジェクトごとに 1 つあります。
-- Web（`apps/web`）・CLI・cc と pi の質問フックが、同じ research-tree を読み書きします。
+- Web（`apps/web`）・CLI・cc の質問フックが、同じ research-tree を読み書きします。
 - エージェントは `sai-sci op` で木を変えます。許可が要る op は、利用者が質問で「許可する」を選ぶまで入りません（5.4 節・5.10 節）。
 
 ## 1. sai-sci とは
@@ -203,7 +203,7 @@ professor / professor-backward（root の run。researcher を直接起こす）
 | `operator` | sai-tree の故障の対処・監視・情報の抽出・Web と同じ操作 | `sai-agent` / `sci-cli` | しない。professor の子 |
 | `kaizen` | professor / professor-backward の実行履歴から問題を洗い出し、改善計画書を作る。コードも research-tree も直さない | `sai-agent` / `sci-task` / `sci-cli` | しない |
 
-- CARD の `executer` は起動者（`human` / `agent`。古い値 `professor` は `agent` として読む）。`--executer agent` の CARD は人間が Web から起こせず、professor が `sai-link task create` の `card` で自分の子として起こす。
+- `sai-sci card` に `--executer` は無く、作る CARD は人が起こす CARD です（`executer` は `human`）。Professor は、自分の子として起こす CARD を `sai-link task create` の `card` で作り、`sai-link run wait` で待ちます。古い CARD の `executer: agent` は読むだけで、`sai-link card run` は断ります。
 - 子からの質問は親の `sai-link task wait` に `stalled`（`reason: "question"`）で届き、`sai-web question` / `answer` で答える。
 - 完了は、子は `sai-link task report`、root（professor）は質問ツールで「完了してよいか」を確かめて `sai-link run finalize` に `report`。
 - 研究日誌は `.sai/paper/professor-log.md`。operator の学びは `~/.sai/operator-notes.md`（`SAI_HOME` があればその中）。
@@ -301,7 +301,7 @@ sai-sci init --type <型>
 | research-tree | `papr.db` の `rt_*` の表 |
 | 書き出し（`state.md` と `tree.md`） | `<root>/.sai/paper/` |
 
-**手で足す設定はありません。** `init` だけで sci の設定が終わります。cc と pi の質問フックの登録は 5.10 節の手順で行います（`sai-link` が cc の登録を書くこともあります）。
+**手で足す設定はありません。** `init` だけで sci の設定が終わります。cc の質問フックの登録は 5.10 節の手順で行います（`sai-link` が cc の登録を書くこともあります）。
 
 ---
 
@@ -408,7 +408,7 @@ sai-sci card --node SEED --block sci-exp-sprout   SPROUT を作る（対象は S
         ▼  …ジョブが終わると daemon が起こす
  review ── 台帳で判定する。tune・debug → 同じ experiment の次の branch、
         │  model・ablation → 新しい experiment の次の branch、stop → 完了報告書
-        └─▶ 次の branch …   （stop で終わる。起動元が professor なら起こし直す）
+        └─▶ 次の branch …   （stop で終わる。起動元が professor なら、professor が `sai-link run wait` で見張って結果を受け取る）
 ```
 
 - **MLflow の形**: experiment は `<project>/ID<sprout>/<model>`、run は `ID<branch>-p<NN>`。epoch ごとに `train_loss`・`val_loss` を記録する。
@@ -490,7 +490,7 @@ sai-link card run <返ってきた run_id>
    ```
 
    - 質問が複数あるときは、質問文・回答をそれぞれ改行でつないだ 1 本の文字列にします。
-   - pi で端末から答えたときは `--answered-by terminal`。
+   - 端末で答えたときは `--answered-by terminal`。
 4. `sai-sci approval record` は `rt_approvals` に 1 行足します。同じ `qid` が既にあれば終了コード 4。
 5. agent が `sai-sci op` を出すと、許可を 1 件取って全部の op を書き、その許可を消費します。許可が要る op の rt_log の行に `approved_by`・`qid`・`question` が入ります。
 - agent は `sai-sci approval record` を自分で呼びません。
@@ -519,14 +519,6 @@ sai-link card run <返ってきた run_id>
   ```
 
   `timeout` は 86400（24 時間）。フックが Web の答えを待つので、cc の既定の待ち時間で切られないようにします。
-
-- **pi**: プロジェクトの `.pi/settings.json` の `extensions` に、`ask_user.ts` の絶対パスを入れます。pi は global と project の `extensions` を両方読むので、global の拡張は消えません。
-
-  ```json
-  {
-    "extensions": ["/絶対パス/sai-tree/apps/web/src/sai_web/extensions/ask_user.ts"]
-  }
-  ```
 
 - **命令の場所**: 承認の記録の命令は、環境変数 `SAI_SCI_BIN` で場所を変えられます（無ければ `sai-sci`）。
 - **確かめ方**: 一時プロジェクトで（5.4 節の op が必要な）質問に答えたあと、`sai-sci op` の `add_q` が通ること。通らないときは、`sai-sci status --json` の `warnings` と、`rt_approvals` の行を見ます。
@@ -558,7 +550,7 @@ agent が読んでいない論文の番号（`#37.5.2` など）を引用する�
 | `sai-sci op [--run <run_id>] [--block <id>]` | agent が op を出す（標準入力は `{"ops":[…]}`）。許可が要る op は承認を使う（5.4・5.10 節） |
 | `sai-sci approval record --qid <qid> --question <文> --answer <文> --answered-by <名前> [--run <id>] [--json]` | 質問の回答を承認として記録する。質問フックが呼ぶ（agent は呼ばない） |
 | `sai-sci apply` | 利用者の操作を 1 つ反映する（標準入力に 1 件の JSON。承認なし） |
-| `sai-sci card --node <Q12> --purpose <文> [--block <id>] [--child <Q\|A\|F>] [--expect <文>] [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner pi\|cc\|user] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--executer human\|agent] [--json]` | Node に向けた Action（CARD）を作る。`--runner user` は READ_CARD。`--child` は足す子の型 |
+| `sai-sci card --node <Q12> --purpose <文> [--block <id>] [--child <Q\|A\|F>] [--expect <文>] [--mode <purpose_first\|blind_first>] [--papers <番号,…>] [--runner cc\|user] [--model opus\|sonnet\|haiku\|inherit] [--thinking none\|low\|medium\|high\|xhigh\|max] [--depth abstract\|figures\|full] [--origin-run <run_id>] [--input <トークン>]… [--json]` | Node に向けた Action（CARD）を作る。`--runner` は既定 `cc`、`--runner user` は READ_CARD。`--model`・`--thinking` は省くと settings.json の既定。`--child` は足す子の型 |
 | `sai-sci read <run_id> [--json]` | READ_CARD の中身 |
 | `sai-sci export` | research-tree を `state.md` と `tree.md` に書き出す |
 | `sai-sci schema [--json]` | 命令の一覧（`stdin`・`json`・`web` の印つき） |

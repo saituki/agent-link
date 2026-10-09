@@ -2,14 +2,12 @@
 name: 🧭 外部を探して育てる
 id: lab-survey
 description: "対象の Node に足す子の案を外部の論文 DB で探し、取り込みを勧める候補と木の案を報告する。取り込まれたあとは lab-grow の CARD を作る"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find
   - sci-match
-  - search-external
-  - paper-search-strategy
   - literature-hard-rules
   - domain
 context: true
@@ -43,7 +41,7 @@ enable: true
    - 何のために探すか（目的）
    - 論文のどの項目が分かればよいか（抜き出す項目）
    - どれくらいの量があればよいか（件数の上限）
-2. `## SEARCH_HISTORY` を読み、同じ検索を繰り返しません。目的を英語の検索語に直し、3〜5 個に分けます（`sci-find` の決まりと `search-external` のステップ 2）。それぞれに同義語・上位語・除外語を添えます。
+2. `## SEARCH_HISTORY` を読み、同じ検索を繰り返しません。目的を英語の検索語に直し、3〜5 個に分けます（`sci-find` の「検索語の作り方」）。それぞれに同義語・上位語・除外語を添えます。
 3. 検索語ごとに検索します。`--purpose`・`--extract` は必ず付けます。
 
    ```bash
@@ -57,16 +55,16 @@ enable: true
 7. 利用者に、Web の検索履歴から取り込んでもらうよう報告に書いて、REPORT を保存して終えます。
 
 ### 段 2: CARD を作る
-1. 依頼文の `sci_papers`（取り込んだ論文の番号）を確かめます。`sai-sci find` で Library にあることを見ます。無い番号があれば、作らずに報告します。
+1. 依頼文の `sci_papers`（取り込んだ論文の番号）を確かめます。`sai-paper paper show <番号>` で Library にあることを見ます。無い番号があれば、作らずに報告します。
 2. `lab-grow` の CARD を作ります。型は指定しません。作るだけで、実行はしません。
 
    ```bash
    sai-sci card --node <対象の Node> --block lab-grow \
-     --purpose "<足す目的>" --papers <番号,番号> --executer agent \
+     --purpose "<足す目的>" --papers <番号,番号> \
      --origin-run "$SAI_PARENT_RUN_ID" --json
    ```
 
-3. 作った CARD の内容（Node・論文の番号）を報告に書いて、REPORT を保存して終えます。
+3. 作った CARD の内容（Node・論文の番号・`run_id`）を報告に書いて、REPORT を保存して終えます。
 
 ## 評価の観点
 - 検索語が対象の Node と Extract から出ていて、依頼文をそのまま英訳しただけになっていないか。
@@ -90,5 +88,5 @@ report は次の見出しで、この順のまま書きます。
 
 - **段と検索語** — 段 1 か段 2 か、検索語と対象の Node。
 - **木に足す案** — 段 1 のときだけ。段 2 は「なし」。
-- **作った CARD** — 段 2 のときだけ。段 1 は「なし」。
+- **作った CARD** — 段 2 のときだけ。作った CARD の内容（Node・論文の番号・`run_id`。起こすのは Professor か Human）。段 1 は「なし」。
 - 「木への変更」は段 1・段 2 とも「なし」です（木には op を出しません）。

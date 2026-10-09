@@ -491,6 +491,18 @@ pub enum RunCmd {
         json: bool,
     },
 
+    /// 自分の子でない run（card run で起こした run）の完了・失敗・停止を待つ（1 回最大 90 秒）
+    Wait {
+        /// 待つ run の ID（1〜50 件）
+        #[arg(value_name = "RUN_ID", required = true)]
+        run_ids: Vec<i64>,
+        /// 最大待機時間（ミリ秒）。0 で 1 回だけ調べる
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
     /// 実行を消す（DB の行と run フォルダ・子の実行も一緒に）
     Rm {
         #[arg(value_name = "RUN_ID")]
@@ -1347,7 +1359,7 @@ pub fn handle_block_preview(
         worktree: None,
         cwd: None,
         keep_pane: false,
-        runner: sai_link_engine::runner::RunnerKind::Pi,
+        runner: sai_link_engine::runner::RunnerKind::Cc,
     };
     let resolved = orchestrator::resolve_execution_settings(&parsed.config, &overrides);
 
@@ -2100,7 +2112,7 @@ pub fn handle_waggle_resolve(token: &str) -> Result<(), Box<dyn std::error::Erro
 /// プロジェクトを初期化する。
 ///
 /// 1. `PROJECTROOT/.sai/` と必要なフォルダ・`settings.json` を作成する（既存は触らない）。
-///    cc と pi の設定 `.mcp.json` / `.claude/settings.json` / `.pi/settings.json` を作る（既存は `.bak` へ退避）
+///    cc の設定 `.mcp.json` / `.claude/settings.json` を作る（既存は `.bak` へ退避）
 ///    実行の記録の DB（`.sai/sai-engine/sai-engine.db`）も作る（デーモンを起動する前に READ_CARD を作れるように）
 /// 2. 登録簿（`~/.sai/registry.json`）にプロジェクトを登録する
 pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -2142,7 +2154,7 @@ pub fn handle_init(name: Option<String>, update: bool) -> Result<(), Box<dyn std
         println!("   配布: そのまま {unchanged} 件");
     }
     println!(
-        "   次: .mcp.json・.claude/・.pi/ を git commit してください（worktree の cc と pi が読むため）"
+        "   次: .mcp.json・.claude/ を git commit してください（worktree の cc が読むため）"
     );
 
     // 2. 登録簿（`~/.sai/registry.json`）への登録（apps/web がプロジェクトを名前で引くため）

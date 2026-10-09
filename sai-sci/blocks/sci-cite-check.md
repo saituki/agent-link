@@ -2,7 +2,7 @@
 name: 🔗 引用を確かめる
 id: sci-cite-check
 description: "基盤論文の主張（A）ごとに、引用された論文が本当にそう言っているかを確かめ、判定を F として A に付ける（逆向き）"
-model: inherit
+model: opus
 thinking: high
 templates:
   - sci-core

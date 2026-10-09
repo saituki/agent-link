@@ -2,15 +2,14 @@
 //!
 //! ブロックを実行するエージェント CLI を表す [`RunnerKind`] を提供します。
 //!
-//! - `pi`   — pi コーディングエージェント（既存・既定）
-//! - `cc`   — Claude Code（`cc` コマンド。ユーザー環境で `cc` を shim する前提）
+//! - `cc`   — Claude Code（`cc` コマンド。ユーザー環境で `cc` を shim する前提・既定）
 //! - `gl`   — sai-gemini-tui（`gl` コマンド。`~/.local/bin/gl` ラッパー経由で起動）
 //!
 //! runner は kanban カード frontmatter の `runner:` で指定され、
 //! `ExecutionOverrides` → DB `execution_history.runner` → 起動コマンド構築 →
 //! プロンプト送信キー、まで一貫して伝播します。
 //!
-//! 後方互換: 未指定・未知の値は `Pi` として扱います。
+//! 後方互換: 未指定・未知・`pi` の値は `Cc` として扱います（pi は廃止）。
 
 use serde::{Deserialize, Serialize};
 
@@ -18,10 +17,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RunnerKind {
-    /// pi コーディングエージェント（既定）。
+    /// Claude Code（`cc` コマンド）。既定。
     #[default]
-    Pi,
-    /// Claude Code（`cc` コマンド）。
     Cc,
     /// sai-gemini-tui（`gl` コマンド）。
     ///
@@ -35,19 +32,17 @@ impl RunnerKind {
     ///
     /// - `"cc"` / `"claude"` / `"claude-code"` → [`RunnerKind::Cc`]
     /// - `"gl"` / `"gemini"` → [`RunnerKind::Gl`]
-    /// - `"pi"` / 空 / 未知 → [`RunnerKind::Pi`]（後方互換）
+    /// - `"pi"` / 空 / 未知 → [`RunnerKind::Cc`]（pi は廃止。古い Card・記録は cc 扱い）
     pub fn parse(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
-            "cc" | "claude" | "claude-code" | "claudecode" => RunnerKind::Cc,
             "gl" | "gemini" | "sai-gemini" => RunnerKind::Gl,
-            _ => RunnerKind::Pi,
+            _ => RunnerKind::Cc,
         }
     }
 
-    /// DB に保存する正規文字列を返す（`"pi"` / `"cc"` / `"gl"`）。
+    /// DB に保存する正規文字列を返す（`"cc"` / `"gl"`）。
     pub fn as_str(self) -> &'static str {
         match self {
-            RunnerKind::Pi => "pi",
             RunnerKind::Cc => "cc",
             RunnerKind::Gl => "gl",
         }
@@ -59,7 +54,6 @@ impl RunnerKind {
     /// Linux の `cc` は C コンパイラなので shim を置かない）。
     pub fn bin(self) -> &'static str {
         match self {
-            RunnerKind::Pi => "pi",
             RunnerKind::Cc => "claude",
             RunnerKind::Gl => "gl",
         }
@@ -67,13 +61,13 @@ impl RunnerKind {
 
     /// プロンプト本文を確定送信するキー。
     ///
-    /// pi・Claude Code はマルチライン入力を `Alt+Enter` で確定する
+    /// Claude Code はマルチライン入力を `Alt+Enter` で確定する
     /// （`~/.claude/keybindings.json` で `enter` = 改行 / `alt+enter` = 送信 に
     /// 割り当てられているユーザー環境を前提とする）。
     /// gl は起動時のタスク書き込みなしのため送信自体を行わない。
     pub fn submit_key(self) -> &'static str {
         match self {
-            RunnerKind::Pi | RunnerKind::Cc => "Alt+Enter",
+            RunnerKind::Cc => "Alt+Enter",
             RunnerKind::Gl => "Enter",
         }
     }
@@ -107,17 +101,18 @@ mod tests {
 
     #[test]
     fn parse_known_values() {
-        assert_eq!(RunnerKind::parse("pi"), RunnerKind::Pi);
-        assert_eq!(RunnerKind::parse("PI"), RunnerKind::Pi);
         assert_eq!(RunnerKind::parse("cc"), RunnerKind::Cc);
         assert_eq!(RunnerKind::parse(" claude "), RunnerKind::Cc);
         assert_eq!(RunnerKind::parse("claude-code"), RunnerKind::Cc);
     }
 
     #[test]
-    fn parse_unknown_defaults_to_pi() {
-        assert_eq!(RunnerKind::parse(""), RunnerKind::Pi);
-        assert_eq!(RunnerKind::parse("-"), RunnerKind::Pi);
+    fn parse_pi_and_unknown_fall_back_to_cc() {
+        // pi は廃止。古い Card・記録の pi と、空・未知の値は cc として扱う
+        assert_eq!(RunnerKind::parse("pi"), RunnerKind::Cc);
+        assert_eq!(RunnerKind::parse("PI"), RunnerKind::Cc);
+        assert_eq!(RunnerKind::parse(""), RunnerKind::Cc);
+        assert_eq!(RunnerKind::parse("-"), RunnerKind::Cc);
         assert_eq!(RunnerKind::parse("gl"), RunnerKind::Gl);
         assert_eq!(RunnerKind::parse("GL"), RunnerKind::Gl);
         assert_eq!(RunnerKind::parse("gemini"), RunnerKind::Gl);
@@ -126,7 +121,6 @@ mod tests {
 
     #[test]
     fn submit_key_differs() {
-        assert_eq!(RunnerKind::Pi.submit_key(), "Alt+Enter");
         assert_eq!(RunnerKind::Cc.submit_key(), "Alt+Enter");
         assert_eq!(RunnerKind::Gl.submit_key(), "Enter");
     }
@@ -134,16 +128,13 @@ mod tests {
     #[test]
     fn serde_roundtrip_and_default() {
         assert_eq!(serde_json::to_string(&RunnerKind::Cc).unwrap(), "\"cc\"");
-        assert_eq!(serde_json::to_string(&RunnerKind::Pi).unwrap(), "\"pi\"");
         assert_eq!(serde_json::to_string(&RunnerKind::Gl).unwrap(), "\"gl\"");
-        // フィールド欠落は Pi（後方互換）
-        let missing: Result<RunnerKind, _> = serde_json::from_str("null");
-        assert!(missing.is_err() || missing.unwrap() == RunnerKind::Pi);
+        // 既定値は cc（pi は廃止）
+        assert_eq!(RunnerKind::default(), RunnerKind::Cc);
     }
 
     #[test]
     fn display_matches_as_str() {
-        assert_eq!(RunnerKind::Pi.to_string(), "pi");
         assert_eq!(RunnerKind::Cc.to_string(), "cc");
         assert_eq!(RunnerKind::Gl.to_string(), "gl");
     }
@@ -151,7 +142,6 @@ mod tests {
     #[test]
     fn gl_is_no_task_write_only() {
         assert!(RunnerKind::Gl.is_no_task_write());
-        assert!(!RunnerKind::Pi.is_no_task_write());
         assert!(!RunnerKind::Cc.is_no_task_write());
     }
 }

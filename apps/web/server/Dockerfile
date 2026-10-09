@@ -1,14 +1,14 @@
 # sai-tree の研究プロジェクト用イメージ（共有契約 C7）。
 #
-# 中に入る物: sai-link・sai-paper・sai-sci（Linux 版）・Claude Code・pi・Python・
-# cc のフック・pi の質問の拡張。docling と pdf2zh は入れない（サーバでは動かさない）。
+# 中に入る物: sai-link・sai-paper・sai-sci（Linux 版）・Claude Code・Python・
+# cc のフック。docling と pdf2zh は入れない（サーバでは動かさない）。
 #
 # ビルドはリポジトリの直下を文脈にする（その機械の上で作る。arm64 と amd64 の違いを避ける）:
 #   docker build -f apps/web/server/Dockerfile -t sai-tree:latest .
 #
-# sai-link は cc のフックと pi の拡張の場所を、ビルドしたときのソースの場所
+# sai-link は cc のフックの場所を、ビルドしたときのソースの場所
 # （`CARGO_MANIFEST_DIR` = /opt/sai-tree/crates/sai-link-engine）から決める
-# （crates/sai-link-engine/src/cc_command.rs の web_hooks_dir・pi_question_extension）。
+# （crates/sai-link-engine/src/cc_command.rs の web_hooks_dir）。
 # ビルドと実行で同じ /opt/sai-tree を使い、この 2 つが解決できるようにする。
 
 # ---- 1. Rust の実行ファイルを作る ----
@@ -32,15 +32,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-venv git ca-certificates curl ripgrep jq tini procps tmux \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-RUN npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent
+RUN npm install -g @anthropic-ai/claude-code
 COPY --from=build /out/sai-link /out/sai-paper /out/sai-sci /usr/local/bin/
-# cc のフックと pi の質問の拡張を、ビルドしたときと同じ場所（/opt/sai-tree）に置く。
+# cc のフックを、ビルドしたときと同じ場所（/opt/sai-tree）に置く。
 # sai-link は `CARGO_MANIFEST_DIR`（= /opt/sai-tree/crates/sai-link-engine）から
-# `../../apps/web/...` をたどって場所を決める（cc_command.rs の web_hooks_dir・
-# pi_question_extension）。`canonicalize()` が通るよう、その crate のフォルダを実在させる。
+# `../../apps/web/...` をたどって場所を決める（cc_command.rs の web_hooks_dir）。
+# `canonicalize()` が通るよう、その crate のフォルダを実在させる。
 RUN mkdir -p /opt/sai-tree/crates/sai-link-engine
 COPY apps/web/hooks /opt/sai-tree/apps/web/hooks
-# sai_web の全体を置く（sai-web の CLI が `sai_web.webcli` を読むため）。pi の拡張は extensions の中。
+# sai_web の全体を置く（sai-web の CLI が `sai_web.webcli` を読むため）。
 COPY apps/web/src/sai_web /opt/sai-tree/apps/web/src/sai_web
 # コンテナの agent が質問を読んで答えるための sai-web（内部の合言葉で `/api/questions/mine` などを呼ぶ）。
 # fastapi を入れない python3 で動くよう、標準ライブラリだけの webcli を PYTHONPATH で読む。
@@ -49,7 +49,7 @@ RUN printf '#!/bin/sh\nPYTHONPATH=/opt/sai-tree/apps/web/src exec python3 -m sai
 # sai-sci の研究の部品（tools・exec・blocks・template）は実行ファイルに埋め込まれている
 # （crates/sai-sci-cli/src/agent_assets.rs の include_str!）。元のフォルダは参照用に置く。
 COPY sai-sci /opt/sai-tree/sai-sci
-ENV SAI_CLAUDE_BIN=claude SAI_PI_BIN=pi
+ENV SAI_CLAUDE_BIN=claude
 ENTRYPOINT ["/usr/bin/tini", "--"]
 # プロジェクトの準備（.sai）ができていれば常駐を起こし、あとは眠ってコンテナを生かしておく。
 CMD ["sh", "-c", "[ -d .sai ] && sai-link daemon start; exec sleep infinity"]

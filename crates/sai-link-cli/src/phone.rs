@@ -152,10 +152,10 @@ struct CardCreateInput {
     /// thinking（空 = スキップ）
     #[serde(default)]
     thinking: String,
-    /// グローバルラウンド（空 = 自動継承）
+    /// グローバルラウンド（空 = card run が 1 を使う）
     #[serde(default)]
     global_round: String,
-    /// ローカルラウンド（空 = 自動継承）
+    /// ローカルラウンド（空 = card run が 1 を使う）
     #[serde(default)]
     round: String,
     /// タグ（空 = スキップ）
@@ -1027,7 +1027,7 @@ fn card_options() -> PhoneResult<Value> {
         let models = card_wizard::load_model_choices(&p);
         providers.insert(p, json!(models));
     }
-    let (_, warnings) = sai_link_engine::pi_command::load_settings_quiet();
+    let (_, warnings) = sai_link_engine::settings::load_settings_quiet();
 
     Ok(json!({
         "runners": card_wizard::RUNNER_OPTIONS,

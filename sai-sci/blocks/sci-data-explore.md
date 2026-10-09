@@ -2,7 +2,7 @@
 name: 🧭 data-explore
 id: sci-data-explore
 description: "データを受け取り、データ表・EDA・前処理を作る。検定はせず、sci-data-test を勧めて終える"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core

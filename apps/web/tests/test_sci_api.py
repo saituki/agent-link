@@ -245,7 +245,7 @@ def test_unknown_fields_dropped() -> None:
     )
     for key in ("path", "doc", "question", "role", "executer"):
         assert key not in card, (key, card)
-    assert card["papers"] == [37] and card["runner"] == "pi", card
+    assert card["papers"] == [37] and card["runner"] == "cc", card
 
 
 def test_card() -> None:
@@ -253,7 +253,7 @@ def test_card() -> None:
     full = {
         "node": "Q12", "block": "sci-ideate", "purpose": "  答えの候補を出す  ",
         "expect": "O を 2 つ以上", "scope": "path", "assume": ["Q9=SST-2 を使う（仮）"],
-        "mode": "purpose_first", "papers": [37], "runner": "pi", "depth": "full",
+        "mode": "purpose_first", "papers": [37], "runner": "cc", "depth": "full",
         "origin_run": 120,
     }
     got = sci.validate_card(full)
@@ -266,8 +266,8 @@ def test_card() -> None:
     assert sci.validate_card(ok_user)["runner"] == "user"
     assert sci.validate_card({**ok_user, "mode": "blind_first"})["mode"] == "blind_first"
     assert "mode" not in sci.validate_card(ok_user)
-    # SEED はカードの対象にできる（実行は pi）
-    seed_card = {"node": "SEED", "block": "sci-review", "purpose": "木全体を見直す", "runner": "pi"}
+    # SEED はカードの対象にできる（実行は cc）
+    seed_card = {"node": "SEED", "block": "sci-review", "purpose": "木全体を見直す", "runner": "cc"}
     assert sci.validate_card(seed_card)["node"] == "SEED"
     # C9: LabAgent の block id（lab-*）も通る
     assert sci.validate_card({**ok_user, "block": "lab-read"})["block"] == "lab-read"
@@ -277,6 +277,12 @@ def test_card() -> None:
     assert "child" not in sci.validate_card({**ok_user, "child": ""})
     assert "child" not in sci.validate_card({**ok_user, "child": None})
     assert "child" not in sci.validate_card(ok_user)
+    # model・thinking は省略可（選んだ物だけ通す）。空と無しは落とす
+    assert sci.validate_card({**ok_user, "model": "opus", "thinking": "high"})["model"] == "opus"
+    assert sci.validate_card({**ok_user, "model": "opus", "thinking": "high"})["thinking"] == "high"
+    assert "model" not in sci.validate_card({**ok_user, "model": "", "thinking": ""})
+    assert "thinking" not in sci.validate_card({**ok_user, "model": "", "thinking": ""})
+    assert "model" not in sci.validate_card(ok_user) and "thinking" not in sci.validate_card(ok_user)
 
     def bad(extra: dict, detail: str = "") -> None:
         expect_400(lambda: sci.validate_card({**ok_user, **extra}), detail)
@@ -299,8 +305,12 @@ def test_card() -> None:
     bad({"depth": "deep"}, "depth が正しくありません")
     bad({"mode": "quick"}, "mode が正しくありません")
     bad({"runner": "human"}, "runner が正しくありません")
+    # pi は廃止（400）。空の runner は cc
+    bad({"runner": "pi"}, "runner の pi は廃止しました")
+    bad({"model": "gpt"}, "model が正しくありません")
+    bad({"thinking": "ultra"}, "thinking が正しくありません")
     bad({"origin_run": 0})
-    bad({"papers": list(range(1, 22)), "runner": "pi"}, "papers の指定が正しくありません")
+    bad({"papers": list(range(1, 22)), "runner": "cc"}, "papers の指定が正しくありません")
     bad({"papers": [0]}, "run_id は 1〜999999999 の整数にしてください")
 
 

@@ -112,6 +112,9 @@ def test_validation(cli: FakeCli) -> None:
     expect(400, with_payload(task_text="あ" * (100 * 1024)))
     # runner / thinking は一覧の値（空文字はスキップなので通る）
     expect(400, with_payload(runner="claude"))
+    # pi は廃止（U06）。理由を文言で確かめる
+    e = expect(400, with_payload(runner="pi"))
+    assert e.detail == "runner の pi は廃止しました", e.detail
     expect(400, with_payload(runner=5))
     expect(400, with_payload(thinking="turbo"))
     # done_ids は 1 以上の整数の配列

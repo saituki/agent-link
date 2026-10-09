@@ -1,6 +1,6 @@
 //! # エージェント実行オーケストレーター
 //!
-//! ブロック定義ファイルのパースから herdr pane 上での pi エージェント実行、
+//! ブロック定義ファイルのパースから herdr pane 上でのエージェント実行、
 //! プロンプト注入、完了待機、出力抽出、クリーンアップまでの
 //! 完全なパイプラインを提供します。
 //!
@@ -58,14 +58,13 @@ use serde::{Deserialize, Serialize};
 use crate::block_config::BlockConfig;
 use crate::herdr::{HerdrClient, HerdrError, SplitDirection};
 use crate::cc_command::CcCommandBuilder;
-use crate::pi_command::PiCommandBuilder;
 use crate::placeholder::{
     resolve_placeholder_values, shift_headings, split_fixed_and_variable, PlaceholderValue,
 };
 use crate::runner::RunnerKind;
 use crate::doc_write_notify;
 use crate::session::{
-    create_session_dir, create_session_file, extract_output_from_dir, SessionError,
+    create_session_dir, create_session_file, SessionError,
 };
 use crate::waggle_integration::WaggleIntegrator;
 
@@ -109,11 +108,11 @@ pub struct PipelineConfig {
     /// 動的 pane 配置で**既に作成済みの pane**（分割は task_manager 側で実施済み）。
     /// Some ならパイプラインは分割をスキップしてこの pane を再利用する（競合防止・案X）。
     pub pane_id: Option<String>,
-    /// サブタスクとして実行中かどうか（true の場合、pi プロセスに SAI_IS_SUBTASK=1 を付与）
+    /// サブタスクとして実行中かどうか（true の場合、エージェントのプロセスに SAI_IS_SUBTASK=1 を付与）
     pub is_subtask: bool,
     /// 研究の対象 Node（`SAI_TARGET_NODE` に入れる。None なら付けない）
     pub target_node: Option<String>,
-    /// 実行主体（`pi` / `cc`）。既定 `Pi`。
+    /// 実行主体（`cc` / `gl`）。既定 `Cc`。
     pub runner: RunnerKind,
 }
 
@@ -154,7 +153,7 @@ impl Default for PipelineConfig {
             pane_id: None,
             is_subtask: false,
             target_node: None,
-            runner: RunnerKind::Pi,
+            runner: RunnerKind::Cc,
         }
     }
 }
@@ -195,8 +194,8 @@ pub struct PipelineResult {
 pub enum OrchestratorError {
     #[error("herdr 操作エラー: {0}")]
     HerdrError(#[from] HerdrError),
-    #[error("pi コマンド構築エラー: {0}")]
-    PiCommandError(String),
+    #[error("コマンド構築エラー: {0}")]
+    CommandError(String),
     #[error("セッションファイルエラー: {0}")]
     SessionError(String),
     #[error("{timeout_ms}ms 以内にエージェントが完了しませんでした")]
@@ -224,9 +223,9 @@ impl From<SessionError> for OrchestratorError {
 /// デーモンは `file_written` 通知（sai-write）を処理した際、
 /// 通知の `run_id` に対応する実行の監視チャネルへこのイベントを送信します。
 /// 実行監視スレッドは sai-write をトークンの収集にだけ使い、完了は `FinalizeRequested`
-/// で判定します（メインは `/pi-sai-finalize`、サブは `task_report`。P6-2）。
+/// で判定します（メインは `/sai-finalize`、サブは `task_report`。P6-2）。
 ///
-/// `FinalizeRequested` はメインではユーザーが `/pi-sai-finalize` を入力した際、
+/// `FinalizeRequested` はメインではユーザーが `/sai-finalize` を入力した際、
 /// サブでは `task_report` が `finalize_request` を書いた際にデーモンから送信され、
 /// 出力抽出・統計保存を実行して正常完了とします（ケース5）。
 ///
@@ -244,7 +243,7 @@ pub enum CompletionEvent {
         /// 書き込まれたファイルのパス
         file_path: PathBuf,
     },
-    /// 完了要求（メインは `/pi-sai-finalize`、サブは `task_report`）
+    /// 完了要求（メインは `/sai-finalize`、サブは `task_report`）
     FinalizeRequested {
         /// 対象の実行 ID
         run_id: i64,
@@ -271,7 +270,7 @@ pub type RunningExecutions = Arc<Mutex<HashMap<i64, mpsc::Sender<CompletionEvent
 /// 指定がなければブロック定義のフロントマター値、さらにエンジンのデフォルト値を使用する。
 ///
 /// ブロック定義書（フロントマター）は**デフォルト値**であり、
-/// CLI / pi-sai が実行時にこの構造体でオーバーライドする（query3・A5）。
+/// CLI / Web が実行時にこの構造体でオーバーライドする（query3・A5）。
 /// 旧 `daemon::BlockRunOverrides` / `interactive::ExecutionSettings` は本構造体に統合された（P8）。
 /// `timeout` の単位は**秒**に統一。旧形式の `timeout_ms`（ミリ秒）は alias で受容するが、
 /// 古い pending 通知が残る稀なケースのみに影響する移行措置。
@@ -304,7 +303,7 @@ pub struct ExecutionOverrides {
     /// デバッグ用にペインを維持するか（1.10 の修正: 全経路で伝播）
     #[serde(default)]
     pub keep_pane: bool,
-    /// 実行主体（`pi` / `cc`）。未指定は `pi`（後方互換）。
+    /// 実行主体（`cc` / `gl`）。未指定は `cc`。
     #[serde(default)]
     pub runner: RunnerKind,
 }
@@ -328,7 +327,7 @@ pub struct ResolvedExecutionSettings {
     pub tag: Option<String>,
     /// デバッグ用にペインを維持するか
     pub keep_pane: bool,
-    /// 解決後の実行主体（`pi` / `cc`）。
+    /// 解決後の実行主体（`cc` / `gl`）。
     pub runner: RunnerKind,
 }
 
@@ -355,7 +354,7 @@ pub fn resolve_execution_settings(
             if model != "inherit"
                 && (config.provider.is_none() || config.provider.as_deref() == Some(""))
             {
-                if let Some(p) = crate::pi_command::resolve_provider_for_model(model) {
+                if let Some(p) = crate::settings::resolve_provider_for_model(model) {
                     config.provider = Some(p);
                 }
             }
@@ -389,7 +388,7 @@ pub fn resolve_execution_settings(
 
     // 2. R11: `.sai/settings.json` のデフォルト値を補完
     //    ブロック定義に model/provider/thinking が無い場合、settings.json の値を参照する。
-    let settings = crate::pi_command::load_settings();
+    let settings = crate::settings::load_settings();
     if config.model.is_none() || config.model.as_deref() == Some("") {
         if let Some(ref model) = settings.default_model {
             if !model.is_empty() {
@@ -457,7 +456,7 @@ pub fn resolve_execution_settings(
 
 /// `prepare_pipeline()` の戻り値。
 ///
-/// pi 起動前の準備（プレースホルダー展開、セッションディレクトリ作成、
+/// 起動前の準備（プレースホルダー展開、セッションディレクトリ作成、
 /// コマンド構築）の結果を保持します。
 /// TUI はこの内容をユーザーに表示して実行確認を求めます。
 #[derive(Debug, Clone)]
@@ -503,9 +502,9 @@ pub struct PreparedPipeline {
     pub task_id: Option<i64>,
     /// 親実行 ID（U3。停止通知 JSON の parent_run_id に使用）
     pub parent_run_id: Option<i64>,
-    /// 実行主体（`pi` / `cc`）。
+    /// 実行主体（`cc` / `gl`）。
     pub runner: RunnerKind,
-    /// プロンプト確定送信キー（pi・cc は Alt+Enter / gl は Enter）。
+    /// プロンプト確定送信キー（cc は Alt+Enter / gl は Enter）。
     pub submit_key: &'static str,
     /// エージェント側セッション ID（cc のみ。`--session-id` に渡し DB 保存する）。
     pub agent_session_id: Option<String>,
@@ -635,7 +634,7 @@ impl PipelineHandle {
 /// 1. プレースホルダー展開（`{{input.<id>}}` → 実際の値）
 /// 2. セッションディレクトリ作成
 /// 3. セッションファイル（JSONL）作成
-/// 4. pi 起動コマンド構築（`PiCommandBuilder` 使用）
+/// 4. 起動コマンド構築（cc）
 ///
 /// **この時点では herdr 操作は一切行いません。**
 /// 戻り値の `PreparedPipeline.pi_command` をユーザーに表示し、
@@ -656,7 +655,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         std::fs::create_dir_all(parent)?;
     }
     let integrator = WaggleIntegrator::open(&waggle_db_path)
-        .map_err(|e| OrchestratorError::PiCommandError(format!("waggle DB 初期化失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("waggle DB 初期化失敗: {}", e)))?;
 
     // HashMap<String, String> → HashMap<String, PlaceholderValue>
     let placeholder_values: HashMap<String, PlaceholderValue> = config
@@ -757,33 +756,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     };
 
     // ── Step 4+5: 起動コマンド構築（runner 分岐） ──
-    let session_dir_str = session_dir.to_string_lossy().to_string();
-
-    // エージェント側セッション ID（cc のみ。`--session-id` に渡し DB へ保存する）
-    let mut agent_session_id: Option<String> = None;
-
-    let (mut agent_command, agent_args) = match config.runner {
-        RunnerKind::Pi => {
-            let mut builder = PiCommandBuilder::new(&session_dir_str);
-            builder = builder.with_config(config.block_config.clone());
-            // 作業用コピーに `.mcp.json` が無い（未 commit）ときは、プロジェクトルートの
-            // 外部 MCP の設定を渡す。渡さないと pi は外部 MCP を 1 つも読めない（cc の --mcp-config と同じ）。
-            let cwd = config
-                .cwd
-                .clone()
-                .unwrap_or_else(crate::project::project_root);
-            if let Some(mcp) = crate::cc_command::resolve_mcp_config(&cwd) {
-                builder = builder.with_mcp_config(mcp.to_string_lossy());
-            }
-            // 固定部分（template と本文）を system-prompt.md から足す（U6）
-            if let Some(path) = &system_prompt_path {
-                builder = builder.with_system_prompt_file(path.to_string_lossy());
-            }
-            let pi_cmd = builder.build().map_err(|e| {
-                OrchestratorError::PiCommandError(format!("pi コマンド構築失敗: {}", e))
-            })?;
-            (pi_cmd.command, pi_cmd.args)
-        }
+    let (mut agent_command, agent_args, agent_session_id) = match config.runner {
         RunnerKind::Cc => {
             let cwd = config
                 .cwd
@@ -794,9 +767,8 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             // cwd がプロジェクトルートの外（別プロジェクトの cwd 等）でも、
             // sai-link 側の設定があればそれを `--mcp-config` / `--settings` で渡す。
             let config_dir = crate::cc_command::check_project_files(&cwd)
-                .map_err(OrchestratorError::PiCommandError)?;
+                .map_err(OrchestratorError::CommandError)?;
             let session_id = crate::cc_command::generate_uuid_v4();
-            agent_session_id = Some(session_id.clone());
             let mut builder =
                 CcCommandBuilder::new(&session_id).with_config(config.block_config.clone());
             // cwd 自身に設定が無い（プロジェクトルートから渡す）ときだけ明示指定する。
@@ -809,14 +781,15 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
             }
             let cc_cmd = builder.build()
                 .map_err(|e| {
-                    OrchestratorError::PiCommandError(format!("cc コマンド構築失敗: {}", e))
+                    OrchestratorError::CommandError(format!("cc コマンド構築失敗: {}", e))
                 })?;
-            (cc_cmd.command, cc_cmd.args)
+            // エージェント側セッション ID（`--session-id` に渡し DB へ保存する）
+            (cc_cmd.command, cc_cmd.args, Some(session_id))
         }
         RunnerKind::Gl => {
             // gl（sai-gemini-tui）は sai-tree では使わない（headless は cc / pi だけ）。
-            return Err(OrchestratorError::PiCommandError(
-                "gl は sai-tree では使えません（runner は pi か cc を指定してください）"
+            return Err(OrchestratorError::CommandError(
+                "gl は sai-tree では使えません（runner は cc を指定してください）"
                     .to_string(),
             ));
         }
@@ -829,7 +802,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // 予約キー（SAI_* の 4 つ）は設定の読み込み側で破棄される。
     // ここは SAI_* を付ける「前」に入れる。あとから付く SAI_* が
     // この行の上に重なるので、最終的な並びは「SAI_* → env → 実行ファイル」になる。
-    if let Some(env_pairs) = crate::pi_command::agent_env_pairs() {
+    if let Some(env_pairs) = crate::settings::agent_env_pairs() {
         let rendered: String = env_pairs
             .iter()
             .map(|(k, v)| format!("{}={} ", k, crate::herdr::shell_escape_single_quotes(v)))
@@ -847,8 +820,8 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // - SAI_BLOCK_NAME: doc write の通知ブロック名（block_name）に使用
     // - SAI_IS_SUBTASK: サブタスク実行中の場合に "1"
     let subtask_env = if config.is_subtask {
-        // SAI_LINK_BIN: 子から `sai-link task question` を呼ぶための実行ファイルのパス。
-        // pi 拡張（ask_user）はこの値を使うので、shell エスケープして渡す。
+        // SAI_LINK_BIN: 子から sai-link を呼ぶための実行ファイルのパス（sai-sci が使う）。
+        // shell エスケープして渡す。
         format!(
             "SAI_IS_SUBTASK=1 SAI_LINK_BIN={} ",
             crate::herdr::shell_escape_single_quotes(&crate::cc_command::sai_link_exe())
@@ -1251,13 +1224,6 @@ fn extract_outputs_for_pipeline(prepared: &PreparedPipeline) -> (String, String,
             }
             None => (String::new(), String::new(), None),
         },
-        RunnerKind::Pi => {
-            let output = extract_output_from_dir(&prepared.session_dir).unwrap_or_default();
-            let transcript =
-                crate::session::extract_full_transcript(&prepared.session_dir).unwrap_or_default();
-            let stats = extract_and_serialize_stats(&prepared.session_dir);
-            (output, transcript, stats)
-        }
         RunnerKind::Gl => {
             // gl は sai-gemini 側で会話するため、sai-link 側の出力・統計は空。
             // 会話内容は `session::gemini_*` で `~/.sai-gemini/sessions/` から読む。
@@ -1369,7 +1335,7 @@ pub fn upsert_block_metadata(
     let vresult = crate::validation::validate(config);
     if !vresult.is_valid() {
         let detail: Vec<String> = vresult.errors.iter().map(|e| e.to_string()).collect();
-        return Err(OrchestratorError::PiCommandError(format!(
+        return Err(OrchestratorError::CommandError(format!(
             "ブロック '{}' はバリデーションエラーのため登録をスキップします: {}",
             config.name,
             detail.join("; ")
@@ -1424,7 +1390,7 @@ pub fn upsert_block_metadata(
     match store.get_block_by_name(config.block_id()) {
         Ok(existing) => {
             let block_id = existing.id.ok_or_else(|| {
-                OrchestratorError::PiCommandError("既存ブロックに ID がありません".to_string())
+                OrchestratorError::CommandError("既存ブロックに ID がありません".to_string())
             })?;
             let updated = upsert(Some(existing));
             let _ = store.update_block(&updated);
@@ -1433,7 +1399,7 @@ pub fn upsert_block_metadata(
         Err(_) => {
             let new_block = upsert(None);
             store.insert_block(&new_block).map_err(|e| {
-                OrchestratorError::PiCommandError(format!("ブロック登録に失敗: {}", e))
+                OrchestratorError::CommandError(format!("ブロック登録に失敗: {}", e))
             })
         }
     }
@@ -1493,14 +1459,14 @@ pub fn prepare_execution_record_full(
             store
                 .claim_reserved_run(rid, block_id, user_inputs_json)
                 .map_err(|e| {
-                    OrchestratorError::PiCommandError(format!(
+                    OrchestratorError::CommandError(format!(
                         "予約 run の確定に失敗: {}",
                         e
                     ))
                 })?;
             // ステータスを running に更新
             store.update_execution_status(rid, "running").map_err(|e| {
-                OrchestratorError::PiCommandError(format!("ステータス更新に失敗: {}", e))
+                OrchestratorError::CommandError(format!("ステータス更新に失敗: {}", e))
             })?;
             // kanban 実行は呼び出し元が `update_execution_kanban_info` で上書きする
             let _ = store.update_execution_kanban_info(rid, None, "interactive");
@@ -1517,11 +1483,11 @@ pub fn prepare_execution_record_full(
         store
             .claim_reserved_run_for_subtask(rid, block_id, user_inputs_json, pid, batch_id)
             .map_err(|e| {
-                OrchestratorError::PiCommandError(format!("予約 run の確定に失敗: {}", e))
+                OrchestratorError::CommandError(format!("予約 run の確定に失敗: {}", e))
             })?;
 
         let parent_block_id = store.get_execution_by_id(pid).map_err(|e| {
-            OrchestratorError::PiCommandError(format!("親実行の取得に失敗: {}", e))
+            OrchestratorError::CommandError(format!("親実行の取得に失敗: {}", e))
         })?;
         let parent_block_id = parent_block_id.block_id;
         let delegation_conn = crate::db::BlockConnection::new_task_delegation(
@@ -1533,7 +1499,7 @@ pub fn prepare_execution_record_full(
         let _ = store.insert_connection(&delegation_conn);
 
         store.update_execution_status(rid, "running").map_err(|e| {
-            OrchestratorError::PiCommandError(format!("ステータス更新に失敗: {}", e))
+            OrchestratorError::CommandError(format!("ステータス更新に失敗: {}", e))
         })?;
         // カード経由の実行は呼び出し元が `update_execution_kanban_info` で `kanban` に上書きする
         let _ = store.update_execution_kanban_info(rid, None, "interactive");
@@ -1547,14 +1513,14 @@ pub fn prepare_execution_record_full(
         Some(pid) => {
             // 親実行からブロック ID を取得して委譲接続を作成
             let parent_exec = store.get_execution_by_id(pid).map_err(|e| {
-                OrchestratorError::PiCommandError(format!("親実行の取得に失敗: {}", e))
+                OrchestratorError::CommandError(format!("親実行の取得に失敗: {}", e))
             })?;
             let parent_block_id = parent_exec.block_id;
 
             let sub_run_id = store
                 .create_execution_for_subtask(block_id, user_inputs_json, pid, batch_id)
                 .map_err(|e| {
-                    OrchestratorError::PiCommandError(format!(
+                    OrchestratorError::CommandError(format!(
                         "サブタスク実行レコード作成に失敗: {}",
                         e
                     ))
@@ -1574,14 +1540,14 @@ pub fn prepare_execution_record_full(
         None => store
             .create_execution(block_id, user_inputs_json)
             .map_err(|e| {
-                OrchestratorError::PiCommandError(format!("実行レコード作成に失敗: {}", e))
+                OrchestratorError::CommandError(format!("実行レコード作成に失敗: {}", e))
             })?,
     };
 
     // ステータスを running に更新
     store
         .update_execution_status(run_id, "running")
-        .map_err(|e| OrchestratorError::PiCommandError(format!("ステータス更新に失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("ステータス更新に失敗: {}", e)))?;
 
     // 通常実行は `execution_mode='interactive'` を記録する（kanban 実行は
     // CLI 側が `update_execution_kanban_info` で `kanban` を上書きする）。
@@ -1628,14 +1594,14 @@ pub fn git_toplevel_at(dir: &Path) -> Result<PathBuf, OrchestratorError> {
         .arg(dir)
         .args(["rev-parse", "--show-toplevel"])
         .output()
-        .map_err(|e| OrchestratorError::PiCommandError(format!("git の実行に失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("git の実行に失敗: {}", e)))?;
     if output.status.success() {
         let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !s.is_empty() {
             return Ok(PathBuf::from(s));
         }
     }
-    Err(OrchestratorError::PiCommandError(format!(
+    Err(OrchestratorError::CommandError(format!(
         "git リポジトリを解決できません: {}",
         dir.display()
     )))
@@ -1663,7 +1629,7 @@ pub fn apply_worktree_at(repo_root: &Path, branch: &str) -> Result<PathBuf, Orch
         .current_dir(repo_root)
         .status()
         .map_err(|e| {
-            OrchestratorError::PiCommandError(format!("git worktree の実行に失敗: {}", e))
+            OrchestratorError::CommandError(format!("git worktree の実行に失敗: {}", e))
         })?;
 
     if !status.success() {
@@ -1675,10 +1641,10 @@ pub fn apply_worktree_at(repo_root: &Path, branch: &str) -> Result<PathBuf, Orch
             .current_dir(repo_root)
             .status()
             .map_err(|e| {
-                OrchestratorError::PiCommandError(format!("git worktree の実行に失敗: {}", e))
+                OrchestratorError::CommandError(format!("git worktree の実行に失敗: {}", e))
             })?;
         if !status2.success() {
-            return Err(OrchestratorError::PiCommandError(format!(
+            return Err(OrchestratorError::CommandError(format!(
                 "worktree の作成に失敗: {}",
                 branch
             )));
@@ -1813,7 +1779,7 @@ pub fn close_execution_pane(pane_id: &str) {
 ///    デーモンがこれを処理して実行監視スレッドへ `FinalizeRequested` を送信し、
 ///    `execute_completion_with_doc_write` のケース5（ユーザー要求による正常完了）で
 ///    `execute_block_pipeline` の Ok パス DB 更新順序（status=completed 等）を再利用する。
-/// 2. 実行中 pane をベストエフォートで閉じる（pi プロセス終了。ケース4 でも正常完了になる）。
+/// 2. 実行中 pane をベストエフォートで閉じる（エージェントのプロセス終了。ケース4 でも正常完了になる）。
 /// 3. DB を直接 `completed` + `finalized` にする（デーモン非稼働時のフォールバック。
 ///    デーモン側も同様に completed にするため二重更新は無害）。
 ///
@@ -2125,7 +2091,7 @@ pub fn execute_block_pipeline_full(
             let _ = store.update_execution_status(run_id, "completed");
             let _ = store.update_execution_output_type(run_id, &pr.output_type);
             if !pr.waggle_tokens.is_empty() {
-                let _ = store.update_execution_waggle_tokens(run_id, &pr.waggle_tokens);
+                let _ = store.merge_execution_waggle_tokens(run_id, &pr.waggle_tokens);
             }
             if !pr.input_waggle_tokens.is_empty() {
                 let _ = store.update_execution_input_tokens(run_id, &pr.input_waggle_tokens);
@@ -2555,6 +2521,20 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 // Public API 6: run_subtask — サブタスク実行
 // ============================================================================
 
+/// 子タスクの実行設定（`task_create` の要素から来る値）。
+///
+/// 各項目の `None` は「次の出所に従う」を表す（model / thinking はカード → ブロック定義、
+/// runner はカード → `cc`）。
+#[derive(Debug, Clone, Default)]
+pub struct SubtaskSettings {
+    /// 実行主体（`cc`。`None` はカードの runner、無ければ `cc`）
+    pub runner: Option<String>,
+    /// model（`None` はカードの model、無ければブロック定義に従う）
+    pub model: Option<String>,
+    /// thinking（`None` はカードの thinking、無ければブロック定義に従う）
+    pub thinking: Option<String>,
+}
+
 /// サブタスクを実行する簡易パイプライン。
 ///
 /// ブロック定義名と入力からエージェントを起動し、結果を返します。
@@ -2572,7 +2552,7 @@ fn stamp_card_run_id(card_rel: &str, run_id: i64) {
 /// * `worktree` — タスクの worktree 指定（"isolation" / "none" / ブランチ名）
 /// * `task_cwd` — タスクの作業フォルダ（親が指定した絶対パス。None ならプロジェクトルート）
 /// * `task_timeout` — タスクの時間上限（秒。親が `task_create` で指定。None ならブロック定義に従う）
-/// * `task_runner` — 子の実行主体（`pi` / `cc`。親が `task_create` で指定。None ならカードの `runner:`、無ければ `cc`）
+/// * `settings` — 子の実行設定（`task_create` の runner / model / thinking。None はカード → 既定の順）
 /// * `batch_id` — タスクバッチ ID（P3-A。DAG のフェーズ合成に使用）
 /// * `card_run_id` — 起こす todo カードの run_id（U2。`Some` なら予約済みの run_id と
 ///   `task.md`（`sci_*` を含む）をそのまま使う。`None` は従来どおり新規に run を作る）
@@ -2590,7 +2570,7 @@ pub fn run_subtask(
     worktree: Option<String>,
     task_cwd: Option<String>,
     task_timeout: Option<u32>,
-    task_runner: Option<String>,
+    settings: SubtaskSettings,
     batch_id: Option<String>,
     card_run_id: Option<i64>,
     tab_id: Option<String>,
@@ -2605,7 +2585,7 @@ pub fn run_subtask(
 
     // ブロック定義をパース（存在しない場合はエラー）
     if !block_path.exists() {
-        return Err(OrchestratorError::PiCommandError(format!(
+        return Err(OrchestratorError::CommandError(format!(
             "ブロック定義ファイルが見つかりません: {} → {}",
             block_type,
             block_path.display()
@@ -2621,7 +2601,7 @@ pub fn run_subtask(
     }
 
     let parsed = crate::parser::parse_block_file(&block_path).map_err(|e| {
-        OrchestratorError::PiCommandError(format!("ブロック定義のパースに失敗: {}", e))
+        OrchestratorError::CommandError(format!("ブロック定義のパースに失敗: {}", e))
     })?;
 
     // P2: サブブロック呼び出し制限（subblocks）と入力検証
@@ -2657,12 +2637,19 @@ pub fn run_subtask(
     let card = card_run_id
         .map(|rid| read_todo_card(rid))
         .transpose()
-        .map_err(|m| OrchestratorError::PiCommandError(m))?;
+        .map_err(|m| OrchestratorError::CommandError(m))?;
 
+    // model / thinking: task_create の値 > カードの task.md の値 > 無し（ブロック定義に任せる）
     let overrides = ExecutionOverrides {
-        model: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.model)),
+        model: subtask_setting(
+            settings.model,
+            card.as_ref().map(|c| c.frontmatter.model.as_str()),
+        ),
         provider: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.provider)),
-        thinking: card.as_ref().and_then(|c| non_empty_str(&c.frontmatter.thinking)),
+        thinking: subtask_setting(
+            settings.thinking,
+            card.as_ref().map(|c| c.frontmatter.thinking.as_str()),
+        ),
         // timeout はフロントマターの値を尊重する（§7.1.4 の修正点）
         // ただしタスクの timeout（task_create）があればブロック定義より優先する
         timeout: task_timeout,
@@ -2675,7 +2662,8 @@ pub fn run_subtask(
         cwd: task_cwd,
         keep_pane: false,
         // 実行主体: task_create の runner → カードの runner → cc の順
-        runner: task_runner
+        runner: settings
+            .runner
             .as_deref()
             .map(RunnerKind::parse)
             .or_else(|| {
@@ -2707,6 +2695,11 @@ pub fn run_subtask(
         card_rel,
         card_run_id,
     )
+}
+
+/// 子の model / thinking を決める。`task_create` の値 > カードの値（空は無し）> 無し（ブロック定義に任せる）。
+fn subtask_setting(task_value: Option<String>, card_value: Option<&str>) -> Option<String> {
+    task_value.or_else(|| card_value.and_then(non_empty_str))
 }
 
 /// 前後の空白を除いて空でない値だけ `Some` にする（カードの設定を読むため）。
@@ -2784,10 +2777,10 @@ fn validate_subtask_block(
 ) -> Result<(), OrchestratorError> {
     // 親実行 → 親ブロックを取得
     let parent_exec = store.get_execution_by_id(parent_run_id).map_err(|e| {
-        OrchestratorError::PiCommandError(format!("親実行 {} の取得に失敗: {}", parent_run_id, e))
+        OrchestratorError::CommandError(format!("親実行 {} の取得に失敗: {}", parent_run_id, e))
     })?;
     let parent_block = store.get_block_by_id(parent_exec.block_id).map_err(|e| {
-        OrchestratorError::PiCommandError(format!(
+        OrchestratorError::CommandError(format!(
             "親ブロック {} の取得に失敗: {}",
             parent_exec.block_id, e
         ))
@@ -2800,7 +2793,7 @@ fn validate_subtask_block(
         return Ok(());
     }
     let parsed = crate::parser::parse_block_file(&parent_path).map_err(|e| {
-        OrchestratorError::PiCommandError(format!("親ブロック定義のパースに失敗: {}", e))
+        OrchestratorError::CommandError(format!("親ブロック定義のパースに失敗: {}", e))
     })?;
 
     is_subblock_allowed(&parent_block.name, &parsed.config.subblocks, block_type)
@@ -2818,7 +2811,7 @@ fn is_subblock_allowed(
 ) -> Result<(), OrchestratorError> {
     match parent_subblocks {
         // 未指定（None）: subblocks 自体が定義されていない → サブブロックは呼び出せない
-        None => Err(OrchestratorError::PiCommandError(format!(
+        None => Err(OrchestratorError::CommandError(format!(
             "ブロック '{}' は subblocks が定義されていないため、サブブロックを呼び出せません。\n\
              ブロック定義書の subblocks: に呼び出し可能ブロックを列挙してください。",
             parent_name
@@ -2827,7 +2820,7 @@ fn is_subblock_allowed(
             if allowed.iter().any(|b| b == block_type) {
                 Ok(())
             } else {
-                Err(OrchestratorError::PiCommandError(format!(
+                Err(OrchestratorError::CommandError(format!(
                     "ブロック '{}' は親ブロック '{}' の subblocks に含まれていないため呼び出せません。許可: {}",
                     block_type,
                     parent_name,
@@ -3176,6 +3169,39 @@ fn long_run_alert_ms() -> u64 {
         .unwrap_or(1_200_000)
 }
 
+/// idle の停止とみなす時間（ミリ秒）。既定 60 秒。`SAI_IDLE_TIMEOUT_MS` で上書き可能。
+///
+/// `sai-link run wait` も同じ値で止まりを判定するため、ここを正本にする。
+pub(crate) fn stall_idle_ms() -> u64 {
+    std::env::var("SAI_IDLE_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(60_000)
+}
+
+/// 画面の行に cc の認証切れの表示があれば、その行を返す。
+///
+/// 401 で止まった cc は Stop フックを呼ばず `working` のまま残るので、状態では分からない。
+// ponytail: 画面の文字で判定する。agent がこの文言をファイルの内容として表示すると誤検出する。
+//           版で表示が変わったら正規表現を足す
+pub(crate) fn auth_error_line(screen: &str) -> Option<String> {
+    let re = regex::Regex::new(r"API Error: 401|Invalid bearer token|Please run /login").ok()?;
+    screen
+        .lines()
+        .find(|line| re.is_match(line))
+        .map(|line| line.trim().to_string())
+}
+
+/// pane が消えたときの判定。finalize の要求より前に消えたなら失敗の理由、後なら `None`（完了の流れへ）。
+pub(crate) fn pane_gone_error(finalize_requested: bool) -> Option<&'static str> {
+    if finalize_requested {
+        None
+    } else {
+        Some("エージェントが finalize の前に終了しました（pane が消えました）")
+    }
+}
+
 /// `long_running` 通知の本文。
 fn long_running_message(elapsed: Duration, pane_id: &str) -> String {
     format!(
@@ -3261,13 +3287,13 @@ fn execute_completion_with_doc_write(
     let mut waggle_tokens: Vec<String> = Vec::new();
     // pane 消滅判定の連続エラーカウント（一時的な herdr エラーへの耐性）
     let mut pane_error_count: u32 = 0;
+    // 認証切れの画面確認を次にいつ行うか（30 秒ごと）
+    let mut next_screen_check = Instant::now();
+    // 前回 401 の文言が出ていた画面の末尾。次の確認でも同じなら止まっているとみなす
+    let mut last_auth_screen: Option<String> = None;
 
     // U3: サブブロック停止検知の閾値（既定 60 秒。`SAI_IDLE_TIMEOUT_MS` で上書き可能）
-    let idle_timeout_ms = std::env::var("SAI_IDLE_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(60_000);
+    let idle_timeout_ms = stall_idle_ms();
     // U2: 長時間アラートの間隔（既定 20 分。`SAI_LONG_RUN_ALERT_MS` で上書き可能）
     let long_run_ms = long_run_alert_ms();
     let mut stall = StallDetector::default();
@@ -3331,7 +3357,7 @@ fn execute_completion_with_doc_write(
                     // P6-2: サブブロックも task_report（FinalizeRequested）で完了する。
                     // sai-write はトークンの収集だけを行い、ここでは完了しない。
                     // - メインブロック（親実行なし）: ユーザーが任意のタイミングで
-                    //   `/pi-sai-finalize` を実行して最終化するまで pi エージェントは継続する。
+                    //   `/sai-finalize` を実行して最終化するまでエージェントは継続する。
                     // - サブブロック（親実行あり）: task_report が finalize_request を書くまで継続する。
                     //   pane は維持され、メインブロックが `task_manage(finalize)` で削除・確定する。
                     //
@@ -3364,10 +3390,10 @@ fn execute_completion_with_doc_write(
                 }
                 Ok(CompletionEvent::FinalizeRequested { run_id }) => {
                     eprintln!(
-                        "[sai-engine] ファイナライズ要求検出 (run_id={}): メインは /pi-sai-finalize、サブは `sai-link task report` による完了要求です",
+                        "[sai-engine] ファイナライズ要求検出 (run_id={}): メインは /sai-finalize、サブは `sai-link task report` による完了要求です",
                         run_id
                     );
-                    // P6-2: メイン（/pi-sai-finalize）もサブ（task_report）もこの分岐で完了する。
+                    // P6-2: メイン（/sai-finalize）もサブ（task_report）もこの分岐で完了する。
                     // チャネルに残っている SaiWriteDetected イベントをすべて消費する
                     loop {
                         match rx.try_recv() {
@@ -3428,6 +3454,30 @@ fn execute_completion_with_doc_write(
                     match herdr.get_pane_status(pane_id) {
                         Ok(info) => {
                             pane_error_count = 0;
+                            // 認証切れ（cc が 401 で止まった）の検出。画面は 30 秒に 1 回だけ読む。
+                            if Instant::now() >= next_screen_check {
+                                next_screen_check = Instant::now() + Duration::from_secs(30);
+                                let screen = herdr.read_pane_output(pane_id, 40).unwrap_or_default();
+                                let line = auth_error_line(&screen);
+                                // agent が 401 の文言をファイルの内容として表示しているだけなら、
+                                // 画面は動く。同じ画面が 2 回続いたときだけ止まっているとみなす。
+                                let stuck = line.is_some()
+                                    && last_auth_screen.as_deref() == Some(screen.as_str());
+                                last_auth_screen = line.as_ref().map(|_| screen);
+                                if let (true, Some(line)) = (stuck, line) {
+                                    eprintln!(
+                                        "[sai-engine] 認証切れを検出 (pane={}): {}",
+                                        pane_id, line
+                                    );
+                                    *progress.lock().unwrap() = PipelineProgress::Failed {
+                                        error: format!(
+                                            "Claude の認証に失敗しました（401）。Account 画面で Claude のログイン（または token）を確かめてください: {}",
+                                            line
+                                        ),
+                                    };
+                                    return;
+                                }
+                            }
                             // U3: サブブロック停止検知（idle 60秒 or blocked 連続2回）。
                             //     正常完了（sai-write 検出）は completion_rx を先にチェックして
                             //     優先するため、この分岐は受信タイムアウト時のみ到達する。
@@ -3483,6 +3533,21 @@ fn execute_completion_with_doc_write(
                         Err(_) => {
                             pane_error_count += 1;
                             if pane_error_count >= 3 {
+                                // finalize の要求より前に pane が消えたら失敗にする（0 ターンの run を「完了」にしない）。
+                                // run_id が無いときは判定できないので、従来どおり完了の流れに入る。
+                                let finalized = prepared
+                                    .run_id
+                                    .map_or(true, crate::daemon::finalize_request_seen);
+                                if let Some(error) = pane_gone_error(finalized) {
+                                    eprintln!(
+                                        "[sai-engine] ペインが finalize の前に削除されました (pane={}): 失敗にします",
+                                        pane_id
+                                    );
+                                    *progress.lock().unwrap() = PipelineProgress::Failed {
+                                        error: error.to_string(),
+                                    };
+                                    return;
+                                }
                                 eprintln!(
                                     "[sai-engine] ペインが削除されました (pane={}): 利用可能な出力を抽出して完了します",
                                     pane_id
@@ -3538,7 +3603,7 @@ fn execute_completion_with_doc_write(
                 elapsed_secs: running_secs,
             };
 
-            // --- 1. pi の状態をチェック ---
+            // --- 1. エージェントの状態をチェック ---
             let pi_done = match herdr.get_pane_status(pane_id) {
                 Ok(info) => {
                     if info.agent_status == "blocked" {
@@ -3563,7 +3628,7 @@ fn execute_completion_with_doc_write(
             };
 
             // --- 2. sai-write 通知を1件処理 ---
-            match doc_write_notify::poll_and_process_one(&integrator) {
+            match doc_write_notify::poll_and_process_one(&integrator, None) {
                 Ok(Some(result)) => {
                     if let Some(ref token) = result.waggle_token {
                         waggle_tokens.push(token.clone());
@@ -3579,7 +3644,7 @@ fn execute_completion_with_doc_write(
                 _ => {}
             }
 
-            // --- pi が完了したら残りの通知を一括処理して終了 ---
+            // --- エージェントが完了したら残りの通知を一括処理して終了 ---
             if pi_done {
                 match doc_write_notify::poll_and_process_all(&integrator) {
                     Ok(results) => {
@@ -3670,9 +3735,11 @@ pub struct TurnResult {
 /// * `message` — 送信する追加指示テキスト
 /// * `timeout_ms` — 完了待機のタイムアウト（ミリ秒）
 /// * `session_dir` — セッションファイルのディレクトリ（出力抽出用）
-/// * `submit_key` — 入力確定キー（`RunnerKind::submit_key()`。pi・cc は `Alt+Enter`、gl は `Enter`）
+/// * `submit_key` — 入力確定キー（`RunnerKind::submit_key()`。cc は `Alt+Enter`、gl は `Enter`）
 /// * `task_id` — 長時間アラートを `results/` に書き込むためのタスク ID（`None` なら書かない）
 /// * `parent_run_id` — 通知に添える親実行 ID
+/// * `run_id` — このターンの実行の ID。`Some` のときは、この run の `file_written` だけを集める
+///   （ほかの run の文書を取り込まないため）。`None` は絞らない
 pub fn send_turn_to_pane(
     herdr: &HerdrClient,
     pane_id: &str,
@@ -3682,6 +3749,7 @@ pub fn send_turn_to_pane(
     submit_key: &str,
     task_id: Option<i64>,
     parent_run_id: Option<i64>,
+    run_id: Option<i64>,
 ) -> Result<TurnResult, OrchestratorError> {
     let start = Instant::now();
 
@@ -3689,7 +3757,7 @@ pub fn send_turn_to_pane(
     let pane_cwd = match herdr.get_pane_status(pane_id) {
         Ok(info) => info.cwd.clone(),
         Err(e) => {
-            return Err(OrchestratorError::PiCommandError(format!(
+            return Err(OrchestratorError::CommandError(format!(
                 "ターン送信先の pane が利用できません: {} ({})",
                 pane_id, e
             )))
@@ -3705,7 +3773,7 @@ pub fn send_turn_to_pane(
         let _ = std::fs::create_dir_all(parent);
     }
     let integrator = WaggleIntegrator::open(&waggle_db_path).map_err(|e| {
-        OrchestratorError::PiCommandError(format!("waggle DB の初期化に失敗: {}", e))
+        OrchestratorError::CommandError(format!("waggle DB の初期化に失敗: {}", e))
     })?;
     let _ = doc_write_notify::ensure_pending_dir();
     let _ = doc_write_notify::ensure_processed_dir();
@@ -3778,7 +3846,7 @@ pub fn send_turn_to_pane(
             Err(_) => {
                 pane_error_count += 1;
                 if pane_error_count >= 3 {
-                    return Err(OrchestratorError::PiCommandError(
+                    return Err(OrchestratorError::CommandError(
                         "ターン実行中に pane が消滅しました".to_string(),
                     ));
                 }
@@ -3786,7 +3854,7 @@ pub fn send_turn_to_pane(
         }
 
         // sai-write 通知の収集（ターン中にファイル保存があればトークン化）
-        if let Ok(Some(result)) = doc_write_notify::poll_and_process_one(&integrator) {
+        if let Ok(Some(result)) = doc_write_notify::poll_and_process_one(&integrator, run_id) {
             if let Some(ref token) = result.waggle_token {
                 waggle_tokens.push(token.clone());
             }
@@ -3885,7 +3953,7 @@ fn interruptible_sleep(
 /// * `herdr` — herdr クライアント
 /// * `pane_id` — 送信先 pane
 /// * `text` — 送信するプロンプト本文
-/// * `submit_key` — 確定キー（`RunnerKind::submit_key()`。pi・cc とも `Alt+Enter`。
+/// * `submit_key` — 確定キー（`RunnerKind::submit_key()`。cc は `Alt+Enter`。
 ///   `~/.claude/keybindings.json` の設定に従う）
 /// * `cancel_flag` — キャンセルフラグ（無い場合は `None`）
 ///
@@ -3893,7 +3961,7 @@ fn interruptible_sleep(
 ///
 /// * `Ok(())` — `agent_status` が `working` になった
 /// * `Err(OrchestratorError::Cancelled)` — `blocked` になった、またはキャンセルされた
-/// * `Err(OrchestratorError::PiCommandError)` — 送信自体に失敗、または 3 回試しても working になりません
+/// * `Err(OrchestratorError::CommandError)` — 送信自体に失敗、または 3 回試しても working になりません
 ///
 /// # 可視性
 ///
@@ -3920,7 +3988,7 @@ pub(crate) fn submit_prompt_verified(
     // 1. テキストを入力欄へ送る（1 回だけ。再送は確定キーのみ）
     herdr
         .send_text(pane_id, text)
-        .map_err(|e| OrchestratorError::PiCommandError(format!("テキスト送信に失敗: {}", e)))?;
+        .map_err(|e| OrchestratorError::CommandError(format!("テキスト送信に失敗: {}", e)))?;
 
     for attempt in 1..=MAX_ATTEMPTS {
         if cancelled(cancel_flag) {
@@ -3930,7 +3998,7 @@ pub(crate) fn submit_prompt_verified(
         // 2. 入力欄が整うのを待ってから確定キーを送る
         std::thread::sleep(Duration::from_millis(300));
         herdr.send_keys(pane_id, submit_key).map_err(|e| {
-            OrchestratorError::PiCommandError(format!("確定キー送信に失敗: {}", e))
+            OrchestratorError::CommandError(format!("確定キー送信に失敗: {}", e))
         })?;
 
         // 3. working になるか確認する
@@ -3955,7 +4023,7 @@ pub(crate) fn submit_prompt_verified(
         );
     }
 
-    Err(OrchestratorError::PiCommandError(format!(
+    Err(OrchestratorError::CommandError(format!(
         "プロンプトを送信できませんでした（確定キー {} を {} 回送っても working になりません）",
         submit_key, MAX_ATTEMPTS
     )))
@@ -4104,6 +4172,18 @@ mod tests {
     use super::*;
     use crate::block_config::BlockConfig;
     use std::collections::HashMap;
+
+    /// 子の model / thinking は task_create の値 > カード > 無し の順。空のカード値は無しと同じ。
+    #[test]
+    fn subtask_setting_prefers_task_then_card_then_none() {
+        assert_eq!(
+            subtask_setting(Some("haiku".into()), Some("opus")),
+            Some("haiku".into())
+        );
+        assert_eq!(subtask_setting(None, Some(" opus ")), Some("opus".into()));
+        assert_eq!(subtask_setting(None, Some("   ")), None);
+        assert_eq!(subtask_setting(None, None), None);
+    }
 
     // ---- StallDetector（U3: 停止検知） ----
 
@@ -4359,7 +4439,7 @@ mod tests {
             },
             block_body: String::new(),
             user_inputs: HashMap::new(),
-            cwd: None,
+            cwd: Some(finalize_test_temp_dir("cc-project")),
             direction: SplitDirection::Right,
             timeout_ms: 5_000,
             keep_pane: false,
@@ -4369,7 +4449,7 @@ mod tests {
             pane_id: None,
             is_subtask: false,
             target_node: None,
-            runner: RunnerKind::Pi,
+            runner: RunnerKind::Cc,
         }
     }
 
@@ -4407,11 +4487,11 @@ mod tests {
             prepared.pi_command
         );
         assert!(
-            prepared.pi_command.contains(" pi --session-dir"),
-            "pi を起動する: {}",
+            prepared.pi_command.contains(" claude --session-id"),
+            "claude を起動する: {}",
             prepared.pi_command
         );
-        assert!(prepared.pi_command.contains("--session-dir"));
+        assert!(prepared.pi_command.contains("--session-id"));
         assert!(prepared
             .session_dir
             .to_string_lossy()
@@ -4423,7 +4503,7 @@ mod tests {
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
 
-    /// run_id が設定されている場合、pi-sai 用の環境変数
+    /// run_id が設定されている場合、エージェント用の環境変数
     /// （SAI_PARENT_RUN_ID / SAI_BLOCK_NAME）がコマンド先頭に付与される。
     #[test]
     fn test_prepare_pipeline_target_node_prefix() {
@@ -4440,7 +4520,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_pipeline_adds_pi_sai_env_prefix() {
+    fn test_prepare_pipeline_adds_sai_env_prefix() {
         // 環境変数の影響を受けないよう SAI_PROJECT_ROOT を書き換えるテストと直列化する（U4）
         let _env_lock = finalize_env_lock();
         // 親プロセスから SAI_PROJECT_ROOT が引き継がれていても、未設定時の挙動を検証する
@@ -4453,7 +4533,7 @@ mod tests {
         assert!(
             prepared
                 .pi_command
-                .contains("SAI_PARENT_RUN_ID=1234 SAI_BLOCK_NAME=sai-test-main pi "),
+                .contains("SAI_PARENT_RUN_ID=1234 SAI_BLOCK_NAME=sai-test-main claude "),
             "環境変数プレフィックスが付与されるべき: {}",
             prepared.pi_command
         );
@@ -4462,7 +4542,7 @@ mod tests {
             "PATH を先頭に付ける: {}",
             prepared.pi_command
         );
-        assert!(prepared.pi_command.contains("--session-dir"));
+        assert!(prepared.pi_command.contains("--session-id"));
 
         // クリーンアップ
         crate::session::cleanup_session_dir(&prepared.session_dir);
@@ -4521,7 +4601,7 @@ mod tests {
 
         assert!(
             prepared.pi_command.contains(
-                "SAI_BLOCK_NAME=sai-test-main MLFLOW_TRACKING_URI='http://127.0.0.1:5001' pi "
+                "SAI_BLOCK_NAME=sai-test-main MLFLOW_TRACKING_URI='http://127.0.0.1:5001' claude "
             ),
             "設定の env が SAI_* の後ろに付くべき: {}",
             prepared.pi_command
@@ -4560,7 +4640,7 @@ mod tests {
         let pos_env = cmd
             .find("MLFLOW_TRACKING_URI=")
             .unwrap_or_else(|| panic!("設定の env が付くべき: {}", cmd));
-        let pos_pi = cmd.find(" pi ").unwrap_or_else(|| panic!("pi が付くべき: {}", cmd));
+        let pos_pi = cmd.find(" claude ").unwrap_or_else(|| panic!("claude が付くべき: {}", cmd));
 
         assert!(pos_root < pos_parent && pos_parent < pos_block);
         assert!(
@@ -4592,7 +4672,7 @@ mod tests {
         let escaped = crate::herdr::shell_escape_single_quotes("a b'c");
         assert!(
             prepared.pi_command.contains(&format!(
-                "SAI_TEST_QUOTE={} pi ",
+                "SAI_TEST_QUOTE={} claude ",
                 crate::herdr::shell_escape_single_quotes("a b'c")
             )),
             "値がシングルクォートで囲まれるべき: {}",
@@ -4631,7 +4711,7 @@ mod tests {
     }
 
     /// サブブロックの起動コマンドには SAI_IS_SUBTASK=1 と SAI_LINK_BIN（実行ファイルのパス）が付く。
-    /// pi 拡張は SAI_LINK_BIN で `sai-link task question` を呼ぶため。
+    /// sai-sci は SAI_LINK_BIN で sai-link の場所を知るため。
     #[test]
     fn test_prepare_pipeline_subtask_gets_sai_link_bin() {
         let _env_lock = finalize_env_lock();
@@ -4698,6 +4778,7 @@ mod tests {
 
         // 設定を持たない別フォルダ（プロジェクト外相当）を作業フォルダにする
         let external = finalize_test_temp_dir("cc-external-cwd");
+        std::fs::remove_file(external.join(".claude/settings.json")).unwrap();
         let mut config = minimal_config();
         config.runner = RunnerKind::Cc;
         config.cwd = Some(external);
@@ -4839,7 +4920,7 @@ mod tests {
         assert!(
             prepared
                 .pi_command
-                .contains(&format!("--append-system-prompt {}", sp.display())),
+                .contains(&format!("--append-system-prompt-file '{}'", sp.display())),
             "固定部分のファイルが渡る: {}",
             prepared.pi_command
         );
@@ -5404,7 +5485,7 @@ mod tests {
             worktree: Some("isolation".to_string()),
             cwd: None,
             keep_pane: false,
-            runner: RunnerKind::Pi,
+            runner: RunnerKind::Cc,
         };
         let resolved = resolve_execution_settings(&config, &overrides);
         // オーバーライドが優先される
@@ -5514,22 +5595,6 @@ mod tests {
             resolved.config.provider.as_deref(),
             Some("open-router2"),
             "task.md の provider は最優先で反映されるべき"
-        );
-
-        // PiCommandBuilder で `--provider open-router2` と `--model z-ai/glm-5.3-flash`
-        // が別フラグで出力されること（接頭辞が provider に使われない）
-        let cmd = crate::pi_command::PiCommandBuilder::new("/tmp/session")
-            .with_config(resolved.config)
-            .build()
-            .unwrap();
-        let c = &cmd.command;
-        assert!(
-            c.contains("--provider open-router2") && c.contains("--model z-ai/glm-5.3-flash"),
-            "task.md の provider / model が別フラグで反映される: {c}"
-        );
-        assert!(
-            !c.contains("--provider z-ai"),
-            "model 接頭辞が provider に使われてはならない: {c}"
         );
     }
 
@@ -5994,6 +6059,9 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("一時ディレクトリ作成");
+        // cc を起こす試験は `.claude/settings.json` が要る（`check_project_files`）
+        std::fs::create_dir_all(dir.join(".claude")).expect("一時ディレクトリ作成");
+        std::fs::write(dir.join(".claude/settings.json"), "{}").expect("一時ディレクトリ作成");
         dir
     }
 
@@ -6355,5 +6423,27 @@ mod tests {
     fn test_render_message_md_empty_is_frontmatter_only() {
         let text = render_message_md("plan", 1, &[]);
         assert_eq!(text, "---\nblock_name: plan\nrun_id: 1\n---\n");
+    }
+
+    /// 401 で止まった cc の画面は、その行を理由として返す。ふつうの画面は何も返さない。
+    #[test]
+    fn auth_error_line_finds_401_screen() {
+        let screen = "> 続けて\n\nFailed to authenticate. API Error: 401 Invalid bearer token\n";
+        assert_eq!(
+            auth_error_line(screen).as_deref(),
+            Some("Failed to authenticate. API Error: 401 Invalid bearer token")
+        );
+        assert!(auth_error_line("Please run /login · API Error: 401 Invalid bearer token").is_some());
+        assert!(auth_error_line("作業中です\n10 ファイルを変更").is_none());
+    }
+
+    /// pane が消えたとき、finalize の要求より前なら失敗、後なら完了の流れ（`None`）。
+    #[test]
+    fn pane_gone_error_depends_on_finalize_request() {
+        assert_eq!(
+            pane_gone_error(false),
+            Some("エージェントが finalize の前に終了しました（pane が消えました）")
+        );
+        assert_eq!(pane_gone_error(true), None);
     }
 }

@@ -47,7 +47,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | Research → Experiments | `apps/mlflow-server` の MLflow（`/api/mlflow/*`・読み取りだけ） |
 | Home（質問・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
 | Home の全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `sai-link project dashboard --period` を並べて足し合わせる（`GET /api/home/overview`） |
-| Usage | `usage.py`（OpenRouter・DeepSeek・pi の記録）。CLI は呼ばない |
+| Usage | `usage.py`（OpenRouter・DeepSeek。古い pi の記録も読む）。CLI は呼ばない |
 
 ---
 
@@ -85,12 +85,13 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 | 置き場 | 場所 | 中身 |
 |---|---|---|
-| その人のひな形の HOME | `<U>/<user>/home/` | `.sai/`（Web が引くその人の `SAI_HOME`）・`.pi/agent/models.json` など。コンテナには見せない |
+| その人のひな形の HOME | `<U>/<user>/home/` | `.sai/`（Web が引くその人の `SAI_HOME`）など。コンテナには見せない |
+| その人の Claude のログイン（共有契約 C-MOUNT） | `<U>/<user>/claude/`（0700） | cc のログイン（`.credentials.json`・会話の記録など）。その人の全プロジェクトのコンテナの `$HOME/.claude` に bind mount する。`$HOME/.claude.json` は共有しない |
 | プロジェクトの root | `<U>/<user>/projects/<user>-<project>/` | 登録簿の名前もフォルダ名と同じ `<user>-<project>` |
-| プロジェクトのコンテナの HOME | `<U>/<user>/homes/<user>-<project>/` | `.claude`・`.claude.json`・`.pi`・`.sai`。コンテナの中の `SAI_HOME` はこの中の `.sai`。実行の書き出しは `<この HOME>/.sai/web/runs/<user>-<project>/` |
+| プロジェクトのコンテナの HOME | `<U>/<user>/homes/<user>-<project>/` | `.claude`（共有のログインの mount の下に隠れる。作るときに会話の記録だけ `<U>/<user>/claude/` へ写す）・`.claude.json`・`.sai`。コンテナの中の `SAI_HOME` はこの中の `.sai`。実行の書き出しは `<この HOME>/.sai/web/runs/<user>-<project>/` |
 | その人の鍵 | `<U>/<user>/secrets.env` | API キーと Claude の長命トークン（0600）。コンテナには `--env-file` で渡し、ファイルそのものは見せない |
 
-- 多人数モードでは、今の利用者（ログインした人）ごとに `registry.sai_home()`・`registry.user_home()`・`registry.project_home()` が変わり、プロジェクトの一覧・実行の書き出し・pi の記録・Usage が分かれる（共有契約 C5）。
+- 多人数モードでは、今の利用者（ログインした人）ごとに `registry.sai_home()`・`registry.user_home()`・`registry.project_home()` が変わり、プロジェクトの一覧・実行の書き出し・古い pi の記録・Usage が分かれる（共有契約 C5）。
 - 今の利用者がいないとき（未ログイン）の `registry.sai_home()` はサーバ自身の `SAI_HOME`。Web 自身の DB・通知の鍵はここに置く。
 - 多人数モードの登録簿はフォルダを数える（`<U>/<user>/projects/` の直下の `<user>-` で始まり `.sai/` を持つフォルダ）。`registry.json` は読まない。
 
@@ -113,7 +114,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `POST /api/projects/{name}/container/{start\|stop}` | 自分のプロジェクトのコンテナを起動・停止（多人数モードだけ）。未知の action は 400 | `docker start` / `docker stop -t 20`。`start` でコンテナが無いときは作り直す |
 
 - コンテナの操作は `docker` の CLI を `subprocess` で呼ぶ（`apps/web/src/sai_web/containers.py`。実行ファイルは `SAI_DOCKER_BIN`、既定 `docker`）。Python の docker の SDK は使わない（依存を増やさない）。
-- プロジェクトを作るときは、`<U>/<user>/projects/<user>-<名前>/`（root）と `<U>/<user>/homes/<user>-<名前>/`（HOME）を作り、`<U>/<user>/secrets.env`（0600）を用意し、`SAI_WEB_SKEL_DIR` と `<user_dir>/home/.pi/agent/models.json` を（無いファイルだけ）写してから、コンテナを `docker run` で作り、init 3 本を `docker exec` で呼ぶ。途中で失敗したらコンテナとフォルダを消して 502 を返す。
+- プロジェクトを作るときは、`<U>/<user>/projects/<user>-<名前>/`（root）と `<U>/<user>/homes/<user>-<名前>/`（HOME）を作り、`<U>/<user>/secrets.env`（0600）を用意し、`SAI_WEB_SKEL_DIR` の中身を（無いファイルだけ）写してから、コンテナを `docker run` で作り、init 3 本を `docker exec` で呼ぶ。途中で失敗したらコンテナとフォルダを消して 502 を返す。
 - コンテナの形は共有契約 C7・C8（`run_args`）。`SAI_CONTAINER_MEMORY`（既定 `8g`）・`SAI_CONTAINER_CPUS`（既定 `2`）・`SAI_IMAGE`（既定 `sai-tree:latest`）・`SAI_WEB_URL_FOR_CONTAINERS`（既定 `http://host.docker.internal:8200`）で変えられる。
 - docker のデーモンにつながらない・実行ファイルが無いときは 503「docker が動いていません」、その他の失敗は 502（標準エラーの最後の行）。
 - 多人数モードの常駐の生死（`registry.daemon_alive`）は、コンテナの中の PID がホストから見えないため、常駐が約 5 秒ごとに書く `<root>/.sai/sai-engine/daemon.status` の更新時刻が 30 秒以内かで見る（単独モードは今までどおり `daemon.pid`）。
@@ -190,7 +191,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `POST /api/projects/{name}/commands/run` | 命令を実行する（body `{"cli": "link\|paper\|sci", "path": [...], "args": {...}, "stdin": "…"}`。戻りは `{"ok": true, "json": …, "text": …}`） | `schema` が許した命令 |
 
 - 外から来る値は sai-web 自身が CLI を呼ぶ**前**に検査する（`run_id` は正の整数、`view` / `kind` は一覧の値だけ、`token` は英数字と `-_.:`・長さ 128 まで）→ 400。
-- 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`runner` / `thinking` は一覧の値、入力の値は `waggle:` 形式、`global_round` / `round` は数字、`tag` は 1 行）→ 400。
+- 作成フォームも同じ（`block` は英数字と `-_.:`、`task_text` は 100KB まで、`runner` は `user` / `cc` / `gl`（`pi` は廃止のため 400）、`thinking` は一覧の値、入力の値は `waggle:` 形式、`global_round` / `round` は数字、`tag` は 1 行）→ 400。
 - 「コマンド」画面の実行も、`cli` は 3 つのうち 1 つ、`path` は schema にある命令、`args` は `web: true` の引数だけ、型・必須・値の一覧・1 行 2000 文字・複数値 100 個まで、標準入力は 1MB まで（`stdin` が `json` の命令は JSON として読めること、`bytes` の命令は拒否）を、CLI を呼ぶ前に確かめる。時間の上限は 120 秒、標準出力は 2MB まで（超えたら 502）。
 - CLI の失敗は §7 の読み替え。404 は 2 種類で、md が無いとき（終了コード 3・stderr「まだありません」）と未実行カードが無いとき（終了コード 3・stderr「未実行のカードが見つかりません」）。
 - 呼び出しは cwd = プロジェクトの root、かつ `SAI_PROJECT_ROOT` = 同じ root（常駐を起動した環境変数に引きずられない）。
@@ -254,7 +255,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `POST /api/projects/{name}/papers/sci/init` | research-tree を始める（body `{"type": "problem"}`・型は 5 つだけ） | `sai-sci init --type <型> --json` |
 | `GET /api/projects/{name}/papers/sci/nodes/{node_id}` | Node 1 つの中身（`{node_id}` は `Q12`・`A5`・`F3`・`E2`・`S2` の形） | `sai-sci node <ID> --json` |
 | `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 14 種の op の JSON。READ_CARD の画面が足す `add_f` だけは任意の `run` を付け、その run の F として残す） | `sai-sci apply --json`（標準入力） |
-| `POST /api/projects/{name}/papers/sci/cards` | Node のための CARD を作る（body は C-CARD の JSON。`child`（足す子の型 `Q`・`A`・`F`）は任意） | `sai-sci card --from-json --json`（標準入力） |
+| `POST /api/projects/{name}/papers/sci/cards` | Node のための CARD を作る（body は C-CARD の JSON。`child`（足す子の型 `Q`・`A`・`F`）は任意。`runner`（`cc` / `user`・既定 `cc`）・`model`・`thinking` は任意。`--executer` は無い） | `sai-sci card --from-json --json`（標準入力） |
 | `GET /api/projects/{name}/papers/sci/reads/{run_id}` | READ_CARD の中身 | `sai-sci read <run_id> --json` |
 | `POST /api/projects/{name}/papers/sci/reads/{run_id}/start` | READ_CARD を始める | `sai-link card start <run_id>` |
 | `POST /api/projects/{name}/papers/sci/reads/{run_id}/finish` | READ_CARD を終えて review へ移す（始まっていなければ先に始める。F が 0 でも止めない。戻りは `{"run_id","status":"review","findings":n}`） | `sai-sci read <run_id> --json` → `sai-link card finish <run_id>` |
@@ -300,13 +301,13 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`sai-link run send <run_id> --json`・本文は標準入力）。終了・質問待ちは 409、無ければ 404 |
 | `POST /api/runs/{project}/{run_id}/interrupt` | 実行中の run を中断する（`sai-link run interrupt <run_id> --json`）。無い実行は CLI を呼ばず 404 |
 | `POST /api/runs/{project}/{run_id}/finalize` | メッセージ画面の ■ 終了（その run が無ければ 404、実行中でない・子ブロック・常駐停止は 502）。呼ぶ CLI は `sai-link run finalize <run_id>` |
-| `POST /api/register` `/api/questions` | 登録（**内部専用**。単独モードは Mac 自身、多人数モードは `Authorization: Bearer <SAI_WEB_INTERNAL_TOKEN>`。cc のフックと pi の拡張が呼ぶ） |
+| `POST /api/register` `/api/questions` | 登録（**内部専用**。単独モードは Mac 自身、多人数モードは `Authorization: Bearer <SAI_WEB_INTERNAL_TOKEN>`。cc のフックが呼ぶ） |
 | `POST /api/questions/{qid}/resolved` | 質問が端末側で答えられたことの通知（**内部専用**） |
 | `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問（`{qid}` は**内部専用**。多人数モードでは持ち主の物だけ）。`{qid}` の JSON は `answered_by`（答えた人。端末で答えたときは `terminal`）を持つ |
 | `GET /api/questions/mine` | **内部専用**。自分のプロジェクトの答え待ちだけを `{"questions": [{"id","agent","title","created_at","project","run_id"}, …]}` で返す（`/api/questions/pending` と同じ形を、プロジェクトで絞ったもの）。多人数モードでは合言葉のプロジェクトの分だけ。コンテナの agent の `sai-web questions` が使う |
-| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックと pi の拡張が `GET /api/questions/{qid}` で取りに来る）。**内部の合言葉**（コンテナの agent の `sai-web answer`）でも使えるが、その質問が合言葉のプロジェクトの物でなければ 403「このプロジェクトの質問ではありません」（分からないときも 403）。内部の合言葉で答えた記録は `answered_by` が `agent` になる。本文は今と同じ（`{"answers": [{choice_index \| choice_indices \| text}, …]}`） |
+| `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。**内部の合言葉**（コンテナの agent の `sai-web answer`）でも使えるが、その質問が合言葉のプロジェクトの物でなければ 403「このプロジェクトの質問ではありません」（分からないときも 403）。内部の合言葉で答えた記録は `answered_by` が `agent` になる。本文は今と同じ（`{"answers": [{choice_index \| choice_indices \| text}, …]}`） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
-| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（OpenRouter・DeepSeek・pi の記録） |
+| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（OpenRouter・DeepSeek。古い pi の記録も読む） |
 | `GET /manifest.json` | PWA の設定 |
 
 > **登録順の決まり**: FastAPI は登録した順に照合する。`/api/projects/{name}/papers/library` ほかの固定の住所は、**`/api/projects/{name}/papers/{paper_id:int}` より前**に登録しないと ID として誤認される（`main.py` のコメント参照）。静的ファイルの `app.mount("/")` は最後に置く。
@@ -329,6 +330,10 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `PATCH /api/admin/users/{name}` | body `{"email"?,"is_admin"?,"disabled"?,"password"?}`。`password` を入れたら `must_change_password=1` にし、その人のセッションを消す。自分自身の `is_admin=false`・`disabled=true` は 400 |
 | `GET /api/me/keys` | `{"keys":[{"name","set","last4"}]}`（値は返さない）。名前は `CLAUDE_CODE_OAUTH_TOKEN`・`OPENROUTER_API_KEY`・`SEMANTICSCHOLAR_API_KEY`・`OPENALEX_API_KEY`・`NCBI_API_KEY` の 5 つ |
 | `PUT /api/me/keys` | body `{"<名前>": "<値>"}`（空文字は消す）→ `{"ok":true,"recreated":[…],"pending":[…]}`。値は印字できる ASCII で空白と改行を含まず 400 文字まで。知らない名前・改行入りの値は 400 |
+| `GET /api/me/claude-login` | Claude のログインの状態（多人数モードだけ）→ `{"logged_in": bool, "auth_method": str, "token_set": bool}`。`token_set` は `CLAUDE_CODE_OAUTH_TOKEN` が設定済みか（値は返さない）。中身（メールなど）は返さない。`claude auth status` の終了コードと `authMethod` を見る |
+| `POST /api/me/claude-login/start` | ログインを始める（多人数モードだけ）→ `{"url": str}`。補助のコンテナで `claude auth login` を pty で動かし、URL が出るまで最大 30 秒待つ。URL が出なければ 502「ログインの URL を取れませんでした: <最後の行>」。進行中の登録は 1 人に 1 つで、10 分で切れる。`docker run -t` の補助のコンテナ `sai-login-<user>` を使う |
+| `POST /api/me/claude-login/code` | body `{"code": str}`（印字できる ASCII・空白なし・500 文字まで。違えば 400）。ログインを始めていなければ 409。端末へ送り `Login successful.` を最大 60 秒待つ。失敗は 502（理由の行。貼ったコードは伏せる）。成功したら `CLAUDE_CODE_OAUTH_TOKEN` を `secrets.env` から消し（環境変数の token がファイルのログインより優先されるため）、コンテナを作り直す → `{"ok": true, "recreated": […], "pending": […]}`（`pending` は実行中で作り直せなかった物。終わってから起こし直すと反映される） |
+| `DELETE /api/me/claude-login` | 進行中のログインをやめる（補助のコンテナを止める）→ `{"ok": true}` |
 | `GET /api/admin/containers` | `{"containers":[{"container","owner","project","state","status"}]}`（管理者だけ） |
 | `POST /api/admin/containers/{container}/{start\|stop}` | コンテナを起動・停止（管理者だけ）。名前は `^sai-[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9-]{0,29}$`、誤りは 400 |
 

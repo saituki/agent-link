@@ -2,7 +2,7 @@
 name: 🔧 kaizen
 id: kaizen
 description: professor / professor-backward が実行した研究プロジェクトの実行履歴を調べ、技術・運用・非効率の問題を証拠つきで洗い出し、sai-sci・sai-tree の改善計画書を作る。コードや木は直さない
-model: inherit
+model: opus
 thinking: high
 templates:
   - sai-agent

@@ -87,7 +87,7 @@ pub fn finish_user_run(store: &SaiStore, run_id: i64) -> Result<(), String> {
 /// running → review。DB `status=completed` にしてから run フォルダを移動する。
 ///
 /// `runner: user` でも `runner: pi` でも使える（`pi` は本来
-/// pi-sai-finalize が担当するが、finalize 失敗時のエラー対応として TUI から
+/// sai-finalize が担当するが、finalize 失敗時のエラー対応として TUI から
 /// 確定できる）。
 ///
 /// サブタスク（`parent_run_id` あり・未確定）は移動しない。子の pane は親の

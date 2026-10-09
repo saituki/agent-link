@@ -249,7 +249,7 @@ function wfCardMarks(node) {
   const mark = WF_REVIEW_MARKS[n.review];
   if (mark) chips.push({ text: mark.text, cls: mark.cls });
   return {
-    runner: n.runner && String(n.runner) !== "pi" ? String(n.runner) : "",
+    runner: n.runner && String(n.runner) !== "cc" ? String(n.runner) : "",
     running: n.status === "running",
     failed: n.status === "failed",
     chips,
@@ -796,7 +796,7 @@ function wfLaneCard(card, lane) {
   b.appendChild(wfEl("span", "wf-lane-card-title", String(card.title || `ID${card.run_id}`)));
   if (card.date) b.appendChild(wfEl("span", "wf-lane-card-date", String(card.date)));
   if (card.description) b.appendChild(wfEl("span", "wf-lane-card-desc", String(card.description)));
-  if (card.runner && String(card.runner) !== "pi") {
+  if (card.runner && String(card.runner) !== "cc") {
     b.appendChild(wfEl("span", "wf-lane-card-runner", `[${card.runner}]`));
   }
   b.addEventListener("click", () => wfOpenSheet(card, lane));

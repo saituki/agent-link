@@ -2,12 +2,11 @@
 name: 🔁 同型を探す
 id: sci-analogy
 description: "問いを言い直し、別の分野の同じ形の問題とその答えを探して返す"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find
-  - search-external
   - literature-hard-rules
 context: true
 sci_type: support
@@ -31,7 +30,7 @@ subblocks:
 
 ### 手順
 1. 問いを「入力の型 × 出力の型 × 制約」で言い直す。制約には、少数・不均衡・多施設・時系列などを書く。
-2. 同じ形の問題を他分野で 3〜5 個探す。外部検索は `lab-search` を子として呼ぶ。自分で探すときは `search-external` の手順に従う。
+2. 同じ形の問題を他分野で 3〜5 個探す。外部検索は `lab-search` を子として呼ぶ。自分で探すときは `sci-find` の「内部と外部の使い分け」に従う。
 3. 言い直した問題と、制約まで含めて本当に同じ形か確かめる。分野が近いだけのものは同型にしない。
 4. 同型の問題ごとに、分野・問題・手法・移せる理由・移すときの壁・引用（論文の番号と節）を書く。
 5. 移せる答えを `add_a`、その根拠を `add_f` で出す。A の題は「どの分野のどの問題」か分かるように書く。

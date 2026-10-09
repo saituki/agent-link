@@ -274,6 +274,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("zip", json.loads(data)["error"])
 
+    def test_post_zip_with_corrupt_deflate_data_is_rejected(self):
+        # 中身の deflate を壊す（開くのは通り、展開の read で zlib.error が出る経路）
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("paper.pdf", b"%PDF-1.4 " + b"en " * 500)
+        data = bytearray(buffer.getvalue())
+        # ローカルのファイルヘッダ（30 バイト＋名前と extra の長さ）の後が圧縮された中身
+        start = 30 + int.from_bytes(data[26:28], "little") + int.from_bytes(data[28:30], "little")
+        data[start:start + 16] = b"\xff" * 16
+        status, body = self.request(
+            "POST",
+            "/local/jobs?project=alpha&paper_id=12",
+            body=bytes(data),
+            headers={"Content-Type": "application/zip"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("zip", json.loads(body)["error"])
+
     def test_post_zip_still_needs_nonce(self):
         status, _ = self.request(
             "POST",

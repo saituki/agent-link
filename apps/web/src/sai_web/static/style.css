@@ -3101,6 +3101,10 @@ button.lv-tl-preview { cursor: pointer; }
 .ac-key-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ac-claude-note { margin: 0 0 8px; }
 .ac-claude-note .ac-note { margin: 0 0 6px; }
+.ac-login-body { display: flex; flex-direction: column; gap: 8px; }
+.ac-login-body .ac-note { margin: 0; }
+.ac-login-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.ac-login-form .ac-input { flex: 1 1 200px; min-width: 0; }
 .ac-warn { color: var(--warn); }
 
 /* --- 管理: プロジェクトとコンテナ（U11） --- */

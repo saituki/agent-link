@@ -34,8 +34,11 @@ const SE_DONE = {
 const SE_QUICK = ["star", "unstar", "set_stance"];
 // 読む深さ
 const SE_DEPTHS = [["abstract", "abstract"], ["figures", "figures"], ["full", "full"]];
-// 実行するもの（user は READ_CARD）
-const SE_RUNNERS = [["pi", "pi"], ["cc", "cc"], ["user", "自分で読む（READ_CARD）"]];
+// 実行するもの（user は READ_CARD・pi は廃止）
+const SE_RUNNERS = [["cc", "cc"], ["user", "自分で読む（READ_CARD）"]];
+// CARD の model・thinking（空は block の既定。値は API の CARD_MODELS・CARD_THINKING）
+const SE_CARD_MODELS = [["", "既定（block の値）"], ["opus", "opus"], ["sonnet", "sonnet"], ["haiku", "haiku"]];
+const SE_CARD_THINKING = [["", "既定（block の値）"], ["none", "none"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"], ["max", "max"]];
 // READ_CARD の型
 const SE_MODES = [["purpose_first", "purpose_first"], ["blind_first", "blind_first"]];
 // F の stance（S・D・I）
@@ -284,7 +287,7 @@ function seChildOk(nodeId, child) {
  */
 function seCardValues(preset, nodeId) {
   const p = preset || {};
-  const runner = SE_RUNNERS.some((r) => r[0] === p.runner) ? p.runner : "pi";
+  const runner = SE_RUNNERS.some((r) => r[0] === p.runner) ? p.runner : "cc";
   let block = SE_BLOCKS.some((b) => b[0] === p.block) ? p.block : "";
   if (runner === "user" && !block) block = "lab-read";
   const node = seTrim(nodeId) || seTrim(p.node);
@@ -296,6 +299,8 @@ function seCardValues(preset, nodeId) {
     expect: seTrim(p.expect),
     runner,
     mode: SE_MODES.some((m) => m[0] === p.mode) ? p.mode : "purpose_first",
+    model: SE_CARD_MODELS.some((m) => m[0] === p.model) ? p.model : "",
+    thinking: SE_CARD_THINKING.some((t) => t[0] === p.thinking) ? p.thinking : "",
     papers: (Array.isArray(p.papers) ? p.papers : []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
     depth: SE_DEPTHS.some((d) => d[0] === p.depth) ? p.depth : "full",
     child: seChildOk(node, child) ? child : "",
@@ -318,7 +323,7 @@ function seBuildCard(values) {
   if (purpose.length > SE_MAX.purpose) return bad("目的は 300 字までです");
   const expect = seTrim(v.expect);
   if (expect.length > SE_MAX.expect) return bad("期待する成果は 300 字までです");
-  const runner = SE_RUNNERS.some((r) => r[0] === v.runner) ? v.runner : "pi";
+  const runner = SE_RUNNERS.some((r) => r[0] === v.runner) ? v.runner : "cc";
   const papers = [];
   for (const raw of Array.isArray(v.papers) ? v.papers : []) {
     const s = seTrim(raw).replace(/^#/, "");
@@ -334,6 +339,10 @@ function seBuildCard(values) {
     if (!/^[QA]/.test(node)) return bad("READ_CARD の対象は Q か A にしてください");
     if (papers.length !== 1) return bad("READ_CARD の論文はちょうど 1 本にしてください");
     card.depth = SE_DEPTHS.some((d) => d[0] === v.depth) ? v.depth : "full";
+  }
+  if (runner === "cc") {
+    if (SE_CARD_MODELS.some((m) => m[0] === v.model && m[0])) card.model = v.model;
+    if (SE_CARD_THINKING.some((t) => t[0] === v.thinking && t[0])) card.thinking = v.thinking;
   }
   if (expect) card.expect = expect;
   if (child) card.child = child;
@@ -844,11 +853,17 @@ async function seOpenCard(nodeId, preset) {
   const depth = seFieldSelect("depth", "深さ", SE_DEPTHS, init.depth, "READ_CARD のときだけ使う", false);
   depth.show = (v) => v.runner === "user";
   const runner = seFieldSelect("runner", "実行するもの", SE_RUNNERS, init.runner, "user は自分で読む（READ_CARD）", false);
+  const model = seFieldSelect("model", "モデル", SE_CARD_MODELS, init.model, "cc のときだけ使う", false);
+  model.show = (v) => v.runner === "cc";
+  const thinking = seFieldSelect("thinking", "thinking", SE_CARD_THINKING, init.thinking, "cc のときだけ使う", false);
+  thinking.show = (v) => v.runner === "cc";
   const child = seFieldChild("child");
   fields.push(
     block, purpose,
     seFieldArea("expect", "期待する成果", init.expect, 2, "300 字まで（任意）"),
     runner,
+    model,
+    thinking,
     mode,
     child,
   );
@@ -884,6 +899,7 @@ async function seOpenCard(nodeId, preset) {
     const built = seBuildCard({
       node: seTrim(nodeId) || v.node || init.node,
       block: v.block, purpose: v.purpose, expect: v.expect, runner: v.runner,
+      model: v.model, thinking: v.thinking,
       mode: v.mode, depth: v.depth, child: v.child,
       papers: [...(Array.isArray(v.papers) ? v.papers : []), ...(Array.isArray(v.papers_typed) ? v.papers_typed : [])],
     });

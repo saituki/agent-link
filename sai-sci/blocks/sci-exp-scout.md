@@ -2,7 +2,7 @@
 name: 🔭 exp-scout
 id: sci-exp-scout
 description: "実験の前に参照実装（Library・ModelDB・GitHub）を探して取り、パラメータの出典表の下書きを作って返す"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core

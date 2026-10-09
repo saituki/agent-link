@@ -147,7 +147,7 @@ fn string_field(item: &Value, key: &str) -> String {
 /// `sai-link card create`（標準入力の JSON）に渡す項目。
 #[derive(Debug, Clone)]
 pub struct CardCreate {
-    /// 実行エージェント（`pi` / `cc`）。
+    /// 実行エージェント（`cc` / `user`）。
     pub runner: String,
     /// ブロック ID。
     pub block: String,
@@ -161,22 +161,25 @@ pub struct CardCreate {
     pub description: String,
     /// タスク本文。
     pub task_text: String,
-    /// 起動者（`human` / `agent`）。
-    pub executer: String,
+    /// モデル（空は送らず、sai-link の settings.json の既定）。
+    pub model: String,
+    /// 思考の量（空は送らず、sai-link の settings.json の既定）。
+    pub thinking: String,
     /// frontmatter に足す任意の項目。
     pub meta: BTreeMap<String, String>,
 }
 
 /// `sai-link card create` で CARD を作る。
 ///
-/// 標準入力に [`CardCreate`] の JSON を渡す（`thinking`・`model`・`provider`・
-/// `doc_tokens` は渡さない）。返り値は `(run_id, task.md のパス)`。
+/// 標準入力に [`CardCreate`] の JSON を渡す（`provider`・`doc_tokens` は渡さない。
+/// `model`・`thinking` は空のときは渡さない）。起動者は渡さない（sai-link は人として作る）。
+/// 返り値は `(run_id, task.md のパス)`。
 /// 成功したら [`forget`] を呼び、覚えていた run の一覧を捨てる。
 ///
 /// # Errors
 /// 子を起動できない、子が 0 以外で終わる、出力が読めないとき。
 pub fn card_create(root: &Path, card: &CardCreate) -> Result<(i64, PathBuf), BinError> {
-    let input = serde_json::json!({
+    let mut input = serde_json::json!({
         "runner": card.runner,
         "block": card.block,
         "global_round": card.global_round,
@@ -184,9 +187,14 @@ pub fn card_create(root: &Path, card: &CardCreate) -> Result<(i64, PathBuf), Bin
         "tag": card.tag,
         "description": card.description,
         "task_text": card.task_text,
-        "executer": card.executer,
         "meta": card.meta,
     });
+    if !card.model.is_empty() {
+        input["model"] = serde_json::json!(card.model);
+    }
+    if !card.thinking.is_empty() {
+        input["thinking"] = serde_json::json!(card.thinking);
+    }
     let args: Vec<String> = ["card", "create"]
         .iter()
         .map(|arg| (*arg).to_string())

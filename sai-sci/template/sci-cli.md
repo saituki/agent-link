@@ -43,18 +43,30 @@
 ```bash
 sai-sci card --node <Q12> --block <lab-read> \
   --purpose <行動の目的> [--expect <期待する成果>] \
-  [--papers <番号,番号>] [--runner pi|cc|user] [--depth abstract|figures|full] \
-  [--input <waggle トークン>]… --executer agent \
+  [--papers <番号,番号>] [--runner cc|user] [--depth abstract|figures|full] \
+  [--input <waggle トークン>]… [--model <m>] [--thinking <t>] \
   --origin-run "$SAI_PARENT_RUN_ID" --json
 ```
 
 - `--node`（対象の Node。Q・A・F・E）・`--block`・`--purpose` は必ず書く。
-- `--runner user` は、利用者が自分で READ_CARD になる。`--depth` はその読む深さ。
+- `--runner` は `cc`（既定）か `user`。`user` は、利用者が自分で READ_CARD になる。`--depth` はその読む深さ。
+- `--model`・`--thinking` は、起こす側が選ぶ（下の「別の agent を起こす」）。省くと block の frontmatter の値になる。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai-link doc write` で保存してから渡す。
 - `--child`（任意）は、CARD が足す子の型（`Q`・`A`・`F`）。Next Action の `card` が `child` を持つときは、その値をそのまま付ける（`F` を探す CARD は `--child F`）。
-- `--executer agent` を付けると、Human が Web からこの CARD を起こしても動かず、役（professor など）が子として起こす。付けない（既定の `human`）と、人が起こす CARD になる。
 - `--origin-run` は自分がその Node を選んだ実行の run_id。省略すると `SAI_PARENT_RUN_ID`。
 - `--json` を付けると戻り値が JSON になり、CARD の `run_id` が分かる。
+
+## 別の agent を起こす（2 つだけ）
+
+| 場面 | 使う物 | 待ち方 |
+|---|---|---|
+| 結果を待たない（研究の Node の作業・実験の連鎖） | `sai-sci card … --json` で Card を作り、`sai-link card run <run_id>` で起こす | 待たない。結果は木に入る。Professor は `sai-link run wait` で終わりと止まりを見る |
+| ジョブの終わりに起こす（branch → review） | `sai-sci card … --json` で Card を作り、`sai-link card wait <run_id> --job <job_id>` | 常駐がジョブの終わりに起こす |
+| 結果を待つ（support agent を呼ぶ・調査書を次に使う） | `sai-link task create`（要素に `model`・`thinking` を書ける）→ `task execute` → `task wait` | `task wait` |
+
+- model と thinking は、起こす側が選ぶ。省くと block の frontmatter の値になる。目安: 判断・評価は opus/high、設計・実装は sonnet/high、読み・まとめは sonnet/medium、調査は haiku/low。
+- runner は cc だけ（`task create` では書かない）。pi は使えない。
+- Card を `task create` の `card` で子にする経路は使わない。
 
 ## Web と同じ操作（sai-web）
 
@@ -87,16 +99,25 @@ python3 "$SAI_PROJECT_ROOT/.sai/tools/exp_exec.py" status <job_id> [--json]
 
 ## 人が起こす CARD（task.md）を作る
 
-これは `executer: human` の CARD（Human が Web の ▶ で起こすもの）の作り方である。research-tree の Node のための CARD は、上の `sai-sci card --executer agent` で作り、役（professor など）が `sai-link task create` の `card` で起こす。この節ではない。
+research-tree の Node のための CARD は、上の `sai-sci card` で作る。この節ではない。
 
 `sai-link card options` で使えるブロック・runner・model・thinking を確かめ、標準入力に JSON を渡して `sai-link card create` する。
-戻りの `path` を編集して `description:` と `origin_run_id:` を埋める。**実行は Human が行う。あなたは CARD を作るだけで、実行しない。**
+
+```bash
+sai-link card create <<'EOF'
+{"runner": "cc", "block": "<ブロックの id>", "model": "sonnet", "thinking": "high", "task_text": "<依頼文>"}
+EOF
+```
+
+戻りの `path` を編集して `description:` を埋める。**実行は Human が行う。あなたは CARD を作るだけで、実行しない。**
 
 ## 使わないコマンド
 
 次のコマンドは、実行の開始・削除・設定の変更になる。Human の指示が無い限り使わない。
 
-`sai-link card run` / `sai-link run finalize` / `sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link task send\|interrupt\|delete\|finalize\|requeue` / `sai-link run md --write`
+`sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link task send\|interrupt\|delete\|finalize\|requeue` / `sai-link run md --write`
+
+`sai-link card run` は、上の表の場面だけで使う（Card を起こすのは Professor と Human）。`sai-link run finalize` は、root の run の終わりに使う（`sci-core` の「終わり方」）。
 
 `sai-paper init` / `sai-sci init` / `sai-sci apply` も、実行の記録や research-tree を書き換えるので、Human の指示が無い限り打たない。`sai-sci op` は、`# context` の `## ALLOWED_OPS` の範囲で木を変えるときだけ使う。`sai-sci approval record` は、質問の答えを受けたフックだけが呼ぶ。**★ は利用者だけが付ける。** 課金・鍵・要件の範囲・成功基準に関わる決定は使わず、Human に上げる。professor と operator は木を変えない（読む命令だけ）。木を変える作業は、子の block が `sai-sci op` で行う。例外は `professor-backward` だけで、Human が答えた `edit` の文を `sai-sci apply` で反映してよい。
 

@@ -2,6 +2,8 @@
 
 子タスクは、別の pane で動く別のエージェントである。あなたの会話は見えない。子に伝えたいことは、すべて依頼文（`task_text`）に書く。
 
+研究の Node の作業は Card（`sci-cli`）で起こす。この template は、結果を待つ子だけに使う。
+
 ## 流れ
 
 ```
@@ -14,7 +16,7 @@ sai-link def list --parent <自分の block> → sai-link task create → sai-li
 |---|---|
 | `sai-link def list --parent <自分の block>` | 呼べる子ブロックの id を確かめる。`sai-link task create` の前に必ず実行する |
 | `sai-link def show --kind block --name <id>` | ブロックの入力項目・既定値・呼び出せる子ブロックを確かめる |
-| `sai-link task create` | 子を作る。標準入力に子の配列の JSON を渡す（今の `tasks` と同じ項目: `[ { client_id, subject, block_type, task_text, depends_on, worktree, cwd, timeout } ]`。使うときだけ `runner` も）。予約済みの CARD から起こすときは `block_type` と `task_text` の代わりに `card` を渡す（下の「予約済みの CARD から子を起こす」）。`cwd` は別のプロジェクトで動かすとき、`timeout`（秒）は「この時間を超えたら様子を見たい」目安があるときに付ける。実行すると子の run フォルダに task.md（description と task_text）ができ、TUI と Web で見られる。出力は `batch_id` と子の `task_id` |
+| `sai-link task create` | 子を作る。標準入力に子の配列の JSON を渡す（項目: `[ { client_id, subject, block_type, task_text, depends_on, worktree, cwd, timeout, model, thinking } ]`）。`model`・`thinking` は省いてよい（省くと block の frontmatter の値）。`runner` は書かない（cc だけ）。`cwd` は別のプロジェクトで動かすとき、`timeout`（秒）は「この時間を超えたら様子を見たい」目安があるときに付ける。実行すると子の run フォルダに task.md（description と task_text）ができ、TUI と Web で見られる。出力は `batch_id` と子の `task_id` |
 | `sai-link task execute --batch <batch_id>` / `--task <task_id>` | 実行する（`--batch` で一括、`--task` で 1 件）。すぐ戻る |
 | `sai-link task wait <task_id>… [--timeout-ms N]` | 子を待つ。1 回の待ちは最大 90 秒（`--timeout-ms` はそれを超えても 90 秒に切り詰められる。既定も 90 秒。`--timeout-ms 0` なら即時に返る）。完了なら `report`（短い報告）と `outputs`（子が保存した文書の `waggle:<tok>: <description>` 一覧）を返す。止まった・長引いたときは完了前でも `stalled` で戻る。複数の子は `sai-link task wait <task_id> <task_id> …` で 1 回にまとめて待つ（下の「子を待つ・見張る」） |
 | `sai-link task show <task_id>` / `sai-link task list` | 状態を見る。`worktree_info` にマージ用のブランチ名と作業用コピーの場所が入っている |
@@ -32,24 +34,6 @@ sai-link def list --parent <自分の block> → sai-link task create → sai-li
 | `sai-link task requeue <task_id>` | 最初からやり直す | `failed` / `deleted` の子 |
 
 命令が断ったときは、終了コードと標準エラーの最後の行に理由と次の手順が出る。その手順に従う。
-
-## 予約済みの CARD から子を起こす
-
-research-tree の Node のための実行（CARD）は、`sai-sci card …` を作り終えて、todo に予約済みで置かれている。
-その CARD を自分の子として起こすには、`sai-link task create` の標準入力の `card` に CARD の run_id を渡す。
-
-```bash
-sai-link task create <<'EOF'
-[
-  { "client_id": "R1", "subject": "Q12 の読解", "card": 120, "timeout": 3600 }
-]
-EOF
-```
-
-- CARD の `block:`・依頼文・説明をそのまま使う。`task_text` は**書かない**（書くと断られる）。`block_type` は CARD の `block:` と別の名前を書くと断られるので、書かない。
-- `card` は自分の子として親子関係を結ぶので、`sai-link task wait <task_id>` で報告を待てる。`sai-link task execute --task <task_id>` で始めてよい。
-- `timeout`（秒）はそのブロックの `timeout` に合わせる。
-- `client_id` は文書・局面を表す短い名にする（`R1`・`R2`…）。
 
 ## 依頼文の書き方
 
@@ -90,7 +74,7 @@ git branch -d <ブランチ名>
 | status（reason） | 意味 | すること |
 |---|---|---|
 | `completed` | 子が `sai-link task report` を実行した | 下の「報告を受け取ったあと」へ |
-| `failed` | 子の実行が失敗した | 原因を調べ、直してから `sai-link task requeue <task_id>` するか、作り直す。`card` で起こした子は `requeue` できないので、新しい CARD を作って起こし直す |
+| `failed` | 子の実行が失敗した | 原因を調べ、直してから `sai-link task requeue <task_id>` するか、作り直す |
 | `timeout` / `in_progress` | `sai-link task wait` の待ち時間が切れただけ（最大 90 秒。`--timeout-ms 0` なら即時に返る）。子はまだ作業中 | もう一度 `sai-link task wait <task_id>` を実行する |
 | `stalled`（`idle` / `blocked` / `error`） | 子が入力待ち・確認待ち・エラーで止まった | `sai-link task capture <task_id>` で画面を見る。`idle` なら `sai-link task send <task_id> --message <文>` で指示を送る。`blocked` / `error` なら先に `sai-link task interrupt <task_id>` してから `sai-link task send` |
 | `stalled`（`long_running`） | 子が作業中のまま長く続いている（既定 20 分ごとに届く） | `sai-link task capture <task_id>` で画面を見て、進み具合を判断する（下） |

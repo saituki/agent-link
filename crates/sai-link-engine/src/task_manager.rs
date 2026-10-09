@@ -104,9 +104,15 @@ pub struct TaskItem {
     /// 通知の項目名は `card`（呼び出し側の指定にそろえる）。
     #[serde(rename = "card", default)]
     pub card_run_id: Option<i64>,
-    /// 子の実行主体（`pi` / `cc`。省略時は card の runner、無ければ `cc`）
+    /// 子の実行主体（`cc` のみ。省略時は card の runner、無ければ `cc`）
     #[serde(default)]
     pub runner: Option<String>,
+    /// 子の model（`task_create` の model。省略時はカード → ブロック定義に従う）
+    #[serde(default)]
+    pub model: Option<String>,
+    /// 子の thinking（`task_create` の thinking。省略時はカード → ブロック定義に従う）
+    #[serde(default)]
+    pub thinking: Option<String>,
     /// 前バッチで承認済み・内容変更なし（引き継ぎ）
     #[serde(default)]
     pub carried_over: bool,
@@ -306,7 +312,7 @@ pub fn next_split_target(
     }
 
     // WIP 上限に達している場合は分割不可（待機）
-    let wip = crate::pi_command::wip_limit();
+    let wip = crate::settings::wip_limit();
     if effective.len() >= wip {
         return None;
     }
@@ -576,8 +582,10 @@ impl TaskManager {
             task.timeout = item.timeout;
             // 起こす todo カード（task_create の card。予約 run_id をそのまま子として使う）
             task.card_run_id = item.card_run_id;
-            // 子の実行主体（task_create の runner）
+            // 子の実行主体・model・thinking（task_create の引数）
             task.runner = item.runner.clone();
+            task.model = item.model.clone();
+            task.thinking = item.thinking.clone();
             // 承認情報付き（新形式）なら approved で直接保存（CLI approve 不要）
             if item.approval.is_some() {
                 task.status = "approved".to_string();
@@ -693,7 +701,7 @@ impl TaskManager {
 
         // R5: バッチ内の承認タスク数が max_concurrent（グローバル上限）を超える場合は
         // 明示的な上限超過（toolResult で finalize 要求）。WIP（タブごと）超過は待機で対処する。
-        let max_concurrent = crate::pi_command::max_concurrent_limit();
+        let max_concurrent = crate::settings::max_concurrent_limit();
         if n > max_concurrent {
             return Err(TaskManagerError::BatchPaneLimitExceeded {
                 batch_id: batch_id.to_string(),
@@ -1341,7 +1349,11 @@ impl TaskManager {
             worktree,
             task_cwd,              // 親が指定した作業フォルダ（絶対パス）
             task.timeout,          // 親が指定した子の時間上限（秒）
-            task.runner.clone(),   // 親が指定した子の実行主体（pi / cc。None はカード → cc）
+            crate::orchestrator::SubtaskSettings {
+                runner: task.runner.clone(),     // 親が指定した子の実行主体（cc。None はカード → cc）
+                model: task.model.clone(),       // 親が指定した子の model（None はカード → ブロック定義）
+                thinking: task.thinking.clone(), // 親が指定した子の thinking（None はカード → ブロック定義）
+            },
             task.batch_id.clone(), // P3-A: タスクバッチID を実行レコードに伝播
             task.card_run_id,      // U2: todo のカードを自分の子として起こす場合の予約 run_id
             Some(tab_id),          // U2・R4: 動的配置で使用するタブ
@@ -1513,6 +1525,7 @@ impl TaskManager {
             submit_key,
             Some(task_id),
             Some(task.parent_run_id),
+            Some(exec_id),
         );
 
         match turn_result {
@@ -1525,7 +1538,7 @@ impl TaskManager {
                 if !turn.waggle_tokens.is_empty() {
                     let _ = self
                         .store
-                        .update_execution_waggle_tokens(exec_id, &turn.waggle_tokens);
+                        .merge_execution_waggle_tokens(exec_id, &turn.waggle_tokens);
                 }
                 let _ = self.store.update_execution_git_commits(
                     exec_id,
@@ -2485,6 +2498,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2526,6 +2541,8 @@ mod tests {
                 cwd: None,
                 timeout: Some(600),
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2563,6 +2580,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2578,6 +2597,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2615,6 +2636,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2652,6 +2675,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2707,6 +2732,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2745,6 +2772,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2760,6 +2789,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None,
@@ -2796,6 +2827,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2835,6 +2868,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2906,6 +2941,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -2957,6 +2994,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -2975,6 +3014,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3018,6 +3059,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3043,6 +3086,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: true,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3090,6 +3135,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3108,6 +3155,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3182,6 +3231,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3248,6 +3299,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: Some(TaskApproval {
@@ -3266,6 +3319,8 @@ mod tests {
                     cwd: None,
                     timeout: None,
                     runner: None,
+                    model: None,
+                    thinking: None,
                     carried_over: false,
                     card_run_id: None,
                     approval: None, // 旧形式 → pending
@@ -3316,6 +3371,8 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3723,7 +3780,7 @@ main "$@"
 
     /// max_concurrent を確実に超えるタスク数を返す（オーバーリミットテスト用）。
     fn super_max_concurrent() -> usize {
-        crate::pi_command::max_concurrent_limit() + 1
+        crate::settings::max_concurrent_limit() + 1
     }
 
     /// 承認タスクを n 件バッチに作成するヘルパー。
@@ -3746,6 +3803,8 @@ main "$@"
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: Some(TaskApproval {
@@ -3788,6 +3847,8 @@ main "$@"
                 cwd: None,
                 timeout: None,
                 runner: None,
+                model: None,
+                thinking: None,
                 carried_over: false,
                 card_run_id: None,
                 approval: None,
@@ -3819,7 +3880,7 @@ main "$@"
                 assert_eq!(*n, t);
                 assert_eq!(
                     *limit,
-                    std::cmp::max(crate::pi_command::max_concurrent_limit(), 8)
+                    std::cmp::max(crate::settings::max_concurrent_limit(), 8)
                 );
             }
             other => panic!("BatchPaneLimitExceeded を期待: {:?}", other),

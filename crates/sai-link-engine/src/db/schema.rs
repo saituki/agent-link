@@ -164,7 +164,7 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
             cwd             TEXT,              -- サブタスクの作業フォルダ（絶対パス。NULL = プロジェクトルート）
             timeout         INTEGER,          -- 子の時間上限（秒）。超えると親へ stalled(timeout) を繰り返し通知する。NULL = ブロック定義に従う
             card_run_id     INTEGER,          -- 起こす todo カードの run_id（task_create の card 引数。NULL = カード無し）
-            runner          TEXT,             -- 子の実行主体（task_create の runner 引数。pi / cc。NULL = pi）
+            runner          TEXT,             -- 子の実行主体（task_create の runner 引数。cc のみ。NULL = cc）
             execution_id    INTEGER REFERENCES execution_history(id),
             batch_id        TEXT,
             client_id       TEXT,              -- クライアント側一時ID（carried_over 照合・依存解決用）
@@ -302,7 +302,8 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
         "workflow_moved",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
-    // 実行主体（`pi` / `user`）。`user` は DB 項目が空欄のユーザータスク。
+    // 実行主体（`cc` / `user`）。`user` は DB 項目が空欄のユーザータスク。
+    // 列の DEFAULT 'pi' は既存 DB を作り直さないため残す（insert は必ず値を渡す）。
     migrate_add_column(conn, "execution_history", "runner", "TEXT NOT NULL DEFAULT 'pi'")?;
     // エージェント側セッション ID（Claude Code の `--session-id` の UUID）。
     // pi 実行では NULL（pi は JSONL パスで再開するため）。
@@ -336,8 +337,11 @@ pub fn init_sai_tables(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(conn, "tasks", "timeout", "INTEGER")?;
     // 起こす todo カードの run_id（task_create の card 引数）
     migrate_add_column(conn, "tasks", "card_run_id", "INTEGER")?;
-    // 子の実行主体（task_create の runner 引数。pi / cc）
+    // 子の実行主体（task_create の runner 引数。cc のみ。NULL は cc 扱い）
     migrate_add_column(conn, "tasks", "runner", "TEXT")?;
+    // 子の model / thinking（task_create の引数。NULL はブロック定義・settings.json に従う）
+    migrate_add_column(conn, "tasks", "model", "TEXT")?;
+    migrate_add_column(conn, "tasks", "thinking", "TEXT")?;
 
     // tasks の新カラム（実行バッチ所属）
     migrate_add_column(conn, "tasks", "run_batch_id", "INTEGER")?;

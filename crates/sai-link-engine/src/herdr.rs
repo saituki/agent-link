@@ -428,7 +428,7 @@ pub struct HerdrClient {
 /// タブ（メインブロック）ごとの pane 上限のデフォルト（U2・R5）。
 ///
 /// タブ 1 枚に最大 pane 数を配置する想定。`.sai/settings.json` の `wip` で上書きされる
-/// （`crate::pi_command::wip_limit()`）。上限超過は待機（waiting_pane）で対処する。
+/// （`crate::settings::wip_limit()`）。上限超過は待機（waiting_pane）で対処する。
 pub const MAX_BATCH_PANES: usize = 8;
 
 /// 1-n pane の均等レイアウト（縦 rows × 横 cols）を計算する（U2・R4 汎用版）。
@@ -439,7 +439,7 @@ pub const MAX_BATCH_PANES: usize = 8;
 ///
 /// 例（WIP=8）: n=3 → (3,1)、n=5 → (3,2)、n=8 → (4,2)。
 pub fn layout_for_n(n: usize) -> (usize, usize) {
-    layout_for_wip(n, crate::pi_command::wip_limit())
+    layout_for_wip(n, crate::settings::wip_limit())
 }
 
 /// 指定 WIP で 1-n pane の均等レイアウト（縦 rows × 横 cols）を計算する（汎用・テスト用）。

@@ -2,7 +2,7 @@
 name: 👷 worker
 id: worker
 description: 親から渡された 1 つの実装計画書を実装し、作業報告書と `sai-link task report` で報告する
-model: inherit
+model: sonnet
 thinking: high
 templates: sai-base,sai-report,doc-report
 worktree: isolation

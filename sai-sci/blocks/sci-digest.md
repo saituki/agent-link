@@ -2,8 +2,8 @@
 name: 📋 面談の準備
 id: sci-digest
 description: "期間の木の変化をまとめ、面談で聞きたいことを Q の案にする"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - literature-hard-rules

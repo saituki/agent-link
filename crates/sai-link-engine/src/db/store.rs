@@ -85,7 +85,7 @@ fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
         // 旧 DB（カラムなし）は 0（review レーン）扱い
         review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
         // 旧 DB（カラムなし）は `pi` 扱い
-        runner: row.get::<_, String>(38).unwrap_or_else(|_| "pi".to_string()),
+        runner: row.get::<_, String>(38).unwrap_or_else(|_| "cc".to_string()),
         // エージェント側セッション ID（cc のみ。旧 DB は NULL）
         agent_session_id: row.get(39).ok(),
     })
@@ -103,7 +103,7 @@ const TASK_SELECT_COLS: &str = "id, parent_run_id, subject, description, status,
      block_type, inputs_json, depends_on_json, worktree, \
      execution_id, batch_id, client_id, round, supersedes_batch_id, \
      approval_comment, finalized, deleted_by, deleted_at, run_batch_id, \
-     cwd, created_at, updated_at, timeout, card_run_id, runner";
+     cwd, created_at, updated_at, timeout, card_run_id, runner, model, thinking";
 
 /// `tasks` の行を `Task` に変換する共通マッパー。
 fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
@@ -136,6 +136,8 @@ fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
         // card_run_id は既存 DB で NULL の行があるため Option として読む
         card_run_id: row.get(23)?,
         runner: row.get(24)?,
+        model: row.get(25)?,
+        thinking: row.get(26)?,
     })
 }
 
@@ -1251,7 +1253,7 @@ impl SaiStore {
         Ok(())
     }
 
-    /// ユーザー明示完了（Ctrl+D / pi-sai-finalize）の finalize フラグを更新する（U4）。
+    /// ユーザー明示完了（Ctrl+D / sai-finalize）の finalize フラグを更新する（U4）。
     ///
     /// `finalized=true` は「sai-write なしのユーザー明示完了」であることを示し、
     /// `sai block list` の `完了` 表示と右SB の Session 再開を確定させる。
@@ -1311,6 +1313,25 @@ impl SaiStore {
             .unwrap_or_default();
         tokens.push(token.to_string());
         self.update_execution_waggle_tokens(id, &tokens)
+    }
+
+    /// `output_waggle_tokens` に新しいトークンを足す（既存と合わせた和集合。順序を保ち、重複は除く）。
+    ///
+    /// 完了時に、途中で足したトークン（P4 の追記）を消さないために使う。
+    /// `update_execution_waggle_tokens`（置き換え）とは違い、既存の値を残す。
+    pub fn merge_execution_waggle_tokens(&self, id: i64, tokens: &[String]) -> Result<(), DbError> {
+        let exec = self.get_execution_by_id(id)?;
+        let mut merged: Vec<String> = exec
+            .output_waggle_tokens
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok())
+            .unwrap_or_default();
+        for token in tokens {
+            if !merged.contains(token) {
+                merged.push(token.clone());
+            }
+        }
+        self.update_execution_waggle_tokens(id, &merged)
     }
 
     /// 出力タイプを更新する。
@@ -2053,7 +2074,7 @@ impl SaiStore {
                     execution_mode: row.get(35).ok(),
                     workflow_moved: row.get::<_, i64>(36).unwrap_or(0) != 0,
                     review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
-                    runner: row.get::<_, String>(38).unwrap_or_else(|_| "pi".to_string()),
+                    runner: row.get::<_, String>(38).unwrap_or_else(|_| "cc".to_string()),
                     agent_session_id: row.get(39).ok(),
                 })
             },
@@ -2262,8 +2283,8 @@ impl SaiStore {
             "INSERT INTO tasks (parent_run_id, subject, description, status, \
              block_type, inputs_json, depends_on_json, worktree, batch_id, \
              client_id, round, supersedes_batch_id, approval_comment, finalized, \
-             deleted_by, deleted_at, cwd, timeout, card_run_id, runner) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             deleted_by, deleted_at, cwd, timeout, card_run_id, runner, model, thinking) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 task.parent_run_id,
                 task.subject,
@@ -2285,6 +2306,8 @@ impl SaiStore {
                 task.timeout,
                 task.card_run_id,
                 task.runner,
+                task.model,
+                task.thinking,
             ],
         )?;
 
@@ -2303,8 +2326,8 @@ impl SaiStore {
                 "INSERT INTO tasks (parent_run_id, subject, description, status, \
                  block_type, inputs_json, depends_on_json, worktree, batch_id, \
                  client_id, round, supersedes_batch_id, approval_comment, finalized, \
-                 deleted_by, deleted_at, cwd, timeout, card_run_id, runner) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                 deleted_by, deleted_at, cwd, timeout, card_run_id, runner, model, thinking) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 params![
                     task.parent_run_id,
                     task.subject,
@@ -2326,6 +2349,8 @@ impl SaiStore {
                     task.timeout,
                     task.card_run_id,
                     task.runner,
+                    task.model,
+                    task.thinking,
                 ],
             )?;
             ids.push(tx.last_insert_rowid());
@@ -3182,6 +3207,26 @@ mod tests {
         assert!(completed.finished_at.is_some());
         // duration_ms が設定されている（値は環境依存のため存在確認のみ）
         assert!(completed.duration_ms.is_some());
+    }
+
+    /// merge は既存のトークンを残し、新しい分を足す（重複は除き、順序を保つ）。
+    /// update（置き換え）では既存が消えるので、完了時の取りこぼしを防ぐための確認。
+    #[test]
+    fn merge_execution_waggle_tokens_is_union() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("waggle-merge")).unwrap();
+        let run = store.create_execution(block_id, None).unwrap();
+        store.append_execution_waggle_token(run, "AAA00001").unwrap();
+
+        store
+            .merge_execution_waggle_tokens(run, &["BBB00002".to_string(), "AAA00001".to_string()])
+            .unwrap();
+
+        let tokens: Vec<String> = serde_json::from_str(
+            store.get_execution_by_id(run).unwrap().output_waggle_tokens.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tokens, vec!["AAA00001".to_string(), "BBB00002".to_string()]);
     }
 
     /// list_waggle_tokens の SQL が両分岐とも組み立てられ、
@@ -4601,14 +4646,19 @@ mod tests {
         };
         let mut with_runner = make("A");
         with_runner.runner = Some("cc".to_string());
+        with_runner.model = Some("haiku".to_string());
+        with_runner.thinking = Some("low".to_string());
         let ids = store
             .insert_tasks_batch(&[with_runner, make("B")])
             .unwrap();
-        assert_eq!(
-            store.get_task_by_id(ids[0]).unwrap().runner.as_deref(),
-            Some("cc")
-        );
-        assert_eq!(store.get_task_by_id(ids[1]).unwrap().runner, None);
+        let a = store.get_task_by_id(ids[0]).unwrap();
+        assert_eq!(a.runner.as_deref(), Some("cc"));
+        assert_eq!(a.model.as_deref(), Some("haiku"));
+        assert_eq!(a.thinking.as_deref(), Some("low"));
+        let b = store.get_task_by_id(ids[1]).unwrap();
+        assert_eq!(b.runner, None);
+        assert_eq!(b.model, None);
+        assert_eq!(b.thinking, None);
     }
 
     #[test]

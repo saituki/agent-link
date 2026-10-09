@@ -2,8 +2,8 @@
 name: 🌱 研究を始める
 id: sci-start
 description: "利用者の聞き取りから、RESEARCH_TYPE の案・mind.md の案・最初の Q の案を出す（初めての人向け）"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find

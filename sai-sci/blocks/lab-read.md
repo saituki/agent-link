@@ -2,13 +2,12 @@
 name: 📖 論文から足す
 id: lab-read
 description: "論文を 1 本読み、対象の Node の下に sci_child の型の子（A・F・Q のどれか 1 種）を足す"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find
   - sci-match
-  - search-internal
   - literature-hard-rules
   - domain
 context: true
@@ -54,7 +53,7 @@ runner が user のときは、利用者が読みます（READ_CARD）。読み�
    - Q の子 A: `{"ops": [{"op": "add_a", "q": "Q3", "text": "…", "body": "確かめ方"}]}`
    - A の子 F: `{"ops": [{"op": "add_f", "parent": "A12", "text": "…", "stance": "support", "cites": ["#37.5.2"]}]}`
    - A の子 Q: `{"ops": [{"op": "add_q", "parent": "A12", "text": "…"}]}`。`add_q` は許可が要るので、先に質問ツールで許可を取ります（`sci-core` の「許可を取る」）。
-   - F は 1〜3 文にまとめ、`stance`（`support`・`deny`・`issue`）を必ず付けます。`cites` の形は `sci-core` の「根拠」に従います。数字を含む文には必ず `cites` を付けます。
+   - F は 1〜3 文にまとめ、`stance`（`support`・`deny`・`issue`）を必ず付けます。`cites` の形は `sci-core` の「根拠」に従います。数字を含む文には必ず `cites` を付けます。A の本文に `#番号` の出典を書いたら、同じ出典の F を 1 本足します（`sci-core` の F の決まり）。
    - F は同じ論文から、支持するものと反するものの両方を探します。反するものが見つからなければ、その旨を報告に書きます。
 6. **論文の別の答えや問いは足さない。** 論文に `sci_child` 以外の型の候補があっても、この回では足しません。報告の「次に勧める CARD」に書きます（例: 答えの候補を増やすなら `lab-grow`）。
 7. **note.md を書く。** 論文だけの要約と、木に照らして分かったことを書き、標準入力で保存します。

@@ -36,6 +36,7 @@ job_id と実行先の対応は `<sai_home>/exec/jobs/<job_id>.json` に残す�
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -44,6 +45,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -96,14 +98,20 @@ def load_config(folder: Path) -> dict:
         raise ExecError(f"{path} を読めません: {e}") from e
 
 
+def target_env(config: dict) -> dict:
+    """target.toml の [env] を足した環境変数（adapter を呼ぶときと check で同じ）。"""
+    env = dict(os.environ)
+    for key, value in (config.get("env") or {}).items():
+        env[str(key)] = str(value)
+    return env
+
+
 def call_adapter(
     folder: Path, verb: str, args: list[str], job_id: str, name: str = ""
 ) -> subprocess.CompletedProcess:
     """adapter を呼ぶ。target.toml の [env] と EXP_* を足す。"""
     config = load_config(folder)
-    env = dict(os.environ)
-    for key, value in (config.get("env") or {}).items():
-        env[str(key)] = str(value)
+    env = target_env(config)
     if config.get("max_jobs") is not None:
         env["EXP_MAX_JOBS"] = str(config["max_jobs"])
     env.update(
@@ -266,12 +274,41 @@ def cmd_cancel(args) -> int:
     return passthrough(load_job(args.job_id), "cancel", [])
 
 
+def in_container(env: dict) -> bool:
+    """Docker の中か（`/.dockerenv`、または sai-web が渡す内部の合言葉があるか）。値は見せない。"""
+    return Path("/.dockerenv").exists() or bool(env.get("SAI_WEB_INTERNAL_TOKEN"))
+
+
+def check_local(folder: Path, env: dict) -> None:
+    """local の実行先で、MLflow と成果物の置き場を確かめる。実験の途中で BLOCKED になる前に止める。"""
+    uri = env.get("MLFLOW_TRACKING_URI", "")
+    if uri:
+        try:
+            with urllib.request.urlopen(uri.rstrip("/") + "/health", timeout=5):
+                pass
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            where = "コンテナの中では 127.0.0.1 はコンテナ自身です。" if in_container(env) else ""
+            raise ExecError(
+                f"MLflow（{uri}）に届きません: {getattr(e, 'reason', e)}。{where}"
+                f"{folder / 'target.toml'} の [env] の MLFLOW_TRACKING_URI を直してください"
+            ) from e
+    location = env.get("EXP_ARTIFACT_LOCATION", "s3://mlflow-local/")
+    if location.startswith("s3://") and not env.get("AWS_ACCESS_KEY_ID"):
+        raise ExecError(
+            f"成果物の置き場 {location} には s3 の鍵（AWS_ACCESS_KEY_ID など）が要ります。"
+            "鍵を target.toml の [env] に足すか、EXP_ARTIFACT_LOCATION を file:// にしてください"
+        )
+
+
 def cmd_check(args) -> int:
     folder = find_target(args.target)
     proc = call_adapter(folder, "check", [], "-", "")
     sys.stdout.write(proc.stdout)
     if proc.returncode != 0:
         raise ExecError(f"{args.target} は使えません: {fail_text(proc)}")
+    config = load_config(folder)
+    if config.get("kind") == "local":
+        check_local(folder, target_env(config))
     print(f"{args.target}: 使えます")
     return 0
 

@@ -48,9 +48,15 @@ pub(crate) struct SciCardArgs {
     /// 対象論文の番号（カンマ区切り）
     #[arg(long, value_delimiter = ',')]
     pub papers: Vec<i64>,
-    /// 実行者（pi / cc / user。`user` なら READ_CARD）
-    #[arg(long, default_value = "pi")]
+    /// 実行者（cc / user。`user` なら READ_CARD。省くと cc）
+    #[arg(long, default_value = "cc")]
     pub runner: String,
+    /// モデル（opus / sonnet / haiku / inherit。省くと settings.json の既定）
+    #[arg(long)]
+    pub model: Option<String>,
+    /// 思考の量（none / low / medium / high / xhigh / max。省くと settings.json の既定）
+    #[arg(long)]
+    pub thinking: Option<String>,
     /// READ_CARD の深さ（abstract / figures / full）
     #[arg(long)]
     pub depth: Option<String>,
@@ -60,9 +66,6 @@ pub(crate) struct SciCardArgs {
     /// 依頼文に載せる文書の waggle トークン（繰り返し可）
     #[arg(long = "input")]
     pub input: Vec<String>,
-    /// 起動者（human / agent。旧 `professor` も `agent` と読む）
-    #[arg(long)]
-    pub executer: Option<String>,
     /// 足す子の型（Q・A・F。Q の下は Q か A、A の下は Q か F）
     #[arg(long)]
     pub child: Option<String>,
@@ -89,10 +92,11 @@ impl SciCardArgs {
             mode: self.mode.clone().unwrap_or_default(),
             papers: self.papers.clone(),
             runner: self.runner.clone(),
+            model: self.model.clone().unwrap_or_default(),
+            thinking: self.thinking.clone().unwrap_or_default(),
             depth: self.depth.clone().unwrap_or_default(),
             origin_run: self.origin_run,
             inputs: self.input.clone(),
-            executer: self.executer.clone().unwrap_or_default(),
             child: self.child.clone().unwrap_or_default(),
         })
     }
@@ -288,11 +292,16 @@ pub(crate) fn init_with_assets(root: &Path, type_id: &str) -> Result<InitOutcome
     Ok(outcome)
 }
 
-/// `sci status` — 現況。
-pub(crate) fn status(json: bool, brief: bool) -> Result<Out> {
+/// `sci status` — 現況。`limit` は Next Action の件数（省くと 10、0 は全部）。
+pub(crate) fn status(json: bool, brief: bool, limit: Option<usize>) -> Result<Out> {
     let env = open_env()?;
-    let status =
-        compute::status(env.conn(), &env.roots, &env.defs).context("現況を集められませんでした")?;
+    let limit = match limit {
+        Some(0) => usize::MAX,
+        Some(n) => n,
+        None => 10,
+    };
+    let status = compute::status_with_limit(env.conn(), &env.roots, &env.defs, limit)
+        .context("現況を集められませんでした")?;
     // --brief は --json と一緒でも単独でもよく、いつも JSON。
     if brief {
         return Ok(Out::Json(brief_status(&status)));
@@ -365,10 +374,15 @@ pub(crate) fn op(run: Option<i64>, block: Option<String>) -> Result<Out> {
 }
 
 /// `sci apply` — 利用者の操作を 1 つ反映する（いつも JSON）。
+/// 記録の actor は、`SAI_PARENT_RUN_ID` があれば `run:<id>`（Professor の代行）、無ければ `user`。
 pub(crate) fn apply() -> Result<Out> {
     let env = open_env()?;
     let input = read_stdin_json()?;
-    let result = ops::apply_user(env.conn(), &env.roots, &env.defs, &input).map_err(rt_err)?;
+    let by = match parent_run_id().filter(|id| *id > 0) {
+        Some(run_id) => format!("run:{run_id}"),
+        None => "user".to_string(),
+    };
+    let result = ops::apply_user(env.conn(), &env.roots, &env.defs, &input, &by).map_err(rt_err)?;
     env.export()?;
     Ok(Out::Json(serde_json::to_value(result)?))
 }
@@ -391,23 +405,16 @@ pub(crate) fn approval_record(
     })))
 }
 
-/// CARD を作って state.md と tree.md を書き直し、`{"run_id","path","executer"}` を返す
+/// CARD を作って state.md と tree.md を書き直し、`{"run_id","path"}` を返す
 /// （`sci card` と `phone sci card` で共用）。
 pub(crate) fn make_card(spec: &card::CardSpec) -> Result<Value> {
     let env = open_env()?;
     let result =
         card::create_card(&env.db, &env.roots, &env.defs, spec).map_err(rt_err)?;
     env.export()?;
-    // 起動者は省略なら human（検査は create_card がした）。
-    let executer = if spec.executer.trim().is_empty() {
-        "human"
-    } else {
-        spec.executer.trim()
-    };
     Ok(json!({
         "run_id": result.run_id,
         "path": result.path.to_string_lossy(),
-        "executer": executer,
     }))
 }
 
