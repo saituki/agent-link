@@ -3046,4 +3046,14 @@ mod tests {
         let err = md(89, "system").unwrap_err();
         assert_eq!(err.code, EXIT_NOT_FOUND, "err={}", err.msg);
     }
+
+    /// sai-ts の chat が使う `md --kind message`。無い run は終了コード 3（見つからない）になる。
+    #[test]
+    fn md_message_missing_run_is_not_found() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tmp, _guard, _store) = temp_project_store();
+
+        let err = md(99999, "message").unwrap_err();
+        assert_eq!(err.code, EXIT_NOT_FOUND, "err={}", err.msg);
+    }
 }

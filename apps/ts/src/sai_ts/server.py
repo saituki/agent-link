@@ -1,4 +1,4 @@
-"""FastAPI の本体。段階 A は 127.0.0.1 だけで待つ。"""
+"""FastAPI の本体。既定は 127.0.0.1 だけで待つ。コンテナの中では 0.0.0.0 と合言葉で待つ。"""
 
 from __future__ import annotations
 
@@ -61,11 +61,19 @@ if _static.is_dir():
     app.mount("/", StaticFiles(directory=_static, html=True), name="static")
 
 
-def serve(port=None) -> int:
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def serve(port=None, host=None) -> int:
     try:
         paths.project_root()
     except paths.ProjectNotFound as e:
         print(e, file=sys.stderr)
         return 2
-    uvicorn.run(app, host="127.0.0.1", port=port or int(os.environ.get("SAI_TS_PORT", "8210")))
+    host = host or os.environ.get("SAI_TS_HOST") or "127.0.0.1"
+    # 外から届く住所では、合言葉が無ければ待たない（同じ docker ネットワークの他の利用者にも届くため）
+    if host not in _LOOPBACK and not os.environ.get("SAI_TS_TOKEN"):
+        print("127.0.0.1 以外で待つときは SAI_TS_TOKEN が要ります", file=sys.stderr)
+        return 2
+    uvicorn.run(app, host=host, port=port or int(os.environ.get("SAI_TS_PORT", "8210")))
     return 0

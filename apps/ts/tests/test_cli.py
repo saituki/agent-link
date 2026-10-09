@@ -168,6 +168,36 @@ class CliTest(unittest.TestCase):
         self.assertEqual(res["block"], "created")
         self.assertTrue((self.tmp / "ts" / "datasets").is_dir())
 
+    def test_serve_public_host_needs_token(self):  # AC1（CLI）
+        p = self.sai("serve", "--host", "0.0.0.0")  # SAI_TS_TOKEN は無い
+        self.assertEqual(p.returncode, 2, p.stderr)
+        self.assertEqual(p.stdout, "")
+        self.assertEqual(p.stderr.splitlines()[-1], "127.0.0.1 以外で待つときは SAI_TS_TOKEN が要ります")
+
+    def test_serve_host_choice_without_starting(self):  # AC1（関数）
+        from unittest import mock
+        from sai_ts import server
+
+        saved = {k: os.environ.pop(k, None) for k in ("SAI_TS_TOKEN", "SAI_TS_HOST", "SAI_PROJECT_ROOT")}
+        os.environ["SAI_PROJECT_ROOT"] = str(self.tmp)
+        try:
+            with mock.patch.object(server.uvicorn, "run") as run:
+                self.assertEqual(server.serve(host="0.0.0.0"), 2)
+                run.assert_not_called()
+
+                os.environ["SAI_TS_TOKEN"] = "x"
+                self.assertEqual(server.serve(port=8299, host="0.0.0.0"), 0)
+                self.assertEqual(run.call_args.kwargs["host"], "0.0.0.0")
+
+                os.environ.pop("SAI_TS_TOKEN")
+                self.assertEqual(server.serve(port=8299), 0)  # --host 無しは 127.0.0.1
+                self.assertEqual(run.call_args.kwargs["host"], "127.0.0.1")
+        finally:
+            for k in ("SAI_TS_TOKEN", "SAI_TS_HOST", "SAI_PROJECT_ROOT"):
+                os.environ.pop(k, None)
+                if saved[k] is not None:
+                    os.environ[k] = saved[k]
+
 
 if __name__ == "__main__":
     unittest.main()

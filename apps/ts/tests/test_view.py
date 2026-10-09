@@ -46,6 +46,26 @@ class ViewTest(TempProject, unittest.TestCase):
         # 選択を外す
         self.assertIsNone(view.save_view({"selection": None}, "human")["selection"])
 
+    def test_record_change_clears_selection(self):  # 宿題 2
+        view.save_view({"dataset": "demo", "record": "r02", "t0": 8.0, "t1": 12.0,
+                        "selection": {"t0": 8.81, "t1": 10, "vars": ["ch02"]}}, "human")
+
+        # 記録が変わり selection が無い → 選択は消える（別の記録の区間と読まれない）
+        v = view.save_view({"record": "r03"}, "human")
+        self.assertIsNone(v["selection"])
+        self.assertEqual((v["record"], v["t0"], v["t1"]), ("r03", 8.0, 12.0))
+
+        # 記録を変えて selection も送れば、送った値
+        w = view.save_view({"record": "r01", "selection": {"t0": 1.0, "t1": 2.0}}, "agent")
+        self.assertEqual(w["selection"], {"t0": 1.0, "t1": 2.0})
+
+        # 記録が同じなら selection は残る
+        self.assertEqual(view.save_view({"record": "r01", "t0": 0.0, "t1": 5.0}, "human")["selection"],
+                         {"t0": 1.0, "t1": 2.0})
+
+        # dataset が変わったときも消す
+        self.assertIsNone(view.save_view({"dataset": "other"}, "human")["selection"])
+
     def test_server_keys_ignored_and_unknown_rejected(self):
         v = view.save_view({"updated_by": "agent", "updated_at": "x", "record": "r02"}, "human")
         self.assertEqual(v["updated_by"], "human")

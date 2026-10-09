@@ -127,7 +127,7 @@ def _event_line(r: dict) -> str:
 def _cmd_serve(a) -> int:
     from .server import serve  # FastAPI と uvicorn は要るときだけ読む
 
-    return serve(a.port)
+    return serve(a.port, a.host)
 
 
 def _cmd_init(a):
@@ -222,7 +222,8 @@ def _build() -> argparse.ArgumentParser:
     top.add_argument("-h", "--help", action="help", help="この説明を表示する")
     subs = top.add_subparsers(dest="cmd", required=True, title="命令", metavar="<命令>", help="次のどれか")
 
-    sp = _new(subs, "serve", "サーバを起こす（127.0.0.1 だけで待つ）", json_flag=False)
+    sp = _new(subs, "serve", "サーバを起こす（既定は 127.0.0.1 だけで待つ）", json_flag=False)
+    sp.add_argument("--host", help="待ち受ける住所（既定は環境変数 SAI_TS_HOST、無ければ 127.0.0.1。127.0.0.1 以外は SAI_TS_TOKEN が必須）")
     sp.add_argument("--port", type=int, help="待ち受けの番号（既定は環境変数 SAI_TS_PORT、無ければ 8210）")
     sp.set_defaults(func=_cmd_serve)
 
