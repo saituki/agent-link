@@ -24,6 +24,7 @@ const {
   tsPatchState,
   tsRecordsOf,
   tsNormSchema,
+  tsRangeFromInput,
 } = require(src);
 
 // 名前の形（C1）
@@ -130,6 +131,21 @@ assert.deepStrictEqual(body.hidden_categories, ["noise"]);
 assert.deepStrictEqual(body.selected_events, ["e-1"]);
 assert.ok(!("dataset" in body));
 assert.ok(!("vars" in body));
+
+// 範囲の入力（秒）: 開始と幅。記録の外は収め、数でない・幅が 0 以下・空・記録が無いときは null
+assert.deepStrictEqual(tsRangeFromInput("12", "30", 600, 0.002), { t0: 12, t1: 42 });
+assert.deepStrictEqual(tsRangeFromInput(" 12.5 ", "1e1", 600, 0.002), { t0: 12.5, t1: 22.5 }, "空白と指数");
+assert.deepStrictEqual(tsRangeFromInput("590", "30", 600, 0.002), { t0: 570, t1: 600 }, "記録の末尾に収める");
+assert.deepStrictEqual(tsRangeFromInput("-5", "10", 600, 0.002), { t0: 0, t1: 10 }, "負の開始は 0");
+assert.deepStrictEqual(tsRangeFromInput("0", "5000", 600, 0.002), { t0: 0, t1: 600 }, "記録より広い幅は全体");
+assert.deepStrictEqual(tsRangeFromInput("0", "0.0001", 600, 0.5), { t0: 0, t1: 0.5 }, "最小幅まで広げる");
+assert.strictEqual(tsRangeFromInput("abc", "30", 600, 0), null, "数でない開始");
+assert.strictEqual(tsRangeFromInput("1", "", 600, 0), null, "空の幅は 0 と読まない");
+assert.strictEqual(tsRangeFromInput("", "5", 600, 0), null, "空の開始は 0 と読まない");
+assert.strictEqual(tsRangeFromInput("1", "0", 600, 0), null, "幅 0");
+assert.strictEqual(tsRangeFromInput("1", "-3", 600, 0), null, "負の幅");
+assert.strictEqual(tsRangeFromInput("1", "Infinity", 600, 0), null, "有限でない幅");
+assert.strictEqual(tsRangeFromInput("1", "5", 0, 0), null, "記録が無い");
 
 assert.deepStrictEqual(tsRecordsOf([{ name: "demo", records: ["r01"] }], "demo"), ["r01"]);
 assert.deepStrictEqual(tsRecordsOf([], "x"), []);

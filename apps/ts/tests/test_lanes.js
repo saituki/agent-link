@@ -7,7 +7,18 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_ts", "static", "lanes.js");
-const { tsLaneLayout, tsAutoRange, tsM4Path, tsRawPath, tsHitEvent, tsSelectionFromDrag, tsRgba } = require(src);
+const {
+  tsLaneLayout,
+  tsAutoRange,
+  tsM4Path,
+  tsRawPath,
+  tsHitEvent,
+  tsSelectionFromDrag,
+  tsRgba,
+  tsGainSteps,
+  tsGainStep,
+  tsGainParse,
+} = require(src);
 
 // レーンの配置: 最小の高さ、変数 0 個
 assert.deepStrictEqual(tsLaneLayout(3, 300, 24, 24).laneH, 92);
@@ -87,5 +98,27 @@ assert.deepStrictEqual(tsSelectionFromDrag(0, 180, 10, 10, frame).t0, 0);
 // 色に透明度を付ける
 assert.strictEqual(tsRgba("#d9534f", 0.5), "rgba(217,83,79,0.5)");
 assert.strictEqual(tsRgba("red", 0.5), "rgba(100,116,139,0.5)");
+
+// 倍率の段: 上げ下げは段ごと、端で止まる、段に無い値は一番近い段から動く
+assert.deepStrictEqual(tsGainSteps, [0.1, 0.2, 0.5, 1, 2, 5, 10]);
+assert.strictEqual(tsGainStep(1, 1), 2);
+assert.strictEqual(tsGainStep(1, -1), 0.5);
+assert.strictEqual(tsGainStep(10, 1), 10, "上の端で止まる");
+assert.strictEqual(tsGainStep(0.1, -1), 0.1, "下の端で止まる");
+assert.strictEqual(tsGainStep(1.3, 1), 2, "1.3 は 1 の段から上がる");
+assert.strictEqual(tsGainStep(1.3, -1), 0.5, "1.3 は 1 の段から下がる");
+assert.strictEqual(tsGainStep(0.9, 1), 2, "0.9 は 1 の段から上がる");
+assert.strictEqual(tsGainStep(NaN, 1), 2, "読めない値は 1 として動く");
+assert.strictEqual(tsGainStep(-3, -1), 0.5, "負の値は 1 として動く");
+
+// 保存の読み: 読めない値は 1。段に無い値も 1。ch の 1 は入れない
+assert.deepStrictEqual(tsGainParse(null), { all: 1, ch: {} });
+assert.deepStrictEqual(tsGainParse("{壊れ"), { all: 1, ch: {} });
+assert.deepStrictEqual(tsGainParse("[1,2]"), { all: 1, ch: {} });
+assert.deepStrictEqual(tsGainParse('{"all": 2, "ch": {"ch01": 5, "ch02": 1, "ch03": 1.3, "ch04": "x"}}'), {
+  all: 2,
+  ch: { ch01: 5 },
+});
+assert.deepStrictEqual(tsGainParse('{"all": "x", "ch": []}'), { all: 1, ch: {} });
 
 console.log("test_lanes.js: OK");

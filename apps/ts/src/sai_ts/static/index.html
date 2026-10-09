@@ -20,6 +20,13 @@
       <div id="ts-cats"></div>
       <div id="ts-buttons"></div>
     </header>
+    <div id="ts-range">
+      <span id="ts-range-view"></span>
+      <label>start <input id="ts-start" type="number" step="any" min="0" aria-label="表示の開始（秒）"> s</label>
+      <label>window <input id="ts-win" type="number" step="any" min="0" aria-label="表示の幅（秒）"> s</label>
+      <button id="ts-apply" type="button">適用</button>
+      <label>全体の倍率 <select id="ts-gain" aria-label="全体の倍率"></select></label>
+    </div>
     <main id="ts-main">
       <canvas id="ts-canvas"></canvas>
       <canvas id="ts-overlay"></canvas>
@@ -33,6 +40,7 @@
   <script src="lanes.js"></script>
   <script src="evform.js"></script>
   <script src="sidebar.js"></script>
+  <script src="patients.js"></script>
   <script src="evtable.js"></script>
   <script src="chat.js"></script>
   <script src="exthost.js"></script>

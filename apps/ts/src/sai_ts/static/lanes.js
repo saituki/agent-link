@@ -10,7 +10,9 @@ const tsPanStep = 0.1; // ホイールで 1 回に動く表示幅の割合
 const tsDragPx = 3; // これより動いたらドラッグ扱い
 const tsHitPx = 4; // ラインの当たり判定の幅（CSS px）
 const tsDefaultColor = "#64748b";
-let tsGain = 1;
+let tsGain = 1; // 全体の倍率（tsGainSteps の段）
+let tsChGain = {}; // ch ごとの倍率（名前 → 段。1 の ch は入れない）
+let tsGainDs = null; // 倍率を読んだデータセット（保存の鍵）
 let tsFetchTimer = null;
 let tsFetchKey = "";
 let tsFetchCtl = null;
@@ -136,6 +138,49 @@ function tsRgba(hex, a) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+// 倍率の段（全体と ch ごとで共通）
+const tsGainSteps = [0.1, 0.2, 0.5, 1, 2, 5, 10];
+
+// 段として読める値（有限で正の数）。読めなければ 1
+function tsGainNum(v) {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+// 倍率を段で 1 つ動かす（dir が正で上げ、負で下げる）。段に無い値は一番近い段から動く。端で止まる
+function tsGainStep(cur, dir) {
+  const c = tsGainNum(cur);
+  let best = 0;
+  tsGainSteps.forEach((s, i) => {
+    if (Math.abs(Math.log(c / s)) < Math.abs(Math.log(c / tsGainSteps[best]))) best = i;
+  });
+  const j = Math.min(tsGainSteps.length - 1, Math.max(0, best + (dir > 0 ? 1 : -1)));
+  return tsGainSteps[j];
+}
+
+// 保存の文字（{"all": 段, "ch": {名前: 段}}）を読む。読めない値は 1 として扱う
+function tsGainParse(text) {
+  const out = { all: 1, ch: {} };
+  let o = null;
+  try {
+    o = JSON.parse(text);
+  } catch {
+    return out;
+  }
+  if (!o || typeof o !== "object") return out;
+  out.all = tsGainOf(o.all);
+  const ch = o.ch && typeof o.ch === "object" && !Array.isArray(o.ch) ? o.ch : {};
+  for (const k of Object.keys(ch)) {
+    const v = tsGainOf(ch[k]);
+    if (v !== 1) out.ch[k] = v;
+  }
+  return out;
+}
+
+// 段の値に直す（段に無ければ 1）
+function tsGainOf(v) {
+  return tsGainSteps.includes(v) ? v : 1;
+}
+
 // ---- ここから画面（ブラウザだけで動く） ----
 
 function tsPoint(e) {
@@ -182,6 +227,58 @@ function tsScales(data) {
   return out;
 }
 
+// ch の倍率（保存していなければ 1）。Object の名前（constructor など）を拾わないように自分の鍵だけ見る
+function tsChGainOf(name) {
+  return Object.prototype.hasOwnProperty.call(tsChGain, name) ? tsChGain[name] : 1;
+}
+
+// 倍率の保存は データセットごと（記録をまたいで同じ ch 名なら同じ倍率）
+function tsGainSave() {
+  if (!tsGainDs) return;
+  const ch = {};
+  Object.keys(tsChGain).forEach((k) => {
+    if (tsChGain[k] !== 1) ch[k] = tsChGain[k];
+  });
+  try {
+    localStorage.setItem("ts_gain:" + tsGainDs, JSON.stringify({ all: tsGain, ch }));
+  } catch {
+    // 保存できなくても画面は動く
+  }
+}
+
+// データセットが変わったら、そのデータセットの保存を読む
+function tsGainSync() {
+  const ds = window.TS.state.dataset;
+  if (!ds || ds === tsGainDs) return;
+  tsGainDs = ds;
+  let text = null;
+  try {
+    text = localStorage.getItem("ts_gain:" + ds);
+  } catch {
+    text = null;
+  }
+  const g = tsGainParse(text);
+  tsGain = g.all;
+  tsChGain = g.ch;
+  window.TS.emit("gain");
+}
+
+function tsGainSetAll(v) {
+  tsGain = tsGainOf(v);
+  tsGainSave();
+  window.TS.emit("gain");
+  tsDrawAll();
+}
+
+function tsGainSetCh(name, v) {
+  const g = tsGainOf(v);
+  if (g === 1) delete tsChGain[name];
+  else tsChGain[name] = g;
+  tsGainSave();
+  window.TS.emit("gain");
+  tsDrawAll();
+}
+
 function tsLanesFrame() {
   const st = window.TS.state;
   const main = document.getElementById("ts-main");
@@ -201,7 +298,7 @@ function tsLanesFrame() {
       var: name,
       y0: row.y0,
       y1: row.y1,
-      toY: (v) => mid - ((v - sc.mid) / sc.half) * tsGain * amp,
+      toY: (v) => mid - ((v - sc.mid) / sc.half) * tsGain * tsChGainOf(name) * amp,
     };
   });
   return {
@@ -272,7 +369,8 @@ function tsPaintLanes(ctx, frame) {
     ctx.lineTo(w, lane.y1 + 0.5);
     ctx.stroke();
     ctx.fillStyle = "#111";
-    ctx.fillText(lane.var, 6, (lane.y0 + lane.y1) / 2, tsNameW - 10);
+    const g = tsChGainOf(lane.var);
+    ctx.fillText(lane.var + (g === 1 ? "" : ` x${g}`), 6, (lane.y0 + lane.y1) / 2, tsNameW - 10);
     const data = wave && wave.data.vars[lane.var];
     if (!data) return;
     ctx.save();
@@ -508,6 +606,46 @@ function tsOnDbl(e) {
   window.TS.editEvent(hit.id, { anchor: { x: e.clientX, y: e.clientY } });
 }
 
+// 名前の欄を押すと、その ch の倍率を選ぶ小窓を出す（外を押すと閉じる）
+let tsChPop = null; // {el, name}
+
+function tsOnClick(e) {
+  const p = tsPoint(e);
+  if (p.x >= tsNameW) return;
+  const lane = tsLaneAt(tsLanesFrame(), p.y);
+  if (lane) tsChGainOpen(lane.var, e);
+}
+
+function tsChGainOpen(name, e) {
+  tsChGainClose();
+  const el = tsEl("div", "ts-pop ts-chgain");
+  el.style.top = e.clientY + 8 + "px";
+  el.style.left = e.clientX + "px";
+  tsChPop = { el, name };
+  document.body.appendChild(el);
+  tsChGainPaint();
+}
+
+function tsChGainPaint() {
+  if (!tsChPop) return;
+  const { el, name } = tsChPop;
+  const cur = tsChGainOf(name);
+  const btns = tsGainSteps.map((s) => {
+    const b = tsEl("button", "", `x${s}`);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(s === cur));
+    b.onclick = () => tsGainSetCh(name, s);
+    return b;
+  });
+  el.replaceChildren(tsEl("div", "ts-lbl", `${name} の倍率`), tsEl("div", "ts-pop-btns ts-chgain-btns", ""));
+  el.lastChild.append(...btns);
+}
+
+function tsChGainClose() {
+  if (tsChPop) tsChPop.el.remove();
+  tsChPop = null;
+}
+
 // 縦の回転は横の移動。Ctrl・⌘ を押すと（トラックパッドのピンチを含む）マウスの位置を中心に拡大縮小
 function tsOnWheel(e) {
   e.preventDefault();
@@ -610,22 +748,8 @@ function tsLanesInstallKeys() {
       if (st.meta) window.TS.setView({ t0: 0, t1: tsDuration(st.meta) });
     },
   });
-  ui.addKey({
-    key: "ArrowUp",
-    desc: "縦の倍率を上げる",
-    handler: () => {
-      tsGain *= 1.25;
-      tsDrawAll();
-    },
-  });
-  ui.addKey({
-    key: "ArrowDown",
-    desc: "縦の倍率を下げる",
-    handler: () => {
-      tsGain /= 1.25;
-      tsDrawAll();
-    },
-  });
+  ui.addKey({ key: "ArrowUp", desc: "全体の倍率を 1 段上げる", handler: () => tsGainSetAll(tsGainStep(tsGain, 1)) });
+  ui.addKey({ key: "ArrowDown", desc: "全体の倍率を 1 段下げる", handler: () => tsGainSetAll(tsGainStep(tsGain, -1)) });
   ui.addKey({
     key: "Escape",
     desc: "選択を外す",
@@ -659,7 +783,13 @@ function tsLanesInit() {
     tsDrawAll();
     tsLanesScheduleFetch();
   });
+  ov.addEventListener("click", tsOnClick);
+  document.addEventListener("mousedown", (e) => {
+    if (tsChPop && !e.target.closest(".ts-chgain")) tsChGainClose();
+  });
+  window.TS.on("state", tsGainSync);
   window.TS.on("state", tsLanesScheduleFetch);
+  window.TS.on("gain", tsChGainPaint);
   tsLanesInstallKeys();
 }
 
@@ -672,5 +802,8 @@ if (typeof module !== "undefined") {
     tsHitEvent,
     tsSelectionFromDrag,
     tsRgba,
+    tsGainSteps,
+    tsGainStep,
+    tsGainParse,
   };
 }

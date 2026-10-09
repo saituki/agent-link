@@ -35,8 +35,47 @@ button:disabled {
 #ts-app {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
-  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-rows: 44px 36px minmax(0, 1fr);
   height: 100vh;
+}
+
+#ts-range {
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 10px;
+  border-bottom: 1px solid #bbb;
+  background: #fafafa;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+#ts-range-view {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#ts-range label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#ts-range input[type="number"] {
+  width: 84px;
+  min-height: 28px;
+}
+
+#ts-range input[aria-invalid="true"] {
+  border-color: #b91c1c;
+}
+
+#ts-range select {
+  min-height: 28px;
 }
 
 #ts-header {
@@ -129,6 +168,79 @@ button:disabled {
   display: flex;
   gap: 6px;
   margin-top: 6px;
+}
+
+.ts-chgain {
+  position: fixed;
+  z-index: 30;
+  width: 220px;
+  min-width: 0;
+}
+
+.ts-chgain-btns {
+  flex-wrap: wrap;
+}
+
+.ts-chgain button[aria-pressed="true"] {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.ts-pat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ts-pat-head input {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+}
+
+.ts-pat-list {
+  max-height: 30vh;
+  margin: 0 0 8px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.ts-pat-list button {
+  display: block;
+  width: 100%;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: 3px;
+  text-align: left;
+}
+
+.ts-pat-list button[aria-current="true"] {
+  background: #dbeafe;
+  font-weight: 600;
+}
+
+.ts-pat-none {
+  color: #555;
+}
+
+.ts-pat-title {
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+
+.ts-pat-info th {
+  padding-right: 10px;
+  text-align: left;
+  font-weight: normal;
+  color: #444;
+  vertical-align: top;
+}
+
+.ts-pat-info td {
+  word-break: break-all;
 }
 
 #ts-main {
