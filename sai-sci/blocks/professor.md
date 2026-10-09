@@ -126,7 +126,7 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 - **子の確かめ（2 つ目の確かめ）を省略させてよいのは、実験仕様書の「パラメータの出典表」に「記憶」の行が無く、出典の無い値も無いときだけである。** 目安（`exp-ref` §5 の `guess`）の行が成功基準や結論に効くなら、省略させない。さもなくば、確かめを省略した実験になり、後から値を直すことになる。
 - sprout は最初の branch を起こして終わる。`sai-link run wait` で sprout の完了を待ち、報告の実験仕様書のトークンと branch の run_id を研究日誌に書く。
 - 実験の連鎖（branch → review）は Card で進む。branch・review の run は `sai-sci status --brief` の `running` に出るので、「1 回の回し方」の 4. の `sai-link run wait` に並べて見張る。review は REPORT を保存して終わる。Professor は REPORT（`sai-link doc list --run <review の run_id>`。run_id は `sai-link run tree` で探す）と `sai-sci node <E>` から結果を読む。
-- 同じ研究で 2 つの professor が同時に動かないようにする。実験の間にほかの作業を続けるときは、研究日誌に「実験 <study> の終わりを待つ」と書き、新しい professor の run を `sai-link run tree` で見つけたら、自分は引き継ぎを書いて終える。
+- review は professor を起こし直さない。同じ研究で 2 つの professor が同時に動いていたら（`sai-link run tree` で分かる）、自分は研究日誌に引き継ぎを書いて終える。
 
 ## operator を使う
 
