@@ -109,7 +109,8 @@
 // History の画面（CLI の呼び出しの表・失敗の印・番号のチップ・全文の小窓）で v103 に（index.html の ?v= も 103。ASSETS は変えない）
 // Web から pi を消し（カード作成と研究の CARD は cc・model・thinking）で v104 に（index.html の ?v= も 104。ASSETS は変えない）
 // U10（Claude のログインを Account に足す・account.js と style.css を直す）で v105 に（index.html の ?v= も 105。ASSETS は変えない）
-const CACHE = "sai-web-v106";
+// U03（research-tree の札を縦長にし、拡大しても文字は大きくしない・List の帯を Summary | Outputs の 2 つに）で v107 に（index.html の ?v= も 107。ASSETS は変えない）
+const CACHE = "sai-web-v107";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/dashsearch.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
