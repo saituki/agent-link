@@ -665,7 +665,7 @@ fn strip_comments(lines: &[String]) -> String {
 /// Next Action 1 件（C6）。`child` は規則 2 だけが足す子の型（`F`）。
 fn card_action(node: &NodeRow, block: &str, purpose: String, expect: &str, why: &str, child: Option<&str>) -> NextAction {
     let card_node = fmt_id(node.kind, node.id);
-    let mut card = json!({"node": card_node, "block": block, "purpose": purpose, "expect": expect, "runner": "pi"});
+    let mut card = json!({"node": card_node, "block": block, "purpose": purpose, "expect": expect, "runner": "cc"});
     if let Some(child) = child {
         card["child"] = json!(child);
     }
@@ -690,8 +690,9 @@ impl Tree {
                 1,
                 card_action(n, "lab-grow", format!("「{}」の子（A か child_Q）を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
             )),
+            // ★の A は先頭に出す（rank 0）。
             Kind::A if !self.kid_nodes(n.id).any(|k| k.kind == Kind::F) => Some((
-                2,
+                if n.starred { 0 } else { 2 },
                 card_action(n, "lab-search", format!("「{}」の F を探す", n.text), "F を 1 つ以上", "NO_FINDING", Some("F")),
             )),
             Kind::Q | Kind::A if self.unverified(n) => Some((
@@ -810,8 +811,13 @@ fn running_runs(roots: &PaperRoots) -> Vec<RunningJson> {
 
 // ---- status / node_detail -------------------------------------------------------------
 
-/// `status` の JSON。
+/// `status` の JSON（Next Action は 10 件まで）。
 pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Status> {
+    status_with_limit(conn, roots, defs, 10)
+}
+
+/// `status` の JSON。Next Action は `limit` 件まで。
+pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, limit: usize) -> Result<Status> {
     let initialized = store::is_initialized(conn)?;
     let legacy = !initialized && store::is_legacy_only(conn)?;
     let mut warnings = Vec::new();
@@ -855,7 +861,7 @@ pub fn status(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Stat
             .map(|(heading, body)| MindSection { heading, body })
             .collect(),
     };
-    out.next = next_actions(&tree, 10);
+    out.next = next_actions(&tree, limit);
     out.decisions = tree.log.iter().take(30).map(|r| tree.decision(r)).collect();
     // 全 Node の History。`Add *` は子の `init` と同じ出来事なので捨てる。at の安定ソートで古い順にする。
     let runs = action::sci_runs(roots);
@@ -1168,7 +1174,35 @@ mod tests {
         // 規則 2 だけが child を足す。
         assert_eq!(acts[1].card.as_ref().unwrap()["child"], "F");
         assert!(acts[0].card.as_ref().unwrap().get("child").is_none());
-        assert_eq!(acts[0].card.as_ref().unwrap()["runner"], "pi");
+        assert_eq!(acts[0].card.as_ref().unwrap()["runner"], "cc");
+    }
+
+    /// ★の A の NO_FINDING は先頭（rank 0）、★の無い A の NO_FINDING は NO_CHILD の Q の後。
+    /// `limit` で件数を絞り、`usize::MAX`（`--limit 0`）は全部出す。
+    #[test]
+    fn starred_no_finding_first_and_limit_cuts() {
+        let e = env("starred");
+        let qa = q(&e, None, "根の問い");
+        let a_plain = a(&e, qa, "普通の答え");
+        let a_star = a(&e, qa, "★の答え");
+        let q_leaf = q(&e, None, "子の無い問い");
+        store::set_starred(e.db.connection(), a_star, true).unwrap();
+
+        let whole = |limit: usize| status_with_limit(e.db.connection(), &e.roots, &Defs::default(), limit).unwrap().next;
+        let got: Vec<(String, String)> = whole(usize::MAX).iter().map(|x| (x.why.clone(), x.node.clone().unwrap_or_default())).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("NO_FINDING".to_string(), fmt_id(Kind::A, a_star)),
+                ("NO_CHILD".to_string(), fmt_id(Kind::Q, q_leaf)),
+                ("NO_FINDING".to_string(), fmt_id(Kind::A, a_plain)),
+                ("UNVERIFIED".to_string(), fmt_id(Kind::Q, qa)),
+            ]
+        );
+        assert_eq!(whole(3).len(), 3);
+        // 既定の `status` は 10 件まで。
+        let default = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
+        assert_eq!(default.next.len(), 4);
     }
 
     #[test]

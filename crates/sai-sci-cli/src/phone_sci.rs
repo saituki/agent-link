@@ -20,12 +20,12 @@ pub(crate) fn card_spec(input: &str) -> Result<card::CardSpec> {
         mode: text_of(&value, "mode"),
         papers: numbers_of(&value, "papers")?,
         runner: default_runner(&text_of(&value, "runner")),
+        model: text_of(&value, "model"),
+        thinking: text_of(&value, "thinking"),
         depth: text_of(&value, "depth"),
         origin_run: number_of(&value, "origin_run")?,
         // Web からは文書を受け取らない（`--input` は CLI の引数だけ）。
         inputs: Vec::new(),
-        // Web の画面から作る CARD は人が起こすもの（agent が起こす CARD は CLI だけ）。
-        executer: String::new(),
         child: text_of(&value, "child"),
     })
 }
@@ -67,10 +67,10 @@ fn numbers_of(value: &Value, key: &str) -> Result<Vec<i64>> {
         .collect()
 }
 
-/// 実行者が空なら `pi` にする。
+/// 実行者が空なら `cc` にする。
 fn default_runner(runner: &str) -> String {
     if runner.is_empty() {
-        "pi".to_string()
+        "cc".to_string()
     } else {
         runner.to_string()
     }
@@ -90,6 +90,8 @@ mod tests {
             "mode": "purpose_first",
             "papers": [37, 40],
             "runner": "",
+            "model": "haiku",
+            "thinking": "low",
             "depth": "full",
             "origin_run": 120
         }"#;
@@ -99,13 +101,14 @@ mod tests {
         assert_eq!(spec.expect, "A を 2 つ以上");
         assert_eq!(spec.mode, "purpose_first");
         assert_eq!(spec.papers, vec![37, 40]);
-        // 実行者が空なら `pi`（READ_CARD は `user` を書く）。
-        assert_eq!(spec.runner, "pi");
+        // 実行者が空なら `cc`（READ_CARD は `user` を書く）。
+        assert_eq!(spec.runner, "cc");
+        assert_eq!(spec.model, "haiku");
+        assert_eq!(spec.thinking, "low");
         assert_eq!(spec.depth, "full");
         assert_eq!(spec.origin_run, Some(120));
-        // Web からは文書も起動者も受け取らない。
+        // Web からは文書を受け取らない。
         assert!(spec.inputs.is_empty());
-        assert!(spec.executer.is_empty());
     }
 
     #[test]
@@ -113,7 +116,9 @@ mod tests {
         let spec = card_spec(r#"{"node":"Q12","purpose":"候補を足す"}"#).unwrap();
         assert_eq!(spec.node, "Q12");
         assert!(spec.papers.is_empty());
-        assert_eq!(spec.runner, "pi");
+        assert_eq!(spec.runner, "cc");
+        // 空の model・thinking は sai-link の既定に任せる。
+        assert!(spec.model.is_empty() && spec.thinking.is_empty());
     }
 
     #[test]

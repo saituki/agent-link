@@ -15,9 +15,9 @@ use sai_paper_core::database::Database;
 use crate::handoff::{HandoffError, HandoffRequest, create_handoff_with_extra};
 use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
 
-const RUNNERS: [&str; 3] = ["pi", "cc", "user"];
-// 起動者（U13）: `agent` は 2026 の改名で、旧 `professor` も同じ意味で受け付ける。
-const EXECUTERS: [&str; 2] = ["human", "agent"];
+const RUNNERS: [&str; 2] = ["cc", "user"];
+const MODELS: [&str; 4] = ["opus", "sonnet", "haiku", "inherit"];
+const THINKINGS: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 const MODES: [&str; 2] = ["purpose_first", "blind_first"];
 const DEPTHS: [&str; 3] = ["abstract", "figures", "full"];
 const READ_BLOCK: &str = "lab-read";
@@ -43,9 +43,15 @@ pub struct CardSpec {
     /// 20 本まで。user はちょうど 1 本。
     #[serde(default)]
     pub papers: Vec<i64>,
-    /// 空は pi。
+    /// 空は cc。`pi` は廃止（断る）。
     #[serde(default)]
     pub runner: String,
+    /// 空は settings.json の既定（sai-link が入れる）。opus / sonnet / haiku / inherit か claude で始まる名前。
+    #[serde(default)]
+    pub model: String,
+    /// 空は settings.json の既定（sai-link が入れる）。none / low / medium / high / xhigh / max。
+    #[serde(default)]
+    pub thinking: String,
     /// user のときだけ。空は full。
     #[serde(default)]
     pub depth: String,
@@ -54,9 +60,6 @@ pub struct CardSpec {
     /// waggle トークン。
     #[serde(default)]
     pub inputs: Vec<String>,
-    /// 空は human。
-    #[serde(default)]
-    pub executer: String,
     /// 足す子の型（Q / A / F。空は未指定）。C7 の組だけ通す。
     #[serde(default)]
     pub child: String,
@@ -179,18 +182,20 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         }
     };
 
-    let runner = if spec.runner.trim().is_empty() { "pi" } else { spec.runner.trim() };
+    let runner = if spec.runner.trim().is_empty() { "cc" } else { spec.runner.trim() };
+    if runner == "pi" {
+        return invalid("runner の pi は廃止しました。cc を使ってください");
+    }
     if !RUNNERS.contains(&runner) {
-        return invalid(format!("知らない実行者です: {runner}（pi / cc / user）"));
+        return invalid(format!("知らない実行者です: {runner}（cc / user）"));
     }
-    let executer = if spec.executer.trim().is_empty() { "human" } else { spec.executer.trim() };
-    // 旧 `professor` は `agent` と読む（GUIDE 4 まで古い値を出す block があるため）。
-    let executer = if executer == "professor" { "agent" } else { executer };
-    if !EXECUTERS.contains(&executer) {
-        return invalid(format!("知らない起動者です: {executer}（human / agent）"));
+    let model = spec.model.trim();
+    if !model.is_empty() && !MODELS.contains(&model) && !model.starts_with("claude") {
+        return invalid("model は opus / sonnet / haiku / inherit のどれか、または claude で始まる名前です");
     }
-    if executer == "agent" && runner != "pi" {
-        return invalid("agent が起こす CARD は runner が pi だけです（子の run は pi で動くため）");
+    let thinking = spec.thinking.trim();
+    if !thinking.is_empty() && !THINKINGS.contains(&thinking) {
+        return invalid("thinking は none / low / medium / high / xhigh / max のどれかです");
     }
     let is_read = runner == "user";
 
@@ -297,7 +302,6 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         None => SEED_ID.to_string(),
     };
     let mut extra: Vec<(&str, String)> = vec![
-        ("executer", executer.to_string()),
         ("sci_node", sci_node),
         ("sci_purpose", purpose.clone()),
         ("sci_expect", expect),
@@ -318,6 +322,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
             description: &description,
             tag: None,
             runner,
+            model,
+            thinking,
             origin_run: spec.origin_run,
             reason: None,
         },
@@ -457,7 +463,7 @@ mod tests {
     fn spec() -> CardSpec {
         CardSpec {
             node: "Q1".into(), block: "lab-grow".into(), purpose: "答えの候補を出す".into(), expect: "A を 2 つ".into(),
-            mode: "purpose_first".into(), papers: vec![37], runner: "pi".into(), origin_run: Some(120), ..CardSpec::default()
+            mode: "purpose_first".into(), papers: vec![37], runner: "cc".into(), origin_run: Some(120), ..CardSpec::default()
         }
     }
 
@@ -582,41 +588,43 @@ mod tests {
         assert!(read_card(e.db.connection(), &e.roots, &e.defs, r2.run_id).unwrap_err().to_string().contains("READ_CARD ではありません"));
     }
 
-    /// 起動者（U13）: 空は human、旧 `professor` は `agent` と読んで frontmatter に書き、
-    /// `agent` は runner が `pi` のときだけ、知らない値は Invalid。
+    /// runner は cc（省略も cc）か user。pi は理由付きで断る。model・thinking は空なら渡さず、
+    /// 外れ値は断る。値は sai-link の `card create` の JSON の最上位に入る。
     #[test]
-    fn executer_accepts_agent_and_old_professor() {
-        let e = env("executer");
+    fn runner_cc_model_thinking_checked_and_passed() {
+        let e = env("runner");
 
-        // 省略は human。
-        let r = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
-        let text = fs::read_to_string(&r.path).unwrap();
-        assert!(text.contains("executer: human"), "{text}");
-
-        // 旧 `professor` は `agent` として書く。
         let mut s = spec();
-        s.executer = "professor".into();
+        s.runner = String::new();
         let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
-        let text = fs::read_to_string(&r.path).unwrap();
-        assert!(text.contains("executer: agent"), "{text}");
+        assert!(fs::read_to_string(&r.path).unwrap().contains("runner: cc"));
 
-        // `agent` も同じ。
         let mut s = spec();
-        s.executer = "agent".into();
-        let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
-        let text = fs::read_to_string(&r.path).unwrap();
-        assert!(text.contains("executer: agent"), "{text}");
+        s.runner = "pi".into();
+        assert!(err(&e, &s).contains("pi は廃止"));
+        s.runner = "robot".into();
+        assert!(err(&e, &s).contains("知らない実行者"));
 
-        // 知らない値は断る。
         let mut s = spec();
-        s.executer = "robot".into();
-        assert!(err(&e, &s).contains("知らない起動者"));
+        s.model = "gpt".into();
+        assert!(err(&e, &s).contains("model は"));
+        s.model = "claude-haiku-5-5".into();
+        s.thinking = "ultra".into();
+        assert!(err(&e, &s).contains("thinking は none"));
 
-        // `agent` が起こす CARD は runner が pi のときだけ。
         let mut s = spec();
-        s.executer = "agent".into();
-        s.runner = "cc".into();
-        assert!(err(&e, &s).contains("runner が pi"));
+        s.model = "haiku".into();
+        s.thinking = "low".into();
+        create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
+        let card = crate::fake_link::last_card(&e.dir).expect("card create に JSON を渡した");
+        assert_eq!(card["model"], "haiku");
+        assert_eq!(card["thinking"], "low");
+        assert!(card.get("executer").is_none(), "card={card}");
+
+        // 空は JSON に入れない（sai-link の settings.json の既定を使う）。
+        create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
+        let card = crate::fake_link::last_card(&e.dir).expect("card create に JSON を渡した");
+        assert!(card.get("model").is_none() && card.get("thinking").is_none(), "card={card}");
     }
 
     /// sai-link の終了コード 3（見つからない）は NotFound に、ほかは Invalid に直す。

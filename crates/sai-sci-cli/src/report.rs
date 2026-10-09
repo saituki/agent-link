@@ -622,7 +622,7 @@ fn print_summary(report_id: &str, summary: &CheckSummary) {
         String::new()
     };
     println!(
-        "{report_id}: 外部の引用 {} 件 — 確認済み {}・見つからない {}・未確認（オフライン）{}。詳しくは sai-paper report issues {report_id}{suffix}",
+        "{report_id}: 外部の引用 {} 件 — 確認済み {}・見つからない {}・未確認（オフライン）{}。詳しくは sai-sci report issues {report_id}{suffix}",
         summary.total, summary.found, summary.not_found, summary.offline
     );
 }

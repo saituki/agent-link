@@ -391,8 +391,8 @@ pub fn record_approval(
     }
 }
 
-/// 利用者として 1 件の op を行う（どの op も使える）。
-pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &Value) -> Result<OpResult> {
+/// 利用者として 1 件の op を行う（どの op も使える）。`by` は記録の actor（`user` か `run:<id>`）。
+pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &Value, by: &str) -> Result<OpResult> {
     let op = input.get("op").and_then(Value::as_str).unwrap_or("").to_string();
     let tx = conn.unchecked_transaction()?;
     // READ_CARD（runner=user の run）の画面から足す F は、その run の F として残す
@@ -402,7 +402,7 @@ pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &V
     if let Some(map) = input.as_object_mut() {
         map.remove("run");
     }
-    let cx = Cx { conn: &tx, defs, by: "user".into(), run_id, approval: None, ledger: None };
+    let cx = Cx { conn: &tx, defs, by: by.into(), run_id, approval: None, ledger: None };
     let (result, range) = execute(&cx, &input)?;
     tx.commit()?;
     Ok(OpResult { op, result, range })
@@ -891,7 +891,7 @@ mod tests {
             self.agent(&[item]).map(|mut b| b.results.remove(0).result)
         }
         fn user(&self, op: Value) -> Result<OpResult> {
-            apply_user(self.conn(), &self.roots, &self.defs, &op)
+            apply_user(self.conn(), &self.roots, &self.defs, &op, "user")
         }
         /// run 7 の質問に回答を 1 件記録する（許可か、許可しない）。
         fn approve(&self, qid: &str, answer: &str) {
@@ -940,6 +940,16 @@ mod tests {
         assert!(store::get_node(e.conn(), uid).unwrap().parent_id.is_none());
         // 知らない ID は弾く。
         assert!(err(e.user(json!({"op": "add_q", "parent": "NOPE", "text": "x"}))).contains("ID"));
+    }
+
+    /// 記録の actor: Professor の代行（`SAI_PARENT_RUN_ID` の run）は `run:<id>`、利用者は `user`。
+    #[test]
+    fn apply_user_records_given_actor() {
+        let e = env();
+        apply_user(e.conn(), &e.roots, &e.defs, &json!({"op": "add_q", "parent": "SEED", "text": "代行の問い"}), "run:7").unwrap();
+        apply_user(e.conn(), &e.roots, &e.defs, &json!({"op": "add_q", "parent": "SEED", "text": "利用者の問い"}), "user").unwrap();
+        let actors: Vec<String> = store::list_log(e.conn(), Some(2)).unwrap().into_iter().map(|row| row.actor).collect();
+        assert_eq!(actors, vec!["user".to_string(), "run:7".to_string()]);
     }
 
     #[test]

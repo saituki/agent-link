@@ -142,10 +142,9 @@ pub fn find(args: &FindArgs) -> Result<()> {
     };
     let scope_name = args.node.as_deref().map(|text| text.trim().to_string());
     let node_name = env_node_name(&refs);
-    let ids = paper_ids.unwrap_or_default();
-
-    // Node の下に論文が無いときは、論文の CLI を呼ばずに 0 件で記録する。
-    if ids.is_empty() {
+    // Node の下に論文が無いとき（`Some` の空）は、論文の CLI を呼ばずに 0 件で記録する。
+    // `None`（`--node` も `--paper` も無い）は絞らない（Library 全体）。
+    if paper_ids.as_ref().is_some_and(Vec::is_empty) {
         sci::record_search(
             conn,
             &sci::SearchLog {
@@ -172,8 +171,10 @@ pub fn find(args: &FindArgs) -> Result<()> {
 
     let root = project_root().context("プロジェクトルートが見つかりません")?;
     let mut child_args = vec!["find".to_string(), query.to_string()];
-    child_args.push("--papers".to_string());
-    child_args.push(join_ids(&ids));
+    if let Some(ids) = &paper_ids {
+        child_args.push("--papers".to_string());
+        child_args.push(join_ids(ids));
+    }
     if let Some(mode) = &args.mode {
         child_args.push("--mode".to_string());
         child_args.push(mode.clone());

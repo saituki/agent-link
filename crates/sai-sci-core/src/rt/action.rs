@@ -125,7 +125,7 @@ pub fn sci_runs(roots: &PaperRoots) -> Vec<SciRun> {
             run_id: run.run_id,
             owner: run.owner.clone(),
             block: run_block_id(&roots.root, &run).unwrap_or_default(),
-            runner: get("runner").filter(|v| !v.is_empty()).unwrap_or("pi").to_string(),
+            runner: get("runner").filter(|v| !v.is_empty()).unwrap_or("cc").to_string(),
             keys,
             occurred_at: when.to_rfc3339(),
             global_round: get("global_round").and_then(|v| v.trim().parse::<i64>().ok()),
