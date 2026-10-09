@@ -1,16 +1,14 @@
 //! AC1: `sai-link run send` / `sai-link run interrupt` の結合テスト。
 //!
-//! 一時フォルダのプロジェクト・偽の pi エージェント・擬似 pane（headless）を使う。
-//! 監督スレッドはこのテストのプロセスの中で動かし、CLI（別プロセス）が
-//! `draft.txt`・`inbox/`・`interrupt` のファイルで依頼を渡す経路を確かめる。
+//! 一時フォルダのプロジェクト・偽の cc（tmux の pane の中で動く sh）を使う。
+//! CLI（別プロセス）が tmux の pane に入力と中断を送る経路を確かめる。
 //!
-//! - 動いている実行に `run send` すると次のターンが走る（`stream.jsonl` に
-//!   `sai_turn` の行が増える）。
-//! - `run interrupt` で長く眠る偽のエージェントが止まる。
+//! - 動いている実行に `run send` すると次のターンが走る（画面に `got: <本文>` が出る）。
+//! - `run interrupt` で中断でき、pane が `idle` に戻る。
 //! - 無い実行は終了コード 3。空の文は終了コード 2。
 //!
-//! 一時フォルダをプロジェクトルートと `SAI_HOME` にするので、本物の `.sai` や
-//! `~/.sai` は書き換えない。
+//! tmux が使えない環境では skip と表示して成功で返す。一時フォルダをプロジェクトルートと
+//! `SAI_HOME` にするので、本物の `.sai` や `~/.sai` は書き換えない。
 
 use sai_link_engine::db::models::BlockMetadata;
 use sai_link_engine::db::SaiStore;
@@ -24,6 +22,24 @@ use std::time::{Duration, Instant};
 /// `sai-link` のバイナリパス（Cargo が統合テスト用に提供する env）。
 fn sai_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_sai-link"))
+}
+
+/// 終わるときに tmux の session を消す（失敗した場合も残さないため）。
+struct KillSession(String);
+
+impl Drop for KillSession {
+    fn drop(&mut self) {
+        let _ = Command::new("tmux").args(["kill-session", "-t", &self.0]).output();
+    }
+}
+
+/// `tmux -V` が成功するか（Mac で dyld が落ちる環境では false になる）。
+fn tmux_usable() -> bool {
+    Command::new("tmux")
+        .arg("-V")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// 実行権限つきで sh スクリプトを書く。
@@ -62,22 +78,29 @@ fn wait_for_state(pane: &str, want: &str, timeout: Duration) -> HeadlessState {
     }
 }
 
-/// 偽の pi エージェント（pi の JSON 行を出して終わる）。
-const FAKE_PI: &str = r##"#!/bin/sh
-cat >/dev/null
-printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hel"}}'
-printf '%s\n' '{"type":"message_end"}'
-printf '%s\n' '{"type":"agent_end"}'
-"##;
+/// 画面に `want` が出るまで最大 `timeout` 待つ。
+fn wait_for_screen(pane: &str, want: &str, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let screen = headless::read_output(pane, 50).unwrap_or_default();
+        if screen.contains(want) {
+            return;
+        }
+        if Instant::now() >= deadline {
+            panic!("画面に {:?} が出ません。今の画面:\n{}", want, screen);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
 
-/// 長く眠る偽の pi エージェント（中断されるまで止まらない）。
-const SLEEPING_PI: &str = r##"#!/bin/sh
-cat >/dev/null
-sleep 60
+/// 偽の cc（標準入力の 1 行ごとに `got: <行>` を出す）。
+const FAKE_CC: &str = r##"#!/bin/sh
+echo ready
+while IFS= read -r line; do echo "got: $line"; done
 "##;
 
 /// 一時プロジェクトの DB に `running` の実行を 1 件作り、ID を返す。
-fn make_execution(project: &Path, runner: &str) -> i64 {
+fn make_execution(project: &Path) -> i64 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEQ: AtomicU32 = AtomicU32::new(0);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
@@ -102,7 +125,7 @@ fn make_execution(project: &Path, runner: &str) -> i64 {
     let block_id = store.insert_block(&block).unwrap();
     let run_id = store.create_execution(block_id, None).unwrap();
     store.update_execution_status(run_id, "running").unwrap();
-    store.update_execution_runner(run_id, runner).unwrap();
+    store.update_execution_runner(run_id, "cc").unwrap();
     run_id
 }
 
@@ -127,30 +150,33 @@ fn run_cli(project: &Path, home: &Path, args: &[&str]) -> Output {
 
 #[test]
 fn test_run_send_and_interrupt() {
+    if !tmux_usable() {
+        eprintln!("skip: tmux が使えないため run send / run interrupt を確かめません（tmux -V が失敗）");
+        return;
+    }
     let base = tempfile::tempdir().unwrap();
     let project = base.path().join("proj");
     let home = base.path().join("home");
     std::fs::create_dir_all(project.join(".sai")).unwrap();
     std::fs::create_dir_all(&home).unwrap();
-    // 監督スレッド（このプロセスの中）と DB が同じ置き場を見るようにする。
+    // 監督（このプロセスの中）と DB が同じ置き場を見るようにする。
     std::env::set_var("SAI_PROJECT_ROOT", &project);
     std::env::set_var("SAI_HOME", &home);
 
-    // 擬似 pane の子プロセス（pi）。cc は tmux 経路で、tmux が無い環境では動かせないため。
-    let fake = project.join("fake_pi.sh");
-    write_script(&fake, FAKE_PI);
-    let command = format!("'{}' --session-dir '{}' --mode json", fake.display(), project.join("pi-sessions").display());
+    let fake = project.join("fake_cc.sh");
+    write_script(&fake, FAKE_CC);
+    let command = format!("'{}'", fake.display());
 
     // ---- 実行 1: 動いている実行に run send すると次のターンが走る ----
-    let run1 = make_execution(&project, "pi");
+    let run1 = make_execution(&project);
     let pane1 = headless::new_pane(Some(&project.to_string_lossy())).unwrap();
+    let _kill1 = KillSession(pane1.pane_id.clone());
     headless::run(&pane1.pane_id, &command).unwrap();
+    record_pane(&project, run1, &pane1.pane_id);
     // 実行中の状態を作るため、最初のターンを自分で始める。
     headless::send_text(&pane1.pane_id, "最初の依頼").unwrap();
     headless::send_keys(&pane1.pane_id, "Alt+Enter").unwrap();
-    wait_for_state(&pane1.pane_id, "working", Duration::from_secs(5));
-    wait_for_state(&pane1.pane_id, "idle", Duration::from_secs(10));
-    record_pane(&project, run1, &pane1.pane_id);
+    wait_for_screen(&pane1.pane_id, "got: 最初の依頼", Duration::from_secs(10));
 
     let out = run_cli(
         &project,
@@ -167,29 +193,18 @@ fn test_run_send_and_interrupt() {
     assert_eq!(v["run_id"], run1);
     assert_eq!(v["pane_id"], pane1.pane_id);
 
-    // 2 回目のターンが走り、sai_turn の行が増える。
-    wait_for_state(&pane1.pane_id, "working", Duration::from_secs(5));
-    wait_for_state(&pane1.pane_id, "idle", Duration::from_secs(10));
-    let stream =
-        std::fs::read_to_string(headless::pane_dir(&pane1.pane_id).join("stream.jsonl")).unwrap();
-    let turns = stream
-        .lines()
-        .filter(|l| l.contains("\"type\":\"sai_turn\""))
-        .count();
-    assert_eq!(turns, 2, "sai_turn が 2 行になる: {}", stream);
-    assert!(stream.contains("続きの依頼"), "2 回目の本文が入る: {}", stream);
+    // 2 回目のターンが走り、画面に出る。
+    wait_for_screen(&pane1.pane_id, "got: 続きの依頼", Duration::from_secs(10));
 
-    // ---- 実行 2: run interrupt で長く眠る偽のエージェントが止まる ----
-    let sleeper = project.join("sleeping_pi.sh");
-    write_script(&sleeper, SLEEPING_PI);
-    let run2 = make_execution(&project, "pi");
-    let sleep_cmd = format!("'{}' --session-dir '{}' --mode json", sleeper.display(), project.join("pi-sessions").display());
+    // ---- 実行 2: run interrupt で中断でき、pane が idle に戻る ----
+    let run2 = make_execution(&project);
     let pane2 = headless::new_pane(Some(&project.to_string_lossy())).unwrap();
-    headless::run(&pane2.pane_id, &sleep_cmd).unwrap();
+    let _kill2 = KillSession(pane2.pane_id.clone());
+    headless::run(&pane2.pane_id, &command).unwrap();
+    record_pane(&project, run2, &pane2.pane_id);
     headless::send_text(&pane2.pane_id, "眠る依頼").unwrap();
     headless::send_keys(&pane2.pane_id, "Alt+Enter").unwrap();
-    wait_for_state(&pane2.pane_id, "working", Duration::from_secs(5));
-    record_pane(&project, run2, &pane2.pane_id);
+    wait_for_screen(&pane2.pane_id, "got: 眠る依頼", Duration::from_secs(10));
 
     let out = run_cli(
         &project,
@@ -247,8 +262,7 @@ fn test_run_send_and_interrupt() {
     );
     assert!(out.stdout.is_empty(), "stdout は空");
 
-    // ---- 後始末（監督スレッドを止める）----
+    // ---- 後始末（tmux の session を止める）----
     let _ = headless::close(&pane1.pane_id);
     let _ = headless::close(&pane2.pane_id);
-    std::thread::sleep(Duration::from_millis(500));
 }

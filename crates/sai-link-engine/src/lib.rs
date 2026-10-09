@@ -1,7 +1,7 @@
 //! # Sai-Engine — AI コーディングエージェントワークフローエンジン
 //!
 //! Sai-Engine はブロック定義ファイル（Markdown + YAML frontmatter）のパース、
-//! 検証、pi エージェント起動コマンドの構築、herdr CLI 連携を提供するライブラリです。
+//! 検証、起動コマンドの構築、herdr CLI 連携を提供するライブラリです。
 //!
 //! ## ブロック定義ファイルのフォーマット
 //!
@@ -39,42 +39,6 @@
 //! println!("本文: {}", parsed.body);
 //! ```
 //!
-//! ## 使用例 — pi 起動コマンドの構築
-//!
-//! ```no_run
-//! use sai_link_engine::block_config::BlockConfig;
-//! use sai_link_engine::pi_command::PiCommandBuilder;
-//!
-//! let config = BlockConfig {
-//!     id: Some("my-block".to_string()),
-//!     name: "🧪 マイブロック".to_string(),
-//!     description: None,
-//!     model: Some("anthropic/claude-sonnet-4-5".to_string()),
-//!     provider: None,
-//!     thinking: Some("high".to_string()),
-//!     tools: None,
-//!     extensions: None,
-//!     skills: None,
-//!     subblocks: None,
-//!     timeout: None,
-//!     worktree: None,
-//!     enable: None,
-//!     category: None,
-//!     tag: None,
-//!     round: None,
-//!     layer: None,
-//!     templates: None,
-//!     context: None,
-//! };
-//!
-//! let cmd = PiCommandBuilder::new("/tmp/sessions")
-//!     .with_config(config)
-//!     .build()
-//!     .expect("pi 起動コマンドの構築に失敗しました");
-//!
-//! println!("実行コマンド: {}", cmd.command);
-//! ```
-//!
 //! ## モジュール構成
 //!
 //! - `block_config` — `BlockConfig` 構造体と関連するデータ型
@@ -82,7 +46,7 @@
 //! - `validation` — バリデーションロジック（`validate`, `ValidationResult`）
 //! - `error` — エラー型（`ParseError`）
 //! - `herdr` — herdr CLI 連携（ペイン操作、シェルエスケープ）
-//! - `pi_command` — Pi エージェント起動コマンドビルダー（`PiCommandBuilder`）
+//! - `settings` — `.sai/settings.json` の読み込み・WIP と同時実行の上限・環境変数
 //! - `session` — JSONL セッションファイル管理（作成・読み取り・クリーンアップ）
 //! - `init` — プロジェクト初期化（`PROJECTROOT/.sai/` の作成）
 //! - `placeholder` — `{{input.<id>}}` プレースホルダー展開ユーティリティ
@@ -94,7 +58,7 @@ pub mod error;
 pub mod headless;
 pub mod herdr;
 pub mod parser;
-pub mod pi_command;
+pub mod settings;
 pub mod target_node;
 pub mod validation;
 

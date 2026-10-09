@@ -464,29 +464,6 @@ fn hooks_dir_in(base: &Path) -> Option<PathBuf> {
         .then_some(dir)
 }
 
-/// pi の質問ツール（`apps/web` の `ask_user.ts`）の絶対パス。
-///
-/// このクレートをビルドしたリポジトリの中を指す。ファイルが無ければ `None`
-/// （壊れた拡張を `.pi/settings.json` に書かない）。
-pub fn pi_question_extension() -> Option<PathBuf> {
-    pi_question_extension_in(Path::new(env!("CARGO_MANIFEST_DIR")))
-}
-
-/// `base` の `apps/web/src/sai_web/extensions/ask_user.ts` を返す（環境変数に依存しない純関数）。
-fn pi_question_extension_in(base: &Path) -> Option<PathBuf> {
-    base.join("../../apps/web/src/sai_web/extensions/ask_user.ts")
-        .canonicalize()
-        .ok()
-        .filter(|p| p.is_file())
-}
-
-/// プロジェクト直下の `.pi/settings.json` の内容（`sai-link init` が書く）。
-///
-/// pi は global と project の `extensions` を両方読むので、global の拡張は消えない。
-pub fn pi_settings_json(extension: &Path) -> serde_json::Value {
-    serde_json::json!({ "extensions": [extension] })
-}
-
 /// `.claude/commands/sai-finalize.md` の内容（`sai-link init` が書く）。
 ///
 /// 通常は UserPromptSubmit hook が先に処理して LLM には届かない。
@@ -501,14 +478,13 @@ Bash で `sai-link run finalize` を実行する。
 失敗したら理由をそのまま 1 行で出力する。
 ";
 
-/// `sai-link init` が `.claude/skills/` と `.pi/skills/` に配る design skill
+/// `sai-link init` が `.claude/skills/` に配る design skill
 /// （`crates/sai-link-engine/assets/skills/` からの相対パスと中身）。
 ///
 /// [`SAI_FINALIZE_COMMAND_MD`] と同じく `include_str!` で埋め込む。init が実行ファイル
 /// だけで完結するようにするためで、どのフォルダから init しても同じものが入る。
 ///
-/// 2 つの置き場（`.claude/skills/` と `.pi/skills/`）には同じ中身を書き、cc と pi の
-/// どちらからでも同じ名前（`frontend-design` / `ui-ux-rules`）で呼べるようにする。
+/// 同じ名前（`frontend-design` / `ui-ux-rules`）で cc から呼べるようにする。
 pub const DESIGN_SKILL_FILES: &[(&str, &str)] = &[
     (
         "frontend-design/SKILL.md",
@@ -574,7 +550,7 @@ fn finalize_prompt_report(input: &str) -> Option<String> {
     }
 }
 
-/// pi に `--mcp-config` で渡す、プロジェクトルートの `.mcp.json` を返す。
+/// cc に `--mcp-config` で渡す、プロジェクトルートの `.mcp.json` を返す。
 ///
 /// worktree は commit 済みのファイルしか持たないため、`.mcp.json` が未 commit だと
 /// 作業用コピー内の pi は外部 MCP を読めない。その場合だけルートの設定を渡す。
@@ -802,17 +778,6 @@ mod tests {
             .unwrap()
             .ends_with("cc-state-hook idle"));
         assert!(without.get("PermissionRequest").is_some());
-        // pi の質問ツールの場所も基準のフォルダから決まる純関数（ファイルが無ければ None）
-        // 基準はクレートのフォルダ（`crates/sai-link-engine`）。`../../apps/web/...` を見る。
-        let base = tempfile::tempdir().unwrap();
-        let crate_dir = base.path().join("crates/sai-link-engine");
-        std::fs::create_dir_all(&crate_dir).unwrap();
-        assert!(pi_question_extension_in(&crate_dir).is_none());
-        let ext_dir = base.path().join("apps/web/src/sai_web/extensions");
-        std::fs::create_dir_all(&ext_dir).unwrap();
-        let ext = ext_dir.join("ask_user.ts");
-        std::fs::write(&ext, "").unwrap();
-        assert_eq!(pi_question_extension_in(&crate_dir), Some(ext.canonicalize().unwrap()));
     }
 
     /// `.claude/settings.json` の内容: 子エージェント禁止・質問は残す・statusLine・状態と承認のフック。

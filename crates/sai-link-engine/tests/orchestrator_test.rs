@@ -77,7 +77,7 @@ fn test_config() -> PipelineConfig {
         pane_id: None,
         is_subtask: false,
         target_node: None,
-        runner: sai_link_engine::runner::RunnerKind::Pi,
+        runner: sai_link_engine::runner::RunnerKind::Cc,
     }
 }
 
@@ -211,7 +211,7 @@ fn test_pipeline_config_from_parsed_block() {
         pane_id: None,
         is_subtask: false,
         target_node: None,
-        runner: sai_link_engine::runner::RunnerKind::Pi,
+        runner: sai_link_engine::runner::RunnerKind::Cc,
     };
 
     assert_eq!(config.block_config.name, "test-block");
@@ -267,7 +267,7 @@ fn test_pipeline_config_all_fields_set() {
         pane_id: None,
         is_subtask: false,
         target_node: None,
-        runner: sai_link_engine::runner::RunnerKind::Pi,
+        runner: sai_link_engine::runner::RunnerKind::Cc,
     };
 
     // 各フィールドの検証
@@ -334,10 +334,10 @@ fn test_pipeline_error_display_all_variants() {
     let msg = format!("{}", err);
     assert!(msg.contains("herdr"));
 
-    // PiCommandError
-    let err = OrchestratorError::PiCommandError("invalid model".to_string());
+    // CommandError
+    let err = OrchestratorError::CommandError("invalid model".to_string());
     let msg = format!("{}", err);
-    assert!(msg.contains("pi コマンド構築"));
+    assert!(msg.contains("コマンド構築"));
     assert!(msg.contains("invalid model"));
 
     // SessionError

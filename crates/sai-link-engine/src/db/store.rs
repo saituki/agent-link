@@ -1253,7 +1253,7 @@ impl SaiStore {
         Ok(())
     }
 
-    /// ユーザー明示完了（Ctrl+D / pi-sai-finalize）の finalize フラグを更新する（U4）。
+    /// ユーザー明示完了（Ctrl+D / sai-finalize）の finalize フラグを更新する（U4）。
     ///
     /// `finalized=true` は「sai-write なしのユーザー明示完了」であることを示し、
     /// `sai block list` の `完了` 表示と右SB の Session 再開を確定させる。

@@ -1347,7 +1347,7 @@ pub fn handle_block_preview(
         worktree: None,
         cwd: None,
         keep_pane: false,
-        runner: sai_link_engine::runner::RunnerKind::Pi,
+        runner: sai_link_engine::runner::RunnerKind::Cc,
     };
     let resolved = orchestrator::resolve_execution_settings(&parsed.config, &overrides);
 

@@ -1027,7 +1027,7 @@ fn card_options() -> PhoneResult<Value> {
         let models = card_wizard::load_model_choices(&p);
         providers.insert(p, json!(models));
     }
-    let (_, warnings) = sai_link_engine::pi_command::load_settings_quiet();
+    let (_, warnings) = sai_link_engine::settings::load_settings_quiet();
 
     Ok(json!({
         "runners": card_wizard::RUNNER_OPTIONS,
