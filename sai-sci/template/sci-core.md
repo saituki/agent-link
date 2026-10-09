@@ -35,6 +35,7 @@ Q（top_Q）── SEED の直下
 - BRANCH（E）は SPROUT から上へ分かれる実験の実行です。SPROUT（S）か E の下に作ります。E の下に F は置きません。実験の結論は REPORT と MLflow に書きます。
 - ★ は目印で、どの種類の Node にも付けられます。道や進み具合を決めません。付けるのは利用者だけです。
 - F は事実や知見で、A の下に付きます。stance（`support`・`deny`・`issue`）を必ず持ちます。
+- A の本文に `#番号` の出典を書いたら、同じ出典で F（stance `support`）を 1 本足します。F の無い A は Next Action の NO_FINDING に出ます。
 
 ## 起動者と質問
 - あなたを起こしたのは、CARD の起動者です。`echo "${SAI_IS_SUBTASK:-0}"` が `1` なら子（`task create` で起こされた。報告は親へ返す）、`0` なら root（Card で起こされた。起こしたのは Human か、Human の代わりの Professor）です。

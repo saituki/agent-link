@@ -7,7 +7,7 @@ model: opus
 thinking: high
 templates:
   - debate-participant
-  - search-internal
+  - sci-find
   - literature-hard-rules
   - domain
 timeout: 1800
