@@ -2,7 +2,7 @@
 name: 🔍 review
 id: review
 description: 要件定義書がどれだけ満たされたかを実装から確かめ、レビュー報告書と手動確認のチュートリアルを作る
-model: inherit
+model: opus
 thinking: high
 templates: sai-base,sai-user,sai-cli,sai-task
 worktree: none

@@ -42,7 +42,7 @@ sai-moon（Mac 1 台で使う版）の複製で、Linux のサーバで多人数
 | Rust（stable）と `cargo` | `sai-link`・`sai-paper`・`sai-sci` のビルド |
 | [`uv`](https://docs.astral.sh/uv/) | `apps/web`・`apps/radio`・`apps/prep` の Python の仮想環境 |
 | Node.js | 画面のテストを流すときだけ（実行には要らない） |
-| エージェント（`claude`・`pi`） | カードの実行者（runner）。使う方だけ入れる |
+| エージェント（`claude`） | カードの実行者（runner は cc）。使う方だけ入れる |
 | Tailscale | iPhone からつなぐときだけ |
 | Docker | 実験の記録（MLflow）を使うときだけ |
 
@@ -62,6 +62,8 @@ cargo build --release
 # 3) PATH に足す（~/.zshrc などに書く）
 export PATH="$HOME/workdir/Sai/sai-tree/target/release:$HOME/workdir/Sai/sai-tree/apps/web/bin:$PATH"
 ```
+
+PATH の `sai-link` などが sai-moon の古い release を指していないか、`command -v sai-link` で確かめます（古い物が先に出るなら、PATH の順を直します。利用者の `~/.zshrc` は sai-tree の作業では書き換えません）。
 
 cc を動かすには tmux が要ります（`brew install tmux`）。
 
@@ -226,7 +228,6 @@ research-tree の画面（`#/research/tree`）は、次の並びです。
 | `SAI_CONTAINER_MEMORY` | `8g` | コンテナのメモリの上限 |
 | `SAI_CONTAINER_CPUS` | `2` | コンテナの CPU の上限 |
 | `SAI_CLAUDE_BIN` | `claude` | cc の実行ファイル（コンテナの中では `claude`） |
-| `SAI_PI_BIN` | `pi` | pi の実行ファイル（コンテナの中では `pi`） |
 | `SAI_LINK_BIN` | `sai-link` | Web が呼ぶ sai-link。PATH に無ければ絶対パス（サーバでは中継 `/opt/sai/bin/sai-link`） |
 | `SAI_PAPER_BIN` | `sai-paper` | Web が呼ぶ sai-paper |
 | `SAI_SCI_BIN` | `sai-sci` | Web が呼ぶ sai-sci（無ければ Research の命令が出ない） |
@@ -284,15 +285,14 @@ tailscale serve status
 ## エージェントとつなぐ
 
 エージェントは **CLI を Bash で呼びます**（`sai-link`・`sai-paper`・`sai-sci`・`sai-web`）。MCP の `sai` はありません。
-次の設定は **`sai-link init` がプロジェクトに書く**ので、手で登録しません。利用者全体の `~/.claude/` や `~/.pi/` には入れません（init したプロジェクトのエージェントだけが対象です）。
+次の設定は **`sai-link init` がプロジェクトに書く**ので、手で登録しません。利用者全体の `~/.claude/` には入れません（init したプロジェクトのエージェントだけが対象です）。
 
 | 書かれる物 | 中身 |
 |---|---|
 | `.claude/settings.json` | CLI の許可（`Bash(sai-link *)`・`Bash(sai-paper *)`・`Bash(sai-sci *)`・`Bash(sai-web *)`）・cc のフック（下）・不要な道具の禁止 |
 | `.claude/commands/` | `/sai-finalize`（root の run を完了にする） |
-| `.mcp.json` | 外部の MCP: `serena`・`playwright`・`donsetch`・`headroom`（cc も pi も同じ物を読む） |
-| `.pi/settings.json` | pi の質問の拡張 `ask_user.ts`（拡張が見つかったときだけ） |
-| `.claude/skills/`・`.pi/skills/` | design skill（`frontend-design`・`ui-ux-rules`） |
+| `.mcp.json` | 外部の MCP: `serena`・`playwright`・`donsetch`・`headroom` |
+| `.claude/skills/` | design skill（`frontend-design`・`ui-ux-rules`） |
 | `.serena/project.yml` | serena の言語サーバ（プロジェクトのファイルの拡張子から選ぶ） |
 | `.sai/` | `sai-engine`・`blocks/`・`template/`・`settings.json`・`outputs/` |
 
@@ -307,13 +307,6 @@ tailscale serve status
 
 フックは何も出力せず、必ず終了コード 0 で終わります。Web が止まっていても cc は普通に動きます。cc のコマンドの承認（PermissionRequest）は sai-tree では扱いません（headless の実行では来ない）。
 
-### pi の質問の拡張（`ask_user`）
-
-pi が人に質問するとき、Web に質問を送る拡張です（`apps/web/src/sai_web/extensions/ask_user.ts`）。質問は PC と iPhone の両方に出て、先に答えた方が採用されます。
-
-- pi は、信頼していないフォルダの `.pi/` を読みません。init のあと、そのフォルダで初めて pi を起動したときに 1 回だけ信頼を承認します。
-- 同じ拡張を `~/.pi/agent/extensions/` にも置くと、名前が重なって pi が起動しません。重なったら片方を消すか、名前を `.old` に変えます。
-
 ### 外部の MCP
 
 - **playwright**: `@playwright/mcp@0.0.82`（WebKit・iPhone 15 の画面・画面なし）。使うプロジェクトで最初に 1 回だけ `npx -y @playwright/mcp@0.0.82 install-browser webkit` を実行します（init 自身は通信しません）。版は固定です（`@latest` にすると WebKit の版とずれます）。
@@ -323,7 +316,7 @@ pi が人に質問するとき、Web に質問を送る拡張です（`apps/web/
 
 ### design skill
 
-`frontend-design`（配色・文字組み・余白。Apache-2.0）と `ui-ux-rules`（コントラスト・文字とタッチの大きさ・フォーカス・ダークモード・グラフ。MIT）の 2 つです。cc は `/frontend-design` のように呼べ、pi は `.pi/skills/` のフォルダを信頼したあとに `/skill:frontend-design` で呼べます。入れるのは規則の文書だけで、スクリプトは入りません。ライセンスは各 skill のフォルダにあります。
+`frontend-design`（配色・文字組み・余白。Apache-2.0）と `ui-ux-rules`（コントラスト・文字とタッチの大きさ・フォーカス・ダークモード・グラフ。MIT）の 2 つです。cc は `/frontend-design` のように呼びます。入れるのは規則の文書だけで、スクリプトは入りません。ライセンスは各 skill のフォルダにあります。
 
 ### 研究（sai-sci）・実験の記録・実行先
 

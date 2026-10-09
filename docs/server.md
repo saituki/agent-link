@@ -134,7 +134,6 @@ sudo -iu sai docker build -f apps/web/server/Dockerfile -t sai-tree:latest .
 ```bash
 sudo -iu sai docker run --rm sai-tree:latest sai-link schema --json | head -c 200
 sudo -iu sai docker run --rm sai-tree:latest claude --version
-sudo -iu sai docker run --rm sai-tree:latest pi --version
 sudo -iu sai docker run --rm sai-tree:latest python3 --version
 sudo -iu sai docker run --rm sai-tree:latest tmux -V
 ```
@@ -226,14 +225,12 @@ sudo -iu sai env SAI_WEB_USERS_ROOT=/srv/sai/users \
 
 ## 12. 全員に配るひな形
 
-`/srv/sai/skel/` に `.pi/agent/models.json` などを置くと、新しいプロジェクトの HOME に写る
-（U09 の `SAI_WEB_SKEL_DIR`）。
+`/srv/sai/skel/` に置いたファイルは、新しいプロジェクトの HOME に写る（`SAI_WEB_SKEL_DIR`。HOME に既にあるファイルは上書きしない）。
 
 ```bash
 sudo mkdir -p /srv/sai/skel
 sudo chown sai: /srv/sai/skel
-# 例: 全員に同じモデルの設定を配る
-sudo -iu sai mkdir -p /srv/sai/skel/.pi/agent
+# 例: 全員に同じ .env.example を配る
 sudo -iu sai cp <repo>/apps/web/.env.example /srv/sai/skel/.env.example
 ```
 

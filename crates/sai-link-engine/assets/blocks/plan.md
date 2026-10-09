@@ -2,7 +2,7 @@
 name: 📋 plan
 id: plan
 description: 大きな機能追加のために、ユーザーと議論し、実装計画書と実装ガイドを作る
-model: inherit
+model: opus
 thinking: high
 templates: sai-base,sai-user,sai-cli,sai-task,doc-unit,doc-guide
 worktree: none

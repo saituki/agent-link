@@ -31,8 +31,9 @@ sai-link card options
 ```bash
 sai-link card create <<'EOF'
 {
-  "runner": "pi",
+  "runner": "cc",
   "block": "kantoku",
+  "model": "sonnet",
   "thinking": "high",
   "global_round": "16",
   "round": "1",
@@ -41,7 +42,7 @@ sai-link card create <<'EOF'
 EOF
 ```
 
-- 空の項目は既定値になる。`model` / `provider` を空にすると、ブロック定義の値が使われる。
+- 空の項目は既定値になる。`model` / `thinking` を空にすると、settings.json の既定が入り、実行時は block の frontmatter の値になる。
 - `task_text` に `waggle:<トークン>` を書くと、実行時に本文が埋め込まれる。
 
 3. 戻り値の `path` のファイルを編集し、frontmatter の 2 行を埋める。
@@ -54,3 +55,5 @@ EOF
 次のコマンドは、実行の開始・削除・設定の変更になる。ユーザーの指示が無い限り使わない。
 
 `sai-link card run` / `sai-link run finalize` / `sai-link run advance` / `sai-link run rm` / `sai-link daemon` / `sai-link init` / `sai-link run md --write`
+
+ただし `sai-link card run` は、役の説明に起動の手順として書いてあるときは使う。その場合も、起動した run は `sai-link run wait <run_id>` で待つ。

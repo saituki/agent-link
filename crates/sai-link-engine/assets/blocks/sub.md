@@ -2,8 +2,8 @@
 name: sub
 id: sub
 description: 親から頼まれた調査や小さな作業を行うサブエージェント
-model: inherit
-thinking: high
+model: haiku
+thinking: low
 templates: sai-base,sai-report
 worktree: isolation
 enable: true

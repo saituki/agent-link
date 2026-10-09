@@ -119,7 +119,7 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | `schema_version` | 数値（**1 固定**） | 受け入れ判定 | `1` 以外は**そのファイルを丸ごと捨てる** |
 | `run_id` | 数値 | 実行の ID・URL `#/run/<project>/<run_id>` | 無ければ捨てる |
 | `project_name` | 文字列 | 一覧の並び・URL | 無ければ捨てる |
-| `runner` | 文字列（`cc` / `pi` …） | 記録の読み分け | `"user"` は**一覧に出さない** |
+| `runner` | 文字列（`cc` …。`pi` は廃止。古い記録は `cc` と読む） | 記録の読み分け | `"user"` は**一覧に出さない** |
 | `status` | 文字列 | 一覧に出す判定 | `running / completed / failed / cancelled` のみ表示。**それ以外（todo・pending）は出さない** |
 | `started_at` / `updated_at` | 文字列（タイムゾーン無し） | どの日の実行か（**UTC とみて日本時間に変換**）・並び順 | 無ければ日付なしで一覧から落ちる |
 | `finished_at` / `duration_ms` | 文字列 / 数値 | 実行ごとの表示 | 空欄でも動く |
@@ -233,7 +233,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 | 命令 | 返り値 | Web が読む項目 |
 |---|---|---|
-| `card options` | `{"blocks", "cc_models", "providers", "runners", "thinking", "warnings"}` | `blocks[]`（`id`・`label`）・`runners`（`user`・`pi`・`cc`・`gl`）・`thinking`・`providers`（キーが provider、値がモデルの配列）・`cc_models` |
+| `card options` | `{"blocks", "cc_models", "providers", "runners", "thinking", "warnings"}` | `blocks[]`（`id`・`label`）・`runners`（`user`・`cc`）・`thinking`・`providers`（キーが provider、値がモデルの配列）・`cc_models` |
 | `card docs [--limit N]` | `{"items": [{token, label, description, status, ref}]}` | 同左（task_text に貼る候補） |
 | `card create`（**標準入力に JSON**・作成後は todo に配置） | `{"run_id", "path", "executer"}` | `run_id`（次の画面の行き先） |
 | `card run <run_id>` | JSON | 未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: agent` のカードは **終了コード 1**・stderr「このカードはエージェントが子の run として起こします（executer: agent）。人が起こすときは、カードの executer を human に直してください」 |
@@ -245,7 +245,7 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 | 項目 | 型 | 内容 |
 |---|---|---|
-| `runner` | 文字列 | `user` / `pi` / `cc` / `gl`（空でスキップ） |
+| `runner` | 文字列 | `user` / `cc` / `gl`（空でスキップ。`pi` は廃止で `cc` と読む） |
 | `block` | 文字列 | block の ID（`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`） |
 | `provider` / `model` / `thinking` | 文字列 | 空でスキップ。`thinking` は `none / low / medium / high / xhigh / max` |
 | `global_round` / `round` / `tag` / `description` | 文字列 | ラウンドは数字、`tag` は 1 行 |
@@ -276,6 +276,41 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 #### `daemon start|stop`
 
 **文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
+
+#### `task create`（標準入力に子の配列の JSON）→ `{"batch_id", "round", "supersedes_batch_id", "status", "tasks"}`（C-TASK・C-TASK-OUT）
+
+子ごとの項目（既存の項目に足すもの）:
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `model` | 文字列（省略可） | `opus` / `sonnet` / `haiku` / `inherit` / `claude…`。それ以外は断る |
+| `thinking` | 文字列（省略可） | `none` / `low` / `medium` / `high` / `xhigh` / `max`。それ以外は断る |
+| `runner` | 文字列（省略可） | 省略か `cc`。`pi` は廃止のため断る（終了コード 2）。`cc` 以外も断る（終了コード 2） |
+
+- 優先順位は「要素 > Card の task.md > block の frontmatter > settings.json」。省いた項目は、次の順で決まる。
+- `tasks[]` の子ごとの形は `{"client_id", "status": "approved", "task_id": int | null}`。`task_id` が null のときは `sai-link task list` の `server_id` で確かめる（`task_id` が無いことは、子が作られていないことを意味しない）。
+
+#### `run wait <run_id>… [--timeout-ms N] [--json]`（C-RUNWAIT・C-FAILED）
+
+自分の子でない run（`card run` で起こした run）を待つ。子は `task wait` で待つ。
+
+- 1 回の待ちは最大 90 秒。`--timeout-ms 0` なら 1 回だけ調べて返る。`run_id` は 1〜50 件。
+- `status` は次のどれか。質問は見ない。
+
+| `status` | 追加の項目 | 意味 |
+|---|---|---|
+| `completed` | `run_id`・`block`・`pending` | 完了した |
+| `failed` | `run_id`・`block`・`error`・`pending` | 失敗した。`error` に理由が入る |
+| `stalled` | `run_id`・`block`・`reason`（`idle`）・`message`・`pending` | pane が idle のまま止まった。`message` は sai-web の質問を見るように書く |
+| `in_progress` | `pending`（全件）・`message` | 90 秒以内に結果の出る run が無かった |
+
+- 返した run は、次の呼び出しで `pending` だけを渡す。engine は返した run を覚えない。
+- 存在しない run_id は終了コード 3（標準エラーの最後の行に「実行 <id> が見つかりません」）。
+
+`failed` の `error` の文言（C-FAILED）:
+
+- 401: `Claude の認証に失敗しました（401）。Account 画面で Claude のログイン（または token）を確かめてください: <行>`
+- pane が消えた: `エージェントが finalize の前に終了しました（pane が消えました）`
 
 ### 2.3 sai-paper が出す JSON
 
@@ -497,12 +532,13 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
 | `mode` | `purpose_first` / `blind_first` | READ_CARD の型 |
 | `papers` | 整数の配列（20 個まで。`user` はちょうど 1 本） | 対象論文 |
-| `runner` | `pi` / `cc` / `user`（既定 `pi`） | 実行主体 |
+| `runner` | `cc` / `user`（既定 `cc`） | 実行主体 |
+| `model` / `thinking` | 文字列 | 省くと settings.json の既定。`model` は `opus` / `sonnet` / `haiku` / `inherit`、`thinking` は `none` / `low` / `medium` / `high` / `xhigh` / `max`（C-SCICARD） |
 | `depth` | `abstract` / `figures` / `full`（`user` のときだけ） | 読む深さ |
 | `origin_run` | 数値 | 推薦した実行 |
 | `child` | 文字列（`Q`・`A`・`F`。任意） | 足す子の型。対象が Q なら `Q` か `A`、A なら `Q` か `F`。それ以外の組は終了コード 2（CLI は `--child`） |
 
-`executer` と `input` は Web からは指定しない（CLI の `--executer` / `--input` だけ）。**ファイルのパスは受け取らない。**
+`input` は Web からは指定しない（CLI の `--input` だけ）。`executer` は Web からも CLI からも指定しない（C-SCICARD）。**ファイルのパスは受け取らない。**
 
 #### 見た番号の台帳の照合（C10・`sai-sci op` の `add_f` と `report prepare`）
 
@@ -522,6 +558,32 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `project show --json` → `{"mind","state","brief","attention"}`。`project mind --json`（本文は標準入力・1〜200000 字）→ `{"ok": true, "bytes": <n>}`。mind.md の全文を置き換える。
 - `index paper <id> --json` → `{"paper_id","index","chunks_created","embedded_count","chunks","chunks_with_embeddings"}`。論文 1 本の chunk と埋め込みを作る（`chunks` は 0 のとき本文が無い）。無い論文は終了コード 3。
 - `attention list --json` → 配列（要対応の `key`・文）。`attention resolve <key> --json` → 対応済みにする。
+
+#### `status --brief [--limit N]`（C-NEXT）
+
+- `--limit` の既定は 10。`0` は全部。
+- `next` の並び: ★の A の NO_FINDING → Q の NO_CHILD → ★の無い A の NO_FINDING → UNVERIFIED。
+
+#### `card` の `--model`・`--thinking`・`--runner`（C-SCICARD）
+
+- `--runner` は `cc` / `user`（既定 `cc`）。`user` なら READ_CARD を作る。
+- `--model` は `opus` / `sonnet` / `haiku` / `inherit`。`--thinking` は `none` / `low` / `medium` / `high` / `xhigh` / `max`。省くと settings.json の既定。
+- `--executer` は無い。作る Card は人が起こす Card。
+
+#### `apply` の actor（C-ACTOR）
+
+- 記録の actor は、`SAI_PARENT_RUN_ID` があれば `run:<id>`（Professor の代行）、無ければ `user`。
+
+#### `init --update`（C-ASSETS）
+
+- blocks・template・tools・exec を源の版にそろえる。
+- 違う物は `<名前>.bak` に退避する（同じ名前の `.bak` が既にあれば `.bak.<YYYYmmdd-HHMMSS>`）。
+- block の frontmatter の `model`・`thinking` も源の値になる。
+
+#### `exp_exec.py check <target>`（C-CHECK）
+
+- local の target では、MLflow の `/health` と、成果物の置き場が `s3://` のときは s3 の鍵（`AWS_ACCESS_KEY_ID`）を確かめる。
+- 確かめるだけで、ジョブは動かさない。
 
 ### 2.5 `apps/radio` を呼ぶ側
 
@@ -567,7 +629,7 @@ sai-sci は sai-link の DB と実行フォルダの並び（`.sai/outputs/`）�
 
 ### `sai-link card create`（標準入力に JSON）→ `{"run_id", "path", "executer"}`
 
-sai-sci が渡す項目: `runner`（`pi` / `cc`）・`block`・`global_round`・`round`・`tag`・`description`・`task_text`・`executer`（`human` / `agent`）・`meta`（frontmatter に足す任意の文字列の組）。`thinking`・`model`・`provider`・`doc_tokens` は渡さない。
+sai-sci が渡す項目: `runner`（`cc` / `user`）・`block`・`global_round`・`round`・`tag`・`description`・`task_text`・`meta`（frontmatter に足す任意の文字列の組）。`model`・`thinking` は空でなければ渡す（C-SCICARD）。`executer` は渡さない。
 返り値の `run_id` と `path`（task.md の絶対パス）を読む。無ければ失敗。成功したら sai-sci は覚えていた run の一覧を捨てる。
 
 ---
@@ -626,7 +688,7 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 | `after_job` | `<job_id>`（`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`） | ジョブの終わりを待つ。`card wait --job` が書く |
 
 - `executer` は `sai_link_engine::kanban::CardFrontmatter::executer()` / `is_agent_executer()` が読む。未記載・空・知らない値は `human` 扱い。`run tree` の各 run ノードと `workflow` の各札が `"executer"` を持つ。
-- `sai-sci card --executer <human|agent>` で指定する（`agent` は `runner: pi` のときだけ。省略は `human`）。
+- `sai-sci card` に `--executer` は無い（C-SCICARD）。作る Card は人が起こす Card で、`executer` は `human`。古い Card の `executer: agent` は読むだけで、`card run` は断る（終了コード 1）。
 - `after_job`: 常駐は約 60 秒ごとに、カード 1 枚ごとの別の糸で `job_status` の命令を呼ぶ（90 秒で打ち切り）。`state` が `done` / `failed` / `cancelled` / `lost` なら `after_job` を消してそのカードを起こす。`queued` / `running` や、読めなかったときは、カードを変えず次の見回りでやり直す。環境変数 `SAI_EXP_STATUS_CMD` があれば状態を読む命令を差し替える。`agent` のカードは断られるので、起こされてもログに残るだけ。
 
 ### 4.3 起動時の文の分け方
@@ -635,7 +697,7 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 
 | | 中身 | 置き場 | 渡し方 |
 |---|---|---|---|
-| 固定部分（system prompt） | template と block.md の本文 | run フォルダ直下の `system-prompt.md` | pi は `--append-system-prompt <絶対パス>`、cc は `--append-system-prompt-file <絶対パス>` |
+| 固定部分（system prompt） | template と block.md の本文 | run フォルダ直下の `system-prompt.md` | cc は `--append-system-prompt-file <絶対パス>` |
 | 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | headless の transport で 1 通送る |
 
 - 節の順は `# context` → `# task_text` → 本文に `{{input.<id>}}` として現れた順。節の間は空行 1 行。固定部分の**先頭**に案内文（`依頼は、最初のメッセージの「# task_text」の節にあります。` など）を足す。
@@ -679,7 +741,7 @@ Web は起動時に **`$SAI_HOME/web/token` に合言葉（`SAI_WEB_TOKEN`）を
 
 ### 4.7 フック・拡張と Web の約束
 
-cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と pi の質問拡張（`apps/web/src/sai_web/extensions/ask_user.ts`）は、Web の窓口を次で呼ぶ。
+cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は、Web の窓口を次で呼ぶ。
 
 - **Web の場所**: 環境変数 `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`。
 - **合言葉**: 環境変数 `SAI_WEB_INTERNAL_TOKEN` があれば、すべての要求に `Authorization: Bearer <値>` を付ける。無ければ付けない（単独モードは今のまま 127.0.0.1 からの要求として受ける）。
@@ -687,15 +749,14 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）と
 
 | 住所 | 何に使う |
 |---|---|
-| `POST /api/register` | セッションと pane の対応づけ（`cc_register.py`・`ask_user.ts` の `session_start`） |
+| `POST /api/register` | セッションと pane の対応づけ（`cc_register.py`） |
 | `POST /api/questions` | 質問の登録。応答は `{"ok": true, "id": "<qid>"}` |
 | `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと）。JSON の `answered_by`（答えた人。端末で答えたときは `terminal`） |
-| `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（`ask_user.ts`） |
+| `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（PC の画面が呼ぶ） |
 
 - cc は、コンテナの中の tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`SAI_AGENT_TRANSPORT=tmux`・`SAI_PROJECT_ROOT=<root>`。
 - cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`SAI_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
 - 承認は `sai-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `sai-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `sai-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
-- pi の質問拡張は、画面が無い（`ctx.mode === "headless"` か `SAI_AGENT_TRANSPORT=headless`）ときは端末の選択画面を出さず、登録した質問の答えをポーリングで待つ。
 - cc の費用は cc の statusLine（`sai-link cc-statusline`）が `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
 
 ---

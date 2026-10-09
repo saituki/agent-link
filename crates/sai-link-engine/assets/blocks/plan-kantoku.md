@@ -2,7 +2,7 @@
 name: 🛠 plan-kantoku
 id: plan-kantoku
 description: 小さなバグ修正・機能追加のために、実装計画書を書き、そのまま worker を監督して完遂する
-model: inherit
+model: sonnet
 thinking: high
 templates: sai-base,sai-user,sai-task,doc-unit,doc-completion
 worktree: none
