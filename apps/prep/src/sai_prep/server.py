@@ -15,6 +15,7 @@ import json
 import secrets
 import urllib.parse
 import zipfile
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
@@ -328,25 +329,25 @@ def _unpack_zip(body: bytes) -> tuple[bytes, dict]:
 
     翻訳は `{"mono": …, "dual": …}`、無ければ `{}`。誤りは理由を入れた ValueError。
     """
+    # 中身の展開（read）で壊れた deflate も 400 にする（zlib.error は read で出る）
     try:
-        archive = zipfile.ZipFile(io.BytesIO(body))
-    except zipfile.BadZipFile as error:
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            names = set(archive.namelist())
+            if "paper.pdf" not in names:
+                raise ValueError("zip に paper.pdf がありません。")
+            pdf_bytes = archive.read("paper.pdf")
+            has_mono = "translated/paper-mono.pdf" in names
+            has_dual = "translated/paper-dual.pdf" in names
+            if has_mono != has_dual:
+                raise ValueError("翻訳は mono と dual の両方を入れてください（片方だけはだめです）。")
+            translations = {}
+            if has_mono:
+                translations = {
+                    "mono": archive.read("translated/paper-mono.pdf"),
+                    "dual": archive.read("translated/paper-dual.pdf"),
+                }
+    except (zipfile.BadZipFile, zlib.error) as error:
         raise ValueError("zip として読めません。") from error
-    with archive:
-        names = set(archive.namelist())
-        if "paper.pdf" not in names:
-            raise ValueError("zip に paper.pdf がありません。")
-        pdf_bytes = archive.read("paper.pdf")
-        has_mono = "translated/paper-mono.pdf" in names
-        has_dual = "translated/paper-dual.pdf" in names
-        if has_mono != has_dual:
-            raise ValueError("翻訳は mono と dual の両方を入れてください（片方だけはだめです）。")
-        translations = {}
-        if has_mono:
-            translations = {
-                "mono": archive.read("translated/paper-mono.pdf"),
-                "dual": archive.read("translated/paper-dual.pdf"),
-            }
     for data in [pdf_bytes, *translations.values()]:
         if not data.startswith(b"%PDF-"):
             raise ValueError("zip の中の PDF ではないファイルがあります（先頭が %PDF- ではありません）。")

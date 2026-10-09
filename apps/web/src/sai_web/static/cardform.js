@@ -2,9 +2,9 @@
 //
 // List 画面右上の ＋ で下から出る。TUI のウィザード（sai-link-tui の card_wizard.rs）と
 // 同じ順に 1 画面ずつ進み、スキップ・戻る・番号の飛び方も同じ規則にする:
-//   1 runner → 2 ブロック → 3 provider（pi のみ）→ 4 モデル → 5 thinking
-//   → 6 ラウンド → 7 task_text（🎤 音声入力・最近の文書を貼れる）→ 8 確認 → 作成
-//   user / gl は 2 から 6 へ、cc は 3（provider）を飛ばす。
+//   1 runner → 2 ブロック → 3 モデル → 4 thinking
+//   → 5 ラウンド → 6 task_text（🎤 音声入力・最近の文書を貼れる）→ 7 確認 → 作成
+//   user / gl は 2 から 5 へ飛ぶ（runner が空なら cc 扱い）。
 // 選択肢は `GET …/card/options`、作成は `POST …/card`
 // （値の検査はサーバー側でも行う・計画 15 §3.3）。
 // 入力ファイルの手順は無い（入力は task_text に統一した・U09）。
@@ -14,23 +14,21 @@
 
 // --- 定数 ---
 
-// 手順の地図（番号は 8 固定。スキップや自動で飛んだ画面は番号が飛ぶ・計画 15 §1.5）
+// 手順の地図（番号は手順の数で決まる。スキップや自動で飛んだ画面は番号が飛ぶ・計画 15 §1.5）
 const CF_STEPS = [
   { id: "runner", no: 1, title: "runner" },
   { id: "block", no: 2, title: "ブロック" },
-  { id: "provider", no: 3, title: "provider" },
-  { id: "model", no: 4, title: "モデル" },
-  { id: "thinking", no: 5, title: "thinking" },
-  { id: "rounds", no: 6, title: "ラウンド" },
-  { id: "task_text", no: 7, title: "task_text" },
-  { id: "confirm", no: 8, title: "確認" },
+  { id: "model", no: 3, title: "モデル" },
+  { id: "thinking", no: 4, title: "thinking" },
+  { id: "rounds", no: 5, title: "ラウンド" },
+  { id: "task_text", no: 6, title: "task_text" },
+  { id: "confirm", no: 7, title: "確認" },
 ];
-// 8 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
+// 7 画面それぞれの見出しの下に出す説明（端末に慣れていない人向け・U5 §3）。
 // 画面の流れ・スキップ・戻る・保存の動きは変えない（見出しの下に文言を足すだけ）。
 const CF_STEP_HINTS = {
-  runner: "このカードをどの AI に渡すかです。cc や pi など、名前で選びます。",
+  runner: "このカードをどの AI に渡すかです。cc など、名前で選びます。",
   block: "どんな順番で、どのファイルを見て、どう直せばよいかを書いた指示書です。",
-  provider: "モデルの入手元です。ここでどの入手元にするかが決まります。",
   model: "使うモデルの名前です。動かすエージェントによって出し方が違います。",
   thinking: "考えの深さです。難しい仕事で深めにすると時間がかかりますが、精度が上がります。",
   rounds: "同じ仕事を引き継ぎながら何回回すかです。回数を増やすほど長く続けます。",
@@ -39,7 +37,7 @@ const CF_STEP_HINTS = {
 };
 // 書きかけの置き場（プロジェクトごとに分ける・計画 15 §1.5）
 const CF_DRAFT_KEY = "sai_web_card_draft";
-// user / gl は手順 3〜5 が対象外（TUI の advance_from_block と同じ）
+// user / gl はモデルと thinking が対象外（TUI の advance_from_block と同じ）
 const CF_NO_INPUT_RUNNERS = ["user", "gl"];
 
 // --- 進み方（DOM を使わない・tests/test_cardform.js） ---
@@ -48,9 +46,8 @@ const CF_NO_INPUT_RUNNERS = ["user", "gl"];
 function cfNewDraft() {
   return {
     step: "runner",
-    runner: "",         // "" = スキップ（TUI と同じく pi 扱い）
+    runner: "",         // "" = スキップ（cc 扱い）
     block: "",
-    provider: "",
     model: "",
     thinking: "",
     rounds: { global_round: "", round: "", tag: "" },
@@ -69,28 +66,23 @@ function cfStepHint(id) {
 }
 
 /**
- * 今いる手順の番号と題名（表示は「Step n/8」）。
- * 番号は 8 固定で、スキップした分は飛ぶ（user / gl なら 2 → 6）。
+ * 今いる手順の番号と題名（表示は「Step n/7」）。
+ * 番号は手順の数で決まり、スキップした分は飛ぶ（user / gl なら 2 → 5）。
  */
 function cfStepInfo(state) {
   const entry = cfStepEntry(state.step);
-  return { id: entry.id, no: entry.no, title: entry.title, label: `Step ${entry.no}/8` };
+  return { id: entry.id, no: entry.no, title: entry.title, label: `Step ${entry.no}/${CF_STEPS.length}` };
 }
 
 /** ブロック確定後の行き先（番号の飛び方は TUI の advance_from_block と同じ）。 */
 function cfAfterBlock(state) {
   const runner = String(state.runner || "");
   if (runner === "user" || runner === "gl") {
-    // gl は起動時のタスク書き込みなし・user は人がやる作業なので provider〜thinking は丸ごと省く
-    state.provider = "";
+    // gl は起動時のタスク書き込みなし・user は人がやる作業なので model〜thinking は丸ごと省く
     state.model = "";
     return "rounds";
   }
-  if (runner === "cc") {
-    state.provider = ""; // cc には provider が無い
-    return "model";
-  }
-  return "provider";
+  return "model"; // cc（runner が空なら cc 扱い）
 }
 
 /** 次へ進めるか。進めれば null、ダメなら理由（その画面に止まる）。 */
@@ -101,9 +93,6 @@ function cfNext(state) {
       return null;
     case "block":
       state.step = cfAfterBlock(state);
-      return null;
-    case "provider":
-      state.step = "model";
       return null;
     case "model":
       state.step = "thinking";
@@ -125,9 +114,7 @@ function cfNext(state) {
 
 /** スキップできる手順か（引き継ぎと確認は無し・TUI と同じ）。 */
 function cfCanSkip(state) {
-  return ["runner", "block", "provider", "model", "thinking", "rounds", "task_text"].includes(
-    state.step
-  );
+  return ["runner", "block", "model", "thinking", "rounds", "task_text"].includes(state.step);
 }
 
 /** スキップ（その項目は sai-link の既定値に任せる）。止めれば理由を返す。 */
@@ -142,10 +129,6 @@ function cfSkip(state) {
       state.block = "";
       state.step = cfAfterBlock(state);
       return null;
-    case "provider":
-      state.provider = "";
-      state.step = "model";
-      return null;
     case "model":
       state.model = "";
       state.step = "thinking";
@@ -155,7 +138,7 @@ function cfSkip(state) {
       state.step = "rounds";
       return null;
     case "rounds":
-      // TUI はここで作成するが、本フォームは 7 task_text → 8 確認 があるので次へ進む
+      // TUI はここで作成するが、本フォームは task_text → 確認 があるので次へ進む
       state.step = "task_text";
       return null;
     case "task_text":
@@ -175,18 +158,14 @@ function cfBack(state) {
     case "block":
       state.step = "runner";
       return null;
-    case "provider":
-      state.step = "block";
-      return null;
     case "model":
-      // 戻り先は runner 別（cc → ブロック・それ以外 → provider・TUI と同じ）
-      state.step = state.runner === "cc" ? "block" : "provider";
+      state.step = "block";
       return null;
     case "thinking":
       state.step = "model";
       return null;
     case "rounds":
-      // user / gl → ブロック、pi / cc → thinking（TUI と同じ）
+      // user / gl → ブロック、cc → thinking（TUI と同じ）
       state.step = CF_NO_INPUT_RUNNERS.includes(String(state.runner || ""))
         ? "block"
         : "thinking";
@@ -263,7 +242,6 @@ function cfBuildPayload(state) {
   return {
     runner: state.runner || "",
     block: state.block || "",
-    provider: state.provider || "",
     model: state.model || "",
     thinking: state.thinking || "",
     global_round: rounds.global_round || "",
@@ -473,7 +451,7 @@ function cfRenderBody() {
         }
       )
     );
-    body.appendChild(cfNote("スキップすると pi 扱い（sai-link の既定どおり）"));
+    body.appendChild(cfNote("スキップすると cc 扱い（sai-link の既定どおり）"));
     return;
   }
 
@@ -494,34 +472,8 @@ function cfRenderBody() {
     return;
   }
 
-  if (info.id === "provider") {
-    const providers = Object.keys((cfOptions && cfOptions.providers) || {});
-    body.appendChild(
-      cfChoiceList(
-        providers.map((p) => ({ value: p, label: p })),
-        state.provider,
-        (v) => {
-          state.provider = v;
-          cfSaveDraft(cfName, state);
-          cfRenderBody();
-        }
-      )
-    );
-    body.appendChild(cfNote("スキップすると provider の自動解決に任せます"));
-    return;
-  }
-
   if (info.id === "model") {
-    let models = [];
-    if (state.runner === "cc") {
-      models = (cfOptions && cfOptions.cc_models) || [];
-    } else if (state.provider) {
-      models = ((cfOptions && cfOptions.providers) || {})[state.provider] || [];
-    } else {
-      // provider をスキップしたときは全部の provider のモデルを並べる
-      const all = (cfOptions && cfOptions.providers) || {};
-      models = Array.from(new Set(Object.values(all).flat()));
-    }
+    const models = (cfOptions && cfOptions.cc_models) || [];
     body.appendChild(
       cfChoiceList(
         models.map((m) => ({ value: String(m), label: String(m) })),
@@ -612,12 +564,11 @@ function cfRenderBody() {
     return;
   }
 
-  // 8 確認: 選んだ内容の一覧と「作成」
+  // 7 確認: 選んだ内容の一覧と「作成」
   const payload = cfBuildPayload(state);
   const rows = [
     ["runner", payload.runner || "（スキップ）"],
     ["ブロック", payload.block || "（スキップ）"],
-    ["provider", payload.provider || "（スキップ）"],
     ["モデル", payload.model || "（スキップ）"],
     ["thinking", payload.thinking || "（スキップ）"],
     ["global_round", payload.global_round || "（自動）"],
