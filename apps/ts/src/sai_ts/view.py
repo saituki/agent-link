@@ -52,7 +52,11 @@ def save_view(patch: dict, by: str) -> dict:
     unknown = sorted(set(body) - set(VIEW_KEYS))
     if unknown:
         raise ValueError(f"未知の項目です: {', '.join(unknown)}")
-    v = {**load_view(), **body}  # 足りない項目は前の値を残す
+    old = load_view()
+    v = {**old, **body}  # 足りない項目は前の値を残す
+    # 記録（や dataset）が変わったら、前の選択は別の記録の区間になるので消す
+    if "selection" not in body and any(k in body and body[k] != old.get(k) for k in ("record", "dataset")):
+        v["selection"] = None
     _check(v)
     v["updated_at"] = now()
     v["updated_by"] = by
