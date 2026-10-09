@@ -154,7 +154,7 @@ impl CardFrontmatter {
             execution_date: "-".to_string(),
             run_id: "-".to_string(),
             description: String::new(),
-            runner: "pi".to_string(),
+            runner: "cc".to_string(),
             block: String::new(),
             thinking: String::new(),
             model: String::new(),
@@ -274,7 +274,7 @@ pub fn parse_card(text: &str) -> Option<KanbanCard> {
         runner: {
             let r = get("runner");
             if r.is_empty() {
-                "pi".to_string()
+                "cc".to_string()
             } else {
                 r
             }

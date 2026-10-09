@@ -85,7 +85,7 @@ fn execution_from_row(row: &Row) -> rusqlite::Result<ExecutionHistory> {
         // 旧 DB（カラムなし）は 0（review レーン）扱い
         review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
         // 旧 DB（カラムなし）は `pi` 扱い
-        runner: row.get::<_, String>(38).unwrap_or_else(|_| "pi".to_string()),
+        runner: row.get::<_, String>(38).unwrap_or_else(|_| "cc".to_string()),
         // エージェント側セッション ID（cc のみ。旧 DB は NULL）
         agent_session_id: row.get(39).ok(),
     })
@@ -103,7 +103,7 @@ const TASK_SELECT_COLS: &str = "id, parent_run_id, subject, description, status,
      block_type, inputs_json, depends_on_json, worktree, \
      execution_id, batch_id, client_id, round, supersedes_batch_id, \
      approval_comment, finalized, deleted_by, deleted_at, run_batch_id, \
-     cwd, created_at, updated_at, timeout, card_run_id, runner";
+     cwd, created_at, updated_at, timeout, card_run_id, runner, model, thinking";
 
 /// `tasks` の行を `Task` に変換する共通マッパー。
 fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
@@ -136,6 +136,8 @@ fn task_from_row(row: &Row) -> rusqlite::Result<Task> {
         // card_run_id は既存 DB で NULL の行があるため Option として読む
         card_run_id: row.get(23)?,
         runner: row.get(24)?,
+        model: row.get(25)?,
+        thinking: row.get(26)?,
     })
 }
 
@@ -2053,7 +2055,7 @@ impl SaiStore {
                     execution_mode: row.get(35).ok(),
                     workflow_moved: row.get::<_, i64>(36).unwrap_or(0) != 0,
                     review_done: row.get::<_, i64>(37).unwrap_or(0) != 0,
-                    runner: row.get::<_, String>(38).unwrap_or_else(|_| "pi".to_string()),
+                    runner: row.get::<_, String>(38).unwrap_or_else(|_| "cc".to_string()),
                     agent_session_id: row.get(39).ok(),
                 })
             },
@@ -2262,8 +2264,8 @@ impl SaiStore {
             "INSERT INTO tasks (parent_run_id, subject, description, status, \
              block_type, inputs_json, depends_on_json, worktree, batch_id, \
              client_id, round, supersedes_batch_id, approval_comment, finalized, \
-             deleted_by, deleted_at, cwd, timeout, card_run_id, runner) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             deleted_by, deleted_at, cwd, timeout, card_run_id, runner, model, thinking) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 task.parent_run_id,
                 task.subject,
@@ -2285,6 +2287,8 @@ impl SaiStore {
                 task.timeout,
                 task.card_run_id,
                 task.runner,
+                task.model,
+                task.thinking,
             ],
         )?;
 
@@ -2303,8 +2307,8 @@ impl SaiStore {
                 "INSERT INTO tasks (parent_run_id, subject, description, status, \
                  block_type, inputs_json, depends_on_json, worktree, batch_id, \
                  client_id, round, supersedes_batch_id, approval_comment, finalized, \
-                 deleted_by, deleted_at, cwd, timeout, card_run_id, runner) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                 deleted_by, deleted_at, cwd, timeout, card_run_id, runner, model, thinking) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 params![
                     task.parent_run_id,
                     task.subject,
@@ -2326,6 +2330,8 @@ impl SaiStore {
                     task.timeout,
                     task.card_run_id,
                     task.runner,
+                    task.model,
+                    task.thinking,
                 ],
             )?;
             ids.push(tx.last_insert_rowid());
@@ -4601,14 +4607,19 @@ mod tests {
         };
         let mut with_runner = make("A");
         with_runner.runner = Some("cc".to_string());
+        with_runner.model = Some("haiku".to_string());
+        with_runner.thinking = Some("low".to_string());
         let ids = store
             .insert_tasks_batch(&[with_runner, make("B")])
             .unwrap();
-        assert_eq!(
-            store.get_task_by_id(ids[0]).unwrap().runner.as_deref(),
-            Some("cc")
-        );
-        assert_eq!(store.get_task_by_id(ids[1]).unwrap().runner, None);
+        let a = store.get_task_by_id(ids[0]).unwrap();
+        assert_eq!(a.runner.as_deref(), Some("cc"));
+        assert_eq!(a.model.as_deref(), Some("haiku"));
+        assert_eq!(a.thinking.as_deref(), Some("low"));
+        let b = store.get_task_by_id(ids[1]).unwrap();
+        assert_eq!(b.runner, None);
+        assert_eq!(b.model, None);
+        assert_eq!(b.thinking, None);
     }
 
     #[test]
