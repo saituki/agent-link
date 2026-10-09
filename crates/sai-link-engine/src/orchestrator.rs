@@ -2091,7 +2091,7 @@ pub fn execute_block_pipeline_full(
             let _ = store.update_execution_status(run_id, "completed");
             let _ = store.update_execution_output_type(run_id, &pr.output_type);
             if !pr.waggle_tokens.is_empty() {
-                let _ = store.update_execution_waggle_tokens(run_id, &pr.waggle_tokens);
+                let _ = store.merge_execution_waggle_tokens(run_id, &pr.waggle_tokens);
             }
             if !pr.input_waggle_tokens.is_empty() {
                 let _ = store.update_execution_input_tokens(run_id, &pr.input_waggle_tokens);
@@ -3169,6 +3169,39 @@ fn long_run_alert_ms() -> u64 {
         .unwrap_or(1_200_000)
 }
 
+/// idle の停止とみなす時間（ミリ秒）。既定 60 秒。`SAI_IDLE_TIMEOUT_MS` で上書き可能。
+///
+/// `sai-link run wait` も同じ値で止まりを判定するため、ここを正本にする。
+pub(crate) fn stall_idle_ms() -> u64 {
+    std::env::var("SAI_IDLE_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(60_000)
+}
+
+/// 画面の行に cc の認証切れの表示があれば、その行を返す。
+///
+/// 401 で止まった cc は Stop フックを呼ばず `working` のまま残るので、状態では分からない。
+// ponytail: 画面の文字で判定する。agent がこの文言をファイルの内容として表示すると誤検出する。
+//           版で表示が変わったら正規表現を足す
+pub(crate) fn auth_error_line(screen: &str) -> Option<String> {
+    let re = regex::Regex::new(r"API Error: 401|Invalid bearer token|Please run /login").ok()?;
+    screen
+        .lines()
+        .find(|line| re.is_match(line))
+        .map(|line| line.trim().to_string())
+}
+
+/// pane が消えたときの判定。finalize の要求より前に消えたなら失敗の理由、後なら `None`（完了の流れへ）。
+pub(crate) fn pane_gone_error(finalize_requested: bool) -> Option<&'static str> {
+    if finalize_requested {
+        None
+    } else {
+        Some("エージェントが finalize の前に終了しました（pane が消えました）")
+    }
+}
+
 /// `long_running` 通知の本文。
 fn long_running_message(elapsed: Duration, pane_id: &str) -> String {
     format!(
@@ -3254,13 +3287,11 @@ fn execute_completion_with_doc_write(
     let mut waggle_tokens: Vec<String> = Vec::new();
     // pane 消滅判定の連続エラーカウント（一時的な herdr エラーへの耐性）
     let mut pane_error_count: u32 = 0;
+    // 認証切れの画面確認を次にいつ行うか（30 秒ごと）
+    let mut next_screen_check = Instant::now();
 
     // U3: サブブロック停止検知の閾値（既定 60 秒。`SAI_IDLE_TIMEOUT_MS` で上書き可能）
-    let idle_timeout_ms = std::env::var("SAI_IDLE_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(60_000);
+    let idle_timeout_ms = stall_idle_ms();
     // U2: 長時間アラートの間隔（既定 20 分。`SAI_LONG_RUN_ALERT_MS` で上書き可能）
     let long_run_ms = long_run_alert_ms();
     let mut stall = StallDetector::default();
@@ -3421,6 +3452,27 @@ fn execute_completion_with_doc_write(
                     match herdr.get_pane_status(pane_id) {
                         Ok(info) => {
                             pane_error_count = 0;
+                            // 認証切れ（cc が 401 で止まった）の検出。画面は 30 秒に 1 回だけ読む。
+                            if Instant::now() >= next_screen_check {
+                                next_screen_check = Instant::now() + Duration::from_secs(30);
+                                if let Some(line) = herdr
+                                    .read_pane_output(pane_id, 40)
+                                    .ok()
+                                    .and_then(|screen| auth_error_line(&screen))
+                                {
+                                    eprintln!(
+                                        "[sai-engine] 認証切れを検出 (pane={}): {}",
+                                        pane_id, line
+                                    );
+                                    *progress.lock().unwrap() = PipelineProgress::Failed {
+                                        error: format!(
+                                            "Claude の認証に失敗しました（401）。Account 画面で Claude のログイン（または token）を確かめてください: {}",
+                                            line
+                                        ),
+                                    };
+                                    return;
+                                }
+                            }
                             // U3: サブブロック停止検知（idle 60秒 or blocked 連続2回）。
                             //     正常完了（sai-write 検出）は completion_rx を先にチェックして
                             //     優先するため、この分岐は受信タイムアウト時のみ到達する。
@@ -3476,6 +3528,21 @@ fn execute_completion_with_doc_write(
                         Err(_) => {
                             pane_error_count += 1;
                             if pane_error_count >= 3 {
+                                // finalize の要求より前に pane が消えたら失敗にする（0 ターンの run を「完了」にしない）。
+                                // run_id が無いときは判定できないので、従来どおり完了の流れに入る。
+                                let finalized = prepared
+                                    .run_id
+                                    .map_or(true, crate::daemon::finalize_request_seen);
+                                if let Some(error) = pane_gone_error(finalized) {
+                                    eprintln!(
+                                        "[sai-engine] ペインが finalize の前に削除されました (pane={}): 失敗にします",
+                                        pane_id
+                                    );
+                                    *progress.lock().unwrap() = PipelineProgress::Failed {
+                                        error: error.to_string(),
+                                    };
+                                    return;
+                                }
                                 eprintln!(
                                     "[sai-engine] ペインが削除されました (pane={}): 利用可能な出力を抽出して完了します",
                                     pane_id
@@ -3556,7 +3623,7 @@ fn execute_completion_with_doc_write(
             };
 
             // --- 2. sai-write 通知を1件処理 ---
-            match doc_write_notify::poll_and_process_one(&integrator) {
+            match doc_write_notify::poll_and_process_one(&integrator, None) {
                 Ok(Some(result)) => {
                     if let Some(ref token) = result.waggle_token {
                         waggle_tokens.push(token.clone());
@@ -3666,6 +3733,8 @@ pub struct TurnResult {
 /// * `submit_key` — 入力確定キー（`RunnerKind::submit_key()`。cc は `Alt+Enter`、gl は `Enter`）
 /// * `task_id` — 長時間アラートを `results/` に書き込むためのタスク ID（`None` なら書かない）
 /// * `parent_run_id` — 通知に添える親実行 ID
+/// * `run_id` — このターンの実行の ID。`Some` のときは、この run の `file_written` だけを集める
+///   （ほかの run の文書を取り込まないため）。`None` は絞らない
 pub fn send_turn_to_pane(
     herdr: &HerdrClient,
     pane_id: &str,
@@ -3675,6 +3744,7 @@ pub fn send_turn_to_pane(
     submit_key: &str,
     task_id: Option<i64>,
     parent_run_id: Option<i64>,
+    run_id: Option<i64>,
 ) -> Result<TurnResult, OrchestratorError> {
     let start = Instant::now();
 
@@ -3779,7 +3849,7 @@ pub fn send_turn_to_pane(
         }
 
         // sai-write 通知の収集（ターン中にファイル保存があればトークン化）
-        if let Ok(Some(result)) = doc_write_notify::poll_and_process_one(&integrator) {
+        if let Ok(Some(result)) = doc_write_notify::poll_and_process_one(&integrator, run_id) {
             if let Some(ref token) = result.waggle_token {
                 waggle_tokens.push(token.clone());
             }
@@ -6348,5 +6418,27 @@ mod tests {
     fn test_render_message_md_empty_is_frontmatter_only() {
         let text = render_message_md("plan", 1, &[]);
         assert_eq!(text, "---\nblock_name: plan\nrun_id: 1\n---\n");
+    }
+
+    /// 401 で止まった cc の画面は、その行を理由として返す。ふつうの画面は何も返さない。
+    #[test]
+    fn auth_error_line_finds_401_screen() {
+        let screen = "> 続けて\n\nFailed to authenticate. API Error: 401 Invalid bearer token\n";
+        assert_eq!(
+            auth_error_line(screen).as_deref(),
+            Some("Failed to authenticate. API Error: 401 Invalid bearer token")
+        );
+        assert!(auth_error_line("Please run /login · API Error: 401 Invalid bearer token").is_some());
+        assert!(auth_error_line("作業中です\n10 ファイルを変更").is_none());
+    }
+
+    /// pane が消えたとき、finalize の要求より前なら失敗、後なら完了の流れ（`None`）。
+    #[test]
+    fn pane_gone_error_depends_on_finalize_request() {
+        assert_eq!(
+            pane_gone_error(false),
+            Some("エージェントが finalize の前に終了しました（pane が消えました）")
+        );
+        assert_eq!(pane_gone_error(true), None);
     }
 }

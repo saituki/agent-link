@@ -94,6 +94,28 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
             let v = agent_result(sai_link_engine::agent_api::run_interrupt(run_id))?;
             print_json(&v)
         }
+        // 子でない run も含めて待つ（1〜50 件。task wait と同じ上限）
+        RunCmd::Wait {
+            run_ids,
+            timeout_ms,
+            json: _,
+        } => {
+            if run_ids.is_empty() {
+                return Err(CmdError::input(
+                    "run wait には 1 件以上の run ID を指定してください",
+                ));
+            }
+            if run_ids.len() > 50 {
+                return Err(CmdError::input("run wait は 50 件までです"));
+            }
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            let v = agent_result(sai_link_engine::agent_api::run_wait(
+                &run_ids,
+                timeout_ms,
+                &cancel,
+            ))?;
+            print_json(&v)
+        }
         RunCmd::Rm { run_id, yes } => {
             // 確認の入力を待たない。`--yes` が無ければ終了コード 2。
             if !yes {

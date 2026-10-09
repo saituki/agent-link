@@ -491,6 +491,18 @@ pub enum RunCmd {
         json: bool,
     },
 
+    /// 自分の子でない run（card run で起こした run）の完了・失敗・停止を待つ（1 回最大 90 秒）
+    Wait {
+        /// 待つ run の ID（1〜50 件）
+        #[arg(value_name = "RUN_ID", required = true)]
+        run_ids: Vec<i64>,
+        /// 最大待機時間（ミリ秒）。0 で 1 回だけ調べる
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
     /// 実行を消す（DB の行と run フォルダ・子の実行も一緒に）
     Rm {
         #[arg(value_name = "RUN_ID")]

@@ -155,8 +155,12 @@ pub fn resolve_output_path(run_id: i64, filename: &str) -> std::io::Result<PathB
 ///
 /// * `Some(ProcessedNotification)` — 通知を処理した
 /// * `None` — 未処理通知がない
+///
+/// `only_run` が `Some(id)` のときは、通知の `run_id` が `id` の `file_written` だけを処理する。
+/// それ以外は pending/ に残す（ほかの run の文書を取り込まないため）。
 pub fn poll_and_process_one(
     integrator: &WaggleIntegrator,
+    only_run: Option<i64>,
 ) -> Result<Option<ProcessedNotification>, std::io::Error> {
     let pending_dir = ensure_pending_dir()?;
     let processed_dir = ensure_processed_dir()?;
@@ -188,6 +192,10 @@ pub fn poll_and_process_one(
                     // task_* 通知 → task_manager に任せる（処理しない・移動もしない）
                     continue;
                 }
+                // 別の run の文書は取らない（残して、その run の待ちに任せる）
+                if only_run.is_some_and(|id| value.get("run_id").and_then(|v| v.as_i64()) != Some(id)) {
+                    continue;
+                }
             }
         }
         let result = process_notification_file(&notification_path, integrator, &processed_dir);
@@ -211,7 +219,7 @@ pub fn poll_and_process_all(
 ) -> Result<Vec<ProcessedNotification>, std::io::Error> {
     let mut results = Vec::new();
     loop {
-        match poll_and_process_one(integrator)? {
+        match poll_and_process_one(integrator, None)? {
             Some(result) => results.push(result),
             None => break,
         }
@@ -547,7 +555,7 @@ mod tests {
         // インメモリのインテグレーターでテスト
         let integrator = WaggleIntegrator::open_in_memory().expect("インメモリDBの作成に失敗");
 
-        let result = poll_and_process_one(&integrator).expect("pollに失敗");
+        let result = poll_and_process_one(&integrator, None).expect("pollに失敗");
         assert!(result.is_none(), "空ディレクトリではNoneが返る");
 
         // クリーンアップ
@@ -603,7 +611,7 @@ mod tests {
         .unwrap();
 
         // 3. poll_and_process_one → file_written のみ処理される
-        let result = poll_and_process_one(&integrator)
+        let result = poll_and_process_one(&integrator, None)
             .expect("pollに失敗")
             .expect("file_written 通知が処理されるべき");
         assert!(result.waggle_token.is_some(), "waggle トークンが発行される");
@@ -618,6 +626,46 @@ mod tests {
             !file_notif.exists(),
             "file_written 通知は処理済みに移動する"
         );
+
+        // クリーンアップ
+        let _ = fs::remove_dir_all(notification_base_dir());
+        let _ = fs::remove_file(&target_file);
+    }
+
+    /// 文書の帰属: `only_run` で絞ると、ほかの run の通知は処理されず pending/ に残る。
+    #[test]
+    fn poll_with_only_run_leaves_other_runs_pending() {
+        let _guard = crate::common::SAI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = ensure_pending_dir();
+        let _ = ensure_processed_dir();
+        let pending = crate::common::notify_pending_dir();
+
+        let integrator = WaggleIntegrator::open_in_memory().expect("インメモリDBの作成に失敗");
+
+        let target_file = std::env::temp_dir().join("doc_write_only_run_test.md");
+        fs::write(&target_file, "# テスト").unwrap();
+        let notif_90 = pending.join("4000-file_written.json");
+        fs::write(
+            &notif_90,
+            format!(
+                r#"{{"type":"file_written","run_id":90,"file_path":"{}","block_name":"test","waggle_token":"RUN90TOK"}}"#,
+                target_file.to_string_lossy()
+            ),
+        )
+        .unwrap();
+
+        // run 89 で絞ると、run 90 の通知は取らない
+        let none = poll_and_process_one(&integrator, Some(89)).expect("pollに失敗");
+        assert!(none.is_none(), "run 89 の通知は無いので None");
+        assert!(notif_90.exists(), "run 90 の通知は pending/ に残る");
+
+        // run 90 で絞ると取れる
+        let result = poll_and_process_one(&integrator, Some(90))
+            .expect("pollに失敗")
+            .expect("run 90 の通知が処理されるべき");
+        assert_eq!(result.run_id, Some(90));
+        assert_eq!(result.waggle_token.as_deref(), Some("RUN90TOK"));
+        assert!(!notif_90.exists(), "処理済みに移動する");
 
         // クリーンアップ
         let _ = fs::remove_dir_all(notification_base_dir());
@@ -646,7 +694,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = poll_and_process_one(&integrator)
+        let result = poll_and_process_one(&integrator, None)
             .expect("pollに失敗")
             .expect("file_written 通知が処理されるべき");
         assert_eq!(result.waggle_token.as_deref(), Some("AXANSMpo"));
