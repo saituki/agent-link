@@ -66,6 +66,9 @@ enum Cmd {
         /// Node の数・Next Action だけを出す（いつも JSON）
         #[arg(long)]
         brief: bool,
+        /// Next Action の件数（省くと 10。0 は全部）
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// 使える RESEARCH_TYPE を一覧する
     Types {
@@ -410,7 +413,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
             update,
             json,
         }) => handle_init(type_id.as_deref(), &domain, name.as_deref(), update, json),
-        Some(Cmd::Status { json, brief }) => print_out(sci::status(json, brief)?),
+        Some(Cmd::Status { json, brief, limit }) => print_out(sci::status(json, brief, limit)?),
         Some(Cmd::Types { json }) => print_out(sci::types(json)?),
         Some(Cmd::TypeSave) => print_out(sci::type_save()?),
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),

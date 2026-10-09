@@ -254,8 +254,12 @@ pub struct HandoffRequest<'a> {
     pub description: &'a str,
     /// CARD のタグ（任意）
     pub tag: Option<&'a str>,
-    /// 実行エージェント（`pi` / `cc`）
+    /// 実行エージェント（`cc` / `user`）
     pub runner: &'a str,
+    /// モデル（任意。空なら sai-link の settings.json の既定）
+    pub model: &'a str,
+    /// 思考の量（任意。空なら sai-link の settings.json の既定）
+    pub thinking: &'a str,
     /// 推薦した実行の run_id（任意。sai-sci の結び付けの actor に使う。task.md には書かない）
     pub origin_run: Option<i64>,
     /// 推薦の理由（任意。あれば本文の先頭に書く）
@@ -284,7 +288,7 @@ pub fn create_handoff_with(
 /// 4. { run_id, path } を返す
 ///
 /// `extra` は `(キー, 値)` の並び。値の改行は空白に置き換え、空の値は書かない。
-/// `executer` は `card create` の起動者に、それ以外は `meta` に入れる。
+/// 値は `meta` に入る（起動者は持たない。sai-link が人として作る）。
 /// 並びは呼び出し側が決める（sai-sci の CARD は `sci_node` から `sci_depth` までをこの順に足す）。
 ///
 /// # Errors
@@ -343,17 +347,11 @@ pub fn create_handoff_with_extra(
         .unwrap_or(&body)
         .to_string();
 
-    // 5. `extra` を起動者と meta に分ける。
-    let mut executer = String::new();
+    // 5. `extra` を meta に入れる（空の値は書かない）。
     let mut meta: BTreeMap<String, String> = BTreeMap::new();
     for (key, value) in extra {
         let value = one_line(value);
-        if value.is_empty() {
-            continue;
-        }
-        if *key == "executer" {
-            executer = value;
-        } else {
+        if !value.is_empty() {
             meta.insert((*key).to_string(), value);
         }
     }
@@ -367,7 +365,8 @@ pub fn create_handoff_with_extra(
         tag: request.tag.unwrap_or("").to_string(),
         description: request.description.lines().next().unwrap_or("").to_string(),
         task_text,
-        executer,
+        model: request.model.to_string(),
+        thinking: request.thinking.to_string(),
         meta,
     };
     let (run_id, path) = link::card_create(&roots.root, &card).map_err(HandoffError::Link)?;
@@ -620,7 +619,9 @@ mod tests {
             paper_ids: &[],
             description: "EEG の公開データを探す",
             tag: Some("推薦"),
-            runner: "pi",
+            runner: "cc",
+            model: "haiku",
+            thinking: "low",
             origin_run: Some(5),
             reason: Some("引用が伸びている"),
         }
@@ -639,7 +640,6 @@ mod tests {
             &roots,
             &request(),
             &[
-                ("executer", "agent".to_string()),
                 ("sci_node", "Q1".to_string()),
                 ("sci_mode", String::new()),
                 ("sci_expect", "比較表と\n推奨".to_string()),
@@ -651,10 +651,13 @@ mod tests {
         let card = crate::fake_link::last_card(&root).expect("card create に JSON を渡した");
         assert_eq!(card["block"], "paper-search");
         assert_eq!(card["tag"], "推薦");
-        assert_eq!(card["runner"], "pi");
+        assert_eq!(card["runner"], "cc");
+        assert_eq!(card["model"], "haiku");
+        assert_eq!(card["thinking"], "low");
         assert_eq!(card["round"], "1");
         assert_eq!(card["global_round"], "1");
-        assert_eq!(card["executer"], "agent");
+        // 起動者は送らない（sai-link が人として作る）。
+        assert!(card.get("executer").is_none(), "card={card}");
         assert_eq!(card["description"], "EEG の公開データを探す");
         assert_eq!(card["meta"]["sci_node"], "Q1");
         assert_eq!(card["meta"]["sci_expect"], "比較表と 推奨");
@@ -667,7 +670,7 @@ mod tests {
 
         let content = fs::read_to_string(&result.path).unwrap();
         assert!(content.contains("# task_text"), "content={content}");
-        assert!(content.contains("executer: agent"), "content={content}");
+        assert!(!content.contains("executer: agent"), "content={content}");
 
         fs::remove_dir_all(root).unwrap();
     }

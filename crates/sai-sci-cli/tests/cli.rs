@@ -442,6 +442,80 @@ fn find_records_and_sets_node() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `--node` も `--paper` も無い `find` は絞らず、`--papers` を付けずに sai-paper を呼ぶ（Library 全体）。
+#[test]
+fn find_without_node_searches_library() {
+    let root = temp_dir("find-library");
+    let home = temp_dir("find-library-home");
+    let tmp = temp_dir("find-library-tmp");
+    let paper = fake_paper(&tmp);
+    let args_log = tmp.join("args.log");
+    let _ = project_with_tree(&root);
+
+    let mut cmd = command(&root);
+    cmd.env("HOME", &home)
+        .env("SAI_PROJECT_ROOT", &root)
+        .env("SAI_PAPER_BIN", &paper)
+        .env("ARGS_LOG", &args_log)
+        .env("FAKE_FIND_LOG_ID", "7")
+        .env("FAKE_SEARCH_LOG_ID", "8")
+        .args(["find", "発作", "--json"]);
+    let out = run(cmd);
+    assert_eq!(out.code, 0, "stdout={} stderr={}", out.stdout, out.stderr);
+    let log = std::fs::read_to_string(&args_log).unwrap_or_default();
+    assert!(log.contains("paper find"), "log={log}");
+    assert!(!log.contains("--papers"), "log={log}");
+    let value: serde_json::Value = serde_json::from_str(&out.stdout).expect("JSON を読める");
+    assert_eq!(value["hits"][0]["paper_id"], 3);
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `SAI_PARENT_RUN_ID` がある `apply` の記録の actor は `run:<id>`（Professor の代行）、無ければ `user`。
+#[test]
+fn apply_records_parent_run_as_actor() {
+    let root = temp_dir("apply-actor");
+    let home = temp_dir("apply-actor-home");
+    let (data_dir, _q) = project_with_tree(&root);
+    let apply = |run: Option<&str>, text: &str| {
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root);
+        if let Some(run) = run {
+            cmd.env("SAI_PARENT_RUN_ID", run);
+        }
+        cmd.arg("apply");
+        run_with_stdin(cmd, &format!(r#"{{"op":"add_q","parent":"SEED","text":"{text}"}}"#))
+    };
+    assert_eq!(apply(Some("7"), "代行の問い").code, 0);
+    assert_eq!(apply(None, "利用者の問い").code, 0);
+
+    let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
+    let rows = store::list_log(db.connection(), None).unwrap();
+    // list_log は新しい順。add_q の行だけ古い順に並べる。
+    let actors: Vec<String> = rows.iter().rev().filter(|r| r.action == "add_q").map(|r| r.actor.clone()).collect();
+    assert_eq!(actors, vec!["run:7".to_string(), "user".to_string()]);
+    drop(db);
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// `--executer` は無い（Card は人が起こす）。知らない引数として終了コード 2 で断る。
+#[test]
+fn card_has_no_executer_flag() {
+    let dir = temp_dir("card-executer");
+    let out = run({
+        let mut cmd = command(&dir);
+        cmd.args(["card", "--node", "Q1", "--purpose", "候補を出す", "--executer", "agent"]);
+        cmd
+    });
+    assert_eq!(out.code, 2, "stderr={}", out.stderr);
+    assert!(out.stderr.contains("--executer"), "stderr={}", out.stderr);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `search` は子を呼び、検索履歴に研究の欄を書き、`log.node` を Node にする。
 #[test]
 fn search_records_and_sets_node() {
