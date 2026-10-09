@@ -15,6 +15,8 @@ const {
   sgEdgeStyle,
   sgEdgePath,
   sgCenterView,
+  sgTextScale,
+  sgTitleLines,
   SG_CARD_W,
   SG_CARD_H,
   SG_TREE_STEP,
@@ -211,7 +213,30 @@ function testEdgePath() {
   const d = sgEdgePath(a, b);
   assert.ok(d.startsWith("M "), d);
   assert.ok(d.includes("C "), d);
-  assert.ok(/^M 200 72 /.test(d) || /^M 100 72 /.test(d), d);
+  // 縦に並ぶ 2 枚なので、上の札の下の真ん中から出る
+  assert.ok(d.startsWith(`M ${SG_CARD_W / 2} ${SG_CARD_H} `), d);
+}
+
+function testTextScale() {
+  // 拡大では文字を 1/z に、縮小と等倍では 1 のまま
+  assert.strictEqual(sgTextScale(0.5), 1);
+  assert.strictEqual(sgTextScale(1), 1);
+  assert.strictEqual(sgTextScale(2), 0.5);
+  assert.strictEqual(sgTextScale(2.5), 0.4);
+  assert.strictEqual(sgTextScale(null), 1);
+  // 画面の上の文字（13px × z × 倍率）は、どの拡大率でも 13px を超えない
+  for (const z of [0.5, 1, 1.2, 1.44, 2, 2.5]) {
+    assert.ok(13 * z * sgTextScale(z) <= 13 + 1e-9, `z=${z}`);
+  }
+}
+
+function testTitleLines() {
+  // 等倍で題が 6 行以上見える。拡大すると行が増え、どの拡大率でも 2 行を下回らない
+  assert.ok(sgTitleLines(1) >= 6, String(sgTitleLines(1)));
+  assert.ok(sgTitleLines(2.5) > sgTitleLines(1));
+  assert.ok(sgTitleLines(2.5) >= sgTitleLines(2));
+  assert.ok(sgTitleLines(0.3) >= 2);
+  assert.ok(SG_CARD_H > SG_CARD_W, "Card は縦長");
 }
 
 // --- A の出し入れと畳み（U02）: Q1 → A2 → F3・F4、Q1 → A5 ---
@@ -294,6 +319,8 @@ const tests = [
   ["空の入力", testEmpty],
   ["線の書き方", testEdgeStyle],
   ["線の形", testEdgePath],
+  ["文字の倍率と題の行数", testTextScale],
+  ["題の行数と縦長の札", testTitleLines],
   ["畳んだ子孫", testCollapsed],
   ["hideA", testHideA],
   ["hideF と hideA", testHideFAndA],

@@ -24,10 +24,10 @@
 // --- 定数 ---
 
 // 札の大きさ（世界上の px）
-const SG_CARD_W = 200;
-const SG_CARD_H = 72;
-const SG_TREE_STEP = 120; // 段と段の縦の間隔（札の上端どうし）
-const SG_TREE_GAP = 24;   // 同じ段の札と札の間
+const SG_CARD_W = 140;
+const SG_CARD_H = 180;    // 縦長（題を多く見せる）
+const SG_TREE_STEP = 230; // 段と段の縦の間隔（札の上端どうし。H + 50 で線の矢印と札の印が入る）
+const SG_TREE_GAP = 20;   // 同じ段の札と札の間
 // この数を超える Node では、F を隠した状態で始める（見やすさのため）
 const SG_MANY_NODES = 60;
 // ドラッグとクリックの境（これ以上動いたらドラッグ、未満ならクリック）
@@ -818,6 +818,8 @@ function sgApplyView() {
   sgWorld.style.transform = `translate(${sgView.tx}px, ${sgView.ty}px) scale(${sgView.z})`;
   sgWorld.style.setProperty("--sg-z", String(sgView.z));
   sgWorld.style.setProperty("--sg-z-inv", String(sgZoomInv(sgView.z)));
+  sgWorld.style.setProperty("--sg-text", String(sgTextScale(sgView.z)));
+  sgWorld.style.setProperty("--sg-title-lines", String(sgTitleLines(sgView.z)));
   sgWriteMemo();
 }
 
@@ -871,6 +873,26 @@ function sgZoomInv(z) {
   const n = Number(z);
   if (!Number.isFinite(n) || n <= 0) return 1;
   return 1 / n;
+}
+
+/**
+ * 文字の倍率（純関数）。拡大（z > 1）では文字を大きくしない（画面の上で今の大きさのまま）。
+ * 縮小（z < 1）は世界ごと小さくなるので、ここは 1 のまま。
+ */
+function sgTextScale(z) {
+  const n = Number(z);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.min(1, 1 / n);
+}
+
+/**
+ * 題を何行まで見せるか（純関数）。札の高さから決める（Card は縦長・札の外へ出さない）。
+ * 13px の題（行の高さ 1.35）が、head（11px・1.5）と foot（1 行・12px・1.6）と上下の余白の残りに入る行数。
+ */
+function sgTitleLines(z) {
+  const s = sgTextScale(z);
+  const avail = SG_CARD_H - 12 - 11 * 1.5 * s - 12 * 1.6 * s;
+  return Math.max(2, Math.floor(avail / (13 * 1.35 * s)));
 }
 
 /**
@@ -1113,6 +1135,8 @@ if (typeof module !== "undefined" && module.exports) {
     sgCenterView,
     sgEdgeStyle,
     sgEdgePath,
+    sgTextScale,
+    sgTitleLines,
     SG_CARD_W,
     SG_CARD_H,
     SG_TREE_STEP,
