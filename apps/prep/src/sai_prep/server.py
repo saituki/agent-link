@@ -12,7 +12,9 @@ import binascii
 import hmac
 import io
 import json
+import re
 import secrets
+import tempfile
 import urllib.parse
 import zipfile
 import zlib
@@ -28,6 +30,10 @@ NONCE_HEADER = "X-Sai-Prep-Nonce"
 STATIC_DIR = Path(__file__).with_name("static")
 INDEX_PATH = STATIC_DIR / "index.html"
 MAX_BIBTEX_BYTES = 64 * 1024
+# データファイル（Data upload）。1 件の上限は sai-web と同じ 5GB。名前の規則も sai-web と同じ。
+DATA_MAX_BYTES = 5 * 1024**3
+DATA_CHUNK_BYTES = 1024 * 1024
+DATA_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 
 
 class PrepHTTPServer(ThreadingHTTPServer):
@@ -48,6 +54,11 @@ class PrepHTTPServer(ThreadingHTTPServer):
         self.config_provider = config_provider
         self.client_factory = client_factory
         self.nonce = secrets.token_urlsafe(16)
+
+
+def _upload_dir() -> Path:
+    """データの一時置き場。送り終えたら（成否どちらでも）中のファイルを消す。"""
+    return Path.home() / "Library" / "Caches" / "sai-prep" / "uploads"
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -142,6 +153,11 @@ class _Handler(BaseHTTPRequestHandler):
             jobs = [job.to_public() for job in self.prep.pipeline.list_jobs()]
             self._send_json(200, {"jobs": jobs})
             return
+        if path == "/local/data":
+            if not self._require_nonce():
+                return
+            self._data_list(query.get("project", [""])[0])
+            return
         self._error(404, "その住所はありません。")
 
     def do_PUT(self) -> None:  # noqa: N802
@@ -166,6 +182,11 @@ class _Handler(BaseHTTPRequestHandler):
             if not self._require_nonce():
                 return
             self._post_job(query)
+            return
+        if path == "/local/data":
+            if not self._require_nonce():
+                return
+            self._post_data(query)
             return
         if path.startswith("/local/jobs/") and path.endswith("/retry"):
             if not self._require_nonce():
@@ -264,6 +285,79 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(400, str(error))
             return
         self._send_json(200, result)
+
+    def _data_list(self, project: str) -> None:
+        if not project:
+            self._error(400, "project を指定してください。")
+            return
+        config = self.prep.config_provider()
+        try:
+            files = self.prep.client_factory(config.server_url, config.token).data_files(project)
+        except ClientError as error:
+            self._error(400, str(error))
+            return
+        self._send_json(200, {"files": files})
+
+    def _refuse(self, status: int, message: str) -> None:
+        """本文を読まずに断る。残りの本文が次の要求に混ざらないよう、この接続は閉じる。"""
+        self.close_connection = True
+        self._error(status, message)
+
+    def _post_data(self, query: dict[str, list[str]]) -> None:
+        """データ 1 件を受けて sai-web へ送る（U01）。
+
+        本文は一時ファイルへ書いてから送る（`rfile` を直接渡すと、keep-alive の接続は
+        EOF にならず送信が終わらないため）。送り終えたら一時ファイルは消す。
+        """
+        project = (query.get("project", [""])[0] or "").strip()
+        filename = (query.get("filename", [""])[0] or "").strip()
+        if not project:
+            self._refuse(400, "project を指定してください。")
+            return
+        if not DATA_NAME_RE.fullmatch(filename):
+            self._refuse(
+                400,
+                "ファイル名は英数字と . _ - だけで、先頭は英数字にしてください（128 字まで）。",
+            )
+            return
+        length = (self.headers.get("Content-Length") or "").strip()
+        if not length.isdigit():
+            self._refuse(400, "Content-Length を付けてください。")
+            return
+        size = int(length)
+        if size > DATA_MAX_BYTES:
+            self._refuse(413, "データは 1 件 5GB までです。")
+            return
+        status, payload = self._forward_data(project, filename, size)
+        self._send_json(status, payload)
+
+    def _forward_data(self, project: str, filename: str, size: int) -> tuple[int, dict]:
+        """本文を一時ファイルへ書いて sai-web へ送る。一時ファイルは返る前に消す（応答より先）。"""
+        config = self.prep.config_provider()
+        upload_dir = _upload_dir()
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=upload_dir, prefix="data-", suffix=".part") as tmp:
+            remaining = size
+            while remaining > 0:
+                chunk = self.rfile.read(min(DATA_CHUNK_BYTES, remaining))
+                if not chunk:
+                    break
+                tmp.write(chunk)
+                remaining -= len(chunk)
+            if remaining:
+                self.close_connection = True
+                return 400, {"error": "本文が途中で切れました。"}
+            tmp.flush()
+            tmp.seek(0)
+            try:
+                result = self.prep.client_factory(config.server_url, config.token).post_data(
+                    project, filename, tmp, size
+                )
+            except ClientError as error:
+                # 同じ名前（409）と大きさ（413）は、理由を画面に出せるようにそのまま返す
+                status = error.status if error.status in (409, 413) else 400
+                return status, {"error": str(error)}
+        return 201, result
 
     def _post_job(self, query: dict[str, list[str]]) -> None:
         content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()

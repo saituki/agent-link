@@ -10,12 +10,15 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import BinaryIO
 
 from .config import allowed_server_url, normalize_server_url
 
 # 1 回の要求の上限（秒）。束の送信は大きいので長めにする。
 DEFAULT_TIMEOUT = 60
 BUNDLE_TIMEOUT = 600
+# データファイルは GB 級になりうるので、1 件の送信は長めにする。
+DATA_TIMEOUT = 3600
 
 
 class ClientError(Exception):
@@ -44,7 +47,7 @@ class Client:
         method: str,
         path: str,
         *,
-        data: bytes | None = None,
+        data: bytes | BinaryIO | None = None,
         headers: dict[str, str] | None = None,
         timeout: int | None = None,
     ) -> tuple[int, bytes]:
@@ -65,6 +68,7 @@ class Client:
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
             body = error.read()
+            error.close()
             raise ClientError(_error_message(error.code, body), status=error.code) from error
         except urllib.error.URLError as error:
             raise ClientError(f"サーバにつながりません: {error.reason}") from error
@@ -100,6 +104,28 @@ class Client:
             data=blob,
             headers={"Content-Type": "application/zip"},
             timeout=BUNDLE_TIMEOUT,
+        )
+        return _json(body)
+
+    def data_files(self, project: str) -> list[dict]:
+        """`GET /api/projects/{name}/data/raw`。`data/raw/` の一覧。"""
+        name = urllib.parse.quote(project, safe="")
+        _, body = self._request("GET", f"/api/projects/{name}/data/raw")
+        return _json(body).get("files", [])
+
+    def post_data(self, project: str, filename: str, fileobj: BinaryIO, size: int) -> dict:
+        """`POST /api/projects/{name}/data/raw?filename=…`。ファイルの中身を流して送る。
+
+        `size` は Content-Length（sai-web は Content-Length が無いと受けない）。
+        """
+        name = urllib.parse.quote(project, safe="")
+        file_name = urllib.parse.quote(filename, safe="")
+        _, body = self._request(
+            "POST",
+            f"/api/projects/{name}/data/raw?filename={file_name}",
+            data=fileobj,
+            headers={"Content-Type": "application/octet-stream", "Content-Length": str(size)},
+            timeout=DATA_TIMEOUT,
         )
         return _json(body)
 

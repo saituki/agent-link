@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import os
+import socket
 import tempfile
 import threading
 import unittest
@@ -18,7 +19,7 @@ from unittest import mock
 
 from fakes import FakeWebServer
 from sai_prep import config as config_mod
-from sai_prep.client import Client
+from sai_prep.client import Client, ClientError
 from sai_prep.server import NONCE_HEADER, create_server
 
 
@@ -301,6 +302,168 @@ class ServerTest(unittest.TestCase):
             nonce=False,
         )
         self.assertEqual(status, 403)
+
+
+class RecordingClient:
+    """`data_files` と `post_data` だけを持つ偽の Client。受けた中身を記録し、必要なら失敗させる。"""
+
+    def __init__(self, fail: ClientError | None = None):
+        self.fail = fail
+        self.sent: list[tuple] = []
+
+    def data_files(self, project):
+        return [{"name": "a.bin", "size": 3, "mtime": "2026-10-09T10:00:00+00:00"}]
+
+    def post_data(self, project, filename, fileobj, size):
+        blob = fileobj.read()
+        self.sent.append((project, filename, size, blob))
+        if self.fail is not None:
+            raise self.fail
+        return {"name": filename, "size": len(blob), "path": f"data/raw/{filename}"}
+
+
+class DataTest(unittest.TestCase):
+    """Data upload（U01）: 合言葉・中身をそのまま送る・失敗しても一時ファイルを残さない。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name) / "home"
+        env = mock.patch.dict(
+            os.environ,
+            {"SAI_PREP_CONFIG": str(Path(self.tmp.name) / "config.json"), "HOME": str(self.home)},
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
+        self.web = FakeWebServer()
+        self.addCleanup(self.web.close)
+        self.config = config_mod.Config(server_url=self.web.url, token="sai_x")
+        self.override: RecordingClient | None = None
+        self.httpd = create_server(
+            lambda: self.config,
+            StubPipeline(),
+            port=0,
+            client_factory=lambda url, token: self.override or Client(url, token),
+        )
+        self.addCleanup(self.httpd.server_close)
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.httpd.shutdown)
+
+    def upload_dir_files(self):
+        folder = self.home / "Library" / "Caches" / "sai-prep" / "uploads"
+        return list(folder.iterdir()) if folder.exists() else []
+
+    def request(self, method, path, body=None, headers=None, nonce=True):
+        all_headers = dict(headers or {})
+        if nonce:
+            all_headers[NONCE_HEADER] = self.httpd.nonce
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}{path}", data=body, headers=all_headers, method=method
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            body = error.read()
+            error.close()
+            return error.code, body
+
+    def test_data_needs_the_nonce(self):
+        status, _ = self.request("GET", "/local/data?project=alpha", nonce=False)
+        self.assertEqual(status, 403)
+        status, _ = self.request(
+            "POST", "/local/data?project=alpha&filename=a.bin", body=b"x", nonce=False
+        )
+        self.assertEqual(status, 403)
+
+    def test_data_passes_the_bytes_and_leaves_no_temp_file(self):
+        body = bytes(range(256)) * 100
+        status, raw = self.request(
+            "POST",
+            "/local/data?project=alpha&filename=a.bin",
+            body=body,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        self.assertEqual(status, 201, raw)
+        self.assertEqual(json.loads(raw)["size"], len(body))
+        sent = self.web.data_posts[0]
+        self.assertEqual((sent["project"], sent["filename"]), ("alpha", "a.bin"))
+        self.assertEqual(sent["authorization"], "Bearer sai_x")
+        self.assertEqual(sent["content_length"], len(body))
+        self.assertEqual(sent["blob"], body)
+        self.assertEqual(self.upload_dir_files(), [])
+
+    def test_data_list_uses_the_server(self):
+        self.request(
+            "POST",
+            "/local/data?project=alpha&filename=b.csv",
+            body=b"1,2\n",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        status, raw = self.request("GET", "/local/data?project=alpha")
+        self.assertEqual(status, 200)
+        names = [f["name"] for f in json.loads(raw)["files"]]
+        self.assertEqual(names, ["b.csv"])
+
+    def test_same_name_is_409_and_the_temp_file_is_removed(self):
+        self.request("POST", "/local/data?project=alpha&filename=c.bin", body=b"first")
+        status, raw = self.request("POST", "/local/data?project=alpha&filename=c.bin", body=b"second")
+        self.assertEqual(status, 409)
+        self.assertIn("同じ名前", json.loads(raw)["error"])
+        self.assertEqual(self.upload_dir_files(), [])
+
+    def test_bad_name_or_missing_project_is_400_and_not_sent(self):
+        for query in ("project=alpha&filename=../x", "project=alpha&filename=.hidden", "project=&filename=a.bin"):
+            status, _ = self.request("POST", f"/local/data?{query}", body=b"x")
+            self.assertEqual(status, 400, query)
+        self.assertEqual(self.web.data_posts, [])
+
+    def test_contents_go_to_the_client_and_failures_clean_up(self):
+        self.override = RecordingClient()
+        status, _ = self.request("POST", "/local/data?project=alpha&filename=b.bin", body=b"abc")
+        self.assertEqual(status, 201)
+        self.assertEqual(self.override.sent, [("alpha", "b.bin", 3, b"abc")])
+        self.assertEqual(self.upload_dir_files(), [])
+
+        self.override = RecordingClient(fail=ClientError("413 です", status=413))
+        status, _ = self.request("POST", "/local/data?project=alpha&filename=big.bin", body=b"abc")
+        self.assertEqual(status, 413)
+        self.assertEqual(self.upload_dir_files(), [])
+
+        self.override = RecordingClient(fail=ClientError("つながりません"))
+        status, _ = self.request("POST", "/local/data?project=alpha&filename=x.bin", body=b"abc")
+        self.assertEqual(status, 400)
+        self.assertEqual(self.upload_dir_files(), [])
+
+    def test_list_through_the_client(self):
+        self.override = RecordingClient()
+        status, raw = self.request("GET", "/local/data?project=alpha")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)["files"][0]["name"], "a.bin")
+
+    def test_truncated_body_is_400_and_not_forwarded(self):
+        # Content-Length 100 と言って 10 バイトだけ送り、書き込みを閉じる（EOF）
+        self.override = RecordingClient()
+        head = (
+            "POST /local/data?project=alpha&filename=t.bin HTTP/1.1\r\n"
+            f"Host: 127.0.0.1\r\n{NONCE_HEADER}: {self.httpd.nonce}\r\n"
+            "Content-Type: application/octet-stream\r\nContent-Length: 100\r\n\r\n"
+        )
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as sock:
+            sock.sendall(head.encode("ascii") + b"x" * 10)
+            sock.shutdown(socket.SHUT_WR)
+            reply = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                reply += chunk
+        self.assertTrue(reply.startswith(b"HTTP/1.1 400 "), reply[:40])
+        self.assertEqual(self.override.sent, [])
+        self.assertEqual(self.upload_dir_files(), [])
 
 
 if __name__ == "__main__":
