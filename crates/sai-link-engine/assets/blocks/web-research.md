@@ -2,8 +2,8 @@
 name: 🌐 web-research
 id: web-research
 description: 親から頼まれた問いを、GitHub のリポジトリと公式の文書で調べ、出典付きで答える
-model: inherit
-thinking: high
+model: haiku
+thinking: low
 templates: sai-base,sai-report,mcp-donsetch
 worktree: none
 enable: true

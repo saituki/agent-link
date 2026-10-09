@@ -119,11 +119,11 @@ RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）�
 次の 3 つが起きています。
 
 1. フォルダの中に `.sai/` という隠しフォルダができ、論文の置き場（`.sai/paper/papr.db`）と research-tree（SEED と、その下に並ぶ top_Q）が作られた。
-2. エージェント（cc と pi）がこのプロジェクトで使う設定（`.mcp.json`・`.claude/`・`.pi/`）が置かれた。
+2. エージェント（cc）がこのプロジェクトで使う設定（`.mcp.json`・`.claude/`）が置かれた。
 3. プロジェクトが登録簿（`~/.sai/registry.json`）に `sci-practice` という名前で載った。**これで Web の画面にこのプロジェクトが出ます。**
 
 > 隠しフォルダは Finder では見えません。見たいときは Finder で `⌘ + shift + .`（ピリオド）を押します。
-> `.mcp.json`・`.claude/`・`.pi/` の行には「git commit してください」と出ることがあります。練習では無視して構いません。
+> `.mcp.json`・`.claude/` の行には「git commit してください」と出ることがあります。練習では無視して構いません。
 
 ---
 

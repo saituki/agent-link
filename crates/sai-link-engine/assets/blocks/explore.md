@@ -2,8 +2,8 @@
 name: 🔎 explore
 id: explore
 description: 親から頼まれたコードの問いに、コードを読んで path:line 付きで答える（書き換えない）
-model: inherit
-thinking: high
+model: haiku
+thinking: low
 templates: sai-base,sai-report,mcp-serena,mcp-chrome-devtools
 worktree: none
 enable: true

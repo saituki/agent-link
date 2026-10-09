@@ -2,7 +2,7 @@
 name: 🐛 bugfix
 id: bugfix
 description: 親から渡された小さなバグを、再現・根本原因の特定・修正・テスト・コミットまで 1 人で行う
-model: inherit
+model: sonnet
 thinking: high
 templates: sai-base,sai-report,mcp-serena,mcp-chrome-devtools
 worktree: isolation

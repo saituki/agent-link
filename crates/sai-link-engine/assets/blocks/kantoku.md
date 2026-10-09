@@ -2,7 +2,7 @@
 name: 🎬 kantoku
 id: kantoku
 description: 実装ガイドを読み、worker に実装計画書を配って監督・統合し、実装を完遂する
-model: inherit
+model: sonnet
 thinking: high
 templates: sai-base,sai-user,sai-cli,sai-task,doc-completion
 worktree: none

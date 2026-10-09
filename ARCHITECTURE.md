@@ -91,7 +91,7 @@
   `sai-paper content chunks <paper_id> --json` が字数の上限なしで全段落を返し、Web は `GET /api/projects/{name}/papers/{paper_id}/chunks`（`papers.py` の `chunks()`・`main.py` の `api_paper_chunks`）で中継する。
   RAG の索引の `chunks` 表とは別物（あちらは作り直すと ID が変わる）。
 - **ブロックの起動時の文は 2 つ**（固定部分と最初の文）。固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
-  pi は `--append-system-prompt <ファイル>`、cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は sai-link が自動で作る
+  cc は `--append-system-prompt-file <ファイル>` で渡す。最初の文は sai-link が自動で作る
   `# context`（`context: true` のとき）と `# task_text`（依頼文）の節だけ。作り方は `docs/for-sai-developers.md` の「起動時の文の分け方」。
 
 ---
@@ -187,7 +187,7 @@
   - 書く人: `sai-link`（run の開始時と `doc read`）・`sai-paper`（`find`・`neighbors`・`content …`・`find-history`・`search-history` の出力）・`sai-sci`（`find`・`context --run`・`read`・`progress`・`journal` の出力）。書けなくても命令は止めない（標準エラーに 1 行）。
   - 実装は 2 か所: `crates/sai-paper-core/src/seen_ids.rs`（検査 `check` / `check_for` もここ）と `crates/sai-link-engine/src/seen_ids.rs`（書くだけ）。**直すときは 2 つの正規表現と書き方を同じにし、両方のテストの見本（同じ文で同じ結果）をそろえる。** 片方だけ直すと、run の開始時に書かれた番号を検査が通らない。
   - 検査する所: `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用（`crates/sai-sci-cli/src/report.rs`）。
-- `~/.pi/agent/models.json`・`~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
+- `~/.claude/projects`・`~/Downloads` などは元の置き場のまま。
 
 ### 3.4 多人数モードの置き場（共有契約 C4）
 
@@ -195,9 +195,9 @@
 
 | 置き場 | 中身 |
 |---|---|
-| `<U>/<user>/home/` | その人のひな形の HOME（`.sai/`・`.pi/agent/models.json` など。コンテナには見せない） |
+| `<U>/<user>/home/` | その人のひな形の HOME（`.sai/` など。コンテナには見せない） |
 | `<U>/<user>/projects/<user>-<project>/` | プロジェクトの root（登録簿の名前もフォルダ名と同じ `<user>-<project>`） |
-| `<U>/<user>/homes/<user>-<project>/` | プロジェクトのコンテナの HOME（`.claude`・`.pi`・`.sai`） |
+| `<U>/<user>/homes/<user>-<project>/` | プロジェクトのコンテナの HOME（`.claude`・`.sai`） |
 | `<U>/<user>/secrets.env` | その人の API キーと Claude の長命トークン（0600）。コンテナには `--env-file` で渡し、ファイルそのものは見せない |
 
 
@@ -226,9 +226,8 @@
 | `bundles.py` | 前処理の束の受け口（展開と検査・`import-bundle` の背景実行・PDF 待ちの一覧） |
 | `radio.py` | `apps/radio`（127.0.0.1:8201）への中継 |
 | `mlflow_proxy.py` | MLflow（127.0.0.1:5001）への読み取りだけの中継 |
-| `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek・pi の記録） |
+| `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek。古い pi の記録も読む） |
 | `webcli.py` | `sai-web` の命令（`serve`・`projects`・`home`・`questions`・`answer`・`send`・`user`・`usage`・`mlflow …`・`api`） |
-| `extensions/ask_user.ts` | pi に Web 連携付きの質問ツールを足す拡張（既定の接続先は `SAI_WEB_URL`） |
 | `hooks/`（`apps/web/hooks/`） | cc のフック（質問・セッションの登録）。何も出力せず、必ず終了コード 0 で終わる |
 
 ### 4.2 CLI を呼ぶ約束
@@ -304,7 +303,7 @@
   `after-download` の中身は `pipeline::after_download`（`crates/sai-paper-core/src/pipeline.rs`）が、図の抽出 → 節の表（チャンクの ID の元）→ PDF の翻訳の順に行う。
   図の抽出のキーは s2・arXiv・DOI のどれか。どれも無い論文は `paper:<papers.id>` を使う（`figures::figure_key_for_paper`）。
   `extract.md` からは docling の画像の行を除き（`citation::docling::strip_figure_images`）、図は別ファイル（`figures/fig-NNN.png`）で出す。
-- **エージェントからの質問**: cc のフックと pi の拡張が `POST /api/questions`（単独モードは Mac 自身から、多人数モードは内部の合言葉を持つコンテナから）に登録する → 画面に出て通知 → PC と iPhone の先に答えた方を採用する。
+- **エージェントからの質問**: cc のフックが `POST /api/questions`（単独モードは Mac 自身から、多人数モードは内部の合言葉を持つコンテナから）に登録する → 画面に出て通知 → PC と iPhone の先に答えた方を採用する。
 
 ---
 
@@ -360,8 +359,7 @@ sai-tree/
 │   ├── web/                  # Web の窓口（8200）
 │   │   ├── bin/sai-web       # sai-web の CLI（apps/web/.venv の Python で動く）
 │   │   ├── src/sai_web/      # サーバ（§4.1）
-│   │   │   ├── static/       # 画面（§4.4）
-│   │   │   └── extensions/   # pi の拡張（ask_user.ts）
+│   │   │   └── static/       # 画面（§4.4）
 │   │   ├── hooks/            # cc のフック（cc_question.py・cc_register.py）
 │   │   ├── server/           # 多人数モードの配備: Dockerfile・sai-web.service・deploy.sh・sai-in-container（CLI の中継）
 │   │   └── tests/            # test_*.js（node）と test_*.py（素の python）
@@ -404,7 +402,7 @@ sai-tree/
 | **MCP の `sai`**（エージェントの道具） | やめた。エージェントは CLI を Bash で呼ぶ。外部の MCP（serena・playwright・donsetch・headroom）は残る |
 | **`phone …` の命令**（Web 専用の JSON の出口） | やめた。Web は普通の命令を `--json` で呼ぶ（`docs/for-sai-developers.md`） |
 | **`lib/`**（参考リポジトリ置き場） | 作っていない |
-| **global の cc フック・pi 拡張** | `~/.claude/settings.json` と `~/.pi/agent/extensions/` には**入れない**。`sai-link init` がプロジェクトの `.claude/settings.json`・`.pi/settings.json` に書く |
+| **global の cc フック** | `~/.claude/settings.json` には**入れない**。`sai-link init` がプロジェクトの `.claude/settings.json` に書く |
 | **単一ディスパッチャ CLI** | 「1 つの `sai` コマンドですべてをまとめる」案は不採用。`sai-link`・`sai-paper`・`sai-sci`・`sai-web` の 4 本に分けたまま。必要になれば後からまとめる入口を足せる |
 | **Rust のプリセット領域** | 旧 sai-paper からそのまま写した物は、sai 用の見直しをしていない |
 | **herdr**（端末の窓の管理） | やめた。headless の実行（擬似 pane）に替えた。engine の `herdr.rs` は擬似 pane の型などの名残 |
