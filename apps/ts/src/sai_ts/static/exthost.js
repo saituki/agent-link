@@ -22,11 +22,11 @@ function tsExtPlan(current, list, force = false) {
   return { load, keep, unload };
 }
 
-// import する URL（版を付けて、変わったら取り直させる）
-function tsExtUrl(info, token) {
+// import する URL（版を付けて、変わったら取り直させる）。base は画面の基準（C1）
+function tsExtUrl(info, token, base) {
   const path = String(info.entry).split("/").map(encodeURIComponent).join("/");
   const tok = token ? `&token=${encodeURIComponent(token)}` : "";
-  return `/ext/${encodeURIComponent(info.name)}/${path}?v=${encodeURIComponent(info.version)}${tok}`;
+  return tsUrl(`/ext/${encodeURIComponent(info.name)}/${path}?v=${encodeURIComponent(info.version)}${tok}`, base);
 }
 
 const tsExt = {
@@ -45,14 +45,6 @@ function tsExtStyle() {
 .ts-ext-row .ts-ext-err { color: #b00; font-size: 12px; white-space: pre-wrap; }
 `;
   document.head.appendChild(st);
-}
-
-function tsExtToken() {
-  try {
-    return localStorage.getItem("ts_token") || "";
-  } catch (e) {
-    return "";
-  }
 }
 
 // 拡張用の ts。window.TS の写しで、登録と購読だけ覚えて外せるようにする
@@ -93,7 +85,7 @@ async function tsLoadExt(info) {
   rec.ts = tsExtMakeTs(rec);
   tsExt.loaded.set(info.name, rec);
   try {
-    const mod = await import(tsExtUrl(info, tsExtToken()));
+    const mod = await import(tsExtUrl(info, tsToken()));
     if (typeof mod.default !== "function") throw new Error("export default の関数（activate）が無い");
     const d = await mod.default(rec.ts);
     // activate の途中で外されていたら、今の登録を全部外す

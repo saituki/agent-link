@@ -1,7 +1,8 @@
 # sai-tree の Web の窓口を systemd のシステムサービスとして動かすひな形。
 #
 # 使い方（docs/server.md の 7）:
-#   1. このファイルの <…> を埋める（<repo> はリポジトリの絶対パス、<sai-uid> は `id -u sai`）。
+#   1. このファイルの <…> を埋める（<repo> はリポジトリの絶対パス、<sai-uid> は `id -u sai`、
+#      <machine>.<tailnet>.ts.net は `tailscale status` の自分の名前の全体）。
 #   2. /etc/systemd/system/sai-web.service に置く。
 #   3. sudo systemctl daemon-reload && sudo systemctl enable --now sai-web
 #
@@ -26,6 +27,9 @@ Environment=SAI_PAPER_BIN=/opt/sai/bin/sai-paper
 Environment=SAI_SCI_BIN=/opt/sai/bin/sai-sci
 Environment=SAI_IMAGE=sai-tree:latest
 Environment=SAI_WEB_NO_WATCH=0
+# sai-ts の入口（段階 B）。127.0.0.1 だけで待ち、tailscale serve --https=8443 で外へ出す（docs/server.md の 9）。
+Environment=SAI_WEB_TS_PORT=8210
+Environment=SAI_WEB_TS_URL=https://<machine>.<tailnet>.ts.net:8443
 # rootless Docker の socket（`sai` の user サービス）。
 Environment=DOCKER_HOST=unix:///run/user/<sai-uid>/docker.sock
 Environment=XDG_RUNTIME_DIR=/run/user/<sai-uid>

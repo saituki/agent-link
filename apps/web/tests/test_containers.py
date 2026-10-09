@@ -78,6 +78,9 @@ if cmd == "inspect":
         sys.exit(1)
     if any(".Mounts" in a for a in args):
         sys.stdout.write(str(cfg.get("mounts", "/h/.claude /w ")) + "\\n")
+    elif any(".HostConfig" in a for a in args):
+        ports = cfg.get("ports", {"8210/tcp": [{"HostIp": "127.0.0.1", "HostPort": ""}]})
+        sys.stdout.write(json.dumps(ports) + "\\n")
     else:
         sys.stdout.write(str(cfg.get("inspect_status", "running")) + "\\n")
 elif cmd == "ps":
@@ -281,6 +284,8 @@ def test_run_args() -> None:
         "sai.owner=alice",
         "--label",
         "sai.project=alice-x",
+        "-p",
+        "127.0.0.1::8210",
         "sai-tree:latest",
     ]
     assert args == expected, args
@@ -642,6 +647,27 @@ def test_start_recreates_container_without_shared_claude() -> None:
     assert not any(c[:2] == ["rm", "-f"] for c in calls), calls
 
 
+def test_start_recreates_container_without_ts_port() -> None:
+    """止まっていて時系列の口（8210/tcp）が無い物は作り直す。口があれば docker start。"""
+    cookie = login("alice@uni.edu", "alicepass1")
+    set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ", ports={})
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:3] == ["rm", "-f", "sai-alice-x"] for c in calls), calls
+    assert any(c[0] == "run" for c in calls), calls
+    assert not any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+
+    set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ")
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+    assert not any(c[:2] == ["rm", "-f"] for c in calls), calls
+
+
 def test_projects_container_state() -> None:
     """`GET /api/projects` の各行に `container_state` が付く。"""
     cookie = login("alice@uni.edu", "alicepass1")
@@ -748,6 +774,7 @@ def main() -> None:
     test_keys_api()
     test_project_container_api()
     test_start_recreates_container_without_shared_claude()
+    test_start_recreates_container_without_ts_port()
     test_projects_container_state()
     test_admin_containers()
     test_admin_list_parsing()

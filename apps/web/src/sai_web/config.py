@@ -63,6 +63,8 @@ class Settings:
     # MLflow の名前と合言葉（空なら付けない。今の MLflow は 127.0.0.1 では認証しない）
     mlflow_user: str = os.getenv("SAI_MLFLOW_USER", "")
     mlflow_password: str = os.getenv("SAI_MLFLOW_PASSWORD", "")
+    # 時系列（sai-ts）の入口の住所（利用者のブラウザから見た値・末尾の / なし）。空なら「時系列」を開けない（共有契約 C6）
+    ts_url: str = (os.getenv("SAI_WEB_TS_URL") or "").strip().rstrip("/")
 
 
 settings = Settings()

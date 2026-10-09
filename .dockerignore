@@ -12,6 +12,7 @@ target
 # Python の仮想環境
 apps/web/.venv
 apps/radio/.venv
+apps/ts/.venv
 
 # Radio が持つデータ（イメージには要らない）
 apps/radio/src/data

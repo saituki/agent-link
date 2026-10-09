@@ -136,6 +136,7 @@ sudo -iu sai docker run --rm sai-tree:latest sai-link schema --json | head -c 20
 sudo -iu sai docker run --rm sai-tree:latest claude --version
 sudo -iu sai docker run --rm sai-tree:latest python3 --version
 sudo -iu sai docker run --rm sai-tree:latest tmux -V
+sudo -iu sai docker run --rm sai-tree:latest sai-ts --help
 ```
 
 ## 5. `apps/web` の仮想環境
@@ -175,6 +176,9 @@ sudo systemctl enable --now sai-web
 systemctl status sai-web --no-pager
 ```
 
+`<machine>.<tailnet>.ts.net` は `tailscale status` の自分の名前（§1 で `tailscale up` したあとに出る）の全体に、
+エディタで手で埋める（sed の段では置き換えない）。`SAI_WEB_TS_URL` の値になる（§17）。
+
 rootless の dockerd は `sai` の user サービスなので `After=` では順番を付けられない。Web は
 docker が動いていないとき 503 を返す（U09）ので、起動の順番は問わない。
 
@@ -196,6 +200,8 @@ sudo -iu sai docker run --rm --add-host host.docker.internal:host-gateway \
   sai-tree:latest curl -s http://host.docker.internal:8200/api/health
 ```
 
+sai-ts の入口（8210）は `127.0.0.1` だけで待つので、ufw の許可は要らない（§17）。
+
 届かなければ、届く住所を書き留める。rootless では `host.docker.internal` がホストの LAN の住所に
 解決されることが多く、`0.0.0.0` で待ち受けていれば届く。それでも届かない場合は
 `getent hosts host.docker.internal` の値（または Tailscale の IP）を控え、U09 の
@@ -205,8 +211,12 @@ sudo -iu sai docker run --rm --add-host host.docker.internal:host-gateway \
 
 ```bash
 sudo tailscale serve --bg --https=443 http://127.0.0.1:8200
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:8210
 tailscale serve status
 ```
+
+`--https=8443` は時系列（sai-ts）の入口。sai-web と同じホスト名の別ポートで出す。拡張の JS が sai-web の API を使えないようにするため（要件定義書 sai-ts 段階 B の D1）。sai-web の `SAI_WEB_TS_URL` を `https://<machine>.<tailnet>.ts.net:8443` にする（§7）。
+入口の `127.0.0.1:8210` は sai-web と同じプロセスで待つ（`SAI_WEB_TS_PORT=8210`）。`sudo tailscale serve` の 8443 は、sai-web を起動し直しても残る。
 
 ## 10. 最初の管理者
 
@@ -366,3 +376,26 @@ tar -C ~ -czf ~/backups/web-$(date +%Y%m%d-%H%M%S).tar.gz .sai/web
 - `users` は各プロジェクトの `.sai`・HOME・記録（Chats・論文の Library）を含む。
 - 取った物は別の機械にも置く（同じ機械の中だけに置かない）。
 - 取り出すときは `tar -C /srv/sai -xzf <file>`（サービスを止めてから行う）。
+
+## 17. 時系列（sai-ts）
+
+段階 B の時系列は、Projects の自分のプロジェクトの「時系列」から開く。sai-web の画面からは、そのプロジェクトのコンテナが動いているときだけ出る。
+構成: ブラウザ → `tailscale serve --https=8443` → `127.0.0.1:8210`（sai-web と同じプロセスの ts 入口）→ コンテナの `127.0.0.1:<docker が選ぶ番号>` → コンテナの中の `sai-ts serve`。
+
+**古いコンテナ**: 段階 B より前に作ったコンテナには時系列の口が無い。止めて起動し直すと、新しいイメージで作り直される（作業中は飛ばす。`deploy.sh` も作業中でないコンテナを作り直す）。
+
+**rootless での確かめ**（未確認。サーバで行う）: コンテナが口を持つかを見る。
+
+```bash
+sudo -iu sai docker port sai-<user>-<project> 8210/tcp
+```
+
+`127.0.0.1:<番号>` が返れば口がある。何も返らなければ、古いコンテナか、rootless で口が出ていない（Mac の Docker Desktop では確かめてある）。
+
+**データ**: 時系列のデータ（`ts/datasets/`）は agent に作らせる。例: カードで「`sai-ts demo demo --json` を実行して」と頼む。
+
+**合言葉**: sai-web を起動し直すと、開いている時系列の画面の合言葉は無効になる。Projects から開き直す。
+
+**受け入れた危険**（要件定義書 sai-ts 段階 B の §5・利用者が受け入れた）:
+- 同じ利用者の別プロジェクトの sai-ts は同じオリジン（同じホスト名の別ポート）に載る。拡張の JS は別のプロジェクトの合言葉を読めないが、同じタブの参照の経路は完全には塞げない。
+- 大量の Cookie で sai-web の Cookie を追い出して置き換える攻撃は防げない。置き換えられると、画面の右上などに別の利用者名が出る。

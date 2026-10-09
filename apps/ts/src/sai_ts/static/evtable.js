@@ -30,17 +30,18 @@ function tsEventVarsText(vars) {
   return v.length > 3 ? `${head} ほか ${v.length - 3}` : head;
 }
 
+// 作成者の札。source は "human" | "agent" | "script"（script:<name>@… も "script" に縮める）
+function tsEvtWho(source) {
+  return String(source).startsWith("script:") ? "script" : source;
+}
+
 // 絞り込み。f = {record, category, source, q}。空の値は「すべて」
-// source は "human" | "agent" | "script"（script:<name>@… も "script" に入る）
 function tsFilterEvents(events, f) {
   const q = (f.q || "").trim().toLowerCase();
   return events.filter((ev) => {
     if (f.record && ev.record !== f.record) return false;
     if (f.category && ev.category !== f.category) return false;
-    if (f.source) {
-      const who = String(ev.source).startsWith("script:") ? "script" : ev.source;
-      if (who !== f.source) return false;
-    }
+    if (f.source && tsEvtWho(ev.source) !== f.source) return false;
     if (q) {
       const hay = `${ev.text || ""}\n${ev.category || ""}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -115,10 +116,17 @@ function tsEvtStyle() {
   st.textContent = `
 .ts-evt-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
 .ts-evt-bar input[type=search] { flex: 1 1 120px; min-width: 0; }
-.ts-evt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.ts-evt-table th, .ts-evt-table td { padding: 3px 4px; border-bottom: 1px solid #ddd; text-align: left; white-space: nowrap; }
-.ts-evt-table th { cursor: pointer; user-select: none; background: #f4f4f4; position: sticky; top: 0; }
-.ts-evt-table td.ts-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+/* 幅 360px の欄に全部の列を収める（横に動かさない）。列幅を決め、長い文字は省略し title で全文を出す */
+.ts-evt-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.ts-evt-table th, .ts-evt-table td { padding: 3px 2px; border-bottom: 1px solid #ddd; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-evt-table th { cursor: pointer; user-select: none; background: #f4f4f4; position: sticky; top: 0; white-space: normal; }
+.ts-evt-table th[data-key=record] { width: 26px; }
+.ts-evt-table th[data-key=type] { width: 22px; }
+.ts-evt-table th[data-key=time] { width: 50px; }
+.ts-evt-table th[data-key=vars] { width: 50px; }
+.ts-evt-table th[data-key=category] { width: 50px; }
+.ts-evt-table th[data-key=text] { width: 70px; }
+.ts-evt-table th[data-key=source] { width: 40px; }
 .ts-evt-table tr { cursor: pointer; }
 .ts-evt-table tr.ts-sel { background: #fff3c4; }
 .ts-evt-chip { display: inline-block; padding: 0 6px; border-radius: 3px; color: #fff; font-size: 12px; }
@@ -127,14 +135,6 @@ function tsEvtStyle() {
 .ts-evt-wrap { overflow: auto; max-height: 60vh; }
 `;
   document.head.appendChild(st);
-}
-
-function tsEvtToken() {
-  try {
-    return localStorage.getItem("ts_token") || "";
-  } catch (e) {
-    return "";
-  }
 }
 
 function tsEvtDs() {
@@ -193,16 +193,20 @@ function tsEvtRowEl(ev, selected) {
   const tr = document.createElement("tr");
   tr.dataset.id = ev.id;
   if (selected) tr.classList.add("ts-sel");
+  // cls のある欄は省略されることがあるので、全文を title に入れる
   const cell = (text, cls) => {
     const td = document.createElement("td");
     td.textContent = text;
-    if (cls) td.className = cls;
+    if (cls) {
+      td.className = cls;
+      td.title = text;
+    }
     return td;
   };
   tr.appendChild(cell(ev.record));
   tr.appendChild(cell(tsEventKindMark(ev.type)));
   tr.appendChild(cell(tsEventSpanText(ev)));
-  tr.appendChild(cell(tsEventVarsText(ev.vars)));
+  tr.appendChild(cell(tsEventVarsText(ev.vars), "ts-vars"));
 
   const catTd = document.createElement("td");
   if (ev.category) {
@@ -216,7 +220,9 @@ function tsEvtRowEl(ev, selected) {
   tr.appendChild(catTd);
 
   tr.appendChild(cell(ev.text || "", "ts-text"));
-  tr.appendChild(cell(ev.source));
+  const who = cell(tsEvtWho(ev.source), "ts-who");
+  who.title = ev.source;
+  tr.appendChild(who);
 
   const delTd = document.createElement("td");
   const del = document.createElement("button");
@@ -363,9 +369,9 @@ function tsEvtRender(el) {
   tsv.type = "button";
   tsv.textContent = "TSV";
   tsv.addEventListener("click", () => {
-    const tok = tsEvtToken();
+    const tok = tsToken();
     const qs = tok ? `?token=${encodeURIComponent(tok)}` : "";
-    window.open(`/api/datasets/${tsEvtDs()}/events.tsv${qs}`, "_blank");
+    window.open(tsUrl(`/api/datasets/${tsEvtDs()}/events.tsv${qs}`), "_blank");
   });
   bar.appendChild(tsv);
 
@@ -434,6 +440,7 @@ if (typeof module !== "undefined") {
     tsSortEvents,
     tsFocusRange,
     tsEventKindMark,
+    tsEvtWho,
     tsEvtMaxRows,
   };
 }

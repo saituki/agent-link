@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import urllib.error
@@ -544,6 +545,48 @@ def cmd_api(args: argparse.Namespace) -> object:
 # ---------------------------------------------------------------------------
 
 
+def _route_by_port(web_app, ts_app, ts_port: int):
+    """番号で振り分ける ASGI（共有契約 C6）。lifespan は sai-web の app が受ける。"""
+
+    async def route(scope, receive, send):
+        if scope["type"] == "lifespan" or scope["server"][1] != ts_port:
+            await web_app(scope, receive, send)
+        else:
+            await ts_app(scope, receive, send)
+
+    return route
+
+
+class _DropTsAccess(logging.Filter):
+    """時系列の住所（`/p/…`・`?token=` を含む）は access log に出さない。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        return not (isinstance(args, tuple) and len(args) > 2 and str(args[2]).startswith("/p/"))
+
+
+def _serve_with_ts(host: str, port: int, ts_text: str) -> object:
+    """sai-web と時系列の入口（127.0.0.1）を同じプロセスで待ち受ける（共有契約 C6）。"""
+    if registry.users_root() is None:
+        raise UsageError("SAI_WEB_TS_PORT は多人数モード（SAI_WEB_USERS_ROOT）でだけ使えます")
+    if not ts_text.isdigit() or not 0 < int(ts_text) < 65536:
+        raise UsageError(f"SAI_WEB_TS_PORT には番号を書きます: {ts_text}")
+    ts_port = int(ts_text)
+
+    import socket
+
+    import uvicorn
+
+    from sai_web import main as web_main
+    from sai_web import ts_gate
+
+    socks = [socket.create_server((host, port)), socket.create_server(("127.0.0.1", ts_port))]
+    config = uvicorn.Config(_route_by_port(web_main.app, ts_gate.app, ts_port), lifespan="on")
+    logging.getLogger("uvicorn.access").addFilter(_DropTsAccess())
+    uvicorn.Server(config).run(sockets=socks)
+    return NO_OUTPUT
+
+
 def cmd_serve(args: argparse.Namespace) -> object:
     """uvicorn に替わって Web の窓口のサーバを起動する。"""
     port = args.port
@@ -554,6 +597,9 @@ def cmd_serve(args: argparse.Namespace) -> object:
             raise UsageError(
                 f"SAI_WEB_PORT が番号ではありません: {os.getenv('SAI_WEB_PORT')}"
             ) from None
+    ts_text = (os.getenv("SAI_WEB_TS_PORT") or "").strip()
+    if ts_text:
+        return _serve_with_ts(args.host, port, ts_text)
     os.execv(
         sys.executable,
         [

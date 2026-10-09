@@ -1,5 +1,6 @@
 """変化の知らせ（AC5）。"""
 
+import asyncio
 import json
 import os
 import shutil
@@ -93,6 +94,26 @@ class WatchTest(TempProject, unittest.TestCase):
         (ext / "a.js").write_text("1", encoding="utf-8")
         self.assertEqual(watch.ext_version(ext), watch.ext_version(ext))
         self.assertEqual(len(watch.ext_version(ext)), 12)
+
+
+class StreamTest(TempProject, unittest.TestCase):
+    def test_stream_pushes_events_change(self):  # 宿題 6: stream() の 1 件
+        demo.make(self.tmp / "ts" / "datasets" / "demo", records=1, nvars=1, seconds=1.0)
+        events = self.tmp / "ts" / "datasets" / "demo" / "events.jsonl"
+
+        async def run():
+            gen = watch.stream()
+            try:
+                nxt = asyncio.ensure_future(gen.__anext__())
+                await asyncio.sleep(0.5)  # 最初の snapshot を取らせてから書く
+                with open(events, "a", encoding="utf-8") as f:
+                    f.write('{"op":"del"}\n')
+                return await asyncio.wait_for(nxt, timeout=3)
+            finally:
+                await gen.aclose()
+
+        out = asyncio.run(asyncio.wait_for(run(), timeout=10))
+        self.assertEqual(out, 'data: {"kind": "events", "dataset": "demo"}\n\n')
 
 
 if __name__ == "__main__":

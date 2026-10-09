@@ -18,7 +18,8 @@ apps/ts/bin/sai-ts serve       # http://127.0.0.1:8210/ を開く
 |---|---|---|
 | `SAI_PROJECT_ROOT` | cwd から `.sai/` をたどる | プロジェクトの場所 |
 | `SAI_TS_PORT` | `8210` | サーバの番号 |
-| `SAI_TS_TOKEN` | 空（認証なし） | 設定すると API と `/ext/` は `Authorization: Bearer` か `?token=` を要する |
+| `SAI_TS_HOST` | `127.0.0.1` | 待ち受ける住所。`127.0.0.1` 以外は `SAI_TS_TOKEN` が要る |
+| `SAI_TS_TOKEN` | 空（認証なし） | 設定すると API と `/ext/` は `Authorization: Bearer` か `?token=` を要する。画面には URL の `?token=<値>`（Mac）か `#token=<値>`（sai-web の入口）で渡す。画面は値をそのタブの `sessionStorage`（キー `ts_token`）に保存し、URL からは消す |
 | `SAI_LINK_BIN` | `sai-link` | チャットが呼ぶ sai-link |
 | `SAI_TS_PYTHON` | 実行中の Python | スクリプトと拡張の server.py を動かす Python |
 
@@ -30,7 +31,7 @@ apps/ts/bin/sai-ts serve       # http://127.0.0.1:8210/ を開く
 
 | 命令 | 中身 |
 |---|---|
-| `sai-ts serve [--port N]` | サーバを起こす（127.0.0.1 だけ） |
+| `sai-ts serve [--host H] [--port N]` | サーバを起こす（既定は 127.0.0.1 だけ。127.0.0.1 以外は `SAI_TS_TOKEN` が要る） |
 | `sai-ts init [--update]` | `ts/` を作り、block `ts-agent` を sai-link に入れる |
 | `sai-ts demo <ds> [--records N] [--vars N] [--seconds S] [--srate HZ]` | 合成データを作る |
 | `sai-ts datasets` | データセットと記録の一覧 |
@@ -109,17 +110,19 @@ print(json.dumps({"added": len(found)}))
 - `sdk.add_events` の `source` は `script:<name>@<sha8>` になる。どの版が足したかが残る。
 - `sdk.add_var` で派生変数を足す。`.f32` と `meta.json` は直接書かない。
 
-## 段階 B（未実装）
+## 多人数モード（段階 B）
 
-- 多人数モードでは、コンテナの中で動かす予定。
-- sai-web とは別のオリジンで出す予定。画面の認証は段階 B で決める。
-- いまの段階 A は `127.0.0.1` だけで待つ。
+- サーバではプロジェクトのコンテナの中で `sai-ts serve --host 0.0.0.0 --port 8210` が動く。`SAI_TS_TOKEN` は必ず設定する（同じ docker ネットワークの他の利用者のコンテナからも届くため）。
+- 利用者は sai-web の Projects の「時系列」から開く。住所は `https://<機械>.ts.net:8443/p/<プロジェクト>/`。
+- 合言葉は sai-web が出す入場券を入口が取り替え、URL の `#token=<値>` で渡す（読み方は上の表のとおり）。
+- 詳しくは `docs/server.md`。
 
 ## 試験
 
 ```bash
 cd apps/ts
-for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done
+for f in tests/test_*.py; do env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE -u SAI_LINK_BIN PYTHONPATH=src .venv/bin/python "$f" || exit 1; done
+for f in tests/test_*.js; do node "$f" || exit 1; done
 ```
 
 `test_server_data.py` は `httpx`（dev グループ）を使う。

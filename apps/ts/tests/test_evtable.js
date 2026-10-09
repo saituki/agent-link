@@ -17,6 +17,7 @@ const {
   tsSortEvents,
   tsFocusRange,
   tsEventKindMark,
+  tsEvtWho,
 } = require(src);
 
 const line = (id, record, t, extra = {}) => ({
@@ -116,5 +117,9 @@ assert.deepStrictEqual(tsFocusRange(line("x", "r", 99), 100), { t0: 90, t1: 100 
 assert.deepStrictEqual(tsFocusRange(line("x", "r", 3), 8), { t0: 0, t1: 8 });
 // 長さ 0 のエリアでも半幅は 5 秒
 assert.deepStrictEqual(tsFocusRange(area("z", "r", 50, 50), 100), { t0: 45, t1: 55 });
+
+// 作成者の札（表の欄）: script:<name>@… は script、それ以外はそのまま
+assert.strictEqual(tsEvtWho("script:bp@1a2b3c4d"), "script");
+assert.strictEqual(tsEvtWho("human"), "human");
 
 if (__filename === process.argv[1]) console.log("test_evtable: ok");
