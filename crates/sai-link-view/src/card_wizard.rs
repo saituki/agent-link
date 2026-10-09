@@ -105,7 +105,7 @@ pub fn resolve_block_path(block_id: &str) -> Option<PathBuf> {
 pub fn apply_card_auto_fields(fm: &mut sai_link_engine::kanban::CardFrontmatter) {
     // settings.json（プロジェクト → グローバルのマージ）からデフォルトを読む。
     // 読み込み警告はここでは扱わない。
-    let (settings, _) = sai_link_engine::pi_command::load_settings_quiet();
+    let (settings, _) = sai_link_engine::settings::load_settings_quiet();
     if let Some(model) = settings.default_model {
         fm.model = model;
     }

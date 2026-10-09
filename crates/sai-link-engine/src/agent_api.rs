@@ -392,7 +392,7 @@ fn write_with_timeout(
     let mut checked: Option<bool> = None;
     let mut warning: Option<String> = None;
     let mut saved_content = content.to_string();
-    let check_cmd = crate::pi_command::load_settings_quiet().0.write_check.unwrap_or_default();
+    let check_cmd = crate::settings::load_settings_quiet().0.write_check.unwrap_or_default();
     if !check_cmd.is_empty() {
         let block = block_name();
         let cmd: Vec<String> = check_cmd

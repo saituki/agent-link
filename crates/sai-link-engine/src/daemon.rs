@@ -151,7 +151,7 @@ pub fn list_orphaned_runs(store: &SaiStore) -> Vec<OrphanedRun> {
 
 /// finalize 結果ファイル（`results/finalize-<run_id>-<ms>.json`）を書き込む（P2-1）。
 ///
-/// pi 拡張（`/pi-sai-finalize`）がポーリングして成否表示するための応答である。
+/// Web の /sai-finalize 操作がポーリングして成否表示するための応答である。
 /// `task_*` 系の `results/` 応答と同形式のディレクトリ規約に従う。
 fn write_finalize_result(run_id: i64, ok: bool, reason: &str) {
     let results_dir = crate::common::notify_results_dir();
@@ -809,7 +809,7 @@ impl Daemon {
 
     /// `pending/` 内の `finalize_request` 通知を処理する。
     ///
-    /// ユーザーが `/pi-sai-finalize` スラッシュコマンドを入力した際に pi-sai が
+    /// ユーザーが `/sai-finalize` スラッシュコマンドを入力した際に pi-sai が
     /// この通知を書き込む。デーモンは対応する実行の監視スレッドに
     /// `FinalizeRequested` イベントを送信し、出力抽出・統計保存・DB更新を
     /// 行わせる。
@@ -1353,7 +1353,7 @@ pub fn write_block_run_request_full(
 
 /// メインブロックのユーザー明示完了（finalize）要求を `pending/` に書き込む（U4）。
 ///
-/// TUI の Ctrl+D 2 回目（および pi 上の `/pi-sai-finalize`）から呼ばれ、
+/// TUI の Ctrl+D 2 回目（および pi 上の `/sai-finalize`）から呼ばれ、
 /// デーモンの `process_finalize_request` が対応する実行監視スレッドへ
 /// `FinalizeRequested` イベントを送信します。
 /// これにより `execute_block_pipeline` の正常完了（Ok）パスの DB 更新順序

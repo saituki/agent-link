@@ -312,7 +312,7 @@ pub fn next_split_target(
     }
 
     // WIP 上限に達している場合は分割不可（待機）
-    let wip = crate::pi_command::wip_limit();
+    let wip = crate::settings::wip_limit();
     if effective.len() >= wip {
         return None;
     }
@@ -701,7 +701,7 @@ impl TaskManager {
 
         // R5: バッチ内の承認タスク数が max_concurrent（グローバル上限）を超える場合は
         // 明示的な上限超過（toolResult で finalize 要求）。WIP（タブごと）超過は待機で対処する。
-        let max_concurrent = crate::pi_command::max_concurrent_limit();
+        let max_concurrent = crate::settings::max_concurrent_limit();
         if n > max_concurrent {
             return Err(TaskManagerError::BatchPaneLimitExceeded {
                 batch_id: batch_id.to_string(),
@@ -3779,7 +3779,7 @@ main "$@"
 
     /// max_concurrent を確実に超えるタスク数を返す（オーバーリミットテスト用）。
     fn super_max_concurrent() -> usize {
-        crate::pi_command::max_concurrent_limit() + 1
+        crate::settings::max_concurrent_limit() + 1
     }
 
     /// 承認タスクを n 件バッチに作成するヘルパー。
@@ -3879,7 +3879,7 @@ main "$@"
                 assert_eq!(*n, t);
                 assert_eq!(
                     *limit,
-                    std::cmp::max(crate::pi_command::max_concurrent_limit(), 8)
+                    std::cmp::max(crate::settings::max_concurrent_limit(), 8)
                 );
             }
             other => panic!("BatchPaneLimitExceeded を期待: {:?}", other),

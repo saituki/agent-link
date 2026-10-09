@@ -60,7 +60,7 @@ pub enum PreRunOutcome {
 /// 作業フォルダと環境変数（`SAI_PROJECT_ROOT`）には
 /// [`crate::project::project_root`] を使います。打ち切りは 20 秒です。
 pub fn run_if_configured() -> PreRunOutcome {
-    let (settings, _warnings) = crate::pi_command::load_settings_quiet();
+    let (settings, _warnings) = crate::settings::load_settings_quiet();
     match settings.pre_run {
         Some(cmd) if !cmd.is_empty() => {
             run_with(&cmd, &crate::project::project_root(), PRE_RUN_TIMEOUT)
@@ -335,7 +335,7 @@ pub fn context_text(run_id: Option<i64>, block_id: &str) -> String {
         return failed_line("実行番号が無いため、範囲を作れませんでした");
     };
 
-    let (settings, _warnings) = crate::pi_command::load_settings_quiet();
+    let (settings, _warnings) = crate::settings::load_settings_quiet();
     let Some(cmd) = settings.context.filter(|c| !c.is_empty()) else {
         return failed_line(".sai/settings.json に context がありません。範囲を作れませんでした");
     };

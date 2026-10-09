@@ -17,8 +17,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RunnerKind {
-    /// pi コーディングエージェント（廃止。`parse` は作らない・型は U04 で消す）。
-    Pi,
     /// Claude Code（`cc` コマンド）。既定。
     #[default]
     Cc,
@@ -42,10 +40,9 @@ impl RunnerKind {
         }
     }
 
-    /// DB に保存する正規文字列を返す（`"pi"` / `"cc"` / `"gl"`）。
+    /// DB に保存する正規文字列を返す（`"cc"` / `"gl"`）。
     pub fn as_str(self) -> &'static str {
         match self {
-            RunnerKind::Pi => "pi",
             RunnerKind::Cc => "cc",
             RunnerKind::Gl => "gl",
         }
@@ -57,7 +54,6 @@ impl RunnerKind {
     /// Linux の `cc` は C コンパイラなので shim を置かない）。
     pub fn bin(self) -> &'static str {
         match self {
-            RunnerKind::Pi => "pi",
             RunnerKind::Cc => "claude",
             RunnerKind::Gl => "gl",
         }
@@ -65,13 +61,13 @@ impl RunnerKind {
 
     /// プロンプト本文を確定送信するキー。
     ///
-    /// pi・Claude Code はマルチライン入力を `Alt+Enter` で確定する
+    /// Claude Code はマルチライン入力を `Alt+Enter` で確定する
     /// （`~/.claude/keybindings.json` で `enter` = 改行 / `alt+enter` = 送信 に
     /// 割り当てられているユーザー環境を前提とする）。
     /// gl は起動時のタスク書き込みなしのため送信自体を行わない。
     pub fn submit_key(self) -> &'static str {
         match self {
-            RunnerKind::Pi | RunnerKind::Cc => "Alt+Enter",
+            RunnerKind::Cc => "Alt+Enter",
             RunnerKind::Gl => "Enter",
         }
     }
@@ -125,7 +121,6 @@ mod tests {
 
     #[test]
     fn submit_key_differs() {
-        assert_eq!(RunnerKind::Pi.submit_key(), "Alt+Enter");
         assert_eq!(RunnerKind::Cc.submit_key(), "Alt+Enter");
         assert_eq!(RunnerKind::Gl.submit_key(), "Enter");
     }
@@ -133,7 +128,6 @@ mod tests {
     #[test]
     fn serde_roundtrip_and_default() {
         assert_eq!(serde_json::to_string(&RunnerKind::Cc).unwrap(), "\"cc\"");
-        assert_eq!(serde_json::to_string(&RunnerKind::Pi).unwrap(), "\"pi\"");
         assert_eq!(serde_json::to_string(&RunnerKind::Gl).unwrap(), "\"gl\"");
         // 既定値は cc（pi は廃止）
         assert_eq!(RunnerKind::default(), RunnerKind::Cc);
@@ -141,7 +135,6 @@ mod tests {
 
     #[test]
     fn display_matches_as_str() {
-        assert_eq!(RunnerKind::Pi.to_string(), "pi");
         assert_eq!(RunnerKind::Cc.to_string(), "cc");
         assert_eq!(RunnerKind::Gl.to_string(), "gl");
     }
@@ -149,7 +142,6 @@ mod tests {
     #[test]
     fn gl_is_no_task_write_only() {
         assert!(RunnerKind::Gl.is_no_task_write());
-        assert!(!RunnerKind::Pi.is_no_task_write());
         assert!(!RunnerKind::Cc.is_no_task_write());
     }
 }

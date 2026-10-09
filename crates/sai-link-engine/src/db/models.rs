@@ -296,7 +296,7 @@ pub struct ExecutionHistory {
     pub parent_run_id: Option<i64>,
     /// タスクバッチID（task_create の batch_id。DAG のフェーズ合成に使用）
     pub batch_id: Option<String>,
-    /// ユーザー明示完了（Ctrl+D / pi-sai-finalize）で finalize 済みか（U4）
+    /// ユーザー明示完了（Ctrl+D / sai-finalize）で finalize 済みか（U4）
     pub finalized: bool,
     /// セッション統計情報の JSON（トークン数・ツール呼び出し回数・ターン数など）
     pub session_stats_json: Option<String>,
