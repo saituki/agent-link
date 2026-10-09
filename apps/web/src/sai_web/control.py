@@ -62,7 +62,7 @@ _PHONE_CALL_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 # --- task.md 作成フォーム（計画 15 §1.5・§3.3）で受け取る値の検査 ---
 # runner / thinking は一覧の値だけ（TUI の RUNNER_OPTIONS / THINKING_OPTIONS と同じ）
-_CARD_RUNNERS = ("user", "pi", "cc", "gl")
+_CARD_RUNNERS = ("user", "cc", "gl")
 _CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
 # provider / model に許す文字（`openrouter-xiaomi` / `deepseek/deepseek-v4-flash` など）
 _CARD_NAME_RE = re.compile(r"^[A-Za-z0-9._:/@+-]{1,200}$")
@@ -616,10 +616,12 @@ def _validate_card_payload(payload: dict) -> dict:
         done_ids.append(v)
 
     runner = text("runner")
+    if runner == "pi":
+        raise HTTPException(status_code=400, detail="runner の pi は廃止しました")
     if runner and runner not in _CARD_RUNNERS:
         raise HTTPException(
             status_code=400,
-            detail="runner は user / pi / cc / gl のいずれか（空でスキップ）",
+            detail="runner は user / cc / gl のいずれか（pi は廃止しました・空でスキップ）",
         )
 
     block = text("block")

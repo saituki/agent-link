@@ -1,13 +1,13 @@
 "use strict";
 // task.md 作成フォーム（計画 15・U09）の DOM を使わない関数の小さなテスト（assert だけ）。
 // 確かめること:
-// - 手順の並びと番号（8 固定。runner → block → provider → model → thinking
-//   → rounds → task_text → confirm）
-// - runner ごとの飛ばし方（user / gl は 2 → 6、cc は provider を飛ばす）
+// - 手順の並びと番号（7 つ。runner → block → model → thinking
+//   → rounds → task_text → confirm。pi は廃止で provider の手順は無い）
+// - runner ごとの飛ばし方（user / gl は 2 → 5。runner が空なら cc 扱い）
 // - 戻る（runner 別の戻り先・先頭は閉じる）
 // - 送る JSON の形（入力ファイルの手順が無くなり，inputs を送らない）
 // - 書きかけの保存（プロジェクトごと・作成後に消す・古い inputs の手順は無し扱い）
-// - 8 画面それぞれに日本語の説明がある
+// - 7 画面それぞれに日本語の説明がある
 // 実行:
 //     node tests/test_cardform.js
 
@@ -43,61 +43,53 @@ function atBlock(runner) {
 function testStepLabel() {
   assert.deepStrictEqual(
     cf.cfStepInfo(cf.cfNewDraft()),
-    { id: "runner", no: 1, title: "runner", label: "Step 1/8" }
+    { id: "runner", no: 1, title: "runner", label: "Step 1/7" }
   );
-  assert.strictEqual(cf.cfStepInfo({ step: "confirm" }).label, "Step 8/8");
-  assert.strictEqual(cf.cfStepInfo({ step: "provider" }).label, "Step 3/8");
-  // 手順の並びは TUI と同じ（runner → block → provider → model → thinking → rounds → task_text）
+  assert.strictEqual(cf.cfStepInfo({ step: "confirm" }).label, "Step 7/7");
+  assert.strictEqual(cf.cfStepInfo({ step: "model" }).label, "Step 3/7");
+  // 手順の並びは TUI と同じ（runner → block → model → thinking → rounds → task_text）。provider は無い（pi 廃止）
   assert.deepStrictEqual(
     cf.CF_STEPS.map((s) => s.id),
-    ["runner", "block", "provider", "model", "thinking", "rounds", "task_text", "confirm"]
+    ["runner", "block", "model", "thinking", "rounds", "task_text", "confirm"]
   );
+  assert.strictEqual(cf.cfStepInfo({ step: "provider" }).label, "Step 1/7");
 }
 
 function testRunnerSkips() {
-  // user / gl は 2（ブロック）から 6（ラウンド）へ飛ぶ（provider〜thinking は対象外）
+  // user / gl は 2（ブロック）から 5（ラウンド）へ飛ぶ（model・thinking は対象外）
   for (const runner of ["user", "gl"]) {
     const s = atBlock(runner);
     assert.strictEqual(cf.cfNext(s), null, runner);
     assert.strictEqual(s.step, "rounds", `${runner} が ${s.step} になった`);
-    assert.strictEqual(cf.cfStepInfo(s).label, "Step 6/8");
-    assert.strictEqual(s.provider, "");
+    assert.strictEqual(cf.cfStepInfo(s).label, "Step 5/7");
     assert.strictEqual(s.model, "");
     // 戻る先はブロック（TUI の rounds の戻り先と同じ）
     assert.strictEqual(cf.cfBack(s), null);
     assert.strictEqual(s.step, "block");
   }
 
-  // cc は provider が無い（ブロックのあと 4 モデルへ）
+  // cc はブロックのあと 3 モデル → 4 thinking → 5 ラウンド → 6 task_text → 7 確認
   const cc = atBlock("cc");
   assert.strictEqual(cf.cfNext(cc), null);
   assert.strictEqual(cc.step, "model");
-  assert.strictEqual(cf.cfStepInfo(cc).label, "Step 4/8");
-  assert.strictEqual(cc.provider, "");
+  assert.strictEqual(cf.cfStepInfo(cc).label, "Step 3/7");
+  assert.strictEqual(cf.cfNext(cc), null);
+  assert.strictEqual(cc.step, "thinking");
+  assert.strictEqual(cf.cfNext(cc), null);
+  assert.strictEqual(cc.step, "rounds");
+  assert.strictEqual(cf.cfNext(cc), null);
+  assert.strictEqual(cc.step, "task_text");
+  assert.strictEqual(cf.cfNext(cc), null);
+  assert.strictEqual(cc.step, "confirm");
 
-  // pi は 3 provider → 4 モデル → 5 thinking → 6 ラウンド
-  const pi = atBlock("pi");
-  assert.strictEqual(cf.cfNext(pi), null);
-  assert.strictEqual(pi.step, "provider");
-  assert.strictEqual(cf.cfNext(pi), null);
-  assert.strictEqual(pi.step, "model");
-  assert.strictEqual(cf.cfNext(pi), null);
-  assert.strictEqual(pi.step, "thinking");
-  assert.strictEqual(cf.cfNext(pi), null);
-  assert.strictEqual(pi.step, "rounds");
-  assert.strictEqual(cf.cfNext(pi), null);
-  assert.strictEqual(pi.step, "task_text");
-  assert.strictEqual(cf.cfNext(pi), null);
-  assert.strictEqual(pi.step, "confirm");
-
-  // runner をスキップした（空文字）ときも pi 扱い（TUI と同じ）
+  // runner をスキップした（空文字）ときも cc 扱い（モデルへ）
   const skipRunner = cf.cfNewDraft();
   skipRunner.step = "runner";
   skipRunner.runner = "";
   assert.strictEqual(cf.cfSkip(skipRunner), null);
   assert.strictEqual(skipRunner.step, "block");
   assert.strictEqual(cf.cfNext(skipRunner), null);
-  assert.strictEqual(skipRunner.step, "provider");
+  assert.strictEqual(skipRunner.step, "model");
 }
 
 function testBack() {
@@ -110,22 +102,16 @@ function testBack() {
   assert.strictEqual(cf.cfBack(b), null);
   assert.strictEqual(b.step, "runner");
 
-  // provider → block、model → cc なら block で pi なら provider
-  const p = atBlock("pi"); p.step = "provider";
-  assert.strictEqual(cf.cfBack(p), null);
-  assert.strictEqual(p.step, "block");
+  // モデル → ブロック（runner によらず）
   const mc = atBlock("cc"); mc.step = "model";
   assert.strictEqual(cf.cfBack(mc), null);
   assert.strictEqual(mc.step, "block");
-  const mp = atBlock("pi"); mp.step = "model";
-  assert.strictEqual(cf.cfBack(mp), null);
-  assert.strictEqual(mp.step, "provider");
 
   // thinking → model、ラウンド → thinking（user / gl はブロック）
-  const t = atBlock("pi"); t.step = "thinking";
+  const t = atBlock("cc"); t.step = "thinking";
   assert.strictEqual(cf.cfBack(t), null);
   assert.strictEqual(t.step, "model");
-  const rd = atBlock("pi"); rd.step = "rounds";
+  const rd = atBlock("cc"); rd.step = "rounds";
   assert.strictEqual(cf.cfBack(rd), null);
   assert.strictEqual(rd.step, "thinking");
   const ru = atBlock("user"); ru.step = "rounds";
@@ -136,9 +122,9 @@ function testBack() {
   const tt = cf.cfNewDraft(); tt.step = "task_text";
   assert.strictEqual(cf.cfBack(tt), null);
   assert.strictEqual(tt.step, "rounds");
-  const cf8 = cf.cfNewDraft(); cf8.step = "confirm";
-  assert.strictEqual(cf.cfBack(cf8), null);
-  assert.strictEqual(cf8.step, "task_text");
+  const cf7 = cf.cfNewDraft(); cf7.step = "confirm";
+  assert.strictEqual(cf.cfBack(cf7), null);
+  assert.strictEqual(cf7.step, "task_text");
 }
 
 function testSkip() {
@@ -148,15 +134,16 @@ function testSkip() {
   assert.strictEqual(cf.cfSkip(confirm), "スキップできません");
   assert.strictEqual(cf.cfCanSkip(confirm), false);
   // 途中の画面はスキップできる
-  for (const step of ["runner", "block", "provider", "model", "thinking", "rounds", "task_text"]) {
+  for (const step of ["runner", "block", "model", "thinking", "rounds", "task_text"]) {
     assert.strictEqual(cf.cfCanSkip({ step }), true, step);
   }
-  // provider をスキップするとモデルへ
-  const s = atBlock("pi");
-  s.step = "provider";
+  // モデルをスキップすると thinking へ
+  const s = atBlock("cc");
+  s.step = "model";
+  s.model = "opus";
   assert.strictEqual(cf.cfSkip(s), null);
-  assert.strictEqual(s.provider, "");
-  assert.strictEqual(s.step, "model");
+  assert.strictEqual(s.model, "");
+  assert.strictEqual(s.step, "thinking");
 }
 
 function testPayload() {
@@ -168,16 +155,16 @@ function testPayload() {
   s.rounds = { global_round: "5", round: "2", tag: "" };
   s.task_text = "計画を読んで実装せよ";
   const payload = cf.cfBuildPayload(s);
-  // 入力ファイルの手順は無い（inputs を送らない・U09）
+  // 入力ファイルの手順は無い（inputs を送らない・U09）。provider は送らない（pi 廃止）
   assert.deepStrictEqual(Object.keys(payload), [
-    "runner", "block", "provider", "model",
+    "runner", "block", "model",
     "thinking", "global_round", "round", "tag", "task_text",
   ]);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(payload, "inputs"), false);
   // スキップした項目は空文字（sai-link が自動値にする）
-  assert.strictEqual(payload.provider, "");
   assert.strictEqual(payload.tag, "");
   assert.strictEqual(payload.runner, "cc");
+  assert.strictEqual(payload.model, "opus");
   assert.strictEqual(payload.task_text, "計画を読んで実装せよ");
 
   // 初期状態（全部スキップ）でも形が壊れない
@@ -248,13 +235,13 @@ function testDraft() {
   // プロジェクトごとに別々
   const s = cf.cfNewDraft();
   s.step = "rounds";
-  s.runner = "pi";
+  s.runner = "cc";
   s.block = "sub";
   s.rounds.round = "3";
   cf.cfSaveDraft("sai-web", s);
   const back = cf.cfLoadDraft("sai-web");
   assert.strictEqual(back.step, "rounds");
-  assert.strictEqual(back.runner, "pi");
+  assert.strictEqual(back.runner, "cc");
   assert.strictEqual(back.rounds.round, "3");
   assert.strictEqual(cf.cfLoadDraft("other-project"), null);
   // 作成に成功したら消える（計画 15 §1.5）
@@ -263,15 +250,15 @@ function testDraft() {
   // 形が崩れた書きかけは無し扱い
   store.set(cf.cfDraftKey("broken"), "これは JSON ではありません");
   assert.strictEqual(cf.cfLoadDraft("broken"), null);
-  store.set(cf.cfDraftKey("no-step"), JSON.stringify({ runner: "pi" }));
+  store.set(cf.cfDraftKey("no-step"), JSON.stringify({ runner: "cc" }));
   assert.strictEqual(cf.cfLoadDraft("no-step"), null);
   // U09 より前の「入力ファイル」の手順は無し扱い（番号が変わったため）
-  store.set(cf.cfDraftKey("old-inputs"), JSON.stringify({ step: "inputs", runner: "pi", inputs: { a: ["x"] } }));
+  store.set(cf.cfDraftKey("old-inputs"), JSON.stringify({ step: "inputs", runner: "cc", inputs: { a: ["x"] } }));
   assert.strictEqual(cf.cfLoadDraft("old-inputs"), null);
 }
 
 function testStepHints() {
-  // 8 画面それぞれに説明がある（端末に慣れていない人向け・U5 §3）
+  // 7 画面それぞれに説明がある（端末に慣れていない人向け・U5 §3）
   for (const step of cf.CF_STEPS) {
     const hint = cf.cfStepHint(step.id);
     assert.strictEqual(typeof hint, "string");
@@ -285,6 +272,7 @@ function testStepHints() {
   // 知らない手順には説明を出さない（画面が止まらない）
   assert.strictEqual(cf.cfStepHint("oreason"), "");
   assert.strictEqual(cf.cfStepHint("inputs"), "");
+  assert.strictEqual(cf.cfStepHint("provider"), "");
   // 説明は日本語だけ（英語だけの文は入れていない）
   for (const [id, hint] of Object.entries(cf.CF_STEP_HINTS)) {
     assert.ok(/[\u3040-\u30ff\u4e00-\u9fff]/.test(hint), `${id} の説明に日本語がありません`);

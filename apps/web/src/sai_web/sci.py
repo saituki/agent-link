@@ -50,7 +50,10 @@ _NODE_RE = re.compile(r"^[QAFES][1-9][0-9]{0,8}$")
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
 # 読む深さ・READ_CARD の実行者と読み方
 DEPTHS = ("abstract", "figures", "full")
-RUNNERS = ("pi", "cc", "user")
+RUNNERS = ("cc", "user")
+# CARD の model・thinking（省略可。空は block の既定に任せる）
+CARD_MODELS = ("opus", "sonnet", "haiku")
+CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
 CARD_MODES = ("purpose_first", "blind_first")
 # F の立場（C1・C3）・CARD の足す子の型（C7）
 STANCES = ("support", "deny", "issue")
@@ -313,7 +316,8 @@ def validate_card(payload) -> dict:
     """READ_CARD の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
     - `node`（Q・A・F・E・S と `SEED`）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
-    - `expect` 300 字、`depth`・`mode`・`runner` は表の値、`origin_run` は run_id
+    - `expect` 300 字、`depth`・`mode`・`runner` は表の値（`runner` は空なら `cc`・`pi` は 400）、`origin_run` は run_id
+    - `model`・`thinking` は省略可（`CARD_MODELS`・`CARD_THINKING` の値だけ）
     - `child`（任意。`Q`・`A`・`F` のどれか。空は未指定）は C7 の `sci_child` として渡す。対象との組は CLI が見る
     - `papers` は 20 個まで・各 1〜999999999
     - `runner` が `user` なら `papers` はちょうど 1 つで、`node` は Q か A（`SEED` は選べない）
@@ -329,15 +333,22 @@ def validate_card(payload) -> dict:
     if "\n" in purpose or "\r" in purpose:
         raise _bad("purpose は 1 行にしてください")
 
+    runner = payload.get("runner") or "cc"
+    if runner == "pi":
+        raise _bad("runner の pi は廃止しました")
     out: dict = {
         "node": _check_node_or_seed(payload.get("node")),
         "block": block,
         "purpose": purpose,
-        "runner": _enum(payload.get("runner", "pi"), RUNNERS, "runner"),
+        "runner": _enum(runner, RUNNERS, "runner"),
     }
     expect = _opt_text(payload, "expect", 300)
     if expect is not None:
         out["expect"] = expect
+    # model・thinking は省略可（空・無しは block の既定に任せる）
+    for key, allowed in (("model", CARD_MODELS), ("thinking", CARD_THINKING)):
+        if payload.get(key) is not None and _trim(payload[key]):
+            out[key] = _enum(payload[key], allowed, key)
     for key, allowed in (("depth", DEPTHS), ("mode", CARD_MODES)):
         if payload.get(key) is not None:
             out[key] = _enum(payload[key], allowed, key)

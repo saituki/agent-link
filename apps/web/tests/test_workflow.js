@@ -45,7 +45,7 @@ const NODE = {
   phase: null,
   name: "📋 plan",
   tag: "plan",
-  runner: "pi",
+  runner: "cc",
   status: "completed",
   created_at: "2026-09-26 10:00:00",
   description: "実装の計画を書く",
@@ -160,11 +160,14 @@ function testStampText() {
 }
 
 function testCardMarks() {
-  const pi = wf.wfCardMarks(NODE);
-  assert.strictEqual(pi.runner, "");
-  assert.strictEqual(pi.chips.length, 0);
-  // runner が pi 以外なら [cc] の札
-  assert.strictEqual(wf.wfCardMarks(NODE2).runner, "cc");
+  // runner が cc（既定）なら印は付けない
+  const cc = wf.wfCardMarks(NODE);
+  assert.strictEqual(cc.runner, "");
+  assert.strictEqual(cc.chips.length, 0);
+  // runner が cc 以外（user・gl）なら印を付ける。古い記録の pi も印を付ける（pi は廃止）
+  assert.strictEqual(wf.wfCardMarks(NODE2).runner, "");
+  assert.strictEqual(wf.wfCardMarks({ runner: "user" }).runner, "user");
+  assert.strictEqual(wf.wfCardMarks({ runner: "pi" }).runner, "pi");
   // review の状態
   assert.deepStrictEqual(wf.wfCardMarks({ review: "empty" }).chips, [{ text: "review 未記入", cls: "danger" }]);
   assert.deepStrictEqual(wf.wfCardMarks({ review: "review_only" }).chips, [{ text: "review 途中", cls: "muted" }]);
@@ -352,7 +355,7 @@ function testActions() {
   const sub = wf.wfActions({ run_id: 62, status: "running", parent_run_id: 61 }, "running", "p");
   assert.deepStrictEqual(sub, []);
   // Kanban の札には status が無いのでレーンで判断する
-  const lane = wf.wfActions({ run_id: 63, title: "ID63/👷 worker", runner: "pi" }, "running", "p");
+  const lane = wf.wfActions({ run_id: 63, title: "ID63/👷 worker", runner: "cc" }, "running", "p");
   assert.deepStrictEqual(lane.map((a) => a.key), ["finalize"]);
   // run_id が無い札は操作なし
   assert.deepStrictEqual(wf.wfActions({}, "todo", "p"), []);

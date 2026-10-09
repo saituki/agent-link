@@ -203,8 +203,8 @@ function test_card() {
   };
   // 範囲と仮置きは U22 で消した。preset に入っていても返さない・送らない。
   assert.deepStrictEqual(seCardValues(preset), {
-    node: "Q12", block: "lab-grow", purpose: preset.purpose, expect: "A を 2 つ以上", runner: "pi",
-    mode: "purpose_first", papers: [37], depth: "full", child: "A",
+    node: "Q12", block: "lab-grow", purpose: preset.purpose, expect: "A を 2 つ以上", runner: "cc",
+    mode: "purpose_first", model: "", thinking: "", papers: [37], depth: "full", child: "A",
   });
   // 無ければ空（nodeId だけ入る）
   const empty = seCardValues(null, "Q3");
@@ -221,15 +221,24 @@ function test_card() {
   const built = seBuildCard(seCardValues(preset));
   assert.strictEqual(built.ok, true);
   assert.deepStrictEqual(built.card, {
-    node: "Q12", block: "lab-grow", purpose: preset.purpose, runner: "pi", papers: [37],
+    node: "Q12", block: "lab-grow", purpose: preset.purpose, runner: "cc", papers: [37],
     expect: "A を 2 つ以上", child: "A",
   });
+  // pi は廃止（空・未知の実行者は cc に寄せる）。model・thinking は選んだ物だけ送る
+  assert.strictEqual(seCardValues({ runner: "cc" }, "Q3").runner, "cc");
+  const withMt = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "cc", model: "opus", thinking: "high" });
+  assert.strictEqual(withMt.card.model, "opus");
+  assert.strictEqual(withMt.card.thinking, "high");
+  const noMt = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "cc", model: "", thinking: "" });
+  assert.ok(!("model" in noMt.card) && !("thinking" in noMt.card), JSON.stringify(noMt.card));
+  const readMt = seBuildCard({ node: "A2", block: "lab-read", purpose: "読む", runner: "user", papers: [37], model: "opus" });
+  assert.ok(!("model" in readMt.card), JSON.stringify(readMt.card));
   // 範囲と仮置きを直接渡しても、送るカードには入らない。
   const stray = seBuildCard(Object.assign(seCardValues(preset), { scope: "blind", assume: ["Q1=あ"] }));
   assert.strictEqual(stray.ok, true);
   assert.ok(!("scope" in stray.card) && !("assume" in stray.card), JSON.stringify(stray.card));
   // 子の型が空なら送るカードに child は入らない
-  const noChild = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "pi", child: "" });
+  const noChild = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "cc", child: "" });
   assert.ok(noChild.ok && !("child" in noChild.card), JSON.stringify(noChild.card));
   // 打ち込んだ番号（# 付き・重なり）
   assert.deepStrictEqual(seBuildCard(Object.assign(seCardValues(preset), { papers: [37, "#37", "40"] })).card.papers, [37, 40]);
@@ -246,7 +255,7 @@ function test_card() {
   assert.match(bad({ node: "Q12", child: "F" }), /足す子の型/);
   assert.match(bad({ node: "A2", child: "A" }), /足す子の型/);
   assert.match(bad({ node: "SEED", child: "Q" }), /足す子の型/);
-  assert.strictEqual(seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "pi", child: "F" }).card.child, "F");
+  assert.strictEqual(seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", child: "F" }).card.child, "F");
 
   // READ_CARD: 論文はちょうど 1 本・対象は Q か A
   const read = { node: "A2", block: "lab-read", purpose: "読む", runner: "user", papers: [37], depth: "figures" };
@@ -257,13 +266,13 @@ function test_card() {
   // READ_CARD は SEED を選べない
   assert.match(bad(Object.assign({}, read, { node: "SEED" })), /Q か A/);
   // mode は lab-read のときだけ送る
-  assert.deepStrictEqual(seBuildCard({ node: "A2", block: "lab-read", purpose: "読む", runner: "pi", mode: "blind_first" }).card.mode, "blind_first");
-  assert.ok(!("mode" in seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "pi", mode: "blind_first" }).card));
+  assert.deepStrictEqual(seBuildCard({ node: "A2", block: "lab-read", purpose: "読む", runner: "cc", mode: "blind_first" }).card.mode, "blind_first");
+  assert.ok(!("mode" in seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", mode: "blind_first" }).card));
   // SEED（research-tree の全体）もカードの対象にできる
   assert.strictEqual(seCardValues(null, "SEED").node, "SEED");
   assert.deepStrictEqual(
-    seBuildCard({ node: "SEED", block: "sci-digest", purpose: "木全体を見直す", runner: "pi" }).card,
-    { node: "SEED", block: "sci-digest", purpose: "木全体を見直す", runner: "pi", papers: [] },
+    seBuildCard({ node: "SEED", block: "sci-digest", purpose: "木全体を見直す", runner: "cc" }).card,
+    { node: "SEED", block: "sci-digest", purpose: "木全体を見直す", runner: "cc", papers: [] },
   );
 }
 

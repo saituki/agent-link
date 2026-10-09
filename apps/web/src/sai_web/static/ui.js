@@ -106,7 +106,7 @@ const SAI_TERMS = {
   },
   runner: {
     label: "動かすエージェント",
-    text: "カードを動かす AI です。cc（Claude Code）や pi など、名前で選びます。",
+    text: "カードを動かす AI です。cc（Claude Code）など、名前で選びます。",
   },
   round: {
     label: "ラウンド",

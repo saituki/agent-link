@@ -579,6 +579,13 @@ function acClaudeNote() {
   box.appendChild(
     saiEl(
       "p",
+      "ac-note",
+      "`claude setup-token` の出力は、端末の幅が狭いと 2 行に折り返されます。コピーすると改行が入り、使えないトークンになります。端末の幅を広げてから実行し、`sk-ant-oat01-` で始まる 1 行を貼ってください。Mac の Claude Code のログインのトークン（約 8 時間で切れる）は使わないでください。"
+    )
+  );
+  box.appendChild(
+    saiEl(
+      "p",
       "ac-note ac-warn",
       "注意: Anthropic の規約は、アプリが Claude の資格情報を保存・仲介することを禁じています。この機能はその点で灰色です。使うかどうかはあなたの判断で決めてください。トークンは他の人に渡さないでください。"
     )

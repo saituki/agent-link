@@ -36,14 +36,15 @@ function testModelChoices() {
     providers: { "openrouter-x": ["a/b", "c/d"], local: ["c/d", "e"] },
   };
   assert.deepStrictEqual(N.ncModelChoices(options, "cc"), ["opus", "sonnet", "haiku"]);
-  // pi は全 provider のモデルを重複なく並べる
-  assert.deepStrictEqual(N.ncModelChoices(options, "pi"), ["a/b", "c/d", "e"]);
+  // runner が空（スキップ）なら cc 扱い（pi は廃止）
+  assert.deepStrictEqual(N.ncModelChoices(options, ""), ["opus", "sonnet", "haiku"]);
+  assert.deepStrictEqual(N.ncModelChoices(options, "pi"), []);
   // user / gl はモデル無し
   assert.deepStrictEqual(N.ncModelChoices(options, "user"), []);
   assert.deepStrictEqual(N.ncModelChoices(options, "gl"), []);
   // options が無くても落ちない
   assert.deepStrictEqual(N.ncModelChoices(null, "cc"), []);
-  assert.deepStrictEqual(N.ncModelChoices(undefined, "pi"), []);
+  assert.deepStrictEqual(N.ncModelChoices(undefined, ""), []);
 }
 
 function main() {
