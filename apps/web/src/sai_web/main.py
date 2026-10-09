@@ -34,6 +34,7 @@ from sai_web import (
     commands,
     containers,
     control,
+    datafiles,
     home,
     mlflow_proxy,
     notify,
@@ -1569,6 +1570,26 @@ async def api_papers_bundle(
     project = papers.resolve_project(name)
     body = await bundles.read_bundle_upload(request)
     return await bundles.request_bundle(project, body)
+
+
+@app.post("/api/projects/{name}/data/raw", status_code=201)
+async def api_data_raw_put(
+    name: str,
+    request: Request,
+    filename: str = Query(default=""),
+    _: None = Depends(require_token),
+) -> dict:
+    """解析用のデータを 1 件置く（`<root>/data/raw/<filename>`・U01）。
+
+    本文はファイルそのもの。同じ名前は 409（上書きしない）。大きさは 5GB まで（413）。
+    """
+    return await datafiles.store_raw(name, filename, request)
+
+
+@app.get("/api/projects/{name}/data/raw")
+def api_data_raw_list(name: str, _: None = Depends(require_token)) -> dict:
+    """`data/raw/` の一覧（U01）。"""
+    return datafiles.list_raw(name)
 
 
 @app.get("/api/projects/{name}/papers/pending")

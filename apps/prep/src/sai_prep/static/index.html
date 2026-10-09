@@ -24,26 +24,59 @@
     font-size: 15px;
     line-height: 1.6;
   }
-  header {
-    padding: 16px 20px;
+  .app {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+  nav.side {
     background: var(--card);
-    border-bottom: 1px solid var(--line);
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
+    border-right: 1px solid var(--line);
+    padding: 16px 12px;
     position: sticky;
     top: 0;
-    z-index: 5;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
   }
-  header h1 { font-size: 18px; margin: 0; }
-  header .ver { color: var(--muted); font-size: 12px; }
+  .brand h1 { font-size: 18px; margin: 0 8px; }
+  .brand .ver { display: block; color: var(--muted); font-size: 12px; margin: 0 8px 8px; }
+  nav.side h2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 18px 8px 6px;
+  }
+  nav.side h2 button { padding: 2px 8px; font-size: 13px; }
+  .navlist { display: grid; gap: 2px; }
+  .navitem {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    font-size: 14px;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .navitem:hover { background: var(--bg); }
+  .navitem[aria-current="page"] { background: #eaf1ff; color: var(--accent); font-weight: 600; }
   main {
     max-width: 1080px;
+    width: 100%;
     margin: 0 auto;
     padding: 16px;
     display: grid;
     gap: 16px;
+    min-width: 0;
   }
+  .viewtitle { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+  .view { display: grid; gap: 16px; }
   section {
     background: var(--card);
     border: 1px solid var(--line);
@@ -51,8 +84,9 @@
     padding: 16px;
   }
   section h2 { font-size: 15px; margin: 0 0 10px; }
+  section h3 { font-size: 14px; margin: 16px 0 6px; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
-  input[type="text"], input[type="password"], input[type="number"], select {
+  input[type="text"], input[type="password"], input[type="number"] {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--line);
@@ -79,7 +113,7 @@
   .status.ng { color: var(--ng); }
   .muted { color: var(--muted); font-size: 13px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; overflow-wrap: anywhere; }
   th { color: var(--muted); font-weight: 600; font-size: 12px; }
   .drop {
     border: 1px dashed var(--line);
@@ -93,7 +127,9 @@
   .drop.over { background: #eaf1ff; border-color: var(--accent); color: var(--accent); }
   .drop.small { padding: 6px 10px; }
   .jobs { display: grid; gap: 10px; }
-  .job { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .job { border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13px; }
+  .job.done { color: var(--ok); }
+  .job.failed { color: var(--ng); }
   .job .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
   .job .title { font-weight: 600; }
   .bar { height: 6px; background: #e9edf3; border-radius: 4px; margin-top: 8px; overflow: hidden; }
@@ -104,12 +140,20 @@
   .jobslot { margin-top: 6px; }
   .jobslot .job { padding: 6px 8px; }
   .job button { margin-top: 6px; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
   .checkline { display: flex; align-items: center; gap: 8px; }
   .checkline input { width: auto; }
   .checkline label { margin: 0; color: var(--text); font-size: 14px; }
+  @media (max-width: 899px) {
+    .app { grid-template-columns: 1fr; }
+    nav.side { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
+    .navlist { display: flex; flex-wrap: wrap; gap: 6px; }
+    .navitem { width: auto; border: 1px solid var(--line); background: #fff; }
+    .navitem[aria-current="page"] { border-color: var(--accent); }
+  }
   @media (max-width: 600px) {
     main { padding: 10px; gap: 10px; }
+    .view { gap: 10px; }
     section { padding: 12px; }
     table, thead, tbody, th, td, tr { display: block; }
     thead { display: none; }
@@ -120,73 +164,98 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>sai-prep</h1>
-  <span class="ver">v__SAI_PREP_VERSION__ — 論文 PDF の前処理</span>
-</header>
-<main>
-  <section>
-    <h2>設定</h2>
-    <label for="server">サーバの住所</label>
-    <input id="server" type="text" placeholder="https://sai.example.ts.net" autocomplete="off">
-    <label for="token">個人のトークン</label>
-    <input id="token" type="password" placeholder="sai_…" autocomplete="off">
-    <div class="row" style="margin-top:10px">
-      <button id="save" class="primary">保存</button>
-      <button id="check">確かめる</button>
+<div class="app">
+  <nav class="side" aria-label="メニュー">
+    <div class="brand">
+      <h1>sai-prep</h1>
+      <span class="ver">v__SAI_PREP_VERSION__ — 論文 PDF の前処理</span>
     </div>
-    <div id="checkStatus" class="status"></div>
-  </section>
-
-  <section>
-    <h2>プロジェクト</h2>
-    <div class="row">
-      <div class="grow">
-        <label for="project">プロジェクト</label>
-        <select id="project"><option value="">（未選択）</option></select>
-      </div>
-      <button id="reloadProjects">更新</button>
+    <h2>Account</h2>
+    <div class="navlist">
+      <button type="button" class="navitem" id="navSettings">設定</button>
     </div>
+    <h2>
+      <span>Projects</span>
+      <button type="button" id="reloadProjects" title="一覧を読み直す" aria-label="一覧を読み直す">↻</button>
+    </h2>
+    <div id="projectList" class="navlist"></div>
     <div id="projectStatus" class="status muted"></div>
-  </section>
+  </nav>
 
-  <section>
-    <h2>PDF 待ち</h2>
-    <div id="pendingStatus" class="status muted">プロジェクトを選ぶと一覧が出ます。</div>
-    <table id="pendingTable" class="hidden">
-      <thead>
-        <tr><th>題名</th><th>年</th><th>DOI / arXiv</th><th>PDF</th></tr>
-      </thead>
-      <tbody id="pendingBody"></tbody>
-    </table>
-  </section>
+  <main>
+    <h1 id="viewTitle" class="viewtitle">設定</h1>
 
-  <section>
-    <h2>BibTeX と PDF</h2>
-    <p class="muted">Library に無い論文を取り込みます。BibTeX は 1 件だけにしてください（S2 検索は行いません）。</p>
-    <div class="row">
-      <div class="grow">
-        <label>BibTeX（.bib）</label>
-        <input id="bibFile" type="file" accept=".bib,text/plain">
-      </div>
-      <div class="grow">
-        <label>PDF</label>
-        <input id="bibPdf" type="file" accept="application/pdf">
-      </div>
+    <div id="viewSettings" class="view">
+      <section>
+        <h2>設定</h2>
+        <label for="server">サーバの住所</label>
+        <input id="server" type="text" placeholder="https://sai.example.ts.net" autocomplete="off">
+        <label for="token">個人のトークン</label>
+        <input id="token" type="password" placeholder="sai_…" autocomplete="off">
+        <div class="row" style="margin-top:10px">
+          <button id="save" class="primary">保存</button>
+          <button id="check">確かめる</button>
+        </div>
+        <div id="checkStatus" class="status"></div>
+      </section>
     </div>
-    <div id="bibDrop" class="drop" style="margin-top:10px">ここに .bib と PDF を一緒に drop（または上の欄から選ぶ）</div>
-    <div class="row" style="margin-top:10px">
-      <button id="bibSubmit" class="primary">取り込む</button>
-      <div class="checkline">
-        <input id="translate" type="checkbox">
-        <label for="translate">翻訳する（英→日。mlx-lm の translateGemma）</label>
-      </div>
-    </div>
-    <div id="bibStatus" class="status"></div>
-    <div id="bibJobs" class="jobs"></div>
-  </section>
 
-</main>
+    <div id="viewProject" class="view hidden">
+      <section>
+        <h2>PDF 待ち</h2>
+        <div id="pendingStatus" class="status muted">プロジェクトを選ぶと一覧が出ます。</div>
+        <table id="pendingTable" class="hidden">
+          <thead>
+            <tr><th>題名</th><th>年</th><th>DOI / arXiv</th><th>PDF</th></tr>
+          </thead>
+          <tbody id="pendingBody"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>BibTeX と PDF</h2>
+        <p class="muted">Library に無い論文を取り込みます。BibTeX は 1 件だけにしてください（S2 検索は行いません）。</p>
+        <div class="row">
+          <div class="grow">
+            <label>BibTeX（.bib）</label>
+            <input id="bibFile" type="file" accept=".bib,text/plain">
+          </div>
+          <div class="grow">
+            <label>PDF</label>
+            <input id="bibPdf" type="file" accept="application/pdf">
+          </div>
+        </div>
+        <div id="bibDrop" class="drop" style="margin-top:10px">ここに .bib と PDF を一緒に drop（または上の欄から選ぶ）</div>
+        <div class="row" style="margin-top:10px">
+          <button id="bibSubmit" class="primary">取り込む</button>
+          <div class="checkline">
+            <input id="translate" type="checkbox">
+            <label for="translate">翻訳する（英→日。mlx-lm の translateGemma）</label>
+          </div>
+        </div>
+        <div id="bibStatus" class="status"></div>
+        <div id="bibJobs" class="jobs"></div>
+      </section>
+
+      <section>
+        <h2>Data upload</h2>
+        <p class="muted">解析用のデータを送ります。サーバのプロジェクトの data/raw/ に置きます（1 件 5GB まで・同じ名前は上書きしません）。名前は英数字と . _ - だけ（先頭は英数字）。</p>
+        <label for="dataFiles">ファイル（複数可）</label>
+        <input id="dataFiles" type="file" multiple>
+        <div id="dataDrop" class="drop" style="margin-top:10px">ここに drop（複数可・または上の欄から選ぶ）</div>
+        <div id="dataRows" class="jobs"></div>
+        <h3>サーバの data/raw</h3>
+        <div id="dataListStatus" class="status muted"></div>
+        <table id="dataTable" class="hidden">
+          <thead>
+            <tr><th>名前</th><th>大きさ</th><th>日時</th></tr>
+          </thead>
+          <tbody id="dataBody"></tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+</div>
 
 <script>
 (function () {
@@ -218,7 +287,36 @@
     el.className = "status" + (kind ? " " + kind : "");
   }
 
-  var state = { config: {}, projects: [], jobs: {} };
+  // state.view は "settings" か "project"。state.project は選んだプロジェクトの名前（無ければ ""）。
+  var state = { config: {}, projects: [], jobs: {}, view: "settings", project: "" };
+
+  // -- 画面の切り替え（左の sidebar と本文） --------------------------------
+  function spRender() {
+    var settings = state.view === "settings";
+    spEl("viewSettings").classList.toggle("hidden", !settings);
+    spEl("viewProject").classList.toggle("hidden", settings);
+    spEl("viewTitle").textContent = settings ? "設定" : state.project;
+    Array.prototype.forEach.call(document.querySelectorAll(".navitem"), function (btn) {
+      var on = settings ? btn.id === "navSettings" : btn.getAttribute("data-project") === state.project;
+      if (on) { btn.setAttribute("aria-current", "page"); } else { btn.removeAttribute("aria-current"); }
+    });
+  }
+
+  function spOpenProject(name) {
+    state.view = "project";
+    state.project = name;
+    spRender();
+    spEl("dataRows").innerHTML = "";
+    spLoadPending(name);
+    spLoadData();
+    // 次に開くとき同じプロジェクトを開くため、覚える（ほかの設定は送らない）
+    spPutConfig({ project: name }).catch(function () {});
+  }
+
+  spEl("navSettings").addEventListener("click", function () {
+    state.view = "settings";
+    spRender();
+  });
 
   // -- 設定 ------------------------------------------------------------
   function spLoadConfig() {
@@ -230,14 +328,7 @@
     });
   }
 
-  function spSaveConfig(extra) {
-    var body = {
-      server_url: spEl("server").value,
-      token: spEl("token").value,
-      project: spEl("project").value,
-      translate: spEl("translate").checked
-    };
-    if (extra) { Object.keys(extra).forEach(function (k) { body[k] = extra[k]; }); }
+  function spPutConfig(body) {
     return spApi("/local/config", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -245,6 +336,15 @@
     }).then(function (config) {
       state.config = config;
       return config;
+    });
+  }
+
+  function spSaveConfig() {
+    return spPutConfig({
+      server_url: spEl("server").value,
+      token: spEl("token").value,
+      project: state.project,
+      translate: spEl("translate").checked
     });
   }
 
@@ -274,25 +374,26 @@
     spSaveConfig().catch(function () {});
   });
 
-  // -- プロジェクト ----------------------------------------------------
+  // -- プロジェクト（左の sidebar の Projects）---------------------------
   function spLoadProjects() {
     spStatus(spEl("projectStatus"), "読み込んでいます…");
     return spApi("/local/projects").then(function (data) {
       var list = data.projects || [];
       state.projects = list;
-      var select = spEl("project");
-      select.innerHTML = '<option value="">（未選択）</option>';
+      var box = spEl("projectList");
+      box.innerHTML = "";
       list.forEach(function (p) {
         var name = p.name || p;
-        var option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        if (name === state.config.project) { option.selected = true; }
-        select.appendChild(option);
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "navitem";
+        btn.setAttribute("data-project", name);
+        btn.textContent = name;
+        btn.addEventListener("click", function () { spOpenProject(name); });
+        box.appendChild(btn);
       });
       spStatus(spEl("projectStatus"), list.length + " 件", "ok");
-      if (select.value) { spLoadPending(select.value); }
-      else { spClearPending(); }
+      spRender();
     }).catch(function (e) {
       spStatus(spEl("projectStatus"), e.message, "ng");
     });
@@ -302,23 +403,11 @@
     spSaveConfig().then(spLoadProjects);
   });
 
-  spEl("project").addEventListener("change", function () {
-    var name = spEl("project").value;
-    spSaveConfig({ project: name }).then(function () {
-      if (name) { spLoadPending(name); } else { spClearPending(); }
-    });
-  });
-
   // -- PDF 待ち --------------------------------------------------------
-  function spClearPending() {
-    spEl("pendingBody").innerHTML = "";
-    spEl("pendingTable").classList.add("hidden");
-    spStatus(spEl("pendingStatus"), "プロジェクトを選ぶと一覧が出ます。");
-  }
-
   function spLoadPending(project) {
     spStatus(spEl("pendingStatus"), "読み込んでいます…");
     return spApi("/local/pending?project=" + encodeURIComponent(project)).then(function (data) {
+      if (state.project !== project) { return; }
       var papers = data.papers || [];
       var body = spEl("pendingBody");
       body.innerHTML = "";
@@ -333,6 +422,7 @@
         body.appendChild(spPendingRow(paper));
       });
     }).catch(function (e) {
+      if (state.project !== project) { return; }
       spStatus(spEl("pendingStatus"), e.message, "ng");
     });
   }
@@ -403,7 +493,7 @@
 
   function spSubmitPaper(paper, file, drop) {
     if (!file) { return; }
-    var project = spEl("project").value;
+    var project = state.project;
     if (!project) { spStatus(spEl("pendingStatus"), "プロジェクトを選んでください。", "ng"); return; }
     drop.textContent = "送信中… " + file.name;
     spApi("/local/jobs?project=" + encodeURIComponent(project) + "&paper_id=" + encodeURIComponent(paper.id) +
@@ -422,7 +512,8 @@
   // -- BibTeX と PDF ---------------------------------------------------
   var bib = { text: "", pdf: null };
 
-  function spWireDrop(el, onFile) {
+  // onFiles があれば全部の files を配列で渡す（Data upload）。無ければ先頭の 1 件を onFile へ。
+  function spWireDrop(el, onFile, onFiles) {
     ["dragenter", "dragover"].forEach(function (name) {
       el.addEventListener(name, function (e) { e.preventDefault(); el.classList.add("over"); });
     });
@@ -430,7 +521,10 @@
       el.addEventListener(name, function (e) { e.preventDefault(); el.classList.remove("over"); });
     });
     el.addEventListener("drop", function (e) {
-      if (e.dataTransfer && e.dataTransfer.files.length) {
+      if (!e.dataTransfer || !e.dataTransfer.files.length) { return; }
+      if (onFiles) {
+        onFiles(Array.prototype.slice.call(e.dataTransfer.files));
+      } else {
         onFile(e.dataTransfer.files[0]);
       }
     });
@@ -482,7 +576,7 @@
   }
 
   spEl("bibSubmit").addEventListener("click", function () {
-    var project = spEl("project").value;
+    var project = state.project;
     if (!project) { spStatus(spEl("bibStatus"), "プロジェクトを選んでください。", "ng"); return; }
     if (!bib.text.trim()) { spStatus(spEl("bibStatus"), "BibTeX を選んでください。", "ng"); return; }
     if (!bib.pdf) { spStatus(spEl("bibStatus"), "PDF を選んでください。", "ng"); return; }
@@ -505,6 +599,104 @@
       spStatus(spEl("bibStatus"), e.message, "ng");
     });
   });
+
+  // -- Data upload -----------------------------------------------------
+  // sai-web の規則と同じ（先頭は英数字・英数字と . _ - だけ・128 字まで）。
+  var SP_DATA_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+
+  function spSize(n) {
+    var units = ["B", "KB", "MB", "GB"];
+    var value = n;
+    var i = 0;
+    while (value >= 1024 && i < units.length - 1) { value /= 1024; i++; }
+    return (i === 0 ? value : value.toFixed(1)) + " " + units[i];
+  }
+
+  function spLoadData() {
+    var project = state.project;
+    var body = spEl("dataBody");
+    body.innerHTML = "";
+    spEl("dataTable").classList.add("hidden");
+    if (!project) { return Promise.resolve(); }
+    spStatus(spEl("dataListStatus"), "読み込んでいます…");
+    return spApi("/local/data?project=" + encodeURIComponent(project)).then(function (data) {
+      if (state.project !== project) { return; }
+      var files = data.files || [];
+      if (!files.length) {
+        spStatus(spEl("dataListStatus"), "まだ何もありません。");
+        return;
+      }
+      spStatus(spEl("dataListStatus"), files.length + " 件", "ok");
+      spEl("dataTable").classList.remove("hidden");
+      files.forEach(function (file) { body.appendChild(spDataRow(file)); });
+    }).catch(function (e) {
+      if (state.project !== project) { return; }
+      spStatus(spEl("dataListStatus"), e.message, "ng");
+    });
+  }
+
+  function spDataRow(file) {
+    var tr = document.createElement("tr");
+    var cells = [
+      ["名前", file.name],
+      ["大きさ", spSize(file.size)],
+      ["日時", new Date(file.mtime).toLocaleString("ja-JP")]
+    ];
+    cells.forEach(function (cell) {
+      var td = document.createElement("td");
+      td.setAttribute("data-label", cell[0]);
+      td.textContent = cell[1];
+      tr.appendChild(td);
+    });
+    return tr;
+  }
+
+  // 選んだファイルを 1 件ずつ順に送る（並列にしない）。行ごとに結果を出す。
+  function spUploadData(files) {
+    var project = state.project;
+    if (!project) { spStatus(spEl("dataListStatus"), "プロジェクトを選んでください。", "ng"); return; }
+    var rows = spEl("dataRows");
+    var chain = Promise.resolve();
+    Array.prototype.forEach.call(files, function (file) {
+      var row = document.createElement("div");
+      row.className = "job";
+      row.textContent = file.name + " — 待っています";
+      rows.appendChild(row);
+      chain = chain.then(function () { return spSendData(project, file, row); });
+    });
+    chain.then(spLoadData);
+  }
+
+  function spSendData(project, file, row) {
+    function fail(message) {
+      row.className = "job failed";
+      row.textContent = file.name + " — 失敗: " + message;
+    }
+    if (!SP_DATA_NAME.test(file.name)) {
+      fail("ファイル名は英数字と . _ - だけで、先頭は英数字にしてください（128 字まで）");
+      return Promise.resolve();
+    }
+    row.textContent = file.name + " — 送信中…";
+    return spApi("/local/data?project=" + encodeURIComponent(project) + "&filename=" + encodeURIComponent(file.name), {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file
+    }).then(function (data) {
+      row.className = "job done";
+      row.textContent = file.name + " — 送りました（" + spSize(data.size) + "）";
+    }).catch(function (e) {
+      fail(e.message);
+    });
+  }
+
+  spEl("dataFiles").addEventListener("change", function () {
+    var input = spEl("dataFiles");
+    // 先に配列へ写してから空にする（空にすると同じファイルを選び直せる）
+    var picked = Array.prototype.slice.call(input.files);
+    input.value = "";
+    if (picked.length) { spUploadData(picked); }
+  });
+  spWireDrop(spEl("dataDrop"), null, spUploadData);
 
   // -- 進み具合（PDF 待ちの行の下と、BibTeX の節の下に出す） ----------------
   function spJobView(job) {
@@ -561,7 +753,7 @@
   }
 
   function spRenderJobs(jobs) {
-    var project = spEl("project").value;
+    var project = state.project;
     var latest = {};
     var bibJobs = [];
     var finished = false;
@@ -595,7 +787,16 @@
   }
 
   // -- 起動 ------------------------------------------------------------
+  // 前回のプロジェクトを開く。住所・トークン・プロジェクトのどれかが無ければ設定の画面。
   spLoadConfig().then(function () {
+    state.project = state.config.project || "";
+    var ready = !!(state.config.server_url && state.config.token && state.project);
+    state.view = ready ? "project" : "settings";
+    spRender();
+    if (ready) {
+      spLoadPending(state.project);
+      spLoadData();
+    }
     spLoadProjects();
     spLoadJobs();
     setInterval(spLoadJobs, 2000);

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -155,6 +156,9 @@ class FakeWebServer:
         }
         self.me = {"mode": "multi", "name": "tester", "email": "t@example.com"}
         self.projects = [{"name": "alpha"}, {"name": "beta"}]
+        # Data upload（U01）: 置いたファイル（名前 → 中身）と、受けた要求の記録
+        self.data_files: dict[str, bytes] = {}
+        self.data_posts: list[dict] = []
         self._polls: dict[str, int] = {}
         self._job_polls_before_done = job_polls_before_done
         state = self
@@ -181,6 +185,12 @@ class FakeWebServer:
                     self._send(200, {"projects": state.projects})
                 elif path.endswith("/papers/pending"):
                     self._send(200, state.pending)
+                elif path.endswith("/data/raw"):
+                    files = [
+                        {"name": name, "size": len(blob), "mtime": "2026-10-09T10:00:00+00:00"}
+                        for name, blob in sorted(state.data_files.items())
+                    ]
+                    self._send(200, {"files": files})
                 elif "/papers/jobs/" in path:
                     key = path.rsplit("/", 1)[-1]
                     count = state._polls.get(key, 0)
@@ -212,6 +222,26 @@ class FakeWebServer:
                     key = f"bundle:fake-{len(state.bundles)}"
                     state.jobs[key] = {"key": key, "status": "done", "title": "A Fake Paper", "paper_id": 12}
                     self._send(202, {"key": key, "status": "processing"})
+                elif path.endswith("/data/raw"):
+                    query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                    filename = (query.get("filename") or [""])[0]
+                    length = int(self.headers.get("Content-Length", "-1"))
+                    blob = self.rfile.read(length) if length > 0 else b""
+                    state.data_posts.append(
+                        {
+                            "project": path.split("/api/projects/")[1].split("/")[0],
+                            "filename": filename,
+                            "authorization": self.headers.get("Authorization", ""),
+                            "content_type": self.headers.get("Content-Type", ""),
+                            "content_length": length,
+                            "blob": blob,
+                        }
+                    )
+                    if filename in state.data_files:
+                        self._send(409, {"detail": "同じ名前のファイルがあります（上書きしません）"})
+                        return
+                    state.data_files[filename] = blob
+                    self._send(201, {"name": filename, "size": len(blob), "path": f"data/raw/{filename}"})
                 else:
                     self._send(404, {"error": "not found"})
 
