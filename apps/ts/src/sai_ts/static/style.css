@@ -1,0 +1,249 @@
+/* sai-ts の画面（PC 前提。幅 1280px で使う）。文字は 13px 以上。 */
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #fff;
+  color: #111;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;
+}
+
+button, select, input, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid #888;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+#ts-app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: 44px minmax(0, 1fr);
+  height: 100vh;
+}
+
+#ts-header {
+  grid-column: 1 / 3;
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px;
+  border-bottom: 1px solid #bbb;
+  background: #fff;
+}
+
+#ts-header select {
+  min-height: 28px;
+  max-width: 220px;
+}
+
+#ts-cats {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+#ts-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.ts-cat {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ts-cat.off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.ts-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+}
+
+.ts-pop-wrap {
+  position: relative;
+}
+
+.ts-pop {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #888;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.ts-pop[hidden] {
+  display: none;
+}
+
+.ts-varrow {
+  display: block;
+  padding: 2px 0;
+}
+
+.ts-tag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.ts-pop-btns {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#ts-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+#ts-canvas,
+#ts-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#ts-overlay {
+  cursor: crosshair;
+}
+
+#ts-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid #bbb;
+}
+
+#ts-panels {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ts-toast {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  z-index: 100;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: #111;
+  color: #fff;
+}
+
+#ts-form {
+  position: fixed;
+  z-index: 50;
+  width: 320px;
+  max-height: 80vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #888;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.ts-form-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.ts-field {
+  margin: 6px 0;
+}
+
+.ts-lbl {
+  margin-bottom: 2px;
+  color: #444;
+}
+
+.ts-field input[type="number"],
+.ts-field input[type="text"],
+.ts-field select,
+.ts-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.ts-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.ts-chk {
+  white-space: nowrap;
+}
+
+.ts-desc {
+  margin-top: -2px;
+  color: #555;
+  font-size: 13px;
+}
+
+.ts-err {
+  margin: 8px 0;
+  color: #b91c1c;
+}
+
+.ts-form-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ts-primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.ts-danger {
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
