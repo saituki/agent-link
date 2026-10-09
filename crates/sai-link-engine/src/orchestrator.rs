@@ -3289,6 +3289,8 @@ fn execute_completion_with_doc_write(
     let mut pane_error_count: u32 = 0;
     // 認証切れの画面確認を次にいつ行うか（30 秒ごと）
     let mut next_screen_check = Instant::now();
+    // 前回 401 の文言が出ていた画面の末尾。次の確認でも同じなら止まっているとみなす
+    let mut last_auth_screen: Option<String> = None;
 
     // U3: サブブロック停止検知の閾値（既定 60 秒。`SAI_IDLE_TIMEOUT_MS` で上書き可能）
     let idle_timeout_ms = stall_idle_ms();
@@ -3455,11 +3457,14 @@ fn execute_completion_with_doc_write(
                             // 認証切れ（cc が 401 で止まった）の検出。画面は 30 秒に 1 回だけ読む。
                             if Instant::now() >= next_screen_check {
                                 next_screen_check = Instant::now() + Duration::from_secs(30);
-                                if let Some(line) = herdr
-                                    .read_pane_output(pane_id, 40)
-                                    .ok()
-                                    .and_then(|screen| auth_error_line(&screen))
-                                {
+                                let screen = herdr.read_pane_output(pane_id, 40).unwrap_or_default();
+                                let line = auth_error_line(&screen);
+                                // agent が 401 の文言をファイルの内容として表示しているだけなら、
+                                // 画面は動く。同じ画面が 2 回続いたときだけ止まっているとみなす。
+                                let stuck = line.is_some()
+                                    && last_auth_screen.as_deref() == Some(screen.as_str());
+                                last_auth_screen = line.as_ref().map(|_| screen);
+                                if let (true, Some(line)) = (stuck, line) {
                                     eprintln!(
                                         "[sai-engine] 認証切れを検出 (pane={}): {}",
                                         pane_id, line
