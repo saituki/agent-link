@@ -19,7 +19,7 @@ apps/ts/bin/sai-ts serve       # http://127.0.0.1:8210/ を開く
 | `SAI_PROJECT_ROOT` | cwd から `.sai/` をたどる | プロジェクトの場所 |
 | `SAI_TS_PORT` | `8210` | サーバの番号 |
 | `SAI_TS_HOST` | `127.0.0.1` | 待ち受ける住所。`127.0.0.1` 以外は `SAI_TS_TOKEN` が要る |
-| `SAI_TS_TOKEN` | 空（認証なし） | 設定すると API と `/ext/` は `Authorization: Bearer` か `?token=` を要する。画面には URL の `?token=<値>` で渡す。画面は値を `localStorage`（キー `ts_token`）に保存し、URL からは消す |
+| `SAI_TS_TOKEN` | 空（認証なし） | 設定すると API と `/ext/` は `Authorization: Bearer` か `?token=` を要する。画面には URL の `?token=<値>`（Mac）か `#token=<値>`（sai-web の入口）で渡す。画面は値をそのタブの `sessionStorage`（キー `ts_token`）に保存し、URL からは消す |
 | `SAI_LINK_BIN` | `sai-link` | チャットが呼ぶ sai-link |
 | `SAI_TS_PYTHON` | 実行中の Python | スクリプトと拡張の server.py を動かす Python |
 
@@ -114,7 +114,7 @@ print(json.dumps({"added": len(found)}))
 
 - サーバではプロジェクトのコンテナの中で `sai-ts serve --host 0.0.0.0 --port 8210` が動く。`SAI_TS_TOKEN` は必ず設定する（同じ docker ネットワークの他の利用者のコンテナからも届くため）。
 - 利用者は sai-web の Projects の「時系列」から開く。住所は `https://<機械>.ts.net:8443/p/<プロジェクト>/`。
-- 合言葉は sai-web が URL の `?token=<値>` で渡す。読み方は上の表のとおり。
+- 合言葉は sai-web が出す入場券を入口が取り替え、URL の `#token=<値>` で渡す（読み方は上の表のとおり）。
 - 詳しくは `docs/server.md`。
 
 ## 試験
