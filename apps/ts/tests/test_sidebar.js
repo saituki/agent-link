@@ -14,12 +14,17 @@ const { tsTabOrder, tsSidebarBuiltins } = require(src);
 const ids = (tabs) => tabs.map((t) => t.id);
 const tab = (id) => ({ id, title: id });
 
-// 既定の順は chat・events・ext。足す順が逆でも既定の順になる
+// 既定の順は patients・chat・events・ext。足す順が逆でも既定の順になる
 assert.deepStrictEqual(ids(tsTabOrder([tab("ext"), tab("events"), tab("chat")], tsSidebarBuiltins)), [
   "chat",
   "events",
   "ext",
 ]);
+assert.deepStrictEqual(ids(tsTabOrder([tab("ext"), tab("chat"), tab("patients")], tsSidebarBuiltins)), [
+  "patients",
+  "chat",
+  "ext",
+], "患者は先頭");
 
 // 拡張が足したタブは後ろへ、足した順のまま
 assert.deepStrictEqual(
