@@ -1,0 +1,676 @@
+"use strict";
+// 波形のレーン・イベントの重ね描き・マウス操作・既定のキー（共有契約 C10）。
+// 純関数（DOM を使わない計算）は末尾で node のテストに渡す。
+
+const tsNameW = 80; // 名前の欄の幅（CSS px）
+const tsAxisH = 24; // 時間軸の高さ
+const tsNavH = 14; // 記録全体の帯（高さ 8px と余白）
+const tsLaneMinH = 24;
+const tsPanStep = 0.1; // ホイールで 1 回に動く表示幅の割合
+const tsDragPx = 3; // これより動いたらドラッグ扱い
+const tsHitPx = 4; // ラインの当たり判定の幅（CSS px）
+const tsDefaultColor = "#64748b";
+let tsGain = 1;
+let tsFetchTimer = null;
+let tsFetchKey = "";
+let tsFetchCtl = null;
+let tsFetchSeq = 0;
+let tsWave = null; // {ds, rec, data, scales, reqAt}
+let tsDrag = null;
+let tsSpace = false;
+let tsCss = { w: 0, h: 0 };
+
+// ---- 純関数（DOM を使わない。node のテストが読む） ----
+
+// 表示中の変数ごとのレーン。高さは (高さ − 軸) ÷ 変数の数（最小 minH）
+function tsLaneLayout(nvars, height, axisH, minH) {
+  if (nvars <= 0) return { laneH: 0, rows: [], total: axisH };
+  const laneH = Math.max(minH, Math.floor((height - axisH) / nvars));
+  const rows = [];
+  for (let i = 0; i < nvars; i++) rows.push({ y0: i * laneH, y1: (i + 1) * laneH });
+  return { laneH, rows, total: nvars * laneH + axisH };
+}
+
+// 1% 点と 99% 点で上下を決める。全部 null なら [-1, 1]
+function tsAutoRange(values) {
+  const v = values.filter((x) => x !== null && x !== undefined && Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return [-1, 1];
+  const q = (p) => v[Math.min(v.length - 1, Math.floor(p * (v.length - 1)))];
+  let lo = q(0.01);
+  let hi = q(0.99);
+  if (hi - lo < 1e-12) {
+    lo -= 1;
+    hi += 1;
+  }
+  return [lo, hi];
+}
+
+// M4 の列を点の列にする。列 i の last と列 i+1 の first を線でつなぐ。null の列は飛ばす
+// toX は列の番号を受け、toY は値を受ける。move が true の点から線を新しく始める
+function tsM4Path(cols, toX, toY) {
+  const out = [];
+  let started = false;
+  for (let i = 0; i < cols.first.length; i++) {
+    const f = cols.first[i];
+    if (f === null || f === undefined) {
+      started = false;
+      continue;
+    }
+    const pick = (a) => (a === null || a === undefined ? f : a);
+    const x = toX(i);
+    out.push({ x, y: toY(f), move: !started });
+    started = true;
+    out.push({ x, y: toY(pick(cols.min[i])), move: false });
+    out.push({ x, y: toY(pick(cols.max[i])), move: false });
+    out.push({ x, y: toY(pick(cols.last[i])), move: false });
+  }
+  return out;
+}
+
+// raw（1 サンプルずつ）の折れ線。null で線を切る
+function tsRawPath(y, start, dt, toX, toY) {
+  const out = [];
+  let started = false;
+  for (let k = 0; k < y.length; k++) {
+    const v = y[k];
+    if (v === null || v === undefined) {
+      started = false;
+      continue;
+    }
+    out.push({ x: toX(start + k * dt), y: toY(v), move: !started });
+    started = true;
+  }
+  return out;
+}
+
+// クリックの位置のイベント。ラインは許容幅 tolSec の中で一番近いもの、無ければエリアの中で一番狭いもの
+function tsHitEvent(events, t, laneVar, tolSec) {
+  const onLane = (ev) => !ev.vars || ev.vars.length === 0 || ev.vars.includes(laneVar);
+  let best = null;
+  let bestD = Infinity;
+  for (const ev of events) {
+    if (ev.type !== "line" || !onLane(ev)) continue;
+    const d = Math.abs(ev.t - t);
+    if (d <= tolSec && d < bestD) {
+      best = ev;
+      bestD = d;
+    }
+  }
+  if (best) return best;
+  let bestSpan = Infinity;
+  for (const ev of events) {
+    if (ev.type !== "area" || !onLane(ev)) continue;
+    if (t >= ev.t0 && t <= ev.t1 && ev.t1 - ev.t0 < bestSpan) {
+      best = ev;
+      bestSpan = ev.t1 - ev.t0;
+    }
+  }
+  return best;
+}
+
+// ドラッグの範囲を時間と変数にする。レーンに触れなければ中心が一番近いレーン
+function tsSelectionFromDrag(x0, x1, y0, y1, frame) {
+  const a = Math.min(frame.toT(x0), frame.toT(x1));
+  const b = Math.max(frame.toT(x0), frame.toT(x1));
+  const t0 = Math.max(frame.t0, a);
+  const t1 = Math.min(frame.t1, b);
+  const ya = Math.min(y0, y1);
+  const yb = Math.max(y0, y1);
+  let vars = frame.lanes.filter((l) => l.y1 > ya && l.y0 < yb).map((l) => l.var);
+  if (!vars.length && frame.lanes.length) {
+    const c = (ya + yb) / 2;
+    let near = frame.lanes[0];
+    for (const l of frame.lanes) {
+      if (Math.abs((l.y0 + l.y1) / 2 - c) < Math.abs((near.y0 + near.y1) / 2 - c)) near = l;
+    }
+    vars = [near.var];
+  }
+  return { t0, t1, vars };
+}
+
+// #rrggbb に透明度を付ける。形が違えば灰色
+function tsRgba(hex, a) {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex || "");
+  if (!m) return `rgba(100,116,139,${a})`;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// ---- ここから画面（ブラウザだけで動く） ----
+
+function tsPoint(e) {
+  const r = document.getElementById("ts-overlay").getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+function tsPlotPx() {
+  const main = document.getElementById("ts-main");
+  return Math.max(1, Math.min(8192, Math.round((main ? main.clientWidth : 0) - tsNameW)));
+}
+
+function tsFmtSec(t) {
+  return `${+t.toPrecision(8)} s`;
+}
+
+function tsCatColor(schema, name) {
+  const c = (schema.categories || []).find((x) => x.name === name);
+  return c && c.color ? c.color : tsDefaultColor;
+}
+
+// 今の記録・表示中のカテゴリのイベント
+function tsVisibleEvents() {
+  const st = window.TS.state;
+  return st.events.filter(
+    (ev) => (!ev.record || ev.record === st.record) && !st.hiddenCategories.has(ev.category),
+  );
+}
+
+function tsCurrentWave() {
+  const st = window.TS.state;
+  return tsWave && tsWave.ds === st.dataset && tsWave.rec === st.record ? tsWave : null;
+}
+
+// 変数ごとの上下の中心と幅（1% 点・99% 点）
+function tsScales(data) {
+  const out = {};
+  Object.keys(data.vars).forEach((name) => {
+    const v = data.vars[name];
+    const vals = v.mode === "m4" ? v.min.concat(v.max) : v.y;
+    const [lo, hi] = tsAutoRange(vals);
+    out[name] = { mid: (lo + hi) / 2, half: (hi - lo) / 2 || 1 };
+  });
+  return out;
+}
+
+function tsLanesFrame() {
+  const st = window.TS.state;
+  const main = document.getElementById("ts-main");
+  const w = main ? main.clientWidth : 0;
+  const h = main ? main.clientHeight : 0;
+  const vars = st.vars || [];
+  const lay = tsLaneLayout(vars.length, h, tsAxisH, tsLaneMinH);
+  const plotW = Math.max(1, w - tsNameW);
+  const span = st.t1 - st.t0 || 1;
+  const wave = tsCurrentWave();
+  const lanes = vars.map((name, i) => {
+    const row = lay.rows[i];
+    const sc = wave && wave.scales[name] ? wave.scales[name] : { mid: 0, half: 1 };
+    const mid = (row.y0 + row.y1) / 2;
+    const amp = (row.y1 - row.y0) / 2 - 4;
+    return {
+      var: name,
+      y0: row.y0,
+      y1: row.y1,
+      toY: (v) => mid - ((v - sc.mid) / sc.half) * tsGain * amp,
+    };
+  });
+  return {
+    t0: st.t0,
+    t1: st.t1,
+    width: w,
+    height: lay.total,
+    left: tsNameW,
+    plotW,
+    lanesH: lay.total - tsAxisH,
+    navY: lay.total,
+    lanes,
+    toX: (t) => tsNameW + ((t - st.t0) / span) * plotW,
+    toT: (x) => st.t0 + ((x - tsNameW) / plotW) * span,
+  };
+}
+
+function tsLaneAt(frame, y) {
+  return frame.lanes.find((l) => y >= l.y0 && y < l.y1) || null;
+}
+
+function tsWavePoints(wave, data, frame, lane) {
+  if (data.mode === "m4") {
+    const n = data.first.length;
+    const colX = (i) => frame.toX(wave.data.t0 + ((i + 0.5) * (wave.data.t1 - wave.data.t0)) / n);
+    return tsM4Path({ first: data.first, min: data.min, max: data.max, last: data.last }, colX, lane.toY);
+  }
+  return tsRawPath(data.y, data.start, data.dt, frame.toX, lane.toY);
+}
+
+function tsDrawAll() {
+  const main = document.getElementById("ts-main");
+  if (!main) return;
+  const frame = tsLanesFrame();
+  const w = main.clientWidth;
+  const h = Math.max(main.clientHeight, frame.height + tsNavH);
+  tsCss = { w, h };
+  const dpr = window.devicePixelRatio || 1;
+  ["ts-canvas", "ts-overlay"].forEach((id) => {
+    const c = document.getElementById(id);
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    c.style.width = w + "px";
+    c.style.height = h + "px";
+  });
+  const ctx = document.getElementById("ts-canvas").getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  tsPaintLanes(ctx, frame);
+  tsDrawOverlay();
+}
+
+function tsPaintLanes(ctx, frame) {
+  const st = window.TS.state;
+  const { w } = tsCss;
+  const wave = tsCurrentWave();
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, tsCss.h);
+  ctx.font = "13px sans-serif";
+  ctx.textBaseline = "middle";
+  frame.lanes.forEach((lane) => {
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, lane.y1 + 0.5);
+    ctx.lineTo(w, lane.y1 + 0.5);
+    ctx.stroke();
+    ctx.fillStyle = "#111";
+    ctx.fillText(lane.var, 6, (lane.y0 + lane.y1) / 2, tsNameW - 10);
+    const data = wave && wave.data.vars[lane.var];
+    if (!data) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(tsNameW, lane.y0, frame.plotW, lane.y1 - lane.y0);
+    ctx.clip();
+    ctx.strokeStyle = "#222";
+    ctx.beginPath();
+    tsWavePoints(wave, data, frame, lane).forEach((p) => (p.move ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.stroke();
+    ctx.restore();
+  });
+  // 名前の欄と時間軸
+  ctx.strokeStyle = "#999";
+  ctx.beginPath();
+  ctx.moveTo(tsNameW + 0.5, 0);
+  ctx.lineTo(tsNameW + 0.5, frame.lanesH);
+  ctx.stroke();
+  ctx.strokeStyle = "#555";
+  ctx.beginPath();
+  ctx.moveTo(0, frame.lanesH + 0.5);
+  ctx.lineTo(w, frame.lanesH + 0.5);
+  ctx.stroke();
+  ctx.fillStyle = "#111";
+  ctx.textBaseline = "top";
+  tsNiceTicks(frame.t0, frame.t1, Math.max(2, Math.floor(frame.plotW / 100))).forEach((t) => {
+    const x = frame.toX(t);
+    if (x < tsNameW - 1 || x > w + 1) return;
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, frame.lanesH);
+    ctx.lineTo(x + 0.5, frame.lanesH + 6);
+    ctx.stroke();
+    ctx.fillText(tsFmtSec(t), x + 3, frame.lanesH + 6);
+  });
+  // 記録全体の中の今の範囲（押すと移動）
+  const dur = tsDuration(st.meta);
+  if (dur > 0) {
+    const y = frame.navY + 3;
+    const x0 = tsNameW + (st.t0 / dur) * frame.plotW;
+    const x1 = tsNameW + (st.t1 / dur) * frame.plotW;
+    ctx.fillStyle = "#e5e7eb";
+    ctx.fillRect(tsNameW, y, frame.plotW, 8);
+    ctx.fillStyle = "rgba(37,99,235,0.45)";
+    ctx.fillRect(x0, y, Math.max(2, x1 - x0), 8);
+  }
+}
+
+function tsDrawOverlay() {
+  const ov = document.getElementById("ts-overlay");
+  if (!ov || !tsCss.w) return;
+  const frame = tsLanesFrame();
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = ov.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, tsCss.w, tsCss.h);
+  tsPaintEvents(ctx, frame);
+  const st = window.TS.state;
+  if (st.selection) tsPaintRange(ctx, frame, st.selection.t0, st.selection.t1, st.selection.vars, "rgba(37,99,235,0.2)", "#2563eb");
+  if (tsDrag && tsDrag.mode === "select" && tsDrag.moved) {
+    const s = tsSelectionFromDrag(tsDrag.x0, tsDrag.x, tsDrag.y0, tsDrag.y, frame);
+    tsPaintRange(ctx, frame, s.t0, s.t1, s.vars, "rgba(37,99,235,0.12)", "#2563eb");
+  }
+  tsRunLayers(ctx, frame);
+}
+
+function tsPaintRange(ctx, frame, t0, t1, vars, fill, stroke) {
+  const x0 = frame.toX(t0);
+  const x1 = frame.toX(t1);
+  frame.lanes
+    .filter((l) => vars.includes(l.var))
+    .forEach((l) => {
+      ctx.fillStyle = fill;
+      ctx.fillRect(x0, l.y0, x1 - x0, l.y1 - l.y0);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x0 + 0.5, l.y0 + 0.5, x1 - x0 - 1, l.y1 - l.y0 - 1);
+    });
+}
+
+function tsPaintEvents(ctx, frame) {
+  const st = window.TS.state;
+  ctx.font = "13px sans-serif";
+  ctx.textBaseline = "top";
+  tsVisibleEvents().forEach((ev) => {
+    const color = tsCatColor(st.schema, ev.category);
+    const sel = st.selectedEvents.includes(ev.id);
+    const lanes = frame.lanes.filter((l) => !ev.vars || ev.vars.length === 0 || ev.vars.includes(l.var));
+    if (!lanes.length) return;
+    ctx.fillStyle = color;
+    if (ev.type === "area") {
+      if (ev.t1 < frame.t0 || ev.t0 > frame.t1) return;
+      const x0 = frame.toX(ev.t0);
+      const x1 = frame.toX(ev.t1);
+      lanes.forEach((l) => {
+        ctx.fillStyle = tsRgba(color, 0.25);
+        ctx.fillRect(x0, l.y0 + 1, x1 - x0, l.y1 - l.y0 - 2);
+        if (sel) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x0 + 1.5, l.y0 + 2.5, x1 - x0 - 3, l.y1 - l.y0 - 5);
+        }
+      });
+      ctx.fillStyle = color;
+      ctx.fillText(ev.category || "", x0 + 3, lanes[0].y0 + 2);
+    } else {
+      if (ev.t < frame.t0 || ev.t > frame.t1) return;
+      const x = frame.toX(ev.t);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = sel ? 3 : 2;
+      lanes.forEach((l) => {
+        ctx.beginPath();
+        ctx.moveTo(x, l.y0);
+        ctx.lineTo(x, l.y1);
+        ctx.stroke();
+      });
+      ctx.fillStyle = color;
+      ctx.fillText(ev.category || "", x + 4, lanes[0].y0 + 2);
+    }
+  });
+}
+
+// 入力欄が開くまで、クリックしたレーンの変数・時刻を求める
+function tsHitAt(x, y, tol) {
+  const frame = tsLanesFrame();
+  const lane = tsLaneAt(frame, y);
+  return tsHitEvent(tsVisibleEvents(), frame.toT(x), lane ? lane.var : null, tol);
+}
+
+function tsTolSec() {
+  const frame = tsLanesFrame();
+  return (tsHitPx * (frame.t1 - frame.t0)) / frame.plotW;
+}
+
+function tsSelectEvents(ids) {
+  window.TS.setView({ selectedEvents: ids });
+  window.TS.emit("select", ids);
+}
+
+function tsNavJump(x) {
+  const st = window.TS.state;
+  const dur = tsDuration(st.meta);
+  if (!(dur > 0)) return;
+  const frame = tsLanesFrame();
+  const t = Math.min(dur, Math.max(0, ((x - tsNameW) / frame.plotW) * dur));
+  const span = st.t1 - st.t0;
+  const r = tsClampRange(t - span / 2, t + span / 2, dur, span);
+  window.TS.setView({ t0: r.t0, t1: r.t1 });
+}
+
+function tsOnDown(e) {
+  const st = window.TS.state;
+  if (!st.meta) return;
+  const p = tsPoint(e);
+  if (e.button === 1 || (e.button === 0 && tsSpace)) {
+    e.preventDefault();
+    tsDrag = { mode: "pan", x0: p.x, t0: st.t0, t1: st.t1 };
+    return;
+  }
+  if (e.button !== 0 || p.x < tsNameW) return;
+  const frame = tsLanesFrame();
+  if (p.y >= frame.navY && p.y < frame.navY + tsNavH) {
+    tsDrag = { mode: "nav" };
+    tsNavJump(p.x);
+    return;
+  }
+  if (e.altKey) {
+    const lane = tsLaneAt(frame, p.y);
+    window.TS.editEvent(null, {
+      type: "line",
+      t: frame.toT(p.x),
+      vars: lane ? [lane.var] : [],
+      anchor: { x: e.clientX, y: e.clientY },
+    });
+    return;
+  }
+  e.preventDefault();
+  tsDrag = { mode: "select", x0: p.x, y0: p.y, x: p.x, y: p.y, moved: false };
+}
+
+function tsOnMove(e) {
+  const d = tsDrag;
+  if (!d) return;
+  const st = window.TS.state;
+  const p = tsPoint(e);
+  if (d.mode === "pan") {
+    const dt = -((p.x - d.x0) / tsLanesFrame().plotW) * (d.t1 - d.t0);
+    const r = tsPan(d.t0, d.t1, dt, tsDuration(st.meta));
+    window.TS.setView({ t0: r.t0, t1: r.t1 });
+  } else if (d.mode === "nav") {
+    tsNavJump(p.x);
+  } else if (d.mode === "select") {
+    d.x = p.x;
+    d.y = p.y;
+    if (Math.hypot(p.x - d.x0, p.y - d.y0) >= tsDragPx) d.moved = true;
+    if (d.moved) tsDrawOverlay();
+  }
+}
+
+function tsOnUp(e) {
+  const d = tsDrag;
+  if (!d) return;
+  tsDrag = null;
+  if (d.mode === "select") {
+    if (d.moved) {
+      const sel = tsSelectionFromDrag(d.x0, d.x, d.y0, d.y, tsLanesFrame());
+      window.TS.setView({ selection: sel });
+      window.TS.editEvent(null, {
+        type: "area",
+        t0: sel.t0,
+        t1: sel.t1,
+        vars: sel.vars,
+        anchor: { x: e.clientX, y: e.clientY },
+      });
+    } else {
+      const hit = tsHitAt(d.x0, d.y0, tsTolSec());
+      if (hit) {
+        tsSelectEvents([hit.id]);
+      } else {
+        window.TS.setView({ selectedEvents: [], selection: null });
+        window.TS.emit("select", []);
+      }
+    }
+  }
+  tsDrawOverlay();
+}
+
+function tsOnDbl(e) {
+  const p = tsPoint(e);
+  if (p.x < tsNameW) return;
+  const hit = tsHitAt(p.x, p.y, tsTolSec());
+  if (!hit) return;
+  tsSelectEvents([hit.id]);
+  window.TS.editEvent(hit.id, { anchor: { x: e.clientX, y: e.clientY } });
+}
+
+// 縦の回転は横の移動。Ctrl・⌘ を押すと（トラックパッドのピンチを含む）マウスの位置を中心に拡大縮小
+function tsOnWheel(e) {
+  e.preventDefault();
+  const st = window.TS.state;
+  if (!st.meta) return;
+  const dur = tsDuration(st.meta);
+  const minSpan = tsMinSamples / st.meta.srate;
+  if (e.ctrlKey || e.metaKey) {
+    const tc = tsLanesFrame().toT(tsPoint(e).x);
+    const r = tsZoomAt(st.t0, st.t1, tc, Math.exp(e.deltaY * 0.0015), dur, minSpan);
+    window.TS.setView({ t0: r.t0, t1: r.t1 });
+    return;
+  }
+  const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (!d) return;
+  const r = tsPan(st.t0, st.t1, Math.sign(d) * tsPanStep * (st.t1 - st.t0), dur);
+  window.TS.setView({ t0: r.t0, t1: r.t1 });
+}
+
+// 取り直しは 80ms 待ってから。前の要求は取り消す
+function tsLanesScheduleFetch() {
+  const st = window.TS.state;
+  const key = [st.dataset, st.record, st.t0, st.t1, (st.vars || []).join(","), tsPlotPx()].join("|");
+  if (key === tsFetchKey) return;
+  tsFetchKey = key;
+  clearTimeout(tsFetchTimer);
+  if (tsFetchCtl) tsFetchCtl.abort();
+  if (!st.meta || !(st.vars || []).length) {
+    tsWave = null;
+    tsDrawAll();
+    return;
+  }
+  tsFetchTimer = setTimeout(tsLanesFetch, 80);
+}
+
+async function tsLanesFetch() {
+  const st = window.TS.state;
+  if (!st.dataset || !st.record || !st.meta || !st.vars.length) return;
+  if (tsFetchCtl) tsFetchCtl.abort();
+  const ctl = new AbortController();
+  tsFetchCtl = ctl;
+  const seq = ++tsFetchSeq;
+  const ds = st.dataset;
+  const rec = st.record;
+  const url =
+    `/api/datasets/${tsEnc(ds)}/records/${tsEnc(rec)}/m4?vars=${st.vars.map(tsEnc).join(",")}` +
+    `&t0=${st.t0}&t1=${st.t1}&px=${tsPlotPx()}`;
+  const reqAt = performance.now();
+  try {
+    const data = await window.TS.api(url, { signal: ctl.signal });
+    if (seq !== tsFetchSeq) return;
+    tsWave = { ds, rec, data, scales: tsScales(data), reqAt };
+    tsDrawAll();
+    console.info(`sai-ts 波形: 要求から描き終わりまで ${Math.round(performance.now() - reqAt)} ms`);
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    window.TS.ui.toast("波形を取れません: " + e.message);
+  }
+}
+
+async function tsKeyDelete() {
+  const st = window.TS.state;
+  const ids = st.selectedEvents.slice();
+  if (!ids.length || !st.dataset) return;
+  if (!window.confirm(`${ids.length} 件のイベントを消しますか？`)) return;
+  for (const id of ids) {
+    await window.TS.api(`/api/datasets/${tsEnc(st.dataset)}/events/${tsEnc(id)}`, { method: "DELETE" }).catch((e) =>
+      window.TS.ui.toast("消せません: " + e.message),
+    );
+  }
+  window.TS.setView({ selectedEvents: [] });
+  await window.TS.reloadEvents();
+}
+
+function tsLanesInstallKeys() {
+  const ui = window.TS.ui;
+  const zoom = (factor) => {
+    const st = window.TS.state;
+    if (!st.meta) return;
+    const mid = (st.t0 + st.t1) / 2;
+    const r = tsZoomAt(st.t0, st.t1, mid, factor, tsDuration(st.meta), (tsMinSamples / st.meta.srate) || 0);
+    window.TS.setView({ t0: r.t0, t1: r.t1 });
+  };
+  const pan = (k) => {
+    const st = window.TS.state;
+    if (!st.meta) return;
+    const r = tsPan(st.t0, st.t1, k * (st.t1 - st.t0), tsDuration(st.meta));
+    window.TS.setView({ t0: r.t0, t1: r.t1 });
+  };
+  ui.addKey({ key: "ArrowLeft", desc: "左へ移動（Shift で 1 画面）", handler: (e) => pan(e.shiftKey ? -1 : -0.5) });
+  ui.addKey({ key: "ArrowRight", desc: "右へ移動（Shift で 1 画面）", handler: (e) => pan(e.shiftKey ? 1 : 0.5) });
+  ui.addKey({ key: "+", desc: "拡大", handler: () => zoom(0.8) });
+  ui.addKey({ key: "=", desc: "拡大", handler: () => zoom(0.8) });
+  ui.addKey({ key: "-", desc: "縮小", handler: () => zoom(1.25) });
+  ui.addKey({
+    key: "0",
+    desc: "記録全体",
+    handler: () => {
+      const st = window.TS.state;
+      if (st.meta) window.TS.setView({ t0: 0, t1: tsDuration(st.meta) });
+    },
+  });
+  ui.addKey({
+    key: "ArrowUp",
+    desc: "縦の倍率を上げる",
+    handler: () => {
+      tsGain *= 1.25;
+      tsDrawAll();
+    },
+  });
+  ui.addKey({
+    key: "ArrowDown",
+    desc: "縦の倍率を下げる",
+    handler: () => {
+      tsGain /= 1.25;
+      tsDrawAll();
+    },
+  });
+  ui.addKey({
+    key: "Escape",
+    desc: "選択を外す",
+    handler: () => window.TS.setView({ selection: null, selectedEvents: [] }),
+  });
+  ui.addKey({ key: "Delete", desc: "選んだイベントを消す", handler: tsKeyDelete });
+  ui.addKey({ key: "Backspace", desc: "選んだイベントを消す", handler: tsKeyDelete });
+}
+
+function tsLanesInit() {
+  const ov = document.getElementById("ts-overlay");
+  ov.addEventListener("mousedown", tsOnDown);
+  ov.addEventListener("dblclick", tsOnDbl);
+  ov.addEventListener("wheel", tsOnWheel, { passive: false });
+  window.addEventListener("mousemove", tsOnMove);
+  window.addEventListener("mouseup", tsOnUp);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === " " && !tsIsEditing(e.target)) {
+      tsSpace = true;
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.key === " ") tsSpace = false;
+  });
+  window.addEventListener("blur", () => {
+    tsSpace = false;
+    tsDrag = null;
+  });
+  window.addEventListener("resize", () => {
+    tsDrawAll();
+    tsLanesScheduleFetch();
+  });
+  window.TS.on("state", tsLanesScheduleFetch);
+  tsLanesInstallKeys();
+}
+
+if (typeof module !== "undefined") {
+  module.exports = {
+    tsLaneLayout,
+    tsAutoRange,
+    tsM4Path,
+    tsRawPath,
+    tsHitEvent,
+    tsSelectionFromDrag,
+    tsRgba,
+  };
+}

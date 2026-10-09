@@ -1,0 +1,125 @@
+# sai-ts（時系列の確認と判断の道具）
+
+人が時系列を見て判断し、その判断をイベントとして LLM agent に渡すための道具。
+段階 A は Mac で直接動かす（`127.0.0.1:8210`）。
+
+## 入れ方と起動
+
+```bash
+cd apps/ts && uv sync          # .venv を作る（fastapi・uvicorn・numpy）
+cd ~/workdir/Sai/sai-tree      # .sai/ のあるプロジェクトの中
+apps/ts/bin/sai-ts demo demo   # 合成データ（ts/datasets/demo）を作る
+apps/ts/bin/sai-ts serve       # http://127.0.0.1:8210/ を開く
+```
+
+## 環境変数
+
+| 名前 | 既定 | 中身 |
+|---|---|---|
+| `SAI_PROJECT_ROOT` | cwd から `.sai/` をたどる | プロジェクトの場所 |
+| `SAI_TS_PORT` | `8210` | サーバの番号 |
+| `SAI_TS_TOKEN` | 空（認証なし） | 設定すると API と `/ext/` は `Authorization: Bearer` か `?token=` を要する |
+| `SAI_LINK_BIN` | `sai-link` | チャットが呼ぶ sai-link |
+| `SAI_TS_PYTHON` | 実行中の Python | スクリプトと拡張の server.py を動かす Python |
+
+置き場は `<project>/ts/` の中だけ。記録は `datasets/<ds>/records/<rec>/meta.json` と `<var>.f32`（float32・リトルエンディアン・ヘッダ無し）。
+
+## CLI
+
+画面と同じことを CLI で行う。成功は `--json` で標準出力に JSON 1 つ。失敗は標準出力に何も書かず、標準エラーの最後の行に理由が 1 行出る。終了コードは 2（入力の誤り）・3（見つからない）・4（状態の衝突）・1（その他）。
+
+| 命令 | 中身 |
+|---|---|
+| `sai-ts serve [--port N]` | サーバを起こす（127.0.0.1 だけ） |
+| `sai-ts init [--update]` | `ts/` を作り、block `ts-agent` を sai-link に入れる |
+| `sai-ts demo <ds> [--records N] [--vars N] [--seconds S] [--srate HZ]` | 合成データを作る |
+| `sai-ts datasets` | データセットと記録の一覧 |
+| `sai-ts meta <ds> <rec>` | 記録の meta |
+| `sai-ts events list <ds> [--record R] [--category C] [--type line\|area]` | イベントの一覧 |
+| `sai-ts events add <ds>` | 標準入力に 1 件の JSON か配列 |
+| `sai-ts events update <ds> <id>` | 標準入力に変える項目の JSON |
+| `sai-ts events rm <ds> <id>` | イベントを消す |
+| `sai-ts events export <ds>` | BIDS 互換の TSV（`--json` なら `{"tsv": "…"}`） |
+| `sai-ts schema get <ds>` / `sai-ts schema set <ds>` | スキーマを読む・置き換える（標準入力に全体） |
+| `sai-ts view [--json]` / `sai-ts view set` | 画面の状態を読む・一部を書く（標準入力に一部。`updated_by` は agent） |
+| `sai-ts run <script> --dataset <ds> [--record R]... [--params JSON] [--timeout SEC]` | スクリプトを動かす |
+| `sai-ts ext list` | 拡張の一覧（有効・読めない理由） |
+
+```bash
+apps/ts/bin/sai-ts datasets --json
+apps/ts/bin/sai-ts events list demo --json
+apps/ts/bin/sai-ts view --json
+apps/ts/bin/sai-ts run burst --dataset demo --json
+```
+
+## agent に使わせる
+
+- `sai-ts init` で block `ts-agent` が sai-link の定義に入る。
+- チャットは画面の「チャットを始める」で起きる（`card create` と `card run` で、run の番号を `datasets/<ds>/chat.json` に書く）。
+- 利用者の判断は CLI で読む。agent は波形を見られないので、`events list` と `view` を読んで答える。
+- `PATH` に入れる場合は次を足す。利用者のシェルの設定は、利用者自身が書く。
+
+```bash
+export PATH="$HOME/workdir/Sai/sai-tree/apps/ts/bin:$PATH"
+```
+
+## 拡張の書き方
+
+置き場は `ts/ext/<name>/`。`manifest.json` と ES モジュールの `main.js` を置くと、画面が自分で読み込む（保存すれば読み直す）。
+
+```json
+{"name": "hello", "title": "挨拶", "entry": "main.js", "enabled": true}
+```
+
+```js
+export default function activate(ts) {
+  const btn = ts.ui.addHeaderButton({
+    id: "hello", label: "挨拶", title: "通知を出す",
+    onClick: () => ts.ui.toast("こんにちは"),
+  });
+  const key = ts.ui.addKey({ key: "h", desc: "挨拶", handler: () => ts.ui.toast("こんにちは") });
+  return () => { btn(); key(); };   // 戻り値は後始末の関数（任意）
+}
+```
+
+- `ts` は画面の `window.TS` そのもの。`ts.state`・`ts.on(kind, fn)`・`ts.api(path, opts)`・`ts.setView(patch)` を使う。
+- 計算が要るなら manifest に `"server": "server.py"` を書く。画面から `POST /api/ext/<name>/call/<fn>` で呼べる（時間の上限 60 秒）。
+
+## スクリプトの書き方
+
+置き場は `ts/scripts/<name>.py`。`sai-ts run <name> --dataset <ds> --json` で動く（時間の上限は既定 1800 秒）。標準入力は `{"dataset", "records", "params"}`。最後に標準出力へ JSON を 1 つ出す。
+
+```python
+import json, sys
+import numpy as np
+from sai_ts import sdk
+req = json.load(sys.stdin)
+ds = req["dataset"]
+found = []
+for rec in req["records"] or sdk.records(ds):
+    meta, data = sdk.load(ds, rec)
+    x = data["ch01"]; sr = meta["srate"]
+    idx = np.flatnonzero(np.abs(x) > req["params"].get("thr", 3.0) * np.std(x))
+    for i in idx[::int(sr)]:   # 1 秒に 1 件まで
+        found.append({"type": "line", "record": rec, "vars": ["ch01"], "t": float(i / sr), "category": "burst", "text": "", "metrics": {}})
+sdk.add_events(ds, found)
+print(json.dumps({"added": len(found)}))
+```
+
+- `sdk.add_events` の `source` は `script:<name>@<sha8>` になる。どの版が足したかが残る。
+- `sdk.add_var` で派生変数を足す。`.f32` と `meta.json` は直接書かない。
+
+## 段階 B（未実装）
+
+- 多人数モードでは、コンテナの中で動かす予定。
+- sai-web とは別のオリジンで出す予定。画面の認証は段階 B で決める。
+- いまの段階 A は `127.0.0.1` だけで待つ。
+
+## 試験
+
+```bash
+cd apps/ts
+for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done
+```
+
+`test_server_data.py` は `httpx`（dev グループ）を使う。

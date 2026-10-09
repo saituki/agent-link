@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>sai-ts</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="ts-app">
+    <header id="ts-header">
+      <select id="ts-ds" aria-label="データセット"></select>
+      <select id="ts-rec" aria-label="記録"></select>
+      <button id="ts-prev" type="button" title="前の記録">◀</button>
+      <button id="ts-next" type="button" title="次の記録">▶</button>
+      <div id="ts-vars-wrap" class="ts-pop-wrap">
+        <button id="ts-vars-btn" type="button">変数</button>
+        <div id="ts-vars" class="ts-pop" hidden></div>
+      </div>
+      <div id="ts-cats"></div>
+      <div id="ts-buttons"></div>
+    </header>
+    <main id="ts-main">
+      <canvas id="ts-canvas"></canvas>
+      <canvas id="ts-overlay"></canvas>
+    </main>
+    <aside id="ts-side">
+      <div id="ts-tabs"></div>
+      <div id="ts-panels"></div>
+    </aside>
+  </div>
+  <script src="app.js"></script>
+  <script src="lanes.js"></script>
+  <script src="evform.js"></script>
+  <script src="sidebar.js"></script>
+  <script src="evtable.js"></script>
+  <script src="chat.js"></script>
+  <script src="exthost.js"></script>
+  <script>window.addEventListener("DOMContentLoaded", () => tsBoot());</script>
+</body>
+</html>
