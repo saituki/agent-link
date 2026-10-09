@@ -17,20 +17,28 @@
 
 // --- 定数 ---
 
-// run の中身の表示（帯の並び＝TUI のショートカットと同じ・計画 14 §1.3）。
-// 最後の session だけは Agent タブのメッセージ画面へ飛ぶので、sessionHash が作る。
+// run の中身の表示の値（住所の <view> が受け付ける値）。帯のタブには出さない値も含む。
+// stats・history は Summary（log）へ、waggle（トークン無し）は Outputs へ移す（openList）。
+// session は Agent タブのメッセージ画面へ飛ぶので、sessionHash が作る（住所だけの入口）。
 const LV_VIEWS = [
   ["log", "Summary"],
   ["stats", "Stats"],
   ["history", "History"],
+  ["outputs", "Outputs"],
   ["task", "task"],
   ["message", "message"],
   ["report", "Report"],
   // 固定部分（system prompt。起動時に run フォルダの system-prompt.md から渡す・U6）
   ["system", "system"],
   ["waggle", "waggle"],
-  ["session", "session"],
 ];
+// 帯のタブ（Summary | Outputs の 2 つだけ）。並びと表示名はここ 1 か所。
+const LV_TABS = [
+  ["log", "Summary"],
+  ["outputs", "Outputs"],
+];
+// Outputs に入る表示（成果物と md）。それ以外は Summary（log）に入る。
+const LV_OUTPUT_VIEWS = ["outputs", "task", "message", "report", "system", "waggle"];
 // Project 上部の 4 つの切り替え（共有契約 C-F7）。
 // 並びと表示名はここ 1 か所。dataset の値は変えない。
 const LV_MODES = [
@@ -46,6 +54,8 @@ const LV_MODES = [
 const LV_MODE_KEY = "sai_web_link_mode";
 // 最後に見ていた表示を覚える（localStorage・計画 14 §1.3）
 const LV_VIEW_KEY = "sai_web_list_view";
+// Summary の下の切り替え（Per-message table かタイムライン）を覚える（localStorage）
+const LV_DETAIL_KEY = "sai_web_list_detail";
 // ツリーの開閉をプロジェクトごとに覚える（localStorage・計画 14 §1.2）
 const LV_FOLDS_KEY = "sai_web_list_folds";
 // History の種類別の色（5 色・project.js のドーナツと同じ考え方）。色は CSS 変数。
@@ -60,8 +70,6 @@ const LV_CHARTS = [
 ];
 // レーン名 → 用語の key（見出しの横に置く用語の札用）
 const LV_TERMS = { todo: "todo", running: "running", review: "review", done: "done" };
-// 表示名 → 用語の key（多すぎないように見出しの所だけ置く）
-const LV_VIEW_TERMS = { log: "run", task: "card", waggle: "waggle", message: "run" };
 
 // --- 小さな助け舟 ---
 
@@ -155,19 +163,24 @@ function wantsListView(name) {
   return rememberedMode(name) === "list";
 }
 
+/** 表示が光らせる帯のタブ（"log" か "outputs"）。古い値（stats など）もここで直す。 */
+function tabOf(view) {
+  return LV_OUTPUT_VIEWS.includes(view) ? "outputs" : "log";
+}
+
+/** 覚えている表示（Summary か Outputs の 2 つだけ）。 */
 function loadViewMemory() {
   try {
-    const v = localStorage.getItem(LV_VIEW_KEY);
-    return LV_VIEWS.some((x) => x[0] === v) ? v : "log";
+    return tabOf(localStorage.getItem(LV_VIEW_KEY));
   } catch {
     return "log";
   }
 }
 
-/** 最後に見ていた表示を覚える（todo run では呼ばない・計画 14 §1.3）。 */
+/** 最後に見ていた表示を覚える（todo run では呼ばない・計画 14 §1.3）。Summary か Outputs に直して覚える。 */
 function saveViewMemory(view) {
   try {
-    localStorage.setItem(LV_VIEW_KEY, view);
+    localStorage.setItem(LV_VIEW_KEY, tabOf(view));
   } catch { /* 保存できなくても動く */ }
 }
 
@@ -205,24 +218,23 @@ function toggleFold(open, id) {
 
 // --- 表示の決め方（DOM を使わない・tests/test_linkview.js） ---
 
-/** 6 つの表示の帯。todo run は task だけ選べる（計画 14 §1.3）。 */
+/** 帯のタブ（Summary・Outputs の 2 つ）。todo run は Outputs だけ選べる（計画 14 §1.3）。 */
 function viewTabs(todo) {
-  return LV_VIEWS.map(([key, label]) => ({
+  return LV_TABS.map(([key, label]) => ({
     key,
     label,
-    ok: !todo || key === "task",
+    ok: !todo || key === "outputs",
   }));
 }
 
 /**
- * 開く表示を決める。最後に見ていた表示をそのまま使い、
- * todo run では task に固定する（表示は URL に残し，記憶は変えない・計画 14 §1.3）。
+ * 開く表示を決める。todo run では task に固定する（表示は URL に残し，記憶は変えない・計画 14 §1.3）。
+ * stats・history は Summary（log）に直す。それ以外は覚えていた表示をそのまま使う。
  */
 function pickView(todo, remembered) {
-  const tabs = viewTabs(!!todo);
-  const hit = tabs.find((t) => t.key === remembered && t.ok);
-  if (hit) return hit.key;
-  return todo ? "task" : "log";
+  if (todo) return "task";
+  if (remembered === "stats" || remembered === "history") return "log";
+  return LV_VIEWS.some((x) => x[0] === remembered) ? remembered : "log";
 }
 
 /** todo の run（lane / status が todo）か（▶ 実行と task 固定の判定・計画 14 §1.3）。 */
@@ -492,9 +504,11 @@ function lvScheduledAt(text) {
   return m ? m[1].trim() : "";
 }
 
-/** waggle が 1 件だけなら一覧を通さず直接開く（計画 14 §1.3）。 */
-function waggleDirect(items) {
-  return Array.isArray(items) && items.length === 1;
+/** task.md の frontmatter から `description:` を読む（無ければ空）。Outputs の task の行の説明。 */
+function lvTaskDescription(text) {
+  const fm = String(text || "").match(/^---\n([\s\S]*?)^---[ \t]*$/m);
+  const m = fm ? fm[1].match(/^description:[ \t]*(.*)$/m) : null;
+  return m ? m[1].trim() : "";
 }
 
 // ===========================================================================
@@ -505,8 +519,7 @@ function waggleDirect(items) {
 
 let lvName = "";           // 開いているプロジェクト名
 let lvRunId = null;        // 選んでいる run（null＝未選択）
-let lvView = null;         // 今見ている表示（7 つのどれか）
-let lvSession = null;      // Stats の表示に出す session の数字（log の session_stats）
+let lvView = null;         // 今見ている表示（LV_VIEWS のどれか）
 let lvRun = null;          // 選んでいる run のツリーの行（label / lane / status）
 let lvTree = null;         // ツリー（GET …/tree の items・null＝未読）
 let lvTreeError = "";      // ツリーを読めなかったときの 1 行
@@ -515,10 +528,9 @@ let lvMsg = "";            // 見出し下に出す 1 行
 let lvMsgErr = false;      // その行を赤で出すか（失敗の理由）
 let lvBusy = false;        // ▶ 実行の送信中
 let lvSeq = 0;             // 画面が入れ替わった合図（古い応答を捨てる）
-let lvWaggleList = null;   // 成果物の一覧（同じ run の間だけ使い回す）
-let lvWaggleToken = null;  // 開いている成果物（null＝一覧）
-let lvWaggleFromHash = false; // 開いている成果物が住所のトークンから来たか
-let lvChartMode = "turn";  // Stats のグラフの種類
+let lvWaggleList = null;   // 成果物の一覧（同じ run の間だけ使い回す・Outputs と文書の ＋ で使う）
+let lvWaggleToken = null;  // 開いている成果物（住所のトークン・null＝文書を開いていない）
+let lvChartMode = "turn";  // Summary のグラフの種類
 let lvMdText = "";         // 表示中の md（task / message）の本文
 let lvEditing = false;     // task を書き換えているか
 let lvDraft = "";          // 書きかけの本文
@@ -593,24 +605,28 @@ async function openList(params) {
   const todo = run ? isTodoRun(run) : false;
   let view = null;
   if (runId != null) {
+    // session は List には描かず，Agent タブのメッセージ画面へ移る（U11）。
+    // location.replace にするのは，戻ると同じ session 住所に戻ってまた移ってしまうため。
+    // todo run では session を選べないので、下の pickView で task に固定する。
+    if (params.view === "session" && !todo) {
+      location.replace(sessionHash(name, runId));
+      return;
+    }
     const wanted =
       params.view && LV_VIEWS.some((v) => v[0] === params.view)
         ? params.view
         : loadViewMemory();
     view = pickView(todo, wanted);
+    // todo でも Outputs を明示した住所（‹ Outputs・Outputs タブ）は一覧を出す（task 以外は押せない）
+    if (todo && params.view === "outputs") view = "outputs";
+    // 文書の住所（waggle）にトークンが無ければ、成果物の一覧（Outputs）へ
+    if (view === "waggle" && !(params.waggleToken)) view = "outputs";
     // 覚えるのは「選んだ表示」だけ（todo で task に固定した分は覚えず・計画 14 §1.3）。
-    // session は Agent タブへ飛ぶ画面なので最後に見ていた表示には残さない（U11）。
-    if (!todo && params.view === view && view !== "session") saveViewMemory(view);
+    // 覚えるのは Summary か Outputs の 2 つ（saveViewMemory が直す）。
+    if (!todo) saveViewMemory(view);
   }
 
-  // session は List には描かず，Agent タブのメッセージ画面へ移る（U11）。
-  // location.replace にするのは，戻ると同じ session 住所に戻ってまた移ってしまうため。
-  if (view === "session") {
-    location.replace(sessionHash(name, runId));
-    return;
-  }
-
-  // 住所を正しい形に直す（数字でない run_id・todo run の task 以外など）
+  // 住所を正しい形に直す（数字でない run_id・todo run の task 以外・古い表示の値など）
   const wantToken = view === "waggle" && params && params.waggleToken ? params.waggleToken : null;
   const target = listHash(name, runId, view, wantToken);
   if (target !== location.hash) {
@@ -624,17 +640,10 @@ async function openList(params) {
   lvRun = run;
   if (runChanged) {
     lvWaggleList = null;
-    lvWaggleToken = null;
   }
-  // 住所に文書のトークンがあれば、その文書を開く（md の中の waggle リンクから来た）。
-  // 住所からトークンが消えたら（‹ で戻ったとき）、その文書は閉じて一覧に戻す。
-  if (wantToken) {
-    lvWaggleToken = wantToken;
-    lvWaggleFromHash = true;
-  } else if (lvWaggleFromHash) {
-    lvWaggleToken = null;
-    lvWaggleFromHash = false;
-  }
+  // 住所に文書のトークンがあれば、その文書を開く（Outputs の一覧・md の中の waggle リンクから来た）。
+  // 住所からトークンが消えたら（‹ Outputs で戻ったとき）、その文書は閉じる。
+  lvWaggleToken = wantToken;
   lvFolds = lvLoadFolds(name);
 
   lvRenderHead();
@@ -688,13 +697,9 @@ function lvRenderHead() {
   tabs.innerHTML = "";
   for (const t of viewTabs(isTodoRun(lvRun))) {
     const b = document.createElement("button");
-    b.className = "lv-tab" + (t.key === lvView ? " active" : "");
+    b.className = "lv-tab" + (t.key === tabOf(lvView) ? " active" : "");
     b.textContent = t.label;
     b.disabled = !t.ok;
-    if (LV_VIEW_TERMS[t.key]) {
-      b.appendChild(document.createTextNode(" "));
-      b.appendChild(saiTerm(LV_VIEW_TERMS[t.key]));
-    }
     if (t.ok) {
       b.addEventListener("click", () => {
         location.hash = listHash(lvName, lvRunId, t.key);
@@ -748,6 +753,12 @@ function lvRenderActions() {
   // 動いている run は消せない（実行中のため）
   if (!["running", "pending"].includes(String(lvRun.status || lvRun.lane || ""))) {
     add("🗑 Delete", lvDelete, "ghost");
+  }
+  // 会話（Agent タブのメッセージ画面）への入口。todo にはまだ会話が無いので出さない
+  if (!isTodoRun(lvRun)) {
+    add("💬 Chat", () => {
+      location.hash = sessionHash(lvName, lvRunId);
+    }, "ghost");
   }
 }
 
@@ -888,28 +899,23 @@ async function lvLoadContent(seq) {
   body.innerHTML = "<p class='st-note'>読み込み中…</p>";
   const base = `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}`;
   try {
-    if (lvView === "waggle") {
-      await lvLoadWaggle(seq);
-      if (seq !== lvSeq) return;
+    if (lvView === "log") {
+      await lvLoadSummary(seq, base);
       return;
     }
-    const part =
-      lvView === "log" || lvView === "stats" || lvView === "history"
-        ? `view/${lvView}`
-        : `md/${lvView}`;
-    const data = await lvFetchJson(`${base}/${part}`);
-    if (seq !== lvSeq) return; // その間に別の表示を開いた
-    // Stats には session の数字（turn / tool / token）も出す。取れなくても Stats は出す
-    if (lvView === "stats") {
-      lvSession = await lvFetchJson(`${base}/view/log`).then((d) => d && d.session_stats, () => null);
-      if (seq !== lvSeq) return;
+    if (lvView === "outputs") {
+      await lvLoadOutputs(seq, base);
+      return;
     }
+    if (lvView === "waggle") {
+      await lvLoadWaggleDoc(seq, base);
+      return;
+    }
+    const data = await lvFetchJson(`${base}/md/${lvView}`);
+    if (seq !== lvSeq) return; // その間に別の表示を開いた
     window.SaiShell.ok();
     body.innerHTML = "";
-    if (lvView === "log") lvRenderLog(data);
-    else if (lvView === "stats") lvRenderStats(data);
-    else if (lvView === "history") lvRenderHistory(data);
-    else lvRenderMd(data);
+    lvRenderMd(data);
   } catch (e) {
     if (seq !== lvSeq) return;
     window.SaiShell.fail();
@@ -918,6 +924,53 @@ async function lvLoadContent(seq) {
     body.innerHTML = "";
     body.appendChild(el("p", "st-note", msg));
   }
+}
+
+/**
+ * Summary（log・stats・history を 1 枚に・計画 14 §1.3 の改定）。
+ * 3 つは別々に取り、失敗した部分にだけ理由を 1 行出す。全部失敗なら呼び元が失敗を出す。
+ */
+async function lvLoadSummary(seq, base) {
+  const body = lvBody();
+  const parts = await Promise.all(
+    ["log", "stats", "history"].map((v) =>
+      lvFetchJson(`${base}/view/${v}`).then(
+        (d) => ({ d }),
+        (e) => ({ err: (e && e.message) || "読み込めませんでした" })
+      )
+    )
+  );
+  if (seq !== lvSeq) return;
+  const [log, stats, hist] = parts;
+  if (parts.every((p) => p.err)) throw new Error(log.err);
+  window.SaiShell.ok();
+  body.innerHTML = "";
+  const failed = (title, p) => body.appendChild(el("p", "st-note", `${title}: ${p.err}`));
+
+  // 1. Summary（Inputs / Settings / Connection / Outputs）
+  if (log.d) lvRenderLog(log.d);
+  else failed("Summary", log);
+
+  // 2. session の数字と大きな数字 ／ 3. Per-message trend
+  if (stats.d) {
+    if (stats.d.error) lvSetMsg(String(stats.d.error), true);
+    body.appendChild(lvBigsEl(stats.d));
+    const sess = lvSessionCard(log.d && log.d.session_stats);
+    if (sess) body.appendChild(sess);
+    body.appendChild(lvCountsLine(stats.d));
+    body.appendChild(lvChartCard(stats.d));
+  } else failed("Stats", stats);
+
+  // 4. 種類別トークン（History のドーナツ）と CLI
+  if (hist.d) {
+    body.appendChild(lvHistHeadEl(hist.d));
+    body.appendChild(lvTypeCard(hist.d));
+    const cli = lvCliSummary(hist.d.cli);
+    if (cli) body.appendChild(lvCliCard(cli));
+  } else failed("History", hist);
+
+  // 5. Per-message table と タイムラインの切り替え
+  body.appendChild(lvDetailCard(stats, hist));
 }
 
 function lvCard(title) {
@@ -958,12 +1011,14 @@ function lvRenderLog(data) {
   }
 }
 
-// 2. Stats: 大きな数字 + メッセージごとの推移グラフ（SVG 手描き）+ 一覧（計画 14 §1.3）
-function lvRenderStats(data) {
-  const body = lvBody();
-  if (data.error) lvSetMsg(String(data.error), true);
+// Summary の表（2〜5 の部品）。カードを作る小さな関数に分けて使い回す。
+const LV_DETAILS = [
+  ["table", "Per-message table"],
+  ["timeline", "タイムライン"],
+];
 
-  // 大きな数字（入力 / 出力 / 読 / 書 / 費用 / ヒット率）
+// 2. 大きな数字（入力 / 出力 / 読 / 書 / 費用 / ヒット率）
+function lvBigsEl(data) {
   const bigs = el("div", "st-bigs");
   for (const c of statsCells(data.totals)) {
     const cell = el("div", "st-big");
@@ -977,35 +1032,41 @@ function lvRenderStats(data) {
     cell.appendChild(el("div", "st-big-label", c.label));
     bigs.appendChild(cell);
   }
-  body.appendChild(bigs);
+  return bigs;
+}
 
-  const sessionRows = sessionStatRows(lvSession);
-  if (sessionRows.length > 0) {
-    const sess = lvCard("Session");
-    for (const [label, value] of sessionRows) {
-      const row = el("div", "lv-kv");
-      row.appendChild(el("span", "lv-kv-label", label));
-      row.appendChild(el("span", "lv-kv-value", value));
-      sess.appendChild(row);
-    }
-    body.appendChild(sess);
+/** session の数字の札（取れなければ null）。 */
+function lvSessionCard(session) {
+  const rows = sessionStatRows(session);
+  if (rows.length === 0) return null;
+  const sess = lvCard("Session");
+  for (const [label, value] of rows) {
+    const row = el("div", "lv-kv");
+    row.appendChild(el("span", "lv-kv-label", label));
+    row.appendChild(el("span", "lv-kv-value", value));
+    sess.appendChild(row);
   }
+  return sess;
+}
 
+/** 件数の 1 行（user / agent / thinking / toolCall）。 */
+function lvCountsLine(data) {
   const counts = data.counts || {};
-  body.appendChild(
-    el(
-      "div",
-      "lv-sub",
-      [
-        `user ${lvNum(counts.user)}`,
-        `agent ${lvNum(counts.assistant)}`,
-        `thinking ${lvNum(counts.thinking)}`,
-        `toolCall ${lvNum(counts.toolcall)}`,
-      ].join(" · ")
-    )
+  return el(
+    "div",
+    "lv-sub",
+    [
+      `user ${lvNum(counts.user)}`,
+      `agent ${lvNum(counts.assistant)}`,
+      `thinking ${lvNum(counts.thinking)}`,
+      `toolCall ${lvNum(counts.toolcall)}`,
+    ].join(" · ")
   );
+}
 
-  // メッセージごとの推移グラフ（TUI の 1 / 2 / 3 と同じ 3 種・SVG 手描き）
+// 3. メッセージごとの推移（TUI の 1 / 2 / 3 と同じ 3 種・SVG 手描き）。
+// 切り替えはこのカードの中だけ描き直す。
+function lvChartCard(data) {
   const chart = lvCard("Per-message trend");
   const seg = el("div", "dash-seg small lv-chart-seg");
   for (const [key, label] of LV_CHARTS) {
@@ -1014,9 +1075,7 @@ function lvRenderStats(data) {
     if (key === lvChartMode) b.className = "active";
     b.addEventListener("click", () => {
       lvChartMode = key;
-      const box = lvBody();
-      box.innerHTML = "";
-      lvRenderStats(data);
+      chart.replaceWith(lvChartCard(data));
     });
     seg.appendChild(b);
   }
@@ -1043,40 +1102,66 @@ function lvRenderStats(data) {
     }
     chart.appendChild(legend);
   }
-  body.appendChild(chart);
+  return chart;
+}
 
-  // メッセージごとの一覧（表は横にはみ出す分だけスクロール・計画 14 §1.4）
+/** Per-message table（表は横にはみ出す分だけスクロール・計画 14 §1.4）。 */
+function lvTableBody(data) {
   const msgs = Array.isArray(data.messages) ? data.messages : [];
-  const tblCard = lvCard("Per-message table");
-  if (msgs.length === 0) {
-    tblCard.appendChild(el("p", "st-note", "データがありません"));
-  } else {
-    const wrap = el("div", "lv-scroll-x");
-    const table = el("table", "lv-table");
-    const head = el("tr");
-    for (const h of ["#", "Time", "Input", "Output", "Read", "Write", "Hit", "Cost"]) {
-      head.appendChild(el("th", null, h));
-    }
-    table.appendChild(head);
-    for (const m of msgs) {
-      const row = el("tr");
-      row.appendChild(el("td", null, String(lvNum(m.sequence))));
-      row.appendChild(el("td", null, lvClock(m.timestamp)));
-      row.appendChild(el("td", null, formatTokens(m.input)));
-      row.appendChild(el("td", null, formatTokens(m.output)));
-      row.appendChild(el("td", null, formatTokens(m.cache_read)));
-      row.appendChild(el("td", null, formatTokens(m.cache_write)));
-      row.appendChild(
-        el("td", null, `${Math.round(lvNum(m.cache_hit_percent))}%`)
-      );
-      const cost = m.cost && m.cost.total;
-      row.appendChild(el("td", null, cost == null ? "—" : formatMoney(cost)));
-      table.appendChild(row);
-    }
-    wrap.appendChild(table);
-    tblCard.appendChild(wrap);
+  if (msgs.length === 0) return el("p", "st-note", "データがありません");
+  const wrap = el("div", "lv-scroll-x");
+  const table = el("table", "lv-table");
+  const head = el("tr");
+  for (const h of ["#", "Time", "Input", "Output", "Read", "Write", "Hit", "Cost"]) {
+    head.appendChild(el("th", null, h));
   }
-  body.appendChild(tblCard);
+  table.appendChild(head);
+  for (const m of msgs) {
+    const row = el("tr");
+    row.appendChild(el("td", null, String(lvNum(m.sequence))));
+    row.appendChild(el("td", null, lvClock(m.timestamp)));
+    row.appendChild(el("td", null, formatTokens(m.input)));
+    row.appendChild(el("td", null, formatTokens(m.output)));
+    row.appendChild(el("td", null, formatTokens(m.cache_read)));
+    row.appendChild(el("td", null, formatTokens(m.cache_write)));
+    row.appendChild(el("td", null, `${Math.round(lvNum(m.cache_hit_percent))}%`));
+    const cost = m.cost && m.cost.total;
+    row.appendChild(el("td", null, cost == null ? "—" : formatMoney(cost)));
+    table.appendChild(row);
+  }
+  wrap.appendChild(table);
+  return wrap;
+}
+
+/** 切り替えの選びを覚える（table か timeline・既定は table）。 */
+function lvDetailMode() {
+  try {
+    return localStorage.getItem(LV_DETAIL_KEY) === "timeline" ? "timeline" : "table";
+  } catch {
+    return "table";
+  }
+}
+
+/** 5. Per-message table かタイムラインを 1 つだけ出す。釦で切り替えて、選びは覚える。 */
+function lvDetailCard(stats, hist) {
+  const card = lvCard(null);
+  const pick = lvDetailMode();
+  const seg = el("div", "dash-seg small lv-chart-seg");
+  for (const [key, label] of LV_DETAILS) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (key === pick) b.className = "active";
+    b.addEventListener("click", () => {
+      try { localStorage.setItem(LV_DETAIL_KEY, key); } catch { /* 保存できなくても動く */ }
+      card.replaceWith(lvDetailCard(stats, hist));
+    });
+    seg.appendChild(b);
+  }
+  card.appendChild(seg);
+  const part = pick === "timeline" ? hist : stats;
+  if (part.d) card.appendChild(pick === "timeline" ? lvTimelineBody(part.d) : lvTableBody(part.d));
+  else card.appendChild(el("p", "st-note", part.err));
+  return card;
 }
 
 /** 折れ線グラフ（外部ライブラリなしで SVG を手描く・計画 14 §6）。 */
@@ -1196,88 +1281,89 @@ function lvLineSvg(series) {
   return svg;
 }
 
-// 3. History: 種類別のカードと円グラフ（SVG 手描き）+ タイムライン（計画 14 §1.3）
-function lvRenderHistory(data) {
-  const body = lvBody();
+// 4. History の見出し・種類別トークン（ドーナツ・SVG 手描き）・タイムラインの本体
+function lvHistHeadEl(data) {
   const head = el("div", "lv-hist-head");
   head.appendChild(el("div", "lv-hist-title", String(data.title || "")));
   head.appendChild(el("div", "lv-sub", String(data.subtitle || "")));
-  body.appendChild(head);
+  return head;
+}
 
+function lvTypeCard(data) {
   const slices = typeSlices(data.type_tokens);
   const card = lvCard("種類別トークン");
   if (slices.length === 0) {
     card.appendChild(el("p", "st-note", "データがありません"));
-  } else {
-    const R = 38;
-    const C = 2 * Math.PI * R;
-    const total = slices.reduce((a, s) => a + s.value, 0);
-    // 並びは種類の順番で決まっているので、割合が最大のものは自分で探す
-    const biggest = slices.reduce((a, s) => (s.value > a.value ? s : a), slices[0]);
-    const wrap = el("div", "st-donut-wrap");
-    const svg = svgEl("svg", {
-      viewBox: "0 0 100 100",
-      class: "st-donut",
-      role: "img",
-      "aria-label":
-        `種類別トークンの割合のドーナツ。合計 ${formatTokens(total)} トークン` +
-        `。最も多いのは${biggest.label} ${formatTokens(biggest.value)}` +
-        `（${Math.round(biggest.ratio * 100)}%）`,
-    });
-    let start = 0;
-    slices.forEach((s, i) => {
-      const len = Math.max(s.ratio * C - 1.5, 0.5); // ギャップは 1.5 単位
-      svg.appendChild(
-        svgEl("circle", {
-          cx: "50",
-          cy: "50",
-          r: String(R),
-          fill: "none",
-          stroke: LV_TYPE_COLORS[i % LV_TYPE_COLORS.length],
-          "stroke-width": "14",
-          "stroke-dasharray": `${len.toFixed(2)} ${(C - len).toFixed(2)}`,
-          "stroke-dashoffset": String(-start * C),
-          transform: "rotate(-90 50 50)",
-        })
-      );
-      start += s.ratio;
-    });
-    wrap.appendChild(svg);
-    const center = el("div", "st-donut-center");
-    center.appendChild(el("strong", "st-donut-total", formatTokens(total)));
-    center.appendChild(el("span", "st-donut-cap", "合計"));
-    wrap.appendChild(center);
-    card.appendChild(wrap);
-
-    const legend = el("div", "lv-legend");
-    slices.forEach((s, i) => {
-      const row = el("div", "lv-leg");
-      const dot = el("span", "lv-dot-swatch");
-      dot.style.background = LV_TYPE_COLORS[i % LV_TYPE_COLORS.length];
-      row.append(
-        dot,
-        el("span", "lv-leg-name", s.label),
-        el("span", "lv-leg-pct", `${Math.round(s.ratio * 100)}%`),
-        el("span", "lv-leg-num", formatTokens(s.value))
-      );
-      legend.appendChild(row);
-    });
-    card.appendChild(legend);
+    return card;
   }
-  body.appendChild(card);
+  const R = 38;
+  const C = 2 * Math.PI * R;
+  const total = slices.reduce((a, s) => a + s.value, 0);
+  // 並びは種類の順番で決まっているので、割合が最大のものは自分で探す
+  const biggest = slices.reduce((a, s) => (s.value > a.value ? s : a), slices[0]);
+  const wrap = el("div", "st-donut-wrap");
+  const svg = svgEl("svg", {
+    viewBox: "0 0 100 100",
+    class: "st-donut",
+    role: "img",
+    "aria-label":
+      `種類別トークンの割合のドーナツ。合計 ${formatTokens(total)} トークン` +
+      `。最も多いのは${biggest.label} ${formatTokens(biggest.value)}` +
+      `（${Math.round(biggest.ratio * 100)}%）`,
+  });
+  let start = 0;
+  slices.forEach((s, i) => {
+    const len = Math.max(s.ratio * C - 1.5, 0.5); // ギャップは 1.5 単位
+    svg.appendChild(
+      svgEl("circle", {
+        cx: "50",
+        cy: "50",
+        r: String(R),
+        fill: "none",
+        stroke: LV_TYPE_COLORS[i % LV_TYPE_COLORS.length],
+        "stroke-width": "14",
+        "stroke-dasharray": `${len.toFixed(2)} ${(C - len).toFixed(2)}`,
+        "stroke-dashoffset": String(-start * C),
+        transform: "rotate(-90 50 50)",
+      })
+    );
+    start += s.ratio;
+  });
+  wrap.appendChild(svg);
+  const center = el("div", "st-donut-center");
+  center.appendChild(el("strong", "st-donut-total", formatTokens(total)));
+  center.appendChild(el("span", "st-donut-cap", "合計"));
+  wrap.appendChild(center);
+  card.appendChild(wrap);
 
-  // `cli`（C11）が無い JSON（古い CLI）ではカードを出さない
-  const cli = lvCliSummary(data.cli);
-  if (cli) body.appendChild(lvCliCard(cli));
+  const legend = el("div", "lv-legend");
+  slices.forEach((s, i) => {
+    const row = el("div", "lv-leg");
+    const dot = el("span", "lv-dot-swatch");
+    dot.style.background = LV_TYPE_COLORS[i % LV_TYPE_COLORS.length];
+    row.append(
+      dot,
+      el("span", "lv-leg-name", s.label),
+      el("span", "lv-leg-pct", `${Math.round(s.ratio * 100)}%`),
+      el("span", "lv-leg-num", formatTokens(s.value))
+    );
+    legend.appendChild(row);
+  });
+  card.appendChild(legend);
+  return card;
+}
 
+/** タイムラインの本体（行は lvTimelineRow）。 */
+function lvTimelineBody(data) {
   const events = Array.isArray(data.events) ? data.events : [];
-  const tlCard = lvCard(`タイムライン（${events.length}）`);
+  const box = el("div", null);
+  box.appendChild(el("div", "lv-sub", `タイムライン（${events.length}）`));
   if (events.length === 0) {
-    tlCard.appendChild(el("p", "st-note", "データがありません"));
+    box.appendChild(el("p", "st-note", "データがありません"));
   } else {
-    for (const ev of events) tlCard.appendChild(lvTimelineRow(ev));
+    for (const ev of events) box.appendChild(lvTimelineRow(ev));
   }
-  body.appendChild(tlCard);
+  return box;
 }
 
 /** Timeline の 1 行（DOM）。2 段目以降（番号・本文の先頭）は行の幅いっぱいに折り返す。 */
@@ -1487,6 +1573,7 @@ function lvDrawMd() {
   const body = lvBody();
   if (!body) return;
   body.innerHTML = "";
+  body.appendChild(lvBackToOutputs());
   if (lvEditing) {
     const ta = document.createElement("textarea");
     ta.className = "md-edit";
@@ -1580,84 +1667,100 @@ function lvWaggleAdd(item) {
   return b;
 }
 
-// 7. waggle: 成果物の一覧 → タップで本文、‹ で一覧へ（計画 14 §1.3）
-async function lvLoadWaggle(seq) {
+/** 成果物の一覧（同じ run の間は使い回す）。Outputs と文書の ＋ で使う。 */
+async function lvWaggleItems(base) {
+  if (!Array.isArray(lvWaggleList)) {
+    const data = await lvFetchJson(`${base}/waggle`);
+    lvWaggleList = Array.isArray(data.items) ? data.items : [];
+  }
+  return lvWaggleList;
+}
+
+/** ‹ Outputs: 成果物の一覧へ戻る（md と文書の上に置く）。 */
+function lvBackToOutputs() {
+  const back = el("button", "lv-md-back", "‹ Outputs");
+  back.type = "button";
+  back.addEventListener("click", () => {
+    location.hash = listHash(lvName, lvRunId, "outputs");
+  });
+  return back;
+}
+
+/**
+ * Outputs（計画 14 §1.3 の改定）: system・task・message・Report と、waggle の成果物の一覧。
+ * todo の run では task だけ開ける。waggle の一覧は取りにいかない。
+ */
+async function lvLoadOutputs(seq, base) {
   const body = lvBody();
-  const base = `/api/projects/${encodeURIComponent(lvName)}/runs/${lvRunId}/waggle`;
-  try {
-    if (lvWaggleToken) {
-      // 本文（開いているもの）
-      const data = await lvFetchJson(
-        `${base}/${encodeURIComponent(lvWaggleToken)}`
-      );
-      if (seq !== lvSeq) return;
-      window.SaiShell.ok();
-      body.innerHTML = "";
-      const back = document.createElement("button");
-      back.className = "lv-md-back";
-      back.textContent = "‹ List";
-      back.addEventListener("click", () => {
-        lvWaggleToken = null;
-        // 住所にトークンがあるときは外す（開き直しで同じ文書に戻らないように）
-        if (parseListHash(location.hash)?.waggleToken) {
-          location.hash = listHash(lvName, lvRunId, "waggle");
-          return;
-        }
-        const s = ++lvSeq;
-        void lvLoadContent(s);
-      });
-      body.appendChild(back);
-      const item = (lvWaggleList || []).find((w) => w.token === lvWaggleToken);
-      const title = el("div", "lv-waggle-title", item ? lvWaggleName(item) : String(data.label || lvWaggleToken));
-      if (item) title.appendChild(lvWaggleAdd(item));
-      body.appendChild(title);
-      body.appendChild(el("div", "lv-waggle-text", ""));
-      body.lastChild.innerHTML = renderMarkdown(data.text || "", { toolbar: true });
-      return;
-    }
-    // 一覧（まだ読んでいなければ）
-    if (!Array.isArray(lvWaggleList)) {
-      const data = await lvFetchJson(base);
-      if (seq !== lvSeq) return;
-      lvWaggleList = Array.isArray(data.items) ? data.items : [];
-      window.SaiShell.ok();
-    }
-    // 1 件だけなら直接開く（計画 14 §1.3）
-    if (waggleDirect(lvWaggleList)) {
-      lvWaggleToken = lvWaggleList[0].token;
-      await lvLoadWaggle(seq);
-      return;
-    }
-    if (seq !== lvSeq) return;
-    body.innerHTML = "";
-    if (lvWaggleList.length === 0) {
-      body.appendChild(el("p", "st-note", "成果物はありません"));
-      return;
-    }
-    for (const item of lvWaggleList) {
+  const todo = isTodoRun(lvRun);
+  // task の説明は front matter の description（取れなければ空）
+  const [taskText, items] = await Promise.all([
+    lvFetchJson(`${base}/md/task`).then((d) => (d && d.text) || "", () => ""),
+    todo ? null : lvWaggleItems(base),
+  ]);
+  if (seq !== lvSeq) return;
+  window.SaiShell.ok();
+  body.innerHTML = "";
+
+  const fixed = [
+    ["system", "system", ""],
+    ["task", "task", lvTaskDescription(taskText)],
+    ["message", "message", ""],
+    ["report", "Report", ""],
+  ];
+  for (const [view, label, desc] of fixed) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "lv-waggle-row";
+    row.disabled = todo && view !== "task";
+    row.appendChild(el("span", "lv-waggle-label", label));
+    row.appendChild(el("span", "lv-waggle-desc", desc));
+    row.addEventListener("click", () => {
+      location.hash = listHash(lvName, lvRunId, view);
+    });
+    body.appendChild(row);
+  }
+
+  const wcard = lvCard("waggle");
+  if (todo) {
+    wcard.appendChild(el("p", "st-note", "実行の後に成果物が出ます"));
+  } else if (items.length === 0) {
+    wcard.appendChild(el("p", "st-note", "成果物はありません"));
+  } else {
+    for (const item of items) {
       const line = el("div", "lv-waggle-line");
       const row = document.createElement("button");
+      row.type = "button";
       row.className = "lv-waggle-row";
       row.appendChild(el("span", "lv-waggle-label", lvWaggleName(item)));
-      row.appendChild(
-        el("span", "lv-waggle-desc", String(item.description || ""))
-      );
+      row.appendChild(el("span", "lv-waggle-desc", String(item.description || "")));
       row.addEventListener("click", () => {
-        lvWaggleToken = item.token;
-        const s = ++lvSeq;
-        void lvLoadContent(s);
+        location.hash = listHash(lvName, lvRunId, "waggle", item.token);
       });
       line.append(row, lvWaggleAdd(item));
-      body.appendChild(line);
+      wcard.appendChild(line);
     }
-  } catch (e) {
-    if (seq !== lvSeq) return;
-    window.SaiShell.fail();
-    const msg = (e && e.message) || "読み込めませんでした";
-    lvSetMsg(msg, true);
-    body.innerHTML = "";
-    body.appendChild(el("p", "st-note", msg));
   }
+  body.appendChild(wcard);
+}
+
+/** waggle の本文（住所のトークン。上に ‹ Outputs）。 */
+async function lvLoadWaggleDoc(seq, base) {
+  const body = lvBody();
+  const [data, items] = await Promise.all([
+    lvFetchJson(`${base}/waggle/${encodeURIComponent(lvWaggleToken)}`),
+    lvWaggleItems(base),
+  ]);
+  if (seq !== lvSeq) return;
+  window.SaiShell.ok();
+  body.innerHTML = "";
+  body.appendChild(lvBackToOutputs());
+  const item = items.find((w) => w.token === lvWaggleToken);
+  const title = el("div", "lv-waggle-title", item ? lvWaggleName(item) : String(data.label || lvWaggleToken));
+  if (item) title.appendChild(lvWaggleAdd(item));
+  body.appendChild(title);
+  body.appendChild(el("div", "lv-waggle-text", ""));
+  body.lastChild.innerHTML = renderMarkdown(data.text || "", { toolbar: true });
 }
 
 // --- 引き出し式ツリー（計画 14 §1.2） ---
@@ -1938,7 +2041,8 @@ if (typeof module !== "undefined" && module.exports) {
     lvEventRow,
     lvCliSummary,
     lvPrettyInput,
-    waggleDirect,
+    tabOf,
+    lvTaskDescription,
     lvScheduledAt,
   };
 }
