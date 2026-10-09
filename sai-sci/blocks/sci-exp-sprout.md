@@ -2,7 +2,7 @@
 name: 🌱 exp-sprout
 id: sci-exp-sprout
 description: "PATH を選んで SPROUT（実験の計画）を作り、実験仕様書と最初の BRANCH を起こして、待たずに終える"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core
@@ -50,7 +50,7 @@ SPROUT は、SEED から下る PATH（終点の A）を 1 つ以上集めた nod
 
 - 依頼文（目的と、解きたい A。例「A15 を含む SPROUT を作る」）を読む。
 - 最初のメッセージの `# context` の `## TREE` を読む。対象は `SEED` なので、research-tree の全体が入っている。
-- 解きたい A が依頼文に無ければ、先へ進まない。質問ツール（`AskUserQuestion` か `ask_user` のうち使えるほう）で起動者に聞いて止まる。
+- 解きたい A が依頼文に無ければ、先へ進まない。質問ツール（`AskUserQuestion`）で起動者に聞いて止まる。
 - 依頼文に「参照コード調査書」（`sci-exp-scout` の出力）のトークンがあれば、`sai-link doc read` で読む。
   - 無ければ、質問ツールで起動者に、`sci-exp-scout` を先に走らせるか、参照実装なしで進めるかを聞く。答えを待つあいだ、先へ進まない。
   - 参照実装なしで進むときは、仕様書の `reference_code` を `[]` にし、理由を本文に書く。
@@ -90,17 +90,16 @@ SPROUT は PATH（終点の A）を 1 つ以上集める。PATH は SEED から�
    ```
 
    3 つのどれかが決まらなければ、質問ツールで起動者に聞く。答えを待つあいだ、他へ進まない。
-2. **`return_to` を決める。** 依頼文に「起動元: <block> run <id>」の行があれば `{"block": "<block>", "run_id": <id>}`。無ければ `null`。
-3. **`device` と `allowed_actions`。** 実行先（`EXP_TARGET`）が GPU の PC なら `device` は `cuda`。`allowed_actions` は依頼文の指示に従う（再現なら `["draft", "tune", "debug"]`）。無ければ既定。
-4. 残りは `exp-core` §3 の既定値を使う。`workdir` は `experiments/<study>`。
-5. **`reference_code` を書く。** 仕様書の JSON に、参照コード調査書の `reference_code` をそのまま写す。調査書が無いとき（参照実装なしで進むと起動者が決めたとき）は `[]` にして、理由を本文に書く。
-6. **`sim_model` を書く。** モデル定義書（手順 1 で読んだ `sci-sim-model` / `sci-sim-compose` の出力）のトークンを `sim_model` に書く。神経のモデルでない実験は `null`。
-7. **本文に「## パラメータの出典表」を置く**（書き方は `exp-ref` §6）。
+2. **`device` と `allowed_actions`。** 実行先（`EXP_TARGET`）が GPU の PC なら `device` は `cuda`。`allowed_actions` は依頼文の指示に従う（再現なら `["draft", "tune", "debug"]`）。無ければ既定。
+3. 残りは `exp-core` §3 の既定値を使う。`workdir` は `experiments/<study>`。
+4. **`reference_code` を書く。** 仕様書の JSON に、参照コード調査書の `reference_code` をそのまま写す。調査書が無いとき（参照実装なしで進むと起動者が決めたとき）は `[]` にして、理由を本文に書く。
+5. **`sim_model` を書く。** モデル定義書（手順 1 で読んだ `sci-sim-model` / `sci-sim-compose` の出力）のトークンを `sim_model` に書く。神経のモデルでない実験は `null`。
+6. **本文に「## パラメータの出典表」を置く**（書き方は `exp-ref` §6）。
    - `sim_model` が `null` でなければ、**モデル定義書の「## パラメータの出典表」を写す**（scout の下書きより優先する）。**「## 再現の目標」の表も本文に写す。**
    - そうでなければ、参照コード調査書の下書きを元に、**モデルの名前付き定数のすべて**と、**GRID の軸の幅**を載せる。
    - 出典が `目安` の行で成功基準や結論に効くものは、`exp-ref` §6 のとおり `GRID` に入れるか、起動者に確かめてもらう未解決の点にする（報告に書く。木には出さない。A を足すのは利用者か `lab-*` の CARD）。どちらにしたかを備考に書く。
    - 出典が「記憶」の行は書かない。代わりに参照コード調査書の GAP として、質問ツールで起動者に聞く。
-8. 先頭に ```json コードブロックを置き、`exp-spec-<study>.md` で `sai-link doc write` で保存する。description は `実験仕様書 <study>: <研究の 1 文>`。**トークンを控える。**
+7. 先頭に ```json コードブロックを置き、`exp-spec-<study>.md` で `sai-link doc write` で保存する。description は `実験仕様書 <study>: <研究の 1 文>`。**トークンを控える。**
 
 ### 5. 最初の 1 回の実行を決める
 
@@ -124,7 +123,8 @@ SPROUT は PATH（終点の A）を 1 つ以上集める。PATH は SEED から�
 sai-sci card --node <E の ID> --block sci-exp-branch \
   --purpose "<study> draft <model>（親なし）" \
   --input <実験仕様書のトークン> --input <依頼書のトークン> \
-  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+  --model sonnet --thinking high \
+  --origin-run "$SAI_PARENT_RUN_ID" --json
 sai-link card run <返った run_id>
 ```
 
@@ -138,12 +138,7 @@ sai-link card run <返った run_id>
 
 ### 7. 終える
 
-起動者は `echo "${SAI_IS_SUBTASK:-0}"` で分かる。
-
-| 起動者 | 見分け方 | 終え方 |
-|---|---|---|
-| professor | `SAI_IS_SUBTASK=1` | `sai-link task report` を 1 回。報告に SPROUT の ID と実験仕様書のトークン、起こした 1 回の実行の run_id を書く |
-| 利用者 | `SAI_IS_SUBTASK` が無い | `sai-link run finalize`（`report` に同じ内容） |
+起動者は `echo "${SAI_IS_SUBTASK:-0}"` で分かる。終え方は `sci-core` の「終わり方」に従う。報告（`report`）には SPROUT の ID と実験仕様書のトークン、起こした 1 回の実行の run_id を書く。
 
 1 回の実行の終わりは待たない。BRANCH は `sci-exp-branch` と `sci-exp-review` が続ける。
 

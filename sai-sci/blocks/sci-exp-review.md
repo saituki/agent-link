@@ -2,7 +2,7 @@
 name: 🔍 exp-review
 id: sci-exp-review
 description: "ジョブが終わると起きる。台帳を読んで 1 回の実行の結果を判定し、次の実行を起こすか、止めて REPORT を書く"
-model: inherit
+model: opus
 thinking: high
 templates:
   - sci-core
@@ -67,7 +67,7 @@ uv run --no-project --python ">=3.10" --with mlflow python "$SAI_PROJECT_ROOT/.s
 sai-sci card --node <次の 1 回の実行の E の ID> --block sci-exp-branch \
   --purpose "<study> <action> <model>（親 ID<parent_branch>）" \
   --input <実験仕様書のトークン> --input <依頼書のトークン> --input <判定書のトークン> \
-  --origin-run "$SAI_PARENT_RUN_ID" --executer human --json
+  --origin-run "$SAI_PARENT_RUN_ID" --json
 sai-link card run <返った run_id>
 ```
 
@@ -83,19 +83,9 @@ REPORT（`exp-final-<study>.md`、`exp-core` §10）を保存する。descriptio
 
 - `no_records`（R4）なら、先に質問ツールで起動者（人）に MLflow への接続を確かめるよう聞き、答えを判定書に書く。
 - `repro_failed` で止めたときは、REPORT に**「土台が論文の再現の目標に届かなかった」**と書き、**改良の結論を書かない**（最良の値から改良が効いたとは書かない）。
-- 仕様書の `return_to` があれば、professor を起こし直す（`exp-core` §11）。`return_to` が `null` なら起こさない。
+- professor は起こさない。REPORT を保存して終える（`exp-core` §11）。Professor は木と REPORT から結果を読む。
 
 ```bash
-sai-link run md --kind task <return_to.run_id>   # frontmatter の runner・model・thinking を読む
-sai-link card create <<'EOF'
-{"runner": "<runner>", "block": "<return_to.block>", "model": "<model>", "thinking": "<thinking>",
- "executer": "human",
- "task_text": "あなたは <block> の続きである。前の run <return_to.run_id> が起こした実験 <study> が終わった。\n研究日誌 .sai/paper/<block>-log.md を読んでから、下の REPORT を評価して Next Action を決めよ。\n\nwaggle:<REPORT のトークン>"}
-EOF
-sai-link card run <返った run_id>
-```
-
-`model`・`thinking` が空なら、その欄を書かない。`sai-link run tree` で running を確かめる。
 
 ### 7. 木に記録する
 
@@ -113,7 +103,7 @@ sai-link card run <返った run_id>
 
 ### 8. 終える
 
-`sai-link run finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（または REPORT のトークンと起こし直した professor の run_id）を書く。
+`sai-link run finalize` を呼ぶ。`report` に、判定（decision・rule）・判定書のトークン・起こした実行の run_id（stop のときは REPORT のトークン）を書く。
 
 ## やってはいけないこと
 
@@ -121,5 +111,4 @@ sai-link card run <返った run_id>
 - **`max_children` を超えて起こすこと。**
 - **`total_branches + 起こす本数 > max_branches` で起こすこと。**
 - **台帳の値を自分で計算すること。**
-- **`return_to` が `null` なのに professor を起こすこと。**
 - **ジョブを投げること。** 投げるのは `sci-exp-branch` の役目である。

@@ -820,8 +820,8 @@ mod tests {
 
         let block = root.join(".sai/blocks/sci-start.md");
         let source = std::fs::read_to_string(&block).unwrap();
-        assert!(source.contains("model: inherit"), "sci-start.md の前提が違う");
-        let edited = source.replacen("model: inherit", "model: haiku", 1);
+        assert!(source.contains("model: sonnet"), "sci-start.md の前提が違う");
+        let edited = source.replacen("model: sonnet", "model: haiku", 1);
         std::fs::write(&block, &edited).unwrap();
 
         let done = install_sci_init(&root, bin, "general", false, true).unwrap();
@@ -1056,7 +1056,10 @@ mod tests {
                 frontmatter.contains("\ncontext: true\n"),
                 "{name} に context: true が無い"
             );
-            assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
+            assert!(
+                ["opus", "sonnet", "haiku"].iter().any(|m| frontmatter.contains(&format!("model: {m}\n"))),
+                "{name} の model が opus・sonnet・haiku のどれでもない"
+            );
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(!content.contains("review_headings"), "{name} に review_headings が残っている");
@@ -1169,7 +1172,10 @@ mod tests {
             assert!(!frontmatter.contains("sci-core"), "{name} の templates に sci-core がある");
             assert!(!frontmatter.contains("\ncontext: true\n"), "{name} に context: true がある");
             assert!(!frontmatter.contains("\nsci_ops: "), "{name} に sci_ops がある");
-            assert!(frontmatter.contains("model: inherit"), "{name} の model が inherit ではない");
+            assert!(
+                ["opus", "sonnet", "haiku"].iter().any(|m| frontmatter.contains(&format!("model: {m}\n"))),
+                "{name} の model が opus・sonnet・haiku のどれでもない"
+            );
             assert!(frontmatter.contains("worktree: none"), "{name} の worktree が none ではない");
             assert!(frontmatter.contains("enable: true"), "{name} が有効になっていない");
             assert!(frontmatter.contains("\nthinking: high\n"), "{name} の thinking が high ではない");
@@ -1208,16 +1214,11 @@ mod tests {
             if subblocks {
                 assert!(children.contains(&"operator"), "professor の subblocks に operator が無い");
                 if id == "professor" {
-                    for child in [
-                        "sci-start", "lab-read", "lab-search", "lab-survey", "lab-grow", "lab-place",
-                        "lab-progress", "sci-verify", "sci-analogy", "sci-lookup", "sci-extract",
-                        "sci-digest", "sci-coach", "sci-typify", "sci-exp-scout",
-                        "sci-sim-model", "sci-sim-compose", "sci-exp-sprout",
-                        "sci-data-explore", "sci-data-test",
-                    ] {
+                    // 結果を待つ子だけ（Node の作業は Card で起こすので subblocks に入れない）
+                    for child in ["sci-exp-scout", "sci-sim-model", "sci-sim-compose"] {
                         assert!(children.contains(&child), "professor の subblocks に {child} が無い");
                     }
-                    assert_eq!(children.len(), 21, "professor の子が 21 本でない");
+                    assert_eq!(children.len(), 4, "professor の子が 4 本でない");
                 }
                 for child in children {
                     let file = SCI_BLOCKS
@@ -1244,9 +1245,9 @@ mod tests {
                 .map(|(_, content)| *content)
                 .unwrap_or_else(|| panic!("{name} が SCI_BLOCKS に無い"));
             for needle in [
-                "\"card\": 120",
-                "--executer agent",
-                "--origin-run \"$SAI_PARENT_RUN_ID\"",
+                "sai-link card run <run_id>",
+                "sai-link run wait",
+                "sai-web questions",
                 "sai-sci status --brief",
                 "sai-sci op",
                 "sai-web",
@@ -1296,6 +1297,10 @@ mod tests {
             .and_then(|rest| rest.split("\n---\n").next())
             .unwrap();
         let children = frontmatter_list(frontmatter, "subblocks:");
+        for child in ["operator", "sci-exp-scout", "sci-sim-model", "sci-sim-compose"] {
+            assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");
+        }
+        // 段の作業は Card で起こすので subblocks には入れない。配るブロックに有ることだけ確かめる。
         for child in [
             "sci-restore",
             "sci-cite-check",
@@ -1306,7 +1311,8 @@ mod tests {
             "lab-grow",
             "sci-result-compare",
         ] {
-            assert!(children.contains(&child), "professor-backward の subblocks に {child} が無い");
+            let shipped = SCI_BLOCKS.iter().map(|(block, _)| *block).any(|block| block.trim_end_matches(".md") == child);
+            assert!(shipped, "professor-backward の段のブロック {child} が配られていない");
         }
     }
 

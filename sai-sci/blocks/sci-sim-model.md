@@ -2,7 +2,7 @@
 name: 🧬 sim-model
 id: sci-sim-model
 description: "論文 1 本の神経のモデルを、参照コードと論文から式と値を出典つきで抜いてモデル定義書にする（再現・改良）"
-model: inherit
+model: sonnet
 thinking: high
 templates:
   - sci-core

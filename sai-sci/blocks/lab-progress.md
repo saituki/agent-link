@@ -2,8 +2,8 @@
 name: 📊 全体の進み具合
 id: lab-progress
 description: "木の数と穴を報告し、次に動かす LabAgent の CARD を 3 件まで勧める（op は出さない）"
-model: inherit
-thinking: high
+model: haiku
+thinking: low
 templates:
   - sci-core
 context: true
@@ -36,7 +36,7 @@ enable: true
 
    ```bash
    sai-sci card --node <Node の ID> --block <lab-grow など> \
-     --purpose "<目的>" --executer agent --origin-run "$SAI_PARENT_RUN_ID" --json
+     --purpose "<目的>" --origin-run "$SAI_PARENT_RUN_ID" --json
    ```
 
 6. REPORT を保存して終えます（`sci-core` の「終わり方」）。
@@ -62,5 +62,5 @@ report は次の見出しで、この順のまま書きます。
 - **数（counts）** — Q・A・F（support・deny・issue）・E・S の数。
 - **穴** — 見つけた穴ごとに、Node の ID と文、種類、理由。
 - **次の CARD の案** — 勧める CARD（Node・block・目的）。
-- **利用者の答え** — 作った CARD と、作らなかった理由。質問していないときは「なし」。
+- **利用者の答え** — 作った CARD（`run_id` を含む。起こすのは Professor か Human）と、作らなかった理由。質問していないときは「なし」。
 - 「木への変更」は「なし（op は出さない）」と書きます。「OUT_OF_SCOPE」は範囲の外で気づいたこと（無ければ「なし」）。

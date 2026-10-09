@@ -3,7 +3,7 @@ name: 🧑‍⚖️ 査読者
 id: paper-reviewer
 description: 議論の司会から査読会で呼ばれる。依頼文の観点から計画や考えを厳しく採点する（直接は使わない）
 sci_type: support
-model: inherit
+model: opus
 thinking: high
 templates:
   - debate-participant

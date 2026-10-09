@@ -2,8 +2,8 @@
 name: 📋 抜き出す
 id: sci-extract
 description: "GUIDE の Extract の項目を論文ごとに抜き出して表にし、呼んだ agent に返す"
-model: inherit
-thinking: high
+model: sonnet
+thinking: medium
 templates:
   - sci-core
   - sci-find

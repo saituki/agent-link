@@ -2,8 +2,8 @@
 name: 📚 Library で答える
 id: sci-lookup
 description: "呼んだ agent の問いを Library の索引で調べ、答えと塊 ID を返す"
-model: inherit
-thinking: high
+model: haiku
+thinking: low
 templates:
   - sci-core
   - sci-find
