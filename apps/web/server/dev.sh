@@ -1,16 +1,19 @@
 #!/bin/sh
 # Mac で sai-tree を動かしながら直すための補助（本番の配備は deploy.sh）。
 #
+#   apps/web/server/dev.sh up            直したあとはこれだけ: image → containers → assets → prep → web
 #   apps/web/server/dev.sh status        今の状態（Web・イメージ・各コンテナ）
 #   apps/web/server/dev.sh web           Web を止めて起動し直す（Python を直したとき）
 #   apps/web/server/dev.sh image         イメージを作り直す（crates・hooks・sai-sci を直したとき）
-#   apps/web/server/dev.sh containers    古いイメージのコンテナを作り直す（-f で作業中でも）
+#   apps/web/server/dev.sh containers    古いイメージ・古い置き場のコンテナを作り直し、止まっていれば起こす（-f で作業中でも）
+#   apps/web/server/dev.sh assets        動いている各プロジェクトに block・template を配り直す（sai-sci init --update）
 #   apps/web/server/dev.sh prep          sai-prep を入れ直す（そのあと sai-prep を起動し直す）
-#   apps/web/server/dev.sh all           image → containers → web
+#   apps/web/server/dev.sh all           up と同じ
 #
 # 画面（static/*）だけを直したときは何も要らない。sw.js の CACHE と index.html の ?v= を
 # 上げてブラウザをリロードする。
 #
+# プロジェクトのデータ（PDF・papr.db・.sai/outputs）は users/ の中にあり、コンテナを作り直しても残る。
 # 置き場は ~/sai-tree-dev（SAI_DEV_ROOT で変えられる）。中に home/（SAI_HOME）・users/・bin/
 # （CLI の中継）・web.log・web.pid を作る。既に別の置き場で動かしているときは、
 # SAI_DEV_HOME・SAI_DEV_USERS・SAI_DEV_BIN で指す。Web は 127.0.0.1:8299。
@@ -34,6 +37,8 @@ web_env() {
   export SAI_HOME="$HOME_DIR" SAI_WEB_USERS_ROOT="$USERS" SAI_IMAGE="$IMAGE"
   export SAI_LINK_BIN="$BIN/sai-link" SAI_PAPER_BIN="$BIN/sai-paper" SAI_SCI_BIN="$BIN/sai-sci"
   export SAI_WEB_COOKIE_SECURE=0 SAI_WEB_NO_WATCH=1 SAI_WEB_TOKEN=
+  # コンテナのフック（質問など）をこの Web へ向ける（既定の 8200 番は別の Web）
+  export SAI_WEB_URL_FOR_CONTAINERS="${SAI_WEB_URL_FOR_CONTAINERS:-http://host.docker.internal:$PORT}"
 }
 
 prepare() {
@@ -77,7 +82,8 @@ web_start() {
 
 image_build() {
   echo "== イメージを作る（${IMAGE}）。Rust は 2 回目から差分だけ"
-  (cd "$REPO" && DOCKER_BUILDKIT=1 docker build -f apps/web/server/Dockerfile -t "$IMAGE" .)
+  # provenance（時刻入り）を付けると中身が同じでも ID が変わり、毎回コンテナを作り直してしまう
+  (cd "$REPO" && DOCKER_BUILDKIT=1 docker build --provenance=false -f apps/web/server/Dockerfile -t "$IMAGE" .)
 }
 
 # プロジェクトのコンテナ（label sai.owner が付いた物）の名前。
@@ -100,8 +106,12 @@ containers_recreate() {
   web_env
   for c in $(project_containers); do
     cur=$(docker inspect -f '{{.Image}}' "$c")
-    if [ "$cur" = "$new" ]; then
-      echo "$c: 最新"
+    if [ "$cur" = "$new" ] && project_root "$c" | grep -q "^$USERS/"; then
+      if [ "$(docker inspect -f '{{.State.Running}}' "$c")" = "true" ]; then
+        echo "$c: 最新"
+      else
+        docker start "$c" >/dev/null && echo "$c: 最新（起こした）"
+      fi
       continue
     fi
     if [ "$force" != "-f" ] && busy "$c"; then
@@ -114,6 +124,30 @@ containers_recreate() {
     (cd "$REPO/apps/web" && PYTHONPATH=src .venv/bin/python -c \
       "import sys; from sai_web import containers; print(containers.start(sys.argv[1]))" "${c#sai-}")
   done
+}
+
+# コンテナのプロジェクトの場所（環境変数 SAI_PROJECT_ROOT）。
+project_root() {
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" | sed -n 's/^SAI_PROJECT_ROOT=//p'
+}
+
+# 動いている各プロジェクトに、イメージの中の block・template を配り直す（変わる物は .bak に退避）。
+assets_update() {
+  for c in $(project_containers); do
+    [ "$(docker inspect -f '{{.State.Running}}' "$c")" = "true" ] || continue
+    root=$(project_root "$c")
+    if docker exec -w "$root" -e SAI_PROJECT_ROOT="$root" "$c" sai-sci init --update --json >/dev/null; then
+      echo "$c: block・template を配り直した"
+    else
+      echo "$c: block・template を配り直せませんでした" >&2
+    fi
+  done
+}
+
+prep_install() {
+  uv tool install --python 3.12 --reinstall "$REPO/apps/prep" >/dev/null 2>&1 \
+    && echo "sai-prep を入れ直した（動いている sai-prep は Ctrl+C で止めて起動し直す）" \
+    || echo "sai-prep を入れ直せませんでした（uv を確かめる）" >&2
 }
 
 status() {
@@ -139,13 +173,11 @@ case "${1:-}" in
   web) web_stop; web_start ;;
   image) image_build ;;
   containers) containers_recreate "${2:-}" ;;
-  prep)
-    uv tool install --python 3.12 --reinstall "$REPO/apps/prep"
-    echo "入れ直しました。動いている sai-prep は Ctrl+C で止めて、起動し直してください。"
-    ;;
-  all) image_build; containers_recreate "${2:-}"; web_stop; web_start ;;
+  assets) assets_update ;;
+  prep) prep_install ;;
+  up|all) image_build; containers_recreate "${2:-}"; assets_update; prep_install; web_stop; web_start ;;
   *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac
