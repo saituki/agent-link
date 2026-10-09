@@ -9,7 +9,7 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_ts", "static", "chat.js");
-const { tsSplitCode, tsSelectionSummary, tsChatDiff, tsChatMaxChars } = require(src);
+const { tsSplitCode, tsSelectionSummary, tsChatDiff, tsChatStarted, tsChatStartLabel, tsChatMaxChars } = require(src);
 
 // 囲みが無い文は 1 つの文字の塊
 assert.deepStrictEqual(tsSplitCode("こんにちは\n2 行目"), [{ kind: "text", lang: "", text: "こんにちは\n2 行目" }]);
@@ -68,6 +68,13 @@ assert.deepStrictEqual(tsChatDiff([], [a, b]), [a, b]);
 assert.deepStrictEqual(tsChatDiff([a], [a, b, c]), [b, c]);
 assert.deepStrictEqual(tsChatDiff([a, b], [a, b]), []);
 assert.deepStrictEqual(tsChatDiff([a, b], [a]), []);
+
+// 始まっているか: run_id が無い 200（チャットが無い）は「まだ始まっていない」。ボタンは「チャットを始める」
+assert.strictEqual(tsChatStarted({ run_id: null, status: null, messages: [] }), false);
+assert.strictEqual(tsChatStarted({ messages: [] }), false);
+assert.strictEqual(tsChatStarted({ run_id: 7, status: "running", messages: [] }), true);
+assert.strictEqual(tsChatStartLabel(tsChatStarted({ run_id: null, status: null, messages: [] })), "チャットを始める");
+assert.strictEqual(tsChatStartLabel(tsChatStarted({ run_id: 7, status: "done", messages: [] })), "チャットは終わっています。始め直す");
 
 assert.strictEqual(tsChatMaxChars, 20000);
 
