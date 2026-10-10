@@ -144,6 +144,8 @@
   .checkline { display: flex; align-items: center; gap: 8px; }
   .checkline input { width: auto; }
   .checkline label { margin: 0; color: var(--text); font-size: 14px; }
+  /* 題名以外の短い列（年・PDF・chunk など）は折り返さない */
+  #migrateTable th:not(:nth-child(2)), #migrateTable td:not(:nth-child(2)) { white-space: nowrap; }
   @media (max-width: 899px) {
     .app { grid-template-columns: 1fr; }
     nav.side { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }

@@ -144,7 +144,7 @@ def build_package(root: Path, ids: list[int], out_zip: Path) -> None:
         finally:
             con.close()
 
-        manifest ={"format": FORMAT, "version": VERSION, "papers": keep}
+        manifest = {"format": FORMAT, "version": VERSION, "papers": keep}
         with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(
                 "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"

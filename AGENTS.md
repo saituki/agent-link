@@ -87,7 +87,7 @@ sh apps/web/server/test_sai_in_container.sh
 (cd apps/ts && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
 for f in apps/ts/tests/test_*.js; do node "$f" || exit 1; done
 
-# sai-prep（4 本。標準ライブラリだけ）
+# sai-prep（5 本。標準ライブラリだけ）
 (cd apps/prep && python3 -m unittest discover -s tests)
 
 # 実験ループの道具（sai-sci/tools。Python 3.11 以上。`~/.python-version` が未導入の版を指すと uv が失敗するので --python を付ける）
@@ -107,7 +107,7 @@ sh -n apps/web/server/deploy.sh
 | sai-ts の Python | 13 | sai-ts（ubuntu） | `apps/ts` の uv sync が要る |
 | sai-ts の JS | 8 | sai-ts（ubuntu） | |
 | Radio | 3 | Radio（ubuntu） | |
-| sai-prep | 4 | sai-prep（ubuntu・Python 3.12） | |
+| sai-prep | 5 | sai-prep（ubuntu・Python 3.12） | |
 | sai-sci の道具 | 9 | sai-sci の道具（ubuntu・Python 3.13） | `test_exp_summary` は mlflow が要る |
 
 CI の Linux（ubuntu-latest）は本番と同じ OS である。リポジトリ直下に `tests/` は無い。テストはクレート・アプリの中にある。
