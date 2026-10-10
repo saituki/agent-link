@@ -287,6 +287,28 @@ enum LibraryCmd {
         #[arg(long)]
         json: bool,
     },
+    /// 論文を「移植の束」のフォルダに書き出す（別のプロジェクトへ移すため。JSON）
+    Export {
+        /// 移植元の papers.id（カンマ区切り。例 5,6,12）
+        #[arg(long, value_delimiter = ',')]
+        ids: Vec<i64>,
+        /// 書き出すフォルダの絶対パス（無いフォルダ）
+        #[arg(long)]
+        out: PathBuf,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 「移植の束」のフォルダを取り込む（JSON）
+    #[command(name = "import-migration")]
+    ImportMigration {
+        /// 束のフォルダの絶対パス
+        #[arg(long)]
+        dir: PathBuf,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// `sai-paper paper` のサブコマンド。
@@ -1035,6 +1057,41 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             }
             LibraryCmd::Tree { json: _ } => {
                 let value = phone::tree()?;
+                println!("{}", serde_json::to_string(&value)?);
+            }
+            LibraryCmd::Export { ids, out, json: _ } => {
+                let (_db, _cfg, paths) = phone::open_context()?;
+                let data_dir = paths.data_dir();
+                let value = match sai_paper_core::migration::export(
+                    &paths.database_file,
+                    &data_dir,
+                    &ids,
+                    &out,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Err(crate::cli_error::CliError {
+                            code: error.code(),
+                            message: error.to_string(),
+                        }
+                        .into());
+                    }
+                };
+                println!("{}", serde_json::to_string(&value)?);
+            }
+            LibraryCmd::ImportMigration { dir, json: _ } => {
+                let (mut db, _cfg, paths) = phone::open_context()?;
+                let data_dir = paths.data_dir();
+                let value = match sai_paper_core::migration::import(&mut db, &data_dir, &dir) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Err(crate::cli_error::CliError {
+                            code: error.code(),
+                            message: error.to_string(),
+                        }
+                        .into());
+                    }
+                };
                 println!("{}", serde_json::to_string(&value)?);
             }
         },

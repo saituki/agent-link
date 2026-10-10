@@ -600,6 +600,8 @@ sai-prep が作った束（C12）は、Web が zip を展開して検査し、�
 | 命令 | 出力の JSON | 失敗 |
 |---|---|---|
 | `sai-paper paper import-bundle --dir <展開したフォルダの絶対パス> --json` | `{"paper_id","title","figures","sections","refs","translated"}` | 誤り 2・対象なし 3・PDF あり 4 |
+| `sai-paper library export --ids <id,id,…> --out <無いフォルダの絶対パス> --json` | `{"dir","papers":[移植元の id],"missing":[移植元に無かった id]}` | 誤り 2（ids が空・`--out` が既にある）・1 つも無い 3（`--out` は作らない） |
+| `sai-paper library import-migration --dir <束のフォルダの絶対パス> --json` | `{"imported":[{"source_id","paper_id","title","mode":"new" \| "filled"}],"skipped":[{"source_id","paper_id","title","reason"}],"failed":[{"source_id","title","error"}]}` | 誤り 2（`manifest.json`・`papr.db` が無い・形が違う）。論文ごとの失敗は `failed` に入れて終了コード 0 |
 | `sai-paper paper keep (--log <id> --position <n> \| --import-id <id> \| --cite <paper_id> --ref <n>) --json` | `{"paper_id","title","status":"added" \| "exists"}` | ― |
 | `sai-paper library pending --json` | `{"papers":[{"id","title","year","authors","doi","arxiv_id","s2_paper_id","created_at"}]}` | ― |
 
