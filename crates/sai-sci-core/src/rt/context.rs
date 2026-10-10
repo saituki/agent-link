@@ -492,8 +492,7 @@ mod tests {
         defs: Defs,
     }
 
-    /// RESEARCH_TYPE problem の research-tree を作る。Q1 が background、Q2 が background.goal、Q3 が background.problem。
-    /// top_Q は Q1（background）・Q4（target）・Q6（purpose）。
+    /// RESEARCH_TYPE problem の research-tree を作る。top_Q は Q1（task）・Q2（target）・Q3（data）・Q4（method）・Q5（output）・Q6（metric）で、子は無い。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-context-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -593,24 +592,27 @@ mod tests {
     #[test]
     fn sci_type_picks_tree_range() {
         let e = env("scopes");
+        // Q3（data）の下に子の Q（Q7）を足し、その下に A と F を置く。兄弟の Q2（target）には A を 1 つ。
         let o1 = add(&e, Kind::A, 2, "案 A", None);
-        let o2 = add(&e, Kind::A, 3, "案 B", None);
+        let q = add(&e, Kind::Q, 3, "下位の問い", None);
+        let o2 = add(&e, Kind::A, q, "案 B", None);
         let f1 = add(&e, Kind::F, o2, "根拠", Some("support"));
-        task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
+        let node = fmt_id(Kind::Q, q);
+        task(&e, 1, &format!("sci_node: {node}\nsci_purpose: p\n"));
 
-        // node: 対象と子孫だけ。祖先 Q1・Q2 は出ない。
+        // node: 対象と子孫だけ。祖先 Q3 は出ない。
         block(&e, "node");
         let node_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
-        assert_eq!(node_ids, sorted(vec!["Q3".into(), format!("A{o2}"), format!("F{f1}")]), "{node_ids:?}");
+        assert_eq!(node_ids, sorted(vec![node.clone(), format!("A{o2}"), format!("F{f1}")]), "{node_ids:?}");
 
-        // manage: 祖先 Q1 も出る。祖先でない兄弟 Q2 と、その A1 は出ない。
+        // manage: 祖先 Q3 も出る。祖先でない兄弟 Q2 と、その A1 は出ない。
         block(&e, "manage");
         let manage_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
-        for id in ["Q1", "Q3"] {
-            assert!(manage_ids.contains(&id.to_string()), "{manage_ids:?}");
+        for id in [fmt_id(Kind::Q, 3), node.clone()] {
+            assert!(manage_ids.contains(&id), "{manage_ids:?}");
         }
         assert!(!manage_ids.contains(&format!("A{o1}")), "{manage_ids:?}");
-        assert!(!manage_ids.contains(&"Q2".to_string()), "{manage_ids:?}");
+        assert!(!manage_ids.contains(&fmt_id(Kind::Q, 2)), "{manage_ids:?}");
 
         // support: TREE を出さない。GUIDE と ALLOWED_OPS は出る。
         block(&e, "support");
@@ -649,12 +651,12 @@ mod tests {
         let text = build_with(&e, 100_000, false).unwrap();
         assert!(text.contains("## TARGET\n- 足す子の型: A"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
-        // 足す子の型が無いときは節も行も出さない。
+        // 足す子の型が無いときは節も行も出さない。GUIDE の見出し「### TARGET」は数えない。
         let e = env("child-none");
         block(&e, "node");
         task(&e, 1, "sci_node: Q2\nsci_purpose: p\n");
         let text = build_with(&e, 100_000, false).unwrap();
-        assert!(!text.contains("## TARGET") && !text.contains("足す子の型"), "{text}");
+        assert!(!text.contains("\n## TARGET\n") && !text.contains("足す子の型"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 

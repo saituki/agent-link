@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 // 範囲の数え方は compute.rs の 1 か所にある（U03 の読み出しと同じ関数）。ここからも同じ名前で使えるようにする。
 pub use super::compute::{Range, sprout_range};
-use super::defs::{self, Defs};
+use super::defs::Defs;
 use super::store::{self, ApprovalRow, NewNode, NodeRow};
 use super::{Kind, Result, RtError, fmt_id, parse_id};
 use sai_paper_core::paths::PaperRoots;
@@ -720,7 +720,6 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             let mut n = new_node(cx, Kind::A, Some(q.id), t);
             n.body = text(op, "body");
             let id = store::insert_node(conn, &n)?;
-            defs::create_qs_for_answer(conn, cx.defs, id, &cx.by, cx.run_id)?;
             Ok((fmt_id(Kind::A, id), None))
         }
         "add_f" => {
@@ -871,6 +870,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rt::defs;
     use sai_paper_core::database::Database;
     use std::path::PathBuf;
 
@@ -895,7 +895,7 @@ mod tests {
         let sub = store::list_nodes(db.connection(), false)
             .unwrap()
             .into_iter()
-            .find(|n| n.guide_key.as_deref() == Some("purpose.subgoal"))
+            .find(|n| n.guide_key.as_deref() == Some("task"))
             .unwrap()
             .id;
         let blocks = dir.join(".sai/blocks");
@@ -987,19 +987,20 @@ mod tests {
         assert_eq!(actors, vec!["user".to_string(), "run:7".to_string()]);
     }
 
+    /// 軸の Q に A を足せる。A を足しても型の Q は増えない（A の下に Q を作らない）。
     #[test]
-    fn add_a_creates_per_answer_qs() {
+    fn add_a_creates_no_qs() {
         let e = env();
         let a = e.agent1(json!({"op": "add_a", "q": qid(e.sub), "text": "予後予測"})).unwrap();
         let (_, aid) = parse_id(&a).unwrap();
-        let kids = store::children(e.conn(), aid).unwrap();
-        assert!(!kids.is_empty() && kids.iter().all(|k| k.kind == Kind::Q));
+        assert!(store::children(e.conn(), aid).unwrap().is_empty());
         assert_eq!(store::get_node(e.conn(), aid).unwrap().created_by, "run:7");
         assert!(err(e.agent1(json!({"op": "add_a", "q": qid(e.sub), "text": "予後予測"}))).contains("同じ文"));
         // A のある Q に child_Q は足せず、child_Q のある Q に A は足せない。
         assert!(err(e.user(json!({"op": "add_q", "parent": qid(e.sub), "text": "子"}))).contains("A があるので"));
-        let bg = e.by_key("background");
-        assert!(err(e.agent1(json!({"op": "add_a", "q": qid(bg), "text": "x"}))).contains("child_Q があるので"));
+        let target = e.by_key("target");
+        e.user(json!({"op": "add_q", "parent": qid(target), "text": "子"})).unwrap();
+        assert!(err(e.agent1(json!({"op": "add_a", "q": qid(target), "text": "x"}))).contains("child_Q があるので"));
     }
 
     #[test]
@@ -1116,8 +1117,7 @@ mod tests {
         let e = env();
         let a = e.a("A");
         let (_, aid) = parse_id(&a).unwrap();
-        let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap().id;
-        let b = e.agent1(json!({"op": "add_a", "q": qid(child_q), "text": "B"})).unwrap();
+        let b = e.agent1(json!({"op": "add_a", "q": qid(e.by_key("target")), "text": "B"})).unwrap();
         let (_, bid) = parse_id(&b).unwrap();
         // 同じ A は 2 回書けない。Q は断る。
         assert!(err(e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [b, b]}))).contains("同じ A"));
@@ -1193,18 +1193,15 @@ mod tests {
     }
 
     #[test]
-    fn move_a_rejects_cycle_and_child_q() {
+    fn move_a_rejects_child_q_and_same_q() {
         let e = env();
-        let a = e.a("A");
+        e.a("A");
         // 許可は 1 件あれば足りる（失敗した op は許可を消費しない）。
         e.approve("q4", "許可する");
-        let (_, aid) = parse_id(&a).unwrap();
-        let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap();
-        // A の下の Q へ、その A の親 Q から移すのは輪になる。
-        let cq = fmt_id(Kind::Q, child_q.id);
-        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": cq}))).contains("の A の下にあるので移せません"));
         // child_Q を持つ Q へは移せない。
-        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(e.by_key("background"))}))).contains("child_Q があるので"));
+        let target = e.by_key("target");
+        e.user(json!({"op": "add_q", "parent": qid(target), "text": "子"})).unwrap();
+        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(target)}))).contains("child_Q があるので"));
         assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(e.sub)}))).contains("別の Q"));
     }
 
@@ -1313,9 +1310,9 @@ mod tests {
         }
         assert!(store::list_log(e.conn(), None).unwrap().iter().all(|l| l.approved_by.is_none()));
         // top_Q も消せる。
-        let bg = e.by_key("background");
-        e.user(json!({"op": "remove", "node": qid(bg)})).unwrap();
-        assert!(store::get_node(e.conn(), bg).unwrap().removed_at.is_some());
+        let tg = e.by_key("target");
+        e.user(json!({"op": "remove", "node": qid(tg)})).unwrap();
+        assert!(store::get_node(e.conn(), tg).unwrap().removed_at.is_some());
     }
 
     #[test]
