@@ -414,10 +414,11 @@ impl Tree {
         let mut kids: HashMap<i64, Vec<i64>> = HashMap::new();
         let roots_none: Vec<NodeRow> = by_parent.remove(&None).unwrap_or_default();
         let mut stack: Vec<(NodeRow, usize)> = Vec::new();
-        // 親の無い生きた Q（top_Q）を (ord, id) の順に DFS の起点にし、そのあとに SPROUT（kind S）を並べる。
-        // `roots_none` は `(parent_id, ord, id)` 順なので、Q も S もこの順のまま。
+        // 親の無い生きた Q（top_Q）→ 親の無い D（seed）→ 親の無い S（古い SPROUT）の順に DFS の起点にする。
+        // D の子の S は DFS で D の下に入る。`roots_none` は `(parent_id, ord, id)` 順なので、各群の中もこの順のまま。
         let mut top: Vec<NodeRow> = Vec::new();
         top.extend(roots_none.iter().filter(|n| n.kind == Kind::Q).cloned());
+        top.extend(roots_none.iter().filter(|n| n.kind == Kind::D).cloned());
         top.extend(roots_none.iter().filter(|n| n.kind == Kind::S).cloned());
         for n in top.into_iter().rev() {
             stack.push((n, 0));
@@ -1289,6 +1290,32 @@ mod tests {
         let t = tree(&e);
         assert_eq!(t.row(s).range, Some(range));
         assert_eq!(t.row(s).paths, vec![fmt_id(Kind::A, a1), fmt_id(Kind::A, a2)]);
+    }
+
+    #[test]
+    fn seed_nodes_sit_between_top_q_and_old_sprouts() {
+        let e = env("seed-order");
+        let root = q(&e, None, "根");
+        let d1 = add(&e, Kind::D, None, "自分の研究", None);
+        let s2 = add(&e, Kind::S, Some(d1), "一つ目", None);
+        let s3 = add(&e, Kind::S, Some(d1), "二つ目", None);
+        let d2 = add(&e, Kind::D, None, "#12 の研究", None);
+        let s4 = add(&e, Kind::S, Some(d2), "三つ目", None);
+        let old = add(&e, Kind::S, None, "古い研究", None);
+        let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
+        let ids: Vec<String> = s.nodes.iter().map(|n| n.id.clone()).collect();
+        let want: Vec<String> = [(Kind::Q, root), (Kind::D, d1), (Kind::S, s2), (Kind::S, s3), (Kind::D, d2), (Kind::S, s4), (Kind::S, old)]
+            .iter()
+            .map(|(k, id)| fmt_id(*k, *id))
+            .collect();
+        assert_eq!(ids, want);
+        let parents: Vec<Option<String>> = s.nodes.iter().map(|n| n.parent.clone()).collect();
+        assert_eq!(parents[2], Some(fmt_id(Kind::D, d1)));
+        assert_eq!(parents[6], None);
+        assert_eq!(s.nodes[1].kind, "D");
+        assert_eq!(s.nodes[1].text, "自分の研究");
+        // D は数えない。
+        assert_eq!(s.counts, StatusCounts { q: 1, s: 4, ..StatusCounts::default() });
     }
 
     #[test]

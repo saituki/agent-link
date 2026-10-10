@@ -30,7 +30,7 @@ pub(crate) enum Out {
 /// `card` の引数（CLI から）。
 #[derive(clap::Args, Debug)]
 pub(crate) struct SciCardArgs {
-    /// 対象の Node（Q・A・F・E・S。`Q12`）
+    /// 対象の Node（Q・A・F・E・S・D・SEED。`Q12`）
     #[arg(long)]
     pub node: Option<String>,
     /// 実行するブロックの id
@@ -741,13 +741,20 @@ fn status_text(status: &compute::Status) -> String {
         text.push_str(&format!("SEED: {}\n", found.name));
     }
     text.push_str(&format!("木: {}\n", status.counts.line()));
+    let seeds: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "D").collect();
+    if seeds.is_empty() {
+        text.push_str("SEED（D）はまだありません\n");
+    } else {
+        let list = seeds.iter().map(|n| format!("{} {}", n.id, one_line(&n.text))).collect::<Vec<_>>().join(" / ");
+        text.push_str(&format!("SEED（D）: {list}\n"));
+    }
     let sprouts: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
     if sprouts.is_empty() {
         text.push_str("SPROUT はまだありません\n");
     } else {
         let list = sprouts
             .iter()
-            .map(|n| format!("{} {}", n.id, one_line(&n.text)))
+            .map(|n| format!("{} {}（seed: {}）", n.id, one_line(&n.text), n.parent.as_deref().unwrap_or("なし")))
             .collect::<Vec<_>>()
             .join("、");
         text.push_str(&format!("SPROUT: {list}\n"));
@@ -998,6 +1005,29 @@ mod tests {
         // research-tree が無いときは始め方を案内する。
         let empty = status_text(&compute::Status { initialized: false, ..status });
         assert!(empty.contains("まだありません"), "{empty}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn new_node(kind: rt::Kind, parent_id: Option<i64>, text: &str) -> store::NewNode<'_> {
+        store::NewNode {
+            kind, parent_id, guide_key: None, text, body: "", stance: None, cites: &[],
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, paths: &[], created_by: "user",
+        }
+    }
+
+    /// seed（D）は `SEED（D）:` の 1 行にまとめ、SPROUT の行には親の seed を付ける。親の無い古い SPROUT は `seed: なし`。
+    #[test]
+    fn status_text_shows_seed_and_sprout_parent() {
+        let (root, env) = project_with_tree("seed-text");
+        let d = store::insert_node(env.conn(), &new_node(rt::Kind::D, None, "自分の研究")).unwrap();
+        let s = store::insert_node(env.conn(), &new_node(rt::Kind::S, Some(d), "一つ目")).unwrap();
+        let old = store::insert_node(env.conn(), &new_node(rt::Kind::S, None, "古い研究")).unwrap();
+        let status = compute::status(env.conn(), &env.roots, &env.defs).unwrap();
+
+        let text = status_text(&status);
+        let (d, s, old) = (rt::fmt_id(rt::Kind::D, d), rt::fmt_id(rt::Kind::S, s), rt::fmt_id(rt::Kind::S, old));
+        assert!(text.contains(&format!("SEED（D）: {d} 自分の研究\n")), "{text}");
+        assert!(text.contains(&format!("SPROUT: {s} 一つ目（seed: {d}）、{old} 古い研究（seed: なし）\n")), "{text}");
         let _ = std::fs::remove_dir_all(root);
     }
 

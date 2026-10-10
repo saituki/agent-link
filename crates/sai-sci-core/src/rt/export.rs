@@ -72,9 +72,12 @@ pub fn render_state_md(status: &Status) -> String {
         out.push_str(&format!("- {}\n", m.heading));
     }
 
+    out.push_str("\n## SEED（D）\n");
+    out.push_str(&seed_section(status));
+
     out.push_str("\n## SPROUT\n");
     for n in status.nodes.iter().filter(|n| n.kind == "S") {
-        out.push_str(&format!("- {} {}（paths: {}）\n", n.id, n.text, n.paths.join(", ")));
+        out.push_str(&format!("- {}\n", sprout_text(n)));
     }
 
     out.push_str(&format!("\n## COUNTS\n- {counts}\n"));
@@ -91,6 +94,32 @@ pub fn render_state_md(status: &Status) -> String {
     out
 }
 
+/// `## SEED（D）` の中身。1 行 1 つの D と、その下の SPROUT の ID。D が無ければ「なし」。
+fn seed_section(status: &Status) -> String {
+    let seeds: Vec<&NodeJson> = status.nodes.iter().filter(|n| n.kind == "D").collect();
+    if seeds.is_empty() {
+        return "- なし\n".to_string();
+    }
+    let mut out = String::new();
+    for d in seeds {
+        let sprouts: Vec<&str> = status
+            .nodes
+            .iter()
+            .filter(|s| s.kind == "S" && s.parent.as_deref() == Some(d.id.as_str()))
+            .map(|s| s.id.as_str())
+            .collect();
+        let list = if sprouts.is_empty() { "なし".to_string() } else { sprouts.join(", ") };
+        out.push_str(&format!("- {} {}（SPROUT: {list}）\n", d.id, d.text));
+    }
+    out
+}
+
+/// SPROUT の 1 行（`## SPROUT` の中身。親の seed と PATH を付ける。親が無い古い SPROUT は `seed: なし`）。
+fn sprout_text(n: &NodeJson) -> String {
+    let seed = n.parent.as_deref().unwrap_or("なし");
+    format!("{} {}（seed: {seed}・paths: {}）", n.id, n.text, n.paths.join(", "))
+}
+
 /// Node の 1 行（`# context` と同じ形）。字下げは深さ × 2 字。
 fn node_line(n: &NodeJson) -> String {
     let mut line = format!("{}- {} ", "  ".repeat(n.depth), n.id);
@@ -98,7 +127,8 @@ fn node_line(n: &NodeJson) -> String {
         line.push_str("★ ");
     }
     match n.kind.as_str() {
-        "Q" => {
+        // seed（D）は題だけ（mlflow を付けない）。
+        "Q" | "D" => {
             line.push_str(&n.text);
         }
         "A" => {
@@ -139,13 +169,15 @@ pub fn render_tree_md(status: &Status) -> String {
         out.push_str(&node_line(n));
         out.push('\n');
     }
+    out.push_str("\n## SEED（D）\n");
+    out.push_str(&seed_section(status));
     out.push_str("\n## SPROUT\n");
     let sprouts: Vec<&NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
     if sprouts.is_empty() {
         out.push_str("- なし\n");
     }
     for n in sprouts {
-        out.push_str(&format!("- {} {}（paths: {}）\n", n.id, n.text, n.paths.join(", ")));
+        out.push_str(&format!("- {}\n", sprout_text(n)));
     }
     out.push_str("\n## DECISIONS\n");
     if status.decisions.is_empty() {
@@ -194,7 +226,7 @@ fn write_atomic(path: &Path, content: &str) -> Result<()> {
 mod tests {
     use super::*;
     use sai_paper_core::database::Database;
-    use crate::rt::Kind;
+    use crate::rt::{Kind, fmt_id};
 
     fn env(tag: &str, init: bool) -> (PaperRoots, Database) {
         let dir = std::env::temp_dir().join(format!("sai-rt-export-{tag}-{}", std::process::id()));
@@ -253,6 +285,33 @@ mod tests {
 
         assert!(export(c, &roots, &Defs::default()).unwrap());
         assert!(roots.data_dir.join("tree.md").exists());
+    }
+
+    #[test]
+    fn seed_and_sprout_lines() {
+        let (roots, db) = env("seed", true);
+        let c = db.connection();
+        let d1 = add(&db, Kind::D, None, "自分の研究", None, &[]);
+        let s2 = add(&db, Kind::S, Some(d1), "一つ目", None, &[]);
+        let d3 = add(&db, Kind::D, None, "空の研究", None, &[]);
+        let old = add(&db, Kind::S, None, "古い研究", None, &[]);
+        let status = compute::status(c, &roots, &Defs::default()).unwrap();
+
+        let tree = render_tree_md(&status);
+        assert!(tree.contains(&format!("\n- {} 自分の研究\n", fmt_id(Kind::D, d1))), "{tree}");
+        assert!(tree.contains(&format!("\n  - {} 一つ目（paths: ）", fmt_id(Kind::S, s2))), "{tree}");
+        assert!(tree.contains(&format!("\n- {} 古い研究（paths: ）", fmt_id(Kind::S, old))), "{tree}");
+        assert!(!tree.contains("[mlflow"), "{tree}");
+        assert!(tree.contains(&format!("\n## SEED（D）\n- {} 自分の研究（SPROUT: {}）\n- {} 空の研究（SPROUT: なし）\n", fmt_id(Kind::D, d1), fmt_id(Kind::S, s2), fmt_id(Kind::D, d3))), "{tree}");
+        assert!(tree.contains(&format!("## SPROUT\n- {} 一つ目（seed: {}・paths: ）\n- {} 古い研究（seed: なし・paths: ）\n", fmt_id(Kind::S, s2), fmt_id(Kind::D, d1), fmt_id(Kind::S, old))), "{tree}");
+
+        let state = render_state_md(&status);
+        assert!(state.contains(&format!("## SEED（D）\n- {} 自分の研究（SPROUT: {}）\n", fmt_id(Kind::D, d1), fmt_id(Kind::S, s2))), "{state}");
+        assert!(state.contains(&format!("- {} 一つ目（seed: {}・paths: ）\n", fmt_id(Kind::S, s2), fmt_id(Kind::D, d1))), "{state}");
+        assert!(state.contains(&format!("- {} 古い研究（seed: なし・paths: ）\n", fmt_id(Kind::S, old))), "{state}");
+        // 親の D の行は COUNTS に入らない（S は数える）。
+        assert!(state.contains("## COUNTS\n- Q 0・A 0・F 0（S 0 / D 0 / I 0）・E 0・S 2\n"), "{state}");
+        let _ = fs::remove_dir_all(&roots.root);
     }
 
     #[test]

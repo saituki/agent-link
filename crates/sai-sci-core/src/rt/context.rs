@@ -20,6 +20,9 @@ const NO_TREE: &str = "\
 ## TREE
 research-tree がまだありません。利用者に `sai-sci init --type <型>`（または Web の research-tree の画面の「始める」）を頼んでください。";
 
+/// 親の無い古い SPROUT（seed を持たない S）の `## STUDY_SEED`。
+const NO_SEED: &str = "（この SPROUT には SEED がありません）";
+
 /// run の task.md から `# context` の Markdown を作る。`reveal` が真なら blind（`sci_mode: blind_first`）でも research-tree を出す。
 ///
 /// # Errors
@@ -68,6 +71,7 @@ pub fn build(
 fn field_text(f: &Field) -> String {
     let note = match f.ty {
         Ty::Id if f.name == "q" => "Q の ID".to_string(),
+        Ty::Id if f.name == "seed" => "SEED（D）の ID".to_string(),
         Ty::Id => "Node の ID".to_string(),
         Ty::SeedOrId => "Node の ID か SEED".to_string(),
         Ty::Text(min, max) => format!("{min}〜{max} 字"),
@@ -138,6 +142,8 @@ struct Parts {
     papers: Vec<String>,
     /// 対象の足す子の型（対象が無いときや未指定のときは空。C7）。
     child: String,
+    /// 対象が SPROUT のときの親の SEED（D）。`## STUDY_SEED` の中身（無ければ `None`）。
+    study_seed: Option<String>,
 }
 
 struct GuideText {
@@ -264,6 +270,8 @@ impl Parts {
             match (target, sci_type.as_str()) {
                 (_, "support") => {}
                 (None, _) => in_scope.extend(tree.nodes().iter().map(|n| n.id)),
+                // seed（D）を対象にした manage は木の全体（`lab-sprout` が root 全体から path を選ぶため）。
+                (Some(t), "manage") if t.kind == Kind::D => in_scope.extend(tree.nodes().iter().map(|n| n.id)),
                 (Some(t), "manage") => {
                     in_scope.extend(chain.iter().copied());
                     in_scope.extend(subtree(t.id));
@@ -309,6 +317,17 @@ impl Parts {
             }
             tree_lines.push(line);
         }
+
+        // STUDY_SEED: 対象が SPROUT のとき、親の SEED（D）の題と本文を省かずに出す。親の無い古い SPROUT は断り書き。
+        let study_seed = target.filter(|t| t.kind == Kind::S).map(|t| {
+            match t.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D) {
+                Some(d) if d.body.trim().is_empty() => format!("{} {}", fmt_id(Kind::D, d.id), flat_text(&d.text)),
+                Some(d) => format!("{} {}\n{}", fmt_id(Kind::D, d.id), flat_text(&d.text), d.body.trim_end()),
+                None => NO_SEED.to_string(),
+            }
+        });
+        // blind・support は research-tree を出さないので、STUDY_SEED も出さない。
+        let study_seed = if blind || sci_type == "support" { None } else { study_seed };
 
         // GUIDE: 対象か一番近い祖先の Q。SEED のときは出さない。
         let guide = target.and_then(|t| {
@@ -387,6 +406,7 @@ impl Parts {
         Ok(Parts {
             child: target.map_or_else(String::new, |_| keys.child.clone()),
             tree: (!blind && sci_type != "support").then_some(tree_lines),
+            study_seed,
             guide: if blind { None } else { guide },
             searches,
             ops: allowed_ops_text(roots, block),
@@ -420,6 +440,9 @@ impl Parts {
                 lines.push(format!("（F は {hidden} 件あります。省きました）"));
             }
             blocks.push(lines.join("\n"));
+        }
+        if let Some(seed) = &self.study_seed {
+            blocks.push(format!("## STUDY_SEED\n{seed}"));
         }
         if !self.child.is_empty() {
             blocks.push(format!("## TARGET\n- 足す子の型: {}", self.child));
@@ -490,6 +513,32 @@ mod tests {
                 kind, parent_id: Some(parent), guide_key: None, text, body: "", stance, cites: &[],
                 paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
                 paths: &[], created_by: "user",
+            },
+        )
+        .unwrap()
+    }
+
+    /// seed（D）を親 NULL で足す。`body` は本文（空ならそのまま空）。
+    fn seed(e: &Env, text: &str, body: &str) -> i64 {
+        store::insert_node(
+            e.db.connection(),
+            &store::NewNode {
+                kind: Kind::D, parent_id: None, guide_key: None, text, body, stance: None, cites: &[],
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
+                paths: &[], created_by: "user",
+            },
+        )
+        .unwrap()
+    }
+
+    /// SPROUT（S）を足す。`parent` が `None` なら古い SPROUT（seed を持たない）。`o` は PATH の終点の A。
+    fn sprout(e: &Env, parent: Option<i64>, o: i64, text: &str) -> i64 {
+        store::insert_node(
+            e.db.connection(),
+            &store::NewNode {
+                kind: Kind::S, parent_id: parent, guide_key: None, text, body: "", stance: None, cites: &[],
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
+                paths: &[o], created_by: "user",
             },
         )
         .unwrap()
@@ -576,27 +625,10 @@ mod tests {
     fn sprout_target_shows_paths() {
         let e = env("sprout");
         block(&e, "node");
-        // Q3 の下に A を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
+        // Q3 の下に A を 1 つ。SEED（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
         let o = add(&e, Kind::A, 3, "課題", None);
-        let s = store::insert_node(
-            e.db.connection(),
-            &store::NewNode {
-                kind: Kind::S,
-                parent_id: None,
-                guide_key: None,
-                text: "種",
-                body: "",
-                stance: None,
-                cites: &[],
-                paper_id: None,
-                run_id: None,
-                report_id: None,
-                mlflow_ref: None,
-                paths: &[o],
-                created_by: "user",
-            },
-        )
-        .unwrap();
+        let d = seed(&e, "研究", "");
+        let s = sprout(&e, Some(d), o, "種");
         let ex = add(&e, Kind::E, s, "実験", None);
         task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
         let text = build_with(&e, 100_000, false).unwrap();
@@ -631,27 +663,10 @@ mod tests {
     fn seed_target_shows_whole_tree() {
         let e = env("seed");
         block(&e, "manage");
-        // Q3（background.problem）の下に A を 1 つ。SPROUT の paths に入れ、E を SPROUT の下に置く。
+        // Q3（background.problem）の下に A を 1 つ。SEED（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
         let o = add(&e, Kind::A, 3, "課題", None);
-        let s = store::insert_node(
-            e.db.connection(),
-            &store::NewNode {
-                kind: Kind::S,
-                parent_id: None,
-                guide_key: None,
-                text: "種",
-                body: "",
-                stance: None,
-                cites: &[],
-                paper_id: None,
-                run_id: None,
-                report_id: None,
-                mlflow_ref: None,
-                paths: &[o],
-                created_by: "user",
-            },
-        )
-        .unwrap();
+        let d = seed(&e, "研究", "");
+        let s = sprout(&e, Some(d), o, "種");
         let ex = add(&e, Kind::E, s, "実験", None);
         // `sci_node: SEED` を明示しても、無し（既定）でも同じ全体が出る。
         for front in ["sci_node: SEED\nsci_purpose: p\n", "sci_purpose: p\n"] {
@@ -665,6 +680,60 @@ mod tests {
             assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
             assert!(!text.contains("## GUIDE"), "{text}");
         }
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    /// 対象が SPROUT のとき、`## STUDY_SEED` が `## TREE` の直後に親 D の題と本文をそのまま出す。blind では出さない。
+    #[test]
+    fn sprout_target_shows_study_seed() {
+        let e = env("study");
+        block(&e, "node");
+        let o = add(&e, Kind::A, 3, "課題", None);
+        let body = "## 背景\n現場の要請\n\n## 対象（target）\n決定: 側頭葉てんかん患者";
+        let d = seed(&e, "自分の研究", body);
+        let s = sprout(&e, Some(d), o, "種");
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        let seed_at = text.find("## STUDY_SEED\n").unwrap_or_else(|| panic!("{text}"));
+        assert!(text.find("## TREE").unwrap() < seed_at && seed_at < text.find("## ALLOWED_OPS").unwrap(), "{text}");
+        assert!(text.contains(&format!("## STUDY_SEED\n{} 自分の研究\n{body}", fmt_id(Kind::D, d))), "{text}");
+
+        // 親の無い古い SPROUT は断り書き。
+        let old = sprout(&e, None, o, "古い種");
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, old)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(text.contains(&format!("## STUDY_SEED\n{NO_SEED}")), "{text}");
+
+        // blind は research-tree を出さないので STUDY_SEED も出さない。
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\nsci_mode: blind_first\n", fmt_id(Kind::S, s)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(!text.contains("## STUDY_SEED"), "{text}");
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    /// 対象が D の manage は TREE が木の全体になり、D の行に `← TARGET` と本文が付く。node は D とその下だけ。
+    #[test]
+    fn seed_manage_target_shows_whole_tree() {
+        let e = env("seed-manage");
+        block(&e, "manage");
+        let o = add(&e, Kind::A, 3, "課題", None);
+        let d = seed(&e, "研究", "本文の制約");
+        let d2 = seed(&e, "別の研究", "");
+        let s = sprout(&e, Some(d), o, "種");
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::D, d)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(text.contains(&format!("- {} 研究 ← TARGET", fmt_id(Kind::D, d))), "{text}");
+        assert!(text.contains("  > 本文の制約"), "{text}");
+        assert!(text.contains("\n- Q1 ") && text.contains("\n- Q4 "), "{text}");
+        assert!(text.contains(&format!("- {} 別の研究", fmt_id(Kind::D, d2))), "{text}");
+        assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
+        assert!(!text.contains("## STUDY_SEED"), "{text}");
+
+        // sci_type が node なら D とその下の S だけ。
+        block(&e, "node");
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(!text.contains("\n- Q1 "), "{text}");
+        assert!(!text.contains("別の研究"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 
