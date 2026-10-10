@@ -5,15 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sai-prep</title>
 <style>
+  /* 色は sai-web（apps/web/src/sai_web/static/style.css）の design token と同じ値。
+     OS のダークモード（prefers-color-scheme）に追従する。 */
   :root {
-    --bg: #f6f7f9;
-    --card: #ffffff;
-    --line: #d8dde5;
-    --text: #1c2430;
-    --muted: #64707d;
-    --accent: #2f6fed;
-    --ok: #1a8f4a;
-    --ng: #c0392b;
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --card: #f5f6f8;
+    --field: #f1f3f5;
+    --line: #e5e7eb;
+    --text: #333333;
+    --muted: #656b73;
+    --accent: #2563eb;
+    --on-accent: #ffffff;
+    --accent-soft: #e8f0fe;
+    --ok: #15803d;
+    --ng: #c81e1e;
+    --focus: #1d4ed8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e;
+      --card: #2c2c2e;
+      --field: #3a3a3c;
+      --line: #38383a;
+      --text: #f2f2f7;
+      --muted: #a1a1a6;
+      --accent: #7aa2f7;
+      --on-accent: #1c1c1e;
+      --accent-soft: #19315e;
+      --ok: #4ade80;
+      --ng: #f28b82;
+      --focus: #8ab0f8;
+    }
   }
   * { box-sizing: border-box; }
   body {
@@ -64,8 +87,8 @@
     text-align: left;
     overflow-wrap: anywhere;
   }
-  .navitem:hover { background: var(--bg); }
-  .navitem[aria-current="page"] { background: #eaf1ff; color: var(--accent); font-weight: 600; }
+  .navitem:hover { background: var(--field); }
+  .navitem[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   main {
     max-width: 1080px;
     width: 100%;
@@ -92,19 +115,19 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 15px;
-    background: #fff;
+    background: var(--field);
     color: var(--text);
   }
   button {
     padding: 8px 14px;
     border: 1px solid var(--line);
     border-radius: 8px;
-    background: #fff;
+    background: var(--field);
     color: var(--text);
     font-size: 14px;
     cursor: pointer;
   }
-  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   button:disabled { opacity: .5; cursor: default; }
   .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   .row > .grow { flex: 1 1 240px; }
@@ -124,7 +147,7 @@
     font-size: 13px;
     transition: background .15s, border-color .15s;
   }
-  .drop.over { background: #eaf1ff; border-color: var(--accent); color: var(--accent); }
+  .drop.over { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .drop.small { padding: 6px 10px; }
   .jobs { display: grid; gap: 10px; }
   .job { border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13px; }
@@ -132,7 +155,7 @@
   .job.failed { color: var(--ng); }
   .job .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
   .job .title { font-weight: 600; }
-  .bar { height: 6px; background: #e9edf3; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .bar { height: 6px; background: var(--line); border-radius: 4px; margin-top: 8px; overflow: hidden; }
   .bar > i { display: block; height: 100%; background: var(--accent); width: 0; }
   .job.done .bar > i { background: var(--ok); }
   .job.failed .bar > i { background: var(--ng); }
@@ -141,6 +164,7 @@
   .jobslot .job { padding: 6px 8px; }
   .job button { margin-top: 6px; }
   .hidden { display: none !important; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .checkline { display: flex; align-items: center; gap: 8px; }
   .checkline input { width: auto; }
   .checkline label { margin: 0; color: var(--text); font-size: 14px; }
@@ -150,7 +174,7 @@
     .app { grid-template-columns: 1fr; }
     nav.side { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
     .navlist { display: flex; flex-wrap: wrap; gap: 6px; }
-    .navitem { width: auto; border: 1px solid var(--line); background: #fff; }
+    .navitem { width: auto; border: 1px solid var(--line); background: var(--field); }
     .navitem[aria-current="page"] { border-color: var(--accent); }
   }
   @media (max-width: 600px) {
