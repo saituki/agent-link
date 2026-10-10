@@ -514,7 +514,16 @@ mod tests {
                 assert!(texts(conn, top.id).is_empty());
                 assert_eq!(top.text, defs.question_text(top.guide_key.as_deref().unwrap()));
             }
-            assert_eq!(tops[0].text, "この分野で解かれている問題（タスク）には、どんな種類があるか。");
+            let want = [
+                "この分野で解かれている問題（タスク）には、どんな種類があるか。",
+                "研究の対象には、どんな種類があるか。",
+                "使われているデータには、どんな種類があるか。",
+                "使われている手法には、どんな種類があるか。",
+                "研究が出す出力の形には、どんな種類があるか。",
+                "使われている評価指標には、どんな種類があるか。",
+            ];
+            let got: Vec<_> = tops.iter().map(|n| n.text.as_str()).collect();
+            assert_eq!(got, want, "{type_id}");
         }
         let _ = fs::remove_dir_all(&root);
     }
