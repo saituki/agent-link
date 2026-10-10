@@ -4,31 +4,20 @@ name: METHOD_DRIVEN
 ---
 # METHOD_DRIVEN
 
-手元で新しい手法が使える状態が先にあり、「それを何に使うか」を決める型である。手法の中身は既に決まっている。
+手元で新しい手法が使える状態が先にあり、「それを何に使うか」を決める型である。型は、seed のどの項目が最初から決定かで決まる。最初から決まっているのは、手法（method）である。解く問題・対象・評価指標は空欄で始まる。手法の中身は既に決まっているので、使う場面と比べる相手を探すことが仕事になる。
 
-最初に与えられていることが多いのは手法（何ができる新しい技術か）である。与えられていないのは、使う場面、対象、比較の相手、VALUE_AXES、新規性の主張である。手法が劣っていても、VALUE_AXES が違えば使う理由ができる。
+手法が劣っていても、評価の軸が違えば使う理由ができる。その軸を、評価指標の下の root から探す。
 
-典型例は、自己教師ありの時系列分解を手元にもっている状態で、「てんかん焦点の短い区間の時系列を表示できるか」を考えるものである。手法は決まっているが、対象も比較の相手も決まっていない。
+典型例は、自己教師ありの時系列分解を手元にもっている状態で、「てんかん焦点の短い区間の時系列を表示できるか」を考えるものである。手法は決まっているが、解く問題・対象・評価指標は決まっていない。
 
 ## Q
-- background
-  - background.goal
-  - background.problem
+- task
 - target
-  - target.subgroup
+- data
 - method
-  - method.analog
-  - method.adapt
-- purpose
-  - purpose.subgoal
-    + purpose.output
-    + purpose.metric
-    + data
-      - data.type
-      - data.size
-      - data.label
-      - data.access
-    + existing
-    + novelty
-      - novelty.closest
-      - novelty.diff
+- output
+- metric
+
+## SEED
+- 決定になりやすい: 手法（method）
+- 空欄で始まりやすい: 解く問題（task）・対象（target）・評価指標（metric）

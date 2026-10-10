@@ -4,34 +4,18 @@ name: DATA_DRIVEN
 ---
 # DATA_DRIVEN
 
-手元にあるデータセットが先にあり、「このデータで何が言えるか」を問う型である。集めたときの目的とは限らない。
+手元にあるデータセットが先にあり、「このデータで何が言えるか」を問う型である。集めたときの目的とは限らない。型は、seed のどの項目が最初から決定かで決まる。最初から決まっているのは、データ（data）である。解く問題・手法・出力は空欄で始まり、序盤はデータの意味を読む時間に使われる。
 
-最初から与えられていることが多いのはデータ（何が手元にあるか）である。与えられていないのは、小目的、既存手法、その手法の限界、改善の方向、新規性の主張である。序盤はデータの意味を読む時間に使われる。
-
-典型例は、病院の生理信号が 1 つのデータベースにまとまっていて、その中のどの話をするかから始めるものである。データの型は決まっているが、小目的も比較対象も決まっていない。
+典型例は、病院の生理信号が 1 つのデータベースにまとまっていて、その中のどの話をするかから始めるものである。データの型は決まっているが、解く問題も比較の相手も決まっていない。
 
 ## Q
-- background
-  - background.goal
-  - background.problem
+- task
 - target
-  - target.subgroup
 - data
-  - data.type
-  - data.size
-  - data.label
-  - data.access
-- purpose
-  - purpose.subgoal
-    + purpose.output
-    + purpose.metric
-    + existing
-    + issue
-      - issue.limit
-      - issue.root
-    + method
-      - method.analog
-      - method.adapt
-    + novelty
-      - novelty.closest
-      - novelty.diff
+- method
+- output
+- metric
+
+## SEED
+- 決定になりやすい: データ（data）
+- 空欄で始まりやすい: 解く問題（task）・手法（method）・出力（output）
