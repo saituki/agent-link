@@ -38,6 +38,7 @@ from sai_web import (
     home,
     mlflow_proxy,
     notify,
+    paper_migrate,
     papers,
     questions,
     radio,
@@ -1570,6 +1571,32 @@ async def api_papers_bundle(
     project = papers.resolve_project(name)
     body = await bundles.read_bundle_upload(request)
     return await bundles.request_bundle(project, body)
+
+
+@app.post("/api/projects/{name}/papers/migrate", status_code=202)
+async def api_papers_migrate(
+    name: str, request: Request, _: None = Depends(require_token)
+) -> dict:
+    """sai-prep の「移植の束」（zip）を受けて取り込む（C-M3）。
+
+    本文は zip そのもの（`Content-Type: application/zip`）。種類が違えば 415・
+    大きすぎれば 413・中身が違えば 400（CLI を呼ばない）。
+    """
+    project = papers.resolve_project(name)
+    body = await bundles.read_bundle_upload(request)
+    return await paper_migrate.request_upload(project, body)
+
+
+@app.post("/api/projects/{name}/papers/migrate-from", status_code=202)
+async def api_papers_migrate_from(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """同じ利用者の別のプロジェクトから論文を移す（C-M3）。
+
+    body は `{"source": "<移植元のプロジェクト名>", "ids": [5, 6, 12]}`。
+    移植元は自分のプロジェクトだけ（無ければ 404）。
+    """
+    return await paper_migrate.request_from(papers.resolve_project(name), payload)
 
 
 @app.post("/api/projects/{name}/data/raw", status_code=201)

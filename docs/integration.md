@@ -27,6 +27,9 @@ iPhone / PC のブラウザ
 Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無しで登録・すぐ返る）
 前処理の束の取込: sai-prep ──(zip を POST)──▶ sai-web（検査・展開）──(背景)──▶ `sai-paper paper import-bundle --dir <フォルダ>`
                                           └─(通知)──▶「保存しました」
+論文の移植:      sai-prep ──(移植の束の zip を POST)──▶ sai-web（検査・展開）──(背景)──▶ `sai-paper library import-migration --dir <フォルダ>`
+                 別プロジェクト（同じ利用者）──(sai-web が仲立ち)──▶ 移植元で `sai-paper library export --ids …` ──(移す)──▶ 移植先で `import-migration`
+                                          └─(通知)──▶「論文を移しました」
 ```
 
 | タブ / 画面 | 使う物 |
@@ -226,11 +229,13 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `DELETE /api/projects/{name}/papers/import/{file_name}` | .bib の削除 | `sai-paper import remove --name <名前>` |
 | `POST /api/projects/{name}/papers/keep` | PDF 無しで Library に入れる（200）。body は「`{"log_id": 3, "position": 2, "title": "…"}`」「`{"import_id": "DOI:…", "title": "…"}`」「`{"cite_paper_id": 12, "ref_no": 3, "title": "…"}`」のどれか 1 つ。返す JSON: `{"paper_id", "title", "status": "added"\|"exists"}` | `sai-paper paper keep (--log <id> --position <p> \| --import-id <id> \| --cite <id> --ref <n>) --json` |
 | `POST /api/projects/{name}/papers/bundle` | sai-prep の「前処理の束」（zip）を受け取る（202・背景）。本文は zip そのもの（`Content-Type: application/zip`・300MB まで）。Web が検査・展開してから `import-bundle` を走らせる。種類が違えば 415・大きすぎ／Content-Length 無しは 413・中身が違えば 400（CLI を呼ばない）。返す JSON: `{"key": "bundle:<uuid>", "status": "processing"}` | `sai-paper paper import-bundle --dir <展開したフォルダ> --json` |
+| `POST /api/projects/{name}/papers/migrate` | sai-prep の「移植の束」（zip）を受け取る（202・背景）。本文は zip そのもの（`Content-Type: application/zip`・300MB まで）。Web が検査・展開してから `import-migration` を走らせる。種類が違えば 415・大きすぎ／Content-Length 無しは 413・中身が違えば 400（CLI を呼ばない）。返す JSON: `{"key": "migrate:<uuid>", "status": "processing"}` | `sai-paper library import-migration --dir <展開したフォルダ> --json` |
+| `POST /api/projects/{name}/papers/migrate-from` | 同じ利用者の別のプロジェクトから論文を移す（202・背景）。body `{"source": "<移植元のプロジェクト名>", "ids": [5, 6, 12]}`（ids は 1〜1000 個の正の整数・重複は 1 つにまとめる）。移植元は `papers/resolve_project` で引ける自分のプロジェクトだけ（引けなければ 404）。Web が移植元で書き出し（outbox）→ 移植先の inbox へ移す → 移植先で取り込む。返す JSON: `{"key": "migrate:<uuid>", "status": "processing"}`。source が空・移植先と同じ・ids が不正なら 400 | 移植元で `sai-paper library export --ids <ids> --out <outbox> --json`、移植先で `sai-paper library import-migration --dir <inbox> --json` |
 | `GET /api/projects/{name}/papers/pending` | PDF 待ちの論文の一覧（sai-prep が使う） | `sai-paper library pending --json` |
 | `POST /api/projects/{name}/data/raw?filename=<名前>` | 解析用のデータを 1 件置く（sai-prep の Data upload が使う・201）。本文はファイルそのもの（種類は問わない・`Content-Length` が必要）。`<root>/data/raw/<名前>` に置く。返す JSON: `{"name", "size", "path"}`。名前は `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`（違えば 400）。同じ名前は 409（上書きしない）。1 件 5GB まで（超えれば 413）。無いプロジェクト・root が無いプロジェクトは 404。ディスクへ流し書きする（途中で切れたら `.part` を消す） | （sai-web が直接書く。CLI は呼ばない） |
 | `GET /api/projects/{name}/data/raw` | `data/raw/` の一覧（名前の昇順）。返す JSON: `{"files": [{"name", "size", "mtime"}]}`（`mtime` は ISO 8601・UTC）。隠しファイルと `.part` は出さない。置き場が無ければ空の一覧 | （sai-web が直接読む） |
-| `GET /api/projects/{name}/papers/jobs/{key}` | 仕事 1 件（sai-prep が進み具合を見る）。無ければ 404。返す JSON: `{"key", "status", "title", "paper_id"?, "figures"?, "translated"?, "error"?}` | （sai-web のメモリ） |
-| `GET /api/projects/{name}/papers/downloads` | 走っている／終わった仕事（`{"jobs": [{key, kind, title, status, paper_id, error, started_at, finished_at, steps, step, percent, messages}]}`・新しい順）。`kind` は `bundle` / `cite-extract` / `radio` / `translate` の 4 つ。`percent` が `null` の仕事は「% の分からない仕事」（画面は動く帯で出す） | （sai-web のメモリ） |
+| `GET /api/projects/{name}/papers/jobs/{key}` | 仕事 1 件（sai-prep が進み具合を見る）。無ければ 404。返す JSON: `{"key", "status", "title", "paper_id"?, "figures"?, "translated"?, "error"?, "result"?}`（`result` は移植の仕事が `done` のときだけ・`import-migration` の戻り） | （sai-web のメモリ） |
+| `GET /api/projects/{name}/papers/downloads` | 走っている／終わった仕事（`{"jobs": [{key, kind, title, status, paper_id, error, started_at, finished_at, steps, step, percent, messages}]}`・新しい順）。`kind` は `bundle` / `migrate` / `cite-extract` / `radio` / `translate` の 5 つ。`percent` が `null` の仕事は「% の分からない仕事」（画面は動く帯で出す） | （sai-web のメモリ） |
 | `GET /api/projects/{name}/papers/{paper_id:int}/citations` | 引用一覧（読み取りだけ・抜き出す前の論文にも空の形で返る） | `sai-paper paper citations <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/citations/extract` | 引用を PDF から抜き出す（202・背景。docling を使うので数十秒〜数分）。進捗は `cite:<paper_id>` の仕事 | `sai-paper paper citations-extract <id>` |
 | `GET /api/projects/{name}/papers/project` | 現況・考え・状況のまとめ・要対応 | `sai-sci project show --json` |
@@ -239,7 +244,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/prep/download` | sai-prep の入れ物（一番新しい `sai_prep-*.whl`）を配る。無ければ 404「sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）」 | （ファイルを返すだけ・`SAI_PREP_DIST` があればそこを見る） |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
-- `import` / `downloads` / `keep` / `bundle` / `pending` / `jobs/{key}` / `project` / `project/mind` / `attention` / `find` / `find-history` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- `import` / `downloads` / `keep` / `bundle` / `migrate` / `migrate-from` / `pending` / `jobs/{key}` / `project` / `project/mind` / `attention` / `find` / `find-history` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・keep は対象 3 つのうち 1 つ）→ 400。同じ論文が進行中は 409。
 - 前処理の束（zip）の検査は Web が行う（Rust に zip の依存が無い）。項目の数 ≤ 5000・展開後の合計 ≤ 1GB・絶対パス / `..` / `\` / NUL の名前無し・シンボリックリンク無し・`manifest.json` の形（下の C12）・`paper.pdf` の先頭が `%PDF-`。違えば CLI を 1 度も呼ばず 400。展開先は `<root>/.sai/paper/inbox/<uuid>/`（ホストとコンテナで同じパスに見える・C4）。
 - 仕事の状態は sai-web のメモリだけに持つ。`processing` = 取り込み中（束）／後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
@@ -248,6 +253,8 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 - zip の中身: `manifest.json`・`paper.pdf`・`docling/paper.md`・`docling/paper.json`・`docling/paper_artifacts/…`・（翻訳したときだけ）`translated/paper-mono.pdf`・`translated/paper-dual.pdf`。
 - `manifest.json`: `{"format":"sai-prep-bundle","version":1,"target":{"paper_id":<int>}|{"bibtex":"<1 件>"},"pdf":"paper.pdf","pdf_sha256":"<hex>","docling":{"md":"docling/paper.md","json":"docling/paper.json","dir":"docling"},"translation":{"mono":"…","dual":"…","service":"…"}|null,"tools":{"sai_prep","docling","pdf2zh"},"created_at":"RFC3339"}`。
 - `import-bundle` の戻り: `{"paper_id","title","figures","sections","refs","translated"}`。
+- `import-migration` の戻り（移植の仕事の `result` に入る・`GET …/papers/jobs/{key}` で読む）: `{"imported":[{"source_id","paper_id","title","mode":"new"|"filled"}],"skipped":[{"source_id","paper_id","title","reason"}],"failed":[{"source_id","title","error"}]}`。論文ごとの失敗は `failed` に入り、仕事は `done` のまま。
+- 移植の束（C-M1）: zip の中身は `manifest.json`（`{"format":"sai-paper-migration","version":1,"papers":[<移植元の papers.id>, …]}`）・`papr.db`（論文の表だけの SQLite・先頭が `SQLite format 3\x00`）・`papers/<移植元のフォルダ名>/…`。
 
 ### 4.6 研究（`sai-sci` 経由・Research タブ）
 
