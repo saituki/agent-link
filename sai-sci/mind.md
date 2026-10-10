@@ -1,21 +1,10 @@
-# mind.md（研究の土台）
-<!-- あなたが書くファイルです。エージェントは直接書き換えません。決まったことと仮説は、research-tree に書きます -->
+# mind.md（プロジェクトの覚え書き）
+<!-- あなたが書くファイルです。エージェントは直接書き換えません。決まったことと仮説は、research-tree に書きます。研究ごとの制約（使うデータ・対象・成功基準・期間など）は、ここではなく SEED（D）に書きます。Web の research-tree の「Create SEED」か、sci-start で作ります -->
 
 ## ORIGIN
 <!-- きっかけ・誰から来た話か・いつ -->
 
-## RESEARCH_TYPE
-<!-- PROBLEM_DRIVEN / PHENOMENON_DRIVEN / METHOD_DRIVEN / DATA_DRIVEN / IMPROVE_DRIVEN / まだ分からない -->
-
-## GIVEN
-<!-- 最初から決まっていること（例: 使うデータ・指導教員が決めた対象）。RESEARCH_TYPE で最初から与えられている物（SEED に入る物（top_Q の手がかり））になります -->
-
-## CONSTRAINTS
-<!-- 期間・計算資源・データの入手・倫理審査・関わる人 -->
-
-## VALUE_AXES
-<!-- 何ができたら成功か。大事な順に番号を付ける。A を比べるときの軸になります（sci-verify） -->
-
 ## INTERESTS
+<!-- 興味があること・無いこと -->
 
 ## NOTES
