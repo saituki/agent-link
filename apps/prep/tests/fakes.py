@@ -159,6 +159,17 @@ class FakeWebServer:
         # Data upload（U01）: 置いたファイル（名前 → 中身）と、受けた要求の記録
         self.data_files: dict[str, bytes] = {}
         self.data_posts: list[dict] = []
+        # DB Migration: sai-tree の Library の一覧、受けた移植の要求、取り込みの答え
+        self.library = [
+            {"id": 5, "title": "Lib Paper", "year": 2023, "authors": "Ada, Bob",
+             "has_pdf": True, "has_extract": False},
+        ]
+        self.migrations: list[dict] = []
+        self.migrate_result = {
+            "imported": [{"source_id": 1, "paper_id": 12, "title": "A Fake Paper", "mode": "new"}],
+            "skipped": [{"source_id": 2, "paper_id": 13, "title": "Skipped Paper", "reason": "PDF があるので飛ばしました"}],
+            "failed": [{"source_id": 3, "title": "Broken Paper", "error": "zip が壊れています"}],
+        }
         self._polls: dict[str, int] = {}
         self._job_polls_before_done = job_polls_before_done
         state = self
@@ -185,6 +196,8 @@ class FakeWebServer:
                     self._send(200, {"projects": state.projects})
                 elif path.endswith("/papers/pending"):
                     self._send(200, state.pending)
+                elif path.endswith("/papers/library"):
+                    self._send(200, {"papers": state.library})
                 elif path.endswith("/data/raw"):
                     files = [
                         {"name": name, "size": len(blob), "mtime": "2026-10-09T10:00:00+00:00"}
@@ -192,7 +205,7 @@ class FakeWebServer:
                     ]
                     self._send(200, {"files": files})
                 elif "/papers/jobs/" in path:
-                    key = path.rsplit("/", 1)[-1]
+                    key = urllib.parse.unquote(path.rsplit("/", 1)[-1])
                     count = state._polls.get(key, 0)
                     state._polls[key] = count + 1
                     if count >= state._job_polls_before_done:
@@ -221,6 +234,21 @@ class FakeWebServer:
                     )
                     key = f"bundle:fake-{len(state.bundles)}"
                     state.jobs[key] = {"key": key, "status": "done", "title": "A Fake Paper", "paper_id": 12}
+                    self._send(202, {"key": key, "status": "processing"})
+                elif path.endswith("/papers/migrate") or path.endswith("/papers/migrate-from"):
+                    length = int(self.headers.get("Content-Length", "0"))
+                    blob = self.rfile.read(length) if length else b""
+                    project = path.split("/api/projects/")[1].split("/")[0]
+                    if path.endswith("/papers/migrate"):
+                        record = {"kind": "zip", "project": project, "blob": blob}
+                    else:
+                        record = {"kind": "from", "project": project, "body": json.loads(blob or b"{}")}
+                    state.migrations.append(record)
+                    key = f"migrate:fake-{len(state.migrations)}"
+                    state.jobs[key] = {
+                        "key": key, "status": "done", "title": "DB Migration",
+                        "result": state.migrate_result,
+                    }
                     self._send(202, {"key": key, "status": "processing"})
                 elif path.endswith("/data/raw"):
                     query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)

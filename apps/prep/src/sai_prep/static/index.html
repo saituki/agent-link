@@ -86,7 +86,7 @@
   section h2 { font-size: 15px; margin: 0 0 10px; }
   section h3 { font-size: 14px; margin: 16px 0 6px; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
-  input[type="text"], input[type="password"], input[type="number"] {
+  input[type="text"], input[type="password"], input[type="number"], select {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--line);
@@ -237,6 +237,44 @@
         <div id="bibJobs" class="jobs"></div>
       </section>
 
+      <section id="migrateSection">
+        <h2>DB Migration</h2>
+        <p class="muted">別のプロジェクトの論文（PDF・抜き出し・図・翻訳・埋め込み）を、このプロジェクトへ移します。同じ論文が既にあれば、PDF 待ちのときだけ補い、PDF があれば飛ばします。</p>
+        <div class="row">
+          <div class="checkline">
+            <input id="migrateTree" type="radio" name="migrateSource" value="tree" checked>
+            <label for="migrateTree">sai-tree のプロジェクト</label>
+          </div>
+          <div class="checkline">
+            <input id="migrateMoon" type="radio" name="migrateSource" value="moon">
+            <label for="migrateMoon">sai-moon のフォルダ（この Mac）</label>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div id="migrateTreeBox" class="grow">
+            <label for="migrateProject">移植元のプロジェクト</label>
+            <select id="migrateProject"></select>
+          </div>
+          <div id="migrateMoonBox" class="grow hidden">
+            <label for="migratePath">sai-moon のプロジェクトのフォルダ</label>
+            <input id="migratePath" type="text" placeholder="/Users/you/research/west" autocomplete="off">
+          </div>
+          <button id="migrateList">一覧を読む</button>
+        </div>
+        <div id="migrateListStatus" class="status muted"></div>
+        <table id="migrateTable" class="hidden">
+          <thead>
+            <tr><th><input id="migrateAll" type="checkbox" aria-label="全部を選ぶ"></th><th>題名</th><th>年</th><th>PDF</th><th>抜き出し</th><th>翻訳</th><th>chunk</th></tr>
+          </thead>
+          <tbody id="migrateBody"></tbody>
+        </table>
+        <div class="row" style="margin-top:10px">
+          <button id="migrateRun" class="primary" disabled>移植する論文を選んでください</button>
+        </div>
+        <div id="migrateStatus" class="status"></div>
+        <div id="migrateJobs" class="jobs"></div>
+      </section>
+
       <section>
         <h2>Data upload</h2>
         <p class="muted">解析用のデータを送ります。サーバのプロジェクトの data/raw/ に置きます（1 件 5GB まで・同じ名前は上書きしません）。名前は英数字と . _ - だけ（先頭は英数字）。</p>
@@ -307,6 +345,8 @@
     state.project = name;
     spRender();
     spEl("dataRows").innerHTML = "";
+    spFillMigrateSelect();
+    spResetMigrate();
     spLoadPending(name);
     spLoadData();
     // 次に開くとき同じプロジェクトを開くため、覚える（ほかの設定は送らない）
@@ -380,6 +420,7 @@
     return spApi("/local/projects").then(function (data) {
       var list = data.projects || [];
       state.projects = list;
+      spFillMigrateSelect();
       var box = spEl("projectList");
       box.innerHTML = "";
       list.forEach(function (p) {
@@ -698,7 +739,186 @@
   });
   spWireDrop(spEl("dataDrop"), null, spUploadData);
 
-  // -- 進み具合（PDF 待ちの行の下と、BibTeX の節の下に出す） ----------------
+  // -- DB Migration ----------------------------------------------------
+  // 移植元は sai-tree のプロジェクト（select）か sai-moon のフォルダ（文字の欄）。
+  // 一覧は GET /local/migrate/papers。移植は POST /local/migrate（sai-moon は論文 1 本ずつ、sai-tree は 1 つ）。
+  function spMigrateSource() {
+    return spEl("migrateMoon").checked ? "moon" : "tree";
+  }
+
+  // 移植元の候補は、今の移植先を除いた sai-tree のプロジェクト。
+  function spFillMigrateSelect() {
+    var select = spEl("migrateProject");
+    var current = select.value;
+    select.innerHTML = "";
+    state.projects.forEach(function (p) {
+      var name = p.name || p;
+      if (name === state.project) { return; }
+      var option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    });
+    if (current) { select.value = current; }
+  }
+
+  function spResetMigrate() {
+    spEl("migrateBody").innerHTML = "";
+    spEl("migrateTable").classList.add("hidden");
+    spStatus(spEl("migrateListStatus"), "");
+    spStatus(spEl("migrateStatus"), "");
+    spMigrateCount();
+  }
+
+  function spMigrateSourceChanged() {
+    var moon = spMigrateSource() === "moon";
+    spEl("migrateTreeBox").classList.toggle("hidden", moon);
+    spEl("migrateMoonBox").classList.toggle("hidden", !moon);
+    spResetMigrate();
+  }
+  spEl("migrateTree").addEventListener("change", spMigrateSourceChanged);
+  spEl("migrateMoon").addEventListener("change", spMigrateSourceChanged);
+
+  function spCell(tr, label, text) {
+    var td = document.createElement("td");
+    td.setAttribute("data-label", label);
+    td.textContent = text;
+    tr.appendChild(td);
+  }
+
+  // 有無の印。null（移植元の一覧に無い）は「–」。
+  function spMark(value) {
+    if (value === null || value === undefined) { return "–"; }
+    return value ? "✓" : "–";
+  }
+
+  function spMigrateRow(paper) {
+    var tr = document.createElement("tr");
+    var tdCheck = document.createElement("td");
+    tdCheck.setAttribute("data-label", "移す");
+    var check = document.createElement("input");
+    check.type = "checkbox";
+    check.setAttribute("data-id", String(paper.id));
+    check.setAttribute("aria-label", paper.title || "");
+    check.addEventListener("change", spMigrateCount);
+    tdCheck.appendChild(check);
+    tr.appendChild(tdCheck);
+    spCell(tr, "題名", paper.title || "(題名なし)");
+    spCell(tr, "年", paper.year || "");
+    spCell(tr, "PDF", spMark(paper.has_pdf));
+    spCell(tr, "抜き出し", spMark(paper.has_extract));
+    spCell(tr, "翻訳", spMark(paper.translated));
+    spCell(tr, "chunk", paper.chunks === null || paper.chunks === undefined ? "–" : String(paper.chunks));
+    return tr;
+  }
+
+  function spLoadMigratePapers() {
+    var project = state.project;
+    var query;
+    if (spMigrateSource() === "moon") {
+      var path = spEl("migratePath").value.trim();
+      if (!path) { spStatus(spEl("migrateListStatus"), "sai-moon のフォルダを入れてください。", "ng"); return; }
+      query = "source=moon&path=" + encodeURIComponent(path);
+    } else {
+      var origin = spEl("migrateProject").value;
+      if (!origin) { spStatus(spEl("migrateListStatus"), "移植元のプロジェクトを選んでください。", "ng"); return; }
+      query = "source=tree&project=" + encodeURIComponent(origin);
+    }
+    spStatus(spEl("migrateListStatus"), "読み込んでいます…");
+    spApi("/local/migrate/papers?" + query).then(function (data) {
+      if (state.project !== project) { return; }
+      var papers = data.papers || [];
+      var body = spEl("migrateBody");
+      body.innerHTML = "";
+      spEl("migrateAll").checked = false;
+      if (!papers.length) {
+        spStatus(spEl("migrateListStatus"), "移せる論文はありません。", "ok");
+        spEl("migrateTable").classList.add("hidden");
+        spMigrateCount();
+        return;
+      }
+      spStatus(spEl("migrateListStatus"), papers.length + " 件", "ok");
+      spEl("migrateTable").classList.remove("hidden");
+      papers.forEach(function (paper) { body.appendChild(spMigrateRow(paper)); });
+      spMigrateCount();
+    }).catch(function (e) {
+      if (state.project !== project) { return; }
+      spStatus(spEl("migrateListStatus"), e.message, "ng");
+    });
+  }
+
+  spEl("migrateList").addEventListener("click", spLoadMigratePapers);
+
+  function spSelectedMigrate() {
+    var boxes = spEl("migrateBody").querySelectorAll("input[type=checkbox]");
+    return Array.prototype.filter.call(boxes, function (c) { return c.checked; })
+      .map(function (c) { return Number(c.getAttribute("data-id")); });
+  }
+
+  // 選んだ件数でボタンの文と、全選択の印を合わせる。0 件のときはボタンを押せない。
+  function spMigrateCount() {
+    var boxes = spEl("migrateBody").querySelectorAll("input[type=checkbox]");
+    var n = spSelectedMigrate().length;
+    var button = spEl("migrateRun");
+    button.textContent = n ? "選んだ " + n + " 件を移植する" : "移植する論文を選んでください";
+    button.disabled = n === 0;
+    spEl("migrateAll").checked = boxes.length > 0 && n === boxes.length;
+  }
+
+  spEl("migrateAll").addEventListener("change", function () {
+    var on = spEl("migrateAll").checked;
+    Array.prototype.forEach.call(spEl("migrateBody").querySelectorAll("input[type=checkbox]"), function (c) {
+      c.checked = on;
+    });
+    spMigrateCount();
+  });
+
+  spEl("migrateRun").addEventListener("click", function () {
+    var project = state.project;
+    var ids = spSelectedMigrate();
+    if (!project || !ids.length) { return; }
+    var body = spMigrateSource() === "moon"
+      ? { source: "moon", path: spEl("migratePath").value.trim(), ids: ids }
+      : { source: "tree", project: spEl("migrateProject").value, ids: ids };
+    spEl("migrateRun").disabled = true;
+    spStatus(spEl("migrateStatus"), "送っています…");
+    spApi("/local/migrate?project=" + encodeURIComponent(project), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function () {
+      spStatus(spEl("migrateStatus"), ids.length + " 件の移植を始めました", "ok");
+      spLoadJobs();
+    }, function (e) {
+      spStatus(spEl("migrateStatus"), e.message, "ng");
+    }).then(spMigrateCount);
+  });
+
+  // 移植の結果: 1 行の集計と、飛ばした論文・失敗した論文の理由（論文ごとに 1 行）。
+  function spMigrateResult(div, result) {
+    var imported = result.imported || [];
+    var skipped = result.skipped || [];
+    var failed = result.failed || [];
+    var filled = imported.filter(function (p) { return p.mode === "filled"; }).length;
+    var summary = document.createElement("div");
+    summary.textContent = "移した " + imported.length + " 件（うち補った " + filled + " 件）・飛ばした " +
+      skipped.length + " 件・失敗 " + failed.length + " 件";
+    div.appendChild(summary);
+    skipped.forEach(function (p) {
+      var line = document.createElement("div");
+      line.className = "muted";
+      line.textContent = (p.title || "(題名なし)") + " — " + (p.reason || "");
+      div.appendChild(line);
+    });
+    failed.forEach(function (p) {
+      var line = document.createElement("div");
+      line.className = "err";
+      line.textContent = (p.title || "(題名なし)") + " — " + (p.error || "");
+      div.appendChild(line);
+    });
+  }
+
+  // -- 進み具合（PDF 待ちの行の下と、BibTeX と DB Migration の節の下に出す） --
   function spJobView(job) {
     var div = document.createElement("div");
     div.className = "job " + (job.status || "");
@@ -706,9 +926,10 @@
     top.className = "top";
     var title = document.createElement("span");
     title.className = "title";
-    title.textContent = job.kind === "bibtex" ? job.filename : (job.stage || job.status);
+    var named = job.kind === "bibtex" || job.kind === "migrate";
+    title.textContent = named ? job.filename : (job.stage || job.status);
     var stage = document.createElement("span");
-    stage.textContent = job.kind === "bibtex" ? (job.stage || job.status) : (job.progress || 0) + "%";
+    stage.textContent = named ? (job.stage || job.status) : (job.progress || 0) + "%";
     top.appendChild(title);
     top.appendChild(stage);
     div.appendChild(top);
@@ -724,6 +945,7 @@
       msg.textContent = job.message;
       div.appendChild(msg);
     }
+    if (job.kind === "migrate" && job.result) { spMigrateResult(div, job.result); }
     if (job.error) {
       var err = document.createElement("div");
       err.className = "err";
@@ -745,7 +967,7 @@
 
   // 表示が変わったときだけ描き直す（2 秒ごとの更新でボタンが消えないように）。
   function spFill(slot, jobs) {
-    var sig = JSON.stringify(jobs.map(function (j) { return [j.id, j.status, j.stage, j.progress, j.message, j.error]; }));
+    var sig = JSON.stringify(jobs.map(function (j) { return [j.id, j.status, j.stage, j.progress, j.message, j.error, j.result]; }));
     if (slot.getAttribute("data-sig") === sig) { return; }
     slot.setAttribute("data-sig", sig);
     slot.innerHTML = "";
@@ -756,16 +978,19 @@
     var project = state.project;
     var latest = {};
     var bibJobs = [];
+    var migrateJobs = [];
     var finished = false;
     jobs.forEach(function (job) {
       if (spJobStatus[job.id] && spJobStatus[job.id] !== "done" && job.status === "done") { finished = true; }
       spJobStatus[job.id] = job.status;
       if (job.project !== project) { return; }
       if (job.kind === "bibtex") { bibJobs.push(job); return; }
+      if (job.kind === "migrate") { migrateJobs.push(job); return; }
       var id = String(job.target && job.target.paper_id);
       if (!latest[id] || latest[id].created_at < job.created_at) { latest[id] = job; }
     });
     spFill(spEl("bibJobs"), bibJobs);
+    spFill(spEl("migrateJobs"), migrateJobs);
     Array.prototype.forEach.call(document.querySelectorAll(".jobslot"), function (slot) {
       var job = latest[slot.getAttribute("data-paper-id")];
       spFill(slot, job ? [job] : []);
