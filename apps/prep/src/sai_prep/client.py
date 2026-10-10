@@ -107,6 +107,37 @@ class Client:
         )
         return _json(body)
 
+    def library(self, project: str) -> list[dict]:
+        """`GET /api/projects/{name}/papers/library`。DB Migration の移植元の一覧（sai-tree の側）。"""
+        name = urllib.parse.quote(project, safe="")
+        _, body = self._request("GET", f"/api/projects/{name}/papers/library")
+        return _json(body).get("papers", [])
+
+    def post_migrate(self, project: str, blob: bytes) -> dict:
+        """`POST /api/projects/{name}/papers/migrate`。移植の束（zip）を送る。"""
+        name = urllib.parse.quote(project, safe="")
+        _, body = self._request(
+            "POST",
+            f"/api/projects/{name}/papers/migrate",
+            data=blob,
+            headers={"Content-Type": "application/zip"},
+            timeout=BUNDLE_TIMEOUT,
+        )
+        return _json(body)
+
+    def post_migrate_from(self, project: str, source: str, ids: list[int]) -> dict:
+        """`POST /api/projects/{name}/papers/migrate-from`。サーバの中で移す（移植元は別のプロジェクト）。"""
+        name = urllib.parse.quote(project, safe="")
+        payload = json.dumps({"source": source, "ids": ids}, ensure_ascii=False).encode("utf-8")
+        _, body = self._request(
+            "POST",
+            f"/api/projects/{name}/papers/migrate-from",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=BUNDLE_TIMEOUT,
+        )
+        return _json(body)
+
     def data_files(self, project: str) -> list[dict]:
         """`GET /api/projects/{name}/data/raw`。`data/raw/` の一覧。"""
         name = urllib.parse.quote(project, safe="")
