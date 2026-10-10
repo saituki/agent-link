@@ -379,7 +379,7 @@ FIND_EACH_MIN = 1
 FIND_EACH_MAX = 20
 # research-tree の Node の形（sci.py と同じ値。sci を import せず持つのは
 # 循環 import を避けるため・U02 計画書の前提）
-_FIND_NODE_RE = re.compile(r"^[QAFES][1-9][0-9]{0,8}$")
+_FIND_NODE_RE = re.compile(r"^[QAFESD][1-9][0-9]{0,8}$")
 
 
 class FindRequest(BaseModel):

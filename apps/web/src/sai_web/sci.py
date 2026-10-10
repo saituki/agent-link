@@ -44,8 +44,8 @@ SCI_WRITE_TIMEOUT = 30.0
 SCI_INIT_TIMEOUT = 60.0
 
 # --- ID と値 ---
-# Node は Q・A・F・E・S（数だけ「12」は受け付けない）。SEED は ID を持たないので別に扱う
-_NODE_RE = re.compile(r"^[QAFES][1-9][0-9]{0,8}$")
+# Node は Q・A・F・E・S・D（数だけ「12」は受け付けない）。SEED は ID を持たないので別に扱う
+_NODE_RE = re.compile(r"^[QAFESD][1-9][0-9]{0,8}$")
 # RESEARCH_TYPE
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
 # 読む深さ・READ_CARD の実行者と読み方
@@ -76,9 +76,9 @@ CARD_PAPERS_MAX = 20
 # 文字数の上限
 BODY_MAX = 2000
 
-# --- C-OP の op ごとの項目（C3 の表と同じ 14 種類） ---
+# --- C-OP の op ごとの項目（C3 の表と同じ 15 種類） ---
 # 値は「検査のしかた」。知らない項目は落とすので、1 つ 1 つ書く。
-#   ref:<種類>   必須の ID（種類は Q・A・F・E・S の文字の並び）
+#   ref:<種類>   必須の ID（種類は Q・A・F・E・S・D の文字の並び）
 #   text:<n>     必須の文字（1〜n 字）
 #   ztext:<n>    必須の文字（0〜n 字。空も通す）
 #   otext:<n>    任意の文字（空なら無いものとして落とす）
@@ -91,7 +91,7 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
     "insert_q": {"q": "ref:Q", "text": "text:300", "guide": "oguide"},
     "move_a": {"from": "ref:Q", "to": "ref:Q"},
     "copy": {"node": "ref:A", "to": "ref:Q"},
-    "remove": {"node": "ref:QAFES"},
+    "remove": {"node": "ref:QAFESD"},
     "add_a": {"q": "ref:Q", "text": "text:120", "body": "body"},
     "add_f": {
         "parent": "ref:A",
@@ -103,12 +103,13 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
         "run": "orun",
     },
     "add_e": {"parent": "ref:SE", "text": "text:120", "body": "body", "mlflow": "otext:200"},
-    "add_sprout": {"title": "text:120", "body": "body", "paths": "sproutpaths"},
+    "add_seed": {"title": "text:120", "body": "body"},
+    "add_sprout": {"seed": "ref:D", "title": "text:120", "body": "body", "paths": "sproutpaths"},
     "set_stance": {"node": "ref:F", "stance": "enum:stance"},
     "set_mlflow": {"node": "ref:E", "mlflow": "ztext:200"},
-    "star": {"node": "ref:QAFES"},
-    "unstar": {"node": "ref:QAFES"},
-    "edit": {"node": "ref:QAFES", "text": "otext:1200", "body": "body"},
+    "star": {"node": "ref:QAFESD"},
+    "unstar": {"node": "ref:QAFESD"},
+    "edit": {"node": "ref:QAFESD", "text": "otext:1200", "body": "body"},
 }
 _ENUMS = {"stance": STANCES}
 
@@ -141,7 +142,7 @@ def _check_ref(value, kinds: str) -> str:
 
 
 def _check_node_or_seed(value) -> str:
-    """`SEED`（ID を持たない特別な Node）か、Node の ID（Q・A・F・E・S）。
+    """`SEED`（ID を持たない特別な Node）か、Node の ID（Q・A・F・E・S・D）。
 
     `check_node` は `SEED` を受けないので、カードの `node` と add_q の親はここを通す。
     """
@@ -277,7 +278,7 @@ def _check_one(key: str, kind: str, value):
 def validate_op(payload) -> dict:
     """C-OP の op の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `op` は C-OP の 14 種類（Web からもすべて送れる）。
+    - `op` は C-OP の 15 種類（Web からもすべて送れる）。
     - op ごとに表の項目だけを残す。知らない項目と `path` のようなファイルのパスは落ちるので、
       CLI には渡らない（`add_sprout` の `paths` だけは A の ID の配列で、検査して渡す）。
     - 文字列は前後の空白を落とす。必須の項目が無ければ 400「<項目> がありません」。
@@ -315,7 +316,7 @@ def validate_op(payload) -> dict:
 def validate_card(payload) -> dict:
     """READ_CARD の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `node`（Q・A・F・E・S と `SEED`）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
+    - `node`（Q・A・F・E・S・D と `SEED`）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
     - `expect` 300 字、`depth`・`mode`・`runner` は表の値（`runner` は空なら `cc`・`pi` は 400）、`origin_run` は run_id
     - `model`・`thinking` は省略可（`CARD_MODELS`・`CARD_THINKING` の値だけ）
     - `child`（任意。`Q`・`A`・`F` のどれか。空は未指定）は C7 の `sci_child` として渡す。対象との組は CLI が見る

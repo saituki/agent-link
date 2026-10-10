@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の図（実装計画 U20）。一番上の Q から下へ伸びる Q・A・F・E・S の木 1 つ。
+// research-tree の図（実装計画 U20）。一番上の Q から下へ伸びる Q・A・F・E・S の木 1 つと、横に並ぶ seed（D）。
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
@@ -11,8 +11,10 @@
 // key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と A と E の出し入れ・畳んだ札を覚えて、
 // もう一度開いたときに同じ状態で出す（画面の中の Map と localStorage の sai-sg-view:<key>）。
 // onSelect には {kind: "node", id} / {kind: "seed", id} を渡す（札の data-sg-id と同じ ID）。
-// 段は、下から ROOT（top_Q とその下の Q・A・F）→ SEED の札 → SPROUT（kind S）→ BRANCH（E）の順。
-// 線は SEED → top_Q（seed）・SEED → SPROUT（sprout）・Parent / Child（tree）の 3 つ。
+// 段は、下から ROOT（top_Q とその下の Q・A・F）→ seed の層（SEED の札と D の札を横に並べる）→
+// SPROUT（kind S）→ BRANCH（E）の順。S は親の D の真上に置く（D の無い古い S は SEED の真上）。
+// 線は SEED → top_Q（seed）・SEED → SPROUT（sprout。古い S だけ）・Parent / Child（tree。D → S を含む）の 3 つ。
+// SEED → D の線は描かない（D は SEED の子ではなく、横に並ぶ物）。
 //
 // 中の処理は Rust のコアが返した JSON だけを使う（apps/web は他の DB を開かない）。
 // 札の大きさは固定。見える範囲（tx, ty, z）だけを動かし、札の位置は動かさない。
@@ -247,7 +249,8 @@ function sgTreeLayout(input, opts) {
     cards.push(sgNodeCard(n, x, y, fCount.get(id) || 0, collapseMark.get(id) || 0, (descCount.get(id) || 0) > 0));
     return x;
   };
-  const rootRoots = roots.filter((n) => n.kind !== "S");
+  // D（seed）は ROOT に入れない。seed の層（SEED の札と同じ高さ）に、下の D の所で置く
+  const rootRoots = roots.filter((n) => n.kind !== "S" && n.kind !== "D");
   for (const r of rootRoots) placeDown(r, 0, new Set());
 
   // BRANCH: SPROUT を row 0（y = -STEP）にして上へ。葉を左から詰め、親は子の真ん中
@@ -304,6 +307,34 @@ function sgTreeLayout(input, opts) {
     }
   }
 
+  // seed（D）: SEED の札の右へ横に並べる（y = 0）。その子の SPROUT（S）は親の D の真上（y = -STEP）に、
+  // D の幅の箱の真ん中に置く。箱は左から詰めて、古い S（親が無い）の並びとも重ならないようにする。
+  const shiftFrom = (from, delta) => {
+    if (!delta) return;
+    for (let i = from; i < cards.length; i += 1) {
+      cards[i].x += delta;
+      const p = pos.get(String(cards[i].id));
+      if (p) p.x += delta;
+    }
+  };
+  const byIdAsc = (a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+  const orphanSpan = spanOf(sproutRoots.map((n) => String(n.id)));
+  let boxLeft = Math.max(seedX + slotW, orphanSpan ? orphanSpan.max + slotW : -Infinity);
+  for (const d of roots.filter((n) => n.kind === "D").sort(byIdAsc)) {
+    const id = String(d.id);
+    const start = cards.length;
+    for (const s of (kids.get(id) || []).filter((n) => n.kind === "S").sort(byIdAsc)) placeUp(s, 0, new Set());
+    const span = spanOf(cards.slice(start).map((c) => String(c.id)));
+    const boxW = span ? Math.max(SG_CARD_W, span.max - span.min) : SG_CARD_W;
+    const center = boxLeft + boxW / 2;
+    if (span) shiftFrom(start, center - (span.min + span.max) / 2);
+    const x = center - SG_CARD_W / 2;
+    pos.set(id, { x, y: 0 });
+    const sproutN = (allKids.get(id) || []).filter((cid) => (byId.get(cid) || {}).kind === "S").length;
+    cards.push(sgNodeCard(d, x, 0, 0, collapseMark.get(id) || 0, (descCount.get(id) || 0) > 0, sproutN));
+    boxLeft += boxW + slotW;
+  }
+
   // SEED の札（DB の行を持たない。status.seed から作る）
   if (all.length) {
     const typeName = status.seed && status.seed.type && status.seed.type.name ? String(status.seed.type.name) : "";
@@ -331,8 +362,8 @@ function sgTreeLayout(input, opts) {
   return { cards, edges, width, height, minX, minY };
 }
 
-/** Node 1 つ分の札。hiddenF は隠した F の数、collapsedCount は畳んで消えた子孫の数。 */
-function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse) {
+/** Node 1 つ分の札。hiddenF は隠した F の数、collapsedCount は畳んで消えた子孫の数、childCount は D の子の SPROUT の数。 */
+function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse, childCount) {
   let text = n.text || "";
   let sub = "";
   const counts = n.counts || {};
@@ -351,6 +382,9 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse) {
     const paths = Array.isArray(n.paths) ? n.paths.length : 0;
     text = `${n.id} ${text}`.trim();
     sub = paths > 0 ? `PATH ${paths}` : "";
+  } else if (n.kind === "D") {
+    // seed の札。ID は札の見出しに出る。副題に子の SPROUT の数を出す。
+    sub = `SEED・SPROUT ${Number(childCount) || 0}`;
   }
   if (hiddenF && n.kind !== "A") sub = `${sub} F ${hiddenF}`.trim();
   const collapsed = !!(canCollapse && collapsedCount > 0);
@@ -363,17 +397,17 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse) {
 }
 
 /**
- * SPROUT（kind S）を選んだときに濃く残す ID の Set。SPROUT でなければ null。
- * 残すのは、その S 自身・S の下の E と F（BRANCH）・paths の終点の A から top_Q までの Q・A（PATH）。
+ * SPROUT（kind S）か seed（D）を選んだときに濃く残す ID の Set。それ以外は null。
+ * 残すのは、その S（D なら D と子の S）自身・その下の E と F（BRANCH）・paths の終点の A から top_Q までの Q・A（PATH）。
  */
 function sgSproutKeep(status, id) {
   const want = id == null ? "" : String(id);
   const all = (status && Array.isArray(status.nodes) ? status.nodes : []).filter((n) => n && n.id);
   const byId = new Map(all.map((n) => [String(n.id), n]));
   const sprout = byId.get(want);
-  if (!sprout || sprout.kind !== "S") return null;
+  if (!sprout || (sprout.kind !== "S" && sprout.kind !== "D")) return null;
   const keep = new Set([want]);
-  // BRANCH: parent をたどって want に行き着く Node（S の下の E・F）
+  // BRANCH: parent をたどって want に行き着く Node（S の下の E・F。D なら子の S とその下）
   for (const n of all) {
     let p = n.parent == null ? null : String(n.parent);
     const seen = new Set();

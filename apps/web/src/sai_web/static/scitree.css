@@ -87,6 +87,7 @@
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-A { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-tentative); background: color-mix(in srgb, var(--sci-tentative) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-candidate); background: color-mix(in srgb, var(--sci-candidate) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-D { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
 
 .sci-list-rows {
   flex: 1 1 auto;
@@ -604,6 +605,9 @@ button.sci-action-meta {
 .sci-sprout { padding: 10px 12px 0; }
 .sci-sprout[hidden] { display: none; }
 .sci-sprout-band { display: flex; flex-direction: column; gap: 8px; }
+.sci-sprout-seed { width: 100%; min-width: 0; }
+.sci-seed-band { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sci-seed-band > * { min-width: 0; max-width: 100%; }
 .sci-sprout-band textarea.sai-input { min-height: 88px; padding-top: 8px; padding-bottom: 8px; resize: vertical; font-family: inherit; }
 .sci-sprout-paths { display: flex; flex-direction: column; gap: 4px; }
 .sci-sprout-path { display: flex; align-items: center; gap: 4px; min-width: 0; }

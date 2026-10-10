@@ -218,7 +218,7 @@
 .sci-graph-row-rejected,
 .sci-graph-row-dormant { opacity: 0.6; }
 
-/* --- Q・A・F・E・S・SEED の札（U20）。枠の色で種類を分ける --- */
+/* --- Q・A・F・E・S・D・SEED の札（U20）。枠の色で種類を分ける --- */
 
 .sci-graph-Q { --sg-color: var(--accent); }
 .sci-graph-A { --sg-color: var(--sci-decided); }
@@ -230,13 +230,16 @@
   border-style: dashed;
 }
 .sci-graph-S .sci-graph-card-head { font-weight: 700; color: var(--text); }
-.sci-graph-SEED {
+/* D（seed）は SEED の札と同じ系統（横に並ぶ・SEED の子ではない） */
+.sci-graph-SEED,
+.sci-graph-D {
   --sg-color: var(--sci-decided);
   background: color-mix(in srgb, var(--sci-decided) 10%, var(--bg));
   border-width: 2px;
   border-left-width: 6px;
 }
-.sci-graph-SEED .sci-graph-card-head { font-weight: 700; color: var(--text); }
+.sci-graph-SEED .sci-graph-card-head,
+.sci-graph-D .sci-graph-card-head { font-weight: 700; color: var(--text); }
 
 /* ★ の札は濃い枠 */
 .sci-graph-starred { border-width: 2px; border-left-width: 6px; }
