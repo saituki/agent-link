@@ -225,6 +225,7 @@
 | `auth.py` | 多人数モードのログイン・Cookie・パスワード・管理者の判定（単独モードでは使わない） |
 | `containers.py` | 多人数モードのプロジェクトのコンテナ（`docker` の起動・停止・作り直し・内部の合言葉・置き場の作成） |
 | `bundles.py` | 前処理の束の受け口（展開と検査・`import-bundle` の背景実行・PDF 待ちの一覧） |
+| `paper_migrate.py` | 論文の移植の受け口（移植の束の検査と取り込み・同じ利用者の別プロジェクトからの移し替え） |
 | `radio.py` | `apps/radio`（127.0.0.1:8201）への中継 |
 | `mlflow_proxy.py` | MLflow（127.0.0.1:5001）への読み取りだけの中継 |
 | `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek。古い pi の記録も読む） |
@@ -299,6 +300,7 @@
 
 - **すぐ返る操作**（一覧・中身・保存）: 画面 → `saiApi` → sai-web の住所 → 値の検査 → CLI（`--json`）→ 画面。
 - **前処理の束**（sai-prep → サーバ）: 各自の Mac の sai-prep が束を送る → sai-web が展開と検査をして `sai-paper paper import-bundle --dir` を背景で走らせる（600 秒の上限）→ 論文の PDF と図・節・引用が Library に入る。サーバは PDF を落とさず、docling も pdf2zh も動かさない。
+- **論文の移植**（sai-prep の移植の束・同じ利用者の別プロジェクト）: 移植の束は sai-web が検査して展開し `sai-paper library import-migration --dir` を背景で走らせる。別プロジェクトからは、移植元のコンテナで `sai-paper library export --ids … --out <outbox>` → sai-web（ホスト）が移植先の inbox へ移す → 移植先のコンテナで `import-migration`。移植先のコンテナから移植元のファイルは見えないため、書き出しと移動は sai-web が行う。
 - **時間がかかる操作**（Download・音声化・引用の抜き出し・PDF の翻訳）: sai-web が 202 を返し、背景で CLI を走らせる。画面は仕事の一覧の住所を見張り、終わったらプッシュ通知を出す。
   Download は 2 段で、`sai-paper paper download`（PDF を取って登録。ここで「保存しました」を通知）→ `sai-paper paper after-download`（標準エラーの `sai-progress` を読んで進み具合を出す）。
   `after-download` の中身は `pipeline::after_download`（`crates/sai-paper-core/src/pipeline.rs`）が、図の抽出 → 節の表（チャンクの ID の元）→ PDF の翻訳の順に行う。

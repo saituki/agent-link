@@ -74,7 +74,7 @@ env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NOD
 # Web（JS 35 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 40 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
+# Web（Python 41 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 
 # Web（コンテナの中継。偽の docker で確かめる。実物の Docker は使わない）
@@ -102,7 +102,7 @@ sh -n apps/web/server/deploy.sh
 |---|---|---|---|
 | Rust（`cargo test --workspace`） | - | Rust（ubuntu） | |
 | Web の JS | 35 | Web（ubuntu） | |
-| Web の Python | 40 | Web（ubuntu） | |
+| Web の Python | 41 | Web（ubuntu） | |
 | コンテナの中継 | 1（sh） | Web（ubuntu） | |
 | sai-ts の Python | 13 | sai-ts（ubuntu） | `apps/ts` の uv sync が要る |
 | sai-ts の JS | 8 | sai-ts（ubuntu） | |

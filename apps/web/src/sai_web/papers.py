@@ -877,7 +877,7 @@ def _finish_download(job: dict, status: str, error: str | None = None) -> None:
 def _new_job(kind: str, key: str, title: str, status: str, steps: list[str], percent) -> dict:
     """仕事の dict を作る（一覧に出す形はすべて同じにする・U05 §1）。
 
-    `kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` / `index` の 6 つ。
+    `kind` は `download` / `manual` / `cite-extract` / `radio` / `translate` / `index` / `bundle` / `migrate`。
     `percent` が None の仕事は「% の分からない仕事」（画面は動く帯で出す）。
     """
     return {
