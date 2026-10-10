@@ -1,0 +1,96 @@
+---
+name: 🌱 SPROUT を作る
+id: lab-sprout
+description: "SEED（D）と root の path から研究計画（S）を作る。SEED との矛盾と、先行研究の S との違いを確かめて報告する"
+model: sonnet
+thinking: high
+templates:
+  - sci-core
+  - sci-find
+  - literature-hard-rules
+  - domain
+context: true
+sci_type: manage
+sci_ops: add_sprout
+timeout: 3600
+worktree: none
+enable: true
+---
+
+# 🌱 SPROUT を作る
+
+あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE の seed（`D<n>`）です。CARD は `--node D<n>` で作られます。
+
+## 役割
+seed（D）の制約と、root（軸の Q・A・F）の path から、研究計画（SPROUT・S）を 1 つ作る Action です。
+
+- seed の 9 項目のうち、軸の 6 項目（task・target・data・method・output・metric）は「決定: 値」か「空欄」です。決定の値に当たる A を root から選び、空欄の軸は候補から選びます。
+- 研究計画は、seed と path の組です。S の親は D、paths は軸ごとに選んだ A の 1 本ずつです。
+- root に無い値は、自分で A として足しません。`lab-grow` の CARD の案にします。
+- 作ってよいかは、利用者に確かめてから決めます（`sci-core` の確かめの地点 2）。
+
+`# context` の TREE は木の全体です。D の行に `← TARGET` が付き、次の行の `>` が seed の本文です。
+
+### 手順
+1. **seed を読む。** D の本文（`## 背景`・`## 解く問題（task）`・`## 対象（target）`・`## データ（data）`・`## 手法（method）`・`## 出力（output）`・`## 評価指標（metric）`・`## 成功基準`・`## 制約`）を、9 項目に分けます。軸の 6 項目は、見出しの次の行が「決定: <値>」なら「決定」、「空欄」なら「空欄」に分けて表にします。
+2. **軸ごとに path を選ぶ。**
+   - **決定の軸**: 決定の値に当たる A を、その軸の Q の下（child_Q の下を含む）から探します。無ければ「root に無い」と記録します。自分で A を足しません。
+   - **空欄の軸**: 候補の A を 2〜4 個挙げます。各候補について、A の下の F（特に stance `issue`・`deny`、適用の条件・限界）を読みます（`sai-sci node <A の ID> --json`）。seed の決定の項目と「制約」に合うかを判定し、合う候補を 1 つ推します。
+3. **矛盾を確かめる。** 選んだ A ごとに、seed の決定の項目と制約に反する F が無いかを見ます。例: 手法の A の F に「多チャネルの頭皮脳波が要る」とあり、seed のデータが「術前の ECoG だけ」。反するものは表にします。推測の判定には「（推測）」を付けます。
+4. **先行研究との違いを書く。** `sai-sci status --json` の `nodes` から、他の D の下の S（自分の D 以外）を集めます。各 S の paths は `sai-sci node <S の ID> --json` で読みます。軸ごとに paths を比べ、同じ A を通る軸が最も多い S を「最も近い先行研究の S」とします（paths の重なりの数で選びます）。違う軸と、その違いの中身を書きます。他の S が無ければ「比べる S がありません（先行研究を `sci-restore` で復元すると比べられます）」と書きます。
+5. **利用者に確かめる。** 質問ツール（`AskUserQuestion`）で起動者に確かめます（`sci-core` の確かめの地点 2「木を変える op を出す前」）。質問文に、軸ごとの path（`Q2 › A15` の形）・矛盾の表・最も近い S との違いを書きます。選択肢の先頭は「この path で作る」にします。答えを待つあいだ、先へ進みません。
+6. **SPROUT を作る。** 「この path で作る」が選ばれたら `add_sprout` を出します。`seed` は対象の D の ID、`paths` は選んだ A（決定の軸で root に無いものは含めません）、`body` は下の「研究計画の形」で 2000 字以内です。許可は要りません。
+
+   ```bash
+   echo '{"ops": [{"op": "add_sprout", "seed": "D1", "title": "…", "body": "…", "paths": ["A3", "A8", "A15"]}]}' | sai-sci op --block lab-sprout
+   ```
+
+   返った `S<n>` を控えます。
+7. **次の CARD の案を書く。** 実験を始めるなら `sci-exp-sprout`（`--node S<n>`。その前に `sci-exp-scout`）。root に無かった値は `lab-grow`（`--node Q<n>`）。
+
+#### 研究計画（S の body）の形
+
+```markdown
+## 研究計画
+- task: 決定「発作部位の特定」→ A3
+- target: 決定「側頭葉てんかん患者」→ A8
+- data: 決定「術前の EEG・ECoG」→ root に無い（lab-grow で足す）
+- method: 空欄 → A15（xxx という異常検知の手法）
+- output: 空欄 → A21
+- metric: 空欄 → A30
+## 成功基準
+<seed の成功基準。空欄なら「未定」>
+## 矛盾
+<無ければ「なし」>
+## 先行研究との違い
+<最も近い S と、違う軸>
+```
+
+## 評価の観点
+- 決定の項目に反する path を、確かめずに選んでいないか。
+- 空欄の軸で候補を比べたか（1 つだけ挙げていないか）。
+- root に無い値を、自分で A として足していないか。
+- 最も近い S を、paths の重なりの数で選んだか。
+- 利用者に確かめる前に `add_sprout` を出していないか。
+- 矛盾を「なし」と書く前に、反する F を探したか。
+
+## 出力の形
+report は次の見出しで、この順のまま書きます。
+
+```markdown
+## SEED の決定と空欄
+## 軸ごとの path（表: 軸 / 決定か空欄 / 選んだ A / 外した候補と理由）
+## 矛盾（表: A / 反する seed の項目 / 根拠の F）
+## 先行研究との違い
+## 次の CARD の案
+## 木への変更
+## OUT_OF_SCOPE
+```
+
+- **SEED の決定と空欄** — 9 項目のうち、軸の 6 項目が決定か空欄かを書きます。
+- **軸ごとの path** — 軸ごとに、決定か空欄か・選んだ A・外した候補と理由を表にします。
+- **矛盾** — 反するものが無ければ「なし」。推測の判定には「（推測）」を付けます。
+- **先行研究との違い** — 最も近い S の ID・paths の重なり・違う軸と違いの中身。
+- **次の CARD の案** — `sci-exp-sprout`・`sci-exp-scout`・`lab-grow` のどれを、どの ID で起こすか。
+- **木への変更** — `sai-sci op` の結果（`結果`・`op`・`中身`）を書きます。確かめる前に出していないことも書きます。
+- 末尾の「OUT_OF_SCOPE」は範囲の外で気づいたこと（無ければ「なし」）。
