@@ -187,6 +187,7 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
                 format!(" [paths: {}]{range}", paths.join(", "))
             }
             Kind::F => String::new(),
+            Kind::D => String::new(),
         };
         let star = if n.starred { " ★" } else { "" };
         let head = match n.kind {

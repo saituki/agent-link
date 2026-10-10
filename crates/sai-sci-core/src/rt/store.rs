@@ -582,6 +582,11 @@ mod tests {
         assert!(insert_node(conn, &bad_a).is_err());
         // 親の無い A。
         assert!(insert_node(conn, &new_node(Kind::A, None, "候補")).is_err());
+        // 親を持つ D は弾く。
+        assert!(insert_node(conn, &new_node(Kind::D, Some(q), "seed")).is_err());
+        // 親の無い D は入り、その下に S を作れる。
+        let d = insert_node(conn, &new_node(Kind::D, None, "seed")).unwrap();
+        insert_node(conn, &new_node(Kind::S, Some(d), "sprout")).unwrap();
         // 古い O は弾く。
         assert!(conn
             .execute("INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('O', ?1, 'x')", params![q])

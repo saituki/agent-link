@@ -526,6 +526,8 @@ impl Tree {
                 (Kind::F, _) => c.f_issue += 1,
                 (Kind::E, _) => c.e += 1,
                 (Kind::S, _) => c.s += 1,
+                // seed（D）は数に入れない。
+                (Kind::D, _) => {}
             }
         }
         c
@@ -551,6 +553,8 @@ impl Tree {
                 Kind::E => counts.e += 1,
                 // SPROUT（S）は Q・A・F・E の数のどれにも入れない。
                 Kind::S => {}
+                // seed（D）の子は数えない（画面の表示は別の作業で直す）。
+                Kind::D => {}
             }
         }
         let is_q = n.kind == Kind::Q;

@@ -1,10 +1,10 @@
-//! research-tree の新しい形。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）の 5 種。
+//! research-tree の新しい形。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）・D（seed）の 6 種。
 //!
 //! 正は `papr.db` の `rt_*` の表。古い `sci_*` の表は読まないが消さない。
 //! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
 //! SPROUT は `S2`。
 //!
-//! SEED は DB の行を持たない Node で、ID は [`SEED_ID`]。SEED の直下の Q（`parent_id` が NULL）を top_Q と呼ぶ。
+//! SEED は DB の行を持たない Node で、ID は [`SEED_ID`]（root の根）。研究ごとの制約は D（seed）の行で、ID は `D<n>`。SEED の直下の Q（`parent_id` が NULL）を top_Q と呼ぶ。
 
 // 行の型の項目名は表の列名そのままなので、項目ごとの説明は付けない。
 #![allow(missing_docs)]
@@ -48,7 +48,7 @@ pub type Result<T> = std::result::Result<T, RtError>;
 /// DB の行を持たない Node（SEED）の ID。中身は RESEARCH_TYPE と mind.md。
 pub const SEED_ID: &str = "SEED";
 
-/// Node の 5 種。
+/// Node の 6 種。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum Kind {
     Q,
@@ -56,10 +56,11 @@ pub enum Kind {
     F,
     E,
     S,
+    D,
 }
 
 impl Kind {
-    /// "Q" / "A" / "F" / "E" / "S"。
+    /// "Q" / "A" / "F" / "E" / "S" / "D"。
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -68,6 +69,7 @@ impl Kind {
             Kind::F => "F",
             Kind::E => "E",
             Kind::S => "S",
+            Kind::D => "D",
         }
     }
 
@@ -81,6 +83,7 @@ impl Kind {
             "F" => Some(Kind::F),
             "E" => Some(Kind::E),
             "S" => Some(Kind::S),
+            "D" => Some(Kind::D),
             _ => None,
         }
     }
@@ -92,12 +95,13 @@ impl Kind {
             'F' => Some(Kind::F),
             'E' => Some(Kind::E),
             'S' => Some(Kind::S),
+            'D' => Some(Kind::D),
             _ => None,
         }
     }
 }
 
-/// "Q12" → (Kind::Q, 12)。形は `^[QAFES][1-9][0-9]{0,8}$`。違えば Invalid。
+/// "Q12" → (Kind::Q, 12)。形は `^[QAFESD][1-9][0-9]{0,8}$`。違えば Invalid。
 pub fn parse_id(text: &str) -> Result<(Kind, i64)> {
     let invalid = || RtError::Invalid(format!("ID の形が正しくありません: {text}"));
     let mut chars = text.chars();
@@ -235,7 +239,8 @@ mod tests {
         assert_eq!(parse_id("F999999999").unwrap(), (Kind::F, 999_999_999));
         assert_eq!(parse_id("E3").unwrap(), (Kind::E, 3));
         assert_eq!(parse_id("S31").unwrap(), (Kind::S, 31));
-        for text in ["Q0", "Q01", "N12", "12", "Q", "", "Q1000000000", "Q1a", "O1"] {
+        assert_eq!(parse_id("D1").unwrap(), (Kind::D, 1));
+        for text in ["Q0", "Q01", "N12", "12", "Q", "", "Q1000000000", "Q1a", "O1", "D0", "D", "SEED"] {
             assert!(matches!(parse_id(text), Err(RtError::Invalid(_))), "{text}");
         }
         assert!(matches!(parse_id_of("A5", Kind::Q), Err(RtError::Invalid(_))));

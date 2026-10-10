@@ -138,6 +138,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         56,
         include_str!("../migrations/0056_rt_redesign.sql"),
     ),
+    (
+        57,
+        include_str!("../migrations/0057_seed_node.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -595,7 +599,7 @@ impl Database {
                     // notes 表を消す前に、中身を note.md へ移す（失わない）
                     self.move_notes_table_to_files()?;
                 }
-                if version == 53 || version == 56 {
+                if version == 53 || version == 56 || version == 57 {
                     // rt_nodes を外部キー付きで作り直すため、外部キーの検査を一時的に外す。
                     // PRAGMA はトランザクションの中では効かないので、ここ（外）で切り替える。
                     self.connection.execute_batch("PRAGMA foreign_keys = OFF;")?;
@@ -607,7 +611,7 @@ impl Database {
                     [version],
                 )?;
                 transaction.commit()?;
-                if version == 53 || version == 56 {
+                if version == 53 || version == 56 || version == 57 {
                     self.connection.execute_batch("PRAGMA foreign_keys = ON;")?;
                 }
             }
@@ -3912,6 +3916,63 @@ mod tests {
         );
         let stance_column = count("SELECT COUNT(*) FROM pragma_table_info('rt_nodes') WHERE name = 'stance'")?;
         assert_eq!(stance_column, 1, "stance の列が入る");
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn migration_57_allows_seed_node() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-seed-node-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0056 までの DB に、親 NULL の S（古い SPROUT）と、それを指す rt_log の行を入れる。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 57) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (kind, text) VALUES ('Q', '問い');
+                 INSERT INTO rt_nodes (kind, text) VALUES ('S', '古い SPROUT');
+                 INSERT INTO rt_log (node_id, action) VALUES (2, 'add_q');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let count = |sql: &str| -> Result<i64, Box<dyn std::error::Error>> {
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM rt_nodes WHERE kind = 'S' AND parent_id IS NULL")?,
+            1,
+            "親 NULL の既存の S は残る"
+        );
+        assert_eq!(count("SELECT COUNT(*) FROM rt_log")?, 1, "rt_log の行は残る");
+        conn.execute("INSERT INTO rt_nodes (kind, text) VALUES ('D', 'seed')", [])?;
+        let seed_id: i64 = conn.query_row("SELECT id FROM rt_nodes WHERE kind = 'D'", [], |row| row.get(0))?;
+        conn.execute(
+            "INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('S', ?1, 'SPROUT')",
+            [seed_id],
+        )?;
+        assert!(
+            conn.execute("INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('D', 1, 'x')", []).is_err(),
+            "親を持つ D は弾く"
+        );
+        let broken = conn.prepare("PRAGMA foreign_key_check")?.query([])?.next()?.is_some();
+        assert!(!broken, "外部キーが壊れていない");
 
         fs::remove_dir_all(&dir).ok();
         Ok(())
