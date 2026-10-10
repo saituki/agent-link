@@ -16,6 +16,7 @@ const {
   stVisibleRows, stRowHit, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   stFmtAt, stHistoryText, stRangeText, stApprovalText, stStanceLabel,
   stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
+  stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
 } = require(path.join(dir, "scitree.js"));
 
 const tests = [];
@@ -25,7 +26,9 @@ test(function testParseHash() {
   assert.deepStrictEqual(stParseHash("#/research/tree"), {});
   // SEED も S1 も受ける（SEED は札の特別な ID）
   assert.deepStrictEqual(stParseHash("#/research/tree/SEED"), { id: "SEED" });
-  for (const id of ["Q12", "A5", "F3", "E2", "S1"]) assert.deepStrictEqual(stParseHash(`#/research/tree/${id}`), { id });
+  for (const id of ["Q12", "A5", "F3", "E2", "S1", "D1"]) assert.deepStrictEqual(stParseHash(`#/research/tree/${id}`), { id });
+  // D は数字の付いた ID だけ（小文字・0 は受けない）
+  for (const h of ["#/research/tree/D0", "#/research/tree/d1"]) assert.strictEqual(stParseHash(h), null, h);
   // O は無くなった ID なので受けない
   for (const h of ["#/research/tree/O5", "#/research/tree/N12", "#/research/tree/Q0", "#/research/tree/S0", "#/research/tree/Q12/x", "#/research/other", "", null]) {
     assert.strictEqual(stParseHash(h), null, String(h));
@@ -102,14 +105,19 @@ test(function testNextText() {
 });
 
 test(function testNodeOps() {
-  assert.deepStrictEqual(Object.keys(ST_NODE_OPS), ["Q", "A", "F", "E", "S"]);
+  assert.deepStrictEqual(Object.keys(ST_NODE_OPS), ["Q", "A", "F", "E", "S", "D"]);
   assert.deepStrictEqual(ST_NODE_OPS, {
     Q: ["add_q", "add_a", "insert_q", "move_a"],
     A: ["add_q", "add_f", "copy"],
     F: [],
     E: ["add_e", "set_mlflow"],
     S: ["add_e", "edit", "remove"],
+    D: ["edit", "remove"],
   });
+  // 絞り込みの種類に D（seed）が入る
+  assert.deepStrictEqual(ST_ALL_KINDS, ["Q", "A", "F", "E", "S", "D"]);
+  // D の板は Edit / Delete だけ（SPROUT の作成は板の釦で別に出す）
+  assert.deepStrictEqual(stOpsFor({ kind: "D", parent: null }, []), ["edit", "remove"]);
   // F は何も出さない（stance は板の別の節）
   assert.deepStrictEqual(stOpsFor({ kind: "F", parent: "A1" }, []), []);
   // Q に子が無ければ add_q と add_a。insert_q と move_a は出さない
@@ -334,6 +342,33 @@ test(function testRangeText() {
   assert.strictEqual(stRangeText({}), "Q 0・A 0・F S 0 / D 0 / I 0");
   assert.strictEqual(stRangeText(null), "");
   assert.strictEqual(stRangeText("x"), "");
+});
+
+test(function testSeedHelpers() {
+  const status = { nodes: [
+    { id: "Q1", kind: "Q", parent: null, text: "問い" },
+    { id: "D1", kind: "D", parent: null, text: "発作部位" },
+    { id: "D2", kind: "D", parent: null, text: "予後" },
+    { id: "S1", kind: "S", parent: "D1", text: "1 本目" },
+    { id: "S2", kind: "S", parent: "D1", text: "2 本目" },
+    { id: "S3", kind: "S", parent: null, text: "古い S" },
+    { id: "E1", kind: "E", parent: "S1", text: "実験" },
+  ] };
+  // seed の行は D だけ（ID の順のまま）
+  assert.deepStrictEqual(stSeedNodes(status).map((n) => n.id), ["D1", "D2"]);
+  assert.deepStrictEqual(stSeedNodes(null), []);
+  // 子の SPROUT は親が D の S だけ。古い S（親が無い）は含まない
+  assert.deepStrictEqual(stSeedChildren(status, "D1").map((n) => n.id), ["S1", "S2"]);
+  assert.deepStrictEqual(stSeedChildren(status, "D2"), []);
+  // S の親の D を引く。親が無い古い S は null
+  assert.strictEqual(stSeedOf(status, { id: "S1", parent: "D1" }).id, "D1");
+  assert.strictEqual(stSeedOf(status, { id: "S3", parent: null }), null);
+  assert.strictEqual(stSeedOf(status, { id: "S9", parent: "D9" }), null);
+  // SEED の入力に書いた物があるか（「空欄」の選びと空の欄は数えない）
+  assert.strictEqual(stSeedDirty({ title: "", background: "", task_mode: "empty", task_value: "", success: "  " }), false);
+  assert.strictEqual(stSeedDirty({ title: "", task_mode: "decided" }), true);
+  assert.strictEqual(stSeedDirty({ title: "題" }), true);
+  assert.strictEqual(stSeedDirty(null), false);
 });
 
 let failed = 0;

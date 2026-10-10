@@ -99,10 +99,10 @@ def swap(order: list, replies: list | None = None):
     return paper, link, restore
 
 
-# C-OP の 14 op（C3 の表）の通る例
+# C-OP の 15 op（C3 の表）の通る例
 C3_OPS = {
     "add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f",
-    "add_e", "add_sprout", "set_stance", "set_mlflow", "star", "unstar", "edit",
+    "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "star", "unstar", "edit",
 }
 OP_EXAMPLES = {
     "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
@@ -120,7 +120,8 @@ OP_EXAMPLES = {
         "report": "R-0012",
     },
     "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc"},
-    "add_sprout": {"title": "題", "body": "計画", "paths": ["A1", "A2"]},
+    "add_seed": {"title": "発作部位の特定", "body": "## 背景\n術前の評価"},
+    "add_sprout": {"seed": "D1", "title": "題", "body": "計画", "paths": ["A1", "A2"]},
     "set_stance": {"node": "F3", "stance": "deny"},
     "set_mlflow": {"node": "E1", "mlflow": "run/xyz"},
     "star": {"node": "A2"},
@@ -133,8 +134,8 @@ def test_ids() -> None:
     """ID と run_id の検査。O は無くなったので 400。"""
     assert sci.check_node("Q12") == "Q12" and sci.check_node(" A5 ") == "A5"
     assert sci.check_node("F31") == "F31" and sci.check_node("E2") == "E2"
-    assert sci.check_node("S1") == "S1"
-    for bad in ("12", "Q0", "O1", "X1", "N1", "L1", "P1", "q1", "Q", "SEED", "", "Q1000000000", None, 12):
+    assert sci.check_node("S1") == "S1" and sci.check_node("D1") == "D1"
+    for bad in ("12", "Q0", "O1", "X1", "N1", "L1", "P1", "q1", "d1", "Q", "SEED", "", "Q1000000000", None, 12):
         expect_400(lambda value=bad: sci.check_node(value), "ID の形が正しくありません")
     assert not hasattr(sci, "check_proposal") and not hasattr(sci, "check_ref")
     assert not hasattr(sci, "graph")
@@ -151,9 +152,9 @@ def test_ids() -> None:
 
 
 def test_op_ok() -> None:
-    """14 op が通り、前後の空白は落ち、body は空のまま送れる。"""
+    """15 op が通り、前後の空白は落ち、body は空のまま送れる。"""
     assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) == C3_OPS, set(sci._OP_FIELDS) ^ C3_OPS
-    assert len(sci._OP_FIELDS) == 14
+    assert len(sci._OP_FIELDS) == 15
     for name, fields in OP_EXAMPLES.items():
         got = sci.validate_op({"op": name, **fields})
         for key, value in fields.items():
@@ -166,6 +167,12 @@ def test_op_ok() -> None:
     assert sci.validate_op({"op": "add_e", "parent": "E1", "text": "x"})["parent"] == "E1"
     assert sci.validate_op({"op": "add_e", "parent": "S2", "text": "x"})["parent"] == "S2"
     assert sci.validate_op({"op": "remove", "node": "S1"})["node"] == "S1"
+    # seed（D）は remove・star・edit の対象。add_seed は title だけでも通る
+    assert sci.validate_op({"op": "remove", "node": "D1"})["node"] == "D1"
+    assert sci.validate_op({"op": "star", "node": "D2"})["node"] == "D2"
+    assert sci.validate_op({"op": "edit", "node": "D1", "text": "題"}) == {"op": "edit", "node": "D1", "text": "題"}
+    assert sci.validate_op({"op": "add_seed", "title": "題"}) == {"op": "add_seed", "title": "題"}
+    assert sci.validate_op({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["A1"]})["seed"] == "D1"
     # 任意の項目は無くてよい
     assert sci.validate_op({"op": "add_a", "q": "Q1", "text": "候補"}) == {
         "op": "add_a", "q": "Q1", "text": "候補",
@@ -220,13 +227,19 @@ def test_op_ng() -> None:
     bad({"op": "set_mlflow", "node": "Q1", "mlflow": "x"}, "ID の形が正しくありません")
     bad({"op": "set_mlflow", "node": "E1"}, "mlflow がありません")
     bad({"op": "set_mlflow", "node": "E1", "mlflow": "あ" * 201})
-    bad({"op": "add_sprout", "title": "題", "paths": []}, "paths の指定が正しくありません")
-    bad({"op": "add_sprout", "title": "題", "paths": ["Q1"]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "title": "題", "paths": ["A1", "A1"]}, "paths に同じ A が 2 回入っています")
-    bad({"op": "add_sprout", "title": "題", "paths": [f"A{i}" for i in range(1, 22)]})
-    bad({"op": "add_sprout", "title": "題"}, "paths がありません")
-    bad({"op": "add_sprout", "title": "あ" * 121, "paths": ["A1"]})
-    bad({"op": "add_sprout", "title": "題", "body": "あ" * 2001, "paths": ["A1"]})
+    bad({"op": "add_seed"}, "title がありません")
+    bad({"op": "add_seed", "title": "あ" * 121})
+    bad({"op": "add_seed", "title": "題", "body": "あ" * 2001})
+    bad({"op": "add_sprout", "title": "題", "paths": ["A1"]}, "seed がありません")
+    bad({"op": "add_sprout", "seed": "Q1", "title": "題", "paths": ["A1"]}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "SEED", "title": "題", "paths": ["A1"]}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": []}, "paths の指定が正しくありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["Q1"]}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["A1", "A1"]}, "paths に同じ A が 2 回入っています")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [f"A{i}" for i in range(1, 22)]})
+    bad({"op": "add_sprout", "seed": "D1", "title": "題"}, "paths がありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "あ" * 121, "paths": ["A1"]})
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "body": "あ" * 2001, "paths": ["A1"]})
     bad({"op": "edit", "node": "A1"}, "text か body のどちらかが要ります")
     bad({"op": "edit", "node": "A1", "text": "あ" * 1201})
 
