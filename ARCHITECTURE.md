@@ -81,9 +81,10 @@
 - **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API・前処理の束の形（C12））が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`（`src/rt/`）、入口は `sai-sci` の CLI と Web の Research タブ。
-  research-tree は **4 layer（SEED・ROOT・SPROUT・BRANCH）** の木で、Node の種類は Q・A・F・E・S の 5 つ。
-  SEED は DB の行を持たず、`sai-sci status` の `seed`（RESEARCH_TYPE と `mind.md`）から作る。ROOT は top_Q から下へ分かれる Q・A・F、
-  SPROUT（S）は PATH（終点の A）を集めて実験の計画を立てる Node、BRANCH は SPROUT の下の E（実験の実行）。
+  research-tree は **seed・root・sprout の 3 つの役**の木で、層は seed（D）・SEED・ROOT・SPROUT・BRANCH、Node の種類は Q・A・F・E・S・D の 6 つ。
+  D（seed）は 1 つの研究の制約（9 項目）で、DB の行を持ち、親なしで複数持てる。SEED は DB の行を持たず、root の根（`sai-sci status` の `seed` の RESEARCH_TYPE と `mind.md`）。
+  ROOT は 6 つの軸の Q（top_Q。どの型でも同じ）から下へ分かれる Q・A・F で、分野の可能性の幅。全部の seed が同じ root を使う。
+  SPROUT（S）は 1 つの D と、軸ごとの PATH（終点の A）の組＝1 研究（親は D）、BRANCH は SPROUT の下の E（実験の実行）。
   research-tree に向けた 1 回の実行が Action（task.md のカード）で、professor が研究を回し、`sci-*` の block が研究作業を行う。
   言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)。
 - **status の History**: `sai-sci status --json` の `history[]` は、全 Node の History（`Add *` を除く・古い順。`StatusHistory`・`crates/sai-sci-core/src/rt/compute.rs`）。Web の research-tree 画面の History がこれを読む。
