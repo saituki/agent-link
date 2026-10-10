@@ -353,6 +353,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 | **個人のトークン** | 利用者が Account 画面（`#/account`）で発行する `sai_…` の値。sai-prep と CLI が Web に入るときに使う。他人と共有しない。 | `account.js` |
 | **sai-prep** | 各自の Mac で論文の PDF を前処理し、前処理の束をサーバへ送るアプリ。標準ライブラリだけで動き、docling・pdf2zh・mlx-lm は `uv tool` の別の環境に入れる。 | `apps/prep/`、`sai-prep`、`README.md` の「sai-prep」 |
 | **前処理の束** | sai-prep が作る zip。PDF・docling の md と json・図・翻訳 PDF を入れ、`manifest.json`（`format` が `sai-prep-bundle`）で中身を説明する（共有契約 C12）。サーバは展開して `import-bundle` で Library に入れる。 | `crates/sai-paper-core`（`bundle.rs`）、`apps/web/src/sai_web/bundles.py` |
+| **移植の束** | 論文を別のプロジェクトへ移すためのフォルダ。`manifest.json`（`format` が `sai-paper-migration`）・論文の表だけを入れた `papr.db`・`papers/<フォルダ名>/` からなる（共有契約 C-M1）。`library export` で作り、`library import-migration` で取り込む。取り込みは両方の DB にある列だけを写し、論文の id は移植先で振り直す。 | `crates/sai-paper-core`（`migration.rs`） |
 | **PDF 待ち** | PDF の無い論文。Library に `＋ Library に入れる` で入ると、PDF が届くまでこの状態になる。 | `sai-paper library pending`、`GET /api/projects/{name}/papers/pending`、`papers.js` |
 | **`SaiRoutes`** | 画面を登録する場所。各画面の JS が「住所の照合と描画」を `window.SaiRoutes` に足す。 | `app.js` |
 | **`saiTerm`（用語の札）** | 画面の用語に付ける、押すと説明が出る札。説明は `SAI_TERMS` に書く。 | `ui.js` |
