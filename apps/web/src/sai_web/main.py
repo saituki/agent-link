@@ -1982,7 +1982,7 @@ async def api_mlflow_artifact(
 
 @app.get("/api/usage")
 def api_usage(refresh: int = 0, _: None = Depends(require_token)) -> dict:
-    """Usage タブのカード一覧（cc / OpenRouter 各アカウント / DeepSeek）．
+    """Usage タブのカード一覧（cc / OpenRouter 各アカウント / DeepSeek / 設定に無い provider）．
 
     `?refresh=1` で外部 API を取り直す（↻ ボタン・42 §3.5）。
     """
