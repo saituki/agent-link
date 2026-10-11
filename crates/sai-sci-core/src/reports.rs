@@ -783,11 +783,11 @@ pub struct ScanReport {
     pub header_errors: usize,
 }
 
-/// report scan で登録しない md（sai-link が置くもの）。
+/// report scan で登録しない md（sai-link が置くもの。`system-prompt.md` は run の固定部分の写し）。
 fn is_excluded_md(name: &str) -> bool {
     matches!(
         name,
-        "task.md" | "review.md" | "message.md" | "finalize-report.md"
+        "task.md" | "review.md" | "message.md" | "finalize-report.md" | "system-prompt.md"
     )
 }
 
@@ -1806,6 +1806,20 @@ mod tests {
         let fourth = scan(&conn, &root)?;
         assert_eq!(fourth.updated, 1);
         assert_eq!(report_sources(&conn, &map_id)?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn scan_skips_system_prompt() -> Result<(), Box<dyn std::error::Error>> {
+        let root = research_root("scan-sysprompt", "7");
+        write_file(root.join(".sai/outputs/running/7/system-prompt.md"), "固定部分\n");
+        write_file(root.join(".sai/outputs/running/7/lab-map-x.md"), "---\nkind: 分野の地図\n---\n\n本文。\n");
+        let conn = setup();
+        let summary = scan(&conn, &root)?;
+        assert_eq!(summary.added, 1, "system-prompt.md は登録しない");
+        let reports = list_reports(&conn, None)?;
+        assert_eq!(reports.len(), 1);
+        assert!(reports[0].md_path.ends_with("running/7/lab-map-x.md"), "{}", reports[0].md_path);
         Ok(())
     }
 
