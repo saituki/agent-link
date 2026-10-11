@@ -1,7 +1,7 @@
 //! research-tree の計算（Node の数・SPROUT の範囲・SEED の下書き・Next Action・注意）と、
 //! `status` / `node` の JSON（C-JSON）。CLI・Web・TUI はこの結果を写すだけにする。
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::axes::{self, Axis, PathRole};
 use super::defs::Defs;
 use super::store::{self, LogRow, NodeRow};
 use super::{Kind, Result, RtError, action, fmt_id, ops, parse_id};
@@ -123,6 +124,10 @@ pub struct NodeJson {
     pub mlflow: Option<String>,
     pub created_by: String,
     pub created_at: String,
+    /// seed（D）の 6 軸の状態（D だけ。`parse_axes` のゆるい読み）。他は null。
+    pub axes: Option<BTreeMap<String, Axis>>,
+    /// SPROUT の path の区分（S だけ。親の D の本文から導く）。他は []。
+    pub path_roles: Vec<PathRole>,
 }
 
 /// Next Action 1 件。
@@ -357,6 +362,8 @@ pub struct Tree {
     sprout_ranges: HashMap<i64, Range>,
     /// 対象の Node ごとの、一番新しい `sci-verify` の run の時刻（Next Action の規則 3）。
     verified: HashMap<i64, DateTime<Utc>>,
+    /// SPROUT（S）ごとの path の区分（親の D の本文から導く）。
+    path_roles: HashMap<i64, Vec<PathRole>>,
     log: Vec<LogRow>,
     /// 消した Node も含む id → (kind, 文)。DECISIONS の表示に使う。
     labels: HashMap<i64, (Kind, String)>,
@@ -461,6 +468,18 @@ impl Tree {
             *slot = (*slot).max(at);
         }
 
+        // S の path の区分は、親の D の本文（親が D でなければ空＝軸が分からない）から導く。
+        let mut path_roles = HashMap::new();
+        for n in nodes.iter().filter(|n| n.kind == Kind::S) {
+            let seed_body = n
+                .parent_id
+                .and_then(|p| store::get_node(conn, p).ok())
+                .filter(|p| p.kind == Kind::D)
+                .map(|p| p.body)
+                .unwrap_or_default();
+            path_roles.insert(n.id, axes::path_roles(conn, &seed_body, &n.paths)?);
+        }
+
         Ok(Tree {
             defs: defs.clone(),
             type_id: store::meta_get(conn, "type")?,
@@ -471,6 +490,7 @@ impl Tree {
             f_under,
             sprout_ranges,
             verified,
+            path_roles,
             log: store::list_log(conn, None)?,
             labels,
         })
@@ -587,6 +607,8 @@ impl Tree {
             mlflow: n.mlflow_ref.clone(),
             created_by: n.created_by.clone(),
             created_at: n.created_at.clone(),
+            axes: (n.kind == Kind::D).then(|| axes::parse_axes(&n.body)),
+            path_roles: self.path_roles.get(&id).cloned().unwrap_or_default(),
         }
     }
 
