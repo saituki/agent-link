@@ -100,10 +100,11 @@ def swap(order: list, replies: list | None = None):
     return paper, link, restore
 
 
-# C-OP の 18 op（C-OP-1〜4 と G3-C1 の set_dataset）の通る例
+# C-OP の 24 op（C-OP-1〜4・G3-C1 の set_dataset・U01 の seed の問いと回答）の通る例
 C3_OPS = {
     "add_q", "insert_q", "move_a", "move_node", "regroup", "copy", "remove", "add_a", "add_f",
-    "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "set_dataset", "star", "unstar", "edit",
+    "add_e", "add_seed", "add_seed_q", "edit_seed_q", "remove_seed_q", "add_answer", "edit_answer",
+    "remove_answer", "add_sprout", "set_stance", "set_mlflow", "set_dataset", "star", "unstar", "edit",
 }
 OP_EXAMPLES = {
     "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
@@ -127,10 +128,13 @@ OP_EXAMPLES = {
     },
     "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc", "dataset": "ts:hfo-r01-v1@0123456789ab"},
     "add_seed": {"title": "発作部位の特定", "body": "## 背景\n術前の評価"},
-    "add_sprout": {
-        "seed": "D1", "title": "題", "body": "計画",
-        "paths": ["A1", {"a": "A2", "axis": "method", "role": "fixed", "fixed_at": "A2"}, {"a": "A5", "role": "novel"}],
-    },
+    "add_seed_q": {"seed": "D1", "text": "どの手法を使うか", "axis": "method"},
+    "edit_seed_q": {"q": "SQ3", "text": "直した問い", "axis": ""},
+    "remove_seed_q": {"q": "SQ3"},
+    "add_answer": {"to": "S2", "q": "SQ3", "a": "A12"},
+    "edit_answer": {"answer": "SA7", "text": "直した回答"},
+    "remove_answer": {"answer": "SA7"},
+    "add_sprout": {"seed": "D1", "title": "題", "body": "計画"},
     "set_stance": {"node": "F3", "stance": "deny"},
     "set_mlflow": {"node": "E1", "mlflow": "run/xyz"},
     "set_dataset": {"node": "E1", "dataset": "ts:hfo-r01-v1@0123456789ab"},
@@ -162,9 +166,9 @@ def test_ids() -> None:
 
 
 def test_op_ok() -> None:
-    """18 op が通り、前後の空白は落ち、body は空のまま送れる。"""
+    """24 op が通り、前後の空白は落ち、body は空のまま送れる。"""
     assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) == C3_OPS, set(sci._OP_FIELDS) ^ C3_OPS
-    assert len(sci._OP_FIELDS) == 18
+    assert len(sci._OP_FIELDS) == 24
     for name, fields in OP_EXAMPLES.items():
         got = sci.validate_op({"op": name, **fields})
         for key, value in fields.items():
@@ -181,7 +185,22 @@ def test_op_ok() -> None:
     assert sci.validate_op({"op": "star", "node": "D2"})["node"] == "D2"
     assert sci.validate_op({"op": "edit", "node": "D1", "text": "題"}) == {"op": "edit", "node": "D1", "text": "題"}
     assert sci.validate_op({"op": "add_seed", "title": "題"}) == {"op": "add_seed", "title": "題"}
-    assert sci.validate_op({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["A1"]})["seed"] == "D1"
+    assert sci.validate_op({"op": "add_sprout", "seed": "D1", "title": "題"}) == {"op": "add_sprout", "seed": "D1", "title": "題"}
+    # 回答は add_answer で足す。add_sprout に paths を書いても CLI へは渡らない（知らない項目として落ちる）
+    assert sci.validate_op({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["A1"]}) == {
+        "op": "add_sprout", "seed": "D1", "title": "題",
+    }
+    # add_seed_q の axis は空文字で無し。edit_seed_q は text か axis のどちらかで通り、axis の空文字は外す
+    assert sci.validate_op({"op": "add_seed_q", "seed": "D1", "text": "問い"}) == {"op": "add_seed_q", "seed": "D1", "text": "問い"}
+    assert sci.validate_op({"op": "edit_seed_q", "q": "SQ3", "axis": ""}) == {"op": "edit_seed_q", "q": "SQ3", "axis": ""}
+    assert sci.validate_op({"op": "edit_seed_q", "q": "SQ3", "text": "直す"}) == {"op": "edit_seed_q", "q": "SQ3", "text": "直す"}
+    # add_answer は a か text のどちらか一方。text の回答は CLI へそのまま渡す
+    assert sci.validate_op({"op": "add_answer", "to": "D1", "q": "SQ3", "text": "文"}) == {
+        "op": "add_answer", "to": "D1", "q": "SQ3", "text": "文",
+    }
+    assert sci.validate_op({"op": "add_answer", "to": "S2", "q": "SQ3", "a": "A12", "text": ""}) == {
+        "op": "add_answer", "to": "S2", "q": "SQ3", "a": "A12",
+    }
     # 任意の項目は無くてよい
     assert sci.validate_op({"op": "add_a", "q": "Q1", "text": "候補"}) == {
         "op": "add_a", "q": "Q1", "text": "候補",
@@ -268,24 +287,35 @@ def test_op_ng() -> None:
     bad({"op": "add_seed"}, "title がありません")
     bad({"op": "add_seed", "title": "あ" * 121})
     bad({"op": "add_seed", "title": "題", "body": "あ" * 2001})
-    bad({"op": "add_sprout", "title": "題", "paths": ["A1"]}, "seed がありません")
-    bad({"op": "add_sprout", "seed": "Q1", "title": "題", "paths": ["A1"]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "seed": "SEED", "title": "題", "paths": ["A1"]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": []}, "paths の指定が正しくありません")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["Q1"]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["A1", "A1"]}, "paths に同じ A が 2 回入っています")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [f"A{i}" for i in range(1, 22)]})
-    bad({"op": "add_sprout", "seed": "D1", "title": "題"}, "paths がありません")
-    # paths のオブジェクト（C-OP-4）: 知らない項目・区分の値・a の無いものは 400
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"axis": "method"}]}, "paths のオブジェクトには a（A の ID）が要ります")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "weight": 2}]}, "paths の項目に weight は書けません（書けるのは a・axis・role・fixed_at）")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "role": "maybe"}]}, "paths の role は fixed / novel のどちらかです")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "Q1"}]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "fixed_at": "Q1"}]}, "ID の形が正しくありません")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1"}, "A1"]}, "paths に同じ A が 2 回入っています")
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [12]}, "paths の指定が正しくありません")
-    bad({"op": "add_sprout", "seed": "D1", "title": "あ" * 121, "paths": ["A1"]})
-    bad({"op": "add_sprout", "seed": "D1", "title": "題", "body": "あ" * 2001, "paths": ["A1"]})
+    bad({"op": "add_sprout", "title": "題"}, "seed がありません")
+    bad({"op": "add_sprout", "seed": "Q1", "title": "題"}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "SEED", "title": "題"}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "D1"}, "title がありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "あ" * 121})
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "body": "あ" * 2001})
+    # seed の問い（U01）: ID の形・軸・必須の文字
+    bad({"op": "add_seed_q", "text": "問い"}, "seed がありません")
+    bad({"op": "add_seed_q", "seed": "S1", "text": "問い"}, "ID の形が正しくありません")
+    bad({"op": "add_seed_q", "seed": "D1"}, "text がありません")
+    bad({"op": "add_seed_q", "seed": "D1", "text": "あ" * 301})
+    bad({"op": "add_seed_q", "seed": "D1", "text": "問い", "axis": "goal"}, "axis が正しくありません")
+    bad({"op": "edit_seed_q", "text": "問い"}, "q がありません")
+    bad({"op": "edit_seed_q", "q": "Q3", "text": "問い"}, "問いの ID の形が正しくありません")
+    bad({"op": "edit_seed_q", "q": "SQ0", "text": "問い"}, "問いの ID の形が正しくありません")
+    bad({"op": "edit_seed_q", "q": "SQ3"}, "text か axis のどちらかが要ります")
+    bad({"op": "edit_seed_q", "q": "SQ3", "text": ""}, "text か axis のどちらかが要ります")
+    bad({"op": "edit_seed_q", "q": "SQ3", "axis": "goal"}, "axis が正しくありません")
+    bad({"op": "remove_seed_q", "q": "SA3"}, "問いの ID の形が正しくありません")
+    # 回答（U01）: a と text はちょうど一方。SA の形
+    bad({"op": "add_answer", "to": "D1", "q": "SQ3"}, "a か text のどちらか一方を指定してください")
+    bad({"op": "add_answer", "to": "D1", "q": "SQ3", "a": "A1", "text": "文"}, "a か text のどちらか一方を指定してください")
+    bad({"op": "add_answer", "to": "Q1", "q": "SQ3", "text": "文"}, "ID の形が正しくありません")
+    bad({"op": "add_answer", "to": "D1", "q": "Q3", "text": "文"}, "問いの ID の形が正しくありません")
+    bad({"op": "add_answer", "to": "D1", "q": "SQ3", "a": "Q1"}, "ID の形が正しくありません")
+    bad({"op": "add_answer", "to": "D1", "q": "SQ3", "text": "あ" * 301})
+    bad({"op": "edit_answer", "answer": "SQ3", "text": "文"}, "回答の ID の形が正しくありません")
+    bad({"op": "edit_answer", "answer": "SA3"}, "text がありません")
+    bad({"op": "remove_answer", "answer": "A3"}, "回答の ID の形が正しくありません")
     bad({"op": "edit", "node": "A1"}, "text か body のどちらかが要ります")
     bad({"op": "edit", "node": "A1", "text": "あ" * 1201})
 
@@ -453,11 +483,14 @@ def test_new_ops_reach_cli() -> None:
         assert json.loads(paper.last["input_text"]) == {
             "op": "regroup", "q": "Q1", "text": "中間の答え", "child_q": "細分の問い", "members": ["A2", "A3"],
         }
+        # paths は廃止。送っても知らない項目として落ち、CLI には渡らない
         sci.apply(project, {
-            "op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "role": "fixed", "fixed_at": "A1"}, "A2"],
+            "op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "role": "fixed"}, "A2"],
         })
         sent = json.loads(paper.last["input_text"])
-        assert sent["paths"] == [{"a": "A1", "role": "fixed", "fixed_at": "A1"}, "A2"], sent
+        assert sent == {"op": "add_sprout", "seed": "D1", "title": "題"}, sent
+        sci.apply(project, {"op": "add_answer", "to": "S2", "q": "SQ3", "a": "A12", "path": "/etc/passwd"})
+        assert json.loads(paper.last["input_text"]) == {"op": "add_answer", "to": "S2", "q": "SQ3", "a": "A12"}
     finally:
         restore()
 

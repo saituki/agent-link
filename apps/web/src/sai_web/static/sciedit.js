@@ -23,6 +23,8 @@ const SE_OPS = {
   star: "★ を付ける", unstar: "★ を外す", set_stance: "Stance を変える",
   edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える", set_dataset: "データセットを変える",
   move_node: "A を 1 件移す", regroup: "まとめる（中間の A と細分の Q）",
+  add_seed_q: "問いを足す", edit_seed_q: "問いを直す", remove_seed_q: "問いを消す",
+  add_answer: "回答を足す", edit_answer: "回答を直す", remove_answer: "回答を消す",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
@@ -31,6 +33,8 @@ const SE_DONE = {
   star: "★ を付けました", unstar: "★ を外しました", set_stance: "Stance を変えました",
   edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました", set_dataset: "データセットを変えました",
   move_node: "A を 1 件移しました", regroup: "まとめました",
+  add_seed_q: "問いを足しました", edit_seed_q: "問いを直しました", remove_seed_q: "問いを消しました",
+  add_answer: "回答を足しました", edit_answer: "回答を直しました", remove_answer: "回答を消しました",
 };
 // 入力欄を出さずに送る op
 const SE_QUICK = ["star", "unstar", "set_stance"];
@@ -76,24 +80,18 @@ const SE_BLOCKS = [
 const SE_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)?( .{1,80})?$/;
 // ID の形（Q・A・F・E・S・D）
 const SE_ID_RE = /^[QAFESD][1-9][0-9]{0,8}$/;
-// seed（D）の本文の見出し（共有契約。見出しの文字は変えない）。順に並べる
+// seed の問い（SQ）・回答（SA）の ID（U01）
+const SE_SQ_RE = /^SQ[1-9][0-9]{0,8}$/;
+const SE_SA_RE = /^SA[1-9][0-9]{0,8}$/;
+// seed の問いの軸（並びは画面の選びの順。空は「なし」）
 const SE_SEED_AXES = [
-  ["task", "解く問題（task）", "何を明らかにするか"],
-  ["target", "対象（target）", "誰・何を対象にするか"],
-  ["data", "データ（data）", "使うデータ"],
-  ["method", "手法（method）", "使う手法"],
-  ["output", "出力（output）", "得る出力"],
-  ["metric", "評価指標（metric）", "測る指標"],
+  ["task", "解く問題（task）"],
+  ["target", "対象（target）"],
+  ["data", "データ（data）"],
+  ["method", "手法（method）"],
+  ["output", "出力（output）"],
+  ["metric", "評価指標（metric）"],
 ];
-// 軸の 5 つの状態（C-SEED-1）。並びは画面の釦の順。undecided は「空欄（まだ決めていない）」
-const SE_SEED_PICKS = [
-  ["decided", "決定"], ["scope", "範囲（この A の下）"], ["novel", "空欄（新規性）"],
-  ["none", "空欄（記載なし）"], ["undecided", "空欄（まだ決めていない）"],
-];
-// 値（値の欄）を使う状態と、その欄の見出し
-const SE_SEED_VALUE_LABELS = {
-  decided: "決定した値", scope: "範囲（この A の下で見る範囲）", novel: "新規性の理由", none: "記載なしの理由",
-};
 // 文字数の上限
 const SE_MAX = { qtext: 300, atext: 120, ftext: 1200, etext: 120, body: 2000, mlflow: 200, dataset: 200, title: 120, purpose: 300, expect: 300 };
 
@@ -121,6 +119,11 @@ function seCiteOk(cite) {
 function seRefOk(value, prefix) {
   const v = seTrim(value);
   return SE_ID_RE.test(v) && (!prefix || prefix.includes(v[0]));
+}
+
+/** 問い（SQ）・回答（SA）の ID の形か。re は SE_SQ_RE か SE_SA_RE。 */
+function seIdOk(value, re) {
+  return re.test(seTrim(value));
 }
 
 /** 文の数を数える（`0.85` や `§3.2` の「.」は数えない。0 なら 1 文）。 */
@@ -222,7 +225,7 @@ function seBuildOp(kind, values) {
       return good(op);
     }
     case "add_seed": {
-      // 本文は seSeedBody で作ったもの（見出し付き）。字数は送る前に確かめる
+      // 題と本文だけ（問いは雛形の 7 問が入る）。字数は送る前に確かめる
       const msg = len("title", "題", 1, SE_MAX.title);
       if (msg) return bad(msg);
       const body = seTrim(v.body);
@@ -232,18 +235,62 @@ function seBuildOp(kind, values) {
       return good(op);
     }
     case "add_sprout": {
-      // 1 つの SPROUT は 1 つの seed（D）の下に作る
+      // 1 つの SPROUT は 1 つの seed（D）の下に作る。回答は作った後に S の板で足す（paths は無い）
       if (!seRefOk(v.seed, "D")) return bad("seed（D）を選んでください");
       const msg = first(len("title", "題", 1, SE_MAX.title), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
-      const paths = seList(v.paths);
-      if (!paths.length) return bad("Add PATH で A を 1 つ以上選んでください（DAG か一覧で A を選び、右の板の Add PATH を押します）");
-      if (paths.length > 20) return bad("PATH は 20 個までです");
-      for (const a of paths) if (!seRefOk(a, "A")) return bad(`A の形が正しくありません: ${a}`);
-      if (new Set(paths).size !== paths.length) return bad("同じ A を 2 回選んでいます");
-      const op = { op: name, seed: seTrim(v.seed), title: seTrim(v.title), paths };
+      const op = { op: name, seed: seTrim(v.seed), title: seTrim(v.title) };
       if (seTrim(v.body)) op.body = seTrim(v.body);
       return good(op);
+    }
+    case "add_seed_q": {
+      // 問いは seed（D）に足す。軸は空なら付けない
+      if (!seRefOk(v.seed, "D")) return bad("seed（D）を選んでください");
+      const msg = len("text", "問い", 1, SE_MAX.qtext);
+      if (msg) return bad(msg);
+      const axis = seTrim(v.axis);
+      if (axis && !SE_SEED_AXES.some((x) => x[0] === axis)) return bad("軸が正しくありません");
+      const op = { op: name, seed: seTrim(v.seed), text: seTrim(v.text) };
+      if (axis) op.axis = axis;
+      return good(op);
+    }
+    case "edit_seed_q": {
+      // 軸を「なし」にするときは axis が空文字で送る（サーバが外す）
+      if (!seIdOk(v.q, SE_SQ_RE)) return bad("問いを選んでください");
+      const msg = len("text", "問い", 1, SE_MAX.qtext);
+      if (msg) return bad(msg);
+      const axis = seTrim(v.axis);
+      if (axis && !SE_SEED_AXES.some((x) => x[0] === axis)) return bad("軸が正しくありません");
+      return good({ op: name, q: seTrim(v.q), text: seTrim(v.text), axis });
+    }
+    case "remove_seed_q": {
+      return seIdOk(v.q, SE_SQ_RE) ? good({ op: name, q: seTrim(v.q) }) : bad("問いを選んでください");
+    }
+    case "add_answer": {
+      // 回答は持ち主（D か S）の問いに、A（path）かテキストのどちらか一方
+      if (!seRefOk(v.to, "DS")) return bad("回答の持ち主（D か S）を選んでください");
+      if (!seIdOk(v.q, SE_SQ_RE)) return bad("問いを選んでください");
+      const hasA = seTrim(v.a) !== "";
+      const hasText = seTrim(v.text) !== "";
+      if (hasA === hasText) return bad("A を選ぶか、文を入力するかのどちらか一方にしてください");
+      const op = { op: name, to: seTrim(v.to), q: seTrim(v.q) };
+      if (hasA) {
+        if (!seRefOk(v.a, "A")) return bad(`A の形が正しくありません: ${seTrim(v.a)}`);
+        op.a = seTrim(v.a);
+      } else {
+        const msg = len("text", "回答の文", 1, SE_MAX.qtext);
+        if (msg) return bad(msg);
+        op.text = seTrim(v.text);
+      }
+      return good(op);
+    }
+    case "edit_answer": {
+      if (!seIdOk(v.answer, SE_SA_RE)) return bad("回答を選んでください");
+      const msg = len("text", "回答の文", 1, SE_MAX.qtext);
+      return msg ? bad(msg) : good({ op: name, answer: seTrim(v.answer), text: seTrim(v.text) });
+    }
+    case "remove_answer": {
+      return seIdOk(v.answer, SE_SA_RE) ? good({ op: name, answer: seTrim(v.answer) }) : bad("回答を選んでください");
     }
     case "copy": {
       const msg = first(id("node", "A", "写す A"), id("to", "Q", "写す先の Q"));
@@ -428,126 +475,6 @@ function seCardRunId(res) {
   if (res.run && res.run.id != null) return res.run.id;
   if (res.run && res.run.run_id != null) return res.run.run_id;
   return null;
-}
-
-/**
- * seed（D）の入力（values）から本文の markdown を作る（共有契約 C-SEED-1 の形）。
- * 軸の 5 つの状態（<軸>_mode）:
- *   decided → `決定: <値>`（A を選んでいれば次に `A: A<n>`）
- *   scope   → `範囲: <値>`（次に `A: A<n>`）
- *   novel   → `空欄` と `新規性: <理由>`
- *   none    → `空欄` と `記載なし: <理由>`
- *   undecided（空の mode も同じ）→ `空欄`
- * 値が空の決定・範囲・新規性・記載なしは、空欄（まだ決めていない）として書く（送る前に seSeedError で止める）。
- * 説明（<軸>_note）は最後に続けて書く。自由な文（background・success・constraints）は空なら「空欄」。
- */
-function seSeedBody(values) {
-  const v = values || {};
-  const lines = ["## 背景", seTrim(v.background) || "空欄"];
-  for (const [key, label] of SE_SEED_AXES) {
-    const mode = seTrim(v[`${key}_mode`]);
-    const value = seTrim(v[`${key}_value`]);
-    const a = seTrim(v[`${key}_a`]);
-    const note = seTrim(v[`${key}_note`]);
-    lines.push(`## ${label}`);
-    if (value && mode === "decided") lines.push(`決定: ${value}`);
-    else if (value && mode === "scope") lines.push(`範囲: ${value}`);
-    else if (value && mode === "novel") lines.push("空欄", `新規性: ${value}`);
-    else if (value && mode === "none") lines.push("空欄", `記載なし: ${value}`);
-    else lines.push("空欄");
-    if (a && value && (mode === "decided" || mode === "scope")) lines.push(`A: ${a}`);
-    if (note) lines.push(note);
-  }
-  lines.push("## 成功基準", seTrim(v.success) || "空欄");
-  lines.push("## 制約", seTrim(v.constraints) || "空欄");
-  return lines.join("\n");
-}
-
-/**
- * seed（D）の入力を送る前に確かめる（送れない理由を返す。通れば空）。
- * 決定・範囲・新規性・記載なしを選んだのに値が空なら止める。範囲は A が要る（C-SEED-1）。
- */
-function seSeedError(values) {
-  const v = values || {};
-  for (const [key, label] of SE_SEED_AXES) {
-    const mode = seTrim(v[`${key}_mode`]);
-    if (!SE_SEED_VALUE_LABELS[mode]) continue;
-    if (!seTrim(v[`${key}_value`])) return `${label}: ${SE_SEED_VALUE_LABELS[mode]}を入力してください`;
-    if (mode === "scope" && !seRefOk(v[`${key}_a`], "A")) return `${label}: 範囲のときは A を 1 つ選んでください`;
-  }
-  return "";
-}
-
-/**
- * seed の本文（markdown）を 9 項目の values に戻す（seSeedBody の逆）。
- * 見出しの無い本文は「背景」に全部入れる。知らない見出しは今の項目の続きにする（落とさない）。
- */
-function seSeedParse(body) {
-  const heads = new Map([
-    ["## 背景", "background"], ["## 成功基準", "success"], ["## 制約", "constraints"],
-    ...SE_SEED_AXES.map(([key, label]) => [`## ${label}`, key]),
-  ]);
-  // 9 項目は全部そろえて返す（見出しが無い項目は空・空欄）
-  const names = ["background", ...SE_SEED_AXES.map((a) => a[0]), "success", "constraints"];
-  const parts = Object.fromEntries(names.map((n) => [n, []]));
-  let key = "background";
-  for (const line of String(body == null ? "" : body).split("\n")) {
-    const head = heads.get(line.trim());
-    if (head) {
-      key = head;
-      parts[key] = parts[key] || [];
-      continue;
-    }
-    (parts[key] || (parts[key] = [])).push(line);
-  }
-  const out = {};
-  for (const [name, lines] of Object.entries(parts)) {
-    const text = lines.join("\n").trim();
-    const axis = SE_SEED_AXES.find((a) => a[0] === name);
-    if (!axis) {
-      out[name] = text === "空欄" ? "" : text;
-      continue;
-    }
-    const axisValues = seSeedAxis(text);
-    out[`${name}_mode`] = axisValues.mode;
-    out[`${name}_value`] = axisValues.value;
-    out[`${name}_a`] = axisValues.a;
-    out[`${name}_note`] = axisValues.note;
-  }
-  return out;
-}
-
-/**
- * 軸の本文（見出しの次の行から）を 1 つの状態に読む（seSeedBody の逆・C-SEED-1）。
- * 1 行目が `決定:` `範囲:` か `空欄` でなければ、まだ決めていない（その文は説明として残す）。
- * 古い本文（`空欄` の次の説明・`決定:` の次の説明）も、説明として残す。
- */
-function seSeedAxis(text) {
-  const lines = String(text || "").trim().split("\n");
-  const head = (lines[0] || "").trim();
-  let rest = lines.slice(1);
-  const out = { mode: "undecided", value: "", a: "", note: "" };
-  if (head.startsWith("決定:") || head.startsWith("範囲:")) {
-    out.mode = head.startsWith("決定:") ? "decided" : "scope";
-    out.value = head.slice(head.indexOf(":") + 1).trim();
-    if (rest.length && /^A:/.test(rest[0].trim())) {
-      out.a = rest[0].trim().slice(2).trim();
-      rest = rest.slice(1);
-    }
-  } else if (head === "空欄") {
-    const reason = /^(新規性|記載なし):/.exec((rest[0] || "").trim());
-    if (reason) {
-      out.mode = reason[1] === "新規性" ? "novel" : "none";
-      out.value = rest[0].trim().slice(reason[0].length).trim();
-      rest = rest.slice(1);
-    }
-  } else {
-    // 知らない 1 行目は説明として残す（まだ決めていない）
-    out.note = lines.join("\n").trim();
-    return out;
-  }
-  out.note = rest.join("\n").trim();
-  return out;
 }
 
 // ============================================================================
@@ -792,36 +719,15 @@ function seForm(fields) {
 }
 
 /**
- * seed（D）の入力欄 9 項目（題は別）。作成の板と edit の小窓で同じ物を使う。
- * init は seSeedParse の結果（と題の text）。軸は「決定・空欄」の切り替え・値の 1 行・説明の複数行。
+ * seed（D）の入力欄（題と本文の 2 つ）。作成の板と Edit の小窓で同じ物を使う。
+ * 問い（SQ）は seed の板で足す・直す・消す（seFieldsFor の add_seed_q・edit_seed_q）。
  */
 function seSeedFields(init) {
   const v = init || {};
-  const aOptions = seStatusNodes().filter((n) => n && seRefOk(n.id, "A")).map(seNodeOption);
-  const fields = [
+  return [
     seFieldText("title", "題（必須）", v.title, "必須・120 字まで"),
-    seFieldArea("background", "背景", v.background, 3, "自由な文（この研究の経緯・動機）"),
+    seFieldArea("body", "本文（任意）", v.body, 4, "背景と制約など。自由な文"),
   ];
-  for (const [key, label, hint] of SE_SEED_AXES) {
-    const pick = seFieldPick(`${key}_mode`, label, SE_SEED_PICKS, v[`${key}_mode`] || "undecided");
-    const value = seFieldText(`${key}_value`, SE_SEED_VALUE_LABELS.decided, v[`${key}_value`], "1 行・決定・範囲・空欄の理由のときに書く");
-    const a = seFieldSelect(`${key}_a`, "A（決定は任意・範囲は必須）", aOptions, v[`${key}_a`], "この軸を決めた A", true);
-    const note = seFieldArea(`${key}_note`, "説明（任意）", v[`${key}_note`], 2, hint);
-    value.show = (cur) => SE_SEED_VALUE_LABELS[cur[`${key}_mode`]] !== undefined;
-    a.show = (cur) => cur[`${key}_mode`] === "decided" || cur[`${key}_mode`] === "scope";
-    // 値の欄の見出しは、選んだ状態で変える（範囲・新規性・記載なしの理由）
-    const valueLabel = value.el.querySelector("label");
-    value.refresh = () => {
-      const want = SE_SEED_VALUE_LABELS[pick.read()];
-      if (want) valueLabel.textContent = want;
-    };
-    fields.push(pick, value, a, note);
-  }
-  fields.push(
-    seFieldArea("success", "成功基準", v.success, 2, "指標の値と向き。未定なら空欄のまま"),
-    seFieldArea("constraints", "制約", v.constraints, 3, "期間・計算資源・倫理・データの入手など"),
-  );
-  return fields;
 }
 
 // ============================================================================
@@ -1001,16 +907,49 @@ function seFieldsFor(kind, nodeId, detail) {
         values: { node: id },
         fields: [],
       };
+    case "add_seed_q":
+      // id は seed（D）。軸は「なし」が既定（空なら送らない）
+      return {
+        title: `問いを足す（${id}）`,
+        values: { seed: id },
+        fields: [
+          seFieldArea("text", "問い", "", 3, "必須・300 字まで"),
+          seFieldSelect("axis", "軸", SE_SEED_AXES, "", "軸は無くても足せます", true),
+        ],
+      };
+    case "edit_seed_q":
+      // id は問い（SQ）。今の文と軸は detail.node から入れる
+      return {
+        title: `問いを直す（${id}）`,
+        values: { q: id },
+        fields: [
+          seFieldArea("text", "問い", node.text || "", 3, "必須・300 字まで"),
+          seFieldSelect("axis", "軸", SE_SEED_AXES, node.axis || "", "「なし」にすると軸を外します", true),
+        ],
+      };
+    case "add_answer":
+      // id は持ち主（D か S）。問いは detail.q。A で答えるときは板の Add root path を使う
+      return {
+        title: `回答を足す（${id}・${seTrim(d.q)}）`,
+        values: { to: id, q: seTrim(d.q) },
+        fields: [seFieldArea("text", "回答の文", "", 3, "必須・300 字まで")],
+      };
+    case "edit_answer":
+      // id は回答（SA）。今の文は detail.node から入れる
+      return {
+        title: `回答を直す（${id}）`,
+        values: { answer: id },
+        fields: [seFieldArea("text", "回答の文", node.text || "", 3, "必須・300 字まで")],
+      };
     case "edit": {
-      // seed（D）は入力欄で直す。送る本文は seSeedBody で組み直す（送る前に seSeedError で確かめる）
+      // seed（D）は題と本文で直す（空の題は送らない）
       if (seRefOk(id, "D")) {
-        const fields = seSeedFields(Object.assign({ title: node.text }, seSeedParse(node.body)));
         return {
           title: `seed（D）を直す（${id}）`,
           values: { node: id },
-          fields,
-          build: (read) => ({ node: id, text: read.title, body: seSeedBody(read) }),
-          check: (read) => seSeedError(read),
+          fields: seSeedFields({ title: node.text, body: node.body }),
+          build: (read) => ({ node: id, text: seTrim(read.title), body: seTrim(read.body) }),
+          check: (read) => (seTrim(read.title) ? "" : "題を入力してください"),
         };
       }
       const rules = seEditRules(id);
@@ -1027,6 +966,15 @@ function seFieldsFor(kind, nodeId, detail) {
 async function seQuick(op, payload) {
   const built = seBuildOp(op, Object.assign({}, payload));
   if (!built.ok) { saiToast(built.error, "error"); return null; }
+  return seApply(built.op, null);
+}
+
+/** 問い・回答を消す。確かめてから送る（小窓は出さない）。 */
+async function seRemoveQuick(op, payload, title, body) {
+  const built = seBuildOp(op, Object.assign({}, payload));
+  if (!built.ok) { saiToast(built.error, "error"); return null; }
+  const ok = await saiConfirm({ title, body, ok: "消す", danger: true });
+  if (!ok) return null;
   return seApply(built.op, null);
 }
 
@@ -1211,9 +1159,9 @@ async function seOpenCard(nodeId, preset) {
 // --- node からの読み込み（tests/test_sciedit.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
+    seTrim, seOpLabel, seCiteOk, seRefOk, seIdOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
     seCardValues, seCardNode, seBuildCard, seCardRunId, seChildOptions, seChildOk,
-    seBottomQs, seSeedBody, seSeedParse, seSeedError, seSeedAxis,
-    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_STANCES, SE_SEED_AXES, SE_SEED_PICKS, SE_SEED_VALUE_LABELS,
+    seBottomQs,
+    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_SQ_RE, SE_SA_RE, SE_STANCES, SE_SEED_AXES,
   };
 }

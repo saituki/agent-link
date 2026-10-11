@@ -381,9 +381,9 @@ function rolesStatus() {
       node("S1", "S", "D1", 1, {
         paths: ["A3", "A4", "A5"],
         path_roles: [
-          { a: "A3", axis: "method", role: "novel", fixed_at: "A1" },
-          { a: "A4", axis: null, role: "fixed", fixed_at: null },
-          { a: "A5", axis: null, role: "novel", fixed_at: "Q0" },
+          { a: "A3", axis: "method", role: "novel", question: "SQ2" },
+          { a: "A4", axis: null, role: "fixed", question: "SQ1" },
+          { a: "A5", axis: null, role: "novel", question: "SQ3" },
         ],
       }),
       node("E1", "E", "S1", 2),
@@ -393,17 +393,17 @@ function rolesStatus() {
 }
 
 function testSproutRoles() {
-  // 固定: A1 までの祖先・A4 の道。新規: A3 と Q2（A1 より下）・A5 と Q1。Q1 は固定と新規の両方に入るので新規
+  // 固定（seed の回答）: A4 の道。新規（sprout の回答）: A3 の道と A5 の道。Q1・Q0 は両方に入るので新規を優先する
   const roles = sgSproutRoles(rolesStatus(), "S1");
   assert.deepStrictEqual(Object.fromEntries(roles), {
-    A3: "novel", Q2: "novel", A5: "novel", Q1: "novel",
-    A1: "fixed", Q0: "fixed", A4: "fixed",
+    A3: "novel", Q2: "novel", A1: "novel", A5: "novel", Q1: "novel", Q0: "novel",
+    A4: "fixed",
     E1: "exp", E2: "exp",
     D1: "seed",
   });
-  // fixed_at が無い新規の道は、道の全部が新規
+  // 新規の道は、道の全部が新規（fixed_at の区切りは無い）
   const st2 = rolesStatus();
-  st2.nodes.find((n) => n.id === "S1").path_roles = [{ a: "A4", axis: null, role: "novel", fixed_at: null }];
+  st2.nodes.find((n) => n.id === "S1").path_roles = [{ a: "A4", axis: null, role: "novel", question: "SQ1" }];
   assert.deepStrictEqual(Object.fromEntries(sgSproutRoles(st2, "S1")), { A4: "novel", Q1: "novel", Q0: "novel", E1: "exp", E2: "exp", D1: "seed" });
   // S 以外（D・Q・SEED・無し）は null
   assert.strictEqual(sgSproutRoles(rolesStatus(), "D1"), null);

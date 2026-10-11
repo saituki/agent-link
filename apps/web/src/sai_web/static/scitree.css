@@ -472,7 +472,6 @@
 .sci-row { display: flex; flex-direction: row; align-items: center; gap: 4px; border-radius: 8px; padding-top: 0; padding-bottom: 0; padding-right: 4px; cursor: default; }
 .sci-row.selected { background: var(--bg-soft); }
 /* SPROUT 作成中の PATH に入れた O（選んでいる行と見分けるため、色を足して左に線を引く） */
-.sci-row-picked { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); box-shadow: inset 3px 0 0 var(--sci-decided, var(--accent)); }
 /* 一覧の行は Q/O/F/E で ID と題の色を変える（絞り込みボタンと同じ色） */
 .sci-row-Q .sci-row-head { color: var(--accent); }
 .sci-row-A .sci-row-head { color: var(--sci-decided); }
@@ -630,34 +629,7 @@ button.sci-action-meta {
 .sci-seed-band { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .sci-seed-band > * { min-width: 0; max-width: 100%; }
 .sci-sprout-band textarea.sai-input { min-height: 88px; padding-top: 8px; padding-bottom: 8px; resize: vertical; font-family: inherit; }
-.sci-sprout-paths { display: flex; flex-direction: column; gap: 4px; }
-.sci-sprout-path { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.sci-sprout-path-main {
-  flex: 1;
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sci-sprout-path-x {
-  flex: none;
-  width: 44px;
-  min-height: 44px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
+.sci-pick-band { display: flex; flex-direction: column; gap: 8px; }
 .sci-sprout-error { margin: 0; color: var(--danger, var(--accent)); font-size: 14px; }
 .sci-sprout-error:empty { display: none; }
 .sci-sprout-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -695,28 +667,23 @@ button.sci-action-meta {
 
 .sci-axis-tag { font-size: 12px; color: var(--text-soft); }
 
-/* --- S の板の path の行（4 節の中） --- */
-.sci-path-row {
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+/* --- 問いの一覧（D と S の板。問い・回答・釦） --- */
+.sci-q { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.sci-q-head { align-items: center; }
+.sci-q-text { flex: 1 1 180px; min-width: 0; margin: 0; font-size: 14px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.sci-q-removed .sci-q-text { color: var(--text-soft); text-decoration: line-through; }
+.sci-q-answer { padding-left: 8px; }
+.sci-q-answer .sci-line-main { font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.sci-q-answer-text {
+  min-height: 44px; padding: 0 2px; border: 0; background: none; color: var(--text);
+  font: inherit; font-size: 14px; text-align: left; text-decoration: underline dotted; cursor: pointer; overflow-wrap: anywhere;
 }
-.sci-path-fixed { border-style: dotted; background: color-mix(in srgb, var(--sci-decided) 6%, var(--bg)); }
-.sci-path-novel { border-left: 4px solid var(--sci-candidate); }
-.sci-path-none { border-style: dashed; }
-.sci-path-text { margin: 0; font-size: 14px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.sci-q-ops { padding-left: 8px; }
+.sci-badge-complete { border-style: solid; border-width: 2px; background: color-mix(in srgb, var(--sci-decided) 40%, var(--bg)); font-weight: 700; }
 .sci-path-id {
   padding: 0 2px; border: 0; background: none; color: var(--accent);
   font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer;
 }
-/* 固定の道は淡く出す（新規の道は濃いまま） */
-.sci-path-faint { color: var(--text-soft); }
-
-/* --- D の板の 6 軸の表 --- */
-.sci-axes-wrap { overflow-x: auto; }
-.sci-axes { width: 100%; border-collapse: collapse; font-size: 13px; }
-.sci-axes th, .sci-axes td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-.sci-axes thead th { color: var(--text-soft); font-weight: 600; }
-.sci-axes tbody th { white-space: nowrap; }
 
 /* --- 比べる画面（#sci-compare。#view-sci-tree の中） --- */
 .sci-compare { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px; }

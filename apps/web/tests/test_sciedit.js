@@ -10,11 +10,11 @@ const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_web", "static", "sciedit.js");
 const {
-  seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
+  seTrim, seOpLabel, seCiteOk, seRefOk, seIdOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
   seCardValues, seBuildCard, seCardRunId,
   seChildOptions, seChildOk,
-  seBottomQs, seSeedBody, seSeedParse, seSeedError, seSeedAxis, seCardNode,
-  SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_STANCES, SE_SEED_AXES, SE_SEED_PICKS, SE_SEED_VALUE_LABELS,
+  seBottomQs, seCardNode,
+  SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_STANCES, SE_SEED_AXES, SE_SQ_RE, SE_SA_RE,
 } = require(src);
 
 /** seBuildOp が通ったときの op。 */
@@ -98,11 +98,23 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: " ts:hfo-r01-v1@0123456789ab " })), { op: "add_e", parent: "S2", text: "実験", dataset: "ts:hfo-r01-v1@0123456789ab" });
   assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: "" })), { op: "add_e", parent: "S2", text: "実験" });
   assert.strictEqual(seOpLabel("set_dataset"), "データセットを変える");
-  // SEED は題だけで作れる（本文は任意）。SPROUT は 1 つの SEED と PATH の A で作る（Issue の検査は無い）
+  // seed（D）は題だけで作れる（本文は任意）。SPROUT は seed と題で作り、回答は後から足す（paths は無い）
   assert.deepStrictEqual(ok(seBuildOp("add_seed", { title: "発作部位の特定" })), { op: "add_seed", title: "発作部位の特定" });
-  assert.deepStrictEqual(ok(seBuildOp("add_seed", { title: "題", body: "## 背景\n空欄" })), { op: "add_seed", title: "題", body: "## 背景\n空欄" });
-  assert.deepStrictEqual(ok(seBuildOp("add_sprout", { seed: "D1", title: "題", paths: ["A1", "A2"] })), { op: "add_sprout", seed: "D1", title: "題", paths: ["A1", "A2"] });
-  assert.deepStrictEqual(ok(seBuildOp("add_sprout", { seed: "D2", title: "題", body: "計画", paths: ["A2"] })), { op: "add_sprout", seed: "D2", title: "題", paths: ["A2"], body: "計画" });
+  assert.deepStrictEqual(ok(seBuildOp("add_seed", { title: "題", body: "背景と制約" })), { op: "add_seed", title: "題", body: "背景と制約" });
+  assert.deepStrictEqual(ok(seBuildOp("add_sprout", { seed: "D1", title: "題" })), { op: "add_sprout", seed: "D1", title: "題" });
+  assert.deepStrictEqual(ok(seBuildOp("add_sprout", { seed: "D2", title: "題", body: "計画", paths: ["A2"] })), { op: "add_sprout", seed: "D2", title: "題", body: "計画" });
+  // 問い: 足す（軸は任意。空の軸は付けない）・直す（軸の空は「外す」で送る）・消す
+  assert.deepStrictEqual(ok(seBuildOp("add_seed_q", { seed: "D1", text: "どの手法を使うか", axis: "method" })), { op: "add_seed_q", seed: "D1", text: "どの手法を使うか", axis: "method" });
+  assert.deepStrictEqual(ok(seBuildOp("add_seed_q", { seed: "D1", text: "成功基準は何か", axis: "" })), { op: "add_seed_q", seed: "D1", text: "成功基準は何か" });
+  assert.deepStrictEqual(ok(seBuildOp("edit_seed_q", { q: "SQ3", text: "直した問い", axis: "" })), { op: "edit_seed_q", q: "SQ3", text: "直した問い", axis: "" });
+  assert.deepStrictEqual(ok(seBuildOp("edit_seed_q", { q: "SQ3", text: "直した問い", axis: "data" })), { op: "edit_seed_q", q: "SQ3", text: "直した問い", axis: "data" });
+  assert.deepStrictEqual(ok(seBuildOp("remove_seed_q", { q: "SQ3" })), { op: "remove_seed_q", q: "SQ3" });
+  // 回答: A を選ぶか、文を入れるか（どちらか一方）。持ち主は D か S
+  assert.deepStrictEqual(ok(seBuildOp("add_answer", { to: "D1", q: "SQ3", text: "テキストの回答" })), { op: "add_answer", to: "D1", q: "SQ3", text: "テキストの回答" });
+  assert.deepStrictEqual(ok(seBuildOp("add_answer", { to: "S2", q: "SQ5", a: "A12" })), { op: "add_answer", to: "S2", q: "SQ5", a: "A12" });
+  assert.deepStrictEqual(ok(seBuildOp("edit_answer", { answer: "SA7", text: "直した回答" })), { op: "edit_answer", answer: "SA7", text: "直した回答" });
+  assert.deepStrictEqual(ok(seBuildOp("remove_answer", { answer: "SA7" })), { op: "remove_answer", answer: "SA7" });
+  assert.strictEqual(seOpLabel("add_answer"), "回答を足す");
   // D は remove・star・edit の対象
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "D1" })), { op: "remove", node: "D1" });
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "D1" })), { op: "star", node: "D1" });
@@ -165,17 +177,31 @@ function test_ops_ng() {
   ng(seBuildOp("set_stance", { node: "F3", stance: "" }));
   ng(seBuildOp("set_stance", { node: "F3", stance: "X" }));
   // SPROUT は seed（D）を選ばないと送れない
-  assert.strictEqual(ng(seBuildOp("add_sprout", { title: "題", paths: ["A1"] })), "seed（D）を選んでください");
-  assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "Q1", title: "題", paths: ["A1"] })), "seed（D）を選んでください");
-  assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "", title: "題", paths: ["A1"] })), "seed（D）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_sprout", { title: "題" })), "seed（D）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "Q1", title: "題" })), "seed（D）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "", title: "題" })), "seed（D）を選んでください");
   ng(seBuildOp("add_seed", {})); // 題が無い
   ng(seBuildOp("add_seed", { title: "あ".repeat(121) }));
   assert.match(ng(seBuildOp("add_seed", { title: "題", body: "あ".repeat(2001) })), /本文が 2000 字を超えています（今 2001 字）/);
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", paths: [] }));
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", paths: ["Q1"] }));
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", paths: ["O1"] })); // O は無くなった ID
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", paths: ["A1", "A1"] }));
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", paths: Array.from({ length: 21 }, (_, i) => `A${i + 1}`) }));
+  ng(seBuildOp("add_sprout", { seed: "D1" })); // 題が無い
+  // 問い・回答（U02）の NG: ID の形・文の字数・軸・a と text の組
+  assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "D1", text: "" })), "問いを入力してください");
+  assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "D1", text: "あ".repeat(301) })), "問いは 300 字までです");
+  assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "Q1", text: "問い" })), "seed（D）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "D1", text: "問い", axis: "goal" })), "軸が正しくありません");
+  assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "Q3", text: "問い" })), "問いを選んでください");
+  assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "SQ3", text: "" })), "問いを入力してください");
+  assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "SQ3", text: "問い", axis: "goal" })), "軸が正しくありません");
+  assert.strictEqual(ng(seBuildOp("remove_seed_q", { q: "SA3" })), "問いを選んでください");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "Q1", q: "SQ3", text: "文" })), "回答の持ち主（D か S）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "A3", text: "文" })), "問いを選んでください");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3" })), "A を選ぶか、文を入力するかのどちらか一方にしてください");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3", a: "A1", text: "文" })), "A を選ぶか、文を入力するかのどちらか一方にしてください");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3", a: "Q1" })), "A の形が正しくありません: Q1");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "S2", q: "SQ3", text: "あ".repeat(301) })), "回答の文は 300 字までです");
+  assert.strictEqual(ng(seBuildOp("edit_answer", { answer: "SQ3", text: "文" })), "回答を選んでください");
+  assert.strictEqual(ng(seBuildOp("edit_answer", { answer: "SA3", text: "" })), "回答の文を入力してください");
+  assert.strictEqual(ng(seBuildOp("remove_answer", { answer: "A3" })), "回答を選んでください");
   ng(seBuildOp("edit", { node: "Q1" })); // text も body も無い
   ng(seBuildOp("edit", { node: "Q1", text: "x", body: "本文" })); // Q に本文は付かない
   ng(seBuildOp("edit", { node: "A1", text: "あ".repeat(121) })); // A は 120 字まで
@@ -195,8 +221,8 @@ function test_ops_ng() {
   assert.ok(ok(seBuildOp("add_q", { parent: "Q1", text: "あ".repeat(300) })));
   ng(seBuildOp("add_a", { q: "Q1", text: "あ".repeat(121) }));
   ng(seBuildOp("add_e", { parent: "A1", text: "あ".repeat(121) }));
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "あ".repeat(121), paths: ["A1"] }));
-  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", body: "あ".repeat(2001), paths: ["A1"] }));
+  ng(seBuildOp("add_sprout", { seed: "D1", title: "あ".repeat(121) }));
+  ng(seBuildOp("add_sprout", { seed: "D1", title: "題", body: "あ".repeat(2001) }));
   ng(seBuildOp("insert_q", { q: "Q1", text: "あ".repeat(301) }));
   ng(seBuildOp("set_mlflow", { node: "E1", mlflow: "あ".repeat(201) }));
   ng(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: "あ".repeat(201) }));
@@ -224,8 +250,8 @@ function test_unknown() {
 
 function test_tables() {
   const keys = Object.keys(SE_OPS).sort();
-  // 表の op は 18 種類（move_node・regroup と G3-C1 の set_dataset を足した）。完了の言葉も同じ集まり
-  assert.strictEqual(keys.length, 18);
+  // 表の op は 24 種類（move_node・regroup と G3-C1 の set_dataset・U02 の問いと回答を足した）。完了の言葉も同じ集まり
+  assert.strictEqual(keys.length, 24);
   assert.deepStrictEqual(Object.keys(SE_DONE).sort(), keys);
   assert.ok(keys.includes("set_dataset"));
   assert.ok(keys.includes("move_node") && keys.includes("regroup"));
@@ -374,104 +400,20 @@ function test_response_shapes() {
   assert.strictEqual(seCardRunId({}), null);
 }
 
-// --- seed（D）の本文（共有契約の 9 項目の形） ---
-function test_seed_body() {
-  const items = {
-    background: "術前の評価で部位が決まらない。",
-    task_mode: "decided", task_value: "発作部位の特定", task_note: "側頭葉か前頭葉かを分ける",
-    target_mode: "decided", target_value: "側頭葉てんかん患者", target_note: "",
-    data_mode: "decided", data_value: "術前の EEG・ECoG", data_note: "",
-    method_mode: "undecided", method_value: "", method_note: "",
-    output_mode: "undecided", output_value: "", output_note: "",
-    metric_mode: "undecided", metric_value: "", metric_note: "",
-    success: "AUC 0.8 以上", constraints: "期間 1 年。計算資源は 1 GPU。",
-  };
-  const body = seSeedBody(items);
-  assert.strictEqual(body, [
-    "## 背景", "術前の評価で部位が決まらない。",
-    "## 解く問題（task）", "決定: 発作部位の特定", "側頭葉か前頭葉かを分ける",
-    "## 対象（target）", "決定: 側頭葉てんかん患者",
-    "## データ（data）", "決定: 術前の EEG・ECoG",
-    "## 手法（method）", "空欄",
-    "## 出力（output）", "空欄",
-    "## 評価指標（metric）", "空欄",
-    "## 成功基準", "AUC 0.8 以上",
-    "## 制約", "期間 1 年。計算資源は 1 GPU。",
-  ].join("\n"));
-  // 9 項目 → 本文 → 9 項目 が同じ（空欄の説明も残る）
-  const back = seSeedParse(body);
-  for (const k of Object.keys(items)) assert.strictEqual(back[k], items[k], k);
-  // 空欄の説明は「空欄」の次の行に残る
-  const noted = Object.assign({}, items, { method_note: "未定。候補は 2 つ" });
-  assert.strictEqual(seSeedParse(seSeedBody(noted)).method_note, "未定。候補は 2 つ");
-  assert.strictEqual(seSeedParse(seSeedBody(noted)).method_mode, "undecided");
-  // 自由な文が無ければ「空欄」。読み戻すと空に戻る
-  const blank = seSeedBody({});
-  assert.ok(blank.startsWith("## 背景\n空欄\n## 解く問題（task）\n空欄"), blank);
-  assert.strictEqual(seSeedParse(blank).background, "");
-  // 見出しの無い本文は背景に全部入る
-  assert.strictEqual(seSeedParse("ただの文").background, "ただの文");
-  assert.strictEqual(seSeedParse("ただの文").task_mode, "undecided");
-  // 知らない見出しは今の項目の続きにして、落とさない
-  assert.match(seSeedParse("## 背景\nあ\n## 別の見出し\nい").background, /別の見出し\nい/);
-  // 軸の 1 行目が「決定」でも「空欄」でもなければ、説明として読む（まだ決めていない）
-  assert.strictEqual(seSeedParse("## 対象（target）\n側頭葉の患者").target_note, "側頭葉の患者");
-  assert.strictEqual(seSeedParse("## 対象（target）\n側頭葉の患者").target_mode, "undecided");
-  assert.strictEqual(SE_SEED_AXES.length, 6);
-}
 
-// --- seed（D）の 5 つの状態（C-SEED-1）。対象（target）の軸で、次の見出し（データ）の前まで ---
-function test_seed_states() {
-  assert.deepStrictEqual(SE_SEED_PICKS.map((x) => x[0]), ["decided", "scope", "novel", "none", "undecided"]);
-  assert.deepStrictEqual(Object.keys(SE_SEED_VALUE_LABELS).sort(), ["decided", "none", "novel", "scope"]);
-  const next = "\n## データ（data）";
-  const cases = [
-    // [状態, 入力, 本文に入る行（対象の軸のみ）]
-    ["decided+A", { target_mode: "decided", target_value: "側頭葉", target_a: "A3" }, "## 対象（target）\n決定: 側頭葉\nA: A3"],
-    ["decided", { target_mode: "decided", target_value: "側頭葉" }, "## 対象（target）\n決定: 側頭葉"],
-    ["scope", { target_mode: "scope", target_value: "術前に評価した患者", target_a: "A3" }, "## 対象（target）\n範囲: 術前に評価した患者\nA: A3"],
-    ["novel", { target_mode: "novel", target_value: "先行研究が無い" }, "## 対象（target）\n空欄\n新規性: 先行研究が無い"],
-    ["none", { target_mode: "none", target_value: "対象の年齢" }, "## 対象（target）\n空欄\n記載なし: 対象の年齢"],
-    ["undecided", { target_mode: "undecided" }, "## 対象（target）\n空欄"],
-    ["空の mode は undecided", {}, "## 対象（target）\n空欄"],
-  ];
-  for (const [name, input, head] of cases) {
-    const body = seSeedBody(input);
-    assert.ok(body.includes(head + next), `${name}: ${body}`);
+// --- seed（D）の問いと回答の ID・軸（U02）。6 軸の本文の部品は無い（問いの一覧で足す・直す・消す） ---
+function test_seed_questions() {
+  assert.deepStrictEqual(SE_SEED_AXES.map((x) => x[0]), ["task", "target", "data", "method", "output", "metric"]);
+  assert.ok(seIdOk("SQ3", SE_SQ_RE) && seIdOk(" SQ12 ", SE_SQ_RE));
+  assert.ok(!seIdOk("Q3", SE_SQ_RE) && !seIdOk("SQ0", SE_SQ_RE) && !seIdOk("SA3", SE_SQ_RE) && !seIdOk("", SE_SQ_RE));
+  assert.ok(seIdOk("SA7", SE_SA_RE) && !seIdOk("SQ7", SE_SA_RE));
+  // 6 軸の本文の部品は消した（seSeedBody・seSeedParse・seSeedError・seSeedAxis）
+  const exported = require(src);
+  for (const name of ["seSeedBody", "seSeedParse", "seSeedError", "seSeedAxis", "SE_SEED_PICKS", "SE_SEED_VALUE_LABELS"]) {
+    assert.strictEqual(exported[name], undefined, name);
   }
-  // 読み戻す: 状態・値・A が同じ（説明は残る）
-  const back = (input) => seSeedParse(seSeedBody(input));
-  assert.deepStrictEqual(
-    [back({ target_mode: "decided", target_value: "側頭葉", target_a: "A3" }).target_mode, back({ target_mode: "decided", target_value: "側頭葉", target_a: "A3" }).target_a],
-    ["decided", "A3"],
-  );
-  assert.strictEqual(back({ target_mode: "scope", target_value: "範囲", target_a: "A3" }).target_mode, "scope");
-  assert.strictEqual(back({ target_mode: "novel", target_value: "理由" }).target_value, "理由");
-  assert.strictEqual(back({ target_mode: "none", target_value: "理由" }).target_mode, "none");
-  assert.strictEqual(back({ target_mode: "undecided" }).target_mode, "undecided");
-  // 説明は状態によらず残る（決定の次・空欄の次）
-  assert.strictEqual(back({ target_mode: "decided", target_value: "側頭葉", target_note: "補足" }).target_note, "補足");
-  assert.strictEqual(back({ target_mode: "novel", target_value: "理由", target_note: "補足" }).target_note, "補足");
-  assert.strictEqual(back({ target_mode: "undecided", target_note: "補足" }).target_note, "補足");
-
-  // 古い本文（決定・空欄の次に説明が続く）も読める
-  assert.deepStrictEqual(
-    seSeedAxis("決定: 側頭葉\n補足の行"),
-    { mode: "decided", value: "側頭葉", a: "", note: "補足の行" },
-  );
-  assert.deepStrictEqual(seSeedAxis("空欄\n補足の行"), { mode: "undecided", value: "", a: "", note: "補足の行" });
-  assert.deepStrictEqual(seSeedAxis("空欄\n記載なし: 年齢"), { mode: "none", value: "年齢", a: "", note: "" });
-  assert.deepStrictEqual(seSeedAxis("範囲: 患者\nA: A9"), { mode: "scope", value: "患者", a: "A9", note: "" });
-  assert.deepStrictEqual(seSeedAxis(""), { mode: "undecided", value: "", a: "", note: "" });
-
-  // 送る前の確かめ: 値の無い決定・範囲・新規性・記載なしは止める。範囲は A が要る
-  assert.strictEqual(seSeedError({ target_mode: "undecided" }), "");
-  assert.strictEqual(seSeedError({}), "");
-  assert.match(seSeedError({ target_mode: "decided", target_value: "" }), /入力してください/);
-  assert.match(seSeedError({ target_mode: "novel", target_value: " " }), /新規性の理由を入力してください/);
-  assert.match(seSeedError({ target_mode: "scope", target_value: "患者" }), /範囲のときは A を 1 つ選んでください/);
-  assert.strictEqual(seSeedError({ target_mode: "scope", target_value: "患者", target_a: "A3" }), "");
-  assert.strictEqual(seSeedError({ target_mode: "decided", target_value: "側頭葉" }), "");
+  // 雛形の問い（add_seed のあと）は、軸を 6 つ持つ問いと、軸の無い成功基準を板で足す（seBuildOp は通す）
+  assert.deepStrictEqual(ok(seBuildOp("add_seed_q", { seed: "D1", text: "成功基準は何か" })), { op: "add_seed_q", seed: "D1", text: "成功基準は何か" });
 }
 
 function main() {
@@ -485,8 +427,7 @@ function main() {
   test_child_options();
   test_bottom_qs();
   test_response_shapes();
-  test_seed_body();
-  test_seed_states();
+  test_seed_questions();
   console.log("test_sciedit: すべて通りました");
 }
 

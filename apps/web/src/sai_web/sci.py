@@ -47,6 +47,11 @@ SCI_INIT_TIMEOUT = 60.0
 # --- ID と値 ---
 # Node は Q・A・F・E・S・D（数だけ「12」は受け付けない）
 _NODE_RE = re.compile(r"^[QAFESD][1-9][0-9]{0,8}$")
+# seed の問い（SQ）・回答（SA）の ID（U01。sai-sci の seedq.rs と同じ形）
+_SQ_RE = re.compile(r"^SQ[1-9][0-9]{0,8}$")
+_SA_RE = re.compile(r"^SA[1-9][0-9]{0,8}$")
+# seed の問いの軸（空文字は無し）
+SEED_AXES = ("task", "target", "data", "method", "output", "metric")
 # RESEARCH_TYPE
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
 # 読む深さ・READ_CARD の実行者と読み方
@@ -72,22 +77,21 @@ _CARD_BLOCK_RE = re.compile(r"^(sci|lab)-[a-z-]{2,30}$")
 # 数の上限
 RUN_ID_MAX = 999_999_999
 CITES_MAX = 10
-PATH_MAX = 20
 MEMBERS_MAX = 20
 COMPARE_MAX = 10
 CARD_PAPERS_MAX = 20
-# SPROUT の path のオブジェクトの項目と区分（C-OP-4。sai-sci の PATH_KEYS・PATH_ROLES と同じ）
-PATH_KEYS = ("a", "axis", "role", "fixed_at")
-PATH_ROLES = ("fixed", "novel")
 # 文字数の上限
 BODY_MAX = 2000
 
-# --- C-OP の op ごとの項目（C-OP の 18 種類・set_dataset は G3-C1） ---
+# --- C-OP の op ごとの項目（C-OP の 24 種類・set_dataset は G3-C1） ---
 # 値は「検査のしかた」。知らない項目は落とすので、1 つ 1 つ書く。
 #   ref:<種類>   必須の ID（種類は Q・A・F・E・S・D の文字の並び）
 #   text:<n>     必須の文字（1〜n 字）
 #   ztext:<n>    必須の文字（0〜n 字。空も通す）
 #   otext:<n>    任意の文字（空なら無いものとして落とす）
+#   oref:<種類>  任意の ID（空なら無いものとして落とす）
+#   oaxis        任意の軸（空文字は「軸を外す」として通す）
+#   sq・sa       問い（SQ<n>）・回答（SA<n>）の ID
 #   body         任意の本文（0〜2000 字。空のまま送れる）
 #   members      必須の A の ID の並び（1〜20 件）
 #   enum:<名前>  必須の値
@@ -120,7 +124,13 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
     },
     "add_e": {"parent": "ref:SE", "text": "text:120", "body": "body", "mlflow": "otext:200", "dataset": "otext:200"},
     "add_seed": {"title": "text:120", "body": "body"},
-    "add_sprout": {"seed": "ref:D", "title": "text:120", "body": "body", "paths": "sproutpaths"},
+    "add_seed_q": {"seed": "ref:D", "text": "text:300", "axis": "oaxis"},
+    "edit_seed_q": {"q": "sq", "text": "otext:300", "axis": "oaxis"},
+    "remove_seed_q": {"q": "sq"},
+    "add_answer": {"to": "ref:DS", "q": "sq", "a": "oref:A", "text": "otext:300"},
+    "edit_answer": {"answer": "sa", "text": "text:300"},
+    "remove_answer": {"answer": "sa"},
+    "add_sprout": {"seed": "ref:D", "title": "text:120", "body": "body"},
     "set_stance": {"node": "ref:F", "stance": "enum:stance"},
     "set_mlflow": {"node": "ref:E", "mlflow": "ztext:200"},
     "set_dataset": {"node": "ref:E", "dataset": "ztext:200"},
@@ -156,6 +166,13 @@ def _check_ref(value, kinds: str) -> str:
     if node[0] not in kinds:
         raise _bad("ID の形が正しくありません")
     return node
+
+
+def _check_id(value, pattern: re.Pattern, detail: str) -> str:
+    """問い・回答の ID（`SQ3`・`SA7`）を検査して返す。違反は 400。"""
+    if not isinstance(value, str) or not pattern.match(value.strip()):
+        raise _bad(detail)
+    return value.strip()
 
 
 def check_run_id(value) -> int:
@@ -281,58 +298,30 @@ def _check_one(key: str, kind: str, value):
         if len(set(out)) != len(out):
             raise _bad("members に同じ A が 2 回入っています")
         return out
-    if name == "sproutpaths":
-        return _check_paths(value)
+    if name == "sq":
+        return _check_id(value, _SQ_RE, "問いの ID の形が正しくありません")
+    if name == "sa":
+        return _check_id(value, _SA_RE, "回答の ID の形が正しくありません")
+    if name == "oaxis":
+        # 空文字は「軸を外す」として通す（add_seed_q では CLI が無しとして扱う）
+        text = _trim(value)
+        if text and text not in SEED_AXES:
+            raise _bad("axis が正しくありません")
+        return text
+    if name == "oref":
+        # 空は無いものとして落とす（add_answer の a）
+        if isinstance(value, str) and not value.strip():
+            return None
+        return _check_ref(value, arg)
     raise _bad("指定が正しくありません")
-
-
-def _check_paths(value) -> list:
-    """SPROUT の paths（C-OP-4）。要素は A の ID の文字か、`a`・`axis`・`role`・`fixed_at` を書いたオブジェクト。
-
-    オブジェクトの知らない項目は 400（CLI も同じ項目だけを受ける）。同じ A は 2 回書けない。
-    """
-    if not isinstance(value, list) or not (1 <= len(value) <= PATH_MAX):
-        raise _bad("paths の指定が正しくありません")
-    out: list = []
-    for item in value:
-        if isinstance(item, str):
-            out.append(_check_ref(item, "A"))
-            continue
-        if not isinstance(item, dict):
-            raise _bad("paths の指定が正しくありません")
-        extra = [k for k in item if k not in PATH_KEYS]
-        if extra:
-            raise _bad(f"paths の項目に {extra[0]} は書けません（書けるのは a・axis・role・fixed_at）")
-        if "a" not in item:
-            raise _bad("paths のオブジェクトには a（A の ID）が要ります")
-        one: dict = {"a": _check_ref(item["a"], "A")}
-        for key in ("axis", "fixed_at"):
-            if item.get(key) is None:
-                continue
-            if key == "axis":
-                text = _trim(item[key])
-                if text:
-                    one[key] = text
-            else:
-                one[key] = _check_ref(item[key], "A")
-        if item.get("role") is not None:
-            role = _trim(item["role"])
-            if role not in PATH_ROLES:
-                raise _bad("paths の role は fixed / novel のどちらかです")
-            one["role"] = role
-        out.append(one)
-    ids = [x if isinstance(x, str) else x["a"] for x in out]
-    if len(set(ids)) != len(ids):
-        raise _bad("paths に同じ A が 2 回入っています")
-    return out
 
 
 def validate_op(payload) -> dict:
     """C-OP の op の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `op` は C-OP の 18 種類（Web からもすべて送れる）。
+    - `op` は C-OP の 24 種類（Web からもすべて送れる）。
     - op ごとに表の項目だけを残す。知らない項目と `path` のようなファイルのパスは落ちるので、
-      CLI には渡らない（`add_sprout` の `paths` は A の ID か区分のオブジェクトの配列で、検査して渡す）。
+      CLI には渡らない（`add_sprout` の `paths` は落ちる。回答は `add_answer` で足す）。
     - 文字列は前後の空白を落とす。必須の項目が無ければ 400「<項目> がありません」。
     """
     if not isinstance(payload, dict):
@@ -348,8 +337,8 @@ def validate_op(payload) -> dict:
     out: dict = {"op": name}
     for key, kind in fields.items():
         raw = payload.get(key)
-        # `ref:`・`enum:`・`text:`・`ztext:`・`qparent`・`members`・`sproutpaths` は必須、ほかは任意
-        optional = kind.split(":")[0] in ("otext", "body", "oguide", "ocites", "opaper", "orun", "oreport")
+        # `ref:`・`enum:`・`text:`・`ztext:`・`qparent`・`members`・`sq`・`sa` は必須、ほかは任意
+        optional = kind.split(":")[0] in ("otext", "oref", "oaxis", "body", "oguide", "ocites", "opaper", "orun", "oreport")
         if raw is None:
             if optional:
                 continue
@@ -359,6 +348,10 @@ def validate_op(payload) -> dict:
             out[key] = value
     if name == "edit" and "text" not in out and "body" not in out:
         raise _bad("text か body のどちらかが要ります")
+    if name == "edit_seed_q" and "text" not in out and "axis" not in out:
+        raise _bad("text か axis のどちらかが要ります")
+    if name == "add_answer" and ("a" in out) == ("text" in out):
+        raise _bad("a か text のどちらか一方を指定してください")
     return out
 
 

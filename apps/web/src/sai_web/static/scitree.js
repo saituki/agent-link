@@ -33,8 +33,6 @@ const ST_SPLIT_LIMITS = { list: [200, 600], board: [280, 720] };
 const ST_GRAPH_MIN = 300;
 // 境界線 2 本ぶんの幅（図の幅を計算するとき引く）
 const ST_SPLIT_BAR = 12;
-// SPROUT の PATH に入れられる A の数（sciedit.js の seBuildOp の上限と同じ）
-const ST_SPROUT_PATH_MAX = 20;
 // MLflow の参照を押したときに開く画面（Experiments の一覧。run の名前では絞らない）
 const ST_EXPERIMENTS_HASH = "#/research/experiments";
 // 板に出す操作（表示名と送り方は sciedit.js の seOpLabel・seOpenAction・seQuick）。
@@ -49,12 +47,10 @@ const ST_NODE_OPS = {
   // D（seed）は親が無い。Edit / Delete はここに出す（SPROUT の作成は板の釦で行う）。
   D: ["edit", "remove"],
 };
-// 6 軸の表示名（status の axes のキー → 見出し）
+// 軸の表示名（問いの軸のキー → 比べる画面の列の見出し）
 const ST_AXIS_LABEL = { task: "解く問題", target: "対象", data: "データ", method: "手法", output: "出力", metric: "評価指標" };
-// 6 軸の状態の文字（D の板の表。novel・none・open は空欄）
-const ST_AXIS_STATE = { fixed: "決定", range: "範囲", novel: "空欄（新規性）", none: "空欄（記載なし）", open: "空欄" };
-// S の path の区分の札（固定・新規・記載なし・空欄）。札の文字は必ず出す（色だけで示さない）
-const ST_ROLE_LABEL = { fixed: "固定", novel: "新規", none: "記載なし", open: "空欄", exp: "実験" };
+// 回答の札（固定・新規は持ち主で決まる。未回答は問いに回答が無いとき。実験は S の下の E）。札の文字は必ず出す（色だけで示さない）
+const ST_ROLE_LABEL = { fixed: "固定", novel: "新規", open: "未回答", exp: "実験" };
 // 比べるに足せる S の数（sai-sci compare の上限と同じ）
 const ST_COMPARE_MAX = 10;
 
@@ -69,8 +65,9 @@ let stNodeId = null;    // 今開いている Node の ID
 let stSheet = null;     // 狭い画面の板（saiSheet が返した物）
 let stSheetBody = null; // 板の中の入れ物
 let stSheetFor = null;  // 板が出している物の鍵
-let stSprout = null;    // SPROUT 作成中の下書き {seed, title, body, paths, error}。null なら作成中ではない
+let stSprout = null;    // SPROUT 作成中の下書き {seed, title, body, error}。null なら作成中ではない
 let stSproutBusy = false; // 送信中か（二重に送らない）
+let stPick = null;      // 問いに root path（A）を割り当てている最中 {owner, q, text}。owner は D か S。null なら選んでいない
 let stSeed = null;      // seed（D）作成中の下書き {form}（入力欄は sciedit.js の seSeedFields）。null なら作成中ではない
 let stSeedBusy = false; // 送信中か（二重に送らない）
 let stListOpen = false; // 狭い画面で一覧を出しているか（出している間は図を隠す）
@@ -136,33 +133,6 @@ function stLegacyHash(hash) {
   return null;
 }
 
-/** PATH の A を足す／外す。A 以外・重複・21 個目は足さない。 */
-function stSproutToggle(paths, id) {
-  const list = Array.isArray(paths) ? paths.slice() : [];
-  const i = list.indexOf(id);
-  if (i >= 0) { list.splice(i, 1); return list; }
-  if (!/^A[1-9][0-9]{0,8}$/.test(String(id)) || list.length >= ST_SPROUT_PATH_MAX) return list;
-  list.push(id);
-  return list;
-}
-
-/** パネルに出す PATH の行（A の ID と文）。status.nodes に無い ID は文なしで残す。 */
-function stSproutRows(paths, status) {
-  const nodes = status && Array.isArray(status.nodes) ? status.nodes : [];
-  const byId = new Map(nodes.filter((n) => n && n.id != null).map((n) => [String(n.id), n]));
-  return (Array.isArray(paths) ? paths : []).map((id) => {
-    const n = byId.get(String(id));
-    return { id, text: n ? String(n.text || "") : "" };
-  });
-}
-
-/** 状態の 1 行。A を 1 つも選んでいなければ、そう言う。 */
-function stSproutSummary(paths) {
-  const n = Array.isArray(paths) ? paths.length : 0;
-  if (!n) return "A をまだ選んでいません";
-  return `PATH ${n} 個`;
-}
-
 /** SPROUT の範囲の数の文（`Q 3・A 4・F S 2 / D 1 / I 0`）。range が無ければ空文字。 */
 function stRangeText(range) {
   if (!range || typeof range !== "object") return "";
@@ -194,23 +164,10 @@ function stSeedDirty(values) {
   return Object.entries(values || {}).some(([k, v]) => !(k.endsWith("_mode") && v === "empty") && String(v == null ? "" : v).trim() !== "");
 }
 
-/** 一番上の Q から ID id までの道（ID の並び。上から下）。親をたどれないところで止める。 */
-function stChainIds(byId, id) {
-  const out = [];
-  const seen = new Set();
-  for (let cur = byId.get(String(id)); cur && !seen.has(String(cur.id)); cur = cur.parent == null ? null : byId.get(String(cur.parent))) {
-    seen.add(String(cur.id));
-    out.unshift(String(cur.id));
-  }
-  return out;
-}
-
 /**
- * S（SPROUT）の板の 4 節。seed（固定）・新規性（path）・実験（BRANCH）・記載なし。
- * fixed・novel は S の path_roles の role で分ける。path は親をたどった道（上から A まで）。
- * value は親の D の軸の値、fixedAt は新規の path が続いている固定の A。
- * exps は S の子孫の E、none は親の D の軸のうち state が none のもの。
- * S でなければ null。親の D が無ければ seed は null（古い S）。
+ * S（SPROUT）の板の材料（純関数）。S でなければ null。
+ * seed は親の D（古い S は null）。questions は S が答える問い（凍結した S は完成した時点の問い）。
+ * complete は完成か（真偽）、missing は未回答の問いの ID。exps は S の子孫の E（生きた Node だけ）。
  */
 function stSproutSections(status, sproutId) {
   const nodes = status && Array.isArray(status.nodes) ? status.nodes : [];
@@ -218,19 +175,6 @@ function stSproutSections(status, sproutId) {
   const sprout = byId.get(String(sproutId));
   if (!sprout || sprout.kind !== "S") return null;
   const seed = stSeedOf(status, sprout);
-  const axes = (seed && seed.axes) || {};
-  const fixed = [];
-  const novel = [];
-  for (const r of Array.isArray(sprout.path_roles) ? sprout.path_roles : []) {
-    const a = byId.get(String(r.a));
-    const item = { axis: r.axis || null, a: String(r.a), text: a ? String(a.text || "") : "", path: stChainIds(byId, r.a) };
-    if (r.role === "fixed") {
-      const v = r.axis && axes[r.axis] ? axes[r.axis].value : null;
-      fixed.push({ ...item, value: v == null ? null : String(v) });
-    } else if (r.role === "novel") {
-      novel.push({ ...item, fixedAt: r.fixed_at == null ? null : String(r.fixed_at) });
-    }
-  }
   // S の子孫の E（生きた Node だけ）
   const under = (n) => {
     const seen = new Set();
@@ -243,16 +187,69 @@ function stSproutSections(status, sproutId) {
   const exps = nodes
     .filter((n) => n && n.kind === "E" && under(n))
     .map((n) => ({ id: String(n.id), title: String(n.text || ""), mlflow: n.mlflow || null }));
-  const none = Object.entries(axes)
-    .filter(([, v]) => v && v.state === "none")
-    .map(([axis, v]) => ({ axis, reason: String(v.reason || "") }));
   return {
     seed: seed ? { id: String(seed.id), title: String(seed.text || "") } : null,
-    fixed,
-    novel,
+    questions: Array.isArray(sprout.questions) ? sprout.questions : [],
+    complete: sprout.complete === true,
+    missing: Array.isArray(sprout.missing) ? sprout.missing.map(String) : [],
     exps,
-    none,
   };
+}
+
+/**
+ * 問いの節の行（純関数）。D は自分の問いと自分の回答、S は答える問いと D・S の回答。
+ * 回答の札は持ち主で決める（D なら固定、S なら新規）。
+ *   canAnswer: 回答を足せるか（D は生きた問い全部。S は D が答えていない問い）
+ *   canEdit:   問いを直す・消せるか（D の板の生きた問い）
+ *   answers[].mine: 持ち主が今の Node（✕ と文の直しを出せる）
+ */
+function stQuestionRows(node) {
+  const id = String((node && node.id) || "");
+  const isSeed = !!node && node.kind === "D";
+  const list = node && Array.isArray(node.questions) ? node.questions : [];
+  return list.filter((q) => q && q.id != null).map((q) => {
+    const removed = q.removed === true;
+    const answers = (Array.isArray(q.answers) ? q.answers : []).map((a) => {
+      const owner = String(a.owner || "");
+      const role = owner.charAt(0) === "D" ? "fixed" : "novel";
+      return {
+        id: String(a.id),
+        owner,
+        role,
+        label: ST_ROLE_LABEL[role],
+        a: a.a ? String(a.a) : null,
+        aText: a.a_text == null ? "" : String(a.a_text),
+        text: a.text == null ? "" : String(a.text),
+        mine: owner === id,
+      };
+    });
+    const seedAnswered = answers.some((a) => a.owner.charAt(0) === "D");
+    return {
+      id: String(q.id),
+      text: String(q.text || ""),
+      axis: q.axis || null,
+      removed,
+      answers,
+      canAnswer: !removed && (isSeed || !seedAnswered),
+      canEdit: isSeed && !removed,
+    };
+  });
+}
+
+/** 問いの節の見出し。S は完成か、残りの未回答の数を出す。 */
+function stQuestionsTitle(node) {
+  const id = String((node && node.id) || "");
+  if (!node || node.kind !== "S") return `問い（${id}）`;
+  if (node.complete === true) return `問い（${id}・完成）`;
+  const n = Array.isArray(node.missing) ? node.missing.length : 0;
+  return `問い（${id}・未完成: 残り ${n}）`;
+}
+
+/** 子の SPROUT の札（完成・未完成の残り）。S でなければ空文字。 */
+function stSproutStateText(node) {
+  if (!node || node.kind !== "S") return "";
+  if (node.complete === true) return "完成";
+  return `未完成 ${Array.isArray(node.missing) ? node.missing.length : 0}`;
 }
 
 /** 比べる画面の表（C-CMP-1）を描く形にする。同じ列で同じ A は同じ印（①②…）。same が false の軸は diff。 */
@@ -278,7 +275,7 @@ function stCompareRows(json) {
           mark = stCircled(m.get(a));
         }
         const role = ST_ROLE_LABEL[c.role] ? c.role : "open";
-        return { axis: ax, a, mark, role, label: ST_ROLE_LABEL[role], text: String(c.text || ""), fixedAt: c.fixed_at || null };
+        return { axis: ax, a, mark, role, label: ST_ROLE_LABEL[role], text: String(c.text || "") };
       }),
     };
   });
@@ -307,24 +304,6 @@ function stCompareToggle(list, id, max = ST_COMPARE_MAX) {
   if (!/^S[1-9][0-9]{0,8}$/.test(String(id)) || out.length >= max) return out;
   out.push(id);
   return out;
-}
-
-/** D の軸の表の行（軸・状態・値／理由・A）。軸の順は status の axes のキーの順。 */
-function stAxisRows(axes) {
-  const a = axes && typeof axes === "object" ? axes : {};
-  return Object.keys(ST_AXIS_LABEL).map((k) => {
-    const v = a[k] || { state: "open" };
-    const state = String(v.state || "open");
-    const text = state === "fixed" || state === "range" ? v.value : v.reason;
-    return {
-      axis: k,
-      label: ST_AXIS_LABEL[k],
-      state,
-      stateLabel: ST_AXIS_STATE[state] || "空欄",
-      text: text == null ? "" : String(text),
-      a: v.a || null,
-    };
-  });
 }
 
 /** 許可した人の文（`許可: <名前>`）。無ければ空文字。 */
@@ -380,14 +359,17 @@ function stNextText(x, status) {
   return `${head}${[o.node, o.block].filter((t) => t).join(" ")}「${n.text || ""}」`;
 }
 
-/** 板に出す操作の並び（出さないものを除く）。 */
+/**
+ * 板に出す操作の並び（出さないものを除く）。
+ * S（SPROUT）は、答える問いの全部に回答が付いたとき（complete）だけ BRANCH（add_e）を出す。
+ */
 function stOpsFor(node, children) {
   if (!node) return [];
   const kids = Array.isArray(children) ? children : [];
   return (ST_NODE_OPS[node.kind] || []).filter((op) => {
     if (op === "add_a") return !kids.some((c) => c.kind === "Q");
     if (op === "add_q") return !(node.kind === "Q" && kids.some((c) => c.kind === "A"));
-    if (op === "add_e") return node.kind === "E" || node.kind === "S";
+    if (op === "add_e") return node.kind === "E" || (node.kind === "S" && node.complete === true);
     if (op === "insert_q" || op === "move_a") return kids.some((c) => c.kind === "A");
     return true;
   });
@@ -809,6 +791,7 @@ async function stOpen(params) {
   const id = (params && params.id) || null;
   stNodeId = id;
   stSprout = null; // 前の下書きは残さない
+  stPick = null;
   stSeed = null;
   stStep = null;   // 開き直したら最新から
   stData = null;
@@ -986,19 +969,6 @@ function stSproutRefresh() {
   stMarkGraph();
 }
 
-/** PATH の A を足す／外す（A の板の釦）。21 個目は足さない。 */
-function stSproutPick(id) {
-  if (stSprout === null) return;
-  const next = stSproutToggle(stSprout.paths, id);
-  if (next.length === stSprout.paths.length && !stSprout.paths.includes(id)) {
-    stToast(`PATH は ${ST_SPROUT_PATH_MAX} 個までです`, "error");
-    return;
-  }
-  stSprout.paths = next;
-  stSprout.error = "";
-  stSproutRefresh();
-}
-
 /**
  * 作成を始める。作成中なら題の欄へ戻る。seedId があれば、その seed（D）を選んだ状態にする（D の板の「この seed で」）。
  */
@@ -1012,7 +982,7 @@ function stStartSprout(seedId) {
     if (t) t.focus();
   };
   if (stSprout === null) {
-    stSprout = { seed: "", title: "", body: "", paths: [], error: "" };
+    stSprout = { seed: "", title: "", body: "", error: "" };
     stRenderTop(); // 帯の釦を「作成中」にする
     stRenderBoard();
     stMarkGraph();
@@ -1024,7 +994,7 @@ function stStartSprout(seedId) {
 
 async function stSproutCancel() {
   if (stSprout === null || stSproutBusy) return;
-  const dirty = stSprout.title.trim() || stSprout.body.trim() || stSprout.paths.length;
+  const dirty = stSprout.title.trim() || stSprout.body.trim();
   if (dirty && typeof saiConfirm === "function") {
     const ok = await saiConfirm({ title: "作成をやめますか", body: "入力した内容は消えます。", ok: "やめる", danger: true });
     if (!ok) return;
@@ -1037,7 +1007,7 @@ async function stSproutCancel() {
 async function stSproutSend() {
   if (stSprout === null || stSproutBusy) return;
   const built = typeof seBuildOp === "function"
-    ? seBuildOp("add_sprout", { seed: stSprout.seed, title: stSprout.title, body: stSprout.body, paths: stSprout.paths })
+    ? seBuildOp("add_sprout", { seed: stSprout.seed, title: stSprout.title, body: stSprout.body })
     : { ok: false, error: "SPROUT の検査がまだ使えません" };
   if (!built.ok) { stSprout.error = built.error; stRenderSprout(); return; }
   stSprout.error = "";
@@ -1057,6 +1027,60 @@ async function stSproutSend() {
   if (res.result && /^S[1-9][0-9]*$/.test(String(res.result))) await stSelect(String(res.result));
 }
 
+// --- Add root path（問いに path の A を割り当てる。帯は #sci-sprout の一番上） ---
+
+/**
+ * Add root path を始める。owner は D か S、q は問い（SQ）。帯に問いの文を出し、A を選ぶまで step の釦を止める。
+ */
+function stStartPick(owner, q, text) {
+  if (stWriteBlocked()) return;
+  stPick = { owner: String(owner), q: String(q), text: String(text || "") };
+  stRenderSprout();
+  stMarkGraph();
+  const box = document.getElementById("sci-sprout");
+  if (box && typeof box.scrollIntoView === "function") box.scrollIntoView({ block: "nearest" });
+}
+
+/** Add root path をやめる（入力は無いので確かめない）。 */
+function stPickCancel() {
+  stPick = null;
+  stRenderSprout();
+  stMarkGraph();
+}
+
+/** 選ぶ帯（問いの文と「やめる」）。 */
+function stPickBand() {
+  const band = stEl("section", "sci-band sci-pick-band");
+  band.appendChild(stEl("span", "sci-band-title", "Add root path"));
+  band.appendChild(stEl("p", "sci-note", `${stPick.q}『${stPick.text}』の path を選ぶ: DAG か一覧で A を選び、板の『この A で回答』を押します`));
+  band.appendChild(stBtn("やめる", () => { stPickCancel(); }, "ghost"));
+  return band;
+}
+
+/**
+ * A の板の「この A で回答」。add_answer で問いに path を割り当て、成功したら持ち主（D か S）の板を開く。
+ * 失敗の理由は toast に出る（seApply）。
+ */
+async function stAnswerPicked(a) {
+  const pick = stPick;
+  if (pick === null || stWriteBlocked()) return;
+  const built = seBuildOp("add_answer", { to: pick.owner, q: pick.q, a: String(a) });
+  if (!built.ok) { stToast(built.error, "error"); return; }
+  const res = await seApply(built.op, null);
+  if (!res) return;
+  stPick = null;
+  stRenderSprout();
+  await stSelect(pick.owner);
+}
+
+/** Add root path の最中に、その問いに今ある path の A（図の札に破線の印を付ける）。 */
+function stPickedIds() {
+  if (stPick === null) return [];
+  const owner = ((stView() && stView().nodes) || []).find((n) => String(n.id) === stPick.owner);
+  const q = owner && Array.isArray(owner.questions) ? owner.questions.find((x) => String(x.id) === stPick.q) : null;
+  return q && Array.isArray(q.answers) ? q.answers.filter((x) => x.a).map((x) => String(x.a)) : [];
+}
+
 /** パネルを作り直す。題・本文は下書きから戻し、直前にフォーカスしていた欄へ戻す。 */
 function stRenderSprout() {
   stSyncStepper(); // 下書きの有無で step の釦を止める・戻す
@@ -1065,8 +1089,10 @@ function stRenderSprout() {
   const active = document.activeElement;
   const field = active && box.contains(active) && active.dataset ? active.dataset.field : null;
   box.innerHTML = "";
-  if (stSprout === null) { box.hidden = true; return; }
+  if (stSprout === null && stPick === null) { box.hidden = true; return; }
   box.hidden = false;
+  if (stPick !== null) box.appendChild(stPickBand());
+  if (stSprout === null) return;
   const d = stSprout;
   const band = stEl("section", "sci-band sci-sprout-band");
   band.appendChild(stEl("span", "sci-band-title", "Create SPROUT"));
@@ -1093,7 +1119,7 @@ function stRenderSprout() {
     pick.addEventListener("change", () => { d.seed = pick.value; d.error = ""; stRenderSprout(); });
     band.appendChild(pick);
   }
-  band.appendChild(stEl("p", "sci-note", "DAG か一覧で A を選び、右の板の「Add PATH」を押します（PATH の終点になれるのは A だけです）"));
+  band.appendChild(stEl("p", "sci-note", "作った後で、S の板の問いに root path か回答を割り当てます。全部の問いに回答すると完成し、実験（BRANCH）を足せます。"));
 
   const title = stEl("input", "sai-input");
   title.type = "text";
@@ -1114,24 +1140,6 @@ function stRenderSprout() {
   body.addEventListener("input", () => { d.body = body.value; });
   band.appendChild(body);
 
-  const list = stEl("div", "sci-sprout-paths");
-  const rows = stSproutRows(d.paths, stData);
-  if (!rows.length) list.appendChild(stEl("p", "sci-note", "A をまだ選んでいません"));
-  for (const r of rows) {
-    const line = stEl("div", "sci-sprout-path");
-    const main = stEl("button", "sci-sprout-path-main", `${r.id} ${r.text}`.trim());
-    main.type = "button";
-    main.addEventListener("click", () => { void stSelect(r.id); });
-    line.appendChild(main);
-    const x = stEl("button", "sci-sprout-path-x", "✕");
-    x.type = "button";
-    x.setAttribute("aria-label", `Delete PATH: ${r.id}`);
-    x.addEventListener("click", () => { d.paths = d.paths.filter((p) => p !== r.id); d.error = ""; stSproutRefresh(); });
-    line.appendChild(x);
-    list.appendChild(line);
-  }
-  band.appendChild(list);
-  band.appendChild(stEl("p", "sci-note", stSproutSummary(d.paths)));
   const err = stEl("p", "sci-sprout-error", d.error);
   err.setAttribute("role", "alert");
   band.appendChild(err);
@@ -1166,7 +1174,7 @@ function stStartSeed() {
   if (stSeed === null) {
     const form = seForm(seSeedFields({}));
     form.actions.appendChild(stBtn("やめる", () => { void stSeedCancel(); }, "ghost"));
-    form.actions.appendChild(stBtn("Create seedï¼Dï¼", () => { void stSeedSend(); }, "primary"));
+    form.actions.appendChild(stBtn("Create seed（D）", () => { void stSeedSend(); }, "primary"));
     stSeed = { form };
   }
   stRenderSeed();
@@ -1184,7 +1192,7 @@ function stRenderSeed() {
   box.hidden = false;
   const band = stEl("section", "sci-band sci-seed-band");
   band.appendChild(stEl("span", "sci-band-title", "Create seed（D）"));
-  band.appendChild(stEl("p", "sci-note", "研究ごとの制約を書きます。軸の 6 項目は「決定」か「空欄」を選びます。1 つの seed から複数の SPROUT を作れます。"));
+  band.appendChild(stEl("p", "sci-note", "研究ごとの seed を作ります。作ると、解く問題・対象・データ・手法・出力・評価指標・成功基準の 7 つの問いが入ります。問いは後から足す・直す・消すことができます。"));
   band.appendChild(stSeed.form.el);
   box.appendChild(band);
 }
@@ -1194,7 +1202,7 @@ async function stSeedSend() {
   if (stSeed === null || stSeedBusy) return;
   const v = stSeed.form.read();
   const built = typeof seBuildOp === "function"
-    ? seBuildOp("add_seed", { title: v.title, body: seSeedBody(v) })
+    ? seBuildOp("add_seed", { title: v.title, body: v.body })
     : { ok: false, error: "seed（D）の検査がまだ使えません" };
   if (!built.ok) { stSeed.form.say(built.error); return; }
   stSeed.form.say("");
@@ -1284,8 +1292,7 @@ function stMlflowBtn(name) {
 /** 木の 1 行（.sci-row）。一覧と板の子で共通。 */
 function stRowEl(r, opts) {
   const o = opts || {};
-  const picked = stSprout && stSprout.paths.includes(r.id) ? " sci-row-picked" : "";
-  const row = stEl("div", `sci-row sci-row-${r.kind}${r.id === stNodeId ? " selected" : ""}${picked}${o.ctx ? " sci-row-ctx" : ""}`);
+  const row = stEl("div", `sci-row sci-row-${r.kind}${r.id === stNodeId ? " selected" : ""}${o.ctx ? " sci-row-ctx" : ""}`);
   row.dataset.id = r.id;
   row.style.paddingLeft = `${8 + (o.flat ? 0 : r.depth) * 14}px`;
   // 畳み・開くの釦（一覧だけ。板の子には付けない）
@@ -1457,7 +1464,7 @@ function stRenderGraph() {
 }
 
 function stMarkGraph() {
-  if (typeof sgMarkPicked === "function") sgMarkPicked(stSprout ? stSprout.paths : []);
+  if (typeof sgMarkPicked === "function") sgMarkPicked(stPickedIds());
   if (typeof sgMarkSelected === "function") sgMarkSelected(stNodeId);
 }
 
@@ -1514,7 +1521,7 @@ function stSyncStepper() {
   if (!box) return;
   const total = stStepTotal();
   const cur = stCurStep();
-  const drafting = stSprout !== null || stSeed !== null;
+  const drafting = stSprout !== null || stSeed !== null || stPick !== null;
   box.hidden = total === 0;
   box.querySelector(".st-step-input").value = String(cur);
   box.querySelector(".st-step-input").disabled = drafting;
@@ -1682,110 +1689,115 @@ function stRoleBadge(role) {
   return stEl("span", `sci-badge sci-badge-${role}`, ST_ROLE_LABEL[role] || role);
 }
 
-/** S の板の path の 1 行（区分の札・軸・道・A の文）。道の各 ID は押すとその Node を開く。 */
-function stPathRowEl(item, role) {
-  const row = stEl("div", `sci-path-row sci-path-${role}`);
-  const head = stEl("div", "sci-line");
-  head.appendChild(stRoleBadge(role));
-  if (item.axis) head.appendChild(stEl("span", "sci-axis-tag", ST_AXIS_LABEL[item.axis] || item.axis));
-  row.appendChild(head);
-  // 固定（fixedAt まで）は淡く、その先の新規は濃く出す。fixedAt が無ければ全部濃い
-  const cut = item.fixedAt ? item.path.indexOf(item.fixedAt) : -1;
-  const line = stEl("p", "sci-path-line");
-  item.path.forEach((id, i) => {
-    if (i) line.appendChild(document.createTextNode(" › "));
-    const faint = role === "fixed" || (cut >= 0 && i <= cut);
-    const b = stEl("button", `sci-path-id${faint ? " sci-path-faint" : ""}`, id);
+/**
+ * 問いの節（D と S の板の共通）。問いを箇条書きにし、回答（固定・新規・未回答）と釦を出す。
+ * 釦は今の板に合うものだけ。過去の step では釦を出さない（stFrozen）。
+ */
+function stBoardQuestions(node) {
+  const frozen = stFrozen();
+  const sec = stSec(stQuestionsTitle(node));
+  const rows = stQuestionRows(node);
+  if (!rows.length) sec.appendChild(stEl("p", "sci-note", "なし"));
+  for (const q of rows) sec.appendChild(stQuestionEl(node, q, frozen));
+  if (node.kind === "D" && !frozen) {
+    const ops = stEl("div", "sci-ops");
+    ops.appendChild(stBtn("Add question", () => { stCall("seOpenAction", "add_seed_q", node.id); }));
+    sec.appendChild(ops);
+  }
+  return sec;
+}
+
+/** 問い 1 つ（文・軸・Edit / Delete・回答の行・Add root path / Add Answer）。 */
+function stQuestionEl(node, q, frozen) {
+  const box = stEl("div", `sci-q${q.removed ? " sci-q-removed" : ""}`);
+  const head = stEl("div", "sci-line sci-q-head");
+  head.appendChild(stEl("span", "sci-q-text", q.text));
+  if (q.axis) head.appendChild(stEl("span", "sci-axis-tag", `[${q.axis}]`));
+  if (q.removed) head.appendChild(stEl("span", "sci-badge sci-badge-none", "消した問い"));
+  if (q.canEdit && !frozen) {
+    head.appendChild(stBtn("Edit", () => { stCall("seOpenAction", "edit_seed_q", q.id, { node: { text: q.text, axis: q.axis || "" } }); }));
+    head.appendChild(stBtn("Delete", () => { stQuestionRemove(q); }));
+  }
+  box.appendChild(head);
+  if (!q.answers.length) {
+    const none = stEl("div", "sci-line sci-q-answer");
+    none.appendChild(stRoleBadge("open"));
+    box.appendChild(none);
+  }
+  for (const a of q.answers) box.appendChild(stAnswerEl(a, frozen));
+  if (q.canAnswer && !frozen) {
+    const ops = stEl("div", "sci-ops sci-q-ops");
+    ops.appendChild(stBtn("Add root path", () => { stStartPick(node.id, q.id, q.text); }));
+    ops.appendChild(stBtn("Add Answer", () => { stCall("seOpenAction", "add_answer", node.id, { q: q.id }); }));
+    box.appendChild(ops);
+  }
+  return box;
+}
+
+/** 回答 1 つ（札・path の A と文、または文。持ち主が今の Node なら文を直せて、✕ で消せる）。 */
+function stAnswerEl(a, frozen) {
+  const line = stEl("div", "sci-line sci-q-answer");
+  line.appendChild(stRoleBadge(a.role));
+  const editable = a.mine && !frozen;
+  if (a.a) {
+    const b = stEl("button", "sci-path-id", a.a);
     b.type = "button";
-    b.addEventListener("click", () => { void stSelect(id); });
+    b.addEventListener("click", () => { void stSelect(a.a); });
     line.appendChild(b);
-  });
-  row.appendChild(line);
-  if (item.text) row.appendChild(stEl("p", "sci-path-text", item.text));
-  if (item.value) row.appendChild(stEl("p", "sci-note", `決定: ${item.value}`));
-  return row;
+    line.appendChild(stEl("span", "sci-line-main", a.aText));
+  } else if (editable) {
+    const t = stEl("button", "sci-q-answer-text", a.text);
+    t.type = "button";
+    t.addEventListener("click", () => { stCall("seOpenAction", "edit_answer", a.id, { node: { text: a.text } }); });
+    line.appendChild(t);
+  } else {
+    line.appendChild(stEl("span", "sci-line-main", a.text));
+  }
+  if (editable) {
+    const x = stBtn("✕", () => { stAnswerRemove(a); }, "ghost");
+    x.setAttribute("aria-label", `回答を消す（${a.id}）`);
+    line.appendChild(x);
+  }
+  return line;
+}
+
+/** 問いを消す（確かめてから。回答は残る）。 */
+function stQuestionRemove(q) {
+  if (stWriteBlocked() || typeof seRemoveQuick !== "function") return;
+  void seRemoveQuick("remove_seed_q", { q: q.id }, "問いを消しますか", "問いは板から消えます。付いている回答は残ります。");
+}
+
+/** 回答を消す（確かめてから。あとから足し直せる）。 */
+function stAnswerRemove(a) {
+  if (stWriteBlocked() || typeof seRemoveQuick !== "function") return;
+  void seRemoveQuick("remove_answer", { answer: a.id }, "回答を消しますか", "回答は消えます。あとから足し直せます。");
 }
 
 /**
- * S（SPROUT）の板の 4 節: seed（固定）・新規性（path）・実験（BRANCH）・記載なし。
- * 空の節は出さない。区分は stSproutSections が決める（板は描くだけ）。
+ * S（SPROUT）の実験（BRANCH）の節。未完成のあいだは、残りの問いを出す（BRANCH の釦は stOpsFor が出さない）。
+ * 実験は S の子孫の E（stSproutSections が決める。板は描くだけ）。
  */
-function stBoardSections(node) {
-  const out = [];
+function stBoardExperiments(node) {
+  const sec = stSec("実験（BRANCH）");
   const s = stSproutSections(stView(), node.id);
-  if (!s) return out;
-  if (s.fixed.length) {
-    const title = s.seed ? `seed（固定）${s.seed.id} ${s.seed.title}`.trim() : "seed（固定）";
-    const sec = stSec(title);
-    for (const f of s.fixed) sec.appendChild(stPathRowEl(f, "fixed"));
-    out.push(sec);
+  if (!s) return sec;
+  if (!s.complete) sec.appendChild(stEl("p", "sci-note", `未完成: 残り ${s.missing.length} 問（${s.missing.join("・")}）`));
+  const byId = new Map(((stView() && stView().nodes) || []).map((n) => [String(n.id), n]));
+  for (const e of s.exps) {
+    const n = byId.get(e.id);
+    if (!n) continue;
+    const row = stRowEl(stRows({ nodes: [n] })[0], { flat: true });
+    row.insertBefore(stRoleBadge("exp"), row.firstChild);
+    sec.appendChild(row);
   }
-  if (s.novel.length) {
-    const sec = stSec("新規性（path）");
-    for (const n of s.novel) sec.appendChild(stPathRowEl(n, "novel"));
-    out.push(sec);
-  }
-  if (s.exps.length) {
-    const sec = stSec("実験（BRANCH）");
-    const byId = new Map(((stView() && stView().nodes) || []).map((n) => [String(n.id), n]));
-    for (const e of s.exps) {
-      const n = byId.get(e.id);
-      if (!n) continue;
-      const row = stRowEl(stRows({ nodes: [n] })[0], { flat: true });
-      row.insertBefore(stRoleBadge("exp"), row.firstChild);
-      sec.appendChild(row);
-    }
-    out.push(sec);
-  }
-  if (s.none.length) {
-    const sec = stSec("記載なし");
-    for (const x of s.none) {
-      const row = stEl("div", "sci-path-row sci-path-none");
-      const head = stEl("div", "sci-line");
-      head.appendChild(stRoleBadge("none"));
-      head.appendChild(stEl("span", "sci-axis-tag", ST_AXIS_LABEL[x.axis] || x.axis));
-      row.appendChild(head);
-      if (x.reason) row.appendChild(stEl("p", "sci-path-text", x.reason));
-      sec.appendChild(row);
-    }
-    out.push(sec);
-  }
-  return out;
-}
-
-/** D（seed）の板の 6 軸の表（軸・状態・値／理由・A）。A は押すとその Node を開く。 */
-function stBoardAxes(node) {
-  const sec = stSec("軸");
-  const table = stEl("table", "sci-axes");
-  const head = stEl("tr");
-  for (const h of ["軸", "状態", "値／理由", "A"]) head.appendChild(stEl("th", "", h));
-  table.appendChild(stEl("thead")).appendChild(head);
-  const tbody = table.appendChild(stEl("tbody"));
-  for (const r of stAxisRows(node.axes)) {
-    const tr = stEl("tr", `sci-axis-${r.state}`);
-    tr.appendChild(stEl("th", "", r.label));
-    tr.appendChild(stEl("td", "", r.stateLabel));
-    tr.appendChild(stEl("td", "", r.text));
-    const td = stEl("td");
-    if (r.a) {
-      const b = stEl("button", "sci-path-id", r.a);
-      b.type = "button";
-      b.addEventListener("click", () => { void stSelect(r.a); });
-      td.appendChild(b);
-    }
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-  }
-  const wrap = stEl("div", "sci-axes-wrap");
-  wrap.appendChild(table);
-  sec.appendChild(wrap);
+  if (!s.exps.length) sec.appendChild(stEl("p", "sci-note", "なし"));
   return sec;
 }
 
 /**
  * Node の板。Q・A・E は「見出し（Edit/Delete を含む）→ Parent → OP → [Q だけ: ガイド] → Child → Next Action → History → Decision」。
- * S（SPROUT）は Parent の代わりに範囲と、4 節（seed（固定）・新規性（path）・実験・記載なし）を出す。
- * D（seed）は Parent も PATH も無い。本文（見出し）→ OP（SPROUT・CARD・Edit・Delete）→ 軸の表 → 子の SPROUT（比べる）。
+ * S（SPROUT）は Parent の代わりに「OP → 範囲 → 問い → 実験（BRANCH）」を出す。
+ * D（seed）は Parent も無い。本文（見出し）→ OP（SPROUT・CARD・Edit・Delete）→ 問い → 子の SPROUT（比べる）。
  * F は「見出し（Edit/Delete を含む）→ Parent → OP → Stance → 出典 → History」。E は MLflow の節を OP の後に出す。
  */
 function stBuildBoard(d) {
@@ -1807,9 +1819,10 @@ function stBuildBoard(d) {
   if (node.kind === "Q") box.appendChild(stBoardGuide(d.guide));
   if (node.kind === "S") {
     box.appendChild(stBoardRange(node));
-    for (const sec of stBoardSections(node)) box.appendChild(sec);
+    box.appendChild(stBoardQuestions(node));
+    box.appendChild(stBoardExperiments(node));
   } else if (node.kind === "D") {
-    box.appendChild(stBoardAxes(node));
+    box.appendChild(stBoardQuestions(node));
     box.appendChild(stBoardSprouts(node.id));
   } else {
     box.appendChild(stBoardChildren(d.children));
@@ -1936,7 +1949,14 @@ function stBoardSprouts(seedId) {
   sec.appendChild(cmp);
   const rows = stRows({ nodes: kids });
   if (!rows.length) sec.appendChild(stEl("p", "sci-note", "なし"));
-  for (const r of rows) sec.appendChild(stRowEl(r, { flat: true }));
+  for (const r of rows) {
+    // 完成か、未完成の残りの数を札で出す（文字で示す）
+    const row = stRowEl(r, { flat: true });
+    const state = stSproutStateText(r.node);
+    const complete = r.node.complete === true;
+    row.insertBefore(stEl("span", `sci-badge sci-badge-${complete ? "complete" : "open"}`, state), row.querySelector(".sci-star"));
+    sec.appendChild(row);
+  }
   return sec;
 }
 
@@ -1983,9 +2003,9 @@ function stBoardOps(d) {
   const node = d.node;
   const sec = stSec("OP");
   const ops = stEl("div", "sci-ops");
-  if (stSprout !== null && node.kind === "A") {
-    const on = stSprout.paths.includes(node.id);
-    ops.appendChild(stBtn(on ? "Delete PATH" : "Add PATH", () => { stSproutPick(node.id); }, on ? "" : "primary"));
+  // Add root path の最中は、A の板にこの釦を出す（押すと、選んだ問いの回答になる）
+  if (stPick !== null && node.kind === "A") {
+    ops.appendChild(stBtn(`この A で回答（${stPick.q}）`, () => { void stAnswerPicked(node.id); }, "primary"));
   }
   // D（seed）から SPROUT を作る（seed を入れた状態で開く）。CARD は SPROUT を作るブロックから始める
   if (node.kind === "D") ops.appendChild(stBtn("Create SPROUT（この seed で）", () => { stStartSprout(node.id); }, "primary"));
@@ -2139,6 +2159,7 @@ function stBoardSources(d) {
 function stClearAll() {
   stCloseSheet();
   stSprout = null;
+  stPick = null;
   stSeed = null;
   for (const id of ["sci-graph", "sci-top", "sci-sprout", "sci-seed", "sci-list"]) {
     const e = document.getElementById(id);
@@ -2229,7 +2250,7 @@ function stCompareBox() {
 /** 比べる画面から Tree へ戻すときに、Tree の部品を出し直す（入れ物は隠す）。 */
 function stLeaveCompare() {
   if (stCmpEl) stCmpEl.hidden = true;
-  const show = { "sci-top": true, "sci-body": true, "sci-sprout": stSprout !== null, "sci-seed": stSeed !== null };
+  const show = { "sci-top": true, "sci-body": true, "sci-sprout": stSprout !== null || stPick !== null, "sci-seed": stSeed !== null };
   for (const id of Object.keys(show)) {
     const e = document.getElementById(id);
     if (e) e.hidden = !show[id];
@@ -2380,12 +2401,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     stParseHash, stParseCompareHash, stLegacyHash, stRows, stNextLines, stNextText,
-    stOpsFor, stSproutToggle, stSproutRows, stSproutSummary, stRangeText, stApprovalText, stStanceLabel,
+    stOpsFor, stRangeText, stApprovalText, stStanceLabel,
     stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
-    stSproutSections, stCompareRows, stCompareToggle, stAxisRows, stChainIds, stShort, stCircled,
+    stSproutSections, stQuestionRows, stQuestionsTitle, stSproutStateText,
+    stCompareRows, stCompareToggle, stShort, stCircled,
     stVisibleRows, stRowHit, stActionMeta, stClampSplit, stFmtAt, stHistoryText,
     stStepView, stStepNodeView, stStepParse, stDatasetParts,
-    ST_TYPES, ST_STANCE, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_SPROUT_PATH_MAX, ST_EXPERIMENTS_HASH,
-    ST_AXIS_LABEL, ST_AXIS_STATE, ST_ROLE_LABEL, ST_COMPARE_MAX,
+    ST_TYPES, ST_STANCE, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_EXPERIMENTS_HASH,
+    ST_AXIS_LABEL, ST_ROLE_LABEL, ST_COMPARE_MAX,
   };
 }

@@ -4,7 +4,7 @@
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
 //   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。SPROUT を選ぶと他を薄くし、区分の札を付ける
-//   sgMarkPicked(ids)                                  … SPROUT 作成中の PATH に入れた A の札に破線の印（ID の配列か Set）
+//   sgMarkPicked(ids)                                  … Add root path の最中、その問いに今ある path の A の札に破線の印（ID の配列か Set）
 //   sgSproutKeep(status, id)                           … SPROUT に含まれる ID の Set（SPROUT でなければ null）
 //   sgSproutRoles(status, id)                          … SPROUT の区分（固定・新規・実験・seed）の Map（SPROUT でなければ null）
 //   sgCenterOn(id)                                     … その札を画面の中央に出す
@@ -74,7 +74,7 @@ const SG_ROLE_ORDER = ["fixed", "novel", "exp", "seed"];
 let sgStatus = null;   // 最後に描いた status の JSON
 let sgSelMap = new Map(); // 札の id → onSelect に渡す sel
 let sgSelectedKey = null; // 選んでいる札の id
-let sgPicked = new Set(); // SPROUT の PATH に入れた A の id（再描画のあとも印を戻す）
+let sgPicked = new Set(); // Add root path の最中、その問いに今ある path の A の id（再描画のあとも印を戻す）
 let sgOnSelect = null; // 札を押したときに呼ぶ関数
 let sgRoot = null;     // 図を囲む要素
 let sgLegendRoles = null; // 凡例の区分の見本（S を選んでいるときだけ中身を入れる）
@@ -417,8 +417,7 @@ function sgSproutKeep(status, id) {
 /**
  * SPROUT（kind S）を選んだときの区分（純関数）。S 以外（D を含む）は null。
  * 返す Map は ID → "fixed"（固定）・"novel"（新規）・"exp"（実験。S の下の E）・"seed"（親の D）。
- * PATH の道は、path_roles の A から top_Q までの祖先。role が fixed の道は全部固定。
- * novel の道は fixed_at までが固定、その下（A 側）が新規。fixed_at が無い・道に無いときは全部新規。
+ * 道は、path_roles の A から top_Q までの祖先。role が fixed（seed の回答）の道は固定、novel（sprout の回答）の道は新規。
  * 2 つの道に入る Node は「新規」を優先する。
  */
 function sgSproutRoles(status, id) {
@@ -440,15 +439,8 @@ function sgSproutRoles(status, id) {
       chain.push(String(cur.id));
       cur = cur.parent == null ? null : byId.get(String(cur.parent));
     }
-    if (pr.role === "fixed") {
-      for (const c of chain) fixed.add(c);
-    } else if (pr.role === "novel") {
-      const k = pr.fixed_at == null ? -1 : chain.indexOf(String(pr.fixed_at));
-      chain.forEach((c, i) => {
-        if (k >= 0 && i >= k) fixed.add(c);
-        else novel.add(c);
-      });
-    }
+    const set = pr.role === "fixed" ? fixed : pr.role === "novel" ? novel : null;
+    if (set) for (const c of chain) set.add(c);
   }
   const roles = new Map();
   for (const c of fixed) roles.set(c, "fixed");
@@ -814,7 +806,7 @@ function sgFillLegendRoles(on) {
   }
 }
 
-/** SPROUT 作成中の PATH に入れた A の札に印を付ける（空なら外す）。 */
+/** Add root path の最中、その問いに今ある path の A の札に印を付ける（空なら外す）。 */
 function sgMarkPicked(ids) {
   sgPicked = new Set(Array.from(ids || [], String));
   sgMarkSelected(sgSelectedKey);
