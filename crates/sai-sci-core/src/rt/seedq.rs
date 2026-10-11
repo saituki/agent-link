@@ -441,32 +441,37 @@ fn upgrade_in(conn: &Connection) -> Result<()> {
             seed_from_body(conn, &d)?;
         }
     }
-    for s in store::list_nodes(conn, false)?.into_iter().filter(|n| n.kind == Kind::S) {
-        let Some(seed) = parent_seed(conn, &s)? else { continue };
+    // 1 段目: S の path を回答にする（seed の回答に足すと、同じ D の下の他の S の paths にも効くので、同期は 2 段目で行う）。
+    let sprouts: Vec<NodeRow> = store::list_nodes(conn, false)?.into_iter().filter(|n| n.kind == Kind::S).collect();
+    for s in &sprouts {
+        let Some(seed) = parent_seed(conn, s)? else { continue };
         let qs = questions_of(conn, seed, false)?;
         for a in s.paths.clone() {
             let Some(q) = axes::axis_of(conn, a)?.and_then(|key| qs.iter().find(|q| q.axis.as_deref() == Some(key.as_str()))) else {
-                skip_path(conn, &s, a, "軸が分からない、または雛形の問いに軸が無い")?;
+                log_path(conn, &s, a, "は回答にしなかった（軸が分からない、または雛形の問いに軸が無い）")?;
                 continue;
             };
-            // 既に S が同じ path で答えてある（二重に足さない）。
-            if has_path(conn, s.id, q.id, a)? {
+            // 同じ path が既にある（S の回答でも seed の回答でも）なら、二重に足さない。
+            if has_path(conn, s.id, q.id, a)? || has_path(conn, seed, q.id, a)? {
                 continue;
             }
             if has_answer(conn, seed, q.id)? {
-                // D で答えてある問い（固定）。D の回答と違う path は足せないので記録する。
-                if !has_path(conn, seed, q.id, a)? {
-                    skip_path(conn, &s, a, "seed の回答が既にある問い")?;
-                }
+                // seed が答えている問い（決定など）。この A は seed の path の回答（固定）として並べて足す。
+                insert_answer(conn, seed, q.id, Some(a), None, "upgrade")?;
+                log_path(conn, s, a, &format!("を seed の path の回答に足した（{}）", fmt_sq(q.id)))?;
                 continue;
             }
+            // seed が答えていない問い（範囲・新規性・空欄）は、S の回答（新規）にする。
             insert_answer(conn, s.id, q.id, Some(a), None, "user")?;
         }
-        // 生きた E を持つ S は、答えた問いだけ凍結する（実験中の S に E を足せるように）。
+    }
+    // 2 段目: 凍結（生きた E を持つ S は、答えた問いだけ凍結する。実験中の S に E を足せるように）と paths の同期。
+    for s in &sprouts {
+        let Some(seed) = parent_seed(conn, s)? else { continue };
         let has_e = store::children(conn, s.id)?.iter().any(|k| k.kind == Kind::E);
         if has_e {
             let mut answered = Vec::new();
-            for q in &qs {
+            for q in questions_of(conn, seed, false)? {
                 if has_answer(conn, seed, q.id)? || has_answer(conn, s.id, q.id)? {
                     answered.push(q.id);
                 }
@@ -478,9 +483,9 @@ fn upgrade_in(conn: &Connection) -> Result<()> {
     store::meta_set(conn, "seed_questions", "1")
 }
 
-/// 変換で path を回答にできなかったときの記録（rt_log の detail）。
-fn skip_path(conn: &Connection, s: &NodeRow, a: i64, reason: &str) -> Result<()> {
-    let detail = format!("upgrade: {} は回答にしなかった（{reason}）", fmt_id(Kind::A, a));
+/// 変換で path を扱ったときの記録（rt_log の detail。`what` は `upgrade: A454 <what>` の後ろに続く文）。
+fn log_path(conn: &Connection, s: &NodeRow, a: i64, what: &str) -> Result<()> {
+    let detail = format!("upgrade: {} {what}", fmt_id(Kind::A, a));
     store::insert_log(conn, s.id, "edit", &detail, "upgrade", None)?;
     Ok(())
 }
@@ -494,10 +499,14 @@ fn live_a(conn: &Connection, text: &str) -> Option<i64> {
 /// 今の D の 6 軸の本文から、雛形の 7 問と、その回答を作る（変換の 1 件分）。
 fn seed_from_body(conn: &Connection, d: &NodeRow) -> Result<()> {
     let states = axes::parse_axes(&d.body);
-    let criteria = axes::sections(&d.body)
-        .get("## 成功基準")
-        .map(|lines| lines.join(" "))
-        .filter(|text| !text.is_empty() && text != "空欄");
+    // 成功基準: 1 行目が「空欄」なら落とす。残りが空なら回答は付けない。
+    let criteria = axes::sections(&d.body).get("## 成功基準").and_then(|lines| {
+        let rest: &[&str] = match lines.first() {
+            Some(&"空欄") => &lines[1..],
+            _ => lines.as_slice(),
+        };
+        Some(rest.join(" ")).filter(|text| !text.is_empty())
+    });
     for (axis, base) in TEMPLATE.iter() {
         let mut text = (*base).to_string();
         // 回答は (path の A, テキスト) の組。テキストと path の両方が入ることがある（固定の決定と、その A）。
@@ -646,6 +655,67 @@ mod tests {
         assert_eq!(answers_of(conn, &[qs[0].id]).unwrap().len(), 2);
         assert_eq!(store::get_node(conn, s_plain).unwrap().paths, vec![a7, a385, a_auc]);
         assert_eq!(store::meta_get(conn, "seed_questions").unwrap().as_deref(), Some("1"));
+    }
+
+    /// 決定の軸（`A:` が無い）の S の path は、seed の path の回答（固定）として足り、S の paths に残る。
+    /// 同じ D の下の別の S が違う A を選んでいたら、どちらも seed の回答に並ぶ（S の paths は D と S の path の回答の和）。
+    /// seed が答えていない軸（空欄）の path は S の回答（新規）のまま。
+    #[test]
+    fn upgrade_keeps_sprout_paths_under_decided_axis() {
+        let database = db();
+        let conn = database.connection();
+        let q_task = q_node(conn, "task");
+        let t1 = node(conn, Kind::A, Some(q_task), "発作部位", "", &[]);
+        let t2 = node(conn, Kind::A, Some(q_task), "別の部位", "", &[]);
+        let q_method = q_node(conn, "method");
+        let m1 = node(conn, Kind::A, Some(q_method), "手法", "", &[]);
+        // task は「決定」だけで A: が無い（論文から復元した seed の形）。method は空欄。
+        let body = "## 解く問題（task）\n決定: 発作部位の特定\n## 手法（method）\n空欄\n";
+        let d = node(conn, Kind::D, None, "研究", body, &[]);
+        let s1 = node(conn, Kind::S, Some(d), "種 1", "", &[]);
+        conn.execute("UPDATE rt_nodes SET paths = ?2 WHERE id = ?1", params![s1, format!("[{t1}]")]).unwrap();
+        let s2 = node(conn, Kind::S, Some(d), "種 2", "", &[]);
+        conn.execute("UPDATE rt_nodes SET paths = ?2 WHERE id = ?1", params![s2, format!("[{t2}]")]).unwrap();
+        let s3 = node(conn, Kind::S, Some(d), "種 3", "", &[]);
+        conn.execute("UPDATE rt_nodes SET paths = ?2 WHERE id = ?1", params![s3, format!("[{m1}]")]).unwrap();
+
+        upgrade(conn).unwrap();
+        let qs = questions_of(conn, d, false).unwrap();
+        let (task_q, method_q) = (qs[0].id, qs[3].id);
+        // task: seed の回答（決定の文）と、t1・t2 の path の回答（持ち主 D）。
+        let seed_task = answers_of(conn, &[task_q]).unwrap();
+        assert!(seed_task.iter().all(|a| a.owner_id == d));
+        assert_eq!(seed_task.iter().filter_map(|a| a.a_id).collect::<Vec<_>>(), vec![t1, t2]);
+        assert!(seed_task.iter().any(|a| a.text.as_deref() == Some("発作部位の特定")));
+        // S の paths は D と S の path の回答の和。同じ D の下の S は seed の path を共有する。
+        assert_eq!(store::get_node(conn, s1).unwrap().paths, vec![t1, t2]);
+        assert_eq!(store::get_node(conn, s2).unwrap().paths, vec![t1, t2]);
+        // method は seed が答えていないので、m1 は S3 の回答（新規）として残る。
+        let method_answers = answers_of(conn, &[method_q]).unwrap();
+        assert_eq!(method_answers.len(), 1);
+        assert_eq!((method_answers[0].owner_id, method_answers[0].a_id), (s3, Some(m1)));
+        assert_eq!(store::get_node(conn, s3).unwrap().paths, vec![t1, t2, m1], "D の path の回答も入る（和）");
+        // 変換の記録（rt_log）に、seed の path の回答に足したことが残る。
+        let logs: Vec<String> = store::list_log(conn, None).unwrap().into_iter().filter(|l| l.actor == "upgrade").map(|l| l.detail).collect();
+        assert!(logs.iter().any(|d| d.contains("A") && d.contains("seed の path の回答に足した")), "{logs:?}");
+    }
+
+    /// 成功基準: 1 行目の「空欄」は落とす。残りが空なら回答は付けず、残りの文（「記載なし: …」を含む）はテキストの回答にする。
+    #[test]
+    fn upgrade_criteria_drops_blank_first_line() {
+        let database = db();
+        let conn = database.connection();
+        let blank = node(conn, Kind::D, None, "空欄だけ", "## 成功基準\n空欄\n", &[]);
+        let none = node(conn, Kind::D, None, "記載なし", "## 成功基準\n空欄\n記載なし: 数値は出さない\n", &[]);
+        let text = node(conn, Kind::D, None, "文", "## 成功基準\nAUC が 0.8 以上\n", &[]);
+        upgrade(conn).unwrap();
+        let criteria = |d: i64| {
+            let q = questions_of(conn, d, false).unwrap()[6].clone();
+            answers_of(conn, &[q.id]).unwrap().into_iter().map(|a| a.text.unwrap_or_default()).collect::<Vec<_>>()
+        };
+        assert_eq!(criteria(blank), Vec::<String>::new());
+        assert_eq!(criteria(none), vec!["記載なし: 数値は出さない".to_string()]);
+        assert_eq!(criteria(text), vec!["AUC が 0.8 以上".to_string()]);
     }
 
     #[test]
