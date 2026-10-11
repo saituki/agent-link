@@ -13,6 +13,7 @@ from pathlib import Path
 from . import algos, events, paths, runs
 
 SRC_DIR = Path(__file__).resolve().parent.parent  # apps/ts/src（子の PYTHONPATH）
+ALGOS_DIR = Path(__file__).resolve().parent / "algos"  # 組み込みの部品 _dsp を `import _dsp` で読めるようにする
 TIMEOUT = 1800
 TARGET_ENV_MAX = 65536  # ponytail: 対象は環境変数 SAI_TS_TARGET で渡す。大きいと子を起こせないので載せない（sdk.target() は {} を返す）
 
@@ -37,7 +38,7 @@ def _exec(path: Path, name: str, dataset: str, records: list[str], params: dict,
         paths.record_dir(dataset, r)  # 名前と存在を確かめる
 
     root = paths.project_root()
-    env = {**os.environ, "SAI_PROJECT_ROOT": str(root), "PYTHONPATH": str(SRC_DIR), "SAI_TS_SOURCE": source,
+    env = {**os.environ, "SAI_PROJECT_ROOT": str(root), "PYTHONPATH": f"{SRC_DIR}{os.pathsep}{ALGOS_DIR}", "SAI_TS_SOURCE": source,
            "SAI_TS_RUN": run_id, "SAI_TS_SHA256": sha}
     tgt = json.dumps(target, ensure_ascii=False)
     if len(tgt.encode("utf-8")) <= TARGET_ENV_MAX:

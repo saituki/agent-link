@@ -75,6 +75,11 @@ class ScriptsTest(unittest.TestCase):
         recs = {ev["record"] for ev in events.list_events("demo")}
         self.assertEqual(recs, {"r01"})
 
+    def test_project_script_can_import_builtin_dsp(self):
+        self.write_script("usedsp", "import _dsp\nprint('{\"message\": \"ok %s\"}' % callable(_dsp.bandpass_fft))\n")
+        res = scripts.run_script("usedsp", "demo", [])
+        self.assertIn("ok True", res["result"]["message"])
+
     def test_failure_reports_last_stderr_line(self):
         self.write_script("bad", "import sys\nprint('x', file=sys.stderr)\nsys.exit(1)\n")
         with self.assertRaises(RuntimeError) as cm:

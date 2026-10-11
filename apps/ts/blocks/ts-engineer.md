@@ -123,7 +123,7 @@ sai-ts snapshot link <name> --node S3|E12 [--text T]
 ### 組み込みの部品（`_dsp`）
 
 組み込みのアルゴリズムが使う数の部品は `apps/ts/src/sai_ts/algos/_dsp.py` にある。
-**プロジェクトのスクリプト（`ts/scripts/`）からは import できない**（`import _dsp` も `from sai_ts.algos import _dsp` も落ちる）。必要な関数は、そのスクリプトの中に書き写す。
+プロジェクトのスクリプト（`ts/scripts/`）からも `import _dsp` で読める（子の `PYTHONPATH` に `algos/` が入る）。`from sai_ts.algos import _dsp` は使えない。
 
 | 関数 | 中身 |
 |---|---|

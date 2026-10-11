@@ -140,7 +140,7 @@ apps/ts/bin/sai-ts run burst --dataset demo --json
 
 `.f32` と `meta.json` と `events.jsonl` は直接書かない（`sdk.add_var`・`sdk.add_events`・`sai-ts events` を使う）。
 
-**組み込みの部品（`_dsp.py`）は、プロジェクトのスクリプトから import できない**（`ts/scripts/` からは `ModuleNotFoundError`。`from sai_ts.algos import _dsp` は ImportError）。使うときは、必要な関数をそのスクリプトに写す。
+組み込みの部品（`_dsp.py`）は、プロジェクトのスクリプトからも `import _dsp` で読める（子の `PYTHONPATH` に `algos/` が入る）。`from sai_ts.algos import _dsp` は使えない。
 
 ### 組み込みの 3 本
 
