@@ -156,12 +156,12 @@ const SAI_TERMS = {
   },
   mind: {
     label: "Mind (mind.md)",
-    text: "研究の土台（SEED に入る初期構想・制約）を利用者が書くメモ（mind.md）。エージェントは直接書き換えません。",
+    text: "研究の土台（初期構想・制約）を利用者が書くメモ（mind.md）。エージェントは直接書き換えません。",
   },
   // --- research-tree（U19・共有契約 C-14。U41 で今の用語に作り直した） ---
   sci_research_tree: {
     label: "research-tree",
-    text: "SEED・ROOT・SPROUT・BRANCH の 4 layer からなる木と、それを描いた図の総称です。",
+    text: "ROOT・seed（D）・SPROUT・BRANCH の層 からなる木と、それを描いた図の総称です。",
   },
   sci_seed: {
     label: "seed（D）",
@@ -189,7 +189,7 @@ const SAI_TERMS = {
   },
   sci_top_q: {
     label: "top_Q",
-    text: "SEED の直下にある Q です。tree のいちばん上に並びます。",
+    text: "軸の Q のうち、tree のいちばん上に並ぶものです。",
   },
   sci_bottom_q: {
     label: "bottom_Q",

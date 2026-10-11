@@ -341,7 +341,7 @@ function seChildOk(nodeId, child) {
 
 /**
  * カードの対象の Node。空は木の全体（CLI に --node を渡さない）。
- * 旧い画面が木の全体を表す印（SEED）で渡すときも空として扱う（scitree.js の SEED の板が直るまで）。
+ * 旧い画面が木の全体を表す印（SEED）で渡すときも空として扱う（古い住所の互換）。
  */
 function seCardNode(value) {
   const v = seTrim(value);

@@ -113,7 +113,8 @@
 // Dashboard の文書の検索を会話検索の画面に統合（Dashboard の検索カードを消し、ASSETS から外した）で v111 に（index.html の ?v= も 111）
 // research-tree の図の道具に step の札（◀ 番号 /総数 ▶）を足して過去の step を表示する（scitree.js・scigraph.js・scitree.css）で v116 に（index.html の ?v= も 116。ASSETS は変えない）
 // Chats の反映待ち・Usage の Claude のカード・Runs の失敗の分類（app.js・usage.js・linkview.js）で v117 に（index.html の ?v= も 117。ASSETS は変えない）
-const CACHE = "sai-web-v117";
+// research-tree の SEED を消し、move_node・regroup・seed の 5 状態・S の 4 節・図の区分の札・比べる画面を足し（sci.py・main.py・sciedit.js・scitree.js・scigraph.js・ui.js と CSS）v118 に（index.html の ?v= も 118。ASSETS は変えない）
+const CACHE = "sai-web-v118";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）

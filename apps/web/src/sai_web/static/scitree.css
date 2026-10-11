@@ -33,6 +33,8 @@
 }
 
 .sci-body [hidden] { display: none; }
+.sci-top[hidden] { display: none; }
+.sci-body[hidden] { display: none; }
 
 .sci-body .sci-list {
   display: flex;
