@@ -264,7 +264,7 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
         name,
         explain: doc.explain.clone(),
         question: doc.joined("Q"),
-        child_candidates: doc.bullets("Child Q"),
+        child_candidates: ["Child Q", "Child Q（細分）", "Child Q（条件）"].iter().flat_map(|n| doc.bullets(n)).collect(),
         extract: doc.bullets("Extract"),
         pitfalls: doc.bullets("Pitfall"),
     })
@@ -537,9 +537,9 @@ mod tests {
             assert_eq!(keys, ["task", "target", "data", "method", "output", "metric"], "{}", t.id);
             assert!(t.tree.iter().all(|q| q.children.is_empty()), "{}", t.id);
         }
-        // `## SEED` は engine が読まないが、型の md には入っている（sci-start と利用者が読む）。
+        // `## seed（D）` は engine が読まないが、型の md には入っている（sci-start と利用者が読む）。
         for (path, text) in EMBEDDED.iter().filter(|(p, _)| p.starts_with("types/")) {
-            assert!(text.contains("\n## SEED\n"), "{path}");
+            assert!(text.contains("\n## seed（D）\n"), "{path}");
             assert!(!text.lines().any(|l| l.starts_with("+ ") || l.starts_with("  + ")), "{path}");
         }
         let _ = fs::remove_dir_all(&root);

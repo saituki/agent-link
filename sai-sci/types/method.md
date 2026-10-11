@@ -23,6 +23,6 @@ name: METHOD_DRIVEN
 - 大分類だけ置く軸: task・target・data・output・metric。評価の軸は、metric の下の root から探す。
 - 空欄で始まる軸は、理由なく「決定」にしない。決定にするときは、その理由を seed に書く。
 
-## SEED
+## seed（D）
 - 決定になりやすい: 手法（method）
 - 空欄で始まりやすい: 解く問題（task）・対象（target）・評価指標（metric）

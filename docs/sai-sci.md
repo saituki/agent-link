@@ -233,7 +233,7 @@ sai-sci/
 
 - frontmatter の `key`・`name`
 - `## Q` — 軸の Q の文
-- `## Child Q` — A の下に足す child_Q の案（どれも「〜の種類は何があるか」の形）
+- `## Child Q（細分）`・`## Child Q（条件）` — A の下に足す child_Q の案（細分の Q は「〜の種類は何があるか」の形。古い `## Child Q` も読む）（どれも「〜の種類は何があるか」の形）
 - `## Extract` — F として抜き出す項目（どの軸も「適用の条件」と「限界・失敗する条件」を含む）
 - `## Pitfall` — つまずきやすい所（「この研究では」と書かない・A に出典を書かない・A 1 つは選択肢 1 つ、は 6 本共通）
 
@@ -673,7 +673,7 @@ agent が読んでいない論文の番号（`#37.5.2` など）を引用する�
 ## 8. md を直すとき（開発者向け）
 
 - **型・ガイド・ブロックは `sai-sci` に埋め込まれています**（`include_str!`）。`sai-sci/` の md を直したら `cargo build --release` で作り直さないと反映されません（`apps/web` が叩くのは release の実行ファイル）。
-- **形の決まり**: 型は `id`・`name` の frontmatter と `## Q` の節（型の説明の節は読まない）、ガイドは `key`・`name` の frontmatter と `## Q`・`## Child Q`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
+- **形の決まり**: 型は `id`・`name` の frontmatter と `## Q` の節（型の説明の節は読まない）、ガイドは `key`・`name` の frontmatter と `## Q`・`## Child Q（細分）`・`## Child Q（条件）`・`## Extract`・`## Pitfall` の節が要ります。崩れていれば 1 行の warning として `status` の `warnings` に入ります。
 - **block の形**: frontmatter の `sci_type`（node・manage・support）と `sci_ops`（op の一覧）。`sci_ops` を書かない block は `Free` の op 全部を出せます。`lab-progress` は `sci_ops` を書かず、本文で「op を出さない」と決めています（3.3.2 節）。
 - **確かめ**:
   ```bash
@@ -700,7 +700,7 @@ agent が読んでいない論文の番号（`#37.5.2` など）を引用する�
 | ROOT_GRAPH / RUN_GRAPH | research-tree（下に伸びる図 1 つ）。実行の図は research-tree の画面から無くした |
 | SOIL（mind） | mind.md（プロジェクトの覚え書き。`ORIGIN`・`INTERESTS`・`NOTES`） |
 
-型・ガイドの節の見出しは、新しい md に新しい見出し（`## Q`・`## Child Q`・`## Extract`・`## Pitfall`）だけを書きます。
+型・ガイドの節の見出しは、新しい md に新しい見出し（`## Q`・`## Child Q（細分）`・`## Child Q（条件）`・`## Extract`・`## Pitfall`）だけを書きます。
 
 ### 8.2 配布済みの写しの更新
 

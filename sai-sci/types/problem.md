@@ -23,6 +23,6 @@ name: PROBLEM_DRIVEN
 - 大分類だけ置く軸: target・data。手法（method）・出力（output）・評価指標（metric）は、seed の決定が出てから深くする。
 - 空欄で始まる軸は、理由なく「決定」にしない。決定にするときは、その理由を seed に書く。
 
-## SEED
+## seed（D）
 - 決定になりやすい: 解く問題（task）・背景
 - 空欄で始まりやすい: 手法（method）・出力（output）・評価指標（metric）
