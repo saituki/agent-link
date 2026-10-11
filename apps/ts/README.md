@@ -71,9 +71,12 @@ apps/ts/bin/sai-ts run burst --dataset demo --json
 
 ## agent に使わせる
 
-- `sai-ts init` で block `ts-agent` が sai-link の定義に入る。
-- チャットは画面の「チャットを始める」で起きる（`card create` と `card run` で、run の番号を `datasets/<ds>/chat.json` に書く）。
+- チャットは sai-web の Chats で、block `ts-engineer` を選んで行う。sai-ts の中にチャットは無い。
+- 画面の「💬 Chats で開く」は、sai-web の Chats を別のタブで開く。開いた欄は、このプロジェクトと block `ts-engineer` を選んだ状態になる。
+  - sai-web の Projects から開いたときだけ押せる（sai-web が `#token=…&web=…&project=…` の断片を付けて渡す）。押せないときは、釦の title に理由が出る。
+  - Mac で直に開くときは、利用者が断片を自分で付ける: `http://127.0.0.1:8210/#web=http://127.0.0.1:8200&project=<名前>`（`web` は sai-web の origin だけ。path は付けない）。
 - 利用者の判断は CLI で読む。agent は波形を見られないので、`events list` と `view` を読んで答える。
+- `datasets/<ds>/chat.json` は使わなくなった（読まれない。消さずに残してある）。
 - `PATH` に入れる場合は次を足す。利用者のシェルの設定は、利用者自身が書く。
 
 ```bash

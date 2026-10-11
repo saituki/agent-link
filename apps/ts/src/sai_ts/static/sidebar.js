@@ -90,7 +90,7 @@ function tsAddSidebarTab({ id, title, render }) {
   tsSidebarLayout();
 
   // 利用者が押すまでは、保存してあるタブ（無ければ既定の順の最初）を開く。
-  // 読み込みの順（events が chat より先）で選ばれないように、毎回この順で決める
+  // 読み込みの順で選ばれないように、毎回この順で決める
   let pref = null;
   try {
     pref = localStorage.getItem(tsSidebarPrefKey);
