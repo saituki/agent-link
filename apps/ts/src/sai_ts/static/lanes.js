@@ -17,6 +17,12 @@ let tsFetchSeq = 0;
 let tsWave = null; // {ds, rec, data, scales, reqAt}
 let tsCss = { w: 0, h: 0 };
 let tsCol = null; // 配色（CSS の変数を tsTheme が読む）
+const tsSpecMaxCols = 2048; // スペクトルの図の列の最大（サーバの MAX_COLS と合わせる）
+let tsSpecTimer = null;
+let tsSpecKey = "";
+let tsSpecCtl = null;
+let tsSpecSeq = 0;
+let tsSpecImgs = new Map(); // ch 名 → 取ってきた図 {ds, rec, var, t0, t1, fmin, fmax, win_ms, img（画面外の canvas）}
 
 // ---- 純関数（DOM を使わない。node のテストが読む） ----
 
@@ -114,7 +120,8 @@ function tsSelectionFromDrag(x0, x1, y0, y1, frame) {
   const t1 = Math.min(frame.t1, b);
   const ya = Math.min(y0, y1);
   const yb = Math.max(y0, y1);
-  let vars = frame.lanes.filter((l) => l.y1 > ya && l.y0 < yb).map((l) => l.var);
+  // 波形とスペクトルの 2 つのレーンは同じ変数なので、名前は 1 つにする
+  let vars = [...new Set(frame.lanes.filter((l) => l.y1 > ya && l.y0 < yb).map((l) => l.var))];
   if (!vars.length && frame.lanes.length) {
     const c = (ya + yb) / 2;
     let near = frame.lanes[0];
@@ -185,6 +192,61 @@ function tsGainParse(text) {
 // 段の値に直す（段に無ければ 1）
 function tsGainOf(v) {
   return tsGainSteps.includes(v) ? v : 1;
+}
+
+// 波形のレーンの次にスペクトルのレーン（ch 設定の spectrum.on が真のとき）。表示中の変数の順
+function tsLaneOrder(vars, channels) {
+  const chOf = new Map((channels || []).map((c) => [c.name, c]));
+  const out = [];
+  for (const name of vars) {
+    const ch = chOf.get(name) || { gain: 1 };
+    out.push({ var: name, kind: "wave", ch });
+    if (ch.spectrum && ch.spectrum.on) out.push({ var: name, kind: "spec", ch, sp: ch.spectrum });
+  }
+  return out;
+}
+
+// スペクトルのレーンの縦の位置。下端が fmin、上端が fmax
+function tsSpecScale(fmin, fmax, y0, y1) {
+  const k = (y1 - y0) / (fmax - fmin || 1);
+  return { toY: (f) => y1 - (f - fmin) * k, toV: (y) => fmin + (y1 - y) / k };
+}
+
+// viridis の基準の 16 色（RGB・0〜255。matplotlib の viridis を 16 等分して取った値）
+const tsViridisBase = [
+  [68, 1, 84], [72, 26, 108], [71, 47, 125], [65, 68, 135], [57, 86, 140], [49, 104, 142], [42, 120, 142], [35, 136, 142],
+  [31, 152, 139], [34, 168, 132], [53, 183, 121], [84, 197, 104], [122, 209, 81], [165, 219, 54], [210, 226, 27], [253, 231, 37],
+];
+
+// 256 色の表。基準の色の間を線形に補う（0 は最初の色、255 は最後の色）
+function tsViridisTable(base) {
+  const out = [];
+  for (let i = 0; i < 256; i++) {
+    const pos = (i / 255) * (base.length - 1);
+    const k = Math.min(base.length - 2, Math.floor(pos));
+    const f = pos - k;
+    out.push(base[k].map((v, j) => Math.round(v + (base[k + 1][j] - v) * f)));
+  }
+  return out;
+}
+
+const tsViridis = tsViridisTable(tsViridisBase);
+
+// 取った図（uint8 の rows × cols・行 0 が fmin）を RGBA にする。画面では fmax が上なので上下を逆にする
+function tsSpecRGBA(bytes, cols, rows) {
+  const out = new Uint8ClampedArray(cols * rows * 4);
+  for (let y = 0; y < rows; y++) {
+    const src = (rows - 1 - y) * cols;
+    for (let x = 0; x < cols; x++) {
+      const c = tsViridis[bytes[src + x]];
+      const o = (y * cols + x) * 4;
+      out[o] = c[0];
+      out[o + 1] = c[1];
+      out[o + 2] = c[2];
+      out[o + 3] = 255;
+    }
+  }
+  return out;
 }
 
 // ---- ここから画面（ブラウザだけで動く） ----
@@ -286,25 +348,27 @@ function tsLanesFrame() {
   const lanesEl = document.getElementById("ts-lanes");
   const w = lanesEl ? lanesEl.clientWidth : 0;
   const h = lanesEl ? lanesEl.clientHeight : 0;
-  const vars = st.vars || [];
-  const lay = tsLaneLayout(vars.length, h, tsLaneMinH);
+  const order = tsLaneOrder(st.vars || [], st.channels);
+  const lay = tsLaneLayout(order.length, h, tsLaneMinH);
   const plotW = Math.max(1, w - tsGutterW);
   const span = st.t1 - st.t0 || 1;
   const wave = tsCurrentWave();
-  const chOf = new Map((st.channels || []).map((c) => [c.name, c]));
-  const lanes = vars.map((name, i) => {
+  const lanes = order.map((o, i) => {
     const row = lay.rows[i];
-    const sc = wave && wave.scales[name] ? wave.scales[name] : { mid: 0, half: 1 };
-    const ch = chOf.get(name) || { gain: 1 };
+    if (o.kind === "spec") {
+      const sc = tsSpecScale(o.sp.fmin, o.sp.fmax, row.y0, row.y1);
+      return { var: o.var, kind: "spec", y0: row.y0, y1: row.y1, ch: o.ch, sp: o.sp, toY: sc.toY, toV: sc.toV };
+    }
+    const sc = wave && wave.scales[o.var] ? wave.scales[o.var] : { mid: 0, half: 1 };
     const mid = (row.y0 + row.y1) / 2;
     const amp = (row.y1 - row.y0) / 2 - 4;
-    const k = tsGain * tsGainNum(ch.gain) * amp; // 全体の倍率 × ch の倍率 × 半分の高さ
+    const k = tsGain * tsGainNum(o.ch.gain) * amp; // 全体の倍率 × ch の倍率 × 半分の高さ
     return {
-      var: name,
+      var: o.var,
       kind: "wave",
       y0: row.y0,
       y1: row.y1,
-      ch,
+      ch: o.ch,
       toY: (v) => mid - ((v - sc.mid) / sc.half) * k,
       toV: (y) => sc.mid + ((mid - y) / k) * sc.half,
     };
@@ -395,6 +459,10 @@ function tsPaintLanes(ctx, frame, w, h) {
     ctx.fillRect(0, lane.y0, 4, laneH);
     tsPaintLaneAxis(ctx, lane, w, c);
     tsPaintLaneLabel(ctx, lane, c);
+    if (lane.kind === "spec") {
+      tsPaintSpec(ctx, frame, lane);
+      return;
+    }
     const data = wave && wave.data.vars[lane.var];
     if (!data) return;
     ctx.save();
@@ -436,22 +504,42 @@ function tsPaintLaneAxis(ctx, lane, w, c) {
   ctx.textAlign = "left";
 }
 
-// レーンの label（倍率が 1 でなければ ×2 のように付ける）と単位
+// レーンの label（倍率が 1 でなければ ×2 のように付ける）と単位。スペクトルは「スペクトル」と単位 Hz
 function tsPaintLaneLabel(ctx, lane, c) {
   const laneH = lane.y1 - lane.y0;
   const mid = (lane.y0 + lane.y1) / 2;
   const two = laneH >= 40; // 単位の行を出せる高さ
+  const spec = lane.kind === "spec";
   const gain = tsGainNum(lane.ch.gain);
-  const label = (lane.ch.label || lane.var) + (gain === 1 ? "" : ` ×${gain}`);
+  const name = lane.ch.label || lane.var;
+  const label = spec ? `${name} スペクトル` : name + (gain === 1 ? "" : ` ×${gain}`);
+  const unit = spec ? "Hz" : lane.ch.unit;
   ctx.font = "13px sans-serif";
   ctx.fillStyle = c.text;
   ctx.textBaseline = "middle";
   ctx.fillText(label, 10, two ? mid - 7 : mid, tsGutterW - 60);
-  if (two && lane.ch.unit) {
+  if (two && unit) {
     ctx.font = "11px sans-serif";
     ctx.fillStyle = c.muted;
-    ctx.fillText(lane.ch.unit, 10, mid + 8, tsGutterW - 60);
+    ctx.fillText(unit, 10, mid + 8, tsGutterW - 60);
   }
+}
+
+// スペクトルの図（取ってある画像）を、今の時間の範囲に合わせて描く。取り直すまでは古い図を伸び縮みさせる。
+// 周波数や記録が変わった図は描かない（別の図になるため）
+function tsPaintSpec(ctx, frame, lane) {
+  const e = tsSpecImgs.get(lane.var);
+  const st = window.TS.state;
+  const sp = lane.sp;
+  if (!e || e.ds !== st.dataset || e.rec !== st.record || e.fmin !== sp.fmin || e.fmax !== sp.fmax || e.win_ms !== sp.win_ms) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(tsGutterW, lane.y0, frame.plotW, lane.y1 - lane.y0);
+  ctx.clip();
+  ctx.imageSmoothingEnabled = true;
+  const x0 = frame.toX(e.t0);
+  ctx.drawImage(e.img, x0, lane.y0, frame.toX(e.t1) - x0, lane.y1 - lane.y0);
+  ctx.restore();
 }
 
 // 時間軸（上の 24px）と記録全体の帯（下の 14px）。#ts-axis に描く
@@ -611,6 +699,73 @@ async function tsLanesFetch() {
   }
 }
 
+// ---- スペクトル（取り直しは波形と同じ。80ms 待って、前の要求は取り消す） ----
+
+// 見えているスペクトルのレーンごとの要求。鍵は ds・rec・var・t0・t1・cols・fmin・fmax・win_ms
+function tsSpecReqs() {
+  const st = window.TS.state;
+  if (!st.dataset || !st.record || !st.meta) return [];
+  const cols = Math.min(tsSpecMaxCols, Math.max(1, Math.floor(tsPlotPx() / 2)));
+  return tsLaneOrder(st.vars || [], st.channels)
+    .filter((o) => o.kind === "spec")
+    .map((o) => {
+      const q = { ds: st.dataset, rec: st.record, var: o.var, t0: st.t0, t1: st.t1, cols, fmin: o.sp.fmin, fmax: o.sp.fmax, win_ms: o.sp.win_ms };
+      q.key = [q.ds, q.rec, q.var, q.t0, q.t1, cols, q.fmin, q.fmax, q.win_ms].join("|");
+      return q;
+    });
+}
+
+function tsSpecScheduleFetch() {
+  const reqs = tsSpecReqs();
+  const key = reqs.map((q) => q.key).join("\n");
+  if (key === tsSpecKey) return;
+  tsSpecKey = key;
+  clearTimeout(tsSpecTimer);
+  if (tsSpecCtl) tsSpecCtl.abort();
+  if (!reqs.length) {
+    tsSpecImgs.clear();
+    tsDrawAll();
+    return;
+  }
+  tsSpecTimer = setTimeout(() => tsSpecFetch(reqs), 80);
+}
+
+async function tsSpecFetch(reqs) {
+  if (tsSpecCtl) tsSpecCtl.abort();
+  const ctl = new AbortController();
+  tsSpecCtl = ctl;
+  const seq = ++tsSpecSeq;
+  try {
+    await Promise.all(
+      reqs.map(async (q) => {
+        const url =
+          `/api/datasets/${tsEnc(q.ds)}/records/${tsEnc(q.rec)}/spec?var=${tsEnc(q.var)}` +
+          `&t0=${q.t0}&t1=${q.t1}&cols=${q.cols}&fmin=${q.fmin}&fmax=${q.fmax}&win_ms=${q.win_ms}`;
+        const r = await window.TS.api(url, { signal: ctl.signal });
+        if (seq !== tsSpecSeq) return;
+        // 返った範囲（記録の中に収めた値）で覚える。描くときは今の表示の範囲に合わせる
+        tsSpecImgs.set(q.var, Object.assign({}, q, { t0: r.t0, t1: r.t1, img: tsSpecCanvas(r) }));
+      }),
+    );
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    window.TS.ui.toast("スペクトルを取れません: " + e.message);
+    return;
+  }
+  if (seq !== tsSpecSeq) return;
+  tsDrawAll();
+}
+
+// 返った図（base64 の uint8・行 0 が fmin）を画面外の canvas にする
+function tsSpecCanvas(r) {
+  const bytes = Uint8Array.from(atob(r.data), (ch) => ch.charCodeAt(0));
+  const cv = document.createElement("canvas");
+  cv.width = r.cols;
+  cv.height = r.rows;
+  cv.getContext("2d").putImageData(new ImageData(tsSpecRGBA(bytes, r.cols, r.rows), r.cols, r.rows), 0, 0);
+  return cv;
+}
+
 async function tsKeyDelete() {
   const st = window.TS.state;
   const ids = st.selectedEvents.slice();
@@ -672,10 +827,15 @@ function tsLanesInit() {
     tsTheme();
     tsDrawAll();
     tsLanesScheduleFetch();
+    tsSpecScheduleFetch();
   });
-  window.TS.on("channels", tsDrawAll);
+  window.TS.on("channels", () => {
+    tsDrawAll();
+    tsSpecScheduleFetch();
+  });
   window.TS.on("state", tsGainSync);
   window.TS.on("state", tsLanesScheduleFetch);
+  window.TS.on("state", tsSpecScheduleFetch);
   tsLanesInstallKeys();
 }
 
@@ -693,5 +853,10 @@ if (typeof module !== "undefined") {
     tsGainSteps,
     tsGainStep,
     tsGainParse,
+    tsLaneOrder,
+    tsSpecScale,
+    tsViridis,
+    tsViridisBase,
+    tsSpecRGBA,
   };
 }

@@ -3,7 +3,7 @@
 // 波形の描き方は lanes.js。ここは値を保存して TS.state を変えるだけ。
 
 const tsChSaveDelay = 300; // 続けて変えたときは、この ms まとめて 1 回に保存する
-let tsChPending = null; // 保存を待つ変更 {patch: {name: {label?, color?, gain?}}, order: [名前]|null}
+let tsChPending = null; // 保存を待つ変更 {patch: {name: {label?, color?, gain?, spectrum?}}, order: [名前]|null}
 let tsChTimer = null;
 let tsChBusy = Promise.resolve(); // 保存を 1 つずつ行う（読んでから書く間に別の保存が割り込まないため）
 let tsChBox = null; // タブの中身の箱
@@ -47,7 +47,8 @@ function tsChNext(stored, merged, patch, order) {
       color: "color" in p ? p.color : c.color,
       gain: "gain" in p ? p.gain : c.gain,
     };
-    if (c.spectrum) o.spectrum = c.spectrum;
+    const sp = "spectrum" in p ? p.spectrum : c.spectrum;
+    if (sp) o.spectrum = sp;
     return o;
   });
   for (const s of Array.isArray(stored) ? stored : []) {
@@ -56,6 +57,14 @@ function tsChNext(stored, merged, patch, order) {
     out.push(Object.assign({}, s));
   }
   return out;
+}
+
+// スペクトルの値の検査（channels.py の _spectrum と同じ）。誤りの文、正しければ空の文字
+function tsChSpecErr(sp) {
+  if (!(sp.fmin >= 0)) return "fmin は 0 以上の数にしてください";
+  if (!(sp.fmax > sp.fmin)) return "fmax は fmin より大きい数にしてください";
+  if (!(sp.win_ms > 0 && sp.win_ms <= 10000)) return "窓は 0 より大きく 10000 ms 以下にしてください";
+  return "";
 }
 
 // ---- 画面（ブラウザだけで動く） ----
@@ -78,6 +87,9 @@ function tsChStyle() {
 .ts-ch-unit, .ts-ch-tag { color: var(--ts-muted); font-size: 12px; }
 .ts-ch-tag { border: 1px solid var(--ts-border); border-radius: 3px; padding: 0 4px; }
 .ts-ch-empty { color: var(--ts-muted); }
+.ts-ch-spec-btn[aria-pressed="true"] { border-color: var(--ts-accent); color: var(--ts-accent); }
+.ts-ch-spec { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; padding-left: 24px; color: var(--ts-muted); font-size: 12px; }
+.ts-ch-spec input { width: 84px; }
 `;
   document.head.appendChild(st);
 }
@@ -151,6 +163,51 @@ function tsChEditing() {
   return !!a && !!tsChBox && tsChBox.contains(a) && a.tagName === "INPUT" && (a.type === "text" || a.type === "number");
 }
 
+// スペクトルの段を入れる・切る・値を変える。入れたときに spectrum が無ければ既定で作る。
+// 切っても値は残す（on だけ false）。画面は先に変え、保存は tsChQueue が行う
+function tsChSpecSet(name, patch) {
+  const st = window.TS.state;
+  const cur = st.channels.find((c) => c.name === name);
+  const base = cur.spectrum || { on: false, fmin: 0, fmax: Math.min(250, st.meta.srate / 2), win_ms: 250 };
+  const sp = Object.assign({}, base, patch);
+  if (sp.on && tsChSpecErr(sp)) {
+    window.TS.ui.toast(tsChSpecErr(sp));
+    return;
+  }
+  st.channels = st.channels.map((c) => (c.name === name ? Object.assign({}, c, { spectrum: sp }) : c));
+  tsChQueue({ [name]: { spectrum: sp } });
+  window.TS.emit("channels");
+}
+
+// 行の下の 3 つの欄（fmin・fmax・win_ms）。変えたら検査して保存する
+function tsChSpecBox(c) {
+  const sp = c.spectrum;
+  const box = tsEl("div", "ts-ch-spec");
+  const field = (key, text, min) => {
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.step = "any";
+    inp.min = String(min);
+    inp.value = String(sp[key]);
+    inp.setAttribute("aria-label", `${c.name} のスペクトル ${key}`);
+    inp.onchange = () => {
+      const v = inp.value.trim() === "" ? NaN : Number(inp.value);
+      const err = tsChSpecErr(Object.assign({}, sp, { [key]: v }));
+      if (err) {
+        window.TS.ui.toast(err);
+        inp.value = String(sp[key]);
+        return;
+      }
+      tsChSpecSet(c.name, { [key]: v });
+    };
+    const lab = tsEl("label", "", text);
+    lab.append(inp);
+    return lab;
+  };
+  box.append(field("fmin", "fmin（Hz）", 0), field("fmax", "fmax（Hz）", 0), field("win_ms", "win_ms（ms）", 0));
+  return box;
+}
+
 function tsChRowEl(c, i) {
   const st = window.TS.state;
   const vis = !Array.isArray(st.vars) || st.vars.includes(c.name);
@@ -216,6 +273,15 @@ function tsChRowEl(c, i) {
   row.append(grip, shown, color, reset, name, label, gain);
   if (c.unit) row.append(tsEl("span", "ts-ch-unit", c.unit));
   if (derived) row.append(tsEl("span", "ts-ch-tag", "派生"));
+
+  const on = !!(c.spectrum && c.spectrum.on);
+  const spBtn = tsChBtn("〰 スペクトル", "時間周波数の図を、この ch の波形の下に出す（切っても値は残る）", () =>
+    tsChSpecSet(c.name, { on: !on }),
+  );
+  spBtn.className = "ts-ch-spec-btn";
+  spBtn.setAttribute("aria-pressed", String(on));
+  row.append(spBtn);
+  if (on) row.append(tsChSpecBox(c));
 
   row.addEventListener("dragstart", (e) => {
     tsChDragFrom = i;
@@ -316,5 +382,5 @@ if (typeof window !== "undefined" && window.TS) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { tsChMove, tsChNext };
+  module.exports = { tsChMove, tsChNext, tsChSpecErr };
 }
