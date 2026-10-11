@@ -186,6 +186,63 @@ function usageUnknownCard(list) {
   return card;
 }
 
+/** 戻る時刻の文言（秒の epoch・5 時間枠は今日なら時刻だけ・7 日枠は日付も）． */
+function usageResetText(sec, withDate) {
+  // Number(null) は 0 になるので、数の型だけを受け付ける
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return "戻る時刻 不明";
+  const d = new Date(sec * 1000);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (!withDate && d.toDateString() === new Date().toDateString()) return `${hm} に戻る`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${hm} に戻る`;
+}
+
+/** 枠 1 つ（文字の % と戻る時刻を出し，細い横棒を添える・色だけに頼らない）． */
+function usageMeterBlock(label, win, withDate) {
+  const pct = Math.max(0, Math.min(100, Number(win.used_percentage) || 0));
+  const box = el("div", "usage-meter");
+  box.appendChild(
+    el("div", "usage-line", `${label} ${Math.round(pct)}%（${usageResetText(win.resets_at, withDate)}）`)
+  );
+  const row = el("div", "usage-meter-row");
+  const track = el("div", "dash-bar-track");
+  track.setAttribute("role", "meter");
+  track.setAttribute("aria-label", label);
+  track.setAttribute("aria-valuemin", "0");
+  track.setAttribute("aria-valuemax", "100");
+  track.setAttribute("aria-valuenow", String(Math.round(pct)));
+  const fill = el("div", "dash-bar-fill");
+  fill.style.width = `${pct}%`;
+  track.appendChild(fill);
+  row.appendChild(track);
+  box.appendChild(row);
+  return box;
+}
+
+/** Claude（cc）のカード（5 時間枠・7 日枠と費用の合計・計画 U02）． */
+function usageCcCard(cc) {
+  const card = usageCard("Claude（Claude Code）", null);
+  const limits = cc.limits;
+  if (!limits) {
+    card.appendChild(
+      el("p", "dash-empty", "枠の値はまだありません（cc の応答の後に出ます。Pro・Max のときだけ）")
+    );
+  } else {
+    if (limits.five_hour) card.appendChild(usageMeterBlock("5 時間枠", limits.five_hour, false));
+    if (limits.seven_day) card.appendChild(usageMeterBlock("7 日枠", limits.seven_day, true));
+    const at = Date.parse(limits.updated_at);
+    if (!isNaN(at)) card.appendChild(el("div", "usage-line muted", `最後の応答 ${usageClock(at)}`));
+  }
+  const cost = cc.cost || {};
+  card.appendChild(
+    el(
+      "div",
+      "usage-line",
+      `費用 今日 ${usageMoney(cost.today)} ／ 今月 ${usageMoney(cost.month)}（${Number(cost.sessions) || 0} 会話）`
+    )
+  );
+  return card;
+}
+
 /** カード一覧を描く． */
 function usageRender() {
   const box = document.getElementById("usage-list");
@@ -211,6 +268,7 @@ function usageRender() {
   }
   // 広い画面では 2〜3 列に並べる（style.css の .usage-cards）
   const cards = el("div", "dash-cards usage-cards");
+  cards.appendChild(usageCcCard(usageData.cc || {}));
   for (const account of usageData.openrouter || []) {
     cards.appendChild(usageOpenrouterCard(account));
   }

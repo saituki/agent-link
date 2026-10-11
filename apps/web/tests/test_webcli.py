@@ -110,6 +110,11 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif self.path == "/api/questions/q1":
             self._send(200, {"id": "q1", "state": "open", "questions": QUESTIONS})
+        elif self.path == "/api/questions/q3":
+            # 答えたあと（答えと答えた人が返る）
+            self._send(200, {"id": "q3", "state": "answered", "questions": QUESTIONS,
+                             "answer": {"answers": [{"text": "緑"}]},
+                             "answered_by": "saituki"})
         elif self.path == "/api/questions/mine":
             # コンテナの合言葉で呼ばれたときの一覧（自分のプロジェクトの分だけ）
             self._send(
@@ -230,6 +235,15 @@ class WebCliTest(unittest.TestCase):
         code, out, err = run_cli("questions", "--run", "5")
         self.assertEqual(code, 0, err)
         self.assertEqual([row["id"] for row in json.loads(out)], ["q5"])
+
+    # --- question: 答えと答えた人が出る（自由記述も）
+    def test_question_shows_answer_and_answered_by(self) -> None:
+        code, out, err = run_cli("question", "q3")
+        self.assertEqual(code, 0, err)
+        row = json.loads(out)
+        self.assertEqual(row["answer"], {"answers": [{"text": "緑"}]})
+        self.assertEqual(row["answered_by"], "saituki")
+        self.assertEqual(row["state"], "answered")
 
     # --- 名前の付いた読み取り（projects / usage / mlflow）
     def test_projects_and_usage(self) -> None:

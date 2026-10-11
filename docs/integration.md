@@ -50,7 +50,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | Research → Experiments | `apps/mlflow-server` の MLflow（`/api/mlflow/*`・読み取りだけ） |
 | Home（質問・プロジェクト・todo・論文の要対応） | 上の住所を 1 本の住所（`GET /api/home`）にまとめる。`ThreadPoolExecutor` で並べる。要対応は `sai-sci attention list --json` |
 | Home の全プロジェクトの合計（今週 / 今月 / 全期間） | 各プロジェクトの `sai-link project dashboard --period` を並べて足し合わせる（`GET /api/home/overview`） |
-| Usage | `usage.py`（OpenRouter・DeepSeek。古い pi の記録も読む）。CLI は呼ばない |
+| Usage | `usage.py`（cc の枠と費用・OpenRouter・DeepSeek。古い pi の記録も読む）。cc の枠の値は `sai-link cc-statusline` が書いた `cc-rate-limits.json` を読む。CLI は呼ばない |
 
 ---
 
@@ -317,7 +317,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/questions/mine` | **内部専用**。自分のプロジェクトの答え待ちだけを `{"questions": [{"id","agent","title","created_at","project","run_id"}, …]}` で返す（`/api/questions/pending` と同じ形を、プロジェクトで絞ったもの）。多人数モードでは合言葉のプロジェクトの分だけ。コンテナの agent の `sai-web questions` が使う |
 | `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。**内部の合言葉**（コンテナの agent の `sai-web answer`）でも使えるが、その質問が合言葉のプロジェクトの物でなければ 403「このプロジェクトの質問ではありません」（分からないときも 403）。内部の合言葉で答えた記録は `answered_by` が `agent` になる。本文は今と同じ（`{"answers": [{choice_index \| choice_indices \| text}, …]}`） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
-| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（OpenRouter・DeepSeek。古い pi の記録も読む） |
+| `GET /api/usage` / `GET /api/usage/{provider}/{account}/activity` / `…/logs` | 使用量（`cc`・OpenRouter・DeepSeek・設定に無い provider。古い pi の記録も読む）。`cc` は `cc` の 5 時間枠・7 日枠（`limits`）と費用の合計（`cost`） |
 | `GET /manifest.json` | PWA の設定 |
 
 > **登録順の決まり**: FastAPI は登録した順に照合する。`/api/projects/{name}/papers/library` ほかの固定の住所は、**`/api/projects/{name}/papers/{paper_id:int}` より前**に登録しないと ID として誤認される（`main.py` のコメント参照）。静的ファイルの `app.mount("/")` は最後に置く。
@@ -352,6 +352,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 - 内部の合言葉を `Authorization: Bearer` で送ると、ミドルウェアが `project_tokens` を引いて持ち主を `registry.current_user` に入れ、`request.state.internal_project` にプロジェクト名を入れる（Cookie より先に見る）。内部の合言葉で使えるのは**内部の 6 本**（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`・`GET /api/questions/mine`・`POST /api/questions/{qid}/answer`）だけで、それ以外の住所は 403「内部専用の合言葉では使えません」。`/api/home`・`/api/questions/pending` は持ち主の全プロジェクトを返すので、内部の合言葉には開けない。`/api/questions/{qid}/answer` と `/api/questions/mine` は、合言葉のプロジェクトの質問に限る。
 - 質問・登録・通知の購読は `owner` を持ち、多人数モードでは今の利用者の物だけを読む（`GET /api/questions/{qid}` は持ち主でなければ 404）。保存する関数は `registry.current_user` の名前を `owner` に入れる。見張り（`watch.py`）は利用者ごとに `registry.current_user` を入れてから見回る。単独モードは今までどおり（`owner` は空文字で、絞り込みをしない）。古い DB（`owner` の列が無い）は `init_db` が `ALTER TABLE` で列を足す。
 - Usage の OpenRouter・DeepSeek の鍵は、多人数モードでは今の利用者の `secrets.env`（`containers.read_keys`）から読む（無ければ「キーが未設定です」）。単独モードは今までどおり環境変数から読む。
+- Usage の cc のカードは、`sai-link cc-statusline`（cc の statusLine）が書く `<sai_home>/cc-rate-limits.json`（5 時間枠・7 日枠の使った割合と戻る時刻。Pro・Max のときだけ、最初の応答の後に出る）と `<sai_home>/cc-cost/*.json`（会話ごとの費用の累計）を読む。多人数モードでは今の利用者のプロジェクトごとのコンテナの HOME の `.sai` を全部合計する。費用は `updated_at` の日付で今日・今月に入れる。pi の設定（`models.json`・`auth.json`）も、多人数モードではプロジェクトごとの HOME の `.pi/agent` を全部見る。
 
 - 多人数モードでは `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)` にする（`/docs`・`/openapi.json` を出さない）。起動時に合言葉のファイル（`<sai_home>/web/token`）は書かない。
 - パスワードは `hashlib.scrypt`（`auth.hash_password`・`verify_password`）で保存し、Cookie とトークンは SHA-256 だけを DB（`web_sessions`・`api_tokens`）に置く。値そのものは保存しない。

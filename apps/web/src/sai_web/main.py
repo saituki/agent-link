@@ -178,7 +178,7 @@ async def _multi_user_auth(request: Request, call_next):
 
     path = request.url.path
 
-    # 内部の合言葉は内部の 4 本でだけ使える（コンテナのエージェントが、
+    # 内部の合言葉は内部の 6 本でだけ使える（コンテナのエージェントが、
     # 持ち主の Web の API を勝手に使えないように）。
     if via_internal_token and not _is_internal_address(request.method, path):
         return JSONResponse(
@@ -1982,7 +1982,7 @@ async def api_mlflow_artifact(
 
 @app.get("/api/usage")
 def api_usage(refresh: int = 0, _: None = Depends(require_token)) -> dict:
-    """Usage タブのカード一覧（cc / OpenRouter 各アカウント / DeepSeek）．
+    """Usage タブのカード一覧（cc / OpenRouter 各アカウント / DeepSeek / 設定に無い provider）．
 
     `?refresh=1` で外部 API を取り直す（↻ ボタン・42 §3.5）。
     """

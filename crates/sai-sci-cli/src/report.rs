@@ -398,7 +398,7 @@ fn citation_cites(citations: &[sai_sci_core::reports::Citation]) -> Vec<String> 
         .collect()
 }
 
-/// `report prepare` の本体。終了コードを返す（0 通過・1 違反・2 使い方の誤り・台帳に無い引用）。
+/// `report prepare` の本体。終了コードを返す（0 通過・1 違反（台帳に無い引用を含む）・2 使い方の誤り）。
 fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) -> i32 {
     use sai_sci_core::reports::{CitationTarget, parse_citations};
     use sai_paper_core::{seen_ids, sections, textcheck};
@@ -451,11 +451,9 @@ fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) ->
         .collect();
     papers.sort_unstable();
     papers.dedup();
-    // 引用は台帳（この run の CLI が出した番号）に載っていること。通らないと終了コード 2。
-    let mut input_error = false;
+    // 引用は台帳（この run の CLI が出した番号）に載っていること。通らないと終了コード 1（保存しない）。
     if let Err(message) = seen_ids::check(&citation_cites(&citations)) {
         errors.push(message);
-        input_error = true;
     }
     match open_database() {
         Ok(db) => {
@@ -519,7 +517,7 @@ fn prepare(run: Option<i64>, block: Option<String>, filename: Option<String>) ->
             eprintln!("- {message}");
         }
         eprintln!("保存前の検査に通りませんでした（{count} 件）");
-        return if input_error { 2 } else { 1 };
+        return 1;
     }
 
     // frontmatter を付ける

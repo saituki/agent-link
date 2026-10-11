@@ -98,19 +98,16 @@ pub fn read_json(
         .iter()
         .map(|r| sections::parse_ref(r))
         .collect::<Result<Vec<_>, _>>()?;
+    for r in &parsed {
+        require_paper(conn, r.paper_id())?;
+    }
     let max_chars = max_chars.unwrap_or(DEFAULT_MAX_CHARS).clamp(1, MAX_MAX_CHARS);
     Ok(serde_json::to_value(sections::read(conn, data_dir, &parsed, max_chars)?)?)
 }
 
 /// 論文の全チャンクを JSON で返す（字数の上限なし）。論文・本文が無ければ終了コード 3。
 pub fn chunks_json(conn: &Connection, data_dir: &Path, paper_id: i64) -> Result<serde_json::Value> {
-    let title: Option<String> = conn
-        .query_row("SELECT title FROM papers WHERE id = ?1", [paper_id], |row| row.get(0))
-        .ok()
-        .flatten();
-    let title = title.ok_or_else(|| {
-        crate::cli_error::CliError::not_found(format!("論文が見つかりません: id={paper_id}"))
-    })?;
+    let title = require_paper(conn, paper_id)?;
     let result = sections::read(conn, data_dir, &[PassageRef::Paper { paper_id }], usize::MAX)
         .map_err(|e| match e {
             SectionsError::NoExtract(_) | SectionsError::NotFound(_) => anyhow::Error::new(
@@ -158,6 +155,17 @@ fn outline_text(value: &serde_json::Value) -> String {
 }
 
 /// 人が読む read の出力。塊ごとに `### #37.5.1（見出し）` と本文。
+/// 論文の行を確かめて、タイトルを返す。無ければ終了コード 3。
+fn require_paper(conn: &Connection, paper_id: i64) -> Result<String> {
+    let title: Option<String> = conn
+        .query_row("SELECT title FROM papers WHERE id = ?1", [paper_id], |row| row.get(0))
+        .ok()
+        .flatten();
+    Ok(title.ok_or_else(|| {
+        crate::cli_error::CliError::not_found(format!("論文が見つかりません: id={paper_id}"))
+    })?)
+}
+
 fn read_text(value: &serde_json::Value) -> String {
     let mut out = String::new();
     for p in value["passages"].as_array().into_iter().flatten() {
@@ -166,6 +174,12 @@ fn read_text(value: &serde_json::Value) -> String {
             p["id"].as_str().unwrap_or(""),
             p["heading"].as_str().unwrap_or(""),
             p["text"].as_str().unwrap_or("")
+        ));
+    }
+    for r in value["empty_refs"].as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "{} は本文が空です（図や表だけの節の可能性）\n\n",
+            r.as_str().unwrap_or("")
         ));
     }
     if let Some(next) = value["next"].as_str() {
@@ -288,6 +302,56 @@ pub async fn handle_content(cmd: ContentCmd) -> Result<()> {
         ContentCmd::Build { paper_ids, all, force, summarize } => build(paper_ids, all, force, summarize).await,
         ContentCmd::Paper { paper_id, json } => print_paper(paper_id, json),
         ContentCmd::Chunk { chunk_id, json } => print_chunk(chunk_id, json),
+    }
+}
+
+/// `paper strip-images` — 既にある論文の extract.md から画像（base64 を含む）を除く。
+/// 変わった論文だけ書き直す。元には戻せない（docling から作り直せば画像入りに戻る）。
+pub fn strip_images(ids: Vec<i64>, all: bool, json: bool) -> Result<()> {
+    if all && !ids.is_empty() {
+        return Err(crate::cli_error::CliError::input("論文 ID と --all は一緒に指定できません").into());
+    }
+    if !all && ids.is_empty() {
+        return Err(crate::cli_error::CliError::input("論文 ID か --all を指定してください").into());
+    }
+    let db = open_database()?;
+    let conn = db.connection();
+    let data_dir = Paths::discover()?.data_dir().to_path_buf();
+    let ids: Vec<i64> = if all {
+        let mut stmt = conn.prepare("SELECT id FROM papers ORDER BY id")?;
+        stmt.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?
+    } else {
+        let unique: std::collections::BTreeSet<i64> = ids.into_iter().collect();
+        for id in &unique {
+            require_paper(conn, *id)?;
+        }
+        unique.into_iter().collect()
+    };
+    let rows = sai_paper_core::bundle::strip_extract_images(conn, &data_dir, &ids)?;
+    let total_before: u64 = rows.iter().map(|r| r.before).sum();
+    let total_after: u64 = rows.iter().map(|r| r.after).sum();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "papers": rows, "total_before": total_before, "total_after": total_after })
+        );
+    } else {
+        for r in &rows {
+            println!("#{}  {} → {}", r.id, human_size(r.before), human_size(r.after));
+        }
+        println!("合計  {} → {}", human_size(total_before), human_size(total_after));
+    }
+    Ok(())
+}
+
+/// 大きさを人が読む形にする（1MB 以上は MB、1KB 以上は KB）。
+fn human_size(bytes: u64) -> String {
+    if bytes >= 1_000_000 {
+        format!("{:.1}MB", bytes as f64 / 1_000_000.0)
+    } else if bytes >= 1_000 {
+        format!("{:.0}KB", bytes as f64 / 1_000.0)
+    } else {
+        format!("{bytes}B")
     }
 }
 
@@ -483,5 +547,40 @@ mod tests {
         assert_eq!(code(chunks_json(conn, &dir, 9999).unwrap_err()), Some(3));
         let none = db.insert_paper("No body", None).unwrap();
         assert_eq!(code(chunks_json(conn, &dir, none).unwrap_err()), Some(3));
+    }
+
+    /// AC4: 本文の無い節は終了コード 0 で「本文が空です」。論文の行が無ければ終了コード 3。
+    /// 論文はあるが extract.md が無いときは、今の案内のまま（終了コード 3 にはしない）。
+    #[test]
+    fn read_empty_section_and_missing_paper() {
+        let (db, dir, id) = setup("read-empty");
+        let conn = db.connection();
+        std::fs::write(
+            dir.join("extract.md"),
+            "## Test paper\n\n## 1 Figures only\n\n## 2 Text\n\nBody text of the section goes here for the test.\n",
+        )
+        .unwrap();
+        let outline = outline_json(conn, &dir, id).unwrap();
+        let sec_of = |word: &str| {
+            outline["sections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["heading"].as_str().unwrap().contains(word))
+                .unwrap()["sec_no"]
+                .as_i64()
+                .unwrap()
+        };
+        let empty = sec_of("Figures only");
+        let v = read_json(conn, &dir, &[format!("{id}.{empty}")], None).unwrap();
+        assert_eq!(v["empty"], true);
+        assert_eq!(v["empty_refs"][0], format!("#{id}.{empty}"));
+        assert!(read_text(&v).contains("本文が空です"));
+
+        let code = |e: anyhow::Error| e.downcast_ref::<crate::cli_error::CliError>().map(|c| c.code);
+        assert_eq!(code(read_json(conn, &dir, &["9999".to_string()], None).unwrap_err()), Some(3));
+        assert_eq!(code(read_json(conn, &dir, &["9999.1".to_string()], None).unwrap_err()), Some(3));
+        let none = db.insert_paper("No body", None).unwrap();
+        assert_eq!(code(read_json(conn, &dir, &[none.to_string()], None).unwrap_err()), None);
     }
 }

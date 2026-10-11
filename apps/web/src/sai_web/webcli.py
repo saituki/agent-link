@@ -268,7 +268,7 @@ def cmd_home(_args: argparse.Namespace) -> object:
 
 
 def cmd_usage(_args: argparse.Namespace) -> object:
-    """使用量（cc のコスト・上限）。"""
+    """使用量（Usage のカード・Claude の枠と費用・OpenRouter・DeepSeek）。"""
     return request_json("GET", "/api/usage")
 
 
@@ -320,7 +320,13 @@ def cmd_question(args: argparse.Namespace) -> object:
                 "options": options,
             }
         )
-    return {"id": data.get("id", args.qid), "state": data.get("state"), "questions": questions}
+    return {
+        "id": data.get("id", args.qid),
+        "state": data.get("state"),
+        "questions": questions,
+        "answer": data.get("answer"),
+        "answered_by": data.get("answered_by"),
+    }
 
 
 def parse_answer_items(rest: list[str]) -> list[dict]:
@@ -696,7 +702,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(q)
     q.set_defaults(func=cmd_user)
 
-    p = sub.add_parser("usage", help="使用量（cc のコスト・上限）")
+    p = sub.add_parser("usage", help="使用量（Claude の枠と費用・OpenRouter・DeepSeek）")
     _add_json(p)
     p.set_defaults(func=cmd_usage)
 

@@ -531,7 +531,9 @@ pub enum PassageRef {
 }
 
 impl PassageRef {
-    fn paper_id(&self) -> i64 {
+    /// 論文の番号（papers.id）。
+    #[must_use]
+    pub fn paper_id(&self) -> i64 {
         match *self {
             Self::Paper { paper_id }
             | Self::Section { paper_id, .. }
@@ -716,13 +718,18 @@ pub struct ReadResult {
     pub next: Option<String>,
     /// 塊。
     pub passages: Vec<ReadPassage>,
+    /// 指定した節・論文が本文の無い節だった ID（図や表だけの節など）。
+    pub empty_refs: Vec<String>,
+    /// 読んだ塊が 1 つも無く、指定がすべて本文の無い節だったか。
+    pub empty: bool,
 }
 
 /// 塊を読む。`max_chars` を超えたら、そこまでの塊で止めて `next` を返す。
 ///
 /// # Errors
 ///
-/// [`ensure`] と同じ。指定した ID の塊が 1 つも無いとき（[`SectionsError::NotFound`]）。
+/// [`ensure`] と同じ。指定した ID の塊が無く、節としても無いとき（[`SectionsError::NotFound`]）。
+/// 節はあるが塊が 0 件のときは `Err` にせず、[`ReadResult::empty_refs`] に入れる。
 pub fn read(
     conn: &Connection,
     data_dir: &Path,
@@ -730,6 +737,7 @@ pub fn read(
     max_chars: usize,
 ) -> Result<ReadResult> {
     let mut all: Vec<ReadPassage> = Vec::new();
+    let mut empty_refs = Vec::new();
     for r in refs {
         let paper_id = r.paper_id();
         ensure(conn, data_dir, paper_id)?;
@@ -765,6 +773,11 @@ pub fn read(
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
+            // 節はあるが塊が 0 件（本文が空）なら、見つからないとは区別して返す。
+            if section_exists(conn, r)? {
+                empty_refs.push(r.to_string());
+                continue;
+            }
             return Err(SectionsError::NotFound(r.to_string()));
         }
         for row in rows {
@@ -787,13 +800,46 @@ pub fn read(
         used += len;
         passages.push(p);
     }
+    let empty = passages.is_empty() && !empty_refs.is_empty();
     Ok(ReadResult {
         refs: refs.iter().map(ToString::to_string).collect(),
         max_chars,
         truncated: next.is_some(),
         next,
         passages,
+        empty_refs,
+        empty,
     })
+}
+
+/// 節（`Section`）または論文（`Paper`）の表の行があるか。塊の数は見ない。
+fn section_exists(conn: &Connection, r: &PassageRef) -> Result<bool> {
+    let sec = match *r {
+        PassageRef::Paper { .. } => None,
+        PassageRef::Section { sec_no, .. } => Some(sec_no),
+        PassageRef::Passage { .. } | PassageRef::Range { .. } => return Ok(false),
+    };
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM paper_sections
+           WHERE paper_id = ?1 AND (?2 IS NULL OR sec_no = ?2))",
+        params![r.paper_id(), sec],
+        |row| row.get(0),
+    )?)
+}
+
+/// `extract.md` の画像を除いたあと、節・塊の表を作り直さずに済むよう、表の元の sha を新しい sha に付け替える。
+/// 表は元の `extract.md` から作った中身と同じ（[`build_from_markdown`] が画像を除く）ので、要約も残す。
+///
+/// # Errors
+///
+/// DB の失敗。
+pub fn rebind_extract_sha(conn: &Connection, paper_id: i64, old_sha: &str, new_sha: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE paper_section_builds SET extract_sha256 = ?3
+         WHERE paper_id = ?1 AND extract_sha256 = ?2",
+        params![paper_id, old_sha, new_sha],
+    )?;
+    Ok(())
 }
 
 /// 節・塊があるか。その論文の表がまだ無ければ `None`（検査する側が飛ばす）。
@@ -1135,6 +1181,41 @@ mod tests {
             Err(SectionsError::NotFound(_))
         ));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 本文の無い節は `NotFound` にせず `empty_refs` に入る。存在しない節は今まで通り `NotFound`。
+    #[test]
+    fn read_reports_empty_section_apart_from_missing() {
+        let md = "## Empty paper\n\n## 1 Figures only\n\n## 2 Text\n\nSome body text that is long enough to be a passage here.\n";
+        let (db, dir, id) = setup("empty-section", md);
+        let conn = db.connection();
+        ensure(conn, &dir, id).unwrap();
+        let sec_of = |heading: &str| -> i64 {
+            conn.query_row(
+                "SELECT sec_no FROM paper_sections WHERE paper_id = ?1 AND heading LIKE ?2",
+                params![id, format!("%{heading}%")],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let (empty, text) = (sec_of("Figures only"), sec_of("Text"));
+
+        let r = read(conn, &dir, &[PassageRef::Section { paper_id: id, sec_no: empty }], 1000).unwrap();
+        assert!(r.empty);
+        assert!(r.passages.is_empty());
+        assert_eq!(r.empty_refs, vec![format!("#{id}.{empty}")]);
+
+        let mixed = [
+            PassageRef::Section { paper_id: id, sec_no: empty },
+            PassageRef::Section { paper_id: id, sec_no: text },
+        ];
+        let r = read(conn, &dir, &mixed, 1000).unwrap();
+        assert!(!r.empty);
+        assert!(!r.passages.is_empty());
+        assert_eq!(r.empty_refs, vec![format!("#{id}.{empty}")]);
+
+        let missing = read(conn, &dir, &[PassageRef::Section { paper_id: id, sec_no: 99 }], 1000);
+        assert!(matches!(missing, Err(SectionsError::NotFound(_))));
     }
 
     #[test]

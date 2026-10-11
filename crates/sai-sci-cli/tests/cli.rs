@@ -914,7 +914,7 @@ fn ledger_checks_op_add_f_and_not_apply() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// `report prepare` は台帳に無い引用で終了コード 2、台帳にある引用で通る。
+/// `report prepare` は台帳に無い引用で終了コード 1（保存しない）、台帳にある引用で通る。
 #[test]
 fn report_prepare_checks_citations_against_ledger() {
     let root = temp_dir("prepare-root");
@@ -938,7 +938,7 @@ fn report_prepare_checks_citations_against_ledger() {
     let ok = prepare("# 作業報告書\n\n根拠 [#3]\n");
     assert_eq!(ok.code, 0, "stdout={} stderr={}", ok.stdout, ok.stderr);
     let bad = prepare("# 作業報告書\n\n根拠 [#3.1.1]\n");
-    assert_eq!(bad.code, 2, "stdout={} stderr={}", bad.stdout, bad.stderr);
+    assert_eq!(bad.code, 1, "stdout={} stderr={}", bad.stdout, bad.stderr);
     assert!(bad.stderr.contains("台帳に無い番号です: #3.1.1"), "stderr={}", bad.stderr);
 
     let _ = std::fs::remove_dir_all(&root);

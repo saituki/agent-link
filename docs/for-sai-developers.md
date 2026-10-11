@@ -194,10 +194,19 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 - `title` / `subtitle`（文字列）・`type_tokens`（`user` / `agent` / `toolCall` / `toolResult` / `thinking` の近似トークン数）。
 - `events[]`（時刻順）: `time`・`type`（上の 5 種）・`name`・`tokens` は必ず持つ。`call_id`・`command`・`preview`（結果の本文の先頭 200 字）・`is_error`・`ids`（呼び出しの入力に出た `#x.y.z`）・`result_tokens` は、その行にあるときだけ出す（無いときは JSON に出さない）。toolCall と、それに対応する toolResult は 1 行にまとめる。対になる toolCall が無い結果だけ `toolResult` の行になる。
-- `cli`（C11）: `calls[]`（`command`・`count`・`errors`。多い順）・`failures[]`（`class` と `count`）・`ids`（`seen` は台帳の異なる番号・`used` は使った異なる番号・`unused` は台帳にあって使わなかった番号）。`failures.class` は `ledger`（結果に `台帳に無い番号です` を含む）・`input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）で、`command` を持つ行（`sai-*` の呼び出し）で `is_error` が true の物だけを数える（`Edit` など他の道具の失敗は数えない）。`cli` が無いのは古い CLI の JSON。
+- `cli`（C11）: `calls[]`（`command`・`count`・`errors`・`help`。多い順）・`failures[]`（`class`・`command`・`count`）・`ids`（`seen` は台帳の異なる番号・`used` は台帳にあって呼び出しの入力に出た番号・`unused` は台帳にあって使わなかった番号。`used + unused == seen`）。
+  - `calls[].count` と `errors` は `--help`・`-h` の呼び出しを除く。その回数は `help` に数える（`count` には入らない・失敗にも数えない）。
+  - 命令名は `command` の語の位置（先頭・`&&`・`|`・改行・`(`・`$(`・`` ` `` の後。`timeout`・`env`・`exec`・`xargs`・`perl -e` の後も含む）の `sai-*` から読む。heredoc の本文と `#` の注釈は読まない。
+  - `failures.class` は `ledger`（結果に `台帳に無い番号です` を含む）・`input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）。`failures.command` は命令名。命令が読めない（`(不明)`）のは、入力に `sai-link`・`sai-sci`・`sai-paper`・`sai-web` の語がある Bash の呼び出しの失敗（`grep sai-paper` のような無関係な呼び出しも入る）。`Edit` など他の道具の失敗は数えない。
+  - `cli` が無いのは古い CLI の JSON。
+- 項目の意味の変更（U04）: `ids.used` は、以前は台帳に無い番号も含めていたが、台帳にある番号だけを数えるように変えた。`cli.calls[].help` と `cli.failures[].command` は足した項目。
 - cc の History は、その run の transcript（`phone_export::resolve_transcript`）を読む。全体で一番新しい cc セッションは使わない。
 
 `--call <CALL_ID> --json` は、その呼び出しの全文 `{"call_id","name","command","input","result","is_error","truncated"}` を返す。`result` は 20000 字までで、超えたら切って `truncated: true`。`--json` を付けないと本文だけの文字を出すので、Web は必ず付ける。見つからなければ終了コード 3。Web の住所は `GET /api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}`（`call_id` は `^[A-Za-z0-9_-]{1,80}$`。通らなければ 400）。
+
+#### `run show <run_id> [--json]`（U04）
+
+`--json` は 1 つの JSON を出す（文字の表示と同じ項目。英小文字の snake_case）。`run_id`・`block_name`・`block_file`・`block_tag`・`block_round`（ブロックの項目。ブロックが無ければ null）・`status`（そのまま。文字の表示は日本語）・`started_at`・`finished_at`・`duration_ms`・`exit_code`・`pane_id`・`error_message`・`git_commit_before`・`git_commit_after`・`session_stats`（セッション統計の JSON の object。無ければ null）・`document_tokens`（出力の文書トークン。文字の表示の「文書トークン」）・`input_document_tokens`（入力の waggle トークン）・`output_content`（空・無しは null）。見つからなければ終了コード 3。`--json` なしは文字の表示（見出しは「文書トークン:」）。
 
 #### `run md <run_id> --kind task|message|report|system [--write]` → `{"kind", "name", "text"}`
 
@@ -558,7 +567,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 #### 見た番号の台帳の照合（C10・`sai-sci op` の `add_f` と `report prepare`）
 
-- `op` の `add_f` の `cites`（`apply` は照合しない）と、`report prepare` が拾う引用は、run の台帳（`<root>/.sai/seen_ids/<run_id>`）と照らす。台帳に無い番号を引いていれば、その op・報告は何も書かず終了コード 2。`op` は agent が動く run の中（`SAI_PARENT_RUN_ID` がある）でだけ照らす。
+- `op` の `add_f` の `cites`（`apply` は照合しない）と、`report prepare` が拾う引用は、run の台帳（`<root>/.sai/seen_ids/<run_id>`）と照らす。台帳に無い番号を引いていれば、その op・報告は何も書かない（`op` は終了コード 2、`report prepare` は終了コード 1 で、文書を保存しない）。`op` は agent が動く run の中（`SAI_PARENT_RUN_ID` がある）でだけ照らす。
 - 標準エラーに `台帳に無い番号です: #37.5.2（この run で CLI が出した番号だけを使えます）` の行が出る。`op` ではこれが最後の行（テストで確かめている）。この語は History の `ledger` の分類に使うので変えない。
 - 台帳は MLflow・実験の台帳（`exp_summary.py`）とは別の物で、論文の番号 `#x.y.z` だけを持つ。
 - run の ID（`SAI_PARENT_RUN_ID`）があるのに台帳のファイルが無いときは、その run は何も見ていないので、空の台帳として照合する（読める `cites` があれば上の文で終了コード 2。`cites` が無ければ通る）。run の ID が無いとき（手で打つ）は照合しない。台帳が読めないとき（権限など）だけ、標準エラーに `台帳を読めませんでした（検査を飛ばします）` を出して通す。
@@ -625,6 +634,15 @@ sai-prep が作った束（C12）は、Web が zip を展開して検査し、�
 - `manifest.json` の形: `{"format": "sai-prep-bundle", "version": 1, "target": {"paper_id": 12} か {"bibtex": "<BibTeX 1 件>"}, "pdf": "paper.pdf", "pdf_sha256": "<64 桁の 16 進>", "docling": {"md", "json", "dir"}, "translation": {"mono", "dual", "service"} か null, "tools": {"sai_prep", "docling", "pdf2zh"}, "created_at"}`。
 - 展開の検査（Web・`bundles.py`）: 項目 5000 以下・展開後 1GB 以下（束そのものは 300MB 以下）・絶対パス・`..`・`\`・NUL・シンボリックリンクは拒む。`pdf_sha256` が PDF と一致すること。
 - `paper download`・`paper get-pdf` は終了コード 4（サーバは PDF を落とさない）。`import-bundle` は Web から 600 秒の上限で呼ばれる（`BUNDLE_TIMEOUT`）。
+
+#### extract.md の画像と本文の読み方（U06）
+
+- 取り込み（`import-bundle`）と Rust で docling を呼ぶ経路は、`extract.md` に base64 の画像（`data:image/…;base64,…`）も画像だけの行も残さない（`chunking::strip_images`）。文中の通常の画像参照（`![x](figures/…)`）は残す。
+- 既にある論文は `sai-paper paper strip-images [<id>…] [--all] --json` で直す。`--all` と ID は一緒に使わない（両方・どちらも無いときは誤り 2）。変わった論文だけ書き直し、PDF より新しい更新時刻を保つ。元には戻せない（docling から作り直せば画像入りに戻る）。2 回目は `before` と `after` が同じになる。
+  - 出力: `{"papers":[{"id","before","after"}],"total_before","total_after"}`。`extract.md` の無い論文は `papers` に入れない。論文の行が無ければ終了コード 3。
+- `sai-paper content read <ID>… --json`（節・塊の本文）の項目: `{"refs","max_chars","truncated","next","passages":[{"id","section","heading","text","n_sentences"}],"empty","empty_refs"}`。
+  - 節はあるが塊が 0 件の節（図や表だけの節）は、終了コード 0 で `empty_refs` に `#<論文>.<節>` を入れる（`empty` は読んだ塊が 1 つも無く、指定がすべて空の節のとき `true`）。テキスト出力は「#43.1 は本文が空です（図や表だけの節の可能性）」。
+  - 論文の行が無いときは終了コード 3「論文が見つかりません: id=N」。論文はあるが `extract.md` が無いときは終了コード 1 のまま（作り方の案内）。
 
 ---
 
@@ -778,6 +796,7 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は
 - cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`SAI_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
 - 承認は `sai-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `sai-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `sai-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
 - cc の費用は cc の statusLine（`sai-link cc-statusline`）が `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
+- cc の 5 時間枠・7 日枠は同じ `sai-link cc-statusline` が `<SAI_HOME>/cc-rate-limits.json` に書く（`{"five_hour":{"used_percentage","resets_at"},"seven_day":{…},"session_id","updated_at"}`。欠けた窓は省く）。`/api/usage` の `cc` は `{"limits": <枠または null>, "cost": {"today","month","sessions"}}`。
 
 ---
 

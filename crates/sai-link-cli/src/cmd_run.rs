@@ -20,7 +20,9 @@ pub(crate) fn run(cmd: RunCmd) -> Result<(), CmdError> {
                 crate::cli::handle_block_list(limit, false).map_err(other_error)
             }
         }
-        RunCmd::Show { run_id } => crate::cli::handle_block_show(run_id).map_err(other_error),
+        RunCmd::Show { run_id, json } => {
+            crate::cli::handle_block_show(run_id, json).map_err(other_error)
+        }
         RunCmd::Tree { json: _ } => print_phone(PhoneCmd::Tree),
         RunCmd::Log { run_id, json: _ } => print_phone(PhoneCmd::Run {
             run_id,

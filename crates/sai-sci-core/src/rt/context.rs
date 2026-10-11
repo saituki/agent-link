@@ -106,8 +106,10 @@ pub fn allowed_ops_text(roots: &PaperRoots, block: &str) -> String {
         }
     }
     lines.push(
-        "出し方: sai-sci op（標準入力に {\"ops\": [...]}）。1 件でも違反があれば何も入りません。"
-            .to_string(),
+        format!(
+            "出し方: sai-sci op（標準入力に {{\"ops\": [...]}}、1 回は {} 件まで）。1 件でも違反があれば何も入りません。",
+            ops::MAX_OPS
+        ),
     );
     lines.join("\n")
 }
@@ -815,6 +817,8 @@ mod tests {
             assert!(none.contains(&format!("- {op}: ")), "{op}");
         }
         assert!(!none.contains("add_q（"));
+        assert!(none.contains("- add_f: A の下に F（根拠）を足す。text は 1〜3 文。"), "{none}");
+        assert!(none.contains("1 回は 20 件まで"), "{none}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 

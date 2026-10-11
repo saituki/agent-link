@@ -11,6 +11,7 @@ API キーは返り値に含めない（画面にも出さない）．
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import time
@@ -30,22 +31,28 @@ ACTIVITY_DAYS = 30
 LOGS_PAGE = 50
 
 
+def _project_names() -> list[str]:
+    """多人数モードで今の利用者のプロジェクトの名前（単独モードでは使わない）。"""
+    names: list[str] = []
+    for project in registry.load_registry():
+        name = str(project.get("name") or "")
+        if name:
+            names.append(name)
+    return names
+
+
 # pi の provider とキーの対応を調べるファイル（42 §3.2）。
-# 多人数モードでは、その人のひな形の HOME の下を見る（単独モードは今までどおり）。
+# 多人数モードでは、プロジェクトごとのコンテナの HOME の下を見る（単独モードは今までどおり）。
 
-def pi_agent_dir() -> Path:
-    """pi の設定の置き場。多人数: `user_home()/.pi/agent`。単独: `~/.pi/agent`。"""
+def pi_agent_dirs() -> list[Path]:
+    """pi の設定の置き場の一覧（先に見つけた方を使う）。
+
+    多人数: 今の利用者のプロジェクトごとの `<project_home>/.pi/agent`（pi の設定はコンテナの HOME に出る）。
+    単独: `~/.pi/agent` 1 つ。
+    """
     if registry.multi_user() and registry.current_user.get() is not None:
-        return registry.user_home() / ".pi" / "agent"
-    return Path.home() / ".pi" / "agent"
-
-
-def pi_models_path() -> Path:
-    return pi_agent_dir() / "models.json"
-
-
-def pi_auth_path() -> Path:
-    return pi_agent_dir() / "auth.json"
+        return [registry.project_home(name) / ".pi" / "agent" for name in _project_names()]
+    return [Path.home() / ".pi" / "agent"]
 
 
 def pi_session_dirs() -> list[Path]:
@@ -60,13 +67,7 @@ def pi_session_dirs() -> list[Path]:
     if env:
         return [Path(env)]
     if registry.multi_user():
-        out: list[Path] = []
-        for project in registry.load_registry():
-            name = str(project.get("name") or "")
-            if not name:
-                continue
-            out.append(registry.project_home(name) / ".pi" / "agent" / "sessions")
-        return out
+        return [registry.project_home(name) / ".pi" / "agent" / "sessions" for name in _project_names()]
     return [Path.home() / ".pi" / "agent" / "sessions"]
 
 
@@ -284,24 +285,31 @@ def _env_name(ref) -> str:
 
 
 def provider_env_map() -> dict[str, str]:
-    """pi の provider 名 → 参照している環境変数名（models.json と auth.json から）．"""
+    """pi の provider 名 → 参照している環境変数名（models.json と auth.json から）．
+
+    置き場が複数あるとき（多人数のプロジェクトごと）は、先に見つけた方を使う。
+    """
     out: dict[str, str] = {}
-    # 個別の provider（openrouter-deepinfra など）は models.json
-    try:
-        models = json.loads(pi_models_path().read_text(encoding="utf-8"))
-        for name, provider in (models.get("providers") or {}).items():
-            if isinstance(provider, dict) and provider.get("apiKey"):
-                out.setdefault(name, _env_name(provider["apiKey"]))
-    except (OSError, json.JSONDecodeError, AttributeError):
-        pass
-    # pi 組み込みの provider（openrouter / deepseek / google）は auth.json
-    try:
-        auth = json.loads(pi_auth_path().read_text(encoding="utf-8"))
-        for name, info in (auth or {}).items():
-            if isinstance(info, dict) and info.get("key"):
-                out[name] = _env_name(info["key"])
-    except (OSError, json.JSONDecodeError, AttributeError):
-        pass
+    for agent in pi_agent_dirs():
+        found: dict[str, str] = {}
+        # 個別の provider（openrouter-deepinfra など）は models.json
+        try:
+            models = json.loads((agent / "models.json").read_text(encoding="utf-8"))
+            for name, provider in (models.get("providers") or {}).items():
+                if isinstance(provider, dict) and provider.get("apiKey"):
+                    found.setdefault(name, _env_name(provider["apiKey"]))
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
+        # pi 組み込みの provider（openrouter / deepseek / google）は auth.json
+        try:
+            auth = json.loads((agent / "auth.json").read_text(encoding="utf-8"))
+            for name, info in (auth or {}).items():
+                if isinstance(info, dict) and info.get("key"):
+                    found[name] = _env_name(info["key"])
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
+        for name, env_var in found.items():
+            out.setdefault(name, env_var)
     return out
 
 
@@ -441,6 +449,111 @@ def unknown_providers(rows: list[dict] | None = None) -> list[dict]:
     return out
 
 
+# --- cc（Claude Code）の枠と費用（sai-link cc-statusline が書く・計画 U02） ---
+
+# statusLine の入力の rate_limits を書いたファイル（`<sai_home>` の直下）
+CC_RATE_FILE = "cc-rate-limits.json"
+# 会話ごとの費用（`<sai_home>/cc-cost/<session_id>.json`）
+CC_COST_DIR = "cc-cost"
+
+
+def cc_homes() -> list[Path]:
+    """cc の記録を置く `<sai_home>` の一覧。
+
+    単独: `registry.sai_home()` 1 つ。多人数: 今の利用者のプロジェクトごとの
+    コンテナの HOME の `.sai`（コンテナの中の `sai_home()` と同じ場所）。
+    """
+    if registry.multi_user():
+        return [registry.project_home(name) / ".sai" for name in _project_names()]
+    return [registry.sai_home()]
+
+
+def _is_num(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _read_json_file(path: Path) -> dict | None:
+    """JSON のオブジェクトを読む（無い・壊れている・オブジェクトでないなら None）。"""
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _iso_epoch(text) -> float | None:
+    """`2026-10-11T07:00:00Z`（UTC）→ 秒（読めなければ None）。"""
+    if not isinstance(text, str):
+        return None
+    try:
+        return float(calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ")))
+    except ValueError:
+        return None
+
+
+def cc_limits(homes: list[Path], now: float) -> dict | None:
+    """5 時間枠・7 日枠の値（各 home の `cc-rate-limits.json` のうち `updated_at` が一番新しいもの）。
+
+    戻る時刻（`resets_at`）を過ぎた窓は今の値ではないので落とす。1 つも残らなければ None。
+    """
+    newest: tuple[float, dict] | None = None
+    for home in homes:
+        body = _read_json_file(home / CC_RATE_FILE)
+        at = _iso_epoch(body.get("updated_at")) if body else None
+        if at is not None and (newest is None or at > newest[0]):
+            newest = (at, body)
+    if newest is None:
+        return None
+    body = newest[1]
+    out: dict = {}
+    for key in ("five_hour", "seven_day"):
+        win = body.get(key)
+        if not isinstance(win, dict) or not _is_num(win.get("used_percentage")):
+            continue
+        resets = win.get("resets_at") if _is_num(win.get("resets_at")) else None
+        if resets is not None and resets < now:
+            continue
+        out[key] = {"used_percentage": float(win["used_percentage"]), "resets_at": resets}
+    if not out:
+        return None
+    out["updated_at"] = body["updated_at"]
+    return out
+
+
+def cc_cost(homes: list[Path], now: float) -> dict:
+    """cc の費用の合計（今日・今月・今月の会話数）。読めないファイルは飛ばす。
+
+    日付は `updated_at` をサーバの現地時刻で割る（``date_key`` と同じ）。
+    # ponytail: total_cost_usd は会話ごとの累計なので、日をまたいだ会話は最後に更新した日に全額が入る。日ごとに正しく割るなら差分を記録する
+    """
+    today = date_key(now * 1000)
+    month = today[:7]
+    out = {"today": 0.0, "month": 0.0, "sessions": 0}
+    for home in homes:
+        for path in (home / CC_COST_DIR).glob("*.json"):
+            body = _read_json_file(path)
+            at = _iso_epoch(body.get("updated_at")) if body else None
+            if at is None or not _is_num(body.get("total_cost_usd")):
+                continue
+            day = date_key(at * 1000)
+            if day[:7] != month:
+                continue
+            out["sessions"] += 1
+            out["month"] += float(body["total_cost_usd"])
+            if day == today:
+                out["today"] += float(body["total_cost_usd"])
+    out["today"] = round(out["today"], 6)
+    out["month"] = round(out["month"], 6)
+    return out
+
+
+def cc_card(homes: list[Path] | None = None, now: float | None = None) -> dict:
+    """Claude（cc）のカード（枠の値と費用・計画 U02）。枠の値が無いときは ``limits`` が None。"""
+    now = time.time() if now is None else now
+    homes = cc_homes() if homes is None else homes
+    return {"limits": cc_limits(homes, now), "cost": cc_cost(homes, now)}
+
+
 # --- まとめ（API が返す形・42 §3.3） ---
 
 
@@ -457,6 +570,7 @@ def summary(refresh: bool = False) -> dict:
     deepseek = deepseek_balance()
     deepseek["usage"] = usage_totals(filter_rows(pi_calls(), "deepseek", "deepseek"))
     body = {
+        "cc": cc_card(),
         "openrouter": [
             openrouter_card(a["name"], a["env"]) for a in openrouter_accounts()
         ],

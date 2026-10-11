@@ -9,7 +9,8 @@
 - `SAI_WEB_URL` の値に送る
 - 答えが来ないまま `open` でなくなったら「利用者は答えませんでした。」
 - 答えが取れたら，`SAI_PARENT_RUN_ID` があるときだけ `sai-sci approval record` を呼ぶ（U04・C8）
-  失敗しても allow を返す
+  引数は `--name=value` の形（`-` で始まる答えも）。終了コード 4 は記録済みとして allow。
+  3 回試して記録できなければ答えを理由文に入れた deny
 
 実行:
     PYTHONPATH=apps/web/src apps/web/.venv/bin/python apps/web/tests/test_cc_question_hook.py
@@ -17,6 +18,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -50,6 +52,13 @@ ANSWERED_STATE = {
 }
 RESOLVED_STATE = {"state": "resolved_elsewhere", "questions": QUESTIONS}
 ANSWERED_BY_STATE = {**ANSWERED_STATE, "answered_by": "saituki"}
+# 自由記述（Other）で `-` で始まる答え
+ANSWERED_DASH_STATE = {
+    "state": "answered",
+    "questions": QUESTIONS,
+    "answer": {"answers": [{"text": "-緑"}]},
+    "answered_by": "saituki",
+}
 
 
 class FakeWeb:
@@ -205,12 +214,123 @@ def test_registration_failure_is_silent() -> None:
 
 
 def make_fake_sai_sci(dir: Path, exit_code: int) -> tuple[Path, Path]:
-    """渡された引数を 1 行ずつ log に書き，exit_code で終わる偽の sai-sci を作る。"""
+    """渡された引数を 1 行ずつ log に書き，呼ばれるたびに calls.log に 1 行足し，exit_code で終わる偽の sai-sci を作る。"""
     log = dir / "args.log"
+    calls = dir / "calls.log"
     script = dir / "sai-sci"
-    script.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$@" > "{log}"\nexit {exit_code}\n', encoding="utf-8")
+    script.write_text(
+        f'#!/bin/sh\nprintf \'%s\\n\' "$@" > "{log}"\necho call >> "{calls}"\n'
+        f"echo 偽の失敗 >&2\nexit {exit_code}\n",
+        encoding="utf-8",
+    )
     script.chmod(0o755)
     return script, log
+
+
+def load_hook():
+    """cc_question.py を import する（`__main__` の外の関数を直接確かめる）。"""
+    spec = importlib.util.spec_from_file_location("cc_question", HOOK_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_free_text_answer_becomes_answers() -> None:
+    """自由記述（Other）の答えは `{質問: 答え}` の答えになる（`-` で始まっても同じ）。"""
+    hook = load_hook()
+    data = {"state": "answered", "answer": {"answers": [{"text": "緑"}]}}
+    assert hook.answers_from_state(data, QUESTIONS) == {"好きな色は？": "緑"}
+    data = {"state": "answered", "answer": {"answers": [{"text": "-緑"}]}}
+    assert hook.answers_from_state(data, QUESTIONS) == {"好きな色は？": "-緑"}
+
+
+def test_dash_answer_is_passed_as_name_value() -> None:
+    """`-` で始まる答えも、approval record の引数はすべて `--name=value` の形で渡る（AC1）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        script, log = make_fake_sai_sci(Path(tmp), exit_code=0)
+        web = FakeWeb([OPEN_STATE, ANSWERED_DASH_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(script)},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
+        args = log.read_text(encoding="utf-8").splitlines()
+        assert args == [
+            "approval",
+            "record",
+            "--qid=q-test",
+            "--question=好きな色は？",
+            "--answer=-緑",
+            "--answered-by=saituki",
+        ], args
+        assert all("=" in a for a in args if a.startswith("--")), args
+
+
+def test_record_three_failures_denies_with_answer() -> None:
+    """記録が 3 回失敗したら deny。理由文に答えと失敗の理由が入り、3 回試している（AC2）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        script, _log = make_fake_sai_sci(Path(tmp), exit_code=1)
+        web = FakeWeb([OPEN_STATE, ANSWERED_DASH_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(script)},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        hook = json.loads(out)["hookSpecificOutput"]
+        assert hook["permissionDecision"] == "deny", hook
+        assert "updatedInput" not in hook, hook
+        reason = hook["permissionDecisionReason"]
+        assert "好きな色は？: -緑" in reason, repr(reason)
+        assert "承認の記録に失敗しました" in reason, repr(reason)
+        assert "終了コード 1" in reason, repr(reason)
+        calls = (Path(tmp) / "calls.log").read_text(encoding="utf-8").splitlines()
+        assert len(calls) == 3, calls
+
+
+def test_record_exit4_is_success() -> None:
+    """終了コード 4（同じ qid が既にある）は記録済みとして allow。試し直さない。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        script, _log = make_fake_sai_sci(Path(tmp), exit_code=4)
+        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(script)},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
+        calls = (Path(tmp) / "calls.log").read_text(encoding="utf-8").splitlines()
+        assert len(calls) == 1, calls
+
+
+def test_record_cannot_run_denies() -> None:
+    """sai-sci を呼べないときも 3 回試して deny（答えは理由文に残る）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
+        try:
+            code, out = run_hook(
+                web.port,
+                token=None,
+                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(Path(tmp) / "no-such-sai-sci")},
+            )
+        finally:
+            web.close()
+        assert code == 0, code
+        hook = json.loads(out)["hookSpecificOutput"]
+        assert hook["permissionDecision"] == "deny", hook
+        assert "呼べませんでした" in hook["permissionDecisionReason"], hook
 
 
 def test_answered_calls_approval_record() -> None:
@@ -233,14 +353,10 @@ def test_answered_calls_approval_record() -> None:
         assert args == [
             "approval",
             "record",
-            "--qid",
-            "q-test",
-            "--question",
-            "好きな色は？",
-            "--answer",
-            "青",
-            "--answered-by",
-            "saituki",
+            "--qid=q-test",
+            "--question=好きな色は？",
+            "--answer=青",
+            "--answered-by=saituki",
         ], args
 
 
@@ -258,37 +374,6 @@ def test_no_run_id_skips_record() -> None:
         assert not log.exists(), "親の run が無いのに approval record を呼びました"
 
 
-def test_record_failure_is_ignored() -> None:
-    """approval record が失敗しても（終了コード 4・呼べない）allow は返す。"""
-    with tempfile.TemporaryDirectory() as tmp:
-        script, log = make_fake_sai_sci(Path(tmp), exit_code=4)
-        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
-        try:
-            code, out = run_hook(
-                web.port,
-                token=None,
-                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(script)},
-            )
-        finally:
-            web.close()
-        assert code == 0, code
-        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
-        assert log.exists(), "approval record が呼ばれていません"
-
-        # 実行できない場所を指しても同じ（allow のまま）
-        web = FakeWeb([OPEN_STATE, ANSWERED_BY_STATE])
-        try:
-            code, out = run_hook(
-                web.port,
-                token=None,
-                extra_env={"SAI_PARENT_RUN_ID": "61", "SAI_SCI_BIN": str(Path(tmp) / "no-such-sai-sci")},
-            )
-        finally:
-            web.close()
-        assert code == 0, code
-        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow", out
-
-
 if __name__ == "__main__":
     test_answered_returns_allow_with_updated_input()
     test_deny_mode_returns_reason_with_answer()
@@ -297,5 +382,9 @@ if __name__ == "__main__":
     test_registration_failure_is_silent()
     test_answered_calls_approval_record()
     test_no_run_id_skips_record()
-    test_record_failure_is_ignored()
+    test_free_text_answer_becomes_answers()
+    test_dash_answer_is_passed_as_name_value()
+    test_record_three_failures_denies_with_answer()
+    test_record_exit4_is_success()
+    test_record_cannot_run_denies()
     print("test_cc_question_hook: すべて通りました")

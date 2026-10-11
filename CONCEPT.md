@@ -315,7 +315,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 | 用語 | 意味 | どこにあるか |
 |---|---|---|
 | **見た番号の台帳**（`seen_ids`） | run ごとに「agent が CLI で見た論文の番号（`#37`・`#37.5`・`#37.5.2`）」を 1 行 1 つ追記するファイル。agent が見ていない番号を引用する（作り話の引用）のを止める。MLflow とは別の物。 | `<root>/.sai/seen_ids/<run_id>`。`sai-paper`・`sai-sci` が出力した番号、`sai-link` が run の最初の文と `doc read` の本文の番号を書く |
-| **台帳の照合** | `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用の番号を、見た番号の台帳と照らす。無い番号があれば何も書かず終了コード 2（`台帳に無い番号です: …`）。節・塊は完全一致、論文（`#37`）は `#37` か `#37.*` があれば通る。 | `crates/sai-paper-core/src/seen_ids.rs` の `check_for` |
+| **台帳の照合** | `sai-sci op` の `add_f` の `cites` と、`sai-sci report prepare` の引用の番号を、見た番号の台帳と照らす。無い番号があれば何も書かず（`op` は終了コード 2、`report prepare` は終了コード 1 で保存しない。`台帳に無い番号です: …`）。節・塊は完全一致、論文（`#37`）は `#37` か `#37.*` があれば通る。 | `crates/sai-paper-core/src/seen_ids.rs` の `check_for` |
 | **実験の台帳**（`exp_summary.py`） | 実験（MLflow）の記録を集計して、最良・格子の端・失敗などを出す道具。見た番号の台帳とは別の物。 | `.sai/tools/exp_summary.py`・`exp-core` §5 |
 | **CLI の呼び出し（History）** | run の transcript の toolCall と toolResult を 1 行にまとめた物。命令名（`sai-paper …` など）・結果の先頭 200 字（`preview`）・`is_error`・入力に使った番号を持つ。全文（2 万字まで）は `--call` で取る。 | `sai-link run history <run_id> --json`。Web の run の History |
 | **cli 集計** | 呼び出しの数・失敗の分類（`sai-*` の呼び出しだけ数える。`ledger`・`input`・`not_found`・`conflict`・`other`）・番号の使用/未使用（`seen`・`used`・`unused`）。`kaizen` が読んで改善計画書に書く。 | `run history` の `cli` |
