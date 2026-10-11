@@ -324,11 +324,11 @@ function libraryFindHash(id) {
 /** 内部検索の条件の要約（例: hybrid · all · 10 件 · Q12）。指定が無いものは出さない。 */
 function lfindSummary(state) {
   const parts = [];
-  const modeLabel = { word: "単語", vector: "意味", hybrid: "両方" }[(state && state.mode) || ""];
+  const modeLabel = { word: "Word", vector: "Semantic", hybrid: "Hybrid" }[(state && state.mode) || ""];
   if (modeLabel) parts.push(modeLabel);
-  const scopeLabel = { papers: "論文", notes: "ノート", figures: "図", all: "全部" }[(state && state.scope) || ""];
+  const scopeLabel = { papers: "Papers", notes: "Notes", figures: "Figures", all: "All" }[(state && state.scope) || ""];
   if (scopeLabel) parts.push(scopeLabel);
-  if (state && state.count != null && state.count !== "") parts.push(`${state.count} 件`);
+  if (state && state.count != null && state.count !== "") parts.push(`${state.count}`);
   if (state && state.node) parts.push(String(state.node));
   return parts.join(" · ");
 }
@@ -2172,9 +2172,9 @@ function lfindMetaLine(log) {
   const bits = [];
   if (l.date) bits.push(String(l.date));
   const cond = [];
-  const modeLabel = { word: "単語", vector: "意味", hybrid: "両方" }[String(l.mode || "")];
+  const modeLabel = { word: "Word", vector: "Semantic", hybrid: "Hybrid" }[String(l.mode || "")];
   if (modeLabel) cond.push(modeLabel);
-  const scopeLabel = { papers: "論文", notes: "ノート", figures: "図", all: "全部" }[String(l.scope || "")];
+  const scopeLabel = { papers: "Papers", notes: "Notes", figures: "Figures", all: "All" }[String(l.scope || "")];
   if (scopeLabel) cond.push(scopeLabel);
   if (l.top_k != null && l.top_k !== "") cond.push(`${l.top_k} 件`);
   if (cond.length > 0) bits.push(cond.join(" · "));
@@ -2350,7 +2350,7 @@ function lfindOpenPaperSheet() {
   const body = document.createElement("div");
   const search = document.createElement("input");
   search.type = "search";
-  search.placeholder = "題名で絞り込み";
+  search.placeholder = "Filter by title";
   search.className = "papers-sheet-filter";
   body.appendChild(search);
   const list = document.createElement("div");
@@ -2364,21 +2364,20 @@ function lfindOpenPaperSheet() {
       return String(p.title || "").toLowerCase().includes(q);
     }).slice(0, 100);
     for (const p of rows) {
-      const item = document.createElement("button");
-      item.type = "button";
+      const item = document.createElement("label");
       item.className = "papers-sheet-item" + (picked.has(Number(p.id)) ? " active" : "");
-      const check = document.createElement("span");
-      check.className = "papers-sheet-check";
-      check.textContent = picked.has(Number(p.id)) ? "✓" : "";
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.checked = picked.has(Number(p.id));
       item.appendChild(check);
       const label = document.createElement("span");
       label.textContent = `${p.title || "(無題)"}${p.year ? ` (${p.year})` : ""}`;
       item.appendChild(label);
-      item.addEventListener("click", () => {
+      check.addEventListener("change", () => {
         const id = Number(p.id);
-        if (picked.has(id)) picked.delete(id);
+        if (!check.checked) picked.delete(id);
         else {
-          if (picked.size >= 20) return;
+          if (picked.size >= 20) { check.checked = false; return; }
           picked.add(id);
         }
         libFindPapers = [...picked];
@@ -2395,7 +2394,7 @@ function lfindOpenPaperSheet() {
   };
   search.addEventListener("input", draw);
   draw();
-  saiSheet({ title: "論文を選ぶ（20 本まで）", body });
+  saiSheet({ title: "Select papers (max 20)", body });
 }
 
 // --- 狭い画面の内部検索の結果（#/papers/find/<name>/<log_id>） ---

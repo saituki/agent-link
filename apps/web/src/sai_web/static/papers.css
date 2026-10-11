@@ -500,8 +500,8 @@
 .papers-cond[hidden], #discover-status[hidden] { display: none; }
 
 /* U03: Library 内の検索（内部 DB）。外／内の切り替えは dash-seg をそのまま使う */
-#library-kind { margin-bottom: 8px; width: 200px; }
-#library-kind button { white-space: nowrap; }
+#library-kind { margin: 10px 16px 0; width: fit-content; }
+#library-kind button { white-space: nowrap; padding: 5px 14px; }
 #find-papers-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .find-chip {
   display: inline-flex;

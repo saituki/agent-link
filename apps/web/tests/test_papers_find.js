@@ -96,9 +96,9 @@ function testLfindBodyNg() {
 }
 
 function testSummary() {
-  assert.strictEqual(lfindSummary({ mode: "hybrid", scope: "all", count: 10, node: "Q12" }), "両方 · 全部 · 10 件 · Q12");
-  assert.strictEqual(lfindSummary({ mode: "", scope: "", count: 10, node: "" }), "10 件");
-  assert.strictEqual(lfindSummary({ mode: "word", scope: "papers", count: 20, node: "" }), "単語 · 論文 · 20 件");
+  assert.strictEqual(lfindSummary({ mode: "hybrid", scope: "all", count: 10, node: "Q12" }), "Hybrid · All · 10 · Q12");
+  assert.strictEqual(lfindSummary({ mode: "", scope: "", count: 10, node: "" }), "10");
+  assert.strictEqual(lfindSummary({ mode: "word", scope: "papers", count: 20, node: "" }), "Word · Papers · 20");
 }
 
 function testHash() {

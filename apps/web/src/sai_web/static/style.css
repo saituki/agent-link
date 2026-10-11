@@ -1552,8 +1552,9 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 /* 条件の中身（検索先・年・件数・08 §4.1） */
 .papers-cond {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  flex-flow: row wrap;
+  align-items: flex-start;
+  gap: 12px 20px;
   padding: 4px 16px 10px;
 }
 .papers-cond-label {
@@ -1633,7 +1634,10 @@ body.tabbar-hidden .mini-player { padding-bottom: env(safe-area-inset-bottom); }
 }
 .papers-sheet-item:active { background: var(--bg-soft); }
 .papers-sheet-item.active { color: var(--accent); font-weight: 600; }
-.papers-sheet-check { width: 1em; color: var(--accent); }
+.papers-sheet-item input { flex: none; width: 18px; height: 18px; accent-color: var(--accent); }
+.papers-cond .dash-seg.small { width: auto; }
+.papers-cond .dash-seg.small button { padding: 4px 10px; }
+.papers-cond > p { flex-basis: 100%; }
 .papers-years { display: flex; align-items: center; gap: 8px; }
 .papers-years input {
   width: 104px;
