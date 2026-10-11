@@ -132,7 +132,7 @@ def _cmd_serve(a) -> int:
 
 def _cmd_init(a):
     res = init_mod.init(a.update)
-    return res, f"ts/ を用意しました: {res['ts_root']}（block ts-agent: {res['block']}）"
+    return res, f"ts/ を用意しました: {res['ts_root']}（block ts-engineer: {res['block']}）"
 
 
 def _cmd_demo(a):
@@ -281,8 +281,8 @@ def _build() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, help="待ち受けの番号（既定は環境変数 SAI_TS_PORT、無ければ 8210）")
     sp.set_defaults(func=_cmd_serve)
 
-    sp = _new(subs, "init", "ts/ を作り、block ts-agent を sai-link の定義に入れる")
-    sp.add_argument("--update", action="store_true", help="既にある block ts-agent を書き換える")
+    sp = _new(subs, "init", "ts/ を作り、block ts-engineer を sai-link の定義に入れる")
+    sp.add_argument("--update", action="store_true", help="既にある block ts-engineer を書き換える")
     sp.set_defaults(func=_run(_cmd_init))
 
     sp = _new(subs, "demo", "合成データを作る（試すための物。ts/datasets/<ds>）")

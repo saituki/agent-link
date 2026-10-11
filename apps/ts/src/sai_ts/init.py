@@ -1,4 +1,7 @@
-"""sai-ts init（C12）。ts/ を作り、block ts-agent を sai-link の定義に入れる。"""
+"""sai-ts init（C12）。ts/ を作り、block ts-engineer を sai-link の定義に入れる。
+
+既存の利用者のプロジェクトの block ts-agent（旧）は消さない（利用者の物）。
+"""
 
 from __future__ import annotations
 
@@ -6,8 +9,8 @@ from pathlib import Path
 
 from . import linkcli, paths
 
-BLOCK = Path(__file__).resolve().parents[2] / "blocks" / "ts-agent.md"
-WRITE = ["def", "write", "--kind", "block", "--scope", "project", "--name", "ts-agent", "--json"]
+BLOCK = Path(__file__).resolve().parents[2] / "blocks" / "ts-engineer.md"
+WRITE = ["def", "write", "--kind", "block", "--scope", "project", "--name", "ts-engineer", "--json"]
 
 
 def init(update: bool) -> dict:
