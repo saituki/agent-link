@@ -49,7 +49,7 @@ _ANSI_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z]
 # 次の "https://" の手前で切る（OSC 8 で同じ URL が続けて出ても 1 つにする）
 _URL_RE = re.compile(r"https://(?:(?!https://)\S)+?/oauth/(?:(?!https://)\S)+")
 _SUCCESS = "Login successful."
-_FAILURES = ("Login interrupted", "timed out", "error")
+_FAILURES = ("Login interrupted", "timed out", "error", "Invalid code")
 
 
 def _container_name(user: str) -> str:

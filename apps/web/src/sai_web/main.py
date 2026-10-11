@@ -799,7 +799,7 @@ def api_run_items(
     # 多人数モードでは、今の利用者の置き場の外を指す会話の記録は読まない
     if transcript and registry.multi_user() and not registry.within_user(transcript):
         raise HTTPException(status_code=404, detail="会話の記録が見つかりません")
-    path = Path(transcript) if transcript else None
+    path = registry.host_transcript(transcript) if transcript else None
     if path is None or not path.exists():
         # 記録の場所がまだ書き出されていない・まだ書かれていない（起動直後など）。
         # 404 にすると画面が「オフライン」になり質問カードも読まなくなるので空で返す。
