@@ -17,7 +17,8 @@ use super::{Kind, Result, fmt_id, parse_id_of};
 pub struct StepsJson {
     /// step の数（`steps` の長さ）。
     pub total: usize,
-    pub steps: Vec<StepJson>,
+    /// 1 番目の要素が step 1。
+    pub list: Vec<StepJson>,
     /// 全 Node（消えた Node も）。ID の数の昇順。
     pub nodes: Vec<NodeStepJson>,
     /// 消えた Node の中身。ID の数の昇順。
@@ -251,7 +252,7 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
         .collect();
     Ok(StepsJson {
         total: steps.len(),
-        steps,
+        list: steps,
         nodes: node_steps,
         removed,
     })
@@ -409,7 +410,7 @@ mod tests {
         let d6 = add(conn, Kind::D, None, "2026-10-01 00:00:01");
         let st = build(conn).unwrap();
         assert_eq!(st.total, 6);
-        let ops: Vec<&str> = st.steps.iter().map(|s| s.op.as_str()).collect();
+        let ops: Vec<&str> = st.list.iter().map(|s| s.op.as_str()).collect();
         assert_eq!(
             ops,
             ["add_q", "add_a", "add_f", "add_e", "add_sprout", "add_seed"]
@@ -442,8 +443,8 @@ mod tests {
             let (database, [q1, a2, a3, q4]) = insert_q_db(with_ids);
             let st = build(database.connection()).unwrap();
             assert_eq!(st.total, 4);
-            assert_eq!(st.steps[3].op, "insert_q");
-            assert_eq!(st.steps[3].node, fmt_id(Kind::Q, q4));
+            assert_eq!(st.list[3].op, "insert_q");
+            assert_eq!(st.list[3].node, fmt_id(Kind::Q, q4));
             assert_eq!(hist(&st, Kind::A, a2), vec![(2, q(q1)), (4, q(q4))]);
             assert_eq!(hist(&st, Kind::A, a3), vec![(3, q(q1)), (4, q(q4))]);
             assert_eq!(hist(&st, Kind::Q, q4), vec![(4, q(q1))]);
@@ -469,8 +470,8 @@ mod tests {
         log(conn, q5, "move_a", &detail, "user", T5);
         let st = build(conn).unwrap();
         assert_eq!(st.total, 5);
-        assert_eq!(st.steps[4].op, "move_a");
-        assert_eq!(st.steps[4].node, fmt_id(Kind::Q, q5));
+        assert_eq!(st.list[4].op, "move_a");
+        assert_eq!(st.list[4].node, fmt_id(Kind::Q, q5));
         assert_eq!(hist(&st, Kind::A, a2), vec![(2, q(q1)), (5, q(q5))]);
         assert_eq!(hist(&st, Kind::A, a3), vec![(3, q(q1)), (5, q(q5))]);
     }
@@ -511,9 +512,9 @@ mod tests {
         log(conn, a2, "remove", "", "saituki", T0);
         let st = build(conn).unwrap();
         assert_eq!(st.total, 5);
-        assert_eq!(st.steps[4].op, "remove");
-        assert_eq!(st.steps[4].by, "saituki");
-        assert_eq!(st.steps[4].node, fmt_id(Kind::A, a2));
+        assert_eq!(st.list[4].op, "remove");
+        assert_eq!(st.list[4].by, "saituki");
+        assert_eq!(st.list[4].node, fmt_id(Kind::A, a2));
         // nodes は q1・a2・f3・q4 の順。消えた a2 と f3 は同じ step、q1 と q4 は生きたまま。
         assert_eq!(
             st.nodes.iter().map(|n| n.gone).collect::<Vec<_>>(),
@@ -549,7 +550,7 @@ mod tests {
         .unwrap();
         log(conn, x, "remove", "", "user", T0);
         let st = build(conn).unwrap();
-        let ops: Vec<&str> = st.steps.iter().map(|s| s.op.as_str()).collect();
+        let ops: Vec<&str> = st.list.iter().map(|s| s.op.as_str()).collect();
         assert_eq!(
             ops,
             ["add_q", "add_a", "add_q", "add_q", "move_a", "remove"]

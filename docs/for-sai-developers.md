@@ -474,7 +474,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 | 直下 | `next[]` | NextAction の配列 | 「Next Action」の行と CARD 作成の種 | 出ない |
 | 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at","approved_by","qid","question"}` | 決定の記録（新しい順 30 件。画面は `history[]` を使う） | ― |
 | 直下 | `history[]` | `{"node","node_text","action","at","by","run_id","block","global_round","round","approved_by","qid","question"}` | 全 Node の History（`Add *` を除き古い順）。Research 画面の「History」 | History が出ない |
-| 直下 | `steps` | `{"total","steps[]","nodes[]","removed[]"}`（下の「steps」） | 時系列。step を送って任意の時点の木を描き直す（Web の画面は U02） | 空（`total` 0。始めていないとき） |
+| 直下 | `steps` | `{"total","list[]","nodes[]","removed[]"}`（下の「steps」） | 時系列。step を送って任意の時点の木を描き直す（Web の画面は U02） | 空（`total` 0。始めていないとき） |
 | 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
 | ― | 始めていないとき | | `type`・`seed` は `null`、配列は空、数は 0 | ― |
@@ -483,7 +483,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 
 **steps**（`status.steps`。始めているときだけ作る。作る所は `crates/sai-sci-core/src/rt/steps.rs`）
 
-- 成功した op 1 回が 1 step。`n` は 1 から振る。`steps[]` は `{"n","at","op","by","node"}` で、`at` は RFC3339 UTC。`op` は `add_q`・`add_a`・`add_f`・`add_e`・`add_sprout`・`add_seed`・`insert_q`・`copy`・`move_a`・`remove`。`node` は作られた・動いた・消えた Node（消去は根の Node）。`by` は作った人・動かした人・消した人。
+- 成功した op 1 回が 1 step。`n` は 1 から振る。`list[]`（1 番目が step 1）は `{"n","at","op","by","node"}` で、`at` は RFC3339 UTC。`op` は `add_q`・`add_a`・`add_f`・`add_e`・`add_sprout`・`add_seed`・`insert_q`・`copy`・`move_a`・`remove`。`node` は作られた・動いた・消えた Node（消去は根の Node）。`by` は作った人・動かした人・消した人。
 - `insert_q` は Q の作成と A の移動が 1 step。`copy` は A の作成が `copy`、F は 1 Node ごとに `add_f`。
 - `nodes[]`（消えた Node も。ID の数の昇順）は `{"id","born","gone","parents":[{"step","parent"}]}`。`gone` は消えた step（生きていれば null）。`parents` の先頭は `{step: born, parent: 生まれたときの親}`、その後は付け替えのあった step の昇順。
 - step `k` に Node が見えるのは `born <= k` かつ（`gone` が null または `gone > k`）のとき。その step の親は、`parents` のうち `step <= k` の最後の `parent`。
