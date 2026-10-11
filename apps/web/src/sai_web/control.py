@@ -415,7 +415,7 @@ def phone_search(
     to_id: int | None = None,
     limit: int = 50,
 ) -> dict:
-    """`sai-link phone search`（task / message / waggle の本文検索・Dashboard の検索）。
+    """`sai-link phone search`（task / message / waggle の本文検索・会話検索の画面の文書の検索）。
 
     外から来る値は CLI を呼ぶ前に全部確かめる（通らなければ 400）。
     """

@@ -274,7 +274,7 @@
 | `app.js` | 切り替えの本体・Chats（日付・実行・メッセージ）・タブ |
 | `home.js` | Home |
 | `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
-| `commands.js` / `sessionsearch.js` / `dashsearch.js` | 「コマンド」画面・セッション検索・Dashboard の文書検索 |
+| `commands.js` / `sessionsearch.js` | 「コマンド」画面・セッション検索（会話の検索と、文書（task / message / waggle）の本文検索を同じ画面で） |
 | `papers.js` / `paperimport.js` / `cite.js` | Papers（Dashboard・Library・Import・Radio の 4 つ。Library は `外部 DB` / `内部 DB` / `Paper` の切り替えと、論文詳細のチャンク一覧。引用・「＋ Library に入れる」・PDF 待ち） |
 | `account.js` | 多人数モードの画面（`#/login`・`#/password`・`#/account`・`#/admin`） |
 | `newchat.js` | Chats の新しいチャット（生成中の文・中断） |
