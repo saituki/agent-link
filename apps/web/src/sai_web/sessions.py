@@ -647,9 +647,27 @@ def _is_tool_error_cc(block: dict) -> bool:
     return False
 
 
+def _append_queued_prompt(row: dict, items: list[dict]) -> None:
+    """実行中に送った文（cc の待ち行列の文）を user の項目にする．task-notification は出さない．"""
+    att = row.get("attachment")
+    if row.get("isSidechain") is True or not isinstance(att, dict):
+        return
+    if att.get("type") != "queued_command" or att.get("commandMode") != "prompt":
+        return
+    prompt = att.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return
+    timestamp = row.get("timestamp") or att.get("timestamp") or ""
+    _append_text_items(prompt, row.get("uuid") or "", timestamp, items)
+
+
 def _convert_claude_row(row: dict, items: list[dict], pending: dict[str, dict]) -> None:
     """cc の1行を items に足す．表示しない行は捨てる．"""
     row_type = row.get("type")
+    if row_type == "attachment":
+        # 実行中に送った文は cc が待ち行列に書く（03 §3・queued_command）
+        _append_queued_prompt(row, items)
+        return
     if row_type not in ("user", "assistant"):
         return
     # subagent の作業は既定では表示しない

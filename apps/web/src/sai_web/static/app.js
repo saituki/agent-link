@@ -759,8 +759,9 @@ async function loadRunMeta() {
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id
     );
-    // ⏸ 中断は生成中（live が working）のときだけ出す（U04 §3）
-    document.getElementById("interrupt-button").hidden = data.live !== "working";
+    // ⏸ 中断は会話が続いているあいだ出す。live は状態ファイルの都合で working とずれるため，
+    // 終わった（null）ときだけ隠す。idle に esc を送っても入力欄が空なら何も起きない（U04 §3）
+    document.getElementById("interrupt-button").hidden = data.live == null;
     updateComposer();
     // live が変わったら更新の間隔を取り直す（生成中は 1 秒ごと・U04 §2）
     if (prevLive !== data.live) { intervalMs = baseInterval(); rearm(); }
@@ -1109,6 +1110,8 @@ async function submitAnswers(q, state, card, submitBtn) {
 }
 
 function appendItems(items) {
+  // 記録に現れた文の「反映待ち」の印は消す（描き直しは末尾へ寄るが，下の placeOverlays で一番下に戻る）
+  if (settleReflectedSends(items)) renderPendingMarks();
   // 最初は末尾200項目だけ（数千項目を一度に描くと固まるため）。
   // 上スクロールでの追加読み込みは後の段階で足す（今は全件末尾寄せ）。
   const fresh = items.filter((i) => i && i.id && !knownIds.has(i.id));
@@ -1653,17 +1656,21 @@ function queuePendingSend(text) {
 
 function renderPendingMarks() {
   document.querySelectorAll(".pending-send").forEach((el) => el.remove());
-  const mine = loadPendingSends().filter((p) => p.key === currentRunKey());
-  if (mine.length === 0) return;
+  const key = currentRunKey();
+  const marks = [
+    ...loadPendingSends().map((p) => ({ ...p, label: "送信待ち" })),
+    ...takeReflected(loadReflectedSends(), key, [], Date.now()).map((p) => ({ ...p, label: "反映待ち" })),
+  ].filter((p) => p.key === key).sort((a, b) => (a.at || 0) - (b.at || 0));
+  if (marks.length === 0) return;
   const box = document.getElementById("chat-list");
-  for (const p of mine) {
+  for (const p of marks) {
     const div = document.createElement("div");
     div.className = "bubble-user pending-send";
     const body = document.createElement("div");
     body.textContent = p.text;
     const mark = document.createElement("div");
     mark.className = "pending-mark";
-    mark.textContent = "送信待ち";
+    mark.textContent = p.label;
     div.append(body, mark);
     box.appendChild(div);
   }
@@ -1678,6 +1685,7 @@ async function flushPendingSends() {
   if (mine.length === 0) return;
   const rest = arr.filter((p) => p.key !== key);
   const failed = [];
+  const sent = [];
   for (const p of mine) {
     try {
       const res = await apiFetch(`${runApiBase()}/send`, {
@@ -1686,11 +1694,64 @@ async function flushPendingSends() {
         body: JSON.stringify({ text: p.text }),
       });
       if (!res.ok) { failed.push(p); break; }
+      sent.push(p);
     } catch { failed.push(p); break; }
   }
   savePendingSends([...rest, ...failed]);
+  if (sent.length) queueReflectedSends(sent.map((p) => p.text));
   document.querySelectorAll(".pending-send").forEach((el) => el.remove());
   renderPendingMarks();
+}
+
+// --- 反映待ち（送信は届いたが，cc が取り込んで記録に現れるまでの文） ---
+// 送信の成功のあと，取り込まれて記録に現れる（user の項目になる）まで残す。
+// 取り込まれずに終わったときに残り続けないよう 10 分で消す。
+const REFLECT_KEY = "sai_web_sent_unreflected";
+const REFLECT_MAX = 5;
+const REFLECT_TTL_MS = 10 * 60 * 1000;
+
+function loadReflectedSends() {
+  try {
+    const raw = localStorage.getItem(REFLECT_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((p) => p && typeof p.key === "string" && typeof p.text === "string");
+  } catch { return []; }
+}
+
+function saveReflectedSends(arr) {
+  try { localStorage.setItem(REFLECT_KEY, JSON.stringify(arr.slice(-REFLECT_MAX))); }
+  catch { /* 保存できなくても動く */ }
+}
+
+// 期限切れを落とし，読んだ項目に同じ文（user）があれば 1 件ずつ消す（純関数・テストから使う）
+function takeReflected(list, key, items, now) {
+  const rest = list.filter((p) => now - Number(p.at || 0) <= REFLECT_TTL_MS);
+  for (const item of items) {
+    if (!item || item.kind !== "user") continue;
+    const text = String(item.text || "").trim();
+    const i = rest.findIndex((p) => p.key === key && p.text.trim() === text);
+    if (i >= 0) rest.splice(i, 1);
+  }
+  return rest;
+}
+
+function queueReflectedSends(texts) {
+  const now = Date.now();
+  const key = currentRunKey();
+  const arr = takeReflected(loadReflectedSends(), key, [], now);
+  for (const text of texts) arr.push({ key, text, at: now });
+  saveReflectedSends(arr);
+  renderPendingMarks();
+}
+
+// 記録から読んだ項目で反映待ちを消す。消したら true（印を描き直す）
+function settleReflectedSends(items) {
+  const before = loadReflectedSends();
+  const after = takeReflected(before, currentRunKey(), items, Date.now());
+  if (after.length === before.length) return false;
+  saveReflectedSends(after);
+  return true;
 }
 
 // --- 入力欄（テキスト送信） ---
@@ -1725,8 +1786,8 @@ document.getElementById("send-button").addEventListener("click", async () => {
       else alert(err.detail || "送信できなかった");
       return;
     }
-    // 記録ファイルに現れるまで数秒かかるため，先に仮表示する
-    appendItems([{ id: `local-${Date.now()}`, kind: "user", time: new Date().toISOString(), text }]);
+    // 記録に現れるまで「反映待ち」として残す（仮の吹き出しは openRun で消えるため）
+    queueReflectedSends([text]);
     ta.value = "";
     autoGrow();
   } finally {
