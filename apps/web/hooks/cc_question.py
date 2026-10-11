@@ -11,7 +11,9 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
 - `SAI_CC_QUESTION_MODE=deny` のときは，答えがあっても今の拒否の形（理由文に答え）で返す
   （`updatedInput` が cc で効かなかったときに，コードを変えずに戻すため）．
 - 答えが取れたら，`SAI_PARENT_RUN_ID` があるときだけ `sai-sci approval record` で記録する
-  （承認の材料・U04）。失敗しても答えは返す。
+  （承認の材料・U04）。値は `--name=value` の形で渡す（`-` で始まる答えを引数と読み違えない）。
+  3 回試して記録できなければ，答えを理由文に入れた `deny` を返す（許可が無いまま op が
+  止まるのを防ぎ，agent に同じ質問を出し直させる）。
 - Web の場所: `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`
 - 合言葉: `SAI_WEB_INTERNAL_TOKEN` があれば `Authorization: Bearer <値>` を付ける
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
@@ -30,6 +32,10 @@ import urllib.request
 # 答えを待つ間隔（秒）と上限回数．24 時間（cc の hooks の `timeout` 86400 秒とそろえる）．
 POLL_INTERVAL_SEC = 1.0
 POLL_MAX_COUNT = 86400
+
+# 承認の記録の試行回数と 1 回の上限（秒）．試行の間は 1 秒あける．
+RECORD_TRIES = 3
+RECORD_TIMEOUT_SEC = 30
 
 
 def server_base() -> str:
@@ -122,38 +128,44 @@ def answers_from_state(data: dict, questions: list) -> dict | None:
     return answers
 
 
-def record_approval(qid: str, questions: list, answers: dict, answered_by: str) -> None:
+def record_approval(qid: str, questions: list, answers: dict, answered_by: str) -> str | None:
     """答えを `sai-sci approval record` で記録する（共有契約 C8）。
 
-    `SAI_PARENT_RUN_ID` が無ければ何もしない。失敗は無視する（答えは allow で返す）。
-    標準出力は cc が JSON として読むので使わず，失敗の 1 行だけ標準エラーに出す。
+    `SAI_PARENT_RUN_ID` が無ければ何もしない（None）。終了コード 0（記録した）と
+    4（同じ qid が既にある）を成功とし，それ以外は `RECORD_TRIES` 回まで試す。
+    全部失敗したら理由の 1 行を返す（呼び出し側は deny にする）。
+    標準出力は cc が JSON として読むので使わず，失敗の 1 行ずつを標準エラーに出す。
     """
     if not os.environ.get("SAI_PARENT_RUN_ID"):
-        return
+        return None
     qs = [q for q in questions if isinstance(q, dict)]
     question = "\n".join(str(q.get("question", "")) for q in qs)
     answer = "\n".join(answers.get(str(q.get("question", "")), "") for q in qs)
+    # 値は `--name=value` で渡す（`-` で始まる答えを clap が引数と読み違えないように）
     cmd = [
         os.environ.get("SAI_SCI_BIN") or "sai-sci",
         "approval",
         "record",
-        "--qid",
-        qid,
-        "--question",
-        question,
-        "--answer",
-        answer,
-        "--answered-by",
-        answered_by,
+        f"--qid={qid}",
+        f"--question={question}",
+        f"--answer={answer}",
+        f"--answered-by={answered_by}",
     ]
-    try:
-        res = subprocess.run(cmd, timeout=10, capture_output=True, text=True)
-    except Exception as exc:
-        sys.stderr.write(f"approval record を呼べませんでした: {exc}\n")
-        return
-    if res.returncode != 0:
-        last = (res.stderr.strip().splitlines() or [""])[-1]
-        sys.stderr.write(f"approval record が失敗しました（終了コード {res.returncode}）: {last}\n")
+    reason = ""
+    for attempt in range(1, RECORD_TRIES + 1):
+        if attempt > 1:
+            time.sleep(1.0)
+        try:
+            res = subprocess.run(cmd, timeout=RECORD_TIMEOUT_SEC, capture_output=True, text=True)
+        except Exception as exc:
+            reason = f"呼べませんでした（{exc}）"
+        else:
+            if res.returncode in (0, 4):
+                return None
+            last = (res.stderr.strip().splitlines() or [""])[-1]
+            reason = f"終了コード {res.returncode}: {last}"
+        sys.stderr.write(f"approval record が失敗しました（{attempt}/{RECORD_TRIES} 回目）: {reason}\n")
+    return reason
 
 
 def reason_text(answers: dict | None) -> str:
@@ -164,6 +176,26 @@ def reason_text(answers: dict | None) -> str:
     for question, answer in answers.items():
         lines.append(f"{question}: {answer}")
     return "\n".join(lines)
+
+
+def deny(reason: str) -> dict:
+    """`deny` と理由文の PreToolUse の出力。"""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+
+
+def approval_failed_output(answers: dict, failure: str) -> dict:
+    """承認の記録に失敗したときの deny。答えは理由文に残し，agent が出し直せるようにする。"""
+    return deny(
+        reason_text(answers)
+        + f"\nただし承認の記録に失敗しました: {failure}。"
+        + "許可が要る op はこのままでは通りません。同じ質問をもう一度出してください。"
+    )
 
 
 def hook_output(questions: list, answers: dict | None) -> dict:
@@ -180,13 +212,7 @@ def hook_output(questions: list, answers: dict | None) -> dict:
                 "updatedInput": {"questions": questions, "answers": answers},
             }
         }
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason_text(answers),
-        }
-    }
+    return deny(reason_text(answers))
 
 
 def main() -> int:
@@ -233,9 +259,11 @@ def main() -> int:
         if state.get("state") and state.get("state") != "open":
             break
 
-    if answers:
-        record_approval(qid, questions, answers, answered_by)
-    out = hook_output(questions, answers)
+    failure = record_approval(qid, questions, answers, answered_by) if answers else None
+    if failure:
+        out = approval_failed_output(answers, failure)
+    else:
+        out = hook_output(questions, answers)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     sys.stdout.write("\n")
     return 0

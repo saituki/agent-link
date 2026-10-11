@@ -221,6 +221,17 @@ def test_old_db_gets_answered_by_column() -> None:
         store.init_db()
 
 
+def test_free_text_answer_is_recorded() -> None:
+    """自由記述（Other）の答えは text のまま保存され、回答済みになる（AC3）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh_db(tmp)
+        qid = make_question("claude")["id"]
+        ok, reason = questions.answer_question(qid, [{"text": "緑"}])
+        assert (ok, reason) == (True, ""), reason
+        assert state_of(qid) == "answered"
+        assert store.get_question(qid)["answer"]["answers"] == [{"text": "緑"}]
+
+
 def main() -> None:
     test_pi_question_stays_open_when_pane_not_blocked()
     test_cc_question_answer_records_without_keys()
@@ -231,6 +242,7 @@ def main() -> None:
     test_answer_records_answered_by()
     test_answer_records_logged_in_user_in_multi_user_mode()
     test_old_db_gets_answered_by_column()
+    test_free_text_answer_is_recorded()
     print("test_questions: すべて通りました")
 
 
