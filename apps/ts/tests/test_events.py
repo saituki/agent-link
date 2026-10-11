@@ -232,6 +232,61 @@ class EventsTest(TempProject, unittest.TestCase):
         # 使われていないカテゴリなら消せる
         events.save_schema(self.ds, {"categories": [{"name": "burst", "color": "#000000"}]})
 
+    def test_category_type_and_ch_checked(self):  # AC5（G1-C2）
+        events.save_schema(self.ds, {"categories": [
+            {"name": "HFO", "color": "#f59e0b", "type": "area", "ch": "single"},
+            {"name": "sleep", "color": "#6c757d", "ch": "all"},
+            {"name": "plain", "color": "#000000"},
+        ]})
+        with self.assertRaises(ValueError) as cm:
+            events.add_event(self.ds, area(category="HFO", vars=["ch01", "ch02"]), SRC)
+        self.assertEqual(str(cm.exception), "vars: カテゴリ HFO は ch を 1 つだけ選びます")
+        with self.assertRaises(ValueError):
+            events.add_event(self.ds, area(category="HFO", vars=[]), SRC)
+        with self.assertRaises(ValueError) as cm:
+            events.add_event(self.ds, line(category="HFO", vars=["ch01"]), SRC)
+        self.assertEqual(str(cm.exception), "type: カテゴリ HFO は area です")
+        with self.assertRaises(ValueError):
+            events.add_event(self.ds, line(category="sleep", vars=["ch01"]), SRC)
+        self.assertEqual(events.list_events(self.ds), [])
+
+        ok = [area(category="HFO", vars=["ch02"]), line(category="sleep", vars=[]), line(category="plain", vars=["ch01", "ch02"])]
+        self.assertEqual(len(events.add_events(self.ds, ok, SRC)), 3)
+
+        # update でも同じ決まりで検査する
+        e = events.list_events(self.ds, category="HFO")[0]
+        with self.assertRaises(ValueError):
+            events.update_event(self.ds, e["id"], {"vars": ["ch01", "ch02"]}, SRC)
+        with self.assertRaises(ValueError):
+            events.update_event(self.ds, e["id"], {"type": "line", "t": 1.0}, SRC)
+        self.assertEqual(events.list_events(self.ds, category="HFO")[0]["rev"], 1)
+
+    def test_category_type_ch_values_checked_in_schema(self):
+        for c in ({"name": "a", "color": "#000000", "type": "point"},
+                  {"name": "a", "color": "#000000", "ch": "many"}):
+            with self.subTest(c=c), self.assertRaises(ValueError):
+                events.save_schema(self.ds, {"categories": [c]})
+        s = events.save_schema(self.ds, {"categories": [{"name": "a", "color": "#000000", "type": "line"}]})
+        self.assertEqual(s["categories"][0]["type"], "line")
+        self.assertEqual(events.load_schema(self.ds)["categories"][0]["type"], "line")
+
+    def test_update_events_all_or_nothing(self):  # AC5（update_events）
+        events.save_schema(self.ds, {
+            "categories": [{"name": "burst", "color": "#d9534f"}, {"name": "noise", "color": "#5bc0de"}],
+            "metrics": [{"name": "amp", "type": "number", "min": 0, "max": 100}]})
+        a = events.add_event(self.ds, area(), SRC)
+        b = events.add_event(self.ds, line(), SRC)
+        rows = events.update_events(self.ds, {a["id"]: {"text": "A"}, b["id"]: {"text": "B"}}, "agent")
+        self.assertEqual(sorted((r["rev"], r["text"]) for r in rows), [(2, "A"), (2, "B")])
+        self.assertEqual(sorted(e["text"] for e in events.list_events(self.ds)), ["A", "B"])
+
+        # 1 件でも誤りがあれば何も書かない（amp の範囲外・無い ID）
+        with self.assertRaises(ValueError):
+            events.update_events(self.ds, {a["id"]: {"text": "C"}, b["id"]: {"metrics": {"amp": 999}}}, SRC)
+        with self.assertRaises(KeyError):
+            events.update_events(self.ds, {a["id"]: {"text": "C"}, "e-000000000000": {"text": "D"}}, SRC)
+        self.assertEqual(sorted(e["text"] for e in events.list_events(self.ds)), ["A", "B"])
+
     def test_missing_dataset_is_key_error(self):
         with self.assertRaises(KeyError):
             events.list_events("nope")

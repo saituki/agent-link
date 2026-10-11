@@ -13,11 +13,12 @@
       <select id="ts-rec" aria-label="記録"></select>
       <button id="ts-prev" type="button" title="前の記録">◀</button>
       <button id="ts-next" type="button" title="次の記録">▶</button>
-      <div id="ts-vars-wrap" class="ts-pop-wrap">
-        <button id="ts-vars-btn" type="button">変数</button>
-        <div id="ts-vars" class="ts-pop" hidden></div>
+      <div id="ts-modes" role="radiogroup" aria-label="マウスのモード">
+        <button type="button" data-mode="create" aria-pressed="false" title="作成（e）">作成</button>
+        <button type="button" data-mode="move" aria-pressed="false" title="移動（v）">移動</button>
+        <button type="button" data-mode="zoom" aria-pressed="false" title="拡大（z）">拡大</button>
       </div>
-      <div id="ts-cats"></div>
+      <label id="ts-evdef-wrap">定義 <select id="ts-evdef" aria-label="作成するイベントの定義"></select></label>
       <div id="ts-buttons"></div>
     </header>
     <div id="ts-range">
@@ -28,9 +29,13 @@
       <label>全体の倍率 <select id="ts-gain" aria-label="全体の倍率"></select></label>
     </div>
     <main id="ts-main">
-      <canvas id="ts-canvas"></canvas>
-      <canvas id="ts-overlay"></canvas>
+      <div id="ts-lanes">
+        <canvas id="ts-canvas"></canvas>
+        <canvas id="ts-overlay"></canvas>
+      </div>
+      <canvas id="ts-axis"></canvas>
     </main>
+    <div id="ts-split" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅" tabindex="0"></div>
     <aside id="ts-side">
       <div id="ts-tabs"></div>
       <div id="ts-panels"></div>
@@ -38,12 +43,16 @@
   </div>
   <script src="app.js"></script>
   <script src="lanes.js"></script>
+  <script src="mouse.js"></script>
   <script src="evform.js"></script>
   <script src="sidebar.js"></script>
+  <script src="chpanel.js"></script>
+  <script src="evdefs.js"></script>
   <script src="patients.js"></script>
   <script src="evtable.js"></script>
-  <script src="chat.js"></script>
+  <script src="algos.js"></script>
   <script src="exthost.js"></script>
+  <script src="snapshots.js"></script>
   <script>window.addEventListener("DOMContentLoaded", () => tsBoot());</script>
 </body>
 </html>

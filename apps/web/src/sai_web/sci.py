@@ -76,7 +76,7 @@ CARD_PAPERS_MAX = 20
 # 文字数の上限
 BODY_MAX = 2000
 
-# --- C-OP の op ごとの項目（C3 の表と同じ 15 種類） ---
+# --- C-OP の op ごとの項目（C3 の表と同じ 16 種類・set_dataset は G3-C1） ---
 # 値は「検査のしかた」。知らない項目は落とすので、1 つ 1 つ書く。
 #   ref:<種類>   必須の ID（種類は Q・A・F・E・S・D の文字の並び）
 #   text:<n>     必須の文字（1〜n 字）
@@ -102,11 +102,12 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
         "report": "oreport",
         "run": "orun",
     },
-    "add_e": {"parent": "ref:SE", "text": "text:120", "body": "body", "mlflow": "otext:200"},
+    "add_e": {"parent": "ref:SE", "text": "text:120", "body": "body", "mlflow": "otext:200", "dataset": "otext:200"},
     "add_seed": {"title": "text:120", "body": "body"},
     "add_sprout": {"seed": "ref:D", "title": "text:120", "body": "body", "paths": "sproutpaths"},
     "set_stance": {"node": "ref:F", "stance": "enum:stance"},
     "set_mlflow": {"node": "ref:E", "mlflow": "ztext:200"},
+    "set_dataset": {"node": "ref:E", "dataset": "ztext:200"},
     "star": {"node": "ref:QAFESD"},
     "unstar": {"node": "ref:QAFESD"},
     "edit": {"node": "ref:QAFESD", "text": "otext:1200", "body": "body"},
@@ -278,7 +279,7 @@ def _check_one(key: str, kind: str, value):
 def validate_op(payload) -> dict:
     """C-OP の op の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `op` は C-OP の 15 種類（Web からもすべて送れる）。
+    - `op` は C-OP の 16 種類（Web からもすべて送れる）。
     - op ごとに表の項目だけを残す。知らない項目と `path` のようなファイルのパスは落ちるので、
       CLI には渡らない（`add_sprout` の `paths` だけは A の ID の配列で、検査して渡す）。
     - 文字列は前後の空白を落とす。必須の項目が無ければ 400「<項目> がありません」。

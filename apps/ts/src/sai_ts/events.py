@@ -19,6 +19,7 @@ from . import dataset, paths
 EVENTS = "events.jsonl"
 SCHEMA = "schema.json"
 TYPES = ("line", "area")
+CH_MODES = ("single", "all")
 METRIC_TYPES = ("number", "integer", "string", "boolean", "enum")
 MAX_TEXT = 20000
 SOURCE_RE = re.compile(r"human|agent|script:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}@[0-9a-f]{8}")
@@ -203,6 +204,13 @@ def _validate(ds: str, ev: dict, schema: dict) -> dict:
     cat = ev.get("category")
     if not isinstance(cat, str) or cat not in cats:
         raise ValueError(f"category: 登録のないカテゴリです: {cat}")
+    cdef = next(c for c in schema["categories"] if c["name"] == cat)
+    if cdef.get("type") and cdef["type"] != typ:
+        raise ValueError(f"type: カテゴリ {cat} は {cdef['type']} です")
+    if cdef.get("ch") == "single" and len(vs) != 1:
+        raise ValueError(f"vars: カテゴリ {cat} は ch を 1 つだけ選びます")
+    if cdef.get("ch") == "all" and vs:
+        raise ValueError(f"vars: カテゴリ {cat} は記録全体（vars は空）です")
 
     text = ev.get("text", "")
     if not isinstance(text, str) or len(text) > MAX_TEXT:
@@ -269,6 +277,22 @@ def update_event(ds: str, id: str, patch: dict, source: str) -> dict:
     return row
 
 
+def update_events(ds: str, patches: dict[str, dict], source: str) -> list[dict]:
+    """{id: 変える項目} をまとめて書く。1 回のロックの中で、1 件でも誤りがあれば何も書かない。"""
+    _check_source(source)
+    if not isinstance(patches, dict):
+        raise ValueError("patches は object にしてください")
+    with _journal(ds) as (state, append):
+        schema = load_schema(ds)
+        rows = []
+        for id, patch in patches.items():
+            cur = _live(state, id)
+            merged = {**{k: v for k, v in cur.items() if k not in _BOOK}, **_fields(patch)}
+            rows.append(_put(ds, id, cur["rev"] + 1, merged, schema, source))
+        append(rows)
+    return rows
+
+
 def delete_event(ds: str, id: str, source: str) -> dict:
     _check_source(source)
     with _journal(ds) as (state, append):
@@ -311,6 +335,10 @@ def _check_schema(s) -> dict:
             raise ValueError(f"categories.color: #RRGGBB の形にしてください: {c['name']}")
         if "visible" in c and not isinstance(c["visible"], bool):
             raise ValueError(f"categories.visible: true か false にしてください: {c['name']}")
+        if "type" in c and c["type"] not in TYPES:
+            raise ValueError(f"categories.type: area か line にしてください: {c['name']}")
+        if "ch" in c and c["ch"] not in CH_MODES:
+            raise ValueError(f"categories.ch: single か all にしてください: {c['name']}")
     _names(mets, "metrics")
     for m in mets:
         if m.get("type") not in METRIC_TYPES:

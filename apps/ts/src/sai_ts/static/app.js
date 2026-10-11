@@ -11,6 +11,15 @@ const tsKeys = [];
 let tsSaveTimer = null;
 let tsLoadSeq = 0;
 let tsBootDone = false;
+const tsModes = ["create", "move", "zoom"];
+const tsSideMinW = 260; // サイドバーの幅の最小（px）
+const tsSideDefaultW = 360;
+const tsSideStep = 16; // ← → で動く幅（px）
+let tsSideW = tsSideDefaultW; // 覚えたサイドバーの幅（窓が狭いときの表示は tsSideApply で収める）
+let tsEvdefDs = null; // 作成に使う定義を読んだデータセット
+
+// 既定の色（ダークの背景で読める明るさ）。color が空の ch は並びの番号 % 10 の色を使う
+const tsPalette = ["#7dd3fc", "#fca5a5", "#86efac", "#fde68a", "#c4b5fd", "#f9a8d4", "#5eead4", "#fdba74", "#a5b4fc", "#bef264"];
 
 // ---- 純関数（DOM を使わない。node のテストが読む） ----
 
@@ -83,19 +92,48 @@ function tsUrl(path, base) {
   return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") ? b + path.slice(1) : path;
 }
 
-// URL の #token= か ?token= を取り出し、token を消した問い合わせと断片を返す（#token= が優先）
-function tsStripToken(search, hash) {
+// URL の #k= か ?k= を keys の分だけ取り出し、取り出した項目を消した問い合わせと断片を返す（断片が優先）
+function tsStripParams(search, hash, keys) {
+  const names = keys || ["token", "web", "project"];
   const sq = new URLSearchParams(search || "");
   const hq = new URLSearchParams(String(hash || "").replace(/^#/, ""));
-  const token = hq.get("token") || sq.get("token") || "";
-  sq.delete("token");
-  let frag = hash || "";
-  if (hq.has("token")) {
-    hq.delete("token");
-    frag = hq.toString() ? "#" + hq.toString() : "";
+  const values = {};
+  let inHash = false;
+  for (const k of names) {
+    values[k] = hq.get(k) || sq.get(k) || "";
+    sq.delete(k);
+    if (hq.has(k)) {
+      hq.delete(k);
+      inHash = true;
+    }
   }
+  let frag = hash || "";
+  if (inHash) frag = hq.toString() ? "#" + hq.toString() : "";
   const rest = sq.toString();
-  return { token, query: rest ? "?" + rest : "", hash: frag };
+  return { values, query: rest ? "?" + rest : "", hash: frag };
+}
+
+// #token= か ?token= を取り出す（tsStripParams の token だけの形）
+function tsStripToken(search, hash) {
+  const r = tsStripParams(search, hash, ["token"]);
+  return { token: r.values.token, query: r.query, hash: r.hash };
+}
+
+// sai-web の住所（web）の形: http:// か https:// の origin だけ（path・query・断片は無い）。違えば ""
+function tsCleanWeb(web) {
+  if (typeof web !== "string" || !/^https?:\/\//.test(web)) return "";
+  try {
+    return new URL(web).origin === web ? web : "";
+  } catch {
+    return "";
+  }
+}
+
+// 「Chats で開く」の行き先。web か project が無い・形が違うときは ""（釦を押せない）
+function tsChatsUrl(web, project) {
+  const w = tsCleanWeb(web);
+  if (!w || !project) return "";
+  return `${w}/#/newchat?project=${encodeURIComponent(project)}&block=ts-engineer`;
 }
 
 function tsStreamUrl(token, base) {
@@ -121,6 +159,8 @@ function tsViewBody(st) {
 // 記録が変わって selection が無いときは、前の記録の選択を消す（古い選択を送り続けない）
 function tsPatchState(st, patch) {
   const before = st.dataset + "\n" + st.record;
+  // データセットが変わるときは、前のデータセットの表示中の変数を持ち越さない（全部表示から始める）
+  if ("dataset" in patch && patch.dataset !== st.dataset && !("vars" in patch)) st.vars = null;
   if ("dataset" in patch) st.dataset = patch.dataset;
   if ("record" in patch) st.record = patch.record;
   if ("t0" in patch) st.t0 = patch.t0;
@@ -146,6 +186,58 @@ function tsNormSchema(s) {
     categories: s && Array.isArray(s.categories) ? s.categories : [],
     metrics: s && Array.isArray(s.metrics) ? s.metrics : [],
   };
+}
+
+// サイドバーの幅を収める（最小 260px・窓の幅の 60% まで。両方が食い違うときは最小が勝つ）
+function tsClampSide(w, winW) {
+  const v = Number.isFinite(w) ? w : tsSideDefaultW;
+  return Math.min(Math.max(tsSideMinW, winW * 0.6), Math.max(tsSideMinW, v));
+}
+
+// 保存の ch 設定（G1-C1）と記録の変数を合わせる。記録に無い名前は出さず、保存に無い変数は既定の値で後ろへ
+function tsMergeChannels(stored, metaVars) {
+  const meta = Array.isArray(metaVars) ? metaVars : [];
+  const has = new Set(meta.map((v) => v.name));
+  const unit = new Map(meta.map((v) => [v.name, v.unit || ""]));
+  const picked = [];
+  const seen = new Set();
+  for (const c of Array.isArray(stored) ? stored : []) {
+    if (!has.has(c.name) || seen.has(c.name)) continue;
+    seen.add(c.name);
+    picked.push(c);
+  }
+  for (const v of meta) {
+    if (seen.has(v.name)) continue;
+    seen.add(v.name);
+    picked.push({ name: v.name });
+  }
+  return picked.map((c, i) => {
+    const color = typeof c.color === "string" ? c.color : "";
+    return {
+      name: c.name,
+      label: typeof c.label === "string" ? c.label : "",
+      color,
+      drawColor: color || tsPalette[i % tsPalette.length],
+      gain: typeof c.gain === "number" ? c.gain : 1,
+      spectrum: c.spectrum ?? null,
+      unit: unit.get(c.name),
+    };
+  });
+}
+
+// 表示する名前を channels の順に並べ直す（visible が null なら全部）
+function tsOrderVisible(channels, visible) {
+  const names = channels.map((c) => c.name);
+  if (!Array.isArray(visible)) return names;
+  const on = new Set(visible);
+  return names.filter((n) => on.has(n));
+}
+
+// 作成に使う定義の表示（「● 名前（エリア・1ch）」）。type か ch が無いときは受けるものを書く
+function tsEvdefLabel(c) {
+  const type = c.type === "line" ? "ポイント" : c.type === "area" ? "エリア" : "エリア/ポイント";
+  const ch = c.ch === "single" ? "1ch" : c.ch === "all" ? "記録全体" : "自由";
+  return `● ${c.name}（${type}・${ch}）`;
 }
 
 // ---- ここから画面（ブラウザだけで動く） ----
@@ -205,6 +297,30 @@ function tsToken() {
   }
 }
 
+// sai-web の住所とプロジェクト名（tsBoot が覚えた値）。無ければ ""
+function tsSaved(key) {
+  try {
+    return sessionStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+// 「Chats で開く」: sai-web の Chats を別のタブで開く（block ts-engineer を選んだ新しいチャットの欄）
+function tsOpenChats() {
+  const url = tsChatsUrl(tsSaved("ts_web"), tsSaved("ts_project"));
+  if (url) window.open(url, "_blank", "noopener");
+}
+
+// 住所が無いときは釦を押せない形にし、理由を title に出す
+function tsRenderChatsButton() {
+  const btn = document.getElementById("ts-hb-chats");
+  if (!btn) return;
+  const ok = tsChatsUrl(tsSaved("ts_web"), tsSaved("ts_project")) !== "";
+  btn.disabled = !ok;
+  btn.title = ok ? "sai-web の Chats で、ts-engineer を選んだ新しいチャットを開く" : "sai-web の Projects から開くと使えます";
+}
+
 function tsEmit(kind, payload) {
   (tsListeners[kind] || []).slice().forEach((fn) => {
     try {
@@ -250,6 +366,12 @@ function tsScheduleSave() {
 async function tsLoadRecord() {
   const st = window.TS.state;
   const seq = ++tsLoadSeq;
+  // データセットが変わったら、そのデータセットの schema（イベント定義）に読み直す
+  if (st.dataset !== tsSchemaDs) {
+    tsSchemaDs = st.dataset;
+    await tsReloadSchema();
+    if (seq !== tsLoadSeq) return;
+  }
   const key = st.dataset + "\n" + st.record; // 読み始めた記録（meta がどの記録のものかを表す）
   let meta = null;
   if (st.dataset && st.record) {
@@ -263,6 +385,8 @@ async function tsLoadRecord() {
   st.metaKey = meta ? key : null;
   const names = meta ? meta.vars.map((v) => v.name) : [];
   st.vars = st.vars ? st.vars.filter((n) => names.includes(n)) : names;
+  await tsReloadChannels();
+  if (seq !== tsLoadSeq) return;
   const dur = tsDuration(meta);
   const minSpan = meta && meta.srate ? tsMinSamples / meta.srate : 0;
   if (st.t1 > st.t0) {
@@ -294,13 +418,17 @@ async function tsReloadEvents() {
   tsRedraw();
 }
 
+let tsSchemaDs = null; // schema を読んだデータセット
+
 async function tsReloadSchema() {
   const st = window.TS.state;
   const ds = st.dataset;
   if (!ds) return;
   const s = await tsApi(`/api/datasets/${tsEnc(ds)}/schema`).catch(() => null);
   if (st.dataset !== ds) return;
+  tsSchemaDs = ds;
   st.schema = tsNormSchema(s);
+  if (st.eventDef && !st.schema.categories.some((c) => c.name === st.eventDef)) st.eventDef = null;
   tsRenderHeader();
   tsRedraw();
 }
@@ -338,6 +466,7 @@ function tsOnChange(msg) {
   if (msg.kind === "events" && same) job = tsReloadEvents();
   else if (msg.kind === "schema" && same) job = tsReloadSchema();
   else if (msg.kind === "vars" && same && msg.record === st.record) job = tsLoadRecord();
+  else if (msg.kind === "channels" && same) job = tsReloadChannels().then(() => tsEmit("state"));
   else if (msg.kind === "view") job = tsPullView();
   job.then(() => tsEmit(msg.kind, msg));
 }
@@ -357,24 +486,31 @@ function tsConnectStream() {
 }
 
 async function tsBoot() {
-  const tok = tsStripToken(location.search, location.hash);
-  if (tok.token) {
+  const tok = tsStripParams(location.search, location.hash);
+  const { token, web, project } = tok.values;
+  // 値が無い項目は、前に覚えた値を消さない（同じタブで開き直したとき）
+  const keep = { ts_token: token, ts_web: tsCleanWeb(web), ts_project: project };
+  for (const [key, val] of Object.entries(keep)) {
+    if (!val) continue;
     try {
-      sessionStorage.setItem("ts_token", tok.token);
+      sessionStorage.setItem(key, val);
     } catch {
       // 保存できなくても画面は開く（その回の要求だけ合言葉が要る）
     }
-    history.replaceState(null, "", location.pathname + tok.query + tok.hash);
   }
+  if (token || web || project) history.replaceState(null, "", location.pathname + tok.query + tok.hash);
+  tsAddHeaderButton({ id: "chats", label: "💬 Chats で開く", title: "", onClick: tsOpenChats });
+  tsRenderChatsButton();
+  tsOn("state", tsEvdefSync);
   tsOn("state", tsRenderHeader);
+  tsOn("mode", tsRenderHeader);
   tsBindHeader();
   tsRangeInit();
+  tsSplitInit();
+  tsObserveLanes();
   tsLanesInit();
   tsEvformInit();
   window.addEventListener("keydown", tsOnKeyDown);
-  document.addEventListener("mousedown", (e) => {
-    if (!e.target.closest("#ts-vars-wrap")) document.getElementById("ts-vars").hidden = true;
-  });
 
   const view = await tsApi("/api/view").catch(() => ({}));
   const list = await tsApi("/api/datasets").catch(() => ({ datasets: [] }));
@@ -469,10 +605,8 @@ function tsRenderHeader() {
   const i = recs.indexOf(st.record);
   document.getElementById("ts-prev").disabled = i <= 0;
   document.getElementById("ts-next").disabled = i < 0 || i >= recs.length - 1;
-  const all = st.meta ? st.meta.vars.length : 0;
-  document.getElementById("ts-vars-btn").textContent = `変数 ${st.vars ? st.vars.length : 0}/${all}`;
-  tsRenderCats();
-  tsRenderVarsPop();
+  tsRenderModes();
+  tsRenderEvdef();
 }
 
 // 項目が変わったときだけ作り直す（開いたままの選択欄を閉じないため）
@@ -493,52 +627,33 @@ function tsFillSelect(sel, names, current, emptyText) {
   sel.disabled = !names.length;
 }
 
-function tsRenderCats() {
+// 作成のモードの釦（押されている物が aria-pressed）
+function tsRenderModes() {
   const st = window.TS.state;
-  const host = document.getElementById("ts-cats");
-  host.replaceChildren(
-    ...st.schema.categories.map((c) => {
-      const b = tsEl("button", st.hiddenCategories.has(c.name) ? "ts-cat off" : "ts-cat");
-      b.type = "button";
-      const sw = tsEl("span", "ts-sw");
-      sw.style.background = c.color;
-      b.append(sw, c.name);
-      b.onclick = () => {
-        const next = new Set(st.hiddenCategories);
-        if (next.has(c.name)) next.delete(c.name);
-        else next.add(c.name);
-        tsSetView({ hiddenCategories: [...next] });
-      };
-      return b;
-    }),
-  );
+  for (const b of document.querySelectorAll("#ts-modes button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.mode === st.mode));
+  }
 }
 
-function tsRenderVarsPop() {
-  const pop = document.getElementById("ts-vars");
-  if (pop.hidden) return;
+// 作成に使う定義の選び（先頭は「定義なし」）。項目が変わったときだけ作り直す（開いたままの選択欄を閉じないため）
+function tsRenderEvdef() {
   const st = window.TS.state;
-  const vars = st.meta ? st.meta.vars : [];
-  const names = vars.map((v) => v.name);
-  const on = new Set(st.vars);
-  const rows = vars.map((v) => {
-    const lab = tsEl("label", "ts-varrow");
-    const cb = tsEl("input");
-    cb.type = "checkbox";
-    cb.checked = on.has(v.name);
-    cb.onchange = () => tsSetView({ vars: names.filter((n) => (n === v.name ? cb.checked : on.has(n))) });
-    lab.append(cb, " " + v.name + (v.unit ? ` (${v.unit})` : ""));
-    if (v.source === "derived") lab.append(tsEl("span", "ts-tag", "派生"));
-    return lab;
-  });
-  const all = tsEl("button", "", "全部");
-  all.type = "button";
-  all.onclick = () => tsSetView({ vars: names });
-  const none = tsEl("button", "", "なし");
-  none.type = "button";
-  none.onclick = () => tsSetView({ vars: [] });
-  pop.replaceChildren(...rows, tsEl("div", "ts-pop-btns"));
-  pop.lastChild.append(all, none);
+  const sel = document.getElementById("ts-evdef");
+  const cats = st.schema.categories;
+  const key = cats.map(tsEvdefLabel).join("\n");
+  if (sel.dataset.key !== key) {
+    sel.dataset.key = key;
+    const none = tsEl("option", "", "（定義なし）");
+    none.value = "";
+    const opts = cats.map((c) => {
+      const o = tsEl("option", "", tsEvdefLabel(c));
+      o.value = c.name;
+      if (c.color) o.style.color = c.color;
+      return o;
+    });
+    sel.replaceChildren(none, ...opts);
+  }
+  sel.value = st.eventDef || "";
 }
 
 // 表示範囲の帯（ヘッダの下）: 今の範囲の表示・start と window の入力・全体の倍率
@@ -613,11 +728,166 @@ function tsBindHeader() {
   document.getElementById("ts-rec").onchange = (e) => tsSetView({ record: e.target.value || null, selectedEvents: [] });
   document.getElementById("ts-prev").onclick = () => tsStepRecord(-1);
   document.getElementById("ts-next").onclick = () => tsStepRecord(1);
-  document.getElementById("ts-vars-btn").onclick = () => {
-    const pop = document.getElementById("ts-vars");
-    pop.hidden = !pop.hidden;
-    tsRenderVarsPop();
+  for (const b of document.querySelectorAll("#ts-modes button")) {
+    b.onclick = () => window.TS.setMode(b.dataset.mode);
+  }
+  document.getElementById("ts-evdef").onchange = (e) => window.TS.setEventDef(e.target.value || null);
+  tsInstallModeKeys();
+}
+
+function tsInstallModeKeys() {
+  const ui = window.TS.ui;
+  ui.addKey({ key: "e", desc: "作成モード", handler: () => window.TS.setMode("create") });
+  ui.addKey({ key: "v", desc: "移動モード", handler: () => window.TS.setMode("move") });
+  ui.addKey({ key: "z", desc: "拡大モード", handler: () => window.TS.setMode("zoom") });
+}
+
+// ---- 境界線（サイドバーの幅）。ドラッグと ← → でだけ変わる（窓の大きさは tsClampSide で収める） ----
+
+// 表示の幅を #ts-app に書く
+function tsSideApply() {
+  const app = document.getElementById("ts-app");
+  if (app) app.style.setProperty("--ts-side-w", tsClampSide(tsSideW, window.innerWidth) + "px");
+}
+
+function tsSplitInit() {
+  const raw = tsStoredGet("ts_side_w");
+  tsSideW = raw === null ? tsSideDefaultW : Number(raw);
+  const split = document.getElementById("ts-split");
+  let drag = false;
+  const setW = (w) => {
+    tsSideW = tsClampSide(w, window.innerWidth);
+    tsSideApply();
   };
+  split.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    split.focus();
+    drag = true;
+    split.setPointerCapture(e.pointerId);
+  });
+  split.addEventListener("pointermove", (e) => {
+    if (drag) setW(window.innerWidth - e.clientX);
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = false;
+    tsStoredSet("ts_side_w", String(tsSideW));
+  };
+  split.addEventListener("pointerup", end);
+  split.addEventListener("pointercancel", end);
+  split.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    e.stopPropagation(); // 矢印は波形の移動に使わない（window の矢印の操作より先に止める）
+    setW(tsClampSide(tsSideW, window.innerWidth) + (e.key === "ArrowLeft" ? tsSideStep : -tsSideStep));
+    tsStoredSet("ts_side_w", String(tsSideW));
+  });
+  window.addEventListener("resize", tsSideApply);
+  tsSideApply();
+}
+
+// 波形の欄の大きさを測る。幅か高さが変わったときだけ描き直して "resize" を知らせる（取り直しは lanes.js）
+function tsObserveLanes() {
+  const lanes = document.getElementById("ts-lanes");
+  if (!lanes || typeof ResizeObserver === "undefined") return;
+  let w = -1;
+  let h = -1;
+  new ResizeObserver((entries) => {
+    const r = entries[0].contentRect;
+    if (r.width === w && r.height === h) return;
+    w = r.width;
+    h = r.height;
+    tsRedraw();
+    window.TS.emit("resize");
+  }).observe(lanes);
+}
+
+// ---- 作成の状態（モード・定義・ch 設定） ----
+
+// 保存（localStorage）。使えなくても画面は動く
+function tsStoredGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function tsStoredSet(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // 保存できなくても画面は動く
+  }
+}
+
+function tsStoredMode() {
+  const m = tsStoredGet("ts_mode");
+  return tsModes.includes(m) ? m : "move";
+}
+
+// データセットが変わったら、作成に使う定義を覚えた値から読む（schema を読んだあと tsReloadSchema が確かめる）
+function tsEvdefSync() {
+  const st = window.TS.state;
+  if (!st.dataset || st.dataset === tsEvdefDs) return;
+  tsEvdefDs = st.dataset;
+  st.eventDef = tsStoredGet("ts_evdef:" + st.dataset) || null;
+}
+
+function tsSetMode(mode) {
+  if (!tsModes.includes(mode)) return;
+  window.TS.state.mode = mode;
+  tsStoredSet("ts_mode", mode);
+  window.TS.emit("mode");
+}
+
+// schema に無い名前は null（作成しない）。データセットごとに覚える
+function tsSetEventDef(name) {
+  const st = window.TS.state;
+  const next = name && st.schema.categories.some((c) => c.name === name) ? name : null;
+  st.eventDef = next;
+  if (st.dataset) tsStoredSet("ts_evdef:" + st.dataset, next);
+  window.TS.emit("mode");
+}
+
+// ch 設定を読み直す（G1-C1）。404 は空の channels として扱う（API が無いとき）。
+// 並びは meta の変数と合わせ、表示中の変数も channels の順に並べ直す
+async function tsReloadChannels() {
+  const st = window.TS.state;
+  const ds = st.dataset;
+  const r = ds
+    ? await tsApi(`/api/datasets/${tsEnc(ds)}/channels`).catch((e) => {
+        if (e.status !== 404) tsToast("ch 設定を読めません: " + e.message);
+        return null;
+      })
+    : null;
+  if (st.dataset !== ds) return;
+  const stored = r && Array.isArray(r.channels) ? r.channels : [];
+  st.channels = tsMergeChannels(stored, st.meta ? st.meta.vars : []);
+  if (Array.isArray(st.vars)) st.vars = tsOrderVisible(st.channels, st.vars);
+  tsRedraw();
+  tsEmit("channels");
+}
+
+// ch 設定を保存する（list は G1-C1 の形）。成功したら読み直す。失敗は false
+async function tsSaveChannels(list) {
+  const ds = window.TS.state.dataset;
+  if (!ds) return false;
+  const channels = list.map((c) => {
+    const o = { name: c.name, label: c.label, color: c.color, gain: c.gain };
+    if (c.spectrum) o.spectrum = c.spectrum;
+    return o;
+  });
+  try {
+    await tsApi(`/api/datasets/${tsEnc(ds)}/channels`, { method: "PUT", body: { version: 1, channels } });
+  } catch (e) {
+    tsToast("ch 設定を保存できません: " + e.message);
+    return false;
+  }
+  await tsReloadChannels();
+  return true;
 }
 
 if (typeof window !== "undefined") {
@@ -637,8 +907,15 @@ if (typeof window !== "undefined") {
       events: [],
       schema: { version: 1, categories: [], metrics: [] },
       datasets: [],
+      mode: tsStoredMode(), // "create"・"move"・"zoom"
+      eventDef: null, // 作成に使う定義の名前（null は定義なし）
+      channels: [], // ch 設定（G1-C1 と記録の変数を合わせたもの）
     },
     setView: tsSetView,
+    setMode: tsSetMode,
+    setEventDef: tsSetEventDef,
+    reloadChannels: tsReloadChannels,
+    saveChannels: tsSaveChannels,
     on: tsOn,
     emit: tsEmit,
     redraw: tsRedraw,
@@ -665,12 +942,20 @@ if (typeof module !== "undefined") {
     tsDuration,
     tsBase,
     tsUrl,
+    tsStripParams,
     tsStripToken,
+    tsCleanWeb,
+    tsChatsUrl,
     tsStreamUrl,
     tsViewBody,
     tsPatchState,
     tsRecordsOf,
     tsNormSchema,
     tsRangeFromInput,
+    tsClampSide,
+    tsMergeChannels,
+    tsOrderVisible,
+    tsEvdefLabel,
+    tsPalette,
   };
 }

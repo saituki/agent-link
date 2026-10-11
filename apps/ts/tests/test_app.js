@@ -18,13 +18,21 @@ const {
   tsDuration,
   tsBase,
   tsUrl,
+  tsStripParams,
   tsStripToken,
+  tsCleanWeb,
+  tsChatsUrl,
   tsStreamUrl,
   tsViewBody,
   tsPatchState,
   tsRecordsOf,
   tsNormSchema,
   tsRangeFromInput,
+  tsClampSide,
+  tsMergeChannels,
+  tsOrderVisible,
+  tsEvdefLabel,
+  tsPalette,
 } = require(src);
 
 // 名前の形（C1）
@@ -84,6 +92,43 @@ assert.deepStrictEqual(tsStripToken("", "#token=abc&k=2"), { token: "abc", query
 assert.deepStrictEqual(tsStripToken("", ""), { token: "", query: "", hash: "" });
 assert.deepStrictEqual(tsStripToken("?token=old", "#token=new"), { token: "new", query: "", hash: "" });
 assert.deepStrictEqual(tsStripToken("", "#section"), { token: "", query: "", hash: "#section" }, "token の無い断片は触らない");
+
+// 住所の受け取り（G3-C3）: token・web・project を断片か問い合わせから取り出し、消す。断片が優先
+assert.deepStrictEqual(
+  tsStripParams("", "#token=abc&web=https%3A%2F%2Fm.ts.net&project=west", ["token", "web", "project"]),
+  { values: { token: "abc", web: "https://m.ts.net", project: "west" }, query: "", hash: "" },
+);
+assert.deepStrictEqual(
+  tsStripParams("?x=1&project=east", "#token=abc&web=http%3A%2F%2F127.0.0.1%3A8200&project=demo&k=2", undefined),
+  { values: { token: "abc", web: "http://127.0.0.1:8200", project: "demo" }, query: "?x=1", hash: "#k=2" },
+  "既定の keys は token・web・project。断片の project が問い合わせより優先",
+);
+assert.deepStrictEqual(tsStripParams("?web=http%3A%2F%2Fa.example", "", ["web"]).values, { web: "http://a.example" });
+assert.strictEqual(tsStripParams("", "#section", ["web"]).hash, "#section", "項目の無い断片は触らない");
+
+// web の形（G3-C3）: http(s) の origin だけ。javascript:・path・query・断片・末尾の / は捨てる
+assert.strictEqual(tsCleanWeb("https://m.ts.net"), "https://m.ts.net");
+assert.strictEqual(tsCleanWeb("http://127.0.0.1:8200"), "http://127.0.0.1:8200");
+assert.strictEqual(tsCleanWeb("javascript:alert(1)"), "");
+assert.strictEqual(tsCleanWeb("https://m.ts.net/x"), "", "path 付き");
+assert.strictEqual(tsCleanWeb("https://m.ts.net/"), "", "末尾の / も origin と違う");
+assert.strictEqual(tsCleanWeb("https://m.ts.net?x=1"), "", "query 付き");
+assert.strictEqual(tsCleanWeb("https://m.ts.net#x"), "", "断片付き");
+assert.strictEqual(tsCleanWeb("ftp://m.ts.net"), "");
+assert.strictEqual(tsCleanWeb("https://"), "", "壊れた URL");
+assert.strictEqual(tsCleanWeb(""), "");
+assert.strictEqual(tsCleanWeb(undefined), "");
+
+// 「Chats で開く」の行き先（G3-C3）。web か project が無い・形が違うときは ""
+assert.strictEqual(
+  tsChatsUrl("http://127.0.0.1:8200", "demo"),
+  "http://127.0.0.1:8200/#/newchat?project=demo&block=ts-engineer",
+);
+assert.strictEqual(tsChatsUrl("https://m.ts.net", "west case"), "https://m.ts.net/#/newchat?project=west%20case&block=ts-engineer");
+assert.strictEqual(tsChatsUrl("", "demo"), "", "web が無い");
+assert.strictEqual(tsChatsUrl("https://m.ts.net", ""), "", "project が無い");
+assert.strictEqual(tsChatsUrl("javascript:alert(1)", "demo"), "", "形が違う web");
+assert.strictEqual(tsChatsUrl("https://m.ts.net/x", "demo"), "", "path 付きの web");
 
 // 状態の写し（C6）
 const st = {
@@ -150,5 +195,47 @@ assert.strictEqual(tsRangeFromInput("1", "5", 0, 0), null, "記録が無い");
 assert.deepStrictEqual(tsRecordsOf([{ name: "demo", records: ["r01"] }], "demo"), ["r01"]);
 assert.deepStrictEqual(tsRecordsOf([], "x"), []);
 assert.deepStrictEqual(tsNormSchema(null), { version: 1, categories: [], metrics: [] });
+
+// サイドバーの幅: 最小 260px、窓の幅の 60% まで（最小が勝つ）。読めない値は既定の 360px
+assert.strictEqual(tsClampSide(100, 1280), 260);
+assert.strictEqual(tsClampSide(900, 1280), 768);
+assert.strictEqual(tsClampSide(360, 1280), 360);
+assert.strictEqual(tsClampSide(500, 400), 260, "窓が狭くても最小 260px");
+assert.strictEqual(tsClampSide(NaN, 1280), 360);
+
+// ch 設定と記録の変数の合わせ（G1-C1）: 記録に無い名前は出さず、保存に無い変数は後ろへ。色が空なら並びの palette
+const merged = tsMergeChannels(
+  [
+    { name: "b", label: "B", color: "", gain: 2 },
+    { name: "zz", label: "", color: "", gain: 1 },
+  ],
+  [
+    { name: "a", unit: "uV" },
+    { name: "b", unit: "uV" },
+  ],
+);
+assert.deepStrictEqual(merged, [
+  { name: "b", label: "B", color: "", drawColor: tsPalette[0], gain: 2, spectrum: null, unit: "uV" },
+  { name: "a", label: "", color: "", drawColor: tsPalette[1], gain: 1, spectrum: null, unit: "uV" },
+]);
+assert.strictEqual(tsMergeChannels(null, []).length, 0, "記録が無ければ空");
+assert.strictEqual(
+  tsMergeChannels([{ name: "a", color: "#123456" }], [{ name: "a" }])[0].drawColor,
+  "#123456",
+  "色が決まっていればその色",
+);
+const many = tsMergeChannels([], Array.from({ length: 11 }, (_, i) => ({ name: "c" + i })));
+assert.strictEqual(many[10].drawColor, tsPalette[0], "palette は 10 色で巡回する");
+
+// 表示の並び: channels の順。null は全部。記録に無い名前は落とす
+const ch = [{ name: "b" }, { name: "a" }];
+assert.deepStrictEqual(tsOrderVisible(ch, ["a", "b"]), ["b", "a"]);
+assert.deepStrictEqual(tsOrderVisible(ch, null), ["b", "a"]);
+assert.deepStrictEqual(tsOrderVisible(ch, ["x", "a"]), ["a"]);
+
+// イベント定義の表示（G1-C2）。type と ch が無いときは受けるものを書く
+assert.strictEqual(tsEvdefLabel({ name: "HFO", type: "area", ch: "single" }), "● HFO（エリア・1ch）");
+assert.strictEqual(tsEvdefLabel({ name: "spike", type: "line", ch: "all" }), "● spike（ポイント・記録全体）");
+assert.strictEqual(tsEvdefLabel({ name: "x" }), "● x（エリア/ポイント・自由）");
 
 console.log("test_app.js: OK");

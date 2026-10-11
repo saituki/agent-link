@@ -6,7 +6,9 @@
 const assert = require("assert");
 const path = require("path");
 
-const src = path.join(__dirname, "..", "src", "sai_ts", "static", "lanes.js");
+const dir = path.join(__dirname, "..", "src", "sai_ts", "static");
+// tsValueTicks は app.js の tsNiceTicks を使う（画面では同じ窓の中の関数）
+global.tsNiceTicks = require(path.join(dir, "app.js")).tsNiceTicks;
 const {
   tsLaneLayout,
   tsAutoRange,
@@ -15,18 +17,36 @@ const {
   tsHitEvent,
   tsSelectionFromDrag,
   tsRgba,
+  tsFmtVal,
+  tsValueTicks,
   tsGainSteps,
   tsGainStep,
   tsGainParse,
-} = require(src);
+  tsLaneOrder,
+  tsSpecScale,
+  tsViridis,
+  tsViridisBase,
+  tsSpecRGBA,
+} = require(path.join(dir, "lanes.js"));
 
-// レーンの配置: 最小の高さ、変数 0 個
-assert.deepStrictEqual(tsLaneLayout(3, 300, 24, 24).laneH, 92);
-assert.deepStrictEqual(tsLaneLayout(3, 300, 24, 24).rows[2], { y0: 184, y1: 276 });
-assert.strictEqual(tsLaneLayout(3, 300, 24, 24).total, 300);
-assert.strictEqual(tsLaneLayout(2, 20, 24, 24).laneH, 24, "足りないときは最小の高さ");
-assert.strictEqual(tsLaneLayout(2, 20, 24, 24).total, 72, "足りないときは縦にスクロール");
-assert.deepStrictEqual(tsLaneLayout(0, 300, 24, 24), { laneH: 0, rows: [], total: 24 });
+// レーンの配置: 最小の高さ、変数 0 個（時間軸は含まない）
+assert.strictEqual(tsLaneLayout(3, 300, 24).laneH, 100);
+assert.deepStrictEqual(tsLaneLayout(3, 300, 24).rows[2], { y0: 200, y1: 300 });
+assert.strictEqual(tsLaneLayout(3, 300, 24).total, 300);
+assert.strictEqual(tsLaneLayout(2, 20, 24).laneH, 24, "足りないときは最小の高さ");
+assert.strictEqual(tsLaneLayout(2, 20, 24).total, 48, "足りないときは縦にスクロール");
+assert.deepStrictEqual(tsLaneLayout(0, 300, 24), { laneH: 0, rows: [], total: 0 });
+
+// 縦軸の目盛り: 上端と下端の値の間に入る（toV が線形のレーン: 上が 24・下が -24）
+const lane = { y0: 0, y1: 100, toV: (y) => (50 - y) / 2 };
+assert.deepStrictEqual(tsValueTicks(lane, 4), [-20, 0, 20]);
+
+// 値の書き方: 有効数字 3 桁、大きすぎる・小さすぎる値は指数表記
+assert.strictEqual(tsFmtVal(1234.5), "1230");
+assert.strictEqual(tsFmtVal(-0.5), "-0.5");
+assert.strictEqual(tsFmtVal(0), "0");
+assert.strictEqual(tsFmtVal(0.00012), "1.2e-4");
+assert.strictEqual(tsFmtVal(25000), "2.5e+4");
 
 // 縦の範囲: 全部 null、1% と 99% 点、値が同じ
 assert.deepStrictEqual(tsAutoRange([null, null]), [-1, 1]);
@@ -111,14 +131,36 @@ assert.strictEqual(tsGainStep(0.9, 1), 2, "0.9 は 1 の段から上がる");
 assert.strictEqual(tsGainStep(NaN, 1), 2, "読めない値は 1 として動く");
 assert.strictEqual(tsGainStep(-3, -1), 0.5, "負の値は 1 として動く");
 
-// 保存の読み: 読めない値は 1。段に無い値も 1。ch の 1 は入れない
-assert.deepStrictEqual(tsGainParse(null), { all: 1, ch: {} });
-assert.deepStrictEqual(tsGainParse("{壊れ"), { all: 1, ch: {} });
-assert.deepStrictEqual(tsGainParse("[1,2]"), { all: 1, ch: {} });
-assert.deepStrictEqual(tsGainParse('{"all": 2, "ch": {"ch01": 5, "ch02": 1, "ch03": 1.3, "ch04": "x"}}'), {
-  all: 2,
-  ch: { ch01: 5 },
-});
-assert.deepStrictEqual(tsGainParse('{"all": "x", "ch": []}'), { all: 1, ch: {} });
+// 保存の読み: 読めない値は 1。段に無い値も 1。古い保存の ch は読み捨てる
+assert.deepStrictEqual(tsGainParse(null), { all: 1 });
+assert.deepStrictEqual(tsGainParse("{壊れ"), { all: 1 });
+assert.deepStrictEqual(tsGainParse("[1,2]"), { all: 1 });
+assert.deepStrictEqual(tsGainParse('{"all": 2, "ch": {"ch01": 5}}'), { all: 2 });
+assert.deepStrictEqual(tsGainParse('{"all": 1.3}'), { all: 1 });
+assert.deepStrictEqual(tsGainParse('{"all": "x", "ch": []}'), { all: 1 });
+
+// レーンの順: 波形の次にスペクトル（spectrum.on が真の ch だけ）。数は tsLaneLayout に渡す数と同じ
+const chs = [{ name: "a", spectrum: { on: true, fmin: 0, fmax: 250, win_ms: 250 } }, { name: "b", spectrum: { on: false, fmin: 0, fmax: 250, win_ms: 250 } }];
+const order = tsLaneOrder(["a", "b"], chs);
+assert.deepStrictEqual(order.map((o) => [o.var, o.kind]), [["a", "wave"], ["a", "spec"], ["b", "wave"]]);
+assert.strictEqual(tsLaneLayout(order.length, 300, 24).laneH, 100);
+assert.deepStrictEqual(tsLaneOrder(["zz"], []).map((o) => o.kind), ["wave"], "ch 設定の無い変数は波形だけ");
+
+// スペクトルの縦の位置: 下端が fmin、上端が fmax
+const sc = tsSpecScale(0, 250, 100, 200);
+assert.strictEqual(sc.toY(0), 200);
+assert.strictEqual(sc.toY(250), 100);
+assert.ok(Math.abs(sc.toV(sc.toY(125)) - 125) < 1e-9);
+
+// 配色の表: 256 色。端は基準の最初と最後の色
+assert.strictEqual(tsViridis.length, 256);
+assert.deepStrictEqual(tsViridis[0], tsViridisBase[0]);
+assert.deepStrictEqual(tsViridis[255], tsViridisBase[tsViridisBase.length - 1]);
+assert.deepStrictEqual(tsViridis[0], [68, 1, 84]);
+
+// 図の画素: 行 0 は fmin（下）なので、画面では上下を逆にする。値 0 と 255 の色
+const rgba = tsSpecRGBA(new Uint8Array([0, 255]), 1, 2);
+assert.deepStrictEqual(Array.from(rgba.slice(0, 4)), [...tsViridis[255], 255], "上は fmax 側（値 255）");
+assert.deepStrictEqual(Array.from(rgba.slice(4, 8)), [...tsViridis[0], 255], "下は fmin 側（値 0）");
 
 console.log("test_lanes.js: OK");

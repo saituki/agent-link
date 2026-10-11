@@ -394,6 +394,12 @@ sudo -iu sai docker port sai-<user>-<project> 8210/tcp
 
 **データ**: 時系列のデータ（`ts/datasets/`）は agent に作らせる。例: カードで「`sai-ts demo demo --json` を実行して」と頼む。
 
+**チャット**: 時系列の画面の「💬 Chats で開く」は、sai-web の Chats を別のタブで開き、block `ts-engineer` を選んだ状態にする。時系列の画面の中にチャットは無い。押せるのは sai-web の Projects から開いたときだけ（sai-web が入口の断片に `web` と `project` を渡す）。
+- 旧の block `ts-agent` は、既存のプロジェクトの `.sai/blocks/` に残る。使わなくなったが、利用者の物なので消さない。`sai-ts init --update`（`deploy.sh` の配り直しが呼ぶ）は `ts-engineer` だけを書く。
+
+**バックアップ**: スナップショット（`ts/snapshots/<name>/`・research-tree に結んだ元の一式）は `ts/` の中にあり、プロジェクトの置き場 `/srv/sai/users/<user>/projects/<user>-<project>/` の一部として、§16 の `users` の tar に入る（`ts/` は、`users` の中のプロジェクトの置き場の一部。`paths.ts_root()` は `<project>/ts`）。
+- 確かめ（未確認。サーバで行う）: `tar -tzf ~/backups/users-*.tar.gz | grep ts/snapshots | head`。
+
 **合言葉**: sai-web を起動し直すと、開いている時系列の画面の合言葉は無効になる。Projects から開き直す。
 
 **受け入れた危険**（要件定義書 sai-ts 段階 B の §5・利用者が受け入れた）:

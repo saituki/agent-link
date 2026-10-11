@@ -1,7 +1,7 @@
 // sidebar のタブ（U05）。TS.ui.addSidebarTab でタブを足し、#ts-tabs と #ts-panels に出す。
-// 既定の順は 患者・チャット・イベント・拡張。それ以外は拡張が足した順に後ろへ並ぶ。
+// 既定の順は 変数・イベント・アルゴリズム・スナップショット・患者・拡張。それ以外は拡張が足した順に後ろへ並ぶ。
 
-const tsSidebarBuiltins = ["patients", "chat", "events", "ext"];
+const tsSidebarBuiltins = ["channels", "events", "algos", "snapshots", "patients", "ext"];
 const tsSidebarPrefKey = "ts_tab";
 
 // タブの並び。builtins の順を先にし、残りは足された順のまま（安定）
@@ -25,8 +25,8 @@ function tsSidebarStyle() {
   st.id = "ts-style-sidebar.js";
   st.textContent = `
 #ts-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
-#ts-tabs button { padding: 4px 10px; border: 1px solid #bbb; background: #f4f4f4; border-radius: 4px; cursor: pointer; }
-#ts-tabs button[aria-selected="true"] { background: #fff; border-color: #333; font-weight: 600; }
+#ts-tabs button { padding: 4px 10px; border: 1px solid var(--ts-border); background: var(--ts-panel); border-radius: 6px; cursor: pointer; }
+#ts-tabs button[aria-selected="true"] { background: var(--ts-hover); border-color: var(--ts-accent); color: var(--ts-accent); font-weight: 600; }
 #ts-panels > div[hidden] { display: none; }
 `;
   document.head.appendChild(st);
@@ -90,7 +90,7 @@ function tsAddSidebarTab({ id, title, render }) {
   tsSidebarLayout();
 
   // 利用者が押すまでは、保存してあるタブ（無ければ既定の順の最初）を開く。
-  // 読み込みの順（events が chat より先）で選ばれないように、毎回この順で決める
+  // 読み込みの順で選ばれないように、毎回この順で決める
   let pref = null;
   try {
     pref = localStorage.getItem(tsSidebarPrefKey);

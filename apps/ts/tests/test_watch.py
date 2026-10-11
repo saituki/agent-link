@@ -8,10 +8,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_ts import demo, paths, watch  # noqa: E402
+from sai_ts import algos, demo, paths, watch  # noqa: E402
 
 
 class TempProject:
@@ -46,6 +47,11 @@ class WatchTest(TempProject, unittest.TestCase):
         with open(self.tmp / "ts" / "datasets" / "demo" / "events.jsonl", "a", encoding="utf-8") as f:
             f.write('{"op":"del"}\n')
         self.assertEqual(watch.diff(s0, watch.snapshot()), [{"kind": "events", "dataset": "demo"}])
+
+    def test_channels_change(self):  # AC4
+        s0 = watch.snapshot()
+        (self.tmp / "ts" / "datasets" / "demo" / "channels.json").write_text('{"version": 1, "channels": []}', encoding="utf-8")
+        self.assertEqual(watch.diff(s0, watch.snapshot()), [{"kind": "channels", "dataset": "demo"}])
 
     def test_vars_meta_change(self):
         demo.make(self.tmp / "ts" / "datasets" / "demo2", records=1, nvars=1, seconds=1.0)
@@ -87,6 +93,26 @@ class WatchTest(TempProject, unittest.TestCase):
         s1 = watch.snapshot()
         view.write_text(json.dumps({"updated_by": "agent", "t0": 2.0}), encoding="utf-8")
         self.assertEqual(watch.diff(s1, watch.snapshot()), [{"kind": "view"}])
+
+    def test_algos_change_in_project_or_builtin(self):  # AC6（algos）
+        scripts = self.tmp / "ts" / "scripts"
+        scripts.mkdir()
+        builtin = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, builtin, True)
+        s0 = watch.snapshot()
+        (scripts / "x.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(watch.diff(s0, watch.snapshot()), [{"kind": "algos"}])
+
+        with mock.patch.object(algos, "BUILTIN_DIR", builtin):
+            s2 = watch.snapshot()
+            (builtin / "y.py").write_text("print(1)\n", encoding="utf-8")
+            self.assertEqual(watch.diff(s2, watch.snapshot()), [{"kind": "algos"}])
+
+    def test_runs_change_per_dataset(self):  # AC6（runs）
+        s0 = watch.snapshot()
+        with open(self.tmp / "ts" / "datasets" / "demo" / "runs.jsonl", "a", encoding="utf-8") as f:
+            f.write('{"op":"start"}\n')
+        self.assertEqual(watch.diff(s0, watch.snapshot()), [{"kind": "runs", "dataset": "demo"}])
 
     def test_ext_version_is_deterministic(self):
         ext = self.tmp / "ts" / "ext" / "x"

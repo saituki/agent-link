@@ -1,8 +1,7 @@
 "use strict";
-// イベントの入力欄（共有契約 C4・C10）。TS.editEvent(id, draft) で選択の近くに小さな浮き窓を開く。
-// 純関数（tsMetricInput・tsBuildEvent・tsPlacePanel・tsDraftFromEvent・tsNewDraft）は末尾で node のテストに渡す。
-
-const tsNewCat = "__new__";
+// イベントの入力欄（共有契約 C4・C10）。TS.editEvent(id, draft) で既存の編集の欄を、
+// TS.createEvent(draft, def, anchor) で作成の小窓（時刻とメモだけ）を選択の近くに開く。
+// 純関数（tsMetricInput・tsBuildEvent・tsPlacePanel・tsDraftFromEvent）は末尾で node のテストに渡す。
 
 // schema のメトリクス 1 つから入力部品の種類と属性を決める
 function tsMetricInput(def) {
@@ -102,27 +101,23 @@ function tsDraftFromEvent(ev) {
   };
 }
 
-// 新規の下書き。draft（ドラッグ・Alt+クリックの結果）の値を使い、無いものは既定にする
-function tsNewDraft(draft, record, schema) {
-  const d = draft || {};
-  const t = Number.isFinite(d.t) ? d.t : Number.isFinite(d.t0) ? d.t0 : 0;
-  return {
-    type: d.type === "area" ? "area" : "line",
-    record,
-    t,
-    t0: Number.isFinite(d.t0) ? d.t0 : t,
-    t1: Number.isFinite(d.t1) ? d.t1 : t,
-    vars: Array.isArray(d.vars) ? d.vars.slice() : [],
-    category: schema.categories.length ? schema.categories[0].name : "",
-    text: "",
-    metrics: {},
-  };
-}
-
 // ---- ここから画面（ブラウザだけで動く） ----
+
+// 小窓の見た目（幅 260px・浮き窓。ほかの色と欄は style.css の .ts-form と変数を使う）
+function tsEvformStyle() {
+  const s = document.createElement("style");
+  s.id = "ts-style-evform.js";
+  s.textContent =
+    "#ts-timepop { position: fixed; z-index: 50; width: 260px; box-sizing: border-box; padding: 12px;" +
+    " border: 1px solid var(--ts-border); border-radius: 8px; background: var(--ts-panel);" +
+    " box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }";
+  document.head.appendChild(s);
+}
 
 function tsEvformInit() {
   window.TS.editEvent = tsEditEvent;
+  window.TS.createEvent = tsOpenTimePopup;
+  tsEvformStyle();
 }
 
 function tsCloseForm() {
@@ -136,18 +131,120 @@ function tsEditEvent(id, draft) {
     window.TS.ui.toast("データセットがありません");
     return;
   }
-  let d;
-  if (id) {
-    const ev = st.events.find((e) => e.id === id);
-    if (!ev) {
-      window.TS.ui.toast("そのイベントが見つかりません");
-      return;
-    }
-    d = tsDraftFromEvent(ev);
-  } else {
-    d = tsNewDraft(draft, st.record, st.schema);
+  const ev = st.events.find((e) => e.id === id);
+  if (!ev) {
+    window.TS.ui.toast("そのイベントが見つかりません");
+    return;
   }
-  tsOpenForm(id || null, d, (draft && draft.anchor) || null);
+  tsOpenForm(id, tsDraftFromEvent(ev), (draft && draft.anchor) || null);
+}
+
+// 作成の小窓。定義（def）で種類・カテゴリが決まっているので、時刻とメモだけ入れる。
+// draft は tsMouseDraft の結果（{type, t} か {type, t0, t1}、vars）
+function tsOpenTimePopup(draft, def, anchor) {
+  const st = window.TS.state;
+  if (!st.dataset) {
+    window.TS.ui.toast("データセットがありません");
+    return;
+  }
+  tsCloseTimePopup();
+  const record = st.record;
+  const isArea = draft.type === "area";
+  const vars = draft.vars || [];
+  const box = tsEl("div", "ts-form");
+  box.id = "ts-timepop";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", "新しいイベントの時刻");
+  const title = tsEl("div", "ts-form-title");
+  const dot = tsEl("span", "", "● ");
+  dot.style.color = def.color || tsDefaultColor;
+  title.append(dot, `${def.name}（${isArea ? "エリア" : "ポイント"}・${vars.length ? vars.join(", ") : "記録全体"}）`);
+  box.appendChild(title);
+
+  const tIn = tsNumInput(NaN);
+  const t0In = tsNumInput(NaN);
+  const t1In = tsNumInput(NaN);
+  if (isArea) {
+    t0In.value = draft.t0.toFixed(4);
+    t1In.value = draft.t1.toFixed(4);
+    box.append(tsField("開始（秒）", t0In), tsField("終了（秒）", t1In));
+  } else {
+    tIn.value = draft.t.toFixed(4);
+    box.appendChild(tsField("時刻（秒）", tIn));
+  }
+  const memo = tsEl("input");
+  memo.type = "text";
+  box.appendChild(tsField("メモ", memo));
+
+  const err = tsEl("div", "ts-err");
+  err.setAttribute("role", "alert");
+  err.hidden = true;
+  box.appendChild(err);
+  const showErr = (msg) => {
+    err.textContent = msg;
+    err.hidden = false;
+  };
+
+  const bar = tsEl("div", "ts-form-bar");
+  const save = tsEl("button", "ts-primary", "保存 Enter");
+  save.type = "button";
+  const cancel = tsEl("button", "", "取り消し Esc");
+  cancel.type = "button";
+  cancel.onclick = tsCloseTimePopup;
+  bar.append(save, cancel);
+  box.appendChild(bar);
+
+  const submit = async () => {
+    const form = {
+      type: draft.type,
+      record,
+      t: tIn.value,
+      t0: t0In.value,
+      t1: t1In.value,
+      vars,
+      category: def.name,
+      text: memo.value,
+      metrics: {},
+    };
+    const r = tsBuildEvent(form, { record }, st.schema);
+    if (!r.ok) return showErr(r.error);
+    save.disabled = true;
+    try {
+      const row = await window.TS.api(`/api/datasets/${tsEnc(st.dataset)}/events`, { method: "POST", body: r.json });
+      tsCloseTimePopup();
+      await window.TS.reloadEvents();
+      if (row && row.id) tsSelectEvents([row.id]);
+    } catch (e) {
+      save.disabled = false;
+      showErr(e.message);
+    }
+  };
+  save.onclick = submit;
+  // 窓の中のキーは外へ流さない（Escape で選択を外さない・入力中に画面の操作をしない）
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") tsCloseTimePopup();
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+    }
+  });
+
+  document.body.appendChild(box);
+  // 選んだ範囲は青い帯で見せる（閉じたら外す）。ch 無し・all は全部の変数の上に出す
+  if (isArea) window.TS.setView({ selection: { t0: draft.t0, t1: draft.t1, vars: vars.length ? vars : st.vars || [] } });
+  const rc = box.getBoundingClientRect();
+  const pos = tsPlacePanel(anchor, rc.width, rc.height, window.innerWidth, window.innerHeight);
+  box.style.left = pos.left + "px";
+  box.style.top = pos.top + "px";
+  (isArea ? t0In : tIn).focus({ preventScroll: true });
+}
+
+function tsCloseTimePopup() {
+  const el = document.getElementById("ts-timepop");
+  if (!el) return;
+  el.remove();
+  if (window.TS.state.selection) window.TS.setView({ selection: null });
 }
 
 function tsField(label, control) {
@@ -256,7 +353,7 @@ function tsOpenForm(id, d, anchor) {
   });
   box.appendChild(tsField("変数（選ばないと記録全体）", varBox));
 
-  // カテゴリ（最後の「新しいカテゴリ」で名前と色を足す）
+  // カテゴリ（新しいカテゴリはイベントのタブで作る。ここでは選ぶだけ）
   const cats = schema.categories.map((c) => c.name);
   const cat = tsEl("select");
   const catNames = cats.includes(d.category) || !d.category ? cats : [d.category, ...cats];
@@ -265,23 +362,8 @@ function tsOpenForm(id, d, anchor) {
     o.value = n;
     cat.appendChild(o);
   });
-  const newOpt = tsEl("option", "", "＋ 新しいカテゴリ");
-  newOpt.value = tsNewCat;
-  cat.appendChild(newOpt);
-  cat.value = d.category || (cats[0] || tsNewCat);
-  const newBox = tsEl("div", "ts-newcat");
-  const newName = tsEl("input");
-  newName.type = "text";
-  newName.placeholder = "名前（例 noise）";
-  const newColor = tsEl("input");
-  newColor.type = "color";
-  newColor.value = "#d9534f";
-  newBox.append(tsField("新しいカテゴリの名前", newName), tsField("色", newColor));
-  newBox.hidden = cat.value !== tsNewCat;
-  cat.onchange = () => {
-    newBox.hidden = cat.value !== tsNewCat;
-  };
-  box.append(tsField("カテゴリ", cat), newBox);
+  cat.value = d.category || cats[0] || "";
+  box.appendChild(tsField("カテゴリ", cat));
 
   const textEl = tsEl("textarea");
   textEl.rows = 2;
@@ -324,23 +406,10 @@ function tsOpenForm(id, d, anchor) {
 
   const ds = st.dataset;
   const submit = async () => {
-    const form = read();
-    let s = schema;
-    const isNew = form.category === tsNewCat;
-    if (isNew) {
-      const name = newName.value.trim();
-      if (!tsValidName(name)) return showErr("カテゴリ名は英数字で始め、英数字と _ . - だけ（64 字まで）");
-      if (schema.categories.some((c) => c.name === name)) return showErr("同じ名前のカテゴリがあります");
-      s = Object.assign({}, schema, {
-        categories: schema.categories.concat([{ name, color: newColor.value, visible: true, desc: "" }]),
-      });
-      form.category = name;
-    }
-    const r = tsBuildEvent(form, d, s);
+    const r = tsBuildEvent(read(), d, schema);
     if (!r.ok) return showErr(r.error);
     save.disabled = true;
     try {
-      if (isNew) await window.TS.api(`/api/datasets/${tsEnc(ds)}/schema`, { method: "PUT", body: s });
       let row;
       if (id) {
         const body = Object.assign({}, r.json);
@@ -350,7 +419,6 @@ function tsOpenForm(id, d, anchor) {
         row = await window.TS.api(`/api/datasets/${tsEnc(ds)}/events`, { method: "POST", body: r.json });
       }
       tsCloseForm();
-      if (isNew) await window.TS.reloadSchema();
       await window.TS.reloadEvents();
       if (row && row.id) tsSelectEvents([row.id]);
     } catch (e) {
@@ -401,9 +469,9 @@ function tsOpenForm(id, d, anchor) {
   const pos = tsPlacePanel(anchor, rc.width, rc.height, window.innerWidth, window.innerHeight);
   box.style.left = pos.left + "px";
   box.style.top = pos.top + "px";
-  (d.type === "area" ? t0In : tIn).focus();
+  (d.type === "area" ? t0In : tIn).focus({ preventScroll: true });
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { tsMetricInput, tsBuildEvent, tsPlacePanel, tsDraftFromEvent, tsNewDraft };
+  module.exports = { tsMetricInput, tsBuildEvent, tsPlacePanel, tsDraftFromEvent };
 }

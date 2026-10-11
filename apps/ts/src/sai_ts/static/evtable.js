@@ -107,6 +107,7 @@ const tsEvt = {
   note: null,
   scrollNext: false,
   catSig: "",
+  wrap: null, // 表の箱（縦に動くのはこの箱だけ）
 };
 
 function tsEvtStyle() {
@@ -118,8 +119,8 @@ function tsEvtStyle() {
 .ts-evt-bar input[type=search] { flex: 1 1 120px; min-width: 0; }
 /* 幅 360px の欄に全部の列を収める（横に動かさない）。列幅を決め、長い文字は省略し title で全文を出す */
 .ts-evt-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-.ts-evt-table th, .ts-evt-table td { padding: 3px 2px; border-bottom: 1px solid #ddd; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ts-evt-table th { cursor: pointer; user-select: none; background: #f4f4f4; position: sticky; top: 0; white-space: normal; }
+.ts-evt-table th, .ts-evt-table td { padding: 3px 2px; border-bottom: 1px solid var(--ts-border); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-evt-table th { cursor: pointer; user-select: none; background: var(--ts-panel); color: var(--ts-muted); position: sticky; top: 0; white-space: normal; }
 .ts-evt-table th[data-key=record] { width: 26px; }
 .ts-evt-table th[data-key=type] { width: 22px; }
 .ts-evt-table th[data-key=time] { width: 50px; }
@@ -128,10 +129,10 @@ function tsEvtStyle() {
 .ts-evt-table th[data-key=text] { width: 70px; }
 .ts-evt-table th[data-key=source] { width: 40px; }
 .ts-evt-table tr { cursor: pointer; }
-.ts-evt-table tr.ts-sel { background: #fff3c4; }
+.ts-evt-table tr.ts-sel { background: color-mix(in srgb, var(--ts-accent) 18%, transparent); }
 .ts-evt-chip { display: inline-block; padding: 0 6px; border-radius: 3px; color: #fff; font-size: 12px; }
-.ts-evt-del { border: 0; background: none; color: #b00; cursor: pointer; }
-.ts-evt-note { color: #b00; margin: 4px 0; }
+.ts-evt-del { border: 0; background: none; color: var(--ts-danger); cursor: pointer; }
+.ts-evt-note { color: var(--ts-danger); margin: 4px 0; }
 .ts-evt-wrap { overflow: auto; max-height: 60vh; }
 `;
   document.head.appendChild(st);
@@ -305,8 +306,20 @@ function tsEvtDraw() {
   if (tsEvt.scrollNext) {
     tsEvt.scrollNext = false;
     const first = tsEvt.tbody.querySelector("tr.ts-sel");
-    if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest" });
+    if (first) tsEvtScrollTo(first);
   }
+}
+
+// 行が表の箱の外なら、箱の scrollTop だけを動かして行の上端を箱の上端（見出しの下）に合わせる。
+// scrollIntoView は #ts-side・#ts-app も動かすので使わない（画面の位置が変わるため）
+function tsEvtScrollTo(row) {
+  const box = tsEvt.wrap;
+  if (!box) return;
+  const r = row.getBoundingClientRect();
+  const b = box.getBoundingClientRect();
+  const top = b.top + (tsEvt.heads[0] ? tsEvt.heads[0].getBoundingClientRect().height : 0);
+  if (r.top >= top && r.bottom <= b.bottom) return;
+  box.scrollTop += r.top - top;
 }
 
 function tsEvtHeaders() {
@@ -377,6 +390,7 @@ function tsEvtRender(el) {
 
   const wrap = document.createElement("div");
   wrap.className = "ts-evt-wrap";
+  tsEvt.wrap = wrap;
   const table = document.createElement("table");
   table.className = "ts-evt-table";
   const thead = document.createElement("thead");
@@ -398,6 +412,10 @@ function tsEvtRender(el) {
   tsEvt.note.className = "ts-evt-note";
 
   el.append(bar, wrap, tsEvt.note);
+  // イベント定義の欄は表の上（定義と、その定義で作ったイベントを同じ場所で見る）
+  const defs = document.createElement("div");
+  el.prepend(defs);
+  tsEvdefRender(defs);
   if (tsEvt.scope === "all" && !tsEvt.all) tsEvtFetchAll().then(tsEvtDraw);
   tsEvtDraw();
 }

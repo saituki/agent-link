@@ -309,6 +309,7 @@ fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
         paper: n.paper_id,
         run: n.run_id,
         mlflow: n.mlflow_ref.clone(),
+        dataset: n.dataset_ref.clone(),
         created_by: n.created_by.clone(),
         created_at: n.created_at.clone(),
     }
@@ -343,6 +344,7 @@ mod tests {
             run_id: None,
             report_id: None,
             mlflow_ref: None,
+            dataset_ref: None,
             paths: &[],
             created_by: "user",
         };

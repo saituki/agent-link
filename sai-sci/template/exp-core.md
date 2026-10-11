@@ -90,7 +90,7 @@
 - **branch 1 つ = experiment 1 つの中の run の列。run 1 つ = パラメータの組 1 つの 1 回の実行（学習 + テスト）。run は入れ子にしない。**
 - experiment 名は `<project>/ID<sprout_run_id>/<model>`（例 `west/ID120/cnn-static`）。`model` は `^[a-z0-9][a-z0-9-]{0,39}$`。tune と debug は親の branch と同じ `model`（= 同じ experiment）。draft・model・ablation は新しい `model`（= 新しい experiment）。ablation は `<元の model>-abl-<外した成分>`。
 - experiment が無ければ `create_experiment(name, artifact_location=…, tags=…)` で作る。`mlflow.set_experiment` は使わない（`/mlruns` に作られ、実行先から `log_artifact` が `PermissionError` になる）。接続先は環境変数 `MLFLOW_TRACKING_URI` に任せ、スクリプトの中で上書きしない。
-- experiment のタグ（作るときに付ける。すべて文字列）: `sai.project`・`sai.sprout_run_id`・`sci.node`・`exp.study`・`exp.model`・`exp.metric`・`exp.direction`。
+- experiment のタグ（作るときに付ける。すべて文字列）: `sai.project`・`sai.sprout_run_id`・`sci.node`・`sai.dataset`・`exp.study`・`exp.model`・`exp.metric`・`exp.direction`。`sai.dataset` は E の `dataset`（データセットの参照。無ければ空文字）。既にある experiment には付かない（作るときだけ付けるため）。
 - run 名は `ID<branch の run_id>-p<NN>`（`NN` は GRID の組の順の 2 桁、01 から）。
 - run のタグ:
 
@@ -100,6 +100,7 @@
 | `sai.run_id` | branch の run_id（環境変数 `EXP_BRANCH_RUN_ID`。**無ければスクリプトは止まる**） | `125` |
 | `sai.sprout_run_id` | sprout の run_id | `120` |
 | `sci.node` | 実験の対象の Node（`node` と同じ値） | `S3` |
+| `sai.dataset` | データセットの参照（sai-ts のスナップショット。無ければ空文字） | `ts:hfo-r01-v1@0123456789ab` |
 | `exp.study` | study | `S3-ID120` |
 | `exp.model` | model | `cnn-static` |
 | `exp.action` | `draft` / `tune` / `debug` / `model` / `ablation` | `tune` |
@@ -182,6 +183,7 @@ SPROUT_RUN_ID, MODEL = "120", "cnn-static"
 ACTION, PARENT_BRANCH = "draft", ""
 METRIC, DIRECTION = "test_acc", "maximize"
 EPOCHS, DEVICE = 25, "auto"
+DATASET = os.environ.get("EXP_DATASET", "")  # 依頼書のデータセットの参照（無ければ空）
 EXPERIMENT = f"{PROJECT}/ID{SPROUT_RUN_ID}/{MODEL}"
 ARTIFACT_LOCATION = os.environ.get("EXP_ARTIFACT_LOCATION") or "s3://mlflow-local/"
 BRANCH_RUN_ID = os.environ["EXP_BRANCH_RUN_ID"]  # 無ければここで止まる（sai.run_id を空にしない）
@@ -191,7 +193,8 @@ FIXED = {"batch_size": 50}  # src: 仕様書
 GRID = {"lr": [0.01, 0.03], "dropout": [0.3, 0.5]}  # src: 目安
 
 EXP_TAGS = {"sai.project": PROJECT, "sai.sprout_run_id": SPROUT_RUN_ID, "sci.node": SCI_NODE,
-            "exp.study": STUDY, "exp.model": MODEL, "exp.metric": METRIC, "exp.direction": DIRECTION}
+            "sai.dataset": DATASET, "exp.study": STUDY, "exp.model": MODEL, "exp.metric": METRIC,
+            "exp.direction": DIRECTION}
 RUN_TAGS = {**EXP_TAGS, "sai.run_id": BRANCH_RUN_ID, "exp.action": ACTION,
             "exp.parent_branch": PARENT_BRANCH}
 
@@ -377,6 +380,7 @@ model: cnn-static
 - 元のスクリプト: experiments/A6-ID120/ID125/train.py（tune と debug のとき。写して直す）
 - 土台のコード: <reference_code の path>（式と値はここと仕様書の出典表から写す）
 - モデル定義書: <sim_model のトークン>（式・値・再現の目標・baseline はここから写す。無ければこの行を書かない）
+- データセット: <ref>（置き場 <project>/ts/snapshots/<name>/）（任意。E に `dataset` があるときだけ書く。値の形は `ts:<name>@<sha12>`。データは実行先に送られないので、§8 を読む）
 - GRID: {"lr": [0.1, 0.3]}
 - 直す点 / 新しいモデルの案: …
 - 期待する効果: test_acc を 0.87 以上にする
@@ -399,7 +403,7 @@ sai-link card run <返った run_id>
 
 スクリプトは**実行先（target）**に投げて動かす。実行先は名前を持つフォルダ（`.sai/exec/<名前>/`）で、Mac 本体・LAN の PC・クラウドなどを利用者が個別に用意する。**どの実行先でも、呼び方は同じ**である（使い方は `exp-run`）。
 
-- 実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。別の実行先を勝手に選ばない。投げる前に仕様書の `workdir` へ `cd` する。実行先には、この cwd の中身（コード）が送られる。スクリプトは workdir からの相対パスで書く。
+- 実行先の名前は環境変数 `EXP_TARGET`（空なら `local`）。別の実行先を勝手に選ばない。投げる前に仕様書の `workdir` へ `cd` する。実行先には、この cwd の中身（コード）が送られる。スクリプトは workdir からの相対パスで書く。workdir の外にあるデータ（`ts/snapshots/` のスナップショットなど）は送られない。遠隔の実行先でそのデータを使うときは、置き場を起動者に聞いてから書く（`sci-exp-branch` の手順 2）。
 - 投げる命令:
 
 ```bash

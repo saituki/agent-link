@@ -8,10 +8,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_ts import demo, events, scripts  # noqa: E402
+from sai_ts import algos, demo, events, runs, scripts  # noqa: E402
 
 # sdk.py の docstring にある例と同じ（agent が読む物と動きを揃える）
 BURST = '''import json, sys
@@ -74,6 +75,11 @@ class ScriptsTest(unittest.TestCase):
         recs = {ev["record"] for ev in events.list_events("demo")}
         self.assertEqual(recs, {"r01"})
 
+    def test_project_script_can_import_builtin_dsp(self):
+        self.write_script("usedsp", "import _dsp\nprint('{\"message\": \"ok %s\"}' % callable(_dsp.bandpass_fft))\n")
+        res = scripts.run_script("usedsp", "demo", [])
+        self.assertIn("ok True", res["result"]["message"])
+
     def test_failure_reports_last_stderr_line(self):
         self.write_script("bad", "import sys\nprint('x', file=sys.stderr)\nsys.exit(1)\n")
         with self.assertRaises(RuntimeError) as cm:
@@ -90,6 +96,57 @@ class ScriptsTest(unittest.TestCase):
             scripts.run_script("nope", "demo", [])
         with self.assertRaises(ValueError):
             scripts.run_script("../x", "demo", [])
+        self.assertEqual(runs.list_runs("demo"), [])  # 見つからないものは記録に残さない
+
+    def test_run_records_start_and_end(self):  # AC2（記録）
+        self.write_script("burst", BURST)
+        res = scripts.run_script("burst", "demo", [], {"thr": 1.0})
+        self.assertTrue(res["run"].startswith("a-"))
+        row = runs.list_runs("demo")[0]
+        self.assertEqual((row["id"], row["status"], row["by"]), (res["run"], "ok", "agent"))
+        self.assertEqual((row["algo"], row["origin"], row["params"]), ("burst", "project", {"thr": 1.0}))
+        self.assertEqual(row["sha256"], hashlib.sha256(BURST.encode("utf-8")).hexdigest())
+        self.assertEqual((row["result"]["added"], row["elapsed_s"]), (res["result"]["added"], res["elapsed_s"]))
+
+    def test_failure_and_timeout_are_recorded(self):  # AC3（記録）
+        self.write_script("bad", "import sys\nprint('x', file=sys.stderr)\nsys.exit(1)\n")
+        self.write_script("slow", "import time\ntime.sleep(5)\n")
+        with self.assertRaises(RuntimeError):
+            scripts.run_script("bad", "demo", [])
+        with self.assertRaises(TimeoutError):
+            scripts.run_script("slow", "demo", [], timeout=1)
+        by = {r["algo"]: r for r in runs.list_runs("demo")}
+        self.assertEqual((by["bad"]["status"], by["bad"]["error"]), ("error", "bad が失敗しました: x"))
+        self.assertEqual(by["slow"]["status"], "timeout")
+
+    def test_child_gets_request_and_env(self):  # G2-C2
+        self.write_script("echo", ECHO)
+        tgt = {"vars": ["ch01"], "events": []}
+        res = scripts.run_script("echo", "demo", [], {}, target=tgt, run_id="a-111111111111")
+        out = res["result"]
+        sha = hashlib.sha256(ECHO.encode("utf-8")).hexdigest()
+        self.assertEqual(out["req"], {"dataset": "demo", "records": ["r01", "r02"], "params": {}, "target": tgt,
+                                      "run": "a-111111111111"})
+        self.assertEqual((out["run"], out["sha"], out["target"]), ("a-111111111111", sha, tgt))
+        self.assertEqual((out["src"], res["source"]), (f"script:echo@{sha[:8]}", f"script:echo@{sha[:8]}"))
+        self.assertEqual(res["run"], "a-111111111111")
+
+    def test_builtin_runs_without_project_script(self):  # 組み込み（試験の一時の BUILTIN_DIR）
+        builtin = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, builtin, True)
+        (builtin / "hello.py").write_text('import json, sys\njson.load(sys.stdin)\nprint(json.dumps({"message": "hi"}))\n',
+                                          encoding="utf-8")
+        with mock.patch.object(algos, "BUILTIN_DIR", builtin):
+            res = scripts.run_script("hello", "demo", [])
+        self.assertEqual(res["result"], {"message": "hi"})
+        self.assertEqual(runs.list_runs("demo")[0]["origin"], "builtin")
+
+
+ECHO = '''import json, os, sys
+req = json.load(sys.stdin)
+print(json.dumps({"req": req, "run": os.environ["SAI_TS_RUN"], "sha": os.environ["SAI_TS_SHA256"],
+                  "src": os.environ["SAI_TS_SOURCE"], "target": json.loads(os.environ["SAI_TS_TARGET"])}))
+'''
 
 
 if __name__ == "__main__":
