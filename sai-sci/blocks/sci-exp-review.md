@@ -11,7 +11,7 @@ templates:
   - exp-run
 context: true
 sci_type: node
-sci_ops: add_e, set_mlflow
+sci_ops: add_e, set_mlflow, set_dataset
 timeout: 3600
 worktree: none
 enable: true
@@ -91,10 +91,10 @@ REPORT（`exp-final-<study>.md`、`exp-core` §10）を保存する。descriptio
 
 木に出すのは E だけです（`sai-sci op`・`sci-core`）。F は足しません。結果と判定は判定書（REPORT）と MLflow に書きます。
 
-1. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。** `mlflow` はここでは付けない（branch の run_id が CARD を作るまで決まらない）。CARD を作って run_id が返ったら、`{"op": "set_mlflow", "node": "<E の ID>", "mlflow": "ID<返った run_id>-p01"}` を `sai-sci op` で出す。
+1. continue のとき、次の 1 回の実行の E を、アイデアの E の下に `add_e` で作る。5. の CARD は、この E の ID を `--node` に使う。**CARD を作る前に出す。** `mlflow` はここでは付けない（branch の run_id が CARD を作るまで決まらない）。CARD を作って run_id が返ったら、`{"op": "set_mlflow", "node": "<E の ID>", "mlflow": "ID<返った run_id>-p01"}` を `sai-sci op` で出す。親の E（アイデアの E）に `dataset` があれば、次の E にも同じ値を付けて引き継ぐ（`sai-sci node <アイデアの E の ID> --json` の `dataset`。空なら付けない）。
 
    ```json
-   {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>"}
+   {"op": "add_e", "parent": "<アイデアの E の ID>", "text": "<study> <action> <model>", "dataset": "<親の E の dataset>"}
    ```
 
 2. stop のとき、木には何も足しません。止めた理由と最良の値（`<metric>=<value>`）は判定書に書きます。

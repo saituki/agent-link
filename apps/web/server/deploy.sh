@@ -75,7 +75,7 @@ assets_one() {
   [ -n "$root" ] || return 1
   echo "$c: 部品を配り直す（$root）"
   docker exec -w "$root" -e SAI_PROJECT_ROOT="$root" "$c" sai-sci init --update --json >/dev/null || return 1
-  # 時系列（段階 B）の ts/ があれば block ts-agent も新しい版にそろえる
+  # 時系列（段階 B）の ts/ があれば block ts-engineer も新しい版にそろえる
   docker exec -w "$root" -e SAI_PROJECT_ROOT="$root" "$c" sh -c '[ ! -d ts ] || sai-ts init --update --json' >/dev/null || return 1
 }
 

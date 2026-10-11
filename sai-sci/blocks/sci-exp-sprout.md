@@ -12,7 +12,7 @@ templates:
   - sim-core
 context: true
 sci_type: manage
-sci_ops: add_e, set_mlflow
+sci_ops: add_e, set_mlflow, set_dataset
 timeout: 3600
 worktree: none
 enable: true
@@ -49,6 +49,7 @@ S（研究計画）は `lab-sprout`（または利用者）が作ったもので
 - 依頼文（目的と、解きたい A。例「A15 を含む実験を始める」）を読む。
 - 最初のメッセージの `# context` の `## STUDY_SEED` を読む。親の SEED の本文（評価指標・成功基準・制約）が入っている。
 - `## TREE` で、対象の S の行の `[paths: …]` と、その下の PATH の行を読む。S の研究計画（body）は `sai-sci node <S の ID> --json` で読む。
+- データセット: S と、その上（祖先）にある E の `dataset` を `sai-sci node <ID> --json` で読む。空でない最も近い E の値を、この実験のデータセットの参照にする（無ければ、データセットは無いまま進む）。
 - 依頼文の NODE が S でなければ、先へ進まない。質問ツール（`AskUserQuestion`）で起動者に「先に `lab-sprout` で S を作るか」を聞いて止まる。
 - 解きたい A が依頼文に無ければ、先へ進まない。質問ツール（`AskUserQuestion`）で起動者に聞いて止まる。
 - 依頼文に「参照コード調査書」（`sci-exp-scout` の出力）のトークンがあれば、`sai-link doc read` で読む。
@@ -78,6 +79,7 @@ S（研究計画）は `lab-sprout`（または利用者）が作ったもので
 - `draft` を 1〜`max_children` 本。モデルを変えて比べたいときだけ 2 本にする（それぞれ別の `model`、つまり別の experiment）。
 - 1 回の実行ごとに依頼書（`exp-core` §7）を `sai-link doc write` で保存し、トークンを控える。draft の依頼書には、モデルの案とデータの置き場・読み込み方を書く。
 - 依頼書には、**土台のコード**（`reference_code` の `role: 土台` の `path`）を書き、式と値はそこと仕様書の出典表から写すよう指示する。
+- データセットの参照が見つかったときは、依頼書に `- データセット: <ref>（置き場 <project>/ts/snapshots/<name>/）` の行を書く（`<name>` は参照の `ts:<name>@…` の名前）。`exp-core` §7 の形。
 - `sim_model` が `null` でなければ、依頼書に `- モデル定義書: <sim_model のトークン>` の行を書く（`exp-core` §7）。draft のモデルの案は、**モデル定義書の `kind`・`baseline`・「## 改良点」「## つなぎ方」から書く**。
 
 ### 4. 木に記録して、1 回の実行を起こす
@@ -88,6 +90,12 @@ S（研究計画）は `lab-sprout`（または利用者）が作ったもので
 
 ```json
 {"op": "add_e", "parent": "S3", "text": "S3 draft <model>"}
+```
+
+手順 1 でデータセットの参照が見つかったときは、`dataset` を付ける（見つからなければ付けない）。`dataset` は、その E の下の実験すべてで同じ値を使う。
+
+```json
+{"op": "add_e", "parent": "S3", "text": "S3 draft <model>", "dataset": "ts:hfo-r01-v1@0123456789ab"}
 ```
 
 - 返った **E の ID**（`E2` の形）を控える。
