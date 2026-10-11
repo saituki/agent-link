@@ -394,11 +394,12 @@ op の危険度は 3 つに分かれます。
 | `remove` | Approval | Node を下の Node ごと消す。生きた S を持つ D は消せない（`… の下に SPROUT（S）があるので消せません。先に S を消してください`） |
 | `add_a` | Free | `q` は生きた child_Q を持たない。同じ Q の生きた A と同じ文なら拒否。文と本文に出典（`#番号`）があれば拒否（`A の文と本文に出典（#番号）は書けません。出典は add_f の cites に書き、F として足してください`）。型の Q は増えない |
 | `add_f` | Free | 3 文まで。数字を含む文は `cites` か `report` が要る。`cites` の形と存在は確かめる |
-| `add_e` | Free | 親は S か E |
+| `add_e` | Free | 親は S か E。`dataset`（任意・0〜200 字）を付けられる（sai-ts のスナップショットの参照。文字の形は検査しない） |
 | `add_seed` | Free | `title`（1〜120 字）・`body`（0〜2000 字）。結果は `D<n>`。許可は要らない（agent は出す前に質問ツールで内容を確かめる） |
 | `add_sprout` | Free | `seed`（D の ID）が必須（`seed には SEED（D）の ID を書いてください: …`）。同じ A を 2 回書けない |
 | `set_stance` | Free | 値が同じなら何もしない |
 | `set_mlflow` | Free | E の `mlflow` を変える（空文字は外す） |
+| `set_dataset` | Free | E の `dataset` を変える（空文字は外す）。`node`（E の ID）と `dataset` が要る。値が変わったときだけ `rt_log` に残る |
 | `star` / `unstar` | UserOnly | 値が変わるときだけ書く |
 | `edit` | UserOnly | 字数の上限は Q 300・A/E/S/D 120・F 1200。F は 3 文まで。`body` は A・E・S・D だけ。D の文の直しは利用者だけ |
 
@@ -446,6 +447,8 @@ sai-sci card --node S<n> --block sci-exp-sprout   既にある S から実験を
 
 - **MLflow の形**: experiment は `<project>/ID<sprout>/<model>`、run は `ID<branch>-p<NN>`。epoch ごとに `train_loss`・`val_loss` を記録する。
 - **木への書き込み**: 実験の結果は E の `mlflow` で MLflow に結ぶだけです（`set_mlflow`）。E の下に F は置かず、結論も木に足しません。
+- **データセット**: E の `dataset` は、sai-ts のスナップショットの参照（`ts:<name>@<sha12>`）です。sprout は S の上にある E の値を次の E の `dataset` に引き継ぎ、review は親の E の値を引き継ぎます（`set_dataset` で後から結ぶこともできます）。`MLflow` では experiment を作るときに `sai.dataset` タグとして残ります（既にある experiment には付きません）。branch は依頼書の「データセット」の行から、スナップショットのフォルダの `.f32` を読みます。スナップショットは workdir の外にあるので、実行先には送られません（遠隔の実行先で使うには、置き場を起動者に聞きます）。
+  - 結び方の入口は sai-ts です（画面の「データセット」タブか `sai-ts snapshot link`）。sai-ts が `sai-sci apply` を呼んで、S なら新しい E、E なら `set_dataset` を出します。
 - **止め方**: 判定が `stop` のときだけ。`max_branches` が branch の総数の上限になる。
 - **最初の sprout の起動**は、`sai-sci card --node S<n>` で作る。S は先に `lab-sprout` か Create SPROUT で作っておく。`--input` は依頼文の末尾に載せる文書の waggle トークン（繰り返し可）。
 

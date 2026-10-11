@@ -71,10 +71,10 @@ cd ~/workdir/Sai/sai-tree
 env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE \
   perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
-# Web（JS 34 本）
+# Web（JS 35 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
 
-# Web（Python 41 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
+# Web（Python 42 本。`SAI_LINK_BIN` などが設定されていると 5 本が落ちるので、そのときは env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN で外す）
 for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
 
 # Web（コンテナの中継。偽の docker で確かめる。実物の Docker は使わない）
@@ -101,8 +101,8 @@ sh -n apps/web/server/deploy.sh
 | 対象 | 本数 | CI のジョブ | 備考 |
 |---|---|---|---|
 | Rust（`cargo test --workspace`） | - | Rust（ubuntu） | |
-| Web の JS | 34 | Web（ubuntu） | |
-| Web の Python | 41 | Web（ubuntu） | |
+| Web の JS | 35 | Web（ubuntu） | |
+| Web の Python | 42 | Web（ubuntu） | |
 | コンテナの中継 | 1（sh） | Web（ubuntu） | |
 | sai-ts の Python | 19 | sai-ts（ubuntu） | `apps/ts` の uv sync が要る |
 | sai-ts の JS | 12 | sai-ts（ubuntu） | |

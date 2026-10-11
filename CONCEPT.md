@@ -39,6 +39,8 @@ sai は、4 つの部品（sai-link・sai-paper・sai-sci・sai-web）と 2 つ�
 | **waggle** | 文書に短いトークンを付けて受け渡す仕組み。vendor したクレート群。 | `waggle/`（`waggle-core`・`waggle-store`・`waggle-store-sqlite`）。使う側は `crates/sai-link-engine/src/waggle_integration.rs` |
 | **LabAgent** | sai-sci が配る研究用の block と template、およびそれで動く agent。 | `sai-sci/blocks/`・`sai-sci/template/`（§4） |
 | **research-tree** | Q・A・F・E・S の Node でできた木。研究の「何をやるか」を決める段階を扱う。 | `papr.db` の `rt_*` 表、`crates/sai-sci-core/src/rt/`、画面は Research タブ（§4） |
+| **スナップショット（sai-ts）** | データセット（記録・ch・イベント・派生変数の来歴）を、変わらない一式として `ts/snapshots/<name>/` に書き出したもの。research-tree の S（新しい E）か E（`dataset`）に結べる。 | `sai-ts snapshot create\|list\|show\|link`、`apps/ts/src/sai_ts/snapshots.py`。画面はサイドバーの「データセット」タブ |
+| **dataset の参照** | E が持つ、スナップショットを指す文字（`ts:<name>@<sha256 の先頭 12 桁>`）。E だけが持つ。文字の形は engine では検査しない。 | `rt_nodes.dataset_ref`、`sai-sci node --json` の `dataset`。MLflow の `sai.dataset` タグ |
 | **Experiments（実験）** | MLflow に溜まった実験の記録を見る画面。 | サーバは `apps/mlflow-server`、画面は `#/research/experiments`（`mlflow.js`） |
 | **`sai-engine.db`** | sai-link の DB。run・card・子タスクなどの記録が入る。sai-sci と sai-web は開かない。 | `<root>/.sai/sai-engine.db` |
 | **`papr.db`** | sai-paper の DB。論文・検索の記録・節と塊・research-tree の `rt_*` 表が入る。sai-link は開かない。 | `<root>/.sai/paper/papr.db`。`sai_paper_core::paths` の `PaperRoots`（`data_dir` が `<root>/.sai/paper/`） |
@@ -214,7 +216,7 @@ seed の本文は 9 見出し（`## 背景`・`## 解く問題（task）`・`## 
 | `Q` | 問い。child_Q を持てる | `Q12` | `rt_nodes` |
 | `A` | 答えの候補（旧 `O`） | `A15` | `rt_nodes` |
 | `F` | 根拠。stance を持つ。出典 `cites` か REPORT のトークン `report` | `F3` | `rt_nodes` |
-| `E` | 実験。MLflow の記録（`mlflow`）を結べる | `E2` | `rt_nodes` |
+| `E` | 実験。MLflow の記録（`mlflow`）を結べる。データセットの参照（`dataset`）を持てる | `E2` | `rt_nodes` |
 | `S` | SPROUT（研究計画）。親は D。PATH（A の ID）を集める | `S3` | `rt_nodes` |
 | `D` | seed。1 つの研究の制約。親なし | `D1` | `rt_nodes` |
 | `SEED` | root の根（RESEARCH_TYPE と mind.md）。DB の行は持たない。seed（D）とは別 | `SEED` | `rt/mod.rs` の `SEED_ID` |
@@ -263,10 +265,11 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 | `remove` | Approval | Node を下の Node ごと消す |
 | `add_a` | Free | A を足す。作ったあと GUIDE の `+` の子 Q を作る |
 | `add_f` | Free | F を足す（3 文まで）。数字を含む文は出典（`cites` か `report`）が要る |
-| `add_e` | Free | E を足す |
+| `add_e` | Free | E を足す（`dataset` を付けられる） |
 | `add_sprout` | Free | SPROUT を作る（4.2） |
 | `set_stance` | Free | F の stance を変える |
 | `set_mlflow` | Free | E の MLflow の結び付けを変える |
+| `set_dataset` | Free | E の `dataset`（データセットの参照）を変える。空文字は外す |
 | `star` / `unstar` | UserOnly | ★ を付ける・外す |
 | `edit` | UserOnly | 文と本文を直す |
 
@@ -299,6 +302,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 - **LabAgent** は、ブロックの frontmatter の `sci_type`（node・manage・support）で動く agent。LabAgent の 6 本（`lab-read`・`lab-search`・`lab-grow`・`lab-survey`・`lab-place`・`lab-progress`）と、検証 agent（`sci-verify`）がある。
 - **検証 agent**（`sci-verify`）は、target_node と子の関係を評価し、評価の報告・op・次の CARD を作る。参加者に `paper-debater`・`paper-reviewer` を子として使える。
 - **mlflow**（E の記録）は、E が持つ MLflow の記録への参照。Experiments の画面が読む。
+- **dataset**（E のデータ）は、E が持つスナップショットの参照。sprout と review は親の E の値を次の E に引き継ぐ。MLflow の experiment には `sai.dataset` タグとして残る。
 - **書き出し**（`state.md`・`tree.md`）は research-tree の文章と図。手で直しても次の書き出しで消える。
 - **mind.md** はプロジェクトの覚え書き（`ORIGIN`・`INTERESTS`・`NOTES`）。利用者が書き、エージェントは直接書き換えない。研究ごとの制約は seed（D）に書く。
 - **`rt_*` の表**: `rt_meta`・`rt_nodes`・`rt_log`・`rt_approvals`・`rt_seeds`・`rt_searches`（`crates/sai-paper-core/migrations/0056_rt_redesign.sql`）。古い `sci_*` の表は読まず、消さない。
