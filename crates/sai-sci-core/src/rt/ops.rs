@@ -137,6 +137,7 @@ static OP_SPECS: &[OpSpec] = &[
             req("text", Ty::Text(1, 120)),
             opt("body", Ty::Text(0, 2000)),
             opt("mlflow", Ty::Text(0, 200)),
+            opt("dataset", Ty::Text(0, 200)),
         ],
     },
     OpSpec {
@@ -167,6 +168,12 @@ static OP_SPECS: &[OpSpec] = &[
         risk: Risk::Free,
         about: "E の MLflow の結び付けを変える（空文字で外す）",
         fields: &[req("node", Ty::Id), req("mlflow", Ty::Text(0, 200))],
+    },
+    OpSpec {
+        op: "set_dataset",
+        risk: Risk::Free,
+        about: "E のデータセットの参照（sai-ts の ts:<name>@<sha12> など）を変える（空文字で外す）",
+        fields: &[req("node", Ty::Id), req("dataset", Ty::Text(0, 200))],
     },
     OpSpec { op: "star", risk: Risk::UserOnly, about: "Node に ★ を付ける（目印）", fields: &[req("node", Ty::Id)] },
     OpSpec { op: "unstar", risk: Risk::UserOnly, about: "Node の ★ を外す", fields: &[req("node", Ty::Id)] },
@@ -583,6 +590,7 @@ fn new_node<'a>(cx: &'a Cx<'_>, kind: Kind, parent: Option<i64>, text: &'a str) 
         run_id: cx.run_id,
         report_id: None,
         mlflow_ref: None,
+        dataset_ref: None,
         paths: &[],
         created_by: &cx.by,
     }
@@ -770,6 +778,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             let mut n = new_node(cx, Kind::E, Some(parent.id), text(op, "text"));
             n.body = text(op, "body");
             n.mlflow_ref = op.get("mlflow").and_then(Value::as_str).filter(|s| !s.is_empty());
+            n.dataset_ref = op.get("dataset").and_then(Value::as_str).filter(|s| !s.is_empty());
             Ok((fmt_id(Kind::E, store::insert_node(conn, &n)?), None))
         }
         "add_seed" => {
@@ -804,6 +813,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
                 run_id: cx.run_id,
                 report_id: None,
                 mlflow_ref: None,
+                dataset_ref: None,
                 paths: &paths,
                 created_by: &cx.by,
             };
@@ -828,6 +838,16 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             if e.mlflow_ref.as_deref() != next {
                 store::set_mlflow(conn, e.id, next)?;
                 log(cx, e.id, "set_mlflow", value)?;
+            }
+            Ok((text(op, "node").to_string(), None))
+        }
+        "set_dataset" => {
+            let e = node(cx, text(op, "node"), &[Kind::E])?;
+            let value = text(op, "dataset");
+            let next = (!value.is_empty()).then_some(value);
+            if e.dataset_ref.as_deref() != next {
+                store::set_dataset(conn, e.id, next)?;
+                log(cx, e.id, "set_dataset", value)?;
             }
             Ok((text(op, "node").to_string(), None))
         }
@@ -913,7 +933,7 @@ mod tests {
         std::fs::create_dir_all(&blocks).unwrap();
         std::fs::write(
             blocks.join("t-all.md"),
-            "---\nsci_ops: add_q, insert_q, move_a, copy, remove, add_a, add_f, add_e, add_seed, add_sprout, set_stance, set_mlflow\n---\n# t\n",
+            "---\nsci_ops: add_q, insert_q, move_a, copy, remove, add_a, add_f, add_e, add_seed, add_sprout, set_stance, set_mlflow, set_dataset\n---\n# t\n",
         )
         .unwrap();
         Env { db, roots: PaperRoots { root: dir.clone(), data_dir: dir }, defs, sub }
@@ -1260,6 +1280,31 @@ mod tests {
         assert_eq!((last.action.as_str(), last.detail.as_str()), ("set_mlflow", ""));
     }
 
+    #[test]
+    fn add_e_takes_dataset_and_set_dataset_changes_it() {
+        let e = env();
+        let a = e.a("A");
+        let s = e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a]})).unwrap();
+        let ex = e.agent1(json!({"op": "add_e", "parent": s, "text": "実験", "dataset": "ts:a@0123456789ab"})).unwrap();
+        let (_, eid) = parse_id(&ex).unwrap();
+        assert_eq!(store::get_node(e.conn(), eid).unwrap().dataset_ref.as_deref(), Some("ts:a@0123456789ab"));
+        let logs = |conn| store::list_log(conn, None).unwrap().iter().filter(|l| l.action == "set_dataset").count();
+        // 同じ値は log を書かない。
+        e.agent1(json!({"op": "set_dataset", "node": ex, "dataset": "ts:a@0123456789ab"})).unwrap();
+        assert_eq!(logs(e.conn()), 0);
+        e.agent1(json!({"op": "set_dataset", "node": ex, "dataset": "ts:b@ba9876543210"})).unwrap();
+        assert_eq!(store::get_node(e.conn(), eid).unwrap().dataset_ref.as_deref(), Some("ts:b@ba9876543210"));
+        assert_eq!(logs(e.conn()), 1);
+        e.agent1(json!({"op": "set_dataset", "node": ex, "dataset": ""})).unwrap();
+        assert_eq!(store::get_node(e.conn(), eid).unwrap().dataset_ref, None);
+        let last = &store::list_log(e.conn(), Some(1)).unwrap()[0];
+        assert_eq!((last.action.as_str(), last.detail.as_str()), ("set_dataset", ""));
+        // E 以外（S・A）と、201 字は断る。
+        assert!(err(e.agent1(json!({"op": "set_dataset", "node": s, "dataset": "x"}))).contains("E の ID"));
+        assert!(err(e.agent1(json!({"op": "set_dataset", "node": a, "dataset": "x"}))).contains("E の ID"));
+        assert!(e.agent1(json!({"op": "set_dataset", "node": ex, "dataset": "x".repeat(201)})).is_err());
+    }
+
     /// 範囲は A の祖先の Q と A、A の子の F だけを数える（A の子の Q 以下・祖先の A の F は入れない）。
     #[test]
     fn sprout_range_counts_ancestors_and_own_f() {
@@ -1387,7 +1432,7 @@ mod tests {
             .collect();
         assert_eq!(
             ops,
-            ["add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f", "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow"]
+            ["add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f", "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "set_dataset"]
         );
         assert!(is_user_only_op("star") && !is_user_only_op("add_a") && is_known_op("edit"));
     }

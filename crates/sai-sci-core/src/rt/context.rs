@@ -188,7 +188,11 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
             Kind::Q => String::new(),
             Kind::A => format!(" [F {}]", tree.f_count_under(n.id)),
             Kind::F if !n.cites.is_empty() => format!(" [{}]", n.cites.join(", ")),
-            Kind::E => n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]")),
+            Kind::E => {
+                let mlflow = n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]"));
+                let dataset = n.dataset_ref.as_deref().filter(|d| !d.is_empty()).map_or_else(String::new, |d| format!(" [dataset: {d}]"));
+                format!("{mlflow}{dataset}")
+            }
             Kind::S => {
                 let paths: Vec<String> = n.paths.iter().map(|id| fmt_id(Kind::A, *id)).collect();
                 let range = tree.range(n.id).map_or_else(String::new, |r| format!(" [範囲: {}]", r.line()));
@@ -512,7 +516,7 @@ mod tests {
             e.db.connection(),
             &store::NewNode {
                 kind, parent_id: Some(parent), guide_key: None, text, body: "", stance, cites: &[],
-                paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None,
                 paths: &[], created_by: "user",
             },
         )
@@ -525,7 +529,7 @@ mod tests {
             e.db.connection(),
             &store::NewNode {
                 kind: Kind::D, parent_id: None, guide_key: None, text, body, stance: None, cites: &[],
-                paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None,
                 paths: &[], created_by: "user",
             },
         )
@@ -538,7 +542,7 @@ mod tests {
             e.db.connection(),
             &store::NewNode {
                 kind: Kind::S, parent_id: parent, guide_key: None, text, body: "", stance: None, cites: &[],
-                paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None,
                 paths: &[o], created_by: "user",
             },
         )

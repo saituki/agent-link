@@ -1011,7 +1011,7 @@ mod tests {
     fn new_node(kind: rt::Kind, parent_id: Option<i64>, text: &str) -> store::NewNode<'_> {
         store::NewNode {
             kind, parent_id, guide_key: None, text, body: "", stance: None, cites: &[],
-            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, paths: &[], created_by: "user",
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None, paths: &[], created_by: "user",
         }
     }
 
