@@ -264,7 +264,8 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/projects/{name}/papers/sci/types` | 使える RESEARCH_TYPE | `sai-sci types --json` |
 | `POST /api/projects/{name}/papers/sci/init` | research-tree を始める（body `{"type": "problem"}`・型は 5 つだけ） | `sai-sci init --type <型> --json` |
 | `GET /api/projects/{name}/papers/sci/nodes/{node_id}` | Node 1 つの中身（`{node_id}` は `Q12`・`A5`・`F3`・`E2`・`S2` の形） | `sai-sci node <ID> --json` |
-| `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 14 種の op の JSON。READ_CARD の画面が足す `add_f` だけは任意の `run` を付け、その run の F として残す） | `sai-sci apply --json`（標準入力） |
+| `GET /api/projects/{name}/papers/sci/compare?s=S1,S2` | SPROUT（S）を 2〜10 個、軸ごとに並べて比べる（S 以外・同じ S の 2 回は 400） | `sai-sci compare <S>… --json` |
+| `POST /api/projects/{name}/papers/sci/apply` | 利用者の操作を 1 つ反映する（body は 17 種の op の JSON。READ_CARD の画面が足す `add_f` だけは任意の `run` を付け、その run の F として残す） | `sai-sci apply --json`（標準入力） |
 | `POST /api/projects/{name}/papers/sci/cards` | Node のための CARD を作る（body は C-CARD の JSON。`child`（足す子の型 `Q`・`A`・`F`）は任意。`runner`（`cc` / `user`・既定 `cc`）・`model`・`thinking` は任意。`--executer` は無い） | `sai-sci card --from-json --json`（標準入力） |
 | `GET /api/projects/{name}/papers/sci/reads/{run_id}` | READ_CARD の中身 | `sai-sci read <run_id> --json` |
 | `POST /api/projects/{name}/papers/sci/reads/{run_id}/start` | READ_CARD を始める | `sai-link card start <run_id>` |

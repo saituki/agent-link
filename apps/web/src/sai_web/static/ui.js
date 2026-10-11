@@ -164,16 +164,16 @@ const SAI_TERMS = {
     text: "SEED・ROOT・SPROUT・BRANCH の 4 layer からなる木と、それを描いた図の総称です。",
   },
   sci_seed: {
-    label: "SEED",
-    text: "研究の初期の入力です。RESEARCH_TYPE と mind.md からなります。Node の ID は SEED です。",
+    label: "seed（D）",
+    text: "1 研究の制約です。題と、解く問題・対象・データ・手法・出力・評価指標の 6 つの軸からなります。ID は D で始まります。",
   },
   sci_root: {
     label: "ROOT",
-    text: "SEED から下へ分かれる Q・O・F の総称です。木の下向きの部分を指します。",
+    text: "top_Q から下へ分かれる Q・A・F の総称です。木の下向きの部分を指します。",
   },
   sci_sprout: {
     label: "SPROUT",
-    text: "SEED から上へ分かれる Node です。ID は S で始まり、PATH を集めて実験の計画を立てます。",
+    text: "sprout（S）: seed と軸ごとの path の組です。ID は S で始まり、実験の計画を立てるもとになります。",
   },
   sci_branch: {
     label: "BRANCH",
@@ -181,7 +181,7 @@ const SAI_TERMS = {
   },
   sci_path: {
     label: "PATH",
-    text: "SEED から top_Q を通って O に至る道です。終点の O で表します。",
+    text: "SPROUT の軸ごとに選んだ A の道です。SPROUT の paths に A を並べて表します。",
   },
   sci_node: {
     label: "Node",

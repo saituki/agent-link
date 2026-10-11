@@ -19,16 +19,18 @@
 // op の表示名（表に無い op はそのまま出す）
 const SE_OPS = {
   add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E",
-  add_seed: "Create SEED", add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
+  add_seed: "seed（D）を作る", add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_stance: "Stance を変える",
   edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える",
+  move_node: "A を 1 件移す", regroup: "まとめる（中間の A と細分の Q）",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
   add_q: "Q を足しました", add_a: "A を足しました", add_f: "F を足しました", add_e: "E を足しました",
-  add_seed: "SEED を作りました", add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
+  add_seed: "seed（D）を作りました", add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
   star: "★ を付けました", unstar: "★ を外しました", set_stance: "Stance を変えました",
   edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました",
+  move_node: "A を 1 件移しました", regroup: "まとめました",
 };
 // 入力欄を出さずに送る op
 const SE_QUICK = ["star", "unstar", "set_stance"];
@@ -66,7 +68,7 @@ const SE_BLOCKS = [
   ["lab-survey", "外を調べる（検索）: 論文を探して木の案を出す"],
   ["lab-place", "置き場所を決める（論文だけ）: 木を探して読む CARD を作る"],
   ["lab-map", "root を組む（review 論文）: 分野の軸ごとに Q・A・F の骨組みを作る"],
-  ["lab-sprout", "SPROUT を作る: SEED と path を選び、制約と先行研究との違いを確かめて S を作る"],
+  ["lab-sprout", "SPROUT を作る: seed（D）と path を選び、制約と先行研究との違いを確かめて S を作る"],
   ["lab-progress", "進み具合の確認: 数と穴を報告し、次の CARD を作る（op は出さない）"],
   ["sci-verify", "検証: target_node と子の関係を評価し、報告・op・次の CARD を作る"],
 ];
@@ -83,7 +85,15 @@ const SE_SEED_AXES = [
   ["output", "出力（output）", "得る出力"],
   ["metric", "評価指標（metric）", "測る指標"],
 ];
-const SE_SEED_PICKS = [["decided", "決定"], ["empty", "空欄"]];
+// 軸の 5 つの状態（C-SEED-1）。並びは画面の釦の順。undecided は「空欄（まだ決めていない）」
+const SE_SEED_PICKS = [
+  ["decided", "決定"], ["scope", "範囲（この A の下）"], ["novel", "空欄（新規性）"],
+  ["none", "空欄（記載なし）"], ["undecided", "空欄（まだ決めていない）"],
+];
+// 値（値の欄）を使う状態と、その欄の見出し
+const SE_SEED_VALUE_LABELS = {
+  decided: "決定した値", scope: "範囲（この A の下で見る範囲）", novel: "新規性の理由", none: "記載なしの理由",
+};
 // 文字数の上限
 const SE_MAX = { qtext: 300, atext: 120, ftext: 1200, etext: 120, body: 2000, mlflow: 200, title: 120, purpose: 300, expect: 300 };
 
@@ -154,8 +164,6 @@ function seBuildOp(kind, values) {
   const good = (op) => ({ ok: true, op, json: op, error: null });
   // 必須の ID を確かめる。prefix は許す頭の文字
   const id = (key, prefix, label) => (seRefOk(v[key], prefix) ? "" : `${label}を選んでください`);
-  // add_q の親は SEED（ID を持たない特別な Node）か Q・A の ID
-  const qParentOk = (value) => seTrim(value) === "SEED" || seRefOk(value, "QA");
   // 字数を確かめる。min が 1 なら必須
   const len = (key, label, min, max) => {
     const n = seTrim(v[key]).length;
@@ -167,7 +175,9 @@ function seBuildOp(kind, values) {
 
   switch (name) {
     case "add_q": {
-      const msg = first(qParentOk(v.parent) ? "" : "親（SEED・Q・A）を選んでください", len("text", "文", 1, SE_MAX.qtext));
+      // 軸の Q は sai-sci init が作るので、Q を足せるのは Q・A の下だけ
+      if (seTrim(v.parent) === "SEED") return bad("軸の Q は sai-sci init が作ります");
+      const msg = first(seRefOk(v.parent, "QA") ? "" : "親（Q・A）を選んでください", len("text", "文", 1, SE_MAX.qtext));
       if (msg) return bad(msg);
       return good({ op: name, parent: seTrim(v.parent), text: seTrim(v.text) });
     }
@@ -221,8 +231,8 @@ function seBuildOp(kind, values) {
       return good(op);
     }
     case "add_sprout": {
-      // 1 つの SPROUT は 1 つの SEED（D）の下に作る
-      if (!seRefOk(v.seed, "D")) return bad("SEED を選んでください");
+      // 1 つの SPROUT は 1 つの seed（D）の下に作る
+      if (!seRefOk(v.seed, "D")) return bad("seed（D）を選んでください");
       const msg = first(len("title", "題", 1, SE_MAX.title), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       const paths = seList(v.paths);
@@ -265,6 +275,31 @@ function seBuildOp(kind, values) {
       if (seTrim(v.from) === seTrim(v.to)) return bad("同じ Q へは移せません");
       return good({ op: name, from: seTrim(v.from), to: seTrim(v.to) });
     }
+    case "move_node": {
+      // A を 1 件、その下の F・child_Q ごと、ID を保って別の Q の下へ移す（C-OP-2）。移す先は child_Q を持たない Q
+      const msg = first(id("node", "A", "移す A"), id("to", "Q", "移す先の Q"));
+      return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), to: seTrim(v.to) });
+    }
+    case "regroup": {
+      // Q の直下の A（members）を、新しい中間の A の下の細分の Q へまとめる（C-OP-3。ID は保つ）
+      const msg = first(
+        id("q", "Q", "まとめる Q"),
+        len("text", "中間の A の文", 1, 120),
+        len("body", "中間の A の本文", 0, SE_MAX.body),
+        len("child_q", "細分の Q の文", 1, SE_MAX.qtext),
+        len("child_q_body", "細分の Q の本文", 0, SE_MAX.body),
+      );
+      if (msg) return bad(msg);
+      const members = seList(v.members);
+      if (members.length < 1) return bad("まとめる A を 1 つ以上選んでください");
+      if (members.length > 20) return bad("まとめる A は 20 個までです");
+      for (const a of members) if (!seRefOk(a, "A")) return bad(`A の形が正しくありません: ${a}`);
+      if (new Set(members).size !== members.length) return bad("同じ A を 2 回選んでいます");
+      const op = { op: name, q: seTrim(v.q), text: seTrim(v.text), child_q: seTrim(v.child_q), members };
+      if (seTrim(v.body)) op.body = seTrim(v.body);
+      if (seTrim(v.child_q_body)) op.child_q_body = seTrim(v.child_q_body);
+      return good(op);
+    }
     case "set_mlflow": {
       // 空文字は外す（API の ztext）
       const msg = first(id("node", "E", "E"), len("mlflow", "MLflow の名前", 0, SE_MAX.mlflow));
@@ -305,6 +340,15 @@ function seChildOk(nodeId, child) {
 }
 
 /**
+ * カードの対象の Node。空は木の全体（CLI に --node を渡さない）。
+ * 旧い画面が木の全体を表す印（SEED）で渡すときも空として扱う（scitree.js の SEED の板が直るまで）。
+ */
+function seCardNode(value) {
+  const v = seTrim(value);
+  return v === "SEED" ? "" : v;
+}
+
+/**
  * カードの初めの値（C-CARD の preset から）。無い欄は空。
  * runner が user でブロックが空なら、ブロックの既定は lab-read。
  */
@@ -313,7 +357,7 @@ function seCardValues(preset, nodeId) {
   const runner = SE_RUNNERS.some((r) => r[0] === p.runner) ? p.runner : "cc";
   let block = SE_BLOCKS.some((b) => b[0] === p.block) ? p.block : "";
   if (runner === "user" && !block) block = "lab-read";
-  const node = seTrim(nodeId) || seTrim(p.node);
+  const node = seCardNode(nodeId) || seCardNode(p.node);
   const child = seTrim(p.child);
   return {
     node,
@@ -338,8 +382,9 @@ function seCardValues(preset, nodeId) {
 function seBuildCard(values) {
   const v = values || {};
   const bad = (error) => ({ ok: false, card: null, error });
-  const node = seTrim(v.node);
-  if (node !== "SEED" && !seRefOk(node)) return bad("Node を選んでください");
+  // 空は木の全体（node を送らない）
+  const node = seCardNode(v.node);
+  if (node && !seRefOk(node)) return bad("Node を選んでください");
   if (!SE_BLOCKS.some((b) => b[0] === v.block)) return bad("ブロックを選んでください");
   const purpose = seTrim(v.purpose);
   if (!purpose) return bad("目的を入力してください（空の目的では作りません）");
@@ -357,7 +402,8 @@ function seBuildCard(values) {
   if (papers.length > 20) return bad("論文は 20 本までです");
   const child = seTrim(v.child);
   if (!seChildOk(node, child)) return bad("足す子の型は、対象が Q なら Q か A、A なら Q か F です");
-  const card = { node, block: v.block, purpose, runner, papers };
+  const card = { block: v.block, purpose, runner, papers };
+  if (node) card.node = node;
   if (runner === "user") {
     if (!/^[QA]/.test(node)) return bad("READ_CARD の対象は Q か A にしてください");
     if (papers.length !== 1) return bad("READ_CARD の論文はちょうど 1 本にしてください");
@@ -384,23 +430,51 @@ function seCardRunId(res) {
 }
 
 /**
- * seed（D）の 9 項目（values）から本文の markdown を作る（共有契約の形）。
- * 空の自由な文は「空欄」。軸の 6 項目は「決定: <値>」か「空欄」の次に説明の行が続く。
- * 項目の名前: background・<軸>_mode（decided か empty）・<軸>_value・<軸>_note・success・constraints
+ * seed（D）の入力（values）から本文の markdown を作る（共有契約 C-SEED-1 の形）。
+ * 軸の 5 つの状態（<軸>_mode）:
+ *   decided → `決定: <値>`（A を選んでいれば次に `A: A<n>`）
+ *   scope   → `範囲: <値>`（次に `A: A<n>`）
+ *   novel   → `空欄` と `新規性: <理由>`
+ *   none    → `空欄` と `記載なし: <理由>`
+ *   undecided（空の mode も同じ）→ `空欄`
+ * 値が空の決定・範囲・新規性・記載なしは、空欄（まだ決めていない）として書く（送る前に seSeedError で止める）。
+ * 説明（<軸>_note）は最後に続けて書く。自由な文（background・success・constraints）は空なら「空欄」。
  */
 function seSeedBody(values) {
   const v = values || {};
   const lines = ["## 背景", seTrim(v.background) || "空欄"];
   for (const [key, label] of SE_SEED_AXES) {
+    const mode = seTrim(v[`${key}_mode`]);
     const value = seTrim(v[`${key}_value`]);
-    const decided = seTrim(v[`${key}_mode`]) === "decided" && value;
-    lines.push(`## ${label}`, decided ? `決定: ${value}` : "空欄");
+    const a = seTrim(v[`${key}_a`]);
     const note = seTrim(v[`${key}_note`]);
+    lines.push(`## ${label}`);
+    if (value && mode === "decided") lines.push(`決定: ${value}`);
+    else if (value && mode === "scope") lines.push(`範囲: ${value}`);
+    else if (value && mode === "novel") lines.push("空欄", `新規性: ${value}`);
+    else if (value && mode === "none") lines.push("空欄", `記載なし: ${value}`);
+    else lines.push("空欄");
+    if (a && value && (mode === "decided" || mode === "scope")) lines.push(`A: ${a}`);
     if (note) lines.push(note);
   }
   lines.push("## 成功基準", seTrim(v.success) || "空欄");
   lines.push("## 制約", seTrim(v.constraints) || "空欄");
   return lines.join("\n");
+}
+
+/**
+ * seed（D）の入力を送る前に確かめる（送れない理由を返す。通れば空）。
+ * 決定・範囲・新規性・記載なしを選んだのに値が空なら止める。範囲は A が要る（C-SEED-1）。
+ */
+function seSeedError(values) {
+  const v = values || {};
+  for (const [key, label] of SE_SEED_AXES) {
+    const mode = seTrim(v[`${key}_mode`]);
+    if (!SE_SEED_VALUE_LABELS[mode]) continue;
+    if (!seTrim(v[`${key}_value`])) return `${label}: ${SE_SEED_VALUE_LABELS[mode]}を入力してください`;
+    if (mode === "scope" && !seRefOk(v[`${key}_a`], "A")) return `${label}: 範囲のときは A を 1 つ選んでください`;
+  }
+  return "";
 }
 
 /**
@@ -433,24 +507,45 @@ function seSeedParse(body) {
       out[name] = text === "空欄" ? "" : text;
       continue;
     }
-    // 軸の項目: 1 行目が「決定: 値」か「空欄」。それ以降は説明
-    const nl = text.indexOf("\n");
-    const first = (nl < 0 ? text : text.slice(0, nl)).trim();
-    const rest = nl < 0 ? "" : text.slice(nl + 1).trim();
-    if (first.startsWith("決定:")) {
-      out[`${name}_mode`] = "decided";
-      out[`${name}_value`] = first.slice("決定:".length).trim();
-      out[`${name}_note`] = rest;
-    } else if (first === "空欄") {
-      out[`${name}_mode`] = "empty";
-      out[`${name}_value`] = "";
-      out[`${name}_note`] = rest;
-    } else {
-      out[`${name}_mode`] = "empty";
-      out[`${name}_value`] = "";
-      out[`${name}_note`] = text;
-    }
+    const axisValues = seSeedAxis(text);
+    out[`${name}_mode`] = axisValues.mode;
+    out[`${name}_value`] = axisValues.value;
+    out[`${name}_a`] = axisValues.a;
+    out[`${name}_note`] = axisValues.note;
   }
+  return out;
+}
+
+/**
+ * 軸の本文（見出しの次の行から）を 1 つの状態に読む（seSeedBody の逆・C-SEED-1）。
+ * 1 行目が `決定:` `範囲:` か `空欄` でなければ、まだ決めていない（その文は説明として残す）。
+ * 古い本文（`空欄` の次の説明・`決定:` の次の説明）も、説明として残す。
+ */
+function seSeedAxis(text) {
+  const lines = String(text || "").trim().split("\n");
+  const head = (lines[0] || "").trim();
+  let rest = lines.slice(1);
+  const out = { mode: "undecided", value: "", a: "", note: "" };
+  if (head.startsWith("決定:") || head.startsWith("範囲:")) {
+    out.mode = head.startsWith("決定:") ? "decided" : "scope";
+    out.value = head.slice(head.indexOf(":") + 1).trim();
+    if (rest.length && /^A:/.test(rest[0].trim())) {
+      out.a = rest[0].trim().slice(2).trim();
+      rest = rest.slice(1);
+    }
+  } else if (head === "空欄") {
+    const reason = /^(新規性|記載なし):/.exec((rest[0] || "").trim());
+    if (reason) {
+      out.mode = reason[1] === "新規性" ? "novel" : "none";
+      out.value = rest[0].trim().slice(reason[0].length).trim();
+      rest = rest.slice(1);
+    }
+  } else {
+    // 知らない 1 行目は説明として残す（まだ決めていない）
+    out.note = lines.join("\n").trim();
+    return out;
+  }
+  out.note = rest.join("\n").trim();
   return out;
 }
 
@@ -701,15 +796,25 @@ function seForm(fields) {
  */
 function seSeedFields(init) {
   const v = init || {};
+  const aOptions = seStatusNodes().filter((n) => n && seRefOk(n.id, "A")).map(seNodeOption);
   const fields = [
     seFieldText("title", "題（必須）", v.title, "必須・120 字まで"),
     seFieldArea("background", "背景", v.background, 3, "自由な文（この研究の経緯・動機）"),
   ];
   for (const [key, label, hint] of SE_SEED_AXES) {
-    const pick = seFieldPick(`${key}_mode`, label, SE_SEED_PICKS, v[`${key}_mode`] || "empty");
-    const value = seFieldText(`${key}_value`, "決定した値", v[`${key}_value`], "1 行・「決定」のときだけ");
-    value.show = (cur) => cur[`${key}_mode`] === "decided";
-    fields.push(pick, value, seFieldArea(`${key}_note`, "説明（任意）", v[`${key}_note`], 2, hint));
+    const pick = seFieldPick(`${key}_mode`, label, SE_SEED_PICKS, v[`${key}_mode`] || "undecided");
+    const value = seFieldText(`${key}_value`, SE_SEED_VALUE_LABELS.decided, v[`${key}_value`], "1 行・決定・範囲・空欄の理由のときに書く");
+    const a = seFieldSelect(`${key}_a`, "A（決定は任意・範囲は必須）", aOptions, v[`${key}_a`], "この軸を決めた A", true);
+    const note = seFieldArea(`${key}_note`, "説明（任意）", v[`${key}_note`], 2, hint);
+    value.show = (cur) => SE_SEED_VALUE_LABELS[cur[`${key}_mode`]] !== undefined;
+    a.show = (cur) => cur[`${key}_mode`] === "decided" || cur[`${key}_mode`] === "scope";
+    // 値の欄の見出しは、選んだ状態で変える（範囲・新規性・記載なしの理由）
+    const valueLabel = value.el.querySelector("label");
+    value.refresh = () => {
+      const want = SE_SEED_VALUE_LABELS[pick.read()];
+      if (want) valueLabel.textContent = want;
+    };
+    fields.push(pick, value, a, note);
   }
   fields.push(
     seFieldArea("success", "成功基準", v.success, 2, "指標の値と向き。未定なら空欄のまま"),
@@ -800,8 +905,8 @@ function seFieldsFor(kind, nodeId, detail) {
         fields.push(guide);
       }
       fields.push(text);
-      const fromSeed = id === "SEED";
-      return { title: fromSeed ? "top_Q を足す" : `Q を足す（${id}）`, values: { parent: fromSeed ? "SEED" : id }, fields };
+      // 親が SEED（旧い印）のときは seBuildOp が「軸の Q は sai-sci init が作ります」で止める
+      return { title: `Q を足す（${id}）`, values: { parent: id }, fields };
     }
     case "add_a":
       return {
@@ -846,6 +951,36 @@ function seFieldsFor(kind, nodeId, detail) {
         values: { from: id },
         fields: [seFieldSelect("to", "移す先の Q", seBottomQs(nodes).filter((n) => n.id !== id).map(seNodeOption), "", "この Q の子の A を全部移します。移す先は bottom_Q", false)],
       };
+    case "move_node": {
+      // A を 1 件、その下の F・child_Q ごと移す。移す先は bottom_Q で、今の親は外す（ID は変わらない）
+      const parent = (nodes.find((n) => n && n.id === id) || {}).parent;
+      return {
+        title: `A を 1 件移す（${id}）`,
+        values: { node: id },
+        fields: [seFieldSelect("to", "移す先の Q", seBottomQs(nodes).filter((n) => n.id !== parent).map(seNodeOption), "", "A の下の F・child_Q ごと移します。ID は変わりません", false)],
+      };
+    }
+    case "regroup": {
+      // Q の直下の A を、新しい中間の A の下の細分の Q へまとめる。細分の Q の文は、空なら「〈中間の A の文〉には、どんな種類があるか。」
+      const members = nodes.filter((n) => n && seRefOk(n.id, "A") && n.parent === id).map(seNodeOption);
+      const childQ = seFieldText("child_q", "細分の Q の文", "", "必須・300 字まで。空なら「〈中間の A の文〉には、どんな種類があるか。」", "〈中間の A の文〉には、どんな種類があるか。");
+      return {
+        title: `まとめる（${id}）`,
+        values: { q: id },
+        fields: [
+          seFieldText("text", "中間の A の文", "", "必須・120 字まで。まとめた A の答え"),
+          seFieldArea("body", "中間の A の本文", "", 3, "任意・2000 字まで"),
+          childQ,
+          seFieldArea("child_q_body", "細分の Q の本文", "分け方の基準: ", 3, "任意・2000 字まで。分け方の基準を書きます"),
+          seFieldChecks("members", "まとめる A（Q の直下の A）", members, [], "1〜20 個。選んだ A は、細分の Q の下へ移ります（ID は変わりません）"),
+        ],
+        // 細分の Q の文は、空なら中間の A の文から作る（既定）
+        build: (read) => Object.assign({}, read, {
+          q: id,
+          child_q: seTrim(read.child_q) || `${seTrim(read.text)}には、どんな種類があるか。`,
+        }),
+      };
+    }
     case "set_mlflow":
       return {
         title: `MLflow を変える（${id}）`,
@@ -865,14 +1000,15 @@ function seFieldsFor(kind, nodeId, detail) {
         fields: [],
       };
     case "edit": {
-      // seed（D）は 9 項目の入力欄で直す。送る本文は seSeedBody で組み直す
+      // seed（D）は入力欄で直す。送る本文は seSeedBody で組み直す（送る前に seSeedError で確かめる）
       if (seRefOk(id, "D")) {
         const fields = seSeedFields(Object.assign({ title: node.text }, seSeedParse(node.body)));
         return {
-          title: `SEED を直す（${id}）`,
+          title: `seed（D）を直す（${id}）`,
           values: { node: id },
           fields,
           build: (read) => ({ node: id, text: read.title, body: seSeedBody(read) }),
+          check: (read) => seSeedError(read),
         };
       }
       const rules = seEditRules(id);
@@ -899,10 +1035,10 @@ async function seQuick(op, payload) {
 function seOpenAction(op, nodeId, detail) {
   if (typeof document === "undefined" || typeof saiSheet !== "function") return;
   const name = seTrim(op);
-  // SEED・SPROUT は小窓ではなく、作成のパネルで作る（作成中も図と板を操作できる）
+  // seed（D）・SPROUT は小窓ではなく、作成のパネルで作る（作成中も図と板を操作できる）
   if (name === "add_seed") {
     if (typeof stStartSeed === "function") stStartSeed();
-    else saiToast("SEED の作成画面がまだありません", "error");
+    else saiToast("seed（D）の作成画面がまだありません", "error");
     return;
   }
   if (name === "add_sprout") {
@@ -929,6 +1065,8 @@ function seOpenAction(op, nodeId, detail) {
 
   const send = async () => {
     const read = form.read();
+    const stop = spec.check ? spec.check(read) : "";
+    if (stop) { form.say(stop); return; }
     const v = spec.build ? spec.build(read) : Object.assign({}, spec.values, read);
     const built = seBuildOp(name, v);
     if (!built.ok) { form.say(built.error); return; }
@@ -957,9 +1095,9 @@ function seOpenAction(op, nodeId, detail) {
 async function seOpenCard(nodeId, preset) {
   if (typeof document === "undefined" || typeof saiSheet !== "function") return;
   const init = seCardValues(preset, nodeId);
-  const wantId = seTrim(nodeId);
+  const wantId = seCardNode(nodeId);
   let detail = null;
-  if (wantId && wantId !== "SEED") {
+  if (wantId) {
     try {
       detail = await paperApi(stApi(`/nodes/${encodeURIComponent(wantId)}`));
     } catch (e) {
@@ -975,8 +1113,8 @@ async function seOpenCard(nodeId, preset) {
   const fields = [];
   let nodeField = null;
   if (!wantId) {
-    const picks = [["SEED", "SEED（research-tree の全体）"], ...seStatusNodes().filter((n) => n && seRefOk(n.id)).map(seNodeOption)];
-    nodeField = seFieldSelect("node", "Node", picks, init.node, "CARD を向ける Node", false);
+    const picks = [["", "木の全体（Node を選ばない）"], ...seStatusNodes().filter((n) => n && seRefOk(n.id)).map(seNodeOption)];
+    nodeField = seFieldSelect("node", "Node", picks, init.node, "CARD を向ける Node。木の全体は Node を送りません", false);
     fields.push(nodeField);
   }
   const block = seFieldSelect("block", "ブロック", SE_BLOCKS, init.block, "必須", false);
@@ -1030,7 +1168,7 @@ async function seOpenCard(nodeId, preset) {
   form.actions.appendChild(seBtn("作る", async () => {
     const v = form.read();
     const built = seBuildCard({
-      node: seTrim(nodeId) || v.node || init.node,
+      node: nodeField ? v.node : wantId,
       block: v.block, purpose: v.purpose, expect: v.expect, runner: v.runner,
       model: v.model, thinking: v.thinking,
       mode: v.mode, depth: v.depth, child: v.child,
@@ -1072,8 +1210,8 @@ async function seOpenCard(nodeId, preset) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
-    seCardValues, seBuildCard, seCardRunId, seChildOptions, seChildOk,
-    seBottomQs, seSeedBody, seSeedParse,
-    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_STANCES, SE_SEED_AXES,
+    seCardValues, seCardNode, seBuildCard, seCardRunId, seChildOptions, seChildOk,
+    seBottomQs, seSeedBody, seSeedParse, seSeedError, seSeedAxis,
+    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_STANCES, SE_SEED_AXES, SE_SEED_PICKS, SE_SEED_VALUE_LABELS,
   };
 }

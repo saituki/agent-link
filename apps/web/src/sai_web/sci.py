@@ -12,6 +12,7 @@
 | `GET …/papers/sci/types` | — | `sai-sci types --json` |
 | `POST …/papers/sci/init` | `{"type": "problem"}` | `sai-sci init --type <型> --json` |
 | `GET …/papers/sci/nodes/{node_id}` | — | `sai-sci node <ID> --json` |
+| `GET …/papers/sci/compare?s=S1,S2` | — | `sai-sci compare <S>… --json` |
 | `POST …/papers/sci/apply` | C-OP の op の JSON | `sai-sci apply --json`（標準入力） |
 | `POST …/papers/sci/cards` | C-CARD の JSON | `sai-sci card --from-json --json`（標準入力） |
 | `GET …/papers/sci/reads/{run_id}` | — | `sai-sci read <run_id> --json` |
@@ -44,7 +45,7 @@ SCI_WRITE_TIMEOUT = 30.0
 SCI_INIT_TIMEOUT = 60.0
 
 # --- ID と値 ---
-# Node は Q・A・F・E・S・D（数だけ「12」は受け付けない）。SEED は ID を持たないので別に扱う
+# Node は Q・A・F・E・S・D（数だけ「12」は受け付けない）
 _NODE_RE = re.compile(r"^[QAFESD][1-9][0-9]{0,8}$")
 # RESEARCH_TYPE
 SCI_TYPES = ("problem", "phenomenon", "method", "data", "improve")
@@ -72,17 +73,23 @@ _CARD_BLOCK_RE = re.compile(r"^(sci|lab)-[a-z-]{2,30}$")
 RUN_ID_MAX = 999_999_999
 CITES_MAX = 10
 PATH_MAX = 20
+MEMBERS_MAX = 20
+COMPARE_MAX = 10
 CARD_PAPERS_MAX = 20
+# SPROUT の path のオブジェクトの項目と区分（C-OP-4。sai-sci の PATH_KEYS・PATH_ROLES と同じ）
+PATH_KEYS = ("a", "axis", "role", "fixed_at")
+PATH_ROLES = ("fixed", "novel")
 # 文字数の上限
 BODY_MAX = 2000
 
-# --- C-OP の op ごとの項目（C3 の表と同じ 15 種類） ---
+# --- C-OP の op ごとの項目（C-OP の 17 種類） ---
 # 値は「検査のしかた」。知らない項目は落とすので、1 つ 1 つ書く。
 #   ref:<種類>   必須の ID（種類は Q・A・F・E・S・D の文字の並び）
 #   text:<n>     必須の文字（1〜n 字）
 #   ztext:<n>    必須の文字（0〜n 字。空も通す）
 #   otext:<n>    任意の文字（空なら無いものとして落とす）
 #   body         任意の本文（0〜2000 字。空のまま送れる）
+#   members      必須の A の ID の並び（1〜20 件）
 #   enum:<名前>  必須の値
 #   他は _check_one を見る
 # 親子の規則・許可・承認は CLI（ops.rs）が見る。ここは形だけ。
@@ -90,6 +97,15 @@ _OP_FIELDS: dict[str, dict[str, str]] = {
     "add_q": {"parent": "qparent", "text": "text:300", "guide": "oguide"},
     "insert_q": {"q": "ref:Q", "text": "text:300", "guide": "oguide"},
     "move_a": {"from": "ref:Q", "to": "ref:Q"},
+    "move_node": {"node": "ref:A", "to": "ref:Q"},
+    "regroup": {
+        "q": "ref:Q",
+        "text": "text:120",
+        "body": "body",
+        "child_q": "text:300",
+        "child_q_body": "body",
+        "members": "members",
+    },
     "copy": {"node": "ref:A", "to": "ref:Q"},
     "remove": {"node": "ref:QAFESD"},
     "add_a": {"q": "ref:Q", "text": "text:120", "body": "body"},
@@ -139,16 +155,6 @@ def _check_ref(value, kinds: str) -> str:
     if node[0] not in kinds:
         raise _bad("ID の形が正しくありません")
     return node
-
-
-def _check_node_or_seed(value) -> str:
-    """`SEED`（ID を持たない特別な Node）か、Node の ID（Q・A・F・E・S・D）。
-
-    `check_node` は `SEED` を受けないので、カードの `node` と add_q の親はここを通す。
-    """
-    if isinstance(value, str) and value.strip() == "SEED":
-        return "SEED"
-    return check_node(value)
 
 
 def check_run_id(value) -> int:
@@ -265,22 +271,67 @@ def _check_one(key: str, kind: str, value):
             raise _bad("report の形が正しくありません")
         return text
     if name == "qparent":
-        # add_q の親は SEED（ID を持たない特別な Node）か Node の ID（種類の組は CLI が見る）
-        return _check_node_or_seed(value)
-    if name == "sproutpaths":
-        out = _check_id_list(value, "A", PATH_MAX, key, minimum=1)
+        # add_q の親は Q か A（種類の組は CLI が見る）。軸の Q は sai-sci init が作るので、SEED は受けない
+        if isinstance(value, str) and value.strip() == "SEED":
+            raise _bad("軸の Q は sai-sci init が作ります")
+        return _check_ref(value, "QA")
+    if name == "members":
+        out = _check_id_list(value, "A", MEMBERS_MAX, key, minimum=1)
         if len(set(out)) != len(out):
-            raise _bad("paths に同じ A が 2 回入っています")
+            raise _bad("members に同じ A が 2 回入っています")
         return out
+    if name == "sproutpaths":
+        return _check_paths(value)
     raise _bad("指定が正しくありません")
+
+
+def _check_paths(value) -> list:
+    """SPROUT の paths（C-OP-4）。要素は A の ID の文字か、`a`・`axis`・`role`・`fixed_at` を書いたオブジェクト。
+
+    オブジェクトの知らない項目は 400（CLI も同じ項目だけを受ける）。同じ A は 2 回書けない。
+    """
+    if not isinstance(value, list) or not (1 <= len(value) <= PATH_MAX):
+        raise _bad("paths の指定が正しくありません")
+    out: list = []
+    for item in value:
+        if isinstance(item, str):
+            out.append(_check_ref(item, "A"))
+            continue
+        if not isinstance(item, dict):
+            raise _bad("paths の指定が正しくありません")
+        extra = [k for k in item if k not in PATH_KEYS]
+        if extra:
+            raise _bad(f"paths の項目に {extra[0]} は書けません（書けるのは a・axis・role・fixed_at）")
+        if "a" not in item:
+            raise _bad("paths のオブジェクトには a（A の ID）が要ります")
+        one: dict = {"a": _check_ref(item["a"], "A")}
+        for key in ("axis", "fixed_at"):
+            if item.get(key) is None:
+                continue
+            if key == "axis":
+                text = _trim(item[key])
+                if text:
+                    one[key] = text
+            else:
+                one[key] = _check_ref(item[key], "A")
+        if item.get("role") is not None:
+            role = _trim(item["role"])
+            if role not in PATH_ROLES:
+                raise _bad("paths の role は fixed / novel のどちらかです")
+            one["role"] = role
+        out.append(one)
+    ids = [x if isinstance(x, str) else x["a"] for x in out]
+    if len(set(ids)) != len(ids):
+        raise _bad("paths に同じ A が 2 回入っています")
+    return out
 
 
 def validate_op(payload) -> dict:
     """C-OP の op の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `op` は C-OP の 15 種類（Web からもすべて送れる）。
+    - `op` は C-OP の 17 種類（Web からもすべて送れる）。
     - op ごとに表の項目だけを残す。知らない項目と `path` のようなファイルのパスは落ちるので、
-      CLI には渡らない（`add_sprout` の `paths` だけは A の ID の配列で、検査して渡す）。
+      CLI には渡らない（`add_sprout` の `paths` は A の ID か区分のオブジェクトの配列で、検査して渡す）。
     - 文字列は前後の空白を落とす。必須の項目が無ければ 400「<項目> がありません」。
     """
     if not isinstance(payload, dict):
@@ -296,7 +347,7 @@ def validate_op(payload) -> dict:
     out: dict = {"op": name}
     for key, kind in fields.items():
         raw = payload.get(key)
-        # `ref:`・`enum:`・`text:`・`ztext:`・`qparent`・`sproutpaths` は必須、ほかは任意
+        # `ref:`・`enum:`・`text:`・`ztext:`・`qparent`・`members`・`sproutpaths` は必須、ほかは任意
         optional = kind.split(":")[0] in ("otext", "body", "oguide", "ocites", "opaper", "orun", "oreport")
         if raw is None:
             if optional:
@@ -316,16 +367,23 @@ def validate_op(payload) -> dict:
 def validate_card(payload) -> dict:
     """READ_CARD の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `node`（Q・A・F・E・S・D と `SEED`）・`block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
+    - `node`（Q・A・F・E・S・D の ID）は省ける（省くと木の全体。CLI に `--node` を渡さない）。`SEED` は 400
+    - `block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
     - `expect` 300 字、`depth`・`mode`・`runner` は表の値（`runner` は空なら `cc`・`pi` は 400）、`origin_run` は run_id
     - `model`・`thinking` は省略可（`CARD_MODELS`・`CARD_THINKING` の値だけ）
     - `child`（任意。`Q`・`A`・`F` のどれか。空は未指定）は C7 の `sci_child` として渡す。対象との組は CLI が見る
     - `papers` は 20 個まで・各 1〜999999999
-    - `runner` が `user` なら `papers` はちょうど 1 つで、`node` は Q か A（`SEED` は選べない）
+    - `runner` が `user` なら `papers` はちょうど 1 つで、`node` は Q か A（省いたものは選べない）
     - `question`・`role`・`executer` は受けない。ファイルのパスも受けない（知らない項目は落とす）
     """
     if not isinstance(payload, dict):
         raise _bad("送る JSON が正しくありません")
+
+    raw_node = payload.get("node")
+    if isinstance(raw_node, str) and raw_node.strip() == "SEED":
+        raise _bad("SEED は廃止しました")
+    # 空・無しは木の全体（node を省く）
+    node = "" if raw_node is None or (isinstance(raw_node, str) and not raw_node.strip()) else check_node(raw_node)
 
     block = _trim(payload.get("block"))
     if not _CARD_BLOCK_RE.match(block):
@@ -338,11 +396,12 @@ def validate_card(payload) -> dict:
     if runner == "pi":
         raise _bad("runner の pi は廃止しました")
     out: dict = {
-        "node": _check_node_or_seed(payload.get("node")),
         "block": block,
         "purpose": purpose,
         "runner": _enum(runner, RUNNERS, "runner"),
     }
+    if node:
+        out["node"] = node
     expect = _opt_text(payload, "expect", 300)
     if expect is not None:
         out["expect"] = expect
@@ -370,7 +429,7 @@ def validate_card(payload) -> dict:
     if out["runner"] == "user":
         if len(papers_list) != 1:
             raise _bad("READ_CARD は論文を 1 つだけ指定してください")
-        if out["node"] == "SEED" or out["node"][0] not in ("Q", "A"):
+        if not node or node[0] not in ("Q", "A"):
             raise _bad("READ_CARD の対象は Q か A にしてください")
     return out
 
@@ -446,6 +505,24 @@ def create_card(project: dict, payload) -> dict:
         SCI_WRITE_TIMEOUT,
         input_text=json.dumps(data, ensure_ascii=False),
     )
+
+
+def compare(project: dict, ids) -> dict:
+    """SPROUT（S）を 2〜10 個、軸ごとに並べて比べる（`sai-sci compare <S>… --json`・C-CMP-1）。
+
+    `ids` は `S1`・`S2` などの並び。S 以外・同じ S の 2 回・個数の違いは 400（CLI は呼ばない）。
+    """
+    if not isinstance(ids, list) or not (2 <= len(ids) <= COMPARE_MAX):
+        raise _bad("比べる S は 2〜10 個指定してください")
+    out: list[str] = []
+    for item in ids:
+        node_id = check_node(item)
+        if node_id[0] != "S":
+            raise _bad("比べられるのは S（SPROUT）だけです")
+        out.append(node_id)
+    if len(set(out)) != len(out):
+        raise _bad("同じ S を 2 回指定しています")
+    return _sci_cli(project, ["compare", *out, "--json"], SCI_READ_TIMEOUT)
 
 
 def read(project: dict, run_id) -> dict:
