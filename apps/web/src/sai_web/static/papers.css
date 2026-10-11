@@ -218,8 +218,8 @@
     min-width: 0;
     padding: var(--sp-3) var(--sp-4) var(--sp-6);
   }
-  /* 右の欄の中身は読みやすい幅に収める */
-  .paper-side { max-width: 900px; }
+  /* 右の欄は画面の端まで使い、カードの間は #/paper/<id> の .paper-body と同じ 12px にする */
+  .paper-side { display: flex; flex-direction: column; gap: 12px; }
 }
 .pim-job-link { font-size: 12px; }
 
@@ -589,3 +589,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* 音声の注記が空のときは場所を取らない（カードの間隔が 2 倍にならないように） */
+#paper-audio-notes:empty { display: none; }

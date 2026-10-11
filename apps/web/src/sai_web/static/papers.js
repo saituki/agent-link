@@ -2889,18 +2889,7 @@ function renderPaper(target) {
   const audioNotes = document.createElement("div");
   audioNotes.id = "paper-audio-notes";
   body.appendChild(audioNotes);
-  // ボタンの下に「何が起きるか」を 1 行ずつ出す（U6・端末に慣れていない人向け）
-  const hints = [];
-  if (files.pdf) hints.push("📄 PDF: 新しいタブで、取った PDF がそのまま見えます");
-  if (files.pdf_ja) hints.push("📄 日本語 PDF: PDF を日本語に訳したものです");
-  if (files.extract) hints.push("本文: 取り出した本文だけを、1 ページで読みます");
-  if (files.pdf) hints.push("🈂 日本語 PDF を作る: PDF 全体を日本語に訳します。数分かかります。");
-  hints.push("🎙 音声を作る: 数分かかります。できたら通知でお知らせします");
-  hints.push("🔎 Index: この論文の本文を chunk に分け、検索用の埋め込みを作ります");
-  hints.push("カードを作る: この論文の行を入れた task.md の作成フォームを開きます");
-  hints.push("ノート: この論文の覚え書きです。書くとここに残ります");
-  if (!files.pdf) hints.push("PDF 待ち: sai-prep から送ると PDF・図・翻訳が入ります");
-  for (const text of hints) body.appendChild(el("p", "paper-hint", text));
+  if (!files.pdf) body.appendChild(el("p", "paper-hint", "PDF 待ち: sai-prep から送ると PDF・図・翻訳が入ります"));
 
   // PDF が無い論文は「PDF 待ち」と sai-prep の入れ方を出す（U13 §3）
   if (!files.pdf) {
