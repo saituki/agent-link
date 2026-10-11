@@ -86,15 +86,15 @@ function tsChatStyle() {
   st.textContent = `
 .ts-chat { display: flex; flex-direction: column; gap: 6px; height: 100%; }
 .ts-chat-log { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; max-height: 60vh; }
-.ts-msg { max-width: 85%; padding: 6px 8px; border-radius: 8px; background: #eee; }
-.ts-msg.ts-user { align-self: flex-end; background: #dbe9ff; }
+.ts-msg { max-width: 85%; padding: 6px 8px; border-radius: 8px; background: var(--ts-hover); }
+.ts-msg.ts-user { align-self: flex-end; background: #1e3a5f; }
 .ts-msg.ts-assistant { align-self: flex-start; }
 .ts-msg.ts-pending { opacity: 0.6; }
 .ts-msg .ts-t { white-space: pre-wrap; word-break: break-word; }
-.ts-msg pre.ts-code { margin: 4px 0; padding: 6px; background: #f4f4f4; border: 1px solid #ccc; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre; }
-.ts-chat-note { color: #555; font-size: 13px; }
+.ts-msg pre.ts-code { margin: 4px 0; padding: 6px; background: var(--ts-bg); border: 1px solid var(--ts-border); overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre; }
+.ts-chat-note { color: var(--ts-muted); font-size: 13px; }
 .ts-chat-form textarea { width: 100%; min-height: 56px; box-sizing: border-box; }
-.ts-chat-form .ts-sum { font-size: 12px; color: #555; margin-bottom: 2px; }
+.ts-chat-form .ts-sum { font-size: 12px; color: var(--ts-muted); margin-bottom: 2px; }
 `;
   document.head.appendChild(st);
 }

@@ -40,9 +40,9 @@ function tsExtStyle() {
   const st = document.createElement("style");
   st.id = "ts-style-exthost.js";
   st.textContent = `
-.ts-ext-row { padding: 6px 0; border-bottom: 1px solid #ddd; }
-.ts-ext-row .ts-ext-ver { color: #777; font-size: 12px; margin-left: 6px; }
-.ts-ext-row .ts-ext-err { color: #b00; font-size: 12px; white-space: pre-wrap; }
+.ts-ext-row { padding: 6px 0; border-bottom: 1px solid var(--ts-border); }
+.ts-ext-row .ts-ext-ver { color: var(--ts-muted); font-size: 12px; margin-left: 6px; }
+.ts-ext-row .ts-ext-err { color: var(--ts-danger); font-size: 12px; white-space: pre-wrap; }
 `;
   document.head.appendChild(st);
 }
