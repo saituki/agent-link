@@ -6,7 +6,8 @@
 - 知らない項目と `path` のようなファイルのパスが CLI に渡らない
 - READ_CARD の終わりは、始まっていない札でも 1 回の操作で review まで進む
 - 9 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
-- C3 の表にない op は 400（op の集合は test_op_ok で確かめる）。research-tree の住所は 9 本だけ
+- C-OP の表にない op は 400（op の集合は test_op_ok で確かめる）。research-tree の住所は 10 本だけ
+- move_node・regroup の検査、paths のオブジェクト、card の node 省略、SEED の 400、compare の ID の検査
 
 実行:
     cd <作業用コピー>
@@ -99,15 +100,20 @@ def swap(order: list, replies: list | None = None):
     return paper, link, restore
 
 
-# C-OP の 15 op（C3 の表）の通る例
+# C-OP の 17 op（C-OP-1〜4）の通る例
 C3_OPS = {
-    "add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f",
+    "add_q", "insert_q", "move_a", "move_node", "regroup", "copy", "remove", "add_a", "add_f",
     "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "star", "unstar", "edit",
 }
 OP_EXAMPLES = {
     "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
     "insert_q": {"q": "Q1", "text": "間に入れる問い", "guide": "g-1"},
     "move_a": {"from": "Q1", "to": "Q3"},
+    "move_node": {"node": "A4", "to": "Q3"},
+    "regroup": {
+        "q": "Q1", "text": "中間の答え", "body": "本文", "child_q": "細分の問い",
+        "child_q_body": "分け方の基準: 時期", "members": ["A2", "A3"],
+    },
     "copy": {"node": "A2", "to": "Q3"},
     "remove": {"node": "F4"},
     "add_a": {"q": "Q1", "text": "候補", "body": "説明"},
@@ -121,7 +127,10 @@ OP_EXAMPLES = {
     },
     "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc"},
     "add_seed": {"title": "発作部位の特定", "body": "## 背景\n術前の評価"},
-    "add_sprout": {"seed": "D1", "title": "題", "body": "計画", "paths": ["A1", "A2"]},
+    "add_sprout": {
+        "seed": "D1", "title": "題", "body": "計画",
+        "paths": ["A1", {"a": "A2", "axis": "method", "role": "fixed", "fixed_at": "A2"}, {"a": "A5", "role": "novel"}],
+    },
     "set_stance": {"node": "F3", "stance": "deny"},
     "set_mlflow": {"node": "E1", "mlflow": "run/xyz"},
     "star": {"node": "A2"},
@@ -154,7 +163,7 @@ def test_ids() -> None:
 def test_op_ok() -> None:
     """15 op が通り、前後の空白は落ち、body は空のまま送れる。"""
     assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) == C3_OPS, set(sci._OP_FIELDS) ^ C3_OPS
-    assert len(sci._OP_FIELDS) == 15
+    assert len(sci._OP_FIELDS) == 17
     for name, fields in OP_EXAMPLES.items():
         got = sci.validate_op({"op": name, **fields})
         for key, value in fields.items():
@@ -163,7 +172,6 @@ def test_op_ok() -> None:
     # 種類の組（star は F も A も通る）は CLI が見る。Web は ID の形だけ
     assert sci.validate_op({"op": "star", "node": "F31"})["node"] == "F31"
     assert sci.validate_op({"op": "add_q", "parent": "A1", "text": "x"})["parent"] == "A1"
-    assert sci.validate_op({"op": "add_q", "parent": "SEED", "text": "x"})["parent"] == "SEED"
     assert sci.validate_op({"op": "add_e", "parent": "E1", "text": "x"})["parent"] == "E1"
     assert sci.validate_op({"op": "add_e", "parent": "S2", "text": "x"})["parent"] == "S2"
     assert sci.validate_op({"op": "remove", "node": "S1"})["node"] == "S1"
@@ -200,7 +208,27 @@ def test_op_ng() -> None:
     bad({"op": "star", "node": "O1"}, "ID の形が正しくありません")
     bad({"op": "star", "node": "12"}, "ID の形が正しくありません")
     bad({"op": "add_q", "parent": "O1", "text": "x"}, "ID の形が正しくありません")
+    bad({"op": "add_q", "parent": "SEED", "text": "x"}, "軸の Q は sai-sci init が作ります")
+    bad({"op": "add_q", "parent": "D1", "text": "x"}, "ID の形が正しくありません")
     bad({"op": "add_q", "parent": "Q1", "text": "あ" * 301})
+    # move_node は A を 1 件・移す先は Q
+    bad({"op": "move_node", "node": "A4"}, "to がありません")
+    bad({"op": "move_node", "node": "Q4", "to": "Q3"}, "ID の形が正しくありません")
+    bad({"op": "move_node", "node": "A4", "to": "A3"}, "ID の形が正しくありません")
+    # regroup は members が 1〜20 件の A（重なりも不可）
+    regroup = {"op": "regroup", "q": "Q1", "text": "中間", "child_q": "細分の問い", "members": ["A2"]}
+    assert sci.validate_op(regroup) == {
+        "op": "regroup", "q": "Q1", "text": "中間", "child_q": "細分の問い", "members": ["A2"],
+    }
+    bad({**regroup, "members": []}, "members の指定が正しくありません")
+    bad({**regroup, "members": [f"A{i}" for i in range(1, 22)]}, "members の指定が正しくありません")
+    bad({**regroup, "members": ["A2", "Q3"]}, "ID の形が正しくありません")
+    bad({**regroup, "members": ["A2", "A2"]}, "members に同じ A が 2 回入っています")
+    bad({k: v for k, v in regroup.items() if k != "child_q"}, "child_q がありません")
+    bad({k: v for k, v in regroup.items() if k != "members"}, "members がありません")
+    bad({**regroup, "text": "あ" * 121})
+    bad({**regroup, "child_q": "あ" * 301})
+    bad({**regroup, "child_q_body": "あ" * 2001})
     bad({"op": "add_q", "parent": "Q1", "text": "x", "guide": "日本語"}, "guide の形が正しくありません")
     bad({"op": "insert_q", "q": "A1", "text": "x"}, "ID の形が正しくありません")
     bad({"op": "insert_q", "q": "Q1", "text": "あ" * 301})
@@ -238,6 +266,14 @@ def test_op_ng() -> None:
     bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": ["A1", "A1"]}, "paths に同じ A が 2 回入っています")
     bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [f"A{i}" for i in range(1, 22)]})
     bad({"op": "add_sprout", "seed": "D1", "title": "題"}, "paths がありません")
+    # paths のオブジェクト（C-OP-4）: 知らない項目・区分の値・a の無いものは 400
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"axis": "method"}]}, "paths のオブジェクトには a（A の ID）が要ります")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "weight": 2}]}, "paths の項目に weight は書けません（書けるのは a・axis・role・fixed_at）")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "role": "maybe"}]}, "paths の role は fixed / novel のどちらかです")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "Q1"}]}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "fixed_at": "Q1"}]}, "ID の形が正しくありません")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1"}, "A1"]}, "paths に同じ A が 2 回入っています")
+    bad({"op": "add_sprout", "seed": "D1", "title": "題", "paths": [12]}, "paths の指定が正しくありません")
     bad({"op": "add_sprout", "seed": "D1", "title": "あ" * 121, "paths": ["A1"]})
     bad({"op": "add_sprout", "seed": "D1", "title": "題", "body": "あ" * 2001, "paths": ["A1"]})
     bad({"op": "edit", "node": "A1"}, "text か body のどちらかが要ります")
@@ -279,9 +315,14 @@ def test_card() -> None:
     assert sci.validate_card(ok_user)["runner"] == "user"
     assert sci.validate_card({**ok_user, "mode": "blind_first"})["mode"] == "blind_first"
     assert "mode" not in sci.validate_card(ok_user)
-    # SEED はカードの対象にできる（実行は cc）
-    seed_card = {"node": "SEED", "block": "sci-review", "purpose": "木全体を見直す", "runner": "cc"}
-    assert sci.validate_card(seed_card)["node"] == "SEED"
+    # node を省くと木の全体（CLI に --node を渡さない）。空も省いたのと同じ
+    tree_card = {"block": "sci-digest", "purpose": "木全体を見直す", "runner": "cc"}
+    assert "node" not in sci.validate_card(tree_card)
+    assert "node" not in sci.validate_card({**tree_card, "node": None})
+    assert "node" not in sci.validate_card({**tree_card, "node": " "})
+    assert sci.validate_card(tree_card) == {
+        "block": "sci-digest", "purpose": "木全体を見直す", "runner": "cc", "papers": [],
+    }
     # C9: LabAgent の block id（lab-*）も通る
     assert sci.validate_card({**ok_user, "block": "lab-read"})["block"] == "lab-read"
     # C7: 足す子の型（Q・A・F）。空と null は未指定として落とす
@@ -311,7 +352,10 @@ def test_card() -> None:
     bad({"node": "12"}, "ID の形が正しくありません")
     bad({"node": "O1"}, "ID の形が正しくありません")
     bad({"node": "F1"}, "READ_CARD の対象は Q か A にしてください")
-    bad({"node": "SEED"}, "READ_CARD の対象は Q か A にしてください")
+    bad({"node": "SEED"}, "SEED は廃止しました")
+    # 省いた node は木の全体なので、READ_CARD の対象にはできない
+    tree_user = {"block": "sci-read", "purpose": "目的", "papers": [37], "runner": "user"}
+    expect_400(lambda: sci.validate_card(tree_user), "READ_CARD の対象は Q か A にしてください")
     bad({"child": "E"}, "child が正しくありません")
     bad({"child": "S"}, "child が正しくありません")
     bad({"child": "O"}, "child が正しくありません")
@@ -380,6 +424,55 @@ def test_calls(order: list) -> None:
 
         sci.read_start(project, 130)
         assert link.last["args"] == ["card", "start", "130"] and link.last["root"] == root
+    finally:
+        restore()
+
+
+def test_new_ops_reach_cli() -> None:
+    """move_node と regroup は検査を通って `apply` の標準入力に届く（余りの項目は落とす）。"""
+    project = papers.resolve_project("sai-paper")
+    paper, _, restore = swap([])
+    try:
+        sci.apply(project, {"op": "move_node", "node": "A4", "to": "Q3", "reason": "移す"})
+        assert paper.last["args"][1:] == ["apply", "--json"]
+        assert json.loads(paper.last["input_text"]) == {"op": "move_node", "node": "A4", "to": "Q3"}
+        sci.apply(project, {
+            "op": "regroup", "q": "Q1", "text": "中間の答え", "child_q": "細分の問い",
+            "members": ["A2", "A3"], "path": "/etc/passwd",
+        })
+        assert json.loads(paper.last["input_text"]) == {
+            "op": "regroup", "q": "Q1", "text": "中間の答え", "child_q": "細分の問い", "members": ["A2", "A3"],
+        }
+        sci.apply(project, {
+            "op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "role": "fixed", "fixed_at": "A1"}, "A2"],
+        })
+        sent = json.loads(paper.last["input_text"])
+        assert sent["paths"] == [{"a": "A1", "role": "fixed", "fixed_at": "A1"}, "A2"], sent
+    finally:
+        restore()
+
+
+def test_compare() -> None:
+    """compare は S だけを 2〜10 個受け、`compare <S>… --json` を呼ぶ。住所は `s` をカンマで分ける。"""
+    from sai_web import main as web_main
+
+    project = papers.resolve_project("sai-paper")
+    order: list = []
+    paper, _, restore = swap(order)
+    try:
+        sci.compare(project, ["S1", "S2"])
+        assert paper.last["args"][1:] == ["compare", "S1", "S2", "--json"], paper.last["args"]
+        assert paper.last["timeout"] == 20.0 and paper.last["input_text"] is None
+        web_main.api_sci_compare("sai-paper", "S3,S4", None)
+        assert paper.last["args"][1:] == ["compare", "S3", "S4", "--json"], paper.last["args"]
+
+        calls = len(paper.calls)
+        for bad_ids in ([], ["S1"], ["S" + str(i) for i in range(1, 12)], ["A1", "A2"], ["S1", "Q2"], ["S1", "S1"], ["S1", "x"]):
+            expect_400(lambda value=bad_ids: sci.compare(project, value))
+        expect_400(lambda: web_main.api_sci_compare("sai-paper", "", None))
+        expect_400(lambda: web_main.api_sci_compare("sai-paper", "S1", None))
+        expect_400(lambda: web_main.api_sci_compare("sai-paper", "S1,A2", None), "比べられるのは S（SPROUT）だけです")
+        assert len(paper.calls) == calls, "検査で落ちたときは CLI を呼ばない"
     finally:
         restore()
 
@@ -495,18 +588,19 @@ def test_routes() -> None:
         (f"{base}/sci/types", ["GET"]),
         (f"{base}/sci/init", ["POST"]),
         (f"{base}/sci/nodes/{{node_id}}", ["GET"]),
+        (f"{base}/sci/compare", ["GET"]),
         (f"{base}/sci/apply", ["POST"]),
         (f"{base}/sci/cards", ["POST"]),
         (f"{base}/sci/reads/{{run_id}}", ["GET"]),
         (f"{base}/sci/reads/{{run_id}}/start", ["POST"]),
         (f"{base}/sci/reads/{{run_id}}/finish", ["POST"]),
     ]
-    assert len(wanted) == 9
+    assert len(wanted) == 10
     for path, method in wanted:
         assert (path, method) in paths, f"住所が無い: {method} {path}"
     assert not any(p.endswith("/sci/graph") for p, _ in paths), "/sci/graph は消した"
     sci_paths = {p for p, _ in paths if "/sci/" in p}
-    assert len(sci_paths) == 9, f"research-tree の住所が 9 本でない: {sorted(sci_paths)}"
+    assert len(sci_paths) == 10, f"research-tree の住所が 10 本でない: {sorted(sci_paths)}"
 
     wanted_paths = {p for p, _ in wanted}
     for route in app.routes:
@@ -533,6 +627,8 @@ def main() -> None:
             test_unknown_fields_dropped()
             test_card()
             test_calls([])
+            test_new_ops_reach_cli()
+            test_compare()
             test_read_finish()
             test_failure_codes()
             test_user_cli_args()
