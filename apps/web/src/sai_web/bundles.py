@@ -406,7 +406,7 @@ def job_view(project: dict, key: str) -> dict:
         "status": job.get("status"),
         "title": job.get("title"),
     }
-    for name in ("paper_id", "figures", "translated", "error"):
+    for name in ("paper_id", "figures", "translated", "error", "result"):
         value = job.get(name)
         if value is not None:
             out[name] = value

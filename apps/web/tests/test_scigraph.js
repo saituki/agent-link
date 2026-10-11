@@ -15,6 +15,8 @@ const {
   sgEdgeStyle,
   sgEdgePath,
   sgCenterView,
+  sgTextScale,
+  sgTitleLines,
   SG_CARD_W,
   SG_CARD_H,
   SG_TREE_STEP,
@@ -211,7 +213,30 @@ function testEdgePath() {
   const d = sgEdgePath(a, b);
   assert.ok(d.startsWith("M "), d);
   assert.ok(d.includes("C "), d);
-  assert.ok(/^M 200 72 /.test(d) || /^M 100 72 /.test(d), d);
+  // 縦に並ぶ 2 枚なので、上の札の下の真ん中から出る
+  assert.ok(d.startsWith(`M ${SG_CARD_W / 2} ${SG_CARD_H} `), d);
+}
+
+function testTextScale() {
+  // 拡大では文字を 1/z に、縮小と等倍では 1 のまま
+  assert.strictEqual(sgTextScale(0.5), 1);
+  assert.strictEqual(sgTextScale(1), 1);
+  assert.strictEqual(sgTextScale(2), 0.5);
+  assert.strictEqual(sgTextScale(2.5), 0.4);
+  assert.strictEqual(sgTextScale(null), 1);
+  // 画面の上の文字（13px × z × 倍率）は、どの拡大率でも 13px を超えない
+  for (const z of [0.5, 1, 1.2, 1.44, 2, 2.5]) {
+    assert.ok(13 * z * sgTextScale(z) <= 13 + 1e-9, `z=${z}`);
+  }
+}
+
+function testTitleLines() {
+  // 等倍で題が 6 行以上見える。拡大すると行が増え、どの拡大率でも 2 行を下回らない
+  assert.ok(sgTitleLines(1) >= 6, String(sgTitleLines(1)));
+  assert.ok(sgTitleLines(2.5) > sgTitleLines(1));
+  assert.ok(sgTitleLines(2.5) >= sgTitleLines(2));
+  assert.ok(sgTitleLines(0.3) >= 2);
+  assert.ok(SG_CARD_H > SG_CARD_W, "Card は縦長");
 }
 
 // --- A の出し入れと畳み（U02）: Q1 → A2 → F3・F4、Q1 → A5 ---
@@ -279,6 +304,71 @@ function testCenterView() {
   assert.strictEqual(v.ty, 128);
 }
 
+// --- seed（D）の層: SEED の札の右に D を並べ、D の子の S をその真上に置く ---
+
+function seedStatus() {
+  return {
+    seed: { type: { id: "problem", name: "PROBLEM_DRIVEN" }, mind: [] },
+    nodes: [
+      node("Q0", "Q", null, 0),
+      node("Q1", "Q", "Q0", 1),
+      node("A1", "A", "Q1", 2),
+      node("D1", "D", null, 0, { text: "発作部位の特定" }),
+      node("D2", "D", null, 0, { text: "予後" }),
+      node("S1", "S", "D1", 1, { text: "最初の構想", paths: ["A1"] }),
+      node("S2", "S", "D1", 1, { text: "二つ目", paths: ["A1"] }),
+      node("S3", "S", "D2", 1, { text: "予後の構想", paths: ["A1"] }),
+      node("S4", "S", null, 1, { text: "古い S", paths: ["A1"] }),
+      node("E1", "E", "S1", 2),
+    ],
+  };
+}
+
+function testSeedLayer() {
+  const l = sgTreeLayout({ status: seedStatus() }, {});
+  // D は SEED の札と同じ高さ（y = 0）。SEED の右へ順に並ぶ
+  assert.strictEqual(byId(l, "D1").kind, "D");
+  assert.strictEqual(byId(l, "D1").y, 0);
+  assert.strictEqual(byId(l, "D2").y, 0);
+  assert.ok(byId(l, "SEED").x < byId(l, "D1").x && byId(l, "D1").x < byId(l, "D2").x, "SEED < D1 < D2");
+  // D の子の S は D の真上（-STEP）、その下の E は -2×STEP
+  assert.strictEqual(byId(l, "S1").y, -SG_TREE_STEP);
+  assert.strictEqual(byId(l, "S3").y, -SG_TREE_STEP);
+  assert.strictEqual(byId(l, "E1").y, -2 * SG_TREE_STEP);
+  // 子の S の真ん中が D の真ん中（S1 と S2 の並び）
+  const d1Mid = byId(l, "D1").x + SG_CARD_W / 2;
+  const s12Mid = (byId(l, "S1").x + byId(l, "S2").x + SG_CARD_W) / 2;
+  assert.strictEqual(s12Mid, d1Mid);
+  // 札の sub は SEED と子の数。題は札の文
+  assert.strictEqual(byId(l, "D1").sub, "SEED・SPROUT 2");
+  assert.strictEqual(byId(l, "D2").sub, "SEED・SPROUT 1");
+  assert.strictEqual(byId(l, "D1").text, "発作部位の特定");
+  // 線: D → S は tree。SEED → D の線は無い（横に並ぶだけ）
+  assert.ok(hasEdge(l, "D1", "S1", "tree"));
+  assert.ok(hasEdge(l, "D1", "S2", "tree"));
+  assert.ok(hasEdge(l, "D2", "S3", "tree"));
+  assert.ok(!l.edges.some((e) => e.from === "SEED" && (e.to === "D1" || e.to === "D2")), JSON.stringify(l.edges));
+  // 古い S（親が無い）は今のまま SEED の上。SEED → S の sprout の線は残る
+  assert.strictEqual(byId(l, "S4").y, -SG_TREE_STEP);
+  assert.ok(hasEdge(l, "SEED", "S4", "sprout"));
+  // 札が重ならない（古い S・D・その子の S と E）
+  const l2 = l.cards;
+  for (let i = 0; i < l2.length; i++) {
+    for (let j = i + 1; j < l2.length; j++) {
+      assert.ok(!overlap(l2[i], l2[j]), `${l2[i].id} と ${l2[j].id}`);
+    }
+  }
+}
+
+function testSeedKeep() {
+  // D1 を選ぶと、D1 と子の S（S1・S2）とその下の E1 が残る。D2 の下の S3 と古い S4 は残らない
+  const keep = sgSproutKeep(seedStatus(), "D1");
+  assert.deepStrictEqual([...keep].sort(), ["D1", "E1", "S1", "S2"]);
+  assert.ok(!keep.has("S3") && !keep.has("S4") && !keep.has("SEED"));
+  // D でも S でもない ID は null
+  assert.strictEqual(sgSproutKeep(seedStatus(), "Q1"), null);
+}
+
 const tests = [
   ["4 layer の段", testLayers],
   ["線の種類", testEdgeKinds],
@@ -294,11 +384,15 @@ const tests = [
   ["空の入力", testEmpty],
   ["線の書き方", testEdgeStyle],
   ["線の形", testEdgePath],
+  ["文字の倍率と題の行数", testTextScale],
+  ["題の行数と縦長の札", testTitleLines],
   ["畳んだ子孫", testCollapsed],
   ["hideA", testHideA],
   ["hideF と hideA", testHideFAndA],
   ["子孫の無い札の畳み", testCollapsedWithoutChildren],
   ["中央に出す tx と ty", testCenterView],
+  ["seed（D）の層", testSeedLayer],
+  ["seed を選んだときの残す札", testSeedKeep],
 ];
 
 let failed = 0;

@@ -151,6 +151,8 @@
 
 /* --- Dashboard の Project（現況・考え） --- */
 .pd-project { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* Dashboard のカード（数字・State・Mind・Next Action・Recent Activity）の間は同じ間隔 */
+#papers-dashboard-body { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); }
 /* 数字のカード以外は折りたためる（<details open>・見出しは summary） */
 .pd-fold { display: block; }
 .pd-fold > summary { list-style: none; cursor: pointer; justify-content: flex-start; }
@@ -216,10 +218,8 @@
     min-width: 0;
     padding: var(--sp-3) var(--sp-4) var(--sp-6);
   }
-  /* 右の欄の中身は読みやすい幅に収める */
-  .paper-side { max-width: 900px; }
-  /* Project のカードと本文は 2 列に並べる */
-  .pd-project { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  /* 右の欄は画面の端まで使い、カードの間は #/paper/<id> の .paper-body と同じ 12px にする */
+  .paper-side { display: flex; flex-direction: column; gap: 12px; }
 }
 .pim-job-link { font-size: 12px; }
 
@@ -500,8 +500,8 @@
 .papers-cond[hidden], #discover-status[hidden] { display: none; }
 
 /* U03: Library 内の検索（内部 DB）。外／内の切り替えは dash-seg をそのまま使う */
-#library-kind { margin-bottom: 8px; width: 200px; }
-#library-kind button { white-space: nowrap; }
+#library-kind { margin: 10px 16px 0; width: fit-content; }
+#library-kind button { white-space: nowrap; padding: 5px 14px; }
 #find-papers-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .find-chip {
   display: inline-flex;
@@ -589,3 +589,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* 音声の注記が空のときは場所を取らない（カードの間隔が 2 倍にならないように） */
+#paper-audio-notes:empty { display: none; }

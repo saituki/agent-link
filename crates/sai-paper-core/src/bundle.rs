@@ -468,7 +468,7 @@ pub fn sha256_file(path: &Path) -> Result<String, BundleError> {
 }
 
 /// ファイルの更新時刻（エポック秒）を返す。
-fn file_mtime_secs(path: &Path) -> Result<String, BundleError> {
+pub(crate) fn file_mtime_secs(path: &Path) -> Result<String, BundleError> {
     Ok(std::fs::metadata(path)?
         .modified()?
         .duration_since(std::time::UNIX_EPOCH)
@@ -478,7 +478,7 @@ fn file_mtime_secs(path: &Path) -> Result<String, BundleError> {
 }
 
 /// `target` を `reference` より新しくする（`reusable_markdown` の条件を満たす）。
-fn touch_newer_than(target: &Path, reference: &Path) -> Result<(), BundleError> {
+pub(crate) fn touch_newer_than(target: &Path, reference: &Path) -> Result<(), BundleError> {
     let now = std::time::SystemTime::now();
     let reference_mtime = std::fs::metadata(reference).and_then(|m| m.modified()).ok();
     let modified = match reference_mtime {

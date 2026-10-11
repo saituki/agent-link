@@ -4,30 +4,18 @@ name: IMPROVE_DRIVEN
 ---
 # IMPROVE_DRIVEN
 
-すでに動いている手法があり、「これをよくする」ことを目標にする型である。何を直すかは、おおむね決まっている。
-
-最初から与えられていることが多いのは既存手法（今、何が動いているか）である。与えられていないのは、その手法の弱点、根本の原因、改善の型、確かめ方のデータ、新規性の主張である。
+すでに動いている手法があり、「これをよくする」ことを目標にする型である。型は、seed のどの項目が最初から決定かで決まる。最初から決まっているのは、改善の元の手法（method）と評価指標（metric）である。何を直すかは、おおむね決まっている。改善の方向は seed では決まらないので、手法の A の下で探す。
 
 典型例は、自動注釈が特定の記録条件で壊れるので、壊れる条件を整理して直す工夫を考えるものである。手法は既にあるので、どこに手を入れるかを決めるところが本番になる。
 
 ## Q
-- background
-  - background.goal
-  - background.problem
+- task
 - target
-  - target.subgroup
-- existing
-- issue
-  - issue.limit
-    + issue.root
-    + method
-      - method.analog
-      - method.adapt
-    + data
-      - data.type
-      - data.size
-      - data.label
-      - data.access
-    + novelty
-      - novelty.closest
-      - novelty.diff
+- data
+- method
+- output
+- metric
+
+## SEED
+- 決定になりやすい: 手法（method。改善の元の手法）・評価指標（metric）
+- 空欄で始まりやすい: 改善の方向は、手法の A の下で探す

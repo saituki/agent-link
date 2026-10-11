@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import __version__, config as config_mod
+from . import __version__, config as config_mod, migrate
 from .client import Client, ClientError
 
 # 時間の上限（秒）。
@@ -31,6 +31,8 @@ PDF2ZH_TIMEOUT = 60 * 60
 MLX_START_TIMEOUT = 30 * 60
 JOB_POLL_TIMEOUT = 15 * 60
 JOB_POLL_INTERVAL = 3.0
+# 移植（DB Migration）の取り込みの待ち時間の上限。束は論文 1 本でも大きいことがある。
+MIGRATE_POLL_TIMEOUT = 60 * 60
 
 # 前処理の束の名前（共有契約 C12）。
 BUNDLE_FORMAT = "sai-prep-bundle"
@@ -49,7 +51,7 @@ class Job:
 
     id: str
     project: str
-    kind: str  # "paper"（行への drop）か "bibtex"（BibTeX と PDF）
+    kind: str  # "paper"（行への drop）・"bibtex"（BibTeX と PDF）・"migrate"（DB Migration）
     target: dict
     filename: str
     status: str = "queued"  # queued / running / done / failed
@@ -181,6 +183,10 @@ class Pipeline:
         target = {"bibtex": bibtex}
         return self._submit(project, "bibtex", target, pdf_bytes, filename, translations)
 
+    def submit_migration(self, project: str, target: dict, filename: str) -> Job:
+        """DB Migration の仕事。target は `{"source":"moon","path":…,"ids":[id]}` か `{"source":"tree","project":…,"ids":[…]}`。"""
+        return self._submit(project, "migrate", target, b"", filename)
+
     def _submit(
         self,
         project: str,
@@ -254,7 +260,10 @@ class Pipeline:
             if job is None:
                 continue
             try:
-                self._process(job)
+                if job.kind == "migrate":
+                    self._process_migration(job)
+                else:
+                    self._process(job)
             except PipelineError as error:
                 job.status = "failed"
                 job.error = str(error)
@@ -331,6 +340,47 @@ class Pipeline:
             self._set(job, "送信中", 85)
             self._send(job, config, bundle_path)
 
+            self._set(job, "完了", 100)
+            job.status = "done"
+            shutil.rmtree(workdir, ignore_errors=True)
+        except PipelineError:
+            raise
+        except Exception as error:
+            raise PipelineError(f"予期しない失敗: {error}") from error
+
+    def _process_migration(self, job: Job) -> None:
+        """DB Migration: moon は束を作って送り、tree はサーバの中で移すよう頼む。"""
+        config = self._config_provider()
+        client = self._client_for(config)
+        target = job.target
+        workdir = self._work_root / job.id
+        try:
+            if target.get("source") == "moon":
+                workdir.mkdir(parents=True, exist_ok=True)
+                self._set(job, "束を作成中", 10)
+                package = workdir / "migration.zip"
+                try:
+                    migrate.build_package(Path(target["path"]), target["ids"], package)
+                except migrate.MigrateError as error:
+                    raise PipelineError(str(error)) from error
+                self._set(job, "送信中", 40)
+                blob = package.read_bytes()
+                try:
+                    response = client.post_migrate(job.project, blob)
+                except ClientError as error:
+                    raise PipelineError(f"束を送れません: {error}") from error
+            else:
+                self._set(job, "移植を依頼中", 40)
+                try:
+                    response = client.post_migrate_from(job.project, target["project"], target["ids"])
+                except ClientError as error:
+                    raise PipelineError(f"移植を頼めません: {error}") from error
+            key = response.get("key")
+            if not key:
+                raise PipelineError("移植を頼みましたが、サーバが job の鍵を返しませんでした")
+            self._set(job, "取り込みを待っています", 60)
+            state = _wait_server_job(client, job.project, key, MIGRATE_POLL_TIMEOUT, self._poll_interval)
+            job.result = state.get("result")
             self._set(job, "完了", 100)
             job.status = "done"
             shutil.rmtree(workdir, ignore_errors=True)
@@ -474,12 +524,15 @@ class Pipeline:
 
     # -- 送信 --------------------------------------------------------------
 
-    def _send(self, job: Job, config: config_mod.Config, bundle_path: Path) -> None:
+    def _client_for(self, config: config_mod.Config) -> Client:
         if not config.server_url:
             raise PipelineError("サーバの住所が設定されていません（設定を入れてください）")
         if not config.token:
             raise PipelineError("個人のトークンが設定されていません（設定を入れてください）")
-        client = self._client_factory(config.server_url, config.token)
+        return self._client_factory(config.server_url, config.token)
+
+    def _send(self, job: Job, config: config_mod.Config, bundle_path: Path) -> None:
+        client = self._client_for(config)
         try:
             response = client.post_bundle(job.project, bundle_path.read_bytes())
         except ClientError as error:
@@ -487,21 +540,27 @@ class Pipeline:
         key = response.get("key")
         if not key:
             raise PipelineError("束を送りましたが、サーバが job の鍵を返しませんでした")
-        deadline = time.monotonic() + JOB_POLL_TIMEOUT
-        while True:
-            try:
-                state = client.job(job.project, key)
-            except ClientError as error:
-                raise PipelineError(f"取り込みの進み具合を読めません: {error}") from error
-            status = state.get("status")
-            if status == "done":
-                job.result = state
-                return
-            if status == "failed":
-                raise PipelineError(state.get("error") or "サーバの取り込みに失敗しました")
-            if time.monotonic() > deadline:
-                raise PipelineError("サーバの取り込みの待ち時間が上限（15 分）を超えました")
-            time.sleep(self._poll_interval)
+        job.result = _wait_server_job(client, job.project, key, JOB_POLL_TIMEOUT, self._poll_interval)
+
+
+def _wait_server_job(
+    client: Client, project: str, key: str, timeout: float, interval: float
+) -> dict:
+    """サーバの仕事が done になるまで待つ。done の答えを返す。failed・時間切れは PipelineError。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            state = client.job(project, key)
+        except ClientError as error:
+            raise PipelineError(f"取り込みの進み具合を読めません: {error}") from error
+        status = state.get("status")
+        if status == "done":
+            return state
+        if status == "failed":
+            raise PipelineError(state.get("error") or "サーバの取り込みに失敗しました")
+        if time.monotonic() > deadline:
+            raise PipelineError(f"サーバの取り込みの待ち時間が上限（{timeout // 60} 分）を超えました")
+        time.sleep(interval)
 
 
 def _wait_for_mlx(port: int, timeout: float) -> bool:

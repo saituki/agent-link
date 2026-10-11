@@ -6,15 +6,6 @@
 
 /* --- 全体（上に帯・下に 2 つの欄） --- */
 
-#mlf-project {
-  min-height: 44px;
-  margin-left: auto;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .mlf-exp-badges {
   display: flex;
   flex-wrap: wrap;

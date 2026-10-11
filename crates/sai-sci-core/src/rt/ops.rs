@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 // 範囲の数え方は compute.rs の 1 か所にある（U03 の読み出しと同じ関数）。ここからも同じ名前で使えるようにする。
 pub use super::compute::{Range, sprout_range};
-use super::defs::{self, Defs};
+use super::defs::Defs;
 use super::store::{self, ApprovalRow, NewNode, NodeRow};
 use super::{Kind, Result, RtError, fmt_id, parse_id};
 use sai_paper_core::paths::PaperRoots;
@@ -19,7 +19,7 @@ use sai_paper_core::{seen_ids, textcheck};
 use std::path::PathBuf;
 
 const MAX_OPS: usize = 20;
-const ALL_KINDS: &[Kind] = &[Kind::Q, Kind::A, Kind::F, Kind::E, Kind::S];
+const ALL_KINDS: &[Kind] = &[Kind::Q, Kind::A, Kind::F, Kind::E, Kind::S, Kind::D];
 const STANCES: &[&str] = &["support", "deny", "issue"];
 
 // ---- 表 -------------------------------------------------------------------------------
@@ -138,10 +138,21 @@ static OP_SPECS: &[OpSpec] = &[
         ],
     },
     OpSpec {
+        op: "add_seed",
+        risk: Risk::Free,
+        about: "SEED（研究ごとの制約）を足す",
+        fields: &[req("title", Ty::Text(1, 120)), opt("body", Ty::Text(0, 2000))],
+    },
+    OpSpec {
         op: "add_sprout",
         risk: Risk::Free,
-        about: "A を 1 つ以上選んで SPROUT を作る（同じ A は 2 回書けない）",
-        fields: &[req("title", Ty::Text(1, 120)), opt("body", Ty::Text(0, 2000)), req("paths", Ty::List(1, 20))],
+        about: "seed（D）と A を 1 つ以上選んで SPROUT を作る（同じ A は 2 回書けない）",
+        fields: &[
+            req("seed", Ty::Id),
+            req("title", Ty::Text(1, 120)),
+            opt("body", Ty::Text(0, 2000)),
+            req("paths", Ty::List(1, 20)),
+        ],
     },
     OpSpec {
         op: "set_stance",
@@ -193,8 +204,8 @@ pub fn needs_approval(op: &str) -> bool {
 
 fn field_schema(f: &Field) -> Value {
     match f.ty {
-        Ty::Id => json!({"type": "string", "pattern": "^[QAFES][1-9][0-9]{0,8}$"}),
-        Ty::SeedOrId => json!({"type": "string", "pattern": "^(SEED|[QAFES][1-9][0-9]{0,8})$"}),
+        Ty::Id => json!({"type": "string", "pattern": "^[QAFESD][1-9][0-9]{0,8}$"}),
+        Ty::SeedOrId => json!({"type": "string", "pattern": "^(SEED|[QAFESD][1-9][0-9]{0,8})$"}),
         Ty::Text(min, max) => json!({"type": "string", "minLength": min, "maxLength": max}),
         Ty::Int => json!({"type": "integer"}),
         Ty::Enum(values) => json!({"type": "string", "enum": values}),
@@ -683,6 +694,12 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
         }
         "remove" => {
             let n = node(cx, text(op, "node"), ALL_KINDS)?;
+            if n.kind == Kind::D && !alive_children(cx, n.id, Kind::S)?.is_empty() {
+                return invalid(format!(
+                    "{} の下に SPROUT（S）があるので消せません。先に S を消してください",
+                    fmt_id(Kind::D, n.id)
+                ));
+            }
             store::remove_subtree(conn, n.id)?;
             log(cx, n.id, "remove", "")?;
             Ok((text(op, "node").to_string(), None))
@@ -694,13 +711,15 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
                 return invalid(format!("{qid} には child_Q があるので、A を足せません"));
             }
             let t = text(op, "text");
+            if [t, text(op, "body")].iter().any(|s| textcheck::find_inline_cite(s).is_some()) {
+                return invalid("A の文と本文に出典（#番号）は書けません。出典は add_f の cites に書き、F として足してください");
+            }
             if alive_children(cx, q.id, Kind::A)?.iter().any(|a| a.text == t) {
                 return invalid(format!("{qid} に同じ文の A があります"));
             }
             let mut n = new_node(cx, Kind::A, Some(q.id), t);
             n.body = text(op, "body");
             let id = store::insert_node(conn, &n)?;
-            defs::create_qs_for_answer(conn, cx.defs, id, &cx.by, cx.run_id)?;
             Ok((fmt_id(Kind::A, id), None))
         }
         "add_f" => {
@@ -743,7 +762,18 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             n.mlflow_ref = op.get("mlflow").and_then(Value::as_str).filter(|s| !s.is_empty());
             Ok((fmt_id(Kind::E, store::insert_node(conn, &n)?), None))
         }
+        "add_seed" => {
+            let mut n = new_node(cx, Kind::D, None, text(op, "title"));
+            n.body = text(op, "body");
+            let id = store::insert_node(conn, &n)?;
+            Ok((fmt_id(Kind::D, id), None))
+        }
         "add_sprout" => {
+            let seed_text = text(op, "seed");
+            let seed = match parse_id(seed_text) {
+                Ok((Kind::D, _)) => node(cx, seed_text, &[Kind::D])?,
+                _ => return invalid(format!("seed には SEED（D）の ID を書いてください: {seed_text}")),
+            };
             let mut paths = Vec::new();
             for a in strings(op, "paths") {
                 let n = node(cx, &a, &[Kind::A])?;
@@ -754,7 +784,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             }
             let s = NewNode {
                 kind: Kind::S,
-                parent_id: None,
+                parent_id: Some(seed.id),
                 guide_key: None,
                 text: text(op, "title"),
                 body: text(op, "body"),
@@ -809,7 +839,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             if let Some(t) = t {
                 let max = match n.kind {
                     Kind::Q => 300,
-                    Kind::A | Kind::E | Kind::S => 120,
+                    Kind::A | Kind::E | Kind::S | Kind::D => 120,
                     Kind::F => 1200,
                 };
                 if t.chars().count() > max {
@@ -819,8 +849,8 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
                     return invalid("text は 3 文までです");
                 }
             }
-            if b.is_some() && !matches!(n.kind, Kind::A | Kind::E | Kind::S) {
-                return invalid("body は A と E と SPROUT だけに付けられます");
+            if b.is_some() && !matches!(n.kind, Kind::A | Kind::E | Kind::S | Kind::D) {
+                return invalid("body は A と E と SPROUT と SEED だけに付けられます");
             }
             store::update_text(conn, n.id, t, b)?;
             let detail = match (t.is_some(), b.is_some()) {
@@ -840,6 +870,7 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rt::defs;
     use sai_paper_core::database::Database;
     use std::path::PathBuf;
 
@@ -864,14 +895,14 @@ mod tests {
         let sub = store::list_nodes(db.connection(), false)
             .unwrap()
             .into_iter()
-            .find(|n| n.guide_key.as_deref() == Some("purpose.subgoal"))
+            .find(|n| n.guide_key.as_deref() == Some("task"))
             .unwrap()
             .id;
         let blocks = dir.join(".sai/blocks");
         std::fs::create_dir_all(&blocks).unwrap();
         std::fs::write(
             blocks.join("t-all.md"),
-            "---\nsci_ops: add_q, insert_q, move_a, copy, remove, add_a, add_f, add_e, add_sprout, set_stance, set_mlflow\n---\n# t\n",
+            "---\nsci_ops: add_q, insert_q, move_a, copy, remove, add_a, add_f, add_e, add_seed, add_sprout, set_stance, set_mlflow\n---\n# t\n",
         )
         .unwrap();
         Env { db, roots: PaperRoots { root: dir.clone(), data_dir: dir }, defs, sub }
@@ -896,6 +927,10 @@ mod tests {
         /// run 7 の質問に回答を 1 件記録する（許可か、許可しない）。
         fn approve(&self, qid: &str, answer: &str) {
             store::insert_approval(self.conn(), 7, qid, "作ってよいか", answer, "saituki").unwrap();
+        }
+        /// seed（D）を 1 つ足し、ID を返す（agent として）。
+        fn seed(&self) -> String {
+            self.agent1(json!({"op": "add_seed", "title": "研究"})).unwrap()
         }
         /// sub の下に A を足す。
         fn a(&self, text: &str) -> String {
@@ -952,19 +987,20 @@ mod tests {
         assert_eq!(actors, vec!["user".to_string(), "run:7".to_string()]);
     }
 
+    /// 軸の Q に A を足せる。A を足しても型の Q は増えない（A の下に Q を作らない）。
     #[test]
-    fn add_a_creates_per_answer_qs() {
+    fn add_a_creates_no_qs() {
         let e = env();
         let a = e.agent1(json!({"op": "add_a", "q": qid(e.sub), "text": "予後予測"})).unwrap();
         let (_, aid) = parse_id(&a).unwrap();
-        let kids = store::children(e.conn(), aid).unwrap();
-        assert!(!kids.is_empty() && kids.iter().all(|k| k.kind == Kind::Q));
+        assert!(store::children(e.conn(), aid).unwrap().is_empty());
         assert_eq!(store::get_node(e.conn(), aid).unwrap().created_by, "run:7");
         assert!(err(e.agent1(json!({"op": "add_a", "q": qid(e.sub), "text": "予後予測"}))).contains("同じ文"));
         // A のある Q に child_Q は足せず、child_Q のある Q に A は足せない。
         assert!(err(e.user(json!({"op": "add_q", "parent": qid(e.sub), "text": "子"}))).contains("A があるので"));
-        let bg = e.by_key("background");
-        assert!(err(e.agent1(json!({"op": "add_a", "q": qid(bg), "text": "x"}))).contains("child_Q があるので"));
+        let target = e.by_key("target");
+        e.user(json!({"op": "add_q", "parent": qid(target), "text": "子"})).unwrap();
+        assert!(err(e.agent1(json!({"op": "add_a", "q": qid(target), "text": "x"}))).contains("child_Q があるので"));
     }
 
     #[test]
@@ -979,7 +1015,7 @@ mod tests {
         // stance が無いと拒否する。
         assert!(err(e.agent1(json!({"op": "add_f", "parent": a, "text": "x"}))).contains("stance が必要です"));
         // 親が E だと拒否する（A の ID でない）。
-        let s = e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [a]})).unwrap();
+        let s = e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a]})).unwrap();
         let ef = e.agent1(json!({"op": "add_e", "parent": s, "text": "実験"})).unwrap();
         assert!(err(e.agent1(json!({"op": "add_f", "parent": ef, "text": "x", "stance": "deny"}))).contains("A の ID"));
         // REPORT のトークンがあれば、数字を含んでいても通る。空白だけの report は出典にならない。
@@ -1054,7 +1090,7 @@ mod tests {
         // A の下には作れない。
         assert!(err(e.agent1(json!({"op": "add_e", "parent": a, "text": "実験"}))).contains("SPROUT"));
         // SPROUT の下には作れる。E の下にも作れる。
-        let s = e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [a]})).unwrap();
+        let s = e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a]})).unwrap();
         let e1 = e.agent1(json!({"op": "add_e", "parent": s, "text": "実験", "mlflow": "exp/run"})).unwrap();
         assert!(e1.starts_with('E'));
         let e2 = e.agent1(json!({"op": "add_e", "parent": e1, "text": "実行 1"})).unwrap();
@@ -1081,15 +1117,14 @@ mod tests {
         let e = env();
         let a = e.a("A");
         let (_, aid) = parse_id(&a).unwrap();
-        let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap().id;
-        let b = e.agent1(json!({"op": "add_a", "q": qid(child_q), "text": "B"})).unwrap();
+        let b = e.agent1(json!({"op": "add_a", "q": qid(e.by_key("target")), "text": "B"})).unwrap();
         let (_, bid) = parse_id(&b).unwrap();
         // 同じ A は 2 回書けない。Q は断る。
-        assert!(err(e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [b, b]}))).contains("同じ A"));
-        assert!(err(e.agent1(json!({"op": "add_sprout", "title": "種", "paths": ["Q1"]}))).contains("A の ID"));
-        assert!(err(e.agent1(json!({"op": "add_sprout", "title": "種", "paths": []}))).contains("1〜20 個"));
+        assert!(err(e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [b, b]}))).contains("同じ A"));
+        assert!(err(e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": ["Q1"]}))).contains("A の ID"));
+        assert!(err(e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": []}))).contains("1〜20 個"));
         // 通り、範囲（A は 2 つ・F は 0）が返る。
-        let r = e.agent(&[json!({"op": "add_sprout", "title": "種", "body": "本文", "paths": [a, b]})]).unwrap();
+        let r = e.agent(&[json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "body": "本文", "paths": [a, b]})]).unwrap();
         let (skind, sid) = parse_id(&r.results[0].result).unwrap();
         assert_eq!(skind, Kind::S);
         let node = store::get_node(e.conn(), sid).unwrap();
@@ -1158,18 +1193,15 @@ mod tests {
     }
 
     #[test]
-    fn move_a_rejects_cycle_and_child_q() {
+    fn move_a_rejects_child_q_and_same_q() {
         let e = env();
-        let a = e.a("A");
+        e.a("A");
         // 許可は 1 件あれば足りる（失敗した op は許可を消費しない）。
         e.approve("q4", "許可する");
-        let (_, aid) = parse_id(&a).unwrap();
-        let child_q = store::children(e.conn(), aid).unwrap().into_iter().find(|n| n.kind == Kind::Q).unwrap();
-        // A の下の Q へ、その A の親 Q から移すのは輪になる。
-        let cq = fmt_id(Kind::Q, child_q.id);
-        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": cq}))).contains("の A の下にあるので移せません"));
         // child_Q を持つ Q へは移せない。
-        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(e.by_key("background"))}))).contains("child_Q があるので"));
+        let target = e.by_key("target");
+        e.user(json!({"op": "add_q", "parent": qid(target), "text": "子"})).unwrap();
+        assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(target)}))).contains("child_Q があるので"));
         assert!(err(e.agent1(json!({"op": "move_a", "from": qid(e.sub), "to": qid(e.sub)}))).contains("別の Q"));
     }
 
@@ -1191,7 +1223,7 @@ mod tests {
     fn set_mlflow_logs_new_value() {
         let e = env();
         let a = e.a("A");
-        let s = e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [a]})).unwrap();
+        let s = e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a]})).unwrap();
         let ex = e.agent1(json!({"op": "add_e", "parent": s, "text": "実験", "mlflow": "exp/1"})).unwrap();
         e.agent1(json!({"op": "set_mlflow", "node": ex, "mlflow": ""})).unwrap();
         let (_, eid) = parse_id(&ex).unwrap();
@@ -1212,7 +1244,7 @@ mod tests {
         e.agent1(json!({"op": "add_f", "parent": a4, "text": "支持", "stance": "support"})).unwrap();
         e.agent1(json!({"op": "add_f", "parent": a4, "text": "反対", "stance": "deny"})).unwrap();
         e.agent1(json!({"op": "add_f", "parent": a2, "text": "懸念", "stance": "issue"})).unwrap();
-        let r = e.agent(&[json!({"op": "add_sprout", "title": "種", "paths": [a4]})]).unwrap();
+        let r = e.agent(&[json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a4]})]).unwrap();
         assert_eq!(r.results[0].range, Some(Range { q: 2, a: 2, f_support: 1, f_deny: 1, f_issue: 0 }));
     }
 
@@ -1278,9 +1310,9 @@ mod tests {
         }
         assert!(store::list_log(e.conn(), None).unwrap().iter().all(|l| l.approved_by.is_none()));
         // top_Q も消せる。
-        let bg = e.by_key("background");
-        e.user(json!({"op": "remove", "node": qid(bg)})).unwrap();
-        assert!(store::get_node(e.conn(), bg).unwrap().removed_at.is_some());
+        let tg = e.by_key("target");
+        e.user(json!({"op": "remove", "node": qid(tg)})).unwrap();
+        assert!(store::get_node(e.conn(), tg).unwrap().removed_at.is_some());
     }
 
     #[test]
@@ -1316,8 +1348,47 @@ mod tests {
             .collect();
         assert_eq!(
             ops,
-            ["add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f", "add_e", "add_sprout", "set_stance", "set_mlflow"]
+            ["add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f", "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow"]
         );
         assert!(is_user_only_op("star") && !is_user_only_op("add_a") && is_known_op("edit"));
+    }
+
+    #[test]
+    fn seed_and_sprout_under_seed() {
+        let e = env();
+        let (a, a2) = (e.a("A"), e.a("A2"));
+        let d1 = e.agent1(json!({"op": "add_seed", "title": "自分の研究", "body": "x"})).unwrap();
+        let (dk, did) = parse_id(&d1).unwrap();
+        assert_eq!(dk, Kind::D);
+        let seed_row = store::get_node(e.conn(), did).unwrap();
+        assert_eq!((seed_row.body.as_str(), seed_row.parent_id), ("x", None));
+        // seed の無い add_sprout と、seed に Q を書いた add_sprout は断られる。
+        assert!(err(e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [a]}))).contains("seed が必要です"));
+        assert!(err(e.agent1(json!({"op": "add_sprout", "seed": qid(e.sub), "title": "種", "paths": [a]})))
+            .contains("seed には SEED（D）の ID を書いてください"));
+        // 1 つの D に S を 2 つ作れる。両方の親は D。
+        let s1 = parse_id(&e.agent1(json!({"op": "add_sprout", "seed": d1, "title": "種 1", "paths": [a]})).unwrap()).unwrap().1;
+        let s2 = parse_id(&e.agent1(json!({"op": "add_sprout", "seed": d1, "title": "種 2", "paths": [a2]})).unwrap()).unwrap().1;
+        assert_eq!(store::get_node(e.conn(), s1).unwrap().parent_id, Some(did));
+        assert_eq!(store::get_node(e.conn(), s2).unwrap().parent_id, Some(did));
+        // 子の S がある D は消せない。子の無い D は消せる。
+        assert!(err(e.user(json!({"op": "remove", "node": d1}))).contains("SPROUT（S）があるので消せません"));
+        let d2 = e.user(json!({"op": "add_seed", "title": "空の研究"})).unwrap().result;
+        e.user(json!({"op": "remove", "node": d2})).unwrap();
+        assert!(store::get_node(e.conn(), parse_id(&d2).unwrap().1).unwrap().removed_at.is_some());
+        // 利用者は D の text と body を直せる。
+        e.user(json!({"op": "edit", "node": d1, "text": "直した題", "body": "直した本文"})).unwrap();
+        let edited = store::get_node(e.conn(), did).unwrap();
+        assert_eq!((edited.text.as_str(), edited.body.as_str()), ("直した題", "直した本文"));
+    }
+
+    #[test]
+    fn add_a_rejects_inline_cite() {
+        let e = env();
+        let q = qid(e.sub);
+        assert!(err(e.agent1(json!({"op": "add_a", "q": q, "text": "精度は #37 による"}))).contains("出典（#番号）は書けません"));
+        assert!(err(e.agent1(json!({"op": "add_a", "q": q, "text": "候補", "body": "根拠は #37.5.2"}))).contains("出典"));
+        // Markdown の見出しは通る。
+        e.agent1(json!({"op": "add_a", "q": q, "text": "候補", "body": "## 見出し"})).unwrap();
     }
 }

@@ -18,6 +18,7 @@ pub mod jobs;
 pub mod library;
 pub mod library_tree;
 pub mod manual_import;
+pub mod migration;
 pub mod models;
 pub mod paths;
 pub mod pipeline;

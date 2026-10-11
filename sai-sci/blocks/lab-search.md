@@ -26,7 +26,7 @@ enable: true
 対象の Node に足す子の論文を、外部の論文 DB で探します。2 段に分けて動きます。
 
 - **段 1（検索）**: `sai-sci search` で外部 DB を検索し、取り込みを勧める候補を報告します。取り込みはしません（agent は Library に入れません）。
-- **段 2（CARD）**: 利用者が Library に取り込んだあとに動かすと、`sci_child` を写した `lab-read` の CARD を `sai-sci card` で作ります。作るだけで、実行はしません。
+- **段 2（CARD）**: 利用者が Library に取り込んだあとに動かすと、`sci_child` を写した `lab-read` の CARD を `sai-sci card` で作ります。作るだけで、実行はしません。CARD の `--purpose` には、F の Extract として「適用の条件（必要な入力・データの量・前提）」と「限界・失敗する条件」を読むことを書きます。
 
 段は依頼文で決まります。依頼文に取り込み済みの論文の番号（`sci_papers`）があれば段 2、無ければ段 1 です。
 

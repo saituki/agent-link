@@ -104,22 +104,23 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--sg-text, 1));
   color: var(--text);
 }
 
-.sci-graph-card-mark { color: var(--text); font-size: 12px; }
+/* 文字の大きさは --sg-text（拡大では 1/z・sgTextScale）を掛ける。拡大しても画面の上では今の大きさ */
+.sci-graph-card-mark { color: var(--text); font-size: calc(12px * var(--sg-text, 1)); }
 .sci-graph-card-id { font-variant-numeric: tabular-nums; }
 .sci-graph-card-state { margin-left: auto; }
-.sci-graph-pin { font-size: 11px; }
+.sci-graph-pin { font-size: calc(11px * var(--sg-text, 1)); }
 
-/* 題は 2 行で切る（全部は板で見せる） */
+/* 題の行数は札の高さから決める（--sg-title-lines・sgTitleLines）。札の外へは出さない */
 .sci-graph-card-title {
-  font-size: 13px;
+  font-size: calc(13px * var(--sg-text, 1));
   line-height: 1.35;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  -webkit-line-clamp: var(--sg-title-lines, 2);
+  line-clamp: var(--sg-title-lines, 2);
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -129,6 +130,8 @@
   flex-wrap: wrap;
   gap: 3px;
   margin-top: auto;
+  font-size: calc(12px * var(--sg-text, 1));
+  line-height: 1.6;
   overflow-wrap: anywhere; /* AWAITING_DECISION など長い英語名で札からはみ出さない */
 }
 
@@ -215,7 +218,7 @@
 .sci-graph-row-rejected,
 .sci-graph-row-dormant { opacity: 0.6; }
 
-/* --- Q・A・F・E・S・SEED の札（U20）。枠の色で種類を分ける --- */
+/* --- Q・A・F・E・S・D・SEED の札（U20）。枠の色で種類を分ける --- */
 
 .sci-graph-Q { --sg-color: var(--accent); }
 .sci-graph-A { --sg-color: var(--sci-decided); }
@@ -227,13 +230,16 @@
   border-style: dashed;
 }
 .sci-graph-S .sci-graph-card-head { font-weight: 700; color: var(--text); }
-.sci-graph-SEED {
+/* D（seed）は SEED の札と同じ系統（横に並ぶ・SEED の子ではない） */
+.sci-graph-SEED,
+.sci-graph-D {
   --sg-color: var(--sci-decided);
   background: color-mix(in srgb, var(--sci-decided) 10%, var(--bg));
   border-width: 2px;
   border-left-width: 6px;
 }
-.sci-graph-SEED .sci-graph-card-head { font-weight: 700; color: var(--text); }
+.sci-graph-SEED .sci-graph-card-head,
+.sci-graph-D .sci-graph-card-head { font-weight: 700; color: var(--text); }
 
 /* ★ の札は濃い枠 */
 .sci-graph-starred { border-width: 2px; border-left-width: 6px; }

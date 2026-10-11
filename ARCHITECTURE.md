@@ -81,9 +81,10 @@
 - **公開された約束**（3 つの CLI の `--json` と終了コード・`schema --json`・`SAI_HOME/web/runs/*.json` の書き出し・登録簿 `registry.json`・`apps/radio` の HTTP API・前処理の束の形（C12））が、コアと Web の境目である。Web はここだけを使う。
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`（`src/rt/`）、入口は `sai-sci` の CLI と Web の Research タブ。
-  research-tree は **4 layer（SEED・ROOT・SPROUT・BRANCH）** の木で、Node の種類は Q・A・F・E・S の 5 つ。
-  SEED は DB の行を持たず、`sai-sci status` の `seed`（RESEARCH_TYPE と `mind.md`）から作る。ROOT は top_Q から下へ分かれる Q・A・F、
-  SPROUT（S）は PATH（終点の A）を集めて実験の計画を立てる Node、BRANCH は SPROUT の下の E（実験の実行）。
+  research-tree は **seed・root・sprout の 3 つの役**の木で、層は seed（D）・SEED・ROOT・SPROUT・BRANCH、Node の種類は Q・A・F・E・S・D の 6 つ。
+  D（seed）は 1 つの研究の制約（9 項目）で、DB の行を持ち、親なしで複数持てる。SEED は DB の行を持たず、root の根（`sai-sci status` の `seed` の RESEARCH_TYPE と `mind.md`）。
+  ROOT は 6 つの軸の Q（top_Q。どの型でも同じ）から下へ分かれる Q・A・F で、分野の可能性の幅。全部の seed が同じ root を使う。
+  SPROUT（S）は 1 つの D と、軸ごとの PATH（終点の A）の組＝1 研究（親は D）、BRANCH は SPROUT の下の E（実験の実行）。
   research-tree に向けた 1 回の実行が Action（task.md のカード）で、professor が研究を回し、`sci-*` の block が研究作業を行う。
   言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)。
 - **status の History**: `sai-sci status --json` の `history[]` は、全 Node の History（`Add *` を除く・古い順。`StatusHistory`・`crates/sai-sci-core/src/rt/compute.rs`）。Web の research-tree 画面の History がこれを読む。
@@ -224,6 +225,7 @@
 | `auth.py` | 多人数モードのログイン・Cookie・パスワード・管理者の判定（単独モードでは使わない） |
 | `containers.py` | 多人数モードのプロジェクトのコンテナ（`docker` の起動・停止・作り直し・内部の合言葉・置き場の作成） |
 | `bundles.py` | 前処理の束の受け口（展開と検査・`import-bundle` の背景実行・PDF 待ちの一覧） |
+| `paper_migrate.py` | 論文の移植の受け口（移植の束の検査と取り込み・同じ利用者の別プロジェクトからの移し替え） |
 | `radio.py` | `apps/radio`（127.0.0.1:8201）への中継 |
 | `mlflow_proxy.py` | MLflow（127.0.0.1:5001）への読み取りだけの中継 |
 | `usage.py` | 使用量（Claude Code・OpenRouter・DeepSeek。古い pi の記録も読む） |
@@ -272,7 +274,7 @@
 | `app.js` | 切り替えの本体・Chats（日付・実行・メッセージ）・タブ |
 | `home.js` | Home |
 | `project.js` / `workflow.js` / `linkview.js` / `cardform.js` / `stats.js` / `defs.js` | Projects（一覧・Dashboard・Workflow・List・カードの作成・統計・設定） |
-| `commands.js` / `sessionsearch.js` / `dashsearch.js` | 「コマンド」画面・セッション検索・Dashboard の文書検索 |
+| `commands.js` / `sessionsearch.js` | 「コマンド」画面・セッション検索（会話の検索と、文書（task / message / waggle）の本文検索を同じ画面で） |
 | `papers.js` / `paperimport.js` / `cite.js` | Papers（Dashboard・Library・Import・Radio の 4 つ。Library は `外部 DB` / `内部 DB` / `Paper` の切り替えと、論文詳細のチャンク一覧。引用・「＋ Library に入れる」・PDF 待ち） |
 | `account.js` | 多人数モードの画面（`#/login`・`#/password`・`#/account`・`#/admin`） |
 | `newchat.js` | Chats の新しいチャット（生成中の文・中断） |
@@ -298,6 +300,7 @@
 
 - **すぐ返る操作**（一覧・中身・保存）: 画面 → `saiApi` → sai-web の住所 → 値の検査 → CLI（`--json`）→ 画面。
 - **前処理の束**（sai-prep → サーバ）: 各自の Mac の sai-prep が束を送る → sai-web が展開と検査をして `sai-paper paper import-bundle --dir` を背景で走らせる（600 秒の上限）→ 論文の PDF と図・節・引用が Library に入る。サーバは PDF を落とさず、docling も pdf2zh も動かさない。
+- **論文の移植**（sai-prep の移植の束・同じ利用者の別プロジェクト）: 移植の束は sai-web が検査して展開し `sai-paper library import-migration --dir` を背景で走らせる。別プロジェクトからは、移植元のコンテナで `sai-paper library export --ids … --out <outbox>` → sai-web（ホスト）が移植先の inbox へ移す → 移植先のコンテナで `import-migration`。移植先のコンテナから移植元のファイルは見えないため、書き出しと移動は sai-web が行う。
 - **時間がかかる操作**（Download・音声化・引用の抜き出し・PDF の翻訳）: sai-web が 202 を返し、背景で CLI を走らせる。画面は仕事の一覧の住所を見張り、終わったらプッシュ通知を出す。
   Download は 2 段で、`sai-paper paper download`（PDF を取って登録。ここで「保存しました」を通知）→ `sai-paper paper after-download`（標準エラーの `sai-progress` を読んで進み具合を出す）。
   `after-download` の中身は `pipeline::after_download`（`crates/sai-paper-core/src/pipeline.rs`）が、図の抽出 → 節の表（チャンクの ID の元）→ PDF の翻訳の順に行う。

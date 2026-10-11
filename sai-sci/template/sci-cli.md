@@ -48,7 +48,7 @@ sai-sci card --node <Q12> --block <lab-read> \
   --origin-run "$SAI_PARENT_RUN_ID" --json
 ```
 
-- `--node`（対象の Node。Q・A・F・E）・`--block`・`--purpose` は必ず書く。
+- `--node`（対象の Node。Q・A・F・E・S・D・SEED）・`--block`・`--purpose` は必ず書く。
 - `--runner` は `cc`（既定）か `user`。`user` は、利用者が自分で READ_CARD になる。`--depth` はその読む深さ。
 - `--model`・`--thinking` は、起こす側が選ぶ（下の「別の agent を起こす」）。省くと block の frontmatter の値になる。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai-link doc write` で保存してから渡す。

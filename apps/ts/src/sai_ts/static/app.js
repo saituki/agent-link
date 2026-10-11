@@ -53,6 +53,20 @@ function tsNiceTicks(t0, t1, maxTicks) {
   return out;
 }
 
+// 範囲の入力（秒の文字）を範囲にする。数でない・幅が 0 以下・記録が無いときは null。記録の外は収める
+function tsRangeFromInput(startText, winText, dur, minSpan) {
+  const s = tsNumText(startText);
+  const w = tsNumText(winText);
+  if (!Number.isFinite(s) || !Number.isFinite(w) || w <= 0 || !(dur > 0)) return null;
+  return tsClampRange(s, s + w, dur, minSpan);
+}
+
+// 入力の文字を数にする。空は NaN（0 と読まない）
+function tsNumText(text) {
+  const t = String(text === null || text === undefined ? "" : text).trim();
+  return t === "" ? NaN : Number(t);
+}
+
 // 記録の長さ（秒）
 function tsDuration(meta) {
   return meta && meta.srate ? meta.n_samples / meta.srate : 0;
@@ -236,6 +250,7 @@ function tsScheduleSave() {
 async function tsLoadRecord() {
   const st = window.TS.state;
   const seq = ++tsLoadSeq;
+  const key = st.dataset + "\n" + st.record; // 読み始めた記録（meta がどの記録のものかを表す）
   let meta = null;
   if (st.dataset && st.record) {
     meta = await tsApi(`/api/datasets/${tsEnc(st.dataset)}/records/${tsEnc(st.record)}/meta`).catch((e) => {
@@ -245,6 +260,7 @@ async function tsLoadRecord() {
   }
   if (seq !== tsLoadSeq) return;
   st.meta = meta;
+  st.metaKey = meta ? key : null;
   const names = meta ? meta.vars.map((v) => v.name) : [];
   st.vars = st.vars ? st.vars.filter((n) => names.includes(n)) : names;
   const dur = tsDuration(meta);
@@ -352,6 +368,7 @@ async function tsBoot() {
   }
   tsOn("state", tsRenderHeader);
   tsBindHeader();
+  tsRangeInit();
   tsLanesInit();
   tsEvformInit();
   window.addEventListener("keydown", tsOnKeyDown);
@@ -524,6 +541,62 @@ function tsRenderVarsPop() {
   pop.lastChild.append(all, none);
 }
 
+// 表示範囲の帯（ヘッダの下）: 今の範囲の表示・start と window の入力・全体の倍率
+function tsRangeInit() {
+  const start = document.getElementById("ts-start");
+  const win = document.getElementById("ts-win");
+  const apply = () => {
+    const st = window.TS.state;
+    const minSpan = st.meta && st.meta.srate ? tsMinSamples / st.meta.srate : 0;
+    const r = tsRangeFromInput(start.value, win.value, tsDuration(st.meta), minSpan);
+    for (const el of [start, win]) {
+      if (r) el.removeAttribute("aria-invalid");
+      else el.setAttribute("aria-invalid", "true");
+    }
+    if (!r) return;
+    start.value = tsSecText(r.t0);
+    win.value = tsSecText(r.t1 - r.t0);
+    window.TS.setView({ t0: r.t0, t1: r.t1 });
+  };
+  start.onkeydown = (e) => e.key === "Enter" && apply();
+  win.onkeydown = (e) => e.key === "Enter" && apply();
+  document.getElementById("ts-apply").onclick = apply;
+  const gain = document.getElementById("ts-gain");
+  gain.replaceChildren(
+    ...tsGainSteps.map((s) => {
+      const o = tsEl("option", "", `x${s}`);
+      o.value = String(s);
+      return o;
+    }),
+  );
+  gain.onchange = () => tsGainSetAll(Number(gain.value));
+  tsOn("state", tsRenderRange);
+  tsOn("gain", () => {
+    gain.value = String(tsGain);
+  });
+}
+
+function tsSecText(t) {
+  return String(+t.toPrecision(8));
+}
+
+function tsRenderRange() {
+  const st = window.TS.state;
+  const has = !!st.meta;
+  const dur = tsDuration(st.meta);
+  const minSpan = has && st.meta.srate ? tsMinSamples / st.meta.srate : 0;
+  const start = document.getElementById("ts-start");
+  const win = document.getElementById("ts-win");
+  document.getElementById("ts-range-view").textContent = has
+    ? `表示 ${tsFmtSec(st.t0)} 〜 ${tsFmtSec(st.t1)}（幅 ${tsFmtSec(st.t1 - st.t0)}）／ 全体 ${tsFmtSec(dur)}`
+    : "表示 —（記録がありません）";
+  // フォーカス中の欄は、状態の更新で書き換えない（打ちかけの値を消さないため）
+  if (document.activeElement !== start) start.value = tsSecText(st.t0);
+  if (document.activeElement !== win) win.value = tsSecText(st.t1 - st.t0);
+  win.min = String(minSpan);
+  for (const el of [start, win, document.getElementById("ts-apply")]) el.disabled = !has;
+}
+
 function tsStepRecord(dir) {
   const st = window.TS.state;
   const recs = tsRecordsOf(st.datasets, st.dataset);
@@ -556,6 +629,7 @@ if (typeof window !== "undefined") {
       meta: null,
       t0: 0,
       t1: 0,
+      metaKey: null, // meta を読んだ記録（"データセット\n記録"）。読込中は別の記録と見分ける
       vars: null, // null = まだ決めていない（記録を読むとき全変数にする）
       hiddenCategories: new Set(),
       selection: null,
@@ -597,5 +671,6 @@ if (typeof module !== "undefined") {
     tsPatchState,
     tsRecordsOf,
     tsNormSchema,
+    tsRangeFromInput,
   };
 }

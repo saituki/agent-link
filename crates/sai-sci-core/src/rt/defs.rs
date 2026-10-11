@@ -17,8 +17,6 @@ use super::{now_text, Kind, Result, RtError};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeQ {
     pub key: String,
-    /// `+` の行（A が足されるたびに作る Q）。
-    pub per_option: bool,
     pub children: Vec<TypeQ>,
 }
 
@@ -62,18 +60,6 @@ impl Defs {
         self.guides.iter().find(|g| g.key == key)
     }
 
-    /// RESEARCH_TYPE `type_id` の中で、`guide_key` の Q の下にある `+` の子（A ごとに作る Q）。
-    #[must_use]
-    pub fn per_option_children(&self, type_id: &str, guide_key: &str) -> Vec<&TypeQ> {
-        fn find<'a>(qs: &'a [TypeQ], key: &str) -> Option<&'a TypeQ> {
-            qs.iter().find_map(|q| if q.key == key { Some(q) } else { find(&q.children, key) })
-        }
-        self.type_def(type_id)
-            .and_then(|t| find(&t.tree, guide_key))
-            .map(|q| q.children.iter().filter(|c| c.per_option).collect())
-            .unwrap_or_default()
-    }
-
     /// Q の文。GUIDE の question が空でなければそれ、無ければ `<name>は？`、GUIDE が無ければ key。
     #[must_use]
     pub fn question_text(&self, key: &str) -> String {
@@ -97,41 +83,22 @@ macro_rules! embedded_files {
 }
 
 const EMBEDDED: &[(&str, &str)] = embedded_files![
-    // RESEARCH_TYPE（5 本）
+    // RESEARCH_TYPE（5 本。`## Q` は軸の 6 つの平らな並び）
     "types/problem.md",
     "types/phenomenon.md",
     "types/method.md",
     "types/data.md",
     "types/improve.md",
-    // GUIDE（25 本）
-    "guides/background.md",
-    "guides/background.goal.md",
-    "guides/background.problem.md",
-    "guides/data.md",
-    "guides/data.access.md",
-    "guides/data.label.md",
-    "guides/data.size.md",
-    "guides/data.type.md",
-    "guides/existing.md",
-    "guides/issue.md",
-    "guides/issue.limit.md",
-    "guides/issue.root.md",
-    "guides/method.md",
-    "guides/method.adapt.md",
-    "guides/method.analog.md",
-    "guides/novelty.md",
-    "guides/novelty.closest.md",
-    "guides/novelty.diff.md",
-    "guides/phenomenon.md",
-    "guides/purpose.md",
-    "guides/purpose.metric.md",
-    "guides/purpose.output.md",
-    "guides/purpose.subgoal.md",
+    // GUIDE（軸の 6 本）
+    "guides/task.md",
     "guides/target.md",
-    "guides/target.subgroup.md",
+    "guides/data.md",
+    "guides/method.md",
+    "guides/output.md",
+    "guides/metric.md",
 ];
 
-/// 埋め込みの一覧（`("types/problem.md", 本文)` など 30 個）。
+/// 埋め込みの一覧（`("types/problem.md", 本文)` など 11 個）。
 #[must_use]
 pub fn embedded() -> &'static [(&'static str, &'static str)] {
     EMBEDDED
@@ -256,11 +223,8 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         let bad = || RtError::Invalid(format!("RESEARCH_TYPE の ## Q の {} 行目が読めません", index + 1));
         let indent = line.len() - line.trim_start_matches(' ').len();
         let rest = &line[indent..];
-        let (per_option, key) = if let Some(k) = rest.strip_prefix("- ") {
-            (false, k.trim())
-        } else if let Some(k) = rest.strip_prefix("+ ") {
-            (true, k.trim())
-        } else {
+        // `+` は `- ` と同じに読む（保存された古い型を読めるように）。
+        let Some(key) = rest.strip_prefix("- ").or_else(|| rest.strip_prefix("+ ")).map(str::trim) else {
             return Err(bad());
         };
         if indent % 2 != 0 || key.is_empty() {
@@ -270,9 +234,6 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         if depth > prev_depth.map_or(0, |d| d + 1) {
             return Err(bad());
         }
-        if depth == 0 && per_option {
-            return invalid("RESEARCH_TYPE の ## Q の一番浅い行に + は使えません");
-        }
         if !seen.insert(key.to_string()) {
             return invalid(format!("RESEARCH_TYPE の ## Q に同じ key が 2 回あります: {key}"));
         }
@@ -280,7 +241,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         for _ in 0..depth {
             level = &mut level.last_mut().expect("depth は直前の行で確かめ済み").children;
         }
-        level.push(TypeQ { key: key.to_string(), per_option, children: Vec::new() });
+        level.push(TypeQ { key: key.to_string(), children: Vec::new() });
         prev_depth = Some(depth);
     }
     if tree.is_empty() {
@@ -424,14 +385,13 @@ fn add_q(
         },
     )?;
     ids.push(id);
-    // `+` の子はその Q に A が足されたときに作る。
-    for child in q.children.iter().filter(|c| !c.per_option) {
+    for child in &q.children {
         add_q(conn, defs, Some(id), child, created_by, run_id, ids)?;
     }
     Ok(())
 }
 
-/// RESEARCH_TYPE の `## Q` の 1 段目を top_Q（`parent_id` は NULL）として作り、その下の `-` の Q も作る（`+` の Q は作らない）。
+/// RESEARCH_TYPE の `## Q` の 1 段目を top_Q（`parent_id` は NULL）として作り、その下の Q も作る。
 pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str) -> Result<InitReport> {
     if store::is_initialized(conn)? {
         return invalid("research-tree は既にあります");
@@ -448,26 +408,6 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str
     store::meta_set(&tx, "initialized_at", &now_text())?;
     tx.commit()?;
     Ok(InitReport { created: ids.len(), warnings: defs.warnings.clone() })
-}
-
-/// A の下に、RESEARCH_TYPE の `+` の Q（と、その下の `-` の Q）を作る。作った Q の id を返す。
-/// 呼ぶ側のトランザクションの中で使う前提で、自分では始めない。
-pub fn create_qs_for_answer(
-    conn: &Connection,
-    defs: &Defs,
-    a_id: i64,
-    created_by: &str,
-    run_id: Option<i64>,
-) -> Result<Vec<i64>> {
-    let a = store::get_node(conn, a_id)?;
-    let Some(parent_id) = a.parent_id else { return Ok(Vec::new()) };
-    let Some(guide_key) = store::get_node(conn, parent_id)?.guide_key else { return Ok(Vec::new()) };
-    let Some(type_id) = store::meta_get(conn, "type")? else { return Ok(Vec::new()) };
-    let mut ids = Vec::new();
-    for q in defs.per_option_children(&type_id, &guide_key) {
-        add_q(conn, defs, Some(a_id), q, created_by, run_id, &mut ids)?;
-    }
-    Ok(ids)
 }
 
 // ---- 写しと利用者の RESEARCH_TYPE ----------------------------------------------------------------
@@ -543,10 +483,10 @@ mod tests {
     fn embedded_loads_without_warnings() {
         let root = temp_dir();
         let defs = load_with_home(&root, None);
-        assert_eq!(embedded().len(), 30);
+        assert_eq!(embedded().len(), 11);
         assert!(defs.warnings.is_empty(), "{:?}", defs.warnings);
         assert_eq!(defs.types.len(), 5);
-        assert_eq!(defs.guides.len(), 25);
+        assert_eq!(defs.guides.len(), 6);
         let ids: Vec<_> = defs.types.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, TYPE_ORDER);
         let _ = fs::remove_dir_all(&root);
@@ -556,71 +496,52 @@ mod tests {
     fn init_tree_makes_static_qs_only() {
         let root = temp_dir();
         let defs = load_with_home(&root, None);
-        let db = Database::in_memory().unwrap();
-        let conn = db.connection();
-        let report = init_tree(conn, &defs, "problem", "test").unwrap();
-        // RESEARCH_TYPE の `## Q` の 1 段目がそのまま top_Q（親なし）になる。
-        let by_key = |k: &str| {
-            store::list_nodes(conn, false).unwrap().into_iter().find(|n| n.guide_key.as_deref() == Some(k))
-        };
-        let tops: Vec<String> = store::list_nodes(conn, false)
-            .unwrap()
-            .into_iter()
-            .filter(|n| n.kind == Kind::Q && n.parent_id.is_none())
-            .map(|n| n.guide_key.clone().unwrap_or_default())
-            .collect();
-        assert_eq!(tops, ["background", "target", "purpose"]);
-        assert_eq!(texts(conn, by_key("background").unwrap().id), ["background.goal", "background.problem"]);
-        assert_eq!(texts(conn, by_key("target").unwrap().id), ["target.subgroup"]);
-        assert_eq!(texts(conn, by_key("purpose").unwrap().id), ["purpose.subgoal"]);
-        assert!(texts(conn, by_key("purpose.subgoal").unwrap().id).is_empty());
-        assert!(by_key("data").is_none() && by_key("existing").is_none());
-        // root は作らず、RESEARCH_TYPE の 1 段目 3 つとその下の 4 つで 7。
-        assert_eq!(report.created, 7);
-        assert_eq!(store::meta_get(conn, "type").unwrap().as_deref(), Some("problem"));
-        assert!(matches!(init_tree(conn, &defs, "problem", "test"), Err(RtError::Invalid(_))));
+        let axes = ["task", "target", "data", "method", "output", "metric"];
+        for type_id in TYPE_ORDER {
+            let db = Database::in_memory().unwrap();
+            let conn = db.connection();
+            let report = init_tree(conn, &defs, type_id, "test").unwrap();
+            // どの型でも top_Q は軸の 6 つ。子は作らない。
+            let tops = store::list_nodes(conn, false)
+                .unwrap()
+                .into_iter()
+                .filter(|n| n.kind == Kind::Q && n.parent_id.is_none())
+                .collect::<Vec<_>>();
+            let keys: Vec<_> = tops.iter().map(|n| n.guide_key.clone().unwrap_or_default()).collect();
+            assert_eq!(keys, axes, "{type_id}");
+            assert_eq!(report.created, 6, "{type_id}");
+            for top in &tops {
+                assert!(texts(conn, top.id).is_empty());
+                assert_eq!(top.text, defs.question_text(top.guide_key.as_deref().unwrap()));
+            }
+            let want = [
+                "この分野で解かれている問題（タスク）には、どんな種類があるか。",
+                "研究の対象には、どんな種類があるか。",
+                "使われているデータには、どんな種類があるか。",
+                "使われている手法には、どんな種類があるか。",
+                "研究が出す出力の形には、どんな種類があるか。",
+                "使われている評価指標には、どんな種類があるか。",
+            ];
+            let got: Vec<_> = tops.iter().map(|n| n.text.as_str()).collect();
+            assert_eq!(got, want, "{type_id}");
+        }
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn create_qs_for_answer_makes_per_answer_qs() {
+    fn types_are_flat_axes_with_seed_section() {
         let root = temp_dir();
         let defs = load_with_home(&root, None);
-        let db = Database::in_memory().unwrap();
-        let conn = db.connection();
-        init_tree(conn, &defs, "problem", "test").unwrap();
-        let sub = store::list_nodes(conn, false)
-            .unwrap()
-            .into_iter()
-            .find(|n| n.guide_key.as_deref() == Some("purpose.subgoal"))
-            .unwrap();
-        let o = store::insert_node(
-            conn,
-            &NewNode {
-                kind: Kind::A,
-                parent_id: Some(sub.id),
-                guide_key: None,
-                text: "予後予測",
-                body: "",
-                stance: None,
-                cites: &[],
-                paper_id: None,
-                run_id: None,
-                report_id: None,
-                mlflow_ref: None,
-                paths: &[],
-                created_by: "test",
-            },
-        )
-        .unwrap();
-        let ids = create_qs_for_answer(conn, &defs, o, "test", None).unwrap();
-        assert_eq!(ids.len(), 17);
-        assert_eq!(
-            texts(conn, o),
-            ["purpose.output", "purpose.metric", "data", "existing", "issue", "method", "novelty"]
-        );
-        let data = store::children(conn, o).unwrap().into_iter().find(|n| n.guide_key.as_deref() == Some("data")).unwrap();
-        assert_eq!(texts(conn, data.id), ["data.type", "data.size", "data.label", "data.access"]);
+        for t in &defs.types {
+            let keys: Vec<_> = t.tree.iter().map(|q| q.key.as_str()).collect();
+            assert_eq!(keys, ["task", "target", "data", "method", "output", "metric"], "{}", t.id);
+            assert!(t.tree.iter().all(|q| q.children.is_empty()), "{}", t.id);
+        }
+        // `## SEED` は engine が読まないが、型の md には入っている（sci-start と利用者が読む）。
+        for (path, text) in EMBEDDED.iter().filter(|(p, _)| p.starts_with("types/")) {
+            assert!(text.contains("\n## SEED\n"), "{path}");
+            assert!(!text.lines().any(|l| l.starts_with("+ ") || l.starts_with("  + ")), "{path}");
+        }
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -653,8 +574,11 @@ mod tests {
 
     #[test]
     fn parse_type_rejects_bad_input() {
+        // `+` は `-` と同じに読む（一番浅い `+` も通る）。
         assert!(parse_type(&type_md("- a\n  - b\n    + c")).is_ok());
-        for q in ["- a\n   - b", "+ a", "- a\n    - b", "- a\n- a", "a", ""] {
+        assert_eq!(parse_type(&type_md("+ a")).unwrap().tree, parse_type(&type_md("- a")).unwrap().tree);
+        assert_eq!(parse_type(&type_md("- a\n  + b")).unwrap().tree[0].children[0].key, "b");
+        for q in ["- a\n   - b", "- a\n    - b", "- a\n- a", "- a\n+ a", "a", ""] {
             assert!(matches!(parse_type(&type_md(q)), Err(RtError::Invalid(_))), "{q:?}");
         }
         for md in [
@@ -676,7 +600,7 @@ mod tests {
     #[test]
     fn write_local_copies_skips_existing() {
         let root = temp_dir();
-        assert_eq!(write_local_copies(&root).unwrap(), 30);
+        assert_eq!(write_local_copies(&root).unwrap(), 11);
         assert_eq!(write_local_copies(&root).unwrap(), 0);
         assert!(load_with_home(&root, None).warnings.is_empty());
         let _ = fs::remove_dir_all(&root);

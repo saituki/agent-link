@@ -19,14 +19,14 @@
 // op の表示名（表に無い op はそのまま出す）
 const SE_OPS = {
   add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E",
-  add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
+  add_seed: "Create SEED", add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_stance: "Stance を変える",
   edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
   add_q: "Q を足しました", add_a: "A を足しました", add_f: "F を足しました", add_e: "E を足しました",
-  add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
+  add_seed: "SEED を作りました", add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
   star: "★ を付けました", unstar: "★ を外しました", set_stance: "Stance を変えました",
   edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました",
 };
@@ -46,16 +46,15 @@ const SE_MODES = [["purpose_first", "purpose_first"], ["blind_first", "blind_fir
 const SE_STANCES = [["support", "S 支持"], ["deny", "D 反対"], ["issue", "I 問い"]];
 // カードの子の型（対象の種類ごとに出す。空は「なし」）
 const SE_CHILD_KINDS = { Q: [["Q", "Q"], ["A", "A"]], A: [["Q", "Q"], ["F", "F"]] };
-// カードで選べる 20 本のブロック（Next Action に出るもの）
+// カードで選べるブロック（Next Action に出るもの）
 const SE_BLOCKS = [
   ["sci-start", "研究の入口: 最初の Q を立てる"],
   ["sci-restore", "戻す: 消した Node を探して戻す案を出す"],
   ["sci-cite-check", "出典を確かめる: F の出典を照らす"],
-  ["sci-seed", "SPROUT をつくる: Q から A を降りる道で SPROUT を作る"],
   ["sci-digest", "まとめる: 今の状態をまとめる（op は出さない）"],
   ["sci-coach", "理解の確認: 問いかけて確かめる"],
   ["sci-typify", "型に当てる: 型を当てはめる"],
-  ["sci-exp-sprout", "SPROUT: 実験の案を出す"],
+  ["sci-exp-sprout", "実験を始める: SPROUT から実験仕様書と最初の BRANCH を作る"],
   ["sci-exp-branch", "実験を分ける: BRANCH する"],
   ["sci-exp-review", "REVIEW: 実験の結果を点検する"],
   ["sci-result-compare", "結果を比べる: 実験の結果を比べる"],
@@ -66,13 +65,25 @@ const SE_BLOCKS = [
   ["lab-grow", "木を育てる（論文あり）: A・F・Q を足し、Q を間に入れる"],
   ["lab-survey", "外を調べる（検索）: 論文を探して木の案を出す"],
   ["lab-place", "置き場所を決める（論文だけ）: 木を探して読む CARD を作る"],
+  ["lab-map", "root を組む（review 論文）: 分野の軸ごとに Q・A・F の骨組みを作る"],
+  ["lab-sprout", "SPROUT を作る: SEED と path を選び、制約と先行研究との違いを確かめて S を作る"],
   ["lab-progress", "進み具合の確認: 数と穴を報告し、次の CARD を作る（op は出さない）"],
   ["sci-verify", "検証: target_node と子の関係を評価し、報告・op・次の CARD を作る"],
 ];
 // 出典の形（C-CITE。`#37`・`#37.3.2`・`#37.3.2-4 注`）
 const SE_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)?( .{1,80})?$/;
-// ID の形（Q・A・F・E・S）
-const SE_ID_RE = /^[QAFES][1-9][0-9]{0,8}$/;
+// ID の形（Q・A・F・E・S・D）
+const SE_ID_RE = /^[QAFESD][1-9][0-9]{0,8}$/;
+// seed（D）の本文の見出し（共有契約。見出しの文字は変えない）。順に並べる
+const SE_SEED_AXES = [
+  ["task", "解く問題（task）", "何を明らかにするか"],
+  ["target", "対象（target）", "誰・何を対象にするか"],
+  ["data", "データ（data）", "使うデータ"],
+  ["method", "手法（method）", "使う手法"],
+  ["output", "出力（output）", "得る出力"],
+  ["metric", "評価指標（metric）", "測る指標"],
+];
+const SE_SEED_PICKS = [["decided", "決定"], ["empty", "空欄"]];
 // 文字数の上限
 const SE_MAX = { qtext: 300, atext: 120, ftext: 1200, etext: 120, body: 2000, mlflow: 200, title: 120, purpose: 300, expect: 300 };
 
@@ -199,7 +210,19 @@ function seBuildOp(kind, values) {
       if (seTrim(v.mlflow)) op.mlflow = seTrim(v.mlflow);
       return good(op);
     }
+    case "add_seed": {
+      // 本文は seSeedBody で作ったもの（見出し付き）。字数は送る前に確かめる
+      const msg = len("title", "題", 1, SE_MAX.title);
+      if (msg) return bad(msg);
+      const body = seTrim(v.body);
+      if (body.length > SE_MAX.body) return bad(`本文が ${SE_MAX.body} 字を超えています（今 ${body.length} 字）`);
+      const op = { op: name, title: seTrim(v.title) };
+      if (body) op.body = body;
+      return good(op);
+    }
     case "add_sprout": {
+      // 1 つの SPROUT は 1 つの SEED（D）の下に作る
+      if (!seRefOk(v.seed, "D")) return bad("SEED を選んでください");
       const msg = first(len("title", "題", 1, SE_MAX.title), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
       const paths = seList(v.paths);
@@ -207,7 +230,7 @@ function seBuildOp(kind, values) {
       if (paths.length > 20) return bad("PATH は 20 個までです");
       for (const a of paths) if (!seRefOk(a, "A")) return bad(`A の形が正しくありません: ${a}`);
       if (new Set(paths).size !== paths.length) return bad("同じ A を 2 回選んでいます");
-      const op = { op: name, title: seTrim(v.title), paths };
+      const op = { op: name, seed: seTrim(v.seed), title: seTrim(v.title), paths };
       if (seTrim(v.body)) op.body = seTrim(v.body);
       return good(op);
     }
@@ -216,12 +239,12 @@ function seBuildOp(kind, values) {
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), to: seTrim(v.to) });
     }
     case "remove": {
-      const msg = id("node", "QAFES", "消す Node");
+      const msg = id("node", "QAFESD", "消す Node");
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node) });
     }
     case "star":
     case "unstar": {
-      const msg = id("node", "QAFES", "Node");
+      const msg = id("node", "QAFESD", "Node");
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node) });
     }
     case "set_stance": {
@@ -251,7 +274,7 @@ function seBuildOp(kind, values) {
     case "edit": {
       const rules = seEditRules(v.node);
       const msg = first(
-        id("node", "QAFES", "直す Node"),
+        id("node", "QAFESD", "直す Node"),
         len("text", "文", 0, rules.text),
         rules.body ? len("body", "本文", 0, SE_MAX.body) : "",
       );
@@ -358,6 +381,77 @@ function seCardRunId(res) {
   if (res.run && res.run.id != null) return res.run.id;
   if (res.run && res.run.run_id != null) return res.run.run_id;
   return null;
+}
+
+/**
+ * seed（D）の 9 項目（values）から本文の markdown を作る（共有契約の形）。
+ * 空の自由な文は「空欄」。軸の 6 項目は「決定: <値>」か「空欄」の次に説明の行が続く。
+ * 項目の名前: background・<軸>_mode（decided か empty）・<軸>_value・<軸>_note・success・constraints
+ */
+function seSeedBody(values) {
+  const v = values || {};
+  const lines = ["## 背景", seTrim(v.background) || "空欄"];
+  for (const [key, label] of SE_SEED_AXES) {
+    const value = seTrim(v[`${key}_value`]);
+    const decided = seTrim(v[`${key}_mode`]) === "decided" && value;
+    lines.push(`## ${label}`, decided ? `決定: ${value}` : "空欄");
+    const note = seTrim(v[`${key}_note`]);
+    if (note) lines.push(note);
+  }
+  lines.push("## 成功基準", seTrim(v.success) || "空欄");
+  lines.push("## 制約", seTrim(v.constraints) || "空欄");
+  return lines.join("\n");
+}
+
+/**
+ * seed の本文（markdown）を 9 項目の values に戻す（seSeedBody の逆）。
+ * 見出しの無い本文は「背景」に全部入れる。知らない見出しは今の項目の続きにする（落とさない）。
+ */
+function seSeedParse(body) {
+  const heads = new Map([
+    ["## 背景", "background"], ["## 成功基準", "success"], ["## 制約", "constraints"],
+    ...SE_SEED_AXES.map(([key, label]) => [`## ${label}`, key]),
+  ]);
+  // 9 項目は全部そろえて返す（見出しが無い項目は空・空欄）
+  const names = ["background", ...SE_SEED_AXES.map((a) => a[0]), "success", "constraints"];
+  const parts = Object.fromEntries(names.map((n) => [n, []]));
+  let key = "background";
+  for (const line of String(body == null ? "" : body).split("\n")) {
+    const head = heads.get(line.trim());
+    if (head) {
+      key = head;
+      parts[key] = parts[key] || [];
+      continue;
+    }
+    (parts[key] || (parts[key] = [])).push(line);
+  }
+  const out = {};
+  for (const [name, lines] of Object.entries(parts)) {
+    const text = lines.join("\n").trim();
+    const axis = SE_SEED_AXES.find((a) => a[0] === name);
+    if (!axis) {
+      out[name] = text === "空欄" ? "" : text;
+      continue;
+    }
+    // 軸の項目: 1 行目が「決定: 値」か「空欄」。それ以降は説明
+    const nl = text.indexOf("\n");
+    const first = (nl < 0 ? text : text.slice(0, nl)).trim();
+    const rest = nl < 0 ? "" : text.slice(nl + 1).trim();
+    if (first.startsWith("決定:")) {
+      out[`${name}_mode`] = "decided";
+      out[`${name}_value`] = first.slice("決定:".length).trim();
+      out[`${name}_note`] = rest;
+    } else if (first === "空欄") {
+      out[`${name}_mode`] = "empty";
+      out[`${name}_value`] = "";
+      out[`${name}_note`] = rest;
+    } else {
+      out[`${name}_mode`] = "empty";
+      out[`${name}_value`] = "";
+      out[`${name}_note`] = text;
+    }
+  }
+  return out;
 }
 
 // ============================================================================
@@ -601,6 +695,29 @@ function seForm(fields) {
   return form;
 }
 
+/**
+ * seed（D）の入力欄 9 項目（題は別）。作成の板と edit の小窓で同じ物を使う。
+ * init は seSeedParse の結果（と題の text）。軸は「決定・空欄」の切り替え・値の 1 行・説明の複数行。
+ */
+function seSeedFields(init) {
+  const v = init || {};
+  const fields = [
+    seFieldText("title", "題（必須）", v.title, "必須・120 字まで"),
+    seFieldArea("background", "背景", v.background, 3, "自由な文（この研究の経緯・動機）"),
+  ];
+  for (const [key, label, hint] of SE_SEED_AXES) {
+    const pick = seFieldPick(`${key}_mode`, label, SE_SEED_PICKS, v[`${key}_mode`] || "empty");
+    const value = seFieldText(`${key}_value`, "決定した値", v[`${key}_value`], "1 行・「決定」のときだけ");
+    value.show = (cur) => cur[`${key}_mode`] === "decided";
+    fields.push(pick, value, seFieldArea(`${key}_note`, "説明（任意）", v[`${key}_note`], 2, hint));
+  }
+  fields.push(
+    seFieldArea("success", "成功基準", v.success, 2, "指標の値と向き。未定なら空欄のまま"),
+    seFieldArea("constraints", "制約", v.constraints, 3, "期間・計算資源・倫理・データの入手など"),
+  );
+  return fields;
+}
+
 // ============================================================================
 // 通信
 // ============================================================================
@@ -748,6 +865,16 @@ function seFieldsFor(kind, nodeId, detail) {
         fields: [],
       };
     case "edit": {
+      // seed（D）は 9 項目の入力欄で直す。送る本文は seSeedBody で組み直す
+      if (seRefOk(id, "D")) {
+        const fields = seSeedFields(Object.assign({ title: node.text }, seSeedParse(node.body)));
+        return {
+          title: `SEED を直す（${id}）`,
+          values: { node: id },
+          fields,
+          build: (read) => ({ node: id, text: read.title, body: seSeedBody(read) }),
+        };
+      }
       const rules = seEditRules(id);
       const fields = [seFieldArea("text", "文", node.text || "", 3, rules.body ? "文か本文のどちらかは必須・120 字まで" : (id.charAt(0) === "F" ? "必須・1〜3 文・1200 字まで" : "必須・300 字まで"))];
       if (rules.body) fields.push(seFieldArea("body", "本文", node.body || "", 5, "任意・2000 字まで"));
@@ -772,9 +899,14 @@ async function seQuick(op, payload) {
 function seOpenAction(op, nodeId, detail) {
   if (typeof document === "undefined" || typeof saiSheet !== "function") return;
   const name = seTrim(op);
-  // SPROUT は小窓ではなく、上の帯の作成パネルで作る（作成中も図と板を操作できる）
+  // SEED・SPROUT は小窓ではなく、作成のパネルで作る（作成中も図と板を操作できる）
+  if (name === "add_seed") {
+    if (typeof stStartSeed === "function") stStartSeed();
+    else saiToast("SEED の作成画面がまだありません", "error");
+    return;
+  }
   if (name === "add_sprout") {
-    if (typeof stStartSprout === "function") stStartSprout();
+    if (typeof stStartSprout === "function") stStartSprout(seRefOk(nodeId, "D") ? seTrim(nodeId) : "");
     else saiToast("SPROUT の作成画面がまだありません", "error");
     return;
   }
@@ -796,7 +928,8 @@ function seOpenAction(op, nodeId, detail) {
   form.actions.appendChild(seBtn("やめる", () => host.close(), "ghost"));
 
   const send = async () => {
-    const v = Object.assign({}, spec.values, form.read());
+    const read = form.read();
+    const v = spec.build ? spec.build(read) : Object.assign({}, spec.values, read);
     const built = seBuildOp(name, v);
     if (!built.ok) { form.say(built.error); return; }
     if (name === "remove") {
@@ -940,7 +1073,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     seTrim, seOpLabel, seCiteOk, seRefOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
     seCardValues, seBuildCard, seCardRunId, seChildOptions, seChildOk,
-    seBottomQs,
-    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_STANCES,
+    seBottomQs, seSeedBody, seSeedParse,
+    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_STANCES, SE_SEED_AXES,
   };
 }

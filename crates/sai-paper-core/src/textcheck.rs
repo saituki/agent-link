@@ -106,6 +106,17 @@ pub fn parse_cite(text: &str) -> Option<Cite> {
     Some(Cite { paper, section, passage, passage_end, note })
 }
 
+static INLINE_CITE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"#[1-9][0-9]{0,8}(?:\.[1-9][0-9]*)*").expect("inline cite regex")
+});
+
+/// 文の中に `#<数>` の出典（`#37`・`#37.5.2`）があれば、その最初の 1 つを返す。
+/// Markdown の見出し（`#` の後に空白か `#`）は出典と見なさない。`C#3` のような語の途中も当てる。
+#[must_use]
+pub fn find_inline_cite(text: &str) -> Option<String> {
+    INLINE_CITE_RE.find(text).map(|m| m.as_str().to_string())
+}
+
 /// frontmatter を付けた（既にあれば整えた）本文を返す。
 ///
 /// `pairs` は `(キー, 値, 上書きするか)`。既にあるキーは位置を保ち、上書き指定のものだけ値を替える。
@@ -211,5 +222,16 @@ mod tests {
         );
         let out = with_frontmatter("---\nkind: 回答\nblock: x\npapers: 9\n---\n本文\n", &pairs);
         assert_eq!(out, "---\nkind: 回答\nblock: b\npapers: 9\nrun: 5\n---\n本文\n");
+    }
+
+    #[test]
+    fn find_inline_cite_finds_numbers_not_headings() {
+        assert_eq!(find_inline_cite("精度は #37 による").as_deref(), Some("#37"));
+        assert_eq!(find_inline_cite("本文 #37.5.2 を見よ").as_deref(), Some("#37.5.2"));
+        assert_eq!(find_inline_cite("# 見出し"), None);
+        assert_eq!(find_inline_cite("## 見出し"), None);
+        assert_eq!(find_inline_cite("#abc"), None);
+        assert_eq!(find_inline_cite("#0"), None);
+        assert_eq!(find_inline_cite("C#3 の語"), Some("#3".to_string()));
     }
 }

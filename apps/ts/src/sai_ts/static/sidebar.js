@@ -1,7 +1,7 @@
 // sidebar のタブ（U05）。TS.ui.addSidebarTab でタブを足し、#ts-tabs と #ts-panels に出す。
-// 既定の順は チャット・イベント・拡張。それ以外は拡張が足した順に後ろへ並ぶ。
+// 既定の順は 患者・チャット・イベント・拡張。それ以外は拡張が足した順に後ろへ並ぶ。
 
-const tsSidebarBuiltins = ["chat", "events", "ext"];
+const tsSidebarBuiltins = ["patients", "chat", "events", "ext"];
 const tsSidebarPrefKey = "ts_tab";
 
 // タブの並び。builtins の順を先にし、残りは足された順のまま（安定）

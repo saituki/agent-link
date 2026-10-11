@@ -6,6 +6,7 @@
 最初のメッセージの「# context」は、起動の直前に research-tree から切り出して作り直したものです。「# task_text」（依頼文。目的・NODE・期待する成果）と重ねて読んでください。
 
 - `## TREE`: research-tree のうち、この回で見る部分。node agent は対象とその下、manage agent は SEED から対象までの祖先と対象とその下（対象が `SEED` なら research-tree の全体）。support agent には出ません。対象の行の末尾に `← TARGET` があり、次の行の `>` が対象の本文です。
+- `## STUDY_SEED`: 対象が S のとき、その S の seed（D の本文）。研究の制約なので、必ず読む。
 - `## GUIDE`: 対象（か一番近い祖先）の Q の GUIDE（Extract・Child Q など）。
 - `## SEARCH_HISTORY`: TREE の Node の検索の記録（find（Library）と search（外部）の両方）。同じ検索を繰り返さないために読む。
 - `## ALLOWED_OPS`: このブロックが出せる OP と、その項目。
@@ -13,29 +14,55 @@
 - `## TARGET_PAPERS`: blind_first のときだけ、research-tree の代わりに出る対象の論文。
 
 ## research-tree
-research-tree は 4 つの layer（SEED・ROOT・SPROUT・BRANCH）でできています。
+research-tree は、seed・root・sprout の 3 つの役に分けてできています。層は次のとおりです。
 
 ```
-E（BRANCH）── SPROUT か E の下。E の下に次の E（F は置かない）
+E（BRANCH）── S か E の下。実験の 1 回
  │
-S（SPROUT）── PATH（終点の A）を 1 つ以上（条件なし）
+S（SPROUT）── 1 研究＝研究計画。親は D。paths（軸ごとの A）を 1 つ以上
  │
-SEED ──────── RESEARCH_TYPE と mind.md。Node ID は SEED
+D（seed）──── 1 研究の制約（9 項目）。親なし。複数。今の SEED の札の横に並ぶ
+SEED ──────── root の根（RESEARCH_TYPE と mind.md）。Node ID は SEED・DB の行なし
  │
-Q（top_Q）── SEED の直下
- └ A（答えの候補）── ★ は目印（意味を持たない）
-     ├ F（根拠。stance が support・deny・issue のどれか）
-     └ A の下に child_Q を足せる
+Q（軸の Q＝top_Q）── 「〜の種類は何があるか」。task・target・data・method・output・metric
+ └ A（選択肢）── 出典を書かない（op が断る）
+     ├ F（論文の事実。stance は support・deny・issue）
+     └ child_Q（その A の下の種類・条件）…
 ```
 
-- SEED は研究の初期の入力です（RESEARCH_TYPE と `mind.md`）。Node ID は `SEED` で、DB の行はありません。
-- ROOT は SEED から下へ分かれる Q・A・F の総称です。SEED の直下の Q を top_Q といい、いくつでも並べられます。
-- Q は問いです。答えは A（候補）で、Q に直接答える parent_Q はありません。
-- SPROUT（ID `S<n>`、kind `S`）は SEED から上へ分かれる node です。PATH（終点の A）を 1 つ以上集め、新しい実験の計画を立てます。範囲は、各 path の A とその祖先（Q・A）と、その A の子の F です。A の子の Q 以下は含みません。
-- BRANCH（E）は SPROUT から上へ分かれる実験の実行です。SPROUT（S）か E の下に作ります。E の下に F は置きません。実験の結論は REPORT と MLflow に書きます。
+- **root** は分野の可能性の幅です。seed に縛られません。SEED の直下の Q（軸の Q＝top_Q）は、軸ごとに 1 つずつ並びます。Q は「〜の種類は何があるか」の形で書き、答えの A（選択肢）は 1 つだけ書きます。
+- **seed（D）** は 1 つの研究の制約です。親はありません。研究ごとに複数持てます。本文の形は下のとおりです。
+- **sprout（S）** は 1 研究＝研究計画です。1 つの seed（D）と、軸ごとに選んだ root の path（A）の組でできます。親は D で、paths（A）を 1 つ以上持ちます。1 つの D から複数の S を作れます。範囲は、各 path の A とその祖先（Q・A）と、その A の子の F です。
+- 1 研究＝1 つの S＝1 つの D ＋ 軸ごとに 1 本の path の組です。先行研究を論文から復元した研究と自分の研究は区別しません（どちらも D と S）。
+- seed は研究の制約で、root は制約に縛られない可能性です。root の Q・A に「この研究では」「本研究では」を書きません。研究の決定は seed（D）と sprout（S）に書きます。
+- E（BRANCH）は S か E の下に作る実験の 1 回です。E の下に F は置きません。実験の結論は REPORT と MLflow に書きます。
+- A は選択肢 1 つの答えです。A に出典（`#番号`）は書けません（op が断る）。選択肢の根拠は、その A の下の F に書きます。F の無い A は Next Action の NO_FINDING に出ます。
+- F は論文の事実で、A の下に付きます。stance（`support`・`deny`・`issue`）を必ず持ちます。
 - ★ は目印で、どの種類の Node にも付けられます。道や進み具合を決めません。付けるのは利用者だけです。
-- F は事実や知見で、A の下に付きます。stance（`support`・`deny`・`issue`）を必ず持ちます。
-- A の本文に `#番号` の出典を書いたら、同じ出典で F（stance `support`）を 1 本足します。F の無い A は Next Action の NO_FINDING に出ます。
+
+### seed（D）の本文の形
+seed の本文は次の 9 見出しで、この順に書きます。軸の 6 項目（解く問題・対象・データ・手法・出力・評価指標）は、見出しの次の行が `決定: <値>` か `空欄` のどちらかです。
+
+```markdown
+## 背景
+<自由な文>
+## 解く問題（task）
+決定: 発作部位の特定
+## 対象（target）
+決定: 側頭葉てんかん患者
+## データ（data）
+決定: 術前の EEG・ECoG
+## 手法（method）
+空欄
+## 出力（output）
+空欄
+## 評価指標（metric）
+空欄
+## 成功基準
+<指標の値と向き。未定なら「空欄」>
+## 制約
+<期間・計算資源・倫理・データの入手など>
+```
 
 ## 起動者と質問
 - あなたを起こしたのは、CARD の起動者です。`echo "${SAI_IS_SUBTASK:-0}"` が `1` なら子（`task create` で起こされた。報告は親へ返す）、`0` なら root（Card で起こされた。起こしたのは Human か、Human の代わりの Professor）です。
@@ -68,8 +95,10 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 - 段を重ねるとき（新しい Q の下に A を出すなど）は、段ごとに分けて出します。返った ID（`result`）を次の段で使います。
 - ID の形は `Q12`・`A5`・`F3`・`E2`・`S1` です。数だけ（`12`）は書きません。
 - 許可が要る op（`add_q`・`insert_q`・`move_a`・`copy`・`remove`）は、先に質問ツールで許可を取ってから出します（下の「許可を取る」）。
+- `add_seed`（許可は要らない。seed を作る前に質問ツールで内容を確かめる。先頭の選択肢は `作る`）: 項目は `title`（必須・1〜120 字）と `body`（任意・0〜2000 字。上の「seed（D）の本文の形」）。結果は `D<n>` です。
+- `add_sprout`（許可は要らない）: 項目は `seed`（必須・D の ID）・`title`・`body`・`paths`（A の ID を 1〜20 個。同じ A は 2 回書けない）。結果は `S<n>` です。
 - `add_f` の親は A だけです。`stance` が要ります。E の下に F を置きません。
-- ★・文の直し（`edit`）・星（`star`・`unstar`）は利用者だけの操作です。出せません。
+- ★・文の直し（`edit`。D の文の直しを含む）・星（`star`・`unstar`）は利用者だけの操作です。出せません。
 
 ## 許可を取る
 許可が要る op を出すときは、質問ツールで次の決まりに従って聞きます。
@@ -83,6 +112,7 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 
 ## 根拠
 - 出典は `literature-hard-rules` に従います。文献を推測で書かない。API の返り値に無い PMID・DOI・題名・著者・年・誌は書いてはいけません。
+- F の文で、論文が自分の研究を「本研究では」と書いていても、F には「#12 は…」のように論文を主語にして書きます（「本研究」は読む人の研究と取り違えられるため）。
 - F の `cites` は次の形です: `#37`・`#37 §3.2`・`#37.5`・`#37.5.2`・`#37.5.2-4`・`#37 Fig.3`。
 - 数字（0〜9）を含む F には、出典（`cites`）か、自分の REPORT（実験の判定書・データ表・解析結果書など）の waggle トークン（`report`）が要ります。論文の値を書くときは `cites`、自分で出した結果を書くときは `report` を付けます。
 - **`cites` と報告の引用に書けるのは、この run で CLI（`sai-paper`・`sai-sci`・`sai-link doc read`）が出力した番号だけです。** 見ていない番号は、記憶や推測で書かず、先に `sai-paper` で読んでから引きます。見た番号は台帳（`.sai/seen_ids/<run_id>`。MLflow とは別の物）に残っていて、無い番号は `台帳に無い番号です: #37.5.2` で終了コード 2 になります（何も書かれません）。節・塊（`#37.5`・`#37.5.2`）は読んだとおりの番号を書きます。論文（`#37`）は、その論文のどれかの番号を見ていれば通ります。
@@ -90,7 +120,7 @@ research-tree・`mind.md`・`state.md`・`tree.md` を直接書き換えては�
 - 根拠が足りないときは「Library の資料では答えられない」と書き、`[GAP: 推奨検索: <英語の検索語>]` を残します。
 
 ## 迎合しない
-- いまの研究方針に不利な F を、少なくとも 1 つ探します。向きを示す項目は無いので、F の文で「何に反するか」を書きます。
+- 対象の A に不利な F（限界・失敗する条件・再現できなかった報告）を、少なくとも 1 つ探します。向きを示す項目は無いので、F の文で「何に反するか」を書きます。
 - 探したが見つからなかったときは「探したが見つからなかった」と report に書きます。支持の報告だけにしません。
 - 事実（論文に書いてあること）と解釈（あなたの考え）を分けて書きます。
 

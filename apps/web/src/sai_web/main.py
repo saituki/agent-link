@@ -34,9 +34,11 @@ from sai_web import (
     commands,
     containers,
     control,
+    datafiles,
     home,
     mlflow_proxy,
     notify,
+    paper_migrate,
     papers,
     questions,
     radio,
@@ -1181,7 +1183,7 @@ def api_project_search(
     limit: int = 50,
     _: None = Depends(require_token),
 ) -> dict:
-    """文書（task / message / waggle）の検索（`phone search`・Dashboard の検索）。
+    """文書（task / message / waggle）の検索（`phone search`・会話検索の画面の文書の検索）。
 
     `q` は空白区切りの AND。`category` はカンマ区切り（空なら全部）。`since` / `until` は
     `YYYY-MM-DD`、`block` は完全一致、`from_id` / `to_id` は run_id の範囲。
@@ -1569,6 +1571,52 @@ async def api_papers_bundle(
     project = papers.resolve_project(name)
     body = await bundles.read_bundle_upload(request)
     return await bundles.request_bundle(project, body)
+
+
+@app.post("/api/projects/{name}/papers/migrate", status_code=202)
+async def api_papers_migrate(
+    name: str, request: Request, _: None = Depends(require_token)
+) -> dict:
+    """sai-prep の「移植の束」（zip）を受けて取り込む（C-M3）。
+
+    本文は zip そのもの（`Content-Type: application/zip`）。種類が違えば 415・
+    大きすぎれば 413・中身が違えば 400（CLI を呼ばない）。
+    """
+    project = papers.resolve_project(name)
+    body = await bundles.read_bundle_upload(request)
+    return await paper_migrate.request_upload(project, body)
+
+
+@app.post("/api/projects/{name}/papers/migrate-from", status_code=202)
+async def api_papers_migrate_from(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """同じ利用者の別のプロジェクトから論文を移す（C-M3）。
+
+    body は `{"source": "<移植元のプロジェクト名>", "ids": [5, 6, 12]}`。
+    移植元は自分のプロジェクトだけ（無ければ 404）。
+    """
+    return await paper_migrate.request_from(papers.resolve_project(name), payload)
+
+
+@app.post("/api/projects/{name}/data/raw", status_code=201)
+async def api_data_raw_put(
+    name: str,
+    request: Request,
+    filename: str = Query(default=""),
+    _: None = Depends(require_token),
+) -> dict:
+    """解析用のデータを 1 件置く（`<root>/data/raw/<filename>`・U01）。
+
+    本文はファイルそのもの。同じ名前は 409（上書きしない）。大きさは 5GB まで（413）。
+    """
+    return await datafiles.store_raw(name, filename, request)
+
+
+@app.get("/api/projects/{name}/data/raw")
+def api_data_raw_list(name: str, _: None = Depends(require_token)) -> dict:
+    """`data/raw/` の一覧（U01）。"""
+    return datafiles.list_raw(name)
 
 
 @app.get("/api/projects/{name}/papers/pending")

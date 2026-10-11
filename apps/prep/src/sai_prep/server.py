@@ -12,7 +12,9 @@ import binascii
 import hmac
 import io
 import json
+import re
 import secrets
+import tempfile
 import urllib.parse
 import zipfile
 import zlib
@@ -20,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
-from . import __version__, config as config_mod
+from . import __version__, config as config_mod, migrate
 from .client import Client, ClientError
 from .pipeline import Pipeline, PipelineError
 
@@ -28,6 +30,12 @@ NONCE_HEADER = "X-Sai-Prep-Nonce"
 STATIC_DIR = Path(__file__).with_name("static")
 INDEX_PATH = STATIC_DIR / "index.html"
 MAX_BIBTEX_BYTES = 64 * 1024
+# データファイル（Data upload）。1 件の上限は sai-web と同じ 5GB。名前の規則も sai-web と同じ。
+DATA_MAX_BYTES = 5 * 1024**3
+DATA_CHUNK_BYTES = 1024 * 1024
+DATA_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+# DB Migration で一度に頼める論文の数（上限）。
+MAX_MIGRATE_IDS = 1000
 
 
 class PrepHTTPServer(ThreadingHTTPServer):
@@ -48,6 +56,11 @@ class PrepHTTPServer(ThreadingHTTPServer):
         self.config_provider = config_provider
         self.client_factory = client_factory
         self.nonce = secrets.token_urlsafe(16)
+
+
+def _upload_dir() -> Path:
+    """データの一時置き場。送り終えたら（成否どちらでも）中のファイルを消す。"""
+    return Path.home() / "Library" / "Caches" / "sai-prep" / "uploads"
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -142,6 +155,16 @@ class _Handler(BaseHTTPRequestHandler):
             jobs = [job.to_public() for job in self.prep.pipeline.list_jobs()]
             self._send_json(200, {"jobs": jobs})
             return
+        if path == "/local/data":
+            if not self._require_nonce():
+                return
+            self._data_list(query.get("project", [""])[0])
+            return
+        if path == "/local/migrate/papers":
+            if not self._require_nonce():
+                return
+            self._migrate_papers(query)
+            return
         self._error(404, "その住所はありません。")
 
     def do_PUT(self) -> None:  # noqa: N802
@@ -166,6 +189,16 @@ class _Handler(BaseHTTPRequestHandler):
             if not self._require_nonce():
                 return
             self._post_job(query)
+            return
+        if path == "/local/data":
+            if not self._require_nonce():
+                return
+            self._post_data(query)
+            return
+        if path == "/local/migrate":
+            if not self._require_nonce():
+                return
+            self._post_migrate(query)
             return
         if path.startswith("/local/jobs/") and path.endswith("/retry"):
             if not self._require_nonce():
@@ -265,6 +298,168 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_json(200, result)
 
+    def _data_list(self, project: str) -> None:
+        if not project:
+            self._error(400, "project を指定してください。")
+            return
+        config = self.prep.config_provider()
+        try:
+            files = self.prep.client_factory(config.server_url, config.token).data_files(project)
+        except ClientError as error:
+            self._error(400, str(error))
+            return
+        self._send_json(200, {"files": files})
+
+    def _migrate_papers(self, query: dict[str, list[str]]) -> None:
+        """DB Migration の移植元の一覧。moon は手元の DB、tree はサーバの Library を読む。"""
+        source = (query.get("source", [""])[0] or "").strip()
+        if source == "moon":
+            path = (query.get("path", [""])[0] or "").strip()
+            if not path:
+                self._error(400, "sai-moon のフォルダを入れてください。")
+                return
+            try:
+                papers = migrate.list_papers(Path(path))
+            except migrate.MigrateError as error:
+                self._error(400, str(error))
+                return
+            self._send_json(200, {"papers": papers})
+            return
+        if source == "tree":
+            project = (query.get("project", [""])[0] or "").strip()
+            if not project:
+                self._error(400, "移植元のプロジェクトを選んでください。")
+                return
+            config = self.prep.config_provider()
+            try:
+                rows = self.prep.client_factory(config.server_url, config.token).library(project)
+            except ClientError as error:
+                self._error(400, str(error))
+                return
+            papers = [_tree_paper(row) for row in rows if isinstance(row, dict)]
+            self._send_json(200, {"papers": papers})
+            return
+        self._error(400, "source は moon か tree を指定してください。")
+
+    def _post_migrate(self, query: dict[str, list[str]]) -> None:
+        """DB Migration の仕事を積む（論文 1 本ずつ、または sai-tree の移植を 1 つ）。"""
+        data = self._read_json()
+        project = (query.get("project", [""])[0] or "").strip()
+        if not project:
+            self._error(400, "project を指定してください。")
+            return
+        ids = data.get("ids")
+        if (
+            not isinstance(ids, list)
+            or not 1 <= len(ids) <= MAX_MIGRATE_IDS
+            or not all(type(i) is int and i > 0 for i in ids)
+        ):
+            self._error(400, f"ids は 1 から {MAX_MIGRATE_IDS} 件までの正の整数で送ってください。")
+            return
+        source = str(data.get("source", "")).strip()
+        if source == "moon":
+            path = str(data.get("path", "")).strip()
+            if not path:
+                self._error(400, "sai-moon のフォルダを入れてください。")
+                return
+            try:
+                migrate.paper_db(Path(path))
+                titles = {paper["id"]: paper["title"] for paper in migrate.list_papers(Path(path))}
+            except migrate.MigrateError as error:
+                self._error(400, str(error))
+                return
+            if any(i not in titles for i in ids):
+                self._error(400, "移植元にない論文の番号があります。一覧を読み直してください。")
+                return
+            jobs = [
+                self.prep.pipeline.submit_migration(
+                    project,
+                    {"source": "moon", "path": path, "ids": [i]},
+                    titles[i] or f"論文 {i}",
+                )
+                for i in ids
+            ]
+        elif source == "tree":
+            origin = str(data.get("project", "")).strip()
+            if not origin:
+                self._error(400, "移植元のプロジェクトを選んでください。")
+                return
+            if origin == project:
+                self._error(400, "移植元と移植先が同じです。")
+                return
+            jobs = [
+                self.prep.pipeline.submit_migration(
+                    project,
+                    {"source": "tree", "project": origin, "ids": ids},
+                    f"{origin} から {len(ids)} 件",
+                )
+            ]
+        else:
+            self._error(400, "source は moon か tree を指定してください。")
+            return
+        self._send_json(202, {"jobs": [job.to_public() for job in jobs]})
+
+    def _refuse(self, status: int, message: str) -> None:
+        """本文を読まずに断る。残りの本文が次の要求に混ざらないよう、この接続は閉じる。"""
+        self.close_connection = True
+        self._error(status, message)
+
+    def _post_data(self, query: dict[str, list[str]]) -> None:
+        """データ 1 件を受けて sai-web へ送る（U01）。
+
+        本文は一時ファイルへ書いてから送る（`rfile` を直接渡すと、keep-alive の接続は
+        EOF にならず送信が終わらないため）。送り終えたら一時ファイルは消す。
+        """
+        project = (query.get("project", [""])[0] or "").strip()
+        filename = (query.get("filename", [""])[0] or "").strip()
+        if not project:
+            self._refuse(400, "project を指定してください。")
+            return
+        if not DATA_NAME_RE.fullmatch(filename):
+            self._refuse(
+                400,
+                "ファイル名は英数字と . _ - だけで、先頭は英数字にしてください（128 字まで）。",
+            )
+            return
+        length = (self.headers.get("Content-Length") or "").strip()
+        if not length.isdigit():
+            self._refuse(400, "Content-Length を付けてください。")
+            return
+        size = int(length)
+        if size > DATA_MAX_BYTES:
+            self._refuse(413, "データは 1 件 5GB までです。")
+            return
+        status, payload = self._forward_data(project, filename, size)
+        self._send_json(status, payload)
+
+    def _forward_data(self, project: str, filename: str, size: int) -> tuple[int, dict]:
+        """本文を一時ファイルへ書いて sai-web へ送る。一時ファイルは返る前に消す（応答より先）。"""
+        config = self.prep.config_provider()
+        upload_dir = _upload_dir()
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=upload_dir, prefix="data-", suffix=".part") as tmp:
+            remaining = size
+            while remaining > 0:
+                chunk = self.rfile.read(min(DATA_CHUNK_BYTES, remaining))
+                if not chunk:
+                    break
+                tmp.write(chunk)
+                remaining -= len(chunk)
+            if remaining:
+                self.close_connection = True
+                return 400, {"error": "本文が途中で切れました。"}
+            tmp.flush()
+            tmp.seek(0)
+            try:
+                result = self.prep.client_factory(config.server_url, config.token).post_data(
+                    project, filename, tmp, size
+                )
+            except ClientError as error:
+                # 同じ名前（409）と大きさ（413）は、理由を画面に出せるようにそのまま返す
+                status = error.status if error.status in (409, 413) else 400
+                return status, {"error": str(error)}
+        return 201, result
+
     def _post_job(self, query: dict[str, list[str]]) -> None:
         content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
         if content_type not in ("application/pdf", "application/zip"):
@@ -322,6 +517,24 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(400, "paper_id か BibTeX のどちらかが必要です。")
             return
         self._send_json(202, job.to_public())
+
+
+def _tree_paper(row: dict) -> dict:
+    """sai-tree の Library の 1 件を、DB Migration の一覧の形（C-M4）に詰め直す。"""
+    authors = row.get("authors", "")
+    if isinstance(authors, list):
+        authors = ", ".join(str(a) for a in authors)
+    return {
+        "id": row.get("id"),
+        "title": row.get("title") or "",
+        "year": row.get("year"),
+        "authors": authors or "",
+        "has_pdf": bool(row.get("has_pdf")),
+        "has_extract": bool(row.get("has_extract")),
+        # sai-tree の一覧には翻訳と chunk の数が無いので、null のまま返す（画面では「–」）
+        "translated": None,
+        "chunks": None,
+    }
 
 
 def _unpack_zip(body: bytes) -> tuple[bytes, dict]:
