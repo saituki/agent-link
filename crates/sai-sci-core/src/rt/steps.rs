@@ -9,7 +9,6 @@ use std::collections::{BTreeMap, HashMap};
 use rusqlite::Connection;
 use serde::Serialize;
 
-use super::axes;
 use super::compute::{Counts, NodeJson, rfc3339_utc};
 use super::store::{self, LogRow, NodeRow};
 use super::{Kind, Result, fmt_id, parse_id_of};
@@ -339,8 +338,10 @@ fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
         dataset: n.dataset_ref.clone(),
         created_by: n.created_by.clone(),
         created_at: n.created_at.clone(),
-        axes: (n.kind == Kind::D).then(|| axes::parse_axes(&n.body)),
-        // 消えた S の区分は親の D と A の位置が要るので出さない（空）。
+        // 消えた Node の問いと区分は、問いの表（消えた D の問い）と A の位置が要るので出さない（空）。
+        questions: Vec::new(),
+        complete: None,
+        missing: Vec::new(),
         path_roles: Vec::new(),
     }
 }

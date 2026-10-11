@@ -150,6 +150,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         59,
         include_str!("../migrations/0059_rt_dataset.sql"),
     ),
+    (
+        60,
+        include_str!("../migrations/0060_seed_questions.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -3981,6 +3985,51 @@ mod tests {
         );
         let broken = conn.prepare("PRAGMA foreign_key_check")?.query([])?.next()?.is_some();
         assert!(!broken, "外部キーが壊れていない");
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// 0060 で seed の問いと回答の表・S の凍結の列が入る。0059 までの DB の D と行は残る。
+    #[test]
+    fn migration_60_adds_seed_question_tables() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-seed-questions-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0059 までの DB に、seed（D）を 1 つ入れる。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 60) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch("INSERT INTO rt_nodes (kind, text, body) VALUES ('D', '研究', '本文');")?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let count = |sql: &str| -> Result<i64, Box<dyn std::error::Error>> {
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        };
+        assert_eq!(count("SELECT COUNT(*) FROM rt_nodes WHERE kind = 'D' AND body = '本文'")?, 1, "既存の D は残る");
+        assert_eq!(count("SELECT COUNT(*) FROM rt_seed_questions")?, 0, "問いの表は空で入る");
+        assert_eq!(count("SELECT COUNT(*) FROM rt_answers")?, 0, "回答の表は空で入る");
+        assert_eq!(count("SELECT COUNT(*) FROM pragma_table_info('rt_nodes') WHERE name = 'frozen_qs'")?, 1, "frozen_qs の列");
+        // 回答は テキストか path のどちらか一方（両方・両方無しは弾く）。
+        conn.execute("INSERT INTO rt_seed_questions (seed_id, text) VALUES (1, '問い')", [])?;
+        assert!(conn.execute("INSERT INTO rt_answers (owner_id, question_id) VALUES (1, 1)", []).is_err());
+        assert!(conn.execute("INSERT INTO rt_answers (owner_id, question_id, text, a_id) VALUES (1, 1, 'x', 1)", []).is_err());
+        conn.execute("INSERT INTO rt_answers (owner_id, question_id, text) VALUES (1, 1, '決めた')", [])?;
 
         fs::remove_dir_all(&dir).ok();
         Ok(())
