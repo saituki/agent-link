@@ -67,6 +67,10 @@ def snapshot() -> dict:
     for e in ext.glob("*") if ext.is_dir() else []:
         if e.is_dir():
             snap[f"ext:{e.name}"] = ext_version(e)
+    sroot = paths.snapshots_dir()
+    for s in sroot.glob("*") if sroot.is_dir() else []:
+        if s.is_dir() and paths.valid_name(s.name):
+            snap[f"snapshots:{s.name}"] = (_stat(s / "manifest.json"), _stat(s / "links.json"))
     return snap
 
 
@@ -95,6 +99,10 @@ def diff(old: dict, new: dict) -> list[dict]:
             out.append({"kind": "vars", "dataset": ds, "record": rec})
         elif key.startswith("ext:"):
             out.append({"kind": "ext", "name": key.split(":", 1)[1], "version": b})
+        elif key.startswith("snapshots:"):
+            # スナップショットは 1 件ずつ増えるので、同じ知らせは 1 回の差分に 1 つだけ出す
+            if {"kind": "snapshots"} not in out:
+                out.append({"kind": "snapshots"})
     return out
 
 
