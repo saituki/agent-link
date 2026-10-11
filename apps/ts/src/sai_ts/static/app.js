@@ -374,6 +374,7 @@ function tsApplyView(view) {
   const st = window.TS.state;
   const names = st.datasets.map((d) => d.name);
   const dataset = names.includes(view.dataset) ? view.dataset : names.includes(st.dataset) ? st.dataset : names[0] || null;
+  const dsChanged = dataset !== st.dataset;
   const recs = tsRecordsOf(st.datasets, dataset);
   const record = recs.includes(view.record) ? view.record : recs.includes(st.record) ? st.record : recs[0] || null;
   tsPatchState(st, {
@@ -386,7 +387,8 @@ function tsApplyView(view) {
     selection: view.selection ?? null,
     selectedEvents: view.selected_events ?? [],
   });
-  return tsLoadRecord();
+  // データセットが変わったら、そのデータセットの schema（イベント定義）に読み直す
+  return dsChanged ? tsReloadSchema().then(tsLoadRecord) : tsLoadRecord();
 }
 
 // agent が view を書いたときだけ取り込む（画面自身の保存の知らせは無視する）
