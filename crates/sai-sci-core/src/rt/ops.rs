@@ -18,9 +18,11 @@ use sai_paper_core::paths::PaperRoots;
 use sai_paper_core::{seen_ids, textcheck};
 use std::path::PathBuf;
 
-const MAX_OPS: usize = 20;
+pub(crate) const MAX_OPS: usize = 20;
 const ALL_KINDS: &[Kind] = &[Kind::Q, Kind::A, Kind::F, Kind::E, Kind::S, Kind::D];
 const STANCES: &[&str] = &["support", "deny", "issue"];
+/// 文の数の決まり（`sentence_count` と同じ規則。エラー文に出す）。
+const SENTENCE_RULE: &str = "文の区切りは「。」「？」「！」と、後ろが空白か行末の「.」「?」";
 
 // ---- 表 -------------------------------------------------------------------------------
 
@@ -116,7 +118,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_f",
         risk: Risk::Free,
-        about: "A の下に F（根拠）を足す。立場（stance）が要る。数字を含む文には出典（cites）か REPORT のトークン（report）が要る",
+        about: "A の下に F（根拠）を足す。text は 1〜3 文。立場（stance）が要る。数字を含む文には出典（cites）か REPORT のトークン（report）が要る",
         fields: &[
             req("parent", Ty::Id),
             req("text", Ty::Text(1, 1200)),
@@ -171,7 +173,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "edit",
         risk: Risk::UserOnly,
-        about: "Node の文・本文を書き換える",
+        about: "Node の文・本文を書き換える。F の text は 3 文まで",
         fields: &[req("node", Ty::Id), opt("text", Ty::Text(1, 1200)), opt("body", Ty::Text(0, 2000))],
     },
 ];
@@ -334,7 +336,8 @@ fn op_in(
         return invalid("ops（配列）が必要です");
     };
     if items.is_empty() || items.len() > MAX_OPS {
-        return invalid(format!("ops は 1〜{MAX_OPS} 件です"));
+        let n = items.len();
+        return invalid(format!("ops は 1〜{MAX_OPS} 件です（今 {n} 件。{MAX_OPS} 件ずつに分けて出してください）"));
     }
     // 許可が要る op が 1 つでもあれば、承認を先に確かめる（無ければ入力を見る前に終了コード 4）。
     let gated: Vec<String> = items
@@ -382,7 +385,11 @@ fn take_approval_for(conn: &Connection, actor: &Actor) -> Result<ApprovalRow> {
         return Err(RtError::Conflict("run_id がありません（--run か SAI_PARENT_RUN_ID）".into()));
     };
     store::take_approval(conn, run)?
-        .ok_or_else(|| RtError::Conflict("許可がありません: 先に質問ツールで「許可する」を選んでもらってください".into()))
+        .ok_or_else(|| {
+            RtError::Conflict(
+                "許可がありません: 先に質問ツールで「許可する」を選んでもらってください（この run に、まだ使っていない「許可する」の記録がありません。質問の答えの記録に失敗した可能性もあります。同じ質問をもう一度出してください）".into(),
+            )
+        })
 }
 
 /// 質問の回答を許可として記録する（`sai-sci approval record`）。同じ `qid` は 2 回書けない（終了コード 4）。
@@ -727,8 +734,9 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
         "add_f" => {
             let parent = node(cx, text(op, "parent"), &[Kind::A])?;
             let t = text(op, "text");
-            if sentence_count(t) > 3 {
-                return invalid("text は 3 文までです");
+            let sentences = sentence_count(t);
+            if sentences > 3 {
+                return invalid(format!("text は 3 文までです（今 {sentences} 文。{SENTENCE_RULE}）"));
             }
             let cites = strings(op, "cites");
             // 数字を含む F は、論文の出典（cites）か、自分の REPORT のトークン（report）を根拠にする。
@@ -847,8 +855,9 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
                 if t.chars().count() > max {
                     return invalid(format!("text は {max} 字までです"));
                 }
-                if n.kind == Kind::F && sentence_count(t) > 3 {
-                    return invalid("text は 3 文までです");
+                let sentences = sentence_count(t);
+                if n.kind == Kind::F && sentences > 3 {
+                    return invalid(format!("text は 3 文までです（今 {sentences} 文。{SENTENCE_RULE}）"));
                 }
             }
             if b.is_some() && !matches!(n.kind, Kind::A | Kind::E | Kind::S | Kind::D) {
@@ -1013,6 +1022,7 @@ mod tests {
         assert!(err(f("精度は 85 %", json!([]))).contains("数字を含む F には出典"));
         assert!(err(f("한 国", json!([]))).contains("text: ハングル"));
         assert!(err(f("一。二。三。四。", json!([]))).contains("3 文"));
+        assert!(err(f("一。二。三。四。", json!([]))).contains("今 4 文"));
         assert!(f("数字なし", json!([])).is_ok());
         // stance が無いと拒否する。
         assert!(err(e.agent1(json!({"op": "add_f", "parent": a, "text": "x"}))).contains("stance が必要です"));
@@ -1264,6 +1274,17 @@ mod tests {
         e.agent1(json!({"op": "add_f", "parent": a2, "text": "懸念", "stance": "issue"})).unwrap();
         let r = e.agent(&[json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a4]})]).unwrap();
         assert_eq!(r.results[0].range, Some(Range { q: 2, a: 2, f_support: 1, f_deny: 1, f_issue: 0 }));
+    }
+
+    #[test]
+    fn batch_size_error_says_count() {
+        let e = env();
+        let q = qid(e.sub);
+        let n = e.count("rt_nodes");
+        let over = vec![json!({"op": "add_a", "q": q, "text": "A"}); 21];
+        let m = err(e.agent(&over));
+        assert!(m.contains("1〜20 件です（今 21 件。"), "{m}");
+        assert_eq!(e.count("rt_nodes"), n);
     }
 
     #[test]
