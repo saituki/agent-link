@@ -9,7 +9,7 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_ts", "static", "chpanel.js");
-const { tsChMove, tsChNext } = require(src);
+const { tsChMove, tsChNext, tsChSpecErr } = require(src);
 
 // 並べ替え
 assert.deepStrictEqual(tsChMove(["a", "b", "c"], 0, 2), ["b", "c", "a"]);
@@ -78,5 +78,19 @@ assert.deepStrictEqual(
 const s2 = [{ name: "x", label: "", color: "", gain: 1 }];
 tsChNext(s2, merged, {}, null)[2];
 assert.deepStrictEqual(s2, [{ name: "x", label: "", color: "", gain: 1 }]);
+
+// スペクトルの変更（patch の spectrum）は、その ch の spectrum を丸ごと置き換える。切ったあとも値は残る
+const spOn = { on: true, fmin: 10, fmax: 120, win_ms: 500 };
+assert.deepStrictEqual(tsChNext([], merged, { a: { spectrum: spOn } }, null)[0].spectrum, spOn);
+const spOff = Object.assign({}, spOn, { on: false });
+assert.deepStrictEqual(tsChNext([], withSpec, { a: { spectrum: spOff } }, null)[0].spectrum, spOff);
+
+// スペクトルの値の検査（channels.py と同じ）
+assert.strictEqual(tsChSpecErr({ fmin: 0, fmax: 250, win_ms: 250 }), "");
+assert.notStrictEqual(tsChSpecErr({ fmin: -1, fmax: 250, win_ms: 250 }), "");
+assert.notStrictEqual(tsChSpecErr({ fmin: 100, fmax: 100, win_ms: 250 }), "");
+assert.notStrictEqual(tsChSpecErr({ fmin: 0, fmax: 250, win_ms: 0 }), "");
+assert.notStrictEqual(tsChSpecErr({ fmin: 0, fmax: 250, win_ms: 10001 }), "");
+assert.notStrictEqual(tsChSpecErr({ fmin: NaN, fmax: 250, win_ms: 250 }), "");
 
 console.log("test_chpanel.js: OK");

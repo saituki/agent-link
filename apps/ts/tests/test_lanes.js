@@ -22,6 +22,11 @@ const {
   tsGainSteps,
   tsGainStep,
   tsGainParse,
+  tsLaneOrder,
+  tsSpecScale,
+  tsViridis,
+  tsViridisBase,
+  tsSpecRGBA,
 } = require(path.join(dir, "lanes.js"));
 
 // レーンの配置: 最小の高さ、変数 0 個（時間軸は含まない）
@@ -133,5 +138,29 @@ assert.deepStrictEqual(tsGainParse("[1,2]"), { all: 1 });
 assert.deepStrictEqual(tsGainParse('{"all": 2, "ch": {"ch01": 5}}'), { all: 2 });
 assert.deepStrictEqual(tsGainParse('{"all": 1.3}'), { all: 1 });
 assert.deepStrictEqual(tsGainParse('{"all": "x", "ch": []}'), { all: 1 });
+
+// レーンの順: 波形の次にスペクトル（spectrum.on が真の ch だけ）。数は tsLaneLayout に渡す数と同じ
+const chs = [{ name: "a", spectrum: { on: true, fmin: 0, fmax: 250, win_ms: 250 } }, { name: "b", spectrum: { on: false, fmin: 0, fmax: 250, win_ms: 250 } }];
+const order = tsLaneOrder(["a", "b"], chs);
+assert.deepStrictEqual(order.map((o) => [o.var, o.kind]), [["a", "wave"], ["a", "spec"], ["b", "wave"]]);
+assert.strictEqual(tsLaneLayout(order.length, 300, 24).laneH, 100);
+assert.deepStrictEqual(tsLaneOrder(["zz"], []).map((o) => o.kind), ["wave"], "ch 設定の無い変数は波形だけ");
+
+// スペクトルの縦の位置: 下端が fmin、上端が fmax
+const sc = tsSpecScale(0, 250, 100, 200);
+assert.strictEqual(sc.toY(0), 200);
+assert.strictEqual(sc.toY(250), 100);
+assert.ok(Math.abs(sc.toV(sc.toY(125)) - 125) < 1e-9);
+
+// 配色の表: 256 色。端は基準の最初と最後の色
+assert.strictEqual(tsViridis.length, 256);
+assert.deepStrictEqual(tsViridis[0], tsViridisBase[0]);
+assert.deepStrictEqual(tsViridis[255], tsViridisBase[tsViridisBase.length - 1]);
+assert.deepStrictEqual(tsViridis[0], [68, 1, 84]);
+
+// 図の画素: 行 0 は fmin（下）なので、画面では上下を逆にする。値 0 と 255 の色
+const rgba = tsSpecRGBA(new Uint8Array([0, 255]), 1, 2);
+assert.deepStrictEqual(Array.from(rgba.slice(0, 4)), [...tsViridis[255], 255], "上は fmax 側（値 255）");
+assert.deepStrictEqual(Array.from(rgba.slice(4, 8)), [...tsViridis[0], 255], "下は fmin 側（値 0）");
 
 console.log("test_lanes.js: OK");

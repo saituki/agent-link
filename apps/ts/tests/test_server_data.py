@@ -1,5 +1,6 @@
 """C3 の API・400/404・合言葉（AC4）。"""
 
+import base64
 import os
 import shutil
 import tempfile
@@ -61,6 +62,17 @@ class ServerDataTest(TempProject, unittest.TestCase):
         r = self.client.get("/api/datasets/demo/records/r01/m4",
                             params={"vars": "ch01", "t0": 1, "t1": 1.5, "px": 200})
         self.assertEqual(r.json()["vars"]["ch01"]["mode"], "raw")
+
+    def test_spec(self):
+        url = "/api/datasets/demo/records/r01/spec"
+        q = {"var": "ch01", "t0": 0, "t1": 10, "cols": 50, "fmin": 0, "fmax": 250, "win_ms": 250}
+        r = self.client.get(url, params=q)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual((body["cols"], body["fmin"], body["fmax"]), (50, 0, 250))
+        self.assertEqual(len(base64.b64decode(body["data"])), body["rows"] * 50)
+        for bad in [{"var": "zz"}, {"cols": 0}, {"fmin": 100, "fmax": 100}, {"win_ms": 0}, {"t0": 10, "t1": 10}]:
+            self.assertEqual(self.client.get(url, params={**q, **bad}).status_code, 400, bad)
 
     def test_bad_request_400(self):
         base = "/api/datasets/demo/records/r01/m4"
