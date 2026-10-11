@@ -6,7 +6,7 @@
 
 ## 1. 役割
 
-実験の流れは **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、`lab-sprout` が SEED と path から SPROUT（研究計画）を作り、sprout がその SPROUT から実験仕様書を作って、SPROUT の下の E を branch が写してスクリプトに `# src:` を付ける。
+実験の流れは **scout → sprout → branch → review** の順に進む。scout が参照実装を探して出典表の下書きを作り、`lab-sprout` が seed（D）と path から SPROUT（研究計画）を作り、sprout がその SPROUT から実験仕様書を作って、SPROUT の下の E を branch が写してスクリプトに `# src:` を付ける。
 
 **神経のモデル**（ニューロン・神経集団・ネットワークの微分方程式）のときは scout の後に `sci-sim-model`（2 本以上をつなぐなら `sci-sim-compose`）が**モデル定義書**を作り、sprout がそのトークンを実験仕様書の `sim_model` に入れる。branch はそこから式・値・再現の目標を写し、**すべての試行で土台が再現の目標を満たすかを MLflow に記録する**（`§4` の「再現の確かめ」）。review は、目標を外れた土台を成功と数えず debug に戻す（`§6` の R1a）。
 
