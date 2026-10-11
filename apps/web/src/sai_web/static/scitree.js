@@ -3,14 +3,15 @@
 //
 // 上の帯に注意の札を出し、左に木の一覧、真ん中に
 // research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ出さない）を出す。
-// SEED（ID `SEED`）は DB の行を持たず、status.seed から板を作る。
+// 何も選んでいないときは一覧の上に「プロジェクト」（型と mind.md・status.project）を出す。
 // 狭い画面（幅 390px）の板は下から出る（saiSheet）。
+// 複数の S を軸ごとに並べる比べる画面（#/research/compare?s=S1,S2）も、この画面の中に出す。
 //
-// 読むのは sai-paper の `phone sci status` / `types` / `nodes/<ID>` だけ（API は U17）。
+// 読むのは sai-paper の `phone sci status` / `types` / `nodes/<ID>` / `compare` だけ（API は U17）。
 // 操作は sciedit.js（seOpenAction・seOpenCard・seQuick・seOpLabel）、図は
 // scigraph.js（sgRenderGraph・sgMarkSelected・sgCenterOn）の関数を typeof で確かめてから呼ぶ。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_scitree.js）。
-// 画面の名詞（Q・A・F・E・S・SEED・SPROUT・stance など）は英語のまま出す。
+// 画面の名詞（Q・A・F・E・S・seed・SPROUT・stance など）は英語のまま出す。
 
 // --- 定数 ---
 
@@ -48,6 +49,14 @@ const ST_NODE_OPS = {
   // D（seed）は親が無い。Edit / Delete はここに出す（SPROUT の作成は板の釦で行う）。
   D: ["edit", "remove"],
 };
+// 6 軸の表示名（status の axes のキー → 見出し）
+const ST_AXIS_LABEL = { task: "解く問題", target: "対象", data: "データ", method: "手法", output: "出力", metric: "評価指標" };
+// 6 軸の状態の文字（D の板の表。novel・none・open は空欄）
+const ST_AXIS_STATE = { fixed: "決定", range: "範囲", novel: "空欄（新規性）", none: "空欄（記載なし）", open: "空欄" };
+// S の path の区分の札（固定・新規・記載なし・空欄）。札の文字は必ず出す（色だけで示さない）
+const ST_ROLE_LABEL = { fixed: "固定", novel: "新規", none: "記載なし", open: "空欄", exp: "実験" };
+// 比べるに足せる S の数（sai-sci compare の上限と同じ）
+const ST_COMPARE_MAX = 10;
 
 // --- 画面の状態 ---
 
@@ -57,13 +66,12 @@ let stStepEl = null;    // 図の道具の行に入れた step の札（stBuildS
 let stTypesData = null; // 最後に読んだ /sci/types
 let stNode = null;      // 選んだ Node の NodeDetail
 let stNodeId = null;    // 今開いている Node の ID
-let stSeedSel = false;  // SEED が選ばれているか（SEED は DB の行を持たない）
 let stSheet = null;     // 狭い画面の板（saiSheet が返した物）
 let stSheetBody = null; // 板の中の入れ物
 let stSheetFor = null;  // 板が出している物の鍵
 let stSprout = null;    // SPROUT 作成中の下書き {seed, title, body, paths, error}。null なら作成中ではない
 let stSproutBusy = false; // 送信中か（二重に送らない）
-let stSeed = null;      // SEED 作成中の下書き {form}（入力欄は sciedit.js の seSeedFields）。null なら作成中ではない
+let stSeed = null;      // seed（D）作成中の下書き {form}（入力欄は sciedit.js の seSeedFields）。null なら作成中ではない
 let stSeedBusy = false; // 送信中か（二重に送らない）
 let stListOpen = false; // 狭い画面で一覧を出しているか（出している間は図を隠す）
 let stFolded = new Set();   // 左の一覧で畳んでいる Node の ID
@@ -78,9 +86,25 @@ const stFilter = { word: "", kinds: new Set(ST_ALL_KINDS) }; // 一番上の絞�
 
 /** 住所を読む（`#/research/tree` と `#/research/tree/<ID>`）。合わなければ null。 */
 function stParseHash(hash) {
-  const m = /^#\/research\/tree(?:\/(SEED|[QAFESD][1-9][0-9]{0,8}))?$/.exec(String(hash || ""));
+  const m = /^#\/research\/tree(?:\/([QAFESD][1-9][0-9]{0,8}))?$/.exec(String(hash || ""));
   if (!m) return null;
   return m[1] ? { id: m[1] } : {};
+}
+
+/**
+ * 比べる画面の住所（`#/research/compare?s=S1,S2`）を読む。合わなければ null。
+ * S の ID だけを受け、重複は外し、ST_COMPARE_MAX 個までにする。
+ */
+function stParseCompareHash(hash) {
+  const m = /^#\/research\/compare(?:\?(.*))?$/.exec(String(hash || ""));
+  if (!m) return null;
+  const raw = new URLSearchParams(m[1] || "").get("s") || "";
+  const ids = [];
+  for (const t of raw.split(",")) {
+    const id = t.trim();
+    if (/^S[1-9][0-9]{0,8}$/.test(id) && !ids.includes(id)) ids.push(id);
+  }
+  return { ids: ids.slice(0, ST_COMPARE_MAX) };
 }
 
 /**
@@ -107,6 +131,8 @@ function stLegacyHash(hash) {
     return "#/research/experiments" + h.slice("#/mlflow".length);
   }
   if (h === "#/papers/canvas" || h.startsWith("#/canvas/")) return "#/research/tree";
+  // SEED は木の Node ではなくなった（根の型は一覧の上の「プロジェクト」に出す・U12）
+  if (h === "#/research/tree/SEED") return "#/research/tree";
   return null;
 }
 
@@ -163,9 +189,142 @@ function stSeedOf(status, sprout) {
   return stSeedNodes(status).find((n) => String(n.id) === pid) || null;
 }
 
-/** SEED の入力に書いた物があるか（「空欄」の選びと空の欄は数えない）。 */
+/** seed（D）の入力に書いた物があるか（「空欄」の選びと空の欄は数えない）。 */
 function stSeedDirty(values) {
   return Object.entries(values || {}).some(([k, v]) => !(k.endsWith("_mode") && v === "empty") && String(v == null ? "" : v).trim() !== "");
+}
+
+/** 一番上の Q から ID id までの道（ID の並び。上から下）。親をたどれないところで止める。 */
+function stChainIds(byId, id) {
+  const out = [];
+  const seen = new Set();
+  for (let cur = byId.get(String(id)); cur && !seen.has(String(cur.id)); cur = cur.parent == null ? null : byId.get(String(cur.parent))) {
+    seen.add(String(cur.id));
+    out.unshift(String(cur.id));
+  }
+  return out;
+}
+
+/**
+ * S（SPROUT）の板の 4 節。seed（固定）・新規性（path）・実験（BRANCH）・記載なし。
+ * fixed・novel は S の path_roles の role で分ける。path は親をたどった道（上から A まで）。
+ * value は親の D の軸の値、fixedAt は新規の path が続いている固定の A。
+ * exps は S の子孫の E、none は親の D の軸のうち state が none のもの。
+ * S でなければ null。親の D が無ければ seed は null（古い S）。
+ */
+function stSproutSections(status, sproutId) {
+  const nodes = status && Array.isArray(status.nodes) ? status.nodes : [];
+  const byId = new Map(nodes.filter((n) => n && n.id != null).map((n) => [String(n.id), n]));
+  const sprout = byId.get(String(sproutId));
+  if (!sprout || sprout.kind !== "S") return null;
+  const seed = stSeedOf(status, sprout);
+  const axes = (seed && seed.axes) || {};
+  const fixed = [];
+  const novel = [];
+  for (const r of Array.isArray(sprout.path_roles) ? sprout.path_roles : []) {
+    const a = byId.get(String(r.a));
+    const item = { axis: r.axis || null, a: String(r.a), text: a ? String(a.text || "") : "", path: stChainIds(byId, r.a) };
+    if (r.role === "fixed") {
+      const v = r.axis && axes[r.axis] ? axes[r.axis].value : null;
+      fixed.push({ ...item, value: v == null ? null : String(v) });
+    } else if (r.role === "novel") {
+      novel.push({ ...item, fixedAt: r.fixed_at == null ? null : String(r.fixed_at) });
+    }
+  }
+  // S の子孫の E（生きた Node だけ）
+  const under = (n) => {
+    const seen = new Set();
+    for (let p = n.parent; p != null && !seen.has(String(p)); p = (byId.get(String(p)) || {}).parent) {
+      if (String(p) === String(sproutId)) return true;
+      seen.add(String(p));
+    }
+    return false;
+  };
+  const exps = nodes
+    .filter((n) => n && n.kind === "E" && under(n))
+    .map((n) => ({ id: String(n.id), title: String(n.text || ""), mlflow: n.mlflow || null }));
+  const none = Object.entries(axes)
+    .filter(([, v]) => v && v.state === "none")
+    .map(([axis, v]) => ({ axis, reason: String(v.reason || "") }));
+  return {
+    seed: seed ? { id: String(seed.id), title: String(seed.text || "") } : null,
+    fixed,
+    novel,
+    exps,
+    none,
+  };
+}
+
+/** 比べる画面の表（C-CMP-1）を描く形にする。同じ列で同じ A は同じ印（①②…）。same が false の軸は diff。 */
+function stCompareRows(json) {
+  const o = json || {};
+  const axes = Array.isArray(o.axes) ? o.axes.map(String) : [];
+  const same = o.same || {};
+  const marks = new Map(axes.map((ax) => [ax, new Map()]));
+  const sprouts = Array.isArray(o.sprouts) ? o.sprouts : [];
+  const rows = sprouts.map((s) => {
+    const cells = s.cells || {};
+    return {
+      id: String(s.id),
+      title: String(s.title || ""),
+      seed: s.seed || null,
+      cells: axes.map((ax) => {
+        const c = cells[ax] || {};
+        const a = c.a ? String(c.a) : null;
+        let mark = null;
+        if (a) {
+          const m = marks.get(ax);
+          if (!m.has(a)) m.set(a, m.size);
+          mark = stCircled(m.get(a));
+        }
+        const role = ST_ROLE_LABEL[c.role] ? c.role : "open";
+        return { axis: ax, a, mark, role, label: ST_ROLE_LABEL[role], text: String(c.text || ""), fixedAt: c.fixed_at || null };
+      }),
+    };
+  });
+  return {
+    axes: axes.map((ax) => ({ key: ax, label: ST_AXIS_LABEL[ax] || ax, diff: same[ax] === false })),
+    rows,
+  };
+}
+
+/** 印の番号（0 から）を丸数字にする。20 を越えたら (21) の形。 */
+function stCircled(i) {
+  return i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`;
+}
+
+/** 文を 1 行の短い文にする（空白をまとめ、n 字を越えたら … を付ける）。 */
+function stShort(text, n = 40) {
+  const t = String(text == null ? "" : text).replace(/\s+/g, " ").trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+}
+
+/** 比べるの並びに S を足す／外す。S 以外・重複・上限を超えるものは足さない。 */
+function stCompareToggle(list, id, max = ST_COMPARE_MAX) {
+  const out = Array.isArray(list) ? list.slice() : [];
+  const i = out.indexOf(id);
+  if (i >= 0) { out.splice(i, 1); return out; }
+  if (!/^S[1-9][0-9]{0,8}$/.test(String(id)) || out.length >= max) return out;
+  out.push(id);
+  return out;
+}
+
+/** D の軸の表の行（軸・状態・値／理由・A）。軸の順は status の axes のキーの順。 */
+function stAxisRows(axes) {
+  const a = axes && typeof axes === "object" ? axes : {};
+  return Object.keys(ST_AXIS_LABEL).map((k) => {
+    const v = a[k] || { state: "open" };
+    const state = String(v.state || "open");
+    const text = state === "fixed" || state === "range" ? v.value : v.reason;
+    return {
+      axis: k,
+      label: ST_AXIS_LABEL[k],
+      state,
+      stateLabel: ST_AXIS_STATE[state] || "空欄",
+      text: text == null ? "" : String(text),
+      a: v.a || null,
+    };
+  });
 }
 
 /** 許可した人の文（`許可: <名前>`）。無ければ空文字。 */
@@ -209,7 +368,7 @@ function stNextLines(status, n = 3) {
 
 /**
  * Next Action の 1 行の文。`[<why>] <node> <block>「<node の文>」`。
- * node が status.nodes に無い（SEED など）ときは今までの label（purpose）を使う。
+ * node が status.nodes に無い（seed など）ときは今までの label（purpose）を使う。
  * why が空なら `[...]` は付けない。
  */
 function stNextText(x, status) {
@@ -628,17 +787,10 @@ function stRemovedDetail(id) {
   return hit ? { node: hit, children: [], subtree: [], path: [], history: [], decisions: [], next: [] } : null;
 }
 
-/** SEED か Node（SPROUT の S1 も含む）を選ぶ。 */
+/** Node（SPROUT の S1 も含む）を選ぶ。 */
 async function stSelect(id) {
-  if (String(id || "") === "SEED") {
-    stSeedSel = true;
-    stNodeId = null;
-    stNode = null;
-  } else {
-    stSeedSel = false;
-    stNodeId = id || null;
-    await stLoadNode();
-  }
+  stNodeId = id || null;
+  await stLoadNode();
   stSetHash();
   stListOpen = false;
   stSyncListOpen();
@@ -648,22 +800,21 @@ async function stSelect(id) {
 }
 
 function stSetHash() {
-  const id = stNodeId || (stSeedSel ? "SEED" : null);
-  const next = id ? `#/research/tree/${id}` : "#/research/tree";
+  const next = stNodeId ? `#/research/tree/${stNodeId}` : "#/research/tree";
   if (location.hash !== next) history.replaceState(null, "", next);
 }
 
 /** 画面を開く（app.js の route から呼ばれる）。 */
 async function stOpen(params) {
   const id = (params && params.id) || null;
-  stSeedSel = id === "SEED";
-  stNodeId = id && id !== "SEED" ? id : null;
+  stNodeId = id;
   stSprout = null; // 前の下書きは残さない
   stSeed = null;
   stStep = null;   // 開き直したら最新から
   stData = null;
   stNode = null;
   stListOpen = false;
+  stLeaveCompare();
   await ensurePaperProjects();
   fillSegment("sci-seg", "tree", RESEARCH_SEG);
   updateProjectChips();
@@ -811,6 +962,9 @@ function stChipBand(s) {
   const mk = stBtn(stSprout ? "Creating SPROUT" : "Create SPROUT", () => { stStartSprout(); });
   mk.disabled = !!stSprout || stFrozen();
   row.appendChild(mk);
+  // 比べるに足した S が 2 つ以上あれば、比べる画面へ（sessionStorage の並び）
+  const cmpIds = stCompareList();
+  if (cmpIds.length >= 2) row.appendChild(stBtn(`比べる（${cmpIds.length}）`, () => { stGo(stCompareHash(cmpIds)); }, "primary"));
   const t = stEl("button", `sci-list-toggle${stListOpen ? " active" : ""}`, "一覧");
   t.type = "button";
   t.setAttribute("aria-pressed", String(stListOpen));
@@ -846,7 +1000,7 @@ function stSproutPick(id) {
 }
 
 /**
- * 作成を始める。作成中なら題の欄へ戻る。seedId があれば、その SEED を選んだ状態にする（SEED の板の「この SEED で」）。
+ * 作成を始める。作成中なら題の欄へ戻る。seedId があれば、その seed（D）を選んだ状態にする（D の板の「この seed で」）。
  */
 function stStartSprout(seedId) {
   if (stWriteBlocked()) return;
@@ -917,17 +1071,17 @@ function stRenderSprout() {
   const band = stEl("section", "sci-band sci-sprout-band");
   band.appendChild(stEl("span", "sci-band-title", "Create SPROUT"));
 
-  // 1 つの SPROUT は 1 つの SEED（D）の下に作る。SEED が無ければ作り方を出す
+  // 1 つの SPROUT は 1 つの seed（D）の下に作る。seed が無ければ作り方を出す
   const seeds = stSeedNodes(stData);
   if (d.seed && !seeds.some((n) => String(n.id) === d.seed)) d.seed = "";
   if (!seeds.length) {
-    band.appendChild(stEl("p", "sci-note", "先に SEED を作ってください（SEED は研究ごとの制約です）"));
-    band.appendChild(stBtn("Create SEED", () => { stStartSeed(); }));
+    band.appendChild(stEl("p", "sci-note", "先に seed（D）を作ってください（seed は研究ごとの制約です）"));
+    band.appendChild(stBtn("Create seed（D）", () => { stStartSeed(); }));
   } else {
     const pick = stEl("select", "sai-input sci-sprout-seed");
     pick.dataset.field = "seed";
-    pick.setAttribute("aria-label", "SEED（必須）");
-    const none = stEl("option", "", "SEED を選ぶ（必須）");
+    pick.setAttribute("aria-label", "seed（D・必須）");
+    const none = stEl("option", "", "seed（D）を選ぶ（必須）");
     none.value = "";
     pick.appendChild(none);
     for (const n of seeds) {
@@ -999,20 +1153,20 @@ function stRenderSprout() {
 }
 
 // ============================================================================
-// SEED 作成パネル（#sci-seed。SPROUT のパネルの下。入力欄は sciedit.js の seSeedFields）
+// seed（D）作成パネル（#sci-seed。SPROUT のパネルの下。入力欄は sciedit.js の seSeedFields）
 // ============================================================================
 
-/** SEED の作成を始める。作成中なら入力の欄へ戻るだけ。 */
+/** seed（D）の作成を始める。作成中なら入力の欄へ戻るだけ。 */
 function stStartSeed() {
   if (stWriteBlocked()) return;
   if (typeof seForm !== "function" || typeof seSeedFields !== "function") {
-    stToast("SEED の入力欄がまだ使えません", "error");
+    stToast("seed（D）の入力欄がまだ使えません", "error");
     return;
   }
   if (stSeed === null) {
     const form = seForm(seSeedFields({}));
     form.actions.appendChild(stBtn("やめる", () => { void stSeedCancel(); }, "ghost"));
-    form.actions.appendChild(stBtn("Create SEED", () => { void stSeedSend(); }, "primary"));
+    form.actions.appendChild(stBtn("Create seedï¼Dï¼", () => { void stSeedSend(); }, "primary"));
     stSeed = { form };
   }
   stRenderSeed();
@@ -1020,7 +1174,7 @@ function stStartSeed() {
   if (box && typeof box.scrollIntoView === "function") box.scrollIntoView({ block: "nearest" });
 }
 
-/** SEED のパネルを作り直す。入力欄の DOM は置き直すので、打った物は残る。 */
+/** seed（D）のパネルを作り直す。入力欄の DOM は置き直すので、打った物は残る。 */
 function stRenderSeed() {
   stSyncStepper();
   const box = document.getElementById("sci-seed");
@@ -1029,8 +1183,8 @@ function stRenderSeed() {
   if (stSeed === null) { box.hidden = true; return; }
   box.hidden = false;
   const band = stEl("section", "sci-band sci-seed-band");
-  band.appendChild(stEl("span", "sci-band-title", "Create SEED"));
-  band.appendChild(stEl("p", "sci-note", "研究ごとの制約を書きます。軸の 6 項目は「決定」か「空欄」を選びます。1 つの SEED から複数の SPROUT を作れます。"));
+  band.appendChild(stEl("span", "sci-band-title", "Create seed（D）"));
+  band.appendChild(stEl("p", "sci-note", "研究ごとの制約を書きます。軸の 6 項目は「決定」か「空欄」を選びます。1 つの seed から複数の SPROUT を作れます。"));
   band.appendChild(stSeed.form.el);
   box.appendChild(band);
 }
@@ -1041,7 +1195,7 @@ async function stSeedSend() {
   const v = stSeed.form.read();
   const built = typeof seBuildOp === "function"
     ? seBuildOp("add_seed", { title: v.title, body: seSeedBody(v) })
-    : { ok: false, error: "SEED の検査がまだ使えません" };
+    : { ok: false, error: "seed（D）の検査がまだ使えません" };
   if (!built.ok) { stSeed.form.say(built.error); return; }
   stSeed.form.say("");
   stSeedBusy = true;
@@ -1257,6 +1411,8 @@ function stRenderSidebar(box) {
   if (filterBox) filterBox.hidden = !ready;
   box.innerHTML = "";
   if (!ready) return;
+  // 何も選んでいないときは、木の上に根の型と mind.md を出す（seed の板は無くした・U12）
+  if (!stNodeId) box.appendChild(stProjectBlock());
   const rows = stRows(stView());
   if (!rows.length) {
     box.appendChild(stEmpty({ title: "Node がありません", body: "" }));
@@ -1292,7 +1448,7 @@ function stRenderGraph() {
     return;
   }
   sgRenderGraph(box, { status: stData, key: selectedPaperProject(), tools: [stBuildStepper()] }, (sel) => {
-    if (sel && (sel.kind === "node" || sel.kind === "seed")) void stSelect(sel.id);
+    if (sel && sel.kind === "node") void stSelect(sel.id);
   });
   // 過去の step は札だけ入れ替える（畳みと拡大率は sgRenderGraph が覚えたまま）
   if (stFrozen() && typeof sgUpdate === "function") sgUpdate(stView());
@@ -1302,7 +1458,7 @@ function stRenderGraph() {
 
 function stMarkGraph() {
   if (typeof sgMarkPicked === "function") sgMarkPicked(stSprout ? stSprout.paths : []);
-  if (typeof sgMarkSelected === "function") sgMarkSelected(stNodeId || (stSeedSel ? "SEED" : null));
+  if (typeof sgMarkSelected === "function") sgMarkSelected(stNodeId);
 }
 
 // --- step の札（図の道具の行。◀ 番号 /総数 ▶）---
@@ -1389,7 +1545,7 @@ async function stSetStep(next, center) {
 // ============================================================================
 
 function stBoardKey() {
-  return stNodeId || (stSeedSel ? "SEED" : null);
+  return stNodeId;
 }
 
 /** 板の中身を作る（何も選んでいなければ null）。 */
@@ -1402,7 +1558,6 @@ function stSelBoard() {
     stNode = null;
     stSetHash();
   }
-  if (stSeedSel) return { title: "SEED", el: stBuildSeedPanel() };
   return null;
 }
 
@@ -1465,7 +1620,7 @@ function stRenderBoard() {
 }
 
 async function stClearSelection() {
-  stNodeId = null; stSeedSel = false; stNode = null;
+  stNodeId = null; stNode = null;
   stSetHash();
   stRenderSidebar(document.getElementById("sci-list"));
   stRenderBoard();
@@ -1492,89 +1647,145 @@ function stMd(text) {
 }
 
 /**
- * SEED を選んだときの板。RESEARCH_TYPE と mind.md の節、top_Q・SPROUT・CARD の釦を出す。
- * SEED は DB の行を持たないので、node SEED ではなく status.seed から作る。
+ * 何も選んでいないときの一覧の上の「プロジェクト」。根の型（RESEARCH_TYPE）と mind.md を
+ * status.project から出す。過去の step では作る釦を出さない。
  */
-function stBuildSeedPanel() {
-  const box = stEl("div", "sci-card");
-  const seed = (stData && stData.seed) || {};
-  const sec = stSec("SEED");
-  const typeName = seed.type && seed.type.name ? String(seed.type.name) : "";
+function stProjectBlock() {
+  const box = stEl("section", "sci-project");
+  const proj = (stView() && stView().project) || {};
+  box.appendChild(stEl("h3", "sci-project-title", "プロジェクト"));
+  const typeName = proj.type && proj.type.name ? String(proj.type.name) : "";
   const typeLine = stEl("p", "sci-seed-type");
   typeLine.appendChild(stEl("strong", "", "RESEARCH_TYPE: "));
   typeLine.appendChild(document.createTextNode(typeName || "未設定"));
-  sec.appendChild(typeLine);
-  const mind = Array.isArray(seed.mind) ? seed.mind : [];
+  box.appendChild(typeLine);
+  const mind = Array.isArray(proj.mind) ? proj.mind : [];
   if (!mind.length) {
-    sec.appendChild(stEl("p", "sci-note", "mind.md に書かれた節がありません（.sai/paper/mind.md を利用者が書きます）"));
+    box.appendChild(stEl("p", "sci-note", "mind.md に書かれた節がありません（.sai/paper/mind.md を利用者が書きます）"));
   } else {
     for (const m of mind) {
-      if (m && m.heading) sec.appendChild(stEl("h4", "sci-mind-head", String(m.heading)));
-      sec.appendChild(stMd((m && m.body) || ""));
+      if (m && m.heading) box.appendChild(stEl("h4", "sci-mind-head", String(m.heading)));
+      box.appendChild(stMd((m && m.body) || ""));
     }
   }
-  box.appendChild(sec);
-  // 過去の step では書き込みの釦を出さない（OP の節ごと）
+  // seed（D）は木の根。作る釦だけ置く（過去の step では出さない）
   if (!stFrozen()) {
-    const ops = stSec("OP");
     const row = stEl("div", "sci-ops");
-    row.appendChild(stBtn("top_Q を足す", () => { stCall("seOpenAction", "add_q", "SEED"); }));
-    row.appendChild(stBtn("Create SPROUT", () => { stStartSprout(); }));
-    row.appendChild(stBtn("Create SEED", () => { stStartSeed(); }));
-    row.appendChild(stBtn("Create CARD", () => { stCall("seOpenCard", "SEED"); }));
-    ops.appendChild(row);
-    box.appendChild(ops);
+    row.appendChild(stBtn("Create seed（D）", () => { stStartSeed(); }));
+    box.appendChild(row);
   }
-  // seed（D）の一覧。押すと、その SEED の板を開く
-  const seeds = stSec("SEED の一覧");
-  const seedRows = stRows({ nodes: stSeedNodes(stView()) });
-  if (!seedRows.length) seeds.appendChild(stEl("p", "sci-note", "まだありません（Create SEED で作ります）"));
-  for (const r of seedRows) seeds.appendChild(stRowEl(r, { flat: true }));
-  box.appendChild(seeds);
   return box;
 }
 
-/** S（SPROUT）の PATH の節。paths の A ごとに top_Q から A までの道を 1 行で出す。 */
-function stBoardPaths(node) {
-  const sec = stSec("PATH");
-  const byId = new Map();
-  for (const n of (stView() && stView().nodes) || []) {
-    if (n && n.id != null) byId.set(String(n.id), n);
-  }
-  const paths = Array.isArray(node.paths) ? node.paths : [];
-  if (!paths.length) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
-  for (const pid of paths) {
-    const end = byId.get(String(pid));
-    if (!end) continue;
-    const chain = [];
-    let cur = end;
-    const seen = new Set();
-    while (cur && !seen.has(String(cur.id))) {
-      seen.add(String(cur.id));
-      chain.push(cur);
-      cur = cur.parent == null ? null : byId.get(String(cur.parent));
-    }
-    chain.reverse();
-    const line = stEl("p", "sci-path-line", chain.map((n) => n.id).join(" › "));
-    if (end.text) line.appendChild(document.createTextNode(` ${end.text}`));
-    sec.appendChild(line);
-  }
-  return sec;
+/** 区分の札（固定・新規・実験・記載なし）。色だけで示さないよう、文字を必ず出す。 */
+function stRoleBadge(role) {
+  return stEl("span", `sci-badge sci-badge-${role}`, ST_ROLE_LABEL[role] || role);
 }
 
-/** S（SPROUT）の BRANCH の節。子の E を行で出す。 */
-function stBoardBranch(children) {
-  const sec = stSec("BRANCH");
-  const rows = stRows({ nodes: children });
-  if (!rows.length) sec.appendChild(stEl("p", "sci-note", "なし"));
-  for (const r of rows) sec.appendChild(stRowEl(r, { flat: true }));
+/** S の板の path の 1 行（区分の札・軸・道・A の文）。道の各 ID は押すとその Node を開く。 */
+function stPathRowEl(item, role) {
+  const row = stEl("div", `sci-path-row sci-path-${role}`);
+  const head = stEl("div", "sci-line");
+  head.appendChild(stRoleBadge(role));
+  if (item.axis) head.appendChild(stEl("span", "sci-axis-tag", ST_AXIS_LABEL[item.axis] || item.axis));
+  row.appendChild(head);
+  // 固定（fixedAt まで）は淡く、その先の新規は濃く出す。fixedAt が無ければ全部濃い
+  const cut = item.fixedAt ? item.path.indexOf(item.fixedAt) : -1;
+  const line = stEl("p", "sci-path-line");
+  item.path.forEach((id, i) => {
+    if (i) line.appendChild(document.createTextNode(" › "));
+    const faint = role === "fixed" || (cut >= 0 && i <= cut);
+    const b = stEl("button", `sci-path-id${faint ? " sci-path-faint" : ""}`, id);
+    b.type = "button";
+    b.addEventListener("click", () => { void stSelect(id); });
+    line.appendChild(b);
+  });
+  row.appendChild(line);
+  if (item.text) row.appendChild(stEl("p", "sci-path-text", item.text));
+  if (item.value) row.appendChild(stEl("p", "sci-note", `決定: ${item.value}`));
+  return row;
+}
+
+/**
+ * S（SPROUT）の板の 4 節: seed（固定）・新規性（path）・実験（BRANCH）・記載なし。
+ * 空の節は出さない。区分は stSproutSections が決める（板は描くだけ）。
+ */
+function stBoardSections(node) {
+  const out = [];
+  const s = stSproutSections(stView(), node.id);
+  if (!s) return out;
+  if (s.fixed.length) {
+    const title = s.seed ? `seed（固定）${s.seed.id} ${s.seed.title}`.trim() : "seed（固定）";
+    const sec = stSec(title);
+    for (const f of s.fixed) sec.appendChild(stPathRowEl(f, "fixed"));
+    out.push(sec);
+  }
+  if (s.novel.length) {
+    const sec = stSec("新規性（path）");
+    for (const n of s.novel) sec.appendChild(stPathRowEl(n, "novel"));
+    out.push(sec);
+  }
+  if (s.exps.length) {
+    const sec = stSec("実験（BRANCH）");
+    const byId = new Map(((stView() && stView().nodes) || []).map((n) => [String(n.id), n]));
+    for (const e of s.exps) {
+      const n = byId.get(e.id);
+      if (!n) continue;
+      const row = stRowEl(stRows({ nodes: [n] })[0], { flat: true });
+      row.insertBefore(stRoleBadge("exp"), row.firstChild);
+      sec.appendChild(row);
+    }
+    out.push(sec);
+  }
+  if (s.none.length) {
+    const sec = stSec("記載なし");
+    for (const x of s.none) {
+      const row = stEl("div", "sci-path-row sci-path-none");
+      const head = stEl("div", "sci-line");
+      head.appendChild(stRoleBadge("none"));
+      head.appendChild(stEl("span", "sci-axis-tag", ST_AXIS_LABEL[x.axis] || x.axis));
+      row.appendChild(head);
+      if (x.reason) row.appendChild(stEl("p", "sci-path-text", x.reason));
+      sec.appendChild(row);
+    }
+    out.push(sec);
+  }
+  return out;
+}
+
+/** D（seed）の板の 6 軸の表（軸・状態・値／理由・A）。A は押すとその Node を開く。 */
+function stBoardAxes(node) {
+  const sec = stSec("軸");
+  const table = stEl("table", "sci-axes");
+  const head = stEl("tr");
+  for (const h of ["軸", "状態", "値／理由", "A"]) head.appendChild(stEl("th", "", h));
+  table.appendChild(stEl("thead")).appendChild(head);
+  const tbody = table.appendChild(stEl("tbody"));
+  for (const r of stAxisRows(node.axes)) {
+    const tr = stEl("tr", `sci-axis-${r.state}`);
+    tr.appendChild(stEl("th", "", r.label));
+    tr.appendChild(stEl("td", "", r.stateLabel));
+    tr.appendChild(stEl("td", "", r.text));
+    const td = stEl("td");
+    if (r.a) {
+      const b = stEl("button", "sci-path-id", r.a);
+      b.type = "button";
+      b.addEventListener("click", () => { void stSelect(r.a); });
+      td.appendChild(b);
+    }
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+  const wrap = stEl("div", "sci-axes-wrap");
+  wrap.appendChild(table);
+  sec.appendChild(wrap);
   return sec;
 }
 
 /**
  * Node の板。Q・A・E は「見出し（Edit/Delete を含む）→ Parent → OP → [Q だけ: ガイド] → Child → Next Action → History → Decision」。
- * S（SPROUT）は Parent の代わりに SEED（親の D）と PATH、Child の代わりに BRANCH、範囲を出す。
- * D（SEED）は Parent も PATH も無い。本文（見出し）→ OP（SPROUT・CARD・Edit・Delete）→ 子の SPROUT。
+ * S（SPROUT）は Parent の代わりに範囲と、4 節（seed（固定）・新規性（path）・実験・記載なし）を出す。
+ * D（seed）は Parent も PATH も無い。本文（見出し）→ OP（SPROUT・CARD・Edit・Delete）→ 軸の表 → 子の SPROUT（比べる）。
  * F は「見出し（Edit/Delete を含む）→ Parent → OP → Stance → 出典 → History」。E は MLflow の節を OP の後に出す。
  */
 function stBuildBoard(d) {
@@ -1592,11 +1803,10 @@ function stBuildBoard(d) {
   if (node.kind === "E") box.appendChild(stBoardMlflow(node));
   if (node.kind === "Q") box.appendChild(stBoardGuide(d.guide));
   if (node.kind === "S") {
-    box.appendChild(stBoardSeedOf(node));
     box.appendChild(stBoardRange(node));
-    box.appendChild(stBoardPaths(node));
-    box.appendChild(stBoardBranch(d.children));
+    for (const sec of stBoardSections(node)) box.appendChild(sec);
   } else if (node.kind === "D") {
+    box.appendChild(stBoardAxes(node));
     box.appendChild(stBoardSprouts(node.id));
   } else {
     box.appendChild(stBoardChildren(d.children));
@@ -1644,7 +1854,7 @@ function stBoardHead(d) {
   sec.appendChild(line);
   sec.appendChild(stEl("p", "sci-node-title", node.text || ""));
   if (node.body) sec.appendChild(stMd(node.body));
-  // S（SPROUT）と D（SEED）は OP の節に Edit / Delete を出すのでここでは出さない。過去の step では出さない
+  // D（seed）は OP の節に Edit / Delete を出すのでここでは出さない。過去の step では出さない
   if (node.kind !== "S" && node.kind !== "D" && !stFrozen()) {
     const editRow = stEl("div", "sci-node-edit");
     editRow.appendChild(stBtn(stOpLabel("edit"), () => { stCall("seOpenAction", "edit", node.id, d); }));
@@ -1682,19 +1892,15 @@ function stBoardMlflow(node) {
   return sec;
 }
 
-/** S（SPROUT）の親の SEED（D）。押すと、その SEED の板を開く。親が無い古い S は「なし」。 */
-function stBoardSeedOf(node) {
-  const sec = stSec("SEED");
-  const seed = stSeedOf(stView(), node);
-  if (!seed) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
-  for (const r of stRows({ nodes: [seed] })) sec.appendChild(stRowEl(r, { flat: true }));
-  return sec;
-}
-
-/** D（SEED）の子の SPROUT（親が D の S）。押すと、その SPROUT の板を開く。 */
+/** D（seed）の子の SPROUT（親が D の S）。押すと、その SPROUT の板を開く。その D の S を全部比べる釦も出す。 */
 function stBoardSprouts(seedId) {
   const sec = stSec("SPROUT");
-  const rows = stRows({ nodes: stSeedChildren(stView(), seedId) });
+  const kids = stSeedChildren(stView(), seedId);
+  const cmp = stBtn("比べる", () => { stGo(stCompareHash(kids.map((n) => n.id))); });
+  cmp.disabled = kids.length < 2;
+  if (kids.length < 2) cmp.title = "比べるには S が 2 つ以上要ります";
+  sec.appendChild(cmp);
+  const rows = stRows({ nodes: kids });
   if (!rows.length) sec.appendChild(stEl("p", "sci-note", "なし"));
   for (const r of rows) sec.appendChild(stRowEl(r, { flat: true }));
   return sec;
@@ -1747,10 +1953,15 @@ function stBoardOps(d) {
     const on = stSprout.paths.includes(node.id);
     ops.appendChild(stBtn(on ? "Delete PATH" : "Add PATH", () => { stSproutPick(node.id); }, on ? "" : "primary"));
   }
-  // D（SEED）から SPROUT を作る（seed を入れた状態で開く）。CARD は SPROUT を作るブロックから始める
-  if (node.kind === "D") ops.appendChild(stBtn("Create SPROUT（この SEED で）", () => { stStartSprout(node.id); }, "primary"));
+  // D（seed）から SPROUT を作る（seed を入れた状態で開く）。CARD は SPROUT を作るブロックから始める
+  if (node.kind === "D") ops.appendChild(stBtn("Create SPROUT（この seed で）", () => { stStartSprout(node.id); }, "primary"));
   for (const op of stOpsFor(node, d.children)) {
     ops.appendChild(stBtn(stOpLabel(op), () => { stCall("seOpenAction", op, node.id, d); }));
+  }
+  // S は比べるに足す／外す（選んだ S は sessionStorage に覚え、Tree の上の「比べる（n）」で並べる）
+  if (node.kind === "S") {
+    const on = stCompareList().includes(node.id);
+    ops.appendChild(stBtn(on ? "比べるから外す" : "比べるに足す", () => { stCompareFlip(node.id); }, on ? "" : "primary"));
   }
   if (node.kind === "D") ops.appendChild(stBtn("Create CARD", () => { stCall("seOpenCard", node.id, { block: "lab-sprout" }); }));
   else ops.appendChild(stBtn("Card", () => { stCall("seOpenCard", node.id, null); }));
@@ -1918,6 +2129,175 @@ function stRenderNoProject() {
 }
 
 // ============================================================================
+// 比べる画面（#/research/compare?s=S1,S2。#view-sci-tree の中に作る入れ物に出す）
+// ============================================================================
+
+let stCmpEl = null; // 比べる画面の入れ物（#view-sci-tree の中。初めて開くときに作る）
+let stCmpSeq = 0;   // 読み込みの番号（古い応答で新しい表を消さない）
+
+/** 比べるに足した S の並び（プロジェクトごとに sessionStorage へ覚える）。 */
+function stCompareKey() {
+  return `sai-sci-compare:${selectedPaperProject() || ""}`;
+}
+
+function stCompareList() {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(stCompareKey()) || "null");
+    return Array.isArray(v) ? v.map(String).filter((id) => /^S[1-9][0-9]{0,8}$/.test(id)) : [];
+  } catch { return []; }
+}
+
+function stCompareSave(list) {
+  try { sessionStorage.setItem(stCompareKey(), JSON.stringify(list)); } catch { /* 保存できなくてもよい */ }
+}
+
+/** 板の「比べるに足す／外す」。上限を超えるときは足さずに言う。 */
+function stCompareFlip(id) {
+  const before = stCompareList();
+  const next = stCompareToggle(before, id);
+  if (next.length === before.length && !before.includes(id)) {
+    stToast(`比べるは ${ST_COMPARE_MAX} 個までです`, "error");
+    return;
+  }
+  stCompareSave(next);
+  stRenderTop();
+  stRenderBoard();
+}
+
+/** 比べる画面の住所。 */
+function stCompareHash(ids) {
+  return `#/research/compare?s=${ids.join(",")}`;
+}
+
+/** 比べる画面から S を外す（×）。残りが無ければ Tree へ戻る。 */
+function stCompareDrop(ids, id) {
+  stCompareSave(stCompareList().filter((x) => x !== id));
+  const next = ids.filter((x) => x !== id);
+  stGo(next.length ? stCompareHash(next) : "#/research/tree");
+}
+
+/** 比べる画面の入れ物を出す。Tree の部品は隠す（戻るときは stLeaveCompare が出し直す）。 */
+function stCompareBox() {
+  const view = document.getElementById("view-sci-tree");
+  if (!view) return null;
+  if (!stCmpEl) {
+    stCmpEl = stEl("section", "sci-compare");
+    view.appendChild(stCmpEl);
+  }
+  for (const id of ["sci-top", "sci-sprout", "sci-seed", "sci-body"]) {
+    const e = document.getElementById(id);
+    if (e) e.hidden = true;
+  }
+  stCmpEl.hidden = false;
+  return stCmpEl;
+}
+
+/** 比べる画面から Tree へ戻すときに、Tree の部品を出し直す（入れ物は隠す）。 */
+function stLeaveCompare() {
+  if (stCmpEl) stCmpEl.hidden = true;
+  const show = { "sci-top": true, "sci-body": true, "sci-sprout": stSprout !== null, "sci-seed": stSeed !== null };
+  for (const id of Object.keys(show)) {
+    const e = document.getElementById(id);
+    if (e) e.hidden = !show[id];
+  }
+}
+
+/** 比べる画面の上の帯（← Tree と、選んだ S の札・外す ×）。 */
+function stCompareBar(ids) {
+  const bar = stEl("div", "sci-compare-bar");
+  bar.appendChild(stBtn("← Tree", () => { stGo("#/research/tree"); }, "ghost"));
+  bar.appendChild(stEl("h2", "sci-compare-title", `比べる（${ids.length}）`));
+  const chips = stEl("div", "sci-compare-chips");
+  for (const id of ids) {
+    const b = stEl("button", "sci-compare-chip", `${id} ×`);
+    b.type = "button";
+    b.setAttribute("aria-label", `${id} を比べるから外す`);
+    b.addEventListener("click", () => { stCompareDrop(ids, id); });
+    chips.appendChild(b);
+  }
+  bar.appendChild(chips);
+  return bar;
+}
+
+/** 比べる表（行が S、列が 6 軸）。列の見出しに「違う」の札、セルに区分の札と同じ A の印。 */
+function stCompareTable(t) {
+  const wrap = stEl("div", "sci-compare-wrap");
+  const table = stEl("table", "sci-compare-table");
+  const head = stEl("tr");
+  head.appendChild(stEl("th", "sci-compare-s", "S"));
+  for (const ax of t.axes) {
+    const th = stEl("th", ax.diff ? "sci-compare-diff" : "");
+    th.appendChild(stEl("span", "", ax.label));
+    if (ax.diff) th.appendChild(stEl("span", "sci-badge sci-badge-diff", "違う"));
+    head.appendChild(th);
+  }
+  table.appendChild(stEl("thead")).appendChild(head);
+  const tbody = table.appendChild(stEl("tbody"));
+  for (const r of t.rows) {
+    const tr = stEl("tr");
+    const sh = stEl("th", "sci-compare-s");
+    const b = stEl("button", "sci-path-id", r.id);
+    b.type = "button";
+    b.addEventListener("click", () => { stGo(`#/research/tree/${r.id}`); });
+    sh.appendChild(b);
+    if (r.title) sh.appendChild(stEl("span", "sci-compare-stitle", stShort(r.title, 30)));
+    tr.appendChild(sh);
+    for (const c of r.cells) {
+      const td = stEl("td", `sci-cmp-${c.role}`);
+      if (c.text) td.title = c.text;
+      const top = stEl("div", "sci-line");
+      top.appendChild(stRoleBadge(c.role));
+      if (c.mark) top.appendChild(stEl("span", "sci-cmp-mark", c.mark));
+      td.appendChild(top);
+      if (c.a) {
+        const ab = stEl("button", "sci-path-id", c.a);
+        ab.type = "button";
+        ab.addEventListener("click", () => { stGo(`#/research/tree/${c.a}`); });
+        td.appendChild(ab);
+      }
+      if (c.text) td.appendChild(stEl("p", "sci-cmp-text", stShort(c.text, 60)));
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  wrap.appendChild(table);
+  return wrap;
+}
+
+/** 比べる画面を開く（SaiRoutes の open から）。結果は sai-sci compare の C-CMP-1 を描く。 */
+async function stCompareOpen(params) {
+  const box = stCompareBox();
+  if (!box) return;
+  const seq = ++stCmpSeq;
+  const ids = (params && params.ids) || [];
+  await ensurePaperProjects();
+  box.innerHTML = "";
+  box.appendChild(stCompareBar(ids));
+  if (!selectedPaperProject()) {
+    box.appendChild(stEl("p", "sci-note", "論文の置き場がありません"));
+    return;
+  }
+  if (ids.length < 2) {
+    box.appendChild(stEl("p", "sci-note", "比べるには S を 2 つ以上選んでください（Tree の板の「比べるに足す」）"));
+    return;
+  }
+  const body = stEl("div", "sci-compare-body", "読んでいます…");
+  box.appendChild(body);
+  let json = null;
+  try {
+    json = await paperApi(stApi(`/compare?s=${ids.join(",")}`));
+  } catch (e) {
+    if (seq !== stCmpSeq) return;
+    body.innerHTML = "";
+    body.appendChild(stEmpty({ icon: "⚠️", title: "比べられませんでした", body: (e && e.message) || "読み直してください" }));
+    return;
+  }
+  if (seq !== stCmpSeq) return; // 後から開いた比べるを優先する
+  body.innerHTML = "";
+  body.appendChild(stCompareTable(stCompareRows(json)));
+}
+
+// ============================================================================
 // 画面の登録（window.SaiRoutes）
 // ============================================================================
 
@@ -1929,6 +2309,17 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     hideTabbar: false,
     interval: 0, // 定期更新はしない（↻ で読み直す）
     async open(params) { await stOpen(params); },
+    async poll() {},
+  });
+
+  // 比べる画面（#/research/compare?s=S1,S2。入れ物は #view-sci-tree の中）
+  window.SaiRoutes.push({
+    match(hash) { return stParseCompareHash(hash); },
+    view: "view-sci-tree",
+    tab: "research",
+    hideTabbar: false,
+    interval: 0,
+    async open(params) { await stCompareOpen(params); },
     async poll() {},
   });
 
@@ -1954,11 +2345,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 // --- node からの読み込み（tests/test_scitree.js） ---
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    stParseHash, stLegacyHash, stRows, stNextLines, stNextText,
+    stParseHash, stParseCompareHash, stLegacyHash, stRows, stNextLines, stNextText,
     stOpsFor, stSproutToggle, stSproutRows, stSproutSummary, stRangeText, stApprovalText, stStanceLabel,
     stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
+    stSproutSections, stCompareRows, stCompareToggle, stAxisRows, stChainIds, stShort, stCircled,
     stVisibleRows, stRowHit, stActionMeta, stClampSplit, stFmtAt, stHistoryText,
     stStepView, stStepNodeView, stStepParse,
     ST_TYPES, ST_STANCE, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_SPROUT_PATH_MAX, ST_EXPERIMENTS_HASH,
+    ST_AXIS_LABEL, ST_AXIS_STATE, ST_ROLE_LABEL, ST_COMPARE_MAX,
   };
 }

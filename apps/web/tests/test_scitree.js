@@ -18,6 +18,8 @@ const {
   stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
   stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
   stStepView, stStepNodeView, stStepParse,
+  stParseCompareHash, stSproutSections, stCompareRows, stCompareToggle, stAxisRows, stShort, stCircled,
+  ST_COMPARE_MAX,
 } = require(path.join(dir, "scitree.js"));
 
 const tests = [];
@@ -25,13 +27,12 @@ const test = (fn) => tests.push(fn);
 
 test(function testParseHash() {
   assert.deepStrictEqual(stParseHash("#/research/tree"), {});
-  // SEED も S1 も受ける（SEED は札の特別な ID）
-  assert.deepStrictEqual(stParseHash("#/research/tree/SEED"), { id: "SEED" });
+  // Q・A・F・E・S・D は受ける（SEED は木の Node ではなくなったので受けない・U12）
   for (const id of ["Q12", "A5", "F3", "E2", "S1", "D1"]) assert.deepStrictEqual(stParseHash(`#/research/tree/${id}`), { id });
   // D は数字の付いた ID だけ（小文字・0 は受けない）
   for (const h of ["#/research/tree/D0", "#/research/tree/d1"]) assert.strictEqual(stParseHash(h), null, h);
-  // O は無くなった ID なので受けない
-  for (const h of ["#/research/tree/O5", "#/research/tree/N12", "#/research/tree/Q0", "#/research/tree/S0", "#/research/tree/Q12/x", "#/research/other", "", null]) {
+  // O は無くなった ID なので受けない。SEED も受けない（古い住所は stLegacyHash で一覧へ）
+  for (const h of ["#/research/tree/SEED", "#/research/tree/O5", "#/research/tree/N12", "#/research/tree/Q0", "#/research/tree/S0", "#/research/tree/Q12/x", "#/research/other", "", null]) {
     assert.strictEqual(stParseHash(h), null, String(h));
   }
 });
@@ -46,6 +47,8 @@ test(function testLegacyHash() {
   assert.strictEqual(stLegacyHash("#/mlflow"), "#/research/experiments");
   assert.strictEqual(stLegacyHash("#/papers/canvas"), "#/research/tree");
   assert.strictEqual(stLegacyHash("#/canvas/Q1"), "#/research/tree");
+  // SEED の住所は一覧へ（SEED は木の Node ではなくなった・U12）
+  assert.strictEqual(stLegacyHash("#/research/tree/SEED"), "#/research/tree");
   // 関係ない住所は null
   for (const h of ["#/research/tree", "#/papers/dashboard", "#/papers/sets/7", "#/home", "", null]) {
     assert.strictEqual(stLegacyHash(h), null, String(h));
@@ -527,6 +530,138 @@ test(function testStepParse() {
   for (const t of ["abc", "1e3", "-1", "1.5", ""]) assert.strictEqual(stStepParse(t, 30), null, t);
   assert.strictEqual(stStepParse("1", 0), null, "総数が 0");
   assert.strictEqual(stStepParse(null, 30), null);
+});
+
+// --- 板の 4 節・D の軸の表・比べる（U12）---
+// seed（D1）: task 決定 A12・method 範囲 A94・data 空欄（記載なし）・target 空欄・output 空欄・metric 空欄。
+// S1 の path: A12（固定）・A385（新規、固定は A94 まで）・A5（古い Q の道の末端）。E1 は S1 の子、E2 は孫。
+function sectionsStatus() {
+  const D = { id: "D1", kind: "D", parent: null, text: "発作部位", axes: {
+    task: { state: "fixed", value: "痙攣の分類", a: "A12" },
+    target: { state: "open" },
+    data: { state: "none", reason: "実測データを使わない" },
+    method: { state: "range", value: "回帰", a: "A94" },
+    output: { state: "open" },
+    metric: { state: "novel", reason: "新しい指標" },
+  } };
+  return { nodes: [
+    { id: "Q1", kind: "Q", parent: null, text: "根" },
+    { id: "A7", kind: "A", parent: "Q1", text: "途中" },
+    { id: "Q20", kind: "Q", parent: "A7", text: "中の問い" },
+    { id: "A12", kind: "A", parent: "Q20", text: "分類を使う" },
+    { id: "A94", kind: "A", parent: "Q1", text: "回帰で扱う" },
+    { id: "Q4", kind: "Q", parent: null, text: "別の根" },
+    { id: "A385", kind: "A", parent: "Q4", text: "新しい手法" },
+    D,
+    { id: "S1", kind: "S", parent: "D1", text: "1 本目", path_roles: [
+      { a: "A12", axis: "task", role: "fixed", fixed_at: "A12" },
+      { a: "A385", axis: "method", role: "novel", fixed_at: "A94" },
+    ] },
+    { id: "E1", kind: "E", parent: "S1", text: "実験 1", mlflow: "run-1" },
+    { id: "E2", kind: "E", parent: "E1", text: "孫の実験" },
+    { id: "S2", kind: "S", parent: "D1", text: "2 本目", path_roles: [] },
+  ] };
+}
+
+test(function testSproutSections() {
+  const s = stSproutSections(sectionsStatus(), "S1");
+  assert.deepStrictEqual(s.seed, { id: "D1", title: "発作部位" });
+  // 固定: task の A12。道は一番上の Q から A12 まで。値は親の D の決定の値
+  assert.deepStrictEqual(s.fixed, [{ axis: "task", a: "A12", text: "分類を使う", path: ["Q1", "A7", "Q20", "A12"], value: "痙攣の分類" }]);
+  // 新規: method の A385。fixedAt は A94（固定と新規の両方の道を持つ）
+  assert.deepStrictEqual(s.novel, [{ axis: "method", a: "A385", text: "新しい手法", path: ["Q4", "A385"], fixedAt: "A94" }]);
+  // 実験: S の子と孫の E（生きた E だけ）
+  assert.deepStrictEqual(s.exps.map((e) => e.id), ["E1", "E2"]);
+  assert.strictEqual(s.exps[0].mlflow, "run-1");
+  // 記載なし: 親の D の state が none の軸（data）
+  assert.deepStrictEqual(s.none, [{ axis: "data", reason: "実測データを使わない" }]);
+  // 空の節は空の配列（S2 は path が無い・実験も無い）
+  const s2 = stSproutSections(sectionsStatus(), "S2");
+  assert.deepStrictEqual([s2.fixed, s2.novel, s2.exps], [[], [], []]);
+  // S でない・無い ID は null。親の D が無い古い S は seed が null
+  assert.strictEqual(stSproutSections(sectionsStatus(), "D1"), null);
+  assert.strictEqual(stSproutSections(sectionsStatus(), "S9"), null);
+  const old = { nodes: [{ id: "S5", kind: "S", parent: null, text: "古い", path_roles: [{ a: "A12", axis: "task", role: "fixed", fixed_at: null }] }] };
+  assert.strictEqual(stSproutSections(old, "S5").seed, null);
+  assert.strictEqual(stSproutSections(old, "S5").fixed[0].value, null);
+});
+
+test(function testSproutFixedWithoutFixedAt() {
+  // fixed_at が無い新規は、道を全部濃く出す（fixedAt は null）
+  const st = sectionsStatus();
+  st.nodes.find((n) => n.id === "S1").path_roles = [{ a: "A385", axis: "method", role: "novel", fixed_at: null }];
+  assert.strictEqual(stSproutSections(st, "S1").novel[0].fixedAt, null);
+});
+
+test(function testAxisRows() {
+  const rows = stAxisRows(sectionsStatus().nodes.find((n) => n.id === "D1").axes);
+  assert.deepStrictEqual(rows.map((r) => r.axis), ["task", "target", "data", "method", "output", "metric"]);
+  // 決定・範囲は値、新規性・記載なしは理由、open は空欄
+  assert.deepStrictEqual(rows[0], { axis: "task", label: "解く問題", state: "fixed", stateLabel: "決定", text: "痙攣の分類", a: "A12" });
+  assert.deepStrictEqual(rows[3], { axis: "method", label: "手法", state: "range", stateLabel: "範囲", text: "回帰", a: "A94" });
+  assert.strictEqual(rows[2].stateLabel, "空欄（記載なし）");
+  assert.strictEqual(rows[2].text, "実測データを使わない");
+  assert.strictEqual(rows[1].stateLabel, "空欄");
+  assert.strictEqual(rows[1].text, "");
+  // 軸が無い（古い D）は全部空欄
+  assert.deepStrictEqual(stAxisRows(null).map((r) => r.state), ["open", "open", "open", "open", "open", "open"]);
+});
+
+test(function testCompareRows() {
+  const json = {
+    axes: ["task", "method"],
+    sprouts: [
+      { id: "S1", title: "一つ目", seed: "D1", cells: {
+        task: { a: "A12", text: "分類を使う", role: "fixed", fixed_at: "A12" },
+        method: { a: "A385", text: "新しい手法", role: "novel", fixed_at: "A94" },
+      } },
+      { id: "S2", title: "二つ目", seed: "D1", cells: {
+        task: { a: "A12", text: "分類を使う", role: "fixed", fixed_at: "A12" },
+        method: { a: "A400", text: "別の手法", role: "novel", fixed_at: null },
+      } },
+      { id: "S3", title: "三つ目", seed: "D1", cells: {
+        task: { a: null, text: "", role: "open", fixed_at: null },
+        method: { a: null, text: "理由", role: "none", fixed_at: null },
+      } },
+    ],
+    same: { task: true, method: false },
+  };
+  const t = stCompareRows(json);
+  assert.deepStrictEqual(t.axes, [{ key: "task", label: "解く問題", diff: false }, { key: "method", label: "手法", diff: true }]);
+  // 同じ列の同じ A は同じ印（①）。違う A は ②。A の無いセルは印が無い
+  assert.deepStrictEqual(t.rows.map((r) => r.cells.map((c) => c.mark)), [["①", "①"], ["①", "②"], [null, null]]);
+  assert.deepStrictEqual(t.rows[2].cells.map((c) => c.label), ["空欄", "記載なし"]);
+  assert.strictEqual(t.rows[0].cells[0].label, "固定");
+  assert.strictEqual(t.rows[0].cells[1].label, "新規");
+  // 壊れた入力でも落ちない
+  assert.deepStrictEqual(stCompareRows(null), { axes: [], rows: [] });
+  assert.strictEqual(stCompareRows({ axes: ["task"], sprouts: [{ id: "S1", cells: { task: { role: "weird" } } }] }).rows[0].cells[0].role, "open");
+});
+
+test(function testCompareHashAndToggle() {
+  assert.deepStrictEqual(stParseCompareHash("#/research/compare?s=S1,S2"), { ids: ["S1", "S2"] });
+  // 重複・S 以外・空は外す。10 個までしか受けない
+  assert.deepStrictEqual(stParseCompareHash("#/research/compare?s=S1,S1,D2,%20S3 ,S0"), { ids: ["S1", "S3"] });
+  assert.deepStrictEqual(stParseCompareHash("#/research/compare").ids, []);
+  const many = Array.from({ length: 12 }, (_, i) => `S${i + 1}`).join(",");
+  assert.strictEqual(stParseCompareHash(`#/research/compare?s=${many}`).ids.length, ST_COMPARE_MAX);
+  for (const h of ["#/research/tree", "#/research/compare/x", "", null]) assert.strictEqual(stParseCompareHash(h), null, String(h));
+  // 足す・外す。S 以外と上限は足さない
+  assert.deepStrictEqual(stCompareToggle(["S1"], "S2"), ["S1", "S2"]);
+  assert.deepStrictEqual(stCompareToggle(["S1", "S2"], "S1"), ["S2"]);
+  assert.deepStrictEqual(stCompareToggle(["S1"], "D1"), ["S1"]);
+  assert.deepStrictEqual(stCompareToggle(["S1"], "S1x"), ["S1"]);
+  const full = Array.from({ length: ST_COMPARE_MAX }, (_, i) => `S${i + 1}`);
+  assert.strictEqual(stCompareToggle(full, "S99").length, ST_COMPARE_MAX);
+});
+
+test(function testShortAndCircled() {
+  assert.strictEqual(stShort("  a  b\n c ", 40), "a b c");
+  assert.strictEqual(stShort("あいうえお", 3), "あいう…");
+  assert.strictEqual(stShort(null), "");
+  assert.strictEqual(stCircled(0), "①");
+  assert.strictEqual(stCircled(19), "⑳");
+  assert.strictEqual(stCircled(20), "(21)");
 });
 
 let failed = 0;
