@@ -17,6 +17,7 @@ const {
   stFmtAt, stHistoryText, stRangeText, stApprovalText, stStanceLabel,
   stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
   stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
+  stStepView, stStepNodeView, stStepParse,
 } = require(path.join(dir, "scitree.js"));
 
 const tests = [];
@@ -369,6 +370,163 @@ test(function testSeedHelpers() {
   assert.strictEqual(stSeedDirty({ title: "", task_mode: "decided" }), true);
   assert.strictEqual(stSeedDirty({ title: "題" }), true);
   assert.strictEqual(stSeedDirty(null), false);
+});
+
+// --- 過去の step（stStepView・stStepNodeView・stStepParse）---
+// 8 の step: add_q Q1・add_a A1・add_f F1・insert_q Q2（A1 を移す）・add_a A2・remove F1・move_a A2・add_f F2。
+// 今の木は step 8 の後（F1 は step 6 に消えて steps.removed に入る）。
+function stepStatus() {
+  const T = (n, s = 0) => `2026-10-02T01:${String(n).padStart(2, "0")}:${String(s).padStart(2, "0")}+00:00`;
+  const nj = (id, kind, parent, extra) => Object.assign({
+    id, kind, parent, depth: 0, text: `${id} の文`, starred: false, stance: null,
+    counts: { q: 0, a: 0, f: 0, e: 0 }, bottom_q: false, range: null, ord: 0,
+  }, extra || {});
+  const ops = [["add_q", "Q1"], ["add_a", "A1"], ["add_f", "F1"], ["insert_q", "Q2"], ["add_a", "A2"], ["remove", "F1"], ["move_a", "A2"], ["add_f", "F2"]];
+  return {
+    initialized: true,
+    type: null,
+    warnings: [],
+    next: [{ kind: "user", node: "Q2" }],
+    decisions: [{ node: "A1", action: "approve", at: T(2, 30) }],
+    history: [
+      { action: "init", at: "2026-10-02T00:59:00+00:00" },
+      { action: "Add Q", at: T(1) },
+      { action: "Add A", at: T(2) },
+      { action: "Run", at: T(2, 30) },
+      { action: "Add F", at: T(3) },
+    ],
+    nodes: [
+      nj("Q1", "Q", null),
+      nj("Q2", "Q", "Q1"),
+      nj("A1", "A", "Q2", { ord: 1 }),
+      nj("A2", "A", "Q2", { ord: 0 }),
+      nj("F2", "F", "A1", { stance: "deny" }),
+    ],
+    steps: {
+      total: 8,
+      list: ops.map(([op, node], i) => ({ n: i + 1, op, node, at: T(i + 1), by: "user" })),
+      nodes: [
+        { id: "Q1", born: 1, gone: null, parents: [{ step: 1, parent: null }] },
+        { id: "A1", born: 2, gone: null, parents: [{ step: 2, parent: "Q1" }, { step: 4, parent: "Q2" }] },
+        { id: "F1", born: 3, gone: 6, parents: [{ step: 3, parent: "A1" }] },
+        { id: "Q2", born: 4, gone: null, parents: [{ step: 4, parent: "Q1" }] },
+        { id: "A2", born: 5, gone: null, parents: [{ step: 5, parent: "Q1" }, { step: 7, parent: "Q2" }] },
+        { id: "F2", born: 8, gone: null, parents: [{ step: 8, parent: "A1" }] },
+      ],
+      removed: [nj("F1", "F", "A1", { stance: "support" })],
+    },
+  };
+}
+
+test(function testStepViewCreateOnly() {
+  const st = stepStatus();
+  const before = JSON.stringify(st);
+  const ids = (v) => v.nodes.map((n) => n.id);
+  assert.deepStrictEqual(ids(stStepView(st, 1)), ["Q1"]);
+  assert.deepStrictEqual(ids(stStepView(st, 2)), ["Q1", "A1"]);
+  const v3 = stStepView(st, 3);
+  assert.deepStrictEqual(ids(v3), ["Q1", "A1", "F1"]);
+  assert.strictEqual(v3.nodes[2].parent, "A1");
+  assert.strictEqual(v3.nodes[2].depth, 2);
+  assert.deepStrictEqual(v3.counts, { q: 1, a: 1, f_support: 1, f_deny: 0, f_issue: 0, e: 0, s: 0 });
+  // 元の status は書き換えない
+  assert.strictEqual(JSON.stringify(st), before);
+});
+
+test(function testStepViewInsertQ() {
+  const st = stepStatus();
+  // insert_q の前: 新しい Q2 はまだ無く、A1 は旧 Q1 の下
+  const v3 = stStepView(st, 3);
+  assert.ok(!v3.nodes.some((n) => n.id === "Q2"));
+  assert.strictEqual(v3.nodes.find((n) => n.id === "A1").parent, "Q1");
+  // insert_q の後: A1 の親は新しい Q2。Q1 の下は Q2 だけ
+  const v4 = stStepView(st, 4);
+  assert.strictEqual(v4.nodes.find((n) => n.id === "A1").parent, "Q2");
+  assert.deepStrictEqual(v4.nodes.map((n) => n.id), ["Q1", "Q2", "A1", "F1"]);
+  assert.deepStrictEqual(v4.nodes[0].counts, { q: 1, a: 0, f: 0, e: 0 });
+  assert.strictEqual(v4.nodes[1].bottom_q, true, "Q2 の下に Q が無い");
+  assert.strictEqual(v4.nodes[0].bottom_q, false, "Q1 の下に Q2 がある");
+});
+
+test(function testStepViewRemove() {
+  const st = stepStatus();
+  // gone > k では消えた Node が見える（steps.removed の中身）。gone <= k では見えない
+  const f1 = stStepView(st, 5).nodes.find((n) => n.id === "F1");
+  assert.ok(f1, "gone > k なら見える");
+  assert.strictEqual(f1.text, "F1 の文");
+  assert.strictEqual(stStepView(st, 5).counts.f_support, 1);
+  assert.ok(!stStepView(st, 6).nodes.some((n) => n.id === "F1"), "gone <= k では見えない");
+});
+
+test(function testStepViewMoveA() {
+  const st = stepStatus();
+  // move_a の前（step 6）: A2 は Q1 の下。Q1 の数は Q2 と A2
+  const v6 = stStepView(st, 6);
+  const a2 = v6.nodes.find((n) => n.id === "A2");
+  assert.strictEqual(a2.parent, "Q1");
+  assert.strictEqual(a2.depth, 1);
+  assert.deepStrictEqual(v6.nodes.find((n) => n.id === "Q1").counts, { q: 1, a: 1, f: 0, e: 0 });
+  // move_a の後（step 7）: A2 は Q2 の下。Q2 は Q を持たないので bottom_Q
+  const v7 = stStepView(st, 7);
+  assert.strictEqual(v7.nodes.find((n) => n.id === "A2").parent, "Q2");
+  assert.strictEqual(v7.nodes.find((n) => n.id === "A2").depth, 2);
+  assert.deepStrictEqual(v7.nodes.find((n) => n.id === "Q1").counts, { q: 1, a: 0, f: 0, e: 0 });
+  assert.deepStrictEqual(v7.nodes.find((n) => n.id === "Q2").counts, { q: 0, a: 2, f: 0, e: 0 });
+  assert.strictEqual(v7.nodes.find((n) => n.id === "Q2").bottom_q, true);
+  assert.strictEqual(v7.nodes.find((n) => n.id === "Q1").bottom_q, false);
+  assert.deepStrictEqual(v7.counts, { q: 2, a: 2, f_support: 0, f_deny: 0, f_issue: 0, e: 0, s: 0 });
+});
+
+test(function testStepViewLatest() {
+  const st = stepStatus();
+  // 総数以上・step 無し・steps 無しは、元の status をそのまま返す
+  assert.strictEqual(stStepView(st, 8), st);
+  assert.strictEqual(stStepView(st, 9), st);
+  assert.strictEqual(stStepView(st, null), st);
+  // steps が無い status（始めていない木）も、そのまま返す
+  const plain = { nodes: [{ id: "Q1", kind: "Q" }] };
+  assert.strictEqual(stStepView(plain, 1), plain);
+});
+
+test(function testStepNodeView() {
+  const st = stepStatus();
+  // 板の元の detail（node は id だけでよい。中身は step の木から作る）
+  const det = (id) => ({ node: { id }, history: st.history, decisions: st.decisions, next: st.next, guide: { question: "q" } });
+  const q1 = stStepNodeView(det("Q1"), stStepView(st, 4), 4);
+  assert.deepStrictEqual(q1.children.map((n) => n.id), ["Q2"]);
+  assert.deepStrictEqual(q1.subtree.map((n) => n.id), ["Q2", "A1", "F1"]);
+  assert.deepStrictEqual(q1.path.map((p) => p.id), ["Q1"]);
+  assert.deepStrictEqual(q1.next, []);
+  assert.strictEqual(q1.guide.question, "q", "guide はそのまま");
+  const a1 = stStepNodeView(det("A1"), stStepView(st, 4), 4);
+  assert.deepStrictEqual(a1.path.map((p) => p.id), ["Q1", "Q2", "A1"]);
+  assert.deepStrictEqual(a1.path[2], { id: "A1", kind: "A", text: "A1 の文" });
+  assert.deepStrictEqual(a1.children.map((n) => n.id), ["F1"]);
+  // History は step の時刻より後の Add・Run を落とす（init は残す）。決定も同じ
+  const h2 = stStepNodeView(det("Q1"), stStepView(st, 2), 2);
+  assert.deepStrictEqual(h2.history.map((h) => h.action), ["init", "Add Q", "Add A"]);
+  assert.deepStrictEqual(h2.decisions, []);
+  const h3 = stStepNodeView(det("Q1"), stStepView(st, 3), 3);
+  assert.deepStrictEqual(h3.history.map((h) => h.action), ["init", "Add Q", "Add A", "Run", "Add F"]);
+  assert.strictEqual(h3.decisions.length, 1);
+  // その step に無い Node（まだ無い・消えた後）は null
+  assert.strictEqual(stStepNodeView(det("F1"), stStepView(st, 2), 2), null);
+  assert.strictEqual(stStepNodeView(det("F1"), stStepView(st, 6), 6), null);
+  assert.strictEqual(stStepNodeView(det("Q2"), stStepView(st, 3), 3), null);
+  // 元の detail は書き換えない
+  const d0 = det("Q1");
+  stStepNodeView(d0, stStepView(st, 2), 2);
+  assert.strictEqual(d0.history.length, 5);
+});
+
+test(function testStepParse() {
+  assert.strictEqual(stStepParse(" 15 ", 30), 15);
+  assert.strictEqual(stStepParse("0", 30), 1);
+  assert.strictEqual(stStepParse("99", 30), 30);
+  assert.strictEqual(stStepParse("007", 30), 7);
+  for (const t of ["abc", "1e3", "-1", "1.5", ""]) assert.strictEqual(stStepParse(t, 30), null, t);
+  assert.strictEqual(stStepParse("1", 0), null, "総数が 0");
+  assert.strictEqual(stStepParse(null, 30), null);
 });
 
 let failed = 0;

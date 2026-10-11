@@ -10,6 +10,7 @@ const path = require("path");
 
 const {
   sgTreeLayout,
+  sgUpdate,
   sgSelectionOf,
   sgSproutKeep,
   sgEdgeStyle,
@@ -360,6 +361,12 @@ function testSeedLayer() {
   }
 }
 
+function testUpdateWithoutGraph() {
+  // DOM が無い（sgWorld が無い）ときは、札を入れ替えるものが無いので何もしない（描画はブラウザで確かめる）
+  assert.doesNotThrow(() => sgUpdate(seedStatus()));
+  assert.doesNotThrow(() => sgUpdate(null));
+}
+
 function testSeedKeep() {
   // D1 を選ぶと、D1 と子の S（S1・S2）とその下の E1 が残る。D2 の下の S3 と古い S4 は残らない
   const keep = sgSproutKeep(seedStatus(), "D1");
@@ -393,6 +400,7 @@ const tests = [
   ["中央に出す tx と ty", testCenterView],
   ["seed（D）の層", testSeedLayer],
   ["seed を選んだときの残す札", testSeedKeep],
+  ["図が無いときの sgUpdate は何もしない", testUpdateWithoutGraph],
 ];
 
 let failed = 0;

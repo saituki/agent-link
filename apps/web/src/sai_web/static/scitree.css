@@ -438,6 +438,25 @@
 .sci-chip.warn { border-color: var(--accent); color: var(--accent); }
 .sci-chip.dim { opacity: 0.5; }
 
+/* step の札（図の道具の行。◀ 番号 /総数 ▶。過去の step では番号を直せる） */
+.st-stepper { display: inline-flex; align-items: center; gap: 4px; }
+.st-stepper[hidden] { display: none; }
+.st-step-input {
+  width: 4.5ch;
+  min-height: 32px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* iPhone で入力欄を拡大させない */
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.st-step-input:disabled { opacity: 0.5; }
+.st-step-total { font-size: 13px; font-variant-numeric: tabular-nums; }
+
 .sci-next-row { align-items: center; padding: 1px 0; line-height: 1.4; }
 .sci-next { display: flex; flex-direction: column; gap: 0; }
 .sci-next-row .sci-line-main { font-size: 14px; line-height: 1.4; }
@@ -645,4 +664,5 @@ button.sci-action-meta {
 /* 狭い画面では、板の釦と帯の釦も触れる大きさ（44px）にする */
 @media (max-width: 899px) {
   .sci-ops .sai-btn.small, .sci-chips .sai-btn.small { min-height: 44px; }
+  .st-stepper .sci-graph-btn, .st-step-input { min-height: 44px; }
 }

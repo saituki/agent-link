@@ -52,6 +52,8 @@ const ST_NODE_OPS = {
 // --- 画面の状態 ---
 
 let stData = null;      // 最後に読んだ status
+let stStep = null;      // 見ている step（null は最新。過去の step は表示だけ・編集できない）
+let stStepEl = null;    // 図の道具の行に入れた step の札（stBuildStepper が作る）
 let stTypesData = null; // 最後に読んだ /sci/types
 let stNode = null;      // 選んだ Node の NodeDetail
 let stNodeId = null;    // 今開いている Node の ID
@@ -395,6 +397,126 @@ function stHistoryText(h) {
   return [String(o.action || ""), date, who].filter((x) => x !== "").join(" ");
 }
 
+/**
+ * 過去の step（step k）の木を作る。status は書き換えず、新しい status を返す。
+ * step が無い・steps が無い・k が総数以上なら status をそのまま返す（今の木）。
+ * 見えるのは born <= k かつ（gone が無い か gone > k）で、親も見えている Node（親が見えないものは隠す）。
+ * 親は parents のうち step <= k の最後の parent。並びは深さ順（根は Q → D → S の順）。
+ */
+function stStepView(status, step) {
+  const steps = status && status.steps;
+  if (step == null || !steps || !(step < steps.total)) return status;
+  const k = step;
+  const all = new Map();
+  for (const n of [...(status.nodes || []), ...(steps.removed || [])]) {
+    if (n && n.id != null) all.set(String(n.id), n);
+  }
+  const ts = new Map((steps.nodes || []).map((t) => [String(t.id), t]));
+  // step k で効く親の行（{step, parent}）。生まれる前なら null
+  const at = (id) => {
+    let hit = null;
+    for (const p of (ts.get(id) || {}).parents || []) if (p.step <= k) hit = p;
+    return hit;
+  };
+  const memo = new Map();
+  const shown = (id) => {
+    if (memo.has(id)) return memo.get(id);
+    memo.set(id, false); // 親をたどる循環を止める
+    const t = ts.get(id);
+    const p = at(id);
+    let ok = !!(t && all.has(id) && p && t.born <= k && (t.gone == null || t.gone > k));
+    if (ok && p.parent != null) ok = shown(String(p.parent));
+    memo.set(id, ok);
+    return ok;
+  };
+  const ids = [...all.keys()].filter(shown);
+  const kids = new Map();
+  const roots = [];
+  for (const id of ids) {
+    const p = at(id).parent;
+    if (p == null) roots.push(id);
+    else if (kids.has(String(p))) kids.get(String(p)).push(id);
+    else kids.set(String(p), [id]);
+  }
+  const num = (id) => Number(String(id).replace(/^\D+/, "")) || 0;
+  const ord = (id) => Number(all.get(id).ord) || 0;
+  // 同じ親の下の並び: 親の下に来た step → ord → ID の数
+  const cmp = (a, b) => at(a).step - at(b).step || ord(a) - ord(b) || num(a) - num(b);
+  const rank = (id) => ({ Q: 0, D: 1, S: 2 })[all.get(id).kind] ?? 3;
+  roots.sort((a, b) => rank(a) - rank(b) || cmp(a, b));
+  const kidsOf = (id) => (kids.get(id) || []).slice().sort(cmp);
+  const order = [];
+  const walk = (id, depth) => {
+    order.push({ id, depth });
+    for (const c of kidsOf(id)) walk(c, depth + 1);
+  };
+  for (const r of roots) walk(r, 0);
+  const nodes = order.map(({ id, depth }) => {
+    const n = all.get(id);
+    const kinds = kidsOf(id).map((c) => all.get(c).kind);
+    const cnt = (kind) => kinds.filter((x) => x === kind).length;
+    return {
+      ...n,
+      parent: at(id).parent,
+      depth,
+      counts: { q: cnt("Q"), a: cnt("A"), f: cnt("F"), e: cnt("E") },
+      bottom_q: n.kind === "Q" && cnt("Q") === 0,
+      range: n.kind === "S" ? null : n.range,
+    };
+  });
+  const tally = { q: 0, a: 0, f_support: 0, f_deny: 0, f_issue: 0, e: 0, s: 0 };
+  const fKey = { support: "f_support", deny: "f_deny", issue: "f_issue" };
+  for (const n of nodes) {
+    if (n.kind === "Q") tally.q++;
+    else if (n.kind === "A") tally.a++;
+    else if (n.kind === "F" && fKey[n.stance]) tally[fKey[n.stance]]++;
+    else if (n.kind === "E") tally.e++;
+    else if (n.kind === "S") tally.s++;
+  }
+  return { ...status, nodes, counts: tally, next: [], decisions: [], history: [] };
+}
+
+/**
+ * 板の NodeDetail を step の木に合わせる（detail は書き換えない）。view は stStepView の戻り値。
+ * その step に無い Node は null。history と decisions は step の時刻より後の行を落とす
+ * （history は Add・Run だけ。init は残す）。
+ */
+function stStepNodeView(detail, view, step) {
+  const nodes = view && Array.isArray(view.nodes) ? view.nodes : [];
+  const id = detail && detail.node && detail.node.id != null ? String(detail.node.id) : null;
+  const node = nodes.find((n) => String(n.id) === id);
+  if (!node) return null;
+  const byId = new Map(nodes.map((n) => [String(n.id), n]));
+  const parentNode = (n) => (n.parent == null ? null : byId.get(String(n.parent)) || null);
+  const subtree = nodes.filter((n) => {
+    for (let p = parentNode(n); p; p = parentNode(p)) if (String(p.id) === id) return true;
+    return false;
+  });
+  const path = [];
+  for (let p = node; p; p = parentNode(p)) path.unshift({ id: p.id, kind: p.kind, text: p.text });
+  const list = view.steps && Array.isArray(view.steps.list) ? view.steps.list : [];
+  const cut = Date.parse((list[step - 1] || {}).at);
+  const later = (h) => Number.isFinite(cut) && Date.parse(h && h.at) > cut;
+  return {
+    ...detail,
+    node,
+    children: nodes.filter((n) => n.parent != null && String(n.parent) === id),
+    subtree,
+    path,
+    history: (detail.history || []).filter((h) => !(later(h) && (/^Add /.test(String(h.action || "")) || h.action === "Run"))),
+    decisions: (detail.decisions || []).filter((h) => !later(h)),
+    next: [],
+  };
+}
+
+/** step の番号の入力を 1〜総数の数にする。数でなければ null（総数が 0 のときも null）。 */
+function stStepParse(text, total) {
+  const t = String(text == null ? "" : text).trim();
+  const max = Number(total) || 0;
+  if (max < 1 || !/^[0-9]+$/.test(t)) return null;
+  return Math.min(max, Math.max(1, Number(t)));
+}
+
 // ============================================================================
 // 小さな DOM の部品
 // ============================================================================
@@ -432,6 +554,7 @@ function stGo(hash) {
 
 /** sciedit.js / scigraph.js の関数を名前で呼ぶ。無ければ false。 */
 function stCall(name, ...args) {
+  if (stWriteBlocked()) return false;
   const fn = typeof window !== "undefined" ? window[name] : undefined;
   if (typeof fn !== "function") {
     stToast(`${name} がまだありません`, "error");
@@ -454,6 +577,13 @@ function stStatus() {
   return stData;
 }
 
+/** 過去の step を見ているあいだは書き込まない（止めたら true。理由は toast に出す）。 */
+function stWriteBlocked() {
+  if (!stFrozen()) return false;
+  stToast("過去の step は表示だけです。最新に戻ると編集できます", "error");
+  return true;
+}
+
 /** status と、開いている Node を読み直して描き直す。 */
 async function stReload() {
   if (typeof document === "undefined") return;
@@ -466,6 +596,9 @@ async function stReload() {
     stRenderError(e);
     return;
   }
+  // step の総数が減った（消えた・始め直した）ときは最新に戻す
+  const total = stStepTotal();
+  if (stStep != null && (total < 1 || stStep >= total)) stStep = null;
   if (stData.initialized && !stTypesData) {
     try { stTypesData = await paperApi(stApi("/types")); } catch { stTypesData = null; }
   }
@@ -480,9 +613,19 @@ async function stLoadNode() {
   try {
     stNode = await paperApi(stApi(`/nodes/${encodeURIComponent(stNodeId)}`));
   } catch {
+    // 過去の step では、消えた Node は今の DB に無いので step の記録から板を作る
+    const gone = stFrozen() ? stRemovedDetail(stNodeId) : null;
+    if (gone) { stNode = gone; return; }
     stNodeId = null;
     stSetHash();
   }
+}
+
+/** 消えた Node（過去の step にだけ出る）の板の元。記録の NodeJson から作り、history は空。無ければ null。 */
+function stRemovedDetail(id) {
+  const removed = (stData && stData.steps && stData.steps.removed) || [];
+  const hit = removed.find((n) => String(n.id) === String(id));
+  return hit ? { node: hit, children: [], subtree: [], path: [], history: [], decisions: [], next: [] } : null;
 }
 
 /** SEED か Node（SPROUT の S1 も含む）を選ぶ。 */
@@ -517,6 +660,7 @@ async function stOpen(params) {
   stNodeId = id && id !== "SEED" ? id : null;
   stSprout = null; // 前の下書きは残さない
   stSeed = null;
+  stStep = null;   // 開き直したら最新から
   stData = null;
   stNode = null;
   stListOpen = false;
@@ -649,6 +793,10 @@ function stNextRows(list, status, onUser) {
 /** 注意の札と、狭い画面の一覧の出し入れ（.sci-chips）。 */
 function stChipBand(s) {
   const row = stEl("div", "sci-chips");
+  if (stFrozen()) {
+    row.appendChild(stEl("span", "sci-chip warn", `過去の状態（step ${stStep}/${stStepTotal()}）を表示中・編集できません`));
+    row.appendChild(stBtn("最新へ", () => { void stSetStep(null, false); }));
+  }
   const w = s.warnings || [];
   if (w.length) {
     const b = stEl("button", "sci-chip warn", `⚠ 注意 ${w.length}`);
@@ -661,7 +809,7 @@ function stChipBand(s) {
     row.appendChild(b);
   }
   const mk = stBtn(stSprout ? "Creating SPROUT" : "Create SPROUT", () => { stStartSprout(); });
-  mk.disabled = !!stSprout;
+  mk.disabled = !!stSprout || stFrozen();
   row.appendChild(mk);
   const t = stEl("button", `sci-list-toggle${stListOpen ? " active" : ""}`, "一覧");
   t.type = "button";
@@ -701,6 +849,7 @@ function stSproutPick(id) {
  * 作成を始める。作成中なら題の欄へ戻る。seedId があれば、その SEED を選んだ状態にする（SEED の板の「この SEED で」）。
  */
 function stStartSprout(seedId) {
+  if (stWriteBlocked()) return;
   const focusTitle = () => {
     const box = document.getElementById("sci-sprout");
     if (!box) return;
@@ -756,6 +905,7 @@ async function stSproutSend() {
 
 /** パネルを作り直す。題・本文は下書きから戻し、直前にフォーカスしていた欄へ戻す。 */
 function stRenderSprout() {
+  stSyncStepper(); // 下書きの有無で step の釦を止める・戻す
   const box = document.getElementById("sci-sprout");
   if (!box) return;
   const active = document.activeElement;
@@ -854,6 +1004,7 @@ function stRenderSprout() {
 
 /** SEED の作成を始める。作成中なら入力の欄へ戻るだけ。 */
 function stStartSeed() {
+  if (stWriteBlocked()) return;
   if (typeof seForm !== "function" || typeof seSeedFields !== "function") {
     stToast("SEED の入力欄がまだ使えません", "error");
     return;
@@ -871,6 +1022,7 @@ function stStartSeed() {
 
 /** SEED のパネルを作り直す。入力欄の DOM は置き直すので、打った物は残る。 */
 function stRenderSeed() {
+  stSyncStepper();
   const box = document.getElementById("sci-seed");
   if (!box) return;
   box.innerHTML = "";
@@ -1016,6 +1168,7 @@ function stRowEl(r, opts) {
   const star = stEl("button", `sci-star${r.starred ? " on" : ""}`, r.starred ? "★" : "☆");
   star.type = "button";
   star.setAttribute("aria-label", r.starred ? "★ を外す" : "★ を付ける");
+  star.disabled = stFrozen();
   star.addEventListener("click", () => { stCall("seQuick", r.starred ? "unstar" : "star", { node: r.id }); });
   row.appendChild(star);
   return row;
@@ -1104,12 +1257,13 @@ function stRenderSidebar(box) {
   if (filterBox) filterBox.hidden = !ready;
   box.innerHTML = "";
   if (!ready) return;
-  const rows = stRows(stData);
+  const rows = stRows(stView());
   if (!rows.length) {
     box.appendChild(stEmpty({ title: "Node がありません", body: "" }));
     return;
   }
-  stPruneFolded(rows);
+  // 過去の step の一覧は一部の木なので、畳みの記憶を捨てない（stPruneFolded は最新だけ）
+  if (!stFrozen()) stPruneFolded(rows);
   const list = stVisibleRows(rows, { folded: stFolded, word: stFilter.word, kinds: stFilter.kinds });
   if (!list.length) {
     box.appendChild(stEl("p", "sci-note", "合う行がありません"));
@@ -1137,15 +1291,97 @@ function stRenderGraph() {
     box.appendChild(stEl("p", "sci-note", "research-tree の図はまだ使えません"));
     return;
   }
-  sgRenderGraph(box, { status: stData, key: selectedPaperProject() }, (sel) => {
+  sgRenderGraph(box, { status: stData, key: selectedPaperProject(), tools: [stBuildStepper()] }, (sel) => {
     if (sel && (sel.kind === "node" || sel.kind === "seed")) void stSelect(sel.id);
   });
+  // 過去の step は札だけ入れ替える（畳みと拡大率は sgRenderGraph が覚えたまま）
+  if (stFrozen() && typeof sgUpdate === "function") sgUpdate(stView());
+  stSyncStepper();
   stMarkGraph();
 }
 
 function stMarkGraph() {
   if (typeof sgMarkPicked === "function") sgMarkPicked(stSprout ? stSprout.paths : []);
   if (typeof sgMarkSelected === "function") sgMarkSelected(stNodeId || (stSeedSel ? "SEED" : null));
+}
+
+// --- step の札（図の道具の行。◀ 番号 /総数 ▶）---
+
+/** 今の step（最新は総数）。 */
+function stCurStep() { return stStep == null ? stStepTotal() : stStep; }
+
+/** step の総数（始めていないときは 0）。 */
+function stStepTotal() { return stData && stData.steps && stData.steps.total > 0 ? stData.steps.total : 0; }
+
+/** 過去の step を見ているか（最新は false）。 */
+function stFrozen() { return stStep != null && stStep < stStepTotal(); }
+
+/** 画面に出す status（過去の step なら、その step の木）。 */
+function stView() { return stFrozen() ? stStepView(stData, stStep) : stData; }
+
+/** 図の道具の行に入れる step の札（◀ 番号 /総数 ▶）。stRenderGraph が作る。 */
+function stBuildStepper() {
+  const box = stEl("div", "st-stepper");
+  const prev = stEl("button", "sci-graph-btn", "◀︎");
+  prev.type = "button";
+  prev.setAttribute("aria-label", "1 つ前の step");
+  prev.addEventListener("click", () => { void stSetStep(stCurStep() - 1, false); });
+  const input = stEl("input", "st-step-input");
+  input.type = "text";
+  input.setAttribute("inputmode", "numeric");
+  input.maxLength = 6;
+  input.setAttribute("aria-label", "step の番号");
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const n = stStepParse(input.value, stStepTotal());
+      if (n != null) void stSetStep(n, true);
+      else stSyncStepper();
+    } else if (e.key === "Escape") {
+      stSyncStepper();
+    }
+  });
+  input.addEventListener("blur", () => { stSyncStepper(); });
+  const total = stEl("span", "st-step-total");
+  const next = stEl("button", "sci-graph-btn", "▶︎");
+  next.type = "button";
+  next.setAttribute("aria-label", "1 つ先の step");
+  next.addEventListener("click", () => { void stSetStep(stCurStep() + 1, true); });
+  box.append(prev, input, total, next);
+  stStepEl = box;
+  return box;
+}
+
+/** 札の番号・総数・釦の使えるかを今の状態に合わせる（下書き中と step が無いときは動かせない）。 */
+function stSyncStepper() {
+  const box = stStepEl;
+  if (!box) return;
+  const total = stStepTotal();
+  const cur = stCurStep();
+  const drafting = stSprout !== null || stSeed !== null;
+  box.hidden = total === 0;
+  box.querySelector(".st-step-input").value = String(cur);
+  box.querySelector(".st-step-input").disabled = drafting;
+  box.querySelector(".st-step-total").textContent = `/${total}`;
+  box.firstElementChild.disabled = cur <= 1 || drafting;
+  box.lastElementChild.disabled = stStep == null || drafting;
+}
+
+/**
+ * step を動かす（null か総数以上なら最新）。center が真なら、その step の Node を図の真ん中に出す。
+ * 消えた Node の選びは stLoadNode が直す（過去では読めて、最新では外れる）。
+ */
+async function stSetStep(next, center) {
+  stStep = next == null || next >= stStepTotal() ? null : next;
+  if (stNodeId) await stLoadNode();
+  stSyncStepper();
+  stRenderTop();
+  stRenderBoard();
+  stRenderSidebar(document.getElementById("sci-list"));
+  if (stData && stData.initialized && typeof sgUpdate === "function") sgUpdate(stView());
+  stMarkGraph();
+  const entry = center && stData && stData.steps && Array.isArray(stData.steps.list) ? stData.steps.list[stCurStep() - 1] : null;
+  if (entry && entry.node && typeof sgCenterOn === "function") sgCenterOn(entry.node);
 }
 
 // ============================================================================
@@ -1158,7 +1394,14 @@ function stBoardKey() {
 
 /** 板の中身を作る（何も選んでいなければ null）。 */
 function stSelBoard() {
-  if (stNodeId && stNode) return { title: `${stNode.node.id}`, el: stBuildBoard(stNode) };
+  if (stNodeId && stNode) {
+    const d = stFrozen() ? stStepNodeView(stNode, stView(), stStep) : stNode;
+    if (d) return { title: `${d.node.id}`, el: stBuildBoard(d) };
+    // その step には無い Node（まだ無い・消えた後）は、選びを外して板を閉じる
+    stNodeId = null;
+    stNode = null;
+    stSetHash();
+  }
   if (stSeedSel) return { title: "SEED", el: stBuildSeedPanel() };
   return null;
 }
@@ -1271,17 +1514,20 @@ function stBuildSeedPanel() {
     }
   }
   box.appendChild(sec);
-  const ops = stSec("OP");
-  const row = stEl("div", "sci-ops");
-  row.appendChild(stBtn("top_Q を足す", () => { stCall("seOpenAction", "add_q", "SEED"); }));
-  row.appendChild(stBtn("Create SPROUT", () => { stStartSprout(); }));
-  row.appendChild(stBtn("Create SEED", () => { stStartSeed(); }));
-  row.appendChild(stBtn("Create CARD", () => { stCall("seOpenCard", "SEED"); }));
-  ops.appendChild(row);
-  box.appendChild(ops);
+  // 過去の step では書き込みの釦を出さない（OP の節ごと）
+  if (!stFrozen()) {
+    const ops = stSec("OP");
+    const row = stEl("div", "sci-ops");
+    row.appendChild(stBtn("top_Q を足す", () => { stCall("seOpenAction", "add_q", "SEED"); }));
+    row.appendChild(stBtn("Create SPROUT", () => { stStartSprout(); }));
+    row.appendChild(stBtn("Create SEED", () => { stStartSeed(); }));
+    row.appendChild(stBtn("Create CARD", () => { stCall("seOpenCard", "SEED"); }));
+    ops.appendChild(row);
+    box.appendChild(ops);
+  }
   // seed（D）の一覧。押すと、その SEED の板を開く
   const seeds = stSec("SEED の一覧");
-  const seedRows = stRows({ nodes: stSeedNodes(stData) });
+  const seedRows = stRows({ nodes: stSeedNodes(stView()) });
   if (!seedRows.length) seeds.appendChild(stEl("p", "sci-note", "まだありません（Create SEED で作ります）"));
   for (const r of seedRows) seeds.appendChild(stRowEl(r, { flat: true }));
   box.appendChild(seeds);
@@ -1292,7 +1538,7 @@ function stBuildSeedPanel() {
 function stBoardPaths(node) {
   const sec = stSec("PATH");
   const byId = new Map();
-  for (const n of (stData && stData.nodes) || []) {
+  for (const n of (stView() && stView().nodes) || []) {
     if (n && n.id != null) byId.set(String(n.id), n);
   }
   const paths = Array.isArray(node.paths) ? node.paths : [];
@@ -1336,7 +1582,7 @@ function stBuildBoard(d) {
   const box = stEl("div", "sci-card");
   box.appendChild(stBoardHead(d));
   if (node.kind !== "S" && node.kind !== "D") box.appendChild(stBoardPath(d));
-  box.appendChild(stBoardOps(d));
+  if (!stFrozen()) box.appendChild(stBoardOps(d)); // 過去の step では OP の節を出さない
   if (node.kind === "F") {
     box.appendChild(stBoardStance(node));
     box.appendChild(stBoardSources(d));
@@ -1379,12 +1625,17 @@ function stBoardHead(d) {
   const node = (d && d.node) || {};
   const sec = stEl("section", "sci-sec sci-node-head");
   const line = stEl("div", "sci-line");
-  const star = stEl("button", `sci-head-star${node.starred ? " on" : ""}`, node.starred ? "★" : "☆");
-  star.type = "button";
-  star.setAttribute("aria-pressed", String(!!node.starred));
-  star.setAttribute("aria-label", node.starred ? "★ を外す" : "★ を付ける");
-  star.addEventListener("click", () => { stCall("seQuick", node.starred ? "unstar" : "star", { node: node.id }); });
-  line.appendChild(star);
+  // 過去の step では ★ は今の印を文字で出すだけ（押せない）
+  if (stFrozen()) {
+    line.appendChild(stEl("span", `sci-head-star${node.starred ? " on" : ""}`, node.starred ? "★" : "☆"));
+  } else {
+    const star = stEl("button", `sci-head-star${node.starred ? " on" : ""}`, node.starred ? "★" : "☆");
+    star.type = "button";
+    star.setAttribute("aria-pressed", String(!!node.starred));
+    star.setAttribute("aria-label", node.starred ? "★ を外す" : "★ を付ける");
+    star.addEventListener("click", () => { stCall("seQuick", node.starred ? "unstar" : "star", { node: node.id }); });
+    line.appendChild(star);
+  }
   line.appendChild(stEl("span", "sci-id", `${node.id} ${node.kind}`));
   if (node.kind === "F") {
     const badge = stStanceBadge(node.stance);
@@ -1393,8 +1644,8 @@ function stBoardHead(d) {
   sec.appendChild(line);
   sec.appendChild(stEl("p", "sci-node-title", node.text || ""));
   if (node.body) sec.appendChild(stMd(node.body));
-  // S（SPROUT）と D（SEED）は OP の節に Edit / Delete を出すのでここでは出さない
-  if (node.kind !== "S" && node.kind !== "D") {
+  // S（SPROUT）と D（SEED）は OP の節に Edit / Delete を出すのでここでは出さない。過去の step では出さない
+  if (node.kind !== "S" && node.kind !== "D" && !stFrozen()) {
     const editRow = stEl("div", "sci-node-edit");
     editRow.appendChild(stBtn(stOpLabel("edit"), () => { stCall("seOpenAction", "edit", node.id, d); }));
     if (node.parent) editRow.appendChild(stBtn(stOpLabel("remove"), () => { stCall("seOpenAction", "remove", node.id, d); }));
@@ -1406,6 +1657,12 @@ function stBoardHead(d) {
 /** F の stance（S・D・I の 3 釦。押すと set_stance）。押した釦が今の stance。 */
 function stBoardStance(node) {
   const sec = stSec("Stance");
+  if (stFrozen()) {
+    // 過去の step では釦を出さず、今の stance を文字で出すだけ
+    const hit = stStanceLabel(node.stance);
+    sec.appendChild(stEl("p", "sci-note", hit ? `${hit[0]} ${hit[1]}` : "なし"));
+    return sec;
+  }
   const row = stEl("div", "sci-ops sci-stance-row");
   for (const [value, code, name] of ST_STANCE) {
     const on = node.stance === value;
@@ -1428,7 +1685,7 @@ function stBoardMlflow(node) {
 /** S（SPROUT）の親の SEED（D）。押すと、その SEED の板を開く。親が無い古い S は「なし」。 */
 function stBoardSeedOf(node) {
   const sec = stSec("SEED");
-  const seed = stSeedOf(stData, node);
+  const seed = stSeedOf(stView(), node);
   if (!seed) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
   for (const r of stRows({ nodes: [seed] })) sec.appendChild(stRowEl(r, { flat: true }));
   return sec;
@@ -1437,7 +1694,7 @@ function stBoardSeedOf(node) {
 /** D（SEED）の子の SPROUT（親が D の S）。押すと、その SPROUT の板を開く。 */
 function stBoardSprouts(seedId) {
   const sec = stSec("SPROUT");
-  const rows = stRows({ nodes: stSeedChildren(stData, seedId) });
+  const rows = stRows({ nodes: stSeedChildren(stView(), seedId) });
   if (!rows.length) sec.appendChild(stEl("p", "sci-note", "なし"));
   for (const r of rows) sec.appendChild(stRowEl(r, { flat: true }));
   return sec;
@@ -1461,7 +1718,7 @@ function stBoardPath(d) {
   const parents = ids.filter((id, i) => !(i === ids.length - 1 && String(id) === String(nodeId)));
   if (!parents.length) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
   const byId = new Map();
-  for (const n of (stData && stData.nodes) || []) {
+  for (const n of (stView() && stView().nodes) || []) {
     if (n && n.id != null) byId.set(String(n.id), n);
   }
   const pathById = new Map();
@@ -1701,6 +1958,7 @@ if (typeof module !== "undefined" && module.exports) {
     stOpsFor, stSproutToggle, stSproutRows, stSproutSummary, stRangeText, stApprovalText, stStanceLabel,
     stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
     stVisibleRows, stRowHit, stActionMeta, stClampSplit, stFmtAt, stHistoryText,
+    stStepView, stStepNodeView, stStepParse,
     ST_TYPES, ST_STANCE, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_SPROUT_PATH_MAX, ST_EXPERIMENTS_HASH,
   };
 }

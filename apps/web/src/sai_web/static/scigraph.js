@@ -584,6 +584,8 @@ function sgRenderGraph(container, input, onSelect) {
     b.addEventListener("click", onClick);
     tools.appendChild(b);
   }
+  // 呼び出し元の道具（research-tree の step の札など）は、釦の後ろに並べる
+  for (const t of (input && input.tools) || []) tools.appendChild(t);
   sgRoot.appendChild(tools);
 
   // 2. 図そのもの
@@ -691,6 +693,16 @@ function sgDraw(anchorId) {
     };
   }
   sgApplyView();
+}
+
+/**
+ * 札の中身だけ入れ替える（道具の行・拡大率・位置・畳みは作り直さない）。図がまだ無ければ何もしない。
+ * research-tree の過去の step を出すときに使う（status は step の木）。
+ */
+function sgUpdate(status) {
+  if (!sgWorld) return;
+  sgStatus = status;
+  sgDraw(sgSelectedKey);
 }
 
 /** F・A・E の釦（文は 1 文字。出しているときだけ色を付ける）。 */
@@ -1160,6 +1172,7 @@ function sgEmptyBox(opts) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     sgRenderGraph,
+    sgUpdate,
     sgTreeLayout,
     sgSelectionOf,
     sgMarkSelected,
