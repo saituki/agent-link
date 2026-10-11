@@ -19,6 +19,7 @@ pub mod defs;
 pub mod export;
 pub mod ops;
 pub mod scope;
+pub mod seedq;
 pub mod steps;
 pub mod store;
 
@@ -150,6 +151,40 @@ pub fn fmt_id(kind: Kind, id: i64) -> String {
 
 /// "S2" と 'S' → 2。形は `^<prefix>[1-9][0-9]{0,8}$`。
 pub fn parse_ref(text: &str, prefix: char) -> Result<i64> {
+    let mut buf = [0u8; 4];
+    parse_prefixed(text, prefix.encode_utf8(&mut buf))
+}
+
+/// ('S', 2) → "S2"。
+#[must_use]
+pub fn fmt_ref(prefix: char, id: i64) -> String {
+    format!("{prefix}{id}")
+}
+
+/// "SQ3" → 3（seed の問い）。形は `^SQ[1-9][0-9]{0,8}$`。違えば Invalid。
+pub fn parse_sq(text: &str) -> Result<i64> {
+    parse_prefixed(text, "SQ")
+}
+
+/// "SA7" → 7（問いへの回答）。形は `^SA[1-9][0-9]{0,8}$`。違えば Invalid。
+pub fn parse_sa(text: &str) -> Result<i64> {
+    parse_prefixed(text, "SA")
+}
+
+/// ("SQ", 3) → "SQ3"。
+#[must_use]
+pub fn fmt_sq(id: i64) -> String {
+    format!("SQ{id}")
+}
+
+/// ("SA", 7) → "SA7"。
+#[must_use]
+pub fn fmt_sa(id: i64) -> String {
+    format!("SA{id}")
+}
+
+/// 頭が `prefix` で、続きが 1〜9 桁の数（先頭は 0 でない）の ID を数にする。
+fn parse_prefixed(text: &str, prefix: &str) -> Result<i64> {
     let invalid = || RtError::Invalid(format!("ID の形が正しくありません: {text}"));
     let digits = text.strip_prefix(prefix).ok_or_else(invalid)?;
     if digits.is_empty()
@@ -160,12 +195,6 @@ pub fn parse_ref(text: &str, prefix: char) -> Result<i64> {
         return Err(invalid());
     }
     digits.parse().map_err(|_| invalid())
-}
-
-/// ('S', 2) → "S2"。
-#[must_use]
-pub fn fmt_ref(prefix: char, id: i64) -> String {
-    format!("{prefix}{id}")
 }
 
 /// CURRENT_TIMESTAMP と同じ形（UTC の "YYYY-MM-DD HH:MM:SS"）の今の時刻。
@@ -263,6 +292,10 @@ mod tests {
     #[test]
     fn parse_ref_checks_prefix() {
         assert_eq!(parse_ref("S3", 'S').unwrap(), 3);
+        assert_eq!(parse_sq("SQ3").unwrap(), 3);
+        assert_eq!(parse_sa("SA70").unwrap(), 70);
+        assert!(parse_sq("SQ03").is_err() && parse_sa("SA").is_err() && parse_sq("Q3").is_err());
+        assert_eq!(fmt_sq(3), "SQ3");
         assert!(parse_ref("Q3", 'S').is_err());
         assert!(parse_ref("S03", 'S').is_err());
         assert_eq!(fmt_ref('S', 2), "S2");

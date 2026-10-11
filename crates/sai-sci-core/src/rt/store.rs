@@ -13,7 +13,7 @@ use super::{Kind, Result, RtError, fmt_id, now_text};
 
 const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, stance, starred, \
      cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, paths, \
-     created_by, created_at, updated_at, dataset_ref";
+     created_by, created_at, updated_at, dataset_ref, frozen_qs";
 const LOG_COLUMNS: &str =
     "id, node_id, action, detail, actor, approved_by, qid, question, created_at";
 const APPROVAL_COLUMNS: &str = "id, run_id, qid, question, answer, answered_by, created_at, \
@@ -64,6 +64,8 @@ pub struct NodeRow {
     pub removed_at: Option<String>,
     /// SPROUT（kind S）の PATH（終点の A の id）。S 以外は空。
     pub paths: Vec<i64>,
+    /// S の凍結（完成した時点の問いの ID。`SQ` の番号）。未完成・凍結していないときは `None`。
+    pub frozen_qs: Option<Vec<i64>>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -119,6 +121,7 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeRow> {
         created_at: row.get(17)?,
         updated_at: row.get(18)?,
         dataset_ref: row.get(19)?,
+        frozen_qs: row.get::<_, Option<String>>(20)?.map(|text| parse_vec(&text)),
     })
 }
 
@@ -159,6 +162,19 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
         ],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// S の path（`paths` 列）を書く。`seedq::refresh` だけが使う（path は回答から導く）。
+pub fn set_paths(conn: &Connection, id: i64, paths: &[i64]) -> Result<()> {
+    conn.execute("UPDATE rt_nodes SET paths = ?2 WHERE id = ?1", params![id, write_vec(paths)?])?;
+    Ok(())
+}
+
+/// S の凍結（`frozen_qs`）を書く。`None` で未完成に戻す。`seedq` だけが使う。
+pub fn set_frozen(conn: &Connection, id: i64, frozen: Option<&[i64]>) -> Result<()> {
+    let text = frozen.map(write_vec).transpose()?;
+    conn.execute("UPDATE rt_nodes SET frozen_qs = ?2 WHERE id = ?1", params![id, text])?;
+    Ok(())
 }
 
 /// Node を 1 つ読む。無ければ NotFound。

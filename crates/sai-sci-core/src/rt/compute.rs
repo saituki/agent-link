@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::axes::{self, Axis, PathRole};
 use super::defs::Defs;
+use super::seedq::{self, PathRole, SeedView};
 use super::store::{self, LogRow, NodeRow};
 use super::{Kind, Result, RtError, action, fmt_id, ops, parse_id, parse_id_of};
 use sai_paper_core::paths::PaperRoots;
@@ -126,9 +126,13 @@ pub struct NodeJson {
     pub dataset: Option<String>,
     pub created_by: String,
     pub created_at: String,
-    /// seed（D）の 6 軸の状態（D だけ。`parse_axes` のゆるい読み）。他は null。
-    pub axes: Option<BTreeMap<String, Axis>>,
-    /// SPROUT の path の区分（S だけ。親の D の本文から導く）。他は []。
+    /// seed（D）の問い（D は生きた問い全部。S は答える問い。消した問いは `removed: true`）。他は []。
+    pub questions: Vec<seedq::QuestionJson>,
+    /// SPROUT が完成しているか（S だけ。他は null）。
+    pub complete: Option<bool>,
+    /// SPROUT の未回答の問い（`SQ<n>`。S だけ。他は []）。
+    pub missing: Vec<String>,
+    /// SPROUT の path の区分（S だけ。回答から導く。他は []）。
     pub path_roles: Vec<PathRole>,
 }
 
@@ -368,8 +372,10 @@ pub struct Tree {
     sprout_ranges: HashMap<i64, Range>,
     /// 対象の Node ごとの、一番新しい `sci-verify` の run の時刻（Next Action の規則 3）。
     verified: HashMap<i64, DateTime<Utc>>,
-    /// SPROUT（S）ごとの path の区分（親の D の本文から導く）。
+    /// SPROUT（S）ごとの path の区分（回答から導く）。
     path_roles: HashMap<i64, Vec<PathRole>>,
+    /// D と S ごとの問いの表示（`questions`・`complete`・`missing`）。
+    views: HashMap<i64, SeedView>,
     log: Vec<LogRow>,
     /// 消した Node も含む id → (kind, 文)。DECISIONS の表示に使う。
     labels: HashMap<i64, (Kind, String)>,
@@ -416,6 +422,7 @@ pub fn sprout_range(conn: &Connection, paths: &[i64]) -> Result<Range> {
 impl Tree {
     /// research-tree を読む。
     pub fn load(conn: &Connection, roots: &PaperRoots, defs: &Defs) -> Result<Tree> {
+        seedq::upgrade(conn)?;
         let all = store::list_nodes(conn, true)?;
         let labels: HashMap<i64, (Kind, String)> =
             all.iter().map(|n| (n.id, (n.kind, n.text.clone()))).collect();
@@ -474,16 +481,14 @@ impl Tree {
             *slot = (*slot).max(at);
         }
 
-        // S の path の区分は、親の D の本文（親が D でなければ空＝軸が分からない）から導く。
+        // S の path の区分と、D・S の問いの表示は、問いと回答から導く（保存しない）。
         let mut path_roles = HashMap::new();
-        for n in nodes.iter().filter(|n| n.kind == Kind::S) {
-            let seed_body = n
-                .parent_id
-                .and_then(|p| store::get_node(conn, p).ok())
-                .filter(|p| p.kind == Kind::D)
-                .map(|p| p.body)
-                .unwrap_or_default();
-            path_roles.insert(n.id, axes::path_roles(conn, &seed_body, &n.paths)?);
+        let mut views = HashMap::new();
+        for n in nodes.iter().filter(|n| matches!(n.kind, Kind::S | Kind::D)) {
+            views.insert(n.id, seedq::view(conn, n)?);
+            if n.kind == Kind::S {
+                path_roles.insert(n.id, seedq::path_roles(conn, n)?);
+            }
         }
 
         Ok(Tree {
@@ -497,6 +502,7 @@ impl Tree {
             sprout_ranges,
             verified,
             path_roles,
+            views,
             log: store::list_log(conn, None)?,
             labels,
         })
@@ -516,6 +522,12 @@ impl Tree {
     #[must_use]
     pub fn count_under(&self, id: i64, kind: Kind) -> usize {
         self.kid_nodes(id).map(|k| usize::from(k.kind == kind) + self.count_under(k.id, kind)).sum()
+    }
+
+    /// D か S の問いの表示（`questions`・`complete`・`missing`）。他の Node は無い。
+    #[must_use]
+    pub fn seed_view(&self, id: i64) -> Option<&SeedView> {
+        self.views.get(&id)
     }
 
     /// SPROUT（S）の path の区分（`paths` と同じ順）。
@@ -645,7 +657,9 @@ impl Tree {
             dataset: n.dataset_ref.clone(),
             created_by: n.created_by.clone(),
             created_at: n.created_at.clone(),
-            axes: (n.kind == Kind::D).then(|| axes::parse_axes(&n.body)),
+            questions: self.views.get(&id).map_or_else(Vec::new, |v| v.questions.clone()),
+            complete: self.views.get(&id).and_then(|v| v.complete),
+            missing: self.views.get(&id).map_or_else(Vec::new, |v| v.missing.clone()),
             path_roles: self.path_roles.get(&id).cloned().unwrap_or_default(),
         }
     }
@@ -800,16 +814,21 @@ impl Tree {
         self.kid_nodes(id).any(|k| k.kind == kind || self.has_kind_below(k.id, kind))
     }
 
-    /// 規則 BLANK_NO_PATH: 生きた D の空欄の軸（`novel`・`open`）の Q（親の無い Q で `guide_key` が軸の key）の下に、
+    /// 規則 BLANK_NO_PATH: 生きた D の、まだ答えていない（D の回答が無い）軸の問いの軸の Q（親の無い Q で `guide_key` が軸の key）の下に、
     /// path に選べる A（直下の A のうち、さらに下に生きた A を持つもの）が無い。同じ軸の Q は D を 1 件にまとめる。
     /// 位置（Q の順）と Next Action（rank 0）の組を返す。軸の Q が無いときは出さない。
     fn blank_no_path(&self) -> Vec<(usize, NextAction)> {
         let mut by_axis: BTreeMap<(usize, String), Vec<i64>> = BTreeMap::new();
         for d in self.nodes.iter().filter(|n| n.kind == Kind::D) {
-            for (key, axis) in axes::parse_axes(&d.body) {
-                if !matches!(axis.state.as_str(), "novel" | "open") {
-                    continue;
+            let mut keys: Vec<String> = Vec::new();
+            for q in self.views.get(&d.id).map_or(&[][..], |v| v.questions.as_slice()) {
+                let Some(key) = q.axis.as_deref() else { continue };
+                let answered = q.answers.iter().any(|a| a.owner == fmt_id(Kind::D, d.id));
+                if !answered && !keys.iter().any(|k| k == key) {
+                    keys.push(key.to_string());
                 }
+            }
+            for key in keys {
                 let Some(q) = self.nodes.iter().find(|n| n.kind == Kind::Q && n.parent_id.is_none() && n.guide_key.as_deref() == Some(key.as_str())) else {
                     continue;
                 };
@@ -827,7 +846,7 @@ impl Tree {
                 let mut action = card_action(
                     q,
                     "lab-grow",
-                    format!("{} の空欄の軸 {key} に、path に選べる A を育てる", ids.join("・")),
+                    format!("{} の未回答の問い（{key}）に、path に選べる A を育てる", ids.join("・")),
                     "軸の Q の直下に、下位の A を持つ A を 1 つ以上",
                     "BLANK_NO_PATH",
                     None,
@@ -1100,14 +1119,14 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
         .ok_or_else(|| RtError::NotFound(format!("{id} はありません")))?;
 
     let path = tree.chain_of(num);
-    // S の表示（seed・新規性・実験・記載なし）に要る、親の D と、path・固定の A の道。
+    // S の表示（seed・新規性・未回答・実験）に要る、親の D と、path・回答の A の道。
     let seed = match node.kind {
         Kind::S => node.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D).map(|p| tree.row(p.id)),
         _ => None,
     };
     let mut chains = BTreeMap::new();
     if let Some(seed) = &seed {
-        let anchors = seed.axes.iter().flat_map(|axes| axes.values()).filter_map(|axis| axis.a.clone());
+        let anchors = seed.questions.iter().flat_map(|q| q.answers.iter()).filter_map(|a| a.a.clone());
         let roles = tree.roles_of(num).iter().map(|r| r.a.clone());
         for text in anchors.chain(roles) {
             if let Ok(id) = parse_id_of(&text, Kind::A) {
@@ -1542,13 +1561,16 @@ mod tests {
         let e = env("blank");
         let q_method = with_body(&e, Kind::Q, None, Some("method"), "");
         let big = a(&e, q_method, "大分類");
-        let d = with_body(&e, Kind::D, None, None, "## 手法（method）\n空欄\n新規性: 患者ごとに違う\n");
+        let d = with_body(&e, Kind::D, None, None, "");
+        for (axis, text) in seedq::TEMPLATE {
+            seedq::insert_question(e.db.connection(), d, text, axis).unwrap();
+        }
         let blanks = |tree: &Tree| next_actions(tree, 10).into_iter().filter(|x| x.why == "BLANK_NO_PATH").collect::<Vec<_>>();
         let got = blanks(&tree(&e));
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].node.as_deref(), Some(fmt_id(Kind::Q, q_method).as_str()));
         assert_eq!(got[0].block.as_deref(), Some("lab-grow"));
-        assert_eq!(got[0].purpose, format!("{} の空欄の軸 method に、path に選べる A を育てる", fmt_id(Kind::D, d)));
+        assert_eq!(got[0].purpose, format!("{} の未回答の問い（method）に、path に選べる A を育てる", fmt_id(Kind::D, d)));
         // 下位の A を足すと消える。
         a(&e, big, "細かい");
         assert!(blanks(&tree(&e)).is_empty());

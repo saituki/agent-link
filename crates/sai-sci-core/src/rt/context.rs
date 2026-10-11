@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension};
 
-use super::axes;
+use super::seedq;
 use super::compute::Tree;
 use super::defs::Defs;
 use super::ops::{self, Field, Risk, Ty};
@@ -79,7 +79,9 @@ fn field_text(f: &Field) -> String {
         Ty::Int => "整数".to_string(),
         Ty::Enum(values) => values.join(" / "),
         Ty::List(min, max) => format!("文字列の配列、{min}〜{max} 個"),
-        Ty::Paths(min, max) => format!("A の ID の配列（オブジェクトも可）、{min}〜{max} 個"),
+        Ty::Sq => "問いの ID（SQ<n>）".to_string(),
+        Ty::Sa => "回答の ID（SA<n>）".to_string(),
+        Ty::Answers(min, max) => format!("{{q, a}} か {{q, text}} の配列、{min}〜{max} 個"),
     };
     format!("{}（{note}）", f.name)
 }
@@ -202,35 +204,32 @@ fn q_depth(tree: &Tree, n: &NodeRow) -> usize {
     depth
 }
 
-/// SPROUT の行の区分（`[固定: task=A12 / 新規: method=A94 / 記載なし: data / 実験: E 3 件]`）。空の区分は出さない。
+/// SPROUT の行の区分（`[固定: task=A12, metric=「AUC」 / 新規: method=A94 / 未回答: 2 / 実験: E 3 件]`）。空の区分は出さない。
 fn sprout_tail(tree: &Tree, n: &NodeRow) -> String {
-    let roles = tree.roles_of(n.id);
-    let seed = n.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D).map(|d| axes::parse_axes(&d.body));
+    let Some(view) = tree.seed_view(n.id) else { return String::new() };
+    let mut fixed: Vec<String> = Vec::new();
+    let mut novel: Vec<String> = Vec::new();
+    for q in view.questions.iter().filter(|q| !q.removed) {
+        let label = q.axis.clone().unwrap_or_else(|| q.id.clone());
+        for a in &q.answers {
+            let value = match (&a.a, &a.text) {
+                (Some(id), _) => id.clone(),
+                (None, Some(text)) => format!("「{text}」"),
+                (None, None) => continue,
+            };
+            let item = format!("{label}={value}");
+            if a.owner.starts_with('D') { fixed.push(item) } else { novel.push(item) }
+        }
+    }
     let mut parts: Vec<String> = Vec::new();
-    let fixed: Vec<String> = roles
-        .iter()
-        .filter(|r| r.role == "fixed")
-        .map(|r| format!("{}={}", r.axis.as_deref().unwrap_or("?"), r.a))
-        .collect();
     if !fixed.is_empty() {
         parts.push(format!("固定: {}", fixed.join(", ")));
     }
-    let novel: Vec<String> = roles
-        .iter()
-        .filter(|r| r.role == "novel")
-        .map(|r| {
-            let until = r.fixed_at.as_ref().map_or_else(String::new, |f| format!("（{f} まで固定）"));
-            format!("{}={}{until}", r.axis.as_deref().unwrap_or("?"), r.a)
-        })
-        .collect();
     if !novel.is_empty() {
         parts.push(format!("新規: {}", novel.join(", ")));
     }
-    if let Some(seed) = &seed {
-        let none: Vec<&str> = axes::AXES.iter().map(|(key, _)| *key).filter(|key| seed.get(*key).is_some_and(|a| a.state == "none")).collect();
-        if !none.is_empty() {
-            parts.push(format!("記載なし: {}", none.join(", ")));
-        }
+    if !view.missing.is_empty() {
+        parts.push(format!("未回答: {}", view.missing.len()));
     }
     let experiments = tree.count_under(n.id, Kind::E);
     if experiments > 0 {
@@ -239,21 +238,35 @@ fn sprout_tail(tree: &Tree, n: &NodeRow) -> String {
     if parts.is_empty() { String::new() } else { format!(" [{}]", parts.join(" / ")) }
 }
 
-/// seed（D）の 6 軸の状態の表（`## STUDY_SEED` に足す。行は [`axes::AXES`] の順）。
-fn seed_axes_table(body: &str) -> String {
-    let parsed = axes::parse_axes(body);
-    let mut lines = vec!["| 軸 | 状態 | 値・理由 | A |".to_string(), "|---|---|---|---|".to_string()];
-    for (key, _) in axes::AXES {
-        let axis = &parsed[key];
-        let (label, text) = match axis.state.as_str() {
-            "fixed" => ("決定", axis.value.as_deref()),
-            "range" => ("範囲", axis.value.as_deref()),
-            "novel" => ("空欄（新規性）", axis.reason.as_deref()),
-            "none" => ("空欄（記載なし）", axis.reason.as_deref()),
-            _ => ("空欄", None),
-        };
-        let cell = |text: Option<&str>| text.unwrap_or_default().replace('|', "\\|");
-        lines.push(format!("| {key} | {label} | {} | {} |", cell(text), cell(axis.a.as_deref())));
+/// seed（D）の問いと、S の回答の表（`## STUDY_SEED` に足す）。行は S が答える問いの順。
+/// 列は 問い・軸・seed の回答・この S の回答。path の回答は `A12 <A の文>`、テキストはそのまま。`|` は `\|` にする。
+fn seed_questions_table(tree: &Tree, s: &NodeRow) -> String {
+    let mut lines = vec![
+        "| 問い | 軸 | seed の回答 | この S の回答 |".to_string(),
+        "|---|---|---|---|".to_string(),
+    ];
+    let cell = |text: &str| text.replace('|', "\\|");
+    let answer_text = |a: &seedq::AnswerJson| match (&a.a, &a.a_text, &a.text) {
+        (Some(id), Some(text), _) => format!("{id} {}", flat_text(text)),
+        (Some(id), None, _) => id.clone(),
+        (None, _, Some(text)) => text.clone(),
+        (None, _, None) => String::new(),
+    };
+    let Some(view) = tree.seed_view(s.id) else { return lines.join("\n") };
+    for q in &view.questions {
+        let mut seed_side: Vec<String> = Vec::new();
+        let mut sprout_side: Vec<String> = Vec::new();
+        for a in &q.answers {
+            if a.owner.starts_with('D') { seed_side.push(answer_text(a)) } else { sprout_side.push(answer_text(a)) }
+        }
+        let question = if q.removed { format!("{}（消した問い）", q.text) } else { q.text.clone() };
+        lines.push(format!(
+            "| {} | {} | {} | {} |",
+            cell(&format!("{} {question}", q.id)),
+            q.axis.as_deref().unwrap_or("-"),
+            cell(&seed_side.join("、")),
+            cell(&sprout_side.join("、")),
+        ));
     }
     lines.join("\n")
 }
@@ -391,7 +404,7 @@ impl Parts {
             match t.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D) {
                 Some(d) => {
                     let head = format!("{} {}", fmt_id(Kind::D, d.id), flat_text(&d.text));
-                    let table = seed_axes_table(&d.body);
+                    let table = seed_questions_table(tree, t);
                     if d.body.trim().is_empty() {
                         format!("{head}\n\n{table}")
                     } else {
@@ -565,6 +578,7 @@ mod tests {
     use super::*;
     use sai_paper_core::database::Database;
     use super::super::defs;
+    use crate::rt::fmt_sq;
     use std::fs;
     use std::path::PathBuf;
 
@@ -914,7 +928,7 @@ mod tests {
         let _ = fs::remove_dir_all(&e.dir);
     }
 
-    /// TREE の Q は `[A n・深さ d]`、S は区分の札（`[新規: …]`・`[記載なし]`・`実験`）。STUDY_SEED の表に 6 軸が並ぶ。
+    /// TREE の Q は `[A n・深さ d]`、S は区分の札（`[固定: …]`・`[新規: …]`・`[未回答: n]`・`実験`）。STUDY_SEED の表に問いが並ぶ。
     #[test]
     fn tree_shows_q_depth_and_sprout_roles() {
         let e = env("roles");
@@ -930,22 +944,31 @@ mod tests {
         let a94 = add(&e, Kind::A, q_method, "Costa 型", None);
         let q60 = add(&e, Kind::Q, a94, "下位の問い", None);
         let a385 = add(&e, Kind::A, q60, "細かい手法", None);
-        let body = format!(
-            "## 解く問題（task）\n決定: 発作部位の特定\n## 対象（target）\n空欄\n## データ（data）\n空欄\n記載なし: 実測データを使わない\n## 手法（method）\n範囲: Costa 型を土台にする\nA: {}\n## 出力（output）\n空欄\n## 評価指標（metric）\n空欄\n",
-            fmt_id(Kind::A, a94)
-        );
-        let d = seed(&e, "自分の研究", &body);
+        let d = seed(&e, "自分の研究", "");
+        // seed の問い（雛形の 7 問）と、seed の回答（task は決定、data は記載なし）。method は seed では答えず、S が答える（新規）。
+        let conn = e.db.connection();
+        // 新しい模型の DB として作る（変換を走らせると、E の付いた未完成の S を完成として凍結してしまう）。
+        store::meta_set(conn, "seed_questions", "1").unwrap();
+        let qs: Vec<i64> = seedq::TEMPLATE.iter().map(|(axis, text)| seedq::insert_question(conn, d, text, *axis).unwrap()).collect();
+        seedq::insert_answer(conn, d, qs[0], None, Some("発作部位の特定"), "user").unwrap();
+        seedq::insert_answer(conn, d, qs[2], None, Some("記載なし: 実測データを使わない"), "user").unwrap();
         let s = sprout(&e, Some(d), a385, "種");
+        seedq::insert_answer(conn, s, qs[3], Some(a385), None, "user").unwrap();
+        seedq::refresh(conn, d).unwrap();
         add(&e, Kind::E, s, "実験", None);
         task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
         let text = build_with(&e, 100_000, false).unwrap();
-        let roles = format!("[新規: method={}（{} まで固定） / 記載なし: data / 実験: E 1 件]", fmt_id(Kind::A, a385), fmt_id(Kind::A, a94));
+        // S の行の区分: 固定（seed の回答）・新規（S の回答）・未回答（target・output・metric・成功基準）・実験。
+        let roles = format!(
+            "[固定: task=「発作部位の特定」, data=「記載なし: 実測データを使わない」 / 新規: method={} / 未回答: 4 / 実験: E 1 件]",
+            fmt_id(Kind::A, a385)
+        );
         assert!(text.contains(&format!("- {} 種 {roles}", fmt_id(Kind::S, s))), "{text}");
         let path = format!("[新規] PATH: {} 手法の問い > {} Costa 型 > {} 下位の問い > {} 細かい手法", fmt_id(Kind::Q, q_method), fmt_id(Kind::A, a94), fmt_id(Kind::Q, q60), fmt_id(Kind::A, a385));
         assert!(text.contains(&path), "{text}");
-        assert!(text.contains(&format!("| method | 範囲 | Costa 型を土台にする | {} |", fmt_id(Kind::A, a94))), "{text}");
-        assert!(text.contains("| task | 決定 | 発作部位の特定 |  |"), "{text}");
-        assert!(text.contains("| data | 空欄（記載なし） | 実測データを使わない |  |"), "{text}");
+        // STUDY_SEED の表: 問い・軸・seed の回答・この S の回答。
+        assert!(text.contains(&format!("| {} 解く問題は何か | task | 発作部位の特定 |  |", fmt_sq(qs[0]))), "{text}");
+        assert!(text.contains(&format!("| {} どの手法を使うか | method |  | {} 細かい手法 |", fmt_sq(qs[3]), fmt_id(Kind::A, a385))), "{text}");
         // 対象が無いと木の全体。Q の行に [A n・深さ d]。
         task(&e, 1, "sci_purpose: p\n");
         let whole = build_with(&e, 100_000, false).unwrap();
