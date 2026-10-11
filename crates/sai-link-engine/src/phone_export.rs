@@ -883,6 +883,45 @@ pub fn write_cc_cost(dir: &Path, session_id: &str, total: f64) -> std::io::Resul
     write_json_atomic(&tmp, &dst, &body)
 }
 
+// ============================================================================
+// cc の枠の値（cc-rate-limits.json）
+// ============================================================================
+
+/// cc の 5 時間枠・7 日枠の値を `<path>` に書く（一時ファイル → rename）。
+///
+/// `rate_limits` は statusLine 入力の `rate_limits` の値（`five_hour` / `seven_day` を持つ）。
+/// `used_percentage` が数の窓だけ残す（欠けた窓はキーごと省く）。1 つも残らなければ書かない。
+pub fn write_cc_rate_limits(
+    path: &Path,
+    rate_limits: &serde_json::Value,
+    session_id: &str,
+) -> std::io::Result<()> {
+    let mut body = serde_json::Map::new();
+    for key in ["five_hour", "seven_day"] {
+        let Some(window) = rate_limits.get(key).filter(|w| w.is_object()) else {
+            continue;
+        };
+        let Some(pct) = window.get("used_percentage").filter(|v| v.is_number()) else {
+            continue;
+        };
+        body.insert(
+            key.to_string(),
+            serde_json::json!({
+                "used_percentage": pct,
+                "resets_at": window.get("resets_at").cloned().unwrap_or(serde_json::Value::Null),
+            }),
+        );
+    }
+    if body.is_empty() {
+        return Ok(());
+    }
+    body.insert("session_id".to_string(), serde_json::json!(session_id));
+    body.insert("updated_at".to_string(), serde_json::json!(now_iso()));
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let tmp = dir.join(".cc-rate-limits.json.tmp");
+    write_json_atomic(&tmp, path, &serde_json::Value::Object(body))
+}
+
 /// cc の statusLine 標準入力 1 件を処理する（`sai-link cc-statusline` の本体）。
 ///
 /// 戻り値は cc の画面下に出す 1 行（例 `sai #58 $1.27`）。読めない・費用が無い・書けないときは空行。
@@ -894,6 +933,8 @@ pub fn handle_cc_statusline(input: &str) -> String {
 }
 
 /// [`handle_cc_statusline`] の出力先指定版（テスト用）。
+///
+/// `dir` は `cc-cost` のフォルダ。枠の値は `dir` の親（`<sai_home>`）の `cc-rate-limits.json` に書く。
 pub fn handle_cc_statusline_in(input: &str, dir: &Path) -> String {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
         return String::new();
@@ -903,6 +944,12 @@ pub fn handle_cc_statusline_in(input: &str, dir: &Path) -> String {
     };
     if !is_safe_id(session_id) {
         return String::new();
+    }
+    // 枠の値は費用の有無と関係なく書く（応答の後にだけ入るため）
+    if let (Some(rate_limits), Some(home)) = (value.get("rate_limits"), dir.parent()) {
+        if let Err(e) = write_cc_rate_limits(&home.join("cc-rate-limits.json"), rate_limits, session_id) {
+            eprintln!("[sai-engine] cc-rate-limits の書込みに失敗: {}", e);
+        }
     }
     // コストが取れない場合は書かない（概算フォールバックを妨げないため）
     let Some(total) = value
@@ -1263,5 +1310,68 @@ mod cc_statusline_tests {
             ""
         );
         assert!(!dir.path().join(format!("{}.json", sid)).exists());
+    }
+
+    /// `rate_limits` があれば `<sai_home>/cc-rate-limits.json` に枠の値を書くこと。
+    #[test]
+    fn cc_statusline_writes_rate_limits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cost_dir = tmp.path().join("cc-cost");
+        let session_id = "11111111-2222-4333-8444-555555555555";
+        let input = format!(
+            r#"{{"session_id":"{}","rate_limits":{{"five_hour":{{"used_percentage":23.5,"resets_at":1738425600}},"seven_day":{{"used_percentage":41.2,"resets_at":1738857600}}}}}}"#,
+            session_id
+        );
+        // 費用が無くても枠の値は書く（画面下の 1 行は空）
+        assert_eq!(handle_cc_statusline_in(&input, &cost_dir), "");
+        let text = std::fs::read_to_string(tmp.path().join("cc-rate-limits.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["five_hour"]["used_percentage"], 23.5);
+        assert_eq!(v["five_hour"]["resets_at"], 1738425600_i64);
+        assert_eq!(v["seven_day"]["used_percentage"], 41.2);
+        assert_eq!(v["seven_day"]["resets_at"], 1738857600_i64);
+        assert_eq!(v["session_id"], session_id);
+        assert!(v["updated_at"].as_str().unwrap().ends_with('Z'));
+        assert!(!tmp.path().join(".cc-rate-limits.json.tmp").exists());
+    }
+
+    /// `rate_limits` が無い・数でない入力では枠の値のファイルを書かないこと。
+    #[test]
+    fn cc_statusline_skips_rate_limits_when_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cost_dir = tmp.path().join("cc-cost");
+        let sid = "11111111-2222-4333-8444-555555555555";
+        handle_cc_statusline_in(
+            &format!(r#"{{"session_id":"{}","cost":{{"total_cost_usd":1.0}}}}"#, sid),
+            &cost_dir,
+        );
+        assert!(!tmp.path().join("cc-rate-limits.json").exists());
+        handle_cc_statusline_in(
+            &format!(
+                r#"{{"session_id":"{}","rate_limits":{{"five_hour":{{"used_percentage":"23"}}}}}}"#,
+                sid
+            ),
+            &cost_dir,
+        );
+        assert!(!tmp.path().join("cc-rate-limits.json").exists());
+    }
+
+    /// 片方の窓だけでも書けること（欠けた窓はキーごと省く）。
+    #[test]
+    fn cc_statusline_writes_single_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cost_dir = tmp.path().join("cc-cost");
+        let sid = "11111111-2222-4333-8444-555555555555";
+        handle_cc_statusline_in(
+            &format!(
+                r#"{{"session_id":"{}","rate_limits":{{"seven_day":{{"used_percentage":41.2,"resets_at":1738857600}}}}}}"#,
+                sid
+            ),
+            &cost_dir,
+        );
+        let text = std::fs::read_to_string(tmp.path().join("cc-rate-limits.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["seven_day"]["used_percentage"], 41.2);
+        assert!(v.get("five_hour").is_none(), "欠けた窓はキーごと無い: {}", v);
     }
 }
