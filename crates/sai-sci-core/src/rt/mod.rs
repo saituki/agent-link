@@ -4,7 +4,7 @@
 //! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
 //! SPROUT は `S2`。
 //!
-//! SEED は DB の行を持たない Node で、ID は [`SEED_ID`]（root の根）。研究ごとの制約は D（seed）の行で、ID は `D<n>`。SEED の直下の Q（`parent_id` が NULL）を top_Q と呼ぶ。
+//! 木の根（SEED）は廃止した。軸の Q（`parent_id` が NULL の Q。top_Q）は親の無い Q として DB に並ぶ。研究ごとの制約は D（seed）の行で、ID は `D<n>`。
 
 // 行の型の項目名は表の列名そのままなので、項目ごとの説明は付けない。
 #![allow(missing_docs)]
@@ -46,8 +46,17 @@ pub enum RtError {
 /// research-tree の操作の結果型。
 pub type Result<T> = std::result::Result<T, RtError>;
 
-/// DB の行を持たない Node（SEED）の ID。中身は RESEARCH_TYPE と mind.md。
-pub const SEED_ID: &str = "SEED";
+/// 廃止した根の ID（`SEED`）。agent・利用者の入力で断り、古い task.md の `sci_node: SEED` は木の全体として読む。
+const RETIRED_SEED: &str = "SEED";
+
+/// `SEED` を断るときの案内（終了コード 2）。
+pub const RETIRED_SEED_MSG: &str = "SEED は廃止しました。木の全体は sai-sci status、研究の制約は seed（D）の ID（例: sai-sci node D3）を使ってください";
+
+/// 廃止した `SEED` か。
+#[must_use]
+pub fn is_retired_seed(text: &str) -> bool {
+    text == RETIRED_SEED
+}
 
 /// Node の 6 種。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
@@ -166,10 +175,10 @@ pub fn now_text() -> String {
 /// task.md の sci キー（C-KEYS）。無いキーは空。
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct RtKeys {
-    /// 対象の Node。SEED のときは `None`。
+    /// 対象の Node。木の全体のときは `None`。
     pub node: Option<(Kind, i64)>,
-    /// 対象が SEED か（`sci_node: SEED`）。
-    pub seed: bool,
+    /// 対象が木の全体か（`sci_node` が空か、古い `sci_node: SEED`）。
+    pub whole: bool,
     /// 行動の目的。
     pub purpose: String,
     /// 期待する成果。
@@ -188,7 +197,7 @@ impl RtKeys {
     /// sci の CARD か（`sci_node` か `sci_purpose` のどちらかがある）。
     #[must_use]
     pub fn is_sci(&self) -> bool {
-        self.node.is_some() || self.seed || !self.purpose.is_empty()
+        self.node.is_some() || self.whole || !self.purpose.is_empty()
     }
 }
 
@@ -209,14 +218,14 @@ pub fn task_keys(task_md: &str) -> RtKeys {
         .filter(|id| *id > 0)
         .collect();
 
-    // `sci_node: SEED` は DB の行を持たない Node。ID は `SEED_ID`。
+    // `sci_node` が空（木の全体）か、古い `sci_node: SEED`（木の全体として読む）。キーが無いときは全体にしない。
     let node_text = get("sci_node");
-    let seed = node_text == SEED_ID;
-    let node = if seed { None } else { parse_id(&node_text).ok() };
+    let whole = pairs.iter().any(|(key, _)| key == "sci_node") && (node_text.is_empty() || is_retired_seed(&node_text));
+    let node = if whole { None } else { parse_id(&node_text).ok() };
 
     RtKeys {
         node,
-        seed,
+        whole,
         purpose: get("sci_purpose"),
         expect: get("sci_expect"),
         mode: get("sci_mode"),
@@ -265,7 +274,7 @@ mod tests {
         let md = format!("---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\nsci_child: F\n---\n\n本文\n");
         let keys = task_keys(&md);
         assert_eq!(keys.node, Some((Kind::Q, 12)));
-        assert!(!keys.seed);
+        assert!(!keys.whole);
         assert_eq!(keys.purpose, "データの量の根拠を探す");
         assert_eq!(keys.expect, "F を 2 つ以上");
         assert_eq!(keys.mode, "purpose_first");
@@ -276,9 +285,11 @@ mod tests {
         assert_eq!(task_keys("---\nsci_node: Q1\nsci_child: O\n---\n").child, "");
         assert!(keys.is_sci());
         assert_eq!(task_keys("---\nrunner: pi\n---\n"), RtKeys::default());
-        // `sci_node: SEED` は seed になり、node は空。
-        let seed = task_keys("---\nsci_node: SEED\nsci_purpose: 全体を見る\n---\n");
-        assert!(seed.seed && seed.node.is_none());
-        assert!(seed.is_sci());
+        // 古い `sci_node: SEED` と、空の `sci_node` は木の全体（node は空）。
+        for md in ["---\nsci_node: SEED\nsci_purpose: 全体を見る\n---\n", "---\nsci_node:\nsci_purpose: 全体を見る\n---\n"] {
+            let whole = task_keys(md);
+            assert!(whole.whole && whole.node.is_none(), "{md}");
+            assert!(whole.is_sci());
+        }
     }
 }
