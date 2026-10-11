@@ -13,7 +13,7 @@ templates:
   - bw-core
 context: true
 sci_type: node
-sci_ops: set_stance, add_f, remove, move_a, insert_q, add_q
+sci_ops: set_stance, add_f, remove, move_a, move_node, regroup, insert_q, add_q
 timeout: 5400
 worktree: none
 enable: true
@@ -47,16 +47,17 @@ subblocks:
 4. **議論が要るときだけ使う。** 判定が割れたとき（支持と反対の根拠が同じくらいあるとき）だけ、`paper-debater`・`paper-reviewer` を子で使えます。子の起こし方は `sci-task` の決まりに従い（`sai-link task create`・`sai-link task wait`）、runner は `cc` にします。往復は既定 2 回、最大 3 回です。参加者に渡す背景は、対象の Node と直の子だけにします。
 5. **op を出す。** 結果を `sai-sci op` で木に反映します。1 段 1 回の `op` にし、この順で出します。
    - 段 1（許可が要らない）: `set_stance`（stance が本文と違う F）・`add_f`（反する根拠・新しい根拠）
-   - 段 2（許可が要る）: `remove`（答えていない A・確かめに要らない Q）・`move_a`（A を別の Q の下へ）・`insert_q`（A と Q の間に条件の Q を入れる）・`add_q`（分け方に漏れがあるときの新しい Q）
+   - 段 2（許可が要る）: `remove`（答えていない A・確かめに要らない Q）・`move_a`（A を別の Q の下へ）・`move_node`（A を、その下の F・child_Q ごと、ID を保って別の Q の下へ）・`regroup`（Q の下に中間の A と細分の Q を作り、詳しい A をその下へまとめる。ID を保つ）・`insert_q`（A と Q の間に条件の Q を入れる）・`add_q`（分け方に漏れがあるときの新しい Q）
    - 段 2 の op は、先に質問ツールで許可を取ります（`sci-core` の「許可を取る」。1 問・`許可する` / `許可しない`・op の一覧を質問文に書きます）。
    - `set_stance` の例: `{"ops": [{"op": "set_stance", "node": "F3", "stance": "deny"}]}`
    - `add_f` の例: `{"ops": [{"op": "add_f", "parent": "A12", "text": "…", "stance": "deny", "cites": ["#37.5.2"]}]}`
-6. **次の CARD を 3 件まで決める。** 次に動かす LabAgent を 3 件まで選びます（例: 子が無い Q は `lab-grow`、F が無い A は `lab-search`、論文を読むなら `lab-read`）。CARD の案は報告に書きます。作るのは利用者か professor です。
+6. **次の CARD を 3 件まで決める。** 次に動かす LabAgent を 3 件まで選びます（例: 子が無い Q は `lab-grow`、F が無い A は `lab-search`、論文を読むなら `lab-read`）。兄弟の詳しさ・分け方がずれているが、段 2 の `regroup` では直し切れないとき（直下の A が多い・複数の段にまたがる）は `lab-regroup` の CARD を勧めます。CARD の案は報告に書きます。作るのは利用者か professor です。
 7. REPORT を保存して終えます（`sci-core` の「終わり方」）。
 
 ## 評価の観点
 - 4 種類の関係のどれを評価したか。直の子を 1 つも飛ばしていないか。
 - Q→Q: root の Q が「種類」を問う形か。「この研究は」の決定の問いになっていないか（なっていれば、seed に移すよう報告に書く）。
+- Q→A・Q→Q: 同じ Q の兄弟の詳しさと分け方の基準がそろっているか。詳しい A と粗い A が同じ段に並んでいないか。直下の A が 7 件を超えていないか。ずれを見つけたら、段 2 の `regroup` で直す（許可を取る）。直せないほど大きいときは、`lab-regroup` の CARD の案を報告に書く。「層・粒度」のずれを報告だけで流さない。
 - Q→A: A が選択肢 1 つか。複数の選択肢を 1 つの A に混ぜていないか。A の文と本文に出典（`#番号`）が無いか。
 - 判定が「合う」だけになっていないか。合わない所を、根拠付きで書いたか。
 - 不利な根拠を探したか。見つからなかったときは、そう書いたか。支持の報告だけにしていないか。

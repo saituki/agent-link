@@ -59,10 +59,10 @@ subblocks:
 | 知りたいこと | 命令・場所（対象のプロジェクトで） |
 |---|---|
 | run の一覧・親子 | `sai-link run tree`（branch・sprout・seed・root の 4 層） |
-| 1 件の状態・時間・エラー | `sai-link run show <ID>` / `sai-link run list --json` / `sai-link run stats\|history <run_id>` |
+| 1 件の状態・時間・エラー | `sai-link run show <ID> --json` / `sai-link run list --limit 0 --json`（既定は新しい 20 件だけ。全部は `--limit 0`） / `sai-link run stats\|history <run_id> --json` |
 | 依頼文・会話・報告・起動時の固定部分 | `sai-link run md --kind task\|message\|report\|system <run_id>` |
 | 成果物 | `sai-link doc list --run <run_id> --all`（本文は `sai-link doc read`） |
-| エラー・停止の言葉を探す | `sai-link session search -w <語> --type tool_result --status failed` など |
+| エラー・停止の言葉を探す | `sai-link session search -w "Exit code"`（語はカンマ区切りで AND）。ツールの失敗の一覧は `sai-link run history <run_id> --json` の `cli.failures`（`command` が `(不明)` のものを含む）と、各 event の `is_error` |
 | 木の現在地・木の変更（op）・外した A | `sai-sci status --json` / `sai-sci node <N12>` |
 | 実験の台帳・仕様・結果 | `.sai/tools/exp_summary.py`・`experiments/`・`sai-web mlflow …` |
 | Human の待ち | `sai-web questions`（過去分は `message` から） |
@@ -70,6 +70,7 @@ subblocks:
 
 - `sai-link run show` の ID と `sai-link run tree` の `run_id` が違うことがある。見つからなければもう一方で試し、**違いそのものも C の問題にする**。
 - 長い調査は `operator` の子に頼む（`sai-link def list` → `sai-link task create`）。頼むのは「この run の時系列を表にして返す」のような**抽出**だけ。評価は自分で行う。
+- `sai-link session search --status` は run の状態で絞る。ツールの失敗（`Exit code` など）は `--status` では絞れないので、上の表の `cli.failures` か `-w` の語で探す。
 - session の jsonl は直接開かない。`sai-link session search` と `sai-link run md` で当たりを付けてから読む。
 
 ### 調査の観点
@@ -89,7 +90,7 @@ subblocks:
 8. **再発と有効性**: operator-notes の既知項目と同じ症状が繰り返されていないか。対処が notes に残らず、毎回同じ回り道をしていないか。各項目の「確かめ方」を、調査対象の記録に当てて、今も起きるか（有効）・もう起きないか（解消の候補）を分ける。
 9. **時間とコスト**: 1 run あたりの所要と usage。上位 3 件の理由（待ち・重複・過大な入力）。
 10. **CLI の失敗**: 調べる run ごとに、対象のプロジェクトで `sai-link run history <run_id> --json` の `cli` を読む（命令の打ち方は「始めにすること」の 2 と同じ）。
-    - `failures` の分類（`ledger`・`input`・`not_found`・`conflict`・`other`）と、`calls` のうち `errors` が多い命令を表にする（命令・回数・失敗・分類）。
+    - `failures` の分類（`ledger`・`input`・`not_found`・`conflict`・`other`）と、`calls` のうち `errors` が多い命令を表にする（命令・回数・失敗・分類）。`calls[].help` は、その命令に `--help` を打った回数（`count` には入らない）。多いときは、命令の引数が分かりにくかったと読む。
     - `台帳に無い番号` は、CLI が出していない番号を文書に引用した失敗である（見た番号の台帳の `ids.seen` に無い番号）。どの agent がどの命令で引用したかを表にする。
     - 原因の全文は、`events[]` の `call_id` を使って `sai-link run history <run_id> --call <CALL_ID> --json` の `input`（呼んだ命令）と `result`（返ったエラー）で読む。`call_id` が無い行は読めないので「全文未確認」と書く。
     - 失敗の原因を block.md・template の不備と推測するときは、「推測」と書き、どの block のどの行を直すかを改善案 A に書く。`ids.unused`（見せたのに使わなかった番号）が多いときは、引用の書き方が固い（番号を拾えていない）可能性として書く。
