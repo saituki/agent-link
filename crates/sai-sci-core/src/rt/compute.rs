@@ -121,6 +121,8 @@ pub struct NodeJson {
     pub run: Option<i64>,
     /// MLflow の結び付け（E だけ）。
     pub mlflow: Option<String>,
+    /// データセットの参照（E だけ。sai-ts のスナップショット `ts:<name>@<sha12>` など）。
+    pub dataset: Option<String>,
     pub created_by: String,
     pub created_at: String,
 }
@@ -584,6 +586,7 @@ impl Tree {
             paper: n.paper_id,
             run: n.run_id,
             mlflow: n.mlflow_ref.clone(),
+            dataset: n.dataset_ref.clone(),
             created_by: n.created_by.clone(),
             created_at: n.created_at.clone(),
         }
@@ -1126,9 +1129,21 @@ mod tests {
     fn add(e: &Env, kind: Kind, parent: Option<i64>, text: &str, stance: Option<&str>) -> i64 {
         let n = store::NewNode {
             kind, parent_id: parent, guide_key: None, text, body: "", stance, cites: &[],
-            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, paths: &[], created_by: "user",
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None, paths: &[], created_by: "user",
         };
         store::insert_node(e.db.connection(), &n).unwrap()
+    }
+
+    #[test]
+    fn node_json_carries_dataset_of_e() {
+        // E のデータセットの参照は node --json の dataset に出る。E 以外は null。
+        let e = env("dataset-json");
+        let root = q(&e, None, "根の問い");
+        let ex = add(&e, Kind::E, Some(root), "実験", None);
+        store::set_dataset(e.db.connection(), ex, Some("ts:a@0123456789ab")).unwrap();
+        let tree = tree(&e);
+        assert_eq!(tree.row(ex).dataset.as_deref(), Some("ts:a@0123456789ab"));
+        assert_eq!(tree.row(root).dataset, None);
     }
 
     #[test]

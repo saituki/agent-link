@@ -142,6 +142,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         57,
         include_str!("../migrations/0057_seed_node.sql"),
     ),
+    (
+        59,
+        include_str!("../migrations/0059_rt_dataset.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -3971,6 +3975,68 @@ mod tests {
             conn.execute("INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('D', 1, 'x')", []).is_err(),
             "親を持つ D は弾く"
         );
+        let broken = conn.prepare("PRAGMA foreign_key_check")?.query([])?.next()?.is_some();
+        assert!(!broken, "外部キーが壊れていない");
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// 0059 で E に dataset_ref の列が入り、rt_log に set_dataset が入る。既存の行は残り、追記だけの決まりも残る。
+    #[test]
+    fn migration_59_adds_dataset_ref_and_set_dataset_action() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-rt-dataset-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0058 の前（0057 まで）の DB に、E と、その E を指す rt_log の行を入れる。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 59) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (kind, text) VALUES ('Q', '問い');
+                 INSERT INTO rt_nodes (kind, text) VALUES ('D', '種');
+                 INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('S', 2, 'SPROUT');
+                 INSERT INTO rt_nodes (kind, parent_id, text, mlflow_ref) VALUES ('E', 3, '実験', 'exp/1');
+                 INSERT INTO rt_log (node_id, action, detail) VALUES (4, 'set_mlflow', 'exp/1');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let count = |sql: &str| -> Result<i64, Box<dyn std::error::Error>> {
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        };
+        assert_eq!(count("SELECT COUNT(*) FROM rt_nodes")?, 4, "rt_nodes の行は残る");
+        assert_eq!(count("SELECT COUNT(*) FROM rt_log")?, 1, "rt_log の行は残る");
+        assert_eq!(
+            count("SELECT COUNT(*) FROM rt_nodes WHERE kind = 'E' AND dataset_ref IS NULL AND mlflow_ref = 'exp/1'")?,
+            1,
+            "既存の E の dataset_ref は null（mlflow_ref は残る）"
+        );
+        conn.execute(
+            "INSERT INTO rt_log (node_id, action, detail) VALUES (4, 'set_dataset', 'ts:a@0123456789ab')",
+            [],
+        )?;
+        conn.execute("INSERT INTO rt_log (node_id, action, detail) VALUES (4, 'move_node', '')", [])?;
+        assert!(
+            conn.execute("INSERT INTO rt_log (node_id, action) VALUES (4, 'no_such_action')", []).is_err(),
+            "知らない action は弾く"
+        );
+        assert!(conn.execute("UPDATE rt_log SET detail = 'x'", []).is_err(), "rt_log は UPDATE できない");
+        assert!(conn.execute("DELETE FROM rt_log", []).is_err(), "rt_log は DELETE できない");
         let broken = conn.prepare("PRAGMA foreign_key_check")?.query([])?.next()?.is_some();
         assert!(!broken, "外部キーが壊れていない");
 

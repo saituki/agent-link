@@ -521,6 +521,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 | `counts` | `{"q","a","f","e"}` | 直の子の数 | 数が空 |
 | `cites[]` / `paper` | 文字列の配列 / 数値 \| null | F の引用と論文 | ― |
 | `run` / `mlflow` | 数値 \| null / 文字列 \| null | E の実行と実験の記録 | ― |
+| `dataset` | 文字列 \| null | E のデータセットの参照（sai-ts の `ts:<name>@<sha12>` など。E だけ） | ― |
 | `created_by` / `created_at` | 文字列 | 作った人（`user` / `run:<N>`）と時刻 | ― |
 
 **NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）。

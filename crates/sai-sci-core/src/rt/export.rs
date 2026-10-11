@@ -151,6 +151,9 @@ fn node_line(n: &NodeJson) -> String {
         _ => {
             line.push_str(&n.text);
             line.push_str(&format!(" [mlflow: {}]", n.mlflow.as_deref().unwrap_or("")));
+            if let Some(dataset) = n.dataset.as_deref().filter(|d| !d.is_empty()) {
+                line.push_str(&format!(" [dataset: {dataset}]"));
+            }
         }
     }
     line
@@ -244,7 +247,7 @@ mod tests {
     fn add(db: &Database, kind: Kind, parent: Option<i64>, text: &str, stance: Option<&str>, cites: &[String]) -> i64 {
         let n = store::NewNode {
             kind, parent_id: parent, guide_key: None, text, body: "", stance, cites,
-            paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None,
             paths: &[], created_by: "user",
         };
         store::insert_node(db.connection(), &n).unwrap()

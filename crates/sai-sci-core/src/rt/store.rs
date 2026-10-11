@@ -13,7 +13,7 @@ use super::{Kind, Result, RtError, fmt_id, now_text};
 
 const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, stance, starred, \
      cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, paths, \
-     created_by, created_at, updated_at";
+     created_by, created_at, updated_at, dataset_ref";
 const LOG_COLUMNS: &str =
     "id, node_id, action, detail, actor, approved_by, qid, question, created_at";
 const APPROVAL_COLUMNS: &str = "id, run_id, qid, question, answer, answered_by, created_at, \
@@ -58,6 +58,8 @@ pub struct NodeRow {
     pub run_id: Option<i64>,
     pub report_id: Option<String>,
     pub mlflow_ref: Option<String>,
+    /// データセットの参照（E だけ。sai-ts のスナップショット `ts:<name>@<sha12>` など。文字の形は検査しない）。
+    pub dataset_ref: Option<String>,
     pub ord: i64,
     pub removed_at: Option<String>,
     /// SPROUT（kind S）の PATH（終点の A の id）。S 以外は空。
@@ -81,6 +83,7 @@ pub struct NewNode<'a> {
     pub run_id: Option<i64>,
     pub report_id: Option<&'a str>,
     pub mlflow_ref: Option<&'a str>,
+    pub dataset_ref: Option<&'a str>,
     /// SPROUT（kind S）の PATH。S 以外は空の並び。
     pub paths: &'a [i64],
     pub created_by: &'a str,
@@ -115,6 +118,7 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeRow> {
         created_by: row.get(16)?,
         created_at: row.get(17)?,
         updated_at: row.get(18)?,
+        dataset_ref: row.get(19)?,
     })
 }
 
@@ -134,8 +138,8 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
     )?;
     conn.execute(
         "INSERT INTO rt_nodes (kind, parent_id, guide_key, text, body, stance, cites, \
-         paper_id, run_id, report_id, mlflow_ref, ord, paths, created_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         paper_id, run_id, report_id, mlflow_ref, ord, paths, created_by, dataset_ref) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             node.kind.as_str(),
             node.parent_id,
@@ -151,6 +155,7 @@ pub fn insert_node(conn: &Connection, node: &NewNode<'_>) -> Result<i64> {
             ord,
             write_vec(node.paths)?,
             node.created_by,
+            node.dataset_ref,
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -227,6 +232,15 @@ pub fn set_mlflow(conn: &Connection, id: i64, mlflow: Option<&str>) -> Result<()
     let changed = conn.execute(
         "UPDATE rt_nodes SET mlflow_ref = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, mlflow, now_text()],
+    )?;
+    expect_changed(changed, id)
+}
+
+/// E のデータセットの参照を変える（`None` で外す）。
+pub fn set_dataset(conn: &Connection, id: i64, dataset: Option<&str>) -> Result<()> {
+    let changed = conn.execute(
+        "UPDATE rt_nodes SET dataset_ref = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, dataset, now_text()],
     )?;
     expect_changed(changed, id)
 }
@@ -530,6 +544,7 @@ mod tests {
             run_id: None,
             report_id: None,
             mlflow_ref: None,
+            dataset_ref: None,
             paths: &[],
             created_by: "user",
         }

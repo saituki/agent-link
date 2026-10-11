@@ -105,6 +105,7 @@ mod tests {
                     run_id: None,
                     report_id: None,
                     mlflow_ref: None,
+                    dataset_ref: None,
                     paths: &[],
                     created_by: "user",
                 },
