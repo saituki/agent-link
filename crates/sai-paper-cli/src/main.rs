@@ -461,6 +461,21 @@ enum PaperCmd {
         #[arg(long)]
         json: bool,
     },
+    /// 既にある論文の extract.md から画像（base64 を含む）を除く（JSON・変わった論文だけ書き直す）
+    ///
+    /// 元には戻せない（docling から作り直せば画像入りに戻る）。画像だけの行と、文中の data URI を除く。
+    /// 2 回目は変化 0 になる。extract.md が無い論文は飛ばす。
+    #[command(name = "strip-images")]
+    StripImages {
+        /// 論文 ID（papers.id）。複数可。`--all` とは一緒に使わない
+        ids: Vec<i64>,
+        /// Library の全論文を対象にする
+        #[arg(long)]
+        all: bool,
+        /// JSON 出力（`{"papers":[{"id","before","after"}],"total_before","total_after"}`）
+        #[arg(long)]
+        json: bool,
+    },
     /// 前処理の束（sai-prep が作った zip を展開したフォルダ）を取り込む（JSON）
     #[command(name = "import-bundle")]
     ImportBundle {
@@ -1529,6 +1544,9 @@ async fn handle_paper(cmd: PaperCmd, client: &S2Client) -> Result<()> {
         PaperCmd::ImportPdf { args, json: _ } => {
             let value = phone_cite::manual_import_command(&args)?;
             println!("{}", serde_json::to_string(&value)?);
+        }
+        PaperCmd::StripImages { ids, all, json } => {
+            content::strip_images(ids, all, json)?;
         }
         PaperCmd::ImportBundle { dir, json: _ } => {
             let (mut db, _cfg, paths) = phone::open_context()?;
