@@ -18,6 +18,11 @@ name: METHOD_DRIVEN
 - output
 - metric
 
+## ROOT_SHAPE
+- 先に深く育てる軸: 手法（method）を 2 段まで育てる（入力・出力・条件で分ける）。
+- 大分類だけ置く軸: task・target・data・output・metric。評価の軸は、metric の下の root から探す。
+- 空欄で始まる軸は、理由なく「決定」にしない。決定にするときは、その理由を seed に書く。
+
 ## SEED
 - 決定になりやすい: 手法（method）
 - 空欄で始まりやすい: 解く問題（task）・対象（target）・評価指標（metric）

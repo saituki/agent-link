@@ -16,6 +16,11 @@ name: DATA_DRIVEN
 - output
 - metric
 
+## ROOT_SHAPE
+- 先に深く育てる軸: データ（data）を 2 段まで育てる（型・印で分ける）。
+- 大分類だけ置く軸: task・target・method・output・metric。seed の決定が出てから深くする。
+- 空欄で始まる軸は、理由なく「決定」にしない。決定にするときは、その理由を seed に書く。
+
 ## SEED
 - 決定になりやすい: データ（data）
 - 空欄で始まりやすい: 解く問題（task）・手法（method）・出力（output）
