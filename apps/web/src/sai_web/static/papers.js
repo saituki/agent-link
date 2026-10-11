@@ -3631,6 +3631,8 @@ if (typeof window !== "undefined") {
   }
   const dashReload = document.getElementById("papers-dashboard-reload");
   if (dashReload) dashReload.addEventListener("click", () => { void openPapersDashboard(); });
+  const radioReload = document.getElementById("radio-reload");
+  if (radioReload) radioReload.addEventListener("click", () => { void openRadioList(); });
 
   // 絞り込み欄（画面の中だけで絞る・サーバーに聞かない・07 §4.3）
   const filter = document.getElementById("library-filter");

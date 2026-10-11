@@ -151,6 +151,8 @@
 
 /* --- Dashboard の Project（現況・考え） --- */
 .pd-project { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* Dashboard のカード（数字・State・Mind・Next Action・Recent Activity）の間は同じ間隔 */
+#papers-dashboard-body { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); }
 /* 数字のカード以外は折りたためる（<details open>・見出しは summary） */
 .pd-fold { display: block; }
 .pd-fold > summary { list-style: none; cursor: pointer; justify-content: flex-start; }
@@ -218,8 +220,6 @@
   }
   /* 右の欄の中身は読みやすい幅に収める */
   .paper-side { max-width: 900px; }
-  /* Project のカードと本文は 2 列に並べる */
-  .pd-project { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
 .pim-job-link { font-size: 12px; }
 

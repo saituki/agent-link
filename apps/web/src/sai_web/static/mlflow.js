@@ -576,14 +576,14 @@ function mlfBuild() {
   back.id = "mlf-back";
   back.setAttribute("aria-label", "Back");
   back.addEventListener("click", () => void mlfGoBack());
-  const title = saiEl("h1", "", "Experiments");
+  const title = saiEl("h1", "", "Research");
   title.id = "mlf-title";
   const reload = saiEl("button", "", "↻");
   reload.type = "button";
   reload.id = "mlf-reload";
   reload.setAttribute("aria-label", "読み直す");
   reload.addEventListener("click", () => void mlfOpenPage(mlfState));
-  bar.append(back, title, reload, chip);
+  bar.append(back, title, chip, reload);
 
   // Research の小さなタブの枠（U14。中身は papers.js の fillSegment）
   const seg = saiEl("div", "papers-seg-row");
@@ -612,8 +612,8 @@ function mlfIsWideNow() {
 function mlfSyncBar(title) {
   const head = document.getElementById("mlf-title");
   const back = document.getElementById("mlf-back");
-  if (head) head.textContent = title || "Experiments";
-  if (back) back.hidden = !title || title === "Experiments";
+  if (head) head.textContent = title || "Research";
+  if (back) back.hidden = !title || title === "Research";
 }
 
 // ============================================================================
@@ -654,7 +654,7 @@ function mlfRenderExperiments() {
     body.classList.add("mlf-solo");
     saiSplitShow(body, "list");
   }
-  mlfSyncBar("Experiments");
+  mlfSyncBar("Research");
 
   if (mlfExperimentsError) {
     box.appendChild(saiEmpty({ icon: "⚠", title: "実験の一覧を読めませんでした", body: mlfExperimentsError }));
