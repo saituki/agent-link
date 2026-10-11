@@ -2,7 +2,7 @@
    共通部品（.sai-card / .sai-row / .sai-empty / .sai-term）は style.css にある。
    ここに書くのはホームだけの物（.hm-…）だけ。 */
 
-/* 中身の入れ物。広い画面では 2 列に並べる */
+/* 中身の入れ物。どの幅でも 1 列に並べる */
 .hm-body {
   display: grid;
   /* minmax(0, 1fr) にしないと、長い行が下限になり横にはみ出す（iPhone・U02 §3） */
@@ -12,14 +12,6 @@
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
-}
-
-@media (min-width: 900px) {
-  .hm-body { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  /* カードの中身が縦に伸びても隣の列を押し下げないよう、各列で分ける */
-  .hm-card { break-inside: avoid; }
-  /* 合計だけは横いっぱいに出す（週の棒グラフと数字 4 つを横に並べたい） */
-  .hm-overview { grid-column: 1 / -1; }
 }
 
 /* 1. 全プロジェクトの合計（U02 §3-1） */
