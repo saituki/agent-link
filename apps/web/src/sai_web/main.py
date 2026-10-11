@@ -1840,6 +1840,17 @@ def api_sci_node(
     return sci.node(papers.resolve_project(name), node_id)
 
 
+@app.get("/api/projects/{name}/papers/sci/compare")
+def api_sci_compare(
+    name: str,
+    s: str = Query(default=""),
+    _: None = Depends(require_token),
+) -> dict:
+    """SPROUT を軸ごとに並べて比べる（`sai-sci compare <S>… --json`・`s` は `S1,S2` の形）。"""
+    ids = s.split(",") if s else []
+    return sci.compare(papers.resolve_project(name), ids)
+
+
 @app.post("/api/projects/{name}/papers/sci/apply")
 def api_sci_apply(
     name: str, payload: dict = Body(...), _: None = Depends(require_token)

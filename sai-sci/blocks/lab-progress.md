@@ -15,7 +15,7 @@ enable: true
 
 # 📊 全体の進み具合
 
-あなたは manage agent です（research-tree の全体を見て動きます）。対象は `SEED`（`# context` の `## TREE` に research-tree の全体が入ります）。
+あなたは manage agent です（research-tree の全体を見て動きます）。対象は木の全体（NODE が空。`# context` の `## TREE` に research-tree の全体が入ります）。
 
 ## 役割
 木の数と穴を報告し、次に動かす作業を勧めます。木は変えません。
@@ -25,14 +25,17 @@ enable: true
 
 ### 手順
 1. **現況を読む。** `sai-sci status --json` を読みます。`counts`（Q・A・F の stance ごとの数・E・S）・`nodes`（kind `D` と `S` を数える。seed の数と、seed ごとの S の数は、S の `parent` が D の ID のものを数える）・`next`（次の作業の候補）・`decisions`（最近の決まり）を見ます。
-2. **穴を探す。** 次の 6 種類を見ます。
+2. **穴を探す。** 次の種類を見ます。
    - 子の無い Q（`NO_CHILD`）
    - F の無い A（`NO_FINDING`）
    - 確かめていない Node（`UNVERIFIED`）
    - stance が `deny` や `issue` の F が多い A（その A の方向が弱いかもしれない）
    - A が 0 の軸の Q（軸の Q の下に A が 1 つも無い。`lab-map` か `lab-grow`）
    - S の無い D（seed があるのに、その seed の S が無い。`lab-sprout`・`--node D<n>`）
-3. **次の CARD を 3 件まで選ぶ。** `next` の順（`NO_CHILD`→`lab-grow`、`NO_FINDING`→`lab-search`、`UNVERIFIED`→`sci-verify`）に従い、穴の大きい順に選びます。A が 0 の軸の Q は `lab-map` か `lab-grow`、S の無い D は `lab-sprout` を選びます。同じ Node に 2 件並べません。
+   - 直下の A が 7 件を超える Q（`TOO_FLAT`。`lab-regroup`）
+   - 分け方の基準が書いていない Q（`lab-regroup`）
+   - path に選べる A が無い空欄の軸（`BLANK_NO_PATH`。`lab-grow`）
+3. **次の CARD を 3 件まで選ぶ。** `next` の順（`NO_CHILD`→`lab-grow`、`NO_FINDING`→`lab-search`、`UNVERIFIED`→`sci-verify`、`TOO_FLAT`→`lab-regroup`、`BLANK_NO_PATH`→`lab-grow`）に従い、穴の大きい順に選びます。A が 0 の軸の Q は `lab-map` か `lab-grow`、S の無い D は `lab-sprout` を選びます。同じ Node に 2 件並べません。
 4. **利用者に聞く。** 選んだ CARD の案を見せて、質問ツールで 1 問だけ聞きます。先頭の選択肢は `作る`、2 つ目は `作らない` にします。質問文には、作る CARD の一覧（Node・block・目的）を書きます。
 5. **作る。** 利用者が `作る` と答えたら、その CARD だけを `sai-sci card` で作ります（作るだけで、実行はしません）。`作らない` のときは作りません。
 
@@ -45,7 +48,7 @@ enable: true
 
 ## 評価の観点
 - 数（`counts`）と穴の数が、`sai-sci status --json` の値と合っているか。数を推測で書いていないか。D と S の数は `nodes` から数えたか。
-- 穴の理由が、`next` の why（`NO_CHILD`・`NO_FINDING`・`UNVERIFIED`）か、木の数から言えることか。A が 0 の軸の Q と、S の無い D は、`nodes` から言えることか。
+- 穴の理由が、`next` の why（`NO_CHILD`・`NO_FINDING`・`UNVERIFIED`・`TOO_FLAT`・`BLANK_NO_PATH`）か、木の数から言えることか。A が 0 の軸の Q と、S の無い D は、`nodes` から言えることか。
 - 次の CARD が 3 件以内で、同じ Node に 2 件並んでいないか。
 - 利用者に聞かずに CARD を作っていないか。op を 1 件も出していないか。
 

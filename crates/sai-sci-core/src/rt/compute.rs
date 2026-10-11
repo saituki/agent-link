@@ -1,7 +1,7 @@
 //! research-tree の計算（Node の数・SPROUT の範囲・SEED の下書き・Next Action・注意）と、
 //! `status` / `node` の JSON（C-JSON）。CLI・Web・TUI はこの結果を写すだけにする。
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -10,9 +10,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::axes::{self, Axis, PathRole};
 use super::defs::Defs;
 use super::store::{self, LogRow, NodeRow};
-use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, ops, parse_id};
+use super::{Kind, Result, RtError, action, fmt_id, ops, parse_id, parse_id_of};
 use sai_paper_core::paths::PaperRoots;
 use crate::runs::read_frontmatter;
 
@@ -125,6 +126,10 @@ pub struct NodeJson {
     pub dataset: Option<String>,
     pub created_by: String,
     pub created_at: String,
+    /// seed（D）の 6 軸の状態（D だけ。`parse_axes` のゆるい読み）。他は null。
+    pub axes: Option<BTreeMap<String, Axis>>,
+    /// SPROUT の path の区分（S だけ。親の D の本文から導く）。他は []。
+    pub path_roles: Vec<PathRole>,
 }
 
 /// Next Action 1 件。
@@ -173,9 +178,9 @@ pub struct TypeJson {
     pub name: String,
 }
 
-/// SEED（RESEARCH_TYPE と mind.md）の中身。
+/// 木の型と mind.md（RESEARCH_TYPE と mind.md の見出し）。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct SeedJson {
+pub struct ProjectJson {
     #[serde(rename = "type")]
     pub type_info: Option<TypeJson>,
     pub mind: Vec<MindSection>,
@@ -197,7 +202,8 @@ pub struct Status {
     pub type_info: Option<TypeJson>,
     pub counts: StatusCounts,
     pub nodes: Vec<NodeJson>,
-    pub seed: SeedJson,
+    /// 木の型と mind.md（`status --json` の `project`）。
+    pub project: ProjectJson,
     pub next: Vec<NextAction>,
     pub decisions: Vec<Decision>,
     /// 全 Node の History（`Add *` を除き、`at` の昇順）。
@@ -341,6 +347,10 @@ pub struct NodeDetail {
     pub searches: Vec<SearchJson>,
     pub sources: Vec<SourceJson>,
     pub history: Vec<HistoryJson>,
+    /// 対象が SPROUT のときの親の SEED（D。`axes` を持つ）。無ければ null。
+    pub seed: Option<NodeJson>,
+    /// 対象が SPROUT のときの、path と seed の固定の A の道（A の ID → 一番上の Q から A まで）。他は空。
+    pub chains: BTreeMap<String, Vec<PathItem>>,
 }
 
 // ---- research-tree -------------------------------------------------------------------------------
@@ -358,6 +368,8 @@ pub struct Tree {
     sprout_ranges: HashMap<i64, Range>,
     /// 対象の Node ごとの、一番新しい `sci-verify` の run の時刻（Next Action の規則 3）。
     verified: HashMap<i64, DateTime<Utc>>,
+    /// SPROUT（S）ごとの path の区分（親の D の本文から導く）。
+    path_roles: HashMap<i64, Vec<PathRole>>,
     log: Vec<LogRow>,
     /// 消した Node も含む id → (kind, 文)。DECISIONS の表示に使う。
     labels: HashMap<i64, (Kind, String)>,
@@ -462,6 +474,18 @@ impl Tree {
             *slot = (*slot).max(at);
         }
 
+        // S の path の区分は、親の D の本文（親が D でなければ空＝軸が分からない）から導く。
+        let mut path_roles = HashMap::new();
+        for n in nodes.iter().filter(|n| n.kind == Kind::S) {
+            let seed_body = n
+                .parent_id
+                .and_then(|p| store::get_node(conn, p).ok())
+                .filter(|p| p.kind == Kind::D)
+                .map(|p| p.body)
+                .unwrap_or_default();
+            path_roles.insert(n.id, axes::path_roles(conn, &seed_body, &n.paths)?);
+        }
+
         Ok(Tree {
             defs: defs.clone(),
             type_id: store::meta_get(conn, "type")?,
@@ -472,13 +496,45 @@ impl Tree {
             f_under,
             sprout_ranges,
             verified,
+            path_roles,
             log: store::list_log(conn, None)?,
             labels,
         })
     }
 
-    fn kid_nodes(&self, id: i64) -> impl Iterator<Item = &NodeRow> {
+    pub fn kid_nodes(&self, id: i64) -> impl Iterator<Item = &NodeRow> {
         self.kids.get(&id).into_iter().flatten().map(|k| &self.nodes[self.index[k]])
+    }
+
+    /// 直下の生きた A の数。
+    #[must_use]
+    pub fn a_count(&self, id: i64) -> usize {
+        self.kid_nodes(id).filter(|k| k.kind == Kind::A).count()
+    }
+
+    /// 子孫（自分を除く）の生きた `kind` の数。
+    #[must_use]
+    pub fn count_under(&self, id: i64, kind: Kind) -> usize {
+        self.kid_nodes(id).map(|k| usize::from(k.kind == kind) + self.count_under(k.id, kind)).sum()
+    }
+
+    /// SPROUT（S）の path の区分（`paths` と同じ順）。
+    #[must_use]
+    pub fn roles_of(&self, id: i64) -> &[PathRole] {
+        self.path_roles.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    /// 一番上の Q から `id` までの道（`id` を含む）。
+    #[must_use]
+    pub fn chain_of(&self, id: i64) -> Vec<PathItem> {
+        let mut out = Vec::new();
+        let mut cur = Some(id);
+        while let Some(node) = cur.and_then(|c| self.node(c)) {
+            out.push(PathItem { id: fmt_id(node.kind, node.id), kind: node.kind.as_str().into(), text: node.text.clone() });
+            cur = node.parent_id;
+        }
+        out.reverse();
+        out
     }
 
     /// 生きた Node（research-tree の順）。
@@ -589,6 +645,8 @@ impl Tree {
             dataset: n.dataset_ref.clone(),
             created_by: n.created_by.clone(),
             created_at: n.created_at.clone(),
+            axes: (n.kind == Kind::D).then(|| axes::parse_axes(&n.body)),
+            path_roles: self.path_roles.get(&id).cloned().unwrap_or_default(),
         }
     }
 
@@ -700,6 +758,17 @@ impl Tree {
                 1,
                 card_action(n, "lab-grow", format!("「{}」の子（A か child_Q）を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
             )),
+            Kind::Q if self.a_count(n.id) > FLAT_MAX => Some((
+                1,
+                card_action(
+                    n,
+                    "lab-regroup",
+                    format!("「{}」の直下の A {} 件を、分け方の基準をそろえて組み直す", n.text, self.a_count(n.id)),
+                    &format!("中間の A と細分の Q を作り、直下の A を {FLAT_MAX} 件以内にする（regroup・move_node）"),
+                    "TOO_FLAT",
+                    None,
+                ),
+            )),
             // ★の A は先頭に出す（rank 0）。
             Kind::A if !self.kid_nodes(n.id).any(|k| k.kind == Kind::F) => Some((
                 if n.starred { 0 } else { 2 },
@@ -725,7 +794,53 @@ impl Tree {
             Some(run) => kids.iter().filter_map(|k| utc_at(&k.created_at)).max().is_some_and(|child| child > *run),
         }
     }
+
+    /// 子孫に生きた `kind` が 1 つ以上あるか。
+    fn has_kind_below(&self, id: i64, kind: Kind) -> bool {
+        self.kid_nodes(id).any(|k| k.kind == kind || self.has_kind_below(k.id, kind))
+    }
+
+    /// 規則 BLANK_NO_PATH: 生きた D の空欄の軸（`novel`・`open`）の Q（親の無い Q で `guide_key` が軸の key）の下に、
+    /// path に選べる A（直下の A のうち、さらに下に生きた A を持つもの）が無い。同じ軸の Q は D を 1 件にまとめる。
+    /// 位置（Q の順）と Next Action（rank 0）の組を返す。軸の Q が無いときは出さない。
+    fn blank_no_path(&self) -> Vec<(usize, NextAction)> {
+        let mut by_axis: BTreeMap<(usize, String), Vec<i64>> = BTreeMap::new();
+        for d in self.nodes.iter().filter(|n| n.kind == Kind::D) {
+            for (key, axis) in axes::parse_axes(&d.body) {
+                if !matches!(axis.state.as_str(), "novel" | "open") {
+                    continue;
+                }
+                let Some(q) = self.nodes.iter().find(|n| n.kind == Kind::Q && n.parent_id.is_none() && n.guide_key.as_deref() == Some(key.as_str())) else {
+                    continue;
+                };
+                let selectable = self.kid_nodes(q.id).any(|a| a.kind == Kind::A && self.has_kind_below(a.id, Kind::A));
+                if !selectable {
+                    by_axis.entry((self.index[&q.id], key)).or_default().push(d.id);
+                }
+            }
+        }
+        by_axis
+            .into_iter()
+            .map(|((pos, key), ds)| {
+                let q = &self.nodes[pos];
+                let ids: Vec<String> = ds.iter().map(|d| fmt_id(Kind::D, *d)).collect();
+                let mut action = card_action(
+                    q,
+                    "lab-grow",
+                    format!("{} の空欄の軸 {key} に、path に選べる A を育てる", ids.join("・")),
+                    "軸の Q の直下に、下位の A を持つ A を 1 つ以上",
+                    "BLANK_NO_PATH",
+                    None,
+                );
+                action.targets.extend(ds);
+                (pos, action)
+            })
+            .collect()
+    }
 }
+
+/// 規則 TOO_FLAT の閾値: 直下の生きた A がこの数を超えると、木が平らすぎるとして組み直しを出す（lab-grow の「A は 3〜7 個」に合わせる）。
+pub const FLAT_MAX: usize = 7;
 
 /// Next Action（順の番号 → research-tree の順）を `limit` 件まで。
 #[must_use]
@@ -736,6 +851,7 @@ pub fn next_actions(tree: &Tree, limit: usize) -> Vec<NextAction> {
             ranked.push((rank, pos, a));
         }
     }
+    ranked.extend(tree.blank_no_path().into_iter().map(|(pos, a)| (0, pos, a)));
     ranked.sort_by_key(|(rank, pos, _)| (*rank, *pos));
     ranked.into_iter().map(|(_, _, a)| a).take(limit).collect()
 }
@@ -812,7 +928,7 @@ fn running_runs(roots: &PaperRoots) -> Vec<RunningJson> {
         .filter(|r| r.owner == "todo" || r.owner == "running")
         .map(|r| RunningJson {
             run_id: r.run_id,
-            node: if r.keys.seed { Some(SEED_ID.to_string()) } else { r.keys.node.map(|(k, id)| fmt_id(k, id)) },
+            node: r.keys.node.map(|(k, id)| fmt_id(k, id)),
             block: r.block,
             owner: r.owner,
         })
@@ -842,7 +958,7 @@ pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, lim
         type_info: None,
         counts: StatusCounts::default(),
         nodes: Vec::new(),
-        seed: SeedJson::default(),
+        project: ProjectJson::default(),
         next: Vec::new(),
         decisions: Vec::new(),
         history: Vec::new(),
@@ -865,7 +981,7 @@ pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, lim
     }
     out.counts = tree.counts();
     out.nodes = tree.nodes.iter().map(|n| tree.row(n.id)).collect();
-    out.seed = SeedJson {
+    out.project = ProjectJson {
         type_info: out.type_info.clone(),
         mind: mind_sections(&roots.data_dir)
             .into_iter()
@@ -973,6 +1089,9 @@ fn history_json(node: &NodeRow, num: i64, tree: &Tree, runs: &[action::SciRun]) 
 
 /// `node` の JSON。
 pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str) -> Result<NodeDetail> {
+    if super::is_retired_seed(id) {
+        return Err(RtError::Invalid(super::RETIRED_SEED_MSG.to_string()));
+    }
     let (kind, num) = parse_id(id)?;
     let tree = Tree::load(conn, roots, defs)?;
     let node = tree
@@ -980,13 +1099,22 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
         .filter(|n| n.kind == kind)
         .ok_or_else(|| RtError::NotFound(format!("{id} はありません")))?;
 
-    let mut path = Vec::new();
-    let mut cursor = Some(num);
-    while let Some(c) = cursor.and_then(|c| tree.node(c)) {
-        path.push(PathItem { id: fmt_id(c.kind, c.id), kind: c.kind.as_str().into(), text: c.text.clone() });
-        cursor = c.parent_id;
+    let path = tree.chain_of(num);
+    // S の表示（seed・新規性・実験・記載なし）に要る、親の D と、path・固定の A の道。
+    let seed = match node.kind {
+        Kind::S => node.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D).map(|p| tree.row(p.id)),
+        _ => None,
+    };
+    let mut chains = BTreeMap::new();
+    if let Some(seed) = &seed {
+        let anchors = seed.axes.iter().flat_map(|axes| axes.values()).filter_map(|axis| axis.a.clone());
+        let roles = tree.roles_of(num).iter().map(|r| r.a.clone());
+        for text in anchors.chain(roles) {
+            if let Ok(id) = parse_id_of(&text, Kind::A) {
+                chains.insert(text, tree.chain_of(id));
+            }
+        }
     }
-    path.reverse();
 
     // 自分を含む子孫（research-tree の順）。
     let mut family = vec![num];
@@ -1043,6 +1171,8 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
             .collect(),
         sources: node.cites.iter().map(|c| source_json(conn, c)).collect(),
         history,
+        seed,
+        chains,
     })
 }
 
@@ -1286,9 +1416,11 @@ mod tests {
         assert_eq!(v["counts"]["q"], 1);
         assert_eq!(v["counts"]["a"], 1);
         assert_eq!(v["counts"]["f_support"], 1);
-        for gone in ["progress", "pending_proposals"] {
+        for gone in ["progress", "pending_proposals", "seed"] {
             assert!(v.get(gone).is_none(), "{gone}");
         }
+        // 木の型と mind.md は `project`（D の seed と取り違えないよう名前を変えた）。
+        assert!(v["project"].get("type").is_some() && v["project"]["mind"].is_array(), "{v}");
         let nodes = v["nodes"].as_array().unwrap();
         let answer = nodes.iter().find(|n| n["kind"] == "A").unwrap();
         for gone in ["answer_kind", "objectivity", "logicality", "pending", "target"] {
@@ -1321,6 +1453,15 @@ mod tests {
         let t = tree(&e);
         assert_eq!(t.row(s).range, Some(range));
         assert_eq!(t.row(s).paths, vec![fmt_id(Kind::A, a1), fmt_id(Kind::A, a2)]);
+    }
+
+    /// 廃止した `SEED` は node_detail が終了コード 2 の型（Invalid）で断り、案内を返す。
+    #[test]
+    fn node_detail_rejects_retired_seed() {
+        let e = env("retired-seed");
+        q(&e, None, "根");
+        let err = node_detail(e.db.connection(), &e.roots, &Defs::default(), "SEED").unwrap_err();
+        assert!(matches!(err, RtError::Invalid(ref m) if m == super::super::RETIRED_SEED_MSG), "{err}");
     }
 
     #[test]
@@ -1366,5 +1507,50 @@ mod tests {
         let detail = node_detail(e.db.connection(), &e.roots, &Defs::default(), &fmt_id(Kind::Q, root)).unwrap();
         assert_eq!(detail.decisions[0].question.as_deref(), Some("作ってよいか"));
         assert_eq!(detail.history.last().unwrap().approved_by.as_deref(), Some("saituki"));
+    }
+
+    /// 本文だけ持つ Node（D の軸の本文を置く）。
+    fn with_body(e: &Env, kind: Kind, parent: Option<i64>, guide: Option<&str>, body: &str) -> i64 {
+        let n = store::NewNode {
+            kind, parent_id: parent, guide_key: guide, text: "題", body, stance: None, cites: &[],
+            paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None, paths: &[], created_by: "user",
+        };
+        store::insert_node(e.db.connection(), &n).unwrap()
+    }
+
+    /// TOO_FLAT: 直下の A が 8 件で出て、7 件では出ない。
+    #[test]
+    fn too_flat_needs_more_than_seven_a() {
+        let e = env("flat");
+        let root = q(&e, None, "平らな問い");
+        let whys = |tree: &Tree| next_actions(tree, 10).into_iter().map(|x| x.why).collect::<Vec<_>>();
+        for i in 0..7 {
+            a(&e, root, &format!("答え{i}"));
+        }
+        assert!(!whys(&tree(&e)).iter().any(|w| w == "TOO_FLAT"));
+        a(&e, root, "答え7");
+        let acts = next_actions(&tree(&e), 10);
+        let flat = acts.iter().find(|x| x.why == "TOO_FLAT").expect("TOO_FLAT");
+        assert_eq!((flat.block.as_deref(), flat.node.as_deref()), (Some("lab-regroup"), Some(fmt_id(Kind::Q, root).as_str())));
+        // 閾値は定数 FLAT_MAX（7）。
+        assert_eq!(FLAT_MAX, 7);
+    }
+
+    /// BLANK_NO_PATH: method が空欄の D があり、method の Q の下が大分類の A だけなら出る。下位の A を足すと消える。
+    #[test]
+    fn blank_no_path_clears_with_lower_a() {
+        let e = env("blank");
+        let q_method = with_body(&e, Kind::Q, None, Some("method"), "");
+        let big = a(&e, q_method, "大分類");
+        let d = with_body(&e, Kind::D, None, None, "## 手法（method）\n空欄\n新規性: 患者ごとに違う\n");
+        let blanks = |tree: &Tree| next_actions(tree, 10).into_iter().filter(|x| x.why == "BLANK_NO_PATH").collect::<Vec<_>>();
+        let got = blanks(&tree(&e));
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].node.as_deref(), Some(fmt_id(Kind::Q, q_method).as_str()));
+        assert_eq!(got[0].block.as_deref(), Some("lab-grow"));
+        assert_eq!(got[0].purpose, format!("{} の空欄の軸 method に、path に選べる A を育てる", fmt_id(Kind::D, d)));
+        // 下位の A を足すと消える。
+        a(&e, big, "細かい");
+        assert!(blanks(&tree(&e)).is_empty());
     }
 }

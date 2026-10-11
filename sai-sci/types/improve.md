@@ -16,6 +16,11 @@ name: IMPROVE_DRIVEN
 - output
 - metric
 
-## SEED
+## ROOT_SHAPE
+- 先に深く育てる軸: 手法（method）と評価指標（metric）を 2 段まで育てる。
+- 大分類だけ置く軸: task・target・data・output。改善の方向は、手法の A の下で探す。
+- 空欄で始まる軸は、理由なく「決定」にしない。決定にするときは、その理由を seed に書く。
+
+## seed（D）
 - 決定になりやすい: 手法（method。改善の元の手法）・評価指標（metric）
 - 空欄で始まりやすい: 改善の方向は、手法の A の下で探す

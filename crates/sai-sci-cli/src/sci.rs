@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use rusqlite::Connection;
 use sai_paper_core::paths::{self, PaperRoots};
-use sai_sci_core::rt::{self, card, compute, context, defs, export, ops, store};
+use sai_sci_core::rt::{self, axes, card, compare, compute, context, defs, export, ops, store};
 use sai_paper_core::search_history;
 use sai_paper_core::{Config, Database, Paths};
 use serde_json::{Value, json};
@@ -30,7 +30,7 @@ pub(crate) enum Out {
 /// `card` の引数（CLI から）。
 #[derive(clap::Args, Debug)]
 pub(crate) struct SciCardArgs {
-    /// 対象の Node（Q・A・F・E・S・D・SEED。`Q12`）
+    /// 対象の Node（Q・A・F・E・S・D。`Q12`）。省くと木の全体
     #[arg(long)]
     pub node: Option<String>,
     /// 実行するブロックの id
@@ -74,10 +74,8 @@ pub(crate) struct SciCardArgs {
 impl SciCardArgs {
     /// 引数を core の [`card::CardSpec`]（C-CARD）にする。
     pub(crate) fn to_spec(&self) -> Result<card::CardSpec> {
+        // 省くと木の全体（`--node` は空）。廃止した SEED は core が断る。
         let node = self.node.as_deref().unwrap_or("").trim();
-        if node.is_empty() {
-            return Err(crate::cli_error::CliError::input("--node を指定してください").into());
-        }
         let purpose = self.purpose.as_deref().unwrap_or("").trim();
         if purpose.is_empty() {
             return Err(
@@ -344,6 +342,16 @@ pub(crate) fn node_detail(node: &str, json: bool) -> Result<Out> {
         return Ok(Out::Json(serde_json::to_value(&detail)?));
     }
     Ok(Out::Text(node_text(&detail)))
+}
+
+/// `sci compare <S>… [--json]` — 複数の S を軸ごとに並べる（2〜10 個）。
+pub(crate) fn compare(sprouts: &[String], json: bool) -> Result<Out> {
+    let env = open_env()?;
+    let table = rt::compare::compare(env.conn(), &env.roots, &env.defs, sprouts).map_err(rt_err)?;
+    if json {
+        return Ok(Out::Json(serde_json::to_value(&table)?));
+    }
+    Ok(Out::Text(compare_text(&table)))
 }
 
 /// `sci context --run <id>` — 実行のための入力（sai-link が本文へ埋め込む）。
@@ -725,7 +733,7 @@ pub(crate) fn set_fields(
 
 // ---- 人が読む文 -------------------------------------------------------------
 
-/// `sci status` の文（RESEARCH_TYPE・Node の数・SEED・research-tree・Next Action）。
+/// `sci status` の文（RESEARCH_TYPE・Node の数・seed（D）・research-tree・Next Action）。
 fn status_text(status: &compute::Status) -> String {
     if !status.initialized {
         let mut text = "research-tree がまだありません。`sai-sci init --type <型>` で始めてください。\n"
@@ -738,15 +746,14 @@ fn status_text(status: &compute::Status) -> String {
     let mut text = String::new();
     if let Some(found) = &status.type_info {
         text.push_str(&format!("RESEARCH_TYPE: {}\n", found.name));
-        text.push_str(&format!("SEED: {}\n", found.name));
     }
     text.push_str(&format!("木: {}\n", status.counts.line()));
     let seeds: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "D").collect();
     if seeds.is_empty() {
-        text.push_str("SEED（D）はまだありません\n");
+        text.push_str("seed（D）はまだありません\n");
     } else {
         let list = seeds.iter().map(|n| format!("{} {}", n.id, one_line(&n.text))).collect::<Vec<_>>().join(" / ");
-        text.push_str(&format!("SEED（D）: {list}\n"));
+        text.push_str(&format!("seed（D）: {list}\n"));
     }
     let sprouts: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
     if sprouts.is_empty() {
@@ -794,6 +801,33 @@ fn stance_mark(stance: &str) -> &str {
     }
 }
 
+/// `sci compare` の表（行が S、列が 6 軸。全部の S で違う軸の見出しに `*`）。
+fn compare_text(table: &compare::Compare) -> String {
+    let mut head = vec!["S".to_string()];
+    head.extend(table.axes.iter().map(|key| if table.same.get(key).copied().unwrap_or(true) { key.clone() } else { format!("{key}*") }));
+    let mut lines = vec![format!("| {} |", head.join(" | ")), format!("|{}", "---|".repeat(head.len()))];
+    for s in &table.sprouts {
+        let mut row = vec![format!("{} {}", s.id, one_line(&s.title))];
+        row.extend(table.axes.iter().map(|key| compare_cell(&s.cells[key])));
+        lines.push(format!("| {} |", row.join(" | ")));
+    }
+    lines.join("\n") + "\n"
+}
+
+/// 比べる表の 1 欄（`A12 短い文 [固定]`・`[記載なし] 理由`・`（空欄）`）。
+fn compare_cell(cell: &compare::Cell) -> String {
+    let text = match &cell.a {
+        Some(a) => {
+            let label = if cell.role == "fixed" { "固定" } else { "新規" };
+            let more = cell.more.iter().map(|m| format!(" +{m}")).collect::<String>();
+            format!("{a} {} [{label}]{more}", short(&cell.text))
+        }
+        None if cell.role == "none" => format!("[記載なし] {}", short(&cell.text)),
+        None => "（空欄）".to_string(),
+    };
+    text.replace('|', "\\|")
+}
+
 /// Node 1 つの 1 行（深さ分だけ字下げする。★ は種類によらず付け、F には立場の印、S には範囲の数を付ける）。
 fn node_line(node: &compute::NodeJson) -> String {
     let mut line = format!("{}- {} ", "  ".repeat(node.depth), node.id);
@@ -811,11 +845,101 @@ fn node_line(node: &compute::NodeJson) -> String {
     line
 }
 
-/// `sci node <ID>` の文（題・PATH・children・GUIDE・DECISIONS・検索）。
+/// 文を 1 行にして、30 字で切る（道の A の文）。
+fn short(text: &str) -> String {
+    let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= 30 {
+        return one;
+    }
+    format!("{}…", one.chars().take(30).collect::<String>())
+}
+
+/// A の道（`Q1 › A7 › Q20 › A12`）。道が無ければ空。
+fn chain_text(detail: &compute::NodeDetail, a: &str) -> String {
+    detail.chains.get(a).map_or_else(String::new, |items| items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>().join(" › "))
+}
+
+/// A の文（30 字）。道が無ければ空。
+fn anchor_text(detail: &compute::NodeDetail, a: &str) -> String {
+    detail.chains.get(a).and_then(|items| items.last()).map_or_else(String::new, |item| short(&item.text))
+}
+
+/// `（…）` の付け方。中身が空なら何も付けない。
+fn paren(inner: &[String]) -> String {
+    let inner: Vec<&str> = inner.iter().map(String::as_str).filter(|s| !s.is_empty()).collect();
+    if inner.is_empty() { String::new() } else { format!("（{}）", inner.join("。")) }
+}
+
+/// 節を 1 つ足す（中身が無ければ何も足さない）。
+fn push_section(out: &mut String, heading: &str, lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+    out.push_str(&format!("## {heading}\n"));
+    for line in lines {
+        out.push_str(&format!("{line}\n"));
+    }
+}
+
+/// S の `sci node` の節（seed（固定）・新規性（path）・実験（E）・記載なし）。空の節は出さない。
+fn sprout_sections(detail: &compute::NodeDetail) -> String {
+    let mut out = String::new();
+    let seed_axes = detail.seed.as_ref().and_then(|seed| seed.axes.as_ref());
+    let mut fixed = Vec::new();
+    let mut none = Vec::new();
+    for (key, _) in axes::AXES {
+        let Some(axis) = seed_axes.and_then(|m| m.get(key)) else { continue };
+        match (axis.state.as_str(), axis.value.as_deref()) {
+            ("fixed" | "range", Some(value)) => {
+                let label = if axis.state == "range" { "範囲" } else { "決定" };
+                let anchor = axis.a.as_deref().map_or_else(String::new, |a| {
+                    let chain = chain_text(detail, a);
+                    format!(" → {a} {}{}", anchor_text(detail, a), paren(&[chain]))
+                });
+                fixed.push(format!("- {key}: {label}「{value}」{anchor}"));
+            }
+            ("none", _) => none.push(format!("- {key}: {}", axis.reason.as_deref().unwrap_or(""))),
+            _ => {}
+        }
+    }
+    let novel: Vec<String> = detail
+        .node
+        .path_roles
+        .iter()
+        .filter(|r| r.role == "novel")
+        .map(|r| {
+            let until = r.fixed_at.as_deref().map(|f| format!("{f} までは固定"));
+            let inner = [chain_text(detail, &r.a), until.unwrap_or_default()];
+            format!("- {}: {} {}{}", r.axis.as_deref().unwrap_or("?"), r.a, anchor_text(detail, &r.a), paren(&inner))
+        })
+        .collect();
+    let experiments: Vec<String> = detail
+        .subtree
+        .iter()
+        .filter(|n| n.kind == "E")
+        .map(|e| {
+            let mlflow = e.mlflow.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!("（MLflow: {m}）"));
+            format!("- {} {}{mlflow}", e.id, one_line(&e.text))
+        })
+        .collect();
+    let seed_head = detail.seed.as_ref().map_or_else(|| "seed（固定）".to_string(), |seed| format!("seed（固定）  {} {}", seed.id, one_line(&seed.text)));
+    push_section(&mut out, &seed_head, &fixed);
+    push_section(&mut out, "新規性（path）", &novel);
+    push_section(&mut out, "実験（E）", &experiments);
+    push_section(&mut out, "記載なし", &none);
+    out
+}
+
+/// `sci node <ID>` の文（題・S の節・PATH・children・GUIDE・DECISIONS・検索）。
 fn node_text(detail: &compute::NodeDetail) -> String {
     let node = &detail.node;
     let mut text = format!("{} {}\n", node.id, one_line(&node.text));
-    if !node.body.is_empty() {
+    if node.kind == "S" {
+        text.push_str(&sprout_sections(detail));
+        if !node.body.is_empty() {
+            text.push_str(&format!("## 本文\n{}\n", node.body));
+        }
+    } else if !node.body.is_empty() {
         text.push_str(&format!("\n{}\n", node.body));
     }
     if !detail.path.is_empty() {
@@ -987,7 +1111,7 @@ mod tests {
 
         let text = status_text(&status);
         assert!(text.contains("RESEARCH_TYPE: "), "{text}");
-        assert!(text.contains("SEED: "), "{text}");
+        assert!(text.contains("seed（D）はまだありません"), "{text}");
         assert!(text.contains("木: Q "), "{text}");
         assert!(text.contains("- Q1 "), "{text}");
         assert!(!text.contains("Objectivity"), "{text}");
@@ -1015,7 +1139,7 @@ mod tests {
         }
     }
 
-    /// seed（D）は `SEED（D）:` の 1 行にまとめ、SPROUT の行には親の seed を付ける。親の無い古い SPROUT は `seed: なし`。
+    /// seed（D）は `seed（D）:` の 1 行にまとめ、SPROUT の行には親の seed を付ける。親の無い古い SPROUT は `seed: なし`。
     #[test]
     fn status_text_shows_seed_and_sprout_parent() {
         let (root, env) = project_with_tree("seed-text");
@@ -1026,7 +1150,7 @@ mod tests {
 
         let text = status_text(&status);
         let (d, s, old) = (rt::fmt_id(rt::Kind::D, d), rt::fmt_id(rt::Kind::S, s), rt::fmt_id(rt::Kind::S, old));
-        assert!(text.contains(&format!("SEED（D）: {d} 自分の研究\n")), "{text}");
+        assert!(text.contains(&format!("seed（D）: {d} 自分の研究\n")), "{text}");
         assert!(text.contains(&format!("SPROUT: {s} 一つ目（seed: {d}）、{old} 古い研究（seed: なし）\n")), "{text}");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1132,6 +1256,56 @@ mod tests {
         let second = init_tree_and_export(&root, "problem").unwrap();
         assert!(second.already);
         assert!(root.join(".sai").join("paper").join("tree.md").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// `sci node <S>` の節の順（seed（固定）→ 新規性（path）→ 実験（E）→ 記載なし → 本文）と、道・`sci compare` の表。
+    #[test]
+    fn sprout_node_sections_and_compare_table() {
+        let (root, env) = project_with_tree("sprout-node");
+        let conn = env.conn();
+        let new = |kind: rt::Kind, parent: Option<i64>, guide: Option<&str>, text: &str, body: &str, paths: &[i64]| {
+            store::insert_node(
+                conn,
+                &store::NewNode {
+                    kind, parent_id: parent, guide_key: guide, text, body, stance: None, cites: &[],
+                    paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None, paths, created_by: "user",
+                },
+            )
+            .unwrap()
+        };
+        let q = new(rt::Kind::Q, None, Some("method"), "手法の問い", "", &[]);
+        let a94 = new(rt::Kind::A, Some(q), None, "Costa 型", "", &[]);
+        let q60 = new(rt::Kind::Q, Some(a94), None, "下位の問い", "", &[]);
+        let a385 = new(rt::Kind::A, Some(q60), None, "細かい手法", "", &[]);
+        let body = format!(
+            "## 解く問題（task）\n決定: 発作部位の特定\n## 対象（target）\n空欄\n## データ（data）\n空欄\n記載なし: 実測データを使わない\n## 手法（method）\n範囲: Costa 型を土台にする\nA: {}\n## 出力（output）\n空欄\n## 評価指標（metric）\n空欄\n",
+            rt::fmt_id(rt::Kind::A, a94)
+        );
+        let d = new(rt::Kind::D, None, None, "題", &body, &[]);
+        let s = new(rt::Kind::S, Some(d), None, "一つ目", "S の本文", &[a385]);
+        let e = new(rt::Kind::E, Some(s), None, "実験の題", "", &[]);
+        let s2 = new(rt::Kind::S, Some(d), None, "二つ目", "", &[]);
+
+        let detail = compute::node_detail(conn, &env.roots, &env.defs, &rt::fmt_id(rt::Kind::S, s)).unwrap();
+        let text = node_text(&detail);
+        let at = |heading: &str| text.find(heading).unwrap_or_else(|| panic!("{heading} が無い: {text}"));
+        let order = [at("## seed（固定）"), at("## 新規性（path）"), at("## 実験（E）"), at("## 記載なし"), at("## 本文")];
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "{text}");
+        assert!(text.contains("- task: 決定「発作部位の特定」\n"), "{text}");
+        let chain = format!("Q{q} › A{a94} › Q{q60} › A{a385}");
+        assert!(text.contains(&format!("- method: 範囲「Costa 型を土台にする」 → A{a94} Costa 型（Q{q} › A{a94}）")), "{text}");
+        assert!(text.contains(&format!("- method: A{a385} 細かい手法（{chain}。A{a94} までは固定）")), "{text}");
+        assert!(text.contains(&format!("- E{e} 実験の題")), "{text}");
+        assert!(text.contains("- data: 実測データを使わない"), "{text}");
+
+        // 比べる表: task と data は両方とも同じ、method は S1 だけ A があるので `*`。
+        let ids = vec![rt::fmt_id(rt::Kind::S, s), rt::fmt_id(rt::Kind::S, s2)];
+        let table = compare::compare(conn, &env.roots, &env.defs, &ids).unwrap();
+        let table_text = compare_text(&table);
+        assert!(table_text.starts_with("| S | task | target | data | method* | output | metric |"), "{table_text}");
+        assert!(table_text.contains(&format!("| {} 一つ目 | ", rt::fmt_id(rt::Kind::S, s))), "{table_text}");
+        assert!(table_text.contains(&format!("A{a385} 細かい手法 [新規]")), "{table_text}");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

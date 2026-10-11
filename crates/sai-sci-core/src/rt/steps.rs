@@ -1,13 +1,15 @@
 //! research-tree の時系列（`status.steps`）。成功した op 1 回を 1 step とし、`n` は 1 から振る。
 //!
-//! 正は `rt_nodes`（作成・消去の時刻と親）と `rt_log`（`move_a`・`insert_q`・`copy`・`remove` の記録）。
-//! `add_*` は `rt_log` に書かないので、作成は `rt_nodes` の行から作る。本文・★・stance の変更は step に数えず、再生もしない。
+//! 正は `rt_nodes`（作成・消去の時刻と親）と `rt_log`（`move_a`・`move_node`・`insert_q`・`regroup`・`copy`・`remove` の記録）。
+//! `add_a`・`add_f`・`add_e`・`add_sprout`・`add_seed` は `rt_log` に書かないので、作成は `rt_nodes` の行から作る（`add_q` は書く）。
+//! 本文・★・stance の変更は step に数えず、再生もしない。
 
 use std::collections::{BTreeMap, HashMap};
 
 use rusqlite::Connection;
 use serde::Serialize;
 
+use super::axes;
 use super::compute::{Counts, NodeJson, rfc3339_utc};
 use super::store::{self, LogRow, NodeRow};
 use super::{Kind, Result, fmt_id, parse_id_of};
@@ -84,11 +86,18 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
     let nodes = store::list_nodes(conn, true)?;
     let log = store::list_log(conn, None)?;
     let kinds: HashMap<i64, Kind> = nodes.iter().map(|n| (n.id, n.kind)).collect();
-    // 作成の記録（insert_q・copy）と消去の記録を、Node の ID で引けるようにする。
+    // 作成の記録（insert_q・copy・regroup）と消去の記録を、Node の ID で引けるようにする。
+    // regroup の記録は細分の Q に付く。その親（中間の A）は regroup の作成になる。
     let made_by: HashMap<i64, &LogRow> = log
         .iter()
-        .filter(|l| matches!(l.action.as_str(), "insert_q" | "copy"))
+        .filter(|l| matches!(l.action.as_str(), "insert_q" | "copy" | "regroup"))
         .map(|l| (l.node_id, l))
+        .collect();
+    let parent_of: HashMap<i64, Option<i64>> = nodes.iter().map(|n| (n.id, n.parent_id)).collect();
+    let regroup_a: HashMap<i64, &LogRow> = log
+        .iter()
+        .filter(|l| l.action == "regroup")
+        .filter_map(|l| parent_of.get(&l.node_id).copied().flatten().map(|a| (a, l)))
         .collect();
     let removed_by: HashMap<i64, &LogRow> = log
         .iter()
@@ -105,7 +114,7 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
             what: What::Create(n),
         })
         .collect();
-    events.extend(log.iter().filter(|l| l.action == "move_a").map(|l| Event {
+    events.extend(log.iter().filter(|l| matches!(l.action.as_str(), "move_a" | "move_node")).map(|l| Event {
         at: l.created_at.as_str(),
         rank: 1,
         tie: l.id,
@@ -130,8 +139,11 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
     let mut born: HashMap<i64, usize> = HashMap::new();
     let mut gone: HashMap<i64, usize> = HashMap::new();
     let mut moves: Vec<Move> = Vec::new();
-    for (i, ev) in events.iter().enumerate() {
-        let n = i + 1;
+    for ev in events.iter() {
+        // regroup は中間の A と細分の Q を作るが、1 op = 1 step。細分の Q は直前の A の step に畳み、step は増やさない。
+        let folded = matches!(&ev.what, What::Create(row)
+            if row.kind == Kind::Q && made_by.get(&row.id).is_some_and(|l| l.action == "regroup"));
+        let n = if folded { steps.len() } else { steps.len() + 1 };
         let (op, by, node) = match &ev.what {
             What::Create(row) => {
                 born.insert(row.id, n);
@@ -139,8 +151,10 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
                 let op = match made {
                     Some("insert_q") => "insert_q",
                     Some("copy") => "copy",
+                    Some("regroup") => "regroup",
                     _ => match row.kind {
                         Kind::Q => "add_q",
+                        Kind::A if regroup_a.contains_key(&row.id) => "regroup",
                         Kind::A => "add_a",
                         Kind::F => "add_f",
                         Kind::E => "add_e",
@@ -148,7 +162,7 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
                         Kind::D => "add_seed",
                     },
                 };
-                if let Some(l) = made_by.get(&row.id).filter(|l| l.action == "insert_q") {
+                if let Some(l) = made_by.get(&row.id).filter(|l| matches!(l.action.as_str(), "insert_q" | "regroup")) {
                     moves.extend(read_move(&l.detail).map(|(from, exact, count)| Move {
                         n,
                         dest: row.id,
@@ -160,14 +174,12 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
                 (op, row.created_by.clone(), fmt_id(row.kind, row.id))
             }
             What::Move(l) => {
-                moves.extend(read_move(&l.detail).map(|(from, exact, count)| Move {
-                    n,
-                    dest: l.node_id,
-                    from,
-                    exact,
-                    count,
-                }));
-                ("move_a", l.actor.clone(), fmt_id(Kind::Q, l.node_id))
+                moves.extend(read_move_log(l).map(|(dest, from, exact, count)| Move { n, dest, from, exact, count }));
+                if l.action == "move_node" {
+                    ("move_node", l.actor.clone(), fmt_id(Kind::A, l.node_id))
+                } else {
+                    ("move_a", l.actor.clone(), fmt_id(Kind::Q, l.node_id))
+                }
             }
             What::Remove(ns) => {
                 for m in ns {
@@ -183,13 +195,15 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
                 ("remove", by, fmt_id(kinds[&node], node))
             }
         };
-        steps.push(StepJson {
-            n,
-            at: rfc3339_utc(ev.at),
-            op: op.to_string(),
-            by,
-            node,
-        });
+        if !folded {
+            steps.push(StepJson {
+                n,
+                at: rfc3339_utc(ev.at),
+                op: op.to_string(),
+                by,
+                node,
+            });
+        }
     }
 
     // 親は今の値から時間をさかのぼって求める。付け替えは新しい step から順に戻す。
@@ -258,6 +272,19 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
     })
 }
 
+/// 移動の記録を読む（`(移し先の Q, 元の Q, 移した A, 件数)`）。`move_node` は移した A が `node_id` で、移し先は detail の「Q7 から Q30 へ」。
+/// `move_a` は移し先が `node_id`（detail は [`read_move`]）。
+fn read_move_log(l: &LogRow) -> Option<(i64, i64, Option<Vec<i64>>, Option<usize>)> {
+    if l.action == "move_node" {
+        let words: Vec<&str> = l.detail.split_whitespace().collect();
+        let from = parse_id_of(words.first()?, Kind::Q).ok()?;
+        let dest = parse_id_of(words.get(2)?, Kind::Q).ok()?;
+        return Some((dest, from, Some(vec![l.node_id]), None));
+    }
+    let (from, exact, count) = read_move(&l.detail)?;
+    Some((l.node_id, from, exact, count))
+}
+
 /// `rt_log.detail` を読む。先頭の語が元の Q。`（A5, A6）` があれば移した A の ID、無ければ `A 2 件` の件数。
 fn read_move(detail: &str) -> Option<(i64, Option<Vec<i64>>, Option<usize>)> {
     let from = parse_id_of(detail.split_whitespace().next()?, Kind::Q).ok()?;
@@ -312,6 +339,9 @@ fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
         dataset: n.dataset_ref.clone(),
         created_by: n.created_by.clone(),
         created_at: n.created_at.clone(),
+        axes: (n.kind == Kind::D).then(|| axes::parse_axes(&n.body)),
+        // 消えた S の区分は親の D と A の位置が要るので出さない（空）。
+        path_roles: Vec::new(),
     }
 }
 

@@ -33,6 +33,8 @@
 }
 
 .sci-body [hidden] { display: none; }
+.sci-top[hidden] { display: none; }
+.sci-body[hidden] { display: none; }
 
 .sci-body .sci-list {
   display: flex;
@@ -665,4 +667,88 @@ button.sci-action-meta {
 @media (max-width: 899px) {
   .sci-ops .sai-btn.small, .sci-chips .sai-btn.small { min-height: 44px; }
   .st-stepper .sci-graph-btn, .st-step-input { min-height: 44px; }
+}
+
+/* --- 何も選んでいないときの「プロジェクト」（一覧の上） --- */
+.sci-project {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0 0 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);
+}
+.sci-project-title { margin: 0; font-size: 14px; color: var(--text); }
+
+/* --- 区分の札（固定・新規・実験・記載なし・空欄・違う）。色だけで示さず、文字と枠の形を添える --- */
+.sci-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-size: 12px; line-height: 1.6; color: var(--text); white-space: nowrap;
+  border: 1px solid var(--line-strong);
+}
+/* 固定: 淡い地・点線の枠 */
+.sci-badge-fixed { border-style: dotted; border-width: 2px; background: color-mix(in srgb, var(--sci-decided) 10%, var(--bg)); }
+/* 新規: 強い色・実線の太い枠 */
+.sci-badge-novel { border-style: solid; border-width: 2px; background: color-mix(in srgb, var(--sci-candidate) 40%, var(--bg)); font-weight: 700; }
+/* 実験: 二重の枠 */
+.sci-badge-exp { border-style: double; border-width: 3px; background: var(--bg); }
+/* 記載なし・空欄: 枠なしの淡い文字 */
+.sci-badge-none, .sci-badge-open { border-color: transparent; background: var(--bg-soft); color: var(--text-soft); }
+.sci-badge-diff { border-style: solid; border-width: 2px; border-color: var(--danger, var(--accent)); background: var(--bg); font-weight: 700; }
+
+.sci-axis-tag { font-size: 12px; color: var(--text-soft); }
+
+/* --- S の板の path の行（4 節の中） --- */
+.sci-path-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+}
+.sci-path-fixed { border-style: dotted; background: color-mix(in srgb, var(--sci-decided) 6%, var(--bg)); }
+.sci-path-novel { border-left: 4px solid var(--sci-candidate); }
+.sci-path-none { border-style: dashed; }
+.sci-path-text { margin: 0; font-size: 14px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.sci-path-id {
+  padding: 0 2px; border: 0; background: none; color: var(--accent);
+  font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer;
+}
+/* 固定の道は淡く出す（新規の道は濃いまま） */
+.sci-path-faint { color: var(--text-soft); }
+
+/* --- D の板の 6 軸の表 --- */
+.sci-axes-wrap { overflow-x: auto; }
+.sci-axes { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sci-axes th, .sci-axes td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.sci-axes thead th { color: var(--text-soft); font-weight: 600; }
+.sci-axes tbody th { white-space: nowrap; }
+
+/* --- 比べる画面（#sci-compare。#view-sci-tree の中） --- */
+.sci-compare { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px; }
+.sci-compare-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sci-compare-title { margin: 0; font-size: 1rem; }
+.sci-compare-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sci-compare-chip {
+  min-height: 44px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
+}
+.sci-compare-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.sci-compare-table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.sci-compare-table th, .sci-compare-table td {
+  padding: 8px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line);
+  text-align: left; vertical-align: top; min-width: 150px; max-width: 240px;
+}
+.sci-compare-table thead th { color: var(--text-soft); font-weight: 600; }
+/* 最初の列（S の題）は横にずらしても残す */
+.sci-compare-s {
+  position: sticky; left: 0; z-index: 1; background: var(--bg);
+  min-width: 120px !important; max-width: 160px !important;
+}
+.sci-compare-s .sci-compare-stitle { display: block; font-size: 12px; color: var(--text-soft); }
+.sci-compare-diff { box-shadow: inset 0 3px 0 var(--danger, var(--accent)); }
+.sci-cmp-text { margin: 4px 0 0; font-size: 12px; color: var(--text-soft); line-height: 1.5; overflow-wrap: anywhere; }
+.sci-cmp-mark { font-weight: 700; color: var(--text); }
+.sci-cmp-fixed { background: color-mix(in srgb, var(--sci-decided) 8%, var(--bg)); }
+.sci-cmp-novel { background: color-mix(in srgb, var(--sci-candidate) 14%, var(--bg)); }
+.sci-cmp-none, .sci-cmp-open { color: var(--text-soft); }
+
+/* 900px 以上は表を全部出す（横にずらさない） */
+@media (min-width: 900px) {
+  .sci-compare-wrap { overflow-x: visible; }
+  .sci-compare-table th, .sci-compare-table td { min-width: 180px; }
 }

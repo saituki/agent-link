@@ -143,6 +143,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("../migrations/0057_seed_node.sql"),
     ),
     (
+        58,
+        include_str!("../migrations/0058_rt_log_regroup.sql"),
+    ),
+    (
         59,
         include_str!("../migrations/0059_rt_dataset.sql"),
     ),
@@ -3977,6 +3981,51 @@ mod tests {
         );
         let broken = conn.prepare("PRAGMA foreign_key_check")?.query([])?.next()?.is_some();
         assert!(!broken, "外部キーが壊れていない");
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    /// 0058 で rt_log に move_node・regroup が入る。既存の行は id ごと残り、追記だけの決まりも残る。
+    #[test]
+    fn migration_58_keeps_rt_log_rows_and_append_only() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-rt-log-regroup-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0057 までの DB に、記録を 2 行入れる（id を 1・2 にして、後で同じ id が残るか見る）。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 58) {
+                connection.execute_batch(sql)?;
+                connection.execute("INSERT INTO schema_migrations (version) VALUES (?1)", [version])?;
+            }
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (kind, text) VALUES ('Q', '問い');
+                 INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('A', 1, '答え');
+                 INSERT INTO rt_log (node_id, action, detail) VALUES (1, 'add_q', '');
+                 INSERT INTO rt_log (node_id, action, detail) VALUES (2, 'move_a', '1 から A 1 件');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let rows: Vec<(i64, String)> = conn
+            .prepare("SELECT id, action FROM rt_log ORDER BY id")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        assert_eq!(rows, vec![(1, "add_q".to_string()), (2, "move_a".to_string())], "既存の行は id ごと残る");
+        conn.execute("INSERT INTO rt_log (node_id, action) VALUES (2, 'move_node')", [])?;
+        conn.execute("INSERT INTO rt_log (node_id, action) VALUES (1, 'regroup')", [])?;
+        assert!(conn.execute("INSERT INTO rt_log (node_id, action) VALUES (1, 'nope')", []).is_err(), "知らない action は弾く");
+        assert!(conn.execute("UPDATE rt_log SET detail = 'x' WHERE id = 1", []).is_err(), "UPDATE は拒否");
+        assert!(conn.execute("DELETE FROM rt_log WHERE id = 1", []).is_err(), "DELETE は拒否");
 
         fs::remove_dir_all(&dir).ok();
         Ok(())

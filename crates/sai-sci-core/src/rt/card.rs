@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::defs::Defs;
-use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, parse_id, store};
+use super::{Kind, Result, RtError, action, fmt_id, parse_id, store};
 use sai_paper_core::database::Database;
 use crate::handoff::{HandoffError, HandoffRequest, create_handoff_with_extra};
 use sai_paper_core::paths::{PaperRoots, paper_file_names, paper_folder};
@@ -29,7 +29,7 @@ const EXTRACT_HEADING: &str = "## 抜き出すもの";
 /// CARD の値（C-CARD）。
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 pub struct CardSpec {
-    /// Q・A・F・E の ID（必須）。
+    /// Q・A・F・E・S・D の ID。空は木の全体（廃止した `SEED` は断る）。
     pub node: String,
     /// 必須。runner が user で空なら `lab-read`。
     pub block: String,
@@ -169,10 +169,12 @@ fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::No
 pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSpec) -> Result<CardResult> {
     let conn = db.connection();
 
-    // SEED は DB の行を持たない Node（ID は `SEED_ID`）。
+    // 空は木の全体（node は無し）。廃止した SEED は断る。
     let requested = spec.node.trim();
-    let seed = requested == SEED_ID;
-    let node = if seed {
+    if super::is_retired_seed(requested) {
+        return invalid(super::RETIRED_SEED_MSG);
+    }
+    let node = if requested.is_empty() {
         None
     } else {
         let (kind, node_id) = parse_id(requested)?;
@@ -209,6 +211,13 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     if action::block_def_paths(roots, block).iter().all(|path| !path.is_file()) {
         return invalid(format!("ブロック定義がありません: {block}"));
     }
+    // node の型のブロックは対象の Node が要る（木の全体は manage と support だけ）。
+    let sci_type = action::block_sci_type(roots, block)
+        .filter(|t| action::SCI_TYPES.contains(&t.as_str()))
+        .unwrap_or_else(|| "node".to_string());
+    if node.is_none() && sci_type == "node" {
+        return invalid(format!("{block} は対象の Node が要ります（--node を指定してください）"));
+    }
 
     let purpose = one_line(&spec.purpose);
     if purpose.is_empty() {
@@ -240,7 +249,7 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         if spec.papers.len() != 1 {
             return invalid("READ_CARD には論文をちょうど 1 本指定してください");
         }
-        if seed || !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::A | Kind::Q)) {
+        if !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::A | Kind::Q)) {
             return invalid("READ_CARD の Node は A か Q にしてください（F を付ける先が要ります）");
         }
     }
@@ -255,15 +264,10 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     let child = check_child(node.as_ref(), &spec.child)?;
     let inputs = spec.inputs.iter().map(|t| check_token(t)).collect::<Result<Vec<_>>>()?;
 
-    // 依頼文。SEED の行は `- NODE: SEED <RESEARCH_TYPE の名前>`。
+    // 依頼文。木の全体のときは `- NODE: （木の全体）`。
     let node_label = match &node {
         Some(n) => format!("{} {}", fmt_id(n.kind, n.id), n.text),
-        None => {
-            let name = store::meta_get(conn, "type")?
-                .and_then(|id| defs.type_def(&id).map(|t| t.name.clone()))
-                .unwrap_or_default();
-            format!("{SEED_ID} {name}")
-        }
+        None => "（木の全体）".to_string(),
     };
     let mut body = format!("{purpose}\n\n- NODE: {node_label}\n");
     if !expect.is_empty() {
@@ -297,10 +301,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     let description = body.trim_end().to_string();
 
     let papers_text = spec.papers.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
-    let sci_node = match &node {
-        Some(n) => fmt_id(n.kind, n.id),
-        None => SEED_ID.to_string(),
-    };
+    // 木の全体のときは空の値になり、task.md に書かない（`sci_node` が無い run は対象の Node が無い）。
+    let sci_node = node.as_ref().map_or_else(String::new, |n| fmt_id(n.kind, n.id));
     let mut extra: Vec<(&str, String)> = vec![
         ("sci_node", sci_node),
         ("sci_purpose", purpose.clone()),
@@ -511,22 +513,34 @@ mod tests {
     }
 
     #[test]
-    fn seed_card_writes_sci_node_seed() {
-        let e = env("seed");
-        // SEED は DB の行を持たないが、CARD は作れる。
+    fn whole_tree_card_has_no_node() {
+        let e = env("whole");
+        // 木の全体は manage の block だけ。`--node` を省くと sci_node は空、依頼文は（木の全体）。
+        fs::write(e.dir.join(".sai/blocks/lab-progress.md"), "---\nid: lab-progress\nname: lab-progress\nsci_type: manage\n---\n\n# task_text\n").unwrap();
         let mut s = spec();
-        s.node = "SEED".into();
+        s.node = String::new();
+        s.block = "lab-progress".into();
         let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
-        assert!(text.contains("sci_node: SEED"), "{text}");
-        assert!(text.contains("- NODE: SEED "), "{text}");
+        assert!(text.contains("- NODE: （木の全体）"), "{text}");
+        // 空の値は task.md に書かない。キーが無いので node は無し（sci_purpose で sci の CARD になる）。
+        assert!(!text.contains("sci_node"), "{text}");
         let k = task_keys(&text);
-        assert!(k.seed && k.node.is_none());
-        // READ_CARD（runner=user）の Node に SEED は使えない。
+        assert!(k.node.is_none() && !k.whole && k.is_sci());
+        // node の型の block は木の全体を断る。
+        let mut s = spec();
+        s.node = String::new();
+        assert!(err(&e, &s).contains("対象の Node が要ります"));
+        // 廃止した SEED は、どの block でも断る。
         let mut s = spec();
         s.node = "SEED".into();
+        s.block = "lab-progress".into();
+        assert!(err(&e, &s).contains("SEED は廃止しました"));
+        // READ_CARD（runner=user）は木の全体では作れない（lab-read は node の型で、F を付ける先が要る）。
+        let mut s = spec();
+        s.node = String::new();
         s.runner = "user".into();
-        assert!(err(&e, &s).contains("A か Q"));
+        assert!(err(&e, &s).contains("対象の Node が要ります"));
     }
 
     /// runner が user で block が空のとき、READ_CARD の既定の block は lab-read。

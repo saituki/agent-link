@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 
 // 範囲の数え方は compute.rs の 1 か所にある（U03 の読み出しと同じ関数）。ここからも同じ名前で使えるようにする。
 pub use super::compute::{Range, sprout_range};
+use super::axes;
 use super::defs::Defs;
 use super::store::{self, ApprovalRow, NewNode, NodeRow};
 use super::{Kind, Result, RtError, fmt_id, parse_id};
@@ -21,6 +22,10 @@ use std::path::PathBuf;
 pub(crate) const MAX_OPS: usize = 20;
 const ALL_KINDS: &[Kind] = &[Kind::Q, Kind::A, Kind::F, Kind::E, Kind::S, Kind::D];
 const STANCES: &[&str] = &["support", "deny", "issue"];
+/// SPROUT の path の区分（`axes::path_roles`）。
+const PATH_ROLES: &[&str] = &["fixed", "novel"];
+/// path のオブジェクトに書いてよい項目。
+const PATH_KEYS: &[&str] = &["a", "axis", "role", "fixed_at"];
 /// 文の数の決まり（`sentence_count` と同じ規則。エラー文に出す）。
 const SENTENCE_RULE: &str = "文の区切りは「。」「？」「！」と、後ろが空白か行末の「.」「?」";
 
@@ -42,8 +47,6 @@ pub enum Risk {
 pub enum Ty {
     /// Node の ID（`Q12`）。
     Id,
-    /// Node の ID か `SEED`（DB の行を持たない起点）。
-    SeedOrId,
     /// 文（字数の範囲。文字種も検査する）。
     Text(usize, usize),
     /// 整数。
@@ -52,6 +55,8 @@ pub enum Ty {
     Enum(&'static [&'static str]),
     /// 文字列の配列（個数の範囲）。
     List(usize, usize),
+    /// SPROUT の paths（個数の範囲）。A の ID の文字列か、区分を書いたオブジェクト（`a`・`axis`・`role`・`fixed_at`）。
+    Paths(usize, usize),
 }
 
 /// op の項目 1 つ。
@@ -82,8 +87,8 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_q",
         risk: Risk::Approval,
-        about: "SEED・Q・A の下に child_Q を足す。SEED の下なら top_Q になる",
-        fields: &[req("parent", Ty::SeedOrId), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80))],
+        about: "Q・A の下に child_Q を足す（軸の Q は sai-sci init が作る）",
+        fields: &[req("parent", Ty::Id), req("text", Ty::Text(1, 300)), opt("guide", Ty::Text(1, 80))],
     },
     OpSpec {
         op: "insert_q",
@@ -96,6 +101,25 @@ static OP_SPECS: &[OpSpec] = &[
         risk: Risk::Approval,
         about: "Q の生きた A を全部、別の Q の下へ移す",
         fields: &[req("from", Ty::Id), req("to", Ty::Id)],
+    },
+    OpSpec {
+        op: "move_node",
+        risk: Risk::Approval,
+        about: "A を、その下の F・child_Q ごと、ID を保って別の Q の下へ移す。S の paths は壊れない",
+        fields: &[req("node", Ty::Id), req("to", Ty::Id)],
+    },
+    OpSpec {
+        op: "regroup",
+        risk: Risk::Approval,
+        about: "Q の下に中間の A と細分の Q を作り、詳しい A をその下へまとめて移す。ID を保つ",
+        fields: &[
+            req("q", Ty::Id),
+            req("text", Ty::Text(1, 120)),
+            opt("body", Ty::Text(0, 2000)),
+            req("child_q", Ty::Text(1, 300)),
+            opt("child_q_body", Ty::Text(0, 2000)),
+            req("members", Ty::List(1, 20)),
+        ],
     },
     OpSpec {
         op: "copy",
@@ -143,18 +167,18 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_seed",
         risk: Risk::Free,
-        about: "SEED（研究ごとの制約）を足す",
+        about: "seed（D）を足す（研究ごとの制約）",
         fields: &[req("title", Ty::Text(1, 120)), opt("body", Ty::Text(0, 2000))],
     },
     OpSpec {
         op: "add_sprout",
         risk: Risk::Free,
-        about: "seed（D）と A を 1 つ以上選んで SPROUT を作る（同じ A は 2 回書けない）",
+        about: "seed（D）と A を 1 つ以上選んで SPROUT を作る（同じ A は 2 回書けない）。paths は A の ID か、区分（axis・role・fixed_at）を書いたオブジェクト",
         fields: &[
             req("seed", Ty::Id),
             req("title", Ty::Text(1, 120)),
             opt("body", Ty::Text(0, 2000)),
-            req("paths", Ty::List(1, 20)),
+            req("paths", Ty::Paths(1, 20)),
         ],
     },
     OpSpec {
@@ -214,11 +238,16 @@ pub fn needs_approval(op: &str) -> bool {
 fn field_schema(f: &Field) -> Value {
     match f.ty {
         Ty::Id => json!({"type": "string", "pattern": "^[QAFESD][1-9][0-9]{0,8}$"}),
-        Ty::SeedOrId => json!({"type": "string", "pattern": "^(SEED|[QAFESD][1-9][0-9]{0,8})$"}),
         Ty::Text(min, max) => json!({"type": "string", "minLength": min, "maxLength": max}),
         Ty::Int => json!({"type": "integer"}),
         Ty::Enum(values) => json!({"type": "string", "enum": values}),
         Ty::List(min, max) => json!({"type": "array", "items": {"type": "string"}, "minItems": min, "maxItems": max}),
+        Ty::Paths(min, max) => json!({"type": "array", "minItems": min, "maxItems": max, "items": {"anyOf": [
+            {"type": "string"},
+            {"type": "object", "properties": {
+                "a": {"type": "string"}, "axis": {"type": "string"},
+                "role": {"type": "string", "enum": PATH_ROLES}, "fixed_at": {"type": "string"}},
+             "required": ["a"], "additionalProperties": false}]}}),
     }
 }
 
@@ -278,6 +307,9 @@ pub struct OpResult {
     /// SPROUT の範囲（add_sprout のときだけ）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub range: Option<Range>,
+    /// regroup で新しく作った Node（A と Q の順。regroup のときだけ）。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub created: Vec<String>,
 }
 
 /// `sai-sci op` の出力。承認を使ったときだけ `approval` が入る。
@@ -287,7 +319,7 @@ pub struct BatchResult {
     pub approval: Option<Value>,
 }
 
-fn invalid<T>(message: impl Into<String>) -> Result<T> {
+pub(super) fn invalid<T>(message: impl Into<String>) -> Result<T> {
     Err(RtError::Invalid(message.into()))
 }
 
@@ -374,8 +406,8 @@ fn op_in(
         if !allowed.iter().any(|a| a == name) {
             return Err(at(RtError::Invalid(format!("このブロックでは {name} を出せません"))));
         }
-        let (result, range) = execute(&cx, item).map_err(at)?;
-        results.push(OpResult { op: name.to_string(), result, range });
+        let (result, range, created) = execute(&cx, item).map_err(at)?;
+        results.push(OpResult { op: name.to_string(), result, range, created });
     }
     // 全部通ったので、許可を使い切る（途中で弾かれたときは tx ごと戻り、許可も残る）。
     if let Some(row) = &cx.approval {
@@ -428,9 +460,9 @@ pub fn apply_user(conn: &Connection, _roots: &PaperRoots, defs: &Defs, input: &V
         map.remove("run");
     }
     let cx = Cx { conn: &tx, defs, by: by.into(), run_id, approval: None, ledger: None };
-    let (result, range) = execute(&cx, &input)?;
+    let (result, range, created) = execute(&cx, &input)?;
     tx.commit()?;
-    Ok(OpResult { op, result, range })
+    Ok(OpResult { op, result, range, created })
 }
 
 // ---- 検査の部品 -----------------------------------------------------------------------------
@@ -457,7 +489,7 @@ fn check_shape(spec: &OpSpec, op: &Value) -> Result<()> {
         };
         let bad = || RtError::Invalid(format!("{} の型が正しくありません", f.name));
         match f.ty {
-            Ty::Id | Ty::SeedOrId => {
+            Ty::Id => {
                 v.as_str().ok_or_else(bad)?;
             }
             Ty::Text(min, max) => {
@@ -492,9 +524,75 @@ fn check_shape(spec: &OpSpec, op: &Value) -> Result<()> {
                     return invalid(format!("{} は {min}〜{max} 個です", f.name));
                 }
             }
+            Ty::Paths(min, max) => {
+                let items = v.as_array().ok_or_else(bad)?;
+                if items.len() < min || items.len() > max {
+                    return invalid(format!("{} は {min}〜{max} 個です", f.name));
+                }
+                for item in items {
+                    match item {
+                        Value::String(_) => {}
+                        Value::Object(map) => {
+                            if let Some(key) = map.keys().find(|k| !PATH_KEYS.contains(&k.as_str())) {
+                                return invalid(format!("paths の項目に {key} は書けません（書けるのは a・axis・role・fixed_at）"));
+                            }
+                            if !map.get("a").is_some_and(Value::is_string) {
+                                return invalid("paths のオブジェクトには a（A の ID）が要ります");
+                            }
+                            if map.get("role").is_some_and(|r| !r.as_str().is_some_and(|r| PATH_ROLES.contains(&r))) {
+                                return invalid("paths の role は fixed / novel のどちらかです");
+                            }
+                            if ["axis", "fixed_at"].iter().any(|k| map.get(*k).is_some_and(|x| !x.is_string())) {
+                                return Err(bad());
+                            }
+                        }
+                        _ => return Err(bad()),
+                    }
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// SPROUT の paths の 1 件。文字列だけなら区分は `None`（check_shape を通った値）。
+struct PathClaim {
+    a: String,
+    axis: Option<String>,
+    role: Option<String>,
+    fixed_at: Option<String>,
+}
+
+/// paths の項目を読む（check_shape を通った後に使う）。
+fn path_claims(op: &Value) -> Vec<PathClaim> {
+    let text_of = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).map(str::to_string);
+    op.get("paths")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| match item {
+                    Value::String(a) => PathClaim { a: a.clone(), axis: None, role: None, fixed_at: None },
+                    other => PathClaim {
+                        a: text_of(other, "a").unwrap_or_default(),
+                        axis: text_of(other, "axis"),
+                        role: text_of(other, "role"),
+                        fixed_at: text_of(other, "fixed_at"),
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 書いた区分（`claimed`）が導いた値（`derived`）と違えば、導いた値を示して断る。書いていなければ通す。
+fn same_claim(field: &str, a: &str, claimed: Option<&str>, derived: Option<&str>) -> Result<()> {
+    match claimed {
+        Some(c) if derived != Some(c) => {
+            invalid(format!("path {a} の {field} は {} です（書いた値: {c}）", derived.unwrap_or("なし")))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn text<'a>(op: &'a Value, key: &str) -> &'a str {
@@ -604,7 +702,7 @@ fn log(cx: &Cx<'_>, node_id: i64, action: &str, detail: &str) -> Result<()> {
 }
 
 /// `rt_nodes` の上で `id` が `q` の子孫か。
-fn is_under(conn: &Connection, id: i64, q: i64) -> Result<bool> {
+pub(super) fn is_under(conn: &Connection, id: i64, q: i64) -> Result<bool> {
     let mut at = store::get_node(conn, id)?.parent_id;
     while let Some(p) = at {
         if p == q {
@@ -617,27 +715,37 @@ fn is_under(conn: &Connection, id: i64, q: i64) -> Result<bool> {
 
 // ---- 検査して書く -------------------------------------------------------------------------
 
-/// op を検査して書く。返すのは `result`（作った・変えた Node の ID）と、add_sprout の範囲。
-fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
+/// op を検査して書く。返すのは `result`（作った・変えた Node の ID）と、add_sprout の範囲、regroup で作った Node。
+fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>, Vec<String>)> {
     let name = text(op, "op");
     let Some(spec) = op_spec(name) else { return invalid(format!("知らない op です: {name}")) };
     check_shape(spec, op)?;
+    if name == "regroup" {
+        let (parent, child) = regroup(cx, op)?;
+        let created = vec![fmt_id(Kind::A, parent), fmt_id(Kind::Q, child)];
+        return Ok((fmt_id(Kind::A, parent), None, created));
+    }
+    let (result, range) = execute_plain(cx, name, op)?;
+    Ok((result, range, Vec::new()))
+}
+
+/// 形の検査のあと、regroup 以外の op を検査して書く（[`execute`] から呼ぶ）。
+fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<Range>)> {
     let conn = cx.conn;
     match name {
         "add_q" => {
             let parent = text(op, "parent");
             let guide = op.get("guide").and_then(Value::as_str);
             check_guide(cx, guide)?;
-            // `parent: SEED` は top_Q を作る（親は NULL）。
-            let parent_id = if parent == super::SEED_ID {
-                None
-            } else {
-                let found = node(cx, parent, &[Kind::Q, Kind::A])?;
-                if found.kind == Kind::Q && !alive_children(cx, found.id, Kind::A)?.is_empty() {
-                    return invalid(format!("{} には A があるので、child_Q を足せません", fmt_id(found.kind, found.id)));
-                }
-                Some(found.id)
-            };
+            // 軸の Q（親の無い Q）は sai-sci init だけが作る。
+            if parent.is_empty() || super::is_retired_seed(parent) {
+                return invalid("parent は Q か A の ID です（軸の Q は sai-sci init が作ります）");
+            }
+            let found = node(cx, parent, &[Kind::Q, Kind::A])?;
+            if found.kind == Kind::Q && !alive_children(cx, found.id, Kind::A)?.is_empty() {
+                return invalid(format!("{} には A があるので、child_Q を足せません", fmt_id(found.kind, found.id)));
+            }
+            let parent_id = Some(found.id);
             let mut n = new_node(cx, Kind::Q, parent_id, text(op, "text"));
             n.guide_key = guide;
             let id = store::insert_node(conn, &n)?;
@@ -688,6 +796,25 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             let ids = moving.iter().map(|a| fmt_id(Kind::A, a.id)).collect::<Vec<_>>().join(", ");
             log(cx, to.id, "move_a", &format!("{from_id} から A {} 件（{ids}）", moving.len()))?;
             Ok((fmt_id(Kind::Q, to.id), None))
+        }
+        "move_node" => {
+            let moved = node(cx, text(op, "node"), &[Kind::A])?;
+            let to = node(cx, text(op, "to"), &[Kind::Q])?;
+            let aid = fmt_id(Kind::A, moved.id);
+            let to_id = fmt_id(Kind::Q, to.id);
+            let Some(from) = moved.parent_id else { return invalid(format!("{aid} に親がありません")) };
+            if from == to.id {
+                return invalid(format!("{aid} は既に {to_id} の下にあります"));
+            }
+            if !alive_children(cx, to.id, Kind::Q)?.is_empty() {
+                return invalid(format!("{to_id} には child_Q があるので、A を移せません"));
+            }
+            if is_under(conn, to.id, moved.id)? {
+                return invalid(format!("{to_id} は {aid} の下にあるので移せません"));
+            }
+            store::set_parent(conn, moved.id, to.id)?;
+            log(cx, moved.id, "move_node", &format!("{} から {to_id} へ", fmt_id(Kind::Q, from)))?;
+            Ok((aid, None))
         }
         "copy" => {
             let src = node(cx, text(op, "node"), &[Kind::A])?;
@@ -782,6 +909,8 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             Ok((fmt_id(Kind::E, store::insert_node(conn, &n)?), None))
         }
         "add_seed" => {
+            // 新しい書式の本文（6 軸の見出し）だけを通す。
+            axes::check_seed_body(conn, text(op, "body"))?;
             let mut n = new_node(cx, Kind::D, None, text(op, "title"));
             n.body = text(op, "body");
             let id = store::insert_node(conn, &n)?;
@@ -791,15 +920,25 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             let seed_text = text(op, "seed");
             let seed = match parse_id(seed_text) {
                 Ok((Kind::D, _)) => node(cx, seed_text, &[Kind::D])?,
-                _ => return invalid(format!("seed には SEED（D）の ID を書いてください: {seed_text}")),
+                _ => return invalid(format!("seed には seed（D）の ID を書いてください: {seed_text}")),
             };
+            let claims = path_claims(op);
             let mut paths = Vec::new();
-            for a in strings(op, "paths") {
-                let n = node(cx, &a, &[Kind::A])?;
+            for c in &claims {
+                let n = node(cx, &c.a, &[Kind::A])?;
                 if paths.contains(&n.id) {
                     return invalid(format!("同じ A が 2 回あります: {}", fmt_id(Kind::A, n.id)));
                 }
                 paths.push(n.id);
+            }
+            // 新しい書式の D だけ、path の区分を検査する（古い書式の D は検査しない）。
+            if let Ok(seed_axes) = axes::check_axes(&seed.body) {
+                let roles = axes::check_paths(conn, &seed_axes, &paths)?;
+                for (c, r) in claims.iter().zip(&roles) {
+                    same_claim("axis", &r.a, c.axis.as_deref(), r.axis.as_deref())?;
+                    same_claim("role", &r.a, c.role.as_deref(), Some(r.role.as_str()))?;
+                    same_claim("fixed_at", &r.a, c.fixed_at.as_deref(), r.fixed_at.as_deref())?;
+                }
             }
             let s = NewNode {
                 kind: Kind::S,
@@ -881,7 +1020,10 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
                 }
             }
             if b.is_some() && !matches!(n.kind, Kind::A | Kind::E | Kind::S | Kind::D) {
-                return invalid("body は A と E と SPROUT と SEED だけに付けられます");
+                return invalid("body は A と E と SPROUT と seed（D）だけに付けられます");
+            }
+            if let (Kind::D, Some(body)) = (n.kind, b) {
+                axes::check_seed_body(conn, body)?;
             }
             store::update_text(conn, n.id, t, b)?;
             let detail = match (t.is_some(), b.is_some()) {
@@ -896,6 +1038,47 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
     }
 }
 
+/// Q の下に中間の A と細分の Q を作り、Q の直下の A（`members`）を細分の Q の下へまとめて移す（ID は保つ）。
+/// 返すのは (中間の A の ID, 細分の Q の ID)。途中の検査で断られたら、何も書かない（検査は書く前に全部済ませる）。
+fn regroup(cx: &Cx<'_>, op: &Value) -> Result<(i64, i64)> {
+    let q = node(cx, text(op, "q"), &[Kind::Q])?;
+    let qid = fmt_id(Kind::Q, q.id);
+    if !alive_children(cx, q.id, Kind::Q)?.is_empty() {
+        return invalid(format!("{qid} には child_Q があるので、regroup できません"));
+    }
+    let t = text(op, "text");
+    if [t, text(op, "body")].iter().any(|s| textcheck::find_inline_cite(s).is_some()) {
+        return invalid("A の文と本文に出典（#番号）は書けません。出典は add_f の cites に書き、F として足してください");
+    }
+    if alive_children(cx, q.id, Kind::A)?.iter().any(|a| a.text == t) {
+        return invalid(format!("{qid} に同じ文の A があります"));
+    }
+    let mut members: Vec<i64> = Vec::new();
+    for m in strings(op, "members") {
+        let found = node(cx, &m, &[Kind::A])?;
+        if found.parent_id != Some(q.id) {
+            return invalid(format!("{m} は {qid} の直下の A ではありません"));
+        }
+        if members.contains(&found.id) {
+            return invalid(format!("同じ A が 2 回あります: {m}"));
+        }
+        members.push(found.id);
+    }
+    let mut a = new_node(cx, Kind::A, Some(q.id), t);
+    a.body = text(op, "body");
+    let a_id = store::insert_node(cx.conn, &a)?;
+    let mut sub = new_node(cx, Kind::Q, Some(a_id), text(op, "child_q"));
+    sub.body = text(op, "child_q_body");
+    let sub_id = store::insert_node(cx.conn, &sub)?;
+    for m in &members {
+        store::set_parent(cx.conn, *m, sub_id)?;
+    }
+    // 記録は移し先の Q に書く（move_a と同じ。steps は移した A を detail の（）から読む）。
+    let ids = members.iter().map(|m| fmt_id(Kind::A, *m)).collect::<Vec<_>>().join(", ");
+    log(cx, sub_id, "regroup", &format!("{qid} から A {} 件（{ids}）", members.len()))?;
+    Ok((a_id, sub_id))
+}
+
 // ---- テスト -----------------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -904,6 +1087,9 @@ mod tests {
     use crate::rt::defs;
     use sai_paper_core::database::Database;
     use std::path::PathBuf;
+
+    /// 6 軸の見出しをそろえた seed（D）の本文。軸は全部「空欄」（まだ決めていない）。
+    const SEED_BODY: &str = "## 背景\n空欄\n## 解く問題（task）\n空欄\n## 対象（target）\n空欄\n## データ（data）\n空欄\n## 手法（method）\n空欄\n## 出力（output）\n空欄\n## 評価指標（metric）\n空欄\n## 成功基準\n空欄\n## 制約\n空欄";
 
     struct Env {
         db: Database,
@@ -933,7 +1119,7 @@ mod tests {
         std::fs::create_dir_all(&blocks).unwrap();
         std::fs::write(
             blocks.join("t-all.md"),
-            "---\nsci_ops: add_q, insert_q, move_a, copy, remove, add_a, add_f, add_e, add_seed, add_sprout, set_stance, set_mlflow, set_dataset\n---\n# t\n",
+            "---\nsci_ops: add_q, insert_q, move_a, move_node, regroup, copy, remove, add_a, add_f, add_e, add_seed, add_sprout, set_stance, set_mlflow, set_dataset\n---\n# t\n",
         )
         .unwrap();
         Env { db, roots: PaperRoots { root: dir.clone(), data_dir: dir }, defs, sub }
@@ -961,7 +1147,7 @@ mod tests {
         }
         /// seed（D）を 1 つ足し、ID を返す（agent として）。
         fn seed(&self) -> String {
-            self.agent1(json!({"op": "add_seed", "title": "研究"})).unwrap()
+            self.agent1(json!({"op": "add_seed", "title": "研究", "body": SEED_BODY})).unwrap()
         }
         /// sub の下に A を足す。
         fn a(&self, text: &str) -> String {
@@ -1000,10 +1186,13 @@ mod tests {
         let e = env();
         // 許可が無い agent の add_q は Conflict（終了コード 4）。
         assert!(conflict(e.agent1(json!({"op": "add_q", "parent": "SEED", "text": "x"}))).contains("許可がありません"));
-        // 利用者としては SEED の下に top_Q を作れる。
-        let u = e.user(json!({"op": "add_q", "parent": "SEED", "text": "もう一つ"})).unwrap().result;
+        // 利用者でも、廃止した SEED の下や空の親では軸の Q を作れない（軸の Q は sai-sci init が作る）。
+        assert!(err(e.user(json!({"op": "add_q", "parent": "SEED", "text": "x"}))).contains("軸の Q は sai-sci init が作ります"));
+        assert!(err(e.user(json!({"op": "add_q", "parent": "", "text": "x"}))).contains("軸の Q は sai-sci init が作ります"));
+        // Q の下なら child_Q を作れる。親は必ず付く。
+        let u = e.user(json!({"op": "add_q", "parent": qid(e.by_key("data")), "text": "もう一つ"})).unwrap().result;
         let (_, uid) = parse_id(&u).unwrap();
-        assert!(store::get_node(e.conn(), uid).unwrap().parent_id.is_none());
+        assert!(store::get_node(e.conn(), uid).unwrap().parent_id.is_some());
         // 知らない ID は弾く。
         assert!(err(e.user(json!({"op": "add_q", "parent": "NOPE", "text": "x"}))).contains("ID"));
     }
@@ -1012,8 +1201,8 @@ mod tests {
     #[test]
     fn apply_user_records_given_actor() {
         let e = env();
-        apply_user(e.conn(), &e.roots, &e.defs, &json!({"op": "add_q", "parent": "SEED", "text": "代行の問い"}), "run:7").unwrap();
-        apply_user(e.conn(), &e.roots, &e.defs, &json!({"op": "add_q", "parent": "SEED", "text": "利用者の問い"}), "user").unwrap();
+        apply_user(e.conn(), &e.roots, &e.defs, &json!({"op": "add_q", "parent": qid(e.sub), "text": "代行の問い"}), "run:7").unwrap();
+        apply_user(e.conn(), &e.roots, &e.defs, &json!({"op": "add_q", "parent": qid(e.sub), "text": "利用者の問い"}), "user").unwrap();
         let actors: Vec<String> = store::list_log(e.conn(), Some(2)).unwrap().into_iter().map(|row| row.actor).collect();
         assert_eq!(actors, vec!["user".to_string(), "run:7".to_string()]);
     }
@@ -1174,6 +1363,8 @@ mod tests {
         for item in [
             json!({"op": "insert_q", "q": q, "text": "x"}),
             json!({"op": "move_a", "from": q, "to": q}),
+            json!({"op": "move_node", "node": q, "to": q}),
+            json!({"op": "regroup", "q": q, "text": "x", "child_q": "y", "members": ["A1"]}),
             json!({"op": "copy", "node": q, "to": q}),
             json!({"op": "remove", "node": q}),
         ] {
@@ -1186,7 +1377,7 @@ mod tests {
     fn op_needs_approval_and_consumes_one() {
         let e = env();
         let a = e.a("消す A");
-        let batch = || vec![json!({"op": "add_q", "parent": "SEED", "text": "根"}), json!({"op": "remove", "node": a})];
+        let batch = || vec![json!({"op": "add_q", "parent": qid(e.by_key("output")), "text": "根"}), json!({"op": "remove", "node": a})];
         // 許可が無い・「許可しない」だけ、は Conflict。
         assert!(conflict(e.agent(&batch())).contains("許可がありません"));
         e.approve("q1", "許可しない");
@@ -1258,7 +1449,7 @@ mod tests {
         let e = env();
         let a = e.a("A");
         e.agent1(json!({"op": "add_f", "parent": a, "text": "根拠", "stance": "deny"})).unwrap();
-        let other = e.user(json!({"op": "add_q", "parent": "SEED", "text": "別の根"})).unwrap().result;
+        let other = qid(e.by_key("target"));
         let c = e.user(json!({"op": "copy", "node": a, "to": other})).unwrap().result;
         let (_, cid) = parse_id(&c).unwrap();
         // 写したのは F だけ（A の下の Q は写さない）。stance も同じ。
@@ -1310,7 +1501,7 @@ mod tests {
     fn sprout_range_counts_ancestors_and_own_f() {
         let e = env();
         // Q1 ─ A2 ─ Q3 ─ A4 ─ {F(support), F(deny)}、A2 ─ F(issue)
-        let q1 = e.user(json!({"op": "add_q", "parent": "SEED", "text": "Q1"})).unwrap().result;
+        let q1 = qid(e.sub);
         let a2 = e.agent1(json!({"op": "add_a", "q": q1, "text": "A2"})).unwrap();
         let q3 = e.user(json!({"op": "add_q", "parent": a2, "text": "Q3"})).unwrap().result;
         let a4 = e.agent1(json!({"op": "add_a", "q": q3, "text": "A4"})).unwrap();
@@ -1381,7 +1572,7 @@ mod tests {
         let (_, aid) = parse_id(&a).unwrap();
         assert_eq!(store::get_node(e.conn(), aid).unwrap().parent_id, Some(nqid));
         // move_a は A の無い Q からは動かせない。別の根へ移す。
-        let other = e.user(json!({"op": "add_q", "parent": "SEED", "text": "別の根"})).unwrap().result;
+        let other = qid(e.by_key("target"));
         assert!(err(e.user(json!({"op": "move_a", "from": qid(e.sub), "to": other}))).contains("A がありません"));
         e.user(json!({"op": "move_a", "from": nq, "to": other})).unwrap();
         assert_eq!(store::get_node(e.conn(), aid).unwrap().parent_id, Some(parse_id(&other).unwrap().1));
@@ -1432,7 +1623,7 @@ mod tests {
             .collect();
         assert_eq!(
             ops,
-            ["add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f", "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "set_dataset"]
+            ["add_q", "insert_q", "move_a", "move_node", "regroup", "copy", "remove", "add_a", "add_f", "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "set_dataset"]
         );
         assert!(is_user_only_op("star") && !is_user_only_op("add_a") && is_known_op("edit"));
     }
@@ -1441,15 +1632,18 @@ mod tests {
     fn seed_and_sprout_under_seed() {
         let e = env();
         let (a, a2) = (e.a("A"), e.a("A2"));
-        let d1 = e.agent1(json!({"op": "add_seed", "title": "自分の研究", "body": "x"})).unwrap();
+        // 新しい D は 6 軸の書式でないと断られる（本文が無いのも断る）。
+        assert!(err(e.agent1(json!({"op": "add_seed", "title": "自分の研究", "body": "x"}))).contains("がありません"));
+        assert!(err(e.agent1(json!({"op": "add_seed", "title": "自分の研究"}))).contains("がありません"));
+        let d1 = e.agent1(json!({"op": "add_seed", "title": "自分の研究", "body": SEED_BODY})).unwrap();
         let (dk, did) = parse_id(&d1).unwrap();
         assert_eq!(dk, Kind::D);
         let seed_row = store::get_node(e.conn(), did).unwrap();
-        assert_eq!((seed_row.body.as_str(), seed_row.parent_id), ("x", None));
+        assert_eq!((seed_row.body.as_str(), seed_row.parent_id), (SEED_BODY, None));
         // seed の無い add_sprout と、seed に Q を書いた add_sprout は断られる。
         assert!(err(e.agent1(json!({"op": "add_sprout", "title": "種", "paths": [a]}))).contains("seed が必要です"));
         assert!(err(e.agent1(json!({"op": "add_sprout", "seed": qid(e.sub), "title": "種", "paths": [a]})))
-            .contains("seed には SEED（D）の ID を書いてください"));
+            .contains("seed には seed（D）の ID を書いてください"));
         // 1 つの D に S を 2 つ作れる。両方の親は D。
         let s1 = parse_id(&e.agent1(json!({"op": "add_sprout", "seed": d1, "title": "種 1", "paths": [a]})).unwrap()).unwrap().1;
         let s2 = parse_id(&e.agent1(json!({"op": "add_sprout", "seed": d1, "title": "種 2", "paths": [a2]})).unwrap()).unwrap().1;
@@ -1457,13 +1651,14 @@ mod tests {
         assert_eq!(store::get_node(e.conn(), s2).unwrap().parent_id, Some(did));
         // 子の S がある D は消せない。子の無い D は消せる。
         assert!(err(e.user(json!({"op": "remove", "node": d1}))).contains("SPROUT（S）があるので消せません"));
-        let d2 = e.user(json!({"op": "add_seed", "title": "空の研究"})).unwrap().result;
+        let d2 = e.user(json!({"op": "add_seed", "title": "空の研究", "body": SEED_BODY})).unwrap().result;
         e.user(json!({"op": "remove", "node": d2})).unwrap();
         assert!(store::get_node(e.conn(), parse_id(&d2).unwrap().1).unwrap().removed_at.is_some());
-        // 利用者は D の text と body を直せる。
-        e.user(json!({"op": "edit", "node": d1, "text": "直した題", "body": "直した本文"})).unwrap();
+        // 利用者は D の text を直せる。本文は書式を見る（古い書式は断る）。
+        e.user(json!({"op": "edit", "node": d1, "text": "直した題"})).unwrap();
+        assert!(err(e.user(json!({"op": "edit", "node": d1, "body": "直した本文"}))).contains("がありません"));
         let edited = store::get_node(e.conn(), did).unwrap();
-        assert_eq!((edited.text.as_str(), edited.body.as_str()), ("直した題", "直した本文"));
+        assert_eq!((edited.text.as_str(), edited.body.as_str()), ("直した題", SEED_BODY));
     }
 
     #[test]
@@ -1474,5 +1669,177 @@ mod tests {
         assert!(err(e.agent1(json!({"op": "add_a", "q": q, "text": "候補", "body": "根拠は #37.5.2"}))).contains("出典"));
         // Markdown の見出しは通る。
         e.agent1(json!({"op": "add_a", "q": q, "text": "候補", "body": "## 見出し"})).unwrap();
+    }
+
+    /// move_node: A を F・child_Q ごと別の Q へ。ID は変わらず、その A を持つ S の paths もそのまま。
+    #[test]
+    fn move_node_moves_subtree_and_keeps_ids() {
+        let e = env();
+        let a = e.a("移す A");
+        let (_, aid) = parse_id(&a).unwrap();
+        let f = e.agent1(json!({"op": "add_f", "parent": a, "text": "根拠の文", "stance": "support"})).unwrap();
+        let (_, fid) = parse_id(&f).unwrap();
+        e.user(json!({"op": "add_q", "parent": a, "text": "A の下の問い"})).unwrap();
+        let s = e.agent1(json!({"op": "add_sprout", "seed": e.seed(), "title": "種", "paths": [a]})).unwrap();
+        let (_, sid) = parse_id(&s).unwrap();
+        let to = qid(e.by_key("target"));
+        // 許可が無い agent は終了コード 4。
+        assert!(conflict(e.agent1(json!({"op": "move_node", "node": a, "to": to}))).contains("許可がありません"));
+        e.approve("m1", "許可する");
+        assert_eq!(e.agent1(json!({"op": "move_node", "node": a, "to": to})).unwrap(), a);
+        // ID は変わらず、F と child_Q は A の下に付いたまま。S の paths もそのまま。
+        assert_eq!(store::get_node(e.conn(), aid).unwrap().parent_id, Some(parse_id(&to).unwrap().1));
+        assert_eq!(store::get_node(e.conn(), fid).unwrap().parent_id, Some(aid));
+        assert_eq!(store::get_node(e.conn(), sid).unwrap().paths, vec![aid]);
+        assert_eq!(store::children(e.conn(), aid).unwrap().iter().filter(|n| n.kind == Kind::Q).count(), 1);
+        // 記録は移した A に付き、承認の印が入る。
+        let row = store::list_log(e.conn(), None).unwrap().into_iter().find(|l| l.action == "move_node").unwrap();
+        assert_eq!((row.node_id, row.approved_by.as_deref()), (aid, Some("saituki")));
+    }
+
+    /// move_node の 3 つの断り（同じ親・子の Q がある移し先・移し先が A の子孫）。
+    #[test]
+    fn move_node_rejects_same_parent_child_q_and_descendant() {
+        let e = env();
+        let a = e.a("A");
+        let to = qid(e.by_key("target"));
+        e.approve("m2", "許可する");
+        e.agent1(json!({"op": "move_node", "node": a, "to": to})).unwrap();
+        // 既に同じ Q の下にある。
+        e.approve("m3", "許可する");
+        assert!(err(e.agent1(json!({"op": "move_node", "node": a, "to": to}))).contains("は既に"));
+        // 移し先に child_Q がある（user で作る）。
+        let data = qid(e.by_key("data"));
+        e.user(json!({"op": "add_q", "parent": data, "text": "子の問い"})).unwrap();
+        e.approve("m4", "許可する");
+        assert!(err(e.agent1(json!({"op": "move_node", "node": a, "to": data}))).contains("child_Q があるので"));
+        // 移し先が A の子孫（A の下の Q）。
+        let under = e.user(json!({"op": "add_q", "parent": a, "text": "A の下の問い"})).unwrap().result;
+        e.approve("m5", "許可する");
+        assert!(err(e.agent1(json!({"op": "move_node", "node": a, "to": under}))).contains("の下にあるので移せません"));
+    }
+
+    /// regroup（r4 §1 の例）: 側頭葉・IESS・LGS・大田原が兄弟のとき、中間の A と細分の Q を作り、3 つをその下へ移す。ID は保つ。
+    #[test]
+    fn regroup_makes_middle_answer_and_moves_members() {
+        let e = env();
+        let temporal = e.a("側頭葉てんかん");
+        let members = [e.a("IESS（West 症候群）"), e.a("Lennox-Gastaut 症候群"), e.a("大田原症候群")];
+        let parent_before: Vec<i64> = members.iter().map(|m| store::get_node(e.conn(), parse_id(m).unwrap().1).unwrap().parent_id.unwrap()).collect();
+        e.approve("g1", "許可する");
+        let r = e
+            .agent(&[json!({
+                "op": "regroup", "q": qid(e.sub), "text": "発達性てんかん性脳症", "body": "発作の始まりが早い",
+                "child_q": "発達性てんかん性脳症には、どんな種類があるか。", "child_q_body": "分け方の基準: 発症の時期",
+                "members": members,
+            })])
+            .unwrap();
+        let res = &r.results[0];
+        assert_eq!(res.created.len(), 2, "中間の A と細分の Q");
+        assert_eq!(res.result, res.created[0]);
+        let (ak, mid) = parse_id(&res.created[0]).unwrap();
+        let (qk, subq) = parse_id(&res.created[1]).unwrap();
+        assert_eq!((ak, qk), (Kind::A, Kind::Q));
+        let mid_row = store::get_node(e.conn(), mid).unwrap();
+        assert_eq!((mid_row.parent_id, mid_row.text.as_str()), (Some(e.sub), "発達性てんかん性脳症"));
+        let sub_row = store::get_node(e.conn(), subq).unwrap();
+        assert_eq!((sub_row.parent_id, sub_row.body.as_str()), (Some(mid), "分け方の基準: 発症の時期"));
+        // 3 つの A は ID を保ち、細分の Q の下へ移る。兄弟の A（側頭葉）は動かない。
+        for (m, before) in members.iter().zip(&parent_before) {
+            let row = store::get_node(e.conn(), parse_id(m).unwrap().1).unwrap();
+            assert_eq!(row.parent_id, Some(subq), "{m}");
+            assert_ne!(Some(*before), row.parent_id);
+        }
+        assert_eq!(store::get_node(e.conn(), parse_id(&temporal).unwrap().1).unwrap().parent_id, Some(e.sub));
+        // 記録は細分の Q に 1 行、承認の印付き。
+        let row = store::list_log(e.conn(), None).unwrap().into_iter().find(|l| l.action == "regroup").unwrap();
+        assert_eq!((row.node_id, row.approved_by.as_deref()), (subq, Some("saituki")));
+        // 途中の検査で落ちたら何も書かない（同じ文の A・同じ A を 2 回・直下でない A・child_Q のある Q）。
+        let data = qid(e.by_key("data"));
+        e.user(json!({"op": "add_q", "parent": data, "text": "子の問い"})).unwrap();
+        let count = e.count("rt_nodes");
+        e.approve("g2", "許可する");
+        let same_text = json!({"op": "regroup", "q": qid(e.sub), "text": "側頭葉てんかん", "child_q": "別の問い", "members": [temporal]});
+        assert!(err(e.agent(&[same_text])).contains("同じ文の A"));
+        let twice = json!({"op": "regroup", "q": qid(e.sub), "text": "新しい中間", "child_q": "別の問い", "members": [temporal, temporal]});
+        assert!(err(e.agent(&[twice])).contains("同じ A が 2 回"));
+        let not_direct = json!({"op": "regroup", "q": qid(e.by_key("output")), "text": "x", "child_q": "y", "members": [temporal]});
+        assert!(err(e.agent(&[not_direct])).contains("直下の A ではありません"));
+        // child_Q を持つ Q（data）には regroup できない。
+        let has_child_q = json!({"op": "regroup", "q": data, "text": "x", "child_q": "y", "members": [temporal]});
+        assert!(err(e.agent(&[has_child_q])).contains("child_Q があるので"));
+        assert_eq!(e.count("rt_nodes"), count, "何も増えていない");
+    }
+
+    /// add_sprout の path の区分の検査（新しい書式の D だけ）と、区分の書き方（文字列でもオブジェクトでも通る）。
+    #[test]
+    fn add_sprout_checks_path_roles() {
+        let e = env();
+        let method_q = qid(e.by_key("method"));
+        let metric_q = qid(e.by_key("metric"));
+        let data_q = qid(e.by_key("data"));
+        let a94 = e.agent1(json!({"op": "add_a", "q": method_q, "text": "視床皮質モデル"})).unwrap();
+        let other_method = e.agent1(json!({"op": "add_a", "q": method_q, "text": "別の手法"})).unwrap();
+        let m_a = e.agent1(json!({"op": "add_a", "q": metric_q, "text": "新しい指標"})).unwrap();
+        let data_a = e.agent1(json!({"op": "add_a", "q": data_q, "text": "データ"})).unwrap();
+        let body = SEED_BODY
+            .replace("## 手法（method）\n空欄", &format!("## 手法（method）\n範囲: 視床皮質モデル\nA: {a94}"))
+            .replace("## データ（data）\n空欄", "## データ（data）\n空欄\n記載なし: 実測データを使わない")
+            .replace("## 評価指標（metric）\n空欄", "## 評価指標（metric）\n空欄\n新規性: 新しい指標を作る");
+        let seed = e.agent1(json!({"op": "add_seed", "title": "研究", "body": body})).unwrap();
+        let sprout = |paths: Value| json!({"op": "add_sprout", "seed": seed, "title": "種", "paths": paths});
+        // 通る例: 範囲の A と新規性の path。文字列でも、正しい区分を書いたオブジェクトでも通る。
+        e.agent1(sprout(json!([a94, m_a]))).unwrap();
+        e.agent1(sprout(json!([{"a": a94, "axis": "method", "role": "fixed", "fixed_at": a94}, {"a": m_a, "axis": "metric", "role": "novel"}]))).unwrap();
+        // 記載なしの軸（data）に path は置けない。
+        assert!(err(e.agent1(sprout(json!([a94, m_a, data_a])))).contains("data は「記載なし」の軸なので path を置けません"));
+        // 範囲（A94）の外の path は断る。
+        assert!(err(e.agent1(sprout(json!([other_method, m_a])))).contains("method の path"));
+        // 新規性の軸（metric）に path が無いと断る。
+        assert!(err(e.agent1(sprout(json!([a94])))).contains("metric は新規性の軸ですが path がありません"));
+        // 書いた区分が導いた値と違えば、導いた値を示して断る。
+        assert!(err(e.agent1(sprout(json!([a94, {"a": m_a, "role": "fixed"}])))).contains("role は novel です（書いた値: fixed）"));
+        assert!(err(e.agent1(sprout(json!([a94, {"a": m_a, "axis": "method"}])))).contains("axis は metric です"));
+        // オブジェクトの書式の誤り（知らない項目・role の値）は形の検査で断る。
+        assert!(err(e.agent1(sprout(json!([a94, {"a": m_a, "zzz": 1}])))).contains("zzz"));
+        assert!(err(e.agent1(sprout(json!([a94, {"a": m_a, "role": "maybe"}])))).contains("fixed / novel"));
+        // 古い書式の D（本文が 6 軸でない）は検査しない。
+        e.conn().execute("INSERT INTO rt_nodes (kind, text, body) VALUES ('D', '旧い研究', 'x')", []).unwrap();
+        let old = fmt_id(Kind::D, e.conn().last_insert_rowid());
+        e.agent1(json!({"op": "add_sprout", "seed": old, "title": "種", "paths": [a94, {"a": data_a, "role": "fixed"}]})).unwrap();
+    }
+
+    /// 取り出し: status の axes と path_roles、steps の move_node と regroup（1 op = 1 step）。
+    #[test]
+    fn status_and_steps_show_axes_roles_and_new_ops() {
+        let e = env();
+        let method_q = qid(e.by_key("method"));
+        let a94 = e.agent1(json!({"op": "add_a", "q": method_q, "text": "視床皮質モデル"})).unwrap();
+        let child = e.a("A");
+        let body = SEED_BODY.replace("## 手法（method）\n空欄", &format!("## 手法（method）\n範囲: 視床皮質モデル\nA: {a94}"));
+        let seed = e.agent1(json!({"op": "add_seed", "title": "研究", "body": body})).unwrap();
+        let s = e.agent1(json!({"op": "add_sprout", "seed": seed, "title": "種", "paths": [a94]})).unwrap();
+        let status = serde_json::to_value(crate::rt::compute::status(e.conn(), &e.roots, &e.defs).unwrap()).unwrap();
+        let nodes = status["nodes"].as_array().unwrap();
+        let d = nodes.iter().find(|n| n["id"] == seed.as_str()).unwrap();
+        assert_eq!(d["axes"]["method"]["state"], "range");
+        assert_eq!(d["axes"]["method"]["a"], a94.as_str());
+        assert_eq!(d["axes"]["task"]["state"], "open");
+        let sp = nodes.iter().find(|n| n["id"] == s.as_str()).unwrap();
+        assert_eq!(sp["path_roles"], json!([{"a": a94, "axis": "method", "role": "fixed", "fixed_at": a94}]));
+        // D と S 以外は axes が null・path_roles が []。
+        let plain = nodes.iter().find(|n| n["id"] == child.as_str()).unwrap();
+        assert!(plain["axes"].is_null() && plain["path_roles"] == json!([]));
+        // move_node と regroup の step。regroup は作成（中間の A と細分の Q）も移動も 1 step。
+        e.approve("s1", "許可する");
+        e.agent1(json!({"op": "move_node", "node": child, "to": qid(e.by_key("target"))})).unwrap();
+        e.approve("s2", "許可する");
+        e.agent1(json!({"op": "regroup", "q": qid(e.by_key("target")), "text": "中間", "child_q": "細分の問い", "members": [child]})).unwrap();
+        let steps = crate::rt::steps::build(e.conn()).unwrap();
+        let ops: Vec<&str> = steps.list.iter().map(|s| s.op.as_str()).collect();
+        assert!(ops.contains(&"move_node"), "{ops:?}");
+        assert_eq!(ops.iter().filter(|o| **o == "regroup").count(), 1, "{ops:?}");
+        let moved = steps.nodes.iter().find(|n| n.id == child).unwrap();
+        assert_eq!(moved.parents.last().unwrap().parent.as_deref(), Some(qid(e.by_key("target")).as_str()));
     }
 }

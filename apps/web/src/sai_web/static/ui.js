@@ -156,24 +156,24 @@ const SAI_TERMS = {
   },
   mind: {
     label: "Mind (mind.md)",
-    text: "研究の土台（SEED に入る初期構想・制約）を利用者が書くメモ（mind.md）。エージェントは直接書き換えません。",
+    text: "研究の土台（初期構想・制約）を利用者が書くメモ（mind.md）。エージェントは直接書き換えません。",
   },
   // --- research-tree（U19・共有契約 C-14。U41 で今の用語に作り直した） ---
   sci_research_tree: {
     label: "research-tree",
-    text: "SEED・ROOT・SPROUT・BRANCH の 4 layer からなる木と、それを描いた図の総称です。",
+    text: "ROOT・seed（D）・SPROUT・BRANCH の層 からなる木と、それを描いた図の総称です。",
   },
   sci_seed: {
-    label: "SEED",
-    text: "研究の初期の入力です。RESEARCH_TYPE と mind.md からなります。Node の ID は SEED です。",
+    label: "seed（D）",
+    text: "1 研究の制約です。題と、解く問題・対象・データ・手法・出力・評価指標の 6 つの軸からなります。ID は D で始まります。",
   },
   sci_root: {
     label: "ROOT",
-    text: "SEED から下へ分かれる Q・O・F の総称です。木の下向きの部分を指します。",
+    text: "top_Q から下へ分かれる Q・A・F の総称です。木の下向きの部分を指します。",
   },
   sci_sprout: {
     label: "SPROUT",
-    text: "SEED から上へ分かれる Node です。ID は S で始まり、PATH を集めて実験の計画を立てます。",
+    text: "sprout（S）: seed と軸ごとの path の組です。ID は S で始まり、実験の計画を立てるもとになります。",
   },
   sci_branch: {
     label: "BRANCH",
@@ -181,7 +181,7 @@ const SAI_TERMS = {
   },
   sci_path: {
     label: "PATH",
-    text: "SEED から top_Q を通って O に至る道です。終点の O で表します。",
+    text: "SPROUT の軸ごとに選んだ A の道です。SPROUT の paths に A を並べて表します。",
   },
   sci_node: {
     label: "Node",
@@ -189,7 +189,7 @@ const SAI_TERMS = {
   },
   sci_top_q: {
     label: "top_Q",
-    text: "SEED の直下にある Q です。tree のいちばん上に並びます。",
+    text: "軸の Q のうち、tree のいちばん上に並ぶものです。",
   },
   sci_bottom_q: {
     label: "bottom_Q",

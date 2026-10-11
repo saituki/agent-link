@@ -18,6 +18,11 @@ name: PHENOMENON_DRIVEN
 - output
 - metric
 
-## SEED
+## ROOT_SHAPE
+- 先に深く育てる軸: 対象（target。現象を含む）と解く問題（task）を 2 段まで育てる。
+- 大分類だけ置く軸: data・method・output・metric。seed の決定が出てから深くする。
+- 空欄で始まる軸は、理由なく「決定」にしない。決定にするときは、その理由を seed に書く。
+
+## seed（D）
 - 決定になりやすい: 対象（target。現象を含む）・背景
 - 空欄で始まりやすい: データ（data）・手法（method）・評価指標（metric）

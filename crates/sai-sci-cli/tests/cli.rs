@@ -179,6 +179,25 @@ fn unknown_node_returns_three() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// 約束: 廃止した `node SEED` は終了コード 2 で、標準出力は空。案内は標準エラーの最後の行。
+#[test]
+fn retired_seed_node_returns_two_with_guide() {
+    let root = temp_dir("node-seed");
+    let home = temp_dir("node-seed-home");
+    let _ = project_with_tree(&root);
+
+    let out = run({
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args(["node", "SEED"]);
+        cmd
+    });
+    assert_eq!(out.code, 2, "stdout={} stderr={}", out.stdout, out.stderr);
+    assert!(out.stdout.is_empty(), "失敗の標準出力が空でない: {}", out.stdout);
+    assert!(out.stderr.lines().last().unwrap_or("").contains("SEED は廃止しました"), "stderr={}", out.stderr);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// 一時の研究プロジェクトに、新しい research-tree（Q1）と DB を作る。
 fn project_with_tree(root: &Path) -> (PathBuf, i64) {
     let data_dir = root.join(".sai").join("paper");
@@ -487,7 +506,7 @@ fn apply_records_parent_run_as_actor() {
             cmd.env("SAI_PARENT_RUN_ID", run);
         }
         cmd.arg("apply");
-        run_with_stdin(cmd, &format!(r#"{{"op":"add_q","parent":"SEED","text":"{text}"}}"#))
+        run_with_stdin(cmd, &format!(r#"{{"op":"add_q","parent":"Q1","text":"{text}"}}"#))
     };
     assert_eq!(apply(Some("7"), "代行の問い").code, 0);
     assert_eq!(apply(None, "利用者の問い").code, 0);
@@ -726,7 +745,7 @@ fn approval_record_then_op_add_q() {
     let blocks = root.join(".sai").join("blocks");
     std::fs::create_dir_all(&blocks).unwrap();
     std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: add_q\n---\n# t\n").unwrap();
-    let body = r#"{"ops":[{"op":"add_q","parent":"SEED","text":"新しい根"}]}"#;
+    let body = r#"{"ops":[{"op":"add_q","parent":"Q1","text":"新しい根"}]}"#;
     let op = || {
         let mut cmd = command(&root);
         cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).env("SAI_PARENT_RUN_ID", "5").args(["op", "--block", "t-add"]);
@@ -784,7 +803,7 @@ fn op_without_approval_returns_four() {
     let blocks = root.join(".sai").join("blocks");
     std::fs::create_dir_all(&blocks).unwrap();
     std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: add_q\n---\n# t\n").unwrap();
-    let body = r#"{"ops":[{"op":"add_q","parent":"SEED","text":"新しい根"}]}"#;
+    let body = r#"{"ops":[{"op":"add_q","parent":"Q1","text":"新しい根"}]}"#;
     let op = |run: Option<&str>| {
         let mut cmd = command(&root);
         cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args(["op", "--block", "t-add"]);
