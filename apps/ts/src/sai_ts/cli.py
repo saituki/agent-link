@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Callable
 
-from . import channels, dataset, demo, events, linkcli, paths, scripts, sdk, view
+from . import algos, channels, dataset, demo, events, linkcli, paths, scripts, sdk, view
 from . import ext as ext_mod, init as init_mod
 
 _HEADINGS = {"positional arguments": "位置引数", "options": "オプション"}
@@ -208,11 +208,32 @@ def _cmd_view_set(a):
     return view.save_view(_stdin_json(), "agent"), None
 
 
+def _ids(text: str | None) -> list[str]:
+    return [x.strip() for x in (text or "").split(",") if x.strip()]
+
+
 def _cmd_run(a):
     params = _params(a.params)
     if not a.timeout > 0:
         raise ValueError("--timeout は正の数にしてください")
-    return scripts.run_script(a.script, a.dataset, a.record or [], params, a.timeout), None
+    body = {"records": a.record or [], "params": params, "target": {"vars": _ids(a.vars), "events": _ids(a.events)}}
+    try:
+        spec = algos.find(a.script)[1]
+    except algos.NoSpec:
+        spec = None  # 仕様が無いものは今までどおり、値をそのまま渡す
+    if spec is not None:
+        body = algos.check_request(spec, body)
+    parent = os.environ.get("SAI_PARENT_RUN_ID")
+    by = f"agent:{parent}" if parent else "agent"
+    res = scripts.run_script(a.script, a.dataset, body["records"], body["params"], a.timeout,
+                             target=body["target"], by=by)
+    return res, None
+
+
+def _cmd_algos_list(a):
+    algs = algos.list_algos()
+    text = "\n".join(f"{x['name']}  {x['origin']}  {x['title']}  {x['kind']}  {x['error']}".rstrip() for x in algs)
+    return {"algos": algs}, text or "アルゴリズムはありません"
 
 
 def _cmd_ext_list(a):
@@ -314,7 +335,14 @@ def _build() -> argparse.ArgumentParser:
     sp.add_argument("--record", action="append", help="対象の記録（繰り返せる。省略で全記録）")
     sp.add_argument("--params", default="{}", help="スクリプトに渡す値（JSON の object）")
     sp.add_argument("--timeout", type=float, default=scripts.TIMEOUT, help="時間の上限（秒）")
+    sp.add_argument("--vars", help="対象の ch（カンマで区切る。例 ch01,ch02）")
+    sp.add_argument("--events", help="対象のイベントの ID（カンマで区切る）")
     sp.set_defaults(func=_run(_cmd_run))
+
+    al = _new(subs, "algos", "アルゴリズムの一覧を出す", json_flag=False)
+    als = al.add_subparsers(dest="action", required=True, title="命令", metavar="<命令>", help="次のどれか")
+    sp = _new(als, "list", "アルゴリズムの一覧（名前・出どころ・仕様の誤り）")
+    sp.set_defaults(func=_run(_cmd_algos_list))
 
     ex = _new(subs, "ext", "拡張の一覧を出す", json_flag=False)
     exs = ex.add_subparsers(dest="action", required=True, title="命令", metavar="<命令>", help="次のどれか")

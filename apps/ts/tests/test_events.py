@@ -270,6 +270,23 @@ class EventsTest(TempProject, unittest.TestCase):
         self.assertEqual(s["categories"][0]["type"], "line")
         self.assertEqual(events.load_schema(self.ds)["categories"][0]["type"], "line")
 
+    def test_update_events_all_or_nothing(self):  # AC5（update_events）
+        events.save_schema(self.ds, {
+            "categories": [{"name": "burst", "color": "#d9534f"}, {"name": "noise", "color": "#5bc0de"}],
+            "metrics": [{"name": "amp", "type": "number", "min": 0, "max": 100}]})
+        a = events.add_event(self.ds, area(), SRC)
+        b = events.add_event(self.ds, line(), SRC)
+        rows = events.update_events(self.ds, {a["id"]: {"text": "A"}, b["id"]: {"text": "B"}}, "agent")
+        self.assertEqual(sorted((r["rev"], r["text"]) for r in rows), [(2, "A"), (2, "B")])
+        self.assertEqual(sorted(e["text"] for e in events.list_events(self.ds)), ["A", "B"])
+
+        # 1 件でも誤りがあれば何も書かない（amp の範囲外・無い ID）
+        with self.assertRaises(ValueError):
+            events.update_events(self.ds, {a["id"]: {"text": "C"}, b["id"]: {"metrics": {"amp": 999}}}, SRC)
+        with self.assertRaises(KeyError):
+            events.update_events(self.ds, {a["id"]: {"text": "C"}, "e-000000000000": {"text": "D"}}, SRC)
+        self.assertEqual(sorted(e["text"] for e in events.list_events(self.ds)), ["A", "B"])
+
     def test_missing_dataset_is_key_error(self):
         with self.assertRaises(KeyError):
             events.list_events("nope")

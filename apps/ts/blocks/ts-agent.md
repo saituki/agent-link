@@ -49,7 +49,8 @@ sai-ts channels get <ds>                  ch 設定（並び・label・色・倍
 sai-ts channels set <ds>                  標準入力に全体の JSON
 sai-ts view [--json]
 sai-ts view set                           標準入力に view の一部の JSON（updated_by は agent になる）
-sai-ts run <script> --dataset <ds> [--record R]... [--params JSON] [--timeout SEC]
+sai-ts run <script> --dataset <ds> [--record R]... [--vars a,b] [--events id,id] [--params JSON] [--timeout SEC]
+sai-ts algos list                          アルゴリズムの一覧（error が空でなければ仕様を直す）
 sai-ts ext list
 ```
 

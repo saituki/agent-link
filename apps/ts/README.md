@@ -58,7 +58,8 @@ apps/ts/bin/sai-ts serve       # http://127.0.0.1:8210/ を開く
 | `sai-ts schema get <ds>` / `sai-ts schema set <ds>` | スキーマを読む・置き換える（標準入力に全体）。カテゴリに `type`（`area`／`line`）・`ch`（`single`／`all`）を書くと、イベントの追加・変更で検査する |
 | `sai-ts channels get <ds>` / `sai-ts channels set <ds>` | ch 設定（`channels.json`：並び・label・色・倍率・スペクトル）を読む・置き換える（標準入力に全体） |
 | `sai-ts view [--json]` / `sai-ts view set` | 画面の状態を読む・一部を書く（標準入力に一部。`updated_by` は agent） |
-| `sai-ts run <script> --dataset <ds> [--record R]... [--params JSON] [--timeout SEC]` | スクリプトを動かす |
+| `sai-ts run <script> --dataset <ds> [--record R]... [--vars a,b] [--events id,id] [--params JSON] [--timeout SEC]` | アルゴリズムを動かす（仕様があれば検査し、既定で埋める。実行は runs.jsonl に残る） |
+| `sai-ts algos list` | アルゴリズムの一覧（名前・出どころ・仕様の誤り） |
 | `sai-ts ext list` | 拡張の一覧（有効・読めない理由） |
 
 ```bash
@@ -101,9 +102,56 @@ export default function activate(ts) {
 - `ts` は画面の `window.TS` そのもの。`ts.state`・`ts.on(kind, fn)`・`ts.api(path, opts)`・`ts.setView(patch)` を使う。
 - 計算が要るなら manifest に `"server": "server.py"` を書く。画面から `POST /api/ext/<name>/call/<fn>` で呼べる（時間の上限 60 秒）。
 
-## スクリプトの書き方
+## アルゴリズムの書き方
 
-置き場は `ts/scripts/<name>.py`。`sai-ts run <name> --dataset <ds> --json` で動く（時間の上限は既定 1800 秒）。標準入力は `{"dataset", "records", "params"}`。最後に標準出力へ JSON を 1 つ出す。
+置き場は 2 つ。`ts/scripts/<name>.py`（プロジェクト）と `apps/ts/src/sai_ts/algos/<name>.py`（組み込み）。同じ名前ならプロジェクトが勝つ。
+仕様は同じ場所の `<name>.json`。仕様が無いスクリプトは `sai-ts algos list` の `error` に出て、画面からは動かせない（`sai-ts run` は今までどおり動く）。
+
+仕様（`<name>.json`）。`kind` は `channel`（ch を足す）・`event`（イベントを足す）・`measure`（イベントに指標を書く）。`target` は `vars`（ch を選ぶ）・`events`（イベントを選ぶ）・`none`。
+
+```json
+{"version": 1, "title": "バンドパスと包絡", "kind": "channel", "target": "vars",
+ "desc": "選んだ ch を帯域通過し、包絡の ch も足す",
+ "params": [
+   {"name": "low_hz", "type": "number", "default": 80, "min": 0, "unit": "Hz", "desc": "通過域の下端"},
+   {"name": "envelope", "type": "boolean", "default": true, "desc": "包絡の ch も足す"},
+   {"name": "mode", "type": "enum", "values": ["fft", "box"], "default": "fft"}
+ ]}
+```
+
+- `params` の型は number・integer・string・boolean・enum（メトリクスと同じ決まり）。`default` は型に合うこと。省略時は boolean が false、それ以外は渡さない。
+- 検査（`algos.check_spec`）は誤りを 400（CLI は終了コード 2）で返す。`params` の知らない名前も同じ。
+
+実行:
+
+- 画面（HTTP）: `POST /api/datasets/<ds>/algos/<name>/runs` に `{"records", "params", "target": {"vars", "events"}}`。`202 {"run": "<id>"}` をすぐ返し、裏で動かす。結果は `GET /api/datasets/<ds>/runs?limit=50`。
+- CLI: `sai-ts run <name> --dataset <ds> [--record R]... [--vars a,b] [--events id,id] [--params JSON] --json`。終わるまで待つ。`by` は `agent`（親の run があれば `agent:<その値>`）。
+
+実行の記録は `ts/datasets/<ds>/runs.jsonl`（追記だけ）。`start` と `end` を `id` でまとめて読む。`end` が無いものは、このサーバのプロセスの分なら `running`、そうでなければ `lost`。
+
+標準入力（`{"dataset", "records", "params", "target", "run"}`）と環境変数:
+
+- `SAI_TS_SOURCE=script:<name>@<sha8>`（イベントの `source` に残る）・`SAI_TS_RUN`（実行の ID）・`SAI_TS_SHA256`（スクリプトの sha256 全長）・`SAI_TS_TARGET`（対象。大きすぎるときは無い。`sdk.target()` は `{}` を返すので、対象は `req["target"]` を読む）。
+
+標準出力の最後の JSON（すべて省略可）: `message`（画面に出す文）・`vars`・`events`（件数）・`table`（`{"columns", "rows"}`。1 列目が `id` なら、行を押すとそのイベントを選ぶ）。
+
+sdk（`from sai_ts import sdk`）:
+
+- 読む: `sdk.dataset(name)` / `sdk.records(name)` / `sdk.load(name, record) -> (meta, data)` / `sdk.events(name, **filters)` / `sdk.view()` / `sdk.target()`
+- 書く: `sdk.add_events(name, events)`・`sdk.add_var(name, record, var, values, unit, params, inputs)`（`derived` に `script`・全長の `sha256`・`params`・`inputs`・`run` が残る）・`sdk.ensure_category(name, cat, color, type, ch)`・`sdk.ensure_metrics(name, defs)`（どちらも既にあるものは変えない）・`sdk.update_metrics(name, {id: {メトリクス: 値}})`（既存の指標に重ねる。件数を返す）
+
+指標を書くアルゴリズムの例（`ts/scripts/duration.py`。`duration.json` の `kind` は `measure`、`target` は `events`）:
+
+```python
+import json, sys
+from sai_ts import sdk
+req = json.load(sys.stdin)
+sdk.ensure_metrics(req["dataset"], [{"name": "duration_s", "type": "number", "unit": "s"}])
+n = sdk.update_metrics(req["dataset"], {"e-3f9a1c2b7d10": {"duration_s": 0.042}})
+print(json.dumps({"message": f"{n} 件に指標を書きました"}))
+```
+
+最小の例（`ts/scripts/burst.py`。仕様が無いので CLI だけで動く）:
 
 ```python
 import json, sys
