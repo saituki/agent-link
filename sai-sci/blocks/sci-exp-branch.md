@@ -58,6 +58,7 @@ model: cnn-small
 - 判定書が付いていれば、その `next` の自分の行（`fix`・`idea`・`grid`）も読む。
 - 埋め込みが無いときは `sai-link doc read` でトークンを読む。
 - 仕様書の `sim_model` が `null` でなければ、依頼書の「モデル定義書」の行のトークンを `sai-link doc read` で読んでおく（式・値・再現の目標・baseline はここから写す）。
+- 依頼書に「データセット」の行（`- データセット: <ref>（置き場 …）`）があれば、データはそこから読む。置き場は `$SAI_PROJECT_ROOT/ts/snapshots/<name>/`（`<name>` は参照の `ts:<name>@…` の名前）。各記録は `records/<rec>/<var>.f32` を `np.fromfile(…, dtype="<f4")` で読み、長さは `records/<rec>/meta.json` の `n_samples` と `srate` で確かめる。
 
 ### 2. スクリプトを書く
 
@@ -70,6 +71,8 @@ model: cnn-small
 | debug | 親のスクリプトを写し、依頼書・判定書の `fix` の点だけを直す。`MODEL` は親と同じ。 |
 
 - 定数は依頼書と仕様書の値を入れる: `PROJECT`・`SCI_NODE`・`STUDY`・`SPROUT_RUN_ID`・`MODEL`・`ACTION`・`PARENT_BRANCH`（無ければ空文字）・`METRIC`・`DIRECTION`・`EPOCHS`・`DEVICE`。
+- `DATASET` に、依頼書のデータセットの参照（`ts:<name>@<sha12>`）を入れる。依頼書に行が無ければ空文字。`EXP_TAGS` が `sai.dataset` としてすべての run に残す。
+- **データの置き場は実行先に送られない。** 実行先に送るのは workdir の中身だけ（`exp-core` §8）。スナップショットは `$SAI_PROJECT_ROOT/ts/snapshots/` にあるので、そのままでは遠隔の実行先で読めない。読めないときは、データの置き場を推測で作らず、質問ツールで起動者に聞いて止まる（作業報告書は `BLOCKED`）。
 - **モデルの数値は、仕様書の「パラメータの出典表」と、`reference_code` の土台のコードから写す。** 記憶や、前の実験の値をそのまま使わない。
 - `sim_model` が `null` でなければ（**神経のモデルのときだけ**）、次のように書く。
   - **式はモデル定義書の「## 式」から写す。** 式を実装した関数に、その式の `出典` を `# src:` で書く（手順 3 の `refcode.py check` の R2 を満たす）。
