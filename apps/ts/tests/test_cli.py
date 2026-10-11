@@ -42,8 +42,17 @@ COMMANDS = [
     ["serve"], ["init"], ["demo"], ["datasets"], ["meta"],
     ["events", "list"], ["events", "add"], ["events", "update"], ["events", "rm"], ["events", "export"],
     ["schema", "get"], ["schema", "set"], ["channels", "get"], ["channels", "set"],
-    ["view"], ["view", "set"], ["run"], ["ext", "list"],
+    ["view"], ["view", "set"], ["run"], ["algos", "list"], ["ext", "list"],
 ]
+
+
+SPEC_ECHO = {"version": 1, "title": "帯域", "kind": "channel", "target": "vars", "desc": "",
+             "params": [{"name": "low_hz", "type": "number", "default": 80, "min": 0},
+                        {"name": "envelope", "type": "boolean", "default": True}]}
+ECHO = '''import json, sys
+req = json.load(sys.stdin)
+print(json.dumps({"message": "ok", "params": req["params"], "target": req["target"]}))
+'''
 
 
 class CliTest(unittest.TestCase):
@@ -135,7 +144,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(self.ok_json("view")["updated_by"], "agent")
 
         res = self.ok_json("run", "burst", "--dataset", "demo", "--params", '{"thr": 1.0}')
-        self.assertEqual(set(res), {"script", "source", "result", "elapsed_s"})
+        self.assertEqual(set(res), {"script", "source", "result", "elapsed_s", "run"})
         self.assertEqual(res["script"], "burst")
         self.assertTrue(res["source"].startswith("script:burst@"))
         self.assertIsInstance(res["result"]["added"], int)
@@ -147,6 +156,48 @@ class CliTest(unittest.TestCase):
             p = self.sai("run", "burst", "--dataset", "demo", "--params", bad)
             self.assertEqual(p.returncode, 2, bad)
             self.assertEqual(p.stdout, "")
+
+    def test_algos_list_run_and_spec_checks(self):  # AC4
+        self.make_demo()
+        scripts = self.tmp / "ts" / "scripts"
+        scripts.mkdir(exist_ok=True)
+        (scripts / "echo.py").write_text(ECHO, encoding="utf-8")
+        (scripts / "echo.json").write_text(json.dumps(SPEC_ECHO, ensure_ascii=False), encoding="utf-8")
+        (scripts / "bare.py").write_text(ECHO, encoding="utf-8")
+
+        rows = {a["name"]: a for a in self.ok_json("algos", "list")["algos"]}
+        self.assertEqual(rows["echo"]["title"], "帯域")
+        self.assertEqual(rows["bare"]["error"], "仕様（bare.json）がありません")
+        self.assertIn("echo  project  帯域", self.sai("algos", "list").stdout)
+
+        # 仕様のある物は値を検査し、既定で埋め、対象を渡す
+        res = self.ok_json("run", "echo", "--dataset", "demo", "--vars", "ch01,ch02", "--params", '{"low_hz": 90}')
+        self.assertEqual(res["result"]["params"], {"low_hz": 90, "envelope": True})
+        self.assertEqual(res["result"]["target"], {"vars": ["ch01", "ch02"], "events": []})
+        self.assertIsInstance(res["run"], str)
+        row = [json.loads(x) for x in (self.tmp / "ts/datasets/demo/runs.jsonl").read_text().splitlines()][0]
+        self.assertEqual((row["op"], row["by"], row["id"]), ("start", "agent", res["run"]))
+
+        for args, code in [
+            (["run", "echo", "--dataset", "demo"], 2),  # vars が無い
+            (["run", "echo", "--dataset", "demo", "--vars", "ch01", "--params", '{"zz": 1}'], 2),
+            (["run", "echo", "--dataset", "demo", "--vars", "ch01", "--params", '{"low_hz": -5}'], 2),
+            (["run", "bare", "--dataset", "demo", "--vars", "ch01"], 2),  # 仕様が無ければ、--params を検査しない代わりに値は渡る
+            (["run", "nosuch", "--dataset", "demo"], 3),
+        ]:
+            with self.subTest(args=args):
+                p = self.sai(*args, "--json")
+                if args[1] == "bare":
+                    self.assertEqual(p.returncode, 0, p.stderr)  # 仕様が無い物は今までどおり動く
+                    continue
+                self.assertEqual((p.returncode, p.stdout), (code, ""))
+                self.assertRegex(p.stderr.strip().splitlines()[-1], JA)
+
+        # 親の実行（SAI_PARENT_RUN_ID）があれば、by は agent:<値>
+        env = {**self.env, "SAI_PARENT_RUN_ID": "205"}
+        self.ok_json("run", "bare", "--dataset", "demo", env=env)
+        last = [json.loads(x) for x in (self.tmp / "ts/datasets/demo/runs.jsonl").read_text().splitlines()][-2]
+        self.assertEqual(last["by"], "agent:205")
 
     def test_channels_get_set(self):  # AC3
         self.make_demo()

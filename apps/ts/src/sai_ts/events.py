@@ -277,6 +277,22 @@ def update_event(ds: str, id: str, patch: dict, source: str) -> dict:
     return row
 
 
+def update_events(ds: str, patches: dict[str, dict], source: str) -> list[dict]:
+    """{id: 変える項目} をまとめて書く。1 回のロックの中で、1 件でも誤りがあれば何も書かない。"""
+    _check_source(source)
+    if not isinstance(patches, dict):
+        raise ValueError("patches は object にしてください")
+    with _journal(ds) as (state, append):
+        schema = load_schema(ds)
+        rows = []
+        for id, patch in patches.items():
+            cur = _live(state, id)
+            merged = {**{k: v for k, v in cur.items() if k not in _BOOK}, **_fields(patch)}
+            rows.append(_put(ds, id, cur["rev"] + 1, merged, schema, source))
+        append(rows)
+    return rows
+
+
 def delete_event(ds: str, id: str, source: str) -> dict:
     _check_source(source)
     with _journal(ds) as (state, append):
