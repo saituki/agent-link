@@ -46,6 +46,7 @@ def snapshot() -> dict:
             continue
         snap[f"events:{d.name}"] = _stat(d / "events.jsonl")
         snap[f"schema:{d.name}"] = _stat(d / "schema.json")
+        snap[f"channels:{d.name}"] = _stat(d / "channels.json")
         for r in (d / "records").glob("*") if (d / "records").is_dir() else []:
             if r.is_dir():
                 snap[f"vars:{d.name}/{r.name}"] = _stat(r / "meta.json")
@@ -70,6 +71,8 @@ def diff(old: dict, new: dict) -> list[dict]:
             out.append({"kind": "events", "dataset": key.split(":", 1)[1]})
         elif key.startswith("schema:"):
             out.append({"kind": "schema", "dataset": key.split(":", 1)[1]})
+        elif key.startswith("channels:"):
+            out.append({"kind": "channels", "dataset": key.split(":", 1)[1]})
         elif key.startswith("vars:"):
             ds, rec = key.split(":", 1)[1].split("/", 1)
             out.append({"kind": "vars", "dataset": ds, "record": rec})

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 
-from . import events, view
+from . import channels, events, view
 
 router = APIRouter()
 
@@ -41,6 +41,16 @@ def get_schema(ds: str):
 @router.put("/api/datasets/{ds}/schema")
 def put_schema(ds: str, body: dict):
     return events.save_schema(ds, body)
+
+
+@router.get("/api/datasets/{ds}/channels")
+def get_channels(ds: str):
+    return channels.load_channels(ds)
+
+
+@router.put("/api/datasets/{ds}/channels")
+def put_channels(ds: str, body: dict):
+    return channels.save_channels(ds, body)
 
 
 @router.get("/api/datasets/{ds}/events.tsv")

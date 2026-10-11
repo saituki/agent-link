@@ -45,6 +45,8 @@ sai-ts events rm <ds> <id>
 sai-ts events export <ds>                 TSV を標準出力へ（--json なら {"tsv": "…"}）
 sai-ts schema get <ds>
 sai-ts schema set <ds>                    標準入力に全体の JSON
+sai-ts channels get <ds>                  ch 設定（並び・label・色・倍率）を出す
+sai-ts channels set <ds>                  標準入力に全体の JSON
 sai-ts view [--json]
 sai-ts view set                           標準入力に view の一部の JSON（updated_by は agent になる）
 sai-ts run <script> --dataset <ds> [--record R]... [--params JSON] [--timeout SEC]
@@ -61,6 +63,8 @@ sai-ts ext list
 - `type` は `line`（`t` を持つ）か `area`（`t0` < `t1` を持つ）。`vars` が空の配列なら記録全体のイベント。
 - `category` は `sai-ts schema get <ds>` の `categories` にある名前だけ。無ければ先に `schema set` で足す。
 - `metrics` の値は `schema` の `metrics` の型・範囲・`values` を満たす。違えば終了コード 2 が返る。
+- カテゴリに `type`（`area` か `line`）があれば、イベントの `type` が一致する。違えば終了コード 2。
+- カテゴリの `ch` が `single` なら `vars` はちょうど 1 個、`all` なら `vars` は空（記録全体）。違えば終了コード 2。
 
 ## 4. スクリプトの書き方
 
