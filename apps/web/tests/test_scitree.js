@@ -15,10 +15,10 @@ const {
   stOpsFor, ST_NODE_OPS, ST_STANCE, ST_EXPERIMENTS_HASH,
   stVisibleRows, stRowHit, stActionMeta, stClampSplit, ST_ALL_KINDS, ST_SPLIT_LIMITS,
   stFmtAt, stHistoryText, stRangeText, stApprovalText, stStanceLabel,
-  stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
+  stQuestionRows, stQuestionsTitle, stSproutStateText,
   stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
   stStepView, stStepNodeView, stStepParse, stDatasetParts,
-  stParseCompareHash, stSproutSections, stCompareRows, stCompareToggle, stAxisRows, stShort, stCircled,
+  stParseCompareHash, stSproutSections, stCompareRows, stCompareToggle, stShort, stCircled,
   ST_COMPARE_MAX,
 } = require(path.join(dir, "scitree.js"));
 
@@ -145,9 +145,11 @@ test(function testNodeOps() {
   assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "A" }]), ["add_a", "insert_q", "move_a"]);
   // Q で子に Q があれば add_a を出さない
   assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "Q" }]), ["add_q"]);
-  // add_e は S（SPROUT）と E だけ
+  // add_e は E と、完成した S（SPROUT）だけ。未完成の S には BRANCH を出さない（残りの問いを板で出す）
   assert.ok(!stOpsFor({ kind: "A" }, []).includes("add_e"));
-  assert.ok(stOpsFor({ kind: "S" }, []).includes("add_e"));
+  assert.ok(stOpsFor({ kind: "S", complete: true }, []).includes("add_e"));
+  assert.ok(!stOpsFor({ kind: "S", complete: false, missing: ["SQ3"] }, []).includes("add_e"));
+  assert.deepStrictEqual(stOpsFor({ kind: "S", complete: false }, []), ["edit", "remove"]);
   assert.ok(stOpsFor({ kind: "E" }, []).includes("add_e"));
   assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_q"));
   // E には MLflow の変更
@@ -156,8 +158,8 @@ test(function testNodeOps() {
   assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_f"));
   // A の add_q は常に出す
   assert.deepStrictEqual(stOpsFor({ kind: "A" }, []), ["add_q", "add_f", "copy"]);
-  // S は BRANCH と Edit / Delete
-  assert.deepStrictEqual(stOpsFor({ kind: "S" }, []), ["add_e", "edit", "remove"]);
+  // S は完成したときだけ BRANCH。Edit / Delete は常に出す
+  assert.deepStrictEqual(stOpsFor({ kind: "S", complete: true }, []), ["add_e", "edit", "remove"]);
 });
 
 test(function testFmtAt() {
@@ -316,40 +318,50 @@ test(function testListIsFullWidthOnNarrow() {
     "板が無いときの境界線を隠す宣言が無い");
 });
 
-test(function testSproutToggle() {
-  assert.deepStrictEqual(stSproutToggle([], "A1"), ["A1"]);
-  assert.deepStrictEqual(stSproutToggle(["A1"], "A2"), ["A1", "A2"]);
-  assert.deepStrictEqual(stSproutToggle(["A1", "A2"], "A1"), ["A2"]); // もう一度で外れる
-  // A 以外は足さない（O は無くなった ID）
-  for (const id of ["Q1", "F2", "E3", "S4", "O1", "A0", "A", "", null]) assert.deepStrictEqual(stSproutToggle(["A1"], id), ["A1"], String(id));
-  // 元の配列は変えない
-  const base = ["A1"];
-  stSproutToggle(base, "A2");
-  assert.deepStrictEqual(base, ["A1"]);
-  // 21 個目は足さない。20 個のときの「外す」は効く
-  const full = Array.from({ length: ST_SPROUT_PATH_MAX }, (_, i) => `A${i + 1}`);
-  assert.strictEqual(ST_SPROUT_PATH_MAX, 20);
-  assert.deepStrictEqual(stSproutToggle(full, "A99"), full);
-  assert.strictEqual(stSproutToggle(full, "A5").length, 19);
-  assert.deepStrictEqual(stSproutToggle(null, "A1"), ["A1"]);
+test(function testQuestionRows() {
+  // D の板: 自分の問いと自分の回答。生きた問いには回答を足せて直せる。消した問いは何も出せない
+  const D = { id: "D1", kind: "D", questions: [
+    { id: "SQ1", text: "解く問題は何か", axis: "task", removed: false, answers: [
+      { id: "SA1", owner: "D1", a: "A12", a_text: "視床皮質モデル", text: null },
+    ] },
+    { id: "SQ2", text: "成功基準は何か", axis: null, removed: false, answers: [] },
+    { id: "SQ3", text: "消した問い", axis: "data", removed: true, answers: [] },
+  ] };
+  const rows = stQuestionRows(D);
+  assert.deepStrictEqual(rows.map((q) => q.id), ["SQ1", "SQ2", "SQ3"]);
+  assert.deepStrictEqual(rows[0].answers[0], {
+    id: "SA1", owner: "D1", role: "fixed", label: "固定", a: "A12", aText: "視床皮質モデル", text: "", mine: true,
+  });
+  assert.ok(rows[0].canAnswer && rows[0].canEdit);
+  assert.ok(rows[1].canAnswer && rows[1].canEdit && rows[1].answers.length === 0);
+  assert.ok(!rows[2].canAnswer && !rows[2].canEdit && rows[2].removed);
+  // S の板: D の回答が付いた問いには回答を足せない。S の回答は新規で、自分のものだけ消せる（直す・消すは S では無い）
+  const S = { id: "S2", kind: "S", questions: [
+    { id: "SQ1", text: "解く問題", axis: "task", removed: false, answers: [
+      { id: "SA1", owner: "D1", a: null, a_text: null, text: "決めた文" },
+    ] },
+    { id: "SQ2", text: "手法", axis: "method", removed: false, answers: [
+      { id: "SA9", owner: "S2", a: "A94", a_text: "Costa 型", text: null },
+    ] },
+  ] };
+  const sr = stQuestionRows(S);
+  assert.ok(!sr[0].canAnswer && !sr[0].canEdit);
+  assert.deepStrictEqual(sr[0].answers[0], { id: "SA1", owner: "D1", role: "fixed", label: "固定", a: null, aText: "", text: "決めた文", mine: false });
+  assert.ok(sr[1].canAnswer && !sr[1].canEdit);
+  assert.deepStrictEqual(sr[1].answers[0], { id: "SA9", owner: "S2", role: "novel", label: "新規", a: "A94", aText: "Costa 型", text: "", mine: true });
+  // 無い入力は空
+  assert.deepStrictEqual(stQuestionRows(null), []);
+  assert.deepStrictEqual(stQuestionRows({ id: "D9", kind: "D" }), []);
 });
 
-test(function testSproutRowsAndSummary() {
-  const status = { nodes: [
-    { id: "A1", kind: "A", text: "答え" },
-    { id: "A2", kind: "A", text: "課題" },
-  ] };
-  assert.deepStrictEqual(stSproutRows(["A2", "A1", "A9"], status), [
-    { id: "A2", text: "課題" },
-    { id: "A1", text: "答え" },
-    { id: "A9", text: "" }, // status に無い ID は文なしで残す
-  ]);
-  assert.deepStrictEqual(stSproutRows([], status), []);
-  assert.deepStrictEqual(stSproutRows(["A1"], null), [{ id: "A1", text: "" }]);
-  // Issue の数は数えない（検査は無くなった）
-  assert.strictEqual(stSproutSummary([]), "A をまだ選んでいません");
-  assert.strictEqual(stSproutSummary(["A1"]), "PATH 1 個");
-  assert.strictEqual(stSproutSummary(["A1", "A2"]), "PATH 2 個");
+test(function testQuestionsTitleAndSproutState() {
+  assert.strictEqual(stQuestionsTitle({ id: "D1", kind: "D" }), "問い（D1）");
+  assert.strictEqual(stQuestionsTitle({ id: "S2", kind: "S", complete: false, missing: ["SQ3", "SQ5"] }), "問い（S2・未完成: 残り 2）");
+  assert.strictEqual(stQuestionsTitle({ id: "S2", kind: "S", complete: true, missing: [] }), "問い（S2・完成）");
+  // 子の SPROUT の札（完成・未完成の残り）。S 以外は札なし
+  assert.strictEqual(stSproutStateText({ kind: "S", complete: true, missing: [] }), "完成");
+  assert.strictEqual(stSproutStateText({ kind: "S", complete: false, missing: ["SQ3"] }), "未完成 1");
+  assert.strictEqual(stSproutStateText({ kind: "D" }), "");
 });
 
 test(function testRangeText() {
@@ -547,18 +559,19 @@ test(function testStepParse() {
   assert.strictEqual(stStepParse(null, 30), null);
 });
 
-// --- 板の 4 節・D の軸の表・比べる（U12）---
-// seed（D1）: task 決定 A12・method 範囲 A94・data 空欄（記載なし）・target 空欄・output 空欄・metric 空欄。
-// S1 の path: A12（固定）・A385（新規、固定は A94 まで）・A5（古い Q の道の末端）。E1 は S1 の子、E2 は孫。
+// --- 板の問い・完成・比べる（U02）---
+// seed（D1）の問い: SQ1（task）は A12 で答え、SQ2（method）はテキストで答え、SQ3（成功基準。軸なし）は未回答。
+// S1 は SQ3 を A385 で答えた（新規）ので完成。S2 は SQ3 に答えていないので未完成（残り SQ3）。E1 は S1 の子、E2 は孫。
 function sectionsStatus() {
-  const D = { id: "D1", kind: "D", parent: null, text: "発作部位", axes: {
-    task: { state: "fixed", value: "痙攣の分類", a: "A12" },
-    target: { state: "open" },
-    data: { state: "none", reason: "実測データを使わない" },
-    method: { state: "range", value: "回帰", a: "A94" },
-    output: { state: "open" },
-    metric: { state: "novel", reason: "新しい指標" },
-  } };
+  const dAnswers = [
+    { id: "SQ1", text: "解く問題は何か", axis: "task", removed: false, answers: [
+      { id: "SA1", owner: "D1", a: "A12", a_text: "分類を使う", text: null },
+    ] },
+    { id: "SQ2", text: "どの手法を使うか", axis: "method", removed: false, answers: [
+      { id: "SA2", owner: "D1", a: null, a_text: null, text: "回帰で扱う" },
+    ] },
+    { id: "SQ3", text: "成功基準は何か", axis: null, removed: false, answers: [] },
+  ];
   return { nodes: [
     { id: "Q1", kind: "Q", parent: null, text: "根" },
     { id: "A7", kind: "A", parent: "Q1", text: "途中" },
@@ -567,59 +580,85 @@ function sectionsStatus() {
     { id: "A94", kind: "A", parent: "Q1", text: "回帰で扱う" },
     { id: "Q4", kind: "Q", parent: null, text: "別の根" },
     { id: "A385", kind: "A", parent: "Q4", text: "新しい手法" },
-    D,
-    { id: "S1", kind: "S", parent: "D1", text: "1 本目", path_roles: [
-      { a: "A12", axis: "task", role: "fixed", fixed_at: "A12" },
-      { a: "A385", axis: "method", role: "novel", fixed_at: "A94" },
+    { id: "D1", kind: "D", parent: null, text: "発作部位", questions: dAnswers },
+    { id: "S1", kind: "S", parent: "D1", text: "1 本目", complete: true, missing: [], questions: [
+      dAnswers[0], dAnswers[1],
+      { id: "SQ3", text: "成功基準は何か", axis: null, removed: false, answers: [
+        { id: "SA3", owner: "S1", a: "A385", a_text: "新しい手法", text: null },
+      ] },
     ] },
     { id: "E1", kind: "E", parent: "S1", text: "実験 1", mlflow: "run-1" },
     { id: "E2", kind: "E", parent: "E1", text: "孫の実験" },
-    { id: "S2", kind: "S", parent: "D1", text: "2 本目", path_roles: [] },
+    { id: "S2", kind: "S", parent: "D1", text: "2 本目", complete: false, missing: ["SQ3"], questions: [dAnswers[0], dAnswers[1], dAnswers[2]] },
   ] };
 }
 
 test(function testSproutSections() {
   const s = stSproutSections(sectionsStatus(), "S1");
   assert.deepStrictEqual(s.seed, { id: "D1", title: "発作部位" });
-  // 固定: task の A12。道は一番上の Q から A12 まで。値は親の D の決定の値
-  assert.deepStrictEqual(s.fixed, [{ axis: "task", a: "A12", text: "分類を使う", path: ["Q1", "A7", "Q20", "A12"], value: "痙攣の分類" }]);
-  // 新規: method の A385。fixedAt は A94（固定と新規の両方の道を持つ）
-  assert.deepStrictEqual(s.novel, [{ axis: "method", a: "A385", text: "新しい手法", path: ["Q4", "A385"], fixedAt: "A94" }]);
+  assert.deepStrictEqual(s.questions.map((q) => q.id), ["SQ1", "SQ2", "SQ3"]);
+  assert.strictEqual(s.complete, true);
+  assert.deepStrictEqual(s.missing, []);
   // 実験: S の子と孫の E（生きた E だけ）
   assert.deepStrictEqual(s.exps.map((e) => e.id), ["E1", "E2"]);
   assert.strictEqual(s.exps[0].mlflow, "run-1");
-  // 記載なし: 親の D の state が none の軸（data）
-  assert.deepStrictEqual(s.none, [{ axis: "data", reason: "実測データを使わない" }]);
-  // 空の節は空の配列（S2 は path が無い・実験も無い）
+  // 未完成の S: 残りの問い
   const s2 = stSproutSections(sectionsStatus(), "S2");
-  assert.deepStrictEqual([s2.fixed, s2.novel, s2.exps], [[], [], []]);
-  // S でない・無い ID は null。親の D が無い古い S は seed が null
+  assert.strictEqual(s2.complete, false);
+  assert.deepStrictEqual(s2.missing, ["SQ3"]);
+  assert.deepStrictEqual(s2.exps, []);
+  // S でない・無い ID は null。親の D が無い古い S は seed が null。完成の印が無ければ未完成
   assert.strictEqual(stSproutSections(sectionsStatus(), "D1"), null);
   assert.strictEqual(stSproutSections(sectionsStatus(), "S9"), null);
-  const old = { nodes: [{ id: "S5", kind: "S", parent: null, text: "古い", path_roles: [{ a: "A12", axis: "task", role: "fixed", fixed_at: null }] }] };
+  const old = { nodes: [{ id: "S5", kind: "S", parent: null, text: "古い", questions: [] }] };
   assert.strictEqual(stSproutSections(old, "S5").seed, null);
-  assert.strictEqual(stSproutSections(old, "S5").fixed[0].value, null);
+  assert.strictEqual(stSproutSections(old, "S5").complete, false);
 });
 
-test(function testSproutFixedWithoutFixedAt() {
-  // fixed_at が無い新規は、道を全部濃く出す（fixedAt は null）
-  const st = sectionsStatus();
-  st.nodes.find((n) => n.id === "S1").path_roles = [{ a: "A385", axis: "method", role: "novel", fixed_at: null }];
-  assert.strictEqual(stSproutSections(st, "S1").novel[0].fixedAt, null);
+test(function testQuestionRows() {
+  // D の板: 自分の問いと自分の回答。生きた問いには回答を足せて直せる。消した問いは何も出せない
+  const D = { id: "D1", kind: "D", questions: [
+    { id: "SQ1", text: "解く問題は何か", axis: "task", removed: false, answers: [
+      { id: "SA1", owner: "D1", a: "A12", a_text: "視床皮質モデル", text: null },
+    ] },
+    { id: "SQ2", text: "成功基準は何か", axis: null, removed: false, answers: [] },
+    { id: "SQ3", text: "消した問い", axis: "data", removed: true, answers: [] },
+  ] };
+  const rows = stQuestionRows(D);
+  assert.deepStrictEqual(rows.map((q) => q.id), ["SQ1", "SQ2", "SQ3"]);
+  assert.deepStrictEqual(rows[0].answers[0], {
+    id: "SA1", owner: "D1", role: "fixed", label: "固定", a: "A12", aText: "視床皮質モデル", text: "", mine: true,
+  });
+  assert.ok(rows[0].canAnswer && rows[0].canEdit);
+  assert.ok(rows[1].canAnswer && rows[1].canEdit && rows[1].answers.length === 0);
+  assert.ok(!rows[2].canAnswer && !rows[2].canEdit && rows[2].removed);
+  // S の板: D の回答が付いた問いには回答を足せない。S の回答は新規で、自分のものだけ消せる（直す・消すは S では無い）
+  const S = { id: "S2", kind: "S", questions: [
+    { id: "SQ1", text: "解く問題", axis: "task", removed: false, answers: [
+      { id: "SA1", owner: "D1", a: null, a_text: null, text: "決めた文" },
+    ] },
+    { id: "SQ2", text: "手法", axis: "method", removed: false, answers: [
+      { id: "SA9", owner: "S2", a: "A94", a_text: "Costa 型", text: null },
+    ] },
+  ] };
+  const sr = stQuestionRows(S);
+  assert.ok(!sr[0].canAnswer && !sr[0].canEdit);
+  assert.deepStrictEqual(sr[0].answers[0], { id: "SA1", owner: "D1", role: "fixed", label: "固定", a: null, aText: "", text: "決めた文", mine: false });
+  assert.ok(sr[1].canAnswer && !sr[1].canEdit);
+  assert.deepStrictEqual(sr[1].answers[0], { id: "SA9", owner: "S2", role: "novel", label: "新規", a: "A94", aText: "Costa 型", text: "", mine: true });
+  // 無い入力は空
+  assert.deepStrictEqual(stQuestionRows(null), []);
+  assert.deepStrictEqual(stQuestionRows({ id: "D9", kind: "D" }), []);
 });
 
-test(function testAxisRows() {
-  const rows = stAxisRows(sectionsStatus().nodes.find((n) => n.id === "D1").axes);
-  assert.deepStrictEqual(rows.map((r) => r.axis), ["task", "target", "data", "method", "output", "metric"]);
-  // 決定・範囲は値、新規性・記載なしは理由、open は空欄
-  assert.deepStrictEqual(rows[0], { axis: "task", label: "解く問題", state: "fixed", stateLabel: "決定", text: "痙攣の分類", a: "A12" });
-  assert.deepStrictEqual(rows[3], { axis: "method", label: "手法", state: "range", stateLabel: "範囲", text: "回帰", a: "A94" });
-  assert.strictEqual(rows[2].stateLabel, "空欄（記載なし）");
-  assert.strictEqual(rows[2].text, "実測データを使わない");
-  assert.strictEqual(rows[1].stateLabel, "空欄");
-  assert.strictEqual(rows[1].text, "");
-  // 軸が無い（古い D）は全部空欄
-  assert.deepStrictEqual(stAxisRows(null).map((r) => r.state), ["open", "open", "open", "open", "open", "open"]);
+test(function testQuestionsTitleAndSproutState() {
+  assert.strictEqual(stQuestionsTitle({ id: "D1", kind: "D" }), "問い（D1）");
+  assert.strictEqual(stQuestionsTitle({ id: "S2", kind: "S", complete: false, missing: ["SQ3", "SQ5"] }), "問い（S2・未完成: 残り 2）");
+  assert.strictEqual(stQuestionsTitle({ id: "S2", kind: "S", complete: true, missing: [] }), "問い（S2・完成）");
+  // 子の SPROUT の札（完成・未完成の残り）。S 以外は札なし
+  assert.strictEqual(stSproutStateText({ kind: "S", complete: true, missing: [] }), "完成");
+  assert.strictEqual(stSproutStateText({ kind: "S", complete: false, missing: ["SQ3"] }), "未完成 1");
+  assert.strictEqual(stSproutStateText({ kind: "D" }), "");
 });
 
 test(function testCompareRows() {
@@ -627,16 +666,16 @@ test(function testCompareRows() {
     axes: ["task", "method"],
     sprouts: [
       { id: "S1", title: "一つ目", seed: "D1", cells: {
-        task: { a: "A12", text: "分類を使う", role: "fixed", fixed_at: "A12" },
-        method: { a: "A385", text: "新しい手法", role: "novel", fixed_at: "A94" },
+        task: { a: "A12", text: "分類を使う", role: "fixed" },
+        method: { a: "A385", text: "新しい手法", role: "novel" },
       } },
       { id: "S2", title: "二つ目", seed: "D1", cells: {
-        task: { a: "A12", text: "分類を使う", role: "fixed", fixed_at: "A12" },
-        method: { a: "A400", text: "別の手法", role: "novel", fixed_at: null },
+        task: { a: "A12", text: "分類を使う", role: "fixed" },
+        method: { a: "A400", text: "別の手法", role: "novel" },
       } },
       { id: "S3", title: "三つ目", seed: "D1", cells: {
-        task: { a: null, text: "", role: "open", fixed_at: null },
-        method: { a: null, text: "理由", role: "none", fixed_at: null },
+        task: { a: null, text: "", role: "open" },
+        method: { a: null, text: "テキストの回答", role: "novel" },
       } },
     ],
     same: { task: true, method: false },
@@ -645,12 +684,16 @@ test(function testCompareRows() {
   assert.deepStrictEqual(t.axes, [{ key: "task", label: "解く問題", diff: false }, { key: "method", label: "手法", diff: true }]);
   // 同じ列の同じ A は同じ印（①）。違う A は ②。A の無いセルは印が無い
   assert.deepStrictEqual(t.rows.map((r) => r.cells.map((c) => c.mark)), [["①", "①"], ["①", "②"], [null, null]]);
-  assert.deepStrictEqual(t.rows[2].cells.map((c) => c.label), ["空欄", "記載なし"]);
+  // テキストの回答（a が無く text がある）は文だけを出す
+  assert.deepStrictEqual(t.rows[2].cells.map((c) => c.label), ["未回答", "新規"]);
+  assert.strictEqual(t.rows[2].cells[1].text, "テキストの回答");
+  assert.strictEqual(t.rows[2].cells[1].a, null);
   assert.strictEqual(t.rows[0].cells[0].label, "固定");
   assert.strictEqual(t.rows[0].cells[1].label, "新規");
-  // 壊れた入力でも落ちない
+  // 壊れた入力でも落ちない。古い role（none）は未回答として扱う
   assert.deepStrictEqual(stCompareRows(null), { axes: [], rows: [] });
   assert.strictEqual(stCompareRows({ axes: ["task"], sprouts: [{ id: "S1", cells: { task: { role: "weird" } } }] }).rows[0].cells[0].role, "open");
+  assert.strictEqual(stCompareRows({ axes: ["task"], sprouts: [{ id: "S1", cells: { task: { role: "none" } } }] }).rows[0].cells[0].role, "open");
 });
 
 test(function testCompareHashAndToggle() {
