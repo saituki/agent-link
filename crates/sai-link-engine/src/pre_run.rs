@@ -23,8 +23,9 @@
 //! （並列に起動しても中身が混ざらないようにするため）。
 
 use std::io::Read;
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 /// 準備コマンドの打ち切り時間。
@@ -89,17 +90,11 @@ pub fn run_with(cmd: &[String], root: &Path, timeout: Duration) -> PreRunOutcome
     };
     match status {
         Some(status) if status.success() => PreRunOutcome::Ok,
-        Some(status) => {
-            let code = status
-                .code()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "不明".to_string());
-            PreRunOutcome::Failed(with_output(
-                format!("コマンドが終了コード {code} で失敗しました"),
-                &stdout,
-                &stderr,
-            ))
-        }
+        Some(status) => PreRunOutcome::Failed(with_output(
+            format!("コマンドが{} で失敗しました", exit_text(status)),
+            &stdout,
+            &stderr,
+        )),
         None => PreRunOutcome::Failed(format!("時間切れ（{} 秒）", timeout.as_secs())),
     }
 }
@@ -135,17 +130,11 @@ pub fn run_capture(
                 .take(MAX_CAPTURE_CHARS)
                 .collect())
         }
-        Some(status) => {
-            let code = status
-                .code()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "不明".to_string());
-            Err(truncate_reason(with_output(
-                format!("コマンドが終了コード {code} で失敗しました"),
-                &stdout,
-                &stderr,
-            )))
-        }
+        Some(status) => Err(truncate_reason(with_output(
+            format!("コマンドが{} で失敗しました", exit_text(status)),
+            &stdout,
+            &stderr,
+        ))),
         None => Err(truncate_reason(format!(
             "時間切れ（{} 秒）",
             timeout.as_secs()
@@ -272,10 +261,7 @@ pub fn run_with_stdin(
             Some(1) => StdinOutcome::Rejected(
                 String::from_utf8_lossy(&stderr).trim().chars().take(4000).collect(),
             ),
-            code => StdinOutcome::Broken(truncate_reason(format!(
-                "終了コード {}",
-                code.map(|c| c.to_string()).unwrap_or_else(|| "不明".to_string())
-            ))),
+            _ => StdinOutcome::Broken(truncate_reason(exit_text(status))),
         },
     }
 }
@@ -294,6 +280,19 @@ fn truncate_reason(reason: String) -> String {
         .chars()
         .take(MAX_CAPTURE_REASON_CHARS)
         .collect()
+}
+
+/// 終了状態を文にする（終了コード → シグナル番号の順。どちらも取れなければ「不明」）。
+///
+/// 「不明」になるのは、シグナルで止まったのにシグナル番号を取れなかったときだけ。
+fn exit_text(status: ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("終了コード {code}");
+    }
+    if let Some(signal) = status.signal() {
+        return format!("シグナル {signal}");
+    }
+    "終了コード 不明".to_string()
 }
 
 /// 失敗理由に出力の先頭 [`MAX_OUTPUT_CHARS`] 文字を足す（空なら理由だけ）。
@@ -410,6 +409,20 @@ mod tests {
                 msg.contains("終了コード"),
                 "理由に終了コードが含まれる: {msg}"
             ),
+            other => panic!("Failed を期待したが {other:?}"),
+        }
+    }
+
+    #[test]
+    fn signal_death_names_the_signal() {
+        // AC3: シグナルで死んだら「不明」ではなくシグナル番号を出す（kill -9 = 9）
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = vec!["sh".to_string(), "-c".to_string(), "kill -9 $$".to_string()];
+        match run_with(&cmd, dir.path(), Duration::from_secs(5)) {
+            PreRunOutcome::Failed(msg) => {
+                assert!(msg.contains("シグナル 9"), "理由: {msg}");
+                assert!(!msg.contains("不明"), "理由: {msg}");
+            }
             other => panic!("Failed を期待したが {other:?}"),
         }
     }
