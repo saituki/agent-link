@@ -1,6 +1,6 @@
 //! `sai-sci init` が研究プロジェクトに配る研究の部品。
 //!
-//! - `.sai/blocks/*.md`（[`SCI_BLOCKS`] 33 本）と `.sai/template/*.md`（[`SCI_TEMPLATES`] 14 本・
+//! - `.sai/blocks/*.md`（[`SCI_BLOCKS`] 34 本）と `.sai/template/*.md`（[`SCI_TEMPLATES`] 14 本・
 //!   分野の観点の見本）・`.sai/tools/`・`.sai/exec/`・`.sai/paper/mind.md` を書き出す。
 //!   既にあるファイルは上書きしない（部品の配り方。`--update` のときだけ退避して置き換える）。
 //! - `.sai/settings.json` に sai-sci の 4 つのキーを書く（共有契約「sai-sci が書く設定」）。
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-/// sai-sci のブロック 33 本。並びは Action の種類ごと:
+/// sai-sci のブロック 34 本。並びは Action の種類ごと:
 /// 役 4 本（professor・professor-backward・operator・kaizen）→ Q を分ける（start・split・restore・typify）
 /// → O を書く（ideate・analogy）→ F を探す（search・read・lookup・extract・cite-check）
 /// → Logicality（debate・review）→ ★ の手伝い（compare）→ その他（digest・coach）
@@ -43,6 +43,7 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("lab-place.md", include_str!("../../../sai-sci/blocks/lab-place.md")),
     ("lab-progress.md", include_str!("../../../sai-sci/blocks/lab-progress.md")),
     ("lab-map.md", include_str!("../../../sai-sci/blocks/lab-map.md")),
+    ("lab-regroup.md", include_str!("../../../sai-sci/blocks/lab-regroup.md")),
     ("lab-sprout.md", include_str!("../../../sai-sci/blocks/lab-sprout.md")),
     ("sci-verify.md", include_str!("../../../sai-sci/blocks/sci-verify.md")),
     ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
@@ -614,7 +615,7 @@ mod tests {
 
         let done = install_sci_init(&root, bin, "general", false, false).unwrap();
 
-        // sci のブロック 33 本と、分野の観点を配る。
+        // sci のブロック 34 本と、分野の観点を配る。
         let sci_blocks = std::fs::read_dir(root.join(".sai/blocks"))
             .unwrap()
             .filter_map(Result::ok)
@@ -623,9 +624,9 @@ mod tests {
                 name.starts_with("sci-") || name.starts_with("lab-")
             })
             .count();
-        assert_eq!(SCI_BLOCKS.len(), 33, "SCI_BLOCKS が 33 本でない");
+        assert_eq!(SCI_BLOCKS.len(), 34, "SCI_BLOCKS が 34 本でない");
         assert_eq!(SCI_TEMPLATES.len(), 14, "SCI_TEMPLATES が 14 本でない");
-        assert_eq!(sci_blocks, 27, "配った sci のブロックが 27 本でない");
+        assert_eq!(sci_blocks, 28, "配った sci のブロックが 28 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
         }
@@ -870,7 +871,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// sci ブロック 27 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
+    /// sci ブロック 28 本と `paper-debater`・`paper-reviewer` は `sci_type`（node / manage / support）を持ち、
     /// 役 4 本（professor・professor-backward・operator・kaizen）は持たない。sci ブロックは `layer` を持たない。
     /// 完了の判定に使っていた旧キーはどのブロックにも無い。
     #[test]
@@ -881,6 +882,7 @@ mod tests {
             "lab-search.md",
             "lab-grow.md",
             "lab-survey.md",
+            "lab-regroup.md",
             "sci-verify.md",
             "sci-coach.md",
             "sci-cite-check.md",
@@ -997,7 +999,7 @@ mod tests {
         }
     }
 
-    /// sci のブロック 33 本のうち 26 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
+    /// sci のブロック 34 本のうち 27 本（`SCI_BLOCKS_WITHOUT_SCI_CORE` を除く）は、全部 共通の決まり
     /// （sci-core）を先頭で受け、状況まとめ（project-brief）を待たず、起動直前に範囲を作り、
     /// 研究向けの review 見出しを持つ。
     ///
@@ -1005,7 +1007,7 @@ mod tests {
     /// `professor` と `operator` は research-tree の中で動かないので、同じく検査から外す（下のテストで別に確かめる）。
     #[test]
     fn sci_blocks_declare_sci_core_and_context() {
-        assert_eq!(SCI_BLOCKS.len(), 33);
+        assert_eq!(SCI_BLOCKS.len(), 34);
         for id in [
             "sci-analogy.md",
             "sci-cite-check.md",
@@ -1032,6 +1034,7 @@ mod tests {
             "lab-place.md",
             "lab-progress.md",
             "lab-map.md",
+            "lab-regroup.md",
             "lab-sprout.md",
         ] {
             assert!(
@@ -1083,7 +1086,7 @@ mod tests {
             );
             assert!(!content.contains("/Users/"), "{name} に絶対パスがある");
         }
-        assert_eq!(checked, 26, "共通の決まりを確かめたのは 26 本でない");
+        assert_eq!(checked, 27, "共通の決まりを確かめたのは 27 本でない");
     }
 
     /// frontmatter から、リスト項目（`templates:` など）に並ぶ値をまとめて読む。
