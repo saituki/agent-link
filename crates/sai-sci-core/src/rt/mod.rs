@@ -17,6 +17,7 @@ pub mod defs;
 pub mod export;
 pub mod ops;
 pub mod scope;
+pub mod steps;
 pub mod store;
 
 /// research-tree の操作のエラー。`Invalid` と `NotFound` の文は利用者にそのまま見せる日本語。

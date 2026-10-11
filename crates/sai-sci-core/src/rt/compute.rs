@@ -200,6 +200,8 @@ pub struct Status {
     pub decisions: Vec<Decision>,
     /// 全 Node の History（`Add *` を除き、`at` の昇順）。
     pub history: Vec<StatusHistory>,
+    /// 時系列（始めているときだけ。`steps.rs`）。
+    pub steps: super::steps::StepsJson,
     pub running: Vec<RunningJson>,
     pub warnings: Vec<String>,
 }
@@ -780,7 +782,7 @@ pub fn block_def_warnings(roots: &PaperRoots) -> Vec<String> {
 }
 
 /// DB の時刻（`YYYY-MM-DD HH:MM:SS`、UTC）や RFC3339 の時刻を UTC の RFC3339 に直す。読めなければ元の文字のまま。
-fn rfc3339_utc(text: &str) -> String {
+pub(super) fn rfc3339_utc(text: &str) -> String {
     let text = text.trim();
     if let Ok(naive) = NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S") {
         return DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc).to_rfc3339();
@@ -841,6 +843,7 @@ pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, lim
         next: Vec::new(),
         decisions: Vec::new(),
         history: Vec::new(),
+        steps: super::steps::StepsJson::default(),
         running: Vec::new(),
         warnings,
     };
@@ -879,6 +882,7 @@ pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, lim
         }
     }
     out.history.sort_by(|a, b| a.entry.at.cmp(&b.entry.at));
+    out.steps = super::steps::build(conn)?;
     out.running = running_runs(roots);
     Ok(out)
 }
@@ -1125,6 +1129,18 @@ mod tests {
             paper_id: None, run_id: None, report_id: None, mlflow_ref: None, paths: &[], created_by: "user",
         };
         store::insert_node(e.db.connection(), &n).unwrap()
+    }
+
+    #[test]
+    fn steps_stay_empty_before_init() {
+        // 始めていない DB では時系列を作らない（Node があっても total は 0）。
+        let e = env("steps-uninit");
+        q(&e, None, "根");
+        e.db.connection().execute("DELETE FROM rt_meta WHERE key = 'initialized_at'", []).unwrap();
+        let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
+        assert!(!s.initialized);
+        assert_eq!(s.steps.total, 0);
+        assert!(s.steps.nodes.is_empty());
     }
 
     fn q(e: &Env, parent: Option<i64>, text: &str) -> i64 {

@@ -644,7 +644,8 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             for a in &moving {
                 store::set_parent(conn, a.id, new_id)?;
             }
-            log(cx, new_id, "insert_q", &format!("{qid} の A {} 件を移した", moving.len()))?;
+            let ids = moving.iter().map(|a| fmt_id(Kind::A, a.id)).collect::<Vec<_>>().join(", ");
+            log(cx, new_id, "insert_q", &format!("{qid} の A {} 件を移した（{ids}）", moving.len()))?;
             Ok((fmt_id(Kind::Q, new_id), None))
         }
         "move_a" => {
@@ -669,7 +670,8 @@ fn execute(cx: &Cx<'_>, op: &Value) -> Result<(String, Option<Range>)> {
             for a in &moving {
                 store::set_parent(conn, a.id, to.id)?;
             }
-            log(cx, to.id, "move_a", &format!("{from_id} から A {} 件", moving.len()))?;
+            let ids = moving.iter().map(|a| fmt_id(Kind::A, a.id)).collect::<Vec<_>>().join(", ");
+            log(cx, to.id, "move_a", &format!("{from_id} から A {} 件（{ids}）", moving.len()))?;
             Ok((fmt_id(Kind::Q, to.id), None))
         }
         "copy" => {
@@ -1190,6 +1192,22 @@ mod tests {
         let kids: Vec<i64> = store::children(e.conn(), nq).unwrap().iter().map(|n| n.id).collect();
         assert_eq!(kids, vec![parse_id(&a1).unwrap().1, parse_id(&a2).unwrap().1]);
         assert_eq!(store::children(e.conn(), e.sub).unwrap().iter().map(|n| n.id).collect::<Vec<_>>(), vec![nq]);
+    }
+
+    #[test]
+    fn insert_q_and_move_a_log_the_moved_ids() {
+        let e = env();
+        let a1 = e.a("一つ目");
+        let a2 = e.a("二つ目");
+        e.approve("q3", "許可する");
+        let nq = e.agent1(json!({"op": "insert_q", "q": qid(e.sub), "text": "条件を分ける"})).unwrap();
+        let last = |action: &str| {
+            store::list_log(e.conn(), None).unwrap().into_iter().find(|l| l.action == action).unwrap().detail
+        };
+        assert_eq!(last("insert_q"), format!("{} の A 2 件を移した（{a1}, {a2}）", qid(e.sub)));
+        let other = qid(e.by_key("target"));
+        e.user(json!({"op": "move_a", "from": nq, "to": other})).unwrap();
+        assert_eq!(last("move_a"), format!("{nq} から A 2 件（{a1}, {a2}）"));
     }
 
     #[test]
