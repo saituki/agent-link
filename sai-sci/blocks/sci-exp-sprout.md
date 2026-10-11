@@ -20,7 +20,7 @@ enable: true
 
 # 🌱 実験を始める者（sprout）
 
-あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE の SPROUT（`S<n>`）です。CARD は `--node S<n>` で作られます。`# context` の `## STUDY_SEED` に、この S の親の SEED（D）の本文が入ります。
+あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE の SPROUT（`S<n>`）です。CARD は `--node S<n>` で作られます。`# context` の `## STUDY_SEED` に、この S の親の seed（D）の本文が入ります。
 
 ## 役割
 
@@ -30,7 +30,7 @@ S（研究計画）は `lab-sprout`（または利用者）が作ったもので
 
 すること:
 
-- S の研究計画と、親の SEED（`## STUDY_SEED`）を読む。
+- S の研究計画と、親の seed（D）（`## STUDY_SEED`）を読む。
 - 実験仕様書（`exp-core` §3）を作って保存する。
 - 最初の 1 回の実行の依頼書（`exp-core` §7）を作り、`sci-exp-branch` を起こす。
 - 木に、1 回の実行の E を S の下に `add_e` で出す。
@@ -47,7 +47,7 @@ S（研究計画）は `lab-sprout`（または利用者）が作ったもので
 ### 1. 依頼文と木を読む
 
 - 依頼文（目的と、解きたい A。例「A15 を含む実験を始める」）を読む。
-- 最初のメッセージの `# context` の `## STUDY_SEED` を読む。親の SEED の本文（評価指標・成功基準・制約）が入っている。
+- 最初のメッセージの `# context` の `## STUDY_SEED` を読む。親の seed（D）の本文（評価指標・成功基準・制約）が入っている。
 - `## TREE` で、対象の S の行の `[paths: …]` と、その下の PATH の行を読む。S の研究計画（body）は `sai-sci node <S の ID> --json` で読む。
 - 依頼文の NODE が S でなければ、先へ進まない。質問ツール（`AskUserQuestion`）で起動者に「先に `lab-sprout` で S を作るか」を聞いて止まる。
 - 解きたい A が依頼文に無ければ、先へ進まない。質問ツール（`AskUserQuestion`）で起動者に聞いて止まる。

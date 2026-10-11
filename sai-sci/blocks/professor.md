@@ -30,7 +30,7 @@ subblocks:
 
 ## research-tree の読み方
 
-`sai-sci` の木は次の層でできている。seed（D）は 1 つの研究の制約（9 項目。軸の 6 項目は「決定」か「空欄」）。SEED は root の根（RESEARCH_TYPE と `mind.md`）。root は分野の可能性の幅で、SEED の直下の Q が軸になり、その下に A・F が並ぶ。S（SPROUT・`S<n>`・研究計画）は seed 1 つと軸ごとの root path の組。E（BRANCH）は S の下の 1 回の実行。研究の制約は D にある。次の物で現在地を読む。
+`sai-sci` の木は次の層でできている。seed（D）は 1 つの研究の制約（9 項目。軸の 6 項目は「決定」「範囲」「空欄」のどれか）。root は分野の可能性の幅で、軸の Q が並び、その下に A・F が並ぶ。S（SPROUT・`S<n>`・研究計画）は seed 1 つと軸ごとの root path の組。E（BRANCH）は S の下の 1 回の実行。研究の制約は D にある。型（RESEARCH_TYPE）と研究の土台（`mind.md`）は木の一部ではなく、`sai-sci status --json` の `project` から読む。次の物で現在地を読む。
 
 | 見方 | 意味 | 読む方法 |
 |---|---|---|
@@ -47,6 +47,8 @@ subblocks:
 | `NO_CHILD` | Q の下に子（A か child_Q）が無い | `lab-grow` |
 | `NO_FINDING` | A の下に F（根拠）が無い | `lab-search` |
 | `UNVERIFIED` | 子を足したあと、`sci-verify` がまだ見ていない | `sci-verify` |
+| `TOO_FLAT` | Q の直下の A が 7 件を超え、木が平らすぎる | `lab-regroup` |
+| `BLANK_NO_PATH` | 空欄の軸の Q の下に、S の path に選べる A が無い | `lab-grow` |
 
 `★` は目印で、Next Action は `★` を見ない。
 
@@ -62,19 +64,36 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 | #4 型が決まっていない ＋ 検索する | `lab-survey` |
 | #5 論文だけ（木に置き場所が無い） | `lab-place`（木を探して置き場所を決め、`lab-read` の CARD を作る） |
 | #6 全体の進み具合を確かめる | `lab-progress`（数と穴を報告し、次の CARD を作る） |
-| #7 review・survey 論文で root の骨組みを作る | `lab-map`（`--node SEED`。軸だけなら軸の Q） |
+| #7 review・survey 論文で root の骨組みを作る | `lab-map`（最初の 1 枚は `--node` を省く。下の「root を作る順番」） |
 | #8 seed から研究計画（S）を作る | `lab-sprout`（`--node D<n>`） |
+| #9 木の形を整える（`TOO_FLAT`・sci-verify の組み直し） | `lab-regroup`（`--node` は組み直す Q） |
+| #10 空欄の軸に path が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は空欄の軸の Q） |
 | 木の評価（target_node と子の関係） | `sci-verify`（参加者に `paper-debater`・`paper-reviewer` を子で使える） |
 
 `sci-data-explore` の report の `## Next Action` に `sci-data-test` の CARD を作る命令が書いてある。explore の report を評価してから、その命令で test の CARD を作って起こす（explore 自身は test を起こさない）。
 
 現在地はまず `sai-sci status --brief` で読む。細部がほしいときだけ `sai-sci node <N12>`、`sai-sci status`（全体）を見る。
 
+## seed と root の関係
+
+- S は D の空欄の軸を root の path で埋めて作る。D の決定の軸は、決定の値に当たる A を root から選ぶ。
+- 始める前に、育てる範囲の型を決める。
+  - (a) 空欄だけ埋める型: D の空欄の軸の Q だけを育てる。決定の軸は今ある A をそのまま使う。狭く、早く S まで行ける。
+  - (b) 幅広く探す型: 空欄の軸に加えて、決定の軸の下の A も候補を広げてから S を選ぶ。広く、時間がかかる。
+- 型は依頼文に書かれていればそれに従う。書かれていなければ、質問ツールで Human に聞いて待つ（推測で決めない）。
+
+## root を作る順番
+
+root は一度に全部を起こさない。
+
+1. 最初の `lab-map` は 1 枚だけ動かす。`--node` を省き（木の全体）、各軸の大分類を作らせる。
+2. 大分類を評価してから（「評価の観点」の木の形）、大分類ごとに細分の CARD（`sai-sci card --node <大分類の A> --block lab-grow --purpose …`）を並列に起こす。同時に動かすのは 3 本まで（「1 回の回し方」の 3.）。
+
 ## 始めにすること
 
 1. 最初のメッセージの「# task_text」節（依頼文）を読む。依頼文に `waggle:` のトークンがあれば、`sai-link doc read` でその文書を読む。
 2. `.sai/paper/mind.md`（研究の土台。Human が書いたもの。直接は書き換えない）を読む。
-3. `sai-sci status --json` の `nodes` の D（seed）を読む。研究の制約は D にある。
+3. `sai-sci status --json` の `nodes` の D（seed）を読む。研究の制約は D にある。型（RESEARCH_TYPE）は `project` の `type`、研究の土台は `project` の `mind` で読む。
 4. `sai-sci status --brief` を読み、現在地と Next Action を確かめる。木がまだ無いと返ったときは、自分で `sai-sci init` を打たず、質問ツールで Human に `sai-sci init --update --type <型>` の実行（または Web の research-tree の画面の「始める」）を頼んで待つ。
 5. 研究日誌 `.sai/paper/professor-log.md` があれば読む。会話が要約されて前のことが分からなくなったときは、ここの日誌と `sai-sci status --brief`、`sai-link run tree` から再開する。
 
@@ -94,8 +113,8 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
    Next Action の `card` の値（例: `--node Q12 --block lab-grow --purpose …`）は、そのまま引数にしてよい。`--purpose` は 300 字まで。長い決定事項は `sai-link doc write` で文書を保存し、`--input` で渡す。model と thinking は `sci-cli` の目安で選ぶ（省くと block の frontmatter の値）。
 3. `sai-link card run <run_id>` で起こし、run_id を研究日誌に書く。同じ Node を書き換える作業を 2 つ同時に起こさない。1 度に動かすのは 3 本まで。
    - 結果を待つ子（`operator`・`sci-exp-scout`・`sci-sim-model`・`sci-sim-compose`）は Card ではなく、`sai-link task create` で子として起こし、`sai-link task execute` する。`block_type`・`task_text` を書き、`model`・`thinking` は省いてよい。
-4. 待つ: `sai-link run wait <run_id>…` に、自分が起こした Card の run と、`sai-sci status --brief` の `running` にある run（実験の連鎖で起きた branch・review）を並べる。返った run は次の呼び出しから外す。task の子は `sai-link task wait` で待つ（`sci-task` の status の対処に従う）。
-5. `run wait` から戻るたびに（`in_progress` でも）、`sai-web questions --json` で答え待ちの質問を確かめ、「質問に答える」に従って答える。
+4. 待つ: 待つ run を**全部 1 回に並べて** `sai-link run wait <run_id>…` を呼ぶ。並べるのは、自分が起こした Card の run と、`sai-sci status --brief` の `running` にある run（実験の連鎖で起きた branch・review）。1 本ずつ呼ばない。返った run は次の呼び出しから外す。task の子は `sai-link task wait` で待つ（`sci-task` の status の対処に従う）。待つ前に、答え待ちの子と自分が起こした run の一覧（run_id・block・待つ理由）を `professor-log.md` に追記する（利用上限などで止まっても、Human が引き継げるように）。
+5. `run wait` が `in_progress` で戻ったときは、`sai-web questions --json` を 1 回だけ見る。答え待ちの質問があれば「質問に答える」に従って答える。それ以外は研究日誌を書かず、`sai-sci status` を読み直さず、すぐ 4. に戻る（文脈を読み直す回数を減らすため）。`completed` で戻ったときは 6. に進む。
 6. `completed` が返ったら、木の変化を `sai-sci status --brief`・`sai-sci node <ID>` で読む。REPORT が要るときだけ `sai-link doc list --run <run_id>` → `sai-link doc read`。task の子なら `report` と `outputs` を読む。木の変更（`sai-sci op` の結果の ID）は報告で確かめる。★・文の直し（`edit`）は利用者の操作なので `sai-sci apply` で付けない。評価する（下の「評価の観点」）。足りなければ、task の子は `sai-link task send` で直させ、Card は新しい CARD を作って 2. からやり直す。確かめ終えた task の子は `sai-link task finalize` で閉じる。
 7. `failed` が返ったら、`error` を研究日誌に書く。Claude の認証（401）なら Human に上げる。それ以外の故障は、自分で調べず operator に頼む（2 回まで直し、だめなら Human に上げる）。
 8. 研究日誌に結果と次の判断を 2〜3 行書き、1. に戻る。
@@ -117,9 +136,13 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 - 結果が A の根拠（F）を崩したら、その Q を `sci-verify` で確かめ直すか、`lab-grow` で A を書き直す。
 - researcher の出典が `#番号` の形で付いているか、反証を探したか（`sci-core` の決まり）。
 - 言葉の崩れ（意味の無い英字・他の言語の語）があれば、直させてから採る。
+- 木の形: 同じ Q の兄弟の詳しさと分け方の基準がそろっているか。直下の A が 7 件以内か。review の分類が平らに写されていないか。
+- sci-verify の「層・粒度」の指摘は、報告だけで流さず、`lab-regroup` の CARD にして起こす（`--node` は指摘の Q）。
+- 子が「child_Q は今回出さない」と言ったら、理由を確かめる。理由が無ければ出させる。
 
 ## 実験（sprout と branch）
 
+- S（研究計画）を作る前に、`sai-sci status --brief` に `TOO_FLAT`・`BLANK_NO_PATH` が出ていないかを見る（木の形を確かめる段）。出ていれば、先に `lab-regroup`・`lab-grow` の CARD で直してから `lab-sprout` を起こす。
 - 実験の連鎖は Card で進む。S（研究計画）が無ければ、先に `lab-sprout` の CARD（**`--node D<n>`**）で S を作る。S があれば、`sci-exp-sprout` の CARD を **`--node S<n>`** で作り（`--purpose` に実験の案を書く）、`sai-link card run` で起こす。
 - **実験を起こす前に、`sci-exp-scout` を子として起こす。** `sai-link task create` の `block_type` に `sci-exp-scout`、`task_text` に対象の A の ID と実験の案、見てほしい文書の `waggle:<トークン>` を書く。
 - scout は参照コード調査書を保存してすぐ報告を返す。返った**調査書のトークン**を、sprout の CARD の `--input` に足す。
@@ -165,7 +188,7 @@ operator の報告は**研究の判断の材料にだけ使う。** operator に
 
 ## 完了する
 
-1. 研究の目的が達したか、Human に上げて止まったまま進めないとき、まとめの REPORT を `sai-link doc write` で保存する。
+1. 研究の目的が達したか、Human に上げて止まったまま進めないとき、まとめの REPORT を `sai-link doc write` で保存する。REPORT の比較表は `sai-sci compare <S…>` の出力を貼る（自分で表を作らない）。
 2. `sai-link task list` で、子がすべて閉じていることを確かめる。`sai-sci status --brief` の `running` が空であることも確かめる。
 3. 質問ツールで「完了してよいか」を Human に確かめる。了承されたら `sai-link run finalize` を `report`（要点）付きで呼ぶ。
 
