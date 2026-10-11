@@ -47,9 +47,30 @@ function testModelChoices() {
   assert.deepStrictEqual(N.ncModelChoices(undefined, ""), []);
 }
 
+// 住所 #/newchat?project=&block=（G3-C3）。形の合わない値は ""
+function testParsePreset() {
+  assert.deepStrictEqual(
+    N.ncParsePreset("#/newchat?project=saituki-west&block=ts-engineer"),
+    { project: "saituki-west", block: "ts-engineer" }
+  );
+  assert.deepStrictEqual(N.ncParsePreset("#/newchat?project=&block=main"), { project: "", block: "main" });
+  assert.deepStrictEqual(N.ncParsePreset("#/newchat"), { project: "", block: "" });
+  // 形の合わない値（経路・空白・65 字以上）は空にする
+  assert.deepStrictEqual(N.ncParsePreset("#/newchat?project=../x&block=a b"), { project: "", block: "" });
+  assert.deepStrictEqual(N.ncParsePreset(`#/newchat?project=${"a".repeat(65)}&block=main`), { project: "", block: "main" });
+  assert.deepStrictEqual(N.ncParsePreset(`#/newchat?project=${"a".repeat(64)}`), { project: "a".repeat(64), block: "" });
+  // 他の住所は null
+  assert.strictEqual(N.ncParsePreset("#/"), null);
+  assert.strictEqual(N.ncParsePreset("#/projects"), null);
+  assert.strictEqual(N.ncParsePreset("#/newchatx?project=p"), null);
+  assert.strictEqual(N.ncParsePreset(""), null);
+  assert.strictEqual(N.ncParsePreset(undefined), null);
+}
+
 function main() {
   testValidate();
   testModelChoices();
+  testParsePreset();
   console.log("test_newchat: すべて通りました");
 }
 

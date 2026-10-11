@@ -96,8 +96,34 @@ function ncSelect(values, value, onChange, emptyLabel) {
   return sel;
 }
 
-/** 「＋」から新しいチャットのシートを開く。 */
-async function ncOpen() {
+// 住所の名前の形（project・block）。合わない値は空として扱う
+const NC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+
+/**
+ * 住所 `#/newchat?project=&block=` から {project, block} を取る（G3-C3）。
+ * 違う住所なら null。形の合わない値は "" にする（ncOpen が既定に戻す）。
+ *
+ * @param {string} hash
+ * @returns {{project: string, block: string} | null}
+ */
+function ncParsePreset(hash) {
+  const h = String(hash || "");
+  if (h !== "#/newchat" && !h.startsWith("#/newchat?")) return null;
+  const q = new URLSearchParams(h.slice("#/newchat".length).replace(/^\?/, ""));
+  const pick = (key) => {
+    const v = q.get(key) || "";
+    return NC_NAME_RE.test(v) ? v : "";
+  };
+  return { project: pick("project"), block: pick("block") };
+}
+
+/**
+ * 「＋」や住所（#/newchat）から新しいチャットのシートを開く。
+ *
+ * @param {{project?: string, block?: string}} [preset] 住所で頼まれた project と block（任意）
+ */
+async function ncOpen(preset) {
+  const want = preset || {};
   let projects = [];
   try {
     const data = await saiApi("/api/projects");
@@ -111,9 +137,13 @@ async function ncOpen() {
     return;
   }
 
+  // project は住所の物（一覧にあれば）→ 前回の値 → 先頭の順
+  const project = [want.project, ncStored(NC_PROJECT_KEY, "")].find((p) => p && projects.includes(p)) || projects[0];
   const state = {
-    project: projects.includes(ncStored(NC_PROJECT_KEY, "")) ? ncStored(NC_PROJECT_KEY, "") : projects[0],
+    project,
     block: "main",
+    wantBlock: want.block || "", // 住所で頼まれた block（loadOptions で 1 回だけ当てる）
+    notice: "",
     runner: ncStored(NC_RUNNER_KEY, "cc"),
     provider: "",
     model: "",
@@ -163,6 +193,8 @@ async function ncOpen() {
         })
       )
     );
+    // 住所で頼まれた block が無かったときの注意（main で開いている）
+    if (state.notice) body.appendChild(saiEl("div", "nc-error", state.notice));
 
     // 3. runner（既定は前回の値、無ければ cc）
     body.appendChild(
@@ -261,8 +293,15 @@ async function ncOpen() {
       saiToast(e.message || "選択肢を読めませんでした", "error");
       state.options = {};
     }
-    // block の既定（main があれば main、無ければ先頭）
+    // 住所で頼まれた block は 1 回だけ当てる（無ければ注意を出して既定へ）
     const ids = (state.options.blocks || []).map((b) => String(b.id));
+    state.notice = "";
+    if (state.wantBlock) {
+      if (ids.includes(state.wantBlock)) state.block = state.wantBlock;
+      else state.notice = `block ${state.wantBlock} がありません（sai-ts init を確かめてください）`;
+      state.wantBlock = "";
+    }
+    // block の既定（main があれば main、無ければ先頭）
     if (!ids.includes(state.block)) state.block = ids.includes("main") ? "main" : (ids[0] || "");
     state.model = "";
     render();
@@ -320,7 +359,28 @@ if (typeof document !== "undefined") {
   if (btn) btn.addEventListener("click", () => void ncOpen());
 }
 
+// 住所 #/newchat?project=&block=（sai-ts の「Chats で開く」の行き先・G3-C3）。
+// 一覧（#/ の days）を出してから、その project と block を選んだ欄を開く。
+// 住所は #/ に戻す（replaceState は hashchange を起こさないので route を直に呼ぶ）。
+if (typeof window !== "undefined") {
+  (window.SaiRoutes = window.SaiRoutes || []).push({
+    match(hash) {
+      return ncParsePreset(hash);
+    },
+    view: "view-days",
+    tab: "agent",
+    hideTabbar: false,
+    interval: 0,
+    async open(params) {
+      history.replaceState(null, "", "#/");
+      await route();
+      await ncOpen(params);
+    },
+    async poll() {},
+  });
+}
+
 // --- node からの読み込み（tests/test_newchat.js） ---
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { ncValidate, ncModelChoices, NC_RUN_KEY };
+  module.exports = { ncValidate, ncModelChoices, ncParsePreset, NC_RUN_KEY };
 }

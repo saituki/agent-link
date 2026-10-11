@@ -17,11 +17,26 @@ const {
   stFmtAt, stHistoryText, stRangeText, stApprovalText, stStanceLabel,
   stSproutToggle, stSproutRows, stSproutSummary, ST_SPROUT_PATH_MAX,
   stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
-  stStepView, stStepNodeView, stStepParse,
+  stStepView, stStepNodeView, stStepParse, stDatasetParts,
 } = require(path.join(dir, "scitree.js"));
 
 const tests = [];
 const test = (fn) => tests.push(fn);
+
+test(function testDatasetParts() {
+  // 空と無しは「なし」（null）
+  assert.strictEqual(stDatasetParts(null), null);
+  assert.strictEqual(stDatasetParts(undefined), null);
+  assert.strictEqual(stDatasetParts(""), null);
+  assert.strictEqual(stDatasetParts("  "), null);
+  // sai-ts の値は名前を取り出す（写す文字はそのまま）
+  assert.deepStrictEqual(stDatasetParts("ts:hfo-r01-v1@0123456789ab"), {
+    text: "ts:hfo-r01-v1@0123456789ab", snapshot: "hfo-r01-v1",
+  });
+  // 人が書いた文字は sai-ts の節にしない（前後の空白は落とす）
+  assert.deepStrictEqual(stDatasetParts(" data/hfo-2026 "), { text: "data/hfo-2026", snapshot: null });
+  assert.deepStrictEqual(stDatasetParts("ts:@0123"), { text: "ts:@0123", snapshot: null });
+});
 
 test(function testParseHash() {
   assert.deepStrictEqual(stParseHash("#/research/tree"), {});

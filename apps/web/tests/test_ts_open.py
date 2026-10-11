@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 # import より前に一時フォルダを決める（config.DB_PATH は import 時に決まるため）
 _TMP = Path(tempfile.mkdtemp(prefix="sai-web-ts-open-"))
@@ -215,6 +216,29 @@ def main() -> None:
         containers.ts_ensure = _fail
         status, body, _ = call("POST", "/api/projects/alice-west/ts/open", cookie=cookie)
         assert status == 409 and "コンテナが動いていません" in body["detail"], (status, body)
+    finally:
+        containers.ts_ensure = real_ensure
+
+    # --- 本文の web は形を確かめてから券の URL に付ける（G3-C3・入口で断片に入る） ---
+    web = "https://sai.example:8443"
+    containers.ts_ensure = lambda name: {"base": "http://127.0.0.1:1", "token": "x"}
+    try:
+        status, body, _ = call("POST", "/api/projects/alice-west/ts/open", cookie=cookie, json_body={"web": web})
+        assert status == 200, (status, body)
+        assert body["url"].endswith(f"&web={quote(web, safe='')}"), body
+        ticket = body["url"].split("ticket=", 1)[1].split("&", 1)[0]
+        status, _, headers = call(
+            "GET", "/p/alice-west/__gate/enter", app=ts_gate.app, query=f"ticket={ticket}&web={quote(web, safe='')}"
+        )
+        assert status == 303, (status, headers)
+        assert headers["location"][0].endswith(f"&web={quote(web, safe='')}&project=alice-west"), headers
+        # 形の違う web は 400（券は出さない）
+        for bad in ("javascript:alert(1)", "https://a/b", "https://a?x", ""):
+            status, body, _ = call("POST", "/api/projects/alice-west/ts/open", cookie=cookie, json_body={"web": bad})
+            assert status == 400 and "web の形が正しくありません" in body["detail"], (bad, status, body)
+        # 本文が無ければ今までどおり（web の無い URL）
+        status, body, _ = call("POST", "/api/projects/alice-west/ts/open", cookie=cookie)
+        assert status == 200 and "&web=" not in body["url"], body
     finally:
         containers.ts_ensure = real_ensure
 

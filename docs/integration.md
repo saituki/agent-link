@@ -114,7 +114,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/projects/{name}/dashboard?period=week\|month\|all` | Dashboard（既定 week） | `sai-link project dashboard --period <期間>` |
 | `POST /api/projects/{name}/daemon` `{"action":"start"\|"stop"}` | 常駐の起動・停止 | `sai-link daemon start\|stop`（文字出力） |
 | `GET /api/projects/{name}/container` | 自分のプロジェクトのコンテナの状態 `{"container","state"}`（多人数モードだけ）。他人の物は 404 | `docker inspect -f '{{.State.Status}}'` |
-| `POST /api/projects/{name}/ts/open` | 自分のプロジェクトの時系列（sai-ts）を開く入場券つきの URL `{"url": "<SAI_WEB_TS_URL>/p/<名前>/__gate/enter?ticket=<券>"}`（多人数モードだけ・他人の物は 404）。券を出す前に `containers.ts_ensure` で sai-ts を起こす（起動の失敗はそのまま返す）。`SAI_WEB_TS_URL` が空なら 503 | `docker` の CLI（`containers.ts_ensure`）。券は `ts_gate.issue_ticket`（4.11） |
+| `POST /api/projects/{name}/ts/open` 本文 `{"web": "<押した sai-web の origin>"}`（任意） | 自分のプロジェクトの時系列（sai-ts）を開く入場券つきの URL `{"url": "<SAI_WEB_TS_URL>/p/<名前>/__gate/enter?ticket=<券>[&web=<origin>]"}`（多人数モードだけ・他人の物は 404）。`web` は `http(s)://host[:port]` だけ（path・query・fragment が無い）。形が違えば 400「web の形が正しくありません」。`web` があれば URL に `&web=` を足し、入口（enter）が sai-ts の断片 `#token=…&web=…&project=…` に入れる（「Chats で開く」の行き先）。券を出す前に `containers.ts_ensure` で sai-ts を起こす（起動の失敗はそのまま返す）。`SAI_WEB_TS_URL` が空なら 503 | `docker` の CLI（`containers.ts_ensure`）。券は `ts_gate.issue_ticket`（4.11） |
 | `POST /api/projects/{name}/container/{start\|stop}` | 自分のプロジェクトのコンテナを起動・停止（多人数モードだけ）。未知の action は 400 | `docker start` / `docker stop -t 20`。`start` でコンテナが無いときは作り直す |
 
 - コンテナの操作は `docker` の CLI を `subprocess` で呼ぶ（`apps/web/src/sai_web/containers.py`。実行ファイルは `SAI_DOCKER_BIN`、既定 `docker`）。Python の docker の SDK は使わない（依存を増やさない）。

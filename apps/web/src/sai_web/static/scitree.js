@@ -1589,7 +1589,10 @@ function stBuildBoard(d) {
     box.appendChild(stBoardHistory(d));
     return box;
   }
-  if (node.kind === "E") box.appendChild(stBoardMlflow(node));
+  if (node.kind === "E") {
+    box.appendChild(stBoardMlflow(node));
+    box.appendChild(stBoardDataset(node));
+  }
   if (node.kind === "Q") box.appendChild(stBoardGuide(d.guide));
   if (node.kind === "S") {
     box.appendChild(stBoardSeedOf(node));
@@ -1679,6 +1682,37 @@ function stBoardMlflow(node) {
   const sec = stSec("MLflow");
   if (node.mlflow) sec.appendChild(stMlflowBtn(node.mlflow));
   else sec.appendChild(stEl("p", "sci-note", "なし"));
+  return sec;
+}
+
+/** E の dataset の見え方（空は null）。`ts:<名前>@<sha>` なら sai-ts のスナップショットの名前を取り出す（G3-C1）。 */
+function stDatasetParts(value) {
+  const text = value == null ? "" : String(value).trim();
+  if (!text) return null;
+  const m = /^ts:([^@\s]+)@/.exec(text);
+  return { text, snapshot: m ? m[1] : null };
+}
+
+/** E の Dataset の節（dataset があれば等幅で出して写す釦を付ける。無ければ「なし」）。 */
+function stBoardDataset(node) {
+  const sec = stSec("Dataset");
+  const parts = stDatasetParts(node && node.dataset);
+  if (!parts) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
+  const row = stEl("div", "sci-line");
+  const text = stEl("code", "sci-dataset", parts.text);
+  text.style.overflowWrap = "anywhere"; // 長い ts:… も 390px の幅に収める
+  row.appendChild(text);
+  row.appendChild(stBtn("写す", () => {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) { stToast("写せませんでした", "error"); return; }
+    navigator.clipboard.writeText(parts.text).then(
+      () => stToast("Dataset を写しました"),
+      () => stToast("写せませんでした", "error"),
+    );
+  }));
+  sec.appendChild(row);
+  if (parts.snapshot) {
+    sec.appendChild(stEl("p", "sci-note", `sai-ts のデータセット（${parts.snapshot}）。中身は sai-ts の『データセット』タブか \`sai-ts snapshot show ${parts.snapshot}\``));
+  }
   return sec;
 }
 
@@ -1958,7 +1992,7 @@ if (typeof module !== "undefined" && module.exports) {
     stOpsFor, stSproutToggle, stSproutRows, stSproutSummary, stRangeText, stApprovalText, stStanceLabel,
     stSeedNodes, stSeedChildren, stSeedOf, stSeedDirty,
     stVisibleRows, stRowHit, stActionMeta, stClampSplit, stFmtAt, stHistoryText,
-    stStepView, stStepNodeView, stStepParse,
+    stStepView, stStepNodeView, stStepParse, stDatasetParts,
     ST_TYPES, ST_STANCE, ST_NODE_OPS, ST_ALL_KINDS, ST_SPLIT_LIMITS, ST_SPROUT_PATH_MAX, ST_EXPERIMENTS_HASH,
   };
 }
