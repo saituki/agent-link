@@ -29,9 +29,9 @@
 | A | Q への選択肢（旧名 O）。1 つの A は選択肢 1 つ。出典は書けない |
 | F | 根拠。A の下に置く。`support`・`deny`・`issue` の立場を持つ |
 | root | 分野の可能性の幅（軸の Q・A・F）。研究の制約に縛られない |
-| seed（D） | 1 つの研究の制約。9 項目。複数持てる。ID は `D7` など |
+| seed（D） | 1 つの研究の問いの一覧（雛形の 7 問。問いへの回答は固定）。複数持てる。ID は `D7` など |
 | 木の全体 | `--node` を省いた対象。木の根の Node は無い（軸の Q が最上段に並ぶ） |
-| S（SPROUT） | 1 研究＝研究計画。1 つの seed と、軸ごとの PATH（A の ID）の組 |
+| S（SPROUT） | 1 研究＝研究計画。1 つの seed の未回答の問いに回答していく。全部答えると完成し、実験を足せる |
 | ★ | 利用者が付ける目印。計算には使わない |
 | 承認 | 許可が要る操作を agent が行うための、利用者の「許可する」 |
 
@@ -96,7 +96,7 @@ sai-sci init --type problem
 - `cd` はそのフォルダへ移る命令です。
 - `sai-sci init --type problem` は、ここを「research-tree を使う研究プロジェクト」にする命令です。`--type problem` は RESEARCH_TYPE を PROBLEM_DRIVEN（課題駆動）にするという意味です。
 
-RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）。練習では `problem` を使います。**どの型でも、作られる Q は同じ 6 つの軸の Q です。** 型の違いは、研究の seed でどの項目が最初から決まっているか（決定）、どれが空欄で始まるかだけです。
+RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）。練習では `problem` を使います。**どの型でも、作られる Q は同じ 6 つの軸の Q です。** 型の違いは、雛形の問いのうち、どれが最初から seed で回答されているか、どれが未回答で始まるかだけです。
 
 | `--type` の値 | 名前 | どんな研究か |
 |---|---|---|
@@ -181,27 +181,38 @@ Next Action:
 JSON で読むときは `--json` を付けます（`sai-sci node Q4 --json`）。
 
 - 作られた 6 つの Q（`Q1`〜`Q6`）は、**軸の Q** です。順に task（解く問題）・target（対象）・data（データ）・method（手法）・output（出力）・metric（評価指標）で、どの型でも同じです。
-- 軸の Q は「〜の種類は何があるか」と聞きます。**答えの A は選択肢で、そのまま軸の Q の下に並べられます。** 「この研究では」のような、この研究だけの決定は A には書きません。それは次の章の seed に書きます。
+- 軸の Q は「〜の種類は何があるか」と聞きます。**答えの A は選択肢で、そのまま軸の Q の下に並べられます。** 「この研究では」のような、この研究だけの決まりは A には書きません。それは次の章の seed の回答に書きます。
 - **child_Q を持つ Q には、A を足せません。** Q の下は「A だけ」か「child_Q だけ」で、混ぜません。軸の Q の下に細かい種類を作りたいときは、A の下に child_Q を作ります。
 
 ---
 
 ## 4. seed を作る（利用者の操作）
 
-root（軸の Q）は分野の可能性の幅で、この研究の制約は入りません。**この研究の制約は seed（D）に書きます。** seed は 1 つの研究の制約で、研究ごとに 1 つ作ります（複数持てます）。
+root（軸の Q）は分野の可能性の幅で、この研究の制約は入りません。**この研究の決まりは seed（D）に書きます。** seed は 1 つの研究の問いの一覧で、研究ごとに 1 つ作ります（複数持てます）。
 
-seed の本文は次の 9 見出しで、この順に書きます。軸の 6 項目（解く問題・対象・データ・手法・出力・評価指標）は、見出しの次の行を次のどれかの形にします。`決定: <値>`（受け継いだ・もう決めた）。`範囲: <値>` と `A: A<n>`（粗い部分は決め、その下の細分を path で選ぶ）。`空欄` の次に `新規性: <理由>`（新規性。root から選ぶ）か `記載なし: <理由>`（扱わない）。`空欄` だけ（まだ決めていない）。形の一覧は [`sai-sci.md`](sai-sci.md) の 2.1.1 節です。
+seed には、雛形の 7 問が最初から入ります。問いには、利用者が決まっていることを**回答**します。回答は、テキストか root の A（選択肢）のどちらか一方です。
 
-```
-## 背景  /  ## 解く問題（task）  /  ## 対象（target）  /  ## データ（data）  /  ## 手法（method）
-## 出力（output）  /  ## 評価指標（metric）  /  ## 成功基準  /  ## 制約
-```
+| 問い（`SQ<n>`） | 軸 |
+|---|---|
+| 解く問題は何か | `task` |
+| 対象は誰・何か | `target` |
+| どのデータを使うか | `data` |
+| どの手法を使うか | `method` |
+| 何を出力するか | `output` |
+| どの指標で評価するか | `metric` |
+| 成功基準は何か（指標の値と向き） | 無し |
 
-`sai-sci apply` に `add_seed` を渡して作ります。本文に改行が入るので、`<<'EOF'` で JSON を渡します（`echo` は使わない）。
+- 回答を seed に付けると **固定**（初期制約）になります。その seed の全部の sprout に効きます。
+- 回答が無い問いは **未回答** のままです。未回答の問いに回答していくと、実験を始められる S（SPROUT）になります（8 章）。
+- 形の一覧は [`sai-sci.md`](sai-sci.md) の 2.1.1 節です。
+
+### 4.1 seed を作る
+
+本文（body）は、背景と制約の自由な文です。本文に改行が入るので、`<<'EOF'` で JSON を渡します（`echo` は使わない）。
 
 ```bash
 sai-sci apply --json <<'EOF'
-{"op":"add_seed","title":"自分の研究","body":"## 背景\nてんかん発作の予知を臨床で使いたい\n## 解く問題（task）\n決定: 発作の予知\n## 対象（target）\n決定: 側頭葉てんかん患者\n## データ（data）\n決定: 術前の EEG\n## 手法（method）\n空欄\n## 出力（output）\n空欄\n## 評価指標（metric）\n空欄\n## 成功基準\n空欄\n## 制約\n半年・GPU 1 枚"}
+{"op":"add_seed","title":"自分の研究","body":"## 背景\nてんかん発作の予知を臨床で使いたい\n## 制約\n半年・GPU 1 枚"}
 EOF
 ```
 
@@ -209,26 +220,50 @@ EOF
 {"op":"add_seed","result":"D7"}
 ```
 
-`result` の `D7` が seed の ID です（頭文字 `D`）。確かめます。
+`result` の `D7` が seed の ID です（頭文字 `D`）。問いを見ます。`node` の `--json` の `node.questions` に、雛形の 7 問が出ます。
 
 ```bash
-sai-sci node D7
+sai-sci node D7 --json | python3 -c 'import json,sys; [print(q["id"], q["text"], q["axis"]) for q in json.load(sys.stdin)["node"]["questions"]]'
 ```
 
 ```
-D7 自分の研究
-
-## 背景
-てんかん発作の予知を臨床で使いたい
-## 解く問題（task）
-決定: 発作の予知
-…
-PATH: D7
+SQ1 解く問題は何か task
+SQ2 対象は誰・何か target
+SQ3 どのデータを使うか data
+SQ4 どの手法を使うか method
+SQ5 何を出力するか output
+SQ6 どの指標で評価するか metric
+SQ7 成功基準は何か（指標の値と向き） None
 ```
 
+`None` は、成功基準の問いに軸が無いことを表します（JSON の `null`）。
+
+### 4.2 決まっていることを回答する
+
+決まっていることは、問いに回答します。この練習では、解く問題・対象・データを決めました。
+
+```bash
+sai-sci apply --json <<'EOF'
+{"op":"add_answer","to":"D7","q":"SQ1","text":"発作の予知"}
+EOF
+sai-sci apply --json <<'EOF'
+{"op":"add_answer","to":"D7","q":"SQ2","text":"側頭葉てんかん患者"}
+EOF
+sai-sci apply --json <<'EOF'
+{"op":"add_answer","to":"D7","q":"SQ3","text":"術前の EEG"}
+EOF
+```
+
+```
+{"op":"add_answer","result":"SA1"}
+{"op":"add_answer","result":"SA2"}
+{"op":"add_answer","result":"SA3"}
+```
+
+- `to` は seed の ID（`D7`）、`q` は問いの ID（`SQ1`）です。`text` の代わりに `a`（root の A の ID。例 `"a":"A8"`）でも回答できます。どちらか一方だけを書きます。
+- 手法・出力・評価指標・成功基準（`SQ4`〜`SQ7`）は、未回答のままにしました。この未回答は、root から選択肢を選んで回答していきます（8 章）。
 - seed は親を持ちません。S の親として並びます。`sai-sci status --json` の `nodes` に種類 `D` で出ます。
 - 初めての人は、聞き取りながら seed を作る `sci-start`（CARD）を使えます。`sci-start` は Q を作らず、seed だけを作ります。
-- 練習では「手法」「出力」「評価指標」を `空欄` にしました。この空欄は、root から選択肢を選んで埋めていきます（次の章以降）。
 
 ---
 
@@ -332,70 +367,180 @@ echo '{"op":"star","node":"A8"}' | sai-sci apply --json
 
 ## 8. SPROUT を作る
 
-SPROUT（S）は、**1 つの seed（D）と、軸ごとに選んだ PATH（A の ID）の組＝1 研究の研究計画**です。`seed` が必須で、PATH として A の ID を 1〜20 個集めます。同じ A は 2 回選べません。
+SPROUT（S）は、**1 つの seed（D）の未回答の問いに回答していく研究計画**です。答える問いの全部に回答が付くと**完成**し、実験（E）を足せます。`seed` が必須です。回答は `answers` に 0〜40 件まで付けられます。seed（D）で回答済みの問いには、S から答えられません。
 
-まず、seed を付けずに作ろうとすると断られます。
+ここで使う ID は、この章までの手順で決まります。5 章で足した A は `A8`（手法の選択肢）、4 章の seed は `D7` です。S の番号は、その後の手順で決まります。
 
-```bash
-echo '{"ops":[{"op":"add_sprout","title":"予知の SPROUT","paths":["A8"]}]}' | sai-sci op
-```
-
-```
-1 件目（add_sprout）: seed が必要です
-```
-
-（終了コードは 2 です。）`seed` に D の ID を付けると作れます。
+### 8.1 seed を付けないと断られる
 
 ```bash
-echo '{"ops":[{"op":"add_sprout","seed":"D7","title":"予知の SPROUT","paths":["A8"]}]}' | sai-sci op
+sai-sci apply --json <<'EOF'
+{"op":"add_sprout","title":"予知の SPROUT"}
+EOF
 ```
 
 ```
-{"approval":null,"results":[{"op":"add_sprout","range":{"a":1,"f_deny":0,"f_issue":0,"f_support":1,"q":1},"result":"S10"}]}
+seed が必要です
 ```
 
-- `range` は SPROUT の範囲です。PATH の A とその祖先の Q、A の子の F を数えます（`q` は Q の数、`a` は A の数、`f_*` は F の立場ごとの数）。
-- 1 つの seed から、別の PATH の S を何本でも作れます。別の A（`A11`）を足して、2 つ目の S を作ります。
+（終了コードは 2 です。）
 
-```bash
-echo '{"op":"add_a","q":"Q1","text":"発作の予知がある"}' | sai-sci apply --json
-echo '{"ops":[{"op":"add_sprout","seed":"D7","title":"別の SPROUT","paths":["A11"]}]}' | sai-sci op
-```
+### 8.2 paths は廃止した
 
-```
-{"op":"add_a","result":"A11"}
-{"approval":null,"results":[{"op":"add_sprout","range":{"a":1,"f_deny":0,"f_issue":0,"f_support":0,"q":1},"result":"S12"}]}
-```
-
-- 生きた S を持つ seed（D）は消せません。先に S を消します。
+以前の書き方（`paths`）は断られます。回答（`answers`）を使います。
 
 ```bash
-echo '{"op":"remove","node":"D7"}' | sai-sci apply --json
+sai-sci apply --json <<'EOF'
+{"op":"add_sprout","seed":"D7","title":"予知の SPROUT","paths":["A8"]}
+EOF
+```
+
+```
+paths は廃止しました。answers を使ってください（例: {"q": "SQ3", "a": "A12"}）
+```
+
+### 8.3 回答を付けて S を作る
+
+未回答の問い `SQ4`（どの手法を使うか）に、5 章の A（`A8`）で回答して S を作ります。
+
+```bash
+sai-sci apply --json <<'EOF'
+{"op":"add_sprout","seed":"D7","title":"予知の SPROUT","answers":[{"q":"SQ4","a":"A8"}]}
+EOF
+```
+
+```
+{"op":"add_sprout","range":{"a":1,"f_deny":0,"f_issue":0,"f_support":0,"q":1},"result":"S9"}
+```
+
+- `result` の `S9` が SPROUT の ID です。`range` は SPROUT の範囲です。回答の A とその祖先の Q、A の子の F を数えます（`q` は Q の数、`a` は A の数、`f_*` は F の立場ごとの数）。
+- `answers` の 1 件は `{"q":"SQ<n>","a":"A<n>"}`（path の回答）か `{"q":"SQ<n>","text":"…"}`（テキストの回答）です。
+- 1 つの seed から、別の回答をした S を何本でも作れます（8.6 で作ります）。
+
+### 8.4 完成を見る
+
+S の中身を見ます。seed の回答は「seed（固定）」、S の回答は「新規性（sprout の回答）」、まだ答えていない問いは「未回答」に出ます。
+
+```bash
+sai-sci node S9
+```
+
+```
+S9 予知の SPROUT
+## seed（固定）  D7 自分の研究
+- SQ1 解く問題は何か: 「発作の予知」
+- SQ2 対象は誰・何か: 「側頭葉てんかん患者」
+- SQ3 どのデータを使うか: 「術前の EEG」
+## 新規性（sprout の回答）
+- SQ4 どの手法を使うか: A8 CNN で発作の前兆を分類する手法がある（Q4 › A8）
+## 未回答
+- SQ5 何を出力するか
+- SQ6 どの指標で評価するか
+- SQ7 成功基準は何か（指標の値と向き）
+
+PATH: D7 > S9
+…
+```
+
+完成しているかは、`--json` の `complete` と `missing` で見ます（この 2 つは画面の text には出ません）。
+
+```bash
+sai-sci node S9 --json | python3 -c 'import json,sys; n=json.load(sys.stdin)["node"]; print(n["complete"], n["missing"])'
+```
+
+```
+False ['SQ5', 'SQ6', 'SQ7']
+```
+
+未完成の S には、実験（E）を足せません。試すと断られます。
+
+```bash
+sai-sci apply --json <<'EOF'
+{"op":"add_e","parent":"S9","text":"試験 1"}
+EOF
+```
+
+```
+S9 は未完成です（未回答: SQ5, SQ6, SQ7）。全部の問いに回答してから実験を足してください
+```
+
+### 8.5 残りの問いに回答して完成させる
+
+残りの 3 問に回答します。`op` は 1 回で複数を出せます（1〜20 件。1 件でも弾かれると何も書かれません）。
+
+```bash
+sai-sci op <<'EOF'
+{"ops":[
+  {"op":"add_answer","to":"S9","q":"SQ5","text":"発作起始の位置"},
+  {"op":"add_answer","to":"S9","q":"SQ6","text":"AUC"},
+  {"op":"add_answer","to":"S9","q":"SQ7","text":"AUC 0.8 以上"}
+]}
+EOF
+```
+
+```
+{"approval":null,"results":[{"op":"add_answer","result":"SA5"},{"op":"add_answer","result":"SA6"},{"op":"add_answer","result":"SA7"}]}
+```
+
+```bash
+sai-sci node S9 --json | python3 -c 'import json,sys; n=json.load(sys.stdin)["node"]; print(n["complete"], n["missing"])'
+```
+
+```
+True []
+```
+
+完成したので、S9 は凍結されます。完成した時点の問いの一覧を保ちます。後から D7 に問いを足しても、S9 には効きません。
+
+- 同じ問いに、seed（D）で回答済みの問い（`SQ1`〜`SQ3`）を S から答えると断られます（`SQ1 は seed で回答済みです`）。
+- 実験の回し方は [`sai-sci.md`](sai-sci.md) の 5.7 節です。`sci-exp-sprout`（`--node S<n>`）が完成した S から実験を始めます。練習では実験を回さず、SPROUT を作るまでにしてください（実行先によっては課金されます）。
+
+### 8.6 別の回答で S を作って比べる
+
+同じ seed から、別の手法（テキストの回答）で S を作ります。
+
+```bash
+sai-sci apply --json <<'EOF'
+{"op":"add_sprout","seed":"D7","title":"別の SPROUT","answers":[{"q":"SQ4","text":"発作の前兆を Transformer で予測する手法"}]}
+EOF
+```
+
+```
+{"op":"add_sprout","range":{"a":0,"f_deny":0,"f_issue":0,"f_support":0,"q":0},"result":"S10"}
+```
+
+2 つの S を並べて比べるには、`compare` を使います（2〜10 個）。
+
+```bash
+sai-sci compare S9 S10
+```
+
+```
+| S | task | target | data | method* | output* | metric* |
+|---|---|---|---|---|---|---|
+| S9 予知の SPROUT | 発作の予知 [固定] | 側頭葉てんかん患者 [固定] | 術前の EEG [固定] | A8 CNN で発作の前兆を分類する手法がある [新規] | 発作起始の位置 [新規] | AUC [新規] |
+| S10 別の SPROUT | 発作の予知 [固定] | 側頭葉てんかん患者 [固定] | 術前の EEG [固定] | 発作の前兆を Transformer で予測する手法 [新規] | （空欄） | （空欄） |
+```
+
+- 行が S、列が軸の付いた問い（6 軸）の表です。欄には、その問いの回答を書きます。`[固定]` は seed の回答、`[新規]` は sprout の回答です。`（空欄）` は未回答です。
+- 列名の `*` は、S どうしで回答が違う列です。`--json` も使えます。
+- Web では、`#/research/compare?s=S9,S10` の画面で同じ表が出ます。
+
+### 8.7 seed は、S がある間は消せない
+
+S の親になっている seed（D）は、消せません。先に S を消します。
+
+```bash
+sai-sci apply --json <<'EOF'
+{"op":"remove","node":"D7"}
+EOF
 ```
 
 ```
 D7 の下に SPROUT（S）があるので消せません。先に S を消してください
 ```
 
-- 実際の研究では、S は `lab-sprout`（`--node D<n>`）の agent が作ります。`lab-sprout` は、seed の「決定」と PATH が矛盾しないか、先行研究の S と何が違うかを報告してから S を作ります。root の骨組みを review 論文から作るのが `lab-map` です。
-- 実験の回し方は [`sai-sci.md`](sai-sci.md) の 5.7 節です。`sci-exp-sprout`（`--node S<n>`）が既にある S から実験を始めます。練習では実験を回さず、SPROUT を作るまでにしてください（実行先によっては課金されます）。
-
-### 8.1 S を比べる（区分と compare）
-
-S の path には、seed（D）の軸の状態から区分が付きます。決めた軸の A は「固定」、空欄（新規性）の軸の A は「新規」、扱わない軸は「記載なし」です（[`sai-sci.md`](sai-sci.md) の 2.5 節）。
-
-```bash
-sai-sci node S10
-```
-
-`node` は、seed（固定）→ 新規性（path）→ 実験（E）→ 記載なし → 本文の順に出します。2 つの S を並べて比べるには、`compare` を使います（2〜10 個）。
-
-```bash
-sai-sci compare S10 S12
-```
-
-- 行が S、列が 6 軸の表が出ます。同じ A は同じ印になり、区分が「新規」のセルと、S どうしで A が違うセルに印が付きます。`--json` も使えます。
-- Web では、`#/research/compare?s=S10,S12` の画面で同じ表が出ます。
+- 実際の研究では、S は `lab-sprout`（`--node D<n>`）の agent が作ります。`lab-sprout` は、seed の回答と矛盾しないか、先行研究の S と何が違うかを報告してから、未回答の問いに回答を書きます。root の骨組みを review 論文から作るのが `lab-map` です。
 
 ---
 
@@ -530,7 +675,7 @@ sai-sci context --run 2
 ```
 ## TREE
 - D7 自分の研究
-  - S10 予知の SPROUT [paths: A8] [範囲: Q 1・A 1・F 1（S 1 / D 0 / I 0）] ← TARGET
+  - S9 予知の SPROUT [固定: task=「発作の予知」, target=「側頭葉てんかん患者」, data=「術前の EEG」 / 新規: method=A8] ← TARGET
   PATH: Q4 使われている手法には、どんな種類があるか。 > A8 CNN で発作の前兆を分類する手法がある
 
 ## STUDY_SEED
@@ -596,6 +741,9 @@ rm -rf ~/research/sci-practice
 | 「…には child_Q があるので、A を足せません」 | child_Q を持つ Q には A を足せない。A を足したいときは、子の Q を持たない Q を選ぶ（3.2 節） |
 | 「A の文と本文に出典（#番号）は書けません」 | 出典を A から外し、A の下に F として足す（5.1・6 章） |
 | 「seed が必要です」「seed には seed（D）の ID を書いてください」 | `add_sprout` に `"seed":"D7"` のように seed の ID を付ける（8 章）。seed が無ければ先に作る（4 章） |
+| 「paths は廃止しました。answers を使ってください」 | `paths` を書かず、`"answers":[{"q":"SQ4","a":"A8"}]` の形で回答を付ける（8.2 節） |
+| 「S9 は未完成です（未回答: SQ5, SQ6, SQ7）」 | 残りの問いに回答してから、実験を足す（8.4・8.5 節） |
+| 「SQ1 は seed で回答済みです」 | seed（D）で回答した問いには、S から答えない（8.5 節） |
 | 「D7 の下に SPROUT（S）があるので消せません」 | 先に S を消す（8 章） |
 | 「数字を含む F には出典（cites）か REPORT のトークン（report）を付けてください」 | 文を直すか、出典を付ける（6.1 節） |
 | 「許可がありません: 先に質問ツールで「許可する」を選んでもらってください」（終了コード 4） | 承認を先に取る（9.2 節）。承認は 1 回の op に 1 件だけ使える |
@@ -610,11 +758,11 @@ rm -rf ~/research/sci-practice
 
 - [ ] 練習用プロジェクトを作り、`status --brief` の `counts.q` が 6 と出た（2・3）
 - [ ] `sai-sci node Q4` で、軸の Q の文が「〜には、どんな種類があるか。」だと分かった（3.2）
-- [ ] `apply` で seed を作り、`{"op":"add_seed","result":"D…"}` が出て、`sai-sci node D7` で本文が読めた（4）
+- [ ] `apply` で seed を作り、`{"op":"add_seed","result":"D…"}` が出て、問い（`SQ1`〜`SQ7`）が見えた。決まっていることを `add_answer` で回答した（4）
 - [ ] `apply` で A を足し、`{"op":"add_a","result":"A…"}` が出た。出典（`#37`）を書いた A が断られた（5・5.1）
 - [ ] `op` で F を足し、数字の F が出典なしで断られた（6・6.1）
 - [ ] `apply` で ★ を付けた（7）
-- [ ] seed の無い SPROUT が断られ、`seed` 付きで SPROUT を作って `range` が出た。同じ seed から 2 つ目の S を作れた。S のある seed は消せなかった（8）
+- [ ] seed の無い SPROUT と `paths` が断られ、`answers` 付きで SPROUT を作って `range` が出た。未完成の S には `add_e` が断られ、残りの問いに回答して完成させた。同じ seed から 2 つ目の S を作れた。S のある seed は消せなかった（8）
 - [ ] 承認なしの `add_q` が「許可がありません」で断られた（9.1）
 - [ ] `approval record` で「許可する」を記録し、`add_q` が入った。同じ命令は断られた（9.2・9.3）
 - [ ] 画面の Next Action・Node の札・図・seed（D）の一覧・Create SPROUT の seed の選択で、命令の結果が見えた（10）

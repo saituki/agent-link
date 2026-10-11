@@ -67,7 +67,7 @@
 | `node` | 実験の対象の Node（SPROUT の ID。例 `S3`） |
 | `sprout_run_id` | sprout の run_id |
 | `project` | `SAI_PROJECT_ROOT` の末尾のフォルダ名 |
-| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。`## STUDY_SEED` の `## 評価指標（metric）` と `## 成功基準` から読む（評価指標が「空欄」なら、S の研究計画の `metric:` の行の A）。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
+| `metric` / `direction` / `success` | 最終の指標名（テスト集合で測るもの。例 `test_acc`）・向き・成功基準。`## STUDY_SEED` の問いの表の「評価指標」と「成功基準」の回答から読む（評価指標の問いが未回答なら、S の回答の metric の A）。決まらなければ質問ツールで起動者に聞く（推測で埋めない） |
 | `min_delta` | 「よくなった」と数える最小の幅。既定 `0.0001` |
 | `max_branches` | この sprout の branch の総数の上限。既定 `8` |
 | `max_children` | 1 回の review（と sprout）が起こす branch の数の上限。既定 `2` |

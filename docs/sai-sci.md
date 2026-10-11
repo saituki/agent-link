@@ -15,8 +15,8 @@ research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state
 
 - **research-tree の正は `papr.db`** です。Q・A・F・E・S・D の記録と承認の記録は `rt_` で始まる表の中にあります。
 - **`state.md` と `tree.md` は書き出し**です。手で直しても次の書き出しで消えます。
-- **research-tree は seed・root・sprout の 3 つの役でできています。** seed（D）は 1 つの研究の制約（複数持てる）、root は分野の可能性の幅（軸の Q・選択肢の A・論文の事実の F。seed に縛られない）、sprout（S）は 1 つの seed と、軸ごとに 1 本の root の path を組にした 1 研究＝研究計画です。
-- **root の骨組みは、どの RESEARCH_TYPE でも同じ 6 つの軸の Q です。** RESEARCH_TYPE（5 本）の違いは、seed のどの項目が最初から「決定」になりやすいかだけです。
+- **research-tree は seed・root・sprout の 3 つの役でできています。** seed（D）は 1 つの研究の問いの一覧（複数持てる）。問い（`SQ<n>`）に、テキストか root の path（A）で回答（`SA<n>`）します。root は分野の可能性の幅（軸の Q・選択肢の A・論文の事実の F。seed に縛られない）。sprout（S）は 1 つの seed の未回答の問いに回答していく 1 研究＝研究計画で、全部答えると完成します。
+- **root の骨組みは、どの RESEARCH_TYPE でも同じ 6 つの軸の Q です。** RESEARCH_TYPE（5 本）の違いは、seed のどの問いが最初から回答されていることが多いかだけです。
 - **エージェントは `sai-sci op` で木を変えます。** 危険度は 3 つに分かれます（5.4 節）。
 
 ## 用語（専門用語は英単語のまま使います）
@@ -25,15 +25,20 @@ research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state
 |---|---|
 | research-tree | seed（D）・ROOT・SPROUT・BRANCH の層の木と、それを描いた図の総称 |
 | layer | 層（seed・ROOT・SPROUT・BRANCH） |
-| seed（D） | 1 つの研究の制約。親なし・複数。9 項目の本文を持つ（9 見出しの形は 2.1 節）。Node ID は `D<n>`（例 `D1`）。Web では S の親として並ぶ |
+| seed（D） | 1 つの研究の問いの一覧。親なし・複数。雛形の 7 問（`SQ<n>`）と背景・制約の本文を持つ（2.1 節）。Node ID は `D<n>`（例 `D1`）。Web では S の親として並ぶ |
+| 問い（SQ） | seed の問い 1 つ。ID は `SQ<n>`。軸（task・target・data・method・output・metric）を付けられる。成功基準の問いには軸が無い（2.1 節） |
+| 回答（SA） | 問いへの回答 1 つ。ID は `SA<n>`。テキストか root の path（A）のどちらか一方（2.1 節） |
+| 固定 | seed の回答。その seed の全部の sprout に効く（初期制約。受け継いだ前提） |
+| 新規 | sprout の回答。その sprout で決めたこと |
+| 完成・凍結 | S が答える問いの全部に回答があると完成する。完成した S は、完成した時点の問いの一覧を保つ（凍結）。完成した S には実験（E）を足せる |
 | 木の全体 | 対象を 1 つに絞らないこと。CLI は `--node` を省く（木の根の Node は無い） |
 | ROOT | 軸の Q から下へ分かれる Q・A・F の総称。分野の可能性の幅で、全部の seed が同じ root を使う |
 | 大分類・細分の Q・条件の Q | 大分類は軸の直下の抽象的な A。細分の Q は「〈A〉には、どんな種類があるか」の問い。条件の Q は A の属性や条件を問う問い（2.1 節の H1〜H4） |
-| 区分（固定・新規） | S の path が、seed（D）のどの軸の固定の部分か新しい部分かを表す札（2.5 節） |
-| TOO_FLAT・BLANK_NO_PATH | Next Action の why。直下の A が 7 件を超えた Q（組み直し）と、空欄の軸に path に選べる A が無い状態（育てる） |
+| 区分（固定・新規） | S の回答が、seed の回答（固定）か sprout の回答（新規）かを表す札（2.5 節） |
+| TOO_FLAT・BLANK_NO_PATH | Next Action の why。直下の A が 7 件を超えた Q（組み直し）と、未回答の問いに回答に選べる A が無い状態（育てる） |
 | 軸の Q | top_Q の 6 つ（task・target・data・method・output・metric）。「〜には、どんな種類があるか」の形 |
-| SPROUT | 1 つの seed（D）と、軸ごとの path の組＝1 研究（ID は `S<n>`。親は D）。研究計画を body に書く |
-| 研究計画 | S の body。`## 研究計画`（軸ごとの選び）・`## 成功基準`・`## 矛盾`・`## 先行研究との違い` |
+| SPROUT | 1 つの seed（D）の未回答の問いに回答していく 1 研究＝研究計画（ID は `S<n>`。親は D）。研究計画を body に書く |
+| 研究計画 | S の body。`## 研究計画`（問いごとの回答）・`## 成功基準`・`## 矛盾`・`## 先行研究との違い` |
 | BRANCH | SPROUT か E の下に分かれる E（実験の実行） |
 | Node | research-tree の 1 つの要素（Q・A・F・E・S・D） |
 | Q / A / F / E / S / D | 問い / 選択肢 / 根拠 / 実験 / SPROUT / seed |
@@ -42,7 +47,7 @@ research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state
 | top_Q | 親の無い Q（親が NULL）。軸の Q の 6 つ |
 | parent_Q / child_Q | parent_Q は親にあたる Q、child_Q は子にあたる Q |
 | bottom_Q | 生きた child_Q を持たない Q（JSON は `bottom_q`） |
-| PATH | 軸の Q（top_Q）から A に至る道。終点の A で表す。S は軸ごとに 1 本選ぶ |
+| PATH | 軸の Q（top_Q）から A に至る道。終点の A で表す。回答（SA）は path（A）を 1 つ指す |
 | ★ | 利用者が付ける目印。計算には使わない |
 | 範囲（range） | SPROUT が数える Q・A と F の数（2.3 節） |
 | OP | research-tree を変える操作 1 つ（`add_q` など）。`sai-sci op` と `sai-sci apply` で行う |
@@ -69,17 +74,26 @@ research-tree の正を 1 か所（`papr.db`）に置き、絵と文章（`state
 research-tree は、seed・root・sprout の 3 つの役に分けてできています。
 
 - **root** は分野の可能性の幅です。seed に縛られません。軸の Q（top_Q）が軸ごとに 1 つずつ並びます。Q は「〜の種類は何があるか」の形、A は選択肢 1 つ、F は論文の事実です。
-- **seed（D）** は 1 つの研究の制約です。親はなく、研究ごとに複数持てます。
-- **sprout（S）** は 1 研究＝研究計画です。1 つの seed（D）と、軸ごとに選んだ root の path（A）の組でできます。1 つの D から複数の S を作れます。
-- 1 研究＝1 つの S＝1 つの D ＋ 軸ごとに 1 本の path の組です。先行研究を論文から復元した研究と自分の研究は、木の上で区別しません（どちらも D と S）。自分の研究の新しさは、先行研究の S と違う seed・path を通ることで示します。
-- root の Q・A に「この研究では」「本研究では」を書きません。研究の決定は seed（D）と sprout（S）に書きます。
+- **seed（D）** は 1 つの研究の問いの一覧です。親はなく、研究ごとに複数持てます。問い（`SQ<n>`）に、テキストか root の path（A）で回答します。
+- **sprout（S）** は 1 研究＝研究計画です。1 つの seed（D）の未回答の問いに回答していく計画で、親は D です。全部の問いに回答すると完成し、実験（E）を足せます。1 つの D から複数の S を作れます。
+- 1 研究＝1 つの seed（D）と、その未回答の問いへの sprout（S）の回答の組です。先行研究を論文から復元した研究と自分の研究は、木の上で区別しません（どちらも D と S）。自分の研究の新しさは、先行研究の S と違う seed・回答を通ることで示します。
+- root の Q・A に「この研究では」「本研究では」を書きません。研究の決まりは seed（D）と sprout（S）に書きます。
+
+**seed・root・sprout の考え**（利用者の考え。agent が役割を取り違えないための決まり）
+
+1. seed の問いを考えるのは利用者の仕事です。
+2. 研究開始時点で回答が分かっている問いもあります（初期制約）。それは seed の回答として書きます。
+3. seed の未回答の問いに回答すると、実験を始められます。未回答の問いに root の path を割り当てて sprout を完成させる、というのがこのことです。
+4. root の役割は、seed の問いの答えの選択肢を増やすことです。root は seed に縛られません。
+5. agent の役割は、seed の問いに合う選択肢を root から探すことです。
+6. 「同型の手法はあるか」を探す作業は、seed の未決定の問い（例:「どの手法を使うか」）の回答候補を増やすために、root に node を足す作業です。
 
 ```
 E（BRANCH）── S か E の下。実験の 1 回
  │
-S（SPROUT）── 1 研究＝研究計画。親は D。paths（軸ごとの A）を 1 つ以上
+S（SPROUT）── 1 研究＝研究計画。親は D。D の未回答の問いに回答していく。全部答えると完成
  │
-D（seed）──── 1 研究の制約（9 項目）。親なし。複数。S の親として並ぶ
+D（seed）──── 1 研究の問いの一覧（問い SQ と回答 SA）。親なし。複数。S の親として並ぶ
  │
 Q（軸の Q）── 親なし。task・target・data・method・output・metric の 6 つ
 ├ A（大分類。抽象的な種類）
@@ -99,42 +113,62 @@ Q（軸の Q）── 親なし。task・target・data・method・output・metri
 - **H3 途中で組み直す。** 育てる途中で兄弟の詳しさがずれたら、中間の A と細分の Q を作り、詳しい側の A をその下へ移します（`regroup`。5.4 節）。移した A の ID・F・子の Q は保ちます。
 - **H4 細分の Q と条件の Q を分ける。** 細分の Q は種類を細かく分ける問い、条件の Q は A の属性や条件を問う問いです。細分の Q を先に育てます。細分の Q は目安で 4 段までです。
 
-seed の本文は次の 9 見出しで、この順に書きます。軸の 6 項目（解く問題・対象・データ・手法・出力・評価指標）の書き方は、次の 2.1.1 節の表のどれか 1 つです。
+**seed の問いと回答**（seed の本文は背景と制約の自由な文です。問いは雛形の 7 問で、`add_seed` が入れます）
 
-```markdown
-## 背景
-<自由な文>
-## 解く問題（task）
-決定: 発作部位の特定
-## 対象（target）
-決定: 側頭葉てんかん患者
-## データ（data）
-決定: 術前の EEG・ECoG
-## 手法（method）
-空欄
-## 出力（output）
-空欄
-## 評価指標（metric）
-空欄
-## 成功基準
-<指標の値と向き。未定なら「空欄」>
-## 制約
-<期間・計算資源・倫理・データの入手など>
+| 問い（`SQ<n>`） | 軸 |
+|---|---|
+| 解く問題は何か | `task` |
+| 対象は誰・何か | `target` |
+| どのデータを使うか | `data` |
+| どの手法を使うか | `method` |
+| 何を出力するか | `output` |
+| どの指標で評価するか | `metric` |
+| 成功基準は何か（指標の値と向き） | 無し |
+
+- 前の 6 問には軸が付き、成功基準には付きません。問いは利用者が足す・直す・消します（agent は `add_seed_q`・`edit_seed_q`・`remove_seed_q` に承認が要ります）。
+- 回答（`SA<n>`）は、問い 1 つに **テキストか root の path（A）** で付けます。1 つの問いに複数の回答を付けてよいです。
+  - seed の回答（**固定**）は、初期制約です。受け継いだ前提や、研究の開始時点で決まっていることを書き、その seed の全部の sprout に効きます。
+  - sprout の回答（**新規**）は、その sprout で決めたことです。
+- 「範囲」「新規性」「記載なし」という状態はありません。言い換えは次のとおりです。
+  - 範囲 → 問いを具体的にする（例:「どの手法を使うか（範囲: Costa 型。A94 の下から選ぶ）」）か、問いを足す（`edit_seed_q`）。
+  - 新規性 → seed では未回答のまま残し、sprout で回答する。
+  - 記載なし → seed にテキストで「記載なし: <理由>」と回答する。
+
+```
+seed（D1）「発作部位の特定」
+  SQ1 解く問題は何か（task）         → 固定: テキスト「発作部位の特定」
+  SQ2 対象は誰・何か（target）        → 固定: A12（側頭葉てんかん患者）
+  SQ3 どのデータを使うか（data）      → 固定: A30（術前の EEG・ECoG）
+  SQ4 どの手法を使うか（method）      → 未回答
+  SQ5 何を出力するか（output）        → 未回答
+  SQ6 どの指標で評価するか（metric）  → 未回答
+  SQ7 成功基準は何か                  → 未回答
+sprout（S10）「発作起始の推定」        → 新規: SQ4 A94、SQ7 テキスト「AUC 0.8 以上」
 ```
 
-S の body（研究計画）は `lab-sprout` が書き、`sci-exp-sprout`・`sci-restore` が読みます。形は `## 研究計画`（軸ごとに `- <key>: 決定「…」→ A3` か `- <key>: 空欄 → A15`）・`## 成功基準`・`## 矛盾`・`## 先行研究との違い` です。
+**sprout の完成と凍結**
 
-#### 2.1.1 軸の 6 項目の書き方
+- S は、1 つの seed の未回答の問いに回答していきます。答える問いの全部に D か S の回答が 1 つ以上あると、**完成**（`complete: true`）です。完成するまでは、未回答の問い（`missing`）が出ます。
+- 完成した S は**凍結**します。完成した時点の問いの一覧を保ちます。後から seed に問いを足しても、完成した S には効きません（未完成の S には効きます）。
+- 完成していない S には実験（E）を足せません（`add_e` は「S10 は未完成です（未回答: SQ6, SQ8）…」と断られます）。
+- S の body（研究計画）は `lab-sprout` が書き、`sci-exp-sprout`・`sci-restore` が読みます。形は `## 研究計画`（問いごとに `- SQ4 どの手法を使うか: 新規 → A94`・`- SQ1 解く問題は何か: 固定「発作部位の特定」`）・`## 成功基準`・`## 矛盾`・`## 先行研究との違い` です。
 
-見出しの次の行を、次の表のどれか 1 つの形にします。道具がこの形を読んで、軸の状態（固定・範囲・新規性・記載なし・まだ決めていない）にします。一字も違えないでください。
+#### 2.1.1 seed の問いの書き方（op の例）
 
-| 1 行目 | 続く行 | 意味 |
-|---|---|---|
-| `決定: <値>` | 任意で `A: A<n>` | 受け継いだ前提・初期制約（固定） |
-| `範囲: <値>` | `A: A<n>`（必須） | 粗い部分は固定。その A の下の細分を path で選ぶ（固定＋新規） |
-| `空欄` | `新規性: <理由>` | 新規性。path で埋める |
-| `空欄` | `記載なし: <理由>` | その研究が扱わない軸。path は無い |
-| `空欄` | 無し・その他 | まだ決めていない（前向きの途中） |
+問いと回答は op で出します。JSON の例（`sai-sci op` と `apply` で同じ）:
+
+```json
+{"op":"add_seed","title":"発作部位の特定","body":"## 背景\n…"}
+{"op":"add_seed_q","seed":"D1","text":"どの指標で発作の検出を評価するか","axis":"metric"}
+{"op":"edit_seed_q","q":"SQ4","text":"どの手法を使うか（範囲: Costa 型。A94 の下から選ぶ）"}
+{"op":"add_answer","to":"D1","q":"SQ1","text":"発作部位の特定"}
+{"op":"add_answer","to":"S3","q":"SQ4","a":"A94"}
+{"op":"add_sprout","seed":"D1","title":"発作起始の推定","answers":[{"q":"SQ4","a":"A94"},{"q":"SQ7","text":"AUC 0.8 以上"}]}
+```
+
+- `add_answer` は、S から、seed で回答済みの問いには答えられません。完成（凍結）した S の対象外の問いにも答えられません。
+- `add_sprout` の `paths` は廃止しました（断られます）。`answers` を使います。
+- 今ある D と S の変換（初めて読むときに 1 回）: 6 軸の本文は雛形の 7 問と回答に変換されます（8.1 節）。
 
 ### 2.2 親子の決まり
 
@@ -159,7 +193,7 @@ S の body（研究計画）は `lab-sprout` が書き、`sci-exp-sprout`・`sci
 ### 2.3 ★ と SPROUT の範囲
 
 - **★** は利用者が付ける目印です。計算には使いません。
-- **SPROUT の範囲**（`range`）は、`paths` の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集めて数えます（重ならないように数える）。出すのは Q・A の数と、F の stance ごとの数です。A の子の Q 以下は入れません。
+- **SPROUT の範囲**（`range`）は、S の回答（path）の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集めて数えます（重ならないように数える）。出すのは Q・A の数と、F の stance ごとの数です。A の子の Q 以下は入れません。
 
 ### 2.4 Action と Next Action
 
@@ -169,30 +203,26 @@ S の body（研究計画）は `lab-sprout` が書き、`sci-exp-sprout`・`sci
 
 | 順 | why | 対象 | block | 目的 | CARD の追加 |
 |---|---|---|---|---|---|
-| 0 | `BLANK_NO_PATH` | seed（D）の空欄の軸（新規性・まだ決めていない）の Q の下に、path に選べる A（さらに下の A を持つ A）が無い | `lab-grow` | 「<D>の空欄の軸 <軸> に、path に選べる A を育てる」 | なし |
+| 0 | `BLANK_NO_PATH` | seed（D）の未回答の問いの軸の Q の下に、回答に選べる A（さらに下の A を持つ A）が無い | `lab-grow` | 「<D>の未回答の問い <軸> に、回答に選べる A を育てる」 | なし |
 | 1 | `TOO_FLAT` | 直下の A が 7 件を超える Q | `lab-regroup` | 「<Q の文>の直下の A <n> 件を、分け方の基準をそろえて組み直す」 | なし |
 | 1 | `NO_CHILD` | 生きた子の無い Q | `lab-grow` | 「<Q の文>」の子（A か child_Q）を作る | なし |
 | 2（★ の A は 0） | `NO_FINDING` | 生きた F の子の無い A | `lab-search` | 「<A の文>」の F を探す | `child: F` |
 | 3 | `UNVERIFIED` | 生きた子が 1 つ以上ある Q・A で、`sci-verify` がその Node を対象にしたことが無い、または、その Node の直の子の一番新しい `created_at` が、その Node を対象にした一番新しい `sci-verify` の run の時刻より後 | `sci-verify` | 「<文>」と子の関係を確かめる | なし |
 
-### 2.5 軸の状態と path の区分（固定・新規）
+### 2.5 回答の区分（固定・新規）
 
-seed（D）の 6 軸は、本文の見出しの次の行（2.1.1 節）から毎回読まれます（保存はしません）。S の paths は、その D の軸の状態から区分が決まります。
+S の回答（path）は、その回答が seed の回答（固定）か sprout の回答（新規）かで区分が決まります。区分は保存しません。問いと回答から毎回読みます。
 
-| 区分 | 意味 | 元になるもの |
+| 区分 | 意味 | 置き場 |
 |---|---|---|
-| 固定 | 論文（研究）が受け継いだ前提 | D の軸の「決定」。path の A は決定の値に当たる A |
-| 固定＋新規 | 粗い部分は固定で、その下の細分が新規 | D の軸の「範囲: 値」と `A:`。path の A は、その A の子孫 |
-| 新規 | 新規性（自分の研究では、root から選んだこと） | D の軸の「空欄」＋`新規性:`。path の A |
-| 記載なし | その研究が扱わない軸 | D の軸の「空欄」＋`記載なし:`。path は無い |
+| 固定 | 論文（研究）が受け継いだ前提・初期制約 | seed（D）の問いへの回答（SA） |
+| 新規 | その sprout で決めたこと。論文の新規性も含む | S の問いへの回答（SA） |
+| 未回答 | まだ決めていない問い。S が回答していく | 回答が無い問い（`missing`） |
 | 実験 | 新規性を確かめる実験 | S の下の E（BRANCH）。「新規」の側に付けて表示する |
 
-- `sai-sci node <S>` は、**seed（固定）→ 新規性（path）→ 実験（E）→ 記載なし** の順に出します。
-- `sai-sci compare S1 S2 …`（2〜10 個）は、S を行、6 軸を列にした表で比べます。同じ A は同じ印にし、区分が「新規」のセルと、S どうしで A が違うセルに印を付けます。`--json` も出せます。
-- Web の比べる画面は `#/research/compare?s=S1,S2` で開き、この表と同じ JSON を使います。
-- 区分は色だけで示しません。文字の札（「固定」「新規」「実験」「記載なし」）を必ず添えます。
-
----
+- `sai-sci node <S>` は、**seed（固定）→ 新規性（sprout の回答）→ 未回答 → 実験（E）** の順に出します。
+- `sai-sci compare S1 S2 …`（2〜10 個）は、S を行、軸の付いた問いを列にした表で比べます。欄は、その問いの回答です。同じ A は同じ印にし、区分が「新規」のセルと、S どうしで A が違うセルに印を付けます。`--json` も出せます。
+- 区分は色だけで示しません。文字の札（「固定」「新規」「未回答」「実験」）を必ず添えます。
 
 ## 3. フォルダの中身
 
@@ -209,7 +239,7 @@ sai-sci/
 
 ### 3.1 RESEARCH_TYPE（5 本）
 
-`types/` の 5 本。**どの型も `## Q` は同じ平らな 6 行（軸）です。** 型の違いは、seed のどの項目が最初から「決定」になりやすいかで、説明の段落と、型ごとの seed の書き方の節（engine は読まない。`sci-start` と利用者が読む）に書きます。`## Q` の `+` は `-` と同じに読みます（古い型を読めるように残している）。frontmatter は `id`・`name`。
+`types/` の 5 本。**どの型も `## Q` は同じ平らな 6 行（軸）です。** 型の違いは、雛形の問いのうち、どれが最初から seed で回答されているかで、説明の段落と、型ごとの seed の書き方の節（engine は読まない。`sci-start` と利用者が読む）に書きます。`## Q` の `+` は `-` と同じに読みます（古い型を読めるように残している）。frontmatter は `id`・`name`。
 
 置き場の順（先に見つかった物を使う）: 
 
@@ -217,7 +247,7 @@ sai-sci/
 2. `<sai_home>/sci/types/`（利用者全体の置き場。`sai-sci type-save` で書く）
 3. `<root>/.sai/sci/types/`（プロジェクトの写し）
 
-| id | 名前 | seed で決定になりやすい項目 | 空欄で始まりやすい項目 |
+| id | 名前 | seed で回答されていることが多い問い | 未回答で始まりやすい問い |
 |---|---|---|---|
 | `problem` | PROBLEM_DRIVEN（課題駆動） | 解く問題（task）・背景 | 手法・出力・評価指標 |
 | `phenomenon` | PHENOMENON_DRIVEN（現象駆動） | 対象（target）・背景 | データ・手法・評価指標 |
@@ -292,7 +322,7 @@ root を育てる LabAgent と、S を作る `lab-sprout`、検証 agent があ�
 
 - READ_CARD（`runner: user`）の既定の block は `lab-read` です。
 - `sci-verify` の参加者は `paper-debater`・`paper-reviewer` を子として使えます。
-- `lab-sprout` は、seed の「決定」の項目と path が矛盾しないか、「空欄」の項目を path で埋めたかを軸ごとに確かめ、`add_sprout`（`seed` 付き）で S を作る前に、矛盾の表と先行研究の S との違いを報告します。新しさは agent の文で示します（画面での可視化は無い）。
+- `lab-sprout` は、seed の回答と矛盾しないか、未回答の問いに回答を割り当てたかを問いごとに確かめ、`add_sprout`（`seed` 付き）か `add_answer` で回答を書く前に、矛盾の表と先行研究の S との違いを報告します。新しさは agent の文で示します（画面での可視化は無い）。
 
 #### 3.3.3 作業のブロック
 
@@ -390,11 +420,11 @@ sai-sci init --type <型>
 
 画面（`#/research/tree`）での操作:
 
-1. **seed を作る** — 木の板の **Create seed（D）** か SPROUT の作成パネルで、題と本文（9 見出し）を書く。聞き取りながら作りたいときは、`sci-start` の CARD を動かす（`sci-start` は Q を作らず、seed だけを作る）。
+1. **seed を作る** — 木の板の **Create seed（D）** か SPROUT の作成パネルで、題と本文（背景と制約）を書く。雛形の 7 問が入り、問いへの回答を付けられる。聞き取りながら作りたいときは、`sci-start` の CARD を動かす（`sci-start` は Q を作らず、seed だけを作る）。
 2. **root を育てる** — 軸の Q の下に大分類の A（選択肢）を 3〜7 件足す。review 論文があれば `lab-map` で骨組みを作り、Next Action の「Create CARD」から `lab-grow` を動かす。大分類の A の下に細分の Q（「〈A〉には、どんな種類があるか」。分け方の基準を書く）を作って種類を細かく分ける。直下の A が 7 件を超えたら（`TOO_FLAT`）、`lab-regroup` で中間の A を作って組み直す。板の「Q を足す」・「A を足す」で自分で足してもよい。A に出典（`#番号`）は書けない。
 3. **F を付ける** — Library で論文を探し、READ_CARD（`#/research/read/<run_id>`）で 1 本ずつ読んで F を書く。エージェントが出した F は、`add_f` として自動で research-tree に入る。
 4. **検証** — 子を持つ Q・A の Next Action に `sci-verify` が出る。評価の報告と op・次の CARD が作られる。
-5. **S（研究計画）を作る** — `lab-sprout`（`--node D<n>`）か、Create SPROUT で seed と path を選ぶ。1 つの seed から複数の S を作れる。`lab-sprout` は、seed の「決定」と path の矛盾と、最も近い先行研究の S との違いを報告してから `add_sprout` を出す。空欄の軸に path が無いとき（`BLANK_NO_PATH`）は、先にその軸の root を育てる。
+5. **S（研究計画）を作る** — `lab-sprout`（`--node D<n>`）か、Create SPROUT で seed と path を選ぶ。1 つの seed から複数の S を作れる。`lab-sprout` は、seed の回答と回答の矛盾と、最も近い先行研究の S との違いを報告してから `add_sprout`（か `add_answer`）を出す。未回答の問いに回答が無いとき（`BLANK_NO_PATH`）は、先にその問いの軸の root を育てる。
 6. **E（実験）** — `sci-exp-sprout`（`--node S<n>`）が、既にある S から実験を始める（5.7 節）。実験の結論は木に足さない（E の `mlflow` で MLflow に結ぶだけ）。
 
 ### 5.2 Web の research-tree の画面
@@ -405,9 +435,9 @@ Research タブの最初の画面が research-tree（`#/research/tree`）。
 - 左: Q・A・F・E・S（SPROUT）の一覧。F の行には stance の印（`S` support・`D` deny・`I` issue）が出る。**Filter** の欄に `*` だけを打つと、★ を付けた Node（とその祖先）だけに絞れる（★ は目印なので、どの種類の Node にも付けられる）。
 - 真ん中: **DAG**（research-tree の図。軸の Q を最上段に並べ、その下に A と F、seed（D）の札と SPROUT、さらに BRANCH（E））。木の根の板は無く、木の全体（軸の Q の見出し）の板で RESEARCH_TYPE と `mind.md` の節と、seed（D）の一覧が出る。Node を押すと `#/research/tree/Q12` のように住所が変わり、詳細が右の **SB**（サイドバー）に出る。
 - SB: 見出し・親までの道・操作の釦・Next Action・F・History など。F の stance は SB から変えられる（`set_stance`）。SPROUT の SB には範囲の数（`範囲 Q 2・A 1・F S 1 / D 1 / I 0`）、E の SB には MLflow の参照（`mlflow`）が出て、押すと Experiments の画面（`#/research/experiments`）へ移る。何も選んでいないときは出ない。PC 幅（900px 以上）は右（約 420px・✕ で閉じる）、iPhone 幅は下から出る sheet。
-- **Create seed（D）**: 木の板か SPROUT の作成パネルの釦を押すと、題と本文を書く欄が出る。作った seed は `D1` の札になり、seed（D）の一覧に並ぶ。6 軸は 2.1.1 節の書き方で書く。
+- **Create seed（D）**: 木の板か SPROUT の作成パネルの釦を押すと、題と本文を書く欄が出る。作った seed は `D1` の札になり、seed（D）の一覧に並ぶ。問いへの回答は 2.1.1 節の書き方で付ける。
 - **Create SPROUT**: 上の帯の釦を押すと、History と DAG の間に作成パネルが出る。先に **seed（D）を選ぶ**（必須。seed が無ければ Create seed（D）を案内する）。A の SB の **Add PATH** / **Delete PATH** で PATH（終点の A）を選ぶ。PATH は 1〜20 個で、同じ A は 2 回選べない。PATH の A は、seed（D）の軸の状態に合うものを選ぶ（2.5 節の区分）。
-- **比べる画面**（`#/research/compare?s=S1,S2`）: 複数の S を選ぶと、2.5 節の表（行が S、列が 6 軸。A の文と区分の札）が出る。研究どうしで「どの軸を新しく選んだか」を並べて見られる。
+- **比べる画面**（`#/research/compare?s=S1,S2`）: 複数の S を選ぶと、2.5 節の表（行が S、列が軸の付いた問い。A の文と区分の札）が出る。研究どうしで「どの軸を新しく選んだか」を並べて見られる。
 - **組み直し**: 直下の A が多い Q の SB に `TOO_FLAT` が出るとき、Next Action の `lab-regroup` を起こすか、A を選んで「まとめる」（`regroup`）を使う。許可が要る（5.10 節）。
 - READ_CARD: `#/research/read/<run_id>`。
 
@@ -417,9 +447,9 @@ Research タブの最初の画面が research-tree（`#/research/tree`）。
 
 TREE の範囲はブロックの sci_type で決まります。`node` は対象の Node とその子孫、`manage` は軸の Q から対象までの祖先と対象とその子孫（`--node` を省いたら木の全体）、`support` には出しません。範囲を作れなかったときは 1 行の注意が `# context` の下に入ります（実行は止まりません）。木の全体のときは `## PROJECT`（型と対象）が入ります。
 
-TREE の書き方: Q の行は `[A 7・深さ 2]` のように、直下の生きた A の数と軸の Q からの段を出します。S の行は `[固定: task=A12 / 新規: method=A94 / 記載なし: data / 実験: E 3 件]` の形で、区分の札を出します。
+TREE の書き方: Q の行は `[A 7・深さ 2]` のように、直下の生きた A の数と軸の Q からの段を出します。S の行は `[固定: … / 新規: … / 未回答: n / 実験: E n 件]` の形で、区分の札を出します。
 
-対象が S のときは、`## TREE` の直後に `## STUDY_SEED`（その S の親 D の ID・題・本文と、6 軸の状態の表）が入ります。研究の制約なので、agent は必ず読みます。
+対象が S のときは、`## TREE` の直後に `## STUDY_SEED`（その S の親 D の ID・題・本文と、問いの表（問い・軸・seed の回答・この S の回答））が入ります。研究の制約なので、agent は必ず読みます。
 
 task.md の frontmatter `sci_child` があれば、`# context` の対象の節に `- 足す子の型: A` の行を出します（空なら行を出さない）。
 
@@ -431,8 +461,8 @@ task.md の frontmatter `sci_child` があれば、`# context` の対象の節�
 
 op の危険度は 3 つに分かれます。
 
-- **`Free`**（agent がそのまま出せる）: `add_a`・`add_f`・`add_e`・`add_seed`・`add_sprout`・`set_stance`・`set_mlflow`
-- **`Approval`**（agent は承認が要る）: `add_q`・`insert_q`・`move_a`・`move_node`・`regroup`・`copy`・`remove`
+- **`Free`**（agent がそのまま出せる）: `add_a`・`add_f`・`add_e`・`add_seed`・`add_answer`・`edit_answer`・`add_sprout`・`set_stance`・`set_mlflow`・`set_dataset`
+- **`Approval`**（agent は承認が要る）: `add_q`・`insert_q`・`move_a`・`move_node`・`regroup`・`copy`・`remove`・`add_seed_q`・`edit_seed_q`・`remove_seed_q`・`remove_answer`
 - **`UserOnly`**（利用者だけ）: `star`・`unstar`・`edit`
 
 | op | 危険度 | 規則 |
@@ -440,7 +470,7 @@ op の危険度は 3 つに分かれます。
 | `add_q` | Approval | 親は C1 の表のとおり。`guide` は GUIDE に無ければ拒否 |
 | `insert_q` | Approval | `q` に生きた A が 1 つ以上要る。新しい Q を `q` の子にし、`q` の生きた A を全部その下へ移す（`ord` の順を保つ） |
 | `move_a` | Approval | `from` ≠ `to`。`from` に生きた A が 1 つ以上要る。`to` は生きた child_Q を持たない。`to` が `from` の A の子孫なら拒否（輪になる） |
-| `move_node` | Approval | `{"op":"move_node","node":"A12","to":"Q30"}`。A を、その下の F・child_Q ごと、ID を保って別の Q へ移す。`to` は child_Q を持たない Q に限る（移し先が子の Q を持つと断る）。移す A の子孫の Q へは移せない（`… の下にあるので移せません`）。S の paths は ID で指すので壊れない |
+| `move_node` | Approval | `{"op":"move_node","node":"A12","to":"Q30"}`。A を、その下の F・child_Q ごと、ID を保って別の Q へ移す。`to` は child_Q を持たない Q に限る（移し先が子の Q を持つと断る）。移す A の子孫の Q へは移せない（`… の下にあるので移せません`）。S の回答（path）は ID で指すので壊れない |
 | `regroup` | Approval | `{"op":"regroup","q":"Q30","text":"発達性てんかん性脳症","body":"…","child_q":"…","members":["A41","A42"]}`。`q` の直下の `members` の A を、新しい中間の A の下へ移し、その下に細分の Q を作る。1 回で行い、ID は保つ。`q` に child_Q があると断る。`result` は中間の A、`created` は `["A<新>","Q<新>"]` |
 | `copy` | Approval | `to` は生きた child_Q を持たない。A と、その生きた F（stance ごと）を写す。A の下の Q と E は写さない |
 | `remove` | Approval | Node を下の Node ごと消す。生きた S を持つ D は消せない（`… の下に SPROUT（S）があるので消せません。先に S を消してください`） |
@@ -448,7 +478,13 @@ op の危険度は 3 つに分かれます。
 | `add_f` | Free | 1〜3 文まで（区切りは「。」「？」「！」と行末の「.」「?」。4 文以上は `text は 3 文までです` で断る）。数字を含む文は `cites` か `report` が要る。`cites` の形と存在は確かめる |
 | `add_e` | Free | 親は S か E。`dataset`（任意・0〜200 字）を付けられる（sai-ts のスナップショットの参照。文字の形は検査しない） |
 | `add_seed` | Free | `title`（1〜120 字）・`body`（0〜2000 字）。結果は `D<n>`。許可は要らない（agent は出す前に質問ツールで内容を確かめる） |
-| `add_sprout` | Free | `seed`（D の ID）が必須（`seed には seed（D）の ID を書いてください: …`）。同じ A を 2 回書けない。`paths` の要素は A の ID か `{"a","axis","role","fixed_at"}`。`role` は `fixed` か `novel` で、seed（D）の軸の状態と合わないと断る |
+| `add_seed_q` | Approval | `seed`（D の ID）・`text`・`axis`（任意。空文字は無し）。問いを足す。未完成の S にだけ効く |
+| `edit_seed_q` | Approval | `q`（SQ の ID）・`text`・`axis`（どちらか一方は要る。空文字で外す）。消した問いは断る |
+| `remove_seed_q` | Approval | `q`（SQ の ID）。回答は残す。凍結した S は消した問いも数える |
+| `add_answer` | Free | `to`（D か S の ID）・`q`（SQ）・`a`（A の ID）か `text`（どちらか一方）。結果は `SA<n>`。持ち主の seed の問いだけ。S は答える問いだけ。seed で答えた問いには S から答えない。同じ A を同じ問いに 2 回は書けない |
+| `edit_answer` | Free | `answer`（SA の ID）・`text`。テキストの回答だけ。path の回答は直せず、消して足し直す |
+| `remove_answer` | Approval | `answer`（SA の ID）。行は残し、消した日時を入れる。S は未完成に戻りうる |
+| `add_sprout` | Free | `seed`（D の ID）・`title`（必須）・`body`（任意）・`answers`（任意。0〜40 件の `{q,a}` か `{q,text}`）。結果は `S<n>` と `range`。`paths` は断る（廃止）。seed（D）の回答で答えた問いには答えない |
 | `set_stance` | Free | 値が同じなら何もしない |
 | `set_mlflow` | Free | E の `mlflow` を変える（空文字は外す） |
 | `set_dataset` | Free | E の `dataset` を変える（空文字は外す）。`node`（E の ID）と `dataset` が要る。値が変わったときだけ `rt_log` に残る |
@@ -521,7 +557,7 @@ sai-link card run <返ってきた run_id>
 
 | 段 | すること | ブロック |
 |---|---|---|
-| 1. 抽出 | 論文から seed（D。論文の研究の制約）・root に足りない A と F・論文の S（paths）を作る。結果の数値を記載結果表に、主張と引用の組を対応表にする | `sci-restore`（対象は木の全体。D → A → F → S の順） |
+| 1. 抽出 | 論文から seed（D。論文の問いへの回答）・root に足りない A と F・論文の新規性の回答を作る。結果の数値を記載結果表に、主張と引用の組を対応表にする | `sci-restore`（対象は木の全体。D → A → F → S の順） |
 | 2. 評価 | 主張ごとに引用文献を取り寄せて、根拠になっているかを判定する。そのうえで、復元した research-tree を検証する | `sci-cite-check` → `sci-verify` |
 | 3. 再現 | 論文の S（既にある S）から、論文の手法を動かす | `sci-exp-sprout`（`--node S<n>`） |
 | 4. 更新 | 基盤論文より新しい論文を探して A を直し、直した S（`lab-sprout`）を動かす | 前向きのブロック |
@@ -633,8 +669,8 @@ agent が読んでいない論文の番号（`#37.5.2` など）を引用する�
 | `sai-sci types [--json]` | 使える RESEARCH_TYPE を一覧する |
 | `sai-sci type-save` | RESEARCH_TYPE を `<sai_home>/sci/types/` に保存する（標準入力に型の Markdown） |
 | `sai-sci status [--json] [--brief]` | 現況（counts・seed（D）・research-tree・Next Action）。`--brief` は `{"type","counts","next","running","warnings"}` を JSON で出す |
-| `sai-sci node <Q12\|A5\|F3\|E2\|S2\|D1> [--json]` | Node 1 つの詳細。S は「seed（固定）→ 新規性（path）→ 実験（E）→ 記載なし → 本文」の順に出す（2.5 節） |
-| `sai-sci compare <S12> <S30> … [--json]` | 複数の S（2〜10 個）を、行が S・列が 6 軸の表で比べる（2.5 節） |
+| `sai-sci node <Q12\|A5\|F3\|E2\|S2\|D1> [--json]` | Node 1 つの詳細。S は「seed（固定）→ 新規性（sprout の回答）→ 未回答 → 実験（E）→ 本文」の順に出す（2.5 節） |
+| `sai-sci compare <S12> <S30> … [--json]` | 複数の S（2〜10 個）を、行が S・列が軸の付いた問いの表で比べる（2.5 節） |
 | `sai-sci context --run <run_id> [--tree]` | 今の実行の `# context` を標準出力へ出す |
 | `sai-sci op [--run <run_id>] [--block <id>]` | agent が op を出す（標準入力は `{"ops":[…]}`）。許可が要る op は承認を使う（5.4・5.10 節） |
 | `sai-sci approval record --qid <qid> --question <文> --answer <文> --answered-by <名前> [--run <id>] [--json]` | 質問の回答を承認として記録する。質問フックが呼ぶ（agent は呼ばない） |
@@ -692,6 +728,10 @@ agent が読んでいない論文の番号（`#37.5.2` など）を引用する�
 
 | 古い区分 | 新しい物 |
 |---|---|
+| 9 項目の seed の本文（軸の 6 項目の 1 行目） | 雛形の 7 問（問い `SQ<n>`）と回答（`SA<n>`） |
+| 6 軸の「決定」・「範囲」・「空欄」の 1 行目 | 固定（seed の回答）・問いの文の「（範囲: 値。…）」・未回答 |
+| 「新規性」・「記載なし」 | 新規性は seed の未回答と sprout の回答。記載なしは「記載なし: <理由>」の回答 |
+| S の `paths`（軸ごとの path） | S の回答（SA）。`paths` は `node` の読み取りの項目として残る（書けない） |
 | ITEM | Q |
 | OPTION（旧 O） | A |
 | FINDING | F |
@@ -702,6 +742,8 @@ agent が読んでいない論文の番号（`#37.5.2` など）を引用する�
 | TOMBSTONE | なし（論文を外す記録は持たない） |
 | ROOT_GRAPH / RUN_GRAPH | research-tree（下に伸びる図 1 つ）。実行の図は research-tree の画面から無くした |
 | SOIL（mind） | mind.md（プロジェクトの覚え書き。`ORIGIN`・`INTERESTS`・`NOTES`） |
+
+**今ある D と S の変換**（初めて読むときに 1 回。`rt_meta` の `seed_questions` が `1` になれば何もしない）: 6 軸の本文の D は、初めて開いたときに雛形の 7 問と回答に変換されます。「決定」はテキストの回答になり（A があれば、その path の回答も）、「範囲」は問いの文に「（範囲: 値。A の下から選ぶ）」を足して、A を回答にします。「新規性」は問いを未回答のまま残します。「記載なし」はテキストの回答になります。「成功基準」の本文は、1 行目が「空欄」なら落とします。E を持つ S は、答えた問いだけを凍結して完成扱いにします（実験を始められるように）。S の path は、その A の軸の問いに D が答えていれば D の path の回答として足し、答えていなければ S の回答（新規）として移します。軸が分からない A は回答にせず `rt_log` に残し、その S の回答からは外れます。
 
 型・ガイドの節の見出しは、新しい md に新しい見出し（`## Q`・`## Child Q（細分）`・`## Child Q（条件）`・`## Extract`・`## Pitfall`）だけを書きます。
 

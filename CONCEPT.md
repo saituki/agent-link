@@ -192,15 +192,15 @@ research-tree は、研究の方向づけ（実験の前の「何をやるか」
 
 - **root** は分野の可能性の幅で、seed に縛られない。Q は「〜の種類は何があるか」の形、A は選択肢 1 つ、F は論文の事実。全部の seed が同じ root を使う。
 - **seed（D）** は 1 つの研究の制約で、親を持たず、複数持てる。
-- **sprout（S）** は 1 研究＝研究計画で、1 つの seed と、軸ごとに選んだ root の path（A）の組。
-- 1 研究＝1 つの S＝1 つの D ＋ 軸ごとに 1 本の path の組。先行研究を論文から復元した研究と自分の研究は、木の上で区別しない（どちらも D と S）。自分の研究の新しさは、先行研究の S と違う seed・path を通ることで示す（agent の文で報告する）。
+- **sprout（S）** は 1 研究＝研究計画で、1 つの seed の未回答の問いに回答していく計画。全部の問いに答えると完成し、実験を足せる。
+- 1 研究＝1 つの seed と、その未回答の問いへの S の回答の組。先行研究を論文から復元した研究と自分の研究は、木の上で区別しない（どちらも D と S）。自分の研究の新しさは、先行研究の S と違う seed・回答を通ることで示す（agent の文で報告する）。
 
 ```
 E（BRANCH）── S か E の下。実験の 1 回
  │
-S（SPROUT）── 1 研究＝研究計画。親は D。paths（軸ごとの A）を 1 つ以上
+S（SPROUT）── 1 研究＝研究計画。親は D。未回答の問いに回答していく。全部答えると完成
  │
-D（seed）──── 1 研究の制約（9 項目）。親なし。複数。今の SEED の札の横に並ぶ
+D（seed）──── 1 研究の問いの一覧（問い SQ と回答 SA）。親なし。複数。S の親として並ぶ
 SEED ──────── root の根（RESEARCH_TYPE と mind.md）。Node ID は SEED・DB の行なし
  │
 Q（軸の Q＝top_Q）── 「〜の種類は何があるか」。task・target・data・method・output・metric
@@ -209,7 +209,7 @@ Q（軸の Q＝top_Q）── 「〜の種類は何があるか」。task・targ
      └ child_Q（その A の下の種類・条件）…
 ```
 
-seed の本文は 9 見出し（`## 背景`・`## 解く問題（task）`・`## 対象（target）`・`## データ（data）`・`## 手法（method）`・`## 出力（output）`・`## 評価指標（metric）`・`## 成功基準`・`## 制約`）で、軸の 6 項目は見出しの次の行が `決定: <値>` か `空欄`。S の body（研究計画）は `## 研究計画`・`## 成功基準`・`## 矛盾`・`## 先行研究との違い`。対象が S の `# context` には `## STUDY_SEED`（その S の seed）が出る。
+seed の本文は背景と制約の自由な文。問いは雛形の 7 問（解く問題・対象・データ・手法・出力・評価指標の 6 軸と、軸の無い成功基準）で、回答はテキストか root の A（`SA<n>`）。回答を seed に付けると固定、S に付けると新規。S の body（研究計画）は `## 研究計画`（問いごとの回答）・`## 成功基準`・`## 矛盾`・`## 先行研究との違い`。対象が S の `# context` には `## STUDY_SEED`（その S の seed の問いの表）が出る。
 
 | 種類 | 意味 | ID の例 | 行 |
 |---|---|---|---|
@@ -237,15 +237,15 @@ seed の本文は 9 見出し（`## 背景`・`## 解く問題（task）`・`## 
 - Q の下は「A だけ」か「child_Q だけ」で、混ぜない。A の下は F と Q を混ぜてよい。
 - **child_Q** は Q の子の Q。**parent_Q** は親の Q。**bottom_Q** は生きた child_Q を持たない Q（JSON の項目は `bottom_q`）。
 - **★** は利用者が付ける目印である。計算には使わない（`star`・`unstar` は利用者だけ）。
-- **RESEARCH_TYPE** は研究の始まり方の型（5 本）。軸（6 つの Q）は全部の型で共通で、型の違いは seed のどの項目が最初から「決定」になりやすいか（`## SEED` の節）。**GUIDE** は軸の Q のガイド（6 本。Q の文・Child Q・Extract・Pitfall）。
+- **RESEARCH_TYPE** は研究の始まり方の型（5 本）。軸（6 つの Q）は全部の型で共通で、型の違いは、雛形の問いのうち、どれが最初から seed で回答されているか（`## SEED` の節）。**GUIDE** は軸の Q のガイド（6 本。Q の文・Child Q・Extract・Pitfall）。
 - A に出典（`#番号`）は書けない（op が断る）。出典は A の下の F に書く。D の下に生きた S があると、その D は消せない。
 
 ### 4.2 PATH と SPROUT（S）
 
 - **PATH** は軸の Q（top_Q）から A に至る道。終点の A で表す（例 `Q2 › Q12 › A15`）。PATH の終点になれるのは A だけ。
-- **SPROUT**（`add_sprout`）は、`seed`（D の ID。必須）と `paths`（A の ID を 1〜20 個）を持つ。同じ A は 2 回書けない。1 つの seed から複数の S を作れる。
+- **SPROUT**（`add_sprout`）は、`seed`（D の ID。必須）と `answers`（`{"q":"SQ4","a":"A8"}` か `{"q":"SQ7","text":"…"}` の配列。0〜40 件）を持つ。`paths` は廃止（断られる）。1 つの seed から複数の S を作れる。完成した S は凍結し、後から seed に足した問いは入らない。
 - S を作るのは `lab-sprout`（`--node D<n>`）か Create SPROUT。`lab-sprout` は seed との矛盾と、最も近い先行研究の S との違いを報告する。`sci-exp-sprout`（`--node S<n>`）は既にある S から実験を始める。root の骨組みを review 論文から作るのが `lab-map`。
-- **範囲**（`range`）は、`paths` の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集めて数える（重ならないように数える）。出すのは Q・A の数と F の stance ごとの数。A の子の Q 以下は入れない。
+- **範囲**（`range`）は、S の回答（path）の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集めて数える（重ならないように数える）。出すのは Q・A の数と F の stance ごとの数。A の子の Q 以下は入れない。
 - 画面の操作: **Create SEED** で seed を作る。**Create SPROUT** で作成パネルを開き、先に SEED（D）を選び、A の板の **Add PATH** / **Delete PATH** で PATH を選ぶ。
 
 ### 4.3 op と承認
@@ -266,7 +266,14 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 | `add_a` | Free | A を足す。作ったあと GUIDE の `+` の子 Q を作る |
 | `add_f` | Free | F を足す（3 文まで）。数字を含む文は出典（`cites` か `report`）が要る |
 | `add_e` | Free | E を足す（`dataset` を付けられる） |
-| `add_sprout` | Free | SPROUT を作る（4.2） |
+| `add_seed` | Free | seed を作る。雛形の 7 問が入る |
+| `add_seed_q` | Approval | seed に問いを足す（未完成の S にだけ効く） |
+| `edit_seed_q` | Approval | 問いの文・軸を直す |
+| `remove_seed_q` | Approval | 問いを消す（回答は残す） |
+| `add_answer` | Free | 問いに回答する（seed の回答は固定、S の回答は新規） |
+| `edit_answer` | Free | テキストの回答を直す |
+| `remove_answer` | Approval | 回答を消す（S は未完成に戻りうる） |
+| `add_sprout` | Free | SPROUT を作る（回答 `answers` を付けられる。4.2） |
 | `set_stance` | Free | F の stance を変える |
 | `set_mlflow` | Free | E の MLflow の結び付けを変える |
 | `set_dataset` | Free | E の `dataset`（データセットの参照）を変える。空文字は外す |
