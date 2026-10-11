@@ -130,6 +130,8 @@ function tsViewBody(st) {
 // 記録が変わって selection が無いときは、前の記録の選択を消す（古い選択を送り続けない）
 function tsPatchState(st, patch) {
   const before = st.dataset + "\n" + st.record;
+  // データセットが変わるときは、前のデータセットの表示中の変数を持ち越さない（全部表示から始める）
+  if ("dataset" in patch && patch.dataset !== st.dataset && !("vars" in patch)) st.vars = null;
   if ("dataset" in patch) st.dataset = patch.dataset;
   if ("record" in patch) st.record = patch.record;
   if ("t0" in patch) st.t0 = patch.t0;
@@ -311,6 +313,12 @@ function tsScheduleSave() {
 async function tsLoadRecord() {
   const st = window.TS.state;
   const seq = ++tsLoadSeq;
+  // データセットが変わったら、そのデータセットの schema（イベント定義）に読み直す
+  if (st.dataset !== tsSchemaDs) {
+    tsSchemaDs = st.dataset;
+    await tsReloadSchema();
+    if (seq !== tsLoadSeq) return;
+  }
   const key = st.dataset + "\n" + st.record; // 読み始めた記録（meta がどの記録のものかを表す）
   let meta = null;
   if (st.dataset && st.record) {
@@ -357,12 +365,15 @@ async function tsReloadEvents() {
   tsRedraw();
 }
 
+let tsSchemaDs = null; // schema を読んだデータセット
+
 async function tsReloadSchema() {
   const st = window.TS.state;
   const ds = st.dataset;
   if (!ds) return;
   const s = await tsApi(`/api/datasets/${tsEnc(ds)}/schema`).catch(() => null);
   if (st.dataset !== ds) return;
+  tsSchemaDs = ds;
   st.schema = tsNormSchema(s);
   if (st.eventDef && !st.schema.categories.some((c) => c.name === st.eventDef)) st.eventDef = null;
   tsRenderHeader();
@@ -374,7 +385,6 @@ function tsApplyView(view) {
   const st = window.TS.state;
   const names = st.datasets.map((d) => d.name);
   const dataset = names.includes(view.dataset) ? view.dataset : names.includes(st.dataset) ? st.dataset : names[0] || null;
-  const dsChanged = dataset !== st.dataset;
   const recs = tsRecordsOf(st.datasets, dataset);
   const record = recs.includes(view.record) ? view.record : recs.includes(st.record) ? st.record : recs[0] || null;
   tsPatchState(st, {
@@ -387,8 +397,7 @@ function tsApplyView(view) {
     selection: view.selection ?? null,
     selectedEvents: view.selected_events ?? [],
   });
-  // データセットが変わったら、そのデータセットの schema（イベント定義）に読み直す
-  return dsChanged ? tsReloadSchema().then(tsLoadRecord) : tsLoadRecord();
+  return tsLoadRecord();
 }
 
 // agent が view を書いたときだけ取り込む（画面自身の保存の知らせは無視する）
