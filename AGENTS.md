@@ -83,7 +83,7 @@ sh apps/web/server/test_sai_in_container.sh
 # Radio（3 本）
 (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
 
-# sai-ts（Python 14 本・JS 11 本。`apps/ts` の uv sync が要る）
+# sai-ts（Python 19 本・JS 12 本。`apps/ts` の uv sync が要る）
 (cd apps/ts && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
 for f in apps/ts/tests/test_*.js; do node "$f" || exit 1; done
 
@@ -104,8 +104,8 @@ sh -n apps/web/server/deploy.sh
 | Web の JS | 34 | Web（ubuntu） | |
 | Web の Python | 41 | Web（ubuntu） | |
 | コンテナの中継 | 1（sh） | Web（ubuntu） | |
-| sai-ts の Python | 14 | sai-ts（ubuntu） | `apps/ts` の uv sync が要る |
-| sai-ts の JS | 11 | sai-ts（ubuntu） | |
+| sai-ts の Python | 19 | sai-ts（ubuntu） | `apps/ts` の uv sync が要る |
+| sai-ts の JS | 12 | sai-ts（ubuntu） | |
 | Radio | 3 | Radio（ubuntu） | |
 | sai-prep | 5 | sai-prep（ubuntu・Python 3.12） | |
 | sai-sci の道具 | 9 | sai-sci の道具（ubuntu・Python 3.13） | `test_exp_summary` は mlflow が要る |
