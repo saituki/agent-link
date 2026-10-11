@@ -2852,52 +2852,6 @@ button.lv-tl-preview { cursor: pointer; }
   #day-side { display: none; }
 }
 
-
-/* --- Dashboard の文書検索（dashsearch.js・.dash-card の中） --- */
-.dsr-top { display: flex; gap: 8px; }
-.dsr-input {
-  min-width: 0;
-  padding: 8px 10px;
-  font-size: 15px;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
-  border-radius: 10px;
-}
-.dsr-q { flex: 1 1 auto; }
-.dsr-go { flex: 0 0 auto; min-height: 44px; }
-.dsr-filters { margin-top: 10px; }
-.dsr-filters > summary { cursor: pointer; padding: 8px 0; color: var(--text-soft); font-size: 14px; }
-.dsr-field { display: block; margin: 8px 0; }
-.dsr-label { display: block; margin-bottom: 4px; font-size: 13px; color: var(--text-soft); }
-.dsr-field > .dsr-input { width: 100%; box-sizing: border-box; }
-.dsr-pair { display: flex; align-items: center; gap: 6px; }
-.dsr-pair .dsr-input { flex: 1 1 0; }
-.dsr-sep { color: var(--text-soft); }
-.dsr-cats { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.dsr-cat { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 15px; }
-.dsr-out { margin-top: 10px; }
-.dsr-error { color: var(--danger); }
-.dsr-row {
-  display: block;
-  width: 100%;
-  padding: 10px 0;
-  text-align: left;
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-.dsr-row:last-of-type { border-bottom: none; }
-.dsr-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; }
-.dsr-row-id { font-weight: 600; }
-.dsr-tag { padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--bg); color: var(--text-soft); }
-.dsr-row-file { color: var(--text-soft); overflow-wrap: anywhere; }
-.dsr-row-date { margin-left: auto; color: var(--text-soft); font-size: 13px; }
-.dsr-row-snippet { display: block; margin-top: 4px; font-size: 14px; line-height: 1.5; color: var(--text-soft); overflow-wrap: anywhere; }
-
 /* md の中の waggle 参照（押すとその文書へ） */
 .md-doc a.md-waggle { overflow-wrap: anywhere; }
 
@@ -2951,9 +2905,10 @@ button.lv-tl-preview { cursor: pointer; }
 /* --- 会話の検索の画面（U10） --- */
 .sess-body { padding: 12px 16px 24px; }
 .sess-form { display: flex; flex-direction: column; gap: 12px; }
-.sess-field { display: flex; flex-direction: column; gap: 4px; }
+.sess-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sess-label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
 .sess-input {
+  width: 100%; box-sizing: border-box; min-width: 0;
   padding: 8px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--bg); color: var(--text); font: inherit;
 }
@@ -2970,6 +2925,11 @@ button.lv-tl-preview { cursor: pointer; }
 .sess-hit { display: flex; gap: 8px; font-size: 12px; color: var(--text-soft); }
 .sess-hit-type { font-weight: 600; }
 .sess-hit-text { font-size: 14px; margin: 2px 0 8px; overflow-wrap: anywhere; }
+.sess-note { margin: 0; font-size: 12px; color: var(--text-soft); }
+.sess-error { color: var(--danger); font-size: 13px; }
+.sess-doc { display: block; font-size: 12px; color: var(--text-soft); text-decoration: none; }
+.sess-doc .sess-hit-text { color: var(--text); }
+.sess-doc-file { overflow-wrap: anywhere; }
 
 @media (min-width: 900px) {
   .sess-grid { grid-template-columns: repeat(3, 1fr); }

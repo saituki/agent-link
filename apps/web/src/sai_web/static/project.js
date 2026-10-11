@@ -502,11 +502,7 @@ async function openDashboard(name) {
   const todo = document.createElement("div");
   todo.id = "dash-todo";
   todo.innerHTML = "<section class='dash-card'><p class='dash-empty'>読み込み中…</p></section>";
-  // 検索カードは 10 秒ごとの描き直し（.dash-cards）で入力が消えないよう、外に置く
-  const search = document.createElement("div");
-  search.className = "dash-search";
-  if (typeof dsrMount === "function") dsrMount(search, name);
-  body.append(msg, search, cards, todo);
+  body.append(msg, cards, todo);
   dashApplyWide();
 
   // Dashboard と todo は同時に読む（todo は開いたときだけ読む・06 §4.2）
@@ -579,7 +575,6 @@ function renderDashboard() {
   if (!d) return; // 読み込み中の表示はそのまま残す
   const lamp = document.getElementById("dash-lamp");
   if (lamp) lamp.className = "proj-lamp" + (d.daemon_alive ? " on" : "");
-  if (typeof dsrSetBlocks === "function") dsrSetBlocks((d.by_block || []).map((r) => r.block));
   box.innerHTML = "";
   box.append(
     statusCard(d),

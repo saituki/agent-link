@@ -1183,7 +1183,7 @@ def api_project_search(
     limit: int = 50,
     _: None = Depends(require_token),
 ) -> dict:
-    """文書（task / message / waggle）の検索（`phone search`・Dashboard の検索）。
+    """文書（task / message / waggle）の検索（`phone search`・会話検索の画面の文書の検索）。
 
     `q` は空白区切りの AND。`category` はカンマ区切り（空なら全部）。`since` / `until` は
     `YYYY-MM-DD`、`block` は完全一致、`from_id` / `to_id` は run_id の範囲。
