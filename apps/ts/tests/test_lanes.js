@@ -6,7 +6,9 @@
 const assert = require("assert");
 const path = require("path");
 
-const src = path.join(__dirname, "..", "src", "sai_ts", "static", "lanes.js");
+const dir = path.join(__dirname, "..", "src", "sai_ts", "static");
+// tsValueTicks は app.js の tsNiceTicks を使う（画面では同じ窓の中の関数）
+global.tsNiceTicks = require(path.join(dir, "app.js")).tsNiceTicks;
 const {
   tsLaneLayout,
   tsAutoRange,
@@ -15,18 +17,31 @@ const {
   tsHitEvent,
   tsSelectionFromDrag,
   tsRgba,
+  tsFmtVal,
+  tsValueTicks,
   tsGainSteps,
   tsGainStep,
   tsGainParse,
-} = require(src);
+} = require(path.join(dir, "lanes.js"));
 
-// レーンの配置: 最小の高さ、変数 0 個
-assert.deepStrictEqual(tsLaneLayout(3, 300, 24, 24).laneH, 92);
-assert.deepStrictEqual(tsLaneLayout(3, 300, 24, 24).rows[2], { y0: 184, y1: 276 });
-assert.strictEqual(tsLaneLayout(3, 300, 24, 24).total, 300);
-assert.strictEqual(tsLaneLayout(2, 20, 24, 24).laneH, 24, "足りないときは最小の高さ");
-assert.strictEqual(tsLaneLayout(2, 20, 24, 24).total, 72, "足りないときは縦にスクロール");
-assert.deepStrictEqual(tsLaneLayout(0, 300, 24, 24), { laneH: 0, rows: [], total: 24 });
+// レーンの配置: 最小の高さ、変数 0 個（時間軸は含まない）
+assert.strictEqual(tsLaneLayout(3, 300, 24).laneH, 100);
+assert.deepStrictEqual(tsLaneLayout(3, 300, 24).rows[2], { y0: 200, y1: 300 });
+assert.strictEqual(tsLaneLayout(3, 300, 24).total, 300);
+assert.strictEqual(tsLaneLayout(2, 20, 24).laneH, 24, "足りないときは最小の高さ");
+assert.strictEqual(tsLaneLayout(2, 20, 24).total, 48, "足りないときは縦にスクロール");
+assert.deepStrictEqual(tsLaneLayout(0, 300, 24), { laneH: 0, rows: [], total: 0 });
+
+// 縦軸の目盛り: 上端と下端の値の間に入る（toV が線形のレーン: 上が 24・下が -24）
+const lane = { y0: 0, y1: 100, toV: (y) => (50 - y) / 2 };
+assert.deepStrictEqual(tsValueTicks(lane, 4), [-20, 0, 20]);
+
+// 値の書き方: 有効数字 3 桁、大きすぎる・小さすぎる値は指数表記
+assert.strictEqual(tsFmtVal(1234.5), "1230");
+assert.strictEqual(tsFmtVal(-0.5), "-0.5");
+assert.strictEqual(tsFmtVal(0), "0");
+assert.strictEqual(tsFmtVal(0.00012), "1.2e-4");
+assert.strictEqual(tsFmtVal(25000), "2.5e+4");
 
 // 縦の範囲: 全部 null、1% と 99% 点、値が同じ
 assert.deepStrictEqual(tsAutoRange([null, null]), [-1, 1]);
@@ -111,14 +126,12 @@ assert.strictEqual(tsGainStep(0.9, 1), 2, "0.9 は 1 の段から上がる");
 assert.strictEqual(tsGainStep(NaN, 1), 2, "読めない値は 1 として動く");
 assert.strictEqual(tsGainStep(-3, -1), 0.5, "負の値は 1 として動く");
 
-// 保存の読み: 読めない値は 1。段に無い値も 1。ch の 1 は入れない
-assert.deepStrictEqual(tsGainParse(null), { all: 1, ch: {} });
-assert.deepStrictEqual(tsGainParse("{壊れ"), { all: 1, ch: {} });
-assert.deepStrictEqual(tsGainParse("[1,2]"), { all: 1, ch: {} });
-assert.deepStrictEqual(tsGainParse('{"all": 2, "ch": {"ch01": 5, "ch02": 1, "ch03": 1.3, "ch04": "x"}}'), {
-  all: 2,
-  ch: { ch01: 5 },
-});
-assert.deepStrictEqual(tsGainParse('{"all": "x", "ch": []}'), { all: 1, ch: {} });
+// 保存の読み: 読めない値は 1。段に無い値も 1。古い保存の ch は読み捨てる
+assert.deepStrictEqual(tsGainParse(null), { all: 1 });
+assert.deepStrictEqual(tsGainParse("{壊れ"), { all: 1 });
+assert.deepStrictEqual(tsGainParse("[1,2]"), { all: 1 });
+assert.deepStrictEqual(tsGainParse('{"all": 2, "ch": {"ch01": 5}}'), { all: 2 });
+assert.deepStrictEqual(tsGainParse('{"all": 1.3}'), { all: 1 });
+assert.deepStrictEqual(tsGainParse('{"all": "x", "ch": []}'), { all: 1 });
 
 console.log("test_lanes.js: OK");

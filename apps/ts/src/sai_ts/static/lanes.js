@@ -2,16 +2,15 @@
 // 波形のレーン・イベントの重ね描き・マウス操作・既定のキー（共有契約 C10）。
 // 純関数（DOM を使わない計算）は末尾で node のテストに渡す。
 
-const tsNameW = 80; // 名前の欄の幅（CSS px）
-const tsAxisH = 24; // 時間軸の高さ
-const tsNavH = 14; // 記録全体の帯（高さ 8px と余白）
+const tsGutterW = 120; // 左の欄（label・縦軸の目盛り）の幅（CSS px）
+const tsAxisH = 24; // 時間軸の高さ（#ts-axis の上の部分）
+const tsNavH = 14; // 記録全体の帯（#ts-axis の下の部分。高さ 8px と余白）
 const tsLaneMinH = 24;
 const tsPanStep = 0.1; // ホイールで 1 回に動く表示幅の割合
 const tsDragPx = 3; // これより動いたらドラッグ扱い
 const tsHitPx = 4; // ラインの当たり判定の幅（CSS px）
 const tsDefaultColor = "#64748b";
 let tsGain = 1; // 全体の倍率（tsGainSteps の段）
-let tsChGain = {}; // ch ごとの倍率（名前 → 段。1 の ch は入れない）
 let tsGainDs = null; // 倍率を読んだデータセット（保存の鍵）
 let tsFetchTimer = null;
 let tsFetchKey = "";
@@ -21,16 +20,17 @@ let tsWave = null; // {ds, rec, data, scales, reqAt}
 let tsDrag = null;
 let tsSpace = false;
 let tsCss = { w: 0, h: 0 };
+let tsCol = null; // 配色（CSS の変数を tsTheme が読む）
 
 // ---- 純関数（DOM を使わない。node のテストが読む） ----
 
-// 表示中の変数ごとのレーン。高さは (高さ − 軸) ÷ 変数の数（最小 minH）
-function tsLaneLayout(nvars, height, axisH, minH) {
-  if (nvars <= 0) return { laneH: 0, rows: [], total: axisH };
-  const laneH = Math.max(minH, Math.floor((height - axisH) / nvars));
+// 表示中の変数ごとのレーン。高さは 高さ ÷ 変数の数（最小 minH）。時間軸は含まない
+function tsLaneLayout(nvars, height, minH) {
+  if (nvars <= 0) return { laneH: 0, rows: [], total: 0 };
+  const laneH = Math.max(minH, Math.floor(height / nvars));
   const rows = [];
   for (let i = 0; i < nvars; i++) rows.push({ y0: i * laneH, y1: (i + 1) * laneH });
-  return { laneH, rows, total: nvars * laneH + axisH };
+  return { laneH, rows, total: nvars * laneH };
 }
 
 // 1% 点と 99% 点で上下を決める。全部 null なら [-1, 1]
@@ -138,6 +138,21 @@ function tsRgba(hex, a) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+// 縦軸の値の書き方。有効数字 3 桁。大きすぎる・小さすぎる値は指数表記
+function tsFmtVal(v) {
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 1e4 || a < 1e-3) return v.toExponential(2).replace(/\.?0+e/, "e");
+  return String(+v.toPrecision(3));
+}
+
+// レーンの上端と下端の値の範囲で、目盛りを maxTicks 個前後
+function tsValueTicks(lane, maxTicks) {
+  const lo = lane.toV(lane.y1 - 2);
+  const hi = lane.toV(lane.y0 + 2);
+  return tsNiceTicks(Math.min(lo, hi), Math.max(lo, hi), maxTicks);
+}
+
 // 倍率の段（全体と ch ごとで共通）
 const tsGainSteps = [0.1, 0.2, 0.5, 1, 2, 5, 10];
 
@@ -157,9 +172,9 @@ function tsGainStep(cur, dir) {
   return tsGainSteps[j];
 }
 
-// 保存の文字（{"all": 段, "ch": {名前: 段}}）を読む。読めない値は 1 として扱う
+// 保存の文字（{"all": 段}）を読む。読めない値は 1 として扱う。古い保存の "ch" は読み捨てる
 function tsGainParse(text) {
-  const out = { all: 1, ch: {} };
+  const out = { all: 1 };
   let o = null;
   try {
     o = JSON.parse(text);
@@ -168,11 +183,6 @@ function tsGainParse(text) {
   }
   if (!o || typeof o !== "object") return out;
   out.all = tsGainOf(o.all);
-  const ch = o.ch && typeof o.ch === "object" && !Array.isArray(o.ch) ? o.ch : {};
-  for (const k of Object.keys(ch)) {
-    const v = tsGainOf(ch[k]);
-    if (v !== 1) out.ch[k] = v;
-  }
   return out;
 }
 
@@ -189,8 +199,8 @@ function tsPoint(e) {
 }
 
 function tsPlotPx() {
-  const main = document.getElementById("ts-main");
-  return Math.max(1, Math.min(8192, Math.round((main ? main.clientWidth : 0) - tsNameW)));
+  const lanes = document.getElementById("ts-lanes");
+  return Math.max(1, Math.min(8192, Math.round((lanes ? lanes.clientWidth : 0) - tsGutterW)));
 }
 
 function tsFmtSec(t) {
@@ -227,20 +237,11 @@ function tsScales(data) {
   return out;
 }
 
-// ch の倍率（保存していなければ 1）。Object の名前（constructor など）を拾わないように自分の鍵だけ見る
-function tsChGainOf(name) {
-  return Object.prototype.hasOwnProperty.call(tsChGain, name) ? tsChGain[name] : 1;
-}
-
-// 倍率の保存は データセットごと（記録をまたいで同じ ch 名なら同じ倍率）
+// 全体の倍率の保存は データセットごと（記録をまたいで同じ倍率）
 function tsGainSave() {
   if (!tsGainDs) return;
-  const ch = {};
-  Object.keys(tsChGain).forEach((k) => {
-    if (tsChGain[k] !== 1) ch[k] = tsChGain[k];
-  });
   try {
-    localStorage.setItem("ts_gain:" + tsGainDs, JSON.stringify({ all: tsGain, ch }));
+    localStorage.setItem("ts_gain:" + tsGainDs, JSON.stringify({ all: tsGain }));
   } catch {
     // 保存できなくても画面は動く
   }
@@ -257,9 +258,7 @@ function tsGainSync() {
   } catch {
     text = null;
   }
-  const g = tsGainParse(text);
-  tsGain = g.all;
-  tsChGain = g.ch;
+  tsGain = tsGainParse(text).all;
   window.TS.emit("gain");
 }
 
@@ -270,35 +269,53 @@ function tsGainSetAll(v) {
   tsDrawAll();
 }
 
-function tsGainSetCh(name, v) {
-  const g = tsGainOf(v);
-  if (g === 1) delete tsChGain[name];
-  else tsChGain[name] = g;
-  tsGainSave();
-  window.TS.emit("gain");
-  tsDrawAll();
+// 配色は CSS の変数から読む（canvas も同じ色にする）。起動時と resize のときに読み直す
+function tsTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name) => cs.getPropertyValue(name).trim();
+  tsCol = {
+    bg: v("--ts-bg"),
+    panel: v("--ts-panel"),
+    border: v("--ts-border"),
+    text: v("--ts-text"),
+    muted: v("--ts-muted"),
+    accent: v("--ts-accent"),
+    grid: v("--ts-grid"),
+    wave: v("--ts-wave"),
+  };
+}
+
+// 時間の目盛り（秒）。幅に合わせて数を決める
+function tsTimeTicks(frame) {
+  return tsNiceTicks(frame.t0, frame.t1, Math.max(2, Math.floor(frame.plotW / 100)));
 }
 
 function tsLanesFrame() {
   const st = window.TS.state;
-  const main = document.getElementById("ts-main");
-  const w = main ? main.clientWidth : 0;
-  const h = main ? main.clientHeight : 0;
+  const lanesEl = document.getElementById("ts-lanes");
+  const w = lanesEl ? lanesEl.clientWidth : 0;
+  const h = lanesEl ? lanesEl.clientHeight : 0;
   const vars = st.vars || [];
-  const lay = tsLaneLayout(vars.length, h, tsAxisH, tsLaneMinH);
-  const plotW = Math.max(1, w - tsNameW);
+  const lay = tsLaneLayout(vars.length, h, tsLaneMinH);
+  const plotW = Math.max(1, w - tsGutterW);
   const span = st.t1 - st.t0 || 1;
   const wave = tsCurrentWave();
+  const chOf = new Map((st.channels || []).map((c) => [c.name, c]));
   const lanes = vars.map((name, i) => {
     const row = lay.rows[i];
     const sc = wave && wave.scales[name] ? wave.scales[name] : { mid: 0, half: 1 };
+    const ch = chOf.get(name) || { gain: 1 };
     const mid = (row.y0 + row.y1) / 2;
     const amp = (row.y1 - row.y0) / 2 - 4;
+    const k = tsGain * tsGainNum(ch.gain) * amp; // 全体の倍率 × ch の倍率 × 半分の高さ
     return {
       var: name,
+      kind: "wave",
       y0: row.y0,
       y1: row.y1,
-      toY: (v) => mid - ((v - sc.mid) / sc.half) * tsGain * tsChGainOf(name) * amp,
+      ch,
+      toY: (v) => mid - ((v - sc.mid) / sc.half) * k,
+      toV: (y) => sc.mid + ((mid - y) / k) * sc.half,
     };
   });
   return {
@@ -306,13 +323,12 @@ function tsLanesFrame() {
     t1: st.t1,
     width: w,
     height: lay.total,
-    left: tsNameW,
     plotW,
-    lanesH: lay.total - tsAxisH,
-    navY: lay.total,
+    axis: { y0: 0, h: tsAxisH }, // #ts-axis の中の座標
+    nav: { y0: tsAxisH, h: tsNavH },
     lanes,
-    toX: (t) => tsNameW + ((t - st.t0) / span) * plotW,
-    toT: (x) => st.t0 + ((x - tsNameW) / plotW) * span,
+    toX: (t) => tsGutterW + ((t - st.t0) / span) * plotW,
+    toT: (x) => st.t0 + ((x - tsGutterW) / plotW) * span,
   };
 }
 
@@ -329,91 +345,151 @@ function tsWavePoints(wave, data, frame, lane) {
   return tsRawPath(data.y, data.start, data.dt, frame.toX, lane.toY);
 }
 
+// canvas の実寸と CSS の大きさをそろえる（寸法が変わったときだけ実寸を変える）
+function tsSizeCanvas(c, w, h, dpr) {
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+  }
+  c.style.width = w + "px";
+  c.style.height = h + "px";
+}
+
 function tsDrawAll() {
+  const lanesEl = document.getElementById("ts-lanes");
   const main = document.getElementById("ts-main");
-  if (!main) return;
+  if (!lanesEl || !main) return;
+  if (!tsCol) tsTheme();
   const frame = tsLanesFrame();
-  const w = main.clientWidth;
-  const h = Math.max(main.clientHeight, frame.height + tsNavH);
+  const w = lanesEl.clientWidth;
+  const h = Math.max(lanesEl.clientHeight, frame.height);
   tsCss = { w, h };
   const dpr = window.devicePixelRatio || 1;
-  ["ts-canvas", "ts-overlay"].forEach((id) => {
-    const c = document.getElementById(id);
-    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
-    }
-    c.style.width = w + "px";
-    c.style.height = h + "px";
-  });
+  tsSizeCanvas(document.getElementById("ts-canvas"), w, h, dpr);
+  tsSizeCanvas(document.getElementById("ts-overlay"), w, h, dpr);
   const ctx = document.getElementById("ts-canvas").getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  tsPaintLanes(ctx, frame);
+  tsPaintLanes(ctx, frame, w, h);
+  // 時間軸と記録全体の帯は下に固定（#ts-axis）
+  const axisW = main.clientWidth;
+  const axisH = tsAxisH + tsNavH;
+  const ac = document.getElementById("ts-axis");
+  tsSizeCanvas(ac, axisW, axisH, dpr);
+  const actx = ac.getContext("2d");
+  actx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  actx.clearRect(0, 0, axisW, axisH);
+  tsPaintAxis(actx, frame, axisW, axisH);
   tsDrawOverlay();
 }
 
-function tsPaintLanes(ctx, frame) {
-  const st = window.TS.state;
-  const { w } = tsCss;
+function tsPaintLanes(ctx, frame, w, h) {
+  const c = tsCol;
   const wave = tsCurrentWave();
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, w, tsCss.h);
-  ctx.font = "13px sans-serif";
-  ctx.textBaseline = "middle";
+  ctx.fillStyle = c.bg;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = c.panel;
+  ctx.fillRect(0, 0, tsGutterW, h);
+  // 時間の目盛りに合わせた縦の薄い線
+  ctx.fillStyle = c.grid;
+  ctx.globalAlpha = 0.35;
+  tsTimeTicks(frame).forEach((t) => ctx.fillRect(Math.round(frame.toX(t)), 0, 1, frame.height));
+  ctx.globalAlpha = 1;
   frame.lanes.forEach((lane) => {
-    ctx.strokeStyle = "#555";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, lane.y1 + 0.5);
-    ctx.lineTo(w, lane.y1 + 0.5);
-    ctx.stroke();
-    ctx.fillStyle = "#111";
-    const g = tsChGainOf(lane.var);
-    ctx.fillText(lane.var + (g === 1 ? "" : ` x${g}`), 6, (lane.y0 + lane.y1) / 2, tsNameW - 10);
+    const laneH = lane.y1 - lane.y0;
+    const color = lane.ch.drawColor || c.wave;
+    ctx.fillStyle = c.border;
+    ctx.fillRect(0, lane.y1 - 1, w, 1);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, lane.y0, 4, laneH);
+    tsPaintLaneAxis(ctx, lane, w, c);
+    tsPaintLaneLabel(ctx, lane, c);
     const data = wave && wave.data.vars[lane.var];
     if (!data) return;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(tsNameW, lane.y0, frame.plotW, lane.y1 - lane.y0);
+    ctx.rect(tsGutterW, lane.y0, frame.plotW, laneH);
     ctx.clip();
-    ctx.strokeStyle = "#222";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
     ctx.beginPath();
     tsWavePoints(wave, data, frame, lane).forEach((p) => (p.move ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.stroke();
     ctx.restore();
   });
-  // 名前の欄と時間軸
-  ctx.strokeStyle = "#999";
-  ctx.beginPath();
-  ctx.moveTo(tsNameW + 0.5, 0);
-  ctx.lineTo(tsNameW + 0.5, frame.lanesH);
-  ctx.stroke();
-  ctx.strokeStyle = "#555";
-  ctx.beginPath();
-  ctx.moveTo(0, frame.lanesH + 0.5);
-  ctx.lineTo(w, frame.lanesH + 0.5);
-  ctx.stroke();
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = c.border;
+  ctx.fillRect(tsGutterW - 1, 0, 1, frame.height);
+}
+
+// レーンの縦軸（値の目盛り）。低いレーンは中央の 1 本だけ（値は書かない）
+function tsPaintLaneAxis(ctx, lane, w, c) {
+  const laneH = lane.y1 - lane.y0;
+  const small = laneH < 40;
+  const pts = small
+    ? [{ v: null, y: (lane.y0 + lane.y1) / 2 }]
+    : tsValueTicks(lane, Math.max(2, Math.floor(laneH / 28))).map((v) => ({ v, y: lane.toY(v) }));
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  pts.forEach((p) => {
+    if (p.y < lane.y0 || p.y > lane.y1) return;
+    const y = Math.round(p.y);
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = c.grid;
+    ctx.fillRect(tsGutterW, y, w - tsGutterW, 1);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.muted;
+    ctx.fillRect(tsGutterW, y, 4, 1);
+    if (p.v !== null) ctx.fillText(tsFmtVal(p.v), tsGutterW - 4, p.y);
+  });
+  ctx.textAlign = "left";
+}
+
+// レーンの label（倍率が 1 でなければ ×2 のように付ける）と単位
+function tsPaintLaneLabel(ctx, lane, c) {
+  const laneH = lane.y1 - lane.y0;
+  const mid = (lane.y0 + lane.y1) / 2;
+  const two = laneH >= 40; // 単位の行を出せる高さ
+  const gain = tsGainNum(lane.ch.gain);
+  const label = (lane.ch.label || lane.var) + (gain === 1 ? "" : ` ×${gain}`);
+  ctx.font = "13px sans-serif";
+  ctx.fillStyle = c.text;
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, 10, two ? mid - 7 : mid, tsGutterW - 60);
+  if (two && lane.ch.unit) {
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = c.muted;
+    ctx.fillText(lane.ch.unit, 10, mid + 8, tsGutterW - 60);
+  }
+}
+
+// 時間軸（上の 24px）と記録全体の帯（下の 14px）。#ts-axis に描く
+function tsPaintAxis(ctx, frame, w, h) {
+  const c = tsCol;
+  const st = window.TS.state;
+  ctx.fillStyle = c.panel;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = c.border;
+  ctx.fillRect(0, 0, w, 1);
+  ctx.fillRect(tsGutterW - 1, 0, 1, h);
+  ctx.font = "13px sans-serif";
   ctx.textBaseline = "top";
-  tsNiceTicks(frame.t0, frame.t1, Math.max(2, Math.floor(frame.plotW / 100))).forEach((t) => {
+  ctx.fillStyle = c.muted;
+  tsTimeTicks(frame).forEach((t) => {
     const x = frame.toX(t);
-    if (x < tsNameW - 1 || x > w + 1) return;
-    ctx.beginPath();
-    ctx.moveTo(x + 0.5, frame.lanesH);
-    ctx.lineTo(x + 0.5, frame.lanesH + 6);
-    ctx.stroke();
-    ctx.fillText(tsFmtSec(t), x + 3, frame.lanesH + 6);
+    if (x < tsGutterW - 1 || x > w + 1) return;
+    ctx.fillRect(Math.round(x), frame.axis.y0, 1, 6);
+    ctx.fillText(tsFmtSec(t), x + 3, frame.axis.y0 + 6);
   });
   // 記録全体の中の今の範囲（押すと移動）
   const dur = tsDuration(st.meta);
   if (dur > 0) {
-    const y = frame.navY + 3;
-    const x0 = tsNameW + (st.t0 / dur) * frame.plotW;
-    const x1 = tsNameW + (st.t1 / dur) * frame.plotW;
-    ctx.fillStyle = "#e5e7eb";
-    ctx.fillRect(tsNameW, y, frame.plotW, 8);
-    ctx.fillStyle = "rgba(37,99,235,0.45)";
+    const y = frame.nav.y0 + 3;
+    const x0 = tsGutterW + (st.t0 / dur) * frame.plotW;
+    const x1 = tsGutterW + (st.t1 / dur) * frame.plotW;
+    ctx.fillStyle = c.grid;
+    ctx.fillRect(tsGutterW, y, frame.plotW, 8);
+    ctx.fillStyle = tsRgba(c.accent, 0.45);
     ctx.fillRect(x0, y, Math.max(2, x1 - x0), 8);
   }
 }
@@ -428,10 +504,11 @@ function tsDrawOverlay() {
   ctx.clearRect(0, 0, tsCss.w, tsCss.h);
   tsPaintEvents(ctx, frame);
   const st = window.TS.state;
-  if (st.selection) tsPaintRange(ctx, frame, st.selection.t0, st.selection.t1, st.selection.vars, "rgba(37,99,235,0.2)", "#2563eb");
+  const acc = tsCol.accent;
+  if (st.selection) tsPaintRange(ctx, frame, st.selection.t0, st.selection.t1, st.selection.vars, tsRgba(acc, 0.2), acc);
   if (tsDrag && tsDrag.mode === "select" && tsDrag.moved) {
     const s = tsSelectionFromDrag(tsDrag.x0, tsDrag.x, tsDrag.y0, tsDrag.y, frame);
-    tsPaintRange(ctx, frame, s.t0, s.t1, s.vars, "rgba(37,99,235,0.12)", "#2563eb");
+    tsPaintRange(ctx, frame, s.t0, s.t1, s.vars, tsRgba(acc, 0.12), acc);
   }
   tsRunLayers(ctx, frame);
 }
@@ -465,12 +542,16 @@ function tsPaintEvents(ctx, frame) {
       const x0 = frame.toX(ev.t0);
       const x1 = frame.toX(ev.t1);
       lanes.forEach((l) => {
-        ctx.fillStyle = tsRgba(color, 0.25);
+        ctx.fillStyle = tsRgba(color, 0.22);
         ctx.fillRect(x0, l.y0 + 1, x1 - x0, l.y1 - l.y0 - 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = sel ? 2 : 1;
+        ctx.strokeRect(x0 + 0.5, l.y0 + 1.5, x1 - x0 - 1, l.y1 - l.y0 - 3);
         if (sel) {
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x0 + 1.5, l.y0 + 2.5, x1 - x0 - 3, l.y1 - l.y0 - 5);
+          // 選んだエリアは外側にアクセントの輪を付ける
+          ctx.strokeStyle = tsCol.accent;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x0 - 2, l.y0 + 0.5, x1 - x0 + 4, l.y1 - l.y0 - 1);
         }
       });
       ctx.fillStyle = color;
@@ -514,7 +595,7 @@ function tsNavJump(x) {
   const dur = tsDuration(st.meta);
   if (!(dur > 0)) return;
   const frame = tsLanesFrame();
-  const t = Math.min(dur, Math.max(0, ((x - tsNameW) / frame.plotW) * dur));
+  const t = Math.min(dur, Math.max(0, ((x - tsGutterW) / frame.plotW) * dur));
   const span = st.t1 - st.t0;
   const r = tsClampRange(t - span / 2, t + span / 2, dur, span);
   window.TS.setView({ t0: r.t0, t1: r.t1 });
@@ -529,13 +610,8 @@ function tsOnDown(e) {
     tsDrag = { mode: "pan", x0: p.x, t0: st.t0, t1: st.t1 };
     return;
   }
-  if (e.button !== 0 || p.x < tsNameW) return;
+  if (e.button !== 0 || p.x < tsGutterW) return;
   const frame = tsLanesFrame();
-  if (p.y >= frame.navY && p.y < frame.navY + tsNavH) {
-    tsDrag = { mode: "nav" };
-    tsNavJump(p.x);
-    return;
-  }
   if (e.altKey) {
     const lane = tsLaneAt(frame, p.y);
     window.TS.editEvent(null, {
@@ -599,51 +675,11 @@ function tsOnUp(e) {
 
 function tsOnDbl(e) {
   const p = tsPoint(e);
-  if (p.x < tsNameW) return;
+  if (p.x < tsGutterW) return;
   const hit = tsHitAt(p.x, p.y, tsTolSec());
   if (!hit) return;
   tsSelectEvents([hit.id]);
   window.TS.editEvent(hit.id, { anchor: { x: e.clientX, y: e.clientY } });
-}
-
-// 名前の欄を押すと、その ch の倍率を選ぶ小窓を出す（外を押すと閉じる）
-let tsChPop = null; // {el, name}
-
-function tsOnClick(e) {
-  const p = tsPoint(e);
-  if (p.x >= tsNameW) return;
-  const lane = tsLaneAt(tsLanesFrame(), p.y);
-  if (lane) tsChGainOpen(lane.var, e);
-}
-
-function tsChGainOpen(name, e) {
-  tsChGainClose();
-  const el = tsEl("div", "ts-pop ts-chgain");
-  el.style.top = e.clientY + 8 + "px";
-  el.style.left = e.clientX + "px";
-  tsChPop = { el, name };
-  document.body.appendChild(el);
-  tsChGainPaint();
-}
-
-function tsChGainPaint() {
-  if (!tsChPop) return;
-  const { el, name } = tsChPop;
-  const cur = tsChGainOf(name);
-  const btns = tsGainSteps.map((s) => {
-    const b = tsEl("button", "", `x${s}`);
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(s === cur));
-    b.onclick = () => tsGainSetCh(name, s);
-    return b;
-  });
-  el.replaceChildren(tsEl("div", "ts-lbl", `${name} の倍率`), tsEl("div", "ts-pop-btns ts-chgain-btns", ""));
-  el.lastChild.append(...btns);
-}
-
-function tsChGainClose() {
-  if (tsChPop) tsChPop.el.remove();
-  tsChPop = null;
 }
 
 // 縦の回転は横の移動。Ctrl・⌘ を押すと（トラックパッドのピンチを含む）マウスの位置を中心に拡大縮小
@@ -779,17 +815,16 @@ function tsLanesInit() {
     tsSpace = false;
     tsDrag = null;
   });
-  window.addEventListener("resize", () => {
+  tsTheme();
+  // 欄の大きさは app.js の ResizeObserver が知らせる（window の resize には頼らない）
+  window.TS.on("resize", () => {
+    tsTheme();
     tsDrawAll();
     tsLanesScheduleFetch();
   });
-  ov.addEventListener("click", tsOnClick);
-  document.addEventListener("mousedown", (e) => {
-    if (tsChPop && !e.target.closest(".ts-chgain")) tsChGainClose();
-  });
+  window.TS.on("channels", tsDrawAll);
   window.TS.on("state", tsGainSync);
   window.TS.on("state", tsLanesScheduleFetch);
-  window.TS.on("gain", tsChGainPaint);
   tsLanesInstallKeys();
 }
 
@@ -802,6 +837,8 @@ if (typeof module !== "undefined") {
     tsHitEvent,
     tsSelectionFromDrag,
     tsRgba,
+    tsFmtVal,
+    tsValueTicks,
     tsGainSteps,
     tsGainStep,
     tsGainParse,
