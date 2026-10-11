@@ -167,28 +167,32 @@ pub struct CliSummary {
 pub struct CliCallCount {
     /// 命令名（`sai-paper content read` など）
     pub command: String,
-    /// 呼び出し数
+    /// 呼び出し数（`--help` を除く）
     pub count: u64,
-    /// そのうち失敗（`is_error` が true）の数
+    /// そのうち失敗（`is_error` が true）の数（`--help` を除く）
     pub errors: u64,
+    /// `--help`・`-h` で呼んだ回数（`count` に入らない）
+    pub help: u64,
 }
 
-/// `cli.failures` の 1 件。
+/// `cli.failures` の 1 件（分類と命令の組ごとの件数）。
 #[derive(Debug, PartialEq, serde::Serialize)]
 pub struct CliFailureCount {
     /// 失敗の分類
     pub class: &'static str,
+    /// 命令名。命令が読めない `sai-*` の呼び出しは `(不明)`
+    pub command: String,
     /// 件数
     pub count: u64,
 }
 
-/// `cli.ids`: `seen` は台帳の異なる番号、`used` は呼び出しの入力に出た異なる番号、
-/// `unused` は台帳にあって `used` に無い番号の数。
+/// `cli.ids`: `seen` は台帳の異なる番号、`used` は台帳にあって呼び出しの入力に出た番号、
+/// `unused` は台帳にあって使わなかった番号の数（`used + unused == seen`）。
 #[derive(Debug, Default, PartialEq, serde::Serialize)]
 pub struct CliIdCount {
     /// 台帳（見せた番号）の数
     pub seen: u64,
-    /// 使った番号の数
+    /// 使った番号の数（台帳にある番号だけ）
     pub used: u64,
     /// 見せたのに使わなかった番号の数
     pub unused: u64,
@@ -269,31 +273,50 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Hist
 /// `ledger` は台帳（`seen_ids::read_all`）の番号の集合。`events` の `command`・`is_error`・
 /// `failure`・`ids` から数える。
 pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSummary {
-    let mut calls: BTreeMap<&str, (u64, u64)> = BTreeMap::new();
-    let mut failures: BTreeMap<&str, u64> = BTreeMap::new();
+    /// 命令ごとの集計（`--help` を除く）。
+    #[derive(Default)]
+    struct Tally {
+        count: u64,
+        errors: u64,
+        help: u64,
+    }
+    let mut calls: BTreeMap<&str, Tally> = BTreeMap::new();
+    let mut failures: BTreeMap<(&'static str, String), u64> = BTreeMap::new();
     let mut used: BTreeSet<&str> = BTreeSet::new();
 
     for e in events {
         used.extend(e.ids.iter().map(String::as_str));
+        // `--help` は呼び出しに数えない（help だけ増やし、失敗にも数えない）
+        if e.help {
+            if let Some(command) = &e.command {
+                calls.entry(command.as_str()).or_default().help += 1;
+            }
+            continue;
+        }
         if let Some(command) = &e.command {
             let c = calls.entry(command.as_str()).or_default();
-            c.0 += 1;
+            c.count += 1;
             if e.is_error == Some(true) {
-                c.1 += 1;
+                c.errors += 1;
             }
         }
-        // 失敗は CLI（`sai-*`）の呼び出しだけ数える。`Edit` など他の道具の失敗は数えない。
-        if let (Some(_), Some(true), Some(class)) = (&e.command, e.is_error, e.failure) {
-            *failures.entry(class).or_default() += 1;
+        // 失敗は CLI（`sai-*`）の呼び出しだけ数える。命令が読めなくても入力に `sai-*` があれば
+        // `(不明)` で数える（U04）。`Edit` など他の道具の失敗は数えない。
+        if let (Some(true), Some(class)) = (e.is_error, e.failure) {
+            if e.command.is_some() || e.cli_mention {
+                let command = e.command.clone().unwrap_or_else(|| "(不明)".to_string());
+                *failures.entry((class, command)).or_default() += 1;
+            }
         }
     }
 
     let mut calls: Vec<CliCallCount> = calls
         .into_iter()
-        .map(|(command, (count, errors))| CliCallCount {
+        .map(|(command, t)| CliCallCount {
             command: command.to_string(),
-            count,
-            errors,
+            count: t.count,
+            errors: t.errors,
+            help: t.help,
         })
         .collect();
     calls.sort_by(|a, b| {
@@ -302,23 +325,34 @@ pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSum
             .then_with(|| a.command.cmp(&b.command))
     });
 
+    let mut failures: Vec<CliFailureCount> = failures
+        .into_iter()
+        .map(|((class, command), count)| CliFailureCount {
+            class,
+            command,
+            count,
+        })
+        .collect();
+    failures.sort_by_key(|f| {
+        (
+            FAILURE_CLASSES.iter().position(|c| *c == f.class),
+            f.command.clone(),
+        )
+    });
+
+    // 使った番号は台帳にある番号だけ数える（`used + unused == seen`）
+    let used_in_ledger = ledger
+        .iter()
+        .filter(|id| used.contains(id.as_str()))
+        .count() as u64;
+    let seen = ledger.len() as u64;
     CliSummary {
         calls,
-        failures: FAILURE_CLASSES
-            .iter()
-            .filter_map(|&class| {
-                failures
-                    .get(class)
-                    .map(|&count| CliFailureCount { class, count })
-            })
-            .collect(),
+        failures,
         ids: CliIdCount {
-            seen: ledger.len() as u64,
-            used: used.len() as u64,
-            unused: ledger
-                .iter()
-                .filter(|id| !used.contains(id.as_str()))
-                .count() as u64,
+            seen,
+            used: used_in_ledger,
+            unused: seen - used_in_ledger,
         },
     }
 }
@@ -372,6 +406,21 @@ mod tests {
             event(None, None, None, &[]),
             // `sai-*` 以外の道具（Edit など）の失敗は、calls にも failures にも入らない
             event(None, Some(true), Some(failure_class("Exit code 1\n何か")), &[]),
+            // `--help` は呼び出しに数えず、失敗にも数えない（help だけ増える）
+            HistoryEvent {
+                command: Some("sai-link run finalize".into()),
+                is_error: Some(true),
+                failure: Some("other"),
+                help: true,
+                ..event(None, None, None, &[])
+            },
+            // 命令が読めない `sai-*` の失敗は `(不明)` で数える（U04）
+            HistoryEvent {
+                cli_mention: true,
+                is_error: Some(true),
+                failure: Some("other"),
+                ..event(None, None, None, &[])
+            },
         ];
         let ledger: BTreeSet<String> = ["#37", "#40", "#41"]
             .iter()
@@ -386,35 +435,53 @@ mod tests {
                     CliCallCount {
                         command: "sai-paper content read".into(),
                         count: 2,
-                        errors: 1
+                        errors: 1,
+                        help: 0,
                     },
                     CliCallCount {
                         command: "sai-sci op".into(),
                         count: 2,
-                        errors: 2
+                        errors: 2,
+                        help: 0,
+                    },
+                    CliCallCount {
+                        command: "sai-link run finalize".into(),
+                        count: 0,
+                        errors: 0,
+                        help: 1,
                     },
                 ],
                 failures: vec![
                     CliFailureCount {
                         class: "ledger",
+                        command: "sai-paper content read".into(),
                         count: 1
                     },
                     CliFailureCount {
                         class: "not_found",
+                        command: "sai-sci op".into(),
                         count: 1
                     },
                     CliFailureCount {
                         class: "other",
+                        command: "(不明)".into(),
+                        count: 1
+                    },
+                    CliFailureCount {
+                        class: "other",
+                        command: "sai-sci op".into(),
                         count: 1
                     },
                 ],
-                // 台帳は #37・#40・#41。使ったのは #37・#37.5.2。台帳にあって使わないのは #40・#41
+                // 台帳は #37・#40・#41。使ったのは #37 と #37.5.2（台帳に無い）。
+                // 台帳にあって使ったのは #37 だけ。使わなかったのは #40・#41
                 ids: CliIdCount {
                     seen: 3,
-                    used: 2,
+                    used: 1,
                     unused: 2
                 },
             }
         );
+        assert_eq!(got.ids.used + got.ids.unused, got.ids.seen);
     }
 }

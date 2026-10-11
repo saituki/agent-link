@@ -1538,6 +1538,12 @@ pub struct HistoryEvent {
     /// 失敗の分類（`is_error` が true のときだけ。JSON には出さない）
     #[serde(skip)]
     pub failure: Option<&'static str>,
+    /// 呼び出しの語に `--help`・`-h` があるか（U04。JSON には出さない）
+    #[serde(skip)]
+    pub help: bool,
+    /// 入力に `sai-*` の語があるか（Bash のみ・命令の位置でなくても。U04。JSON には出さない）
+    #[serde(skip)]
+    pub cli_mention: bool,
 }
 
 /// History 画面用のセッション統計（近似値）。
@@ -1679,13 +1685,16 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                                 if !call_id.is_empty() {
                                     calls.insert(call_id.to_string(), stats.events.len());
                                 }
+                                let cli = cli_info(name, &input);
                                 stats.events.push(HistoryEvent {
                                     timestamp: ts.clone(),
                                     kind: "toolCall".to_string(),
                                     name: name.to_string(),
                                     tokens: chars,
                                     call_id: (!call_id.is_empty()).then(|| call_id.to_string()),
-                                    command: cli_command(name, &input),
+                                    command: cli.command,
+                                    help: cli.help,
+                                    cli_mention: cli.mentions,
                                     ids: ids_in(&input),
                                     ..Default::default()
                                 });
@@ -2488,13 +2497,16 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
                         if !call_id.is_empty() {
                             calls.insert(call_id.to_string(), stats.events.len());
                         }
+                        let cli = cli_info(&tool_name, &input);
                         stats.events.push(HistoryEvent {
                             timestamp: ts.clone(),
                             kind: "toolCall".to_string(),
                             name: tool_name.clone(),
                             tokens: chars,
                             call_id: (!call_id.is_empty()).then(|| call_id.to_string()),
-                            command: cli_command(&tool_name, &input),
+                            command: cli.command,
+                            help: cli.help,
+                            cli_mention: cli.mentions,
                             ids: ids_in(&input),
                             ..Default::default()
                         });
@@ -2667,34 +2679,230 @@ pub fn exit_code_of(result: &str) -> Option<i32> {
 /// 続く語のうち `[a-z][a-z0-9-]*` の形の語を 2 つまで足す。区切り（`&&`・`|`・`;`）で止める。
 /// 例: `sai-paper content read '#37.5' --json` → `sai-paper content read`。
 pub fn cli_command(tool_name: &str, input: &serde_json::Value) -> Option<String> {
+    cli_info(tool_name, input).command
+}
+
+/// Bash 系の道具の呼び出しから読んだ CLI の情報（C11・U04）。
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct CliInfo {
+    /// 命令名（`sai-paper content read` など）。命令の位置に `sai-*` が無ければ `None`
+    pub command: Option<String>,
+    /// 命令の語（区切りまで）に `--help`・`-h` があるか
+    pub help: bool,
+    /// 入力に `sai-link`・`sai-sci`・`sai-paper`・`sai-web` の語があるか（命令の位置でなくても）
+    pub mentions: bool,
+}
+
+/// Bash 系の道具の入力から命令名などを読む（C11・U04）。
+///
+/// 命令の位置（先頭・区切りの後・`VAR=値` と前置きの道具の後）の `sai-*` から、続く語を
+/// 2 つまで足す。heredoc の本文・`#` の注釈・引用符の中の語は命令に数えない。
+pub fn cli_info(tool_name: &str, input: &serde_json::Value) -> CliInfo {
     if tool_name != "Bash" && tool_name != "bash" {
-        return None;
+        return CliInfo::default();
     }
-    let text = input.get("command")?.as_str()?;
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut at_start = true;
-    let mut start = None;
-    for (i, w) in words.iter().enumerate() {
-        if at_start && is_assignment(w) {
+    let Some(text) = input.get("command").and_then(|v| v.as_str()) else {
+        return CliInfo::default();
+    };
+    let body = strip_heredocs(text);
+    let toks = tokens(&body);
+    let (command, help) = match find_command(&toks) {
+        Some((command, help)) => (Some(command), help),
+        None => (None, false),
+    };
+    CliInfo {
+        command,
+        help,
+        mentions: SAI_CLI_NAMES.iter().any(|name| body.contains(name)),
+    }
+}
+
+const SAI_CLI_NAMES: [&str; 4] = ["sai-link", "sai-sci", "sai-paper", "sai-web"];
+
+/// シェルの語（`Word`）か、命令の区切り（`Break`：改行・`;`・`|`・`&&`・括弧など）。
+#[derive(Debug, PartialEq)]
+enum Tok {
+    Word(String),
+    Break,
+}
+
+/// heredoc（`<<EOF`・`<<-'EOF'`）の本文の行を取り除く。終わりの行は `EOF` の行（前後の空白を除く）。
+/// 本文は命令ではないので、`sai-sci op <<'EOF'` の後の語が命令名に入らないようにする。
+fn strip_heredocs(text: &str) -> String {
+    let mut out = String::new();
+    let mut end: Option<String> = None;
+    for line in text.lines() {
+        if let Some(word) = &end {
+            if line.trim() == word {
+                end = None;
+            }
             continue;
         }
-        if at_start && is_sai_cli(w) {
-            start = Some(i);
-            break;
-        }
-        at_start = is_separator(w);
+        out.push_str(line);
+        out.push('\n');
+        end = heredoc_word(line);
     }
-    let start = start?;
-    let mut parts = vec![basename(words[start]).to_string()];
-    for w in &words[start + 1..] {
-        if parts.len() == 3 || is_separator(w) {
+    out
+}
+
+/// 行の最初の `<<WORD` の WORD を返す（`<<<` の here-string は除く）。
+fn heredoc_word(line: &str) -> Option<String> {
+    let rest = &line[line.find("<<")? + 2..];
+    if rest.starts_with('<') {
+        return None;
+    }
+    let rest = rest.strip_prefix('-').unwrap_or(rest).trim_start();
+    let rest = rest.trim_start_matches(|c| c == '\'' || c == '"');
+    let word: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    (!word.is_empty()).then_some(word)
+}
+
+/// 引用符・注釈（語の先頭の `#` から行末まで）を見て、語と区切りに割る。
+/// 引用符の中の空白や区切りは割らない。語は引用符のまま残す（`'x'` は語として `x` と違う）。
+fn tokens(text: &str) -> Vec<Tok> {
+    fn push_word(word: &mut String, out: &mut Vec<Tok>) {
+        if !word.is_empty() {
+            out.push(Tok::Word(std::mem::take(word)));
+        }
+    }
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut quote: Option<char> = None;
+    let mut comment = false;
+    let mut prev = ' ';
+    for c in text.chars() {
+        if comment {
+            if c == '\n' {
+                comment = false;
+            } else {
+                prev = c;
+                continue;
+            }
+        }
+        if let Some(q) = quote {
+            word.push(c);
+            if c == q {
+                quote = None;
+            }
+        } else {
+            match c {
+                '\'' | '"' => {
+                    quote = Some(c);
+                    word.push(c);
+                }
+                '#' if word.is_empty() => comment = true,
+                ' ' | '\t' | '\r' => push_word(&mut word, &mut out),
+                '\n' | ';' | '|' | '(' | ')' | '`' => {
+                    push_word(&mut word, &mut out);
+                    out.push(Tok::Break);
+                }
+                // `2>&1` の `&` は区切りではない
+                '&' if prev != '>' && prev != '<' => {
+                    push_word(&mut word, &mut out);
+                    out.push(Tok::Break);
+                }
+                _ => word.push(c),
+            }
+        }
+        prev = c;
+    }
+    push_word(&mut word, &mut out);
+    out
+}
+
+/// 命令の位置の `sai-*` を探す。見つかれば命令名と `--help` の有無を返す。
+fn find_command(toks: &[Tok]) -> Option<(String, bool)> {
+    let mut at_start = true;
+    let mut i = 0;
+    while i < toks.len() {
+        let Tok::Word(w) = &toks[i] else {
+            at_start = true;
+            i += 1;
+            continue;
+        };
+        if at_start {
+            if is_assignment(w) {
+                i += 1;
+                continue;
+            }
+            if let Some(next) = after_wrapper(toks, i) {
+                i = next;
+                continue;
+            }
+            if is_sai_cli(w) {
+                return Some(command_of(&toks[i..]));
+            }
+        }
+        at_start = false;
+        i += 1;
+    }
+    None
+}
+
+/// `sai-*` の語から始まる命令の名前（`sai-paper content read`）と `--help` の有無。
+/// 名前は語が `[a-z][a-z0-9-]*` の形のものを 2 つまで足す。区切りで止める。
+fn command_of(toks: &[Tok]) -> (String, bool) {
+    let words: Vec<&str> = toks
+        .iter()
+        .take_while(|t| matches!(t, Tok::Word(_)))
+        .map(|t| match t {
+            Tok::Word(w) => w.as_str(),
+            Tok::Break => "",
+        })
+        .collect();
+    let help = words.iter().any(|w| *w == "--help" || *w == "-h");
+    let mut parts = vec![basename(words[0]).to_string()];
+    for w in &words[1..] {
+        if parts.len() == 3 {
             break;
         }
         if is_sub_word(w) {
             parts.push(w.to_string());
         }
     }
-    Some(parts.join(" "))
+    (parts.join(" "), help)
+}
+
+/// 前置きの道具（`timeout`・`env`・`exec`・`xargs`・`perl` など）の次の語の位置（U04）。
+/// 前置きでなければ `None`。
+fn after_wrapper(toks: &[Tok], i: usize) -> Option<usize> {
+    let Tok::Word(w) = toks.get(i)? else {
+        return None;
+    };
+    let j = i + 1;
+    Some(match basename(w) {
+        "exec" | "nohup" | "time" => j,
+        // 時間の語（`60`）を 1 つ飛ばす
+        "timeout" => skip_options(toks, j, &["-s", "-k"], false) + 1,
+        "env" => skip_options(toks, j, &["-u", "-C", "-S"], true),
+        "xargs" => skip_options(
+            toks,
+            j,
+            &["-I", "-n", "-P", "-L", "-d", "-s", "-E", "-a"],
+            false,
+        ),
+        // `perl -e '…' sai-sci …` の `-e` の script も飛ばす
+        "perl" => skip_options(toks, j, &["-e", "-E", "-I", "-M"], false),
+        _ => return None,
+    })
+}
+
+/// オプション（`-x`）を飛ばす。`values` は次の語を値として取るオプション。`assign` が true なら
+/// `VAR=値` の代入も飛ばす。
+fn skip_options(toks: &[Tok], mut j: usize, values: &[&str], assign: bool) -> usize {
+    while let Some(Tok::Word(w)) = toks.get(j) {
+        if w.starts_with('-') {
+            j += if values.contains(&w.as_str()) { 2 } else { 1 };
+        } else if assign && is_assignment(w) {
+            j += 1;
+        } else {
+            break;
+        }
+    }
+    j
 }
 
 fn basename(word: &str) -> &str {
@@ -2703,11 +2911,6 @@ fn basename(word: &str) -> &str {
 
 fn is_sai_cli(word: &str) -> bool {
     matches!(basename(word), "sai-paper" | "sai-sci" | "sai-link")
-}
-
-/// 命令の区切り（`&&`・`||`・`|`・`;` で終わる語）。
-fn is_separator(word: &str) -> bool {
-    matches!(word, "&&" | "||" | "|" | ";") || word.ends_with(';')
 }
 
 /// `VAR=値` の形の語（環境変数の代入）。
@@ -3669,6 +3872,39 @@ mod usage_tests {
             cli_command("Read", &serde_json::json!({ "file_path": "/x" })),
             None
         );
+    }
+
+    /// 命令の位置の見落とし（改行・heredoc・前置き・括弧・注釈）と `--help`・入力の `sai-*`（U04）。
+    #[test]
+    fn cli_command_unlisted_forms() {
+        let cmd = |s: &str| cli_command("Bash", &serde_json::json!({ "command": s }));
+        let cases = [
+            ("sai-sci op <<'EOF'\n{\"ops\":[{\"text\":\"hypsarrhythmia は\"}]}\nEOF", "sai-sci op"),
+            ("cat <<EOF | sai-sci op\nEOF", "sai-sci op"),
+            ("timeout 60 sai-sci status --json", "sai-sci status"),
+            ("env -u X SAI_A=1 sai-link run show 3", "sai-link run show"),
+            // 引用符なしの `x` は命令名に入る（3 語まで）ので、引用符で囲む
+            ("(sai-paper find 'x')", "sai-paper find"),
+            ("echo $(sai-sci status)", "sai-sci status"),
+            ("find . | xargs sai-sci op", "sai-sci op"),
+            ("exec sai-link run show 3", "sai-link run show"),
+            ("perl -e 'alarm 180; exec @ARGV' sai-sci op", "sai-sci op"),
+            ("sai-sci status # it's a note\nsai-link run show 3", "sai-sci status"),
+            ("echo a\nsai-link run show 3", "sai-link run show"),
+        ];
+        for (input, want) in cases {
+            assert_eq!(cmd(input).as_deref(), Some(want), "入力: {input}");
+        }
+        // heredoc の本文は命令でない（本文だけの sai-* は命令名にならない）
+        assert_eq!(cmd("cat > x.md <<EOF\nsai-sci op\nEOF"), None);
+
+        let info = |s: &str| cli_info("Bash", &serde_json::json!({ "command": s }));
+        assert!(info("sai-link run finalize --help").help);
+        assert!(info("sai-sci op -h").help);
+        assert!(!info("sai-sci op --json").help);
+        assert!(info("grep sai-paper src").mentions);
+        assert!(!info("grep sai src").mentions);
+        assert!(!info("cat <<EOF\nsai-sci op\nEOF").mentions);
     }
 
     /// 失敗の分類と終了コードの読み取り（C11）。
