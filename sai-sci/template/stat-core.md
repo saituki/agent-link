@@ -8,7 +8,7 @@
 
 - 解析を動かす**前に**、解析計画 `plan.json` を `analysis/<study>/ID<自分の run_id>/plan.json` に書き、**同じ JSON を本文の先頭に置いた解析計画書**を `sai-link doc write` で保存する。ファイル名 `ana-plan-<study>-ID<run_id>.md`、description `解析計画書 <study> ID<run_id>: <主な仮説を 1 文で>`。返ってきた **waggle トークンを控える。**
 - **順序は守る（計画 → 保存 → 解析）。** 結果を先に見てから計画を書くと、計画は結果の言い換えになる。
-- 仮説の出どころは 3 つだけである。CARD の Node の A、SEED、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
+- 仮説の出どころは 3 つだけである。CARD の Node の A、seed（D）、データ表の「解析の候補」。**ここから出ない仮説は探索的**である。
 - `kind: confirmatory` は事前に決めた主な仮説だけ（**多くても 3〜5 個**）。それ以外は `exploratory`。
 
 各仮説で決めること（`plan.json` の 1 つ 1 つの `hypotheses` の要素に対応）。
