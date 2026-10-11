@@ -1030,6 +1030,7 @@ impl Daemon {
             "started_at": unix_millis(),
             "active_tasks": pool.active_task_ids,
             "queued_tasks": pool.queued_task_ids,
+            "waiting_tasks": pool.waiting_task_ids,
             "running_executions": running_run_ids,
             "orphaned_runs": orphaned_runs,
             "last_heartbeat": unix_millis(),
