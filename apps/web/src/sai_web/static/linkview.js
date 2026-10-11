@@ -1528,7 +1528,11 @@ function lvCliSummary(cli) {
       count: lvNum(c && c.count),
       errors: lvNum(c && c.errors),
     })),
-    failures: failures.map((f) => ({ label: lvFailureLabel(f && f.class), count: lvNum(f && f.count) })),
+    // 分類と命令の組ごとに来るので、分類の名前で合算する
+    failures: [...failures.reduce((m, f) => {
+      const label = lvFailureLabel(f && f.class);
+      return m.set(label, (m.get(label) || 0) + lvNum(f && f.count));
+    }, new Map())].map(([label, count]) => ({ label, count })),
     ids: { seen: lvNum(ids.seen), used: lvNum(ids.used), unused: lvNum(ids.unused) },
   };
 }

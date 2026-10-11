@@ -567,7 +567,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 #### 見た番号の台帳の照合（C10・`sai-sci op` の `add_f` と `report prepare`）
 
-- `op` の `add_f` の `cites`（`apply` は照合しない）と、`report prepare` が拾う引用は、run の台帳（`<root>/.sai/seen_ids/<run_id>`）と照らす。台帳に無い番号を引いていれば、その op・報告は何も書かず終了コード 2。`op` は agent が動く run の中（`SAI_PARENT_RUN_ID` がある）でだけ照らす。
+- `op` の `add_f` の `cites`（`apply` は照合しない）と、`report prepare` が拾う引用は、run の台帳（`<root>/.sai/seen_ids/<run_id>`）と照らす。台帳に無い番号を引いていれば、その op・報告は何も書かない（`op` は終了コード 2、`report prepare` は終了コード 1 で、文書を保存しない）。`op` は agent が動く run の中（`SAI_PARENT_RUN_ID` がある）でだけ照らす。
 - 標準エラーに `台帳に無い番号です: #37.5.2（この run で CLI が出した番号だけを使えます）` の行が出る。`op` ではこれが最後の行（テストで確かめている）。この語は History の `ledger` の分類に使うので変えない。
 - 台帳は MLflow・実験の台帳（`exp_summary.py`）とは別の物で、論文の番号 `#x.y.z` だけを持つ。
 - run の ID（`SAI_PARENT_RUN_ID`）があるのに台帳のファイルが無いときは、その run は何も見ていないので、空の台帳として照合する（読める `cites` があれば上の文で終了コード 2。`cites` が無ければ通る）。run の ID が無いとき（手で打つ）は照合しない。台帳が読めないとき（権限など）だけ、標準エラーに `台帳を読めませんでした（検査を飛ばします）` を出して通す。
@@ -796,6 +796,7 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は
 - cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`SAI_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
 - 承認は `sai-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `sai-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `sai-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
 - cc の費用は cc の statusLine（`sai-link cc-statusline`）が `<SAI_HOME>/cc-cost/<session_id>.json` に書く。
+- cc の 5 時間枠・7 日枠は同じ `sai-link cc-statusline` が `<SAI_HOME>/cc-rate-limits.json` に書く（`{"five_hour":{"used_percentage","resets_at"},"seven_day":{…},"session_id","updated_at"}`。欠けた窓は省く）。`/api/usage` の `cc` は `{"limits": <枠または null>, "cost": {"today","month","sessions"}}`。
 
 ---
 
