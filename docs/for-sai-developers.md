@@ -492,11 +492,13 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 
 **steps**（`status.steps`。始めているときだけ作る。作る所は `crates/sai-sci-core/src/rt/steps.rs`）
 
-- 成功した op 1 回が 1 step。`n` は 1 から振る。`list[]`（1 番目が step 1）は `{"n","at","op","by","node"}` で、`at` は RFC3339 UTC。`op` は `add_q`・`add_a`・`add_f`・`add_e`・`add_sprout`・`add_seed`・`insert_q`・`copy`・`move_a`・`remove`。`node` は作られた・動いた・消えた Node（消去は根の Node）。`by` は作った人・動かした人・消した人。
+- 成功した op 1 回が 1 step。`n` は 1 から振る。`list[]`（1 番目が step 1）は `{"n","at","op","by","node"}` で、`at` は RFC3339 UTC。`op` は `add_q`・`add_a`・`add_f`・`add_e`・`add_sprout`・`add_seed`・`insert_q`・`regroup`・`copy`・`move_a`・`move_node`・`remove`。`node` は作られた・動いた・消えた Node（消去は根の Node。`move_node` は移した A）。`by` は作った人・動かした人・消した人。
 - `insert_q` は Q の作成と A の移動が 1 step。`copy` は A の作成が `copy`、F は 1 Node ごとに `add_f`。
+- `regroup` は中間の A と細分の Q の作成と、A の移動が 1 step（`node` は中間の A）。細分の Q は同じ step に畳む。`move_node` は A の移動 1 step（`node` は移した A）。
+- `regroup` の `rt_log` は細分の Q に 1 行（detail は `Q30 から A 3 件（A41, A42, A43）`）。`move_node` の `rt_log` は移した A に 1 行（detail は `Q7 から Q30 へ`）。
 - `nodes[]`（消えた Node も。ID の数の昇順）は `{"id","born","gone","parents":[{"step","parent"}]}`。`gone` は消えた step（生きていれば null）。`parents` の先頭は `{step: born, parent: 生まれたときの親}`、その後は付け替えのあった step の昇順。
 - step `k` に Node が見えるのは `born <= k` かつ（`gone` が null または `gone > k`）のとき。その step の親は、`parents` のうち `step <= k` の最後の `parent`。
-- `removed[]` は消えた Node の `NodeJson`（`depth` は 0、`bottom_q` は false、`counts` は 0、`range` は null）。
+- `removed[]` は消えた Node の `NodeJson`（`depth` は 0、`bottom_q` は false、`counts` は 0、`range` は null、`path_roles` は []。消えた D は `axes` を持つ）。
 - `insert_q`・`move_a` の `rt_log.detail` は、末尾に移した A の ID を `（A5, A6）` で残す（この変更から）。
 - 限界（コードの `ponytail:` と同じ）:
   - 同じ秒の作成・`move_a`・消去は、作成 → `move_a` → 消去の順に決め打ち（時刻は秒単位）。
@@ -517,11 +519,30 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 | `starred` | 真偽値 | ★ の目印（計算には使わない） | ★ が出ない |
 | `range` | `{"q","a","f_support","f_deny","f_issue"}` \| null（S だけ） | SPROUT の範囲（Q・A の数と F の stance ごとの数） | 範囲が出ない |
 | `paths[]` | 文字列の配列（S だけ） | SPROUT が選んだ PATH（A の ID） | ― |
+| `path_roles[]` | 配列（S だけ。他は `[]`）。要素は `{"a","axis","role","fixed_at"}` | SPROUT の path ごとの区分（下の「seed の本文と軸の状態」） | ― |
+| `axes` | オブジェクト \| null（D だけ。他は null） | seed の 6 軸の状態（キーは `task`・`target`・`data`・`method`・`output`・`metric`。下の「seed の本文と軸の状態」） | 軸の表示が出ない |
 | `bottom_q` | 真偽値 | bottom_Q の印 | ― |
 | `counts` | `{"q","a","f","e"}` | 直の子の数 | 数が空 |
 | `cites[]` / `paper` | 文字列の配列 / 数値 \| null | F の引用と論文 | ― |
 | `run` / `mlflow` | 数値 \| null / 文字列 \| null | E の実行と実験の記録 | ― |
 | `created_by` / `created_at` | 文字列 | 作った人（`user` / `run:<N>`）と時刻 | ― |
+
+**seed の本文と軸の状態**（`status.nodes[].axes`・`path_roles`。作る所は `crates/sai-sci-core/src/rt/axes.rs`）
+
+- 本文の見出しは `## 解く問題（task）`・`## 対象（target）`・`## データ（data）`・`## 手法（method）`・`## 出力（output）`・`## 評価指標（metric）`。見出しの次の、空でない最初の行を 1 行目とする。
+- 軸の `state`（`axes.<軸>`）:
+
+  | 1 行目 | 続く行 | `state` | 項目 |
+  |---|---|---|---|
+  | `決定: <値>` | 任意で `A: A<n>` | `fixed` | `value`・`a`（無ければ省く） |
+  | `範囲: <値>` | `A: A<n>`（必須） | `range` | `value`・`a` |
+  | `空欄` | `新規性: <理由>` | `novel` | `reason` |
+  | `空欄` | `記載なし: <理由>` | `none` | `reason` |
+  | 上のどれでもない・見出しが無い（古い書式） | ― | `open` | なし |
+
+- 新しく作る D（`add_seed`）と、利用者の `edit` で本文を変えるときは、6 見出しがそろい、1 行目が上の形のどれかで、`範囲` に `A:` があることを確かめる（通らないと終了コード 2）。`A:` の ID は生きた A。古い書式の D は読めるが、S を作るときの検査は受けない。
+- `path_roles[]`（S だけ。保存しない。D の本文と A の位置から毎回導く）: `axis` は A の一番上の Q の guide key（分からなければ null）。`role` は `fixed`（決まっている）か `novel`（新しく考える）。`fixed_at` は範囲の `a` と同じか、その子孫のときの `a`（それ以外は null）。
+  - 例: `{"a":"A385","axis":"method","role":"novel","fixed_at":"A94"}`
 
 **NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）。
 
@@ -577,10 +598,12 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `types --json` → `{"types":[{"id","name"}]}`。
 - `init --type <型> --json` → オブジェクトで、`tree`（`{"type","created","warnings","backup","assets"}`）を持つ。Web は `tree` だけを返し、`tree` が無ければ 502。`created` は作った Q の数、`assets` は配る物の文字列の配列。新しい research-tree が既にあると終了コード 4「既に始めています（型: <名前>）」で失敗する。
 - `apply --json`（標準入力 = op 1 件の JSON）→ `{"op","result"}`。`add_sprout` だけ `range` を持つ。利用者の op は、どの op も承認なしで行える。
-  - `add_seed`（項目 `title` 必須・1〜120 字、`body` 任意・0〜2000 字）→ `result` は `D<n>`。許可は要らない。
-  - `add_sprout` の項目 `seed` は必須で、生きた D の ID（親になる。1 つの D から複数の S を作れる）。`paths`（A の ID 1〜20 個）と `title` は従来どおり。
+  - `add_seed`（項目 `title` 必須・1〜120 字、`body` 必須・0〜2000 字で 6 軸の書式を検査する）→ `result` は `D<n>`。許可は要らない。
+  - `add_sprout` の項目 `seed` は必須で、生きた D の ID（親になる。1 つの D から複数の S を作れる）。`title` は従来どおり。`paths`（1〜20 個）は A の ID の文字列か、区分を書いたオブジェクト `{"a","axis","role","fixed_at"}`（`a` 必須。`axis`・`role`・`fixed_at` は省ける）。新しい書式の D では、書いた区分が導いた値と違えば断り、次を検査する: `none` の軸に path を置かない・`range` の軸の path は `a` か、その子孫・`novel` の軸に path が 1 つ以上。古い書式の D は検査しない。
+  - `move_node`（項目 `node` は生きた A、`to` は生きた Q。許可が要る）→ `result` は移した A。A を F・child_Q ごと、ID を保って移す。`to` が今の親と同じ・`to` に child_Q がある・`to` が `node` の子孫、は断る。
+  - `regroup`（項目 `q` は生きた Q（child_Q を持たない）、`text`・`body`・`child_q`・`child_q_body`・`members`（`q` の直下の生きた A の ID 1〜20 個）。許可が要る）→ `result` は中間の A、`created` は `["A<n>","Q<n>"]`（中間の A と細分の Q）。`members` を細分の Q の下へ移す。途中で断られたら何も書かない。`child_q_body` は細分の Q の `body` になる。
   - `add_q` の項目 `parent` は生きた Q か A の ID だけ。`SEED`・空は終了コード 2（「軸の Q は sai-sci init が作ります」）。
-- `op [--run <id>] [--block <id>]`（標準入力 = `{"ops":[…]}`・1〜20 件。agent が使う。Web からは呼ばない）→ `{"results":[{"op","result"（`range` は `add_sprout` のとき）}…],"approval":null（承認を使ったときは `{"qid","answered_by"}`）}`。1 件でも弾かれたら何も書かず、標準エラーの最後の行に `<n> 件目（<op>）: <理由>`、終了コード 2。許可が要る op を含むのに許可が無いと終了コード 4。`--run` を省くと `SAI_PARENT_RUN_ID`、`--block` を省くと `SAI_BLOCK_NAME`。
+- `op [--run <id>] [--block <id>]`（標準入力 = `{"ops":[…]}`・1〜20 件。agent が使う。Web からは呼ばない）→ `{"results":[{"op","result"（`range` は `add_sprout` のとき、`created` は `regroup` のとき）}…],"approval":null（承認を使ったときは `{"qid","answered_by"}`）}`。1 件でも弾かれたら何も書かず、標準エラーの最後の行に `<n> 件目（<op>）: <理由>`、終了コード 2。許可が要る op を含むのに許可が無いと終了コード 4。`--run` を省くと `SAI_PARENT_RUN_ID`、`--block` を省くと `SAI_BLOCK_NAME`。
 - `approval record --qid <qid> --question <文> --answer <文> --answered-by <名前> [--run <id>] --json`（質問フックが呼ぶ。agent は呼ばない。Web からは呼ばない）→ `{"approval":{"id","run_id","qid","consumable"}}`。`consumable` は回答を空白で切った値が `許可する` のとき true。同じ `qid` が既にあれば終了コード 4。`--run` も `SAI_PARENT_RUN_ID` も無ければ終了コード 2。
 - `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形。`--node` は範囲だけ。`SAI_TARGET_NODE` があれば `rt_searches` にも 1 行残す。`search` は `SAI_TARGET_NODE` があれば記録を結ぶ（`--node` は無い）。
 - `project show --json` → `{"mind","state","brief","attention"}`。`project mind --json`（本文は標準入力・1〜200000 字）→ `{"ok": true, "bytes": <n>}`。mind.md の全文を置き換える。

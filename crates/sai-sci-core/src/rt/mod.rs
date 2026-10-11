@@ -10,6 +10,7 @@
 #![allow(missing_docs)]
 
 pub mod action;
+pub mod axes;
 pub mod card;
 pub mod compute;
 pub mod context;

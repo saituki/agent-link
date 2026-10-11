@@ -78,6 +78,7 @@ fn field_text(f: &Field) -> String {
         Ty::Int => "整数".to_string(),
         Ty::Enum(values) => values.join(" / "),
         Ty::List(min, max) => format!("文字列の配列、{min}〜{max} 個"),
+        Ty::Paths(min, max) => format!("A の ID の配列（オブジェクトも可）、{min}〜{max} 個"),
     };
     format!("{}（{note}）", f.name)
 }
