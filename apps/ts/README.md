@@ -173,6 +173,18 @@ print(json.dumps({"added": len(found)}))
 - `sdk.add_events` の `source` は `script:<name>@<sha8>` になる。どの版が足したかが残る。
 - `sdk.add_var` で派生変数を足す。`.f32` と `meta.json` は直接書かない。
 
+## 組み込みのアルゴリズム
+
+`apps/ts/src/sai_ts/algos/` に入っている（`origin: "builtin"`。`sai-ts algos list` で見える）。numpy だけで動く。
+
+- `bandpass`（channel・target は vars）: 帯域通過の ch（`<var>_bp<lo>-<hi>`）と包絡の ch（`<var>_env<lo>-<hi>`）を足す。
+- `hfo_detect`（event・target は vars）: 包絡が基準振幅の `thr_min` 倍以上で続く区間をイベントにする。最大振幅が `thr_max` 倍以上、または長すぎる区間は雑音（`noise_category` が空なら捨てる）。RIPPLELAB の HFOL の手順を移したもの。
+- `event_features`（measure・target は events）: 区間の指標（`duration_s`・`peak_abs`・`rms`・`line_length`・`peak_hz`・`zero_cross`）をイベントに書く。line のイベントは飛ばす。
+
+RIPPLELAB との違い: フィルタは FFT（cheby2 とは数値が一致しない）・基準は記録の全体から取る（使用区間は無い）・結合の幅 `merge_ms` は ms で正しく換算する（RIPPLELAB の EMT の式は 4 倍になる疑い）。
+
+共通の部品は `algos/_dsp.py`（スクリプトからは `import _dsp`）。`algos/` に `__init__.py` は置かない（置くと package が `algos.py` を隠す）。
+
 ## 多人数モード（段階 B）
 
 - サーバではプロジェクトのコンテナの中で `sai-ts serve --host 0.0.0.0 --port 8210` が動く。`SAI_TS_TOKEN` は必ず設定する（同じ docker ネットワークの他の利用者のコンテナからも届くため）。
