@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Callable
 
-from . import algos, channels, dataset, demo, events, linkcli, paths, scripts, sdk, view
+from . import algos, channels, dataset, demo, events, linkcli, paths, scripts, sdk, snapshots, view
 from . import ext as ext_mod, init as init_mod
 
 _HEADINGS = {"positional arguments": "位置引数", "options": "オプション"}
@@ -77,7 +77,7 @@ def _msg(exc: KeyError) -> str:
 def _classify(e: Exception) -> tuple[int, str]:
     if isinstance(e, paths.ProjectNotFound):
         return 2, str(e)
-    if isinstance(e, linkcli.LinkError):
+    if isinstance(e, (linkcli.LinkError, snapshots.SciError)):
         return {400: 2, 404: 3, 409: 4}.get(e.status, 1), e.detail
     if isinstance(e, ValueError):
         return 2, str(e)
@@ -243,6 +243,31 @@ def _cmd_ext_list(a):
     return {"exts": exts}, text or "拡張はありません"
 
 
+def _snap_by() -> str:
+    parent = os.environ.get("SAI_PARENT_RUN_ID")
+    return f"agent:{parent}" if parent else "agent"
+
+
+def _cmd_snapshot_create(a):
+    res = snapshots.create(a.ds, a.name, a.record or [], _ids(a.vars), _ids(a.categories), _snap_by())
+    return res, f"書き出しました: {res['name']}（{res['ref']}・イベント {res['events']['count']} 件）"
+
+
+def _cmd_snapshot_list(a):
+    rows = snapshots.list_snapshots()
+    text = "\n".join(f"{s['name']}  {s['ref']}  {s['dataset']}  {','.join(s['records'])}" for s in rows)
+    return {"snapshots": rows}, text or "スナップショットはありません"
+
+
+def _cmd_snapshot_show(a):
+    return snapshots.show(a.name), None
+
+
+def _cmd_snapshot_link(a):
+    res = snapshots.link(a.name, a.node, a.text, _snap_by())
+    return res, f"{res['node']} に結びました（{res['op']}）"
+
+
 # --- 組み立て ---
 
 def _build() -> argparse.ArgumentParser:
@@ -348,6 +373,29 @@ def _build() -> argparse.ArgumentParser:
     exs = ex.add_subparsers(dest="action", required=True, title="命令", metavar="<命令>", help="次のどれか")
     sp = _new(exs, "list", "拡張の一覧（名前・有効・読めない理由）")
     sp.set_defaults(func=_run(_cmd_ext_list))
+
+    snp = _new(subs, "snapshot", "データセットを書き出す・一覧・show・research-tree に結ぶ", json_flag=False)
+    snps = snp.add_subparsers(dest="action", required=True, title="命令", metavar="<命令>", help="次のどれか")
+    sp = _new(snps, "create", "スナップショットを書き出す（変わらない一式）")
+    sp.add_argument("ds", help="データセットの名前")
+    sp.add_argument("--name", required=True, help="スナップショットの名前（同じ名前は作れない）")
+    sp.add_argument("--record", action="append", help="対象の記録（繰り返せる。省略で全記録）")
+    sp.add_argument("--vars", help="対象の ch（カンマで区切る。省略で各記録の全 ch）")
+    sp.add_argument("--categories", help="対象のカテゴリ（カンマで区切る。省略で全部）")
+    sp.set_defaults(func=_run(_cmd_snapshot_create))
+
+    sp = _new(snps, "list", "スナップショットの一覧（新しい順）")
+    sp.set_defaults(func=_run(_cmd_snapshot_list))
+
+    sp = _new(snps, "show", "スナップショットの中身（manifest と links）を出す")
+    sp.add_argument("name", help="スナップショットの名前")
+    sp.set_defaults(func=_run(_cmd_snapshot_show))
+
+    sp = _new(snps, "link", "スナップショットを research-tree の S（新しい E を作る）か E（dataset を結ぶ）に結ぶ")
+    sp.add_argument("name", help="スナップショットの名前")
+    sp.add_argument("--node", required=True, help="S か E の ID（例 S3・E12）")
+    sp.add_argument("--text", help="S に結ぶとき作る E の文（省略で「データセット <名前>」）")
+    sp.set_defaults(func=_run(_cmd_snapshot_link))
 
     return top
 

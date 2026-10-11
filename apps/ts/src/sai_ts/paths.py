@@ -41,6 +41,10 @@ def ext_dir() -> Path:
     return ts_root() / "ext"
 
 
+def snapshots_dir() -> Path:
+    return ts_root() / "snapshots"
+
+
 def scripts_dir() -> Path:
     return ts_root() / "scripts"
 

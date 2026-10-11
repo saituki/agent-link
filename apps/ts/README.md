@@ -83,6 +83,36 @@ apps/ts/bin/sai-ts run burst --dataset demo --json
 export PATH="$HOME/workdir/Sai/sai-tree/apps/ts/bin:$PATH"
 ```
 
+## データセットの書き出しと research-tree
+
+前処理とイベントを終えたデータを、変わらない一式（スナップショット）として書き出し、research-tree の S（新しい E を作る）か E（`dataset` を結ぶ）に結ぶ。画面はサイドバーの「データセット」タブ、CLI は次のとおり。
+
+```bash
+sai-ts snapshot create demo --name hfo-r01-v1 --record r01 --vars ch01,ch02 --categories HFO
+sai-ts snapshot list
+sai-ts snapshot show hfo-r01-v1
+sai-ts snapshot link hfo-r01-v1 --node S3 --text "HFO の検出"   # S なら新しい E を作る
+sai-ts snapshot link hfo-r01-v1 --node E12                      # E なら dataset を結ぶ
+```
+
+- 置き場は `ts/snapshots/<name>/`。`manifest.json`・`schema.json`・`events.jsonl`・`records/<rec>/meta.json` と `<var>.f32` が入る。`links.json` だけ結ぶたびに変わる。同じ名前は作れない（終了コード 4・HTTP 409）。
+- `manifest.json` の `ref` は `ts:<name>@<sha256 の先頭 12 桁>`。`files` は各ファイルの sha256 で、`sha256` は `files` を `sort_keys` の JSON にしたものの sha256。`vars[].derived` に前処理の script・sha256・params・inputs・run、`runs` にその実行の記録が入る。
+- `.f32` は元のファイルへの hard link（できなければ複製）。元の派生変数を作り直しても、スナップショットの中身は変わらない。
+- 結ぶときは `SAI_SCI_BIN`（既定 `sai-sci`）の `sai-sci apply --json` を呼ぶ。`S` なら `add_e`（`dataset` は `ts:<name>@<sha12>`）、`E` なら `set_dataset`。成功すると `links.json` に 1 件足す。
+- 実験のスクリプトからは numpy で読める（`dtype` は `<f4`、長さは `meta.json` の `n_samples`）。
+
+```python
+import json
+from pathlib import Path
+import numpy as np
+
+d = Path("ts/snapshots/hfo-r01-v1")
+m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+meta = json.loads((d / "records/r01/meta.json").read_text(encoding="utf-8"))
+x = np.fromfile(d / "records/r01/ch01.f32", dtype="<f4")
+assert x.shape == (meta["n_samples"],)
+```
+
 ## 拡張の書き方
 
 置き場は `ts/ext/<name>/`。`manifest.json` と ES モジュールの `main.js` を置くと、画面が自分で読み込む（保存すれば読み直す）。

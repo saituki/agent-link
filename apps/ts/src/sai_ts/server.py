@@ -12,10 +12,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api_algos, api_data, api_events, api_ext, paths, watch
+from . import api_algos, api_data, api_events, api_ext, api_snapshots, paths, watch
 
 app = FastAPI()
-for _r in (api_data.router, api_events.router, api_ext.router, api_algos.router):
+for _r in (api_data.router, api_events.router, api_ext.router, api_algos.router, api_snapshots.router):
     app.include_router(_r)
 
 
