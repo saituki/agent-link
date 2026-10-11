@@ -196,23 +196,6 @@ button:disabled {
   margin-top: 6px;
 }
 
-.ts-chgain {
-  position: fixed;
-  z-index: 30;
-  width: 220px;
-  min-width: 0;
-}
-
-.ts-chgain-btns {
-  flex-wrap: wrap;
-}
-
-.ts-chgain button[aria-pressed="true"] {
-  border-color: var(--ts-accent);
-  background: var(--ts-accent);
-  color: #0b0d10;
-}
-
 .ts-pat-head {
   display: flex;
   align-items: center;
