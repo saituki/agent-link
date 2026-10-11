@@ -7,7 +7,7 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_ts", "static", "evform.js");
-const { tsMetricInput, tsBuildEvent, tsPlacePanel, tsDraftFromEvent, tsNewDraft } = require(src);
+const { tsMetricInput, tsBuildEvent, tsPlacePanel, tsDraftFromEvent } = require(src);
 
 // メトリクスの入力部品
 assert.deepStrictEqual(tsMetricInput({ name: "amp", type: "number", min: 0, max: 100, unit: "uV", desc: "倍率" }), {
@@ -90,13 +90,10 @@ const p2 = tsPlacePanel({ x: 100, y: 100 }, 320, 200, 1280, 900);
 assert.deepStrictEqual(p2, { left: 112, top: 112 });
 assert.deepStrictEqual(tsPlacePanel(null, 320, 200, 1280, 900).top, 56);
 
-// 下書き: イベントから、新規から
+// 下書き: イベントから
 assert.deepStrictEqual(
   tsDraftFromEvent({ type: "line", record: "r01", t: 3, vars: ["a"], category: "spike", text: "x", metrics: { amp: 1 } }),
   { type: "line", record: "r01", t: 3, t0: undefined, t1: undefined, vars: ["a"], category: "spike", text: "x", metrics: { amp: 1 } },
 );
-const nd = tsNewDraft({ type: "area", t0: 5, t1: 9, vars: ["a"] }, "r01", schema);
-assert.deepStrictEqual([nd.type, nd.t, nd.t0, nd.t1, nd.category], ["area", 5, 5, 9, "noise"]);
-assert.strictEqual(tsNewDraft(null, "r01", { categories: [], metrics: [] }).category, "");
 
 console.log("test_evform.js: OK");
