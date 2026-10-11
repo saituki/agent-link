@@ -18,7 +18,10 @@ const {
   tsDuration,
   tsBase,
   tsUrl,
+  tsStripParams,
   tsStripToken,
+  tsCleanWeb,
+  tsChatsUrl,
   tsStreamUrl,
   tsViewBody,
   tsPatchState,
@@ -89,6 +92,43 @@ assert.deepStrictEqual(tsStripToken("", "#token=abc&k=2"), { token: "abc", query
 assert.deepStrictEqual(tsStripToken("", ""), { token: "", query: "", hash: "" });
 assert.deepStrictEqual(tsStripToken("?token=old", "#token=new"), { token: "new", query: "", hash: "" });
 assert.deepStrictEqual(tsStripToken("", "#section"), { token: "", query: "", hash: "#section" }, "token の無い断片は触らない");
+
+// 住所の受け取り（G3-C3）: token・web・project を断片か問い合わせから取り出し、消す。断片が優先
+assert.deepStrictEqual(
+  tsStripParams("", "#token=abc&web=https%3A%2F%2Fm.ts.net&project=west", ["token", "web", "project"]),
+  { values: { token: "abc", web: "https://m.ts.net", project: "west" }, query: "", hash: "" },
+);
+assert.deepStrictEqual(
+  tsStripParams("?x=1&project=east", "#token=abc&web=http%3A%2F%2F127.0.0.1%3A8200&project=demo&k=2", undefined),
+  { values: { token: "abc", web: "http://127.0.0.1:8200", project: "demo" }, query: "?x=1", hash: "#k=2" },
+  "既定の keys は token・web・project。断片の project が問い合わせより優先",
+);
+assert.deepStrictEqual(tsStripParams("?web=http%3A%2F%2Fa.example", "", ["web"]).values, { web: "http://a.example" });
+assert.strictEqual(tsStripParams("", "#section", ["web"]).hash, "#section", "項目の無い断片は触らない");
+
+// web の形（G3-C3）: http(s) の origin だけ。javascript:・path・query・断片・末尾の / は捨てる
+assert.strictEqual(tsCleanWeb("https://m.ts.net"), "https://m.ts.net");
+assert.strictEqual(tsCleanWeb("http://127.0.0.1:8200"), "http://127.0.0.1:8200");
+assert.strictEqual(tsCleanWeb("javascript:alert(1)"), "");
+assert.strictEqual(tsCleanWeb("https://m.ts.net/x"), "", "path 付き");
+assert.strictEqual(tsCleanWeb("https://m.ts.net/"), "", "末尾の / も origin と違う");
+assert.strictEqual(tsCleanWeb("https://m.ts.net?x=1"), "", "query 付き");
+assert.strictEqual(tsCleanWeb("https://m.ts.net#x"), "", "断片付き");
+assert.strictEqual(tsCleanWeb("ftp://m.ts.net"), "");
+assert.strictEqual(tsCleanWeb("https://"), "", "壊れた URL");
+assert.strictEqual(tsCleanWeb(""), "");
+assert.strictEqual(tsCleanWeb(undefined), "");
+
+// 「Chats で開く」の行き先（G3-C3）。web か project が無い・形が違うときは ""
+assert.strictEqual(
+  tsChatsUrl("http://127.0.0.1:8200", "demo"),
+  "http://127.0.0.1:8200/#/newchat?project=demo&block=ts-engineer",
+);
+assert.strictEqual(tsChatsUrl("https://m.ts.net", "west case"), "https://m.ts.net/#/newchat?project=west%20case&block=ts-engineer");
+assert.strictEqual(tsChatsUrl("", "demo"), "", "web が無い");
+assert.strictEqual(tsChatsUrl("https://m.ts.net", ""), "", "project が無い");
+assert.strictEqual(tsChatsUrl("javascript:alert(1)", "demo"), "", "形が違う web");
+assert.strictEqual(tsChatsUrl("https://m.ts.net/x", "demo"), "", "path 付きの web");
 
 // 状態の写し（C6）
 const st = {

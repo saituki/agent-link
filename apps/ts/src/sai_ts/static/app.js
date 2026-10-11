@@ -92,19 +92,48 @@ function tsUrl(path, base) {
   return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") ? b + path.slice(1) : path;
 }
 
-// URL の #token= か ?token= を取り出し、token を消した問い合わせと断片を返す（#token= が優先）
-function tsStripToken(search, hash) {
+// URL の #k= か ?k= を keys の分だけ取り出し、取り出した項目を消した問い合わせと断片を返す（断片が優先）
+function tsStripParams(search, hash, keys) {
+  const names = keys || ["token", "web", "project"];
   const sq = new URLSearchParams(search || "");
   const hq = new URLSearchParams(String(hash || "").replace(/^#/, ""));
-  const token = hq.get("token") || sq.get("token") || "";
-  sq.delete("token");
-  let frag = hash || "";
-  if (hq.has("token")) {
-    hq.delete("token");
-    frag = hq.toString() ? "#" + hq.toString() : "";
+  const values = {};
+  let inHash = false;
+  for (const k of names) {
+    values[k] = hq.get(k) || sq.get(k) || "";
+    sq.delete(k);
+    if (hq.has(k)) {
+      hq.delete(k);
+      inHash = true;
+    }
   }
+  let frag = hash || "";
+  if (inHash) frag = hq.toString() ? "#" + hq.toString() : "";
   const rest = sq.toString();
-  return { token, query: rest ? "?" + rest : "", hash: frag };
+  return { values, query: rest ? "?" + rest : "", hash: frag };
+}
+
+// #token= か ?token= を取り出す（tsStripParams の token だけの形）
+function tsStripToken(search, hash) {
+  const r = tsStripParams(search, hash, ["token"]);
+  return { token: r.values.token, query: r.query, hash: r.hash };
+}
+
+// sai-web の住所（web）の形: http:// か https:// の origin だけ（path・query・断片は無い）。違えば ""
+function tsCleanWeb(web) {
+  if (typeof web !== "string" || !/^https?:\/\//.test(web)) return "";
+  try {
+    return new URL(web).origin === web ? web : "";
+  } catch {
+    return "";
+  }
+}
+
+// 「Chats で開く」の行き先。web か project が無い・形が違うときは ""（釦を押せない）
+function tsChatsUrl(web, project) {
+  const w = tsCleanWeb(web);
+  if (!w || !project) return "";
+  return `${w}/#/newchat?project=${encodeURIComponent(project)}&block=ts-engineer`;
 }
 
 function tsStreamUrl(token, base) {
@@ -266,6 +295,30 @@ function tsToken() {
   } catch {
     return "";
   }
+}
+
+// sai-web の住所とプロジェクト名（tsBoot が覚えた値）。無ければ ""
+function tsSaved(key) {
+  try {
+    return sessionStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+// 「Chats で開く」: sai-web の Chats を別のタブで開く（block ts-engineer を選んだ新しいチャットの欄）
+function tsOpenChats() {
+  const url = tsChatsUrl(tsSaved("ts_web"), tsSaved("ts_project"));
+  if (url) window.open(url, "_blank", "noopener");
+}
+
+// 住所が無いときは釦を押せない形にし、理由を title に出す
+function tsRenderChatsButton() {
+  const btn = document.getElementById("ts-hb-chats");
+  if (!btn) return;
+  const ok = tsChatsUrl(tsSaved("ts_web"), tsSaved("ts_project")) !== "";
+  btn.disabled = !ok;
+  btn.title = ok ? "sai-web の Chats で、ts-engineer を選んだ新しいチャットを開く" : "sai-web の Projects から開くと使えます";
 }
 
 function tsEmit(kind, payload) {
@@ -433,15 +486,21 @@ function tsConnectStream() {
 }
 
 async function tsBoot() {
-  const tok = tsStripToken(location.search, location.hash);
-  if (tok.token) {
+  const tok = tsStripParams(location.search, location.hash);
+  const { token, web, project } = tok.values;
+  // 値が無い項目は、前に覚えた値を消さない（同じタブで開き直したとき）
+  const keep = { ts_token: token, ts_web: tsCleanWeb(web), ts_project: project };
+  for (const [key, val] of Object.entries(keep)) {
+    if (!val) continue;
     try {
-      sessionStorage.setItem("ts_token", tok.token);
+      sessionStorage.setItem(key, val);
     } catch {
       // 保存できなくても画面は開く（その回の要求だけ合言葉が要る）
     }
-    history.replaceState(null, "", location.pathname + tok.query + tok.hash);
   }
+  if (token || web || project) history.replaceState(null, "", location.pathname + tok.query + tok.hash);
+  tsAddHeaderButton({ id: "chats", label: "💬 Chats で開く", title: "", onClick: tsOpenChats });
+  tsRenderChatsButton();
   tsOn("state", tsEvdefSync);
   tsOn("state", tsRenderHeader);
   tsOn("mode", tsRenderHeader);
@@ -883,7 +942,10 @@ if (typeof module !== "undefined") {
     tsDuration,
     tsBase,
     tsUrl,
+    tsStripParams,
     tsStripToken,
+    tsCleanWeb,
+    tsChatsUrl,
     tsStreamUrl,
     tsViewBody,
     tsPatchState,
