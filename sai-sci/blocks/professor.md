@@ -30,7 +30,7 @@ subblocks:
 
 ## research-tree の読み方
 
-`sai-sci` の木は次の層でできている。seed（D）は 1 つの研究の制約（9 項目。軸の 6 項目は「決定」「範囲」「空欄」のどれか）。root は分野の可能性の幅で、軸の Q が並び、その下に A・F が並ぶ。S（SPROUT・`S<n>`・研究計画）は seed 1 つと軸ごとの root path の組。E（BRANCH）は S の下の 1 回の実行。研究の制約は D にある。型（RESEARCH_TYPE）と研究の土台（`mind.md`）は木の一部ではなく、`sai-sci status --json` の `project` から読む。次の物で現在地を読む。
+`sai-sci` の木は次の層でできている。seed（D）は 1 つの研究の問いの一覧で、問い（`SQ<n>`）に回答（`SA<n>`）します。回答は seed の回答（固定）か sprout の回答（新規）です。root は分野の可能性の幅で、軸の Q が並び、その下に A・F が並ぶ。S（SPROUT・`S<n>`・研究計画）は 1 つの seed の未回答の問いに回答していく計画で、全部答えると完成し、実験を足せます。E（BRANCH）は S の下の 1 回の実行。研究の制約は D にある。型（RESEARCH_TYPE）と研究の土台（`mind.md`）は木の一部ではなく、`sai-sci status --json` の `project` から読む。次の物で現在地を読む。
 
 | 見方 | 意味 | 読む方法 |
 |---|---|---|
@@ -48,7 +48,7 @@ subblocks:
 | `NO_FINDING` | A の下に F（根拠）が無い | `lab-search` |
 | `UNVERIFIED` | 子を足したあと、`sci-verify` がまだ見ていない | `sci-verify` |
 | `TOO_FLAT` | Q の直下の A が 7 件を超え、木が平らすぎる | `lab-regroup` |
-| `BLANK_NO_PATH` | 空欄の軸の Q の下に、S の path に選べる A が無い | `lab-grow` |
+| `BLANK_NO_PATH` | 未回答の問いの軸の Q の下に、回答に選べる A が無い | `lab-grow` |
 
 `★` は目印で、Next Action は `★` を見ない。
 
@@ -67,7 +67,7 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 | #7 review・survey 論文で root の骨組みを作る | `lab-map`（最初の 1 枚は `--node` を省く。下の「root を作る順番」） |
 | #8 seed から研究計画（S）を作る | `lab-sprout`（`--node D<n>`） |
 | #9 木の形を整える（`TOO_FLAT`・sci-verify の組み直し） | `lab-regroup`（`--node` は組み直す Q） |
-| #10 空欄の軸に path が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は空欄の軸の Q） |
+| #10 未回答の問いに回答の A が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は未回答の問いの軸の Q） |
 | 木の評価（target_node と子の関係） | `sci-verify`（参加者に `paper-debater`・`paper-reviewer` を子で使える） |
 
 `sci-data-explore` の report の `## Next Action` に `sci-data-test` の CARD を作る命令が書いてある。explore の report を評価してから、その命令で test の CARD を作って起こす（explore 自身は test を起こさない）。
@@ -76,10 +76,10 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 
 ## seed と root の関係
 
-- S は D の空欄の軸を root の path で埋めて作る。D の決定の軸は、決定の値に当たる A を root から選ぶ。
+- S は D の未回答の問いに、root の A で回答して作る。D の回答（固定）は、今ある A をそのまま使う。
 - 始める前に、育てる範囲の型を決める。
-  - (a) 空欄だけ埋める型: D の空欄の軸の Q だけを育てる。決定の軸は今ある A をそのまま使う。狭く、早く S まで行ける。
-  - (b) 幅広く探す型: 空欄の軸に加えて、決定の軸の下の A も候補を広げてから S を選ぶ。広く、時間がかかる。
+  - (a) 未回答だけ埋める型: D の未回答の問いの軸の Q だけを育てる。回答（固定）の軸は今ある A をそのまま使う。狭く、早く S まで行ける。
+  - (b) 幅広く探す型: 未回答の問いに加えて、回答（固定）の軸の下の A も候補を広げてから S を選ぶ。広く、時間がかかる。
 - 型は依頼文に書かれていればそれに従う。書かれていなければ、質問ツールで Human に聞いて待つ（推測で決めない）。
 
 ## root を作る順番
