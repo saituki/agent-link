@@ -398,10 +398,12 @@ pub enum RunCmd {
         json: bool,
     },
 
-    /// 特定の実行の詳細を表示する（文字）
+    /// 特定の実行の詳細を表示する（文字。`--json` で 1 つの JSON）
     Show {
         #[arg(value_name = "実行ID")]
         run_id: i64,
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 
     /// 左サイドバーと同形のツリーを JSON で返す
@@ -1542,12 +1544,12 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
     let store = open_db()?;
 
     // R303: 予約行（status='todo'）は既定で除外する（履歴・件数に含めない）。
-    let records: Vec<_> = store
+    let fetched = store
         .list_recent_executions(limit)
-        .map_err(|e| format!("DB エラー (履歴取得): {}", e))?
-        .into_iter()
-        .filter(|e| e.status != "todo")
-        .collect();
+        .map_err(|e| format!("DB エラー (履歴取得): {}", e))?;
+    // 件数で切ったとき（新しい方から limit 件）は、表の後に 1 行足す（--json の形は変えない）
+    let cut = limit > 0 && fetched.len() as i64 == limit;
+    let records: Vec<_> = fetched.into_iter().filter(|e| e.status != "todo").collect();
 
     if records.is_empty() {
         if !json {
@@ -1595,6 +1597,12 @@ pub fn handle_block_list(limit: i64, json: bool) -> Result<(), Box<dyn std::erro
         println!("{}", serde_json::to_string_pretty(&display_records)?);
     } else {
         print_list_table(&display_records);
+        if cut {
+            println!(
+                "（新しい {} 件を表示。全部は --limit 0）",
+                display_records.len()
+            );
+        }
     }
     Ok(())
 }
@@ -1639,8 +1647,33 @@ fn print_list_table(records: &[DisplayRunRecord]) {
 // 詳細表示ハンドラ
 // ============================================================================
 
-/// 特定のブロック実行の詳細を表示する。
-pub fn handle_block_show(run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+/// `run show --json` の形（文字の表示と同じ項目。英小文字の snake_case）。
+#[derive(serde::Serialize)]
+struct BlockShowJson {
+    run_id: i64,
+    block_name: Option<String>,
+    block_file: Option<String>,
+    block_tag: Option<String>,
+    block_round: Option<i64>,
+    status: String,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    duration_ms: Option<i64>,
+    exit_code: Option<i32>,
+    pane_id: Option<String>,
+    error_message: Option<String>,
+    git_commit_before: Option<String>,
+    git_commit_after: Option<String>,
+    session_stats: Option<serde_json::Value>,
+    /// 文書トークン（出力の waggle トークン。文字の表示は「文書トークン」）
+    document_tokens: Vec<String>,
+    /// 入力の waggle トークン
+    input_document_tokens: Vec<String>,
+    output_content: Option<String>,
+}
+
+/// 特定のブロック実行の詳細を表示する（`json` のときは `BlockShowJson` を 1 つ出す）。
+pub fn handle_block_show(run_id: i64, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     let store = open_db()?;
 
     let exec = match store.get_execution_by_id(run_id) {
@@ -1656,6 +1689,40 @@ pub fn handle_block_show(run_id: i64) -> Result<(), Box<dyn std::error::Error>> 
     };
 
     let block = store.get_block_by_id(exec.block_id).ok();
+
+    if json {
+        let waggle = |tokens: &Option<String>| -> Vec<String> {
+            tokens
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default()
+        };
+        let show = BlockShowJson {
+            run_id,
+            block_name: block.as_ref().map(|b| b.name.clone()),
+            block_file: block.as_ref().map(|b| b.file_path.clone()),
+            block_tag: block.as_ref().and_then(|b| b.tag.clone()),
+            block_round: block.as_ref().and_then(|b| b.round),
+            status: exec.status.clone(),
+            started_at: exec.started_at.clone(),
+            finished_at: exec.finished_at.clone(),
+            duration_ms: exec.duration_ms,
+            exit_code: exec.exit_code,
+            pane_id: exec.herdr_pane_id.clone(),
+            error_message: exec.error_message.clone(),
+            git_commit_before: exec.git_commit_before.clone(),
+            git_commit_after: exec.git_commit_after.clone(),
+            session_stats: exec
+                .session_stats_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            document_tokens: waggle(&exec.output_waggle_tokens),
+            input_document_tokens: waggle(&exec.input_waggle_tokens),
+            output_content: exec.output_content.clone().filter(|c| !c.is_empty()),
+        };
+        println!("{}", serde_json::to_string_pretty(&show)?);
+        return Ok(());
+    }
 
     println!("{}", "═".repeat(55));
     println!("  実行 ID:       {}", exec.id.unwrap_or(0));
@@ -1751,7 +1818,7 @@ pub fn handle_block_show(run_id: i64) -> Result<(), Box<dyn std::error::Error>> 
     if let Some(ref tokens_json) = exec.output_waggle_tokens {
         if let Ok(tokens) = serde_json::from_str::<Vec<String>>(tokens_json) {
             if !tokens.is_empty() {
-                println!("  出力トークン:  {}", tokens.join(", "));
+                println!("  文書トークン:  {}", tokens.join(", "));
             }
         }
     }

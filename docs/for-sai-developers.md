@@ -194,10 +194,19 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 - `title` / `subtitle`（文字列）・`type_tokens`（`user` / `agent` / `toolCall` / `toolResult` / `thinking` の近似トークン数）。
 - `events[]`（時刻順）: `time`・`type`（上の 5 種）・`name`・`tokens` は必ず持つ。`call_id`・`command`・`preview`（結果の本文の先頭 200 字）・`is_error`・`ids`（呼び出しの入力に出た `#x.y.z`）・`result_tokens` は、その行にあるときだけ出す（無いときは JSON に出さない）。toolCall と、それに対応する toolResult は 1 行にまとめる。対になる toolCall が無い結果だけ `toolResult` の行になる。
-- `cli`（C11）: `calls[]`（`command`・`count`・`errors`。多い順）・`failures[]`（`class` と `count`）・`ids`（`seen` は台帳の異なる番号・`used` は使った異なる番号・`unused` は台帳にあって使わなかった番号）。`failures.class` は `ledger`（結果に `台帳に無い番号です` を含む）・`input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）で、`command` を持つ行（`sai-*` の呼び出し）で `is_error` が true の物だけを数える（`Edit` など他の道具の失敗は数えない）。`cli` が無いのは古い CLI の JSON。
+- `cli`（C11）: `calls[]`（`command`・`count`・`errors`・`help`。多い順）・`failures[]`（`class`・`command`・`count`）・`ids`（`seen` は台帳の異なる番号・`used` は台帳にあって呼び出しの入力に出た番号・`unused` は台帳にあって使わなかった番号。`used + unused == seen`）。
+  - `calls[].count` と `errors` は `--help`・`-h` の呼び出しを除く。その回数は `help` に数える（`count` には入らない・失敗にも数えない）。
+  - 命令名は `command` の語の位置（先頭・`&&`・`|`・改行・`(`・`$(`・`` ` `` の後。`timeout`・`env`・`exec`・`xargs`・`perl -e` の後も含む）の `sai-*` から読む。heredoc の本文と `#` の注釈は読まない。
+  - `failures.class` は `ledger`（結果に `台帳に無い番号です` を含む）・`input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）。`failures.command` は命令名。命令が読めない（`(不明)`）のは、入力に `sai-link`・`sai-sci`・`sai-paper`・`sai-web` の語がある Bash の呼び出しの失敗（`grep sai-paper` のような無関係な呼び出しも入る）。`Edit` など他の道具の失敗は数えない。
+  - `cli` が無いのは古い CLI の JSON。
+- 項目の意味の変更（U04）: `ids.used` は、以前は台帳に無い番号も含めていたが、台帳にある番号だけを数えるように変えた。`cli.calls[].help` と `cli.failures[].command` は足した項目。
 - cc の History は、その run の transcript（`phone_export::resolve_transcript`）を読む。全体で一番新しい cc セッションは使わない。
 
 `--call <CALL_ID> --json` は、その呼び出しの全文 `{"call_id","name","command","input","result","is_error","truncated"}` を返す。`result` は 20000 字までで、超えたら切って `truncated: true`。`--json` を付けないと本文だけの文字を出すので、Web は必ず付ける。見つからなければ終了コード 3。Web の住所は `GET /api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}`（`call_id` は `^[A-Za-z0-9_-]{1,80}$`。通らなければ 400）。
+
+#### `run show <run_id> [--json]`（U04）
+
+`--json` は 1 つの JSON を出す（文字の表示と同じ項目。英小文字の snake_case）。`run_id`・`block_name`・`block_file`・`block_tag`・`block_round`（ブロックの項目。ブロックが無ければ null）・`status`（そのまま。文字の表示は日本語）・`started_at`・`finished_at`・`duration_ms`・`exit_code`・`pane_id`・`error_message`・`git_commit_before`・`git_commit_after`・`session_stats`（セッション統計の JSON の object。無ければ null）・`document_tokens`（出力の文書トークン。文字の表示の「文書トークン」）・`input_document_tokens`（入力の waggle トークン）・`output_content`（空・無しは null）。見つからなければ終了コード 3。`--json` なしは文字の表示（見出しは「文書トークン:」）。
 
 #### `run md <run_id> --kind task|message|report|system [--write]` → `{"kind", "name", "text"}`
 
