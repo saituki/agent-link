@@ -3,18 +3,18 @@
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
-//   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。SPROUT を選ぶと他を薄くする
+//   sgMarkSelected(id)                                 … 選んでいる札の印（Node の ID か S<n>）。SPROUT を選ぶと他を薄くし、区分の札を付ける
 //   sgMarkPicked(ids)                                  … SPROUT 作成中の PATH に入れた A の札に破線の印（ID の配列か Set）
 //   sgSproutKeep(status, id)                           … SPROUT に含まれる ID の Set（SPROUT でなければ null）
+//   sgSproutRoles(status, id)                          … SPROUT の区分（固定・新規・実験・seed）の Map（SPROUT でなければ null）
 //   sgCenterOn(id)                                     … その札を画面の中央に出す
 //
 // key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と A と E の出し入れ・畳んだ札を覚えて、
 // もう一度開いたときに同じ状態で出す（画面の中の Map と localStorage の sai-sg-view:<key>）。
-// onSelect には {kind: "node", id} / {kind: "seed", id} を渡す（札の data-sg-id と同じ ID）。
-// 段は、下から ROOT（top_Q とその下の Q・A・F）→ seed の層（SEED の札と D の札を横に並べる）→
-// SPROUT（kind S）→ BRANCH（E）の順。S は親の D の真上に置く（D の無い古い S は SEED の真上）。
-// 線は SEED → top_Q（seed）・SEED → SPROUT（sprout。古い S だけ）・Parent / Child（tree。D → S を含む）の 3 つ。
-// SEED → D の線は描かない（D は SEED の子ではなく、横に並ぶ物）。
+// onSelect には {kind: "node", id} を渡す（札の data-sg-id と同じ ID）。
+// 段は、下から ROOT（top_Q とその下の Q・A・F）→ seed の層（D の札を ROOT の右に横に並べる）→
+// SPROUT（kind S）→ BRANCH（E）の順。S は親の D の真上に置く（D の無い古い S は D の並びの左端）。
+// 線は Parent / Child（tree）だけ。D → S も tree。
 //
 // 中の処理は Rust のコアが返した JSON だけを使う（apps/web は他の DB を開かない）。
 // 札の大きさは固定。見える範囲（tx, ty, z）だけを動かし、札の位置は動かさない。
@@ -48,9 +48,26 @@ const SG_STANCE_LETTER = [["support", "S"], ["deny", "D"], ["issue", "I"]];
 // [種類, 表示名, 破線, 矢印つきの実線か, 色の CSS 変数]
 const SG_EDGE_KINDS = [
   ["tree", "Parent / Child", "", false, "--sci-edge-parent"],
-  ["seed", "SEED → top_Q", "2 4", false, "--sci-edge-depends"],
-  ["sprout", "SEED → SPROUT", "2 4", false, "--sci-edge-analogous"],
 ];
+
+// SPROUT を選んだときの区分の見本（枠の形と文字。色は札の --sg-color）。順は凡例の並び。
+// style は札（と凡例の見本）に入れる inline の枠。seed は D の札が既に持つ枠のままにする。
+const SG_ROLE_LOOK = {
+  fixed: {
+    label: "固定", kind: "muted", desc: "PATH の固定の道（点線・淡い枠）",
+    style: { borderStyle: "dotted", borderWidth: "2px", borderColor: "color-mix(in srgb, var(--sg-color) 45%, var(--bg))" },
+  },
+  novel: {
+    label: "新規", kind: "ok", desc: "PATH の新規の道（太い実線）",
+    style: { borderStyle: "solid", borderWidth: "3px", background: "color-mix(in srgb, var(--sg-color) 16%, var(--bg))" },
+  },
+  exp: {
+    label: "実験", kind: "warn", desc: "S の下の実験（丸い枠）",
+    style: { borderStyle: "solid", borderWidth: "2px", borderRadius: "28px" },
+  },
+  seed: { label: "seed", kind: "muted", desc: "親の seed（D）", style: {} },
+};
+const SG_ROLE_ORDER = ["fixed", "novel", "exp", "seed"];
 
 // --- 状態 ---
 
@@ -60,6 +77,7 @@ let sgSelectedKey = null; // 選んでいる札の id
 let sgPicked = new Set(); // SPROUT の PATH に入れた A の id（再描画のあとも印を戻す）
 let sgOnSelect = null; // 札を押したときに呼ぶ関数
 let sgRoot = null;     // 図を囲む要素
+let sgLegendRoles = null; // 凡例の区分の見本（S を選んでいるときだけ中身を入れる）
 let sgFBtn = null;     // F の出し入れの釦（文と色を sgDraw で更新する）
 let sgABtn = null;     // A の出し入れの釦（同じ作り）
 let sgEBtn = null;     // E の出し入れの釦（同じ作り）
@@ -213,22 +231,28 @@ function sgTreeLayout(input, opts) {
     }
   }
 
-  // SPROUT（kind S）とその子孫（BRANCH）を、ROOT（top_Q 以下）から分ける
-  const branchIds = new Set();
-  for (const n of shown) {
-    let cur = n;
-    const seen = new Set();
-    while (cur && !seen.has(String(cur.id))) {
-      seen.add(String(cur.id));
-      if (cur.kind === "S") { branchIds.add(String(n.id)); break; }
-      const pid = visParent(cur);
-      cur = pid == null ? null : byId.get(pid);
-    }
-  }
-
   const pos = new Map(); // id → {x, y}
   const cards = [];
   const slotW = SG_CARD_W + SG_TREE_GAP;
+  // 横の範囲（id の並びの左端と右端）と、札の並びを横へ動かす（from の番目の札から後ろ）
+  const spanOf = (ids) => {
+    let min = Infinity, max = -Infinity;
+    for (const id of ids) {
+      const p = pos.get(id);
+      if (!p) continue;
+      min = Math.min(min, p.x);
+      max = Math.max(max, p.x + SG_CARD_W);
+    }
+    return min === Infinity ? null : { min, max };
+  };
+  const shiftFrom = (from, delta) => {
+    if (!delta) return;
+    for (let i = from; i < cards.length; i += 1) {
+      cards[i].x += delta;
+      const p = pos.get(String(cards[i].id));
+      if (p) p.x += delta;
+    }
+  };
 
   // ROOT: top_Q を row 0（y = +STEP）にして下へ。葉を左から詰め、親は子の真ん中
   let slot = 0;
@@ -249,9 +273,11 @@ function sgTreeLayout(input, opts) {
     cards.push(sgNodeCard(n, x, y, fCount.get(id) || 0, collapseMark.get(id) || 0, (descCount.get(id) || 0) > 0));
     return x;
   };
-  // D（seed）は ROOT に入れない。seed の層（SEED の札と同じ高さ）に、下の D の所で置く
+  // D（seed）は ROOT に入れない。seed の層（y = 0）に、ROOT の右端の右から横に並べる
   const rootRoots = roots.filter((n) => n.kind !== "S" && n.kind !== "D");
   for (const r of rootRoots) placeDown(r, 0, new Set());
+  const rootSpan = spanOf([...pos.keys()]);
+  const rowLeft = rootSpan ? rootSpan.max + slotW : 0;
 
   // BRANCH: SPROUT を row 0（y = -STEP）にして上へ。葉を左から詰め、親は子の真ん中
   let bslot = 0;
@@ -274,52 +300,16 @@ function sgTreeLayout(input, opts) {
   };
   const sproutRoots = roots.filter((n) => n.kind === "S")
     .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
+  const orphanStart = cards.length;
   for (const s of sproutRoots) placeUp(s, 0, new Set());
-
-  // 横の真ん中: ROOT の真ん中に SEED を置き、SPROUT の並びの真ん中を SEED にそろえる
-  const spanOf = (ids) => {
-    let min = Infinity, max = -Infinity;
-    for (const id of ids) {
-      const p = pos.get(id);
-      if (!p) continue;
-      min = Math.min(min, p.x);
-      max = Math.max(max, p.x + SG_CARD_W);
-    }
-    return min === Infinity ? null : { min, max };
-  };
-  // SEED は ROOT（top_Q 以下）全体の真ん中に置き、SPROUT の並びの真ん中を SEED にそろえる
-  const rootIds = [...pos.keys()].filter((id) => !branchIds.has(id));
-  const rootSpan = spanOf(rootIds);
-  const sproutSpan = spanOf(sproutRoots.map((n) => String(n.id)));
-  const seedCenter = rootSpan
-    ? (rootSpan.min + rootSpan.max) / 2
-    : (sproutSpan ? (sproutSpan.min + sproutSpan.max) / 2 : 0);
-  const seedX = seedCenter - SG_CARD_W / 2;
-  if (sproutSpan) {
-    const shift = seedCenter - (sproutSpan.min + sproutSpan.max) / 2;
-    if (shift !== 0) {
-      for (const c of cards) {
-        if (!branchIds.has(String(c.id))) continue;
-        c.x += shift;
-        const p = pos.get(String(c.id));
-        if (p) p.x += shift;
-      }
-    }
-  }
-
-  // seed（D）: SEED の札の右へ横に並べる（y = 0）。その子の SPROUT（S）は親の D の真上（y = -STEP）に、
-  // D の幅の箱の真ん中に置く。箱は左から詰めて、古い S（親が無い）の並びとも重ならないようにする。
-  const shiftFrom = (from, delta) => {
-    if (!delta) return;
-    for (let i = from; i < cards.length; i += 1) {
-      cards[i].x += delta;
-      const p = pos.get(String(cards[i].id));
-      if (p) p.x += delta;
-    }
-  };
-  const byIdAsc = (a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+  // 親の D が無い古い S は、D の並びの左端に置く（D の並びは、その右から詰める）
   const orphanSpan = spanOf(sproutRoots.map((n) => String(n.id)));
-  let boxLeft = Math.max(seedX + slotW, orphanSpan ? orphanSpan.max + slotW : -Infinity);
+  if (orphanSpan) shiftFrom(orphanStart, rowLeft - orphanSpan.min);
+  let boxLeft = orphanSpan ? rowLeft + (orphanSpan.max - orphanSpan.min) + slotW : rowLeft;
+
+  // seed（D）: y = 0 に左から並べる。その子の SPROUT（S）は親の D の真上（y = -STEP）に、
+  // D の幅の箱の真ん中に置く。箱は左から詰めて、古い S（親が無い）の並びとも重ならないようにする。
+  const byIdAsc = (a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
   for (const d of roots.filter((n) => n.kind === "D").sort(byIdAsc)) {
     const id = String(d.id);
     const start = cards.length;
@@ -335,24 +325,10 @@ function sgTreeLayout(input, opts) {
     boxLeft += boxW + slotW;
   }
 
-  // SEED の札（DB の行を持たない。status.seed から作る）
-  if (all.length) {
-    const typeName = status.seed && status.seed.type && status.seed.type.name ? String(status.seed.type.name) : "";
-    cards.push({
-      id: "SEED", kind: "SEED", x: seedX, y: 0, w: SG_CARD_W, h: SG_CARD_H,
-      text: "SEED", sub: typeName, starred: false, stance: "", collapsed: false, canCollapse: false,
-    });
-    pos.set("SEED", { x: seedX, y: 0 });
-  }
-
   const edges = [];
   for (const n of shown) {
     const p = visParent(n);
     if (p != null && pos.has(p)) edges.push({ from: p, to: String(n.id), kind: "tree" });
-  }
-  if (pos.has("SEED")) {
-    for (const n of rootRoots) edges.push({ from: "SEED", to: String(n.id), kind: "seed" });
-    for (const n of sproutRoots) edges.push({ from: "SEED", to: String(n.id), kind: "sprout" });
   }
 
   const width = cards.reduce((m, c) => Math.max(m, c.x + c.w), 0);
@@ -384,7 +360,7 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse, childCount) {
     sub = paths > 0 ? `PATH ${paths}` : "";
   } else if (n.kind === "D") {
     // seed の札。ID は札の見出しに出る。副題に子の SPROUT の数を出す。
-    sub = `SEED・SPROUT ${Number(childCount) || 0}`;
+    sub = `seed・SPROUT ${Number(childCount) || 0}`;
   }
   if (hiddenF && n.kind !== "A") sub = `${sub} F ${hiddenF}`.trim();
   const collapsed = !!(canCollapse && collapsedCount > 0);
@@ -394,6 +370,19 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse, childCount) {
     text, sub, starred: !!n.starred, stance,
     collapsed, canCollapse: !!canCollapse,
   };
+}
+
+/** n の親をたどって top に行き着くか（n 自身は数えない）。byId は ID → Node の Map。 */
+function sgIsUnder(byId, n, top) {
+  let p = n.parent == null ? null : String(n.parent);
+  const seen = new Set();
+  while (p != null && !seen.has(p)) {
+    seen.add(p);
+    if (p === top) return true;
+    const pn = byId.get(p);
+    p = pn && pn.parent != null ? String(pn.parent) : null;
+  }
+  return false;
 }
 
 /**
@@ -407,16 +396,9 @@ function sgSproutKeep(status, id) {
   const sprout = byId.get(want);
   if (!sprout || (sprout.kind !== "S" && sprout.kind !== "D")) return null;
   const keep = new Set([want]);
-  // BRANCH: parent をたどって want に行き着く Node（S の下の E・F。D なら子の S とその下）
+  // BRANCH: want の下の Node（S の下の E・F。D なら子の S とその下）
   for (const n of all) {
-    let p = n.parent == null ? null : String(n.parent);
-    const seen = new Set();
-    while (p != null && !seen.has(p)) {
-      seen.add(p);
-      if (p === want) { keep.add(String(n.id)); break; }
-      const pn = byId.get(p);
-      p = pn && pn.parent != null ? String(pn.parent) : null;
-    }
+    if (sgIsUnder(byId, n, want)) keep.add(String(n.id));
   }
   // PATH: paths の終点の A から top_Q までの祖先（Q・A）
   const paths = Array.isArray(sprout.paths) ? sprout.paths : [];
@@ -432,9 +414,60 @@ function sgSproutKeep(status, id) {
   return keep;
 }
 
-/** 札から onSelect に渡す値を作る。SEED は `seed`、S を含む Node は `node`。 */
+/**
+ * SPROUT（kind S）を選んだときの区分（純関数）。S 以外（D を含む）は null。
+ * 返す Map は ID → "fixed"（固定）・"novel"（新規）・"exp"（実験。S の下の E）・"seed"（親の D）。
+ * PATH の道は、path_roles の A から top_Q までの祖先。role が fixed の道は全部固定。
+ * novel の道は fixed_at までが固定、その下（A 側）が新規。fixed_at が無い・道に無いときは全部新規。
+ * 2 つの道に入る Node は「新規」を優先する。
+ */
+function sgSproutRoles(status, id) {
+  const want = id == null ? "" : String(id);
+  const all = (status && Array.isArray(status.nodes) ? status.nodes : []).filter((n) => n && n.id);
+  const byId = new Map(all.map((n) => [String(n.id), n]));
+  const sprout = byId.get(want);
+  if (!sprout || sprout.kind !== "S") return null;
+  const fixed = new Set();
+  const novel = new Set();
+  for (const pr of Array.isArray(sprout.path_roles) ? sprout.path_roles : []) {
+    if (!pr) continue;
+    // A から top_Q まで（A を先頭にする）
+    const chain = [];
+    let cur = byId.get(String(pr.a));
+    const seen = new Set();
+    while (cur && !seen.has(String(cur.id))) {
+      seen.add(String(cur.id));
+      chain.push(String(cur.id));
+      cur = cur.parent == null ? null : byId.get(String(cur.parent));
+    }
+    if (pr.role === "fixed") {
+      for (const c of chain) fixed.add(c);
+    } else if (pr.role === "novel") {
+      const k = pr.fixed_at == null ? -1 : chain.indexOf(String(pr.fixed_at));
+      chain.forEach((c, i) => {
+        if (k >= 0 && i >= k) fixed.add(c);
+        else novel.add(c);
+      });
+    }
+  }
+  const roles = new Map();
+  for (const c of fixed) roles.set(c, "fixed");
+  for (const c of novel) roles.set(c, "novel");
+  for (const n of all) {
+    if (n.kind === "E" && sgIsUnder(byId, n, want)) roles.set(String(n.id), "exp");
+  }
+  const parent = sprout.parent == null ? null : byId.get(String(sprout.parent));
+  if (parent && parent.kind === "D") roles.set(String(parent.id), "seed");
+  return roles;
+}
+
+/** 区分の見本（SG_ROLE_LOOK の 1 つ）。role が区分の値でないときは null。 */
+function sgRoleLook(role) {
+  return SG_ROLE_ORDER.includes(role) ? SG_ROLE_LOOK[role] : null;
+}
+
+/** 札から onSelect に渡す値を作る（kind は常に node）。 */
 function sgSelectionOf(card) {
-  if (card.kind === "SEED") return { kind: "seed", id: "SEED" };
   return { kind: "node", id: card.id };
 }
 
@@ -514,7 +547,7 @@ function sgEdgePath(a, b) {
  * 図を描く（container の中身を入れ替える）。
  * @param container 入れる先
  * @param input {status, key} key は文字（プロジェクト名）。同じ key なら前回の位置と倍率で描く
- * @param onSelect 札を押したときに呼ぶ関数。引数は {kind: "node" | "seed", id}
+ * @param onSelect 札を押したときに呼ぶ関数。引数は {kind: "node", id}
  */
 function sgRenderGraph(container, input, onSelect) {
   if (!container) return;
@@ -725,21 +758,59 @@ function sgUpdateToggles() {
   }
 }
 
-/** 選んでいる札に枠の色を付ける（id が無い・null なら外す）。SPROUT を選ぶと、含まれない札と線を薄くする。 */
+/** 選んでいる札に枠の色を付ける（id が無い・null なら外す）。SPROUT を選ぶと、含まれない札と線を薄くし、区分の札を付ける。 */
 function sgMarkSelected(id) {
   sgSelectedKey = id == null ? null : String(id);
   if (!sgWorld || typeof sgWorld.querySelectorAll !== "function") return;
   const keep = sgSproutKeep(sgStatus, sgSelectedKey);
+  const roles = sgSproutRoles(sgStatus, sgSelectedKey);
   for (const el of sgWorld.querySelectorAll("[data-sg-id]")) {
     const cardId = el.getAttribute("data-sg-id");
     el.classList.toggle("is-selected", cardId === sgSelectedKey);
     el.classList.toggle("is-picked", sgPicked.has(cardId));
     el.classList.toggle("sci-graph-faded", !!keep && !keep.has(cardId));
+    sgSetRole(el, roles ? roles.get(cardId) || null : null);
   }
   for (const el of sgWorld.querySelectorAll(".sci-graph-edge[data-from]")) {
     const from = el.getAttribute("data-from");
     const to = el.getAttribute("data-to");
     el.classList.toggle("sci-graph-faded", !!keep && !(keep.has(from) && keep.has(to)));
+  }
+  sgFillLegendRoles(!!roles);
+}
+
+/**
+ * 札（または凡例の見本）に区分の枠と文字を付ける。role が無いときは付けた物を外す。
+ * 文字の札は見出し（sci-graph-card-head）の中に入れる。見本には見出しが無いので文字だけ。
+ */
+function sgSetRole(el, role) {
+  for (const k of ["borderStyle", "borderWidth", "borderColor", "borderRadius", "background"]) el.style[k] = "";
+  for (const old of el.querySelectorAll(".sci-graph-role")) old.remove();
+  const look = sgRoleLook(role);
+  if (!look) return;
+  for (const [k, v] of Object.entries(look.style)) el.style[k] = v;
+  const head = el.querySelector(".sci-graph-card-head");
+  if (head) {
+    const chip = sgChip(look.label, look.kind);
+    chip.classList.add("sci-graph-role");
+    head.appendChild(chip);
+  }
+}
+
+/** 凡例の区分の見本（S を選んでいるときだけ出す）。 */
+function sgFillLegendRoles(on) {
+  if (!sgLegendRoles) return;
+  sgLegendRoles.innerHTML = "";
+  if (!on) return;
+  sgLegendRoles.appendChild(sgEl("span", "sci-graph-legend-title", "区分"));
+  for (const role of SG_ROLE_ORDER) {
+    const look = sgRoleLook(role);
+    const item = sgEl("span", "sci-graph-legend-item");
+    const sample = sgEl("span", `sai-chip ${look.kind}`, look.label);
+    sgSetRole(sample, role);
+    item.appendChild(sample);
+    item.appendChild(sgEl("span", null, look.desc));
+    sgLegendRoles.appendChild(item);
   }
 }
 
@@ -783,8 +854,7 @@ function sgCardEl(c) {
   const head = sgEl("span", "sci-graph-card-head");
   head.appendChild(sgEl("span", "sci-graph-card-id", c.kind === "S" ? "SPROUT" : c.id));
   b.appendChild(head);
-  // SEED は見出しの SEED をそのまま出す（題は無い）
-  if (c.kind !== "SEED") b.appendChild(sgEl("span", "sci-graph-card-title", c.text || "（文のない CARD）"));
+  b.appendChild(sgEl("span", "sci-graph-card-title", c.text || "（文のない CARD）"));
   if (c.sub) b.appendChild(sgEl("span", "sci-graph-card-foot", c.sub));
   return b;
 }
@@ -802,6 +872,8 @@ function sgLegend() {
     item.appendChild(sgEl("span", null, label));
     box.appendChild(item);
   }
+  sgLegendRoles = sgEl("div", "sci-graph-legend-roles");
+  box.appendChild(sgLegendRoles);
   return box;
 }
 
@@ -1178,6 +1250,8 @@ if (typeof module !== "undefined" && module.exports) {
     sgMarkSelected,
     sgMarkPicked,
     sgSproutKeep,
+    sgSproutRoles,
+    sgRoleLook,
     sgCenterOn,
     sgCenterView,
     sgEdgeStyle,
@@ -1187,6 +1261,7 @@ if (typeof module !== "undefined" && module.exports) {
     SG_CARD_W,
     SG_CARD_H,
     SG_TREE_STEP,
+    SG_TREE_GAP,
     SG_EDGE_KINDS,
   };
 }
