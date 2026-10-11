@@ -10,18 +10,18 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#ffffff" />
   <!-- 画面ファイルの版（サフィックスの数字）は sw.js の CACHE の版と揃えて上げる（iPhone に古いファイルを使わせないため） -->
-  <link rel="stylesheet" href="/style.css?v=114" />
+  <link rel="stylesheet" href="/style.css?v=115" />
   <!-- md の色・ホーム・Workflow・設定・Papers の見た目（U4〜U6）。style.css の後に読む -->
-  <link rel="stylesheet" href="/markdown.css?v=114" />
-  <link rel="stylesheet" href="/home.css?v=114" />
-  <link rel="stylesheet" href="/workflow.css?v=114" />
-  <link rel="stylesheet" href="/defs.css?v=114" />
-  <link rel="stylesheet" href="/papers.css?v=114" />
-  <link rel="stylesheet" href="/scitree.css?v=114" />
-  <link rel="stylesheet" href="/sciedit.css?v=114" />
-  <link rel="stylesheet" href="/scigraph.css?v=114" />
+  <link rel="stylesheet" href="/markdown.css?v=115" />
+  <link rel="stylesheet" href="/home.css?v=115" />
+  <link rel="stylesheet" href="/workflow.css?v=115" />
+  <link rel="stylesheet" href="/defs.css?v=115" />
+  <link rel="stylesheet" href="/papers.css?v=115" />
+  <link rel="stylesheet" href="/scitree.css?v=115" />
+  <link rel="stylesheet" href="/sciedit.css?v=115" />
+  <link rel="stylesheet" href="/scigraph.css?v=115" />
   <!-- 実験（MLflow）の記録（U06）。他の画面の CSS の後に読む -->
-  <link rel="stylesheet" href="/mlflow.css?v=114" />
+  <link rel="stylesheet" href="/mlflow.css?v=115" />
 </head>
 <body>
   <!-- 日付一覧画面（#/） -->
@@ -596,60 +596,60 @@
   </div>
 
   <!-- md の整形表示（13 §1.4）。呼び出す画面部品より先に読み込む -->
-  <script src="/markdown.js?v=114"></script>
+  <script src="/markdown.js?v=115"></script>
   <!-- 共通部品（saiApi・saiToast など・U4）。markdown.js の直後、各画面の JS より先に読む -->
-  <script src="/ui.js?v=114"></script>
+  <script src="/ui.js?v=115"></script>
   <!-- stats.js を先に読み，app.js の route() が統計画面を開けるようにする -->
-  <script src="/stats.js?v=114"></script>
+  <script src="/stats.js?v=115"></script>
   <!-- Project タブの中身（06）。app.js より前に読み込む（stats.js の関数を共有するため） -->
-  <script src="/project.js?v=114"></script>
+  <script src="/project.js?v=115"></script>
   <!-- List 画面（Dashboard | List の切り替え・引き出しツリー・7 つの表示・計画 14）。 -->
   <!-- project.js より後に読み，app.js より前に読む（登録は window.SaiRoutes・計画 14 §6） -->
-  <script src="/linkview.js?v=114"></script>
+  <script src="/linkview.js?v=115"></script>
   <!-- task.md 作成フォーム（＋ で下から出る・計画 15）。app.js より前に読む
        （🎤 は app.js の attachVoiceInput を実行時に呼ぶ） -->
-  <script src="/cardform.js?v=114"></script>
+  <script src="/cardform.js?v=115"></script>
   <!-- Web の「コマンド」画面と会話の検索（U10）。Project 上部の切り替え（6 つ）に足す -->
-  <script src="/commands.js?v=114"></script>
-  <script src="/sessionsearch.js?v=114"></script>
+  <script src="/commands.js?v=115"></script>
+  <script src="/sessionsearch.js?v=115"></script>
   <!-- Papers タブの中身（07）。app.js より前に読み込む（07 §4） -->
-  <script src="/papers.js?v=114"></script>
+  <script src="/papers.js?v=115"></script>
   <!-- Papers の Radio（09）。papers.js の後・app.js の前に読み込む（09 §4） -->
-  <script src="/radio.js?v=114"></script>
+  <script src="/radio.js?v=115"></script>
   <!-- 会話に行・回答済みカードを置く位置を決める関数（CP3 の直し）。app.js より前に読み込む -->
-  <script src="/chatorder.js?v=114"></script>
+  <script src="/chatorder.js?v=115"></script>
   <!-- 新しいチャット（U04 §5）。app.js より前に読み込む（#newchat-button に結び付ける） -->
-  <script src="/newchat.js?v=114"></script>
+  <script src="/newchat.js?v=115"></script>
   <!-- Usage タブの中身（42）。app.js より前に読み込む（42 §3.5） -->
-  <script src="/usage.js?v=114"></script>
+  <script src="/usage.js?v=115"></script>
   <!-- 質問カードの読み上げ・音声回答（U01・voiceask.js）。app.js より前に読み込む -->
-  <script src="/voiceask.js?v=114"></script>
+  <script src="/voiceask.js?v=115"></script>
   <!-- 配置・全体表示・拡大の純関数（canvaslayout.js）。workflow.js と scigraph.js より先に読む -->
-  <script src="/canvaslayout.js?v=114"></script>
+  <script src="/canvaslayout.js?v=115"></script>
   <!-- research-tree（U19・scitree.js）。app.js より先に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/scitree.js?v=114"></script>
+  <script src="/scitree.js?v=115"></script>
   <!-- TRIAGE と READ_CARD（U20・sciedit.js / sciread.js）。scitree.js の se… / sr… を呼ぶのでその後 -->
-  <script src="/sciedit.js?v=114"></script>
-  <script src="/sciread.js?v=114"></script>
+  <script src="/sciedit.js?v=115"></script>
+  <script src="/sciread.js?v=115"></script>
   <!-- 根の図と候補の表（U21・scigraph.js）。canvaslayout.js の cvlLayoutBoard を使うのでその後 -->
-  <script src="/scigraph.js?v=114"></script>
+  <script src="/scigraph.js?v=115"></script>
   <!-- ホーム画面（U4・home.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/home.js?v=114"></script>
+  <script src="/home.js?v=115"></script>
   <!-- Workflow 盤面（U5・workflow.js）。U4 では空のファイルを作っただけ。canvaslayout.js の関数を使うので canvaslayout.js より後 -->
-  <script src="/workflow.js?v=114"></script>
+  <script src="/workflow.js?v=115"></script>
   <!-- 設定画面（U5・defs.js）。U4 では空のファイルを作っただけ -->
-  <script src="/defs.js?v=114"></script>
+  <script src="/defs.js?v=115"></script>
   <!-- Download の見張り（U6・U06 で Import の画面は無し。paperimport.js） -->
-  <script src="/paperimport.js?v=114"></script>
+  <script src="/paperimport.js?v=115"></script>
   <!-- 引用一覧の画面（U5・cite.js）。paperimport.js の後・app.js の前に読み込む
        （papers.js と paperimport.js の関数を使うため） -->
-  <script src="/cite.js?v=114"></script>
+  <script src="/cite.js?v=115"></script>
   <!-- 実験タブの中身（U06・mlflow.js と U07・mlfchart.js）。app.js より前に読み込む
        （画面の登録は window.SaiRoutes。mlfchart.js はグラフの部品なので mlflow.js より先に） -->
-  <script src="/mlfchart.js?v=114"></script>
-  <script src="/mlflow.js?v=114"></script>
+  <script src="/mlfchart.js?v=115"></script>
+  <script src="/mlflow.js?v=115"></script>
   <!-- ログイン・アカウント・管理（U07）。app.js の apiFetch と起動の処理が acLoadMe を呼ぶので，app.js より前に読む -->
-  <script src="/account.js?v=114"></script>
-  <script src="/app.js?v=114"></script>
+  <script src="/account.js?v=115"></script>
+  <script src="/app.js?v=115"></script>
 </body>
 </html>

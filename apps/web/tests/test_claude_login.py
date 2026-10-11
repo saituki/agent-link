@@ -82,6 +82,11 @@ if "login" in args and "auth" in args:
     if line == "GOOD":
         out("\\r\\nLogin successful.\\r\\n")
         sys.exit(0)
+    if line == "SHORT":
+        # 本物は誤ったコードで終わらず、入力待ちに戻る
+        out("\\r\\nInvalid code. Please make sure the full code was copied.\\r\\n")
+        sys.stdin.readline()
+        sys.exit(1)
     out(f"{{line}}\\r\\nerror: rejected {{line}}\\r\\n")
     sys.exit(1)
 
@@ -263,6 +268,17 @@ def test_submit_good_and_bad() -> None:
     assert "alice" not in claude_login._sessions
 
 
+def test_submit_invalid_code_fails_fast() -> None:
+    """Invalid code（端末は終わらない）は 60 秒待たずに 502 で返る。"""
+    set_fake(login_mode="ok", logged_in=False)
+    claude_login.start("alice")
+    began = time.monotonic()
+    e = expect(502, lambda: claude_login.submit("alice", "SHORT"))
+    assert time.monotonic() - began < 10, "Invalid code を待ち続けた"
+    assert "Invalid code" in str(e.detail), e.detail
+    assert "alice" not in claude_login._sessions
+
+
 def test_submit_without_session_is_409() -> None:
     reset_login()
     expect(409, lambda: claude_login.submit("alice", "GOOD"))
@@ -393,6 +409,7 @@ def main() -> None:
     test_start_returns_url()
     test_start_without_url_is_502()
     test_submit_good_and_bad()
+    test_submit_invalid_code_fails_fast()
     test_submit_without_session_is_409()
     test_submit_code_validation_is_400()
     test_status_parses_json_and_exit_code()

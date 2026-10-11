@@ -246,7 +246,7 @@ def run_session_ids(run: dict) -> set[str]:
         ids.add(agent_sid)
     transcript = run.get("transcript_path")
     if isinstance(transcript, str) and transcript:
-        ids |= set(_transcript_session_ids(Path(transcript)))
+        ids |= set(_transcript_session_ids(registry.host_transcript(transcript)))
     return ids
 
 
@@ -258,7 +258,7 @@ def question_session_id(run: dict) -> str | None:
             return sid
     transcript = run.get("transcript_path")
     if isinstance(transcript, str) and transcript:
-        ids = sorted(_transcript_session_ids(Path(transcript)))
+        ids = sorted(_transcript_session_ids(registry.host_transcript(transcript)))
         if ids:
             return ids[0]
     sid = run.get("agent_session_id")

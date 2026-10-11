@@ -111,6 +111,26 @@ def project_home(project: str) -> Path:
     return user_dir() / "homes" / project
 
 
+def host_transcript(path: str) -> Path:
+    """会話の記録の場所を、Web から読める場所に読み替える。
+
+    多人数モードのコンテナは `<user_dir>/claude/` を `<home>/.claude` に mount するので、
+    `<U>/<user>/homes/<project>/.claude/…` の記録の実物は `<U>/<user>/claude/…` にある。
+    元の場所にファイルがあれば（mount の前の記録）そのまま使う。
+    """
+    original = Path(path)
+    root = users_root()
+    if root is None or original.exists():
+        return original
+    try:
+        parts = original.relative_to(root).parts
+    except ValueError:
+        return original
+    if len(parts) > 4 and parts[1] == "homes" and parts[3] == ".claude":
+        return root / parts[0] / "claude" / Path(*parts[4:])
+    return original
+
+
 def sai_home() -> Path:
     """`~/.sai` の置き場（`SAI_HOME` で上書きできる）。
 

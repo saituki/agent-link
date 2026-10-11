@@ -566,7 +566,10 @@ function acClaudeLoginForm(status, body, reload) {
   input.spellcheck = false;
   const send = saiEl("button", "sai-btn small", "送る");
   send.type = "button";
-  send.addEventListener("click", () => void acClaudeLoginSend(input.value.trim(), status, body, reload));
+  send.addEventListener("click", () => {
+    if (send.disabled) return;
+    void acClaudeLoginSend(input.value.trim(), status, body, reload, send);
+  });
   const cancel = saiEl("button", "sai-btn small ghost", "やめる");
   cancel.type = "button";
   cancel.addEventListener("click", () => void acClaudeLoginCancel(status, body, reload));
@@ -575,10 +578,15 @@ function acClaudeLoginForm(status, body, reload) {
 }
 
 /** コードを送ってログインを完了する（POST /api/me/claude-login/code）。 */
-async function acClaudeLoginSend(code, status, body, reload) {
+async function acClaudeLoginSend(code, status, body, reload, send) {
   if (!code) {
     saiToast("コードを貼ってください", "error");
     return;
+  }
+  // 結果が出るまで最大 60 秒かかる。その間に重ねて送らない
+  if (send) {
+    send.disabled = true;
+    send.textContent = "確かめています…";
   }
   try {
     const data = await saiApi("/api/me/claude-login/code", { method: "POST", body: { code } });
