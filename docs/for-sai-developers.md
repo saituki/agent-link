@@ -626,6 +626,15 @@ sai-prep が作った束（C12）は、Web が zip を展開して検査し、�
 - 展開の検査（Web・`bundles.py`）: 項目 5000 以下・展開後 1GB 以下（束そのものは 300MB 以下）・絶対パス・`..`・`\`・NUL・シンボリックリンクは拒む。`pdf_sha256` が PDF と一致すること。
 - `paper download`・`paper get-pdf` は終了コード 4（サーバは PDF を落とさない）。`import-bundle` は Web から 600 秒の上限で呼ばれる（`BUNDLE_TIMEOUT`）。
 
+#### extract.md の画像と本文の読み方（U06）
+
+- 取り込み（`import-bundle`）と Rust で docling を呼ぶ経路は、`extract.md` に base64 の画像（`data:image/…;base64,…`）も画像だけの行も残さない（`chunking::strip_images`）。文中の通常の画像参照（`![x](figures/…)`）は残す。
+- 既にある論文は `sai-paper paper strip-images [<id>…] [--all] --json` で直す。`--all` と ID は一緒に使わない（両方・どちらも無いときは誤り 2）。変わった論文だけ書き直し、PDF より新しい更新時刻を保つ。元には戻せない（docling から作り直せば画像入りに戻る）。2 回目は `before` と `after` が同じになる。
+  - 出力: `{"papers":[{"id","before","after"}],"total_before","total_after"}`。`extract.md` の無い論文は `papers` に入れない。論文の行が無ければ終了コード 3。
+- `sai-paper content read <ID>… --json`（節・塊の本文）の項目: `{"refs","max_chars","truncated","next","passages":[{"id","section","heading","text","n_sentences"}],"empty","empty_refs"}`。
+  - 節はあるが塊が 0 件の節（図や表だけの節）は、終了コード 0 で `empty_refs` に `#<論文>.<節>` を入れる（`empty` は読んだ塊が 1 つも無く、指定がすべて空の節のとき `true`）。テキスト出力は「#43.1 は本文が空です（図や表だけの節の可能性）」。
+  - 論文の行が無いときは終了コード 3「論文が見つかりません: id=N」。論文はあるが `extract.md` が無いときは終了コード 1 のまま（作り方の案内）。
+
 ---
 
 ## 3. sai-sci が読む sai-link の出力

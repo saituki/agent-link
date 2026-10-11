@@ -170,7 +170,8 @@ async fn run_docling_inner(
     }
 
     // 画像行は一時フォルダを指し、後で壊れたリンクになるので保存前に除く（図は別に保存する）。
-    let markdown = strip_figure_images(&read_produced_markdown(&pdf_path, &out_dir)?);
+    // base64 の埋め込み画像も文中から除く（extract.md を重くしないため）。
+    let markdown = crate::chunking::strip_images(&read_produced_markdown(&pdf_path, &out_dir)?);
 
     // 正規化済みファイル名で保存（後続の再利用・TUI の md プレビュー用）
     std::fs::write(&save_md_path, &markdown)?;

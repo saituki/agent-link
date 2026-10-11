@@ -223,10 +223,10 @@ pub fn import_bundle(
     let pdf_stored = paths::to_stored_path(data_dir, &imported.path);
     let pdf_mtime = file_mtime_secs(&imported.path)?;
 
-    // 4. docling の md を論文フォルダの extract.md に写す。
-    let markdown = std::fs::read_to_string(&md_src)?;
+    // 4. docling の md から画像を除いて、論文フォルダの extract.md に書く（base64 の画像を残さない）。
+    let markdown = crate::chunking::strip_images(&std::fs::read_to_string(&md_src)?);
     let extract_dst = paper_dir.join(paths::paper_file_names::EXTRACT);
-    std::fs::copy(&md_src, &extract_dst)?;
+    std::fs::write(&extract_dst, &markdown)?;
     // PDF より新しくする（あとで docling を呼ばないため）。
     touch_newer_than(&extract_dst, &imported.path)?;
     let md_stored = paths::to_stored_path(data_dir, &extract_dst);
@@ -492,6 +492,57 @@ pub(crate) fn touch_newer_than(target: &Path, reference: &Path) -> Result<(), Bu
     Ok(())
 }
 
+/// `extract.md` から画像を除いた結果の 1 行（`sai-paper paper strip-images`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct StripRow {
+    /// 論文 ID（papers.id）。
+    pub id: i64,
+    /// 除く前の大きさ（バイト）。
+    pub before: u64,
+    /// 除いた後の大きさ（バイト）。
+    pub after: u64,
+}
+
+/// 既にある論文の `extract.md` から画像を除く。`extract.md` が無い論文は飛ばす。
+/// 中身が変わったものだけ書き直し、更新時刻は元のまま残す（PDF より新しいことを保つ）。
+/// 節の表は作り直さず、sha だけ付け替える（要約を消さないため）。
+///
+/// # Errors
+///
+/// DB・ファイルの失敗。
+pub fn strip_extract_images(
+    conn: &Connection,
+    data_dir: &Path,
+    ids: &[i64],
+) -> Result<Vec<StripRow>, BundleError> {
+    let mut rows = Vec::new();
+    for &id in ids {
+        let Some(path) = citation::resolve_extract_md(conn, Some(id), None, data_dir) else {
+            continue;
+        };
+        let text = std::fs::read_to_string(&path)?;
+        let stripped = crate::chunking::strip_images(&text);
+        if stripped != text {
+            let old_sha = sha256_file(&path)?;
+            let mtime = std::fs::metadata(&path)?.modified()?;
+            let tmp = path.with_extension("md.tmp");
+            std::fs::write(&tmp, &stripped)?;
+            std::fs::rename(&tmp, &path)?;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)?
+                .set_times(std::fs::FileTimes::new().set_modified(mtime))?;
+            sections::rebind_extract_sha(conn, id, &old_sha, &sha256_file(&path)?)?;
+        }
+        rows.push(StripRow {
+            id,
+            before: text.len() as u64,
+            after: stripped.len() as u64,
+        });
+    }
+    Ok(rows)
+}
+
 /// 取り込みで使う一時の置き場（プロセスと時刻で衝突しない名前）。
 fn temp_bundle_dir() -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -499,4 +550,123 @@ fn temp_bundle_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or_default();
     std::env::temp_dir().join(format!("sai-bundle-{}-{nanos}", std::process::id()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// テストごとの一時フォルダ（`Drop` で消す）。
+    struct Temp(PathBuf);
+
+    impl Temp {
+        fn new(tag: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default();
+            let dir = std::env::temp_dir().join(format!(
+                "sai-bundle-unit-{tag}-{}-{nanos}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// 文中と行全体の data URI 画像を含む docling の md。
+    fn md_with_base64() -> String {
+        let big = "QUJD".repeat(2000);
+        format!(
+            "## Strip paper\n\nSee the figure ![f](data:image/png;base64,{big}) here.\n\n\
+             ![Image](data:image/png;base64,{big})\n\n## 1 Intro\n\nBody text of the intro.\n"
+        )
+    }
+
+    /// 束の取り込みで `extract.md` に `data:image` が残らない（画像の参照は本文の周りだけ）。
+    #[test]
+    fn import_bundle_keeps_no_data_uri_in_extract() {
+        let temp = Temp::new("import");
+        let data_dir = temp.0.join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let mut db = Database::open(&data_dir.join("papr.db")).unwrap();
+        db.connection()
+            .execute("INSERT INTO papers (title, doi) VALUES ('Strip paper', '10.1/strip')", [])
+            .unwrap();
+        let paper_id = db.connection().last_insert_rowid();
+
+        let bundle = temp.0.join("bundle");
+        std::fs::create_dir_all(bundle.join("docling")).unwrap();
+        let pdf = b"%PDF-1.4 strip\n%%EOF\n".to_vec();
+        std::fs::write(bundle.join("paper.pdf"), &pdf).unwrap();
+        std::fs::write(bundle.join("docling/paper.md"), md_with_base64()).unwrap();
+        std::fs::write(bundle.join("docling/paper.json"), r#"{"texts": [], "pictures": []}"#).unwrap();
+        let manifest = serde_json::json!({
+            "format": "sai-prep-bundle",
+            "version": 1,
+            "target": {"paper_id": paper_id},
+            "pdf": "paper.pdf",
+            "pdf_sha256": format!("{:x}", Sha256::digest(&pdf)),
+            "docling": {"md": "docling/paper.md", "json": "docling/paper.json", "dir": "docling"},
+            "translation": null,
+            "tools": {"sai_prep": "0.1.0"},
+            "created_at": "2026-10-07T12:00:00+09:00",
+        });
+        std::fs::write(bundle.join("manifest.json"), manifest.to_string()).unwrap();
+
+        import_bundle(&mut db, &data_dir, &bundle).expect("取り込める");
+        let extract = paths::paper_folder(&data_dir, paper_id, "Strip paper")
+            .join(paths::paper_file_names::EXTRACT);
+        let text = std::fs::read_to_string(&extract).unwrap();
+        assert!(!text.contains("data:image"), "{}", text.len());
+        assert!(text.contains("See the figure"));
+        assert!(text.contains("Body text of the intro."));
+    }
+
+    /// 既にある論文の画像を除く。2 回目は変化 0。要約（節の表）は消えない。
+    #[test]
+    fn strip_extract_images_shrinks_once_and_keeps_summaries() {
+        let temp = Temp::new("strip");
+        let db = Database::in_memory_with_data_dir(&temp.0).unwrap();
+        let conn = db.connection();
+        let id = db.insert_paper("Old paper", None).unwrap();
+        let md_path = temp.0.join("extract.md");
+        std::fs::write(&md_path, md_with_base64()).unwrap();
+        conn.execute(
+            "INSERT INTO paper_extracts (paper_id, status, md_path, papers_id) VALUES ('k', 'ready', ?1, ?2)",
+            rusqlite::params![md_path.to_string_lossy(), id],
+        )
+        .unwrap();
+
+        sections::ensure(conn, &temp.0, id).unwrap();
+        conn.execute("UPDATE paper_sections SET summary = 'keep' WHERE paper_id = ?1 AND sec_no = 1", [id])
+            .unwrap();
+
+        let first = strip_extract_images(conn, &temp.0, &[id, 9999]).unwrap();
+        assert_eq!(first.len(), 1, "extract.md の無い論文は飛ばす");
+        assert!(first[0].after < first[0].before);
+        let text = std::fs::read_to_string(&md_path).unwrap();
+        assert!(!text.contains("data:image"));
+        assert!(text.contains("Body text of the intro."));
+
+        // 表の sha が付け替わっているので、読んでも作り直さず要約も残る。
+        assert_eq!(sections::ensure(conn, &temp.0, id).unwrap(), sections::BuildState::Fresh);
+        let summary: Option<String> = conn
+            .query_row(
+                "SELECT summary FROM paper_sections WHERE paper_id = ?1 AND sec_no = 1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(summary.as_deref(), Some("keep"));
+
+        let second = strip_extract_images(conn, &temp.0, &[id]).unwrap();
+        assert_eq!(second[0].before, second[0].after, "2 回目は変化 0");
+    }
 }

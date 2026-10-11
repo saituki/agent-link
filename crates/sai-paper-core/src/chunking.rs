@@ -424,6 +424,14 @@ fn chunk_sentence(
     })
 }
 
+/// `extract.md` に残す前の画像の除去。画像だけの行（data URI でない参照も含む）は行ごと消し
+/// （[`crate::citation::docling::strip_figure_images`]）、文中の data URI 画像も消す。
+/// 文中の通常の画像参照（`![x](figures/…)`）は残す。
+#[must_use]
+pub fn strip_images(md: &str) -> String {
+    remove_data_uri_images(&crate::citation::docling::strip_figure_images(md))
+}
+
 /// Markdown から data URI 画像（`![...](data:image/...;base64,...)` の形）を除去する。
 pub(crate) fn remove_data_uri_images(text: &str) -> String {
     let mut result = String::new();
@@ -1899,6 +1907,21 @@ pub fn status(conn: &Connection) -> Result<IndexStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AC1: 文中の data URI と画像だけの行を除き、通常の文中の画像参照は残す。
+    #[test]
+    fn strip_images_removes_base64_and_keeps_plain_inline_images() {
+        let md = "A ![f](data:image/png;base64,QUJD) B\n\n![Image](data:image/png;base64,QUJD)\n\n\
+                  see ![x](figures/x.png) here\n<!-- image -->\nEnd\n";
+        let out = strip_images(md);
+        assert!(!out.contains("data:"), "{out}");
+        assert!(!out.contains("<!-- image -->"), "{out}");
+        assert!(out.contains("A  B"), "{out}");
+        assert!(out.contains("see ![x](figures/x.png) here"), "{out}");
+        assert!(out.ends_with("End\n"), "{out}");
+        // 2 回目は変わらない（冪等）。
+        assert_eq!(strip_images(&out), out);
+    }
 
     /// 木に必要な表だけを足す（chunking のテスト DB は CREATE のみ。列は読むものだけ）。
     fn create_rt_nodes(conn: &Connection) {
