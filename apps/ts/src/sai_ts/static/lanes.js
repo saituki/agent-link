@@ -1,13 +1,11 @@
 "use strict";
-// 波形のレーン・イベントの重ね描き・マウス操作・既定のキー（共有契約 C10）。
+// 波形のレーン・イベントの重ね描き・既定のキー（共有契約 C10）。マウスの操作は mouse.js。
 // 純関数（DOM を使わない計算）は末尾で node のテストに渡す。
 
 const tsGutterW = 120; // 左の欄（label・縦軸の目盛り）の幅（CSS px）
 const tsAxisH = 24; // 時間軸の高さ（#ts-axis の上の部分）
 const tsNavH = 14; // 記録全体の帯（#ts-axis の下の部分。高さ 8px と余白）
 const tsLaneMinH = 24;
-const tsPanStep = 0.1; // ホイールで 1 回に動く表示幅の割合
-const tsDragPx = 3; // これより動いたらドラッグ扱い
 const tsHitPx = 4; // ラインの当たり判定の幅（CSS px）
 const tsDefaultColor = "#64748b";
 let tsGain = 1; // 全体の倍率（tsGainSteps の段）
@@ -17,8 +15,6 @@ let tsFetchKey = "";
 let tsFetchCtl = null;
 let tsFetchSeq = 0;
 let tsWave = null; // {ds, rec, data, scales, reqAt}
-let tsDrag = null;
-let tsSpace = false;
 let tsCss = { w: 0, h: 0 };
 let tsCol = null; // 配色（CSS の変数を tsTheme が読む）
 
@@ -192,11 +188,6 @@ function tsGainOf(v) {
 }
 
 // ---- ここから画面（ブラウザだけで動く） ----
-
-function tsPoint(e) {
-  const r = document.getElementById("ts-overlay").getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
 
 function tsPlotPx() {
   const lanes = document.getElementById("ts-lanes");
@@ -506,10 +497,6 @@ function tsDrawOverlay() {
   const st = window.TS.state;
   const acc = tsCol.accent;
   if (st.selection) tsPaintRange(ctx, frame, st.selection.t0, st.selection.t1, st.selection.vars, tsRgba(acc, 0.2), acc);
-  if (tsDrag && tsDrag.mode === "select" && tsDrag.moved) {
-    const s = tsSelectionFromDrag(tsDrag.x0, tsDrag.x, tsDrag.y0, tsDrag.y, frame);
-    tsPaintRange(ctx, frame, s.t0, s.t1, s.vars, tsRgba(acc, 0.12), acc);
-  }
   tsRunLayers(ctx, frame);
 }
 
@@ -573,13 +560,6 @@ function tsPaintEvents(ctx, frame) {
   });
 }
 
-// 入力欄が開くまで、クリックしたレーンの変数・時刻を求める
-function tsHitAt(x, y, tol) {
-  const frame = tsLanesFrame();
-  const lane = tsLaneAt(frame, y);
-  return tsHitEvent(tsVisibleEvents(), frame.toT(x), lane ? lane.var : null, tol);
-}
-
 function tsTolSec() {
   const frame = tsLanesFrame();
   return (tsHitPx * (frame.t1 - frame.t0)) / frame.plotW;
@@ -588,117 +568,6 @@ function tsTolSec() {
 function tsSelectEvents(ids) {
   window.TS.setView({ selectedEvents: ids });
   window.TS.emit("select", ids);
-}
-
-function tsNavJump(x) {
-  const st = window.TS.state;
-  const dur = tsDuration(st.meta);
-  if (!(dur > 0)) return;
-  const frame = tsLanesFrame();
-  const t = Math.min(dur, Math.max(0, ((x - tsGutterW) / frame.plotW) * dur));
-  const span = st.t1 - st.t0;
-  const r = tsClampRange(t - span / 2, t + span / 2, dur, span);
-  window.TS.setView({ t0: r.t0, t1: r.t1 });
-}
-
-function tsOnDown(e) {
-  const st = window.TS.state;
-  if (!st.meta) return;
-  const p = tsPoint(e);
-  if (e.button === 1 || (e.button === 0 && tsSpace)) {
-    e.preventDefault();
-    tsDrag = { mode: "pan", x0: p.x, t0: st.t0, t1: st.t1 };
-    return;
-  }
-  if (e.button !== 0 || p.x < tsGutterW) return;
-  const frame = tsLanesFrame();
-  if (e.altKey) {
-    const lane = tsLaneAt(frame, p.y);
-    window.TS.editEvent(null, {
-      type: "line",
-      t: frame.toT(p.x),
-      vars: lane ? [lane.var] : [],
-      anchor: { x: e.clientX, y: e.clientY },
-    });
-    return;
-  }
-  e.preventDefault();
-  tsDrag = { mode: "select", x0: p.x, y0: p.y, x: p.x, y: p.y, moved: false };
-}
-
-function tsOnMove(e) {
-  const d = tsDrag;
-  if (!d) return;
-  const st = window.TS.state;
-  const p = tsPoint(e);
-  if (d.mode === "pan") {
-    const dt = -((p.x - d.x0) / tsLanesFrame().plotW) * (d.t1 - d.t0);
-    const r = tsPan(d.t0, d.t1, dt, tsDuration(st.meta));
-    window.TS.setView({ t0: r.t0, t1: r.t1 });
-  } else if (d.mode === "nav") {
-    tsNavJump(p.x);
-  } else if (d.mode === "select") {
-    d.x = p.x;
-    d.y = p.y;
-    if (Math.hypot(p.x - d.x0, p.y - d.y0) >= tsDragPx) d.moved = true;
-    if (d.moved) tsDrawOverlay();
-  }
-}
-
-function tsOnUp(e) {
-  const d = tsDrag;
-  if (!d) return;
-  tsDrag = null;
-  if (d.mode === "select") {
-    if (d.moved) {
-      const sel = tsSelectionFromDrag(d.x0, d.x, d.y0, d.y, tsLanesFrame());
-      window.TS.setView({ selection: sel });
-      window.TS.editEvent(null, {
-        type: "area",
-        t0: sel.t0,
-        t1: sel.t1,
-        vars: sel.vars,
-        anchor: { x: e.clientX, y: e.clientY },
-      });
-    } else {
-      const hit = tsHitAt(d.x0, d.y0, tsTolSec());
-      if (hit) {
-        tsSelectEvents([hit.id]);
-      } else {
-        window.TS.setView({ selectedEvents: [], selection: null });
-        window.TS.emit("select", []);
-      }
-    }
-  }
-  tsDrawOverlay();
-}
-
-function tsOnDbl(e) {
-  const p = tsPoint(e);
-  if (p.x < tsGutterW) return;
-  const hit = tsHitAt(p.x, p.y, tsTolSec());
-  if (!hit) return;
-  tsSelectEvents([hit.id]);
-  window.TS.editEvent(hit.id, { anchor: { x: e.clientX, y: e.clientY } });
-}
-
-// 縦の回転は横の移動。Ctrl・⌘ を押すと（トラックパッドのピンチを含む）マウスの位置を中心に拡大縮小
-function tsOnWheel(e) {
-  e.preventDefault();
-  const st = window.TS.state;
-  if (!st.meta) return;
-  const dur = tsDuration(st.meta);
-  const minSpan = tsMinSamples / st.meta.srate;
-  if (e.ctrlKey || e.metaKey) {
-    const tc = tsLanesFrame().toT(tsPoint(e).x);
-    const r = tsZoomAt(st.t0, st.t1, tc, Math.exp(e.deltaY * 0.0015), dur, minSpan);
-    window.TS.setView({ t0: r.t0, t1: r.t1 });
-    return;
-  }
-  const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-  if (!d) return;
-  const r = tsPan(st.t0, st.t1, Math.sign(d) * tsPanStep * (st.t1 - st.t0), dur);
-  window.TS.setView({ t0: r.t0, t1: r.t1 });
 }
 
 // 取り直しは 80ms 待ってから。前の要求は取り消す
@@ -796,25 +665,7 @@ function tsLanesInstallKeys() {
 }
 
 function tsLanesInit() {
-  const ov = document.getElementById("ts-overlay");
-  ov.addEventListener("mousedown", tsOnDown);
-  ov.addEventListener("dblclick", tsOnDbl);
-  ov.addEventListener("wheel", tsOnWheel, { passive: false });
-  window.addEventListener("mousemove", tsOnMove);
-  window.addEventListener("mouseup", tsOnUp);
-  window.addEventListener("keydown", (e) => {
-    if (e.key === " " && !tsIsEditing(e.target)) {
-      tsSpace = true;
-      e.preventDefault();
-    }
-  });
-  window.addEventListener("keyup", (e) => {
-    if (e.key === " ") tsSpace = false;
-  });
-  window.addEventListener("blur", () => {
-    tsSpace = false;
-    tsDrag = null;
-  });
+  // マウスの操作は mouse.js が受ける
   tsTheme();
   // 欄の大きさは app.js の ResizeObserver が知らせる（window の resize には頼らない）
   window.TS.on("resize", () => {
