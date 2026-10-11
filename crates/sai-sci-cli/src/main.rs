@@ -79,10 +79,19 @@ enum Cmd {
     /// RESEARCH_TYPE を利用者全体の置き場に保存する（標準入力に RESEARCH_TYPE の Markdown）
     #[command(name = "type-save")]
     TypeSave,
-    /// Node 1 つの詳細を出す（`--json` の最上位のキー: node・path・children・subtree・guide・decisions・actions・creator・next・searches・sources・history）
+    /// Node 1 つの詳細を出す（`--json` の最上位のキー: node・path・children・subtree・guide・decisions・actions・creator・next・searches・sources・history・seed・chains）
     Node {
         /// Node の ID（`Q12`・`A5`・`D3` など）
         node: String,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// 複数の SPROUT（S）を軸ごとに並べて比べる（2〜10 個）
+    Compare {
+        /// S の ID（`S12`・`S30` など。2〜10 個）
+        #[arg(required = true, num_args = 1..)]
+        sprouts: Vec<String>,
         /// JSON で出力する
         #[arg(long)]
         json: bool,
@@ -417,6 +426,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Types { json }) => print_out(sci::types(json)?),
         Some(Cmd::TypeSave) => print_out(sci::type_save()?),
         Some(Cmd::Node { node, json }) => print_out(sci::node_detail(&node, json)?),
+        Some(Cmd::Compare { sprouts, json }) => print_out(sci::compare(&sprouts, json)?),
         Some(Cmd::Context { run, tree }) => print_out_seen(sci::context(run, tree)?, |text| {
             if let Some(root) = sai_paper_core::paths::project_root() {
                 seen_ids::record_for(&root, run, text);
