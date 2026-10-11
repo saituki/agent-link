@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension};
 
+use super::axes;
 use super::compute::Tree;
 use super::defs::Defs;
 use super::ops::{self, Field, Risk, Ty};
@@ -159,11 +160,13 @@ struct GuideText {
     pitfalls: Vec<String>,
 }
 
-/// SPROUT の PATH（終点の O）ごとに、一番上の Q から終点の O までの 1 行を作る。
+/// SPROUT の PATH（終点の O）ごとに、一番上の Q から終点の O までの 1 行を作る。行の頭に区分の札（`[固定]`・`[新規]`）を付ける。
 fn path_lines(tree: &Tree, n: &NodeRow) -> Vec<String> {
+    let roles = tree.roles_of(n.id);
     n.paths
         .iter()
-        .map(|o| {
+        .enumerate()
+        .map(|(i, o)| {
             let mut chain: Vec<&NodeRow> = Vec::new();
             let mut cur = Some(*o);
             while let Some(id) = cur {
@@ -178,9 +181,81 @@ fn path_lines(tree: &Tree, n: &NodeRow) -> Vec<String> {
                     format!("{} {}", fmt_id(node.kind, node.id), flat_text(&node.text))
                 })
                 .collect();
-            format!("  PATH: {}", parts.join(" > "))
+            let tag = match roles.get(i).map(|r| r.role.as_str()) {
+                Some("fixed") => "[固定] ",
+                Some(_) => "[新規] ",
+                None => "",
+            };
+            format!("  {tag}PATH: {}", parts.join(" > "))
         })
         .collect()
+}
+
+/// Q の深さ（一番上の Q を 1 とした Q の段。Q→A→Q は 2）。
+fn q_depth(tree: &Tree, n: &NodeRow) -> usize {
+    let mut depth = 1;
+    let mut cur = n.parent_id;
+    while let Some(p) = cur.and_then(|p| tree.node(p)) {
+        depth += usize::from(p.kind == Kind::Q);
+        cur = p.parent_id;
+    }
+    depth
+}
+
+/// SPROUT の行の区分（`[固定: task=A12 / 新規: method=A94 / 記載なし: data / 実験: E 3 件]`）。空の区分は出さない。
+fn sprout_tail(tree: &Tree, n: &NodeRow) -> String {
+    let roles = tree.roles_of(n.id);
+    let seed = n.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D).map(|d| axes::parse_axes(&d.body));
+    let mut parts: Vec<String> = Vec::new();
+    let fixed: Vec<String> = roles
+        .iter()
+        .filter(|r| r.role == "fixed")
+        .map(|r| format!("{}={}", r.axis.as_deref().unwrap_or("?"), r.a))
+        .collect();
+    if !fixed.is_empty() {
+        parts.push(format!("固定: {}", fixed.join(", ")));
+    }
+    let novel: Vec<String> = roles
+        .iter()
+        .filter(|r| r.role == "novel")
+        .map(|r| {
+            let until = r.fixed_at.as_ref().map_or_else(String::new, |f| format!("（{f} まで固定）"));
+            format!("{}={}{until}", r.axis.as_deref().unwrap_or("?"), r.a)
+        })
+        .collect();
+    if !novel.is_empty() {
+        parts.push(format!("新規: {}", novel.join(", ")));
+    }
+    if let Some(seed) = &seed {
+        let none: Vec<&str> = axes::AXES.iter().map(|(key, _)| *key).filter(|key| seed.get(*key).is_some_and(|a| a.state == "none")).collect();
+        if !none.is_empty() {
+            parts.push(format!("記載なし: {}", none.join(", ")));
+        }
+    }
+    let experiments = tree.count_under(n.id, Kind::E);
+    if experiments > 0 {
+        parts.push(format!("実験: E {experiments} 件"));
+    }
+    if parts.is_empty() { String::new() } else { format!(" [{}]", parts.join(" / ")) }
+}
+
+/// seed（D）の 6 軸の状態の表（`## STUDY_SEED` に足す。行は [`axes::AXES`] の順）。
+fn seed_axes_table(body: &str) -> String {
+    let parsed = axes::parse_axes(body);
+    let mut lines = vec!["| 軸 | 状態 | 値・理由 | A |".to_string(), "|---|---|---|---|".to_string()];
+    for (key, _) in axes::AXES {
+        let axis = &parsed[key];
+        let (label, text) = match axis.state.as_str() {
+            "fixed" => ("決定", axis.value.as_deref()),
+            "range" => ("範囲", axis.value.as_deref()),
+            "novel" => ("空欄（新規性）", axis.reason.as_deref()),
+            "none" => ("空欄（記載なし）", axis.reason.as_deref()),
+            _ => ("空欄", None),
+        };
+        let cell = |text: Option<&str>| text.unwrap_or_default().replace('|', "\\|");
+        lines.push(format!("| {key} | {label} | {} | {} |", cell(text), cell(axis.a.as_deref())));
+    }
+    lines.join("\n")
 }
 
 fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
@@ -188,14 +263,13 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     let id = fmt_id(n.kind, n.id);
     let make = |text: String| {
         let tail = match n.kind {
-            Kind::Q => String::new(),
+            Kind::Q => format!(" [A {}・深さ {}]", tree.a_count(n.id), q_depth(tree, n)),
             Kind::A => format!(" [F {}]", tree.f_count_under(n.id)),
             Kind::F if !n.cites.is_empty() => format!(" [{}]", n.cites.join(", ")),
             Kind::E => n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]")),
             Kind::S => {
-                let paths: Vec<String> = n.paths.iter().map(|id| fmt_id(Kind::A, *id)).collect();
                 let range = tree.range(n.id).map_or_else(String::new, |r| format!(" [範囲: {}]", r.line()));
-                format!(" [paths: {}]{range}", paths.join(", "))
+                format!("{}{range}", sprout_tail(tree, n))
             }
             Kind::F => String::new(),
             Kind::D => String::new(),
@@ -311,8 +385,15 @@ impl Parts {
         // STUDY_SEED: 対象が SPROUT のとき、親の SEED（D）の題と本文を省かずに出す。親の無い古い SPROUT は断り書き。
         let study_seed = target.filter(|t| t.kind == Kind::S).map(|t| {
             match t.parent_id.and_then(|p| tree.node(p)).filter(|p| p.kind == Kind::D) {
-                Some(d) if d.body.trim().is_empty() => format!("{} {}", fmt_id(Kind::D, d.id), flat_text(&d.text)),
-                Some(d) => format!("{} {}\n{}", fmt_id(Kind::D, d.id), flat_text(&d.text), d.body.trim_end()),
+                Some(d) => {
+                    let head = format!("{} {}", fmt_id(Kind::D, d.id), flat_text(&d.text));
+                    let table = seed_axes_table(&d.body);
+                    if d.body.trim().is_empty() {
+                        format!("{head}\n\n{table}")
+                    } else {
+                        format!("{head}\n{}\n\n{table}", d.body.trim_end())
+                    }
+                }
                 None => NO_SEED.to_string(),
             }
         });
@@ -633,9 +714,9 @@ mod tests {
         task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
         let text = build_with(&e, 100_000, false).unwrap();
         // S の行に paths が出る。
-        assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
+        assert!(text.contains(&format!("- {} 種 [新規: ", fmt_id(Kind::S, s))), "{text}");
         // S の行の直後に、top の Q から終点の O までの PATH が出る。
-        assert!(text.contains("  PATH: ") && text.contains(&format!("{} 課題", fmt_id(Kind::A, o))), "{text}");
+        assert!(text.contains("[新規] PATH: ") && text.contains(&format!("{} 課題", fmt_id(Kind::A, o))), "{text}");
         // 下の E も出る。
         assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
@@ -677,7 +758,7 @@ mod tests {
             assert!(!text.contains("SEED PROBLEM"), "{text}");
             // 軸の Q は親の無い行（字下げ 0）から並ぶ。
             assert!(text.contains("\n- Q4 ") && text.contains("\n- Q6 "), "{text}");
-            assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
+            assert!(text.contains(&format!("- {} 種 [新規: ", fmt_id(Kind::S, s))), "{text}");
             assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
             assert!(!text.contains("## GUIDE"), "{text}");
         }
@@ -727,7 +808,7 @@ mod tests {
         assert!(text.contains("  > 本文の制約"), "{text}");
         assert!(text.contains("\n- Q1 ") && text.contains("\n- Q4 "), "{text}");
         assert!(text.contains(&format!("- {} 別の研究", fmt_id(Kind::D, d2))), "{text}");
-        assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
+        assert!(text.contains(&format!("- {} 種 [新規: ", fmt_id(Kind::S, s))), "{text}");
         assert!(!text.contains("## STUDY_SEED"), "{text}");
 
         // sci_type が node なら D とその下の S だけ。
@@ -826,6 +907,46 @@ mod tests {
         crate::link::forget(&e.dir);
         let r = build(e.db.connection(), &e.roots, &e.defs, 1000, 2, false);
         assert!(matches!(r, Err(RtError::NotFound(m)) if m == "Q999 はありません"));
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    /// TREE の Q は `[A n・深さ d]`、S は区分の札（`[新規: …]`・`[記載なし]`・`実験`）。STUDY_SEED の表に 6 軸が並ぶ。
+    #[test]
+    fn tree_shows_q_depth_and_sprout_roles() {
+        let e = env("roles");
+        block(&e, "node");
+        let q_method = store::insert_node(
+            e.db.connection(),
+            &store::NewNode {
+                kind: Kind::Q, parent_id: None, guide_key: Some("method"), text: "手法の問い", body: "", stance: None, cites: &[],
+                paper_id: None, run_id: None, report_id: None, mlflow_ref: None, paths: &[], created_by: "user",
+            },
+        )
+        .unwrap();
+        let a94 = add(&e, Kind::A, q_method, "Costa 型", None);
+        let q60 = add(&e, Kind::Q, a94, "下位の問い", None);
+        let a385 = add(&e, Kind::A, q60, "細かい手法", None);
+        let body = format!(
+            "## 解く問題（task）\n決定: 発作部位の特定\n## 対象（target）\n空欄\n## データ（data）\n空欄\n記載なし: 実測データを使わない\n## 手法（method）\n範囲: Costa 型を土台にする\nA: {}\n## 出力（output）\n空欄\n## 評価指標（metric）\n空欄\n",
+            fmt_id(Kind::A, a94)
+        );
+        let d = seed(&e, "自分の研究", &body);
+        let s = sprout(&e, Some(d), a385, "種");
+        add(&e, Kind::E, s, "実験", None);
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::S, s)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        let roles = format!("[新規: method={}（{} まで固定） / 記載なし: data / 実験: E 1 件]", fmt_id(Kind::A, a385), fmt_id(Kind::A, a94));
+        assert!(text.contains(&format!("- {} 種 {roles}", fmt_id(Kind::S, s))), "{text}");
+        let path = format!("[新規] PATH: {} 手法の問い > {} Costa 型 > {} 下位の問い > {} 細かい手法", fmt_id(Kind::Q, q_method), fmt_id(Kind::A, a94), fmt_id(Kind::Q, q60), fmt_id(Kind::A, a385));
+        assert!(text.contains(&path), "{text}");
+        assert!(text.contains(&format!("| method | 範囲 | Costa 型を土台にする | {} |", fmt_id(Kind::A, a94))), "{text}");
+        assert!(text.contains("| task | 決定 | 発作部位の特定 |  |"), "{text}");
+        assert!(text.contains("| data | 空欄（記載なし） | 実測データを使わない |  |"), "{text}");
+        // 対象が無いと木の全体。Q の行に [A n・深さ d]。
+        task(&e, 1, "sci_purpose: p\n");
+        let whole = build_with(&e, 100_000, false).unwrap();
+        assert!(whole.contains("手法の問い [A 1・深さ 1]"), "{whole}");
+        assert!(whole.contains("下位の問い [A 1・深さ 2]"), "{whole}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 }

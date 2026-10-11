@@ -12,6 +12,7 @@
 pub mod action;
 pub mod axes;
 pub mod card;
+pub mod compare;
 pub mod compute;
 pub mod context;
 pub mod defs;

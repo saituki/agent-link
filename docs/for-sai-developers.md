@@ -545,6 +545,7 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
   - 例: `{"a":"A385","axis":"method","role":"novel","fixed_at":"A94"}`
 
 **NextAction**（`status.next[]` / `node.next[]` の 1 件）: `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`・`card`（そのまま `card --from-json` に渡せる C-CARD の JSON \| null）。
+`why` の値: `NO_CHILD`（block `lab-grow`）・`TOO_FLAT`（block `lab-regroup`。直下の生きた A が 8 件以上の Q。閾値は `FLAT_MAX` = 7）・`BLANK_NO_PATH`（block `lab-grow`。空欄の軸（`novel`・`open`）の Q の下に、path に選べる A が無い。node は軸の Q、同じ軸の D は 1 件にまとめて `purpose` に並べる）・`NO_FINDING`（block `lab-search`）・`UNVERIFIED`（block `sci-verify`）。
 
 #### `node <ID> --json` → Node 1 つ
 
@@ -559,6 +560,8 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 | 直下 | `creator` | `{"by","run_id","block","owner","global_round","node","purpose","at"}` | この Node を作った人とその run（`by` が `user` のときは `run_id` が null） |
 | 直下 | `history[]` | `{"action","at","by","run_id","block","global_round","round","approved_by","qid","question"}` | この Node の履歴（先頭は必ず `init`。`at` は RFC3339 UTC） |
 | 直下 | `next[]` | NextAction の配列 | この Node の Next Action |
+| 直下 | `seed` | NodeRow（`axes` を持つ D）\| null | 対象が S のときの親の seed（D）。6 軸の状態（`axes`）は `status` と同じ |
+| 直下 | `chains` | `{"A12": [{"id","kind","text"}, …]}` | 対象が S のときの、path と seed の固定の A の道（一番上の Q から A まで）。キーは A の ID。他は `{}` |
 | 直下 | `searches[]` | `{"id","run","block","tool","query","hits","log_id","created_at"}` | この Node に結んだ検索の履歴（`log_id` は Library の検索結果へのリンク先） |
 | 直下 | `sources[]` | `{"cite","paper","title","section","passage"}` | `node.cites` ごとの出典（`passage` は先頭 200 字） |
 
@@ -613,7 +616,13 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 #### `status --brief [--limit N]`（C-NEXT）
 
 - `--limit` の既定は 10。`0` は全部。
-- `next` の並び: ★の A の NO_FINDING → Q の NO_CHILD → ★の無い A の NO_FINDING → UNVERIFIED。
+- `next` の並び: BLANK_NO_PATH と ★の A の NO_FINDING → Q の NO_CHILD と TOO_FLAT → ★の無い A の NO_FINDING → UNVERIFIED（同じ順の中は木の順）。
+
+#### `compare <S>… --json`（C-CMP-1）
+
+- S の ID を 2〜10 個受ける。1 個・11 個以上・S でない ID は終了コード 2。作る所は `crates/sai-sci-core/src/rt/compare.rs`。
+- 形: `{"axes": ["task","target","data","method","output","metric"], "sprouts": [{"id","title","seed","cells"}], "same": {"<軸>": true|false}}`。`cells` は軸の key ごとに `{"a","text","role","fixed_at","more"?}`。`role` は `fixed`・`novel`・`none`（記載なし。`text` は理由）・`open`（空欄）。1 つの軸に path が複数あるときは最初の 1 つを `a` に、残りを `more` に入れる（`more` は無いときは出さない）。
+- `same[<軸>]` は、全部の S でその軸の `a` が同じなら true。
 
 #### `card` の `--model`・`--thinking`・`--runner`（C-SCICARD）
 
