@@ -29,6 +29,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from urllib.parse import quote
 
 # import より前に一時フォルダを決める（config.DB_PATH は import 時に決まるため）
 _TMP = Path(tempfile.mkdtemp(prefix="sai-web-ts-gate-"))
@@ -43,7 +44,7 @@ from sai_web import auth, containers, store, ts_gate  # noqa: E402
 PROJECT = "saituki-west"
 OTHER = "saituki-east"
 HOST = "testserver"
-TOKEN_RE = re.compile(r"/p/saituki-west/#token=([A-Za-z0-9_-]{43})")
+TOKEN_RE = re.compile(r"/p/saituki-west/#token=([A-Za-z0-9_-]{43})(&.*)?")
 
 
 # --- 偽の sai-ts（HTTP/1.0・別スレッド） ---
@@ -186,6 +187,10 @@ def enter(project: str, ticket: str):
     return call("GET", f"/p/{project}/__gate/enter", query=f"ticket={ticket}")
 
 
+def enter_web(project: str, ticket: str, web: str):
+    return call("GET", f"/p/{project}/__gate/enter", query=f"ticket={ticket}&web={quote(web, safe='')}")
+
+
 def token_for(user: str) -> str:
     """入場券を出して enter し、合言葉を受け取る。"""
     status, _, headers = enter(PROJECT, ts_gate.issue_ticket(user, PROJECT))
@@ -311,6 +316,23 @@ def main() -> None:
 
     # 入場券の無い enter は 403
     assert call("GET", f"/p/{PROJECT}/__gate/enter")[0] == 403
+
+    # --- AC7: 断片に sai-web の origin（web）と project を入れる（G3-C3） ---
+    web_ok = "https://sai.example:8443"
+    status, _, headers = enter_web(PROJECT, ts_gate.issue_ticket("saituki", PROJECT), web_ok)
+    assert status == 303, (status, headers)
+    assert headers["location"].endswith(f"&web={quote(web_ok, safe='')}&project={PROJECT}"), headers["location"]
+    assert TOKEN_RE.fullmatch(headers["location"]), headers["location"]
+    # 形の違う web は捨てる（合言葉と project だけの断片になる）
+    for web in ("javascript:alert(1)", "https://a/b", "https://a?x", "https://a#x", "", "https://a b", "https://"):
+        status, _, headers = enter_web(PROJECT, ts_gate.issue_ticket("saituki", PROJECT), web)
+        assert status == 303, (web, status)
+        assert "&web=" not in headers["location"], (web, headers["location"])
+        assert headers["location"].endswith(f"&project={PROJECT}"), (web, headers["location"])
+    # 形の検査の関数そのもの
+    assert ts_gate.valid_web_origin("http://127.0.0.1:8200")
+    assert ts_gate.valid_web_origin("https://sai.example/")
+    assert not ts_gate.valid_web_origin(None)
 
     print("test_ts_gate: すべて通りました")
 

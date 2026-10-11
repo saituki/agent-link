@@ -105,6 +105,22 @@ def _valid(project: str) -> bool:
     return _PROJECT_RE.fullmatch(project) is not None
 
 
+def valid_web_origin(web) -> bool:
+    """sai-web の origin の形か（`http(s)://host[:port]` だけ・path・query・fragment は無い）。
+
+    `main.py`（`ts/open` の本文）と `enter`（入場券の住所）の両方で使う。通らなければ使わない。
+    """
+    if not isinstance(web, str) or not web.startswith(("http://", "https://")):
+        return False
+    if not web.isprintable() or any(c.isspace() for c in web):
+        return False
+    try:
+        parts = urlsplit(web)
+    except ValueError:
+        return False
+    return bool(parts.netloc) and parts.path in ("", "/") and not parts.query and not parts.fragment
+
+
 def _not_found() -> PlainTextResponse:
     return PlainTextResponse("見つかりません", status_code=404)
 
@@ -117,7 +133,7 @@ async def project_root(project: str):
 
 
 @app.get("/p/{project}/__gate/enter")
-async def enter(project: str, ticket: str = ""):
+async def enter(project: str, ticket: str = "", web: str = ""):
     if not _valid(project):
         return _not_found()
     user = _take_ticket(ticket, project)
@@ -130,8 +146,13 @@ async def enter(project: str, ticket: str = ""):
     token = secrets.token_urlsafe(32)
     with _LOCK:
         _TOKENS[_digest(token)] = {"user": user, "project": project}
-    # 合言葉は断片（#）に置く。断片はサーバに届かず、ログにも残らない
-    return RedirectResponse(f"/p/{project}/#token={token}", status_code=303, headers=_SECURE_HEADERS)
+    # 合言葉は断片（#）に置く。断片はサーバに届かず、ログにも残らない。
+    # sai-web の origin（「Chats で開く」の行き先）は形が正しいときだけ足す
+    frag = f"token={token}"
+    if valid_web_origin(web):
+        frag += f"&web={quote(web, safe='')}"
+    frag += f"&project={project}"
+    return RedirectResponse(f"/p/{project}/#{frag}", status_code=303, headers=_SECURE_HEADERS)
 
 
 def _user_of(request: Request, project: str) -> str:

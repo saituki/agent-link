@@ -21,14 +21,14 @@ const SE_OPS = {
   add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E",
   add_seed: "Create SEED", add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_stance: "Stance を変える",
-  edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える",
+  edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える", set_dataset: "データセットを変える",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
   add_q: "Q を足しました", add_a: "A を足しました", add_f: "F を足しました", add_e: "E を足しました",
   add_seed: "SEED を作りました", add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
   star: "★ を付けました", unstar: "★ を外しました", set_stance: "Stance を変えました",
-  edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました",
+  edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました", set_dataset: "データセットを変えました",
 };
 // 入力欄を出さずに送る op
 const SE_QUICK = ["star", "unstar", "set_stance"];
@@ -85,7 +85,7 @@ const SE_SEED_AXES = [
 ];
 const SE_SEED_PICKS = [["decided", "決定"], ["empty", "空欄"]];
 // 文字数の上限
-const SE_MAX = { qtext: 300, atext: 120, ftext: 1200, etext: 120, body: 2000, mlflow: 200, title: 120, purpose: 300, expect: 300 };
+const SE_MAX = { qtext: 300, atext: 120, ftext: 1200, etext: 120, body: 2000, mlflow: 200, dataset: 200, title: 120, purpose: 300, expect: 300 };
 
 // ============================================================================
 // DOM を使わない純関数（tests/test_sciedit.js）
@@ -203,11 +203,12 @@ function seBuildOp(kind, values) {
       return good(op);
     }
     case "add_e": {
-      const msg = first(id("parent", "SE", "親（S か E）"), len("text", "文", 1, SE_MAX.etext), len("body", "本文", 0, SE_MAX.body), len("mlflow", "MLflow の名前", 0, SE_MAX.mlflow));
+      const msg = first(id("parent", "SE", "親（S か E）"), len("text", "文", 1, SE_MAX.etext), len("body", "本文", 0, SE_MAX.body), len("mlflow", "MLflow の名前", 0, SE_MAX.mlflow), len("dataset", "データセット", 0, SE_MAX.dataset));
       if (msg) return bad(msg);
       const op = { op: name, parent: seTrim(v.parent), text: seTrim(v.text) };
       if (seTrim(v.body)) op.body = seTrim(v.body);
       if (seTrim(v.mlflow)) op.mlflow = seTrim(v.mlflow);
+      if (seTrim(v.dataset)) op.dataset = seTrim(v.dataset);
       return good(op);
     }
     case "add_seed": {
@@ -832,6 +833,7 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldText("text", "文", "", "必須・120 字まで"),
           seFieldArea("body", "本文", "", 4, "任意・2000 字まで"),
           seFieldText("mlflow", "MLflow の名前", "", "任意・200 字まで"),
+          seFieldText("dataset", "データセット", "", "任意・200 字まで（sai-ts のスナップショットは ts:<名前>@<sha256 の先頭 12 桁> の形）"),
         ],
       };
     case "insert_q":

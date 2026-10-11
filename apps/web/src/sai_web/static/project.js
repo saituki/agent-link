@@ -402,7 +402,11 @@ function prjContainerActions(p) {
 async function prjOpenTs(p) {
   const w = window.open("about:blank", "_blank"); // 押した直後に開く（後から開くと止められる）
   try {
-    const body = await saiApi(`/api/projects/${encodeURIComponent(p.name)}/ts/open`, { method: "POST" });
+    // 押した sai-web の origin を渡す（sai-ts の「Chats で開く」の行き先・G3-C3）
+    const body = await saiApi(`/api/projects/${encodeURIComponent(p.name)}/ts/open`, {
+      method: "POST",
+      body: { web: location.origin },
+    });
     if (w) { w.opener = null; w.location.href = body.url; } else { location.href = body.url; }
   } catch (e) {
     if (w) w.close();

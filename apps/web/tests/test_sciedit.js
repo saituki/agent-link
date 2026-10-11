@@ -83,6 +83,10 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("add_f", { parent: "A1", stance: "issue", text: "出典なしの文" })), { op: "add_f", parent: "A1", stance: "issue", text: "出典なしの文" });
   assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "E1", text: "実験", mlflow: "run-a" })), { op: "add_e", parent: "E1", text: "実験", mlflow: "run-a" });
   assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験" })), { op: "add_e", parent: "S2", text: "実験" });
+  // E のデータセット（任意・空は送らない）。sai-ts の値はそのまま通す（形は engine が見ない）
+  assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: " ts:hfo-r01-v1@0123456789ab " })), { op: "add_e", parent: "S2", text: "実験", dataset: "ts:hfo-r01-v1@0123456789ab" });
+  assert.deepStrictEqual(ok(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: "" })), { op: "add_e", parent: "S2", text: "実験" });
+  assert.strictEqual(seOpLabel("set_dataset"), "データセットを変える");
   // SEED は題だけで作れる（本文は任意）。SPROUT は 1 つの SEED と PATH の A で作る（Issue の検査は無い）
   assert.deepStrictEqual(ok(seBuildOp("add_seed", { title: "発作部位の特定" })), { op: "add_seed", title: "発作部位の特定" });
   assert.deepStrictEqual(ok(seBuildOp("add_seed", { title: "題", body: "## 背景\n空欄" })), { op: "add_seed", title: "題", body: "## 背景\n空欄" });
@@ -168,6 +172,7 @@ function test_ops_ng() {
   ng(seBuildOp("add_sprout", { seed: "D1", title: "題", body: "あ".repeat(2001), paths: ["A1"] }));
   ng(seBuildOp("insert_q", { q: "Q1", text: "あ".repeat(301) }));
   ng(seBuildOp("set_mlflow", { node: "E1", mlflow: "あ".repeat(201) }));
+  ng(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: "あ".repeat(201) }));
   // C-CITE
   ng(seBuildOp("add_f", { parent: "A2", stance: "support", text: "文", cites: ["37"] }));
   ng(seBuildOp("add_f", { parent: "A2", stance: "support", text: "文", cites: Array(11).fill("#37") }));
@@ -192,8 +197,10 @@ function test_unknown() {
 
 function test_tables() {
   const keys = Object.keys(SE_OPS).sort();
-  assert.strictEqual(keys.length, 15);
+  // 表の op は 16 種類（G3-C1 の set_dataset を足した）。完了の言葉も同じ集まり
+  assert.strictEqual(keys.length, 16);
   assert.deepStrictEqual(Object.keys(SE_DONE).sort(), keys);
+  assert.ok(keys.includes("set_dataset"));
   for (const q of SE_QUICK) assert.ok(keys.includes(q));
   assert.deepStrictEqual([...SE_QUICK].sort(), ["set_stance", "star", "unstar"]);
   assert.deepStrictEqual(SE_STANCES.map((x) => x[0]), ["support", "deny", "issue"]);

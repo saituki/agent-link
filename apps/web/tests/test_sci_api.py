@@ -99,10 +99,10 @@ def swap(order: list, replies: list | None = None):
     return paper, link, restore
 
 
-# C-OP の 15 op（C3 の表）の通る例
+# C-OP の 16 op（C3 の表と G3-C1 の set_dataset）の通る例
 C3_OPS = {
     "add_q", "insert_q", "move_a", "copy", "remove", "add_a", "add_f",
-    "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "star", "unstar", "edit",
+    "add_e", "add_seed", "add_sprout", "set_stance", "set_mlflow", "set_dataset", "star", "unstar", "edit",
 }
 OP_EXAMPLES = {
     "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
@@ -119,11 +119,12 @@ OP_EXAMPLES = {
         "paper": 37,
         "report": "R-0012",
     },
-    "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc"},
+    "add_e": {"parent": "E1", "text": "実験", "body": "b", "mlflow": "run/abc", "dataset": "ts:hfo-r01-v1@0123456789ab"},
     "add_seed": {"title": "発作部位の特定", "body": "## 背景\n術前の評価"},
     "add_sprout": {"seed": "D1", "title": "題", "body": "計画", "paths": ["A1", "A2"]},
     "set_stance": {"node": "F3", "stance": "deny"},
     "set_mlflow": {"node": "E1", "mlflow": "run/xyz"},
+    "set_dataset": {"node": "E1", "dataset": "ts:hfo-r01-v1@0123456789ab"},
     "star": {"node": "A2"},
     "unstar": {"node": "Q1"},
     "edit": {"node": "A2", "text": "直した", "body": ""},
@@ -152,9 +153,9 @@ def test_ids() -> None:
 
 
 def test_op_ok() -> None:
-    """15 op が通り、前後の空白は落ち、body は空のまま送れる。"""
+    """16 op が通り、前後の空白は落ち、body は空のまま送れる。"""
     assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) == C3_OPS, set(sci._OP_FIELDS) ^ C3_OPS
-    assert len(sci._OP_FIELDS) == 15
+    assert len(sci._OP_FIELDS) == 16
     for name, fields in OP_EXAMPLES.items():
         got = sci.validate_op({"op": name, **fields})
         for key, value in fields.items():
@@ -181,6 +182,11 @@ def test_op_ok() -> None:
     assert sci.validate_op({"op": "set_mlflow", "node": "E1", "mlflow": ""}) == {
         "op": "set_mlflow", "node": "E1", "mlflow": "",
     }
+    # set_dataset の空文字は「外す」の意味で通す。add_e の dataset は任意
+    assert sci.validate_op({"op": "set_dataset", "node": "E1", "dataset": ""}) == {
+        "op": "set_dataset", "node": "E1", "dataset": "",
+    }
+    assert sci.validate_op({"op": "add_e", "parent": "S2", "text": "x"}) == {"op": "add_e", "parent": "S2", "text": "x"}
     # add_f は stance が要る。cites・paper・report は任意
     assert sci.validate_op({"op": "add_f", "parent": "A1", "text": "x", "stance": "issue"}) == {
         "op": "add_f", "parent": "A1", "text": "x", "stance": "issue",
@@ -227,6 +233,10 @@ def test_op_ng() -> None:
     bad({"op": "set_mlflow", "node": "Q1", "mlflow": "x"}, "ID の形が正しくありません")
     bad({"op": "set_mlflow", "node": "E1"}, "mlflow がありません")
     bad({"op": "set_mlflow", "node": "E1", "mlflow": "あ" * 201})
+    bad({"op": "add_e", "parent": "E1", "text": "x", "dataset": "あ" * 201})
+    bad({"op": "set_dataset", "node": "Q1", "dataset": "x"}, "ID の形が正しくありません")
+    bad({"op": "set_dataset", "node": "E1"}, "dataset がありません")
+    bad({"op": "set_dataset", "node": "E1", "dataset": "あ" * 201})
     bad({"op": "add_seed"}, "title がありません")
     bad({"op": "add_seed", "title": "あ" * 121})
     bad({"op": "add_seed", "title": "題", "body": "あ" * 2001})

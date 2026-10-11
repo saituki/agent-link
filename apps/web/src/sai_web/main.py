@@ -53,6 +53,7 @@ from sai_web import (
 from sai_web.config import settings
 from sai_web.watch import watch_loop
 from pathlib import Path
+from urllib.parse import quote
 import asyncio
 
 logger = logging.getLogger("sai_web")
@@ -1142,18 +1143,27 @@ def api_project_container_action(
 
 
 @app.post("/api/projects/{name}/ts/open")
-def api_project_ts_open(name: str, _: None = Depends(require_token)) -> dict:
+def api_project_ts_open(
+    name: str, payload: dict | None = Body(default=None), _: None = Depends(require_token)
+) -> dict:
     """自分のプロジェクトの sai-ts を開く入場券つきの URL を返す（共有契約 C6・多人数モードだけ）。
 
+    本文の `web`（押した sai-web の origin・任意）は形を確かめてから URL に付ける（G3-C3）。
     券を出す前に sai-ts を起こす。起動の失敗はそのまま返し、画面のトーストに出す。
     """
     _require_multi()
+    web = (payload or {}).get("web")
+    if web is not None and not ts_gate.valid_web_origin(web):
+        raise HTTPException(status_code=400, detail="web の形が正しくありません")
     control.find_project(name)
     if not settings.ts_url:
         raise HTTPException(status_code=503, detail="時系列の入口が設定されていません")
     containers.ts_ensure(name)
     ticket = ts_gate.issue_ticket(_current_name(), name)
-    return {"url": f"{settings.ts_url}/p/{name}/__gate/enter?ticket={ticket}"}
+    url = f"{settings.ts_url}/p/{name}/__gate/enter?ticket={ticket}"
+    if web is not None:
+        url += f"&web={quote(web, safe='')}"
+    return {"url": url}
 
 
 # --- List 画面（計画 14 §3.3・`sai-link phone …` 経由） ---
