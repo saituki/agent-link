@@ -64,15 +64,15 @@ pub fn render_state_md(status: &Status) -> String {
     );
     out.push_str("<!-- このファイルは research-tree から書き出しています。直すときは Web か sai-sci を使います。 -->\n\n");
 
-    // SEED（RESEARCH_TYPE と mind.md の見出しの一覧）。
-    out.push_str("## SEED\n");
-    let type_name = status.seed.type_info.as_ref().map_or("なし", |t| t.name.as_str());
+    // PROJECT（RESEARCH_TYPE と mind.md の見出しの一覧）。
+    out.push_str("## PROJECT\n");
+    let type_name = status.project.type_info.as_ref().map_or("なし", |t| t.name.as_str());
     out.push_str(&format!("- RESEARCH_TYPE: {type_name}\n"));
-    for m in &status.seed.mind {
+    for m in &status.project.mind {
         out.push_str(&format!("- {}\n", m.heading));
     }
 
-    out.push_str("\n## SEED（D）\n");
+    out.push_str("\n## seed（D）\n");
     out.push_str(&seed_section(status));
 
     out.push_str("\n## SPROUT\n");
@@ -94,7 +94,7 @@ pub fn render_state_md(status: &Status) -> String {
     out
 }
 
-/// `## SEED（D）` の中身。1 行 1 つの D と、その下の SPROUT の ID。D が無ければ「なし」。
+/// `## seed（D）` の中身。1 行 1 つの D と、その下の SPROUT の ID。D が無ければ「なし」。
 fn seed_section(status: &Status) -> String {
     let seeds: Vec<&NodeJson> = status.nodes.iter().filter(|n| n.kind == "D").collect();
     if seeds.is_empty() {
@@ -169,7 +169,7 @@ pub fn render_tree_md(status: &Status) -> String {
         out.push_str(&node_line(n));
         out.push('\n');
     }
-    out.push_str("\n## SEED（D）\n");
+    out.push_str("\n## seed（D）\n");
     out.push_str(&seed_section(status));
     out.push_str("\n## SPROUT\n");
     let sprouts: Vec<&NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
@@ -277,9 +277,9 @@ mod tests {
         let state = render_state_md(&status);
         assert!(state.contains("## COUNTS") && !state.contains("PENDING"), "{state}");
         let parsed = crate::project_files::parse_state(&state);
-        // 目標の行は無くなり、代わりに SEED の節が出る。
+        // 目標の行は無くなり、代わりに PROJECT の節が出る。
         assert_eq!(parsed.goal, None);
-        assert!(state.contains("## SEED") && state.contains("- RESEARCH_TYPE: なし"), "{state}");
+        assert!(state.contains("## PROJECT") && state.contains("- RESEARCH_TYPE: なし"), "{state}");
         assert!(parsed.stage.is_some() && parsed.current_task.is_some());
         assert!(parsed.next_action.is_some() && parsed.updated.is_some());
 
@@ -302,11 +302,11 @@ mod tests {
         assert!(tree.contains(&format!("\n  - {} 一つ目（paths: ）", fmt_id(Kind::S, s2))), "{tree}");
         assert!(tree.contains(&format!("\n- {} 古い研究（paths: ）", fmt_id(Kind::S, old))), "{tree}");
         assert!(!tree.contains("[mlflow"), "{tree}");
-        assert!(tree.contains(&format!("\n## SEED（D）\n- {} 自分の研究（SPROUT: {}）\n- {} 空の研究（SPROUT: なし）\n", fmt_id(Kind::D, d1), fmt_id(Kind::S, s2), fmt_id(Kind::D, d3))), "{tree}");
+        assert!(tree.contains(&format!("\n## seed（D）\n- {} 自分の研究（SPROUT: {}）\n- {} 空の研究（SPROUT: なし）\n", fmt_id(Kind::D, d1), fmt_id(Kind::S, s2), fmt_id(Kind::D, d3))), "{tree}");
         assert!(tree.contains(&format!("## SPROUT\n- {} 一つ目（seed: {}・paths: ）\n- {} 古い研究（seed: なし・paths: ）\n", fmt_id(Kind::S, s2), fmt_id(Kind::D, d1), fmt_id(Kind::S, old))), "{tree}");
 
         let state = render_state_md(&status);
-        assert!(state.contains(&format!("## SEED（D）\n- {} 自分の研究（SPROUT: {}）\n", fmt_id(Kind::D, d1), fmt_id(Kind::S, s2))), "{state}");
+        assert!(state.contains(&format!("## seed（D）\n- {} 自分の研究（SPROUT: {}）\n", fmt_id(Kind::D, d1), fmt_id(Kind::S, s2))), "{state}");
         assert!(state.contains(&format!("- {} 一つ目（seed: {}・paths: ）\n", fmt_id(Kind::S, s2), fmt_id(Kind::D, d1))), "{state}");
         assert!(state.contains(&format!("- {} 古い研究（seed: なし・paths: ）\n", fmt_id(Kind::S, old))), "{state}");
         // 親の D の行は COUNTS に入らない（S は数える）。

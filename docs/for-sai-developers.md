@@ -467,7 +467,7 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 
 ### 2.4 sai-sci が出す JSON
 
-Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）・D（seed。研究ごとの制約）と、ID `SEED`（DB の行なし）。ID は `^(SEED|[QAFESD][1-9][0-9]{0,8})$`（例 `Q12`・`A5`・`F3`・`E2`・`S2`・`D1`）。
+Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）・D（seed。研究ごとの制約）の 6 種。ID は `^[QAFESD][1-9][0-9]{0,8}$`（例 `Q12`・`A5`・`F3`・`E2`・`S2`・`D1`）。根の `SEED` は廃止した（`node SEED` は終了コード 2 と案内の文）。軸の Q は親の無い Q（`sai-sci init` が作る。`add_q` の `parent` は Q か A だけ）。
 `status` と `node` の JSON は `sai-sci-core` の `Status` / `NodeDetail` を `serde_json::to_value` したもので、CLI は項目を足したり名前を変えたりしない。書き込む命令（`init`・`apply`・`op`・`card`）は、終わる前に `state.md` と `tree.md` を書き出す。Web は書き込みのあと画面を読み直す。
 
 #### `status --json` → research-tree 全体
@@ -479,14 +479,14 @@ Web の `sci.py` が検査してから呼ぶ。Node は Q（問い）・A（答�
 | 直下 | `type` | `{"id","name"}` \| null | 見出しの型の名前 | 型名が空欄 |
 | 直下 | `counts` | `{"q","a","f_support","f_deny","f_issue","e","s"}`（生きた Node の総数。F は stance ごと） | 「Q 3・A 2・F 4（S 1 / D 2 / I 1）・E 0・S 1」の行 | 0 に見える |
 | 直下 | `nodes[]` | 配列（深さ優先） | research-tree そのもの。research-tree の図もここから描く（図だけを返す命令は無い） | research-tree が描かれない |
-| 直下 | `seed` | `{"type","mind":[{"heading","body"}]}` | SEED（RESEARCH_TYPE と mind.md） | SEED が出ない |
+| 直下 | `project` | `{"type","mind":[{"heading","body"}]}` | 木の型と mind.md（RESEARCH_TYPE と mind.md）。D の seed とは別 | 型が出ない |
 | 直下 | `next[]` | NextAction の配列 | 「Next Action」の行と CARD 作成の種 | 出ない |
 | 直下 | `decisions[]` | `{"node","node_text","action","detail","actor","at","approved_by","qid","question"}` | 決定の記録（新しい順 30 件。画面は `history[]` を使う） | ― |
 | 直下 | `history[]` | `{"node","node_text","action","at","by","run_id","block","global_round","round","approved_by","qid","question"}` | 全 Node の History（`Add *` を除き古い順）。Research 画面の「History」 | History が出ない |
 | 直下 | `steps` | `{"total","list[]","nodes[]","removed[]"}`（下の「steps」） | 時系列。step を送って任意の時点の木を描き直す（Web の画面は U02） | 空（`total` 0。始めていないとき） |
-| 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行 | ― |
+| 直下 | `running[]` | `{"run_id","node","block","owner"}` | 動いている実行の行。木の全体を対象にした run は `node` が `null` | ― |
 | 直下 | `warnings[]` | 文字列 | そのまま見せる注意 | 注意が隠される |
-| ― | 始めていないとき | | `type`・`seed` は `null`、配列は空、数は 0 | ― |
+| ― | 始めていないとき | | `type`・`project` は `null`、配列は空、数は 0 | ― |
 
 `status --brief`（いつも JSON）は `{"type","counts","next","running","warnings"}` だけを返す。`next[]` の各行は `kind`・`node`・`option`・`block`・`purpose`・`expect`・`why`。
 
@@ -551,7 +551,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 
 | 項目 | 型 | 内容 |
 |---|---|---|
-| `node` | 文字列（`Q12` の形。Q・A・F・E・S・D、または `SEED`） | どの Node のためのカードか。**必須** |
+| `node` | 文字列（`Q12` の形。Q・A・F・E・S・D。空は木の全体。`SEED` は終了コード 2） | どの Node のためのカードか。node の型の block には**必須**（木の全体は manage と support の block だけ） |
 | `block` | 文字列（`^(lab\|sci)-[a-z-]{2,30}$`） | 動かす block（`lab-search`・`sci-verify` など）。**必須**（runner が `user` で空なら `lab-read`） |
 | `purpose` | 文字列（1〜300 字） | 依頼文。**必須** |
 | `expect` | 文字列（300 字まで） | 依頼文の「期待する成果」 |
@@ -579,6 +579,7 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - `apply --json`（標準入力 = op 1 件の JSON）→ `{"op","result"}`。`add_sprout` だけ `range` を持つ。利用者の op は、どの op も承認なしで行える。
   - `add_seed`（項目 `title` 必須・1〜120 字、`body` 任意・0〜2000 字）→ `result` は `D<n>`。許可は要らない。
   - `add_sprout` の項目 `seed` は必須で、生きた D の ID（親になる。1 つの D から複数の S を作れる）。`paths`（A の ID 1〜20 個）と `title` は従来どおり。
+  - `add_q` の項目 `parent` は生きた Q か A の ID だけ。`SEED`・空は終了コード 2（「軸の Q は sai-sci init が作ります」）。
 - `op [--run <id>] [--block <id>]`（標準入力 = `{"ops":[…]}`・1〜20 件。agent が使う。Web からは呼ばない）→ `{"results":[{"op","result"（`range` は `add_sprout` のとき）}…],"approval":null（承認を使ったときは `{"qid","answered_by"}`）}`。1 件でも弾かれたら何も書かず、標準エラーの最後の行に `<n> 件目（<op>）: <理由>`、終了コード 2。許可が要る op を含むのに許可が無いと終了コード 4。`--run` を省くと `SAI_PARENT_RUN_ID`、`--block` を省くと `SAI_BLOCK_NAME`。
 - `approval record --qid <qid> --question <文> --answer <文> --answered-by <名前> [--run <id>] --json`（質問フックが呼ぶ。agent は呼ばない。Web からは呼ばない）→ `{"approval":{"id","run_id","qid","consumable"}}`。`consumable` は回答を空白で切った値が `許可する` のとき true。同じ `qid` が既にあれば終了コード 4。`--run` も `SAI_PARENT_RUN_ID` も無ければ終了コード 2。
 - `find --json [--node <ID> [--subtree]] -- <語>` — `sai-paper find` と同じ形。`--node` は範囲だけ。`SAI_TARGET_NODE` があれば `rt_searches` にも 1 行残す。`search` は `SAI_TARGET_NODE` があれば記録を結ぶ（`--node` は無い）。
@@ -699,7 +700,7 @@ settings は 2 か所で書ける。**後者（`$SAI_HOME`）が前者（プロ�
 
 - キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
 - **予約キー** `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` / `SAI_IS_SUBTASK` / `SAI_TARGET_NODE` は書いても破棄される（sai-link 自身が必ず正しい値を入れるため）。
-- `SAI_TARGET_NODE`: Node を対象に動く Agent に sai-link が起動時に前置する。決め方は task.md の `sci_node`（`SEED` は付けない）→ task.md の `target_node` → 親の run を同じ規則でたどる。親から受け継いだときは子の task.md に `target_node` を書く（`target_node.rs`）。
+- `SAI_TARGET_NODE`: Node を対象に動く Agent に sai-link が起動時に前置する。決め方は task.md の `sci_node`（空・無しと古い `SEED` は対象の Node なし）→ task.md の `target_node` → 親の run を同じ規則でたどる。親から受け継いだときは子の task.md に `target_node` を書く（`target_node.rs`）。
 - 通らない項目は**エラーにせず、警告を 1 行出して破棄する**。
 - 並びは `SAI_*` → `env` → エージェントの実行ファイル。値は shell のシングルクォート 1 つで囲むので、`export` や連結の文字列を書く必要はない。
 - 実装は `pi_command::agent_env_pairs()` と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::defs::Defs;
 use super::store::{self, LogRow, NodeRow};
-use super::{Kind, Result, RtError, SEED_ID, action, fmt_id, ops, parse_id};
+use super::{Kind, Result, RtError, action, fmt_id, ops, parse_id};
 use sai_paper_core::paths::PaperRoots;
 use crate::runs::read_frontmatter;
 
@@ -171,9 +171,9 @@ pub struct TypeJson {
     pub name: String,
 }
 
-/// SEED（RESEARCH_TYPE と mind.md）の中身。
+/// 木の型と mind.md（RESEARCH_TYPE と mind.md の見出し）。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct SeedJson {
+pub struct ProjectJson {
     #[serde(rename = "type")]
     pub type_info: Option<TypeJson>,
     pub mind: Vec<MindSection>,
@@ -195,7 +195,8 @@ pub struct Status {
     pub type_info: Option<TypeJson>,
     pub counts: StatusCounts,
     pub nodes: Vec<NodeJson>,
-    pub seed: SeedJson,
+    /// 木の型と mind.md（`status --json` の `project`）。
+    pub project: ProjectJson,
     pub next: Vec<NextAction>,
     pub decisions: Vec<Decision>,
     /// 全 Node の History（`Add *` を除き、`at` の昇順）。
@@ -809,7 +810,7 @@ fn running_runs(roots: &PaperRoots) -> Vec<RunningJson> {
         .filter(|r| r.owner == "todo" || r.owner == "running")
         .map(|r| RunningJson {
             run_id: r.run_id,
-            node: if r.keys.seed { Some(SEED_ID.to_string()) } else { r.keys.node.map(|(k, id)| fmt_id(k, id)) },
+            node: r.keys.node.map(|(k, id)| fmt_id(k, id)),
             block: r.block,
             owner: r.owner,
         })
@@ -839,7 +840,7 @@ pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, lim
         type_info: None,
         counts: StatusCounts::default(),
         nodes: Vec::new(),
-        seed: SeedJson::default(),
+        project: ProjectJson::default(),
         next: Vec::new(),
         decisions: Vec::new(),
         history: Vec::new(),
@@ -862,7 +863,7 @@ pub fn status_with_limit(conn: &Connection, roots: &PaperRoots, defs: &Defs, lim
     }
     out.counts = tree.counts();
     out.nodes = tree.nodes.iter().map(|n| tree.row(n.id)).collect();
-    out.seed = SeedJson {
+    out.project = ProjectJson {
         type_info: out.type_info.clone(),
         mind: mind_sections(&roots.data_dir)
             .into_iter()
@@ -970,6 +971,9 @@ fn history_json(node: &NodeRow, num: i64, tree: &Tree, runs: &[action::SciRun]) 
 
 /// `node` の JSON。
 pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str) -> Result<NodeDetail> {
+    if super::is_retired_seed(id) {
+        return Err(RtError::Invalid(super::RETIRED_SEED_MSG.to_string()));
+    }
     let (kind, num) = parse_id(id)?;
     let tree = Tree::load(conn, roots, defs)?;
     let node = tree
@@ -1271,9 +1275,11 @@ mod tests {
         assert_eq!(v["counts"]["q"], 1);
         assert_eq!(v["counts"]["a"], 1);
         assert_eq!(v["counts"]["f_support"], 1);
-        for gone in ["progress", "pending_proposals"] {
+        for gone in ["progress", "pending_proposals", "seed"] {
             assert!(v.get(gone).is_none(), "{gone}");
         }
+        // 木の型と mind.md は `project`（D の seed と取り違えないよう名前を変えた）。
+        assert!(v["project"].get("type").is_some() && v["project"]["mind"].is_array(), "{v}");
         let nodes = v["nodes"].as_array().unwrap();
         let answer = nodes.iter().find(|n| n["kind"] == "A").unwrap();
         for gone in ["answer_kind", "objectivity", "logicality", "pending", "target"] {
@@ -1306,6 +1312,15 @@ mod tests {
         let t = tree(&e);
         assert_eq!(t.row(s).range, Some(range));
         assert_eq!(t.row(s).paths, vec![fmt_id(Kind::A, a1), fmt_id(Kind::A, a2)]);
+    }
+
+    /// 廃止した `SEED` は node_detail が終了コード 2 の型（Invalid）で断り、案内を返す。
+    #[test]
+    fn node_detail_rejects_retired_seed() {
+        let e = env("retired-seed");
+        q(&e, None, "根");
+        let err = node_detail(e.db.connection(), &e.roots, &Defs::default(), "SEED").unwrap_err();
+        assert!(matches!(err, RtError::Invalid(ref m) if m == super::super::RETIRED_SEED_MSG), "{err}");
     }
 
     #[test]

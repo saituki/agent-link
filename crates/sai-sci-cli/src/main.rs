@@ -58,7 +58,7 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// 現況（進み具合・SEED・research-tree・Next Action）を出す
+    /// 現況（進み具合・型・seed（D）・research-tree・Next Action）を出す
     Status {
         /// JSON で出力する
         #[arg(long)]
@@ -79,9 +79,9 @@ enum Cmd {
     /// RESEARCH_TYPE を利用者全体の置き場に保存する（標準入力に RESEARCH_TYPE の Markdown）
     #[command(name = "type-save")]
     TypeSave,
-    /// Node 1 つの詳細を出す
+    /// Node 1 つの詳細を出す（`--json` の最上位のキー: node・path・children・subtree・guide・decisions・actions・creator・next・searches・sources・history）
     Node {
-        /// Node の ID（`Q12`・`A5` など）
+        /// Node の ID（`Q12`・`A5`・`D3` など）
         node: String,
         /// JSON で出力する
         #[arg(long)]

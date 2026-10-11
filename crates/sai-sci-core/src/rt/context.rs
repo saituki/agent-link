@@ -13,7 +13,7 @@ use super::compute::Tree;
 use super::defs::Defs;
 use super::ops::{self, Field, Risk, Ty};
 use super::store::{self, NodeRow};
-use super::{Kind, Result, RtError, RtKeys, SEED_ID, action, fmt_id, task_keys};
+use super::{Kind, Result, RtError, RtKeys, action, fmt_id, task_keys};
 use sai_paper_core::paths::PaperRoots;
 
 const NO_TREE: &str = "\
@@ -21,7 +21,7 @@ const NO_TREE: &str = "\
 research-tree がまだありません。利用者に `sai-sci init --type <型>`（または Web の research-tree の画面の「始める」）を頼んでください。";
 
 /// 親の無い古い SPROUT（seed を持たない S）の `## STUDY_SEED`。
-const NO_SEED: &str = "（この SPROUT には SEED がありません）";
+const NO_SEED: &str = "（この SPROUT には seed（D）がありません）";
 
 /// run の task.md から `# context` の Markdown を作る。`reveal` が真なら blind（`sci_mode: blind_first`）でも research-tree を出す。
 ///
@@ -71,9 +71,9 @@ pub fn build(
 fn field_text(f: &Field) -> String {
     let note = match f.ty {
         Ty::Id if f.name == "q" => "Q の ID".to_string(),
-        Ty::Id if f.name == "seed" => "SEED（D）の ID".to_string(),
+        Ty::Id if f.name == "parent" => "Q か A の ID".to_string(),
+        Ty::Id if f.name == "seed" => "seed（D）の ID".to_string(),
         Ty::Id => "Node の ID".to_string(),
-        Ty::SeedOrId => "Node の ID か SEED".to_string(),
         Ty::Text(min, max) => format!("{min}〜{max} 字"),
         Ty::Int => "整数".to_string(),
         Ty::Enum(values) => values.join(" / "),
@@ -146,6 +146,8 @@ struct Parts {
     child: String,
     /// 対象が SPROUT のときの親の SEED（D）。`## STUDY_SEED` の中身（無ければ `None`）。
     study_seed: Option<String>,
+    /// 対象が木の全体のときの `## PROJECT`（型と対象。無ければ `None`）。
+    project: Option<String>,
 }
 
 struct GuideText {
@@ -232,8 +234,7 @@ impl Parts {
             .filter(|t| action::SCI_TYPES.contains(&t.as_str()))
             .unwrap_or_else(|| "node".to_string());
 
-        // 対象。`sci_node: SEED`、または `sci_node` が無いときは SEED（DB の行を持たない Node）。
-        let target_seed = keys.node.is_none();
+        // 対象。無いとき（`sci_node` が空・無し）は木の全体。
         let target: Option<&NodeRow> = match keys.node {
             Some((kind, id)) => Some(
                 tree.node(id)
@@ -266,7 +267,7 @@ impl Parts {
         }
         chain.reverse();
 
-        // TREE に入れる Node。SEED は全体、node は対象と子孫、manage は祖先も、support は無し。
+        // TREE に入れる Node。木の全体は全部、node は対象と子孫、manage は祖先も、support は無し。
         let mut in_scope: Vec<i64> = Vec::new();
         if !blind {
             match (target, sci_type.as_str()) {
@@ -289,23 +290,9 @@ impl Parts {
             .map(|n| tree.depth(n.id))
             .min()
             .unwrap_or(0);
-        // SEED を出すときは、top_Q を SEED の 1 段下に並べる。
-        let offset = usize::from(target_seed);
         let mut tree_lines: Vec<Line> = Vec::new();
-        if target_seed {
-            let text = format!("{} {}", SEED_ID, tree.type_name().unwrap_or_default());
-            let full = format!("- {text} ← TARGET");
-            tree_lines.push(Line {
-                kind: Kind::Q,
-                full: full.clone(),
-                first: full,
-                indent: 0,
-                body: None,
-                paths: Vec::new(),
-            });
-        }
         for n in tree.nodes().iter().filter(|n| set.contains(&n.id)) {
-            let mut line = node_line(tree, n, tree.depth(n.id) - base + offset);
+            let mut line = node_line(tree, n, tree.depth(n.id) - base);
             if Some(n.id) == target.map(|t| t.id) {
                 line.full.push_str(" ← TARGET");
                 line.first.push_str(" ← TARGET");
@@ -331,7 +318,7 @@ impl Parts {
         // blind・support は research-tree を出さないので、STUDY_SEED も出さない。
         let study_seed = if blind || sci_type == "support" { None } else { study_seed };
 
-        // GUIDE: 対象か一番近い祖先の Q。SEED のときは出さない。
+        // GUIDE: 対象か一番近い祖先の Q。木の全体のときは出さない。
         let guide = target.and_then(|t| {
             let guide_q = std::iter::once(t.id)
                 .chain(chain.iter().rev().copied())
@@ -405,8 +392,13 @@ impl Parts {
             }
         }
 
+        // 木の全体が対象のときは、TREE の前に型と対象を 1 節で出す（型の行は TREE に入れない）。
+        let project = (target.is_none() && !blind && sci_type != "support").then(|| {
+            format!("## PROJECT\n- 型: {}\n- 対象: 木の全体 ← TARGET", tree.type_name().unwrap_or_default())
+        });
         Ok(Parts {
             child: target.map_or_else(String::new, |_| keys.child.clone()),
+            project,
             tree: (!blind && sci_type != "support").then_some(tree_lines),
             study_seed,
             guide: if blind { None } else { guide },
@@ -421,6 +413,9 @@ impl Parts {
     fn render(&self, level: u8) -> String {
         let mut blocks: Vec<String> = Vec::new();
 
+        if let Some(project) = &self.project {
+            blocks.push(project.clone());
+        }
         if let Some(tree) = &self.tree {
             let mut lines = vec!["## TREE".to_string()];
             let mut hidden = 0;
@@ -629,7 +624,7 @@ mod tests {
     fn sprout_target_shows_paths() {
         let e = env("sprout");
         block(&e, "node");
-        // Q3 の下に A を 1 つ。SEED（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
+        // Q3 の下に A を 1 つ。seed（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
         let o = add(&e, Kind::A, 3, "課題", None);
         let d = seed(&e, "研究", "");
         let s = sprout(&e, Some(d), o, "種");
@@ -662,24 +657,25 @@ mod tests {
         let _ = fs::remove_dir_all(&e.dir);
     }
 
-    /// 対象が SEED（`sci_node: SEED` か `sci_node` 無し）のとき、TREE に SEED の行・すべての top_Q・S が入り、GUIDE は出ない。
+    /// 対象が木の全体（`sci_node` 無し・古い `sci_node: SEED`）のとき、## PROJECT と全部の Node（top_Q から並ぶ）が入り、GUIDE は出ない。
     #[test]
     fn seed_target_shows_whole_tree() {
         let e = env("seed");
         block(&e, "manage");
-        // Q3（background.problem）の下に A を 1 つ。SEED（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
+        // Q3（background.problem）の下に A を 1 つ。seed（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
         let o = add(&e, Kind::A, 3, "課題", None);
         let d = seed(&e, "研究", "");
         let s = sprout(&e, Some(d), o, "種");
         let ex = add(&e, Kind::E, s, "実験", None);
-        // `sci_node: SEED` を明示しても、無し（既定）でも同じ全体が出る。
+        // 古い `sci_node: SEED` でも、無し（既定）でも同じ全体が出る。SEED の行は出ない。
         for front in ["sci_node: SEED\nsci_purpose: p\n", "sci_purpose: p\n"] {
             task(&e, 1, front);
             let text = build_with(&e, 100_000, false).unwrap();
-            assert!(text.contains("- SEED PROBLEM_DRIVEN ← TARGET"), "{text}");
-            assert!(text.contains("\n  - Q1 "), "{text}");
-            assert!(text.contains("\n  - Q4 "), "{text}");
-            assert!(text.contains("\n  - Q6 "), "{text}");
+            assert!(text.contains("## PROJECT\n- 型: PROBLEM_DRIVEN\n- 対象: 木の全体 ← TARGET\n"), "{text}");
+            assert!(text.contains("## TREE\n- Q1 "), "{text}");
+            assert!(!text.contains("SEED PROBLEM"), "{text}");
+            // 軸の Q は親の無い行（字下げ 0）から並ぶ。
+            assert!(text.contains("\n- Q4 ") && text.contains("\n- Q6 "), "{text}");
             assert!(text.contains(&format!("- {} 種 [paths: A{o}]", fmt_id(Kind::S, s))), "{text}");
             assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
             assert!(!text.contains("## GUIDE"), "{text}");

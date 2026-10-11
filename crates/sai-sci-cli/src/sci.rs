@@ -30,7 +30,7 @@ pub(crate) enum Out {
 /// `card` の引数（CLI から）。
 #[derive(clap::Args, Debug)]
 pub(crate) struct SciCardArgs {
-    /// 対象の Node（Q・A・F・E・S・D・SEED。`Q12`）
+    /// 対象の Node（Q・A・F・E・S・D。`Q12`）。省くと木の全体
     #[arg(long)]
     pub node: Option<String>,
     /// 実行するブロックの id
@@ -74,10 +74,8 @@ pub(crate) struct SciCardArgs {
 impl SciCardArgs {
     /// 引数を core の [`card::CardSpec`]（C-CARD）にする。
     pub(crate) fn to_spec(&self) -> Result<card::CardSpec> {
+        // 省くと木の全体（`--node` は空）。廃止した SEED は core が断る。
         let node = self.node.as_deref().unwrap_or("").trim();
-        if node.is_empty() {
-            return Err(crate::cli_error::CliError::input("--node を指定してください").into());
-        }
         let purpose = self.purpose.as_deref().unwrap_or("").trim();
         if purpose.is_empty() {
             return Err(
@@ -725,7 +723,7 @@ pub(crate) fn set_fields(
 
 // ---- 人が読む文 -------------------------------------------------------------
 
-/// `sci status` の文（RESEARCH_TYPE・Node の数・SEED・research-tree・Next Action）。
+/// `sci status` の文（RESEARCH_TYPE・Node の数・seed（D）・research-tree・Next Action）。
 fn status_text(status: &compute::Status) -> String {
     if !status.initialized {
         let mut text = "research-tree がまだありません。`sai-sci init --type <型>` で始めてください。\n"
@@ -738,15 +736,14 @@ fn status_text(status: &compute::Status) -> String {
     let mut text = String::new();
     if let Some(found) = &status.type_info {
         text.push_str(&format!("RESEARCH_TYPE: {}\n", found.name));
-        text.push_str(&format!("SEED: {}\n", found.name));
     }
     text.push_str(&format!("木: {}\n", status.counts.line()));
     let seeds: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "D").collect();
     if seeds.is_empty() {
-        text.push_str("SEED（D）はまだありません\n");
+        text.push_str("seed（D）はまだありません\n");
     } else {
         let list = seeds.iter().map(|n| format!("{} {}", n.id, one_line(&n.text))).collect::<Vec<_>>().join(" / ");
-        text.push_str(&format!("SEED（D）: {list}\n"));
+        text.push_str(&format!("seed（D）: {list}\n"));
     }
     let sprouts: Vec<&compute::NodeJson> = status.nodes.iter().filter(|n| n.kind == "S").collect();
     if sprouts.is_empty() {
@@ -987,7 +984,7 @@ mod tests {
 
         let text = status_text(&status);
         assert!(text.contains("RESEARCH_TYPE: "), "{text}");
-        assert!(text.contains("SEED: "), "{text}");
+        assert!(text.contains("seed（D）はまだありません"), "{text}");
         assert!(text.contains("木: Q "), "{text}");
         assert!(text.contains("- Q1 "), "{text}");
         assert!(!text.contains("Objectivity"), "{text}");
@@ -1015,7 +1012,7 @@ mod tests {
         }
     }
 
-    /// seed（D）は `SEED（D）:` の 1 行にまとめ、SPROUT の行には親の seed を付ける。親の無い古い SPROUT は `seed: なし`。
+    /// seed（D）は `seed（D）:` の 1 行にまとめ、SPROUT の行には親の seed を付ける。親の無い古い SPROUT は `seed: なし`。
     #[test]
     fn status_text_shows_seed_and_sprout_parent() {
         let (root, env) = project_with_tree("seed-text");
@@ -1026,7 +1023,7 @@ mod tests {
 
         let text = status_text(&status);
         let (d, s, old) = (rt::fmt_id(rt::Kind::D, d), rt::fmt_id(rt::Kind::S, s), rt::fmt_id(rt::Kind::S, old));
-        assert!(text.contains(&format!("SEED（D）: {d} 自分の研究\n")), "{text}");
+        assert!(text.contains(&format!("seed（D）: {d} 自分の研究\n")), "{text}");
         assert!(text.contains(&format!("SPROUT: {s} 一つ目（seed: {d}）、{old} 古い研究（seed: なし）\n")), "{text}");
         let _ = std::fs::remove_dir_all(root);
     }
