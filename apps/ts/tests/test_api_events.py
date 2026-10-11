@@ -103,6 +103,21 @@ class ApiEventsTest(TempProject, unittest.TestCase):
         self.assertIn("\tburst\tch01\tr01\t前頭部\thuman\t", r.text)
         self.assertEqual(self.c.get("/api/datasets/nope/events.tsv").status_code, 404)
 
+    def test_channels_get_put(self):  # AC2
+        self.assertEqual(self.c.get("/api/datasets/demo/channels").json(), {"version": 1, "channels": []})
+        ok = {"version": 1, "channels": [{"name": "ch02", "label": "Cz", "color": "#7dd3fc", "gain": 2}]}
+        r = self.c.put("/api/datasets/demo/channels", json=ok)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["channels"][0], {"name": "ch02", "label": "Cz", "color": "#7dd3fc", "gain": 2})
+        self.assertEqual(self.c.get("/api/datasets/demo/channels").json(), r.json())
+
+        r = self.c.put("/api/datasets/demo/channels", json={"channels": [{"name": "ch01", "gain": 0}]})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("gain", r.json()["detail"])
+        self.assertEqual(self.c.get("/api/datasets/demo/channels").json(), {"version": 1, "channels": ok["channels"]})
+        self.assertEqual(self.c.put("/api/datasets/nope/channels", json=ok).status_code, 404)
+        self.assertEqual(self.c.get("/api/datasets/nope/channels").status_code, 404)
+
     def test_view_get_put(self):
         self.assertEqual(self.c.get("/api/view").json(), {})
         r = self.c.put("/api/view", json={"dataset": "demo", "record": "r01", "t0": 1.0, "t1": 2.0})

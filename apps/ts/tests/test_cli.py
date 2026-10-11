@@ -41,7 +41,8 @@ SCHEMA = {"categories": [{"name": "burst", "color": "#d9534f", "visible": True, 
 COMMANDS = [
     ["serve"], ["init"], ["demo"], ["datasets"], ["meta"],
     ["events", "list"], ["events", "add"], ["events", "update"], ["events", "rm"], ["events", "export"],
-    ["schema", "get"], ["schema", "set"], ["view"], ["view", "set"], ["run"], ["ext", "list"],
+    ["schema", "get"], ["schema", "set"], ["channels", "get"], ["channels", "set"],
+    ["view"], ["view", "set"], ["run"], ["ext", "list"],
 ]
 
 
@@ -146,6 +147,26 @@ class CliTest(unittest.TestCase):
             p = self.sai("run", "burst", "--dataset", "demo", "--params", bad)
             self.assertEqual(p.returncode, 2, bad)
             self.assertEqual(p.stdout, "")
+
+    def test_channels_get_set(self):  # AC3
+        self.make_demo()
+        self.assertEqual(self.ok_json("channels", "get", "demo"), {"version": 1, "channels": []})
+        body = json.dumps({"channels": [{"name": "ch02", "gain": 2}, {"name": "ch01", "label": "Fp1"}]})
+        res = self.ok_json("channels", "set", "demo", stdin=body)
+        self.assertEqual([c["name"] for c in res["channels"]], ["ch02", "ch01"])
+        self.assertEqual(self.ok_json("channels", "get", "demo")["channels"][0]["gain"], 2)
+
+        p = self.sai("channels", "get", "demo")  # --json 無しは JSON を整形して出す
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), res)
+
+        for stdin, code in [('{"channels": [{"name": "ch01", "gain": 0}]}', 2), ("not json", 2)]:
+            p = self.sai("channels", "set", "demo", stdin=stdin)
+            self.assertEqual(p.returncode, code, p.stderr)
+            self.assertEqual(p.stdout, "")
+            self.assertRegex(p.stderr.strip().splitlines()[-1], JA)
+        p = self.sai("channels", "get", "nosuch", "--json")
+        self.assertEqual((p.returncode, p.stdout), (3, ""))
 
     def test_help_is_japanese(self):  # AC4
         for args in [["--help"]] + [c + ["--help"] for c in COMMANDS]:

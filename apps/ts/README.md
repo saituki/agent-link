@@ -55,7 +55,8 @@ apps/ts/bin/sai-ts serve       # http://127.0.0.1:8210/ を開く
 | `sai-ts events update <ds> <id>` | 標準入力に変える項目の JSON |
 | `sai-ts events rm <ds> <id>` | イベントを消す |
 | `sai-ts events export <ds>` | BIDS 互換の TSV（`--json` なら `{"tsv": "…"}`） |
-| `sai-ts schema get <ds>` / `sai-ts schema set <ds>` | スキーマを読む・置き換える（標準入力に全体） |
+| `sai-ts schema get <ds>` / `sai-ts schema set <ds>` | スキーマを読む・置き換える（標準入力に全体）。カテゴリに `type`（`area`／`line`）・`ch`（`single`／`all`）を書くと、イベントの追加・変更で検査する |
+| `sai-ts channels get <ds>` / `sai-ts channels set <ds>` | ch 設定（`channels.json`：並び・label・色・倍率・スペクトル）を読む・置き換える（標準入力に全体） |
 | `sai-ts view [--json]` / `sai-ts view set` | 画面の状態を読む・一部を書く（標準入力に一部。`updated_by` は agent） |
 | `sai-ts run <script> --dataset <ds> [--record R]... [--params JSON] [--timeout SEC]` | スクリプトを動かす |
 | `sai-ts ext list` | 拡張の一覧（有効・読めない理由） |

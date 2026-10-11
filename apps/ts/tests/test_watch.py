@@ -47,6 +47,11 @@ class WatchTest(TempProject, unittest.TestCase):
             f.write('{"op":"del"}\n')
         self.assertEqual(watch.diff(s0, watch.snapshot()), [{"kind": "events", "dataset": "demo"}])
 
+    def test_channels_change(self):  # AC4
+        s0 = watch.snapshot()
+        (self.tmp / "ts" / "datasets" / "demo" / "channels.json").write_text('{"version": 1, "channels": []}', encoding="utf-8")
+        self.assertEqual(watch.diff(s0, watch.snapshot()), [{"kind": "channels", "dataset": "demo"}])
+
     def test_vars_meta_change(self):
         demo.make(self.tmp / "ts" / "datasets" / "demo2", records=1, nvars=1, seconds=1.0)
         s0 = watch.snapshot()

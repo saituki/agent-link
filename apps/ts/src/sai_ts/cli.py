@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Callable
 
-from . import dataset, demo, events, linkcli, paths, scripts, sdk, view
+from . import channels, dataset, demo, events, linkcli, paths, scripts, sdk, view
 from . import ext as ext_mod, init as init_mod
 
 _HEADINGS = {"positional arguments": "位置引数", "options": "オプション"}
@@ -192,6 +192,14 @@ def _cmd_schema_set(a):
     return events.save_schema(a.ds, _stdin_json()), None
 
 
+def _cmd_channels_get(a):
+    return channels.load_channels(a.ds), None
+
+
+def _cmd_channels_set(a):
+    return channels.save_channels(a.ds, _stdin_json()), None
+
+
 def _cmd_view(a):
     return view.load_view(), None
 
@@ -283,6 +291,16 @@ def _build() -> argparse.ArgumentParser:
     sp = _new(scs, "set", "スキーマを置き換える（標準入力に全体の JSON）")
     sp.add_argument("ds")
     sp.set_defaults(func=_run(_cmd_schema_set))
+
+    chn = _new(subs, "channels", "ch 設定（並び・label・色・倍率・スペクトル）を読む・書く", json_flag=False)
+    chns = chn.add_subparsers(dest="action", required=True, title="命令", metavar="<命令>", help="次のどれか")
+    sp = _new(chns, "get", "ch 設定を出す")
+    sp.add_argument("ds")
+    sp.set_defaults(func=_run(_cmd_channels_get))
+
+    sp = _new(chns, "set", "ch 設定を置き換える（標準入力に全体の JSON）")
+    sp.add_argument("ds")
+    sp.set_defaults(func=_run(_cmd_channels_set))
 
     vw = _new(subs, "view", "画面の状態（view.json）を出す。view set で一部を書く")
     vw.set_defaults(func=_run(_cmd_view))
