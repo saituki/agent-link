@@ -334,6 +334,10 @@ function sgTreeLayout(input, opts) {
     const p = visParent(n);
     if (p != null && pos.has(p)) edges.push({ from: p, to: String(n.id), kind: "tree" });
   }
+  // seed（D）から ROOT の top_Q への線。選んだ sprout の seed の 1 本だけ出す（sgMarkSelected が他を隠す）
+  for (const d of roots.filter((n) => n.kind === "D")) {
+    for (const r of rootRoots) edges.push({ from: String(d.id), to: String(r.id), kind: "tree", seed: true });
+  }
 
   const width = cards.reduce((m, c) => Math.max(m, c.x + c.w), 0);
   const minX = cards.reduce((m, c) => Math.min(m, c.x), 0);
@@ -390,16 +394,21 @@ function sgIsUnder(byId, n, top) {
 }
 
 /**
- * SPROUT（kind S）か seed（D）を選んだときに濃く残す ID の Set。それ以外は null。
- * 残すのは、その S（D なら D と子の S）自身・その下の E と F（BRANCH）・paths の終点の A から top_Q までの Q・A（PATH）。
+ * SPROUT（kind S）を選んだときに濃く残す ID の Set。それ以外（D を含む）は null（薄くしない）。
+ * 残すのは、その S 自身・親の seed（D）・その下の E と F（BRANCH）・paths の終点の A から top_Q までの Q・A（PATH）。
  */
 function sgSproutKeep(status, id) {
   const want = id == null ? "" : String(id);
   const all = (status && Array.isArray(status.nodes) ? status.nodes : []).filter((n) => n && n.id);
   const byId = new Map(all.map((n) => [String(n.id), n]));
   const sprout = byId.get(want);
-  if (!sprout || (sprout.kind !== "S" && sprout.kind !== "D")) return null;
+  if (!sprout || sprout.kind !== "S") return null;
   const keep = new Set([want]);
+  // S の親の seed（D）も濃く残す
+  if (sprout.parent != null) {
+    const par = byId.get(String(sprout.parent));
+    if (par && par.kind === "D") keep.add(String(par.id));
+  }
   // BRANCH: want の下の Node（S の下の E・F。D なら子の S とその下）
   for (const n of all) {
     if (sgIsUnder(byId, n, want)) keep.add(String(n.id));
@@ -696,6 +705,7 @@ function sgDraw(anchorId) {
       "data-from": e.from,
       "data-to": e.to,
     });
+    if (e.seed) path.setAttribute("data-seed", "1");
     path.style.strokeWidth = "min(calc(1.6px * var(--sg-z-inv, 1)), 10px)";
     if (st.dash) path.setAttribute("stroke-dasharray", st.dash);
     svg.appendChild(path);
@@ -770,7 +780,9 @@ function sgMarkSelected(id) {
   for (const el of sgWorld.querySelectorAll(".sci-graph-edge[data-from]")) {
     const from = el.getAttribute("data-from");
     const to = el.getAttribute("data-to");
-    el.classList.toggle("sci-graph-faded", !!keep && !(keep.has(from) && keep.has(to)));
+    const both = !!keep && keep.has(from) && keep.has(to);
+    el.classList.toggle("sci-graph-faded", !!keep && !both);
+    if (el.hasAttribute("data-seed")) el.style.display = both ? "" : "none";
   }
   sgFillLegendRoles(!!roles);
 }

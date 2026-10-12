@@ -354,6 +354,12 @@ function testSeedLayer() {
   assert.ok(hasEdge(l, "D1", "S1", "tree"));
   assert.ok(hasEdge(l, "D1", "S2", "tree"));
   assert.ok(hasEdge(l, "D2", "S3", "tree"));
+  // D から ROOT の top_Q（Q0）へも線を引く
+  assert.ok(hasEdge(l, "D1", "Q0", "tree"));
+  assert.ok(hasEdge(l, "D2", "Q0", "tree"));
+  // S を選ぶと、親の D も濃く残す
+  assert.ok(sgSproutKeep(seedStatus(), "S1").has("D1"), "S1 を選ぶと D1 を残す");
+  assert.ok(!sgSproutKeep(seedStatus(), "S1").has("D2"), "別の D は薄いまま");
   assert.ok(l.edges.every((e) => e.kind === "tree"), JSON.stringify(l.edges));
   // 古い S（親が無い）は D の並びの左端に、y = -STEP で置く。親の線は無い
   assert.strictEqual(byId(l, "S4").y, -SG_TREE_STEP);
@@ -434,11 +440,9 @@ function testUpdateWithoutGraph() {
 }
 
 function testSeedKeep() {
-  // D1 を選ぶと、D1 と子の S（S1・S2）とその下の E1 が残る。D2 の下の S3 と古い S4 は残らない
-  const keep = sgSproutKeep(seedStatus(), "D1");
-  assert.deepStrictEqual([...keep].sort(), ["D1", "E1", "S1", "S2"]);
-  assert.ok(!keep.has("S3") && !keep.has("S4") && !keep.has("SEED"));
-  // D でも S でもない ID は null
+  // D を選んでも他の札を薄くしない（null）
+  assert.strictEqual(sgSproutKeep(seedStatus(), "D1"), null);
+  // S でない ID は null
   assert.strictEqual(sgSproutKeep(seedStatus(), "Q1"), null);
 }
 
