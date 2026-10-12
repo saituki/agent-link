@@ -117,7 +117,7 @@
 // seed の問いと sprout の回答（U02・v121。index.html の ?v= も 121。ASSETS は変えない）
 // seed と SPROUT の並びを ROOT の真ん中に寄せた（scigraph.js・v122。index.html の ?v= も 122。ASSETS は変えない）
 // seed を S の選択で濃く残し、seed から top_Q へ線を引いた（scigraph.js・v123。index.html の ?v= も 123。ASSETS は変えない）
-const CACHE = "sai-web-v125";
+const CACHE = "sai-web-v126";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
