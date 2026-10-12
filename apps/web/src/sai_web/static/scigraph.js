@@ -273,11 +273,12 @@ function sgTreeLayout(input, opts) {
     cards.push(sgNodeCard(n, x, y, fCount.get(id) || 0, collapseMark.get(id) || 0, (descCount.get(id) || 0) > 0));
     return x;
   };
-  // D（seed）は ROOT に入れない。seed の層（y = 0）に、ROOT の右端の右から横に並べる
+  // D（seed）は ROOT に入れない。seed の層（y = 0）と SPROUT は、あとで ROOT の真ん中に寄せる
   const rootRoots = roots.filter((n) => n.kind !== "S" && n.kind !== "D");
   for (const r of rootRoots) placeDown(r, 0, new Set());
   const rootSpan = spanOf([...pos.keys()]);
-  const rowLeft = rootSpan ? rootSpan.max + slotW : 0;
+  const rootCount = cards.length;
+  const rowLeft = 0; // 仮の左端。最後に ROOT の真ん中へ寄せる
 
   // BRANCH: SPROUT を row 0（y = -STEP）にして上へ。葉を左から詰め、親は子の真ん中
   let bslot = 0;
@@ -324,6 +325,9 @@ function sgTreeLayout(input, opts) {
     cards.push(sgNodeCard(d, x, 0, 0, collapseMark.get(id) || 0, (descCount.get(id) || 0) > 0, sproutN));
     boxLeft += boxW + slotW;
   }
+  // seed の層と SPROUT の全体を、ROOT（top_Q）の真ん中に揃える
+  const upperSpan = spanOf(cards.slice(rootCount).map((c) => String(c.id)));
+  if (rootSpan && upperSpan) shiftFrom(rootCount, (rootSpan.min + rootSpan.max) / 2 - (upperSpan.min + upperSpan.max) / 2);
 
   const edges = [];
   for (const n of shown) {

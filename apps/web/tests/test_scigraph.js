@@ -306,7 +306,7 @@ function testCenterView() {
   assert.strictEqual(v.ty, 128);
 }
 
-// --- seed（D）の層: ROOT の右端の右に D を並べ、D の子の S をその真上に置く ---
+// --- seed（D）の層: D を並べ、D の子の S をその真上に置く。D と S の全体は ROOT の真ん中に揃える ---
 
 function seedStatus() {
   return {
@@ -328,12 +328,15 @@ function seedStatus() {
 
 function testSeedLayer() {
   const l = sgTreeLayout({ status: seedStatus() }, {});
-  // D は y = 0。ROOT の右端の右から順に並ぶ（ROOT は y > 0 の札）
+  // D は y = 0。左から順に並ぶ（ROOT は y > 0 の札）
   assert.strictEqual(byId(l, "D1").kind, "D");
   assert.strictEqual(byId(l, "D1").y, 0);
   assert.strictEqual(byId(l, "D2").y, 0);
-  const rootRight = Math.max(...l.cards.filter((c) => c.y > 0).map((c) => c.x + c.w));
-  assert.ok(byId(l, "D1").x >= rootRight + SG_CARD_W + SG_TREE_GAP, "D1 は ROOT の右");
+  const rootCards = l.cards.filter((c) => c.y > 0);
+  const rootMid = (Math.min(...rootCards.map((c) => c.x)) + Math.max(...rootCards.map((c) => c.x + c.w))) / 2;
+  const upper = l.cards.filter((c) => c.y <= 0);
+  const upperMid = (Math.min(...upper.map((c) => c.x)) + Math.max(...upper.map((c) => c.x + c.w))) / 2;
+  assert.strictEqual(upperMid, rootMid, "seed と SPROUT の全体は ROOT の真ん中");
   assert.ok(byId(l, "D1").x < byId(l, "D2").x, "D1 < D2");
   // D の子の S は D の真上（-STEP）、その下の E は -2×STEP
   assert.strictEqual(byId(l, "S1").y, -SG_TREE_STEP);
@@ -354,7 +357,7 @@ function testSeedLayer() {
   assert.ok(l.edges.every((e) => e.kind === "tree"), JSON.stringify(l.edges));
   // 古い S（親が無い）は D の並びの左端に、y = -STEP で置く。親の線は無い
   assert.strictEqual(byId(l, "S4").y, -SG_TREE_STEP);
-  assert.strictEqual(byId(l, "S4").x, rootRight + SG_CARD_W + SG_TREE_GAP);
+  assert.ok(byId(l, "S4").x < byId(l, "D1").x, "S4 は D の並びの左");
   assert.ok(byId(l, "D1").x >= byId(l, "S4").x + SG_CARD_W + SG_TREE_GAP, "D1 は古い S の右");
   assert.ok(!l.edges.some((e) => e.to === "S4"), JSON.stringify(l.edges));
   // 札が重ならない（古い S・D・その子の S と E）
