@@ -117,6 +117,7 @@ sai-ts snapshot link <name> --node S3|E12 [--text T]
 - `sdk.ensure_category(name, cat, color, type=None, ch=None)`（`color` は `#RRGGBB`。`type` は `line`・`area`。`ch` は `single`・`all`）
 - `sdk.ensure_metrics(name, defs)`
 - `sdk.update_metrics(name, {id: {メトリクス: 値}}) -> int`（既存の指標に重ねる。件数を返す）
+- `sdk.delete_events(name, ids) -> int`（まとめて消す。1 件でも無い ID があれば何も消さない。やり直しで前の結果を置き換えるときに使う）
 
 イベントの追加は、カテゴリが `schema` に無いと 2（登録のないカテゴリ）で止まる。先に `sdk.ensure_category` か `sai-ts schema set` で足す。
 

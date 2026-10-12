@@ -302,6 +302,20 @@ def delete_event(ds: str, id: str, source: str) -> dict:
     return row
 
 
+def delete_events(ds: str, ids: list[str], source: str) -> list[dict]:
+    """まとめて消す。1 回のロックの中で行い、1 件でも無い ID があれば何も書かない（KeyError）。返り値は書いた del の行。"""
+    _check_source(source)
+    if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
+        raise ValueError("ids は文字列の配列にしてください")
+    with _journal(ds) as (state, append):
+        rows = [{"op": "del", "id": id, "rev": _live(state, id)["rev"] + 1,
+                 "source": source, "created_at": now()}
+                for id in dict.fromkeys(ids)]  # 同じ ID が重なっても 1 件
+        if rows:
+            append(rows)
+    return rows
+
+
 # --- スキーマ（C4） ---
 
 def load_schema(ds: str) -> dict:

@@ -287,6 +287,33 @@ class EventsTest(TempProject, unittest.TestCase):
             events.update_events(self.ds, {a["id"]: {"text": "C"}, "e-000000000000": {"text": "D"}}, SRC)
         self.assertEqual(sorted(e["text"] for e in events.list_events(self.ds)), ["A", "B"])
 
+    def test_delete_events_removes_many_at_once(self):  # AC1
+        a, b, c = events.add_events(self.ds, [area(), line(), line(t=4.0)], SRC)
+        rows = events.delete_events(self.ds, [a["id"], b["id"], b["id"]], "agent")  # 同じ ID は 1 件
+        self.assertEqual([(r["op"], r["id"], r["source"]) for r in rows],
+                         [("del", a["id"], "agent"), ("del", b["id"], "agent")])
+        self.assertEqual([e["id"] for e in events.list_events(self.ds)], [c["id"]])
+        raw = (self.tmp / "ts/datasets/demo/events.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(raw), 5)  # put 3 件 + del 2 件
+        self.assertEqual([json.loads(x)["op"] for x in raw[-2:]], ["del", "del"])
+        self.assertEqual(events.delete_events(self.ds, [], SRC), [])
+        self.assertEqual(len((self.tmp / "ts/datasets/demo/events.jsonl").read_text(encoding="utf-8").splitlines()), 5)
+
+    def test_delete_events_missing_id_writes_nothing(self):  # AC2
+        a = events.add_event(self.ds, area(), SRC)
+        b = events.add_event(self.ds, line(), SRC)
+        path = self.tmp / "ts/datasets/demo/events.jsonl"
+        before = path.read_bytes()
+        with self.assertRaises(KeyError):
+            events.delete_events(self.ds, [a["id"], "e-000000000000"], SRC)
+        self.assertEqual(path.read_bytes(), before)
+        events.delete_event(self.ds, b["id"], SRC)
+        with self.assertRaises(KeyError):  # 消えた ID も無いものとして扱う
+            events.delete_events(self.ds, [a["id"], b["id"]], SRC)
+        self.assertEqual([e["id"] for e in events.list_events(self.ds)], [a["id"]])
+        with self.assertRaises(ValueError):
+            events.delete_events(self.ds, "e-x", SRC)
+
     def test_missing_dataset_is_key_error(self):
         with self.assertRaises(KeyError):
             events.list_events("nope")
