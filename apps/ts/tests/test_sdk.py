@@ -101,6 +101,16 @@ class SdkTest(unittest.TestCase):
             sdk.update_metrics("demo", {a["id"]: {"dur": "x"}})
         self.assertEqual(events.list_events("demo")[0]["metrics"]["dur"], 0.042)
 
+    def test_delete_events_returns_count_and_source(self):  # AC3
+        evs = sdk.add_events("demo", [{"type": "line", "record": "r01", "vars": [], "t": t, "category": "burst",
+                                       "text": "", "metrics": {}} for t in (0.1, 0.5, 0.9)])
+        os.environ["SAI_TS_SOURCE"] = "script:x@0a1b2c3d"
+        self.assertEqual(sdk.delete_events("demo", [evs[0]["id"], evs[1]["id"]]), 2)
+        self.assertEqual([e["id"] for e in sdk.events("demo")], [evs[2]["id"]])
+        raw = (self.tmp / "ts/datasets/demo/events.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual([(json.loads(x)["op"], json.loads(x)["source"]) for x in raw[-2:]],
+                         [("del", "script:x@0a1b2c3d"), ("del", "script:x@0a1b2c3d")])
+
     def test_target_from_env(self):
         self.assertEqual(sdk.target(), {})
         os.environ["SAI_TS_TARGET"] = '{"vars": ["ch01"], "events": []}'

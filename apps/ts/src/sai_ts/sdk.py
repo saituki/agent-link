@@ -108,6 +108,11 @@ def update_metrics(name: str, values: dict[str, dict]) -> int:
     return len(_ev.update_events(name, patches, source=_source()))
 
 
+def delete_events(name: str, ids: list[str]) -> int:
+    """イベントをまとめて消す。消した件数を返す。source は sdk.add_events と同じ決まり。"""
+    return len(_ev.delete_events(name, ids, source=_source()))
+
+
 def view() -> dict:
     return _view.load_view()
 

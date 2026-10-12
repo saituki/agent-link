@@ -136,7 +136,7 @@ apps/ts/bin/sai-ts run burst --dataset demo --json
 ### sdk（`from sai_ts import sdk`）
 
 - 読む: `sdk.dataset(name)` / `sdk.records(name)` / `sdk.load(name, record) -> (meta, data)` / `sdk.events(name, **filters)` / `sdk.view()` / `sdk.target()`
-- 書く: `sdk.add_events(name, events)`・`sdk.add_var(name, record, var, values, unit, params, inputs)`（`derived` に script・全長の sha256・params・inputs・run が残る）・`sdk.ensure_category(name, cat, color, type, ch)`・`sdk.ensure_metrics(name, defs)`・`sdk.update_metrics(name, {id: {メトリクス: 値}})`（件数を返す）。`ensure_*` は既にあるものを変えない。
+- 書く: `sdk.add_events(name, events)`・`sdk.delete_events(name, ids)`（まとめて消す。件数を返す。1 件でも無い ID があれば何も消さない）・`sdk.add_var(name, record, var, values, unit, params, inputs)`（`derived` に script・全長の sha256・params・inputs・run が残る）・`sdk.ensure_category(name, cat, color, type, ch)`・`sdk.ensure_metrics(name, defs)`・`sdk.update_metrics(name, {id: {メトリクス: 値}})`（件数を返す）。`ensure_*` は既にあるものを変えない。
 
 `.f32` と `meta.json` と `events.jsonl` は直接書かない（`sdk.add_var`・`sdk.add_events`・`sai-ts events` を使う）。
 
