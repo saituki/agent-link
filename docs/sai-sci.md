@@ -315,10 +315,11 @@ root を育てる LabAgent と、S を作る `lab-sprout`、検証 agent があ�
 | #6 | 全体の進み具合の確認（数と穴を報告し、次の CARD を作る） | `lab-progress` | manage | なし（op を出さない） |
 | #7 | review・survey 論文から root の骨組みを作る（`--node` を省いて木の全体。または軸の Q） | `lab-map` | manage | `add_a, add_f` |
 | #8 | seed と path から研究計画（S）を作る（`--node D<n>`）。seed との矛盾と、最も近い先行研究の S との違いを報告する | `lab-sprout` | manage | `add_sprout` |
-| 検証 | target_node と子の関係を評価し、評価の報告・op・次の CARD を作る（固定） | `sci-verify` | node | `set_stance, add_f, remove, move_node, add_a` |
+| #9 | 兄弟の詳しさと分け方の見直し（NODE が空なら木の全体、軸の Q か A ならその下。親の A を足し、兄弟を `move_node` で移す） | `lab-review` | manage | `add_a, move_node, remove` |
+| 検証 | target_node と子の関係を評価し、評価の報告・op・次の CARD を作る（固定） | `sci-verify` | node | `set_stance, add_f, remove` |
 
-- 上の表の `sci_ops` は、block の frontmatter に書く値です。今の `sai-sci/blocks/` の一部の block は、まだ旧い op（`add_q`・`insert_q`・`move_a`・`regroup`）を宣言しています。`sai-sci status` の warnings に「知らない op」と出るのはそのためです（block の更新は別の作業）。
-- 組み直しの見直しは、`TOO_FLAT` が起こす `lab-review` が行います（5.1 節の 2）。`lab-regroup` は使いません（block の削除は別の作業）。
+- 上の表の `sci_ops` は、block の frontmatter に書く値です。
+- 組み直しの見直しは、`TOO_FLAT` が起こす `lab-review` が行います（5.1 節の 2）。旧い `lab-regroup` は廃止され、`sai-sci init --update` が退避して消します。
 - READ_CARD（`runner: user`）の既定の block は `lab-read` です。
 - `sci-verify` の参加者は `paper-debater`・`paper-reviewer` を子として使えます。
 - `lab-sprout` は、seed の回答と矛盾しないか、未回答の問いに回答を割り当てたかを問いごとに確かめ、`add_sprout`（`seed` 付き）か `add_answer` で回答を書く前に、矛盾の表と先行研究の S との違いを報告します。新しさは agent の文で示します（画面での可視化は無い）。
