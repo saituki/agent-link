@@ -154,6 +154,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         60,
         include_str!("../migrations/0060_seed_questions.sql"),
     ),
+    (
+        61,
+        include_str!("../migrations/0061_rt_rel.sql"),
+    ),
 ];
 
 /// 抽出キーで結び付いていた 6 表（段階 2c で `papers_id` を持つ）。
@@ -4030,6 +4034,51 @@ mod tests {
         assert!(conn.execute("INSERT INTO rt_answers (owner_id, question_id) VALUES (1, 1)", []).is_err());
         assert!(conn.execute("INSERT INTO rt_answers (owner_id, question_id, text, a_id) VALUES (1, 1, 'x', 1)", []).is_err());
         conn.execute("INSERT INTO rt_answers (owner_id, question_id, text) VALUES (1, 1, '決めた')", [])?;
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn migration_61_adds_rel_column() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "papr-rt-rel-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
+        fs::create_dir_all(&dir)?;
+        let db_path = dir.join("papr.db");
+        {
+            // 0060 までの DB に、Q と その子の A を入れる。
+            let connection = rusqlite::Connection::open(&db_path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);",
+            )?;
+            for (version, sql) in super::MIGRATIONS.iter().filter(|(version, _)| *version < 61) {
+                connection.execute_batch(sql)?;
+                connection.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (?1)",
+                    [version],
+                )?;
+            }
+            connection.execute_batch(
+                "INSERT INTO rt_nodes (kind, text) VALUES ('Q', '問い');
+                 INSERT INTO rt_nodes (kind, parent_id, text, body) VALUES ('A', 1, '答え', '本文');",
+            )?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let conn = database.connection();
+        let count = |sql: &str| -> Result<i64, Box<dyn std::error::Error>> {
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        };
+        assert_eq!(count("SELECT COUNT(*) FROM rt_nodes WHERE id = 2 AND kind = 'A' AND parent_id = 1 AND text = '答え' AND body = '本文'")?, 1, "既存の行は一字も変わらず残る");
+        assert_eq!(count("SELECT COUNT(*) FROM rt_nodes")?, 2, "行は増えも減りもしない");
+        assert_eq!(count("SELECT COUNT(*) FROM pragma_table_info('rt_nodes') WHERE name = 'rel'")?, 1, "rel の列");
+        assert_eq!(count("SELECT COUNT(*) FROM rt_nodes WHERE rel IS NULL")?, 2, "既存の行の rel は NULL");
+        assert!(conn.execute("INSERT INTO rt_nodes (kind, parent_id, text, rel) VALUES ('A', 1, 'x', 'bogus')", []).is_err());
+        conn.execute("INSERT INTO rt_nodes (kind, parent_id, text, rel) VALUES ('A', 1, 'x', 'subtype')", [])?;
+        conn.execute("INSERT INTO rt_nodes (kind, parent_id, text, rel) VALUES ('A', 1, 'y', 'condition')", [])?;
 
         fs::remove_dir_all(&dir).ok();
         Ok(())

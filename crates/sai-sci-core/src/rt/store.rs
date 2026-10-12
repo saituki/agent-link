@@ -13,7 +13,7 @@ use super::{Kind, Result, RtError, fmt_id, now_text};
 
 const NODE_COLUMNS: &str = "id, kind, parent_id, guide_key, text, body, stance, starred, \
      cites, paper_id, run_id, report_id, mlflow_ref, ord, removed_at, paths, \
-     created_by, created_at, updated_at, dataset_ref, frozen_qs";
+     created_by, created_at, updated_at, dataset_ref, frozen_qs, rel";
 const LOG_COLUMNS: &str =
     "id, node_id, action, detail, actor, approved_by, qid, question, created_at";
 const APPROVAL_COLUMNS: &str = "id, run_id, qid, question, answer, answered_by, created_at, \
@@ -66,6 +66,8 @@ pub struct NodeRow {
     pub paths: Vec<i64>,
     /// S の凍結（完成した時点の問いの ID。`SQ` の番号）。未完成・凍結していないときは `None`。
     pub frozen_qs: Option<Vec<i64>>,
+    /// A の子の関係（`subtype` か `condition`）。NULL は subtype と読む。A の子以外は None。
+    pub rel: Option<String>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -122,6 +124,7 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeRow> {
         updated_at: row.get(18)?,
         dataset_ref: row.get(19)?,
         frozen_qs: row.get::<_, Option<String>>(20)?.map(|text| parse_vec(&text)),
+        rel: row.get(21)?,
     })
 }
 
@@ -174,6 +177,13 @@ pub fn set_paths(conn: &Connection, id: i64, paths: &[i64]) -> Result<()> {
 pub fn set_frozen(conn: &Connection, id: i64, frozen: Option<&[i64]>) -> Result<()> {
     let text = frozen.map(write_vec).transpose()?;
     conn.execute("UPDATE rt_nodes SET frozen_qs = ?2 WHERE id = ?1", params![id, text])?;
+    Ok(())
+}
+
+/// A の子の関係（subtype か condition）を書く。None は NULL（subtype と読む）。
+/// 値の検査は DB の CHECK に任せる。condition を置ける場所は ops が守る。
+pub fn set_rel(conn: &Connection, id: i64, rel: Option<&str>) -> Result<()> {
+    conn.execute("UPDATE rt_nodes SET rel = ?2 WHERE id = ?1", params![id, rel])?;
     Ok(())
 }
 
@@ -628,6 +638,22 @@ mod tests {
         let f = insert_node(conn, &new_node(Kind::F, Some(a), "根拠 2")).unwrap();
         set_stance(conn, f, "deny").unwrap();
         assert_eq!(get_node(conn, f).unwrap().stance.as_deref(), Some("deny"));
+    }
+
+    #[test]
+    fn set_rel_writes_and_clears_rel() {
+        let database = db();
+        let conn = database.connection();
+        let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
+        let a = insert_node(conn, &new_node(Kind::A, Some(q), "候補")).unwrap();
+        // 足したときは NULL（subtype と読む）。
+        assert_eq!(get_node(conn, a).unwrap().rel, None);
+        set_rel(conn, a, Some("condition")).unwrap();
+        assert_eq!(get_node(conn, a).unwrap().rel.as_deref(), Some("condition"));
+        set_rel(conn, a, None).unwrap();
+        assert_eq!(get_node(conn, a).unwrap().rel, None);
+        // 値の検査は CHECK。
+        assert!(set_rel(conn, a, Some("bogus")).is_err());
     }
 
     #[test]
