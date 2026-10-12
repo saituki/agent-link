@@ -182,6 +182,7 @@
 
 ### 3.3 `SAI_HOME` に入らないもの
 
+- **アプリ共通の共有データ**（ontology の `onto.db`・`manifest.json`）も `SAI_HOME` の外。`SAI_WEB_SHARED_DIR`（既定 `/srv/sai/shared`）に `releases/<名前>/` と `current` の symlink で置き、コンテナへ `/opt/sai-shared` に `:ro` で mount する（`docs/server.md` の 4a）。
 - **プロジェクトの中の `<root>/.sai/`** は別。`sai-engine.db`・`blocks/`・`template/`・`settings.json`・`outputs/`・`paper/`（sai-paper の置き場）がここにある。
 - **見た番号の台帳 `<root>/.sai/seen_ids/<run_id>`**（拡張子なし・共有契約 C10）も `<root>/.sai/` の中にある。run ごとに「agent が見た番号」を 1 行 1 つ追記する。MLflow や、実験の台帳（`exp_summary.py`。実験の記録を集計する道具）とは別の物で、論文の番号 `#x.y.z` だけを持つ。
   - 中身: 正規の形は `#37`・`#37.5`・`#37.5.2`。範囲 `#37.5.2-4` は `#37.5.2`・`#37.5.3`・`#37.5.4` に開いて書く（1 つの範囲は 50 個まで）。追記だけ・重複してよい。番号を文から拾う正規表現は C10 の 1 本で、`sai-link` と `sai-paper` の両方に同じ文字列を置く。
