@@ -32,10 +32,10 @@ enable: true
    - stance が `deny` や `issue` の F が多い A（その A の方向が弱いかもしれない）
    - A が 0 の軸の Q（軸の Q の下に A が 1 つも無い。`lab-map` か `lab-grow`）
    - S の無い D（seed があるのに、その seed の S が無い。`lab-sprout`・`--node D<n>`）
-   - 直下の A が 7 件を超える Q（`TOO_FLAT`。`lab-regroup`）
-   - 分け方の基準が書いていない Q（`lab-regroup`）
+   - 直下の A が 7 件を超える Q（`TOO_FLAT`。`lab-review`）
+   - 分け方の基準が書いていない Q（`lab-review`）
    - 回答に選べる A が無い未回答の問い（`BLANK_NO_PATH`。`lab-grow`）
-3. **次の CARD を 3 件まで選ぶ。** `next` の順（`NO_CHILD`→`lab-grow`、`NO_FINDING`→`lab-search`、`UNVERIFIED`→`sci-verify`、`TOO_FLAT`→`lab-regroup`、`BLANK_NO_PATH`→`lab-grow`）に従い、穴の大きい順に選びます。A が 0 の軸の Q は `lab-map` か `lab-grow`、S の無い D は `lab-sprout` を選びます。同じ Node に 2 件並べません。
+3. **次の CARD を 3 件まで選ぶ。** `next` の順（`NO_CHILD`→`lab-grow`、`NO_FINDING`→`lab-search`、`UNVERIFIED`→`sci-verify`、`TOO_FLAT`→`lab-review`、`BLANK_NO_PATH`→`lab-grow`）に従い、穴の大きい順に選びます。A が 0 の軸の Q は `lab-map` か `lab-grow`、S の無い D は `lab-sprout` を選びます。同じ Node に 2 件並べません。
 4. **利用者に聞く。** 選んだ CARD の案を見せて、質問ツールで 1 問だけ聞きます。先頭の選択肢は `作る`、2 つ目は `作らない` にします。質問文には、作る CARD の一覧（Node・block・目的）を書きます。
 5. **作る。** 利用者が `作る` と答えたら、その CARD だけを `sai-sci card` で作ります（作るだけで、実行はしません）。`作らない` のときは作りません。
 

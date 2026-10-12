@@ -44,10 +44,10 @@ subblocks:
 
 | `why` | 意味 | 主に起こすブロック |
 |---|---|---|
-| `NO_CHILD` | Q の下に子（A か child_Q）が無い | `lab-grow` |
+| `NO_CHILD` | Q の下に子（A）が無い | `lab-grow` |
 | `NO_FINDING` | A の下に F（根拠）が無い | `lab-search` |
 | `UNVERIFIED` | 子を足したあと、`sci-verify` がまだ見ていない | `sci-verify` |
-| `TOO_FLAT` | Q の直下の A が 7 件を超え、木が平らすぎる | `lab-regroup` |
+| `TOO_FLAT` | 同じ親の直下の A が 7 件を超え、木が平らすぎる（Q でも A でも出る） | `lab-review`（`--node` は出た Q か A） |
 | `BLANK_NO_PATH` | 未回答の問いの軸の Q の下に、回答に選べる A が無い | `lab-grow` |
 
 `★` は目印で、Next Action は `★` を見ない。
@@ -66,9 +66,15 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 | #6 全体の進み具合を確かめる | `lab-progress`（数と穴を報告し、次の CARD を作る） |
 | #7 review・survey 論文で root の骨組みを作る | `lab-map`（最初の 1 枚は `--node` を省く。下の「root を作る順番」） |
 | #8 seed から研究計画（S）を作る | `lab-sprout`（`--node D<n>`） |
-| #9 木の形を整える（`TOO_FLAT`・sci-verify の組み直し） | `lab-regroup`（`--node` は組み直す Q） |
-| #10 未回答の問いに回答の A が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は未回答の問いの軸の Q） |
+| #9 木の形を見直す（`TOO_FLAT`・sci-verify の指摘・直下の A が多い・兄弟の詳しさがずれて見える・Professor が木を整えたいと判断した） | `lab-review`（`--node` は見直す軸（Q）か A。省くと木の全体） |
+| #10 未回答の問いに回答の A が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は未回答の問いの軸（Q）） |
 | 木の評価（target_node と子の関係） | `sci-verify`（参加者に `paper-debater`・`paper-reviewer` を子で使える） |
+
+木の形の見直し（#9）は `lab-review` の CARD で起こします。`--node` は見直す軸（Q）か A で、省くと木の全体です。
+
+```bash
+sai-sci card --block lab-review --node Q12 --purpose "<見直す目的（300 字まで）>" --json
+```
 
 `sci-data-explore` の report の `## Next Action` に `sci-data-test` の CARD を作る命令が書いてある。explore の report を評価してから、その命令で test の CARD を作って起こす（explore 自身は test を起こさない）。
 
@@ -87,7 +93,7 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 root は一度に全部を起こさない。
 
 1. 最初の `lab-map` は 1 枚だけ動かす。`--node` を省き（木の全体）、各軸の大分類を作らせる。
-2. 大分類を評価してから（「評価の観点」の木の形）、大分類ごとに細分の CARD（`sai-sci card --node <大分類の A> --block lab-grow --purpose …`）を並列に起こす。同時に動かすのは 3 本まで（「1 回の回し方」の 3.）。
+2. 大分類を評価してから（「評価の観点」の木の形）、大分類ごとに下位の CARD（`sai-sci card --node <大分類の A> --block lab-grow --purpose …`）を並列に起こす。同時に動かすのは 3 本まで（「1 回の回し方」の 3.）。
 
 ## 始めにすること
 
@@ -137,12 +143,12 @@ root は一度に全部を起こさない。
 - researcher の出典が `#番号` の形で付いているか、反証を探したか（`sci-core` の決まり）。
 - 言葉の崩れ（意味の無い英字・他の言語の語）があれば、直させてから採る。
 - 木の形: 同じ Q の兄弟の詳しさと分け方の基準がそろっているか。直下の A が 7 件以内か。review の分類が平らに写されていないか。
-- sci-verify の「層・粒度」の指摘は、報告だけで流さず、`lab-regroup` の CARD にして起こす（`--node` は指摘の Q）。
-- 子が「child_Q は今回出さない」と言ったら、理由を確かめる。理由が無ければ出させる。
+- sci-verify の「層・粒度」の指摘は、報告だけで流さず、`lab-review` の CARD にして起こす（`--node` は指摘の軸か A）。
+- 子が「下位の A は今回出さない」と言ったら、理由を確かめる。理由が無ければ出させる。
 
 ## 実験（sprout と branch）
 
-- S（研究計画）を作る前に、`sai-sci status --brief` に `TOO_FLAT`・`BLANK_NO_PATH` が出ていないかを見る（木の形を確かめる段）。出ていれば、先に `lab-regroup`・`lab-grow` の CARD で直してから `lab-sprout` を起こす。
+- S（研究計画）を作る前に、`sai-sci status --brief` に `TOO_FLAT`・`BLANK_NO_PATH` が出ていないかを見る（木の形を確かめる段）。出ていれば、先に `lab-review`・`lab-grow` の CARD で直してから `lab-sprout` を起こす。
 - 実験の連鎖は Card で進む。S（研究計画）が無ければ、先に `lab-sprout` の CARD（**`--node D<n>`**）で S を作る。S があれば、`sci-exp-sprout` の CARD を **`--node S<n>`** で作り（`--purpose` に実験の案を書く）、`sai-link card run` で起こす。
 - **実験を起こす前に、`sci-exp-scout` を子として起こす。** `sai-link task create` の `block_type` に `sci-exp-scout`、`task_text` に対象の A の ID と実験の案、見てほしい文書の `waggle:<トークン>` を書く。
 - scout は参照コード調査書を保存してすぐ報告を返す。返った**調査書のトークン**を、sprout の CARD の `--input` に足す。

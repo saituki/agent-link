@@ -1,7 +1,7 @@
 ---
 name: 📖 論文から足す
 id: lab-read
-description: "論文を 1 本読み、対象の Node の下に sci_child の型の子（A・F・Q のどれか 1 種）を足す"
+description: "論文を 1 本読み、対象の Node の下に sci_child の型の子（A か F の 1 種）を足す"
 model: sonnet
 thinking: medium
 templates:
@@ -12,7 +12,7 @@ templates:
   - domain
 context: true
 sci_type: node
-sci_ops: add_a, add_f, add_q
+sci_ops: add_a, add_f
 timeout: 5400
 worktree: none
 enable: true
@@ -27,9 +27,8 @@ subblocks:
 ## 役割
 論文を 1 本読み、対象の Node の下に子を足す Action です。対象の Node は依頼文の NODE（`# context` の `← TARGET` の行）。足す子の型は依頼文の `sci_child` だけです。
 
-- `sci_child` が `A`（対象が Q）: Q の下に、論文の答えの候補（A）を足します。
+- `sci_child` が `A`（対象が軸の Q か A）: その下に、論文の答えの候補（A）を足します。
 - `sci_child` が `F`（対象が A）: A の下に、論文の事実（F）を付けます。
-- `sci_child` が `Q`（対象が A）: A の下に、条件や分け方の問い（Q）を足します。
 - `sci_child` が空のときは論文を読まず、`lab-grow` の CARD を勧めて終えます（報告に 1 行で書きます）。
 
 型の組が合わない（Q に F、A に A など）ときは、足さずに報告します。型の組の決まりは `sci-core` の「research-tree」を見ます。
@@ -50,10 +49,10 @@ runner が user のときは、利用者が読みます（READ_CARD）。読み�
    - purpose_first: 「対象の Node と Q → 論文の該当箇所 → 分かったこと」の順に書く。
    - blind_first: 問い・方法・結果・限界の要約を先に書き終える。書き終えてから `sai-sci context --run "$SAI_PARENT_RUN_ID" --tree` で木を取り寄せ、要約と木を照らす。
 5. **子を足す。** `sci_child` の型だけを、`sai-sci op` で出します（1 回の `op` は 1 段）。
-   - `sci_child` が `A` のときは、足す前に既にある A と同位・下位・上位のどれかを判定します（template の「抽象度をそろえる」）。同位で同じ選択肢なら足しません。下位なら、その A の下の細分の Q に足します（`add_a` の `q` にその細分の Q の ID を書きます）。上位なら足さず、`lab-regroup` の CARD の案を報告に書きます。
-   - Q の子 A: `{"ops": [{"op": "add_a", "q": "Q3", "text": "…", "body": "確かめ方"}]}`
+   - `sci_child` が `A` のときは、足す前に既にある A と同位・下位・上位のどれかを判定します（template の「抽象度をそろえる」）。同位で同じ選択肢なら足しません。下位なら、その A の下に足します（`add_a` の `parent` にその A の ID を書きます）。上位や兄弟が詳しすぎるなら足さず、`lab-review` の CARD の案を報告に書きます。
+   - 軸（Q）の子 A: `{"ops": [{"op": "add_a", "parent": "Q3", "text": "…", "body": "確かめ方"}]}`
+   - A の子 A（下位）: `{"ops": [{"op": "add_a", "parent": "A12", "text": "…", "rel": "subtype", "body": "確かめ方"}]}`
    - A の子 F: `{"ops": [{"op": "add_f", "parent": "A12", "text": "…", "stance": "support", "cites": ["#37.5.2"]}]}`
-   - A の子 Q: `{"ops": [{"op": "add_q", "parent": "A12", "text": "…"}]}`。`add_q` は許可が要るので、先に質問ツールで許可を取ります（`sci-core` の「許可を取る」）。
    - F は 1〜3 文にまとめ、`stance`（`support`・`deny`・`issue`）を必ず付けます。`cites` の形は `sci-core` の「根拠」に従います。数字を含む文には必ず `cites` を付けます。F の文は論文を主語にします（「#37 は…」）。「本研究では」とは書きません（論文が自分の研究を「本研究では」と書いていても、読む人の研究と取り違えられるため）。A の文と本文に出典（`#番号`）は書きません（op が断ります）。
    - F は同じ論文から、支持するものと反するものの両方を探します。反するものが見つからなければ、その旨を報告に書きます。
 6. **論文の別の答えや問いは足さない。** 論文に `sci_child` 以外の型の候補があっても、この回では足しません。報告の「次に勧める CARD」に書きます（例: 答えの候補を増やすなら `lab-grow`）。
@@ -67,7 +66,7 @@ runner が user のときは、利用者が読みます（READ_CARD）。読み�
 9. REPORT を保存して終えます（`sci-core` の「終わり方」）。
 
 ## 評価の観点
-- 足した子の型が `sci_child` と一致しているか。型の組（Q→A・A→F・A→Q）が決まりに合うか。
+- 足した子の型が `sci_child` と一致しているか。型の組（軸→A・A→A・A→F）が決まりに合うか。
 - A を足す前に、既にある A と同位・下位・上位を判定したか。判定を報告に書いたか。
 - purpose_first では対象の Node を先に読んでから論文を読んだか。blind_first では木を見る前に要約を書き終えたか。
 - F が 1〜3 文に収まり、stance が本文の内容と合っているか。数字の付いた文に `cites` が付いているか。

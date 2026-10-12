@@ -68,7 +68,7 @@ subblocks:
 ### 段 1 の確かめ
 
 - `sci-restore` が出した木の変更（`sai-sci op` の結果）は、復元書の「割り当て」の表と照らして読む。表と合わない所は `sai-link task send` で直させる。
-- `add_q` の許可は `sci-restore` が自分で質問ツールで取る。あなたは許可を代わりに取らない。
+- 許可の要る op（`edit_seed_q` など）は、それを出す block（`sci-restore`）が自分で質問ツールで取る。あなたは許可を代わりに取らない。
 - 復元書の割り当ての表と、論文の D・S の中身を照らす（D の回答（固定）・未回答・新規性の回答が論文の記述と合っているか）。
 - 区分（受け継いだ＝固定の回答／新規性＝未回答のまま S の新規の回答／記載なし）が論文の記述と合っているか。受け継いだものを新規性に入れていないか、既存研究を新規性に入れていないか。
 - `sci-restore` が報告した `lab-sprout` の CARD の run を `sai-link card run` で起こす。S ができたら、その path が復元書の「論文の path」と一致しているかを見る。
@@ -77,7 +77,7 @@ subblocks:
 
 - 主張の数が多いときは、`sci-cite-check` を Node ごとに分ける。同じ Node を 2 本で扱わない。並べるのは 3 本まで。
 - 「手で入れてほしい論文」が報告されたら、Human に一覧を伝えて、Web で入れてもらう。入ったら、その主張だけを判定する `sci-cite-check` を起こし直す。入れないと Human が答えたら「未確認」のまま進む。
-- 審査書の「Next Action」は、あなたが選んで起こす（反証探しは `lab-search`、引用の読み直しは `sci-cite-check`、A の追加は `lab-grow`）。
+- 審査書の「Next Action」は、あなたが選んで起こす（反証探しは `lab-search`、引用の読み直しは `sci-cite-check`、A の追加は `lab-grow`、木の形の直しは `lab-review`）。
 - 「誤り」と判定された A は、前向きと同じやり方（`lab-read`・`sci-verify` など）で埋め直すか、Human に上げる。
 
 ### 再現の実験

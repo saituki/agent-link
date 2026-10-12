@@ -43,7 +43,7 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("lab-place.md", include_str!("../../../sai-sci/blocks/lab-place.md")),
     ("lab-progress.md", include_str!("../../../sai-sci/blocks/lab-progress.md")),
     ("lab-map.md", include_str!("../../../sai-sci/blocks/lab-map.md")),
-    ("lab-regroup.md", include_str!("../../../sai-sci/blocks/lab-regroup.md")),
+    ("lab-review.md", include_str!("../../../sai-sci/blocks/lab-review.md")),
     ("lab-sprout.md", include_str!("../../../sai-sci/blocks/lab-sprout.md")),
     ("sci-verify.md", include_str!("../../../sai-sci/blocks/sci-verify.md")),
     ("sci-analogy.md", include_str!("../../../sai-sci/blocks/sci-analogy.md")),
@@ -66,7 +66,7 @@ const SCI_BLOCKS: &[(&str, &str)] = &[
     ("paper-reviewer.md", include_str!("../../../sai-sci/blocks/paper-reviewer.md")),
 ];
 
-/// 消えた block（旧 7 本。新しい LabAgent と検証に替わった）。
+/// 消えた block（旧 8 本。新しい LabAgent と検証に替わった。`lab-regroup` は `lab-review` に替わった）。
 ///
 /// `sai-sci init --update` は、プロジェクトの `.sai/blocks/` に残っていれば退避して消す
 /// （古い id のまま動くと、消えた op を打つため）。退避の置き場は `write_asset` と同じ。
@@ -78,6 +78,7 @@ const SCI_RETIRED_BLOCKS: &[&str] = &[
     "sci-review.md",
     "sci-debate.md",
     "sci-compare.md",
+    "lab-regroup.md",
 ];
 
 /// sai-sci の共通の決まり。
@@ -882,7 +883,6 @@ mod tests {
             "lab-search.md",
             "lab-grow.md",
             "lab-survey.md",
-            "lab-regroup.md",
             "sci-verify.md",
             "sci-coach.md",
             "sci-cite-check.md",
@@ -900,6 +900,7 @@ mod tests {
             "lab-place.md",
             "lab-progress.md",
             "lab-map.md",
+            "lab-review.md",
             "lab-sprout.md",
         ];
         let support = [
@@ -1034,7 +1035,7 @@ mod tests {
             "lab-place.md",
             "lab-progress.md",
             "lab-map.md",
-            "lab-regroup.md",
+            "lab-review.md",
             "lab-sprout.md",
         ] {
             assert!(
