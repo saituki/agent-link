@@ -91,7 +91,7 @@ for f in apps/ts/tests/test_*.js; do node "$f" || exit 1; done
 (cd apps/prep && python3 -m unittest discover -s tests)
 
 # 実験ループの道具（sai-sci/tools。Python 3.11 以上。`~/.python-version` が未導入の版を指すと uv が失敗するので --python を付ける）
-(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_refcode test_modeldb test_data_result test_data_eda; do python3.13 -W ignore -m unittest $t || exit 1; done)
+(cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_refcode test_modeldb test_data_result test_data_eda test_onto_build; do python3.13 -W ignore -m unittest $t || exit 1; done)
 (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
 
 # 配備の形（sh の文法だけ。反映はしない）
@@ -108,7 +108,7 @@ sh -n apps/web/server/deploy.sh
 | sai-ts の JS | 12 | sai-ts（ubuntu） | |
 | Radio | 3 | Radio（ubuntu） | |
 | sai-prep | 5 | sai-prep（ubuntu・Python 3.12） | |
-| sai-sci の道具 | 9 | sai-sci の道具（ubuntu・Python 3.13） | `test_exp_summary` は mlflow が要る |
+| sai-sci の道具 | 10 | sai-sci の道具（ubuntu・Python 3.13） | `test_exp_summary` は mlflow が要る |
 
 CI の Linux（ubuntu-latest）は本番と同じ OS である。リポジトリ直下に `tests/` は無い。テストはクレート・アプリの中にある。
 Mac で確かめるときも、上の命令を上から順に実行する。

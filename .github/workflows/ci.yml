@@ -99,6 +99,6 @@ jobs:
         with:
           python-version: "3.13"
       - name: 実験ループの道具
-        run: (cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_refcode test_modeldb test_data_result test_data_eda; do python -W ignore -m unittest $t || exit 1; done)
+        run: (cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_refcode test_modeldb test_data_result test_data_eda test_onto_build; do python -W ignore -m unittest $t || exit 1; done)
       - name: 実験の要約（mlflow が要る）
         run: (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
