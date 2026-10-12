@@ -19,6 +19,7 @@ mod attention;
 mod cli_error;
 mod dsr;
 mod find_search;
+mod onto;
 mod phone_sci;
 mod progress;
 mod report;
@@ -224,6 +225,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: report::ReportCmd,
     },
+    /// 医療の ontology（MONDO・MeSH）を読み取り専用で引く（共有データ `SAI_SHARED_DIR` の `onto.db`）
+    Onto {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: onto::OntoCmd,
+    },
     /// 命令の一覧を JSON で出す
     Schema {
         /// JSON で出力する
@@ -299,10 +306,10 @@ async fn run() -> i32 {
     };
     // 記録の出どころ（SAI_ORIGIN、無ければ cli）。
     sai_paper_core::jobs::set_origin(origin_name());
-    // `init`・`schema`・`convert` 以外は研究プロジェクト（`.sai/paper`）が要る（`convert` は `--from` と `--to` で場所を決める）。
+    // `init`・`schema`・`convert`・`onto` 以外は研究プロジェクト（`.sai/paper`）が要る（`convert` は `--from` と `--to` で場所を決める）。
     if !matches!(
         cli.cmd,
-        None | Some(Cmd::Init { .. }) | Some(Cmd::Schema { .. }) | Some(Cmd::Convert { .. })
+        None | Some(Cmd::Init { .. }) | Some(Cmd::Schema { .. }) | Some(Cmd::Convert { .. }) | Some(Cmd::Onto { .. })
     )
         && let Err(err) = require_paper_dir()
     {
@@ -469,6 +476,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         Some(Cmd::Attention { cmd }) => attention::handle(cmd),
         Some(Cmd::Project { cmd }) => handle_project(cmd),
         Some(Cmd::Dsr { cmd }) => dsr::handle(cmd),
+        Some(Cmd::Onto { cmd }) => onto::handle(cmd),
         Some(Cmd::Report { cmd }) => report::handle_report(cmd).await,
         Some(Cmd::Schema { json }) => schema::print_schema(json),
         None => {
