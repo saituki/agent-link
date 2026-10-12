@@ -148,6 +148,18 @@ enum Cmd {
     },
     /// state.md と tree.md を書き出す
     Export,
+    /// 既存のプロジェクトを新しいプロジェクトへ複製し、A の下の Q を畳んだ木にする（元には書かない）
+    Convert {
+        /// 元のプロジェクトのルート（`.sai/paper/papr.db` があるフォルダ）
+        #[arg(long)]
+        from: PathBuf,
+        /// 新しいプロジェクトのルート（まだ無いフォルダ）
+        #[arg(long)]
+        to: PathBuf,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
     /// 内部を検索する。環境変数 `SAI_TARGET_NODE` があれば、その Node に記録を結ぶ（論文の検索は sai-paper が行う）
     Find {
         #[command(flatten)]
@@ -287,8 +299,11 @@ async fn run() -> i32 {
     };
     // 記録の出どころ（SAI_ORIGIN、無ければ cli）。
     sai_paper_core::jobs::set_origin(origin_name());
-    // `init` と `schema` 以外は研究プロジェクト（`.sai/paper`）が要る。
-    if !matches!(cli.cmd, None | Some(Cmd::Init { .. }) | Some(Cmd::Schema { .. }))
+    // `init`・`schema`・`convert` 以外は研究プロジェクト（`.sai/paper`）が要る（`convert` は `--from` と `--to` で場所を決める）。
+    if !matches!(
+        cli.cmd,
+        None | Some(Cmd::Init { .. }) | Some(Cmd::Schema { .. }) | Some(Cmd::Convert { .. })
+    )
         && let Err(err) = require_paper_dir()
     {
         return report_error(&err);
@@ -444,6 +459,7 @@ async fn dispatch(cmd: Option<Cmd>) -> Result<()> {
         }) => handle_card(&args, from_json, json),
         Some(Cmd::Read { run_id, json }) => print_out_seen(sci::read(run_id, json)?, seen_ids::record),
         Some(Cmd::Export) => print_out(sci::export()?),
+        Some(Cmd::Convert { from, to, json }) => handle_convert(&from, &to, json),
         Some(Cmd::Find { args }) => find_search::find(&args),
         Some(Cmd::Search { args }) => find_search::search(&args),
         Some(Cmd::Brief { write }) => handle_brief(write),
@@ -478,6 +494,26 @@ fn print_out_seen(out: sci::Out, seen: impl FnOnce(&str)) -> Result<()> {
     };
     seen(&text);
     print!("{text}");
+    Ok(())
+}
+
+/// `sai-sci convert` — 既存のプロジェクトを複製して A の下の Q を畳む（元には書かない）。
+fn handle_convert(from: &Path, to: &Path, json: bool) -> Result<()> {
+    let report = rt::convert::convert(from, to)?;
+    if json {
+        println!("{}", serde_json::to_string(&report)?);
+    } else {
+        println!(
+            "複製して変換しました: A {} → {}、軸以外の Q {} → {}、畳んだ Q {}、付け替えた A {}\n対応表: {}",
+            report.before.a,
+            report.after.a,
+            report.before.q_other,
+            report.after.q_other,
+            report.flattened_q,
+            report.moved_a,
+            report.idmap
+        );
+    }
     Ok(())
 }
 
