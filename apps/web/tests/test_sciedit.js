@@ -13,8 +13,8 @@ const {
   seTrim, seOpLabel, seCiteOk, seRefOk, seIdOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
   seCardValues, seBuildCard, seCardRunId,
   seChildOptions, seChildOk,
-  seBottomQs, seCardNode,
-  SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_STANCES, SE_SEED_AXES, SE_SQ_RE, SE_SA_RE,
+  seParents, seMoveTargets, seCardNode,
+  SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_STANCES, SE_SEED_AXES, SE_SQ_RE, SE_SA_RE, SE_RELS,
 } = require(src);
 
 /** seBuildOp が通ったときの op。 */
@@ -35,9 +35,8 @@ function ng(built) {
 function test_helpers() {
   assert.strictEqual(seTrim("  あ  "), "あ");
   assert.strictEqual(seTrim(null), "");
-  // 表示名（O の名は無くなり、A になった）
-  assert.strictEqual(seOpLabel("add_q"), "Add Q");
-  assert.strictEqual(seOpLabel("add_a"), "Add A");
+  // 表示名（A を足す・A を移す。廃止した op は表に無く、名前のまま返る）
+  assert.strictEqual(seOpLabel("add_a"), "A を足す");
   assert.strictEqual(seOpLabel("add_f"), "Add F");
   assert.strictEqual(seOpLabel("add_e"), "Add E");
   assert.strictEqual(seOpLabel("copy"), "Copy A");
@@ -45,8 +44,9 @@ function test_helpers() {
   assert.strictEqual(seOpLabel("remove"), "Delete");
   assert.strictEqual(seOpLabel("add_sprout"), "Create SPROUT");
   assert.strictEqual(seOpLabel("add_seed"), "seed（D）を作る");
-  assert.strictEqual(seOpLabel("move_node"), "A を 1 件移す");
-  assert.strictEqual(seOpLabel("regroup"), "まとめる（中間の A と細分の Q）");
+  assert.strictEqual(seOpLabel("move_node"), "A を移す");
+  assert.strictEqual(seOpLabel("add_q"), "add_q");
+  assert.strictEqual(seOpLabel("regroup"), "regroup");
   assert.strictEqual(seOpLabel("mystery_op"), "mystery_op");
   assert.ok(seRefOk("Q12", "Q"));
   assert.ok(seRefOk("E3", "QAFE"));
@@ -73,19 +73,15 @@ function test_cite() {
 
 // --- 操作の通る例 ---
 function test_ops_ok() {
-  assert.deepStrictEqual(ok(seBuildOp("add_q", { parent: "Q1", text: "データの量は？" })), { op: "add_q", parent: "Q1", text: "データの量は？" });
-  assert.deepStrictEqual(ok(seBuildOp("add_q", { parent: "A2", text: "x", reason: "r" })), { op: "add_q", parent: "A2", text: "x" });
-  // move_node は A を 1 件・移す先は Q。regroup は中間の A と細分の Q・まとめる A（空の本文は落とす）
+  // add_a: 親は A か Q（A の下の A も可）。rel は subtype か condition。空の rel と body は送らない
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "Q1", text: "SST-2", body: "b" })), { op: "add_a", parent: "Q1", text: "SST-2", body: "b" });
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A2", text: "下位の答え", rel: "subtype" })), { op: "add_a", parent: "A2", text: "下位の答え", rel: "subtype" });
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A2", text: "条件", rel: "condition", body: "" })), { op: "add_a", parent: "A2", text: "条件", rel: "condition" });
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "Q1", text: "x", rel: " " })), { op: "add_a", parent: "Q1", text: "x" });
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A2", text: "x", reason: "r" })), { op: "add_a", parent: "A2", text: "x" });
+  // move_node は A を 1 件・移す先は A か Q（A の下へも移せる）
   assert.deepStrictEqual(ok(seBuildOp("move_node", { node: "A4", to: "Q3" })), { op: "move_node", node: "A4", to: "Q3" });
-  assert.deepStrictEqual(
-    ok(seBuildOp("regroup", { q: "Q1", text: "中間の答え", body: "", child_q: "細分の問い", child_q_body: "分け方の基準: 時期", members: ["A2", "A3"] })),
-    { op: "regroup", q: "Q1", text: "中間の答え", child_q: "細分の問い", child_q_body: "分け方の基準: 時期", members: ["A2", "A3"] },
-  );
-  assert.deepStrictEqual(
-    ok(seBuildOp("regroup", { q: "Q1", text: "中間", body: "本文", child_q: "細分", members: ["A2"] })),
-    { op: "regroup", q: "Q1", text: "中間", body: "本文", child_q: "細分", members: ["A2"] },
-  );
-  assert.deepStrictEqual(ok(seBuildOp("add_a", { q: "Q1", text: "SST-2", body: "b" })), { op: "add_a", q: "Q1", text: "SST-2", body: "b" });
+  assert.deepStrictEqual(ok(seBuildOp("move_node", { node: "A4", to: "A3" })), { op: "move_node", node: "A4", to: "A3" });
   // F は stance が要る。出典と論文番号は任意
   assert.deepStrictEqual(
     ok(seBuildOp("add_f", { parent: "A2", stance: "support", text: "精度は 0.9。", cites: ["#37 §3.2", " "], paper: "37" })),
@@ -120,6 +116,7 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "D1" })), { op: "star", node: "D1" });
   assert.deepStrictEqual(ok(seBuildOp("edit", { node: "D1", text: "題", body: "## 背景\n空欄" })), { op: "edit", node: "D1", text: "題", body: "## 背景\n空欄" });
   assert.deepStrictEqual(ok(seBuildOp("copy", { node: "A2", to: "Q5" })), { op: "copy", node: "A2", to: "Q5" });
+  assert.deepStrictEqual(ok(seBuildOp("copy", { node: "A2", to: "A5" })), { op: "copy", node: "A2", to: "A5" });
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "F3", reason: "誤り" })), { op: "remove", node: "F3" });
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "S1" })), { op: "remove", node: "S1" });
   assert.deepStrictEqual(ok(seBuildOp("edit", { node: "S2", text: "直した" })), { op: "edit", node: "S2", text: "直した" });
@@ -132,9 +129,6 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "S1" })), { op: "star", node: "S1" });
   // stance は F だけ
   assert.deepStrictEqual(ok(seBuildOp("set_stance", { node: "F3", stance: "deny" })), { op: "set_stance", node: "F3", stance: "deny" });
-  // Q の間に Q を入れる・A を別の Q へ移す
-  assert.deepStrictEqual(ok(seBuildOp("insert_q", { q: "Q1", text: "間の問い" })), { op: "insert_q", q: "Q1", text: "間の問い" });
-  assert.deepStrictEqual(ok(seBuildOp("move_a", { from: "Q1", to: "Q5" })), { op: "move_a", from: "Q1", to: "Q5" });
   // MLflow の参照。空にすると外す（null）
   assert.deepStrictEqual(ok(seBuildOp("set_mlflow", { node: "E1", mlflow: "run-a" })), { op: "set_mlflow", node: "E1", mlflow: "run-a" });
   // 空文字は外す（API の ztext・空も通す）
@@ -145,33 +139,31 @@ function test_ops_ok() {
 
 // --- 操作の NG の例 ---
 function test_ops_ng() {
-  // 必須・形
-  ng(seBuildOp("add_q", { parent: "F1", text: "x" })); // 親は Q・A
-  // 軸の Q は sai-sci init が作る（SEED の下には足せない）
-  assert.strictEqual(ng(seBuildOp("add_q", { parent: "SEED", text: "最初の問い" })), "軸の Q は sai-sci init が作ります");
-  // move_node は A を 1 件・移す先は Q
+  // 廃止した op（add_q・insert_q・move_a・regroup）は通らない（表に無い op）
+  for (const old of ["add_q", "insert_q", "move_a", "regroup"]) {
+    assert.strictEqual(ng(seBuildOp(old, { parent: "Q1", q: "Q1", from: "Q1", to: "Q2", text: "x", members: ["A2"], child_q: "c" })), "Unknown operation", old);
+  }
+  // add_a: 親は A か Q（F・E・SEED は不可）。文は必須。旧い項目 q だけでは親が無いので通らない
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "F1", text: "x" })), "親（A か Q）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "SEED", text: "最初の答え" })), "親（A か Q）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_a", { q: "Q1", text: "x" })), "親（A か Q）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "Q1", text: "" })), "文を入力してください");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "Q1", text: "あ".repeat(121) })), "文は 120 字までです");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "A1", text: "x", body: "あ".repeat(2001) })), "本文は 2000 字までです");
+  // rel は subtype か condition だけ（空は送らない）
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "A1", text: "x", rel: "other" })), "種類（subtype か condition）が正しくありません");
+  // move_node は A を 1 件・移す先は A か Q
   assert.strictEqual(ng(seBuildOp("move_node", { node: "Q4", to: "Q3" })), "移す Aを選んでください");
-  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4" })), "移す先の Qを選んでください");
-  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "A3" })), "移す先の Qを選んでください");
-  // regroup は中間の A の文・細分の Q の文・まとめる A（1〜20 個・重なり無し）が要る
-  const regroup = { q: "Q1", text: "中間", child_q: "細分の問い", members: ["A2"] };
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, q: "A1" })), "まとめる Qを選んでください");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, text: "" })), "中間の A の文を入力してください");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, text: "あ".repeat(121) })), "中間の A の文は 120 字までです");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, child_q: "" })), "細分の Q の文を入力してください");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, members: [] })), "まとめる A を 1 つ以上選んでください");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, members: Array.from({ length: 21 }, (_, i) => `A${i + 1}`) })), "まとめる A は 20 個までです");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, members: ["A2", "Q3"] })), "A の形が正しくありません: Q3");
-  assert.strictEqual(ng(seBuildOp("regroup", { ...regroup, members: ["A2", "A2"] })), "同じ A を 2 回選んでいます");
-  ng(seBuildOp("add_q", { parent: "E1", text: "x" }));
-  // F は A だけ（E の下に F は置かない）
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4" })), "移す先（A か Q）を選んでください");
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "F3" })), "移す先（A か Q）を選んでください");
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "E1" })), "移す先（A か Q）を選んでください");
   ng(seBuildOp("add_f", { parent: "E1", stance: "issue", text: "x" }));
-  ng(seBuildOp("add_q", { parent: "Q1", text: "" }));
-  ng(seBuildOp("add_a", { q: "A1", text: "x" }));
+  // F は A だけ（E の下に F は置かない）
   ng(seBuildOp("add_f", { parent: "Q1", stance: "support", text: "x" })); // 親は A だけ（E の下に F は置かない）
   ng(seBuildOp("add_e", { parent: "Q1", text: "x" }));
   ng(seBuildOp("add_e", { parent: "A2", text: "x" }));
-  ng(seBuildOp("copy", { node: "A2", to: "A3" }));
+  ng(seBuildOp("copy", { node: "A2", to: "F3" }));
+  ng(seBuildOp("copy", { node: "Q2", to: "Q3" }));
   ng(seBuildOp("star", {}));
   ng(seBuildOp("set_stance", { node: "A2", stance: "support" })); // stance は F だけ
   ng(seBuildOp("set_stance", { node: "F3", stance: "" }));
@@ -209,21 +201,13 @@ function test_ops_ng() {
   ng(seBuildOp("edit", { node: "F3", text: "あ".repeat(1201) }));
   assert.ok(ok(seBuildOp("edit", { node: "F3", text: "あ".repeat(1200) })));
   ng(seBuildOp("edit", { node: "Q1", text: "あ".repeat(301) }));
-  ng(seBuildOp("insert_q", { q: "A1", text: "x" }));
-  ng(seBuildOp("insert_q", { q: "Q1", text: "" }));
-  ng(seBuildOp("move_a", { from: "Q1" })); // 移す先が無い
-  ng(seBuildOp("move_a", { to: "Q5" })); // 移す元が無い
-  ng(seBuildOp("move_a", { from: "Q1", to: "Q1" })); // 同じ Q
-  ng(seBuildOp("move_a", { node: "A1", to: "Q5" })); // 旧い項目名（node）は通さない
   ng(seBuildOp("set_mlflow", { node: "Q1", mlflow: "run" }));
-  // 字数
-  ng(seBuildOp("add_q", { parent: "Q1", text: "あ".repeat(301) }));
-  assert.ok(ok(seBuildOp("add_q", { parent: "Q1", text: "あ".repeat(300) })));
-  ng(seBuildOp("add_a", { q: "Q1", text: "あ".repeat(121) }));
+  // 字数（A は 120 字まで）
+  assert.ok(ok(seBuildOp("add_a", { parent: "Q1", text: "あ".repeat(120) })));
+  ng(seBuildOp("add_a", { parent: "Q1", text: "あ".repeat(121) }));
   ng(seBuildOp("add_e", { parent: "A1", text: "あ".repeat(121) }));
   ng(seBuildOp("add_sprout", { seed: "D1", title: "あ".repeat(121) }));
   ng(seBuildOp("add_sprout", { seed: "D1", title: "題", body: "あ".repeat(2001) }));
-  ng(seBuildOp("insert_q", { q: "Q1", text: "あ".repeat(301) }));
   ng(seBuildOp("set_mlflow", { node: "E1", mlflow: "あ".repeat(201) }));
   ng(seBuildOp("add_e", { parent: "S2", text: "実験", dataset: "あ".repeat(201) }));
   // C-CITE
@@ -250,23 +234,27 @@ function test_unknown() {
 
 function test_tables() {
   const keys = Object.keys(SE_OPS).sort();
-  // 表の op は 24 種類（move_node・regroup と G3-C1 の set_dataset・U02 の問いと回答を足した）。完了の言葉も同じ集まり
-  assert.strictEqual(keys.length, 24);
+  // 表の op は 20 種類。廃止した 4 つ（add_q・insert_q・move_a・regroup）は無い。完了の言葉も同じ集まり
+  assert.strictEqual(keys.length, 20);
   assert.deepStrictEqual(Object.keys(SE_DONE).sort(), keys);
+  for (const old of ["add_q", "insert_q", "move_a", "regroup"]) assert.ok(!keys.includes(old), old);
   assert.ok(keys.includes("set_dataset"));
-  assert.ok(keys.includes("move_node") && keys.includes("regroup"));
+  assert.ok(keys.includes("move_node") && keys.includes("add_a") && keys.includes("copy"));
   for (const q of SE_QUICK) assert.ok(keys.includes(q));
   assert.deepStrictEqual([...SE_QUICK].sort(), ["set_stance", "star", "unstar"]);
   assert.deepStrictEqual(SE_STANCES.map((x) => x[0]), ["support", "deny", "issue"]);
-  assert.ok(keys.includes("add_sprout") && keys.includes("insert_q") && keys.includes("move_a") && keys.includes("set_mlflow"));
+  assert.deepStrictEqual(SE_RELS.map((x) => x[0]), ["subtype", "condition"]);
+  assert.ok(keys.includes("add_sprout") && keys.includes("set_mlflow"));
 
-  // カードのブロック（C9）: 21 本。消えた 7 本は出さない。sci-seed は消え、lab-map・lab-sprout が入る
+  // カードのブロック（C9）: 22 本。lab-review を足した（木を見直す）。sci-seed は消えたまま
   const ids = SE_BLOCKS.map(([id]) => id);
-  assert.strictEqual(ids.length, 21);
-  assert.strictEqual(new Set(ids).size, 21);
+  assert.strictEqual(ids.length, 22);
+  assert.strictEqual(new Set(ids).size, 22);
   for (const id of ids) assert.match(id, /^(sci|lab)-[a-z-]{2,30}$/);
   assert.ok(ids.includes("lab-read") && ids.includes("sci-verify") && ids.includes("lab-progress"));
   assert.ok(ids.includes("lab-map") && ids.includes("lab-sprout") && ids.includes("sci-exp-sprout"));
+  assert.ok(ids.includes("lab-review"));
+  assert.ok(!ids.includes("lab-regroup"));
   assert.ok(!ids.includes("sci-seed"));
   for (const gone of ["sci-read", "sci-split", "sci-search", "sci-ideate", "sci-debate", "sci-review", "sci-compare", "sci-draft", "sci-probe"]) {
     assert.ok(!ids.includes(gone), gone);
@@ -332,9 +320,10 @@ function test_card() {
   bad({ papers: ["abc"] });
   // 足す子の型は対象に合うものだけ（Q なら Q か A、A なら Q か F）
   assert.match(bad({ node: "Q12", child: "F" }), /足す子の型/);
-  assert.match(bad({ node: "A2", child: "A" }), /足す子の型/);
+  assert.match(bad({ node: "Q12", child: "Q" }), /足す子の型/);
   assert.match(bad({ node: "SEED", child: "Q" }), /足す子の型/);
   assert.strictEqual(seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", child: "F" }).card.child, "F");
+  assert.strictEqual(seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", child: "A" }).card.child, "A");
 
   // READ_CARD: 論文はちょうど 1 本・対象は Q か A
   const read = { node: "A2", block: "lab-read", purpose: "読む", runner: "user", papers: [37], depth: "figures" };
@@ -367,29 +356,40 @@ function test_card() {
 
 // --- 足す子の型（対象の種類で選べる物）---
 function test_child_options() {
-  assert.deepStrictEqual(seChildOptions("Q5"), [["Q", "Q"], ["A", "A"]]);
-  assert.deepStrictEqual(seChildOptions("A2"), [["Q", "Q"], ["F", "F"]]);
+  // Q の下は A だけ。A の下は A と F（A の下に A を足せる）
+  assert.deepStrictEqual(seChildOptions("Q5"), [["A", "A"]]);
+  assert.deepStrictEqual(seChildOptions("A2"), [["A", "A"], ["F", "F"]]);
   assert.deepStrictEqual(seChildOptions("SEED"), []);
   assert.deepStrictEqual(seChildOptions("F1"), []);
   assert.deepStrictEqual(seChildOptions(""), []);
   assert.ok(seChildOk("Q1", "A"));
   assert.ok(seChildOk("A2", "F"));
+  assert.ok(seChildOk("A2", "A"));
   assert.ok(seChildOk("Q1", ""));
   assert.ok(!seChildOk("Q1", "F"));
-  assert.ok(!seChildOk("A2", "A"));
+  assert.ok(!seChildOk("Q1", "Q"));
   assert.ok(!seChildOk("SEED", "Q"));
 }
 
-// --- bottom_Q（child_Q を持たない Q。node の bottom_q を見る） ---
-function test_bottom_qs() {
+// --- 親の候補（A と Q を木の順で。bottom_q は見ない）と、A を移す先の候補 ---
+function test_parents() {
   const nodes = [
-    { id: "Q1", parent: null, bottom_q: false },
-    { id: "Q2", parent: "A1", bottom_q: true },
-    { id: "A1", parent: "Q1", bottom_q: true },
-    { id: "Q3", parent: "Q2", bottom_q: false },
+    { id: "Q1", parent: null },
+    { id: "A1", parent: "Q1" },
+    { id: "F1", parent: "A1" },
+    { id: "Q2", parent: "A1" },
+    { id: "A2", parent: "Q2" },
+    { id: "A3", parent: "Q1", removed: true },
+    { id: "A4", parent: "Q1" },
   ];
-  assert.deepStrictEqual(seBottomQs(nodes).map((n) => n.id), ["Q2"]);
-  assert.deepStrictEqual(seBottomQs([]), []);
+  // A と Q だけ・消した A は外す・F は入らない
+  assert.deepStrictEqual(seParents(nodes).map((n) => n.id), ["Q1", "A1", "Q2", "A2", "A4"]);
+  assert.deepStrictEqual(seParents([]), []);
+  // 移す A 自身・その子孫（A1 の下の Q2 と A2）・今の親（Q1）は候補から外す
+  assert.deepStrictEqual(seMoveTargets(nodes, "A1").map((n) => n.id), ["A4"]);
+  // A2 の今の親は Q2。Q2 と A2 自身は外し、A1 と Q1 と A4 は選べる
+  assert.deepStrictEqual(seMoveTargets(nodes, "A2").map((n) => n.id), ["Q1", "A1", "A4"]);
+  assert.deepStrictEqual(seMoveTargets([], "A1"), []);
 }
 
 function test_response_shapes() {
@@ -425,7 +425,7 @@ function main() {
   test_tables();
   test_card();
   test_child_options();
-  test_bottom_qs();
+  test_parents();
   test_response_shapes();
   test_seed_questions();
   console.log("test_sciedit: すべて通りました");

@@ -18,24 +18,26 @@
 
 // op の表示名（表に無い op はそのまま出す）
 const SE_OPS = {
-  add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E",
+  add_a: "A を足す", add_f: "Add F", add_e: "Add E",
   add_seed: "seed（D）を作る", add_sprout: "Create SPROUT", copy: "Copy A", remove: "Delete",
   star: "★ を付ける", unstar: "★ を外す", set_stance: "Stance を変える",
-  edit: "Edit", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える", set_dataset: "データセットを変える",
-  move_node: "A を 1 件移す", regroup: "まとめる（中間の A と細分の Q）",
+  edit: "Edit", set_mlflow: "MLflow を変える", set_dataset: "データセットを変える",
+  move_node: "A を移す",
   add_seed_q: "問いを足す", edit_seed_q: "問いを直す", remove_seed_q: "問いを消す",
   add_answer: "回答を足す", edit_answer: "回答を直す", remove_answer: "回答を消す",
 };
 // 反映したときに知らせる言葉（op ごとに 1 つ）
 const SE_DONE = {
-  add_q: "Q を足しました", add_a: "A を足しました", add_f: "F を足しました", add_e: "E を足しました",
+  add_a: "A を足しました", add_f: "F を足しました", add_e: "E を足しました",
   add_seed: "seed（D）を作りました", add_sprout: "Created SPROUT", copy: "A を写しました", remove: "消しました",
   star: "★ を付けました", unstar: "★ を外しました", set_stance: "Stance を変えました",
-  edit: "文を直しました", insert_q: "Q を間に入れました", move_a: "A を移しました", set_mlflow: "MLflow を変えました", set_dataset: "データセットを変えました",
-  move_node: "A を 1 件移しました", regroup: "まとめました",
+  edit: "文を直しました", set_mlflow: "MLflow を変えました", set_dataset: "データセットを変えました",
+  move_node: "A を移しました",
   add_seed_q: "問いを足しました", edit_seed_q: "問いを直しました", remove_seed_q: "問いを消しました",
   add_answer: "回答を足しました", edit_answer: "回答を直しました", remove_answer: "回答を消しました",
 };
+// A の種類（add_a の rel。空は無し）。condition は種類の分割でない子
+const SE_RELS = [["subtype", "subtype（種類の分割）"], ["condition", "condition（種類の分割でない子）"]];
 // 入力欄を出さずに送る op
 const SE_QUICK = ["star", "unstar", "set_stance"];
 // 読む深さ
@@ -51,10 +53,10 @@ const SE_MODES = [["purpose_first", "purpose_first"], ["blind_first", "blind_fir
 // 値は API の STANCES（support・deny・issue）。表示は略号つき。
 const SE_STANCES = [["support", "S 支持"], ["deny", "D 反対"], ["issue", "I 問い"]];
 // カードの子の型（対象の種類ごとに出す。空は「なし」）
-const SE_CHILD_KINDS = { Q: [["Q", "Q"], ["A", "A"]], A: [["Q", "Q"], ["F", "F"]] };
+const SE_CHILD_KINDS = { Q: [["A", "A"]], A: [["A", "A"], ["F", "F"]] };
 // カードで選べるブロック（Next Action に出るもの）
 const SE_BLOCKS = [
-  ["sci-start", "研究の入口: 最初の Q を立てる"],
+  ["sci-start", "研究の入口: 最初の軸を立てる"],
   ["sci-restore", "戻す: 消した Node を探して戻す案を出す"],
   ["sci-cite-check", "出典を確かめる: F の出典を照らす"],
   ["sci-digest", "まとめる: 今の状態をまとめる（op は出さない）"],
@@ -68,10 +70,11 @@ const SE_BLOCKS = [
   ["sci-data-test", "データで確かめる: 計画どおりに検定して報告"],
   ["lab-read", "1 本を読む（論文あり）: 論文から F を抜き出す"],
   ["lab-search", "探して読む（検索）: 論文を探し、候補から取り込む"],
-  ["lab-grow", "木を育てる（論文あり）: A・F・Q を足し、Q を間に入れる"],
+  ["lab-grow", "木を育てる（論文あり）: A と F を足す"],
+  ["lab-review", "木を見直す: 兄弟の詳しさと分け方を見直す（親の A を足す・兄弟を移す）"],
   ["lab-survey", "外を調べる（検索）: 論文を探して木の案を出す"],
   ["lab-place", "置き場所を決める（論文だけ）: 木を探して読む CARD を作る"],
-  ["lab-map", "root を組む（review 論文）: 分野の軸ごとに Q・A・F の骨組みを作る"],
+  ["lab-map", "root を組む（review 論文）: 分野の軸ごとに軸・A・F の骨組みを作る"],
   ["lab-sprout", "SPROUT を作る: seed（D）と path を選び、制約と先行研究との違いを確かめて S を作る"],
   ["lab-progress", "進み具合の確認: 数と穴を報告し、次の CARD を作る（op は出さない）"],
   ["sci-verify", "検証: target_node と子の関係を評価し、報告・op・次の CARD を作る"],
@@ -177,18 +180,15 @@ function seBuildOp(kind, values) {
   const first = (...msgs) => msgs.find(Boolean) || "";
 
   switch (name) {
-    case "add_q": {
-      // 軸の Q は sai-sci init が作るので、Q を足せるのは Q・A の下だけ
-      if (seTrim(v.parent) === "SEED") return bad("軸の Q は sai-sci init が作ります");
-      const msg = first(seRefOk(v.parent, "QA") ? "" : "親（Q・A）を選んでください", len("text", "文", 1, SE_MAX.qtext));
-      if (msg) return bad(msg);
-      return good({ op: name, parent: seTrim(v.parent), text: seTrim(v.text) });
-    }
     case "add_a": {
-      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.atext), len("body", "本文", 0, SE_MAX.body));
+      // 親は A か Q（軸の Q の下も A の下も可）。rel は空なら送らない（subtype・condition だけ）
+      const msg = first(id("parent", "QA", "親（A か Q）"), len("text", "文", 1, SE_MAX.atext), len("body", "本文", 0, SE_MAX.body));
       if (msg) return bad(msg);
-      const op = { op: name, q: seTrim(v.q), text: seTrim(v.text) };
+      const rel = seTrim(v.rel);
+      if (rel && !SE_RELS.some((x) => x[0] === rel)) return bad("種類（subtype か condition）が正しくありません");
+      const op = { op: name, parent: seTrim(v.parent), text: seTrim(v.text) };
       if (seTrim(v.body)) op.body = seTrim(v.body);
+      if (rel) op.rel = rel;
       return good(op);
     }
     case "add_f": {
@@ -293,7 +293,7 @@ function seBuildOp(kind, values) {
       return seIdOk(v.answer, SE_SA_RE) ? good({ op: name, answer: seTrim(v.answer) }) : bad("回答を選んでください");
     }
     case "copy": {
-      const msg = first(id("node", "A", "写す A"), id("to", "Q", "写す先の Q"));
+      const msg = first(id("node", "A", "写す A"), id("to", "QA", "写す先（A か Q）"));
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), to: seTrim(v.to) });
     }
     case "remove": {
@@ -312,41 +312,10 @@ function seBuildOp(kind, values) {
       if (!SE_STANCES.some((x) => x[0] === stance)) return bad("stance は S・D・I のどれかです");
       return good({ op: name, node: seTrim(v.node), stance });
     }
-    case "insert_q": {
-      const msg = first(id("q", "Q", "Q"), len("text", "文", 1, SE_MAX.qtext));
-      return msg ? bad(msg) : good({ op: name, q: seTrim(v.q), text: seTrim(v.text) });
-    }
-    case "move_a": {
-      // from の A の子を全部 to へ移す（C3）。to は生きた child_Q を持たない Q
-      const msg = first(id("from", "Q", "移す A を持つ Q"), id("to", "Q", "移す先の Q"));
-      if (msg) return bad(msg);
-      if (seTrim(v.from) === seTrim(v.to)) return bad("同じ Q へは移せません");
-      return good({ op: name, from: seTrim(v.from), to: seTrim(v.to) });
-    }
     case "move_node": {
-      // A を 1 件、その下の F・child_Q ごと、ID を保って別の Q の下へ移す（C-OP-2）。移す先は child_Q を持たない Q
-      const msg = first(id("node", "A", "移す A"), id("to", "Q", "移す先の Q"));
+      // A を 1 件、その下の F と子の A ごと、ID を保って別の A か Q の下へ移す。移す先は A か Q
+      const msg = first(id("node", "A", "移す A"), id("to", "QA", "移す先（A か Q）"));
       return msg ? bad(msg) : good({ op: name, node: seTrim(v.node), to: seTrim(v.to) });
-    }
-    case "regroup": {
-      // Q の直下の A（members）を、新しい中間の A の下の細分の Q へまとめる（C-OP-3。ID は保つ）
-      const msg = first(
-        id("q", "Q", "まとめる Q"),
-        len("text", "中間の A の文", 1, 120),
-        len("body", "中間の A の本文", 0, SE_MAX.body),
-        len("child_q", "細分の Q の文", 1, SE_MAX.qtext),
-        len("child_q_body", "細分の Q の本文", 0, SE_MAX.body),
-      );
-      if (msg) return bad(msg);
-      const members = seList(v.members);
-      if (members.length < 1) return bad("まとめる A を 1 つ以上選んでください");
-      if (members.length > 20) return bad("まとめる A は 20 個までです");
-      for (const a of members) if (!seRefOk(a, "A")) return bad(`A の形が正しくありません: ${a}`);
-      if (new Set(members).size !== members.length) return bad("同じ A を 2 回選んでいます");
-      const op = { op: name, q: seTrim(v.q), text: seTrim(v.text), child_q: seTrim(v.child_q), members };
-      if (seTrim(v.body)) op.body = seTrim(v.body);
-      if (seTrim(v.child_q_body)) op.child_q_body = seTrim(v.child_q_body);
-      return good(op);
     }
     case "set_mlflow": {
       // 空文字は外す（API の ztext）
@@ -773,9 +742,18 @@ function seAncestors(nodes, nodeId) {
   return out;
 }
 
-/** bottom_Q（bottom_Q。node の `bottom_q` を見る）。 */
-function seBottomQs(nodes) {
-  return (Array.isArray(nodes) ? nodes : []).filter((n) => n && seRefOk(n.id, "Q") && n.bottom_q);
+/** 親の候補（生きた A と Q を木の順のまま）。A の下にも Q の下にも足せるので、bottom_q は見ない。 */
+function seParents(nodes) {
+  return (Array.isArray(nodes) ? nodes : []).filter((n) => n && seRefOk(n.id, "QA") && n.removed !== true);
+}
+
+/**
+ * A を移す先の候補（seParents から、移す A 自身・その子孫・今の親を外す）。
+ * サーバも検査するが、選べない物は画面に出さない。
+ */
+function seMoveTargets(nodes, nodeId) {
+  const parent = (nodes.find((n) => n && n.id === nodeId) || {}).parent;
+  return seParents(nodes).filter((n) => n.id !== parent && !seAncestors(nodes, n.id).has(nodeId));
 }
 
 /** detail.subtree の F（[{id, text, paper}]）。 */
@@ -796,32 +774,16 @@ function seFieldsFor(kind, nodeId, detail) {
   const nodes = seStatusNodes();
 
   switch (kind) {
-    case "add_q": {
-      const cands = (d.guide && Array.isArray(d.guide.child_candidates) ? d.guide.child_candidates : [])
-        .map((c) => seTrim(c && typeof c === "object" ? c.text : c)).filter(Boolean);
-      const text = seFieldArea("text", "文", "", 3, "必須・300 字まで");
-      const fields = [];
-      if (cands.length) {
-        const guide = seFieldSelect("_guide", "ガイドの候補", cands.map((c) => [c, c]), "", "選ぶと文に入ります", true);
-        let last = "";
-        guide.refresh = () => {
-          const v = guide.read();
-          if (v && v !== last) text.set(v);
-          last = v;
-        };
-        fields.push(guide);
-      }
-      fields.push(text);
-      // 親が SEED（旧い印）のときは seBuildOp が「軸の Q は sai-sci init が作ります」で止める
-      return { title: `Q を足す（${id}）`, values: { parent: id }, fields };
-    }
     case "add_a":
+      // 親は A か Q（候補は seParents。今の Node を初めの値にする）。rel の既定は subtype
       return {
         title: `A を足す（${id}）`,
-        values: { q: id },
+        values: { parent: id },
         fields: [
+          seFieldSelect("parent", "親（A か Q）", seParents(nodes).map(seNodeOption), id, "A の下にも Q の下にも足せます", false),
           seFieldText("text", "文", "", "必須・120 字まで"),
           seFieldArea("body", "本文", "", 4, "任意・2000 字まで"),
+          seFieldSelect("rel", "種類", SE_RELS, "subtype", "condition は種類の分割でない子（★ の A か seed の回答の A の下だけ）", false),
         ],
       };
     case "add_f":
@@ -847,48 +809,12 @@ function seFieldsFor(kind, nodeId, detail) {
           seFieldText("dataset", "データセット", "", "任意・200 字まで（sai-ts のスナップショットは ts:<名前>@<sha256 の先頭 12 桁> の形）"),
         ],
       };
-    case "insert_q":
-      return {
-        title: `Q を間に入れる（${id}）`,
-        values: { q: id },
-        fields: [seFieldArea("text", "文", "", 3, "必須・300 字まで。今の子の A は新しい Q の下へ入ります")],
-      };
-    case "move_a":
+    case "move_node":
       return {
         title: `A を移す（${id}）`,
-        values: { from: id },
-        fields: [seFieldSelect("to", "移す先の Q", seBottomQs(nodes).filter((n) => n.id !== id).map(seNodeOption), "", "この Q の子の A を全部移します。移す先は bottom_Q", false)],
-      };
-    case "move_node": {
-      // A を 1 件、その下の F・child_Q ごと移す。移す先は bottom_Q で、今の親は外す（ID は変わらない）
-      const parent = (nodes.find((n) => n && n.id === id) || {}).parent;
-      return {
-        title: `A を 1 件移す（${id}）`,
         values: { node: id },
-        fields: [seFieldSelect("to", "移す先の Q", seBottomQs(nodes).filter((n) => n.id !== parent).map(seNodeOption), "", "A の下の F・child_Q ごと移します。ID は変わりません", false)],
+        fields: [seFieldSelect("to", "移す先（A か Q）", seMoveTargets(nodes, id).map(seNodeOption), "", "移す先は A か軸（Q）。A の下の F と子の A ごと移します。ID は変わりません", false)],
       };
-    }
-    case "regroup": {
-      // Q の直下の A を、新しい中間の A の下の細分の Q へまとめる。細分の Q の文は、空なら「〈中間の A の文〉には、どんな種類があるか。」
-      const members = nodes.filter((n) => n && seRefOk(n.id, "A") && n.parent === id).map(seNodeOption);
-      const childQ = seFieldText("child_q", "細分の Q の文", "", "必須・300 字まで。空なら「〈中間の A の文〉には、どんな種類があるか。」", "〈中間の A の文〉には、どんな種類があるか。");
-      return {
-        title: `まとめる（${id}）`,
-        values: { q: id },
-        fields: [
-          seFieldText("text", "中間の A の文", "", "必須・120 字まで。まとめた A の答え"),
-          seFieldArea("body", "中間の A の本文", "", 3, "任意・2000 字まで"),
-          childQ,
-          seFieldArea("child_q_body", "細分の Q の本文", "分け方の基準: ", 3, "任意・2000 字まで。分け方の基準を書きます"),
-          seFieldChecks("members", "まとめる A（Q の直下の A）", members, [], "1〜20 個。選んだ A は、細分の Q の下へ移ります（ID は変わりません）"),
-        ],
-        // 細分の Q の文は、空なら中間の A の文から作る（既定）
-        build: (read) => Object.assign({}, read, {
-          q: id,
-          child_q: seTrim(read.child_q) || `${seTrim(read.text)}には、どんな種類があるか。`,
-        }),
-      };
-    }
     case "set_mlflow":
       return {
         title: `MLflow を変える（${id}）`,
@@ -899,7 +825,7 @@ function seFieldsFor(kind, nodeId, detail) {
       return {
         title: `A を写す（${id}）`,
         values: { node: id },
-        fields: [seFieldSelect("to", "写す先の Q", seBottomQs(nodes).map(seNodeOption), "", "bottom_Q", false)],
+        fields: [seFieldSelect("to", "写す先（A か Q）", seParents(nodes).map(seNodeOption), "", "写す先は A か軸（Q）", false)],
       };
     case "remove":
       return {
@@ -1161,7 +1087,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     seTrim, seOpLabel, seCiteOk, seRefOk, seIdOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
     seCardValues, seCardNode, seBuildCard, seCardRunId, seChildOptions, seChildOk,
-    seBottomQs,
-    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_SQ_RE, SE_SA_RE, SE_STANCES, SE_SEED_AXES,
+    seParents, seMoveTargets,
+    SE_OPS, SE_DONE, SE_QUICK, SE_BLOCKS, SE_CITE_RE, SE_ID_RE, SE_SQ_RE, SE_SA_RE, SE_STANCES, SE_SEED_AXES, SE_RELS,
   };
 }
