@@ -301,6 +301,17 @@
 
 .sci-pin { font-size: 12px; }
 
+/* rel が condition の A の目印（「条件」の字。色だけに頼らない枠の印） */
+.sci-rel-cond {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.8;
+}
+
 /* --- 板 --- */
 
 .sci-sheet-body { padding: 8px 14px 28px; }

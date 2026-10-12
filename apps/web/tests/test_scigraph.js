@@ -194,6 +194,22 @@ function testCardContent() {
   assert.strictEqual(byId(l, "A2").stance, "");
 }
 
+function testConditionMark() {
+  // rel が condition の A は副題に「条件」を添える。subtype と無い rel は何も足さない
+  const status = { nodes: [
+    node("Q0", "Q", null, 0),
+    node("A1", "A", "Q0", 1, { rel: "subtype" }),
+    node("A2", "A", "Q0", 1, { rel: "condition", starred: true, counts: { q: 0, a: 0, f: 1, e: 0 } }),
+    node("A3", "A", "Q0", 1, { rel: "condition" }),
+    node("A4", "A", "Q0", 1),
+  ] };
+  const l = sgTreeLayout({ status }, {});
+  assert.strictEqual(byId(l, "A1").sub, "");
+  assert.strictEqual(byId(l, "A2").sub, "★ F 1 条件");
+  assert.strictEqual(byId(l, "A3").sub, "条件");
+  assert.strictEqual(byId(l, "A4").sub, "");
+}
+
 function testNoPending() {
   // 保留の印は無くなったので、札に pending の項目は持たせない
   const l = sgTreeLayout({ status: sampleStatus() }, {});
@@ -458,6 +474,7 @@ const tests = [
   ["hideE", testHideE],
   ["hideF", testHideF],
   ["stance と札の中身", testCardContent],
+  ["condition の目印", testConditionMark],
   ["保留の印は持たない", testNoPending],
   ["空の入力", testEmpty],
   ["線の書き方", testEdgeStyle],

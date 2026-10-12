@@ -80,6 +80,13 @@ test(function testRows() {
   ] });
   assert.deepStrictEqual(rows.map((r) => [r.id, r.depth, r.starred, r.stance]),
     [["Q1", 0, false, null], ["A2", 1, true, null], ["F3", 2, false, "deny"]]);
+  // rel は行に持つ。無ければ null（旧形式の行）
+  const relRows = stRows({ nodes: [
+    { id: "A1", kind: "A", depth: 1, text: "a", rel: "condition" },
+    { id: "A2", kind: "A", depth: 1, text: "b", rel: "subtype" },
+    { id: "A3", kind: "A", depth: 1, text: "c" },
+  ] });
+  assert.deepStrictEqual(relRows.map((r) => r.rel), ["condition", "subtype", null]);
   // 一覧の行に保留・目安・論理・配置の項目は持たせない
   assert.ok(!("pending" in rows[0]) && !("obj" in rows[0]) && !("logic" in rows[0]) && !("onPath" in rows[0]));
 });
@@ -126,8 +133,8 @@ test(function testNextText() {
 test(function testNodeOps() {
   assert.deepStrictEqual(Object.keys(ST_NODE_OPS), ["Q", "A", "F", "E", "S", "D"]);
   assert.deepStrictEqual(ST_NODE_OPS, {
-    Q: ["add_q", "add_a", "insert_q", "move_a"],
-    A: ["add_q", "add_f", "copy"],
+    Q: ["add_a"],
+    A: ["add_a", "add_f", "move_node", "copy"],
     F: [],
     E: ["add_e", "set_mlflow"],
     S: ["add_e", "edit", "remove"],
@@ -139,12 +146,8 @@ test(function testNodeOps() {
   assert.deepStrictEqual(stOpsFor({ kind: "D", parent: null }, []), ["edit", "remove"]);
   // F は何も出さない（stance は板の別の節）
   assert.deepStrictEqual(stOpsFor({ kind: "F", parent: "A1" }, []), []);
-  // Q に子が無ければ add_q と add_a。insert_q と move_a は出さない
-  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, []), ["add_q", "add_a"]);
-  // Q で子に A があれば add_q を出さず、insert_q と move_a を出す
-  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "A" }]), ["add_a", "insert_q", "move_a"]);
-  // Q で子に Q があれば add_a を出さない
-  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "Q" }]), ["add_q"]);
+  // 軸（Q）の板は add_a だけ。子の種類で変えない（旧い op の釦は出さない）
+  assert.deepStrictEqual(stOpsFor({ kind: "Q", parent: null }, [{ kind: "A" }]), ["add_a"]);
   // add_e は E と、完成した S（SPROUT）だけ。未完成の S には BRANCH を出さない（残りの問いを板で出す）
   assert.ok(!stOpsFor({ kind: "A" }, []).includes("add_e"));
   assert.ok(stOpsFor({ kind: "S", complete: true }, []).includes("add_e"));
@@ -156,8 +159,9 @@ test(function testNodeOps() {
   assert.ok(stOpsFor({ kind: "E" }, []).includes("set_mlflow"));
   // E の下に F は置かない（結果は mlflow で結ぶ）
   assert.ok(!stOpsFor({ kind: "E" }, []).includes("add_f"));
-  // A の add_q は常に出す
-  assert.deepStrictEqual(stOpsFor({ kind: "A" }, []), ["add_q", "add_f", "copy"]);
+  // A の板は add_a・add_f・move_node・copy を常に出す（子の種類で変えない）
+  assert.deepStrictEqual(stOpsFor({ kind: "A" }, []), ["add_a", "add_f", "move_node", "copy"]);
+  assert.deepStrictEqual(stOpsFor({ kind: "A" }, [{ kind: "A" }, { kind: "Q" }]), ["add_a", "add_f", "move_node", "copy"]);
   // S は完成したときだけ BRANCH。Edit / Delete は常に出す
   assert.deepStrictEqual(stOpsFor({ kind: "S", complete: true }, []), ["add_e", "edit", "remove"]);
 });
@@ -370,7 +374,10 @@ test(function testRangeText() {
     stRangeText({ q: 3, a: 4, f_support: 2, f_deny: 1, f_issue: 0 }),
     "Q 3・A 4・F S 2 / D 1 / I 0",
   );
-  assert.strictEqual(stRangeText({}), "Q 0・A 0・F S 0 / D 0 / I 0");
+  // Q が 0 のときは Q を出さない（新しい形）。Q が正のときは旧形式なので出す
+  assert.strictEqual(stRangeText({}), "A 0・F S 0 / D 0 / I 0");
+  assert.strictEqual(stRangeText({ q: 0, a: 2, f_support: 1, f_deny: 0, f_issue: 0 }), "A 2・F S 1 / D 0 / I 0");
+  assert.strictEqual(stRangeText({ q: 2, a: 2, f_support: 0, f_deny: 0, f_issue: 0 }), "Q 2・A 2・F S 0 / D 0 / I 0");
   assert.strictEqual(stRangeText(null), "");
   assert.strictEqual(stRangeText("x"), "");
 });

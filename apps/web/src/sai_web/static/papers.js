@@ -321,7 +321,7 @@ function libraryFindHash(id) {
   return `#/papers/library/find/${encodeURIComponent(id)}`;
 }
 
-/** 内部検索の条件の要約（例: hybrid · all · 10 件 · Q12）。指定が無いものは出さない。 */
+/** 内部検索の条件の要約（例: hybrid · all · 10 件 · A12）。指定が無いものは出さない。 */
 function lfindSummary(state) {
   const parts = [];
   const modeLabel = { word: "Word", vector: "Semantic", hybrid: "Hybrid" }[(state && state.mode) || ""];
@@ -360,8 +360,8 @@ function lfindBody(state) {
     : [];
   if (papers.length > 20) return { ok: false, body: null, error: "論文は 20 本までしか選べません" };
   const node = String(s.node || "").trim();
-  if (node !== "" && !/^[QOFE][1-9][0-9]{0,8}$/.test(node)) {
-    return { ok: false, body: null, error: "Node の番号が正しくありません（Q12・O5 の形）" };
+  if (node !== "" && !/^[QAFESD][1-9][0-9]{0,8}$/.test(node)) {
+    return { ok: false, body: null, error: "Node の番号が正しくありません（Q12・A5 の形）" };
   }
   const body = { query, top_k: count };
   if (mode) body.mode = mode;

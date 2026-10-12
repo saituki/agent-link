@@ -169,7 +169,7 @@ const SAI_TERMS = {
   },
   sci_root: {
     label: "ROOT",
-    text: "top_Q から下へ分かれる Q・A・F の総称です。木の下向きの部分を指します。",
+    text: "軸（Q）から下へ分かれる Q・A・F の総称です。木の下向きの部分を指します。",
   },
   sci_sprout: {
     label: "SPROUT",
@@ -185,19 +185,23 @@ const SAI_TERMS = {
   },
   sci_node: {
     label: "Node",
-    text: "research-tree の 1 つの要素です。Q・O・F・E・S のどれかになります。",
+    text: "research-tree の 1 つの要素です。Q・A・F・E・S のどれかになります。",
   },
   sci_top_q: {
-    label: "top_Q",
-    text: "軸の Q のうち、tree のいちばん上に並ぶものです。",
+    label: "軸",
+    text: "tree のいちばん上に並ぶ Q です。task・target・data・method・output・metric の 6 つがあり、A はこの下に置きます。",
   },
   sci_bottom_q: {
     label: "bottom_Q",
-    text: "child_Q を持たない Q です。tree のいちばん下の Q です。",
+    text: "旧形式の木で、子の Q を持たない Q です。tree のいちばん下の Q です。",
+  },
+  sci_rel: {
+    label: "種類・条件",
+    text: "子 A の関係です。subtype は親の一種（種類の分割）です。condition は親の属性や条件で、種類の分割ではありません。condition を置けるのは STAR の A か seed の回答の A の下だけです。",
   },
   sci_star: {
     label: "STAR（★）",
-    text: "利用者が Answer の O に付ける印です。STAR_PATH は top_Q から STAR の O を通ってたどれる道です。",
+    text: "利用者が A に付ける印です。STAR_PATH は軸から STAR の A を通ってたどれる道です。",
   },
   sci_proposal: {
     label: "PROPOSAL",

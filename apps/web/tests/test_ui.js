@@ -29,7 +29,7 @@ const C_F5 = [
   "template", "settings", "runner", "round", "global_round", "waggle", "daemon",
   "card", "task_text", "phase", "bibtex", "attention", "state", "mind",
   "sci_research_tree", "sci_seed", "sci_root", "sci_sprout", "sci_branch",
-  "sci_path", "sci_node", "sci_top_q", "sci_bottom_q", "sci_star",
+  "sci_path", "sci_node", "sci_top_q", "sci_bottom_q", "sci_star", "sci_rel",
   "sci_proposal", "sci_triage", "sci_card", "sci_guide",
   "sci_research_type", "sci_lab_agent",
 ];
@@ -53,6 +53,12 @@ function testTerms() {
   assert.deepStrictEqual(list.map((x) => x.key).sort(), C_F5.slice().sort());
   for (const x of list) {
     assert.ok(x.label && x.text, `${x.key} に表示名と説明があること`);
+  }
+  // research-tree の用語は今の語（軸・A）で書く。旧い語（top_Q から・Answer の O）は残さない
+  assert.strictEqual(U.SAI_TERMS.sci_top_q.label, "軸");
+  assert.ok(U.SAI_TERMS.sci_rel.text.includes("condition"), "sci_rel の説明が condition に触れること");
+  for (const key of ["sci_node", "sci_root", "sci_star"]) {
+    assert.ok(!/top_Q|\bO\b|Answer/.test(U.SAI_TERMS[key].text), `${key} に旧い語が残っていないこと`);
   }
 }
 

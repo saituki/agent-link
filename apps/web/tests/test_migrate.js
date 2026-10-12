@@ -69,9 +69,9 @@ assert.strictEqual(swIsOldCache("sai-web-radio-audio", "sai-web-v126"), false, "
 assert.strictEqual(swIsOldCache("sai-web-open", "sai-web-v126"), false, "通知の飛び先は消さない");
 
 // --- 5) 画面の版がそろっている（CACHE と ?v=）
-assert.match(swSrc, /const CACHE = "sai-web-v126";/, "CACHE が sai-web-v126 ではありません");
+assert.match(swSrc, /const CACHE = "sai-web-v127";/, "CACHE が sai-web-v127 ではありません");
 const html = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
-assert.ok(html.includes("?v=126"), "index.html の ?v= が126 ではありません");
+assert.ok(html.includes("?v=127"), "index.html の ?v= が127 ではありません");
 assert.ok(!html.includes("?v=104"), "index.html に古い ?v=104 が残っています");
 
 console.log("test_migrate: すべて通りました");
