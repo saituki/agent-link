@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::compute::{Counts, NodeJson, rfc3339_utc};
 use super::store::{self, LogRow, NodeRow};
-use super::{Kind, Result, fmt_id, parse_id_of};
+use super::{Kind, Result, fmt_id, parse_id, parse_id_of};
 
 /// `status.steps`。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -232,7 +232,7 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
         for a in moved {
             hist.entry(a).or_default().push(ParentAtJson {
                 step: m.n,
-                parent: Some(fmt_id(Kind::Q, m.dest)),
+                parent: Some(fmt_id(kinds[&m.dest], m.dest)),
             });
             cur.insert(a, Some(m.from));
         }
@@ -271,17 +271,22 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
     })
 }
 
-/// 移動の記録を読む（`(移し先の Q, 元の Q, 移した A, 件数)`）。`move_node` は移した A が `node_id` で、移し先は detail の「Q7 から Q30 へ」。
+/// 移動の記録を読む（`(移し先の親, 元の親, 移した A, 件数)`）。`move_node` は移した A が `node_id` で、detail は「A7 から Q30 へ」（元も先も A か Q。旧い「Q7 から Q30 へ」も読める）。
 /// `move_a` は移し先が `node_id`（detail は [`read_move`]）。
 fn read_move_log(l: &LogRow) -> Option<(i64, i64, Option<Vec<i64>>, Option<usize>)> {
     if l.action == "move_node" {
         let words: Vec<&str> = l.detail.split_whitespace().collect();
-        let from = parse_id_of(words.first()?, Kind::Q).ok()?;
-        let dest = parse_id_of(words.get(2)?, Kind::Q).ok()?;
+        let from = parse_parent_id(words.first()?)?;
+        let dest = parse_parent_id(words.get(2)?)?;
         return Some((dest, from, Some(vec![l.node_id]), None));
     }
     let (from, exact, count) = read_move(&l.detail)?;
     Some((l.node_id, from, exact, count))
+}
+
+/// 親の ID（A か Q）。頭文字で種類を決める。
+fn parse_parent_id(text: &str) -> Option<i64> {
+    parse_id(text).ok().filter(|(kind, _)| matches!(kind, Kind::A | Kind::Q)).map(|(_, id)| id)
 }
 
 /// `rt_log.detail` を読む。先頭の語が元の Q。`（A5, A6）` があれば移した A の ID、無ければ `A 2 件` の件数。
@@ -507,6 +512,27 @@ mod tests {
         assert_eq!(st.list[4].node, fmt_id(Kind::Q, q5));
         assert_eq!(hist(&st, Kind::A, a2), vec![(2, q(q1)), (5, q(q5))]);
         assert_eq!(hist(&st, Kind::A, a3), vec![(3, q(q1)), (5, q(q5))]);
+    }
+
+    /// move_node の detail は「A7 から A30 へ」（元も先も A か Q）。旧い「Q7 から Q30 へ」も同じように読める。
+    #[test]
+    fn move_node_detail_reads_a_and_q_parents() {
+        let database = db();
+        let conn = database.connection();
+        let q1 = add(conn, Kind::Q, None, T0);
+        let a2 = add(conn, Kind::A, Some(q1), T0);
+        let a3 = add(conn, Kind::A, Some(q1), T0);
+        let a4 = add(conn, Kind::A, Some(q1), T0);
+        // 旧い形（Q から A へ）と、新しい形（A から A へ）。
+        store::set_parent(conn, a2, a3).unwrap();
+        log(conn, a2, "move_node", &format!("{} から {} へ", fmt_id(Kind::Q, q1), fmt_id(Kind::A, a3)), "user", T5);
+        store::set_parent(conn, a2, a4).unwrap();
+        log(conn, a2, "move_node", &format!("{} から {} へ", fmt_id(Kind::A, a3), fmt_id(Kind::A, a4)), "user", T5);
+        let st = build(conn).unwrap();
+        assert_eq!(st.total, 6);
+        assert_eq!((st.list[4].op.as_str(), st.list[4].node.as_str()), ("move_node", fmt_id(Kind::A, a2).as_str()));
+        assert_eq!(st.list[5].op, "move_node");
+        assert_eq!(hist(&st, Kind::A, a2), vec![(2, q(q1)), (5, Some(fmt_id(Kind::A, a3))), (6, Some(fmt_id(Kind::A, a4)))]);
     }
 
     #[test]

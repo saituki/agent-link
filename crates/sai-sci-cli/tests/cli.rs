@@ -239,6 +239,35 @@ fn add_f_with_paper(data_dir: &Path, q: i64) {
     .unwrap();
 }
 
+/// `Q1` の下に A を 1 つ直接書く（add_a は承認が要らない。承認の要る op（remove）の対象を作る）。
+fn add_a_under_root(data_dir: &Path) -> i64 {
+    let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
+    let q: i64 = db
+        .connection()
+        .query_row("SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id IS NULL", [], |r| r.get(0))
+        .unwrap();
+    store::insert_node(
+        db.connection(),
+        &store::NewNode {
+            kind: Kind::A,
+            parent_id: Some(q),
+            guide_key: None,
+            text: "候補",
+            body: "",
+            stance: None,
+            cites: &[],
+            paper_id: None,
+            run_id: None,
+            report_id: None,
+            mlflow_ref: None,
+            dataset_ref: None,
+            paths: &[],
+            created_by: "user",
+        },
+    )
+    .unwrap()
+}
+
 /// `schema --json` の形と `web: false` の命令。
 #[test]
 fn schema_has_shape_and_web_flags() {
@@ -506,16 +535,19 @@ fn apply_records_parent_run_as_actor() {
             cmd.env("SAI_PARENT_RUN_ID", run);
         }
         cmd.arg("apply");
-        run_with_stdin(cmd, &format!(r#"{{"op":"add_q","parent":"Q1","text":"{text}"}}"#))
+        run_with_stdin(cmd, &format!(r#"{{"op":"add_a","parent":"Q1","text":"{text}"}}"#))
     };
     assert_eq!(apply(Some("7"), "代行の問い").code, 0);
     assert_eq!(apply(None, "利用者の問い").code, 0);
 
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
-    let rows = store::list_log(db.connection(), None).unwrap();
-    // list_log は新しい順。add_q の行だけ古い順に並べる。
-    let actors: Vec<String> = rows.iter().rev().filter(|r| r.action == "add_q").map(|r| r.actor.clone()).collect();
-    assert_eq!(actors, vec!["run:7".to_string(), "user".to_string()]);
+    // add_a は rt_log に書かないので、作った A の created_by で actor を見る。
+    let by = |text: &str| -> String {
+        db.connection()
+            .query_row("SELECT created_by FROM rt_nodes WHERE kind = 'A' AND text = ?1", [text], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!((by("代行の問い"), by("利用者の問い")), ("run:7".to_string(), "user".to_string()));
     drop(db);
 
     let _ = std::fs::remove_dir_all(&root);
@@ -737,15 +769,17 @@ fn json_outputs_have_expected_shape() {
 /// 約束: 許可が要る op は、承認（`approval record --answer 許可する`）が 1 件あるときだけ通る。
 /// 通ったあと承認は使い切り、rt_log の行に `approved_by`・`qid`・`question` が入る。同じ `qid` の記録は 2 回目が 4。
 #[test]
-fn approval_record_then_op_add_q() {
+fn approval_record_then_op_remove() {
     let root = temp_dir("approval");
     let home = temp_dir("approval-home");
     let (data_dir, _) = project_with_tree(&root);
     // 許可を使えるのは sci_ops に書いた block だけ（`--block` で渡す）。
     let blocks = root.join(".sai").join("blocks");
     std::fs::create_dir_all(&blocks).unwrap();
-    std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: add_q\n---\n# t\n").unwrap();
-    let body = r#"{"ops":[{"op":"add_q","parent":"Q1","text":"新しい根"}]}"#;
+    std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: remove\n---\n# t\n").unwrap();
+    let a = add_a_under_root(&data_dir);
+    let body = format!(r#"{{"ops":[{{"op":"remove","node":"A{a}"}}]}}"#);
+    let body = body.as_str();
     let op = || {
         let mut cmd = command(&root);
         cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).env("SAI_PARENT_RUN_ID", "5").args(["op", "--block", "t-add"]);
@@ -784,7 +818,7 @@ fn approval_record_then_op_add_q() {
     let row: (String, String, String) = db
         .connection()
         .query_row(
-            "SELECT approved_by, qid, question FROM rt_log WHERE action = 'add_q' ORDER BY id DESC LIMIT 1",
+            "SELECT approved_by, qid, question FROM rt_log WHERE action = 'remove' ORDER BY id DESC LIMIT 1",
             [],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -802,8 +836,10 @@ fn op_without_approval_returns_four() {
     let (data_dir, _) = project_with_tree(&root);
     let blocks = root.join(".sai").join("blocks");
     std::fs::create_dir_all(&blocks).unwrap();
-    std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: add_q\n---\n# t\n").unwrap();
-    let body = r#"{"ops":[{"op":"add_q","parent":"Q1","text":"新しい根"}]}"#;
+    std::fs::write(blocks.join("t-add.md"), "---\nsci_ops: remove\n---\n# t\n").unwrap();
+    let a = add_a_under_root(&data_dir);
+    let body = format!(r#"{{"ops":[{{"op":"remove","node":"A{a}"}}]}}"#);
+    let body = body.as_str();
     let op = |run: Option<&str>| {
         let mut cmd = command(&root);
         cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args(["op", "--block", "t-add"]);
@@ -834,9 +870,9 @@ fn op_without_approval_returns_four() {
     assert_eq!(no_run.code, 4, "stderr={}", no_run.stderr);
     assert!(no_run.stderr.lines().last().unwrap_or("").contains("run_id"), "stderr={}", no_run.stderr);
 
-    // 失敗は何も残さない（add_q の行が無い）。
+    // 失敗は何も残さない（remove の行が無い）。
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
-    let n: i64 = db.connection().query_row("SELECT COUNT(*) FROM rt_log WHERE action = 'add_q'", [], |r| r.get(0)).unwrap();
+    let n: i64 = db.connection().query_row("SELECT COUNT(*) FROM rt_log WHERE action = 'remove'", [], |r| r.get(0)).unwrap();
     assert_eq!(n, 0);
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&home);

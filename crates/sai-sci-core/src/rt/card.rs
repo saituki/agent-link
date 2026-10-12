@@ -113,15 +113,15 @@ fn check_token(raw: &str) -> Result<String> {
     if ok { Ok(bare.to_string()) } else { invalid(format!("文書のトークンの形が違います: {raw}")) }
 }
 
-/// 足す子の型を検査する（C7）。Q の下は Q か A、A の下は Q か F。空は未指定として通す。
+/// 足す子の型を検査する（C7）。Q の下は A、A の下は A か F。Q は新しく作れないので指定できない。空は未指定として通す。
 fn check_child(target: Option<&store::NodeRow>, child: &str) -> Result<String> {
     let child = child.trim();
     if child.is_empty() {
         return Ok(String::new());
     }
     let allowed: &[&str] = match target.map(|n| n.kind) {
-        Some(Kind::Q) => &["Q", "A"],
-        Some(Kind::A) => &["Q", "F"],
+        Some(Kind::Q) => &["A"],
+        Some(Kind::A) => &["A", "F"],
         _ => return invalid("足す子の型は Q か A の Node にだけ指定できます"),
     };
     if allowed.contains(&child) {
@@ -150,7 +150,7 @@ fn handoff_error(error: HandoffError) -> RtError {
     }
 }
 
-/// 読むときの Q の対象になる Q（A なら parent_Q）。
+/// 読むときの Q の対象になる Node（A なら親の A か Q）。
 fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::NodeRow>> {
     Ok(match node.kind {
         Kind::Q => Some(node.clone()),
@@ -481,14 +481,16 @@ mod tests {
     fn child_key_checked_and_written() {
         let e = env("child");
         let with = |node: &str, child: &str| CardSpec { node: node.into(), child: child.into(), ..spec() };
-        // Q の下は Q か A、A の下は Q か F。それ以外（と知らない値）は入力の誤り。
-        for bad in [with("Q1", "F"), with("A2", "A"), with("A2", "O")] {
+        // Q の下は A、A の下は A か F。Q は新しく作れないので指定できない。それ以外（と知らない値）は入力の誤り。
+        for bad in [with("Q1", "F"), with("Q1", "Q"), with("A2", "Q"), with("A2", "O")] {
             assert!(matches!(create_card(&e.db, &e.roots, &e.defs, &bad), Err(RtError::Invalid(_))), "{bad:?}");
         }
         let q = create_card(&e.db, &e.roots, &e.defs, &with("Q1", "A")).unwrap();
         assert!(fs::read_to_string(&q.path).unwrap().contains("sci_child: A"));
         let a = create_card(&e.db, &e.roots, &e.defs, &with("A2", "F")).unwrap();
         assert!(fs::read_to_string(&a.path).unwrap().contains("sci_child: F"));
+        let a_under_a = create_card(&e.db, &e.roots, &e.defs, &with("A2", "A")).unwrap();
+        assert!(fs::read_to_string(&a_under_a.path).unwrap().contains("sci_child: A"));
         // 未指定なら行を書かない。
         let none = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
         assert!(!fs::read_to_string(&none.path).unwrap().contains("sci_child"));

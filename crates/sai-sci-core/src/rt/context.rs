@@ -901,18 +901,18 @@ mod tests {
     #[test]
     fn allowed_ops_text_uses_sci_ops() {
         let e = env("ops");
-        fs::write(e.dir.join(".sai/blocks/b1.md"), "---\nsci_ops: add_a, add_q\n---\n").unwrap();
+        fs::write(e.dir.join(".sai/blocks/b1.md"), "---\nsci_ops: add_a, copy\n---\n").unwrap();
         let t = allowed_ops_text(&e.roots, "b1");
         assert!(t.contains("- add_a: "), "{t}");
-        assert!(t.contains("- add_q（承認が要る）: "), "{t}");
-        assert!(t.contains("必須: q（Q の ID）, text（1〜120 字）"), "{t}");
+        assert!(t.contains("- copy（承認が要る）: "), "{t}");
+        assert!(t.contains("必須: parent（Q か A の ID）, text（1〜120 字）"), "{t}");
         assert!(t.contains("任意: body（0〜2000 字）"), "{t}");
         assert!(!t.contains("- add_f"));
         let none = allowed_ops_text(&e.roots, "nothing");
         for op in ["add_a", "add_f", "add_e"] {
             assert!(none.contains(&format!("- {op}: ")), "{op}");
         }
-        assert!(!none.contains("add_q（"));
+        assert!(!none.contains("copy（"));
         assert!(none.contains("- add_f: A の下に F（根拠）を足す。text は 1〜3 文。"), "{none}");
         assert!(none.contains("1 回は 20 件まで"), "{none}");
         let _ = fs::remove_dir_all(&e.dir);
