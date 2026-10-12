@@ -133,6 +133,9 @@ fn node_line(n: &NodeJson) -> String {
         }
         "A" => {
             line.push_str(&format!("{} [F {}]", n.text, n.counts.f));
+            if n.rel.as_deref() == Some("condition") {
+                line.push_str(" [条件]");
+            }
         }
         "F" => {
             if let Some(stance) = &n.stance {
@@ -270,7 +273,7 @@ mod tests {
         let tree = render_tree_md(&status);
         let lines: Vec<&str> = tree.lines().collect();
         assert!(lines[0].starts_with("# research-tree（"));
-        assert!(lines[2].contains("Q 2・A 2・F 1（S 1 / D 0 / I 0）・E 0・S 0"), "{tree}");
+        assert!(lines[2].contains("軸 2・A 2・F 1（S 1 / D 0 / I 0）・E 0・S 0"), "{tree}");
         assert!(tree.contains("\n- Q1 大目的は？\n"), "{tree}");
         assert!(tree.contains("\n  - A2 ★ 予後予測 [F 0]\n"), "{tree}");
         assert!(tree.contains("\n      - A4 術前 MRI [F 1]\n"), "{tree}");
@@ -288,6 +291,20 @@ mod tests {
 
         assert!(export(c, &roots, &Defs::default()).unwrap());
         assert!(roots.data_dir.join("tree.md").exists());
+    }
+
+    #[test]
+    fn tree_md_shows_a_under_a_and_condition() {
+        let (roots, db) = env("tree-a-under-a", true);
+        let c = db.connection();
+        let q0 = add(&db, Kind::Q, None, "大目的は？", None, &[]);
+        let a1 = add(&db, Kind::A, Some(q0), "大分類", None, &[]);
+        let a2 = add(&db, Kind::A, Some(a1), "細分", None, &[]);
+        store::set_rel(c, a2, Some("condition")).unwrap();
+        let status = compute::status(c, &roots, &Defs::default()).unwrap();
+        let tree = render_tree_md(&status);
+        assert!(tree.contains(&format!("\n  - A{a1} 大分類 [F 0]\n")), "{tree}");
+        assert!(tree.contains(&format!("\n    - A{a2} 細分 [F 0] [条件]\n")), "{tree}");
     }
 
     #[test]
@@ -313,7 +330,7 @@ mod tests {
         assert!(state.contains(&format!("- {} 一つ目（seed: {}・paths: ）\n", fmt_id(Kind::S, s2), fmt_id(Kind::D, d1))), "{state}");
         assert!(state.contains(&format!("- {} 古い研究（seed: なし・paths: ）\n", fmt_id(Kind::S, old))), "{state}");
         // 親の D の行は COUNTS に入らない（S は数える）。
-        assert!(state.contains("## COUNTS\n- Q 0・A 0・F 0（S 0 / D 0 / I 0）・E 0・S 2\n"), "{state}");
+        assert!(state.contains("## COUNTS\n- 軸 0・A 0・F 0（S 0 / D 0 / I 0）・E 0・S 2\n"), "{state}");
         let _ = fs::remove_dir_all(&roots.root);
     }
 

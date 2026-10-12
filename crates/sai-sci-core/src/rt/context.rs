@@ -71,7 +71,6 @@ pub fn build(
 
 fn field_text(f: &Field) -> String {
     let note = match f.ty {
-        Ty::Id if f.name == "q" => "Q の ID".to_string(),
         Ty::Id if f.name == "parent" => "Q か A の ID".to_string(),
         Ty::Id if f.name == "seed" => "seed（D）の ID".to_string(),
         Ty::Id => "Node の ID".to_string(),
@@ -277,7 +276,11 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     let make = |text: String| {
         let tail = match n.kind {
             Kind::Q => format!(" [A {}・深さ {}]", tree.a_count(n.id), q_depth(tree, n)),
-            Kind::A => format!(" [F {}]", tree.f_count_under(n.id)),
+            Kind::A => {
+                let subs = if tree.a_count(n.id) > 0 { format!(" [A {}・F {}]", tree.a_count(n.id), tree.f_count_under(n.id)) } else { format!(" [F {}]", tree.f_count_under(n.id)) };
+                let condition = if n.rel.as_deref() == Some("condition") { " [条件]" } else { "" };
+                format!("{subs}{condition}")
+            }
             Kind::F if !n.cites.is_empty() => format!(" [{}]", n.cites.join(", ")),
             Kind::E => {
                 let mlflow = n.mlflow_ref.as_deref().filter(|m| !m.is_empty()).map_or_else(String::new, |m| format!(" [mlflow: {m}]"));
@@ -546,7 +549,7 @@ impl Parts {
         if let Some(g) = &self.guide {
             let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- Q: {}", g.question)];
             if level < 5 && !g.child.is_empty() {
-                lines.push(format!("- Child Q: {}", g.child.join(" / ")));
+                lines.push(format!("- 細分の候補: {}", g.child.join(" / ")));
             }
             if !g.extract.is_empty() {
                 lines.push(format!("- Extract: {}", g.extract.join(" / ")));
@@ -974,6 +977,25 @@ mod tests {
         let whole = build_with(&e, 100_000, false).unwrap();
         assert!(whole.contains("手法の問い [A 1・深さ 1]"), "{whole}");
         assert!(whole.contains("下位の問い [A 1・深さ 2]"), "{whole}");
+        let _ = fs::remove_dir_all(&e.dir);
+    }
+
+    /// A の下の A: TREE は字下げで出し、直下の A があれば `[A n・F m]`、関係が condition なら `[条件]`。
+    /// 対象が A でも GUIDE は一番近い祖先の軸の Q から出し、Child Q の行は「細分の候補」になる。
+    #[test]
+    fn a_under_a_tree_condition_and_guide() {
+        let e = env("a-under-a");
+        block(&e, "node");
+        let big = add(&e, Kind::A, 2, "大分類", None);
+        let small = add(&e, Kind::A, big, "細分", None);
+        store::set_rel(e.db.connection(), small, Some("condition")).unwrap();
+        add(&e, Kind::F, small, "根拠", Some("support"));
+        task(&e, 1, &format!("sci_node: {}\nsci_purpose: p\n", fmt_id(Kind::A, big)));
+        let text = build_with(&e, 100_000, false).unwrap();
+        assert!(text.contains(&format!("{} 大分類 [A 1・F 1]", fmt_id(Kind::A, big))), "{text}");
+        assert!(text.contains(&format!("  - {} 細分 [F 1] [条件]", fmt_id(Kind::A, small))), "{text}");
+        assert!(text.contains("## GUIDE"), "{text}");
+        assert!(!text.contains("- Child Q:"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 }

@@ -328,6 +328,7 @@ fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
         },
         stance: n.stance.clone(),
         starred: n.starred,
+        rel: None,
         bottom_q: false,
         paths: if n.kind == Kind::S {
             n.paths.iter().map(|a| fmt_id(Kind::A, *a)).collect()
