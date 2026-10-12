@@ -7,7 +7,7 @@
 - READ_CARD の終わりは、始まっていない札でも 1 回の操作で review まで進む
 - 9 本の住所が `main.app.routes` にあり、合言葉（`require_token`）で守られている
 - C-OP の表にない op は 400（op の集合は test_op_ok で確かめる）。research-tree の住所は 10 本だけ
-- move_node・regroup の検査、paths のオブジェクト、card の node 省略、SEED の 400、compare の ID の検査
+- move_node・copy・add_a（親と rel）の検査、廃止した op（add_q・insert_q・move_a・regroup）の 400、paths のオブジェクト、card の node 省略、SEED の 400、compare の ID の検査
 
 実行:
     cd <作業用コピー>
@@ -100,24 +100,17 @@ def swap(order: list, replies: list | None = None):
     return paper, link, restore
 
 
-# C-OP の 24 op（C-OP-1〜4・G3-C1 の set_dataset・U01 の seed の問いと回答）の通る例
+# C-OP の 20 op（C-OP-1〜4・G3-C1 の set_dataset・U01 の seed の問いと回答・U02 の add_a・move_node・copy）の通る例
 C3_OPS = {
-    "add_q", "insert_q", "move_a", "move_node", "regroup", "copy", "remove", "add_a", "add_f",
+    "move_node", "copy", "remove", "add_a", "add_f",
     "add_e", "add_seed", "add_seed_q", "edit_seed_q", "remove_seed_q", "add_answer", "edit_answer",
     "remove_answer", "add_sprout", "set_stance", "set_mlflow", "set_dataset", "star", "unstar", "edit",
 }
 OP_EXAMPLES = {
-    "add_q": {"parent": "Q1", "text": "なぜ？", "guide": "g-1"},
-    "insert_q": {"q": "Q1", "text": "間に入れる問い", "guide": "g-1"},
-    "move_a": {"from": "Q1", "to": "Q3"},
-    "move_node": {"node": "A4", "to": "Q3"},
-    "regroup": {
-        "q": "Q1", "text": "中間の答え", "body": "本文", "child_q": "細分の問い",
-        "child_q_body": "分け方の基準: 時期", "members": ["A2", "A3"],
-    },
+    "move_node": {"node": "A4", "to": "A3"},
     "copy": {"node": "A2", "to": "Q3"},
     "remove": {"node": "F4"},
-    "add_a": {"q": "Q1", "text": "候補", "body": "説明"},
+    "add_a": {"parent": "A2", "text": "候補", "body": "説明", "rel": "condition"},
     "add_f": {
         "parent": "A2",
         "text": "速さが効いた。",
@@ -166,9 +159,9 @@ def test_ids() -> None:
 
 
 def test_op_ok() -> None:
-    """24 op が通り、前後の空白は落ち、body は空のまま送れる。"""
+    """20 op が通り、前後の空白は落ち、body は空のまま送れる。"""
     assert set(OP_EXAMPLES) == set(sci._OP_FIELDS) == C3_OPS, set(sci._OP_FIELDS) ^ C3_OPS
-    assert len(sci._OP_FIELDS) == 24
+    assert len(sci._OP_FIELDS) == 20
     for name, fields in OP_EXAMPLES.items():
         got = sci.validate_op({"op": name, **fields})
         for key, value in fields.items():
@@ -176,7 +169,14 @@ def test_op_ok() -> None:
     assert sci.validate_op({"op": "star", "node": " A2 "}) == {"op": "star", "node": "A2"}
     # 種類の組（star は F も A も通る）は CLI が見る。Web は ID の形だけ
     assert sci.validate_op({"op": "star", "node": "F31"})["node"] == "F31"
-    assert sci.validate_op({"op": "add_q", "parent": "A1", "text": "x"})["parent"] == "A1"
+    # add_a の親は A か Q。A の下の A も通る。rel は subtype・condition で、空は落とす
+    assert sci.validate_op({"op": "add_a", "parent": "A1", "text": "x"})["parent"] == "A1"
+    assert sci.validate_op({"op": "add_a", "parent": "Q1", "text": "x"}) == {"op": "add_a", "parent": "Q1", "text": "x"}
+    assert sci.validate_op({"op": "add_a", "parent": "A1", "text": "x", "rel": "subtype"})["rel"] == "subtype"
+    assert sci.validate_op({"op": "add_a", "parent": "A1", "text": "x", "rel": " "}) == {"op": "add_a", "parent": "A1", "text": "x"}
+    # move_node・copy の移す先は A か Q
+    assert sci.validate_op({"op": "move_node", "node": "A4", "to": "Q3"})["to"] == "Q3"
+    assert sci.validate_op({"op": "copy", "node": "A4", "to": "A3"})["to"] == "A3"
     assert sci.validate_op({"op": "add_e", "parent": "E1", "text": "x"})["parent"] == "E1"
     assert sci.validate_op({"op": "add_e", "parent": "S2", "text": "x"})["parent"] == "S2"
     assert sci.validate_op({"op": "remove", "node": "S1"})["node"] == "S1"
@@ -201,9 +201,9 @@ def test_op_ok() -> None:
     assert sci.validate_op({"op": "add_answer", "to": "S2", "q": "SQ3", "a": "A12", "text": ""}) == {
         "op": "add_answer", "to": "S2", "q": "SQ3", "a": "A12",
     }
-    # 任意の項目は無くてよい
-    assert sci.validate_op({"op": "add_a", "q": "Q1", "text": "候補"}) == {
-        "op": "add_a", "q": "Q1", "text": "候補",
+    # 任意の項目は無くてよい（body・rel は無くても通る）
+    assert sci.validate_op({"op": "add_a", "parent": "Q1", "text": "候補"}) == {
+        "op": "add_a", "parent": "Q1", "text": "候補",
     }
     # set_mlflow の空文字は「外す」の意味で、そのまま CLI へ渡す
     assert sci.validate_op({"op": "set_mlflow", "node": "E1", "mlflow": ""}) == {
@@ -232,37 +232,26 @@ def test_op_ng() -> None:
     bad({"op": "star"}, "node がありません")
     bad({"op": "star", "node": "O1"}, "ID の形が正しくありません")
     bad({"op": "star", "node": "12"}, "ID の形が正しくありません")
-    bad({"op": "add_q", "parent": "O1", "text": "x"}, "ID の形が正しくありません")
-    bad({"op": "add_q", "parent": "SEED", "text": "x"}, "軸の Q は sai-sci init が作ります")
-    bad({"op": "add_q", "parent": "D1", "text": "x"}, "ID の形が正しくありません")
-    bad({"op": "add_q", "parent": "Q1", "text": "あ" * 301})
-    # move_node は A を 1 件・移す先は Q
+    # 廃止した op（add_q・insert_q・move_a・regroup）は 400（表に無い op）
+    for old in ("add_q", "insert_q", "move_a", "regroup"):
+        bad({"op": old, "parent": "Q1", "q": "Q1", "from": "Q1", "to": "Q2", "text": "x", "members": ["A2"]}, "知らない操作です")
+    # add_a の親は A か Q。旧い項目 q（親が無い）は 400
+    bad({"op": "add_a", "parent": "O1", "text": "x"}, "ID の形が正しくありません")
+    bad({"op": "add_a", "parent": "SEED", "text": "x"}, "ID の形が正しくありません")
+    bad({"op": "add_a", "parent": "F1", "text": "x"}, "ID の形が正しくありません")
+    bad({"op": "add_a", "q": "Q1", "text": "x"}, "parent がありません")
+    bad({"op": "add_a", "parent": "Q1", "text": "あ" * 121}, "text は 120 字までです")
+    bad({"op": "add_a", "parent": "Q1", "text": "x", "body": "あ" * 2001})
+    # rel は subtype か condition だけ
+    bad({"op": "add_a", "parent": "A1", "text": "x", "rel": "other"}, "rel が正しくありません")
+    bad({"op": "add_a", "parent": "A1", "text": "x", "rel": "Subtype"}, "rel が正しくありません")
+    # move_node は A を 1 件・移す先は A か Q
     bad({"op": "move_node", "node": "A4"}, "to がありません")
     bad({"op": "move_node", "node": "Q4", "to": "Q3"}, "ID の形が正しくありません")
-    bad({"op": "move_node", "node": "A4", "to": "A3"}, "ID の形が正しくありません")
-    # regroup は members が 1〜20 件の A（重なりも不可）
-    regroup = {"op": "regroup", "q": "Q1", "text": "中間", "child_q": "細分の問い", "members": ["A2"]}
-    assert sci.validate_op(regroup) == {
-        "op": "regroup", "q": "Q1", "text": "中間", "child_q": "細分の問い", "members": ["A2"],
-    }
-    bad({**regroup, "members": []}, "members の指定が正しくありません")
-    bad({**regroup, "members": [f"A{i}" for i in range(1, 22)]}, "members の指定が正しくありません")
-    bad({**regroup, "members": ["A2", "Q3"]}, "ID の形が正しくありません")
-    bad({**regroup, "members": ["A2", "A2"]}, "members に同じ A が 2 回入っています")
-    bad({k: v for k, v in regroup.items() if k != "child_q"}, "child_q がありません")
-    bad({k: v for k, v in regroup.items() if k != "members"}, "members がありません")
-    bad({**regroup, "text": "あ" * 121})
-    bad({**regroup, "child_q": "あ" * 301})
-    bad({**regroup, "child_q_body": "あ" * 2001})
-    bad({"op": "add_q", "parent": "Q1", "text": "x", "guide": "日本語"}, "guide の形が正しくありません")
-    bad({"op": "insert_q", "q": "A1", "text": "x"}, "ID の形が正しくありません")
-    bad({"op": "insert_q", "q": "Q1", "text": "あ" * 301})
-    bad({"op": "move_a", "from": "Q1"}, "to がありません")
-    bad({"op": "move_a", "from": "A1", "to": "Q2"}, "ID の形が正しくありません")
+    bad({"op": "move_node", "node": "A4", "to": "F3"}, "ID の形が正しくありません")
+    bad({"op": "move_node", "node": "A4", "to": "E1"}, "ID の形が正しくありません")
     bad({"op": "copy", "node": "Q1", "to": "Q2"}, "ID の形が正しくありません")
-    bad({"op": "copy", "node": "A1", "to": "A2"}, "ID の形が正しくありません")
-    bad({"op": "add_a", "q": "Q1", "text": "あ" * 121})
-    bad({"op": "add_a", "q": "Q1", "text": "x", "body": "あ" * 2001})
+    bad({"op": "copy", "node": "A1", "to": "F2"}, "ID の形が正しくありません")
     bad({"op": "add_f", "parent": "A1", "text": "x"}, "stance がありません")
     bad({"op": "add_f", "parent": "A1", "text": "x", "stance": "maybe"}, "stance が正しくありません")
     bad({"op": "add_f", "parent": "Q1", "text": "x", "stance": "support"}, "ID の形が正しくありません")
@@ -323,10 +312,10 @@ def test_op_ng() -> None:
 def test_unknown_fields_dropped() -> None:
     """知らない項目と `path` のようなファイルのパスは落ちている。"""
     got = sci.validate_op(
-        {"op": "add_q", "parent": "Q1", "text": "なぜ？", "path": "/etc/passwd",
-         "proposal": "P55", "actor": "run:130", "reason": "足す"}
+        {"op": "add_a", "parent": "Q1", "text": "なぜ？", "path": "/etc/passwd",
+         "proposal": "P55", "actor": "run:130", "reason": "足す", "q": "Q9"}
     )
-    assert got == {"op": "add_q", "parent": "Q1", "text": "なぜ？"}, got
+    assert got == {"op": "add_a", "parent": "Q1", "text": "なぜ？"}, got
     card = sci.validate_card(
         {"node": "Q1", "block": "sci-read", "purpose": "目的", "papers": [37],
          "path": "/etc/passwd", "doc": "waggle:AXANSMpo", "question": "Q7",
@@ -365,8 +354,8 @@ def test_card() -> None:
     }
     # C9: LabAgent の block id（lab-*）も通る
     assert sci.validate_card({**ok_user, "block": "lab-read"})["block"] == "lab-read"
-    # C7: 足す子の型（Q・A・F）。空と null は未指定として落とす
-    for child in ("Q", "A", "F"):
+    # C7: 足す子の型（A・F）。空と null は未指定として落とす
+    for child in ("A", "F"):
         assert sci.validate_card({**ok_user, "child": child})["child"] == child
     assert "child" not in sci.validate_card({**ok_user, "child": ""})
     assert "child" not in sci.validate_card({**ok_user, "child": None})
@@ -396,6 +385,7 @@ def test_card() -> None:
     # 省いた node は木の全体なので、READ_CARD の対象にはできない
     tree_user = {"block": "sci-read", "purpose": "目的", "papers": [37], "runner": "user"}
     expect_400(lambda: sci.validate_card(tree_user), "READ_CARD の対象は Q か A にしてください")
+    bad({"child": "Q"}, "child が正しくありません")
     bad({"child": "E"}, "child が正しくありません")
     bad({"child": "S"}, "child が正しくありません")
     bad({"child": "O"}, "child が正しくありません")
@@ -443,10 +433,10 @@ def test_calls(order: list) -> None:
         assert paper.last["args"][1:] == ["node", "A12", "--json"], paper.last["args"]
         expect_400(lambda: sci.node(project, "N12"))
 
-        sci.apply(project, {"op": "add_q", "parent": "Q1", "text": "なぜ？"})
+        sci.apply(project, {"op": "add_a", "parent": "Q1", "text": "なぜ？"})
         assert paper.last["args"][1:] == ["apply", "--json"]
         assert json.loads(paper.last["input_text"]) == {
-            "op": "add_q", "parent": "Q1", "text": "なぜ？",
+            "op": "add_a", "parent": "Q1", "text": "なぜ？",
         }
         assert paper.last["timeout"] == 30.0
 
@@ -469,20 +459,29 @@ def test_calls(order: list) -> None:
 
 
 def test_new_ops_reach_cli() -> None:
-    """move_node と regroup は検査を通って `apply` の標準入力に届く（余りの項目は落とす）。"""
+    """move_node・copy・add_a（rel 付き）は検査を通って `apply` の標準入力に届く（余りの項目は落とす）。
+    廃止した regroup は 400 になり、CLI を呼ばない。"""
     project = papers.resolve_project("sai-paper")
     paper, _, restore = swap([])
     try:
-        sci.apply(project, {"op": "move_node", "node": "A4", "to": "Q3", "reason": "移す"})
+        sci.apply(project, {"op": "move_node", "node": "A4", "to": "A3", "reason": "移す"})
         assert paper.last["args"][1:] == ["apply", "--json"]
-        assert json.loads(paper.last["input_text"]) == {"op": "move_node", "node": "A4", "to": "Q3"}
+        assert json.loads(paper.last["input_text"]) == {"op": "move_node", "node": "A4", "to": "A3"}
+        sci.apply(project, {"op": "copy", "node": "A4", "to": "Q3", "path": "/etc/passwd"})
+        assert json.loads(paper.last["input_text"]) == {"op": "copy", "node": "A4", "to": "Q3"}
         sci.apply(project, {
-            "op": "regroup", "q": "Q1", "text": "中間の答え", "child_q": "細分の問い",
-            "members": ["A2", "A3"], "path": "/etc/passwd",
+            "op": "add_a", "parent": "A2", "text": "下位の答え", "rel": "subtype",
+            "body": "本文", "q": "Q9", "path": "/etc/passwd",
         })
         assert json.loads(paper.last["input_text"]) == {
-            "op": "regroup", "q": "Q1", "text": "中間の答え", "child_q": "細分の問い", "members": ["A2", "A3"],
+            "op": "add_a", "parent": "A2", "text": "下位の答え", "body": "本文", "rel": "subtype",
         }
+        calls = len(paper.calls)
+        expect_400(lambda: sci.apply(project, {
+            "op": "regroup", "q": "Q1", "text": "中間の答え", "child_q": "細分の問い",
+            "members": ["A2", "A3"],
+        }), "知らない操作です")
+        assert len(paper.calls) == calls, "検査で落ちたときは CLI を呼ばない"
         # paths は廃止。送っても知らない項目として落ち、CLI には渡らない
         sci.apply(project, {
             "op": "add_sprout", "seed": "D1", "title": "題", "paths": [{"a": "A1", "role": "fixed"}, "A2"],

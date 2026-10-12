@@ -63,13 +63,14 @@ CARD_THINKING = ("none", "low", "medium", "high", "xhigh", "max")
 CARD_MODES = ("purpose_first", "blind_first")
 # F の立場（C1・C3）・CARD の足す子の型（C7）
 STANCES = ("support", "deny", "issue")
-CHILD_KINDS = ("Q", "A", "F")
+CHILD_KINDS = ("A", "F")
+# A の関係（add_a の rel。空は無し）
+REL_KINDS = ("subtype", "condition")
 # 引用 C-CITE
 _CITE_RE = re.compile(
     r"^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)?( .{1,80})?$"
 )
-# ガイドのキー・報告書の ID
-_GUIDE_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+# 報告書の ID
 _REPORT_RE = re.compile(r"^R-[0-9]{4,8}$")
 # カード定義のブロック
 _CARD_BLOCK_RE = re.compile(r"^(sci|lab)-[a-z-]{2,30}$")
@@ -77,13 +78,12 @@ _CARD_BLOCK_RE = re.compile(r"^(sci|lab)-[a-z-]{2,30}$")
 # 数の上限
 RUN_ID_MAX = 999_999_999
 CITES_MAX = 10
-MEMBERS_MAX = 20
 COMPARE_MAX = 10
 CARD_PAPERS_MAX = 20
 # 文字数の上限
 BODY_MAX = 2000
 
-# --- C-OP の op ごとの項目（C-OP の 24 種類・set_dataset は G3-C1） ---
+# --- C-OP の op ごとの項目（C-OP の 20 種類・set_dataset は G3-C1） ---
 # 値は「検査のしかた」。知らない項目は落とすので、1 つ 1 つ書く。
 #   ref:<種類>   必須の ID（種類は Q・A・F・E・S・D の文字の並び）
 #   text:<n>     必須の文字（1〜n 字）
@@ -91,28 +91,17 @@ BODY_MAX = 2000
 #   otext:<n>    任意の文字（空なら無いものとして落とす）
 #   oref:<種類>  任意の ID（空なら無いものとして落とす）
 #   oaxis        任意の軸（空文字は「軸を外す」として通す）
+#   orel         任意の rel（空なら無いものとして落とす。subtype・condition だけ）
 #   sq・sa       問い（SQ<n>）・回答（SA<n>）の ID
 #   body         任意の本文（0〜2000 字。空のまま送れる）
-#   members      必須の A の ID の並び（1〜20 件）
 #   enum:<名前>  必須の値
 #   他は _check_one を見る
 # 親子の規則・許可・承認は CLI（ops.rs）が見る。ここは形だけ。
 _OP_FIELDS: dict[str, dict[str, str]] = {
-    "add_q": {"parent": "qparent", "text": "text:300", "guide": "oguide"},
-    "insert_q": {"q": "ref:Q", "text": "text:300", "guide": "oguide"},
-    "move_a": {"from": "ref:Q", "to": "ref:Q"},
-    "move_node": {"node": "ref:A", "to": "ref:Q"},
-    "regroup": {
-        "q": "ref:Q",
-        "text": "text:120",
-        "body": "body",
-        "child_q": "text:300",
-        "child_q_body": "body",
-        "members": "members",
-    },
-    "copy": {"node": "ref:A", "to": "ref:Q"},
+    "move_node": {"node": "ref:A", "to": "ref:QA"},
+    "copy": {"node": "ref:A", "to": "ref:QA"},
     "remove": {"node": "ref:QAFESD"},
-    "add_a": {"q": "ref:Q", "text": "text:120", "body": "body"},
+    "add_a": {"parent": "ref:QA", "text": "text:120", "body": "body", "rel": "orel"},
     "add_f": {
         "parent": "ref:A",
         "text": "text:1200",
@@ -245,13 +234,6 @@ def _check_cites(value) -> list[str]:
     return out
 
 
-def _check_id_list(value, kinds: str, limit: int, label: str, minimum: int = 0) -> list[str]:
-    """ID の配列。"""
-    if not isinstance(value, list) or not (minimum <= len(value) <= limit):
-        raise _bad(f"{label} の指定が正しくありません")
-    return [_check_ref(item, kinds) for item in value]
-
-
 def _check_one(key: str, kind: str, value):
     """項目 1 つを検査して、CLI に渡す形にして返す。"""
     name, _, arg = kind.partition(":")
@@ -274,11 +256,11 @@ def _check_one(key: str, kind: str, value):
         return text
     if name == "enum":
         return _enum(value, _ENUMS[arg], key)
-    if name == "oguide":
-        text = _trim(value)
-        if not _GUIDE_KEY_RE.match(text):
-            raise _bad("guide の形が正しくありません")
-        return text
+    if name == "orel":
+        # 空は無いものとして落とす（add_a の rel）。値は subtype か condition だけ
+        if isinstance(value, str) and not value.strip():
+            return None
+        return _enum(value, REL_KINDS, key)
     if name == "ocites":
         return _check_cites(value)
     if name in ("opaper", "orun"):
@@ -288,16 +270,6 @@ def _check_one(key: str, kind: str, value):
         if not _REPORT_RE.match(text):
             raise _bad("report の形が正しくありません")
         return text
-    if name == "qparent":
-        # add_q の親は Q か A（種類の組は CLI が見る）。軸の Q は sai-sci init が作るので、SEED は受けない
-        if isinstance(value, str) and value.strip() == "SEED":
-            raise _bad("軸の Q は sai-sci init が作ります")
-        return _check_ref(value, "QA")
-    if name == "members":
-        out = _check_id_list(value, "A", MEMBERS_MAX, key, minimum=1)
-        if len(set(out)) != len(out):
-            raise _bad("members に同じ A が 2 回入っています")
-        return out
     if name == "sq":
         return _check_id(value, _SQ_RE, "問いの ID の形が正しくありません")
     if name == "sa":
@@ -319,7 +291,7 @@ def _check_one(key: str, kind: str, value):
 def validate_op(payload) -> dict:
     """C-OP の op の JSON を検査して、CLI に渡す形の dict にして返す（違反は 400）。
 
-    - `op` は C-OP の 24 種類（Web からもすべて送れる）。
+    - `op` は C-OP の 20 種類（Web からもすべて送れる）。廃止した op（add_q・insert_q・move_a・regroup）は 400。
     - op ごとに表の項目だけを残す。知らない項目と `path` のようなファイルのパスは落ちるので、
       CLI には渡らない（`add_sprout` の `paths` は落ちる。回答は `add_answer` で足す）。
     - 文字列は前後の空白を落とす。必須の項目が無ければ 400「<項目> がありません」。
@@ -337,8 +309,8 @@ def validate_op(payload) -> dict:
     out: dict = {"op": name}
     for key, kind in fields.items():
         raw = payload.get(key)
-        # `ref:`・`enum:`・`text:`・`ztext:`・`qparent`・`members`・`sq`・`sa` は必須、ほかは任意
-        optional = kind.split(":")[0] in ("otext", "oref", "oaxis", "body", "oguide", "ocites", "opaper", "orun", "oreport")
+        # `ref:`・`enum:`・`text:`・`ztext:`・`sq`・`sa` は必須、ほかは任意
+        optional = kind.split(":")[0] in ("otext", "oref", "oaxis", "orel", "body", "ocites", "opaper", "orun", "oreport")
         if raw is None:
             if optional:
                 continue
@@ -365,7 +337,7 @@ def validate_card(payload) -> dict:
     - `block`（`^sci-[a-z-]{2,30}$`）・`purpose`（1〜300 字、1 行）は必須
     - `expect` 300 字、`depth`・`mode`・`runner` は表の値（`runner` は空なら `cc`・`pi` は 400）、`origin_run` は run_id
     - `model`・`thinking` は省略可（`CARD_MODELS`・`CARD_THINKING` の値だけ）
-    - `child`（任意。`Q`・`A`・`F` のどれか。空は未指定）は C7 の `sci_child` として渡す。対象との組は CLI が見る
+    - `child`（任意。`A`・`F` のどれか。空は未指定）は C7 の `sci_child` として渡す。対象との組は CLI が見る
     - `papers` は 20 個まで・各 1〜999999999
     - `runner` が `user` なら `papers` はちょうど 1 つで、`node` は Q か A（省いたものは選べない）
     - `question`・`role`・`executer` は受けない。ファイルのパスも受けない（知らない項目は落とす）
