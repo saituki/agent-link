@@ -29,6 +29,7 @@
 | 木を変える（ALLOWED_OPS の op。標準入力に JSON） | `sai-sci op [--run <run_id>] [--block <ブロックの id>]` |
 | 利用者が木を直す（agent は打たない。例外は下の段落） | `sai-sci apply`（標準入力に op 1 件の JSON） |
 | 承認の記録（フックだけが呼ぶ。agent は打たない） | `sai-sci approval record --qid … --question … --answer … --answered-by …` |
+| 医療の用語を ontology で引く（読み取りだけ。使い方は template `sci-onto`） | `sai-sci onto lookup\|show\|relation\|ancestors`（`--json`） |
 | READ_CARD（`--runner user` の CARD）の中身 | `sai-sci read <run_id>` |
 
 `sai-sci status --brief` は最初に読む。いつも JSON で、次の項目を返す。全体（`sai-sci status`）は大きいので、要るときだけ読む。

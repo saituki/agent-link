@@ -220,6 +220,7 @@ EOF
 
 ## コマンド
 `sai-sci` のコマンド（`sai-sci status` / `sai-sci find` / `sai-sci report content` など）は、そのまま打ちます。
+医療の用語の別名・親子の関係は `sai-sci onto`（template `sci-onto`）で確かめてよいです。使うかどうかはあなたが決めます。
 
 `sai-sci` が `command not found` になったら、自分でフルパスを探さずに、質問ツールで起動者に「`sai-sci` に PATH を通してください（README の「起動」）」と伝えて止まってください。
 

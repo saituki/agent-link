@@ -345,6 +345,7 @@ root を育てる LabAgent と、S を作る `lab-sprout`、検証 agent があ�
 - **`template/sci-core.md`** — エージェントに共通で渡す決まり。context の読み方、`sai-sci op` の書き方、使える op と危険度、根拠の扱い、迎合しない姿勢。
 - **`template/sci-find.md`** — F を探すブロックの共通の決まり。
 - **`template/sci-match.md`** — 論文と Q・A を照らし合わせるときの共通の決まり。
+- **`template/sci-onto.md`** — 医療の ontology（`sai-sci onto`）の使い方と読み方の注意。`lab-*` の block と `sci-lookup` が読む（6.3 節）。
 - **`template/bw-core.md`** — 逆向きの運用の共通の決まり（5.8 節）。
 - **`template/exp-core.md`** — 実験ループの共通の決まり。役割、文書の渡し方、実験仕様書、MLflow の記録の決まり、台帳、判定の規則、実行場所の規則、停止の条件。
 - **`template/exp-run.md`** — 実験のスクリプトを「実行先」に投げる手順（分配器 `exp_exec.py` の呼び方）。
@@ -706,6 +707,95 @@ sai-sci convert --from <元のプロジェクトのルート> --to <まだ無い
 - 終了コード: 元の `papr.db` が無い → 3。`--from` と `--to` が同じか入れ子 → 2。`--to` が既にある → 4。複製に失敗 → 1（作りかけの `--to` は消します）。
 - 元のプロジェクトは変わりません。`papr.db` は読み取り専用で複製し、`state.md`・`tree.md` は複製先で作り直します。動いているコンテナが元の `papr.db` を掴んでいると複製できません（止めてから取り直します）。
 - 複製先の登録: `convert` は `.sai/paper/` だけを作ります。Web の「プロジェクトを作る」は `sai-link init --name`・`sai-paper init` で新しく作る経路だけで、複製先を登録する手順は今の `apps/web` にはありません（要確認。登録は別の作業）。
+
+### 6.3 `sai-sci onto`（医療の ontology を引く）
+
+医療の用語を、ontology（MONDO＝疾患、MeSH＝医学用語）で引く読み取り専用の命令です。研究プロジェクトは要りません（共有データだけを読みます）。外部へ通信しません。
+
+| 命令 | 何をするか |
+|---|---|
+| `sai-sci onto lookup "<語>" [--source mondo\|mesh] [--limit N] [--json]` | 語を引く。別名と旧称も当たる（完全一致→前方一致→部分一致の順）。既定 10 件・最大 50 件 |
+| `sai-sci onto show <ID> [--json]` | 概念 1 件の詳細（親・子・別名・xref・根までの距離） |
+| `sai-sci onto relation <ID_A> <ID_B> [--json]` | 2 件の関係（`same`・`descendant`・`ancestor`・`unrelated`・`different_source`） |
+| `sai-sci onto ancestors <ID> [--max-depth N] [--json]` | 祖先を最短距離の昇順で出す |
+
+- ID の形は `MONDO:<数字>` と `MESH:<英数字>` です（例: `MONDO:0005027`・`MESH:D013036`）。
+- `relation` の値: `same`（同じ概念）・`descendant`（a は b の子孫。`distance` は段数）・`ancestor`（a は b の祖先）・`unrelated`（関係が無い。`nearest_common_ancestors` に共通の祖先を最大 3 件）・`different_source`（MONDO と MeSH の組）。
+- 返すのは**事実だけ**です。警告・点数・閾値はありません。粒度や置き場所の判断は、呼ぶ人（agent を含む）が決めます。
+- `depth`（根までの距離）は**参考値**です。多重親があるので、深さは粒度を表しません。祖先関係は `relation` と `ancestors` で見ます。
+- map（MONDO・MeSH の対応）は正解ではありません。食い違う例があります（調査で、ADHD は臨床の慣習では神経発達症の下だが、MONDO では下位ではないと分かった。要確認: 版ごとに変わりうる）。
+
+```bash
+sai-sci onto lookup "West syndrome" --json
+```
+
+（一時の `onto.db` で動かした実際の出力を読みやすく整えたもの。`map_version` の値は前計算の版によって変わります）
+
+```json
+{
+  "query": "West syndrome",
+  "map_version": {"mondo": "releases/2026-10-06", "mesh": "2026", "built_at": "2026-10-12T05:36:05+00:00"},
+  "candidates": [
+    {
+      "id": "MONDO:0018097", "source": "mondo", "label": "infantile spasms",
+      "match": "exact", "matched": "West syndrome",
+      "parents": [
+        {"id": "MONDO:0000003", "label": "syndromic disease"},
+        {"id": "MONDO:0000004", "label": "infantile epilepsy syndrome"}
+      ]
+    },
+    {
+      "id": "MESH:D013036", "source": "mesh", "label": "Spasms, Infantile",
+      "match": "exact", "matched": "West Syndrome",
+      "parents": [
+        {"id": "MESH:D000003", "label": "Cerebral Diseases"},
+        {"id": "MESH:D000004", "label": "Brain Stem Diseases"}
+      ]
+    }
+  ]
+}
+```
+
+```bash
+sai-sci onto relation MONDO:0018097 MONDO:0000003 --json
+```
+
+```json
+{
+  "a": {"id": "MONDO:0018097", "label": "infantile spasms"},
+  "b": {"id": "MONDO:0000003", "label": "syndromic disease"},
+  "relation": "descendant",
+  "distance": 1,
+  "nearest_common_ancestors": [],
+  "depth_a": 2,
+  "depth_b": 1,
+  "xref_between": false,
+  "map_version": {"mondo": "releases/2026-10-06", "mesh": "2026", "built_at": "2026-10-12T05:36:05+00:00"}
+}
+```
+
+標準出力（`--json` なし）は 1 行 1 件です。`lookup "epilepsy"` の例:
+
+```
+MONDO:0005027  mondo  exact  epilepsy  （一致: epilepsy）
+MONDO:0000004  mondo  contains  infantile epilepsy syndrome  （一致: infantile epilepsy syndrome）
+```
+
+**終了コード**: 0 は成功。2 は引数・ID の形の誤り。3 は共有データか ID が無い（`SAI_SHARED_DIR` が未設定・`onto.db` が無い・ID が無い）。1 はその他。失敗のとき標準出力は空で、理由は標準エラーの最後の行に出ます。
+
+**共有データ（`SAI_SHARED_DIR`）**: `onto.db` と `manifest.json` を含むフォルダです。サーバでは `/opt/sai-shared/current` を指します（[`docs/server.md`](./server.md) の 4a 節）。Mac の開発では `apps/web/server/dev.sh shared <dir>` で入れます（同じ節の「Mac（開発）」）。
+
+**版（`map_version`）**: 全部の応答に `{"mondo","mesh","built_at"}` が載ります。どの版で引いたかを、報告や記録に残せます。版が切り替わると、同じ語の答えが変わることがあります（[`docs/server.md`](./server.md) の 4a 節）。
+
+**前計算（`onto.db` を作る）**: 1 回だけ手で走らせます。入力は MONDO の OBO（`mondo.obo`）と MeSH の記述子の XML（`desc<年>.xml`）です。取得元の URL と、置き場へ配る手順は [`docs/server.md`](./server.md) の 4a 節を参照してください。
+
+```bash
+python3 sai-sci/tools/onto_build.py --mondo mondo.obo --mesh desc<年>.xml --mesh-version <年> --out <出力フォルダ>
+```
+
+**表示義務**: 結果を外へ出すとき（論文・画面・配布物）は、出典を書きます。MONDO は CC BY 4.0（Mondo Disease Ontology）。MeSH は "Courtesy of the U.S. National Library of Medicine"。文言は `manifest.json` の `attribution` を参照します。
+
+**agent の使い方**: agent はこの命令を、template `sci-onto` で知ります（`lab-*` の block と `sci-lookup` が読みます）。使うかどうかは agent が決めます。使えなくても作業は止めません。
 
 ## 7. 置き場
 

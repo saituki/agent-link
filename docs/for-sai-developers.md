@@ -681,6 +681,18 @@ Web が作る要求の JSON。Web が先に検査し、知らない項目は落�
 - 終了コード: 元の `.sai/paper/papr.db` が無い → 3。`--from` と `--to` が同じか入れ子 → 2。`--to` が既にある → 4。元の `papr.db` を読み取り専用で複製できない（動いているコンテナが掴んでいる等）→ 1。どれも `--to` は作らない（作りかけは消す）。
 - 同じ `--to` でもう一度走らせると、`--to` が既にあるので終了コード 4 で断り、何も変えない。やり直すときは `--to` を別の名前にする。
 
+#### `onto lookup|show|relation|ancestors --json`（U10）
+
+- 読むのは `SAI_SHARED_DIR` の `onto.db` だけです。研究プロジェクト（`.sai/`）は要りません。読み取り専用で、外部へ通信しません。
+- 全部の応答に `map_version`（`{"mondo","mesh","built_at"}`。`meta` から。無ければ null）が載ります。
+- `lookup "<語>" [--source mondo|mesh] [--limit N] --json`（`--limit` は既定 10・最大 50）→ `{"query","map_version","candidates":[{"id","source","label","match":"exact|prefix|contains","matched","parents":[{"id","label"}]}]}`。候補は完全一致→前方一致→部分一致の順。`matched` は一致した語（別名の元の書き方）。
+- `show <ID> --json` → `{"id","source","label","synonyms":[…],"parents":[…],"children":{"total","items":[…]},"xref":[…],"depth","map_version"}`。`depth` は根までの最短距離（参考値。判定には使わない）。
+- `relation <ID_A> <ID_B> --json` → `{"a":{"id","label"},"b":{"id","label"},"relation":"same|descendant|ancestor|unrelated|different_source","distance":N|null,"nearest_common_ancestors":[{"id","label","a_distance","b_distance"}],"depth_a","depth_b","xref_between":bool,"map_version"}`。`distance` は descendant・ancestor のときの段数。`nearest_common_ancestors` は unrelated のときだけ（最大 3 件）。
+- `ancestors <ID> [--max-depth N] --json` → `{"id","ancestors":[{"id","label","distance"}],"map_version"}`。距離の昇順、同じなら ID 順。
+- ID の形: `MONDO:<数字>` か `MESH:<英数字>`。
+- 終了コード: 0 成功。2 引数・ID の形の誤り。3 `SAI_SHARED_DIR` が未設定・`onto.db` が無い・ID が無い。1 その他。失敗のとき標準出力は空（理由は標準エラーの最後の行）。
+- 事実だけを返します（警告・score・閾値は無い）。`sai-sci onto` の使い方は [`sai-sci.md`](./sai-sci.md) の 6.3 節、template は `sci-onto`。
+
 #### `exp_exec.py check <target>`（C-CHECK）
 
 - local の target では、MLflow の `/health` と、成果物の置き場が `s3://` のときは s3 の鍵（`AWS_ACCESS_KEY_ID`）を確かめる。
