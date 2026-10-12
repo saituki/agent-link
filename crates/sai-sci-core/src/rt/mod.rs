@@ -15,6 +15,7 @@ pub mod card;
 pub mod compare;
 pub mod compute;
 pub mod context;
+pub mod convert;
 pub mod defs;
 pub mod export;
 pub mod ops;
