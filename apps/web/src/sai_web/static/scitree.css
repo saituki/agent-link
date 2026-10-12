@@ -85,11 +85,12 @@
   cursor: pointer;
 }
 /* 押しているときだけ、図の札と同じ色を薄く敷く */
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-Q { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--text); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-A { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-tentative); background: color-mix(in srgb, var(--sci-tentative) 18%, var(--bg)); color: var(--text); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-candidate); background: color-mix(in srgb, var(--sci-candidate) 18%, var(--bg)); color: var(--text); }
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-D { border-color: var(--sci-decided); background: color-mix(in srgb, var(--sci-decided) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-Q { border-color: var(--sci-k-Q); background: color-mix(in srgb, var(--sci-k-Q) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-A { border-color: var(--sci-k-A); background: color-mix(in srgb, var(--sci-k-A) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-k-F); background: color-mix(in srgb, var(--sci-k-F) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-k-E); background: color-mix(in srgb, var(--sci-k-E) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-S { border-color: var(--sci-k-S); background: color-mix(in srgb, var(--sci-k-S) 18%, var(--bg)); color: var(--text); }
+.sci-filter-kind[aria-pressed="true"].sci-filter-kind-D { border-color: var(--sci-k-D); background: color-mix(in srgb, var(--sci-k-D) 18%, var(--bg)); color: var(--text); }
 
 .sci-list-rows {
   flex: 1 1 auto;
@@ -473,10 +474,12 @@
 .sci-row.selected { background: var(--bg-soft); }
 /* SPROUT 作成中の PATH に入れた O（選んでいる行と見分けるため、色を足して左に線を引く） */
 /* 一覧の行は Q/O/F/E で ID と題の色を変える（絞り込みボタンと同じ色） */
-.sci-row-Q .sci-row-head { color: var(--accent); }
-.sci-row-A .sci-row-head { color: var(--sci-decided); }
-.sci-row-F .sci-row-head { color: var(--sci-tentative); }
-.sci-row-E .sci-row-head { color: var(--sci-candidate); }
+.sci-row-Q .sci-row-head { color: var(--sci-k-Q); }
+.sci-row-A .sci-row-head { color: var(--sci-k-A); }
+.sci-row-F .sci-row-head { color: var(--sci-k-F); }
+.sci-row-E .sci-row-head { color: var(--sci-k-E); }
+.sci-row-S .sci-row-head { color: var(--sci-k-S); }
+.sci-row-D .sci-row-head { color: var(--sci-k-D); }
 .sci-row-head .sci-id { color: inherit; }
 /* 絞り込みで ancestor として出した行（自分の種類が絞り込みに合わない行。薄くする） */
 .sci-row-ctx { opacity: 1; }
