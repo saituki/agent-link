@@ -323,7 +323,7 @@ tailscale serve status
 
 ### 研究（sai-sci）・実験の記録・実行先
 
-research-tree（Q・A・F・E・S）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`docs/sai-sci.md`](./docs/sai-sci.md) にまとめてあります。手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md) から始めてください。
+research-tree（Q・A・F・E・S・D）・professor・LabAgent（研究用の block と template）・実験の記録（MLflow への接続情報）・実験の実行先（どの PC で動かすか）は、[`docs/sai-sci.md`](./docs/sai-sci.md) にまとめてあります。手を動かして覚えるなら [`docs/sai-sci-tutorial.md`](./docs/sai-sci-tutorial.md) から始めてください。
 
 - 始め方は `sai-sci init --type <型>` の 1 行です（`sai-link`・`sai-paper` の初期化と、研究の部品の配布を含みます）。
 - agent に渡す環境変数（MLflow の接続情報など）は `.sai/settings.json` か `$SAI_HOME/settings.json` の `env` に書きます。書き方は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) の「`.sai/settings.json` の `env`」にあります。

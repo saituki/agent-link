@@ -82,8 +82,8 @@
   約束の中身は [`docs/for-sai-developers.md`](./docs/for-sai-developers.md) に書いてあり、コア側を直す人はそれを守る。
 - **research-tree（sai-sci）**: 定義の md は `sai-sci/`、処理は `crates/sai-sci-core`（`src/rt/`）、入口は `sai-sci` の CLI と Web の Research タブ。
   research-tree は **seed・root・sprout の 3 つの役**の木で、層は seed（D）・SEED・ROOT・SPROUT・BRANCH、Node の種類は Q・A・F・E・S・D の 6 つ。
-  D（seed）は 1 つの研究の制約（9 項目）で、DB の行を持ち、親なしで複数持てる。SEED は DB の行を持たず、root の根（`sai-sci status` の `seed` の RESEARCH_TYPE と `mind.md`）。
-  ROOT は 6 つの軸の Q（top_Q。どの型でも同じ）から下へ分かれる Q・A・F で、分野の可能性の幅。全部の seed が同じ root を使う。
+  D（seed）は 1 つの研究の問いと回答の一覧（本文は背景と制約の自由な文）で、DB の行を持ち、親なしで複数持てる。SEED は DB の行を持たず、root の根（`sai-sci status` の `seed` の RESEARCH_TYPE と `mind.md`）。
+  ROOT は 6 つの軸の Q（親の無い Q。どの型でも同じ）から下へ分かれる A・F（旧形式の木では Q も）で、分野の可能性の幅。全部の seed が同じ root を使う。
   SPROUT（S）は 1 つの D と、軸ごとの PATH（終点の A）の組＝1 研究（親は D）、BRANCH は SPROUT の下の E（実験の実行）。
   research-tree に向けた 1 回の実行が Action（task.md のカード）で、professor が研究を回し、`sci-*` の block が研究作業を行う。
   言葉の定義は [`CONCEPT.md`](./CONCEPT.md)、使い方は [`docs/sai-sci.md`](./docs/sai-sci.md)。
@@ -289,7 +289,7 @@
 
 | 住所 | 画面 |
 |---|---|
-| `#/research/tree` / `#/research/tree/<ID>` | research-tree（`<ID>` は `SEED` か、Q・A・F・E・S の Node。`Q12`・`A3`・`F4`・`E5`・`S6` の形。`stParseHash`） |
+| `#/research/tree` / `#/research/tree/<ID>` | research-tree（`<ID>` は `SEED` か、Q・A・F・E・S・D の Node。`Q12`・`A3`・`F4`・`E5`・`S6`・`D1` の形。`stParseHash`） |
 | `#/research/read/<run_id>` | READ_CARD（1 本の論文を読んで F を書く） |
 | `#/research/experiments` ほか（`/e/<ID\|all>`・`/run/<ID>`・`/compare/<ID>,…`） | 実験（MLflow の記録） |
 
@@ -375,8 +375,8 @@ sai-tree/
 │   │   └── tests/
 │   └── mlflow-server/        # MLflow の compose（postgres・minio・mlflow・caddy。Docker で動かす）
 ├── sai-sci/                  # 研究の仕組みの md の部品（`sai-sci` に埋め込まれる。直したら release を作り直す）
-│   ├── types/                # RESEARCH_TYPE（Q の階層の雛形）
-│   ├── guides/               # ガイド（Q の文・Child Q・Extract・Pitfall・目安）
+│   ├── types/                # RESEARCH_TYPE（問いの雛形。軸の Q は 6 つ）
+│   ├── guides/               # ガイド（軸の Q の文・Child Q（軸の下の A の候補）・Extract・Pitfall・目安）
 │   ├── template/             # 研究向けの共通 template（`sai-agent`・`sai-task`・`sai-cli` ほか）
 │   ├── blocks/               # block（professor・professor-backward・operator・kaizen と `sci-*`）
 │   ├── tools/                # 実験ループの台帳・実行先への分配器・参照コードの道具・データ分析の道具とテスト
