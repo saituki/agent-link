@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の画面（Q・A・F・E・S の木）。住所は #/research/tree と #/research/tree/<ID>。
+// research-tree の画面（軸・A・F・E・S の木。旧形式は Q を含む）。住所は #/research/tree と #/research/tree/<ID>。
 //
 // 上の帯に注意の札を出し、左に木の一覧、真ん中に
 // research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ出さない）を出す。
@@ -36,10 +36,10 @@ const ST_SPLIT_BAR = 12;
 // MLflow の参照を押したときに開く画面（Experiments の一覧。run の名前では絞らない）
 const ST_EXPERIMENTS_HASH = "#/research/experiments";
 // 板に出す操作（表示名と送り方は sciedit.js の seOpLabel・seOpenAction・seQuick）。
-// insert_q・move_a は A を持つ Q だけ（stOpsFor で絞る）。
+// 軸（Q）の板は add_a だけ。A の板は子の A（add_a）・F・move_node・copy。旧 op は出さない（stOpLabel だけ持つ）。
 const ST_NODE_OPS = {
-  Q: ["add_q", "add_a", "insert_q", "move_a"],
-  A: ["add_q", "add_f", "copy"],
+  Q: ["add_a"],
+  A: ["add_a", "add_f", "move_node", "copy"],
   F: [],
   E: ["add_e", "set_mlflow"],
   // S（SPROUT）は BRANCH を足せて、題と本文を直せる。親が無いので Edit / Delete もここに出す。
@@ -137,7 +137,9 @@ function stLegacyHash(hash) {
 function stRangeText(range) {
   if (!range || typeof range !== "object") return "";
   const n = (v) => Number(v) || 0;
-  return `Q ${n(range.q)}・A ${n(range.a)}・F S ${n(range.f_support)} / D ${n(range.f_deny)} / I ${n(range.f_issue)}`;
+  // 旧形式（Q を持つ SPROUT）だけ Q の数を出す
+  const q = n(range.q) ? `Q ${n(range.q)}・` : "";
+  return `${q}A ${n(range.a)}・F S ${n(range.f_support)} / D ${n(range.f_deny)} / I ${n(range.f_issue)}`;
 }
 
 /** status.nodes の seed（D）だけ。 */
@@ -328,6 +330,7 @@ function stRows(status) {
     text: n.text || "",
     starred: !!n.starred,
     stance: n.stance || null,
+    rel: n.rel || null,
     node: n,
   }));
 }
@@ -363,14 +366,10 @@ function stNextText(x, status) {
  * 板に出す操作の並び（出さないものを除く）。
  * S（SPROUT）は、答える問いの全部に回答が付いたとき（complete）だけ BRANCH（add_e）を出す。
  */
-function stOpsFor(node, children) {
+function stOpsFor(node) {
   if (!node) return [];
-  const kids = Array.isArray(children) ? children : [];
   return (ST_NODE_OPS[node.kind] || []).filter((op) => {
-    if (op === "add_a") return !kids.some((c) => c.kind === "Q");
-    if (op === "add_q") return !(node.kind === "Q" && kids.some((c) => c.kind === "A"));
     if (op === "add_e") return node.kind === "E" || (node.kind === "S" && node.complete === true);
-    if (op === "insert_q" || op === "move_a") return kids.some((c) => c.kind === "A");
     return true;
   });
 }
@@ -895,7 +894,7 @@ function stRenderTop() {
     return;
   }
   if (s.legacy) {
-    box.appendChild(stEl("p", "sci-note sci-legacy", "古い形の tree です。新しい tree（Q・A・F・E・S）には読み替えていません。"));
+    box.appendChild(stEl("p", "sci-note sci-legacy", "古い形の tree です。新しい tree（軸・A・F・E・S）には読み替えていません。"));
   }
   box.appendChild(stChipBand(s));
 }
@@ -1319,6 +1318,8 @@ function stRowEl(r, opts) {
   const badge = r.kind === "F" ? stStanceBadge(r.stance) : null;
   if (badge) head.appendChild(badge);
   head.appendChild(stEl("span", "sci-id", r.id));
+  // 条件の A の目印（一覧と板の子の行。行は button の中なので用語の札は使わず文字だけ）
+  if (r.rel === "condition") head.appendChild(stEl("span", "sci-rel-cond", "条件"));
   let title = r.text;
   if (r.kind === "F") title = title.slice(0, 60);
   head.appendChild(stEl("span", "sci-row-title", title));
@@ -1842,7 +1843,8 @@ function stBuildBoard(d) {
 function stOpLabel(op) {
   const label = (typeof seOpLabel === "function") ? seOpLabel(op) : null;
   if (label) return label;
-  const fall = { add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E", copy: "Copy A", edit: "Edit", remove: "Delete", insert_q: "Q を間に入れる", move_a: "A を移す", set_mlflow: "MLflow を変える" };
+  // 旧形式の op（add_q・insert_q・move_a・regroup）は履歴と過去の step に出るので、ここで名前を持つ
+  const fall = { add_q: "Add Q", add_a: "Add A", add_f: "Add F", add_e: "Add E", copy: "Copy A", edit: "Edit", remove: "Delete", insert_q: "Q を間に入れる", move_a: "A を移す", regroup: "Regroup", set_mlflow: "MLflow を変える" };
   return fall[op] || op;
 }
 
@@ -1863,6 +1865,8 @@ function stBoardHead(d) {
     line.appendChild(star);
   }
   line.appendChild(stEl("span", "sci-id", `${node.id} ${node.kind}`));
+  // 条件の A（種類の分割でない子）は用語の札で示す。subtype は印を出さない
+  if (node.kind === "A" && node.rel === "condition") line.appendChild(saiTerm("sci_rel", "条件"));
   if (node.kind === "F") {
     const badge = stStanceBadge(node.stance);
     if (badge) line.appendChild(badge);
@@ -2009,7 +2013,7 @@ function stBoardOps(d) {
   }
   // D（seed）から SPROUT を作る（seed を入れた状態で開く）。CARD は SPROUT を作るブロックから始める
   if (node.kind === "D") ops.appendChild(stBtn("Create SPROUT（この seed で）", () => { stStartSprout(node.id); }, "primary"));
-  for (const op of stOpsFor(node, d.children)) {
+  for (const op of stOpsFor(node)) {
     ops.appendChild(stBtn(stOpLabel(op), () => { stCall("seOpenAction", op, node.id, d); }));
   }
   // S は比べるに足す／外す（選んだ S は sessionStorage に覚え、Tree の上の「比べる（n）」で並べる）
@@ -2023,11 +2027,11 @@ function stBoardOps(d) {
   return sec;
 }
 
-/** ガイド（question・Child Q・Extract・Pitfall）。 */
+/** ガイド（question・細分の候補（child_q）・Extract・Pitfall）。 */
 function stBoardGuide(g) {
   const sec = stSec("GUIDE");
   if (!g) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
-  const items = [["question", g.question], ["Child Q", g.child_q], ["Extract", g.extract], ["Pitfall", g.pitfall]];
+  const items = [["question", g.question], ["細分の候補", g.child_q], ["Extract", g.extract], ["Pitfall", g.pitfall]];
   for (const [k, v] of items) {
     if (!v) continue;
     const p = stEl("p", "sci-guide");

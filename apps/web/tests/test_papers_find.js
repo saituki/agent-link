@@ -42,13 +42,18 @@ function testLfindBodyOk() {
     lfindBody({ query: "eeg", mode: "", scope: "", count: 10, papers: [], node: "Q12", subtree: false, each: "" }).body,
     { query: "eeg", top_k: 10, node: "Q12" }
   );
-  // Node は Q・O・F・E のどれでも送れる（契約の形）
-  for (const id of ["O5", "F3", "E2"]) {
+  // Node は Q・A・F・E・S・D のどれでも送れる（契約の形。サーバの _FIND_NODE_RE と同じ）
+  for (const id of ["A5", "Q12", "F3", "E2", "S1", "D4"]) {
     assert.strictEqual(
       lfindBody({ query: "eeg", mode: "", scope: "", count: 10, papers: [], node: id, subtree: false, each: "" }).body.node,
       id
     );
   }
+  // 旧い種類の O は通さない（A に替わった）
+  assert.strictEqual(
+    lfindBody({ query: "eeg", mode: "", scope: "", count: 10, papers: [], node: "O5", subtree: false, each: "" }).ok,
+    false
+  );
   assert.strictEqual(
     lfindBody({ query: "eeg", mode: "", scope: "", count: 10, papers: [], node: "X1", subtree: false, each: "" }).ok,
     false

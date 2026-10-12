@@ -29,7 +29,7 @@ const SR_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)
 // --- 画面の状態 ---
 
 let srCard = null;     // 最後に読んだ READ_CARD の JSON
-let srDetail = null;   // 対象 Node の詳細（Q のとき A の候補に使う）
+let srDetail = null;   // 対象 Node の詳細（軸（Q）のとき A の候補に使う）
 let srRunId = null;    // 今開いている READ_CARD の run の番号
 
 // ============================================================================
@@ -64,7 +64,7 @@ function srCardPaper(card) {
 
 /**
  * F を付ける先の候補（Node の ID の配列）。
- * 対象が A ならそれ 1 つ（F は E の下に置かない）。Q なら detail.children の A（★ を先に）。
+ * 対象が A ならそれ 1 つ（F は E の下に置かない）。軸（Q）なら detail.children の A（★ を先に）。
  */
 function srParents(card, detail) {
   const node = (card && card.node) || {};
@@ -215,7 +215,7 @@ async function srReload() {
     return;
   }
   srCard = card || null;
-  // 対象が Q のときだけ、付ける先の A を探すために Node の詳細を読む
+  // 対象が軸（Q）のときだけ、付ける先の A を探すために Node の詳細を読む
   srDetail = null;
   if (card && card.node && card.node.kind === "Q") {
     try {

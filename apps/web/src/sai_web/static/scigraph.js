@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の図（実装計画 U20）。一番上の Q から下へ伸びる Q・A・F・E・S の木 1 つと、横に並ぶ seed（D）。
+// research-tree の図（実装計画 U20）。軸（Q）から下へ伸びる Q・A・F・E・S の木 1 つと、横に並ぶ seed（D）。
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
@@ -12,7 +12,7 @@
 // key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と A と E の出し入れ・畳んだ札を覚えて、
 // もう一度開いたときに同じ状態で出す（画面の中の Map と localStorage の sai-sg-view:<key>）。
 // onSelect には {kind: "node", id} を渡す（札の data-sg-id と同じ ID）。
-// 段は、下から ROOT（top_Q とその下の Q・A・F）→ seed の層（D の札を ROOT の右に横に並べる）→
+// 段は、下から ROOT（軸とその下の Q・A・F）→ seed の層（D の札を ROOT の右に横に並べる）→
 // SPROUT（kind S）→ BRANCH（E）の順。S は親の D の真上に置く（D の無い古い S は D の並びの左端）。
 // 線は Parent / Child（tree）だけ。D → S も tree。
 //
@@ -254,7 +254,7 @@ function sgTreeLayout(input, opts) {
     }
   };
 
-  // ROOT: top_Q を row 0（y = +STEP）にして下へ。葉を左から詰め、親は子の真ん中
+  // ROOT: 軸を row 0（y = +STEP）にして下へ。葉を左から詰め、親は子の真ん中
   let slot = 0;
   const placeDown = (n, row, guard) => {
     const id = String(n.id);
@@ -325,7 +325,7 @@ function sgTreeLayout(input, opts) {
     cards.push(sgNodeCard(d, x, 0, 0, collapseMark.get(id) || 0, (descCount.get(id) || 0) > 0, sproutN));
     boxLeft += boxW + slotW;
   }
-  // seed の層と SPROUT の全体を、ROOT（top_Q）の真ん中に揃える
+  // seed の層と SPROUT の全体を、ROOT（軸）の真ん中に揃える
   const upperSpan = spanOf(cards.slice(rootCount).map((c) => String(c.id)));
   if (rootSpan && upperSpan) shiftFrom(rootCount, (rootSpan.min + rootSpan.max) / 2 - (upperSpan.min + upperSpan.max) / 2);
 
@@ -334,7 +334,7 @@ function sgTreeLayout(input, opts) {
     const p = visParent(n);
     if (p != null && pos.has(p)) edges.push({ from: p, to: String(n.id), kind: "tree" });
   }
-  // seed（D）から ROOT の top_Q への線。選んだ sprout の seed の 1 本だけ出す（sgMarkSelected が他を隠す）
+  // seed（D）から ROOT の軸への線。選んだ sprout の seed の 1 本だけ出す（sgMarkSelected が他を隠す）
   for (const d of roots.filter((n) => n.kind === "D")) {
     for (const r of rootRoots) edges.push({ from: String(d.id), to: String(r.id), kind: "tree", seed: true });
   }
@@ -355,7 +355,8 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse, childCount) {
   // F の stance は文字（S・D・I）で出す（色だけに頼らない）。送る値は support・deny・issue
   const stance = n.kind === "F" ? sgStanceLetter(n.stance) : "";
   if (n.kind === "A") {
-    sub = `${n.starred ? "★ " : ""}${f ? `F ${f}` : ""}`.trim();
+    // 条件の A（種類の分割でない子）は「条件」を添える。subtype は何も足さない
+    sub = [n.starred ? "★" : "", f ? `F ${f}` : "", n.rel === "condition" ? "条件" : ""].filter(Boolean).join(" ");
   } else if (n.kind === "F") {
     text = sgClip(text, 40);
     sub = stance;
@@ -395,7 +396,7 @@ function sgIsUnder(byId, n, top) {
 
 /**
  * SPROUT（kind S）を選んだときに濃く残す ID の Set。それ以外（D を含む）は null（薄くしない）。
- * 残すのは、その S 自身・親の seed（D）・その下の E と F（BRANCH）・paths の終点の A から top_Q までの Q・A（PATH）。
+ * 残すのは、その S 自身・親の seed（D）・その下の E と F（BRANCH）・paths の終点の A から軸までの Q・A（PATH）。
  */
 function sgSproutKeep(status, id) {
   const want = id == null ? "" : String(id);
@@ -413,7 +414,7 @@ function sgSproutKeep(status, id) {
   for (const n of all) {
     if (sgIsUnder(byId, n, want)) keep.add(String(n.id));
   }
-  // PATH: paths の終点の A から top_Q までの祖先（Q・A）
+  // PATH: paths の終点の A から軸までの祖先（Q・A）
   const paths = Array.isArray(sprout.paths) ? sprout.paths : [];
   for (const pid of paths) {
     let cur = byId.get(String(pid));
@@ -430,7 +431,7 @@ function sgSproutKeep(status, id) {
 /**
  * SPROUT（kind S）を選んだときの区分（純関数）。S 以外（D を含む）は null。
  * 返す Map は ID → "fixed"（固定）・"novel"（新規）・"exp"（実験。S の下の E）・"seed"（親の D）。
- * 道は、path_roles の A から top_Q までの祖先。role が fixed（seed の回答）の道は固定、novel（sprout の回答）の道は新規。
+ * 道は、path_roles の A から軸までの祖先。role が fixed（seed の回答）の道は固定、novel（sprout の回答）の道は新規。
  * 2 つの道に入る Node は「新規」を優先する。
  */
 function sgSproutRoles(status, id) {
@@ -443,7 +444,7 @@ function sgSproutRoles(status, id) {
   const novel = new Set();
   for (const pr of Array.isArray(sprout.path_roles) ? sprout.path_roles : []) {
     if (!pr) continue;
-    // A から top_Q まで（A を先頭にする）
+    // A から軸まで（A を先頭にする）
     const chain = [];
     let cur = byId.get(String(pr.a));
     const seen = new Set();
@@ -674,7 +675,7 @@ function sgDraw(anchorId) {
     sgPutEmpty(sgEmptyBox({
       icon: "🌱",
       title: "Node はまだありません",
-      body: "最初の Q を作ると、ここに図が出ます。",
+      body: "research-tree を作ると、ここに図が出ます。",
     }));
     sgApplyView();
     return;
