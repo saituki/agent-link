@@ -198,7 +198,7 @@ impl InitOutcome {
     /// 人が読む文（警告と、残した state.md の行も足す）。
     pub fn text(&self) -> String {
         let mut text = format!(
-            "research-tree を作りました（RESEARCH_TYPE: {}・Q {}）\n",
+            "research-tree を作りました（RESEARCH_TYPE: {}・軸 {}）\n",
             self.type_name, self.created
         );
         for warning in &self.warnings {
@@ -1117,7 +1117,7 @@ mod tests {
         let text = status_text(&status);
         assert!(text.contains("RESEARCH_TYPE: "), "{text}");
         assert!(text.contains("seed（D）はまだありません"), "{text}");
-        assert!(text.contains("木: Q "), "{text}");
+        assert!(text.contains("木: 軸 "), "{text}");
         assert!(text.contains("- Q1 "), "{text}");
         assert!(!text.contains("Objectivity"), "{text}");
 

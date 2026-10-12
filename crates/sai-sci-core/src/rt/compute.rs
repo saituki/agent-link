@@ -83,11 +83,11 @@ pub struct StatusCounts {
 }
 
 impl StatusCounts {
-    /// `Q 3・A 2・F 4（S 1 / D 2 / I 1）・E 0・S 1` の形（`state.md`・`tree.md`・`sci status` の文）。
+    /// `軸 3・A 2・F 4（S 1 / D 2 / I 1）・E 0・S 1` の形（`state.md`・`tree.md`・`sci status` の文）。
     #[must_use]
     pub fn line(&self) -> String {
         format!(
-            "Q {}・A {}・{}・E {}・S {}",
+            "軸 {}・A {}・{}・E {}・S {}",
             self.q,
             self.a,
             f_line(self.f_support, self.f_deny, self.f_issue),
@@ -111,6 +111,8 @@ pub struct NodeJson {
     /// F の立場（F 以外は null）。
     pub stance: Option<String>,
     pub starred: bool,
+    /// A の関係（`subtype`・`condition`。A 以外と NULL の A は null）。
+    pub rel: Option<String>,
     pub bottom_q: bool,
     /// SPROUT（kind S）の PATH（A の ID）。S 以外は空。
     pub paths: Vec<String>,
@@ -642,6 +644,7 @@ impl Tree {
             guide: if is_q { n.guide_key.clone() } else { None },
             stance: n.stance.clone(),
             starred: n.starred,
+            rel: if n.kind == Kind::A { n.rel.clone() } else { None },
             bottom_q: is_q && self.is_bottom_q(id),
             paths: if n.kind == Kind::S {
                 n.paths.iter().map(|a| self.label(*a).0).collect()
@@ -770,15 +773,16 @@ impl Tree {
         match n.kind {
             Kind::Q if self.kid_nodes(n.id).next().is_none() => Some((
                 1,
-                card_action(n, "lab-grow", format!("「{}」の子（A か child_Q）を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
+                card_action(n, "lab-grow", format!("「{}」の子の A を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
             )),
-            Kind::Q if self.a_count(n.id) > FLAT_MAX => Some((
+            // 直下の A が多い Q・A は、review（組み直し・兄弟の見直し）を勧める。強制ではない。
+            Kind::Q | Kind::A if self.a_count(n.id) > FLAT_MAX => Some((
                 1,
                 card_action(
                     n,
-                    "lab-regroup",
-                    format!("「{}」の直下の A {} 件を、分け方の基準をそろえて組み直す", n.text, self.a_count(n.id)),
-                    &format!("中間の A と細分の Q を作り、直下の A を {FLAT_MAX} 件以内にする（regroup・move_node）"),
+                    "lab-review",
+                    format!("「{}」の直下の A が {} 件あります。兄弟の詳しさと分け方を見直す", n.text, self.a_count(n.id)),
+                    "直下の A を見直す（親の A を足す・兄弟を移す。件数は目安）",
                     "TOO_FLAT",
                     None,
                 ),
@@ -1421,7 +1425,7 @@ mod tests {
             s.counts,
             StatusCounts { q: 1, a: 1, f_support: 1, f_deny: 1, f_issue: 1, e: 1, s: 0 }
         );
-        assert_eq!(s.counts.line(), "Q 1・A 1・F 3（S 1 / D 1 / I 1）・E 1・S 0");
+        assert_eq!(s.counts.line(), "軸 1・A 1・F 3（S 1 / D 1 / I 1）・E 1・S 0");
     }
 
     #[test]
@@ -1550,7 +1554,7 @@ mod tests {
         a(&e, root, "答え7");
         let acts = next_actions(&tree(&e), 10);
         let flat = acts.iter().find(|x| x.why == "TOO_FLAT").expect("TOO_FLAT");
-        assert_eq!((flat.block.as_deref(), flat.node.as_deref()), (Some("lab-regroup"), Some(fmt_id(Kind::Q, root).as_str())));
+        assert_eq!((flat.block.as_deref(), flat.node.as_deref()), (Some("lab-review"), Some(fmt_id(Kind::Q, root).as_str())));
         // 閾値は定数 FLAT_MAX（7）。
         assert_eq!(FLAT_MAX, 7);
     }
@@ -1574,5 +1578,53 @@ mod tests {
         // 下位の A を足すと消える。
         a(&e, big, "細かい");
         assert!(blanks(&tree(&e)).is_empty());
+    }
+
+    /// A の関係（rel）は node --json の rel に出る。A 以外と NULL の A は null。
+    #[test]
+    fn node_json_carries_rel_of_a() {
+        let e = env("rel-json");
+        let root = q(&e, None, "根の問い");
+        let big = a(&e, root, "大分類");
+        let small = a(&e, big, "細分");
+        store::set_rel(e.db.connection(), small, Some("condition")).unwrap();
+        let tree = tree(&e);
+        assert_eq!(tree.row(small).rel.as_deref(), Some("condition"));
+        assert_eq!(tree.row(big).rel, None);
+        assert_eq!(tree.row(root).rel, None);
+        let detail = node_detail(e.db.connection(), &e.roots, &Defs::default(), &fmt_id(Kind::A, small)).unwrap();
+        assert_eq!(detail.node.rel.as_deref(), Some("condition"));
+    }
+
+    /// TOO_FLAT は A にも出て、block は lab-review。F が無い A でも NO_FINDING ではなく TOO_FLAT。
+    #[test]
+    fn too_flat_on_a_beats_no_finding() {
+        let e = env("flat-a");
+        let root = q(&e, None, "根の問い");
+        let big = a(&e, root, "大分類");
+        for i in 0..8 {
+            a(&e, big, &format!("細分{i}"));
+        }
+        let acts = next_actions(&tree(&e), 30);
+        let big_id = fmt_id(Kind::A, big);
+        let flat = acts.iter().find(|x| x.why == "TOO_FLAT").expect("TOO_FLAT");
+        assert_eq!((flat.block.as_deref(), flat.node.as_deref()), (Some("lab-review"), Some(big_id.as_str())));
+        assert!(!acts.iter().any(|x| x.why == "NO_FINDING" && x.node.as_deref() == Some(big_id.as_str())));
+    }
+
+    /// 旧形式（A → Q → A）の木でも、子の Q の直下が 8 件なら TOO_FLAT が出る。
+    #[test]
+    fn legacy_a_q_a_tree_keeps_too_flat() {
+        let e = env("legacy");
+        let root = q(&e, None, "根の問い");
+        let big = a(&e, root, "大分類");
+        let sub = q(&e, Some(big), "細分の問い");
+        for i in 0..8 {
+            a(&e, sub, &format!("答え{i}"));
+        }
+        let acts = next_actions(&tree(&e), 30);
+        let flat: Vec<&NextAction> = acts.iter().filter(|x| x.why == "TOO_FLAT").collect();
+        assert_eq!(flat.len(), 1);
+        assert_eq!((flat[0].block.as_deref(), flat[0].node.as_deref()), (Some("lab-review"), Some(fmt_id(Kind::Q, sub).as_str())));
     }
 }
