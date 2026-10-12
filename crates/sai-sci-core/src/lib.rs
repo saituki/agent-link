@@ -12,6 +12,7 @@ pub mod citation_check;
 pub mod dsr_check;
 pub mod handoff;
 pub mod journal;
+pub mod onto;
 pub mod progress;
 pub mod project_files;
 pub mod reports;
