@@ -6,6 +6,7 @@ model: haiku
 thinking: low
 templates:
   - sci-core
+  - sci-onto
   - sci-find
   - literature-hard-rules
 context: true

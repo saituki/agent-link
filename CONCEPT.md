@@ -386,6 +386,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 | **`SAI_PROJECT_ROOT`** | 対象のプロジェクトの root。空なら、今のフォルダから上へたどって `.sai/` を持つ最初のフォルダ。 | 環境変数 |
 | **`SAI_ORIGIN`** | 記録の出どころ。無ければ `cli`。Web が呼ぶときは `phone`。 | 環境変数 |
 | **`SAI_PARENT_RUN_ID`** | エージェントが動いている run の番号。sai-link が起動時に渡し、`run_id` を省いた命令が「自分の run」として読む。 | 環境変数（`pre_run.rs` が渡す） |
+| **`SAI_SHARED_DIR`** | 共有データ（`onto.db`・`manifest.json` を含むフォルダ）の場所。`sai-sci onto` が読む。無い・`onto.db` が無いと終了コード 3。サーバでは `/opt/sai-shared/current`。 | 環境変数（コンテナへ `:ro` で mount。`docs/server.md` の 4a 節） |
 
 `SAI_HOME`（置き場）は §1。`SAI_WEB_*`・`SAI_LINK_BIN`・`SAI_PAPER_BIN`・`SAI_SCI_BIN` などの表は [`README.md`](./README.md)。
 
@@ -447,6 +448,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 - **Library** — 取り込んだ論文の一覧と階層 — §3.2
 - **List** — Projects の画面のひとつ — §5
 - **sci_child** — CARD で足す子の型（`A`・`F`）— §4.4
+- **`map_version`** — `sai-sci onto` の応答に載る、MONDO・MeSH の版と作った日時。どの版で引いたかを記録に残すために使う — `docs/sai-sci.md` 6.3 節
 - **`mind.md`** — プロジェクトの覚え書き — §4.4
 - **`mlflow`（E の記録）** — E が持つ MLflow の記録への参照 — §4.4
 - **Next Action** — 次にやるとよい Action の候補 — §4.4
@@ -455,6 +457,8 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 - **`note.md`** — 論文ごとの利用者のメモ — §3.1
 - **A（答え）** — Q の下や A の下に置く答えの候補。A の下の A は `rel` で関係を持つ — §4.1
 - **範囲（range）** — SPROUT が数える Q・A と F の数 — §4.2
+- **`onto.db`** — MONDO・MeSH の語・別名・親子・xref を入れた共有の前計算（SQLite）。`onto_build.py` が作り、`SAI_SHARED_DIR` に置く — `docs/sai-sci.md` 6.3 節
+- **ontology tool（`sai-sci onto`）** — 医療の用語を MONDO・MeSH で引く読み取りの命令（lookup・show・relation・ancestors）。事実だけを返し、使うかどうかは agent が決める。template は `sci-onto` — `docs/sai-sci.md` 6.3 節
 - **OP（C-OP）** — research-tree を変える操作 1 つ — §4.3
 - **擬似 pane（headless）** — headless の run の区画 — §5
 - **Paper** — Library の見方のひとつ — §3.4
@@ -494,9 +498,11 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 - **`SAI_PARENT_RUN_ID`** — エージェントが動いている run の番号 — §6
 - **`sai-progress`** — 時間のかかる命令が標準エラーに出す進み具合の行 — §6
 - **`SAI_PROJECT_ROOT`** — 対象のプロジェクトの root — §6
+- **`SAI_SHARED_DIR`** — 共有データ（`onto.db`）の場所。`sai-sci onto` が読む — §6
 - **`SaiRoutes`** — 画面を登録する場所 — §5
 - **sai-sci** — 研究の仕組み（research-tree） — §1
 - **`sai-sci convert`** — 旧形式の research-tree を新しいフォルダへ複製し、A の下の Q を畳む。元には書かない — `docs/sai-sci.md` 6.2 節
+- **`sai-sci onto`** — 医療の ontology を引く命令（ontology tool）。研究プロジェクトは要らない — `docs/sai-sci.md` 6.3 節
 - **`saiTerm`（用語の札）** — 画面の用語に付ける、押すと説明が出る札 — §5
 - **sai-web** — Web の窓口 — §1
 - **SB** — research-tree の右のサイドバー — §5
@@ -545,6 +551,7 @@ op は research-tree を変える操作 1 つ。`rt/ops.rs` の `OP_SPECS` が�
 - **塊の ID（`#x.y.z`）** — `#<論文>.<章>.<段落>` — §3.3
 - **外部 DB** — Library の見方のひとつ — §3.4
 - **外部 DB の検索** — Semantic Scholar など外の DB を検索する — §3.4
+- **医療の ontology（`sai-sci onto`）** — MONDO（疾患）と MeSH（医学用語）を読み取り専用で引く命令 — `docs/sai-sci.md` 6.3 節
 - **画面の版** — `sw.js` の `CACHE` と `index.html` の `?v=` をそろえて上げる版 — §5
 - **検索の範囲（scope）** — 内部 DB の検索で絞る論文の集合 — §3.4
 - **検索モード** — 内部 DB の検索の方式 — §3.4

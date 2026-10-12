@@ -6,6 +6,7 @@ model: sonnet
 thinking: medium
 templates:
   - sci-core
+  - sci-onto
   - sci-find
   - sci-match
   - literature-hard-rules

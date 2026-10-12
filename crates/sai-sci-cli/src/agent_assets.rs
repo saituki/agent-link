@@ -83,7 +83,7 @@ const SCI_RETIRED_BLOCKS: &[&str] = &[
 
 /// sai-sci の共通の決まり。
 ///
-/// - research-tree の共通の決まり（`sci-core.md`）・F を探す決まり（`sci-find.md`）・照合の決まり（`sci-match.md`）と実験ループの 4 本（`exp-core.md`・`exp-run.md`・`exp-ref.md`・`sim-core.md`）
+/// - research-tree の共通の決まり（`sci-core.md`）・F を探す決まり（`sci-find.md`）・照合の決まり（`sci-match.md`）・医療の ontology の決まり（`sci-onto.md`。U12）と実験ループの 4 本（`exp-core.md`・`exp-run.md`・`exp-ref.md`・`sim-core.md`）
 /// - データ分析の 2 本（`data-core.md`・`stat-core.md`）。`sci-data-explore` と `sci-data-test` が読む。
 /// - 研究プロジェクトに配る 3 本（`sai-agent.md`・`sci-task.md`・`sci-cli.md`。U8）。
 ///   前の 3 本は researcher が使う。後の 3 本は `professor` などの役が使う
@@ -93,6 +93,7 @@ const SCI_TEMPLATES: &[(&str, &str)] = &[
     ("sci-core.md", include_str!("../../../sai-sci/template/sci-core.md")),
     ("sci-find.md", include_str!("../../../sai-sci/template/sci-find.md")),
     ("sci-match.md", include_str!("../../../sai-sci/template/sci-match.md")),
+    ("sci-onto.md", include_str!("../../../sai-sci/template/sci-onto.md")),
     ("exp-core.md", include_str!("../../../sai-sci/template/exp-core.md")),
     ("exp-run.md", include_str!("../../../sai-sci/template/exp-run.md")),
     ("exp-ref.md", include_str!("../../../sai-sci/template/exp-ref.md")),
@@ -626,7 +627,7 @@ mod tests {
             })
             .count();
         assert_eq!(SCI_BLOCKS.len(), 34, "SCI_BLOCKS が 34 本でない");
-        assert_eq!(SCI_TEMPLATES.len(), 14, "SCI_TEMPLATES が 14 本でない");
+        assert_eq!(SCI_TEMPLATES.len(), 15, "SCI_TEMPLATES が 15 本でない");
         assert_eq!(sci_blocks, 28, "配った sci のブロックが 28 本でない");
         for (name, _) in SCI_BLOCKS {
             assert!(root.join(".sai/blocks").join(name).is_file(), "{name}");
