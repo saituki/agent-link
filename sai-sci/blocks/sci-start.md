@@ -61,7 +61,7 @@ subblocks:
    ```
 
 7. 次の CARD の案を書く。
-   - 回答の A が無い問いの軸の Q に子が無いときは、`lab-map`（review 論文があるとき）か `lab-grow`。
+   - 回答の A が無い問いの軸（Q）の下に A が無いときは、`lab-map`（review 論文があるとき）か `lab-grow`。
    - 軸の Q がそろったら、`lab-sprout`（`--node D<n>`）で S を作る案。
    - 作るのは利用者が許可してからです。この block は CARD を作りません。
 8. REPORT を保存して終える（`sci-core` の「終わり方」）。

@@ -12,7 +12,7 @@ templates:
   - domain
 context: true
 sci_type: node
-sci_ops: add_a, add_f, add_q
+sci_ops: add_a, add_f
 timeout: 3600
 worktree: none
 enable: true
