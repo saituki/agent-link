@@ -718,6 +718,7 @@ def test_start_recreates_container_without_shared_claude() -> None:
 def test_start_recreates_container_without_ts_port() -> None:
     """止まっていて時系列の口（8210/tcp）が無い物は作り直す。口があれば docker start。"""
     cookie = login("alice@uni.edu", "alicepass1")
+    set_shared(False)
     set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ", ports={})
     clear_docker_log()
     status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
