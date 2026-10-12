@@ -13,7 +13,7 @@
   依存を増やさない約束）。実行ファイルは `SAI_DOCKER_BIN`（既定 `docker`）。
 - 置き場は共有契約 C4。`<U>` = `SAI_WEB_USERS_ROOT`。
   `<U>/<user>/projects/<user>-<project>/`（root）と
-  `<U>/<user>/homes/<user>-<project>/`（コンテナの HOME）の 2 つだけを見せる。
+  `<U>/<user>/homes/<user>-<project>/`（コンテナの HOME）の 2 つを見せる。ほかに Claude のログイン（`<U>/<user>/claude/`）と、共有データ（`SAI_WEB_SHARED_DIR`・`/opt/sai-shared` に読み取り専用）が付く。
 - コンテナの形（名前・ラベル・イメージ・引数）は共有契約 C7・C8。
 - キーとトークンは `<U>/<user>/secrets.env`（0600）に置き、`--env-file` で渡す。
   値は API でも画面でも返さない（返すのは設定済みかと末尾 4 文字だけ）。
@@ -67,6 +67,9 @@ _DEFAULT_WEB_URL = "http://host.docker.internal:8200"
 _DEFAULT_IMAGE = "sai-tree:latest"
 # 会話の記録を共有のフォルダへ写し終えた印（HOME の `.claude` の中に作る）
 _CLAUDE_COPIED_MARK = ".copied-to-shared"
+# 共有データ（ontology の前計算）の既定の置き場と、コンテナの中の住所（読み取り専用）
+_DEFAULT_SHARED_DIR = "/srv/sai/shared"
+_SHARED_IN_CONTAINER = "/opt/sai-shared"
 
 
 # --- docker の呼び出し ---
@@ -103,6 +106,11 @@ def docker_bin() -> str:
 def image_name() -> str:
     """コンテナのイメージ（`SAI_IMAGE`・既定 `sai-tree:latest`）。"""
     return (os.getenv("SAI_IMAGE") or "").strip() or _DEFAULT_IMAGE
+
+
+def _shared_dir() -> Path:
+    """共有データのフォルダ（`SAI_WEB_SHARED_DIR`・既定 `/srv/sai/shared`）。作りはしない。"""
+    return Path((os.getenv("SAI_WEB_SHARED_DIR") or "").strip() or _DEFAULT_SHARED_DIR)
 
 
 def _docker(
@@ -164,6 +172,17 @@ def run_args(user: str, project_root: Path, project_home: Path, token: str) -> l
     image = image_name()
     secrets_path = registry.user_dir(user) / "secrets.env"
     shared_claude = registry.user_dir(user) / "claude"
+    # 共有データはフォルダがあるときだけ mount する（無ければ付けない・読み取り専用）
+    shared_data = (
+        [
+            "-v",
+            f"{_shared_dir()}:{_SHARED_IN_CONTAINER}:ro",
+            "-e",
+            f"SAI_SHARED_DIR={_SHARED_IN_CONTAINER}/current",
+        ]
+        if _shared_dir().is_dir()
+        else []
+    )
     return [
         "run",
         "-d",
@@ -192,6 +211,7 @@ def run_args(user: str, project_root: Path, project_home: Path, token: str) -> l
         f"{home}:{home}",
         "-v",
         f"{shared_claude}:{home / '.claude'}",
+        *shared_data,
         "-w",
         str(root),
         "-e",
@@ -233,6 +253,18 @@ def ensure_claude_dir(user: str) -> Path:
     return path
 
 
+def _ensure_shared_dir() -> None:
+    """共有データのフォルダが無ければ作る（0755）。作れなければ何もしない（mount が付かないだけ）。"""
+    path = _shared_dir()
+    if path.is_dir():
+        return
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        os.chmod(path, 0o755)
+    except OSError:
+        pass
+
+
 def create_container(user: str, name: str) -> None:
     """プロジェクトのコンテナを `docker run` で作る（内部の合言葉も作り直す）。
 
@@ -247,6 +279,7 @@ def create_container(user: str, name: str) -> None:
     home = base / "homes" / name
     shared = ensure_claude_dir(user)
     _adopt_claude_history(home, shared)
+    _ensure_shared_dir()
     _docker(run_args(user, root, home, token), timeout=120.0)
 
 
@@ -283,10 +316,13 @@ def _start_container(container: str) -> dict:
 
     止まっているコンテナに共有ログインの mount（C-MOUNT）が無ければ、消して作り直す
     （U10 より前に作った物は、`docker start` では新しいログインを使えないため）。
-    時系列の口（C3）が無い物も作り直す。動いている物は作り直さない。
+    時系列の口（C3）が無い物も作り直す。共有データの mount が無い物も同じ（フォルダがあるとき）。
+    動いている物は作り直さない。
     """
     current = _inspect_state(container)
-    if current == "exited" and not (_has_shared_claude(container) and _has_ts_port(container)):
+    if current == "exited" and not (
+        _has_shared_claude(container) and _has_ts_port(container) and _has_shared_mount(container)
+    ):
         _docker(["rm", "-f", container], timeout=60.0)
         current = "missing"
     if current == "missing":
@@ -298,12 +334,27 @@ def _start_container(container: str) -> dict:
     return {"container": container, "state": _inspect_state(container)}
 
 
-def _has_shared_claude(container: str) -> bool:
-    """コンテナが共有ログインの mount（`<home>/.claude`）を持つか。"""
+def _mount_dests(container: str) -> list[str]:
+    """コンテナの mount の送り先（`.Mounts[].Destination`）。"""
     proc = _docker(
         ["inspect", "-f", "{{range .Mounts}}{{.Destination}} {{end}}", container], timeout=20.0
     )
-    return any(dest.endswith("/.claude") for dest in (proc.stdout or "").split())
+    return (proc.stdout or "").split()
+
+
+def _has_shared_claude(container: str) -> bool:
+    """コンテナが共有ログインの mount（`<home>/.claude`）を持つか。"""
+    return any(dest.endswith("/.claude") for dest in _mount_dests(container))
+
+
+def _has_shared_mount(container: str) -> bool:
+    """共有データの mount（`/opt/sai-shared`）が要らないか、持っているなら真。
+
+    共有のフォルダがホストに無いときは mount を付けないので、真を返す。
+    """
+    if not _shared_dir().is_dir():
+        return True
+    return _SHARED_IN_CONTAINER in _mount_dests(container)
 
 
 def _has_ts_port(container: str) -> bool:

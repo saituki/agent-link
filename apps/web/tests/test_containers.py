@@ -103,9 +103,19 @@ from sai_web.main import app  # noqa: E402
 
 HOST = "testserver"
 USERS = Path(os.environ["SAI_WEB_USERS_ROOT"])
+# 共有データの置き場（U11）。有無は各テストが `set_shared` で決める
+SHARED = _TMP / "shared"
+os.environ["SAI_WEB_SHARED_DIR"] = str(SHARED)
 
 
 # --- 偽の docker の設定と記録 ---
+
+
+def set_shared(present: bool) -> None:
+    """共有データのフォルダの有無を決める（`run_args` と起動の判定が見る）。"""
+    shutil.rmtree(SHARED, ignore_errors=True)
+    if present:
+        SHARED.mkdir(parents=True)
 
 
 def set_docker(**cfg) -> None:
@@ -237,6 +247,7 @@ def add_user(name: str, email: str, password: str, is_admin: bool = False) -> No
 
 def test_run_args() -> None:
     """`run_args` が C8 の全文と一致し、bind が root・home・Claude の共有のフォルダの 3 つ。"""
+    set_shared(False)
     root = USERS / "alice" / "projects" / "alice-x"
     home = USERS / "alice" / "homes" / "alice-x"
     args = containers.run_args("alice", root, home, "TOKEN123")
@@ -626,9 +637,65 @@ def test_project_container_api() -> None:
     assert docker_calls() == [], docker_calls()
 
 
+def test_run_args_shared_data() -> None:
+    """共有データのフォルダがあると `:ro` の mount と `SAI_SHARED_DIR` が付く。無いときは付かず、`run_args` はフォルダを作らない。"""
+    root = USERS / "alice" / "projects" / "alice-x"
+    home = USERS / "alice" / "homes" / "alice-x"
+    set_shared(False)
+    args = containers.run_args("alice", root, home, "TOKEN123")
+    assert f"{SHARED}:/opt/sai-shared:ro" not in args, args
+    assert "SAI_SHARED_DIR=/opt/sai-shared/current" not in args, args
+    assert not SHARED.exists(), "run_args がフォルダを作ってはいけない"
+
+    # create_container から呼ばれる作成の関数（0755 で作る。作れなくても落ちない）
+    containers._ensure_shared_dir()
+    assert SHARED.is_dir(), "共有データのフォルダが作られていない"
+    assert stat.S_IMODE(SHARED.stat().st_mode) == 0o755, oct(SHARED.stat().st_mode)
+
+    args = containers.run_args("alice", root, home, "TOKEN123")
+    i = args.index(f"{SHARED}:/opt/sai-shared:ro")
+    assert args[i - 1] == "-v", args
+    assert args[i + 1 : i + 4] == ["-e", "SAI_SHARED_DIR=/opt/sai-shared/current", "-w"], args
+    binds = [args[j + 1] for j, a in enumerate(args) if a == "-v"]
+    assert len(binds) == 4 and binds[-1] == f"{SHARED}:/opt/sai-shared:ro", binds
+    set_shared(False)
+
+
+def test_start_recreates_container_without_shared_mount() -> None:
+    """共有データのフォルダがあるとき、止まっていて `/opt/sai-shared` の mount が無い物は作り直す。フォルダが無ければ起こすだけ。"""
+    cookie = login("alice@uni.edu", "alicepass1")
+    set_shared(True)
+    set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ")
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:3] == ["rm", "-f", "sai-alice-x"] for c in calls), calls
+    assert any(c[0] == "run" for c in calls), calls
+    assert not any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+
+    set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /opt/sai-shared /w ")
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+    assert not any(c[:2] == ["rm", "-f"] for c in calls), calls
+
+    set_shared(False)
+    set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ")
+    clear_docker_log()
+    status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
+    assert status == 200, (status, body)
+    calls = docker_calls()
+    assert any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
+    assert not any(c[:2] == ["rm", "-f"] for c in calls), calls
+
+
 def test_start_recreates_container_without_shared_claude() -> None:
     """止まっていて共有ログインの mount が無い古いコンテナは、起動で作り直す。mount があれば docker start。"""
     cookie = login("alice@uni.edu", "alicepass1")
+    set_shared(False)
     set_docker(ps=[], inspect_status="exited", mounts="/h /w ")
     clear_docker_log()
     status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
@@ -638,6 +705,7 @@ def test_start_recreates_container_without_shared_claude() -> None:
     assert any(c[0] == "run" for c in calls), calls
     assert not any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
 
+    set_shared(False)  # 作り直しで共有のフォルダが出来ているので、ここで外す
     set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ")
     clear_docker_log()
     status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
@@ -659,6 +727,7 @@ def test_start_recreates_container_without_ts_port() -> None:
     assert any(c[0] == "run" for c in calls), calls
     assert not any(c[:2] == ["start", "sai-alice-x"] for c in calls), calls
 
+    set_shared(False)  # 作り直しで共有のフォルダが出来ているので、ここで外す
     set_docker(ps=[], inspect_status="exited", mounts="/h/.claude /w ")
     clear_docker_log()
     status, body, _ = call("POST", "/api/projects/alice-x/container/start", cookie=cookie)
@@ -763,6 +832,7 @@ def main() -> None:
     (USERS / "bob" / "projects" / "bob-y" / ".sai").mkdir(parents=True, exist_ok=True)
 
     test_run_args()
+    test_run_args_shared_data()
     test_daemon_alive_multi()
     test_create_project_order()
     test_create_project_duplicate()
@@ -774,6 +844,7 @@ def main() -> None:
     test_keys_api()
     test_project_container_api()
     test_start_recreates_container_without_shared_claude()
+    test_start_recreates_container_without_shared_mount()
     test_start_recreates_container_without_ts_port()
     test_projects_container_state()
     test_admin_containers()

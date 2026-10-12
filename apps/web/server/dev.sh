@@ -7,6 +7,7 @@
 #   apps/web/server/dev.sh image         イメージを作り直す（crates・hooks・sai-sci を直したとき）
 #   apps/web/server/dev.sh containers    古いイメージ・古い置き場のコンテナを作り直し、止まっていれば起こす（-f で作業中でも）
 #   apps/web/server/dev.sh assets        動いている各プロジェクトに block・template を配り直す（sai-sci init --update・ts/ があれば sai-ts init --update）
+#   apps/web/server/dev.sh shared <dir>  共有データ（onto.db・manifest.json のあるフォルダ）を releases/<名前>/ に入れ、current を向ける（SAI_DEV_SHARED）
 #   apps/web/server/dev.sh prep          sai-prep を入れ直す（そのあと sai-prep を起動し直す）
 #   apps/web/server/dev.sh all           up と同じ
 #
@@ -26,6 +27,8 @@ ROOT=${SAI_DEV_ROOT:-$HOME/sai-tree-dev}
 HOME_DIR=${SAI_DEV_HOME:-$ROOT/home}
 USERS=${SAI_DEV_USERS:-$ROOT/users}
 BIN=${SAI_DEV_BIN:-$ROOT/bin}
+# 共有データ（ontology）の置き場。コンテナへ :ro で mount する（docs/server.md の 4a）
+SHARED=${SAI_DEV_SHARED:-$ROOT/shared}
 IMAGE=${SAI_DEV_IMAGE:-sai-tree:dev}
 PORT=${SAI_DEV_PORT:-8299}
 PID=$ROOT/web.pid
@@ -38,6 +41,7 @@ web_env() {
   export SAI_HOME="$HOME_DIR" SAI_WEB_USERS_ROOT="$USERS" SAI_IMAGE="$IMAGE"
   export SAI_LINK_BIN="$BIN/sai-link" SAI_PAPER_BIN="$BIN/sai-paper" SAI_SCI_BIN="$BIN/sai-sci"
   export SAI_WEB_COOKIE_SECURE=0 SAI_WEB_NO_WATCH=1 SAI_WEB_TOKEN=
+  export SAI_WEB_SHARED_DIR="$SHARED"
   # コンテナのフック（質問など）をこの Web へ向ける（既定の 8200 番は別の Web）
   export SAI_WEB_URL_FOR_CONTAINERS="${SAI_WEB_URL_FOR_CONTAINERS:-http://host.docker.internal:$PORT}"
   # sai-ts の入口（段階 B）。ts 入口は 127.0.0.1:8298、画面は別のオリジンとして開く
@@ -99,6 +103,12 @@ busy() {
   docker exec "$1" pgrep -f '(^|/)claude( |$)|pi --mode json' >/dev/null 2>&1
 }
 
+# 共有データの mount（/opt/sai-shared）が無い古いコンテナか（ホストに共有のフォルダがあるときだけ）。
+lacks_shared() {
+  [ -d "$SHARED" ] || return 1
+  ! docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$1" | tr ' ' '\n' | grep -qx /opt/sai-shared
+}
+
 containers_recreate() {
   force=${1:-}
   new=$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null) || {
@@ -109,7 +119,7 @@ containers_recreate() {
   web_env
   for c in $(project_containers); do
     cur=$(docker inspect -f '{{.Image}}' "$c")
-    if [ "$cur" = "$new" ] && project_root "$c" | grep -q "^$USERS/"; then
+    if [ "$cur" = "$new" ] && ! lacks_shared "$c" && project_root "$c" | grep -q "^$USERS/"; then
       if [ "$(docker inspect -f '{{.State.Running}}' "$c")" = "true" ]; then
         echo "$c: 最新"
       else
@@ -154,6 +164,22 @@ prep_install() {
     || echo "sai-prep を入れ直せませんでした（uv を確かめる）" >&2
 }
 
+# 共有データを入れる（dev.sh shared <dir>）。<dir> の onto.db・manifest.json を releases/<名前>/ に写し、current をそこへ向ける。
+# 動いている run は版を途中で変えて読むことがある（docs/server.md の 4a）。mount を付けるには containers で作り直す。
+shared_install() {
+  src=${1:-}
+  if [ -z "$src" ] || [ ! -f "$src/onto.db" ] || [ ! -f "$src/manifest.json" ]; then
+    echo "onto.db と manifest.json のあるフォルダを指定してください（dev.sh shared <dir>）" >&2
+    exit 2
+  fi
+  name=$(basename "$(cd "$src" && pwd)")
+  mkdir -p "$SHARED/releases/$name"
+  cp "$src/onto.db" "$src/manifest.json" "$SHARED/releases/$name/"
+  # 相対の symlink。mac の mv は -T が無いので、ln -sfn で向け直す（要確認 2）
+  ln -sfn "releases/$name" "$SHARED/current"
+  echo "共有データを入れました: $SHARED/current -> releases/$name"
+}
+
 status() {
   if curl -s -m 2 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
     echo "Web: 動いています（http://127.0.0.1:$PORT/）$( [ -f "$PID" ] && echo "pid $(cat "$PID")" )"
@@ -179,9 +205,10 @@ case "${1:-}" in
   containers) containers_recreate "${2:-}" ;;
   assets) assets_update ;;
   prep) prep_install ;;
+  shared) shared_install "${2:-}" ;;
   up|all) image_build; containers_recreate "${2:-}"; assets_update; prep_install; web_stop; web_start ;;
   *)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac
