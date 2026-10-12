@@ -225,6 +225,8 @@ research-tree の画面（`#/research/tree`）は、次の並びです。
 | `SAI_WEB_HOOKS_DIR` | `apps/web/hooks` | `sai-link init` が cc のフックを書くときに探す置き場 |
 | `SAI_PREP_DIST` | `apps/prep/dist` | sai-prep の入れ物（wheel）を配る置き場。`deploy.sh` が `apps/prep/dist/` に作る |
 | `SAI_IMAGE` | `sai-tree:latest` | プロジェクトのコンテナのイメージ |
+| `SAI_WEB_SHARED_DIR` | `/srv/sai/shared` | アプリ共通の共有データ（`onto.db`・`manifest.json`）の置き場。コンテナへ `/opt/sai-shared` に `:ro` で mount する（`dev.sh` は `SAI_DEV_SHARED`・既定 `~/sai-tree-dev/shared`。`docs/server.md` の 4a） |
+| `SAI_SHARED_DIR` | `/opt/sai-shared/current`（コンテナの中だけ） | 共有データの現在の版のフォルダ。コンテナの環境変数として Web が入れる |
 | `SAI_DOCKER_BIN` | `docker` | コンテナを動かす Docker の実行ファイル |
 | `SAI_CONTAINER_MEMORY` | `8g` | コンテナのメモリの上限 |
 | `SAI_CONTAINER_CPUS` | `2` | コンテナの CPU の上限 |

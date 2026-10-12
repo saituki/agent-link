@@ -10,6 +10,8 @@ set -eu
 
 # サーバの作業用のリポジトリ（bare の /srv/sai/repo.git から clone したもの）。
 APP=/srv/sai/app
+# 共有データ（ontology）の置き場。コンテナへ :ro で mount する（docs/server.md の 4a）。sai-web.service と同じ値。
+SHARED=${SAI_WEB_SHARED_DIR:-/srv/sai/shared}
 
 # ssh のとき PATH（uv の入る ~/.local/bin）と XDG_RUNTIME_DIR・DOCKER_HOST が入らないので足す。
 export PATH="$HOME/.local/bin:$PATH"
@@ -39,11 +41,17 @@ busy() {
   docker exec "$1" pgrep -f '(^|/)claude( |$)' >/dev/null 2>&1
 }
 
+# 共有データの mount（/opt/sai-shared）が無い古いコンテナか（ホストに共有のフォルダがあるときだけ）。
+lacks_shared() {
+  [ -d "$SHARED" ] || return 1
+  ! docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$1" | tr ' ' '\n' | grep -qx /opt/sai-shared
+}
+
 # コンテナ 1 つを新しいイメージで作り直す。失敗は 1 を返す（呼び出し側で続ける）。
 recreate_one() {
   c=$1
   cur=$(docker inspect -f '{{.Image}}' "$c") || return 1
-  if [ "$cur" = "$new" ]; then
+  if [ "$cur" = "$new" ] && ! lacks_shared "$c"; then
     echo "$c: 最新"
     return 0
   fi

@@ -139,6 +139,44 @@ sudo -iu sai docker run --rm sai-tree:latest tmux -V
 sudo -iu sai docker run --rm sai-tree:latest sai-ts --help
 ```
 
+## 4a. 共有データ（ontology）
+
+アプリ共通の前計算（`onto.db`・`manifest.json`）を、全プロジェクトのコンテナから**読み取り専用**で読めるようにする（要件定義書 r2 の R3。調査 E5 の案 B）。イメージも全コンテナも作り直さずに版を替えられる。
+
+置き場（ホスト・`sai` 所有・0755）:
+
+```
+/srv/sai/shared/
+  releases/<名前>/onto.db
+  releases/<名前>/manifest.json
+  current -> releases/<名前>      （相対の symlink）
+```
+
+- 置き場は `SAI_WEB_SHARED_DIR`（`sai-web.service` では `/srv/sai/shared`）。Web がコンテナを作るとき、フォルダが無ければ作る（0755）。作れなければ mount を付けずにコンテナを作る。
+- コンテナでは `/opt/sai-shared` に `:ro` で mount し、環境変数 `SAI_SHARED_DIR=/opt/sai-shared/current` を入れる。読むのは `current` の先。`:ro` は kernel が強制するので、コンテナから書けない。
+- 共有のフォルダがあるのに mount の無い止まったコンテナは、起動のときに作り直す。`deploy.sh` と `dev.sh containers` は、mount の無いコンテナを作り直す（実行中の物は作業が終わるまで飛ばす）。
+
+**更新の手順**（サーバで。`sai`。この節は手順を書いただけで、この作業では実行していない）:
+
+```bash
+SHARED=/srv/sai/shared
+NAME=<版の名前（日付など）>
+rsync -a <送り元の onto.db・manifest.json のフォルダ>/ "$SHARED/releases/$NAME.partial/"
+mv "$SHARED/releases/$NAME.partial" "$SHARED/releases/$NAME"     # 完成の印。途中の版を読ませない
+ln -sfn "releases/$NAME" "$SHARED/current.tmp" && mv -T "$SHARED/current.tmp" "$SHARED/current"   # 原子的に切り替え
+docker exec sai-<利用者>-<プロジェクト> sh -c 'cat "$SAI_SHARED_DIR/manifest.json"'                 # 新しい版か確かめる
+```
+
+**戻し方**: `current` を前の `releases/<前の名前>` へ、同じ 2 行の手順で付け替える。版は `releases/` に残す。
+
+**動いている run への注意**: 実行中の run は、版が切り替わったあとに `onto.db` を開き直すと、途中で版を変えて読むことがある。版は `onto.db` の `meta` と `sai-sci onto` の出力の `map_version` に出るので、記録から追える。切り替えは作業の無い時間に行う。
+
+**表示義務**: MONDO は CC BY 4.0、MeSH は "Courtesy of the U.S. National Library of Medicine"。表示の文言は `manifest.json` の `attribution` を参照する。
+
+**要確認（本物のサーバで初回に確かめる）**: rootless Docker で、`sai` 所有の `/srv/sai/shared` が `:ro` で mount でき、相対の `current` がコンテナの中で解決されること（`docker exec` で `ls -l /opt/sai-shared/current/` を見る）。この作業では実機で確かめていない。
+
+**Mac（開発）**: 置き場は `SAI_DEV_SHARED`（既定 `~/sai-tree-dev/shared`）。`apps/web/server/dev.sh shared <dir>`（`<dir>` は `onto.db` と `manifest.json` のあるフォルダ）で `releases/<名前>/` に入れ、`current` をそこへ向ける。mount を付けるには `dev.sh containers` で作り直す。Mac の `current` の付け替えは `ln -sfn` で、原子的ではない（`mv -T` が Mac に無い。要確認）。
+
 ## 5. `apps/web` の仮想環境
 
 ```bash
@@ -349,15 +387,17 @@ sai ALL=(root) NOPASSWD: /usr/bin/systemctl restart sai-web
 2. `git push server main`
 3. `ssh sai@<マシン名> /srv/sai/app/apps/web/server/deploy.sh`
 
-`deploy.sh` は次の 5 段を順に行い、段ごとに何をしているかを表示する（`set -e`。失敗したら止まる）。
+`deploy.sh` は次の 7 段を順に行い、段ごとに何をしているかを表示する（`set -e`。失敗したら止まる）。
 
 1. `git pull --ff-only`（`/srv/sai/app`）
 2. `docker build -f apps/web/server/Dockerfile -t sai-tree:latest .`（上限 60 分）
 3. `(cd apps/web && uv sync)`
 4. `(cd apps/prep && uv build)`（sai-prep の入れ物を `apps/prep/dist/` に作る。`GET /api/prep/download` が配る）
 5. `sudo systemctl restart sai-web`
+6. 古いイメージ・共有データ（§4a）の mount の無いコンテナを作り直す（作業中は飛ばす）
+7. 動いているコンテナに block・template・tools・exec を配り直す（作業中は飛ばす）
 
-**コンテナは配備で作り直さない。** 実行中のエージェントがいるコンテナには触らない（止めると、動いていた headless の実行が失敗の扱いになる）。
+**コンテナは配備で作り直さない。**（ただし 6 段の古いイメージ・共有データ（§4a）の mount が無いコンテナは、作業中で無ければ作り直す。） 実行中のエージェントがいるコンテナには触らない（止めると、動いていた headless の実行が失敗の扱いになる）。
 古いイメージのコンテナを新しいイメージで作り直すには、そのコンテナが止まっていることを確かめてから、13 の「イメージを作り直したとき」の手順で `docker rm -f` する。次に Projects の「起動」を押すと、新しいイメージでコンテナが作られる。
 
 cc のフックの設定（`.claude/settings.json`）は cc の起動ごとに sai-link が最新に書き直すので、配備のあとに各プロジェクトで `sai-link init` をやり直す必要は無い。
