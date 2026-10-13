@@ -1,7 +1,7 @@
 //! Suggest（agent が勧める論文）の保存。
 //!
 //! 候補は検索履歴の `(history_id, position)` を指す。論文の情報は写さない（Web の「＋ Library に入れる」は
-//! 検索履歴の `log_id` と `position` をそのまま使う）。`history_id` に外部キーは付けない（移行 0062）。
+//! 検索履歴の `log_id` と `position` をそのまま使う）。`history_id` に外部キーは付けない（移行 0063）。
 
 use chrono::Local;
 use rusqlite::{Connection, OptionalExtension, Row, params};

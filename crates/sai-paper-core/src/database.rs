@@ -159,8 +159,8 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("../migrations/0061_rt_rel.sql"),
     ),
     (
-        62,
-        include_str!("../migrations/0062_paper_suggest.sql"),
+        63,
+        include_str!("../migrations/0063_paper_suggest.sql"),
     ),
 ];
 
