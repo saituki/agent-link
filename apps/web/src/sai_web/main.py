@@ -1532,6 +1532,14 @@ def api_papers_find_history(
     return papers.find_history(papers.resolve_project(name), log_id)
 
 
+@app.get("/api/projects/{name}/papers/suggests/{suggest_id:int}")
+def api_papers_suggest(
+    name: str, suggest_id: int, _: None = Depends(require_token)
+) -> dict:
+    """Suggest 1 件と勧めた論文（sai-paper `suggest show <id>`・U03）。/papers/{paper_id:int} より前に登録する。"""
+    return papers.suggest_show(papers.resolve_project(name), suggest_id)
+
+
 # --- Import・Download・Project（U3 §変更内容 2・共有契約 C-A2） ---
 # sai-paper-tui の BibTeX の取り込み・PDF の Download・Project の画面を Web からも使う。
 # 固定の住所（import / downloads / project / attention）は

@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from sai_web import papers
+from sai_web.main import app
 from sai_web.papers import SearchRequest, build_search_args
 
 AVAILABLE = ["s2", "pubmed", "biorxiv", "medrxiv", "openalex", "arxiv"]
@@ -97,11 +98,33 @@ def test_search_history_find() -> None:
     assert len(calls) == n, "検査で弾いたら CLI は呼ばない"
 
 
+def test_suggest_show() -> None:
+    """Suggest の 1 件（U03）: CLI の引数と、住所が {paper_id:int} より前に登録されていること。"""
+    calls: list[list[str]] = []
+
+    def fake(project, args, timeout=30.0):
+        calls.append(list(args))
+        return {"suggest": {"id": 3}, "items": []}
+
+    papers._paper_cli = fake  # 偽物（CLI は呼ばない）
+    project = {"name": "p", "root": "/root/p", "root_name": "p"}
+    assert papers.suggest_show(project, 3) == {"suggest": {"id": 3}, "items": []}
+    assert calls[-1] == ["suggest", "show", "3"], calls[-1]
+
+    paths = [getattr(r, "path", "") for r in app.routes]
+    fixed = "/api/projects/{name}/papers/suggests/{suggest_id:int}"
+    assert fixed in paths, "suggests の住所が登録されていません"
+    assert paths.index(fixed) < paths.index("/api/projects/{name}/papers/{paper_id:int}"), (
+        "suggests は {paper_id:int} より先に登録する"
+    )
+
+
 def main() -> None:
     test_normal()
     test_defaults()
     test_400()
     test_search_history_find()
+    test_suggest_show()
     print("test_papers_search: すべて通りました")
 
 

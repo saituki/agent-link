@@ -72,11 +72,12 @@ const NO_PROJECT_MSG =
 // 広い画面（900px 以上）で Library と Discover の一覧の横に置く「中身」の欄の id
 const PAPER_SIDE_IDS = { library: "library-side" };
 // 広い画面の「中身」に出しているもの（"" は何も出していない）
-let sideKind = "";       // "paper" | "remote" | "log" | "find" | ""
+let sideKind = "";       // "paper" | "remote" | "log" | "find" | "filter" | "suggest" | ""
 let sidePaperId = null;  // 論文の id（sideKind = "paper"）
 let sideRemote = null;   // {logId, name, position}（sideKind = "remote"）
 let sideLog = null;
 let sideFind = null;      // {logId, name}（sideKind = "find"・U03: Library 内の検索結果）
+let sideSuggest = null;   // {id, name}（sideKind = "suggest"・U03: Suggest の 1 件）
 // Library・Discover の上に出す「ダウンロード中」の帯（作ったものを覚えておく）
 let downloadBand = null;
 // Download の表示を入れる箱（画面の中に置く・key で探せるように覚えておく）
@@ -143,12 +144,12 @@ function saveDiscoverDbs(list) {
   } catch { /* 保存できなくても動く */ }
 }
 
-/** 切り替えの値を正す（"internal"・"paper" のときだけそれ・それ以外は外部）。 */
+/** 切り替えの値を正す（"internal"・"paper"・"suggest" のときだけそれ・それ以外は外部）。 */
 function libFindKindOf(kind) {
-  return kind === "internal" || kind === "paper" ? kind : "external";
+  return kind === "internal" || kind === "paper" || kind === "suggest" ? kind : "external";
 }
 
-/** U03: 覚えていた検索の切り替え（"internal"＝内部・"paper"＝Paper 一覧・それ以外は外部）。 */
+/** U03: 覚えていた検索の切り替え（"internal"＝内部・"paper"＝Paper 一覧・"suggest"＝Suggest・それ以外は外部）。 */
 function loadLibFindKind() {
   try {
     return libFindKindOf(localStorage.getItem(LIB_FIND_KIND_KEY));
@@ -316,6 +317,32 @@ function parseFindHash(hash) {
   return { name: m[1], id: m[2] };
 }
 
+/** U03: Suggest の 1 件の住所（#/papers/suggest/<name>/<suggest_id>・狭い画面の専用の画面）。 */
+function suggestHash(name, id) {
+  return `#/papers/suggest/${encodeURIComponent(name)}/${encodeURIComponent(id)}`;
+}
+
+/** U03: Suggest の 1 件の住所を読む。見つからなければ null。 */
+function parseSuggestHash(hash) {
+  const m = /^#\/papers\/suggest\/([^/?#]+)\/(\d+)$/.exec(String(hash || ""));
+  if (!m) return null;
+  return { name: m[1], id: m[2] };
+}
+
+/**
+ * U03: Suggest の一覧の 1 行の文（例: 2026/10/14 · run 256 · lab-search (5)）。
+ * human は「human」。agent は run と block の有る方だけを出す（両方無ければ「agent」）。
+ */
+function suggestRowLabel(g) {
+  const a = (g && g.actor) || {};
+  let who = "human";
+  if (a.kind === "agent") {
+    const parts = [a.run_id != null ? `run ${a.run_id}` : "", a.block || ""].filter(Boolean);
+    who = parts.join(" · ") || "agent";
+  }
+  return `${[g.date, who].filter(Boolean).join(" · ")} (${Number(g.count) || 0})`;
+}
+
 /** 左の階層を出したまま内部検索の結果を右に開く住所。 */
 function libraryFindHash(id) {
   return `#/papers/library/find/${encodeURIComponent(id)}`;
@@ -422,6 +449,7 @@ function filterPapers(papers, query) {
 let libPapers = null;   // null は読み込み中
 let libGroups = null;   // 階層（tree を読んだときだけ）
 let libFindGroups = null; // U03: 内部検索の履歴（tree の find_groups）
+let libSuggestGroups = null; // U03: Suggest の一覧（tree の suggest_groups・新しい順）
 let lfindLoadingNode = false; // U03: Node の一覧の読み込み中
 let libFilter = "";     // 絞り込みの言葉（内部・Paper は画面の中だけで絞る）
 // 外部 DB のときの絞り込み（全検索履歴から探した結果）。null は語が空か外部でないとき。
@@ -441,6 +469,9 @@ let libFindNodes = null;
 let libFindNodesMsg = "";
 const findLogCache = new Map();
 let findView = null;     // U03: 開いている内部検索の結果 {id, name, data, error}
+// U03: Suggest の 1 件（取り直さない・↻ で消す）と、狭い画面の専用の画面
+const suggestCache = new Map();
+let suggestView = null;  // 開いている Suggest {id, name, data, error}
 
 // --- 画面の状態（論文情報） ---
 
@@ -526,10 +557,12 @@ function resetProjectScreens() {
   sideRemote = null;
   sideLog = null;
   sideFind = null;
+  sideSuggest = null;
   jobBoxes.length = 0;
   libPapers = null;
   libGroups = null;
   libFindGroups = null;
+  libSuggestGroups = null;
   libError = "";
   discoverProviders = null;
   discoverError = "";
@@ -539,6 +572,8 @@ function resetProjectScreens() {
   remoteView = null;
   findLogCache.clear();
   findView = null;
+  suggestCache.clear();
+  suggestView = null;
   // 論文情報の音声の読み直しも止める（radio.js が作る関数・読み込み順に関係しない）
   try { if (typeof stopRadioSlotPoll === "function") stopRadioSlotPoll(); } catch { /* 無しでも動く */ }
   savePapersList("#/papers/library"); // 戻る先も新しいプロジェクトのものにする
@@ -1183,6 +1218,7 @@ function showPaperInSide(main, projectName, paperId) {
   sideRemote = null;
   sideLog = null;
   sideFind = null;
+  sideSuggest = null;
   main.dataset.showing = `paper:${paperId}`;
   // 音声や図の置き場はここ（論文情報の変数）
   paperProject = projectName;
@@ -1223,6 +1259,7 @@ async function showLogInSide(main, projectName, logId) {
   sidePaperId = null;
   sideRemote = null;
   sideFind = null;
+  sideSuggest = null;
   sideLog = { logId, name: projectName };
   main.dataset.showing = `log:${logId}`;
   main.innerHTML = "";
@@ -1281,6 +1318,7 @@ async function showRemoteInSide(main, projectName, logId, position) {
   sidePaperId = null;
   sideLog = null;
   sideFind = null;
+  sideSuggest = null;
   sideRemote = { logId, name: projectName, position };
   main.dataset.showing = `remote:${logId}:${position}`;
   remoteView = {
@@ -1311,9 +1349,11 @@ function paperSideRender(main) {
         ? `log:${sideLog.logId}`
         : sideKind === "find" && sideFind
           ? `find:${sideFind.logId}`
-          : sideKind === "filter" && libFilterView
-            ? `filter:${libFilterView.words}`
-            : "";
+          : sideKind === "suggest" && sideSuggest
+            ? `suggest:${sideSuggest.id}`
+            : sideKind === "filter" && libFilterView
+              ? `filter:${libFilterView.words}`
+              : "";
   if (main.dataset.showing === want) return;
   main.dataset.showing = want;
   if (sideKind === "paper" && sidePaperId != null) {
@@ -1330,6 +1370,10 @@ function paperSideRender(main) {
   }
   if (sideKind === "find" && sideFind) {
     void lfindShowInSide(main, sideFind.name, sideFind.logId);
+    return;
+  }
+  if (sideKind === "suggest" && sideSuggest) {
+    void suggestShowInSide(main, sideSuggest.name, sideSuggest.id);
     return;
   }
   if (sideKind === "filter" && libFilterView) {
@@ -1572,6 +1616,7 @@ async function openLibrary(opts) {
       sideRemote = null;
       sideLog = null;
       sideFind = { logId: opts.find, name: selectedProject };
+      sideSuggest = null;
     } else {
       location.replace(findHash(selectedProject, opts.find));
       return;
@@ -1585,6 +1630,7 @@ async function openLibrary(opts) {
       sideRemote = null;
       sideLog = null;
       sideFind = null;
+      sideSuggest = null;
     } else {
       // 狭い画面は右の欄が無いので、論文の詳細の画面へ
       location.replace(paperHash(selectedProject, opts.paper, false));
@@ -1621,11 +1667,14 @@ async function loadLibrary() {
     if (!res2.ok) throw new Error(body2.detail || "階層を読み込めませんでした");
     const groups = Array.isArray(body2.groups) ? body2.groups : [];
     const findGroups = Array.isArray(body2.find_groups) ? body2.find_groups : [];
+    const suggestGroups = Array.isArray(body2.suggest_groups) ? body2.suggest_groups : [];
     // 既に別の画面へ移った，またはその間にプロジェクトが切り替わったら捨てる（18 §1.1）
     if (location.hash !== hash || selectedProject !== name) return;
     libPapers = Array.isArray(body.papers) ? body.papers : [];
     libGroups = groups;
     libFindGroups = findGroups;
+    libSuggestGroups = suggestGroups;
+    suggestCache.clear(); // ↻ で Suggest の中身も取り直す
     libError = "";
     window.SaiShell.ok();
   } catch (e) {
@@ -1756,8 +1805,44 @@ function renderPaperList(box) {
   for (const p of rows) box.appendChild(paperRow(p, true, true));
 }
 
+/** U03: Suggest の一覧（新しい順）。押すと右の欄（狭い画面は専用の画面）に中身を出す。 */
+function renderSuggestList(box) {
+  const groups = Array.isArray(libSuggestGroups) ? libSuggestGroups : [];
+  if (groups.length === 0) {
+    box.appendChild(
+      papersEmpty(
+        "💡",
+        "まだ Suggest がありません",
+        "LabAgent（lab-search）が外部 DB を検索すると、取り込みを勧める論文がここに出ます。",
+        null
+      )
+    );
+    return;
+  }
+  for (const g of groups) {
+    const head = document.createElement("div");
+    head.className = "lib-group-head";
+    if (sideKind === "suggest" && sideSuggest && sideSuggest.id === g.id) head.classList.add("active");
+    const btn = document.createElement("button");
+    btn.className = "lib-g-main";
+    btn.appendChild(el("span", "lib-g-query", suggestRowLabel(g)));
+    btn.addEventListener("click", () => {
+      const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
+      if (side) {
+        void suggestShowInSide(side, selectedProject, g.id);
+        renderLibrary(); // 選んでいる行の強調を付け替える
+      } else {
+        location.hash = suggestHash(selectedProject, g.id);
+      }
+    });
+    head.appendChild(btn);
+    box.appendChild(head);
+  }
+}
+
 function renderTree(box) {
   if (libFindKind === "paper") { renderPaperList(box); return; }
+  if (libFindKind === "suggest") { renderSuggestList(box); return; }
   // 外部の絞り込みの結果は、狭い画面では階層の代わりに出す（広い画面は右の欄に出す）
   const wide = typeof saiIsWide === "function" && saiIsWide();
   if (libFindKind === "external" && libFilterView && !wide) {
@@ -1893,15 +1978,20 @@ function syncCondUI() {
   if (searchInput) {
     searchInput.placeholder = libFindKind === "internal" ? "🔍 Library 内を検索" : "🔍 論文を検索";
   }
-  // Paper 一覧では検索欄の行と条件の開閉を隠す（.lib-tools は display:flex なので hidden では消えない）
+  // Paper 一覧と Suggest では検索欄の行と条件の開閉を隠す（.lib-tools は display:flex なので hidden では消えない）
   const isPaper = libFindKind === "paper";
+  const isSuggest = libFindKind === "suggest";
+  const noSearch = isPaper || isSuggest;
   const searchRow = searchInput && searchInput.closest(".lib-tools");
-  if (searchRow) searchRow.style.display = isPaper ? "none" : "";
+  if (searchRow) searchRow.style.display = noSearch ? "none" : "";
   const condToggle = document.getElementById("discover-cond-toggle");
   const condRow = condToggle && condToggle.closest(".papers-cond-row");
-  if (condRow) condRow.style.display = isPaper ? "none" : "";
+  if (condRow) condRow.style.display = noSearch ? "none" : "";
   const filterInput = document.getElementById("library-filter");
   if (filterInput) filterInput.placeholder = isPaper ? "番号・題名・著者で絞り込み" : "題名・著者で絞り込み";
+  // Suggest では絞り込みの欄も隠す（一覧が短く、絞り込みの意味が薄い・Paper は今のまま出す）
+  const filterRow = filterInput && filterInput.closest(".lib-tools");
+  if (filterRow) filterRow.style.display = isSuggest ? "none" : "";
   const panel = document.getElementById("discover-cond");
   if (panel) panel.hidden = libFindKind === "external" ? !discoverCondOpen : true;
   const findPanel = document.getElementById("find-cond");
@@ -2119,6 +2209,134 @@ async function getSearchHistoryFind(projectName, words) {
   return body;
 }
 
+// --- U03: Suggest（agent が勧めた論文）の中身 ---
+
+/** Suggest 1 件を取る（入っているなら取り直さない。↻ で消す）。失敗は throw。 */
+async function getSuggest(projectName, id) {
+  const key = logCacheKey(projectName, id);
+  if (suggestCache.has(key)) return suggestCache.get(key);
+  const res = await apiFetch(`${papersApiBase(projectName)}/suggests/${encodeURIComponent(id)}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+  if (!body || !body.suggest) throw new Error("sai-paper の応答を読めませんでした");
+  suggestCache.set(key, body);
+  return body;
+}
+
+/**
+ * Suggest の中身（見出し・実行者・理由・勧めた論文の一覧）を box に描く。
+ * 広い画面の右の欄と、狭い画面の専用の画面で共通。
+ */
+function suggestRender(box, data, projectName) {
+  box.innerHTML = "";
+  const s = (data && data.suggest) || {};
+  const items = Array.isArray(data && data.items) ? data.items : [];
+  const count = Number(s.count) || 0;
+  box.appendChild(el("h2", "papers-heading", `Suggest #${s.id}  ${count} 件`));
+  box.appendChild(el("div", "paper-meta", [s.date, searchActorText({ actor: s.actor })].filter(Boolean).join(" · ")));
+  // 理由は Markdown（全体の理由は上のカードに出す）
+  const card = el("section", "dash-card");
+  card.appendChild(el("p", "dash-card-title", "理由"));
+  const md = document.createElement("div");
+  md.innerHTML = renderMarkdown(String(s.reason || ""));
+  card.appendChild(md);
+  box.appendChild(card);
+  if (count > items.length) {
+    box.appendChild(el("p", "lib-empty", `元の検索履歴が消えた ${count - items.length} 件は出ていません`));
+  }
+  if (items.length === 0) {
+    box.appendChild(el("p", "lib-empty", "勧めた論文の元の検索履歴が見つかりません"));
+    return;
+  }
+  for (const item of items) {
+    box.appendChild(resultRow(item, projectName, item.log_id));
+    // 項目ごとの理由は行の下の 1 行
+    if (item.note) box.appendChild(el("p", "paper-msg", `理由: ${item.note}`));
+  }
+}
+
+/** U03: 広い画面なら右の欄に Suggest の中身を出す。狭い画面は専用の画面へ。 */
+async function suggestShowInSide(main, projectName, id) {
+  if (!main) {
+    location.hash = suggestHash(projectName, id);
+    return;
+  }
+  sideKind = "suggest";
+  sidePaperId = null;
+  sideRemote = null;
+  sideLog = null;
+  sideFind = null;
+  sideSuggest = { id: Number(id), name: projectName };
+  main.dataset.showing = `suggest:${id}`;
+  main.innerHTML = "";
+  main.appendChild(el("p", "lib-empty", "読み込み中…"));
+  let data;
+  let error = "";
+  try {
+    data = await getSuggest(projectName, id);
+  } catch (e) {
+    error = (e && e.message) || "読み込めませんでした";
+  }
+  if (sideKind !== "suggest" || !sideSuggest || sideSuggest.id !== Number(id)) return; // 読み込み中に別の物へ移った
+  main.innerHTML = "";
+  if (error) {
+    main.appendChild(el("p", "lib-empty", error));
+    return;
+  }
+  suggestRender(main, data, projectName);
+}
+
+/** U03: 狭い画面の Suggest の画面（#/papers/suggest/<name>/<id>）。 */
+async function suggestOpen(params) {
+  const hash = location.hash;
+  const name = await projectForAddress(params.name);
+  if (location.hash !== hash) return;
+  const id = parseInt(params.id, 10);
+  savePapersList(suggestHash(name, id));
+  suggestView = {
+    id,
+    name,
+    data: name ? suggestCache.get(logCacheKey(name, id)) || null : null,
+    error: "",
+  };
+  if (!name) {
+    suggestView.data = null;
+    suggestView.error = NO_PROJECT_MSG;
+    renderSuggest();
+    return;
+  }
+  renderSuggest();
+  if (suggestView.data) return;
+  try {
+    const data = await getSuggest(name, id);
+    if (location.hash !== hash) return;
+    suggestView.data = data;
+  } catch (e) {
+    if (location.hash !== hash) return;
+    suggestView.data = null;
+    suggestView.error = (e && e.message) || "読み込めませんでした";
+    renderSuggest();
+    window.SaiShell.fail();
+    return;
+  }
+  renderSuggest();
+  window.SaiShell.ok();
+}
+
+function renderSuggest() {
+  const title = document.getElementById("suggest-title");
+  const list = document.getElementById("suggest-list");
+  if (!list) return;
+  if (title) title.textContent = "Suggest";
+  list.innerHTML = "";
+  if (!suggestView) return;
+  if (!suggestView.data) {
+    list.appendChild(el("p", "lib-empty", suggestView.error || "読み込み中…"));
+    return;
+  }
+  suggestRender(list, suggestView.data, suggestView.name);
+}
+
 /** U03: 内部検索の実行。検索語が空なら何もしない（外部と同じ）。 */
 async function lfindRun() {
   const input = document.getElementById("discover-input");
@@ -2261,6 +2479,7 @@ async function lfindShowInSide(main, projectName, logId) {
   sideRemote = null;
   sideLog = null;
   sideFind = { logId, name: projectName };
+  sideSuggest = null;
   main.dataset.showing = `find:${logId}`;
   main.innerHTML = "";
   main.appendChild(el("p", "lib-empty", "読み込み中…"));
@@ -2551,6 +2770,7 @@ function libFilterSchedule() {
   sideRemote = null;
   sideLog = null;
   sideFind = null;
+  sideSuggest = null;
   const view = { name: selectedProject, words, data: null, error: "" };
   libFilterView = view;
   libFilterTimer = setTimeout(() => void libFilterRun(view), 300);
@@ -3633,6 +3853,24 @@ const findRoute = {
   },
 };
 
+// U03: Suggest の 1 件（#/papers/suggest/<name>/<suggest_id>・狭い画面用）
+const suggestRoute = {
+  match(hash) {
+    const p = parseSuggestHash(hash);
+    return p ? { id: p.id, name: p.name } : null;
+  },
+  view: "view-papers-suggest",
+  tab: "research",
+  hideTabbar: false,
+  interval: 0,
+  async open(params) {
+    await suggestOpen(params);
+  },
+  async poll() {
+    await papersPollExtras();
+  },
+};
+
 // 未ダウンロードの論文情報（新旧どちらの住所でも・08 §4.4・18 §3.5）
 const remoteRoute = {
   match(hash) {
@@ -3694,6 +3932,7 @@ if (typeof window !== "undefined") {
     discoverRoute,
     logRoute,
     findRoute,
+    suggestRoute,
     remoteRoute,
     paperTextRoute,
     paperRoute
@@ -3889,6 +4128,9 @@ if (typeof window !== "undefined") {
   // U03: 内部検索の結果の戻る → Library
   const findBack = document.getElementById("find-back");
   if (findBack) findBack.addEventListener("click", () => { location.hash = "#/papers/library"; });
+  // U03: Suggest の画面の戻る → Library
+  const suggestBack = document.getElementById("suggest-back");
+  if (suggestBack) suggestBack.addEventListener("click", () => { location.hash = "#/papers/library"; });
   // 過去の検索結果の戻る → Library（08 §4.2）
   const logBack = document.getElementById("log-back");
   if (logBack) logBack.addEventListener("click", () => { location.hash = "#/papers/library"; });
@@ -3915,6 +4157,9 @@ if (typeof module !== "undefined" && module.exports) {
     parseLibraryHash,
     findHash,
     parseFindHash,
+    suggestHash,
+    parseSuggestHash,
+    suggestRowLabel,
     libraryFindHash,
     lfindBody,
     lfindSummary,

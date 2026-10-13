@@ -24,6 +24,9 @@ const {
   paperCardText,
   chunkGroups,
   libFindKindOf,
+  suggestHash,
+  parseSuggestHash,
+  suggestRowLabel,
   RESEARCH_SEG,
 } = require(path.join(
   __dirname,
@@ -337,6 +340,38 @@ function testLibFindKind() {
   assert.strictEqual(libFindKindOf(null), "external");
 }
 
+function testSuggest() {
+  // U03: 切り替えの値（suggest はそのまま）と、Suggest の 1 件の住所
+  assert.strictEqual(libFindKindOf("suggest"), "suggest");
+  assert.strictEqual(libFindKindOf("x"), "external");
+  assert.deepStrictEqual(parseSuggestHash("#/papers/suggest/demo/3"), { name: "demo", id: "3" });
+  assert.strictEqual(parseSuggestHash(suggestHash("demo", 3)).id, "3");
+  assert.strictEqual(parseSuggestHash(suggestHash("demo", 3)).name, "demo");
+  assert.strictEqual(parseSuggestHash("#/papers/suggest/demo"), null);
+  assert.strictEqual(parseSuggestHash("#/papers/suggest/demo/3/x"), null);
+  // 一覧の 1 行の文（agent は run と block の有る方だけ・human は human）
+  assert.strictEqual(
+    suggestRowLabel({ date: "2026/10/14", actor: { kind: "agent", run_id: 256, block: "lab-search" }, count: 5 }),
+    "2026/10/14 · run 256 · lab-search (5)"
+  );
+  assert.strictEqual(
+    suggestRowLabel({ date: "2026/10/14", actor: { kind: "human" }, count: 5 }),
+    "2026/10/14 · human (5)"
+  );
+  assert.strictEqual(
+    suggestRowLabel({ date: "2026/10/14", actor: { kind: "agent", run_id: null, block: "lab-search" }, count: 2 }),
+    "2026/10/14 · lab-search (2)"
+  );
+  assert.strictEqual(
+    suggestRowLabel({ date: "2026/10/14", actor: { kind: "agent", run_id: 256, block: null }, count: 1 }),
+    "2026/10/14 · run 256 (1)"
+  );
+  assert.strictEqual(
+    suggestRowLabel({ date: "2026/10/14", actor: { kind: "agent", run_id: null, block: null }, count: 1 }),
+    "2026/10/14 · agent (1)"
+  );
+}
+
 function testSegments() {
   // Research の切り替え（U06 で Papers を統合して 5 つ・住所は変えない）
   assert.deepStrictEqual(RESEARCH_SEG, [
@@ -366,6 +401,7 @@ function main() {
   testMergeActivity();
   testChunkGroups();
   testLibFindKind();
+  testSuggest();
   testSegments();
   testAuthorShort();
   testFilterPapers();

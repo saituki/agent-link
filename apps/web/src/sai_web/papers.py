@@ -519,6 +519,11 @@ def find_history(project: dict, log_id: int) -> dict:
     return _paper_cli(project, ["find-history", str(log_id)])
 
 
+def suggest_show(project: dict, suggest_id: int) -> dict:
+    """Suggest 1 件と勧めた論文（`suggest show <id>`・U03）。無い id は CLI の 3 が 404 になる。"""
+    return _paper_cli(project, ["suggest", "show", str(suggest_id)])
+
+
 # --- 音声化の依頼（計画 10 §3・プロジェクト付きは 17 §3.3・§3.4） ---
 
 # 今動いている音声化（(プロジェクト名, 論文 id) → タスク）。サーバーを再起動すると完了通知は失われる

@@ -207,13 +207,14 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 |---|---|---|
 | `GET /api/paper-projects` | 論文の置き場（`.sai/paper/`）があるプロジェクトの一覧 `[{name, root_name, last_executed_at}]` | 登録簿とファイルの有無だけ（CLI は呼ばない） |
 | `GET /api/projects/{name}/papers/library` | Library 一覧 | `sai-paper library list` |
-| `GET /api/projects/{name}/papers/tree` | Library 階層（`find_groups`（内部検索の履歴の組）も返る） | `sai-paper library tree` |
+| `GET /api/projects/{name}/papers/tree` | Library 階層（`find_groups`（内部検索の履歴の組）・`suggest_groups`（Suggest の一覧・新しい順。理由は入れない）も返る） | `sai-paper library tree` |
 | `GET /api/projects/{name}/papers/providers` | 検索先の一覧と既定 | `sai-paper providers` |
 | `POST /api/projects/{name}/papers/search` | 検索（履歴にも残る） | `sai-paper search --json --limit … [--db …] [--year-from …] [--year-to …] -- <語>` |
 | `GET /api/projects/{name}/papers/search-history/{log_id}` | 過去の検索結果 | `sai-paper search-history <log_id>` |
 | `GET /api/projects/{name}/papers/search-history-find?q=` | 全検索履歴から語で探す（外部 DB の絞り込み。未ダウンロードも含む・`q` は前後の空白を取って 1〜200 文字の 1 行。違えば 400） | `sai-paper search-history-find --json -- <語>` |
 | `POST /api/projects/{name}/papers/find` | 内部検索（Library 内の検索・履歴にも残る）。`node` を付けると範囲の決定を sai-sci が行う（記録は `SAI_TARGET_NODE` があるときだけ） | `sai-paper find --json … -- <語>`（`node` があれば `sai-sci find --json --node <ID> …`） |
 | `GET /api/projects/{name}/papers/find-history/{log_id}` | 過去の内部検索の結果 | `sai-paper find-history <log_id>` |
+| `GET /api/projects/{name}/papers/suggests/{suggest_id}` | Suggest 1 件と勧めた論文（agent が勧めた論文。理由・候補ごとの理由つき。取り込みは `keep` の `{log_id, position}`） | `sai-paper suggest show <suggest_id> --json` |
 | `GET /api/projects/{name}/papers/{paper_id:int}` | 論文情報 | `sai-paper paper show <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate` | 要旨の日本語訳 | `sai-paper paper translate <id>` |
 | `POST /api/projects/{name}/papers/{paper_id:int}/translate-pdf` | PDF の日本語訳を始める（202 `{"key": "pdf:<id>", "status": "processing"}`・翻訳中は 409。仕事は `downloads` に `kind="translate"`・`percent=null` で出る） | `sai-paper paper translate-pdf <id> --json` |
@@ -245,7 +246,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/prep/download` | sai-prep の入れ物（一番新しい `sai_prep-*.whl`）を配る。無ければ 404「sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）」 | （ファイルを返すだけ・`SAI_PREP_DIST` があればそこを見る） |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
-- `import` / `downloads` / `keep` / `bundle` / `migrate` / `migrate-from` / `pending` / `jobs/{key}` / `project` / `project/mind` / `attention` / `find` / `find-history` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` / `search-history-find` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- `import` / `downloads` / `keep` / `bundle` / `migrate` / `migrate-from` / `pending` / `jobs/{key}` / `project` / `project/mind` / `attention` / `find` / `find-history` / `suggests/{suggest_id}` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` / `search-history-find` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・keep は対象 3 つのうち 1 つ）→ 400。同じ論文が進行中は 409。
 - 前処理の束（zip）の検査は Web が行う（Rust に zip の依存が無い）。項目の数 ≤ 5000・展開後の合計 ≤ 1GB・絶対パス / `..` / `\` / NUL の名前無し・シンボリックリンク無し・`manifest.json` の形（下の C12）・`paper.pdf` の先頭が `%PDF-`。違えば CLI を 1 度も呼ばず 400。展開先は `<root>/.sai/paper/inbox/<uuid>/`（ホストとコンテナで同じパスに見える・C4）。
 - 仕事の状態は sai-web のメモリだけに持つ。`processing` = 取り込み中（束）／後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。
@@ -428,6 +429,7 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `#/papers/log/<name>/<log_id>` / `…/<position>` | 過去の検索結果・未ダウンロード論文の情報 | Papers | 表示 |
 | `#/papers/find/<name>/<log_id>` | 過去の内部検索の結果 | Papers | 表示 |
 | `#/papers/library/find/<log_id>` | 過去の内部検索の結果（今選んでいるプロジェクト） | Papers | 表示 |
+| `#/papers/suggest/<name>/<suggest_id>` | Suggest 1 件（agent が勧めた論文と理由・狭い画面の専用の画面。広い画面は Library の右の欄） | Papers | 表示 |
 | `#/radio/<radio_id>` | 再生画面（質問チャット付き） | Papers | 隠す |
 | `#/research/tree` / `#/research/tree/<ID>` | research-tree（`<ID>` は Q・A・F・E・S・D の Node） | Research | 表示 |
 | `#/research/read/<run_id>` | READ_CARD（1 本の論文を読んで F を書く） | Research | 表示 |
