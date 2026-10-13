@@ -437,7 +437,7 @@ mod tests {
         .unwrap()
     }
 
-    /// 旧い木の元のプロジェクトを作る。移行 0061 を外して、元を移行 60 までの形にする。
+    /// 旧い木の元のプロジェクトを作る。移行 0061・0062 を外して、元を移行 60 までの形にする。
     /// 書き込みの接続（`Database`）は開いたまま返す（WAL に未反映の行がある状態を再現する）。
     /// 木: 1 軸 Q / 2 A / 3 Q（分け方の基準つき）/ 4 A / 5 F / 6 A / 7 A（軸の下）/ 8 Q（Q の下の Q）/ 9 A / 10 S（paths=[4]）/ 11 D。
     fn make_origin(root: &Path) -> Database {
@@ -475,8 +475,13 @@ mod tests {
             .unwrap();
         put(conn, Kind::D, None, "研究の制約", "", &[]); // 11
         // 旧い形にする（rel 列と移行 61 の記録を外す）。
-        conn.execute_batch("ALTER TABLE rt_nodes DROP COLUMN rel; DELETE FROM schema_migrations WHERE version = 61;")
-            .unwrap();
+        conn.execute_batch(
+            "ALTER TABLE rt_nodes DROP COLUMN rel;
+             DROP TABLE IF EXISTS paper_suggest_items;
+             DROP TABLE IF EXISTS paper_suggests;
+             DELETE FROM schema_migrations WHERE version >= 61;",
+        )
+        .unwrap();
         db
     }
 

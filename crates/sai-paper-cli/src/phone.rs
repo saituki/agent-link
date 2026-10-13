@@ -6,7 +6,7 @@
 //!
 //! 読み取り用（library / tree / paper / log / providers）は DB に書き込まない（02 の計画）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
@@ -14,12 +14,14 @@ use chrono::Datelike;
 use rusqlite::OptionalExtension;
 use sai_paper_core::citation;
 use sai_paper_core::citation::db::get_refs_for;
+use sai_paper_core::suggest::{self, NewItem, Suggest, SuggestError};
 use sai_paper_core::{
     Config, Database, LibraryIndexer, LibraryPaper, Paths, figures, find_history,
     library_tree, paths, podcast_client, search_history, translation,
 };
 use serde_json::{Value, json};
 
+use crate::cli_error::CliError;
 use crate::open_database;
 
 /// `api::PaperSourceResolver::resolve` が受け付ける DB ID（resolver を参照）。
@@ -233,9 +235,12 @@ pub(crate) fn tree() -> Result<Value> {
     let groups = library_tree::build_groups(db.connection(), &papers);
     // 内部検索の履歴（U01。新しい順。`groups` は変えない）。
     let find_groups = find_history::groups(db.connection(), &papers)?;
+    // Suggest（U02）。新しい順。`groups`・`find_groups` は変えない。
+    let suggest_groups = suggest_groups(db.connection())?;
     Ok(json!({
         "groups": serde_json::to_value(groups)?,
         "find_groups": serde_json::to_value(find_groups)?,
+        "suggest_groups": suggest_groups,
     }))
 }
 
@@ -499,6 +504,167 @@ fn find_groups(
         "groups": groups,
         "truncated": truncated,
     }))
+}
+
+/// `sai-paper suggest add`: 取り込みを勧める候補を Suggest に残す（Library には入れない）。
+pub(crate) fn suggest_add(
+    reason: &str,
+    raw_items: &[String],
+    executer: &str,
+    run_id: Option<i64>,
+    block: Option<&str>,
+) -> Result<Value> {
+    let (db, _cfg, _paths) = open_context()?;
+    suggest_add_on(db.connection(), reason, raw_items, executer, run_id, block)
+}
+
+/// `suggest_add` の本体（DB を開かない形）。入力を検査してから保存し、作った Suggest を返す。
+fn suggest_add_on(
+    conn: &rusqlite::Connection,
+    reason: &str,
+    raw_items: &[String],
+    executer: &str,
+    run_id: Option<i64>,
+    block: Option<&str>,
+) -> Result<Value> {
+    let reason = reason.trim();
+    if reason.is_empty() || reason.chars().count() > 4000 {
+        return Err(CliError::input("--reason は 1〜4000 文字にします").into());
+    }
+    if raw_items.is_empty() || raw_items.len() > 30 {
+        return Err(CliError::input("--item は 1〜30 個にします").into());
+    }
+    let items = raw_items
+        .iter()
+        .map(|raw| parse_suggest_item(raw))
+        .collect::<Result<Vec<_>>>()?;
+    let mut seen = HashSet::new();
+    for item in &items {
+        if !seen.insert((item.history_id, item.position)) {
+            return Err(CliError::input(format!(
+                "同じ候補が 2 回あります: log={}, position={}",
+                item.history_id, item.position
+            ))
+            .into());
+        }
+    }
+    let id = suggest::add(conn, executer, run_id, block, reason, &items).map_err(suggest_error)?;
+    let Some((saved, _)) = suggest::get(conn, id).map_err(suggest_error)? else {
+        bail!("保存した Suggest が読めません（id={id}）");
+    };
+    Ok(json!({ "suggest": suggest_json(&saved), "count": saved.count }))
+}
+
+/// `--item` の書式 `<log_id>:<position>[:<理由>]` を読む（理由はコロンを含んでよい）。
+fn parse_suggest_item(raw: &str) -> Result<NewItem> {
+    let mut parts = raw.splitn(3, ':');
+    let history_id = parts
+        .next()
+        .and_then(|text| text.trim().parse::<i64>().ok())
+        .filter(|n| *n >= 1);
+    let position = parts
+        .next()
+        .and_then(|text| text.trim().parse::<i64>().ok())
+        .filter(|n| *n >= 0);
+    let (Some(history_id), Some(position)) = (history_id, position) else {
+        return Err(CliError::input(format!(
+            "--item の書式は <log_id>:<position>[:<理由>] です（log_id は 1 以上、position は 0 以上）: {raw}"
+        ))
+        .into());
+    };
+    let note = parts
+        .next()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+    if note.as_ref().is_some_and(|text| text.chars().count() > 500) {
+        return Err(CliError::input("--item の理由は 500 文字以下にします").into());
+    }
+    Ok(NewItem {
+        history_id,
+        position,
+        note,
+    })
+}
+
+/// `sai-paper suggest show <id>`: Suggest 1 件と勧めた候補（検索履歴の項目に `log_id` と `note` を足す）。
+pub(crate) fn suggest_show(suggest_id: i64) -> Result<Value> {
+    let (db, cfg, paths) = open_context()?;
+    let papers = library_papers(&db, &cfg, &paths)?;
+    suggest_show_on(db.connection(), suggest_id, &papers)
+}
+
+/// `suggest_show` の本体。候補の検索履歴が消えていれば、その候補は飛ばす（`count` は保存した数のまま）。
+fn suggest_show_on(
+    conn: &rusqlite::Connection,
+    suggest_id: i64,
+    papers: &[LibraryPaper],
+) -> Result<Value> {
+    let Some((saved, picked)) = suggest::get(conn, suggest_id).map_err(suggest_error)? else {
+        return Err(CliError::not_found("Suggest が見つかりません").into());
+    };
+    let mut items = Vec::new();
+    for pick in picked {
+        // 候補 1 件ごとに履歴の項目を読む（候補は 30 件までなので、この作りで足りる）。
+        let found = search_history::items(conn, pick.history_id)?
+            .into_iter()
+            .find(|item| item.position == pick.position);
+        let Some(hit) = found else {
+            continue;
+        };
+        let mut value = remote_item_json(&hit, papers);
+        value["log_id"] = json!(pick.history_id);
+        value["note"] = json!(pick.note);
+        items.push(value);
+    }
+    Ok(json!({ "suggest": suggest_json(&saved), "items": items }))
+}
+
+/// `suggest` の形（`add` と `show` が共用）。
+fn suggest_json(saved: &Suggest) -> Value {
+    json!({
+        "id": saved.id,
+        "created_at": saved.created_at,
+        "date": saved.date,
+        "actor": suggest_actor_json(&saved.executer, saved.run_id, saved.block.as_deref()),
+        "reason": saved.reason,
+        "count": saved.count,
+    })
+}
+
+/// `library tree` の `suggest_groups`（新しい順。理由は入れない）。
+fn suggest_groups(conn: &rusqlite::Connection) -> Result<Value> {
+    let groups = suggest::list(conn)
+        .map_err(suggest_error)?
+        .iter()
+        .map(|saved| {
+            json!({
+                "id": saved.id,
+                "date": saved.date,
+                "created_at": saved.created_at,
+                "actor": suggest_actor_json(&saved.executer, saved.run_id, saved.block.as_deref()),
+                "count": saved.count,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Value::Array(groups))
+}
+
+/// `suggest.actor` の JSON。agent は block 名を入れる（Suggest は保存時の block 名を持つ）。
+fn suggest_actor_json(executer: &str, run_id: Option<i64>, block: Option<&str>) -> Value {
+    if executer == "agent" {
+        json!({ "kind": "agent", "run_id": run_id, "block": block })
+    } else {
+        json!({ "kind": "human" })
+    }
+}
+
+/// Suggest の操作エラーを約束の終了コードに直す（候補の検索履歴が無ければ 3）。
+fn suggest_error(err: SuggestError) -> anyhow::Error {
+    match err {
+        SuggestError::NotFound(message) => CliError::not_found(message).into(),
+        SuggestError::Database(err) => err.into(),
+    }
 }
 
 /// 検索履歴 1 件の `log` の項目（`actor`・`node` を含む）。
@@ -1025,6 +1191,142 @@ mod tests {
         assert_eq!(web["log"]["actor"]["kind"], "human");
         let plain = record_with("cli", None);
         assert_eq!(plain["log"]["executer"], "human");
+    }
+
+    /// Suggest の入力: `--item` の書式（理由はコロンを含んでよい）と、検査の終了コード（2・3）。
+    #[test]
+    fn suggest_input_is_checked() {
+        use super::{parse_suggest_item, suggest_add_on};
+        use crate::cli_error::CliError;
+        use sai_paper_core::models::RemotePaper;
+        use sai_paper_core::search_history::{append_items, record};
+
+        fn code(err: &anyhow::Error) -> Option<i32> {
+            err.downcast_ref::<CliError>().map(|e| e.code)
+        }
+
+        assert!(parse_suggest_item("12:0").is_ok());
+        let with_note = parse_suggest_item("12:0:理由: x").unwrap();
+        assert_eq!((with_note.history_id, with_note.position), (12, 0));
+        assert_eq!(with_note.note.as_deref(), Some("理由: x"));
+        for bad in ["12", "0:1", "12:-1", "x:1", ""] {
+            let err = parse_suggest_item(bad).unwrap_err();
+            assert_eq!(code(&err), Some(2), "{bad}: {err}");
+        }
+
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        let log = record(conn, "phone", "human", None, "q", "", "10", "s2", &[]).unwrap();
+        let remote = |id: &str| RemotePaper {
+            id: id.to_string(),
+            title: format!("Paper {id}"),
+            authors: vec!["A".into()],
+            abstract_text: String::new(),
+            published: chrono::Utc::now(),
+            updated: chrono::Utc::now(),
+            categories: Vec::new(),
+            pdf_url: None,
+            doi: None,
+            journal_ref: None,
+            citation_count: None,
+        };
+        append_items(conn, log, &[remote("p0"), remote("p1")]).unwrap();
+
+        let ok = suggest_add_on(conn, "r", &[format!("{log}:0")], "human", None, None);
+        assert!(ok.is_ok());
+        let missing =
+            suggest_add_on(conn, "r", &[format!("{log}:9")], "human", None, None).unwrap_err();
+        assert_eq!(code(&missing), Some(3), "{missing}");
+        let dup = suggest_add_on(
+            conn,
+            "r",
+            &[format!("{log}:0"), format!("{log}:0:x")],
+            "human",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(code(&dup), Some(2), "{dup}");
+        let empty_reason =
+            suggest_add_on(conn, "  ", &[format!("{log}:0")], "human", None, None).unwrap_err();
+        assert_eq!(code(&empty_reason), Some(2), "{empty_reason}");
+    }
+
+    /// Suggest の形: add の結果と show の形（キーの集合）。agent は block を入れ、候補は log_id と note を持つ。
+    #[test]
+    fn suggest_add_and_show_have_the_agreed_shape() {
+        use super::{suggest_add_on, suggest_groups, suggest_show_on};
+        use crate::cli_error::CliError;
+        use sai_paper_core::models::RemotePaper;
+        use sai_paper_core::search_history::{append_items, record};
+        use serde_json::{Value, json};
+
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        let log = record(conn, "cli", "agent", Some(256), "q", "", "10", "s2", &[]).unwrap();
+        let remote = |id: &str| RemotePaper {
+            id: id.to_string(),
+            title: format!("Large model {id}"),
+            authors: vec!["Kim".into()],
+            abstract_text: String::new(),
+            published: chrono::Utc::now(),
+            updated: chrono::Utc::now(),
+            categories: Vec::new(),
+            pdf_url: None,
+            doi: None,
+            journal_ref: None,
+            citation_count: None,
+        };
+        append_items(conn, log, &[remote("p0"), remote("p1")]).unwrap();
+
+        let added = suggest_add_on(
+            conn,
+            " 探した理由 ",
+            &[format!("{log}:0:手法: a:b"), format!("{log}:1")],
+            "agent",
+            Some(256),
+            Some("lab-search"),
+        )
+        .unwrap();
+        assert_eq!(added["count"], 2);
+        assert_eq!(added["suggest"]["reason"], "探した理由");
+        assert_eq!(
+            added["suggest"]["actor"],
+            json!({"kind": "agent", "run_id": 256, "block": "lab-search"})
+        );
+        let id = added["suggest"]["id"].as_i64().unwrap();
+
+        let shown = suggest_show_on(conn, id, &[]).unwrap();
+        let keys = |v: &Value| -> Vec<String> {
+            let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(
+            keys(&shown["suggest"]),
+            ["actor", "count", "created_at", "date", "id", "reason"]
+        );
+        let items = shown["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(
+            (items[0]["log_id"].as_i64(), items[0]["position"].as_i64()),
+            (Some(log), Some(0))
+        );
+        assert_eq!(items[0]["note"], "手法: a:b");
+        assert_eq!(items[0]["title"], "Large model p0");
+        assert!(items[1]["note"].is_null());
+        assert!(items[0].get("local_paper_id").is_some());
+
+        let missing = suggest_show_on(conn, id + 100, &[]).unwrap_err();
+        assert_eq!(missing.downcast_ref::<CliError>().map(|e| e.code), Some(3));
+
+        // library tree の suggest_groups: 理由は入らず、actor と count が入る。
+        let groups = suggest_groups(conn).unwrap();
+        assert_eq!(
+            keys(&groups[0]),
+            ["actor", "count", "created_at", "date", "id"]
+        );
+        assert_eq!(groups[0]["count"], 2);
     }
 
     /// 全検索履歴の絞り込み: 題名か著者に語をすべて含む候補だけを、新しい履歴から順に組にする（大文字も一致）。

@@ -99,7 +99,7 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | 部品 | Web が呼ぶ命令（呼ぶ側のモジュール） | 時間切れ |
 |---|---|---|
 | sai-link | `run export`（`control.export_runs`・60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|start\|finish\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop`（すべて `control.py`） | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
-| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`search-history-find`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
+| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`search-history-find`・`suggest add\|show`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
 | sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`card --from-json`・`read`・`find --node`（範囲だけ）・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
 | 3 つの CLI | `schema --json`（`commands.py`・60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
 | apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | 質問（`…/ask`）180 秒・他 30 秒 |
@@ -337,7 +337,7 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `podcast` | 文字列 \| null | 札（`ready` →「🎧 音声あり」／`generating` →「音声作成中」） | 札なし |
 | `created_at` / `has_pdf` / `has_extract` / `is_favorite` | ― | **画面では未使用** | ― |
 
-#### `library tree` → `{"groups": [...], "find_groups": [...]}`
+#### `library tree` → `{"groups": [...], "find_groups": [...], "suggest_groups": [...]}`
 
 | 項目 | 型 | 使うところ | 無いとき |
 |---|---|---|---|
@@ -347,6 +347,7 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 | `groups[].hit_count` | 数値 | 「N 件」 | 0 件扱い |
 | `groups[].paper_ids` | 数値の配列 | 中の論文を引く | そのまとまりが空 |
 | `find_groups[]` | `log_id`・`date`・`query`・`hit_count`・`paper_ids`（Library にある論文だけ。ヒット順・重複なし）・`actor`（`{"kind"}` のみ） | 内部検索の履歴の組（新しい順・1 つの履歴につき 1 組） | ― |
+| `suggest_groups[]` | `id`・`date`・`created_at`・`actor`（`{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}`）・`count` | Suggest（agent が勧める論文）の一覧（新しい順。理由は入れない。理由は `suggest show`） | 一覧が空 |
 
 #### `paper show <id>` → `{"paper", "files", "note", "refs", "podcast"}`
 
@@ -385,6 +386,25 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 - `groups` は検索履歴の新しい順。一致が 0 件の履歴は出さない。各組の `log` と `items` は `search-history <id>` と同じ形（`items` の `position`・`local_paper_id` などを含む）。
 - 上限は全体で 500 件。超えたら打ち切って `truncated` を `true` にする（無ければ `false`）。語が空なら終了コード 2。
 - `find-history <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
+
+#### `suggest add` / `suggest show <id>`
+
+`suggest add` は agent が勧める候補を Suggest として残す（Library には入れない。取り込みは利用者が Web の Suggest から行う）。候補は検索履歴の `(log_id, position)` を指す。論文の情報は写さない。
+
+- `suggest add --reason <文> --item <log_id>:<position>[:<理由>] [--item …] --json`。`--reason` は前後の空白を取って 1〜4000 文字。`--item` は 1〜30 個で、理由は 500 文字以下（コロンを含んでよい）。同じ候補の重複、書式の誤り、`log_id` が 1 未満・`position` が負は終了コード 2。候補の検索履歴（`log_id`・`position`）が無いと終了コード 3 で、何も書かない。
+- 実行者は `SAI_ORIGIN=phone` なら `human`、それ以外で `SAI_PARENT_RUN_ID` が数なら `agent`。`block` は環境変数 `SAI_BLOCK_NAME`（空なら `null`）。
+- 出力: `{"suggest": <下の suggest>, "count": 保存した数}`。
+- `suggest show <id> --json` は `{"suggest","items"}` を返す。無い id は終了コード 3。
+
+| 階層 | 項目 | 型 | 使うところ | 無いとき |
+|---|---|---|---|---|
+| `suggest` | `id` `created_at` `date` | 数値・文字列 | 見出し | ― |
+| `suggest` | `actor` | `{"kind":"human"}` \| `{"kind":"agent","run_id":数値\|null,"block":文字列\|null}` | 「実行者」 | ― |
+| `suggest` | `reason` | 文字列（Markdown） | 上部の Suggest の理由 | ― |
+| `suggest` | `count` | 数値 | 件数 | ― |
+| `items[]` | 検索履歴の `items[]` と同じ項目（`position`・`id`・`title`・`authors`（配列）・`year`・`journal`・`doi`・`abstract`・`citation_count`・`local_paper_id`） | 各種 | 勧めた論文の一覧と「＋ Library に入れる」 | 候補の検索履歴が消えていれば、その候補は出ない（`count` は保存した数のまま） |
+| `items[]` | `log_id` | 数値 | 「＋ Library に入れる」の `{"log_id","position"}` | ― |
+| `items[]` | `note` | 文字列 \| null | 候補ごとの理由 1 行 | 出さない |
 
 #### `providers` → `{"default": [...], "available": [...]}`
 

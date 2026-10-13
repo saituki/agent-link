@@ -25,7 +25,7 @@ enable: true
 ## 役割
 対象の Node に足す子の論文を、外部の論文 DB で探します。2 段に分けて動きます。
 
-- **段 1（検索）**: `sai-sci search` で外部 DB を検索し、取り込みを勧める候補を報告します。取り込みはしません（agent は Library に入れません）。
+- **段 1（検索）**: `sai-sci search` で外部 DB を検索し、取り込みを勧める候補を `sai-paper suggest add` で Suggest に残して報告します。Library には入れません（取り込みは利用者が Web の Suggest から行います）。
 - **段 2（CARD）**: 利用者が Library に取り込んだあとに動かすと、`sci_child` を写した `lab-read` の CARD を `sai-sci card` で作ります。作るだけで、実行はしません。CARD の `--purpose` には、F の Extract として「適用の条件（必要な入力・データの量・前提）」と「限界・失敗する条件」を読むことを書きます。
 
 段は依頼文で決まります。依頼文に取り込み済みの論文の番号（`sci_papers`）があれば段 2、無ければ段 1 です。
@@ -53,8 +53,16 @@ enable: true
 
 4. 検索の結果から、題・著者・年・DOI を返り値のとおりに書き写し、目立つ候補を選びます。候補ごとに、取り込みを勧める理由を 1 行で書きます。候補が既にある A と同位・下位・上位のどれに当たるかも、1 語で添えます（`## TREE` で確かめます）。
 5. 検索の幅を広げる（別の DB を足す、件数を増やす）ときは、なぜ広げるかを先に書いてから試します。
-6. 検索ごとの `log.id`・件数・勧める候補を報告します。
-7. 利用者に、Web の検索履歴から取り込んでもらうよう報告に書いて、REPORT を保存して終えます。
+6. 勧める候補をまとめて 1 回だけ Suggest に残します。候補は 30 件以下にします。
+
+   ```bash
+   sai-paper suggest add --reason "<何のために探し、どう選んだか（Markdown・数行）>" \
+     --item "<log.id>:<position>:<この論文を勧める理由 1 行>" \
+     --item "<log.id>:<position>:<…>" --json
+   ```
+
+   `position` は `sai-sci search --json` の `items[].position`（0 始まり）を、そのまま写します。
+7. 検索ごとの `log.id`・件数、Suggest の `suggest.id`・勧めた件数を報告に書きます。利用者に「Web の Library の Suggest タブから取り込んでください」と書いて、REPORT を保存して終えます。
 
 ### 段 2: CARD を作る
 1. 依頼文の `sci_papers`（取り込んだ論文の番号）を確かめます。`sai-paper paper show <番号>` で Library にあることを見ます。無い番号があれば、作らずに報告します。

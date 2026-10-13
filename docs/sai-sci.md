@@ -308,7 +308,7 @@ root を育てる LabAgent と、S を作る `lab-sprout`、検証 agent があ�
 | # | 場面 | ブロック | sci_type | sci_ops |
 |---|---|---|---|---|
 | #1 | 型指定 ＋ 論文あり | `lab-read` | node | `add_a, add_f` |
-| #2 | 型指定 ＋ 検索（段 1 で検索し候補を報告 → 利用者が取り込む → 段 2 は `lab-read` の CARD を作る） | `lab-search` | node | `add_a, add_f` |
+| #2 | 型指定 ＋ 検索（段 1 で検索し候補を Suggest に残して報告 → 利用者が Web の Suggest から取り込む → 段 2 は `lab-read` の CARD を作る） | `lab-search` | node | `add_a, add_f` |
 | #3 | 型未指定 ＋ 論文あり | `lab-grow` | node | `add_a, add_f` |
 | #4 | 型未指定 ＋ 検索 | `lab-survey` | node | `add_a, add_f` |
 | #5 | 論文だけ（木を探して置き場所を決め、`lab-read` の CARD を作る） | `lab-place` | manage | `add_a` |
