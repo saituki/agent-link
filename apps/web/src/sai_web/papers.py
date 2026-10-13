@@ -296,6 +296,20 @@ def search_history(project: dict, log_id: int) -> dict:
     return _paper_cli(project, ["search-history", str(log_id)])
 
 
+def search_history_find(project: dict, words) -> dict:
+    """全検索履歴の候補から、題名と著者に語をすべて含むものを探す（`search-history-find`・U01）。
+
+    語は前後の空白を取って 1〜200 文字の 1 行にする（違反は 400・CLI は呼ばない）。
+    """
+    text = words.strip() if isinstance(words, str) else ""
+    if not (1 <= len(text) <= 200) or any(c in text for c in "\r\n"):
+        raise HTTPException(
+            status_code=400, detail="絞り込みの語は 1〜200 文字の 1 行にしてください"
+        )
+    # - で始まる語でもオプションと間違えないよう ["--", 語]（search と同じ）
+    return _paper_cli(project, ["search-history-find", "--", text])
+
+
 def validate_search(req: SearchRequest, available: list[str]) -> str:
     """検索の依頼を検査し，前後の空白を取った検索語を返す（違反は 400・08 §3）。"""
     query = str(req.query or "").strip()
@@ -830,7 +844,9 @@ def _download_payload(payload) -> tuple[str, list[str], str]:
         )
     if has_log:
         log_id = _as_positive_int(log_id, "log_id")
-        position = _as_positive_int(position, "position")
+        # position は検索履歴の 0 始まりの番号（DB・CLI と同じ）。0 も通す
+        if isinstance(position, bool) or not isinstance(position, int) or position < 0:
+            raise HTTPException(status_code=400, detail="position は 0 以上の整数にしてください")
         key = f"log:{log_id}:{position}"
         args = ["--log", str(log_id), "--position", str(position)]
     elif has_import:

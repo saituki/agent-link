@@ -1510,6 +1510,14 @@ def api_papers_search_history(
     return papers.search_history(papers.resolve_project(name), log_id)
 
 
+@app.get("/api/projects/{name}/papers/search-history-find")
+def api_papers_search_history_find(
+    name: str, q: str = "", _: None = Depends(require_token)
+) -> dict:
+    """全検索履歴から語で探す（sai-paper `search-history-find <語>`・U01）。"""
+    return papers.search_history_find(papers.resolve_project(name), q)
+
+
 @app.post("/api/projects/{name}/papers/find")
 def api_papers_find(name: str, req: papers.FindRequest, _: None = Depends(require_token)) -> dict:
     """内部検索（sai-paper `phone find`・履歴にも残る）。"""

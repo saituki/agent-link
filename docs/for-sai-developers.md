@@ -99,7 +99,7 @@ cwd は **そのプロジェクトの root**（論文は `papers.resolve_project
 | 部品 | Web が呼ぶ命令（呼ぶ側のモジュール） | 時間切れ |
 |---|---|---|
 | sai-link | `run export`（`control.export_runs`・60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|start\|finish\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop`（すべて `control.py`） | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
-| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
+| sai-paper | `library list\|tree`・`paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|download\|after-download\|candidates\|import-pdf\|radio`・`content paper`・`search`・`search-history`・`search-history-find`・`find`・`find-history`・`providers`・`dashboard`・`import list\|add\|remove`（`papers.py`・`sci.py`） | 30 秒（既定）・訳 90・検索 120・Download 300・後処理 2000・音声化 2000 |
 | sai-sci | `status`・`types`・`init --type`・`node`・`apply`・`card --from-json`・`read`・`find --node`（範囲だけ）・`project show\|memo`・`attention list\|resolve`（`sci.py`・`papers.py`） | 15〜30 秒（init は長め） |
 | 3 つの CLI | `schema --json`（`commands.py`・60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
 | apps/radio | HTTP（中継 `/api/radio/…` → `127.0.0.1:8201/api/…`） | 質問（`…/ask`）180 秒・他 30 秒 |
@@ -378,6 +378,12 @@ cwd と `SAI_PROJECT_ROOT` は「論文の置き場（`.sai/paper/`）がある�
 - `search --json --limit N [--db <ID>]… [--year-from Y] [--year-to Y] -- <語>`。失敗した DB は標準エラーに `<db>: <理由>` の 1 行と、標準出力の `failed` へ出す。検索は履歴に残る。
 - `find --json [--mode word|vector|hybrid] [--top-k N] [--scope papers|notes|figures|all] [--paper <番号>]… [--each m] -- <語>` は内部検索（要約なし）。新しい履歴を作り、`find-history <id>` と同じ形で返す（`log.executer` も付く）。`sai-sci find --node <ID> [--subtree]` は検索の範囲を絞るだけで、記録を Node に結ぶのは環境変数 `SAI_TARGET_NODE`。`sai-sci search` に `--node` は無い。
 - `expand --json` は `search` と同じ `{"log","items"}`（`results` つき）を返す。
+
+#### `search-history-find <words>` → `{"words","groups":[{"log","items"}],"truncated"}`
+
+- `search-history-find --json -- <語>`。全検索履歴の候補（未ダウンロードも含む）から、題名と著者（著者は `, ` で結んだ 1 本の文字）に語をすべて含むものを探す。大文字と小文字は区別しない。`words` は空白で分けた語を小文字にしたもの。
+- `groups` は検索履歴の新しい順。一致が 0 件の履歴は出さない。各組の `log` と `items` は `search-history <id>` と同じ形（`items` の `position`・`local_paper_id` などを含む）。
+- 上限は全体で 500 件。超えたら打ち切って `truncated` を `true` にする（無ければ `false`）。語が空なら終了コード 2。
 - `find-history <id>` の `log.actor`・`log.node`・`log.mode`・`log.scope`（指定が無ければ空文字）・`log.top_k`（無ければ `null`）・`hits[].authors`（配列）。存在しない id は終了コード 3「検索履歴が見つかりません」。
 
 #### `providers` → `{"default": [...], "available": [...]}`

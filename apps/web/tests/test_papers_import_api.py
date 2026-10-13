@@ -254,6 +254,10 @@ def test_download_payload_validation() -> None:
     assert key == "cite:12:3", key
     assert args == ["--cite", "12", "--ref", "3"], args
     assert title == "引用の題名", title
+    # position は 0 始まり（検索履歴の先頭の論文が 0）
+    key, args, _title = papers._download_payload({"log_id": 3, "position": 0})
+    assert key == "log:3:0", key
+    assert args == ["--log", "3", "--position", "0"], args
 
     for bad in (
         {},
@@ -264,6 +268,7 @@ def test_download_payload_validation() -> None:
         {"position": 2},
         {"log_id": 0, "position": 2},
         {"log_id": 3, "position": -1},
+        {"log_id": 3, "position": "0"},
         {"log_id": "3", "position": 2},
         {"log_id": 3, "position": True},
         {"import_id": ""},
