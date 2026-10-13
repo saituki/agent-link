@@ -33,7 +33,7 @@ sai-sci search "<英語の検索語>" --db s2 --db pubmed --limit 30 --purpose "
 ## 内部と外部の使い分け
 - **Library（`sai-sci find`）**: 取り込み済みの論文・ノートです。外部を検索する前に、先に Library を当たります。
 - **外部（`sai-sci search`）**: Library に無い論文の候補を集めます。`--purpose` と `--extract` を必ず付けます。
-- 外部の検索で見つけた候補は Library に入りません。取り込みは利用者が Web の検索履歴から行います。エージェントは、取り込みを勧める候補を題と理由つきで報告するまでです。
+- 外部の検索で見つけた候補は Library に入りません。取り込みを勧める候補は `sai-paper suggest add` で Suggest に残します（題と理由を付ける）。取り込みは利用者が Web の Suggest から行います。
 - 索引の状態は `sai-paper index status` で見ます。`indexes.<名前>.chunks` と `chunks_with_embeddings` が 0 なら、索引は作られていません。エージェントは自分で作らず、利用者に `sai-paper index build` を頼みます。
 - `--evidence` は費用がかかります。1 回の作業で 3 回までです。
 

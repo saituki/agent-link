@@ -79,6 +79,12 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// agent が勧める論文（Suggest）を残す・読む（JSON）
+    Suggest {
+        /// サブコマンド
+        #[command(subcommand)]
+        cmd: SuggestCmd,
+    },
     /// Library の中を検索し、内部検索の履歴に残す
     Find {
         /// 検索クエリ（自然言語）
@@ -272,6 +278,31 @@ enum Cmd {
         /// サブコマンド
         #[command(subcommand)]
         cmd: EvalCmd,
+    },
+}
+
+/// `sai-paper suggest` のサブコマンド。
+#[derive(Subcommand, Debug)]
+enum SuggestCmd {
+    /// 取り込みを勧める候補を残す（Library には入れない。JSON）
+    Add {
+        /// 勧める理由（1〜4000 文字・Markdown）
+        #[arg(long)]
+        reason: String,
+        /// 候補 `<log_id>:<position>[:<理由>]`（繰り返し指定。1〜30 個）
+        #[arg(long = "item", required = true)]
+        items: Vec<String>,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
+    /// Suggest 1 件と勧めた候補（JSON）
+    Show {
+        /// Suggest ID（paper_suggests.id）
+        suggest_id: i64,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -986,6 +1017,20 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             let value = phone::search_history_find(&db, &cfg, &paths, &words)?;
             println!("{}", serde_json::to_string(&value)?);
         }
+        Some(Cmd::Suggest { cmd }) => match cmd {
+            SuggestCmd::Add { reason, items, json: _ } => {
+                let executer = executer_name();
+                // block は sai-link が渡す SAI_BLOCK_NAME。agent のときだけ run_id を残す。
+                let run_id = if executer == "agent" { parent_run_id() } else { None };
+                let block = block_name();
+                let value = phone::suggest_add(&reason, &items, executer, run_id, block.as_deref())?;
+                println!("{}", serde_json::to_string(&value)?);
+            }
+            SuggestCmd::Show { suggest_id, json: _ } => {
+                let value = phone::suggest_show(suggest_id)?;
+                println!("{}", serde_json::to_string(&value)?);
+            }
+        },
         Some(Cmd::Graph { cmd, args }) => match cmd {
             Some(GraphCmd::Show { paper_id }) => {
                 let db = open_database()?;
@@ -1240,6 +1285,14 @@ fn executer_of(origin: &str, run_id: Option<i64>) -> &'static str {
     } else {
         "human"
     }
+}
+
+/// 実行した block 名（`SAI_BLOCK_NAME`。空なら `None`）。
+fn block_name() -> Option<String> {
+    std::env::var("SAI_BLOCK_NAME")
+        .ok()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
 }
 
 /// 履歴に書く実行 ID。human のときは書かない。

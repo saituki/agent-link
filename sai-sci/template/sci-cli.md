@@ -5,6 +5,12 @@
 自分の run_id は環境変数 `SAI_PARENT_RUN_ID` に入っている。
 時間のかかる命令・ネットワークを使う命令には、実行前に `perl -e 'alarm <秒>; exec @ARGV' <命令>` と並べて上限を付ける。
 
+## 論文を勧める（sai-paper）
+
+```bash
+sai-paper suggest add --reason "<理由>" --item <log>:<position>[:<理由>] --json   # 取り込みを勧める候補を Suggest に残す（Library には入れない）
+```
+
 ## 実行を調べる（sai-link）
 
 | やりたいこと | コマンド |
