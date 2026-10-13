@@ -156,6 +156,23 @@ sudo -iu sai docker run --rm sai-tree:latest sai-ts --help
 - コンテナでは `/opt/sai-shared` に `:ro` で mount し、環境変数 `SAI_SHARED_DIR=/opt/sai-shared/current` を入れる。読むのは `current` の先。`:ro` は kernel が強制するので、コンテナから書けない。
 - 共有のフォルダがあるのに mount の無い止まったコンテナは、起動のときに作り直す。`deploy.sh` と `dev.sh containers` は、mount の無いコンテナを作り直す（実行中の物は作業が終わるまで飛ばす）。
 
+**元データの取得と前計算**（`onto.db` を作る側。1 回だけ手で行い、版が上がったときにやり直す。ネットワークを使うのはここだけで、`sai-sci onto` 自体は通信しない）:
+
+| 元 | 取得元 | 大きさ |
+|---|---|---|
+| MONDO（疾患） | `https://purl.obolibrary.org/obo/mondo.obo` | 約 53 MB |
+| MeSH（医学用語。記述子の XML。年は版） | `https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/desc2026.xml` | 約 313 MB |
+
+```bash
+D=<作業用の一時フォルダ>
+mkdir -p "$D/dl" "$D/<版の名前（日付など）>"
+curl -sSL --max-time 300 -o "$D/dl/mondo.obo" https://purl.obolibrary.org/obo/mondo.obo
+curl -sSL --max-time 300 -o "$D/dl/desc2026.xml" https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/desc2026.xml
+python3 -I sai-sci/tools/onto_build.py --mondo "$D/dl/mondo.obo" --mesh "$D/dl/desc2026.xml" --mesh-version 2026 --out "$D/<版の名前>"
+```
+
+出力フォルダ（`onto.db` と `manifest.json`）が、下の更新の手順の「送り元」になる。`dev.sh shared <dir>` は出力フォルダの名前をそのまま版の名前にするので、フォルダ名を日付などにしておく（`out` のような名前だと版が区別できない）。2026-10-13 に Mac で試した結果は、MONDO `releases/2026-10-06`・MeSH 2026 で term 63,244・synonym 381,078・edge 89,251・xref 145,518（`onto.db` 約 80 MB）。
+
 **更新の手順**（サーバで。`sai`。この節は手順を書いただけで、この作業では実行していない）:
 
 ```bash
@@ -175,7 +192,7 @@ docker exec sai-<利用者>-<プロジェクト> sh -c 'cat "$SAI_SHARED_DIR/man
 
 **要確認（本物のサーバで初回に確かめる）**: rootless Docker で、`sai` 所有の `/srv/sai/shared` が `:ro` で mount でき、相対の `current` がコンテナの中で解決されること（`docker exec` で `ls -l /opt/sai-shared/current/` を見る）。この作業では実機で確かめていない。
 
-**Mac（開発）**: 置き場は `SAI_DEV_SHARED`（既定 `~/sai-tree-dev/shared`）。`apps/web/server/dev.sh shared <dir>`（`<dir>` は `onto.db` と `manifest.json` のあるフォルダ）で `releases/<名前>/` に入れ、`current` をそこへ向ける。mount を付けるには `dev.sh containers` で作り直す。Mac の `current` の付け替えは `ln -sfn` で、原子的ではない（`mv -T` が Mac に無い。要確認）。
+**Mac（開発）**: 置き場は `SAI_DEV_SHARED`（既定 `~/sai-tree-dev/shared`）。`apps/web/server/dev.sh shared <dir>`（`<dir>` は `onto.db` と `manifest.json` のあるフォルダ）で `releases/<名前>/` に入れ、`current` をそこへ向ける。mount を付けるには `dev.sh containers` で作り直す（mount が既にあるコンテナは作り直さなくてよい。2026-10-13 に Mac の Docker で、`current` を作っただけで実行中のコンテナから相対の `current` が解決され、`sai-sci onto` が引けることを確かめた）。Mac の `current` の付け替えは `ln -sfn` で、原子的ではない（`mv -T` が Mac に無い。要確認）。
 
 ## 5. `apps/web` の仮想環境
 
