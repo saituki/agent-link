@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from sai_web import papers
 from sai_web.papers import SearchRequest, build_search_args
 
 AVAILABLE = ["s2", "pubmed", "biorxiv", "medrxiv", "openalex", "arxiv"]
@@ -69,10 +70,38 @@ def test_400() -> None:
     expect_400(SearchRequest(query="x", dbs=["s2", "evil"]), ["evil"])
 
 
+def test_search_history_find() -> None:
+    """全検索履歴の絞り込み（U01）: 語の検査と、CLI の引数（偽の `_paper_cli` で確かめる）。"""
+    calls: list[list[str]] = []
+
+    def fake(project, args, timeout=30.0):
+        calls.append(list(args))
+        return {"words": "x", "groups": [], "truncated": False}
+
+    papers._paper_cli = fake  # 偽物（CLI は呼ばない）
+    project = {"name": "p", "root": "/root/p", "root_name": "p"}
+    papers.search_history_find(project, "  large model  ")
+    assert calls[-1] == ["search-history-find", "--", "large model"], calls[-1]
+    papers.search_history_find(project, "-x")
+    assert calls[-1] == ["search-history-find", "--", "-x"], calls[-1]
+
+    n = len(calls)
+    for bad in ("", "   ", "x" * 201, "a\nb", "a\rb", None, 12):
+        try:
+            papers.search_history_find(project, bad)
+        except HTTPException as e:
+            assert e.status_code == 400, e.status_code
+            assert str(e.detail).strip(), "400 のときは日本語で理由を書く"
+        else:
+            raise AssertionError(f"400 になるはず: {bad!r}")
+    assert len(calls) == n, "検査で弾いたら CLI は呼ばない"
+
+
 def main() -> None:
     test_normal()
     test_defaults()
     test_400()
+    test_search_history_find()
     print("test_papers_search: すべて通りました")
 
 

@@ -423,7 +423,10 @@ let libPapers = null;   // null は読み込み中
 let libGroups = null;   // 階層（tree を読んだときだけ）
 let libFindGroups = null; // U03: 内部検索の履歴（tree の find_groups）
 let lfindLoadingNode = false; // U03: Node の一覧の読み込み中
-let libFilter = "";     // 絞り込みの言葉（画面の中だけ）
+let libFilter = "";     // 絞り込みの言葉（内部・Paper は画面の中だけで絞る）
+// 外部 DB のときの絞り込み（全検索履歴から探した結果）。null は語が空か外部でないとき。
+let libFilterView = null; // {name, words, data, error}
+let libFilterTimer = null;
 let libError = "";      // 失敗したときの文（表示が空のときだけ出す）
 // U03: Library 内の検索（内部 DB）の画面の状態。切り替えだけ localStorage に覚える。
 let libFindKind = loadLibFindKind();
@@ -1308,7 +1311,9 @@ function paperSideRender(main) {
         ? `log:${sideLog.logId}`
         : sideKind === "find" && sideFind
           ? `find:${sideFind.logId}`
-          : "";
+          : sideKind === "filter" && libFilterView
+            ? `filter:${libFilterView.words}`
+            : "";
   if (main.dataset.showing === want) return;
   main.dataset.showing = want;
   if (sideKind === "paper" && sidePaperId != null) {
@@ -1325,6 +1330,10 @@ function paperSideRender(main) {
   }
   if (sideKind === "find" && sideFind) {
     void lfindShowInSide(main, sideFind.name, sideFind.logId);
+    return;
+  }
+  if (sideKind === "filter" && libFilterView) {
+    filterPaintSide(main);
     return;
   }
   paperSideEmpty(main);
@@ -1749,6 +1758,12 @@ function renderPaperList(box) {
 
 function renderTree(box) {
   if (libFindKind === "paper") { renderPaperList(box); return; }
+  // 外部の絞り込みの結果は、狭い画面では階層の代わりに出す（広い画面は右の欄に出す）
+  const wide = typeof saiIsWide === "function" && saiIsWide();
+  if (libFindKind === "external" && libFilterView && !wide) {
+    for (const node of filterNodes()) box.appendChild(node);
+    return;
+  }
   const words = queryWords(libFilter);
   const folds = loadFolds(selectedProject);
   const byId = new Map((libPapers || []).map((p) => [p.id, p]));
@@ -2092,6 +2107,15 @@ async function getFindLog(projectName, logId) {
   if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
   if (!body || !body.log) throw new Error("sai-paper の応答を読めませんでした");
   findLogCache.set(key, body);
+  return body;
+}
+
+/** 全検索履歴から語で探す（取り直す・覚えない）。失敗は throw。 */
+async function getSearchHistoryFind(projectName, words) {
+  const res = await apiFetch(`${papersApiBase(projectName)}/search-history-find?q=${encodeURIComponent(words)}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+  if (!body || !Array.isArray(body.groups)) throw new Error("sai-paper の応答を読めませんでした");
   return body;
 }
 
@@ -2506,6 +2530,76 @@ function resultRow(item, projectName, logId) {
       : logHash(projectName, logId, item.position);
   });
   return btn;
+}
+
+// --- 外部の絞り込み（全検索履歴の候補から探す・未ダウンロードも含む） ---
+
+/** 外部の絞り込みを止めて、結果を消す（語が空・別の検索の切り替え）。 */
+function libFilterClear() {
+  clearTimeout(libFilterTimer);
+  libFilterView = null;
+  if (sideKind === "filter") sideKind = "";
+}
+
+/** 打つたびに 300ms 待ち直してから探す。待つ間は「読み込み中…」を出す。 */
+function libFilterSchedule() {
+  const words = libFilter.trim();
+  if (!words) { libFilterClear(); return; }
+  clearTimeout(libFilterTimer);
+  sideKind = "filter"; // 広い画面は右の欄に出す（狭い画面は階層の代わり）
+  sidePaperId = null;
+  sideRemote = null;
+  sideLog = null;
+  sideFind = null;
+  const view = { name: selectedProject, words, data: null, error: "" };
+  libFilterView = view;
+  libFilterTimer = setTimeout(() => void libFilterRun(view), 300);
+}
+
+async function libFilterRun(view) {
+  let data = null;
+  let error = "";
+  try {
+    data = await getSearchHistoryFind(view.name, view.words);
+  } catch (e) {
+    error = (e && e.message) || "読み込めませんでした";
+  }
+  if (libFilterView !== view) return; // 語が変わった・消した（古い応答は捨てる）
+  view.data = data;
+  view.error = error;
+  // 広い画面は右の欄を描き直し、狭い画面は renderLibrary の中で階層の代わりに描く
+  const side = paperSidePane("library-list", PAPER_SIDE_IDS.library);
+  if (side && sideKind === "filter") filterPaintSide(side);
+  renderLibrary();
+}
+
+/** 絞り込みの中身（読み込み中・失敗・0 件・検索ごとの組）。右の欄と狭い画面の階層で共通。 */
+function filterNodes() {
+  const view = libFilterView;
+  if (!view) return [];
+  if (view.error) return [el("p", "lib-empty", view.error)];
+  if (!view.data) return [el("p", "lib-empty", "読み込み中…")];
+  const groups = view.data.groups;
+  const total = groups.reduce((n, g) => n + (Array.isArray(g.items) ? g.items.length : 0), 0);
+  const nodes = [el("h2", "papers-heading", `“${view.words}” で絞り込み ${total} 件`)];
+  if (total === 0) {
+    nodes.push(papersEmpty("🔍", "一致する論文がありません", "語を短くすると出てきます。", null));
+    return nodes;
+  }
+  for (const g of groups) {
+    const log = g.log || {};
+    nodes.push(el("h3", "papers-heading", `“${log.query || ""}” の結果`));
+    nodes.push(searchMetaLine(log));
+    for (const item of Array.isArray(g.items) ? g.items : []) nodes.push(resultRow(item, view.name, log.id));
+  }
+  if (view.data.truncated) nodes.push(el("p", "lib-empty", "500 件で打ち切りました。語を足して絞ってください。"));
+  return nodes;
+}
+
+/** 右の欄の中身を作り直す。 */
+function filterPaintSide(main) {
+  main.innerHTML = "";
+  for (const node of filterNodes()) main.appendChild(node);
 }
 
 // --- 過去の検索結果（#/papers/log/<name>/<log_id>・08 §4.2・18 §3.5） ---
@@ -3627,6 +3721,8 @@ if (typeof window !== "undefined") {
   if (filter) {
     filter.addEventListener("input", (e) => {
       libFilter = (e.target && e.target.value) || "";
+      // 外部のときは全検索履歴から探す（300ms 待つ）。内部・Paper は画面の中だけで絞る
+      if (libFindKind === "external") libFilterSchedule();
       if (libPapers !== null) renderLibrary();
     });
   }
@@ -3727,6 +3823,9 @@ if (typeof window !== "undefined") {
         if (next === libFindKind) return;
         libFindKind = next;
         saveLibFindKind(next);
+        // 外部の絞り込みの結果は外部のときだけ（切り替えたら消し、外部へ戻ったら探し直す）
+        if (next === "external") libFilterSchedule();
+        else libFilterClear();
         syncCondUI();
         renderLibrary();
       });

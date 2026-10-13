@@ -432,38 +432,108 @@ pub(crate) fn log(db: &Database, cfg: &Config, paths: &Paths, log_id: i64) -> Re
     let papers = library_papers(db, cfg, paths)?;
     let mut items = Vec::new();
     for item in search_history::items(conn, log_id)? {
-        let remote = item.remote;
-        let local_paper_id = library_tree::match_downloaded_paper(&papers, &remote)
-            .map(|index| papers[index].id);
-        items.push(json!({
-            "position": item.position,
-            "id": remote.id,
-            "title": remote.title,
-            "authors": remote.authors,
-            "year": remote_year(&remote.published),
-            "journal": remote.journal_ref,
-            "doi": remote.doi,
-            "abstract": remote.abstract_text,
-            "citation_count": remote.citation_count,
-            "local_paper_id": local_paper_id,
-        }));
+        items.push(remote_item_json(&item, &papers));
     }
-
-    let (actor, node) = search_actor(conn, log_id);
     Ok(json!({
-        "log": {
-            "id": log_meta.id,
-            "searched_at": log_meta.searched_at,
-            "date": log_meta.log_date,
-            "query": log_meta.query,
-            "year": log_meta.year,
-            "source_dbs": log_meta.source_dbs,
-            "executer": log_meta.executer,
-            "actor": actor,
-            "node": node,
-        },
+        "log": log_meta_json(conn, &log_meta),
         "items": items,
     }))
+}
+
+/// `sai-paper search-history-find <words>`: 全検索履歴の候補から、題名と著者に語をすべて含むものを探す。
+///
+/// 語は空白で分け、小文字にして比べる。履歴は新しい順、候補は位置の順。一致 0 件の履歴は出さない。
+/// 上限は全体で 500 件で、超えたら打ち切って `truncated` を真にする。
+pub(crate) fn search_history_find(
+    db: &Database,
+    cfg: &Config,
+    paths: &Paths,
+    words: &str,
+) -> Result<Value> {
+    let words: Vec<&str> = words.split_whitespace().collect();
+    if words.is_empty() {
+        return Err(crate::cli_error::CliError::input("絞り込みの語が空です").into());
+    }
+    let papers = library_papers(db, cfg, paths)?;
+    find_groups(db.connection(), &words, &papers)
+}
+
+/// `search_history_find` の本体。語の大文字と小文字は区別しない。
+fn find_groups(
+    conn: &rusqlite::Connection,
+    words: &[&str],
+    papers: &[LibraryPaper],
+) -> Result<Value> {
+    const LIMIT: usize = 500;
+    let words: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
+    let mut groups = Vec::new();
+    let mut total = 0;
+    let mut truncated = false;
+    for log_meta in search_history::list(conn)? {
+        let mut hits = Vec::new();
+        for item in search_history::items(conn, log_meta.id)? {
+            let haystack =
+                format!("{} {}", item.remote.title, item.remote.authors.join(", ")).to_lowercase();
+            if !words.iter().all(|word| haystack.contains(word.as_str())) {
+                continue;
+            }
+            if total == LIMIT {
+                truncated = true;
+                break;
+            }
+            total += 1;
+            hits.push(remote_item_json(&item, papers));
+        }
+        if !hits.is_empty() {
+            groups.push(json!({
+                "log": log_meta_json(conn, &log_meta),
+                "items": hits,
+            }));
+        }
+        if truncated {
+            break;
+        }
+    }
+    Ok(json!({
+        "words": words.join(" "),
+        "groups": groups,
+        "truncated": truncated,
+    }))
+}
+
+/// 検索履歴 1 件の `log` の項目（`actor`・`node` を含む）。
+fn log_meta_json(conn: &rusqlite::Connection, log_meta: &search_history::SearchLog) -> Value {
+    let (actor, node) = search_actor(conn, log_meta.id);
+    json!({
+        "id": log_meta.id,
+        "searched_at": log_meta.searched_at,
+        "date": log_meta.log_date,
+        "query": log_meta.query,
+        "year": log_meta.year,
+        "source_dbs": log_meta.source_dbs,
+        "executer": log_meta.executer,
+        "actor": actor,
+        "node": node,
+    })
+}
+
+/// 検索候補 1 件の `items` の項目（Library に取り込み済みなら `local_paper_id` を入れる）。
+fn remote_item_json(item: &search_history::SearchLogItem, papers: &[LibraryPaper]) -> Value {
+    let remote = &item.remote;
+    let local_paper_id =
+        library_tree::match_downloaded_paper(papers, remote).map(|index| papers[index].id);
+    json!({
+        "position": item.position,
+        "id": remote.id,
+        "title": remote.title,
+        "authors": remote.authors,
+        "year": remote_year(&remote.published),
+        "journal": remote.journal_ref,
+        "doi": remote.doi,
+        "abstract": remote.abstract_text,
+        "citation_count": remote.citation_count,
+        "local_paper_id": local_paper_id,
+    })
 }
 
 /// 検索の実行者と、結び付いた research-tree の Node（`log.actor` / `log.node`）。
@@ -955,6 +1025,81 @@ mod tests {
         assert_eq!(web["log"]["actor"]["kind"], "human");
         let plain = record_with("cli", None);
         assert_eq!(plain["log"]["executer"], "human");
+    }
+
+    /// 全検索履歴の絞り込み: 題名か著者に語をすべて含む候補だけを、新しい履歴から順に組にする（大文字も一致）。
+    #[test]
+    fn find_groups_matches_all_words_in_title_or_authors() {
+        use super::find_groups;
+        use sai_paper_core::models::RemotePaper;
+        use sai_paper_core::search_history::record;
+
+        fn remote(id: &str, title: &str, authors: &[&str]) -> RemotePaper {
+            RemotePaper {
+                id: id.to_string(),
+                title: title.to_string(),
+                authors: authors.iter().map(|a| a.to_string()).collect(),
+                abstract_text: String::new(),
+                published: chrono::Utc::now(),
+                updated: chrono::Utc::now(),
+                categories: Vec::new(),
+                pdf_url: None,
+                doi: None,
+                journal_ref: None,
+                citation_count: None,
+            }
+        }
+
+        let db = Database::in_memory().unwrap();
+        let conn = db.connection();
+        // 題名に両方の語（4 は 1 語だけなので外れる）
+        let by_title = record(
+            conn,
+            "phone",
+            "human",
+            None,
+            "q1",
+            "",
+            "10",
+            "s2",
+            &[
+                remote("1", "Large Language Model for Science", &["A. Smith"]),
+                remote("2", "Graph Neural Networks", &["B. Jones"]),
+                remote("4", "Large Graph", &["D. Lee"]),
+            ],
+        )
+        .unwrap();
+        // 著者に両方の語（新しい履歴なので先に並ぶ）
+        let by_author = record(
+            conn,
+            "phone",
+            "human",
+            None,
+            "q2",
+            "",
+            "10",
+            "s2",
+            &[remote("3", "Protein folding", &["Q. Large", "M. Model"])],
+        )
+        .unwrap();
+
+        let words = ["LARGE", "model"];
+        let found = find_groups(conn, &words, &[]).unwrap();
+        assert_eq!(found["words"], "large model");
+        assert_eq!(found["truncated"], false);
+        let groups = found["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 2, "{found}");
+        assert_eq!(groups[0]["log"]["id"], by_author);
+        assert_eq!(groups[0]["items"][0]["id"], "3");
+        assert_eq!(groups[1]["log"]["id"], by_title);
+        let ids: Vec<&str> = groups[1]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["1"], "一致しない候補は入れない");
+        assert!(groups[1]["items"][0]["local_paper_id"].is_null());
     }
 
     use super::{with_failed, year_label};

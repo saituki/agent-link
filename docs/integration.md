@@ -41,7 +41,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | Projects → コマンド | `GET /api/projects/{name}/commands`（3 つの CLI の `schema --json`）と `POST …/commands/run` |
 | Projects → セッション検索 | `sai-link session search` |
 | Papers → Dashboard | `sai-paper dashboard`（中で `apps/radio` の `/api/logs?limit=` を読み、そのプロジェクトの音声の分だけ混ぜる） |
-| Papers → Library・論文情報 | `sai-paper library list\|tree` / `paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|radio` / `content paper` / `search` / `search-history` / `find` / `find-history` / `providers` |
+| Papers → Library・論文情報 | `sai-paper library list\|tree` / `paper show\|note\|translate\|translate-pdf\|citations\|citations-extract\|radio` / `content paper` / `search` / `search-history` / `search-history-find` / `find` / `find-history` / `providers` |
 | Papers → Import（BibTeX） | `sai-paper import list\|add\|remove` |
 | Papers → Library に入れる | `sai-paper paper keep (--log <id> --position <p> \| --import-id <id> \| --cite <id> --ref <n>)` |
 | Papers → 前処理の束（sai-prep） | `sai-paper paper import-bundle --dir <フォルダ>` / `sai-paper library pending` |
@@ -211,6 +211,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/projects/{name}/papers/providers` | 検索先の一覧と既定 | `sai-paper providers` |
 | `POST /api/projects/{name}/papers/search` | 検索（履歴にも残る） | `sai-paper search --json --limit … [--db …] [--year-from …] [--year-to …] -- <語>` |
 | `GET /api/projects/{name}/papers/search-history/{log_id}` | 過去の検索結果 | `sai-paper search-history <log_id>` |
+| `GET /api/projects/{name}/papers/search-history-find?q=` | 全検索履歴から語で探す（外部 DB の絞り込み。未ダウンロードも含む・`q` は前後の空白を取って 1〜200 文字の 1 行。違えば 400） | `sai-paper search-history-find --json -- <語>` |
 | `POST /api/projects/{name}/papers/find` | 内部検索（Library 内の検索・履歴にも残る）。`node` を付けると範囲の決定を sai-sci が行う（記録は `SAI_TARGET_NODE` があるときだけ） | `sai-paper find --json … -- <語>`（`node` があれば `sai-sci find --json --node <ID> …`） |
 | `GET /api/projects/{name}/papers/find-history/{log_id}` | 過去の内部検索の結果 | `sai-paper find-history <log_id>` |
 | `GET /api/projects/{name}/papers/{paper_id:int}` | 論文情報 | `sai-paper paper show <id>` |
@@ -244,7 +245,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | `GET /api/prep/download` | sai-prep の入れ物（一番新しい `sai_prep-*.whl`）を配る。無ければ 404「sai-prep の入れ物がまだ作られていません（管理者が deploy.sh を実行してください）」 | （ファイルを返すだけ・`SAI_PREP_DIST` があればそこを見る） |
 
 - 古い `/api/papers/...` は無い。`{name}` は `GET /api/paper-projects` の名前で、無ければ 404。
-- `import` / `downloads` / `keep` / `bundle` / `migrate` / `migrate-from` / `pending` / `jobs/{key}` / `project` / `project/mind` / `attention` / `find` / `find-history` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
+- `import` / `downloads` / `keep` / `bundle` / `migrate` / `migrate-from` / `pending` / `jobs/{key}` / `project` / `project/mind` / `attention` / `find` / `find-history` / `library` / `tree` / `providers` / `search` / `search-history/{log_id}` / `search-history-find` は `/api/projects/{name}/papers/{paper_id:int}` より**先に**登録する（登録順に照合するため）。
 - 外から来る値は papers 側で CLI を呼ぶ**前**に検査する（.bib の名前は `^[A-Za-z0-9._-]{1,80}\.bib$`・本文は 1MB まで・keep は対象 3 つのうち 1 つ）→ 400。同じ論文が進行中は 409。
 - 前処理の束（zip）の検査は Web が行う（Rust に zip の依存が無い）。項目の数 ≤ 5000・展開後の合計 ≤ 1GB・絶対パス / `..` / `\` / NUL の名前無し・シンボリックリンク無し・`manifest.json` の形（下の C12）・`paper.pdf` の先頭が `%PDF-`。違えば CLI を 1 度も呼ばず 400。展開先は `<root>/.sai/paper/inbox/<uuid>/`（ホストとコンテナで同じパスに見える・C4）。
 - 仕事の状態は sai-web のメモリだけに持つ。`processing` = 取り込み中（束）／後処理中、`done` = 終わり（`error` があれば後処理の失敗）、`failed` = 保存できなかった。終わった仕事は 30 分で一覧から消える。

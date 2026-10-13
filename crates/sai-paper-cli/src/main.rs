@@ -70,6 +70,15 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// 全検索履歴の候補から、題名と著者に語をすべて含む論文を探す（JSON）
+    #[command(name = "search-history-find")]
+    SearchHistoryFind {
+        /// 探す語（空白で区切る。大文字と小文字は区別しない）
+        words: String,
+        /// JSON 出力（いつも JSON。付けても同じ）
+        #[arg(long)]
+        json: bool,
+    },
     /// Library の中を検索し、内部検索の履歴に残す
     Find {
         /// 検索クエリ（自然言語）
@@ -971,6 +980,11 @@ async fn dispatch(cmd: Option<Cmd>, client: &S2Client) -> Result<()> {
             let text = serde_json::to_string(&value)?;
             sai_paper_core::seen_ids::record(&text);
             println!("{text}");
+        }
+        Some(Cmd::SearchHistoryFind { words, json: _ }) => {
+            let (db, cfg, paths) = phone::open_context()?;
+            let value = phone::search_history_find(&db, &cfg, &paths, &words)?;
+            println!("{}", serde_json::to_string(&value)?);
         }
         Some(Cmd::Graph { cmd, args }) => match cmd {
             Some(GraphCmd::Show { paper_id }) => {
