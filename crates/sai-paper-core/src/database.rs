@@ -159,6 +159,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("../migrations/0061_rt_rel.sql"),
     ),
     (
+        62,
+        include_str!("../migrations/0062_no_question.sql"),
+    ),
+    (
         63,
         include_str!("../migrations/0063_paper_suggest.sql"),
     ),
@@ -619,23 +623,52 @@ impl Database {
                     // notes 表を消す前に、中身を note.md へ移す（失わない）
                     self.move_notes_table_to_files()?;
                 }
-                if version == 53 || version == 56 || version == 57 {
+                if version == 62 {
+                    // 戻せない移行の前に、Q の行がある DB は複製を残す（transaction の外で作る）。
+                    self.backup_before_0062()?;
+                }
+                if version == 53 || version == 56 || version == 57 || version == 62 {
                     // rt_nodes を外部キー付きで作り直すため、外部キーの検査を一時的に外す。
                     // PRAGMA はトランザクションの中では効かないので、ここ（外）で切り替える。
                     self.connection.execute_batch("PRAGMA foreign_keys = OFF;")?;
                 }
                 let transaction = self.connection.transaction()?;
+                if version == 62 {
+                    fold_old_questions(&transaction)?;
+                }
                 transaction.execute_batch(sql)?;
                 transaction.execute(
                     "INSERT INTO schema_migrations (version) VALUES (?1)",
                     [version],
                 )?;
                 transaction.commit()?;
-                if version == 53 || version == 56 || version == 57 {
+                if version == 53 || version == 56 || version == 57 || version == 62 {
                     self.connection.execute_batch("PRAGMA foreign_keys = ON;")?;
                 }
             }
         }
+        Ok(())
+    }
+
+    /// 版 62（Q を廃止する戻せない移行）の前に、`data_dir/papr-before-0062.db` へ複製を残す。
+    ///
+    /// Q の行が 1 つも無い DB、既に複製がある DB、`data_dir` が無い（メモリ DB）ときは何もしない。
+    /// 複製に失敗したら移行を止める（複製なしで先へ進まない）。
+    fn backup_before_0062(&self) -> Result<(), DatabaseError> {
+        let Some(data_dir) = self.data_dir.as_ref() else {
+            return Ok(());
+        };
+        let questions: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM rt_nodes WHERE kind = 'Q'",
+            [],
+            |row| row.get(0),
+        )?;
+        let backup = data_dir.join("papr-before-0062.db");
+        if questions == 0 || backup.exists() {
+            return Ok(());
+        }
+        self.connection
+            .execute("VACUUM INTO ?1", [backup.to_string_lossy()])?;
         Ok(())
     }
 
@@ -2004,6 +2037,145 @@ fn extract_arxiv_id(path: &str) -> Option<String> {
     None
 }
 
+/// 版 62 の前に、生きた旧形式の Q（親のある Q）を畳む。
+///
+/// `sai-sci-core` の `rt::convert` と同じ手順を、ここでは生の SQL で書く（`sai-sci-core` は呼べない）。
+/// 木の順（親の Q を先に）に 1 つずつ畳む。Q の子は Q の親へ付け替え、移した A は `rel = 'subtype'`。
+/// 親の並びは Q をその子の列に置き換えて `ord` を振り直す。「分け方の基準:」は親が A のときだけ
+/// 親の本文へ 1 行足す。Q の行は `removed_at` を入れて残す（版 62 の SQL が A に直す）。
+/// 子に F などがあっても止めない（止めると、そのプロジェクトが開けなくなるため）。
+fn fold_old_questions(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let mut order = Vec::new();
+    collect_old_questions(transaction, None, &mut order)?;
+    for qid in order {
+        fold_old_question(transaction, qid)?;
+    }
+    Ok(())
+}
+
+/// 木の順（親の前に子・兄弟は `ord`・同じ `ord` は `id`）で、親のある生きた Q の id を集める。
+fn collect_old_questions(
+    transaction: &Transaction<'_>,
+    parent: Option<i64>,
+    order: &mut Vec<i64>,
+) -> Result<(), DatabaseError> {
+    for (id, kind) in live_children(transaction, parent)? {
+        if kind == "Q" && parent.is_some() {
+            order.push(id);
+        }
+        collect_old_questions(transaction, Some(id), order)?;
+    }
+    Ok(())
+}
+
+/// Q 1 つを畳む（`rt::convert` の `flatten_one` と同じ）。
+fn fold_old_question(transaction: &Transaction<'_>, qid: i64) -> Result<(), DatabaseError> {
+    let (parent_id, text): (Option<i64>, String) = transaction.query_row(
+        "SELECT parent_id, text FROM rt_nodes WHERE id = ?1",
+        [qid],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let Some(parent_id) = parent_id else {
+        return Ok(());
+    };
+    let (parent_kind, parent_body): (String, String) = transaction.query_row(
+        "SELECT kind, body FROM rt_nodes WHERE id = ?1",
+        [parent_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let kids = live_children(transaction, Some(qid))?;
+    // 親の並びで Q をその子の列に置き換える（移す前の並びで作る）。
+    let mut order = Vec::new();
+    for (sibling, _) in live_children(transaction, Some(parent_id))? {
+        if sibling == qid {
+            order.extend(kids.iter().map(|(kid, _)| *kid));
+        } else {
+            order.push(sibling);
+        }
+    }
+    let detail = format!("Q{qid} から {parent_kind}{parent_id} へ（移行 0062）");
+    for (kid, kind) in &kids {
+        transaction.execute(
+            "UPDATE rt_nodes SET parent_id = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![kid, parent_id],
+        )?;
+        if kind == "A" {
+            transaction.execute("UPDATE rt_nodes SET rel = 'subtype' WHERE id = ?1", [kid])?;
+            insert_migration_log(transaction, *kid, "move_node", &detail)?;
+        }
+    }
+    for (ord, id) in (1_i64..).zip(order) {
+        transaction.execute(
+            "UPDATE rt_nodes SET ord = ?2 WHERE id = ?1",
+            params![id, ord],
+        )?;
+    }
+    if parent_kind == "A"
+        && let Some(line) = basis_line(&text)
+    {
+        let body = add_line_once(&parent_body, &line);
+        if body != parent_body {
+            transaction.execute(
+                "UPDATE rt_nodes SET body = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+                params![parent_id, body],
+            )?;
+        }
+    }
+    transaction.execute(
+        "UPDATE rt_nodes SET removed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+        [qid],
+    )?;
+    insert_migration_log(transaction, qid, "remove", "移行 0062: 旧形式の Q を畳んだ")
+}
+
+/// 生きた子（`ord`・`id` の順）。`parent` が None なら木の根。
+fn live_children(
+    transaction: &Transaction<'_>,
+    parent: Option<i64>,
+) -> Result<Vec<(i64, String)>, DatabaseError> {
+    let mut statement = transaction.prepare(
+        "SELECT id, kind FROM rt_nodes WHERE parent_id IS ?1 AND removed_at IS NULL ORDER BY ord, id",
+    )?;
+    let rows = statement.query_map([parent], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// 移行の記録（`actor` は `migrate`）。
+fn insert_migration_log(
+    transaction: &Transaction<'_>,
+    node_id: i64,
+    action: &str,
+    detail: &str,
+) -> Result<(), DatabaseError> {
+    transaction.execute(
+        "INSERT INTO rt_log (node_id, action, detail, actor) VALUES (?1, ?2, ?3, 'migrate')",
+        params![node_id, action, detail],
+    )?;
+    Ok(())
+}
+
+/// 旧い Q の文から「分け方の基準:」の行を取る。後ろが空なら無し（`rt::convert` と同じ）。
+fn basis_line(text: &str) -> Option<String> {
+    ["分け方の基準:", "分け方の基準："]
+        .iter()
+        .filter_map(|mark| text.find(mark).map(|at| (at, mark.len())))
+        .min()
+        .map(|(at, len)| text[at + len..].trim())
+        .filter(|rest| !rest.is_empty())
+        .map(|rest| format!("分け方の基準: {rest}"))
+}
+
+/// 本文の末尾に 1 行足す。同じ行が既にあれば足さない（`rt::convert` と同じ）。
+fn add_line_once(body: &str, line: &str) -> String {
+    if body.lines().any(|known| known.trim() == line) {
+        return body.to_string();
+    }
+    if body.trim().is_empty() {
+        return line.to_string();
+    }
+    format!("{}\n{line}", body.trim_end())
+}
+
 /// Return the venue portion of a journal reference without changing stored metadata.
 ///
 /// arXiv commonly provides references such as `Phys. Rev. D 104, 043008 (2021)`.
@@ -2019,7 +2191,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use rusqlite::params;
 
-    use super::{Database, PAPER_KEY_TABLES};
+    use super::{Database, DatabaseError, PAPER_KEY_TABLES};
     use crate::{
         library::{ImportedPdf, LibraryIndexer},
         models::RemotePaper,
@@ -4192,6 +4364,230 @@ mod tests {
         assert!(!broken, "外部キーが壊れていない");
 
         fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    fn migration_62_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sai-paper-0062-{tag}-{}", std::process::id()));
+        fs::remove_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    /// 版 61 までの DB に、旧形式の Q の木を入れる（版 62 の確かめ用）。
+    ///
+    /// 軸の Q（1・文は旧い文）・key の無い親の無い Q（13）・分け方の基準つきの Q（3）・
+    /// Q の下の Q（6）・F・D・S・E・rt_answers を入れる。
+    fn seed_before_62(database: &Database) -> Result<(), DatabaseError> {
+        database.connection().execute_batch(
+            "INSERT INTO rt_nodes (id, kind, parent_id, guide_key, text, body, stance, ord) VALUES
+                (1, 'Q', NULL, 'method', '使われている手法には、どんな種類があるか。', '', NULL, 1),
+                (2, 'A', 1, NULL, '学習で重みを決める手法', '', NULL, 1),
+                (3, 'Q', 2, NULL, 'どの構造か。分け方の基準: 層の種類', '', NULL, 1),
+                (4, 'A', 3, NULL, 'CNN', '', NULL, 1),
+                (5, 'A', 3, NULL, 'RNN', '', NULL, 2),
+                (6, 'Q', 3, NULL, '細かい分け方', '', NULL, 3),
+                (7, 'F', 6, NULL, '根拠', '', 'support', 1),
+                (8, 'A', 6, NULL, 'LSTM', '', NULL, 2),
+                (9, 'D', NULL, NULL, 'seed の問い', '', NULL, 1),
+                (10, 'S', 9, NULL, 'sprout', '', NULL, 1),
+                (11, 'F', 2, NULL, '反例', '', 'deny', 2),
+                (12, 'E', 2, NULL, '実験', '', NULL, 3),
+                (13, 'Q', NULL, NULL, '旧い top の問い', '', NULL, 2);
+             INSERT INTO rt_seed_questions (id, seed_id, text, axis, ord) VALUES (1, 9, '手法は何か', 'method', 1);
+             INSERT INTO rt_answers (owner_id, question_id, a_id, text) VALUES (9, 1, 4, NULL);",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn migration_62_folds_old_questions_and_drops_q() -> Result<(), DatabaseError> {
+        let dir = migration_62_dir("fold");
+        let db_path = dir.join("papr.db");
+        let mut database = Database::open_upto(&db_path, 61)?;
+        seed_before_62(&database)?;
+        database.migrate_upto(62)?;
+        let conn = database.connection();
+
+        // (a) Q の行が 0
+        let questions: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rt_nodes WHERE kind = 'Q'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(questions, 0);
+
+        // (b) 軸の文は「手法」・key の無い親の無い Q は文を変えず親の無い A
+        let axis: (String, String, Option<String>) = conn.query_row(
+            "SELECT kind, text, guide_key FROM rt_nodes WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(
+            axis,
+            (
+                "A".to_string(),
+                "手法".to_string(),
+                Some("method".to_string())
+            )
+        );
+        let top: (String, String, Option<i64>) = conn.query_row(
+            "SELECT kind, text, parent_id FROM rt_nodes WHERE id = 13",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(top, ("A".to_string(), "旧い top の問い".to_string(), None));
+
+        // (c) Q の子は Q の親の下に並ぶ（A は subtype・ord は 1 から）。分け方の基準は親の本文へ 1 行
+        let mut statement = conn.prepare(
+            "SELECT id, kind, rel FROM rt_nodes WHERE parent_id = 2 AND removed_at IS NULL ORDER BY ord, id",
+        )?;
+        let kids: Vec<(i64, String, Option<String>)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(
+            kids,
+            vec![
+                (4, "A".to_string(), Some("subtype".to_string())),
+                (5, "A".to_string(), Some("subtype".to_string())),
+                (7, "F".to_string(), None),
+                (8, "A".to_string(), Some("subtype".to_string())),
+                (11, "F".to_string(), None),
+                (12, "E".to_string(), None),
+            ]
+        );
+        let body: String = conn.query_row("SELECT body FROM rt_nodes WHERE id = 2", [], |row| {
+            row.get(0)
+        })?;
+        assert_eq!(body, "分け方の基準: 層の種類");
+
+        // (d) 畳んだ Q は removed_at を持つ（A の行として残る）
+        let folded: Vec<(i64, String, bool)> = [3, 6]
+            .iter()
+            .map(|id| {
+                conn.query_row(
+                    "SELECT id, kind, removed_at IS NOT NULL FROM rt_nodes WHERE id = ?1",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+            })
+            .collect::<Result<_, _>>()?;
+        assert_eq!(
+            folded,
+            vec![(3, "A".to_string(), true), (6, "A".to_string(), true)]
+        );
+
+        // (e) rt_log に actor migrate の記録（移した A が move_node・畳んだ Q が remove）
+        let moved: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rt_log WHERE actor = 'migrate' AND action = 'move_node'",
+            [],
+            |row| row.get(0),
+        )?;
+        let removed: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rt_log WHERE actor = 'migrate' AND action = 'remove'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!((moved, removed), (3, 2));
+
+        // (f) 生きた A・F・E・S・D は移行前と同じ物が同じ種類で残る（軸の Q 2 つが A になって加わる）
+        let mut statement = conn.prepare(
+            "SELECT id, kind FROM rt_nodes WHERE removed_at IS NULL AND kind IN ('A','F','E','S','D') AND id NOT IN (1, 13) ORDER BY id",
+        )?;
+        let kept: Vec<(i64, String)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(
+            kept,
+            vec![
+                (2, "A".to_string()),
+                (4, "A".to_string()),
+                (5, "A".to_string()),
+                (7, "F".to_string()),
+                (8, "A".to_string()),
+                (9, "D".to_string()),
+                (10, "S".to_string()),
+                (11, "F".to_string()),
+                (12, "E".to_string()),
+            ]
+        );
+        let live: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rt_nodes WHERE removed_at IS NULL AND kind IN ('A','F','E','S','D')",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(live, 11);
+
+        // (g) 外部キーが壊れていない（rt_answers・rt_log など）
+        let mut statement = conn.prepare("PRAGMA foreign_key_check")?;
+        let violations = statement.query_map([], |_| Ok(()))?.count();
+        assert_eq!(violations, 0);
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn migration_62_check_refuses_q_and_parentless_non_axis() -> Result<(), DatabaseError> {
+        let dir = migration_62_dir("check");
+        let database = Database::open(&dir.join("papr.db"))?;
+        let conn = database.connection();
+        assert!(
+            conn.execute("INSERT INTO rt_nodes (kind, text) VALUES ('Q', 'x')", [])
+                .is_err()
+        );
+        assert!(
+            conn.execute(
+                "INSERT INTO rt_nodes (kind, text, stance) VALUES ('F', 'x', 'support')",
+                []
+            )
+            .is_err()
+        );
+        conn.execute("INSERT INTO rt_nodes (kind, text) VALUES ('A', 'x')", [])?;
+
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn migration_62_backs_up_before_fold_and_never_overwrites() -> Result<(), DatabaseError> {
+        // Q の行がある DB は複製を残す
+        let dir = migration_62_dir("backup");
+        let db_path = dir.join("papr.db");
+        {
+            let database = Database::open_upto(&db_path, 61)?;
+            seed_before_62(&database)?;
+        }
+        Database::open(&db_path)?;
+        let copy = rusqlite::Connection::open(dir.join("papr-before-0062.db"))?;
+        let questions: i64 = copy.query_row(
+            "SELECT COUNT(*) FROM rt_nodes WHERE kind = 'Q'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert!(questions > 0);
+        drop(copy);
+
+        // 既にある複製は上書きしない（版 62 の前の DB で確かめる）
+        let keep = migration_62_dir("backup-keep");
+        let keep_path = keep.join("papr.db");
+        {
+            let database = Database::open_upto(&keep_path, 61)?;
+            seed_before_62(&database)?;
+        }
+        fs::write(keep.join("papr-before-0062.db"), b"keep")?;
+        let mut database = Database::open_upto(&keep_path, 61)?;
+        database.migrate_upto(62)?;
+        assert_eq!(fs::read(keep.join("papr-before-0062.db"))?, b"keep");
+
+        // Q の行が無い DB は複製を作らない
+        let empty = migration_62_dir("backup-empty");
+        Database::open(&empty.join("papr.db"))?;
+        assert!(!empty.join("papr-before-0062.db").exists());
+
+        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&keep).ok();
+        fs::remove_dir_all(&empty).ok();
         Ok(())
     }
 }

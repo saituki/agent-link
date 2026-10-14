@@ -1126,7 +1126,7 @@ mod tests {
         // `rt_searches` に `tool='find'` の行があれば、`find_history` の node が無くても
         // `rt_label` で Node を出す（U13 の `sai-sci find` がこう書く）。
         conn.execute(
-            "INSERT INTO rt_nodes (id, kind, text, created_by) VALUES (5, 'Q', '問い', 'user')",
+            "INSERT INTO rt_nodes (id, kind, text, created_by) VALUES (5, 'A', '問い', 'user')",
             [],
         )
         .unwrap();
@@ -1136,7 +1136,7 @@ mod tests {
         )
         .unwrap();
         let with_node = find_history_view(&db, human).unwrap();
-        assert_eq!(with_node["log"]["node"]["id"], "Q5");
+        assert_eq!(with_node["log"]["node"]["id"], "A5");
 
         let found = find_history::groups(conn, &[]).unwrap();
         assert_eq!(found.len(), 2);
