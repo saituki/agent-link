@@ -48,7 +48,7 @@ pub struct AnswerRow {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PathRole {
     pub a: String,
-    /// 問いの軸。問いに軸が無ければ、A の一番上の Q の guide_key。分からなければ null。
+    /// 問いの軸。問いに軸が無ければ、A の一番上の軸の A の guide_key。分からなければ null。
     pub axis: Option<String>,
     /// `fixed`（seed の回答）か `novel`（sprout の回答）。
     pub role: String,
@@ -575,7 +575,7 @@ mod tests {
 
     fn q_node(conn: &Connection, guide: &str) -> i64 {
         let n = store::NewNode {
-            kind: Kind::Q, parent_id: None, guide_key: Some(guide), text: "軸の問い", body: "", stance: None, cites: &[],
+            kind: Kind::A, parent_id: None, guide_key: Some(guide), text: "軸の問い", body: "", stance: None, cites: &[],
             paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None, paths: &[], created_by: "user",
         };
         store::insert_node(conn, &n).unwrap()
@@ -588,7 +588,7 @@ mod tests {
     fn upgrade_moves_body_and_paths_once() {
         let database = db();
         let conn = database.connection();
-        // 軸の Q と A（task の A7・method の A94 の下の A385）。
+        // 軸の A と A（task の A7・method の A94 の下の A385）。
         let q_task = q_node(conn, "task");
         let a7 = node(conn, Kind::A, Some(q_task), "発作部位", "", &[]);
         let q_method = q_node(conn, "method");

@@ -73,6 +73,12 @@ pub struct NodeRow {
     pub updated_at: String,
 }
 
+/// 軸の A か（親の無い A）。軸の A は `sai-sci init` だけが作る。古い木の軸も `guide_key` が無いことがある。
+#[must_use]
+pub fn is_axis(node: &NodeRow) -> bool {
+    node.kind == Kind::A && node.parent_id.is_none()
+}
+
 /// Node を足すときの値。
 #[derive(Debug, Clone)]
 pub struct NewNode<'a> {
@@ -610,7 +616,7 @@ mod tests {
     fn check_constraints_reject_bad_rows() {
         let database = db();
         let conn = database.connection();
-        let q = insert_node(conn, &new_node(Kind::Q, None, "問い")).unwrap();
+        let q = insert_node(conn, &new_node(Kind::A, None, "問い")).unwrap();
         let a = insert_node(conn, &new_node(Kind::A, Some(q), "答え")).unwrap();
 
         // F で stance が NULL は弾く。
@@ -621,8 +627,14 @@ mod tests {
         let mut bad_a = new_node(Kind::A, Some(q), "答え 2");
         bad_a.stance = Some("support");
         assert!(insert_node(conn, &bad_a).is_err());
-        // 親の無い A。
-        assert!(insert_node(conn, &new_node(Kind::A, None, "候補")).is_err());
+        // 親の無い A は軸として入る。
+        let axis2 = insert_node(conn, &new_node(Kind::A, None, "軸 2")).unwrap();
+        assert!(is_axis(&get_node(conn, axis2).unwrap()));
+        assert!(!is_axis(&get_node(conn, a).unwrap()));
+        // 古い Q の行は弾く（移行 0062 で A になった）。
+        assert!(conn
+            .execute("INSERT INTO rt_nodes (kind, parent_id, text) VALUES ('Q', NULL, 'x')", [])
+            .is_err());
         // 親を持つ D は弾く。
         assert!(insert_node(conn, &new_node(Kind::D, Some(q), "seed")).is_err());
         // 親の無い D は入り、その下に S を作れる。
@@ -644,7 +656,7 @@ mod tests {
     fn set_rel_writes_and_clears_rel() {
         let database = db();
         let conn = database.connection();
-        let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
+        let q = insert_node(conn, &new_node(Kind::A, None, "根")).unwrap();
         let a = insert_node(conn, &new_node(Kind::A, Some(q), "候補")).unwrap();
         // 足したときは NULL（subtype と読む）。
         assert_eq!(get_node(conn, a).unwrap().rel, None);
@@ -660,7 +672,7 @@ mod tests {
     fn remove_subtree_hides_only_subtree() {
         let database = db();
         let conn = database.connection();
-        let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
+        let q = insert_node(conn, &new_node(Kind::A, None, "根")).unwrap();
         let a1 = insert_node(conn, &new_node(Kind::A, Some(q), "候補 1")).unwrap();
         let a2 = insert_node(conn, &new_node(Kind::A, Some(q), "候補 2")).unwrap();
         let f = insert_node(conn, &new_node(Kind::F, Some(a1), "根拠")).unwrap();
@@ -677,17 +689,17 @@ mod tests {
         let live: Vec<i64> = list_nodes(conn, false).unwrap().iter().map(|n| n.id).collect();
         assert_eq!(live, vec![q, a2]);
         assert_eq!(list_nodes(conn, true).unwrap().len(), 4);
-        assert!(matches!(get_node_of(conn, Kind::Q, a2), Err(RtError::NotFound(_))));
+        assert!(matches!(get_node_of(conn, Kind::F, a2), Err(RtError::NotFound(_))));
     }
 
     #[test]
     fn set_parent_moves_node_to_last() {
         let database = db();
         let conn = database.connection();
-        let q1 = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
-        let q2 = insert_node(conn, &new_node(Kind::Q, Some(q1), "子 1")).unwrap();
-        let q3 = insert_node(conn, &new_node(Kind::Q, Some(q1), "子 2")).unwrap();
-        let other = insert_node(conn, &new_node(Kind::Q, None, "別の根")).unwrap();
+        let q1 = insert_node(conn, &new_node(Kind::A, None, "根")).unwrap();
+        let q2 = insert_node(conn, &new_node(Kind::A, Some(q1), "子 1")).unwrap();
+        let q3 = insert_node(conn, &new_node(Kind::A, Some(q1), "子 2")).unwrap();
+        let other = insert_node(conn, &new_node(Kind::A, None, "別の根")).unwrap();
         set_parent(conn, other, q1).unwrap();
         assert_eq!(get_node(conn, other).unwrap().ord, 3);
         assert_eq!(get_node(conn, q2).unwrap().ord, 1);
@@ -698,7 +710,7 @@ mod tests {
     fn log_is_append_only() {
         let database = db();
         let conn = database.connection();
-        let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
+        let q = insert_node(conn, &new_node(Kind::A, None, "根")).unwrap();
         let id = insert_log(conn, q, "edit", "", "user", None).unwrap();
         assert!(conn.execute("UPDATE rt_log SET detail = 'x' WHERE id = ?1", params![id]).is_err());
         assert!(conn.execute("DELETE FROM rt_log WHERE id = ?1", params![id]).is_err());
@@ -746,7 +758,7 @@ mod tests {
     fn other_tables_round_trip() {
         let database = db();
         let conn = database.connection();
-        let q = insert_node(conn, &new_node(Kind::Q, None, "根")).unwrap();
+        let q = insert_node(conn, &new_node(Kind::A, None, "根")).unwrap();
         let row = SearchRow {
             id: 0, run_id: None, node_id: Some(q), tool: "t".into(), query: "q".into(),
             scope: String::new(), hits: 1, hit_papers: vec![7],

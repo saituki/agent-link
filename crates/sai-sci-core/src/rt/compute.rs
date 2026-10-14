@@ -38,10 +38,9 @@ fn canonical_mind_heading(name: &str) -> &str {
 
 // ---- JSON の型 ----------------------------------------------------------------------
 
-/// SPROUT の範囲（C5）。Q・A の数と、F の立場ごとの数。
+/// SPROUT の範囲（C5）。A の数（軸の A は数えない）と、F の立場ごとの数。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Range {
-    pub q: i64,
     pub a: i64,
     pub f_support: i64,
     pub f_deny: i64,
@@ -49,10 +48,10 @@ pub struct Range {
 }
 
 impl Range {
-    /// `Q 2・A 3・F 4（S 1 / D 2 / I 1）` の形（人が読む文）。
+    /// `A 3・F 4（S 1 / D 2 / I 1）` の形（人が読む文）。
     #[must_use]
     pub fn line(&self) -> String {
-        format!("Q {}・A {}・{}", self.q, self.a, f_line(self.f_support, self.f_deny, self.f_issue))
+        format!("A {}・{}", self.a, f_line(self.f_support, self.f_deny, self.f_issue))
     }
 }
 
@@ -64,7 +63,6 @@ fn f_line(support: i64, deny: i64, issue: i64) -> String {
 /// 直の子の種類ごとの数。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct Counts {
-    pub q: i64,
     pub a: i64,
     pub f: i64,
     pub e: i64,
@@ -73,7 +71,8 @@ pub struct Counts {
 /// `status.counts`。生きた Node の総数（種類と F の立場ごと）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct StatusCounts {
-    pub q: i64,
+    /// 生きた軸の A の数。
+    pub axis: i64,
     pub a: i64,
     pub f_support: i64,
     pub f_deny: i64,
@@ -88,7 +87,7 @@ impl StatusCounts {
     pub fn line(&self) -> String {
         format!(
             "軸 {}・A {}・{}・E {}・S {}",
-            self.q,
+            self.axis,
             self.a,
             f_line(self.f_support, self.f_deny, self.f_issue),
             self.e,
@@ -113,7 +112,6 @@ pub struct NodeJson {
     pub starred: bool,
     /// A の関係（`subtype`・`condition`。A 以外と NULL の A は null）。
     pub rel: Option<String>,
-    pub bottom_q: bool,
     /// SPROUT（kind S）の PATH（A の ID）。S 以外は空。
     pub paths: Vec<String>,
     /// SPROUT の範囲（S だけ。他は null）。
@@ -245,7 +243,8 @@ pub struct GuideJson {
     pub key: String,
     pub name: String,
     pub explain: String,
-    pub question: String,
+    /// 軸の A の文（`## 軸`）。
+    pub label: String,
     pub child_candidates: Vec<String>,
     pub extract: Vec<String>,
     pub pitfalls: Vec<String>,
@@ -387,8 +386,8 @@ fn live_node(conn: &Connection, id: i64) -> Option<NodeRow> {
     store::get_node(conn, id).ok().filter(|n| n.removed_at.is_none())
 }
 
-/// SPROUT の範囲。`paths` の各 A について、その A・A の祖先の Q と A・A の子の生きた F を集め（重ならないように数える）、
-/// Q・A の数と F の立場ごとの数を出す。A の子の Q 以下は入れない。消えた A は数えない。
+/// SPROUT の範囲。`paths` の各 A について、その A・A の祖先の A（軸を含む）と A・A の子の生きた F を集め（重ならないように数える）、
+/// A の数（軸の A は数えない）と F の立場ごとの数を出す。消えた A は数えない。
 pub fn sprout_range(conn: &Connection, paths: &[i64]) -> Result<Range> {
     let mut ids: BTreeSet<i64> = BTreeSet::new();
     for &a in paths {
@@ -397,7 +396,7 @@ pub fn sprout_range(conn: &Connection, paths: &[i64]) -> Result<Range> {
         let mut at = node.parent_id;
         while let Some(p) = at {
             let Some(parent) = live_node(conn, p) else { break };
-            if matches!(parent.kind, Kind::Q | Kind::A) {
+            if parent.kind == Kind::A {
                 ids.insert(p);
             }
             at = parent.parent_id;
@@ -410,7 +409,7 @@ pub fn sprout_range(conn: &Connection, paths: &[i64]) -> Result<Range> {
     for id in ids {
         let Some(n) = live_node(conn, id) else { continue };
         match (n.kind, n.stance.as_deref()) {
-            (Kind::Q, _) => range.q += 1,
+            (Kind::A, _) if store::is_axis(&n) => {}
             (Kind::A, _) => range.a += 1,
             (Kind::F, Some("support")) => range.f_support += 1,
             (Kind::F, Some("deny")) => range.f_deny += 1,
@@ -439,10 +438,10 @@ impl Tree {
         let mut kids: HashMap<i64, Vec<i64>> = HashMap::new();
         let roots_none: Vec<NodeRow> = by_parent.remove(&None).unwrap_or_default();
         let mut stack: Vec<(NodeRow, usize)> = Vec::new();
-        // 親の無い生きた Q（top_Q）→ 親の無い D（seed）→ 親の無い S（古い SPROUT）の順に DFS の起点にする。
+        // 親の無い生きた A（軸の A）→ 親の無い D（seed）→ 親の無い S（古い SPROUT）の順に DFS の起点にする。
         // D の子の S は DFS で D の下に入る。`roots_none` は `(parent_id, ord, id)` 順なので、各群の中もこの順のまま。
         let mut top: Vec<NodeRow> = Vec::new();
-        top.extend(roots_none.iter().filter(|n| n.kind == Kind::Q).cloned());
+        top.extend(roots_none.iter().filter(|n| store::is_axis(n)).cloned());
         top.extend(roots_none.iter().filter(|n| n.kind == Kind::D).cloned());
         top.extend(roots_none.iter().filter(|n| n.kind == Kind::S).cloned());
         for n in top.into_iter().rev() {
@@ -563,17 +562,10 @@ impl Tree {
         self.index.get(&id).map(|i| &self.nodes[*i])
     }
 
-    /// 深さ（top_Q が 0）。
+    /// 深さ（軸の A が 0）。
     #[must_use]
     pub fn depth(&self, id: i64) -> usize {
         self.depths.get(&id).copied().unwrap_or(0)
-    }
-
-    /// 生きた bottom_Q か（生きた子の Q が無い Q）。
-    #[must_use]
-    pub fn is_bottom_q(&self, id: i64) -> bool {
-        self.node(id).is_some_and(|n| n.kind == Kind::Q)
-            && !self.kid_nodes(id).any(|k| k.kind == Kind::Q)
     }
 
     /// 子孫の生きた F の数。
@@ -594,7 +586,7 @@ impl Tree {
         let mut c = StatusCounts::default();
         for n in &self.nodes {
             match (n.kind, n.stance.as_deref()) {
-                (Kind::Q, _) => c.q += 1,
+                (Kind::A, _) if store::is_axis(n) => c.axis += 1,
                 (Kind::A, _) => c.a += 1,
                 (Kind::F, Some("support")) => c.f_support += 1,
                 (Kind::F, Some("deny")) => c.f_deny += 1,
@@ -622,7 +614,6 @@ impl Tree {
         let mut counts = Counts::default();
         for k in self.kid_nodes(id) {
             match k.kind {
-                Kind::Q => counts.q += 1,
                 Kind::A => counts.a += 1,
                 Kind::F => counts.f += 1,
                 Kind::E => counts.e += 1,
@@ -632,7 +623,7 @@ impl Tree {
                 Kind::D => {}
             }
         }
-        let is_q = n.kind == Kind::Q;
+        let is_axis = store::is_axis(n);
         NodeJson {
             id: fmt_id(n.kind, n.id),
             kind: n.kind.as_str().to_string(),
@@ -641,11 +632,10 @@ impl Tree {
             ord: n.ord,
             text: n.text.clone(),
             body: n.body.clone(),
-            guide: if is_q { n.guide_key.clone() } else { None },
+            guide: if is_axis { n.guide_key.clone() } else { None },
             stance: n.stance.clone(),
             starred: n.starred,
             rel: if n.kind == Kind::A { n.rel.clone() } else { None },
-            bottom_q: is_q && self.is_bottom_q(id),
             paths: if n.kind == Kind::S {
                 n.paths.iter().map(|a| self.label(*a).0).collect()
             } else {
@@ -771,12 +761,12 @@ impl Tree {
     /// Node 1 つに出す Next Action（C6 の 3 規則の最初に当てはまる 1 つ）。
     fn action_of(&self, n: &NodeRow) -> Option<(u8, NextAction)> {
         match n.kind {
-            Kind::Q if self.kid_nodes(n.id).next().is_none() => Some((
+            Kind::A if store::is_axis(n) && self.kid_nodes(n.id).next().is_none() => Some((
                 1,
                 card_action(n, "lab-grow", format!("「{}」の子の A を作る", n.text), "子を 1 つ以上", "NO_CHILD", None),
             )),
-            // 直下の A が多い Q・A は、review（組み直し・兄弟の見直し）を勧める。強制ではない。
-            Kind::Q | Kind::A if self.a_count(n.id) > FLAT_MAX => Some((
+            // 直下の A が多い A（軸の A を含む）は、review（組み直し・兄弟の見直し）を勧める。強制ではない。
+            Kind::A if self.a_count(n.id) > FLAT_MAX => Some((
                 1,
                 card_action(
                     n,
@@ -787,12 +777,12 @@ impl Tree {
                     None,
                 ),
             )),
-            // ★の A は先頭に出す（rank 0）。
-            Kind::A if !self.kid_nodes(n.id).any(|k| k.kind == Kind::F) => Some((
+            // ★の A は先頭に出す（rank 0）。軸の A には F を探さない（F は軸の下の A に置く）。
+            Kind::A if !store::is_axis(n) && !self.kid_nodes(n.id).any(|k| k.kind == Kind::F) => Some((
                 if n.starred { 0 } else { 2 },
                 card_action(n, "lab-search", format!("「{}」の F を探す", n.text), "F を 1 つ以上", "NO_FINDING", Some("F")),
             )),
-            Kind::Q | Kind::A if self.unverified(n) => Some((
+            Kind::A if self.unverified(n) => Some((
                 3,
                 card_action(n, "sci-verify", format!("「{}」と子の関係を確かめる", n.text), "評価の報告と op", "UNVERIFIED", None),
             )),
@@ -818,9 +808,9 @@ impl Tree {
         self.kid_nodes(id).any(|k| k.kind == kind || self.has_kind_below(k.id, kind))
     }
 
-    /// 規則 BLANK_NO_PATH: 生きた D の、まだ答えていない（D の回答が無い）軸の問いの軸の Q（親の無い Q で `guide_key` が軸の key）の下に、
-    /// path に選べる A（直下の A のうち、さらに下に生きた A を持つもの）が無い。同じ軸の Q は D を 1 件にまとめる。
-    /// 位置（Q の順）と Next Action（rank 0）の組を返す。軸の Q が無いときは出さない。
+    /// 規則 BLANK_NO_PATH: 生きた D の、まだ答えていない（D の回答が無い）軸の問いの軸の A（親の無い A で `guide_key` が軸の key）の下に、
+    /// path に選べる A（直下の A のうち、さらに下に生きた A を持つもの）が無い。同じ軸の A は D を 1 件にまとめる。
+    /// 位置（木の順）と Next Action（rank 0）の組を返す。軸の A が無いときは出さない。
     fn blank_no_path(&self) -> Vec<(usize, NextAction)> {
         let mut by_axis: BTreeMap<(usize, String), Vec<i64>> = BTreeMap::new();
         for d in self.nodes.iter().filter(|n| n.kind == Kind::D) {
@@ -833,7 +823,7 @@ impl Tree {
                 }
             }
             for key in keys {
-                let Some(q) = self.nodes.iter().find(|n| n.kind == Kind::Q && n.parent_id.is_none() && n.guide_key.as_deref() == Some(key.as_str())) else {
+                let Some(q) = self.nodes.iter().find(|n| store::is_axis(n) && n.guide_key.as_deref() == Some(key.as_str())) else {
                     continue;
                 };
                 let selectable = self.kid_nodes(q.id).any(|a| a.kind == Kind::A && self.has_kind_below(a.id, Kind::A));
@@ -851,7 +841,7 @@ impl Tree {
                     q,
                     "lab-grow",
                     format!("{} の未回答の問い（{key}）に、path に選べる A を育てる", ids.join("・")),
-                    "軸の Q の直下に、下位の A を持つ A を 1 つ以上",
+                    "軸の A の直下に、下位の A を持つ A を 1 つ以上",
                     "BLANK_NO_PATH",
                     None,
                 );
@@ -1166,17 +1156,17 @@ pub fn node_detail(conn: &Connection, roots: &PaperRoots, defs: &Defs, id: &str)
     let creator = creator_json(node, &runs);
     let history = history_json(node, num, &tree, &runs);
 
-    let is_q = node.kind == Kind::Q;
+    let is_axis = store::is_axis(node);
     Ok(NodeDetail {
         node: tree.row(num),
         path,
         children: tree.kids[&num].iter().map(|k| tree.row(*k)).collect(),
         subtree: subtree_ids.iter().map(|k| tree.row(*k)).collect(),
-        guide: node.guide_key.as_deref().and_then(|k| defs.guide(k)).filter(|_| is_q).map(|g| GuideJson {
+        guide: node.guide_key.as_deref().and_then(|k| defs.guide(k)).filter(|_| is_axis).map(|g| GuideJson {
             key: g.key.clone(),
             name: g.name.clone(),
             explain: g.explain.clone(),
-            question: g.question.clone(),
+            label: g.label.clone(),
             child_candidates: g.child_candidates.clone(),
             extract: g.extract.clone(),
             pitfalls: g.pitfalls.clone(),
@@ -1287,6 +1277,38 @@ mod tests {
         store::insert_node(e.db.connection(), &n).unwrap()
     }
 
+    /// 軸の A の行・guide・counts と Next Action（K2・K4）。軸に F は付かないので NO_FINDING は軸に出さず、軸でない A に出す。
+    #[test]
+    fn axis_rows_guide_counts_and_next_action() {
+        let e = env("axis-rows");
+        e.db.connection().execute("DELETE FROM rt_meta WHERE key = 'initialized_at'", []).unwrap();
+        let defs = crate::rt::defs::load(&e.roots.root);
+        crate::rt::defs::init_tree(e.db.connection(), &defs, "problem", "test").unwrap();
+        let data = Tree::load(e.db.connection(), &e.roots, &defs)
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|n| n.guide_key.as_deref() == Some("data"))
+            .unwrap()
+            .id;
+        let child = a(&e, data, "下位のデータ");
+        let tree = Tree::load(e.db.connection(), &e.roots, &defs).unwrap();
+        // 軸は 6 つ。軸でない A は a に数える。
+        let s = status(e.db.connection(), &e.roots, &defs).unwrap();
+        assert_eq!((s.counts.axis, s.counts.a), (6, 1));
+        assert_eq!(tree.row(data).guide.as_deref(), Some("data"));
+        assert_eq!(tree.row(child).guide, None);
+        assert!(serde_json::to_value(tree.row(data)).unwrap().get("bottom_q").is_none());
+        let detail = node_detail(e.db.connection(), &e.roots, &defs, &fmt_id(Kind::A, data)).unwrap();
+        assert_eq!(detail.guide.map(|g| g.label).as_deref(), Some("データ"));
+        // 軸の子が無いものは NO_CHILD、軸でない A は F が無いので NO_FINDING。軸に NO_FINDING は出ない。
+        let acts = next_actions(&tree, 50);
+        let of = |why: &str| -> Vec<String> { acts.iter().filter(|x| x.why == why).filter_map(|x| x.node.clone()).collect() };
+        assert_eq!(of("NO_CHILD").len(), 5);
+        assert_eq!(of("NO_FINDING"), vec![fmt_id(Kind::A, child)]);
+        assert!(acts.iter().any(|x| x.why == "NO_CHILD" && x.block.as_deref() == Some("lab-grow")));
+    }
+
     #[test]
     fn node_json_carries_dataset_of_e() {
         // E のデータセットの参照は node --json の dataset に出る。E 以外は null。
@@ -1312,7 +1334,7 @@ mod tests {
     }
 
     fn q(e: &Env, parent: Option<i64>, text: &str) -> i64 {
-        add(e, Kind::Q, parent, text, None)
+        add(e, Kind::A, parent, text, None)
     }
     fn a(e: &Env, parent: i64, text: &str) -> i64 {
         add(e, Kind::A, Some(parent), text, None)
@@ -1339,7 +1361,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let text = format!(
             "---\nrunner: pi\nblock: sci-verify\nsci_node: {}\nsci_purpose: 確かめる\ncreation_date: {created}\n---\n\n本文\n",
-            fmt_id(Kind::Q, node)
+            fmt_id(Kind::A, node)
         );
         fs::write(dir.join("task.md"), text).unwrap();
         fake_link::run_value(run, "review", &dir, "sci-verify", "", "completed")
@@ -1355,9 +1377,9 @@ mod tests {
             .map(|x| (x.why.clone(), x.node.clone().unwrap_or_default(), x.block.clone().unwrap_or_default()))
             .collect();
         let want = vec![
-            ("NO_CHILD".to_string(), fmt_id(Kind::Q, q3), "lab-grow".to_string()),
+            ("NO_CHILD".to_string(), fmt_id(Kind::A, q3), "lab-grow".to_string()),
             ("NO_FINDING".to_string(), fmt_id(Kind::A, a2), "lab-search".to_string()),
-            ("UNVERIFIED".to_string(), fmt_id(Kind::Q, q1), "sci-verify".to_string()),
+            ("UNVERIFIED".to_string(), fmt_id(Kind::A, q1), "sci-verify".to_string()),
         ];
         assert_eq!(got, want);
         // 規則 2 だけが child を足す。
@@ -1383,9 +1405,9 @@ mod tests {
             got,
             vec![
                 ("NO_FINDING".to_string(), fmt_id(Kind::A, a_star)),
-                ("NO_CHILD".to_string(), fmt_id(Kind::Q, q_leaf)),
+                ("NO_CHILD".to_string(), fmt_id(Kind::A, q_leaf)),
                 ("NO_FINDING".to_string(), fmt_id(Kind::A, a_plain)),
-                ("UNVERIFIED".to_string(), fmt_id(Kind::Q, qa)),
+                ("UNVERIFIED".to_string(), fmt_id(Kind::A, qa)),
             ]
         );
         assert_eq!(whole(3).len(), 3);
@@ -1423,7 +1445,7 @@ mod tests {
         let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
         assert_eq!(
             s.counts,
-            StatusCounts { q: 1, a: 1, f_support: 1, f_deny: 1, f_issue: 1, e: 1, s: 0 }
+            StatusCounts { axis: 1, a: 1, f_support: 1, f_deny: 1, f_issue: 1, e: 1, s: 0 }
         );
         assert_eq!(s.counts.line(), "軸 1・A 1・F 3（S 1 / D 1 / I 1）・E 1・S 0");
     }
@@ -1436,7 +1458,8 @@ mod tests {
         f(&e, ans, "support");
         let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
         let v = serde_json::to_value(&s).unwrap();
-        assert_eq!(v["counts"]["q"], 1);
+        assert_eq!(v["counts"]["axis"], 1);
+        assert!(v["counts"].get("q").is_none(), "{v}");
         assert_eq!(v["counts"]["a"], 1);
         assert_eq!(v["counts"]["f_support"], 1);
         for gone in ["progress", "pending_proposals", "seed"] {
@@ -1472,7 +1495,7 @@ mod tests {
         let conn = e.db.connection();
         conn.execute("UPDATE rt_nodes SET paths = '[' || ?1 || ',' || ?2 || ']' WHERE id = ?3", params![a1, a2, s]).unwrap();
         let range = sprout_range(conn, &[a1, a2]).unwrap();
-        assert_eq!(range, Range { q: 1, a: 2, f_support: 1, f_deny: 1, f_issue: 1 });
+        assert_eq!(range, Range { a: 2, f_support: 1, f_deny: 1, f_issue: 1 });
         let t = tree(&e);
         assert_eq!(t.row(s).range, Some(range));
         assert_eq!(t.row(s).paths, vec![fmt_id(Kind::A, a1), fmt_id(Kind::A, a2)]);
@@ -1499,7 +1522,7 @@ mod tests {
         let old = add(&e, Kind::S, None, "古い研究", None);
         let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
         let ids: Vec<String> = s.nodes.iter().map(|n| n.id.clone()).collect();
-        let want: Vec<String> = [(Kind::Q, root), (Kind::D, d1), (Kind::S, s2), (Kind::S, s3), (Kind::D, d2), (Kind::S, s4), (Kind::S, old)]
+        let want: Vec<String> = [(Kind::A, root), (Kind::D, d1), (Kind::S, s2), (Kind::S, s3), (Kind::D, d2), (Kind::S, s4), (Kind::S, old)]
             .iter()
             .map(|(k, id)| fmt_id(*k, *id))
             .collect();
@@ -1510,7 +1533,7 @@ mod tests {
         assert_eq!(s.nodes[1].kind, "D");
         assert_eq!(s.nodes[1].text, "自分の研究");
         // D は数えない。
-        assert_eq!(s.counts, StatusCounts { q: 1, s: 4, ..StatusCounts::default() });
+        assert_eq!(s.counts, StatusCounts { axis: 1, s: 4, ..StatusCounts::default() });
     }
 
     #[test]
@@ -1527,7 +1550,7 @@ mod tests {
         let s = status(e.db.connection(), &e.roots, &Defs::default()).unwrap();
         assert_eq!(s.decisions[0].approved_by.as_deref(), Some("saituki"));
         assert_eq!(s.decisions[0].qid.as_deref(), Some("a1"));
-        let detail = node_detail(e.db.connection(), &e.roots, &Defs::default(), &fmt_id(Kind::Q, root)).unwrap();
+        let detail = node_detail(e.db.connection(), &e.roots, &Defs::default(), &fmt_id(Kind::A, root)).unwrap();
         assert_eq!(detail.decisions[0].question.as_deref(), Some("作ってよいか"));
         assert_eq!(detail.history.last().unwrap().approved_by.as_deref(), Some("saituki"));
     }
@@ -1554,7 +1577,7 @@ mod tests {
         a(&e, root, "答え7");
         let acts = next_actions(&tree(&e), 10);
         let flat = acts.iter().find(|x| x.why == "TOO_FLAT").expect("TOO_FLAT");
-        assert_eq!((flat.block.as_deref(), flat.node.as_deref()), (Some("lab-review"), Some(fmt_id(Kind::Q, root).as_str())));
+        assert_eq!((flat.block.as_deref(), flat.node.as_deref()), (Some("lab-review"), Some(fmt_id(Kind::A, root).as_str())));
         // 閾値は定数 FLAT_MAX（7）。
         assert_eq!(FLAT_MAX, 7);
     }
@@ -1563,7 +1586,7 @@ mod tests {
     #[test]
     fn blank_no_path_clears_with_lower_a() {
         let e = env("blank");
-        let q_method = with_body(&e, Kind::Q, None, Some("method"), "");
+        let q_method = with_body(&e, Kind::A, None, Some("method"), "");
         let big = a(&e, q_method, "大分類");
         let d = with_body(&e, Kind::D, None, None, "");
         for (axis, text) in seedq::TEMPLATE {
@@ -1572,7 +1595,7 @@ mod tests {
         let blanks = |tree: &Tree| next_actions(tree, 10).into_iter().filter(|x| x.why == "BLANK_NO_PATH").collect::<Vec<_>>();
         let got = blanks(&tree(&e));
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].node.as_deref(), Some(fmt_id(Kind::Q, q_method).as_str()));
+        assert_eq!(got[0].node.as_deref(), Some(fmt_id(Kind::A, q_method).as_str()));
         assert_eq!(got[0].block.as_deref(), Some("lab-grow"));
         assert_eq!(got[0].purpose, format!("{} の未回答の問い（method）に、path に選べる A を育てる", fmt_id(Kind::D, d)));
         // 下位の A を足すと消える。
@@ -1625,6 +1648,6 @@ mod tests {
         let acts = next_actions(&tree(&e), 30);
         let flat: Vec<&NextAction> = acts.iter().filter(|x| x.why == "TOO_FLAT").collect();
         assert_eq!(flat.len(), 1);
-        assert_eq!((flat[0].block.as_deref(), flat[0].node.as_deref()), (Some("lab-review"), Some(fmt_id(Kind::Q, sub).as_str())));
+        assert_eq!((flat[0].block.as_deref(), flat[0].node.as_deref()), (Some("lab-review"), Some(fmt_id(Kind::A, sub).as_str())));
     }
 }

@@ -233,7 +233,7 @@ mod tests {
         run(&e, "todo", 12, "b", "");
         crate::link::forget(&e.dir);
         let a = activity(e.db.connection(), &e.roots).unwrap();
-        assert!(a.iter().any(|a| a.run_id == 10 && a.label == "b（Q1）: 目的"));
+        assert!(a.iter().any(|a| a.run_id == 10 && a.label == "b（A1）: 目的"));
         assert!(a.iter().any(|a| a.run_id == 11));
         assert!(a.iter().all(|a| a.run_id != 12));
     }

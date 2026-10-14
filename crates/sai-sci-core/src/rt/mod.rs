@@ -1,10 +1,10 @@
-//! research-tree の新しい形。Node は Q（問い）・A（答え）・F（根拠）・E（実験）・S（SPROUT）・D（seed）の 6 種。
+//! research-tree の新しい形。Node は A（答え・軸の A を含む）・F（根拠）・E（実験）・S（SPROUT）・D（seed）の 5 種。
 //!
 //! 正は `papr.db` の `rt_*` の表。古い `sci_*` の表は読まないが消さない。
-//! Node の ID は表では通し番号の数で持ち、外に出す形は `Q12`（頭文字は kind と同じ）。
+//! Node の ID は表では通し番号の数で持ち、外に出す形は `A12`（頭文字は kind と同じ）。`Q12` は `A12` の別名として読む。
 //! SPROUT は `S2`。
 //!
-//! 木の根（SEED）は廃止した。軸の Q（`parent_id` が NULL の Q。top_Q）は親の無い Q として DB に並ぶ。研究ごとの制約は D（seed）の行で、ID は `D<n>`。
+//! 木の根（SEED）は廃止した。軸の A（`parent_id` が NULL の A。軸の A）は親の無い A として DB に並ぶ。研究ごとの制約は D（seed）の行で、ID は `D<n>`。
 
 // 行の型の項目名は表の列名そのままなので、項目ごとの説明は付けない。
 #![allow(missing_docs)]
@@ -15,7 +15,6 @@ pub mod card;
 pub mod compare;
 pub mod compute;
 pub mod context;
-pub mod convert;
 pub mod defs;
 pub mod export;
 pub mod ops;
@@ -62,10 +61,9 @@ pub fn is_retired_seed(text: &str) -> bool {
     text == RETIRED_SEED
 }
 
-/// Node の 6 種。
+/// Node の 5 種（Q は廃止。軸は親の無い A）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum Kind {
-    Q,
     A,
     F,
     E,
@@ -74,11 +72,10 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// "Q" / "A" / "F" / "E" / "S" / "D"。
+    /// "A" / "F" / "E" / "S" / "D"。
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            Kind::Q => "Q",
             Kind::A => "A",
             Kind::F => "F",
             Kind::E => "E",
@@ -92,7 +89,6 @@ impl Kind {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Kind> {
         match s {
-            "Q" => Some(Kind::Q),
             "A" => Some(Kind::A),
             "F" => Some(Kind::F),
             "E" => Some(Kind::E),
@@ -102,10 +98,10 @@ impl Kind {
         }
     }
 
+    /// 入力の頭文字。`Q` は `A` の別名（ID の数字は DB の行番号なので同じ行を指す）。
     fn from_char(c: char) -> Option<Kind> {
         match c {
-            'Q' => Some(Kind::Q),
-            'A' => Some(Kind::A),
+            'Q' | 'A' => Some(Kind::A),
             'F' => Some(Kind::F),
             'E' => Some(Kind::E),
             'S' => Some(Kind::S),
@@ -115,7 +111,7 @@ impl Kind {
     }
 }
 
-/// "Q12" → (Kind::Q, 12)。形は `^[QAFESD][1-9][0-9]{0,8}$`。違えば Invalid。
+/// "A12" → (Kind::A, 12)。"Q12" も同じく (Kind::A, 12)。形は `^[QAFESD][1-9][0-9]{0,8}$`。違えば Invalid。
 pub fn parse_id(text: &str) -> Result<(Kind, i64)> {
     let invalid = || RtError::Invalid(format!("ID の形が正しくありません: {text}"));
     let mut chars = text.chars();
@@ -144,7 +140,7 @@ pub fn parse_id_of(text: &str, kind: Kind) -> Result<i64> {
     Ok(id)
 }
 
-/// (Kind::Q, 12) → "Q12"。
+/// (Kind::A, 12) → "A12"。
 #[must_use]
 pub fn fmt_id(kind: Kind, id: i64) -> String {
     format!("{}{id}", kind.as_str())
@@ -221,7 +217,7 @@ pub struct RtKeys {
     pub papers: Vec<i64>,
     /// 読む深さ（abstract / figures / full）。
     pub depth: String,
-    /// 足す子の型（Q / A / F。無い・知らない値は空）。
+    /// 足す子の型（A / F。無い・知らない値は空）。
     pub child: String,
 }
 
@@ -264,7 +260,7 @@ pub fn task_keys(task_md: &str) -> RtKeys {
         papers,
         depth: get("sci_depth"),
         child: match get("sci_child").as_str() {
-            kind @ ("Q" | "A" | "F") => kind.to_string(),
+            kind @ ("A" | "F") => kind.to_string(),
             _ => String::new(),
         },
     }
@@ -276,18 +272,30 @@ mod tests {
 
     #[test]
     fn parse_id_accepts_and_rejects() {
-        assert_eq!(parse_id("Q12").unwrap(), (Kind::Q, 12));
+        assert_eq!(parse_id("Q12").unwrap(), (Kind::A, 12));
+        assert_eq!(parse_id("A12").unwrap(), (Kind::A, 12));
         assert_eq!(parse_id("A15").unwrap(), (Kind::A, 15));
         assert_eq!(parse_id("F999999999").unwrap(), (Kind::F, 999_999_999));
+        assert_eq!(parse_id("F5").unwrap(), (Kind::F, 5));
         assert_eq!(parse_id("E3").unwrap(), (Kind::E, 3));
         assert_eq!(parse_id("S31").unwrap(), (Kind::S, 31));
         assert_eq!(parse_id("D1").unwrap(), (Kind::D, 1));
         for text in ["Q0", "Q01", "N12", "12", "Q", "", "Q1000000000", "Q1a", "O1", "D0", "D", "SEED"] {
             assert!(matches!(parse_id(text), Err(RtError::Invalid(_))), "{text}");
         }
-        assert!(matches!(parse_id_of("A5", Kind::Q), Err(RtError::Invalid(_))));
-        assert_eq!(parse_id_of("Q5", Kind::Q).unwrap(), 5);
+        assert!(matches!(parse_id_of("F5", Kind::A), Err(RtError::Invalid(_))));
+        assert_eq!(parse_id_of("Q5", Kind::A).unwrap(), 5);
+        assert_eq!(parse_id_of("A5", Kind::A).unwrap(), 5);
         assert_eq!(fmt_id(Kind::A, 13), "A13");
+    }
+
+    #[test]
+    fn q_is_only_an_alias_of_a() {
+        // Q は Node の種類ではない。DB の kind にも無く、入力の頭文字だけ A の別名になる。
+        assert_eq!(Kind::from_str("Q"), None);
+        assert_eq!(Kind::from_str("A"), Some(Kind::A));
+        assert_eq!(parse_id_of("Q7", Kind::A).unwrap(), 7);
+        assert_eq!(fmt_id(Kind::A, 7), "A7");
     }
 
     #[test]
@@ -307,9 +315,9 @@ mod tests {
         // 古い task.md の範囲と仮置きのキーは読まずに捨てる（名前は文字列を分けて組み立てる）。
         let old_scope = format!("sci_{}", "scope");
         let old_assume = format!("sci_{}", "assume");
-        let md = format!("---\nsci_node: Q12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\nsci_child: F\n---\n\n本文\n");
+        let md = format!("---\nsci_node: A12\nsci_question: Q7\nsci_role: x\nsci_purpose: データの量の根拠を探す\nsci_expect: F を 2 つ以上\n{old_scope}: path\n{old_assume}: Q9=SST-2 を使う（仮）; X1=読めない\nsci_mode: purpose_first\nsci_papers: 37, 40, abc\nsci_depth: full\nsci_child: F\n---\n\n本文\n");
         let keys = task_keys(&md);
-        assert_eq!(keys.node, Some((Kind::Q, 12)));
+        assert_eq!(keys.node, Some((Kind::A, 12)));
         assert!(!keys.whole);
         assert_eq!(keys.purpose, "データの量の根拠を探す");
         assert_eq!(keys.expect, "F を 2 つ以上");
@@ -317,8 +325,9 @@ mod tests {
         assert_eq!(keys.papers, vec![37, 40]);
         assert_eq!(keys.depth, "full");
         assert_eq!(keys.child, "F");
-        // 知らない値は空として読む（C7: Q・A・F 以外は無い扱い）。
-        assert_eq!(task_keys("---\nsci_node: Q1\nsci_child: O\n---\n").child, "");
+        // 知らない値は空として読む（C7: A・F 以外は無い扱い）。
+        assert_eq!(task_keys("---\nsci_node: A1\nsci_child: O\n---\n").child, "");
+        assert_eq!(task_keys("---\nsci_node: A1\nsci_child: Q\n---\n").child, "");
         assert!(keys.is_sci());
         assert_eq!(task_keys("---\nrunner: pi\n---\n"), RtKeys::default());
         // 古い `sci_node: SEED` と、空の `sci_node` は木の全体（node は空）。

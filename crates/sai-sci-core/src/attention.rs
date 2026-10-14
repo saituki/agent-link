@@ -727,7 +727,7 @@ mod tests {
             )
             .unwrap()
         };
-        let q = add(Kind::Q, None, "対象は？", None);
+        let q = add(Kind::A, None, "対象は？", None);
         let a = add(Kind::A, Some(q), "新生児", None);
         add(Kind::F, Some(a), "根拠 1", Some("support"));
         add(Kind::F, Some(a), "根拠 2", Some("support"));

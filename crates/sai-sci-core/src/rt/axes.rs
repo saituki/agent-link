@@ -87,13 +87,13 @@ pub fn parse_axes(body: &str) -> BTreeMap<String, Axis> {
         .collect()
 }
 
-/// path の A の軸（一番上の Q の guide_key）。上が Q でなければ `None`。
+/// path の A の軸（一番上の軸の A の guide_key）。上が軸の A でなければ `None`。
 pub(super) fn axis_of(conn: &Connection, a: i64) -> Result<Option<String>> {
     let mut cur = store::get_node(conn, a)?;
     while let Some(p) = cur.parent_id {
         cur = store::get_node(conn, p)?;
     }
-    Ok(if cur.kind == Kind::Q { cur.guide_key } else { None })
+    Ok(if cur.kind == Kind::A { cur.guide_key } else { None })
 }
 
 #[cfg(test)]
