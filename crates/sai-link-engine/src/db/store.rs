@@ -373,7 +373,7 @@ pub fn exec_usage_totals(
 // SaiStore
 // ---------------------------------------------------------------------------
 
-/// SQLite に開かせる前に `<db>-shm` を空で作っておく（既にあれば何もしない・切り詰めない）。
+/// SQLite に開かせる前に `<db>-shm` を空で作っておく（既にあれば何もしない・切り詰めない・開かない）。
 ///
 /// Docker Desktop（Mac）の bind mount では、ファイルを作って開いたプロセスの fcntl ロックが
 /// 他のプロセスから見えない（docker/for-mac#7004）。daemon が `-shm` を作ると、他の接続が
@@ -383,7 +383,9 @@ pub fn ensure_shm_file(db_path: &Path) {
     let mut shm = db_path.as_os_str().to_owned();
     shm.push("-shm");
     // 失敗は無視する（本当の失敗はこのあとの Connection::open が返す）
-    let _ = std::fs::OpenOptions::new().write(true).create(true).open(shm);
+    // `create_new` は既にあれば fd を開かずに失敗する。`create(true)` だと既にある `-shm` を
+    // 開いて閉じることになり、POSIX ロックの規則で、同じプロセスの別の接続が持つ `-shm` のロックが外れる。
+    let _ = std::fs::OpenOptions::new().write(true).create_new(true).open(shm);
 }
 
 /// sai-engine 専用テーブルに対する CRUD 操作を提供するストア。
