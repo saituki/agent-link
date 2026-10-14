@@ -29,7 +29,7 @@ const SR_CITE_RE = /^#([1-9][0-9]{0,8})((?:\.[1-9][0-9]*){1,2}(?:-[1-9][0-9]*)?)
 // --- 画面の状態 ---
 
 let srCard = null;     // 最後に読んだ READ_CARD の JSON
-let srDetail = null;   // 対象 Node の詳細（軸（Q）のとき A の候補に使う）
+let srDetail = null;   // 対象 Node の詳細（軸の A のとき、付ける先の A の候補に使う）
 let srRunId = null;    // 今開いている READ_CARD の run の番号
 
 // ============================================================================
@@ -64,16 +64,18 @@ function srCardPaper(card) {
 
 /**
  * F を付ける先の候補（Node の ID の配列）。
- * 対象が A ならそれ 1 つ（F は E の下に置かない）。軸（Q）なら detail.children の A（★ を先に）。
+ * 対象が軸でない A ならそれ 1 つ（F は E の下に置かない）。軸の A なら detail.children の A（★ を先に）。
  */
 function srParents(card, detail) {
   const node = (card && card.node) || {};
   const id = srTrim(node.id);
+  if (saiIsAxis(node)) {
+    const kids = detail && Array.isArray(detail.children) ? detail.children : [];
+    const os = kids.filter((k) => k && k.kind === "A" && srTrim(k.id));
+    return [...os.filter((k) => k.starred), ...os.filter((k) => !k.starred)].map((k) => srTrim(k.id));
+  }
   if (node.kind === "A") return id ? [id] : [];
-  if (node.kind !== "Q") return [];
-  const kids = detail && Array.isArray(detail.children) ? detail.children : [];
-  const os = kids.filter((k) => k && k.kind === "A" && srTrim(k.id));
-  return [...os.filter((k) => k.starred), ...os.filter((k) => !k.starred)].map((k) => srTrim(k.id));
+  return [];
 }
 
 /** 文の数（。．.！？!? の区切りで数える。末尾に句点が無い文も 1 つ）。 */
@@ -215,9 +217,9 @@ async function srReload() {
     return;
   }
   srCard = card || null;
-  // 対象が軸（Q）のときだけ、付ける先の A を探すために Node の詳細を読む
+  // 対象が軸の A のときだけ、付ける先の A を探すために Node の詳細を読む
   srDetail = null;
-  if (card && card.node && card.node.kind === "Q") {
+  if (card && card.node && saiIsAxis(card.node)) {
     try {
       srDetail = await paperApi(stApi(`/nodes/${encodeURIComponent(card.node.id)}`));
     } catch { /* 候補が空になるだけ。F を足す枠でそう伝える */ }
@@ -225,7 +227,7 @@ async function srReload() {
   srRender(card || {});
 }
 
-/** READ_CARD を描く（見出し → 始める → Q と抜き出すもの → F を足す → F → note.md → 終える）。 */
+/** READ_CARD を描く（見出し → 始める → 問いと抜き出すもの → F を足す → F → note.md → 終える）。 */
 function srRender(card) {
   const body = document.getElementById("sr-body");
   if (!body) return;
@@ -300,7 +302,7 @@ function srStartRow(card) {
   return row;
 }
 
-/** 読むときの Q と抜き出すもの。 */
+/** 読むときの問いと抜き出すもの。 */
 function srQuestions(card) {
   const sec = srSec("読むときの問い");
   const qs = Array.isArray(card.questions) ? card.questions.filter(Boolean) : [];

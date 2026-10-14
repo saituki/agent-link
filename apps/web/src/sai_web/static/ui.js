@@ -169,7 +169,7 @@ const SAI_TERMS = {
   },
   sci_root: {
     label: "ROOT",
-    text: "軸（Q）から下へ分かれる Q・A・F の総称です。木の下向きの部分を指します。",
+    text: "軸の A から下へ分かれる A・F の総称です。",
   },
   sci_sprout: {
     label: "SPROUT",
@@ -185,15 +185,11 @@ const SAI_TERMS = {
   },
   sci_node: {
     label: "Node",
-    text: "research-tree の 1 つの要素です。Q・A・F・E・S のどれかになります。",
+    text: "research-tree の 1 つの要素です。A・F・E・S・D のどれかになります。",
   },
   sci_top_q: {
     label: "軸",
-    text: "tree のいちばん上に並ぶ Q です。task・target・data・method・output・metric の 6 つがあり、A はこの下に置きます。",
-  },
-  sci_bottom_q: {
-    label: "bottom_Q",
-    text: "旧形式の木で、子の Q を持たない Q です。tree のいちばん下の Q です。",
+    text: "tree のいちばん上に並ぶ A（軸の A）です。task・target・data・method・output・metric の 6 つがあり、A はこの下に置きます。",
   },
   sci_rel: {
     label: "種類・条件",
@@ -217,7 +213,7 @@ const SAI_TERMS = {
   },
   sci_guide: {
     label: "GUIDE",
-    text: "Q の項目を書くときの手引きです。抽出の観点や落とし穴を書きます。",
+    text: "軸の A の下に何を置くかの手引きです。抽出の観点や落とし穴を書きます。",
   },
   sci_research_type: {
     label: "RESEARCH_TYPE",
@@ -228,6 +224,11 @@ const SAI_TERMS = {
     text: "sci_type を持つ sai-sci のブロックで動く agent です。node agent・manage agent・support agent の 3 つに分かれます。",
   },
 };
+
+// 軸の A（research-tree の木の一番上。親の無い A）か。research-tree の画面はこの 1 か所で見分ける。
+function saiIsAxis(node) {
+  return !!node && node.kind === "A" && node.parent == null;
+}
 
 // --- 重ね板（saiConfirm / saiPrompt / saiSheet で使い回す 1 枚） ---
 
@@ -847,6 +848,7 @@ if (typeof module !== "undefined" && module.exports) {
     saiTermLabel,
     saiTermList,
     saiMigrateStorage,
+    saiIsAxis,
     // グラフの目盛りと値（U04。DOM を触らないものだけ）
     saiNiceScale,
     saiAxisValue,

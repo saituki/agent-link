@@ -8,6 +8,8 @@
 const assert = require("assert");
 const path = require("path");
 
+// 画面の軸の判定（ui.js の saiIsAxis）。ブラウザでは一番外側の名前として読まれるので、テストでも同じ名前にする
+global.saiIsAxis = require(require("path").join(__dirname, "..", "src", "sai_web", "static", "ui.js")).saiIsAxis;
 const {
   sgTreeLayout,
   sgUpdate,
@@ -28,14 +30,14 @@ const {
 } = require(path.join(__dirname, "..", "src", "sai_web", "static", "scigraph.js"));
 
 // --- 4 layer の図の木 ---
-// 下から ROOT（Q0 → Q1 → A1・A2 → Q2・Q3 → A3 → F1・F2）、
+// 下から ROOT（A80 → A81 → A1・A2 → A82・A83 → A3 → F1・F2）、
 // SPROUT（S1・S2。親が無い古い S）、その上の BRANCH（S1 → E1 → E2・F3、S2 → E4）。
 // A2 は、どの PATH にも入っていない答え。
 
 function node(id, kind, parent, depth, extra) {
   return Object.assign({
     id, kind, parent, depth, text: `${id} の文`, starred: false, stance: null,
-    counts: { q: 0, a: 0, f: 0, e: 0 }, mlflow: null, paths: [], bottom_q: false,
+    counts: { a: 0, f: 0, e: 0 }, mlflow: null, paths: [],
   }, extra || {});
 }
 
@@ -43,13 +45,13 @@ function sampleStatus() {
   return {
     seed: { type: { id: "problem", name: "PROBLEM_DRIVEN" }, mind: [] },
     nodes: [
-      node("Q0", "Q", null, 0),
-      node("Q1", "Q", "Q0", 1),
-      node("A1", "A", "Q1", 2, { starred: true, counts: { q: 1, a: 0, f: 1, e: 0 } }),
-      node("A2", "A", "Q1", 2),
-      node("Q2", "Q", "A1", 3),
-      node("Q3", "Q", "A1", 3),
-      node("A3", "A", "Q2", 4, { starred: true, counts: { q: 0, a: 0, f: 2, e: 0 } }),
+      node("A80", "A", null, 0),
+      node("A81", "A", "A80", 1),
+      node("A1", "A", "A81", 2, { starred: true, counts: { q: 1, a: 0, f: 1, e: 0 } }),
+      node("A2", "A", "A81", 2),
+      node("A82", "A", "A1", 3),
+      node("A83", "A", "A1", 3),
+      node("A3", "A", "A82", 4, { starred: true, counts: { q: 0, a: 0, f: 2, e: 0 } }),
       node("F1", "F", "A3", 5, { stance: "support" }),
       node("F2", "F", "A3", 5, { stance: "deny" }),
       node("S1", "S", null, 1, { text: "最初の構想", paths: ["A3"] }),
@@ -74,8 +76,8 @@ function testLayers() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   // top_Q が +STEP、S が -STEP、S の下の E が -2×STEP。SEED の札は作らない
   assert.strictEqual(byId(l, "SEED"), undefined);
-  assert.strictEqual(byId(l, "Q0").y, SG_TREE_STEP);
-  assert.strictEqual(byId(l, "Q1").y, 2 * SG_TREE_STEP);
+  assert.strictEqual(byId(l, "A80").y, SG_TREE_STEP);
+  assert.strictEqual(byId(l, "A81").y, 2 * SG_TREE_STEP);
   assert.strictEqual(byId(l, "S1").y, -SG_TREE_STEP);
   assert.strictEqual(byId(l, "S2").y, -SG_TREE_STEP);
   assert.strictEqual(byId(l, "E1").y, -2 * SG_TREE_STEP);
@@ -89,11 +91,11 @@ function testLayers() {
 function testEdgeKinds() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   // Parent / Child（tree）だけ。SEED → top_Q・SEED → S の線は無い
-  assert.ok(hasEdge(l, "Q0", "Q1", "tree"));
+  assert.ok(hasEdge(l, "A80", "A81", "tree"));
   assert.ok(hasEdge(l, "S1", "E1", "tree"));
   assert.ok(hasEdge(l, "E1", "E2", "tree"));
   // S を ROOT の Parent / Child としてつながない
-  assert.ok(!hasEdge(l, "Q0", "S1", "tree"));
+  assert.ok(!hasEdge(l, "A80", "S1", "tree"));
   assert.deepStrictEqual(l.edges.filter((e) => e.kind !== "tree"), []);
   assert.deepStrictEqual(SG_EDGE_KINDS.map((k) => k[0]), ["tree"]);
 }
@@ -101,20 +103,20 @@ function testEdgeKinds() {
 function testNoSeedCard() {
   // SEED の無い status（seed の項目も無い）でも SEED の札は出ない。木は ROOT だけで描ける
   const l = sgTreeLayout({ status: miniStatus() }, {});
-  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "F3", "F4", "Q1"]);
+  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "A81", "F3", "F4"]);
   assert.deepStrictEqual(l.edges.filter((e) => e.kind !== "tree"), []);
 }
 
 function testSelection() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   assert.deepStrictEqual(sgSelectionOf(byId(l, "S1")), { kind: "node", id: "S1" });
-  assert.deepStrictEqual(sgSelectionOf(byId(l, "Q0")), { kind: "node", id: "Q0" });
+  assert.deepStrictEqual(sgSelectionOf(byId(l, "A80")), { kind: "node", id: "A80" });
 }
 
 function testChildDirection() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   // ROOT は子が親より下
-  for (const [c, p] of [["Q1", "Q0"], ["A1", "Q1"], ["Q2", "A1"], ["A3", "Q2"], ["F1", "A3"], ["F2", "A3"]]) {
+  for (const [c, p] of [["A81", "A80"], ["A1", "A81"], ["A82", "A1"], ["A3", "A82"], ["F1", "A3"], ["F2", "A3"]]) {
     assert.ok(byId(l, c).y > byId(l, p).y, `${c} > ${p}`);
   }
   // BRANCH は子が親より上
@@ -135,7 +137,7 @@ function testNoOverlap() {
 function testParentCentered() {
   const l = sgTreeLayout({ status: sampleStatus() }, {});
   const kids = (id) => l.cards.filter((c) => l.edges.some((e) => e.kind === "tree" && e.from === id && e.to === c.id));
-  for (const id of ["Q1", "A1", "Q2", "S1", "E1", "S2"]) {
+  for (const id of ["A81", "A1", "A82", "S1", "E1", "S2"]) {
     const ks = kids(id).sort((a, b) => a.x - b.x);
     assert.strictEqual(byId(l, id).x, (ks[0].x + ks[ks.length - 1].x) / 2, id);
   }
@@ -146,15 +148,15 @@ function testSproutKeep() {
   const keep = sgSproutKeep(sampleStatus(), "S1");
   assert.deepStrictEqual(
     [...keep].sort(),
-    ["S1", "E1", "E2", "F3", "A3", "Q2", "A1", "Q1", "Q0"].sort(),
+    ["S1", "E1", "E2", "F3", "A3", "A82", "A1", "A81", "A80"].sort(),
   );
-  // PATH の外の F1・F2・Q3・A2 と、別の SPROUT は残らない
-  for (const id of ["F1", "F2", "Q3", "A2", "S2", "E4"]) assert.ok(!keep.has(id), id);
+  // PATH の外の F1・F2・A83・A2 と、別の SPROUT は残らない
+  for (const id of ["F1", "F2", "A83", "A2", "S2", "E4"]) assert.ok(!keep.has(id), id);
   // S2 は A1 までの道だけ
   const keep2 = sgSproutKeep(sampleStatus(), "S2");
-  assert.deepStrictEqual([...keep2].sort(), ["S2", "E4", "A1", "Q1", "Q0"].sort());
+  assert.deepStrictEqual([...keep2].sort(), ["S2", "E4", "A1", "A81", "A80"].sort());
   // SPROUT でない ID には null
-  assert.strictEqual(sgSproutKeep(sampleStatus(), "Q0"), null);
+  assert.strictEqual(sgSproutKeep(sampleStatus(), "A80"), null);
   assert.strictEqual(sgSproutKeep(sampleStatus(), "S9"), null);
   assert.strictEqual(sgSproutKeep(sampleStatus(), null), null);
 }
@@ -187,7 +189,7 @@ function testCardContent() {
   // A は ★ と F の数。Q は印を出さない（Objectivity・Logicality は無い）
   assert.ok(byId(l, "A1").sub.includes("★"));
   assert.ok(byId(l, "A3").sub.includes("F 2"), byId(l, "A3").sub);
-  assert.strictEqual(byId(l, "Q0").sub, "");
+  assert.strictEqual(byId(l, "A80").sub, "");
   assert.strictEqual(byId(l, "E1").sub, "run-a");
   // PATH の外の A も淡くしない（on_path は無くなった）
   assert.ok(!("dim" in byId(l, "A2")));
@@ -197,11 +199,11 @@ function testCardContent() {
 function testConditionMark() {
   // rel が condition の A は副題に「条件」を添える。subtype と無い rel は何も足さない
   const status = { nodes: [
-    node("Q0", "Q", null, 0),
-    node("A1", "A", "Q0", 1, { rel: "subtype" }),
-    node("A2", "A", "Q0", 1, { rel: "condition", starred: true, counts: { q: 0, a: 0, f: 1, e: 0 } }),
-    node("A3", "A", "Q0", 1, { rel: "condition" }),
-    node("A4", "A", "Q0", 1),
+    node("A80", "A", null, 0),
+    node("A1", "A", "A80", 1, { rel: "subtype" }),
+    node("A2", "A", "A80", 1, { rel: "condition", starred: true, counts: { q: 0, a: 0, f: 1, e: 0 } }),
+    node("A3", "A", "A80", 1, { rel: "condition" }),
+    node("A4", "A", "A80", 1),
   ] };
   const l = sgTreeLayout({ status }, {});
   assert.strictEqual(byId(l, "A1").sub, "");
@@ -258,16 +260,16 @@ function testTitleLines() {
   assert.ok(SG_CARD_H > SG_CARD_W, "Card は縦長");
 }
 
-// --- A の出し入れと畳み（U02）: Q1 → A2 → F3・F4、Q1 → A5 ---
+// --- A の出し入れと畳み（U02）: A81 → A2 → F3・F4、A81 → A5 ---
 
 function miniStatus() {
   return {
     nodes: [
-      node("Q1", "Q", null, 0),
-      node("A2", "A", "Q1", 1),
+      node("A81", "A", null, 0),
+      node("A2", "A", "A81", 1),
       node("F3", "F", "A2", 2, { stance: "support" }),
       node("F4", "F", "A2", 2, { stance: "issue" }),
-      node("A5", "A", "Q1", 1),
+      node("A5", "A", "A81", 1),
     ],
   };
 }
@@ -277,27 +279,39 @@ const treeEdges = (l) => l.edges.filter((e) => e.kind === "tree").map((e) => `${
 
 function testCollapsed() {
   const l = sgTreeLayout({ status: miniStatus() }, { collapsed: ["A2"] });
-  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "Q1"].sort());
+  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "A81"].sort());
   assert.strictEqual(byId(l, "F3"), undefined);
   assert.strictEqual(byId(l, "F4"), undefined);
   assert.strictEqual(byId(l, "A2").collapsed, true);
   assert.ok(byId(l, "A2").sub.endsWith("▸ +2"), byId(l, "A2").sub);
   assert.strictEqual(byId(l, "A5").collapsed, false);
-  assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→A2", "Q1→A5"]);
+  assert.deepStrictEqual(treeEdges(l).sort(), ["A81→A2", "A81→A5"]);
 }
 
 function testHideA() {
   const l = sgTreeLayout({ status: miniStatus() }, { hideA: true });
-  assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "Q1"].sort());
-  // A を隠すとその下は A の父の Q につなぐ
-  assert.deepStrictEqual(treeEdges(l).sort(), ["Q1→F3", "Q1→F4"]);
+  assert.deepStrictEqual(idsOf(l).sort(), ["F3", "F4", "A81"].sort());
+  // A を隠すとその下は軸の A（A81）につなぐ。軸の A は隠さない
+  assert.deepStrictEqual(treeEdges(l).sort(), ["A81→F3", "A81→F4"]);
 }
 
 function testHideFAndA() {
   const l = sgTreeLayout({ status: miniStatus() }, { hideF: true, hideA: true });
-  assert.deepStrictEqual(idsOf(l), ["Q1"]);
-  assert.ok(byId(l, "Q1").sub.includes("F 2"), byId(l, "Q1").sub);
+  assert.deepStrictEqual(idsOf(l), ["A81"]);
+  assert.ok(byId(l, "A81").sub.includes("F 2"), byId(l, "A81").sub);
   assert.deepStrictEqual(treeEdges(l), []);
+}
+
+// 軸の A（親の無い A）は軸の色の印を持ち、副題（★・F・条件）を出さない。軸でない A は持たない
+function testAxisCard() {
+  const l = sgTreeLayout({ status: miniStatus() }, {});
+  const axis = byId(l, "A81");
+  assert.strictEqual(axis.axis, true);
+  assert.strictEqual(axis.sub.includes("F"), false, "軸の A の副題に F を出さない");
+  assert.strictEqual(byId(l, "A2").axis, false);
+  // 隠した F の数は軸の A の副題に出る（A2 の下の F は A81 の下に来る）
+  const h = sgTreeLayout({ status: miniStatus() }, { hideF: true, hideA: true });
+  assert.ok(byId(h, "A81").sub.includes("F 2"), byId(h, "A81").sub);
 }
 
 function testCollapsedWithoutChildren() {
@@ -306,13 +320,13 @@ function testCollapsedWithoutChildren() {
   assert.strictEqual(byId(l, "A5").collapsed, false);
   assert.strictEqual(byId(l, "A5").canCollapse, false);
   assert.ok(!byId(l, "A5").sub.includes("▸"), byId(l, "A5").sub);
-  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "F3", "F4", "Q1"].sort());
+  assert.deepStrictEqual(idsOf(l).sort(), ["A2", "A5", "F3", "F4", "A81"].sort());
 
-  // 子孫のある Q1 を畳むと、他は子孫と印だけ
-  const l2 = sgTreeLayout({ status: miniStatus() }, { collapsed: ["Q1"] });
-  assert.deepStrictEqual(idsOf(l2), ["Q1"]);
-  assert.strictEqual(byId(l2, "Q1").collapsed, true);
-  assert.ok(byId(l2, "Q1").sub.includes("▸ +4"), byId(l2, "Q1").sub);
+  // 子孫のある A81 を畳むと、他は子孫と印だけ
+  const l2 = sgTreeLayout({ status: miniStatus() }, { collapsed: ["A81"] });
+  assert.deepStrictEqual(idsOf(l2), ["A81"]);
+  assert.strictEqual(byId(l2, "A81").collapsed, true);
+  assert.ok(byId(l2, "A81").sub.includes("▸ +4"), byId(l2, "A81").sub);
 }
 
 function testCenterView() {
@@ -328,9 +342,9 @@ function seedStatus() {
   return {
     seed: { type: { id: "problem", name: "PROBLEM_DRIVEN" }, mind: [] },
     nodes: [
-      node("Q0", "Q", null, 0),
-      node("Q1", "Q", "Q0", 1),
-      node("A1", "A", "Q1", 2),
+      node("A80", "A", null, 0),
+      node("A81", "A", "A80", 1),
+      node("A1", "A", "A81", 2),
       node("D1", "D", null, 0, { text: "発作部位の特定" }),
       node("D2", "D", null, 0, { text: "予後" }),
       node("S1", "S", "D1", 1, { text: "最初の構想", paths: ["A1"] }),
@@ -370,9 +384,9 @@ function testSeedLayer() {
   assert.ok(hasEdge(l, "D1", "S1", "tree"));
   assert.ok(hasEdge(l, "D1", "S2", "tree"));
   assert.ok(hasEdge(l, "D2", "S3", "tree"));
-  // D から ROOT の top_Q（Q0）へも線を引く
-  assert.ok(hasEdge(l, "D1", "Q0", "tree"));
-  assert.ok(hasEdge(l, "D2", "Q0", "tree"));
+  // D から ROOT の top_Q（A80）へも線を引く
+  assert.ok(hasEdge(l, "D1", "A80", "tree"));
+  assert.ok(hasEdge(l, "D2", "A80", "tree"));
   // S を選ぶと、親の D も濃く残す
   assert.ok(sgSproutKeep(seedStatus(), "S1").has("D1"), "S1 を選ぶと D1 を残す");
   assert.ok(!sgSproutKeep(seedStatus(), "S1").has("D2"), "別の D は薄いまま");
@@ -392,16 +406,16 @@ function testSeedLayer() {
 }
 
 function rolesStatus() {
-  // 道の 3 本: A3（A1 で固定が切れる新規の道）・A4（固定の道）・A5（Q0 だけ固定の新規の道）
+  // 道の 3 本: A3（A1 で固定が切れる新規の道）・A4（固定の道）・A5（A80 だけ固定の新規の道）
   return {
     nodes: [
-      node("Q0", "Q", null, 0),
-      node("Q1", "Q", "Q0", 1),
-      node("A1", "A", "Q1", 2),
-      node("Q2", "Q", "A1", 3),
-      node("A3", "A", "Q2", 4),
-      node("A4", "A", "Q1", 2),
-      node("A5", "A", "Q1", 2),
+      node("A80", "A", null, 0),
+      node("A81", "A", "A80", 1),
+      node("A1", "A", "A81", 2),
+      node("A82", "A", "A1", 3),
+      node("A3", "A", "A82", 4),
+      node("A4", "A", "A81", 2),
+      node("A5", "A", "A81", 2),
       node("D1", "D", null, 0),
       node("S1", "S", "D1", 1, {
         paths: ["A3", "A4", "A5"],
@@ -418,10 +432,10 @@ function rolesStatus() {
 }
 
 function testSproutRoles() {
-  // 固定（seed の回答）: A4 の道。新規（sprout の回答）: A3 の道と A5 の道。Q1・Q0 は両方に入るので新規を優先する
+  // 固定（seed の回答）: A4 の道。新規（sprout の回答）: A3 の道と A5 の道。A81・A80 は両方に入るので新規を優先する
   const roles = sgSproutRoles(rolesStatus(), "S1");
   assert.deepStrictEqual(Object.fromEntries(roles), {
-    A3: "novel", Q2: "novel", A1: "novel", A5: "novel", Q1: "novel", Q0: "novel",
+    A3: "novel", A82: "novel", A1: "novel", A5: "novel", A81: "novel", A80: "novel",
     A4: "fixed",
     E1: "exp", E2: "exp",
     D1: "seed",
@@ -429,10 +443,10 @@ function testSproutRoles() {
   // 新規の道は、道の全部が新規（fixed_at の区切りは無い）
   const st2 = rolesStatus();
   st2.nodes.find((n) => n.id === "S1").path_roles = [{ a: "A4", axis: null, role: "novel", question: "SQ1" }];
-  assert.deepStrictEqual(Object.fromEntries(sgSproutRoles(st2, "S1")), { A4: "novel", Q1: "novel", Q0: "novel", E1: "exp", E2: "exp", D1: "seed" });
+  assert.deepStrictEqual(Object.fromEntries(sgSproutRoles(st2, "S1")), { A4: "novel", A81: "novel", A80: "novel", E1: "exp", E2: "exp", D1: "seed" });
   // S 以外（D・Q・SEED・無し）は null
   assert.strictEqual(sgSproutRoles(rolesStatus(), "D1"), null);
-  assert.strictEqual(sgSproutRoles(rolesStatus(), "Q0"), null);
+  assert.strictEqual(sgSproutRoles(rolesStatus(), "A80"), null);
   assert.strictEqual(sgSproutRoles(rolesStatus(), "SEED"), null);
   assert.strictEqual(sgSproutRoles(rolesStatus(), null), null);
 }
@@ -459,7 +473,7 @@ function testSeedKeep() {
   // D を選んでも他の札を薄くしない（null）
   assert.strictEqual(sgSproutKeep(seedStatus(), "D1"), null);
   // S でない ID は null
-  assert.strictEqual(sgSproutKeep(seedStatus(), "Q1"), null);
+  assert.strictEqual(sgSproutKeep(seedStatus(), "A81"), null);
 }
 
 const tests = [
@@ -485,6 +499,7 @@ const tests = [
   ["hideA", testHideA],
   ["hideF と hideA", testHideFAndA],
   ["子孫の無い札の畳み", testCollapsedWithoutChildren],
+  ["軸の A の札", testAxisCard],
   ["中央に出す tx と ty", testCenterView],
   ["seed（D）の層", testSeedLayer],
   ["seed を選んだときの残す札", testSeedKeep],

@@ -218,10 +218,10 @@
 .sci-graph-row-rejected,
 .sci-graph-row-dormant { opacity: 0.6; }
 
-/* --- Q・A・F・E・S・D・SEED の札（U20）。枠の色で種類を分ける --- */
+/* --- A・F・E・S・D・SEED の札（U20）。枠の色で種類を分ける。軸の A は軸の色 --- */
 
-.sci-graph-Q { --sg-color: var(--sci-k-Q); }
 .sci-graph-A { --sg-color: var(--sci-k-A); }
+.sci-graph-card.sci-axis { --sg-color: var(--sci-axis); }
 .sci-graph-F { --sg-color: var(--sci-k-F); }
 .sci-graph-E { --sg-color: var(--sci-k-E); }
 .sci-graph-S {

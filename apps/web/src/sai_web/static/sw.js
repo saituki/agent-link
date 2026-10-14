@@ -120,7 +120,8 @@
 // U06（木の表示・条件の目印・A の板の釦（add_a・move_node・copy）・旧い op の釦を外す・papers.js の node 検査）で v127 に（index.html の ?v= も 127。ASSETS は変えない）。U05 の sciedit.js の変更も同じ版で配る
 // U01（+Library の position 0 の修正・外部 DB の絞り込みを全検索履歴の候補から探す・papers.js）で v128 に（index.html の ?v= も 128。ASSETS は変えない）
 // U03（Library に Suggest の切り替え・一覧・中身・狭い画面の専用の画面を足す・papers.js / index.html）で v129 に（index.html の ?v= も 129。ASSETS は変えない）
-const CACHE = "sai-web-v129";
+// U04（research-tree の軸の A の色・板・GUIDE・操作の出し分け・scitree.js / sciedit.js / sciread.js / scigraph.js / ui.js / 色の変数 --sci-axis）で v130 に（index.html の ?v= も 130。ASSETS は変えない）
+const CACHE = "sai-web-v130";
 const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/manifest.json"];
 
 // オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
