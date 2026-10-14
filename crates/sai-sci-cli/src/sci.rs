@@ -30,7 +30,7 @@ pub(crate) enum Out {
 /// `card` の引数（CLI から）。
 #[derive(clap::Args, Debug)]
 pub(crate) struct SciCardArgs {
-    /// 対象の Node（Q・A・F・E・S・D。`Q12`）。省くと木の全体
+    /// 対象の Node（A・F・E・S・D。`A12`）。省くと木の全体
     #[arg(long)]
     pub node: Option<String>,
     /// 実行するブロックの id
@@ -66,7 +66,7 @@ pub(crate) struct SciCardArgs {
     /// 依頼文に載せる文書の waggle トークン（繰り返し可）
     #[arg(long = "input")]
     pub input: Vec<String>,
-    /// 足す子の型（Q・A・F。Q の下は Q か A、A の下は Q か F）
+    /// 足す子の型（A・F。軸の A の下は A、軸でない A の下は A か F）
     #[arg(long)]
     pub child: Option<String>,
 }
@@ -182,7 +182,7 @@ pub(crate) struct InitOutcome {
     pub type_name: String,
     /// RESEARCH_TYPE そのもの（problem など）。
     pub type_id: String,
-    /// 作った Q の数（一番上を含む）。
+    /// 作った問いの数（一番上を含む）。
     pub created: usize,
     /// 見つかった注意点。
     pub warnings: Vec<String>,
@@ -553,7 +553,7 @@ pub(crate) struct SearchRefs {
 
 /// `find` / `search` の引数検査。
 ///
-/// `--node` は `Q12`・`A5` のような形だけを受け付ける。指定が無ければ何も調べない
+/// `--node` は `A12`・`A5` のような形だけを受け付ける。指定が無ければ何も調べない
 /// （research-tree が無いプロジェクトでも `find` / `search` を今までどおり使えるようにするため）。
 pub(crate) fn parse_search_refs(conn: &Connection, node: Option<&str>) -> Result<SearchRefs> {
     let Some(text) = node else {
@@ -611,7 +611,7 @@ pub(crate) struct SearchLog<'a> {
     pub tool: &'a str,
     /// 検索語。
     pub query: &'a str,
-    /// 検索の範囲（`node:Q12` など）。
+    /// 検索の範囲（`node:A12` など）。
     pub scope: &'a str,
     /// 当たった件数。
     pub hits: i64,
@@ -854,7 +854,7 @@ fn short(text: &str) -> String {
     format!("{}…", one.chars().take(30).collect::<String>())
 }
 
-/// A の道（`Q1 › A7 › Q20 › A12`）。道が無ければ空。
+/// A の道（`A1 › A7 › A20 › A12`）。道が無ければ空。
 fn chain_text(detail: &compute::NodeDetail, a: &str) -> String {
     detail.chains.get(a).map_or_else(String::new, |items| items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>().join(" › "))
 }
@@ -1000,7 +1000,7 @@ fn node_text(detail: &compute::NodeDetail) -> String {
     text
 }
 
-/// `sci read <run_id>` の文（論文・深さ・目的・読むときの Q・抜き出すもの・F）。
+/// `sci read <run_id>` の文（論文・深さ・目的・読むときの観点・抜き出すもの・F）。
 fn read_text(card: &card::ReadCard) -> String {
     let field = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").to_string();
     let mut text = format!(
@@ -1023,7 +1023,7 @@ fn read_text(card: &card::ReadCard) -> String {
         text.push_str(&format!("目的: {}\n", one_line(&card.purpose)));
     }
     if !card.questions.is_empty() {
-        text.push_str("読むときの Q:\n");
+        text.push_str("読むときの観点:\n");
         for question in &card.questions {
             text.push_str(&format!("  {question}\n"));
         }
@@ -1118,12 +1118,12 @@ mod tests {
         assert!(text.contains("RESEARCH_TYPE: "), "{text}");
         assert!(text.contains("seed（D）はまだありません"), "{text}");
         assert!(text.contains("木: 軸 "), "{text}");
-        assert!(text.contains("- Q1 "), "{text}");
+        assert!(text.contains("- A1 "), "{text}");
         assert!(!text.contains("Objectivity"), "{text}");
 
         let brief = brief_status(&status);
         assert_eq!(brief["type"], "problem");
-        assert!(brief["counts"]["q"].as_i64().unwrap() > 0, "{brief}");
+        assert!(brief["counts"]["axis"].as_i64().unwrap() > 0, "{brief}");
         assert!(brief.get("seed_draft").is_none(), "{brief}");
         for key in ["counts", "next", "running", "warnings"] {
             assert!(brief.get(key).is_some(), "{key}: {brief}");
@@ -1281,10 +1281,9 @@ mod tests {
             )
             .unwrap()
         };
-        let q = new(rt::Kind::Q, None, Some("method"), "手法の問い", "", &[]);
+        let q = new(rt::Kind::A, None, Some("method"), "手法", "", &[]);
         let a94 = new(rt::Kind::A, Some(q), None, "Costa 型", "", &[]);
-        let q60 = new(rt::Kind::Q, Some(a94), None, "下位の問い", "", &[]);
-        let a385 = new(rt::Kind::A, Some(q60), None, "細かい手法", "", &[]);
+        let a385 = new(rt::Kind::A, Some(a94), None, "細かい手法", "", &[]);
         let d = new(rt::Kind::D, None, None, "題", "", &[]);
         // seed の問い（雛形の 7 問）。task と data は seed が答え、method は S が答える（新規）。
         let qs: Vec<i64> = rt::seedq::TEMPLATE.iter().map(|(axis, text)| rt::seedq::insert_question(conn, d, text, *axis).unwrap()).collect();
@@ -1304,7 +1303,7 @@ mod tests {
         // seed の回答（固定）は問いの文と答え。path の回答は A の文と道。
         assert!(text.contains(&format!("- {} 解く問題は何か: 「発作部位の特定」\n", rt::fmt_sq(qs[0]))), "{text}");
         assert!(text.contains(&format!("- {} どのデータを使うか: 「記載なし: 実測データを使わない」\n", rt::fmt_sq(qs[2]))), "{text}");
-        let chain = format!("Q{q} › A{a94} › Q{q60} › A{a385}");
+        let chain = format!("A{q} › A{a94} › A{a385}");
         assert!(text.contains(&format!("- {} どの手法を使うか: A{a385} 細かい手法（{chain}）", rt::fmt_sq(qs[3]))), "{text}");
         assert!(text.contains(&format!("- {} 対象は誰・何か", rt::fmt_sq(qs[1]))), "{text}");
         assert!(text.contains(&format!("- E{e} 実験の題")), "{text}");
