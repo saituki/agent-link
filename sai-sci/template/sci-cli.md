@@ -30,7 +30,7 @@ sai-paper suggest add --reason "<理由>" --item <log>:<position>[:<理由>] --j
 |---|---|
 | 現況の要点 | `sai-sci status --brief` |
 | 現況の全体 | `sai-sci status [--json]` |
-| Node 1 つの詳細 | `sai-sci node <Q12> [--json]` |
+| Node 1 つの詳細 | `sai-sci node <A12> [--json]` |
 | 実行のための入力（`# context`） | `sai-sci context --run <run_id> [--tree]` |
 | 木を変える（ALLOWED_OPS の op。標準入力に JSON） | `sai-sci op [--run <run_id>] [--block <ブロックの id>]` |
 | 利用者が木を直す（agent は打たない。例外は下の段落） | `sai-sci apply`（標準入力に op 1 件の JSON） |
@@ -48,18 +48,19 @@ sai-paper suggest add --reason "<理由>" --item <log>:<position>[:<理由>] --j
 ### Node のための実行（CARD）を作る
 
 ```bash
-sai-sci card --node <Q12> --block <lab-read> \
+sai-sci card --node <A12> --block <lab-read> \
   --purpose <行動の目的> [--expect <期待する成果>] \
   [--papers <番号,番号>] [--runner cc|user] [--depth abstract|figures|full] \
   [--input <waggle トークン>]… [--model <m>] [--thinking <t>] \
   --origin-run "$SAI_PARENT_RUN_ID" --json
 ```
 
-- `--node`（対象の Node。Q・A・F・E・S・D）は、対象を書く。木の全体を対象にするときだけ省く。`--block`・`--purpose` は必ず書く。
+- `--node`（対象の Node。A・F・E・S・D）は、対象を書く。木の全体を対象にするときだけ省く。`--block`・`--purpose` は必ず書く。
+- ID の `Q<n>` は `A<n>` の別名として読まれる。出力には `Q<n>` は出ない。
 - `--runner` は `cc`（既定）か `user`。`user` は、利用者が自分で READ_CARD になる。`--depth` はその読む深さ。
 - `--model`・`--thinking` は、起こす側が選ぶ（下の「別の agent を起こす」）。省くと block の frontmatter の値になる。
 - `--input` は依頼文に載せる文書の waggle トークン。繰り返し可。長い決定事項は `sai-link doc write` で保存してから渡す。
-- `--child`（任意）は、CARD が足す子の型（`Q`・`A`・`F`）。Next Action の `card` が `child` を持つときは、その値をそのまま付ける（`F` を探す CARD は `--child F`）。
+- `--child`（任意）は、CARD が足す子の型（`A`・`F`。対象が軸の A なら `A` だけ）。Next Action の `card` が `child` を持つときは、その値をそのまま付ける（`F` を探す CARD は `--child F`）。
 - `--origin-run` は自分がその Node を選んだ実行の run_id。省略すると `SAI_PARENT_RUN_ID`。
 - `--json` を付けると戻り値が JSON になり、CARD の `run_id` が分かる。
 

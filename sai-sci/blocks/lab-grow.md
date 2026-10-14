@@ -31,12 +31,12 @@ Library の論文（`sai-sci find`）を手がかりに、対象の Node に子�
 
 足す子の型は、依頼文の `sci_child` が指定されていればそれに従います。空なら、次の決まりで自分が選びます。
 
-- **軸（Q）の下**: 答えの候補（A）を足します。
+- **軸の A の下**: 答えの候補（A）を足します。
 - **A の下**: 下位の種類（A）を足すか、事実（F）を付けます。
 - 既に子がある Node は、その子と同じ型に従います（A が並んでいれば A、F が並んでいれば F）。
 - 足す A が既にある A の下位（より詳しい選択肢）なら、その A の下に `add_a` の `parent` を書いて足します。
 
-依頼文の `why` が `BLANK_NO_PATH` のときは、NODE は回答の無い問いの軸（Q）です。その軸の大分類の A の下に、S の回答に選べる下位の A を育てます。依頼文の `purpose` に並ぶ seed（D）の題を手がかりにします。
+依頼文の `why` が `BLANK_NO_PATH` のときは、NODE は回答の無い問いの軸の A です。その軸の下の大分類の A の下に、S の回答に選べる下位の A を育てます。依頼文の `purpose` に並ぶ seed（D）の題を手がかりにします。
 
 root は seed に縛られません。root に A を足すのは、seed の問いの回答の選択肢を増やすためです。次の形で書きます。
 
@@ -53,7 +53,7 @@ root は seed に縛られません。root に A を足すのは、seed の問�
 4. **段ごとに `op` を分けて出す。** 1 回の `sai-sci op` は 1 段だけにします。返った ID（`result`）を次の段で使います。
 
    ```bash
-   echo '{"ops": [{"op": "add_a", "parent": "Q4", "text": "…", "body": "確かめ方"}]}' | sai-sci op --block lab-grow
+   echo '{"ops": [{"op": "add_a", "parent": "A4", "text": "…", "body": "確かめ方"}]}' | sai-sci op --block lab-grow
    echo '{"ops": [{"op": "add_a", "parent": "A12", "text": "…", "rel": "subtype", "body": "確かめ方"}]}' | sai-sci op --block lab-grow
    echo '{"ops": [{"op": "add_f", "parent": "A12", "text": "…", "stance": "support", "cites": ["#37.5.2"]}]}' | sai-sci op --block lab-grow
    ```

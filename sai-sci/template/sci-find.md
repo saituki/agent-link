@@ -14,7 +14,7 @@
 - 検索の前に `## SEARCH_HISTORY` を読み、同じ検索を繰り返しません。
 
 ```bash
-sai-sci find "<英語の検索語>" --node Q12 --mode word --json   # Q12 の F の論文の中
+sai-sci find "<英語の検索語>" --node A12 --mode word --json   # A12 の F の論文の中
 sai-sci find "<英語の検索語>" --node A5 --subtree --each 3 --json   # A5 の部分木
 sai-sci find "<英語の検索語>" --json   # Library 全体
 sai-sci search "<英語の検索語>" --db s2 --db pubmed --limit 30 --purpose "<目的>" --extract "<抜き出すもの>" --json
