@@ -15,7 +15,7 @@ use sai_paper_core::retrieval::{RetrievalError, resolve_paper_scope};
 ///
 /// どれも無ければ `(None, "library")`。
 /// `--node` は `rt_nodes.id`。その Node と直の子（`subtree` なら子孫すべて）の生きた F の
-/// `paper_id` と `cites` の論文番号を集める。論文が 0 本なら `(Some(空), "node:Q7")`
+/// `paper_id` と `cites` の論文番号を集める。論文が 0 本なら `(Some(空), "node:A7")`
 /// （0 本の Node では Library 全体を返さない）。
 ///
 /// # Errors
@@ -85,7 +85,7 @@ mod tests {
     use super::*;
     use sai_paper_core::Database;
 
-    /// Q の下に A を置き、A の F（論文 1 は paper_id・論文 3 は cites）と、
+    /// 軸の A の下に A を置き、A の F（論文 1 は paper_id・論文 3 は cites）と、
     /// 孫の F（論文 4）と、✕ した F（論文 5）を作る。
     fn scope_db() -> Database {
         let db = Database::in_memory().unwrap();
@@ -112,13 +112,13 @@ mod tests {
             )
             .unwrap()
         };
-        let q = add(Kind::Q, None, "問い", None, &[]);
+        let q = add(Kind::A, None, "問い", None, &[]);
         let node = add(Kind::A, Some(q), "手法", None, &[]);
         add(Kind::F, Some(node), "根拠 1", Some(1), &[]);
         add(Kind::F, Some(node), "根拠 3", None, &["#3 §2.1".to_string()]);
         let removed = add(Kind::F, Some(node), "外した根拠", Some(5), &[]);
         store::remove_subtree(conn, removed).unwrap();
-        let child_q = add(Kind::Q, Some(node), "下の問い", None, &[]);
+        let child_q = add(Kind::A, Some(node), "下の問い", None, &[]);
         let child_o = add(Kind::A, Some(child_q), "下の答え", None, &[]);
         add(Kind::F, Some(child_o), "根拠 4", Some(4), &[]);
         db
@@ -130,10 +130,10 @@ mod tests {
         let db = scope_db();
         let conn = db.connection();
 
-        // research-tree の中の位置を調べる（Q → A → child_Q → 子の A）。
+        // research-tree の中の位置を調べる（軸の A → A → 下の A → 子の A）。
         let q: i64 = conn
             .query_row(
-                "SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id IS NULL",
+                "SELECT id FROM rt_nodes WHERE kind = 'A' AND parent_id IS NULL",
                 [],
                 |r| r.get(0),
             )
@@ -147,7 +147,7 @@ mod tests {
             .unwrap();
         let child_q: i64 = conn
             .query_row(
-                "SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id = ?1",
+                "SELECT id FROM rt_nodes WHERE kind = 'A' AND parent_id = ?1",
                 [node],
                 |r| r.get(0),
             )
@@ -176,10 +176,10 @@ mod tests {
         // Node に論文が無くても `Some(空)`（Library 全体を返さない）。
         let (ids, scope) = resolve_scope(conn, None, &[], Some(child_q), true).unwrap();
         assert_eq!(ids, Some(vec![4]));
-        assert_eq!(scope, format!("subtree:Q{child_q}"));
+        assert_eq!(scope, format!("subtree:A{child_q}"));
         let (ids, scope) = resolve_scope(conn, None, &[], Some(q), false).unwrap();
         assert_eq!(ids, Some(Vec::new()));
-        assert_eq!(scope, format!("node:Q{q}"));
+        assert_eq!(scope, format!("node:A{q}"));
 
         // ✕ した Node と、無い Node は失敗する。
         let removed: i64 = conn

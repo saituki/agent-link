@@ -23,13 +23,13 @@ const DEPTHS: [&str; 3] = ["abstract", "figures", "full"];
 const READ_BLOCK: &str = "lab-read";
 const MAX_PAPERS: usize = 20;
 const MAX_PURPOSE: usize = 300;
-const Q_HEADING: &str = "## 読むときの Q";
+const VIEW_HEADING: &str = "## 読むときの観点";
 const EXTRACT_HEADING: &str = "## 抜き出すもの";
 
 /// CARD の値（C-CARD）。
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
 pub struct CardSpec {
-    /// Q・A・F・E・S・D の ID。空は木の全体（廃止した `SEED` は断る）。
+    /// A・F・E・S・D の ID（Q は A の別名）。空は木の全体（廃止した `SEED` は断る）。
     pub node: String,
     /// 必須。runner が user で空なら `lab-read`。
     pub block: String,
@@ -113,16 +113,16 @@ fn check_token(raw: &str) -> Result<String> {
     if ok { Ok(bare.to_string()) } else { invalid(format!("文書のトークンの形が違います: {raw}")) }
 }
 
-/// 足す子の型を検査する（C7）。Q の下は A、A の下は A か F。Q は新しく作れないので指定できない。空は未指定として通す。
+/// 足す子の型を検査する（C7・K2）。軸の A の下は A、軸でない A の下は A か F。空は未指定として通す。
 fn check_child(target: Option<&store::NodeRow>, child: &str) -> Result<String> {
     let child = child.trim();
     if child.is_empty() {
         return Ok(String::new());
     }
-    let allowed: &[&str] = match target.map(|n| n.kind) {
-        Some(Kind::Q) => &["A"],
-        Some(Kind::A) => &["A", "F"],
-        _ => return invalid("足す子の型は Q か A の Node にだけ指定できます"),
+    let allowed: &[&str] = match target {
+        Some(n) if store::is_axis(n) => &["A"],
+        Some(n) if n.kind == Kind::A => &["A", "F"],
+        _ => return invalid("足す子の型は A の Node にだけ指定できます"),
     };
     if allowed.contains(&child) {
         Ok(child.to_string())
@@ -150,10 +150,10 @@ fn handoff_error(error: HandoffError) -> RtError {
     }
 }
 
-/// 読むときの Q の対象になる Node（A なら親の A か Q）。
-fn target_q(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::NodeRow>> {
+/// 読むときの観点の対象になる軸の A（軸の A なら自分、軸でない A なら親）。
+fn target_axis(conn: &Connection, node: &store::NodeRow) -> Result<Option<store::NodeRow>> {
     Ok(match node.kind {
-        Kind::Q => Some(node.clone()),
+        Kind::A if store::is_axis(node) => Some(node.clone()),
         Kind::A => match node.parent_id {
             Some(parent) => Some(store::get_node(conn, parent)?),
             None => None,
@@ -249,8 +249,8 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
         if spec.papers.len() != 1 {
             return invalid("READ_CARD には論文をちょうど 1 本指定してください");
         }
-        if !node.as_ref().is_some_and(|n| matches!(n.kind, Kind::A | Kind::Q)) {
-            return invalid("READ_CARD の Node は A か Q にしてください（F を付ける先が要ります）");
+        if !node.as_ref().is_some_and(|n| n.kind == Kind::A) {
+            return invalid("READ_CARD の Node は A にしてください（F を付ける先が要ります）");
         }
     }
     for id in &spec.papers {
@@ -275,9 +275,9 @@ pub fn create_card(db: &Database, roots: &PaperRoots, defs: &Defs, spec: &CardSp
     }
     if is_read {
         let read_node = node.as_ref().expect("READ_CARD は Node が必須");
-        let q = target_q(conn, read_node)?;
+        let q = target_axis(conn, read_node)?;
         let guide = q.as_ref().and_then(|q| q.guide_key.as_deref()).and_then(|key| defs.guide(key));
-        body.push_str(&format!("\n{Q_HEADING}\n"));
+        body.push_str(&format!("\n{VIEW_HEADING}\n"));
         if let Some(q) = &q {
             body.push_str(&format!("- {}\n", q.text));
         }
@@ -389,7 +389,7 @@ pub fn read_card(conn: &Connection, roots: &PaperRoots, defs: &Defs, run_id: i64
         purpose: run.keys.purpose,
         paper: json!({"id": paper_id, "title": title, "year": year}),
         depth: run.keys.depth,
-        questions: section_lines(&text, Q_HEADING),
+        questions: section_lines(&text, VIEW_HEADING),
         extract: section_lines(&text, EXTRACT_HEADING),
         findings,
         note,
@@ -435,7 +435,7 @@ mod tests {
             .unwrap();
         let c = db.connection();
         let mut n = store::NewNode {
-            kind: Kind::Q, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", stance: None,
+            kind: Kind::A, parent_id: None, guide_key: Some("data"), text: "データの量は？", body: "", stance: None,
             cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None,
             paths: &[], created_by: "user",
         };
@@ -453,7 +453,7 @@ mod tests {
         store::insert_node(c, &n).unwrap();
         let defs = Defs {
             guides: vec![GuideDef {
-                key: "data".into(), name: "データ".into(), explain: String::new(), question: String::new(),
+                key: "data".into(), name: "データ".into(), explain: String::new(), label: String::new(),
                 child_candidates: vec!["規模は？".into()], extract: vec!["件数".into(), "出所".into()],
                 pitfalls: vec![],
             }],
@@ -481,7 +481,7 @@ mod tests {
     fn child_key_checked_and_written() {
         let e = env("child");
         let with = |node: &str, child: &str| CardSpec { node: node.into(), child: child.into(), ..spec() };
-        // Q の下は A、A の下は A か F。Q は新しく作れないので指定できない。それ以外（と知らない値）は入力の誤り。
+        // 軸の A（Q1 は A1 の別名）の下は A、軸でない A（A2）の下は A か F。それ以外（と知らない値・Q）は入力の誤り。
         for bad in [with("Q1", "F"), with("Q1", "Q"), with("A2", "Q"), with("A2", "O")] {
             assert!(matches!(create_card(&e.db, &e.roots, &e.defs, &bad), Err(RtError::Invalid(_))), "{bad:?}");
         }
@@ -502,14 +502,14 @@ mod tests {
         let before = node_rows(&e);
         let r = create_card(&e.db, &e.roots, &e.defs, &spec()).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
-        for key in ["sci_node: Q1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: A を 2 つ"] {
+        for key in ["sci_node: A1", "sci_mode: purpose_first", "sci_papers: 37", "sci_expect: A を 2 つ"] {
             assert!(text.contains(key), "{key}\n{text}");
         }
         // 古い範囲と仮置きのキーは task.md に書かない（名前は文字列を分けて組み立てる）。
         assert!(!text.contains(&format!("sci_{}", "scope")) && !text.contains(&format!("sci_{}", "assume")));
         assert!(!text.contains("sci_question") && !text.contains("sci_role") && !text.contains("sci_depth"));
         let k = task_keys(&text);
-        assert_eq!(k.node, Some((Kind::Q, 1)));
+        assert_eq!(k.node, Some((Kind::A, 1)));
         assert_eq!(k.papers, vec![37]);
         assert_eq!(node_rows(&e), before);
     }
@@ -574,7 +574,7 @@ mod tests {
         let mut s = spec();
         s.runner = "user".into();
         s.node = "F3".into();
-        assert!(err(&e, &s).contains("A か Q"));
+        assert!(err(&e, &s).contains("READ_CARD の Node は A にしてください"));
         let mut s = spec();
         s.purpose = "한글".into();
         assert!(err(&e, &s).contains("ハングル"));
@@ -590,7 +590,7 @@ mod tests {
         s.mode = String::new();
         let r = create_card(&e.db, &e.roots, &e.defs, &s).unwrap();
         let text = fs::read_to_string(&r.path).unwrap();
-        assert!(text.contains("## 読むときの Q") && text.contains("- 件数") && text.contains("sci_depth: full"));
+        assert!(text.contains("## 読むときの観点") && text.contains("- 件数") && text.contains("sci_depth: full"));
         // READ_CARD の run に F を付け替えて、note も置く。
         e.db.connection().execute("UPDATE rt_nodes SET run_id = ?1 WHERE id = 3", [r.run_id]).unwrap();
         let card = read_card(e.db.connection(), &e.roots, &e.defs, r.run_id).unwrap();

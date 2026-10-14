@@ -1,4 +1,4 @@
-//! エージェントに渡す `# context` の Markdown（新しい research-tree Q・A・F・E・S 版）。
+//! エージェントに渡す `# context` の Markdown（新しい research-tree A・F・E・S・D 版）。
 //!
 //! research-tree の一部（範囲）だけを渡す。ファイルは作らず、文字列を返す（`# context` の見出しは呼び出し側が付ける）。
 //! 範囲はブロックの `sci_type`（node / manage / support）で決める。
@@ -71,7 +71,7 @@ pub fn build(
 
 fn field_text(f: &Field) -> String {
     let note = match f.ty {
-        Ty::Id if f.name == "parent" => "Q か A の ID".to_string(),
+        Ty::Id if f.name == "parent" => "A の ID".to_string(),
         Ty::Id if f.name == "seed" => "seed（D）の ID".to_string(),
         Ty::Id => "Node の ID".to_string(),
         Ty::Text(min, max) => format!("{min}〜{max} 字"),
@@ -138,7 +138,7 @@ struct Line {
 
 struct Parts {
     tree: Option<Vec<Line>>,
-    /// (Q の文, Child Q, Extract, Pitfall)
+    /// (軸の文, 細分・条件の候補, Extract, Pitfall)
     guide: Option<GuideText>,
     searches: Vec<String>,
     ops: String,
@@ -155,13 +155,13 @@ struct Parts {
 
 struct GuideText {
     title: String,
-    question: String,
+    label: String,
     child: Vec<String>,
     extract: Vec<String>,
     pitfalls: Vec<String>,
 }
 
-/// SPROUT の PATH（終点の O）ごとに、一番上の Q から終点の O までの 1 行を作る。行の頭に区分の札（`[固定]`・`[新規]`）を付ける。
+/// SPROUT の PATH（終点の A）ごとに、一番上の軸の A から終点の A までの 1 行を作る。行の頭に区分の札（`[固定]`・`[新規]`）を付ける。
 fn path_lines(tree: &Tree, n: &NodeRow) -> Vec<String> {
     let roles = tree.roles_of(n.id);
     n.paths
@@ -190,17 +190,6 @@ fn path_lines(tree: &Tree, n: &NodeRow) -> Vec<String> {
             format!("  {tag}PATH: {}", parts.join(" > "))
         })
         .collect()
-}
-
-/// Q の深さ（一番上の Q を 1 とした Q の段。Q→A→Q は 2）。
-fn q_depth(tree: &Tree, n: &NodeRow) -> usize {
-    let mut depth = 1;
-    let mut cur = n.parent_id;
-    while let Some(p) = cur.and_then(|p| tree.node(p)) {
-        depth += usize::from(p.kind == Kind::Q);
-        cur = p.parent_id;
-    }
-    depth
 }
 
 /// SPROUT の行の区分（`[固定: task=A12, metric=「AUC」 / 新規: method=A94 / 未回答: 2 / 実験: E 3 件]`）。空の区分は出さない。
@@ -275,7 +264,7 @@ fn node_line(tree: &Tree, n: &NodeRow, indent: usize) -> Line {
     let id = fmt_id(n.kind, n.id);
     let make = |text: String| {
         let tail = match n.kind {
-            Kind::Q => format!(" [A {}・深さ {}]", tree.a_count(n.id), q_depth(tree, n)),
+            Kind::A if store::is_axis(n) => format!(" [A {}・深さ {}]", tree.a_count(n.id), tree.depth(n.id) + 1),
             Kind::A => {
                 let subs = if tree.a_count(n.id) > 0 { format!(" [A {}・F {}]", tree.a_count(n.id), tree.f_count_under(n.id)) } else { format!(" [F {}]", tree.f_count_under(n.id)) };
                 let condition = if n.rel.as_deref() == Some("condition") { " [条件]" } else { "" };
@@ -353,7 +342,7 @@ impl Parts {
             }
             out
         };
-        // top_Q から対象の親まで（manage で祖先を出すのに使う）。
+        // 軸の A から対象の親まで（manage で祖先を出すのに使う）。
         let mut chain: Vec<i64> = Vec::new();
         let mut cur = target.and_then(|t| t.parent_id);
         while let Some(id) = cur {
@@ -420,18 +409,18 @@ impl Parts {
         // blind・support は research-tree を出さないので、STUDY_SEED も出さない。
         let study_seed = if blind || sci_type == "support" { None } else { study_seed };
 
-        // GUIDE: 対象か一番近い祖先の Q。木の全体のときは出さない。
+        // GUIDE: 対象と祖先のうちの軸の A（一番上の 1 つ）。木の全体のときは出さない。
         let guide = target.and_then(|t| {
-            let guide_q = std::iter::once(t.id)
+            let axis = std::iter::once(t.id)
                 .chain(chain.iter().rev().copied())
                 .filter_map(|id| tree.node(id))
-                .find(|n| n.kind == Kind::Q);
-            guide_q
-                .and_then(|q| q.guide_key.as_deref())
+                .find(|n| store::is_axis(n));
+            axis
+                .and_then(|a| a.guide_key.as_deref())
                 .and_then(|key| defs.guide(key))
                 .map(|g| GuideText {
                     title: format!("{}（{}）", g.name, g.key),
-                    question: defs.question_text(&g.key),
+                    label: defs.axis_label(&g.key),
                     child: g.child_candidates.clone(),
                     extract: g.extract.clone(),
                     pitfalls: g.pitfalls.clone(),
@@ -547,7 +536,7 @@ impl Parts {
             blocks.push(format!("## TARGET\n- 足す子の型: {}", self.child));
         }
         if let Some(g) = &self.guide {
-            let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- Q: {}", g.question)];
+            let mut lines = vec!["## GUIDE".to_string(), format!("### {}", g.title), format!("- 軸: {}", g.label)];
             if level < 5 && !g.child.is_empty() {
                 lines.push(format!("- 細分の候補: {}", g.child.join(" / ")));
             }
@@ -592,7 +581,7 @@ mod tests {
         defs: Defs,
     }
 
-    /// RESEARCH_TYPE problem の research-tree を作る。top_Q は Q1（task）・Q2（target）・Q3（data）・Q4（method）・Q5（output）・Q6（metric）で、子は無い。
+    /// RESEARCH_TYPE problem の research-tree を作る。軸の A は A1（task）・A2（target）・A3（data）・A4（method）・A5（output）・A6（metric）で、子は無い。
     fn env(tag: &str) -> Env {
         let dir = std::env::temp_dir().join(format!("sai-rt-context-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -680,7 +669,7 @@ mod tests {
     fn sections_come_in_order() {
         let e = env("order");
         block(&e, "node");
-        task(&e, 1, "sci_node: Q2\nsci_purpose: 背景を決める\nsci_mode: purpose_first\n");
+        task(&e, 1, "sci_node: A2\nsci_purpose: 背景を決める\nsci_mode: purpose_first\n");
         let text = build_with(&e, 100_000, false).unwrap();
         // 出る節は TREE・GUIDE・ALLOWED_OPS だけ（消した節が混ざらない。順もこの順）。
         let heads: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("## ")).collect();
@@ -692,27 +681,27 @@ mod tests {
     #[test]
     fn sci_type_picks_tree_range() {
         let e = env("scopes");
-        // Q3（data）の下に子の Q（Q7）を足し、その下に A と F を置く。兄弟の Q2（target）には A を 1 つ。
+        // A3（data）の下に子の A（A7）を足し、その下に A と F を置く。兄弟の A2（target）には A を 1 つ。
         let o1 = add(&e, Kind::A, 2, "案 A", None);
-        let q = add(&e, Kind::Q, 3, "下位の問い", None);
+        let q = add(&e, Kind::A, 3, "下位の問い", None);
         let o2 = add(&e, Kind::A, q, "案 B", None);
         let f1 = add(&e, Kind::F, o2, "根拠", Some("support"));
-        let node = fmt_id(Kind::Q, q);
+        let node = fmt_id(Kind::A, q);
         task(&e, 1, &format!("sci_node: {node}\nsci_purpose: p\n"));
 
-        // node: 対象と子孫だけ。祖先 Q3 は出ない。
+        // node: 対象と子孫だけ。祖先 A3 は出ない。
         block(&e, "node");
         let node_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
         assert_eq!(node_ids, sorted(vec![node.clone(), format!("A{o2}"), format!("F{f1}")]), "{node_ids:?}");
 
-        // manage: 祖先 Q3 も出る。祖先でない兄弟 Q2 と、その A1 は出ない。
+        // manage: 祖先 A3 も出る。祖先でない兄弟 A2 と、その A1 は出ない。
         block(&e, "manage");
         let manage_ids = tree_ids(&build_with(&e, 100_000, false).unwrap());
-        for id in [fmt_id(Kind::Q, 3), node.clone()] {
+        for id in [fmt_id(Kind::A, 3), node.clone()] {
             assert!(manage_ids.contains(&id), "{manage_ids:?}");
         }
         assert!(!manage_ids.contains(&format!("A{o1}")), "{manage_ids:?}");
-        assert!(!manage_ids.contains(&fmt_id(Kind::Q, 2)), "{manage_ids:?}");
+        assert!(!manage_ids.contains(&fmt_id(Kind::A, 2)), "{manage_ids:?}");
 
         // support: TREE を出さない。GUIDE と ALLOWED_OPS は出る。
         block(&e, "support");
@@ -727,7 +716,7 @@ mod tests {
     fn sprout_target_shows_paths() {
         let e = env("sprout");
         block(&e, "node");
-        // Q3 の下に A を 1 つ。seed（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
+        // A3 の下に A を 1 つ。seed（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
         let o = add(&e, Kind::A, 3, "課題", None);
         let d = seed(&e, "研究", "");
         let s = sprout(&e, Some(d), o, "種");
@@ -736,7 +725,7 @@ mod tests {
         let text = build_with(&e, 100_000, false).unwrap();
         // S の行に paths が出る。
         assert!(text.contains(&format!("- {} 種 [新規: ", fmt_id(Kind::S, s))), "{text}");
-        // S の行の直後に、top の Q から終点の O までの PATH が出る。
+        // S の行の直後に、軸の A から終点の A までの PATH が出る。
         assert!(text.contains("[新規] PATH: ") && text.contains(&format!("{} 課題", fmt_id(Kind::A, o))), "{text}");
         // 下の E も出る。
         assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
@@ -747,25 +736,25 @@ mod tests {
     fn target_shows_child_kind() {
         let e = env("child");
         block(&e, "node");
-        task(&e, 1, "sci_node: Q2\nsci_purpose: p\nsci_child: A\n");
+        task(&e, 1, "sci_node: A2\nsci_purpose: p\nsci_child: A\n");
         let text = build_with(&e, 100_000, false).unwrap();
         assert!(text.contains("## TARGET\n- 足す子の型: A"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
         // 足す子の型が無いときは節も行も出さない。GUIDE の見出し「### TARGET」は数えない。
         let e = env("child-none");
         block(&e, "node");
-        task(&e, 1, "sci_node: Q2\nsci_purpose: p\n");
+        task(&e, 1, "sci_node: A2\nsci_purpose: p\n");
         let text = build_with(&e, 100_000, false).unwrap();
         assert!(!text.contains("\n## TARGET\n") && !text.contains("足す子の型"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 
-    /// 対象が木の全体（`sci_node` 無し・古い `sci_node: SEED`）のとき、## PROJECT と全部の Node（top_Q から並ぶ）が入り、GUIDE は出ない。
+    /// 対象が木の全体（`sci_node` 無し・古い `sci_node: SEED`）のとき、## PROJECT と全部の Node（軸の A から並ぶ）が入り、GUIDE は出ない。
     #[test]
     fn seed_target_shows_whole_tree() {
         let e = env("seed");
         block(&e, "manage");
-        // Q3（background.problem）の下に A を 1 つ。seed（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
+        // A3（background.problem）の下に A を 1 つ。seed（D）の下の SPROUT の paths に入れ、E を SPROUT の下に置く。
         let o = add(&e, Kind::A, 3, "課題", None);
         let d = seed(&e, "研究", "");
         let s = sprout(&e, Some(d), o, "種");
@@ -775,10 +764,10 @@ mod tests {
             task(&e, 1, front);
             let text = build_with(&e, 100_000, false).unwrap();
             assert!(text.contains("## PROJECT\n- 型: PROBLEM_DRIVEN\n- 対象: 木の全体 ← TARGET\n"), "{text}");
-            assert!(text.contains("## TREE\n- Q1 "), "{text}");
+            assert!(text.contains("## TREE\n- A1 "), "{text}");
             assert!(!text.contains("SEED PROBLEM"), "{text}");
-            // 軸の Q は親の無い行（字下げ 0）から並ぶ。
-            assert!(text.contains("\n- Q4 ") && text.contains("\n- Q6 "), "{text}");
+            // 軸の A は親の無い行（字下げ 0）から並ぶ。
+            assert!(text.contains("\n- A4 ") && text.contains("\n- A6 "), "{text}");
             assert!(text.contains(&format!("- {} 種 [新規: ", fmt_id(Kind::S, s))), "{text}");
             assert!(text.contains(&format!("{}", fmt_id(Kind::E, ex))), "{text}");
             assert!(!text.contains("## GUIDE"), "{text}");
@@ -827,7 +816,7 @@ mod tests {
         let text = build_with(&e, 100_000, false).unwrap();
         assert!(text.contains(&format!("- {} 研究 ← TARGET", fmt_id(Kind::D, d))), "{text}");
         assert!(text.contains("  > 本文の制約"), "{text}");
-        assert!(text.contains("\n- Q1 ") && text.contains("\n- Q4 "), "{text}");
+        assert!(text.contains("\n- A1 ") && text.contains("\n- A4 "), "{text}");
         assert!(text.contains(&format!("- {} 別の研究", fmt_id(Kind::D, d2))), "{text}");
         assert!(text.contains(&format!("- {} 種 [新規: ", fmt_id(Kind::S, s))), "{text}");
         assert!(!text.contains("## STUDY_SEED"), "{text}");
@@ -835,7 +824,7 @@ mod tests {
         // sci_type が node なら D とその下の S だけ。
         block(&e, "node");
         let text = build_with(&e, 100_000, false).unwrap();
-        assert!(!text.contains("\n- Q1 "), "{text}");
+        assert!(!text.contains("\n- A1 "), "{text}");
         assert!(!text.contains("別の研究"), "{text}");
         let _ = fs::remove_dir_all(&e.dir);
     }
@@ -845,10 +834,10 @@ mod tests {
         let e = env("target");
         block(&e, "node");
         e.db.connection().execute("UPDATE rt_nodes SET body = ?1 WHERE id = 3", ["現場の課題\n2 行目"]).unwrap();
-        task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
+        task(&e, 1, "sci_node: A3\nsci_purpose: p\n");
         let text = build_with(&e, 100_000, false).unwrap();
         let target_line = text.lines().find(|l| l.contains("← TARGET")).unwrap_or("");
-        assert!(target_line.trim_start().starts_with("- Q3 "), "{target_line}");
+        assert!(target_line.trim_start().starts_with("- A3 "), "{target_line}");
         assert!(text.contains("> 現場の課題 2 行目"), "{text}");
         // 本文が無ければ `>` の行を出さない。
         e.db.connection().execute("UPDATE rt_nodes SET body = '' WHERE id = 3", []).unwrap();
@@ -864,7 +853,7 @@ mod tests {
         e.db.connection()
             .execute("INSERT INTO papers (id, title, published_at) VALUES (37, '論文 37', '2021-05-01')", [])
             .unwrap();
-        task(&e, 1, "sci_node: Q2\nsci_purpose: p\nsci_mode: blind_first\nsci_papers: 37\n");
+        task(&e, 1, "sci_node: A2\nsci_purpose: p\nsci_mode: blind_first\nsci_papers: 37\n");
         let text = build_with(&e, 100_000, false).unwrap();
         for h in ["## TREE", "## GUIDE", "## SEARCH_HISTORY"] {
             assert!(!text.contains(h), "{h}\n{text}");
@@ -885,7 +874,7 @@ mod tests {
         block(&e, "node");
         let o1 = add(&e, Kind::A, 3, "案 A", None);
         add(&e, Kind::F, o1, "根拠 1 行目\n2 行目", Some("support"));
-        task(&e, 1, "sci_node: Q3\nsci_purpose: p\n");
+        task(&e, 1, "sci_node: A3\nsci_purpose: p\n");
         let len = |max| build_with(&e, max, false).unwrap();
         let full = len(100_000);
         assert!(full.contains("- Pitfall:") && full.contains("- Extract:"));
@@ -908,7 +897,7 @@ mod tests {
         let t = allowed_ops_text(&e.roots, "b1");
         assert!(t.contains("- add_a: "), "{t}");
         assert!(t.contains("- copy（承認が要る）: "), "{t}");
-        assert!(t.contains("必須: parent（Q か A の ID）, text（1〜120 字）"), "{t}");
+        assert!(t.contains("必須: parent（A の ID）, text（1〜120 字）"), "{t}");
         assert!(t.contains("任意: body（0〜2000 字）"), "{t}");
         assert!(!t.contains("- add_f"));
         let none = allowed_ops_text(&e.roots, "nothing");
@@ -916,7 +905,7 @@ mod tests {
             assert!(none.contains(&format!("- {op}: ")), "{op}");
         }
         assert!(!none.contains("copy（"));
-        assert!(none.contains("- add_f: A の下に F（根拠）を足す。text は 1〜3 文。"), "{none}");
+        assert!(none.contains("- add_f: A の下に F（根拠）を足す（軸の A の下は断る）。text は 1〜3 文。"), "{none}");
         assert!(none.contains("1 回は 20 件まで"), "{none}");
         let _ = fs::remove_dir_all(&e.dir);
     }
@@ -924,28 +913,28 @@ mod tests {
     #[test]
     fn unknown_node_is_not_found() {
         let e = env("errors");
-        task(&e, 2, "sci_node: Q999\nsci_purpose: p\n");
+        task(&e, 2, "sci_node: A999\nsci_purpose: p\n");
         crate::link::forget(&e.dir);
         let r = build(e.db.connection(), &e.roots, &e.defs, 1000, 2, false);
-        assert!(matches!(r, Err(RtError::NotFound(m)) if m == "Q999 はありません"));
+        assert!(matches!(r, Err(RtError::NotFound(m)) if m == "A999 はありません"));
         let _ = fs::remove_dir_all(&e.dir);
     }
 
-    /// TREE の Q は `[A n・深さ d]`、S は区分の札（`[固定: …]`・`[新規: …]`・`[未回答: n]`・`実験`）。STUDY_SEED の表に問いが並ぶ。
+    /// TREE の軸の A は `[A n・深さ d]`、S は区分の札（`[固定: …]`・`[新規: …]`・`[未回答: n]`・`実験`）。STUDY_SEED の表に問いが並ぶ。
     #[test]
-    fn tree_shows_q_depth_and_sprout_roles() {
+    fn tree_shows_axis_depth_and_sprout_roles() {
         let e = env("roles");
         block(&e, "node");
         let q_method = store::insert_node(
             e.db.connection(),
             &store::NewNode {
-                kind: Kind::Q, parent_id: None, guide_key: Some("method"), text: "手法の問い", body: "", stance: None, cites: &[],
+                kind: Kind::A, parent_id: None, guide_key: Some("method"), text: "手法の問い", body: "", stance: None, cites: &[],
                 paper_id: None, run_id: None, report_id: None, mlflow_ref: None, dataset_ref: None, paths: &[], created_by: "user",
             },
         )
         .unwrap();
         let a94 = add(&e, Kind::A, q_method, "Costa 型", None);
-        let q60 = add(&e, Kind::Q, a94, "下位の問い", None);
+        let q60 = add(&e, Kind::A, a94, "下位の問い", None);
         let a385 = add(&e, Kind::A, q60, "細かい手法", None);
         let d = seed(&e, "自分の研究", "");
         // seed の問い（雛形の 7 問）と、seed の回答（task は決定、data は記載なし）。method は seed では答えず、S が答える（新規）。
@@ -967,21 +956,21 @@ mod tests {
             fmt_id(Kind::A, a385)
         );
         assert!(text.contains(&format!("- {} 種 {roles}", fmt_id(Kind::S, s))), "{text}");
-        let path = format!("[新規] PATH: {} 手法の問い > {} Costa 型 > {} 下位の問い > {} 細かい手法", fmt_id(Kind::Q, q_method), fmt_id(Kind::A, a94), fmt_id(Kind::Q, q60), fmt_id(Kind::A, a385));
+        let path = format!("[新規] PATH: {} 手法の問い > {} Costa 型 > {} 下位の問い > {} 細かい手法", fmt_id(Kind::A, q_method), fmt_id(Kind::A, a94), fmt_id(Kind::A, q60), fmt_id(Kind::A, a385));
         assert!(text.contains(&path), "{text}");
         // STUDY_SEED の表: 問い・軸・seed の回答・この S の回答。
         assert!(text.contains(&format!("| {} 解く問題は何か | task | 発作部位の特定 |  |", fmt_sq(qs[0]))), "{text}");
         assert!(text.contains(&format!("| {} どの手法を使うか | method |  | {} 細かい手法 |", fmt_sq(qs[3]), fmt_id(Kind::A, a385))), "{text}");
-        // 対象が無いと木の全体。Q の行に [A n・深さ d]。
+        // 対象が無いと木の全体。軸の A の行に [A n・深さ d]。
         task(&e, 1, "sci_purpose: p\n");
         let whole = build_with(&e, 100_000, false).unwrap();
         assert!(whole.contains("手法の問い [A 1・深さ 1]"), "{whole}");
-        assert!(whole.contains("下位の問い [A 1・深さ 2]"), "{whole}");
+        assert!(whole.contains("下位の問い [A 1・F 0]"), "{whole}");
         let _ = fs::remove_dir_all(&e.dir);
     }
 
     /// A の下の A: TREE は字下げで出し、直下の A があれば `[A n・F m]`、関係が condition なら `[条件]`。
-    /// 対象が A でも GUIDE は一番近い祖先の軸の Q から出し、Child Q の行は「細分の候補」になる。
+    /// 対象が A でも GUIDE は一番上の軸の A から出し、古い Child Q の行は「細分の候補」になる。
     #[test]
     fn a_under_a_tree_condition_and_guide() {
         let e = env("a-under-a");

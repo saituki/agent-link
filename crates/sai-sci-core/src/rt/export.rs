@@ -127,8 +127,11 @@ fn node_line(n: &NodeJson) -> String {
         line.push_str("★ ");
     }
     match n.kind.as_str() {
-        // seed（D）は題だけ（mlflow を付けない）。
-        "Q" | "D" => {
+        // seed（D）と軸の A は題だけ（mlflow を付けない）。
+        "D" => {
+            line.push_str(&n.text);
+        }
+        "A" if n.parent.is_none() => {
             line.push_str(&n.text);
         }
         "A" => {
@@ -260,10 +263,10 @@ mod tests {
     fn tree_and_state() {
         let (roots, db) = env("tree", true);
         let c = db.connection();
-        let q0 = add(&db, Kind::Q, None, "大目的は？", None, &[]);
+        let q0 = add(&db, Kind::A, None, "大目的は？", None, &[]);
         let a1 = add(&db, Kind::A, Some(q0), "予後予測", None, &[]);
         store::set_starred(c, a1, true).unwrap();
-        let q2 = add(&db, Kind::Q, Some(a1), "データは？", None, &[]);
+        let q2 = add(&db, Kind::A, Some(a1), "データは？", None, &[]);
         let a3 = add(&db, Kind::A, Some(q2), "術前 MRI", None, &[]);
         add(&db, Kind::F, Some(a3), "120 例ある", Some("support"), &["#12 §2".to_string()]);
         let gone = add(&db, Kind::F, Some(a3), "消す根拠", Some("deny"), &[]);
@@ -273,8 +276,8 @@ mod tests {
         let tree = render_tree_md(&status);
         let lines: Vec<&str> = tree.lines().collect();
         assert!(lines[0].starts_with("# research-tree（"));
-        assert!(lines[2].contains("軸 2・A 2・F 1（S 1 / D 0 / I 0）・E 0・S 0"), "{tree}");
-        assert!(tree.contains("\n- Q1 大目的は？\n"), "{tree}");
+        assert!(lines[2].contains("軸 1・A 3・F 1（S 1 / D 0 / I 0）・E 0・S 0"), "{tree}");
+        assert!(tree.contains("\n- A1 大目的は？\n"), "{tree}");
         assert!(tree.contains("\n  - A2 ★ 予後予測 [F 0]\n"), "{tree}");
         assert!(tree.contains("\n      - A4 術前 MRI [F 1]\n"), "{tree}");
         assert!(tree.contains("\n        - F5 [support] 120 例ある [#12 §2]\n"), "{tree}");
@@ -297,7 +300,7 @@ mod tests {
     fn tree_md_shows_a_under_a_and_condition() {
         let (roots, db) = env("tree-a-under-a", true);
         let c = db.connection();
-        let q0 = add(&db, Kind::Q, None, "大目的は？", None, &[]);
+        let q0 = add(&db, Kind::A, None, "大目的は？", None, &[]);
         let a1 = add(&db, Kind::A, Some(q0), "大分類", None, &[]);
         let a2 = add(&db, Kind::A, Some(a1), "細分", None, &[]);
         store::set_rel(c, a2, Some("condition")).unwrap();

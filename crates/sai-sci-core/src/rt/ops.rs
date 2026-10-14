@@ -1,4 +1,4 @@
-//! research-tree（Q・A・F・E・S）を変える操作（op）。C3 の表が正。
+//! research-tree（A・F・E・S・D。軸は親の無い A）を変える操作（op）。C3 の表が正。
 //!
 //! 入口は 2 つ。agent の [`op`]（`sai-sci op`。1 件から 20 件まで、全部を 1 つのトランザクションで行う）と、
 //! 利用者の [`apply_user`]（`sai-sci apply`）。
@@ -20,7 +20,7 @@ use sai_paper_core::{seen_ids, textcheck};
 use std::path::PathBuf;
 
 pub(crate) const MAX_OPS: usize = 20;
-const ALL_KINDS: &[Kind] = &[Kind::Q, Kind::A, Kind::F, Kind::E, Kind::S, Kind::D];
+const ALL_KINDS: &[Kind] = &[Kind::A, Kind::F, Kind::E, Kind::S, Kind::D];
 const STANCES: &[&str] = &["support", "deny", "issue"];
 /// A の子の関係（`rel`）。NULL は subtype と読む。
 const REL_KINDS: &[&str] = &["subtype", "condition"];
@@ -45,7 +45,7 @@ pub enum Risk {
 /// 項目の型。
 #[derive(Debug, Clone, Copy)]
 pub enum Ty {
-    /// Node の ID（`Q12`）。
+    /// Node の ID（`A12`）。
     Id,
     /// 文（字数の範囲。文字種も検査する）。
     Text(usize, usize),
@@ -91,25 +91,25 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "move_node",
         risk: Risk::Free,
-        about: "A を、その下の F・子孫ごと、ID を保って別の A か Q の下へ移す。S の paths は壊れない",
+        about: "A を、その下の F・子孫ごと、ID を保って別の A の下へ移す。軸の A は動かせない。S の paths は壊れない",
         fields: &[req("node", Ty::Id), req("to", Ty::Id)],
     },
     OpSpec {
         op: "copy",
         risk: Risk::Approval,
-        about: "A と、その生きた F を別の Q の下へ写す（Q と E は写さない）",
+        about: "A と、その生きた F を別の A の下へ写す（E は写さない。軸の A は写せない）",
         fields: &[req("node", Ty::Id), req("to", Ty::Id)],
     },
     OpSpec {
         op: "remove",
         risk: Risk::Approval,
-        about: "Node を下の Node ごと消す（top_Q も消せる）",
+        about: "Node を下の Node ごと消す（軸の A も消せる）",
         fields: &[req("node", Ty::Id)],
     },
     OpSpec {
         op: "add_a",
         risk: Risk::Free,
-        about: "A（親は Q か A）の下に A（答え）を足す。rel は subtype（省略）か condition（★ の A か seed の回答の A の下だけ）",
+        about: "A（親は A。軸の A を含む）の下に A（答え）を足す。rel は subtype（省略）か condition（★ の A か seed の回答の A の下だけ。軸の A の下は断る）",
         fields: &[
             req("parent", Ty::Id),
             req("text", Ty::Text(1, 120)),
@@ -120,7 +120,7 @@ static OP_SPECS: &[OpSpec] = &[
     OpSpec {
         op: "add_f",
         risk: Risk::Free,
-        about: "A の下に F（根拠）を足す。text は 1〜3 文。立場（stance）が要る。数字を含む文には出典（cites）か REPORT のトークン（report）が要る",
+        about: "A の下に F（根拠）を足す（軸の A の下は断る）。text は 1〜3 文。立場（stance）が要る。数字を含む文には出典（cites）か REPORT のトークン（report）が要る",
         fields: &[
             req("parent", Ty::Id),
             req("text", Ty::Text(1, 1200)),
@@ -684,7 +684,7 @@ pub(super) fn is_under(conn: &Connection, id: i64, q: i64) -> Result<bool> {
 
 /// `condition` を置いてよい親か。★ の A（`starred`）か、seed（D）の回答に当たる A だけ。
 fn condition_allowed(cx: &Cx<'_>, parent: &NodeRow) -> Result<bool> {
-    if parent.kind != Kind::A {
+    if parent.kind != Kind::A || store::is_axis(parent) {
         return Ok(false);
     }
     if parent.starred {
@@ -719,8 +719,11 @@ fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<
     match name {
         "move_node" => {
             let moved = node(cx, text(op, "node"), &[Kind::A])?;
-            let to = node(cx, text(op, "to"), &[Kind::A, Kind::Q])?;
             let aid = fmt_id(Kind::A, moved.id);
+            if store::is_axis(&moved) {
+                return invalid(format!("{aid} は軸の A なので動かせません"));
+            }
+            let to = node(cx, text(op, "to"), &[Kind::A])?;
             let to_id = fmt_id(to.kind, to.id);
             let Some(from) = moved.parent_id else { return invalid(format!("{aid} に親がありません")) };
             if from == to.id {
@@ -739,7 +742,10 @@ fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<
         }
         "copy" => {
             let src = node(cx, text(op, "node"), &[Kind::A])?;
-            let to = node(cx, text(op, "to"), &[Kind::A, Kind::Q])?;
+            if store::is_axis(&src) {
+                return invalid(format!("{} は軸の A なので写せません", fmt_id(Kind::A, src.id)));
+            }
+            let to = node(cx, text(op, "to"), &[Kind::A])?;
             let mut n = new_node(cx, Kind::A, Some(to.id), &src.text);
             n.body = &src.body;
             let copied = store::insert_node(conn, &n)?;
@@ -767,7 +773,7 @@ fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<
             Ok((text(op, "node").to_string(), None))
         }
         "add_a" => {
-            let parent = node(cx, text(op, "parent"), &[Kind::Q, Kind::A])?;
+            let parent = node(cx, text(op, "parent"), &[Kind::A])?;
             let pid = fmt_id(parent.kind, parent.id);
             let t = text(op, "text");
             if [t, text(op, "body")].iter().any(|s| textcheck::find_inline_cite(s).is_some()) {
@@ -777,6 +783,9 @@ fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<
                 return invalid(format!("{pid} に同じ文の A があります"));
             }
             let rel = op.get("rel").and_then(Value::as_str).unwrap_or("subtype");
+            if rel == "condition" && store::is_axis(&parent) {
+                return invalid(format!("軸の A（{pid}）の下には condition を置けません。subtype の A を足してください"));
+            }
             if rel == "condition" && !condition_allowed(cx, &parent)? {
                 return invalid("condition は ★ の A か seed の回答の A の下だけに置けます");
             }
@@ -788,6 +797,10 @@ fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<
         }
         "add_f" => {
             let parent = node(cx, text(op, "parent"), &[Kind::A])?;
+            if store::is_axis(&parent) {
+                let pid = fmt_id(Kind::A, parent.id);
+                return invalid(format!("軸の A（{pid}）の下に F は置けません。軸の下の A に置いてください"));
+            }
             let t = text(op, "text");
             let sentences = sentence_count(t);
             if sentences > 3 {
@@ -996,7 +1009,6 @@ fn execute_plain(cx: &Cx<'_>, name: &str, op: &Value) -> Result<(String, Option<
             }
             if let Some(t) = t {
                 let max = match n.kind {
-                    Kind::Q => 300,
                     Kind::A | Kind::E | Kind::S | Kind::D => 120,
                     Kind::F => 1200,
                 };
@@ -1087,7 +1099,16 @@ fn put_answer(cx: &Cx<'_>, owner: &NodeRow, q_text: &str, a_text: Option<&str>, 
         }
     }
     let (a_id, t) = match (a_text, t) {
-        (Some(a), None) => (Some(node(cx, a, &[Kind::A])?.id), None),
+        (Some(a), None) => {
+            let picked = node(cx, a, &[Kind::A])?;
+            if store::is_axis(&picked) {
+                return invalid(format!(
+                    "軸の A（{}）は回答に選べません。その下の A を選んでください",
+                    fmt_id(Kind::A, picked.id)
+                ));
+            }
+            (Some(picked.id), None)
+        }
         (None, Some(t)) => {
             check_answer_text(t)?;
             (None, Some(t))
@@ -1130,7 +1151,7 @@ mod tests {
     }
 
     fn qid(id: i64) -> String {
-        fmt_id(Kind::Q, id)
+        fmt_id(Kind::A, id)
     }
 
     fn env() -> Env {
@@ -1208,10 +1229,10 @@ mod tests {
                 self.agent1(json!({"op": "add_answer", "to": s, "q": fmt_sq(q), "text": "答え"})).unwrap();
             }
         }
-        /// 旧形式の child_Q を直接書く（新しい op では作れない。旧プロジェクトの形を作る）。
-        fn old_child_q(&self, parent: i64, text: &str) -> i64 {
+        /// A の下に A を直接書く（add_a と同じ形。旧い木の子の Q の行を作る）。
+        fn child_a(&self, parent: i64, text: &str) -> i64 {
             let n = NewNode {
-                kind: Kind::Q, parent_id: Some(parent), guide_key: None, text, body: "", stance: None,
+                kind: Kind::A, parent_id: Some(parent), guide_key: None, text, body: "", stance: None,
                 cites: &[], paper_id: None, run_id: None, report_id: None, mlflow_ref: None,
                 dataset_ref: None, paths: &[], created_by: "test",
             };
@@ -1262,7 +1283,7 @@ mod tests {
         assert_eq!((by(&a1), by(&a2)), ("run:7".to_string(), "user".to_string()));
     }
 
-    /// 軸の Q に A を足せる。A を足しても型の Q は増えない（A の下に Q を作らない）。
+    /// 軸の A に A を足せる。A を足しても軸は増えない（軸は sai-sci init だけが作る）。
     #[test]
     fn add_a_creates_no_qs() {
         let e = env();
@@ -1276,7 +1297,7 @@ mod tests {
         assert!(err(e.agent1(json!({"op": "add_q", "parent": qid(e.sub), "text": "子"}))).contains("知らない op"));
     }
 
-    /// add_a は A の下にも足せ、旧形式の Q（A と child_Q が混ざる）の下でも通る。
+    /// add_a は A の下にも足せる（子の A が A と混ざっていても通る）。
     #[test]
     fn add_a_under_a_and_mixed_old_q() {
         let e = env();
@@ -1284,8 +1305,8 @@ mod tests {
         let (_, aid) = parse_id(&a).unwrap();
         let under = e.agent1(json!({"op": "add_a", "parent": a, "text": "A の下の答え"})).unwrap();
         assert_eq!(store::get_node(e.conn(), parse_id(&under).unwrap().1).unwrap().parent_id, Some(aid));
-        // 旧形式: sub は A と child_Q を両方持つ。その下にも A を足せる。
-        e.old_child_q(e.sub, "旧い子の問い");
+        // sub は A を子に持つ。その下にも A を足せる。
+        e.child_a(e.sub, "旧い子の問い");
         let more = e.agent1(json!({"op": "add_a", "parent": qid(e.sub), "text": "混ざった下の答え"})).unwrap();
         assert!(more.starts_with('A'));
     }
@@ -1297,7 +1318,7 @@ mod tests {
         let a = e.a("A");
         let cond = |parent: &str| json!({"op": "add_a", "parent": parent, "text": "条件の答え", "rel": "condition"});
         assert!(err(e.agent1(cond(&a))).contains("condition は ★ の A か seed の回答の A の下だけ"));
-        assert!(err(e.agent1(cond(&qid(e.sub)))).contains("condition は"));
+        assert!(err(e.agent1(cond(&qid(e.sub)))).contains("軸の A"));
         // ★ の A の下なら通り、rel が書かれる。
         e.user(json!({"op": "star", "node": a})).unwrap();
         let c = e.agent1(cond(&a)).unwrap();
@@ -1310,6 +1331,24 @@ mod tests {
         // 省けば subtype と書く。
         let s = e.agent1(json!({"op": "add_a", "parent": qid(e.sub), "text": "普通の答え"})).unwrap();
         assert_eq!(store::get_node(e.conn(), parse_id(&s).unwrap().1).unwrap().rel.as_deref(), Some("subtype"));
+    }
+
+    /// K2: 軸の A は F の親・move_node と copy の node・回答の a に選べない。軸の下の A と、軸を to にした move_node は通る。
+    #[test]
+    fn axis_a_rules() {
+        let e = env();
+        let axis = qid(e.sub);
+        let a = e.a("A");
+        assert!(err(e.agent1(json!({"op": "add_f", "parent": axis, "text": "x", "stance": "support"}))).contains("軸の A（A"));
+        assert!(err(e.agent1(json!({"op": "move_node", "node": axis, "to": a}))).contains("軸の A"));
+        assert!(err(e.user(json!({"op": "copy", "node": axis, "to": a}))).contains("軸の A"));
+        let seed = e.seed();
+        let task = e.sq(&seed, "task");
+        assert!(err(e.agent1(json!({"op": "add_sprout", "seed": seed, "title": "種", "answers": [{"q": task, "a": axis}]}))).contains("回答に選べません"));
+        // 軸を to にした move_node は通り、移した A は軸の下の A になる。
+        let b = e.agent1(json!({"op": "add_a", "parent": qid(e.by_key("target")), "text": "B"})).unwrap();
+        let moved = e.agent1(json!({"op": "move_node", "node": b, "to": axis})).unwrap();
+        assert_eq!(store::get_node(e.conn(), parse_id(&moved).unwrap().1).unwrap().parent_id, Some(e.sub));
     }
 
     #[test]
@@ -1501,7 +1540,7 @@ mod tests {
         let other = qid(e.by_key("target"));
         let c = e.user(json!({"op": "copy", "node": a, "to": other})).unwrap().result;
         let (_, cid) = parse_id(&c).unwrap();
-        // 写したのは F だけ（A の下の Q は写さない）。stance も同じ。
+        // 写したのは F だけ（A の下の A は写さない）。stance も同じ。
         let kids = store::children(e.conn(), cid).unwrap();
         assert_eq!(kids.len(), 1);
         assert_eq!((kids[0].kind, kids[0].stance.as_deref()), (Kind::F, Some("deny")));
@@ -1550,21 +1589,22 @@ mod tests {
         assert!(e.agent1(json!({"op": "set_dataset", "node": ex, "dataset": "x".repeat(201)})).is_err());
     }
 
-    /// 範囲は A の祖先の Q と A、A の子の F だけを数える（A の子の Q 以下・祖先の A の F は入れない）。
+    /// 範囲は A の祖先の A（軸の A は数えない）と A、A の子の F だけを数える（A の子の A 以下・祖先の A の F は入れない）。
     #[test]
     fn sprout_range_counts_ancestors_and_own_f() {
         let e = env();
-        // Q1 ─ A2 ─ Q3 ─ A4 ─ {F(support), F(deny)}、A2 ─ F(issue)
+        // 軸 Q1（A）─ A2 ─ A3（旧い子の Q の行）─ A4 ─ {F(support), F(deny)}、A2 ─ F(issue)
         let q1 = qid(e.sub);
         let a2 = e.agent1(json!({"op": "add_a", "parent": q1, "text": "A2"})).unwrap();
-        let q3 = qid(e.old_child_q(parse_id(&a2).unwrap().1, "Q3"));
+        let q3 = qid(e.child_a(parse_id(&a2).unwrap().1, "A3"));
         let a4 = e.agent1(json!({"op": "add_a", "parent": q3, "text": "A4"})).unwrap();
         e.agent1(json!({"op": "add_f", "parent": a4, "text": "支持", "stance": "support"})).unwrap();
         e.agent1(json!({"op": "add_f", "parent": a4, "text": "反対", "stance": "deny"})).unwrap();
         e.agent1(json!({"op": "add_f", "parent": a2, "text": "懸念", "stance": "issue"})).unwrap();
         let seed = e.seed();
         let r = e.agent(&[json!({"op": "add_sprout", "seed": seed, "title": "種", "answers": [{"q": e.sq(&seed, "task"), "a": a4}]})]).unwrap();
-        assert_eq!(r.results[0].range, Some(Range { q: 2, a: 2, f_support: 1, f_deny: 1, f_issue: 0 }));
+        // 数えるのは A2・A3・A4 の 3 つ（軸 Q1 は数えない）。A2 の F（issue）は入れない。
+        assert_eq!(r.results[0].range, Some(Range { a: 3, f_support: 1, f_deny: 1, f_issue: 0 }));
     }
 
     #[test]
@@ -1620,7 +1660,7 @@ mod tests {
         e.user(json!({"op": "unstar", "node": a})).unwrap();
         e.user(json!({"op": "edit", "node": a, "text": "B", "body": "本文"})).unwrap();
         assert!(err(e.user(json!({"op": "edit", "node": a}))).contains("text か body"));
-        // 利用者も move_node で A を別の Q へ移せる（承認は要らない）。ID は保つ。
+        // 利用者も move_node で A を別の A の下へ移せる（承認は要らない）。ID は保つ。
         let other = qid(e.by_key("target"));
         let (_, aid) = parse_id(&a).unwrap();
         e.user(json!({"op": "move_node", "node": a, "to": other})).unwrap();
@@ -1633,7 +1673,7 @@ mod tests {
             assert!(actions.iter().any(|x| x == want), "{want}");
         }
         assert!(store::list_log(e.conn(), None).unwrap().iter().all(|l| l.approved_by.is_none()));
-        // top_Q も消せる。
+        // 軸の A も消せる。
         let tg = e.by_key("target");
         e.user(json!({"op": "remove", "node": qid(tg)})).unwrap();
         assert!(store::get_node(e.conn(), tg).unwrap().removed_at.is_some());
@@ -1646,7 +1686,7 @@ mod tests {
         assert!(err(e.agent1(json!({"op": "add_a", "parent": q}))).contains("text が必要"));
         assert!(err(e.agent1(json!({"op": "add_a", "parent": q, "text": "x", "zzz": 1}))).contains("zzz"));
         assert!(err(e.agent1(json!({"op": "nope"}))).contains("知らない op"));
-        assert!(err(e.agent1(json!({"op": "add_a", "parent": "F1", "text": "x"}))).contains("Q か A の ID"));
+        assert!(err(e.agent1(json!({"op": "add_a", "parent": "F1", "text": "x"}))).contains("A の ID"));
         let a = e.a("A");
         assert!(err(e.agent1(json!({"op": "add_f", "parent": a, "text": "x", "stance": "foo"}))).contains("support / deny / issue"));
     }
@@ -1721,7 +1761,7 @@ mod tests {
         e.agent1(json!({"op": "add_a", "parent": q, "text": "候補", "body": "## 見出し"})).unwrap();
     }
 
-    /// move_node: A を F・child_Q ごと別の Q へ。ID は変わらず、その A を持つ S の paths もそのまま。
+    /// move_node: A を F・子の A ごと別の A の下へ。ID は変わらず、その A を持つ S の paths もそのまま。
     #[test]
     fn move_node_moves_subtree_and_keeps_ids() {
         let e = env();
@@ -1729,15 +1769,15 @@ mod tests {
         let (_, aid) = parse_id(&a).unwrap();
         let f = e.agent1(json!({"op": "add_f", "parent": a, "text": "根拠の文", "stance": "support"})).unwrap();
         let (_, fid) = parse_id(&f).unwrap();
-        // 旧形式の子 Q（A の下の Q）も、A と一緒に動く。
-        let child_q = e.old_child_q(aid, "A の下の問い");
+        // A の下の子の A も、A と一緒に動く。
+        let child_q = e.child_a(aid, "A の下の問い");
         let s = e.sprout(&e.seed(), &a);
         e.fill(&s);
         let (_, sid) = parse_id(&s).unwrap();
         let to = qid(e.by_key("target"));
         // move_node は承認が要らない（agent も出せる）。返すのは移した A の ID。
         assert_eq!(e.agent1(json!({"op": "move_node", "node": a, "to": to})).unwrap(), a);
-        // ID は変わらず、F と child_Q は A の下に付いたまま。S の paths もそのまま。
+        // ID は変わらず、F と子の A は A の下に付いたまま。S の paths もそのまま。
         assert_eq!(store::get_node(e.conn(), aid).unwrap().parent_id, Some(parse_id(&to).unwrap().1));
         assert_eq!(store::get_node(e.conn(), fid).unwrap().parent_id, Some(aid));
         assert_eq!(store::get_node(e.conn(), child_q).unwrap().parent_id, Some(aid));
@@ -1756,7 +1796,7 @@ mod tests {
         let (_, aid) = parse_id(&a).unwrap();
         let to = qid(e.by_key("target"));
         e.agent1(json!({"op": "move_node", "node": a, "to": to})).unwrap();
-        // 既に同じ Q の下にある。
+        // 既に同じ A の下にある。
         assert!(err(e.agent1(json!({"op": "move_node", "node": a, "to": to}))).contains("は既に"));
         // 自分の下へは移せない。
         assert!(err(e.agent1(json!({"op": "move_node", "node": a, "to": a}))).contains("自分の下へ移せません"));
@@ -1903,7 +1943,7 @@ mod tests {
         // D と S 以外は questions が []、complete と path_roles は null・[]。
         let plain = nodes.iter().find(|n| n["id"] == child.as_str()).unwrap();
         assert!(plain["questions"] == json!([]) && plain["complete"].is_null() && plain["path_roles"] == json!([]));
-        // move_node と regroup の step。regroup は作成（中間の A と細分の Q）も移動も 1 step。
+        // move_node と regroup の step。regroup は作成（中間の A と細分の A）も移動も 1 step。
         e.agent1(json!({"op": "move_node", "node": child, "to": qid(e.by_key("target"))})).unwrap();
         let steps = crate::rt::steps::build(e.conn()).unwrap();
         let ops: Vec<&str> = steps.list.iter().map(|s| s.op.as_str()).collect();

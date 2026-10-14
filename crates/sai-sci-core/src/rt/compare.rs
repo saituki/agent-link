@@ -162,13 +162,13 @@ mod tests {
         list.iter().map(|id| fmt_id(kind, *id)).collect()
     }
 
-    /// 軸 method の Q（下に A94 → A385）と task の Q（A7）。D は雛形の 7 問（task は決定の文、data は記載なし）。
+    /// 軸 method の A（下に A94 → A385）と task の A（A7）。D は雛形の 7 問（task は決定の文、data は記載なし）。
     /// S1 は method に A385 で答え、S2 は答えていない。
     fn fixture(e: &Env) -> (i64, i64, i64) {
         let conn = e.db.connection();
-        let q_task = add(e, Kind::Q, None, Some("task"), "解く問題の問い", "");
+        let q_task = add(e, Kind::A, None, Some("task"), "解く問題の問い", "");
         add(e, Kind::A, Some(q_task), None, "発作部位", "");
-        let q_method = add(e, Kind::Q, None, Some("method"), "手法の問い", "");
+        let q_method = add(e, Kind::A, None, Some("method"), "手法の問い", "");
         let a94 = add(e, Kind::A, Some(q_method), None, "Costa 型", "");
         let a385 = add(e, Kind::A, Some(a94), None, "細かい手法", "");
         let d = add(e, Kind::D, None, None, "題", "");

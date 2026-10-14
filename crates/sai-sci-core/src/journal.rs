@@ -1218,7 +1218,7 @@ mod tests {
 
         // Node を 2 つ作る（Q1・A2）。
         let mut ids = Vec::new();
-        for (kind, text) in [(Kind::Q, "小目的"), (Kind::A, "手法")] {
+        for (kind, text) in [(Kind::A, "小目的"), (Kind::A, "手法")] {
             ids.push(
                 store::insert_node(
                     conn,
@@ -1295,7 +1295,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            "research-tree: 決定 2 件（Q1 小目的・A2 手法）・SPROUT 1 件"
+            "research-tree: 決定 2 件（A1 小目的・A2 手法）・SPROUT 1 件"
         );
 
         // 決定が 4 つ以上なら「など」を付ける。0 件のものは書かない。

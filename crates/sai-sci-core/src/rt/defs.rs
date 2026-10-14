@@ -1,4 +1,4 @@
-//! RESEARCH_TYPE と GUIDE の読み込み、RESEARCH_TYPE から Q の research-tree を作る処理（C-DEF）。
+//! RESEARCH_TYPE と GUIDE の読み込み、RESEARCH_TYPE から軸の A（親の無い A）の research-tree を作る処理（C-DEF）。
 //!
 //! 元の版はリポジトリの `sai-sci/types/` と `sai-sci/guides/` で、ここに埋め込む。
 //! 読む順は 埋め込み → 利用者全体 `<sai_home>/sci/` → プロジェクト `<root>/.sai/sci/`（あとが強い）。
@@ -13,7 +13,7 @@ use rusqlite::Connection;
 use super::store::{self, NewNode};
 use super::{now_text, Kind, Result, RtError};
 
-/// RESEARCH_TYPE の `## Q` の 1 行。
+/// RESEARCH_TYPE の `## 軸` の 1 行（古い `## Q` も同じに読む）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeQ {
     pub key: String,
@@ -29,13 +29,14 @@ pub struct TypeDef {
     pub tree: Vec<TypeQ>,
 }
 
-/// Q ごとの GUIDE。
+/// 軸ごとの GUIDE。
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuideDef {
     pub key: String,
     pub name: String,
     pub explain: String,
-    pub question: String,
+    /// 軸の A の文（`## 軸` の 1 行目。無ければ key）。
+    pub label: String,
     pub child_candidates: Vec<String>,
     pub extract: Vec<String>,
     pub pitfalls: Vec<String>,
@@ -60,13 +61,12 @@ impl Defs {
         self.guides.iter().find(|g| g.key == key)
     }
 
-    /// Q の文。GUIDE の question が空でなければそれ、無ければ `<name>は？`、GUIDE が無ければ key。
+    /// 軸の A の文。GUIDE の label（`## 軸`）が空でなければそれ、無ければ key。
     #[must_use]
-    pub fn question_text(&self, key: &str) -> String {
+    pub fn axis_label(&self, key: &str) -> String {
         match self.guide(key) {
-            Some(g) if !g.question.is_empty() => g.question.clone(),
-            Some(g) => format!("{}は？", g.name),
-            None => key.to_string(),
+            Some(g) if !g.label.is_empty() => g.label.clone(),
+            _ => key.to_string(),
         }
     }
 }
@@ -83,13 +83,13 @@ macro_rules! embedded_files {
 }
 
 const EMBEDDED: &[(&str, &str)] = embedded_files![
-    // RESEARCH_TYPE（5 本。`## Q` は軸の 6 つの平らな並び）
+    // RESEARCH_TYPE（5 本。`## 軸` は軸の 6 つの平らな並び）
     "types/problem.md",
     "types/phenomenon.md",
     "types/method.md",
     "types/data.md",
     "types/improve.md",
-    // GUIDE（軸の 6 本）
+    // GUIDE（軸の 6 本。`## 軸` が軸の A の文）
     "guides/task.md",
     "guides/target.md",
     "guides/data.md",
@@ -212,7 +212,8 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
     if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
         return invalid(format!("RESEARCH_TYPE の id に使えない文字があります: {id}"));
     }
-    let lines = doc.section("Q").unwrap_or_default();
+    // 古い写しの `## Q` も同じに読む（`## 軸` が優先）。
+    let lines = doc.section("軸").or_else(|| doc.section("Q")).unwrap_or_default();
     let mut tree: Vec<TypeQ> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut prev_depth: Option<usize> = None;
@@ -220,7 +221,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         if line.trim().is_empty() {
             continue;
         }
-        let bad = || RtError::Invalid(format!("RESEARCH_TYPE の ## Q の {} 行目が読めません", index + 1));
+        let bad = || RtError::Invalid(format!("RESEARCH_TYPE の ## 軸 の {} 行目が読めません", index + 1));
         let indent = line.len() - line.trim_start_matches(' ').len();
         let rest = &line[indent..];
         // `+` は `- ` と同じに読む（保存された古い型を読めるように）。
@@ -235,7 +236,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
             return Err(bad());
         }
         if !seen.insert(key.to_string()) {
-            return invalid(format!("RESEARCH_TYPE の ## Q に同じ key が 2 回あります: {key}"));
+            return invalid(format!("RESEARCH_TYPE の ## 軸 に同じ key が 2 回あります: {key}"));
         }
         let mut level = &mut tree;
         for _ in 0..depth {
@@ -245,7 +246,7 @@ pub fn parse_type(text: &str) -> Result<TypeDef> {
         prev_depth = Some(depth);
     }
     if tree.is_empty() {
-        return invalid("RESEARCH_TYPE の ## Q が空です");
+        return invalid("RESEARCH_TYPE の ## 軸 が空です");
     }
     Ok(TypeDef { id, name, explain: doc.explain.clone(), tree })
 }
@@ -259,12 +260,20 @@ pub fn parse_guide(text: &str) -> Result<GuideDef> {
             .ok_or_else(|| RtError::Invalid(format!("GUIDE の frontmatter に {name} がありません")))
     };
     let (key, name) = (need("key")?, need("name")?);
+    // 古い写しの `## Child Q*` も候補として読み続ける。
+    let label = match doc.joined("軸") {
+        text if text.is_empty() => key.clone(),
+        text => text,
+    };
     Ok(GuideDef {
+        label,
+        explain: doc.explain.clone(),
+        child_candidates: ["細分の候補", "条件の候補", "Child Q", "Child Q（細分）", "Child Q（条件）"]
+            .iter()
+            .flat_map(|n| doc.bullets(n))
+            .collect(),
         key,
         name,
-        explain: doc.explain.clone(),
-        question: doc.joined("Q"),
-        child_candidates: ["Child Q", "Child Q（細分）", "Child Q（条件）"].iter().flat_map(|n| doc.bullets(n)).collect(),
         extract: doc.bullets("Extract"),
         pitfalls: doc.bullets("Pitfall"),
     })
@@ -339,7 +348,7 @@ fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
         keys(&t.tree, &mut ks);
         for k in ks {
             if defs.guide(k).is_none() {
-                missing.push(format!("RESEARCH_TYPE {} の Q {k} の GUIDE がありません", t.id));
+                missing.push(format!("RESEARCH_TYPE {} の軸 {k} の GUIDE がありません", t.id));
             }
         }
     }
@@ -349,29 +358,22 @@ fn load_with_home(root: &Path, home: Option<&Path>) -> Defs {
 
 // ---- research-tree を作る ------------------------------------------------------------------------
 
-/// [`init_tree`] の結果。`created` は作った Q の数。
+/// [`init_tree`] の結果。`created` は作った軸の A の数。
 #[derive(Debug, Clone)]
 pub struct InitReport {
     pub created: usize,
     pub warnings: Vec<String>,
 }
 
-fn add_q(
-    conn: &Connection,
-    defs: &Defs,
-    parent: Option<i64>,
-    q: &TypeQ,
-    created_by: &str,
-    run_id: Option<i64>,
-    ids: &mut Vec<i64>,
-) -> Result<()> {
-    let text = defs.question_text(&q.key);
+/// 軸の A を 1 つ作る（親は無い）。RESEARCH_TYPE の軸の下の子は作らない（今の型に子は無い）。
+fn add_axis(conn: &Connection, defs: &Defs, axis: &TypeQ, created_by: &str, run_id: Option<i64>, ids: &mut Vec<i64>) -> Result<()> {
+    let text = defs.axis_label(&axis.key);
     let id = store::insert_node(
         conn,
         &NewNode {
-            kind: Kind::Q,
-            parent_id: parent,
-            guide_key: Some(&q.key),
+            kind: Kind::A,
+            parent_id: None,
+            guide_key: Some(&axis.key),
             text: &text,
             body: "",
             stance: None,
@@ -386,13 +388,10 @@ fn add_q(
         },
     )?;
     ids.push(id);
-    for child in &q.children {
-        add_q(conn, defs, Some(id), child, created_by, run_id, ids)?;
-    }
     Ok(())
 }
 
-/// RESEARCH_TYPE の `## Q` の 1 段目を top_Q（`parent_id` は NULL）として作り、その下の Q も作る。
+/// RESEARCH_TYPE の `## 軸` の 6 つを、親の無い A（軸の A）として作る。
 pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str) -> Result<InitReport> {
     if store::is_initialized(conn)? {
         return invalid("research-tree は既にあります");
@@ -402,8 +401,8 @@ pub fn init_tree(conn: &Connection, defs: &Defs, type_id: &str, created_by: &str
     };
     let tx = conn.unchecked_transaction()?;
     let mut ids = Vec::new();
-    for q in &type_def.tree {
-        add_q(&tx, defs, None, q, created_by, None, &mut ids)?;
+    for axis in &type_def.tree {
+        add_axis(&tx, defs, axis, created_by, None, &mut ids)?;
     }
     store::meta_set(&tx, "type", type_id)?;
     store::meta_set(&tx, "initialized_at", &now_text())?;
@@ -477,7 +476,7 @@ mod tests {
     }
 
     fn type_md(q: &str) -> String {
-        format!("---\nid: t1\nname: T\n---\n# T\n\n## Q\n{q}\n")
+        format!("---\nid: t1\nname: T\n---\n# T\n\n## 軸\n{q}\n")
     }
 
     #[test]
@@ -494,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn init_tree_makes_static_qs_only() {
+    fn init_tree_makes_axis_as_only() {
         let root = temp_dir();
         let defs = load_with_home(&root, None);
         let axes = ["task", "target", "data", "method", "output", "metric"];
@@ -502,27 +501,21 @@ mod tests {
             let db = Database::in_memory().unwrap();
             let conn = db.connection();
             let report = init_tree(conn, &defs, type_id, "test").unwrap();
-            // どの型でも top_Q は軸の 6 つ。子は作らない。
+            // どの型でも親の無い A は軸の 6 つ。子は作らない。
             let tops = store::list_nodes(conn, false)
                 .unwrap()
                 .into_iter()
-                .filter(|n| n.kind == Kind::Q && n.parent_id.is_none())
+                .filter(|n| store::is_axis(n))
                 .collect::<Vec<_>>();
             let keys: Vec<_> = tops.iter().map(|n| n.guide_key.clone().unwrap_or_default()).collect();
             assert_eq!(keys, axes, "{type_id}");
             assert_eq!(report.created, 6, "{type_id}");
             for top in &tops {
+                assert_eq!(top.kind, Kind::A);
                 assert!(texts(conn, top.id).is_empty());
-                assert_eq!(top.text, defs.question_text(top.guide_key.as_deref().unwrap()));
+                assert_eq!(top.text, defs.axis_label(top.guide_key.as_deref().unwrap()));
             }
-            let want = [
-                "この分野で解かれている問題（タスク）には、どんな種類があるか。",
-                "研究の対象には、どんな種類があるか。",
-                "使われているデータには、どんな種類があるか。",
-                "使われている手法には、どんな種類があるか。",
-                "研究が出す出力の形には、どんな種類があるか。",
-                "使われている評価指標には、どんな種類があるか。",
-            ];
+            let want = ["解く問題", "対象", "データ", "手法", "出力", "評価指標"];
             let got: Vec<_> = tops.iter().map(|n| n.text.as_str()).collect();
             assert_eq!(got, want, "{type_id}");
         }
@@ -592,6 +585,7 @@ mod tests {
             assert!(matches!(parse_type(md), Err(RtError::Invalid(_))));
         }
         assert!(parse_type("---\nid: t\nname: T\n---\n## Q\n- a\n").is_ok());
+        assert!(parse_type("---\nid: t\nname: T\n---\n## 軸\n- a\n").is_ok());
         assert!(parse_type("---\nid: t\nname: T\nroot: 古い根\n---\n## Q\n- a\n## SEED\n文\n").is_ok());
         assert!(matches!(parse_guide("---\nname: N\n---\n"), Err(RtError::Invalid(_))));
         // target は読まない（書いてあっても無視する）。

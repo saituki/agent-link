@@ -52,7 +52,7 @@ pub struct NodeStepJson {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ParentAtJson {
     pub step: usize,
-    /// その step 以降の親の ID。top_Q・D・親の無い S は null。
+    /// その step 以降の親の ID。軸の A・D・親の無い S は null。
     pub parent: Option<String>,
 }
 
@@ -86,7 +86,7 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
     let log = store::list_log(conn, None)?;
     let kinds: HashMap<i64, Kind> = nodes.iter().map(|n| (n.id, n.kind)).collect();
     // 作成の記録（insert_q・copy・regroup）と消去の記録を、Node の ID で引けるようにする。
-    // regroup の記録は細分の Q に付く。その親（中間の A）は regroup の作成になる。
+    // regroup の記録は細分の A（旧い細分の Q の行）に付く。その親（中間の A）は regroup の作成になる。
     let made_by: HashMap<i64, &LogRow> = log
         .iter()
         .filter(|l| matches!(l.action.as_str(), "insert_q" | "copy" | "regroup"))
@@ -139,9 +139,9 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
     let mut gone: HashMap<i64, usize> = HashMap::new();
     let mut moves: Vec<Move> = Vec::new();
     for ev in events.iter() {
-        // regroup は中間の A と細分の Q を作るが、1 op = 1 step。細分の Q は直前の A の step に畳み、step は増やさない。
+        // regroup は中間の A と細分の A を作るが、1 op = 1 step。細分の A は直前の A の step に畳み、step は増やさない。
         let folded = matches!(&ev.what, What::Create(row)
-            if row.kind == Kind::Q && made_by.get(&row.id).is_some_and(|l| l.action == "regroup"));
+            if row.kind == Kind::A && made_by.get(&row.id).is_some_and(|l| l.action == "regroup"));
         let n = if folded { steps.len() } else { steps.len() + 1 };
         let (op, by, node) = match &ev.what {
             What::Create(row) => {
@@ -152,7 +152,8 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
                     Some("copy") => "copy",
                     Some("regroup") => "regroup",
                     _ => match row.kind {
-                        Kind::Q => "add_q",
+                        // 軸の A は init で作る。履歴の名は旧い add_q のまま。
+                        Kind::A if store::is_axis(row) => "add_q",
                         Kind::A if regroup_a.contains_key(&row.id) => "regroup",
                         Kind::A => "add_a",
                         Kind::F => "add_f",
@@ -177,7 +178,7 @@ pub fn build(conn: &Connection) -> Result<StepsJson> {
                 if l.action == "move_node" {
                     ("move_node", l.actor.clone(), fmt_id(Kind::A, l.node_id))
                 } else {
-                    ("move_a", l.actor.clone(), fmt_id(Kind::Q, l.node_id))
+                    ("move_a", l.actor.clone(), fmt_id(Kind::A, l.node_id))
                 }
             }
             What::Remove(ns) => {
@@ -284,14 +285,14 @@ fn read_move_log(l: &LogRow) -> Option<(i64, i64, Option<Vec<i64>>, Option<usize
     Some((l.node_id, from, exact, count))
 }
 
-/// 親の ID（A か Q）。頭文字で種類を決める。
+/// 親の ID（A。旧い Q の ID も A と読む）。
 fn parse_parent_id(text: &str) -> Option<i64> {
-    parse_id(text).ok().filter(|(kind, _)| matches!(kind, Kind::A | Kind::Q)).map(|(_, id)| id)
+    parse_id(text).ok().filter(|(kind, _)| *kind == Kind::A).map(|(_, id)| id)
 }
 
-/// `rt_log.detail` を読む。先頭の語が元の Q。`（A5, A6）` があれば移した A の ID、無ければ `A 2 件` の件数。
+/// `rt_log.detail` を読む。先頭の語が元の親（旧い Q の ID も A と読む）。`（A5, A6）` があれば移した A の ID、無ければ `A 2 件` の件数。
 fn read_move(detail: &str) -> Option<(i64, Option<Vec<i64>>, Option<usize>)> {
-    let from = parse_id_of(detail.split_whitespace().next()?, Kind::Q).ok()?;
+    let from = parse_id_of(detail.split_whitespace().next()?, Kind::A).ok()?;
     let exact = detail
         .rsplit_once('（')
         .and_then(|(_, rest)| rest.strip_suffix('）'))
@@ -309,7 +310,7 @@ fn read_move(detail: &str) -> Option<(i64, Option<Vec<i64>>, Option<usize>)> {
     Some((from, exact, count))
 }
 
-/// 消えた Node の中身（`NodeJson`）。`depth`・`bottom_q`・`range`・`counts` は消えた Node では意味が無いので空にする。
+/// 消えた Node の中身（`NodeJson`）。`depth`・`range`・`counts` は消えた Node では意味が無いので空にする。
 fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
     NodeJson {
         id: fmt_id(n.kind, n.id),
@@ -321,7 +322,7 @@ fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
         ord: n.ord,
         text: n.text.clone(),
         body: n.body.clone(),
-        guide: if n.kind == Kind::Q {
+        guide: if store::is_axis(n) {
             n.guide_key.clone()
         } else {
             None
@@ -329,7 +330,6 @@ fn removed_json(n: &NodeRow, kinds: &HashMap<i64, Kind>) -> NodeJson {
         stance: n.stance.clone(),
         starred: n.starred,
         rel: None,
-        bottom_q: false,
         paths: if n.kind == Kind::S {
             n.paths.iter().map(|a| fmt_id(Kind::A, *a)).collect()
         } else {
@@ -404,7 +404,7 @@ mod tests {
     }
 
     fn q(id: i64) -> Option<String> {
-        Some(fmt_id(Kind::Q, id))
+        Some(fmt_id(Kind::A, id))
     }
 
     /// 親の履歴を (step, 親の ID) の組で返す。
@@ -421,13 +421,13 @@ mod tests {
     fn insert_q_db(with_ids: bool) -> (Database, [i64; 4]) {
         let database = db();
         let conn = database.connection();
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a2 = add(conn, Kind::A, Some(q1), T0);
         let a3 = add(conn, Kind::A, Some(q1), T0);
-        let q4 = add(conn, Kind::Q, Some(q1), T0);
+        let q4 = add(conn, Kind::A, Some(q1), T0);
         store::set_parent(conn, a2, q4).unwrap();
         store::set_parent(conn, a3, q4).unwrap();
-        let head = format!("{} の A 2 件を移した", fmt_id(Kind::Q, q1));
+        let head = format!("{} の A 2 件を移した", fmt_id(Kind::A, q1));
         let detail = if with_ids {
             format!("{head}（{}, {}）", fmt_id(Kind::A, a2), fmt_id(Kind::A, a3))
         } else {
@@ -441,7 +441,7 @@ mod tests {
     fn creation_steps_follow_time_then_id_with_mixed_kinds() {
         let database = db();
         let conn = database.connection();
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a2 = add(conn, Kind::A, Some(q1), T0);
         let f3 = add(conn, Kind::F, Some(a2), T0);
         let e4 = add(conn, Kind::E, Some(a2), T0);
@@ -455,7 +455,7 @@ mod tests {
             ["add_q", "add_a", "add_f", "add_e", "add_sprout", "add_seed"]
         );
         let want: Vec<String> = [
-            (Kind::Q, q1),
+            (Kind::A, q1),
             (Kind::A, a2),
             (Kind::F, f3),
             (Kind::E, e4),
@@ -483,10 +483,10 @@ mod tests {
             let st = build(database.connection()).unwrap();
             assert_eq!(st.total, 4);
             assert_eq!(st.list[3].op, "insert_q");
-            assert_eq!(st.list[3].node, fmt_id(Kind::Q, q4));
+            assert_eq!(st.list[3].node, fmt_id(Kind::A, q4));
             assert_eq!(hist(&st, Kind::A, a2), vec![(2, q(q1)), (4, q(q4))]);
             assert_eq!(hist(&st, Kind::A, a3), vec![(3, q(q1)), (4, q(q4))]);
-            assert_eq!(hist(&st, Kind::Q, q4), vec![(4, q(q1))]);
+            assert_eq!(hist(&st, Kind::A, q4), vec![(4, q(q1))]);
         }
     }
 
@@ -494,15 +494,15 @@ mod tests {
     fn move_a_is_one_step_and_uses_moved_ids() {
         let database = db();
         let conn = database.connection();
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a2 = add(conn, Kind::A, Some(q1), T0);
         let a3 = add(conn, Kind::A, Some(q1), T0);
-        let q5 = add(conn, Kind::Q, None, T0);
+        let q5 = add(conn, Kind::A, None, T0);
         store::set_parent(conn, a2, q5).unwrap();
         store::set_parent(conn, a3, q5).unwrap();
         let detail = format!(
             "{} から A 2 件（{}, {}）",
-            fmt_id(Kind::Q, q1),
+            fmt_id(Kind::A, q1),
             fmt_id(Kind::A, a2),
             fmt_id(Kind::A, a3)
         );
@@ -510,7 +510,7 @@ mod tests {
         let st = build(conn).unwrap();
         assert_eq!(st.total, 5);
         assert_eq!(st.list[4].op, "move_a");
-        assert_eq!(st.list[4].node, fmt_id(Kind::Q, q5));
+        assert_eq!(st.list[4].node, fmt_id(Kind::A, q5));
         assert_eq!(hist(&st, Kind::A, a2), vec![(2, q(q1)), (5, q(q5))]);
         assert_eq!(hist(&st, Kind::A, a3), vec![(3, q(q1)), (5, q(q5))]);
     }
@@ -520,13 +520,13 @@ mod tests {
     fn move_node_detail_reads_a_and_q_parents() {
         let database = db();
         let conn = database.connection();
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a2 = add(conn, Kind::A, Some(q1), T0);
         let a3 = add(conn, Kind::A, Some(q1), T0);
         let a4 = add(conn, Kind::A, Some(q1), T0);
         // 旧い形（Q から A へ）と、新しい形（A から A へ）。
         store::set_parent(conn, a2, a3).unwrap();
-        log(conn, a2, "move_node", &format!("{} から {} へ", fmt_id(Kind::Q, q1), fmt_id(Kind::A, a3)), "user", T5);
+        log(conn, a2, "move_node", &format!("{} から {} へ", fmt_id(Kind::A, q1), fmt_id(Kind::A, a3)), "user", T5);
         store::set_parent(conn, a2, a4).unwrap();
         log(conn, a2, "move_node", &format!("{} から {} へ", fmt_id(Kind::A, a3), fmt_id(Kind::A, a4)), "user", T5);
         let st = build(conn).unwrap();
@@ -542,16 +542,16 @@ mod tests {
         // 正しくは a_pre は (2, q5) のまま、a_mv は (4, q1)→(5, q5)。
         let database = db();
         let conn = database.connection();
-        let q5 = add(conn, Kind::Q, None, T0);
+        let q5 = add(conn, Kind::A, None, T0);
         let a_pre = add(conn, Kind::A, Some(q5), T0);
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a_mv = add(conn, Kind::A, Some(q1), T0);
         store::set_parent(conn, a_mv, q5).unwrap();
         log(
             conn,
             q5,
             "move_a",
-            &format!("{} から A 1 件", fmt_id(Kind::Q, q1)),
+            &format!("{} から A 1 件", fmt_id(Kind::A, q1)),
             "user",
             T5,
         );
@@ -564,10 +564,10 @@ mod tests {
     fn remove_is_one_step_for_whole_subtree() {
         let database = db();
         let conn = database.connection();
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a2 = add(conn, Kind::A, Some(q1), T0);
         let f3 = add(conn, Kind::F, Some(a2), T0);
-        let _q4 = add(conn, Kind::Q, None, T0);
+        let _q4 = add(conn, Kind::A, None, T0);
         store::remove_subtree(conn, a2).unwrap();
         log(conn, a2, "remove", "", "saituki", T0);
         let st = build(conn).unwrap();
@@ -591,14 +591,14 @@ mod tests {
     fn same_second_is_create_then_move_then_remove() {
         let database = db();
         let conn = database.connection();
-        let q1 = add(conn, Kind::Q, None, T0);
+        let q1 = add(conn, Kind::A, None, T0);
         let a2 = add(conn, Kind::A, Some(q1), T0);
-        let q5 = add(conn, Kind::Q, None, T0);
-        let x = add(conn, Kind::Q, None, T0);
+        let q5 = add(conn, Kind::A, None, T0);
+        let x = add(conn, Kind::A, None, T0);
         store::set_parent(conn, a2, q5).unwrap();
         let detail = format!(
             "{} から A 1 件（{}）",
-            fmt_id(Kind::Q, q1),
+            fmt_id(Kind::A, q1),
             fmt_id(Kind::A, a2)
         );
         log(conn, q5, "move_a", &detail, "user", T0);
