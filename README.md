@@ -343,6 +343,7 @@ research-tree（A・F・E・S・D）・professor・LabAgent（研究用の block
 | 他の DB を開いていない | プロジェクト・論文・研究はすべて 3 つの CLI か中継 API を通す |
 | 読み書きするファイルを iPhone から指定できない | run の md・定義・.bib の置き場は CLI が名前から決める。名前は Web が先に形を検査する |
 | 壊れた定義を保存しない | 定義の保存前に sai-link が検査し、理由を出す |
+| 開発（Mac・Docker Desktop）でホストから project の DB を開かない | 動いている project の `sai-engine.db`・`papr.db` を、Mac のホストの SQLite（`sqlite3`・ホストの `target/release/sai-*`）で開かない。ホストのロックはコンテナから見えず、daemon が SIGBUS で止まったり DB が壊れたりする。中身を見るときは `docker exec <コンテナ> …` でコンテナの中から読む |
 
 ## テスト（開発者向け）
 
