@@ -9,6 +9,8 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_web", "static", "sciread.js");
+// 画面の軸の判定（ui.js の saiIsAxis）。ブラウザでは一番外側の名前として読まれるので、テストでも同じ名前にする
+global.saiIsAxis = require(require("path").join(__dirname, "..", "src", "sai_web", "static", "ui.js")).saiIsAxis;
 const {
   srTrim,
   srParseHash,
@@ -27,7 +29,7 @@ function sampleCard(kind = "A", id = "A12") {
   return {
     run_id: 130,
     owner: "todo",
-    node: { id, kind, text: "小目的" },
+    node: { id, kind, text: "小目的", parent: "A90" },
     purpose: "A12 のために #37 を読む",
     paper: { id: 37, title: "Scalp EEG for seizure prediction", year: 2021 },
     depth: "full",
@@ -76,15 +78,17 @@ function test_parents() {
   assert.deepStrictEqual(srParents(sampleCard("A", "A12"), null), ["A12"]);
   // F は A だけに付く（E の下に F は置かない）
   assert.deepStrictEqual(srParents(sampleCard("E", "E3"), null), []);
-  // Q は子の A だけ。★ を先に
+  // 軸の A（親の無い A）は子の A だけ。★ を先に
   const detail = { children: [
     { id: "A1", kind: "A", starred: false },
     { id: "F2", kind: "F" },
     { id: "A5", kind: "A", starred: true },
     { id: "E9", kind: "E" },
   ] };
-  assert.deepStrictEqual(srParents(sampleCard("Q", "Q12"), detail), ["A5", "A1"]);
-  assert.deepStrictEqual(srParents(sampleCard("Q", "Q12"), null), []);
+  const axis = sampleCard("A", "A90");
+  axis.node.parent = null;
+  assert.deepStrictEqual(srParents(axis, detail), ["A5", "A1"]);
+  assert.deepStrictEqual(srParents(axis, null), []);
   assert.deepStrictEqual(srParents(sampleCard("F", "F1"), detail), []);
 }
 

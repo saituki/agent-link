@@ -53,7 +53,7 @@ GRAPHICAL([
 GRAPHICAL(["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"]);
 // research-tree の状態と線（U19）
 GRAPHICAL([
-  "--sci-k-Q", "--sci-k-A", "--sci-k-F", "--sci-k-E", "--sci-k-S", "--sci-k-D",
+  "--sci-axis", "--sci-k-A", "--sci-k-F", "--sci-k-E", "--sci-k-S", "--sci-k-D",
   "--sci-decided", "--sci-tentative", "--sci-open", "--sci-excluded", "--sci-candidate",
   "--sci-rejected", "--sci-dormant", "--sci-support", "--sci-refute",
   "--sci-edge-parent", "--sci-edge-depends", "--sci-edge-derived", "--sci-edge-analogous",
@@ -156,7 +156,7 @@ const REQUIRED = [
   "--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6",
   "--chart-axis", "--chart-grid", "--st-card",
   // research-tree（U19）
-  "--sci-k-Q", "--sci-k-A", "--sci-k-F", "--sci-k-E", "--sci-k-S", "--sci-k-D",
+  "--sci-axis", "--sci-k-A", "--sci-k-F", "--sci-k-E", "--sci-k-S", "--sci-k-D",
   "--sci-decided", "--sci-tentative", "--sci-open", "--sci-excluded", "--sci-candidate",
   "--sci-rejected", "--sci-dormant", "--sci-support", "--sci-refute",
   "--sci-edge-parent", "--sci-edge-depends", "--sci-edge-derived", "--sci-edge-analogous",

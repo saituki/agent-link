@@ -72,7 +72,7 @@
      状態（決定・仮決定・未決定・対象外・候補・却下・休眠・支持・反証）と
      線（Parent / Child・依存・由来・同型）。赤と緑だけの組にしない。対比は test_contrast.js が測る。 */
   /* node の種類ごとの色（重複なし）。左右 sidebar・札の枠・Icon はこれだけを使う */
-  --sci-k-Q: #2563eb; --sci-k-A: #15803d; --sci-k-F: #a16207;
+  --sci-axis: #2563eb; --sci-k-A: #15803d; --sci-k-F: #a16207;
   --sci-k-E: #0e7490; --sci-k-S: #7e22ce; --sci-k-D: #be185d;
   --sci-decided: #15803d;
   --sci-tentative: #a16207;
@@ -150,7 +150,7 @@
     --series-6: #9ca3af;
     --chart-grid: #333336;
     --chart-axis: #a1a1a6;
-    --sci-k-Q: #7aa2f7; --sci-k-A: #4ade80; --sci-k-F: #fbbf24;
+    --sci-axis: #7aa2f7; --sci-k-A: #4ade80; --sci-k-F: #fbbf24;
     --sci-k-E: #38bdf8; --sci-k-S: #c084fc; --sci-k-D: #f472b6;
     --sci-decided: #4ade80;
     --sci-tentative: #fbbf24;

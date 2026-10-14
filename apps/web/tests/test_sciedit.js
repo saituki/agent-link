@@ -9,6 +9,8 @@ const assert = require("assert");
 const path = require("path");
 
 const src = path.join(__dirname, "..", "src", "sai_web", "static", "sciedit.js");
+// 画面の軸の判定（ui.js の saiIsAxis）。ブラウザでは一番外側の名前として読まれるので、テストでも同じ名前にする
+global.saiIsAxis = require(require("path").join(__dirname, "..", "src", "sai_web", "static", "ui.js")).saiIsAxis;
 const {
   seTrim, seOpLabel, seCiteOk, seRefOk, seIdOk, seCountSentences, seNeedsCite, seEditRules, seBuildOp,
   seCardValues, seBuildCard, seCardRunId,
@@ -73,14 +75,14 @@ function test_cite() {
 
 // --- 操作の通る例 ---
 function test_ops_ok() {
-  // add_a: 親は A か Q（A の下の A も可）。rel は subtype か condition。空の rel と body は送らない
-  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "Q1", text: "SST-2", body: "b" })), { op: "add_a", parent: "Q1", text: "SST-2", body: "b" });
+  // add_a: 親は A（軸の A の下も A の下も可）。rel は subtype か condition。空の rel と body は送らない
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A91", text: "SST-2", body: "b" })), { op: "add_a", parent: "A91", text: "SST-2", body: "b" });
   assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A2", text: "下位の答え", rel: "subtype" })), { op: "add_a", parent: "A2", text: "下位の答え", rel: "subtype" });
   assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A2", text: "条件", rel: "condition", body: "" })), { op: "add_a", parent: "A2", text: "条件", rel: "condition" });
-  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "Q1", text: "x", rel: " " })), { op: "add_a", parent: "Q1", text: "x" });
+  assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A91", text: "x", rel: " " })), { op: "add_a", parent: "A91", text: "x" });
   assert.deepStrictEqual(ok(seBuildOp("add_a", { parent: "A2", text: "x", reason: "r" })), { op: "add_a", parent: "A2", text: "x" });
-  // move_node は A を 1 件・移す先は A か Q（A の下へも移せる）
-  assert.deepStrictEqual(ok(seBuildOp("move_node", { node: "A4", to: "Q3" })), { op: "move_node", node: "A4", to: "Q3" });
+  // move_node は A を 1 件・移す先は A（軸の A も可）
+  assert.deepStrictEqual(ok(seBuildOp("move_node", { node: "A4", to: "A93" })), { op: "move_node", node: "A4", to: "A93" });
   assert.deepStrictEqual(ok(seBuildOp("move_node", { node: "A4", to: "A3" })), { op: "move_node", node: "A4", to: "A3" });
   // F は stance が要る。出典と論文番号は任意
   assert.deepStrictEqual(
@@ -115,16 +117,16 @@ function test_ops_ok() {
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "D1" })), { op: "remove", node: "D1" });
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "D1" })), { op: "star", node: "D1" });
   assert.deepStrictEqual(ok(seBuildOp("edit", { node: "D1", text: "題", body: "## 背景\n空欄" })), { op: "edit", node: "D1", text: "題", body: "## 背景\n空欄" });
-  assert.deepStrictEqual(ok(seBuildOp("copy", { node: "A2", to: "Q5" })), { op: "copy", node: "A2", to: "Q5" });
+  assert.deepStrictEqual(ok(seBuildOp("copy", { node: "A2", to: "A95" })), { op: "copy", node: "A2", to: "A95" });
   assert.deepStrictEqual(ok(seBuildOp("copy", { node: "A2", to: "A5" })), { op: "copy", node: "A2", to: "A5" });
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "F3", reason: "誤り" })), { op: "remove", node: "F3" });
   assert.deepStrictEqual(ok(seBuildOp("remove", { node: "S1" })), { op: "remove", node: "S1" });
   assert.deepStrictEqual(ok(seBuildOp("edit", { node: "S2", text: "直した" })), { op: "edit", node: "S2", text: "直した" });
-  assert.deepStrictEqual(ok(seBuildOp("edit", { node: "Q1", text: "新しい文" })), { op: "edit", node: "Q1", text: "新しい文" });
+  assert.deepStrictEqual(ok(seBuildOp("edit", { node: "A91", text: "新しい文" })), { op: "edit", node: "A91", text: "新しい文" });
   assert.deepStrictEqual(ok(seBuildOp("edit", { node: "A1", body: "本文だけ" })), { op: "edit", node: "A1", body: "本文だけ" });
   // ★ はどの種類の Node にも付く（node で送る）
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "A2" })), { op: "star", node: "A2" });
-  assert.deepStrictEqual(ok(seBuildOp("star", { node: "Q1" })), { op: "star", node: "Q1" });
+  assert.deepStrictEqual(ok(seBuildOp("star", { node: "A91" })), { op: "star", node: "A91" });
   assert.deepStrictEqual(ok(seBuildOp("unstar", { node: "F3" })), { op: "unstar", node: "F3" });
   assert.deepStrictEqual(ok(seBuildOp("star", { node: "S1" })), { op: "star", node: "S1" });
   // stance は F だけ
@@ -141,36 +143,36 @@ function test_ops_ok() {
 function test_ops_ng() {
   // 廃止した op（add_q・insert_q・move_a・regroup）は通らない（表に無い op）
   for (const old of ["add_q", "insert_q", "move_a", "regroup"]) {
-    assert.strictEqual(ng(seBuildOp(old, { parent: "Q1", q: "Q1", from: "Q1", to: "Q2", text: "x", members: ["A2"], child_q: "c" })), "Unknown operation", old);
+    assert.strictEqual(ng(seBuildOp(old, { parent: "A91", q: "A91", from: "A91", to: "A92", text: "x", members: ["A2"], child_q: "c" })), "Unknown operation", old);
   }
-  // add_a: 親は A か Q（F・E・SEED は不可）。文は必須。旧い項目 q だけでは親が無いので通らない
-  assert.strictEqual(ng(seBuildOp("add_a", { parent: "F1", text: "x" })), "親（A か Q）を選んでください");
-  assert.strictEqual(ng(seBuildOp("add_a", { parent: "SEED", text: "最初の答え" })), "親（A か Q）を選んでください");
-  assert.strictEqual(ng(seBuildOp("add_a", { q: "Q1", text: "x" })), "親（A か Q）を選んでください");
-  assert.strictEqual(ng(seBuildOp("add_a", { parent: "Q1", text: "" })), "文を入力してください");
-  assert.strictEqual(ng(seBuildOp("add_a", { parent: "Q1", text: "あ".repeat(121) })), "文は 120 字までです");
+  // add_a: 親は A（F・E・SEED は不可）。文は必須。旧い項目 q だけでは親が無いので通らない
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "F1", text: "x" })), "親（A）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "SEED", text: "最初の答え" })), "親（A）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_a", { q: "A91", text: "x" })), "親（A）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "A91", text: "" })), "文を入力してください");
+  assert.strictEqual(ng(seBuildOp("add_a", { parent: "A91", text: "あ".repeat(121) })), "文は 120 字までです");
   assert.strictEqual(ng(seBuildOp("add_a", { parent: "A1", text: "x", body: "あ".repeat(2001) })), "本文は 2000 字までです");
   // rel は subtype か condition だけ（空は送らない）
   assert.strictEqual(ng(seBuildOp("add_a", { parent: "A1", text: "x", rel: "other" })), "種類（subtype か condition）が正しくありません");
-  // move_node は A を 1 件・移す先は A か Q
-  assert.strictEqual(ng(seBuildOp("move_node", { node: "Q4", to: "Q3" })), "移す Aを選んでください");
-  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4" })), "移す先（A か Q）を選んでください");
-  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "F3" })), "移す先（A か Q）を選んでください");
-  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "E1" })), "移す先（A か Q）を選んでください");
+  // move_node は A を 1 件・移す先は A（軸の A も可）
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "F4", to: "A93" })), "移す Aを選んでください");
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4" })), "移す先（A）を選んでください");
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "F3" })), "移す先（A）を選んでください");
+  assert.strictEqual(ng(seBuildOp("move_node", { node: "A4", to: "E1" })), "移す先（A）を選んでください");
   ng(seBuildOp("add_f", { parent: "E1", stance: "issue", text: "x" }));
   // F は A だけ（E の下に F は置かない）
-  ng(seBuildOp("add_f", { parent: "Q1", stance: "support", text: "x" })); // 親は A だけ（E の下に F は置かない）
-  ng(seBuildOp("add_e", { parent: "Q1", text: "x" }));
+  ng(seBuildOp("add_f", { parent: "E1", stance: "support", text: "x" })); // 親は A だけ（E の下に F は置かない）
+  ng(seBuildOp("add_e", { parent: "A91", text: "x" }));
   ng(seBuildOp("add_e", { parent: "A2", text: "x" }));
   ng(seBuildOp("copy", { node: "A2", to: "F3" }));
-  ng(seBuildOp("copy", { node: "Q2", to: "Q3" }));
+  ng(seBuildOp("copy", { node: "F2", to: "A93" }));
   ng(seBuildOp("star", {}));
   ng(seBuildOp("set_stance", { node: "A2", stance: "support" })); // stance は F だけ
   ng(seBuildOp("set_stance", { node: "F3", stance: "" }));
   ng(seBuildOp("set_stance", { node: "F3", stance: "X" }));
   // SPROUT は seed（D）を選ばないと送れない
   assert.strictEqual(ng(seBuildOp("add_sprout", { title: "題" })), "seed（D）を選んでください");
-  assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "Q1", title: "題" })), "seed（D）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "A91", title: "題" })), "seed（D）を選んでください");
   assert.strictEqual(ng(seBuildOp("add_sprout", { seed: "", title: "題" })), "seed（D）を選んでください");
   ng(seBuildOp("add_seed", {})); // 題が無い
   ng(seBuildOp("add_seed", { title: "あ".repeat(121) }));
@@ -179,32 +181,33 @@ function test_ops_ng() {
   // 問い・回答（U02）の NG: ID の形・文の字数・軸・a と text の組
   assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "D1", text: "" })), "問いを入力してください");
   assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "D1", text: "あ".repeat(301) })), "問いは 300 字までです");
-  assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "Q1", text: "問い" })), "seed（D）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "A91", text: "問い" })), "seed（D）を選んでください");
   assert.strictEqual(ng(seBuildOp("add_seed_q", { seed: "D1", text: "問い", axis: "goal" })), "軸が正しくありません");
-  assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "Q3", text: "問い" })), "問いを選んでください");
+  assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "A93", text: "問い" })), "問いを選んでください");
   assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "SQ3", text: "" })), "問いを入力してください");
   assert.strictEqual(ng(seBuildOp("edit_seed_q", { q: "SQ3", text: "問い", axis: "goal" })), "軸が正しくありません");
   assert.strictEqual(ng(seBuildOp("remove_seed_q", { q: "SA3" })), "問いを選んでください");
-  assert.strictEqual(ng(seBuildOp("add_answer", { to: "Q1", q: "SQ3", text: "文" })), "回答の持ち主（D か S）を選んでください");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "A91", q: "SQ3", text: "文" })), "回答の持ち主（D か S）を選んでください");
   assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "A3", text: "文" })), "問いを選んでください");
   assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3" })), "A を選ぶか、文を入力するかのどちらか一方にしてください");
   assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3", a: "A1", text: "文" })), "A を選ぶか、文を入力するかのどちらか一方にしてください");
-  assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3", a: "Q1" })), "A の形が正しくありません: Q1");
+  assert.strictEqual(ng(seBuildOp("add_answer", { to: "D1", q: "SQ3", a: "F91" })), "A の形が正しくありません: F91");
   assert.strictEqual(ng(seBuildOp("add_answer", { to: "S2", q: "SQ3", text: "あ".repeat(301) })), "回答の文は 300 字までです");
   assert.strictEqual(ng(seBuildOp("edit_answer", { answer: "SQ3", text: "文" })), "回答を選んでください");
   assert.strictEqual(ng(seBuildOp("edit_answer", { answer: "SA3", text: "" })), "回答の文を入力してください");
   assert.strictEqual(ng(seBuildOp("remove_answer", { answer: "A3" })), "回答を選んでください");
-  ng(seBuildOp("edit", { node: "Q1" })); // text も body も無い
-  ng(seBuildOp("edit", { node: "Q1", text: "x", body: "本文" })); // Q に本文は付かない
+  ng(seBuildOp("edit", { node: "A91" })); // text も body も無い
+  assert.ok(ok(seBuildOp("edit", { node: "A91", text: "x", body: "本文" }))); // 軸の A も A と同じく本文が付く
+  ng(seBuildOp("edit", { node: "F1", text: "x", body: "本文" })); // F に本文は付かない
   ng(seBuildOp("edit", { node: "A1", text: "あ".repeat(121) })); // A は 120 字まで
   ng(seBuildOp("edit", { node: "F3", text: "あ。い。う。え。" })); // F は 3 文まで
   ng(seBuildOp("edit", { node: "F3", text: "あ".repeat(1201) }));
   assert.ok(ok(seBuildOp("edit", { node: "F3", text: "あ".repeat(1200) })));
-  ng(seBuildOp("edit", { node: "Q1", text: "あ".repeat(301) }));
-  ng(seBuildOp("set_mlflow", { node: "Q1", mlflow: "run" }));
+  ng(seBuildOp("edit", { node: "A91", text: "あ".repeat(301) }));
+  ng(seBuildOp("set_mlflow", { node: "A91", mlflow: "run" }));
   // 字数（A は 120 字まで）
-  assert.ok(ok(seBuildOp("add_a", { parent: "Q1", text: "あ".repeat(120) })));
-  ng(seBuildOp("add_a", { parent: "Q1", text: "あ".repeat(121) }));
+  assert.ok(ok(seBuildOp("add_a", { parent: "A91", text: "あ".repeat(120) })));
+  ng(seBuildOp("add_a", { parent: "A91", text: "あ".repeat(121) }));
   ng(seBuildOp("add_e", { parent: "A1", text: "あ".repeat(121) }));
   ng(seBuildOp("add_sprout", { seed: "D1", title: "あ".repeat(121) }));
   ng(seBuildOp("add_sprout", { seed: "D1", title: "題", body: "あ".repeat(2001) }));
@@ -264,48 +267,48 @@ function test_tables() {
 // --- カードの初めの値（C-CARD）と検査 ---
 function test_card() {
   const preset = {
-    node: "Q12", block: "lab-grow", purpose: "「データの量は？」の答えの候補（A）を出す",
-    expect: "A を 2 つ以上", scope: "path", assume: ["Q9=SST-2 を使う（仮）"], mode: "purpose_first",
+    node: "A912", block: "lab-grow", purpose: "「データの量は？」の答えの候補（A）を出す",
+    expect: "A を 2 つ以上", scope: "path", assume: ["A99=SST-2 を使う（仮）"], mode: "purpose_first",
     papers: [37], runner: "pi", depth: "full", origin_run: 120, child: "A",
   };
   // 範囲と仮置きは U22 で消した。preset に入っていても返さない・送らない。
   assert.deepStrictEqual(seCardValues(preset), {
-    node: "Q12", block: "lab-grow", purpose: preset.purpose, expect: "A を 2 つ以上", runner: "cc",
+    node: "A912", block: "lab-grow", purpose: preset.purpose, expect: "A を 2 つ以上", runner: "cc",
     mode: "purpose_first", model: "", thinking: "", papers: [37], depth: "full", child: "A",
   });
   // 無ければ空（nodeId だけ入る）
-  const empty = seCardValues(null, "Q3");
-  assert.strictEqual(empty.node, "Q3");
+  const empty = seCardValues(null, "A93");
+  assert.strictEqual(empty.node, "A93");
   assert.strictEqual(empty.block, "");
   assert.strictEqual(empty.purpose, "");
   assert.strictEqual(empty.child, "");
   assert.deepStrictEqual(empty.papers, []);
-  // 対象に合わない子の型は空にする（F は Q の子ではない）
-  assert.strictEqual(seCardValues({ child: "F" }, "Q3").child, "");
+  // 対象に合わない子の型は空にする（E の下には子を足せない）
+  assert.strictEqual(seCardValues({ child: "A" }, "E1").child, "");
   // user ならブロックの既定は lab-read
   assert.strictEqual(seCardValues({ runner: "user" }, "A2").block, "lab-read");
 
   const built = seBuildCard(seCardValues(preset));
   assert.strictEqual(built.ok, true);
   assert.deepStrictEqual(built.card, {
-    node: "Q12", block: "lab-grow", purpose: preset.purpose, runner: "cc", papers: [37],
+    node: "A912", block: "lab-grow", purpose: preset.purpose, runner: "cc", papers: [37],
     expect: "A を 2 つ以上", child: "A",
   });
   // pi は廃止（空・未知の実行者は cc に寄せる）。model・thinking は選んだ物だけ送る
-  assert.strictEqual(seCardValues({ runner: "cc" }, "Q3").runner, "cc");
-  const withMt = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "cc", model: "opus", thinking: "high" });
+  assert.strictEqual(seCardValues({ runner: "cc" }, "A93").runner, "cc");
+  const withMt = seBuildCard({ node: "A93", block: "lab-grow", purpose: "目的", runner: "cc", model: "opus", thinking: "high" });
   assert.strictEqual(withMt.card.model, "opus");
   assert.strictEqual(withMt.card.thinking, "high");
-  const noMt = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "cc", model: "", thinking: "" });
+  const noMt = seBuildCard({ node: "A93", block: "lab-grow", purpose: "目的", runner: "cc", model: "", thinking: "" });
   assert.ok(!("model" in noMt.card) && !("thinking" in noMt.card), JSON.stringify(noMt.card));
   const readMt = seBuildCard({ node: "A2", block: "lab-read", purpose: "読む", runner: "user", papers: [37], model: "opus" });
   assert.ok(!("model" in readMt.card), JSON.stringify(readMt.card));
   // 範囲と仮置きを直接渡しても、送るカードには入らない。
-  const stray = seBuildCard(Object.assign(seCardValues(preset), { scope: "blind", assume: ["Q1=あ"] }));
+  const stray = seBuildCard(Object.assign(seCardValues(preset), { scope: "blind", assume: ["A91=あ"] }));
   assert.strictEqual(stray.ok, true);
   assert.ok(!("scope" in stray.card) && !("assume" in stray.card), JSON.stringify(stray.card));
   // 子の型が空なら送るカードに child は入らない
-  const noChild = seBuildCard({ node: "Q3", block: "lab-grow", purpose: "目的", runner: "cc", child: "" });
+  const noChild = seBuildCard({ node: "A93", block: "lab-grow", purpose: "目的", runner: "cc", child: "" });
   assert.ok(noChild.ok && !("child" in noChild.card), JSON.stringify(noChild.card));
   // 打ち込んだ番号（# 付き・重なり）
   assert.deepStrictEqual(seBuildCard(Object.assign(seCardValues(preset), { papers: [37, "#37", "40"] })).card.papers, [37, 40]);
@@ -318,28 +321,28 @@ function test_card() {
   bad({ block: "sci-read" }); // 消えた block
   bad({ papers: Array.from({ length: 21 }, (_, i) => i + 1) });
   bad({ papers: ["abc"] });
-  // 足す子の型は対象に合うものだけ（Q なら Q か A、A なら Q か F）
-  assert.match(bad({ node: "Q12", child: "F" }), /足す子の型/);
-  assert.match(bad({ node: "Q12", child: "Q" }), /足す子の型/);
+  // 足す子の型は対象に合うものだけ（軸の A なら A、A なら A か F）
+  assert.match(bad({ node: "E1", child: "F" }), /足す子の型/);
+  assert.match(bad({ node: "A912", child: "Q" }), /足す子の型/);
   assert.match(bad({ node: "SEED", child: "Q" }), /足す子の型/);
   assert.strictEqual(seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", child: "F" }).card.child, "F");
   assert.strictEqual(seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", child: "A" }).card.child, "A");
 
-  // READ_CARD: 論文はちょうど 1 本・対象は Q か A
+  // READ_CARD: 論文はちょうど 1 本・対象は A
   const read = { node: "A2", block: "lab-read", purpose: "読む", runner: "user", papers: [37], depth: "figures" };
   assert.deepStrictEqual(seBuildCard(read).card, { node: "A2", block: "lab-read", purpose: "読む", runner: "user", papers: [37], depth: "figures" });
   bad(Object.assign({}, read, { papers: [37, 38] }));
   bad(Object.assign({}, read, { papers: [] }));
-  assert.match(bad(Object.assign({}, read, { node: "F4" })), /Q か A/);
+  assert.match(bad(Object.assign({}, read, { node: "F4", child: "" })), /A にしてください/);
   // READ_CARD は SEED を選べない
-  assert.match(bad(Object.assign({}, read, { node: "SEED" })), /Q か A/);
+  assert.match(bad(Object.assign({}, read, { node: "SEED", child: "" })), /A にしてください/);
   // mode は lab-read のときだけ送る
   assert.deepStrictEqual(seBuildCard({ node: "A2", block: "lab-read", purpose: "読む", runner: "cc", mode: "blind_first" }).card.mode, "blind_first");
   assert.ok(!("mode" in seBuildCard({ node: "A2", block: "lab-grow", purpose: "目的", runner: "cc", mode: "blind_first" }).card));
   // Node を選ばない（空）は木の全体。送るカードに node は入らない（旧い SEED の印も空として扱う）
   assert.strictEqual(seCardValues(null, "").node, "");
   assert.strictEqual(seCardValues(null, "SEED").node, "");
-  assert.strictEqual(seCardNode(" Q1 "), "Q1");
+  assert.strictEqual(seCardNode(" A91 "), "A91");
   assert.deepStrictEqual(
     seBuildCard({ node: "", block: "sci-digest", purpose: "木全体を見直す", runner: "cc" }).card,
     { block: "sci-digest", purpose: "木全体を見直す", runner: "cc", papers: [] },
@@ -348,47 +351,51 @@ function test_card() {
     seBuildCard({ node: "SEED", block: "sci-digest", purpose: "木全体を見直す", runner: "cc" }).card,
     { block: "sci-digest", purpose: "木全体を見直す", runner: "cc", papers: [] },
   );
-  // 木の全体は READ_CARD の対象にできない（Q か A が要る）
-  assert.match(bad({ node: "", runner: "user", papers: [37], block: "lab-read" }), /Q か A/);
+  // 木の全体は READ_CARD の対象にできない（A が要る）
+  assert.match(bad({ node: "", child: "", runner: "user", papers: [37], block: "lab-read" }), /A にしてください/);
   // 形の合わない ID は通らない
   assert.match(bad({ node: "N1" }), /Node を選んでください/);
 }
 
 // --- 足す子の型（対象の種類で選べる物）---
 function test_child_options() {
-  // Q の下は A だけ。A の下は A と F（A の下に A を足せる）
-  assert.deepStrictEqual(seChildOptions("Q5"), [["A", "A"]]);
+  // 軸の A（親の無い A）の下は A だけ。軸でない A の下は A と F（A の下に A を足せる）
+  const axis = { id: "A91", kind: "A", parent: null };
+  const sub = { id: "A2", kind: "A", parent: "A91" };
+  assert.deepStrictEqual(seChildOptions("A91", axis), [["A", "A"]]);
+  assert.deepStrictEqual(seChildOptions("A2", sub), [["A", "A"], ["F", "F"]]);
+  // Node の情報が無いときは ID の頭文字で決める（A は A か F）
   assert.deepStrictEqual(seChildOptions("A2"), [["A", "A"], ["F", "F"]]);
   assert.deepStrictEqual(seChildOptions("SEED"), []);
   assert.deepStrictEqual(seChildOptions("F1"), []);
   assert.deepStrictEqual(seChildOptions(""), []);
-  assert.ok(seChildOk("Q1", "A"));
-  assert.ok(seChildOk("A2", "F"));
-  assert.ok(seChildOk("A2", "A"));
-  assert.ok(seChildOk("Q1", ""));
-  assert.ok(!seChildOk("Q1", "F"));
-  assert.ok(!seChildOk("Q1", "Q"));
-  assert.ok(!seChildOk("SEED", "Q"));
+  assert.ok(seChildOk("A91", "A", axis));
+  assert.ok(!seChildOk("A91", "F", axis), "軸の A の下に F は置かない（CLI も断る）");
+  assert.ok(seChildOk("A2", "F", sub));
+  assert.ok(seChildOk("A2", "A", sub));
+  assert.ok(seChildOk("A91", ""));
+  assert.ok(seChildOk("A91", "", axis));
+  assert.ok(!seChildOk("SEED", "A"));
 }
 
-// --- 親の候補（A と Q を木の順で。bottom_q は見ない）と、A を移す先の候補 ---
+// --- 親の候補（A を木の順で）と、A を移す先の候補 ---
 function test_parents() {
   const nodes = [
-    { id: "Q1", parent: null },
-    { id: "A1", parent: "Q1" },
+    { id: "A91", parent: null },
+    { id: "A1", parent: "A91" },
     { id: "F1", parent: "A1" },
-    { id: "Q2", parent: "A1" },
-    { id: "A2", parent: "Q2" },
-    { id: "A3", parent: "Q1", removed: true },
-    { id: "A4", parent: "Q1" },
+    { id: "A92", parent: "A1" },
+    { id: "A2", parent: "A92" },
+    { id: "A3", parent: "A91", removed: true },
+    { id: "A4", parent: "A91" },
   ];
   // A と Q だけ・消した A は外す・F は入らない
-  assert.deepStrictEqual(seParents(nodes).map((n) => n.id), ["Q1", "A1", "Q2", "A2", "A4"]);
+  assert.deepStrictEqual(seParents(nodes).map((n) => n.id), ["A91", "A1", "A92", "A2", "A4"]);
   assert.deepStrictEqual(seParents([]), []);
-  // 移す A 自身・その子孫（A1 の下の Q2 と A2）・今の親（Q1）は候補から外す
+  // 移す A 自身・その子孫（A1 の下の A92 と A2）・今の親（A91）は候補から外す
   assert.deepStrictEqual(seMoveTargets(nodes, "A1").map((n) => n.id), ["A4"]);
-  // A2 の今の親は Q2。Q2 と A2 自身は外し、A1 と Q1 と A4 は選べる
-  assert.deepStrictEqual(seMoveTargets(nodes, "A2").map((n) => n.id), ["Q1", "A1", "A4"]);
+  // A2 の今の親は A92。A92 と A2 自身は外し、A1 と A91 と A4 は選べる
+  assert.deepStrictEqual(seMoveTargets(nodes, "A2").map((n) => n.id), ["A91", "A1", "A4"]);
   assert.deepStrictEqual(seMoveTargets([], "A1"), []);
 }
 
@@ -405,7 +412,7 @@ function test_response_shapes() {
 function test_seed_questions() {
   assert.deepStrictEqual(SE_SEED_AXES.map((x) => x[0]), ["task", "target", "data", "method", "output", "metric"]);
   assert.ok(seIdOk("SQ3", SE_SQ_RE) && seIdOk(" SQ12 ", SE_SQ_RE));
-  assert.ok(!seIdOk("Q3", SE_SQ_RE) && !seIdOk("SQ0", SE_SQ_RE) && !seIdOk("SA3", SE_SQ_RE) && !seIdOk("", SE_SQ_RE));
+  assert.ok(!seIdOk("A93", SE_SQ_RE) && !seIdOk("SQ0", SE_SQ_RE) && !seIdOk("SA3", SE_SQ_RE) && !seIdOk("", SE_SQ_RE));
   assert.ok(seIdOk("SA7", SE_SA_RE) && !seIdOk("SQ7", SE_SA_RE));
   // 6 軸の本文の部品は消した（seSeedBody・seSeedParse・seSeedError・seSeedAxis）
   const exported = require(src);

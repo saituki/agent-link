@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の図（実装計画 U20）。軸（Q）から下へ伸びる Q・A・F・E・S の木 1 つと、横に並ぶ seed（D）。
+// research-tree の図（実装計画 U20）。軸の A（親の無い A）から下へ伸びる A・F・E・S の木 1 つと、横に並ぶ seed（D）。
 //
 //   sgRenderGraph(container, {status, key}, onSelect) … 図を描く
 //   sgTreeLayout({status}, opts)                       … 配置（純関数）
@@ -12,7 +12,7 @@
 // key は文字（プロジェクト名）。その図の最後の表示位置・倍率・F と A と E の出し入れ・畳んだ札を覚えて、
 // もう一度開いたときに同じ状態で出す（画面の中の Map と localStorage の sai-sg-view:<key>）。
 // onSelect には {kind: "node", id} を渡す（札の data-sg-id と同じ ID）。
-// 段は、下から ROOT（軸とその下の Q・A・F）→ seed の層（D の札を ROOT の右に横に並べる）→
+// 段は、下から ROOT（軸の A とその下の A・F）→ seed の層（D の札を ROOT の右に横に並べる）→
 // SPROUT（kind S）→ BRANCH（E）の順。S は親の D の真上に置く（D の無い古い S は D の並びの左端）。
 // 線は Parent / Child（tree）だけ。D → S も tree。
 //
@@ -154,8 +154,8 @@ function sgTreeLayout(input, opts) {
   const all = (Array.isArray(status.nodes) ? status.nodes : []).filter((n) => n && n.id);
   const byId = new Map(all.map((n) => [String(n.id), n]));
 
-  // 出さない種類（隠した F・A・E。隠した E の下の F・E は一番近い見える祖先につなぐ）
-  const kindHidden = (n) => (hideF && n.kind === "F") || (hideA && n.kind === "A") || (hideE && n.kind === "E");
+  // 出さない種類（隠した F・A・E。隠した E の下の F・E は一番近い見える祖先につなぐ）。軸の A は A を隠しても残す
+  const kindHidden = (n) => (hideF && n.kind === "F") || (hideA && n.kind === "A" && !saiIsAxis(n)) || (hideE && n.kind === "E");
 
   // 畳んだ祖先があるか（自分自身は数えない。畳んだ札の自身は見えるので）
   const underCollapsed = (n) => {
@@ -354,8 +354,8 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse, childCount) {
   const f = hiddenF || Number(counts.f) || 0;
   // F の stance は文字（S・D・I）で出す（色だけに頼らない）。送る値は support・deny・issue
   const stance = n.kind === "F" ? sgStanceLetter(n.stance) : "";
-  if (n.kind === "A") {
-    // 条件の A（種類の分割でない子）は「条件」を添える。subtype は何も足さない
+  if (n.kind === "A" && !saiIsAxis(n)) {
+    // 条件の A（種類の分割でない子）は「条件」を添える。subtype は何も足さない。軸の A は副題を空にする
     sub = [n.starred ? "★" : "", f ? `F ${f}` : "", n.rel === "condition" ? "条件" : ""].filter(Boolean).join(" ");
   } else if (n.kind === "F") {
     text = sgClip(text, 40);
@@ -371,12 +371,13 @@ function sgNodeCard(n, x, y, hiddenF, collapsedCount, canCollapse, childCount) {
     // seed の札。ID は札の見出しに出る。副題に子の SPROUT の数を出す。
     sub = `seed・SPROUT ${Number(childCount) || 0}`;
   }
-  if (hiddenF && n.kind !== "A") sub = `${sub} F ${hiddenF}`.trim();
+  // 軸の A は隠した F の数を出す（軸でない A は上の A の枝で出す）
+  if (hiddenF && (n.kind !== "A" || saiIsAxis(n))) sub = `${sub} F ${hiddenF}`.trim();
   const collapsed = !!(canCollapse && collapsedCount > 0);
   if (collapsed) sub = `${sub} ▸ +${collapsedCount}`.trim();
   return {
     id: String(n.id), kind: n.kind, x, y, w: SG_CARD_W, h: SG_CARD_H,
-    text, sub, starred: !!n.starred, stance,
+    text, sub, starred: !!n.starred, stance, axis: saiIsAxis(n),
     collapsed, canCollapse: !!canCollapse,
   };
 }
@@ -396,7 +397,7 @@ function sgIsUnder(byId, n, top) {
 
 /**
  * SPROUT（kind S）を選んだときに濃く残す ID の Set。それ以外（D を含む）は null（薄くしない）。
- * 残すのは、その S 自身・親の seed（D）・その下の E と F（BRANCH）・paths の終点の A から軸までの Q・A（PATH）。
+ * 残すのは、その S 自身・親の seed（D）・その下の E と F（BRANCH）・paths の終点の A から軸の A までの A（PATH）。
  */
 function sgSproutKeep(status, id) {
   const want = id == null ? "" : String(id);
@@ -414,7 +415,7 @@ function sgSproutKeep(status, id) {
   for (const n of all) {
     if (sgIsUnder(byId, n, want)) keep.add(String(n.id));
   }
-  // PATH: paths の終点の A から軸までの祖先（Q・A）
+  // PATH: paths の終点の A から軸の A までの祖先（A）
   const paths = Array.isArray(sprout.paths) ? sprout.paths : [];
   for (const pid of paths) {
     let cur = byId.get(String(pid));
@@ -852,6 +853,7 @@ function sgSetViewBox(svg) {
 function sgCardEl(c) {
   const b = sgEl("button", `sci-graph-card sci-graph-${c.kind}`);
   b.type = "button";
+  if (c.axis) b.classList.add("sci-axis");
   b.setAttribute("data-sg-id", c.id);
   b.style.left = `${sgR1(c.x)}px`;
   b.style.top = `${sgR1(c.y)}px`;

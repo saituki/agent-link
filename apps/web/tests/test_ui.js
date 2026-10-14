@@ -29,7 +29,7 @@ const C_F5 = [
   "template", "settings", "runner", "round", "global_round", "waggle", "daemon",
   "card", "task_text", "phase", "bibtex", "attention", "state", "mind",
   "sci_research_tree", "sci_seed", "sci_root", "sci_sprout", "sci_branch",
-  "sci_path", "sci_node", "sci_top_q", "sci_bottom_q", "sci_star", "sci_rel",
+  "sci_path", "sci_node", "sci_top_q", "sci_star", "sci_rel",
   "sci_proposal", "sci_triage", "sci_card", "sci_guide",
   "sci_research_type", "sci_lab_agent",
 ];
@@ -57,6 +57,8 @@ function testTerms() {
   // research-tree の用語は今の語（軸・A）で書く。旧い語（top_Q から・Answer の O）は残さない
   assert.strictEqual(U.SAI_TERMS.sci_top_q.label, "軸");
   assert.ok(U.SAI_TERMS.sci_rel.text.includes("condition"), "sci_rel の説明が condition に触れること");
+  assert.ok(!("sci_bottom_q" in U.SAI_TERMS), "旧い用語 sci_bottom_q は無いこと（Q の全面廃止）");
+  assert.ok(!/Q/.test(U.SAI_TERMS.sci_top_q.text + U.SAI_TERMS.sci_guide.text), "軸と GUIDE の説明に Q が無いこと");
   for (const key of ["sci_node", "sci_root", "sci_star"]) {
     assert.ok(!/top_Q|\bO\b|Answer/.test(U.SAI_TERMS[key].text), `${key} に旧い語が残っていないこと`);
   }
@@ -78,10 +80,21 @@ function testTermTextsAreSentences() {
 function testExports() {
   for (const name of [
     "saiApi", "saiToast", "saiConfirm", "saiPrompt", "saiEmpty", "saiTerm",
-    "saiIsWide", "saiSheet", "saiSplitShow",
+    "saiIsWide", "saiSheet", "saiSplitShow", "saiIsAxis",
   ]) {
     assert.strictEqual(typeof U[name], "function", `${name} があること`);
   }
+}
+
+// 軸の A（親の無い A）の判定。research-tree の画面はこの 1 か所で見分ける
+function testIsAxis() {
+  assert.strictEqual(U.saiIsAxis({ id: "A1", kind: "A", parent: null }), true, "親の無い A は軸");
+  assert.strictEqual(U.saiIsAxis({ id: "A2", kind: "A", parent: "A1" }), false, "親のある A は軸でない");
+  assert.strictEqual(U.saiIsAxis({ id: "F3", kind: "F", parent: null }), false, "親の無い F は軸でない");
+  assert.strictEqual(U.saiIsAxis({ id: "D1", kind: "D", parent: null }), false, "seed（D）は軸でない");
+  assert.strictEqual(U.saiIsAxis({ id: "S1", kind: "S", parent: null }), false, "SPROUT は軸でない");
+  assert.strictEqual(U.saiIsAxis(null), false);
+  assert.strictEqual(U.saiIsAxis(undefined), false);
 }
 
 function main() {
@@ -89,6 +102,7 @@ function main() {
   testTerms();
   testTermTextsAreSentences();
   testExports();
+  testIsAxis();
   console.log("test_ui: すべて通りました");
 }
 

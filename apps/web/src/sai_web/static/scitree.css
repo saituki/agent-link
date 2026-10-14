@@ -85,7 +85,6 @@
   cursor: pointer;
 }
 /* 押しているときだけ、図の札と同じ色を薄く敷く */
-.sci-filter-kind[aria-pressed="true"].sci-filter-kind-Q { border-color: var(--sci-k-Q); background: color-mix(in srgb, var(--sci-k-Q) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-A { border-color: var(--sci-k-A); background: color-mix(in srgb, var(--sci-k-A) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-F { border-color: var(--sci-k-F); background: color-mix(in srgb, var(--sci-k-F) 18%, var(--bg)); color: var(--text); }
 .sci-filter-kind[aria-pressed="true"].sci-filter-kind-E { border-color: var(--sci-k-E); background: color-mix(in srgb, var(--sci-k-E) 18%, var(--bg)); color: var(--text); }
@@ -426,7 +425,7 @@
 
 .run-mlf-link:hover { color: var(--accent); }
 
-/* --- research-tree（Q・O・F・E・S の木） --- */
+/* --- research-tree（軸の A・A・F・E・S の木） --- */
 
 /* --- SEED の板（U33）。RESEARCH_TYPE と mind.md の節 --- */
 .sci-seed-type { margin: 0 0 6px; font-size: 13px; color: var(--text); }
@@ -485,7 +484,7 @@
 .sci-row.selected { background: var(--bg-soft); }
 /* SPROUT 作成中の PATH に入れた O（選んでいる行と見分けるため、色を足して左に線を引く） */
 /* 一覧の行は Q/O/F/E で ID と題の色を変える（絞り込みボタンと同じ色） */
-.sci-row-Q .sci-row-head { color: var(--sci-k-Q); }
+.sci-row.sci-axis .sci-row-head { color: var(--sci-axis); }
 .sci-row-A .sci-row-head { color: var(--sci-k-A); }
 .sci-row-F .sci-row-head { color: var(--sci-k-F); }
 .sci-row-E .sci-row-head { color: var(--sci-k-E); }

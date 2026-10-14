@@ -1,5 +1,5 @@
 "use strict";
-// research-tree の画面（軸・A・F・E・S の木。旧形式は Q を含む）。住所は #/research/tree と #/research/tree/<ID>。
+// research-tree の画面（軸の A・A・F・E・S の木）。住所は #/research/tree と #/research/tree/<ID>。
 //
 // 上の帯に注意の札を出し、左に木の一覧、真ん中に
 // research-tree の図（scigraph.js）、右に選んだ Node の板（何も選ばなければ出さない）を出す。
@@ -11,7 +11,7 @@
 // 操作は sciedit.js（seOpenAction・seOpenCard・seQuick・seOpLabel）、図は
 // scigraph.js（sgRenderGraph・sgMarkSelected・sgCenterOn）の関数を typeof で確かめてから呼ぶ。
 // DOM を使わない純関数は末尾で node に渡す（tests/test_scitree.js）。
-// 画面の名詞（Q・A・F・E・S・seed・SPROUT・stance など）は英語のまま出す。
+// 画面の名詞（軸・A・F・E・S・seed・SPROUT・stance など）は英語のまま出す。軸は親の無い A（saiIsAxis。ui.js）。
 
 // --- 定数 ---
 
@@ -26,7 +26,7 @@ const ST_TYPES = [
 // F の stance（[送る値, 印, 名]）。値は API の STANCES（support/deny/issue）。印は一覧・図・板の札に出す（色は sci-stance-S/D/I の CSS）。
 const ST_STANCE = [["support", "S", "支持"], ["deny", "D", "反対"], ["issue", "I", "問い"]];
 // 左の一覧の絞り込みで切り替えられる種類（図の札と同じ 6 つ。D は seed）
-const ST_ALL_KINDS = ["Q", "A", "F", "E", "S", "D"];
+const ST_ALL_KINDS = ["A", "F", "E", "S", "D"];
 // 境界線をドラッグしたときの幅の範囲（px）
 const ST_SPLIT_LIMITS = { list: [200, 600], board: [280, 720] };
 // 図の最小の幅（px）。これより狭くしない。
@@ -36,9 +36,8 @@ const ST_SPLIT_BAR = 12;
 // MLflow の参照を押したときに開く画面（Experiments の一覧。run の名前では絞らない）
 const ST_EXPERIMENTS_HASH = "#/research/experiments";
 // 板に出す操作（表示名と送り方は sciedit.js の seOpLabel・seOpenAction・seQuick）。
-// 軸（Q）の板は add_a だけ。A の板は子の A（add_a）・F・move_node・copy。旧 op は出さない（stOpLabel だけ持つ）。
+// 軸の A の板は add_a だけ（stOpsFor）。A の板は子の A（add_a）・F・move_node・copy。旧 op は出さない（stOpLabel だけ持つ）。
 const ST_NODE_OPS = {
-  Q: ["add_a"],
   A: ["add_a", "add_f", "move_node", "copy"],
   F: [],
   E: ["add_e", "set_mlflow"],
@@ -133,13 +132,11 @@ function stLegacyHash(hash) {
   return null;
 }
 
-/** SPROUT の範囲の数の文（`Q 3・A 4・F S 2 / D 1 / I 0`）。range が無ければ空文字。 */
+/** SPROUT の範囲の数の文（`A 4・F S 2 / D 1 / I 0`）。range が無ければ空文字。 */
 function stRangeText(range) {
   if (!range || typeof range !== "object") return "";
   const n = (v) => Number(v) || 0;
-  // 旧形式（Q を持つ SPROUT）だけ Q の数を出す
-  const q = n(range.q) ? `Q ${n(range.q)}・` : "";
-  return `${q}A ${n(range.a)}・F S ${n(range.f_support)} / D ${n(range.f_deny)} / I ${n(range.f_issue)}`;
+  return `A ${n(range.a)}・F S ${n(range.f_support)} / D ${n(range.f_deny)} / I ${n(range.f_issue)}`;
 }
 
 /** status.nodes の seed（D）だけ。 */
@@ -364,11 +361,12 @@ function stNextText(x, status) {
 
 /**
  * 板に出す操作の並び（出さないものを除く）。
- * S（SPROUT）は、答える問いの全部に回答が付いたとき（complete）だけ BRANCH（add_e）を出す。
+ * 軸の A は add_a だけ。S（SPROUT）は、答える問いの全部に回答が付いたとき（complete）だけ BRANCH（add_e）を出す。
  */
 function stOpsFor(node) {
   if (!node) return [];
-  return (ST_NODE_OPS[node.kind] || []).filter((op) => {
+  const ops = saiIsAxis(node) ? ["add_a"] : ST_NODE_OPS[node.kind] || [];
+  return ops.filter((op) => {
     if (op === "add_e") return node.kind === "E" || (node.kind === "S" && node.complete === true);
     return true;
   });
@@ -541,7 +539,7 @@ function stHistoryText(h) {
  * 過去の step（step k）の木を作る。status は書き換えず、新しい status を返す。
  * step が無い・steps が無い・k が総数以上なら status をそのまま返す（今の木）。
  * 見えるのは born <= k かつ（gone が無い か gone > k）で、親も見えている Node（親が見えないものは隠す）。
- * 親は parents のうち step <= k の最後の parent。並びは深さ順（根は Q → D → S の順）。
+ * 親は parents のうち step <= k の最後の parent。並びは深さ順（根は軸の A → D → S の順）。
  */
 function stStepView(status, step) {
   const steps = status && status.steps;
@@ -582,7 +580,7 @@ function stStepView(status, step) {
   const ord = (id) => Number(all.get(id).ord) || 0;
   // 同じ親の下の並び: 親の下に来た step → ord → ID の数
   const cmp = (a, b) => at(a).step - at(b).step || ord(a) - ord(b) || num(a) - num(b);
-  const rank = (id) => ({ Q: 0, D: 1, S: 2 })[all.get(id).kind] ?? 3;
+  const rank = (id) => (saiIsAxis(all.get(id)) ? 0 : { D: 1, S: 2 }[all.get(id).kind] ?? 3);
   roots.sort((a, b) => rank(a) - rank(b) || cmp(a, b));
   const kidsOf = (id) => (kids.get(id) || []).slice().sort(cmp);
   const order = [];
@@ -599,16 +597,14 @@ function stStepView(status, step) {
       ...n,
       parent: at(id).parent,
       depth,
-      counts: { q: cnt("Q"), a: cnt("A"), f: cnt("F"), e: cnt("E") },
-      bottom_q: n.kind === "Q" && cnt("Q") === 0,
+      counts: { a: cnt("A"), f: cnt("F"), e: cnt("E") },
       range: n.kind === "S" ? null : n.range,
     };
   });
-  const tally = { q: 0, a: 0, f_support: 0, f_deny: 0, f_issue: 0, e: 0, s: 0 };
+  const tally = { a: 0, f_support: 0, f_deny: 0, f_issue: 0, e: 0, s: 0 };
   const fKey = { support: "f_support", deny: "f_deny", issue: "f_issue" };
   for (const n of nodes) {
-    if (n.kind === "Q") tally.q++;
-    else if (n.kind === "A") tally.a++;
+    if (n.kind === "A" && !saiIsAxis(n)) tally.a++;
     else if (n.kind === "F" && fKey[n.stance]) tally[fKey[n.stance]]++;
     else if (n.kind === "E") tally.e++;
     else if (n.kind === "S") tally.s++;
@@ -900,7 +896,7 @@ function stRenderTop() {
 }
 
 /**
- * 解く釦。kind が card なら Create CARD、user なら Q を選ぶ。それ以外は出さない。
+ * 解く釦。kind が card なら Create CARD、user なら問いを選ぶ。それ以外は出さない。
  * onUser があれば「選ぶ」の押し方を変える（Dashboard は Node の画面へ移る）。
  */
 function stActionBtn(x, onUser) {
@@ -1291,7 +1287,8 @@ function stMlflowBtn(name) {
 /** 木の 1 行（.sci-row）。一覧と板の子で共通。 */
 function stRowEl(r, opts) {
   const o = opts || {};
-  const row = stEl("div", `sci-row sci-row-${r.kind}${r.id === stNodeId ? " selected" : ""}${o.ctx ? " sci-row-ctx" : ""}`);
+  const axis = saiIsAxis(r.node) ? " sci-axis" : "";
+  const row = stEl("div", `sci-row sci-row-${r.kind}${axis}${r.id === stNodeId ? " selected" : ""}${o.ctx ? " sci-row-ctx" : ""}`);
   row.dataset.id = r.id;
   row.style.paddingLeft = `${8 + (o.flat ? 0 : r.depth) * 14}px`;
   // 畳み・開くの釦（一覧だけ。板の子には付けない）
@@ -1796,7 +1793,7 @@ function stBoardExperiments(node) {
 }
 
 /**
- * Node の板。Q・A・E は「見出し（Edit/Delete を含む）→ Parent → OP → [Q だけ: ガイド] → Child → Next Action → History → Decision」。
+ * Node の板。A・E は「見出し（Edit/Delete を含む）→ Parent → OP → [軸の A だけ: ガイド] → Child → Next Action → History → Decision」。
  * S（SPROUT）は Parent の代わりに「OP → 範囲 → 問い → 実験（BRANCH）」を出す。
  * D（seed）は Parent も無い。本文（見出し）→ OP（SPROUT・CARD・Edit・Delete）→ 問い → 子の SPROUT（比べる）。
  * F は「見出し（Edit/Delete を含む）→ Parent → OP → Stance → 出典 → History」。E は MLflow の節を OP の後に出す。
@@ -1817,7 +1814,7 @@ function stBuildBoard(d) {
     box.appendChild(stBoardMlflow(node));
     box.appendChild(stBoardDataset(node));
   }
-  if (node.kind === "Q") box.appendChild(stBoardGuide(d.guide));
+  if (saiIsAxis(node)) box.appendChild(stBoardGuide(d.guide));
   if (node.kind === "S") {
     box.appendChild(stBoardRange(node));
     box.appendChild(stBoardQuestions(node));
@@ -1864,7 +1861,7 @@ function stBoardHead(d) {
     star.addEventListener("click", () => { stCall("seQuick", node.starred ? "unstar" : "star", { node: node.id }); });
     line.appendChild(star);
   }
-  line.appendChild(stEl("span", "sci-id", `${node.id} ${node.kind}`));
+  line.appendChild(stEl("span", "sci-id", `${node.id} ${saiIsAxis(node) ? "軸" : node.kind}`));
   // 条件の A（種類の分割でない子）は用語の札で示す。subtype は印を出さない
   if (node.kind === "A" && node.rel === "condition") line.appendChild(saiTerm("sci_rel", "条件"));
   if (node.kind === "F") {
@@ -1994,7 +1991,7 @@ function stBoardPath(d) {
     const n = byId.get(String(id));
     if (n) { nodes.push(n); continue; }
     const p = pathById.get(String(id));
-    if (p) nodes.push({ id: p.id, kind: p.kind || "Q", depth: 0, text: p.text || "" });
+    if (p) nodes.push({ id: p.id, kind: p.kind || "A", depth: 0, text: p.text || "" });
   }
   const rows = stRows({ nodes });
   if (!rows.length) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
@@ -2027,11 +2024,11 @@ function stBoardOps(d) {
   return sec;
 }
 
-/** ガイド（question・細分の候補（child_q）・Extract・Pitfall）。 */
+/** ガイド（軸・細分の候補（child_candidates）・Extract・Pitfall）。軸の A の板だけで出す。 */
 function stBoardGuide(g) {
   const sec = stSec("GUIDE");
   if (!g) { sec.appendChild(stEl("p", "sci-note", "なし")); return sec; }
-  const items = [["question", g.question], ["細分の候補", g.child_q], ["Extract", g.extract], ["Pitfall", g.pitfall]];
+  const items = [["軸", g.label], ["細分の候補", g.child_candidates], ["Extract", g.extract], ["Pitfall", g.pitfalls]];
   for (const [k, v] of items) {
     if (!v) continue;
     const p = stEl("p", "sci-guide");
