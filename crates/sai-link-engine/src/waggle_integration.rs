@@ -289,6 +289,7 @@ impl WaggleIntegrator {
     ///
     /// DB ファイルの作成またはオープンに失敗した場合は `StoreError` を返します。
     pub fn open(db_path: impl AsRef<Path>) -> Result<Self, StoreError> {
+        crate::db::store::ensure_shm_file(db_path.as_ref());
         let store = SqliteStore::open(db_path.as_ref())?;
         Ok(Self {
             store: Arc::new(store),

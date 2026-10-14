@@ -373,6 +373,19 @@ pub fn exec_usage_totals(
 // SaiStore
 // ---------------------------------------------------------------------------
 
+/// SQLite に開かせる前に `<db>-shm` を空で作っておく（既にあれば何もしない・切り詰めない）。
+///
+/// Docker Desktop（Mac）の bind mount では、ファイルを作って開いたプロセスの fcntl ロックが
+/// 他のプロセスから見えない（docker/for-mac#7004）。daemon が `-shm` を作ると、他の接続が
+/// `-shm` を切り詰めて daemon が SIGBUS で止まるので、`-shm` は常に「既にある物」として開かせる。
+/// `-wal` は作らない（ロックが無く、WAL でない DB を WAL として開かせてしまうため）。
+pub fn ensure_shm_file(db_path: &Path) {
+    let mut shm = db_path.as_os_str().to_owned();
+    shm.push("-shm");
+    // 失敗は無視する（本当の失敗はこのあとの Connection::open が返す）
+    let _ = std::fs::OpenOptions::new().write(true).create(true).open(shm);
+}
+
 /// sai-engine 専用テーブルに対する CRUD 操作を提供するストア。
 ///
 /// waggle の `SqliteStore` とは別の `rusqlite::Connection` を持ち、
@@ -396,6 +409,7 @@ impl SaiStore {
     /// `busy_timeout`（5秒）を設定する（P1-2）。WAL + `synchronous=FULL` は
     /// `init_sai_tables` 側で維持する。
     pub fn open(path: &Path) -> Result<Self, DbError> {
+        ensure_shm_file(path);
         let conn = Connection::open(path)?;
         // P1-2: 別プロセス同時アクセス時の SQLITE_BUSY 即エラーを避ける。
         // `busy_timeout` は接続ごとの設定のため open 直後に行う。
@@ -3115,6 +3129,28 @@ impl SaiStore {
 mod tests {
     use super::*;
     use crate::db::models::test_helpers::*;
+
+    #[test]
+    fn ensure_shm_file_creates_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("x.db");
+        ensure_shm_file(&db);
+        let shm = dir.path().join("x.db-shm");
+        assert_eq!(std::fs::metadata(&shm).unwrap().len(), 0);
+        assert!(!dir.path().join("x.db-wal").exists());
+    }
+
+    #[test]
+    fn ensure_shm_file_keeps_existing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("x.db");
+        let shm = dir.path().join("x.db-shm");
+        std::fs::write(&shm, vec![0xABu8; 32768]).unwrap();
+        ensure_shm_file(&db);
+        let bytes = std::fs::read(&shm).unwrap();
+        assert_eq!(bytes.len(), 32768);
+        assert!(bytes.iter().all(|&b| b == 0xAB));
+    }
 
     #[test]
     fn test_insert_and_get_block() {
