@@ -30,25 +30,25 @@ subblocks:
 
 ## research-tree の読み方
 
-`sai-sci` の木は次の層でできている。seed（D）は 1 つの研究の問いの一覧で、問い（`SQ<n>`）に回答（`SA<n>`）します。回答は seed の回答（固定）か sprout の回答（新規）です。root は分野の可能性の幅で、軸の Q が並び、その下に A・F が並ぶ。S（SPROUT・`S<n>`・研究計画）は 1 つの seed の未回答の問いに回答していく計画で、全部答えると完成し、実験を足せます。E（BRANCH）は S の下の 1 回の実行。研究の制約は D にある。型（RESEARCH_TYPE）と研究の土台（`mind.md`）は木の一部ではなく、`sai-sci status --json` の `project` から読む。次の物で現在地を読む。
+`sai-sci` の木は次の層でできている。seed（D）は 1 つの研究の問いの一覧で、問い（`SQ<n>`）に回答（`SA<n>`）します。回答は seed の回答（固定）か sprout の回答（新規）です。root は分野の可能性の幅で、軸の A が並び、その下に A・F が並ぶ。S（SPROUT・`S<n>`・研究計画）は 1 つの seed の未回答の問いに回答していく計画で、全部答えると完成し、実験を足せます。E（BRANCH）は S の下の 1 回の実行。研究の制約は D にある。型（RESEARCH_TYPE）と研究の土台（`mind.md`）は木の一部ではなく、`sai-sci status --json` の `project` から読む。次の物で現在地を読む。
 
 | 見方 | 意味 | 読む方法 |
 |---|---|---|
 | 進み具合（`progress`） | 木のどこまで埋まったか | `sai-sci status --brief` |
 | Next Action（`next`） | 木が次に示している作業。`why` のコードと `card` の値が付く | `sai-sci status --brief` |
 | 根拠 | A の F（`stance`）が足りているか・反証が探されたか | `sai-sci status --json` |
-| Node | Q・A・F・E・S（SPROUT）の 1 つ | `sai-sci node <N12>` |
+| Node | A・F・E・S（SPROUT）の 1 つ | `sai-sci node <N12>` |
 | CARD | Node のための実行（子として起こすもの） | `sai-sci card …` |
 
 `why` のコードと意味は次のとおり。Next Action の 1 件は、次のどれかの `why` を持つ。
 
 | `why` | 意味 | 主に起こすブロック |
 |---|---|---|
-| `NO_CHILD` | Q の下に子（A）が無い | `lab-grow` |
+| `NO_CHILD` | 軸の A の下に子（A）が無い | `lab-grow` |
 | `NO_FINDING` | A の下に F（根拠）が無い | `lab-search` |
 | `UNVERIFIED` | 子を足したあと、`sci-verify` がまだ見ていない | `sci-verify` |
-| `TOO_FLAT` | 同じ親の直下の A が 7 件を超え、木が平らすぎる（Q でも A でも出る） | `lab-review`（`--node` は出た Q か A） |
-| `BLANK_NO_PATH` | 未回答の問いの軸の Q の下に、回答に選べる A が無い | `lab-grow` |
+| `TOO_FLAT` | 同じ親の直下の A が 7 件を超え、木が平らすぎる（軸の A でも A でも出る） | `lab-review`（`--node` は出た A） |
+| `BLANK_NO_PATH` | 未回答の問いの軸の A の下に、回答に選べる A が無い | `lab-grow` |
 
 `★` は目印で、Next Action は `★` を見ない。
 
@@ -66,14 +66,14 @@ CARD を作る前に、場面で block を選ぶ。型が決まっているか�
 | #6 全体の進み具合を確かめる | `lab-progress`（数と穴を報告し、次の CARD を作る） |
 | #7 review・survey 論文で root の骨組みを作る | `lab-map`（最初の 1 枚は `--node` を省く。下の「root を作る順番」） |
 | #8 seed から研究計画（S）を作る | `lab-sprout`（`--node D<n>`） |
-| #9 木の形を見直す（`TOO_FLAT`・sci-verify の指摘・直下の A が多い・兄弟の詳しさがずれて見える・Professor が木を整えたいと判断した） | `lab-review`（`--node` は見直す軸（Q）か A。省くと木の全体） |
-| #10 未回答の問いに回答の A が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は未回答の問いの軸（Q）） |
+| #9 木の形を見直す（`TOO_FLAT`・sci-verify の指摘・直下の A が多い・兄弟の詳しさがずれて見える・Professor が木を整えたいと判断した） | `lab-review`（`--node` は見直す軸の A か A。省くと木の全体） |
+| #10 未回答の問いに回答の A が無い（`BLANK_NO_PATH`） | `lab-grow`（`--node` は未回答の問いの軸の A） |
 | 木の評価（target_node と子の関係） | `sci-verify`（参加者に `paper-debater`・`paper-reviewer` を子で使える） |
 
-木の形の見直し（#9）は `lab-review` の CARD で起こします。`--node` は見直す軸（Q）か A で、省くと木の全体です。
+木の形の見直し（#9）は `lab-review` の CARD で起こします。`--node` は見直す軸の A か A で、省くと木の全体です。
 
 ```bash
-sai-sci card --block lab-review --node Q12 --purpose "<見直す目的（300 字まで）>" --json
+sai-sci card --block lab-review --node A12 --purpose "<見直す目的（300 字まで）>" --json
 ```
 
 `sci-data-explore` の report の `## Next Action` に `sci-data-test` の CARD を作る命令が書いてある。explore の report を評価してから、その命令で test の CARD を作って起こす（explore 自身は test を起こさない）。
@@ -84,8 +84,8 @@ sai-sci card --block lab-review --node Q12 --purpose "<見直す目的（300 字
 
 - S は D の未回答の問いに、root の A で回答して作る。D の回答（固定）は、今ある A をそのまま使う。
 - 始める前に、育てる範囲の型を決める。
-  - (a) 未回答だけ埋める型: D の未回答の問いの軸の Q だけを育てる。回答（固定）の軸は今ある A をそのまま使う。狭く、早く S まで行ける。
-  - (b) 幅広く探す型: 未回答の問いに加えて、回答（固定）の軸の下の A も候補を広げてから S を選ぶ。広く、時間がかかる。
+  - (a) 未回答だけ埋める型: 未回答の問いの軸の A の下だけを育てる。回答（固定）の A は今ある A をそのまま使う。狭く、早く S まで行ける。
+  - (b) 幅広く探す型: 未回答の問いに加えて、回答（固定）の A の下の A も候補を広げてから S を選ぶ。広く、時間がかかる。
 - 型は依頼文に書かれていればそれに従う。書かれていなければ、質問ツールで Human に聞いて待つ（推測で決めない）。
 
 ## root を作る順番
@@ -116,7 +116,7 @@ root は一度に全部を起こさない。
      [--input <waggle トークン>]… [--model <m>] [--thinking <t>] --json
    ```
 
-   Next Action の `card` の値（例: `--node Q12 --block lab-grow --purpose …`）は、そのまま引数にしてよい。`--purpose` は 300 字まで。長い決定事項は `sai-link doc write` で文書を保存し、`--input` で渡す。model と thinking は `sci-cli` の目安で選ぶ（省くと block の frontmatter の値）。
+   Next Action の `card` の値（例: `--node A12 --block lab-grow --purpose …`）は、そのまま引数にしてよい。`--purpose` は 300 字まで。長い決定事項は `sai-link doc write` で文書を保存し、`--input` で渡す。model と thinking は `sci-cli` の目安で選ぶ（省くと block の frontmatter の値）。
 3. `sai-link card run <run_id>` で起こし、run_id を研究日誌に書く。同じ Node を書き換える作業を 2 つ同時に起こさない。1 度に動かすのは 3 本まで。
    - 結果を待つ子（`operator`・`sci-exp-scout`・`sci-sim-model`・`sci-sim-compose`）は Card ではなく、`sai-link task create` で子として起こし、`sai-link task execute` する。`block_type`・`task_text` を書き、`model`・`thinking` は省いてよい。
 4. 待つ: 待つ run を**全部 1 回に並べて** `sai-link run wait <run_id>…` を呼ぶ。並べるのは、自分が起こした Card の run と、`sai-sci status --brief` の `running` にある run（実験の連鎖で起きた branch・review）。1 本ずつ呼ばない。返った run は次の呼び出しから外す。task の子は `sai-link task wait` で待つ（`sci-task` の status の対処に従う）。待つ前に、答え待ちの子と自分が起こした run の一覧（run_id・block・待つ理由）を `professor-log.md` に追記する（利用上限などで止まっても、Human が引き継げるように）。
@@ -139,10 +139,10 @@ root は一度に全部を起こさない。
 
 - 成功基準（seed の `## 成功基準`）が、指標の計算のしかた（例: point-adjust）で意味を失っていないか。**実験の前に確かめる。** 反証（`polarity: refute`）の FINDING が出たら、基準を Human に上げて問い直す。
 - 失敗が「実装の誤り」か「方法の限界」かを区別する。同じ手順が 2 回続けて失敗したら、まず実装を疑い、review が debug の branch を起こす（1 回だけ）。debug のあとも同じ失敗なら、Human に上げる（下の「Human に上げる」）。
-- 結果が A の根拠（F）を崩したら、その Q を `sci-verify` で確かめ直すか、`lab-grow` で A を書き直す。
+- 結果が A の根拠（F）を崩したら、その A を `sci-verify` で確かめ直すか、`lab-grow` で A を書き直す。
 - researcher の出典が `#番号` の形で付いているか、反証を探したか（`sci-core` の決まり）。
 - 言葉の崩れ（意味の無い英字・他の言語の語）があれば、直させてから採る。
-- 木の形: 同じ Q の兄弟の詳しさと分け方の基準がそろっているか。直下の A が 7 件以内か。review の分類が平らに写されていないか。
+- 木の形: 同じ親の兄弟の詳しさと分け方の基準がそろっているか。直下の A が 7 件以内か。review の分類が平らに写されていないか。
 - sci-verify の「層・粒度」の指摘は、報告だけで流さず、`lab-review` の CARD にして起こす（`--node` は指摘の軸か A）。
 - 子が「下位の A は今回出さない」と言ったら、理由を確かめる。理由が無ければ出させる。
 

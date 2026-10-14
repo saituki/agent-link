@@ -1,7 +1,7 @@
 ---
 name: 🗺 root を組む
 id: lab-map
-description: "review・survey 論文から、分野の軸ごとに Q・A・F の骨組みを作る（root は seed に縛られない）"
+description: "review・survey 論文から、分野の軸ごとに A・F の骨組みを作る（root は seed に縛られない）"
 model: sonnet
 thinking: medium
 templates:
@@ -23,17 +23,17 @@ subblocks:
 
 # 🗺 root を組む
 
-あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE で決まります。NODE が空なら木の全体（全部の軸）、軸の Q の ID なら、その軸だけです。入力は依頼文の `sci_papers`（review・survey 論文の番号。1〜3 本）です。
+あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE で決まります。NODE が空なら木の全体（全部の軸）、軸の A の ID なら、その軸だけです。入力は依頼文の `sci_papers`（review・survey 論文の番号。1〜3 本）です。
 
 ## 役割
-review・survey 論文の分類（taxonomy）を、root の軸の Q・A・F に写す Action です。root は分野の可能性の幅で、seed（D）に縛られません。
+review・survey 論文の分類（taxonomy）を、root の軸（軸の A）と A・F に写す Action です。root は分野の可能性の幅で、seed（D）に縛られません。
 
-- 論文の分類を、軸（Q）の下の大分類の A と、その下の A（`subtype`）に写します。
+- 論文の分類を、軸の A の下の大分類の A と、その下の A（`subtype`）に写します。
 - 各 A に、その論文の該当箇所を `cites` にした F を 1 本以上付けます。
 - seed（D）は見ません。「この研究」の前提を root に書きません。
 
 ### 手順
-1. **依頼文と木を読む。** 依頼文の `sci_papers` を確かめます。無ければ質問ツールで起動者に番号を聞いて止まります。`## TREE` で軸の Q（key は `task`・`target`・`data`・`method`・`output`・`metric` のどれか。文の形は「〜には、どんな種類があるか。」）と、その下の既にある A を読みます。
+1. **依頼文と木を読む。** 依頼文の `sci_papers` を確かめます。無ければ質問ツールで起動者に番号を聞いて止まります。`## TREE` で軸の A（key は `task`・`target`・`data`・`method`・`output`・`metric` のどれか。文は名詞だけ（`解く問題`・`対象`・`データ`・`手法`・`出力`・`評価指標`））と、その下の既にある A を読みます。
 2. **論文の節を読む。** `sai-paper content outline <番号> --json` で節を見て、分類を述べる節（taxonomy・categories・overview の表など）を `sai-paper content read <ID>` で読みます。節の表が無ければ `sai-paper content build <番号>` で作ります。
 3. **分類を軸に割り当てる。** 論文の分類を、6 つの軸（task・target・data・method・output・metric）に割り当てる表を作ります。軸に当たらない分類は OUT_OF_SCOPE に書きます。
 4. **分類の階層を写す。** 論文の分類表の階層（大分類・中分類・小分類）を、そのまま表にします。段（深さ）ごとに分けて書きます。
@@ -42,13 +42,13 @@ review・survey 論文の分類（taxonomy）を、root の軸の Q・A・F に�
    - 段は「大分類の A → 下位の A」の順に出します。
    - 兄弟の詳しさがずれるときは、組み直さずに `lab-review` の CARD の案を報告に書きます（この block は `move_node` を出しません）。
 6. **段ごとに `op` を出す。** 1 回の `op` は 1 段だけにします。返った ID（`result`）を次の段で使います。
-   - (a) 軸（Q）の下に大分類の A を足す（`add_a`。`parent` に軸の ID。許可は要りません。1 回 20 件まで）。
+   - (a) 軸の A の下に大分類の A を足す（`add_a`。`parent` に軸の A の ID。許可は要りません。1 回 20 件まで）。
    - (b) A の下に下位の A を足す（`add_a`。`parent` にその A の ID。`rel` は省略か `subtype`）。
    - (c) 各 A に F を付ける（`add_f`。許可は要りません。`cites` は読んだ節・塊の番号。F は 1〜3 文。Extract の「適用の条件」「限界」を優先します）。
    - 1 回の run で足す A は 40 件までです（目安）。同じ親の直下の A が 7 件を超えるときは、超える分を `lab-review` の CARD の案として報告に書きます。
 
    ```bash
-   echo '{"ops": [{"op": "add_a", "parent": "Q4", "text": "…", "body": "確かめ方"}]}' | sai-sci op --block lab-map
+   echo '{"ops": [{"op": "add_a", "parent": "A4", "text": "…", "body": "確かめ方"}]}' | sai-sci op --block lab-map
    echo '{"ops": [{"op": "add_a", "parent": "A12", "text": "…", "rel": "subtype", "body": "確かめ方"}]}' | sai-sci op --block lab-map
    echo '{"ops": [{"op": "add_f", "parent": "A12", "text": "…", "stance": "support", "cites": ["#37.5.2"]}]}' | sai-sci op --block lab-map
    ```

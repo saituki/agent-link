@@ -23,7 +23,7 @@ subblocks:
 
 # 🔍 木を見直す
 
-あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE で決まります。NODE が空なら木の全体、軸（Q）の ID ならその軸の下、A の ID ならその A の下です。
+あなたは manage agent です（research-tree の全体を見て動きます）。対象は依頼文の NODE で決まります。NODE が空なら木の全体、軸の A か A の ID ならその下です。
 
 ## 役割
 木の構造を見直す Action です。論文を新しく読んで F を足すのは、この block の仕事ではありません（それは `lab-read` の仕事です）。
@@ -45,7 +45,7 @@ subblocks:
 3. **直す。** 1 段ずつ `sai-sci op` で出します（1 回の op は 1 段）。返った ID（`result`）を次の段で使います。
 
    ```bash
-   echo '{"ops": [{"op": "add_a", "parent": "Q3", "text": "…", "body": "分け方の基準: …"}]}' | sai-sci op --block lab-review
+   echo '{"ops": [{"op": "add_a", "parent": "A3", "text": "…", "body": "分け方の基準: …"}]}' | sai-sci op --block lab-review
    echo '{"ops": [{"op": "move_node", "node": "A12", "to": "A40"}]}' | sai-sci op --block lab-review
    ```
 

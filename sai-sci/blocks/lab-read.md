@@ -28,11 +28,11 @@ subblocks:
 ## 役割
 論文を 1 本読み、対象の Node の下に子を足す Action です。対象の Node は依頼文の NODE（`# context` の `← TARGET` の行）。足す子の型は依頼文の `sci_child` だけです。
 
-- `sci_child` が `A`（対象が軸の Q か A）: その下に、論文の答えの候補（A）を足します。
+- `sci_child` が `A`（対象が軸の A か、軸でない A）: その下に、論文の答えの候補（A）を足します。
 - `sci_child` が `F`（対象が A）: A の下に、論文の事実（F）を付けます。
 - `sci_child` が空のときは論文を読まず、`lab-grow` の CARD を勧めて終えます（報告に 1 行で書きます）。
 
-型の組が合わない（Q に F、A に A など）ときは、足さずに報告します。型の組の決まりは `sci-core` の「research-tree」を見ます。
+型の組が合わない（軸の A に F など）ときは、足さずに報告します。型の組の決まりは `sci-core` の「research-tree」を見ます。
 
 読み方の型は `sci_mode` で、深さは `sci_depth` で決めます。指定が無ければ、purpose_first・FULL で読みます。
 
@@ -47,11 +47,11 @@ runner が user のときは、利用者が読みます（READ_CARD）。読み�
 2. **読む論文を 1 本決める。** 依頼文に論文の番号があればそれを使います。無ければ対象の Node に結ばれた論文から 1 本を選びます。決まらないときは手を付けずに案を見せます。
 3. **本文を読む。** `sai-paper content outline <番号> --json` で節の一覧を見て、要る節だけを `sai-paper content read <ID>` で読みます。節の表が無ければ `sai-paper content build <番号>` で作ります。図が要る深さでは `sai-paper paper figures` の出力で、論の順番と図の関係を確かめます。
 4. **型の順番を守る。**
-   - purpose_first: 「対象の Node と Q → 論文の該当箇所 → 分かったこと」の順に書く。
+   - purpose_first: 「対象の Node と A → 論文の該当箇所 → 分かったこと」の順に書く。
    - blind_first: 問い・方法・結果・限界の要約を先に書き終える。書き終えてから `sai-sci context --run "$SAI_PARENT_RUN_ID" --tree` で木を取り寄せ、要約と木を照らす。
 5. **子を足す。** `sci_child` の型だけを、`sai-sci op` で出します（1 回の `op` は 1 段）。
    - `sci_child` が `A` のときは、足す前に既にある A と同位・下位・上位のどれかを判定します（template の「抽象度をそろえる」）。同位で同じ選択肢なら足しません。下位なら、その A の下に足します（`add_a` の `parent` にその A の ID を書きます）。上位や兄弟が詳しすぎるなら足さず、`lab-review` の CARD の案を報告に書きます。
-   - 軸（Q）の子 A: `{"ops": [{"op": "add_a", "parent": "Q3", "text": "…", "body": "確かめ方"}]}`
+   - 軸の A の子 A: `{"ops": [{"op": "add_a", "parent": "A3", "text": "…", "body": "確かめ方"}]}`
    - A の子 A（下位）: `{"ops": [{"op": "add_a", "parent": "A12", "text": "…", "rel": "subtype", "body": "確かめ方"}]}`
    - A の子 F: `{"ops": [{"op": "add_f", "parent": "A12", "text": "…", "stance": "support", "cites": ["#37.5.2"]}]}`
    - F は 1〜3 文にまとめ、`stance`（`support`・`deny`・`issue`）を必ず付けます。`cites` の形は `sci-core` の「根拠」に従います。数字を含む文には必ず `cites` を付けます。F の文は論文を主語にします（「#37 は…」）。「本研究では」とは書きません（論文が自分の研究を「本研究では」と書いていても、読む人の研究と取り違えられるため）。A の文と本文に出典（`#番号`）は書きません（op が断ります）。

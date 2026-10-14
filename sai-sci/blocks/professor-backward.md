@@ -37,7 +37,7 @@ subblocks:
 | 進み具合（`progress`） | 木のどこまで埋まったか | `sai-sci status --brief` |
 | Next Action（`next`） | 木が次に示している作業（`why` のコード） | `sai-sci status --brief` |
 | 根拠 | A の F（`stance`）が足りているか・反証が探されたか | `sai-sci status --json` |
-| Node | D（seed）・Q・A・F・E・S（SPROUT）の 1 つ | `sai-sci node <N12>` |
+| Node | D（seed）・A・F・E・S（SPROUT）の 1 つ | `sai-sci node <N12>` |
 
 現在地はまず `sai-sci status --brief` で読む。★ は利用者だけが付ける（professor-backward も付けない）。
 
@@ -98,7 +98,7 @@ subblocks:
 ### 段 4 の決め方
 
 - 最新の論文の検索（`lab-search`）の `--purpose` には「基盤論文（<年>）より後の研究で、<課題・手法> を扱うもの」と書き、`--year-from` に基盤論文の年を使うよう伝える。
-- 新しい F で Q・A が変わるときは、前向きと同じく `sai-sci op` と許可で直す。論文の手法の A は残し、更新の手法を新しい A として並べる（`lab-grow`・`sci-verify`）。直した path の組で、論文の D の下に新しい S を `lab-sprout` で作る（論文の S と並ぶ。違いは `lab-sprout` が報告する）。
+- 新しい F で A が変わるときは、前向きと同じく `sai-sci op` と許可で直す。論文の手法の A は残し、更新の手法を新しい A として並べる（`lab-grow`・`sci-verify`）。直した path の組で、論文の D の下に新しい S を `lab-sprout` で作る（論文の S と並ぶ。違いは `lab-sprout` が報告する）。
 - 新しい S の実験は `sci-exp-sprout` で起こす（CARD の `--node` は新しい S）。PATH の前提が揃っていなければ、注意を読み、足りない所を埋める作業を先に起こすか決める。
 - 更新の実験は、再現の実験と同じデータ・分割・指標で比べられるよう、`--purpose` に「再現の実験仕様書（トークン）と同じデータ・分割・指標で行う」と書く。
 
