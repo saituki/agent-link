@@ -419,6 +419,8 @@ sai ALL=(root) NOPASSWD: /usr/bin/systemctl restart sai-web
 
 cc のフックの設定（`.claude/settings.json`）は cc の起動ごとに sai-link が最新に書き直すので、配備のあとに各プロジェクトで `sai-link init` をやり直す必要は無い。
 
+**移行 0062（research-tree の Q の廃止）を含む版を配ると**: 配備の 7 段の `sai-sci init --update` などで、新しい `sai-sci` が各プロジェクトの `papr.db` を開いたときに移行 0062 が走り、research-tree の軸が Q から A に変わる。旧形式の Q（A の下の Q）は畳まれる。Q の行があった DB には `.sai/paper/papr-before-0062.db`（移行の前の複製）ができる。移行は戻せないので、戻すときは `papr-before-0062.db` を `papr.db` の代わりに置き、古い版に戻す（`docs/sai-sci.md` 6.2 節）。
+
 
 ## 16. バックアップ（配備の前に）
 
@@ -433,6 +435,7 @@ tar -C ~ -czf ~/backups/web-$(date +%Y%m%d-%H%M%S).tar.gz .sai/web
 - `users` は各プロジェクトの `.sai`・HOME・記録（Chats・論文の Library）を含む。
 - 取った物は別の機械にも置く（同じ機械の中だけに置かない）。
 - 取り出すときは `tar -C /srv/sai -xzf <file>`（サービスを止めてから行う）。
+- 移行 0062 を含む版を配る前の tar には、移行の前の複製 `papr-before-0062.db` は無い（移行は配備の後に走り、その複製を作る）。戻すときは、配備の後に取った tar か、`papr-before-0062.db` を使う（§15 の移行 0062）。
 
 ## 17. 時系列（sai-ts）
 

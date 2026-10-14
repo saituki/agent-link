@@ -15,7 +15,7 @@
 
 練習用のプロジェクトは本物の研究とは別の場所（`~/research/sci-practice`）に作ります。**練習で打つ命令は、すべてこの練習用のフォルダの中で行います。** 何を打っても本物の研究には影響しません。
 
-> **出力の番号について**: ここに書いた出力の ID（`D7`・`A8`・`F10`・`S11` など）は、練習のときに出る番号に読み替えてください。番号は Q・A・F・E・S・D をまとめて作った順に付くので、手元の出力と一致しないことがあります。この文書の通りに上から順に打てば、同じ番号になります。出力の形（キーの名前・終了コード）は同じです。
+> **出力の番号について**: ここに書いた出力の ID（`D7`・`A8`・`F10`・`S11` など）は、練習のときに出る番号に読み替えてください。番号は A・F・E・S・D をまとめて作った順に付くので、手元の出力と一致しないことがあります。この文書の通りに上から順に打てば、同じ番号になります。出力の形（キーの名前・終了コード）は同じです。
 
 ---
 
@@ -25,12 +25,12 @@
 
 | 言葉 | 意味 |
 |---|---|
-| Q | 問い。root の Q は「〜の種類は何があるか」の形で、6 つの軸（task・target・data・method・output・metric）がある |
-| A | Q への選択肢。1 つの A は選択肢 1 つ。出典は書けない |
+| 問い（SQ） | seed の問い。研究を実験の段階に進めるために確定させなければならない疑問点。root には問いを置かない |
+| A | 選択肢。1 つの A は選択肢 1 つ。出典は書けない。6 つの軸（task・target・data・method・output・metric）は親の無い A で、その下に選択肢の A を並べる |
 | F | 根拠。A の下に置く。`support`・`deny`・`issue` の立場を持つ |
-| root | 分野の可能性の幅（軸の Q・A・F）。研究の制約に縛られない |
+| root | 分野の可能性の幅（軸の A・A・F）。研究の制約に縛られない |
 | seed（D） | 1 つの研究の問いの一覧（雛形の 7 問。問いへの回答は固定）。複数持てる。ID は `D7` など |
-| 木の全体 | `--node` を省いた対象。木の根の Node は無い（軸の Q が最上段に並ぶ） |
+| 木の全体 | `--node` を省いた対象。木の根の Node は無い（軸の A が最上段に並ぶ） |
 | S（SPROUT） | 1 研究＝研究計画。1 つの seed の未回答の問いに回答していく。全部答えると完成し、実験を足せる |
 | ★ | 利用者が付ける目印。計算には使わない |
 | 承認 | 許可が要る操作を agent が行うための、利用者の「許可する」 |
@@ -96,7 +96,7 @@ sai-sci init --type problem
 - `cd` はそのフォルダへ移る命令です。
 - `sai-sci init --type problem` は、ここを「research-tree を使う研究プロジェクト」にする命令です。`--type problem` は RESEARCH_TYPE を PROBLEM_DRIVEN（課題駆動）にするという意味です。
 
-RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）。練習では `problem` を使います。**どの型でも、作られる Q は同じ 6 つの軸の Q です。** 型の違いは、雛形の問いのうち、どれが最初から seed で回答されているか、どれが未回答で始まるかだけです。
+RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）。練習では `problem` を使います。**どの型でも、作られる軸は同じ 6 つです。** 軸は、親の無い A です。 型の違いは、雛形の問いのうち、どれが最初から seed で回答されているか、どれが未回答で始まるかだけです。
 
 | `--type` の値 | 名前 | どんな研究か |
 |---|---|---|
@@ -112,15 +112,18 @@ RESEARCH_TYPE は 5 つあります（`sai-sci types` で一覧が出ます）�
 
 ```
 ✅ 登録簿に登録しました: sci-practice
-✅ 研究の assets を 87 件置きました（既にあるものはそのまま）
+✅ 研究の assets を 89 件置きました（既にあるものはそのまま）
+✅ 分野の観点の見本を 3 件置きました（既にあるものはそのまま）
+✅ 分野の観点: general（.sai/template/domain.md）
 ✅ mind.md（土壌のひな形）を作りました
+✅ テンプレートを 6 件置きました（既にあるものはそのまま）
 ✅ 研究プロジェクトを初期化しました: …/sci-practice/.sai/paper
 ✅ research-tree を作りました（RESEARCH_TYPE: PROBLEM_DRIVEN・軸 6）
 ```
 
 次の 3 つが起きています。
 
-1. フォルダの中に `.sai/` という隠しフォルダができ、論文の置き場（`.sai/paper/papr.db`）と research-tree（その下に並ぶ 6 つの軸の Q。親の無い Q）が作られた。
+1. フォルダの中に `.sai/` という隠しフォルダができ、論文の置き場（`.sai/paper/papr.db`）と research-tree（その下に並ぶ 6 つの軸の A。親の無い A）が作られた。
 2. エージェント（cc）がこのプロジェクトで使う設定（`.mcp.json`・`.claude/`）が置かれた。
 3. プロジェクトが登録簿（`~/.sai/registry.json`）に `sci-practice` という名前で載った。**これで Web の画面にこのプロジェクトが出ます。**
 
@@ -152,43 +155,43 @@ sai-sci status --brief
 `--brief` は数と次にやることだけを JSON で出します。先頭だけ見ると次のとおりです（`…` は省略）。
 
 ```
-{"counts":{"a":0,"e":0,"f_deny":0,"f_issue":0,"f_support":0,"q":6,"s":0},"next":[{"block":"lab-grow","expect":"子を 1 つ以上","kind":"card","node":"Q1","option":null,"purpose":"「この分野で解かれている問題（タスク）には、どんな種類があるか。」の子の A を作る","why":"NO_CHILD"},…],"running":[],"type":"problem","warnings":[…]}
+{"counts":{"a":0,"axis":6,"e":0,"f_deny":0,"f_issue":0,"f_support":0,"s":0},"next":[{"block":"lab-grow","expect":"子を 1 つ以上","kind":"card","node":"A1","option":null,"purpose":"「解く問題」の子の A を作る","why":"NO_CHILD"},…],"running":[],"type":"problem","warnings":[…]}
 ```
 
-- `counts` は生きた Node の数です。`q` は Q、`a` は A、`f_support`・`f_deny`・`f_issue` は F の立場ごと、`e` は E、`s` は SPROUT の数です。
+- `counts` は生きた Node の数です。`axis` は軸の A、`a` は軸でない A、`f_support`・`f_deny`・`f_issue` は F の立場ごと、`e` は E、`s` は SPROUT の数です。
 - `next` は Next Action です。`why` が理由（`NO_CHILD`・`NO_FINDING`・`UNVERIFIED`）で、`block` が頼む仕事の種類です。
 - `warnings` は、research-tree の決まりに合わない所です。出ていても練習には差し支えありません。
 
 ### 3.2 Node を 1 つ読む
 
 ```bash
-sai-sci node Q4
+sai-sci node A4
 ```
 
-Q4 の文・親までの道・GUIDE・Next Action が人が読む形で出ます。
+A4 の文・親までの道・GUIDE・Next Action が人が読む形で出ます。
 
 ```
-Q4 使われている手法には、どんな種類があるか。
+A4 手法
 
-PATH: Q4
+PATH: A4
 
-GUIDE METHOD: 分野で使われている手法の種類を並べる Q である。root の一部で、seed に縛られない。…
+GUIDE METHOD: 分野で使われている手法の種類を並べる軸の A である。root の一部で、seed に縛られない。…
 
 Next Action:
-  1. Q4 lab-grow 「使われている手法には、どんな種類があるか。」の子の A を作る（NO_CHILD）
+  1. A4 lab-grow 「手法」の子の A を作る（NO_CHILD）
 ```
 
-JSON で読むときは `--json` を付けます（`sai-sci node Q4 --json`）。
+JSON で読むときは `--json` を付けます（`sai-sci node A4 --json`）。
 
-- 作られた 6 つの Q（`Q1`〜`Q6`）は、**軸の Q** です。順に task（解く問題）・target（対象）・data（データ）・method（手法）・output（出力）・metric（評価指標）で、どの型でも同じです。
-- 軸の Q は「〜の種類は何があるか」と聞きます。**答えの A は選択肢で、そのまま軸の Q の下に並べられます。** 「この研究では」のような、この研究だけの決まりは A には書きません。それは次の章の seed の回答に書きます。
+- 作られた 6 つの A（`A1`〜`A6`）は、**軸の A** です。順に task（解く問題）・target（対象）・data（データ）・method（手法）・output（出力）・metric（評価指標）で、どの型でも同じです。軸の A の文は名詞で、`手法` のように書きます。
+- **選択肢の A は、軸の A の下に並べます。** 「この研究では」のような、この研究だけの決まりは A には書きません。それは次の章の seed の回答に書きます。
 - **A の下にも A を足せます。** 細かい種類は、A の下の A として足します（`rel` は省くと `subtype`）。`rel` の決まりは [`sai-sci.md`](sai-sci.md) の 2.1 節です。
 
 ---
 
 ## 4. seed を作る（利用者の操作）
 
-root（軸の Q）は分野の可能性の幅で、この研究の制約は入りません。**この研究の決まりは seed（D）に書きます。** seed は 1 つの研究の問いの一覧で、研究ごとに 1 つ作ります（複数持てます）。
+root（軸の A）は分野の可能性の幅で、この研究の制約は入りません。**この研究の決まりは seed（D）に書きます。** seed は 1 つの研究の問いの一覧で、研究ごとに 1 つ作ります（複数持てます）。
 
 seed には、雛形の 7 問が最初から入ります。問いには、利用者が決まっていることを**回答**します。回答は、テキストか root の A（選択肢）のどちらか一方です。
 
@@ -263,16 +266,16 @@ EOF
 - `to` は seed の ID（`D7`）、`q` は問いの ID（`SQ1`）です。`text` の代わりに `a`（root の A の ID。例 `"a":"A8"`）でも回答できます。どちらか一方だけを書きます。
 - 手法・出力・評価指標・成功基準（`SQ4`〜`SQ7`）は、未回答のままにしました。この未回答は、root から選択肢を選んで回答していきます（8 章）。
 - seed は親を持ちません。S の親として並びます。`sai-sci status --json` の `nodes` に種類 `D` で出ます。
-- 初めての人は、聞き取りながら seed を作る `sci-start`（CARD）を使えます。`sci-start` は Q を作らず、seed だけを作ります。
+- 初めての人は、聞き取りながら seed を作る `sci-start`（CARD）を使えます。`sci-start` は軸の A を作らず、seed だけを作ります。
 
 ---
 
 ## 5. A を足す（利用者の操作）
 
-軸の Q の下に、選択肢の A を足します。手法の軸（Q4）に「こういう手法がある」を並べます。利用者は `sai-sci apply` で 1 件ずつ足せます。標準入力は op 1 件の JSON です。
+軸の A（A4）の下に、選択肢の A を足します。手法の軸（A4）に「こういう手法がある」を並べます。利用者は `sai-sci apply` で 1 件ずつ足せます。標準入力は op 1 件の JSON です。
 
 ```bash
-echo '{"op":"add_a","parent":"Q4","text":"CNN で発作の前兆を分類する手法がある"}' | sai-sci apply --json
+echo '{"op":"add_a","parent":"A4","text":"CNN で発作の前兆を分類する手法がある"}' | sai-sci apply --json
 ```
 
 ```
@@ -282,7 +285,7 @@ echo '{"op":"add_a","parent":"Q4","text":"CNN で発作の前兆を分類する�
 `result` が新しい Node の ID です（ここでは `A8`）。以後の手順では、この番号を使います。
 
 - `apply` は利用者の命令なので、承認は要りません。
-- 同じ文の A を同じ Q に 2 つ足すと、「Q4 に同じ文の A があります」と断られます（終了コード 2）。
+- 同じ文の A を同じ親に 2 つ足すと、「A4 に同じ文の A があります」と断られます（終了コード 2）。
 - 1 つの A は選択肢 1 つです。複数の選択肢を 1 つの A に混ぜないでください。
 
 ### 5.1 A に出典は書けない
@@ -290,7 +293,7 @@ echo '{"op":"add_a","parent":"Q4","text":"CNN で発作の前兆を分類する�
 A の文と本文に出典（`#37` のような論文の番号）は書けません。出典は、A の下の F に書きます。
 
 ```bash
-echo '{"op":"add_a","parent":"Q4","text":"精度は #37 による"}' | sai-sci apply --json
+echo '{"op":"add_a","parent":"A4","text":"精度は #37 による"}' | sai-sci apply --json
 ```
 
 ```
@@ -304,7 +307,7 @@ A の文と本文に出典（#番号）は書けません。出典は add_f の 
 直下の A が 7 件を超えると、Next Action に `TOO_FLAT`（block `lab-review`）が出ます。木は拒まれません。組み直すときは、まとまりの親になる A を足し、兄弟の A を `move_node` でその下へ移します。練習では、「学習で重みを決める手法」の A（`A9`）を足して、A8 を移します。
 
 ```bash
-echo '{"op":"add_a","parent":"Q4","text":"学習で重みを決める手法"}' | sai-sci apply --json
+echo '{"op":"add_a","parent":"A4","text":"学習で重みを決める手法"}' | sai-sci apply --json
 ```
 
 ```
@@ -418,10 +421,10 @@ EOF
 ```
 
 ```
-{"op":"add_sprout","range":{"a":2,"f_deny":0,"f_issue":0,"f_support":1,"q":1},"result":"S11"}
+{"op":"add_sprout","range":{"a":2,"f_deny":0,"f_issue":0,"f_support":1},"result":"S11"}
 ```
 
-- `result` の `S11` が SPROUT の ID です。`range` は SPROUT の範囲です。回答の A とその祖先の Q、A の子の F を数えます（`q` は Q の数、`a` は A の数、`f_*` は F の立場ごとの数）。今の例では、A8 と祖先の A9・Q4、A8 の子の F10 を数えます。
+- `result` の `S11` が SPROUT の ID です。`range` は SPROUT の範囲です。回答の A の祖先の A（軸の A は数えない）と、A の子の F を数えます（`a` は A の数、`f_*` は F の立場ごとの数）。今の例では、A8 と祖先の A9、A8 の子の F10 を数えます（軸の A4 は数えない）。
 - `answers` の 1 件は `{"q":"SQ<n>","a":"A<n>"}`（path の回答）か `{"q":"SQ<n>","text":"…"}`（テキストの回答）です。
 - 1 つの seed から、別の回答をした S を何本でも作れます（8.6 で作ります）。
 
@@ -440,7 +443,7 @@ S11 予知の SPROUT
 - SQ2 対象は誰・何か: 「側頭葉てんかん患者」
 - SQ3 どのデータを使うか: 「術前の EEG」
 ## 新規性（sprout の回答）
-- SQ4 どの手法を使うか: A8 CNN で発作の前兆を分類する手法がある（Q4 › A9 › A8）
+- SQ4 どの手法を使うか: A8 CNN で発作の前兆を分類する手法がある（A4 › A9 › A8）
 ## 未回答
 - SQ5 何を出力するか
 - SQ6 どの指標で評価するか
@@ -517,7 +520,7 @@ EOF
 ```
 
 ```
-{"op":"add_sprout","range":{"a":0,"f_deny":0,"f_issue":0,"f_support":0,"q":0},"result":"S12"}
+{"op":"add_sprout","range":{"a":0,"f_deny":0,"f_issue":0,"f_support":0},"result":"S12"}
 ```
 
 2 つの S を並べて比べるには、`compare` を使います（2〜10 個）。
@@ -633,7 +636,7 @@ Web の画面（1.2 節の窓を起動したまま）で、research-tree を確�
 5. 木の全体の板で「seed（D）の一覧」を開き、`D7` を押すと seed の本文が読めます。
 6. 板の **Create seed（D）** を押すと、題と本文を書く欄が出ます。ここから画面で seed を作れます（練習ではやらなくて構いません）。
 7. **Create SPROUT** を押すと、作成パネルに **seed（D）を選ぶ**（必須）欄が出ます。seed を選び、`A` の板の **Add PATH** で PATH を選んでから作ります。seed が 1 つも無いときは、先に Create seed（D）を促されます。
-8. 命令で足した A・F・Q は、画面を読み直すと出ます。
+8. 命令で足した A・F は、画面を読み直すと出ます。
 
 > 画面の表示は、命令の結果と同じ research-tree を読んでいます。画面で見えない物は、命令の出力も確かめてください。
 
@@ -667,14 +670,18 @@ cd ~/research/sci-practice
 - 対象: 木の全体 ← TARGET
 
 ## TREE
-- Q4 使われている手法には、どんな種類があるか。 [A 1・深さ 1]
+- A1 解く問題 [A 0・深さ 1]
+- A2 対象 [A 0・深さ 1]
+- A3 データ [A 0・深さ 1]
+- A4 手法 [A 1・深さ 1]
   - A9 学習で重みを決める手法 [A 1・F 1]
     - A8 ★ CNN で発作の前兆を分類する手法がある [F 1]
       - F10 [support] 前兆の分類精度は高い
-…
+- A5 出力 [A 0・深さ 1]
+- A6 評価指標 [A 0・深さ 1]
 - D7 自分の研究
-  - S11 予知の SPROUT [固定: task=「発作の予知」, target=「側頭葉てんかん患者」, data=「術前の EEG」 / 新規: method=A8 / 未回答: 4] [範囲: Q 1・A 2・F 1（S 1 / D 0 / I 0）]
-  - S12 別の SPROUT […]
+  - S11 予知の SPROUT [固定: task=「発作の予知」, target=「側頭葉てんかん患者」, data=「術前の EEG」 / 新規: method=A8, output=「発作起始の位置」, metric=「AUC」, SQ7=「AUC 0.8 以上」] [範囲: A 2・F 1（S 1 / D 0 / I 0）]
+  - S12 別の SPROUT [固定: task=「発作の予知」, target=「側頭葉てんかん患者」, data=「術前の EEG」 / 新規: method=「発作の前兆を Transformer で予測する手法」 / 未回答: 4] [範囲: A 0・F 0（S 0 / D 0 / I 0）]
 
 ## ALLOWED_OPS
 - add_seed: seed（D）を足す（研究の背景・制約の文）。問いは雛形の 7 問が最初から入る（消せる）。
@@ -689,7 +696,7 @@ cd ~/research/sci-practice
 出し方: sai-sci op（標準入力に {"ops": [...]}、1 回は 20 件まで）。1 件でも違反があれば何も入りません。
 ```
 
-- `## TREE` の `[A 1・深さ 1]` は、直下の生きた A の数と、軸の Q からの段です。`## PROJECT` は木の全体のときだけ出ます。
+- `## TREE` の `[A 1・深さ 1]` は、直下の生きた A の数と、軸の A からの段です。`## PROJECT` は木の全体のときだけ出ます。
 - `## ALLOWED_OPS` は、この run の block が出せる op です（`sci_ops` の中の op）。
 
 対象が **S（SPROUT）** の run では、`## TREE` の直後に **`## STUDY_SEED`**（その S の seed の本文）が出ます。`sci-exp-sprout` の CARD を作って確かめます（S11 は 8 章で作りました）。
@@ -702,8 +709,8 @@ sai-sci context --run 2
 ```
 ## TREE
 - D7 自分の研究
-  - S11 予知の SPROUT [固定: task=「発作の予知」, target=「側頭葉てんかん患者」, data=「術前の EEG」 / 新規: method=A8 / 未回答: 4] [範囲: Q 1・A 2・F 1（S 1 / D 0 / I 0）] ← TARGET
-  [新規] PATH: Q4 使われている手法には、どんな種類があるか。 > A9 学習で重みを決める手法 > A8 CNN で発作の前兆を分類する手法がある
+  - S11 予知の SPROUT [固定: task=「発作の予知」, target=「側頭葉てんかん患者」, data=「術前の EEG」 / 新規: method=A8, output=「発作起始の位置」, metric=「AUC」, SQ7=「AUC 0.8 以上」] [範囲: A 2・F 1（S 1 / D 0 / I 0）] ← TARGET
+  [新規] PATH: A4 手法 > A9 学習で重みを決める手法 > A8 CNN で発作の前兆を分類する手法がある
 
 ## STUDY_SEED
 D7 自分の研究
@@ -715,19 +722,26 @@ D7 自分の研究
 | 問い | 軸 | seed の回答 | この S の回答 |
 |---|---|---|---|
 | SQ1 解く問題は何か | task | 発作の予知 |  |
-…
+| SQ2 対象は誰・何か | target | 側頭葉てんかん患者 |  |
+| SQ3 どのデータを使うか | data | 術前の EEG |  |
 | SQ4 どの手法を使うか | method |  | A8 CNN で発作の前兆を分類する手法がある |
-…
+| SQ5 何を出力するか | output |  | 発作起始の位置 |
+| SQ6 どの指標で評価するか | metric |  | AUC |
+| SQ7 成功基準は何か（指標の値と向き） | - |  | AUC 0.8 以上 |
 
 ## ALLOWED_OPS
 - add_e: SPROUT か E の下に E（実験）を足す。SPROUT は完成しているときだけ。
-  必須: parent（Q か A の ID）, text（1〜120 字）
+  必須: parent（A の ID）, text（1〜120 字）
   任意: body（0〜2000 字）, mlflow（0〜200 字）, dataset（0〜200 字）
-…
+- set_mlflow: E の MLflow の結び付けを変える（空文字で外す）。
+  必須: node（Node の ID）, mlflow（0〜200 字）
+- set_dataset: E のデータセットの参照（sai-ts の ts:<name>@<sha12> など）を変える（空文字で外す）。
+  必須: node（Node の ID）, dataset（0〜200 字）
+出し方: sai-sci op（標準入力に {"ops": [...]}、1 回は 20 件まで）。1 件でも違反があれば何も入りません。
 ```
 
 - `## STUDY_SEED` は研究の制約です。agent は必ず読み、実験の指標と成功基準もここから読みます。
-- `## TARGET` の `足す子の型` は、対象が Q のときに出ます。CARD を作るときの `--child` の値です（Q の下は `A`）。
+- `## TARGET` の `足す子の型` は、CARD を作るときに `--child` で決めた子の型です。軸の A の下は `A` だけです。
 
 ### 11.2 書き出されるファイル
 
@@ -783,15 +797,15 @@ rm -rf ~/research/sci-practice
 | 「run_id がありません（--run か SAI_PARENT_RUN_ID）」（終了コード 4） | `--run <run_id>` を付ける（9.1 節） |
 | 「この質問の承認は記録済みです」（終了コード 4） | 同じ `--qid` は 2 回書けない。新しい `--qid` で記録する |
 | 「ブロック定義がありません: lab-grow」 | 開発者に、block の入った版かを確かめてもらう |
-| 「古い形の research-tree です。`sai-sci init --type <型>` で作り直してください」 | 新しい research-tree を作るか、古い木を `sai-sci convert` で新しい形の複製にする（[`sai-sci.md`](sai-sci.md) の 4.2 節・6.2 節） |
+| 「古い形の research-tree です。`sai-sci init --type <型>` で作り直してください」 | 新しい research-tree を作る。古い木の移行（移行 0062）は新しい版が `papr.db` を開いたときに自動で行われる（[`sai-sci.md`](sai-sci.md) の 4.2 節・6.2 節） |
 | 「このブロックでは add_seed_q を出せません」（終了コード 2） | その op は今の run の block の `sci_ops` に無い。`sci-start` の run で出す（9 章） |
 
 ---
 
 ## 確かめの一覧（全部に印が付けば完了）
 
-- [ ] 練習用プロジェクトを作り、`status --brief` の `counts.q` が 6 と出た（2・3）
-- [ ] `sai-sci node Q4` で、軸の Q の文が「〜には、どんな種類があるか。」だと分かった（3.2）
+- [ ] 練習用プロジェクトを作り、`status --brief` の `counts.axis` が 6 と出た（2・3）
+- [ ] `sai-sci node A4` で、軸の A の文が名詞の `手法` だと分かった（3.2）
 - [ ] `apply` で seed を作り、`{"op":"add_seed","result":"D…"}` が出て、問い（`SQ1`〜`SQ7`）が見えた。決まっていることを `add_answer` で回答した（4）
 - [ ] `apply` で A を足し、`{"op":"add_a","result":"A…"}` が出た。出典（`#37`）を書いた A が断られた（5・5.1）
 - [ ] `add_a` の下に A を足し、`move_node` で A8 を移した。同じ親への移動は断られた（5.2）
