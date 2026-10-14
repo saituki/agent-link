@@ -198,7 +198,7 @@ fn retired_seed_node_returns_two_with_guide() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// 一時の研究プロジェクトに、新しい research-tree（Q1）と DB を作る。
+/// 一時の研究プロジェクトに、新しい research-tree（A1）と DB を作る。
 fn project_with_tree(root: &Path) -> (PathBuf, i64) {
     let data_dir = root.join(".sai").join("paper");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -207,14 +207,14 @@ fn project_with_tree(root: &Path) -> (PathBuf, i64) {
     defs::init_tree(db.connection(), &defs, "problem", "user").unwrap();
     let q: i64 = db
         .connection()
-        .query_row("SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id IS NULL", [], |r| {
+        .query_row("SELECT id FROM rt_nodes WHERE kind = 'A' AND parent_id IS NULL", [], |r| {
             r.get(0)
         })
         .unwrap();
     (data_dir, q)
 }
 
-/// `Q1` の下に論文 3 の F を足す。
+/// `A1` の下に論文 3 の F を足す。
 fn add_f_with_paper(data_dir: &Path, q: i64) {
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
     store::insert_node(
@@ -239,12 +239,12 @@ fn add_f_with_paper(data_dir: &Path, q: i64) {
     .unwrap();
 }
 
-/// `Q1` の下に A を 1 つ直接書く（add_a は承認が要らない。承認の要る op（remove）の対象を作る）。
+/// `A1` の下に A を 1 つ直接書く（add_a は承認が要らない。承認の要る op（remove）の対象を作る）。
 fn add_a_under_root(data_dir: &Path) -> i64 {
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
     let q: i64 = db
         .connection()
-        .query_row("SELECT id FROM rt_nodes WHERE kind = 'Q' AND parent_id IS NULL", [], |r| r.get(0))
+        .query_row("SELECT id FROM rt_nodes WHERE kind = 'A' AND parent_id IS NULL", [], |r| r.get(0))
         .unwrap();
     store::insert_node(
         db.connection(),
@@ -426,6 +426,50 @@ fn init_with_type_builds_tree_and_conflicts() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// 約束: 入力の `Q<n>` は `A<n>` の別名。`init` の軸（親の無い A）は `Q` と `A` のどちらで引いても同じ Node で、出力は `A` だけ。
+#[test]
+fn axis_id_q_is_alias_of_a() {
+    let root = temp_dir("alias-root");
+    let home = temp_dir("alias-home");
+    let tmp = temp_dir("alias-tmp");
+    let link = fake_link(&tmp);
+    let paper = fake_paper(&tmp);
+
+    let mut init = command(&root);
+    init.env("HOME", &home)
+        .env("SAI_HOME", &home)
+        .env("SAI_PROJECT_ROOT", &root)
+        .env("SAI_LINK_BIN", &link)
+        .env("SAI_PAPER_BIN", &paper)
+        .args(["init", "--type", "problem"]);
+    let first = run(init);
+    assert_eq!(first.code, 0, "stdout={} stderr={}", first.stdout, first.stderr);
+
+    let axis: i64 = {
+        let db = sai_paper_core::Database::open(&root.join(".sai/paper/papr.db")).unwrap();
+        db.connection()
+            .query_row("SELECT id FROM rt_nodes WHERE kind = 'A' AND parent_id IS NULL ORDER BY id LIMIT 1", [], |r| r.get(0))
+            .unwrap()
+    };
+
+    let node = |id: String| {
+        let mut cmd = command(&root);
+        cmd.env("HOME", &home).env("SAI_PROJECT_ROOT", &root).args(["node", &id, "--json"]);
+        let out = run(cmd);
+        assert_eq!(out.code, 0, "stdout={} stderr={}", out.stdout, out.stderr);
+        serde_json::from_str::<serde_json::Value>(&out.stdout).expect("JSON を読める")
+    };
+    let by_q = node(format!("Q{axis}"));
+    let by_a = node(format!("A{axis}"));
+    assert_eq!(by_a["node"]["id"], format!("A{axis}"));
+    assert_eq!(by_a["node"]["kind"], "A");
+    assert_eq!(by_q["node"], by_a["node"]);
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// `find` は子を呼び、`rt_searches` に 1 行残し、`log.node` を Node にする。
 /// Node の下に論文が無いときは子を呼ばない。
 #[test]
@@ -452,7 +496,7 @@ fn find_records_and_sets_node() {
     };
 
     // 論文が無いときは子を呼ばず、0 件で記録する。
-    let empty = run(find("Q1"));
+    let empty = run(find("A1"));
     assert_eq!(empty.code, 0, "stderr={}", empty.stderr);
     let empty_value: serde_json::Value = serde_json::from_str(&empty.stdout).expect("JSON を読める");
     assert!(empty_value["log"].is_null());
@@ -461,10 +505,10 @@ fn find_records_and_sets_node() {
 
     // 論文を足すと、子を呼び、記録して Node を返す。
     add_f_with_paper(&data_dir, q);
-    let out = run(find("Q1"));
+    let out = run(find("A1"));
     assert_eq!(out.code, 0, "stdout={} stderr={}", out.stdout, out.stderr);
     let value: serde_json::Value = serde_json::from_str(&out.stdout).expect("JSON を読める");
-    assert_eq!(value["log"]["node"]["id"], "Q1");
+    assert_eq!(value["log"]["node"]["id"], "A1");
     assert_eq!(value["hits"][0]["paper_id"], 3);
 
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
@@ -535,7 +579,7 @@ fn apply_records_parent_run_as_actor() {
             cmd.env("SAI_PARENT_RUN_ID", run);
         }
         cmd.arg("apply");
-        run_with_stdin(cmd, &format!(r#"{{"op":"add_a","parent":"Q1","text":"{text}"}}"#))
+        run_with_stdin(cmd, &format!(r#"{{"op":"add_a","parent":"A1","text":"{text}"}}"#))
     };
     assert_eq!(apply(Some("7"), "代行の問い").code, 0);
     assert_eq!(apply(None, "利用者の問い").code, 0);
@@ -560,7 +604,7 @@ fn card_has_no_executer_flag() {
     let dir = temp_dir("card-executer");
     let out = run({
         let mut cmd = command(&dir);
-        cmd.args(["card", "--node", "Q1", "--purpose", "候補を出す", "--executer", "agent"]);
+        cmd.args(["card", "--node", "A1", "--purpose", "候補を出す", "--executer", "agent"]);
         cmd
     });
     assert_eq!(out.code, 2, "stderr={}", out.stderr);
@@ -602,13 +646,13 @@ fn search_records_and_sets_node() {
             .env("ARGS_LOG", &args_log)
             .env("FAKE_FIND_LOG_ID", "7")
             .env("FAKE_SEARCH_LOG_ID", log_id.to_string())
-            .env("SAI_TARGET_NODE", "Q1")
+            .env("SAI_TARGET_NODE", "A1")
             .args(["search", "発作", "--purpose", "候補", "--json"]);
         cmd
     });
     assert_eq!(out.code, 0, "stdout={} stderr={}", out.stdout, out.stderr);
     let value: serde_json::Value = serde_json::from_str(&out.stdout).expect("JSON を読める");
-    assert_eq!(value["log"]["node"]["id"], "Q1");
+    assert_eq!(value["log"]["node"]["id"], "A1");
 
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
     let purpose: Option<String> = db
@@ -646,7 +690,7 @@ fn node_flag_scopes_only_and_env_records() {
             .env("SAI_PAPER_BIN", &paper)
             .env("ARGS_LOG", tmp.join("args.log"))
             .env("FAKE_FIND_LOG_ID", "7")
-            .args(["find", "発作", "--node", "Q1", "--json"]);
+            .args(["find", "発作", "--node", "A1", "--json"]);
         if let Some(node) = env_node {
             cmd.env("SAI_TARGET_NODE", node);
         }
@@ -671,7 +715,7 @@ fn node_flag_scopes_only_and_env_records() {
     let mut cmd = command(&root);
     cmd.env("HOME", &home)
         .env("SAI_PROJECT_ROOT", &root)
-        .args(["search", "発作", "--node", "Q1"]);
+        .args(["search", "発作", "--node", "A1"]);
     assert_eq!(run(cmd).code, 2);
 
     let _ = std::fs::remove_dir_all(&root);
@@ -718,7 +762,7 @@ fn json_outputs_have_expected_shape() {
     assert!(types["types"].as_array().is_some_and(|a| !a.is_empty()));
 
     // node --json は node を持つ。
-    let node = run_args(&["node", "Q1", "--json"]);
+    let node = run_args(&["node", "A1", "--json"]);
     assert_eq!(node.code, 0, "stderr={}", node.stderr);
     let node: serde_json::Value = serde_json::from_str(&node.stdout).unwrap();
     assert!(node.get("node").is_some(), "{node}");
@@ -888,7 +932,7 @@ fn ledger_checks_op_add_f_and_not_apply() {
     let paper = fake_paper(&tmp);
     let args_log = tmp.join("args.log");
     let (data_dir, q) = project_with_tree(&root);
-    // 論文 3 の F を Q1 の下に足すと、`find --node Q1` が論文を見つける。
+    // 論文 3 の F を A1 の下に足すと、`find --node A1` が論文を見つける。
     add_f_with_paper(&data_dir, q);
     let db = sai_paper_core::Database::open(&data_dir.join("papr.db")).unwrap();
     db.connection().execute("INSERT INTO papers(id, title) VALUES (3, 't')", []).unwrap();
@@ -922,9 +966,9 @@ fn ledger_checks_op_add_f_and_not_apply() {
         .env("ARGS_LOG", &args_log)
         .env("FAKE_FIND_LOG_ID", "7")
         .env("FAKE_SEARCH_LOG_ID", "8")
-        .env("SAI_TARGET_NODE", "Q1")
+        .env("SAI_TARGET_NODE", "A1")
         .env("SAI_PARENT_RUN_ID", "9")
-        .args(["find", "発作", "--node", "Q1"]);
+        .args(["find", "発作", "--node", "A1"]);
     let found = run(find);
     assert_eq!(found.code, 0, "stderr={}", found.stderr);
     let ledger = std::fs::read_to_string(root.join(".sai/seen_ids/9")).unwrap_or_default();
