@@ -1,9 +1,0 @@
-{"version": 1, "title": "バンドパスと包絡", "kind": "channel", "target": "vars",
- "desc": "選んだ ch を帯域通過し、包絡の ch も足す。フィルタは FFT の 0 位相（RIPPLELAB の cheby2 とは数値が一致しない）",
- "params": [
-   {"name": "low_hz", "type": "number", "default": 80, "min": 0, "unit": "Hz", "desc": "通過域の下端（0 なら低域通過）"},
-   {"name": "high_hz", "type": "number", "default": 250, "min": 0, "unit": "Hz", "desc": "通過域の上端（ナイキスト以上なら高域通過）"},
-   {"name": "trans_hz", "type": "number", "default": 5, "min": 0, "unit": "Hz", "desc": "通過域の外側の移り幅（余弦で 1→0）"},
-   {"name": "envelope", "type": "boolean", "default": true, "desc": "包絡の ch も足す"},
-   {"name": "smooth_ms", "type": "number", "default": 10, "min": 0, "unit": "ms", "desc": "包絡の移動平均の幅"}
- ]}

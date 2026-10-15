@@ -1,6 +1,0 @@
-.env
-.env.bak
-integration_test/.env
-caddy/data
-caddy/config
-__pycache__/
