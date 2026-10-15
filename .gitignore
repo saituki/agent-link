@@ -16,13 +16,15 @@ __pycache__/
 # Env
 .env
 .sai/
+# .agent-link は末尾の / を付けない（まだ無い場所でも git check-ignore .agent-link が通るように）
+.agent-link
 .pi/
 .fusion/
 .codegraph/
 .worktrees/
 .serena/
 
-# sai-link init が作る設定（プロジェクトごとに作り直す）
+# agent-link init が作る設定（プロジェクトごとに作り直す）
 .mcp.json
 .claude/settings.json
 .claude/commands/

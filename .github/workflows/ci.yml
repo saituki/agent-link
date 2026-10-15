@@ -1,6 +1,7 @@
-# CI: Rust と Web（JS・Python）のテストを回す。
+# CI: agent-link の Rust と Web（JS・Python）のテストを回す。
 # 命令は AGENTS.md の「テストと確認」と同じ物にそろえる（直すときは両方直す）。
 # Linux（ubuntu-latest）で動かす。秘密の値・ネットワークに出る試験は使わない。
+# 環境変数は AGENT_LINK_* だけを読む（sai-moon の環境変数は混ざらない）ので、env -u で外さない。
 name: CI
 
 on:
@@ -21,11 +22,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # 環境変数が混ざっていると History テスト 1 件が落ちるので env -u で外す
       - name: cargo test
-        run: |
-          env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE \
-            perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
+        run: perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
   web:
     name: Web（JS・Python）
