@@ -382,13 +382,13 @@ def test_cli_call_pi() -> None:
     call = {"type": "message", "id": "p1", "timestamp": "2026-10-01T00:00:00Z",
             "message": {"role": "assistant", "content": [
                 {"type": "toolCall", "id": "c1", "name": "bash",
-                 "arguments": {"command": "env -u X sai-sci status --json"}}]}}
+                 "arguments": {"command": "env -u X sai-web home --json"}}]}}
     items: list[dict] = []
     pending: dict[str, dict] = {}
     sessions._convert_pi_row(call, items, pending)
     tool = next(i for i in items if i["kind"] == "tool")
-    assert tool["cli"] == "sai-sci"
-    assert tool["label"] == "sai-sci status"
+    assert tool["cli"] == "sai-web"
+    assert tool["label"] == "sai-web home"
     assert tool["detail"] == "引数\n--json"
 
 
@@ -400,13 +400,13 @@ def test_cli_call_rules() -> None:
     assert sessions._sai_cli_call("sai-link task wait 12 13") == (
         "sai-link", "sai-link task wait", "12 13")
     # env を飛ばし，下位の命令を持たない語は 1 語目まで
-    assert sessions._sai_cli_call("env -u X sai-sci status --json") == (
-        "sai-sci", "sai-sci status", "--json")
+    assert sessions._sai_cli_call("env -u X sai-web home --json") == (
+        "sai-web", "sai-web home", "--json")
     assert sessions._sai_cli_call("sai-web send proj 3 文") == (
         "sai-web", "sai-web send", "proj 3 文")
-    # 下位の命令を持つ語（mlflow）は 2 語目まで
-    assert sessions._sai_cli_call("sai-web mlflow experiments") == (
-        "sai-web", "sai-web mlflow experiments", "")
+    # 消した CLI（sai-paper・sai-sci）は sai の CLI として見ない
+    assert sessions._sai_cli_call("sai-sci status --json") is None
+    assert sessions._sai_cli_call("sai-paper library list") is None
     # パス付きでもファイル名で見る
     assert sessions._sai_cli_call("/usr/local/bin/sai-link doc write") == (
         "sai-link", "sai-link doc write", "")

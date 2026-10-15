@@ -31,27 +31,11 @@ ACTIVITY_DAYS = 30
 LOGS_PAGE = 50
 
 
-def _project_names() -> list[str]:
-    """多人数モードで今の利用者のプロジェクトの名前（単独モードでは使わない）。"""
-    names: list[str] = []
-    for project in registry.load_registry():
-        name = str(project.get("name") or "")
-        if name:
-            names.append(name)
-    return names
-
-
 # pi の provider とキーの対応を調べるファイル（42 §3.2）。
-# 多人数モードでは、プロジェクトごとのコンテナの HOME の下を見る（単独モードは今までどおり）。
+
 
 def pi_agent_dirs() -> list[Path]:
-    """pi の設定の置き場の一覧（先に見つけた方を使う）。
-
-    多人数: 今の利用者のプロジェクトごとの `<project_home>/.pi/agent`（pi の設定はコンテナの HOME に出る）。
-    単独: `~/.pi/agent` 1 つ。
-    """
-    if registry.multi_user() and registry.current_user.get() is not None:
-        return [registry.project_home(name) / ".pi" / "agent" for name in _project_names()]
+    """pi の設定の置き場の一覧（先に見つけた方を使う）。`~/.pi/agent` 1 つ。"""
     return [Path.home() / ".pi" / "agent"]
 
 
@@ -59,21 +43,17 @@ def pi_session_dirs() -> list[Path]:
     """pi の記録（`.jsonl`）を読むフォルダ。
 
     - `PI_SESSIONS_DIR` があればそれ 1 つ（今までの差し替え方を保つ）。
-    - 多人数モード: 今の利用者のプロジェクトごとの
-      `<project_home>/.pi/agent/sessions` を全部。
-    - 単独モード: `~/.pi/agent/sessions` 1 つ。
+    - 無ければ `~/.pi/agent/sessions` 1 つ。
     """
     env = (os.getenv("PI_SESSIONS_DIR") or "").strip()
     if env:
         return [Path(env)]
-    if registry.multi_user():
-        return [registry.project_home(name) / ".pi" / "agent" / "sessions" for name in _project_names()]
     return [Path.home() / ".pi" / "agent" / "sessions"]
 
 
-# 集計の覚え（利用者の名前 → {"at", "rows"}）。毎回 pi の全ファイルを読まないため
+# 集計の覚え（キーは空文字 1 つ → {"at", "rows"}）。毎回 pi の全ファイルを読まないため
 _pi_cache: dict[str, dict] = {}
-# summary の覚え（利用者の名前 → {"at", "body"}）。外部 API を毎回呼ばないため
+# summary の覚え（キーは空文字 1 つ → {"at", "body"}）。外部 API を毎回呼ばないため
 _summary_cache: dict[str, dict] = {}
 
 
@@ -102,19 +82,7 @@ def openrouter_accounts() -> list[dict]:
 
 
 def _key_for(env_var: str) -> str | None:
-    """キーを読む（空文字は未設定として扱う）．
-
-    多人数モードでは今の利用者の `secrets.env`（`containers.read_keys`）から読む。
-    単独モードは今までどおり環境変数から読む。
-    """
-    if registry.multi_user():
-        from sai_web import containers
-
-        user = registry.current_user.get()
-        if not isinstance(user, dict) or not user.get("name"):
-            return None
-        value = (containers.read_keys(str(user["name"])).get(env_var) or "").strip()
-        return value or None
+    """キーを読む（空文字は未設定として扱う）．環境変数から読む。"""
     value = (os.getenv(env_var) or "").strip()
     return value or None
 
@@ -263,9 +231,9 @@ def read_pi_calls(
 
 
 def pi_calls(force: bool = False) -> list[dict]:
-    """pi の記録（60 秒だけ覚えておく・42 §3.3）．多人数モードでは利用者ごとに覚える。"""
+    """pi の記録（60 秒だけ覚えておく・42 §3.3）．"""
     now = time.time()
-    key = registry.user_key()
+    key = ""
     hit = _pi_cache.get(key)
     if not force and hit is not None and hit["rows"] is not None and now - hit["at"] < CACHE_TTL:
         return hit["rows"]
@@ -287,7 +255,7 @@ def _env_name(ref) -> str:
 def provider_env_map() -> dict[str, str]:
     """pi の provider 名 → 参照している環境変数名（models.json と auth.json から）．
 
-    置き場が複数あるとき（多人数のプロジェクトごと）は、先に見つけた方を使う。
+    置き場が複数あるときは、先に見つけた方を使う。
     """
     out: dict[str, str] = {}
     for agent in pi_agent_dirs():
@@ -460,11 +428,8 @@ CC_COST_DIR = "cc-cost"
 def cc_homes() -> list[Path]:
     """cc の記録を置く `<sai_home>` の一覧。
 
-    単独: `registry.sai_home()` 1 つ。多人数: 今の利用者のプロジェクトごとの
-    コンテナの HOME の `.sai`（コンテナの中の `sai_home()` と同じ場所）。
+    `registry.sai_home()` 1 つ。
     """
-    if registry.multi_user():
-        return [registry.project_home(name) / ".sai" for name in _project_names()]
     return [registry.sai_home()]
 
 
@@ -563,7 +528,7 @@ def summary(refresh: bool = False) -> dict:
     外部 API の結果も 60 秒覚える（↻ の ``?refresh=1`` のときは取り直す）．
     """
     now = time.time()
-    key = registry.user_key()
+    key = ""
     hit = _summary_cache.get(key)
     if not refresh and hit is not None and hit["body"] is not None and now - hit["at"] < CACHE_TTL:
         return hit["body"]

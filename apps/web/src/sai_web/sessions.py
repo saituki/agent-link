@@ -121,18 +121,13 @@ def _join_result(target: dict, plain: str) -> None:
 # 見出しで出す。見出しは「CLI の名前 + 命令の語（1〜2 語）」。
 
 # sai の CLI の名前（実行ファイル名。パスが付いていてもファイル名で見る）
-_CLI_NAMES = frozenset({"sai-link", "sai-paper", "sai-sci", "sai-web"})
+_CLI_NAMES = frozenset({"sai-link", "sai-web"})
 # 下位の命令を持つ語（この語が 1 語目のときだけ 2 語目も見出しに付ける）。
 # 表に無い新しい命令は 1 語目までの見出しになり、壊れない。
 _CLI_SUBWORDS = {
     "sai-link": frozenset(
         {"project", "daemon", "card", "run", "doc", "task", "def", "session", "usage"}
     ),
-    "sai-paper": frozenset(
-        {"library", "paper", "content", "import", "index", "graph", "config", "activity"}
-    ),
-    "sai-sci": frozenset({"attention", "project", "understanding", "dsr", "report"}),
-    "sai-web": frozenset({"mlflow"}),
 }
 # 命令の語として認める形（小文字で始まり、小文字・数字・ハイフンだけ）
 _CLI_WORD_RE = re.compile(r"^[a-z][a-z0-9-]*$")

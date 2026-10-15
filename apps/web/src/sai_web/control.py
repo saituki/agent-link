@@ -26,7 +26,7 @@ import logging
 import os
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 
 from fastapi import HTTPException
 
@@ -37,16 +37,15 @@ from sai_web.config import settings
 logger = logging.getLogger("sai_web")
 
 # 同じプロジェクトの書き出しは 60 秒に 1 回まで（06 §3.3）
-# 多人数モードでは利用者ごとに分ける（キーは (利用者の名前, プロジェクト名)）
 _EXPORT_INTERVAL = 60.0
-_last_export: dict[tuple[str, str], float] = {}
+_last_export: dict[str, float] = {}
 
 _PERIODS = ("week", "month", "all")
 
 # 同じプロジェクトの最小集計は 5 秒に 1 回まで（一覧のたびに呼ぶと重い・実装計画 C C1）
 _SUMMARY_TTL = 5.0
-# キーは (利用者の名前, プロジェクト名)
-_summary_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+# キーはプロジェクト名
+_summary_cache: dict[str, tuple[float, dict]] = {}
 
 # --- List 画面（計画 14 §3.3）で受け取る値の検査 ---
 # `sai-link phone run --view` が返す 3 種（計画 12 §3.2）
@@ -83,7 +82,7 @@ def _project_summary(name: str, root: str) -> dict:
     """
     empty = {"running": 0, "last_executed_at": None}
     now = time.monotonic()
-    key = (registry.user_key(), name)
+    key = name
     hit = _summary_cache.get(key)
     if hit is not None and now - hit[0] < _SUMMARY_TTL:
         return hit[1]
@@ -163,7 +162,7 @@ def export_runs(project: dict) -> None:
     if not root:
         return
     now = time.monotonic()
-    export_key = (registry.user_key(), name)
+    export_key = name
     last = _last_export.get(export_key)
     if last is not None and now - last < _EXPORT_INTERVAL:
         return
@@ -555,23 +554,21 @@ def phone_session_search(
     return {"items": items[:_SESSION_LIMIT], "truncated": truncated}
 
 
-# sai-tree は研究専用。アプリ開発用の block は選択肢から隠す（ファイルは残す。
-# sai-sci の子タスクが `sub` などを `block_type` で呼ぶことがあるため）。
-# 汎用の `main`・`web-research` と、sai-sci の block は出す。
+# アプリ開発用の block は選択肢から隠す（ファイルは残す。子タスクが `sub` などを `block_type` で呼ぶことがあるため）。
+# 汎用の `main`・`web-research` は出す。
 DEV_BLOCKS = frozenset(
     {"sub", "plan", "plan-kantoku", "kantoku", "worker", "bugfix", "review", "explore"}
 )
 
 
 def phone_card_options(name: str) -> dict:
-    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block と Customer の block は除く。"""
+    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block は除く。"""
     project = _phone_project(name)
     data = _phone_json(["card", "options"], root=project["root"])
     blocks = data.get("blocks") if isinstance(data, dict) else None
     if isinstance(blocks, list):
-        hidden = DEV_BLOCKS | runs.CUSTOMER_BLOCKS
         data["blocks"] = [
-            b for b in blocks if not (isinstance(b, dict) and b.get("id") in hidden)
+            b for b in blocks if not (isinstance(b, dict) and b.get("id") in DEV_BLOCKS)
         ]
     return data
 
@@ -707,103 +704,6 @@ def phone_card_start(name: str, run_id: int) -> dict:
     return _phone_json(
         ["card", "run", str(run_id)],
         root=project["root"],
-    )
-
-
-# --- Customer（利用者のサポート）のチャットを始める（U02） ---
-# 利用者の右下の窓から来る。block は利用者の種類で決め、画面の値は task_text に書く。
-
-_CUSTOMER_TITLES = {"report": "バグの報告", "question": "質問", "opinion": "意見・要望"}
-_CUSTOMER_JST = timezone(timedelta(hours=9))
-
-
-def _customer_line(payload: dict, key: str, limit: int) -> str:
-    """画面が送る 1 行の文字（無ければ空・長すぎる・改行を含むなら 400）。"""
-    value = payload.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str) or len(value) > limit or "\n" in value or "\r" in value:
-        raise HTTPException(
-            status_code=400, detail=f"{key} は {limit} 文字までの 1 行で送ってください"
-        )
-    return value
-
-
-def customer_start(name: str, payload: dict) -> dict:
-    """Customer のチャットを作って始める（`card create` → `card run`・global_round 999）。
-
-    送る値: `kind`（report / question / opinion）・`screen`・`width`（0〜10000 の整数）・`ua`。
-    round は「そのプロジェクトの Customer の run の数 + 1」。
-    """
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="送る値が正しくありません")
-    kind = payload.get("kind")
-    if not isinstance(kind, str) or kind not in runs.CUSTOMER_KINDS:
-        raise HTTPException(
-            status_code=400, detail="kind は report / question / opinion のどれかです"
-        )
-    screen = _customer_line(payload, "screen", 300)
-    ua = _customer_line(payload, "ua", 300)
-    width = payload.get("width")
-    if width is None:
-        width = 0
-    if not isinstance(width, int) or isinstance(width, bool) or not 0 <= width <= 10000:
-        raise HTTPException(status_code=400, detail="width は 0 から 10000 の整数にしてください")
-
-    count = sum(1 for r in runs.load_runs() if r.get("project_name") == name and runs.is_customer(r))
-    title = _CUSTOMER_TITLES[kind]
-    now = datetime.now(_CUSTOMER_JST).isoformat(timespec="seconds")
-    task_text = "\n".join(
-        [
-            f"Customer: {title}",
-            f"開いていた画面: {screen}",
-            f"画面の幅: {width}px" if width else "画面の幅: 不明",
-            f"ブラウザ: {ua}",
-            f"受け付けた時刻: {now}",
-        ]
-    ) + "\n"
-    created = phone_card_create(
-        name,
-        {
-            "runner": "cc",
-            "block": runs.CUSTOMER_KINDS[kind],
-            "provider": "",
-            "model": "",
-            "thinking": "",
-            "global_round": "999",
-            "round": str(count + 1),
-            "task_text": task_text,
-            "description": f"Customer: {title}",
-        },
-    )
-    run_id = created.get("run_id") if isinstance(created, dict) else None
-    if not isinstance(run_id, int):
-        raise HTTPException(status_code=502, detail="作成した実行の番号が読めません")
-    phone_card_start(name, run_id)
-    return {"project": name, "run_id": run_id}
-
-
-# --- READ_CARD（利用者の札）を Web から始める・終える（C-12・U18） ---
-# READ_CARD は research-tree が作る `runner: user` の CARD（sai-paper `phone sci card`）。
-# この 2 つの関数は root を直接取るので、別のプロジェクト（論文の置き場とは別の root）を
-# 指せる。検査は `_phone_json` の決まりに従う（終了コード 3 は 404、他は 502）。
-
-
-def phone_user_start(root: str, run_id: int) -> dict:
-    """READ_CARD を始める（`sai-link card start <run_id>`・C-12）。"""
-    _check_run_id(run_id)
-    return _phone_json(
-        ["card", "start", str(run_id)],
-        root=root,
-    )
-
-
-def phone_user_finish(root: str, run_id: int) -> dict:
-    """READ_CARD を終える（`sai-link card finish <run_id>`・C-12）。"""
-    _check_run_id(run_id)
-    return _phone_json(
-        ["card", "finish", str(run_id)],
-        root=root,
     )
 
 

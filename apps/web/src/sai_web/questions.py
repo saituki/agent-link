@@ -169,6 +169,6 @@ def _answer_question_locked(
 
     # headless ではキーを送れない．記録するだけ（cc のフックと pi の拡張が取りに来る）
     # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う（C8）
-    who = answered_by if answered_by is not None else (store._current_owner() or "user")
+    who = answered_by if answered_by is not None else "user"
     store.mark_answered(qid, {"answers": answers}, who)
     return (True, "")

@@ -11,13 +11,9 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
 - `SAI_CC_QUESTION_MODE=deny` のときは，答えがあっても今の拒否の形（理由文に答え）で返す
   （`updatedInput` が cc で効かなかったときに，コードを変えずに戻すため）．
 - 利用者が質問を取り下げたとき（`state` が `withdrawn`）は，入力欄から送った文を理由文に入れて
-  `deny` する（答えではないので承認の記録はしない）。
-- 答えが取れたら，`SAI_PARENT_RUN_ID` があるときだけ `sai-sci approval record` で記録する
-  （承認の材料・U04）。値は `--name=value` の形で渡す（`-` で始まる答えを引数と読み違えない）。
-  3 回試して記録できなければ，答えを理由文に入れた `deny` を返す（許可が無いまま op が
-  止まるのを防ぎ，agent に同じ質問を出し直させる）。
+  `deny` する。
 - Web の場所: `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`
-- 合言葉: `SAI_WEB_INTERNAL_TOKEN` があれば `Authorization: Bearer <値>` を付ける
+- 認証: 付けない（Web は localhost からの呼び出しを通す）
 - 標準ライブラリだけで書く．登録できなければ何も出さずに終了コード 0
   （cc はそのままツールを動かす）．
 """
@@ -26,7 +22,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.request
@@ -34,10 +29,6 @@ import urllib.request
 # 答えを待つ間隔（秒）と上限回数．24 時間（cc の hooks の `timeout` 86400 秒とそろえる）．
 POLL_INTERVAL_SEC = 1.0
 POLL_MAX_COUNT = 86400
-
-# 承認の記録の試行回数と 1 回の上限（秒）．試行の間は 1 秒あける．
-RECORD_TRIES = 3
-RECORD_TIMEOUT_SEC = 30
 
 
 def server_base() -> str:
@@ -49,19 +40,10 @@ def server_base() -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def auth_headers(extra: dict | None = None) -> dict:
-    """`SAI_WEB_INTERNAL_TOKEN` があれば Authorization を足したヘッダを返す．"""
-    headers = dict(extra or {})
-    token = os.environ.get("SAI_WEB_INTERNAL_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
 def post_json(url: str, body: dict, timeout: float = 5.0) -> dict | None:
     """JSON を POST し，応答の JSON（dict）を返す（失敗は None）．"""
     data = json.dumps(body).encode("utf-8")
-    headers = auth_headers({"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
@@ -77,7 +59,7 @@ def post_json(url: str, body: dict, timeout: float = 5.0) -> dict | None:
 
 def get_json(url: str, timeout: float = 5.0) -> dict | None:
     """JSON を GET し，応答の JSON（dict）を返す（失敗は None）．"""
-    req = urllib.request.Request(url, headers=auth_headers(), method="GET")
+    req = urllib.request.Request(url, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
             raw = res.read()
@@ -130,46 +112,6 @@ def answers_from_state(data: dict, questions: list) -> dict | None:
     return answers
 
 
-def record_approval(qid: str, questions: list, answers: dict, answered_by: str) -> str | None:
-    """答えを `sai-sci approval record` で記録する（共有契約 C8）。
-
-    `SAI_PARENT_RUN_ID` が無ければ何もしない（None）。終了コード 0（記録した）と
-    4（同じ qid が既にある）を成功とし，それ以外は `RECORD_TRIES` 回まで試す。
-    全部失敗したら理由の 1 行を返す（呼び出し側は deny にする）。
-    標準出力は cc が JSON として読むので使わず，失敗の 1 行ずつを標準エラーに出す。
-    """
-    if not os.environ.get("SAI_PARENT_RUN_ID"):
-        return None
-    qs = [q for q in questions if isinstance(q, dict)]
-    question = "\n".join(str(q.get("question", "")) for q in qs)
-    answer = "\n".join(answers.get(str(q.get("question", "")), "") for q in qs)
-    # 値は `--name=value` で渡す（`-` で始まる答えを clap が引数と読み違えないように）
-    cmd = [
-        os.environ.get("SAI_SCI_BIN") or "sai-sci",
-        "approval",
-        "record",
-        f"--qid={qid}",
-        f"--question={question}",
-        f"--answer={answer}",
-        f"--answered-by={answered_by}",
-    ]
-    reason = ""
-    for attempt in range(1, RECORD_TRIES + 1):
-        if attempt > 1:
-            time.sleep(1.0)
-        try:
-            res = subprocess.run(cmd, timeout=RECORD_TIMEOUT_SEC, capture_output=True, text=True)
-        except Exception as exc:
-            reason = f"呼べませんでした（{exc}）"
-        else:
-            if res.returncode in (0, 4):
-                return None
-            last = (res.stderr.strip().splitlines() or [""])[-1]
-            reason = f"終了コード {res.returncode}: {last}"
-        sys.stderr.write(f"approval record が失敗しました（{attempt}/{RECORD_TRIES} 回目）: {reason}\n")
-    return reason
-
-
 def reason_text(answers: dict | None) -> str:
     """`permissionDecisionReason` に出す文を作る．"""
     if not answers:
@@ -189,15 +131,6 @@ def deny(reason: str) -> dict:
             "permissionDecisionReason": reason,
         }
     }
-
-
-def approval_failed_output(answers: dict, failure: str) -> dict:
-    """承認の記録に失敗したときの deny。答えは理由文に残し，agent が出し直せるようにする。"""
-    return deny(
-        reason_text(answers)
-        + f"\nただし承認の記録に失敗しました: {failure}。"
-        + "許可が要る op はこのままでは通りません。同じ質問をもう一度出してください。"
-    )
 
 
 def withdrawn_output(text: str) -> dict:
@@ -262,7 +195,6 @@ def main() -> int:
     qid = str(registered["id"])
 
     answers: dict | None = None
-    answered_by = "user"
     withdrawn: str | None = None
     for _ in range(POLL_MAX_COUNT):
         time.sleep(POLL_INTERVAL_SEC)
@@ -271,7 +203,6 @@ def main() -> int:
             continue
         answers = answers_from_state(state, questions)
         if answers is not None:
-            answered_by = str(state.get("answered_by") or "user")
             break
         # 利用者が質問を取り下げた（送った文を次の指示として返す）
         if state.get("state") == "withdrawn":
@@ -285,11 +216,7 @@ def main() -> int:
     if withdrawn is not None:
         out = withdrawn_output(withdrawn)
     else:
-        failure = record_approval(qid, questions, answers, answered_by) if answers else None
-        if failure:
-            out = approval_failed_output(answers, failure)
-        else:
-            out = hook_output(questions, answers)
+        out = hook_output(questions, answers)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     sys.stdout.write("\n")
     return 0

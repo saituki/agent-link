@@ -175,33 +175,16 @@ def test_load_runs_filters() -> None:
         assert runs.load_runs(base) == []
 
 
-def test_customer_is_left_out_of_days() -> None:
-    """Customer の run は日付一覧・1日の一覧から外れ，検索には残る．一覧は新しい順（U02）．"""
+def test_no_customer_special_case() -> None:
+    """Customer は無くなった。`user-report` などの block 名の run も、ほかの run と同じに数える。"""
+    assert not hasattr(runs, "is_customer") and not hasattr(runs, "build_customer")
     normal = make_run(1, started_at="2026-10-15T01:00:00Z")
-    old_c = make_run(2, started_at="2026-10-15T02:00:00Z", block_name="user-report", global_round="999")
-    new_c = make_run(3, started_at="2026-10-15T05:00:00Z", block_name="user-question", status="running")
-    assert runs.is_customer(old_c) and runs.is_customer(new_c) and not runs.is_customer(normal)
+    other = make_run(2, started_at="2026-10-15T02:00:00Z", block_name="user-report", status="running")
 
-    all_runs = [normal, old_c, new_c]
-    days = runs.build_days(all_runs)
-    assert len(days) == 1 and days[0]["running"] == 0, days
-    assert [r["run_id"] for r in runs.build_day(all_runs, "2026-10-15")["projects"][0]["runs"]] == [1]
-
-    # 検索は Customer も見つかる
-    hits = runs.search_runs(all_runs, "タスク2")
-    assert [r["run_id"] for r in hits] == [2], hits
-
-    # 一覧: Customer だけ・新しい順・件数・実行中・未回答
-    customer = runs.build_customer(all_runs, {"sess-x"})
-    assert [r["run_id"] for r in customer["runs"]] == [3, 2], customer
-    assert customer["count"] == 2 and customer["running"] == 1, customer
-    assert customer["has_question"] is False, customer
-    assert customer["runs"][0]["indent"] is False and customer["runs"][0]["show_parent"] is False
-    # 未回答の質問がどれかの Customer に当たれば has_question
-    session_run = dict(new_c, agent_session_id="sess-x")
-    assert runs.build_customer([session_run], {"sess-x"})["has_question"] is True
-    # Customer が無ければ空
-    assert runs.build_customer([normal]) == {"runs": [], "count": 0, "running": 0, "has_question": False}
+    days = runs.build_days([normal, other])
+    assert len(days) == 1 and days[0]["running"] == 1, days
+    day = runs.build_day([normal, other], "2026-10-15")
+    assert [r["run_id"] for r in day["projects"][0]["runs"]] == [2, 1], day
 
 
 def test_cursor_resets_on_file_change() -> None:
@@ -220,7 +203,7 @@ def main() -> None:
     test_done_counts_and_cost()
     test_subtask_under_parent()
     test_load_runs_filters()
-    test_customer_is_left_out_of_days()
+    test_no_customer_special_case()
     test_cursor_resets_on_file_change()
     print("test_runs: すべて通りました")
 

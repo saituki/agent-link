@@ -1,9 +1,8 @@
 """sai-web: Web の窓口（`apps/web`）の CLI。
 
-Web にしか無い機能（質問・送信・使用量・MLflow）と、Web のすべての
+Web にしか無い機能（質問・送信・使用量）と、Web のすべての
 HTTP API を、コマンド 1 本から使えるようにする。中身の処理は `apps/web` と
-Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/tools/phone_api.py`
-と同じ動き。ただし失敗の扱いは「sai-web の約束」に合わせる）。
+Rust のコアにあり、このファイルは HTTP を呼ぶだけ。失敗の扱いは「sai-web の約束」に合わせる。
 
 呼び方:
     apps/web/bin/sai-web projects
@@ -12,20 +11,13 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/
     apps/web/bin/sai-web question <qid>
     apps/web/bin/sai-web answer <qid> (--choice <番号> | --choices <番号,番号> | --text <文>) …
     apps/web/bin/sai-web send <project> <run_id> <文>
-    apps/web/bin/sai-web feedback <report|question|opinion> < 本文.md
     apps/web/bin/sai-web usage
-    apps/web/bin/sai-web mlflow experiments
-    apps/web/bin/sai-web mlflow runs <experiment_id> [--filter <式>] [--max <n>]
-    apps/web/bin/sai-web mlflow run <mlflow_run_id>
-    apps/web/bin/sai-web mlflow metric <mlflow_run_id> <key> [--max <n>]
     apps/web/bin/sai-web api <METHOD> <path> [--data <JSON> | --data -]
     apps/web/bin/sai-web serve [--host <H>] [--port <P>]
 
 接続先と合言葉（この作業の間は今の名前を使う。最後のガイドで `SAI_WEB_*` に変える）:
     - 接続先: `SAI_WEB_URL`（既定 `http://127.0.0.1:8200`）
-    - 合言葉: `SAI_WEB_TOKEN`、無ければ `SAI_WEB_INTERNAL_TOKEN`（コンテナの中）、
-      無ければ `<sai_home>/web/token`
-    - コンテナの中で `SAI_WEB_INTERNAL_TOKEN` を使うと、`questions` は自分のプロジェクトの分だけ返す
+    - 合言葉: `SAI_WEB_TOKEN`、無ければ `<sai_home>/web/token`
     - 待ち受けの番号: `SAI_WEB_PORT`（既定 8200）
     - 合言葉は `Authorization: Bearer` のヘッダで送る。URL には付けない。
       **合言葉の値は出力・エラー・ログのどこにも出さない。**
@@ -39,15 +31,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-# `auth`・`store` は fastapi や設定の読み込みが要るので、使う命令の中で読む。
-# こうするとコンテナの python3（fastapi 無し）でも questions・answer などが動く。
 from sai_web import registry
 
 # 1 回の呼び出しで待つ時間の上限（秒）
@@ -69,11 +58,10 @@ def base_url() -> str:
 def api_token() -> str | None:
     """合言葉（無ければ None）。
 
-    環境変数を先に（`SAI_WEB_TOKEN`・次に `SAI_WEB_INTERNAL_TOKEN`）、
-    次に `apps/web` が起動時に書いたファイルを見る。
+    環境変数 `SAI_WEB_TOKEN` を先に、次に `apps/web` が起動時に書いたファイルを見る。
     **返り値をそのまま画面やログに出さないこと。**
     """
-    token = os.getenv("SAI_WEB_TOKEN") or os.getenv("SAI_WEB_INTERNAL_TOKEN")
+    token = os.getenv("SAI_WEB_TOKEN")
     if token:
         return token
     path = registry.sai_home() / "web" / "token"
@@ -99,12 +87,6 @@ class UsageError(CliError):
     """引数の誤り（終了コード 2）。"""
 
     code = 2
-
-
-class ConflictError(CliError):
-    """同じ名前・同じメールがある（終了コード 4）。"""
-
-    code = 4
 
 
 class RawText:
@@ -274,17 +256,8 @@ def cmd_usage(_args: argparse.Namespace) -> object:
 
 
 def cmd_questions(args: argparse.Namespace) -> object:
-    """答えを待っている質問の一覧。
-
-    コンテナの中（`SAI_WEB_TOKEN` が無く `SAI_WEB_INTERNAL_TOKEN` がある）では、
-    自分のプロジェクトの分だけを `/api/questions/mine` で読む。
-    """
-    if not os.getenv("SAI_WEB_TOKEN") and os.getenv("SAI_WEB_INTERNAL_TOKEN"):
-        data = request_json("GET", "/api/questions/mine")
-        items = data.get("questions") if isinstance(data, dict) else None
-    else:
-        items = home().get("questions")
-    return pick_run(items, args.run, args.project)
+    """答えを待っている質問の一覧（`home()` の `questions`）。"""
+    return pick_run(home().get("questions"), args.run, args.project)
 
 
 def cmd_question(args: argparse.Namespace) -> object:
@@ -396,136 +369,6 @@ def cmd_send(args: argparse.Namespace) -> object:
     return request_json("POST", path, {"text": args.text})
 
 
-def cmd_feedback(args: argparse.Namespace) -> object:
-    """エージェントのレポートを標準入力から受け付けさせる（`POST /api/feedback`）。
-
-    run_id は `SAI_PARENT_RUN_ID`、プロジェクトは `SAI_PROJECT_ROOT` の最後の名前から取る。
-    読めなければ null・空（サーバが受け付ける形）にする。
-    """
-    text = sys.stdin.read()
-    if not text.strip():
-        raise UsageError("本文が空です（標準入力に書いてください）")
-    try:
-        run_id: int | None = int(os.getenv("SAI_PARENT_RUN_ID") or "")
-    except ValueError:
-        run_id = None
-    if run_id is not None and run_id < 1:
-        run_id = None
-    root = (os.getenv("SAI_PROJECT_ROOT") or "").rstrip("/")
-    project = os.path.basename(root)
-    payload = {"kind": args.kind, "text": text, "run_id": run_id, "project": project}
-    return request_json("POST", "/api/feedback", payload)
-
-
-# ---------------------------------------------------------------------------
-# 利用者（アカウント）の管理（U06）
-# ---------------------------------------------------------------------------
-
-
-def _read_new_password() -> str:
-    """新しいパスワードを標準入力の 1 行目から読む（空なら `getpass` で聞く）。"""
-    line = sys.stdin.readline()
-    if line.strip():
-        return line.strip()
-    import getpass
-
-    return getpass.getpass("パスワード: ")
-
-
-def cmd_user(args: argparse.Namespace) -> object:
-    """利用者の一覧と作成（Web が止まっていても使える。Web 自身の DB を直接書く）。
-
-    `add`: 名前・メール・パスワードを検査し、`store.create_user` で作る。
-           名前とメールが重複していれば終了コード 4。
-    `list`: 名前・メール・管理者・無効を出す。
-    """
-    from sai_web import auth, store
-
-    store.init_db()
-    if args.what == "list":
-        return {
-            "users": [
-                {
-                    "name": u.get("name") or "",
-                    "email": u.get("email") or "",
-                    "is_admin": bool(u.get("is_admin")),
-                    "disabled": bool(u.get("disabled")),
-                    "must_change_password": bool(u.get("must_change_password")),
-                }
-                for u in store.list_users()
-            ]
-        }
-    if args.what != "add":
-        raise UsageError(f"user の命令が違います: {args.what}")
-    try:
-        name = auth.check_name(args.name)
-        email = auth.check_email(args.email)
-        password = _read_new_password()
-        auth.check_password(password)
-    except ValueError as exc:
-        raise UsageError(str(exc)) from None
-    if store.get_user(name) is not None or store.get_user_by_email(email) is not None:
-        raise ConflictError("同じ名前かメールアドレスが既にあります")
-    auth.create_user_dirs(name)
-    user = store.create_user(
-        name,
-        email,
-        auth.hash_password(password),
-        is_admin=bool(args.admin),
-        must_change_password=True,
-    )
-    return {
-        "name": user.get("name") or name,
-        "email": user.get("email") or email,
-        "is_admin": bool(user.get("is_admin")),
-    }
-
-
-# ---------------------------------------------------------------------------
-# MLflow（読み取りだけ）
-# ---------------------------------------------------------------------------
-
-
-def _int_arg(value: str | None, name: str) -> int | None:
-    """`--max` などの番号を整数にする（違えば `UsageError`）。"""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        raise UsageError(f"{name} は番号で書いてください: {value}") from None
-
-
-def cmd_mlflow(args: argparse.Namespace) -> object:
-    """MLflow の読み取り（中継 API 経由）。"""
-    if args.what == "experiments":
-        return request_json("GET", "/api/mlflow/experiments")
-    if args.what == "runs":
-        payload: dict = {"experiment_ids": [args.experiment_id]}
-        if args.filter:
-            payload["filter"] = args.filter
-        max_results = _int_arg(args.max, "--max")
-        if max_results is not None:
-            payload["max_results"] = max_results
-        return request_json("POST", "/api/mlflow/runs/search", payload)
-    if args.what == "run":
-        return request_json("GET", f"/api/mlflow/runs/{urllib.parse.quote(args.run_id)}")
-    if args.what == "metric":
-        query = urllib.parse.urlencode(
-            {
-                "run_id": args.run_id,
-                "metric_key": args.metric_key,
-                **(
-                    {"max_results": _int_arg(args.max, "--max")}
-                    if args.max is not None
-                    else {}
-                ),
-            }
-        )
-        return request_json("GET", f"/api/mlflow/metrics/history?{query}")
-    raise UsageError(f"mlflow の命令が違います: {args.what}")
-
-
 # ---------------------------------------------------------------------------
 # api（すべての HTTP API をそのまま呼ぶ）
 # ---------------------------------------------------------------------------
@@ -573,48 +416,6 @@ def cmd_api(args: argparse.Namespace) -> object:
 # ---------------------------------------------------------------------------
 
 
-def _route_by_port(web_app, ts_app, ts_port: int):
-    """番号で振り分ける ASGI（共有契約 C6）。lifespan は sai-web の app が受ける。"""
-
-    async def route(scope, receive, send):
-        if scope["type"] == "lifespan" or scope["server"][1] != ts_port:
-            await web_app(scope, receive, send)
-        else:
-            await ts_app(scope, receive, send)
-
-    return route
-
-
-class _DropTsAccess(logging.Filter):
-    """時系列の住所（`/p/…`・`?token=` を含む）は access log に出さない。"""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args
-        return not (isinstance(args, tuple) and len(args) > 2 and str(args[2]).startswith("/p/"))
-
-
-def _serve_with_ts(host: str, port: int, ts_text: str) -> object:
-    """sai-web と時系列の入口（127.0.0.1）を同じプロセスで待ち受ける（共有契約 C6）。"""
-    if registry.users_root() is None:
-        raise UsageError("SAI_WEB_TS_PORT は多人数モード（SAI_WEB_USERS_ROOT）でだけ使えます")
-    if not ts_text.isdigit() or not 0 < int(ts_text) < 65536:
-        raise UsageError(f"SAI_WEB_TS_PORT には番号を書きます: {ts_text}")
-    ts_port = int(ts_text)
-
-    import socket
-
-    import uvicorn
-
-    from sai_web import main as web_main
-    from sai_web import ts_gate
-
-    socks = [socket.create_server((host, port)), socket.create_server(("127.0.0.1", ts_port))]
-    config = uvicorn.Config(_route_by_port(web_main.app, ts_gate.app, ts_port), lifespan="on")
-    logging.getLogger("uvicorn.access").addFilter(_DropTsAccess())
-    uvicorn.Server(config).run(sockets=socks)
-    return NO_OUTPUT
-
-
 def cmd_serve(args: argparse.Namespace) -> object:
     """uvicorn に替わって Web の窓口のサーバを起動する。"""
     port = args.port
@@ -625,9 +426,6 @@ def cmd_serve(args: argparse.Namespace) -> object:
             raise UsageError(
                 f"SAI_WEB_PORT が番号ではありません: {os.getenv('SAI_WEB_PORT')}"
             ) from None
-    ts_text = (os.getenv("SAI_WEB_TS_PORT") or "").strip()
-    if ts_text:
-        return _serve_with_ts(args.host, port, ts_text)
     os.execv(
         sys.executable,
         [
@@ -709,56 +507,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p)
     p.set_defaults(func=cmd_send)
 
-    p = sub.add_parser("feedback", help="利用者のレポート（本文は標準入力）を Web の受け口へ届ける")
-    p.add_argument("kind", choices=("report", "question", "opinion"))
-    _add_json(p)
-    p.set_defaults(func=cmd_feedback)
-
-    p = sub.add_parser("user", help="利用者（アカウント）の管理（多人数モード）")
-    _add_json(p)
-    us = p.add_subparsers(dest="what", required=True)
-
-    q = us.add_parser("add", help="利用者を作る（パスワードは標準入力の 1 行目）")
-    q.add_argument("name", help="短い名前（英小文字で始まる 2〜16 文字）")
-    q.add_argument("--email", required=True, help="大学のメールアドレス（ログインの ID）")
-    q.add_argument("--admin", action="store_true", help="管理者にする")
-    _add_json(q)
-    q.set_defaults(func=cmd_user)
-
-    q = us.add_parser("list", help="利用者の一覧")
-    _add_json(q)
-    q.set_defaults(func=cmd_user)
-
     p = sub.add_parser("usage", help="使用量（Claude の枠と費用・OpenRouter・DeepSeek）")
     _add_json(p)
     p.set_defaults(func=cmd_usage)
-
-    p = sub.add_parser("mlflow", help="MLflow の読み取り（中継 API 経由）")
-    _add_json(p)
-    ms = p.add_subparsers(dest="what", required=True)
-
-    q = ms.add_parser("experiments", help="実験の一覧")
-    _add_json(q)
-    q.set_defaults(func=cmd_mlflow)
-
-    q = ms.add_parser("runs", help="実験の中の実行を検索")
-    q.add_argument("experiment_id")
-    q.add_argument("--filter", help="MLflow の検索式")
-    q.add_argument("--max", help="取り出す上限")
-    _add_json(q)
-    q.set_defaults(func=cmd_mlflow)
-
-    q = ms.add_parser("run", help="実行 1 件")
-    q.add_argument("run_id")
-    _add_json(q)
-    q.set_defaults(func=cmd_mlflow)
-
-    q = ms.add_parser("metric", help="指標 1 本の履歴")
-    q.add_argument("run_id")
-    q.add_argument("metric_key")
-    q.add_argument("--max", help="取り出す上限")
-    _add_json(q)
-    q.set_defaults(func=cmd_mlflow)
 
     p = sub.add_parser("api", help="Web のすべての HTTP API をそのまま呼ぶ")
     p.add_argument("method", help="GET / POST / PUT / DELETE / PATCH")
