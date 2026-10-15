@@ -155,6 +155,8 @@ class Handler(BaseHTTPRequestHandler):
         self._record("POST")
         if self.path == "/api/questions/q1/answer":
             self._send(200, {"ok": True})
+        elif self.path == "/api/feedback":
+            self._send(200, {"ok": True, "id": "20261015-140000-saituki-west-run42"})
         elif self.path.endswith("/send"):
             self._send(200, {"ok": True})
         elif self.path == "/api/mlflow/runs/search":
@@ -169,11 +171,14 @@ def run_cli(*args: str, env: dict | None = None) -> tuple[int, str, str]:
     環境変数は呼ぶ前に差し替え、終わったら元に戻す（`webcli` は呼ぶたびに
     環境変数を読む）。`env` の値が `None` の項目は外す。
     """
-    keys = ("SAI_WEB_URL", "SAI_WEB_TOKEN", "SAI_WEB_INTERNAL_TOKEN", "SAI_HOME", "SAI_WEB_PORT")
+    keys = ("SAI_WEB_URL", "SAI_WEB_TOKEN", "SAI_WEB_INTERNAL_TOKEN", "SAI_HOME", "SAI_WEB_PORT",
+            "SAI_PARENT_RUN_ID", "SAI_PROJECT_ROOT")
     saved = {key: os.environ.get(key) for key in keys}
     os.environ["SAI_WEB_URL"] = BASE["url"]
     os.environ.pop("SAI_WEB_TOKEN", None)
     os.environ.pop("SAI_WEB_INTERNAL_TOKEN", None)
+    os.environ.pop("SAI_PARENT_RUN_ID", None)
+    os.environ.pop("SAI_PROJECT_ROOT", None)
     os.environ["SAI_HOME"] = BASE["home"]
     for key, value in (env or {}).items():
         if value is None:
@@ -226,7 +231,7 @@ class WebCliTest(unittest.TestCase):
     def test_help_lists_commands(self) -> None:
         text = webcli.build_parser().format_help()
         for name in ("serve", "projects", "home", "questions", "question",
-                     "answer", "send", "usage",
+                     "answer", "send", "feedback", "usage",
                      "mlflow", "api"):
             self.assertIn(name, text, f"--help に {name} が出ていません")
 
@@ -484,6 +489,43 @@ class WebCliTest(unittest.TestCase):
         argv = calls[0][1]
         self.assertEqual(argv[argv.index("--port") + 1], "8288")
         self.assertEqual(argv[argv.index("--host") + 1], "127.0.0.1")
+
+    # --- feedback: 標準入力の本文を /api/feedback へ（U02・AC4）
+    def _feedback(self, stdin_text: str, env: dict | None = None) -> tuple[int, str, str]:
+        saved = sys.stdin
+        sys.stdin = io.StringIO(stdin_text)
+        try:
+            return run_cli("feedback", "report", env=env)
+        finally:
+            sys.stdin = saved
+
+    def test_feedback_sends_stdin_with_run_and_project(self) -> None:
+        code, out, err = self._feedback(
+            "## 不具合\n表が崩れる\n",
+            env={"SAI_PARENT_RUN_ID": "42", "SAI_PROJECT_ROOT": "/Users/x/saituki-west"},
+        )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"ok": True, "id": "20261015-140000-saituki-west-run42"})
+        post = [r for r in RECEIVED if r["path"] == "/api/feedback"][-1]
+        self.assertEqual(post["method"], "POST")
+        self.assertEqual(
+            post["body"],
+            {"kind": "report", "text": "## 不具合\n表が崩れる\n", "run_id": 42, "project": "saituki-west"},
+        )
+
+    def test_feedback_without_run_or_project_sends_null_and_empty(self) -> None:
+        code, _out, err = self._feedback("本文")
+        self.assertEqual(code, 0, err)
+        post = [r for r in RECEIVED if r["path"] == "/api/feedback"][-1]
+        self.assertEqual(post["body"]["run_id"], None, post["body"])
+        self.assertEqual(post["body"]["project"], "", post["body"])
+
+    def test_feedback_empty_stdin_is_usage_error(self) -> None:
+        RECEIVED.clear()
+        code, out, err = self._feedback("  \n\n")
+        self.assertEqual(code, 2, err)
+        self.assertEqual(out, "")
+        self.assertEqual([r for r in RECEIVED if r["path"] == "/api/feedback"], [])
 
 
 if __name__ == "__main__":

@@ -127,6 +127,9 @@ def test_validation(cli: FakeCli) -> None:
     expect(400, with_payload(global_round="five"))
     expect(400, with_payload(round="2x"))
     expect(400, with_payload(tag="2 行\nにじむ"))
+    # description は 200 文字までの 1 行（空は通る）
+    expect(400, with_payload(description="2 行\nにじむ"))
+    expect(400, with_payload(description="あ" * 201))
     # provider / model は名前として読める文字だけ
     expect(400, with_payload(provider="open router"))
     expect(400, with_payload(model="opus; rm -rf"))
@@ -182,10 +185,14 @@ def test_create_calls_cli(cli: FakeCli) -> None:
                 {"id": "web-research", "label": "web-research"},
                 {"id": "sci-read", "label": "sci-read"},
                 {"id": "professor", "label": "professor"},
+                {"id": "user-report", "label": "user-report"},
+                {"id": "user-question", "label": "user-question"},
+                {"id": "user-opinion", "label": "user-opinion"},
             ],
         }
     )
     ids = [b["id"] for b in control.phone_card_options("demo")["blocks"]]
+    # Customer の block も作成フォームには出さない（U02）
     assert ids == ["main", "web-research", "sci-read", "professor"], ids
 
 
@@ -336,6 +343,74 @@ def test_advance_calls(cli: FakeCli) -> None:
     assert str(e.detail) == "review / done の run だけ移動できます", e.detail
 
 
+def test_customer_start(cli: FakeCli) -> None:
+    """Customer のチャット（U02・AC2）: block・global_round 999・round は数 + 1・1 行目の日本語。"""
+    from sai_web import runs
+
+    original_load = runs.load_runs
+    runs.load_runs = lambda: [
+        {"project_name": "demo", "block_name": "user-report"},
+        {"project_name": "demo", "block_name": "user-opinion"},
+        {"project_name": "other", "block_name": "user-question"},  # 別のプロジェクトは数えない
+        {"project_name": "demo", "block_name": "sai2"},  # Customer でない run は数えない
+    ]
+    try:
+        cli.returncode = 0
+        cli.stdout = json.dumps({"run_id": 39, "path": "/tmp/task.md"})
+        cli.stderr = ""
+        cli.calls.clear()
+        out = control.customer_start(
+            "demo",
+            {"kind": "report", "screen": "#/papers/abc", "width": 390, "ua": "Mozilla/5.0 X"},
+        )
+        assert out == {"project": "demo", "run_id": 39}, out
+        # 1 回目は card create、2 回目は card run（同じ run 番号）
+        create, start = cli.calls
+        assert create["args"] == ["sai-link", "card", "create"], create["args"]
+        assert create["cwd"] == "/tmp/demo-root", create["cwd"]
+        sent = json.loads(create["input_text"])
+        assert sent["block"] == "user-report", sent
+        assert sent["global_round"] == "999" and sent["round"] == "3", sent
+        assert sent["description"] == "Customer: バグの報告", sent
+        assert sent["runner"] == "cc" and sent["model"] == "" and sent["thinking"] == "", sent
+        lines = sent["task_text"].splitlines()
+        assert lines[0] == "Customer: バグの報告", lines
+        assert lines[1] == "開いていた画面: #/papers/abc", lines
+        assert lines[2] == "画面の幅: 390px", lines
+        assert lines[3] == "ブラウザ: Mozilla/5.0 X", lines
+        assert lines[4].startswith("受け付けた時刻: 2"), lines
+        assert start["args"] == ["sai-link", "card", "run", "39"], start["args"]
+
+        # 種類ごとの block と 1 行目
+        for kind, block, title in (("question", "user-question", "質問"), ("opinion", "user-opinion", "意見・要望")):
+            cli.calls.clear()
+            control.customer_start("demo", {"kind": kind})
+            sent = json.loads(cli.calls[0]["input_text"])
+            assert sent["block"] == block and sent["description"] == f"Customer: {title}", sent
+            assert sent["task_text"].splitlines()[2] == "画面の幅: 不明", sent["task_text"]
+
+        # 検査は CLI を呼ぶ前に 400
+        cli.calls.clear()
+        for bad in (
+            {"kind": "bug"},
+            {"kind": ["report"]},
+            {"kind": "report", "screen": "1\n2"},
+            {"kind": "report", "ua": "x" * 301},
+            {"kind": "report", "width": 10001},
+            {"kind": "report", "width": "390"},
+            {"kind": "report", "width": True},
+        ):
+            expect(400, lambda bad=bad: control.customer_start("demo", bad))
+        expect(400, lambda: control.customer_start("demo", "not a dict"))
+        assert cli.calls == [], f"検査前に CLI が呼ばれた: {cli.calls}"
+
+        # 無いプロジェクトは CLI を呼ばずに 404
+        expect(404, lambda: control.customer_start("unknown", {"kind": "report"}))
+        assert cli.calls == [], cli.calls
+    finally:
+        runs.load_runs = original_load
+
+
 def test_rm_calls(cli: FakeCli) -> None:
     """List の項目を消す（`run rm <run_id> --yes`）。"""
     cli.returncode = 0
@@ -418,12 +493,24 @@ def main() -> None:
         test_finalize_404(cli)
         test_finalize_502(cli)
         test_advance_calls(cli)
+        test_customer_start(cli)
         test_rm_calls(cli)
         test_project_checks(cli)
     finally:
         control.run_cli = original_run_cli
         control.find_project = original_find
     test_routes()
+    # Customer の住所（U02）
+    from sai_web.main import app
+
+    paths = {(route.path, m) for route in app.routes for m in (getattr(route, "methods", None) or [])}
+    for path, method in (
+        ("/api/projects/{name}/customer", "POST"),
+        ("/api/customer", "GET"),
+        ("/api/feedback", "POST"),
+        ("/api/questions/{qid}/withdraw", "POST"),
+    ):
+        assert (path, method) in paths, f"住所が無い: {path} {method}"
     print("test_card_api: すべて通りました")
 
 
