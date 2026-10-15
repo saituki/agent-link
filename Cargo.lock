@@ -3,6 +3,55 @@
 version = 4
 
 [[package]]
+name = "agent-link-cli"
+version = "0.1.0"
+dependencies = [
+ "agent-link-engine",
+ "agent-link-view",
+ "chrono",
+ "clap",
+ "dialoguer",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "unicode-width",
+]
+
+[[package]]
+name = "agent-link-engine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "getrandom 0.2.17",
+ "libc",
+ "pollster",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+ "waggle-core",
+ "waggle-store",
+ "waggle-store-sqlite",
+]
+
+[[package]]
+name = "agent-link-view"
+version = "0.1.0"
+dependencies = [
+ "agent-link-engine",
+ "chrono",
+ "petgraph",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -775,55 +824,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "sai-link-cli"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "dialoguer",
- "sai-link-engine",
- "sai-link-view",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "unicode-width",
-]
-
-[[package]]
-name = "sai-link-engine"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "getrandom 0.2.17",
- "libc",
- "pollster",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "thiserror 2.0.21",
- "waggle-core",
- "waggle-store",
- "waggle-store-sqlite",
-]
-
-[[package]]
-name = "sai-link-view"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "petgraph",
- "sai-link-engine",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "scoped-tls"

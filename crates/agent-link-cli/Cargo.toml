@@ -1,0 +1,30 @@
+[package]
+name = "agent-link-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "agent-link CLI — ブロックワークフローのターミナル実行・デーモン操作"
+authors = ["agent-link Contributors"]
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "agent-link"
+path = "src/main.rs"
+
+[dependencies]
+# agent-link（ライブラリとして使用）
+agent-link-engine = { path = "../agent-link-engine" }
+# phone サブコマンド（実装計画 12）: Web（`phone` 命令）と組み立て処理を共有するため
+agent-link-view = { path = "../agent-link-view" }
+
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+dialoguer = "0.11"
+unicode-width = "0.2"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
