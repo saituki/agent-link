@@ -1,63 +1,98 @@
-# 実装ガイド 1/5: エージェントを herdr 無しで動かす（headless）
+# 実装ガイド 1/2: agent-link から sai-link と Web 以外を消す（U01〜U04）
 
 ## ゴール
-sai-tree（`~/workdir/Sai/sai-tree`。sai-moon の複製）の `sai-link daemon` が、cc・pi を herdr の pane ではなく子プロセス（`claude -p` の stream-json・`pi --mode json`）で動かす。子タスクも pane を作らず裏で動く。カードの実行・子タスク（create / execute / wait / send / interrupt / capture / finalize）・`sai-link run send` / `run interrupt`・質問（cc の AskUserQuestion・pi の ask_user）が headless で動く。herdr の実行ファイルは 1 度も呼ばれない。cc の statusLine と承認のフックは消える。
+`~/workdir/Sai/agent-link`（sai-tree の複製）から、sai-paper・sai-sci・Radio・MLflow・sai-ts・sai-prep・Customer サポート・多人数モードを消す。sai-link と Web（単独モード）だけが残り、Rust・Web の JS・Web の Python のテストが通る。名前（`sai-link`・`SAI_*`・`.sai/`）はまだ変えない（ガイド 2 で変える）。
+
+完了したときに利用者が確かめられること:
+- `ls crates` が `sai-link-cli sai-link-engine sai-link-view`、`ls apps` が `web` だけ。
+- 一時フォルダの置き場で Web を起こすと、下のタブが Home・Projects・Chats・Account の 4 つ。
+
+## 作業の場所と渡し方
+- このガイドと計画書は、agent-link のリポジトリの `docs/plan/` にある（waggle のトークンはプロジェクトをまたげないので、パスで渡す）。worker には、計画書のパスを `task_text` に書いて渡す。例: 「`docs/plan/unit-U01-strip-rust.md` を読み、それに従って実装せよ」。
+- agent-link は sai-moon のプロジェクトとして動いている。worker の作業用コピー（worktree）は agent-link のリポジトリにできる。
+- **worker の環境変数**: sai-moon が `SAI_PROJECT_ROOT`・`SAI_PARENT_RUN_ID` などを入れている。このガイドの間はコードがまだ `SAI_*` を読むので、テストは計画書の検証どおりに `env -u` を付けて回す。`init` は一時フォルダでだけ行う。各 worker の `task_text` に、この 2 点を書く。
+- worker の runner は `cc` にする。
 
 ## 実装計画書の一覧
-計画書はリポジトリの `docs/plan/` にある（sai-moon のプロジェクトにも同じ物が waggle で保存してある）。
-
 | ID | 件名 | 文書 | 書くファイル | 依存 | 並列 |
 |---|---|---|---|---|---|
-| U01 | headless の輸送路（擬似 pane） | `docs/plan/unit-U01-headless-transport.md`（waggle:9XbcNnBU） | engine の `headless.rs`（新規）・`herdr.rs`・`orchestrator.rs`・`task_manager.rs`・`cc_command.rs`（`build`）・`pi_command.rs`・`runner.rs`・`phone_export.rs`（cc-cost の切り出し）・`lib.rs` | - | - |
-| U02 | 送信・中断の CLI、headless の質問、statusLine と承認のフックの削除 | `docs/plan/unit-U02-send-cli-and-question-hooks.md`（waggle:iZWydjW2） | engine の `agent_api.rs`・`cc_command.rs`（フック・設定）・`phone_export.rs`（statusline）・CLI の `cli.rs`・`cmd_run.rs`・`main.rs`・`apps/web/hooks/*.py`・`ask_user.ts`・`docs/for-sai-developers.md` | U01 | 不可 |
+| U01 | Rust から sai-paper・sai-sci・研究向けの部分・Customer の block を消す | `docs/plan/unit-U01-strip-rust.md` | `Cargo.toml`・`Cargo.lock`・`crates/**`・`sai-sci/` | - | 可 |
+| U02 | Web のサーバ（Python）を単独モードの sai-link の窓口だけにする | `docs/plan/unit-U02-strip-web-server.md` | `apps/web/src/sai_web/*.py`・`apps/web/tests/test_*.py`・`apps/web/server/`・`apps/web/hooks/*.py`・`apps/web/.env.example` | - | 可 |
+| U03 | Web の画面（JS・CSS・HTML）を sai-link の画面だけにする | `docs/plan/unit-U03-strip-web-screens.md` | `apps/web/src/sai_web/static/**`・`apps/web/tests/test_*.js` | - | 可 |
+| U04 | ほかのアプリ・研究の文書・CI のジョブを消す | `docs/plan/unit-U04-strip-apps-ci.md` | `apps/{radio,ts,prep,mlflow-server}/`・`docs/server.md`・`docs/sai-sci*.md`・`.github/workflows/ci.yml`・`.dockerignore`・`.gitignore` | - | 可 |
 
 ## 実行順序
-U01 → U02（直列）。U02 は U01 の擬似 pane と環境変数（`HERDR_PANE_ID`・`SAI_AGENT_TRANSPORT`）を使い、`cc_command.rs` と `phone_export.rs` を両方が書くため。
+4 つとも同時に始めてよい。書くファイルが重ならない（下の所有権の表）。
+
+マージの順: U04 → U01 → U02 → U03。消すだけの U04 を先に入れる。U02 と U03 は API の住所と JSON の形（共有契約 C3）で結ばれているので、2 つを入れたあとに Web をまとめて確かめる。
 
 ## 所有権の表
-| ファイル | U01 | U02 |
-|---|---|---|
-| `crates/sai-link-engine/src/headless.rs`・`herdr.rs`・`orchestrator.rs`・`task_manager.rs`・`pi_command.rs`・`runner.rs`・`lib.rs` | 書く | 読む |
-| `crates/sai-link-engine/src/cc_command.rs` | 書く（`build` と権限） | 書く（`cc_hooks_json`・`cc_settings_json`）※直列 |
-| `crates/sai-link-engine/src/phone_export.rs` | 書く（cc-cost の切り出し） | 書く（statusline の削除・`pane_id_from_session_dir` の公開）※直列 |
-| `crates/sai-link-engine/src/agent_api.rs`・`crates/sai-link-cli/src/cli.rs`・`cmd_run.rs`・`main.rs` | 読む（`card options` の runner の一覧だけ U01） | 書く |
-| `apps/web/hooks/*.py`・`apps/web/src/sai_web/extensions/ask_user.ts`・`docs/for-sai-developers.md` | - | 書く |
+| ファイル | U01 | U02 | U03 | U04 |
+|---|---|---|---|---|
+| `Cargo.toml`・`Cargo.lock`・`crates/**`・`sai-sci/` | 書く | | | |
+| `apps/web/src/sai_web/*.py`・`apps/web/hooks/`・`apps/web/server/`・`apps/web/.env.example`・`apps/web/tests/test_*.py` | | 書く | | |
+| `apps/web/src/sai_web/static/**`・`apps/web/tests/test_*.js` | | | 書く | |
+| `apps/radio`・`apps/ts`・`apps/prep`・`apps/mlflow-server`・`docs/server.md`・`docs/sai-sci*.md`・`.github/**`・`.dockerignore`・`.gitignore` | | | | 書く |
+| `docs/plan/**`・`AGENTS.md`・`README.md`・`ARCHITECTURE.md`・`CONCEPT.md`・`docs/integration.md`・`docs/for-sai-developers.md` | | | | |
+
+最後の行は、このガイドでは誰も書かない（ガイド 2 の U07 が書き直す）。
 
 ## 共有契約
-- C1 headless の書き出し（U01 が書き、U02・ガイド 2 の U03 が読む）: 擬似 pane の id `hl-<12 桁 16 進>`、置き場 `<root>/.sai/sai-engine/headless/<id>/`、`state.json` の形、ターンのプロセスの環境変数。全文は U01・U02 の計画書。
-- C2 送信・中断の CLI（U02 が作り、ガイド 2 の U03 が呼ぶ）。
-- C3 フック・拡張と Web の約束（U02 が作り、ガイド 2 の U03・ガイド 4 の U10 が Web 側を作る）。
+各計画書に全文を写してある。
+- C1: CLI（`sai-link`）の JSON から消してよい項目は、`after_job`・`target_node`・`layer`・台帳の数・Customer フォルダ（id `-1004`）だけ。このガイドでは名前を変えない。（U01・U02・U03・U04）
+- C3: Web の残す API の住所と JSON の形は変えない。消えるのは、`GET /api/home` の `papers`、`GET /api/days` の `customer`、`GET /api/projects` の `container_state`・`container`、`GET /api/auth/me`（route ごと）だけ。（U02・U03）
+- C4: 画面の版は `sai-web-v132`・`?v=132`。（U03）
+- C5: `.gitignore` の `.sai/` の行は残す。（U04）
 
 ## 全体の完了条件
 | 条件 | 担当 ID | 確認方法 |
 |---|---|---|
-| テストがすべて通る | U01・U02 | `cargo test --workspace` と Web のテスト |
-| headless で子タスクが完了まで進み、herdr が呼ばれない | U01 | U01 の AC4（一時フォルダの daemon・偽のエージェント・偽の herdr） |
-| `run send` / `run interrupt` が動く | U02 | U02 の AC1 |
-| headless の質問に Web で答えられる | U02 | U02 の AC3（偽の Web）・AC5（実物） |
-| 実物の cc・pi が headless で動く | U01・U02 | 作業報告書の実物の確認の記録 |
+| crate は sai-link の 3 つだけ、`apps/` は `web` だけ | U01・U04 | `ls crates apps` |
+| Rust のテストが通る | U01 | 下の「統合と検証」1 |
+| Web の JS・Python のテストが通る | U02・U03 | 下の「統合と検証」1 |
+| 研究・多人数・Customer の画面と API が無い | U02・U03 | 下の「統合と検証」2 |
+| CI のジョブが `rust` と `web` だけ | U04 | `ruby -ryaml -e 'p YAML.load_file(".github/workflows/ci.yml")["jobs"].keys'` |
 
 ## 統合と検証
-- マージごとに `env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME perl -e 'alarm 1800; exec @ARGV' cargo test --workspace` と Web の JS・Python のテスト。
-- 最後に kantoku 自身が、一時フォルダのプロジェクト（`SAI_HOME` も一時フォルダ）で daemon を起こし、費用の小さい model の cc で「`sai-link doc write` で 1 行の文書を保存せよ」というカードを `card run` し、完了まで進むことを確かめる。daemon は必ず止め、一時フォルダを消す。
-- `cargo build --release` を本体フォルダで行い、`target/release/sai-link`・`sai-paper`・`sai-sci` を作り直す。
+全部をマージしたあとに、agent-link の main で kantoku が行う。
+
+1. テスト:
+   ```bash
+   cd ~/workdir/Sai/agent-link
+   env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID -u SAI_BLOCK_NAME -u SAI_TARGET_NODE \
+     perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
+   (cd apps/web && uv sync)
+   for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
+   for f in apps/web/tests/test_*.py; do
+     env -u SAI_LINK_BIN -u SAI_PAPER_BIN -u SAI_SCI_BIN -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID \
+       PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1
+   done
+   ```
+2. 画面（8297 番。8299 番は使用中。必ず止める）:
+   ```bash
+   cargo build --workspace
+   B="$PWD/target/debug/sai-link"
+   T=$(mktemp -d); P=$(mktemp -d)/check; mkdir -p "$P"; (cd "$P" && git init -q)
+   (cd "$P" && env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID SAI_HOME="$T" "$B" init --name check)
+   env -u SAI_PROJECT_ROOT -u SAI_PARENT_RUN_ID SAI_WEB_NO_WATCH=1 SAI_HOME="$T" SAI_WEB_TOKEN= SAI_LINK_BIN="$B" \
+     perl -e 'alarm 300; exec @ARGV' apps/web/bin/sai-web serve --port 8297 &
+   ```
+   playwright で `http://127.0.0.1:8297/` を幅 390px と 1280px で開く。確かめること: 下のタブが Home・Projects・Chats・Account の 4 つ。Home・Projects（`check`）・Chats・Account の Usage が開く。console に error が無い。最後に `kill %1; rm -rf "$T" "$(dirname "$P")"`。
+3. 作業用コピー（worktree）とブランチを片付ける。
 
 ## 決定事項と理由 / 採用しなかった案
-- sai-tree は sai-moon とは別のプロジェクト。sai-moon は直さない。herdr は使わない（利用者の決定）。
-- herdr の操作は `HerdrClient` の中で擬似 pane に向ける。pane を作る 2 か所だけ明示の分岐にする。/ runner の trait で全部を書き換える案は差分が大きいので採らない。`HerdrClient` の名前の付け替えも後回し。
-- ターンごとにプロセスを起こし、2 回目からは `--resume`（cc）・`--continue`（pi）。/ stdin で多ターンを流す方式（`--input-format stream-json`）は文書が薄く、中断の制御が非公開なので採らない。Agent SDK は規約上サブスクのログインを使えないので採らない。
-- cc は `--permission-mode acceptEdits --allowedTools <一覧>` で起動する。コンテナは root（rootless Docker）で動き、Claude Code は root で `--dangerously-skip-permissions` を拒否するため（利用者の決定）。/ 公式文書に無い `IS_SANDBOX=1` は採らない。
-- cc の質問は、フックが Web の答えを待ち、拒否の理由の文で答えを返す。
-- 承認（PermissionRequest）と statusLine は headless では来ないので消す。費用は `result` 行から書く。
+- 元のコードは sai-tree（sai-moon ではない）。sai-link が新しく、Mac 専用の機能もすでに無い（利用者の選択）。
+- 研究向けの機能は、隠すのではなく消す。sai-tree の固定版をそのまま使う案は、利用者が採らなかった。
+- 文書（`AGENTS.md` など）は、このガイドでは直さない。ガイド 2 で名前を変えるときに、まとめて書き直す。
+- Mac 専用の機能（launchd・承認・遠隔ブラウザ・5 時間枠・pi）は戻さない（利用者の選択）。
 
 ## リスクと対処
-- `claude -p`・`pi --mode json` が stdin の依頼を読まない: U01 の要確認のとおり、位置引数かファイルに切り替えてよい（kantoku が決めてよい）。
-- `--allowedTools` で一部の道具が拒まれる（`mcp__*` の形が通らないなど）: 一覧を直してよい（kantoku が決めてよい）。どうしても全部許せないなら、利用者に聞く。
-- `claude -p` で `AskUserQuestion` が使えない: 文書に書いて先へ進む（kantoku が決めてよい）。headless の質問をあきらめる・別の方式（MCP の道具を足すなど）にするかは、利用者に聞く。
-- herdr の CLI を前提にしたテストが落ちる: 擬似 pane に直すか消す。消したテストは作業報告書に名前を書く。
+- **worker が本物のプロジェクトで `init` する**: 前に一度起きた。`task_text` に「`init` は `mktemp -d` の一時フォルダでだけ、環境変数を `env -u` で外して行う」と書く。
+- **消した物を残す側が使っていた**: 計画書の「直す」の一覧から漏れていたら、worker が直してよい。所有権の外のファイルなら、kantoku が担当の worker に直させる。
+- **`style.css` の消しすぎ**: 統合の画面の確認で見つける。崩れていたら U03 の worker に直させる。
+- **kantoku が自分で決めてよい範囲**: テストの直し方、計画書の行番号のずれ、所有権の中での小さな追加の削除。
+- **利用者に聞く範囲**: 残すと決めた機能（Chats・Workflow・Usage・質問・音声入力など）が、消さないと動かないと分かったとき。`block02_rust-best-practices.md` の扱い。
 
 ## 参照文書
-- 要件定義書: `docs/plan/requirements.md`（waggle:y7EoLAgV）
-- 調査 X1（起動経路と herdr 依存）: `docs/plan/research/X1-agent-lifecycle.md`
-- 調査 R3（rootless Docker・Claude Code の root の制限）: `docs/plan/research/R3-rootless-docker.md`
-- 調査 E3（Mac 専用の機能と Web の herdr）: `docs/plan/research/E3-mac-only-removal.md`
+- 要件定義書: `docs/plan/requirements.md`（sai-tree プロジェクトの run 289 にも同じ物を保存してある）
+- 調査報告書 X1・X3: sai-tree プロジェクトの waggle:MizF9uqb・waggle:m88AApdz（このプロジェクトからは読めない。要点は計画書に写してある）
