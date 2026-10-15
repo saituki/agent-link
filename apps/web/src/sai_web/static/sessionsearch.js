@@ -227,7 +227,7 @@ async function sessOpen(params) {
 
 function sessForm() {
   const form = sessEl("div", "sess-form");
-  form.appendChild(sessInput("sess-word", "検索語（カンマ区切りで AND）", "例: attention, mlflow"));
+  form.appendChild(sessInput("sess-word", "検索語（カンマ区切りで AND）", "例: attention, loss"));
   const grid = sessEl("div", "sess-grid");
   grid.appendChild(sessInput("sess-global-round", "Round（N または N-M）", "例: 2-4"));
   grid.appendChild(sessInput("sess-round", "round", "例: 1"));

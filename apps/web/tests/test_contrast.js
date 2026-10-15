@@ -51,13 +51,6 @@ GRAPHICAL([
 ]);
 // グラフの系列
 GRAPHICAL(["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6"]);
-// research-tree の状態と線（U19）
-GRAPHICAL([
-  "--sci-axis", "--sci-k-A", "--sci-k-F", "--sci-k-E", "--sci-k-S", "--sci-k-D",
-  "--sci-decided", "--sci-tentative", "--sci-open", "--sci-excluded", "--sci-candidate",
-  "--sci-rejected", "--sci-dormant", "--sci-support", "--sci-refute",
-  "--sci-edge-parent", "--sci-edge-depends", "--sci-edge-derived", "--sci-edge-analogous",
-]);
 // グラフの文字（縦の目盛り）と、棒の底の線（0 の日を表す短い棒にも使う）
 TEXT(["--chart-axis"]);
 GRAPHICAL(["--line-strong"]);
@@ -68,12 +61,6 @@ DIMMED([
   "--edge-delegation", "--edge-task-output", "--edge-waggle",
   "--edge-commit", "--edge-phase", "--edge-other",
 ], 0.8);
-
-// 却下・休眠の候補の薄い色（U19。U21 が候補の表に描く）。
-// 候補の行は「却下 ✕」「休眠 ◌」の記号と文字も出すので、色は補助として使う。
-// 不透明度 0.45 では 3:1 に届かない（実測 2.3:1）ので、両方の画面で 3:1 を保つ
-// 最小の濃さ 0.7 で検査する。U21 は 0.7 以上で描くか、記号と文字に頼ること。
-DIMMED(["--sci-rejected", "--sci-dormant"], 0.7);
 
 // 地色をまたいだ組。[[手前, 後ろ, 下限, 濃さ], …] を足す。
 PAIRS.push(
@@ -155,11 +142,6 @@ const REQUIRED = [
   // グラフ（U04）
   "--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6",
   "--chart-axis", "--chart-grid", "--st-card",
-  // research-tree（U19）
-  "--sci-axis", "--sci-k-A", "--sci-k-F", "--sci-k-E", "--sci-k-S", "--sci-k-D",
-  "--sci-decided", "--sci-tentative", "--sci-open", "--sci-excluded", "--sci-candidate",
-  "--sci-rejected", "--sci-dormant", "--sci-support", "--sci-refute",
-  "--sci-edge-parent", "--sci-edge-depends", "--sci-edge-derived", "--sci-edge-analogous",
 ];
 
 // --- CSS を読む ---

@@ -10,18 +10,12 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#ffffff" />
   <!-- 画面ファイルの版（サフィックスの数字）は sw.js の CACHE の版と揃えて上げる（iPhone に古いファイルを使わせないため） -->
-  <link rel="stylesheet" href="/style.css?v=131" />
-  <!-- md の色・ホーム・Workflow・設定・Papers の見た目（U4〜U6）。style.css の後に読む -->
-  <link rel="stylesheet" href="/markdown.css?v=131" />
-  <link rel="stylesheet" href="/home.css?v=131" />
-  <link rel="stylesheet" href="/workflow.css?v=131" />
-  <link rel="stylesheet" href="/defs.css?v=131" />
-  <link rel="stylesheet" href="/papers.css?v=131" />
-  <link rel="stylesheet" href="/scitree.css?v=131" />
-  <link rel="stylesheet" href="/sciedit.css?v=131" />
-  <link rel="stylesheet" href="/scigraph.css?v=131" />
-  <!-- 実験（MLflow）の記録（U06）。他の画面の CSS の後に読む -->
-  <link rel="stylesheet" href="/mlflow.css?v=131" />
+  <link rel="stylesheet" href="/style.css?v=132" />
+  <!-- md の色・ホーム・Workflow・設定の見た目（U4〜U6）。style.css の後に読む -->
+  <link rel="stylesheet" href="/markdown.css?v=132" />
+  <link rel="stylesheet" href="/home.css?v=132" />
+  <link rel="stylesheet" href="/workflow.css?v=132" />
+  <link rel="stylesheet" href="/defs.css?v=132" />
 </head>
 <body>
   <!-- 日付一覧画面（#/） -->
@@ -39,15 +33,6 @@
       <input type="search" id="search-input" placeholder="説明・ブロック・プロジェクトで絞り込み" />
     </div>
     <main id="days-list" class="groups"></main>
-  </section>
-
-  <!-- Customer の一覧（#/customer・U03）。Chats の先頭の行から開く -->
-  <section id="view-customer" class="view" hidden>
-    <header class="appbar">
-      <button id="cs-back" aria-label="Back">‹</button>
-      <h1>Customer</h1>
-    </header>
-    <main id="customer-list" class="groups"></main>
   </section>
 
   <!-- 日ごとの実行一覧画面（#/day/2026-09-23） -->
@@ -192,307 +177,6 @@
     <main id="sess-body" class="sess-body"></main>
   </section>
 
-  <!-- Papers タブの Dashboard（#/papers/dashboard・数字カードと出来事の一覧） -->
-  <section id="view-papers-dashboard" class="view" hidden>
-    <header class="appbar">
-      <h1>Research</h1>
-      <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
-      <button id="dashboard-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
-      <button id="papers-dashboard-reload" aria-label="Reload">↻</button>
-    </header>
-    <!-- Research の切り替え（Dashboard・Library・Tree・Experiments・Radio。中身は papers.js の fillSegment） -->
-    <div class="papers-seg-row" id="dashboard-seg"></div>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main id="papers-dashboard-body" class="groups"></main>
-  </section>
-
-  <!-- Papers タブの Library（#/papers/library・07 §4.2） -->
-  <section id="view-papers-library" class="view" hidden>
-    <header class="appbar">
-      <h1>Research</h1>
-      <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
-      <button id="library-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
-      <button id="papers-reload" aria-label="Reload">↻</button>
-    </header>
-    <!-- Research の切り替え（中身は papers.js の fillSegment・U06 で 5 つ） -->
-    <div class="papers-seg-row" id="library-seg"></div>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <!-- 検索欄（Enter でも検索する・08 §4.1）。U03: 上の切り替えで外部 DB／内部 DB／Paper 一覧を選ぶ -->
-    <div class="dash-seg small" id="library-kind">
-      <button data-kind="external">External DB</button>
-      <button data-kind="internal">Internal DB</button>
-      <button data-kind="paper">Paper</button>
-      <button data-kind="suggest">Suggest</button>
-    </div>
-    <div class="lib-tools">
-      <input type="search" id="discover-input" placeholder="🔍 Search papers" enterkeyhint="search" />
-      <button class="paper-btn" id="discover-go">Search</button>
-    </div>
-    <!-- 条件の開閉（閉じているときは今の検索先を小さく表示・08 §4.1） -->
-    <div class="papers-cond-row">
-      <button class="papers-cond-toggle" id="discover-cond-toggle" aria-expanded="false">Filters ▸</button>
-      <span class="papers-cond-summary" id="discover-cond-summary"></span>
-    </div>
-    <!-- 条件の中身（検索先・年の範囲・件数・08 §4.1）。U03: 内部 DB の条件は #find-cond -->
-    <div class="papers-cond" id="discover-cond" hidden>
-      <div>
-        <div class="papers-cond-label">Source</div>
-        <div class="papers-dbs" id="discover-dbs"></div>
-      </div>
-      <div>
-        <div class="papers-cond-label">Year</div>
-        <div class="papers-years">
-          <input type="number" id="discover-year-from" placeholder="From" min="1900" max="2100" inputmode="numeric" />
-          <span class="papers-year-sep">〜</span>
-          <input type="number" id="discover-year-to" placeholder="To" min="1900" max="2100" inputmode="numeric" />
-        </div>
-      </div>
-      <div>
-        <div class="papers-cond-label">Count</div>
-        <div class="dash-seg small" id="discover-limit">
-          <button data-limit="10">10</button>
-          <button data-limit="20">20</button>
-          <button data-limit="50">50</button>
-        </div>
-      </div>
-    </div>
-    <!-- U03: Library 内の検索（内部 DB）の条件。外部と同じ Filters で開閉する -->
-    <div class="papers-cond" id="find-cond" hidden>
-      <div>
-        <div class="papers-cond-label">Mode</div>
-        <div class="dash-seg small" id="find-mode">
-          <button data-mode="">Default</button>
-          <button data-mode="word">Word</button>
-          <button data-mode="vector">Semantic</button>
-          <button data-mode="hybrid">Hybrid</button>
-        </div>
-      </div>
-      <div>
-        <div class="papers-cond-label">Scope</div>
-        <div class="dash-seg small" id="find-scope">
-          <button data-scope="">Default</button>
-          <button data-scope="papers">Papers</button>
-          <button data-scope="notes">Notes</button>
-          <button data-scope="figures">Figures</button>
-          <button data-scope="all">All</button>
-        </div>
-      </div>
-      <div>
-        <div class="papers-cond-label">Count</div>
-        <div class="dash-seg small" id="find-count">
-          <button data-count="10">10</button>
-          <button data-count="20">20</button>
-          <button data-count="50">50</button>
-        </div>
-      </div>
-      <div>
-        <div class="papers-cond-label">Papers</div>
-        <button class="paper-btn" id="find-papers-btn" type="button">Select papers</button>
-        <div id="find-papers-chips"></div>
-      </div>
-      <div id="find-node-wrap">
-        <div class="papers-cond-label">Node</div>
-        <select id="find-node" aria-label="research-tree の Node で絞り込む"></select>
-        <p class="paper-meta" id="find-node-note" hidden>research-tree がまだありません</p>
-        <label id="find-subtree-wrap"><input type="checkbox" id="find-subtree" /> Include descendants</label>
-        <label id="find-each-wrap">Top <input type="number" id="find-each" min="1" max="20" inputmode="numeric" /> per paper</label>
-      </div>
-      <p class="paper-meta">Node を選ぶと、検索範囲がその Node（と直の子。「子孫の Node も含める」を入れると子孫すべて）にある F の論文に絞られます。範囲になるのは、その論文の全文（全チャンク）です。F が引用している箇所（<code>#x.y.z</code>）だけではありません。F が 1 本も無い Node では 0 件になります。</p>
-    </div>
-    <!-- 道具行: 左の階層の絞り込み欄 -->
-    <div class="lib-tools">
-      <input type="search" id="library-filter" placeholder="題名・著者で絞り込み" />
-    </div>
-    <!-- 検索の進み具合・失敗（結果は右の欄に出る） -->
-    <p id="discover-status" class="lib-empty" hidden></p>
-    <main id="library-list" class="groups"></main>
-  </section>
-
-  <!-- Papers タブの research-tree（#/research/tree/<Node>・scitree.js・U19。
-       研究タブの最初の画面。上の帯（進み具合・Next Action・注意）と、一覧と項目の板を出す。 -->
-  <section id="view-sci-tree" class="view" hidden>
-    <header class="appbar">
-      <h1>Research</h1>
-      <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る） -->
-      <button id="sci-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
-      <button id="sci-reload" aria-label="Reload">↻</button>
-    </header>
-    <!-- Research の切り替え（中身は papers.js の fillSegment・U06 で 5 つ） -->
-    <div class="papers-seg-row" id="sci-seg"></div>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <!-- 進み具合・Next Action・注意（U19） -->
-    <div class="sci-top" id="sci-top"></div>
-    <div class="sci-sprout" id="sci-sprout" hidden></div>
-    <div class="sci-sprout" id="sci-seed" hidden></div>
-    <!-- ROOT_GRAPH / RUN_GRAPH の切り替えと、狭い画面の一覧の出し入れ -->
-    <main class="sci-body sai-split" id="sci-body">
-      <div class="sci-list">
-        <div class="sci-filter" id="sci-filter"></div>
-        <div class="sci-list-rows" id="sci-list"></div>
-      </div>
-      <div class="sci-split-handle" data-split="list" role="separator" aria-orientation="vertical" aria-label="一覧の幅を変える"></div>
-      <div class="sci-graph-box" id="sci-graph"></div>
-      <div class="sci-split-handle" data-split="board" role="separator" aria-orientation="vertical" aria-label="板の幅を変える"></div>
-      <div class="sci-board" id="sci-board" hidden></div>
-    </main>
-  </section>
-
-  <!-- READ_CARD（#/research/read/<run_id>・sciread.js・U20） -->
-  <section id="view-sci-read" class="view" hidden>
-    <header class="appbar">
-      <button id="sr-back" aria-label="Back to research-tree">‹</button>
-      <h1 id="sr-title">READ_CARD</h1>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main class="sci-read-body" id="sr-body"></main>
-  </section>
-
-  <!-- Papers の Radio（続きを聴く・一覧。選んでいるプロジェクトの音声だけ・09 §4.4） -->
-  <section id="view-papers-radio" class="view" hidden>
-    <header class="appbar">
-      <h1>Research</h1>
-      <!-- 今選んでいるプロジェクト（押すと切り替えの一覧が下から出る・18 §1.1） -->
-      <button id="radio-project" class="papers-proj" hidden aria-label="プロジェクトを切り替える"></button>
-      <button id="radio-reload" aria-label="Reload">↻</button>
-    </header>
-    <!-- Dashboard / Discover / Library / Radio の切り替え（中身は radio.js・09 §4.2） -->
-    <div class="papers-seg-row" id="radio-seg"></div>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main class="groups">
-      <!-- 続きを聴くカード（中身は radio.js・09 §4.4） -->
-      <div id="radio-home"></div>
-      <!-- 道具行: 題名の絞り込みと並び順（09 §4.4） -->
-      <div class="radio-tools">
-        <input type="search" id="radio-filter" placeholder="題名で絞り込み" />
-        <div class="dash-seg small" id="radio-sort">
-          <button data-sort="new">Newest</button>
-          <button data-sort="fav">Favorites first</button>
-        </div>
-      </div>
-      <!-- 音声がある論文の一覧（09 §4.4） -->
-      <div id="radio-list"></div>
-    </main>
-  </section>
-
-  <!-- 再生画面（#/radio/<id>・09 §4.5。10 で質問チャットを足す） -->
-  <section id="view-radio-player" class="view" hidden>
-    <header class="appbar">
-      <button id="radio-back" aria-label="Back">‹</button>
-      <h1 id="radio-title">Play</h1>
-      <!-- 論文情報へのリンク（ID が数字のときだけ出す・09 §4.5） -->
-      <button id="radio-paper-link" class="radio-paper-link" hidden>論文情報 ›</button>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main class="radio-body">
-      <!-- 読み込めなかったときの1行（404 は「音声が見つかりません」・09 §4.5） -->
-      <div id="radio-player-msg" class="radio-player-msg" hidden></div>
-      <div class="dash-card radio-controls">
-        <!-- 位置のつまみと時刻（動かしている間は時刻だけ変える・09 §4.5） -->
-        <div class="radio-seek-row">
-          <input type="range" id="radio-seek" class="radio-seek" min="0" max="0" step="0.1" value="0" aria-label="再生位置" />
-          <span class="radio-times"><span id="radio-pos">0:00</span> / <span id="radio-dur">0:00</span></span>
-        </div>
-        <!-- 15 秒戻る / 再生（直径 56px の丸） / 15 秒進む（09 §4.5） -->
-        <div class="radio-buttons">
-          <button id="radio-rew" class="radio-round">⏪15</button>
-          <button id="radio-play" class="radio-play" aria-label="Play">▶</button>
-          <button id="radio-fwd" class="radio-round">15⏩</button>
-        </div>
-        <!-- 再生速度とオフライン保存（09 §4.5） -->
-        <div class="radio-sub-row">
-          <button id="radio-speed" class="paper-btn">1x</button>
-          <button id="radio-download" class="paper-btn">⬇ Download</button>
-        </div>
-        <!-- ダウンロードの進み具合・再試行・読み込み中の表示（09 §4.5） -->
-        <div id="radio-status" class="radio-status"></div>
-      </div>
-      <!-- 文字起こし | 質問（N）の切り替え（10 §4.1・中身は radio.js） -->
-      <div class="radio-pane-seg" id="radio-pane-seg"></div>
-      <!-- 押すとその場所へ飛び，今の場所に色が付く（09 §4.5。質問 Pane では隠す・10 §4.1） -->
-      <div id="radio-sections" class="radio-sections"></div>
-      <!-- 質問と回答の吹き出し（Agent の見た目・10 §4.2） -->
-      <div id="radio-chat" class="radio-chat" hidden></div>
-    </main>
-    <!-- 質問中の1行（接続中… / 考え中… など・10 §4.4） -->
-    <div id="radio-ask-status" class="radio-ask-status" hidden></div>
-    <!-- 質問のときだけ出す入力欄（🎤・文字欄・➤・10 §4.1） -->
-    <footer class="inputbar" id="radio-inputbar" hidden>
-      <button id="radio-mic" aria-label="声で質問">🎤</button>
-      <textarea id="radio-input" rows="1" placeholder="この論文について質問"></textarea>
-      <button id="radio-send" aria-label="Send">➤</button>
-    </footer>
-  </section>
-
-  <!-- 過去の検索結果（#/papers/log/<log_id>・08 §4.2） -->
-  <section id="view-papers-log" class="view" hidden>
-    <header class="appbar">
-      <button id="log-back" aria-label="Back">‹</button>
-      <h1 id="log-title">Search results</h1>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main class="groups">
-      <!-- 見出しの下の小さな行（日付 · 検索先 · 件数・08 §4.2） -->
-      <div class="paper-sub" id="log-sub"></div>
-      <div id="log-list"></div>
-    </main>
-  </section>
-
-  <!-- U03: Library 内の検索結果（#/papers/find/<name>/<log_id>・狭い画面用） -->
-  <section id="view-papers-find" class="view" hidden>
-    <header class="appbar">
-      <button id="find-back" aria-label="Back">‹</button>
-      <h1 id="find-title">Library 内の検索結果</h1>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main class="groups">
-      <!-- 見出しの下の小さな行（日付 · 条件 · 件数） -->
-      <div class="paper-sub" id="find-sub"></div>
-      <div id="find-list"></div>
-    </main>
-  </section>
-
-  <!-- U03: Suggest の 1 件（#/papers/suggest/<name>/<suggest_id>・狭い画面用。広い画面は右の欄） -->
-  <section id="view-papers-suggest" class="view" hidden>
-    <header class="appbar">
-      <button id="suggest-back" aria-label="Back">‹</button>
-      <h1 id="suggest-title">Suggest</h1>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main class="groups">
-      <div id="suggest-list"></div>
-    </main>
-  </section>
-
-  <!-- 未ダウンロードの論文情報（#/papers/log/<log_id>/<position>・08 §4.4） -->
-  <section id="view-paper-remote" class="view" hidden>
-    <header class="appbar">
-      <button id="remote-back" aria-label="Back">‹</button>
-      <!-- 題名は本文側（remote-body）に大きく出すため見出しは空のまま（07 の論文情報と同じ） -->
-      <h1 id="remote-heading"></h1>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main id="remote-body" class="paper-body"></main>
-  </section>
-
-  <!-- 論文情報（#/paper/<id>・07 §4.4） -->
-  <section id="view-paper" class="view" hidden>
-    <header class="appbar">
-      <button id="paper-back" aria-label="Back">‹</button>
-      <!-- 題名は本文側（paper-body）に大きく出すため見出しは空のまま -->
-      <h1 id="paper-heading"></h1>
-    </header>
-    <div class="offline-bar" hidden>接続できていません</div>
-    <main id="paper-body" class="paper-body"></main>
-  </section>
-
-  <!-- 論文の本文（#/paper/<id>/text・07 §4.5） -->
-  <section id="view-paper-text" class="view" hidden>
-    <header class="appbar">
-      <button id="paper-text-back" aria-label="Back">‹</button>
-      <h1>Text</h1>
-    </header>
-    <main id="paper-text" class="paper-text"></main>
-  </section>
 
   <!-- Usage: 詳細（#/usage/<provider>/<account>・Activity | Logs・42 §3.5） -->
   <section id="view-usage-detail" class="view" hidden>
@@ -510,14 +194,8 @@
   <!-- ホーム（#/home。中身は home.js・U4） -->
   <section id="view-home" class="view" hidden><div id="home-root"></div></section>
 
-  <!-- ログイン（#/login。中身は account.js・U07。多人数モードだけ） -->
-  <section id="view-login" class="view" hidden><div id="login-root"></div></section>
-  <!-- パスワード変更（#/password。中身は account.js・U07） -->
-  <section id="view-password" class="view" hidden><div id="password-root"></div></section>
   <!-- アカウント（#/account。中身は account.js・U07） -->
   <section id="view-account" class="view" hidden><div id="account-root"></div></section>
-  <!-- 管理（#/admin。中身は account.js・U07。管理者だけ） -->
-  <section id="view-admin" class="view" hidden><div id="admin-root"></div></section>
 
   <!-- Workflow 盤面（#/project/<name>/workflow。中身は workflow.js・U5） -->
   <section id="view-workflow" class="view" hidden><div id="workflow-root"></div></section>
@@ -525,15 +203,6 @@
   <!-- 設定（#/project/<name>/defs…・中身は defs.js・U5） -->
   <section id="view-defs" class="view" hidden><div id="defs-root"></div></section>
 
-
-  <!-- 引用一覧（#/paper/<name>/<id>/cites。中身は cite.js・U05） -->
-  <section id="view-paper-cites" class="view" hidden><div id="cites-root"></div></section>
-
-  <!-- 実験（MLflow の記録。住所は #/research/experiments。中身は mlflow.js・U06） -->
-  <section id="view-mlflow" class="view" hidden><div id="mlf-root"></div></section>
-
-  <!-- 再生中の音声（タブを移っても止めないため view の外に置く・09 で使う） -->
-  <audio id="radio-audio" preload="metadata"></audio>
   <!-- task.md 作成フォーム（下から出る一枚・計画 15 §1.5。中身は cardform.js） -->
   <div id="cardform-wrap" class="cf-wrap" hidden>
     <div class="cf-mask" id="cf-mask"></div>
@@ -595,16 +264,6 @@
         </svg>
         <span>Chats</span>
       </button>
-      <!-- 研究（research-tree・実験。アイコンは絵文字ではなく線） -->
-      <button data-tab="research" aria-label="Research">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <!-- フラスコ（首と丸い底） -->
-          <path d="M10 3.5h4" />
-          <path d="M10.8 3.5v5.2L6.9 16a3 3 0 0 0 2.6 4.5h5a3 3 0 0 0 2.6-4.5l-3.9-7.3V3.5" />
-          <path d="M8.4 14.5h7.2" />
-        </svg>
-        <span>Research</span>
-      </button>
       <!-- アカウント（自分の情報・sai-prep のトークン・Usage）。単独モードでも出す -->
       <button data-tab="account" aria-label="Account">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -618,62 +277,40 @@
   </div>
 
   <!-- md の整形表示（13 §1.4）。呼び出す画面部品より先に読み込む -->
-  <script src="/markdown.js?v=131"></script>
+  <script src="/markdown.js?v=132"></script>
   <!-- 共通部品（saiApi・saiToast など・U4）。markdown.js の直後、各画面の JS より先に読む -->
-  <script src="/ui.js?v=131"></script>
+  <script src="/ui.js?v=132"></script>
   <!-- stats.js を先に読み，app.js の route() が統計画面を開けるようにする -->
-  <script src="/stats.js?v=131"></script>
+  <script src="/stats.js?v=132"></script>
   <!-- Project タブの中身（06）。app.js より前に読み込む（stats.js の関数を共有するため） -->
-  <script src="/project.js?v=131"></script>
+  <script src="/project.js?v=132"></script>
   <!-- List 画面（Dashboard | List の切り替え・引き出しツリー・7 つの表示・計画 14）。 -->
   <!-- project.js より後に読み，app.js より前に読む（登録は window.SaiRoutes・計画 14 §6） -->
-  <script src="/linkview.js?v=131"></script>
+  <script src="/linkview.js?v=132"></script>
   <!-- task.md 作成フォーム（＋ で下から出る・計画 15）。app.js より前に読む
        （🎤 は app.js の attachVoiceInput を実行時に呼ぶ） -->
-  <script src="/cardform.js?v=131"></script>
+  <script src="/cardform.js?v=132"></script>
   <!-- Web の「コマンド」画面と会話の検索（U10）。Project 上部の切り替え（6 つ）に足す -->
-  <script src="/commands.js?v=131"></script>
-  <script src="/sessionsearch.js?v=131"></script>
-  <!-- Papers タブの中身（07）。app.js より前に読み込む（07 §4） -->
-  <script src="/papers.js?v=131"></script>
-  <!-- Papers の Radio（09）。papers.js の後・app.js の前に読み込む（09 §4） -->
-  <script src="/radio.js?v=131"></script>
+  <script src="/commands.js?v=132"></script>
+  <script src="/sessionsearch.js?v=132"></script>
   <!-- 会話に行・回答済みカードを置く位置を決める関数（CP3 の直し）。app.js より前に読み込む -->
-  <script src="/chatorder.js?v=131"></script>
+  <script src="/chatorder.js?v=132"></script>
   <!-- 新しいチャット（U04 §5）。app.js より前に読み込む（#newchat-button に結び付ける） -->
-  <script src="/newchat.js?v=131"></script>
+  <script src="/newchat.js?v=132"></script>
   <!-- Usage タブの中身（42）。app.js より前に読み込む（42 §3.5） -->
-  <script src="/usage.js?v=131"></script>
+  <script src="/usage.js?v=132"></script>
   <!-- 質問カードの読み上げ・音声回答（U01・voiceask.js）。app.js より前に読み込む -->
-  <script src="/voiceask.js?v=131"></script>
-  <!-- 配置・全体表示・拡大の純関数（canvaslayout.js）。workflow.js と scigraph.js より先に読む -->
-  <script src="/canvaslayout.js?v=131"></script>
-  <!-- research-tree（U19・scitree.js）。app.js より先に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/scitree.js?v=131"></script>
-  <!-- TRIAGE と READ_CARD（U20・sciedit.js / sciread.js）。scitree.js の se… / sr… を呼ぶのでその後 -->
-  <script src="/sciedit.js?v=131"></script>
-  <script src="/sciread.js?v=131"></script>
-  <!-- 根の図と候補の表（U21・scigraph.js）。canvaslayout.js の cvlLayoutBoard を使うのでその後 -->
-  <script src="/scigraph.js?v=131"></script>
+  <script src="/voiceask.js?v=132"></script>
+  <!-- 配置・全体表示・拡大の純関数（canvaslayout.js）。workflow.js より先に読む -->
+  <script src="/canvaslayout.js?v=132"></script>
   <!-- ホーム画面（U4・home.js）。app.js より前に読み込む（画面の登録は window.SaiRoutes） -->
-  <script src="/home.js?v=131"></script>
+  <script src="/home.js?v=132"></script>
   <!-- Workflow 盤面（U5・workflow.js）。U4 では空のファイルを作っただけ。canvaslayout.js の関数を使うので canvaslayout.js より後 -->
-  <script src="/workflow.js?v=131"></script>
+  <script src="/workflow.js?v=132"></script>
   <!-- 設定画面（U5・defs.js）。U4 では空のファイルを作っただけ -->
-  <script src="/defs.js?v=131"></script>
-  <!-- Download の見張り（U6・U06 で Import の画面は無し。paperimport.js） -->
-  <script src="/paperimport.js?v=131"></script>
-  <!-- 引用一覧の画面（U5・cite.js）。paperimport.js の後・app.js の前に読み込む
-       （papers.js と paperimport.js の関数を使うため） -->
-  <script src="/cite.js?v=131"></script>
-  <!-- 実験タブの中身（U06・mlflow.js と U07・mlfchart.js）。app.js より前に読み込む
-       （画面の登録は window.SaiRoutes。mlfchart.js はグラフの部品なので mlflow.js より先に） -->
-  <script src="/mlfchart.js?v=131"></script>
-  <script src="/mlflow.js?v=131"></script>
-  <!-- ログイン・アカウント・管理（U07）。app.js の apiFetch と起動の処理が acLoadMe を呼ぶので，app.js より前に読む -->
-  <script src="/account.js?v=131"></script>
-  <!-- サポート（右下のアイコン・Customer の一覧・停止の行き先・U03）。app.js が route() を呼ぶ前に登録する -->
-  <script src="/customer.js?v=131"></script>
-  <script src="/app.js?v=131"></script>
+  <script src="/defs.js?v=132"></script>
+  <!-- アカウント（Usage の区画）。app.js の apiFetch と起動の処理が acLoadMe を呼ぶので，app.js より前に読む -->
+  <script src="/account.js?v=132"></script>
+  <script src="/app.js?v=132"></script>
 </body>
 </html>

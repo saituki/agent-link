@@ -9,7 +9,7 @@
 // - 外部ライブラリは入れない
 //
 // 使い方: renderMarkdown(text[, {toolbar: true}]) が返す HTML を innerHTML に入れる。
-// 呼び出し元: app.js（Agent の吹き出し）・papers.js（ノートと論文本文）・radio.js（質問の吹き出し）。
+// 呼び出し元: app.js（Agent の吹き出し）・linkview.js（task / review の表示）。
 // index.html では app.js より前に読む。node からの読み込みは tests/test_markdown.js。
 //
 // U4 で足した物:

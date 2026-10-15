@@ -24,10 +24,6 @@
 
 // ホームを読み直す間隔（ミリ秒）
 const HM_INTERVAL_MS = 15000;
-// 論文の要対応で出す件数
-const HM_PAPERS_MAX = 3;
-// Papers を開いたとき_LAST プロジェクトを覚えておく場所（papers.js と同じ C-F1）
-const HM_PAPERS_KEY = "sai_web_papers_project";
 // 合計の期間（画面の切り替え・project.js の DASH_PERIODS と同じ並び）
 const HM_PERIODS = [
   ["week", "Week"],
@@ -305,30 +301,7 @@ function hmSections(data) {
     out.push({ key: "daemon", title: "止まっている常駐", count: daemon.length, items: daemon, term: "daemon" });
   }
 
-  // 5) 論文の要対応（プロジェクトごとに先頭 3 件）
-  const papers = [];
-  for (const p of Array.isArray(d.papers) ? d.papers : []) {
-    const n = Number(p.attention) || 0;
-    const items = Array.isArray(p.items) ? p.items : [];
-    if (n <= 0 && items.length === 0) continue;
-    const head = items.slice(0, HM_PAPERS_MAX);
-    // U19: 先頭 3 件に research-tree（sci_）から出ていれば「いま決めること」へ行けるようにする
-    const sciFirst = head.slice(0, 3).some((i) => i && typeof i.kind === "string" && i.kind.startsWith("sci_"));
-    papers.push({
-      kind: "papers",
-      title: p.name || "(名前のないプロジェクト)",
-      count: n,
-      sub: head.map((i) => i.title || "").filter(Boolean),
-      ago: "",
-      hash: sciFirst ? "#/research/tree" : "#/papers/dashboard",
-      project: p.name || "",
-    });
-  }
-  if (papers.length > 0) {
-    out.push({ key: "papers", title: "論文の要対応", count: papers.length, items: papers, term: "attention" });
-  }
-
-  // 6) 読めなかったプロジェクト（一番下にたたんで出す）
+  // 5) 読めなかったプロジェクト（一番下にたたんで出す）
   const errors = Array.isArray(d.errors) ? d.errors.filter((e) => e) : [];
   if (errors.length > 0) {
     out.push({ key: "errors", title: "読めなかったプロジェクト", count: errors.length, items: errors });
@@ -341,8 +314,7 @@ function hmSections(data) {
 function hmEmptyKind(data) {
   const d = data || {};
   const projects = Array.isArray(d.projects) ? d.projects : [];
-  const papers = Array.isArray(d.papers) ? d.papers : [];
-  if (projects.length === 0 && papers.length === 0) return "no-projects";
+  if (projects.length === 0) return "no-projects";
   return "none";
 }
 
@@ -635,13 +607,6 @@ function hmRender() {
       } else if (sec.key === "daemon") {
         const row = hmRow(item.title, item.sub, "", () => { location.hash = item.hash; });
         card.appendChild(row);
-      } else if (sec.key === "papers") {
-        const sub = item.sub.length > 0 ? `要対応 ${item.count} 件 — ${item.sub.join(" / ")}` : "要対応 0 件";
-        card.appendChild(hmRow(item.title, sub, "", () => {
-          // Papers を開く前にプロジェクトを覚えておく（C-F1）
-          try { localStorage.setItem(HM_PAPERS_KEY, item.project); } catch { /* 覚えてなくてもよい */ }
-          location.hash = item.hash;
-        }));
       }
     }
     body.appendChild(card);
@@ -726,8 +691,6 @@ if (typeof window !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     HM_INTERVAL_MS,
-    HM_PAPERS_MAX,
-    HM_PAPERS_KEY,
     HM_PERIODS,
     HM_PERIOD_KEY,
     HM_TODO_MAX,

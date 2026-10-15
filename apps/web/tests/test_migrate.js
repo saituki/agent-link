@@ -69,9 +69,23 @@ assert.strictEqual(swIsOldCache("sai-web-radio-audio", "sai-web-v126"), false, "
 assert.strictEqual(swIsOldCache("sai-web-open", "sai-web-v126"), false, "通知の飛び先は消さない");
 
 // --- 5) 画面の版がそろっている（CACHE と ?v=）
-assert.match(swSrc, /const CACHE = "sai-web-v131";/, "CACHE が sai-web-v131 ではありません");
+assert.match(swSrc, /const CACHE = "sai-web-v132";/, "CACHE が sai-web-v132 ではありません");
 const html = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
-assert.ok(html.includes("?v=131"), "index.html の ?v= が131 ではありません");
-assert.ok(!html.includes("?v=104"), "index.html に古い ?v=104 が残っています");
+assert.ok(html.includes("?v=132"), "index.html の ?v= が132 ではありません");
+assert.ok(!/\?v=(?!132)\d+/.test(html), "index.html に 132 以外の ?v= が残っています");
+
+// --- 6) sw.js の ASSETS の全部のファイルが static/ にある（欠けると install が失敗する）
+const assetsLine = swSrc.match(/^const ASSETS = (\[.*\]);/m);
+assert.ok(assetsLine, "sw.js に ASSETS が見つかりません");
+const assets = JSON.parse(assetsLine[1]);
+for (const a of assets) {
+  if (a === "/") continue;
+  assert.ok(fs.existsSync(path.join(staticDir, a.slice(1))), `ASSETS の ${a} が static/ にありません`);
+}
+// index.html が読む /xxx.js・/xxx.css も static/ にあり、ASSETS に入っている
+for (const m of html.matchAll(/(?:src|href)="(\/[^"?]+\.(?:js|css))\?v=/g)) {
+  assert.ok(fs.existsSync(path.join(staticDir, m[1].slice(1))), `index.html の ${m[1]} が static/ にありません`);
+  assert.ok(assets.includes(m[1]), `index.html の ${m[1]} が ASSETS にありません`);
+}
 
 console.log("test_migrate: すべて通りました");

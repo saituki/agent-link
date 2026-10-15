@@ -47,7 +47,7 @@ function testScalar() {
 }
 
 function testBuildRequest() {
-  // 計画の例（paper set create）
+  // 計画の例（link set create）
   const command = {
     path: ["set", "create"],
     json: true,
@@ -59,18 +59,18 @@ function testBuildRequest() {
     ],
   };
   assert.deepStrictEqual(
-    cmd.cmdBuildRequest("paper", command, { name: "demo", query: "attention" }, ""),
-    { cli: "paper", path: ["set", "create"], args: { name: "demo", query: "attention" } }
+    cmd.cmdBuildRequest("link", command, { name: "demo", query: "attention" }, ""),
+    { cli: "link", path: ["set", "create"], args: { name: "demo", query: "attention" } }
   );
   // 空の入力は送らない
   assert.deepStrictEqual(
-    cmd.cmdBuildRequest("paper", command, { name: "demo", query: "  " }, ""),
-    { cli: "paper", path: ["set", "create"], args: { name: "demo" } }
+    cmd.cmdBuildRequest("link", command, { name: "demo", query: "  " }, ""),
+    { cli: "link", path: ["set", "create"], args: { name: "demo" } }
   );
   // web: false の引数は入っていても送らない
   assert.deepStrictEqual(
-    cmd.cmdBuildRequest("paper", command, { name: "demo", file: "x" }, ""),
-    { cli: "paper", path: ["set", "create"], args: { name: "demo" } }
+    cmd.cmdBuildRequest("link", command, { name: "demo", file: "x" }, ""),
+    { cli: "link", path: ["set", "create"], args: { name: "demo" } }
   );
 
   // 数・フラグ・複数行・enum
@@ -80,33 +80,33 @@ function testBuildRequest() {
     stdin: "none",
     args: [
       arg("query", "option", "string", { required: true }),
-      arg("paper", "option", "int", { multiple: true }),
+      arg("link", "option", "int", { multiple: true }),
       arg("fts_expr", "option", "enum", { values: ["a", "b"] }),
       arg("force", "flag", "enum", { values: ["true", "false"] }),
     ],
   };
-  const req = cmd.cmdBuildRequest("paper", find, {
+  const req = cmd.cmdBuildRequest("link", find, {
     query: "x",
-    paper: "1\n2\n\n3",
+    link: "1\n2\n\n3",
     fts_expr: "b",
     force: true,
   }, "");
-  assert.deepStrictEqual(req.args, { query: "x", paper: [1, 2, 3], fts_expr: "b", force: true });
+  assert.deepStrictEqual(req.args, { query: "x", link: [1, 2, 3], fts_expr: "b", force: true });
   // フラグは false でも送る（サーバーが真偽として確かめる）
-  assert.strictEqual(cmd.cmdBuildRequest("paper", find, { query: "x", force: false }, "").args.force, false);
+  assert.strictEqual(cmd.cmdBuildRequest("link", find, { query: "x", force: false }, "").args.force, false);
   // multiple で 1 つも無ければ送らない
-  assert.strictEqual("paper" in cmd.cmdBuildRequest("paper", find, { query: "x" }, "").args, false);
+  assert.strictEqual("link" in cmd.cmdBuildRequest("link", find, { query: "x" }, "").args, false);
 
   // stdin は空なら付けない、あれば付ける
   const add = { path: ["add"], json: true, stdin: "text", args: [arg("name", "positional", "string", { required: true })] };
-  assert.deepStrictEqual(cmd.cmdBuildRequest("paper", add, { name: "x" }, ""), {
-    cli: "paper", path: ["add"], args: { name: "x" },
+  assert.deepStrictEqual(cmd.cmdBuildRequest("link", add, { name: "x" }, ""), {
+    cli: "link", path: ["add"], args: { name: "x" },
   });
-  assert.deepStrictEqual(cmd.cmdBuildRequest("paper", add, { name: "x" }, "本文"), {
-    cli: "paper", path: ["add"], args: { name: "x" }, stdin: "本文",
+  assert.deepStrictEqual(cmd.cmdBuildRequest("link", add, { name: "x" }, "本文"), {
+    cli: "link", path: ["add"], args: { name: "x" }, stdin: "本文",
   });
 
-  assert.throws(() => cmd.cmdBuildRequest("paper", find, { query: "x", paper: "notnum" }, ""));
+  assert.throws(() => cmd.cmdBuildRequest("link", find, { query: "x", link: "notnum" }, ""));
 }
 
 function testGroup() {
