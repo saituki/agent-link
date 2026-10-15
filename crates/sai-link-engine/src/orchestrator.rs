@@ -110,8 +110,6 @@ pub struct PipelineConfig {
     pub pane_id: Option<String>,
     /// サブタスクとして実行中かどうか（true の場合、エージェントのプロセスに SAI_IS_SUBTASK=1 を付与）
     pub is_subtask: bool,
-    /// 研究の対象 Node（`SAI_TARGET_NODE` に入れる。None なら付けない）
-    pub target_node: Option<String>,
     /// 実行主体（`cc` / `gl`）。既定 `Cc`。
     pub runner: RunnerKind,
 }
@@ -134,9 +132,7 @@ impl Default for PipelineConfig {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         Self {
@@ -152,7 +148,6 @@ impl Default for PipelineConfig {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
-            target_node: None,
             runner: RunnerKind::Cc,
         }
     }
@@ -469,8 +464,7 @@ pub struct PreparedPipeline {
     pub session_dir: PathBuf,
     /// 最初のメッセージ（`herdr.send_text` で 1 通で送る文）。
     ///
-    /// `context: true` のブロックは最初に見出し付きの `# context` の節を置き、
-    /// その後に `# task_text` の節を置き、そのほかの入力値を `# <id>` の節にして並べる
+    /// 最初に `# task_text` の節を置き、そのほかの入力値を `# <id>` の節にして並べる
     /// （節の作り方は `split_fixed_and_variable`）。template と block.md の本文（固定部分）は
     /// [`PreparedPipeline::system_prompt`] に入り、`system-prompt.md` 経由で渡す（U6・C10）。
     pub expanded_prompt: String,
@@ -669,25 +663,9 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
 
     // ── Step 1: 固定部分（system prompt）と最初の文に分ける ──
     // 固定部分（template と block.md の本文）は run フォルダの `system-prompt.md` に書き、
-    // 起動コマンドのフラグで渡す。最初の文には入力値と範囲（`{{context}}`）だけが入る。
-    // context: true のブロックだけ、範囲の文を用意する（最初のメッセージの
-    // `# context` の節に入る。本文に `{{context}}` の記法が無くても必ず作る）。
-    let context_text = if config.block_config.context == Some(true) {
-        Some(crate::pre_run::context_text(
-            config.run_id,
-            config.block_config.block_id(),
-        ))
-    } else {
-        None
-    };
+    // 起動コマンドのフラグで渡す。最初の文には入力値だけが入る。
     let (system_prompt, first_message) =
-        split_fixed_and_variable(&config.block_body, &resolved_values, context_text.as_deref());
-
-    // ── 台帳（C10）: 最初の文の番号を見た番号として残す ──
-    // system prompt は書かない（template・block の例の番号が混ざるため）。失敗しても止めない。
-    if let Some(run_id) = config.run_id {
-        crate::seen_ids::record_for(&crate::project::project_root(), run_id, &first_message);
-    }
+        split_fixed_and_variable(&config.block_body, &resolved_values);
 
     // ── pi起動前の Git コミットハッシュを取得（再現性用） ──
     let git_commit_before = get_git_commit_hash();
@@ -736,7 +714,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
 
     // ── Step 3.5: 固定部分（system prompt）を run フォルダに書く（U6・C10） ──
     // run フォルダは Step 2 で用意済み。`system-prompt.md` に書いて起動コマンドの
-    // フラグで渡すので、最初の文には入力値と範囲しか出ない。
+    // フラグで渡すので、最初の文には入力値しか出ない。
     // 書けなかったとき（run フォルダが無い・書き込み失敗）は従来どおり 1 通で送る。
     let system_prompt_path = write_system_prompt_file(config.run_id, &system_prompt);
     let expanded_prompt = match (&system_prompt_path, system_prompt.trim().is_empty()) {
@@ -820,7 +798,7 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     // - SAI_BLOCK_NAME: doc write の通知ブロック名（block_name）に使用
     // - SAI_IS_SUBTASK: サブタスク実行中の場合に "1"
     let subtask_env = if config.is_subtask {
-        // SAI_LINK_BIN: 子から sai-link を呼ぶための実行ファイルのパス（sai-sci が使う）。
+        // SAI_LINK_BIN: 子から sai-link を呼ぶための実行ファイルのパス。
         // shell エスケープして渡す。
         format!(
             "SAI_IS_SUBTASK=1 SAI_LINK_BIN={} ",
@@ -828,15 +806,6 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
         )
     } else {
         String::new()
-    };
-    // 研究の対象 Node。SAI_PROJECT_ROOT の有無によらず前置する。
-    let subtask_env = match &config.target_node {
-        Some(node) => format!(
-            "SAI_TARGET_NODE={} {}",
-            crate::herdr::shell_escape_single_quotes(node),
-            subtask_env
-        ),
-        None => subtask_env,
     };
     // デーモン稼働時（SAI_PROJECT_ROOT 設定済み）のみ付与。
     // デーモン外（テスト等）では従来どおり run_id 指定時のみ付与する。
@@ -867,8 +836,8 @@ pub fn prepare_pipeline(config: &PipelineConfig) -> Result<PreparedPipeline, Orc
     }
 
     // ── CLI を名前だけで呼べるようにする（子の pane・エージェントの pane）──
-    // テンプレートとフックは `sai-link …`・`sai-paper …`・`sai-sci …` を名前だけで呼ぶ。
-    // 3 つの実行ファイルは同じフォルダにできるので、`sai_link_exe()` のあるフォルダを
+    // テンプレートとフックは `sai-link …`・`sai-web …` を名前だけで呼ぶ。
+    // 実行ファイルは同じフォルダにできるので、`sai_link_exe()` のあるフォルダを
     // PATH の先頭に足す。利用者の PATH の設定に頼らない。
     {
         let exe = crate::cc_command::sai_link_exe();
@@ -1381,7 +1350,6 @@ pub fn upsert_block_metadata(
             body_hash: None,
             tag: config.tag.clone(),
             round: config.round.map(|v| v as i64),
-            layer: config.layer.clone(),
             created_at,
             updated_at: String::new(),
         }
@@ -2058,7 +2026,6 @@ pub fn execute_block_pipeline_full(
         base_pane_id,
         pane_id,
         is_subtask: parent_run_id.is_some(),
-        target_node: crate::target_node::resolve(&store, run_id),
         runner: resolved.runner,
     };
 
@@ -2544,7 +2511,7 @@ pub struct SubtaskSettings {
 /// # 引数
 ///
 /// * `store` — DB ストア
-/// * `block_type` — 使用するブロック定義名（例: "sai-code-research"）
+/// * `block_type` — 使用するブロック定義名（例: "sai-code"）
 /// * `subject` — タスク件名（プロンプトとして注入）
 /// * `description` — タスク詳細（プロンプトに追加）
 /// * `inputs` — ブロック入力値（JSON）
@@ -2744,7 +2711,7 @@ fn todo_card_relative_path(card_run_id: i64) -> String {
 
 /// todo のカードを読み、`run_id` がカードの指定と一致することを確認する。
 ///
-/// `sci card` が run_id を research-tree に結び付けているため、run_id が違うカードを指されれば止める。
+/// カードの `run_id` は todo のフォルダ名と同じでなければならない。違うカードを指されれば止める。
 pub fn read_todo_card(card_run_id: i64) -> Result<crate::kanban::KanbanCard, String> {
     let path = todo_card_path(card_run_id);
     let text = std::fs::read_to_string(&path)
@@ -4432,9 +4399,7 @@ mod tests {
                 category: None,
                 tag: None,
                 round: None,
-                layer: None,
                 templates: None,
-                context: None,
                 id: None,
             },
             block_body: String::new(),
@@ -4448,7 +4413,6 @@ mod tests {
             base_pane_id: None,
             pane_id: None,
             is_subtask: false,
-            target_node: None,
             runner: RunnerKind::Cc,
         }
     }
@@ -4505,20 +4469,6 @@ mod tests {
 
     /// run_id が設定されている場合、エージェント用の環境変数
     /// （SAI_PARENT_RUN_ID / SAI_BLOCK_NAME）がコマンド先頭に付与される。
-    #[test]
-    fn test_prepare_pipeline_target_node_prefix() {
-        let _env_lock = finalize_env_lock();
-        let _guard = EnvVarGuard::remove("SAI_PROJECT_ROOT");
-        let mut config = minimal_config();
-        config.run_id = Some(1234);
-        config.target_node = Some("O5".to_string());
-        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert!(prepared.pi_command.contains("SAI_TARGET_NODE='O5' "), "{}", prepared.pi_command);
-        config.target_node = None;
-        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert!(!prepared.pi_command.contains("SAI_TARGET_NODE"), "{}", prepared.pi_command);
-    }
-
     #[test]
     fn test_prepare_pipeline_adds_sai_env_prefix() {
         // 環境変数の影響を受けないよう SAI_PROJECT_ROOT を書き換えるテストと直列化する（U4）
@@ -4584,14 +4534,14 @@ mod tests {
     }
 
     /// 利用者全体（`~/.sai/settings.json`）の `env` が agent の起動コマンドへ付くこと。
-    /// MLflow の接続情報を 1 か所に書けば 全 agent に配られる。
+    /// 接続先などを 1 か所に書けば 全 agent に配られる。
     #[test]
     fn test_prepare_pipeline_adds_settings_env_prefix() {
         let _env_lock = finalize_env_lock();
         let (_root_guard, _home_guard, root, home) = finalize_settings_env_dirs(
             "settings-env-prefix",
             None,
-            Some(r#"{"env": {"MLFLOW_TRACKING_URI": "http://127.0.0.1:5001"}}"#),
+            Some(r#"{"env": {"EXAMPLE_URL": "http://127.0.0.1:5001"}}"#),
         );
         let mut config = minimal_config();
         config.run_id = Some(1234);
@@ -4601,7 +4551,7 @@ mod tests {
 
         assert!(
             prepared.pi_command.contains(
-                "SAI_BLOCK_NAME=sai-test-main MLFLOW_TRACKING_URI='http://127.0.0.1:5001' claude "
+                "SAI_BLOCK_NAME=sai-test-main EXAMPLE_URL='http://127.0.0.1:5001' claude "
             ),
             "設定の env が SAI_* の後ろに付くべき: {}",
             prepared.pi_command
@@ -4619,7 +4569,7 @@ mod tests {
         let (_root_guard, _home_guard, root, home) = finalize_settings_env_dirs(
             "settings-env-order",
             None,
-            Some(r#"{"env": {"MLFLOW_TRACKING_URI": "http://127.0.0.1:5001"}}"#),
+            Some(r#"{"env": {"EXAMPLE_URL": "http://127.0.0.1:5001"}}"#),
         );
         let mut config = minimal_config();
         config.run_id = Some(1234);
@@ -4638,7 +4588,7 @@ mod tests {
             .find("SAI_BLOCK_NAME=")
             .unwrap_or_else(|| panic!("SAI_BLOCK_NAME が付くべき: {}", cmd));
         let pos_env = cmd
-            .find("MLFLOW_TRACKING_URI=")
+            .find("EXAMPLE_URL=")
             .unwrap_or_else(|| panic!("設定の env が付くべき: {}", cmd));
         let pos_pi = cmd.find(" claude ").unwrap_or_else(|| panic!("claude が付くべき: {}", cmd));
 
@@ -4711,7 +4661,7 @@ mod tests {
     }
 
     /// サブブロックの起動コマンドには SAI_IS_SUBTASK=1 と SAI_LINK_BIN（実行ファイルのパス）が付く。
-    /// sai-sci は SAI_LINK_BIN で sai-link の場所を知るため。
+    /// 子が SAI_LINK_BIN で sai-link の場所を知るため。
     #[test]
     fn test_prepare_pipeline_subtask_gets_sai_link_bin() {
         let _env_lock = finalize_env_lock();
@@ -4843,38 +4793,6 @@ mod tests {
         assert!(!prepared.system_prompt.contains("MyApp"));
         assert!(prepared.expanded_prompt.contains("MyApp"));
         assert!(!prepared.expanded_prompt.contains("{{input.name}}"));
-
-        crate::session::cleanup_session_dir(&prepared.session_dir);
-    }
-
-    /// C10: run 開始時の台帳には最初の文の番号だけが入る。
-    /// system prompt（block の例の `#37.5.2`）は入らない。
-    #[test]
-    fn test_prepare_pipeline_records_first_message_in_ledger() {
-        let _env_lock = finalize_env_lock();
-        let root = finalize_test_temp_dir("seen-ids-ledger");
-        std::fs::create_dir_all(root.join(".sai")).unwrap();
-        let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
-        let _home_guard = EnvVarGuard::set("SAI_HOME", root.as_os_str());
-        // run フォルダを用意する（system prompt が固定部分として分かれる形）
-        crate::run_dir::ensure_run_dir(crate::run_dir::TODO_OWNER, 322).unwrap();
-
-        let mut config = minimal_config();
-        config.run_id = Some(322);
-        config.block_body = "# 例\n#37.5.2 のように引用する\n{{input.task_text}}".to_string();
-        let mut inputs = HashMap::new();
-        inputs.insert("task_text".to_string(), "依頼文 #12.3.4 を読め".to_string());
-        config.user_inputs = inputs;
-
-        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert!(prepared.system_prompt.contains("#37.5.2"));
-
-        let ledger = crate::seen_ids::read_all(&root, 322);
-        assert!(ledger.contains("#12.3.4"), "依頼文の番号が入る: {ledger:?}");
-        assert!(
-            !ledger.contains("#37.5.2"),
-            "system prompt の番号は入らない: {ledger:?}"
-        );
 
         crate::session::cleanup_session_dir(&prepared.session_dir);
     }
@@ -5225,9 +5143,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         }
     }
@@ -5439,9 +5355,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         let resolved = resolve_execution_settings(&config, &ExecutionOverrides::default());
@@ -5468,9 +5382,7 @@ mod tests {
             category: None,
             tag: Some("brst".to_string()),
             round: Some(2),
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         let overrides = ExecutionOverrides {
@@ -5529,9 +5441,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
 
@@ -5577,9 +5487,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         // task.md: `model: z-ai/glm-5.3-flash` + `provider: open-router2`
@@ -5617,9 +5525,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         let resolved = resolve_execution_settings(&config, &ExecutionOverrides::default());
@@ -5724,9 +5630,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         let prep = prepare_execution_record(
@@ -5830,9 +5734,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
         }
     }
 
@@ -5965,14 +5867,14 @@ mod tests {
         let child_config = card_child_config("reserved-dir-child");
         let reserved = store.create_reserved_run(None).unwrap();
 
-        // 予約 run のカードを作る（todo/<run_id>/task.md・research-tree の範囲つき）
+        // 予約 run のカードを作る（todo/<run_id>/task.md・メタの項目つき）
         let card_path = todo_card_path(reserved);
         std::fs::create_dir_all(card_path.parent().unwrap()).unwrap();
         let card_text = format!(
             "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {}\n\
              description: N12 の読解\nrunner: pi\nblock: reserved-dir-child\nthinking: \n\
              model: \nprovider: \nround: 1\nglobal_round: 1\ntag: \n\
-             executer: professor\nsci_node: N12\n---\n\n# task_text\n\nN12 を読解する\n",
+             executer: professor\nnote: n1\n---\n\n# task_text\n\nN12 を読解する\n",
             reserved
         );
         std::fs::write(&card_path, &card_text).unwrap();
@@ -6014,8 +5916,8 @@ mod tests {
             moved_text
         );
         assert!(
-            moved_text.contains("sci_node: N12"),
-            "research-tree の範囲（sci_node）が残る:\n{}",
+            moved_text.contains("note: n1"),
+            "メタの項目（note）が残る:\n{}",
             moved_text
         );
         assert!(
@@ -6288,43 +6190,19 @@ mod tests {
         );
     }
 
-    // ── 範囲（context）の扱い（U16・U6） ──
+    // ── `{{context}}` は特別扱いしない ──
 
-    /// AC1: `context: true` のブロックは `prepare_pipeline` で最初の文に `# context` の節が付き、
-    /// 固定部分の `{{context}}` は案内の文になる（U6）。
-    /// `context` の無いブロックは範囲の節がつかない。
+    /// 本文の `{{context}}` は置き換えず、そのまま固定部分に残る。
+    /// 最初の文には入力値の節だけがつく。
     #[test]
-    fn test_prepare_pipeline_inserts_context_when_enabled() {
+    fn test_prepare_pipeline_leaves_context_notation_alone() {
         let _env_lock = finalize_env_lock();
-        // テスト用のプロジェクトルート（settings.json と .sai/sai-engine を持つ）
         let root = finalize_test_temp_dir("context");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".sai")).unwrap();
-        std::fs::write(
-            root.join(".sai/settings.json"),
-            r#"{"context": ["/bin/echo", "run={run_id}", "block={block}"]}"#,
-        )
-        .unwrap();
         let _root_guard = EnvVarGuard::set("SAI_PROJECT_ROOT", root.as_os_str());
         let _home_guard = EnvVarGuard::set("SAI_HOME", root.as_os_str());
 
-        // context: true → 最初の文に `# context` の節が付き、固定部分は案内文
-        let mut config = minimal_config();
-        config.run_id = Some(99);
-        config.block_config.context = Some(true);
-        config.block_body = "前\n{{context}}\n後".to_string();
-        let prepared = prepare_pipeline(&config).expect("prepare_pipeline に失敗");
-        assert_eq!(
-            prepared.expanded_prompt,
-            "# context\n\nrun=99 block=test-block"
-        );
-        assert_eq!(
-            prepared.system_prompt,
-            "前\n（最初のメッセージの「# context」の節にある）\n後"
-        );
-        crate::session::cleanup_session_dir(&prepared.session_dir);
-
-        // context なし → 範囲の節は無く、固定部分は本文のまま（settings.json に有っても使わない）
         let mut config = minimal_config();
         config.run_id = Some(99);
         config.block_body = "前\n{{context}}\n後".to_string();

@@ -169,112 +169,11 @@ fn write_finalize_result(run_id: i64, ok: bool, reason: &str) {
     }
 }
 
-/// ジョブの状態の `state` が「終わった」を表す値か。
-fn job_state_finished(state: &str) -> bool {
-    matches!(state, "done" | "failed" | "cancelled" | "lost")
-}
-
-/// ジョブの状態を読む命令の標準出力から `state` を読む。読めなければ `None`。
-fn parse_job_state(stdout: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(stdout.trim()).ok()?;
-    v.get("state")?.as_str().map(str::to_string)
-}
-
-/// ジョブの状態を読む命令を作る。
-///
-/// `.sai/settings.json` の `job_status`（文字の配列。先頭が実行ファイル）を読み、
-/// `{job}` をジョブの ID に置き換えて使う。設定が無い・形が違うときは `Err`。
-fn job_status_command(root: &Path, job_id: &str) -> Result<std::process::Command, String> {
-    let template = crate::pre_run::job_status_template_at(root)
-        .ok_or_else(|| crate::pre_run::JOB_STATUS_MISSING.to_string())?;
-    let mut args: Vec<String> = template
-        .iter()
-        .map(|arg| arg.replace("{job}", job_id))
-        .collect();
-    let program = args.remove(0);
-    let mut cmd = std::process::Command::new(program);
-    cmd.args(args)
-        .current_dir(root)
-        .env("SAI_PROJECT_ROOT", root);
-    Ok(cmd)
-}
-
-/// ジョブの状態を読む（90 秒で打ち切る）。失敗は文で返す。
-fn read_job_state(root: &Path, job_id: &str) -> Result<String, String> {
-    let mut child = job_status_command(root, job_id)?
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("命令を起動できません: {}", e))?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(90);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("90 秒で時間切れになりました".to_string());
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-            Err(e) => return Err(format!("命令の待機に失敗: {}", e)),
-        }
-    };
-    if !status.success() {
-        return Err(format!("終了コード {}", status.code().unwrap_or(-1)));
-    }
-    let mut out = String::new();
-    if let Some(mut so) = child.stdout.take() {
-        use std::io::Read;
-        let _ = so.read_to_string(&mut out);
-    }
-    parse_job_state(&out).ok_or_else(|| "state を読めません".to_string())
-}
-
-/// 状態が「終わった」なら、`task.md` を読み直して `after_job` が同じ値のときだけ消し、
-/// 起こす run_id を返す。途中で解除・変更されていたら何もしない。
-fn release_job_card(path: &Path, job_id: &str, state: Option<&str>) -> Option<i64> {
-    if !state.is_some_and(job_state_finished) {
-        return None;
-    }
-    let mut card = crate::kanban::parse_card(&std::fs::read_to_string(path).ok()?)?;
-    if card.frontmatter.meta.get("after_job").map(|s| s.trim()) != Some(job_id) {
-        return None;
-    }
-    let run_id = card.frontmatter.run_id.trim().parse::<i64>().ok()?;
-    card.frontmatter.meta.remove("after_job");
-    std::fs::write(path, crate::kanban::render_card(&card)).ok()?;
-    Some(run_id)
-}
-
 /// デーモンがカード実行のために呼ぶ引数（`card run <run_id>`）。
 ///
 /// 旧 `phone card run` の別名ではなく、新しい木の `card run` を使う。
 fn card_run_args(run_id: i64) -> [String; 3] {
     ["card".to_string(), "run".to_string(), run_id.to_string()]
-}
-
-/// `sai-link card run <run_id>` を別プロセスで起こす（終わりは別の糸で待つ）。
-fn spawn_card_run(root: &Path, run_id: i64) {
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let spawned = std::process::Command::new(exe)
-        .args(card_run_args(run_id))
-        .current_dir(root)
-        .env("SAI_PROJECT_ROOT", root)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-    match spawned {
-        Ok(mut child) => {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        }
-        Err(e) => eprintln!("[sai-engine] ジョブ後の実行に失敗: run_id={}: {}", run_id, e),
-    }
 }
 
 /// sai デーモン。
@@ -293,10 +192,6 @@ pub struct Daemon {
     block_def_cache: Mutex<HashMap<PathBuf, (SystemTime, u64)>>,
     /// phone 書き出しの差分管理（実装計画 01 §2.3）
     phone_export: Mutex<PhoneExportState>,
-    /// ジョブの状態を読んでいる最中の run_id（同じカードの糸を重ねて立てない）
-    job_busy: Arc<Mutex<HashSet<i64>>>,
-    /// カードごとの前回の失敗の文（同じ失敗を繰り返しログに出さない）
-    job_errs: Arc<Mutex<HashMap<i64, String>>>,
 }
 
 /// phone 書き出し（`~/.sai/phone/runs/`）の差分管理状態（01 §2.3）。
@@ -341,8 +236,6 @@ impl Daemon {
             running_executions: Arc::new(Mutex::new(HashMap::new())),
             block_def_cache: Mutex::new(HashMap::new()),
             phone_export: Mutex::new(PhoneExportState::default()),
-            job_busy: Arc::new(Mutex::new(HashSet::new())),
-            job_errs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -489,10 +382,6 @@ impl Daemon {
                 // 実行予定時刻を過ぎた todo のカードを実行する
                 self.run_scheduled_cards();
             }
-            // ジョブの終わりを待つ todo のカードを見回る（約 60 秒ごと）
-            if tick % (STATUS_WRITE_EVERY * 12) == 0 {
-                self.run_job_waiting_cards();
-            }
 
             std::thread::sleep(POLL_INTERVAL);
         }
@@ -617,69 +506,6 @@ impl Daemon {
                 }
                 Err(e) => eprintln!("[sai-engine] 予定の実行に失敗: run_id={}: {}", run_id, e),
             }
-        }
-    }
-
-    /// `after_job:` を持つ todo のカードについて、ジョブが終わっていれば実行する。
-    ///
-    /// 状態の読み取りは ssh で数秒〜60 秒かかるため、カードごとに別の糸で行う。
-    /// 読めなかったときはカードを変えず、次の見回りでやり直す。
-    fn run_job_waiting_cards(&self) {
-        let todo = crate::project::sai_path(crate::run_dir::OUTPUTS_DIR)
-            .join(crate::run_dir::TODO_OWNER);
-        let Ok(entries) = std::fs::read_dir(&todo) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path().join(crate::run_dir::TASK_FILE);
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let Some(card) = crate::kanban::parse_card(&text) else {
-                continue;
-            };
-            let Some(job) = card.frontmatter.meta.get("after_job").map(|s| s.trim().to_string())
-            else {
-                continue;
-            };
-            let Ok(run_id) = card.frontmatter.run_id.trim().parse::<i64>() else {
-                continue;
-            };
-            if !crate::kanban::valid_job_id(&job) {
-                continue;
-            }
-            if !self.job_busy.lock().unwrap().insert(run_id) {
-                continue;
-            }
-            let busy = Arc::clone(&self.job_busy);
-            let errs = Arc::clone(&self.job_errs);
-            std::thread::spawn(move || {
-                let root = crate::project::project_root();
-                match read_job_state(&root, &job) {
-                    Ok(state) => {
-                        errs.lock().unwrap().remove(&run_id);
-                        if release_job_card(&path, &job, Some(&state)).is_some() {
-                            eprintln!(
-                                "[sai-engine] ジョブ {} が {} で終わったので実行します: run_id={}",
-                                job, state, run_id
-                            );
-                            spawn_card_run(&root, run_id);
-                        }
-                    }
-                    Err(e) => {
-                        // 失敗の文が前と同じなら出さない
-                        let mut map = errs.lock().unwrap();
-                        if map.get(&run_id) != Some(&e) {
-                            eprintln!(
-                                "[sai-engine] ジョブ {} の状態を読めません: run_id={}: {}",
-                                job, run_id, e
-                            );
-                            map.insert(run_id, e);
-                        }
-                    }
-                }
-                busy.lock().unwrap().remove(&run_id);
-            });
         }
     }
 
@@ -1533,19 +1359,6 @@ mod tests {
     use super::*;
     use crate::herdr::SplitDirection;
 
-    #[test]
-    fn parse_job_state_reads_state() {
-        assert_eq!(parse_job_state(r#"{"state": "done"}"#).as_deref(), Some("done"));
-        assert_eq!(parse_job_state("{壊れ"), None);
-        assert_eq!(parse_job_state(r#"{"x": 1}"#), None);
-        for s in ["done", "failed", "cancelled", "lost"] {
-            assert!(job_state_finished(s), "{s}");
-        }
-        for s in ["queued", "running"] {
-            assert!(!job_state_finished(s), "{s}");
-        }
-    }
-
     /// デーモンは `card run <run_id>` を呼ぶ（旧 `phone card run` ではない）。
     #[test]
     fn card_run_args_use_new_command_tree() {
@@ -1553,82 +1366,6 @@ mod tests {
             card_run_args(42),
             ["card".to_string(), "run".to_string(), "42".to_string()]
         );
-    }
-
-    /// `.sai/settings.json` の `job_status` が出す状態で、カードを起こす対象に選ぶかが決まる。
-    #[test]
-    fn job_card_is_released_only_when_job_finished() {
-        use std::os::unix::fs::PermissionsExt;
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        let task = root.join("task.md");
-        let mut card = crate::kanban::KanbanCard {
-            frontmatter: crate::kanban::CardFrontmatter::new_card("2026/10/02 10:00:00".into()),
-            body: "# task_text\nやること\n".into(),
-        };
-        card.frontmatter.run_id = "42".into();
-        card.frontmatter.set_meta("after_job".into(), "j1".into());
-        let write = |c: &crate::kanban::KanbanCard| {
-            std::fs::write(&task, crate::kanban::render_card(c)).unwrap()
-        };
-        write(&card);
-
-        // 状態はファイルから出す偽の命令（`job_status` が指す小さなスクリプト）
-        let state = root.join("state.txt");
-        let exe = root.join("fake.sh");
-        std::fs::write(&exe, format!("#!/bin/sh\ncat '{}'\n", state.display())).unwrap();
-        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let settings = format!(
-            "{{\"job_status\": [\"{}\", \"status\", \"{{job}}\", \"--json\"]}}",
-            exe.display()
-        );
-        std::fs::create_dir_all(root.join(".sai")).unwrap();
-        std::fs::write(root.join(".sai/settings.json"), settings).unwrap();
-
-        let fake = |s: &str| {
-            std::fs::write(&state, s).unwrap();
-            read_job_state(root, "j1")
-        };
-        let running = fake(r#"{"state":"running"}"#).unwrap();
-        assert_eq!(release_job_card(&task, "j1", Some(&running)), None);
-        assert!(std::fs::read_to_string(&task).unwrap().contains("after_job: j1"));
-
-        // 別の値に変わっていたら何もしない
-        let done = fake(r#"{"state":"done"}"#).unwrap();
-        assert_eq!(release_job_card(&task, "other", Some(&done)), None);
-        assert_eq!(release_job_card(&task, "j1", None), None);
-
-        assert_eq!(release_job_card(&task, "j1", Some(&done)), Some(42));
-        assert!(!std::fs::read_to_string(&task).unwrap().contains("after_job"));
-    }
-
-    /// `.sai/settings.json` に `job_status` が無い・空・形が違うときは、状態を読めない。
-    /// 常駐は起こさない（`release_job_card` は `None` を返す）。
-    #[test]
-    fn job_card_not_released_without_job_status() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        let task = root.join("task.md");
-        let mut card = crate::kanban::KanbanCard {
-            frontmatter: crate::kanban::CardFrontmatter::new_card("2026/10/02 10:00:00".into()),
-            body: "# task_text\nやること\n".into(),
-        };
-        card.frontmatter.run_id = "42".into();
-        card.frontmatter.set_meta("after_job".into(), "j1".into());
-        std::fs::write(&task, crate::kanban::render_card(&card)).unwrap();
-
-        // 設定が無い（.sai/settings.json 自体が無い）
-        let err = read_job_state(root, "j1").unwrap_err();
-        assert!(err.contains(crate::pre_run::JOB_STATUS_MISSING), "err={err}");
-        assert_eq!(release_job_card(&task, "j1", None), None);
-        assert!(std::fs::read_to_string(&task).unwrap().contains("after_job: j1"));
-
-        // 空配列・形が違うときも同じ
-        std::fs::create_dir_all(root.join(".sai")).unwrap();
-        for body in [r#"{"job_status": []}"#, r#"{"job_status": "uv run"}"#] {
-            std::fs::write(root.join(".sai/settings.json"), body).unwrap();
-            assert!(read_job_state(root, "j1").is_err(), "body={body}");
-        }
     }
 
     // ---- PID ファイル管理（実デーモンの PID ファイルに影響しないよう一時パスで実行）----

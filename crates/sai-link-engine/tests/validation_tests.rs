@@ -24,9 +24,7 @@ fn valid_config() -> BlockConfig {
         category: None,
         tag: None,
         round: None,
-        layer: None,
         templates: None,
-        context: None,
         id: None,
     }
 }

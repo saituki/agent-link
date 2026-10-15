@@ -549,9 +549,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: Some(vec!["tmp1".to_string(), "tmp2".to_string()]),
-            context: None,
             id: None,
         };
 
@@ -595,9 +593,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: Some(vec!["guide".to_string()]),
-            context: None,
             id: None,
         };
 
@@ -624,9 +620,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: Some(vec!["not_exist".to_string()]),
-            context: None,
             id: None,
         };
 
@@ -658,9 +652,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         };
         assert_eq!(
@@ -698,9 +690,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: Some(vec!["tmp1".to_string()]),
-            context: None,
             id: None,
         };
 

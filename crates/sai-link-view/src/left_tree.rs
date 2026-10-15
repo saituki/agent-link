@@ -6,7 +6,7 @@
 //! JSON に組み替えて返す。
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::card_entries::{
     card_path_for_execution, pending_card_paths, pending_run_ids, todo_card_info, CardEntry,
@@ -27,12 +27,6 @@ pub const RUNNING_FOLDER_ID: i64 = -1_001;
 pub const REVIEW_FOLDER_ID: i64 = -1_002;
 /// `done` フォルダの固定 ID。
 pub const DONE_FOLDER_ID: i64 = -1_003;
-/// Customer の block（利用者の意見・バグ・質問）。この run は Customer フォルダにだけ出す。
-/// Web の `apps/web/src/sai_web/runs.py` の `CUSTOMER_BLOCKS` と同じ値にする。
-pub const CUSTOMER_BLOCKS: &[&str] = &["user-report", "user-question", "user-opinion"];
-/// `Customer` フォルダの固定 ID。
-pub const CUSTOMER_FOLDER_ID: i64 = -1_004;
-
 /// GR フォルダの一意 ID（LR フォルダと衝突しない負値）。
 pub fn gr_folder_id(gr: Option<i64>) -> i64 {
     -1_000_000i64 - gr.unwrap_or(0)
@@ -126,35 +120,12 @@ pub fn build_left_tree(
     // ブロック定義のラウンド（実行時に上書きされていない場合のフォールバック）
     let mut block_round_cache: HashMap<i64, Option<i64>> = HashMap::new();
 
-    // Customer の実行（block 名が `CUSTOMER_BLOCKS`）。Customer フォルダにだけ出す。
-    // 判定は block の `name`（表示名 `display_name` ではない）で行う。
-    let mut is_customer_block: HashMap<i64, bool> = HashMap::new();
-    let mut customer_execs: Vec<&ExecutionHistory> = Vec::new();
-    for e in executions.iter() {
-        if mb_replica_execs.contains(&e.id.unwrap_or(0)) {
-            continue;
-        }
-        let is_customer = *is_customer_block.entry(e.block_id).or_insert_with(|| {
-            store
-                .get_block_by_id(e.block_id)
-                .map(|b| CUSTOMER_BLOCKS.contains(&b.name.as_str()))
-                .unwrap_or(false)
-        });
-        if is_customer {
-            customer_execs.push(e);
-        }
-    }
-    // 新しい順（実行 ID の大きい順）
-    customer_execs.sort_by_key(|e| std::cmp::Reverse(e.id.unwrap_or(0)));
-    let customer: HashSet<i64> = customer_execs.iter().filter_map(|e| e.id).collect();
-
     // (GR, 解決済みLR, &exec) の一覧を構築する
     // ソート順: GR 昇順（None は最後）→ LR 昇順（None は最後）→ created_at 昇順
     let mut entries: Vec<_> = Vec::with_capacity(executions.len());
     for e in executions.iter() {
         // U13・R25: メインブロック複製（mb1.x）は左SB の実行一覧に表示しない
-        // Customer の実行は Customer フォルダにだけ出す（上の `customer`）
-        if mb_replica_execs.contains(&e.id.unwrap_or(0)) || customer.contains(&e.id.unwrap_or(0)) {
+        if mb_replica_execs.contains(&e.id.unwrap_or(0)) {
             continue;
         }
         // 未移動はレーン側のみ（R/r との重複を避ける）
@@ -192,62 +163,10 @@ pub fn build_left_tree(
 
     let mut items: Vec<LeftTreeItem> = Vec::with_capacity(executions.len() + 32);
 
-    // 最上位の `Customer` フォルダ（先頭）。実行が 0 件でも出す（他のフォルダと同じ）。
-    {
-        let open = prev_expanded.get(&CUSTOMER_FOLDER_ID).copied().unwrap_or(false);
-        items.push(LeftTreeItem {
-            id: CUSTOMER_FOLDER_ID,
-            name: format!("{}Customer", FOLDER_ICON),
-            depth: 0,
-            expanded_default: open,
-            is_last_child: false,
-            kind: LeftTreeKind::Folder,
-            ancestor_last: Vec::new(),
-            card_path: None,
-            run_id: None,
-            lane: None,
-            status: None,
-        });
-        for (ci, e) in customer_execs.iter().enumerate() {
-            let exec_id = e.id.unwrap_or(0);
-            let block_name = block_name_cache
-                .entry(e.block_id)
-                .or_insert_with(|| {
-                    store
-                        .get_block_by_id(e.block_id)
-                        .map(|b| b.display_name)
-                        .unwrap_or_else(|_| format!("(block_id={})", e.block_id))
-                })
-                .clone();
-            items.push(LeftTreeItem {
-                id: exec_id,
-                name: format!("ID{}/{}", exec_id, block_name),
-                depth: 1,
-                expanded_default: false,
-                is_last_child: ci + 1 == customer_execs.len(),
-                kind: LeftTreeKind::Leaf,
-                ancestor_last: Vec::new(),
-                card_path: card_path_for_execution(e.kanban_card_path.as_deref(), exec_id),
-                run_id: Some(exec_id),
-                lane: Some(sai_link_engine::run_dir::owner_for(
-                    &e.status,
-                    e.review_done,
-                    false,
-                    e.global_round,
-                )),
-                status: Some(e.status.clone()),
-            });
-        }
-    }
-
     // sidebar 最上位: `todo` / `running` / `review` / `done` フォルダ（同列）。
     {
         // todo 載せ条件は `todo_card_paths` に共通化（`phone card run` も同じものを使う）。
-        // Customer の run の todo カードは Customer フォルダにだけ出す（ここからは外す）。
-        let todo_cards: Vec<PathBuf> = todo_card_paths(executions)
-            .into_iter()
-            .filter(|p| !todo_card_run_id(p).is_some_and(|rid| customer.contains(&rid)))
-            .collect();
+        let todo_cards: Vec<PathBuf> = todo_card_paths(executions);
         let todo_open = prev_expanded.get(&TODO_FOLDER_ID).copied().unwrap_or(false);
         items.push(LeftTreeItem {
             id: TODO_FOLDER_ID,
@@ -342,7 +261,6 @@ pub fn build_left_tree(
                     e.lane == lane
                         && e.exec_id.is_some()
                         && !mb_replica_execs.contains(&e.exec_id.unwrap_or(0))
-                        && !customer.contains(&e.exec_id.unwrap_or(0))
                 })
                 .collect();
             for (li, e) in lane_items.iter().enumerate() {
@@ -476,13 +394,6 @@ pub fn build_left_tree(
     items
 }
 
-/// todo カード md の表示用 run_id（`todo_card_info` と同じ読み方）。読めなければ `None`。
-fn todo_card_run_id(card_path: &Path) -> Option<i64> {
-    let text = std::fs::read_to_string(card_path).ok()?;
-    let card = sai_link_engine::kanban::parse_card(&text)?;
-    todo_card_info(card_path, &card)?.run_id
-}
-
 /// todo フォルダに載せるカードパス一覧（`phone tree` の todo 条件）。
 ///
 /// `phone card run <run_id>` の対象選択からも同じ関数を呼んで二重実装しない。
@@ -546,8 +457,7 @@ pub fn todo_card_paths(executions: &[ExecutionHistory]) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::card_entries::collect_card_entries_from;
-    use sai_link_engine::db::models::{BlockMetadata, ExecutionHistory};
+    use sai_link_engine::db::models::ExecutionHistory;
 
     /// 送信 1 枚で、他の同名カード（全カードが `task.md`）まで todo から消えないこと。
     ///
@@ -619,111 +529,6 @@ mod tests {
             "送信していない同名カード 91002 は残る（全消えの回帰防止）: {:?}",
             names
         );
-
-        std::fs::remove_dir_all(&tmp).ok();
-        std::env::remove_var("SAI_PROJECT_ROOT");
-    }
-
-    fn insert_test_block(store: &SaiStore, name: &str) -> i64 {
-        let b = BlockMetadata::new(
-            name.to_string(),
-            String::new(),
-            "m".to_string(),
-            None,
-            "off".to_string(),
-            "true".to_string(),
-            "true".to_string(),
-            None,
-            300,
-            "none".to_string(),
-            true,
-            format!("blocks/{}.md", name),
-            None,
-        );
-        store.insert_block(&b).unwrap()
-    }
-
-    /// Customer の block の実行は先頭の `Customer` フォルダにだけ出て、研究の木
-    /// （review レーン・`R<gr>`）には出ないこと。普通の実行は今までどおり出ること。
-    #[test]
-    fn customer_runs_only_under_customer_folder() {
-        let _env = crate::TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!(
-            "sai_lefttree_customer_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(tmp.join(".sai")).unwrap();
-        std::env::set_var("SAI_PROJECT_ROOT", &tmp);
-
-        let store = SaiStore::open_in_memory().unwrap();
-        let customer_block = insert_test_block(&store, "user-report");
-        let normal_block = insert_test_block(&store, "plan");
-
-        // Customer・未移動・完了（review レーンに載る経路）
-        let c_review = store.create_execution(customer_block, None).unwrap();
-        store.update_execution_status(c_review, "completed").unwrap();
-        // Customer・移動済み（gr 999）
-        let c_moved = store.create_execution(customer_block, None).unwrap();
-        store.update_execution_status(c_moved, "completed").unwrap();
-        store.update_execution_rounds(c_moved, Some(1), Some(999)).unwrap();
-        store.update_execution_workflow_moved(c_moved, true).unwrap();
-        // 普通・未移動・完了（review レーン）
-        let n_review = store.create_execution(normal_block, None).unwrap();
-        store.update_execution_status(n_review, "completed").unwrap();
-        // 普通・移動済み（R1 › r1）
-        let n_moved = store.create_execution(normal_block, None).unwrap();
-        store.update_execution_status(n_moved, "completed").unwrap();
-        store.update_execution_rounds(n_moved, Some(1), Some(1)).unwrap();
-        store.update_execution_workflow_moved(n_moved, true).unwrap();
-
-        let execs = store.list_view_executions(100).unwrap();
-        let lane_entries =
-            collect_card_entries_from(&store, &execs, &HashMap::new(), &[], &HashSet::new());
-        let items =
-            build_left_tree(&store, &execs, &lane_entries, &HashSet::new(), &HashMap::new());
-
-        let customer_folder = format!("{}Customer", FOLDER_ICON);
-        assert_eq!(items[0].name, customer_folder, "先頭は Customer フォルダ");
-        assert_eq!(items[0].id, CUSTOMER_FOLDER_ID);
-
-        // 各 leaf が、直前の depth 0 のフォルダの下に何回出るか
-        let mut parent = String::new();
-        let mut placed: Vec<(String, i64)> = Vec::new();
-        for it in &items {
-            if it.depth == 0 {
-                parent = it.name.clone();
-            }
-            if let (LeftTreeKind::Leaf, Some(rid)) = (it.kind, it.run_id) {
-                placed.push((parent.clone(), rid));
-            }
-        }
-        let under = |folder: &str, rid: i64| {
-            placed.iter().filter(|(p, r)| p == folder && *r == rid).count()
-        };
-        let all = |rid: i64| placed.iter().filter(|(_, r)| *r == rid).count();
-
-        // Customer の run は Customer の下に 1 回ずつ、それ以外のフォルダには出ない
-        for rid in [c_review, c_moved] {
-            assert_eq!(under(&customer_folder, rid), 1, "Customer 直下: {rid}");
-            assert_eq!(all(rid), 1, "他のフォルダに出ない: {rid}");
-        }
-        let c_leaf = items.iter().find(|i| i.run_id == Some(c_moved)).unwrap();
-        assert_eq!(c_leaf.name, format!("ID{}/user-report", c_moved));
-        assert!(
-            !items.iter().any(|i| i.name == format!("{}R999", FOLDER_ICON)),
-            "Customer の run だけの R999 は出ない"
-        );
-
-        // 普通の run は今までどおり（review レーン・R1 › r1 の下に 1 回ずつ）
-        assert_eq!(under(&format!("{}review", FOLDER_ICON), n_review), 1);
-        assert_eq!(all(n_review), 1);
-        assert_eq!(all(n_moved), 1);
-        assert!(items.iter().any(|i| i.name == format!("{}R1", FOLDER_ICON)));
 
         std::fs::remove_dir_all(&tmp).ok();
         std::env::remove_var("SAI_PROJECT_ROOT");

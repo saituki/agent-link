@@ -7,9 +7,9 @@
 //!   道具の結果は文字数換算の近似である。provider の実際の usage（`execution_usage`）は使わない
 //!   （Project 画面のみ正確値）
 //! - 種別: `user` / `agent` / `toolCall` / `toolResult` / `thinking`
-//! - `cli`（C11）: 道具の呼び出し（`sai-paper`・`sai-sci`・`sai-link`）と台帳の集計
+//! - `cli`（C11）: 道具の呼び出し（`sai-link`・`sai-web`）の集計
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use sai_link_engine::session::{HistoryEvent, HistoryTypeTokens};
 
@@ -17,7 +17,7 @@ use sai_link_engine::session::{HistoryEvent, HistoryTypeTokens};
 pub const HISTORY_TYPES: [&str; 5] = ["user", "agent", "toolCall", "toolResult", "thinking"];
 
 /// 失敗の分類（表示順・C11）。
-const FAILURE_CLASSES: [&str; 5] = ["ledger", "input", "not_found", "conflict", "other"];
+const FAILURE_CLASSES: [&str; 4] = ["input", "not_found", "conflict", "other"];
 
 // ============================================================================
 // 状態
@@ -34,7 +34,7 @@ pub struct HistoryViewData {
     pub type_tokens: HistoryTypeTokens,
     /// Timeline イベント（時刻順）
     pub events: Vec<HistoryEvent>,
-    /// CLI の呼び出しと台帳の集計（C11）
+    /// CLI の呼び出しの集計（C11）
     pub cli: CliSummary,
 }
 
@@ -77,7 +77,6 @@ impl HistoryViewData {
                     command: e.command.as_deref(),
                     preview: e.preview.as_deref(),
                     is_error: e.is_error,
-                    ids: e.ids.iter().map(String::as_str).collect(),
                     result_tokens: e.result_tokens,
                 })
                 .collect(),
@@ -97,7 +96,7 @@ pub struct PhoneHistoryJson<'a> {
     pub type_tokens: PhoneTypeTokens,
     /// Timeline イベント（時刻順）
     pub events: Vec<PhoneEvent<'a>>,
-    /// CLI の呼び出しと台帳の集計（C11）
+    /// CLI の呼び出しの集計（C11）
     pub cli: &'a CliSummary,
 }
 
@@ -134,7 +133,7 @@ pub struct PhoneEvent<'a> {
     /// 呼び出しの番号
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_id: Option<&'a str>,
-    /// Bash 系の道具の命令（`sai-paper content read` など）
+    /// Bash 系の道具の命令（`sai-link doc read` など）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<&'a str>,
     /// 結果の本文の先頭 200 字
@@ -143,29 +142,26 @@ pub struct PhoneEvent<'a> {
     /// 結果が失敗か
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
-    /// 呼び出しの入力に出る番号（`#x.y.z`）
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub ids: Vec<&'a str>,
     /// 結果の文字数による近似
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_tokens: Option<u64>,
 }
 
-/// `cli`（C11）: CLI の呼び出しと台帳の集計。
+/// `cli`（C11）: CLI の呼び出しの集計。
 #[derive(Debug, Default, PartialEq, serde::Serialize)]
 pub struct CliSummary {
     /// 命令ごとの呼び出し数（多い順・同数は命令名の順）
     pub calls: Vec<CliCallCount>,
-    /// 失敗の分類ごとの数（`ledger`・`input`・`not_found`・`conflict`・`other` の順・0 は出さない）
+    /// 失敗の分類ごとの数（`input`・`not_found`・`conflict`・`other` の順・0 は出さない）
     pub failures: Vec<CliFailureCount>,
-    /// 台帳の番号と、使った番号
+    /// 台帳の番号の数（台帳を廃止したため、常に 0。Web が読む項目を残している）
     pub ids: CliIdCount,
 }
 
 /// `cli.calls` の 1 件。
 #[derive(Debug, PartialEq, serde::Serialize)]
 pub struct CliCallCount {
-    /// 命令名（`sai-paper content read` など）
+    /// 命令名（`sai-link doc read` など）
     pub command: String,
     /// 呼び出し数（`--help` を除く）
     pub count: u64,
@@ -186,13 +182,12 @@ pub struct CliFailureCount {
     pub count: u64,
 }
 
-/// `cli.ids`: `seen` は台帳の異なる番号、`used` は台帳にあって呼び出しの入力に出た番号、
-/// `unused` は台帳にあって使わなかった番号の数（`used + unused == seen`）。
+/// `cli.ids`: 台帳を廃止したため、3 つとも常に 0。
 #[derive(Debug, Default, PartialEq, serde::Serialize)]
 pub struct CliIdCount {
-    /// 台帳（見せた番号）の数
+    /// 見せた番号の数
     pub seen: u64,
-    /// 使った番号の数（台帳にある番号だけ）
+    /// 使った番号の数
     pub used: u64,
     /// 見せたのに使わなかった番号の数
     pub unused: u64,
@@ -251,10 +246,7 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Hist
             .unwrap_or_default()
     };
 
-    let cli = cli_summary(
-        &events,
-        &sai_link_engine::seen_ids::read_all(&root, exec_id),
-    );
+    let cli = cli_summary(&events);
 
     Some(HistoryViewData {
         title: format!("Session #{}", exec_id),
@@ -268,11 +260,10 @@ pub fn build(store: &sai_link_engine::db::SaiStore, exec_id: i64) -> Option<Hist
     })
 }
 
-/// 呼び出しの行と台帳から `cli` の集計を作る（純関数・C11）。
+/// 呼び出しの行から `cli` の集計を作る（純関数・C11）。
 ///
-/// `ledger` は台帳（`seen_ids::read_all`）の番号の集合。`events` の `command`・`is_error`・
-/// `failure`・`ids` から数える。
-pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSummary {
+/// `events` の `command`・`is_error`・`failure` から数える。
+pub fn cli_summary(events: &[HistoryEvent]) -> CliSummary {
     /// 命令ごとの集計（`--help` を除く）。
     #[derive(Default)]
     struct Tally {
@@ -282,10 +273,8 @@ pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSum
     }
     let mut calls: BTreeMap<&str, Tally> = BTreeMap::new();
     let mut failures: BTreeMap<(&'static str, String), u64> = BTreeMap::new();
-    let mut used: BTreeSet<&str> = BTreeSet::new();
 
     for e in events {
-        used.extend(e.ids.iter().map(String::as_str));
         // `--help` は呼び出しに数えない（help だけ増やし、失敗にも数えない）
         if e.help {
             if let Some(command) = &e.command {
@@ -340,20 +329,10 @@ pub fn cli_summary(events: &[HistoryEvent], ledger: &BTreeSet<String>) -> CliSum
         )
     });
 
-    // 使った番号は台帳にある番号だけ数える（`used + unused == seen`）
-    let used_in_ledger = ledger
-        .iter()
-        .filter(|id| used.contains(id.as_str()))
-        .count() as u64;
-    let seen = ledger.len() as u64;
     CliSummary {
         calls,
         failures,
-        ids: CliIdCount {
-            seen,
-            used: used_in_ledger,
-            unused: seen - used_in_ledger,
-        },
+        ids: CliIdCount::default(),
     }
 }
 
@@ -366,7 +345,6 @@ mod tests {
         command: Option<&str>,
         is_error: Option<bool>,
         failure: Option<&'static str>,
-        ids: &[&str],
     ) -> HistoryEvent {
         HistoryEvent {
             kind: "toolCall".to_string(),
@@ -374,72 +352,64 @@ mod tests {
             command: command.map(String::from),
             is_error,
             failure,
-            ids: ids.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         }
     }
 
-    /// 見本の events と台帳から `calls`・`failures`・`ids` を数えること（C11）。
+    /// 見本の events から `calls`・`failures` を数え、`ids` は常に 0 であること（C11）。
     #[test]
     fn cli_summary_counts() {
         let events = vec![
-            event(Some("sai-paper content read"), Some(false), None, &["#37"]),
+            event(Some("sai-link doc read"), Some(false), None),
             event(
-                Some("sai-paper content read"),
+                Some("sai-link doc read"),
                 Some(true),
-                Some(failure_class("台帳に無い番号です: #37.5.2")),
-                &["#37.5.2"],
+                Some(failure_class("Exit code 2\n引数の誤り")),
             ),
             event(
-                Some("sai-sci op"),
+                Some("sai-link task create"),
                 Some(true),
                 Some(failure_class("Exit code 3\n見つからない")),
-                &[],
             ),
             event(
-                Some("sai-sci op"),
+                Some("sai-link task create"),
                 Some(true),
                 Some(failure_class("Exit code 1\n何か")),
-                &["#37"],
             ),
             // 命令でない行（user・agent など）は calls に入らない
-            event(None, None, None, &[]),
+            event(None, None, None),
             // `sai-*` 以外の道具（Edit など）の失敗は、calls にも failures にも入らない
-            event(None, Some(true), Some(failure_class("Exit code 1\n何か")), &[]),
+            event(None, Some(true), Some(failure_class("Exit code 1\n何か"))),
             // `--help` は呼び出しに数えず、失敗にも数えない（help だけ増える）
             HistoryEvent {
                 command: Some("sai-link run finalize".into()),
                 is_error: Some(true),
                 failure: Some("other"),
                 help: true,
-                ..event(None, None, None, &[])
+                ..event(None, None, None)
             },
             // 命令が読めない `sai-*` の失敗は `(不明)` で数える（U04）
             HistoryEvent {
                 cli_mention: true,
                 is_error: Some(true),
                 failure: Some("other"),
-                ..event(None, None, None, &[])
+                ..event(None, None, None)
             },
         ];
-        let ledger: BTreeSet<String> = ["#37", "#40", "#41"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
 
-        let got = cli_summary(&events, &ledger);
+        let got = cli_summary(&events);
         assert_eq!(
             got,
             CliSummary {
                 calls: vec![
                     CliCallCount {
-                        command: "sai-paper content read".into(),
+                        command: "sai-link doc read".into(),
                         count: 2,
                         errors: 1,
                         help: 0,
                     },
                     CliCallCount {
-                        command: "sai-sci op".into(),
+                        command: "sai-link task create".into(),
                         count: 2,
                         errors: 2,
                         help: 0,
@@ -453,13 +423,13 @@ mod tests {
                 ],
                 failures: vec![
                     CliFailureCount {
-                        class: "ledger",
-                        command: "sai-paper content read".into(),
+                        class: "input",
+                        command: "sai-link doc read".into(),
                         count: 1
                     },
                     CliFailureCount {
                         class: "not_found",
-                        command: "sai-sci op".into(),
+                        command: "sai-link task create".into(),
                         count: 1
                     },
                     CliFailureCount {
@@ -469,19 +439,12 @@ mod tests {
                     },
                     CliFailureCount {
                         class: "other",
-                        command: "sai-sci op".into(),
+                        command: "sai-link task create".into(),
                         count: 1
                     },
                 ],
-                // 台帳は #37・#40・#41。使ったのは #37 と #37.5.2（台帳に無い）。
-                // 台帳にあって使ったのは #37 だけ。使わなかったのは #40・#41
-                ids: CliIdCount {
-                    seen: 3,
-                    used: 1,
-                    unused: 2
-                },
+                ids: CliIdCount::default(),
             }
         );
-        assert_eq!(got.ids.used + got.ids.unused, got.ids.seen);
     }
 }

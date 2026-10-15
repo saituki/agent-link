@@ -522,7 +522,7 @@ fn test_cli_card_create_writes_meta() {
     let out = run_with_stdin(
         &["card", "create"],
         &dir,
-        br#"{"task_text":"hello","meta":{"sci_node":"Q12"}}"#,
+        br#"{"task_text":"hello","meta":{"note":"n1"}}"#,
     );
     assert!(
         out.status.success(),
@@ -532,7 +532,7 @@ fn test_cli_card_create_writes_meta() {
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     let path = value["path"].as_str().expect("path があること");
     let text = std::fs::read_to_string(path).expect("task.md を読めること");
-    assert!(text.contains("sci_node: Q12"), "meta が frontmatter に書かれる: {text}");
+    assert!(text.contains("note: n1"), "meta が frontmatter に書かれる: {text}");
     cleanup_temp_dir(&dir);
 }
 

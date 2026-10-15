@@ -51,14 +51,11 @@ const FIXED_FM_KEYS: [&str; 13] = [
 ///
 /// - `source_doc`: 元実行の出力トークン列（R112 自動充填・`waggle:` トークン）
 /// - `scheduled_at`: todo のカードの実行予定時刻（`YYYY-MM-DD HH:MM`・Mac の時刻）。常駐が見回って実行する
-/// - `after_job`: ジョブが終わったら常駐が実行する todo のカード
 /// - `executer`: カードの起動者（`human` / `agent`）。既定は `human`
-/// - `target_node`: 子 task が親から受け継いだ research-tree の Node（sai-link が書く）
-const META_FM_KEYS: [&str; 5] =
-    ["source_doc", "scheduled_at", "after_job", "executer", "target_node"];
+const META_FM_KEYS: [&str; 3] = ["source_doc", "scheduled_at", "executer"];
 
 /// 廃止したキー（旧カードに残っていても読み飛ばす・書き出さない）。
-const LEGACY_FM_KEYS: [&str; 2] = ["origin_run_id", "origin_block"];
+const LEGACY_FM_KEYS: [&str; 4] = ["origin_run_id", "origin_block", "after_job", "target_node"];
 
 /// `executer: agent` のカードで、人が起こす道を試したときの文言。
 ///
@@ -70,14 +67,6 @@ pub const AGENT_EXECUTER_MESSAGE: &str =
 /// `scheduled_at:` の値（`YYYY-MM-DD HH:MM`）を読む。読めなければ `None`。
 pub fn parse_scheduled_at(s: &str) -> Option<chrono::NaiveDateTime> {
     chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%d %H:%M").ok()
-}
-
-/// ジョブ ID の形か。`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`。
-pub fn valid_job_id(s: &str) -> bool {
-    let mut it = s.chars();
-    it.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && s.len() <= 64
-        && it.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// 起動者（`human` / `agent`）の値を読む。

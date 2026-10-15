@@ -385,8 +385,7 @@ pub struct WaggleDoc {
     pub content: String,
     /// 元ファイルの絶対パス（`file://` 以外のトークンでは `None`）。
     ///
-    /// sai-paper の活動記録（`activity open --path`）に渡すために使う。
-    /// 元ファイルが既に消えていても記録できるよう、存在確認はしない。
+    /// 元ファイルが既に消えていても渡せるよう、存在確認はしない。
     pub path: Option<PathBuf>,
 }
 
@@ -409,7 +408,7 @@ pub fn load_waggle_token(token: &str) -> Result<WaggleDoc, String> {
         .and_then(|p| p.rsplit('/').next())
         .unwrap_or("")
         .to_string();
-    // sai-paper の `activity open --path` 用に元ファイルの絶対パスを取り出す。
+    // 元ファイルの絶対パスを取り出す。
     let path = target
         .strip_prefix("file://localhost")
         .or_else(|| target.strip_prefix("file://"))

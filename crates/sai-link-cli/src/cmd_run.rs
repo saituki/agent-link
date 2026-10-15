@@ -1,7 +1,7 @@
 //! `run` グループ（新しい木）— 実行（run）の参照・操作。
 //!
 //! 処理の本体は `phone` / `cli` の実装をそのまま呼ぶ（写さない）。
-//! `run list --json` だけは sai-sci 向けの新しい形を組み立てる。
+//! `run list --json` だけは新しい形（`{"runs":[…]}`）を組み立てる。
 
 use std::collections::HashMap;
 
@@ -138,7 +138,7 @@ pub(crate) fn run_workflow() -> Result<(), CmdError> {
     print_phone(PhoneCmd::Workflow)
 }
 
-/// `run list --json`: sai-sci が読む形（`{"runs":[…]}`）。
+/// `run list --json`: `{"runs":[…]}` の形。
 ///
 /// DB（`execution_history`・`block_metadata`）と run フォルダの場所から組み立てる。
 /// run フォルダが無い run は `dir` を `null` にする。

@@ -32,24 +32,17 @@ pub struct SettingsJson {
     /// エージェント起動直前に走らせるコマンド（配列の先頭がプログラム、残りが引数。シェルは通さない）
     #[serde(default)]
     pub pre_run: Option<Vec<String>>,
-    /// 起動の直前に範囲を作る命令（配列。`{run_id}` と `{block}` を置き換える。シェルは通さない）
-    #[serde(default)]
-    pub context: Option<Vec<String>>,
     /// `sai-link doc write` が保存の前に本文を標準入力で通す命令（配列。`{run_id}`・`{block}`・`{filename}` を置き換える。シェルは通さない）
     #[serde(default)]
     pub write_check: Option<Vec<String>>,
     /// エージェントの起動コマンドの先頭に付ける環境変数（KEY → 値）。
     ///
     /// `.sai/settings.json` と `~/.sai/settings.json` の両方で書ける（後者が優先）。
-    /// MLflow の接続情報を 1 か所に書いておく例:
+    /// 接続先などを 1 か所に書いておく例:
     ///
     /// ```json
     /// "env": {
-    ///   "MLFLOW_TRACKING_URI": "http://127.0.0.1:5001",
-    ///   "MLFLOW_S3_ENDPOINT_URL": "http://127.0.0.1:9000",
-    ///   "AWS_ACCESS_KEY_ID": "minioadmin",
-    ///   "AWS_SECRET_ACCESS_KEY": "…",
-    ///   "AWS_DEFAULT_REGION": "us-east-1"
+    ///   "EXAMPLE_URL": "http://127.0.0.1:5001"
     /// }
     /// ```
     ///
@@ -59,17 +52,16 @@ pub struct SettingsJson {
     pub env: std::collections::BTreeMap<String, String>,
 }
 
-/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 5 つ）のときは破棄する。
+/// `env` のキーが予約キー（sai-link 自身が必ず上書きする 4 つ）のときは破棄する。
 ///
 /// sai-link は `SAI_PROJECT_ROOT` / `SAI_PARENT_RUN_ID` / `SAI_BLOCK_NAME` /
-/// `SAI_IS_SUBTASK` / `SAI_TARGET_NODE` を起動コマンドの後ろ（= より強い位置）で付ける。
+/// `SAI_IS_SUBTASK` を起動コマンドの後ろ（= より強い位置）で付ける。
 /// 利用者が設定に書いても二重にならないようここで弾く。
-const RESERVED_ENV_KEYS: [&str; 5] = [
+const RESERVED_ENV_KEYS: [&str; 4] = [
     "SAI_PROJECT_ROOT",
     "SAI_PARENT_RUN_ID",
     "SAI_BLOCK_NAME",
     "SAI_IS_SUBTASK",
-    "SAI_TARGET_NODE",
 ];
 
 /// `.sai/settings.json` を読み込む。
@@ -158,9 +150,6 @@ fn merge_settings_file(path: &std::path::Path, merged: &mut SettingsJson, warnin
     }
     if parsed.pre_run.is_some() {
         merged.pre_run = parsed.pre_run;
-    }
-    if parsed.context.is_some() {
-        merged.context = parsed.context;
     }
     if parsed.write_check.is_some() {
         merged.write_check = parsed.write_check;
@@ -524,7 +513,7 @@ mod tests {
     #[test]
     fn env_rejects_bad_keys() {
         // 正しいキーは通る
-        assert!(check_env_entry("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001").is_ok());
+        assert!(check_env_entry("EXAMPLE_URL", "http://127.0.0.1:5001").is_ok());
         assert!(check_env_entry("_A1", "x").is_ok());
 
         // ハイフン・数字で始まる・空文字は通らない
@@ -573,7 +562,7 @@ mod tests {
         std::fs::write(
             &local,
             r#"{"env": {
-                "MLFLOW_TRACKING_URI": "http://127.0.0.1:5001",
+                "EXAMPLE_URL": "http://127.0.0.1:5001",
                 "AWS_DEFAULT_REGION": "us-east-1",
                 "SAI_PROJECT_ROOT": "/tmp/x",
                 "BAD-KEY": "1",
@@ -584,7 +573,7 @@ mod tests {
         std::fs::write(&global, r#"{"wip": 3}"#).unwrap();
         let (settings, _) = merge_settings_from(Some(&local), Some(&global));
         assert_eq!(
-            settings.env.get("MLFLOW_TRACKING_URI").map(String::as_str),
+            settings.env.get("EXAMPLE_URL").map(String::as_str),
             Some("http://127.0.0.1:5001"),
             "ローカルの env が取り込まれる"
         );
@@ -617,12 +606,12 @@ mod tests {
         // グローバル側にも env がある → キー単位でグローバルが優先される
         std::fs::write(
             &global,
-            r#"{"env": {"MLFLOW_TRACKING_URI": "http://192.168.0.2:8443"}}"#,
+            r#"{"env": {"EXAMPLE_URL": "http://192.168.0.2:8443"}}"#,
         )
         .unwrap();
         let (settings, _) = merge_settings_from(Some(&local), Some(&global));
         assert_eq!(
-            settings.env.get("MLFLOW_TRACKING_URI").map(String::as_str),
+            settings.env.get("EXAMPLE_URL").map(String::as_str),
             Some("http://192.168.0.2:8443"),
             "同じキーはグローバルが優先される"
         );

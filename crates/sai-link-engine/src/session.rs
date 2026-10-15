@@ -1520,7 +1520,7 @@ pub struct HistoryEvent {
     /// 呼び出しの番号（cc は `tool_use.id`、pi は `toolCall.id`）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
-    /// Bash 系の道具の命令（`sai-paper content read` など）
+    /// Bash 系の道具の命令（`sai-link doc read` など）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     /// 結果の本文の先頭 200 字
@@ -1529,9 +1529,6 @@ pub struct HistoryEvent {
     /// 結果が失敗か（`is_error`）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
-    /// 呼び出しの入力に出る番号（`#x.y.z`）
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub ids: Vec<String>,
     /// 結果の文字数による近似
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_tokens: Option<u64>,
@@ -1695,7 +1692,6 @@ pub fn extract_history_stats(session_dir: &Path) -> Result<HistoryStats, Session
                                     command: cli.command,
                                     help: cli.help,
                                     cli_mention: cli.mentions,
-                                    ids: ids_in(&input),
                                     ..Default::default()
                                 });
                             }
@@ -2507,7 +2503,6 @@ pub fn extract_cc_history_stats(path: &Path) -> Result<HistoryStats, SessionErro
                             command: cli.command,
                             help: cli.help,
                             cli_mention: cli.mentions,
-                            ids: ids_in(&input),
                             ..Default::default()
                         });
                     }
@@ -2623,7 +2618,7 @@ pub struct HistoryCall {
     pub call_id: String,
     /// 道具の名前（`Bash`・`bash` など）
     pub name: String,
-    /// Bash 系の道具の命令（`sai-paper content read` など）
+    /// Bash 系の道具の命令（`sai-link doc read` など）
     pub command: Option<String>,
     /// 入力（JSON 文字列）
     pub input: String,
@@ -2648,12 +2643,9 @@ fn attach_result(ev: &mut HistoryEvent, body: &str, is_error: Option<bool>) {
     ev.failure = (is_error == Some(true)).then(|| failure_class(body));
 }
 
-/// 失敗の分類（C11）。`台帳に無い番号です` は `ledger`、終了コード 2・3・4 は
-/// `input`・`not_found`・`conflict`、それ以外と読めないものは `other`。
+/// 失敗の分類（C11）。終了コード 2・3・4 は `input`・`not_found`・`conflict`、
+/// それ以外と読めないものは `other`。
 pub fn failure_class(result: &str) -> &'static str {
-    if result.contains("台帳に無い番号です") {
-        return "ledger";
-    }
     match exit_code_of(result) {
         Some(2) => "input",
         Some(3) => "not_found",
@@ -2675,9 +2667,9 @@ pub fn exit_code_of(result: &str) -> Option<i32> {
 /// Bash 系の道具の入力から命令名を作る（C11）。
 ///
 /// 道具の名前が `Bash`・`bash` で、入力の `command` の中で命令の位置（先頭・区切りの後・
-/// `VAR=値` の後）にある `sai-paper`・`sai-sci`・`sai-link`（パスの最後の部分で比べる）から、
+/// `VAR=値` の後）にある `sai-link`・`sai-web`（パスの最後の部分で比べる）から、
 /// 続く語のうち `[a-z][a-z0-9-]*` の形の語を 2 つまで足す。区切り（`&&`・`|`・`;`）で止める。
-/// 例: `sai-paper content read '#37.5' --json` → `sai-paper content read`。
+/// 例: `sai-link doc read AXANSMpo --json` → `sai-link doc read`。
 pub fn cli_command(tool_name: &str, input: &serde_json::Value) -> Option<String> {
     cli_info(tool_name, input).command
 }
@@ -2685,11 +2677,11 @@ pub fn cli_command(tool_name: &str, input: &serde_json::Value) -> Option<String>
 /// Bash 系の道具の呼び出しから読んだ CLI の情報（C11・U04）。
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CliInfo {
-    /// 命令名（`sai-paper content read` など）。命令の位置に `sai-*` が無ければ `None`
+    /// 命令名（`sai-link doc read` など）。命令の位置に `sai-*` が無ければ `None`
     pub command: Option<String>,
     /// 命令の語（区切りまで）に `--help`・`-h` があるか
     pub help: bool,
-    /// 入力に `sai-link`・`sai-sci`・`sai-paper`・`sai-web` の語があるか（命令の位置でなくても）
+    /// 入力に `sai-link`・`sai-web` の語があるか（命令の位置でなくても）
     pub mentions: bool,
 }
 
@@ -2717,7 +2709,7 @@ pub fn cli_info(tool_name: &str, input: &serde_json::Value) -> CliInfo {
     }
 }
 
-const SAI_CLI_NAMES: [&str; 4] = ["sai-link", "sai-sci", "sai-paper", "sai-web"];
+const SAI_CLI_NAMES: [&str; 2] = ["sai-link", "sai-web"];
 
 /// シェルの語（`Word`）か、命令の区切り（`Break`：改行・`;`・`|`・`&&`・括弧など）。
 #[derive(Debug, PartialEq)]
@@ -2727,7 +2719,7 @@ enum Tok {
 }
 
 /// heredoc（`<<EOF`・`<<-'EOF'`）の本文の行を取り除く。終わりの行は `EOF` の行（前後の空白を除く）。
-/// 本文は命令ではないので、`sai-sci op <<'EOF'` の後の語が命令名に入らないようにする。
+/// 本文は命令ではないので、`sai-link task create <<'EOF'` の後の語が命令名に入らないようにする。
 fn strip_heredocs(text: &str) -> String {
     let mut out = String::new();
     let mut end: Option<String> = None;
@@ -2842,7 +2834,7 @@ fn find_command(toks: &[Tok]) -> Option<(String, bool)> {
     None
 }
 
-/// `sai-*` の語から始まる命令の名前（`sai-paper content read`）と `--help` の有無。
+/// `sai-*` の語から始まる命令の名前（`sai-link doc read`）と `--help` の有無。
 /// 名前は語が `[a-z][a-z0-9-]*` の形のものを 2 つまで足す。区切りで止める。
 fn command_of(toks: &[Tok]) -> (String, bool) {
     let words: Vec<&str> = toks
@@ -2884,7 +2876,7 @@ fn after_wrapper(toks: &[Tok], i: usize) -> Option<usize> {
             &["-I", "-n", "-P", "-L", "-d", "-s", "-E", "-a"],
             false,
         ),
-        // `perl -e '…' sai-sci …` の `-e` の script も飛ばす
+        // `perl -e '…' sai-link …` の `-e` の script も飛ばす
         "perl" => skip_options(toks, j, &["-e", "-E", "-I", "-M"], false),
         _ => return None,
     })
@@ -2910,7 +2902,7 @@ fn basename(word: &str) -> &str {
 }
 
 fn is_sai_cli(word: &str) -> bool {
-    matches!(basename(word), "sai-paper" | "sai-sci" | "sai-link")
+    matches!(basename(word), "sai-link" | "sai-web")
 }
 
 /// `VAR=値` の形の語（環境変数の代入）。
@@ -2930,25 +2922,6 @@ fn is_sub_word(word: &str) -> bool {
     let mut chars = word.chars();
     matches!(chars.next(), Some('a'..='z'))
         && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
-}
-
-/// 入力 JSON の文字列値をすべて連結し、番号（C10 の規則）を拾う。
-/// JSON のエスケープを解いてから拾うので、`\n#37` の `n` を前の字と誤らない。
-fn ids_in(input: &serde_json::Value) -> Vec<String> {
-    fn collect(v: &serde_json::Value, out: &mut String) {
-        match v {
-            serde_json::Value::String(s) => {
-                out.push_str(s);
-                out.push('\n');
-            }
-            serde_json::Value::Array(items) => items.iter().for_each(|i| collect(i, out)),
-            serde_json::Value::Object(map) => map.values().for_each(|i| collect(i, out)),
-            _ => {}
-        }
-    }
-    let mut text = String::new();
-    collect(input, &mut text);
-    crate::seen_ids::extract(&text)
 }
 
 /// cc の message.content（文字列 or `[{type,text}]` ブロック配列）から text のみを
@@ -3777,14 +3750,11 @@ mod usage_tests {
     fn cc_history_pairs_tool_use_and_result() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cc-pair.jsonl");
-        // 結果は 200 字を超える。失敗の印（台帳の語）は 200 字より後ろにある
-        let result = format!(
-            "Exit code 2\n{}\n台帳に無い番号です: #37.5.2",
-            "あ".repeat(250)
-        );
+        // 結果は 200 字を超える
+        let result = format!("Exit code 2\n{}\n引数の誤り", "あ".repeat(250));
         let lines = [
             serde_json::json!({"type": "user", "timestamp": "2026-10-08T00:00:00Z", "message": {"role": "user", "content": "依頼文 #12.3"}}),
-            serde_json::json!({"type": "assistant", "timestamp": "2026-10-08T00:00:01Z", "message": {"role": "assistant", "usage": {"input_tokens": 5, "output_tokens": 5}, "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "cd /x && SAI_X=1 /opt/bin/sai-sci op < ops.json # 見た #37.5.2"}}]}}),
+            serde_json::json!({"type": "assistant", "timestamp": "2026-10-08T00:00:01Z", "message": {"role": "assistant", "usage": {"input_tokens": 5, "output_tokens": 5}, "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "cd /x && SAI_X=1 /opt/bin/sai-link doc read AXANSMpo # 見た #37.5.2"}}]}}),
             serde_json::json!({"type": "user", "timestamp": "2026-10-08T00:00:02Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": result.clone(), "is_error": true}]}}),
         ];
         let body: String = lines.iter().map(|l| format!("{}\n", l)).collect();
@@ -3798,15 +3768,14 @@ mod usage_tests {
         assert_eq!(kinds, vec!["user", "toolCall"]);
         let call = &hist.events[1];
         assert_eq!(call.call_id.as_deref(), Some("toolu_1"));
-        assert_eq!(call.command.as_deref(), Some("sai-sci op"));
+        assert_eq!(call.command.as_deref(), Some("sai-link doc read"));
         assert_eq!(call.is_error, Some(true));
         assert_eq!(
             call.preview.as_deref().map(|p| p.chars().count()),
             Some(200)
         );
-        assert_eq!(call.ids, vec!["#37.5.2"]);
-        // 失敗の分類は全文で読む（印は preview の外にある）
-        assert_eq!(call.failure, Some("ledger"));
+        // 失敗の分類は結果の全文の終了コードで読む
+        assert_eq!(call.failure, Some("input"));
         let result_chars = result.chars().count() as u64;
         assert_eq!(call.result_tokens, Some(result_chars));
         assert_eq!(hist.type_tokens.tool_result, result_chars);
@@ -3820,7 +3789,7 @@ mod usage_tests {
     fn pi_history_pairs_by_tool_call_id() {
         let dir = tempfile::tempdir().unwrap();
         let body = concat!(
-            r#"{"type":"message","timestamp":"2026-10-08T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"p1","name":"bash","arguments":{"command":"sai-paper content read '#37.5' --json"}}]}}"#,
+            r#"{"type":"message","timestamp":"2026-10-08T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"p1","name":"bash","arguments":{"command":"sai-link doc read AXANSMpo --json"}}]}}"#,
             "\n",
             r#"{"type":"message","timestamp":"2026-10-08T00:00:02.000Z","message":{"role":"toolResult","toolCallId":"p1","toolName":"bash","isError":true,"content":[{"type":"text","text":"Exit code 1\n失敗"}]}}"#,
             "\n",
@@ -3839,35 +3808,37 @@ mod usage_tests {
         assert_eq!(kinds, vec!["toolCall", "toolResult"]);
         let call = &stats.events[0];
         assert_eq!(call.call_id.as_deref(), Some("p1"));
-        assert_eq!(call.command.as_deref(), Some("sai-paper content read"));
+        assert_eq!(call.command.as_deref(), Some("sai-link doc read"));
         assert_eq!(call.is_error, Some(true));
         assert_eq!(call.failure, Some("other"));
         assert_eq!(call.preview.as_deref(), Some("Exit code 1\n失敗"));
-        assert_eq!(call.ids, vec!["#37.5"]);
         assert_eq!(stats.events[1].name, "read");
         assert_eq!(stats.events[1].is_error, None);
         // tool_result = 「Exit code 1\n失敗」14 字 + 「対がない」4 字
         assert_eq!(stats.type_tokens.tool_result, 14 + 4);
     }
 
-    /// Bash の命令名（`sai-paper`・`sai-sci`・`sai-link` の命令の位置）を作ること（C11）。
+    /// Bash の命令名（`sai-link`・`sai-web` の命令の位置）を作ること（C11）。
     #[test]
     fn cli_command_forms() {
         let cmd = |s: &str| cli_command("Bash", &serde_json::json!({ "command": s }));
         assert_eq!(
-            cmd("cd /x && SAI_X=1 /opt/bin/sai-paper content read '#37.5' --json").as_deref(),
-            Some("sai-paper content read")
+            cmd("cd /x && SAI_X=1 /opt/bin/sai-link doc read AXANSMpo --json").as_deref(),
+            Some("sai-link doc read")
         );
-        assert_eq!(cmd("sai-sci op < ops.json").as_deref(), Some("sai-sci op"));
         assert_eq!(
-            cmd("sai-link run history 49 --json && echo sai-sci").as_deref(),
+            cmd("sai-link task create < task.json").as_deref(),
+            Some("sai-link task create")
+        );
+        assert_eq!(
+            cmd("sai-link run history 49 --json && echo sai-web").as_deref(),
             Some("sai-link run history")
         );
         assert_eq!(
-            cmd("sai-paper find 'x' | head").as_deref(),
-            Some("sai-paper find")
+            cmd("sai-link doc list | head").as_deref(),
+            Some("sai-link doc list")
         );
-        assert_eq!(cmd("grep -n sai-paper src"), None);
+        assert_eq!(cmd("grep -n sai-link src"), None);
         assert_eq!(
             cli_command("Read", &serde_json::json!({ "file_path": "/x" })),
             None
@@ -3879,44 +3850,43 @@ mod usage_tests {
     fn cli_command_unlisted_forms() {
         let cmd = |s: &str| cli_command("Bash", &serde_json::json!({ "command": s }));
         let cases = [
-            ("sai-sci op <<'EOF'\n{\"ops\":[{\"text\":\"hypsarrhythmia は\"}]}\nEOF", "sai-sci op"),
-            ("cat <<EOF | sai-sci op\nEOF", "sai-sci op"),
-            ("timeout 60 sai-sci status --json", "sai-sci status"),
+            ("sai-link task create <<'EOF'\n{\"task_text\":\"hypsarrhythmia は\"}\nEOF", "sai-link task create"),
+            ("cat <<EOF | sai-link task create\nEOF", "sai-link task create"),
+            ("timeout 60 sai-link run list --json", "sai-link run list"),
             ("env -u X SAI_A=1 sai-link run show 3", "sai-link run show"),
             // 引用符なしの `x` は命令名に入る（3 語まで）ので、引用符で囲む
-            ("(sai-paper find 'x')", "sai-paper find"),
-            ("echo $(sai-sci status)", "sai-sci status"),
-            ("find . | xargs sai-sci op", "sai-sci op"),
+            ("(sai-link doc list 'x')", "sai-link doc list"),
+            ("echo $(sai-web usage)", "sai-web usage"),
+            ("find . | xargs sai-link doc read", "sai-link doc read"),
             ("exec sai-link run show 3", "sai-link run show"),
-            ("perl -e 'alarm 180; exec @ARGV' sai-sci op", "sai-sci op"),
-            ("sai-sci status # it's a note\nsai-link run show 3", "sai-sci status"),
+            ("perl -e 'alarm 180; exec @ARGV' sai-link doc read", "sai-link doc read"),
+            ("sai-link run list # it's a note\nsai-link run show 3", "sai-link run list"),
             ("echo a\nsai-link run show 3", "sai-link run show"),
         ];
         for (input, want) in cases {
             assert_eq!(cmd(input).as_deref(), Some(want), "入力: {input}");
         }
         // heredoc の本文は命令でない（本文だけの sai-* は命令名にならない）
-        assert_eq!(cmd("cat > x.md <<EOF\nsai-sci op\nEOF"), None);
+        assert_eq!(cmd("cat > x.md <<EOF\nsai-link doc read\nEOF"), None);
 
         let info = |s: &str| cli_info("Bash", &serde_json::json!({ "command": s }));
         assert!(info("sai-link run finalize --help").help);
-        assert!(info("sai-sci op -h").help);
-        assert!(!info("sai-sci op --json").help);
-        assert!(info("grep sai-paper src").mentions);
+        assert!(info("sai-link doc read -h").help);
+        assert!(!info("sai-link doc read --json").help);
+        assert!(info("grep sai-web src").mentions);
         assert!(!info("grep sai src").mentions);
-        assert!(!info("cat <<EOF\nsai-sci op\nEOF").mentions);
+        assert!(!info("cat <<EOF\nsai-link doc read\nEOF").mentions);
     }
 
     /// 失敗の分類と終了コードの読み取り（C11）。
     #[test]
-    fn failure_class_reads_exit_code_and_ledger() {
+    fn failure_class_reads_exit_code() {
         assert_eq!(exit_code_of("Exit code 3\nx"), Some(3));
         assert_eq!(exit_code_of("exit CODE 2"), Some(2));
         assert_eq!(exit_code_of("x"), None);
         assert_eq!(failure_class("Exit code 3\n見つからない"), "not_found");
         assert_eq!(failure_class("Exit code 2\n引数の誤り"), "input");
         assert_eq!(failure_class("Exit code 1\n何か"), "other");
-        assert_eq!(failure_class("台帳に無い番号です: #37"), "ledger");
     }
 
     /// `history_call` が結果を 20000 字で切ること・無い呼び出しは None（C11）。

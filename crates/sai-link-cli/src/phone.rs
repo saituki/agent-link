@@ -233,7 +233,6 @@ pub(crate) fn run(cmd: PhoneCmd) -> PhoneResult<PhoneOut> {
             PhoneCardCmd::Docs { limit } => card_docs(limit),
             PhoneCardCmd::Create => card_create(),
             PhoneCardCmd::Schedule { run_id, at } => card_schedule(run_id, at.as_deref()),
-            PhoneCardCmd::Wait { run_id, job } => card_wait(run_id, job.as_deref()),
             PhoneCardCmd::Run { run_id } => card_run(run_id),
         }),
         PhoneCmd::Finalize { run_id } => val(finalize(run_id)),
@@ -678,22 +677,6 @@ fn todo_scheduled_at(run_id: i64) -> Option<String> {
     scheduled_at_of(&std::fs::read_to_string(task).ok()?)
 }
 
-/// todo のカードの `after_job:` を読む。無い・形が違うときは `None`。
-fn todo_after_job(run_id: i64) -> Option<String> {
-    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
-        .join(sai_link_engine::run_dir::TODO_OWNER)
-        .join(run_id.to_string())
-        .join(sai_link_engine::run_dir::TASK_FILE);
-    after_job_of(&std::fs::read_to_string(task).ok()?)
-}
-
-/// task.md の本文から待っているジョブの ID を取り出す（`valid_job_id` に合う値だけ）。
-fn after_job_of(text: &str) -> Option<String> {
-    let card = sai_link_engine::kanban::parse_card(text)?;
-    let job = card.frontmatter.meta.get("after_job")?.trim().to_string();
-    sai_link_engine::kanban::valid_job_id(&job).then_some(job)
-}
-
 /// todo のカード（`.sai/outputs/todo/<run_id>/task.md`）の frontmatter から、
 /// 一覧に出す項目だけを取り出す。読めないときは `None`。
 fn todo_card_meta(run_id: i64) -> Option<Value> {
@@ -788,10 +771,6 @@ fn nest_tree(items: Vec<left_tree::LeftTreeItem>) -> Vec<Value> {
                 if it.lane.as_deref() == Some("todo") {
                     if let Some(at) = todo_scheduled_at(run_id) {
                         val["scheduled_at"] = json!(at);
-                    }
-                    // ジョブの終わりを待つ todo だけ `after_job` を足す
-                    if let Some(job) = todo_after_job(run_id) {
-                        val["after_job"] = json!(job);
                     }
                     // todo の一覧に出す task.md の項目（作成日・block・runner・model・説明）
                     if let Some(meta) = todo_card_meta(run_id) {
@@ -1079,41 +1058,6 @@ fn card_docs(limit: usize) -> PhoneResult<Value> {
     Ok(json!({ "items": items }))
 }
 
-/// `phone card wait <run_id> [--job …]`: todo のカードの `after_job:` を書き換える。
-///
-/// 常駐が約 60 秒ごとにジョブの状態を見回り、終わっていたら `phone card run` と同じ流れで実行する。
-/// `.sai/settings.json` に `job_status` が無いときは、書く前に終了コード 2 で断る（U12）。
-fn card_wait(run_id: i64, job: Option<&str>) -> PhoneResult<Value> {
-    let task = sai_link_engine::project::sai_path(sai_link_engine::run_dir::OUTPUTS_DIR)
-        .join(sai_link_engine::run_dir::TODO_OWNER)
-        .join(run_id.to_string())
-        .join(sai_link_engine::run_dir::TASK_FILE);
-    if !task.is_file() {
-        return Err(PhoneError::not_found(TODO_NOT_FOUND));
-    }
-    let job = job.map(str::trim).filter(|s| !s.is_empty());
-    if let Some(j) = job {
-        if !sai_link_engine::kanban::valid_job_id(j) {
-            return Err(PhoneError::usage("job_id は英数字・`_`・`-` で 64 字までです"));
-        }
-        // 常駐が状態を読めないとカードが起きないため、書く前に設定を確かめる（U12）
-        if sai_link_engine::pre_run::job_status_template().is_none() {
-            return Err(PhoneError::parse(
-                "ジョブの状態を確かめる命令（.sai/settings.json の job_status）がありません。研究のプロジェクトでは `sai-sci init` が書きます",
-            ));
-        }
-    }
-    let text = std::fs::read_to_string(&task)
-        .map_err(|e| PhoneError::internal(format!("task.md を読めません: {}", e)))?;
-    let mut card = sai_link_engine::kanban::parse_card(&text)
-        .ok_or_else(|| PhoneError::not_found(TODO_NOT_FOUND))?;
-    card.frontmatter
-        .set_meta("after_job".to_string(), job.unwrap_or("").to_string());
-    std::fs::write(&task, sai_link_engine::kanban::render_card(&card))
-        .map_err(|e| PhoneError::internal(format!("task.md を書けません: {}", e)))?;
-    Ok(json!({ "run_id": run_id, "after_job": job }))
-}
-
 /// `phone card schedule <run_id> [--at …]`: todo のカードの `scheduled_at:` を書き換える。
 ///
 /// 実行は常駐がその時刻に `phone card run` と同じ流れで行う（`daemon.rs` の予定の見回り）。
@@ -1263,7 +1207,7 @@ fn card_create_from(parsed: CardCreateInput) -> PhoneResult<Value> {
 /// - 標準のキー（run_id など）は受け付けない（終了コード 2）。
 /// - 値の改行は空白に置き換える。
 fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String, String)>> {
-    const STANDARD_KEYS: [&str; 16] = [
+    const STANDARD_KEYS: [&str; 15] = [
         "runner",
         "creation_date",
         "execution_date",
@@ -1279,7 +1223,6 @@ fn validate_card_meta(meta: &HashMap<String, String>) -> PhoneResult<Vec<(String
         "executer",
         "source_doc",
         "scheduled_at",
-        "after_job",
     ];
     let mut out = Vec::with_capacity(meta.len());
     for (key, value) in meta {
@@ -2032,11 +1975,11 @@ mod tests {
     #[test]
     fn search_snippet_needs_all_words() {
         let words = |s: &str| -> Vec<String> { s.split_whitespace().map(|w| w.to_lowercase()).collect() };
-        let text = "先頭の文\nMLflow の実験一覧を出す。run 表も出す。";
-        let got = super::search_snippet(text, &words("mlflow 実験")).expect("当たる");
-        assert!(got.contains("MLflow の実験一覧"), "{got}");
+        let text = "先頭の文\nDaemon の再起動手順を出す。run 表も出す。";
+        let got = super::search_snippet(text, &words("daemon 再起動")).expect("当たる");
+        assert!(got.contains("Daemon の再起動手順"), "{got}");
         assert!(!got.contains('\n'), "改行は空白にする: {got}");
-        assert_eq!(super::search_snippet(text, &words("mlflow 無い語")), None);
+        assert_eq!(super::search_snippet(text, &words("daemon 無い語")), None);
         // 長い本文は前後を省略記号で切る
         let long = format!("{}KEYWORD{}", "あ".repeat(100), "い".repeat(100));
         let got = super::search_snippet(&long, &words("keyword")).unwrap();
@@ -2058,21 +2001,6 @@ mod tests {
         ] {
             card.frontmatter.set_meta("scheduled_at".to_string(), v.to_string());
             let got = super::scheduled_at_of(&sai_link_engine::kanban::render_card(&card));
-            assert_eq!(got.as_deref(), want, "値={v:?}");
-        }
-    }
-
-    /// `after_job:` は形の合う値だけ読める。
-    #[test]
-    fn after_job_of_reads_only_valid_value() {
-        let mut card = sai_link_engine::kanban::KanbanCard {
-            frontmatter: sai_link_engine::kanban::CardFrontmatter::new_card("2026/09/29 10:00:00".into()),
-            body: "# task_text\nやること\n".into(),
-        };
-        assert_eq!(super::after_job_of(&sai_link_engine::kanban::render_card(&card)), None);
-        for (v, want) in [("j261002-101500-ab12", Some("j261002-101500-ab12")), ("", None), ("a b", None)] {
-            card.frontmatter.set_meta("after_job".to_string(), v.to_string());
-            let got = super::after_job_of(&sai_link_engine::kanban::render_card(&card));
             assert_eq!(got.as_deref(), want, "値={v:?}");
         }
     }
@@ -2322,48 +2250,6 @@ mod tests {
         ]
         .join("\n");
         std::fs::write(dir.join("task.md"), text).unwrap();
-    }
-
-    /// `phone card wait`: `after_job:` を書き、`--job` 無しで消す。形の違う ID は usage エラー。
-    /// 書いた値は `phone tree` の todo の子に出す `todo_after_job` で読める。
-    #[test]
-    fn card_wait_writes_and_clears_after_job() {
-        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        let _guard = RootGuard::set(root);
-        write_task_with_runner(root, 7, "pi");
-
-        let err = card_wait(999_999_999, Some("j1")).unwrap_err();
-        assert_eq!(err.code, EXIT_NOT_FOUND);
-        let err = card_wait(7, Some("bad id!")).unwrap_err();
-        assert_eq!(err.code, EXIT_USAGE);
-        assert!(card_wait(7, Some(&"a".repeat(65))).is_err());
-
-        // U12: `job_status` が無いと、書く前に終了コード 2 で断る
-        let err = card_wait(7, Some("j261002-101500-ab12")).unwrap_err();
-        assert_eq!(err.code, EXIT_PARSE);
-        assert!(err.msg.contains("job_status"), "msg={}", err.msg);
-
-        // `.sai/settings.json` に `job_status` を書けば通る
-        let settings_dir = root.join(".sai");
-        std::fs::create_dir_all(&settings_dir).unwrap();
-        std::fs::write(
-            settings_dir.join("settings.json"),
-            r#"{"job_status": ["sh", "-c", "echo x"]}"#,
-        )
-        .unwrap();
-
-        let out = card_wait(7, Some("j261002-101500-ab12")).unwrap();
-        assert_eq!(out["after_job"], "j261002-101500-ab12");
-        assert_eq!(todo_after_job(7).as_deref(), Some("j261002-101500-ab12"));
-        let task = root.join(".sai/outputs/todo/7/task.md");
-        assert!(std::fs::read_to_string(&task).unwrap().contains("after_job: j261002-101500-ab12"));
-
-        let out = card_wait(7, None).unwrap();
-        assert!(out["after_job"].is_null());
-        assert_eq!(todo_after_job(7), None);
-        assert!(!std::fs::read_to_string(&task).unwrap().contains("after_job:"));
     }
 
     /// U12: `card create` は `description` を frontmatter に書き、旧カードの値は `agent` にする。

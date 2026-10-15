@@ -56,9 +56,7 @@ fn test_config() -> PipelineConfig {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         },
         block_body: "テストプロンプト: {{input.name}}".to_string(),
@@ -76,7 +74,6 @@ fn test_config() -> PipelineConfig {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
-        target_node: None,
         runner: sai_link_engine::runner::RunnerKind::Cc,
     }
 }
@@ -210,7 +207,6 @@ fn test_pipeline_config_from_parsed_block() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
-        target_node: None,
         runner: sai_link_engine::runner::RunnerKind::Cc,
     };
 
@@ -248,9 +244,7 @@ fn test_pipeline_config_all_fields_set() {
             category: Some("test".to_string()),
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         },
         block_body: "# {{input.feature}} の実装
@@ -266,7 +260,6 @@ fn test_pipeline_config_all_fields_set() {
         base_pane_id: None,
         pane_id: None,
         is_subtask: false,
-        target_node: None,
         runner: sai_link_engine::runner::RunnerKind::Cc,
     };
 
