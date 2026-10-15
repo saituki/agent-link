@@ -35,9 +35,6 @@ const SAMPLE = {
     },
     { name: "sai-old", daemon_alive: false, running: 0, review: [], todo: 3, todo_runs: [{ run_id: 60, label: "ID60", scheduled_at: "2026-10-01 09:00" }] },
   ],
-  papers: [
-    { name: "sai-paper", attention: 5, items: [{ key: "question:41:x", kind: "question", title: "この論文は?" }] },
-  ],
   errors: ["sai-old: sai-link が失敗しました"],
 };
 
@@ -87,27 +84,26 @@ const OVERVIEW = {
 
 const keys = (data) => H.hmSections(data).map((s) => s.key);
 
-// 5 種類のカードが C-A3 の並びで出ること
+// 4 種類のカードが C-A3 の並びで出ること
 function testSectionOrder() {
-  assert.deepStrictEqual(keys(SAMPLE), ["wait", "running", "daemon", "papers", "errors"]);
+  assert.deepStrictEqual(keys(SAMPLE), ["wait", "running", "daemon", "errors"]);
   const byKey = {};
   for (const s of H.hmSections(SAMPLE)) byKey[s.key] = s;
   assert.strictEqual(byKey.wait.title, "Questions");
   assert.strictEqual(byKey.running.title, "動いています");
   assert.strictEqual(byKey.daemon.title, "止まっている常駐");
-  assert.strictEqual(byKey.papers.title, "論文の要対応");
   assert.strictEqual(byKey.errors.title, "読めなかったプロジェクト");
 }
 
 // 0 件のカードは出さない
 function testEmptySectionsOmitted() {
-  const empty = { questions: [], approvals: [], projects: [], papers: [], errors: [] };
+  const empty = { questions: [], approvals: [], projects: [], errors: [] };
   assert.deepStrictEqual(H.hmSections(empty), []);
   // 質問だけなら「答えを待っています」だけ
-  const q = { questions: SAMPLE.questions, approvals: [], projects: [], papers: [], errors: [] };
+  const q = { questions: SAMPLE.questions, approvals: [], projects: [], errors: [] };
   assert.deepStrictEqual(keys(q), ["wait"]);
   // 実行中が 0 のプロジェクトは「動いています」に出さない
-  const p = { questions: [], approvals: [], projects: [{ name: "a", running: 0, review: [] }], papers: [], errors: [] };
+  const p = { questions: [], approvals: [], projects: [{ name: "a", running: 0, review: [] }], errors: [] };
   assert.deepStrictEqual(keys(p), []);
   // 常駐が生きているプロジェクトは「止まっている常駐」に出さない
   const alive = { projects: [{ name: "a", daemon_alive: true, todo: 5, running: 0, review: [] }] };
@@ -178,39 +174,6 @@ function testDaemon() {
   assert.strictEqual(sec.term, "daemon");
 }
 
-// 論文の要対応（先頭 3 件と dashboard への行き先）
-function testPapers() {
-  const many = {
-    papers: [
-      {
-        name: "p",
-        attention: 9,
-        items: Array.from({ length: 6 }, (_, i) => ({ key: `k${i}`, kind: "question", title: `T${i}` })),
-      },
-    ],
-  };
-  const sec = H.hmSections(many).find((s) => s.key === "papers");
-  assert.strictEqual(sec.items[0].count, 9);
-  assert.strictEqual(sec.items[0].sub.length, H.HM_PAPERS_MAX, "先頭 3 件だけ");
-  assert.deepStrictEqual(sec.items[0].sub, ["T0", "T1", "T2"]);
-  assert.strictEqual(sec.items[0].hash, "#/papers/dashboard");
-  assert.strictEqual(sec.items[0].project, "p", "プロジェクト名を覚えておく");
-  assert.strictEqual(sec.term, "attention");
-  // 先頭 3 件に research-tree の要対応（sci_）があれば research-tree へ行く（U14）
-  const sci = H.hmSections({
-    papers: [
-      {
-        name: "p",
-        attention: 1,
-        items: [{ key: "k0", kind: "sci_triage", title: "TRIAGE" }],
-      },
-    ],
-  }).find((s) => s.key === "papers");
-  assert.strictEqual(sci.items[0].hash, "#/research/tree");
-  // papers.js と同じ場所（共有契約 C-F1）
-  assert.strictEqual(H.HM_PAPERS_KEY, "sai_web_papers_project");
-}
-
 // 「何分前」
 function testAgo() {
   const now = Date.parse("2026-09-26T12:00:00Z");
@@ -230,10 +193,9 @@ function testAgo() {
 
 // 空のときの案内（2 種類）
 function testEmptyKind() {
-  assert.strictEqual(H.hmEmptyKind({ projects: [], papers: [] }), "no-projects");
+  assert.strictEqual(H.hmEmptyKind({ projects: [] }), "no-projects");
   assert.strictEqual(H.hmEmptyKind({}), "no-projects");
   assert.strictEqual(H.hmEmptyKind({ projects: [{ name: "a" }] }), "none");
-  assert.strictEqual(H.hmEmptyKind({ papers: [{ name: "p" }] }), "none");
   assert.strictEqual(H.hmEmptyKind(null), "no-projects");
 }
 
@@ -390,7 +352,6 @@ function main() {
   testScheduledItems();
   testRunning();
   testDaemon();
-  testPapers();
   testAgo();
   testEmptyKind();
   testInterval();

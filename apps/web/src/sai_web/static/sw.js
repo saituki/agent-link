@@ -122,71 +122,9 @@
 // U03（Library に Suggest の切り替え・一覧・中身・狭い画面の専用の画面を足す・papers.js / index.html）で v129 に（index.html の ?v= も 129。ASSETS は変えない）
 // U04（research-tree の軸の A の色・板・GUIDE・操作の出し分け・scitree.js / sciedit.js / sciread.js / scigraph.js / ui.js / 色の変数 --sci-axis）で v130 に（index.html の ?v= も 130。ASSETS は変えない）
 // U03（サポートの右下のアイコン・Customer の一覧・停止の入力欄への移動・質問を止める。customer.js を追加）で v131 に（index.html の ?v= も 131。ASSETS に /customer.js を足した）
-const CACHE = "sai-web-v131";
-const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/papers.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/papers.js", "/radio.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/pcm-worklet.js", "/home.js", "/workflow.js", "/defs.js", "/paperimport.js", "/cite.js", "/scitree.js", "/sciedit.js", "/sciread.js", "/scigraph.js", "/scitree.css", "/sciedit.css", "/scigraph.css", "/mlflow.js", "/mlfchart.js", "/mlflow.css", "/account.js", "/customer.js", "/manifest.json"];
-
-// オフライン保存した音声の倉庫（09 §4.9。sai-web-v… とは別なので activate で消さない）
-const RADIO_CACHE = "sai-web-radio-audio";
-// 音声の住所（合言葉 ?token= は付けない，本体だけ比べる・09 §4.9）
-function isAudioUrl(pathname) {
-  return /^\/api\/radio\/papers\/[^/]+\/audio$/.test(pathname);
-}
-
-// 倉庫の音声から「指定された範囲だけ」を切り出して 206 で返す。
-// Safari は再生の途中から Range（部分指定）で取りに来るため，倉庫に
-// 全体しか無いときはここでハサミで切って返す必要がある（移植元から・09 §4.9）。
-async function rangeResponse(cached, rangeHeader) {
-  const total = (await cached.clone().arrayBuffer()).byteLength;
-  const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
-  if (!m) return cached;
-  const startText = m[1];
-  const endText = m[2];
-  let start;
-  let end;
-  if (startText === "" && endText === "") return cached;
-  if (startText === "") {
-    // 例: bytes=-500 → 最後の500バイトが欲しい
-    const suffix = Number(endText);
-    if (!Number.isFinite(suffix) || suffix <= 0) return cached;
-    start = Math.max(0, total - suffix);
-    end = total - 1;
-  } else {
-    start = Number(startText);
-    end = endText === "" ? total - 1 : Number(endText);
-  }
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return cached;
-  if (start >= total || start > end) return cached;
-  end = Math.min(end, total - 1);
-  const buf = await cached.arrayBuffer();
-  const sliced = buf.slice(start, end + 1);
-  const contentType = cached.headers.get("Content-Type") || "audio/mp4";
-  return new Response(sliced, {
-    status: 206,
-    headers: {
-      "Content-Type": contentType,
-      "Content-Range": `bytes ${start}-${end}/${total}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": String(end - start + 1),
-    },
-  });
-}
-
-// 音声の GET: 倉庫（ダウンロード済み）にあればそこから，無ければ通常どおり通信
-// （保存はしない。保存は再生画面のダウンロードボタンだけ・09 §4.9）。
-async function radioAudioResponse(request) {
-  try {
-    const cache = await caches.open(RADIO_CACHE);
-    const cached = await cache.match(request, { ignoreSearch: true });
-    if (cached) {
-      const rangeHeader = request.headers.get("Range");
-      if (rangeHeader) return rangeResponse(cached, rangeHeader);
-      return cached;
-    }
-  } catch {
-    // 倉庫が使えないときは通信するだけ（ここでは止めない）
-  }
-  return fetch(request);
-}
+// agent-link: 論文・Research・多人数の画面を消した（v132。index.html の ?v= も 132。ASSETS から消したファイルを外した）
+const CACHE = "sai-web-v132";
+const ASSETS = ["/", "/index.html", "/style.css", "/markdown.css", "/home.css", "/workflow.css", "/defs.css", "/markdown.js", "/ui.js", "/app.js", "/chatorder.js", "/newchat.js", "/stats.js", "/project.js", "/linkview.js", "/cardform.js", "/commands.js", "/sessionsearch.js", "/usage.js", "/voiceask.js", "/canvaslayout.js", "/home.js", "/workflow.js", "/defs.js", "/account.js", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -194,8 +132,7 @@ self.addEventListener("install", (e) => {
 
 // 古い倉庫かどうかを 1 か所で決める（U17）。
 // 旧名の `sai-phone-` で始まる倉庫はすべて古い（保存済みの画面・音声・通知の飛び先）。
-// 新名でも今の版でない `sai-web-v…` は古い。音声の倉庫（sai-web-radio-audio）と
-// 通知の飛び先（sai-web-open）は版の名前ではないので消さない（05 §6）。
+// 新名でも今の版でない `sai-web-v…` は古い。通知の飛び先（sai-web-open）は版の名前ではないので消さない（05 §6）。
 function swIsOldCache(name, current) {
   if (name.startsWith("sai-phone-")) return true;
   return name.startsWith("sai-web-v") && name !== current;
@@ -214,12 +151,6 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // ダウンロードした音声は倉庫から（Range にも対応・09 §4.9）。
-  // この1本だけ先に判定し，他の /api/ は今までどおり素通しにする。
-  if (e.request.method === "GET" && isAudioUrl(url.pathname)) {
-    e.respondWith(radioAudioResponse(e.request));
-    return;
-  }
   // 会話データと API はそのまま通す（保存しない）
   if (url.pathname.startsWith("/api/")) return;
   // ネットワーク優先 → 失敗したらキャッシュ → それも無ければトップ画面

@@ -35,12 +35,6 @@ async function apiFetch(path, options = {}) {
   if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
   let res = await fetch(path, { ...options, headers });
   if (res.status === 401) {
-    // 多人数モードには合言葉が無い。今の住所を覚えてログイン画面へ移す（U07）。
-    // 単独モードは今までどおり合言葉を聞く。
-    if (window.SaiAuth && window.SaiAuth.mode === "multi") {
-      if (typeof acRememberThenLogin === "function") acRememberThenLogin();
-      return res;
-    }
     const input = prompt("合言葉を入力してください");
     if (input) {
       apiToken = input;
@@ -48,15 +42,6 @@ async function apiFetch(path, options = {}) {
       headers["Authorization"] = `Bearer ${input}`;
       res = await fetch(path, { ...options, headers });
     }
-  }
-  // 初回のパスワード変更前は変更画面へ移す（U07。detail はサーバの返しそのまま）。
-  if (res.status === 403) {
-    try {
-      const text = await res.clone().text();
-      if (text.includes("パスワードを変えてください") && location.hash !== "#/password") {
-        location.hash = "#/password";
-      }
-    } catch { /* 読めなければそのまま返す */ }
   }
   return res;
 }
@@ -224,7 +209,6 @@ const TAB_FIRST_URL = {
   home: "#/home",
   project: "#/projects",
   agent: "#/",
-  research: "#/papers/dashboard",
   account: "#/account",
 };
 // ホームの住所（app.js 自身が見る。home.js も使うので外に出す）
@@ -377,7 +361,6 @@ function hourMinuteOptions() {
 // --- 日付一覧画面（#/） ---
 
 let daysCache = [];
-let daysCustomer = null;  // Customer のチャットの件数（GET /api/days の customer・日付には入らない）
 let searchText = "";
 
 async function loadDays() {
@@ -389,7 +372,6 @@ async function loadDays() {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     daysCache = data.days || [];
-    daysCustomer = data.customer || null;
     setOffline(false);
     onOk();
     renderDays(data.results || null);
@@ -422,26 +404,6 @@ function dayStats(d) {
   return parts.join(" · ") || "—";
 }
 
-// Customer の行（Chats の一覧の先頭・押すと #/customer の一覧）。日付の行と同じ形
-function customerDayRow(c) {
-  const btn = document.createElement("button");
-  btn.className = "day-row";
-  const dot = document.createElement("span");
-  dot.className = "dot" + (c.has_question ? " q" : c.running > 0 ? " running" : "");
-  const body = document.createElement("span");
-  body.className = "day-body";
-  const nameSpan = document.createElement("span");
-  nameSpan.className = "day-date";
-  nameSpan.textContent = "Customer";
-  const statsSpan = document.createElement("span");
-  statsSpan.className = "day-stats";
-  statsSpan.textContent = c.running > 0 ? `${c.count} 件 · 実行中 ${c.running}` : `${c.count} 件`;
-  body.append(nameSpan, statsSpan);
-  btn.append(dot, body);
-  btn.addEventListener("click", () => { location.hash = "#/customer"; });
-  return btn;
-}
-
 function renderDays(searchResults) {
   const box = document.getElementById("days-list");
   box.innerHTML = "";
@@ -460,8 +422,6 @@ function renderDays(searchResults) {
     for (const run of searchResults) box.appendChild(runRow(run, true));
     return;
   }
-  // Customer の履歴は先頭の 1 行にまとめる（中身は #/customer）
-  box.appendChild(customerDayRow(daysCustomer || { count: 0, running: 0, has_question: false }));
   if (daysCache.length === 0) {
     box.appendChild(
       saiEmpty({
@@ -650,27 +610,6 @@ function runApiBase() {
   return `/api/runs/${encodeURIComponent(currentRun.project_name)}/${encodeURIComponent(currentRun.run_id)}`;
 }
 
-// 実験タブの run の表への小さなリンク（#run-desc の後ろ・U08）。
-// 作り直さないので、何度和読み込んでも同じ要素を使い回す。
-// 実験タブの表は 0 件でも案内を出すので、この run の層は見ていない。
-function setRunMlfLink(runId) {
-  const desc = document.getElementById("run-desc");
-  if (!desc || !desc.parentNode) return;
-  let box = document.getElementById("run-mlf");
-  if (!box) {
-    box = document.createElement("div");
-    box.id = "run-mlf";
-    box.className = "run-mlf";
-    const a = document.createElement("a");
-    a.className = "run-mlf-link";
-    a.textContent = "実験の記録";
-    box.appendChild(a);
-    desc.parentNode.insertBefore(box, desc.nextSibling);
-  }
-  const a = box.querySelector("a");
-  if (a) a.href = `#/research/experiments/e/all?sai_run=${encodeURIComponent(runId)}`;
-}
-
 async function openRun(r) {
   currentRun = {
     project_name: r.project,
@@ -780,7 +719,6 @@ async function loadRunMeta() {
     document.getElementById("run-desc").textContent = data.description || "";
     document.getElementById("run-lamp").textContent = runLamp(data);
     // 実験タブの run の表への小さなリンク（#run-desc の後ろに 1 つだけ置く・U08）
-    setRunMlfLink(data.run_id);
     // ■ 終了は「実行中のメインブロック」のときだけ出す（子ブロックは task_report で完了する）
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id
@@ -2008,7 +1946,4 @@ window.addEventListener("pageshow", (e) => {
 });
 
 setupMic();
-// ログインの状態を先に読んでから画面を開く（多人数モードの判定に使う・U07）。
-// account.js が無いとき（単独モードの古い配布）でも今までどおり開けるようにする。
-if (typeof acLoadMe === "function") acLoadMe().finally(() => route());
-else route();
+route();

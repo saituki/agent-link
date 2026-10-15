@@ -1,6 +1,6 @@
 // Web の「コマンド」画面（U10）。
 //
-// 3 つの CLI（link / paper / sci）の `schema --json` から入力欄を作り、命令を実行する。
+// CLI（link）の `schema --json` から入力欄を作り、命令を実行する。
 // 住所は `#/project/<name>/commands`（Project の上部の切り替えの 1 つ）。
 //
 // - 一覧（左）: CLI の選択・絞り込み・命令の一覧（path の 1 語目でまとめる）。
