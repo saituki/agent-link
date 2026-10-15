@@ -1,6 +1,6 @@
 """Web の「コマンド」画面（U10）。
 
-3 つの CLI（sai-link・sai-paper・sai-sci）の `schema --json` から命令の一覧を作り，
+sai-link の `schema --json` から命令の一覧を作り，
 入力欄から命令を実行する。中の処理は CLI に任せ，ここは検査と読み替えだけを行う。
 
 決め事（共有契約「schema の形」「コマンドの実行の口」）:
@@ -29,7 +29,7 @@ logger = logging.getLogger("sai_web")
 _SCHEMA_TTL = 60.0
 # schema 取得の時間の上限（CLI の起動が遅いときも一覧を止めない）
 _SCHEMA_TIMEOUT = 20.0
-# 命令の実行の時間の上限（計画 U10）。長い研究の命令は U14 で sai-sci へ移る。
+# 命令の実行の時間の上限（計画 U10）。
 _RUN_TIMEOUT = 120.0
 # 標準出力の上限（これを超えたら 502）
 _OUTPUT_MAX = 2 * 1024 * 1024
@@ -41,7 +41,7 @@ _TEXT_MAX = 1024 * 1024
 _MULTIPLE_MAX = 100
 
 # CLI の見分け（画面の選択に出す key と実行ファイルの設定・失敗の文に使う名前）
-_CLI_LABELS = {"link": "sai-link", "paper": "sai-paper", "sci": "sai-sci"}
+_CLI_LABELS = {"link": "sai-link"}
 
 # key → (取得した時刻, schema または None)。None は「取れなかった」も覚える。
 _schema_cache: dict[str, tuple[float, dict | None]] = {}
@@ -49,11 +49,7 @@ _schema_cache: dict[str, tuple[float, dict | None]] = {}
 
 def cli_table() -> dict[str, str]:
     """画面の選択に出す CLI の表（key → 実行ファイル）。"""
-    return {
-        "link": settings.sai_link_bin,
-        "paper": settings.sai_paper_bin,
-        "sci": settings.sai_sci_bin,
-    }
+    return {"link": settings.sai_link_bin}
 
 
 def _label(cli_key: str) -> str:
@@ -120,7 +116,7 @@ def _web_commands(schema: dict) -> list[dict]:
 def list_commands(name: str) -> dict:
     """`GET /api/projects/{name}/commands` の本体。
 
-    取れた CLI だけを返す（sci が無い環境では link・paper の 2 つ）。
+    取れた CLI だけを返す。
     """
     from sai_web.control import _phone_project  # 循環 import を避けるためここで読む
 

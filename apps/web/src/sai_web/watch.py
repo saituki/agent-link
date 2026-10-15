@@ -46,40 +46,11 @@ def notify_status_change(run: dict, state: str, prev: str, now: float) -> None:
 
 
 def watch_once(now: float | None = None) -> None:
-    """1回分の見回り（テストから呼べるように切り出す）。
-
-    多人数モードでは利用者ごとに `registry.current_user` を入れてから見回る
-    （実行の書き出し・質問・購読は利用者ごとに分かれているため）。
-    """
-    from sai_web import registry, store
+    """1回分の見回り（テストから呼べるように切り出す）。"""
+    from sai_web import runs
 
     now = time.time() if now is None else now
     seen: set[str] = set()
-    if registry.multi_user():
-        for user in store.list_users():
-            name = str(user.get("name") or "")
-            if not name:
-                continue
-            token = registry.current_user.set(
-                {"name": name, "email": "", "is_admin": False}
-            )
-            try:
-                _watch_user(now, seen)
-            finally:
-                registry.current_user.reset(token)
-    else:
-        _watch_user(now, seen)
-    # 対象から外れた pane（実行終了・消えた）の記録を掃除する
-    for pane_id in list(_prev_state):
-        if pane_id not in seen:
-            _prev_state.pop(pane_id, None)
-            _working_since.pop(pane_id, None)
-
-
-def _watch_user(now: float, seen: set[str]) -> None:
-    """今の利用者（単独モードは全体）の実行を 1 回見回る。"""
-    from sai_web import runs
-
     for run in runs.load_runs():
         st = runs.headless_state(run)
         if st is None:
@@ -98,6 +69,11 @@ def _watch_user(now: float, seen: set[str]) -> None:
         else:
             _working_since.pop(pane_id, None)
         _prev_state[pane_id] = state
+    # 対象から外れた pane（実行終了・消えた）の記録を掃除する
+    for pane_id in list(_prev_state):
+        if pane_id not in seen:
+            _prev_state.pop(pane_id, None)
+            _working_since.pop(pane_id, None)
 
 
 async def watch_loop() -> None:

@@ -5,7 +5,7 @@
 - 質問・承認の `project` / `run_id`（session_id を含む実行を探す）
 - `title` / `summary` の取り方（1 番目の質問・command → file_path → tool_input の JSON）と 200 文字で切る
 - `projects` の review（run_id と label の並び）と todo の数え方（`phone tree` のフォルダ）・`todo_runs`
-- `papers` の要対応の件数と先頭 3 件
+- `papers` の項目が無いこと
 - 1 プロジェクトの失敗が `errors` に入り、ほかのプロジェクトは出ること
 - 10 秒の覚え置き（2 回目は集めない）
 - 合計（`build_overview`）は各プロジェクトのダッシュボードを足し合わせること（U02 §1）
@@ -18,13 +18,10 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from pathlib import Path
 
 from fastapi import HTTPException
 
-from sai_web import control, home, registry
+from sai_web import home
 from sai_web.main import api_home_overview, app
 
 # --- 偽の値（登録簿・tree・runs・store） ---
@@ -172,15 +169,6 @@ DASHBOARDS = {
     },
 }
 
-# `sai-paper attention --json` の返答（先頭 3 件だけ出す）
-ATTENTION = [
-    {"key": f"question:41:{i}", "kind": "question", "title": f"質問{i}"} for i in range(5)
-]
-
-PAPER_PROJECTS = [
-    {"name": "sai-paper", "root": "/tmp/sai-paper", "root_name": "sai-paper"}
-]
-
 RUNS = [
     {
         "project_name": "sai-web",
@@ -210,15 +198,13 @@ QUESTIONS = [
 
 
 class Fake:
-    """`control` / `papers` / `runs` / `store` の呼び出し記録と、差し替える対象。"""
+    """`control` / `runs` / `store` の呼び出し記録と、差し替える対象。"""
 
     def __init__(self) -> None:
         self.tree_calls: list[str] = []
-        self.attention_calls: list[str] = []
         self.dashboard_calls: list[tuple[str, str]] = []
         self.run_calls: int = 0
         self.fail_tree: set[str] = set()
-        self.fail_attention: set[str] = set()
         self.fail_dashboard: set[str] = set()
 
 
@@ -226,11 +212,9 @@ def setup(fake: Fake) -> None:
     """home が使う関数だけを偽物に差し替える（他は本物）。"""
     # 呼び出しの記録はテストごとに初期化する
     fake.tree_calls.clear()
-    fake.attention_calls.clear()
     fake.dashboard_calls.clear()
     fake.run_calls = 0
     fake.fail_tree = set()
-    fake.fail_attention = set()
     fake.fail_dashboard = set()
 
     def list_projects():
@@ -241,15 +225,6 @@ def setup(fake: Fake) -> None:
         if name in fake.fail_tree:
             raise HTTPException(status_code=502, detail="sai-link が失敗しました")
         return json.loads(json.dumps(TREE))
-
-    def list_paper_projects():
-        return [dict(p) for p in PAPER_PROJECTS]
-
-    def attention_list(project: dict) -> list:
-        fake.attention_calls.append(project["name"])
-        if project["name"] in fake.fail_attention:
-            raise HTTPException(status_code=502, detail="sai-paper が失敗しました")
-        return json.loads(json.dumps(ATTENTION))
 
     def load_runs():
         fake.run_calls += 1
@@ -267,8 +242,6 @@ def setup(fake: Fake) -> None:
     home.control.list_projects = list_projects
     home.control.phone_tree = phone_tree
     home.control.dashboard = dashboard
-    home.papers.list_paper_projects = list_paper_projects
-    home.papers.attention_list = attention_list
     home.runs.load_runs = load_runs
     home.runs.run_session_ids = run_session_ids
     home.store.list_open_questions = lambda: [dict(q) for q in QUESTIONS]
@@ -279,10 +252,10 @@ def setup(fake: Fake) -> None:
 
 
 def test_shape(fake: Fake) -> None:
-    """全体の形（質問・プロジェクト・論文・errors の 4 つ）。"""
+    """全体の形（質問・プロジェクト・errors の 3 つ。`papers` は無い）。"""
     setup(fake)
     out = home.build_home()
-    assert set(out) == {"questions", "projects", "papers", "errors"}, set(out)
+    assert set(out) == {"questions", "projects", "errors"}, set(out)
     assert out["errors"] == [], out["errors"]
 
 
@@ -374,20 +347,6 @@ def test_folder_runs_passes_scheduled_at() -> None:
     ], rows
 
 
-def test_papers(fake: Fake) -> None:
-    """論文は要対応の件数と先頭 3 件（kind は sai-paper の値のまま）。"""
-    setup(fake)
-    out = home.build_home()
-    assert fake.attention_calls == ["sai-paper"], fake.attention_calls
-    rows = out["papers"]
-    assert len(rows) == 1, rows
-    assert rows[0]["name"] == "sai-paper", rows[0]
-    assert rows[0]["attention"] == 5, rows[0]
-    items = rows[0]["items"]
-    assert len(items) == 3, items
-    assert items[0] == {"key": "question:41:0", "kind": "question", "title": "質問0"}, items[0]
-
-
 def test_errors(fake: Fake) -> None:
     """1 プロジェクトの失敗は errors に入り、ほかのプロジェクトは出る。"""
     setup(fake)
@@ -396,14 +355,6 @@ def test_errors(fake: Fake) -> None:
     names = [r["name"] for r in out["projects"]]
     assert names == ["sai-link"], names
     assert out["errors"] == ["sai-web: sai-link が失敗しました"], out["errors"]
-    # 論文側の失敗も同じ
-    home.forget()
-    fake.fail_tree = set()
-    fake.fail_attention = {"sai-paper"}
-    out = home.build_home()
-    assert out["papers"] == [], out["papers"]
-    assert out["errors"] == ["sai-paper: sai-paper が失敗しました"], out["errors"]
-    assert len(out["projects"]) == 2, out["projects"]
 
 
 def test_cache(fake: Fake) -> None:
@@ -568,90 +519,14 @@ def test_overview_cache(fake: Fake) -> None:
     assert len(fake.dashboard_calls) == 6, fake.dashboard_calls
 
 
-def test_multi_user_home_no_404() -> None:
-    """多人数モードで利用者のプロジェクトが 2 つあっても、ホームの集計が 404 にならない。
-
-    本物の `control.list_projects` / `find_project` / `phone_tree` / `dashboard` を通す。
-    CLI を呼ぶ所（`_project_summary`・`_phone_json`・`export_runs`）と質問・実行・論文だけ差し替える。
-    直す前は、集計の並列の中で今の利用者が無くなり、登録簿が単独モードの物になって 404 になる。
-    """
-    saved_env = os.environ.get("SAI_WEB_USERS_ROOT")
-    saved = {
-        "project_summary": control._project_summary,  # noqa: SLF001
-        "phone_json": control._phone_json,  # noqa: SLF001
-        "export_runs": control.export_runs,
-        "list_paper_projects": home.papers.list_paper_projects,
-        "list_open_questions": home.store.list_open_questions,
-        "session_map": home._session_map,  # noqa: SLF001
-    }
-    users = Path(tempfile.mkdtemp(prefix="sai-web-home-users-"))
-    # alice の置き場に、名前が `alice-` で始まり `.sai/` を持つフォルダを 2 つ作る
-    for name in ("alice-alpha", "alice-beta"):
-        db = users / "alice" / "projects" / name / ".sai" / "sai-engine" / "sai-engine.db"
-        db.parent.mkdir(parents=True)
-        db.write_bytes(b"")
-
-    def project_summary(name: str, root: str) -> dict:
-        return {"running": 0, "last_executed_at": None}
-
-    def phone_json(args, *, root, timeout=20.0, stdin_text=None):
-        if args[0] == "run":
-            return {"items": []}
-        name = Path(root).name
-        return {
-            "name": name,
-            "period": "week",
-            "since": "2026-10-03",
-            "until": "2026-10-09",
-            "daemon_alive": False,
-            "summary": {"executions": 1, "completed": 1},
-            "daily": [],
-            "recent": [],
-        }
-
-    os.environ["SAI_WEB_USERS_ROOT"] = str(users)
-    control._project_summary = project_summary  # noqa: SLF001
-    control._phone_json = phone_json  # noqa: SLF001
-    control.export_runs = lambda project: None
-    home.papers.list_paper_projects = lambda: []
-    home.store.list_open_questions = lambda: []
-    home._session_map = lambda: []  # noqa: SLF001
-    home.forget()
-    token = registry.current_user.set({"name": "alice", "email": "", "is_admin": False})
-    try:
-        out = home.build_home()
-        assert out["errors"] == [], out["errors"]
-        assert sorted(p["name"] for p in out["projects"]) == ["alice-alpha", "alice-beta"], out
-
-        home.forget()
-        over = home.build_overview("week")
-        assert over["errors"] == [], over["errors"]
-        assert over["projects"] == 2, over
-    finally:
-        registry.current_user.reset(token)
-        home.forget()
-        control._project_summary = saved["project_summary"]  # noqa: SLF001
-        control._phone_json = saved["phone_json"]  # noqa: SLF001
-        control.export_runs = saved["export_runs"]
-        home.papers.list_paper_projects = saved["list_paper_projects"]
-        home.store.list_open_questions = saved["list_open_questions"]
-        home._session_map = saved["session_map"]  # noqa: SLF001
-        if saved_env is None:
-            os.environ.pop("SAI_WEB_USERS_ROOT", None)
-        else:
-            os.environ["SAI_WEB_USERS_ROOT"] = saved_env
-
-
 def main() -> None:
     fake = Fake()
-    test_multi_user_home_no_404()
     test_shape(fake)
     test_questions(fake)
     test_title_truncated(fake)
     test_projects(fake)
     test_folder_runs_passes_card()
     test_folder_runs_passes_scheduled_at()
-    test_papers(fake)
     test_errors(fake)
     test_cache(fake)
     test_route()

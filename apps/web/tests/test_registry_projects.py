@@ -398,30 +398,6 @@ def test_find_project_404(base: Path) -> None:
         control._summary_cache.clear()
 
 
-def test_host_transcript(tmp: Path) -> None:
-    """多人数モードで、コンテナの HOME の .claude を指す記録を共有のログインの置き場に読み替える。"""
-    users = tmp / "users"
-    inner = "projects/-p/s1.jsonl"
-    home_path = users / "alice" / "homes" / "alice-p" / ".claude" / inner
-    shared = users / "alice" / "claude" / inner
-    old = os.environ.get("SAI_WEB_USERS_ROOT")
-    try:
-        os.environ.pop("SAI_WEB_USERS_ROOT", None)
-        assert registry.host_transcript(str(home_path)) == home_path, "単独モードは読み替えない"
-        os.environ["SAI_WEB_USERS_ROOT"] = str(users)
-        assert registry.host_transcript(str(home_path)) == shared
-        other = users / "alice" / "homes" / "alice-p" / ".sai" / "x.jsonl"
-        assert registry.host_transcript(str(other)) == other, ".claude の外は読み替えない"
-        home_path.parent.mkdir(parents=True)
-        home_path.write_text("{}\n", encoding="utf-8")
-        assert registry.host_transcript(str(home_path)) == home_path, "元の場所にあればそのまま"
-    finally:
-        if old is None:
-            os.environ.pop("SAI_WEB_USERS_ROOT", None)
-        else:
-            os.environ["SAI_WEB_USERS_ROOT"] = old
-
-
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root_tmp = Path(tmp)
@@ -443,7 +419,6 @@ def main() -> None:
             test_dashboard_no_db(base)
             test_daemon(base)
             test_find_project_404(base)
-            test_host_transcript(root_tmp)
         finally:
             if old_env is None:
                 os.environ.pop("SAI_HOME", None)

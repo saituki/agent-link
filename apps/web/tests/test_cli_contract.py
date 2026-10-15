@@ -8,7 +8,7 @@
   - 理由は標準エラーの最後の空でない行（`sai-progress` の行は飛ばす）
   - 標準出力の `{"error": …}` は理由に使わない（終了コードで決める）
 - 起動できない → 503・時間切れ → 504（`run_cli`）
-- 呼び出しの env（`_phone_env` / sai-paper の `_paper_cli`）
+- 呼び出しの env（`_phone_env`）
   - `SAI_PROJECT_ROOT` と `SAI_ORIGIN=phone` があり，`SAI_PAPER_ROOT` が無い
 
 実行:
@@ -22,7 +22,7 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import cli, control, papers
+from sai_web import cli, control
 
 
 def expect(code: int, fn) -> HTTPException:
@@ -114,23 +114,6 @@ def test_phone_env() -> None:
     assert "SAI_PAPER_ROOT" not in env, env.get("SAI_PAPER_ROOT")
 
 
-def test_paper_env() -> None:
-    """sai-paper の呼び出しも `SAI_PROJECT_ROOT` と `SAI_ORIGIN` で，`SAI_PAPER_ROOT` を渡さない。"""
-    seen: list[dict] = []
-    orig = papers.cli.run_json
-    papers.cli.run_json = lambda args, **kw: seen.append(dict(kw, args=list(args))) or {}
-    try:
-        papers.library({"name": "p", "root": "/tmp/p-root"})
-    finally:
-        papers.cli.run_json = orig
-    assert seen, "呼ばれていない"
-    env = seen[-1]["env"]
-    assert env["SAI_PROJECT_ROOT"] == "/tmp/p-root", env
-    assert env["SAI_ORIGIN"] == "phone", env
-    assert "SAI_PAPER_ROOT" not in env, env
-    assert seen[-1]["args"][1:] == ["library", "list"], seen[-1]["args"]
-
-
 def main() -> None:
     test_zero_json()
     test_exit_codes()
@@ -138,7 +121,6 @@ def main() -> None:
     test_stdout_error_is_not_special()
     test_run_cli_503_504()
     test_phone_env()
-    test_paper_env()
     print("test_cli_contract: すべて通りました")
 
 

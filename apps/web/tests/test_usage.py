@@ -15,13 +15,12 @@ import os
 import sys
 import tempfile
 import time
-from contextlib import contextmanager
 from pathlib import Path
 
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import registry, usage  # noqa: E402
+from sai_web import usage  # noqa: E402
 
 
 def noon_ms() -> float:
@@ -335,37 +334,14 @@ def test_cc_card_single() -> None:
     assert card["cost"]["sessions"] == 2, card
 
 
-@contextmanager
-def multi_user_env(root: Path, user: str):
-    """多人数モードの環境（`SAI_WEB_USERS_ROOT` と今の利用者）を一時的に作る。"""
-    saved = os.environ.get("SAI_WEB_USERS_ROOT")
-    token = registry.current_user.set({"name": user})
-    os.environ["SAI_WEB_USERS_ROOT"] = str(root)
-    try:
-        yield
-    finally:
-        registry.current_user.reset(token)
-        if saved is None:
-            os.environ.pop("SAI_WEB_USERS_ROOT", None)
-        else:
-            os.environ["SAI_WEB_USERS_ROOT"] = saved
-
-
-def make_project(root: Path, user: str, project: str) -> Path:
-    """`<user_dir>/projects/<name>/.sai` と、コンテナの HOME（`homes/<name>`）を作る。"""
-    (root / user / "projects" / project / ".sai").mkdir(parents=True, exist_ok=True)
-    return root / user / "homes" / project
-
-
-def test_cc_card_multi() -> None:
-    """多人数モード: 今の利用者のプロジェクトのコンテナの HOME の `.sai` を全部合計する（計画 U02）。"""
+def test_cc_card_homes() -> None:
+    """`homes` を渡すと、その `<sai_home>` を全部合計し、枠の値は updated_at が一番新しい物を使う。"""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        home_a = make_project(root, "saito", "saito-demo")
-        home_b = make_project(root, "saito", "saito-west")
-        make_project(root, "other", "other-x")  # 別の利用者のプロジェクトは見ない
+        home_a = root / "a"
+        home_b = root / "b"
         write_cc_home(
-            home_a / ".sai",
+            home_a,
             five_pct=23.5,
             age=3600,
             cost_files={
@@ -373,25 +349,14 @@ def test_cc_card_multi() -> None:
             },
         )
         write_cc_home(
-            home_b / ".sai",
+            home_b,
             five_pct=99.0,
             age=60,
             cost_files={
                 "b.json": {"session_id": "b", "total_cost_usd": 0.5, "updated_at": iso(CC_NOW - 60)},
             },
         )
-        # 別の利用者の枠の値と費用は読まない（新しくても）
-        write_cc_home(
-            root / "other" / "homes" / "other-x" / ".sai",
-            five_pct=5.0,
-            age=10,
-            cost_files={
-                "z.json": {"session_id": "z", "total_cost_usd": 100.0, "updated_at": iso(CC_NOW - 60)},
-            },
-        )
-        with multi_user_env(root, "saito"):
-            card = usage.cc_card(now=CC_NOW)
-    # 枠の値は updated_at が一番新しい home（home_b）のもの
+        card = usage.cc_card(homes=[home_a, home_b], now=CC_NOW)
     assert card["limits"]["updated_at"] == iso(CC_NOW - 60), card
     assert card["limits"]["five_hour"]["used_percentage"] == 99.0, card
     assert abs(card["cost"]["today"] - 1.5) < 1e-9, card
@@ -407,40 +372,35 @@ def test_cc_card_no_limits() -> None:
     assert card["cost"] == {"today": 0.0, "month": 0.0, "sessions": 0}, card
 
 
-def test_pi_provider_multi_user() -> None:
-    """多人数モード: プロジェクトごとのコンテナの HOME の `.pi/agent` から provider の対応を読む（計画 U02・AC3）。"""
+def test_pi_provider_single() -> None:
+    """pi の置き場は `~/.pi/agent` の 1 つ（`HOME` で差し替え）。そこから provider の対応を読む。"""
     with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        home_a = make_project(root, "saito", "saito-demo")
-        home_b = make_project(root, "saito", "saito-west")
+        fake_home = Path(tmp)
         write_json(
-            home_a / ".pi" / "agent" / "models.json",
+            fake_home / ".pi" / "agent" / "models.json",
             {"providers": {"openrouter-meta": {"apiKey": "$OPENROUTER_API_KEY"}}},
         )
         write_json(
-            home_b / ".pi" / "agent" / "auth.json",
+            fake_home / ".pi" / "agent" / "auth.json",
             {"deepseek": {"type": "api_key", "key": "$DEEPSEEK_API_KEY"}},
         )
-        write_json(
-            home_b / ".pi" / "agent" / "models.json",
-            {"providers": {"openrouter-modal": {"apiKey": "$OPENROUTER_API_KEY_2"}}},
-        )
-        with multi_user_env(root, "saito"):
-            dirs = sorted(usage.pi_agent_dirs())
+        saved = os.environ.get("HOME")
+        os.environ["HOME"] = str(fake_home)
+        try:
+            dirs = usage.pi_agent_dirs()
             env_of = usage.provider_env_map()
-    # 置き場はプロジェクトごとの HOME の `.pi/agent`（ホストの ~/.pi は見ない）
-    assert dirs == sorted([home_a / ".pi" / "agent", home_b / ".pi" / "agent"]), dirs
+        finally:
+            if saved is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved
+    assert dirs == [fake_home / ".pi" / "agent"], dirs
     assert env_of == {
         "openrouter-meta": "OPENROUTER_API_KEY",
-        "openrouter-modal": "OPENROUTER_API_KEY_2",
         "deepseek": "DEEPSEEK_API_KEY",
     }, env_of
-    accounts = [
-        {"name": "main", "env": "OPENROUTER_API_KEY"},
-        {"name": "sub", "env": "OPENROUTER_API_KEY_2"},
-    ]
+    accounts = [{"name": "main", "env": "OPENROUTER_API_KEY"}]
     assert usage.map_provider("openrouter-meta", env_of, accounts) == ("openrouter", "main")
-    assert usage.map_provider("openrouter-modal", env_of, accounts) == ("openrouter", "sub")
 
 
 def main() -> None:
@@ -454,9 +414,9 @@ def main() -> None:
     test_openrouter_accounts()
     test_known_target()
     test_cc_card_single()
-    test_cc_card_multi()
+    test_cc_card_homes()
     test_cc_card_no_limits()
-    test_pi_provider_multi_user()
+    test_pi_provider_single()
     print("test_usage: すべて通りました")
 
 

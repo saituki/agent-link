@@ -15,7 +15,6 @@ headless では pane の画面が無いので，回答は記録するだけに�
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import sys
 import tempfile
@@ -172,28 +171,6 @@ def test_answer_records_answered_by() -> None:
         assert store.get_question(qid_pi)["answered_by"] == "terminal"
 
 
-def test_answer_records_logged_in_user_in_multi_user_mode() -> None:
-    """多人数モードは今の利用者の名前を記録する（C8）。"""
-    from sai_web import registry
-
-    saved_root = os.environ.get("SAI_WEB_USERS_ROOT")
-    with tempfile.TemporaryDirectory() as tmp:
-        fresh_db(tmp)
-        os.environ["SAI_WEB_USERS_ROOT"] = str(Path(tmp) / "users")
-        token = registry.current_user.set({"name": "saituki"})
-        try:
-            qid = make_question("claude")["id"]
-            ok, reason = questions.answer_question(qid, [{"choice_index": 0}])
-            assert ok is True, reason
-            assert store.get_question(qid)["answered_by"] == "saituki"
-        finally:
-            registry.current_user.reset(token)
-            if saved_root is None:
-                os.environ.pop("SAI_WEB_USERS_ROOT", None)
-            else:
-                os.environ["SAI_WEB_USERS_ROOT"] = saved_root
-
-
 def test_old_db_gets_answered_by_column() -> None:
     """`answered_by` の列が無い古い DB に足され，既存の行は空文字になる（DB を壊さない）。"""
     with tempfile.TemporaryDirectory() as tmp:
@@ -273,7 +250,6 @@ def main() -> None:
     test_cc_question_expires_after_24_hours()
     test_resolve_on_terminal()
     test_answer_records_answered_by()
-    test_answer_records_logged_in_user_in_multi_user_mode()
     test_old_db_gets_answered_by_column()
     test_free_text_answer_is_recorded()
     print("test_questions: すべて通りました")

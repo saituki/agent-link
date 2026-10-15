@@ -22,7 +22,6 @@ import contextlib
 import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import threading
@@ -115,27 +114,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"id": "q3", "state": "answered", "questions": QUESTIONS,
                              "answer": {"answers": [{"text": "緑"}]},
                              "answered_by": "saituki"})
-        elif self.path == "/api/questions/mine":
-            # コンテナの合言葉で呼ばれたときの一覧（自分のプロジェクトの分だけ）
-            self._send(
-                200,
-                {
-                    "questions": [
-                        {"id": "m1", "agent": "pi", "title": "自分の質問",
-                         "created_at": 3.0, "project": "研究A", "run_id": 11},
-                    ],
-                },
-            )
         elif self.path == "/api/projects":
             self._send(200, [{"name": "研究A", "root": "/tmp/a", "kind": "link"}])
         elif self.path == "/api/usage":
             self._send(200, {"cost": 1.5})
-        elif self.path.startswith("/api/mlflow/experiments"):
-            self._send(200, {"experiments": [{"experiment_id": "1"}]})
-        elif self.path.startswith("/api/mlflow/runs/"):
-            self._send(200, {"run": {"info": {"run_id": self.path.rsplit("/", 1)[-1]}}})
-        elif self.path.startswith("/api/mlflow/metrics/history"):
-            self._send(200, {"metrics": [{"metric_key": "loss"}]})
         elif self.path == "/api/status/notfound":
             self._send(404, {"detail": "質問が見つかりません"})
         elif self.path == "/api/status/conflict":
@@ -155,12 +137,8 @@ class Handler(BaseHTTPRequestHandler):
         self._record("POST")
         if self.path == "/api/questions/q1/answer":
             self._send(200, {"ok": True})
-        elif self.path == "/api/feedback":
-            self._send(200, {"ok": True, "id": "20261015-140000-saituki-west-run42"})
         elif self.path.endswith("/send"):
             self._send(200, {"ok": True})
-        elif self.path == "/api/mlflow/runs/search":
-            self._send(200, {"runs": []})
         else:
             self._send(404, {"detail": "見つかりません"})
 
@@ -231,9 +209,10 @@ class WebCliTest(unittest.TestCase):
     def test_help_lists_commands(self) -> None:
         text = webcli.build_parser().format_help()
         for name in ("serve", "projects", "home", "questions", "question",
-                     "answer", "send", "feedback", "usage",
-                     "mlflow", "api"):
+                     "answer", "send", "usage", "api"):
             self.assertIn(name, text, f"--help に {name} が出ていません")
+        for name in ("feedback", "mlflow"):
+            self.assertNotIn(name, text, f"--help に消した命令 {name} が出ています")
 
     # --- questions: --run で狭められる
     def test_questions_filter_by_run(self) -> None:
@@ -258,29 +237,6 @@ class WebCliTest(unittest.TestCase):
         code, out, err = run_cli("usage")
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out)["cost"], 1.5)
-
-    def test_mlflow_commands(self) -> None:
-        code, out, err = run_cli("mlflow", "experiments")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out)["experiments"][0]["experiment_id"], "1")
-
-        code, out, err = run_cli("mlflow", "runs", "1", "--filter", "metrics.loss < 1", "--max", "5")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(RECEIVED[-1]["path"], "/api/mlflow/runs/search")
-        self.assertEqual(
-            RECEIVED[-1]["body"],
-            {"experiment_ids": ["1"], "filter": "metrics.loss < 1", "max_results": 5},
-        )
-
-        code, out, err = run_cli("mlflow", "run", "abc")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out)["run"]["info"]["run_id"], "abc")
-
-        code, _out, err = run_cli("mlflow", "metric", "abc", "loss", "--max", "3")
-        self.assertEqual(code, 0, err)
-        self.assertIn("run_id=abc", RECEIVED[-1]["path"])
-        self.assertIn("metric_key=loss", RECEIVED[-1]["path"])
-        self.assertIn("max_results=3", RECEIVED[-1]["path"])
 
     def test_questions_filter_by_project(self) -> None:
         code, out, err = run_cli("questions", "--project", "研究A")
@@ -317,50 +273,14 @@ class WebCliTest(unittest.TestCase):
         self.assertIn("ヘッダで送れない", err)
         self.assertNotIn("日本語の合言葉", out + err, "合言葉が出力に漏れています")
 
-    # --- コンテナの中: 内部の合言葉で、自分のプロジェクトの質問だけ読む
-    def test_internal_token_lists_own_questions(self) -> None:
-        code, out, err = run_cli(
-            "questions", env={"SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"}
-        )
-        self.assertEqual(code, 0, err)
-        self.assertEqual(RECEIVED[-1]["path"], "/api/questions/mine")
-        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer int-token-xyz")
-        self.assertEqual([row["id"] for row in json.loads(out)], ["m1"])
-        self.assertNotIn("int-token-xyz", out + err, "合言葉が出力に漏れています")
-
-    def test_app_token_wins_over_internal_token(self) -> None:
-        code, _out, err = run_cli(
-            "questions",
-            env={"SAI_WEB_TOKEN": "env-token", "SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"},
-        )
+    # --- 質問は常に /api/home の questions から読む。SAI_WEB_INTERNAL_TOKEN は使わない
+    def test_internal_token_is_ignored(self) -> None:
+        code, out, err = run_cli("questions", env={"SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"})
         self.assertEqual(code, 0, err)
         self.assertEqual(RECEIVED[-1]["path"], "/api/home")
-        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer env-token")
-
-    def test_internal_token_is_used_for_answer(self) -> None:
-        code, _out, err = run_cli(
-            "answer", "q1", "--choice", "0", "--choices", "1,2",
-            env={"SAI_WEB_INTERNAL_TOKEN": "int-token-xyz"},
-        )
-        self.assertEqual(code, 0, err)
-        self.assertEqual(RECEIVED[-1]["path"], "/api/questions/q1/answer")
-        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer int-token-xyz")
-
-    # --- fastapi を読めない python3 でも動く（コンテナの中）
-    def test_import_without_fastapi(self) -> None:
-        src = str(Path(__file__).resolve().parent.parent / "src")
-        code = (
-            "import sys; sys.modules['fastapi'] = None; "
-            "from sai_web import webcli; "
-            "args = webcli.build_parser().parse_args(['questions']); "
-            "print(args.command)"
-        )
-        env = dict(os.environ, PYTHONPATH=src)
-        done = subprocess.run(
-            [sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60
-        )
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(done.stdout.strip(), "questions")
+        # 合言葉は `web/token` のファイルから（内部の合言葉ではない）
+        self.assertEqual(RECEIVED[-1]["authorization"], "Bearer s3cret-token")
+        self.assertNotIn("int-token-xyz", out + err)
 
     # --- answer: 問いの数と答えの数が合わなければ送らない
     def test_answer_count_mismatch_does_not_send(self) -> None:
@@ -490,42 +410,13 @@ class WebCliTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--port") + 1], "8288")
         self.assertEqual(argv[argv.index("--host") + 1], "127.0.0.1")
 
-    # --- feedback: 標準入力の本文を /api/feedback へ（U02・AC4）
-    def _feedback(self, stdin_text: str, env: dict | None = None) -> tuple[int, str, str]:
-        saved = sys.stdin
-        sys.stdin = io.StringIO(stdin_text)
-        try:
-            return run_cli("feedback", "report", env=env)
-        finally:
-            sys.stdin = saved
-
-    def test_feedback_sends_stdin_with_run_and_project(self) -> None:
-        code, out, err = self._feedback(
-            "## 不具合\n表が崩れる\n",
-            env={"SAI_PARENT_RUN_ID": "42", "SAI_PROJECT_ROOT": "/Users/x/saituki-west"},
-        )
-        self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out), {"ok": True, "id": "20261015-140000-saituki-west-run42"})
-        post = [r for r in RECEIVED if r["path"] == "/api/feedback"][-1]
-        self.assertEqual(post["method"], "POST")
-        self.assertEqual(
-            post["body"],
-            {"kind": "report", "text": "## 不具合\n表が崩れる\n", "run_id": 42, "project": "saituki-west"},
-        )
-
-    def test_feedback_without_run_or_project_sends_null_and_empty(self) -> None:
-        code, _out, err = self._feedback("本文")
-        self.assertEqual(code, 0, err)
-        post = [r for r in RECEIVED if r["path"] == "/api/feedback"][-1]
-        self.assertEqual(post["body"]["run_id"], None, post["body"])
-        self.assertEqual(post["body"]["project"], "", post["body"])
-
-    def test_feedback_empty_stdin_is_usage_error(self) -> None:
-        RECEIVED.clear()
-        code, out, err = self._feedback("  \n\n")
-        self.assertEqual(code, 2, err)
-        self.assertEqual(out, "")
-        self.assertEqual([r for r in RECEIVED if r["path"] == "/api/feedback"], [])
+    # --- 消した命令（feedback・mlflow・user）は parser に無い
+    def test_removed_commands_are_unknown(self) -> None:
+        for name in ("feedback", "mlflow", "user"):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+                webcli.main([name])
+            self.assertEqual(cm.exception.code, 2, name)
 
 
 if __name__ == "__main__":

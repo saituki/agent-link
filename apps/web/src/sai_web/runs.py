@@ -31,10 +31,6 @@ _VISIBLE_STATUSES = ("running", "completed", "failed", "cancelled")
 # 実行中の失敗・中止の数え方（画面上は failed にまとめて出す）
 _FAILED_STATUSES = ("failed", "cancelled")
 
-# Customer（利用者のサポート）のチャット: 利用者の種類 → block 名（U01 の block と同じ名前）
-CUSTOMER_KINDS = {"report": "user-report", "question": "user-question", "opinion": "user-opinion"}
-CUSTOMER_BLOCKS = frozenset(CUSTOMER_KINDS.values())
-
 # runner の表示順（決め事の例は cc → pi）
 _RUNNER_ORDER = ("cc", "pi", "gl")
 
@@ -91,11 +87,6 @@ def _start_dt(run: dict) -> datetime:
     return _parse_time(run.get("started_at")) or datetime.min.replace(tzinfo=timezone.utc)
 
 
-def is_customer(run: dict) -> bool:
-    """Customer のチャットか（block 名で決める）．Chats の日付一覧からは外す．"""
-    return run.get("block_name") in CUSTOMER_BLOCKS
-
-
 # --- ファイルの読み込み ---
 
 
@@ -128,24 +119,14 @@ def _read_run(path: Path) -> dict | None:
 
 
 def runs_dirs() -> list[Path]:
-    """実行の書き出しを読むフォルダ（共有契約 C4）。
+    """実行の書き出しを読むフォルダ。
 
-    - `SAI_WEB_RUNS_DIR` があればそれ 1 つ（今までのテストの差し替え方を保つ）。
-    - 多人数モード: 今の利用者のプロジェクトごとの
-      `<project_home>/.sai/web/runs` を全部。
-    - 単独モード: `$SAI_HOME/web/runs` 1 つ（今までどおり）。
+    - `SAI_WEB_RUNS_DIR` があればそれ 1 つ（テストの差し替え用）。
+    - 無ければ `$SAI_HOME/web/runs` 1 つ。
     """
     env = (os.getenv("SAI_WEB_RUNS_DIR") or "").strip()
     if env:
         return [Path(env)]
-    if registry.multi_user():
-        out: list[Path] = []
-        for project in registry.load_registry():
-            name = str(project.get("name") or "")
-            if not name:
-                continue
-            out.append(registry.project_home(name) / ".sai" / "web" / "runs")
-        return out
     return [registry.sai_home() / "web" / "runs"]
 
 
@@ -156,8 +137,6 @@ def load_runs(runs_dir: Path | None = None) -> list[dict]:
       渡さないときは `runs_dirs()` のフォルダを全部読む。
     - `.` で始まるフォルダ・ファイルは無視（01 の一時ファイル対策）。
     - mtime が変わったファイルだけ読み直す。
-    - 多人数モードでは、`project_root` が今の利用者のプロジェクト一覧に
-      無い実行を捨てる（他人のプロジェクトの書き出しを混ぜないため）。
     """
     global _file_cache
     bases = [Path(runs_dir)] if runs_dir is not None else runs_dirs()
@@ -190,11 +169,7 @@ def load_runs(runs_dir: Path | None = None) -> list[dict]:
                     # 新規・更新時だけ読む（壊れていたらログもこの時だけ出る）
                     found[key] = (mtime, _read_run(path))
     _file_cache = found
-    runs = [run for _, run in found.values() if run is not None]
-    if runs_dir is None and registry.multi_user():
-        allowed = {str(p.get("root") or "") for p in registry.load_registry()}
-        runs = [r for r in runs if str(r.get("project_root") or "") in allowed]
-    return runs
+    return [run for _, run in found.values() if run is not None]
 
 
 # --- 実行と質問の対応づけ（00 §3.7） ---
@@ -255,7 +230,7 @@ def run_session_ids(run: dict) -> set[str]:
         ids.add(agent_sid)
     transcript = run.get("transcript_path")
     if isinstance(transcript, str) and transcript:
-        ids |= set(_transcript_session_ids(registry.host_transcript(transcript)))
+        ids |= set(_transcript_session_ids(Path(transcript)))
     return ids
 
 
@@ -267,7 +242,7 @@ def question_session_id(run: dict) -> str | None:
             return sid
     transcript = run.get("transcript_path")
     if isinstance(transcript, str) and transcript:
-        ids = sorted(_transcript_session_ids(registry.host_transcript(transcript)))
+        ids = sorted(_transcript_session_ids(Path(transcript)))
         if ids:
             return ids[0]
     sid = run.get("agent_session_id")
@@ -318,9 +293,6 @@ def headless_state(run: dict) -> dict | None:
         return None
     root = run.get("project_root")
     if not isinstance(root, str) or not root:
-        return None
-    # 多人数モードでは、今の利用者の置き場の外を指す実行は状態を読まない
-    if registry.multi_user() and not registry.within_user(root):
         return None
     path = Path(root) / ".sai" / "sai-engine" / "headless" / pane_id / "state.json"
     try:
@@ -432,11 +404,9 @@ def order_runs(runs: list[dict]) -> list[dict]:
 
 
 def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]:
-    """日付ごとのまとめ（02 §2.2 /api/days）．新しい日が先．Customer は含めない．"""
+    """日付ごとのまとめ（02 §2.2 /api/days）．新しい日が先．"""
     by_date: dict[str, list[dict]] = defaultdict(list)
     for r in runs:
-        if is_customer(r):
-            continue
         d = run_date(r)
         if d:
             by_date[d].append(r)
@@ -490,8 +460,8 @@ def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]
 def build_day(
     runs: list[dict], date: str, question_session_ids=frozenset(),
 ) -> dict:
-    """1日の実行一覧（02 §2.2 /api/days/{date}）．Customer は含めない．"""
-    day_runs = [r for r in runs if not is_customer(r) and run_date(r) == date]
+    """1日の実行一覧（02 §2.2 /api/days/{date}）"""
+    day_runs = [r for r in runs if run_date(r) == date]
     grouped: dict[str, list[dict]] = defaultdict(list)
     for r in day_runs:
         grouped[r.get("project_name") or ""].append(r)
@@ -535,25 +505,3 @@ def search_runs(runs: list[dict], keyword: str, question_session_ids=frozenset()
     ]
     hits.sort(key=_start_dt, reverse=True)
     return [run_to_api(r, question_session_ids) for r in hits]
-
-
-def build_customer(runs: list[dict], question_session_ids=frozenset()) -> dict:
-    """Customer のチャットの一覧と要約（`GET /api/customer`）．新しい順．
-
-    Run の形は `build_day` の要素と同じ（字下げなし）．
-    """
-    cs = sorted((r for r in runs if is_customer(r)), key=_start_dt, reverse=True)
-    items = [
-        {
-            **run_to_api(r, question_session_ids),
-            "indent": False,
-            "show_parent": r.get("parent_run_id") is not None,
-        }
-        for r in cs
-    ]
-    return {
-        "runs": items,
-        "count": len(items),
-        "running": sum(1 for r in cs if r.get("status") == "running"),
-        "has_question": any(i["has_question"] for i in items),
-    }

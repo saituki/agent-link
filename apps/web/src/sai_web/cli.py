@@ -134,7 +134,7 @@ def run_json(
     - 終了コード 0: 標準出力の JSON をそのまま返す。
     - それ以外: `result_json` の読み替え（http の状態 + 標準エラーの最後の行）。
     - JSON として読めない（終了コード 0 のとき）: 502。
-    - `input_text` は標準入力へ渡す（sai-paper `paper note` の本文）。
+    - `input_text` は標準入力へ渡す（標準入力に渡す本文）。
     - `runner` を渡すと，その関数で CLI を呼ぶ（テストが `control.run_cli` を
       差し替えても効くようにするため。既定はこのモジュールの `run_cli`）。
     """

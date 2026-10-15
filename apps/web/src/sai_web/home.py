@@ -3,13 +3,12 @@
 1 本の住所で次をまとめて返す（共有契約 C-A3）:
 - 答えを待っている質問（`store.list_open_questions`）
 - 動いているプロジェクト（`control.list_projects` + `control.phone_tree` の review / todo の一覧）
-- 論文の要対応（`sai-paper attention --json`）
 
 `GET /api/home/overview`（`build_overview`）は全プロジェクトのダッシュボードを足し合わせたもの。
 各プロジェクトの `phone dashboard` の JSON を足し合わせるだけで、それ以外の集計は作らない。
 
 大原則（`docs/integration.md` §3）どおり、他アプリの DB は開かない。
-登録簿と sai-link / sai-paper の CLI の JSON だけを使う。
+登録簿と sai-link の CLI の JSON だけを使う。
 
 1 つのプロジェクトが失敗しても全体は止めない（`errors` に「<名前>: <理由>」を足す）。
 画面が開くたび・更新するたびに全プロジェクトの CLI を呼ばないよう、結果は 10 秒だけ覚える。
@@ -18,23 +17,20 @@
 from __future__ import annotations
 
 import concurrent.futures
-import contextvars
 import logging
 import time
 
 from fastapi import HTTPException
 
-from sai_web import control, papers, registry, runs, store
+from sai_web import control, runs, store
 
 logger = logging.getLogger("sai_web")
 
 # 一覧の題・要約の長さの上限（画面が溢れないように切る）
 _TITLE_MAX = 200
-# 論文の要対応の先頭件数（ホームは件数と題だけでよい）
-_ATTENTION_HEAD = 3
 # 結果を覚える秒数（ホームを開くたび・更新のたびに全プロジェクトの CLI を呼ばないため）
 _HOME_TTL = 10.0
-# プロジェクトごとの同時実行数（sai-link / sai-paper の CLI は重い）
+# プロジェクトごとの同時実行数（sai-link の CLI は重い）
 _HOME_WORKERS = 4
 
 # 合計のダッシュボードが取れる期間（CLI の dashboard と同じ）
@@ -55,11 +51,10 @@ _SUMMARY_KEYS = (
     "cost_usd",
 )
 
-# 覚えておいた結果（利用者の名前 → (時刻, 結果)）。テストから消すため global で持つ。
-# 多人数モードでは利用者ごとに分ける（他人の結果を返さないため）。
+# 覚えておいた結果（キーは空文字 1 つ → (時刻, 結果)）。テストから消すため global で持つ。
 _cache: dict[str, tuple[float, dict]] = {}
-# 合計の覚え置き（（利用者, 期間）ごとの (時刻, 結果)）。`forget()` で消す。
-_overview_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+# 合計の覚え置き（期間ごとの (時刻, 結果)）。`forget()` で消す。
+_overview_cache: dict[str, tuple[float, dict]] = {}
 
 
 def _now() -> float:
@@ -177,25 +172,6 @@ def _home_project(row: dict) -> dict:
     }
 
 
-def _home_paper(row: dict) -> dict:
-    """論文の置き場があるプロジェクトのホームの行（`attention --json` の件数と先頭 3 件）。"""
-    name = str(row.get("name") or "")
-    items = papers.attention_list(row) or []
-    head = []
-    for item in items[:_ATTENTION_HEAD]:
-        if not isinstance(item, dict):
-            continue
-        head.append(
-            {
-                "key": _text(item.get("key")),
-                # kind は sai-paper の値のまま（日本語のラベルに変えない・C-A3）
-                "kind": str(item.get("kind") or ""),
-                "title": _text(item.get("title")),
-            }
-        )
-    return {"name": name, "attention": len(items), "items": head}
-
-
 def _error_text(e: Exception) -> str:
     """1 つの失敗の理由（HTTPException の detail が日本語なのでそれを優先する）。"""
     if isinstance(e, HTTPException):
@@ -211,42 +187,30 @@ def _build() -> dict:
         for row in control.list_projects()
         if row.get("root_exists") and row.get("db_exists")
     ]
-    paper_rows = papers.list_paper_projects()
 
-    results: dict[tuple[str, str], object] = {}
-    # プロジェクトと論文の集計はどちらも CLI を待つので並べる。
-    jobs: list[tuple[str, str, object]] = [
-        ("project", str(row.get("name") or ""), row) for row in project_rows
-    ] + [("paper", str(row.get("name") or ""), row) for row in paper_rows]
-    if jobs:
+    results: dict[str, object] = {}
+    # プロジェクトの集計は CLI を待つので並べる。
+    if project_rows:
         with concurrent.futures.ThreadPoolExecutor(max_workers=_HOME_WORKERS) as pool:
-            # 今の利用者（ContextVar）はプールのスレッドに届かないので、submit のたびに写す
             futures = {
-                pool.submit(
-                    contextvars.copy_context().run,
-                    _home_project if kind == "project" else _home_paper,
-                    row,
-                ): (kind, name)
-                for kind, name, row in jobs
+                pool.submit(_home_project, row): str(row.get("name") or "")
+                for row in project_rows
             }
             for future in concurrent.futures.as_completed(futures):
-                kind, name = futures[future]
+                name = futures[future]
                 try:
-                    results[(kind, name)] = future.result()
+                    results[name] = future.result()
                 except Exception as e:  # 1 つが失敗しても全体は止めない
                     logger.warning(f"ホームの集計に失敗（他は続けます）: {name}: {e}")
                     errors.append(f"{name}: {_error_text(e)}")
 
-    # 並びは登録簿のまま（最後に動いた順）。論文も同じ順にする。
-    projects_out = [results[("project", str(r.get("name") or ""))] for r in project_rows
-                    if ("project", str(r.get("name") or "")) in results]
-    papers_out = [results[("paper", str(r.get("name") or ""))] for r in paper_rows
-                  if ("paper", str(r.get("name") or "")) in results]
+    # 並びは登録簿のまま（最後に動いた順）。
+    projects_out = [results[str(r.get("name") or "")] for r in project_rows
+                    if str(r.get("name") or "") in results]
 
     return {
         "questions": _home_questions(),
         "projects": projects_out,
-        "papers": papers_out,
         "errors": errors,
     }
 
@@ -255,15 +219,13 @@ def build_home() -> dict:
     """ホームの集計（`GET /api/home`・U3 §変更内容 3）。
 
     10 秒だけ覚える（開くたび・更新するたびに全プロジェクトの CLI を呼ばないため）。
-    多人数モードでは利用者ごとに覚える。
     """
     now = _now()
-    key = registry.user_key()
-    hit = _cache.get(key)
+    hit = _cache.get("")
     if hit is not None and now - hit[0] < _HOME_TTL:
         return hit[1]
     value = _build()
-    _cache[key] = (now, value)
+    _cache[""] = (now, value)
     return value
 
 
@@ -352,9 +314,8 @@ def _build_overview(period: str) -> dict:
     if names:
         # プロジェクトごとに CLI を待つので並べる（1 つが失敗しても全体は止めない）
         with concurrent.futures.ThreadPoolExecutor(max_workers=_HOME_WORKERS) as pool:
-            # 今の利用者（ContextVar）はプールのスレッドに届かないので、submit のたびに写す
             futures = {
-                pool.submit(contextvars.copy_context().run, _overview_project, name, period): name
+                pool.submit(_overview_project, name, period): name
                 for name in names
             }
             for future in concurrent.futures.as_completed(futures):
@@ -418,10 +379,9 @@ def build_overview(period: str = "week") -> dict:
             status_code=400, detail="period は week / month / all のいずれかにしてください"
         )
     now = _now()
-    key = (registry.user_key(), period)
-    hit = _overview_cache.get(key)
+    hit = _overview_cache.get(period)
     if hit is not None and now - hit[0] < _HOME_TTL:
         return hit[1]
     value = _build_overview(period)
-    _overview_cache[key] = (now, value)
+    _overview_cache[period] = (now, value)
     return value
