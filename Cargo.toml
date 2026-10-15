@@ -1,16 +1,16 @@
 # agent-link — Cargo workspace
 #
-# - crates/sai-link-engine : lib sai_link_engine — 実行エンジン（パース・デーモン・オーケストレーター）
-# - crates/sai-link-cli    : bin sai-link — 実行エンジンの CLI
-# - crates/sai-link-view   : lib sai_link_view — Web と CLI が使う組み立て処理（描画は無い）
+# - crates/agent-link-engine : lib agent_link_engine — 実行エンジン（パース・デーモン・オーケストレーター）
+# - crates/agent-link-cli    : bin agent-link — 実行エンジンの CLI
+# - crates/agent-link-view   : lib agent_link_view — Web と CLI が使う組み立て処理（描画は無い）
 # - waggle/                : 独立 [workspace] を持つ vendor クレート群（exclude・名前維持）
 
 [workspace]
 resolver = "2"
 members = [
-    "crates/sai-link-engine",
-    "crates/sai-link-cli",
-    "crates/sai-link-view",
+    "crates/agent-link-engine",
+    "crates/agent-link-cli",
+    "crates/agent-link-view",
 ]
 # waggle は独自 [workspace] を持つため除外（Cargo の構造制約）
 exclude = ["waggle"]
