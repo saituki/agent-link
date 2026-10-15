@@ -626,6 +626,16 @@ html, body {
   font-weight: 600;
 }
 .question-card .q-submit:disabled { opacity: 0.4; }
+/* 質問を止める（答えずに取り下げる・U03）。送信より控えめな枠のボタン */
+.question-card .q-withdraw {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: none;
+  color: var(--text-soft);
+  padding: 10px;
+  font-size: 14px;
+}
+.question-card .q-withdraw:disabled { opacity: 0.4; }
 
 /* 接続切れの帯（読みかけの会話は消さない．エラー画面に切り替えない） */
 .offline-bar {
@@ -638,6 +648,47 @@ html, body {
 
 /* 送信待ちの印 */
 .pending-mark { font-size: 12px; color: var(--text-soft); }
+
+/* サポートの右下のアイコン（どの画面にも出す・U03）。タブバー・入力欄・「新着 ↓」の上 */
+.cs-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + var(--bottom-stack-h, 0px));
+  z-index: 80;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+/* チャットの画面では入力欄と「新着 ↓」より上に置く */
+body.cs-on-run .cs-fab { bottom: calc(150px + var(--bottom-stack-h, 0px)); }
+
+/* サポートの種類のシート（customer.js） */
+.cs-body { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 8px; }
+.cs-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+}
+.cs-kind:disabled { opacity: 0.5; }
+.cs-kind-name { font-size: 16px; font-weight: 600; }
+.cs-kind-desc { font-size: 13px; color: var(--text-soft); }
+.cs-note { margin: 0; font-size: 12px; color: var(--text-soft); }
+.cs-project-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-soft); }
+.cs-project { min-height: 44px; font-size: 16px; color: var(--text); background: var(--input-bg); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
 
 /* 新着ボタン（上にいる時だけ右下に出る） */
 .new-arrival {
@@ -705,6 +756,16 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
 
 /* 録音中はマイクの色を変える */
 #mic-button.recording { color: var(--danger); }
+
+/* 停止（エージェントの今の作業を止める・U03）。入力欄と送信の間に出す。タッチは 44px 以上 */
+.inputbar .stop-button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 16px;
+}
+#interrupt-button[hidden] { display: none; }
 
 /* --- 統計画面（実装計画 04） ---
    Apple のヘルス / スクリーンタイムに寄せた，角丸カード＋大きな数字．
@@ -877,7 +938,8 @@ body.tabbar-hidden:not(.mini-visible) .inputbar {
   text-align: center;
 }
 
-.question-card.settled.q-elsewhere {
+.question-card.settled.q-elsewhere,
+.question-card.settled.q-withdrawn {
   color: var(--text-soft);
 }
 
@@ -2825,6 +2887,8 @@ button.lv-tl-preview { cursor: pointer; }
     z-index: 20;
   }
   .new-arrival { bottom: calc(var(--sp-4) + 68px); }
+  /* 広い画面は再生バーが右下に浮くので，その上にアイコンを上げる（高さは目安・U03） */
+  body.mini-visible .cs-fab { bottom: calc(var(--sp-4) + 96px); }
   .inputbar { bottom: 0; }
   .sai-toasts { bottom: var(--sp-4); }
   .sai-panel { bottom: 0; }
