@@ -105,7 +105,6 @@ impl<'de> Deserialize<'de> for ToolsConfig {
 /// - **エージェント設定**: name, description, model, provider, thinking,
 ///   tools, extensions, skills, timeout, worktree, enable
 /// - **テンプレート**: templates（`.sai/template/*.md` の挿入リスト）
-/// - **範囲（context）**: context（起動の直前に範囲を作るかどうか）
 ///
 /// ブロックへの入力は `task_text` の 1 つに統一されている。
 /// 本文に `{{input.task_text}}` を書かなくても、最初のメッセージには自動で
@@ -189,10 +188,6 @@ pub struct BlockConfig {
     #[serde(default)]
     pub round: Option<u32>,
 
-    /// research-tree の層。root / seed / branch。書かなければ図に出さない
-    #[serde(default)]
-    pub layer: Option<String>,
-
     /// テンプレートファイル名のリスト。
     ///
     /// `PROJECTROOT/.sai/template/<名前>.md` から読み込まれた内容が
@@ -204,16 +199,6 @@ pub struct BlockConfig {
     /// - `templates: [tmp1, tmp2]` / 複数行リスト → YAML リスト
     #[serde(default, deserialize_with = "deserialize_option_template_list")]
     pub templates: Option<Vec<String>>,
-
-    /// 起動の直前に、`.sai/settings.json` の `context` の命令で範囲を作り、
-    /// 本文の `{{context}}` に入れるか。
-    ///
-    /// `true` のときだけ動く。sai-sci のブロック（`sci-*`）が使う。
-    /// 範囲はメモリ上の本文にだけ入れる。ファイルには書かない
-    /// （並列に起動しても中身が混ざらないようにするため）。
-    /// 失敗しても実行は止めず、理由の 1 行を本文に入れる。
-    #[serde(default)]
-    pub context: Option<bool>,
 }
 
 impl BlockConfig {
@@ -352,7 +337,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::parser::parse_block_string;
 
     /// 旧定義に `review_headings` が残っていても読める（使わない）。
@@ -360,18 +344,5 @@ mod tests {
     fn legacy_review_headings_is_ignored() {
         let content = "---\nname: test\ndescription: desc\nmodel: m\nreview_headings:\n  - 納得した点\n---\n# Body";
         assert!(parse_block_string(content).is_ok());
-    }
-
-    /// `context: true` が書かれれば `Some(true)`、無ければ `None` になる。
-    #[test]
-    fn context_true_is_parsed() {
-        let content = "---\nname: test\ndescription: desc\nmodel: m\ncontext: true\n---\n# Body";
-        let parsed = parse_block_string(content).unwrap();
-        assert_eq!(parsed.config.context, Some(true));
-
-        // 未指定なら None（`context` の無いブロックは動かさない）
-        let content = "---\nname: test\ndescription: desc\nmodel: m\n---\n# Body";
-        let parsed = parse_block_string(content).unwrap();
-        assert_eq!(parsed.config.context, None);
     }
 }

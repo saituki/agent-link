@@ -35,12 +35,6 @@ impl ValidationResult {
 /// 実行時は runner に応じて解釈が変わる（pi → `--thinking`、cc → `--effort`）。
 pub const VALID_THINKING_LEVELS: &[&str] = &["none", "low", "medium", "high", "xhigh", "max"];
 
-/// 有効な research-tree の層の一覧（U01）。
-///
-/// `layer` は `seed` / `root` / `sprout` / `branch` の 4 つだけ。書かなければ図に出さない。
-/// 図の上から下の並びは branch / sprout / seed / root（図の向き）。
-pub const VALID_LAYERS: &[&str] = &["seed", "root", "sprout", "branch"];
-
 /// 指定された `BlockConfig` を検証し、全てのエラーと警告を収集して返す。
 ///
 /// 最初のエラーで打ち切らず、可能な限り全フィールドをチェックします。
@@ -148,19 +142,6 @@ pub fn validate(config: &BlockConfig) -> ValidationResult {
         }
     }
 
-    // layer: Some の場合、"seed", "root", "sprout", "branch" のどれかであること
-    // （research-tree の実行の図に出る層。書かなければ図には出ない）
-    if let Some(ref layer) = config.layer {
-        let trimmed = layer.trim();
-        if !VALID_LAYERS.contains(&trimmed) {
-            errors.push(ParseError::InvalidValue {
-                field: "layer".to_string(),
-                value: layer.clone(),
-                expected: "seed / root / sprout / branch のどれかです".to_string(),
-            });
-        }
-    }
-
     // enable: Some(false) の場合は警告
     if let Some(false) = config.enable {
         warnings.push(format!(
@@ -234,9 +215,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         }
     }
@@ -518,26 +497,5 @@ mod tests {
                 bad
             );
         }
-    }
-
-    #[test]
-    fn test_validate_layer() {
-        // 3 つの層は通る。書かない場合は図には出さないのでエラーにはしない
-        for layer in VALID_LAYERS {
-            let mut config = valid_config();
-            config.layer = Some(layer.to_string());
-            assert!(validate(&config).is_valid(), "{} は通る", layer);
-        }
-
-        let mut config = valid_config();
-        config.layer = None;
-        assert!(validate(&config).is_valid(), "書かない場合は通る");
-
-        // 他の値はエラー
-        let mut config = valid_config();
-        config.layer = Some("foo".to_string());
-        let result = validate(&config);
-        assert!(!result.is_valid());
-        assert!(result.errors[0].to_string().contains("foo"));
     }
 }

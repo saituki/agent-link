@@ -143,8 +143,8 @@ impl CcCommandBuilder {
 
     /// 固定部分（system prompt）のファイル（`--append-system-prompt-file`）をセットします。
     ///
-    /// ブロックの template と本文（入力値・範囲の案内文に置き換えたもの）をこのファイルに
-    /// 書き、そのパスを渡す。最初の文には入力値と範囲だけが入る（U6・C10）。
+    /// ブロックの template と本文（入力値の案内文に置き換えたもの）をこのファイルに
+    /// 書き、そのパスを渡す。最初の文には入力値だけが入る（U6・C10）。
     pub fn with_system_prompt_file(mut self, path: impl Into<String>) -> Self {
         self.system_prompt_file = Some(path.into());
         self
@@ -361,8 +361,6 @@ pub fn cc_settings_json() -> serde_json::Value {
         "permissions": {
             "allow": [
                 "Bash(sai-link *)",
-                "Bash(sai-paper *)",
-                "Bash(sai-sci *)",
                 "Bash(sai-web *)",
             ],
             "deny": CC_DENIED_TOOLS,
@@ -653,9 +651,7 @@ mod tests {
             category: None,
             tag: None,
             round: None,
-            layer: None,
             templates: None,
-            context: None,
             id: None,
         }
     }
@@ -801,8 +797,6 @@ mod tests {
             v["permissions"]["allow"],
             serde_json::json!([
                 "Bash(sai-link *)",
-                "Bash(sai-paper *)",
-                "Bash(sai-sci *)",
                 "Bash(sai-web *)"
             ])
         );

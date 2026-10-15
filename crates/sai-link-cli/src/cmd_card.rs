@@ -24,13 +24,6 @@ pub(crate) fn run(cmd: CardCmd) -> Result<(), CmdError> {
         } => print_phone(PhoneCmd::Card {
             cmd: PhoneCardCmd::Schedule { run_id, at },
         }),
-        CardCmd::Wait {
-            run_id,
-            job,
-            json: _,
-        } => print_phone(PhoneCmd::Card {
-            cmd: PhoneCardCmd::Wait { run_id, job },
-        }),
         CardCmd::Run { run_id, json: _ } => print_phone(PhoneCmd::Card {
             cmd: PhoneCardCmd::Run { run_id },
         }),

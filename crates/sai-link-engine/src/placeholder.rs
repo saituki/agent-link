@@ -118,18 +118,15 @@ const FIRST_MESSAGE_FALLBACK: &str = "system prompt の指示に従って始め�
 /// 固定部分（`system_prompt`）は template と block.md の本文そのもので、
 /// 中の可変な場所だけを「最初の文のどの節にあるか」を示す案内の文に置き換える。
 /// - `{{input.<id>}}` → `（最初のメッセージの「# <id>」の節にある）`
-/// - `{{context}}`（`context` を渡したときだけ）→
-///   `（最初のメッセージの「# context」の節にある）`
 ///
-/// 本文に `{{input.task_text}}`・`{{context}}` の記法が無くても、
-/// 最初の文には `# context` → `# task_text` の順で節が自動で作られる。
+/// 本文に `{{input.task_text}}` の記法が無くても、
+/// 最初の文には `# task_text` の節が自動で作られる。
 /// このとき固定部分の先頭に「依頼は○○」の案内文を足す（古い記法の本文には足さない。
 /// 置き換え済みの案内と重複させないため）。
 ///
 /// 最初の文（`first_message`）の節の順番は次のとおり。
-/// 1. `# context`（`context` を渡して中身が空でないとき）
-/// 2. `# task_text`（値が無いとき・空のときは作らない）
-/// 3. そのほかの id（本文に現れた `{{input.<id>}}` の順。`task_text` は除く）
+/// 1. `# task_text`（値が無いとき・空のときは作らない）
+/// 2. そのほかの id（本文に現れた `{{input.<id>}}` の順。`task_text` は除く）
 ///
 /// 同じ id が何度出ても節は 1 つだけ。値が無い id は `expand_placeholders` と同じ扱いで
 /// `{{input.<id>}}` の表記をそのまま入れる。
@@ -143,22 +140,17 @@ const FIRST_MESSAGE_FALLBACK: &str = "system prompt の指示に従って始め�
 ///
 /// let mut values = HashMap::new();
 /// values.insert("task_text".to_string(), "ログインを実装せよ".to_string());
-/// // 本文に `{{input.task_text}}`・`{{context}}` は書かれていない
+/// // 本文に `{{input.task_text}}` は書かれていない
 /// let body = "# 依頼\n\nあなたは実装者です。";
 ///
-/// let (fixed, first) = split_fixed_and_variable(body, &values, Some("run=1 block=b"));
+/// let (fixed, first) = split_fixed_and_variable(body, &values);
 /// assert!(fixed.contains("依頼は、最初のメッセージの「# task_text」の節にあります。"));
-/// assert!(fixed.contains("範囲（research-tree から切り出した文脈）は"));
 /// assert!(!fixed.contains("ログインを実装せよ"));
-/// assert_eq!(
-///     first,
-///     "# context\n\nrun=1 block=b\n\n# task_text\n\nログインを実装せよ"
-/// );
+/// assert_eq!(first, "# task_text\n\nログインを実装せよ");
 /// ```
 pub fn split_fixed_and_variable(
     body: &str,
     values: &HashMap<String, String>,
-    context: Option<&str>,
 ) -> (String, String) {
     // ---- 固定部分：可変な場所を案内の文に置き換える ----
     let mut fixed = placeholder_regex()
@@ -166,21 +158,11 @@ pub fn split_fixed_and_variable(
             format!("（最初のメッセージの「# {}」の節にある）", &caps[1])
         })
         .into_owned();
-    if context.is_some() {
-        // `context: true` のときだけ本文中の `{{context}}` を案内文にする。
-        // context 無しで本文に `{{context}}` が残るときは従来どおり本文のままにする。
-        fixed = fixed.replace("{{context}}", "（最初のメッセージの「# context」の節にある）");
-    }
 
-    // ---- 最初の文：context → task_text → 本文に現れた残りの id ----
+    // ---- 最初の文：task_text → 本文に現れた残りの id ----
     let task_text = values.get("task_text").map(|v| v.trim()).unwrap_or("");
-    let context_body = context.map(|c| c.trim()).unwrap_or("");
 
     let mut sections: Vec<String> = Vec::new();
-    if !context_body.is_empty() {
-        // context の出力は `##` から始まる（U02）。見出しを付け直さない。
-        sections.push(format!("# context\n\n{}", context_body.trim_end()));
-    }
     if !task_text.is_empty() {
         sections.push(format!("# task_text\n\n{}", task_text.trim_end()));
     }
@@ -201,11 +183,6 @@ pub fn split_fixed_and_variable(
     if !fixed.trim().is_empty() {
         let mut notes: Vec<&str> = Vec::new();
         // 古い記法の本文には置き換え済みの案内があるため、足さない。
-        if !context_body.is_empty() && !body.contains("{{context}}") {
-            notes.push(
-                "範囲（research-tree から切り出した文脈）は、最初のメッセージの「# context」の節にあります。",
-            );
-        }
         if !task_text.is_empty() && !body.contains("{{input.task_text}}") {
             notes.push("依頼は、最初のメッセージの「# task_text」の節にあります。");
         }
@@ -807,39 +784,6 @@ mod tests {
 
     // ---- U6: split_fixed_and_variable ----
 
-    /// `{{input.task_text}}` と `{{context}}` を含む本文（古い記法）で、
-    /// 固定部分と最初の文が分かれる。案内文は重複して足さない。
-    #[test]
-    fn test_split_fixed_and_variable_with_input_and_context() {
-        let mut values = HashMap::new();
-        values.insert("task_text".to_string(), "ログインを実装せよ".to_string());
-        let body = "# 依頼\n{{input.task_text}}\n\n# 範囲\n{{context}}";
-
-        let (fixed, first) =
-            split_fixed_and_variable(body, &values, Some("run=1 block=test-block"));
-
-        // 固定部分：値は出ず、案内の文に置き換わる（`# context` に変わった）
-        assert!(fixed.contains("# 依頼"));
-        assert!(
-            fixed.contains("（最初のメッセージの「# task_text」の節にある）"),
-            "{fixed}"
-        );
-        assert!(
-            fixed.contains("（最初のメッセージの「# context」の節にある）"),
-            "{fixed}"
-        );
-        assert!(!fixed.contains("ログインを実装せよ"), "{fixed}");
-        assert!(!fixed.contains("run=1"), "{fixed}");
-        // 古い記法なので先頭の案内文は足さない
-        assert!(!fixed.contains("節にあります。"), "{fixed}");
-
-        // 最初の文：context → task_text の順に節が並ぶ
-        assert_eq!(
-            first,
-            "# context\n\nrun=1 block=test-block\n\n# task_text\n\nログインを実装せよ"
-        );
-    }
-
     /// 同じ id が何度出ても節は 1 つだけ、出現順。
     #[test]
     fn test_split_fixed_and_variable_dedupes_in_order() {
@@ -848,7 +792,7 @@ mod tests {
         values.insert("b".to_string(), "B値".to_string());
         let body = "{{input.b}} と {{input.a}} と {{input.b}}";
 
-        let (fixed, first) = split_fixed_and_variable(body, &values, None);
+        let (fixed, first) = split_fixed_and_variable(body, &values);
         assert_eq!(
             fixed,
             "（最初のメッセージの「# b」の節にある） と \
@@ -859,94 +803,26 @@ mod tests {
         assert_eq!(first, "# b\n\nB値\n\n# a\n\nA値");
     }
 
-    /// context を渡さないとき `{{context}}` は固定部分に残る（本文をそのまま使う）。
-    #[test]
-    fn test_split_fixed_and_variable_without_context() {
-        let mut values = HashMap::new();
-        values.insert("task_text".to_string(), "依頼の本文".to_string());
-        let body = "{{input.task_text}}\n\n{{context}}";
-
-        let (fixed, first) = split_fixed_and_variable(body, &values, None);
-        assert!(fixed.contains("{{context}}"), "{fixed}");
-        assert!(fixed.contains("（最初のメッセージの「# task_text」の節にある）"));
-        assert_eq!(first, "# task_text\n\n依頼の本文");
-    }
-
     // ---- U01: 本文に記法が無くても自動で節と案内文ができる ----
 
-    /// 本文に `{{input.task_text}}`・`{{context}}` が無くても、
-    /// `# context` → `# task_text` の順に節ができる（AC1）。
+    /// 本文に `{{input.task_text}}` が無くても `# task_text` の節ができ、
+    /// 固定部分の先頭に案内が付く。古い記法の本文には案内を重ねない。
     #[test]
-    fn test_split_fixed_and_variable_auto_sections_without_old_notation() {
+    fn test_split_fixed_and_variable_auto_section_and_guide() {
         let mut values = HashMap::new();
         values.insert("task_text".to_string(), "ログインを実装せよ".to_string());
         let body = "# 依頼\n\nあなたは実装者です。";
 
-        let (fixed, first) = split_fixed_and_variable(body, &values, Some("run=1 block=b"));
+        let (fixed, first) = split_fixed_and_variable(body, &values);
+        assert_eq!(first, "# task_text\n\nログインを実装せよ");
+        assert_eq!(
+            fixed,
+            format!("依頼は、最初のメッセージの「# task_text」の節にあります。\n\n{body}")
+        );
 
-        assert_eq!(first, "# context\n\nrun=1 block=b\n\n# task_text\n\nログインを実装せよ");
-        // 固定部分の先頭に案内が 2 文（この順に 1 行で）付く
-        let notes = "範囲（research-tree から切り出した文脈）は、最初のメッセージの「# context」の節にあります。 \
-                     依頼は、最初のメッセージの「# task_text」の節にあります。";
-        assert_eq!(fixed, format!("{notes}\n\n{body}"));
-    }
-
-    /// 古い記法（本文に `{{input.task_text}}` と `{{context}}`）でも節は 1 つずつで、
-    /// 案内文は重複しない（AC2）。
-    #[test]
-    fn test_split_fixed_and_variable_old_notation_has_no_guide() {
-        let mut values = HashMap::new();
-        values.insert("task_text".to_string(), "依頼".to_string());
-        let body = "{{input.task_text}} と {{context}}";
-
-        let (fixed, first) = split_fixed_and_variable(body, &values, Some("範囲"));
-
-        assert_eq!(first, "# context\n\n範囲\n\n# task_text\n\n依頼");
-        assert_eq!(fixed.matches("節にある").count(), 2, "{fixed}");
+        let (fixed, first) = split_fixed_and_variable("{{input.task_text}}", &values);
+        assert_eq!(first, "# task_text\n\nログインを実装せよ");
         assert!(!fixed.contains("依頼は、最初のメッセージ"), "{fixed}");
-    }
-
-    /// `context: true` でなければ `# context` の節も案内の context の文も出ない（AC3）。
-    #[test]
-    fn test_split_fixed_and_variable_no_context_gives_no_context_section() {
-        let mut values = HashMap::new();
-        values.insert("task_text".to_string(), "依頼".to_string());
-        let body = "# 本文";
-
-        let (fixed, first) = split_fixed_and_variable(body, &values, None);
-
-        assert_eq!(first, "# task_text\n\n依頼");
-        assert!(!first.contains("# context"), "{first}");
-        assert!(!fixed.contains("研究方針の木"), "{fixed}");
-        // task_text の案内だけは付く
-        assert!(fixed.contains("依頼は、最初のメッセージ"), "{fixed}");
-    }
-
-    /// `values` に `task_text` が無い／空白だけのときは `# task_text` の節も案内も出ない。
-    #[test]
-    fn test_split_fixed_and_variable_without_task_text_value() {
-        let body = "# 本文";
-        let (fixed, first) = split_fixed_and_variable(body, &HashMap::new(), None);
-        assert_eq!(first, FIRST_MESSAGE_FALLBACK);
-        assert_eq!(fixed, body);
-
-        let mut blank = HashMap::new();
-        blank.insert("task_text".to_string(), "  \n".to_string());
-        let (fixed, first) = split_fixed_and_variable(body, &blank, None);
-        assert_eq!(first, FIRST_MESSAGE_FALLBACK);
-        assert_eq!(fixed, body);
-    }
-
-    /// context の中身が trim 後に空なら `# context` の節が出ない。
-    #[test]
-    fn test_split_fixed_and_variable_blank_context_body() {
-        let mut values = HashMap::new();
-        values.insert("task_text".to_string(), "依頼".to_string());
-        let (fixed, first) = split_fixed_and_variable("# 本文", &values, Some("\n  \n"));
-
-        assert_eq!(first, "# task_text\n\n依頼");
-        assert!(!first.contains("# context"), "{first}");
-        assert!(!fixed.contains("研究方針の木"), "{fixed}");
     }
 
     /// 本文が空白だけのときは案内文を足さない（案内だけの文にならない）。
@@ -954,10 +830,25 @@ mod tests {
     fn test_split_fixed_and_variable_blank_body_has_no_guide() {
         let mut values = HashMap::new();
         values.insert("task_text".to_string(), "依頼".to_string());
-        let (fixed, first) = split_fixed_and_variable("  \n", &values, Some("範囲"));
+        let (fixed, first) = split_fixed_and_variable("  \n", &values);
 
         assert_eq!(fixed, "  \n");
-        assert_eq!(first, "# context\n\n範囲\n\n# task_text\n\n依頼");
+        assert_eq!(first, "# task_text\n\n依頼");
+    }
+
+    /// `values` に `task_text` が無い／空白だけのときは `# task_text` の節も案内も出ない。
+    #[test]
+    fn test_split_fixed_and_variable_without_task_text_value() {
+        let body = "# 本文";
+        let (fixed, first) = split_fixed_and_variable(body, &HashMap::new());
+        assert_eq!(first, FIRST_MESSAGE_FALLBACK);
+        assert_eq!(fixed, body);
+
+        let mut blank = HashMap::new();
+        blank.insert("task_text".to_string(), "  \n".to_string());
+        let (fixed, first) = split_fixed_and_variable(body, &blank);
+        assert_eq!(first, FIRST_MESSAGE_FALLBACK);
+        assert_eq!(fixed, body);
     }
 
     // ---- U01: shift_headings / strip_frontmatter / wrap_token_content ----
@@ -1095,7 +986,7 @@ mod tests {
     #[test]
     fn test_split_fixed_and_variable_missing_value_keeps_placeholder() {
         let values = HashMap::new();
-        let (fixed, first) = split_fixed_and_variable("{{input.name}}", &values, None);
+        let (fixed, first) = split_fixed_and_variable("{{input.name}}", &values);
         assert!(fixed.contains("（最初のメッセージの「# name」の節にある）"));
         assert_eq!(first, "# name\n\n{{input.name}}");
     }
@@ -1104,7 +995,7 @@ mod tests {
     #[test]
     fn test_split_fixed_and_variable_no_sections() {
         let values = HashMap::new();
-        let (fixed, first) = split_fixed_and_variable("# 本文だけ", &values, None);
+        let (fixed, first) = split_fixed_and_variable("# 本文だけ", &values);
         assert_eq!(fixed, "# 本文だけ");
         assert_eq!(first, FIRST_MESSAGE_FALLBACK);
     }
@@ -1113,18 +1004,9 @@ mod tests {
     #[test]
     fn test_split_fixed_and_variable_empty_body() {
         let values = HashMap::new();
-        let (fixed, first) = split_fixed_and_variable("", &values, None);
+        let (fixed, first) = split_fixed_and_variable("", &values);
         assert!(fixed.is_empty());
         assert!(first.is_empty());
-    }
-
-    /// context が空文字なら `# context` の節は作らない（範囲が無いので）。
-    #[test]
-    fn test_split_fixed_and_variable_blank_context() {
-        let values = HashMap::new();
-        let (fixed, first) = split_fixed_and_variable("{{context}}", &values, Some("  \n"));
-        assert_eq!(fixed, "（最初のメッセージの「# context」の節にある）");
-        assert_eq!(first, FIRST_MESSAGE_FALLBACK);
     }
 
     // ---- P1: PlaceholderValue::from_string の境界 ----

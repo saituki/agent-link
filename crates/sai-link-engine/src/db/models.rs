@@ -83,8 +83,6 @@ pub struct BlockMetadata {
     pub tag: Option<String>,
     /// ラウンド番号（1始まり）
     pub round: Option<i64>,
-    /// research-tree の層（`root` / `seed` / `branch`。無ければ図に出さない）
-    pub layer: Option<String>,
     /// 作成日時（ISO 8601）
     pub created_at: String,
     /// 更新日時（ISO 8601）
@@ -129,7 +127,6 @@ impl BlockMetadata {
             body_hash,
             tag: None,
             round: None,
-            layer: None,
             created_at: String::new(), // DB デフォルト値で設定
             updated_at: String::new(), // DB デフォルト値で設定
         }
@@ -585,7 +582,7 @@ pub struct Task {
     /// 起こす todo カードの run_id（`task_create` の `card` 引数）
     ///
     /// `Some` のときはこの予約 run をそのまま子として使い、run_id を新たに採番しない
-    /// （todo のカードが research-tree と結び付いているため）。`None` はカード無し。
+    /// （todo のカードの run_id を保つため）。`None` はカード無し。
     #[serde(default)]
     pub card_run_id: Option<i64>,
     /// 子の実行主体（`cc`。`task_create` の runner 引数。`None` は `cc`）

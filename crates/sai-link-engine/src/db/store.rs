@@ -457,7 +457,7 @@ impl SaiStore {
         let result = tx.execute(
             "INSERT INTO block_metadata (name, display_name, description, model, provider, thinking, \
              tools, extensions, skills, timeout, worktree, enable, file_path, \
-             body_hash, tag, round, layer) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             body_hash, tag, round) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 block.name,
                 block.display_name,
@@ -475,7 +475,6 @@ impl SaiStore {
                 block.body_hash,
                 block.tag,
                 block.round,
-                block.layer,
             ],
         );
 
@@ -506,7 +505,7 @@ impl SaiStore {
         conn.query_row(
             "SELECT id, name, display_name, description, model, provider, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             tag, round, layer, created_at, updated_at FROM block_metadata WHERE id = ?1",
+             tag, round, created_at, updated_at FROM block_metadata WHERE id = ?1",
             params![id],
             |row| {
                 Ok(BlockMetadata {
@@ -527,9 +526,8 @@ impl SaiStore {
                     body_hash: row.get(14)?,
                     tag: row.get(15)?,
                     round: row.get(16)?,
-                    layer: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )
@@ -545,7 +543,7 @@ impl SaiStore {
         conn.query_row(
             "SELECT id, name, display_name, description, model, provider, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             tag, round, layer, created_at, updated_at FROM block_metadata WHERE name = ?1",
+             tag, round, created_at, updated_at FROM block_metadata WHERE name = ?1",
             params![name],
             |row| {
                 Ok(BlockMetadata {
@@ -566,9 +564,8 @@ impl SaiStore {
                     body_hash: row.get(14)?,
                     tag: row.get(15)?,
                     round: row.get(16)?,
-                    layer: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )
@@ -586,7 +583,7 @@ impl SaiStore {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, description, model, provider, thinking, tools, extensions, \
              skills, timeout, worktree, enable, file_path, body_hash, \
-             tag, round, layer, created_at, updated_at FROM block_metadata WHERE enable = 1 ORDER BY name",
+             tag, round, created_at, updated_at FROM block_metadata WHERE enable = 1 ORDER BY name",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -608,9 +605,8 @@ impl SaiStore {
                 body_hash: row.get(14)?,
                 tag: row.get(15)?,
                 round: row.get(16)?,
-                layer: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
             })
         })?;
 
@@ -636,8 +632,8 @@ impl SaiStore {
             "UPDATE block_metadata SET name = ?1, display_name = ?2, description = ?3, model = ?4, \
              provider = ?5, thinking = ?6, tools = ?7, extensions = ?8, skills = ?9, \
              timeout = ?10, worktree = ?11, enable = ?12, \
-             file_path = ?13, body_hash = ?14, tag = ?15, round = ?16, layer = ?17, \
-             updated_at = datetime('now') WHERE id = ?18",
+             file_path = ?13, body_hash = ?14, tag = ?15, round = ?16, \
+             updated_at = datetime('now') WHERE id = ?17",
             params![
                 block.name,
                 block.display_name,
@@ -655,7 +651,6 @@ impl SaiStore {
                 block.body_hash,
                 block.tag,
                 block.round,
-                block.layer,
                 id,
             ],
         );
@@ -1058,7 +1053,6 @@ impl SaiStore {
             body_hash: None,
             tag: None,
             round: None,
-            layer: None,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -1102,7 +1096,6 @@ impl SaiStore {
             body_hash: None,
             tag: None,
             round: None,
-            layer: None,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -1142,7 +1135,7 @@ impl SaiStore {
     /// 予約行をサブタスク（子）の実行開始用に確定させる（U2）。
     ///
     /// [`Self::claim_reserved_run`] と違い、親の `run_id` と `batch_id` を同時に書き込む。
-    /// 予約行の id は todo のカードの run_id のまま変わらない（research-tree との結び付きを保つ）。
+    /// 予約行の id は todo のカードの run_id のまま変わらない（todo のカードとの結び付きを保つ）。
     pub fn claim_reserved_run_for_subtask(
         &self,
         run_id: i64,

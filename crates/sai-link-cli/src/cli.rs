@@ -350,17 +350,6 @@ pub enum CardCmd {
         json: bool,
     },
 
-    /// todo のカードを、ジョブが終わったら実行するようにする（`--job` 省略で解除）
-    Wait {
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-        /// 待つジョブの ID
-        #[arg(long)]
-        job: Option<String>,
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
-
     /// todo の未実行カードを実行する（非対話）
     Run {
         #[arg(value_name = "RUN_ID")]
@@ -389,7 +378,7 @@ pub enum CardCmd {
 /// 実行（run）のサブコマンド（新しい木）。
 #[derive(Subcommand)]
 pub enum RunCmd {
-    /// 実行履歴を一覧表示する（`--json` で sai-sci の形）
+    /// 実行履歴を一覧表示する（`--json` で `{"runs":[…]}` の形）
     List {
         /// 表示件数（既定 20。0 で全部）
         #[arg(long, default_value = "20")]
@@ -1023,19 +1012,6 @@ pub enum PhoneCardCmd {
         at: Option<String>,
     },
 
-    /// todo のカードを、ジョブが終わったら実行するようにする
-    ///
-    /// `--job` を省くと解除する。常駐が約 60 秒ごとにジョブの状態を見回る。
-    Wait {
-        /// 対象の予約 run ID
-        #[arg(value_name = "RUN_ID")]
-        run_id: i64,
-
-        /// 待つジョブの ID
-        #[arg(long)]
-        job: Option<String>,
-    },
-
     /// todo の未実行カード（`outputs/todo/<run_id>/task.md`）を実行する（非対話）
     ///
     /// 成功は stdout に JSON（`run_id` / `message`）・終了コード 0、
@@ -1379,7 +1355,6 @@ pub fn handle_block_preview(
         base_pane_id: None, // U2・R4 案X: 分割基準ペインなし
         pane_id: None,      // U2・R4 案X: 分割済みペインなし
         is_subtask: false,
-        target_node: None,
         runner: resolved.runner,
     };
     let prepared = orchestrator::prepare_pipeline(&pipeline_config)?;
@@ -1393,20 +1368,9 @@ pub fn handle_block_preview(
     // 実行時は固定部分を run フォルダの `system-prompt.md` に書いて
     // `--append-system-prompt`（pi）/ `--append-system-prompt-file`（cc）で渡すため、
     // プレビューのコマンドにはそのフラグが付きません。
-    // `context: true` のブロックは `run_id` が無いので、context の節の中身は
-    // 「範囲を作れませんでした」の 1 行になる（実行時と同じ形を見せられる）。
-    let preview_context = if parsed.config.context == Some(true) {
-        Some(sai_link_engine::pre_run::context_text(
-            None,
-            parsed.config.block_id(),
-        ))
-    } else {
-        None
-    };
     let (system_prompt, first_message) = sai_link_engine::placeholder::split_fixed_and_variable(
         &parsed.body,
         &user_inputs_map,
-        preview_context.as_deref(),
     );
     println!();
     println!("## system prompt（固定部分）");

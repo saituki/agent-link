@@ -5,7 +5,7 @@
 
 use crate::cli::{DocCmd, PhoneCmd};
 use crate::cmd_common::{agent_result, print_json, print_phone, CmdError};
-use sai_link_engine::{agent_api, project, seen_ids};
+use sai_link_engine::agent_api;
 
 /// `sai-link doc <sub>` のハンドラ。
 pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
@@ -41,13 +41,6 @@ pub(crate) fn run(cmd: DocCmd) -> Result<(), CmdError> {
         }
         DocCmd::Read { token, json } => {
             let v = agent_result(agent_api::sai_read(&token))?;
-            // 台帳（C10）: 読んだ本文の番号を、自分の run の台帳に残す（表示の形によらない）
-            if let (Some(run_id), Some(content)) = (
-                seen_ids::parent_run_id_from_env(),
-                v.get("content").and_then(|x| x.as_str()),
-            ) {
-                seen_ids::record_for(&project::project_root(), run_id, content);
-            }
             if json {
                 let item = serde_json::json!({
                     "token": v.get("token"),

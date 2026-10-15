@@ -2892,7 +2892,7 @@ mod tests {
                 "---\ncreation_date: 2026/09/30 10:00:00\nexecution_date: -\nrun_id: {rid}\n\
                  description: {desc}\nrunner: pi\nblock: {block}\nthinking: \nmodel: \n\
                  provider: \nround: 1\nglobal_round: 1\ntag: \nexecuter: {executer}\n\
-                 sci_node: N12\n---\n\n# task_text\n\n{text}\n",
+                 note: n1\n---\n\n# task_text\n\n{text}\n",
                 rid = run_id,
                 desc = description,
                 block = block,
