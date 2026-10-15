@@ -91,6 +91,9 @@ image_build() {
   echo "== イメージを作る（${IMAGE}）。Rust は 2 回目から差分だけ"
   # provenance（時刻入り）を付けると中身が同じでも ID が変わり、毎回コンテナを作り直してしまう
   (cd "$REPO" && DOCKER_BUILDKIT=1 docker build --provenance=false -f apps/web/server/Dockerfile -t "$IMAGE" .)
+  # 古い <none> のイメージと、cargo のキャッシュ（古い生成物が消えずに溜まる）を掃除する。失敗しても続ける
+  docker image prune -f >/dev/null 2>&1 || true
+  docker builder prune -f --keep-storage 8GB >/dev/null 2>&1 || true
 }
 
 # プロジェクトのコンテナ（label sai.owner が付いた物）の名前。

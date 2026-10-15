@@ -22,7 +22,7 @@ COPY sai-sci ./sai-sci
 # キャッシュの中の target はイメージに入らないので、実行ファイルは同じ RUN の中で取り出す。
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/opt/sai-tree/target \
-    cargo build --release -p sai-link-cli -p sai-paper-cli -p sai-sci-cli \
+    cargo build --release -j 4 -p sai-link-cli -p sai-paper-cli -p sai-sci-cli \
     && mkdir -p /out \
     && cp target/release/sai-link target/release/sai-paper target/release/sai-sci /out/
 
