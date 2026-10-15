@@ -27,7 +27,7 @@ enable: true
 
 - まず名前で探す: `grep -rn '<名前>' crates apps --include='*.rs'` のように、フォルダと種類を絞る。
 - 入口から追う: CLI なら `crates/agent-link-cli/src/cli.rs`、Web なら `apps/web/src/agent_link_web/main.py` の住所と `static/*.js` の `window.SaiRoutes`。
-- 置き場と約束は `ARCHITECTURE.md`・`docs/integration.md`・`docs/for-sai-developers.md` にある。必要な節だけ読む。
+- 置き場と約束は `ARCHITECTURE.md`・`docs/integration.md`・`docs/for-developers.md` にある。必要な節だけ読む。
 
 ### 3. 読む
 

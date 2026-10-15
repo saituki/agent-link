@@ -1,0 +1,530 @@
+# CLI の約束（Web と実行エンジンの間）
+
+対象: **`crates/`（`agent-link`）を直す人**。
+目的: 直した結果として **agent-link-web（Web の窓口・8200 番）を壊さないこと**。
+全体の話は [`integration.md`](./integration.md)（API と画面の住所）と [`../ARCHITECTURE.md`](../ARCHITECTURE.md)、言葉の意味は [`../CONCEPT.md`](../CONCEPT.md)。
+この文書の JSON の項目は、Web のコード（`apps/web/src/agent_link_web/` と `static/`）が実際に読む物と、2026-10 に `target/release/` の `agent-link` を一時フォルダのプロジェクトで実行して確かめた物。**正はコード**。
+
+---
+
+## 0. 最初に読む節の早見表
+
+| 直すもの | その節 | 最低限守ること |
+|---|---|---|
+| **CLI（`agent-link`）** | [§1](#1-cli-の約束) | 終了コード・失敗の出し方・`--json`・`schema --json` |
+| **Web が呼ぶ命令** | [§2](#2-web-が呼ぶ命令と-web-が読む-json-の項目) | 命令の名前と、Web が読む JSON の項目名。`run export` の書き出しの形 |
+| **エージェントとの約束**（settings・カードの frontmatter・報告・質問・フック） | [§3](#3-web-とエージェントの間の約束) | 項目の名前と置き場 |
+| **項目を変える** | [§4](#4-項目を変えるときの決まり) | Web が読む項目を変えたら、この文書と Web を一緒に直す |
+| **連携が壊れた** | [§5](#5-連携が壊れたときの見分け方) | 画面の文言から原因を引く |
+
+---
+
+## 1. CLI の約束
+
+`agent-link` は、次の約束を守る。Web は終了コードと標準エラーの最後の行だけで失敗を扱う。
+
+| # | 約束 |
+|---|---|
+| 1 | **終了コード**: 0 成功、2 入力の誤り（clap の使い方の誤りも 2）、3 見つからない、4 状態の衝突、1 その他の失敗 |
+| 2 | **失敗したとき**: 標準出力には何も書かない。標準エラーの最後の行に、日本語で理由を 1 行書く。clap の誤りは最後の行に `引数の誤り: <clap の文の 1 行目>` |
+| 3 | **成功したとき**: `--json` があれば標準出力に JSON を 1 つだけ書く（前後に余計な文字を出さない） |
+| 4 | **時間のかかる命令**は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい（1 行 = 1 つ。段落内の改行は空白にする） |
+| 5 | **プロジェクトの決め方**: `AGENT_LINK_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.agent-link/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`AGENT_LINK_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない |
+| 6 | **`schema --json`** で命令の一覧を出す（下） |
+
+標準出力に `println!` やデバッグ表示を 1 行でも足すと、Web が **502 になる**（`apps/web/src/agent_link_web/cli.py`）。標準エラーには何を出してもよい（先頭 300 文字が Web のログに残る）。
+
+実測の例（一時フォルダのプロジェクト）:
+
+```
+$ agent-link run md 999 --kind task      → 終了コード 3・標準エラーの最後の行「まだありません」
+$ agent-link run list --bogus            → 終了コード 2・「引数の誤り: unexpected argument '--bogus' found」
+$ （プロジェクトの外で）agent-link run list --json → 終了コード 2・「プロジェクトが見つかりません（agent-link init を実行してください）」
+```
+
+### `schema --json` の形
+
+```json
+{
+  "bin": "agent-link", "version": "0.1.0",
+  "commands": [
+    {"path": ["card", "create"], "about": "カードを作成する（標準入力に JSON）",
+     "stdin": "json", "json": true, "web": true,
+     "args": [
+       {"name": "period", "kind": "option", "type": "enum", "values": ["week","month","all"],
+        "required": true, "multiple": false, "default": null, "help": "…", "web": true}
+     ]}
+  ]
+}
+```
+
+| 項目 | 型 | 意味 |
+|---|---|---|
+| `bin` / `version` | 文字列 | 実行ファイルの名前と版 |
+| `commands[].path` | 文字列の配列 | 命令の語（`["run", "list"]`）。サブコマンドの無い命令は 1 語 |
+| `commands[].about` | 文字列 | 1 行の説明（Web の「コマンド」画面に出る） |
+| `commands[].stdin` | `"none"` / `"text"` / `"json"` / `"bytes"` | 標準入力の種類。`bytes` の命令は Web に出さない |
+| `commands[].json` | 真偽値 | `--json` を受けるか |
+| `commands[].web` | 真偽値 | Web の「コマンド」画面に出してよいか |
+| `args[].name` | 文字列 | 引数の ID（clap の ID。オプションの綴りは `--` + 名前だが、`_` は `-` と書く物がある） |
+| `args[].kind` | `"option"` / `"flag"` / `"positional"` | 引数の種類 |
+| `args[].type` | `"string"` / `"int"` / `"float"` / `"enum"` / `"path"` | 値の型（enum は `values` に選択肢） |
+| `args[].required` / `multiple` / `default` / `help` / `web` | 真偽値・真偽値・値・文字列・真偽値 | 必須・複数・既定・説明・Web に出してよいか |
+
+- `schema --json` は命令を足すと自動で出る。Web に出してはいけない命令（ファイルの送信・常駐の内部命令など）は `web: false` のままにする。
+- Web の「コマンド」画面は argv を `[bin, *path, <--json>, オプション, フラグ, --, 位置引数]` の順に組む。位置引数は `--` のあとに置く（`-` で始まる値を守るため）。
+
+### Web が CLI を呼ぶ約束
+
+- env は `{**os.environ, "AGENT_LINK_PROJECT_ROOT": <root>}`、cwd は root。シェルは使わない（`shell=True` 禁止・引数は配列）。
+- 終了コードから HTTP の状態へ: 2 → 400、3 → 404、4 → 409、1 とそのほか → 502。0 で JSON でない → 502。起動できない → 503、時間切れ → 504。`detail` は標準エラーの空でない最後の行（`sai-progress` の行を除く）。
+- 時間切れは既定 20 秒。個別に、daemon・workflow 30 秒、検索 60 秒、「コマンド」画面の実行 120 秒（`control.py` の定数）。
+- 実行ファイルの場所は `AGENT_LINK_BIN`。**バイナリ名（`agent-link`）と、Web が呼ぶ命令の名前を変えてはいけない**（変えると 503 / 400 になる）。
+- `agent-link` は `AGENT_LINK_PROJECT_ROOT` を最優先で DB 解決に使う。Web は呼び出しのたびに必ず root を渡す。
+
+---
+
+## 2. Web が呼ぶ命令と、Web が読む JSON の項目
+
+### 2.1 呼ばれ方の一覧
+
+cwd は **そのプロジェクトの root**。
+
+| 呼ぶ側 | Web が呼ぶ命令（呼ぶ側のモジュール） | 時間切れ |
+|---|---|---|
+| `control.py` | `run export`（60 秒に 1 回）・`project summary`・`project dashboard --period`・`run tree`・`run log\|stats\|history <id>`・`run md <id> --kind …`（保存は `--write`）・`run finalize\|advance <id>`・`run rm <id> --yes`・`run send\|interrupt <id>`・`doc list --run <id>`・`doc read <token>`・`doc search …`・`card options\|docs\|create\|run\|schedule`・`workflow`・`def list\|show\|write\|delete`・`session search …`・`daemon start\|stop` | 10 秒（export）・20 秒（既定）・30 秒（daemon・workflow）・60 秒（検索） |
+| `commands.py` | `schema --json`（60 秒だけ覚える。取得は 20 秒まで） | 20 秒 |
+
+- どの呼び出しも**シェルを使わず**、引数は配列で渡される。
+- 検索語や文のように `-` で始まりうる値は、最後に `--` を置いて渡される。
+- **`target/release/` の実行ファイルを作り直す**（`cargo build --release`）。直しても作り直さないと Web は古いまま。
+
+### 2.2 `agent-link` が出す JSON
+
+#### `run export`（書き出し。Chats が読む）
+
+`$AGENT_LINK_HOME/web/runs/<project_name>/<run_id>.json`（一時ファイル → rename で書く）。1 ファイル分の項目（`runs.py` の `_read_run`）。**足し算は安全、減らすのは危険。**
+
+| 項目 | 型 | 何に使う | 無い・型が違うとき |
+|---|---|---|---|
+| `schema_version` | 数値（**1 固定**） | 受け入れ判定 | `1` 以外は**そのファイルを丸ごと捨てる** |
+| `run_id` | 数値 | 実行の ID・URL `#/run/<project>/<run_id>` | 無ければ捨てる |
+| `project_name` | 文字列 | 一覧の並び・URL | 無ければ捨てる |
+| `runner` | 文字列（`cc` …。`pi` は廃止。古い記録は `cc` と読む） | 記録の読み分け | `"user"` は**一覧に出さない** |
+| `status` | 文字列 | 一覧に出す判定 | `running / completed / failed / cancelled` のみ表示。**それ以外（todo・pending）は出さない** |
+| `started_at` / `updated_at` | 文字列（タイムゾーン無し） | どの日の実行か（**UTC とみて日本時間に変換**）・並び順 | 無ければ日付なしで一覧から落ちる |
+| `finished_at` / `duration_ms` | 文字列 / 数値 | 実行ごとの表示 | 空欄でも動く |
+| `description` / `block_name` | 文字列 | 一覧の行・検索 | 空文字扱い |
+| `parent_run_id` | 数値 \| null | サブタスクを親の直下に字下げ | 通常の位置に出る |
+| `model` | 文字列 \| null | 統計画面 | ― |
+| `stats` | オブジェクト \| null | 日ごとの費用（`stats.cost_usd.total`・`cost_is_estimate`） | 実行中は `null`（想定内） |
+| `agent_session_id` / `transcript_path` | 文字列 \| null | 質問カード・会話の中身 | 会話が読めない |
+| `herdr_pane_id` | 文字列 \| null | headless の擬似 pane の id（`hl-` で始まる）。キー名は herdr の時代の名残で、中身は擬似 pane の id | 一覧の `live` と `headless` が付かない |
+
+`herdr_pane_label` は Web では読まない（headless では pane を名前で探さないため）。
+
+#### headless の `state.json`（Web が読む）
+
+headless の実行の状態は実行エンジンが `<project_root>/.agent-link/engine/headless/<id>/state.json` に書く。
+Web が読んでよいのはこのファイルだけ（`runs.py` の `headless_state`）。`<id>` は `hl-` + 12 桁の 16 進で，実行の書き出しの `herdr_pane_id` に入る。
+
+| 項目 | 型 | 何に使う | 無い・型が違うとき |
+|---|---|---|---|
+| `state` | 文字列（`starting`（起動中） / `working` / `idle` / `stopped`） | 会話の `live` ランプ・通知 | `starting` / `working` / `idle` / `stopped` 以外は読まない |
+| `partial` | 文字列 | 生成中の文の逐次表示（末尾 20000 文字まで） | 空文字 |
+| `error` | 文字列 | 直前のターンの失敗の理由 | 空文字 |
+| `turn` | 数値 | （Web では未使用） | ― |
+| `pane_id` / `runner` / `updated_at` | 文字列 | （Web では未使用） | ― |
+
+#### `project summary` → オブジェクト
+
+| 項目 | 型 | 使うところ | 無い・違うとき |
+|---|---|---|---|
+| `running` | 数値 | 「実行中 N」 | 0 |
+| `last_executed_at` | 文字列 \| null | 「5分前」と並び順 | 最後尾・時刻なし |
+
+#### `project dashboard --period week|month|all` → オブジェクト
+
+| 階層 | 項目 | 型 | 使途 | 無いとき |
+|---|---|---|---|---|
+| 直下 | `name` / `since` / `until` | 文字列 | 見出しと期間 | ― |
+| 直下 | `period` | 文字列 | グラフ横軸のラベルの出し分け | 今週扱い |
+| 直下 | `daemon_alive` | 真偽値 | ランプ・ボタン | 停止中 |
+| 直下 | `daily` | 配列 | 日ごとの棒グラフ | グラフ空 |
+| `daily[]` | `date` / `executions` / `tokens` | 文字列 / 数値 / 数値 | 棒とタップ中の 1 行 | 0 の棒 |
+| 直下 | `by_model` | 配列（`model` / `tokens`） | ドーナツ | 「データがありません」 |
+| 直下 | `by_block` | 配列（`block` / `tokens` / `executions`） | 横棒（上位 8） | 「データがありません」 |
+| 直下 | `recent` | 配列 | 直近の実行 | 「この期間の実行はありません」 |
+| `recent[]` | `run_id` / `parent_run_id` / `block` / `status` / `started_at` / `duration_ms` | 数値 / 数値 \| null / 文字列 / 文字列 / 文字列 / 数値 | 行の形と `#/run/...` の URL | ― |
+| `summary` | `executions` / `completed` / `failed` / `running` / `success_rate` / `tokens_total` / `tokens_input` / `tokens_output` / `tokens_cache` / `duration_ms` / `cost_usd` | 数値 | 大きな数字と補足行 | 0 |
+
+Web が `recent[]` に**追加で足す**項目: `description`（文字列）・`linkable`（真偽値・メッセージ画面が開けるか）・`project`（文字列）。実行エンジンの側では不要。
+
+#### `run tree` → `{"items": [...]}`（左サイドバーと同じツリー）
+
+| 項目 | 型 | 使うところ |
+|---|---|---|
+| `items[].type` | `"folder"` / `"run"` | 行の種類 |
+| `items[].id` / `label` / `depth` | 文字列 / 文字列 / 数値 | フォルダ（`todo`・`running`・`review`・`done`・`R<n>` …）の行 |
+| `items[].children[]` | 配列 | フォルダの中身。run は `type: "run"` のノード |
+| run ノード: `run_id` / `label` / `lane` / `status` | 数値 / 文字列 / 文字列 / 文字列 | 行・色・Workflow との対応 |
+| run ノード: `executer` | `"human"` / `"agent"` | カードの起動者（既定 `human`。`agent` の todo には画面が ▶ 実行を出さない） |
+| todo の run ノード: `card` | `{creation_date, block, runner, model, description}` | Dashboard とホームの todo の 2 行表示 |
+| todo の run ノード: `scheduled_at` | `YYYY-MM-DD HH:MM`（予約があるときだけ） | ホームの「予約した todo」 |
+| todo の run ノード: `after_job` | 文字列（`card wait` したときだけ） | ジョブ待ちの印 |
+
+ホーム（`home.py`）は top レベルの `review`・`todo` フォルダの中の run ノードを読む。
+
+#### `run log|stats|history <run_id>`
+
+オブジェクトをそのまま画面に出す。`run log` の `connections[]`（作られた順。`direction` `from`/`to`・`kind` `task_text`/`task_create`/`task_output`・`run_id`・`global_round`・`round`・`block_name`・`description`・`waggle_token`・`file_path`）を Summary の Connection が読む。`block_name` / `exec_id` / `created_at` / `finished_at` / `input_fields[]` / `model` なども見出しに使う。
+
+#### `run history <run_id> [--json]` と `run history <run_id> --call <CALL_ID> --json`（History）
+
+`run history <run_id> --json` は次の項目を持つ（画面は `static/linkview.js` の `lvRenderHistory`）。
+
+- `title` / `subtitle`（文字列）・`type_tokens`（`user` / `agent` / `toolCall` / `toolResult` / `thinking` の近似トークン数）。
+- `events[]`（時刻順）: `time`・`type`（上の 5 種）・`name`・`tokens` は必ず持つ。`call_id`・`command`・`preview`（結果の本文の先頭 200 字）・`is_error`・`ids`・`result_tokens` は、その行にあるときだけ出す（無いときは JSON に出さない）。toolCall と、それに対応する toolResult は 1 行にまとめる。対になる toolCall が無い結果だけ `toolResult` の行になる。
+- `cli`: `calls[]`（`command`・`count`・`errors`・`help`。多い順）・`failures[]`（`class`・`command`・`count`）。
+  - `calls[].count` と `errors` は `--help`・`-h` の呼び出しを除く。その回数は `help` に数える（`count` には入らない・失敗にも数えない）。
+  - 命令名は `command` の語の位置（先頭・`&&`・`|`・改行・`(`・`$(`・`` ` `` の後。`timeout`・`env`・`exec`・`xargs`・`perl -e` の後も含む）の `agent-link`・`agent-link-web` から読む。heredoc の本文と `#` の注釈は読まない。
+  - `failures.class` は `input`（終了コード 2）・`not_found`（3）・`conflict`（4）・`other`（読めない・それ以外）。`failures.command` は命令名。
+  - `cli` が無いのは古い CLI の JSON。
+- cc の History は、その run の transcript（`phone_export::resolve_transcript`）を読む。全体で一番新しい cc セッションは使わない。
+
+`--call <CALL_ID> --json` は、その呼び出しの全文 `{"call_id","name","command","input","result","is_error","truncated"}` を返す。`result` は 20000 字までで、超えたら切って `truncated: true`。`--json` を付けないと本文だけの文字を出すので、Web は必ず付ける。見つからなければ終了コード 3。Web の住所は `GET /api/projects/{name}/runs/{run_id:int}/history/calls/{call_id}`（`call_id` は `^[A-Za-z0-9_-]{1,80}$`。通らなければ 400）。
+
+#### `run show <run_id> [--json]`
+
+`--json` は 1 つの JSON を出す（文字の表示と同じ項目。英小文字の snake_case）。`run_id`・`block_name`・`block_file`・`block_tag`・`block_round`（ブロックの項目。ブロックが無ければ null）・`status`（そのまま。文字の表示は日本語）・`started_at`・`finished_at`・`duration_ms`・`exit_code`・`pane_id`・`error_message`・`git_commit_before`・`git_commit_after`・`session_stats`（セッション統計の JSON の object。無ければ null）・`document_tokens`（出力の文書トークン）・`input_document_tokens`（入力の waggle トークン）・`output_content`（空・無しは null）。見つからなければ終了コード 3。`--json` なしは文字の表示（見出しは「文書トークン:」）。
+
+#### `run md <run_id> --kind task|message|report|system [--write]` → `{"kind", "name", "text"}`
+
+- 無ければ **終了コード 3・stderr「まだありません」**。`--write` は `task` だけ（未実行の todo カードだけ。無ければ 3「未実行のカードが見つかりません」）。本文は標準入力。
+- `report` は run の報告（`finalize-report.md`）、`system` は固定部分（`system-prompt.md`）。
+
+#### `run finalize` / `run advance` / `run rm`
+
+- `run finalize <run_id>` → `{"run_id", "status": "requested", "message"}`。その run が無ければ 3、実行中でない・子ブロック・常駐停止は 1。
+- `run advance <run_id>` → `{"run_id", "from", "to"}`。review / done 以外は **終了コード 2**「review / done の run だけ移動できます」。無ければ 3。
+- `run rm <run_id> --yes` → `{"run_id", "executions": 消した数}`。実行中は 1、無ければ 3。
+
+#### `run send <run_id>` / `run interrupt <run_id>`
+
+| 命令 | 返り値 | 終了コード |
+|---|---|---|
+| `run send <run_id> [--text <文>] [--json]` | `{"run_id", "pane_id", "status": "sent"}` | 空の文 2・実行や送り先が無い 3・終了している/質問待ち 4 |
+| `run interrupt <run_id> [--json]` | `{"run_id", "status": "interrupted" \| "still_working", "agent_status"}` | 無い 3・終了している 4 |
+
+- `--text` を省くと標準入力の全文を送る（Chats の「続きを送る」が使う）。
+- 送り先は headless の擬似 pane（`hl-` で始まる id）。`draft.txt`・`inbox/`・`interrupt` のファイルで監督スレッドへ渡す。
+- `state.json` が `stopped`（終了している）、または `blocked`（質問待ち）のときは 4。
+
+#### `doc list --run <id> --json` / `doc read <token> --json` / `doc search …`
+
+| 命令 | 返り値 | Web が読む項目 |
+|---|---|---|
+| `doc list --run <id> --json` | `{"count", "items": [...]}` | `items[].token`・`label`・`description`・`status`・`ref`（task_text に貼れる `waggle:<token>:path:…`） |
+| `doc read <token> --json` | `{"token", "label", "text"}` | `token`・`label`・`text` |
+| `doc search --word … [--category task,message,waggle] [--since …] [--until …] [--block …] [--from-id N] [--to-id N] [--limit N]` | `{"items": [...], "truncated": 真偽値}` | `items[].run_id`・`category`・`file`・`token`（waggle のとき）・`block`・`date`・`snippet`。新しい run から `--limit` 件で打ち切り。message.md は run フォルダにあるものだけ |
+
+#### `card options` / `card docs` / `card create` / `card run|start|finish|schedule|wait`
+
+| 命令 | 返り値 | Web が読む項目 |
+|---|---|---|
+| `card options` | `{"blocks", "cc_models", "providers", "runners", "thinking", "warnings"}` | `blocks[]`（`id`・`label`）・`runners`（`user`・`cc`）・`thinking`・`providers`（キーが provider、値がモデルの配列）・`cc_models` |
+| `card docs [--limit N]` | `{"items": [{token, label, description, status, ref}]}` | 同左（task_text に貼る候補） |
+| `card create`（**標準入力に JSON**・作成後は todo に配置） | `{"run_id", "path", "executer"}` | `run_id`（次の画面の行き先） |
+| `card run <run_id>` | JSON | 未実行カードが無ければ **終了コード 3・stderr「未実行のカードが見つかりません」**。`executer: agent` のカードは **終了コード 1**・stderr「このカードはエージェントが子の run として起こします（executer: agent）。人が起こすときは、カードの executer を human に直してください」 |
+| `card start <run_id>` / `card finish <run_id>` | `{"run_id", "status": "running" \| "review"}` | `runner: user` の札を running にする / review へ移す。未実行カードが無ければ 3、`runner: user` で無ければ 2「runner: user のカードではありません」（`finish` は実行中の利用者の札で無ければ 2「実行中の利用者の札ではありません」） |
+| `card schedule <run_id> [--at "YYYY-MM-DD HH:MM"]` | `{"run_id", "scheduled_at"}` | `--at` を省くと予定を消す。常駐が 5 秒ごとに見回って実行する |
+| `card wait <run_id> [--job <job_id>]` | `{"run_id", "after_job"}` | `--job` を省くと解除。形は `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`。詳しくは [§3.2](#32-カードの-frontmatter) |
+
+`card create` の標準入力の JSON（Web が作る形）:
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `runner` | 文字列 | `user` / `cc` / `gl`（空でスキップ。`pi` は廃止で `cc` と読む） |
+| `block` | 文字列 | block の ID（`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`） |
+| `provider` / `model` / `thinking` | 文字列 | 空でスキップ。`thinking` は `none / low / medium / high / xhigh / max` |
+| `global_round` / `round` / `tag` / `description` | 文字列 | ラウンドは数字、`tag` は 1 行 |
+| `task_text` | 文字列（100KB まで） | 依頼文。`waggle:<トークン>` で文書を埋め込める |
+| `executer` | 文字列 | `human`（既定）/ `agent`（旧 `professor` も `agent`）。知らない値は**終了コード 2** |
+| `doc_tokens` / `done_ids` | 配列 | 貼る文書のトークン・完了済みの run（Web の作成フォームが渡す） |
+| `meta` | オブジェクト | frontmatter に足す任意の項目 |
+
+#### `workflow` → オブジェクト
+
+`nodes`・`edges`・`lanes`（`todo`・`running`・`review`・`done`）・`separators`・`width`・`height`。配置は `agent-link` が計算する（Web で計算し直さない）。各札に `executer` が付く。実行の記録（DB）が要るので、無いと 404。
+
+#### `def list|show|write|delete`
+
+| 命令 | 返り値 | 注意 |
+|---|---|---|
+| `def list [--parent <名前>]` | `{"global_root", "project_root", "items": [...]}` | `items[]` は `kind`・`name`・`scope`・`title`・`description`・`exists`・`shadowed`・`used_by`・`templates`・`error` |
+| `def show --kind block\|template\|settings --scope project\|global --name <名前>` | `{"kind", "scope", "name", "path", "exists", "text", "used_by", "warnings", "error"}` | `--scope` を省くと解決済みの定義 |
+| `def write --kind … --scope … --name … [--create]`（本文は標準入力） | JSON | 壊れた定義は保存せず**終了コード 2**で理由を出す。`--create` で同じ名前があるときも今は 2「同じ名前の定義があります」（Web が 409 に読み替える） |
+| `def delete --kind … --scope … --name …` | JSON | settings は消せない |
+
+`scope=global` の置き場は `$AGENT_LINK_HOME`。定義の編集は DB が無くてもできる。
+
+#### `session search … --json`
+
+`-R <round>`（global_round）・`-r <round>`・`--id <run_id>`・`--block`・`--date`・`--status`・`--type`・`-w <語>`。返り値は配列、または `{"items": [...]}`（Web は両方を受け、先頭 200 件に切って `truncated` を付ける）。
+
+#### `daemon start|stop`
+
+**文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
+
+#### `task create`（標準入力に子の配列の JSON）→ `{"batch_id", "round", "supersedes_batch_id", "status", "tasks"}`
+
+子ごとの項目（既存の項目に足すもの）:
+
+| 項目 | 型 | 内容 |
+|---|---|---|
+| `model` | 文字列（省略可） | `opus` / `sonnet` / `haiku` / `inherit` / `claude…`。それ以外は断る |
+| `thinking` | 文字列（省略可） | `none` / `low` / `medium` / `high` / `xhigh` / `max`。それ以外は断る |
+| `runner` | 文字列（省略可） | 省略か `cc`。`pi` は廃止のため断る（終了コード 2）。`cc` 以外も断る（終了コード 2） |
+
+- 優先順位は「要素 > Card の task.md > block の frontmatter > settings.json」。省いた項目は、次の順で決まる。
+- `tasks[]` の子ごとの形は `{"client_id", "status": "approved", "task_id": int | null}`。`task_id` が null のときは `task list` の `server_id` で確かめる（`task_id` が無いことは、子が作られていないことを意味しない）。
+
+#### `run wait <run_id>… [--timeout-ms N] [--json]`
+
+自分の子でない run（`card run` で起こした run）を待つ。子は `task wait` で待つ。
+
+- 1 回の待ちは最大 90 秒。`--timeout-ms 0` なら 1 回だけ調べて返る。`run_id` は 1〜50 件。
+- `status` は次のどれか。質問は見ない。
+
+| `status` | 追加の項目 | 意味 |
+|---|---|---|
+| `completed` | `run_id`・`block`・`pending` | 完了した |
+| `failed` | `run_id`・`block`・`error`・`pending` | 失敗した。`error` に理由が入る |
+| `stalled` | `run_id`・`block`・`reason`（`idle`）・`message`・`pending` | pane が idle のまま止まった。`message` は Web の質問を見るように書く |
+| `in_progress` | `pending`（全件）・`message` | 90 秒以内に結果の出る run が無かった |
+
+- 返した run は、次の呼び出しで `pending` だけを渡す。実行エンジンは返した run を覚えない。
+- 存在しない run_id は終了コード 3（標準エラーの最後の行に「実行 <id> が見つかりません」）。
+
+`failed` の `error` の文言:
+
+- 401: `Claude の認証に失敗しました（401）。…`
+- pane が消えた: `エージェントが finalize の前に終了しました（pane が消えました）`
+
+---
+
+## 3. Web とエージェントの間の約束
+
+エージェントは CLI を Bash で呼ぶ。Web が読む・書く物のうち、エージェント側の約束を書く。
+
+### 3.1 `.agent-link/settings.json` の項目（agent に渡す環境変数ほか）
+
+settings は 2 か所で書ける。**後者（`$AGENT_LINK_HOME`）が前者（プロジェクト）をキー単位で上書きする。**
+
+1. `<project>/.agent-link/settings.json`
+2. `$AGENT_LINK_HOME/settings.json`（**こちらが優先**）
+
+| 項目 | 型 | 何に使う |
+|---|---|---|
+| `default_provider` / `default_model` / `default_thinking_level` | 文字列 \| null | block の frontmatter に無いときの既定 |
+| `wip` / `max_concurrent` | 数値 \| null | タブごとの pane 上限（既定 8）・同時実行数（既定 16） |
+| `extensions` | 文字列の配列 | 起動時に読み込む拡張 |
+| `pre_run` / `context` | 文字列の配列 \| null | 起動直前の準備・作業範囲の準備（シェルは通さない） |
+| `write_check` | 文字列の配列 \| null | `agent-link doc write` が保存の前に本文を標準入力で通す命令。`{run_id}`・`{block}`・`{filename}` を置き換える（シェルは通さない）。環境変数 `AGENT_LINK_WRITE_FILENAME`・`AGENT_LINK_WRITE_DESCRIPTION`・`AGENT_LINK_PARENT_RUN_ID`・`AGENT_LINK_BLOCK_NAME`。終了コード 0: 標準出力が空でなければそれを保存、空なら元の本文を保存。1: 標準エラーを返して保存しない。それ以外（起動失敗・30 秒の時間切れ・2 以上）: 元の本文を保存し警告を返す |
+| `job_status` | 文字列の配列 \| null | ジョブの状態を確かめる命令（先頭が実行ファイル。`{job}` をジョブの ID に置き換える）。常駐と `card wait` が読む。出力の `state` が `done` / `failed` / `cancelled` / `lost` なら終わり。無いと `card wait` は終了コード 2 |
+| `env` | オブジェクト（KEY → 値） | **agent の起動コマンドの先頭に付ける環境変数** |
+
+読み込みは `crates/agent-link-engine/src/settings.rs` の `load_settings()`。
+
+#### `env` の決まり
+
+- キーは `^[A-Za-z_][A-Za-z0-9_]*$`。値は 1 行（`\n` / `\r` を含む値は破棄）・長さ 1〜2000。
+- **予約キー** `AGENT_LINK_PROJECT_ROOT` / `AGENT_LINK_PARENT_RUN_ID` / `AGENT_LINK_BLOCK_NAME` / `AGENT_LINK_IS_SUBTASK` は書いても破棄される（`agent-link` 自身が必ず正しい値を入れるため。`settings.rs` の `RESERVED_ENV_KEYS`）。
+- 通らない項目は**エラーにせず、警告を 1 行出して破棄する**。
+- 並びは `AGENT_LINK_*` → `env` → エージェントの実行ファイル。値は shell のシングルクォート 1 つで囲むので、`export` や連結の文字列を書く必要はない。
+- 実装は `settings::agent_env_pairs()` と `orchestrator::prepare_pipeline` の 1 か所。`prepare_pipeline` 以外に agent を起動する経路を増やさないこと。
+- `env` には**平文の鍵・合言葉が入りうる**ので `.gitignore` にする（利用者が決める。`agent-link` は `.gitignore` を書き換えない）。合言葉は `env` で配らない（起動コマンドの文字になって pane と記録に残るため）。
+
+### 3.2 カードの frontmatter
+
+`task.md`（カード）の frontmatter のメタ情報。**入力の欄ではなく、起動の道を決める情報**（入力検査の対象外）。
+
+| キー | 値 | 意味 |
+|---|---|---|
+| `executer` | `human`（既定）/ `agent`（旧 `professor` も `agent` と読む） | 起動者。`agent` は、エージェントが自分の子の run として起こすカード。**人が起こす道（`card run`・常駐の予約実行）では動かさない**（起こすと root の run になり、報告が起こす側に届かないため） |
+| `scheduled_at` | `YYYY-MM-DD HH:MM` | 実行予定時刻。`card schedule` が書く。常駐が 5 秒ごとに見回る |
+| `after_job` | `<job_id>`（`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`） | ジョブの終わりを待つ。`card wait --job` が書く |
+
+- `executer` は `agent_link_engine::kanban::CardFrontmatter::executer()` / `is_agent_executer()` が読む。未記載・空・知らない値は `human` 扱い。`run tree` の各 run ノードと `workflow` の各札が `"executer"` を持つ。
+- `after_job`: 常駐は約 60 秒ごとに、カード 1 枚ごとの別の糸で `job_status` の命令を呼ぶ（90 秒で打ち切り）。`state` が `done` / `failed` / `cancelled` / `lost` なら `after_job` を消してそのカードを起こす。`queued` / `running` や、読めなかったときは、カードを変えず次の見回りでやり直す。`agent` のカードは断られるので、起こされてもログに残るだけ。
+
+### 3.3 起動時の文の分け方
+
+ブロックの起動時に送る文は **2 つ**に分かれる。作り方は `orchestrator::prepare_pipeline`（`crates/agent-link-engine/src/orchestrator.rs`）、分け目の処理は `placeholder::split_fixed_and_variable`（`crates/agent-link-engine/src/placeholder.rs`）。
+
+| | 中身 | 置き場 | 渡し方 |
+|---|---|---|---|
+| 固定部分（system prompt） | template と block.md の本文 | run フォルダ直下の `system-prompt.md` | cc は `--append-system-prompt-file <絶対パス>` |
+| 最初の文 | 自動で作られる `# context`（`context: true` のとき）と `# task_text` の節だけ | メモリ | headless の transport で 1 通送る |
+
+- 節の順は `# context` → `# task_text` → 本文に `{{input.<id>}}` として現れた順。節の間は空行 1 行。固定部分の**先頭**に案内文（`依頼は、最初のメッセージの「# task_text」の節にあります。` など）を足す。
+- 古い記法（`{{input.<id>}}`・`{{context}}`）は互換でまだ読めるが、書く必要は無い。
+- `system-prompt.md` は `agent-link run md <run_id> --kind system` で読める（`--write` は `task` だけ）。
+- cc の `--system-prompt-snapshot` は既定 on。`system-prompt.md` を直して再開しても cc は古い固定部分を使うことがある（固定部分を直して動かしたいときは `off` を付けるか、セッションを作り直す）。
+
+### 3.4 報告の置き場
+
+報告は **run フォルダの `finalize-report.md`** に 1 つだけ置く。
+
+| 誰が書く | どう書く |
+|---|---|
+| 子の run | `agent-link task report`（本文は標準入力。`--run-id` を省くと自分の run） |
+| root の run | `agent-link run finalize --report <文>` / `/agent-link-finalize <文>`（cc のフック） |
+
+- `--report` を付けない `run finalize` は**保存済みの報告に一切触らない**。
+- Web の run の画面は `run md --kind report` で読む（帯は「報告」）。親の `agent-link task wait` は完了の `report` にこの本文を返す。
+- 文書の保存は `agent-link doc write --filename <名前> [--description <文>]`（本文は標準入力。`write_check` を通る）。
+
+### 3.5 質問の通知
+
+```bash
+# 子の run の中から呼ぶ（親の run から呼ぶとエラー）
+"$AGENT_LINK_BIN" task question --qid <質問ID> --text <見出し> [--run-id <N>]
+```
+
+- `AGENT_LINK_PARENT_RUN_ID` の実行を引き、親が無ければエラー「task-question は子の run 専用です」。親の `agent-link task wait` は `{"task_id", "status": "stalled", "reason": "question", "question_id": "q1", "message": "質問 q1: …"}` を返す。`question_id` は質問の通知にだけ付く。`text` は 1 行に畳んで 500 文字で切る。
+- 質問の全文は Web の DB（`$AGENT_LINK_HOME/web/agent_link_web.db`）にある。コアは中身を持たない。答えるのは `agent-link-web answer`。
+
+### 3.6 合言葉の置き場
+
+Web は起動時に **`$AGENT_LINK_HOME/web/token` に合言葉（`AGENT_LINK_WEB_TOKEN`）を 0600 で書く**。合言葉が無いときはそのファイルを消す。
+
+- 読むのは `agent-link-web` の命令とエージェントの道具（環境変数 `AGENT_LINK_WEB_TOKEN` を先に、無ければこのファイル）。
+- 質問が開いている run に `agent-link-web send` すると、tmux には送らず質問を取り下げる（質問の状態は `withdrawn`・送った文は `answer.text`）。フックは、その文を次の指示として deny の理由文に入れる。
+- 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（Web は両方を受け付けるが、画面や記録に残るため）。
+- HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う。
+- **合言葉の値そのものを、ログ・画面・エージェントの作業記録（session ファイル・run フォルダの成果物）に出さない。**
+
+### 3.7 フック・拡張と Web の約束
+
+cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は、Web の窓口を次で呼ぶ。
+
+- **Web の場所**: 環境変数 `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8200}`。
+- **使う住所**（Mac 自身（127.0.0.1）からの要求として受ける）:
+
+| 住所 | 何に使う |
+|---|---|
+| `POST /api/register` | セッションと pane の対応づけ（`cc_register.py`） |
+| `POST /api/questions` | 質問の登録。応答は `{"ok": true, "id": "<qid>"}` |
+| `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと）。JSON の `answered_by`（答えた人。端末で答えたときは `terminal`） |
+| `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（PC の画面が呼ぶ） |
+
+- cc は、tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`AGENT_LINK_AGENT_TRANSPORT=tmux`・`AGENT_LINK_PROJECT_ROOT=<root>`。
+- cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`AGENT_LINK_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
+- 承認は `agent-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `agent-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `agent-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
+- cc の費用は cc の statusLine（`agent-link cc-statusline`）が `<AGENT_LINK_HOME>/cc-cost/<session_id>.json` に書く。
+- cc の 5 時間枠・7 日枠は同じ `agent-link cc-statusline` が `<AGENT_LINK_HOME>/cc-rate-limits.json` に書く（`{"five_hour":{"used_percentage","resets_at"},"seven_day":{…},"session_id","updated_at"}`。欠けた窓は省く）。`/api/usage` の `cc` は `{"limits": <枠または null>, "cost": {"today","month","sessions"}}`。
+
+---
+
+## 4. 項目を変えるときの決まり
+
+**Web が読む項目を変えたら、この文書と Web（`apps/web`）を一緒に直す。** 項目を足すだけなら Web は壊れない。
+
+### 4.1 壊れる変更・壊れない変更
+
+| 変更 | 結果 |
+|---|---|
+| JSON の**項目の追加** | **壊れない**（読まないだけ） |
+| 項目の**削除・名前変更**（`daemon_alive` → `alive` など） | **壊れる**（ランプ・札・ボタンが消える／行が押せない） |
+| **型の変更**（数値を文字列に、真偽値を 0/1 に） | **壊れる** |
+| 配列をオブジェクトに包む（`[...]` → `{projects: [...]}`） | **壊れる**（502「応答を読めませんでした」） |
+| 「無いとき `null`」を `0` や空文字にする | **壊れる**（`0` が「ある」とみなされる） |
+| **命令名・サブコマンド名の変更**（`run tree` → `run list-tree`） | **壊れる**（Web は 400 / 502 を返す。「コマンド」画面は `schema` から自動で追従する） |
+| `--period` の値を減らす／外す | **壊れる**（400 または 502） |
+| 標準出力への余計な 1 行（デバッグ表示） | **壊れる**（502） |
+| 失敗時の終了コードと標準エラーの最後の行の形を守る範囲の文言変更 | **壊れない**（文言は画面にそのまま出るだけ） |
+| 終了コードの意味を変える（3 → 1 など） | **壊れる**（404 が 502 になる。「まだありません」「未実行のカードが見つかりません」も 3 を前提にしている） |
+| 書き出し `run export` の `schema_version` を 2 にする | **壊れる**（全ファイルが無視され Chats が空になる） |
+| `run_id` / `project_name` の型変更・`status` の語の変更・フォルダの形の変更 | **壊れる** |
+| `card create` の標準入力を読まない | **壊れる** |
+| `AGENT_LINK_PROJECT_ROOT` を見ない形にする | **壊れる**（全プロジェクトが同じ DB を開く） |
+| バイナリ名の変更 | **壊れる**（503） |
+| 置き場の規則（`AGENT_LINK_HOME`）を 1 か所だけ変える | **壊れる**（2 か所そろえる。[ARCHITECTURE.md](../ARCHITECTURE.md) の §3） |
+
+### 4.2 直したあとに流す確認（読み取りだけ）
+
+一時フォルダにプロジェクトを作り、`AGENT_LINK_HOME` と `AGENT_LINK_PROJECT_ROOT` をその中へ向けて行う。本物の `.agent-link/`・`$AGENT_LINK_HOME` を確かめのために変えない。
+
+```bash
+cd ~/workdir/Sai/agent-link
+perl -e 'alarm 1800; exec @ARGV' cargo build --release      # 必ず release。Web は release を呼ぶ
+
+T=$(mktemp -d); export AGENT_LINK_HOME=$T/home AGENT_LINK_PROJECT_ROOT=$T/proj; mkdir -p $AGENT_LINK_HOME $AGENT_LINK_PROJECT_ROOT
+B=$PWD/target/release
+(cd $AGENT_LINK_PROJECT_ROOT && git init -q && $B/agent-link init --name check >/dev/null)
+
+# 1) schema が出るか
+$B/agent-link schema --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['bin'],len(d['commands']))"
+
+# 2) 形（読み取りだけ）
+cd $AGENT_LINK_PROJECT_ROOT
+$B/agent-link project dashboard --period week | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in ('name','period','since','until','daemon_alive','daily','by_model','by_block','recent','summary'): assert k in d, k
+print('dashboard OK')"
+$B/agent-link run tree | head -c 200; echo
+$B/agent-link card options | head -c 200; echo
+
+# 3) 失敗の形（終了コード 3・標準出力が空・標準エラーの最後の行が日本語）
+$B/agent-link run md 999 --kind task >/dev/null; echo "exit=$?"
+
+rm -rf $T; unset AGENT_LINK_HOME AGENT_LINK_PROJECT_ROOT
+```
+
+**流さないこと**: `daemon start`（常駐が起動する）・`card run`（エージェントが動く）。
+
+### 4.3 変更したらすること
+
+1. `cargo build --release`（Web は release の実行ファイルを叩く）。**PATH 上の名前 `agent-link` は変えない。**
+2. 既存の書き出しを作り直す: `agent-link run export`（プロジェクトの root で）。常駐が動いていると自動で書き出される。
+3. Web 側を直す場所: 項目の変更 → `apps/web/src/agent_link_web/` の `control.py` と、画面の `static/*.js`。値の検査の追加 → 同じモジュール。
+4. 動作確認は 8297 番など別の番号で。**動いている 8200 番の Web は触らない。**
+5. この文書の表と `docs/integration.md` の該当表を更新する。
+
+---
+
+## 5. 連携が壊れたときの見分け方
+
+### 5.1 画面に出る文言 → 原因
+
+| 画面の文言（`detail` の中身） | 状態 | 原因と直し方 |
+|---|---|---|
+| `…が見つかりません（設定の場所を確認してください）` | 503 | CLI の場所。`AGENT_LINK_BIN` と PATH を確認。**バイナリ名を変えても同じ文が出る** |
+| `…の応答を読めませんでした` | 502 | 終了コード 0 なのに JSON でない（**標準出力への余計な表示**を疑う） |
+| CLI の標準エラーの最後の行（例 `まだありません`） | 404 / 400 / 409 / 502 | 終了コードが 3 / 2 / 4 / 1。文言は CLI のまま |
+| `period は week / month / all のいずれかにしてください` `action は start / stop を指定してください` `run_id は 1 以上の整数にしてください` `block の指定が正しくありません` など | 400 | **Web 自身の検査**。CLI を呼ぶ前に弾いている。相手側を疑わない |
+| `まだありません` | 404 | その run に md が無い（`run md` の終了コード 3） |
+| `未実行のカードが見つかりません` | 404 | その run の未実行カードが無い（`card run` / `card start` の終了コード 3） |
+| `このカードはエージェントが子の run として起こします（executer: agent）。…` | 502 | `executer: agent` のカードは人が起こす道では動かさない |
+| `プロジェクトが見つかりません` / `このプロジェクトにはまだ実行の記録がありません` | 404 | 登録簿に無い／`db_exists` が偽 |
+| `認証エラー` | 401 | 合言葉が合わない（`AGENT_LINK_WEB_TOKEN`） |
+| `内部専用です` | 403 | 内部用の住所を Mac 自身（127.0.0.1 / ::1）以外から呼んだ |
+| `…が時間内に応答しませんでした` | 504 | 時間切れ |
+| 画面の帯 `接続できていません` | 通信失敗 | 8200 自体に届かない（Web・tailscale・ネットワーク） |
+| プロジェクト一覧が **空** | ― | `AGENT_LINK_HOME` が正しいか、`$AGENT_LINK_HOME/registry.json` にそのプロジェクトがあるか確かめる |
+
+### 5.2 ログの見方
+
+| どこを見る | 中身 |
+|---|---|
+| **Web**: `$AGENT_LINK_HOME/web/agent-link-web.log`／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
+| **`agent-link`** | 単発の CLI なので、Web のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
+
+### 5.3 直す順番
+
+1. 画面の `detail` から **503 / 502 / 400 / 404 / 409 のどれか**を決める。
+2. 503 → 場所（PATH・設定・常駐）。502 → **出力の混入**か終了コード 1。400 → Web の検査か CLI の終了コード 2。404 → データの有無。
+3. §4.2 の確認を**読み取りだけで**流す。
+4. 直したら §4.3 のビルド・作り直し・文書更新を行う。
