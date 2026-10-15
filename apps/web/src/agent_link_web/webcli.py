@@ -15,7 +15,7 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ。失敗の
     apps/web/bin/agent-link-web api <METHOD> <path> [--data <JSON> | --data -]
     apps/web/bin/agent-link-web serve [--host <H>] [--port <P>]
 
-接続先と合言葉（この作業の間は今の名前を使う。最後のガイドで `AGENT_LINK_WEB_*` に変える）:
+接続先と合言葉:
     - 接続先: `AGENT_LINK_WEB_URL`（既定 `http://127.0.0.1:8200`）
     - 合言葉: `AGENT_LINK_WEB_TOKEN`、無ければ `<sai_home>/web/token`
     - 待ち受けの番号: `AGENT_LINK_WEB_PORT`（既定 8200）

@@ -503,7 +503,7 @@ pub enum RunCmd {
         yes: bool,
     },
 
-    /// 現在のプロジェクトの実行を sai-phone 向け JSON に書き出す（文字）
+    /// 現在のプロジェクトの実行を Web 向け JSON に書き出す（文字）
     Export {
         /// 1 件だけ書き出す（省略時は全件）
         #[arg(long, value_name = "RUN_ID")]
@@ -766,10 +766,10 @@ pub enum WaggleCmd {
     },
 }
 
-/// sai-phone への書き出しサブコマンド（実装計画 01 §2.4 / 12 §3.2）。
+/// Web への書き出しサブコマンド（実装計画 01 §2.4 / 12 §3.2）。
 #[derive(Subcommand)]
 pub enum PhoneCmd {
-    /// 現在のプロジェクトの実行を sai-phone 向け JSON に書き出す
+    /// 現在のプロジェクトの実行を Web 向け JSON に書き出す
     Export {
         /// 1 件だけ書き出す（省略時は全件）
         #[arg(long, value_name = "RUN_ID")]
@@ -829,7 +829,7 @@ pub enum PhoneCmd {
         cmd: PhoneCardCmd,
     },
 
-    /// 実行中のメインブロックを完了させる（sai-phone の ■ 終了用）
+    /// 実行中のメインブロックを完了させる（Web の ■ 終了用）
     ///
     /// 成功は stdout に JSON（`run_id` / `message`）・終了コード 0、
     /// 実行が無い場合は終了コード 3、実行中以外・子ブロック・常駐停止は終了コード 1。
@@ -839,7 +839,7 @@ pub enum PhoneCmd {
         run_id: i64,
     },
 
-    /// 実行を次の状態へ進める（review → done → Workflow・sai-phone の「→ done」「→ Workflow」用）
+    /// 実行を次の状態へ進める（review → done → Workflow・Web の「→ done」「→ Workflow」用）
     ///
     /// 成功は stdout に JSON（`run_id` / `from` / `to`）・終了コード 0、
     /// 実行が無い場合は終了コード 3、review / done 以外は終了コード 1。
@@ -864,7 +864,7 @@ pub enum PhoneCmd {
     /// DB が開けない場合は終了コード 4。
     Summary,
 
-    /// 期間ダッシュボードを JSON で返す（sai-phone の Dashboard 用）
+    /// 期間ダッシュボードを JSON で返す（Web の Dashboard 用）
     ///
     /// 出力の形は `sai-control dashboard <name> --period <p> --json` と同じ
     /// （name / period / since / until / daemon_alive / summary / daily /
@@ -923,7 +923,7 @@ pub enum PhoneCmd {
     /// - `separators`: round の区切り線
     /// - `lanes`: Kanban の 4 レーン（todo / running / review / done）の札
     ///
-    /// 座標の縮め方（横 1 マス = 何 px）は sai-phone 側の取り決めであり、
+    /// 座標の縮め方（横 1 マス = 何 px）は Web 側の取り決めであり、
     /// agent-link は文字マスのまま返す。DB が開けない場合は終了コード 4。
     Workflow,
 
@@ -938,7 +938,7 @@ pub enum PhoneCmd {
         cmd: PhoneDefCmd,
     },
 
-    /// 利用者の札（`runner: user`）を始める・終える（sai-phone の READ_CARD 用・U17）
+    /// 利用者の札（`runner: user`）を始める・終える（Web の READ_CARD 用・U17）
     ///
     /// 成功は stdout に JSON（`run_id` / `status`）・終了コード 0。
     /// 常駐（デーモン）は要らない。
@@ -1026,7 +1026,7 @@ pub enum PhoneCardCmd {
 /// `agent-link phone def` のサブコマンド。
 ///
 /// 定義ファイル（`.agent-link/blocks/*.md`・`.agent-link/template/*.md`・`.agent-link/settings.json`）の
-/// 閲覧・編集用。Web（sai-phone）から definitions を編集するために使う。
+/// 閲覧・編集用。Web から definitions を編集するために使う。
 ///
 /// 保存（`write`）は必ず検査を通してから行う。検査に失敗したら**ファイルを
 /// 書き換えず**に終了コード 2 で終わる（常駐が壊れた定義を読むのを防ぐ）。
