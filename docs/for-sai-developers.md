@@ -182,6 +182,8 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 | todo の run ノード: `scheduled_at` | `YYYY-MM-DD HH:MM`（予約があるときだけ） | ホームの「予約した todo」 |
 | todo の run ノード: `after_job` | 文字列（`card wait` したときだけ） | ジョブ待ちの印 |
 
+先頭（depth 0）の `Customer` フォルダ（`id`・`label` は `Customer`）には、Customer の block（`user-report`・`user-question`・`user-opinion`）の run だけが入る。ほかのフォルダには出ず、実行が 0 件でもフォルダは出る。
+
 ホーム（`home.py`）は top レベルの `review`・`todo` フォルダの中の run ノードを読む。
 
 #### `run log|stats|history <run_id>`
