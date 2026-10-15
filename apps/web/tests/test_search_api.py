@@ -15,7 +15,7 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import control
+from agent_link_web import control
 
 
 def expect_400(fn) -> None:
@@ -68,7 +68,7 @@ def test_calls(cli: FakeCli) -> None:
     cli.calls.clear()
     assert control.phone_search("demo", " mlflow  run ") == {"items": [], "truncated": False}
     assert cli.calls[-1] == [
-        "sai-link", "doc", "search",
+        "agent-link", "doc", "search",
         "--word", "mlflow  run", "--category", "task,message,waggle", "--limit", "50",
     ], cli.calls[-1]
 
@@ -84,7 +84,7 @@ def test_calls(cli: FakeCli) -> None:
         limit=5,
     )
     assert cli.calls[-1] == [
-        "sai-link", "doc", "search",
+        "agent-link", "doc", "search",
         "--word", "x", "--category", "task,waggle", "--limit", "5",
         "--since", "2026-09-01", "--until", "2026-09-30", "--block", "worker",
         "--from-id", "10", "--to-id", "99",
@@ -92,7 +92,7 @@ def test_calls(cli: FakeCli) -> None:
 
 
 def test_route() -> None:
-    from sai_web.main import app
+    from agent_link_web.main import app
 
     paths = {(r.path, tuple(sorted(r.methods or []))) for r in app.routes if hasattr(r, "methods")}
     assert ("/api/projects/{name}/search", ("GET",)) in paths, "住所が無い"

@@ -12,7 +12,7 @@ const {
   formatCount,
   toolBarRows,
   isEmptyStats,
-} = require(path.join(__dirname, "..", "src", "sai_web", "static", "stats.js"));
+} = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "stats.js"));
 
 function testFormatTokens() {
   // トークンは K / M で短く（04 §1-2 の2番 / §5 の例）

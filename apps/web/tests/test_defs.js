@@ -12,7 +12,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const df = require(path.join(__dirname, "..", "src", "sai_web", "static", "defs.js"));
+const df = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "defs.js"));
 
 // C-A1 の list の形そのままの偽データ
 const ITEMS = [
@@ -27,10 +27,10 @@ const ITEMS = [
 ];
 
 function testHash() {
-  assert.strictEqual(df.dfListHash("sai-web"), "#/project/sai-web/defs");
+  assert.strictEqual(df.dfListHash("agent-link-web"), "#/project/agent-link-web/defs");
   assert.strictEqual(
-    df.dfHash("sai-web", "block", "project", "kantoku"),
-    "#/project/sai-web/defs/block/project/kantoku"
+    df.dfHash("agent-link-web", "block", "project", "kantoku"),
+    "#/project/agent-link-web/defs/block/project/kantoku"
   );
   // 編集の 1 つが無いときは一覧の住所
   assert.strictEqual(df.dfHash("p", null, "project", "x"), "#/project/p/defs");
@@ -82,7 +82,7 @@ function testValidName() {
   // settings は settings だけ
   assert.strictEqual(df.dfValidName("settings", "settings").ok, true);
   assert.strictEqual(df.dfValidName("settings", "other").ok, false);
-  // 同じ検査が sai-link と同じ形（C-A1）
+  // 同じ検査が agent-link と同じ形（C-A1）
   assert.strictEqual(df.DF_NAME_RE.source, "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$");
 }
 
@@ -123,7 +123,7 @@ function testGroups() {
   // 見出しは日本語
   assert.strictEqual(blocks.kindLabel, "ブロック");
   assert.strictEqual(blocks.scopes[0].scopeLabel, "このプロジェクト");
-  assert.strictEqual(blocks.scopes[1].scopeLabel, "全プロジェクト共通（~/.sai）");
+  assert.strictEqual(blocks.scopes[1].scopeLabel, "全プロジェクト共通（~/.agent-link）");
   // 0 件の組は入れない（template に global が無くても settings は 2 つ出る）
   const onlyProject = df.dfGroups(ITEMS.filter((i) => i.scope === "project"));
   assert.deepStrictEqual(onlyProject.map((g) => g.kind), ["block", "template", "settings"]);

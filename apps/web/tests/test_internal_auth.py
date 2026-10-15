@@ -3,7 +3,7 @@
 確かめること:
 - 内部の住所（`POST /api/register`・`POST /api/questions`・`GET /api/questions/{qid}` など）は
   127.0.0.1 / ::1 からだけ通り、ほかの住所からは 403
-- `SAI_WEB_INTERNAL_TOKEN` の合言葉は使わない（Authorization を付けても 403 が変わらない）
+- `AGENT_LINK_WEB_INTERNAL_TOKEN` の合言葉は使わない（Authorization を付けても 403 が変わらない）
 - 答えた記録の `answered_by` は `user`
 - 通知は購読をすべてに送る
 - Usage の OpenRouter は環境変数のキーを使う
@@ -27,15 +27,15 @@ import tempfile
 from pathlib import Path
 
 # import より前に一時フォルダを決める（config.DB_PATH は import 時に決まるため）
-_TMP = Path(tempfile.mkdtemp(prefix="sai-web-internal-"))
-os.environ["SAI_HOME"] = str(_TMP / "sai-home")
-os.environ.pop("SAI_WEB_TOKEN", None)
-os.environ.pop("SAI_WEB_RUNS_DIR", None)
+_TMP = Path(tempfile.mkdtemp(prefix="agent-link-web-internal-"))
+os.environ["AGENT_LINK_HOME"] = str(_TMP / "sai-home")
+os.environ.pop("AGENT_LINK_WEB_TOKEN", None)
+os.environ.pop("AGENT_LINK_WEB_RUNS_DIR", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import control, notify, runs, store, usage  # noqa: E402
-from sai_web.main import app  # noqa: E402
+from agent_link_web import control, notify, runs, store, usage  # noqa: E402
+from agent_link_web.main import app  # noqa: E402
 
 HOST = "testserver"
 LOCAL = ("127.0.0.1", 40000)
@@ -170,7 +170,7 @@ def test_internal_addresses_localhost_only() -> None:
     status, body = call("POST", "/api/register", json_body=reg, client=REMOTE)
     assert status == 403, (status, body)
 
-    # 一覧（pending）は内部の住所ではなく、合言葉の住所（`SAI_WEB_TOKEN` が空なので誰でも通る）
+    # 一覧（pending）は内部の住所ではなく、合言葉の住所（`AGENT_LINK_WEB_TOKEN` が空なので誰でも通る）
     status, body = call("GET", "/api/questions/pending", client=REMOTE)
     assert status == 200 and qid in [q["id"] for q in body["questions"]], (status, body)
 
@@ -254,7 +254,7 @@ def test_usage_key_from_env() -> None:
 def test_old_db() -> None:
     """`owner`・`answered_by` の列が無い古い DB を開いても動く。"""
     saved_db = store.DB_PATH
-    tmp = Path(tempfile.mkdtemp(prefix="sai-web-olddb-"))
+    tmp = Path(tempfile.mkdtemp(prefix="agent-link-web-olddb-"))
     db = tmp / "old.db"
     try:
         with sqlite3.connect(db) as conn:

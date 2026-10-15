@@ -4,7 +4,7 @@
 - `headless_state` が `state.json` を読み，`stopped` は `live` が None（AC2）
 - `status` が `completed` でも `idle` の headless 実行は `live == "idle"`（AC2）
 - `GET …/items` が `partial` を返し，`transcript_path` が無くても `live` と `partial` を返す（AC2）
-- `POST …/send` が `sai-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）
+- `POST …/send` が `agent-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）
 - `POST …/interrupt` は無い実行で CLI を呼ばずに 404（AC3）
 - cc の質問に答えると，キーを送らずに `answered` になり `GET /api/questions/{qid}` が答えを返す（AC4）
 - 承認の住所（`/api/approvals*`）が無い
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from fastapi import HTTPException  # noqa: E402
 
-from sai_web import control, main, questions, runs, store  # noqa: E402
+from agent_link_web import control, main, questions, runs, store  # noqa: E402
 
 PANE_ID = "hl-0123456789ab"
 
@@ -134,7 +134,7 @@ def write_state(
     pane_id: str = PANE_ID,
 ) -> Path:
     """headless の `state.json`（C1）を一時フォルダに書く。"""
-    headless = Path(root) / ".sai" / "sai-engine" / "headless" / pane_id
+    headless = Path(root) / ".agent-link" / "engine" / "headless" / pane_id
     headless.mkdir(parents=True, exist_ok=True)
     path = headless / "state.json"
     path.write_text(
@@ -180,7 +180,7 @@ def test_headless_state_reads_state_json() -> None:
         assert runs.headless_state(make_run(1, pane_id="hl-zzzzzzzzzzzz", project_root=tmp)) is None
         assert runs.headless_state(make_run(1, pane_id=PANE_ID, project_root="/tmp/gone")) is None
         write_state(tmp, "working")
-        path = Path(tmp) / ".sai" / "sai-engine" / "headless" / PANE_ID / "state.json"
+        path = Path(tmp) / ".agent-link" / "engine" / "headless" / PANE_ID / "state.json"
         path.write_text("{ broken", encoding="utf-8")
         assert runs.headless_state(run) is None
 
@@ -234,8 +234,8 @@ def test_items_live_blocked_when_question_open() -> None:
 
 
 def test_send_calls_run_send_with_stdin() -> None:
-    """`/send` が `sai-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）。"""
-    fresh_db(tempfile.mkdtemp(prefix="sai-web-headless-"))  # 質問の取り下げを見るため DB が要る
+    """`/send` が `agent-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）。"""
+    fresh_db(tempfile.mkdtemp(prefix="agent-link-web-headless-"))  # 質問の取り下げを見るため DB が要る
     cli = FakeCli()
     cli.returncode = 0
     cli.stdout = json.dumps({"run_id": 42, "pane_id": PANE_ID, "status": "sent"})
@@ -249,10 +249,10 @@ def test_send_calls_run_send_with_stdin() -> None:
         out = main.api_send_text("demo", 42, main.SendRequest(text="続きの文"))
         assert out == {"run_id": 42, "pane_id": PANE_ID, "status": "sent"}, out
         call = cli.last
-        assert call["args"] == ["sai-link", "run", "send", "42"], call["args"]
+        assert call["args"] == ["agent-link", "run", "send", "42"], call["args"]
         assert call["input_text"] == "続きの文", call["input_text"]
         assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-        assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
+        assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
 
         # 空の文は CLI を呼ぶ前に 400
         cli.calls.clear()
@@ -265,7 +265,7 @@ def test_send_calls_run_send_with_stdin() -> None:
 
 def test_interrupt_missing_run_is_404_without_cli() -> None:
     """`/interrupt` は無い実行で CLI を呼ばずに 404（AC3）。"""
-    fresh_db(tempfile.mkdtemp(prefix="sai-web-headless-"))  # 質問の取り下げを見るため DB が要る
+    fresh_db(tempfile.mkdtemp(prefix="agent-link-web-headless-"))  # 質問の取り下げを見るため DB が要る
     cli = FakeCli()
     original_run_cli = control.run_cli
     original_load = runs.load_runs
@@ -278,7 +278,7 @@ def test_interrupt_missing_run_is_404_without_cli() -> None:
         control.run_cli = original_run_cli
         runs.load_runs = original_load  # type: ignore[assignment]
 
-    # ある実行なら `sai-link run interrupt <id> --json` を呼び，応答をそのまま返す
+    # ある実行なら `agent-link run interrupt <id> --json` を呼び，応答をそのまま返す
     cli.returncode = 0
     cli.stdout = json.dumps(
         {"run_id": 42, "status": "interrupted", "agent_status": "idle"}
@@ -293,7 +293,7 @@ def test_interrupt_missing_run_is_404_without_cli() -> None:
     try:
         out = main.api_interrupt("demo", 42)
         assert out["status"] == "interrupted", out
-        assert cli.last["args"] == ["sai-link", "run", "interrupt", "42"], cli.last["args"]
+        assert cli.last["args"] == ["agent-link", "run", "interrupt", "42"], cli.last["args"]
     finally:
         runs.load_runs = original_load  # type: ignore[assignment]
         control.find_project = original_find

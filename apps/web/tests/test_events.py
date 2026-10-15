@@ -15,7 +15,7 @@ from pathlib import Path
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import sessions  # noqa: E402
+from agent_link_web import sessions  # noqa: E402
 
 # 実物の cc 記録で確認した <task-notification>（03 §6 の例に近い形）
 TASK_NOTIFICATION = """<task-notification>
@@ -353,7 +353,7 @@ def test_mcp_detail_pi() -> None:
 
 
 # sai の CLI を Bash で呼んだときの見出し（U17）
-_CLI_ARGV_CC = "sai-link doc write --filename a.md <<'EOF'\n本文\nEOF"
+_CLI_ARGV_CC = "agent-link doc write --filename a.md <<'EOF'\n本文\nEOF"
 _CLI_DETAIL_CC = "引数\n--filename a.md <<EOF\n本文\nEOF"
 
 
@@ -372,8 +372,8 @@ def test_cli_call_cc() -> None:
     sessions._convert_claude_row(res, items, pending)
     tool = next(i for i in items if i["kind"] == "tool")
     assert tool["tool"] == "Bash", "tool は生の名前のまま"
-    assert tool["cli"] == "sai-link"
-    assert tool["label"] == "sai-link doc write"
+    assert tool["cli"] == "agent-link"
+    assert tool["label"] == "agent-link doc write"
     assert tool["detail"] == _CLI_DETAIL_CC + "\n---\n戻り値\nOK", tool["detail"]
 
 
@@ -382,13 +382,13 @@ def test_cli_call_pi() -> None:
     call = {"type": "message", "id": "p1", "timestamp": "2026-10-01T00:00:00Z",
             "message": {"role": "assistant", "content": [
                 {"type": "toolCall", "id": "c1", "name": "bash",
-                 "arguments": {"command": "env -u X sai-web home --json"}}]}}
+                 "arguments": {"command": "env -u X agent-link-web home --json"}}]}}
     items: list[dict] = []
     pending: dict[str, dict] = {}
     sessions._convert_pi_row(call, items, pending)
     tool = next(i for i in items if i["kind"] == "tool")
-    assert tool["cli"] == "sai-web"
-    assert tool["label"] == "sai-web home"
+    assert tool["cli"] == "agent-link-web"
+    assert tool["label"] == "agent-link-web home"
     assert tool["detail"] == "引数\n--json"
 
 
@@ -396,25 +396,24 @@ def test_cli_call_rules() -> None:
     """見出しの語の決め方と，sai の CLI でない物の見分け（U17）．"""
     # 下位の命令を持つ語（doc / task）は 2 語目まで見出しにする
     assert sessions._sai_cli_call(_CLI_ARGV_CC) == (
-        "sai-link", "sai-link doc write", "--filename a.md <<EOF\n本文\nEOF")
-    assert sessions._sai_cli_call("sai-link task wait 12 13") == (
-        "sai-link", "sai-link task wait", "12 13")
+        "agent-link", "agent-link doc write", "--filename a.md <<EOF\n本文\nEOF")
+    assert sessions._sai_cli_call("agent-link task wait 12 13") == (
+        "agent-link", "agent-link task wait", "12 13")
     # env を飛ばし，下位の命令を持たない語は 1 語目まで
-    assert sessions._sai_cli_call("env -u X sai-web home --json") == (
-        "sai-web", "sai-web home", "--json")
-    assert sessions._sai_cli_call("sai-web send proj 3 文") == (
-        "sai-web", "sai-web send", "proj 3 文")
-    # 消した CLI（sai-paper・sai-sci）は sai の CLI として見ない
-    assert sessions._sai_cli_call("sai-sci status --json") is None
-    assert sessions._sai_cli_call("sai-paper library list") is None
+    assert sessions._sai_cli_call("env -u X agent-link-web home --json") == (
+        "agent-link-web", "agent-link-web home", "--json")
+    assert sessions._sai_cli_call("agent-link-web send proj 3 文") == (
+        "agent-link-web", "agent-link-web send", "proj 3 文")
+    # 知らない CLI は agent-link の CLI として見ない
+    assert sessions._sai_cli_call("other-cli status --json") is None
     # パス付きでもファイル名で見る
-    assert sessions._sai_cli_call("/usr/local/bin/sai-link doc write") == (
-        "sai-link", "sai-link doc write", "")
+    assert sessions._sai_cli_call("/usr/local/bin/agent-link doc write") == (
+        "agent-link", "agent-link doc write", "")
     # sai の CLI でない物は今までどおり
-    assert sessions._sai_cli_call("cat a | sai-link doc write") is None
+    assert sessions._sai_cli_call("cat a | agent-link doc write") is None
     assert sessions._sai_cli_call("echo hello") is None
     assert sessions._sai_cli_call("") is None
-    assert sessions._sai_cli_call("sai-linkx doc") is None
+    assert sessions._sai_cli_call("agent-linkx doc") is None
 
 
 def test_non_mcp_detail_unchanged() -> None:

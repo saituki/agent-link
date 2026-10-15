@@ -1,7 +1,7 @@
 """Workflow 盤面と定義（block / template / settings）の編集の API の小さなテスト（assert だけ）。
 
 確かめること:
-- Workflow: `phone workflow` を cwd = プロジェクトの root・`SAI_PROJECT_ROOT` = 同じ root で呼ぶ
+- Workflow: `phone workflow` を cwd = プロジェクトの root・`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ぶ
 - 定義の一覧・読み出し・保存・削除の引数（`--kind` / `--scope` / `--name` / `--create`）と本文は標準入力
 - `_phone_def_json` の終了コードの分け方（0 / 2 / 3 / 4（同じ名前の定義があります）/ その他）
 - 検査に通らない値（kind / scope / 名前 / 256KB 超 / settings の削除）は 400 で、CLI を 1 回も呼ばない
@@ -20,14 +20,14 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import control
-from sai_web.main import app
+from agent_link_web import control
+from agent_link_web.main import app
 
 # 登録簿の行を想定した値（root_exists / db_exists を確かめるため別々を用意する）
 WITH_DB = {
     "name": "demo",
     "root": "/tmp/demo-root",
-    "kind": "sai-link",
+    "kind": "agent-link",
     "root_exists": True,
     "db_exists": True,
     "daemon_alive": True,
@@ -109,7 +109,7 @@ WORKFLOW_JSON = {
 
 
 def test_workflow(cli: FakeCli) -> None:
-    """Workflow 盤面は `sai-link workflow` の JSON をそのまま返す（待ち 30 秒）。"""
+    """Workflow 盤面は `agent-link workflow` の JSON をそのまま返す（待ち 30 秒）。"""
     cli.returncode = 0
     cli.stdout = json.dumps(WORKFLOW_JSON)
     cli.stderr = ""
@@ -117,10 +117,9 @@ def test_workflow(cli: FakeCli) -> None:
     out = control.phone_workflow("demo")
     assert out == WORKFLOW_JSON, out
     call = cli.last
-    assert call["args"] == ["sai-link", "workflow"], call["args"]
+    assert call["args"] == ["agent-link", "workflow"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
-    assert call["env"]["SAI_ORIGIN"] == "phone"
+    assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
     assert call["timeout"] == 30.0, call["timeout"]
 
 
@@ -137,7 +136,7 @@ def test_workflow_404(cli: FakeCli) -> None:
 
 LIST_JSON = {
     "project_root": "/tmp/demo-root",
-    "global_root": "/root/.sai",
+    "global_root": "/root/.agent-link",
     "items": [
         {
             "kind": "block",
@@ -160,7 +159,7 @@ def test_def_list(cli: FakeCli) -> None:
     cli.stderr = ""
     cli.calls.clear()
     assert control.phone_def_list("demo") == LIST_JSON
-    assert cli.last["args"] == ["sai-link", "def", "list"], cli.last["args"]
+    assert cli.last["args"] == ["agent-link", "def", "list"], cli.last["args"]
     # 実行の記録が無いプロジェクトでも定義の一覧は出せる
     cli.calls.clear()
     control.phone_def_list("fresh")
@@ -179,7 +178,7 @@ def test_def_show(cli: FakeCli) -> None:
     cli.calls.clear()
     control.phone_def_show("demo", "block", "project", "kantoku")
     assert cli.last["args"] == [
-        "sai-link",
+        "agent-link",
         "def",
         "show",
         "--kind",
@@ -202,7 +201,7 @@ def test_def_write(cli: FakeCli) -> None:
     assert out == {"exists": True, "text": "hello"}, out
     call = cli.last
     assert call["args"] == [
-        "sai-link",
+        "agent-link",
         "def",
         "write",
         "--kind",
@@ -265,7 +264,7 @@ def test_def_delete(cli: FakeCli) -> None:
     out = control.phone_def_delete("demo", "template", "project", "sai-base")
     assert out == {"deleted": True}, out
     assert cli.last["args"] == [
-        "sai-link",
+        "agent-link",
         "def",
         "delete",
         "--kind",
@@ -320,13 +319,13 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     cli.returncode = 1
     cli.stderr = ""
     e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
-    assert str(e.detail) == "sai-link が失敗しました", e.detail
+    assert str(e.detail) == "agent-link が失敗しました", e.detail
 
     # 0 でも JSON が読めなければ 502
     cli.returncode = 0
     cli.stdout = "not json"
     e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
-    assert str(e.detail) == "sai-link の応答を読めませんでした", e.detail
+    assert str(e.detail) == "agent-link の応答を読めませんでした", e.detail
 
 
 def test_def_errors_not_truncated(cli: FakeCli) -> None:

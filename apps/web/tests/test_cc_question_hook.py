@@ -4,11 +4,11 @@
 次を確かめる。
 
 - 登録 → 答え待ち → 答えが入った `allow` + `updatedInput` の JSON を出す
-- `SAI_CC_QUESTION_MODE=deny` のときは答えを `permissionDecisionReason` に入れた `deny` を出す
-- `SAI_WEB_INTERNAL_TOKEN` を渡しても `Authorization` は付かない
-- `SAI_WEB_URL` の値に送る
+- `AGENT_LINK_CC_QUESTION_MODE=deny` のときは答えを `permissionDecisionReason` に入れた `deny` を出す
+- `AGENT_LINK_WEB_INTERNAL_TOKEN` を渡しても `Authorization` は付かない
+- `AGENT_LINK_WEB_URL` の値に送る
 - 答えが来ないまま `open` でなくなったら「利用者は答えませんでした。」
-- `SAI_PARENT_RUN_ID` があっても承認の記録は行わず、答えが取れたら allow
+- `AGENT_LINK_PARENT_RUN_ID` があっても承認の記録は行わず、答えが取れたら allow
 
 実行:
     PYTHONPATH=apps/web/src apps/web/.venv/bin/python apps/web/tests/test_cc_question_hook.py
@@ -109,11 +109,11 @@ def run_hook(port: int, token: str | None = None, extra_env: dict | None = None)
     """フックを走らせて（終了コード, 標準出力）を返す。"""
     env = {
         "PATH": "/usr/bin:/bin",
-        "SAI_WEB_URL": f"http://127.0.0.1:{port}",
+        "AGENT_LINK_WEB_URL": f"http://127.0.0.1:{port}",
         "HERDR_PANE_ID": "hl-0123456789ab",
     }
     if token is not None:
-        env["SAI_WEB_INTERNAL_TOKEN"] = token
+        env["AGENT_LINK_WEB_INTERNAL_TOKEN"] = token
     if extra_env:
         env.update(extra_env)
     proc = subprocess.run(
@@ -151,18 +151,18 @@ def test_answered_returns_allow_with_updated_input() -> None:
     assert body["session_id"] == "sess-1"
     assert body["pane_id"] == "hl-0123456789ab"
     assert body["questions"] == QUESTIONS
-    # `SAI_WEB_INTERNAL_TOKEN` を渡しても Authorization は付けない（localhost だけで通す）
+    # `AGENT_LINK_WEB_INTERNAL_TOKEN` を渡しても Authorization は付けない（localhost だけで通す）
     assert "Authorization" not in headers, headers
-    # SAI_WEB_URL の値（偽の Web の住所）に送る
+    # AGENT_LINK_WEB_URL の値（偽の Web の住所）に送る
     assert web.gets and web.gets[0][0] == "/api/questions/q-test"
     assert "Authorization" not in web.gets[0][1], web.gets[0][1]
 
 
 def test_deny_mode_returns_reason_with_answer() -> None:
-    """SAI_CC_QUESTION_MODE=deny なら、答えがあっても今の deny と理由文の形。"""
+    """AGENT_LINK_CC_QUESTION_MODE=deny なら、答えがあっても今の deny と理由文の形。"""
     web = FakeWeb([OPEN_STATE, ANSWERED_STATE])
     try:
-        code, out = run_hook(web.port, token=None, extra_env={"SAI_CC_QUESTION_MODE": "deny"})
+        code, out = run_hook(web.port, token=None, extra_env={"AGENT_LINK_CC_QUESTION_MODE": "deny"})
     finally:
         web.close()
     assert code == 0, code
@@ -259,10 +259,10 @@ def test_free_text_answer_becomes_answers() -> None:
 
 
 def test_parent_run_id_does_not_deny() -> None:
-    """`SAI_PARENT_RUN_ID` があっても承認の記録は行わず、答えが取れたら allow（`-` で始まる答えも）。"""
+    """`AGENT_LINK_PARENT_RUN_ID` があっても承認の記録は行わず、答えが取れたら allow（`-` で始まる答えも）。"""
     web = FakeWeb([OPEN_STATE, ANSWERED_DASH_STATE])
     try:
-        code, out = run_hook(web.port, token=None, extra_env={"SAI_PARENT_RUN_ID": "61"})
+        code, out = run_hook(web.port, token=None, extra_env={"AGENT_LINK_PARENT_RUN_ID": "61"})
     finally:
         web.close()
     assert code == 0, code

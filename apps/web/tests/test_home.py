@@ -21,15 +21,15 @@ import json
 
 from fastapi import HTTPException
 
-from sai_web import home
-from sai_web.main import api_home_overview, app
+from agent_link_web import home
+from agent_link_web.main import api_home_overview, app
 
 # --- 偽の値（登録簿・tree・runs・store） ---
 
 PROJECTS = [
     {
-        "name": "sai-web",
-        "root": "/tmp/sai-web",
+        "name": "agent-link-web",
+        "root": "/tmp/agent-link-web",
         "root_exists": True,
         "db_exists": True,
         "daemon_alive": True,
@@ -37,8 +37,8 @@ PROJECTS = [
         "last_executed_at": "2026-09-26 10:12:03",
     },
     {
-        "name": "sai-link",
-        "root": "/tmp/sai-link",
+        "name": "agent-link",
+        "root": "/tmp/agent-link",
         "root_exists": True,
         "db_exists": True,
         "daemon_alive": False,
@@ -50,7 +50,7 @@ PROJECTS = [
     {"name": "gone", "root": "", "root_exists": False, "db_exists": True},
 ]
 
-# `sai-link phone tree` の返答（トップの todo / running / review / done フォルダ）
+# `agent-link phone tree` の返答（トップの todo / running / review / done フォルダ）
 TREE = {
     "items": [
         {
@@ -82,10 +82,10 @@ TREE = {
     ]
 }
 
-# `sai-link phone dashboard --period week` の返答（2 プロジェクト分）
+# `agent-link phone dashboard --period week` の返答（2 プロジェクト分）
 DASHBOARDS = {
-    "sai-web": {
-        "name": "sai-web",
+    "agent-link-web": {
+        "name": "agent-link-web",
         "period": "week",
         "since": "2026-09-21",
         "until": "2026-09-27",
@@ -116,7 +116,7 @@ DASHBOARDS = {
                 "started_at": "2026-09-27 10:28:21",
                 "description": "U02 ホーム",
                 "linkable": True,
-                "project": "sai-web",
+                "project": "agent-link-web",
             },
             # プロジェクト名が無い行（登録簿の名前を入れる）と書き出しが無い行
             {
@@ -130,8 +130,8 @@ DASHBOARDS = {
             },
         ],
     },
-    "sai-link": {
-        "name": "sai-link",
+    "agent-link": {
+        "name": "agent-link",
         "period": "week",
         # 1 プロジェクトだけ一時的に昔までさかのぼっている（since〜until のまとめ方）
         "since": "2026-09-20",
@@ -171,13 +171,13 @@ DASHBOARDS = {
 
 RUNS = [
     {
-        "project_name": "sai-web",
+        "project_name": "agent-link-web",
         "run_id": 55,
         "agent_session_id": "sess-55",
         "transcript_path": "",
     },
     {
-        "project_name": "sai-link",
+        "project_name": "agent-link",
         "run_id": 20,
         "agent_session_id": "sess-20",
         "transcript_path": "",
@@ -223,7 +223,7 @@ def setup(fake: Fake) -> None:
     def phone_tree(name: str) -> dict:
         fake.tree_calls.append(name)
         if name in fake.fail_tree:
-            raise HTTPException(status_code=502, detail="sai-link が失敗しました")
+            raise HTTPException(status_code=502, detail="agent-link が失敗しました")
         return json.loads(json.dumps(TREE))
 
     def load_runs():
@@ -270,7 +270,7 @@ def test_questions(fake: Fake) -> None:
     assert first["agent"] == "cc", first
     assert first["title"] == "どちらにしますか？", first
     assert first["created_at"] == 100.0, first
-    assert first["project"] == "sai-web", first
+    assert first["project"] == "agent-link-web", first
     assert first["run_id"] == 55, first
     # 実行が無い質問は null（無ければ null にする）
     second = qs[1]
@@ -294,8 +294,8 @@ def test_projects(fake: Fake) -> None:
     setup(fake)
     out = home.build_home()
     rows = out["projects"]
-    assert [r["name"] for r in rows] == ["sai-web", "sai-link"], rows
-    assert fake.tree_calls == ["sai-web", "sai-link"], fake.tree_calls
+    assert [r["name"] for r in rows] == ["agent-link-web", "agent-link"], rows
+    assert fake.tree_calls == ["agent-link-web", "agent-link"], fake.tree_calls
     first = rows[0]
     assert first["daemon_alive"] is True, first
     assert first["running"] == 1, first
@@ -350,11 +350,11 @@ def test_folder_runs_passes_scheduled_at() -> None:
 def test_errors(fake: Fake) -> None:
     """1 プロジェクトの失敗は errors に入り、ほかのプロジェクトは出る。"""
     setup(fake)
-    fake.fail_tree = {"sai-web"}
+    fake.fail_tree = {"agent-link-web"}
     out = home.build_home()
     names = [r["name"] for r in out["projects"]]
-    assert names == ["sai-link"], names
-    assert out["errors"] == ["sai-web: sai-link が失敗しました"], out["errors"]
+    assert names == ["agent-link"], names
+    assert out["errors"] == ["agent-link-web: agent-link が失敗しました"], out["errors"]
 
 
 def test_cache(fake: Fake) -> None:
@@ -404,7 +404,7 @@ def test_overview_sum(fake: Fake) -> None:
     assert out["period"] == "week", out
     assert out["errors"] == [], out["errors"]
     # DB が無い・フォルダが無いプロジェクトは呼ばない
-    assert sorted(fake.dashboard_calls) == [("sai-link", "week"), ("sai-web", "week")], fake.dashboard_calls
+    assert sorted(fake.dashboard_calls) == [("agent-link", "week"), ("agent-link-web", "week")], fake.dashboard_calls
     assert out["projects"] == 2, out
     s = out["summary"]
     assert s["executions"] == 6, s
@@ -439,9 +439,9 @@ def test_overview_recent(fake: Fake) -> None:
     got = [(r["project"], r["run_id"], r["block"], r["status"], r["linkable"])
            for r in out["recent"]]
     assert got == [
-        ("sai-web", 55, "worker", "completed", True),
-        ("sai-link", 9, "kantoku", "running", True),
-        ("sai-web", 54, "plan", "failed", False),
+        ("agent-link-web", 55, "worker", "completed", True),
+        ("agent-link", 9, "kantoku", "running", True),
+        ("agent-link-web", 54, "plan", "failed", False),
     ], out["recent"]
     assert out["recent"][0]["description"] == "U02 ホーム", out["recent"][0]
     assert out["recent"][0]["started_at"] == "2026-09-27 10:28:21", out["recent"][0]
@@ -450,7 +450,7 @@ def test_overview_recent(fake: Fake) -> None:
 def test_overview_recent_limit(fake: Fake) -> None:
     """最近の実行は 20 件まで。"""
     setup(fake)
-    many = dict(DASHBOARDS["sai-web"])
+    many = dict(DASHBOARDS["agent-link-web"])
     many["recent"] = [
         {
             "run_id": i,
@@ -463,7 +463,7 @@ def test_overview_recent_limit(fake: Fake) -> None:
         }
         for i in range(25)
     ]
-    home.control.dashboard = lambda name, period: json.loads(json.dumps(many if name == "sai-web" else DASHBOARDS[name]))
+    home.control.dashboard = lambda name, period: json.loads(json.dumps(many if name == "agent-link-web" else DASHBOARDS[name]))
     home.forget()
     out = home.build_overview("week")
     assert len(out["recent"]) == 20, len(out["recent"])
@@ -474,12 +474,12 @@ def test_overview_recent_limit(fake: Fake) -> None:
 def test_overview_errors(fake: Fake) -> None:
     """1 プロジェクトが失敗しても errors に入り、ほかのプロジェクトは返る。"""
     setup(fake)
-    fake.fail_dashboard = {"sai-web"}
+    fake.fail_dashboard = {"agent-link-web"}
     out = home.build_overview("week")
-    assert out["errors"] == ["sai-web: dashboard が失敗しました"], out["errors"]
+    assert out["errors"] == ["agent-link-web: dashboard が失敗しました"], out["errors"]
     assert out["projects"] == 1, out
     assert out["summary"]["executions"] == 2, out["summary"]
-    assert all(r["project"] == "sai-link" for r in out["recent"]), out["recent"]
+    assert all(r["project"] == "agent-link" for r in out["recent"]), out["recent"]
 
 
 def test_overview_bad_period(fake: Fake) -> None:

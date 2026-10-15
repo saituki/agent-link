@@ -9,7 +9,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const U = require(path.join(__dirname, "..", "src", "sai_web", "static", "ui.js"));
+const U = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "ui.js"));
 
 // --- 目盛りの刻み ---
 

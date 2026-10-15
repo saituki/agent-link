@@ -5,7 +5,7 @@ SessionStart で呼ばれ，どのセッションがどの pane で動いてい�
 Web の窓口に登録する（01 の対応づけ用）．cc_question.py と同じく軽く保ち，
 標準出力に何も書かず，失敗しても終了コード 0 で終える．
 
-- Web の場所: `SAI_WEB_URL` → `http://127.0.0.1:${SAI_WEB_PORT:-8200}`
+- Web の場所: `AGENT_LINK_WEB_URL` → `http://127.0.0.1:${AGENT_LINK_WEB_PORT:-8200}`
 - 認証: 付けない（Web は localhost からの呼び出しを通す）
 """
 
@@ -19,10 +19,10 @@ import urllib.request
 
 def server_base() -> str:
     """Web の場所（既定は 127.0.0.1:8200）．"""
-    url = os.environ.get("SAI_WEB_URL")
+    url = os.environ.get("AGENT_LINK_WEB_URL")
     if url:
         return url.rstrip("/")
-    port = os.environ.get("SAI_WEB_PORT") or "8200"
+    port = os.environ.get("AGENT_LINK_WEB_PORT") or "8200"
     return f"http://127.0.0.1:{port}"
 
 

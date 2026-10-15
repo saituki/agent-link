@@ -25,7 +25,7 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import control
+from agent_link_web import control
 
 
 def expect(code: int, fn) -> HTTPException:
@@ -151,17 +151,16 @@ def test_create_calls_cli(cli: FakeCli) -> None:
     out = control.phone_card_create("demo", good_payload())
     assert out["run_id"] == 39
     call = cli.last
-    assert call["args"] == ["sai-link", "card", "create"], call["args"]
+    assert call["args"] == ["agent-link", "card", "create"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
-    assert call["env"]["SAI_ORIGIN"] == "phone"
+    assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
     sent = json.loads(call["input_text"])
     # 送った JSON に入力ファイルの指定は入らない（U09）
     assert "inputs" not in sent, sent
     assert sent["runner"] == "cc"
     assert sent["done_ids"] == [26]
 
-    # スキップした項目は空文字のまま送る（sai-link が自動値にする）
+    # スキップした項目は空文字のまま送る（agent-link が自動値にする）
     minimal = good_payload()
     minimal.update({"runner": "", "block": "", "model": "", "thinking": "", "done_ids": [], "inputs": {}})
     control.phone_card_create("demo", minimal)
@@ -171,7 +170,7 @@ def test_create_calls_cli(cli: FakeCli) -> None:
 
     # options の呼ぶ形
     control.phone_card_options("demo")
-    assert cli.last["args"] == ["sai-link", "card", "options"], cli.last["args"]
+    assert cli.last["args"] == ["agent-link", "card", "options"], cli.last["args"]
 
     # 開発用 block は選択肢から外し、main・web-research は残す
     cli.stdout = json.dumps(
@@ -200,9 +199,9 @@ def test_start_success(cli: FakeCli) -> None:
     out = control.phone_card_start("demo", 39)
     assert out == {"run_id": 39, "message": "実行を要求しました"}
     call = cli.last
-    assert call["args"] == ["sai-link", "card", "run", "39"], call["args"]
+    assert call["args"] == ["agent-link", "card", "run", "39"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
+    assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
 
     # run_id の検査は呼ぶ前（正の整数だけ）
     cli.calls.clear()
@@ -230,7 +229,7 @@ def test_start_502(cli: FakeCli) -> None:
     # 常駐が止まっている（終了コード 1）
     cli.returncode = 1
     cli.stdout = ""
-    cli.stderr = "常駐が止まっています。`sai-link daemon start` を先に実行してください"
+    cli.stderr = "常駐が止まっています。`agent-link daemon start` を先に実行してください"
     e = expect(502, lambda: control.phone_card_start("demo", 39))
     assert "常駐が止まっています" in str(e.detail), e.detail
 
@@ -250,7 +249,7 @@ def test_md_kind_check_accepts_report_and_rejects_others(cli: FakeCli) -> None:
 
     out = control.phone_md("demo", 7, "report")
     assert out["name"] == "finalize-report.md", out
-    assert cli.last["args"] == ["sai-link", "run", "md", "7", "--kind", "report"], cli.last["args"]
+    assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind", "report"], cli.last["args"]
 
     e = expect(400, lambda: control.phone_md("demo", 7, "review"))
     assert "task / message / report" in str(e.detail), e.detail
@@ -269,9 +268,9 @@ def test_finalize_success(cli: FakeCli) -> None:
     out = control.phone_finalize("demo", 84)
     assert out == {"run_id": 84, "message": "終了を要求しました"}
     call = cli.last
-    assert call["args"] == ["sai-link", "run", "finalize", "84"], call["args"]
+    assert call["args"] == ["agent-link", "run", "finalize", "84"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
+    assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
 
     # run_id の検査は呼ぶ前（正の整数だけ）
     cli.calls.clear()
@@ -313,9 +312,9 @@ def test_advance_calls(cli: FakeCli) -> None:
     out = control.phone_advance("demo", 42)
     assert out == {"run_id": 42, "from": "review", "to": "done"}
     call = cli.last
-    assert call["args"] == ["sai-link", "run", "advance", "42"], call["args"]
+    assert call["args"] == ["agent-link", "run", "advance", "42"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root"
+    assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root"
 
     # run_id の検査は呼ぶ前（正の整数だけ）
     cli.calls.clear()
@@ -345,7 +344,7 @@ def test_rm_calls(cli: FakeCli) -> None:
     cli.calls.clear()
     out = control.phone_rm("demo", 42)
     assert out == {"run_id": 42, "executions": 3}
-    assert cli.last["args"] == ["sai-link", "run", "rm", "42", "--yes"], cli.last["args"]
+    assert cli.last["args"] == ["agent-link", "run", "rm", "42", "--yes"], cli.last["args"]
 
 
 def test_project_checks(cli: FakeCli) -> None:
@@ -362,7 +361,7 @@ def test_project_checks(cli: FakeCli) -> None:
 
 def test_routes() -> None:
     """新しい住所が登録済みで，旧 API（…/todo・…/run・…/card/inputs）は消えている。"""
-    from sai_web.main import app
+    from agent_link_web.main import app
 
     paths = set()
     for route in app.routes:
@@ -406,7 +405,7 @@ def main() -> None:
     cli = FakeCli()
     original_run_cli = control.run_cli
     original_find = control.find_project
-    control.run_cli = cli  # sai-link の代わりに偽物（test_linkview_api と同じやり方）
+    control.run_cli = cli  # agent-link の代わりに偽物（test_linkview_api と同じやり方）
     control.find_project = make_find_project(rows)
     try:
         test_validation(cli)
@@ -426,7 +425,7 @@ def main() -> None:
         control.find_project = original_find
     test_routes()
     # 質問の取り下げの住所は残る。Customer・feedback の住所は消えた
-    from sai_web.main import app
+    from agent_link_web.main import app
 
     paths = {(route.path, m) for route in app.routes for m in (getattr(route, "methods", None) or [])}
     assert ("/api/questions/{qid}/withdraw", "POST") in paths, "住所が無い: withdraw"

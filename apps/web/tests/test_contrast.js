@@ -16,7 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
 
-const STATIC = path.join(__dirname, "..", "src", "sai_web", "static");
+const STATIC = path.join(__dirname, "..", "src", "agent_link_web", "static");
 const CSS_PATH = path.join(STATIC, "style.css");
 
 // --- 対比を測る相手の地色（明るい画面と暗い画面の同じ 3 つ） ---

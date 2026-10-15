@@ -13,7 +13,7 @@ from pathlib import Path
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import sessions  # noqa: E402
+from agent_link_web import sessions  # noqa: E402
 
 
 def _queued(prompt: str, mode: str = "prompt", uuid: str = "q-1") -> dict:
