@@ -461,7 +461,7 @@ function renderDays(searchResults) {
     return;
   }
   // Customer の履歴は先頭の 1 行にまとめる（中身は #/customer）
-  if (daysCustomer && daysCustomer.count > 0) box.appendChild(customerDayRow(daysCustomer));
+  box.appendChild(customerDayRow(daysCustomer || { count: 0, running: 0, has_question: false }));
   if (daysCache.length === 0) {
     box.appendChild(
       saiEmpty({
@@ -785,9 +785,10 @@ async function loadRunMeta() {
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id
     );
-    // 停止は入力欄の横に出す（U03）。working（作業中）と blocked（質問中）のときだけ。
-    // blocked に押すと質問が取り下げられる。idle・終わった（null）では止める物が無いので隠す
-    document.getElementById("interrupt-button").hidden = !(data.live === "working" || data.live === "blocked");
+    // 停止は入力欄の横に出す（U03）。live は状態ファイルの都合で working とずれるため，
+    // 終わった（null）ときだけ隠す。idle に esc を送っても入力欄が空なら何も起きない（U04 §3）。
+    // blocked（質問中）に押すと質問が取り下げられる
+    document.getElementById("interrupt-button").hidden = data.live == null;
     updateComposer();
     // live が変わったら更新の間隔を取り直す（生成中は 1 秒ごと・U04 §2）
     if (prevLive !== data.live) { intervalMs = baseInterval(); rearm(); }

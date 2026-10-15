@@ -57,9 +57,9 @@ list = [
 ];
 assert.deepStrictEqual(takeReflected(list, KEY, [], NOW).map((p) => p.text), ["新しい"]);
 
-// 停止は working（作業中）と blocked（質問中）のときだけ出す（入力欄の横・U03）
-const interrupt = src.match(/hidden = !\(data\.live === "working" \|\| data\.live === "blocked"\);/);
-assert.ok(interrupt, "停止の表示条件が working / blocked になっていません");
-assert.ok(!/hidden = data\.live == null;/.test(src), "旧い ⏸ の条件が残っています");
+// 停止（入力欄の横・U03）は live が null（会話が終わった）のときだけ隠す。working 以外でも出す
+const interrupt = src.match(/hidden = data\.live == null;/);
+assert.ok(interrupt, "停止の表示条件が data.live == null になっていません");
+assert.ok(!/hidden = data\.live !== "working";/.test(src), "旧い ⏸ の条件が残っています");
 
 console.log("test_pending_reflected: すべて通りました");
