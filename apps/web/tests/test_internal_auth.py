@@ -29,6 +29,7 @@ import sqlite3
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 # import より前に一時フォルダを決める（config.DB_PATH は import 時に決まるため）
 _TMP = Path(tempfile.mkdtemp(prefix="sai-web-internal-"))
@@ -40,7 +41,7 @@ os.environ.pop("SAI_WEB_RUNS_DIR", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import auth, containers, home, notify, registry, store, usage  # noqa: E402
+from sai_web import auth, config, containers, control, home, notify, registry, runs, store, usage  # noqa: E402
 from sai_web.main import app  # noqa: E402
 
 HOST = "testserver"
@@ -436,6 +437,182 @@ def test_old_db_without_owner() -> None:
         os.environ["SAI_WEB_USERS_ROOT"] = saved_root
 
 
+def test_feedback_receiver() -> None:
+    """AC3: レポートは DATA_DIR/feedback/<kind>/ に frontmatter 付きで 0600 で保存する。
+
+    多人数モードは内部の合言葉が要り、project と利用者は合言葉の持ち主で決まる。
+    """
+    alice = {"authorization": f"Bearer {ALICE_TOKEN}"}
+    body = {"kind": "report", "text": "## 不具合\n表が崩れる", "run_id": 42, "project": "other-proj"}
+
+    status, res = call("POST", "/api/feedback", json_body=body, headers=alice)
+    assert status == 200 and res["ok"] is True, (status, res)
+    folder = config.DATA_DIR / "feedback" / "report"
+    path = folder / f"{res['id']}.md"
+    assert path.exists(), path
+    # 保存先のパスは返さない
+    assert str(config.DATA_DIR) not in json.dumps(res, ensure_ascii=False), res
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith(
+        "---\nkind: report\nuser: alice\nproject: alice-alpha\nrun_id: 42\nreceived_at: "
+    ), text[:200]
+    assert text.endswith("---\n\n## 不具合\n表が崩れる\n"), text
+    assert oct(path.stat().st_mode & 0o777) == "0o600", oct(path.stat().st_mode)
+    assert oct(folder.stat().st_mode & 0o777) == "0o700", oct(folder.stat().st_mode)
+
+    # 2 件目も別のファイルになる（同じ名前は上書きしない）
+    status, res2 = call("POST", "/api/feedback", json_body=body, headers=alice)
+    assert status == 200 and res2["id"] != res["id"], (status, res2)
+    assert (folder / f"{res2['id']}.md").exists()
+
+    # 内部の合言葉が無いと 403（Cookie の利用者でも内部の住所は 403）
+    status, res = call("POST", "/api/feedback", json_body=body)
+    assert status == 403 and res["detail"] == "内部専用です", (status, res)
+    bob_cookie = login("bob@uni.edu", "bobpass123")
+    status, res = call("POST", "/api/feedback", json_body=body, cookie=bob_cookie)
+    assert status == 403 and res["detail"] == "内部専用です", (status, res)
+
+    # 入力の誤りは 400（種類・空の文・run_id・project・200KB 超え）
+    for bad in (
+        {"kind": "bug", "text": "x"},
+        {"kind": "report", "text": "  \n"},
+        {"kind": "report", "text": "x", "run_id": 0},
+        {"kind": "report", "text": "x", "run_id": True},
+        {"kind": "report", "text": "x", "project": "../etc"},
+        {"kind": "report", "text": "x" * (200 * 1024 + 1)},
+    ):
+        status, res = call("POST", "/api/feedback", json_body=bad, headers=alice)
+        assert status == 400, (bad.get("kind"), status, res)
+
+    # 単独モードは 127.0.0.1 から、合言葉無しで受け付ける（project は本文の値・利用者は local）
+    saved_root = os.environ.pop("SAI_WEB_USERS_ROOT")
+    try:
+        status, res = call("POST", "/api/feedback", json_body=body)
+        assert status == 200 and res["ok"] is True, (status, res)
+        text = (folder / f"{res['id']}.md").read_text(encoding="utf-8")
+        assert "user: local\nproject: other-proj\n" in text, text[:200]
+    finally:
+        os.environ["SAI_WEB_USERS_ROOT"] = saved_root
+
+
+def test_customer_days_and_list() -> None:
+    """AC1: /api/days は Customer を数えず `customer` の要約を返す。/api/customer は Customer だけ新しい順。"""
+    cookie = login("alice@uni.edu", "alicepass1")
+
+    def run(run_id: int, block: str, status: str, started: str, description: str) -> dict:
+        return {
+            "project_name": "alice-alpha", "project_root": "/tmp/a", "run_id": run_id,
+            "parent_run_id": None, "block_name": block, "description": description,
+            "runner": "cc", "status": status, "model": None, "started_at": started,
+            "finished_at": None, "duration_ms": None, "agent_session_id": None,
+            "transcript_path": None, "updated_at": started, "stats": None,
+        }
+
+    fake = [
+        run(1, "sai2", "completed", "2026-10-15T01:00:00Z", "通常の実験"),
+        run(2, "user-report", "running", "2026-10-15T03:00:00Z", "Customer: バグの報告"),
+        run(3, "user-question", "completed", "2026-10-15T04:00:00Z", "Customer: 質問"),
+    ]
+    original = runs.load_runs
+    runs.load_runs = lambda *a, **k: fake  # noqa: E731
+    try:
+        status, body = call("GET", "/api/days", cookie=cookie)
+        assert status == 200, (status, body)
+        assert [d["date"] for d in body["days"]] == ["2026-10-15"], body["days"]
+        assert body["days"][0]["done"] == {"cc": 1} and body["days"][0]["running"] == 0, body["days"]
+        assert body["customer"] == {"count": 2, "running": 1, "has_question": False}, body["customer"]
+        status, body = call("GET", "/api/days/2026-10-15", cookie=cookie)
+        assert [r["run_id"] for r in body["projects"][0]["runs"]] == [1], body
+        # 検索には Customer も出る
+        status, body = call("GET", "/api/days?q=" + quote("バグ"), cookie=cookie)
+        assert [r["run_id"] for r in body["results"]] == [2], body["results"]
+
+        status, body = call("GET", "/api/customer", cookie=cookie)
+        assert status == 200, (status, body)
+        assert [r["run_id"] for r in body["runs"]] == [3, 2], body
+        assert body["count"] == 2 and body["running"] == 1 and body["has_question"] is False, body
+        # 内部の合言葉では使えない（一覧の住所）
+        status, body = call("GET", "/api/customer", headers={"authorization": f"Bearer {ALICE_TOKEN}"})
+        assert status == 403, (status, body)
+    finally:
+        runs.load_runs = original
+
+
+def test_send_and_interrupt_withdraw_questions() -> None:
+    """AC5: 質問が開いている run に送ると質問を取り下げて文を残す。停止は文なしで取り下げ、esc は送らない。
+
+    取り下げの住所（`POST /api/questions/{qid}/withdraw`）も確かめる。
+    """
+    alice = {"authorization": f"Bearer {ALICE_TOKEN}"}
+    cookie = login("alice@uni.edu", "alicepass1")
+    live = {
+        "project_name": "alice-alpha", "project_root": "/tmp/a", "run_id": 7,
+        "parent_run_id": None, "block_name": "sai2", "description": "実験",
+        "runner": "cc", "status": "running", "model": None, "started_at": "2026-10-15T01:00:00Z",
+        "finished_at": None, "duration_ms": None, "agent_session_id": "sess-live",
+        "transcript_path": None, "updated_at": "2026-10-15T01:00:00Z", "stats": None,
+    }
+    sent: list[tuple] = []
+    interrupted: list[tuple] = []
+    saved = (runs.load_runs, control.run_send, control.run_interrupt)
+    runs.load_runs = lambda *a, **k: [live]  # noqa: E731
+    control.run_send = lambda name, run_id, text: sent.append((name, run_id, text)) or {  # noqa: E731
+        "run_id": run_id, "pane_id": "p", "status": "sent",
+    }
+    control.run_interrupt = lambda name, run_id: interrupted.append((name, run_id)) or {  # noqa: E731
+        "run_id": run_id, "status": "interrupted", "agent_status": "idle",
+    }
+
+    def ask(tool_use_id: str) -> str:
+        status, body = call("POST", "/api/questions", json_body=question_body("sess-live", tool_use_id), headers=alice)
+        assert status == 200, (status, body)
+        return body["id"]
+
+    try:
+        # --- 送信: 質問が開いている間は tmux に送らず、取り下げて文を残す
+        q1 = ask("tu-live-1")
+        status, body = call("POST", "/api/runs/alice-alpha/7/send", json_body={"text": "表も作って"}, cookie=cookie)
+        assert status == 200 and body == {"run_id": 7, "status": "withdrawn", "question_ids": [q1]}, (status, body)
+        assert sent == [], sent
+        assert owner_state(q1) == ("withdrawn", "alice"), owner_state(q1)
+        status, body = call("GET", f"/api/questions/{q1}", headers=alice)
+        assert body["state"] == "withdrawn" and body["answer"] == {"text": "表も作って"}, body
+
+        # --- 質問が無ければ今までどおり送る
+        status, body = call("POST", "/api/runs/alice-alpha/7/send", json_body={"text": "次"}, cookie=cookie)
+        assert status == 200 and body == {"run_id": 7, "pane_id": "p", "status": "sent"}, (status, body)
+        assert sent == [("alice-alpha", 7, "次")], sent
+
+        # --- 停止: 質問が開いていれば文なしで取り下げ、esc（control.run_interrupt）は送らない
+        q2 = ask("tu-live-2")
+        status, body = call("POST", "/api/runs/alice-alpha/7/interrupt", cookie=cookie)
+        assert status == 200 and body == {"run_id": 7, "status": "interrupted", "agent_status": "blocked"}, (status, body)
+        assert interrupted == [], interrupted
+        assert owner_state(q2) == ("withdrawn", "alice"), owner_state(q2)
+        status, body = call("GET", f"/api/questions/{q2}", headers=alice)
+        assert body["answer"] == {"text": ""}, body
+        # 質問が無ければ esc を送る
+        status, body = call("POST", "/api/runs/alice-alpha/7/interrupt", cookie=cookie)
+        assert status == 200 and body["agent_status"] == "idle", (status, body)
+        assert interrupted == [("alice-alpha", 7)], interrupted
+
+        # --- 取り下げの住所: 開いていなければ 409、無ければ 404、内部の合言葉は 403
+        status, body = call("POST", f"/api/questions/{q2}/withdraw", json_body={"text": "x"}, cookie=cookie)
+        assert status == 409 and body["detail"] == "この質問はもう締め切られています", (status, body)
+        q3 = ask("tu-live-3")
+        status, body = call("POST", f"/api/questions/{q3}/withdraw", json_body={"text": "表は要らない"}, cookie=cookie)
+        assert status == 200 and body == {"ok": True}, (status, body)
+        assert owner_state(q3) == ("withdrawn", "alice"), owner_state(q3)
+        status, body = call("POST", f"/api/questions/{q3}/withdraw", json_body={"text": "x" * 8001}, cookie=cookie)
+        assert status == 400, (status, body)
+        status, body = call("POST", "/api/questions/no-such/withdraw", cookie=cookie)
+        assert status == 404, (status, body)
+        status, body = call("POST", f"/api/questions/{q3}/withdraw", headers=alice)
+        assert status == 403 and body["detail"] == "内部専用の合言葉では使えません", (status, body)
+    finally:
+        runs.load_runs, control.run_send, control.run_interrupt = saved
+
+
 def main() -> None:
     store.init_db()
 
@@ -450,6 +627,9 @@ def main() -> None:
     test_notify_owner()
     test_usage_key_from_secrets()
     test_old_db_without_owner()
+    test_feedback_receiver()
+    test_customer_days_and_list()
+    test_send_and_interrupt_withdraw_questions()
 
     print("test_internal_auth: すべて通りました")
 

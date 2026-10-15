@@ -57,9 +57,9 @@ list = [
 ];
 assert.deepStrictEqual(takeReflected(list, KEY, [], NOW).map((p) => p.text), ["新しい"]);
 
-// ⏸ 中断は live が null（会話が終わった）のときだけ隠す。working 以外でも出す
+// 停止（入力欄の横・U03）は live が null（会話が終わった）のときだけ隠す。working 以外でも出す
 const interrupt = src.match(/hidden = data\.live == null;/);
-assert.ok(interrupt, "⏸ の表示条件が data.live == null になっていません");
+assert.ok(interrupt, "停止の表示条件が data.live == null になっていません");
 assert.ok(!/hidden = data\.live !== "working";/.test(src), "旧い ⏸ の条件が残っています");
 
 console.log("test_pending_reflected: すべて通りました");

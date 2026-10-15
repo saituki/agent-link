@@ -235,6 +235,7 @@ def test_items_live_blocked_when_question_open() -> None:
 
 def test_send_calls_run_send_with_stdin() -> None:
     """`/send` が `sai-link run send <id> --json` を本文を標準入力にして呼ぶ（AC3）。"""
+    fresh_db(tempfile.mkdtemp(prefix="sai-web-headless-"))  # 質問の取り下げを見るため DB が要る
     cli = FakeCli()
     cli.returncode = 0
     cli.stdout = json.dumps({"run_id": 42, "pane_id": PANE_ID, "status": "sent"})
@@ -264,6 +265,7 @@ def test_send_calls_run_send_with_stdin() -> None:
 
 def test_interrupt_missing_run_is_404_without_cli() -> None:
     """`/interrupt` は無い実行で CLI を呼ばずに 404（AC3）。"""
+    fresh_db(tempfile.mkdtemp(prefix="sai-web-headless-"))  # 質問の取り下げを見るため DB が要る
     cli = FakeCli()
     original_run_cli = control.run_cli
     original_load = runs.load_runs

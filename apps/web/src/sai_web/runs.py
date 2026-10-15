@@ -31,6 +31,10 @@ _VISIBLE_STATUSES = ("running", "completed", "failed", "cancelled")
 # 実行中の失敗・中止の数え方（画面上は failed にまとめて出す）
 _FAILED_STATUSES = ("failed", "cancelled")
 
+# Customer（利用者のサポート）のチャット: 利用者の種類 → block 名（U01 の block と同じ名前）
+CUSTOMER_KINDS = {"report": "user-report", "question": "user-question", "opinion": "user-opinion"}
+CUSTOMER_BLOCKS = frozenset(CUSTOMER_KINDS.values())
+
 # runner の表示順（決め事の例は cc → pi）
 _RUNNER_ORDER = ("cc", "pi", "gl")
 
@@ -85,6 +89,11 @@ def run_time(run: dict) -> str:
 def _start_dt(run: dict) -> datetime:
     """並べ替え用。取れない実行は一番古い扱いにする．"""
     return _parse_time(run.get("started_at")) or datetime.min.replace(tzinfo=timezone.utc)
+
+
+def is_customer(run: dict) -> bool:
+    """Customer のチャットか（block 名で決める）．Chats の日付一覧からは外す．"""
+    return run.get("block_name") in CUSTOMER_BLOCKS
 
 
 # --- ファイルの読み込み ---
@@ -423,9 +432,11 @@ def order_runs(runs: list[dict]) -> list[dict]:
 
 
 def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]:
-    """日付ごとのまとめ（02 §2.2 /api/days）．新しい日が先．"""
+    """日付ごとのまとめ（02 §2.2 /api/days）．新しい日が先．Customer は含めない．"""
     by_date: dict[str, list[dict]] = defaultdict(list)
     for r in runs:
+        if is_customer(r):
+            continue
         d = run_date(r)
         if d:
             by_date[d].append(r)
@@ -479,8 +490,8 @@ def build_days(runs: list[dict], question_session_ids=frozenset()) -> list[dict]
 def build_day(
     runs: list[dict], date: str, question_session_ids=frozenset(),
 ) -> dict:
-    """1日の実行一覧（02 §2.2 /api/days/{date}）．"""
-    day_runs = [r for r in runs if run_date(r) == date]
+    """1日の実行一覧（02 §2.2 /api/days/{date}）．Customer は含めない．"""
+    day_runs = [r for r in runs if not is_customer(r) and run_date(r) == date]
     grouped: dict[str, list[dict]] = defaultdict(list)
     for r in day_runs:
         grouped[r.get("project_name") or ""].append(r)
@@ -524,3 +535,25 @@ def search_runs(runs: list[dict], keyword: str, question_session_ids=frozenset()
     ]
     hits.sort(key=_start_dt, reverse=True)
     return [run_to_api(r, question_session_ids) for r in hits]
+
+
+def build_customer(runs: list[dict], question_session_ids=frozenset()) -> dict:
+    """Customer のチャットの一覧と要約（`GET /api/customer`）．新しい順．
+
+    Run の形は `build_day` の要素と同じ（字下げなし）．
+    """
+    cs = sorted((r for r in runs if is_customer(r)), key=_start_dt, reverse=True)
+    items = [
+        {
+            **run_to_api(r, question_session_ids),
+            "indent": False,
+            "show_parent": r.get("parent_run_id") is not None,
+        }
+        for r in cs
+    ]
+    return {
+        "runs": items,
+        "count": len(items),
+        "running": sum(1 for r in cs if r.get("status") == "running"),
+        "has_question": any(i["has_question"] for i in items),
+    }

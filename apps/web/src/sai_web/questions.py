@@ -112,6 +112,15 @@ def resolve_on_terminal(qid: str) -> bool:
     return store.mark_resolved_elsewhere_qid(qid)
 
 
+def withdraw_question(qid: str, text: str) -> bool:
+    """質問を取り下げる（送った文 `text` を残す・空もある）。open のときだけ変える。
+
+    回答と同じロックを取る（回答の処理と同時に走らないように）。戻り値は変えられたか。
+    """
+    with _answer_lock(qid):
+        return store.mark_withdrawn(qid, text)
+
+
 def answer_question(
     qid: str, answers: list[dict], answered_by: str | None = None
 ) -> tuple[bool, str]:

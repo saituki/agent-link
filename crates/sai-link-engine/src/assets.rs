@@ -1,6 +1,6 @@
 //! `sai-link init` がプロジェクトへ配る基盤のエージェント部品（block と template）。
 //!
-//! ここに置くのは、どのプロジェクトでも使う block 10 本と、それらが `templates:` で読む
+//! ここに置くのは、どのプロジェクトでも使う block 13 本と、それらが `templates:` で読む
 //! template 12 本である。中身は実行ファイルに `include_str!` で埋め込み、`init` が
 //! `<root>/.sai/blocks/`・`<root>/.sai/template/` へ配る。
 //!
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use crate::init::{backup_path, InitError, InitReport};
 
-/// `.sai/blocks/` に配る基盤の block 10 本（ファイル名, 中身）。
+/// `.sai/blocks/` に配る基盤の block 13 本（ファイル名, 中身）。
 pub const BASE_BLOCKS: &[(&str, &str)] = &[
     ("bugfix.md", include_str!("../assets/blocks/bugfix.md")),
     ("explore.md", include_str!("../assets/blocks/explore.md")),
@@ -25,6 +25,9 @@ pub const BASE_BLOCKS: &[(&str, &str)] = &[
     ("plan.md", include_str!("../assets/blocks/plan.md")),
     ("review.md", include_str!("../assets/blocks/review.md")),
     ("sub.md", include_str!("../assets/blocks/sub.md")),
+    ("user-opinion.md", include_str!("../assets/blocks/user-opinion.md")),
+    ("user-question.md", include_str!("../assets/blocks/user-question.md")),
+    ("user-report.md", include_str!("../assets/blocks/user-report.md")),
     ("web-research.md", include_str!("../assets/blocks/web-research.md")),
     ("worker.md", include_str!("../assets/blocks/worker.md")),
 ];

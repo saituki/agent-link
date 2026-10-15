@@ -232,7 +232,40 @@ def test_free_text_answer_is_recorded() -> None:
         assert store.get_question(qid)["answer"]["answers"] == [{"text": "緑"}]
 
 
+def test_withdraw_changes_only_open() -> None:
+    """取り下げは open の行だけを変え，送った文を答えに残す。画面にも出る（U02）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh_db(tmp)
+        qid = make_question("claude")["id"]
+        assert store.mark_withdrawn(qid, "次は表を作って") is True
+        assert state_of(qid) == "withdrawn"
+        q = store.get_question(qid)
+        assert q["answer"] == {"text": "次は表を作って"}, q["answer"]
+        assert q["answered_by"] == "user", q["answered_by"]
+        # 締め切られた質問は変えない（2 回目・回答済み）
+        assert store.mark_withdrawn(qid, "別の文") is False
+        assert store.get_question(qid)["answer"] == {"text": "次は表を作って"}
+        ok, reason = questions.answer_question(qid, [{"choice_index": 0}])
+        assert ok is False and "回答済み" in reason, reason
+        # 画面に出す状態に withdrawn が入る（open の一覧からは外れる）
+        assert [q["state"] for q in store.list_questions_for_session("sess-1")] == ["withdrawn"]
+        assert store.list_open_questions() == []
+
+        # 文なしの取り下げ（interrupt と質問カードの「質問を止める」）
+        qid2 = make_question("claude", n=2)["id"]
+        assert questions.withdraw_question(qid2, "") is True
+        assert store.get_question(qid2)["answer"] == {"text": ""}
+        assert questions.withdraw_question(qid2, "") is False
+
+        # 回答済みの質問は取り下げできない（上書きしない）
+        qid3 = make_question("pi")["id"]
+        assert questions.resolve_on_terminal(qid3) is True
+        assert store.mark_withdrawn(qid3, "x") is False
+        assert state_of(qid3) == "resolved_elsewhere"
+
+
 def main() -> None:
+    test_withdraw_changes_only_open()
     test_pi_question_stays_open_when_pane_not_blocked()
     test_cc_question_answer_records_without_keys()
     test_answer_requires_all_questions()

@@ -182,6 +182,8 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 | todo の run ノード: `scheduled_at` | `YYYY-MM-DD HH:MM`（予約があるときだけ） | ホームの「予約した todo」 |
 | todo の run ノード: `after_job` | 文字列（`card wait` したときだけ） | ジョブ待ちの印 |
 
+先頭（depth 0）の `Customer` フォルダ（`id`・`label` は `Customer`）には、Customer の block（`user-report`・`user-question`・`user-opinion`）の run だけが入る。ほかのフォルダには出ず、実行が 0 件でもフォルダは出る。
+
 ホーム（`home.py`）は top レベルの `review`・`todo` フォルダの中の run ノードを読む。
 
 #### `run log|stats|history <run_id>`
@@ -867,6 +869,8 @@ Web は起動時に **`$SAI_HOME/web/token` に合言葉（`SAI_WEB_TOKEN`）を
 
 - 読むのは `sai-web` の命令とエージェントの道具（環境変数 `SAI_WEB_TOKEN` を先に、次に `SAI_WEB_INTERNAL_TOKEN`、無ければこのファイル）。
 - コンテナの中では `SAI_WEB_TOKEN` は無く、`SAI_WEB_INTERNAL_TOKEN` だけがある。このとき `sai-web questions` は `GET /api/questions/mine` を呼び、**自分のプロジェクトの答え待ちだけ**を返す。`sai-web answer` は、自分のプロジェクトの質問にだけ答えられる（ほかは 403）。答えの記録は `agent`。
+- `sai-web feedback <report|question|opinion>` は、標準入力の本文を `POST /api/feedback`（内部の合言葉）へ送る。run は `SAI_PARENT_RUN_ID`、プロジェクトは `SAI_PROJECT_ROOT` の最後の名前から取る（無ければ null・空）。空の本文は終了コード 2。Customer のレポートはこの経路で出す。
+- 質問が開いている run に `sai-web send` すると、tmux には送らず質問を取り下げる（質問の状態は `withdrawn`・送った文は `answer.text`）。フックは、その文を次の指示として deny の理由文に入れる。
 - コンテナの `sai-web` は `/usr/local/bin/sai-web` の sh で、`PYTHONPATH=/opt/sai-tree/apps/web/src` の `sai_web.webcli` を `python3` で動かす（fastapi は要らない）。
 - 合言葉はヘッダ（`Authorization: Bearer`）で渡す。URL の `?token=` にはしない（Web は両方を受け付けるが、画面や記録に残るため）。
 - HTTP のヘッダの値は latin-1 でしか送れないため、合言葉には英数字だけを使う。

@@ -377,6 +377,7 @@ function hourMinuteOptions() {
 // --- 日付一覧画面（#/） ---
 
 let daysCache = [];
+let daysCustomer = null;  // Customer のチャットの件数（GET /api/days の customer・日付には入らない）
 let searchText = "";
 
 async function loadDays() {
@@ -388,6 +389,7 @@ async function loadDays() {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     daysCache = data.days || [];
+    daysCustomer = data.customer || null;
     setOffline(false);
     onOk();
     renderDays(data.results || null);
@@ -420,6 +422,26 @@ function dayStats(d) {
   return parts.join(" · ") || "—";
 }
 
+// Customer の行（Chats の一覧の先頭・押すと #/customer の一覧）。日付の行と同じ形
+function customerDayRow(c) {
+  const btn = document.createElement("button");
+  btn.className = "day-row";
+  const dot = document.createElement("span");
+  dot.className = "dot" + (c.has_question ? " q" : c.running > 0 ? " running" : "");
+  const body = document.createElement("span");
+  body.className = "day-body";
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "day-date";
+  nameSpan.textContent = "Customer";
+  const statsSpan = document.createElement("span");
+  statsSpan.className = "day-stats";
+  statsSpan.textContent = c.running > 0 ? `${c.count} 件 · 実行中 ${c.running}` : `${c.count} 件`;
+  body.append(nameSpan, statsSpan);
+  btn.append(dot, body);
+  btn.addEventListener("click", () => { location.hash = "#/customer"; });
+  return btn;
+}
+
 function renderDays(searchResults) {
   const box = document.getElementById("days-list");
   box.innerHTML = "";
@@ -438,6 +460,8 @@ function renderDays(searchResults) {
     for (const run of searchResults) box.appendChild(runRow(run, true));
     return;
   }
+  // Customer の履歴は先頭の 1 行にまとめる（中身は #/customer）
+  box.appendChild(customerDayRow(daysCustomer || { count: 0, running: 0, has_question: false }));
   if (daysCache.length === 0) {
     box.appendChild(
       saiEmpty({
@@ -674,7 +698,7 @@ async function openRun(r) {
   document.getElementById("run-title").textContent = "読み込み中…";
   document.getElementById("run-desc").textContent = "";
   document.getElementById("run-lamp").textContent = "";
-  // ■ 終了と ⏸ 中断は実行中のときだけ出すので，前の実行の残りを持ち越さない
+  // ■ 終了と停止は実行中のときだけ出すので，前の実行の残りを持ち越さない
   document.getElementById("finalize-button").hidden = true;
   document.getElementById("interrupt-button").hidden = true;
   await loadRunMeta();
@@ -719,7 +743,9 @@ function updateComposer() {
   const mic = document.getElementById("mic-button");
   if (ta) {
     ta.disabled = waiting || finished;
-    ta.placeholder = waiting ? "起動を待っています…" : finished ? "この会話は終了しています" : "メッセージを入力";
+    // 質問中に送ると質問は取り下げられる（U03・計画 4）
+    const asking = live === "blocked";
+    ta.placeholder = waiting ? "起動を待っています…" : finished ? "この会話は終了しています" : asking ? "質問に答えずに送る（質問は取り下げます）" : "メッセージを入力";
   }
   if (send) send.disabled = waiting || finished;
   if (mic) mic.disabled = waiting || finished;
@@ -759,8 +785,9 @@ async function loadRunMeta() {
     document.getElementById("finalize-button").hidden = !(
       data.status === "running" && !data.parent_run_id
     );
-    // ⏸ 中断は会話が続いているあいだ出す。live は状態ファイルの都合で working とずれるため，
-    // 終わった（null）ときだけ隠す。idle に esc を送っても入力欄が空なら何も起きない（U04 §3）
+    // 停止は入力欄の横に出す（U03）。live は状態ファイルの都合で working とずれるため，
+    // 終わった（null）ときだけ隠す。idle に esc を送っても入力欄が空なら何も起きない（U04 §3）。
+    // blocked（質問中）に押すと質問が取り下げられる
     document.getElementById("interrupt-button").hidden = data.live == null;
     updateComposer();
     // live が変わったら更新の間隔を取り直す（生成中は 1 秒ごと・U04 §2）
@@ -945,6 +972,11 @@ function questionCard(q) {
   if (q.state === "resolved_elsewhere") {
     return settledCard(q, "q-elsewhere", "PC で回答済み");
   }
+  // 取り下げ（U03）。入力欄から送った文があれば 40 字まで見せる
+  if (q.state === "withdrawn") {
+    const sent = q.answer && q.answer.text ? [...q.answer.text].slice(0, 40).join("") : "";
+    return settledCard(q, "q-withdrawn", sent ? `質問を取り下げて送信: ${sent}` : "質問を取り下げました");
+  }
 
   const card = document.createElement("div");
   card.className = "question-card";
@@ -1054,6 +1086,13 @@ function questionCard(q) {
   submitBtn.addEventListener("click", () => submitAnswers(q, state, card, submitBtn));
   card.appendChild(submitBtn);
 
+  // 質問を止める（U03）。答えずに質問だけ取り下げる
+  const withdrawBtn = document.createElement("button");
+  withdrawBtn.className = "q-withdraw";
+  withdrawBtn.textContent = "質問を止める";
+  withdrawBtn.addEventListener("click", () => withdrawQuestion(q, card));
+  card.appendChild(withdrawBtn);
+
   // 読み上げ・音声回答の 1 行を足す（U01・voiceask.js）。答えは既存のボタンと入力欄の処理を通す
   if (typeof vaAttach === "function") {
     vaAttach(card, qs, {
@@ -1107,6 +1146,23 @@ async function submitAnswers(q, state, card, submitBtn) {
   } finally {
     answering = false;
   }
+}
+
+// 質問を止める（U03）。成功したら「質問を取り下げました」の 1 行に変える
+async function withdrawQuestion(q, card) {
+  card.querySelectorAll("button, input").forEach((el) => { el.disabled = true; });
+  try {
+    await saiApi(`/api/questions/${encodeURIComponent(q.id)}/withdraw`, { method: "POST", body: {} });
+    openQuestions = openQuestions.map((x) =>
+      x.id === q.id ? { ...x, state: "withdrawn", answer: { text: "" } } : x
+    );
+    renderQuestions();
+  } catch (e) {
+    // 開いていない質問（409）などは理由を出して，今の一覧を読み直す
+    saiToast(e.message || "取り下げられませんでした", "error");
+    card.querySelectorAll("button, input").forEach((el) => { el.disabled = false; });
+  }
+  await loadQuestions();
 }
 
 function appendItems(items) {
@@ -1520,7 +1576,7 @@ document.getElementById("finalize-button").addEventListener("click", async () =>
   await loadRunMeta();
 });
 
-// ⏸ 中断（U04 §3）。headless の実行に止まれと伝える。
+// 停止（U04 §3・U03 で入力欄の横へ）。headless の実行に止まれと伝える。
 document.getElementById("interrupt-button").addEventListener("click", async () => {
   if (!currentRun) return;
   const res = await apiFetch(`${runApiBase()}/interrupt`, { method: "POST" });
@@ -1529,13 +1585,15 @@ document.getElementById("interrupt-button").addEventListener("click", async () =
     alert(out.detail || "中断できませんでした");
     return;
   }
-  if (out.status === "interrupted") saiToast("中断しました");
+  if (out.status === "interrupted") saiToast("止めました");
   else if (out.status === "still_working") {
     saiToast("まだ止まっていません。もう一度押すか、■ で終了してください");
   } else {
-    saiToast(out.status || "中断しました");
+    saiToast(out.status || "止めました");
   }
+  // 質問中に押すと質問が取り下げられるので，質問の一覧も読み直す（U03）
   await loadRunMeta();
+  await loadQuestions();
 });
 
 // --- 版の確認と入れ替え（ⓘボタン） ---
@@ -1784,6 +1842,15 @@ document.getElementById("send-button").addEventListener("click", async () => {
       // 質問待ちなどで断られたときはサーバーの説明をそのまま出す（C6）
       if (res.status === 409) saiToast(err.detail || "今は送れません");
       else alert(err.detail || "送信できなかった");
+      return;
+    }
+    // 質問中に送った文は質問への答えとして取り下げられた（U03）。会話の発言としては残らないので「反映待ち」にしない
+    const out = await res.json().catch(() => ({}));
+    if (out.status === "withdrawn") {
+      saiToast("質問を取り下げて送りました");
+      ta.value = "";
+      autoGrow();
+      await loadQuestions();
       return;
     }
     // 記録に現れるまで「反映待ち」として残す（仮の吹き出しは openRun で消えるため）
