@@ -102,7 +102,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 ## 4. API 一覧
 
-すべて合言葉（`require_token`）で守る（内部用の 6 本を除く）。エラーは `{"detail": "<日本語>"}`。
+すべて合言葉（`require_token`）で守る（内部用の 7 本を除く）。エラーは `{"detail": "<日本語>"}`。
 「呼ぶ CLI」の列は、cwd = プロジェクトの root、`SAI_PROJECT_ROOT` = 同じ root、`SAI_ORIGIN=phone` で呼ぶ命令。終了コードから HTTP の状態への読み替えは [§7](#7-cli-の失敗の読み替え) の 1 か所。
 
 ### 4.1 プロジェクト（一覧・Dashboard・常駐）
@@ -309,14 +309,18 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 | メソッド・パス | 中身 |
 |---|---|
 | `GET /api/health` | 生存確認 |
-| `GET /api/days` / `GET /api/days/{date}` | 会話の日付一覧・その日の実行 |
+| `GET /api/days` / `GET /api/days/{date}` | 会話の日付一覧・その日の実行。Customer の run（block `user-report`・`user-question`・`user-opinion`）は含めない。`GET /api/days` は `"customer": {"count", "running", "has_question"}` を返す（件数だけ・`q` の検索には Customer も出る） |
+| `GET /api/customer` | Customer のチャットの一覧（新しい順）。`{"runs": [Run…], "count", "running", "has_question"}`。Run の形は `/api/days/{date}` の `runs` の要素と同じ |
+| `POST /api/projects/{name}/customer` | Customer のチャットを始める。本文 `{"kind": "report"\|"question"\|"opinion", "screen", "width", "ua"}`（`screen` と `ua` は 300 文字までの 1 行・`width` は 0〜10000 の整数・省略可）。block は種類で決まり、`global_round` は `999`、`round` はそのプロジェクトの Customer の数 + 1。`card create` → `card run` の順に呼ぶ。応答は `{"project", "run_id"}`。検査の誤りは 400 |
 | `GET /api/runs/{project}/{run_id}` / `…/items` | 実行 1 件・会話の中身。`…/items` は `{items, next_cursor, live, partial, error}` を返す（`live` は `working` / `idle` / `blocked` / `null`、`partial` は生成中の文・`error` は直前のターンの失敗の理由。headless の実行は `state.json`（共有契約 C1）から読む・C6） |
-| `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`sai-link run send <run_id> --json`・本文は標準入力）。終了・質問待ちは 409、無ければ 404 |
-| `POST /api/runs/{project}/{run_id}/interrupt` | 実行中の run を中断する（`sai-link run interrupt <run_id> --json`）。無い実行は CLI を呼ばず 404 |
+| `POST /api/runs/{project}/{run_id}/send` | 実行中の run に文を送る（`sai-link run send <run_id> --json`・本文は標準入力）。質問が開いているときは tmux に送らず、その質問を取り下げて文を答えの代わりに渡す（応答 `{"run_id", "status": "withdrawn", "question_ids": […]}`）。終了・質問待ちは 409、無ければ 404 |
+| `POST /api/runs/{project}/{run_id}/interrupt` | 実行中の run を中断する（`sai-link run interrupt <run_id> --json`）。質問が開いているときは esc を送らず、質問を文なしで取り下げる（応答 `{"run_id", "status": "interrupted", "agent_status": "blocked"}`）。無い実行は CLI を呼ばず 404 |
+| `POST /api/questions/{qid}/withdraw` | 未回答の質問を取り下げる（本文 `{"text"?}`・8000 文字まで。質問カードの「質問を止める」は文なし）。応答 `{"ok": true}`。締め切られた質問は 409、無ければ 404 |
+| `POST /api/feedback` | エージェントのレポートを受け付ける（**内部専用**。`sai-web feedback <report\|question\|opinion>` が呼ぶ）。本文 `{"kind", "text", "run_id"?, "project"?}`。`DATA_DIR/feedback/<kind>/` に frontmatter 付きの md を 0600 で保存し、応答は `{"ok": true, "id"}`（保存先のパスは返さない）。多人数モードは合言葉の持ち主とプロジェクトを使う |
 | `POST /api/runs/{project}/{run_id}/finalize` | メッセージ画面の ■ 終了（その run が無ければ 404、実行中でない・子ブロック・常駐停止は 502）。呼ぶ CLI は `sai-link run finalize <run_id>` |
 | `POST /api/register` `/api/questions` | 登録（**内部専用**。単独モードは Mac 自身、多人数モードは `Authorization: Bearer <SAI_WEB_INTERNAL_TOKEN>`。cc のフックが呼ぶ） |
 | `POST /api/questions/{qid}/resolved` | 質問が端末側で答えられたことの通知（**内部専用**） |
-| `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問（`{qid}` は**内部専用**。多人数モードでは持ち主の物だけ）。`{qid}` の JSON は `answered_by`（答えた人。端末で答えたときは `terminal`）を持つ |
+| `GET /api/questions/pending` / `GET /api/questions?session_id=` / `GET /api/questions/{qid}` | 答え待ちの質問（`{qid}` は**内部専用**。多人数モードでは持ち主の物だけ）。`{qid}` の JSON は `answered_by`（答えた人。端末で答えたときは `terminal`）を持つ。`state` は `open`・`answered`・`resolved_elsewhere`・`expired`・`withdrawn`（取り下げ。`answer` は `{"text": "<送った文。空もある>"}`） |
 | `GET /api/questions/mine` | **内部専用**。自分のプロジェクトの答え待ちだけを `{"questions": [{"id","agent","title","created_at","project","run_id"}, …]}` で返す（`/api/questions/pending` と同じ形を、プロジェクトで絞ったもの）。多人数モードでは合言葉のプロジェクトの分だけ。コンテナの agent の `sai-web questions` が使う |
 | `POST /api/questions/{qid}/answer` | 答える（記録するだけ。cc のフックが `GET /api/questions/{qid}` で取りに来る）。**内部の合言葉**（コンテナの agent の `sai-web answer`）でも使えるが、その質問が合言葉のプロジェクトの物でなければ 403「このプロジェクトの質問ではありません」（分からないときも 403）。内部の合言葉で答えた記録は `answered_by` が `agent` になる。本文は今と同じ（`{"answers": [{choice_index \| choice_indices \| text}, …]}`） |
 | `GET /api/push/key` / `POST /api/push/subscribe` | プッシュ通知の鍵と購読 |
@@ -352,7 +356,7 @@ Library に入れる: sai-web ──▶ `sai-paper paper keep …`（PDF 無し�
 
 - 鍵と Claude の長命トークンは `<U>/<user>/secrets.env`（0600）に `KEY=値` の行で保存し、コンテナには `--env-file` で渡す。値を変えると、その人の実行中でないコンテナを `docker rm -f` → `docker run` で作り直す（実行中のプロジェクトは `pending` に入れ、作業を壊さない）。
 - プロジェクトの内部の合言葉（`SAI_WEB_INTERNAL_TOKEN`）はコンテナを作るときに `secrets.token_urlsafe(32)` で作り、SHA-256 だけを DB（`project_tokens`）に置く（同じプロジェクトの古い行は消す）。値は `sai_` で始まらない（個人のトークンと区別する）。
-- 内部の合言葉を `Authorization: Bearer` で送ると、ミドルウェアが `project_tokens` を引いて持ち主を `registry.current_user` に入れ、`request.state.internal_project` にプロジェクト名を入れる（Cookie より先に見る）。内部の合言葉で使えるのは**内部の 6 本**（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`・`GET /api/questions/mine`・`POST /api/questions/{qid}/answer`）だけで、それ以外の住所は 403「内部専用の合言葉では使えません」。`/api/home`・`/api/questions/pending` は持ち主の全プロジェクトを返すので、内部の合言葉には開けない。`/api/questions/{qid}/answer` と `/api/questions/mine` は、合言葉のプロジェクトの質問に限る。
+- 内部の合言葉を `Authorization: Bearer` で送ると、ミドルウェアが `project_tokens` を引いて持ち主を `registry.current_user` に入れ、`request.state.internal_project` にプロジェクト名を入れる（Cookie より先に見る）。内部の合言葉で使えるのは**内部の 7 本**（`POST /api/register`・`POST /api/questions`・`POST /api/questions/{qid}/resolved`・`GET /api/questions/{qid}`・`GET /api/questions/mine`・`POST /api/questions/{qid}/answer`・`POST /api/feedback`）だけで、それ以外の住所は 403「内部専用の合言葉では使えません」。`/api/home`・`/api/questions/pending` は持ち主の全プロジェクトを返すので、内部の合言葉には開けない。`/api/questions/{qid}/answer` と `/api/questions/mine` は、合言葉のプロジェクトの質問に限る。
 - 質問・登録・通知の購読は `owner` を持ち、多人数モードでは今の利用者の物だけを読む（`GET /api/questions/{qid}` は持ち主でなければ 404）。保存する関数は `registry.current_user` の名前を `owner` に入れる。見張り（`watch.py`）は利用者ごとに `registry.current_user` を入れてから見回る。単独モードは今までどおり（`owner` は空文字で、絞り込みをしない）。古い DB（`owner` の列が無い）は `init_db` が `ALTER TABLE` で列を足す。
 - Usage の OpenRouter・DeepSeek の鍵は、多人数モードでは今の利用者の `secrets.env`（`containers.read_keys`）から読む（無ければ「キーが未設定です」）。単独モードは今までどおり環境変数から読む。
 - Usage の cc のカードは、`sai-link cc-statusline`（cc の statusLine）が書く `<sai_home>/cc-rate-limits.json`（5 時間枠・7 日枠の使った割合と戻る時刻。Pro・Max のときだけ、最初の応答の後に出る）と `<sai_home>/cc-cost/*.json`（会話ごとの費用の累計）を読む。多人数モードでは今の利用者のプロジェクトごとのコンテナの HOME の `.sai` を全部合計する。費用は `updated_at` の日付で今日・今月に入れる。pi の設定（`models.json`・`auth.json`）も、多人数モードではプロジェクトごとの HOME の `.pi/agent` を全部見る。
@@ -389,7 +393,8 @@ Web のすべての HTTP API を、コマンド 1 本から使える（接続先
 | `sai-web serve [--host <H>] [--port <P>]` | Web のサーバを起動する（既定 `127.0.0.1`・`SAI_WEB_PORT`） |
 | `sai-web projects` / `home` | プロジェクトの一覧・ホームの集計 |
 | `sai-web questions [--run <id>] [--project <名前>]` / `question <qid>` / `answer <qid> (--choice … \| --choices … \| --text …)` | 質問の一覧・全文・答え |
-| `sai-web send <project> <run_id> <文>` | 実行中の run に文を送る |
+| `sai-web send <project> <run_id> <文>` | 実行中の run に文を送る。質問が開いていれば質問を取り下げて文を渡す |
+| `sai-web feedback <report\|question\|opinion> < 本文.md` | 利用者のレポートを `POST /api/feedback` へ送る（本文は標準入力・成功は `{"ok": true, "id"}`・空の本文は終了コード 2） |
 | `sai-web usage` | 使用量 |
 | `sai-web mlflow experiments\|runs <experiment_id>\|run <id>\|metric <id> <key>` | MLflow の読み取り（中継 API 経由） |
 | `sai-web api <METHOD> <path> [--data <JSON>\|--data -]` | 上の API 一覧のどれでも呼ぶ |

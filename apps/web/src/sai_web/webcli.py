@@ -12,6 +12,7 @@ Rust のコアにあり、このファイルは HTTP を呼ぶだけ（`sai-sci/
     apps/web/bin/sai-web question <qid>
     apps/web/bin/sai-web answer <qid> (--choice <番号> | --choices <番号,番号> | --text <文>) …
     apps/web/bin/sai-web send <project> <run_id> <文>
+    apps/web/bin/sai-web feedback <report|question|opinion> < 本文.md
     apps/web/bin/sai-web usage
     apps/web/bin/sai-web mlflow experiments
     apps/web/bin/sai-web mlflow runs <experiment_id> [--filter <式>] [--max <n>]
@@ -395,6 +396,27 @@ def cmd_send(args: argparse.Namespace) -> object:
     return request_json("POST", path, {"text": args.text})
 
 
+def cmd_feedback(args: argparse.Namespace) -> object:
+    """エージェントのレポートを標準入力から受け付けさせる（`POST /api/feedback`）。
+
+    run_id は `SAI_PARENT_RUN_ID`、プロジェクトは `SAI_PROJECT_ROOT` の最後の名前から取る。
+    読めなければ null・空（サーバが受け付ける形）にする。
+    """
+    text = sys.stdin.read()
+    if not text.strip():
+        raise UsageError("本文が空です（標準入力に書いてください）")
+    try:
+        run_id: int | None = int(os.getenv("SAI_PARENT_RUN_ID") or "")
+    except ValueError:
+        run_id = None
+    if run_id is not None and run_id < 1:
+        run_id = None
+    root = (os.getenv("SAI_PROJECT_ROOT") or "").rstrip("/")
+    project = os.path.basename(root)
+    payload = {"kind": args.kind, "text": text, "run_id": run_id, "project": project}
+    return request_json("POST", "/api/feedback", payload)
+
+
 # ---------------------------------------------------------------------------
 # 利用者（アカウント）の管理（U06）
 # ---------------------------------------------------------------------------
@@ -686,6 +708,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("text")
     _add_json(p)
     p.set_defaults(func=cmd_send)
+
+    p = sub.add_parser("feedback", help="利用者のレポート（本文は標準入力）を Web の受け口へ届ける")
+    p.add_argument("kind", choices=("report", "question", "opinion"))
+    _add_json(p)
+    p.set_defaults(func=cmd_feedback)
 
     p = sub.add_parser("user", help="利用者（アカウント）の管理（多人数モード）")
     _add_json(p)

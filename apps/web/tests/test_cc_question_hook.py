@@ -51,6 +51,7 @@ ANSWERED_STATE = {
     "answer": {"answers": [{"choice_index": 1}]},
 }
 RESOLVED_STATE = {"state": "resolved_elsewhere", "questions": QUESTIONS}
+WITHDRAWN_STATE = {"state": "withdrawn", "questions": QUESTIONS, "answer": {"text": ""}}
 ANSWERED_BY_STATE = {**ANSWERED_STATE, "answered_by": "saituki"}
 # 自由記述（Other）で `-` で始まる答え
 ANSWERED_DASH_STATE = {
@@ -203,6 +204,38 @@ def test_unanswered_reports_not_answered() -> None:
     value = json.loads(out)
     reason = value["hookSpecificOutput"]["permissionDecisionReason"]
     assert reason == "利用者は答えませんでした。", repr(reason)
+
+
+def test_withdrawn_with_text_denies_with_next_message() -> None:
+    """取り下げ（文あり）は、送った文を次の指示として理由文に入れて deny する（承認の記録はしない）。"""
+    web = FakeWeb([OPEN_STATE, {**WITHDRAWN_STATE, "answer": {"text": "表を作って"}}])
+    try:
+        code, out = run_hook(web.port, token="secret-token")
+    finally:
+        web.close()
+    assert code == 0, code
+    hook = json.loads(out)["hookSpecificOutput"]
+    assert hook["permissionDecision"] == "deny", hook
+    assert "updatedInput" not in hook, hook
+    assert hook["permissionDecisionReason"] == (
+        "利用者は質問に答えず、質問を取り下げて次の文を送りました。質問への答えはありません。次の文に従ってください。\n"
+        "表を作って"
+    ), repr(hook["permissionDecisionReason"])
+
+
+def test_withdrawn_without_text_ends_turn() -> None:
+    """取り下げ（文なし・interrupt）は、このターンを終えて次の文を待つ理由文で deny する。"""
+    web = FakeWeb([OPEN_STATE, {**WITHDRAWN_STATE, "answer": {"text": ""}}])
+    try:
+        code, out = run_hook(web.port, token="secret-token")
+    finally:
+        web.close()
+    assert code == 0, code
+    hook = json.loads(out)["hookSpecificOutput"]
+    assert hook["permissionDecision"] == "deny", hook
+    assert hook["permissionDecisionReason"] == (
+        "利用者は質問を取り下げました。質問への答えはありません。このターンはここで終え、利用者の次の文を待ってください。"
+    ), repr(hook["permissionDecisionReason"])
 
 
 def test_registration_failure_is_silent() -> None:
@@ -379,6 +412,8 @@ if __name__ == "__main__":
     test_deny_mode_returns_reason_with_answer()
     test_no_token_has_no_authorization()
     test_unanswered_reports_not_answered()
+    test_withdrawn_with_text_denies_with_next_message()
+    test_withdrawn_without_text_ends_turn()
     test_registration_failure_is_silent()
     test_answered_calls_approval_record()
     test_no_run_id_skips_record()

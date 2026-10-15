@@ -10,6 +10,8 @@ Web の質問カードに登録し，利用者が答えるまで待つ．答え�
 
 - `SAI_CC_QUESTION_MODE=deny` のときは，答えがあっても今の拒否の形（理由文に答え）で返す
   （`updatedInput` が cc で効かなかったときに，コードを変えずに戻すため）．
+- 利用者が質問を取り下げたとき（`state` が `withdrawn`）は，入力欄から送った文を理由文に入れて
+  `deny` する（答えではないので承認の記録はしない）。
 - 答えが取れたら，`SAI_PARENT_RUN_ID` があるときだけ `sai-sci approval record` で記録する
   （承認の材料・U04）。値は `--name=value` の形で渡す（`-` で始まる答えを引数と読み違えない）。
   3 回試して記録できなければ，答えを理由文に入れた `deny` を返す（許可が無いまま op が
@@ -198,6 +200,21 @@ def approval_failed_output(answers: dict, failure: str) -> dict:
     )
 
 
+def withdrawn_output(text: str) -> dict:
+    """利用者が質問を取り下げたときの deny（承認の記録はしない）。
+
+    送った文（`text`）があれば、それを次の指示として理由文に入れる。空なら、このターンを終えさせる。
+    """
+    if text:
+        return deny(
+            "利用者は質問に答えず、質問を取り下げて次の文を送りました。質問への答えはありません。次の文に従ってください。\n"
+            + text
+        )
+    return deny(
+        "利用者は質問を取り下げました。質問への答えはありません。このターンはここで終え、利用者の次の文を待ってください。"
+    )
+
+
 def hook_output(questions: list, answers: dict | None) -> dict:
     """cc に返す PreToolUse の出力を作る．
 
@@ -246,6 +263,7 @@ def main() -> int:
 
     answers: dict | None = None
     answered_by = "user"
+    withdrawn: str | None = None
     for _ in range(POLL_MAX_COUNT):
         time.sleep(POLL_INTERVAL_SEC)
         state = get_json(f"{base}/api/questions/{qid}")
@@ -255,15 +273,23 @@ def main() -> int:
         if answers is not None:
             answered_by = str(state.get("answered_by") or "user")
             break
+        # 利用者が質問を取り下げた（送った文を次の指示として返す）
+        if state.get("state") == "withdrawn":
+            answer = state.get("answer")
+            withdrawn = str((answer.get("text") if isinstance(answer, dict) else "") or "")
+            break
         # `open` 以外で答えが無ければ打ち切る
         if state.get("state") and state.get("state") != "open":
             break
 
-    failure = record_approval(qid, questions, answers, answered_by) if answers else None
-    if failure:
-        out = approval_failed_output(answers, failure)
+    if withdrawn is not None:
+        out = withdrawn_output(withdrawn)
     else:
-        out = hook_output(questions, answers)
+        failure = record_approval(qid, questions, answers, answered_by) if answers else None
+        if failure:
+            out = approval_failed_output(answers, failure)
+        else:
+            out = hook_output(questions, answers)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     sys.stdout.write("\n")
     return 0

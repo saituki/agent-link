@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -32,6 +33,7 @@ from sai_web import (
     bundles,
     claude_login,
     commands,
+    config,
     containers,
     control,
     datafiles,
@@ -218,8 +220,8 @@ async def _multi_user_auth(request: Request, call_next):
     return await call_next(request)
 
 
-# 内部の合言葉で使える住所（内部専用の 6 本だけ）。住所の登録と合わせる。
-_INTERNAL_POST_EXACT = {"/api/register", "/api/questions"}
+# 内部の合言葉で使える住所（内部専用の 7 本だけ）。住所の登録と合わせる。
+_INTERNAL_POST_EXACT = {"/api/register", "/api/questions", "/api/feedback"}
 _INTERNAL_RESOLVED_RE = re.compile(r"^/api/questions/[^/]+/resolved$")
 _INTERNAL_ANSWER_RE = re.compile(r"^/api/questions/[^/]+/answer$")
 _INTERNAL_QUESTION_RE = re.compile(r"^/api/questions/[^/]+$")
@@ -227,7 +229,7 @@ _INTERNAL_GET_EXACT = {"/api/questions/mine"}
 
 
 def _is_internal_address(method: str, path: str) -> bool:
-    """内部の合言葉で使える住所か（内部専用の 6 本だけ）。
+    """内部の合言葉で使える住所か（内部専用の 7 本だけ）。
 
     `GET /api/questions/pending` と `GET /api/questions` は含めない
     （一覧は利用者の画面用で、内部の合言葉では使えない）。
@@ -745,6 +747,20 @@ def _find_run(project_name: str, run_id: int) -> dict:
     raise HTTPException(status_code=404, detail="実行が見つかりません")
 
 
+def _withdraw_open_questions(project_name: str, run_id: int, text: str) -> list[str]:
+    """その run の未回答の質問を取り下げ，取り下げた質問の ID を返す（送った文は `text`）。
+
+    run の書き出しが無い・未回答が無いときは何もせず空を返す。
+    """
+    for run in runs.load_runs():
+        if run.get("project_name") != project_name or run.get("run_id") != run_id:
+            continue
+        sids = runs.run_session_ids(run)
+        open_ids = [q["id"] for q in store.list_open_questions() if q.get("session_id") in sids]
+        return [qid for qid in open_ids if questions.withdraw_question(qid, text)]
+    return []
+
+
 @app.get("/api/days")
 def api_days(q: str | None = None, _: None = Depends(require_token)) -> dict:
     """日付ごとのまとめ（新しい日が先）．
@@ -753,6 +769,13 @@ def api_days(q: str | None = None, _: None = Depends(require_token)) -> dict:
     """
     run_list, qids = _runs_view()
     body: dict = {"days": runs.build_days(run_list, qids)}
+    # Customer の run は日付には出さず，件数だけ添える（一覧は GET /api/customer）
+    customer = runs.build_customer(run_list, qids)
+    body["customer"] = {
+        "count": customer["count"],
+        "running": customer["running"],
+        "has_question": customer["has_question"],
+    }
     if q and q.strip():
         body["results"] = runs.search_runs(run_list, q, qids)
     return body
@@ -763,6 +786,13 @@ def api_day(date: str, _: None = Depends(require_token)) -> dict:
     """その日の実行一覧（プロジェクトごと，サブタスクは親の直下）．"""
     run_list, qids = _runs_view()
     return runs.build_day(run_list, date, qids)
+
+
+@app.get("/api/customer")
+def api_customer(_: None = Depends(require_token)) -> dict:
+    """Customer のチャットの一覧（新しい順）と要約（U03 の画面）。"""
+    run_list, qids = _runs_view()
+    return runs.build_customer(run_list, qids)
 
 
 @app.get("/api/runs/{project_name}/{run_id}")
@@ -1008,6 +1038,84 @@ def api_answer_question(
     return {"ok": True}
 
 
+# --- 利用者のレポート（U02・`POST /api/feedback`・`sai-web feedback`） ---
+# エージェントが出すバグ報告・質問・要望の受け口。利用者の画面には出さず，
+# 置き場 `config.DATA_DIR/feedback/<kind>/` に 1 件 1 ファイルで保存する（開発者が集める）。
+
+_FEEDBACK_KINDS = ("report", "question", "opinion")
+_FEEDBACK_TEXT_MAX = 200 * 1024
+_FEEDBACK_PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_FEEDBACK_JST = timezone(timedelta(hours=9))
+
+
+def save_feedback(kind: str, text: str, run_id: int | None, project: str, user: str) -> str:
+    """レポートを 1 件保存し，ファイル名（拡張子なし）を返す。
+
+    frontmatter（種類・利用者・プロジェクト・run・受け付けた時刻）のあとに本文を書く。
+    フォルダは 0700，ファイルは 0600。一時ファイルに書いてから置き換える。
+    """
+    when = datetime.now(_FEEDBACK_JST)
+    folder = config.DATA_DIR / "feedback" / kind
+    folder.mkdir(parents=True, exist_ok=True)
+    for path in (config.DATA_DIR / "feedback", folder):
+        os.chmod(path, 0o700)
+    base = f"{when:%Y%m%d-%H%M%S}-{user}-{project or 'none'}-run{run_id or 0}"
+    name = base
+    n = 2
+    while (folder / f"{name}.md").exists():
+        name = f"{base}-{n}"
+        n += 1
+    project_text = project or '""'
+    run_text = str(run_id) if run_id else "null"
+    head = "\n".join(
+        [
+            "---",
+            f"kind: {kind}",
+            f"user: {user}",
+            f"project: {project_text}",
+            f"run_id: {run_text}",
+            f"received_at: {when.isoformat(timespec='seconds')}",
+            "---",
+            "",
+            "",
+        ]
+    )
+    body = text if text.endswith("\n") else text + "\n"
+    tmp = folder / f".{name}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(head + body)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, folder / f"{name}.md")
+    return name
+
+
+@app.post("/api/feedback")
+def api_feedback(request: Request, payload: dict = Body(...)) -> dict:
+    """エージェントのレポートを受け付ける（内部の合言葉・`sai-web feedback <種類>`）。
+
+    多人数モードでは、プロジェクトと利用者は合言葉の持ち主で決める（本文の値は使わない）。
+    保存先のパスは返さない。
+    """
+    require_internal(request)
+    kind = payload.get("kind")
+    text = payload.get("text")
+    run_id = payload.get("run_id")
+    project = payload.get("project") or ""
+    if kind not in _FEEDBACK_KINDS:
+        raise HTTPException(status_code=400, detail="kind は report / question / opinion のどれかです")
+    if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > _FEEDBACK_TEXT_MAX:
+        raise HTTPException(status_code=400, detail="text は空でない文で、200KB までです")
+    if run_id is not None and (not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1):
+        raise HTTPException(status_code=400, detail="run_id は 1 以上の整数か null にしてください")
+    if not isinstance(project, str) or (project and not _FEEDBACK_PROJECT_RE.match(project)):
+        raise HTTPException(status_code=400, detail="project の指定が正しくありません")
+    if registry.multi_user():
+        project = getattr(request.state, "internal_project", "") or ""
+    user = (registry.current_user.get() or {}).get("name") or "local"
+    return {"ok": True, "id": save_feedback(kind, text, run_id, project, user)}
+
+
 class SendRequest(BaseModel):
     """テキスト送信．"""
 
@@ -1029,6 +1137,11 @@ def api_send_text(
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="文章が空です")
+    # 質問が開いているときは tmux に送らず，質問を取り下げて文を答えの代わりに渡す
+    # （フックが待っている間は cc の入力欄の文がエージェントに届かないため）
+    withdrawn = _withdraw_open_questions(project_name, run_id, text)
+    if withdrawn:
+        return {"run_id": run_id, "status": "withdrawn", "question_ids": withdrawn}
     return control.run_send(project_name, run_id, text)
 
 
@@ -1041,9 +1154,37 @@ def api_interrupt(
     """実行中の run を中断する（`sai-link run interrupt <run_id> --json`・C2）．
 
     無い実行では CLI を呼ばずに 404 を返す。
+    質問が開いているときは esc を送らず，質問を文なしで取り下げる（esc はフックごと止めて
+    質問が開いたまま残るため）。
     """
     _find_run(project_name, run_id)  # 無い run は 404（CLI を呼ばない）
+    if _withdraw_open_questions(project_name, run_id, ""):
+        return {"run_id": run_id, "status": "interrupted", "agent_status": "blocked"}
     return control.run_interrupt(project_name, run_id)
+
+
+class WithdrawRequest(BaseModel):
+    """質問の取り下げ（text は送った文・省略すると空）。"""
+
+    text: str | None = None
+
+
+@app.post("/api/questions/{qid}/withdraw")
+def api_withdraw_question(
+    qid: str, req: WithdrawRequest | None = None, _: None = Depends(require_token)
+) -> dict:
+    """未回答の質問を取り下げる（質問カードの「質問を止める」・U03）。
+
+    open でなければ 409。文は 8000 文字まで。
+    """
+    text = (req.text or "") if req else ""
+    if len(text) > 8000:
+        raise HTTPException(status_code=400, detail="文は 8000 文字までです")
+    if store.get_question(qid) is None:
+        raise HTTPException(status_code=404, detail="質問が見つかりません")
+    if not questions.withdraw_question(qid, text):
+        raise HTTPException(status_code=409, detail="この質問はもう締め切られています")
+    return {"ok": True}
 
 
 @app.post("/api/runs/{project_name}/{run_id}/finalize")
@@ -1285,6 +1426,14 @@ def api_project_run_start(
 ) -> dict:
     """新形式 todo の ▶ 実行（`phone card run <run_id>`・計画 15）。"""
     return control.phone_card_start(name, run_id)
+
+
+@app.post("/api/projects/{name}/customer")
+def api_project_customer(
+    name: str, payload: dict = Body(...), _: None = Depends(require_token)
+) -> dict:
+    """Customer のチャットを始める（利用者の窓から・block は種類で決まる・global_round 999）。"""
+    return control.customer_start(name, payload)
 
 
 @app.post("/api/projects/{name}/runs/{run_id:int}/advance")

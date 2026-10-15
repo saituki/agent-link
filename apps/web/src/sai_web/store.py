@@ -292,19 +292,45 @@ def mark_answered(qid: str, answer: dict, answered_by: str) -> None:
             )
 
 
+def mark_withdrawn(qid: str, text: str) -> bool:
+    """未回答の質問を取り下げる（利用者が質問に答えず次の文を送った・停止した）．
+
+    open の行だけを withdrawn にし，送った文を答えの `text` に残す（空もある）．
+    戻り値は書き換えたか（既に締め切られていたら False）。
+    """
+    owner = _owner_filter()
+    who = _current_owner() or "user"
+    answer = json.dumps({"text": text}, ensure_ascii=False)
+    with _connect() as conn:
+        if owner is None:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'withdrawn', answer_json = ?, answered_by = ? "
+                "WHERE id = ? AND state = 'open'",
+                (answer, who, qid),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET state = 'withdrawn', answer_json = ?, answered_by = ? "
+                "WHERE id = ? AND state = 'open' AND owner = ?",
+                (answer, who, qid, owner),
+            )
+        return cur.rowcount > 0
+
+
 def list_questions_for_session(session_id: str) -> list[dict]:
-    """そのセッションの質問を，画面に出す3つの状態だけで新しい順に返す．
+    """そのセッションの質問を，画面に出す4つの状態だけで新しい順に返す．
 
     - open: 未回答（カードを操作できる）
     - answered: iPhone で回答済み（「回答済み: …」の1行）
     - resolved_elsewhere: PC で先に回答済み（「PC で回答済み」の1行）
+    - withdrawn: 取り下げ（質問に答えず次の文を送った・停止した）
     expired は表示しない（待っていた時間が過ぎた）。
     多人数モードでは今の利用者の質問だけを返す。
     """
     owner = _owner_filter()
     clauses = [
         "session_id = ?",
-        "state IN ('open', 'answered', 'resolved_elsewhere')",
+        "state IN ('open', 'answered', 'resolved_elsewhere', 'withdrawn')",
     ]
     values: list = [session_id]
     if owner is not None:

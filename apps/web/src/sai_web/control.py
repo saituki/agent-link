@@ -26,7 +26,7 @@ import logging
 import os
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
@@ -564,13 +564,14 @@ DEV_BLOCKS = frozenset(
 
 
 def phone_card_options(name: str) -> dict:
-    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block は除く。"""
+    """`sai-link card options`（ウィザードの選択肢・計画 15 §1.5）。開発用 block と Customer の block は除く。"""
     project = _phone_project(name)
     data = _phone_json(["card", "options"], root=project["root"])
     blocks = data.get("blocks") if isinstance(data, dict) else None
     if isinstance(blocks, list):
+        hidden = DEV_BLOCKS | runs.CUSTOMER_BLOCKS
         data["blocks"] = [
-            b for b in blocks if not (isinstance(b, dict) and b.get("id") in DEV_BLOCKS)
+            b for b in blocks if not (isinstance(b, dict) and b.get("id") in hidden)
         ]
     return data
 
@@ -655,6 +656,13 @@ def _validate_card_payload(payload: dict) -> dict:
             status_code=400, detail="tag は 64 文字までの 1 行にしてください"
         )
 
+    # 一覧に出す説明（200 文字までの 1 行）。空なら sai-link が決める
+    description = text("description")
+    if len(description) > 200 or "\n" in description or "\r" in description:
+        raise HTTPException(
+            status_code=400, detail="description は 200 文字までの 1 行にしてください"
+        )
+
     # file_token 入力（古い画面が送る `inputs`）は受け取っても使わない（入力は task_text に統一）
 
     task_text = text("task_text")
@@ -671,6 +679,7 @@ def _validate_card_payload(payload: dict) -> dict:
         "global_round": text("global_round"),
         "round": text("round"),
         "tag": tag,
+        "description": description,
         "task_text": task_text,
     }
 
@@ -699,6 +708,79 @@ def phone_card_start(name: str, run_id: int) -> dict:
         ["card", "run", str(run_id)],
         root=project["root"],
     )
+
+
+# --- Customer（利用者のサポート）のチャットを始める（U02） ---
+# 利用者の右下の窓から来る。block は利用者の種類で決め、画面の値は task_text に書く。
+
+_CUSTOMER_TITLES = {"report": "バグの報告", "question": "質問", "opinion": "意見・要望"}
+_CUSTOMER_JST = timezone(timedelta(hours=9))
+
+
+def _customer_line(payload: dict, key: str, limit: int) -> str:
+    """画面が送る 1 行の文字（無ければ空・長すぎる・改行を含むなら 400）。"""
+    value = payload.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str) or len(value) > limit or "\n" in value or "\r" in value:
+        raise HTTPException(
+            status_code=400, detail=f"{key} は {limit} 文字までの 1 行で送ってください"
+        )
+    return value
+
+
+def customer_start(name: str, payload: dict) -> dict:
+    """Customer のチャットを作って始める（`card create` → `card run`・global_round 999）。
+
+    送る値: `kind`（report / question / opinion）・`screen`・`width`（0〜10000 の整数）・`ua`。
+    round は「そのプロジェクトの Customer の run の数 + 1」。
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="送る値が正しくありません")
+    kind = payload.get("kind")
+    if not isinstance(kind, str) or kind not in runs.CUSTOMER_KINDS:
+        raise HTTPException(
+            status_code=400, detail="kind は report / question / opinion のどれかです"
+        )
+    screen = _customer_line(payload, "screen", 300)
+    ua = _customer_line(payload, "ua", 300)
+    width = payload.get("width")
+    if width is None:
+        width = 0
+    if not isinstance(width, int) or isinstance(width, bool) or not 0 <= width <= 10000:
+        raise HTTPException(status_code=400, detail="width は 0 から 10000 の整数にしてください")
+
+    count = sum(1 for r in runs.load_runs() if r.get("project_name") == name and runs.is_customer(r))
+    title = _CUSTOMER_TITLES[kind]
+    now = datetime.now(_CUSTOMER_JST).isoformat(timespec="seconds")
+    task_text = "\n".join(
+        [
+            f"Customer: {title}",
+            f"開いていた画面: {screen}",
+            f"画面の幅: {width}px" if width else "画面の幅: 不明",
+            f"ブラウザ: {ua}",
+            f"受け付けた時刻: {now}",
+        ]
+    ) + "\n"
+    created = phone_card_create(
+        name,
+        {
+            "runner": "cc",
+            "block": runs.CUSTOMER_KINDS[kind],
+            "provider": "",
+            "model": "",
+            "thinking": "",
+            "global_round": "999",
+            "round": str(count + 1),
+            "task_text": task_text,
+            "description": f"Customer: {title}",
+        },
+    )
+    run_id = created.get("run_id") if isinstance(created, dict) else None
+    if not isinstance(run_id, int):
+        raise HTTPException(status_code=502, detail="作成した実行の番号が読めません")
+    phone_card_start(name, run_id)
+    return {"project": name, "run_id": run_id}
 
 
 # --- READ_CARD（利用者の札）を Web から始める・終える（C-12・U18） ---

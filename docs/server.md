@@ -437,6 +437,30 @@ tar -C ~ -czf ~/backups/web-$(date +%Y%m%d-%H%M%S).tar.gz .sai/web
 - 取り出すときは `tar -C /srv/sai -xzf <file>`（サービスを止めてから行う）。
 - 移行 0062 を含む版を配る前の tar には、移行の前の複製 `papr-before-0062.db` は無い（移行は配備の後に走り、その複製を作る）。戻すときは、配備の後に取った tar か、`papr-before-0062.db` を使う（§15 の移行 0062）。
 
+## 16a. 利用者のレポート（feedback）
+
+利用者の右下の窓から来た「バグの報告・質問・意見」は、Customer のチャット（block `user-report`・`user-question`・`user-opinion`）として実行され、エージェントが `sai-web feedback <種類>` でレポートを出す。レポートは利用者の画面には出ず、Web の置き場に 1 件 1 ファイルで残る（開発者が集める）。
+
+- 置き場（多人数モード）: `~sai/.sai/web/feedback/<種類>/`（`report`・`question`・`opinion`）。フォルダは 0700、ファイルは 0600。§16 の `~sai/.sai/web` に含まれるので、バックアップの対象である。単独モード（Mac）では `$SAI_HOME/web/feedback/<種類>/`。
+- ファイル名: `<YYYYMMDD-HHMMSS>-<利用者>-<プロジェクト>-run<run_id>.md`（日本時間。同じ名前があれば `-2`、`-3` を付ける）。
+- 中身: 先頭に frontmatter（`kind`・`user`・`project`・`run_id`・`received_at`）を付け、そのあとに本文。
+
+```markdown
+---
+kind: report
+user: saituki
+project: saituki-west
+run_id: 42
+received_at: 2026-10-15T14:20:00+09:00
+---
+
+（エージェントの本文そのまま）
+```
+
+- 集め方の例（新しい順に 10 件）: `ls -t ~sai/.sai/web/feedback/*/ | head`。中身は `cat ~sai/.sai/web/feedback/report/<ファイル名>`。
+- 利用者の画面からは読めない（利用者のコンテナには `~sai/.sai/web` が見えない）。
+- 送り先は `POST /api/feedback`（内部専用・`docs/integration.md`）。合言葉は利用者のプロジェクトの物で、利用者とプロジェクトはそこから決まる。
+
 ## 17. 時系列（sai-ts）
 
 段階 B の時系列は、Projects の自分のプロジェクトの「時系列」から開く。sai-web の画面からは、そのプロジェクトのコンテナが動いているときだけ出る。
