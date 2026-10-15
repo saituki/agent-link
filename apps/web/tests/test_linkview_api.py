@@ -3,8 +3,7 @@
 確かめること:
 - 外から来る値の検査（run_id は正の整数 / view・kind は一覧の値 / token は英数字と -_.:）
 - 検査は CLI を呼ぶ前に行う（呼び出し 0 回）
-- `sai-link <新しい命令>` は cwd = プロジェクトの root，`SAI_PROJECT_ROOT` = 同じ root，
-  `SAI_ORIGIN` = phone で呼ばれる
+- `agent-link <新しい命令>` は cwd = プロジェクトの root，`AGENT_LINK_PROJECT_ROOT` = 同じ root で呼ばれる
 - CLI の失敗の読み替えは共有契約のとおり（2 → 400・3 → 404・4 → 409・1 とそのほか → 502。
   理由は標準エラーの最後の行）
 - 終了コード 0 で JSON でない応答は 502
@@ -23,7 +22,7 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import control
+from agent_link_web import control
 
 
 def expect(code: int, fn) -> HTTPException:
@@ -100,7 +99,7 @@ def test_validation(cli: FakeCli) -> None:
 
 
 def test_calls(cli: FakeCli) -> None:
-    """呼ぶ形（cwd と SAI_PROJECT_ROOT は選んだプロジェクトの root・計画 12 §3.1）。"""
+    """呼ぶ形（cwd と AGENT_LINK_PROJECT_ROOT は選んだプロジェクトの root・計画 12 §3.1）。"""
     cli.returncode = 0
     cli.stdout = '{"items": []}'
     cli.stderr = ""
@@ -108,40 +107,38 @@ def test_calls(cli: FakeCli) -> None:
 
     assert control.phone_tree("demo") == {"items": []}
     call = cli.last
-    assert call["args"] == ["sai-link", "run", "tree"], call["args"]
+    assert call["args"] == ["agent-link", "run", "tree"], call["args"]
     assert call["cwd"] == "/tmp/demo-root", call["cwd"]
-    # 起動元の環境変数に引きずられないよう root を明示で渡す。出どころも phone にする
-    assert call["env"]["SAI_PROJECT_ROOT"] == "/tmp/demo-root", call["env"].get(
-        "SAI_PROJECT_ROOT"
+    # 起動元の環境変数に引きずられないよう root を明示で渡す
+    assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == "/tmp/demo-root", call["env"].get(
+        "AGENT_LINK_PROJECT_ROOT"
     )
-    assert call["env"]["SAI_ORIGIN"] == "phone", call["env"].get("SAI_ORIGIN")
-    assert "SAI_PAPER_ROOT" not in call["env"], call["env"]
 
     cli.stdout = "{}"
     control.phone_run_view("demo", 7, "stats")
-    assert cli.last["args"] == ["sai-link", "run", "stats", "7"]
+    assert cli.last["args"] == ["agent-link", "run", "stats", "7"]
 
     control.phone_run_view("demo", 7, "history")
-    assert cli.last["args"] == ["sai-link", "run", "history", "7"], cli.last["args"]
+    assert cli.last["args"] == ["agent-link", "run", "history", "7"], cli.last["args"]
 
     # 全文は --json を付けて呼ぶ（付けないと CLI は本文だけの文字を出す）
     control.phone_run_call("demo", 7, "toolu_01-x_Y")
     assert cli.last["args"] == [
-        "sai-link", "run", "history", "7", "--call", "toolu_01-x_Y", "--json",
+        "agent-link", "run", "history", "7", "--call", "toolu_01-x_Y", "--json",
     ], cli.last["args"]
     assert cli.last["cwd"] == "/tmp/demo-root", cli.last["cwd"]
 
     control.phone_md("demo", 7, "task")
-    assert cli.last["args"] == ["sai-link", "run", "md", "7", "--kind", "task"]
+    assert cli.last["args"] == ["agent-link", "run", "md", "7", "--kind", "task"]
 
     control.phone_waggle("demo", 7)
     assert cli.last["args"] == [
-        "sai-link", "doc", "list", "--run", "7", "--json",
+        "agent-link", "doc", "list", "--run", "7", "--json",
     ], cli.last["args"]
 
     control.phone_waggle("demo", 7, "abc-123_x.y")
     assert cli.last["args"] == [
-        "sai-link", "doc", "read", "abc-123_x.y", "--json",
+        "agent-link", "doc", "read", "abc-123_x.y", "--json",
     ], cli.last["args"]
 
 
@@ -217,7 +214,7 @@ def test_md_save(cli: FakeCli) -> None:
     cli.stderr = ""
     assert control.phone_md_save("demo", 7, "task", "本文")["text"] == "本文"
     assert cli.last["args"] == [
-        "sai-link", "run", "md", "7", "--kind", "task", "--write",
+        "agent-link", "run", "md", "7", "--kind", "task", "--write",
     ], cli.last["args"]
     assert cli.last["input_text"] == "本文"
     # 実行済み・送信済みの task は 404（未実行のカードが見つかりません）
@@ -239,7 +236,7 @@ def test_project_checks(cli: FakeCli) -> None:
 
 def test_routes() -> None:
     """住所が登録済みで，他の /api/projects/… と衝突しない（計画 14 §3.3・History の全文 C11）。"""
-    from sai_web.main import app
+    from agent_link_web.main import app
 
     paths = [
         (route.path, sorted(getattr(route, "methods", None) or []))
@@ -280,7 +277,7 @@ def main() -> None:
     cli = FakeCli()
     original_run_cli = control.run_cli
     original_find = control.find_project
-    control.run_cli = cli  # sai-link の代わりに偽物（test_papers_projects と同じやり方）
+    control.run_cli = cli  # agent-link の代わりに偽物（test_papers_projects と同じやり方）
     control.find_project = make_find_project(rows)
     try:
         test_validation(cli)

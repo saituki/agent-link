@@ -10,7 +10,7 @@ const { relativeTime, donutSlices, todoFolderRuns, projectRowFacts } = require(p
   __dirname,
   "..",
   "src",
-  "sai_web",
+  "agent_link_web",
   "static",
   "project.js"
 ));
@@ -95,10 +95,10 @@ function testTodoFolderRuns() {
 function testProjectRowFacts() {
   // 一覧の 1 枚が表すもの（U5 §3-1）
   const alive = projectRowFacts({
-    name: "sai-web", root_exists: true, db_exists: true,
+    name: "agent-link-web", root_exists: true, db_exists: true,
     daemon_alive: true, running: 2, last_executed_at: "2026-09-26 10:00:00",
   });
-  assert.strictEqual(alive.name, "sai-web");
+  assert.strictEqual(alive.name, "agent-link-web");
   assert.strictEqual(alive.alive, true);
   assert.strictEqual(alive.running, 2);
   assert.strictEqual(alive.usable, true);

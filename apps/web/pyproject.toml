@@ -1,5 +1,5 @@
 [project]
-name = "sai-web"
+name = "agent-link-web"
 version = "0.1.0"
 description = "外出先のiPhoneから自宅Macの coding agent を監視・操作するアプリ (Mac側サーバー)"
 requires-python = ">=3.11"
@@ -12,4 +12,4 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["sai_web*"]
+include = ["agent_link_web*"]

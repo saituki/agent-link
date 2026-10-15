@@ -7,22 +7,22 @@ const assert = require("assert");
 const path = require("path");
 
 // home.js は ui.js の saiTodoLines を（ブラウザでは <script> の順で）使う
-global.saiTodoLines = require(path.join(__dirname, "..", "src", "sai_web", "static", "ui.js")).saiTodoLines;
-const H = require(path.join(__dirname, "..", "src", "sai_web", "static", "home.js"));
+global.saiTodoLines = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "ui.js")).saiTodoLines;
+const H = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "home.js"));
 
 // C-A3 の形そのままの偽データ
 const SAMPLE = {
   questions: [
-    { id: "q-1", agent: "cc", title: "どちらにしますか？", created_at: "2026-09-26 10:00:00", project: "sai-web", run_id: 55 },
+    { id: "q-1", agent: "cc", title: "どちらにしますか？", created_at: "2026-09-26 10:00:00", project: "agent-link-web", run_id: 55 },
   ],
   approvals: [
-    { id: "a-1", tool_name: "Bash", summary: "git push origin main", created_at: "2026-09-26 09:00:00", project: "sai-web", run_id: 55 },
+    { id: "a-1", tool_name: "Bash", summary: "git push origin main", created_at: "2026-09-26 09:00:00", project: "agent-link-web", run_id: 55 },
   ],
   // U03 で /api/home から approvals は消えた。古い応答に approvals が残っていても
   // 無視して落ちないことを確かめるために、見本には残しておく。
   projects: [
     {
-      name: "sai-web",
+      name: "agent-link-web",
       daemon_alive: true,
       running: 2,
       last_executed_at: "2026-09-26 10:12:03",
@@ -35,7 +35,7 @@ const SAMPLE = {
     },
     { name: "sai-old", daemon_alive: false, running: 0, review: [], todo: 3, todo_runs: [{ run_id: 60, label: "ID60", scheduled_at: "2026-10-01 09:00" }] },
   ],
-  errors: ["sai-old: sai-link が失敗しました"],
+  errors: ["sai-old: agent-link が失敗しました"],
 };
 
 // GET /api/home/overview の返答そのままの形
@@ -118,10 +118,10 @@ function testWaitRows() {
   const sec = H.hmSections(SAMPLE).find((s) => s.key === "wait");
   assert.strictEqual(sec.count, 1, "承認は待ちに出さない");
   const [q] = sec.items;
-  assert.strictEqual(q.where, "sai-web #55");
+  assert.strictEqual(q.where, "agent-link-web #55");
   assert.strictEqual(q.title, "どちらにしますか？");
   assert.ok(q.ago, "何分前が付く");
-  assert.strictEqual(q.hash, "#/run/sai-web/55");
+  assert.strictEqual(q.hash, "#/run/agent-link-web/55");
 
   // project / run_id が分からないときは会話の一覧（#/）へ
   assert.strictEqual(H.hmWaitHash({ project: null, run_id: 1 }), "#/");
@@ -146,7 +146,7 @@ function testScheduledItems() {
   const items = H.hmScheduledItems(SAMPLE);
   assert.deepStrictEqual(items.map((i) => [i.title, i.scheduledAt, i.where]), [
     ["ID60", "2026-10-01 09:00", "sai-old"],
-    ["ID57/👷 worker", "2026-10-02 09:00", "sai-web"],
+    ["ID57/👷 worker", "2026-10-02 09:00", "agent-link-web"],
   ]);
   assert.strictEqual(items[0].hash, "#/project/sai-old/list/60/task");
   // 予約の無い todo は todo の行に scheduledAt を付けない
@@ -158,9 +158,9 @@ function testScheduledItems() {
 // 動いているプロジェクト（件数と行き先）
 function testRunning() {
   const sec = H.hmSections(SAMPLE).find((s) => s.key === "running");
-  assert.strictEqual(sec.items[0].title, "sai-web");
+  assert.strictEqual(sec.items[0].title, "agent-link-web");
   assert.strictEqual(sec.items[0].sub, "2 件 実行中");
-  assert.strictEqual(sec.items[0].hash, "#/project/sai-web/workflow");
+  assert.strictEqual(sec.items[0].hash, "#/project/agent-link-web/workflow");
 }
 
 // 止まっている常駐（案内と Dashboard への行き先）
@@ -235,7 +235,7 @@ function testPeriod() {
     getItem: (k) => (k in store ? store[k] : null),
     setItem: (k, v) => { store[k] = String(v); },
   };
-  assert.strictEqual(H.HM_PERIOD_KEY, "sai_web_home_period");
+  assert.strictEqual(H.HM_PERIOD_KEY, "agent_link_web_home_period");
   assert.deepStrictEqual(
     H.HM_PERIODS,
     [["week", "Week"], ["month", "Month"], ["all", "All time"]]
@@ -260,8 +260,8 @@ function testTodoItems() {
   assert.deepStrictEqual(items[0], {
     title: "ID56/kantoku",
     sub: "",
-    where: "sai-web",
-    hash: "#/project/sai-web/list/56/task",
+    where: "agent-link-web",
+    hash: "#/project/agent-link-web/list/56/task",
   });
   assert.strictEqual(items[2].hash, "#/project/sai-old/list/60/task");
   // label が無い行は ID<run_id> を出す

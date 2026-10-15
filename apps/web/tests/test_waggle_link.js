@@ -13,7 +13,7 @@ global.localStorage = {
   setItem: (k, v) => { store.set(k, String(v)); },
   removeItem: (k) => { store.delete(k); },
 };
-const dir = path.join(__dirname, "..", "src", "sai_web", "static");
+const dir = path.join(__dirname, "..", "src", "agent_link_web", "static");
 const { renderMarkdown } = require(path.join(dir, "markdown.js"));
 const lv = require(path.join(dir, "linkview.js"));
 
@@ -29,7 +29,7 @@ function testLinks() {
     { token: "AXANSMpo", run: null, text: "waggle:AXANSMpo" },
   ]);
   // パスつき: run_id を取り、`*` が斜体にならず、文末の点は含めない
-  const ref = "waggle:AXANSMpo:path:.sai/outputs/*/70/report-U01.md";
+  const ref = "waggle:AXANSMpo:path:.agent-link/outputs/*/70/report-U01.md";
   const html = renderMarkdown(`- ${ref}。\n- 文末の点: ${ref}.`);
   assert.deepStrictEqual(links(html), [
     { token: "AXANSMpo", run: "70", text: ref },
@@ -37,7 +37,7 @@ function testLinks() {
   ]);
   assert.ok(!html.includes("<em>"), "パスの * が斜体にならない");
   // 1 行に 2 つあっても * で斜体にならない
-  const two = renderMarkdown(`${ref} と waggle:BBBBBBBB:path:.sai/outputs/*/71/x.md`);
+  const two = renderMarkdown(`${ref} と waggle:BBBBBBBB:path:.agent-link/outputs/*/71/x.md`);
   assert.strictEqual(links(two).length, 2);
   assert.ok(!two.includes("<em>"));
   // コードの中・トークンの長さが違うもの・前が英数字のものはリンクにしない

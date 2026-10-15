@@ -20,7 +20,7 @@ from pathlib import Path
 import pywebpush
 from py_vapid import Vapid
 
-from sai_web import notify, runs, store, watch
+from agent_link_web import notify, runs, store, watch
 
 
 class FakeResponse:
@@ -75,11 +75,11 @@ def main() -> None:
 
 def test_heading_is_project_name() -> None:
     """通知の見出しはプロジェクト名（無ければ sai・計画書 A の U05・U17）。"""
-    assert notify.notify_heading({"project_name": "sai-web"}) == "sai-web"
+    assert notify.notify_heading({"project_name": "agent-link-web"}) == "agent-link-web"
     assert notify.notify_heading({"project_name": "sai-base"}) == "sai-base"
-    # project_name が無いときは sai（U17 でアプリの名前を sai にした）
-    assert notify.notify_heading({}) == "sai"
-    assert notify.notify_heading({"project_name": ""}) == "sai"
+    # project_name が無いときは agent-link（アプリの名前）
+    assert notify.notify_heading({}) == "agent-link"
+    assert notify.notify_heading({"project_name": ""}) == "agent-link"
 
     sent: list[tuple] = []
     original = notify.broadcast
@@ -110,7 +110,7 @@ def test_long_work_notifies_once() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         pane_id = "hl-0123456789ab"
-        headless = root / ".sai" / "sai-engine" / "headless" / pane_id
+        headless = root / ".agent-link" / "engine" / "headless" / pane_id
         headless.mkdir(parents=True)
         state_path = headless / "state.json"
         run = {

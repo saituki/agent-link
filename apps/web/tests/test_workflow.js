@@ -17,7 +17,7 @@ const path = require("path");
 
 // 盤面の全体表示と拡大は canvaslayout.js の純関数をそのまま使うので、
 // node 側でも同じ関数が引けるようグローバルに入れておく（ブラウザでは script タグで同じになる）。
-const layout = require(path.join(__dirname, "..", "src", "sai_web", "static", "canvaslayout.js"));
+const layout = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "canvaslayout.js"));
 global.cvFitView = layout.cvFitView;
 global.cvZoomAt = layout.cvZoomAt;
 
@@ -36,7 +36,7 @@ global.sessionStorage = {
   removeItem: (k) => { session.delete(k); },
 };
 
-const wf = require(path.join(__dirname, "..", "src", "sai_web", "static", "workflow.js"));
+const wf = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "workflow.js"));
 
 // C-L1 の形そのままの偽データ
 const NODE = {
@@ -62,13 +62,13 @@ const NODE2 = { ...NODE, id: 11, run_id: 11, x: 31, y: 3, runner: "cc", review: 
 const PHASE = { ...NODE, id: 100001, run_id: 10, phase: 1, name: "id10/batch_…" };
 
 function testHash() {
-  assert.strictEqual(wf.wfHash("sai-web"), "#/project/sai-web/workflow");
+  assert.strictEqual(wf.wfHash("agent-link-web"), "#/project/agent-link-web/workflow");
   // 日本語と空白を含む名前でも往復する
   const name = "/fonts/本 置き場";
   assert.strictEqual(wf.wfParseHash(wf.wfHash(name)).name, name);
-  assert.strictEqual(wf.wfParseHash("#/project/sai-web/list"), null);
-  assert.strictEqual(wf.wfParseHash("#/project/sai-web"), null);
-  assert.deepStrictEqual(wf.wfParseHash("#/project/sai-web/workflow/"), { name: "sai-web" });
+  assert.strictEqual(wf.wfParseHash("#/project/agent-link-web/list"), null);
+  assert.strictEqual(wf.wfParseHash("#/project/agent-link-web"), null);
+  assert.deepStrictEqual(wf.wfParseHash("#/project/agent-link-web/workflow/"), { name: "agent-link-web" });
 }
 
 function testNodeRect() {
@@ -370,7 +370,7 @@ function testLegend() {
 }
 
 function testOffsetsMemory() {
-  // 覚えたずらし量はこの端末（localStorage）にだけ覚える（sai-link へは送らない）
+  // 覚えたずらし量はこの端末（localStorage）にだけ覚える（agent-link へは送らない）
   assert.deepStrictEqual(wf.wfLoadOffsets("p"), {});
   wf.wfSaveOffset("p", 10, 30, -15);
   assert.deepStrictEqual(wf.wfLoadOffsets("p"), { 10: [30, -15] });
@@ -380,10 +380,10 @@ function testOffsetsMemory() {
   wf.wfClearOffsets("p");
   assert.deepStrictEqual(wf.wfLoadOffsets("p"), {});
   // 記憶のキーが計画書と一致している
-  assert.strictEqual(wf.WF_OFFSETS_KEY, "sai_web_wf_offsets");
-  assert.strictEqual(wf.WF_VIEW_KEY, "sai_web_wf_view");
-  assert.strictEqual(wf.WF_KANBAN_KEY, "sai_web_wf_kanban");
-  assert.strictEqual(wf.WF_KINDS_KEY, "sai_web_wf_kinds");
+  assert.strictEqual(wf.WF_OFFSETS_KEY, "agent_link_web_wf_offsets");
+  assert.strictEqual(wf.WF_VIEW_KEY, "agent_link_web_wf_view");
+  assert.strictEqual(wf.WF_KANBAN_KEY, "agent_link_web_wf_kanban");
+  assert.strictEqual(wf.WF_KINDS_KEY, "agent_link_web_wf_kinds");
 }
 
 function testViewMemory() {
@@ -393,10 +393,10 @@ function testViewMemory() {
   // 別のプロジェクトは別
   assert.strictEqual(wf.wfLoadView("q"), null);
   // 壊れた値は無視する
-  session.set("sai_web_wf_view:p", JSON.stringify({ tx: "x" }));
+  session.set("agent_link_web_wf_view:p", JSON.stringify({ tx: "x" }));
   assert.strictEqual(wf.wfLoadView("p"), null);
   // 拡大率の上下限に収める
-  session.set("sai_web_wf_view:p", JSON.stringify({ tx: 0, ty: 0, z: 99 }));
+  session.set("agent_link_web_wf_view:p", JSON.stringify({ tx: 0, ty: 0, z: 99 }));
   assert.strictEqual(wf.wfLoadView("p").z, 2.5);
 }
 
@@ -414,7 +414,7 @@ function testKindMemory() {
   for (const [key] of wf.WF_EDGE_KINDS) assert.strictEqual(on[key], true);
   // 出し入れはこの端末に覚える（画面側はキャッシュするので、保存したあとの中身を読む）
   wf.wfSaveKinds({ ...on, phase_chain: false });
-  const saved = JSON.parse(local.get("sai_web_wf_kinds"));
+  const saved = JSON.parse(local.get("agent_link_web_wf_kinds"));
   assert.strictEqual(saved.phase_chain, false);
   assert.strictEqual(saved.delegation, true);
 }

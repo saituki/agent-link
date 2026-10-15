@@ -27,12 +27,12 @@ const lv = require(path.join(
   __dirname,
   "..",
   "src",
-  "sai_web",
+  "agent_link_web",
   "static",
   "linkview.js"
 ));
 
-// ツリーの例（sai-link `phone tree` の形・計画 12 §3.2）
+// ツリーの例（agent-link `phone tree` の形・計画 12 §3.2）
 function sampleTree() {
   return [
     {
@@ -63,10 +63,10 @@ function sampleTree() {
 
 function testHash() {
   // 住所を作る（run と表示は省略できる・計画 14 §6）
-  assert.strictEqual(lv.listHash("sai-web"), "#/project/sai-web/list");
+  assert.strictEqual(lv.listHash("agent-link-web"), "#/project/agent-link-web/list");
   assert.strictEqual(
-    lv.listHash("sai-web", 25, "log"),
-    "#/project/sai-web/list/25/log"
+    lv.listHash("agent-link-web", 25, "log"),
+    "#/project/agent-link-web/list/25/log"
   );
   assert.strictEqual(lv.modeHash("p", "dashboard"), "#/project/p");
   assert.strictEqual(lv.modeHash("p", "list"), "#/project/p/list");
@@ -88,14 +88,14 @@ function testHash() {
   );
 
   // 読み取る
-  assert.deepStrictEqual(lv.parseListHash("#/project/sai-web/list"), {
-    name: "sai-web",
+  assert.deepStrictEqual(lv.parseListHash("#/project/agent-link-web/list"), {
+    name: "agent-link-web",
     runId: null,
     view: null,
   });
   assert.deepStrictEqual(
-    lv.parseListHash("#/project/sai-web/list/25/stats"),
-    { name: "sai-web", runId: 25, view: "stats" }
+    lv.parseListHash("#/project/agent-link-web/list/25/stats"),
+    { name: "agent-link-web", runId: 25, view: "stats" }
   );
   // 名前は URL の形のまま decode する
   assert.deepStrictEqual(lv.parseListHash("#/project/my%20proj/list/3/task"), {
@@ -106,7 +106,7 @@ function testHash() {
   // List 以外の住所は null（Dashboard などは project.js が受け持つ）
   assert.strictEqual(lv.parseListHash("#/"), null);
   assert.strictEqual(lv.parseListHash("#/projects"), null);
-  assert.strictEqual(lv.parseListHash("#/project/sai-web"), null);
+  assert.strictEqual(lv.parseListHash("#/project/agent-link-web"), null);
   // run_id が数字でない住所は「run 未選択」として扱う（Agent 画面に落ちない）
   assert.deepStrictEqual(lv.parseListHash("#/project/p/list/abc/log"), {
     name: "p",
@@ -154,9 +154,9 @@ function testModeMemoryFour() {
   lv.saveMode("gamma", "oreason");
   assert.strictEqual(lv.rememberedMode("gamma"), "dashboard");
   // 今までの値（dashboard / list）は読み替えなしでそのまま使える
-  store.set("sai_web_link_mode", JSON.stringify({ delta: "list" }));
+  store.set("agent_link_web_link_mode", JSON.stringify({ delta: "list" }));
   assert.strictEqual(lv.rememberedMode("delta"), "list");
-  store.set("sai_web_link_mode", "壊れた JSON");
+  store.set("agent_link_web_link_mode", "壊れた JSON");
   assert.strictEqual(lv.rememberedMode("delta"), "dashboard");
 }
 
@@ -212,7 +212,7 @@ function testViewTabs() {
 
 function testSessionHash() {
   // session を選んだときの行き先（Agent タブのメッセージ画面・U11）
-  assert.strictEqual(lv.sessionHash("sai-web", 58), "#/run/sai-web/58");
+  assert.strictEqual(lv.sessionHash("agent-link-web", 58), "#/run/agent-link-web/58");
   assert.strictEqual(lv.sessionHash("my proj", "12"), "#/run/my%20proj/12");
 }
 
@@ -234,7 +234,7 @@ function testAgentRun() {
   assert.strictEqual(lv.isAgentRun({ executer: "" }), false, "空");
   assert.strictEqual(lv.isAgentRun({ executer: "  " }), false, "空白だけ");
   assert.strictEqual(lv.isAgentRun(null), false, "null");
-  // ツリーの行に executer が届く（sai-link `phone tree` の項目）
+  // ツリーの行に executer が届く（agent-link `phone tree` の項目）
   const tree = [
     {
       type: "folder", id: "todo", label: "todo", depth: 0,
@@ -386,7 +386,7 @@ function testLogSections() {
       total_tokens: 439966,
     },
     connections: [
-      { direction: "from", kind: "task_text", run_id: 29, global_round: 5, round: 1, block_name: "plan", waggle_token: "abcd1234", file_path: ".sai/outputs/R5/29/plan.md" },
+      { direction: "from", kind: "task_text", run_id: 29, global_round: 5, round: 1, block_name: "plan", waggle_token: "abcd1234", file_path: ".agent-link/outputs/R5/29/plan.md" },
       { direction: "to", kind: "task_create", run_id: 36, global_round: 5, round: 1, block_name: "worker", description: "実装する" },
       { direction: "from", kind: "task_output", run_id: 40, global_round: null, round: 2, block_name: "sub" },
     ],
@@ -415,7 +415,7 @@ function testLogSections() {
   assert.strictEqual(conf["commit"], "aaaaaaa → bbbbbbb");
   // Connection は作られた順のまま、head と sub と run_id を持つ（統計は Stats の表示へ移した）
   assert.deepStrictEqual(sections[2].items, [
-    { head: "from [task_text] R5.1/ID29/plan", sub: "waggle:abcd1234 file:.sai/outputs/R5/29/plan.md", runId: 29 },
+    { head: "from [task_text] R5.1/ID29/plan", sub: "waggle:abcd1234 file:.agent-link/outputs/R5/29/plan.md", runId: 29 },
     { head: "to [task_create] R5.1/ID36/worker", sub: "実装する", runId: 36 },
     { head: "from [task_output] R?.2/ID40/sub", sub: "", runId: 40 },
   ]);
@@ -542,7 +542,7 @@ function testTaskDescription() {
 
 function testHistoryRows() {
   // 行の名前: 命令があれば命令名、無ければ道具の名前
-  assert.strictEqual(lv.lvCallName({ name: "Bash", command: "sai-paper content read" }), "sai-paper content read");
+  assert.strictEqual(lv.lvCallName({ name: "Bash", command: "agent-link doc read" }), "agent-link doc read");
   assert.strictEqual(lv.lvCallName({ name: "Read" }), "Read");
   assert.strictEqual(lv.lvCallName(null), "");
   // 失敗の印は is_error が true のときだけ
@@ -569,12 +569,12 @@ function testHistoryCli() {
   assert.strictEqual(lv.lvCliSummary(undefined), null);
   assert.strictEqual(lv.lvCliSummary(null), null);
   const s = lv.lvCliSummary({
-    calls: [{ command: "sai-paper content read", count: 3, errors: 1 }],
-    failures: [{ class: "ledger", count: 1 }, { class: "input", count: 2 }],
+    calls: [{ command: "agent-link doc read", count: 3, errors: 1 }],
+    failures: [{ class: "not_found", count: 1 }, { class: "input", count: 2 }],
     ids: { seen: 40, used: 6, unused: 34 },
   });
-  assert.deepStrictEqual(s.calls, [{ command: "sai-paper content read", count: 3, errors: 1 }]);
-  assert.deepStrictEqual(s.failures.map((f) => f.label), ["台帳に無い番号", "入力の誤り（2）"]);
+  assert.deepStrictEqual(s.calls, [{ command: "agent-link doc read", count: 3, errors: 1 }]);
+  assert.deepStrictEqual(s.failures.map((f) => f.label), ["見つからない（3）", "入力の誤り（2）"]);
   assert.deepStrictEqual(s.failures.map((f) => f.count), [1, 2]);
   assert.deepStrictEqual(s.ids, { seen: 40, used: 6, unused: 34 });
   // 中身が空でも壊れない（失敗は無い・命令は無い）
@@ -582,7 +582,7 @@ function testHistoryCli() {
   assert.deepStrictEqual(empty.calls, []);
   assert.deepStrictEqual(empty.failures, []);
   assert.deepStrictEqual(empty.ids, { seen: 0, used: 0, unused: 0 });
-  assert.strictEqual(lv.lvFailureLabel("ledger"), "台帳に無い番号");
+  assert.strictEqual(lv.lvFailureLabel("input"), "入力の誤り（2）");
   assert.strictEqual(lv.lvFailureLabel("new_class"), "new_class");
 }
 

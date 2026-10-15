@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 
 const src = fs.readFileSync(
-  path.join(__dirname, "..", "src", "sai_web", "static", "app.js"),
+  path.join(__dirname, "..", "src", "agent_link_web", "static", "app.js"),
   "utf8"
 );
 

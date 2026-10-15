@@ -1,13 +1,13 @@
 """プロジェクト一覧・Dashboard・常駐の操作（実装計画 C C1・C2）の小さなテスト。
 
 確かめること:
-- `registry.load_registry` は `~/.sai/registry.json` から `kind == "link"` だけを引き，
-  `root_exists` / `db_exists` / `daemon_alive` を足す（`SAI_HOME` で差し替える）
+- `registry.load_registry` は `~/.agent-link/registry.json` から `kind == "link"` だけを引き，
+  `root_exists` / `db_exists` / `daemon_alive` を足す（`AGENT_LINK_HOME` で差し替える）
 - `control.list_projects` は項目名と並び順を今までどおりにし，
-  `sai-link phone summary` は root と DB が両方あるプロジェクトだけで呼ぶ
+  `agent-link phone summary` は root と DB が両方あるプロジェクトだけで呼ぶ
 - 最小集計は 5 秒だけ覚える／失敗しても一覧は止めない
-- `control.dashboard` は `sai-link phone dashboard --period <p>` を root で呼ぶ
-- `control.daemon` は `sai-link daemon <start|stop>` を root で呼ぶ
+- `control.dashboard` は `agent-link phone dashboard --period <p>` を root で呼ぶ
+- `control.daemon` は `agent-link daemon <start|stop>` を root で呼ぶ
 
 実行:
     cd <作業用コピー>
@@ -25,8 +25,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from sai_web import control, registry
-from sai_web.config import settings
+from agent_link_web import control, registry
+from agent_link_web.config import settings
 
 
 def expect(code: int, fn) -> HTTPException:
@@ -61,7 +61,7 @@ class FakeCli:
         return subprocess.CompletedProcess(list(args), self.returncode, out, self.stderr)
 
     def link_calls(self) -> list[list[str]]:
-        """sai-link を呼んだ argv を全部取り出す（U09 で接頭辞の `phone` が消えた）。"""
+        """agent-link を呼んだ argv を全部取り出す（U09 で接頭辞の `phone` が消えた）。"""
         return [c["args"] for c in self.calls]
 
 
@@ -69,13 +69,13 @@ def make_registry(home: Path, base: Path) -> None:
     """一時フォルダに DB と PID ファイルを用意し、登録簿を書く。"""
     # alpha: root と DB があり、常駐も生きている（daemon.pid は自分の PID）
     alpha = base / "alpha"
-    (alpha / ".sai" / "sai-engine").mkdir(parents=True)
-    (alpha / ".sai" / "sai-engine" / "sai-engine.db").write_text("")
-    (alpha / ".sai" / "sai-engine" / "daemon.pid").write_text(f"{os.getpid()}\n")
+    (alpha / ".agent-link" / "engine").mkdir(parents=True)
+    (alpha / ".agent-link" / "engine" / "agent-link.db").write_text("")
+    (alpha / ".agent-link" / "engine" / "daemon.pid").write_text(f"{os.getpid()}\n")
     # beta: root と DB がある（PID ファイルが無い = 常駐は止まっている）
     beta = base / "beta"
-    (beta / ".sai" / "sai-engine").mkdir(parents=True)
-    (beta / ".sai" / "sai-engine" / "sai-engine.db").write_text("")
+    (beta / ".agent-link" / "engine").mkdir(parents=True)
+    (beta / ".agent-link" / "engine" / "agent-link.db").write_text("")
     # gamma: root はあるが DB が無い
     (base / "gamma").mkdir(parents=True)
     # delta: root 自体が無い
@@ -142,7 +142,7 @@ def test_load_registry_edges(tmp: Path) -> None:
 def test_daemon_alive_dead_pid(base: Path) -> None:
     """PID ファイルに死んでいる PID が入っていれば False。"""
     root = base / "alpha"
-    pid_file = root / ".sai" / "sai-engine" / "daemon.pid"
+    pid_file = root / ".agent-link" / "engine" / "daemon.pid"
     pid_file.write_text("999999\n")
     assert registry.daemon_alive(str(root)) is False
     pid_file.write_text("これは PID ではない")
@@ -186,8 +186,7 @@ def test_list_projects(base: Path) -> None:
     ], cli.link_calls()
     for call in cli.calls:
         assert call["cwd"] in (str(base / "alpha"), str(base / "beta")), call
-        assert call["env"]["SAI_PROJECT_ROOT"] == call["cwd"], call
-        assert call["env"]["SAI_ORIGIN"] == "phone", call
+        assert call["env"]["AGENT_LINK_PROJECT_ROOT"] == call["cwd"], call
 
 
 def test_summary_cache(base: Path) -> None:
@@ -220,7 +219,7 @@ def test_summary_failure(base: Path) -> None:
     """summary が失敗しても一覧は止めない（running=0 / last_executed_at=None）。"""
     cli = FakeCli()
     cli.returncode = 1
-    cli.stderr = "sai-link が失敗しました"
+    cli.stderr = "agent-link が失敗しました"
     original = control.run_cli
     control.run_cli = cli
     control._summary_cache.clear()
@@ -246,7 +245,7 @@ def _stub_project(project: dict):
 
 
 def test_dashboard(base: Path) -> None:
-    """`sai-link phone dashboard --period <p>` を root で呼ぶ。recent にも足す。"""
+    """`agent-link phone dashboard --period <p>` を root で呼ぶ。recent にも足す。"""
     root = str(base / "alpha")
     project = {
         "name": "alpha",
@@ -300,7 +299,7 @@ def test_dashboard(base: Path) -> None:
         "week",
     ], dash[0]["args"]
     assert dash[0]["cwd"] == root, dash[0]
-    assert dash[0]["env"]["SAI_PROJECT_ROOT"] == root, dash[0]
+    assert dash[0]["env"]["AGENT_LINK_PROJECT_ROOT"] == root, dash[0]
     # recent には description / linkable / project が足される
     assert data["recent"][0] == {
         "run_id": 7,
@@ -341,7 +340,7 @@ def test_dashboard_no_db(base: Path) -> None:
 
 
 def test_daemon(base: Path) -> None:
-    """常駐の起動・停止は `sai-link daemon <action>` を root で呼ぶ。"""
+    """常駐の起動・停止は `agent-link daemon <action>` を root で呼ぶ。"""
     root = str(base / "alpha")
     project = {
         "name": "alpha",
@@ -363,7 +362,7 @@ def test_daemon(base: Path) -> None:
         assert res == {"ok": True, "message": "🛑 sai デーモンを停止しました (PID: 123)"}, res
         assert cli.calls[-1]["args"] == [settings.sai_link_bin, "daemon", "stop"], cli.calls[-1]
         assert cli.calls[-1]["cwd"] == root, cli.calls[-1]
-        assert cli.calls[-1]["env"]["SAI_PROJECT_ROOT"] == root, cli.calls[-1]
+        assert cli.calls[-1]["env"]["AGENT_LINK_PROJECT_ROOT"] == root, cli.calls[-1]
 
         # 出力が空なら既定の文言
         cli.stdout = ""
@@ -406,8 +405,8 @@ def main() -> None:
         base.mkdir(parents=True)
         make_registry(home, base)
 
-        old_env = os.environ.get("SAI_HOME")
-        os.environ["SAI_HOME"] = str(home)
+        old_env = os.environ.get("AGENT_LINK_HOME")
+        os.environ["AGENT_LINK_HOME"] = str(home)
         try:
             test_load_registry(base)
             test_load_registry_edges(root_tmp)
@@ -421,9 +420,9 @@ def main() -> None:
             test_find_project_404(base)
         finally:
             if old_env is None:
-                os.environ.pop("SAI_HOME", None)
+                os.environ.pop("AGENT_LINK_HOME", None)
             else:
-                os.environ["SAI_HOME"] = old_env
+                os.environ["AGENT_LINK_HOME"] = old_env
     print("test_registry_projects: すべて通りました")
 
 

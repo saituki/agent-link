@@ -6,7 +6,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const N = require(path.join(__dirname, "..", "src", "sai_web", "static", "newchat.js"));
+const N = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "newchat.js"));
 
 // 入力の検査（プロジェクト・block・最初の文が空でない）
 function testValidate() {

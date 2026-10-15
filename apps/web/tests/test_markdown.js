@@ -10,7 +10,7 @@ const { renderMarkdown, mdHighlight, MD_LANG_KIND, MD_CODE_LONG_LINES, MD_CODE_P
   __dirname,
   "..",
   "src",
-  "sai_web",
+  "agent_link_web",
   "static",
   "markdown.js"
 ));

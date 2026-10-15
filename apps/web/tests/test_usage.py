@@ -20,7 +20,7 @@ from pathlib import Path
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import usage  # noqa: E402
+from agent_link_web import usage  # noqa: E402
 
 
 def noon_ms() -> float:
@@ -227,13 +227,13 @@ def test_unknown_providers() -> None:
 
 def test_openrouter_accounts() -> None:
     """`.env` の書き方の読み取りと既定値（42 §3.2）．"""
-    saved = os.environ.get("SAI_WEB_OPENROUTER_ACCOUNTS")
+    saved = os.environ.get("AGENT_LINK_WEB_OPENROUTER_ACCOUNTS")
     try:
-        os.environ.pop("SAI_WEB_OPENROUTER_ACCOUNTS", None)
+        os.environ.pop("AGENT_LINK_WEB_OPENROUTER_ACCOUNTS", None)
         assert usage.openrouter_accounts() == [
             {"name": "main", "env": "OPENROUTER_API_KEY"}
         ]
-        os.environ["SAI_WEB_OPENROUTER_ACCOUNTS"] = (
+        os.environ["AGENT_LINK_WEB_OPENROUTER_ACCOUNTS"] = (
             "main=OPENROUTER_API_KEY, sub=OPENROUTER_API_KEY_2 ,,壊れた"
         )
         assert usage.openrouter_accounts() == [
@@ -242,16 +242,16 @@ def test_openrouter_accounts() -> None:
         ]
     finally:
         if saved is None:
-            os.environ.pop("SAI_WEB_OPENROUTER_ACCOUNTS", None)
+            os.environ.pop("AGENT_LINK_WEB_OPENROUTER_ACCOUNTS", None)
         else:
-            os.environ["SAI_WEB_OPENROUTER_ACCOUNTS"] = saved
+            os.environ["AGENT_LINK_WEB_OPENROUTER_ACCOUNTS"] = saved
 
 
 def test_known_target() -> None:
     """外から来た provider / account は設定にある名前だけ受け付ける（42 §3.3）．"""
-    saved = os.environ.get("SAI_WEB_OPENROUTER_ACCOUNTS")
+    saved = os.environ.get("AGENT_LINK_WEB_OPENROUTER_ACCOUNTS")
     try:
-        os.environ["SAI_WEB_OPENROUTER_ACCOUNTS"] = (
+        os.environ["AGENT_LINK_WEB_OPENROUTER_ACCOUNTS"] = (
             "main=OPENROUTER_API_KEY,sub=OPENROUTER_API_KEY_2"
         )
         assert usage.known_target("openrouter", "main")
@@ -262,9 +262,9 @@ def test_known_target() -> None:
         assert not usage.known_target("gemini", "x")
     finally:
         if saved is None:
-            os.environ.pop("SAI_WEB_OPENROUTER_ACCOUNTS", None)
+            os.environ.pop("AGENT_LINK_WEB_OPENROUTER_ACCOUNTS", None)
         else:
-            os.environ["SAI_WEB_OPENROUTER_ACCOUNTS"] = saved
+            os.environ["AGENT_LINK_WEB_OPENROUTER_ACCOUNTS"] = saved
 
 
 def iso(epoch: float) -> str:
@@ -300,12 +300,12 @@ def write_cc_home(
 
 
 def test_cc_card_single() -> None:
-    """単独モード: `SAI_HOME` の枠の値と費用から cc_card() が形どおりに返る（計画 U02）。"""
-    saved = os.environ.get("SAI_HOME")
+    """単独モード: `AGENT_LINK_HOME` の枠の値と費用から cc_card() が形どおりに返る（計画 U02）。"""
+    saved = os.environ.get("AGENT_LINK_HOME")
     with tempfile.TemporaryDirectory() as tmp:
         home = Path(tmp)
         try:
-            os.environ["SAI_HOME"] = str(home)
+            os.environ["AGENT_LINK_HOME"] = str(home)
             write_cc_home(
                 home,
                 five_pct=23.5,
@@ -322,9 +322,9 @@ def test_cc_card_single() -> None:
             card = usage.cc_card(now=CC_NOW)
         finally:
             if saved is None:
-                os.environ.pop("SAI_HOME", None)
+                os.environ.pop("AGENT_LINK_HOME", None)
             else:
-                os.environ["SAI_HOME"] = saved
+                os.environ["AGENT_LINK_HOME"] = saved
     assert card["limits"] == {
         "five_hour": {"used_percentage": 23.5, "resets_at": CC_NOW + 3600},
         "updated_at": iso(CC_NOW - 3600),

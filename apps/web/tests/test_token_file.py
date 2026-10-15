@@ -1,7 +1,7 @@
 """合言葉のファイル（`<sai_home>/web/token`）を書く処理のテスト（assert だけ）．
 
 `apps/web` は起動時に `main.write_token_file()` で
-`<sai_home>/web/token` に合言葉（`SAI_WEB_TOKEN`）を 0600 で書く．
+`<sai_home>/web/token` に合言葉（`AGENT_LINK_WEB_TOKEN`）を 0600 で書く．
 エージェント側の道具 `phone_api.py` はこのファイルを読む（要件 D13）．
 
 確かめるもの:
@@ -28,20 +28,20 @@ from pathlib import Path
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import main as phone_main  # noqa: E402
-from sai_web import registry  # noqa: E402
+from agent_link_web import main as phone_main  # noqa: E402
+from agent_link_web import registry  # noqa: E402
 
 
 @contextmanager
 def with_token(token: str | None, home: str):
-    """`settings.api_token` と `SAI_HOME` を差し替えて、終わりに戻す。
+    """`settings.api_token` と `AGENT_LINK_HOME` を差し替えて、終わりに戻す。
 
     `Settings` は frozen なので `dataclasses.replace` で新しい値を入れる。
     本物の設定ファイルは読まないし、書き換えない。
     """
     original = phone_main.settings
     phone_main.settings = dataclasses.replace(original, api_token=token)
-    os.environ["SAI_HOME"] = home
+    os.environ["AGENT_LINK_HOME"] = home
     try:
         yield
     finally:
@@ -49,9 +49,9 @@ def with_token(token: str | None, home: str):
 
 
 def main() -> None:
-    tmp = tempfile.mkdtemp(prefix="sai-web-token-")
+    tmp = tempfile.mkdtemp(prefix="agent-link-web-token-")
     home = os.path.join(tmp, "sai-home")
-    os.environ["SAI_HOME"] = home
+    os.environ["AGENT_LINK_HOME"] = home
     path = registry.sai_home() / "web" / "token"
 
     # 合言葉があるとき：ファイルが書かれ、0600 になる
@@ -91,7 +91,7 @@ def main() -> None:
         phone_main.write_token_file()  # 例外が出なければよい
 
     shutil.rmtree(tmp, ignore_errors=True)
-    os.environ.pop("SAI_HOME", None)
+    os.environ.pop("AGENT_LINK_HOME", None)
     print("test_token_file: すべて通りました")
 
 

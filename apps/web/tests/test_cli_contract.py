@@ -9,11 +9,11 @@
   - 標準出力の `{"error": …}` は理由に使わない（終了コードで決める）
 - 起動できない → 503・時間切れ → 504（`run_cli`）
 - 呼び出しの env（`_phone_env`）
-  - `SAI_PROJECT_ROOT` と `SAI_ORIGIN=phone` があり，`SAI_PAPER_ROOT` が無い
+  - `AGENT_LINK_PROJECT_ROOT` がある
 
 実行:
     cd <作業用コピー>
-    env -u SAI_LINK_BIN PYTHONPATH=apps/web/src apps/web/.venv/bin/python apps/web/tests/test_cli_contract.py
+    env -u AGENT_LINK_BIN PYTHONPATH=apps/web/src apps/web/.venv/bin/python apps/web/tests/test_cli_contract.py
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import cli, control
+from agent_link_web import cli, control
 
 
 def expect(code: int, fn) -> HTTPException:
@@ -42,7 +42,7 @@ def proc(code: int, stdout: str = "", stderr: str = "") -> subprocess.CompletedP
 def call(code: int, stdout: str = "", stderr: str = ""):
     """`run_json` を偽の runner で呼ぶ。"""
     return cli.run_json(
-        ["x"], app="sai-link", runner=lambda *a, **k: proc(code, stdout, stderr)
+        ["x"], app="agent-link", runner=lambda *a, **k: proc(code, stdout, stderr)
     )
 
 
@@ -50,7 +50,7 @@ def test_zero_json() -> None:
     assert call(0, '{"a": 1}') == {"a": 1}
     # 0 で JSON でない → 502
     e = expect(502, lambda: call(0, "not json"))
-    assert e.detail == "sai-link の応答を読めませんでした", e.detail
+    assert e.detail == "agent-link の応答を読めませんでした", e.detail
     # 空の標準出力も同じ
     expect(502, lambda: call(0, ""))
 
@@ -73,7 +73,7 @@ def test_exit_codes() -> None:
     assert e.detail == "その他", e.detail
     # stderr が空なら既定の文
     e = expect(502, lambda: call(1, "", ""))
-    assert e.detail == "sai-link が失敗しました", e.detail
+    assert e.detail == "agent-link が失敗しました", e.detail
 
 
 def test_reason_is_last_line() -> None:
@@ -82,13 +82,13 @@ def test_reason_is_last_line() -> None:
     assert e.detail == "本当の理由", e.detail
     # 進捗しか無ければ既定の文
     e = expect(502, lambda: call(1, "", "sai-progress step=1\nsai-progress msg=途中\n"))
-    assert e.detail == "sai-link が失敗しました", e.detail
+    assert e.detail == "agent-link が失敗しました", e.detail
 
 
 def test_stdout_error_is_not_special() -> None:
     """標準出力の `{"error"}` は理由に使わない（終了コードで決める・U14 で形 A を消した）。"""
     e = expect(502, lambda: call(1, '{"error": "stdout の理由"}'))
-    assert e.detail == "sai-link が失敗しました", e.detail
+    assert e.detail == "agent-link が失敗しました", e.detail
     # 2 なら標準エラーの理由で 400
     e = expect(400, lambda: call(2, '{"error": "stdout の理由"}', "引数の誤り"))
     assert e.detail == "引数の誤り", e.detail
@@ -98,20 +98,18 @@ def test_stdout_error_is_not_special() -> None:
 
 def test_run_cli_503_504() -> None:
     # 起動できない → 503
-    e = expect(503, lambda: cli.run_cli(["/no/such/bin-xyz"], app="sai-link"))
+    e = expect(503, lambda: cli.run_cli(["/no/such/bin-xyz"], app="agent-link"))
     assert "見つかりません" in str(e.detail), e.detail
     # 時間切れ → 504
     e = expect(
-        504, lambda: cli.run_cli(["/bin/sleep", "5"], app="sai-link", timeout=0.05)
+        504, lambda: cli.run_cli(["/bin/sleep", "5"], app="agent-link", timeout=0.05)
     )
     assert "時間内" in str(e.detail), e.detail
 
 
 def test_phone_env() -> None:
     env = control._phone_env("/tmp/root")
-    assert env["SAI_PROJECT_ROOT"] == "/tmp/root", env.get("SAI_PROJECT_ROOT")
-    assert env["SAI_ORIGIN"] == "phone", env.get("SAI_ORIGIN")
-    assert "SAI_PAPER_ROOT" not in env, env.get("SAI_PAPER_ROOT")
+    assert env["AGENT_LINK_PROJECT_ROOT"] == "/tmp/root", env.get("AGENT_LINK_PROJECT_ROOT")
 
 
 def main() -> None:

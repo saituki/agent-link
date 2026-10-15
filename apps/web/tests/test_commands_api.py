@@ -1,4 +1,4 @@
-"""Web の「コマンド」画面のサーバ（U10・`apps/web/src/sai_web/commands.py`）の試験。
+"""Web の「コマンド」画面のサーバ（U10・`apps/web/src/agent_link_web/commands.py`）の試験。
 
 確かめること:
 - schema の取得と一覧（`web: false` の命令・引数を外す / `stdin: bytes` を外す /
@@ -6,7 +6,7 @@
 - 実行の検査（知らない CLI・命令・引数 / `web: false` / 型 / enum / 必須 /
   改行 / 長さ / 標準入力の種類 / `bytes`）で CLI を呼ばないこと
 - argv の組み方（共有契約「コマンドの実行の口」）
-- env（`SAI_PROJECT_ROOT`・`SAI_ORIGIN=phone`・`SAI_PAPER_ROOT` を渡さない）
+- env（`AGENT_LINK_PROJECT_ROOT` を渡す）
 - 終了コードの読み替え（2 → 400・3 → 404・4 → 409・1 とその他 → 502）
 - 標準出力が 2MB を超えたら 502
 
@@ -16,7 +16,7 @@ argv と標準入力と env を JSON にして返す。
 
 実行:
     cd <作業用コピー>
-    env -u SAI_LINK_BIN PYTHONPATH=apps/web/src \
+    env -u AGENT_LINK_BIN PYTHONPATH=apps/web/src \
       /Users/touta/workdir/Sai/sai-moon/apps/web/.venv/bin/python apps/web/tests/test_commands_api.py
 """
 
@@ -31,7 +31,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from sai_web import commands, control
+from agent_link_web import commands, control
 
 # 偽の CLI 本体。名前の隣の `<名前>.schema.json` を schema として返す。
 SCRIPT = """#!/usr/bin/env python3
@@ -53,7 +53,7 @@ if sys.argv[1:2] == ["fail"]:
 payload = {
     "argv": list(sys.argv),
     "stdin": sys.stdin.read(),
-    "env": {k: os.environ.get(k) for k in ("SAI_PROJECT_ROOT", "SAI_ORIGIN", "SAI_PAPER_ROOT")},
+    "env": {k: os.environ.get(k) for k in ("AGENT_LINK_PROJECT_ROOT",)},
 }
 sys.stdout.write(json.dumps(payload, ensure_ascii=False))
 """
@@ -238,9 +238,7 @@ def test_argv(setup: Setup) -> None:
 def test_env_and_stdin(setup: Setup) -> None:
     out = commands.run_command("demo", {"cli": "link", "path": ["show"], "args": {"run_id": 7}})
     body = payload_of(out)
-    assert body["env"]["SAI_PROJECT_ROOT"] == setup.root, body["env"]
-    assert body["env"]["SAI_ORIGIN"] == "phone", body["env"]
-    assert body["env"]["SAI_PAPER_ROOT"] is None, body["env"]
+    assert body["env"]["AGENT_LINK_PROJECT_ROOT"] == setup.root, body["env"]
     assert body["stdin"] == "", body
 
     # text の標準入力
@@ -315,7 +313,7 @@ def test_output_too_large(setup: Setup) -> None:
 
 
 def test_routes() -> None:
-    from sai_web.main import app
+    from agent_link_web.main import app
 
     paths = {(r.path, tuple(sorted(r.methods or []))) for r in app.routes if hasattr(r, "methods")}
     assert ("/api/projects/{name}/commands", ("GET",)) in paths, "一覧の住所が無い"

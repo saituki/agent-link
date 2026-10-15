@@ -8,7 +8,7 @@ const assert = require("assert");
 const path = require("path");
 
 global.window = {};
-require(path.join(__dirname, "..", "src", "sai_web", "static", "account.js"));
+require(path.join(__dirname, "..", "src", "agent_link_web", "static", "account.js"));
 const routes = global.window.SaiRoutes;
 
 assert.strictEqual(routes.length, 1, "route は 1 つだけ");

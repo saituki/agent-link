@@ -9,7 +9,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const dir = path.join(__dirname, "..", "src", "sai_web", "static");
+const dir = path.join(__dirname, "..", "src", "agent_link_web", "static");
 const owner = new Map(); // 名前 → 最初に見つけたファイル
 const dups = [];
 for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "sw.js")) {

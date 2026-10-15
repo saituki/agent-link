@@ -6,11 +6,11 @@
 const assert = require("assert");
 const path = require("path");
 
-const U = require(path.join(__dirname, "..", "src", "sai_web", "static", "ui.js"));
+const U = require(path.join(__dirname, "..", "src", "agent_link_web", "static", "ui.js"));
 
 // 広いと思う境目（900px）
 function testWideAt() {
-  assert.strictEqual(U.SAI_WIDE_PX, 900);
+  assert.strictEqual(U.AGENT_LINK_WIDE_PX, 900);
   assert.strictEqual(U.saiWideAt(1280), true, "1280px は広い");
   assert.strictEqual(U.saiWideAt(900), true, "ちょうど 900px は広い");
   assert.strictEqual(U.saiWideAt(899), false, "899px は狭い");
@@ -36,15 +36,15 @@ const C_F5 = [
 
 function testTerms() {
   for (const key of C_F5) {
-    assert.ok(U.SAI_TERMS[key], `${key} が SAI_TERMS にあること`);
-    const t = U.SAI_TERMS[key];
+    assert.ok(U.AGENT_LINK_TERMS[key], `${key} が AGENT_LINK_TERMS にあること`);
+    const t = U.AGENT_LINK_TERMS[key];
     assert.ok(typeof t.label === "string" && t.label.length > 0, `${key} に表示名があること`);
     assert.ok(typeof t.text === "string" && t.text.length >= 10, `${key} に説明があること`);
   }
-  assert.deepStrictEqual(Object.keys(U.SAI_TERMS).sort(), C_F5.slice().sort(), "用語が余りなく揃う");
+  assert.deepStrictEqual(Object.keys(U.AGENT_LINK_TERMS).sort(), C_F5.slice().sort(), "用語が余りなく揃う");
   // 表を引き出す関数も同じ値を返す
-  assert.strictEqual(U.saiTermText("daemon"), U.SAI_TERMS.daemon.text);
-  assert.strictEqual(U.saiTermLabel("daemon"), U.SAI_TERMS.daemon.label);
+  assert.strictEqual(U.saiTermText("daemon"), U.AGENT_LINK_TERMS.daemon.text);
+  assert.strictEqual(U.saiTermLabel("daemon"), U.AGENT_LINK_TERMS.daemon.label);
   assert.strictEqual(U.saiTermText("ない用語"), "");
   assert.strictEqual(U.saiTermLabel("ない用語"), "");
   // 全部の用語の表（[{key,label,text}]）
@@ -55,12 +55,12 @@ function testTerms() {
     assert.ok(x.label && x.text, `${x.key} に表示名と説明があること`);
   }
   // research-tree の用語は今の語（軸・A）で書く。旧い語（top_Q から・Answer の O）は残さない
-  assert.strictEqual(U.SAI_TERMS.sci_top_q.label, "軸");
-  assert.ok(U.SAI_TERMS.sci_rel.text.includes("condition"), "sci_rel の説明が condition に触れること");
-  assert.ok(!("sci_bottom_q" in U.SAI_TERMS), "旧い用語 sci_bottom_q は無いこと（Q の全面廃止）");
-  assert.ok(!/Q/.test(U.SAI_TERMS.sci_top_q.text + U.SAI_TERMS.sci_guide.text), "軸と GUIDE の説明に Q が無いこと");
+  assert.strictEqual(U.AGENT_LINK_TERMS.sci_top_q.label, "軸");
+  assert.ok(U.AGENT_LINK_TERMS.sci_rel.text.includes("condition"), "sci_rel の説明が condition に触れること");
+  assert.ok(!("sci_bottom_q" in U.AGENT_LINK_TERMS), "旧い用語 sci_bottom_q は無いこと（Q の全面廃止）");
+  assert.ok(!/Q/.test(U.AGENT_LINK_TERMS.sci_top_q.text + U.AGENT_LINK_TERMS.sci_guide.text), "軸と GUIDE の説明に Q が無いこと");
   for (const key of ["sci_node", "sci_root", "sci_star"]) {
-    assert.ok(!/top_Q|\bO\b|Answer/.test(U.SAI_TERMS[key].text), `${key} に旧い語が残っていないこと`);
+    assert.ok(!/top_Q|\bO\b|Answer/.test(U.AGENT_LINK_TERMS[key].text), `${key} に旧い語が残っていないこと`);
   }
 }
 

@@ -26,7 +26,7 @@ const cf = require(path.join(
   __dirname,
   "..",
   "src",
-  "sai_web",
+  "agent_link_web",
   "static",
   "cardform.js"
 ));
@@ -161,7 +161,7 @@ function testPayload() {
     "thinking", "global_round", "round", "tag", "task_text",
   ]);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(payload, "inputs"), false);
-  // スキップした項目は空文字（sai-link が自動値にする）
+  // スキップした項目は空文字（agent-link が自動値にする）
   assert.strictEqual(payload.tag, "");
   assert.strictEqual(payload.runner, "cc");
   assert.strictEqual(payload.model, "opus");
@@ -175,7 +175,7 @@ function testPayload() {
 }
 
 function testToggleRef() {
-  const ref = "waggle:ABCD1234:path:.sai/outputs/*/3/report.md";
+  const ref = "waggle:ABCD1234:path:.agent-link/outputs/*/3/report.md";
   assert.strictEqual(cf.cfToggleRef("", ref, true), ref);
   assert.strictEqual(cf.cfToggleRef(`本文\n${ref}`, ref, true), `本文\n${ref}`);
   assert.strictEqual(cf.cfToggleRef(`本文\n${ref}`, ref, false), "本文");
@@ -231,22 +231,22 @@ function testShouldClose() {
 function testDraft() {
   store.clear();
   // 最初は無し
-  assert.strictEqual(cf.cfLoadDraft("sai-web"), null);
+  assert.strictEqual(cf.cfLoadDraft("agent-link-web"), null);
   // プロジェクトごとに別々
   const s = cf.cfNewDraft();
   s.step = "rounds";
   s.runner = "cc";
   s.block = "sub";
   s.rounds.round = "3";
-  cf.cfSaveDraft("sai-web", s);
-  const back = cf.cfLoadDraft("sai-web");
+  cf.cfSaveDraft("agent-link-web", s);
+  const back = cf.cfLoadDraft("agent-link-web");
   assert.strictEqual(back.step, "rounds");
   assert.strictEqual(back.runner, "cc");
   assert.strictEqual(back.rounds.round, "3");
   assert.strictEqual(cf.cfLoadDraft("other-project"), null);
   // 作成に成功したら消える（計画 15 §1.5）
-  cf.cfClearDraft("sai-web");
-  assert.strictEqual(cf.cfLoadDraft("sai-web"), null);
+  cf.cfClearDraft("agent-link-web");
+  assert.strictEqual(cf.cfLoadDraft("agent-link-web"), null);
   // 形が崩れた書きかけは無し扱い
   store.set(cf.cfDraftKey("broken"), "これは JSON ではありません");
   assert.strictEqual(cf.cfLoadDraft("broken"), null);

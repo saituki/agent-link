@@ -14,7 +14,7 @@ const cmd = require(path.join(
   __dirname,
   "..",
   "src",
-  "sai_web",
+  "agent_link_web",
   "static",
   "commands.js"
 ));

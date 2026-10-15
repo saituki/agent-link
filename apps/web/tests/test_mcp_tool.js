@@ -12,7 +12,7 @@ const fs = require("fs");
 const path = require("path");
 
 const src = fs.readFileSync(
-  path.join(__dirname, "..", "src", "sai_web", "static", "app.js"),
+  path.join(__dirname, "..", "src", "agent_link_web", "static", "app.js"),
   "utf8"
 );
 
@@ -28,7 +28,7 @@ assert.strictEqual(isMcpTool({ tool: "mcp__other__tool" }), true);
 assert.strictEqual(isMcpTool({ tool: "mcp.something" }), true);
 
 // sai の CLI を Bash で呼んだ項目（item.cli が入る・U17）
-assert.strictEqual(isMcpTool({ tool: "Bash", cli: "sai-link" }), true);
+assert.strictEqual(isMcpTool({ tool: "Bash", cli: "agent-link" }), true);
 assert.strictEqual(isMcpTool({ tool: "Bash" }), false);
 
 // ふつうの道具

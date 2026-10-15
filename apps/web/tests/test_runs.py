@@ -15,7 +15,7 @@ from pathlib import Path
 # リポジトリ直下から実行しなくても import できるようにしておく
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sai_web import runs  # noqa: E402
+from agent_link_web import runs  # noqa: E402
 
 
 def make_run(
@@ -26,14 +26,14 @@ def make_run(
     runner: str = "cc",
     parent_run_id: int | None = None,
     stats: dict | None = None,
-    project_name: str = "sai-web",
+    project_name: str = "agent-link-web",
     **extra,
 ) -> dict:
     """00 §3.2 の形のダミー実行を作る．"""
     run = {
         "schema_version": 1,
         "project_name": project_name,
-        "project_root": "/Users/alice/work/sai-web",
+        "project_root": "/Users/alice/work/agent-link-web",
         "run_id": run_id,
         "parent_run_id": parent_run_id,
         "block_name": "sai2",
@@ -146,7 +146,7 @@ def test_load_runs_filters() -> None:
     """`.` 始まり・壊れた JSON・schema 違い・user 実行は読み飛ばす（02 §2.1）．"""
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
-        proj = base / "sai-web"
+        proj = base / "agent-link-web"
         proj.mkdir()
         ok = make_run(1, started_at="2026-09-23T00:00:00Z")
         (proj / "1.json").write_text(json.dumps(ok), encoding="utf-8")
@@ -189,7 +189,7 @@ def test_no_customer_special_case() -> None:
 
 def test_cursor_resets_on_file_change() -> None:
     """記録ファイルが変わったら，前のファイルの読み位置を使わず最初から読む．"""
-    from sai_web import sessions
+    from agent_link_web import sessions
 
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "real.jsonl"

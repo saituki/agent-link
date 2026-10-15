@@ -9,7 +9,7 @@
 
 実行:
     cd <作業用コピー>
-    env -u SAI_LINK_BIN PYTHONPATH=apps/web/src \
+    env -u AGENT_LINK_BIN PYTHONPATH=apps/web/src \
       /Users/touta/workdir/Sai/sai-moon/apps/web/.venv/bin/python apps/web/tests/test_session_search_api.py
 """
 
@@ -20,7 +20,7 @@ import subprocess
 
 from fastapi import HTTPException
 
-from sai_web import control
+from agent_link_web import control
 
 
 def expect_400(fn) -> None:
@@ -71,7 +71,7 @@ def test_calls(cli: FakeCli) -> None:
     cli.calls.clear()
     cli.items = []
     assert control.phone_session_search("demo", word=" mlflow ") == {"items": [], "truncated": False}
-    assert cli.calls[-1] == ["sai-link", "session", "search", "-w", "mlflow", "--json"], cli.calls[-1]
+    assert cli.calls[-1] == ["agent-link", "session", "search", "-w", "mlflow", "--json"], cli.calls[-1]
 
     control.phone_session_search(
         "demo",
@@ -85,7 +85,7 @@ def test_calls(cli: FakeCli) -> None:
         sess_type="agent,user",
     )
     assert cli.calls[-1] == [
-        "sai-link", "session", "search",
+        "agent-link", "session", "search",
         "-R", "2-4", "-r", "1", "--id", "10-20", "--block", "worker",
         "--date", "2026/09/01-2026/09/30", "--status", "todo,running",
         "--type", "user,agent", "-w", "a,b", "--json",
@@ -104,7 +104,7 @@ def test_truncate(cli: FakeCli) -> None:
 
 
 def test_route() -> None:
-    from sai_web.main import app
+    from agent_link_web.main import app
 
     paths = {(r.path, tuple(sorted(r.methods or []))) for r in app.routes if hasattr(r, "methods")}
     assert ("/api/projects/{name}/sessions/search", ("GET",)) in paths, "住所が無い"
