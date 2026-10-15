@@ -1,6 +1,0 @@
-{"version": 1, "title": "イベントの特徴量", "kind": "measure", "target": "events",
- "desc": "選んだ区間の ch から指標（長さ・最大振幅・RMS・線の長さ・ピーク周波数・ゼロ交差）を書く。1 つのイベントが ch を複数持つときは vars[0] だけを使う。line のイベントは飛ばす",
- "params": [
-   {"name": "var", "type": "string", "default": "", "desc": "vars が空のイベントに使う ch（空なら記録の最初の ch）"},
-   {"name": "pad_ms", "type": "number", "default": 0, "min": 0, "unit": "ms", "desc": "区間の前後に足す幅（指標の計算にだけ使う）"}
- ]}

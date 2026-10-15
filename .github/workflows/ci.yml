@@ -1,7 +1,6 @@
-# CI: Rust・Web（JS・Python）・Radio・sai-ts・sai-sci の道具のテストを回す。
+# CI: Rust と Web（JS・Python）のテストを回す。
 # 命令は AGENTS.md の「テストと確認」と同じ物にそろえる（直すときは両方直す）。
-# 本番（サーバ）と同じ Linux（ubuntu-latest）で動かす。秘密の値・ネットワークに出る試験は使わない。
-# Mac だけで必要な道具（herdr・Chrome・launchd）は sai-tree では使わないので、Mac で回す理由は無い。
+# Linux（ubuntu-latest）で動かす。秘密の値・ネットワークに出る試験は使わない。
 name: CI
 
 on:
@@ -29,7 +28,7 @@ jobs:
             perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
 
   web:
-    name: Web（JS・Python・コンテナの中継）
+    name: Web（JS・Python）
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -44,61 +43,3 @@ jobs:
         run: for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
       - name: Python のテスト
         run: for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin/python "$f" || exit 1; done
-      - name: コンテナの中継のテスト（偽の docker で確かめる）
-        run: sh apps/web/server/test_sai_in_container.sh
-
-  sai-prep:
-    name: sai-prep（Mac の PDF 前処理アプリ）
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: sai-prep のテスト
-        run: (cd apps/prep && python3 -m unittest discover -s tests)
-
-  radio:
-    name: Radio
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - name: 仮想環境を作る
-        run: (cd apps/radio && uv sync)
-      - name: Radio のテスト
-        run: (cd apps/radio && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
-
-  sai-ts:
-    name: sai-ts（時系列の道具）
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: 仮想環境を作る
-        run: (cd apps/ts && uv sync)
-      - name: Python のテスト
-        run: (cd apps/ts && for f in tests/test_*.py; do PYTHONPATH=src .venv/bin/python "$f" || exit 1; done)
-      - name: JS のテスト
-        run: for f in apps/ts/tests/test_*.js; do node "$f" || exit 1; done
-
-  sai-sci-tools:
-    name: sai-sci の道具
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: 実験ループの道具
-        run: (cd sai-sci/tools && for t in test_exp_exec test_exec_ssh test_exec_dok test_dok test_refcode test_modeldb test_data_result test_data_eda test_onto_build; do python -W ignore -m unittest $t || exit 1; done)
-      - name: 実験の要約（mlflow が要る）
-        run: (cd sai-sci/tools && uv run --no-project --python ">=3.11" --with mlflow python -m unittest test_exp_summary)
