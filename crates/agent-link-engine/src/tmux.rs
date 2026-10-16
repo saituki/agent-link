@@ -51,7 +51,18 @@ pub fn run(id: &str, command: &str) -> Result<(), HerdrError> {
     let root = crate::project::project_root();
     let root_s = root.to_string_lossy().to_string();
     let cwd = headless::read_cwd(&dir).unwrap_or_else(|| root_s.clone());
-    seed_home_claude_json(&[cwd.as_str(), root_s.as_str()])?;
+    // cc は実パス（`/var` → `/private/var` など）で trust を引くので、実パスも足す。
+    let mut dirs = vec![cwd.clone(), root_s.clone()];
+    for d in [&cwd, &root_s] {
+        if let Ok(real) = std::fs::canonicalize(d) {
+            let real = real.to_string_lossy().to_string();
+            if !dirs.contains(&real) {
+                dirs.push(real);
+            }
+        }
+    }
+    let dirs: Vec<&str> = dirs.iter().map(String::as_str).collect();
+    seed_home_claude_json(&dirs)?;
 
     let env_pane = format!("HERDR_PANE_ID={}", id);
     let env_root = format!("AGENT_LINK_PROJECT_ROOT={}", root_s);
@@ -350,6 +361,10 @@ mod tests {
         assert_eq!(v["projects"]["/root"]["hasTrustDialogAccepted"], true);
         assert_eq!(v["projects"]["/x"]["allowedTools"], json!(["Bash"]));
         assert_eq!(v["numStartups"], 3);
+        // 元のパスと実パスの両方に trust が入る
+        let v = seed_claude_json(v, &["/var/x", "/private/var/x"], None);
+        assert_eq!(v["projects"]["/var/x"]["hasTrustDialogAccepted"], true);
+        assert_eq!(v["projects"]["/private/var/x"]["hasTrustDialogAccepted"], true);
         // 末尾 20 文字だけ（"ghijklmnopqrstuvwxyz" は 20 文字）
         assert_eq!(
             v["customApiKeyResponses"]["approved"],
