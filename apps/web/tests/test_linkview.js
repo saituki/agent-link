@@ -4,10 +4,10 @@
 // - 住所の読み書き（#/project/<name>/list と …/<run_id>/<表示>）
 // - Dashboard | List の選択をプロジェクトごとに覚える
 // - 最後に見ていた表示の記憶と todo run の task 固定（session は覚えない）
-// - ツリーの開閉（覚えが無い＝全部開く・1 つ閉じたら次も同じ）
-// - ツリーの組み立て（字下げ・同じ run が両方にあっても最初の 1 件）
+// - ツリーの開閉（覚えが無い＝defaultOpenIds・1 つ開け閉めしたら次も同じ）
+// - ツリーの組み立て（日付フォルダ・run の入れ子・字下げ・開閉）
 // - Log / Stats / History の表示の組み立て
-// - review → done → Workflow の移動ボタンの出し分け（計画書 A の U10）
+// - review → Workflow の移動ボタンの出し分け
 // - エージェントが起こすカード（executer が空でなく human でない）の判定（U1・U12）
 // 実行:
 //     node tests/test_linkview.js
@@ -32,7 +32,7 @@ const lv = require(path.join(
   "linkview.js"
 ));
 
-// ツリーの例（agent-link `phone tree` の形・計画 12 §3.2）
+// ツリーの例（`agent-link run tree --json` の形・C-TREE）
 function sampleTree() {
   return [
     {
@@ -44,16 +44,30 @@ function sampleTree() {
     {
       type: "folder", id: "running", label: "running", depth: 0,
       children: [
-        { type: "run", run_id: 25, label: "ID25/main", lane: "running", status: "running" },
+        {
+          type: "run", run_id: 25, label: "ID25/main", lane: "running", status: "running",
+          children: [
+            { type: "run", run_id: 26, label: "ID26/worker", lane: "running", status: "running" },
+          ],
+        },
+      ],
+    },
+    { type: "folder", id: "review", label: "review", depth: 0, children: [
+      { type: "run", run_id: 41, label: "ID41/main", lane: "review", status: "completed" },
+    ] },
+    {
+      type: "folder", id: "261005", label: "261005", depth: 0,
+      children: [
+        { type: "run", run_id: 10, label: "ID10/main", lane: "workflow", status: "completed" },
       ],
     },
     {
-      type: "folder", id: "R2", label: "R2", depth: 0,
+      type: "folder", id: "261006", label: "261006", depth: 0,
       children: [
         {
-          type: "folder", id: "R2/r1", label: "r1", depth: 1,
+          type: "run", run_id: 11, label: "ID11/kantoku", lane: "workflow", status: "completed",
           children: [
-            { type: "run", run_id: 11, label: "ID11/sub", lane: "done", status: "completed" },
+            { type: "run", run_id: 12, label: "ID12/worker", lane: "workflow", status: "completed" },
           ],
         },
       ],
@@ -70,21 +84,22 @@ function testHash() {
   );
   assert.strictEqual(lv.modeHash("p", "dashboard"), "#/project/p");
   assert.strictEqual(lv.modeHash("p", "list"), "#/project/p/list");
-  // 共有契約 C-F7：切り替えの住所（U10 でコマンド・会話検索を足した）
+  // 共有契約 C-F7：切り替えの住所
   assert.strictEqual(lv.modeHash("p", "workflow"), "#/project/p/workflow");
   assert.strictEqual(lv.modeHash("p", "defs"), "#/project/p/defs");
-  assert.strictEqual(lv.modeHash("p", "commands"), "#/project/p/commands");
+  // コマンドの画面は無い（不明な値は Dashboard）
+  assert.strictEqual(lv.modeHash("p", "commands"), "#/project/p");
   assert.strictEqual(lv.modeHash("p", "sessions"), "#/project/p/sessions");
   // 不明・未指定は Dashboard
   assert.strictEqual(lv.modeHash("p", "oreason"), "#/project/p");
   assert.strictEqual(lv.modeHash("p", null), "#/project/p");
   assert.deepStrictEqual(
     lv.LV_MODES.map((m) => m[0]),
-    ["dashboard", "workflow", "list", "defs", "commands", "sessions"]
+    ["dashboard", "workflow", "list", "defs", "sessions"]
   );
   assert.deepStrictEqual(
     lv.LV_MODES.map((m) => m[1]),
-    ["Dashboard", "Workflow", "List", "Settings", "コマンド", "会話検索"]
+    ["Dashboard", "Workflow", "List", "Settings", "会話検索"]
   );
 
   // 読み取る
@@ -256,17 +271,17 @@ function testAgentRun() {
 
 function testFolds() {
   store.clear();
-  // 覚えが無ければ null（＝全部開く・計画 14 §1.2）
+  // 覚えが無ければ null（＝defaultOpenIds・計画 14 §1.2）
   assert.strictEqual(lv.lvLoadFolds("p"), null);
   // 1 つ閉じたら，開いている id の一覧として覚える
-  let open = lv.toggleFold(lv.allFolderIds(sampleTree()), "running");
-  assert.deepStrictEqual(open.sort(), ["R2", "R2/r1", "todo"]);
+  let open = lv.toggleFold(lv.defaultOpenIds(sampleTree()), "running");
+  assert.deepStrictEqual(open.sort(), ["261006", "review", "todo"]);
   lv.lvSaveFolds("p", open);
-  assert.deepStrictEqual(lv.lvLoadFolds("p").sort(), ["R2", "R2/r1", "todo"]);
+  assert.deepStrictEqual(lv.lvLoadFolds("p").sort(), ["261006", "review", "todo"]);
   // 開いているものが無い状態も覚える（全部閉じたまま）
   lv.lvSaveFolds("p", []);
   assert.deepStrictEqual(lv.lvLoadFolds("p"), []);
-  // プロジェクトごとに別々（覚えが無ければ全部開く）
+  // プロジェクトごとに別々（覚えが無ければ null）
   assert.strictEqual(lv.lvLoadFolds("q"), null);
   // toggle: 押すごとに開閉が反転する
   assert.deepStrictEqual(lv.toggleFold([], "a"), ["a"]);
@@ -274,9 +289,23 @@ function testFolds() {
   assert.deepStrictEqual(lv.toggleFold(["a"], "b").sort(), ["a", "b"]);
 }
 
+function testDefaultOpenIds() {
+  // todo・running・review と、一番新しい日付 1 つ。子を持つ run（run:11・run:25）は含めない
+  assert.deepStrictEqual(lv.defaultOpenIds(sampleTree()), ["todo", "running", "review", "261006"]);
+  assert.deepStrictEqual(lv.defaultOpenIds([]), ["todo", "running", "review"]);
+  assert.deepStrictEqual(lv.defaultOpenIds(null), ["todo", "running", "review"]);
+  // 日付は数字 6 桁だけ（古い順に並んでいなくても一番大きいものを選ぶ）
+  const items = [
+    { type: "folder", id: "261101", label: "261101", children: [] },
+    { type: "folder", id: "261005", label: "261005", children: [] },
+    { type: "folder", id: "abc", label: "abc", children: [] },
+  ];
+  assert.deepStrictEqual(lv.defaultOpenIds(items), ["todo", "running", "review", "261101"]);
+}
+
 function testFlatten() {
   const items = sampleTree();
-  // 覚えが無い＝全部開く（字下げも nesting の深さどおり）
+  // 全部開く（探す処理用）。字下げは入れ子の深さどおり
   const all = lv.flattenTree(items, null);
   assert.deepStrictEqual(
     all.map((r) => [r.type, r.label, r.depth]),
@@ -285,79 +314,80 @@ function testFlatten() {
       ["run", "ID14/sub", 1],
       ["folder", "running", 0],
       ["run", "ID25/main", 1],
-      ["folder", "R2", 0],
-      ["folder", "r1", 1],
-      ["run", "ID11/sub", 2],
+      ["run", "ID26/worker", 2],
+      ["folder", "review", 0],
+      ["run", "ID41/main", 1],
+      ["folder", "261005", 0],
+      ["run", "ID10/main", 1],
+      ["folder", "261006", 0],
+      ["run", "ID11/kantoku", 1],
+      ["run", "ID12/worker", 2],
     ]
   );
   // 1 つも開いていなければフォルダだけ
   const closed = lv.flattenTree(items, []);
-  assert.deepStrictEqual(closed.map((r) => r.type), ["folder", "folder", "folder"]);
+  assert.deepStrictEqual(closed.map((r) => r.type), ["folder", "folder", "folder", "folder", "folder"]);
   assert.strictEqual(closed.every((r) => r.open === false), true);
-  // R2 だけ開く → r1 は見えて，中身（run）は見えない
-  const some = lv.flattenTree(items, ["R2"]);
+  // 日付フォルダだけ開く → 親 run は見えて，閉じているので子は見えない
+  const some = lv.flattenTree(items, ["261006"]);
   assert.deepStrictEqual(
     some.map((r) => r.label),
-    ["todo", "running", "R2", "r1"]
+    ["todo", "running", "review", "261005", "261006", "ID11/kantoku"]
+  );
+  const parent = some.find((r) => r.runId === 11);
+  assert.strictEqual(parent.hasChildren, true);
+  assert.strictEqual(parent.open, false);
+  assert.strictEqual(parent.id, "run:11");
+  // run:11 を開くと子が depth + 1 で並ぶ
+  const nested = lv.flattenTree(items, ["261006", "run:11"]);
+  assert.deepStrictEqual(
+    nested.slice(-2).map((r) => [r.label, r.depth, r.hasChildren]),
+    [["ID11/kantoku", 1, true], ["ID12/worker", 2, false]]
+  );
+  // 孫まで入れ子（何段でも）
+  const deep = [{ type: "folder", id: "261006", label: "261006", children: [
+    { type: "run", run_id: 1, label: "a", children: [
+      { type: "run", run_id: 2, label: "b", children: [{ type: "run", run_id: 3, label: "c" }] },
+    ] },
+  ] }];
+  assert.deepStrictEqual(
+    lv.flattenTree(deep, ["261006", "run:1", "run:2"]).map((r) => [r.label, r.depth]),
+    [["261006", 0], ["a", 1], ["b", 2], ["c", 3]]
   );
   // run の行には lane / status が付く（todo 判定と色分けに使う）
   const run = lv.flattenTree(items, null).find((r) => r.runId === 14);
   assert.strictEqual(run.lane, "todo");
   assert.strictEqual(run.status, "todo");
+  assert.strictEqual(run.hasChildren, false);
 }
 
 function testFindRun() {
   const items = sampleTree();
-  // 同じ run が両方に出ても最初の 1 件を返す
   assert.strictEqual(lv.findRun(items, 25).runId, 25);
-  assert.strictEqual(lv.findRun(items, 11).lane, "done");
+  // 入れ子の中の run も探す（閉じていても）
+  assert.strictEqual(lv.findRun(items, 26).label, "ID26/worker");
+  assert.strictEqual(lv.findRun(items, 12).lane, "workflow");
   assert.strictEqual(lv.findRun(items, 999), null);
   assert.strictEqual(lv.findRun(items, "abc"), null);
-  assert.deepStrictEqual(lv.allFolderIds(items), ["todo", "running", "R2", "R2/r1"]);
 }
 
 function testAdvanceAction() {
-  // 状態フォルダ（review / done）と R/r 側の両方から lane を見る（計画書 A の U10）
-  const items = [
-    {
-      type: "folder", id: "review", label: "review", depth: 0,
-      children: [
-        { type: "run", run_id: 41, label: "ID41/main", lane: "review", status: "completed" },
-      ],
-    },
-    {
-      type: "folder", id: "done", label: "done", depth: 0,
-      children: [
-        { type: "run", run_id: 40, label: "ID40/main", lane: "done", status: "completed" },
-      ],
-    },
-    {
-      type: "folder", id: "R2", label: "R2", depth: 0,
-      children: [
-        { type: "run", run_id: 40, label: "ID40/main", lane: "done", status: "completed" },
-        { type: "run", run_id: 41, label: "ID41/main", lane: "review", status: "completed" },
-        { type: "run", run_id: 39, label: "ID39/main", lane: "R2", status: "completed" },
-      ],
-    },
-  ];
-  // review の run は → done へ、done の run は → Workflow へ
+  const items = sampleTree();
+  // review の run だけ → Workflow
   assert.deepStrictEqual(lv.advanceAction(items, 41), {
-    from: "review", to: "done", label: "→ done",
+    from: "review", to: "workflow", label: "→ Workflow",
   });
-  assert.deepStrictEqual(lv.advanceAction(items, 40), {
-    from: "done", to: "workflow", label: "→ Workflow",
-  });
-  // 既に Workflow（R<gr>）や todo / running には出さない
-  assert.strictEqual(lv.advanceAction(items, 39), null);
-  assert.strictEqual(lv.advanceAction(sampleTree(), 25), null); // running
-  assert.strictEqual(lv.advanceAction(sampleTree(), 14), null); // todo
+  // 既に Workflow（日付フォルダ）・todo・running（子も）には出さない
+  assert.strictEqual(lv.advanceAction(items, 10), null);
+  assert.strictEqual(lv.advanceAction(items, 12), null);
+  assert.strictEqual(lv.advanceAction(items, 14), null);
+  assert.strictEqual(lv.advanceAction(items, 25), null);
+  assert.strictEqual(lv.advanceAction(items, 26), null);
   assert.strictEqual(lv.advanceAction(items, 999), null);
   assert.strictEqual(lv.advanceAction(null, 41), null);
 
-  // lane は重複を消して全部取る（最初の 1 件だけで決めない）
   assert.deepStrictEqual(Array.from(lv.runLanes(items, 41)), ["review"]);
-  assert.deepStrictEqual(Array.from(lv.runLanes(items, 40)), ["done"]);
-  assert.deepStrictEqual(Array.from(lv.runLanes(items, 39)), ["R2"]);
+  assert.deepStrictEqual(Array.from(lv.runLanes(items, 12)), ["workflow"]);
   assert.deepStrictEqual(Array.from(lv.runLanes(items, 999)), []);
 }
 
@@ -370,7 +400,7 @@ function testLogSections() {
     ],
     round: 1,
     global_round: 5,
-    tag: null,
+    tag: "x",
     model: "opus",
     thinking: "high",
     started_at: "2026-09-23 13:38:37",
@@ -386,9 +416,9 @@ function testLogSections() {
       total_tokens: 439966,
     },
     connections: [
-      { direction: "from", kind: "task_text", run_id: 29, global_round: 5, round: 1, block_name: "plan", waggle_token: "abcd1234", file_path: ".agent-link/outputs/R5/29/plan.md" },
-      { direction: "to", kind: "task_create", run_id: 36, global_round: 5, round: 1, block_name: "worker", description: "実装する" },
-      { direction: "from", kind: "task_output", run_id: 40, global_round: null, round: 2, block_name: "sub" },
+      { direction: "from", kind: "task_text", run_id: 29, block_name: "plan", waggle_token: "abcd1234", file_path: ".agent-link/outputs/R5/29/plan.md" },
+      { direction: "to", kind: "task_create", run_id: 36, block_name: "worker", description: "実装する" },
+      { direction: "from", kind: "task_output", run_id: 40, block_name: "sub" },
     ],
     review_from: [],
     review_to: [],
@@ -408,16 +438,18 @@ function testLogSections() {
     []
   );
   const conf = Object.fromEntries(sections[1].rows);
-  assert.strictEqual(conf["Round"], "r1");
-  assert.strictEqual(conf["Global round"], "R5");
+  // round・global_round・tag は出さない
+  assert.strictEqual(conf["Round"], undefined);
+  assert.strictEqual(conf["Global round"], undefined);
+  assert.strictEqual(conf["Tag"], undefined);
   assert.strictEqual(conf["Model"], "opus");
   assert.strictEqual(conf["thinking"], "high");
   assert.strictEqual(conf["commit"], "aaaaaaa → bbbbbbb");
   // Connection は作られた順のまま、head と sub と run_id を持つ（統計は Stats の表示へ移した）
   assert.deepStrictEqual(sections[2].items, [
-    { head: "from [task_text] R5.1/ID29/plan", sub: "waggle:abcd1234 file:.agent-link/outputs/R5/29/plan.md", runId: 29 },
-    { head: "to [task_create] R5.1/ID36/worker", sub: "実装する", runId: 36 },
-    { head: "from [task_output] R?.2/ID40/sub", sub: "", runId: 40 },
+    { head: "from [task_text] ID29/plan", sub: "waggle:abcd1234 file:.agent-link/outputs/R5/29/plan.md", runId: 29 },
+    { head: "to [task_create] ID36/worker", sub: "実装する", runId: 36 },
+    { head: "from [task_output] ID40/sub", sub: "", runId: 40 },
   ]);
   assert.deepStrictEqual(sections[3].rows, [["waggle", "H9sPKWNJ"]]);
   assert.strictEqual(JSON.stringify(sections).includes("turn_count"), false);
@@ -518,7 +550,7 @@ function testTypeSlices() {
 function testCanEdit() {
   // 編集できるのは未実行の todo の task だけ。message と report（finalize-report.md）は不可
   const todo = { lane: "todo", status: "todo" };
-  const done = { lane: "done", status: "completed" };
+  const done = { lane: "workflow", status: "completed" };
   assert.strictEqual(lv.lvCanEdit("task", todo), true);
   assert.strictEqual(lv.lvCanEdit("task", done), false);
   assert.strictEqual(lv.lvCanEdit("message", done), false);
@@ -603,6 +635,7 @@ function main() {
   testTodoRun();
   testAgentRun();
   testFolds();
+  testDefaultOpenIds();
   testFlatten();
   testFindRun();
   testAdvanceAction();

@@ -25,9 +25,9 @@ function testWideAt() {
 // C-F5 の用語が全部あって、1 つ 1 つ名前と説明がある
 // U19 が research-tree の用語を足し、U41 が今の用語 19 個に作り直した（共有契約 C-14）。
 const C_F5 = [
-  "run", "todo", "running", "review", "done", "workflow", "kanban", "block",
-  "template", "settings", "runner", "round", "global_round", "waggle", "daemon",
-  "card", "task_text", "phase", "bibtex", "attention", "state", "mind",
+  "run", "todo", "running", "review", "workflow", "kanban", "block",
+  "template", "settings", "waggle", "daemon",
+  "card", "task_text", "bibtex", "attention", "state", "mind",
   "sci_research_tree", "sci_seed", "sci_root", "sci_sprout", "sci_branch",
   "sci_path", "sci_node", "sci_top_q", "sci_star", "sci_rel",
   "sci_proposal", "sci_triage", "sci_card", "sci_guide",
