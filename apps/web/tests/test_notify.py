@@ -95,7 +95,7 @@ def test_heading_is_project_name() -> None:
         # 長い作業が終わった（working が続いた後の idle）
         watch._working_since[pane_id] = 0.0
         watch.notify_status_change(run, "idle", "working", watch._LONG_WORK_SEC)
-        assert sent[-1] == ("sai-base", "U01 #7 の作業が終わりました", "/#/run/sai-base/7")
+        assert sent[-1] == ("sai-base", "U01 #7 has finished.", "/#/run/sai-base/7")
         # 3 分未満では通知しない
         watch._working_since[pane_id] = 0.0
         watch.notify_status_change(run, "idle", "working", 10.0)
@@ -151,7 +151,7 @@ def test_long_work_notifies_once() -> None:
             # 3 分後に idle になる → 通知が 1 回だけ
             write_state("idle")
             watch.watch_once(now=watch._LONG_WORK_SEC)
-            assert sent == [("sai-base", "U01 #7 の作業が終わりました", "/#/run/sai-base/7")], sent
+            assert sent == [("sai-base", "U01 #7 has finished.", "/#/run/sai-base/7")], sent
             # もう一度 idle のまま見回っても増えない
             watch.watch_once(now=watch._LONG_WORK_SEC + watch._POLL_SEC)
             assert len(sent) == 1, sent

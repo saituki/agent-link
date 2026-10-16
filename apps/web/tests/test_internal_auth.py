@@ -140,7 +140,7 @@ def test_internal_addresses_localhost_only() -> None:
     qid = body["id"]
 
     status, body = call("POST", "/api/questions", json_body=question_body("s1", "tu-2"), client=REMOTE)
-    assert status == 403 and body["detail"] == "内部専用です", (status, body)
+    assert status == 403 and body["detail"] == "Internal use only.", (status, body)
     # Authorization を付けても、localhost でなければ 403 のまま
     status, body = call(
         "POST",
@@ -149,7 +149,7 @@ def test_internal_addresses_localhost_only() -> None:
         headers={"authorization": "Bearer any-token"},
         client=REMOTE,
     )
-    assert status == 403 and body["detail"] == "内部専用です", (status, body)
+    assert status == 403 and body["detail"] == "Internal use only.", (status, body)
     # IPv6 の localhost も通る
     status, body = call(
         "POST", "/api/questions", json_body=question_body("s1", "tu-4"), client=("::1", 40000)
@@ -160,7 +160,7 @@ def test_internal_addresses_localhost_only() -> None:
     status, body = call("GET", f"/api/questions/{qid}")
     assert status == 200 and body["id"] == qid, (status, body)
     status, body = call("GET", f"/api/questions/{qid}", client=REMOTE)
-    assert status == 403 and body["detail"] == "内部専用です", (status, body)
+    assert status == 403 and body["detail"] == "Internal use only.", (status, body)
 
     # 登録も同じ
     reg = {"agent": "claude", "session_id": "s1", "transcript_path": "", "cwd": "/tmp", "pane_id": "p"}
@@ -343,7 +343,7 @@ def test_send_and_interrupt_withdraw_questions() -> None:
 
         # --- 取り下げの住所: 開いていなければ 409、無ければ 404
         status, body = call("POST", f"/api/questions/{q2}/withdraw", json_body={"text": "x"})
-        assert status == 409 and body["detail"] == "この質問はもう締め切られています", (status, body)
+        assert status == 409 and body["detail"] == "This question is already closed.", (status, body)
         q3 = ask("tu-live-3")
         status, body = call("POST", f"/api/questions/{q3}/withdraw", json_body={"text": "表は要らない"})
         assert status == 200 and body == {"ok": True}, (status, body)

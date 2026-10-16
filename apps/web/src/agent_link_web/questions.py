@@ -75,7 +75,7 @@ def _notify_if_run(session_id: str) -> None:
             if session_id in runs.run_session_ids(run):
                 notify.broadcast(
                     notify.notify_heading(run),
-                    f"{notify.run_title(run)} が質問しています",
+                    f"{notify.run_title(run)} is asking a question.",
                     notify.run_url(run),
                 )
                 return
@@ -137,7 +137,7 @@ def answer_question(
     lock = _answer_lock(qid)
     if not lock.acquire(blocking=False):
         logger.warning("回答の送信中被り: qid=%s", qid)
-        return (False, "送信中です")
+        return (False, "Already sending.")
     try:
         return _answer_question_locked(qid, answers, answered_by)
     finally:
@@ -150,10 +150,10 @@ def _answer_question_locked(
     """ロックを取った後の本体（answer_question から呼ばれる）．"""
     q = store.get_question(qid)
     if q is None:
-        return (False, "質問が見つかりません")
+        return (False, "Question not found.")
     questions = q["questions"] or []
     if q["state"] != "open":
-        return (False, "この質問は回答済みです")
+        return (False, "This question is already answered.")
     # 質問数に answers を合わせる（欠けている分は空扱い）
     answers = list(answers) + [{}] * max(0, len(questions) - len(answers))
     # 未選択の問が残っていたら記録しない（画面側で全問 answered になるまで
@@ -165,7 +165,7 @@ def _answer_question_locked(
             and not a.get("choice_indices")
             and not (a.get("text") or "").strip()
         ):
-            return (False, "未回答の質問があります")
+            return (False, "There are unanswered questions.")
 
     # headless ではキーを送れない．記録するだけ（cc のフックと pi の拡張が取りに来る）
     # 回答者は今の利用者（単独モードは user）．承認の記録（approval record）に使う（C8）

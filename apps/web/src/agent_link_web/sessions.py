@@ -54,7 +54,7 @@ def _readable(value: object, indent: int = 0) -> str:
     pad = "  " * indent
     if isinstance(value, dict):
         if not value:
-            return f"{pad}(なし)"
+            return f"{pad}(none)"
         lines: list[str] = []
         for key, val in value.items():
             if _is_block(val):
@@ -65,7 +65,7 @@ def _readable(value: object, indent: int = 0) -> str:
         return "\n".join(lines)
     if isinstance(value, list):
         if not value:
-            return f"{pad}(なし)"
+            return f"{pad}(none)"
         lines = []
         for val in value:
             if _is_block(val):
@@ -105,13 +105,13 @@ def _mcp_use_detail(name: str, args: dict) -> str:
         return ""
     if _mcp_short_name(name) is None:
         return json.dumps(args, ensure_ascii=False)
-    return "引数\n" + _readable(args)
+    return "Arguments\n" + _readable(args)
 
 
 def _join_result(target: dict, plain: str) -> None:
     """tool_result の本文 plain を tool 項目 target の detail へ足す（cc と pi で共通）．"""
     if _mcp_short_name(target.get("tool") or "") is not None or target.get("cli"):
-        plain = "戻り値\n" + _mcp_result_text(plain)
+        plain = "Result\n" + _mcp_result_text(plain)
     prev = target.get("detail") or ""
     target["detail"] = f"{prev}\n---\n{plain}" if prev else plain
 
@@ -218,7 +218,7 @@ def _tool_item(item_id: str, timestamp: str, name: str, args: dict) -> dict:
             cli, label, args_text = call
             item["label"] = label
             item["cli"] = cli
-            item["detail"] = f"引数\n{args_text}" if args_text else ""
+            item["detail"] = f"Arguments\n{args_text}" if args_text else ""
     return item
 
 
@@ -242,16 +242,16 @@ def _tool_label(name: str, args: dict) -> str:
                 file_arg = basename(args[key])
                 break
     if lower in ("read",):
-        return f"{file_arg or 'ファイル'} を読んだ" if file_arg else "ファイルを読んだ"
+        return f"Read {file_arg}" if file_arg else "Read a file"
     if lower in ("edit",):
-        return f"{file_arg or 'ファイル'} を編集した" if file_arg else "ファイルを編集した"
+        return f"Edited {file_arg}" if file_arg else "Edited a file"
     if lower in ("write",):
-        return f"{file_arg or 'ファイル'} を書いた" if file_arg else "ファイルを書いた"
+        return f"Wrote {file_arg}" if file_arg else "Wrote a file"
     if lower in ("bash",):
         cmd = ""
         if isinstance(args, dict) and isinstance(args.get("command"), str):
             cmd = args["command"].strip().split("\n")[0][:30]
-        return f"{cmd} を実行した" if cmd else "コマンドを実行した"
+        return f"Ran {cmd}" if cmd else "Ran a command"
     if lower in ("grep", "glob"):
         pattern = ""
         if isinstance(args, dict):
@@ -259,14 +259,14 @@ def _tool_label(name: str, args: dict) -> str:
                 if isinstance(args.get(key), str) and args[key]:
                     pattern = str(args[key])[:30]
                     break
-        return f"「{pattern}」を検索した" if pattern else "検索した"
+        return f"Searched for \"{pattern}\"" if pattern else "Searched"
     if lower in ("task",):
-        return "別のエージェントに任せた"
+        return "Delegated to another agent"
     if lower in ("askuserquestion", "ask_user", "ask_user_phone"):
         # 05 §3.1-3: 閉じた状態のツール項目は「⚙ 質問」の1行（⚙ は app.js が付ける）。
         # 古い名前 ask_user_phone も残す（古い会話の記録を同じ見出しで出すため・U17）。
-        return "質問"
-    return f"{name} を実行した"
+        return "Question"
+    return f"Ran {name}"
 
 
 def _text_of(blocks: object) -> str:
@@ -355,7 +355,7 @@ def _duration_jp(ms: int) -> str:
     """ミリ秒を「1分20秒」のように直す．"""
     total = max(0, int(ms) // 1000)
     minutes, seconds = divmod(total, 60)
-    return f"{minutes}分{seconds}秒" if minutes else f"{seconds}秒"
+    return f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
 
 
 def _usage_line(content: str) -> str | None:
@@ -394,9 +394,9 @@ def _usage_line(content: str) -> str | None:
             dur_ms = jpick("duration_ms", "elapsed_ms")
     parts: list[str] = []
     if tokens is not None:
-        parts.append(f"トークン {tokens:,}")
+        parts.append(f"Tokens {tokens:,}")
     if tools is not None:
-        parts.append(f"ツール {tools} 回")
+        parts.append(f"Tool calls {tools}")
     if dur_ms is not None:
         parts.append(_duration_jp(dur_ms))
     if not parts:
@@ -429,17 +429,17 @@ def _event_task_notification(content: str) -> dict:
     summary = _inner(content, "summary")
     output_file = _inner(content, "output-file")
     if status == "completed":
-        tone, title = "ok", "バックグラウンド処理 完了"
+        tone, title = "ok", "Background task completed"
     elif status in ("failed", "killed", "error", "cancelled", "timeout", "timed_out"):
-        tone, title = "error", "バックグラウンド処理 失敗"
+        tone, title = "error", "Background task failed"
     else:
         tone = "info"
-        title = f"バックグラウンド処理 {status}" if status else "バックグラウンド処理"
+        title = f"Background task {status}" if status else "Background task"
     fields: list[list[str]] = []
     if status:
-        fields.append(["状態", status])
+        fields.append(["Status", status])
     if output_file:
-        fields.append(["出力ファイル", output_file])
+        fields.append(["Output file", output_file])
     # 補足: <event> の JSON を整形して入れ，無ければ <result> の中身を使う
     detail = ""
     raw_event = _inner(content, "event")
@@ -466,10 +466,10 @@ def _event_for_block(name: str, content: str) -> dict | None:
     if name == "task-notification":
         return _event_task_notification(content)
     if name == "local-command-stdout":
-        return _new_event("command_output", "コマンドの出力", "info", "", content.strip())
+        return _new_event("command_output", "Command output", "info", "", content.strip())
     if name == "persisted-output":
         # 中身は「Output too large …」の先頭だけdetailに入れる（03 §3）
-        return _new_event("persisted_output", "出力を保存しました", "info", "", content.strip()[:1000])
+        return _new_event("persisted_output", "Output saved", "info", "", content.strip()[:1000])
     # 上記以外のタグはタグ名をそのまま見出しにした info カード（03 §3 の表の最後）
     return _new_event(name, name, "info", "", content.strip())
 
@@ -524,7 +524,7 @@ def analyze_special(text: str) -> tuple[str, list[dict]]:
         line = _command_line(cmd)
         events[cmd_pos] = _new_event(
             "command",
-            f"コマンド {line}" if line else "コマンド",
+            f"Command {line}" if line else "Command",
             "info",
             "",
             line,

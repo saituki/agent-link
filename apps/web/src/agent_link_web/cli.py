@@ -61,7 +61,7 @@ def raise_for_failure(app: str, proc: subprocess.CompletedProcess):
     同じ読み替えを使うための入口。理由は終了コードと標準エラーだけで決める。
     """
     _log_stderr(app, proc)
-    detail = last_reason(proc) or f"{app} が失敗しました"
+    detail = last_reason(proc) or f"{app} failed."
     status = {2: 400, 3: 404, 4: 409}.get(proc.returncode, 502)
     raise HTTPException(status_code=status, detail=detail)
 
@@ -77,7 +77,7 @@ def result_json(proc: subprocess.CompletedProcess, *, app: str):
         return json.loads(proc.stdout or "")
     except (json.JSONDecodeError, TypeError):
         _log_stderr(app, proc)
-        raise HTTPException(status_code=502, detail=f"{app} の応答を読めませんでした")
+        raise HTTPException(status_code=502, detail=f"Could not read the response from {app}.")
 
 
 def run_cli(
@@ -110,12 +110,12 @@ def run_cli(
         # PATH に無い・設定の場所が間違っている
         raise HTTPException(
             status_code=503,
-            detail=f"{app} が見つかりません（設定の場所を確認してください）",
+            detail=f"{app} not found. Check the configured path.",
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(
             status_code=504,
-            detail=f"{app} が時間内に応答しませんでした",
+            detail=f"{app} did not respond in time.",
         )
 
 

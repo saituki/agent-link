@@ -254,7 +254,7 @@ class WebCliTest(unittest.TestCase):
         code, out, err = run_cli("answer", "q1", "--choice", "0")
         self.assertEqual(code, 2, out + err)
         self.assertEqual(out, "")
-        self.assertIn("問いは 2 個", err)
+        self.assertIn("The question has 2 items", err)
         self.assertEqual(
             [r for r in RECEIVED if r["path"].endswith("/answer")], [],
             "数を間違えているのに送ってしまいました",
@@ -284,7 +284,7 @@ class WebCliTest(unittest.TestCase):
         self._status_case("/api/status/notfound", 3, "質問が見つかりません")
         self._status_case("/api/status/conflict", 4, "すでに答えています")
         # 422 の detail は一覧。各項目の msg を「・」でつなぐ
-        self._status_case("/api/status/invalid", 2, "必須です・番号が違います")
+        self._status_case("/api/status/invalid", 2, "必須です; 番号が違います")
         self._status_case("/api/status/boom", 1, "内部で失敗しました")
 
     # --- つながらない
@@ -295,7 +295,7 @@ class WebCliTest(unittest.TestCase):
         self.assertEqual(code, 1, out + err)
         self.assertEqual(out, "")
         last = [line for line in err.splitlines() if line.strip()][-1]
-        self.assertIn("Web の窓口（http://127.0.0.1:9）につながりません", last)
+        self.assertIn("Cannot reach the Web server (http://127.0.0.1:9)", last)
 
     # --- api
     def test_api_get_returns_json(self) -> None:
@@ -338,7 +338,7 @@ class WebCliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         last = [line for line in err.splitlines() if line.strip()][-1]
-        self.assertIn("この API の応答（application/pdf）は CLI では扱えません", last)
+        self.assertIn("The CLI cannot handle this API response (application/pdf).", last)
 
     def test_api_text_response_is_printed(self) -> None:
         code, out, err = run_cli("api", "GET", "/api/plain/hello")

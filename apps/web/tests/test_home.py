@@ -223,7 +223,7 @@ def setup(fake: Fake) -> None:
     def phone_tree(name: str) -> dict:
         fake.tree_calls.append(name)
         if name in fake.fail_tree:
-            raise HTTPException(status_code=502, detail="agent-link が失敗しました")
+            raise HTTPException(status_code=502, detail="agent-link failed.")
         return json.loads(json.dumps(TREE))
 
     def load_runs():
@@ -274,7 +274,7 @@ def test_questions(fake: Fake) -> None:
     assert first["run_id"] == 55, first
     # 実行が無い質問は null（無ければ null にする）
     second = qs[1]
-    assert second["title"] == "質問", second
+    assert second["title"] == "Question", second
     assert second["project"] is None, second
     assert second["run_id"] is None, second
 
@@ -355,7 +355,7 @@ def test_errors(fake: Fake) -> None:
     out = home.build_home()
     names = [r["name"] for r in out["projects"]]
     assert names == ["agent-link"], names
-    assert out["errors"] == ["agent-link-web: agent-link が失敗しました"], out["errors"]
+    assert out["errors"] == ["agent-link-web: agent-link failed."], out["errors"]
 
 
 def test_cache(fake: Fake) -> None:
@@ -490,7 +490,7 @@ def test_overview_bad_period(fake: Fake) -> None:
         home.build_overview("bad")
     except HTTPException as e:
         assert e.status_code == 400, e.status_code
-        assert e.detail == "period は week / month / all のいずれかにしてください", e.detail
+        assert e.detail == "period must be one of week, month, all.", e.detail
     else:
         raise AssertionError("period=bad で 400 が返らなかった")
     # 住所の関数越しでも同じ（/?period=bad は 400 になる）

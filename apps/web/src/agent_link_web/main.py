@@ -48,7 +48,7 @@ def require_internal(request: Request) -> None:
     """フック・拡張からの内部の要求の守り。Mac 自身（127.0.0.1 / ::1）からのみ。"""
     client = request.client.host if request.client else ""
     if client not in ("127.0.0.1", "::1"):
-        raise HTTPException(status_code=403, detail="内部専用です")
+        raise HTTPException(status_code=403, detail="Internal use only.")
 
 
 @app.on_event("startup")
@@ -116,7 +116,7 @@ def _find_run(project_name: str, run_id: int) -> dict:
     for run in runs.load_runs():
         if run.get("project_name") == project_name and run.get("run_id") == run_id:
             return run
-    raise HTTPException(status_code=404, detail="実行が見つかりません")
+    raise HTTPException(status_code=404, detail="Run not found.")
 
 
 def _withdraw_open_questions(project_name: str, run_id: int, text: str) -> list[str]:
@@ -212,7 +212,7 @@ def api_register(req: RegisterRequest, request: Request) -> dict:
     # 内部登録は内部専用（Mac 自身だけ）．
     require_internal(request)
     if req.agent not in ("claude", "pi"):
-        raise HTTPException(status_code=400, detail="agent は claude か pi を指定してください")
+        raise HTTPException(status_code=400, detail="agent must be claude or pi.")
     store.save_registration(
         req.agent, req.session_id, req.transcript_path, req.cwd, req.pane_id
     )
@@ -234,7 +234,7 @@ def api_register_question(req: QuestionRegisterRequest, request: Request) -> dic
     # 内部登録は内部専用（Mac 自身だけ）
     require_internal(request)
     if req.agent not in ("claude", "pi"):
-        raise HTTPException(status_code=400, detail="agent は claude か pi を指定してください")
+        raise HTTPException(status_code=400, detail="agent must be claude or pi.")
     q = questions.register_question(
         req.agent, req.session_id, req.pane_id, req.tool_use_id, req.questions
     )
@@ -287,7 +287,7 @@ def api_push_subscribe(sub: PushSubscription) -> dict:
     info = {"endpoint": sub.endpoint, "keys": sub.keys}
     store.save_subscription(sub.endpoint, info)
     # 登録できたらその場で 1 通送る（届くかどうかを iPhone ですぐ確かめられるように）
-    result = notify.send_to(info, "agent-link","通知を受け取る設定ができました", "/#/")
+    result = notify.send_to(info, "agent-link","Notifications are set up.", "/#/")
     return {"ok": True, "test_sent": result == "ok"}
 
 
@@ -297,7 +297,7 @@ def api_get_question(qid: str, _: None = Depends(require_internal)) -> dict:
     # iPhone 側は /api/questions?session_id=… を使う．
     q = store.get_question(qid)
     if q is None:
-        raise HTTPException(status_code=404, detail="質問が見つかりません")
+        raise HTTPException(status_code=404, detail="Question not found.")
     return q
 
 
@@ -309,7 +309,7 @@ def api_session_questions(
     # 登録情報の pane_id だけで対応づける（全 jsonl 走査はやめた・02 §2.3）
     reg = store.get_registration(session_id)
     if reg is None:
-        raise HTTPException(status_code=404, detail="セッションが見つかりません")
+        raise HTTPException(status_code=404, detail="Session not found.")
     questions.expire_stale_questions()
     questions.refresh_question_state(
         session_id, reg.get("pane_id") or None, reg.get("agent")
@@ -378,7 +378,7 @@ def api_send_text(
     """
     text = (req.text or "").strip()
     if not text:
-        raise HTTPException(status_code=400, detail="文章が空です")
+        raise HTTPException(status_code=400, detail="The message is empty.")
     # 質問が開いているときは tmux に送らず，質問を取り下げて文を答えの代わりに渡す
     # （フックが待っている間は cc の入力欄の文がエージェントに届かないため）
     withdrawn = _withdraw_open_questions(project_name, run_id, text)
@@ -420,11 +420,11 @@ def api_withdraw_question(
     """
     text = (req.text or "") if req else ""
     if len(text) > 8000:
-        raise HTTPException(status_code=400, detail="文は 8000 文字までです")
+        raise HTTPException(status_code=400, detail="The message must be at most 8000 characters.")
     if store.get_question(qid) is None:
-        raise HTTPException(status_code=404, detail="質問が見つかりません")
+        raise HTTPException(status_code=404, detail="Question not found.")
     if not questions.withdraw_question(qid, text):
-        raise HTTPException(status_code=409, detail="この質問はもう締め切られています")
+        raise HTTPException(status_code=409, detail="This question is already closed.")
     return {"ok": True}
 
 
@@ -616,7 +616,7 @@ def api_project_run_schedule(
     """todo の実行予定時刻（`{"at": "YYYY-MM-DD HH:MM"}`・空で取り消し）。"""
     at = payload.get("at") if isinstance(payload, dict) else None
     if at is not None and not isinstance(at, str):
-        raise HTTPException(status_code=400, detail="時刻の形が正しくありません")
+        raise HTTPException(status_code=400, detail="The time format is invalid.")
     return control.phone_card_schedule(name, run_id, at or "")
 
 

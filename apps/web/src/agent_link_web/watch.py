@@ -40,7 +40,7 @@ def notify_status_change(run: dict, state: str, prev: str, now: float) -> None:
         if should_notify_done(run.get("herdr_pane_id") or "", now):
             notify.broadcast(
                 notify.notify_heading(run),
-                f"{notify.run_title(run)} の作業が終わりました",
+                f"{notify.run_title(run)} has finished.",
                 notify.run_url(run),
             )
 

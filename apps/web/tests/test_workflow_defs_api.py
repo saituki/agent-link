@@ -296,7 +296,7 @@ def test_def_delete(cli: FakeCli) -> None:
     ], cli.last["args"]
     cli.calls.clear()
     e = expect(400, lambda: control.phone_def_delete("demo", "settings", "project", "settings"))
-    assert "settings は消せません" in str(e.detail), e.detail
+    assert "settings cannot be deleted" in str(e.detail), e.detail
     assert cli.calls == [], cli.calls
 
 
@@ -339,13 +339,13 @@ def test_def_exit_codes(cli: FakeCli) -> None:
     cli.returncode = 1
     cli.stderr = ""
     e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
-    assert str(e.detail) == "agent-link が失敗しました", e.detail
+    assert str(e.detail) == "agent-link failed.", e.detail
 
     # 0 でも JSON が読めなければ 502
     cli.returncode = 0
     cli.stdout = "not json"
     e = expect(502, lambda: control.phone_def_show("demo", "block", "project", "x"))
-    assert str(e.detail) == "agent-link の応答を読めませんでした", e.detail
+    assert str(e.detail) == "Could not read the response from agent-link.", e.detail
 
 
 def test_def_errors_not_truncated(cli: FakeCli) -> None:

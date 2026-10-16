@@ -116,7 +116,7 @@ def notify_heading(run: dict) -> str:
 
 def run_title(run: dict) -> str:
     """通知に出す見出し（説明があればそれ，なければブロック名）．"""
-    text = run.get("description") or run.get("block_name") or "実行"
+    text = run.get("description") or run.get("block_name") or "Run"
     return f"{text} #{run.get('run_id', '')}"
 
 
