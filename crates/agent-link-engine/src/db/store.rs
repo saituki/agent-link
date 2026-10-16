@@ -1242,16 +1242,20 @@ impl SaiStore {
     /// `output_waggle_tokens` 配列の末尾に 1 件追記する（sai-write 用）。
     ///
     /// 既存トークンは保持したまま新しいトークンを追加する。既存が NULL/空なら
-    /// `[token]` になる。単数カラム `output_waggle_token` は変更しない。
+    /// `[token]` になる。既にあるトークンなら何もしない（`doc write` とデーモンの
+    /// 両方が呼ぶので、同じトークンが 2 つにならないようにする）。
+    /// 1 本の UPDATE で行うので、同時に呼ばれても追記を取りこぼさない。
+    /// 単数カラム `output_waggle_token` は変更しない。
     pub fn append_execution_waggle_token(&self, id: i64, token: &str) -> Result<(), DbError> {
-        let exec = self.get_execution_by_id(id)?;
-        let mut tokens: Vec<String> = exec
-            .output_waggle_tokens
-            .as_deref()
-            .and_then(|j| serde_json::from_str(j).ok())
-            .unwrap_or_default();
-        tokens.push(token.to_string());
-        self.update_execution_waggle_tokens(id, &tokens)
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE execution_history \
+             SET output_waggle_tokens = json_insert(COALESCE(output_waggle_tokens, '[]'), '$[#]', ?1) \
+             WHERE id = ?2 \
+             AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(output_waggle_tokens, '[]')) WHERE value = ?1)",
+            params![token, id],
+        )?;
+        Ok(())
     }
 
     /// `output_waggle_tokens` に新しいトークンを足す（既存と合わせた和集合。順序を保ち、重複は除く）。
@@ -3047,6 +3051,22 @@ mod tests {
         assert!(completed.finished_at.is_some());
         // duration_ms が設定されている（値は環境依存のため存在確認のみ）
         assert!(completed.duration_ms.is_some());
+    }
+
+    /// 同じトークンの追記は 2 回目から何もしない（`doc write` とデーモンの両方が追記するため）。
+    #[test]
+    fn append_execution_waggle_token_is_idempotent() {
+        let store = SaiStore::open_in_memory().unwrap();
+        let block_id = store.insert_block(&create_test_block("waggle-append")).unwrap();
+        let run = store.create_execution(block_id, None).unwrap();
+        for t in ["AAA00001", "BBB00002", "AAA00001"] {
+            store.append_execution_waggle_token(run, t).unwrap();
+        }
+        let tokens: Vec<String> = serde_json::from_str(
+            store.get_execution_by_id(run).unwrap().output_waggle_tokens.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tokens, vec!["AAA00001".to_string(), "BBB00002".to_string()]);
     }
 
     /// merge は既存のトークンを残し、新しい分を足す（重複は除き、順序を保つ）。

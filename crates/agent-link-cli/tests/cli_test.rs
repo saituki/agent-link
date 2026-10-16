@@ -270,6 +270,36 @@ fn test_cli_run_rm_json_and_exit_codes() {
     cleanup_temp_dir(&dir);
 }
 
+/// `doc write` の直後に、デーモン無しで `doc list --run <id> --all --json` に出る（同じトークンは 1 件）。
+#[test]
+fn test_cli_doc_write_then_doc_list_without_daemon() {
+    let dir = create_temp_dir();
+    let run = setup_execution(&dir, "doc-list");
+    let run_s = run.to_string();
+
+    let out = run_cli(
+        &dir,
+        &["doc", "write", "--filename", "a.md", "--description", "A", "--run-id", &run_s, "--json"],
+        Some("# a\n"),
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let w: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let token = w["token"].as_str().expect("token が返る").to_string();
+
+    let out = run_cli(&dir, &["doc", "list", "--run", &run_s, "--all", "--json"], None);
+    assert_eq!(out.status.code(), Some(0));
+    let l: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(l["count"], 1);
+    assert_eq!(l["items"][0]["token"], token.as_str());
+
+    // run 指定なしの一覧にも出る
+    let out = run_cli(&dir, &["doc", "list", "--all", "--json"], None);
+    let l: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(l["count"], 1);
+
+    cleanup_temp_dir(&dir);
+}
+
 /// `run finalize`: 無い run は 3、実行中でない run は 1（標準出力は空）。
 #[test]
 fn test_cli_run_finalize_rejects_missing_and_finished() {

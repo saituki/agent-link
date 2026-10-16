@@ -437,6 +437,13 @@ fn write_with_timeout(
 
     // P4: エージェント側でその場でトークン化する。失敗したらデーモンの非同期処理に任せる。
     let token = tokenize_saved_file(&path, description);
+    // `doc list` は DB の output_waggle_tokens を読むので、デーモンの取り込みを待たずその場で載せる。
+    // 載せられなくても保存は成功させる（デーモンの取り込みが同じ追記をする）。
+    if let Some(tok) = token.as_deref() {
+        if let Ok(store) = crate::common::open_db() {
+            let _ = store.append_execution_waggle_token(run_id, tok);
+        }
+    }
 
     let mut payload = json!({
         "run_id": run_id,
