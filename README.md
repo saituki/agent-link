@@ -175,11 +175,11 @@ Web の Projects → Dashboard からも起動・停止できます。
 通知とマイクには HTTPS が要ります。Tailscale の serve で、`agent-link-web` だけを tailnet の中に公開します。
 
 ```bash
-tailscale serve --bg --https 4447 http://127.0.0.1:8400
+tailscale serve --bg --https 4446 http://127.0.0.1:8400
 tailscale serve status
 ```
 
-- iPhone からは `https://<Mac名>.<tailnet>.ts.net:4447/` を開きます（4444 番は sai-moon の Web が使います）。
+- iPhone からは `https://<Mac名>.<tailnet>.ts.net:4446/` を開きます（4444 番は sai-moon の Web が使います）。
 - `agent-link-web` は必ず `--host 127.0.0.1` で動かします（`agent-link-web serve` の既定です。`0.0.0.0` にすると Tailscale の外からも届きます）。
 - **tailnet が自分 1 人のときだけ使います。** 合言葉は無いので、tailnet に届く人は誰でも全機能（エージェントの起動を含む）を使えます。他の人を招くときは、先に ACL で届く機械を絞るか、serve を止めます（`docs/switch-over.md` の 7）。
 
@@ -230,7 +230,7 @@ agent-link と sai-moon は、同じ Mac・同じプロジェクトで並べて�
 | 実行ファイル | `sai-link`・`sai-web` | `agent-link`・`agent-link-web` |
 | 環境変数 | `SAI_*` | `AGENT_LINK_*` |
 | 置き場 | `~/.sai`・プロジェクトの `.sai/` | `~/.agent-link`・プロジェクトの `.agent-link/` |
-| Web | 8200 番（Tailscale 4444） | 8400 番（Tailscale 4447） |
+| Web | 8200 番（Tailscale 4444） | 8400 番（Tailscale 4446） |
 | cc の設定 | プロジェクトの `.claude/settings.json` | `.agent-link/cc-settings.json`（`--settings` で渡す） |
 | 完了のコマンド | `/sai-finalize` | `/agent-link-finalize` |
 
