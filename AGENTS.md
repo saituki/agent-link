@@ -88,8 +88,7 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
 
 ### 実行しないこと
 
-- `agent-link daemon start`（本物のプロジェクトでの起動）。文書を書くだけで済ませる。
-- 本物のプロジェクトでの `agent-link init`（`--update` を含む）。確かめるときは一時フォルダをプロジェクトにし（`AGENT_LINK_PROJECT_ROOT`）、`AGENT_LINK_HOME` にも別の一時フォルダを入れ、最後に消す。
+- 本物のプロジェクトでの `agent-link init`（`--update` を含む）。ただし、利用者が頼んだときに限り、agent-link 自身のルート（`~/workdir/Sai/agent-link`）で `agent-link init --update` を実行してよい（`.claude/settings.json` のフックを release のバイナリに合わせるため）。sai-tree などほかのプロジェクトでは実行しない。確かめるときは一時フォルダをプロジェクトにし（`AGENT_LINK_PROJECT_ROOT`）、`AGENT_LINK_HOME` にも別の一時フォルダを入れ、最後に消す。
 - 利用者の環境（`~/.agent-link`・シェルの設定・`~/.local/bin`）を変える操作。文書に書くだけにする。
 - 本物の `.agent-link/blocks/*.md`・`~/.agent-link/` の中身を、確かめのために変えること。書き込みの確認は一時フォルダで行い、最後に消す。
 - sai-moon（`~/workdir/Sai/sai-moon`）と sai-tree（`~/workdir/Sai/sai-tree`）のリポジトリを直すこと。読み取り専用。
