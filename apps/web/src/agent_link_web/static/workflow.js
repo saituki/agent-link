@@ -208,7 +208,7 @@ function wfWrapText(text, maxUnits) {
     let line = "";
     let units = 0;
     for (const ch of raw) {
-      const u = /[⺀-鿿＀-￯　-〿]/.test(ch) ? 2 : 1;
+      const u = /[\u2E80-\u9FFF\uFF00-\uFFEF\u3000-\u303F]/.test(ch) ? 2 : 1;
       if (units + u > limit) {
         lines.push(line);
         line = "";
@@ -226,7 +226,7 @@ function wfWrapText(text, maxUnits) {
 function wfCardMarks(node) {
   const n = node || {};
   const chips = [];
-  if (n.orphaned === true) chips.push({ text: "要確認", cls: "warn" });
+  if (n.orphaned === true) chips.push({ text: "orphaned", cls: "warn" });
   return {
     running: n.status === "running",
     failed: n.status === "failed",
@@ -391,11 +391,6 @@ function wfStateOf(card) {
 function wfStateLabel(state) {
   const key = String(state == null ? "" : state);
   if (WF_LANES.indexOf(key) >= 0) return key;
-  if (key === "completed") return "完了";
-  if (key === "running") return "実行中";
-  if (key === "failed") return "失敗";
-  if (key === "cancelled") return "取り消し";
-  if (key === "orphaned") return "要確認";
   return key;
 }
 
@@ -423,11 +418,11 @@ function wfActions(card, lane, project) {
   if (running && c.parent_run_id == null) {
     out.push({
       key: "finalize",
-      label: "■ 終了",
+      label: "■ Finish",
       method: "POST",
       path: `/api/runs/${p}/${encodeURIComponent(runId)}/finalize`,
       danger: true,
-      confirm: "この実行を完了にしますか？ 実行中のエージェントは止まります。",
+      confirm: "Mark this run as completed? The running agent will stop.",
     });
   }
   return out;
@@ -438,9 +433,9 @@ function wfLegend() {
   return {
     edges: WF_EDGE_KINDS.map(([key, label, color]) => ({ key, label, color })),
     marks: [
-      { text: "実行中（青い点・点滅）", cls: "dot-running" },
-      { text: "失敗（赤い点）", cls: "dot-failed" },
-      { text: "要確認（running の取り残し）", cls: "warn" },
+      { text: "running (blue blinking dot)", cls: "dot-running" },
+      { text: "failed (red dot)", cls: "dot-failed" },
+      { text: "orphaned (left behind in running)", cls: "warn" },
     ],
   };
 }
@@ -689,16 +684,16 @@ function wfRenderTools() {
     root.appendChild(tools);
   }
   tools.innerHTML = "";
-  tools.appendChild(wfToolBtn("全体を表示", () => wfFit(), "画面の中が全部入ります"));
-  tools.appendChild(wfToolBtn("＋", () => wfZoomCenter(1.2), "拡大"));
-  tools.appendChild(wfToolBtn("－", () => wfZoomCenter(1 / 1.2), "縮小"));
-  tools.appendChild(wfToolBtn("並びを戻す", () => wfResetLayout(), "ドラッグでずらした位置を全部元に戻します"));
+  tools.appendChild(wfToolBtn("Fit all", () => wfFit(), "Fit everything on screen"));
+  tools.appendChild(wfToolBtn("+", () => wfZoomCenter(1.2), "Zoom in"));
+  tools.appendChild(wfToolBtn("-", () => wfZoomCenter(1 / 1.2), "Zoom out"));
+  tools.appendChild(wfToolBtn("Reset layout", () => wfResetLayout(), "Put every dragged card back in its original position"));
   const kb = wfToolBtn("Kanban", () => {
     wfKanban = !wfKanban;
     wfSaveKanban(wfName, wfKanban);
     wfRenderTools();
     wfRenderKanban();
-  }, "上の 3 段の札の帯を出したり消したりします");
+  }, "Show or hide the three-lane card strip above");
   kb.classList.toggle("active", !!wfKanban);
   tools.appendChild(kb);
   // 線の種類（研究方針の図と同じ見た目。色つきで出す）
@@ -726,7 +721,7 @@ function wfRenderTools() {
   sub.setAttribute("aria-pressed", wfSubtasks ? "true" : "false");
   sub.classList.toggle("active", wfSubtasks);
   tools.appendChild(sub);
-  tools.appendChild(wfToolBtn("？", () => wfOpenLegend(), "凡例（色と印の意味）"));
+  tools.appendChild(wfToolBtn("?", () => wfOpenLegend(), "Legend (meaning of colors and marks)"));
 }
 
 /** 道具の行のボタン 1 つ。 */
@@ -768,7 +763,7 @@ function wfRenderKanban() {
 
   const lanes = wfLanes(wfData);
   if (wfData && wfLanesEmpty(wfData)) {
-    wrap.appendChild(wfEl("p", "wf-kanban-empty", "Kanban に札はありません"));
+    wrap.appendChild(wfEl("p", "wf-kanban-empty", "No cards in Kanban"));
     return;
   }
   const row = wfEl("div", "wf-lanes");
@@ -779,7 +774,7 @@ function wfRenderKanban() {
     head.appendChild(wfEl("span", "wf-lane-count", String(lane.cards.length)));
     col.appendChild(head);
     if (lane.cards.length === 0) {
-      col.appendChild(wfEl("p", "wf-lane-empty", "なし"));
+      col.appendChild(wfEl("p", "wf-lane-empty", "None"));
     } else {
       for (const card of lane.cards) col.appendChild(wfLaneCard(card, lane.key));
     }
@@ -813,7 +808,7 @@ function wfRenderStage() {
     const world = wfEl("div", "wf-world");
     world.id = "wf-world";
     stage.appendChild(world);
-    const loading = wfEl("p", "wf-loading", "読み込み中…");
+    const loading = wfEl("p", "wf-loading", "Loading…");
     loading.id = "wf-loading";
     stage.appendChild(loading);
     root.appendChild(stage);
@@ -842,8 +837,8 @@ function wfRender() {
     if (typeof saiEmpty === "function") {
       box.appendChild(saiEmpty({
         icon: "🗂",
-        title: "Workflow にはまだ何もありません",
-        body: "review を確認して「Workflow へ移す」と、ここに並びます。",
+        title: "Nothing in Workflow yet",
+        body: "Check a card in review and press \"→ Workflow\" to see it here.",
       }));
     }
     world.appendChild(box);
@@ -1035,15 +1030,15 @@ function wfZoomCenter(factor) {
 /** ドラッグでずらした位置を全部元に戻す（agent-link の配置に戻す）。 */
 async function wfResetLayout() {
   const ok = await saiConfirm({
-    title: "並びを戻しますか？",
-    body: "この端末でドラッグしてずらした札の位置を全部元に戻します。Mac 側の並びは変わりません。",
-    ok: "戻す",
+    title: "Reset layout?",
+    body: "This puts every card you dragged on this device back in its original position. The layout on the Mac is not changed.",
+    ok: "Reset",
   });
   if (!ok) return;
   wfClearOffsets(wfName);
   wfOffsets = {};
   wfRender();
-  saiToast("並びを戻しました", "ok");
+  saiToast("Layout reset.", "ok");
 }
 
 /** 選んでいる札の run_id（同じ実行の合成ノードも一緒に黄にするため）。 */
@@ -1087,9 +1082,9 @@ function wfSheetBody(card, lane) {
   const model = wfCardModel(c);
   if (model) meta.appendChild(wfEl("span", "wf-sheet-line", `Model ${model}`));
   if (c.created_at) {
-    meta.appendChild(wfEl("span", "wf-sheet-line", `作成 ${wfStampText(c.created_at)}`));
+    meta.appendChild(wfEl("span", "wf-sheet-line", `Created ${wfStampText(c.created_at)}`));
   }
-  if (c.cost) meta.appendChild(wfEl("span", "wf-sheet-line", `費用 ${c.cost}`));
+  if (c.cost) meta.appendChild(wfEl("span", "wf-sheet-line", `Cost ${c.cost}`));
   if (c.description) meta.appendChild(wfEl("p", "wf-sheet-desc", String(c.description)));
   head.appendChild(meta);
   box.appendChild(head);
@@ -1146,15 +1141,15 @@ function wfOpenSheet(card, lane) {
 async function wfDoAction(act, card) {
   if (!act || wfBusy) return;
   if (act.confirm) {
-    const ok = await saiConfirm({ title: act.label, body: act.confirm, ok: "はい", danger: !!act.danger });
+    const ok = await saiConfirm({ title: act.label, body: act.confirm, ok: "Yes", danger: !!act.danger });
     if (!ok) return;
   }
   wfBusy = true;
   try {
     await saiApi(act.path, { method: act.method || "POST" });
-    saiToast(`${act.label} しました`, "ok");
+    saiToast(`${act.label}: done.`, "ok");
   } catch (e) {
-    saiToast((e && e.message) || "できませんでした", "error");
+    saiToast((e && e.message) || "Failed.", "error");
     return;
   } finally {
     wfBusy = false;
@@ -1172,7 +1167,7 @@ async function wfDoAction(act, card) {
 function wfOpenLegend() {
   const legend = wfLegend();
   const box = wfEl("div", "wf-legend");
-  const t2 = wfEl("p", "wf-legend-title", "線（下の始点から終点へ）");
+  const t2 = wfEl("p", "wf-legend-title", "Lines (from the start card to the end card)");
   box.appendChild(t2);
   const edges = wfEl("div", "wf-legend-items");
   for (const e of legend.edges) {
@@ -1182,7 +1177,7 @@ function wfOpenLegend() {
     edges.appendChild(chip);
   }
   box.appendChild(edges);
-  const t3 = wfEl("p", "wf-legend-title", "札の印");
+  const t3 = wfEl("p", "wf-legend-title", "Card marks");
   box.appendChild(t3);
   const marks = wfEl("div", "wf-legend-items");
   for (const m of legend.marks) {
@@ -1192,7 +1187,7 @@ function wfOpenLegend() {
     marks.appendChild(chip);
   }
   box.appendChild(marks);
-  if (typeof saiSheet === "function") saiSheet({ title: "凡例", body: box });
+  if (typeof saiSheet === "function") saiSheet({ title: "Legend", body: box });
 }
 
 // ============================================================================
@@ -1463,7 +1458,7 @@ async function wfLoad() {
     if (same) return; // 前と同じなら描き直さない
   } catch (e) {
     if (wfName !== name) return;
-    wfError = (e && e.message) || "読み込めませんでした";
+    wfError = (e && e.message) || "Could not load.";
     wfRenderError();
     // 前の表示は残す
     if (wfData) return;

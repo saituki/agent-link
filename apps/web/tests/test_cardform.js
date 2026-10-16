@@ -72,7 +72,7 @@ function testSkip() {
   // 確認はスキップできない
   const confirm = cf.cfNewDraft();
   confirm.step = "confirm";
-  assert.strictEqual(cf.cfSkip(confirm), "スキップできません");
+  assert.strictEqual(cf.cfSkip(confirm), "Cannot skip this step.");
   assert.strictEqual(cf.cfCanSkip(confirm), false);
   // 途中の画面はスキップできる
   for (const step of ["block", "model", "thinking", "task_text"]) {

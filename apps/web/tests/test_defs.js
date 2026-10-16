@@ -95,13 +95,13 @@ function testTemplate() {
   assert.ok(withBase.includes("\n---\n"));
   // 依頼は最初のメッセージの「# task_text」に入るので、古い記法は入れない
   assert.ok(!withBase.includes("{{input.task_text}}"));
-  assert.ok(withBase.includes("\n# 指示\n"));
-  assert.ok(withBase.includes("ここに、このブロックのエージェントへの指示を書く"));
+  assert.ok(withBase.includes("\n# Instructions\n"));
+  assert.ok(withBase.includes("Write the instructions for this block's agent here."));
   // sai-base が無ければ templates: の行を入れない
   const noBase = df.dfTemplate("block", "u5-check", false);
   assert.ok(!noBase.includes("templates:"));
   assert.ok(!noBase.includes("{{input.task_text}}"));
-  assert.ok(noBase.includes("\n# 指示\n"));
+  assert.ok(noBase.includes("\n# Instructions\n"));
   // template は 1 行
   assert.strictEqual(df.dfTemplate("template", "u5-check", true), "# u5-check\n\n");
   // settings は JSON
@@ -121,9 +121,9 @@ function testGroups() {
   assert.strictEqual(blocks.scopes[0].items.length, 3);
   assert.strictEqual(blocks.scopes[1].items.length, 1);
   // 見出しは日本語
-  assert.strictEqual(blocks.kindLabel, "ブロック");
-  assert.strictEqual(blocks.scopes[0].scopeLabel, "このプロジェクト");
-  assert.strictEqual(blocks.scopes[1].scopeLabel, "全プロジェクト共通（~/.agent-link）");
+  assert.strictEqual(blocks.kindLabel, "block");
+  assert.strictEqual(blocks.scopes[0].scopeLabel, "This project");
+  assert.strictEqual(blocks.scopes[1].scopeLabel, "All projects (~/.agent-link)");
   // 0 件の組は入れない（template に global が無くても settings は 2 つ出る）
   const onlyProject = df.dfGroups(ITEMS.filter((i) => i.scope === "project"));
   assert.deepStrictEqual(onlyProject.map((g) => g.kind), ["block", "template", "settings"]);
@@ -140,23 +140,23 @@ function testGroups() {
 function testRowChips() {
   // 共通
   const common = df.dfRowChips(ITEMS[2]);
-  assert.deepStrictEqual(common.filter((c) => c.cls === "ok").map((c) => c.text), ["共通"]);
+  assert.deepStrictEqual(common.filter((c) => c.cls === "ok").map((c) => c.text), ["Shared"]);
   // プロジェクト側が使われます
-  assert.ok(df.dfRowChips(ITEMS[2]).some((c) => c.text === "プロジェクト側が使われます"));
+  assert.ok(df.dfRowChips(ITEMS[2]).some((c) => c.text === "The project copy is used"));
   // 読めません
   const bad = df.dfRowChips(ITEMS[3]);
-  assert.ok(bad.some((c) => c.cls === "danger" && c.text.includes("読めません")));
+  assert.ok(bad.some((c) => c.cls === "danger" && c.text.includes("Cannot read")));
   // 使っている block がある
-  assert.ok(df.dfRowChips(ITEMS[1]).some((c) => c.text === "1 個の block が使っています"));
+  assert.ok(df.dfRowChips(ITEMS[1]).some((c) => c.text === "Used by 1 block"));
   // settings が無い
-  assert.ok(df.dfRowChips(ITEMS[7]).some((c) => c.text.includes("作れます")));
+  assert.ok(df.dfRowChips(ITEMS[7]).some((c) => c.text.includes("you can create it")));
   // 普通のものは何も出さない
   assert.deepStrictEqual(df.dfRowChips(ITEMS[0]), []);
   assert.deepStrictEqual(df.dfRowChips(null), []);
 }
 
 function testUsedBy() {
-  assert.strictEqual(df.dfUsedByText(["kantoku", "plan-kantoku"]), "使っている block: kantoku、plan-kantoku");
+  assert.strictEqual(df.dfUsedByText(["kantoku", "plan-kantoku"]), "Used by: kantoku, plan-kantoku");
   assert.strictEqual(df.dfUsedByText([]), "");
   assert.strictEqual(df.dfUsedByText(null), "");
   assert.strictEqual(df.dfUsedByText(["", null]), "");
