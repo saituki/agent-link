@@ -16,14 +16,14 @@ function testValidate() {
   );
   // プロジェクトが空
   assert.strictEqual(N.ncValidate({ project: "", block: "main", task_text: "x" }).ok, false);
-  assert.match(N.ncValidate({ block: "main", task_text: "x" }).error, /プロジェクト/);
+  assert.match(N.ncValidate({ block: "main", task_text: "x" }).error, /project/i);
   // block が空
   assert.strictEqual(N.ncValidate({ project: "p", block: "", task_text: "x" }).ok, false);
   assert.match(N.ncValidate({ project: "p", task_text: "x" }).error, /block/);
   // 最初の文が空（空白だけも空とみなす）
   assert.strictEqual(N.ncValidate({ project: "p", block: "main", task_text: "" }).ok, false);
   assert.strictEqual(N.ncValidate({ project: "p", block: "main", task_text: "  \n" }).ok, false);
-  assert.match(N.ncValidate({ project: "p", block: "main", task_text: "" }).error, /最初の文/);
+  assert.match(N.ncValidate({ project: "p", block: "main", task_text: "" }).error, /first message/i);
   // 空の引数でも落ちない
   assert.strictEqual(N.ncValidate(null).ok, false);
   assert.strictEqual(N.ncValidate(undefined).ok, false);

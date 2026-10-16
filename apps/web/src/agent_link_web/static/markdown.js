@@ -99,7 +99,7 @@ function renderFrontmatter(lines) {
     rows.push(`<tr><th>${mdEscape(key)}</th><td>${mdInline(val)}</td></tr>`);
   }
   if (rows.length === 0) return "";
-  return `<details class="md-front"><summary>設定</summary><table class="md-front-table"><tbody>${rows.join("")}</tbody></table></details>`;
+  return `<details class="md-front"><summary>Settings</summary><table class="md-front-table"><tbody>${rows.join("")}</tbody></table></details>`;
 }
 
 // --- 箇条書き（入れ子はインデントの深さで見る） ---
@@ -781,7 +781,7 @@ function renderCodeBlock(bodyLines, lang) {
   if (bodyLines.length < MD_CODE_LONG_LINES) return pre;
   const btn =
     `<button type="button" class="md-code-more" data-md-code-toggle ` +
-    `aria-expanded="false">全部見る（${bodyLines.length} 行）</button>`;
+    `aria-expanded="false">Show all (${bodyLines.length} lines)</button>`;
   return (
     `<div class="md-code md-code-folded" data-md-code-peek="${MD_CODE_PEEK_LINES}" ` +
     `data-md-lines="${bodyLines.length}">` +
@@ -901,7 +901,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
       const open = box.classList.toggle("md-code-open");
       box.classList.toggle("md-code-folded", !open);
       more.setAttribute("aria-expanded", open ? "true" : "false");
-      more.textContent = open ? "たたむ" : `全部見る（${box.getAttribute("data-md-lines") || ""} 行）`;
+      more.textContent = open ? "Collapse" : `Show all (${box.getAttribute("data-md-lines") || ""} lines)`;
       return;
     }
 

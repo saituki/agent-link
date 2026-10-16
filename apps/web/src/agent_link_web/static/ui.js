@@ -62,146 +62,146 @@ const AGENT_LINK_TERMS = {
   run: {
     label: "Run",
     text:
-      "エージェントが 1 つのカードを 1 回動かした記録です。" +
-      "［会話］のタブにはプロジェクト名・#番号・実行者の順に並びます。" +
-      "「#54 の実行」のように番号で表します。",
+      "A record of an agent running one card once. " +
+      "In the Chats tab, runs are listed as project name, #number, then runner. " +
+      "A run is written by its number, like \"run #54\".",
   },
   todo: {
-    label: "未実行",
-    text: "まだ実行していないカードの枚数です。プロジェクトの画面から実行できます。",
+    label: "todo",
+    text: "The number of cards that have not been run yet. You can run them from the project screen.",
   },
   running: {
-    label: "実行中",
-    text: "いま動かしているカードの枚数です。動いているあいだは［会話］のタブにも出ます。",
+    label: "running",
+    text: "The number of cards being run right now. While they run, they also appear in the Chats tab.",
   },
   review: {
-    label: "確認待ち",
+    label: "review",
     text:
-      "エージェントが仕事を終えたあと、人に確認を待つことです。" +
-      "ここに来ているものは読んで「これでよい」を押すと次に進みます。",
+      "The state of waiting for a person to check after an agent finishes its work. " +
+      "Read what is here and approve it to move on.",
   },
   workflow: {
     label: "Workflow",
-    text: "プロジェクトごとにカードが今どうなっているかを見る盤面です。［プロジェクト］の画面の「Workflow」で開きます。",
+    text: "A board that shows the current state of each project's cards. Open it with \"Workflow\" on the Projects screen.",
   },
   kanban: {
     label: "Kanban",
-    text: "カードを「doing → done → review」のように段で分けた一覧です。Workflow で横並びに出ます。",
+    text: "A list that splits cards into columns such as \"doing → done → review\". Workflow shows the columns side by side.",
   },
   block: {
-    label: "ブロック",
-    text: "1 つのカードが・どのファイルを見て・どう直せばよいかを書いた指示書です。",
+    label: "Block",
+    text: "Instructions for one card: which files to look at and how to change them.",
   },
   template: {
-    label: "テンプレート",
-    text: "新しいカードを作るときの出発点になる書き方です。プロジェクトごとに直せます。",
+    label: "Template",
+    text: "A starting form for writing a new card. You can edit it for each project.",
   },
   settings: {
-    label: "設定ファイル",
-    text: "エージェントの動くしかた（どのモデルを使うか・何個同時に動かすかなど）を書いたファイルです。",
+    label: "Settings file",
+    text: "A file that sets how agents run (which model to use, how many to run at once, and so on).",
   },
   waggle: {
-    label: "文書のトークン",
+    label: "Waggle token",
     text:
-      "エージェントが保存した文書の合言葉です。次のカードの依頼文に書くと、その文書の本文がそのまま渡されます。" +
-      "（例: AXANSMpo）",
+      "A passcode for a document an agent saved. Write it in the task text of the next card, and the document body is passed along as is. " +
+      "(Example: AXANSMpo)",
   },
   daemon: {
-    label: "常駐",
+    label: "Daemon",
     text:
-      "プロジェクトごとに Mac で動き続ける係です。止まっているとカードを実行できません。" +
-      "プロジェクトの画面（Dashboard）から起動できます。",
+      "A process that keeps running on the Mac for each project. While it is stopped, cards cannot run. " +
+      "Start it from the project screen (Dashboard).",
   },
   card: {
-    label: "カード",
-    text: "依頼文（task.md）を 1 枚のファイルに書いたものです。仕事 1 つを 1 枚に書いています。",
+    label: "Card",
+    text: "One file that holds a task text (task.md). One card holds one piece of work.",
   },
   task_text: {
-    label: "依頼文",
-    text: "カードを実行するときの依頼文です。エージェントはこれを読んで動きます。",
+    label: "Task text",
+    text: "The request used when a card runs. The agent reads it and does the work.",
   },
   bibtex: {
     label: "BibTeX",
-    text: "論文の著者・題名・発行年などを書いた文字の書き方です。論文をまとめて読み込むときに使います。",
+    text: "A text format that holds a paper's authors, title, year, and so on. Use it to import many papers at once.",
   },
   attention: {
     label: "Attention",
     text:
-      "論文のリーダーが、まだ人が見ていないものを出した状態です。" +
-      "「書いていない review」「ユーザーへの質問」「出典の要確認」など。",
+      "The state where the paper reader shows items nobody has looked at yet: " +
+      "reviews not written, questions to the user, sources to confirm, and so on.",
   },
   state: {
     label: "State (state.md)",
-    text: "プロジェクトがいまどうなっているかをエージェントが継続的に書いているメモ（state.md）です。",
+    text: "A note (state.md) where an agent keeps writing the current state of the project.",
   },
   mind: {
     label: "Mind (mind.md)",
-    text: "研究の土台（初期構想・制約）を利用者が書くメモ（mind.md）。エージェントは直接書き換えません。",
+    text: "A note (mind.md) where the user writes the base of the research (initial ideas and constraints). Agents do not rewrite it directly.",
   },
   // --- research-tree（U19・共有契約 C-14。U41 で今の用語に作り直した） ---
   sci_research_tree: {
     label: "research-tree",
-    text: "ROOT・seed（D）・SPROUT・BRANCH の層 からなる木と、それを描いた図の総称です。",
+    text: "A tree made of the layers ROOT, seed (D), SPROUT, and BRANCH, and the diagram that draws it.",
   },
   sci_seed: {
-    label: "seed（D）",
-    text: "1 研究の制約です。題と、解く問題・対象・データ・手法・出力・評価指標の 6 つの軸からなります。ID は D で始まります。",
+    label: "seed (D)",
+    text: "The constraints of one study. It has a title and six axes: task, target, data, method, output, and metric. Its ID starts with D.",
   },
   sci_root: {
     label: "ROOT",
-    text: "軸の A から下へ分かれる A・F の総称です。",
+    text: "A collective name for the A and F nodes that branch downward from an axis A.",
   },
   sci_sprout: {
     label: "SPROUT",
-    text: "sprout（S）: seed と軸ごとの path の組です。ID は S で始まり、実験の計画を立てるもとになります。",
+    text: "Sprout (S): a pair of a seed and one path for each axis. Its ID starts with S, and it is the basis for planning experiments.",
   },
   sci_branch: {
     label: "BRANCH",
-    text: "SPROUT から上へ分かれる E です。実験の実行を表します。",
+    text: "An E that branches upward from a SPROUT. It stands for running an experiment.",
   },
   sci_path: {
     label: "PATH",
-    text: "SPROUT の軸ごとに選んだ A の道です。SPROUT の paths に A を並べて表します。",
+    text: "The route of A nodes chosen for each axis of a SPROUT. It is written as the A nodes listed in the SPROUT's paths.",
   },
   sci_node: {
     label: "Node",
-    text: "research-tree の 1 つの要素です。A・F・E・S・D のどれかになります。",
+    text: "One element of the research-tree. It is one of A, F, E, S, or D.",
   },
   sci_top_q: {
-    label: "軸",
-    text: "tree のいちばん上に並ぶ A（軸の A）です。task・target・data・method・output・metric の 6 つがあり、A はこの下に置きます。",
+    label: "Axis",
+    text: "The A nodes at the very top of the tree (axis A). There are six: task, target, data, method, output, and metric. Other A nodes go under them.",
   },
   sci_rel: {
-    label: "種類・条件",
-    text: "子 A の関係です。subtype は親の一種（種類の分割）です。condition は親の属性や条件で、種類の分割ではありません。condition を置けるのは STAR の A か seed の回答の A の下だけです。",
+    label: "Subtype / condition",
+    text: "The relation of a child A. A subtype is a kind of its parent (a split by kind). A condition is an attribute or condition of its parent, not a split by kind. A condition can only go under a STAR A or a seed answer A.",
   },
   sci_star: {
-    label: "STAR（★）",
-    text: "利用者が A に付ける印です。STAR_PATH は軸から STAR の A を通ってたどれる道です。",
+    label: "STAR (★)",
+    text: "A mark the user puts on an A. STAR_PATH is a route that can be traced from an axis through STAR A nodes.",
   },
   sci_proposal: {
     label: "PROPOSAL",
-    text: "agent が出す research-tree の変更の案です。ID は P で始まります。",
+    text: "A proposed change to the research-tree made by an agent. Its ID starts with P.",
   },
   sci_triage: {
     label: "TRIAGE",
-    text: "PROPOSAL を accept・reject・revert のどれかで決めることです。",
+    text: "Deciding a PROPOSAL as accept, reject, or revert.",
   },
   sci_card: {
     label: "CARD / READ_CARD",
-    text: "agent への依頼が CARD です。利用者が論文を読んで F を足す CARD は READ_CARD です。",
+    text: "A request to an agent is a CARD. A CARD where the user reads a paper and adds an F is a READ_CARD.",
   },
   sci_guide: {
     label: "GUIDE",
-    text: "軸の A の下に何を置くかの手引きです。抽出の観点や落とし穴を書きます。",
+    text: "A guide to what to put under an axis A. It describes what to extract and what to watch out for.",
   },
   sci_research_type: {
     label: "RESEARCH_TYPE",
-    text: "研究の始まり方の分類です（PROBLEM_DRIVEN・PHENOMENON_DRIVEN など）。",
+    text: "A classification of how a study starts (PROBLEM_DRIVEN, PHENOMENON_DRIVEN, and so on).",
   },
   sci_lab_agent: {
     label: "LabAgent",
-    text: "sci_type を持つブロックで動く agent です。node agent・manage agent・support agent の 3 つに分かれます。",
+    text: "An agent that runs on a block with sci_type. It is one of three kinds: node agent, manage agent, and support agent.",
   },
 };
 
@@ -296,7 +296,7 @@ function saiSvg(tag, attrs) {
 /**
  * 通信して JSON を返す。
  *   - HTTP の失敗は Error（message = サーバーの detail の日本語、.status = 状態番号）
- *   - つながらない（fetch の TypeError）ときは SaiShell.fail() を呼び、Error("Mac につながりません")
+ *   - つながらない（fetch の TypeError）ときは SaiShell.fail() を呼び、Error("Cannot reach the Mac.")
  *   - 応答が来たら SaiShell.ok() を呼ぶ
  * options は fetch と同じ（body が物なら JSON にして Content-Type を付ける）。
  */
@@ -314,7 +314,7 @@ async function saiApi(path, options) {
   } catch {
     // fetch 自体 通らない ＝ Mac につながっていない
     if (window.SaiShell && typeof window.SaiShell.fail === "function") window.SaiShell.fail();
-    throw new Error("Mac につながりません");
+    throw new Error("Cannot reach the Mac.");
   }
   if (!res.ok) {
     let detail = "";
@@ -325,11 +325,11 @@ async function saiApi(path, options) {
           const j = JSON.parse(text);
           detail = j.detail || j.message || text;
         } catch {
-          detail = text; // JSON でなければそのまま日本語として見せる
+          detail = text; // not JSON: show as is
         }
       }
     } catch { /* 読めなくても下の既定の文でよい */ }
-    const err = new Error(detail || `読み込めませんでした（${res.status}）`);
+    const err = new Error(detail || `Could not load (${res.status}).`);
     err.status = res.status;
     throw err;
   }
@@ -514,7 +514,7 @@ function saiTerm(key, label) {
     const panel = saiOverlayOpen("");
     saiOverlayCloser = () => {};
     panel.appendChild(saiEl("h2", "sai-panel-title", title));
-    panel.appendChild(saiEl("p", "sai-panel-body", saiTermText(key) || "この語の説明はまだありません。"));
+    panel.appendChild(saiEl("p", "sai-panel-body", saiTermText(key) || "No description for this term yet."));
     const row = saiEl("div", "sai-panel-row");
     const ok = saiEl("button", "sai-btn primary", "Close");
     ok.type = "button";
@@ -618,7 +618,7 @@ function saiAxisValue(value, unit) {
   const v = Number(value);
   if (!Number.isFinite(v)) return "0";
   if (unit === "money") {
-    if (Math.abs(v) >= 1000) return `$${Math.round(v).toLocaleString("ja-JP")}`;
+    if (Math.abs(v) >= 1000) return `$${Math.round(v).toLocaleString("en-US")}`;
     return `$${v.toFixed(2)}`;
   }
   if (unit === "tokens") {
@@ -633,7 +633,7 @@ function saiAxisValue(value, unit) {
   const a = Math.abs(v);
   if (a >= 1e6) return `${saiTrim1(v / 1e6)}M`;
   if (a >= 1e4) return `${saiTrim1(v / 1e3)}K`;
-  return Math.round(v).toLocaleString("ja-JP");
+  return Math.round(v).toLocaleString("en-US");
 }
 
 /** "2026-09-20" から「9/20」を作る（読めなければ空文字）。 */
@@ -672,7 +672,7 @@ function saiDailyBars(opts) {
     viewBox: "0 0 320 150",
     class: "dash-chart",
     role: "img",
-    "aria-label": `${o.what || "日ごとのグラフ"}。データがありません`,
+    "aria-label": `${o.what || "Daily chart"}. No data.`,
   });
   // データが無いときは「空の軸だけの枠」を出さない（空の表示の規則）
   if (rows.length === 0) return svg;
@@ -796,11 +796,11 @@ function saiDailyBars(opts) {
   if (dataMax > 0) {
     const i = values.indexOf(dataMax);
     const day = saiDayLabel(rows[i] && rows[i].date);
-    maxAt = `。最大 ${saiAxisValue(dataMax, unit)}${day ? `（${day}）` : ""}`;
+    maxAt = `. Max ${saiAxisValue(dataMax, unit)}${day ? ` (${day})` : ""}`;
   }
   svg.setAttribute(
     "aria-label",
-    `${o.what || "日ごとのグラフ"}。${n} 日分${maxAt}。合計 ${saiAxisValue(total, unit)}`
+    `${o.what || "Daily chart"}. ${n} ${n === 1 ? "day" : "days"}${maxAt}. Total ${saiAxisValue(total, unit)}`
   );
   return svg;
 }

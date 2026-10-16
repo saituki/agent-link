@@ -39,8 +39,8 @@ const HM_RECENT_MAX = 10;
 const HM_RECENT_ALL = 20;
 // 実行の状態の印（project.js の recentRow と同じ）
 const HM_STATUS_MARK = { completed: "✓", running: "●", failed: "✗", cancelled: "✗" };
-// 曜日の日本語（project.js と同じ）
-const HM_WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
+// 曜日の短い名前
+const HM_MONTH_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const HM_WEEKDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // --- 表示の状態 ---
@@ -75,19 +75,19 @@ function hmAgo(value, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const diff = Math.max(0, now - t);
   const min = Math.floor(diff / 60000);
-  if (min < 1) return "たった今";
-  if (min < 60) return `${min}分前`;
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h}時間前`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7) return `${d}日前`;
+  if (d < 7) return `${d}d ago`;
   const dt = new Date(t);
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
 
 /** 質問の 1 行の題（U4 §3-1）。 */
 function hmWaitTitle(item) {
-  return item.title || "（題のない質問）";
+  return item.title || "(untitled question)";
 }
 
 /** 質問の 1 行の左（プロジェクト名と #run_id）。 */
@@ -172,10 +172,10 @@ function hmOverviewCards(overview) {
 function hmOverviewNote(overview) {
   const o = overview || {};
   const n = Number(o.projects) || 0;
-  let note = `${n} プロジェクトの合計`;
-  if (o.since && o.until) note += `・${o.since}〜${o.until}`;
+  let note = `Total of ${n} ${n === 1 ? "project" : "projects"}`;
+  if (o.since && o.until) note += ` · ${o.since} – ${o.until}`;
   const errors = Array.isArray(o.errors) ? o.errors.filter((e) => e) : [];
-  if (errors.length > 0) note += `・一部のプロジェクトを読めませんでした（${errors.length}）`;
+  if (errors.length > 0) note += ` · Could not read some projects (${errors.length})`;
   return note;
 }
 
@@ -244,14 +244,14 @@ function hmAxisLabels(period, daily) {
     if (i % step !== 0) return "";
     const date = String((row && row.date) || "");
     if (!date) return "";
-    if (period === "week") return HM_WEEKDAY_JA[new Date(`${date}T00:00:00`).getDay()] || "";
+    if (period === "week") return HM_WEEKDAY_EN[new Date(`${date}T00:00:00`).getDay()] || "";
     if (period === "month") {
       const day = Number(date.slice(8, 10));
       return [1, 5, 10, 15, 20, 25, 30].includes(day) ? String(day) : "";
     }
     const cur = date.slice(0, 7);
     const prev = i > 0 ? String((rows[i - 1] && rows[i - 1].date) || "").slice(0, 7) : null;
-    return i === 0 || cur !== prev ? `${Number(cur.slice(5, 7))}月` : "";
+    return i === 0 || cur !== prev ? HM_MONTH_EN[Number(cur.slice(5, 7)) - 1] : "";
   });
 }
 
@@ -276,15 +276,15 @@ function hmSections(data) {
     if (n <= 0) continue;
     running.push({
       kind: "running",
-      title: p.name || "(名前のないプロジェクト)",
-      sub: `${n} 件 実行中`,
+      title: p.name || "(unnamed project)",
+      sub: `${n} running`,
       count: n,
       ago: hmAgo(p.last_executed_at),
       hash: `#/project/${encodeURIComponent(p.name || "")}/workflow`,
     });
   }
   if (running.length > 0) {
-    out.push({ key: "running", title: "動いています", count: running.length, items: running });
+    out.push({ key: "running", title: "Running", count: running.length, items: running });
   }
 
   // 4) 止まっている常駐（daemon_alive が偽で todo がある）
@@ -294,21 +294,21 @@ function hmSections(data) {
     if ((Number(p.todo) || 0) <= 0) continue;
     daemon.push({
       kind: "daemon",
-      title: p.name || "(名前のないプロジェクト)",
-      sub: "常駐が止まっています。カードを実行するには起動してください",
+      title: p.name || "(unnamed project)",
+      sub: "The daemon is stopped. Start it to run cards.",
       count: Number(p.todo) || 0,
       ago: "",
       hash: `#/project/${encodeURIComponent(p.name || "")}`,
     });
   }
   if (daemon.length > 0) {
-    out.push({ key: "daemon", title: "止まっている常駐", count: daemon.length, items: daemon, term: "daemon" });
+    out.push({ key: "daemon", title: "Stopped daemons", count: daemon.length, items: daemon, term: "daemon" });
   }
 
   // 5) 読めなかったプロジェクト（一番下にたたんで出す）
   const errors = Array.isArray(d.errors) ? d.errors.filter((e) => e) : [];
   if (errors.length > 0) {
-    out.push({ key: "errors", title: "読めなかったプロジェクト", count: errors.length, items: errors });
+    out.push({ key: "errors", title: "Projects that could not be read", count: errors.length, items: errors });
   }
 
   return out;
@@ -407,7 +407,7 @@ function hmCard(title, term) {
 
 /** 待ち（質問）の 1 行。 */
 function hmWaitRow(item) {
-  return hmRow(item.where || "（プロジェクト不明）", item.title, item.ago, () => {
+  return hmRow(item.where || "(unknown project)", item.title, item.ago, () => {
     location.hash = item.hash;
   });
 }
@@ -429,11 +429,11 @@ function hmDailyChart(overview) {
     viewBox: "0 0 320 140",
     class: "dash-chart",
     role: "img",
-    "aria-label": "日ごとの実行数",
+    "aria-label": "Runs per day",
   });
   if (daily.length === 0) {
     const t = hmSvg("text", { x: "160", y: "70", class: "dash-axis", "text-anchor": "middle" });
-    t.textContent = "この期間に実行はありません";
+    t.textContent = "No runs in this period";
     svg.appendChild(t);
     return svg;
   }
@@ -456,7 +456,7 @@ function hmDailyChart(overview) {
       class: v > 0 ? "dash-bar" : "dash-bar zero",
     });
     const tip = hmSvg("title", {});
-    tip.textContent = `${(daily[i] && daily[i].date) || ""} ${v} 回`;
+    tip.textContent = `${(daily[i] && daily[i].date) || ""} ${v} ${v === 1 ? "run" : "runs"}`;
     rect.appendChild(tip);
     svg.appendChild(rect);
   });
@@ -497,7 +497,7 @@ function hmPeriodSeg() {
 function hmOverviewCard() {
   const card = hmEl("section", "hm-card sai-card hm-overview");
   const head = hmEl("div", "hm-card-head");
-  head.appendChild(hmEl("h2", "hm-card-title", "全プロジェクトの合計"));
+  head.appendChild(hmEl("h2", "hm-card-title", "Total of all projects"));
   head.appendChild(hmPeriodSeg());
   card.appendChild(head);
 
@@ -561,7 +561,7 @@ function hmNote(text) {
 
 /** 「すべて表示（N）」のボタン。 */
 function hmMoreButton(count, onClick) {
-  const b = hmEl("button", "sai-btn hm-more", `すべて表示（${count}）`);
+  const b = hmEl("button", "sai-btn hm-more", `Show all (${count})`);
   b.type = "button";
   b.addEventListener("click", onClick);
   return b;
@@ -572,7 +572,7 @@ function hmWaitCard(section) {
   const card = hmCard("Questions");
   const items = section ? section.items : [];
   if (items.length === 0) {
-    card.appendChild(hmNote("今、答えを待っている会話はありません"));
+    card.appendChild(hmNote("No chats are waiting for an answer"));
     return card;
   }
   for (const item of items) card.appendChild(hmWaitRow(item));
@@ -584,7 +584,7 @@ function hmTodoCard() {
   const items = hmTodoItems(hmData);
   const card = hmCard("todo");
   if (items.length === 0) {
-    card.appendChild(hmNote("todo はありません"));
+    card.appendChild(hmNote("No todo cards"));
     return card;
   }
   const shown = hmShowAll.todo ? items : items.slice(0, HM_TODO_MAX);
@@ -603,7 +603,7 @@ function hmScheduledCard() {
   if (items.length === 0) return null;
   const card = hmCard("Scheduled todo");
   for (const item of items) {
-    card.appendChild(hmRow(item.title, `${item.scheduledAt} に実行`, "", () => { location.hash = item.hash; }, item.where));
+    card.appendChild(hmRow(item.title, `Runs at ${item.scheduledAt}`, "", () => { location.hash = item.hash; }, item.where));
   }
   return card;
 }
@@ -613,7 +613,7 @@ function hmRecentCard() {
   const items = hmRecentItems(hmOverview);
   const card = hmCard("Recent activity");
   if (items.length === 0) {
-    card.appendChild(hmNote("最近の実行はありません"));
+    card.appendChild(hmNote("No recent runs"));
     return card;
   }
   const shown = hmShowAll.recent ? items.slice(0, HM_RECENT_ALL) : items.slice(0, HM_RECENT_MAX);
@@ -645,7 +645,7 @@ function hmRender() {
   if (!hmData) {
     // まだ読めていない
     const box = hmEl("div", "sai-empty");
-    box.appendChild(hmEl("p", "sai-empty-body", hmError ? "読み込めませんでした。" : "読み込み中…"));
+    box.appendChild(hmEl("p", "sai-empty-body", hmError ? "Could not load." : "Loading…"));
     body.appendChild(box);
     root.appendChild(body);
     return;
@@ -657,9 +657,9 @@ function hmRender() {
   if (hmEmptyKind(hmData) === "no-projects") {
     const box = hmEl("div", "sai-empty");
     box.appendChild(hmEl("div", "sai-empty-icon", "📁"));
-    box.appendChild(hmEl("p", "sai-empty-title", "まだプロジェクトがありません"));
+    box.appendChild(hmEl("p", "sai-empty-title", "No projects yet"));
     box.appendChild(
-      hmEl("p", "sai-empty-body", "Mac で `agent-link init` を実行するとここに出ます。")
+      hmEl("p", "sai-empty-body", "Run `agent-link init` on the Mac and the project will show up here.")
     );
     body.appendChild(box);
   }
@@ -682,7 +682,7 @@ function hmRender() {
       // 読めなかったプロジェクトは一番下でたたんで出す
       const det = document.createElement("details");
       det.className = "hm-errors";
-      det.appendChild(hmEl("summary", null, `${sec.title}（${sec.count}）`));
+      det.appendChild(hmEl("summary", null, `${sec.title} (${sec.count})`));
       for (const e of sec.items) det.appendChild(hmEl("p", "hm-error-line", e));
       card.appendChild(det);
       body.appendChild(card);
@@ -712,7 +712,7 @@ async function hmLoadOverview() {
     hmOverviewError = "";
   } catch (e) {
     // 合計だけ読めなくても、ほかのカードは出す
-    hmOverviewError = e && e.message ? e.message : "合計を読めませんでした";
+    hmOverviewError = e && e.message ? e.message : "Could not read the total.";
   }
 }
 
@@ -747,7 +747,7 @@ async function hmLoad() {
       hmOverviewError = "";
     } else {
       hmOverviewError =
-        overview.e && overview.e.message ? overview.e.message : "合計を読めませんでした";
+        overview.e && overview.e.message ? overview.e.message : "Could not read the total.";
     }
     if (!data.ok) throw data.e;
     hmData = data.v || {};
@@ -755,8 +755,8 @@ async function hmLoad() {
     hmRender();
   } catch (e) {
     // 404（U3 の API がまだ無いとき）は「読めなかった」の案内にする
-    hmError = e && e.message ? e.message : "読み込めませんでした";
-    if (e && e.status === 404) hmError = "ホームの情報がまだありません（サーバーの返しが 404 でした）";
+    hmError = e && e.message ? e.message : "Could not load.";
+    if (e && e.status === 404) hmError = "No Home data yet (the server returned 404).";
     hmData = null;
     hmRender();
   } finally {

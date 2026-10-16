@@ -318,7 +318,7 @@ function runStatusText(run) {
 function timeLabel(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return "";
-  return d.toLocaleString("ja-JP", hourMinuteOptions());
+  return d.toLocaleString("en-US", hourMinuteOptions());
 }
 
 function hourMinuteOptions() {
@@ -358,12 +358,12 @@ function dayStats(d) {
   const done = d.done || {};
   const doneTotal = Object.values(done).reduce((a, b) => a + b, 0);
   if (doneTotal > 0) {
-    parts.push(`確認済み ${doneTotal}`);
+    parts.push(`done ${doneTotal}`);
   }
-  if (d.running > 0) parts.push(`実行中 ${d.running}`);
-  if (d.failed > 0) parts.push(`失敗 ${d.failed}`);
+  if (d.running > 0) parts.push(`running ${d.running}`);
+  if (d.failed > 0) parts.push(`failed ${d.failed}`);
   if (d.cost_usd > 0) {
-    parts.push(`${d.cost_is_estimate ? "約" : ""}$${Number(d.cost_usd).toFixed(2)}`);
+    parts.push(`${d.cost_is_estimate ? "~" : ""}$${Number(d.cost_usd).toFixed(2)}`);
   }
   return parts.join(" · ") || "—";
 }
@@ -377,8 +377,8 @@ function renderDays(searchResults) {
       box.appendChild(
         saiEmpty({
           icon: "🔍",
-          title: "一致するものがありません",
-          body: "別の言葉で探してみてください。",
+          title: "No matches",
+          body: "Try different words.",
         })
       );
       return;
@@ -390,9 +390,9 @@ function renderDays(searchResults) {
     box.appendChild(
       saiEmpty({
         icon: "💬",
-        title: "まだ会話がありません",
-        body: "プロジェクトでカードを実行すると、ここにエージェントとの会話が出ます。",
-        action: { label: "プロジェクトへ", onClick: () => { location.hash = "#/projects"; } },
+        title: "No chats yet",
+        body: "Run a card in a project and its chat with the agent will show up here.",
+        action: { label: "Go to Projects", onClick: () => { location.hash = "#/projects"; } },
       })
     );
     return;
@@ -488,9 +488,9 @@ function renderDay(data) {
     box.appendChild(
       saiEmpty({
         icon: "📅",
-        title: "この日の実行はありません",
-        body: "カードが動くと、この日に会話が出ます。",
-        action: { label: "ほかの日付を見る", onClick: () => { location.hash = "#/"; } },
+        title: "No runs on this day",
+        body: "When a card runs, its chat will show up on this day.",
+        action: { label: "See other dates", onClick: () => { location.hash = "#/"; } },
       })
     );
     return;
@@ -498,7 +498,7 @@ function renderDay(data) {
   for (const p of projects) {
     const h = document.createElement("h2");
     h.className = "project-title";
-    h.textContent = p.project_name || "(不明)";
+    h.textContent = p.project_name || "(unknown)";
     box.appendChild(h);
     for (const run of p.runs || []) box.appendChild(runRow(run, false));
   }
@@ -595,7 +595,7 @@ async function openRun(r) {
   chatErrorText = "";
   runStarting = false;
   document.getElementById("chat-list").innerHTML = "";
-  document.getElementById("run-title").textContent = "読み込み中…";
+  document.getElementById("run-title").textContent = "Loading…";
   document.getElementById("run-desc").textContent = "";
   document.getElementById("run-lamp").textContent = "";
   // ■ 終了と停止は実行中のときだけ出すので，前の実行の残りを持ち越さない
@@ -645,7 +645,7 @@ function updateComposer() {
     ta.disabled = waiting || finished;
     // 質問中に送ると質問は取り下げられる（U03・計画 4）
     const asking = live === "blocked";
-    ta.placeholder = waiting ? "起動を待っています…" : finished ? "この会話は終了しています" : asking ? "質問に答えずに送る（質問は取り下げます）" : "メッセージを入力";
+    ta.placeholder = waiting ? "Waiting to start…" : finished ? "This chat has ended" : asking ? "Send without answering (the question will be withdrawn)" : "Type a message";
   }
   if (send) send.disabled = waiting || finished;
   if (mic) mic.disabled = waiting || finished;
@@ -658,7 +658,7 @@ async function loadRunMeta() {
     if (res.status === 404 && newChatWaiting(current.id)) {
       // 新しいチャットから来た実行がまだ書き出されていない（約 5 秒の遅れ）
       runStarting = true;
-      document.getElementById("run-title").textContent = "起動を待っています…";
+      document.getElementById("run-title").textContent = "Waiting to start…";
       document.getElementById("run-desc").textContent = "";
       document.getElementById("run-lamp").textContent = "";
       document.getElementById("finalize-button").hidden = true;
@@ -695,8 +695,8 @@ async function loadRunMeta() {
     clearNewChatWaiting(data.run_id);
     return data;
   } catch {
-    if (document.getElementById("run-title").textContent === "起動を待っています…") {
-      document.getElementById("run-title").textContent = "読み込めませんでした";
+    if (document.getElementById("run-title").textContent === "Waiting to start…") {
+      document.getElementById("run-title").textContent = "Could not load";
     }
     setOffline(true);
     return null;
@@ -840,14 +840,14 @@ function answeredCard(q) {
   const any = picks.some((p) => p.picked.length || p.text);
   const title = document.createElement("div");
   title.className = "q-settled-title";
-  title.textContent = any ? "回答済み" : "回答済み（内容なし）";
+  title.textContent = any ? "Answered" : "Answered (no content)";
   el.appendChild(title);
   qs.forEach((one, qi) => {
     const block = document.createElement("div");
     block.className = "q-block";
     const head = document.createElement("div");
     head.className = "q-header";
-    head.textContent = one.header || `質問${qi + 1}`;
+    head.textContent = one.header || `Question ${qi + 1}`;
     const body = document.createElement("div");
     body.className = "q-body";
     body.textContent = one.question || "";
@@ -859,7 +859,7 @@ function answeredCard(q) {
       const desc = opt.description && opt.description !== opt.label ? opt.description : "";
       block.appendChild(doneOption(`${mark}${opt.label || ""}`, desc, on, multi));
     });
-    if (picks[qi].text) block.appendChild(doneOption(`✎ その他: ${picks[qi].text}`, "", true, false));
+    if (picks[qi].text) block.appendChild(doneOption(`✎ Other: ${picks[qi].text}`, "", true, false));
     el.appendChild(block);
   });
   return el;
@@ -869,12 +869,12 @@ function questionCard(q) {
   // 回答済みは選択肢を残して選んだものを強調，PC で回答済みは1行だけ表示（05 §1 の2番）
   if (q.state === "answered") return answeredCard(q);
   if (q.state === "resolved_elsewhere") {
-    return settledCard(q, "q-elsewhere", "PC で回答済み");
+    return settledCard(q, "q-elsewhere", "Answered on the PC");
   }
   // 取り下げ（U03）。入力欄から送った文があれば 40 字まで見せる
   if (q.state === "withdrawn") {
     const sent = q.answer && q.answer.text ? [...q.answer.text].slice(0, 40).join("") : "";
-    return settledCard(q, "q-withdrawn", sent ? `質問を取り下げて送信: ${sent}` : "質問を取り下げました");
+    return settledCard(q, "q-withdrawn", sent ? `Question withdrawn, sent: ${sent}` : "Question withdrawn");
   }
 
   const card = document.createElement("div");
@@ -907,7 +907,7 @@ function questionCard(q) {
     block.className = "q-block";
     const title = document.createElement("div");
     title.className = "q-header";
-    title.textContent = one.header || `質問${qi + 1}`;
+    title.textContent = one.header || `Question ${qi + 1}`;
     const body = document.createElement("div");
     body.className = "q-body";
     body.textContent = one.question || "";
@@ -962,7 +962,7 @@ function questionCard(q) {
     const freeInput = document.createElement("input");
     freeInput.type = "text";
     freeInput.className = "q-free";
-    freeInput.placeholder = "その他（自由入力）";
+    freeInput.placeholder = "Other (free text)";
     freeInput.addEventListener("input", () => {
       const v = freeInput.value.trim();
       if (v) {
@@ -988,7 +988,7 @@ function questionCard(q) {
   // 質問を止める（U03）。答えずに質問だけ取り下げる
   const withdrawBtn = document.createElement("button");
   withdrawBtn.className = "q-withdraw";
-  withdrawBtn.textContent = "質問を止める";
+  withdrawBtn.textContent = "Withdraw question";
   withdrawBtn.addEventListener("click", () => withdrawQuestion(q, card));
   card.appendChild(withdrawBtn);
 
@@ -1030,7 +1030,7 @@ async function submitAnswers(q, state, card, submitBtn) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.detail || "送れませんでした");
+      alert(err.detail || "Could not send.");
       card.querySelectorAll("button, input").forEach((el) => { el.disabled = false; });
       submitBtn.disabled = true;
       return;
@@ -1058,7 +1058,7 @@ async function withdrawQuestion(q, card) {
     renderQuestions();
   } catch (e) {
     // 開いていない質問（409）などは理由を出して，今の一覧を読み直す
-    saiToast(e.message || "取り下げられませんでした", "error");
+    saiToast(e.message || "Could not withdraw.", "error");
     card.querySelectorAll("button, input").forEach((el) => { el.disabled = false; });
   }
   await loadQuestions();
@@ -1124,7 +1124,7 @@ function applyPartial(partial) {
     const dot = document.createElement("span");
     dot.className = "partial-dot";
     dot.setAttribute("role", "img");
-    dot.setAttribute("aria-label", "生成中");
+    dot.setAttribute("aria-label", "Generating");
     head.append(who, dot);
     const body = document.createElement("div");
     body.className = "fold-body bubble-agent";
@@ -1157,7 +1157,7 @@ function applyError(error) {
     id: "chat-error",
     kind: "event",
     status: "error",
-    title: "エラー",
+    title: "Error",
     summary: next,
     time: new Date().toISOString(),
   });
@@ -1177,8 +1177,8 @@ function dateKey(iso) {
 
 function dateSepLabel(iso) {
   const d = new Date(iso);
-  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
-  return `${d.getMonth() + 1}月${d.getDate()}日(${wd})`;
+  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
+  return `${wd}, ${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 // 会話の行から日付の区切り線を作り直す（03 §4）。
@@ -1335,7 +1335,7 @@ function renderItem(item) {
   const body = document.createElement("div");
   if (item.kind === "user") {
     fold.wrap.classList.add("kind-user");
-    fold.who.textContent = "あなた";
+    fold.who.textContent = "You";
     chatLastAgentAt = 0; // 自分の発言を挟んだら、次のエージェントの発言は名前から出し直す
     body.className = "fold-body bubble-user";
     body.textContent = item.text || "";
@@ -1363,9 +1363,9 @@ function renderItem(item) {
   // MCP の道具と sai の CLI の呼び出しだけは緑系にする（cc は mcp__…、pi は mcp / mcp__…・U12・U17）
   if (isMcpTool(item)) fold.wrap.classList.add("mcp");
   if (item.ok === false) fold.wrap.classList.add("failed");
-  fold.who.textContent = (item.ok === false ? "⚠ " : "⚙ ") + (item.label || item.tool || "ツール");
+  fold.who.textContent = (item.ok === false ? "⚠ " : "⚙ ") + (item.label || item.tool || "Tool");
   body.className = "fold-body fold-detail";
-  body.textContent = item.detail || "(中身なし)";
+  body.textContent = item.detail || "(no content)";
   fold.wrap.appendChild(body);
   return fold.wrap;
 }
@@ -1375,7 +1375,7 @@ function renderItem(item) {
 function renderEvent(item) {
   const fold = foldItem(item.id, item.time);
   fold.wrap.classList.add("event-card", `ev-${item.status || "info"}`);
-  fold.who.textContent = item.title || "通知";
+  fold.who.textContent = item.title || "Notice";
   const body = document.createElement("div");
   body.className = "fold-body ev-body";
   if (item.summary) {
@@ -1462,14 +1462,14 @@ document.getElementById("stats-button").addEventListener("click", () => {
 // 完了の処理は agent-link のデーモンが行うので、ここは要求を出すだけ。
 document.getElementById("finalize-button").addEventListener("click", async () => {
   if (!currentRun) return;
-  if (!confirm("この実行を終了します。よろしいですか？")) return;
+  if (!confirm("End this run. Are you sure?")) return;
   const res = await apiFetch(`${runApiBase()}/finalize`, { method: "POST" });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(out.detail || "終了できませんでした");
+    alert(out.detail || "Could not end the run.");
     return;
   }
-  alert(out.message || "終了を要求しました");
+  alert(out.message || "Asked the run to end.");
   await loadRunMeta();
 });
 
@@ -1479,14 +1479,14 @@ document.getElementById("interrupt-button").addEventListener("click", async () =
   const res = await apiFetch(`${runApiBase()}/interrupt`, { method: "POST" });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(out.detail || "中断できませんでした");
+    alert(out.detail || "Could not interrupt.");
     return;
   }
-  if (out.status === "interrupted") saiToast("止めました");
+  if (out.status === "interrupted") saiToast("Stopped");
   else if (out.status === "still_working") {
-    saiToast("まだ止まっていません。もう一度押すか、■ で終了してください");
+    saiToast("Not stopped yet. Press again, or end the run with ■.");
   } else {
-    saiToast(out.status || "止めました");
+    saiToast(out.status || "Stopped");
   }
   // 質問中に押すと質問が取り下げられるので，質問の一覧も読み直す（U03）
   await loadRunMeta();
@@ -1503,22 +1503,22 @@ function isSavedScreenCache(name) {
 }
 
 document.getElementById("version-button").addEventListener("click", async () => {
-  const page = new URL(APP_SCRIPT_SRC || location.href).searchParams.get("v") || "版なし（古い画面）";
-  let saved = "なし";
+  const page = new URL(APP_SCRIPT_SRC || location.href).searchParams.get("v") || "none (old screen)";
+  let saved = "none";
   try {
     const keys = (await caches.keys()).filter(isSavedScreenCache);
     if (keys.length) saved = keys.join(", ");
   } catch { /* 読めなければ「なし」 */ }
-  const worker = navigator.serviceWorker && navigator.serviceWorker.controller ? "動いている" : "動いていない";
-  let server = "読めません";
+  const worker = navigator.serviceWorker && navigator.serviceWorker.controller ? "running" : "not running";
+  let server = "unreadable";
   try {
     const res = await apiFetch("/api/health");
     const b = await res.json();
-    server = `${b.server || "?"}（${b.started_at || "?"} に起動）`;
+    server = `${b.server || "?"} (started ${b.started_at || "?"})`;
   } catch { /* 読めなければそのまま */ }
   const ok = confirm(
-    `画面: ${page}\n保存済みの画面: ${saved}\n通知の受け取り役: ${worker}\nMac のサーバー: ${server}\n\n` +
-    "最新の画面に入れ替えますか？（通知の登録はそのまま）"
+    `Screen: ${page}\nSaved screens: ${saved}\nService Worker: ${worker}\nMac server: ${server}\n\n` +
+    "Replace with the latest screen? (Your notification registration is kept.)"
   );
   if (!ok) return;
   // 受け取り役（Service Worker）は登録を消さずに更新だけする（消すと通知の登録も消えるため）
@@ -1539,7 +1539,7 @@ document.getElementById("version-button").addEventListener("click", async () => 
 // iOS は一度断られると再度聞けないため．
 document.getElementById("notify-button").addEventListener("click", async () => {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-    alert("この端末では通知を使えません");
+    alert("Notifications are not available on this device.");
     return;
   }
   const perm = await Notification.requestPermission();
@@ -1547,7 +1547,7 @@ document.getElementById("notify-button").addEventListener("click", async () => {
   try {
     const reg = await navigator.serviceWorker.ready;
     const keyRes = await apiFetch("/api/push/key");
-    if (!keyRes.ok) throw new Error("鍵が取れませんでした");
+    if (!keyRes.ok) throw new Error("Could not get the key.");
     const { public_key } = await keyRes.json();
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
@@ -1558,14 +1558,14 @@ document.getElementById("notify-button").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub.toJSON()),
     });
-    if (!res.ok) throw new Error("登録できませんでした");
+    if (!res.ok) throw new Error("Could not register.");
     const body = await res.json().catch(() => ({}));
     // 登録と同時に Mac がテスト通知を 1 通送る（届かなければ Mac 側のログを見る）
     alert(body.test_sent
-      ? "通知を受け取ります（テスト通知を送りました）"
-      : "通知を受け取ります（ただしテスト通知を送れませんでした）");
+      ? "Notifications are on (a test notification was sent)"
+      : "Notifications are on (but the test notification could not be sent)");
   } catch (e) {
-    alert(`通知の登録に失敗しました: ${e.message || e}`);
+    alert(`Could not register for notifications: ${e.message || e}`);
   }
 });
 
@@ -1613,8 +1613,8 @@ function renderPendingMarks() {
   document.querySelectorAll(".pending-send").forEach((el) => el.remove());
   const key = currentRunKey();
   const marks = [
-    ...loadPendingSends().map((p) => ({ ...p, label: "送信待ち" })),
-    ...takeReflected(loadReflectedSends(), key, [], Date.now()).map((p) => ({ ...p, label: "反映待ち" })),
+    ...loadPendingSends().map((p) => ({ ...p, label: "Waiting to send" })),
+    ...takeReflected(loadReflectedSends(), key, [], Date.now()).map((p) => ({ ...p, label: "Waiting to appear" })),
   ].filter((p) => p.key === key).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (marks.length === 0) return;
   const box = document.getElementById("chat-list");
@@ -1737,14 +1737,14 @@ document.getElementById("send-button").addEventListener("click", async () => {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       // 質問待ちなどで断られたときはサーバーの説明をそのまま出す（C6）
-      if (res.status === 409) saiToast(err.detail || "今は送れません");
-      else alert(err.detail || "送信できなかった");
+      if (res.status === 409) saiToast(err.detail || "Cannot send right now.");
+      else alert(err.detail || "Could not send.");
       return;
     }
     // 質問中に送った文は質問への答えとして取り下げられた（U03）。会話の発言としては残らないので「反映待ち」にしない
     const out = await res.json().catch(() => ({}));
     if (out.status === "withdrawn") {
-      saiToast("質問を取り下げて送りました");
+      saiToast("Question withdrawn and message sent");
       ta.value = "";
       autoGrow();
       await loadQuestions();

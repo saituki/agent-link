@@ -68,10 +68,10 @@ function ncBuildPayload(state) {
  */
 function ncValidate(state) {
   const s = state || {};
-  if (!s.project) return { ok: false, error: "プロジェクトを選んでください" };
-  if (!s.block) return { ok: false, error: "block を選んでください" };
+  if (!s.project) return { ok: false, error: "Choose a project." };
+  if (!s.block) return { ok: false, error: "Choose a block." };
   if (!String(s.task_text || "").trim()) {
-    return { ok: false, error: "最初の文を書いてください" };
+    return { ok: false, error: "Write the first message." };
   }
   return { ok: true };
 }
@@ -138,11 +138,11 @@ async function ncOpen(preset) {
     const data = await saiApi("/api/projects");
     projects = (data.projects || []).map((p) => p && p.name).filter(Boolean);
   } catch (e) {
-    saiToast(e.message || "プロジェクトを読めませんでした", "error");
+    saiToast(e.message || "Could not load projects.", "error");
     return;
   }
   if (projects.length === 0) {
-    saiToast("プロジェクトがありません", "error");
+    saiToast("No projects.", "error");
     return;
   }
 
@@ -161,7 +161,7 @@ async function ncOpen(preset) {
   };
 
   const body = saiEl("div", "nc-body");
-  const sheet = saiSheet({ title: "新しいチャット", body });
+  const sheet = saiSheet({ title: "New chat", body });
 
   // 今の state で入力欄を作り直す。
   function render() {
@@ -171,7 +171,7 @@ async function ncOpen(preset) {
     // 1. プロジェクト（前回選んだ物を既定にする）
     body.appendChild(
       ncField(
-        "プロジェクト",
+        "Project",
         ncSelect(
           projects.map((p) => ({ value: p, label: p })),
           state.project,
@@ -216,7 +216,7 @@ async function ncOpen(preset) {
             state.touched = true;
             updateStart();
           },
-          "（block の既定）"
+          "(block default)"
         )
       )
     );
@@ -233,7 +233,7 @@ async function ncOpen(preset) {
             state.touched = true;
             updateStart();
           },
-          "（block の既定）"
+          "(block default)"
         )
       )
     );
@@ -242,20 +242,20 @@ async function ncOpen(preset) {
     const ta = document.createElement("textarea");
     ta.className = "nc-text";
     ta.rows = 4;
-    ta.placeholder = "最初の文";
+    ta.placeholder = "First message";
     ta.value = state.task_text;
     ta.addEventListener("input", () => {
       state.task_text = ta.value;
       state.touched = true;
       updateStart();
     });
-    body.appendChild(ncField("最初の文", ta));
+    body.appendChild(ncField("First message", ta));
 
     const err = saiEl("div", "nc-error", "");
     err.hidden = true;
     body.appendChild(err);
 
-    const start = saiEl("button", "sai-btn primary nc-start", "始める");
+    const start = saiEl("button", "sai-btn primary nc-start", "Start");
     start.type = "button";
     start.addEventListener("click", () => void startChat(start, err));
     body.appendChild(start);
@@ -273,13 +273,13 @@ async function ncOpen(preset) {
   // プロジェクトの選択肢を読み直して描き直す。
   async function loadOptions() {
     body.innerHTML = "";
-    body.appendChild(saiEl("div", "nc-loading", "読み込み中…"));
+    body.appendChild(saiEl("div", "nc-loading", "Loading…"));
     try {
       state.options = (await saiApi(
         `/api/projects/${encodeURIComponent(state.project)}/card/options`
       )) || {};
     } catch (e) {
-      saiToast(e.message || "選択肢を読めませんでした", "error");
+      saiToast(e.message || "Could not load the options.", "error");
       state.options = {};
     }
     // 住所で頼まれた block は 1 回だけ当てる（無ければ注意を出して既定へ）
@@ -287,7 +287,7 @@ async function ncOpen(preset) {
     state.notice = "";
     if (state.wantBlock) {
       if (ids.includes(state.wantBlock)) state.block = state.wantBlock;
-      else state.notice = `block ${state.wantBlock} がありません（sai-ts init を確かめてください）`;
+      else state.notice = `Block ${state.wantBlock} not found. Check "sai-ts init".`;
       state.wantBlock = "";
     }
     // block の既定（main があれば main、無ければ先頭）
@@ -314,7 +314,7 @@ async function ncOpen(preset) {
         body: payload,
       });
       const runId = card && card.run_id;
-      if (runId == null) throw new Error("run_id を読めませんでした");
+      if (runId == null) throw new Error("Could not read run_id.");
       await saiApi(
         `/api/projects/${encodeURIComponent(state.project)}/runs/${encodeURIComponent(runId)}/start`,
         { method: "POST" }
@@ -327,7 +327,7 @@ async function ncOpen(preset) {
       location.hash = `#/run/${encodeURIComponent(state.project)}/${encodeURIComponent(runId)}`;
     } catch (e) {
       start.disabled = false;
-      saiToast(e.message || "始められませんでした", "error");
+      saiToast(e.message || "Could not start.", "error");
     }
   }
 

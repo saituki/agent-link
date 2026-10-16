@@ -139,7 +139,7 @@ function vaAttach(card, qs, ctl) {
   const speakBtn = document.createElement("button");
   speakBtn.type = "button";
   speakBtn.className = "va-speak";
-  speakBtn.textContent = "🔊 読み上げ";
+  speakBtn.textContent = "🔊 Read aloud";
   const micBtn = document.createElement("button");
   micBtn.type = "button";
   micBtn.className = "va-listen";
@@ -194,13 +194,13 @@ function vaAttach(card, qs, ctl) {
   const speak = (qi) => {
     if (!card.isConnected) { stopAll(); return; }
     st.qi = qi;
-    setStatus("読み上げ中…");
+    setStatus("Reading aloud…");
     const u = utterance(vaSpeechText(questions[qi], qi, questions.length), () => {
       if (!card.isConnected) { stopAll(); return; }
       listenOnce(qi);
     });
     u.onerror = () => {
-      if (card.isConnected) setStatus("読み上げできませんでした");
+      if (card.isConnected) setStatus("Could not read aloud");
       st.busy = false;
     };
     // 1 回目はボタンを押した操作の中で呼ぶ（iOS はそうしないと音を出さない）
@@ -219,7 +219,7 @@ function vaAttach(card, qs, ctl) {
     if (!SR) {
       // 聞き取りが使えない環境では読み上げだけ
       st.busy = false;
-      setStatus("読み上げました（この端末では聞き取りを使えません）");
+      setStatus("Read aloud (voice input is not available on this device)");
       return;
     }
     const rec = new SR();
@@ -239,13 +239,13 @@ function vaAttach(card, qs, ctl) {
         !!(questions[qi] && questions[qi].multiSelect === true)
       );
       if (answer && typeof control.apply === "function") control.apply(qi, answer);
-      setStatus(`聞き取り: ${text}`);
+      setStatus(`Heard: ${text}`);
       const next = nextUnanswered(qi + 1);
       if (next >= 0) speak(next);
       else {
         st.busy = false;
         micBtn.hidden = true;
-        setStatus("送信ボタンを押してください");
+        setStatus("Press the send button");
         const u = utterance("送信ボタンを押してください", () => {});
         try { window.speechSynthesis.speak(u); } catch { /* 読めなくても状態欄は出ている */ }
       }
@@ -257,15 +257,15 @@ function vaAttach(card, qs, ctl) {
       if (err === "no-speech" || err === "aborted") {
         st.busy = false;
         micBtn.hidden = false;
-        setStatus("聞き取れませんでした");
+        setStatus("Could not catch that");
         return;
       }
       // 権限が無い／音声サービスが止まっているときは 🎤 を出しておく
       st.busy = false;
       micBtn.hidden = false;
-      setStatus("🎤 を押して答えてください");
+      setStatus("Press 🎤 to answer");
     };
-    setStatus("聞き取り中…");
+    setStatus("Listening…");
     try {
       rec.start();
       mark(true);
@@ -274,14 +274,14 @@ function vaAttach(card, qs, ctl) {
       st.busy = false;
       mark(false);
       micBtn.hidden = false;
-      setStatus("🎤 を押して答えてください");
+      setStatus("Press 🎤 to answer");
     }
   };
 
   speakBtn.addEventListener("click", () => {
     if (st.busy) { stopAll(); setStatus(""); return; }
     const qi = nextUnanswered(0);
-    if (qi < 0) { setStatus("全て回答済みです"); return; }
+    if (qi < 0) { setStatus("All questions answered"); return; }
     st.busy = true;
     speak(qi); // この押した操作の中で最初の speak が呼ばれる
   });

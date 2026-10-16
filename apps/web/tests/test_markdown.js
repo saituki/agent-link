@@ -106,7 +106,7 @@ function testFrontmatter() {
   assert.ok(html.startsWith('<div class="md-doc">'), "md-doc で包まれること");
   assert.ok(html.endsWith("</div>"), "md-doc が閉じていること");
   assert.ok(html.indexOf("<details class=\"md-front\">") < html.indexOf("# 本文".replace("# ", "")), "本文の前に出る");
-  assert.ok(html.includes("<summary>設定</summary>"), "「設定」という見出し");
+  assert.ok(html.includes("<summary>Settings</summary>"), "「設定」という見出し");
   assert.ok(html.includes("<table class=\"md-front-table\">"));
   assert.ok(html.includes("<th>title</th>"));
   assert.ok(html.includes("<td>実装報告</td>"));
@@ -240,8 +240,8 @@ function testLongCode() {
   const long = renderMarkdown("```js\n" + lines(MD_CODE_LONG_LINES) + "\n```");
   assert.ok(long.includes("md-code-folded"), "長いコードははじめ畳んで出る");
   assert.ok(
-    long.includes(`全部見る（${MD_CODE_LONG_LINES} 行）`),
-    `「全部見る（${MD_CODE_LONG_LINES} 行）」が付く`
+    long.includes(`Show all (${MD_CODE_LONG_LINES} lines)`),
+    `"Show all (${MD_CODE_LONG_LINES} lines)" is added`
   );
   assert.ok(long.includes(`data-md-code-peek="${MD_CODE_PEEK_LINES}"`), "はじめ何行ぶんかを持つ");
   assert.ok(long.includes(`data-md-lines="${MD_CODE_LONG_LINES}"`), "全部何行かを持つ");
@@ -249,7 +249,7 @@ function testLongCode() {
   // 1 行少ないと「全部見る」は付かない
   const short = renderMarkdown("```js\n" + lines(MD_CODE_LONG_LINES - 1) + "\n```");
   assert.ok(!short.includes("md-code-folded"), "20 行は畳まない");
-  assert.ok(!short.includes("全部見る"), "20 行に「全部見る」は付かない");
+  assert.ok(!short.includes("Show all"), "20 行に「全部見る」は付かない");
   assert.ok(short.includes('<pre class="md-pre"'), "20 行は今までと同じ枠");
 }
 

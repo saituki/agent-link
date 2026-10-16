@@ -28,12 +28,12 @@ function testFormatTokens() {
 
 function testFormatDuration() {
   // 時間表示（04 §5 の例: 845000ms → 14分05秒）
-  assert.strictEqual(formatDuration(845000), "14分05秒");
-  assert.strictEqual(formatDuration(45000), "45秒");
-  assert.strictEqual(formatDuration(60000), "1分00秒");
-  assert.strictEqual(formatDuration(3661000), "1時間1分01秒");
-  assert.strictEqual(formatDuration(0), "0秒");
-  assert.strictEqual(formatDuration(null), "0秒");
+  assert.strictEqual(formatDuration(845000), "14m 05s");
+  assert.strictEqual(formatDuration(45000), "45s");
+  assert.strictEqual(formatDuration(60000), "1m 00s");
+  assert.strictEqual(formatDuration(3661000), "1h 1m 01s");
+  assert.strictEqual(formatDuration(0), "0s");
+  assert.strictEqual(formatDuration(null), "0s");
 }
 
 function testFormatCount() {
@@ -50,7 +50,7 @@ function testToolBarRows() {
   assert.strictEqual(rows.length, 11); // 上位10 + その他
   assert.strictEqual(rows[0][0], "Tool00");
   assert.strictEqual(rows[9][0], "Tool09");
-  assert.strictEqual(rows[10][0], "その他");
+  assert.strictEqual(rows[10][0], "Other");
   // その他 = Tool10(10) + Tool11(9)
   assert.strictEqual(rows[10][1], 19);
 

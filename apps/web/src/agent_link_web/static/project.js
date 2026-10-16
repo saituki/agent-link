@@ -21,7 +21,8 @@ const DASH_PERIODS = [
 ];
 // モデル別ドーナツの色（5色・06 §4.2-5）。色は CSS 変数。暗い画面では自動的に変わる。
 const MODEL_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)"];
-const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
+const WEEKDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // 一覧のランプ（稼働中は緑・停止は輪郭のみ・06 §4.1）
 const LAMP_ON = "var(--ok)";
 
@@ -48,12 +49,12 @@ function relativeTime(iso, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const diff = Math.max(0, now - t);
   const min = Math.floor(diff / 60000);
-  if (min < 1) return "たった今";
-  if (min < 60) return `${min}分前`;
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h}時間前`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7) return `${d}日前`;
+  if (d < 7) return `${d}d ago`;
   const dt = new Date(t);
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
@@ -79,7 +80,7 @@ function donutSlices(rows, topN) {
   const out = top.map((x) => ({ ...x, ratio: x.value / total }));
   if (rest.length > 0) {
     const v = rest.reduce((a, x) => a + x.value, 0);
-    out.push({ label: "その他", value: v, ratio: v / total });
+    out.push({ label: "Other", value: v, ratio: v / total });
   }
   return out;
 }
@@ -90,16 +91,16 @@ function shortDuration(ms) {
   if (!Number.isFinite(total) || total < 0) return "0";
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
-  if (h > 0) return `${h}時間${m}分`;
-  if (m > 0) return `${m}分`;
-  return `${total}秒`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${total}s`;
 }
 
 /** 時刻の文字列 → 端末の現地時刻の「HH:MM」（DB の日時は UTC のため現地時刻に直す）。 */
 function clockOf(stamp) {
   const t = parseStamp(stamp);
   if (t == null) return "";
-  return new Date(t).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  return new Date(t).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
 /** 棒を押したときに出す1行（「9/22（月） 1.2M」・06 §4.2-4）。 */
@@ -107,13 +108,13 @@ function chartNoteText(row, metric) {
   const date = String((row && row.date) || "");
   if (!date) return "";
   const md = `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
-  const wd = WEEKDAY_JA[new Date(`${date}T00:00:00`).getDay()] || "";
+  const wd = WEEKDAY_EN[new Date(`${date}T00:00:00`).getDay()] || "";
   const n = Number((row && row.tokens) || 0);
   // 数字の整形は stats.js の関数（ブラウザでだけ読み込まれるため typeof で確かめる）
   const v = metric === "count"
-    ? `${Number((row && row.executions) || 0)}回`
+    ? `${Number((row && row.executions) || 0)} runs`
     : typeof formatTokens === "function" ? formatTokens(n) : String(n);
-  return `${md}（${wd}） ${v}`;
+  return `${md} (${wd}) ${v}`;
 }
 
 /** 横軸ラベル（今週=曜日・今月=1/5/10/…・全期間=月が変わる所だけ・06 §4.2-4）。 */
@@ -123,14 +124,14 @@ function axisLabels(period, daily) {
     const date = String(row.date || "");
     const day = Number(date.slice(8, 10));
     if (period === "week") {
-      return WEEKDAY_JA[new Date(`${date}T00:00:00`).getDay()] || "";
+      return WEEKDAY_EN[new Date(`${date}T00:00:00`).getDay()] || "";
     }
     if (period === "month") {
       return [1, 5, 10, 15, 20, 25, 30].includes(day) ? String(day) : "";
     }
     const cur = date.slice(0, 7);
     const prev = i > 0 ? String(rows[i - 1].date || "").slice(0, 7) : null;
-    return i === 0 || cur !== prev ? `${Number(cur.slice(5, 7))}月` : "";
+    return i === 0 || cur !== prev ? MONTH_EN[Number(cur.slice(5, 7)) - 1] : "";
   });
 }
 
@@ -198,7 +199,7 @@ function renderProjects(list) {
   const box = document.getElementById("projects-list");
   if (!box) return;
   if (list === null) {
-    if (!box.childElementCount) box.innerHTML = "<p class='dash-empty'>読み込み中…</p>";
+    if (!box.childElementCount) box.innerHTML = "<p class='dash-empty'>Loading…</p>";
     return;
   }
   box.innerHTML = "";
@@ -206,8 +207,8 @@ function renderProjects(list) {
     // まだ 1 つも無いときは、案内だけ出す
     const box2 = document.createElement("div");
     box2.className = "sai-empty";
-    box2.appendChild(el("p", "sai-empty-title", "まだプロジェクトがありません"));
-    box2.appendChild(el("p", "sai-empty-body", "Mac で `agent-link init` を実行するとここに出ます。"));
+    box2.appendChild(el("p", "sai-empty-title", "No projects yet"));
+    box2.appendChild(el("p", "sai-empty-body", "Run `agent-link init` on the Mac and the project will show up here."));
     box.appendChild(box2);
     return;
   }
@@ -219,10 +220,10 @@ function projectRowFacts(p) {
   const d = p || {};
   const running = Number(d.running) || 0;
   const parts = [];
-  parts.push(d.daemon_alive ? "常駐 動いています" : "常駐 止まっています");
-  if (running > 0) parts.push(`実行中 ${running} 件`);
+  parts.push(d.daemon_alive ? "Daemon running" : "Daemon stopped");
+  if (running > 0) parts.push(`${running} running`);
   const ago = relativeTime(d.last_executed_at);
-  if (ago) parts.push(`最後に動いたのは ${ago}`);
+  if (ago) parts.push(`Last ran ${ago}`);
   return {
     name: String(d.name || ""),
     alive: !!d.daemon_alive,
@@ -264,8 +265,8 @@ function projectRow(p) {
 
   const line2 = document.createElement("div");
   line2.className = "proj-line2";
-  if (!p.root_exists) line2.textContent = "フォルダが見つかりません";
-  else if (!p.db_exists) line2.textContent = "実行の記録なし";
+  if (!p.root_exists) line2.textContent = "Folder not found";
+  else if (!p.db_exists) line2.textContent = "No run records";
   else line2.textContent = facts.line2;
 
   btn.append(line1, line2);
@@ -287,7 +288,7 @@ async function loadProjects() {
   try {
     const res = await apiFetch("/api/projects");
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+    if (!res.ok) throw new Error(body.detail || "Could not load.");
     data = body;
   } catch (e) {
     // 失敗しても前の表示は残し，帯だけ出す（00 §9）
@@ -363,10 +364,10 @@ async function openDashboard(name) {
   msg.hidden = true;
   const cards = document.createElement("div");
   cards.className = "dash-cards";
-  cards.innerHTML = "<p class='dash-empty'>読み込み中…</p>";
+  cards.innerHTML = "<p class='dash-empty'>Loading…</p>";
   const todo = document.createElement("div");
   todo.id = "dash-todo";
-  todo.innerHTML = "<section class='dash-card'><p class='dash-empty'>読み込み中…</p></section>";
+  todo.innerHTML = "<section class='dash-card'><p class='dash-empty'>Loading…</p></section>";
   body.append(msg, cards, todo);
   dashApplyWide();
 
@@ -400,11 +401,11 @@ async function loadDashboard() {
       `/api/projects/${encodeURIComponent(dashName)}/dashboard?period=${encodeURIComponent(periodValue())}`
     );
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+    if (!res.ok) throw new Error(body.detail || "Could not load.");
     data = body;
   } catch (e) {
     // 失敗は detail をカードの位置に出す（06 §4.2）
-    showDashMessage(e && e.message ? e.message : "読み込めませんでした");
+    showDashMessage(e && e.message ? e.message : "Could not load.");
     window.SaiShell.fail();
     return;
   }
@@ -420,10 +421,10 @@ async function loadTodo() {
     // todo 一覧は `GET …/tree` の todo フォルダの中身（別 CLI は使わない・計画 15）
     const res = await apiFetch(`/api/projects/${encodeURIComponent(dashName)}/tree`);
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || "読み込めませんでした");
+    if (!res.ok) throw new Error(body.detail || "Could not load.");
     items = body.items;
   } catch (e) {
-    showDashMessage(e && e.message ? e.message : "todo を読み込めませんでした");
+    showDashMessage(e && e.message ? e.message : "Could not load todo.");
     window.SaiShell.fail();
     return;
   }
@@ -462,7 +463,7 @@ function statusCard(d) {
   const lamp = document.createElement("span");
   lamp.className = "proj-lamp" + (d.daemon_alive ? " on" : "");
   lamp.setAttribute("aria-hidden", "true");
-  left.append(lamp, document.createTextNode(d.daemon_alive ? " 稼働中" : " 停止中"));
+  left.append(lamp, document.createTextNode(d.daemon_alive ? " Running" : " Stopped"));
 
   const btn = document.createElement("button");
   btn.className = "dash-btn" + (d.daemon_alive ? " stop" : "");
@@ -474,8 +475,8 @@ function statusCard(d) {
   const note = document.createElement("div");
   note.className = "dash-hint";
   note.textContent = d.daemon_alive
-    ? "常駐は Mac 側で動き続ける係です。止めると実行中のカードも止まります。"
-    : "常駐が止まっています。押して起動すると、このプロジェクトのカードを実行できます。";
+    ? "The daemon keeps running on the Mac. If you stop it, running cards stop too."
+    : "The daemon is stopped. Start it to run this project's cards.";
   card.appendChild(note);
   return card;
 }
@@ -484,8 +485,8 @@ async function onDaemonClick() {
   if (daemonBusy || !dashData) return;
   const action = dashData.daemon_alive ? "stop" : "start";
   const question = action === "stop"
-    ? `${dashName} の常駐を停止しますか？`
-    : `${dashName} の常駐を起動しますか？`;
+    ? `Stop the daemon for ${dashName}?`
+    : `Start the daemon for ${dashName}?`;
   if (!confirm(question)) return;
   daemonBusy = true;
   renderDashboard();
@@ -496,11 +497,11 @@ async function onDaemonClick() {
       body: JSON.stringify({ action }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || "送れませんでした");
-    showDashMessage(body.message || (action === "stop" ? "停止を要求しました" : "起動を要求しました"));
+    if (!res.ok) throw new Error(body.detail || "Could not send.");
+    showDashMessage(body.message || (action === "stop" ? "Asked the daemon to stop" : "Asked the daemon to start"));
     window.SaiShell.ok();
   } catch (e) {
-    showDashMessage(e && e.message ? e.message : "送れませんでした");
+    showDashMessage(e && e.message ? e.message : "Could not send.");
     window.SaiShell.fail();
   } finally {
     daemonBusy = false;
@@ -539,10 +540,10 @@ function summaryCard(d) {
   const grid = document.createElement("div");
   grid.className = "dash-grid";
   const items = [
-    [`${Number(s.executions) || 0} 回`, "Run"],
-    [`${Math.round((Number(s.success_rate) || 0) * 100)}%`, "成功率"],
-    [formatTokens(s.tokens_total), "トークン"],
-    [shortDuration(s.duration_ms), "時間"],
+    [`${Number(s.executions) || 0}`, "Runs"],
+    [`${Math.round((Number(s.success_rate) || 0) * 100)}%`, "Success rate"],
+    [formatTokens(s.tokens_total), "Tokens"],
+    [shortDuration(s.duration_ms), "Duration"],
   ];
   for (const [value, label] of items) {
     const cell = document.createElement("div");
@@ -556,9 +557,9 @@ function summaryCard(d) {
   // 費用・失敗・実行中（0 の項目は省く・06 §4.2-3）
   const parts = [];
   const cost = Number(s.cost_usd) || 0;
-  if (cost > 0) parts.push(`費用 ${formatMoney(cost)}`);
-  if (Number(s.failed) > 0) parts.push(`失敗 ${Number(s.failed)}`);
-  if (Number(s.running) > 0) parts.push(`実行中 ${Number(s.running)}`);
+  if (cost > 0) parts.push(`cost ${formatMoney(cost)}`);
+  if (Number(s.failed) > 0) parts.push(`failed ${Number(s.failed)}`);
+  if (Number(s.running) > 0) parts.push(`running ${Number(s.running)}`);
   if (parts.length) card.appendChild(el("div", "dash-sub", parts.join(" · ")));
   return card;
 }
@@ -568,10 +569,10 @@ function chartCard(d) {
   const card = dashCard("dash-chart-card");
   const head = document.createElement("div");
   head.className = "dash-card-head";
-  head.appendChild(cardTitle(chartMetric === "tokens" ? "日ごとの token" : "日ごとの実行数"));
+  head.appendChild(cardTitle(chartMetric === "tokens" ? "Tokens per day" : "Runs per day"));
   const seg = document.createElement("div");
   seg.className = "dash-seg small";
-  for (const [value, label] of [["tokens", "token"], ["count", "回数"]]) {
+  for (const [value, label] of [["tokens", "token"], ["count", "runs"]]) {
     const b = document.createElement("button");
     b.textContent = label;
     b.className = value === chartMetric ? "active" : "";
@@ -600,7 +601,7 @@ function dailySvg(d) {
       Number(chartMetric === "count" ? row.executions : row.tokens) || 0,
     labelOf: (row, i) => labels[i] || "",
     unit,
-    what: chartMetric === "count" ? "日ごとの実行数" : "日ごとの token",
+    what: chartMetric === "count" ? "Runs per day" : "Tokens per day",
     onPick: (row) => {
       chartNote = chartNoteText(row, chartMetric);
       renderDashboard();
@@ -611,16 +612,16 @@ function dailySvg(d) {
 // 5. モデル別の内訳（ドーナツ・上位 4 件＋その他）
 function modelCard(d) {
   const card = dashCard("dash-model");
-  card.appendChild(cardTitle("モデル別"));
+  card.appendChild(cardTitle("By model"));
   const slices = donutSlices(
     (d.by_model || []).map((m) => ({
-      label: m.model || "(不明)",
+      label: m.model || "(unknown)",
       value: Number(m.tokens) || 0,
     })),
     4
   );
   if (slices.length === 0) {
-    card.appendChild(el("p", "dash-empty", "データがありません"));
+    card.appendChild(el("p", "dash-empty", "No data"));
     return card;
   }
   const R = 38;
@@ -633,9 +634,9 @@ function modelCard(d) {
     class: "dash-donut",
     role: "img",
     "aria-label":
-      `モデル別のトークン割合のドーナツ。合計 ${formatTokens(total)} トークン` +
-      `。最も多いのは${shortModel(slices[0].label)} ${formatTokens(slices[0].value)}` +
-      `（${Math.round(slices[0].ratio * 100)}%）`,
+      `Donut chart of token share by model. Total ${formatTokens(total)} tokens` +
+      `. Largest is ${shortModel(slices[0].label)} ${formatTokens(slices[0].value)}` +
+      ` (${Math.round(slices[0].ratio * 100)}%)`,
   });
   let start = 0;
   slices.forEach((s, i) => {
@@ -657,7 +658,7 @@ function modelCard(d) {
   const center = document.createElement("div");
   center.className = "dash-donut-center";
   center.appendChild(el("strong", "dash-donut-total", formatTokens(total)));
-  center.appendChild(el("span", "dash-donut-cap", "合計"));
+  center.appendChild(el("span", "dash-donut-cap", "Total"));
   wrap.appendChild(center);
   card.appendChild(wrap);
 
@@ -684,10 +685,10 @@ function modelCard(d) {
 // 6. ブロック別の内訳（横棒・上位 8 件）
 function blockCard(d) {
   const card = dashCard("dash-blocks");
-  card.appendChild(cardTitle("ブロック別"));
+  card.appendChild(cardTitle("By block"));
   const rows = (d.by_block || []).slice(0, 8);
   if (rows.length === 0) {
-    card.appendChild(el("p", "dash-empty", "データがありません"));
+    card.appendChild(el("p", "dash-empty", "No data"));
     return card;
   }
   const values = rows.map((r) => Number(r.tokens) || 0);
@@ -705,7 +706,7 @@ function blockCard(d) {
     track.appendChild(fill);
     row.append(
       track,
-      el("span", "dash-bar-num", `${formatTokens(values[i])} · ${Number(r.executions) || 0}回`)
+      el("span", "dash-bar-num", `${formatTokens(values[i])} · ${Number(r.executions) || 0} runs`)
     );
     card.appendChild(row);
   });
@@ -715,10 +716,10 @@ function blockCard(d) {
 // 7. 直近の実行（押すとメッセージ画面へ）
 function recentCard(d) {
   const card = dashCard("dash-recent-card");
-  card.appendChild(cardTitle("直近の実行"));
+  card.appendChild(cardTitle("Recent runs"));
   const rows = d.recent || [];
   if (rows.length === 0) {
-    card.appendChild(el("p", "dash-empty", "この期間の実行はありません"));
+    card.appendChild(el("p", "dash-empty", "No runs in this period"));
     return card;
   }
   for (const r of rows) card.appendChild(recentRow(r));
@@ -757,21 +758,21 @@ function renderTodo() {
   const card = dashCard("dash-todo-card");
   const head = document.createElement("div");
   head.className = "dash-card-head";
-  head.appendChild(cardTitle("todo カード"));
+  head.appendChild(cardTitle("todo cards"));
   card.appendChild(head);
   // 「実行」を押すとどうなるかの説明（端末に慣れていない人向け）
   const note = document.createElement("p");
   note.className = "dash-hint";
-  note.textContent = "「実行」を押すと、Mac 側のエージェントがそのカードを動かし始めます。";
+  note.textContent = "Press \"Run\" and the agent on the Mac starts running that card.";
   card.appendChild(note);
 
   const alive = !!(dashData && dashData.daemon_alive);
   if (!alive) {
     // 常駐が止まっているときは実行ボタンを押せない（06 §4.2-8）
-    card.appendChild(el("div", "dash-hint", "常駐が止まっています。上の「起動」を押してください"));
+    card.appendChild(el("div", "dash-hint", "The daemon is stopped. Press \"Start\" above."));
   }
   if (todoRuns.length === 0) {
-    card.appendChild(el("p", "dash-empty", todoLoaded ? "未実行のカードはありません" : "読み込み中…"));
+    card.appendChild(el("p", "dash-empty", todoLoaded ? "No todo cards" : "Loading…"));
     box.appendChild(card);
     return;
   }
@@ -807,7 +808,7 @@ async function onRunCardClick(c) {
   if (runBusy || c.run_id == null) return;
   const label = c.label || `ID${c.run_id}`;
   // 確認は既存の動きと同じ（実行はエージェントを動かすため必ず聞く・計画 15）
-  const question = `このカードを実行しますか？\n\n${label}`;
+  const question = `Run this card?\n\n${label}`;
   if (!confirm(question)) return;
   runBusy = true;
   renderTodo(); // 送信中はボタンを押せない
@@ -817,13 +818,13 @@ async function onRunCardClick(c) {
       { method: "POST" }
     );
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || "送れませんでした");
-    showDashMessage(body.message || "実行を要求しました");
+    if (!res.ok) throw new Error(body.detail || "Could not send.");
+    showDashMessage(body.message || "Asked to run the card");
     window.SaiShell.ok();
     // todo と Dashboard を読み直す（計画 15）
     await Promise.all([loadDashboard(), loadTodo()]);
   } catch (e) {
-    showDashMessage(e && e.message ? e.message : "送れませんでした");
+    showDashMessage(e && e.message ? e.message : "Could not send.");
     window.SaiShell.fail();
   } finally {
     runBusy = false;

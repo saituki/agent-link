@@ -31,21 +31,21 @@ function formatTokens(n) {
 /** 実行時間を日本語で表示する（845000ms → 14分05秒）． */
 function formatDuration(ms) {
   let total = Math.floor(Number(ms) / 1000);
-  if (!Number.isFinite(total) || total < 0) return "0秒";
+  if (!Number.isFinite(total) || total < 0) return "0s";
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  const secText = `${String(s).padStart(2, "0")}秒`;
-  if (h > 0) return `${h}時間${m}分${secText}`;
-  if (m > 0) return `${m}分${secText}`;
-  return `${s}秒`;
+  const secText = `${String(s).padStart(2, "0")}s`;
+  if (h > 0) return `${h}h ${m}m ${secText}`;
+  if (m > 0) return `${m}m ${secText}`;
+  return `${s}s`;
 }
 
 /** そのままの数を桁区切りで（凡例では 606,000 と正確に出す・04 §1-2）． */
 function formatCount(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "0";
-  return Math.round(v).toLocaleString("ja-JP");
+  return Math.round(v).toLocaleString("en-US");
 }
 
 /** 金額（$1.27）． */
@@ -58,7 +58,7 @@ function formatDateTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d)) return "";
-  return d.toLocaleString("ja-JP", {
+  return d.toLocaleString("en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -90,10 +90,10 @@ function isEmptyStats(stats) {
 function tokenParts(tokens) {
   const t = tokens || {};
   return [
-    { label: "入力", cls: "st-in", n: num(t.input) },
-    { label: "出力", cls: "st-out", n: num(t.output) },
-    { label: "キャッシュ読み", cls: "st-cr", n: num(t.cache_read) },
-    { label: "キャッシュ書き", cls: "st-cw", n: num(t.cache_write) },
+    { label: "Input", cls: "st-in", n: num(t.input) },
+    { label: "Output", cls: "st-out", n: num(t.output) },
+    { label: "Cache read", cls: "st-cr", n: num(t.cache_read) },
+    { label: "Cache write", cls: "st-cw", n: num(t.cache_write) },
   ];
 }
 
@@ -107,7 +107,7 @@ function toolBarRows(stats, limit = 10) {
   const top = entries.slice(0, limit);
   const rest = entries.slice(limit);
   if (rest.length > 0) {
-    top.push(["その他", rest.reduce((a, [, n]) => a + num(n), 0)]);
+    top.push(["Other", rest.reduce((a, [, n]) => a + num(n), 0)]);
   }
   return top;
 }
@@ -153,7 +153,7 @@ async function openStats(r) {
   document.getElementById("stats-desc").textContent = "";
   document.getElementById("stats-head").innerHTML = "";
   document.getElementById("stats-cards").innerHTML =
-    "<p class='st-note'>読み込み中…</p>";
+    "<p class='st-note'>Loading…</p>";
   await loadStats();
 }
 
@@ -200,7 +200,7 @@ function renderStats(data) {
   if (data.status === "running") {
     statsFinished = false;
     cards.appendChild(
-      el("p", "st-note", "実行中のため未集計（終了後に agent-link が集計します）")
+      el("p", "st-note", "Not counted yet because the run is still going (agent-link counts it after the run ends)")
     );
     return;
   }
@@ -209,7 +209,7 @@ function renderStats(data) {
   const stats = data.stats;
   if (isEmptyStats(stats)) {
     // stats 無し・全部 0（04 §1-4）
-    cards.appendChild(el("p", "st-note", "統計データがありません"));
+    cards.appendChild(el("p", "st-note", "No stats data"));
     return;
   }
   renderCards(cards, stats, data);
@@ -219,15 +219,15 @@ function renderHead(data) {
   const box = document.getElementById("stats-head");
   box.innerHTML = "";
   const stats = data.stats || {};
-  const model = data.model || stats.model || "モデル不明";
+  const model = data.model || stats.model || "Unknown model";
   const parts = [];
   if (data.project_name) parts.push(data.project_name);
   parts.push(model);
   box.appendChild(el("div", "st-head-line", parts.join(" · ")));
 
   const range = data.finished_at
-    ? `${formatDateTime(data.started_at)} 〜 ${formatDateTime(data.finished_at)}`
-    : `${formatDateTime(data.started_at)} 〜`;
+    ? `${formatDateTime(data.started_at)} – ${formatDateTime(data.finished_at)}`
+    : `${formatDateTime(data.started_at)} –`;
   box.appendChild(el("div", "st-head-line", range));
 
   const st = STATUS_LABEL[data.status] || { text: data.status || "", cls: "" };
@@ -250,14 +250,14 @@ function renderCards(cards, stats, data) {
     cost == null ? "—" : `${stats.cost_is_estimate ? "≈" : ""}${formatMoney(cost)}`;
   // コストの出どころの注記（概算 / cc 集計 / pi 集計）
   let costNote = "";
-  if (stats.cost_is_estimate) costNote = "概算";
-  else if (stats.cost_source === "cc") costNote = "cc 集計";
-  else if (stats.cost_source === "pi") costNote = "pi 集計";
-  bigs.appendChild(bigCard("コスト", costValue, costNote));
+  if (stats.cost_is_estimate) costNote = "estimate";
+  else if (stats.cost_source === "cc") costNote = "counted by cc";
+  else if (stats.cost_source === "pi") costNote = "counted by pi";
+  bigs.appendChild(bigCard("Cost", costValue, costNote));
 
   const ms = stats.elapsed_ms != null ? stats.elapsed_ms : data.duration_ms;
-  bigs.appendChild(bigCard("実行時間", ms == null ? "—" : formatDuration(ms), ""));
-  bigs.appendChild(bigCard("合計トークン", formatTokens((stats.tokens || {}).total), ""));
+  bigs.appendChild(bigCard("Duration", ms == null ? "—" : formatDuration(ms), ""));
+  bigs.appendChild(bigCard("Total tokens", formatTokens((stats.tokens || {}).total), ""));
   cards.appendChild(bigs);
 
   // 2. 円グラフ（ドーナツ型）: トークン内訳（04 §1-2 の3番）
@@ -274,11 +274,11 @@ const DONUT_C = 2 * Math.PI * DONUT_R;
 
 function tokenCard(stats) {
   const card = el("section", "st-card");
-  card.appendChild(el("h3", "st-card-title", "トークン内訳"));
+  card.appendChild(el("h3", "st-card-title", "Token breakdown"));
   const parts = tokenParts(stats.tokens);
   const sum = parts.reduce((a, p) => a + p.n, 0);
   if (sum <= 0) {
-    card.appendChild(el("p", "st-note", "データがありません"));
+    card.appendChild(el("p", "st-note", "No data"));
     return card;
   }
 
@@ -289,9 +289,9 @@ function tokenCard(stats) {
     class: "st-donut",
     role: "img",
     "aria-label":
-      `トークン内訳のドーナツ。合計 ${formatTokens(sum)} トークン` +
+      `Donut chart of the token breakdown. Total ${formatTokens(sum)} tokens` +
       (biggest
-        ? `。最も多いのは${biggest.label} ${formatCount(biggest.n)}（${((biggest.n / sum) * 100).toFixed(1)}%）`
+        ? `. Largest is ${biggest.label} ${formatCount(biggest.n)} (${((biggest.n / sum) * 100).toFixed(1)}%)`
         : ""),
   });
   let start = 0;
@@ -313,7 +313,7 @@ function tokenCard(stats) {
   wrap.appendChild(svg);
   const center = el("div", "st-donut-center");
   center.appendChild(el("strong", "st-donut-total", formatTokens(sum)));
-  center.appendChild(el("span", "st-donut-cap", "合計"));
+  center.appendChild(el("span", "st-donut-cap", "Total"));
   wrap.appendChild(center);
   card.appendChild(wrap);
 
@@ -334,15 +334,15 @@ function tokenCard(stats) {
 
 function toolCard(stats) {
   const card = el("section", "st-card");
-  card.appendChild(el("h3", "st-card-title", "ツール別使用回数"));
+  card.appendChild(el("h3", "st-card-title", "Tool calls by tool"));
   const rows = toolBarRows(stats);
   if (rows.length === 0) {
-    card.appendChild(el("p", "st-note", "データがありません"));
+    card.appendChild(el("p", "st-note", "No data"));
     return card;
   }
   const max = num(rows[0][1]);
   card.appendChild(
-    el("p", "st-hint", `横棒の長さは 1 番目（${String(rows[0][0])}：${formatCount(max)} 回）を 100% とした比です`)
+    el("p", "st-hint", `Bar length is relative to the first row (${String(rows[0][0])}: ${formatCount(max)} calls) as 100%`)
   );
   for (const [name, count] of rows) {
     const n = num(count);
@@ -356,8 +356,8 @@ function toolCard(stats) {
       class: "st-bar-svg",
       role: "img",
       "aria-label":
-        `${String(name)} ${formatCount(n)} 回` +
-        `（1 番目の ${formatCount(max)} 回に対して ${Math.round(frac * 100)}%）`,
+        `${String(name)} ${formatCount(n)} calls` +
+        ` (${Math.round(frac * 100)}% of ${formatCount(max)} calls in the first row)`,
     });
     const rect = svgEl("rect", {
       x: "0", y: "0", width: "100", height: "8", rx: "2",
@@ -376,10 +376,10 @@ function toolCard(stats) {
 function footCard(stats) {
   const card = el("section", "st-card st-foot");
   const summary = el("div", "st-foot-line");
-  summary.appendChild(el("b", null, `ターン数 ${formatCount(stats.turn_count)}`));
+  summary.appendChild(el("b", null, `Turns ${formatCount(stats.turn_count)}`));
   summary.appendChild(document.createTextNode(" · "));
   summary.appendChild(
-    el("b", null, `ツール ${formatCount(stats.tool_call_count)} 回`)
+    el("b", null, `Tool calls ${formatCount(stats.tool_call_count)}`)
   );
   card.appendChild(summary);
 
@@ -390,17 +390,17 @@ function footCard(stats) {
     "div",
     "st-foot-line",
     [
-      seg("入力", c.input),
-      seg("出力", c.output),
-      seg("キャッシュ読み", c.cache_read),
-      seg("キャッシュ書き", c.cache_write),
+      seg("Input", c.input),
+      seg("Output", c.output),
+      seg("Cache read", c.cache_read),
+      seg("Cache write", c.cache_write),
     ].join(" · ")
   );
   card.appendChild(line);
 
   if (stats.cost_source === "cc") {
     // cc 自身の金額は合計しか持たないため内訳は概算（00 §3.4）
-    card.appendChild(el("div", "st-foot-note", "内訳は概算"));
+    card.appendChild(el("div", "st-foot-note", "Breakdown is an estimate"));
   }
   return card;
 }

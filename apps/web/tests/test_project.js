@@ -18,10 +18,10 @@ const { relativeTime, donutSlices, todoFolderRuns, projectRowFacts } = require(p
 function testRelativeTime() {
   // 06 §4.1 の表示例（たった今 / 5分前 / 3時間前 / 2日前 / 9/12）
   const now = Date.parse("2026-09-23T10:00:00Z");
-  assert.strictEqual(relativeTime("2026-09-23 10:00:00", now), "たった今");
-  assert.strictEqual(relativeTime("2026-09-23 09:55:00", now), "5分前");
-  assert.strictEqual(relativeTime("2026-09-23 07:00:00", now), "3時間前");
-  assert.strictEqual(relativeTime("2026-09-21 10:00:00", now), "2日前");
+  assert.strictEqual(relativeTime("2026-09-23 10:00:00", now), "just now");
+  assert.strictEqual(relativeTime("2026-09-23 09:55:00", now), "5m ago");
+  assert.strictEqual(relativeTime("2026-09-23 07:00:00", now), "3h ago");
+  assert.strictEqual(relativeTime("2026-09-21 10:00:00", now), "2d ago");
   // 7 日を超えたら日付に戻る（DB の日時は UTC として読む）
   assert.strictEqual(
     relativeTime("2025-09-12 00:00:00", Date.parse("2025-10-12T00:00:00Z")),
@@ -45,7 +45,7 @@ function testDonutSlices() {
   assert.strictEqual(slices.length, 5); // 上位4 + その他
   assert.strictEqual(slices[0].label, "opus");
   assert.strictEqual(slices[3].label, "gemini");
-  assert.strictEqual(slices[4].label, "その他");
+  assert.strictEqual(slices[4].label, "Other");
   assert.strictEqual(slices[4].value, 5); // 5 + 5 のうち残り1件
   assert.ok(Math.abs(slices[0].ratio - 0.5) < 1e-9); // 50 / 100
   assert.ok(Math.abs(slices.reduce((a, s) => a + s.ratio, 0) - 1) < 1e-9);
@@ -53,7 +53,7 @@ function testDonutSlices() {
   // 入れ混んでも多い順に並び，上位だけが選ばれる
   const shuffled = donutSlices([rows[4], rows[0], rows[2], rows[1], rows[3]], 4);
   assert.strictEqual(shuffled[0].label, "opus");
-  assert.strictEqual(shuffled[4].label, "その他");
+  assert.strictEqual(shuffled[4].label, "Other");
 
   // 合計 0 は空配列（「データがありません」表示）
   assert.deepStrictEqual(donutSlices([], 4), []);
@@ -102,20 +102,20 @@ function testProjectRowFacts() {
   assert.strictEqual(alive.alive, true);
   assert.strictEqual(alive.running, 2);
   assert.strictEqual(alive.usable, true);
-  assert.ok(alive.line2.includes("動いています"));
-  assert.ok(alive.line2.includes("実行中 2 件"));
-  assert.ok(alive.line2.includes("最後に動いたのは"));
+  assert.ok(alive.line2.includes("Daemon running"));
+  assert.ok(alive.line2.includes("2 running"));
+  assert.ok(alive.line2.includes("Last ran"));
   // 止まっているとき・0 件のときは「実行中」を出さない
   const stopped = projectRowFacts({ name: "x", root_exists: true, db_exists: true, daemon_alive: false, running: 0, last_executed_at: null });
   assert.strictEqual(stopped.alive, false);
-  assert.ok(stopped.line2.includes("止まっています"));
-  assert.ok(!stopped.line2.includes("実行中"));
+  assert.ok(stopped.line2.includes("Daemon stopped"));
+  assert.ok(!stopped.line2.includes("running"));
   assert.strictEqual(stopped.ago, "");
   // root か db が無い行は薄くして押せない
   assert.strictEqual(projectRowFacts({ root_exists: false, db_exists: true }).usable, false);
   assert.strictEqual(projectRowFacts({ root_exists: true, db_exists: false }).usable, false);
   // 壊れた応答でも止めない
-  assert.strictEqual(projectRowFacts(null).line2, "常駐 止まっています");
+  assert.strictEqual(projectRowFacts(null).line2, "Daemon stopped");
 }
 
 function main() {
