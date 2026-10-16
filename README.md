@@ -21,7 +21,7 @@
 - 画面は Web だけです。Web の HTTP API は `agent-link-web api` で呼べ、CLI の命令は `agent-link schema --json` に出ます。
 - Mac 専用の常駐（launchd）・承認・遠隔ブラウザは持ちません。daemon と Web は手で起こします。
 
-仕組みの詳しい説明は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、概念と用語は [`CONCEPT.md`](./CONCEPT.md) にあります。sai-moon から切り替えるときは [`docs/switch-over.md`](./docs/switch-over.md) を上から順に実行します。
+仕組みの詳しい説明は [`ARCHITECTURE.md`](./ARCHITECTURE.md)、概念と用語は [`CONCEPT.md`](./CONCEPT.md) にあります。sai-moon と並べて使うときは [`docs/switch-over.md`](./docs/switch-over.md) を上から順に実行します。
 
 ## 必要な物
 
@@ -63,7 +63,8 @@ Web を起こし直す関数も `~/.zshrc` に書いておくと楽です。PATH
 ```bash
 agent-link-web-restart() {
   kill $(lsof -tiTCP:8400 -sTCP:LISTEN) 2>/dev/null
-  (cd ~/workdir/Sai/agent-link/apps/web && nohup bin/agent-link-web serve --port 8400 >/tmp/agent-link-web-8400.log 2>&1 &)
+  mkdir -p ~/.agent-link/web
+  (cd ~/workdir/Sai/agent-link/apps/web && nohup bin/agent-link-web serve --port 8400 >~/.agent-link/web/agent-link-web.log 2>&1 &)
 }
 ```
 
@@ -137,7 +138,7 @@ Web の Projects → Dashboard からも起動・停止できます。
 |---|---|
 | `registry.json` | プロジェクトの登録簿（`agent-link init` が書く） |
 | `blocks/`・`template/`・`settings.json` | 全プロジェクト共通の block・template・settings |
-| `web/` | Web の置き場: `runs/`（実行の書き出し）・`agent_link_web.db`・`vapid.json`・`agent-link-web.log` |
+| `web/` | Web の置き場: `runs/`（実行の書き出し）・`agent_link_web.db`・`vapid.json`・`agent-link-web.log`（上の `agent-link-web-restart` で起こしたときのログの出し先） |
 
 プロジェクトの中の `<root>/.agent-link/`（`engine/agent-link.db`・`blocks/`・`template/`・`settings.json`・`outputs/`）はこれとは別です。古い置き場（sai-moon の物）は読みません。
 
@@ -181,7 +182,7 @@ tailscale serve status
 
 - iPhone からは `https://<Mac名>.<tailnet>.ts.net:4446/` を開きます（4444 番は sai-moon の Web が使います）。
 - `agent-link-web` は必ず `--host 127.0.0.1` で動かします（`agent-link-web serve` の既定です。`0.0.0.0` にすると Tailscale の外からも届きます）。
-- **tailnet が自分 1 人のときだけ使います。** 合言葉は無いので、tailnet に届く人は誰でも全機能（エージェントの起動を含む）を使えます。他の人を招くときは、先に ACL で届く機械を絞るか、serve を止めます（`docs/switch-over.md` の 7）。
+- **tailnet が自分 1 人のときだけ使います。** 合言葉は無いので、tailnet に届く人は誰でも全機能（エージェントの起動を含む）を使えます。他の人を招くときは、先に ACL で届く機械を絞るか、serve を止めます（`docs/switch-over.md` の 6）。
 
 ## エージェントとつなぐ
 
@@ -250,7 +251,7 @@ agent-link と sai-moon は、同じ Mac・同じプロジェクトで並べて�
 
 ## テスト（開発者向け）
 
-テストの命令は [`AGENTS.md`](./AGENTS.md) の「テストと確認」にあります（Rust は `cargo test --workspace`、Web の画面は `apps/web/tests/test_*.js`、サーバは `apps/web/tests/test_*.py`）。CI（`.github/workflows/ci.yml`）は Linux（ubuntu-latest）で同じ命令を回します。
+テストの命令は [`AGENTS.md`](./AGENTS.md) の「テストと確認」にあります（Rust は `cargo test --workspace --no-fail-fast`、Web の画面は `apps/web/tests/test_*.js`、サーバは `apps/web/tests/test_*.py`）。CI（`.github/workflows/ci.yml`）は Linux（ubuntu-latest）で同じ命令を回します。
 
 画面の確認は 8297 番など別の番号で行います。**Mac で動いている Web（8400 番）は、確認のために止めたり再起動したりしません。**
 
@@ -261,4 +262,4 @@ agent-link と sai-moon は、同じ Mac・同じプロジェクトで並べて�
 - [`CONCEPT.md`](./CONCEPT.md) — 概念と用語（run・card・doc・block・Workflow・画面の名前ほか）。
 - [`docs/integration.md`](./docs/integration.md) — Web の API と画面の住所の一覧、各 API が呼ぶ CLI の命令、統合の注意点。
 - [`docs/for-developers.md`](./docs/for-developers.md) — CLI の約束と、Web が読む JSON の項目（CLI を直す人が守ること）。
-- [`docs/switch-over.md`](./docs/switch-over.md) — sai-moon から agent-link に切り替える手順書。
+- [`docs/switch-over.md`](./docs/switch-over.md) — sai-moon と agent-link を並べて使う手順書。

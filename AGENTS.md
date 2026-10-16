@@ -26,7 +26,7 @@
 | `README.md` | 入れ方・最初の一歩・ポート表・環境変数表 |
 | `docs/integration.md` | `apps/web` の API と画面の住所の一覧 |
 | `docs/for-developers.md` | CLI が守る約束（`apps/web` が読む JSON の項目） |
-| `docs/switch-over.md` | sai-moon から agent-link に切り替える手順書（利用者が行う） |
+| `docs/switch-over.md` | sai-moon と agent-link を並べて使う手順書（利用者が行う） |
 
 `agent-link` などは PATH に無いことがある。`README.md` の「入れ方」の PATH の足し方を見ること。
 
@@ -56,8 +56,8 @@
 ```bash
 cd ~/workdir/Sai/agent-link
 
-# Rust（784 件）
-perl -e 'alarm 1800; exec @ARGV' cargo test --workspace
+# Rust（797 件。--no-fail-fast は最初の失敗で止めず、全部の本数を数えるため）
+perl -e 'alarm 1800; exec @ARGV' cargo test --workspace --no-fail-fast
 
 # Web（JS 22 本）
 for f in apps/web/tests/test_*.js; do node "$f" || exit 1; done
@@ -68,7 +68,7 @@ for f in apps/web/tests/test_*.py; do PYTHONPATH=apps/web/src apps/web/.venv/bin
 
 | 対象 | 本数 | CI のジョブ |
 |---|---|---|
-| Rust（`cargo test --workspace`） | 784 件（ほかに ignored 3 件） | Rust（ubuntu） |
+| Rust（`cargo test --workspace --no-fail-fast`） | 797 件（ほかに ignored 3 件） | Rust（ubuntu） |
 | Web の JS | 22 本 | Web（ubuntu） |
 | Web の Python | 18 本 | Web（ubuntu） |
 

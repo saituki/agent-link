@@ -29,7 +29,7 @@
 | 2 | **失敗したとき**: 標準出力には何も書かない。標準エラーの最後の行に、英語で理由を 1 行書く。clap の誤りは最後の行に `Invalid arguments: <clap の文の 1 行目>`。`--json` の返り値の人向けの文（`message` など）も英語 |
 | 3 | **成功したとき**: `--json` があれば標準出力に JSON を 1 つだけ書く（前後に余計な文字を出さない） |
 | 4 | **時間のかかる命令**は、標準エラーに `sai-progress step=<数>`・`sai-progress msg=<文>` を出してよい（1 行 = 1 つ。段落内の改行は空白にする） |
-| 5 | **プロジェクトの決め方**: `AGENT_LINK_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.agent-link/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`init` は「`AGENT_LINK_PROJECT_ROOT` → cwd」だけ。`schema` はプロジェクトを要らない |
+| 5 | **プロジェクトの決め方**: `AGENT_LINK_PROJECT_ROOT`（空でない値）→ cwd から上へたどり `.agent-link/` を持つ最初のフォルダ（ホームとそれより上は数えない）。見つからなければ 2。`AGENT_LINK_PROJECT_ROOT` が `.agent-link/` の無いフォルダを指すときも 2（「… has no .agent-link/: <path>. Run "agent-link init".」。何も作らない）。`init` は「`AGENT_LINK_PROJECT_ROOT` → cwd」だけ（`.agent-link/` が無くてよい）。`schema` はプロジェクトを要らない |
 | 6 | **`schema --json`** で命令の一覧を出す（下） |
 
 標準出力に `println!` やデバッグ表示を 1 行でも足すと、Web が **502 になる**（`apps/web/src/agent_link_web/cli.py`）。標準エラーには何を出してもよい（先頭 300 文字が Web のログに残る）。
@@ -41,6 +41,9 @@ $ agent-link run md 999 --kind task      → 終了コード 3・標準エラー
 $ agent-link run list --bogus            → 終了コード 2・「Invalid arguments: unexpected argument '--bogus' found」
 $ （プロジェクトの外で）agent-link run list --json → 終了コード 2・「Project not found. Run "agent-link init".」
 $ agent-link run advance 1               → 終了コード 2・「Only a run in review can be moved.」（1 が review でないとき）
+$ agent-link run rm 999 --yes            → 終了コード 3・「Run 999 not found.」（実行中の run は 4）
+$ agent-link task list                   → 終了コード 2（run の外。`AGENT_LINK_PARENT_RUN_ID` が無い）
+$ agent-link init --name 'bad/name'      → 終了コード 2・「Invalid project name: …」（何も作らない）
 ```
 
 ### `schema --json` の形
@@ -329,6 +332,12 @@ Web が `recent[]` に**追加で足す**項目: `description`（文字列）・
 
 `--id <run_id または N-M>`・`--block`・`--date`（`YYYY/MM/DD` か `YYYY/MM/DD-YYYY/MM/DD`）・`--status`・`--type`・`-w <語>`（`-R`・`-r` は無い）。返り値は配列、または `{"items": [...]}`（Web は両方を受け、先頭 200 件に切って `truncated` を付ける）。
 
+#### `init [--name <名前>]`
+
+- `--name` を明示したときだけ名前を検査する: `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`（Web の新しいチャットの `NC_NAME_RE` と同じ）。通らなければ**終了コード 2**・「Invalid project name: <名前>. Use 1-64 letters, digits, "_", "." or "-", starting with a letter or digit.」で、何も作らない。`--name` を省いたとき（フォルダ名が既定名）は検査しない。
+- 登録簿への登録に失敗したとき（名前の重複など）は**終了コード 1**。`.agent-link/` などの初期化は済んだ状態になる（重複は登録簿を読まないと分からないため）。
+- 書く物は `.agent-link/`（`cc-settings.json` を含む）・`.mcp.json`・`.claude/commands/`・`.claude/skills/`・`.serena/project.yml`。プロジェクトの `.claude/settings.json` は書かない。
+
 #### `daemon start|stop`
 
 **文字出力**（JSON ではない）。Web は終了コードだけで成否を見る。
@@ -477,7 +486,8 @@ cc の質問フック（`apps/web/hooks/cc_question.py`・`cc_register.py`）は
 | `GET /api/questions/{qid}` | 答えのポーリング（1 秒ごと）。JSON の `answered_by`（答えた人。端末で答えたときは `terminal`） |
 | `POST /api/questions/{qid}/resolved` | PC で答えたことの通知（PC の画面が呼ぶ） |
 
-- cc は、tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`AGENT_LINK_AGENT_TRANSPORT=tmux`・`AGENT_LINK_PROJECT_ROOT=<root>`。
+- cc は、tmux の対話モードで動く。tmux の session（名前は `hl-…`）の環境変数は `HERDR_PANE_ID=<pane_id>`・`AGENT_LINK_AGENT_TRANSPORT=tmux`・`AGENT_LINK_PROJECT_ROOT=<root>`・`AGENT_LINK_WEB_URL`（フックの送り先）と、`AGENT_LINK_HOME` が設定されているときはその値（`tmux.rs` の `-e`）。
+- **cc の設定**は `.agent-link/cc-settings.json`（`init` が書き、run を始めるたびに今の版に合わせる）。cc は `--settings <そのファイル>` で受ける（許可・フック・statusLine）。プロジェクトの `.claude/settings.json` は読むだけで書かない（sai-moon の物と取り合わないため）。フックは `AGENT_LINK_PARENT_RUN_ID` のある cc（agent-link の run の中）でだけ動き、無ければ何もせず終了コード 0 で素通りする。許可する外部 MCP は `.mcp.json` の名前ごとの `mcp__<名前>__*`（`mcp__*` ではない）。
 - cc の質問フックは `PreToolUse`（`AskUserQuestion`）で呼ばれ、答えを待つ（最長 24 時間）。答えが届いたら `permissionDecision: "allow"` と `updatedInput`（`questions` は cc の物をそのまま、`answers` は `{質問文: 答え}`）を返し、cc はこれを AskUserQuestion の結果としてモデルへ渡す。複数選択は label を `", "` でつなぐ。`AGENT_LINK_CC_QUESTION_MODE=deny` のときは、答えがあっても `permissionDecision: "deny"` と `permissionDecisionReason`（「利用者が Web で答えました。」と答え）で返す（`updatedInput` が cc で効かなかったときに戻すため）。答えが来ないまま打ち切ったときは `deny` と「利用者は答えませんでした。」。cc の hooks の `timeout` は 86400 秒。
 - 承認は `agent-link cc-permission-hook`（`PermissionRequest`）が常に `allow` を返す。状態は `agent-link cc-state-hook <working|idle>`（`Stop`・`SessionStart`）と `agent-link cc-prompt-hook`（`UserPromptSubmit`）が `state.json` に書く。
 - cc の費用は cc の statusLine（`agent-link cc-statusline`）が `<AGENT_LINK_HOME>/cc-cost/<session_id>.json` に書く。
@@ -564,6 +574,9 @@ rm -rf $T; unset AGENT_LINK_HOME AGENT_LINK_PROJECT_ROOT
 | CLI の標準エラーの最後の行（例 `Not available yet.`） | 404 / 400 / 409 / 502 | 終了コードが 3 / 2 / 4 / 1。文言は CLI のまま |
 | `period must be one of week, month, all.` `action must be start or stop.` `run_id must be an integer of 1 or more.` `block is invalid.` など | 400 | **Web 自身の検査**。CLI を呼ぶ前に弾いている。相手側を疑わない |
 | `Not available yet.` | 404 | その run に md が無い（`run md` の終了コード 3） |
+| `A running run cannot be deleted. Stop it first.` | 409 | 実行中・待機中の run を消そうとした（`run rm` の終了コード 4。以前は 502 だった） |
+| `Choice <n> is out of range for question <N> (0 to <最大>).` `Question <N> takes one choice.` | 400 | 回答の番号が範囲外（**選択肢の番号は 0 から**）・単一選択に 2 つ以上。質問は `open` のまま |
+| `Invalid request: <場所>: <理由>` | 422 | FastAPI の型の検査（本文の形が違う）。`detail` は**文字列**（既定の配列ではない） |
 | `No unstarted card found.` | 404 | その run の未実行カードが無い（`card run` の終了コード 3） |
 | `This card is started by an agent as a subtask run (executer: agent). …` | 400 | `executer: agent` のカードは人が起こす道では動かさない |
 | `The daemon is stopped. Start it first.` | 400 | 常駐が止まっている（`card run`） |
@@ -577,7 +590,7 @@ rm -rf $T; unset AGENT_LINK_HOME AGENT_LINK_PROJECT_ROOT
 
 | どこを見る | 中身 |
 |---|---|
-| **Web**: `$AGENT_LINK_HOME/web/agent-link-web.log`／起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
+| **Web**: `agent-link-web-restart`（README）で起こしたときは `$AGENT_LINK_HOME/web/agent-link-web.log`、直接起こしたときは起動したターミナル | `<CLI 名> の標準エラー: …`（先頭 300 文字）。**CLI の失敗原因はまずここ** |
 | **`agent-link`** | 単発の CLI なので、Web のログに流れた標準エラーが手がかり。直接試すときは手元で `…; echo $?` |
 
 ### 5.3 直す順番
